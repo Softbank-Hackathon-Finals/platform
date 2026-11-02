@@ -1,0 +1,86 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1240 700" font-family="IBM Plex Sans KR, Noto Sans CJK KR, Apple SD Gothic Neo, Malgun Gothic, sans-serif" role="img" aria-label="배치도: AWS 단일 계정에 출발지 VPC와 플랫폼 VPC, 계정 안의 감사 로그가 있고, 온프렘에 목적지 RKE2와 리허설 네임스페이스가 있다. 사용자는 Cloudflare를 거쳐 양쪽 앱에 닿고, 이미지는 GitHub Actions가 빌드해 GHCR에서 양쪽이 받아 간다. 두 DB는 Tailscale로 논리 복제하고, 컷오버 전에는 목적지 앱도 출발지 DB에 쓴다.">
+<defs>
+<marker id="dpg" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#4b5563"/></marker>
+<marker id="dpp" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#7c5ce0"/></marker>
+<marker id="dpo" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#d9822b"/></marker>
+<marker id="dpb" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#24527a"/></marker>
+<marker id="dpr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#c2412d"/></marker>
+<marker id="dpl" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#9ca3af"/></marker>
+</defs>
+<rect x="0" y="0" width="1240" height="700" fill="#ffffff"/>
+<circle cx="56" cy="40" r="9" fill="#ffffff" stroke="#1f2937" stroke-width="1.6"/>
+<text x="56" y="72" font-size="12.5" font-weight="700" fill="#1f2937" text-anchor="middle">서비스 사용자</text>
+<polyline points="80,46 299,46" fill="none" stroke="#4b5563" stroke-width="1.6" marker-end="url(#dpg)"/>
+<rect x="300" y="20" width="340" height="52" rx="8" fill="#ffffff" stroke="#9ca3af" stroke-width="1.3"/>
+<text x="470.0" y="43.0" font-size="14" font-weight="700" fill="#1f2937" text-anchor="middle">Cloudflare LB</text>
+<text x="470.0" y="61.0" font-size="11.5" font-weight="400" fill="#6b7280" text-anchor="middle">가중치 10 → 50 → 100% · 클러스터별 Tunnel</text>
+<rect x="670" y="20" width="150" height="50" rx="8" fill="#fdf0e4" stroke="#d9822b" stroke-width="1.4"/>
+<text x="745.0" y="42.0" font-size="13.5" font-weight="700" fill="#b5651d" text-anchor="middle">운영팀 · 승인자</text>
+<text x="745.0" y="60.0" font-size="11.5" font-weight="400" fill="#6b7280" text-anchor="middle">콘솔 접속</text>
+<rect x="880" y="24" width="180" height="44" rx="8" fill="#ffffff" stroke="#9ca3af" stroke-width="1.2" stroke-dasharray="5 4"/>
+<text x="970.0" y="51.0" font-size="13.5" font-weight="700" fill="#1f2937" text-anchor="middle">LLM API (외부)</text>
+<rect x="20" y="110" width="800" height="490" rx="12" fill="#f8fafc" stroke="#94a3b8" stroke-width="1.4"/>
+<text x="36" y="136" font-size="15" font-weight="700" fill="#1f2937" text-anchor="start">AWS 단일 계정</text>
+<rect x="40" y="150" width="360" height="290" rx="10" fill="#eef4ff" stroke="#7f9fe6" stroke-width="1.3"/>
+<text x="56" y="174" font-size="14" font-weight="700" fill="#24527a" text-anchor="start">VPC ① 출발지</text>
+<rect x="60" y="190" width="320" height="80" rx="8" fill="#ffffff" stroke="#7f9fe6" stroke-width="1.3"/>
+<text x="220" y="216" font-size="14.5" font-weight="700" fill="#1f2937" text-anchor="middle">EKS</text>
+<text x="220" y="238" font-size="11.5" font-weight="400" fill="#6b7280" text-anchor="middle">채팅 앱 · CNPG · PgBouncer</text>
+<text x="220" y="256" font-size="11.5" font-weight="400" fill="#6b7280" text-anchor="middle">ESO · Kyverno(P1)</text>
+<rect x="60" y="330" width="320" height="70" rx="8" fill="#ffffff" stroke="#7f9fe6" stroke-width="1.3"/>
+<text x="220.0" y="362.0" font-size="14.5" font-weight="700" fill="#1f2937" text-anchor="middle">AWS 매니지드</text>
+<text x="220.0" y="380.0" font-size="11.5" font-weight="400" fill="#6b7280" text-anchor="middle">S3 · Secrets Manager · KMS · IAM</text>
+<polyline points="220,270 220,330" fill="none" stroke="#7f9fe6" stroke-width="1.6"/>
+<text x="230" y="305" font-size="11.5" font-weight="600" fill="#24527a" text-anchor="start">앱이 직접 호출</text>
+<rect x="440" y="150" width="360" height="290" rx="10" fill="#f6f7f9" stroke="#b9bfc8" stroke-width="1.3"/>
+<text x="456" y="174" font-size="14" font-weight="700" fill="#1f2937" text-anchor="start">VPC ② 플랫폼 (본부)</text>
+<rect x="460" y="190" width="320" height="120" rx="8" fill="#ffffff" stroke="#b9bfc8" stroke-width="1.3"/>
+<text x="620" y="228" font-size="14.5" font-weight="700" fill="#1f2937" text-anchor="middle">EC2 + RKE2</text>
+<text x="620" y="260" font-size="11.5" font-weight="400" fill="#6b7280" text-anchor="middle">콘솔 · API · 상태 머신 · Executor</text>
+<text x="620" y="278" font-size="11.5" font-weight="400" fill="#6b7280" text-anchor="middle">에이전트 워커 · 도구 계층 · 게이트</text>
+<rect x="460" y="470" width="320" height="50" rx="8" fill="#ffffff" stroke="#b9bfc8" stroke-width="1.3"/>
+<text x="620.0" y="492.0" font-size="14" font-weight="700" fill="#1f2937" text-anchor="middle">감사 로그</text>
+<text x="620.0" y="510.0" font-size="11.5" font-weight="400" fill="#6b7280" text-anchor="middle">S3 Object Lock (계정 안, VPC 밖)</text>
+<polyline points="620,310 620,469" fill="none" stroke="#4b5563" stroke-width="1.6" marker-end="url(#dpg)"/>
+<rect x="860" y="110" width="360" height="490" rx="12" fill="#eef8f1" stroke="#79c08f" stroke-width="1.4"/>
+<text x="876" y="136" font-size="15" font-weight="700" fill="#2b7a4b" text-anchor="start">온프렘</text>
+<rect x="880" y="190" width="320" height="120" rx="8" fill="#ffffff" stroke="#79c08f" stroke-width="1.3"/>
+<text x="1040" y="228" font-size="14.5" font-weight="700" fill="#1f2937" text-anchor="middle">Ubuntu VM + RKE2 (CIS)</text>
+<text x="1040" y="260" font-size="11.5" font-weight="400" fill="#6b7280" text-anchor="middle">채팅 앱 · CNPG · PgBouncer</text>
+<text x="1040" y="278" font-size="11.5" font-weight="400" fill="#6b7280" text-anchor="middle">OpenBao · ESO · SeaweedFS · Kyverno(P1)</text>
+<rect x="880" y="360" width="320" height="70" rx="8" fill="#fdf3f1" stroke="#d9826f" stroke-width="1.5" stroke-dasharray="6 4"/>
+<text x="1040.0" y="392.0" font-size="14" font-weight="700" fill="#c2412d" text-anchor="middle">리허설 네임스페이스</text>
+<text x="1040.0" y="410.0" font-size="11.5" font-weight="400" fill="#6b7280" text-anchor="middle">컷오버 전만 · 송신 기본 거부</text>
+<rect x="60" y="630" width="240" height="50" rx="8" fill="#ffffff" stroke="#9ca3af" stroke-width="1.3"/>
+<text x="180.0" y="652.0" font-size="14" font-weight="700" fill="#1f2937" text-anchor="middle">GitHub Actions</text>
+<text x="180.0" y="670.0" font-size="11.5" font-weight="400" fill="#6b7280" text-anchor="middle">빌드 · OIDC 배포</text>
+<rect x="360" y="630" width="240" height="50" rx="8" fill="#ffffff" stroke="#9ca3af" stroke-width="1.3"/>
+<text x="480.0" y="652.0" font-size="14" font-weight="700" fill="#1f2937" text-anchor="middle">GHCR</text>
+<text x="480.0" y="670.0" font-size="11.5" font-weight="400" fill="#6b7280" text-anchor="middle">이미지 (digest 고정)</text>
+<polyline points="300,655 359,655" fill="none" stroke="#4b5563" stroke-width="1.6" marker-end="url(#dpg)"/>
+<text x="330" y="648" font-size="11" font-weight="600" fill="#4b5563" text-anchor="middle">push</text>
+<polyline points="330,72 330,96 220,96 220,189" fill="none" stroke="#4b5563" stroke-width="1.6" marker-end="url(#dpg)"/>
+<text x="250" y="91" font-size="11.5" font-weight="600" fill="#4b5563" text-anchor="middle">Tunnel</text>
+<polyline points="610,72 610,96 1040,96 1040,189" fill="none" stroke="#4b5563" stroke-width="1.6" marker-end="url(#dpg)"/>
+<text x="1000" y="91" font-size="11.5" font-weight="600" fill="#4b5563" text-anchor="middle">Tunnel</text>
+<polyline points="745,70 745,189" fill="none" stroke="#d9822b" stroke-width="1.6" marker-end="url(#dpo)"/>
+<polyline points="560,190 560,73" fill="none" stroke="#4b5563" stroke-width="1.6" marker-end="url(#dpg)"/>
+<text x="566" y="140" font-size="11" font-weight="600" fill="#4b5563" text-anchor="start">가중치 변경</text>
+<polyline points="780,205 840,205 840,46 879,46" fill="none" stroke="#7c5ce0" stroke-width="1.6" marker-end="url(#dpp)"/>
+<text x="846" y="172" font-size="11" font-weight="600" fill="#7c5ce0" text-anchor="start">에이전트 워커만</text>
+<polyline points="460,225 381,225" fill="none" stroke="#4b5563" stroke-width="1.6" marker-end="url(#dpg)"/>
+<text x="420" y="218" font-size="11" font-weight="600" fill="#4b5563" text-anchor="middle">수집 · 지휘</text>
+<polyline points="780,240 879,240" fill="none" stroke="#24527a" stroke-width="1.6" marker-end="url(#dpb)"/>
+<text x="826" y="233" font-size="11" font-weight="600" fill="#24527a" text-anchor="middle">지휘</text>
+<polyline points="780,290 828,290 828,395 879,395" fill="none" stroke="#7c5ce0" stroke-width="1.6" marker-end="url(#dpp)"/>
+<text x="822" y="352" font-size="11" font-weight="600" fill="#7c5ce0" text-anchor="end">도구 계층으로만</text>
+<polyline points="60,245 48,245 48,560 1180,560 1180,311" fill="none" stroke="#24527a" stroke-width="1.6" stroke-dasharray="5 4" marker-end="url(#dpb)"/>
+<text x="640" y="552" font-size="12" font-weight="700" fill="#24527a" text-anchor="middle">논리 복제 정방향 · 역방향 (Tailscale)</text>
+<polyline points="880,282 866,282 866,582 55,582 55,262 59,262" fill="none" stroke="#d9822b" stroke-width="1.6" stroke-dasharray="5 4" marker-end="url(#dpo)"/>
+<text x="640" y="576" font-size="12" font-weight="700" fill="#d9822b" text-anchor="middle">컷오버 전 쓰기: 목적지 앱 → 출발지 DB (Tailscale)</text>
+<polyline points="180,630 180,621 430,621 430,295 459,295" fill="none" stroke="#4b5563" stroke-width="1.6" marker-end="url(#dpg)"/>
+<text x="190" y="615" font-size="11" font-weight="600" fill="#4b5563" text-anchor="start">OIDC 배포</text>
+<polyline points="415,630 415,255 381,255" fill="none" stroke="#9ca3af" stroke-width="1.6" marker-end="url(#dpl)"/>
+<polyline points="600,667 848,667 848,300 879,300" fill="none" stroke="#9ca3af" stroke-width="1.6" marker-end="url(#dpl)"/>
+<text x="700" y="662" font-size="11" font-weight="600" fill="#6b7280" text-anchor="middle">pull (같은 digest)</text>
+</svg>
