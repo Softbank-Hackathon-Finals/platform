@@ -45,7 +45,7 @@ description: 본선(Team Bravo) 팀 작업 진행. 프로젝트 보드(이슈)�
 3. 이슈 번호는 `gh issue list --search "[T3]" --state all`로 찾는다. PR 본문에 `Refs #번호`, 할 일이 다 끝나고 **완료 기준**을 만족하면 `Closes #번호`.
 4. 사용자에게 확인받은 뒤 브랜치를 push하고 PR을 연다: `gh pr create --title "[T3] …" --body "…"`.
 5. 자동 머지를 건다: `gh pr merge --auto --squash`. CI(`secrets` · `infra` · `platform`)가 실패하면 고쳐서 같은 브랜치에 다시 push한다. CI 실패를 워크플로를 고쳐서 넘기지 않는다.
-6. `.github/workflows/`나 `CODEOWNERS`를 바꾼 PR은 코드 오너 리뷰가 필요하다(본인 외 팀원 1명 승인). 사용자에게 리뷰를 요청하라고 알린다.
+6. `.github/workflows/`나 `CODEOWNERS`를 바꾼 PR은 팀원에게 리뷰 요청 알림이 간다(승인은 필요 없음). CI 검사를 약하게 만드는 변경이면 사용자에게 알린다.
 
 ## 5. 이슈에서 체크하기
 
