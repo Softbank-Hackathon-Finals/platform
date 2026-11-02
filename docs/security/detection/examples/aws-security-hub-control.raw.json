@@ -1,6 +1,9 @@
 {
   "_note": "형식 예시. 실제 수집 결과가 아니라 출처 문서의 필드 구조로 만든 것이다. 계정 ID 등은 마스킹 값",
+  "SchemaVersion": "2018-10-08",
   "Id": "arn:aws:securityhub:ap-northeast-1:****1234:security-control/IAM.1/finding/xxx",
+  "ProductArn": "arn:aws:securityhub:ap-northeast-1::product/aws/securityhub",
+  "GeneratorId": "security-control/IAM.1",
   "ProductName": "Security Hub",
   "Types": [
     "Software and Configuration Checks/Industry and Regulatory Standards"
@@ -19,5 +22,15 @@
   "RecordState": "ACTIVE",
   "AwsAccountId": "****1234",
   "Region": "ap-northeast-1",
-  "UpdatedAt": "2026-11-04T09:05:00Z"
+  "UpdatedAt": "2026-11-04T09:05:00Z",
+  "Description": "This control checks whether IAM policies allow full administrative privileges.",
+  "CreatedAt": "2026-11-04T09:05:00Z",
+  "Resources": [
+    {
+      "Type": "AwsIamPolicy",
+      "Id": "arn:aws:iam::****1234:policy/demo-admin",
+      "Partition": "aws",
+      "Region": "ap-northeast-1"
+    }
+  ]
 }

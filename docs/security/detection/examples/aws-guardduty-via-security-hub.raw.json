@@ -1,6 +1,9 @@
 {
   "_note": "형식 예시. 실제 수집 결과가 아니라 출처 문서의 필드 구조로 만든 것이다. 계정 ID 등은 마스킹 값",
+  "SchemaVersion": "2018-10-08",
   "Id": "arn:aws:guardduty:ap-northeast-1:****1234:detector/xxx/finding/sample-001",
+  "ProductArn": "arn:aws:securityhub:ap-northeast-1::product/aws/guardduty",
+  "GeneratorId": "arn:aws:guardduty:ap-northeast-1:****1234:detector/xxx",
   "ProductName": "GuardDuty",
   "Types": [
     "TTPs/Initial Access/UnauthorizedAccess:EC2-SSHBruteForce"
@@ -18,10 +21,13 @@
   "Resources": [
     {
       "Type": "AwsEc2Instance",
-      "Id": "arn:aws:ec2:ap-northeast-1:****1234:instance/i-****abcd"
+      "Id": "arn:aws:ec2:ap-northeast-1:****1234:instance/i-****abcd",
+      "Partition": "aws",
+      "Region": "ap-northeast-1"
     }
   ],
   "CreatedAt": "2026-11-04T09:00:00Z",
   "UpdatedAt": "2026-11-04T09:00:00Z",
-  "Sample": true
+  "Sample": true,
+  "Description": "EC2 instance is being probed by SSH brute force (sample finding)."
 }

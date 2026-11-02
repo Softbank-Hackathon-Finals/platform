@@ -4,11 +4,15 @@ version = "0.1.0"
 description = "보안 탐지 결과 정규화 (T33): 출처별 원본 → OCSF 1.1 부분집합"
 requires-python = ">=3.12"
 dependencies = [
+    "boto3>=1.35",
+    "fastapi>=0.115",
     "jsonschema>=4.23",
+    "uvicorn[standard]>=0.32",
 ]
 
 [dependency-groups]
 dev = [
+    "httpx>=0.27",
     "pytest>=8",
 ]
 
