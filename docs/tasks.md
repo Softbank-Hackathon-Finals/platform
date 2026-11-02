@@ -341,8 +341,8 @@ Claude Code는 `/todo-task`, Codex는 `$todo-task`로 이 순서를 따르는 �
 - [ ] AWS 수집기: Security Hub (미활성 시 GuardDuty 직접)
 - [ ] 온프렘 수집기: Kyverno PolicyReport · Falco 웹훅 (바깥 방향 연결만)
 - [ ] Google Cloud 수집기: Security Command Center
-- [ ] 수집 실패 · 지연을 "0건"이 아니라 "확인 불가" · "오래됨"으로 표시
-- [ ] 조회 API: 환경 × 범주 요약, 목록, 탐지 능력 표
+- [x] 수집 실패 · 지연을 "0건"이 아니라 "확인 불가" · "오래됨"으로 표시
+- [x] 조회 API: 환경 × 범주 요약, 목록, 탐지 능력 표
 
 **완료 기준** AWS와 온프렘의 실제 탐지 결과(샘플 탐지 포함)가 같은 형식으로 요약 API에 나오고, 한 출처의 수집을 끊으면 그 칸이 "확인 불가"로 바뀐다.
 
