@@ -11,7 +11,8 @@
     "title": "IAM policies should not allow full administrative privileges",
     "types": [
       "Software and Configuration Checks/Industry and Regulatory Standards"
-    ]
+    ],
+    "last_seen_time": 1793783100000
   },
   "metadata": {
     "product": {
@@ -26,16 +27,17 @@
       "uid": "****1234"
     }
   },
+  "compliance": {
+    "control": "IAM.1",
+    "status": "Fail"
+  },
   "bravo": {
     "source": "aws_security_hub",
     "environment_id": "env-aws",
     "category": "IAM",
     "control_ids": [],
     "collected_time": 1793783160000,
-    "raw_sha256": "sha256:1d90ed04dc26d5ba27a3e529a0f105efff7bc08e2a1ee33a5cc7157ff2c6c9a4"
-  },
-  "compliance": {
-    "control": "IAM.1",
-    "status": "Fail"
+    "raw_sha256": "sha256:10d92f7b5a5cc88bdbe78d9e5e6844adc840a138392e301b088f71a85be228b9",
+    "native_url": "https://console.aws.amazon.com/securityhub/home?region=ap-northeast-1#/findings"
   }
 }

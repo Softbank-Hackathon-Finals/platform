@@ -28,15 +28,18 @@
       "uid": "****1234"
     }
   },
+  "unmapped": {
+    "source_category": "TTPs/Initial Access/UnauthorizedAccess:EC2-SSHBruteForce"
+  },
   "bravo": {
     "source": "aws_security_hub",
     "environment_id": "env-aws",
     "category": "THREAT",
     "control_ids": [],
     "collected_time": 1793782860000,
-    "raw_sha256": "sha256:df7642b4c0a26b1b1cec5551578404c6253698697adb06221049cc4f8ce5c6f4",
-    "sample": true,
-    "native_url": "https://console.aws.amazon.com/securityhub/"
+    "raw_sha256": "sha256:26e50d0a1933fbbfd1d842cff4d9113bdcdec8409923fed23d61f389462c8368",
+    "native_url": "https://console.aws.amazon.com/securityhub/home?region=ap-northeast-1#/findings",
+    "sample": true
   },
   "resources": [
     {
