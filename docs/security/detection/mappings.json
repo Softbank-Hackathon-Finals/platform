@@ -361,7 +361,12 @@
   },
   "source_status": {
     "stale_after_minutes": 15,
-    "note": "마지막 성공 수집이 이 시간보다 오래되면 STALE(오래됨). 수집 실패는 FAILED(확인 불가). 0건과 구분한다"
+    "push_sources": [
+      "falco",
+      "kyverno",
+      "bravo_controls"
+    ],
+    "note": "끌어오는 출처는 마지막 성공 수집, 밀어 넣는 출처(온프렘 에이전트 · 웹훅 · T5)는 마지막 인증된 수신 또는 heartbeat가 이 시간보다 오래되면 STALE(오래됨). 인증된 에이전트가 오류를 보고하거나 끌어오기가 실패하면 FAILED(확인 불가). 미인증 요청은 상태를 바꾸지 않는다"
   },
   "compliance_status": {
     "description": "Compliance Finding(2003)의 compliance.status. 원본 값 → Pass · Warning · Fail",
@@ -406,5 +411,97 @@
     "bravo.source",
     "bravo.environment_id",
     "finding_info.uid"
-  ]
+  ],
+  "coverage": {
+    "description": "출처가 볼 수 있는 범주. 환경에 등록된 출처 중 그 범주를 보는 출처가 없으면 칸은 '없음'이다",
+    "aws_security_hub": [
+      "IAM",
+      "ENCRYPTION",
+      "AUDIT",
+      "EXPOSURE",
+      "POLICY",
+      "THREAT",
+      "VULNERABILITY"
+    ],
+    "aws_guardduty": [
+      "THREAT"
+    ],
+    "gcp_scc": [
+      "IAM",
+      "ENCRYPTION",
+      "AUDIT",
+      "EXPOSURE",
+      "POLICY",
+      "THREAT",
+      "VULNERABILITY"
+    ],
+    "falco": [
+      "THREAT"
+    ],
+    "kyverno": [
+      "POLICY",
+      "IAM",
+      "ENCRYPTION",
+      "EXPOSURE"
+    ],
+    "bravo_controls": [
+      "IAM",
+      "ENCRYPTION",
+      "AUDIT",
+      "EXPOSURE",
+      "POLICY"
+    ]
+  },
+  "capabilities": {
+    "description": "탐지 능력 표의 행 (설계 6절). 환경에 등록된 출처 중 아래 출처가 있으면 그 능력이 있다",
+    "rows": [
+      {
+        "id": "runtime_threat",
+        "name": "런타임 위협 (컨테이너 · 호스트)",
+        "sources": [
+          "aws_security_hub",
+          "aws_guardduty",
+          "gcp_scc",
+          "falco"
+        ]
+      },
+      {
+        "id": "network_threat",
+        "name": "네트워크 · API 위협",
+        "sources": [
+          "aws_security_hub",
+          "aws_guardduty",
+          "gcp_scc"
+        ]
+      },
+      {
+        "id": "misconfiguration",
+        "name": "설정 · 정책 위반",
+        "sources": [
+          "aws_security_hub",
+          "gcp_scc",
+          "kyverno",
+          "bravo_controls"
+        ]
+      },
+      {
+        "id": "vulnerability",
+        "name": "취약점",
+        "sources": [
+          "aws_security_hub",
+          "gcp_scc"
+        ]
+      },
+      {
+        "id": "migration_parity",
+        "name": "이전 전후 통제 비교",
+        "sources": [
+          "bravo_controls"
+        ]
+      }
+    ]
+  },
+  "falco_resolve": {
+    "silent_hours": 24
+  }
 }
