@@ -336,8 +336,8 @@ Claude Code는 `/todo-task`, Codex는 `$todo-task`로 이 순서를 따르는 �
 **목표** 모든 환경의 보안 상태를 같은 기준으로 한 화면에서 보고, 볼 수 없는 칸은 "확인 불가"로 드러낸다.
 
 **할 일**
-- [ ] 정규화 형식 스키마와 출처별 심각도 · 상태 · 범주 매핑 표 고정
-- [ ] 정규화기: 출처별 원본 샘플로 단위 테스트 (LLM 미사용)
+- [x] 정규화 형식 스키마와 출처별 심각도 · 상태 · 범주 매핑 표 고정
+- [x] 정규화기: 출처별 원본 샘플로 단위 테스트 (LLM 미사용)
 - [ ] AWS 수집기: Security Hub (미활성 시 GuardDuty 직접)
 - [ ] 온프렘 수집기: Kyverno PolicyReport · Falco 웹훅 (바깥 방향 연결만)
 - [ ] Google Cloud 수집기: Security Command Center
