@@ -1,0 +1,36 @@
+{
+  "class_uid": 2003,
+  "category_uid": 2,
+  "activity_id": 1,
+  "type_uid": 200301,
+  "severity_id": 4,
+  "status_id": 1,
+  "time": 1793782860000,
+  "finding_info": {
+    "uid": "run-tgt-0001/IAM-01.1",
+    "title": "인증 없이 첨부 저장소 객체를 읽을 수 있는가?"
+  },
+  "metadata": {
+    "product": {
+      "name": "bravo-controls"
+    },
+    "version": "1.1.0"
+  },
+  "cloud": {
+    "provider": "onprem"
+  },
+  "bravo": {
+    "source": "bravo_controls",
+    "environment_id": "env-onprem",
+    "category": "IAM",
+    "control_ids": [
+      "IAM-01"
+    ],
+    "collected_time": 1793782920000,
+    "raw_sha256": "sha256:6e27f3db66bba6241c3baadfacc36fff926ad53e33acfa5502746e2de73e208f"
+  },
+  "compliance": {
+    "control": "IAM-01.1",
+    "status": "Fail"
+  }
+}

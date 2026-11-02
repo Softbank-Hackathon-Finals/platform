@@ -65,7 +65,15 @@
 
 ## 5. 정규화 형식
 
-[OCSF](https://schema.ocsf.io/) 1.x의 탐지 결과 클래스 부분집합에 플랫폼 확장 필드를 더한다. 왜 OCSF인지는 [ADR-0001](../adr/0001-security-finding-format.md).
+[OCSF](https://schema.ocsf.io/) 1.1의 탐지 결과 클래스 부분집합에 플랫폼 확장 필드를 더한다. 왜 OCSF인지는 [ADR-0001](../adr/0001-security-finding-format.md).
+
+**규칙의 원본은 데이터 파일이다.** 아래 표는 설명이고, 구현은 이 파일만 읽는다. 표와 파일이 다르면 파일이 맞다.
+
+| 파일 | 내용 |
+|---|---|
+| [`detection/finding.schema.json`](detection/finding.schema.json) | 정규화 결과(`Finding`)와 출처 수집 상태(`SourceStatus`)의 JSON Schema |
+| [`detection/mappings.json`](detection/mappings.json) | 출처별 심각도 · 상태 · 클래스 · 범주 규칙, 오래됨 기준 시간 |
+| [`detection/examples/`](detection/examples/) | 출처마다 원본 발췌(`*.raw.json`, 형식 예시)와 그 정규화 결과(`*.normalized.json`), 수집 실패 상태 예시 |
 
 | OCSF 클래스 | `class_uid` | 넣는 것 |
 |---|---|---|
@@ -112,7 +120,7 @@ OCSF: 1 New · 2 In Progress · 3 Suppressed · 4 Resolved.
 | Security Hub | `RecordState` ARCHIVED → 4. 아니면 `Workflow.Status`: NEW 1 · NOTIFIED 2 · SUPPRESSED 3 · RESOLVED 4 |
 | SCC | `state` INACTIVE → 4. ACTIVE이면서 `mute` MUTED → 3, 아니면 1 |
 | Falco | 이벤트라 상태가 없다 → 1. 같은 규칙 · 같은 대상이 정해진 시간(기본 24시간) 다시 안 나오면 4 |
-| Kyverno | 결과 `fail` → 1(유지되면 그대로), 같은 정책 · 대상이 `pass`로 바뀌면 4. `skip`은 버리고, `error`는 수집 문제로 본다(7절) |
+| Kyverno | 결과 `fail` · `warn` → 1(유지되면 그대로), 같은 정책 · 대상이 `pass`로 바뀌면 4. `skip`은 버리고, `error`는 수집 문제로 본다(7절) |
 | T5 | FAIL · UNKNOWN → 1, 다음 실행에서 PASS → 4 |
 
 ### 범주 매핑 (`bravo.category`)
@@ -121,12 +129,12 @@ OCSF: 1 New · 2 In Progress · 3 Suppressed · 4 Resolved.
 
 | 출처 | 원본 분류 (예) | 범주 |
 |---|---|---|
-| ASFF `Types` | `Software and Configuration Checks/AWS Security Best Practices/...` 중 IAM 관련 | `IAM` |
-| ASFF 보안 표준 점검 | S3 · RDS · EBS 암호화 점검 | `ENCRYPTION` |
-| ASFF 보안 표준 점검 | CloudTrail 활성 · 로그 검증 점검 | `AUDIT` |
-| ASFF 보안 표준 점검 | 공개 버킷 · 공개 접근 보안 그룹 | `EXPOSURE` |
-| ASFF `Types` | `TTPs/...`, `Unusual Behaviors/...` (GuardDuty) | `THREAT` |
-| ASFF `Types` | `Software and Configuration Checks/Vulnerabilities/...` | `VULNERABILITY` |
+| ASFF `Compliance.SecurityControlId` | `IAM.`으로 시작 | `IAM` |
+| ASFF `Compliance.SecurityControlId` | `KMS.`으로 시작 | `ENCRYPTION` |
+| ASFF `Compliance.SecurityControlId` | `CloudTrail.`으로 시작 | `AUDIT` |
+| ASFF `Compliance.SecurityControlId` | S3 · EC2 등 서비스 안에서 노출 · 암호화가 섞인 점검 | 점검 ID 단위로 실제 결과를 보고 추가. 그 전에는 `POLICY` |
+| ASFF `Types` | `TTPs/...`, `Unusual Behaviors/...`, `Effects/...` (GuardDuty) | 클래스 2004 → `THREAT` |
+| ASFF `Types` | `Software and Configuration Checks/Vulnerabilities/...` | 클래스 2002 → `VULNERABILITY` |
 | SCC `findingClass` | THREAT → `THREAT`, VULNERABILITY → `VULNERABILITY`, MISCONFIGURATION → `category`로 세분 (예: PUBLIC_BUCKET_ACL → `EXPOSURE`) | |
 | Falco | 모든 규칙 | `THREAT` |
 | Kyverno | 정책별로 정한다 (예: 비루트 강제 → `POLICY`, 시크릿 평문 env 금지 → `ENCRYPTION`) | |

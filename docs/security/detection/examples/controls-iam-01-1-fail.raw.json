@@ -1,0 +1,8 @@
+{
+  "_note": "T5 docs/controls/examples/target-run-before-fix.json의 IAM-01.1 결과",
+  "test_id": "IAM-01.1",
+  "control_id": "IAM-01",
+  "verdict": "FAIL",
+  "run_id": "run-tgt-0001",
+  "collected_at": "2026-11-04T09:01:00Z"
+}

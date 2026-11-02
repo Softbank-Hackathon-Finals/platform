@@ -1,0 +1,43 @@
+{
+  "class_uid": 2003,
+  "category_uid": 2,
+  "activity_id": 1,
+  "type_uid": 200301,
+  "severity_id": 4,
+  "status_id": 1,
+  "time": 1793783400000,
+  "finding_info": {
+    "uid": "organizations/****/sources/****/findings/public-bucket-001",
+    "title": "Public bucket ACL"
+  },
+  "metadata": {
+    "product": {
+      "name": "Security Command Center"
+    },
+    "version": "1.1.0"
+  },
+  "cloud": {
+    "provider": "GCP"
+  },
+  "bravo": {
+    "source": "gcp_scc",
+    "environment_id": "env-gcp",
+    "category": "EXPOSURE",
+    "control_ids": [],
+    "collected_time": 1793783460000,
+    "raw_sha256": "sha256:22daeb8334e80a4d262fc5f46832800a6c66ef15216bda1d2d87d57ab4f3a93e"
+  },
+  "resources": [
+    {
+      "type": "storage.googleapis.com/Bucket",
+      "uid": "//storage.googleapis.com/demo-chat-attachments-test"
+    }
+  ],
+  "compliance": {
+    "control": "PUBLIC_BUCKET_ACL",
+    "status": "Fail"
+  },
+  "unmapped": {
+    "category": "PUBLIC_BUCKET_ACL"
+  }
+}

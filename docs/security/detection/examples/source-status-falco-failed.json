@@ -1,0 +1,9 @@
+{
+  "kind": "source_status",
+  "source": "falco",
+  "environment_id": "env-onprem",
+  "state": "FAILED",
+  "checked_time": 1793785200000,
+  "last_success_time": 1793784060000,
+  "error_code": "WEBHOOK_UNAUTHORIZED"
+}
