@@ -15,7 +15,7 @@
 **진행 상황의 기준은 [프로젝트 보드](https://github.com/orgs/Softbank-Hackathon-Finals/projects/2)(이슈)다.** 이 문서는 계획이고, 체크박스와 담당은 보드를 따라 자동으로 바뀐다.
 
 1. 작업 전에 보드나 이 문서에서 **자기 작업**을 찾고, **선행** 작업이 끝났는지 본다.
-2. 작업은 브랜치에서 한다(예: `t3-rehearsal-ns`). `main`은 보호돼 있어 PR과 CI(`secrets` · `infra` · `platform`) 통과가 필요하다. 리뷰 승인은 필요 없다. 단, `.github/workflows/`와 `CODEOWNERS`를 바꾸는 PR은 본인 외 팀원 1명의 승인이 필요하다.
+2. 작업은 브랜치에서 한다(예: `t3-rehearsal-ns`). `main`은 보호돼 있어 PR과 CI(`secrets` · `infra` · `platform`) 통과가 필요하다. 리뷰 승인은 필요 없다. `.github/workflows/`와 `CODEOWNERS`를 바꾸는 PR은 팀원에게 리뷰 요청 알림이 간다.
 3. 커밋 메시지와 PR 제목 앞에 작업 번호를 붙인다. 예: `[T3] 리허설 네임스페이스 템플릿 추가`. PR 본문에 `Refs #이슈번호`, 마지막 PR이면 `Closes #이슈번호`. demo-chat의 PR은 `Closes Softbank-Hackathon-Finals/platform#이슈번호`.
 4. **끝낸 할 일은 이슈에서 체크한다**(이슈 화면에서 클릭하거나 `python3 scripts/sync_tasks.py tick T3 2`). 이 문서의 체크박스는 직접 고치지 않는다.
 5. 담당은 이슈의 Assignees로 정한다. 작업마다 한 명이고, 그 작업 영역의 담당자(설계 문서 11.2) 중에서 고른다.
