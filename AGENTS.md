@@ -13,7 +13,8 @@
 
 ## 설계 · 결정
 
-- 설계 문서: `docs/design.html` (용어는 부록). 진행 상황은 적지 않는다.
+- 설계 문서: `docs/design.html` (용어는 부록). 원본은 이 파일이다(노션은 링크만 둔다). 진행 상황은 적지 않는다.
+- 설계 문서의 의미 있는 변경(아키텍처 · 시나리오 · 범위 · 요구사항)은 버전을 올린다: `scripts/design-bump.sh <새 버전>`으로 이전 버전을 `docs/design-history/`에 보관하고 시작한다. 오타 · 실측값 같은 작은 수정은 그대로 고친다. 기준과 순서는 `docs/design-history/README.md`.
 - 결정은 ADR로 남긴다: `docs/adr/NNNN-제목.md`, 형식은 `docs/adr/0000-template.md`. 실패한 실험도 ADR로 남긴다(T29).
 
 ## 지켜야 할 설계 원칙
