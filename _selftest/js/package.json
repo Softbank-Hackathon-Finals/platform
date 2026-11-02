@@ -1,0 +1,2 @@
+{ "name": "selftest", "version": "0.0.0", "private": true, "packageManager": "pnpm@10.18.0",
+  "scripts": { "lint": "node -e \"console.log('lint ok')\"", "test": "node -e \"console.log('test ok')\"" } }
