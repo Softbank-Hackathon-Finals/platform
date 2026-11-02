@@ -24,11 +24,10 @@
         "collected_at": "2026-11-04T09:01:00Z",
         "expires_at": "2026-11-05T09:01:00Z",
         "tool": "curl",
-        "command": "curl -s -o /dev/null -w '%{http_code}' http://seaweedfs-s3:8333/demo-chat-attachments/attachments/<id>",
-        "output_sha256": "sha256:08656a5ba0410a1d3c3b7b893a9b80803e7564ed074d583d299dbb541393ce89",
-        "excerpt": "anonymous GET -> 200 (bucket policy allows public read)"
-      },
-      "exception": null
+        "command": "curl -s -o /dev/null -w '%{http_code}' http://<seaweedfs-s3>:8333/demo-chat-attachments/attachments/<id>",
+        "output_sha256": "sha256:dde79af027730f702052cb6e5199c88cd19e85af93b63638757b9c267e596141",
+        "excerpt": "anonymous GET -> 200 (bucket policy allows public read); app credential GET -> 200"
+      }
     },
     {
       "test_id": "SEC-01.1",
@@ -46,8 +45,7 @@
         "command": "bao kv get secret/demo-chat/db (token: other-app SA)",
         "output_sha256": "sha256:9850993bdd8f04244db7b238547dd1290e276bd586ce2de2afdca6b0712d47de",
         "excerpt": "other-app SA -> 403 permission denied; app SA -> 200 (value not recorded)"
-      },
-      "exception": null
+      }
     },
     {
       "test_id": "AUD-01.1",
@@ -62,11 +60,10 @@
         "collected_at": "2026-11-04T09:01:00Z",
         "expires_at": "2026-11-05T09:01:00Z",
         "tool": "kubectl",
-        "command": "kubectl logs -n audit deploy/collector | grep canary-7f3a",
+        "command": "kubectl logs -n logging deploy/collector | grep audit-canary-7f3a",
         "output_sha256": "sha256:9278f39f1a43f198ab801bd3ce30694d2f9e196847a361fad04c74ab48a16efe",
         "excerpt": "Error from server (Forbidden): pods \"collector\" is forbidden"
-      },
-      "exception": null
+      }
     }
   ]
 }

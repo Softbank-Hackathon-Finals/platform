@@ -15,7 +15,8 @@
       "target_verdict": "FAIL",
       "decision": "BLOCK",
       "reason": "TARGET_FAIL",
-      "improved": false
+      "improved": false,
+      "exception": null
     },
     {
       "test_id": "SEC-01.1",
@@ -25,7 +26,8 @@
       "target_verdict": "PASS",
       "decision": "PASS",
       "reason": "BOTH_PASS",
-      "improved": false
+      "improved": false,
+      "exception": null
     },
     {
       "test_id": "AUD-01.1",
@@ -35,7 +37,8 @@
       "target_verdict": "UNKNOWN",
       "decision": "BLOCK",
       "reason": "TARGET_UNKNOWN",
-      "improved": false
+      "improved": false,
+      "exception": null
     }
   ]
 }

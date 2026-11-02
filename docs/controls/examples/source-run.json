@@ -23,12 +23,11 @@
       "evidence": {
         "collected_at": "2026-11-04T09:00:00Z",
         "expires_at": "2026-11-05T09:00:00Z",
-        "tool": "aws-cli",
-        "command": "curl -s -o /dev/null -w '%{http_code}' https://<bucket>.s3.amazonaws.com/attachments/<id>",
+        "tool": "curl",
+        "command": "curl -s -o /dev/null -w '%{http_code}' https://<bucket>.s3.<region>.amazonaws.com/attachments/<id>",
         "output_sha256": "sha256:9bd83629eba1bf3a48aa580945ebff81fb9099fa0ec512519894120eea6bc895",
         "excerpt": "anonymous GET -> 403 AccessDenied; app credential GET -> 200"
-      },
-      "exception": null
+      }
     },
     {
       "test_id": "SEC-01.1",
@@ -46,8 +45,7 @@
         "command": "aws secretsmanager get-secret-value --secret-id demo-chat/db (role: other-app)",
         "output_sha256": "sha256:db248f1b44b84c88c8ac4d290b25053dfe90cf351a9c707ccd99717d291db9fb",
         "excerpt": "other-app role -> AccessDeniedException; app role -> 200 (value not recorded)"
-      },
-      "exception": null
+      }
     },
     {
       "test_id": "AUD-01.1",
@@ -62,11 +60,10 @@
         "collected_at": "2026-11-04T09:00:00Z",
         "expires_at": "2026-11-05T09:00:00Z",
         "tool": "aws-cli",
-        "command": "aws logs filter-log-events --log-group-name /aws/rds/... --filter-pattern canary-7f3a",
-        "output_sha256": "sha256:f6dac138a2766625258b867189185681edc918a04211bae3f8ddad087f56d0d6",
-        "excerpt": "1 event: AUDIT: SESSION,1,1,MISC,LOGIN,,,admin canary-7f3a"
-      },
-      "exception": null
+        "command": "aws logs filter-log-events --log-group-name <cnpg-log-group> --filter-pattern '\"application_name=audit-canary-7f3a\"'",
+        "output_sha256": "sha256:c965a70a0ec999a84531b0eaf9cb54dc6de4c180811eef3d262dd22d2cf6a01c",
+        "excerpt": "LOG:  connection authorized: user=postgres database=chat application_name=audit-canary-7f3a"
+      }
     }
   ]
 }
