@@ -29,10 +29,10 @@
 | SEC-01.1 | 다른 서비스 계정으로 앱 DB Secret을 읽을 수 있는가? | 다른 IRSA 역할로 `secretsmanager:GetSecretValue` | 다른 SA 토큰으로 OpenBao read (ESO 경로) | 거부 (`AccessDenied` / 403) | 앱 SA로 같은 Secret 읽기 성공 |
 | SEC-01.2 | Git에 평문 비밀이 있는가? | gitleaks: 앱 레포 + 렌더된 매니페스트 | 같음 | 0건 | — |
 | SEC-01.3 | 로그에 비밀이 찍히는가? | 시험용 카나리 비밀을 앱 설정에 넣고 앱 로그(CloudWatch Logs) 검색 | 같은 방식으로 앱 로그(클러스터 로그 수집기) 검색 | 0건 | 같은 로그에서 카나리가 아닌 고유 문자열은 검색됨 |
-| SEC-01.4 | 비밀을 1회 회전해도 앱이 동작하는가? | Secrets Manager 회전 → **앱 파드 재시작** → `/readyz` | OpenBao 회전 + ESO 동기화 → **앱 파드 재시작** → `/readyz` | 재시작 후 200 | 회전 전 200 |
+| SEC-01.4 | 비밀을 1회 회전해도 앱이 재시작 없이 동작하는가? | Secrets Manager 회전 → DB에서 앱 역할의 **기존 연결 종료** → `/api/health/db` · 쓰기 1건 | OpenBao 회전 + ESO 동기화 → 같음 | 30초 안에 `/api/health/db` 200, 쓰기 201 (그사이 503은 허용) | 회전 전 `/api/health/db` 200 · 쓰기 201 |
 | ENC-02.1 | 비밀 저장소가 암호화돼 있는가? | Secret에 연결된 KMS 키 확인 | RKE2 secrets-encryption 상태, OpenBao seal 상태 | 켜짐 | — |
 
-SEC-01.4: demo-chat은 DB 비밀번호를 시작할 때 한 번 읽고 연결 풀을 재사용한다. 재시작 없이 `/readyz`를 보면 기존 연결로 통과해 잘못된 PASS가 나오므로, 반드시 새 연결로 확인한다.
+SEC-01.4: 기존 연결은 비밀번호가 바뀌어도 유지되므로, 기존 연결을 끊어 **새 연결이 새 비밀번호로 붙는지**를 본다. `/readyz`는 DB를 보지 않으므로(demo-chat#5) 이 시험에 쓰지 않는다. demo-chat은 인증 실패 시 Secret을 다시 읽어 재시작 없이 회복한다(로컬 실측 1초). 목적지에서 ESO로 주입하는 방식으로 바뀌면(T31) 같은 시험으로 회복 여부를 다시 본다.
 
 ### 전송 암호화 — ENC-01
 
@@ -185,3 +185,5 @@ Prowler와 kube-bench는 점검 수가 공급자 · 버전마다 다르므로 �
 | AUD-01 출발지 | pgaudit, `log_connections`, EKS 컨트롤 플레인 `audit` 로그 | T6에 "pgaudit, CloudTrail 활성화"만 있음. `log_connections` · EKS audit 로그 추가 필요 |
 | AUD-01 목적지 | pgaudit, `log_connections`, RKE2 audit 로그, 로그 수집 | `tasks.md`에 없음 |
 | DR-01 양쪽 | CNPG 백업 설정과 복원용 빈 클러스터 | `tasks.md`에 없음 |
+
+6개 통제 시험 결과(`ControlRun`)는 보안 탐지 통합(T33, `docs/security/detection-integration.md`)의 한 화면에도 Compliance Finding으로 들어간다. 이 계약을 바꾸면 T33 매핑 표도 함께 고친다.
