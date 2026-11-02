@@ -216,7 +216,7 @@ def rewrite_tasks(text: str, issues: dict[str, dict]) -> str:
 
 
 def rewrite_roles(text: str, owners: dict[str, str]) -> str:
-    """역할 분담 목록에서 담당이 바뀐 작업을 새 담당 아래로 옮기고 개수를 다시 센다."""
+    """역할 분담 목록에서 담당이 바뀐 작업을 새 담당 아래로 옮기고, 목록에 없는 작업을 추가하고, 개수를 다시 센다."""
     start = text.index("## 역할 분담")
     end = text.index("\n## ", start + 1)
     lines = text[start:end].split("\n")
@@ -249,6 +249,18 @@ def rewrite_roles(text: str, owners: dict[str, str]) -> str:
         src.remove(line)
         items = [i for i, x in enumerate(target) if x.startswith("- `T")]
         target.insert((items[-1] + 1) if items else 1, line)
+
+    # 작업 섹션에는 있는데 목록에 없는 작업(새로 추가한 작업)은 담당 아래에 한 줄을 넣는다.
+    # 담당이 목록에 없는 이름이면 미정 아래. 목록에서 빼는 일은 하지 않는다(작업을 지울 때는 직접 지운다).
+    listed = {m.group(1) for b in blocks for x in b if (m := re.match(r"- `(T\d+)`", x))}
+    for t in sorted(parse(text).values(), key=lambda x: int(x.id[1:])):
+        if t.id in listed:
+            continue
+        name = owners.get(t.id, t.owner).split(", ")[0]
+        target = next((b for b in blocks if who(b) == name), None) or next(b for b in blocks if who(b) == "미정")
+        items = [i for i, x in enumerate(target) if x.startswith("- `T")]
+        target.insert((items[-1] + 1) if items else 1, f"- `{t.id}` {t.title} ({t.prio})")
+        print(f"{t.id}: 역할 분담 목록에 추가 ({who(target)})")
 
     for b in blocks:
         items = [x for x in b if x.startswith("- `T")]
@@ -385,6 +397,14 @@ def push(dry: bool) -> None:
     for k, i in by_id.items():
         if k not in tasks and i["state"] == "OPEN":
             warn(f"{k} #{i['number']}: tasks.md에 없음 (그대로 둠, 필요하면 직접 닫기)")
+
+    # 새 작업을 역할 분담 목록에도 넣는다. 바뀌면 워크플로가 봇 PR로 올린다.
+    text = open(TASKS, encoding="utf-8").read()
+    new = rewrite_roles(text, {})
+    if new != text:
+        print("tasks.md: 역할 분담 목록 갱신")
+        if not dry:
+            open(TASKS, "w", encoding="utf-8").write(new)
 
 
 def pull(dry: bool) -> bool:
