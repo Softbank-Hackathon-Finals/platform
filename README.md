@@ -92,6 +92,7 @@ platform/
 - [설계 문서 버전 이력](docs/design-history/README.md): 버전을 올리는 기준과 이전 버전 사본
 - [해야 할 일](docs/tasks.md): 단계별 작업과 역할 분담
 - [ADR](docs/adr/): 결정 기록. 새 결정은 [`0000-template.md`](docs/adr/0000-template.md)로 쓴다
+- [보안 설계 고려사항](docs/security/README.md): 스켈레톤 너머로 고려한 보안 설계 (추후 반영 후보, 원본은 노션)
 - [에이전트 작업 안내](AGENTS.md): 작업 규칙, 설계 원칙, 보안 규칙, 검증 명령
 
 ## 작업 현황
