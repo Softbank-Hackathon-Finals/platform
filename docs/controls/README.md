@@ -187,3 +187,17 @@ Prowler와 kube-bench는 점검 수가 공급자 · 버전마다 다르므로 �
 | DR-01 양쪽 | CNPG 백업 설정과 복원용 빈 클러스터 | `tasks.md`에 없음 |
 
 6개 통제 시험 결과(`ControlRun`)는 보안 탐지 통합(T33, `docs/security/detection-integration.md`)의 한 화면에도 Compliance Finding으로 들어간다. 이 계약을 바꾸면 T33 매핑 표도 함께 고친다.
+
+## 8. 설계 문서 8.5와 다른 점
+
+설계 문서(`design.html`, v0.1) 8.5는 고치지 않고, 시험을 구체화하며 달라진 점을 여기 모은다. 설계 문서를 다음 버전으로 올릴 때 이 표를 반영한다. **구현은 이 문서를 따른다.**
+
+| 통제 | 설계 문서 8.5 | 이 문서 | 이유 |
+|---|---|---|---|
+| AUD-01 | 도구: "pgaudit, RKE2 · **CloudTrail** 검색" | 로그인: PostgreSQL `log_connections` / DDL: pgaudit / 권한 변경: **EKS 컨트롤 플레인 `audit` 로그(CloudWatch Logs)** · RKE2 audit 로그 | CloudTrail은 AWS API 호출만 기록하고 K8s 객체 변경(RoleBinding 등)은 남기지 않는다. pgaudit는 접속(로그인)을 기록하지 않는다 |
+| ENC-01 | "앱–pooler–DB … CA · hostname 검증" (한 시험) | 앱 → pooler(ENC-01.1)와 pooler → DB(**ENC-01.5**)를 나눠 시험 | `psql`은 pooler까지만 연결해서 pooler → DB 구간이 평문이어도 통과한다 |
+| SEC-01 | "회전 1회" | 회전 후 기존 연결을 끊고 새 연결로 `/api/health/db` · 쓰기 확인 (SEC-01.4) | 기존 연결은 비밀번호가 바뀌어도 유지된다. demo-chat의 `/readyz`는 DB를 보지 않는다(demo-chat#5) |
+| DR-01 | "새 환경으로 실제 복원 성공" | 표식 행 id 기준으로 행 수 비교 (DR-01.1) | 쓰기가 계속 들어와 "백업 시점의 행 수"가 정의되지 않는다 |
+| 판정 | "UNKNOWN은 차단" | UNKNOWN 사유 코드 8개, 허용 대조군, "관찰 못 함"(UNKNOWN)과 "관찰했더니 없음"(FAIL) 구분 | 서비스 장애로 인한 타임아웃을 "거부"로 오판하지 않기 위해 |
+
+`tasks.md`의 T6에는 "pgaudit, CloudTrail 활성화"만 있어, `log_connections`와 EKS 컨트롤 플레인 `audit` 로그 활성화를 T6 담당에게 요청한다(7절).
