@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
-# 설계 문서 버전 올리기: 지금 버전을 design-history/로 옮기고, design.html의 버전 표기를 새 버전으로 바꾼 브랜치를 만든다.
+# 설계 문서 버전 올리기: 지금 버전을 design-history/로 옮기고, design.html의 버전 표기를 새 버전으로 바꾼다.
 #   scripts/design-bump.sh v0.2
+# main에서 실행하면 design-bump-<새 버전> 브랜치를 만들고, 작업 브랜치에서 실행하면 그 브랜치에서 그대로 한다
+# (design.html을 이미 고치고 있어도 된다. 사본은 origin/main의 지금 버전으로 만든다).
 # 하는 일
 #   1. origin/main의 docs/design.html을 docs/design-history/design-<지금 버전>.html로 복사 (이후 수정하지 않는다)
 #   2. 그 커밋에 design-<지금 버전> 태그를 달고 push (GitHub 비교 화면: compare/design-v0.1...main)
@@ -12,7 +14,6 @@ set -euo pipefail
 new="${1:?새 버전 (예: v0.2)}"
 [[ "$new" =~ ^v[0-9]+(\.[0-9]+)*$ ]] || { echo "버전 형식: v숫자[.숫자] (예: v1, v0.2)" >&2; exit 1; }
 cd "$(git rev-parse --show-toplevel)"
-[ -z "$(git status --porcelain)" ] || { echo "커밋하지 않은 변경이 있다. 먼저 정리한다." >&2; exit 1; }
 
 doc=docs/design.html
 hist=docs/design-history
@@ -23,7 +24,11 @@ old=$(git show "$base:$doc" | grep -oP '<dt>상태</dt><dd>[^<]*\K v[0-9.]+(?=</
 [ "$old" != "$new" ] || { echo "지금 버전이 이미 $new 다." >&2; exit 1; }
 [ ! -e "$hist/design-$old.html" ] || { echo "$hist/design-$old.html 이 이미 있다." >&2; exit 1; }
 
-git switch -q -c "design-bump-$new" "$base"
+branch=$(git branch --show-current)
+if [ "$branch" = main ] || [ -z "$branch" ]; then
+  git switch -q -c "design-bump-$new" "$base"
+  branch="design-bump-$new"
+fi
 git show "$base:$doc" > "$hist/design-$old.html"
 
 today=$(TZ=Asia/Seoul date +%F)
@@ -58,7 +63,7 @@ git tag "design-$old" "$base"
 git push -q origin "refs/tags/design-$old"
 git add "$doc" "$hist"
 cat <<MSG
-준비 완료: 브랜치 design-bump-$new
+준비 완료: 브랜치 $branch
 - $hist/design-$old.html (이전 버전 사본), 태그 design-$old (push함)
 - $doc 버전 표기 $old → $new
 다음: $doc 본문을 고치고, $hist/README.md의 "무엇이 바뀌었나" · "관련 ADR" 칸을 채운 뒤
