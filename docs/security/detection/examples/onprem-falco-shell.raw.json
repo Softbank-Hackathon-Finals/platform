@@ -1,0 +1,14 @@
+{
+  "_note": "형식 예시. 실제 수집 결과가 아니라 출처 문서의 필드 구조로 만든 것이다. 계정 ID 등은 마스킹 값",
+  "uuid": "falco-evt-001",
+  "rule": "Terminal shell in container",
+  "priority": "Notice",
+  "time": "2026-11-04T09:20:00Z",
+  "output": "A shell was spawned in a container with an attached terminal (user=root ns=demo-chat pod=chat-xxx)",
+  "output_fields": {
+    "k8s.ns.name": "demo-chat",
+    "k8s.pod.name": "chat-xxx",
+    "container.id": "****"
+  },
+  "hostname": "onprem-node-1"
+}

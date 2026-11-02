@@ -1,0 +1,13 @@
+{
+  "_note": "형식 예시. 실제 수집 결과가 아니라 출처 문서의 필드 구조로 만든 것이다. 계정 ID 등은 마스킹 값",
+  "policy": "require-run-as-nonroot",
+  "rule": "run-as-non-root",
+  "result": "fail",
+  "severity": "medium",
+  "resource": {
+    "kind": "Pod",
+    "namespace": "demo-chat",
+    "name": "violating-pod"
+  },
+  "timestamp": "2026-11-04T09:30:00Z"
+}

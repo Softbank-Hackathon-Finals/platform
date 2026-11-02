@@ -1,0 +1,202 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/Softbank-Hackathon-Finals/platform/docs/security/detection/finding.schema.json",
+  "title": "정규화된 보안 탐지 결과 (T33)",
+  "description": "OCSF 1.1 Findings 범주의 부분집합 + bravo 확장 필드(ADR-0001). 출처 수집 상태(SourceStatus)도 함께 정의한다. 매핑 규칙은 mappings.json, 설계는 ../detection-integration.md.",
+  "oneOf": [
+    { "$ref": "#/$defs/Finding" },
+    { "$ref": "#/$defs/SourceStatus" }
+  ],
+  "$defs": {
+    "EpochMs": {
+      "description": "OCSF timestamp_t: UTC 에포크 밀리초",
+      "type": "integer",
+      "minimum": 0
+    },
+    "Source": {
+      "enum": ["aws_security_hub", "aws_guardduty", "gcp_scc", "falco", "kyverno", "bravo_controls"]
+    },
+    "Category": {
+      "description": "한 화면의 범주 (설계 5절)",
+      "enum": ["IAM", "ENCRYPTION", "AUDIT", "EXPOSURE", "POLICY", "THREAT", "VULNERABILITY"]
+    },
+    "Finding": {
+      "type": "object",
+      "required": [
+        "class_uid",
+        "category_uid",
+        "activity_id",
+        "type_uid",
+        "severity_id",
+        "status_id",
+        "time",
+        "finding_info",
+        "metadata",
+        "cloud",
+        "bravo"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "class_uid": {
+          "description": "2002 Vulnerability Finding · 2003 Compliance Finding · 2004 Detection Finding",
+          "enum": [2002, 2003, 2004]
+        },
+        "category_uid": { "description": "OCSF 범주 2 = Findings", "const": 2 },
+        "activity_id": { "description": "1 Create · 2 Update · 3 Close", "enum": [1, 2, 3] },
+        "type_uid": {
+          "description": "class_uid * 100 + activity_id. 산술 관계는 정규화기가 검사한다",
+          "enum": [200201, 200202, 200203, 200301, 200302, 200303, 200401, 200402, 200403]
+        },
+        "severity_id": {
+          "description": "0 Unknown · 1 Informational · 2 Low · 3 Medium · 4 High · 5 Critical · 6 Fatal · 99 Other",
+          "enum": [0, 1, 2, 3, 4, 5, 6, 99]
+        },
+        "status_id": {
+          "description": "0 Unknown · 1 New · 2 In Progress · 3 Suppressed · 4 Resolved · 99 Other",
+          "enum": [0, 1, 2, 3, 4, 99]
+        },
+        "time": { "$ref": "#/$defs/EpochMs", "description": "출처가 이 결과를 마지막으로 갱신한 시각" },
+        "message": { "type": "string", "maxLength": 1000 },
+        "finding_info": {
+          "type": "object",
+          "required": ["uid", "title"],
+          "additionalProperties": false,
+          "properties": {
+            "uid": { "type": "string", "minLength": 1, "description": "출처의 원본 ID. (bravo.source, uid)가 upsert 키" },
+            "title": { "type": "string", "minLength": 1 },
+            "desc": { "type": "string", "maxLength": 4000 },
+            "types": { "type": "array", "items": { "type": "string" } },
+            "first_seen_time": { "$ref": "#/$defs/EpochMs" },
+            "last_seen_time": { "$ref": "#/$defs/EpochMs" }
+          }
+        },
+        "compliance": {
+          "description": "Compliance Finding(2003)의 통제 정보",
+          "type": "object",
+          "required": ["control", "status"],
+          "additionalProperties": false,
+          "properties": {
+            "control": { "type": "string" },
+            "standards": { "type": "array", "items": { "type": "string" } },
+            "status": { "enum": ["Pass", "Warning", "Fail"] }
+          }
+        },
+        "resources": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["type", "uid"],
+            "additionalProperties": false,
+            "properties": {
+              "type": { "type": "string" },
+              "uid": { "type": "string", "description": "계정 ID · 접근 키 ID 등은 마스킹 규칙(설계 7절)을 적용한 값" },
+              "name": { "type": "string" },
+              "namespace": { "type": "string" }
+            }
+          }
+        },
+        "cloud": {
+          "type": "object",
+          "required": ["provider"],
+          "additionalProperties": false,
+          "properties": {
+            "provider": { "enum": ["AWS", "GCP", "onprem"] },
+            "region": { "type": "string" },
+            "account": {
+              "type": "object",
+              "required": ["uid"],
+              "additionalProperties": false,
+              "properties": { "uid": { "type": "string" } }
+            }
+          }
+        },
+        "metadata": {
+          "type": "object",
+          "required": ["product", "version"],
+          "additionalProperties": false,
+          "properties": {
+            "product": {
+              "type": "object",
+              "required": ["name"],
+              "additionalProperties": false,
+              "properties": {
+                "name": { "type": "string", "description": "GuardDuty, Security Hub, Security Command Center, Falco, Kyverno, bravo-controls" },
+                "vendor_name": { "type": "string" }
+              }
+            },
+            "version": { "const": "1.1.0", "description": "OCSF 버전 (ADR-0001에서 고정)" }
+          }
+        },
+        "unmapped": {
+          "type": "object",
+          "description": "매핑하지 못한 원본 필드. 버리지 않는다"
+        },
+        "bravo": {
+          "type": "object",
+          "required": ["source", "environment_id", "category", "control_ids", "collected_time", "raw_sha256"],
+          "additionalProperties": false,
+          "properties": {
+            "source": { "$ref": "#/$defs/Source" },
+            "environment_id": { "type": "string", "description": "플랫폼에 등록된 환경 (설계 문서 8.11)" },
+            "category": { "$ref": "#/$defs/Category" },
+            "control_ids": {
+              "type": "array",
+              "items": { "enum": ["SEC-01", "ENC-01", "ENC-02", "AUD-01", "NET-01", "IAM-01", "ISO-01", "DR-01"] },
+              "uniqueItems": true
+            },
+            "native_url": { "type": "string", "description": "원본 콘솔에서 보는 링크" },
+            "collected_time": { "$ref": "#/$defs/EpochMs", "description": "플랫폼이 수집한 시각 (출처 시각 time과 따로 저장)" },
+            "raw_sha256": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$", "description": "마스킹한 원본의 해시" },
+            "sample": { "type": "boolean", "description": "출처가 샘플로 표시한 결과 (예: GuardDuty CreateSampleFindings)" }
+          }
+        }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "class_uid": { "const": 2003 } } },
+          "then": { "required": ["compliance"] }
+        },
+        {
+          "if": { "properties": { "bravo": { "properties": { "source": { "const": "bravo_controls" } } } } },
+          "then": {
+            "properties": {
+              "class_uid": { "const": 2003 },
+              "bravo": { "properties": { "control_ids": { "minItems": 1 } } }
+            }
+          }
+        }
+      ]
+    },
+    "SourceStatus": {
+      "description": "출처 · 환경별 수집 상태. 화면의 '확인 불가' · '오래됨' · '없음'은 여기서 정한다 (설계 7절)",
+      "type": "object",
+      "required": ["kind", "source", "environment_id", "state", "checked_time"],
+      "additionalProperties": false,
+      "properties": {
+        "kind": { "const": "source_status" },
+        "source": { "$ref": "#/$defs/Source" },
+        "environment_id": { "type": "string" },
+        "state": {
+          "description": "OK 정상 · FAILED 수집 실패(확인 불가) · STALE 기준 시간 초과(오래됨) · DISABLED 출처 서비스 꺼짐(탐지 능력 없음)",
+          "enum": ["OK", "FAILED", "STALE", "DISABLED"]
+        },
+        "checked_time": { "$ref": "#/$defs/EpochMs" },
+        "last_success_time": { "$ref": "#/$defs/EpochMs" },
+        "error_code": {
+          "enum": ["ACCESS_DENIED", "API_ERROR", "RATE_LIMITED", "WEBHOOK_UNAUTHORIZED", "WEBHOOK_SILENT", "NOT_ENABLED", "TIMEOUT"]
+        },
+        "cursor": { "type": "string", "description": "증분 수집 커서. 수집이 끝까지 성공했을 때만 전진" }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "state": { "enum": ["FAILED", "DISABLED"] } } },
+          "then": { "required": ["error_code"] }
+        },
+        {
+          "if": { "properties": { "state": { "enum": ["OK", "STALE"] } } },
+          "then": { "required": ["last_success_time"] }
+        }
+      ]
+    }
+  }
+}
