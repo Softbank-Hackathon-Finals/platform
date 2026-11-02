@@ -321,6 +321,28 @@ Claude Code는 `/todo-task`, Codex는 `$todo-task`로 이 순서를 따르는 �
 
 **완료 기준** 목적지 앱이 목적지 PgBouncer → Tailscale → 출발지 DB로 읽기 · 쓰기에 성공한다.
 
+### [T33] 보안 탐지 통합: AWS · Google Cloud · 온프렘 탐지를 한 형식 · 한 화면으로
+
+**어디에 필요** 킥오프 요구 "클라우드마다 다른 보안 기능(GuardDuty, Security Command Center 등)을 통일하고 권한 · 암호화 · 감사 로그 · 정책 위반을 한 화면에서 시각화". 설계: `docs/security/detection-integration.md`, 형식 결정: ADR-0001.
+
+**만들 것** 출처별 수집기(AWS Security Hub, Google Cloud SCC, 온프렘 Kyverno PolicyReport · Falco), OCSF 부분집합으로의 결정적 정규화(LLM 미사용), 탐지 결과 · 수집 상태 · 탐지 능력 저장, 콘솔용 조회 API(환경 × 범주 요약, 목록, 탐지 능력 표). T5 통제 시험 결과도 같은 형식으로 넣는다.
+
+- **우선순위** P1 · **영역** 보안 통제 · 게이트 · **담당** 이상무
+- **선행** `T1`, `T2` (통합 시점: `T9`, `T14`) · **후속** `T21` · **설계 문서** docs/security/detection-integration.md, ADR-0001
+
+**목표** 모든 환경의 보안 상태를 같은 기준으로 한 화면에서 보고, 볼 수 없는 칸은 "확인 불가"로 드러낸다.
+
+**할 일**
+- [ ] 정규화 형식 스키마와 출처별 심각도 · 상태 · 범주 매핑 표 고정
+- [ ] 정규화기: 출처별 원본 샘플로 단위 테스트 (LLM 미사용)
+- [ ] AWS 수집기: Security Hub (미활성 시 GuardDuty 직접)
+- [ ] 온프렘 수집기: Kyverno PolicyReport · Falco 웹훅 (바깥 방향 연결만)
+- [ ] Google Cloud 수집기: Security Command Center
+- [ ] 수집 실패 · 지연을 "0건"이 아니라 "확인 불가" · "오래됨"으로 표시
+- [ ] 조회 API: 환경 × 범주 요약, 목록, 탐지 능력 표
+
+**완료 기준** AWS와 온프렘의 실제 탐지 결과(샘플 탐지 포함)가 같은 형식으로 요약 API에 나오고, 한 출처의 수집을 끊으면 그 칸이 "확인 불가"로 바뀐다.
+
 ## 3단계
 
 ### [T8] 복제 경로: 논리 복제 왕복 · 첨부 동기화
