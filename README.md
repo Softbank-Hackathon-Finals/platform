@@ -42,11 +42,14 @@ platform/
 │   ├── modules/                # 기능 계약 + 환경별 구현 (network · cluster · node · database · secret · object_store · edge · ci_identity)
 │   └── envs/                   # source-aws · platform-aws · target-onprem
 ├── docs/
-│   ├── design.html             # 설계 문서 (브라우저로 연다)
+│   ├── design.html             # 설계 문서 최신본 (브라우저로 연다)
+│   ├── design-history/         # 대체된 설계 문서 버전 사본과 버전 이력
 │   ├── tasks.md                # 단계별 작업 · 역할 분담 (이슈와 자동 동기화)
 │   ├── adr/                    # 결정 기록 (0000-template.md)
 │   └── assets/                 # README 그림
-├── scripts/sync_tasks.py       # tasks.md ↔ 이슈 · 보드 동기화
+├── scripts/
+│   ├── sync_tasks.py           # tasks.md ↔ 이슈 · 보드 동기화
+│   └── design-bump.sh          # 설계 문서 버전 올리기
 ├── .agents/skills/todo-task/   # 작업 진행 스킬 (.claude/skills/todo-task는 링크)
 ├── .github/workflows/          # ci · sync-tasks
 ├── AGENTS.md                   # 에이전트 작업 안내 (CLAUDE.md가 불러온다)
@@ -85,7 +88,8 @@ platform/
 
 ## 문서
 
-- [설계 문서](docs/design.html): 브라우저로 열어 본다 (그림은 SVG로 들어 있다)
+- [설계 문서](docs/design.html): 브라우저로 열어 본다 (그림은 SVG로 들어 있다). 원본은 이 파일이다
+- [설계 문서 버전 이력](docs/design-history/README.md): 버전을 올리는 기준과 이전 버전 사본
 - [해야 할 일](docs/tasks.md): 단계별 작업과 역할 분담
 - [ADR](docs/adr/): 결정 기록. 새 결정은 [`0000-template.md`](docs/adr/0000-template.md)로 쓴다
 - [에이전트 작업 안내](AGENTS.md): 작업 규칙, 설계 원칙, 보안 규칙, 검증 명령
