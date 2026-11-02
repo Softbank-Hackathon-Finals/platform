@@ -170,3 +170,28 @@ jobs:
           ignore-unfixed: true
           exit-code: "1"
           trivyignores: .trivyignore
+
+  # 필수 검사가 아니다. 경고만 남기고 머지를 막지 않는다(오타 · 실측값 수정은 버전을 올리지 않는 게 맞다).
+  design-doc:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: 설계 문서 버전 표기 확인 (경고만)
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+        run: |
+          doc=docs/design.html
+          git diff --quiet "$BASE"...HEAD -- "$doc" && { echo "설계 문서 변경 없음"; exit 0; }
+          ver() { grep -oP '<dt>상태</dt><dd>[^<]*\K v[0-9.]+(?=</dd>)' | tr -d ' '; }
+          old=$(git show "$BASE:$doc" | ver); new=$(ver < "$doc")
+          if [ "$old" = "$new" ]; then
+            line=$(grep -n '<dt>상태</dt>' "$doc" | cut -d: -f1)
+            echo "::warning file=$doc,line=${line:-1},title=설계 문서 버전 그대로 ($new)::설계 문서가 바뀌었는데 버전이 $new 그대로다. 오타 · 실측값 같은 작은 수정이면 무시한다. 아키텍처 · 시나리오 · 범위 · 요구사항 변경이면 scripts/design-bump.sh <새 버전>으로 버전을 올린다 (docs/design-history/README.md)."
+          else
+            echo "버전 $old → $new"
+            [ -f "docs/design-history/design-$old.html" ] || echo "::warning file=$doc,title=이전 버전 사본 없음::버전이 $old → $new로 바뀌었는데 docs/design-history/design-$old.html이 없다. scripts/design-bump.sh로 올리면 사본이 생긴다."
+          fi
