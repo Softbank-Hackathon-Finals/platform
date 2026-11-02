@@ -1,0 +1,11 @@
+# gitleaks 설정. 기본 규칙을 쓰고, 예외는 아래 allowlist에 사유와 함께만 추가한다.
+# 사유 주석이 없는 예외는 리뷰에서 반려한다.
+[extend]
+useDefault = true
+
+[allowlist]
+description = "예외 목록 (항목마다 사유 주석 필수)"
+# 예시:
+# # 사유: 테스트용 더미 키. 실제 자격 증명 아님 (담당자, 날짜)
+# regexes = ['''EXAMPLE_DUMMY_KEY''']
+paths = []

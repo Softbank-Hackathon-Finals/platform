@@ -1,0 +1,40 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+
+# Node
+node_modules/
+dist/
+*.tsbuildinfo
+.next/
+out/
+
+# Go
+/bin/
+
+# Terraform
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+crash.log
+
+# Helm
+charts/*/charts/
+*.tgz
+
+# OS · 에디터
+.DS_Store
+.idea/
+.vscode/
+
+# 비밀값
+.env
+.env.*
+!.env.example
+# 로컬 전용 변수 (계정 ID · 이메일 등). 예시 파일만 커밋한다
+*.auto.tfvars
+!*.auto.tfvars.example
