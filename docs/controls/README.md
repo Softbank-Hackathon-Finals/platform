@@ -182,9 +182,9 @@ Prowler와 kube-bench는 점검 수가 공급자 · 버전마다 다르므로 �
 
 | 시험 | 필요한 것 | 지금 담당 |
 |---|---|---|
-| AUD-01 출발지 | pgaudit, `log_connections`, EKS 컨트롤 플레인 `audit` 로그 | T6에 "pgaudit, CloudTrail 활성화"만 있음. `log_connections` · EKS audit 로그 추가 필요 |
-| AUD-01 목적지 | pgaudit, `log_connections`, RKE2 audit 로그, 로그 수집 | `tasks.md`에 없음 |
-| DR-01 양쪽 | CNPG 백업 설정과 복원용 빈 클러스터 | `tasks.md`에 없음 |
+| AUD-01 출발지 | pgaudit, `log_connections`, EKS 컨트롤 플레인 `audit` 로그 | **T34**(이상무). T6에는 "pgaudit, CloudTrail 활성화"만 있어 T6 담당과 협의해 반영 |
+| AUD-01 목적지 | pgaudit, `log_connections`, RKE2 audit 로그, 로그 수집 | **T34**(이상무) |
+| DR-01 양쪽 | CNPG 백업 설정과 복원용 빈 클러스터 | **T35**(이상무) |
 
 6개 통제 시험 결과(`ControlRun`)는 보안 탐지 통합(T33, `docs/security/detection-integration.md`)의 한 화면에도 Compliance Finding으로 들어간다. 이 계약을 바꾸면 T33 매핑 표도 함께 고친다.
 
@@ -200,4 +200,4 @@ Prowler와 kube-bench는 점검 수가 공급자 · 버전마다 다르므로 �
 | DR-01 | "새 환경으로 실제 복원 성공" | 표식 행 id 기준으로 행 수 비교 (DR-01.1) | 쓰기가 계속 들어와 "백업 시점의 행 수"가 정의되지 않는다 |
 | 판정 | "UNKNOWN은 차단" | UNKNOWN 사유 코드 8개, 허용 대조군, "관찰 못 함"(UNKNOWN)과 "관찰했더니 없음"(FAIL) 구분 | 서비스 장애로 인한 타임아웃을 "거부"로 오판하지 않기 위해 |
 
-`tasks.md`의 T6에는 "pgaudit, CloudTrail 활성화"만 있어, `log_connections`와 EKS 컨트롤 플레인 `audit` 로그 활성화를 T6 담당에게 요청한다(7절).
+`tasks.md`의 T6에는 "pgaudit, CloudTrail 활성화"만 있다. `log_connections`와 EKS 컨트롤 플레인 `audit` 로그 활성화는 T34에서 T6 담당과 협의해 반영한다(7절).
