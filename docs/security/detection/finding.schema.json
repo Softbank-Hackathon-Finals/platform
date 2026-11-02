@@ -62,7 +62,7 @@
           "required": ["uid", "title"],
           "additionalProperties": false,
           "properties": {
-            "uid": { "type": "string", "minLength": 1, "description": "출처의 원본 ID. (bravo.source, uid)가 upsert 키" },
+            "uid": { "type": "string", "minLength": 1, "description": "출처의 원본 ID. (bravo.source, bravo.environment_id, uid)가 upsert 키. 실행마다 바뀌지 않는 값이어야 해결(Resolved) 처리가 된다" },
             "title": { "type": "string", "minLength": 1 },
             "desc": { "type": "string", "maxLength": 4000 },
             "types": { "type": "array", "items": { "type": "string" } },

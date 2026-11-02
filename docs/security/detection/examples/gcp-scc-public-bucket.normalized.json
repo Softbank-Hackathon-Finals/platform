@@ -8,7 +8,11 @@
   "time": 1793783400000,
   "finding_info": {
     "uid": "organizations/****/sources/****/findings/public-bucket-001",
-    "title": "Public bucket ACL"
+    "title": "PUBLIC_BUCKET_ACL",
+    "types": [
+      "MISCONFIGURATION",
+      "PUBLIC_BUCKET_ACL"
+    ]
   },
   "metadata": {
     "product": {
@@ -19,25 +23,22 @@
   "cloud": {
     "provider": "GCP"
   },
+  "compliance": {
+    "control": "PUBLIC_BUCKET_ACL",
+    "status": "Fail"
+  },
   "bravo": {
     "source": "gcp_scc",
     "environment_id": "env-gcp",
     "category": "EXPOSURE",
     "control_ids": [],
     "collected_time": 1793783460000,
-    "raw_sha256": "sha256:22daeb8334e80a4d262fc5f46832800a6c66ef15216bda1d2d87d57ab4f3a93e"
+    "raw_sha256": "sha256:2909ef5b13a429ae1dc6d80530538638f84e749d10edbcda52b4258d9223ae23"
   },
   "resources": [
     {
-      "type": "storage.googleapis.com/Bucket",
+      "type": "storage.googleapis.com",
       "uid": "//storage.googleapis.com/demo-chat-attachments-test"
     }
-  ],
-  "compliance": {
-    "control": "PUBLIC_BUCKET_ACL",
-    "status": "Fail"
-  },
-  "unmapped": {
-    "category": "PUBLIC_BUCKET_ACL"
-  }
+  ]
 }

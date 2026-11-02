@@ -19,13 +19,17 @@
   "cloud": {
     "provider": "onprem"
   },
+  "compliance": {
+    "control": "require-run-as-nonroot",
+    "status": "Fail"
+  },
   "bravo": {
     "source": "kyverno",
     "environment_id": "env-onprem",
     "category": "POLICY",
     "control_ids": [],
     "collected_time": 1793784660000,
-    "raw_sha256": "sha256:dc5df69461c43a4d915b664dc65f90f2b5938c492b5447564662ebfb5f4efe88"
+    "raw_sha256": "sha256:775683e0b583b0dc3e45b563d546d9ed06a45241e2fe9080c417159909982915"
   },
   "resources": [
     {
@@ -33,9 +37,5 @@
       "uid": "violating-pod",
       "namespace": "demo-chat"
     }
-  ],
-  "compliance": {
-    "control": "require-run-as-nonroot",
-    "status": "Fail"
-  }
+  ]
 }

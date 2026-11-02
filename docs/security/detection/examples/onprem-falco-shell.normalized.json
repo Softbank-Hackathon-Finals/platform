@@ -19,13 +19,16 @@
   "cloud": {
     "provider": "onprem"
   },
+  "unmapped": {
+    "source_category": "Terminal shell in container"
+  },
   "bravo": {
     "source": "falco",
     "environment_id": "env-onprem",
     "category": "THREAT",
     "control_ids": [],
     "collected_time": 1793784060000,
-    "raw_sha256": "sha256:047dd4672556abd0c7c7ded37f8c9edb8c9235f51dc222226ee02ac03875657e"
+    "raw_sha256": "sha256:b421627ccefaa74d5911f1c9bc5a7342e361744d56f507c83cf76ec247f09b7a"
   },
   "message": "A shell was spawned in a container with an attached terminal (user=root ns=demo-chat pod=chat-xxx)",
   "resources": [

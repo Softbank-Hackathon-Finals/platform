@@ -1,8 +1,26 @@
 {
-  "_note": "T5 docs/controls/examples/target-run-before-fix.json의 IAM-01.1 결과",
-  "test_id": "IAM-01.1",
-  "control_id": "IAM-01",
-  "verdict": "FAIL",
+  "_note": "T5 계약(docs/controls)의 ControlRun 안 TestResult 하나에 실행 정보를 붙인 형태. docs/controls/examples/target-run-before-fix.json의 IAM-01.1 결과",
   "run_id": "run-tgt-0001",
-  "collected_at": "2026-11-04T09:01:00Z"
+  "environment": {
+    "id": "env-onprem",
+    "role": "target",
+    "ref": "onprem:rke2/target"
+  },
+  "result": {
+    "test_id": "IAM-01.1",
+    "control_id": "IAM-01",
+    "method_version": "1",
+    "expected": "deny",
+    "observed": "allow",
+    "positive_control": "pass",
+    "verdict": "FAIL",
+    "unknown_reason": null,
+    "evidence": {
+      "collected_at": "2026-11-04T09:01:00Z",
+      "expires_at": "2026-11-05T09:01:00Z",
+      "tool": "curl",
+      "output_sha256": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+      "excerpt": "anonymous GET -> 200 (bucket policy allows public read)"
+    }
+  }
 }

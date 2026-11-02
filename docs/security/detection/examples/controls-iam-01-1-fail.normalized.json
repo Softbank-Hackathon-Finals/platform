@@ -7,8 +7,8 @@
   "status_id": 1,
   "time": 1793782860000,
   "finding_info": {
-    "uid": "run-tgt-0001/IAM-01.1",
-    "title": "인증 없이 첨부 저장소 객체를 읽을 수 있는가?"
+    "uid": "env-onprem/IAM-01.1",
+    "title": "IAM-01.1 FAIL"
   },
   "metadata": {
     "product": {
@@ -19,6 +19,10 @@
   "cloud": {
     "provider": "onprem"
   },
+  "compliance": {
+    "control": "IAM-01.1",
+    "status": "Fail"
+  },
   "bravo": {
     "source": "bravo_controls",
     "environment_id": "env-onprem",
@@ -27,10 +31,6 @@
       "IAM-01"
     ],
     "collected_time": 1793782920000,
-    "raw_sha256": "sha256:6e27f3db66bba6241c3baadfacc36fff926ad53e33acfa5502746e2de73e208f"
-  },
-  "compliance": {
-    "control": "IAM-01.1",
-    "status": "Fail"
+    "raw_sha256": "sha256:10a550284930f3b275f272bb0d51969ab153fd725349f18fba21b2e6e353db7c"
   }
 }

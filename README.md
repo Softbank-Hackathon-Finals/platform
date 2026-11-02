@@ -47,6 +47,8 @@ platform/
 │   ├── tasks.md                # 단계별 작업 · 역할 분담 (이슈와 자동 동기화)
 │   ├── adr/                    # 결정 기록 (0000-template.md)
 │   └── assets/                 # README 그림
+├── services/
+│   └── security-findings/      # T33 보안 탐지 정규화 (Python)
 ├── scripts/
 │   ├── sync_tasks.py           # tasks.md ↔ 이슈 · 보드 동기화
 │   └── design-bump.sh          # 설계 문서 버전 올리기

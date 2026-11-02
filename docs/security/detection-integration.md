@@ -55,7 +55,7 @@
                                                  ▼
                          정규화기 (결정적, LLM 미사용)  ── 원본은 마스킹 후 따로 보관
                                                  ▼
-                         저장 (탐지 결과 · 수집 상태 · 탐지 능력)  ── 출처 + 원본 ID로 upsert
+                         저장 (탐지 결과 · 수집 상태 · 탐지 능력)  ── 출처 + 환경 + 원본 ID로 upsert
                                                  ▼
                          조회 API  ──▶  콘솔 T21 "한 화면"
 ```
@@ -86,7 +86,7 @@
 | 필드 | 내용 |
 |---|---|
 | `class_uid`, `severity_id`, `status_id`, `time` | OCSF 공통. 심각도 · 상태는 아래 매핑 표로 정한다 |
-| `finding_info.uid` | 출처의 원본 ID. `(source, uid)`가 upsert 키 |
+| `finding_info.uid` | 출처의 원본 ID. `(source, environment_id, uid)`가 upsert 키. 실행마다 바뀌지 않아야 한다(T5 결과는 `환경/시험 ID`) |
 | `finding_info.title`, `finding_info.types[]`, `first_seen_time`, `last_seen_time` | 원본에서 그대로 |
 | `resources[]` | 대상 자원(유형 · ID · 이름). 계정 ID 등은 마스킹 규칙(7절) 적용 |
 | `cloud.provider`, `cloud.region`, `cloud.account.uid` | 출처 환경 |
@@ -183,7 +183,7 @@ Google Cloud     …
 | 영역 | 요건 |
 |---|---|
 | 권한 | 출처마다 읽기 전용 최소 권한. AWS `securityhub:GetFindings`(대체 경로는 `guardduty:ListDetectors` · `ListFindings` · `GetFindings`), Google Cloud SCC 결과 조회 전용 역할, K8s는 `policyreports` · `clusterpolicyreports`의 `get` · `list`만. 플랫폼 장기 키를 두지 않는다(AWS는 역할 위임, Google Cloud는 Workload Identity 연동) |
-| 멱등 · 중복 | `(source, finding_info.uid)`로 upsert. 같은 탐지의 갱신은 덮어쓰고 `last_seen_time`만 늘린다. 환경마다 집계 출처가 하나라 출처 간 중복이 없다 |
+| 멱등 · 중복 | `(source, environment_id, finding_info.uid)`로 upsert. 같은 시험을 출발지 · 목적지에서 돌려도 서로 덮어쓰지 않는다. 같은 탐지의 갱신은 덮어쓰고 `last_seen_time`만 늘린다. 환경마다 집계 출처가 하나라 출처 간 중복이 없다 |
 | 증분 수집 | 출처별 커서(마지막 갱신 시각)를 저장하고 그 이후만 가져온다. 페이지를 끝까지 돈다. 커서는 한 번의 수집이 끝까지 성공했을 때만 전진 |
 | 재시도 | 출처 API의 속도 제한 응답에는 지수 백오프. 실패는 수집 상태에 기록하고 화면에 보인다 |
 | 원본 보관 | 원본은 마스킹한 뒤 별도 테이블에 보관하고 `raw_sha256`으로 잇는다. 접근 키 ID · 토큰 · IP는 일부만 남긴다. 비밀 원문은 저장하지 않는다 |
