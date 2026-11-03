@@ -4,6 +4,8 @@
 k3d 모의 환경은 임시 비교기를 켜 두므로(allow_unverified_compare) 이 경로를 재지 않는다.
 """
 
+import json
+
 import psycopg
 import pytest
 
@@ -70,3 +72,11 @@ def test_real_failure_does_not_open_target_and_is_recorded(store, world, tables,
     assert receipt["verdict"] == verdict
     messages = next(t for t in receipt["tables"] if t["name"] == "public.messages")
     assert (messages["data_verdict"], messages["schema_verdict"]) == (data, schema)
+
+
+def test_connection_error_text_stays_out_of_the_stored_result(store, world, tables):  # noqa: F811
+    secret = "FIXTURE-PRIVATE-VALUE"
+    execution = execute(store, world, [tables[0], f"host=secret.internal port={secret} user={secret} dbname=chat"])
+    assert execution.status == Status.ABORT_PRE_WRITE, execution.result
+    assert execution.result["receipt"]["verdict"] == "UNKNOWN"
+    assert secret not in json.dumps(execution.result) and "secret.internal" not in json.dumps(execution.result)

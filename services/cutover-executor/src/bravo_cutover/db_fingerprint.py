@@ -6,6 +6,7 @@
 
 import hashlib
 import json
+import re
 from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -22,6 +23,27 @@ STATEMENT_TIMEOUT_MS = 3000
 SUPPORTED_MAJORS = (16, 18)
 
 MATCH, MISMATCH, UNKNOWN = "MATCH", "MISMATCH", "UNKNOWN"
+_SQLSTATE = re.compile(r"[0-9A-Z]{5}")
+
+
+class FingerprintUnconfirmed(Unconfirmed):
+    """결과로 나가는 불명. 고정 코드와 형식이 맞는 SQLSTATE만 담고, 연결 · 서버 원문은 담지 않는다."""
+
+    def __init__(self, code: str, sqlstate: str | None = None):
+        self.code = code
+        self.sqlstate = sqlstate if sqlstate and _SQLSTATE.fullmatch(sqlstate) else None
+        super().__init__(f"{code} ({self.sqlstate})" if self.sqlstate else code)
+
+
+@contextmanager
+def only_fixed_errors(code: str) -> Iterator[None]:
+    """이 안의 불명을 code와 SQLSTATE로 줄인다. 다른 모듈의 Unconfirmed에는 호스트 · DSN 원문이 있을 수 있다."""
+    try:
+        yield
+    except FingerprintUnconfirmed:
+        raise
+    except (Unconfirmed, psycopg.Error) as e:
+        raise FingerprintUnconfirmed(code, getattr(e, "sqlstate", None)) from None
 
 # 아래 세션 설정으로 ::text 결과가 하나로 정해지는 타입만 허용한다. 그 밖(money · 배열 · enum · 도메인 등)은 불명이다.
 _SUPPORTED_TYPES = [
@@ -83,7 +105,7 @@ def _collation(raw, actual, database) -> tuple[list | None, str | None]:
         locale = raw.get("colllocale", raw.get("colliculocale"))
         rules, version = raw.get("collicurules"), raw["collversion"]
     if provider not in ("b", "c", "i") or version != actual:
-        raise Unconfirmed("unsupported or stale collation provider/version")
+        raise FingerprintUnconfirmed("collation_unverified")
     return [provider, raw["collisdeterministic"], database["encoding"], collate, ctype, locale, rules], version
 
 
@@ -101,20 +123,20 @@ class _Catalog:
 def _read_catalog(conn, table: str) -> _Catalog:
     parts = table.split(".")
     if len(parts) != 2 or not all(parts):
-        raise Unconfirmed("comparison requires a schema-qualified table")
+        raise FingerprintUnconfirmed("table_not_qualified")
     identifier = sql.Identifier(*parts)
     row = conn.execute(_CATALOG, {"table": identifier.as_string(conn), "types": _SUPPORTED_TYPES}).fetchone()
     if row is None:
-        raise Unconfirmed(f"comparison table missing: {table}")
+        raise FingerprintUnconfirmed("table_missing")
     server_major, relkind, has_children, database, columns, constraints, primary_key = row
     if server_major not in SUPPORTED_MAJORS:
-        raise Unconfirmed(f"PostgreSQL major {server_major} is not verified for this rule")
+        raise FingerprintUnconfirmed("unsupported_major")
     if relkind != "r" or has_children:
-        raise Unconfirmed(f"comparison requires a plain table: {table}")
+        raise FingerprintUnconfirmed("not_plain_table")
     if not primary_key:
-        raise Unconfirmed(f"comparison requires a primary key: {table}")
-    if unsupported := [f"{c['name']} {c['type']}" for c in columns if not c["supported"]]:
-        raise Unconfirmed(f"unsupported fingerprint type in {table}: {', '.join(unsupported)}")
+        raise FingerprintUnconfirmed("primary_key_missing")
+    if not all(c["supported"] for c in columns):
+        raise FingerprintUnconfirmed("unsupported_type")
     database_collation, database_version = _collation(
         {"collprovider": "d", "collisdeterministic": True}, None, database)
     described, versions = [], [database_version]
@@ -154,15 +176,15 @@ FROM {table}""").format(pk=_row_hash(catalog.primary_key), content=_row_hash(cat
 
 @contextmanager
 def _snapshot(conn) -> Iterator[None]:
-    """autocommit 연결 전용. 오류 문구에 행 값이 섞일 수 있어 영수증에는 SQLSTATE만 남긴다."""
+    """autocommit 연결 전용. 서버 오류 문구에 행 값이 섞일 수 있어 SQLSTATE만 남긴다."""
     try:
         with conn.transaction():
             conn.execute(_SNAPSHOT)
             yield
-    except psycopg.errors.QueryCanceled as e:
-        raise Unconfirmed(f"read exceeded statement_timeout {STATEMENT_TIMEOUT_MS}ms") from e
+    except psycopg.errors.QueryCanceled:
+        raise FingerprintUnconfirmed("statement_timeout") from None
     except psycopg.Error as e:
-        raise Unconfirmed(f"integrity snapshot could not be read ({e.sqlstate})") from e
+        raise FingerprintUnconfirmed("snapshot_unreadable", e.sqlstate) from None
 
 
 def _schema_fields(catalog: _Catalog) -> dict:
@@ -204,21 +226,22 @@ def _combined(verdicts: list[str]) -> str:
     return MATCH if verdicts and all(v == MATCH for v in verdicts) else UNKNOWN
 
 
-def _unknown_table(table: str, error: str, source: dict | None = None, target: dict | None = None) -> dict:
+def _unknown_table(table: str, code: str, sqlstate: str | None = None,
+                   source: dict | None = None, target: dict | None = None) -> dict:
     return {"name": table, "rows_src": source and source["rows"], "rows_dst": target and target["rows"],
             "source": source, "target": target, "match": False,
-            "data_verdict": UNKNOWN, "schema_verdict": UNKNOWN, "error": error}
+            "data_verdict": UNKNOWN, "schema_verdict": UNKNOWN, "error": code, "sqlstate": sqlstate}
 
 
 def _compare_table(src, dst, table: str) -> dict:
     try:
-        source, target = src.db_fingerprint(table), dst.db_fingerprint(table)
-    except Unconfirmed as e:
-        return _unknown_table(table, str(e))
+        with only_fixed_errors("connection_failed"):
+            source, target = src.db_fingerprint(table), dst.db_fingerprint(table)
+    except FingerprintUnconfirmed as e:
+        return _unknown_table(table, e.code, e.sqlstate)
     if source["server_major"] != target["server_major"]:
-        # 값 표현과 카탈로그가 메이저마다 다를 수 있어, 지문이 같아도 달라도 판단하지 않는다
-        majors = f"{source['server_major']} and {target['server_major']}"
-        return _unknown_table(table, f"PostgreSQL major versions differ: {majors}", source, target)
+        # 값 표현과 카탈로그가 메이저마다 다를 수 있어, 지문이 같아도 달라도 판단하지 않는다. 양쪽 메이저는 지문에 남는다.
+        return _unknown_table(table, "major_version_mismatch", source=source, target=target)
     data, schema = _data_verdict(source, target), schema_verdict(source, target)
     return {"name": table, "rows_src": source["rows"], "rows_dst": target["rows"],
             "source": source, "target": target, "match": data == schema == MATCH,
@@ -259,10 +282,10 @@ def sequence_state(conn, sequence: str, table: str, column: str) -> SequenceStat
             column=sql.Identifier(column), table=sql.Identifier(*table.split(".")), sequence=identifier),
             (identifier.as_string(conn),)).fetchone()
     if row is None:
-        raise Unconfirmed(f"sequence settings not found: {sequence}")
+        raise FingerprintUnconfirmed("sequence_not_found")
     last_value, is_called, increment, cycle, maximum, max_id = row
     if increment != 1 or cycle:
-        raise Unconfirmed(f"only ascending unit non-cycling sequences are supported: {sequence}")
+        raise FingerprintUnconfirmed("sequence_unsupported")
     return SequenceState(last_value, is_called, max_id, maximum)
 
 
@@ -273,16 +296,17 @@ def next_safe_value(source: SequenceState, target: SequenceState) -> int:
 
 def correct_sequence(src, dst, sequence: str, table: str, column: str) -> dict:
     """쓰기를 막은 뒤 부른다. 목적지 시퀀스를 올리기만 하고, 올린 값을 다시 읽어 확인한 영수증 항목을 돌려준다."""
-    source = src.sequence_state(sequence, table, column)
-    before = dst.sequence_state(sequence, table, column)
-    wanted = next_safe_value(source, before)
-    if wanted > before.maximum:
-        raise Unconfirmed(f"sequence next value {wanted} exceeds its maximum {before.maximum}: {sequence}")
-    if wanted > before.next_value:
-        dst.raise_sequence(sequence, wanted)
-    after = dst.sequence_state(sequence, table, column)
-    if after.next_value != wanted:
-        raise Unconfirmed(f"sequence next value is {after.next_value}, expected {wanted}: {sequence}")
+    with only_fixed_errors("sequence_unconfirmed"):
+        source = src.sequence_state(sequence, table, column)
+        before = dst.sequence_state(sequence, table, column)
+        wanted = next_safe_value(source, before)
+        if wanted > before.maximum:
+            raise FingerprintUnconfirmed("sequence_over_maximum")
+        if wanted > before.next_value:
+            dst.raise_sequence(sequence, wanted)
+        after = dst.sequence_state(sequence, table, column)
+        if after.next_value != wanted:
+            raise FingerprintUnconfirmed("sequence_readback_mismatch")
     return {"name": sequence, "src_last": source.last_value, "src_is_called": source.is_called,
             "src_next": source.next_value, "src_max_id": source.max_id,
             "dst_last_before": before.last_value, "dst_is_called_before": before.is_called,

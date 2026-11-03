@@ -2,7 +2,9 @@
 
 import re
 import time
+import traceback
 from decimal import Decimal
+from types import SimpleNamespace
 from uuid import uuid4
 
 import psycopg
@@ -14,6 +16,7 @@ from bravo_cutover import db_fingerprint
 from bravo_cutover.db_fingerprint import (
     HASH_RULE,
     DbFingerprintComparer,
+    FingerprintUnconfirmed,
     SequenceState,
     correct_sequence,
     fingerprint,
@@ -270,14 +273,14 @@ def test_stale_column_collation_version_is_unknown(pair):
         "UPDATE pg_collation SET collversion='old-provider-version' WHERE collname='stale'")
     result = compare(pair)
     assert (result["verdict"], result["data_verdict"], result["schema_verdict"]) == ("UNKNOWN", "UNKNOWN", "UNKNOWN")
-    assert "stale collation" in result["tables"][0]["error"]
+    assert result["tables"][0]["error"] == "collation_unverified"
 
 
 def test_stale_database_collation_version_is_unknown(pair):
     run(pair[1], "UPDATE pg_database SET datcollversion='old-provider-version' WHERE datname=current_database()")
     result = compare(pair)
     assert result["verdict"] == "UNKNOWN"
-    assert "stale collation" in result["tables"][0]["error"]
+    assert result["tables"][0]["error"] == "collation_unverified"
 
 
 def test_only_collation_version_differs_between_sides_is_unknown():
@@ -337,7 +340,7 @@ def test_different_major_versions_are_unknown_even_with_equal_fingerprints(acros
     assert all(source[key] == target[key] for key in ("rows", "pk_hash", "content_hash"))
     assert (result["verdict"], result["data_verdict"], result["schema_verdict"]) == ("UNKNOWN", "UNKNOWN", "UNKNOWN")
     assert table["match"] is False and table["rows_src"] == table["rows_dst"] == 3
-    assert "major" in table["error"] and "16" in table["error"] and "18" in table["error"]
+    assert table["error"] == "major_version_mismatch"
 
 
 def test_different_major_versions_change_the_gate_schema_hash(across_majors):
@@ -368,7 +371,7 @@ def test_major_outside_the_tested_versions_is_unknown(pair, monkeypatch):
     monkeypatch.setattr(db_fingerprint, "SUPPORTED_MAJORS", ())
     result = compare(pair)
     assert result["verdict"] == "UNKNOWN"
-    assert "not verified" in result["tables"][0]["error"]
+    assert result["tables"][0]["error"] == "unsupported_major"
 
 
 class Side:
@@ -440,21 +443,21 @@ def test_session_settings_do_not_leak_after_fingerprint(pair):
 
 
 # 불명: 성공으로 넘기지 않는다 --------------------------------------------------
-@pytest.mark.parametrize("setup, column", [
-    ("ALTER TABLE sample ADD COLUMN extra money", "money"),
-    ("ALTER TABLE sample ADD COLUMN extra integer[]", "integer[]"),
-    ("ALTER TABLE sample ADD COLUMN extra point", "point"),
-    ("CREATE TYPE public.mood AS ENUM ('ok'); ALTER TABLE sample ADD COLUMN extra public.mood", "public.mood"),
-    ("CREATE DOMAIN public.short_text AS text; ALTER TABLE sample ADD COLUMN extra public.short_text", "public.short_text"),
-    ("CREATE TYPE public.pair AS (a int, b int); ALTER TABLE sample ADD COLUMN extra public.pair", "public.pair"),
+@pytest.mark.parametrize("setup", [
+    "ALTER TABLE sample ADD COLUMN extra money",
+    "ALTER TABLE sample ADD COLUMN extra integer[]",
+    "ALTER TABLE sample ADD COLUMN extra point",
+    "CREATE TYPE public.mood AS ENUM ('ok'); ALTER TABLE sample ADD COLUMN extra public.mood",
+    "CREATE DOMAIN public.short_text AS text; ALTER TABLE sample ADD COLUMN extra public.short_text",
+    "CREATE TYPE public.pair AS (a int, b int); ALTER TABLE sample ADD COLUMN extra public.pair",
 ])
-def test_unsupported_type_is_unknown_on_either_side(pair, setup, column):
+def test_unsupported_type_is_unknown_on_either_side(pair, setup):
     run(pair[1], setup)
     result = compare(pair)
     assert (result["verdict"], result["data_verdict"], result["schema_verdict"]) == ("UNKNOWN", "UNKNOWN", "UNKNOWN")
     table = result["tables"][0]
     assert table["match"] is False and table["rows_src"] is None and table["rows_dst"] is None
-    assert column in table["error"]
+    assert table["error"] == "unsupported_type"
 
 
 def test_statement_timeout_of_three_seconds_is_unconfirmed(pair):
@@ -469,27 +472,28 @@ def test_statement_timeout_of_three_seconds_is_unconfirmed(pair):
 
 
 def test_timeout_through_compare_is_unknown_not_success(pair):
-    # Executor 경로는 DbControl의 lock_timeout 1초가 먼저 끊는다. 어느 쪽이든 불명이다.
+    # Executor 경로는 DbControl의 lock_timeout 1초가 먼저 끊는다(55P03). 어느 쪽이든 불명이다.
     with psycopg.connect(pair[1]) as holder:
         holder.execute("LOCK TABLE sample IN ACCESS EXCLUSIVE MODE")
         result = compare(pair)
         holder.rollback()
     assert (result["verdict"], result["data_verdict"], result["schema_verdict"]) == ("UNKNOWN", "UNKNOWN", "UNKNOWN")
+    assert (result["tables"][0]["error"], result["tables"][0]["sqlstate"]) == ("snapshot_unreadable", "55P03")
 
 
-@pytest.mark.parametrize("setup, table, message", [
-    ("ALTER TABLE sample DROP CONSTRAINT sample_pkey", TABLE, "primary key"),
-    ("SELECT 1", "public.missing", "missing"),
-    ("SELECT 1", "sample", "schema-qualified"),
-    ("CREATE VIEW sample_view AS SELECT * FROM sample", "public.sample_view", "plain table"),
-    ("CREATE TABLE child () INHERITS (sample)", TABLE, "plain table"),
+@pytest.mark.parametrize("setup, table, code", [
+    ("ALTER TABLE sample DROP CONSTRAINT sample_pkey", TABLE, "primary_key_missing"),
+    ("SELECT 1", "public.missing", "table_missing"),
+    ("SELECT 1", "sample", "table_not_qualified"),
+    ("CREATE VIEW sample_view AS SELECT * FROM sample", "public.sample_view", "not_plain_table"),
+    ("CREATE TABLE child () INHERITS (sample)", TABLE, "not_plain_table"),
 ])
-def test_unverifiable_table_is_unknown(pair, setup, table, message):
+def test_unverifiable_table_is_unknown(pair, setup, table, code):
     for dsn in pair:
         run(dsn, setup)
     result = compare(pair, [table])
     assert result["verdict"] == "UNKNOWN"
-    assert message in result["tables"][0]["error"]
+    assert result["tables"][0]["error"] == code
 
 
 def test_row_security_cannot_silently_hide_rows(pair, postgres_dsn):
@@ -661,9 +665,9 @@ def test_receipt_contains_source_last_value_for_the_design_receipt(pair):
 
 
 @pytest.mark.parametrize("setup, message", [
-    ("ALTER SEQUENCE public.events_id_seq INCREMENT BY 2", "unit"),
-    ("ALTER SEQUENCE public.events_id_seq CYCLE", "unit"),
-    ("ALTER SEQUENCE public.events_id_seq MAXVALUE 5", "maximum"),
+    ("ALTER SEQUENCE public.events_id_seq INCREMENT BY 2", "sequence_unsupported"),
+    ("ALTER SEQUENCE public.events_id_seq CYCLE", "sequence_unsupported"),
+    ("ALTER SEQUENCE public.events_id_seq MAXVALUE 5", "sequence_over_maximum"),
 ])
 def test_unsupported_or_overflowing_sequence_is_unconfirmed_and_untouched(pair, setup, message):
     seed_events(pair[0], 10)
@@ -672,6 +676,102 @@ def test_unsupported_or_overflowing_sequence_is_unconfirmed_and_untouched(pair, 
     with pytest.raises(Unconfirmed, match=message):
         correct(pair)
     assert run(pair[1], "SELECT last_value, is_called FROM public.events_id_seq") == before
+
+
+# 영수증으로 나가는 오류 -----------------------------------------------------------
+SECRET = "FIXTURE-PRIVATE-VALUE"
+BAD_DSN = f"host=secret.internal port={SECRET} user={SECRET} password={SECRET} dbname=chat"
+
+
+class RaisingSide:
+    """연결 · 서버 원문을 담은 예외를 던지는 상대."""
+
+    def __init__(self, error):
+        self.error = error
+
+    def db_fingerprint(self, table):
+        raise self.error
+
+    def sequence_state(self, sequence, table, column):
+        raise self.error
+
+
+LEAKY_ERRORS = [
+    Unconfirmed(f"control connection: password={SECRET} host=secret.internal"),
+    psycopg.OperationalError(f'connection to server at "secret.internal" failed: {SECRET}'),
+]
+
+
+def assert_no_secret(*values):
+    text = " ".join(str(v) for v in values)
+    assert SECRET not in text and "secret.internal" not in text, text
+
+
+@pytest.mark.parametrize("bad", [BAD_DSN, f"host=127.0.0.1 port={SECRET} user={SECRET} dbname=chat"],
+                         ids=["host", "port"])
+def test_bad_connection_text_never_reaches_the_comparison_result(pair, bad):
+    for src, dst in ((bad, pair[1]), (pair[0], bad)):
+        result = DbFingerprintComparer().compare(DbControl(src), DbControl(dst), [TABLE])
+        assert (result["verdict"], result["data_verdict"], result["schema_verdict"]) == ("UNKNOWN", "UNKNOWN", "UNKNOWN")
+        assert result["tables"][0]["error"] == "connection_failed"
+        assert_no_secret(result)
+
+
+@pytest.mark.parametrize("error", LEAKY_ERRORS, ids=["unconfirmed", "psycopg"])
+def test_raw_exception_text_never_reaches_the_comparison_result(error):
+    healthy = SimpleNamespace(db_fingerprint=lambda table: {})
+    for src, dst in ((RaisingSide(error), healthy), (healthy, RaisingSide(error))):
+        result = DbFingerprintComparer().compare(src, dst, [TABLE])
+        assert result["verdict"] == "UNKNOWN" and result["tables"][0]["error"] == "connection_failed"
+        assert_no_secret(result)
+
+
+def rendered(error):
+    # 원문이 예외 연결(cause)로 로그에 찍히지 않는지까지 본다
+    return "".join(traceback.format_exception(error))
+
+
+def test_bad_connection_text_never_leaves_sequence_correction(pair):
+    for src, dst in ((BAD_DSN, pair[1]), (pair[0], BAD_DSN)):
+        with pytest.raises(Unconfirmed) as caught:
+            correct_sequence(DbControl(src), DbControl(dst), *SEQUENCE)
+        assert caught.value.code == "connection_failed"
+        assert_no_secret(rendered(caught.value))
+
+
+@pytest.mark.parametrize("error", LEAKY_ERRORS, ids=["unconfirmed", "psycopg"])
+def test_raw_exception_from_raising_the_sequence_never_leaves(error):
+    class FailingRaise(SequenceSide):
+        def raise_sequence(self, sequence, wanted):
+            raise error
+
+    with pytest.raises(Unconfirmed) as caught:
+        correct_sequence(SequenceSide(state(100, True, 100)), FailingRaise(state(1, False, 0)), *SEQUENCE)
+    assert caught.value.code == "sequence_unconfirmed"
+    assert_no_secret(rendered(caught.value))
+
+
+def test_direct_control_calls_do_not_expose_connection_text():
+    control = DbControl(BAD_DSN)
+    for call in (lambda: control.db_fingerprint(TABLE), lambda: control.sequence_state(*SEQUENCE)):
+        with pytest.raises(Unconfirmed) as caught:
+            call()
+        assert caught.value.code == "connection_failed"
+        assert_no_secret(rendered(caught.value))
+
+
+def test_server_error_text_is_reduced_to_sqlstate(pair):
+    # 서버 오류 문구에는 값이 섞일 수 있다. 값 대신 SQLSTATE만 남는다.
+    with psycopg.connect(pair[0], autocommit=True) as conn, pytest.raises(Unconfirmed) as caught:
+        with db_fingerprint._snapshot(conn):
+            conn.execute(f"SELECT '{SECRET}'::int")
+    assert (caught.value.code, caught.value.sqlstate) == ("snapshot_unreadable", "22P02")
+    assert_no_secret(rendered(caught.value))
+
+
+@pytest.mark.parametrize("sqlstate, kept", [("42501", "42501"), (f"{SECRET}", None), ("4250", None), (None, None)])
+def test_only_well_formed_sqlstate_is_kept(sqlstate, kept):
+    assert FingerprintUnconfirmed("snapshot_unreadable", sqlstate).sqlstate == kept
 
 
 class SequenceSide:
@@ -689,7 +789,7 @@ class SequenceSide:
 
 def test_raise_that_did_not_take_effect_is_unconfirmed():
     source, target = SequenceSide(state(100, True, 100)), SequenceSide(state(1, False, 0))
-    with pytest.raises(Unconfirmed, match="expected 101"):
+    with pytest.raises(Unconfirmed, match="sequence_readback_mismatch"):
         correct_sequence(source, target, *SEQUENCE)
     assert target.raised == [101]
 

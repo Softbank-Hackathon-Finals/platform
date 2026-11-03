@@ -14,48 +14,48 @@
     }
   },
   "source_sha256": {
-    "db_fingerprint.py": "e35ef5ac271cae97d5219f5811839531364910378198cf6bc00cdb0ae2d46234",
+    "db_fingerprint.py": "4f6f27a769f0d8340d5dbb293208179d6ce2e6fc506f7bda2adeb4373f9c9fdd",
     "measure_fingerprint.py": "9dc85d12c46fa2912ecdc82f522fe6c6ab2d8f95099151f48b37697904834355",
     "baseline_integrity.py": "c2e85106599ce9014b3ebdd6b28d827c2dc78f30d52d3b6d36363823eaeec2a5"
   },
   "hash_rule": "db-sql-v1:fixed-session-text;columns-by-name;jsonb-array;utf8;sha256-of-row-sha256;pk-order-collate-c",
   "statement_timeout_ms": 3000,
   "first_run_s": {
-    "db_sql": 1.23,
-    "python_134": 6.511
+    "db_sql": 0.665,
+    "python_134": 4.179
   },
   "compare_two_sides": {
     "db_sql": {
       "verdict": "MATCH",
       "data_verdict": "MATCH",
       "schema_verdict": "MATCH",
-      "median_s": 0.882,
-      "max_s": 1.019,
+      "median_s": 0.631,
+      "max_s": 0.658,
       "samples_s": [
-        0.958,
-        1.019,
-        0.882,
-        0.82,
-        0.757
+        0.618,
+        0.658,
+        0.624,
+        0.631,
+        0.632
       ]
     },
     "python_134": {
       "verdict": "MATCH",
-      "median_s": 5.329,
-      "max_s": 6.756,
+      "median_s": 4.21,
+      "max_s": 4.973,
       "samples_s": [
-        4.823,
-        5.295,
-        5.329,
-        5.411,
-        6.756
+        4.21,
+        4.209,
+        4.165,
+        4.973,
+        4.376
       ]
     }
   },
   "one_table_one_side_s": {
     "db_sql": {
-      "public.attachments": 0.011,
-      "public.messages": 0.343
+      "public.attachments": 0.01,
+      "public.messages": 0.304
     }
   },
   "traffic_from_target": {
@@ -90,7 +90,7 @@
     "server_version": "16.15 (Debian 16.15-1.pgdg13+2)",
     "reference_version": "18.4 (Debian 18.4-1.pgdg13+1)",
     "same_rows_pk_content": true,
-    "error": "PostgreSQL major versions differ: 18 and 16",
+    "error": "major_version_mismatch",
     "verdict": "UNKNOWN",
     "data_verdict": "UNKNOWN",
     "schema_verdict": "UNKNOWN"

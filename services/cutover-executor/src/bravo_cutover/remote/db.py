@@ -10,7 +10,12 @@ from dataclasses import dataclass
 import psycopg
 from psycopg import sql
 
-from bravo_cutover.db_fingerprint import SequenceState, fingerprint, sequence_state
+from bravo_cutover.db_fingerprint import (
+    SequenceState,
+    fingerprint,
+    only_fixed_errors,
+    sequence_state,
+)
 from bravo_cutover.remote import Unconfirmed
 
 _TIMEOUTS = "-c statement_timeout=3000 -c lock_timeout=1000"
@@ -174,18 +179,12 @@ class DbControl:
             sql.Identifier(column), sql.Identifier(*table.split("."))))
 
     def sequence_state(self, sequence: str, table: str, column: str) -> SequenceState:
-        try:
-            with self._connect() as conn:
-                return sequence_state(conn, sequence, table, column)
-        except psycopg.Error as e:
-            raise Unconfirmed(str(e)) from e
+        with only_fixed_errors("connection_failed"), self._connect() as conn:
+            return sequence_state(conn, sequence, table, column)
 
     def db_fingerprint(self, table: str) -> dict:
-        try:
-            with self._connect() as conn:
-                return fingerprint(conn, table)
-        except psycopg.Error as e:
-            raise Unconfirmed(f"integrity snapshot could not be read ({e.sqlstate})") from e
+        with only_fixed_errors("connection_failed"), self._connect() as conn:
+            return fingerprint(conn, table)
 
     def row_count(self, table: str) -> int:
         return self._one(sql.SQL("SELECT count(*) FROM {}").format(sql.Identifier(*table.split("."))))
