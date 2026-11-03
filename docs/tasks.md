@@ -134,8 +134,8 @@ Claude Code는 `/todo-task`, Codex는 `$todo-task`로 이 순서를 따르는 �
 
 **할 일**
 - [ ] k3d에서 먼저 만들고, T2 뒤 목적지에서 재확인
-- [ ] 네임스페이스 밖 · 메타데이터 · 인터넷 접속 거부 확인
-- [ ] privileged · hostPath Pod와 다른 네임스페이스 Secret 읽기 거부 확인
+- [x] 네임스페이스 밖 · 메타데이터 · 인터넷 접속 거부 확인
+- [x] privileged · hostPath Pod와 다른 네임스페이스 Secret 읽기 거부 확인
 - [ ] 결과를 ADR로 남김
 
 **완료 기준** 격리 시험 스크립트가 통과하고, 네임스페이스 생성 직후 자동으로 돌릴 수 있다.

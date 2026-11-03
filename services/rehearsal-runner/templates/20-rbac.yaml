@@ -1,0 +1,43 @@
+# rehearsal-exec 권한: 이 네임스페이스 안에서 앱 복사본을 띄우고 시험하는 데 필요한 것만.
+# 주지 않는 것: Secret 읽기, Role · RoleBinding 변경(스스로 권한 키우기), 클러스터 범위 권한(ClusterRole 없음).
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: rehearsal-exec
+  namespace: ${NAMESPACE}
+rules:
+  - apiGroups: [""]
+    resources: ["pods", "services", "configmaps", "persistentvolumeclaims"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: [""]
+    resources: ["pods/log"]
+    verbs: ["get"]
+  - apiGroups: [""]
+    resources: ["pods/exec"]
+    verbs: ["get", "create"]
+  - apiGroups: [""]
+    resources: ["events"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["apps"]
+    resources: ["deployments", "statefulsets"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: ["apps"]
+    resources: ["replicasets"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["batch"]
+    resources: ["jobs"]
+    verbs: ["get", "list", "watch", "create", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: rehearsal-exec
+  namespace: ${NAMESPACE}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: rehearsal-exec
+subjects:
+  - kind: ServiceAccount
+    name: rehearsal-exec
+    namespace: ${NAMESPACE}
