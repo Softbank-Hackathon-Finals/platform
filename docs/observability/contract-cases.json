@@ -1,0 +1,658 @@
+{
+  "description": "T36 판정 규칙의 계약 시험. judgement: 기준 창에 RFC 6902 patch를 적용하고 inputs를 덮어쓴 뒤 판정한 결과가 expect와 같아야 한다. schema_reject: 스키마가 거부해야 하는 문서. 규칙은 README 3절.",
+  "judgement": {
+    "base": {
+      "window": "examples/window-shift-10.json",
+      "profile": {
+        "id": "demo-shift",
+        "version": "1"
+      },
+      "inputs": {
+        "plan_id": "plan-demo",
+        "state": "SHIFT",
+        "weight_target": 10,
+        "observe_from": "2026-11-08T05:31:05Z",
+        "decided_at": "2026-11-08T05:31:22Z",
+        "prior_unknown": 0
+      }
+    },
+    "cases": [
+      {
+        "id": "J00",
+        "description": "기준: 10% 단계 정상",
+        "patch": [],
+        "expect": {
+          "verdict": "PASS",
+          "reasons": [],
+          "action": "ADVANCE_ALLOWED"
+        }
+      },
+      {
+        "id": "J01",
+        "description": "목적지 5xx 30건 (30/2000 = 1.5%)",
+        "patch": [
+          {
+            "op": "replace",
+            "path": "/pools/target/http_5xx",
+            "value": 30
+          }
+        ],
+        "expect": {
+          "verdict": "FAIL",
+          "reasons": [
+            "ERROR_RATE"
+          ],
+          "action": "SET_WEIGHT_0"
+        }
+      },
+      {
+        "id": "J02",
+        "description": "환경을 알 수 없는 시간 초과 25건도 오류다 (Edge · Tunnel 장애는 서버 지표에 안 보인다)",
+        "patch": [
+          {
+            "op": "replace",
+            "path": "/unattributed/timeout",
+            "value": 25
+          }
+        ],
+        "expect": {
+          "verdict": "FAIL",
+          "reasons": [
+            "ERROR_RATE"
+          ],
+          "action": "SET_WEIGHT_0"
+        }
+      },
+      {
+        "id": "J03",
+        "description": "목적지 p95 1600ms",
+        "patch": [
+          {
+            "op": "replace",
+            "path": "/pools/target/p95_ms",
+            "value": 1600
+          }
+        ],
+        "expect": {
+          "verdict": "FAIL",
+          "reasons": [
+            "P95"
+          ],
+          "action": "SET_WEIGHT_0"
+        }
+      },
+      {
+        "id": "J04",
+        "description": "멱등 충돌(409) 1건은 표본 수와 상관없이 FAIL",
+        "patch": [
+          {
+            "op": "replace",
+            "path": "/pools/target/integrity_conflict",
+            "value": 1
+          }
+        ],
+        "expect": {
+          "verdict": "FAIL",
+          "reasons": [
+            "INTEGRITY_CONFLICT"
+          ],
+          "action": "SET_WEIGHT_0"
+        }
+      },
+      {
+        "id": "J05",
+        "description": "창이 오지 않음 → 0건이 아니라 UNKNOWN",
+        "window": null,
+        "expect": {
+          "verdict": "UNKNOWN",
+          "reasons": [
+            "MISSING"
+          ],
+          "action": "HOLD"
+        }
+      },
+      {
+        "id": "J06",
+        "description": "받은 지 24초 지난 창 (기준 20초)",
+        "inputs": {
+          "decided_at": "2026-11-08T05:31:45Z"
+        },
+        "expect": {
+          "verdict": "UNKNOWN",
+          "reasons": [
+            "STALE"
+          ],
+          "action": "HOLD"
+        }
+      },
+      {
+        "id": "J07",
+        "description": "가중치 변경 전에 시작한 창은 이전 가중치가 섞여 쓰지 않는다",
+        "inputs": {
+          "observe_from": "2026-11-08T05:31:15Z"
+        },
+        "expect": {
+          "verdict": "UNKNOWN",
+          "reasons": [
+            "WINDOW_BEFORE_CHANGE"
+          ],
+          "action": "HOLD"
+        }
+      },
+      {
+        "id": "J08",
+        "description": "창 길이가 기준(10초)과 다름 (30초)",
+        "patch": [
+          {
+            "op": "replace",
+            "path": "/window/end",
+            "value": "2026-11-08T05:31:40Z"
+          },
+          {
+            "op": "replace",
+            "path": "/received_at",
+            "value": "2026-11-08T05:31:41Z"
+          }
+        ],
+        "inputs": {
+          "decided_at": "2026-11-08T05:31:42Z"
+        },
+        "expect": {
+          "verdict": "UNKNOWN",
+          "reasons": [
+            "WINDOW_MISMATCH"
+          ],
+          "action": "HOLD"
+        }
+      },
+      {
+        "id": "J09",
+        "description": "창이 끝나기 3초 전에 받음 → 생산자 시계가 앞서 있음",
+        "patch": [
+          {
+            "op": "replace",
+            "path": "/received_at",
+            "value": "2026-11-08T05:31:17Z"
+          }
+        ],
+        "expect": {
+          "verdict": "UNKNOWN",
+          "reasons": [
+            "CLOCK_SKEW"
+          ],
+          "action": "HOLD"
+        }
+      },
+      {
+        "id": "J10",
+        "description": "표본 부족 (전체 400건, 목적지 40건), 오류 없음",
+        "patch": [
+          {
+            "op": "replace",
+            "path": "/pools/source/requests",
+            "value": 360
+          },
+          {
+            "op": "replace",
+            "path": "/pools/target/requests",
+            "value": 40
+          }
+        ],
+        "expect": {
+          "verdict": "UNKNOWN",
+          "reasons": [
+            "INSUFFICIENT_SAMPLES"
+          ],
+          "action": "HOLD"
+        }
+      },
+      {
+        "id": "J11",
+        "description": "10%로 바꿨는데 실제 20%가 목적지로 감 → 아직 반영 전이거나 분배 이상",
+        "patch": [
+          {
+            "op": "replace",
+            "path": "/pools/source/requests",
+            "value": 1600
+          },
+          {
+            "op": "replace",
+            "path": "/pools/target/requests",
+            "value": 400
+          }
+        ],
+        "expect": {
+          "verdict": "UNKNOWN",
+          "reasons": [
+            "NOT_APPLIED"
+          ],
+          "action": "HOLD"
+        }
+      },
+      {
+        "id": "J12",
+        "description": "UNKNOWN 3회 연속(직전 2회 + 이번) → SHIFT는 가중치 0. 0은 쓰기 DB가 그대로라 항상 안전한 쪽",
+        "window": null,
+        "inputs": {
+          "prior_unknown": 2
+        },
+        "expect": {
+          "verdict": "UNKNOWN",
+          "reasons": [
+            "MISSING"
+          ],
+          "action": "SET_WEIGHT_0"
+        }
+      },
+      {
+        "id": "J13",
+        "description": "FAIL이 UNKNOWN보다 우선한다 (분배 이상 + 멱등 충돌)",
+        "patch": [
+          {
+            "op": "replace",
+            "path": "/pools/source/requests",
+            "value": 1600
+          },
+          {
+            "op": "replace",
+            "path": "/pools/target/requests",
+            "value": 400
+          },
+          {
+            "op": "replace",
+            "path": "/pools/target/integrity_conflict",
+            "value": 2
+          }
+        ],
+        "expect": {
+          "verdict": "FAIL",
+          "reasons": [
+            "INTEGRITY_CONFLICT",
+            "NOT_APPLIED"
+          ],
+          "action": "SET_WEIGHT_0"
+        }
+      },
+      {
+        "id": "J14",
+        "description": "시간 초과가 많아 표본이 줄어도 오류가 충분하면 FAIL (70 / max(400, 1000) = 7%)",
+        "patch": [
+          {
+            "op": "replace",
+            "path": "/pools/source/requests",
+            "value": 300
+          },
+          {
+            "op": "replace",
+            "path": "/pools/target/requests",
+            "value": 30
+          },
+          {
+            "op": "replace",
+            "path": "/unattributed/timeout",
+            "value": 70
+          }
+        ],
+        "expect": {
+          "verdict": "FAIL",
+          "reasons": [
+            "ERROR_RATE",
+            "INSUFFICIENT_SAMPLES"
+          ],
+          "action": "SET_WEIGHT_0"
+        }
+      },
+      {
+        "id": "J15",
+        "description": "50% 단계 정상",
+        "patch": [
+          {
+            "op": "replace",
+            "path": "/pools/source/requests",
+            "value": 1000
+          },
+          {
+            "op": "replace",
+            "path": "/pools/target/requests",
+            "value": 1000
+          }
+        ],
+        "inputs": {
+          "weight_target": 50
+        },
+        "expect": {
+          "verdict": "PASS",
+          "reasons": [],
+          "action": "ADVANCE_ALLOWED"
+        }
+      },
+      {
+        "id": "J16",
+        "description": "100% 단계: 가중치 0인 출발지는 표본을 요구하지 않는다",
+        "patch": [
+          {
+            "op": "replace",
+            "path": "/pools/source",
+            "value": {
+              "requests": 0,
+              "http_5xx": 0,
+              "integrity_conflict": 0,
+              "p95_ms": null
+            }
+          },
+          {
+            "op": "replace",
+            "path": "/pools/target/requests",
+            "value": 2000
+          }
+        ],
+        "inputs": {
+          "weight_target": 100
+        },
+        "expect": {
+          "verdict": "PASS",
+          "reasons": [],
+          "action": "ADVANCE_ALLOWED"
+        }
+      },
+      {
+        "id": "J17",
+        "description": "WATCH 정상",
+        "patch": [
+          {
+            "op": "replace",
+            "path": "/pools/source",
+            "value": {
+              "requests": 0,
+              "http_5xx": 0,
+              "integrity_conflict": 0,
+              "p95_ms": null
+            }
+          },
+          {
+            "op": "replace",
+            "path": "/pools/target/requests",
+            "value": 2000
+          }
+        ],
+        "inputs": {
+          "state": "WATCH",
+          "weight_target": 100
+        },
+        "expect": {
+          "verdict": "PASS",
+          "reasons": [],
+          "action": "NONE"
+        }
+      },
+      {
+        "id": "J18",
+        "description": "WATCH 목적지 장애 (S4 장면) → 알림과 되돌리기 제안. 되돌리기는 사람 승인 뒤",
+        "patch": [
+          {
+            "op": "replace",
+            "path": "/pools/source",
+            "value": {
+              "requests": 0,
+              "http_5xx": 0,
+              "integrity_conflict": 0,
+              "p95_ms": null
+            }
+          },
+          {
+            "op": "replace",
+            "path": "/pools/target/requests",
+            "value": 2000
+          },
+          {
+            "op": "replace",
+            "path": "/pools/target/http_5xx",
+            "value": 50
+          }
+        ],
+        "inputs": {
+          "state": "WATCH",
+          "weight_target": 100
+        },
+        "expect": {
+          "verdict": "FAIL",
+          "reasons": [
+            "ERROR_RATE"
+          ],
+          "action": "ALERT_FAILBACK_PROPOSAL"
+        }
+      },
+      {
+        "id": "J19",
+        "description": "WATCH 관측 불가가 계속돼도 자동 조치는 하지 않는다",
+        "window": null,
+        "inputs": {
+          "state": "WATCH",
+          "weight_target": 100,
+          "prior_unknown": 5
+        },
+        "expect": {
+          "verdict": "UNKNOWN",
+          "reasons": [
+            "MISSING"
+          ],
+          "action": "ALERT_UNOBSERVABLE"
+        }
+      },
+      {
+        "id": "J20",
+        "description": "WATCH 진입 전(컷오버 쓰기 정지 중 503 포함)에 시작한 창은 쓰지 않는다",
+        "patch": [
+          {
+            "op": "replace",
+            "path": "/pools/source",
+            "value": {
+              "requests": 0,
+              "http_5xx": 0,
+              "integrity_conflict": 0,
+              "p95_ms": null
+            }
+          },
+          {
+            "op": "replace",
+            "path": "/pools/target/requests",
+            "value": 2000
+          },
+          {
+            "op": "replace",
+            "path": "/pools/target/http_5xx",
+            "value": 400
+          }
+        ],
+        "inputs": {
+          "state": "WATCH",
+          "weight_target": 100,
+          "observe_from": "2026-11-08T05:31:12Z"
+        },
+        "expect": {
+          "verdict": "UNKNOWN",
+          "reasons": [
+            "WINDOW_BEFORE_CHANGE"
+          ],
+          "action": "ALERT_UNOBSERVABLE"
+        }
+      },
+      {
+        "id": "J21",
+        "description": "창이 늦게 도착: 05:31:20에 끝난 창을 05:40:00에 처음 받음 → 수신 시각이 최근이어도 창 자체가 오래됨",
+        "patch": [
+          {
+            "op": "replace",
+            "path": "/received_at",
+            "value": "2026-11-08T05:40:00Z"
+          }
+        ],
+        "inputs": {
+          "decided_at": "2026-11-08T05:40:01Z"
+        },
+        "expect": {
+          "verdict": "UNKNOWN",
+          "reasons": [
+            "STALE"
+          ],
+          "action": "HOLD"
+        }
+      },
+      {
+        "id": "J22",
+        "description": "수신 시각이 판정 시각보다 늦음 (플랫폼 시계로는 불가능 → 수신 시각을 믿을 수 없음)",
+        "patch": [
+          {
+            "op": "replace",
+            "path": "/received_at",
+            "value": "2026-11-08T05:31:30Z"
+          }
+        ],
+        "expect": {
+          "verdict": "UNKNOWN",
+          "reasons": [
+            "CLOCK_SKEW"
+          ],
+          "action": "HOLD"
+        }
+      },
+      {
+        "id": "J23",
+        "description": "다른 계획의 창 → 판정에 쓰지 않는다",
+        "patch": [
+          {
+            "op": "replace",
+            "path": "/plan_id",
+            "value": "plan-other"
+          }
+        ],
+        "expect": {
+          "verdict": "UNKNOWN",
+          "reasons": [
+            "PLAN_MISMATCH"
+          ],
+          "action": "HOLD"
+        }
+      },
+      {
+        "id": "J24",
+        "description": "10% 단계에서 목적지만 실패: 목적지 19/200 = 9.5%, 전체로는 0.95% → 환경별 오류율로 FAIL",
+        "patch": [
+          {
+            "op": "replace",
+            "path": "/pools/target/http_5xx",
+            "value": 19
+          }
+        ],
+        "expect": {
+          "verdict": "FAIL",
+          "reasons": [
+            "ERROR_RATE"
+          ],
+          "action": "SET_WEIGHT_0"
+        }
+      }
+    ]
+  },
+  "schema_reject": {
+    "base_window": "examples/window-shift-10.json",
+    "cases": [
+      {
+        "id": "R01",
+        "description": "음수 개수",
+        "patch": [
+          {
+            "op": "replace",
+            "path": "/pools/target/http_5xx",
+            "value": -1
+          }
+        ]
+      },
+      {
+        "id": "R02",
+        "description": "판정 입력은 부하 생성기만 (목적지 서버 지표로 목적지를 판정하지 않는다)",
+        "patch": [
+          {
+            "op": "replace",
+            "path": "/source",
+            "value": "server"
+          }
+        ]
+      },
+      {
+        "id": "R03",
+        "description": "요청 0건인데 p95가 있음",
+        "patch": [
+          {
+            "op": "replace",
+            "path": "/pools/target/requests",
+            "value": 0
+          },
+          {
+            "op": "replace",
+            "path": "/pools/target/p95_ms",
+            "value": 100
+          }
+        ]
+      },
+      {
+        "id": "R04",
+        "description": "환경 칸 누락",
+        "patch": [
+          {
+            "op": "remove",
+            "path": "/pools/target"
+          }
+        ]
+      }
+    ],
+    "judgement_cases": [
+      {
+        "id": "R11",
+        "description": "PASS인데 사유가 있음",
+        "judgement": {
+          "verdict": "PASS",
+          "reasons": [
+            "P95"
+          ],
+          "action": "ADVANCE_ALLOWED"
+        }
+      },
+      {
+        "id": "R12",
+        "description": "SHIFT FAIL인데 가중치를 0으로 돌리지 않음",
+        "judgement": {
+          "verdict": "FAIL",
+          "reasons": [
+            "ERROR_RATE"
+          ],
+          "action": "HOLD"
+        }
+      },
+      {
+        "id": "R13",
+        "description": "WATCH에서 가중치를 자동으로 바꿈 (되돌리기는 사람 승인)",
+        "judgement": {
+          "state": "WATCH",
+          "weight_target": 100,
+          "verdict": "UNKNOWN",
+          "reasons": [
+            "MISSING"
+          ],
+          "action": "SET_WEIGHT_0"
+        }
+      },
+      {
+        "id": "R14",
+        "description": "SHIFT UNKNOWN인데 다음 단계로 진행",
+        "judgement": {
+          "verdict": "UNKNOWN",
+          "reasons": [
+            "STALE"
+          ],
+          "action": "ADVANCE_ALLOWED"
+        }
+      }
+    ]
+  }
+}
