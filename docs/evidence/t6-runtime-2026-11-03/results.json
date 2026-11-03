@@ -1,0 +1,31 @@
+{
+  "actual_api_checks": {
+    "configmap_read_allowed": true,
+    "other_namespace_forbidden": true,
+    "secret_read_forbidden": true
+  },
+  "api_endpoint_public": false,
+  "audit_canary_seen": true,
+  "audit_event_count": 152,
+  "auth": "existing_individual_iam_user",
+  "checked_at": "2026-11-03T08:32:23.361889+00:00",
+  "cluster_readyz": "ok",
+  "evidence_scope": "foundation and access boundaries; no app/DB/migration completion",
+  "local_terraform_tests": 3,
+  "node_count": 1,
+  "post_validation_changes": {
+    "description": "Resolve AWS-managed EKS policy ARN from AWS partition; use documented synthetic IDs in negative tests. No deployed resource change.",
+    "terraform_live_plan_exit": 0,
+    "updated_main_sha256": "66d90dd38d6856f36cf1164c74b4374480f6ab37f5611a68eaa1454ab3cc4200"
+  },
+  "provisioning_source_commit": "d545d3b",
+  "public_endpoint": false,
+  "ready_node_count": 1,
+  "scope": "source_cluster_foundation_only",
+  "source_file_sha256": {
+    "infra/envs/source-eks/main.tf": "32de686ee7e13def4be1daf3418d7ecca69b42266c17e63c8359a36b0c167b3f",
+    "infra/envs/source-eks/variables.tf": "7d488f0e78ed9f577edf09ceb7218c6043a8accfa31f45ac7a28383fa7fc54a3",
+    "infra/envs/source-eks/versions.tf": "c6d650b8c850543e863b1aba830eaacd3adbbdbd7ebd804870f36b3fb9e9d982"
+  },
+  "sso_verified": false
+}
