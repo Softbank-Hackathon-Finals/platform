@@ -20,3 +20,9 @@
 이 검증은 네트워크 **설정**의 실제 생성·조회·삭제다. 패킷 전달, Flow Logs 이벤트 수신, EKS/RKE2, 앱, GCP 통합은 검증하지 않았다. T6·T7에서 egress와 클러스터 경로를 붙인 뒤 해당 검증을 수행해야 한다.
 
 T1 중 VPC·피어링 항목의 증거다. `component` 태그는 적용했지만 예산 알림·태그별 비용 조회는 아직 남았다. 팀원별 계정/권한 배포는 사용자 지시로 회의 뒤 결정한다. T1 이슈 전체 완료나 팀원 로그인 완료를 뜻하지 않는다.
+
+## 팀 모듈 구조로 정렬한 추가 검증
+
+`infra/modules/network/aws`와 `infra/envs/aws-foundation`, `infra/bootstrap/state-backend`로 경로와 책임을 나눴다. 구현 및 파일 해시는 [`module-source-sha256.json`](module-source-sha256.json)에 기록했다. 앞선 생성·삭제 증거와 그 소스 해시는 변경하지 않았다.
+
+기존 본인용 state의 32개 자원 주소를 `moved` 블록으로 연결했다. 실제 plan은 생성 0·변경 0·삭제 0이었고, 적용 뒤 AWS readback 25개 통과 및 drift plan 종료 코드 0을 확인했다. Terraform 1.16.5로 두 root와 모듈 validate, 모듈 경계 시험 6개, Ruff·Trivy HIGH/CRITICAL도 통과했다. [`module-migration.json`](module-migration.json), [`module-aws-readback.json`](module-aws-readback.json)을 참조한다.

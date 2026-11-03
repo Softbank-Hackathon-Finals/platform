@@ -1,0 +1,29 @@
+{
+  "implementation_commit": "d0a9165fe4ae0b1acc6e9b8042cdf95a951c6658",
+  "files": {
+    "infra/README.md": "c0c3abf4c145e7adae662b9c83c682de30f0175bcd559869efe8903ddedb03c1",
+    "infra/bootstrap/state-backend/.terraform.lock.hcl": "780af170c2abf4a1d06b3cb0b34cf74e173e6b46bd7842818587c18c560c6ab1",
+    "infra/bootstrap/state-backend/README.md": "a6c3afb4bdb3f4f986978e3d45abb03bbbc1e89092ca7459b0c5b4cee9d997b8",
+    "infra/bootstrap/state-backend/main.tf": "0ce4bf575b6378b08f58dbe60c3b3249d6adfa75cca225e5c1135443c387dae6",
+    "infra/bootstrap/state-backend/operator.auto.tfvars.example": "5797ed26b3394a2b3fbc42759ff472b9418bd8a44d3861dac1268826e8b1d79b",
+    "infra/envs/aws-foundation/.terraform.lock.hcl": "780af170c2abf4a1d06b3cb0b34cf74e173e6b46bd7842818587c18c560c6ab1",
+    "infra/envs/aws-foundation/Makefile": "5fadc5abcdd7e6a583febbc6114ad4925bd8348ba96d328d82aa4d9c6ee19e1e",
+    "infra/envs/aws-foundation/README.md": "15d1a219faab754dc189a815d99f3bfc57a24c22410aa0250ba0da97b1e742cf",
+    "infra/envs/aws-foundation/backend.hcl.example": "18963873392bcbf397cfff6f115199afb01eb3430f8e1b8bbcb8d25dde51f0fc",
+    "infra/envs/aws-foundation/main.tf": "0b469ba6b6ee71cf198ec01e59eb6fda7690dd42766aedffffdb410cabfff2ca",
+    "infra/envs/aws-foundation/moved.tf": "7875e0726baf93bb59b9fad351d49c611639b1b4ab5fbd05b4043f17357f8851",
+    "infra/envs/aws-foundation/operator.auto.tfvars.example": "51a5f9b5e9816b78f6c9c0b6646fac226475075be81ab06b4e2d6ab8420ea3b2",
+    "infra/envs/aws-foundation/ruff.toml": "6c0640dd90def5b244d6553d12ed8c0f0614a32ed59fe743826f86e421dfd2f3",
+    "infra/envs/aws-foundation/variables.tf": "04669032213de56f7eedd050b232093b66119aa8ba3827b298c99756011a49e5",
+    "infra/envs/aws-foundation/verify.py": "cfc006e77452ba21594df6e358ec89d16109bc074dc8fd2128646adf63d07b15",
+    "infra/envs/aws-foundation/versions.tf": "b6425736fbedba70675cecb307e7c88f664eb906e6699b52d262580c77765a89",
+    "infra/modules/network/aws/.terraform.lock.hcl": "780af170c2abf4a1d06b3cb0b34cf74e173e6b46bd7842818587c18c560c6ab1",
+    "infra/modules/network/aws/README.md": "308efc9e9eb06f6b56fca5fb29d2216ebfd5d3b61074a08287beb7c691c00896",
+    "infra/modules/network/aws/logging.tf": "2f82bf81503475d1ba19db4abb14a6c7239cd91db18d038af621c7a9197b18d8",
+    "infra/modules/network/aws/main.tf": "f32e2be4aafede276e48b2e11d3156c83a1bd0b2aa552b874c7fa3ced9e4bb7d",
+    "infra/modules/network/aws/outputs.tf": "2cd27729be230aa6f0ce5e9be387646987ab8a028ce905ad079e47648b0bbbb4",
+    "infra/modules/network/aws/tests/boundaries.tftest.hcl": "c23b4b714f3e9f8a8c114b4fac139dec13df8299d47116295790d8d9f6ae8363",
+    "infra/modules/network/aws/variables.tf": "d7241be9a2f25dfb2c86f2dda23528fc0140660db3a4b35be37ea709ccc9d56a",
+    "infra/modules/network/aws/versions.tf": "ceb0e66f3e52e49f1f157768804ce0bcc0de5fde8448f8eb4e191129bc454133"
+  }
+}
