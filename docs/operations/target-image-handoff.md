@@ -66,7 +66,31 @@ sudo /var/lib/rancher/rke2/bin/ctr \
 ```
 
 Check that the exact index reference exists in `k8s.io`, and the amd64 content
-is unpacked. Use the full original image reference plus index digest and
+is unpacked. Import can retain the OCI annotation's tag
+`ghcr.io/softbank-hackathon-finals/demo-chat:sha-ce5727eb3e3d2355077afdaadcb1a722aba9c7cd`
+without creating the exact `ghcr.io/softbank-hackathon-finals/demo-chat@sha256:001adc35a9fc767566552fb55c3c19a67b7c5efc7231fb02dc28cdeace99d0d4`
+name, even with `--base-name` and `--digests`. A `Never` Pod using the absent
+name will fail although the index bytes are present.
+
+Read `ctr images list` in the same socket/namespace. If the expected name is
+absent, select the imported reference whose descriptor digest is **exactly the
+original index digest** above, not the amd64 child digest. Set
+`VERIFIED_IMPORTED_REFERENCE` to that observed reference and add only the alias:
+
+```sh
+sudo /var/lib/rancher/rke2/bin/ctr \
+  --address /run/k3s/containerd/containerd.sock --namespace k8s.io \
+  images tag "$VERIFIED_IMPORTED_REFERENCE" \
+  ghcr.io/softbank-hackathon-finals/demo-chat@sha256:001adc35a9fc767566552fb55c3c19a67b7c5efc7231fb02dc28cdeace99d0d4
+```
+
+Read the exact destination name and descriptor digest again before launching
+the packaging Pod. If the expected name already has that digest, skip tagging;
+if it points to a different digest or the source descriptor cannot be verified,
+stop. Do not use `--force`, rebuild or change the archive to make a name match.
+An alias only adds a containerd image name; it does not prove that a Pod ran.
+
+Use the full original image reference plus index digest and
 `imagePullPolicy: Never` for this bounded offline development probe. A missing
 local image must fail instead of falling back to an unauthenticated private
 registry request. `Always` requires registry authentication and is not the
