@@ -1,0 +1,141 @@
+# T37 플랫폼 지표 저장소. 플랫폼 클러스터(VPC ②)에 하나 둔다.
+# 배포 전에 Secret bravo-prometheus-tls(ca.crt · tls.crt · tls.key)를 만든다. 서버 인증서 이름은
+# Collector가 부르는 주소(서비스 DNS, 노드 주소)를 포함해야 한다. 값은 git에 두지 않는다.
+# 콘솔 API 네임스페이스에 bravo.observability/platform-client=true 라벨을 붙여야 조회할 수 있다.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: bravo-observability
+  labels:
+    component: platform
+    pod-security.kubernetes.io/enforce: restricted
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: bravo-prometheus
+  namespace: bravo-observability
+automountServiceAccountToken: false
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: bravo-prometheus
+  namespace: bravo-observability
+  labels:
+    app: bravo-prometheus
+    component: platform
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: bravo-prometheus
+  template:
+    metadata:
+      labels:
+        app: bravo-prometheus
+        component: platform
+    spec:
+      serviceAccountName: bravo-prometheus
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        runAsGroup: 65534
+        fsGroup: 65534
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: prometheus
+          image: prom/prometheus:v3.15.1@sha256:fa3302279710be2f21a8301ec17a8b4f2301fd829bd113839b3b6b02b6f191a2
+          args:
+            - --config.file=/etc/prometheus/prometheus.yml
+            - --web.config.file=/etc/prometheus/web.yml
+            - --web.enable-otlp-receiver
+            - --storage.tsdb.path=/prometheus
+            - --storage.tsdb.retention.time=3d
+            - --storage.tsdb.retention.size=4GB
+          ports:
+            - {name: web, containerPort: 9090}
+          # 모든 HTTP 경로가 클라이언트 인증서를 요구하므로 kubelet probe는 TCP로 본다
+          readinessProbe:
+            tcpSocket: {port: web}
+          livenessProbe:
+            tcpSocket: {port: web}
+            initialDelaySeconds: 15
+          resources:
+            requests: {cpu: 100m, memory: 256Mi}
+            limits: {cpu: "1", memory: 1Gi}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          volumeMounts:
+            - {name: config, mountPath: /etc/prometheus/prometheus.yml, subPath: prometheus.yml, readOnly: true}
+            - {name: config, mountPath: /etc/prometheus/web.yml, subPath: web.yml, readOnly: true}
+            - {name: rules, mountPath: /etc/prometheus/rules, readOnly: true}
+            - {name: tls, mountPath: /etc/bravo-tls, readOnly: true}
+            - {name: data, mountPath: /prometheus}
+      volumes:
+        - name: config
+          configMap:
+            name: bravo-prometheus-config
+        - name: rules
+          configMap:
+            name: bravo-prometheus-rules
+        - name: tls
+          secret:
+            secretName: bravo-prometheus-tls
+            defaultMode: 0440
+        # 보존 3일. Pod가 다른 노드로 옮겨지면 잃는다(저장소 클래스가 정해지면 PVC로 바꾼다).
+        # 판정의 근거는 판정 기록에 따로 남으므로 이 데이터가 없어도 판정은 다시 계산된다.
+        - name: data
+          emptyDir:
+            sizeLimit: 5Gi
+---
+# 다른 클러스터의 Collector가 노드 주소:30990으로 보낸다. 원래 출발지 주소를 보존해 NetworkPolicy가 판단하게 한다.
+apiVersion: v1
+kind: Service
+metadata:
+  name: bravo-prometheus
+  namespace: bravo-observability
+  labels:
+    component: platform
+spec:
+  type: NodePort
+  externalTrafficPolicy: Local
+  selector:
+    app: bravo-prometheus
+  ports:
+    - {name: web, port: 9090, targetPort: web, nodePort: 30990}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: bravo-prometheus
+  namespace: bravo-observability
+spec:
+  podSelector:
+    matchLabels:
+      app: bravo-prometheus
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - from:
+        # 같은 네임스페이스의 Collector(플랫폼 자신의 지표)
+        - podSelector:
+            matchLabels:
+              app: bravo-collector
+        # 같은 클러스터의 콘솔 API. 라벨은 kubectl label로 붙인다(Namespace 매니페스트를 apply하면 없는 라벨이 지워진다)
+        - namespaceSelector:
+            matchLabels:
+              bravo.observability/platform-client: "true"
+        # 다른 클러스터의 Collector(Tailscale 주소 대역). 출발지 VPC 주소는 배포할 때 ipBlock으로 추가한다
+        - ipBlock:
+            cidr: 100.64.0.0/10
+      ports:
+        - {port: 9090, protocol: TCP}
+  # 지표를 긁지 않는다. 밖으로 나갈 일이 없다
+  egress: []

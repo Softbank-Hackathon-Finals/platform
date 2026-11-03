@@ -1,6 +1,6 @@
 # 관측 경로 알림 런북 (T37)
 
-알림 규칙은 [`services/observability/rules/alerts.yml`](../../services/observability/rules/alerts.yml)이고, 규칙마다 `promtool test rules` 단위 시험이 있다.
+알림 규칙은 [`services/observability/deploy/platform/rules/alerts.yml`](../../services/observability/deploy/platform/rules/alerts.yml)이고, 규칙마다 `promtool test rules` 단위 시험이 있다.
 
 모든 알림은 **관측 경로**의 문제다. SHIFT · WATCH 판정은 T18 창 요약만 쓰므로(ADR-0010) 이 알림으로 판정이 바뀌지는 않는다. 다만 콘솔의 환경별 서버 지표는 "확인 불가"가 된다.
 
@@ -21,7 +21,7 @@
 4. 플랫폼 지표 저장소 자체가 살아 있는가. 모든 환경이 동시에 알리면 저장소 쪽 문제다.
 5. 노드 시계가 맞는가. 생존 신호 시각은 Collector 호스트 시계다.
 
-**조치:** 원인을 고친다. Collector를 재시작해도 디스크 큐의 지표는 남는다. 인증서 문제면 같은 CA로 다시 발급하고, 이름은 지표 저장소 `web.yml`의 `client_allowed_sans`에 있어야 한다.
+**조치:** 원인을 고친다. Collector를 재시작해도 디스크 큐의 지표는 남는다. 인증서 문제면 같은 CA로 다시 발급하고, 이름은 지표 저장소 `deploy/platform/web.yml`의 `client_allowed_sans`에 있어야 한다.
 
 ## BravoTelemetryExportFailing
 
@@ -37,7 +37,7 @@
 
 **확인:** 플랫폼으로 가는 경로가 느리거나 끊겼는가(BravoEnvUnobservable이 함께 떴는가). 앱 지표가 갑자기 늘었는가(지표 종류가 폭증하지 않았는가).
 
-**조치:** 경로를 복구한다. 지표 종류가 폭증했다면 허용 목록(`collector.yaml`의 `transform/allowlist`) 밖 속성이 새지 않았는지 본다.
+**조치:** 경로를 복구한다. 지표 종류가 폭증했다면 허용 목록(`deploy/collector/collector.yaml`의 `transform/allowlist`) 밖 속성이 새지 않았는지 본다.
 
 ## BravoTelemetryRefused
 

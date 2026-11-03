@@ -1,0 +1,147 @@
+# T37 클러스터별 Collector. 출발지 · 목적지 클러스터에 하나씩 둔다.
+# 배포 전에 클러스터마다 아래 둘을 만든다(값은 git에 두지 않는다).
+#   Secret    bravo-collector-tls : ca.crt · tls.crt · tls.key (플랫폼 CA가 발급, 이름은 collector-<환경>)
+#   ConfigMap bravo-collector-env : BRAVO_ENV, PLATFORM_OTLP_ENDPOINT
+# 앱 네임스페이스에 bravo.observability/send=true 라벨을 붙여야 그 앱이 Collector로 보낼 수 있다.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: bravo-observability
+  labels:
+    component: platform
+    pod-security.kubernetes.io/enforce: restricted
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: bravo-collector
+  namespace: bravo-observability
+automountServiceAccountToken: false
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: bravo-collector
+  namespace: bravo-observability
+  labels:
+    app: bravo-collector
+    component: platform
+spec:
+  replicas: 1
+  # 디스크 큐 디렉터리를 두 Pod가 함께 쓰지 않게 한다
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: bravo-collector
+  template:
+    metadata:
+      labels:
+        app: bravo-collector
+        component: platform
+    spec:
+      serviceAccountName: bravo-collector
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: collector
+          image: otel/opentelemetry-collector-contrib:0.164.0@sha256:340c9ca6a36617084c6661bdc4f0fe92b7cda5a805d61673ec8db375fddc522b
+          args: ["--config=/etc/otelcol/collector.yaml"]
+          env:
+            - name: BRAVO_ENV
+              valueFrom:
+                configMapKeyRef: {name: bravo-collector-env, key: BRAVO_ENV}
+            - name: PLATFORM_OTLP_ENDPOINT
+              valueFrom:
+                configMapKeyRef: {name: bravo-collector-env, key: PLATFORM_OTLP_ENDPOINT}
+            # 메모리 상한(limits)보다 낮게 두어 GC가 먼저 돈다
+            - name: GOMEMLIMIT
+              value: 200MiB
+          ports:
+            - {name: otlp-grpc, containerPort: 4317}
+            - {name: otlp-http, containerPort: 4318}
+            - {name: health, containerPort: 13133}
+          readinessProbe:
+            httpGet: {path: /, port: health}
+          livenessProbe:
+            httpGet: {path: /, port: health}
+            initialDelaySeconds: 10
+          resources:
+            requests: {cpu: 50m, memory: 128Mi}
+            limits: {cpu: 500m, memory: 256Mi}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          volumeMounts:
+            - {name: config, mountPath: /etc/otelcol, readOnly: true}
+            - {name: tls, mountPath: /etc/bravo-tls, readOnly: true}
+            - {name: queue, mountPath: /var/lib/otelcol/queue}
+      volumes:
+        - name: config
+          configMap:
+            name: bravo-collector-config
+        - name: tls
+          secret:
+            secretName: bravo-collector-tls
+            defaultMode: 0440
+        # 컨테이너가 재시작해도 남는다. Pod가 다른 노드로 옮겨지면 잃는다(저장소 클래스가 정해지면 PVC로 바꾼다).
+        - name: queue
+          emptyDir:
+            sizeLimit: 1Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: bravo-collector
+  namespace: bravo-observability
+  labels:
+    component: platform
+spec:
+  selector:
+    app: bravo-collector
+  ports:
+    - {name: otlp-grpc, port: 4317, targetPort: otlp-grpc}
+    - {name: otlp-http, port: 4318, targetPort: otlp-http}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: bravo-collector
+  namespace: bravo-observability
+spec:
+  podSelector:
+    matchLabels:
+      app: bravo-collector
+  policyTypes: [Ingress, Egress]
+  ingress:
+    # 앱 지표: 라벨을 붙인 네임스페이스에서만
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              bravo.observability/send: "true"
+      ports:
+        - {port: 4317, protocol: TCP}
+        - {port: 4318, protocol: TCP}
+    # 상태 확인(kubelet probe). 응답에 데이터가 없다
+    - ports:
+        - {port: 13133, protocol: TCP}
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - {port: 53, protocol: UDP}
+        - {port: 53, protocol: TCP}
+    # 플랫폼 지표 저장소 포트만. 목적지 주소는 환경마다 다르므로 배포할 때 ipBlock으로 더 좁힌다
+    - ports:
+        - {port: 9090, protocol: TCP}
+        - {port: 30990, protocol: TCP}

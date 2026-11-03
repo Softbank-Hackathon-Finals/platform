@@ -8,9 +8,9 @@ services:
       - --web.enable-otlp-receiver
       - --storage.tsdb.retention.time=3d
     volumes:
-      - ../prometheus.yml:/etc/prometheus/prometheus.yml:ro
-      - ../web.yml:/etc/prometheus/web.yml:ro
-      - ../rules:/etc/prometheus/rules:ro
+      - ../deploy/platform/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ../deploy/platform/web.yml:/etc/prometheus/web.yml:ro
+      - ../deploy/platform/rules:/etc/prometheus/rules:ro
       - ${CERT_DIR}/prometheus:/etc/bravo-tls:ro
     ports:
       - "127.0.0.1::9090"
@@ -30,7 +30,7 @@ services:
       BRAVO_ENV: onprem
       PLATFORM_OTLP_ENDPOINT: https://prometheus:9090/api/v1/otlp
     volumes:
-      - ../collector.yaml:/etc/otelcol/collector.yaml:ro
+      - ../deploy/collector/collector.yaml:/etc/otelcol/collector.yaml:ro
       - ${CERT_DIR}/collector-onprem:/etc/bravo-tls:ro
       - queue:/var/lib/otelcol/queue
     ports:
