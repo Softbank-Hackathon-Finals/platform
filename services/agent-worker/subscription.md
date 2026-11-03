@@ -79,3 +79,5 @@ Secrets Manager 이전 버전은 회수 명령으로 물리 삭제되지 않는�
 로컬 시험은 실제 SDK와 모의 OAuth/JWKS·Secrets·SSE 응답으로 계정 결속, 토큰 교체, 동시 실행 거부, 환경 분리, 한도·중단 실패를 확인한다. 실제 검증은 **초기 등록 → Secrets 저장 → 모델 목록 → 실제 구독 제안 → 다음 실행의 로그인 재사용 → 갱신/회수**를 별도 근거로 기록한다. 기존 [AWS v9 Codex 진단](../../docs/evidence/t11-account-cloud-2026-11-03/README.md)은 새 SIWC 경로의 완료 증거가 아니다.
 
 공식 근거: [SIWC 등록](https://developers.openai.com/siwc/token-sharing-open-source/sign-in), [자체 호스팅 VM](https://developers.openai.com/siwc/token-sharing-open-source/self-hosted-vms), [세션 갱신·회수](https://developers.openai.com/siwc/token-sharing-open-source/profiles-and-sessions), [구독 모델 호출](https://developers.openai.com/siwc/token-sharing-open-source/models-and-inference), [오류와 복구](https://developers.openai.com/siwc/token-sharing-open-source/errors-and-recovery).
+
+실측: [AWS 실제 구독 제안 2회와 로그인 재사용](../../docs/evidence/t11-subscription-2026-11-03/README.md). 제공자의 실제 갱신 가능 시각 이후 갱신과 원격 회수, 상시 무인 identity 배치는 별도 검증으로 남긴다. systemd DynamicUser의 StateDirectory 루트가 관리되는 링크이면 그 아래 실제 `state/` 디렉터리를 사용한다.

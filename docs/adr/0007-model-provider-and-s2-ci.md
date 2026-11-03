@@ -47,7 +47,7 @@ AWS 공식 문서상 일부 Anthropic 경로는 최초 사용 등록이 필요�
 
 공식 [SIWC 자체 호스팅 VM 절차](https://developers.openai.com/siwc/token-sharing-open-source/self-hosted-vms)에 따라 **Bravo 앱이 직접 발급받은** client ID와 계정 세션만 이전한다. 개인 Codex 인증 파일을 추출하지 않는다. 브라우저가 있는 로컬 기기에서 PKCE·state·nonce·서명·issuer·audience·계정 결속을 확인한 후 Secrets에 저장하고, 단일 지정 VM이 갱신을 담당한다. 클라이언트 ID·갱신 토큰·접근 토큰·만료를 같은 Secret 버전으로 교체한다. IAM은 정확한 항목의 Get/Put/UpdateVersionStage만 허용한다. 기존 T7 smoke 역할과 노드의 시크릿 거부 정책을 확대하지 않는다. 공개 고객용 호스팅 서비스로 바꾸는 경우에는 이 자체 호스팅 등록을 그대로 일반화하지 않고 별도의 제공자 통합 조건을 확인한다.
 
-로컬·AWS의 모의 API 검증, 개인 구독의 실제 모델 진단, 새 SIWC 운영 경로 검증은 구분한다. 공식 Codex 진단에서는 [AWS v9의 읽기·제안 도구와 PROPOSAL_READY](../evidence/t11-account-cloud-2026-11-03/README.md)를 확인했다. 이는 새 SIWC client 등록과 Secrets 갱신의 성공을 뜻하지 않는다. [구독 운영 가이드](../../services/agent-worker/subscription.md)에 별도 등록·검증 절차를 둔다. T10의 신뢰 snapshot 발급·영속 시도 수·취소, T15의 실제 Job·인증된 receipt, T31 반영은 통합 완료 전까지 미완료다.
+로컬·AWS의 모의 API 검증, 개인 구독의 실제 모델 진단, 새 SIWC 운영 경로 검증은 구분한다. 공식 Codex 진단에서는 [AWS v9의 읽기·제안 도구와 PROPOSAL_READY](../evidence/t11-account-cloud-2026-11-03/README.md)를 확인했다. 이후 [앱 소유 SIWC 등록·Secrets 저장·AWS 실제 모델 제안 2회·로그인 재사용](../evidence/t11-subscription-2026-11-03/README.md)을 별도 확인했다. 실제 토큰 갱신/회수와 상시 무인 배치는 이 결과에 포함하지 않는다. [구독 운영 가이드](../../services/agent-worker/subscription.md)에 별도 등록·검증 절차를 둔다. T10의 신뢰 snapshot 발급·영속 시도 수·취소, T15의 실제 Job·인증된 receipt, T31 반영은 통합 완료 전까지 미완료다.
 
 ## 6. 다음 회의에서 정할 질문
 
