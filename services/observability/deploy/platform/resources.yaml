@@ -184,7 +184,8 @@ spec:
           type: RuntimeDefault
       containers:
         - name: api
-          image: bravo-observability-api
+          # 배포 파이프라인이 kustomize images로 레지스트리@digest를 넣는다. 넣지 않으면 pull이 실패한다(최신 이미지를 아무거나 받지 않음)
+          image: bravo-observability-api:set-by-deploy-pipeline
           env:
             - {name: PROMETHEUS_URL, value: "https://bravo-prometheus.bravo-observability.svc:9090"}
             - {name: BRAVO_ENVIRONMENTS, value: "aws,onprem"}
