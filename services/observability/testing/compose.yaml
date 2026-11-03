@@ -1,0 +1,23 @@
+# T37 로컬 재현 시험용. 실제 배포 구성이 아니다. run.sh가 띄우고 지운다.
+services:
+  prometheus:
+    image: prom/prometheus:v3.15.1@sha256:fa3302279710be2f21a8301ec17a8b4f2301fd829bd113839b3b6b02b6f191a2
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --web.enable-otlp-receiver
+      - --storage.tsdb.retention.time=3d
+    volumes:
+      - ../prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    ports:
+      - "127.0.0.1::9090"
+  collector:
+    image: otel/opentelemetry-collector-contrib:0.163.2@sha256:7f22d2a6748110ffb6a59bc0df448bccbf501cdb667d610ede4c61d3863d5849
+    command: ["--config=/etc/otelcol/collector.yaml"]
+    environment:
+      BRAVO_ENV: onprem
+      PLATFORM_OTLP_ENDPOINT: http://prometheus:9090/api/v1/otlp
+    volumes:
+      - ../collector.yaml:/etc/otelcol/collector.yaml:ro
+  telemetrygen:
+    image: ghcr.io/open-telemetry/opentelemetry-collector-contrib/telemetrygen:v0.163.0@sha256:569b79a39f8313db839a727e8eac161c66b8a6c2e633f2da4ad352ce7b383c23
+    profiles: [sender]

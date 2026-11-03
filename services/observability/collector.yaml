@@ -1,0 +1,71 @@
+# T37 클러스터별 OpenTelemetry Collector. 출발지 · 목적지에 하나씩 둔다.
+# BRAVO_ENV(환경 이름)와 PLATFORM_OTLP_ENDPOINT는 배포가 정한다. 앱이 보낸 bravo.env는 지우고 이 값으로 덮어쓴다.
+# 판정 입력이 아니다(ADR-0010). 판정은 T18 창 요약만 쓴다.
+
+receivers:
+  # 앱 지표 (클러스터 안에서만 받는다)
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+  # 수집 경로 생존 신호: Collector 자신의 지표를 긁어 플랫폼에서 환경별 최근 수신 시각으로 쓴다.
+  prometheus/self:
+    config:
+      scrape_configs:
+        - job_name: bravo-collector
+          scrape_interval: 10s
+          static_configs:
+            - targets: ["127.0.0.1:8888"]
+
+processors:
+  memory_limiter:
+    check_interval: 1s
+    limit_percentage: 80
+    spike_limit_percentage: 20
+  # 허용 목록: 앱이 보낸 속성 중 아래만 남긴다. 채팅 본문 · 헤더 · 토큰 · SQL 파라미터는 남지 않는다.
+  transform/allowlist:
+    error_mode: propagate
+    metric_statements:
+      - context: resource
+        statements:
+          - keep_keys(resource.attributes, ["service.name", "service.instance.id"])
+      - context: datapoint
+        statements:
+          - keep_keys(datapoint.attributes, ["http.request.method", "http.response.status_code", "http.route"])
+  # 생존 신호의 job 라벨을 Collector 배포판과 무관하게 고정한다
+  resource/self:
+    attributes:
+      - key: service.name
+        value: bravo-collector
+        action: upsert
+  resource/env:
+    attributes:
+      - key: bravo.env
+        value: ${env:BRAVO_ENV}
+        action: upsert
+  batch: {}
+
+exporters:
+  otlp_http/platform:
+    endpoint: ${env:PLATFORM_OTLP_ENDPOINT}
+
+service:
+  telemetry:
+    metrics:
+      readers:
+        - pull:
+            exporter:
+              prometheus:
+                host: 127.0.0.1
+                port: 8888
+  pipelines:
+    metrics/app:
+      receivers: [otlp]
+      processors: [memory_limiter, transform/allowlist, resource/env, batch]
+      exporters: [otlp_http/platform]
+    metrics/self:
+      receivers: [prometheus/self]
+      processors: [memory_limiter, resource/self, resource/env, batch]
+      exporters: [otlp_http/platform]
