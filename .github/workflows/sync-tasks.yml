@@ -75,7 +75,8 @@ jobs:
           if [ -z "$SLACK_TOKEN" ] || [ -z "$CHANNEL" ]; then echo "Slack 설정 없음, 건너뜀"; exit 0; fi
           text="$(printf '*보드 이동* (by %s)\n%s\n<https://github.com/orgs/%s/projects/2|보드 열기>' \
             "${{ github.actor }}" "$(sed 's/^/• /' moves.txt)" "${{ github.repository_owner }}")"
-          jq -n --arg c "$CHANNEL" --arg t "$text" '{channel:$c,text:$t}' \
+          res=$(jq -n --arg c "$CHANNEL" --arg t "$text" '{channel:$c,text:$t}' \
             | curl -sS -X POST https://slack.com/api/chat.postMessage \
-                -H "Authorization: Bearer $SLACK_TOKEN" -H "Content-Type: application/json; charset=utf-8" -d @- \
-            | jq -e .ok >/dev/null || echo "::warning::Slack 전송 실패"
+                -H "Authorization: Bearer $SLACK_TOKEN" -H "Content-Type: application/json; charset=utf-8" -d @-)
+          # 실패하면 Slack이 돌려준 오류 코드를 남긴다 (not_in_channel: 비공개 채널에 앱 초대 필요, invalid_auth: 토큰 확인, channel_not_found: 채널 ID 확인)
+          if [ "$(jq -r .ok <<<"$res")" != true ]; then echo "::warning::Slack 전송 실패: $(jq -r '.error // "응답 없음"' <<<"$res")"; fi
