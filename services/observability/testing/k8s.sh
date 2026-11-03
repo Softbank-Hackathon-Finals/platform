@@ -5,6 +5,7 @@
 #  2. 라벨(bravo.observability/send=true)을 붙인 네임스페이스의 앱 지표만 Collector를 거쳐 mTLS로 저장소에 도착한다
 #  3. 라벨이 없는 네임스페이스는 NetworkPolicy가 막는다 (Collector로 보내기, 지표 저장소 연결 모두)
 #  4. Collector를 0개로 줄이면 BravoEnvUnobservable 알림이 onprem에 대해 뜬다
+#  5. 콘솔용 조회 API가 restricted로 뜨고, platform-client 라벨 네임스페이스에서만 호출된다(토큰 필수)
 set -euo pipefail
 cd "$(dirname "$0")"
 
@@ -14,6 +15,7 @@ NAME=bravo-obs-k3s
 NS=bravo-observability
 CERT_DIR=$(mktemp -d)
 KUBECONFIG="$CERT_DIR/kubeconfig"
+API_TOKEN=$(openssl rand -hex 24)
 export CERT_DIR KUBECONFIG
 PF=""
 cleanup() { [ -n "$PF" ] && { kill "$PF" 2>/dev/null; wait "$PF" 2>/dev/null; }; docker rm -f "$NAME" >/dev/null 2>&1; rm -rf "$CERT_DIR"; }
@@ -36,6 +38,9 @@ for _ in $(seq 60); do docker exec "$NAME" test -f /etc/rancher/k3s/k3s.yaml 2>/
 docker exec "$NAME" cat /etc/rancher/k3s/k3s.yaml | sed "s#https://127.0.0.1:6443#https://$(docker port "$NAME" 6443)#" > "$KUBECONFIG"
 for _ in $(seq 60); do kubectl get nodes 2>/dev/null | grep -q " Ready" && break; sleep 2; done
 kubectl wait --for=condition=Ready node --all --timeout=120s >/dev/null
+# 조회 API 이미지를 로컬에서 빌드해 k3s에 넣는다(레지스트리를 쓰지 않음)
+docker build -q -t bravo-observability-api:dev .. >/dev/null
+docker save bravo-observability-api:dev | docker exec -i "$NAME" ctr -n k8s.io images import - >/dev/null
 
 echo "== 배포"
 # Secret · ConfigMap을 먼저 넣으려고 네임스페이스를 미리 만든다(뒤의 apply와 충돌하지 않게 create).
@@ -45,14 +50,18 @@ for who in prometheus collector-onprem; do
   kubectl -n "$NS" create secret generic "$secret" --from-file="$CERT_DIR/$who/ca.crt" \
     --from-file="$CERT_DIR/$who/tls.crt" --from-file="$CERT_DIR/$who/tls.key" >/dev/null
 done
+kubectl -n "$NS" create secret generic bravo-observability-api-tls --from-file="$CERT_DIR/console-api/ca.crt" \
+  --from-file="$CERT_DIR/console-api/tls.crt" --from-file="$CERT_DIR/console-api/tls.key" >/dev/null
+kubectl -n "$NS" create secret generic bravo-observability-api-token --from-literal=token="$API_TOKEN" >/dev/null
 kubectl -n "$NS" create configmap bravo-collector-env --from-literal=BRAVO_ENV=onprem \
   --from-literal=PLATFORM_OTLP_ENDPOINT="https://bravo-prometheus.$NS.svc:9090/api/v1/otlp" >/dev/null
-kubectl apply -k ../deploy/platform >/dev/null
+kubectl apply -k k8s-overlay >/dev/null
 kubectl apply -k ../deploy/collector >/dev/null
 r=ok
 kubectl -n "$NS" rollout status deploy/bravo-prometheus --timeout=240s >/dev/null || r=fail
 kubectl -n "$NS" rollout status deploy/bravo-collector --timeout=240s >/dev/null || r=fail
-check $r "restricted 네임스페이스에서 지표 저장소 · Collector가 준비됨"
+kubectl -n "$NS" rollout status deploy/bravo-observability-api --timeout=240s >/dev/null || r=fail
+check $r "restricted 네임스페이스에서 지표 저장소 · Collector · 조회 API가 준비됨"
 
 kubectl -n "$NS" port-forward svc/bravo-prometheus 19090:9090 >/dev/null 2>&1 &
 PF=$!
@@ -90,11 +99,30 @@ probe() {
   echo "$p"
 }
 allowed=$(probe console)
+kubectl -n console delete pod probe --wait=true >/dev/null
 denied=$(probe stranger)
 [ "$allowed" = Succeeded ] && r=ok || r=fail
 check $r "대조군: platform-client 라벨 네임스페이스(console)에서는 지표 저장소 9090 연결 성공 (probe: ${allowed:-없음})"
 [ "$denied" = Failed ] && r=ok || r=fail
 check $r "라벨이 없는 네임스페이스(stranger)에서 지표 저장소 9090 연결은 NetworkPolicy가 막음 (probe: ${denied:-없음})"
+
+echo "== 조회 API"
+call() { # 네임스페이스 토큰
+  kubectl -n "$1" run "call-$3" --image=busybox:1.37.0@sha256:a7dbc319b1438115a207e11930dc4bb3e643dcb3ec0bdd694bb36cd8fad289ec \
+    --restart=Never -- wget -q -T 5 -O - --header "Authorization: Bearer $2" "http://bravo-observability-api.$NS.svc:8080/v1/observability/environments" >/dev/null
+  for _ in $(seq 30); do p=$(kubectl -n "$1" get pod "call-$3" -o jsonpath='{.status.phase}'); case $p in Succeeded|Failed) break;; esac; sleep 2; done
+  echo "$p"
+}
+phase=$(call console "$API_TOKEN" ok)
+body=$(kubectl -n console logs call-ok 2>/dev/null || true)
+state=$(echo "$body" | python3 -c 'import json,sys;print([e["state"] for e in json.load(sys.stdin)["environments"] if e["environment"]=="onprem"][0])' 2>/dev/null || echo 없음)
+[ "$phase" = Succeeded ] && [ "$state" = OK ] && control=ok || control=fail
+check $control "console 네임스페이스에서 조회 API 호출 성공, onprem 상태 OK (pod: $phase, 상태: $state)"
+# 대조군(위)이 실패하면 아래 거부는 API가 없어서일 수 있으므로 통과로 세지 않는다
+[ "$control" = ok ] && [ "$(call console wrong-token bad)" = Failed ] && r=ok || r=fail
+check $r "틀린 토큰은 거부(401)"
+[ "$control" = ok ] && [ "$(call stranger "$API_TOKEN" stranger)" = Failed ] && r=ok || r=fail
+check $r "라벨이 없는 네임스페이스(stranger)는 올바른 토큰이 있어도 NetworkPolicy가 막음"
 
 echo "== Collector 중지 → 알림"
 for _ in $(seq 60); do [ "$(count 'up{bravo_signal="collector-self", bravo_env="onprem"}')" -gt 0 ] && break; sleep 2; done

@@ -35,6 +35,17 @@ services:
       - queue:/var/lib/otelcol/queue
     ports:
       - "127.0.0.1::4318"
+  # 콘솔용 조회 API. 저장소에는 console-api 인증서로 붙는다
+  api:
+    build: ..
+    environment:
+      PROMETHEUS_URL: https://prometheus:9090
+      BRAVO_ENVIRONMENTS: aws,onprem
+      BRAVO_OBSERVABILITY_API_TOKEN: ${API_TOKEN}
+    volumes:
+      - ${CERT_DIR}/console-api:/etc/bravo-tls:ro
+    ports:
+      - "127.0.0.1::8080"
   telemetrygen:
     image: ghcr.io/open-telemetry/opentelemetry-collector-contrib/telemetrygen:v0.164.0@sha256:b536c7220c5ea587f04dff6c5e6eecb48e40b5b58ce70690b15734aae98d8321
     profiles: [sender]
