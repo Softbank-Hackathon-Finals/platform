@@ -1,6 +1,6 @@
 # AWS CI 검증 호스트와 T3 격리 시험
 
-2026-11-03, 계정 `721622471953`, Seoul. 코드: `infra/envs/ci-validation-aws`. 이 결과는 **AWS 위 일회 k3s 검증**이다. 운영 플랫폼 배포·RKE2 CIS·실제 모델 호출·T10 승인·T31 배포 결과는 별도로 확인한다.
+2026-11-03, 계정 `AWS_ACCOUNT_002`, Seoul. 코드: `infra/envs/ci-validation-aws`. 이 결과는 **AWS 위 일회 k3s 검증**이다. 운영 플랫폼 배포·RKE2 CIS·실제 모델 호출·T10 승인·T31 배포 결과는 별도로 확인한다.
 
 ## 결과
 
@@ -49,7 +49,7 @@ SSM 관리 정책은 Parameter Store 읽기를 기본 포함하므로 명시적 
 
 ## 수명과 정리
 
-인스턴스 `i-05c13c836cf78b0a2`, VPC `vpc-09d98460675583d5e`, 배포 `20261103-s2-ci`. 실제 guest 종료 timer는 **2026-11-03 07:53:13 UTC / 16:53:13 KST**다. 타이머 종료 시 인스턴스와 디스크는 사라지지만 VPC·IAM은 남으므로 검증 종료 후 Terraform destroy가 필요하다.
+인스턴스 `AWS_RESOURCE_002`, VPC `AWS_RESOURCE_007`, 배포 `20261103-s2-ci`. 실제 guest 종료 timer는 **2026-11-03 07:53:13 UTC / 16:53:13 KST**다. 타이머 종료 시 인스턴스와 디스크는 사라지지만 VPC·IAM은 남으므로 검증 종료 후 Terraform destroy가 필요하다.
 
 운영자 상태·plan·입력은 `~/.bravo/ci-validation-20261103/`에 있고 커밋하지 않는다. **15:55 KST 정리 확인:** Terraform 16개 자원을 삭제했고 state 잔여 0개다. AWS API에서 인스턴스 terminated, VPC·서브넷·ENI·루트 EBS·IAM 역할·instance profile 부재를 확인했다. [삭제 재조회 영수증](cleanup-readback.json)을 별도로 보존했다.
 

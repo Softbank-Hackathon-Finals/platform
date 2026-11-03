@@ -1,18 +1,18 @@
 {
   "read_at": "2026-11-03T06:27:05.004485+00:00",
-  "account_id": "721622471953",
+  "account_id": "AWS_ACCOUNT_002",
   "region": "ap-northeast-2",
   "deployment": "20261103-s2-ci",
   "instance": [
     {
-      "id": "i-05c13c836cf78b0a2",
+      "id": "AWS_RESOURCE_002",
       "state": "running",
-      "ami": "ami-0e0a5fdc771990a70",
+      "ami": "AWS_RESOURCE_001",
       "type": "t4g.medium",
       "arch": "arm64",
       "launch": "2026-11-03T06:21:40+00:00",
-      "vpc": "vpc-09d98460675583d5e",
-      "subnet": "subnet-0e29297803b471c64",
+      "vpc": "AWS_RESOURCE_007",
+      "subnet": "AWS_RESOURCE_005",
       "metadata": {
         "State": "applied",
         "HttpTokens": "required",
@@ -23,8 +23,8 @@
       },
       "sgs": [
         {
-          "GroupId": "sg-0344517133e5cab82",
-          "GroupName": "bravo-ci-20261103-s2-ci"
+          "GroupId": "AWS_RESOURCE_003",
+          "GroupName": "RESOURCE_NAME_001"
         }
       ],
       "tags": [
@@ -46,7 +46,7 @@
         },
         {
           "Key": "Name",
-          "Value": "bravo-ci-20261103-s2-ci"
+          "Value": "RESOURCE_NAME_001"
         },
         {
           "Key": "deployment",
@@ -61,7 +61,7 @@
   ],
   "security_groups": [
     {
-      "id": "sg-0344517133e5cab82",
+      "id": "AWS_RESOURCE_003",
       "inbound": [],
       "outbound": [
         {
@@ -109,14 +109,14 @@
       ]
     },
     {
-      "id": "sg-0cdde91db58a192e9",
+      "id": "AWS_RESOURCE_004",
       "inbound": [],
       "outbound": []
     }
   ],
   "ssm": [
     {
-      "id": "i-05c13c836cf78b0a2",
+      "id": "AWS_RESOURCE_002",
       "ping": "Online",
       "os": "Ubuntu",
       "version": "24.04"

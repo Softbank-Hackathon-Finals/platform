@@ -8,12 +8,12 @@
     "remaining_state_resources": 0
   },
   "deleted_volume_ids": [
-    "vol-0dcaa5814bb858ae9"
+    "AWS_RESOURCE_006"
   ],
   "aws_readback": {
     "instances": [
       {
-        "id": "i-05c13c836cf78b0a2",
+        "id": "AWS_RESOURCE_002",
         "state": "terminated"
       }
     ],

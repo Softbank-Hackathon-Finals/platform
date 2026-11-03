@@ -311,7 +311,7 @@
     }
   ],
   "target": "/opt/bravo-validation/repo-ci",
-  "instance": "i-05c13c836cf78b0a2",
+  "instance": "AWS_RESOURCE_002",
   "upload_command_ids": [
     "8a7b6bc4-fc40-4ddf-a0f2-e4de210a09c1",
     "fb77f4c0-6791-4806-8b92-9f0fb8b50f97",

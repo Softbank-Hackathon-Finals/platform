@@ -71,7 +71,7 @@
     }
   ],
   "target": "/opt/bravo-validation/repo-ci-contracts",
-  "instance": "i-05c13c836cf78b0a2",
+  "instance": "AWS_RESOURCE_002",
   "upload_command_ids": [
     "e17a36d9-2add-4ebf-bc62-ecce680e7381",
     "607d39ca-40a9-4df0-b89e-ab10cd14737e"

@@ -8,7 +8,7 @@ T7의 CI 실행 및 T11/T15 접점을 AWS에서 시험하는 임시 환경이다
 
 ## 실행과 정리
 
-Terraform 1.16.5를 사용한다. 상태·plan·입력 파일은 저장소 밖의 권한 0700 디렉터리에 둔다. 아래 예의 경로는 본인 배포마다 구분한다. 계정·기존 인스턴스·예산을 확인하고 AMI를 Canonical 공개 SSM parameter에서 읽은 뒤 owner `099720109477`, `arm64`, `available`을 대조한다.
+Terraform 1.16.5를 사용한다. 상태·plan·입력 파일은 저장소 밖의 권한 0700 디렉터리에 둔다. 아래 예의 경로는 본인 배포마다 구분한다. 계정·기존 인스턴스·예산을 확인하고 AMI를 Canonical 공개 SSM parameter에서 읽은 뒤 owner `AWS_ACCOUNT_001`, `arm64`, `available`을 대조한다.
 
 ```sh
 export TF_DATA_DIR="$HOME/.bravo/ci-validation-20261103/tfdata"

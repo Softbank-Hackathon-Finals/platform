@@ -35,7 +35,7 @@
       "title": "허용 대상 seaweedfs(seaweedfs, app.kubernetes.io/name=seaweedfs-s3) 8333번에 접속된다",
       "kind": "control",
       "status": "pass",
-      "detail": "10.42.0.6:8333 open",
+      "detail": "192.0.2.5:8333 open",
       "required": true
     },
     {
@@ -43,7 +43,7 @@
       "title": "허용 대상 openbao(openbao, app.kubernetes.io/name=openbao) 8200번에 접속된다",
       "kind": "control",
       "status": "pass",
-      "detail": "10.42.0.7:8200 open",
+      "detail": "192.0.2.6:8200 open",
       "required": true
     },
     {
@@ -51,7 +51,7 @@
       "title": "다른 네임스페이스로 나가지 못한다",
       "kind": "isolation",
       "status": "pass",
-      "detail": "10.42.0.11:8080 막힘",
+      "detail": "192.0.2.3:8080 막힘",
       "required": true
     },
     {
@@ -59,7 +59,7 @@
       "title": "다른 네임스페이스에서 리허설 Pod로 들어오지 못한다",
       "kind": "isolation",
       "status": "pass",
-      "detail": "victim → 10.42.0.10:8080 막힘",
+      "detail": "victim → 192.0.2.2:8080 막힘",
       "required": true
     },
     {
@@ -72,10 +72,10 @@
     },
     {
       "id": "N4",
-      "title": "인터넷(1.1.1.1)으로 나가지 못한다",
+      "title": "인터넷(192.0.2.1)으로 나가지 못한다",
       "kind": "isolation",
       "status": "pass",
-      "detail": "1.1.1.1:443 막힘",
+      "detail": "192.0.2.1:443 막힘",
       "required": false
     },
     {
@@ -147,7 +147,7 @@
       "title": "seaweedfs의 허용 대상이 아닌 Pod other:8333는 막힌다",
       "kind": "isolation",
       "status": "pass",
-      "detail": "10.42.0.5:8333 막힘",
+      "detail": "192.0.2.4:8333 막힘",
       "required": false
     },
     {
@@ -155,7 +155,7 @@
       "title": "허용 대상 seaweedfs/target의 다른 포트 9333번은 막힌다",
       "kind": "isolation",
       "status": "pass",
-      "detail": "10.42.0.6:9333 막힘",
+      "detail": "192.0.2.5:9333 막힘",
       "required": false
     },
     {
@@ -163,7 +163,7 @@
       "title": "openbao의 허용 대상이 아닌 Pod other:8200는 막힌다",
       "kind": "isolation",
       "status": "pass",
-      "detail": "10.42.0.8:8200 막힘",
+      "detail": "192.0.2.7:8200 막힘",
       "required": false
     },
     {
@@ -171,7 +171,7 @@
       "title": "허용 대상 openbao/target의 다른 포트 8201번은 막힌다",
       "kind": "isolation",
       "status": "pass",
-      "detail": "10.42.0.7:8201 막힘",
+      "detail": "192.0.2.6:8201 막힘",
       "required": false
     }
   ]
