@@ -31,7 +31,7 @@ HEADERS = {
 
 
 class ConsoleApp:
-    def __init__(self, api, *, public_origin: str, observations=None):
+    def __init__(self, api, *, public_origin: str, observations=None, controls=None):
         parsed = urlsplit(public_origin)
         if (
             parsed.scheme not in ("https", "http")
@@ -49,6 +49,7 @@ class ConsoleApp:
             raise ValueError("fixed_secure_console_origin_required")
         self.api, self.origin, self.host = api, public_origin, parsed.netloc
         self.observations = observations
+        self.controls = controls
         self.assets = {
             path: ((Path(__file__).parent / "static" / name).read_bytes(), mime)
             for path, (name, mime) in ASSETS.items()
@@ -102,6 +103,18 @@ class ConsoleApp:
                 return await reject(error.status, error.code)
             except Exception:
                 return await reject(503, "observations_unavailable")
+            return await JSONResponse(value, headers=HEADERS)(scope, receive, send)
+        if match := re.fullmatch(r"/v1/plans/([A-Za-z0-9][A-Za-z0-9_-]{0,127})/controls", path):
+            if method != "GET":
+                return await reject(405, "method_not_allowed")
+            if self.controls is None:
+                return await reject(503, "control_report_unconfigured")
+            try:
+                value = await self.controls.read(scope, match[1])
+            except ObservationError as error:
+                return await reject(error.status, error.code)
+            except Exception:
+                return await reject(503, "control_report_unavailable")
             return await JSONResponse(value, headers=HEADERS)(scope, receive, send)
         if method == "POST":
             if (
