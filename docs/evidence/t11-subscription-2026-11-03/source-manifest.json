@@ -1,0 +1,122 @@
+{
+  "source_sha": "bce854c73447c6967306ddafb58ef00fa6ad70be",
+  "files": [
+    {
+      "path": "Dockerfile",
+      "sha256": "8f5894392f1a2ad238b0df712c11a0b34f8fd1cf196bb08315c6857310a2e54a"
+    },
+    {
+      "path": "examples/failure.json",
+      "sha256": "1db75a8e2050b20e2ca41856b28f77080670ceaf630ae4cb6c2c545d9c806423"
+    },
+    {
+      "path": "examples/snapshot-manifest.json",
+      "sha256": "0ac822c3b1e84fbac222ab5e15a53b51c9eb3b9a5373b5e1cde026f815c0bc39"
+    },
+    {
+      "path": "examples/source/src/config.py",
+      "sha256": "f9b997a0ef8e589e291cb5f631a55e8e43f8affa29e5315c602aec5a64b11fcf"
+    },
+    {
+      "path": "pyproject.toml",
+      "sha256": "e9188b4bd7755d3f52654b39b24b6dbe08dbdd00493179967a7b420641c36311"
+    },
+    {
+      "path": "src/bravo_agent/__init__.py",
+      "sha256": "afa7d055bc6855bf0abe7d7aac184a19acf3d43902ddab5c93abf88e6ddb8b64"
+    },
+    {
+      "path": "src/bravo_agent/account_smoke.py",
+      "sha256": "f1c62a09b2530cf40e92f91312241ddae6bfa40d2c8a343dc08fbfe04a888e1b"
+    },
+    {
+      "path": "src/bravo_agent/cli.py",
+      "sha256": "ce87aff3c4447f021a5acc1c930da33f1814dfb6f1472c753b3429a0ff7ddf48"
+    },
+    {
+      "path": "src/bravo_agent/contracts.py",
+      "sha256": "39940d44eed85eeb8bd6a21ef9b50ba25d6ce6310648158678af48532c24a0e7"
+    },
+    {
+      "path": "src/bravo_agent/coordinator.py",
+      "sha256": "dff84108479a97317d5741342eb9c1978d94ef3c04b554773dfa2a0dad870e4b"
+    },
+    {
+      "path": "src/bravo_agent/openai_provider.py",
+      "sha256": "4bf01d19a05275f2d07495315fee5a7a013480075efce538a8fea0a31daebeab"
+    },
+    {
+      "path": "src/bravo_agent/policy.py",
+      "sha256": "17983a7a663201a63786d155d517bd2bc5822923ad31e54568833fc7dcc9893f"
+    },
+    {
+      "path": "src/bravo_agent/runtime.py",
+      "sha256": "a81f5f4dafef5f540aca0cd6c4e9d6f0dd9e897c5074076908f08b281dc19334"
+    },
+    {
+      "path": "src/bravo_agent/sdk.py",
+      "sha256": "23457e58d3dac3a533d7614e112d7d3e68a12836699670bf16b72d0c23da13a6"
+    },
+    {
+      "path": "src/bravo_agent/subscription_admin.py",
+      "sha256": "4419b35205c389015a74194d8cfdeea083a1c9983591f50562df580ceee226de"
+    },
+    {
+      "path": "src/bravo_agent/subscription_auth.py",
+      "sha256": "2177aa5498fad10fc1557583d413c5de57b4a9270d6e53fd1fe50fe29a90a7df"
+    },
+    {
+      "path": "src/bravo_agent/subscription_store.py",
+      "sha256": "81b6371f7cf5538869a8f48fc4dfe53fa735c74d3036328997a4f5f96fe34d6f"
+    },
+    {
+      "path": "src/bravo_agent/tools.py",
+      "sha256": "7350a655a95d571b8d61952edf699cae8d5f70df74b1ceb7b5ee12cafaee77a5"
+    },
+    {
+      "path": "tests/conftest.py",
+      "sha256": "ca3fae6ed10d9492b5e9a14758f1862aa5182b8a57c7fec98c9493addec91308"
+    },
+    {
+      "path": "tests/test_account_smoke.py",
+      "sha256": "d25dd1f169bc325c99db9200336c7989ca695e9f399e2b0b33d9cf5074417262"
+    },
+    {
+      "path": "tests/test_cli.py",
+      "sha256": "8128cb181d3c5cf7a6f654fde7bbf177a934a2196214545c3738c7654810d79a"
+    },
+    {
+      "path": "tests/test_coordinator.py",
+      "sha256": "24afca2010e25dd4b8a143e1c30f0ef2a7d20f75d0d507a90522e023ed3be833"
+    },
+    {
+      "path": "tests/test_openai.py",
+      "sha256": "b75b4c7d4838a387cfd1ccd1bb7db66b423186763774a00caaea298e6cab8945"
+    },
+    {
+      "path": "tests/test_policy.py",
+      "sha256": "98bdf53bf707de42ae3d6a7cb67bac6899e15b34296fd05b73ff59bc032d0438"
+    },
+    {
+      "path": "tests/test_sdk.py",
+      "sha256": "3ecf9f719fd8204b2d92a67646c93962eeba66eecb1d3890b8a1b6e7ba8f9163"
+    },
+    {
+      "path": "tests/test_subscription_auth.py",
+      "sha256": "9aab335f42769130a503c2720646e08de5986f8287d0a2a26340e810847e812f"
+    },
+    {
+      "path": "tests/test_subscription_provider.py",
+      "sha256": "09d8b15aacdaa958c613f8314174e2e7fba83f656db86e10a8835e949fdea52e"
+    },
+    {
+      "path": "tests/test_tools.py",
+      "sha256": "1ca240a8ac8d373d74296c496656b16629f776819ddf420f083711a46e4d35e2"
+    },
+    {
+      "path": "uv.lock",
+      "sha256": "a4e6334f981c6ca364496508ca86f24dd81afd995db969297035e9b7ae48bf40"
+    }
+  ],
+  "aws_readback_matches": true
+}

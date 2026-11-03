@@ -1,0 +1,25 @@
+{
+  "ssm_command_id_sha256": "05a3275c02a8a08ec4dd998cf13cd51415453a6c6fadd50979296770c4fd45cf",
+  "observed_at": "2026-11-03T11:08:43.184Z",
+  "configured_properties": {
+    "DynamicUser": "yes",
+    "NoNewPrivileges": "yes",
+    "ProtectSystem": "strict",
+    "ProtectHome": "yes",
+    "PrivateTmp": "yes",
+    "PrivateDevices": "yes",
+    "MemoryMax": 1073741824,
+    "CPUQuota": "100%",
+    "RuntimeMaxSec": 900
+  },
+  "evidence_kind": "submitted systemd-run arguments and successful launch receipt; v9 post-exit source/process checks are in runtime-verification-v9.json",
+  "start_command_private_sha256": "da7b7d8aca15fefbd2f63fc20885329c6b7aa4008995737e4ad5c83e214fba4d",
+  "auth_file_absence_during_process": "worker assertions immediately after login and after proposal",
+  "model_environments": [],
+  "policy_tools": [
+    "repo.read",
+    "plan.propose"
+  ],
+  "model_shell_and_code_mode_enabled": false,
+  "dynamic_tool_host_enabled": true
+}
