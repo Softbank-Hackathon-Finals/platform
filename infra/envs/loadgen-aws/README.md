@@ -1,6 +1,6 @@
 # T18 부하 생성기 EC2
 
-측정과 데모 때만 켜는 `t3.small` 한 대를 전용 네트워크에 만든다. 안으로 들어오는 경로는 없고, 나가는 것은 HTTPS뿐이며, 운영자는 SSM으로만 접속한다. 켜 두면 시간당 약 US$0.034, 꺼 두면 약 US$0.0025다.
+측정과 데모 때만 켜는 `t3.small` 한 대를 전용 네트워크에 만든다. 인터넷에서 들어오는 경로가 없고 tailnet 안의 다른 노드가 먼저 걸어오는 연결도 거부한다. 나가는 것은 HTTPS뿐이며, 운영자는 SSM으로만 접속한다. 켜 두면 시간당 약 US$0.034, 꺼 두면 약 US$0.0025다.
 
 **아직 만들지 않았다.** `terraform plan`과 `apply`를 실제 계정으로 돌린 적이 없다. 무엇을 쟀고 무엇을 못 쟀는지는 [검증](#검증)에 있다. 부하 생성기 자체의 사용법은 [`services/loadgen/README.md`](../../../services/loadgen/README.md)가 기준이다.
 
@@ -43,7 +43,7 @@ terraform plan -var-file=/private/path/loadgen.tfvars -out=/private/path/loadgen
 terraform apply /private/path/loadgen.tfplan
 ```
 
-태그나 부팅 스크립트를 바꾸면 인스턴스가 교체되고 디스크도 새로 만들어진다. 측정 결과를 먼저 옮긴다.
+태그, AMI, 부팅 스크립트를 바꾸면 인스턴스가 교체되고 디스크도 새로 만들어진다. 측정 결과를 먼저 옮긴다. SSM 파라미터의 AMI는 새 판이 나오면 값이 바뀌므로, 다시 읽은 값을 그대로 넣지 않는다.
 
 다 쓰면 이 상태의 자원만 지운다. 디스크의 측정 결과도 함께 지워지므로 먼저 옮긴다.
 
@@ -83,12 +83,14 @@ uv run bravo-loadgen run \
 
 DB 경로와 수신 주소가 정해지기 전에는 해당 줄과 옵션을 뺀다. 그때 리포트는 `NOT_RECONCILED`이고 종료 코드는 2다. 통과가 아니므로 나중에 `reconcile`로 대조한다.
 
-**결과 가져오기.** 이 호스트에는 S3 권한도 들어오는 포트도 없으므로 SSM 포트 포워딩으로 받는다. 호스트에서 `python3 -m http.server 8080 --bind 127.0.0.1 --directory out/run1`을 띄우고 운영자 PC에서 아래를 실행한다. 받은 파일의 공개 기준은 [`services/loadgen`](../../../services/loadgen/README.md)의 산출물 안내를 따른다.
+**결과 가져오기.** 이 호스트에는 S3 권한도 들어오는 포트도 없으므로 SSM 포트 포워딩으로 받는다. 호스트에서 `python3 -m http.server 8080 --bind 127.0.0.1 --directory out/run1`을 띄우고 운영자 PC에서 아래를 실행한다.
 
 ```sh
 aws ssm start-session --target "$INSTANCE_ID" --document-name AWS-StartPortForwardingSession --parameters portNumber=8080,localPortNumber=18080
-curl -O http://127.0.0.1:18080/report.json
+for f in journal.jsonl run-state.json windows.jsonl report.json report.md; do curl -fO "http://127.0.0.1:18080/$f"; done
 ```
+
+**다섯 파일을 모두 받는다.** `reconcile`은 `journal.jsonl` · `run-state.json` · `windows.jsonl`을 읽는다. `report.json`만 받고 인스턴스를 지우면 나중에 대조할 수 없다. `journal.jsonl`은 저장소 밖에 두고, 공개 기준은 [`services/loadgen`](../../../services/loadgen/README.md)의 산출물 안내를 따른다.
 
 **끄기.** 메모리의 비밀 값은 사라지고 디스크의 결과는 남는다.
 
@@ -107,7 +109,7 @@ aws ec2 stop-instances --instance-ids "$INSTANCE_ID"
 | 리포트 경고 `WINDOW_DELIVERY_FAILED` | 없음 | Tailscale 중계 경로가 창 전송 제한 2초를 못 맞춘 것일 수 있다. 아래 표의 UDP 항목을 본다 |
 | 리포트 경고 `LOCK_PROBE_STALLED` | 없음 | 중계 경로 지연인지 DB 멈춤인지 가른다 |
 | `ulimit -Hn` | 5,506 이상 (`50×60 + 150×15 + 256`) | 부하 생성기가 시작하지 않고 종료 코드 2로 끝난다 |
-| `timedatectl` | 시계 동기화 `yes` | 창 시각을 믿을 수 없다 |
+| `timedatectl` | 시계 동기화 `yes` | 창 시각을 믿을 수 없다. UDP 123이 막혀 있어 공용 NTP로는 맞출 수 없으므로 시간 서버를 [Amazon Time Sync](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/configure-ec2-ntp.html)의 `169.254.169.123`으로 설정한다. [보안 그룹이 거르지 않는 주소](https://docs.aws.amazon.com/vpc/latest/userguide/vpc-security-groups.html)다 |
 | `uv run python -V` | 3.12 (증거는 3.14.7) | 값이 크게 다르면 파이썬 판 차이부터 의심한다 |
 | CloudWatch `CPUSurplusCreditsCharged` | 비용 표의 범위 안 | 부하 시간 또는 사양을 다시 본다 |
 
@@ -122,7 +124,7 @@ aws ec2 stop-instances --instance-ids "$INSTANCE_ID"
 | Terraform은 ARN만 받고 그 ARN만 읽게 허용 | `subscription-runtime` | 쓰지 않는다. 이번 범위의 IAM은 SSM 최소 권한이다 |
 | ESO로 Pod에 전달 | `target-secrets`, `source-workloads` | 쓰지 않는다. 클러스터 밖 호스트다 |
 
-Tailscale 키는 [태그 · 1회용 · 임시(ephemeral)](https://tailscale.com/kb/1085/auth-keys)로 만들고 수명을 가장 짧게 둔다. `bravo-tailnet-join`은 키를 [표준 입력에서 읽어](https://tailscale.com/kb/1241/tailscale-up) 명령줄에 남기지 않는다. `AWS-RunShellScript`로는 비밀을 넘기지 않는다. 명령 내용이 SSM 기록에 남는다.
+Tailscale 키는 [태그 · 1회용 · 임시(ephemeral)](https://tailscale.com/kb/1085/auth-keys)로 만들고 수명을 가장 짧게 둔다. `bravo-tailnet-join`은 키를 [표준 입력에서 읽어](https://tailscale.com/kb/1241/tailscale-up) 명령줄에 남기지 않고, 이 호스트로 들어오는 tailnet 연결을 [`--shields-up`](https://tailscale.com/kb/1072/client-preferences)으로 거부한다. 터널 안쪽은 보안 그룹이 보지 못하고 ACL은 이 스택 밖에 있기 때문이다. `AWS-RunShellScript`로는 비밀을 넘기지 않는다. 명령 내용이 SSM 기록에 남는다.
 
 ## 정해야 할 것
 
@@ -169,14 +171,14 @@ aws pricing get-products --region us-east-1 --service-code AmazonEC2 --filters T
 |---|---|
 | Terraform 1.16.5 `fmt -check`, `init -backend=false`, `validate` | 통과 |
 | `terraform test` (모의 공급자) | 20건 통과. 양성 8건 + 거부 12건 |
-| 일부러 망가뜨리기 | 복사본에 결함 54종을 하나씩 넣어 54종 모두 시험이 잡음. 스크립트는 저장소에 넣지 않았다 |
+| 일부러 망가뜨리기 | 복사본에 결함 61종을 하나씩 넣어 61종 모두 시험이 잡음. 둘째 보안 그룹과 추가 IAM 정책은 독립 리뷰가 찾아 시험에 더한 것이다. 스크립트는 저장소에 넣지 않아 다시 돌릴 수 없다 |
 | Trivy `config` HIGH · CRITICAL (`.trivyignore.yaml` 적용, CI와 같은 명령) | 통과. 예외 없이 돌리면 바깥 방향 HTTPS(AWS-0104)가 나온다 |
-| 부팅 스크립트 | amd64 Ubuntu 24.04 컨테이너에서 iptables로 바깥 방향을 TCP 443과 DNS만 열고 실행. 80번 차단을 먼저 확인했고, 설치와 비루트 사용자의 `uv sync`, `bravo-loadgen run --help`까지 통과 |
+| 부팅 스크립트 | amd64 Ubuntu 24.04 컨테이너에서 iptables로 바깥 방향을 TCP 443과 DNS만 열고 실행. 80번 차단을 먼저 확인했고, 설치와 비루트 사용자의 `uv sync`, `bravo-loadgen run --help`까지 통과. Ubuntu 기본 `sudo`(`use_pty`)의 파이프로 `/dev/stdin`을 읽는 것과 `bravo-tailnet-join`의 플래그 해석도 확인했다. 로그인 전 단계에서 멈췄고 키가 출력되지 않았다 |
 | 공급자 동작 | v6.71.0 소스에서 정지 시 공인 IP 교체 계획과, 고정 성능 종류의 크레딧 설정 처리를 읽음 |
 
-거부 시험은 인바운드 규칙, HTTPS 외 아웃바운드, 사양 미달(메모리 · vCPU), 다른 아키텍처, 태그 누락 · 계약 외 값, 잘못된 Tailscale 태그 · 계정 · AMI를 다룬다.
+거부 시험은 인바운드 규칙, HTTPS 외 아웃바운드, 사양 미달(메모리 · vCPU), 다른 아키텍처, 태그 누락 · 계약 외 값, 잘못된 Tailscale 태그 · 계정 · AMI를 다룬다. 스택의 자원 종류와 개수도 검토한 목록과 정확히 같아야 한다. 자원을 하나 더 넣으면 시험이 실패하므로 그때 경계와 태그 시험을 함께 고친다.
 
-**모의 시험의 한계.** 모의 공급자는 `default_tags`를 합치지 않아, 자원마다 태그를 직접 달아 시험으로 잰다. 새 자원에 태그를 빠뜨리는 경우는 `default_tags`가 실제 배포에서 막지만 시험은 잡지 못한다. 인바운드 · 아웃바운드 사전 조건은 AWS가 돌려준 규칙을 재정의로 흉내 낸 것이다.
+**모의 시험의 한계.** 모의 공급자는 `default_tags`를 합치지 않아, 자원마다 태그를 직접 달아 시험으로 잰다. `default_tags`가 실제로 합쳐지는지는 재지 않았다. 인바운드 · 아웃바운드 사전 조건은 AWS가 돌려준 규칙을 재정의로 흉내 낸 것이다.
 
 **재지 못한 것**
 
@@ -185,5 +187,6 @@ aws pricing get-products --region us-east-1 --service-code AmazonEC2 --filters T
 - 정지 · 시작 뒤 plan에 변경이 없는지. 소스를 읽어 막았을 뿐 돌려 보지 않았다
 - `t3.small`에서 쓰기 50 · 읽기 150 req/s의 CPU · 메모리, `GENERATOR_LAGGING` 여부, 응답 없는 대상에 연결이 최대 5,506개까지 쌓일 때의 메모리
 - 실제 Edge 경유 측정과 대상 쪽 결과. 이 작업은 부하를 한 건도 보내지 않았다
-- Tailscale 실제 로그인(`--auth-key=file:/dev/stdin`), 임시 노드의 정지 뒤 재가입, 중계 경로의 지연과 창 전송 2초 제한
+- Tailscale 실제 로그인(`--auth-key=file:/dev/stdin`), `--shields-up`의 실제 차단, 임시 노드의 정지 뒤 재가입, 중계 경로의 지연과 창 전송 2초 제한
+- 실제 이미지의 시간 동기화
 - 실제 청구 금액과 태그 귀속. 컨테이너 시험은 EC2 이미지가 아니며 VPC 해석기와 시간 동기화 경로는 흉내 내지 않았다
