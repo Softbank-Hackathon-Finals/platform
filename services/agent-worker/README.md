@@ -79,3 +79,26 @@ Claude 어댑터는 `uv sync --frozen --extra claude`로 설치하고 `--provide
 로컬 시험은 설치된 OpenAI SDK 3.42.1·Claude Agent SDK 0.2.177과 가짜 API/provider를 사용하는 기능/공격 입력 검증이다. OpenAI 함수 스키마·요청 옵션, Claude CLI 인자 생성도 확인한다. 로컬 시험만으로 실제 모델·클라우드 동작을 검증했다고 주장하지 않는다. 별도 [AWS 실행 기록](../../docs/evidence/t11-ci-2026-11-03/README.md)에는 같은 코드의 74개 시험, arm64 이미지 빌드, 제한된 컨테이너 5개 시나리오 결과가 있다. 별도 [공식 CLI 계정 검증](../../docs/evidence/t11-ci-2026-11-03/openai-account-local.md)에서는 기존 ChatGPT 로그인으로 실제 모델 응답을 받아 제안서 정책을 통과했다. 이는 로컬 운영자 검증이며, 이 워커의 Responses API 인증·클라우드 모델 호출·GCP·운영 배포·T15 검증 Job은 미검증이다. T7 런타임·T15 검증 경로와 통합하기 전에는 T11 전체 완료로 체크하지 않는다.
 
 근거: [팀 설계 8.3](../../docs/design.html#s8-3), [T11·T15 작업 계획](../../docs/tasks.md), [OpenAI 함수 호출](https://developers.openai.com/api/docs/guides/function-calling), [Responses 상태 보관](https://developers.openai.com/api/docs/guides/migrate-to-responses), [Claude SDK Python 문서](https://code.claude.com/docs/en/agent-sdk/python), [Claude SDK 권한 평가 순서](https://code.claude.com/docs/en/agent-sdk/permissions). SDK 버전과 전이 의존성은 `uv.lock`에 고정했다.
+
+## 운영자가 직접 수행하는 구독 계정 검증
+
+`account_smoke`는 사용자가 요청한 개인 구독 계정 검증을 위한 명시적 진입점이다. 기본 `bravo-agent analyze`와 API 키 제공자는 그대로다. 공식 Codex CLI 0.157.0의 장치 로그인을 사용하며, 다른 앱에 개인 계정 접근을 제공하는 호스팅 서비스나 무인 운영 인증으로 사용하지 않는다. [공식 인증 문서](https://learn.chatgpt.com/docs/auth#login-on-headless-devices), [app-server 인증 범위](https://learn.chatgpt.com/docs/app-server#auth-endpoints)
+
+```sh
+uv run python -m bravo_agent.account_smoke \
+  --codex /absolute/path/to/verified/codex \
+  --bundle examples/failure.json \
+  --manifest examples/snapshot-manifest.json \
+  --snapshot examples/source \
+  --model "$MODEL_ID" \
+  --output /private/path/new-account-result.json
+```
+
+설치자는 공식 릴리스의 플랫폼별 SHA-256을 확인한 CLI 바이너리를 제공한다. 실행은 별도 비루트 사용자와 읽기 전용 시스템 파일, 실행별 임시 쓰기 공간, CPU·메모리·시간 제한을 적용한 신뢰된 호스트에서만 한다. 이 명령 자체가 호스트 격리를 구성하지는 않는다.
+
+- CLI의 인증 저장소는 `ephemeral`이며 같은 프로세스의 메모리에만 인증을 유지한다. 개발자 인증 캐시·API 키·AWS 자격·사용자 설정을 복사하지 않는다. 인증 파일이 생성되면 실패한다. 장치 로그인 대기는 최대 10분이고 인증 뒤 제안 실행은 최대 180초다.
+- 빈 실행 디렉터리, 환경 접근 없음, `read-only`·승인 거부를 설정한다. shell·apps·plugins·hooks·멀티에이전트·브라우저·이미지·외부 MCP를 제공하지 않는다. 모델에는 `repo_read`, `plan_propose`만 등록하고 기존 `Tools` 정책으로 다시 검사한다. 예상 밖 내장 작업이나 승인 요청은 실행을 종료한다.
+- 모델을 명시하고 자동 대체를 허용하지 않는다. 도구 호출 64회, 보고된 누적 사용량 32,000토큰에서 중단한다. CLI 내부 요청·재시도 횟수는 Responses 제공자의 8회 제한과 같다고 주장하지 않는다. 오류 알림이 오면 중단하고 자동으로 새 시도를 만들지 않는다.
+- 계정 인증 성공, 모델 응답 성공, 정책을 통과한 제안서를 별도로 확인한다. `usageLimitExceeded` 등은 원문·계정 정보 없이 허용된 오류 분류만 기록하고 `NEEDS_HUMAN`으로 종료한다. 이 결과는 T15 검증·승인·배포 성공이 아니다.
+
+실측 결과와 실행 소스 결속은 [클라우드 계정 검증 기록](../../docs/evidence/t11-account-cloud-2026-11-03/README.md)을 따른다.
