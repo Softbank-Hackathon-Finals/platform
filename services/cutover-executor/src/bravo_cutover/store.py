@@ -1,0 +1,170 @@
+"""실행 기록 (spec D2): 플랫폼 DB의 executor 스키마. 멱등 키 · epoch · lease를 한 트랜잭션에서 판정한다.
+
+- 멱등 키: 같은 키 · 같은 입력이면 저장된 실행을 돌려주고, 입력이 다르면 거부한다.
+- epoch: 범위(DB 쌍)마다 받은 최댓값보다 크지 않으면 거부한다. 재시도는 같은 키로 한다.
+- lease: 범위마다 PENDING · RUNNING · SAFE_HOLD인 실행은 하나뿐이다(부분 유니크 인덱스).
+거부는 모두 원격 조작 전에 끝난다. 실행기(runner)는 기록이 커밋된 뒤에만 불린다.
+"""
+
+from dataclasses import dataclass
+from datetime import datetime
+from typing import Any
+from uuid import UUID, uuid4
+
+from psycopg import errors
+from psycopg.rows import dict_row
+from psycopg.types.json import Jsonb
+from psycopg_pool import ConnectionPool
+
+from bravo_cutover.contract import LEASE_HOLDING, CutoverRequest, Status
+
+SCHEMA_SQL = """
+CREATE SCHEMA IF NOT EXISTS executor;
+CREATE TABLE IF NOT EXISTS executor.executions (
+    execution_id    uuid        PRIMARY KEY,
+    idempotency_key text        NOT NULL UNIQUE,
+    request_digest  text        NOT NULL,
+    scope           text        NOT NULL,
+    plan_id         text        NOT NULL,
+    epoch           bigint      NOT NULL,
+    request         jsonb       NOT NULL,
+    status          text        NOT NULL,
+    steps           jsonb       NOT NULL DEFAULT '[]',
+    result          jsonb,
+    created_at      timestamptz NOT NULL DEFAULT now(),
+    updated_at      timestamptz NOT NULL DEFAULT now(),
+    UNIQUE (scope, epoch)
+);
+CREATE UNIQUE INDEX IF NOT EXISTS executions_one_lease_per_scope
+    ON executor.executions (scope) WHERE status IN ({holding});
+CREATE TABLE IF NOT EXISTS executor.fences (
+    scope     text   PRIMARY KEY,
+    max_epoch bigint NOT NULL
+);
+""".format(holding=", ".join(f"'{s}'" for s in LEASE_HOLDING))
+
+
+class Rejected(Exception):
+    """원격 조작 없이 거부한 요청. code는 API 오류 코드다."""
+
+    code = "rejected"
+
+
+class IdempotencyConflict(Rejected):
+    code = "idempotency_key_conflict"
+
+
+class StaleEpoch(Rejected):
+    code = "stale_epoch"
+
+
+class LeaseHeld(Rejected):
+    code = "lease_held"
+
+
+@dataclass(frozen=True)
+class Execution:
+    execution_id: UUID
+    idempotency_key: str
+    scope: str
+    plan_id: str
+    epoch: int
+    request: dict[str, Any]
+    status: Status
+    steps: list[dict[str, Any]]
+    result: dict[str, Any] | None
+    created_at: datetime
+    updated_at: datetime
+
+    @classmethod
+    def from_row(cls, row: dict[str, Any]) -> "Execution":
+        return cls(**{k: row[k] for k in cls.__dataclass_fields__} | {"status": Status(row["status"])})
+
+    def view(self) -> dict[str, Any]:
+        return {
+            "execution_id": str(self.execution_id),
+            "plan_id": self.plan_id,
+            "epoch": self.epoch,
+            "status": self.status.value,
+            "steps": self.steps,
+            "result": self.result,
+            "created_at": self.created_at.isoformat(),
+            "updated_at": self.updated_at.isoformat(),
+        }
+
+
+class Store:
+    def __init__(self, conninfo: str, *, max_size: int = 8):
+        self._pool = ConnectionPool(conninfo, min_size=1, max_size=max_size, open=True,
+                                    kwargs={"row_factory": dict_row})
+
+    def close(self) -> None:
+        self._pool.close()
+
+    def migrate(self) -> None:
+        with self._pool.connection() as conn:
+            conn.execute(SCHEMA_SQL)
+
+    def create(self, key: str, request: CutoverRequest) -> tuple[Execution, bool]:
+        """새 실행이면 (실행, True), 같은 키 재요청이면 (기존 실행, False)."""
+        try:
+            return self._create(key, request)
+        except errors.UniqueViolation:
+            # 같은 키가 동시에 들어와 한쪽이 먼저 커밋했다. 저장된 것을 기준으로 다시 판정한다.
+            return self._create(key, request)
+
+    def _create(self, key: str, request: CutoverRequest) -> tuple[Execution, bool]:
+        scope, digest = request.scope(), request.digest()
+        with self._pool.connection() as conn, conn.transaction():
+            conn.execute("INSERT INTO executor.fences VALUES (%s, 0) ON CONFLICT DO NOTHING", (scope,))
+            # 범위마다 판정을 직렬화한다. 이 잠금 뒤에 멱등 키를 봐야 같은 키 동시 요청이 epoch 거부로 새지 않는다.
+            max_epoch = conn.execute(
+                "SELECT max_epoch FROM executor.fences WHERE scope = %s FOR UPDATE", (scope,)
+            ).fetchone()["max_epoch"]
+            row = conn.execute(
+                "SELECT * FROM executor.executions WHERE idempotency_key = %s", (key,)
+            ).fetchone()
+            if row:
+                if row["request_digest"] != digest:
+                    raise IdempotencyConflict("same Idempotency-Key with a different request")
+                return Execution.from_row(row), False
+            if request.epoch <= max_epoch:
+                raise StaleEpoch(f"epoch {request.epoch} <= {max_epoch}")
+            holder = conn.execute(
+                "SELECT execution_id, status FROM executor.executions WHERE scope = %s AND status = ANY(%s)",
+                (scope, [s.value for s in LEASE_HOLDING]),
+            ).fetchone()
+            if holder:
+                raise LeaseHeld(f"execution {holder['execution_id']} is {holder['status']}")
+            row = conn.execute(
+                """INSERT INTO executor.executions
+                   (execution_id, idempotency_key, request_digest, scope, plan_id, epoch, request, status)
+                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s) RETURNING *""",
+                (uuid4(), key, digest, scope, request.plan_id, request.epoch,
+                 Jsonb(request.model_dump(mode="json")), Status.PENDING.value),
+            ).fetchone()
+            conn.execute("UPDATE executor.fences SET max_epoch = %s WHERE scope = %s", (request.epoch, scope))
+            return Execution.from_row(row), True
+
+    def get(self, execution_id: UUID) -> Execution | None:
+        with self._pool.connection() as conn:
+            row = conn.execute(
+                "SELECT * FROM executor.executions WHERE execution_id = %s", (execution_id,)
+            ).fetchone()
+        return Execution.from_row(row) if row else None
+
+    def find(self, plan_id: str, epoch: int) -> list[Execution]:
+        with self._pool.connection() as conn:
+            rows = conn.execute(
+                "SELECT * FROM executor.executions WHERE plan_id = %s AND epoch = %s ORDER BY created_at",
+                (plan_id, epoch),
+            ).fetchall()
+        return [Execution.from_row(r) for r in rows]
+
+    def set_status(self, execution_id: UUID, status: Status, result: dict[str, Any] | None = None) -> None:
+        with self._pool.connection() as conn:
+            conn.execute(
+                """UPDATE executor.executions SET status = %s, result = COALESCE(%s, result), updated_at = now()
+                   WHERE execution_id = %s""",
+                (status.value, Jsonb(result) if result is not None else None, execution_id),
+            )

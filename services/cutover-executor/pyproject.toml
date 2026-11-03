@@ -5,6 +5,8 @@ description = "Cutover Executor (T12): 쓰기 정지 구간을 정해진 순서�
 requires-python = ">=3.12"
 dependencies = [
     "fastapi>=0.115",
+    "psycopg-pool>=3.2",
+    "psycopg[binary]>=3.2",
     "uvicorn[standard]>=0.32",
 ]
 
