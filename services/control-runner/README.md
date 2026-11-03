@@ -165,3 +165,5 @@ uv build
 
 환경 내부 OTLP 감사 기록 연결: [등록 원천·수신 시각·전체 export 검증](docs/otlp-audit.md).
 T34의 환경 내부 OTel 수집 구성·중단 복구와 배포 전제는 [감사 전달 구성](docs/audit-forwarding.md)을 따른다. 설정 생성과 로컬 도구 실험은 양쪽 운영 환경의 감사 검색 완료가 아니다.
+
+실제 로컬 DB·Kubernetes 감사 발생부터 수집·검색까지: [자격 시험](docs/live-audit-qualification.md). 팀 환경 완료와 구분한다.

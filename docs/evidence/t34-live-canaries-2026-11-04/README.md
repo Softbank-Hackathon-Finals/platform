@@ -1,0 +1,22 @@
+# T34 실제 로컬 감사 발생·수집·검색 검증
+
+2026-11-04 KST. 고정 digest k3s/CNPG/PostgreSQL/OTel Collector를 사용했다.
+실제 TLS DB 로그인, DDL 생성·삭제, Kubernetes RoleBinding 생성·삭제를 실행했고
+실제 CRI·API 서버 감사 파일을 Collector로 전달했다. 합성 감사 메시지를 입력하지 않았다.
+
+- AUD-01.1/01.2/01.3 모두 `present`, 545개 원천 이벤트를 해석한 뒤 각 시험의 시간 범위로 검색.
+- DB 인증서를 verify-full로 검사하고 Collector 전달은 mTLS를 사용.
+- 생성한 DB 역할 비밀번호가 수신 export에 남지 않은 것을 확인.
+- 소유한 k3s/Collector 컨테이너·내부 Docker 네트워크 정리 확인.
+- 원문 로그·canary 영수증·개인 키는 공개하지 않음.
+
+첫 시도는 CRD client-side apply, 다음은 CNPG가 이미 만든 pgAudit 확장의 중복 생성에서 실패했다.
+서버 측 CRD 적용과 멱등 초기화로 수정했다. 검색 첫 시도는 시험 시작 이전 이벤트를 반환해
+기존 시간 범위 검증에 거부됐으며, 검색 범위를 올바르게 좁혀 다시 통과했다.
+검증 조건을 완화하거나 실패를 PASS로 바꾸지 않았다.
+
+**한계:** 팀 AWS EKS/RKE2 검증이 아니다. 파일 sink는 시험 수신기이며 운영 불변 보관·
+검색 가용성·원천 교체·T19 정본 서명 연결까지 검증한 결과는 아니다. 감사 3개 통제의
+로컬 성공을 전체 보안 게이트 또는 컷오버 허가로 사용하지 않는다.
+
+재현은 [시험 문서](../../../services/control-runner/docs/live-audit-qualification.md)를 따른다.
