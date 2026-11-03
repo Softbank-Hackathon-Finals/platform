@@ -81,19 +81,19 @@
       "passed": true
     },
     {
-      "check": "/bravo/bravo-foundation/platform/vpc retention and encryption",
+      "check": "RESOURCE_NAME_001 retention and encryption",
       "passed": true
     },
     {
-      "check": "/bravo/bravo-foundation/platform/vpc component tag",
+      "check": "RESOURCE_NAME_001 component tag",
       "passed": true
     },
     {
-      "check": "/bravo/bravo-foundation/source/vpc retention and encryption",
+      "check": "RESOURCE_NAME_002 retention and encryption",
       "passed": true
     },
     {
-      "check": "/bravo/bravo-foundation/source/vpc component tag",
+      "check": "RESOURCE_NAME_002 component tag",
       "passed": true
     },
     {
@@ -112,16 +112,16 @@
       "fl-0e0a12a489e02a47f"
     ],
     "log_groups": [
-      "/bravo/bravo-foundation/platform/vpc",
-      "/bravo/bravo-foundation/source/vpc"
+      "RESOURCE_NAME_001",
+      "RESOURCE_NAME_002"
     ],
     "log_kms_key_id": "REDACTED-RESOURCE-ID",
     "name": "bravo-foundation",
-    "peering_id": "pcx-06113ef25fa6e016a",
+    "peering_id": "AWS_RESOURCE_001",
     "region": "ap-northeast-2",
     "route_tables": {
-      "platform": "rtb-001a7141f09ed4fad",
-      "source": "rtb-0067d706d871f6751"
+      "platform": "AWS_RESOURCE_002",
+      "source": "AWS_RESOURCE_003"
     },
     "security_groups": {
       "platform_control": "REDACTED-SG",
@@ -131,29 +131,29 @@
     "subnets": {
       "platform-0": {
         "az": "ap-northeast-2a",
-        "id": "subnet-01d8eaa82ff31c4e2"
+        "id": "AWS_RESOURCE_005"
       },
       "platform-1": {
         "az": "ap-northeast-2c",
-        "id": "subnet-06dc5b05e1f65c2d3"
+        "id": "AWS_RESOURCE_007"
       },
       "source-0": {
         "az": "ap-northeast-2a",
-        "id": "subnet-0099a13ac2157c5ee"
+        "id": "AWS_RESOURCE_004"
       },
       "source-1": {
         "az": "ap-northeast-2c",
-        "id": "subnet-01ff24f332431e024"
+        "id": "AWS_RESOURCE_006"
       }
     },
     "vpcs": {
       "platform": {
         "cidr": "10.81.0.0/16",
-        "id": "vpc-064feca1be515f2b6"
+        "id": "AWS_RESOURCE_008"
       },
       "source": {
         "cidr": "10.80.0.0/16",
-        "id": "vpc-0d9fb5365bfc02c38"
+        "id": "AWS_RESOURCE_009"
       }
     }
   },

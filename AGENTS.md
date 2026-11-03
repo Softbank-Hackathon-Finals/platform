@@ -31,6 +31,7 @@
 
 - 장기 액세스 키를 공유하거나 커밋하지 않는다. 사람은 각자 계정, CI는 OIDC로 권한을 받는다.
 - 시크릿 값을 로그 · 파일 · 커밋 · PR 본문에 남기지 않는다. 모델 키는 플랫폼에만 둔다.
+- 공개 문서·증빙의 개인 이메일, 홈 절대경로, 계정·운영 리소스 식별자는 가린다. 원본은 비공개로 보존하고 [공개 증빙 절차](docs/public-evidence-policy.md)를 따른다. `python3 scripts/public_evidence.py check`는 값 없이 위반 종류만 출력한다.
 - 모든 클라우드 자원에 `component` 태그를 단다(비용 정산, 데모 후 `terraform destroy`).
 - 검사 예외는 `.gitleaks.toml` · `.trivyignore`에 사유 주석과 함께만 추가한다.
 
