@@ -7,6 +7,7 @@ Never attach app credentials or blanket deletion privileges to these resources.
 
 import re
 from datetime import datetime
+from string import Template
 from urllib.parse import urlsplit
 
 PLUGIN = "barman-cloud.cloudnative-pg.io"
@@ -234,7 +235,9 @@ def s3_delete_guard(*, bucket, prefix, denied_role_arns):
                 "Effect": "Deny",
                 "Principal": "*",
                 "Action": ["s3:DeleteObject", "s3:DeleteObjectVersion"],
-                "Resource": f"arn:aws:s3:::{bucket}/{prefix}*",
+                "Resource": Template("arn:aws:s3:::${bucket}/${prefix}*").substitute(
+                    bucket=bucket, prefix=prefix
+                ),
                 "Condition": {"ArnEquals": {"aws:PrincipalArn": list(denied_role_arns)}},
             },
             {
@@ -242,7 +245,7 @@ def s3_delete_guard(*, bucket, prefix, denied_role_arns):
                 "Effect": "Deny",
                 "Principal": "*",
                 "Action": "s3:DeleteBucket",
-                "Resource": f"arn:aws:s3:::{bucket}",
+                "Resource": Template("arn:aws:s3:::${bucket}").substitute(bucket=bucket),
                 "Condition": {"ArnEquals": {"aws:PrincipalArn": list(denied_role_arns)}},
             },
         ],

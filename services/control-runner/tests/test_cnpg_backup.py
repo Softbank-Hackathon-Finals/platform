@@ -120,7 +120,7 @@ def test_delete_guard_exact_principals_prefix_and_versions():
     doc = s3_delete_guard(bucket="example-backup", prefix="app-a/", denied_role_arns=roles)
     first, second = doc["Statement"]
     assert first["Effect"] == "Deny"
-    assert first["Resource"] == "arn:aws:s3:::example-backup/app-a/*"
+    assert first["Resource"].split(":", 5) == ["arn", "aws", "s3", "", "", "example-backup/app-a/*"]
     assert "s3:DeleteObjectVersion" in first["Action"]
     assert second["Action"] == "s3:DeleteBucket"
     assert first["Condition"]["ArnEquals"]["aws:PrincipalArn"] == list(roles)
