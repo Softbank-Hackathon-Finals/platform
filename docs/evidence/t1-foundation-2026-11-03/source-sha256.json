@@ -1,0 +1,25 @@
+{
+  "implementation_commit": "e8f534d27e46380e9029718dda2f8497284c78c2",
+  "files": {
+    ".github/workflows/ci.yml": "81e0a79b25ff07cf9b4ba11a66751e403503b6d5257491c20c86e0abaed62407",
+    ".gitignore": "85d7b3015968ac040fb94092f3d51dded992634b30cd4bfdedc740950d04ad38",
+    "infra/README.md": "6c2f048b2f11b11c67ee833063926e540156a38239b36843218636500cc44ab2",
+    "infra/aws-foundation/.terraform.lock.hcl": "780af170c2abf4a1d06b3cb0b34cf74e173e6b46bd7842818587c18c560c6ab1",
+    "infra/aws-foundation/Makefile": "bfea8d1aee585ff18a3eb08f9e9c3c7d1b67f634fef01425835590ff3141dfa2",
+    "infra/aws-foundation/README.md": "1677067c2ecc302505b5bb5942c2dd7d54b8d745054339f1f682c2c7a0aba053",
+    "infra/aws-foundation/backend.hcl.example": "18963873392bcbf397cfff6f115199afb01eb3430f8e1b8bbcb8d25dde51f0fc",
+    "infra/aws-foundation/logging.tf": "2f82bf81503475d1ba19db4abb14a6c7239cd91db18d038af621c7a9197b18d8",
+    "infra/aws-foundation/main.tf": "f32e2be4aafede276e48b2e11d3156c83a1bd0b2aa552b874c7fa3ced9e4bb7d",
+    "infra/aws-foundation/operator.auto.tfvars.example": "51a5f9b5e9816b78f6c9c0b6646fac226475075be81ab06b4e2d6ab8420ea3b2",
+    "infra/aws-foundation/outputs.tf": "2cd27729be230aa6f0ce5e9be387646987ab8a028ce905ad079e47648b0bbbb4",
+    "infra/aws-foundation/ruff.toml": "6c0640dd90def5b244d6553d12ed8c0f0614a32ed59fe743826f86e421dfd2f3",
+    "infra/aws-foundation/tests/boundaries.tftest.hcl": "c23b4b714f3e9f8a8c114b4fac139dec13df8299d47116295790d8d9f6ae8363",
+    "infra/aws-foundation/variables.tf": "04669032213de56f7eedd050b232093b66119aa8ba3827b298c99756011a49e5",
+    "infra/aws-foundation/verify.py": "cfc006e77452ba21594df6e358ec89d16109bc074dc8fd2128646adf63d07b15",
+    "infra/aws-foundation/versions.tf": "b6425736fbedba70675cecb307e7c88f664eb906e6699b52d262580c77765a89",
+    "infra/state-backend/.terraform.lock.hcl": "780af170c2abf4a1d06b3cb0b34cf74e173e6b46bd7842818587c18c560c6ab1",
+    "infra/state-backend/README.md": "a6c3afb4bdb3f4f986978e3d45abb03bbbc1e89092ca7459b0c5b4cee9d997b8",
+    "infra/state-backend/main.tf": "0ce4bf575b6378b08f58dbe60c3b3249d6adfa75cca225e5c1135443c387dae6",
+    "infra/state-backend/operator.auto.tfvars.example": "5797ed26b3394a2b3fbc42759ff472b9418bd8a44d3861dac1268826e8b1d79b"
+  }
+}
