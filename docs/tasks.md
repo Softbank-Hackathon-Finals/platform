@@ -228,7 +228,7 @@ Claude Code는 `/todo-task`, Codex는 `$todo-task`로 이 순서를 따르는 �
 
 **할 일**
 - [ ] 플랫폼 DB(상태 · 감사 로그 인덱스)
-- [ ] OIDC 신뢰 정책
+- [x] OIDC 신뢰 정책
 - [ ] 수집 역할과 제어 역할 분리
 - [ ] GHCR 이미지 빌드 · push (digest), 양쪽 클러스터 pull 토큰
 - [ ] GitHub 레포 접근: 읽기(분석) · 브랜치 쓰기(T31). GitHub App 또는 범위를 좁힌 토큰
