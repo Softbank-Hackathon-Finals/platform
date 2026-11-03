@@ -6,6 +6,7 @@ set -u
 
 KUBECTL=(/var/lib/rancher/rke2/bin/kubectl --kubeconfig /etc/rancher/rke2/rke2.yaml)
 CIS_SYSCTL=/usr/local/share/rke2/rke2-cis-sysctl.conf
+AUDIT_LOG=/var/lib/rancher/rke2/server/logs/audit.log
 failed=0
 
 check() {
@@ -50,6 +51,36 @@ sleep_masked() {
   done
 }
 
+# 정책 파일이 있는지는 보지 않는다. 정책을 넣지 않아도 RKE2가 같은 경로에 level: None 정책을 만든다.
+# 이벤트는 응답을 보낸 뒤 파일에 쓰이므로 잠깐 기다린다.
+audit_recorded_as_metadata() {
+  local name=$1
+  for _ in $(seq 1 15); do
+    grep -F "\"name\":\"$name\"" "$AUDIT_LOG" | grep -F '"stage":"ResponseComplete"' \
+      | grep -qF '"level":"Metadata"' && return 0
+    sleep 1
+  done
+  return 1
+}
+
+audit_records_rbac_change() {
+  local name
+  name=verify-audit-$(date +%s)-$RANDOM
+  "${KUBECTL[@]}" create rolebinding "$name" --namespace default --clusterrole=view \
+    --user=verify-audit --dry-run=server || return 1
+  audit_recorded_as_metadata "$name"
+}
+
+audit_omits_secret_value() {
+  local name value
+  name=verify-audit-$(date +%s)-$RANDOM
+  value=$(od -An -N24 -tx1 /dev/urandom | tr -d ' \n')
+  "${KUBECTL[@]}" create secret generic "$name" --namespace default \
+    --from-literal=probe="$value" --dry-run=server || return 1
+  audit_recorded_as_metadata "$name" || return 1
+  ! grep -qF -e "$value" -e "$(printf %s "$value" | base64 -w0)" "$AUDIT_LOG"
+}
+
 # status 글자만 보면 경고가 있어도 done으로 나온다. 종료 코드는 경고가 있으면 2다.
 check 'cloud-init 정상 종료' cloud-init status
 check 'CIS sysctl 적용' cis_sysctl_applied
@@ -59,6 +90,8 @@ check 'RKE2 버전 고정' rke2_version_pinned
 check 'rke2-server 실행' systemctl is-active rke2-server
 check '노드 Ready' "${KUBECTL[@]}" wait node --all --for=condition=Ready --timeout=300s
 check '특권 Pod 거부' privileged_pod_denied
+check '감사 로그에 권한 변경 기록' audit_records_rbac_change
+check '감사 로그에 Secret 값 없음' audit_omits_secret_value
 check '절전 차단' sleep_masked
 check 'Tailscale 설치' command -v tailscale
 
