@@ -1,9 +1,14 @@
 """Reject wrong or stale routes before preparing the source pooler patch."""
 
+import importlib.util
 import unittest
 from copy import deepcopy
+from pathlib import Path
 
-from bravo_cutover import prepare as route_module
+ROOT = Path(__file__).resolve().parents[2]
+spec = importlib.util.spec_from_file_location("source_pooler_route", ROOT / "infra/envs/source-workloads/pooler_route.py")
+route_module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(route_module)
 
 
 def resources():

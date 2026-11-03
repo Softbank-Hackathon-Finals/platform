@@ -124,10 +124,11 @@
   "limits": {
     "executor_100m_scheduling_verified": false,
     "executor_deployed": false,
-    "source_pooler_wrong_caller_denial_accepted": false,
+    "source_pooler_wrong_caller_denial_accepted": true,
     "actual_cutover_executions": 0,
     "t12_issue_complete": false,
-    "t13_issue_complete": false
+    "t13_issue_complete": false,
+    "source_pooler_wrong_namespace_denial_accepted": true
   },
   "private_source_sha256": {
     "platform_control": "cd6571c1ae5d9e6656bbff692eeca0830f7b8735f0eaeafd80386d3f78a8315c",
@@ -135,6 +136,38 @@
     "platform_cleanup": "c8fca8a35cb33615c5e5b6095ab961e5a4751f8e2af2bda2ad7c0b2055ba2a5d",
     "source_websocket": "9d0a58905dd4add8b1a266b2b9be9f51a0de24ccef460ea7b9e290c7e0b40123",
     "source_pooler_tls": "c9f167ec9bc415c1afd40ea1adfbf3c2567f92f5b84feed085b5ef3af92ad1e8",
-    "source_pooler_denial_initial": "4d6e29abbb7c0404ce044d9a21fef7710a74d5a99a613ff3be1eccb135d8e7d5"
+    "source_pooler_denial_initial": "4d6e29abbb7c0404ce044d9a21fef7710a74d5a99a613ff3be1eccb135d8e7d5",
+    "source_pooler_denial_final": "b6f3eec6d55ffa07cb463ee0875d99a8aa339acfa62e44d83abc6beee7a1014a",
+    "source_pooler_wrong_namespace": "e7521a7f82cc98a8419d7c61fb09ae5dd2483e795a8ef4e54fd4b77c4be5344f"
+  },
+  "source_pooler_denial_final": {
+    "started_at": "2026-11-03T16:05:23.567466+00:00",
+    "database_writes": 0,
+    "probe_credentials": 0,
+    "probe_kind": "wrong_label",
+    "positive_before": true,
+    "negative": {
+      "denied": true
+    },
+    "positive_after": true,
+    "passed": true,
+    "caller_egress_policy_count": 0,
+    "owned_job_and_pods_absent": true,
+    "completed_at": "2026-11-03T16:05:45.174904+00:00"
+  },
+  "source_pooler_wrong_namespace": {
+    "started_at": "2026-11-03T16:05:51.340792+00:00",
+    "database_writes": 0,
+    "probe_credentials": 0,
+    "probe_kind": "wrong_namespace",
+    "positive_before": true,
+    "negative": {
+      "denied": true
+    },
+    "positive_after": true,
+    "passed": true,
+    "caller_egress_policy_count": 0,
+    "owned_job_and_pods_absent": true,
+    "completed_at": "2026-11-03T16:06:11.445440+00:00"
   }
 }
