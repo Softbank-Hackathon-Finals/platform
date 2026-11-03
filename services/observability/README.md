@@ -14,13 +14,14 @@
 - **허용 목록:** 앱 지표는 아래 속성만 남는다. 채팅 본문, `Authorization`, 토큰, SQL 파라미터는 저장되지 않는다.
   - 리소스 속성: `service.name` · `service.instance.id`
   - 데이터 포인트 속성: `http.request.method` · `http.response.status_code` · `http.route`
-- **수집 경로 생존 신호:** Collector가 자기 지표를 10초마다 긁어 같은 경로로 보낸다. 플랫폼은 환경별 최근 수신 시각을 아래 식으로 본다.
+- **수집 경로 생존 신호:** Collector가 자기 지표를 10초마다 긁어 같은 경로로 보낸다. 이 경로에서만 신뢰 라벨 `bravo.signal=collector-self`를 붙인다. 앱 경로는 허용 목록이 이 속성을 지우므로, 앱이 `service.name=bravo-collector`나 지표 이름 `up`을 써도 생존 신호로 세지 않는다. 플랫폼은 환경별 최근 수신 시각을 아래 식으로 본다.
 
   ```promql
-  time() - max by (bravo_env) (timestamp(up{job="bravo-collector"}))
+  time() - max by (bravo_env) (timestamp(up{bravo_signal="collector-self"}))
   ```
 
-  등록된 환경이 결과에 없거나 30초를 넘으면 그 환경은 "확인 불가"다. 보내는 방식이라 데이터가 오지 않는 것을 "정상"으로 읽지 않는다. 기준 30초는 수집 간격(10초)의 3배로 둔 제안값이다.
+  등록된 환경이 결과에 없거나 30초를 넘으면 그 환경은 "확인 불가"다. 보내는 방식이라 데이터가 오지 않는 것을 "정상"으로 읽지 않는다. 기준 30초는 수집 간격(10초)의 3배로 둔 제안값이다. `job` 라벨로 고르지 않는다(앱도 보낼 수 있다).
+- **시계:** 생존 신호의 시각은 Collector 호스트 시계다. 호스트 시계가 앞서면 그만큼 "확인 불가" 판정이 늦어지므로 클러스터 노드는 시간 동기화(chrony 등)를 켠다.
 - **보존 기간 3일.** 데모와 증빙에 충분한 기간만 둔다. 판정의 근거는 판정 기록(`SliJudgement`)에 따로 남으므로 지표 저장소를 지워도 판정은 다시 계산할 수 있다.
 
 ## 보안 경계
@@ -47,13 +48,14 @@ Prometheus와 목적지 역할(`BRAVO_ENV=onprem`) Collector를 띄운다. 시�
 | 허용 목록의 `http.route`는 남음 | 통과 |
 | 카나리 문자열이 모든 라벨 값에서 0건 (SEC-01.3과 같은 방식) | 통과 |
 | 생존 신호: 최근 수신 1초 미만 | 통과 |
-| Collector를 멈추면 30초 뒤 "확인 불가" | 통과 |
+| 앱이 생존 신호를 사칭(`service.name=bravo-collector` · `bravo.signal` · 20초 뒤 시각의 `up=1`)한 뒤 Collector를 멈추면, 45초 뒤 "확인 불가" (사칭 시계열은 저장되지만 신뢰 라벨이 없음) | 통과 |
 
 설정 검증도 통과했다: `otelcol-contrib validate`, `promtool check config`.
 
 일부러 망가뜨린 설정으로도 돌려 봤다.
 - 허용 목록을 빼면 카나리 검사가 실패한다.
 - 허용 목록과 환경 덮어쓰기를 함께 빼면 위조 검사와 카나리 검사가 모두 실패한다.
+- 생존 신호를 신뢰 라벨 대신 `job="bravo-collector"`로 고르면, Collector를 멈추고 45초 뒤에도 최근 수신이 28초 전으로 나와 "확인 불가" 검사가 실패한다(리뷰에서 지적한 사칭 재현).
 
 시험이 이 보호 장치들을 실제로 확인한다는 뜻이다.
 

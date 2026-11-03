@@ -18,6 +18,8 @@ services:
       PLATFORM_OTLP_ENDPOINT: http://prometheus:9090/api/v1/otlp
     volumes:
       - ../collector.yaml:/etc/otelcol/collector.yaml:ro
+    ports:
+      - "127.0.0.1::4318"
   telemetrygen:
     image: ghcr.io/open-telemetry/opentelemetry-collector-contrib/telemetrygen:v0.163.0@sha256:569b79a39f8313db839a727e8eac161c66b8a6c2e633f2da4ad352ce7b383c23
     profiles: [sender]

@@ -34,11 +34,15 @@ processors:
       - context: datapoint
         statements:
           - keep_keys(datapoint.attributes, ["http.request.method", "http.response.status_code", "http.route"])
-  # 생존 신호의 job 라벨을 Collector 배포판과 무관하게 고정한다
+  # 생존 신호에만 붙는 신뢰 라벨. 앱 경로는 허용 목록이 bravo.signal을 지우므로 앱이 생존 신호를 사칭할 수 없다.
+  # job 라벨(service.name)은 앱도 보낼 수 있어 생존 신호를 고르는 데 쓰지 않는다.
   resource/self:
     attributes:
       - key: service.name
         value: bravo-collector
+        action: upsert
+      - key: bravo.signal
+        value: collector-self
         action: upsert
   resource/env:
     attributes:

@@ -3,6 +3,7 @@
 #  1. 앱이 bravo.env를 다른 환경으로 위조해 보내도 Collector의 환경(onprem)으로 기록된다
 #  2. 허용 목록 밖 속성(authorization, chat.body)은 지표 저장소에 남지 않는다 (카나리 문자열 0건)
 #  3. Collector를 멈추면 그 환경의 최근 수신 시각이 기준을 넘어 "확인 불가"가 된다
+#  4. 앱이 생존 신호를 사칭해도(job=bravo-collector · bravo.signal · 미래 시각의 up=1) 3이 그대로 성립한다
 set -euo pipefail
 cd "$(dirname "$0")"
 
@@ -48,7 +49,7 @@ done
 [ "$hits" -eq 0 ] && r=ok || r=fail
 check $r "카나리 문자열이 지표 저장소 라벨 값에 0건 (실제: ${hits}개 라벨)"
 
-AGE='time() - max by (bravo_env) (timestamp(up{job="bravo-collector"}))'
+AGE='time() - max by (bravo_env) (timestamp(up{bravo_signal="collector-self"}))'
 age() { q "$AGE" | python3 -c 'import json,sys;r={x["metric"].get("bravo_env"):float(x["value"][1]) for x in json.load(sys.stdin)["data"]["result"]};print(r.get("onprem",""))'; }
 
 echo "== 수집 경로 생존 신호"
@@ -56,16 +57,23 @@ for _ in $(seq 30); do a=$(age); [ -n "$a" ] && break; sleep 1; done
 python3 -c "import sys;sys.exit(0 if '$a' and float('$a') < $STALE_AFTER else 1)" && r=ok || r=fail
 check $r "onprem 최근 수신 ${a:-없음}초 전 (기준 ${STALE_AFTER}초 미만)"
 
-echo "== Collector 중지 → 확인 불가"
+echo "== 앱 경로로 생존 신호 사칭 (20초 뒤 시각의 up=1, job=bravo-collector, bravo.signal) 후 Collector 중지"
+OTLP="http://$("${P[@]}" port collector 4318)"
+future=$(python3 -c 'import time;print(int((time.time()+20)*1e9))')
+curl -fsS -o /dev/null -H 'Content-Type: application/json' "$OTLP/v1/metrics" -d '{"resourceMetrics":[{"resource":{"attributes":[
+  {"key":"service.name","value":{"stringValue":"bravo-collector"}},
+  {"key":"bravo.signal","value":{"stringValue":"collector-self"}}]},
+  "scopeMetrics":[{"metrics":[{"name":"up","gauge":{"dataPoints":[{"asDouble":1,"timeUnixNano":"'"$future"'"}]}}]}]}]}'
+sleep 3
 "${P[@]}" stop collector >/dev/null 2>&1
-state=""
-for _ in $(seq 90); do
-  a=$(age)
-  if [ -z "$a" ] || python3 -c "import sys;sys.exit(0 if float('$a') > $STALE_AFTER else 1)"; then state="확인 불가"; break; fi
-  sleep 1
-done
-[ "$state" = "확인 불가" ] && r=ok || r=fail
-check $r "Collector 중지 뒤 onprem이 확인 불가 (최근 수신: ${a:-없음})"
+# 사칭 표본(중지 약 17초 뒤 시각)이 보이고, 진짜 생존 신호는 30초를 넘긴 시점에 판정한다
+sleep 45
+forged=$(q 'count(up{job="bravo-collector"} unless up{bravo_signal="collector-self"}) or vector(0)' | python3 -c 'import json,sys;print(json.load(sys.stdin)["data"]["result"][0]["value"][1])')
+[ "$forged" -ge 1 ] && r=ok || r=fail
+check $r "사칭 시계열이 저장됐지만 신뢰 라벨이 없음 (${forged}개)"
+a=$(age)
+if [ -z "$a" ] || python3 -c "import sys;sys.exit(0 if float('$a') > $STALE_AFTER else 1)"; then r=ok; else r=fail; fi
+check $r "Collector 중지 45초 뒤 onprem이 확인 불가 (최근 수신: ${a:-없음}초 전)"
 
 echo
 echo "실패 ${fails}건"
