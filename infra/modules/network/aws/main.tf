@@ -19,7 +19,7 @@ resource "aws_vpc" "environment" {
   cidr_block           = each.value
   enable_dns_support   = true
   enable_dns_hostnames = true
-  tags                 = { Name = "${var.name}-${each.key}", environment = each.key }
+  tags                 = { Name = "${var.name}-${each.key}", environment = each.key, component = each.key }
 }
 
 resource "aws_default_security_group" "closed" {
@@ -28,7 +28,7 @@ resource "aws_default_security_group" "closed" {
   # Empty rules also remove AWS's default outbound allow-all rule.
   ingress = []
   egress  = []
-  tags    = { Name = "${var.name}-${each.key}-default-closed", environment = each.key }
+  tags    = { Name = "${var.name}-${each.key}-default-closed", environment = each.key, component = each.key }
 }
 
 resource "aws_subnet" "private" {
@@ -37,13 +37,13 @@ resource "aws_subnet" "private" {
   availability_zone       = each.value.az
   cidr_block              = each.value.cidr
   map_public_ip_on_launch = false
-  tags                    = { Name = "${var.name}-${each.key}", environment = each.value.env }
+  tags                    = { Name = "${var.name}-${each.key}", environment = each.value.env, component = each.value.env }
 }
 
 resource "aws_route_table" "private" {
   for_each = local.environments
   vpc_id   = aws_vpc.environment[each.key].id
-  tags     = { Name = "${var.name}-${each.key}-private", environment = each.key }
+  tags     = { Name = "${var.name}-${each.key}-private", environment = each.key, component = each.key }
 }
 
 resource "aws_route_table_association" "private" {
@@ -77,7 +77,7 @@ resource "aws_security_group" "role" {
   name        = "${var.name}-${each.key}"
   description = "T1 ${each.key}; only explicit peer rules, no public ingress or default egress"
   vpc_id      = aws_vpc.environment[each.value].id
-  tags        = { Name = "${var.name}-${each.key}", environment = each.value }
+  tags        = { Name = "${var.name}-${each.key}", environment = each.value, component = each.value }
 }
 
 resource "aws_vpc_security_group_ingress_rule" "source" {
@@ -88,7 +88,7 @@ resource "aws_vpc_security_group_ingress_rule" "source" {
   from_port                    = each.value
   to_port                      = each.value
   description                  = "Platform control to ${each.key}; app and IAM authorization remain required"
-  tags                         = { Name = "${var.name}-to-${each.key}" }
+  tags                         = { Name = "${var.name}-to-${each.key}", component = "source" }
   depends_on                   = [aws_vpc_peering_connection.platform_source]
 }
 

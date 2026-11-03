@@ -1,0 +1,22 @@
+{
+  "generated_at": "2026-11-03T06:12:54.547092+00:00",
+  "period": {
+    "start_inclusive": "2026-11-01",
+    "end_exclusive": "2026-11-03"
+  },
+  "tag_status": {
+    "project": "NOT_AVAILABLE",
+    "component": "Active"
+  },
+  "estimated": true,
+  "attribution_complete": false,
+  "project_unattributed_group_count": 2,
+  "bravo_unknown_component_group_count": 0,
+  "raw_costs_retained_privately": true,
+  "cloud_operations": [
+    "sts:GetCallerIdentity",
+    "ce:ListCostAllocationTags",
+    "ce:GetCostAndUsage"
+  ],
+  "cloud_mutations": false
+}

@@ -1,0 +1,10 @@
+{
+  "source_url": "https://www.ecb.europa.eu/stats/eurofxref/eurofxref-daily.xml",
+  "rate_date": "2026-11-02",
+  "eur_usd": "1.1216",
+  "eur_krw": "1506.20",
+  "krw_per_usd": "1342.902996",
+  "monthly_budget_krw": 500000,
+  "budget_usd": "372.32",
+  "source_sha256": "5cc7cae84d633364ebbf287abfcf6dba938ace162bf17005b9dcebe7eaab7087"
+}
