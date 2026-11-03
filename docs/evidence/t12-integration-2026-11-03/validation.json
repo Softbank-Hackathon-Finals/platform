@@ -1,0 +1,56 @@
+{
+  "source_commit": "819dce9344553e91e86194dc3b760d44570cfb0e",
+  "scope": "Executor integration preparation; real cutover not executed",
+  "local_validation": {
+    "postgres_version": "18.4",
+    "passed": 131,
+    "skipped": 39,
+    "skip_reason": "k3d environment tests not run",
+    "ruff": "PASS",
+    "linux_amd64_image_build": "PASS",
+    "image_runtime_nonroot_readonly_import": "PASS",
+    "image_scan_fixable_high_critical_findings": 0,
+    "image_secret_findings": 0
+  },
+  "provider_observations": {
+    "database_control": {
+      "completed_at": "2026-11-03T14:16:06.691537+00:00",
+      "source_and_target_applied": true,
+      "source_login_preserved": true,
+      "target_nologin_preserved": true,
+      "runtime_direct_business_insert": false,
+      "runtime_direct_sequence_update": false
+    },
+    "executor_state": {
+      "completed_at": "2026-11-03T14:27:48.489684+00:00",
+      "checks": {
+        "schema_owner": true,
+        "runtime_insert": true,
+        "runtime_delete": false,
+        "runtime_create": false,
+        "runtime_t10_usage": false,
+        "executions": 0,
+        "t10_tables": 6
+      },
+      "https_hostname_verification": true,
+      "private_key_files_created": 0,
+      "runtime_started": false
+    },
+    "replication_control": {
+      "completed_at": "2026-11-03T14:39:01.836764+00:00",
+      "barrier_delivery_and_cleanup": "PASS",
+      "business_rows_changed": false,
+      "forward_enabled": true,
+      "reverse_enabled": false,
+      "copy_data": false,
+      "reverse_temporarily_enabled_for_empty_table_registration": true
+    }
+  },
+  "not_verified": [
+    "Platform-origin remote Kubernetes/DB/PgBouncer paths",
+    "Registry publication and Executor deployment",
+    "T15/T31 approved destination application artifact",
+    "Canonical T19 gate, SHIFT100% and current S3 approval authority",
+    "Actual happy-path, ABORT_PRE_WRITE and SAFE_HOLD execution receipts"
+  ]
+}

@@ -1,0 +1,11 @@
+# T12 integration preparation
+
+The accompanying `validation.json` separates disposable PostgreSQL tests from observed development-environment setup. No actual application cutover has executed, and these records do not complete T12 or T13.
+
+Both actual PostgreSQL18.4 databases now expose fixed control functions to a narrow control role. Existing table and subscription ownership is preserved. CNPG no longer manages chat_app LOGIN, while source LOGIN and target NOLOGIN remain unchanged. The platform state database has a separate migration owner and DML runtime role; the runtime cannot create/delete objects or access the existing T10 schema. API TLS trust and state credentials are prepared in runtime Secrets, with no secret values in this report.
+
+The empty barrier/probe tables were added to the existing publications and refreshed with copy_data=false. PostgreSQL18 refuses publication refresh while a subscription is disabled (verified on disposable databases first); the reverse was briefly enabled for registration while the destination app remained NOLOGIN with zero app sessions and the source app write block stayed enabled. It was disabled again before a synthetic barrier delivery/cleanup check. Business row fingerprints were unchanged and no barrier remained. The final direction remains forward ON, reverse OFF.
+
+CNPG1.30.1's existing Subscription generation is already reconciled. Its enabled parameter is creation-only; this preparation does not edit Subscription specs or replace their credentials. Changes to these resources during execution require coordinating the operator and Executor owners, since SET PUBLICATION can refresh relation membership. References: [CNPG1.30.1 subscription reconciliation](https://github.com/cloudnative-pg/cloudnative-pg/blob/v1.30.1/internal/management/controller/subscription_controller_sql.go), [PostgreSQL18 ALTER SUBSCRIPTION](https://www.postgresql.org/docs/18/sql-altersubscription.html).
+
+The app-side 1012 endpoint is tracked separately in [demo-chat PR10](https://github.com/Softbank-Hackathon-Finals/demo-chat/pull/10). App rollout, approved S2 transformation, canonical gate/SHIFT authority, platform control routes and actual execution receipts remain integration prerequisites. Source AWS Secrets Manager code is intentionally retained for the approved S2 flow.
