@@ -1,0 +1,91 @@
+# 가짜 AWS(moto): demo-chat이 Secrets Manager(DB 자격 증명)와 S3(첨부)를 직접 부르기 때문에 필요하다.
+# 출발지 · 목적지 앱이 같은 moto를 쓴다. 값은 모두 모의 환경 전용이다.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: aws
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: moto
+  namespace: aws
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: moto}
+  template:
+    metadata:
+      labels: {app: moto}
+    spec:
+      # Service 이름이 moto라 K8s가 넣는 MOTO_PORT=tcp://… 를 moto가 자기 설정으로 읽고 죽는다
+      enableServiceLinks: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+        - name: moto
+          image: motoserver/moto:5.1.4
+          env: [{name: HOME, value: /tmp}]
+          ports: [{containerPort: 5000}]
+          readinessProbe:
+            tcpSocket: {port: 5000}
+            periodSeconds: 2
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: [ALL]}
+          volumeMounts: [{name: tmp, mountPath: /tmp}]
+      volumes: [{name: tmp, emptyDir: {}}]
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: moto
+  namespace: aws
+spec:
+  selector: {app: moto}
+  ports: [{port: 5000, targetPort: 5000}]
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: seed
+  namespace: aws
+spec:
+  backoffLimit: 10
+  template:
+    spec:
+      restartPolicy: OnFailure
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        seccompProfile: {type: RuntimeDefault}
+      volumes: [{name: tmp, emptyDir: {}}]
+      containers:
+        - name: seed
+          image: amazon/aws-cli:2.27.0
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: [ALL]}
+          volumeMounts: [{name: tmp, mountPath: /tmp}]
+          env:
+            - {name: HOME, value: /tmp}
+            - {name: AWS_ENDPOINT_URL, value: "http://moto.aws.svc:5000"}
+            - {name: AWS_REGION, value: ap-northeast-1}
+            - {name: AWS_ACCESS_KEY_ID, value: local}
+            - {name: AWS_SECRET_ACCESS_KEY, value: local}
+            - name: CHAT_APP_PASSWORD
+              valueFrom: {secretKeyRef: {name: mock-credentials, key: chat-app-password}}
+          command: ["sh", "-c"]
+          args:
+            - |
+              set -e
+              aws s3 mb s3://demo-chat-attachments 2>/dev/null || true
+              secret="{\"username\":\"chat_app\",\"password\":\"$CHAT_APP_PASSWORD\"}"
+              aws secretsmanager create-secret --name demo-chat/db --secret-string "$secret" >/dev/null 2>&1 \
+                || aws secretsmanager put-secret-value --secret-id demo-chat/db --secret-string "$secret" >/dev/null
