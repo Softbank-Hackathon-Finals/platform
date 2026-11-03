@@ -18,7 +18,7 @@ The NAT subnet defaults to a previously unused /24 inside the platform VPC. Chec
 
 ## Bootstrap and operator access
 
-`infra/shared/rke2/bootstrap.sh` is a **T2/T7 common-bootstrap candidate** tested on this AWS host. T2 has not yet adopted or run it on the demo VM. It pins RKE2 `v1.35.9+rke2r1`, enables CIS, creates the local etcd identity, applies upstream CIS sysctls before startup, disables sleep and ingress controllers, and keeps the admin kubeconfig mode 0600. Re-running against an active server fails before replacing its configuration. It is not an upgrade tool or a full CIS benchmark result.
+`infra/shared/rke2/bootstrap.sh` is the **T2/T7 common bootstrap** tested on this AWS host. T2 uses it through [`infra/envs/onprem`](../onprem) and has run it on a local VM; the demo machine reinstall is still pending. Changing this file changes this host's user data and replaces the instance on the next apply. It pins RKE2 `v1.35.9+rke2r1`, enables CIS, creates the local etcd identity, applies upstream CIS sysctls before startup, disables sleep and ingress controllers, and keeps the admin kubeconfig mode 0600. Re-running against an active server fails before replacing its configuration. It is not an upgrade tool or a full CIS benchmark result.
 
 The AWS wrapper only prepares HTTPS package access and the isolated smoke namespace/RBAC. Operators use their authorized AWS SSM session. The RKE2 admin kubeconfig remains on the host and is not a shared team credential. Individual RKE2 authentication/expiration/revocation and team distribution are still pending. IMDSv2 hop limit 1 and a host-role secret-read denial are defense layers; they do not replace T3 pod isolation tests or its tool-layer authorization.
 
@@ -34,7 +34,7 @@ Actions receives a 900-second session with only fixed-document `ssm:SendCommand`
 
 See [live evidence](../../../docs/evidence/t7-runtime-2026-11-03/README.md). Local checks: Terraform fmt/validate, four mocked policy/subnet tests, bash syntax, actionlint and Trivy HIGH/CRITICAL. Live AWS: private EC2, RKE2 Ready and namespace authorization. Live Actions: OIDC → fixed SSM document → RKE2 ConfigMap plus arbitrary-shell denial.
 
-Still separate: platform DB, production application deployment, GHCR image digest publication/pull, collector versus Executor AWS/Kubernetes roles, T2 adoption/on-premises benchmark, operator SSO and individual RKE2 access. The workload verification session owns those follow-ups in separate state; it must reuse this host and preserve these Terraform resources.
+Still separate: platform DB, production application deployment, GHCR image digest publication/pull, collector versus Executor AWS/Kubernetes roles, T2 demo machine reinstall, operator SSO and individual RKE2 access. The workload verification session owns those follow-ups in separate state; it must reuse this host and preserve these Terraform resources.
 
 ## Cost and teardown
 
