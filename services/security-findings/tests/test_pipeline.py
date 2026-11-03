@@ -6,6 +6,7 @@ from datetime import UTC, datetime
 import boto3
 import pytest
 from botocore.stub import Stubber
+from conftest import READ_AUTH, WRITE_AUTH
 from fastapi.testclient import TestClient
 
 from bravo_findings import Normalizer, Rules
@@ -19,7 +20,7 @@ from bravo_findings.view import View
 
 EX = rules_dir() / "examples"
 MIN = 60_000
-T0 = 1_793_782_800_000  # 2026-11-04T09:00:00Z
+T0 = 1_793_786_400_000  # 2026-11-04T10:00:00Z (after all source fixtures)
 
 
 def raw(name):
@@ -40,13 +41,15 @@ def rules():
 
 
 @pytest.fixture
-def env(rules):
+def env(rules, service_credentials):
     store, clock = Store(), Clock()
-    app = create_app(store=store, rules=rules, tokens={"env-onprem": "tok-onprem"}, clock=clock)
+    app = create_app(
+        store=store, rules=rules, credentials=service_credentials(clock()), clock=clock
+    )
     return store, clock, TestClient(app)
 
 
-AUTH = {"Authorization": "Bearer tok-onprem"}
+AUTH = WRITE_AUTH
 
 
 # 수집 상태 --------------------------------------------------------------------
@@ -131,8 +134,9 @@ def test_upsert_lifecycle_create_update_close(rules):
         store.upsert(
             n.normalize("bravo_controls", r, environment_id="env-onprem", collected_time=T0 + 1)
         )
-        == "updated"
+        == "duplicate"
     )
+    r["result"]["evidence"]["collected_at"] = "2026-11-04T09:02:00Z"
     r["result"].update(verdict="PASS", observed="deny")
     assert (
         store.upsert(
@@ -154,14 +158,19 @@ def test_same_test_in_two_environments_does_not_collide(rules):
     assert len(store.findings(open_only=False)) == 2
 
 
-def test_silent_falco_events_resolve(env):
+def test_silence_does_not_resolve_falco(env):
     store, clock, client = env
     client.post(
         "/v1/security/webhooks/falco/env-onprem", json=raw("onprem-falco-shell"), headers=AUTH
     )
+    assert client.post("/v1/security/maintenance/resolve-silent").status_code == 401
+    assert (
+        client.post("/v1/security/maintenance/resolve-silent", headers=READ_AUTH).status_code == 410
+    )
     clock.now = T0 + 25 * 3600 * 1000
-    assert client.post("/v1/security/maintenance/resolve-silent").json() == {"resolved": 1}
-    assert client.get("/v1/security/findings", params={"environment_id": "env-onprem"}).json() == []
+    with pytest.raises(ValueError, match="SILENCE_IS_NOT_RESOLUTION"):
+        store.resolve_silent("falco", clock.now)
+    assert len(store.findings(environment_id="env-onprem")) == 1
 
 
 # 밀어 넣기 API --------------------------------------------------------------------
@@ -180,7 +189,7 @@ def test_push_requires_token_and_unauthorized_does_not_change_state(env):
     assert store.sources() == []  # 미인증 요청은 상태를 만들거나 바꾸지 않는다
     other_env = {"environment_id": "env-aws", "events": []}
     assert (
-        client.post("/v1/security/ingest/kyverno", json=other_env, headers=AUTH).status_code == 401
+        client.post("/v1/security/ingest/kyverno", json=other_env, headers=AUTH).status_code == 403
     )
 
 
@@ -198,9 +207,11 @@ def test_push_ingests_and_heartbeats(env):
         json={"environment_id": "env-onprem", "events": []},
         headers=AUTH,
     )
-    [status] = client.get("/v1/security/sources").json()
+    [status] = client.get("/v1/security/sources", headers=READ_AUTH).json()
     assert (status["state"], status["last_success_time"]) == ("OK", clock.now)
-    summary = client.get("/v1/security/summary").json()["environments"][0]["cells"]
+    summary = client.get("/v1/security/summary", headers=READ_AUTH).json()["environments"][0][
+        "cells"
+    ]
     assert summary["POLICY"] == {"state": "OK", "counts": {"3": 1}, "sources": ["kyverno"]}
 
 
@@ -212,7 +223,7 @@ def test_agent_error_and_bad_events(env):
         headers=AUTH,
     )
     assert r.json() == {"recorded": "failure", "error_code": "SOURCE_UNHEALTHY"}
-    assert client.get("/v1/security/sources").json()[0]["state"] == "FAILED"
+    assert client.get("/v1/security/sources", headers=READ_AUTH).json()[0]["state"] == "FAILED"
     r = client.post(
         "/v1/security/ingest/kyverno",
         json={"environment_id": "env-onprem", "events": [{"result": "error", "policy": "p"}]},
@@ -224,7 +235,11 @@ def test_agent_error_and_bad_events(env):
         json={"environment_id": "env-onprem", "events": [{"result": "fail"}]},
         headers=AUTH,
     )
-    assert r.json() == {"recorded": "success", "quarantined": 1}  # 필수 값 없는 한 건은 격리
+    assert r.json() == {
+        "recorded": "failure",
+        "quarantined": 1,
+        "error_code": "INGESTION_GAP",
+    }  # 필수 값 없는 한 건은 격리
 
 
 def test_unknown_push_source_and_query_validation(env):
@@ -237,15 +252,23 @@ def test_unknown_push_source_and_query_validation(env):
         ).status_code
         == 404
     )
-    assert client.get("/v1/security/findings", params={"category": "NETWORK"}).status_code == 422
-    assert client.get("/v1/security/findings", params={"limit": 0}).status_code == 422
+    assert (
+        client.get(
+            "/v1/security/findings", headers=READ_AUTH, params={"category": "NETWORK"}
+        ).status_code
+        == 422
+    )
+    assert (
+        client.get("/v1/security/findings", headers=READ_AUTH, params={"limit": 0}).status_code
+        == 422
+    )
 
 
 def test_t5_control_results_flow_into_the_same_screen(env):
     store, _, client = env
     body = {"environment_id": "env-onprem", "events": [raw("controls-iam-01-1-fail")]}
     client.post("/v1/security/ingest/bravo_controls", json=body, headers=AUTH)
-    [f] = client.get("/v1/security/findings", params={"category": "IAM"}).json()
+    [f] = client.get("/v1/security/findings", headers=READ_AUTH, params={"category": "IAM"}).json()
     assert f["compliance"] == {"control": "IAM-01.1", "status": "Fail"}
 
 
@@ -297,7 +320,7 @@ def test_security_hub_request_uses_updated_at_window(rules):
             {
                 "Filters": {
                     "UpdatedAt": [
-                        {"Start": "2026-11-04T08:00:00.000Z", "End": "2026-11-04T09:00:00.000Z"}
+                        {"Start": "2026-11-04T09:00:00.000Z", "End": "2026-11-04T10:00:00.000Z"}
                     ]
                 },
                 "MaxResults": 100,
@@ -384,10 +407,8 @@ def test_policy_report_both_shapes_normalize(rules):
     assert a == b
     n = Normalizer(rules)
     f = n.normalize("kyverno", a[0], environment_id="env-onprem", collected_time=T0)
-    assert (
-        f["finding_info"]["uid"]
-        == "demo-chat/Pod/violating-pod/require-run-as-nonroot/run-as-non-root"
-    )
+    assert f["finding_info"]["uid"].startswith("sha256:")
+    assert f["resources"] == [{"type": "Pod", "uid": "violating-pod", "namespace": "demo-chat"}]
 
 
 def test_agent_reports_unhealthy_falco_and_unreadable_kyverno():

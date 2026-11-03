@@ -1,11 +1,12 @@
 import hashlib
 import json
+import math
 from datetime import datetime
 from typing import Any
 
 from jsonschema import Draft202012Validator
 
-from bravo_findings.mask import mask
+from bravo_findings.mask import source_projection
 from bravo_findings.rules import Rules, get_path
 
 
@@ -22,9 +23,16 @@ class Dropped(Exception):
 
 
 def epoch_ms(value: str | int | float) -> int:
+    if isinstance(value, bool):
+        raise NormalizationError("INVALID_EVENT_TIME")
     if isinstance(value, int | float):
+        if not math.isfinite(value):
+            raise NormalizationError("INVALID_EVENT_TIME")
         return int(value)
-    return int(datetime.fromisoformat(value.replace("Z", "+00:00")).timestamp() * 1000)
+    parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    if parsed.tzinfo is None:
+        raise NormalizationError("INVALID_EVENT_TIME")
+    return int(parsed.timestamp() * 1000)
 
 
 def _required(raw: dict, field: str, source: str) -> Any:
@@ -65,7 +73,21 @@ class Normalizer:
             raise Dropped(source)
         if self.rules.is_collection_error(source, raw):
             raise CollectionError(f"{source}: source reported an error")
-        raw = mask(raw)
+        if source == "bravo_controls":
+            if get_path(raw, "environment.id") != environment_id:
+                raise NormalizationError("ENVIRONMENT_MISMATCH")
+            if get_path(raw, "result.verdict") not in {"PASS", "FAIL", "UNKNOWN"}:
+                raise NormalizationError("INVALID_VERDICT")
+        if source == "kyverno" and raw.get("result") not in {"pass", "fail", "warn"}:
+            raise NormalizationError("INVALID_VERDICT")
+        # Identity is derived before lossy display masking; two accounts must not collapse.
+        identity = self._extract[source](raw)["finding_info"]["uid"]
+        if not isinstance(identity, str) or not identity or len(identity) > 2048:
+            raise NormalizationError("INVALID_IDENTITY")
+        try:
+            raw = source_projection(source, raw)
+        except (ValueError, TypeError, KeyError):
+            raise NormalizationError("INVALID_SOURCE_SHAPE") from None
 
         class_uid = self.rules.class_uid(source, raw)
         category, by_rule = self.rules.category(source, raw, class_uid)
@@ -86,6 +108,12 @@ class Normalizer:
             },
             "cloud": parts.pop("cloud"),
         }
+        finding["finding_info"]["uid"] = (
+            "sha256:"
+            + hashlib.sha256(
+                _canonical({"source": source, "environment": environment_id, "identity": identity})
+            ).hexdigest()
+        )
         control = parts.pop("control", None)
         if class_uid == 2003:
             finding["compliance"] = {
@@ -96,6 +124,7 @@ class Normalizer:
         if not by_rule and native_category:
             finding["unmapped"] = {"source_category": native_category}
         bravo = {
+            "normalizer_version": "2",
             "source": source,
             "environment_id": environment_id,
             "category": category,
@@ -112,7 +141,7 @@ class Normalizer:
         errors = sorted(self._validator.iter_errors(finding), key=lambda e: list(e.path))
         if errors:
             where = "/".join(str(p) for p in errors[0].path)
-            raise NormalizationError(f"{source}: {where}: {errors[0].message}")
+            raise NormalizationError(f"{source}: invalid normalized field: {where}")
         return finding
 
     # 출처별 추출 -------------------------------------------------------------
@@ -206,7 +235,6 @@ class Normalizer:
             },
             "product": "Falco",
             "cloud": {"provider": "onprem"},
-            "message": raw.get("output", "")[:1000],
             "resources": [resource] if resource else [],
             "native_category": raw.get("rule"),
         }
@@ -227,7 +255,6 @@ class Normalizer:
             },
             "product": "Kyverno",
             "cloud": {"provider": "onprem"},
-            "message": raw.get("message", "")[:1000],
             "resources": [resource] if kind and name else [],
             "control": policy,
             "native_category": policy,

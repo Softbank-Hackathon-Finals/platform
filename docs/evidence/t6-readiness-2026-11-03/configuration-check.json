@@ -1,0 +1,107 @@
+{
+  "scope": "local_configuration_only",
+  "configuration_result": "PASS",
+  "runtime_verified": false,
+  "deployment_ready": false,
+  "checks": [
+    {
+      "id": "eks.audit",
+      "result": "PASS",
+      "requirement": "EKS control-plane audit enabled; CloudTrail does not replace it"
+    },
+    {
+      "id": "cnpg.identity",
+      "result": "PASS",
+      "requirement": "CNPG Cluster has an explicit name and namespace"
+    },
+    {
+      "id": "db.connections",
+      "result": "PASS",
+      "requirement": "CNPG log_connections is enabled for T34 login canaries"
+    },
+    {
+      "id": "db.ddl",
+      "result": "PASS",
+      "requirement": "pgaudit includes DDL and does not subtract it"
+    },
+    {
+      "id": "db.parameter_privacy",
+      "result": "PASS",
+      "requirement": "pgaudit does not log bound parameter values"
+    },
+    {
+      "id": "db.logical",
+      "result": "PASS",
+      "requirement": "logical WAL intent is explicit; running DB still requires SQL readback"
+    },
+    {
+      "id": "pooler.service",
+      "result": "PASS",
+      "requirement": "PgBouncer uses a private Service in the DB namespace on port 5432"
+    },
+    {
+      "id": "pooler.backend",
+      "result": "PASS",
+      "requirement": "chat backend points to source CNPG primary without inline credentials"
+    },
+    {
+      "id": "pooler.tls",
+      "result": "PASS",
+      "requirement": "PgBouncer verifies backend CA and DNS identity"
+    },
+    {
+      "id": "pooler.auth",
+      "result": "PASS",
+      "requirement": "PgBouncer client authentication uses SCRAM, never trust/any"
+    },
+    {
+      "id": "pooler.admin",
+      "result": "PASS",
+      "requirement": "PgBouncer control role is distinct from app, replication and postgres roles"
+    },
+    {
+      "id": "app.identity",
+      "result": "PASS",
+      "requirement": "one selected app container in the source namespace"
+    },
+    {
+      "id": "app.env",
+      "result": "PASS",
+      "requirement": "explicit, unique env entries; resolve envFrom before this check"
+    },
+    {
+      "id": "app.pooler",
+      "result": "PASS",
+      "requirement": "demo-chat DB_HOST/DB_PORT target PgBouncer, not CNPG directly"
+    },
+    {
+      "id": "app.sdk_dependency",
+      "result": "PASS",
+      "requirement": "preserve Secrets Manager SDK dependency and use workload identity, without static AWS or DB credentials"
+    },
+    {
+      "id": "app.probes",
+      "result": "PASS",
+      "requirement": "DB health is not used for readiness/liveness during cutover"
+    },
+    {
+      "id": "eso.identity",
+      "result": "PASS",
+      "requirement": "namespace SecretStore uses explicit service-account IRSA, without static-key secretRef"
+    },
+    {
+      "id": "eso.admin_reference",
+      "result": "PASS",
+      "requirement": "ADMIN_TOKEN comes from the declared ExternalSecret; DB credentials still use the app SDK"
+    }
+  ],
+  "remaining_runtime_evidence": [
+    "T1 access and network/egress readiness",
+    "EKS/CNPG/operator versions and image digests",
+    "CloudTrail active trail and event selectors",
+    "running DB settings, extensions, roles and publication",
+    "PgBouncer backend TLS and app traffic",
+    "workload IAM authorization and Secret rotation",
+    "T34 login/DDL/RoleBinding canary delivery and read-only log search"
+  ]
+}

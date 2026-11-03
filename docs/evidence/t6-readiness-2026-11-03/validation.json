@@ -1,0 +1,23 @@
+{
+  "observed_at": "2026-11-03T07:32:39.013755+00:00",
+  "base_commit": "440a7a25d8a0052d18c325961991d66ebe518b1b",
+  "branch": "feature/T6-source-readiness",
+  "scope": "local configuration and adversarial unit tests only",
+  "runtime_verified": false,
+  "cloud_resources_created": false,
+  "sql_executed": false,
+  "new_tests": 15,
+  "all_script_tests": 34,
+  "validation_commands": [
+    "python3 -m unittest discover -s scripts/tests -v",
+    "uvx ruff check infra/envs/source-aws/preflight.py scripts/tests/test_source_preflight.py",
+    "git diff --check"
+  ],
+  "sha256": {
+    "infra/envs/source-aws/preflight.py": "33dd981b4d238280b0835ddebbd3679ae7f07a51bbdbdbf9ac110af17ae58fe0",
+    "infra/envs/source-aws/configuration.example.json": "e640e91f4ae4ff561058daf73b33572fcf793606ed71961f2ebd89bcc081423b",
+    "infra/envs/source-aws/readback.sql": "4c5e094d698b6ba4cf162e552079499774423383b8e329e4a01c77ec4712b5d6",
+    "infra/envs/source-aws/README.md": "f4d7f16f4be246849f28f5e7861734c4dccdc16fecde9a8b614c773fa33e0c73",
+    "scripts/tests/test_source_preflight.py": "bb934c6706fbecdb522de642375f06a7c8d146dac37d6a8766dc318f7da5967b"
+  }
+}

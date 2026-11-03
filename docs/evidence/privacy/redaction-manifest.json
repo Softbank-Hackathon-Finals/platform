@@ -1,0 +1,34 @@
+{
+  "format_version": 1,
+  "runs": [
+    {
+      "run": "20261103T072141353059Z",
+      "originals": "preserved privately outside repository",
+      "embedded_hashes": "unchanged; identify the original measured inputs",
+      "artifacts": [
+        {
+          "path": "docs/evidence/t1-foundation-2026-11-03/aws-readback.json",
+          "checkout_commit": "440a7a25d8a0052d18c325961991d66ebe518b1b",
+          "original_sha256": "053991ae7901c0a1fc50ae035968f72139bd3a4a6c6cd3c1b4a3e4bc14fd87b7",
+          "public_sha256": "23bba33c6f1952ab3e0f80115c08c266442a7bcaf680ae15ae6843fbfead243b",
+          "redactions": {
+            "RESOURCE_NAME": 6,
+            "AWS_RESOURCE": 9
+          },
+          "public_is_raw": false
+        },
+        {
+          "path": "docs/evidence/t1-foundation-2026-11-03/module-aws-readback.json",
+          "checkout_commit": "440a7a25d8a0052d18c325961991d66ebe518b1b",
+          "original_sha256": "aff6a50ada320770d5432bb3fe0d5ce01ff84ca56b8ea9fdf0e8cfca0d1c5244",
+          "public_sha256": "614eacdaf6d102284a71b5b80895dcf61cbd4fa4fbd26e7ae8e6f7aabc985a16",
+          "redactions": {
+            "RESOURCE_NAME": 6,
+            "AWS_RESOURCE": 9
+          },
+          "public_is_raw": false
+        }
+      ]
+    }
+  ]
+}
