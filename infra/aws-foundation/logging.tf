@@ -59,11 +59,19 @@ resource "aws_iam_role_policy" "flow_logs" {
   role = aws_iam_role.flow_logs.id
   policy = jsonencode({
     Version = "2012-10-17"
-    Statement = [{
-      Effect   = "Allow"
-      Action   = ["logs:CreateLogStream", "logs:PutLogEvents", "logs:DescribeLogStreams"]
-      Resource = [for arn in local.log_arns : "${arn}:*"]
-    }]
+    Statement = [
+      {
+        Effect   = "Allow"
+        Action   = ["logs:CreateLogGroup", "logs:CreateLogStream", "logs:PutLogEvents", "logs:DescribeLogStreams"]
+        Resource = [for arn in local.log_arns : "${arn}:*"]
+      },
+      {
+        # CloudWatch DescribeLogGroups does not support resource-level permissions.
+        Effect   = "Allow"
+        Action   = "logs:DescribeLogGroups"
+        Resource = "*"
+      }
+    ]
   })
 }
 
