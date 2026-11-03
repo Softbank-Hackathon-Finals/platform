@@ -1,0 +1,13 @@
+{
+  "kind": "sli_window",
+  "schema_version": "1",
+  "plan_id": "plan-demo",
+  "source": "loadgen",
+  "window": { "start": "2026-11-08T05:31:10Z", "end": "2026-11-08T05:31:20Z" },
+  "received_at": "2026-11-08T05:31:21Z",
+  "pools": {
+    "source": { "requests": 1800, "http_5xx": 0, "integrity_conflict": 0, "p95_ms": 120 },
+    "target": { "requests": 200, "http_5xx": 0, "integrity_conflict": 0, "p95_ms": 260 }
+  },
+  "unattributed": { "timeout": 0, "connect": 0, "other": 0 }
+}
