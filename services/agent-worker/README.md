@@ -2,7 +2,7 @@
 
 플랫폼 워커가 실패 근거와 승인된 앱 소스만 읽고 수정 제안서를 낸다. 현재 정본의 S2 기능으로 구현했다. 11/2 회의에서 역할 세분화는 열어 두었으며, 별도 서비스 도입은 실제 격리·배포 책임이 달라질 때 판단한다. GitHub의 저장소 CI, T15의 리허설 실행·비공개 검증, 사람 승인, T31 반영은 각각의 담당 경로에 남는다.
 
-사용자의 11/3 요청에 따라 **OpenAI Responses API를 기본 제공자**로 구현했다. 정본 v0.3의 Claude Agent SDK 선택을 바꾸는 v0.4·[ADR-0007](../../docs/adr/0007-model-provider-and-s2-ci.md) 제안이며, 팀 전체가 이미 합의한 것으로 취급하지 않는다. 검증한 Claude SDK 어댑터는 선택 기능으로 보존한다. 자동 provider fallback과 Bedrock 연결은 없다.
+사용자의 11/3 요청에 따라 **관리자 ChatGPT 구독(SIWC)으로 OpenAI Responses를 호출하는 경로를 기본 제공자**로 구현했다. 정본 v0.3의 Claude Agent SDK 선택을 바꾸는 v0.4·[ADR-0007](../../docs/adr/0007-model-provider-and-s2-ci.md) 제안이며, 팀 전체가 이미 합의한 것으로 취급하지 않는다. 검증한 Claude SDK 어댑터는 선택 기능으로 보존한다. 자동 provider fallback과 Bedrock 연결은 없다.
 
 | 모듈 | 책임 |
 |---|---|
@@ -11,7 +11,10 @@
 | `coordinator.py` | run/revision/proposal/attempt 결속, 최대 3회, UNKNOWN 중단. LLM import 없음 |
 | `openai_provider.py` | OpenAI Responses 호출과 두 함수 도구. 기본 제공자 |
 | `sdk.py` | 선택 설치하는 Claude Agent SDK 어댑터 |
-| `runtime.py` | 전용 프로세스의 환경·모델 키 선택 |
+| `runtime.py` | 전용 프로세스의 환경·모델 자격 선택 |
+| `subscription_auth.py` | 앱 소유 SIWC 등록·ID 검증·갱신·회수 |
+| `subscription_store.py` | 지정 VM 잠금·Secrets Manager 버전 결속 |
+| `subscription_admin.py` | 관리자 등록·상태·모델 목록·구독 워커 실행 |
 | `cli.py` | 플랫폼에서 한 번 실행하고 제안·감사 기록을 새 파일로 저장 |
 
 도구는 정본의 화이트리스트 중 `repo.read`, `plan.propose` 두 개만 연다. OpenAI 함수 이름은 `repo_read`, `plan_propose`이며 Claude MCP 이름은 `mcp__bravo__repo_read`, `mcp__bravo__plan_propose`다. 같은 정책 핸들러를 사용한다. 아직 제공하지 않는 `inventory.describe`, `rehearsal.exec`, `rehearsal.run/result`, `policy.evaluate`를 동작한다고 표시하지 않는다.
@@ -27,24 +30,27 @@ uv run pytest -q
 uv run ruff check .
 uv run bravo-agent schema > /private/path/proposal.schema.json
 
-# 모델 키는 플랫폼의 secret 주입으로 OPENAI_API_KEY에 제공한다.
-# 개인 Codex/Claude OAuth 로그인이나 개발자 홈 디렉터리를 복사하지 않는다.
-uv run bravo-agent analyze \
+# 먼저 아래 관리자 연결 절차로 구독을 등록한다.
+# 운영자가 지정한 모델만 호출하고 API 키로 자동 전환하지 않는다.
+uv run bravo-subscription run \
+  --secret-arn "$SUBSCRIPTION_SECRET_ARN" \
+  --runtime-host-id "$RUNTIME_HOST_ID" --state-dir "$BROKER_STATE_DIR" \
   --bundle /private/path/failure.json \
   --manifest /private/path/snapshot-manifest.json \
   --snapshot /private/path/read-only-app-snapshot \
-  --model "$MODEL_ID" \
-  --output /private/path/new-proposal.json
+  --model "$MODEL_ID" --output /private/path/new-proposal.json
 ```
+
+관리자 등록·최소 AWS 권한·갱신·회수 절차는 [구독 연결 운영 가이드](subscription.md)를 따른다. 기본 `bravo-agent analyze`도 `chatgpt-plan`을 선택하며 호출 프로세스의 `ACCESS_TOKEN`을 요구한다. 별도 API 청구를 운영자가 명시적으로 선택할 때만 `--provider openai`와 `OPENAI_API_KEY`를 쓴다. 이 PR의 구독 실행은 API 키를 사용하지 않는다.
 
 Claude 어댑터는 `uv sync --frozen --extra claude`로 설치하고 `--provider claude`를 명시하며 플랫폼의 `ANTHROPIC_API_KEY`만 전달한다. 기본 production 이미지에는 Claude CLI를 포함하지 않는다.
 
 ### 팀 공통 인증과 공유 파일
 
 - AWS 자동 실행은 기존 GitHub Actions OIDC 역할을 사용한다. 역할·실행 대상 참조는 팀 GitHub Secrets에 두며 장기 AWS 액세스 키를 만들지 않는다. T7의 고정 검증 역할을 모델 키 조회나 임의 실행 권한으로 확대하지 않는다.
-- 모델 API 키는 팀 전용 플랫폼 Secrets 저장소에 두고, 승인된 실행 경로가 `OPENAI_API_KEY`로 주입한다. 앱 소스·리허설 guest·일반 PR CI에 키를 전달하지 않는다. 저장소에 있는 `PROJECT_TOKEN`·`SLACK_BOT_TOKEN`이나 출발지 DB 시크릿을 모델 인증에 재사용하지 않는다. 키가 아직 발급·등록되지 않았다면 팀 무인 실행의 인증은 미완료다. OIDC의 AWS 권한은 OpenAI API 인증을 대신하지 않는다.
+- 관리자는 Bravo 앱 소유의 SIWC 로그인에 동의한다. 발급된 client ID·검증된 계정 결속·토큰 묶음은 팀 전용 Secrets Manager 항목에 저장한다. 지정 VM의 인증 담당 프로세스만 갱신 토큰과 AWS 권한을 갖고, 모델 자식 프로세스에는 접근 토큰 하나만 전달한다. 앱 소스·리허설 guest·일반 PR CI에 인증을 전달하지 않는다. 기존 `PROJECT_TOKEN`·`SLACK_BOT_TOKEN`·DB 시크릿·개인 Codex 캐시는 재사용하지 않는다. OIDC는 AWS 권한을 얻는 통로이며 구독 동의를 대신하지 않는다.
 - `.gitignore`는 로컬 Terraform 입력·상태, `.env`, AWS/Kubernetes/개인 CLI 인증과 비공개 협업 기록을 제외한다. 예시 입력, 공통 코드·설정, 검토된 예산 정책과 개인정보를 제거한 검증 기록은 커밋한다. 이미 추적된 파일의 비밀은 ignore 추가만으로 제거되지 않으므로 공개 증빙 검사와 자격 탐지를 별도로 수행한다.
-- 아래 구독 검증은 사용자가 직접 인증하는 일회성 진단이다. 개인 OAuth·`auth.json`을 팀 Secrets에 복사해 공통 자동 인증으로 사용하지 않는다.
+- 아래 `account_smoke`는 사용자가 직접 인증하는 과거 일회성 진단이다. 공통 실행은 별도 SIWC 등록을 사용하며 개인 Codex OAuth·`auth.json`을 복사하지 않는다.
 
 실행 결과 `PROPOSAL_READY`는 스키마·로컬 정책을 통과한 제안이 생겼다는 뜻이다. 실제 리허설 성공이나 승인이 아니다. 모델·입력·정책 실패는 `NEEDS_HUMAN`과 종료 코드 2다. 출력 파일을 덮어쓰지 않는다. 예시 파일은 `examples/`의 **합성 입력**이며 실계정 실행 결과가 아니다.
 
@@ -54,12 +60,12 @@ Claude 어댑터는 `uv sync --frozen --extra claude`로 설치하고 `--provide
 
 - OpenAI에는 strict 함수 도구 두 개만 제공하고 built-in shell·web·computer·code interpreter 도구는 제공하지 않는다. 모든 호출을 정확한 이름으로 분기하고 정책 핸들러에서 다시 검사한다. `parallel_tool_calls=False`, `store=False`, `max_retries=0`이며 API endpoint는 `https://api.openai.com/v1`로 고정한다.
 - Claude 선택 경로는 `tools=[]`로 내장 도구를 제거한다. `allowed_tools`만으로는 배타적 화이트리스트가 되지 않는다. 모든 도구 호출의 `PreToolUse` 훅과 MCP 핸들러가 각각 검사한다. MCP 하나, `strict_mcp_config=True`, `setting_sources=[]`, `skills=[]`, 빈 플러그인·서브에이전트 설정, `dontAsk`, 실행별 빈 SDK 작업 디렉터리, 자동 메모리 끔을 사용한다.
-- SDK의 `env`는 부모 환경을 덮어쓰는 옵션일 뿐 대체하지 않는다. 전용 CLI 프로세스에서 PATH·locale·**선택한 제공자의** 모델 API 키만 선택하고 HOME·설정 경로를 실행별 임시 디렉터리로 교체한다. AWS·GitHub·kubeconfig·개인 OAuth·다른 제공자의 키·사용자 지정 API endpoint 환경값은 전달하지 않는다. 라이브러리 호출은 공유 프로세스의 환경을 바꾸지 않으며, 격리되지 않은 환경에서 모델 호출을 거부한다.
+- SDK의 `env`는 부모 환경을 덮어쓰는 옵션일 뿐 대체하지 않는다. 전용 CLI 프로세스에서 PATH·locale·**선택한 제공자의** 모델 자격만 선택하고 HOME·설정 경로를 실행별 임시 디렉터리로 교체한다. AWS·GitHub·kubeconfig·개인 OAuth·다른 제공자의 키·사용자 지정 API endpoint 환경값은 전달하지 않는다. 라이브러리 호출은 공유 프로세스의 환경을 바꾸지 않으며, 격리되지 않은 환경에서 모델 호출을 거부한다.
 - 파일 목록은 최대 64개, 한 파일 32 KiB, 수정 가능 경로 최대 8개다. 정확한 manifest 경로만 읽으며 경로 탈출·숨김/테스트/자격증명 경로·심볼릭 링크·하드링크·변경된 바이트를 거부한다. 모델 입력에 비공개 테스트나 원시 운영 로그를 넣지 않는다.
 - 제안서는 최대 4개의 파일 교체와 이유·위험도만 포함한다. 실행 명령·판정·배포 필드는 스키마에서 거부한다. 알려진 파괴적 명령과 wildcard 권한도 제안 도구에서 차단한다. 이는 임의 코드의 안전성 증명이 아니다. 의미상 권한 약화·검증 우회는 독립 정책 검사와 T15 비공개 검증이 추가로 판단해야 한다.
 - 알려진 키·비밀 패턴을 입력/출력에서 거부한다. 모든 비밀을 탐지한다는 보장은 없다. 수집기는 비밀 검사를 통과한 앱 소스와 정리된 실패 근거만 넘겨야 한다. 모델 키는 API 호출 프로세스에만 주입하며 앱 snapshot과 리허설 guest에 넣지 않는다.
 
-자유 텍스트 모델 응답은 제안서로 채택하지 않는다. `plan.propose` 제출만 수집한다. 한 시도는 모델 호출 최대 8회·180초이며 핸들러는 도구 호출 64회에서 중단한다. OpenAI는 요청 본문 128 KiB·호출당 출력 4,096토큰으로 제한하고, API가 보고한 누적 사용량 32,000토큰을 넘으면 제안을 채택하지 않고 중단한다. 사용량은 응답 후 알려지므로 마지막 호출의 초과 비용을 되돌리지는 못한다. 달러 비용의 강제 상한으로 표현하지 않는다. Claude 선택 경로는 SDK `max_budget_usd=0.5`도 지정한다. 모델 오류나 알 수 없는 효과는 자동으로 다시 실행하지 않는다.
+자유 텍스트 모델 응답은 제안서로 채택하지 않는다. `plan.propose` 제출만 수집한다. 한 시도는 모델 호출 최대 8회·180초이며 핸들러는 도구 호출 64회에서 중단한다. OpenAI는 요청 본문 128 KiB로 제한하고, API가 보고한 누적 사용량 32,000토큰을 넘으면 제안을 채택하지 않고 중단한다. 사용량은 응답 후 알려지므로 마지막 호출의 초과 비용을 되돌리지는 못한다. 달러 비용의 강제 상한으로 표현하지 않는다. 구독 경로는 `store=false`, `stream=true`를 강제하고 `response.completed`만 성공으로 본다. 구독에서 지원하지 않는 `max_output_tokens`는 보내지 않으며 스트림은 2 MiB에서 중단한다. 명시적인 API 키 경로만 호출당 출력 4,096토큰 제한을 쓴다. 구독 한도나 일시 오류는 자동 재로그인·초기화·크레딧 추가·API 전환 없이 중단한다. Claude 선택 경로는 SDK `max_budget_usd=0.5`도 지정한다. 모델 오류나 알 수 없는 효과는 자동으로 다시 실행하지 않는다.
 
 ## T15와의 연결
 
@@ -89,7 +95,7 @@ Claude 어댑터는 `uv sync --frozen --extra claude`로 설치하고 `--provide
 
 ## 운영자가 직접 수행하는 구독 계정 검증
 
-`account_smoke`는 사용자가 요청한 개인 구독 계정 검증을 위한 명시적 진입점이다. 기본 `bravo-agent analyze`와 API 키 제공자는 그대로다. 공식 Codex CLI 0.157.0의 장치 로그인을 사용하며, 다른 앱에 개인 계정 접근을 제공하는 호스팅 서비스나 무인 운영 인증으로 사용하지 않는다. [공식 인증 문서](https://learn.chatgpt.com/docs/auth#login-on-headless-devices), [app-server 인증 범위](https://learn.chatgpt.com/docs/app-server#auth-endpoints)
+`account_smoke`는 사용자가 요청한 개인 구독 계정 검증을 위한 명시적 진입점이다. 기본 공통 실행과 분리된 진단이다. 공식 Codex CLI 0.157.0의 장치 로그인을 사용하며, 다른 앱에 개인 계정 접근을 제공하는 호스팅 서비스나 무인 운영 인증으로 사용하지 않는다. [공식 인증 문서](https://learn.chatgpt.com/docs/auth#login-on-headless-devices), [app-server 인증 범위](https://learn.chatgpt.com/docs/app-server#auth-endpoints)
 
 ```sh
 uv run python -m bravo_agent.account_smoke \

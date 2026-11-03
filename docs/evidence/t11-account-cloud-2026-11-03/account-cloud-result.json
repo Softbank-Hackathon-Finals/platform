@@ -93,9 +93,9 @@
     "file_hashes_matched": 22,
     "pytest_passed": 87,
     "ruff": "PASS",
-    "ssm_command_id": "4ba788bd-29de-4055-8a2a-6b92a907dda5"
+    "ssm_command_id_sha256": "8c4364b8e55e934d0631203a5b3ab2fc03fdd3afe7afc3c22776fc6dbc325d82"
   },
-  "live_model_receipt_ssm_command_id": "869cc084-478e-43dc-805c-7e9ae048bac9",
+  "live_model_receipt_ssm_command_id_sha256": "45e929caf5fbac2c2b1819c9762cba86e08382ab646a711962d728acfadd1d56",
   "remaining": [
     "successful model response on the final source revision",
     "T15 independent verification",

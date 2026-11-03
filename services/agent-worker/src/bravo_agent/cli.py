@@ -29,7 +29,7 @@ def main() -> int:
     for argument in ("bundle", "manifest", "snapshot", "output"):
         analyze.add_argument("--" + argument, type=Path, required=True)
     analyze.add_argument("--model", required=True, help="Explicit provider model ID")
-    analyze.add_argument("--provider", choices=("openai", "claude"), default="openai")
+    analyze.add_argument("--provider", choices=("chatgpt-plan", "openai", "claude"), default="chatgpt-plan")
     args = parser.parse_args()
     if args.command == "schema":
         print(json.dumps(Proposal.model_json_schema(), indent=2))
@@ -46,10 +46,10 @@ def main() -> int:
             # Only the dedicated CLI owns its process. Library callers must launch an isolated process.
             os.environ.clear()
             os.environ.update(environment)
-            if args.provider == "openai":
+            if args.provider in {"openai", "chatgpt-plan"}:
                 from .openai_provider import OpenAIProvider
 
-                provider = OpenAIProvider(args.model)
+                provider = OpenAIProvider(args.model, subscription=args.provider == "chatgpt-plan")
             else:
                 from .sdk import ClaudeProvider
 

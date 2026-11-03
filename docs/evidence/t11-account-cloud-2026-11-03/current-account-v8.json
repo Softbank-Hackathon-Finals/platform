@@ -1,6 +1,6 @@
 {
   "observed_at": "2026-11-03T11:02:22.391Z",
-  "ssm_command_id": "1a3da972-38f0-4c7a-ad17-99d262adca8a",
+  "ssm_command_id_sha256": "72766e47ad7e7d45e4065cd54264f5a1cb4b0d921be2c380a61f50dd215c8e6b",
   "private_receipt_sha256": "40f4d52c5839f18b9846957f3233312de91cc2e581fa4106e47f9aee05ef0335",
   "public_format": "selected result fields; account, instance, device code and status-log auth instructions omitted",
   "source_commit": "9666723f86ef58a8494c0fb652a33952b3e05ae8",

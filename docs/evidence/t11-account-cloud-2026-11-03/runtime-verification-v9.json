@@ -1,6 +1,6 @@
 {
   "observed_at": "2026-11-03T11:14:11.320Z",
-  "ssm_command_id": "8aafb1e6-3b65-4f24-bd2c-d8f63ae3c732",
+  "ssm_command_id_sha256": "ae74d4004a168b5189a4fd51f9505fe0122739754761040b369aeee36738656f",
   "private_receipt_sha256": "a55dba5b47f3bd1bbe9a53418dc11ef8e03de44a140b9c5ebac1739ee52d0bf7",
   "result": {
     "auth_file_count_in_run_directory": 0,

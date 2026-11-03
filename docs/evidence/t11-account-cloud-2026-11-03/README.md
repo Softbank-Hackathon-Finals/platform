@@ -13,7 +13,7 @@
 | 인증·수명 | 인증 파일 미생성, 실행 프로세스 0개, 전용 임시 설치·실행 디렉터리 회수 |
 | 제외 범위 | T15 실제 Job·인증된 영수증, 사람 승인, T31 배포 및 팀 공통 인증 등록은 별도 |
 
-[최종 v9 결과](current-account-v9.json), [소스 manifest](source-manifest-v9.json), [AWS 검사](cloud-checks-v9.json), [실행 후 해시·프로세스 검사](runtime-verification-v9.json), [정리 영수증](cleanup-v9.json)에 관측 시각·SSM 명령·비공개 원본의 해시를 남겼다. 공개 JSON은 필요한 결과 필드를 선택한 사본이며 원시 SSM 로그가 아니다. 모델 실행 코드의 커밋은 `21daa7da754f1d0a31da22f13f06dffbb6dc78c0`이다. 이후 문서·ignore·기준 브랜치 통합은 이 22개 실행 입력을 바꾸지 않았다.
+[최종 v9 결과](current-account-v9.json), [소스 manifest](source-manifest-v9.json), [AWS 검사](cloud-checks-v9.json), [실행 후 해시·프로세스 검사](runtime-verification-v9.json), [정리 영수증](cleanup-v9.json)에 관측 시각·SSM 명령 ID의 SHA-256·비공개 원본의 해시를 남겼다. 공개 JSON은 필요한 결과 필드를 선택한 사본이며 원시 SSM 로그가 아니다. 모델 실행 코드의 커밋은 `21daa7da754f1d0a31da22f13f06dffbb6dc78c0`이다. `008708c`까지의 문서·ignore·기준 브랜치 통합은 이 22개 실행 입력을 바꾸지 않았다. 그 뒤 추가하는 SIWC 관리자 연결은 별도 코드·검증 범위다.
 
 ## 발견한 문제와 수정
 
