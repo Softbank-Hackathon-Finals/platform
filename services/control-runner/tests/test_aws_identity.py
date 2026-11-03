@@ -100,7 +100,7 @@ def test_anonymous_sdk_client_does_not_resolve_ambient_credentials(sdk, monkeypa
 
 
 @pytest.mark.parametrize('changes', [
-    {'Account': '987654321098'},
+    {'Account': '111122223333'},
     {'Arn': 'arn:aws:iam::123456789012:user/fixture-app'},
     {'Arn': 'arn:aws:sts::123456789012:assumed-role/other/fixture-session'},
     {'Arn': 'arn:aws:sts::123456789012:assumed-role/fixture-app/fixture-session/extra'},

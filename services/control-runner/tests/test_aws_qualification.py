@@ -172,7 +172,7 @@ def test_scope_is_checked_before_credentials(transport, context, spec):
 
 
 def test_misregistered_role_account_rejected_before_runtime():
-    other_account = RegisteredRole(APP.arn.replace('123456789012', '987654321098'), APP.role_id)
+    other_account = RegisteredRole(APP.arn.replace('123456789012', '111122223333'), APP.role_id)
     with pytest.raises(IdentityUnavailable, match='ROLE_TARGET_MISMATCH'):
         probe(Mock(), app_role=other_account)
 
