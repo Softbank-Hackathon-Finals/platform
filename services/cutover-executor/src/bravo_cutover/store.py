@@ -31,7 +31,6 @@ from bravo_cutover.rejections import (  # noqa: F401 - 호출하는 쪽이 store
 )
 
 SCHEMA_SQL = """
-CREATE SCHEMA IF NOT EXISTS executor;
 CREATE TABLE IF NOT EXISTS executor.executions (
     execution_id    uuid        PRIMARY KEY,
     idempotency_key text        NOT NULL UNIQUE,
@@ -123,6 +122,10 @@ class Store:
 
     def migrate(self) -> None:
         with self._pool.connection() as conn:
+            # Operators can pre-create this schema for a migrator without database-wide CREATE.
+            # Even CREATE SCHEMA IF NOT EXISTS checks that broader privilege before its no-op.
+            if conn.execute("SELECT to_regnamespace('executor') AS schema").fetchone()["schema"] is None:
+                conn.execute("CREATE SCHEMA executor")
             conn.execute(SCHEMA_SQL)
 
     def create(self, key: str, request: CutoverRequest, resources: tuple[str, str]) -> tuple[Execution, bool]:
@@ -286,9 +289,28 @@ class Store:
         """소유자일 때만 최종 상태를 쓴다. 넘겨받힌 실행이면 아무것도 바꾸지 않고 False."""
         with self._pool.connection() as conn:
             row = conn.execute(
-                """UPDATE executor.executions SET status = %s, result = %s, updated_at = now()
+                """UPDATE executor.executions SET status = %s,
+                   result = COALESCE(result, '{}'::jsonb) || %s, updated_at = now()
                    WHERE execution_id = %s AND status = %s AND owner = %s RETURNING execution_id""",
                 (status.value, Jsonb(result), execution_id, Status.RUNNING.value, self.owner_id),
+            ).fetchone()
+        return row is not None
+
+    def record_receipt(self, execution_id: UUID, receipt: dict[str, Any]) -> bool:
+        """Persist comparison evidence before any target LOGIN, retaining it on failure/restart."""
+        return self._merge_result(execution_id, {"receipt": receipt})
+
+    def record_recovery(self, execution_id: UUID, recovery: dict[str, Any]) -> bool:
+        """Commit the verified baseline and mutation intents before sending remote changes."""
+        return self._merge_result(execution_id, {"recovery": recovery})
+
+    def _merge_result(self, execution_id: UUID, value: dict[str, Any]) -> bool:
+        with self._pool.connection() as conn:
+            row = conn.execute(
+                """UPDATE executor.executions SET
+                   result = COALESCE(result, '{}'::jsonb) || %s, updated_at = now()
+                   WHERE execution_id = %s AND status = %s AND owner = %s RETURNING execution_id""",
+                (Jsonb(value), execution_id, Status.RUNNING.value, self.owner_id),
             ).fetchone()
         return row is not None
 

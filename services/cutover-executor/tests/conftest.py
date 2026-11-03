@@ -9,25 +9,22 @@ import shutil
 import subprocess
 import time
 import uuid
+from contextlib import contextmanager
 
 import psycopg
 import pytest
 
-IMAGE = "postgres:16"
+IMAGE = os.environ.get("EXECUTOR_TEST_POSTGRES_IMAGE", "postgres:16")
+OTHER_MAJOR_IMAGES = {16: "public.ecr.aws/docker/library/postgres:18.4", 18: "public.ecr.aws/docker/library/postgres:16"}
 
 
-@pytest.fixture(scope="session")
-def postgres_dsn():
-    if dsn := os.environ.get("EXECUTOR_TEST_DSN"):
-        yield dsn
-        return
-    if not shutil.which("docker"):
-        pytest.skip("EXECUTOR_TEST_DSN도 docker도 없다: 실행 기록 테스트를 돌릴 수 없다")
+@contextmanager
+def postgres_container(image: str):
     name, password = f"cutover-test-{uuid.uuid4().hex[:8]}", uuid.uuid4().hex
     # 포트는 docker가 고르게 한다(미리 고른 빈 포트가 그 사이에 잡히면 실행이 실패한다)
     subprocess.run(
         ["docker", "run", "-d", "--rm", "--name", name, "-e", f"POSTGRES_PASSWORD={password}",
-         "-p", "127.0.0.1::5432", IMAGE],
+         "-p", "127.0.0.1::5432", image],
         check=True, capture_output=True,
     )
     port = subprocess.run(["docker", "port", name, "5432/tcp"], check=True, capture_output=True,
@@ -46,6 +43,31 @@ def postgres_dsn():
         yield dsn
     finally:
         subprocess.run(["docker", "rm", "-f", name], capture_output=True)
+
+
+@pytest.fixture(scope="session")
+def postgres_dsn():
+    if dsn := os.environ.get("EXECUTOR_TEST_DSN"):
+        yield dsn
+        return
+    if not shutil.which("docker"):
+        pytest.skip("EXECUTOR_TEST_DSN도 docker도 없다: 실행 기록 테스트를 돌릴 수 없다")
+    with postgres_container(IMAGE) as dsn:
+        yield dsn
+
+
+@pytest.fixture(scope="session")
+def other_major_dsn(postgres_dsn):
+    """postgres_dsn과 메이저 버전이 다른 서버. 지원하는 두 메이저(16 · 18)를 실제로 맞붙인다."""
+    if dsn := os.environ.get("EXECUTOR_TEST_OTHER_MAJOR_DSN"):
+        yield dsn
+        return
+    if not shutil.which("docker"):
+        pytest.skip("EXECUTOR_TEST_OTHER_MAJOR_DSN도 docker도 없다: 메이저 버전 시험을 돌릴 수 없다")
+    with psycopg.connect(postgres_dsn) as conn:
+        major = conn.info.server_version // 10000
+    with postgres_container(OTHER_MAJOR_IMAGES[major]) as dsn:
+        yield dsn
 
 
 @pytest.fixture
