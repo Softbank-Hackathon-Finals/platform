@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Verify an explicit operator SSO profile without emitting identity or token values."""
 from __future__ import annotations
 
@@ -6,9 +5,9 @@ import argparse
 import configparser
 import json
 import os
-from pathlib import Path
 import re
 import subprocess
+from pathlib import Path
 
 
 def inspect_profile(config: configparser.RawConfigParser, profile: str) -> str:
@@ -28,9 +27,13 @@ def inspect_profile(config: configparser.RawConfigParser, profile: str) -> str:
     return "CONFIGURED"
 
 
-def check_identity(identity: dict, account: str, role_name: str) -> str:
+def check_identity(identity: object, account: str, role_name: str) -> str:
+    if not isinstance(identity, dict) or not isinstance(identity.get("Account"), str):
+        return "SSO_RESPONSE_INVALID"
     if identity.get("Account") != account:
         return "ACCOUNT_MISMATCH"
+    if not isinstance(identity.get("Arn"), str):
+        return "SSO_RESPONSE_INVALID"
     role = re.escape(role_name)
     pattern = rf"arn:aws:sts::{account}:assumed-role/AWSReservedSSO_{role}_[0-9a-fA-F]{{16}}/[^/]+"
     return "SSO_SESSION_OBSERVED" if re.fullmatch(pattern, identity.get("Arn", "")) else "NOT_EXPECTED_SSO_ROLE"
@@ -38,7 +41,13 @@ def check_identity(identity: dict, account: str, role_name: str) -> str:
 
 def run(profile: str, account: str, config_path: Path) -> dict:
     config = configparser.RawConfigParser()
-    config.read(config_path)
+    try:
+        with config_path.open(encoding="utf-8") as source:
+            config.read_file(source)
+    except (configparser.Error, UnicodeError):
+        return {"status": "SSO_CONFIG_INVALID", "sso_verified": False}
+    except OSError:
+        return {"status": "SSO_CONFIG_UNAVAILABLE", "sso_verified": False}
     status = inspect_profile(config, profile)
     if status != "CONFIGURED":
         return {"status": status, "sso_verified": False}
