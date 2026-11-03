@@ -1,6 +1,6 @@
 # T2 온프렘 RKE2
 
-빈 Ubuntu 24.04 VM에 user-data 하나를 넣으면 RKE2가 CIS 프로필로 뜬다. Mac의 로컬 QEMU 도구는 arm64와 x86_64 게스트를 지원하며 같은 공통 bootstrap을 사용한다. 이전 arm64 측정은 [원래 증거 기록](../../../docs/evidence/t2-onprem-rke2-2026-11-03/README.md)에 보존한다.
+빈 Ubuntu 24.04 VM에 user-data 하나를 넣으면 RKE2가 CIS 프로필로 뜬다. Mac의 로컬 QEMU 도구는 arm64와 x86_64 게스트를 지원하며 같은 공통 bootstrap을 사용한다. 두 아키텍처의 설치·CIS·재부팅·정리는 [추가 실측](../../../docs/evidence/t2-dual-arch-2026-11-03/README.md)에서 확인했다. 이전 arm64 측정은 [원래 증거 기록](../../../docs/evidence/t2-onprem-rke2-2026-11-03/README.md)에 보존하며, 그 기록의 WARN 분류는 추가 증빙에서 정정한다.
 
 | 파일 | 하는 일 |
 |---|---|
