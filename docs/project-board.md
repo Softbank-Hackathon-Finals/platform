@@ -43,14 +43,22 @@ gh run list -R Softbank-Hackathon-Finals/platform --workflow sync-tasks.yml --ev
 gh run view <run-id> -R Softbank-Hackathon-Finals/platform --log
 ```
 
-`status`는 이슈·보드 조회만 하므로 Slack 메시지나 봇 PR을 만들지 않는다. `start`는 보드만 바꾸며 로컬에서 Slack을 보내지 않는다. `tick`은 이슈 편집 이벤트를 발생시키므로 기존 Actions의 동기화·보드 이동 알림이 뒤따를 수 있다. `push`와 `pull`은 프로젝트 전체에 적용되므로 반드시 미리보기 결과를 확인한다. 타인의 완료 항목을 대신 체크하지 않는다.
+`status`는 이슈·보드 조회만 하므로 Slack 메시지나 봇 PR을 만들지 않는다. `start`는 보드만 바꾸며 로컬에서 Slack을 보내지 않는다. Slack 알림까지 필요한 작업 시작은 아래 공식 Actions 명령으로 실행한다. 실제 상태가 바뀐 경우에만 기존 Slack 경로로 알리고, 이미 시작 상태인 카드를 되돌려 알림을 재생하지 않는다.
+
+```sh
+gh workflow run sync-tasks.yml -R Softbank-Hackathon-Finals/platform --ref develop -f command=start -f task=T23 -f dry-run=true
+# 미리보기 확인 후 dry-run=false로 같은 명령을 실행
+```
+ `tick`은 이슈 편집 이벤트를 발생시키므로 기존 Actions의 동기화·보드 이동 알림이 뒤따를 수 있다. `push`와 `pull`은 프로젝트 전체에 적용되므로 반드시 미리보기 결과를 확인한다. 타인의 완료 항목을 대신 체크하지 않는다.
 
 새 작업 추가는 `docs/tasks.md`의 다음 빈 T번호로 하고 PR로 보낸다. 보드에 별도 draft 카드를 만들거나 같은 작업의 로컬 목록을 별도 기준으로 유지하지 않는다. 보드 카드와 PR 목록은 페이지를 끝까지 읽는다.
 
 
 ## PR → 칸반 연동
 
-`sync-tasks.yml`의 `prs` 명령이 같은 저장소의 `feature/T번호-*`, `[T번호]` 제목 PR을 해당 T번호 **이슈 카드**에 연결한다. PR 카드나 별도 완료 기준을 만들지 않는다. `Status`와 텍스트 필드 `PR 상태`를 갱신하며, 이슈 체크박스·닫힘 상태·PR 병합은 건드리지 않는다.
+`sync-tasks.yml`의 `prs` 명령이 `platform → develop`과 `demo-chat → main`의 `feature/T번호-*`, `[T번호]` 제목 PR을 해당 T번호 **이슈 카드**에 연결한다. PR 카드나 별도 완료 기준을 만들지 않는다. `Status`와 텍스트 필드 `PR 상태`를 갱신하며, 이슈 체크박스·닫힘 상태·PR 병합은 건드리지 않는다.
+
+demo-chat은 T4·T22만 지원하며 본문에 `Refs Softbank-Hackathon-Finals/platform#실제이슈번호`(또는 Closes/Fixes/Resolves)를 단독 줄로 명시해야 한다. 제목만 맞거나 `#15` 같은 로컬 참조만 있는 PR, 포크 head, 다른 대상 브랜치는 연결하지 않는다. 저장소·PR 번호를 함께 표시해 `platform#9`와 `demo-chat#9`를 구별한다. 두 저장소 조회가 모두 끝나야 쓰며 페이지 누락·API 오류를 부분 성공으로 처리하지 않는다.
 
 | PR 상태 | 작업 카드 Status | PR 상태 필드 |
 |---|---|---|
@@ -62,7 +70,7 @@ gh run view <run-id> -R Softbank-Hackathon-Finals/platform --log
 
 여러 PR이 열려 있으면 하나라도 초안·변경 요청이면 In progress다. 나머지는 In review이며 열린 PR을 함께 표시한다. 부분 구현 PR 병합은 T1 전체 완료를 뜻하지 않는다. 완료 체크는 기존대로 **리뷰 승인 후 PR 머지와 검증을 확인한 뒤** 한다.
 
-PR 생성·재열기·닫기·초안 전환·새 커밋·리뷰 요청·리뷰 제출/해제 이벤트에 실행한다. CI 결과의 후속 변경과 누락 이벤트는 매시 17분/47분 `reconcile`(계획 push → 이슈 pull → PR 상태)로 보정한다(GitHub 예약 실행은 지연될 수 있음). 이벤트의 오래된 상태를 그대로 쓰지 않고 매번 현재 PR을 조회한다. 기존 이슈 동기화와 같은 concurrency 그룹으로 직렬화한다.
+**platform**의 PR 생성·재열기·닫기·초안 전환·새 커밋·리뷰 요청·리뷰 제출/해제 이벤트에 실행한다. **demo-chat 이벤트가 platform workflow를 직접 시작하지는 않는다.** demo-chat 변경은 아래 수동 `command=prs` 실행 또는 예약 대조에서 조회한다. 즉시 알림이 필요하면 PR 변경 후 공식 workflow를 dispatch한다. 별도 cross-repository 쓰기 토큰이나 PR 코드 실행은 추가하지 않는다. CI 결과의 후속 변경과 누락 이벤트는 매시 17분/47분 `reconcile`(계획 push → 이슈 pull → PR 상태)로 보정한다(GitHub 예약 실행은 지연될 수 있음). 이벤트의 오래된 상태를 그대로 쓰지 않고 매번 현재 PR을 조회한다. 기존 이슈 동기화와 같은 concurrency 그룹으로 직렬화한다.
 
 리뷰 제출/해제는 권한 없는 `pr-review-signal.yml`이 받고, 그 완료를 기본 브랜치의 `sync-tasks.yml`이 `workflow_run`으로 받는다. 신호 workflow에는 checkout·시크릿·산출물이 없다. 동기화는 신호의 상태·본문·산출물을 복사하지 않고 GitHub에서 현재 PR 상태를 다시 읽는다. 실패한 신호는 동기화를 시작하지 않으며 누락된 상태는 예약 대조로 복구한다.
 
