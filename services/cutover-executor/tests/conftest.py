@@ -6,7 +6,6 @@ EXECUTOR_TEST_DSN이 있으면 그 DB를 쓰고, 없으면 docker로 postgres:16
 
 import os
 import shutil
-import socket
 import subprocess
 import time
 import uuid
@@ -17,12 +16,6 @@ import pytest
 IMAGE = "postgres:16"
 
 
-def _free_port() -> int:
-    with socket.socket() as s:
-        s.bind(("127.0.0.1", 0))
-        return s.getsockname()[1]
-
-
 @pytest.fixture(scope="session")
 def postgres_dsn():
     if dsn := os.environ.get("EXECUTOR_TEST_DSN"):
@@ -30,12 +23,15 @@ def postgres_dsn():
         return
     if not shutil.which("docker"):
         pytest.skip("EXECUTOR_TEST_DSN도 docker도 없다: 실행 기록 테스트를 돌릴 수 없다")
-    name, port, password = f"cutover-test-{uuid.uuid4().hex[:8]}", _free_port(), uuid.uuid4().hex
+    name, password = f"cutover-test-{uuid.uuid4().hex[:8]}", uuid.uuid4().hex
+    # 포트는 docker가 고르게 한다(미리 고른 빈 포트가 그 사이에 잡히면 실행이 실패한다)
     subprocess.run(
         ["docker", "run", "-d", "--rm", "--name", name, "-e", f"POSTGRES_PASSWORD={password}",
-         "-p", f"127.0.0.1:{port}:5432", IMAGE],
+         "-p", "127.0.0.1::5432", IMAGE],
         check=True, capture_output=True,
     )
+    port = subprocess.run(["docker", "port", name, "5432/tcp"], check=True, capture_output=True,
+                          text=True).stdout.split(":")[-1].strip()
     dsn = f"host=127.0.0.1 port={port} user=postgres password={password} dbname=postgres"
     try:
         deadline = time.monotonic() + 60
