@@ -1,0 +1,64 @@
+{
+  "started_epoch": 1793687797.9148908,
+  "finished_epoch": 1793687808.603085,
+  "results": [
+    {
+      "name": "repository_tools",
+      "command": [
+        "python3",
+        "-m",
+        "unittest",
+        "discover",
+        "-s",
+        "scripts/tests",
+        "-v"
+      ],
+      "exit_code": 0,
+      "seconds": 0.167
+    },
+    {
+      "name": "full_selector",
+      "command": [
+        "python3",
+        "scripts/ci_scope.py",
+        "--full"
+      ],
+      "exit_code": 0,
+      "seconds": 0.055
+    },
+    {
+      "name": "rehearsal_runner",
+      "command": [
+        "python3",
+        "scripts/ci_project.py",
+        "services/rehearsal-runner",
+        "python"
+      ],
+      "exit_code": 0,
+      "seconds": 2.053
+    },
+    {
+      "name": "security_findings",
+      "command": [
+        "python3",
+        "scripts/ci_project.py",
+        "services/security-findings",
+        "python"
+      ],
+      "exit_code": 1,
+      "seconds": 8.348
+    },
+    {
+      "name": "workflow_aggregate",
+      "cases": 32,
+      "passed": 32,
+      "exit_code": 0
+    }
+  ],
+  "python": "Python 3.12.3",
+  "uv": "uv 0.9.5",
+  "workflow_sha256": "e625199587988b680395c562f601aaad1ad18e47c963a97a3d7ba2aabd7c45c6",
+  "ssm_command_id": "1f83e2a6-eea7-47cb-8788-77e754ba9035",
+  "ssm_status": "Failed",
+  "failure_cause": "Transfer omitted tracked docs/security/detection JSON runtime rules and golden fixtures; application code unchanged."
+}

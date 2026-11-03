@@ -82,7 +82,7 @@ platform/
 ## 팀원 작업 방법
 
 1. [프로젝트 보드](https://github.com/orgs/Softbank-Hackathon-Finals/projects/2)나 [`docs/tasks.md`](docs/tasks.md)에서 맡은 작업을 찾는다. 진행 상황의 기준은 보드(이슈)다.
-2. `develop`에서 `feature/T번호-설명` 브랜치를 만들어 `develop`으로 PR을 올린다. CI 통과 후 merge commit으로 합친다(리뷰 승인 불필요). `main`은 release/hotfix로 반영한다. [Gitflow 순서](docs/development.md)를 따른다.
+2. `develop`에서 `feature/T번호-설명` 브랜치를 만들어 `develop`으로 PR을 올린다. 대상 브랜치의 현재 ruleset·필수 CI·리뷰 요건을 충족한 뒤 merge commit으로 합친다. 이 조건을 GitHub가 확인하도록 기본 auto-merge를 예약할 수 있다. `main`은 release/hotfix로 반영한다. [Gitflow 순서](docs/development.md)와 [리뷰 안내](docs/review-playbook.md)를 따른다.
 3. 커밋 메시지와 PR 제목 앞에 `[T번호]`. 끝낸 할 일은 **이슈에서** 체크한다. 보드 이동과 tasks.md 갱신은 자동이다. 계획(완료 기준 · 할 일 · 새 작업)을 바꿀 때는 `tasks.md`를 고쳐 PR로 올린다.
 4. Claude Code에서는 `/todo-task`, Codex에서는 `$todo-task`로 이 과정을 스킬로 진행할 수 있다.
 
@@ -102,3 +102,5 @@ platform/
 [Team Bravo Finals](https://github.com/orgs/Softbank-Hackathon-Finals/projects/2) 보드와 이 레포의 이슈를 본다.
 
 칸반 조회·시작·완료 체크는 [프로젝트 보드 안내](docs/project-board.md)와 루트 Makefile을 사용한다.
+
+본인 PR의 리뷰 도착은 `python3 scripts/review_watch.py`로 한 번 확인한다. `--watch`는 60초 이상 간격의 foreground 조회, `--notify`는 선택적 macOS 알림이다. `--install-git-alias`로 이 레포에 `git review-watch`를 설정할 수 있다. 첫 조회는 기존 리뷰 baseline을 만들며, 알림이 승인·병합 자격을 판정하지는 않는다. 사용법과 private cursor는 [리뷰 안내](docs/review-playbook.md#5-git-cli에서-리뷰-도착-확인), 실제 검토 절차는 [PR 리뷰 스킬](.agents/skills/pr-review/SKILL.md)을 따른다.

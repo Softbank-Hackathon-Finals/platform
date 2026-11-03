@@ -1,0 +1,13 @@
+# T37 플랫폼 지표 저장소. Collector가 OTLP로 보낸 지표만 받는다(직접 긁지 않는다).
+# 실행 옵션: --web.enable-otlp-receiver --storage.tsdb.retention.time=3d
+# OTLP 수신 경로(/api/v1/otlp)에는 인증이 없다. Collector 태그만 닿도록 네트워크(Tailscale ACL)에서 막는다.
+
+otlp:
+  # bravo.env → bravo_env 라벨: 환경별 조회의 기준
+  # bravo.signal → bravo_signal 라벨: Collector 생존 신호에만 붙는다(앱 경로에서는 지워짐). "확인 불가" 판정의 기준
+  promote_resource_attributes: [bravo.env, bravo.signal]
+
+storage:
+  tsdb:
+    # 보내는 방식이라 재시도로 늦게 도착한 표본을 받는다
+    out_of_order_time_window: 10m

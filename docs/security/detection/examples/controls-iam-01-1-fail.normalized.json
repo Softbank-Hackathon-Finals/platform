@@ -7,7 +7,7 @@
   "status_id": 1,
   "time": 1793782860000,
   "finding_info": {
-    "uid": "env-onprem/IAM-01.1",
+    "uid": "sha256:120d6397cc18a5a0dc28dba26b4b6d498c36e042f2950f17402f074e901e4b1c",
     "title": "IAM-01.1 FAIL"
   },
   "metadata": {
@@ -24,6 +24,7 @@
     "status": "Fail"
   },
   "bravo": {
+    "normalizer_version": "2",
     "source": "bravo_controls",
     "environment_id": "env-onprem",
     "category": "IAM",
@@ -31,6 +32,6 @@
       "IAM-01"
     ],
     "collected_time": 1793782920000,
-    "raw_sha256": "sha256:10a550284930f3b275f272bb0d51969ab153fd725349f18fba21b2e6e353db7c"
+    "raw_sha256": "sha256:0e945c326fb6b4708155bbc21bd2a6824deaf5949a1ffd1c4324af93faa52d29"
   }
 }

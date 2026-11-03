@@ -1,0 +1,21 @@
+test_start_marks_progress_without_checking_or_closing (test_board_commands.BoardCommandsTest.test_start_marks_progress_without_checking_or_closing) ... ok
+test_start_refuses_closed_or_reviewed_work (test_board_commands.BoardCommandsTest.test_start_refuses_closed_or_reviewed_work) ... ok
+test_start_requires_prerequisite_but_not_integration_task (test_board_commands.BoardCommandsTest.test_start_requires_prerequisite_but_not_integration_task) ... ok
+test_status_is_read_only_and_distinguishes_dependencies (test_board_commands.BoardCommandsTest.test_status_is_read_only_and_distinguishes_dependencies) ... ok
+test_added_manifest_is_discovered_without_registry (test_ci_scope.ScopeTest.test_added_manifest_is_discovered_without_registry) ... ok
+test_application_html_and_assets_are_runtime_inputs (test_ci_scope.ScopeTest.test_application_html_and_assets_are_runtime_inputs) ... ok
+test_cross_project_rename_checks_both_old_and_new_paths (test_ci_scope.ScopeTest.test_cross_project_rename_checks_both_old_and_new_paths) ... ok
+test_local_links_force_conservative_dependency_scope (test_ci_scope.ScopeTest.test_local_links_force_conservative_dependency_scope) ... ok
+test_missing_history_and_initial_commit_fall_back_to_full (test_ci_scope.ScopeTest.test_missing_history_and_initial_commit_fall_back_to_full) ... ok
+test_nested_project_checks_parent_and_child (test_ci_scope.ScopeTest.test_nested_project_checks_parent_and_child) ... ok
+test_prose_only_still_produces_explicit_empty_plan (test_ci_scope.ScopeTest.test_prose_only_still_produces_explicit_empty_plan) ... ok
+test_service_change_does_not_test_other_service (test_ci_scope.ScopeTest.test_service_change_does_not_test_other_service) ... ok
+test_service_network_policy_is_also_scanned_as_infrastructure (test_ci_scope.ScopeTest.test_service_network_policy_is_also_scanned_as_infrastructure) ... ok
+test_shared_unknown_and_deleted_manifest_select_all (test_ci_scope.ScopeTest.test_shared_unknown_and_deleted_manifest_select_all) ... ok
+test_tf_checks_infra_without_services (test_ci_scope.ScopeTest.test_tf_checks_infra_without_services) ... ok
+test_unsafe_matrix_directory_is_rejected (test_ci_scope.ScopeTest.test_unsafe_matrix_directory_is_rejected) ... ok
+
+----------------------------------------------------------------------
+Ran 16 tests in 0.007s
+
+OK

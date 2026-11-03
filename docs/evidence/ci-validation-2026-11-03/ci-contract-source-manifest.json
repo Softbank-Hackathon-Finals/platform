@@ -1,0 +1,80 @@
+{
+  "bundle_sha256": "6421c9b667bd371050975031f4ecf4f3951b46b54df29d43eddc2c2136f912e7",
+  "files": [
+    {
+      "path": "docs/security/detection/examples/aws-guardduty-direct.normalized.json",
+      "sha256": "ae448083c0cc1f36fd4c4b4ab8f116301c5c0d937d978a97254bc3c1cec57a0c"
+    },
+    {
+      "path": "docs/security/detection/examples/aws-guardduty-direct.raw.json",
+      "sha256": "98800fe36eb5e60bd8371d42524799014c7ccf487aa50ae010b3f5227f1d3c77"
+    },
+    {
+      "path": "docs/security/detection/examples/aws-guardduty-via-security-hub.normalized.json",
+      "sha256": "40e5f9321cfabec8141da5d23e55f751fc4765699cd09537a8fbca23b19fdcb2"
+    },
+    {
+      "path": "docs/security/detection/examples/aws-guardduty-via-security-hub.raw.json",
+      "sha256": "c86131084e8edf76f2f350b6c5dfac2f1427a70ea0161581e3d4a139eaad5128"
+    },
+    {
+      "path": "docs/security/detection/examples/aws-security-hub-control.normalized.json",
+      "sha256": "3e4f2aa541acf0763da5b2059c0b7589718a8985ba83f70c3a4ea5eb8b686f20"
+    },
+    {
+      "path": "docs/security/detection/examples/aws-security-hub-control.raw.json",
+      "sha256": "ba0038e960d29c5dc511007b8a8ec60c89c1637a0d14ca0db1610718af2ef803"
+    },
+    {
+      "path": "docs/security/detection/examples/controls-iam-01-1-fail.normalized.json",
+      "sha256": "14478964bc55fbb95e6d903b569192f263f79ede815e66563bc657b2f0eafe2e"
+    },
+    {
+      "path": "docs/security/detection/examples/controls-iam-01-1-fail.raw.json",
+      "sha256": "fcb766ccc0e6ff3ff40baf3aa475df327fb275138c03d728b3f71aca5e43d51a"
+    },
+    {
+      "path": "docs/security/detection/examples/gcp-scc-public-bucket.normalized.json",
+      "sha256": "a34836ca6d227aa5376ef12f554ad5718549635de6a37c4f44dd247cebf403bb"
+    },
+    {
+      "path": "docs/security/detection/examples/gcp-scc-public-bucket.raw.json",
+      "sha256": "96f3f90a994161a8ec1ec6455236dd6be75bc4502e8754050e7d15f9058c41ee"
+    },
+    {
+      "path": "docs/security/detection/examples/onprem-falco-shell.normalized.json",
+      "sha256": "313ae799d66c1866f78ae1ca09b3cf618673f80200ebcf5cce53c2923568d21f"
+    },
+    {
+      "path": "docs/security/detection/examples/onprem-falco-shell.raw.json",
+      "sha256": "a3557fccbc476871e6be84594577c1df24b8376f6b6a3ee7e7262c7a9e1c0fb3"
+    },
+    {
+      "path": "docs/security/detection/examples/onprem-kyverno-fail.normalized.json",
+      "sha256": "b3c7ee82771f9974bfdbe052fde273b5a7b79f82fc41132559e74318d9f90f87"
+    },
+    {
+      "path": "docs/security/detection/examples/onprem-kyverno-fail.raw.json",
+      "sha256": "7ef6b943da75d4aa32d7c99c4e30ae10be1fbb5e3bfed6100dafaa28c3c19a28"
+    },
+    {
+      "path": "docs/security/detection/examples/source-status-falco-failed.json",
+      "sha256": "303ed472edaae5eb099432cac3b730c6d0f67bb75f601139a3317d1612d3f29c"
+    },
+    {
+      "path": "docs/security/detection/finding.schema.json",
+      "sha256": "22ad580baf4854ef1d272a497ebe708ef48a65d47fc3840eb2d00b3fa441f8b1"
+    },
+    {
+      "path": "docs/security/detection/mappings.json",
+      "sha256": "461c148fc0b275021ed96a4c669043c3c2c8704f6d78d941211a7a92b6149f9d"
+    }
+  ],
+  "target": "/opt/bravo-validation/repo-ci-contracts",
+  "instance": "AWS_RESOURCE_002",
+  "upload_command_ids": [
+    "e17a36d9-2add-4ebf-bc62-ecce680e7381",
+    "607d39ca-40a9-4df0-b89e-ab10cd14737e"
+  ],
+  "extract_command_id": "cf6085b1-602c-44eb-97db-bb50f7fe3115"
+}

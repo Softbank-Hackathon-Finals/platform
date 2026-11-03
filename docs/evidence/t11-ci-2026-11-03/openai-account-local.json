@@ -1,0 +1,42 @@
+{
+  "time_utc": "2026-11-03T07:11:30.128085+00:00",
+  "provider": "official_codex_cli_chatgpt_account",
+  "cli_version": "0.157.0",
+  "model": "gpt-6-astra",
+  "turn_completed": true,
+  "usage": {
+    "input_tokens": 16612,
+    "cached_input_tokens": 0,
+    "cache_write_input_tokens": 0,
+    "output_tokens": 147,
+    "reasoning_output_tokens": 0
+  },
+  "tool_execution_events": 0,
+  "proposal_schema_valid": true,
+  "policy_state": "PROPOSAL_READY",
+  "proposal_digest": "27429aae813929734c9d3b7ea3aee8bf9b1297b2c1cc6b826672b72a034c26d3",
+  "synthetic_input": true,
+  "credentials_copied": false,
+  "direct_responses_api_verified": false,
+  "cloud_runtime_verified": false,
+  "independent_verifier_run": false,
+  "warnings": [
+    "CLI emitted skip_host_skill_discovery under-development warning",
+    "Host skill loader warning observed: local run is not a hermetic platform environment"
+  ],
+  "proposal": {
+    "schema_version": 1,
+    "run_id": "synthetic-ci-example",
+    "source_sha": "1111111111111111111111111111111111111111",
+    "rationale": "Read DB_HOST from the injected environment instead of hardcoding localhost. A missing variable fails explicitly. No verification was performed.",
+    "risk": "low",
+    "edits": [
+      {
+        "path": "src/config.py",
+        "before_sha256": "f9b997a0ef8e589e291cb5f631a55e8e43f8affa29e5315c602aec5a64b11fcf",
+        "replacement": "import os\n\nDB_HOST = os.environ[\"DB_HOST\"]\n"
+      }
+    ]
+  },
+  "limits": "Single local account-authenticated CLI inference. Controller submitted the schema output through existing policy handlers. Not a production transport or T15 test."
+}

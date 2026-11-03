@@ -6,8 +6,10 @@
 
 1. `docs/tasks.md`를 먼저 읽는다. 팀 작업 계획이고, 맨 위 **작업 규칙**을 따른다. 진행 상황의 기준은 [프로젝트 보드](https://github.com/orgs/Softbank-Hackathon-Finals/projects/2)(이슈)다.
 2. 사용자의 작업은 이슈 Assignees로 찾고, **선행** 작업이 끝났는지 확인한다. `통합 시점` 작업은 시작 조건이 아니다(모의 환경으로 먼저 시작하고 완료 확인만 그 뒤에 한다).
-3. `develop`에서 `feature/T번호-설명` 브랜치를 만들고 `develop`으로 PR을 올린다(CI 통과 시 merge commit으로 자동 머지, 리뷰 승인 불필요). `main`은 release/hotfix로 반영한다. 두 브랜치 모두 보호하며, 자세한 순서는 `docs/development.md`를 따른다. `.github/workflows/`와 `CODEOWNERS`를 바꾸는 PR은 팀원에게 리뷰 요청 알림이 간다(승인은 필요 없음).
+3. `develop`에서 `feature/T번호-설명` 브랜치를 만들고 `develop`으로 PR을 올린다(필수 CI 통과와 팀원 리뷰 승인 후 merge commit으로 머지). `main`은 release/hotfix로 반영한다. 두 브랜치 모두 보호하며, 자세한 순서는 `docs/development.md`를 따른다. `CODEOWNERS`에 따라 모든 PR에 팀원 전원이 리뷰어로 자동 지정된다(리뷰는 파트 담당이 맡는다). 전원 승인을 기다리지 않는다. 변경 요청을 해소한 최종 커밋에 팀원 승인 1건 이상과 필수 CI 통과를 요구한다. 예외로 `docs/tasks.md`만 바꾼 PR(할 일 추가 · 수정, 봇 `[sync]` PR)은 오너가 없어 develop에서 승인 없이 필수 CI 통과로 머지된다. GitHub 기본 auto-merge를 예약할 수 있으며, 보호 규칙을 우회하는 머지는 금지한다.
 4. 커밋 메시지와 PR 제목 앞에 `[T번호]`. 끝낸 할 일은 PR 머지 후 **이슈에서** 체크한다(`python3 scripts/sync_tasks.py tick T번호 순번`). tasks.md 체크박스와 담당은 봇이 고친다.
+
+리뷰 요청 대상은 [파트별 리뷰 기준](docs/review-routing.md)에 따라 작업 번호의 주·부 참여자를 모두 포함하고 작성자는 제외한다. 초기 허들 댓글만으로 후속 공식 배정을 되돌리지 않는다.
 
 이 순서는 `todo-task` 스킬에 정리돼 있다 (Claude Code `/todo-task`, Codex `$todo-task`).
 
@@ -31,8 +33,9 @@
 
 - 장기 액세스 키를 공유하거나 커밋하지 않는다. 사람은 각자 계정, CI는 OIDC로 권한을 받는다.
 - 시크릿 값을 로그 · 파일 · 커밋 · PR 본문에 남기지 않는다. 모델 키는 플랫폼에만 둔다.
+- 공개 문서·증빙의 개인 이메일, 홈 절대경로, 계정·운영 리소스 식별자는 가린다. 원본은 비공개로 보존하고 [공개 증빙 절차](docs/public-evidence-policy.md)를 따른다. `python3 scripts/public_evidence.py check`는 값 없이 위반 종류만 출력한다.
 - 모든 클라우드 자원에 `component` 태그를 단다(비용 정산, 데모 후 `terraform destroy`).
-- 검사 예외는 `.gitleaks.toml` · `.trivyignore`에 사유 주석과 함께만 추가한다.
+- 검사 예외는 `.gitleaks.toml` · `.trivyignore.yaml`에 사유와 적용 경로를 명시해서만 추가한다. 임시 예외는 만료일도 둔다.
 
 ## 검증
 
@@ -43,3 +46,7 @@ PR마다 CI(`ci.yml`)가 `secrets` · `infra` · `platform`을 검사한다. CI 
 - Node(`package.json`): `pnpm lint`, `pnpm test`, `pnpm build`
 - Go(`go.mod`): `go vet ./...`, `go test ./...`
 - 워크플로: `actionlint`
+
+CI 실행 범위와 플랫폼 S2 실패 분석의 경계는 [CI 안내](docs/ci.md)를 따른다. 필수 결과는 항상 보고하며, 변경 범위가 불명확하면 전체 검사한다.
+
+여러 PR의 리뷰 확인·수정·해소는 [리뷰 플레이북](docs/review-playbook.md)과 `.agents/skills/pr-review/SKILL.md`를 따른다. `python3 scripts/review_packet.py <PR번호...> --output-dir <개인 출력 경로>`로 현재 SHA의 근거를 수집하고 판단 기록을 남긴다. 수집 성공이나 스레드 해소는 팀원 승인을 대신하지 않는다.

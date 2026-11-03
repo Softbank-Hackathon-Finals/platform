@@ -1,0 +1,82 @@
+{
+  "observed_at": "2026-11-03T12:32:11.736755+00:00",
+  "source_sha256": "966c4f2de253332b8b852361e6fb5ebeffb3f4febabded83f3ea2b21596b60ec",
+  "source_identity_verified": true,
+  "sampled_pods_unchanged": true,
+  "scope": "TokenRequest, Pod list and SelfSubjectAccessReview only; no exec/patch/apply",
+  "baseline_verdict": "FAIL",
+  "current_contract": "T6/T12 explicit opt-in exec grant; baseline FAIL is expected for the executor",
+  "roles": {
+    "collector": {
+      "denied": true,
+      "observations": [
+        {
+          "pod_sha256": "5fdd9fa9eeb31b91d47ca38e1a7972e938eddf65220f08202a7dd8c475cc4eaa",
+          "verb": "get",
+          "decision": "DENY"
+        },
+        {
+          "pod_sha256": "5fdd9fa9eeb31b91d47ca38e1a7972e938eddf65220f08202a7dd8c475cc4eaa",
+          "verb": "create",
+          "decision": "DENY"
+        },
+        {
+          "pod_sha256": "f6b6d7cdc9e399742782ea42e3d0e1fdb7ff2ba4b2006b864d7f1c4afd6bf9e9",
+          "verb": "get",
+          "decision": "DENY"
+        },
+        {
+          "pod_sha256": "f6b6d7cdc9e399742782ea42e3d0e1fdb7ff2ba4b2006b864d7f1c4afd6bf9e9",
+          "verb": "create",
+          "decision": "DENY"
+        },
+        {
+          "pod_sha256": "0d5580ee48429c9d1b11da5bcd2d68b103b19a9e5a1eaa4c02ac080429aebf56",
+          "verb": "get",
+          "decision": "DENY"
+        },
+        {
+          "pod_sha256": "0d5580ee48429c9d1b11da5bcd2d68b103b19a9e5a1eaa4c02ac080429aebf56",
+          "verb": "create",
+          "decision": "DENY"
+        }
+      ]
+    },
+    "executor": {
+      "denied": false,
+      "observations": [
+        {
+          "pod_sha256": "5fdd9fa9eeb31b91d47ca38e1a7972e938eddf65220f08202a7dd8c475cc4eaa",
+          "verb": "get",
+          "decision": "ALLOW"
+        },
+        {
+          "pod_sha256": "5fdd9fa9eeb31b91d47ca38e1a7972e938eddf65220f08202a7dd8c475cc4eaa",
+          "verb": "create",
+          "decision": "ALLOW"
+        },
+        {
+          "pod_sha256": "f6b6d7cdc9e399742782ea42e3d0e1fdb7ff2ba4b2006b864d7f1c4afd6bf9e9",
+          "verb": "get",
+          "decision": "DENY"
+        },
+        {
+          "pod_sha256": "f6b6d7cdc9e399742782ea42e3d0e1fdb7ff2ba4b2006b864d7f1c4afd6bf9e9",
+          "verb": "create",
+          "decision": "DENY"
+        },
+        {
+          "pod_sha256": "0d5580ee48429c9d1b11da5bcd2d68b103b19a9e5a1eaa4c02ac080429aebf56",
+          "verb": "get",
+          "decision": "ALLOW"
+        },
+        {
+          "pod_sha256": "0d5580ee48429c9d1b11da5bcd2d68b103b19a9e5a1eaa4c02ac080429aebf56",
+          "verb": "create",
+          "decision": "ALLOW"
+        }
+      ]
+    }
+  },
+  "credential_values_included": false
+}

@@ -1,0 +1,178 @@
+{
+  "namespace": "rehearsal-ci-aws-1",
+  "context": null,
+  "run_id": "5c9be5",
+  "started_at": "2026-11-03T06:24:29.356560+00:00",
+  "finished_at": "2026-11-03T06:25:23.979758+00:00",
+  "exit_code": 0,
+  "results": [
+    {
+      "id": "P1",
+      "title": "시험용 Pod가 restricted 조건으로 뜬다",
+      "kind": "control",
+      "status": "pass",
+      "detail": "",
+      "required": true
+    },
+    {
+      "id": "P2",
+      "title": "같은 네임스페이스 서비스에 접속된다",
+      "kind": "control",
+      "status": "pass",
+      "detail": "isolation-echo-5c9be5:8080 open",
+      "required": true
+    },
+    {
+      "id": "P3",
+      "title": "서비스 이름을 DNS로 찾는다",
+      "kind": "control",
+      "status": "pass",
+      "detail": "isolation-echo-5c9be5.rehearsal-ci-aws-1.svc.cluster.local",
+      "required": true
+    },
+    {
+      "id": "P4",
+      "title": "허용 대상 seaweedfs(seaweedfs, app.kubernetes.io/name=seaweedfs-s3) 8333번에 접속된다",
+      "kind": "control",
+      "status": "pass",
+      "detail": "192.0.2.5:8333 open",
+      "required": true
+    },
+    {
+      "id": "P4",
+      "title": "허용 대상 openbao(openbao, app.kubernetes.io/name=openbao) 8200번에 접속된다",
+      "kind": "control",
+      "status": "pass",
+      "detail": "192.0.2.6:8200 open",
+      "required": true
+    },
+    {
+      "id": "N1",
+      "title": "다른 네임스페이스로 나가지 못한다",
+      "kind": "isolation",
+      "status": "pass",
+      "detail": "192.0.2.3:8080 막힘",
+      "required": true
+    },
+    {
+      "id": "N2",
+      "title": "다른 네임스페이스에서 리허설 Pod로 들어오지 못한다",
+      "kind": "isolation",
+      "status": "pass",
+      "detail": "victim → 192.0.2.2:8080 막힘",
+      "required": true
+    },
+    {
+      "id": "N3",
+      "title": "메타데이터 주소(169.254.169.254)로 나가지 못한다",
+      "kind": "isolation",
+      "status": "pass",
+      "detail": "169.254.169.254:80 막힘",
+      "required": false
+    },
+    {
+      "id": "N4",
+      "title": "인터넷(192.0.2.1)으로 나가지 못한다",
+      "kind": "isolation",
+      "status": "pass",
+      "detail": "192.0.2.1:443 막힘",
+      "required": false
+    },
+    {
+      "id": "N4",
+      "title": "인터넷(example.com)으로 나가지 못한다",
+      "kind": "isolation",
+      "status": "pass",
+      "detail": "example.com:443 막힘",
+      "required": false
+    },
+    {
+      "id": "N5",
+      "title": "쿠버네티스 API 직접 접속 (기록만)",
+      "kind": "info",
+      "status": "pass",
+      "detail": "kubernetes.default.svc:443 blocked",
+      "required": true
+    },
+    {
+      "id": "N6",
+      "title": "Pod 안에 서비스 계정 토큰이 없다",
+      "kind": "isolation",
+      "status": "pass",
+      "detail": "/var/run/secrets/kubernetes.io/serviceaccount/token 없음",
+      "required": true
+    },
+    {
+      "id": "N7",
+      "title": "privileged Pod는 생성 단계에서 거부된다",
+      "kind": "isolation",
+      "status": "pass",
+      "detail": "Error from server (Forbidden): error when creating \"STDIN\": pods \"isolation-priv-5c9be5\" is forbidden: violates PodSecurity \"restricted:latest\": privileged (container \"main\" must not set securityContext.privileged=true), allowPrivilegeEscalation != false (container \"main\" must set securityContext.al",
+      "required": true
+    },
+    {
+      "id": "N8",
+      "title": "hostPath Pod는 생성 단계에서 거부된다",
+      "kind": "isolation",
+      "status": "pass",
+      "detail": "Error from server (Forbidden): error when creating \"STDIN\": pods \"isolation-hostpath-5c9be5\" is forbidden: violates PodSecurity \"restricted:latest\": restricted volume types (volume \"host\" uses restricted volume type \"hostPath\")",
+      "required": true
+    },
+    {
+      "id": "N9",
+      "title": "rehearsal-exec로 다른 네임스페이스 Secret을 읽지 못한다",
+      "kind": "isolation",
+      "status": "pass",
+      "detail": "Error from server (Forbidden): secrets is forbidden: User \"system:serviceaccount:rehearsal-ci-aws-1:rehearsal-exec\" cannot list resource \"secrets\" in API group \"\" in the namespace \"isolation-victim-5c9be5\"",
+      "required": true
+    },
+    {
+      "id": "N10",
+      "title": "rehearsal-exec로 권한을 키우거나 자기 네임스페이스 Secret도 읽지 못한다",
+      "kind": "isolation",
+      "status": "pass",
+      "detail": "10개 모두 no",
+      "required": true
+    },
+    {
+      "id": "N11",
+      "title": "NodePort 서비스는 할당량으로 거부된다",
+      "kind": "isolation",
+      "status": "pass",
+      "detail": "Error from server (Forbidden): error when creating \"STDIN\": services \"isolation-nodeport-5c9be5\" is forbidden: exceeded quota: rehearsal, requested: services.nodeports=1, used: services.nodeports=0, limited: services.nodeports=0",
+      "required": true
+    },
+    {
+      "id": "N13",
+      "title": "seaweedfs의 허용 대상이 아닌 Pod other:8333는 막힌다",
+      "kind": "isolation",
+      "status": "pass",
+      "detail": "192.0.2.4:8333 막힘",
+      "required": false
+    },
+    {
+      "id": "N12",
+      "title": "허용 대상 seaweedfs/target의 다른 포트 9333번은 막힌다",
+      "kind": "isolation",
+      "status": "pass",
+      "detail": "192.0.2.5:9333 막힘",
+      "required": false
+    },
+    {
+      "id": "N13",
+      "title": "openbao의 허용 대상이 아닌 Pod other:8200는 막힌다",
+      "kind": "isolation",
+      "status": "pass",
+      "detail": "192.0.2.7:8200 막힘",
+      "required": false
+    },
+    {
+      "id": "N12",
+      "title": "허용 대상 openbao/target의 다른 포트 8201번은 막힌다",
+      "kind": "isolation",
+      "status": "pass",
+      "detail": "192.0.2.6:8201 막힘",
+      "required": false
+    }
+  ]
+}
