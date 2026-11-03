@@ -173,6 +173,14 @@ class FakeEntry:
     def running(self):
         return ["app-0"]
 
+    def identities(self):
+        return [{"name": "app-0", "uid": "app-uid-" + self.ns, "restarts": 0,
+                 "ready": True, "terminating": False}]
+
+    def close_websockets(self):
+        self.w.did(f"{self.ns}.ws:1012")
+        return {"app-0": 1}
+
 
 class FakeKube:
     def __init__(self, w: World, ns: str):
@@ -274,7 +282,13 @@ def test_takeover_after_any_change_sends_no_more_changes(store, postgres_dsn, wo
 
     execution_id = start(store)
     newer = Store(postgres_dsn)
-    world.after[point] = lambda: newer.claim(execution_id, takeover=True)
+    before_takeover = []
+
+    def takeover():
+        before_takeover.append(store.get(execution_id).result)
+        newer.claim(execution_id, takeover=True)
+
+    world.after[point] = takeover
     try:
         FakeCutover(store, world).run(execution_id)
         after = world.calls[world.calls.index(point) + 1:]
@@ -284,7 +298,7 @@ def test_takeover_after_any_change_sends_no_more_changes(store, postgres_dsn, wo
                      "src.entry:False": {"dst.entry:False", "src.probe", "dst.probe"}}.get(point, set())
         assert set(after) <= in_flight, after
         assert store.get(execution_id).status == Status.RUNNING
-        assert store.get(execution_id).result is None
+        assert store.get(execution_id).result == before_takeover[0]
     finally:
         newer.close()
 
@@ -337,12 +351,35 @@ def test_pgbouncer_pod_changed_during_execution_is_unknown(store, world, when, c
     assert execution.status in (Status.ABORT_PRE_WRITE, Status.SAFE_HOLD), execution.result
     assert "pgbouncer pod changed" in execution.result["error"]
     if execution.committed_at is None:
-        assert execution.status == Status.ABORT_PRE_WRITE  # 확정 전이면 원상 복구
+        assert execution.status == Status.SAFE_HOLD  # replacement process is not ours to resume
     else:
         assert execution.status == Status.SAFE_HOLD
     assert not (world.login["src"] and world.login["dst"])
 
 
+def test_comparison_receipt_is_durable_before_target_opens_and_survives_hold(store, world):
+    execution_id = start(store)
+
+    def before_open(run):
+        stored = store.get(execution_id)
+        assert stored.result["receipt"]["barrier_id"] == run.receipt["barrier_id"]
+        assert world.login["dst"] is False
+        raise Unconfirmed("test interruption after commit, before target LOGIN")
+
+    FakeCutover(store, world, hooks={"before:reconnect": before_open}).run(execution_id)
+    stored = store.get(execution_id)
+    assert stored.status == Status.SAFE_HOLD
+    assert stored.result["receipt"]["tables"]
+    assert stored.result["outcome"] == Status.SAFE_HOLD
+
+
+def test_source_websockets_close_before_entry_release(store, world):
+    execution_id = start(store)
+    FakeCutover(store, world).run(execution_id)
+    assert store.get(execution_id).status == Status.DONE
+    assert world.calls.index("src.ws:1012") < world.calls.index("src.entry:False")
+    assert "dst.ws:1012" not in world.calls
+    assert store.get(execution_id).result["receipt"]["websocket_closed"] == {"app-0": 1}
 
 @pytest.mark.parametrize("point", ["before:persist", "persist:read:env-aws"])
 def test_pgbouncer_regenerated_around_persist_is_safe_hold(store, world, point):
@@ -494,3 +531,133 @@ def test_waits_are_capped_by_remaining_budget(store, world):
     FakeCutover(store, world, clock=clock).run(execution_id)
     assert time.monotonic() - began < 3  # barrier_timeout_s(10초)까지 기다리지 않았다
     assert store.get(execution_id).status == Status.ABORT_PRE_WRITE
+
+
+@pytest.mark.parametrize("restriction", ["nologin", "pause", "write_block"])
+def test_preexisting_restrictions_are_not_released_on_precheck_failure(store, world, restriction):
+    if restriction == "nologin":
+        world.login["src"] = False
+    elif restriction == "pause":
+        world.paused["src"] = True
+    else:
+        world.blocked = {"src": True, "dst": True}
+    before = (world.login.copy(), world.paused.copy(), world.blocked.copy())
+    execution_id = start(store)
+    FakeCutover(store, world).run(execution_id)
+    execution = store.get(execution_id)
+    assert execution.status == Status.ABORT_PRE_WRITE
+    assert execution.result["restored"] == []
+    assert (world.login, world.paused, world.blocked) == before
+    assert world.calls == []
+
+
+class ProcessLost(BaseException):
+    pass
+
+
+@pytest.mark.parametrize("point", ["before:precheck", "before:entry", "before:pause", "before:compare"])
+def test_restart_uses_durable_baseline_and_effect_boundary(store, postgres_dsn, world, point):
+    from bravo_cutover.store import Store
+
+    execution_id = start(store)
+
+    def lost(_run):
+        raise ProcessLost()
+
+    with pytest.raises(ProcessLost):
+        FakeCutover(store, world, hooks={point: lost}).run(execution_id)
+    if point in ("before:precheck", "before:entry"):
+        # Maintenance restriction after the process died must not be undone by recovery.
+        world.login["src"] = False
+        world.paused["src"] = True
+        world.blocked = {"src": True, "dst": True}
+    prior_calls = list(world.calls)
+    newer = Store(postgres_dsn)
+    try:
+        FakeCutover(newer, world).recover()
+        execution = newer.get(execution_id)
+        assert execution.status == Status.ABORT_PRE_WRITE, execution.result
+        if point in ("before:precheck", "before:entry"):
+            assert world.calls == prior_calls
+            assert world.login["src"] is False and world.paused["src"] is True
+            assert all(world.blocked.values())
+        elif point == "before:pause":
+            assert "src.resume" not in world.calls and "src.set_login:True" not in world.calls
+            assert not any(world.blocked.values())
+        else:
+            assert world.login == {"src": True, "dst": False}
+    finally:
+        newer.close()
+
+
+def test_legacy_running_execution_without_baseline_is_held(store, world):
+    execution_id = start(store)
+    assert store.claim(execution_id)
+    store.record_step(execution_id, "fence", "started")
+    world.login["src"] = False
+    FakeCutover(store, world).recover()
+    assert store.get(execution_id).status == Status.SAFE_HOLD
+    assert world.calls == [] and world.login["src"] is False
+
+
+def test_block_added_between_precheck_and_entry_is_preserved(store, world):
+    execution_id = start(store)
+
+    def maintenance(_run):
+        world.blocked["src"] = True
+
+    FakeCutover(store, world, hooks={"before:entry": maintenance}).run(execution_id)
+    assert store.get(execution_id).status == Status.ABORT_PRE_WRITE
+    assert world.blocked["src"] is True and world.calls == []
+
+
+def test_process_loss_inside_precheck_preserves_existing_restrictions(store, world, monkeypatch):
+    execution_id = start(store)
+    world.blocked = {"src": True, "dst": True}
+
+    def lost(_self):
+        raise ProcessLost()
+
+    with monkeypatch.context() as patch:
+        patch.setattr(FakeEntry, "get", lost)
+        with pytest.raises(ProcessLost):
+            FakeCutover(store, world).run(execution_id)
+    assert store.get(execution_id).result["recovery"] == {"version": 1, "baseline": None, "effects": []}
+    FakeCutover(store, world).recover()
+    assert store.get(execution_id).status == Status.ABORT_PRE_WRITE
+    assert world.calls == [] and all(world.blocked.values())
+
+
+def test_recovery_rereads_effects_committed_between_discovery_and_takeover(store, postgres_dsn, world, monkeypatch):
+    from bravo_cutover.store import Store
+
+    execution_id = start(store)
+    captured = []
+
+    def pause_before_entry(run):
+        captured.append(run)
+        raise ProcessLost()
+
+    old = FakeCutover(store, world, hooks={"before:entry": pause_before_entry})
+    with pytest.raises(ProcessLost):
+        old.run(execution_id)
+    stale = store.get(execution_id)
+    assert stale.result["recovery"]["effects"] == []
+    newer = Store(postgres_dsn)
+    claim = newer.claim
+
+    def racing_claim(identifier, *, takeover=False):
+        old._entry(captured[0])  # old owner still owns it after discovery, before takeover
+        return claim(identifier, takeover=takeover)
+
+    monkeypatch.setattr(newer, "unfinished", lambda: [stale])
+    monkeypatch.setattr(newer, "claim", racing_claim)
+    try:
+        FakeCutover(newer, world).recover()
+        execution = newer.get(execution_id)
+        assert execution.status == Status.ABORT_PRE_WRITE
+        assert execution.result["recovery"]["effects"] == ["entry"]
+        assert not any(world.blocked.values())
+        assert "src.entry:False" in world.calls and "src.resume" not in world.calls
+    finally:
+        newer.close()
