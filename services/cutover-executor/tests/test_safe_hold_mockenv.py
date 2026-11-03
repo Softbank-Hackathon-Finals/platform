@@ -263,3 +263,27 @@ def test_configmap_conflict_holds_and_pod_regeneration_stays_single_writer(store
 
     with pytest.raises(LeaseHeld):
         start(store)  # SAFE_HOLD가 lease를 쥐고 있다
+
+
+def test_target_session_opened_before_nologin_holds(store, sides):
+    """#116 이상무 리뷰(실제 PostgreSQL): NOLOGIN 전에 맺은 목적지 연결은 NOLOGIN 뒤에도 쓸 수 있다.
+    그런 연결이 남아 있으면 컷오버를 시작하지 않고, 출발지도 건드리지 않은 채 SAFE_HOLD로 멈춘다."""
+    import psycopg
+
+    src, dst = sides
+    ddb = DbControl(dst.db_control_dsn)
+    ddb.set_login(dst.app_role, True)
+    held = psycopg.connect(dst.db_app_dsn, autocommit=True)
+    ddb.set_login(dst.app_role, False)
+    try:
+        # 전제 확인: NOLOGIN 뒤에도 기존 연결의 쓰기는 성공한다
+        held.execute("INSERT INTO cutover.probe (probe_id, path) VALUES (gen_random_uuid(), 'held-before-nologin')")
+        execution_id = start(store)
+        Cutover(store, mock_config()).run(execution_id)
+        execution = store.get(execution_id)
+        assert execution.status == Status.SAFE_HOLD, execution.result
+        assert execution.result["failed_step"] == "precheck" and "app session" in execution.result["error"]
+        assert try_app_write(src.db_app_dsn, "untouched") == WriteRefusal.ACCEPTED  # 출발지는 그대로
+        assert not any(blocks(src, dst))  # 진입점도 건드리지 않았다
+    finally:
+        held.close()

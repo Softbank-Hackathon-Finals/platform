@@ -85,6 +85,7 @@ class Run:
     # 사전 확인 때 고정한 PgBouncer 파드 (이름, UID, 재시작 횟수). 실행 동안 바뀌면 상태 불명으로 본다.
     pools: dict[str, tuple[str, str, int]] = field(default_factory=dict)
     step: str | None = None
+    committed: bool = False
 
 
 def _describe(error: Exception) -> str:
@@ -246,9 +247,8 @@ class Cutover:
         """컷오버 전 상태로 되돌리고 하나씩 확인한다. 이미 그 상태인 것은 건너뛴다(다시 불러도 같다)."""
         src, dst = run.src, run.dst
         self._record(run, "abort", StepStatus.STARTED)
-        # 1) 목적지에 쓰지 않았음을 확인한다. 열려 있으면 쓰기 전이라고 볼 수 없다.
-        if dst.db.can_login(dst.site.app_role):
-            raise Unconfirmed("target app role can log in: cannot prove no write happened on target")
+        # 1) 목적지에 쓰지 않았고 쓸 수도 없음을 확인한다. 아니면 쓰기 전이라고 볼 수 없다.
+        self._target_closed(run)
         restored.append("target_closed_confirmed")
         # 2) 구독: 역방향 끔 → 정방향 켬 (6단계 도중 실패했을 수 있다)
         if src.db.subscription(src.site.subscription).enabled:
@@ -258,7 +258,8 @@ class Cutover:
         if not (forward.enabled and forward.workers):
             self._act(run, dst.db.set_subscription, dst.site.subscription, True, dst.site.subscription_owner)
             restored.append("forward_subscription_enabled")
-        # 3) 출발지 앱 역할 로그인
+        # 3) 출발지 앱 역할 로그인. 출발지를 다시 열기 직전에 목적지가 여전히 닫혀 있는지 한 번 더 본다.
+        self._target_closed(run)
         if not src.db.can_login(src.site.app_role):
             self._act(run, src.db.set_login, src.site.app_role, True)
             restored.append("source_login_restored")
@@ -309,6 +310,10 @@ class Cutover:
         if datetime.now(UTC) > run.request.deadline:
             raise StepFailed("deadline passed")
         self._hook(f"before:{name}", run)
+        # 전환 확정 전에 쓰기 정지 예산을 다 썼으면 쓰기 전 실패로 멈춘다(원상 복구). 확정 뒤에는 멈추면 양쪽이
+        # 모두 닫힌 채 남으므로 전환을 끝내고 결과에 예산 초과를 남긴다.
+        if run.t0 is not None and not run.committed and self._budget_left_s(run) <= 0:
+            raise StepFailed(f"write pause budget {run.request.write_pause_budget_ms}ms exceeded before commit")
         self._guard(run)
         self._record(run, name, StepStatus.STARTED)
         start = self._clock()
@@ -331,6 +336,28 @@ class Cutover:
     def _remaining_s(self, run: Run) -> float:
         return max(0.0, (run.request.deadline - datetime.now(UTC)).total_seconds())
 
+    def _budget_left_s(self, run: Run) -> float:
+        """쓰기 정지 예산(write_pause_budget_ms) 중 남은 시간. 첫 쓰기 제한(t0) 전에는 예산 전체다."""
+        budget = run.request.write_pause_budget_ms / 1000
+        return budget if run.t0 is None else budget - (self._clock() - run.t0)
+
+    def _wait_limit_s(self, run: Run, configured_s: float) -> float:
+        """전환 확정 전 대기의 시간 제한: 설정값 · 남은 deadline · 남은 쓰기 정지 예산 중 가장 짧은 것."""
+        return max(0.0, min(configured_s, self._remaining_s(run), self._budget_left_s(run)))
+
+    def _target_closed(self, run: Run) -> None:
+        """목적지가 앱 쓰기를 받을 수 없음을 확인한다. NOLOGIN은 새 접속만 막으므로(기존 연결은 계속 쓸 수 있다)
+        이미 붙은 앱 역할 세션과, 업무 역할이 아닌 클라이언트 세션(우회 쓰기 후보)도 0이어야 한다.
+        확인되지 않으면 Unconfirmed: 확정 전이라도 원상 복구로 출발지를 열지 않고 SAFE_HOLD가 된다."""
+        dst = run.dst
+        role = dst.site.app_role
+        if dst.db.can_login(role):
+            raise Unconfirmed("target app role can log in: cannot prove no write happened on target")
+        if sessions := dst.db.sessions(role):
+            raise Unconfirmed(f"target still has {sessions} app session(s) opened before NOLOGIN")
+        if bypass := dst.db.other_sessions(dst.site.system_roles + [role]):
+            raise Unconfirmed(f"possible bypass writers on target: {bypass}")
+
     # 1. 사전 확인 -----------------------------------------------------------
     def _precheck(self, run: Run) -> None:
         src, dst = run.src, run.dst
@@ -340,8 +367,7 @@ class Cutover:
             state = side.pool.state()
             if state.paused or state.host != src.site.db_host:
                 raise StepFailed(f"{side.site.environment_id} pgbouncer is not serving the source: {state}")
-        if dst.db.can_login(dst.site.app_role):
-            raise StepFailed("target app role can already log in")
+        self._target_closed(run)
         if not src.db.can_login(src.site.app_role):
             raise StepFailed("source app role cannot log in")
         forward = dst.db.subscription(dst.site.subscription)
@@ -376,7 +402,7 @@ class Cutover:
         if src.db.long_transactions(src.site.app_role, self._settings.long_transaction_ms):
             raise StepFailed("long transaction open on source")
         for side in (run.src, run.dst):
-            timeout = min(self._settings.pause_timeout_s, self._remaining_s(run))
+            timeout = self._wait_limit_s(run, self._settings.pause_timeout_s)
             self._same_pool(run, side)
             try:
                 self._act(run, side.pool.pause, timeout)
@@ -391,7 +417,7 @@ class Cutover:
         src = run.src
         role = src.site.app_role
         self._act(run, src.db.set_login, role, False)
-        deadline = self._clock() + self._settings.fence_timeout_s
+        deadline = self._clock() + self._wait_limit_s(run, self._settings.fence_timeout_s)
         while self._act(run, src.db.terminate_sessions, role) or src.db.sessions(role):
             if self._clock() > deadline:
                 raise StepFailed("app sessions still open on source")
@@ -410,12 +436,17 @@ class Cutover:
         barrier = uuid.uuid4()
         self._act(run, src.db.insert_barrier, barrier, run.request.epoch)
         source_lsn = int(src.db.current_wal_lsn())
-        deadline = self._clock() + self._settings.barrier_timeout_s
+        deadline = self._clock() + self._wait_limit_s(run, self._settings.barrier_timeout_s)
         while not dst.db.has_barrier(barrier):
             if self._clock() > deadline:
                 raise StepFailed("barrier did not arrive at target")
             time.sleep(0.05)
         result = self._comparer.compare(src.db, dst.db, self._settings.tables)
+        if not isinstance(result, dict):
+            raise StepFailed(f"integrity comparison returned {type(result).__name__}, not a result")
+        tables = result.get("tables") if isinstance(result.get("tables"), list) else []
+        covered = {t.get("name") for t in tables if isinstance(t, dict)}
+        verdict = result.get("verdict")
         sequences = []
         for name, (table, column) in self._settings.sequences.items():
             src_next = src.db.sequence_next(name)
@@ -431,15 +462,25 @@ class Cutover:
             "barrier_id": str(barrier),
             "watermark": {"source_lsn": source_lsn,
                           "received_lsn": int(dst.db.received_lsn(dst.site.subscription) or 0)},
-            "hash_rule": result["hash_rule"],
-            "tables": result["tables"],
+            "hash_rule": result.get("hash_rule"),
+            "tables": tables,
             "sequences": sequences,
-            "verdict": result["verdict"],
+            "verdict": verdict,
+            "write_pause_budget_ms": run.request.write_pause_budget_ms,
         }
-        if result["verdict"] == "MISMATCH":
+        # 허용 목록: 명시적인 MATCH만 진행한다. UNVERIFIED(임시 비교)는 시험용 설정을 켰을 때만.
+        # 그 밖의 값(UNKNOWN · 오타 · 누락 · 잘못된 형식)과 비교 대상 테이블 누락은 모두 쓰기 전 실패다.
+        if missing := sorted(set(self._settings.tables) - covered):
+            raise StepFailed(f"integrity comparison does not cover {missing}")
+        if verdict == "MATCH":
+            return
+        if verdict == "UNVERIFIED" and self._settings.allow_unverified_compare:
+            return
+        if verdict == "MISMATCH":
             raise StepFailed("integrity comparison: MISMATCH")
-        if result["verdict"] == "UNVERIFIED" and not self._settings.allow_unverified_compare:
+        if verdict == "UNVERIFIED":
             raise StepFailed("integrity comparison is not verified (T13 not connected)")
+        raise StepFailed(f"integrity comparison returned an unexpected verdict {verdict!r}")
 
     # 6. 전환 확정 ------------------------------------------------------------
     def _commit(self, run: Run) -> None:
@@ -451,6 +492,7 @@ class Cutover:
         self._act(run, src.db.set_subscription, src.site.subscription, True, src.site.subscription_owner)
         self._hook("commit:subscriptions_changed", run)
         self._mark(run, "committed_at")
+        run.committed = True
         run.receipt["committed_at"] = datetime.now(UTC).isoformat()
 
     # 7. 재연결 ---------------------------------------------------------------
@@ -525,10 +567,15 @@ class Cutover:
     def _result(self, run: Run) -> dict[str, Any]:
         last = max(run.acks.values())
         write_pause_ms = int((last - run.t0) * 1000)
+        budget_exceeded = write_pause_ms > run.request.write_pause_budget_ms
         run.receipt["write_pause_ms"] = write_pause_ms
+        run.receipt["write_pause_budget_exceeded"] = budget_exceeded
         return {
             "outcome": Status.DONE.value,
             "write_pause_ms": write_pause_ms,
+            "write_pause_budget_ms": run.request.write_pause_budget_ms,
+            # 확정 뒤에 예산을 넘긴 경우: 전환은 끝냈지만(쓰기 DB는 목적지 하나) 예산 위반이다
+            "write_pause_budget_exceeded": budget_exceeded,
             "stages_ms": run.stages_ms,
             "path_acks_ms": {path: int((t - run.t0) * 1000) for path, t in run.acks.items()},
             "receipt": run.receipt,

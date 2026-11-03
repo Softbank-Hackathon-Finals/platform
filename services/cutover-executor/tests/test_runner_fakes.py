@@ -52,6 +52,8 @@ class World:
         self.configmap = {ns: (INI.format(host="src-db"), "1") for ns in ("src", "dst")}
         self.configmap_error: dict[str, Exception] = {}
         self.barriers: set = set()
+        self.sessions = {"src": 0, "dst": 0}  # 앱 역할 세션(NOLOGIN 전에 붙은 연결 포함)
+        self.bypass = {"src": [], "dst": []}  # 업무 역할이 아닌 클라이언트 세션
         self.calls: list[str] = []
         self.after: dict[str, object] = {}  # 호출 이름 → 그 호출 직후 실행할 함수
 
@@ -76,7 +78,7 @@ class FakeDb:
         self.w.did(f"{self.ns}.set_login:{allowed}")
 
     def sessions(self, role):
-        return 0
+        return self.w.sessions[self.ns]
 
     def terminate_sessions(self, role):
         self.w.did(f"{self.ns}.terminate_sessions")
@@ -86,7 +88,7 @@ class FakeDb:
         return 0
 
     def other_sessions(self, roles):
-        return []
+        return list(self.w.bypass[self.ns])
 
     def subscription(self, name):
         return Subscription(enabled=self.w.sub[self.ns], workers=1 if self.w.sub[self.ns] else 0)
@@ -371,3 +373,124 @@ def test_persist_requires_target_reachable_through_each_pool(store, world):
     execution_id = start(store)
     FakeCutover(store, world, hooks={"persist:read:env-onprem": close_target}).run(execution_id)
     assert store.get(execution_id).status == Status.SAFE_HOLD
+
+
+
+class FixedComparer:
+    def __init__(self, result):
+        self.result = result
+
+    def compare(self, src, dst, tables):
+        return self.result
+
+
+TABLES = [{"name": t, "rows_src": 5, "rows_dst": 5} for t in CONFIG.settings.tables]
+
+
+@pytest.mark.parametrize("result", [
+    {"verdict": "UNKNOWN", "hash_rule": "unavailable", "tables": TABLES},
+    {"verdict": "match", "hash_rule": "v1", "tables": TABLES},  # 오타(대소문자)
+    {"hash_rule": "v1", "tables": TABLES},  # verdict 누락
+    {"verdict": "MATCH", "hash_rule": "v1", "tables": TABLES[:1]},  # 비교 대상 테이블 누락
+    {"verdict": "MATCH", "hash_rule": "v1", "tables": "all"},  # 잘못된 형식
+    "MATCH",  # dict가 아님
+])
+def test_only_explicit_match_opens_target(store, world, result):
+    """#116 이상무 리뷰: MATCH(또는 시험 설정의 UNVERIFIED)만 진행한다. 그 밖에는 목적지를 열지 않는다."""
+    execution_id = start(store)
+    FakeCutover(store, world, comparer=FixedComparer(result)).run(execution_id)
+    execution = store.get(execution_id)
+    assert execution.status == Status.ABORT_PRE_WRITE, execution.result
+    assert execution.result["failed_step"] == "compare"
+    assert "dst.set_login:True" not in world.calls and world.login["dst"] is False
+
+
+def test_match_proceeds_without_unverified_allowance(store, world):
+    strict = CONFIG.model_copy(update={"settings": CONFIG.settings.model_copy(update={"allow_unverified_compare": False})})
+    execution_id = start(store)
+    cutover = FakeCutover(store, world, comparer=FixedComparer({"verdict": "MATCH", "hash_rule": "v1", "tables": TABLES}))
+    cutover._config, cutover._settings = strict, strict.settings
+    cutover.run(execution_id)
+    assert store.get(execution_id).status == Status.DONE
+
+
+@pytest.mark.parametrize("leftover", ["session", "bypass"])
+def test_target_session_opened_before_nologin_blocks_cutover(store, world, leftover):
+    """NOLOGIN은 새 접속만 막는다. 목적지에 이미 붙은 앱 세션 · 우회 세션이 있으면 시작하지 않고,
+    쓰기 전이라는 것을 증명할 수 없으니 출발지를 다시 열지도 않는다(SAFE_HOLD)."""
+    if leftover == "session":
+        world.sessions["dst"] = 1
+    else:
+        world.bypass["dst"] = ["batch_writer"]
+    execution_id = start(store)
+    FakeCutover(store, world).run(execution_id)
+    execution = store.get(execution_id)
+    assert execution.status == Status.SAFE_HOLD, execution.result
+    assert execution.result["failed_step"] == "precheck"
+    assert world.calls == []  # 아무것도 바꾸지 않았다
+
+
+def test_target_session_appearing_mid_run_keeps_source_closed(store, world):
+    """쓰기 제한 뒤 목적지에 세션이 생긴 채 확정 전 실패가 나면, 원상 복구로 출발지를 다시 열지 않는다."""
+    world.after["src.pause"] = lambda: world.sessions.__setitem__("dst", 1)
+    execution_id = start(store)
+    FakeCutover(store, world, comparer=FixedComparer({"verdict": "MISMATCH", "hash_rule": "v1",
+                                                      "tables": TABLES})).run(execution_id)
+    execution = store.get(execution_id)
+    assert execution.status == Status.SAFE_HOLD, execution.result
+    assert "src.set_login:True" not in world.calls and "src.resume" not in world.calls
+    assert world.login["src"] is False  # 펜싱된 출발지를 열지 않았다
+
+
+class Clock:
+    def __init__(self):
+        self.offset = 0.0
+
+    def __call__(self):
+        import time
+
+        return time.monotonic() + self.offset
+
+
+def test_budget_exceeded_before_commit_aborts(store, world):
+    """#116 이상무 리뷰: 쓰기 정지 예산(5초)을 확정 전에 넘기면 쓰기 전 실패로 원상 복구한다."""
+    clock = Clock()
+
+    def slow(_run):
+        clock.offset += 6
+
+    execution_id = start(store)
+    FakeCutover(store, world, clock=clock, hooks={"before:compare": slow}).run(execution_id)
+    execution = store.get(execution_id)
+    assert execution.status == Status.ABORT_PRE_WRITE, execution.result
+    assert "budget" in execution.result["error"] and execution.committed_at is None
+    assert world.login == {"src": True, "dst": False}
+
+
+def test_budget_exceeded_after_commit_finishes_and_reports(store, world):
+    """확정 뒤에 예산을 넘기면 멈추지 않고(양쪽이 닫힌 채 남지 않게) 전환을 끝내되 예산 위반을 남긴다."""
+    clock = Clock()
+
+    def slow(_run):
+        clock.offset += 6
+
+    execution_id = start(store)
+    FakeCutover(store, world, clock=clock, hooks={"before:reconnect": slow}).run(execution_id)
+    execution = store.get(execution_id)
+    assert execution.status == Status.DONE, execution.result
+    result = execution.result
+    assert result["write_pause_budget_exceeded"] is True and result["write_pause_ms"] > 5000
+    assert result["receipt"]["write_pause_budget_exceeded"] is True
+
+
+def test_waits_are_capped_by_remaining_budget(store, world):
+    """barrier 대기 같은 확정 전 대기는 남은 예산을 넘지 않는다."""
+    clock = Clock()
+    world.after["src.insert_barrier"] = lambda: (world.barriers.clear(), setattr(clock, "offset", 4.5))
+    execution_id = start(store)
+    import time
+
+    began = time.monotonic()
+    FakeCutover(store, world, clock=clock).run(execution_id)
+    assert time.monotonic() - began < 3  # barrier_timeout_s(10초)까지 기다리지 않았다
+    assert store.get(execution_id).status == Status.ABORT_PRE_WRITE
