@@ -7,9 +7,10 @@ dependencies = ["jsonschema>=4.23,<5"]
 
 [project.optional-dependencies]
 aws = ["botocore>=1.35,<2"]
+postgres = ["psycopg[binary]>=3.3.6,<4"]
 
 [dependency-groups]
-dev = ["pytest>=8,<10", "botocore>=1.35,<2"]
+dev = ["pytest>=8,<10", "botocore>=1.35,<2", "psycopg[binary]>=3.3.6,<4"]
 
 [build-system]
 requires = ["hatchling>=1.25,<2"]
