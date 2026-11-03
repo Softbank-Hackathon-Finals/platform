@@ -36,7 +36,7 @@ from lag_lab import (
     remove_shaper,
 )
 from lag_metrics import (
-    budget,
+    budget_scenarios,
     condense,
     first_reach,
     gate_lag_bytes,
@@ -74,6 +74,7 @@ BUDGET_MS = 5_000
 # T13 local comparison time, source plus target, assumed network (T13 evidence; not measured here).
 COMPARE_MS = (600, 1_300)
 GATE_BYTES = 1024 * 1024  # bravo_cutover Settings.max_lag_bytes.
+EXECUTOR_POLL_MS = 50  # bravo_cutover runner: time.sleep(0.05) in the barrier wait.
 STATS_FLUSH_SECONDS = 2  # Cumulative statistics reach shared memory about once a second.
 
 
@@ -119,6 +120,14 @@ def subscribe(lab, target):
     target.execute(f"""CREATE SUBSCRIPTION {SUBSCRIPTION}
         CONNECTION 'host={peer} port=5432 dbname=chat user=chat_replicator connect_timeout=10 application_name=bravo_t8_target_subscriber'
         PUBLICATION source_chat WITH ({SUBSCRIPTION_OPTIONS})""")
+
+
+def wait_for_row(target, row_id, timeout=10):
+    deadline = time.monotonic() + timeout
+    while (target.execute("SELECT max(id) FROM messages").fetchone()[0] or 0) < row_id:
+        if time.monotonic() > deadline:
+            raise TimeoutError("row did not reach the target")
+        time.sleep(0.01)
 
 
 def wait_ready(target, timeout=900):
@@ -331,15 +340,14 @@ def summarize_condition(runs):
     }
 
 
-def budget_view(conditions):
-    """Worst measured catch-up plus the larger T13 comparison time, by each definition of catch-up."""
-    def worst(metric):
-        values = [entry["summary"][metric]["max"] for entry in conditions.values()]
-        return None if not values or None in values else max(values)
+def budget_view(results):
+    """Worst measured catch-up plus the larger T13 comparison time; a slower link sets the gate case."""
+    gate = results["validation"].get("20mbit-rtt30", {}).get("gate_backlog")
+    return budget_scenarios(results["conditions"], gate, budget_ms=BUDGET_MS, compare_ms=COMPARE_MS[1], poll_ms=EXECUTOR_POLL_MS)
 
-    return {definition: None if worst(metric) is None else budget(BUDGET_MS, worst(metric), COMPARE_MS[1])
-            for definition, metric in (("barrier_arrival", "catchup_visible_ms"),
-                                       ("confirmed_lsn_equal", "catchup_confirmed_lsn_ms"))}
+
+def scripts_sha256():
+    return {file.name: hashlib.sha256(file.read_bytes()).hexdigest() for file in sorted(HERE.glob("*.py"))}
 
 
 def environment():
@@ -348,8 +356,7 @@ def environment():
     return {"postgres_image": POSTGRES_IMAGE, "postgres_image_id": image["Id"],
             "db_container_limits": list(DB_LIMITS), "db_parameters": DB_PARAMETERS,
             "docker_vm": {"cpus": info["NCPU"], "memory_gib": round(info["MemTotal"] / 2 ** 30, 1), "kernel": info["KernelVersion"]},
-            "host_clock": "single process, time.monotonic", "scripts_sha256": {
-                file.name: hashlib.sha256(file.read_bytes()).hexdigest() for file in sorted(HERE.glob("*.py"))},
+            "host_clock": "single process, time.monotonic", "scripts_sha256": scripts_sha256(),
             "schema_sha256": {
                 "source": hashlib.sha256(schema_text(SOURCE_SCHEMA).encode()).hexdigest(),
                 "target": hashlib.sha256(schema_text(TARGET_SCHEMA, TARGET_SCHEMA_REF).encode()).hexdigest()}}
@@ -388,7 +395,7 @@ def command_lab(args):
                 run = measure_run(condition, repetition, rows=rows, steady_seconds=args.steady_seconds)
                 entry["runs"].append(run)
                 entry["summary"] = summarize_condition(entry["runs"])
-                results["budget_view"] = budget_view(results["conditions"])
+                results["budget_view"] = budget_view(results)
                 save_results(args.out, results)
                 print(json.dumps({"condition": key, "repetition": repetition, "copy_ms": run["initial_copy"]["ms"],
                                   "lag_p95_ms": run["steady"]["visible_lag_ms"]["p95"], "catchup": run["catchup"]}), flush=True)
@@ -490,6 +497,8 @@ def validate_condition(condition, pause_seconds=5):
         catchup = catch_up(poller, backlog[-1][0], wal, stopped, timeout=60)
         visible = first_reach(poller.seen(), backlog[-1][0])
         read_only = validate_read_only(lab, source, target, baseline_lag["p50"])
+        # The read-only check writes one control row; compare only after it can have arrived.
+        wait_for_row(target, row_counts(source)[2])
         checks = {
             "baseline_p95_below_20pct_of_pause": baseline_lag["p95"] < pause_seconds * 200,
             "paused_max_reaches_80pct_of_pause": paused_lag["max"] >= pause_seconds * 800,
@@ -513,6 +522,8 @@ def command_validate(args):
         for condition in args.conditions:
             outcome = validate_condition(condition)
             results["validation"][condition] = outcome
+            results["validation_scripts_sha256"] = scripts_sha256()
+            results["budget_view"] = budget_view(results)
             save_results(args.out, results)
             print(json.dumps({"condition": condition, "passed": outcome["passed"], "checks": outcome["checks"]}), flush=True)
     finally:

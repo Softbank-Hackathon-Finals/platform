@@ -66,6 +66,25 @@ class MetricTests(unittest.TestCase):
         self.assertEqual(result, {"budget_ms": 5000, "catchup_ms": 40, "compare_ms": 1300, "remaining_for_other_steps_ms": 3660})
         self.assertEqual(metrics.budget(1000, 40, 1300)["remaining_for_other_steps_ms"], -340)
 
+    def test_budget_scenarios_add_executor_polling_only_to_barrier_waits(self):
+        def entry(lag_max, confirmed_max):
+            return {"summary": {"steady_visible_lag_max_ms": {"max": lag_max}, "catchup_confirmed_lsn_ms": {"max": confirmed_max}}}
+
+        conditions = {"a": entry(100.0, 400.0), "b": entry(120.0, 450.0)}
+        gate = {"visible_after_enable_ms": 600.0, "catchup_from_write_stop_ms": {"visible_ms": 2600.0, "confirmed_lsn_ms": 3100.0}}
+        result = metrics.budget_scenarios(conditions, gate, budget_ms=5000, compare_ms=1300, poll_ms=50)
+        self.assertEqual(result["barrier_worst_row"]["catchup_ms"], 170.0)
+        self.assertEqual(result["confirmed_lsn_equal"]["catchup_ms"], 450.0)
+        self.assertEqual(result["barrier_at_gate_limit"]["catchup_ms"], 650.0)
+        # The deliberate idle time before re-enabling is excluded: confirmed follows visible by 500 ms.
+        self.assertEqual(result["confirmed_at_gate_limit"]["catchup_ms"], 1100.0)
+        self.assertEqual(result["confirmed_at_gate_limit"]["remaining_for_other_steps_ms"], 2600.0)
+
+    def test_budget_scenarios_omit_what_was_not_measured(self):
+        result = metrics.budget_scenarios({}, None, budget_ms=5000, compare_ms=1300, poll_ms=50)
+        self.assertEqual(result, {"barrier_worst_row": None, "confirmed_lsn_equal": None,
+                                  "barrier_at_gate_limit": None, "confirmed_at_gate_limit": None})
+
     def test_observation_reports_idle_source_instead_of_a_zero_lag(self):
         # WAL moves without any business row (a checkpoint, say): that alone is not a write to measure.
         source = [{"t": 1.0, "max_id": 5, "wal": 100, "confirmed": 100}, {"t": 2.0, "max_id": 5, "wal": 900, "confirmed": 100}]

@@ -98,6 +98,30 @@ def budget(budget_ms, catchup_ms, compare_ms):
             "remaining_for_other_steps_ms": round(budget_ms - catchup_ms - compare_ms, 1)}
 
 
+def budget_scenarios(conditions, gate_backlog, *, budget_ms, compare_ms, poll_ms):
+    """Budget left after catch-up and comparison, by what the cutover waits for.
+
+    A barrier is an ordinary row, so its worst case is the worst row in any run, plus the Executor's
+    polling step. The gate scenarios start from the largest backlog the Executor's lag gate admits.
+    """
+    def worst(metric):
+        values = [entry["summary"][metric]["max"] for entry in conditions.values()]
+        return None if not values or None in values else max(values)
+
+    def scenario(catchup_ms):
+        return None if catchup_ms is None else budget(budget_ms, round(catchup_ms, 1), compare_ms)
+
+    worst_row, gate_barrier, gate_confirmed = worst("steady_visible_lag_max_ms"), None, None
+    if gate_backlog:
+        timings = gate_backlog["catchup_from_write_stop_ms"]
+        gate_barrier = gate_backlog["visible_after_enable_ms"] + poll_ms
+        gate_confirmed = gate_backlog["visible_after_enable_ms"] + timings["confirmed_lsn_ms"] - timings["visible_ms"]
+    return {"barrier_worst_row": scenario(None if worst_row is None else worst_row + poll_ms),
+            "confirmed_lsn_equal": scenario(worst("catchup_confirmed_lsn_ms")),
+            "barrier_at_gate_limit": scenario(gate_barrier),
+            "confirmed_at_gate_limit": scenario(gate_confirmed)}
+
+
 def analyze_observation(source, target):
     """Everything that can be derived from reads alone, on the observer's single clock."""
     ids = [sample["max_id"] for sample in source if sample["max_id"] is not None]
