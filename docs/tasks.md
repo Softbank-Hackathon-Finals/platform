@@ -97,7 +97,7 @@ Claude Code는 `/todo-task`, Codex는 `$todo-task`로 이 순서를 따르는 �
 
 **할 일**
 - [ ] 팀원별 IAM 권한, 장기 키 공유 금지 규칙
-- [ ] VPC 2개와 피어링
+- [x] VPC 2개와 피어링
 - [ ] `component` 태그 강제, 예산 알림
 - [ ] `component` 태그별 비용 조회 (데모 마무리 장면용)
 
