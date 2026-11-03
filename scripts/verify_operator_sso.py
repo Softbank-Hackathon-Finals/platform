@@ -65,6 +65,8 @@ def run(profile: str, account: str, config_path: Path) -> dict:
     }}
     env["AWS_CONFIG_FILE"] = str(config_path)
     env["AWS_EC2_METADATA_DISABLED"] = "true"
+    # SSO token exchange and STS identity must use AWS's resolved endpoints.
+    env["AWS_IGNORE_CONFIGURED_ENDPOINT_URLS"] = "true"
     try:
         response = subprocess.run(
             ["aws", "sts", "get-caller-identity", "--profile", profile, "--output", "json", "--no-cli-pager"],
