@@ -1,0 +1,20 @@
+{
+ "note": "첫 측정. 판정이 Pod 교체만 보던 때의 코드(993098d)로 잰 값이다. source_sha256은 측정 중 파일이 바뀌어 믿을 수 없어 뺐다.",
+ "commit": "993098d",
+ "scenario": {
+  "as_expected": false,
+  "counts": {
+   "FAIL": 0,
+   "PASS": 21,
+   "UNKNOWN": 0
+  },
+  "expected_codes": [
+   "NOT_READY"
+  ],
+  "expected_verdict": "FAIL",
+  "meaning": "시작할 때 AWS가 필요한 앱. 차단 뒤 재시작하면 뜨지 않아야 한다(고정 소스 ce5727e의 동작을 흉내)",
+  "name": "app_needs_aws_at_start",
+  "not_pass": [],
+  "verdict": "PASS"
+ }
+}
