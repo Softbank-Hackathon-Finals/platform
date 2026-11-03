@@ -1,5 +1,6 @@
 """T13 DB 안 지문과 시퀀스 보정: 일회용 PostgreSQL DB 두 개로 실제 판정을 본다."""
 
+import re
 import time
 from decimal import Decimal
 from uuid import uuid4
@@ -182,6 +183,7 @@ def test_gate_schema_function_returns_the_same_hash_and_primary_key(pair):
     with psycopg.connect(pair[0], autocommit=True) as conn:
         schema = schema_fingerprint(conn, "public.composite")
         assert schema["primary_key"] == ["a", "b"]
+        assert re.fullmatch("[0-9a-f]{64}", schema["schema_hash"])  # T19 게이트가 요구하는 형식
         assert schema["schema_hash"] == fingerprint(conn, "public.composite")["schema_hash"]
         assert schema_fingerprint(conn, TABLE)["primary_key"] == ["id"]
 
@@ -544,6 +546,28 @@ def test_correction_is_idempotent(pair):
     second = correct(pair)
     assert first["raised"] is True and second["raised"] is False
     assert first["dst_set"] == second["dst_set"] == 11
+
+
+def test_failback_uses_the_same_functions_with_sides_swapped(pair):
+    # T20: 전환 뒤 목적지가 쓴 행이 역복제로 출발지에 도착했고, 출발지 시퀀스만 뒤처진 상태
+    source, target = pair
+    for dsn in pair:
+        seed_events(dsn, 101)
+    run(target, "SELECT setval('public.events_id_seq', 101, true)")
+    result = DbFingerprintComparer().compare(DbControl(target), DbControl(source), [TABLE, "public.events"])
+    assert (result["verdict"], result["data_verdict"], result["schema_verdict"]) == ("MATCH", "MATCH", "MATCH")
+    receipt = correct_sequence(DbControl(target), DbControl(source), *SEQUENCE)
+    assert (receipt["src_next"], receipt["dst_next_before"], receipt["dst_set"]) == (102, 1, 102)
+    assert next_issued(source) == 102
+    assert next_issued(target) == 102  # 되돌리기 시퀀스 보정은 지금 쓰는 쪽을 건드리지 않는다
+
+
+def test_failback_detects_a_row_missing_on_the_old_source(pair):
+    source, target = pair
+    run(target, "INSERT INTO sample (id, content) VALUES ('new', '역복제가 안 된 행')")
+    result = DbFingerprintComparer().compare(DbControl(target), DbControl(source), [TABLE])
+    assert result["verdict"] == "MISMATCH"
+    assert (result["tables"][0]["rows_src"], result["tables"][0]["rows_dst"]) == (4, 3)
 
 
 def test_receipt_contains_source_last_value_for_the_design_receipt(pair):

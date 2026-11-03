@@ -125,9 +125,20 @@ db-sql-v1:fixed-session-text;columns-by-name;jsonb-array;utf8;sha256-of-row-sha2
 3. 영수증에 `data_verdict` · `schema_verdict`를 더한다.
 4. `integrity.py`, `DbControl.fingerprint`, `test_integrity.py`를 지우고 README의 「T13 비교 규칙 v1」을 이 문서 링크로 바꾼다. 시험용 `FakeDb`에는 `sequence_state`를 더한다.
 
-**T19 (데이터 준비).** `schema_fingerprint(conn, 표)`가 `schema_hash` · `primary_key`를 준다. 시퀀스는 쓰지 않고 `sequence_state`와 `next_safe_value`로 읽어 제안값을 만든다. 이 패키지를 어떻게 호출할지는 T19 생산자에서 정한다.
+**T19 (데이터 준비, [#141](https://github.com/Softbank-Hackathon-Finals/platform/pull/141)).** SQL을 다시 만들지 않고 아래 함수를 읽어 게이트 입력을 채운다. `services/control-gate`는 이 패키지에 의존하지 않으므로, 함수를 어디서 호출할지는 T19 생산자에서 정한다.
 
-**T20 (되돌리기).** 같은 함수에 출발지와 목적지를 바꿔 넘긴다.
+| 게이트 입력 | T13 값 |
+|---|---|
+| `schema_rule` | `HASH_RULE` |
+| `tables[].schema_hash`, `primary_key` | `schema_fingerprint(conn, 표)` |
+| `source_next`, `target_next`, `target_max_id` | `sequence_state()`의 `next_value`, `max_id` |
+| `proposed_next` | `next_safe_value(출발지, 목적지)`. 쓰지 않고 읽기만 한다 |
+| `readback_next` | 리허설에서 `correct_sequence()`가 돌려준 `dst_set` |
+| `increment`, `cycle` | `1`, `false`. 다르면 `sequence_state()`가 `Unconfirmed`를 던진다 |
+
+게이트는 `schema_hash`만 비교하므로 제공자 버전만 다른 경우도 `SCHEMA_MISMATCH`로 막힌다. 최종 비교의 `UNKNOWN`과 값은 다르지만 둘 다 진행하지 않는다.
+
+**T20 (되돌리기).** 같은 함수에 인자를 바꿔 넘긴다. `compare(목적지, 출발지, 표)`, `correct_sequence(목적지, 출발지, 시퀀스, 표, 컬럼)`. 결과의 `rows_src` · `src_*`는 지금 쓰고 있는 쪽을 뜻한다.
 
 ## 계약 사례
 
@@ -152,6 +163,8 @@ db-sql-v1:fixed-session-text;columns-by-name;jsonb-array;utf8;sha256-of-row-sha2
 | PK 없음 · 표 없음 · 뷰 · 상속 (`unverifiable_table`) | UNKNOWN | UNKNOWN | UNKNOWN |
 
 시퀀스 사례: 최대 ID보다 뒤처진 시퀀스, `is_called=false`, 이미 앞선 목적지, 다시 실행, 미지원 시퀀스, 최댓값 초과, 올리기가 반영되지 않은 경우.
+
+되돌리기 사례(`failback`): 방향을 바꾼 비교와 시퀀스 보정, 역복제가 안 된 행 검출.
 
 ## 확인하지 않은 것
 

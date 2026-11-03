@@ -36,11 +36,13 @@
 
 | 범위 | 결과 |
 |---|---|
-| `test_db_fingerprint.py` · `test_db_fingerprint_runner.py`, PG 18.4 · PG 16 각각 | 90 passed |
-| `services/cutover-executor` 전체(develop `4fff609` 합친 뒤), PG 18.4 · PG 16 각각 | 236 passed, 39 skipped |
-| 위에 T12 연결 변경을 임시로 적용, PG 18.4 · PG 16 각각 | 223 passed, 39 skipped |
+| `test_db_fingerprint.py` · `test_db_fingerprint_runner.py`, PG 18.4 · PG 16 각각 | 92 passed |
+| `services/cutover-executor` 전체(#134 `bcbefb6`과 트리가 같은 develop `4fff609`을 합친 뒤), PG 18.4 · PG 16 각각 | 238 passed, 39 skipped |
+| 위에 T12 연결 변경을 임시로 적용, PG 18.4 · PG 16 각각 | 225 passed, 39 skipped |
 
 - **실행 단계 판정:** `test_db_fingerprint_runner.py`는 원격 조작만 가짜로 두고, 실제 두 DB의 비교 결과를 실행기에 넣는다. MATCH는 진행하고, 값 차이 · 스키마 차이 · 미지원 타입은 목적지를 열지 않은 채 영수증을 남긴다.
+- **T19 입력:** T13 함수의 실제 출력으로 #141 `baa01f7`의 `assess_readiness` 입력을 채워 돌렸다. 같은 스키마는 PASS, 제약을 추가하면 `SCHEMA_MISMATCH`로 BLOCK이었다(1회성, 스크립트는 저장소에 없음). T19 생산자에 연결한 것은 아니다.
+- **T20 방향:** `test_failback_*`이 인자를 바꾼 비교와 시퀀스 보정을 실제 DB로 잰다. T20 코드에 연결한 것은 아니다.
 - **건너뛴 39개:** k3d 모의 환경 시험이다. 돌리지 않았다. 그 환경 설정도 `allow_unverified_compare`가 켜져 있어 임시 비교기를 쓴다. 실제 복제 환경에서 이 비교기로 끝까지 돈 적은 없다.
 - **연결 변경:** 임시 폴더에서만 적용했다. 내용은 [계약 문서](../../contracts/T13-db-fingerprint-v1.md)의 T12 항목이고 `integrity.py` · `test_integrity.py`를 지운 상태다.
 - **결함 주입:** 코드에 결함을 하나씩 넣는 시험 37건을 복사본에서 돌려 모두 시험 실패를 확인했다(1회성, 스크립트는 저장소에 없음). 처음에는 8건을 놓쳐 세션 설정, 스냅샷, 버전 차이, 시퀀스 재확인 시험을 더했다.
