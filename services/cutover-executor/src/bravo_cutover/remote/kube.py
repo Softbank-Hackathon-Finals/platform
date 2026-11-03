@@ -112,6 +112,14 @@ req = urllib.request.Request("http://127.0.0.1:8080/admin/write-block",
 print(urllib.request.urlopen(req, timeout=3).read().decode())
 """
 
+_CLOSE_WEBSOCKETS = """
+import os, urllib.request
+req = urllib.request.Request("http://127.0.0.1:8080/admin/websockets/close", method="POST",
+    data=b"{}", headers={"Authorization": "Bearer " + os.environ["ADMIN_TOKEN"],
+    "Content-Type": "application/json"})
+print(urllib.request.urlopen(req, timeout=3).read().decode())
+"""
+
 
 class WriteBlock:
     """demo-chat의 쓰기 차단 스위치(T4). 상태가 프로세스마다 따로 있어 파드마다 부른다."""
@@ -141,5 +149,30 @@ class WriteBlock:
     def running(self) -> list[str]:
         return self._kube.running_pods(self._ns, self._selector)
 
+    def identities(self) -> list[dict]:
+        pods = self._kube.pod_details(self._ns, self._selector)
+        if not pods or any(not p["ready"] or p["terminating"] for p in pods):
+            raise Unconfirmed("app pod set is empty, not Ready or changing")
+        return sorted(pods, key=lambda p: p["name"])
+
     def pods(self) -> list[str]:
         return self._kube.all_pods(self._ns, self._selector)
+
+    def close_websockets(self) -> dict[str, int]:
+        """Source app's authenticated API closes existing sockets with code 1012."""
+        pods = self.running()
+        if not pods:
+            raise Unconfirmed("no source app pods for websocket reconnect")
+        closed = {}
+        for pod in pods:
+            out = self._kube.exec(self._ns, pod, ["python", "-c", _CLOSE_WEBSOCKETS])
+            try:
+                count = json.loads(out)["closed"]
+                if type(count) is not int or count < 0:
+                    raise ValueError("invalid closed count")
+            except (ValueError, KeyError, TypeError) as error:
+                raise Unconfirmed("invalid websocket close acknowledgement") from error
+            closed[pod] = count
+        if self.running() != pods:
+            raise Unconfirmed("source app pods changed during websocket close")
+        return closed
