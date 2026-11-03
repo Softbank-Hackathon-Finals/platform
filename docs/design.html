@@ -1330,7 +1330,7 @@ write_pause_ms  stages=entry, pause, fence, compare, reconnect
 verdict         MATCH | MISMATCH</code></pre>
 
 <h4>Executor 계약 (언어와 무관하게 고정)</h4>
-<p>구현 언어는 미정이다. Executor 담당자가 11/3 개발 착수 전에 정한다. 아래 계약만 지키면 플랫폼 쪽과 Executor 쪽이 서로 기다리지 않고 동시에 개발할 수 있다.</p>
+<p>구현 언어는 Python 3.12다(ADR-0006). 아래 계약만 지키면 플랫폼 쪽과 Executor 쪽이 서로 기다리지 않고 동시에 개발할 수 있다.</p>
 <div class="tbl"><table>
 <thead><tr><th>항목</th><th>계약</th></tr></thead>
 <tbody>
@@ -1665,7 +1665,7 @@ verdict         MATCH | MISMATCH</code></pre>
 <thead><tr><th>계약</th><th>만드는 쪽 → 쓰는 쪽</th><th>정할 사람</th><th>기한</th><th>형식</th></tr></thead>
 <tbody>
 <tr><td>SSE 이벤트 payload</td><td><a class="tlink" href="#t10">T10</a> → <a class="tlink" href="#t21">T21</a>, <a class="tlink" href="#t24">T24</a></td><td><a class="tlink" href="#t10">T10</a> 담당</td><td class="nw">11/3 착수 전</td><td class="small">미정</td></tr>
-<tr><td>통제 시험 결과 · 증거 형식</td><td><a class="tlink" href="#t5">T5</a> · <a class="tlink" href="#t14">T14</a> → <a class="tlink" href="#t19">T19</a>, <a class="tlink" href="#t21">T21</a></td><td><a class="tlink" href="#t5">T5</a> 담당</td><td class="nw">11/3 착수 전</td><td class="small">미정</td></tr>
+<tr><td>통제 시험 결과 · 증거 형식</td><td><a class="tlink" href="#t5">T5</a> · <a class="tlink" href="#t14">T14</a> → <a class="tlink" href="#t19">T19</a>, <a class="tlink" href="#t21">T21</a></td><td><a class="tlink" href="#t5">T5</a> 담당</td><td class="nw">11/3 착수 전</td><td class="small">JSON Schema · <code>docs/controls/</code></td></tr>
 <tr><td>의존성 인벤토리 출력</td><td><a class="tlink" href="#t16">T16</a> → <a class="tlink" href="#t21">T21</a></td><td><a class="tlink" href="#t16">T16</a> 담당</td><td class="nw">11/3 착수 전</td><td class="small">미정</td></tr>
 </tbody></table></div>
 <h4>1단계</h4>

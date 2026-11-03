@@ -44,3 +44,5 @@ PR마다 CI(`ci.yml`)가 `secrets` · `infra` · `platform`을 검사한다. CI 
 - Node(`package.json`): `pnpm lint`, `pnpm test`, `pnpm build`
 - Go(`go.mod`): `go vet ./...`, `go test ./...`
 - 워크플로: `actionlint`
+
+여러 PR의 리뷰 확인·수정·해소는 [리뷰 플레이북](docs/review-playbook.md)과 `.agents/skills/pr-review/SKILL.md`를 따른다. `python3 scripts/review_packet.py <PR번호...> --output-dir <개인 출력 경로>`로 현재 SHA의 근거를 수집하고 판단 기록을 남긴다. 수집 성공이나 스레드 해소는 팀원 승인을 대신하지 않는다.
