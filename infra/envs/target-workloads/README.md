@@ -159,3 +159,104 @@ may supply `approved_extra_keys` only after matching each extra key to retained
 creation/use evidence and freezing its size and content hash. The result reports
 DB-referenced and approved-extra counts separately. This is an explicit exact
 inventory, not a prefix wildcard or a reason to delete either side's objects.
+
+## 첨부 복사 실행 (컷오버 직전 1회)
+
+`attachment_copy.py`는 DB가 가리키는 첨부 객체를 출발지 S3에서 목적지 SeaweedFS로 한 번
+복사한다. 출발지에는 쓰지 않고 목적지의 기존 객체를 덮어쓰지 않으며, 다시 돌려도 안전하다.
+실제 S3 · 실제 SeaweedFS 배포 · Tailscale 경로에서는 아직 재지 않았다
+([증거](../../../docs/evidence/t8-attachment-sync-2026-11-04/README.md)).
+
+| 파일 | 역할 |
+| --- | --- |
+| `sync_attachments.py` | 목록 대조 · 복사 · 대조 판정(`synchronize`) |
+| `attachment_stores.py` | S3 · SeaweedFS 어댑터. 출발지는 쓰기 메서드가 없고 목적지 `create`는 `If-None-Match: *`로 기존 키를 거부한다 |
+| `attachment_copy.py` | DB 목록 읽기, 총량 사전 검사, 영수증, 실행 명령, T12용 함수 |
+
+### 실행 전 조건
+
+- 출발지 첨부 쓰기가 멈춰 있어야 한다. 앱의 `PUT /api/attachments`는 쓰기 차단 중에만 막히고,
+  복사가 끝난 뒤 들어온 업로드는 이 명령이 알 수 없다. 그 행은 복제되지만 객체는 목적지에 없다.
+- 목적지 버킷이 있어야 한다. 이 명령은 버킷을 만들지 않는다.
+- 현재 한도는 객체 100개, 합계 16MiB다. 넘으면 아무것도 쓰지 않고 거부한다.
+
+### 접속 정보
+
+값은 환경 변수로만 받고 출력하지 않는다. Pod에서는 `secretKeyRef`로 넣는다.
+
+| 변수 | 내용 |
+| --- | --- |
+| `ATTACHMENT_SOURCE_BUCKET`, `ATTACHMENT_SOURCE_REGION` | 출발지 버킷과 리전 |
+| `ATTACHMENT_SOURCE_BUCKET_OWNER` | 버킷 소유 계정 ID. 실제 S3에서 필수 |
+| `ATTACHMENT_SOURCE_ENDPOINT_URL` | 로컬 시험 전용. 실제 S3에서는 비운다 |
+| `ATTACHMENT_TARGET_ENDPOINT_URL`, `ATTACHMENT_TARGET_BUCKET` | SeaweedFS S3 주소와 버킷 |
+| `ATTACHMENT_TARGET_ACCESS_KEY_ID`, `ATTACHMENT_TARGET_SECRET_ACCESS_KEY` | `target-object-client` Secret의 `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` 값 |
+| `ATTACHMENT_APPROVED_EXTRA_KEYS_FILE` | (선택) 개별 확인한 추가 객체 키를 한 줄에 하나씩 적은 파일. 저장소에 넣지 않는다 |
+| `PGHOST`, `PGPORT`, `PGDATABASE`, `PGUSER`, `PGPASSWORD`, `PGSSLROOTCERT` | 출발지 DB. `attachments`를 SELECT할 수 있는 기존 역할을 쓴다 |
+| `PGSSLMODE` | `verify-full`. 원격 DB에서 다른 값이면 조회 전에 거부한다 |
+
+출발지 S3 자격은 SDK 기본 경로(역할, 운영자 프로필)에서 온다. 목적지 키는 AWS 키가 아니므로 섞지 않는다.
+
+### 명령
+
+`uv`가 고정된 boto3 · psycopg로 실행한다. 표준 출력에 JSON 한 줄만 나온다. 성공은 종료 코드 0, 실패는 1이다.
+
+```sh
+infra/envs/target-workloads/attachment_copy.py
+```
+
+SeaweedFS는 `bravo-object-client=true` Pod만 받는다. 운영자 머신에서 돌릴 때는
+`kubectl port-forward`로 연결하고 `ATTACHMENT_TARGET_ENDPOINT_URL`을 그 로컬 주소로 둔다.
+DB를 터널로 잇는다면 `PGHOST`에 인증서 이름, `PGHOSTADDR`에 로컬 주소를 넣어 `verify-full`을 유지한다.
+이 터널 경로는 아직 재지 않았다.
+
+### 영수증과 실패
+
+성공 영수증은 건수(`copied`, `reused`, `source_count`, `destination_count`,
+`database_referenced_count`, `operator_approved_extra_count`, `bytes_verified`)와
+해시(`key_content_inventory_sha256`, `content_sha256`)만 담는다. 실패 영수증은 `stage`,
+`reason`, `error_category`, `s3_error_code`만 담는다. 허용 목록에 없는 메시지와 오류 코드는
+`unclassified`로 바뀐다. 객체 키 · 본문 · 주소 · 자격이 메시지에 섞여 나가지 않게 하기 위해서다.
+
+| `reason` | 뜻 | 다음 행동 |
+| --- | --- | --- |
+| `source bucket and database attachment inventory differ` | 출발지 객체와 DB 참조가 다르다 | 원인을 찾는다. 설명된 객체만 추가 목록에 넣고, 맞추려고 지우지 않는다 |
+| `destination contains unrelated objects; preserve and reconcile` | 목적지에 무관한 객체가 있다 | 사람이 확인한다. 비우지 않는다 |
+| `destination conflict; existing object is preserved` | 같은 키에 다른 내용이 있다 | 사람이 확인한다. 자동으로 덮어쓰지 않는다 |
+| `source changed during transfer; require quiescent retry`, `final object inventory changed` | 복사 중 출발지가 바뀌었다 | 쓰기를 멈추고 다시 돌린다. 이미 옛 내용이 복사됐다면 재실행은 위의 충돌로 멈추므로 사람이 정리한다 |
+| `bounded transfer size exceeded`, `bounded binary source object required`, `bounded nonempty attachment inventory required` | 한도 초과이거나 DB 목록이 비었다 | 한도를 검토한다 |
+| `database connection must use verify-full TLS` | 원격 DB를 검증 없이 연결하려 했다 | `PGSSLMODE`, `PGSSLROOTCERT`를 고친다 |
+| `unclassified` + `s3_error_code` 또는 `error_category` | 네트워크 · 인증 · 설정 문제 | 원인을 고치고 다시 돌린다. 끝난 객체는 `reused`로 넘어간다 |
+
+### T12에서 호출
+
+함수는 `run_copy`다. 실패하면 안전한 필드만 가진 `AttachmentCopyFailed`를 던지고, 원래 예외는 메시지에 넣지 않는다.
+
+```python
+from attachment_copy import AttachmentCopyFailed, run_copy
+
+try:
+    # db_dsn을 비우면 PG* 환경 변수를 쓴다. 나머지 접속 정보는 위 표의 환경 변수에서 읽는다.
+    receipt = run_copy(db_dsn=source_site.db_control_dsn)
+except AttachmentCopyFailed as failure:
+    ...  # 컷오버를 시작하지 않는다. failure.receipt()를 기록한다.
+```
+
+- `precheck` 앞, 쓰기 제한을 걸기 전에 부른다. 객체 수에 비례해 네트워크를 쓰므로 쓰기 정지 예산 안에 넣지 않는다.
+- 복사와 쓰기 차단 사이의 업로드는 이 함수가 잡지 못한다. 쓰기 차단 뒤 DB의 고유 `object_key` 수를
+  `receipt["database_referenced_count"]`와 비교하면 잡을 수 있다(T12 담당 결정).
+- `source_site.db_control_dsn`의 `cutover_control`은 `attachments` SELECT 권한이 있다. 읽기 전용 트랜잭션은 이 함수가 건다.
+- 지금 Executor에서 바로 부를 수는 없다. 이미지에 boto3와 이 파일들이 없고, S3 읽기 권한과
+  SeaweedFS까지의 네트워크 경로도 없다. 이를 Executor에 추가할지, 운영자가 명령으로 돌리고
+  영수증을 넘길지는 T12 담당이 정한다.
+
+### 시험
+
+기본 시험은 의존성 없이 돈다. 실제 객체 시험은 Docker와 SDK가 필요하며 `t8-attach-` 컨테이너를 띄우고 지운다.
+
+```sh
+T8_ATTACH_E2E=1 uv run --no-project --python 3.12 --with boto3==1.43.123 --with 'psycopg[binary]==3.3.6' \
+  python -m unittest discover -s scripts/tests -p 'test_attachment_copy*.py' -v
+```
+
+`scripts/tests/attachment_mutation_check.py`는 임시 복사본에서 검사를 하나씩 빼고 시험이 실패하는지 확인한다.
