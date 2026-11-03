@@ -1,0 +1,45 @@
+{
+  "execution_started_at": "2026-11-03T11:01:31.955Z",
+  "execution_finished_at": "2026-11-03T11:01:31.955Z",
+  "ssm_status": "Success",
+  "response_code": 0,
+  "result": {
+    "job_succeeded": true,
+    "probe": {
+      "status": "PASS",
+      "server_version": "18.4 (Debian 18.4-1.pgdg13+1)",
+      "checks": {
+        "tls_verified": true,
+        "runtime_identity": true,
+        "not_superuser": true,
+        "concurrent_command_idempotency": true,
+        "store_reopen_preserves_state": true,
+        "state_event_watermark": true,
+        "events_contiguous": true,
+        "original_receipt_preserved": true,
+        "http_snapshot": true,
+        "http_sse_reconnect": true,
+        "http_no_identity_denied": true,
+        "http_other_tenant_denied": true,
+        "denied_ddl": true,
+        "denied_public_ddl": true,
+        "denied_schema_create": true,
+        "denied_temp_table": true,
+        "denied_tenant_rebind": true,
+        "denied_spec_rewrite": true,
+        "denied_event_rewrite": true,
+        "denied_event_delete": true,
+        "denied_receipt_delete": true,
+        "denied_schema_version": true,
+        "denied_migration_escalation": true,
+        "denied_role_grant": true,
+        "history_unchanged_after_denials": true,
+        "plaintext_denied": true
+      },
+      "check_count": 26,
+      "snapshot_sha256": "8421ab8c4319e24836a7e7e22d6f3c9726003ead4f6fe79a544e826b2b73327b",
+      "receipt_sha256": "82c1ae19ea4de809d81d88754fd5b47d59d558050e1068b91d2d0707dbda9931",
+      "scope": "synthetic_T10_storage_and_ASGI_only"
+    }
+  }
+}

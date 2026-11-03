@@ -1,0 +1,7 @@
+{
+  "encrypted": true,
+  "size_gib": 16,
+  "delete_on_termination": false,
+  "attached_to_reviewed_platform": true,
+  "component_tag": "platform"
+}
