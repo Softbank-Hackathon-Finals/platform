@@ -17,5 +17,6 @@
   "source_sha256": {
     "infra/envs/platform-aws/ecr-pull.tf": "70a5cda8220cf6bdc9e07541a5903aa295efee2d7d72dd42d1a31086f9cdfec6",
     "infra/envs/platform-aws/variables.tf": "844d6a9527a27b45c3820873b04fcf0e3d0e2ca08aa068716d541ec1d6dc5461"
-  }
+  },
+  "post_apply_terraform_plan_exit": 0
 }
