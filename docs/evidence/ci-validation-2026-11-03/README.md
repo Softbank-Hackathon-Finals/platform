@@ -73,3 +73,5 @@ terraform apply "$HOME/.bravo/ci-validation-20261103/destroy.tfplan"
 - 별도 로컬 교차 확인에서는 실제 `verify.py`와 소비자 시험 **3개**, PR #82의 `ea4ec860c9d60ec11ffe551873e351ccda41b488`에 있는 실제 T6 코드와 소비자 시험 **15개**를 각각 임시 사본으로 실행했다. 두 정상 사본 모두 종료 0이었고, 구현에 문법 오류를 넣으면 모두 `SyntaxError`·종료 1이었다. 파일·기준 커밋·선택 결과는 [JSON 기록](infra-python-consumer-regression.json)에 있다.
 
 실제 코드 재현은 기록된 커밋에서 implementation·consumer·supporting_files를 별도 폴더에 복사하고 `python3 -B -m unittest discover -s scripts/tests -q`로 실행했다. 이후 임시 implementation 끝에 `def injected_syntax_error(:`를 추가하고 같은 명령의 실패를 확인했다. T6 사본은 별도 PR의 미병합 코드이며 이번 PR에 구현을 복사하지 않았다. 이 검증은 로컬 코드·소비자 관계 확인이며 새 AWS 실행이나 배포 증거가 아니다.
+
+게시 후 최신 develop `88fee51`과 AGENTS.md의 추가 문단 충돌을 확인했다. CI 안내와 새 리뷰 플레이북 안내를 모두 보존해 기준 브랜치를 반영했다. 그 결과 저장소 시험은 새 리뷰 도구 시험을 포함해 **68개 통과**했으며, 수정 파일 Ruff·actionlint·공백 검사도 다시 통과했다.
