@@ -1,12 +1,12 @@
 # T19 통제 게이트
 
-T5 PR #51의 프로필·시험 불변조건·서버 예외 승인 계약을 실행하는 결정적 Python 모듈이다. 보안 게이트 계산과 T10/T21의 소비 검증을 제공한다. LLM·클라우드 변경·시험 실행·예외 승인 발급은 하지 않는다.
+병합된 T5의 프로필·시험 불변조건·서버 예외 승인 계약을 실행하는 결정적 Python 모듈이다. 보안 게이트 계산과 T10/T21의 소비 검증을 제공한다. LLM·클라우드 변경·시험 실행·예외 승인 발급은 하지 않는다.
 
-**범위:** T19의 보안 전제조건. T13 데이터 경로 준비, T14 실제 시험기, T10 운영 승인·실행권과의 결합은 별도다. `SecurityPrerequisite.authorizes_cutover`는 항상 `False`다. T19 이슈 전체의 완료나 실환경 동등성 검증 완료로 간주하지 않는다.
+**범위:** T19의 보안 전제조건. `CombinedGateService`는 T13 데이터 준비 관측과 보안 결과를 함께 검사한다. 실제 T13 수집기·T14 환경 연결·T10 운영 승인 및 실행권 통합은 별도다. `SecurityPrerequisite.authorizes_cutover`는 항상 `False`다. T19 이슈 전체의 완료나 실환경 동등성 검증 완료로 간주하지 않는다.
 
 ## 계약 출처
 
-`src/bravo_gate/contracts/`는 platform PR #51의 `8a7b961ed37cfb5b2f1dc06591ed5703c10c8872`의 JSON Schema와 프로필이다(새 리뷰 보완 로컬 커밋, 아직 푸시 전). 원본은 `docs/controls/`이며, PR이 아직 develop에 들어오지 않아 패키지를 독립적으로 검증할 수 있도록 고정 사본을 둔다. 경로·커밋·해시는 `provenance.json`에 있다. 원본 계약 변경은 자동 수용하지 않는다. 계약 변경·프로필 버전 갱신은 상호운용 시험과 해시 갱신을 함께 한다.
+`src/bravo_gate/contracts/`는 develop `626bca0`의 `docs/controls/` 계약을 고정한다. 스키마와 프로필은 기존 T5 고정본과 바이트 단위로 같고, 최신 서버 정본 소비 사례도 함께 가져왔다. 경로·커밋·해시는 `provenance.json`에 있다. 원본과 패키지 사본의 일치 여부를 시험한다. 계약 변경은 상호운용 시험과 해시 갱신을 함께 수행한다.
 
 원본 결과의 `RunSnapshot.fingerprint`는 UTF-8 JSON을 key 정렬·구분 공백 제거·원문 Unicode 유지로 직렬화한 SHA-256이다. 임의 RFC 8785 구현과 같다고 가정하지 않으며 T10은 제공된 함수를 사용한다. 네트워크 증거의 `output_sha256`은 별도로 원본 바이트 전체를 해시한다.
 
@@ -37,11 +37,14 @@ T5 PR #51의 프로필·시험 불변조건·서버 예외 승인 계약을 실�
 | `run_provider(actor, context, side)` | T14의 불변 결과 `RunSnapshot`. 같은 ID의 내용 변경 거부 |
 | `approval_provider(actor, context, approval_id)` | T10의 권한 검증을 거쳐 저장된 승인 revision과 폐기 상태를 읽음 |
 | `authenticate_context/run/approval` | 각 발급 역할·원본·범위·현재 신뢰를 검증. 명시적 `True` 또는 정확한 범위·기한의 `VerifiedAuthority`만 허용. `None`, False, truthy 객체는 거부 |
+| `report_provider(actor, ctx)` / `authenticate_report` | 서버에 별도로 저장한 불변 결과를 gate ID로 조회·인증. 제출 문서 전체와 정확히 대조. 없음·조회 실패·미인증·내용 변경은 거부 |
 | `authorize` | 현재 사용자/서비스의 `gate:evaluate`, `gate:consume`, `gate:use-exception` 권한을 각각 검사. `approved_by` 표시값과 구분 |
 | `clock` | 서버 UTC 시계. 요청 JSON에서 평가 시간을 고르지 않음 |
 
 ```python
 report = service.evaluate(actor, context_id, approval_ids=("server-approval-id",))
+# 신뢰된 호스트가 이 결과를 불변 저장한 뒤에만 소비할 수 있다.
+# evaluate() 자체는 저장하지 않으며 요청 본문을 정본으로 등록하면 안 된다.
 # T10은 저장한 report와 context를 다시 읽고 실제 실행 직전에 호출한다.
 security = service.require_security(actor, context_id, serialized_report,
                                     approval_ids=("server-approval-id",))
@@ -93,4 +96,41 @@ uv run ruff check src tests
 uv run pytest -q
 ```
 
-T5 계약 사례 35건, 누락/중복/불변조건·예외 위조/만료·계획 변경·키 폐기·부정 인가·시각 경과·구조화된 네트워크 대조군을 시험한다. 고정 입력·시계에서 판정은 결정적이다. 실환경 AWS/RKE2/CNPG/T14 시험 실행을 대신하지 않는다. 이 변경은 자원을 생성·삭제하지 않는다.
+최신 T5 계약 사례(서버 정본 조회 실패·위조 포함), 누락/중복/불변조건·예외 위조/만료·계획 변경·키 폐기·부정 인가·시각 경과·구조화된 네트워크 대조군을 시험한다. 고정 입력·시계에서 판정은 결정적이다. 실환경 AWS/RKE2/CNPG/T14 시험 실행을 대신하지 않는다. 이 변경은 자원을 생성·삭제하지 않는다.
+
+
+## 보안·데이터 준비 결합
+
+`CombinedGateService`는 별도 `combined-gate.v1` 외피에 기존 T5 `gate_comparison`과
+`data-readiness-result.v1`을 넣는다. 보안 스키마의 시험 ID 범위를 몰래 확장하지 않는다.
+둘 다 PASS여야 전체 PASS이며, 보안 예외가 데이터 BLOCK/UNKNOWN을 덮지 못한다.
+
+호스트는 인증된 현재 context로 `ReadinessBinding`과 `RunSnapshot`을 조회한다.
+`binding_provider(actor, ctx)`, `snapshot_provider(actor, ctx, binding)`,
+`authenticate_binding`, `authenticate_snapshot`은 필수이며 기본 허용 구현은 없다.
+권한·출처 검사에 기한이 있으면 `VerifiedAuthority`로 반환한다. 서명 검증기를 사용할 때
+목적은 `readiness-binding`, `readiness-snapshot`이고 각 subject는 해당 객체 지문이다.
+
+- 서버 정책: 버전, 정확한 스키마 해시 규칙, 스키마명 포함 필수 테이블, 시퀀스 컬럼,
+  허용 복제 지연(bytes), 관측 최대 나이. 사용자 입력으로 범위를 축소하지 않는다.
+- 원본·대상: 등록 환경 ID/ref·DB ref, 관측/만료 시각, 스키마 규칙, 테이블별 스키마 해시와 PK 목록.
+- 복제: 같은 DB 쌍의 방향·관측 시각·lag bytes. None/음수/boolean은 0으로 보지 않는다.
+- 시퀀스 리허설: source/target next, target max ID, proposed next, 실제 리허설 readback next.
+  증가폭 1·비순환의 양수 시퀀스만 지원한다. 제안값은 두 next와 max ID+1보다 작을 수 없고,
+  readback은 제안값과 같아야 한다. max ID의 null은 빈 표에만 쓰고 조회 실패는 next/readback을
+  미확인으로 기록한다. 누락·중복·다른 테이블·미지원 시퀀스는 통과하지 않는다.
+
+`assess_readiness()`는 DB에 접속하지 않는다. T13 생산자가 실제 관측과 리허설 증거를 보존해야 한다.
+스키마 해시 계산은 T13 소유이며 SQL/Python 방식이나 numeric 동등성을 이 패키지가 재정의하지 않는다.
+현재 예제의 `registered-schema-rule.v1`은 시험용으로만 쓰며 실제 규칙을 확정했다는 뜻이 아니다.
+실제 정책의 tables/sequence_columns가 앱의 전체 이전 범위를 덮는지는 등록 단계에서 확인해야 한다.
+
+`require_prerequisites()`는 현재 원본·정책·권한·서버 보안 정본을 다시 읽고 5초 이하의
+`GatePrerequisites`를 반환한다. 보안·데이터·서명 중 가장 빠른 만료를 넘지 않는다.
+`authorizes_cutover`는 False다. T10의 계획 잠금 안에서 실행 승인·SHIFT·보류·실행권을
+결합해야 하며 이 패키지만으로 원자적 실행을 주장하지 않는다. 데이터 준비 PASS도 T12/T13의
+쓰기 정지 이후 최종 동등성 비교·barrier·시퀀스 재확인을 대신하지 않는다.
+
+시험은 인증 공급자 대역과 합성 데이터, 실제 T14 Runner 코드의 상호운용을 사용한다.
+실제 EKS/RKE2 데이터 수집, T10 정본 저장소·인증/현재 정책, T13 규칙 확정과 SQL 관측,
+실제 컷오버는 아직 연결하지 않았으며 T19 완료 조건은 열린 상태로 유지한다.
