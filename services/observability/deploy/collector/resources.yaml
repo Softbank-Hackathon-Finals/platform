@@ -72,6 +72,8 @@ spec:
           livenessProbe:
             httpGet: {path: /, port: health}
             initialDelaySeconds: 10
+          # 실측(2026-11-04, k3s, 앱 지표 약 2000건/초 = 데모 예상의 약 10배): 최대 메모리 107MiB, 평균 CPU 33m, 최대 92m.
+          # 평상시 63MiB · 9m. limit은 최대치의 약 2.4배. 실제 환경에서 다시 잰다(testing/k8s.sh, BRAVO_K8S_CAPACITY=1)
           resources:
             requests: {cpu: 50m, memory: 128Mi}
             limits: {cpu: 500m, memory: 256Mi}

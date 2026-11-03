@@ -168,6 +168,17 @@ echo "  조회 API DB 뷰: $db"
 echo "$db" | python3 -c 'import json,sys;d=json.load(sys.stdin);sys.exit(0 if d["state"]=="OK" and any(s["slot"]=="bravo_t37_slot" and s["type"]=="logical" and s["active"] is False for s in d["replication_slots"]) else 1)' 2>/dev/null && r=ok || r=fail
 check $r "조회 API DB 뷰: 상태 OK, 논리 슬롯과 비활성 여부 표시 (pod: $phase)"
 
+if [ "${BRAVO_K8S_CAPACITY:-0}" = 1 ]; then
+  echo "== 자원 실측: 평상(60초)"
+  python3 stats.py "$NAME" 60 5 collector prometheus api
+  echo "== 자원 실측: 부하(앱 지표 약 2000건/초 = 데모 예상의 약 10배, 180초)"
+  kubectl -n app run load --image="$GEN" --restart=Never -- metrics \
+    --otlp-endpoint "bravo-collector.$NS.svc:4317" --otlp-insecure --duration 180s --workers 20 --rate 100 \
+    --otlp-metric-name bravo_load --otlp-attributes 'service.name="demo-chat"' >/dev/null
+  python3 stats.py "$NAME" 180 5 collector prometheus api
+  echo "  저장소 시계열 수: $(q 'prometheus_tsdb_head_series' | python3 -c 'import json,sys;r=json.load(sys.stdin)["data"]["result"];print(r[0]["value"][1] if r else "자기 지표 미수집")')"
+fi
+
 echo "== Collector 중지 → 알림"
 for _ in $(seq 60); do [ "$(count 'up{bravo_signal="collector-self", bravo_env="onprem"}')" -gt 0 ] && break; sleep 2; done
 kubectl -n "$NS" scale deploy/bravo-collector --replicas=0 >/dev/null

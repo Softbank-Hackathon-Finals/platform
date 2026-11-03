@@ -65,9 +65,11 @@ spec:
           livenessProbe:
             tcpSocket: {port: web}
             initialDelaySeconds: 15
+          # 실측(위와 같은 부하): 최대 메모리 83MiB, 평균 CPU 15m, 최대 42m. 평상시 72MiB · 4m.
+          # 압축(compaction) · 조회 순간치를 감안해 limit을 크게 둔다. 시계열 종류가 늘면 다시 잰다
           resources:
-            requests: {cpu: 100m, memory: 256Mi}
-            limits: {cpu: "1", memory: 1Gi}
+            requests: {cpu: 50m, memory: 128Mi}
+            limits: {cpu: "1", memory: 512Mi}
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
@@ -199,8 +201,9 @@ spec:
           livenessProbe:
             httpGet: {path: /healthz, port: http}
             initialDelaySeconds: 10
+          # 실측: 최대 메모리 50MiB, 평균 CPU 4m, 최대 16m
           resources:
-            requests: {cpu: 50m, memory: 96Mi}
+            requests: {cpu: 25m, memory: 64Mi}
             limits: {cpu: 500m, memory: 192Mi}
           securityContext:
             allowPrivilegeEscalation: false
