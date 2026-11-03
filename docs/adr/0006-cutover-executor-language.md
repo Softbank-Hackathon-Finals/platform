@@ -1,4 +1,4 @@
-# [ADR-0004] Cutover Executor 구현 언어: Python 3.12
+# [ADR-0006] Cutover Executor 구현 언어: Python 3.12
 
 * **상태 (Status):** 채택됨(Accepted)
 * **날짜 (Date):** 2026-11-03
