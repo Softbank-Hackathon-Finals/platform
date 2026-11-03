@@ -55,6 +55,11 @@ ESO는 namespace SecretStore와 별도 IRSA 역할로 control secret만 읽고 `
 
 T8의 다른 환경에서 이 ClusterIP/DNS로 직접 접속할 수 있다고 주장하지 않는다. Tailscale/라우팅·허용 경로, 복제 슬롯과 subscription, 왕복/시퀀스·PK 보정은 T8/T30에서 추가한다. 빈 앱 테이블로 시작했고 실제 앱 검증 뒤 합성 메시지 2개/첨부 1개만 보존했다. 고객 업무 데이터는 없다. 저장소는 encrypted gp3, Retain이고 단일 노드/단일 DB 인스턴스의 개발 구성이다. 백업·복원 및 고가용성은 아직 검증하지 않았다.
 
+PgBouncer 설정은 initContainer가 ConfigMap에서 emptyDir로 복사한다. 단일 파드와
+Recreate 전략, `server_login_retry=2`를 사용하며 `/etc/pgbouncer/pgbouncer.ini`만 변경 가능하다.
+실행 중 파일 교체·RELOAD 뒤 ConfigMap 영속화, 파드 교체 시 권한 갱신 및 실패 복구는
+[T12 연결 계약](../../../docs/contracts/T12-platform-integration.md)을 따른다.
+
 ## 감사와 검증
 
 `verify.py --canary`는 `t6_audit_canary` 스키마/시험 테이블과 namespace 전용 `t6-audit-canary` SA·Role·RoleBinding만 만든다. 앱 데이터·암호·사용자 권한을 바꾸지 않는다. PgBouncer의 실제 접속, 잘못된 암호·평문 접속·앱 관리 DB·앱 DDL 거부를 시험한다. DDL 음성 시험은 트랜잭션 안에서 시도하고 허용되더라도 rollback한다.
