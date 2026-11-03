@@ -214,7 +214,7 @@ footer { margin-top: 72px; padding-top: 16px; border-top: 1px solid var(--line);
   <h1>클라우드 출구전략 플랫폼 설계 문서</h1>
   <p class="lede">가동 중인 서비스를 AWS에서 온프레미스로 멈추지 않고 옮기고, 옮긴 환경이 원본과 같은 수준으로 안전하고 정확한지 검증 게이트로 확인한 뒤에만 전환한다.</p>
   <dl class="meta">
-    <dt>상태</dt><dd>초안 v0.2</dd>
+    <dt>상태</dt><dd>초안 v0.1</dd>
     <dt>통합 작성</dt><dd>배규태</dd>
     <dt>제품명</dt><dd>미정 (12장)</dd>
   </dl>
@@ -913,8 +913,7 @@ footer { margin-top: 72px; padding-top: 16px; border-top: 1px solid var(--line);
 <tr><td>운영팀 · 승인자 → 콘솔</td><td><span class="pill ok">허용</span> 로그인 필요</td><td>플랫폼 진입점</td></tr>
 <tr><td>에이전트 워커 → LLM API</td><td><span class="pill ok">허용</span> 이 경로만</td><td>LLM 게이트웨이 경유, 키는 플랫폼에만</td></tr>
 <tr><td>에이전트 워커 → 클러스터 API</td><td><span class="pill no">차단</span> 자격증명 없음</td><td>도구 계층이 네임스페이스 한정 서비스 계정으로 대리 실행</td></tr>
-<tr><td>리허설 네임스페이스 → 시험용 SeaweedFS · OpenBao</td><td><span class="pill ok">허용</span> 지정한 Pod · 포트만</td><td>NetworkPolicy 허용 목록(ADR-0002). 서버 안에서는 시험용 버킷 · 경로 권한만</td></tr>
-<tr><td>리허설 네임스페이스 → 그 밖의 네임스페이스 · 메타데이터 · 인터넷</td><td><span class="pill no">차단 · 기록</span></td><td>NetworkPolicy 기본 거부. 생성 직후 격리 시험이 확인하고 결과를 보고서로 남김(T3)</td></tr>
+<tr><td>리허설 네임스페이스 → 네임스페이스 밖 · 메타데이터 · 인터넷</td><td><span class="pill no">차단 · 기록</span></td><td>NetworkPolicy 기본 거부 (11/2 실측)</td></tr>
 <tr><td>검증 Job → 어디든</td><td><span class="pill no">차단</span></td><td>검증 대상 Pod에만 접근, 결과는 플랫폼이 수거</td></tr>
 </tbody></table></div>
 
@@ -1231,8 +1230,7 @@ footer { margin-top: 72px; padding-top: 16px; border-top: 1px solid var(--line);
 <div class="tbl"><table>
 <thead><tr><th>위험</th><th>막는 방법</th></tr></thead>
 <tbody>
-<tr><td>같은 클러스터라 밖으로 닿을 수 있음</td><td>NetworkPolicy 기본 거부(수신 · 송신). 허용은 네임스페이스 안 통신, DNS, 목적지 프로필의 시험용 SeaweedFS · OpenBao Pod · 포트만(ADR-0002)</td></tr>
-<tr><td>허용한 SeaweedFS · OpenBao가 운영과 같은 인스턴스</td><td>리허설 앱 자격증명은 시험용 버킷 · 경로에만 권한(T9). 네트워크 허용만으로는 격리가 완성되지 않는다</td></tr>
+<tr><td>같은 클러스터라 밖으로 닿을 수 있음</td><td>NetworkPolicy 기본 거부(수신 · 송신), 네임스페이스 안 통신만 허용</td></tr>
 <tr><td>에이전트가 클러스터 자격증명을 가짐</td><td>에이전트에는 발급하지 않음. 도구 계층만 네임스페이스 한정 서비스 계정 사용</td></tr>
 <tr><td>컨테이너 탈출 · 권한 상승</td><td>Pod Security <code>restricted</code>, 서비스 계정 토큰 자동 마운트 끔, privileged · hostPath 금지</td></tr>
 <tr><td>자원 고갈로 목적지에 영향</td><td>ResourceQuota · LimitRange</td></tr>
@@ -2153,7 +2151,7 @@ verdict         MATCH | MISMATCH</code></pre>
 </ul>
 
 <footer>
-  <p>클라우드 출구전략 플랫폼 설계 문서 · 초안 v0.2 · 2026-11-03 · final_team_bravo. 그림은 모두 파일 안에 SVG로 들어 있어 내려받아 열어도 그대로 보인다.</p>
+  <p>클라우드 출구전략 플랫폼 설계 문서 · 초안 v0.1 · 2026-11-02 · final_team_bravo. 그림은 모두 파일 안에 SVG로 들어 있어 내려받아 열어도 그대로 보인다.</p>
 </footer>
 </main>
 </div>
