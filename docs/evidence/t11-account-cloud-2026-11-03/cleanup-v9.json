@@ -1,0 +1,16 @@
+{
+  "observed_at": "2026-11-03T11:15:08.374Z",
+  "ssm_command_id": "9a6c50b0-ea11-4d48-ba0a-40543ccf657c",
+  "private_receipt_sha256": "2e6c29984c5a2b4b1033a939cc133324b1ff89f6ce4070e2b1de5c6a2971212d",
+  "status": "Success",
+  "response_code": 0,
+  "result": {
+    "temporary_worker_files_removed": true,
+    "temporary_runtime_files_removed": true,
+    "remaining_validation_process_count": 0,
+    "existing_rke2_active_before": true,
+    "existing_rke2_active_after": true,
+    "ec2_instance_retained": true
+  },
+  "scope": "Only this validation process installation and exact owned runtime paths; existing T7 host and RKE2 retained."
+}

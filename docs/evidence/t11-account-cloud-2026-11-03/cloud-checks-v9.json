@@ -1,0 +1,11 @@
+{
+  "observed_at": "2026-11-03T11:08:21.369Z",
+  "ssm_command_id": "cdbcb349-1fe0-4e64-aea7-bfce5f74e028",
+  "private_receipt_sha256": "531f21a0ee3ae9aa39e5f2136f9665525f8f87ab90ce94c089b0701aa7ec3288",
+  "source_commit": "21daa7da754f1d0a31da22f13f06dffbb6dc78c0",
+  "ruff": "PASS",
+  "pytest_passed": 91,
+  "source_file_count": 22,
+  "companion_binary_same_isolation_startup": "PASS",
+  "preflight_note": "An earlier upload failed Ruff import sorting before tests/auth; corrected import order passed this final run."
+}

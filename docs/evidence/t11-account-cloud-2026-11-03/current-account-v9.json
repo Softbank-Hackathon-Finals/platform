@@ -1,0 +1,118 @@
+{
+  "observed_at": "2026-11-03T11:11:22.843Z",
+  "ssm_command_id": "2a428ec0-0152-4034-a97d-8083b07780be",
+  "private_receipt_sha256": "ccbe8dba5924ec1d6d62c26d91853858d0eac8e3d6a672c0e2956904d747ac5f",
+  "public_format": "selected result fields; account, instance, device code and status-log auth instructions omitted",
+  "source_commit": "21daa7da754f1d0a31da22f13f06dffbb6dc78c0",
+  "model": "gpt-6-astra",
+  "subscription_authenticated": true,
+  "credentials_persisted": false,
+  "account_scope": "operator selected the active Codex account in the official device flow; identity omitted",
+  "prior_quota_receipt_scope": "a different previously selected browser account; not a current-operator quota result",
+  "new_quota_reset_consumed": false,
+  "execution": "isolated non-root process on existing AWS T7 node; not Kubernetes Job",
+  "input_kind": "synthetic approved snapshot and failure bundle",
+  "coordinator_result": {
+    "run_id": "synthetic-ci-example",
+    "source_sha": "1111111111111111111111111111111111111111",
+    "attempt": 1,
+    "state": "PROPOSAL_READY",
+    "input_digest": "e66ee3c876ce57671b3932279340f430d3c5a0829e1a94fbdba2c4745ff0e91d",
+    "input": {
+      "run_id": "synthetic-ci-example",
+      "source_sha": "1111111111111111111111111111111111111111",
+      "failure_code": "DB_CONNECTION_FAILED",
+      "summary": "Synthetic example: destination DB host should come from the injected environment.",
+      "evidence_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "stage": "REHEARSE"
+    },
+    "snapshot_digest": "43f0c55ce2e889e5798e25195d5d9d9b1318d57670dbfbf506319d92a10cb795",
+    "proposal": {
+      "schema_version": 1,
+      "run_id": "synthetic-ci-example",
+      "source_sha": "1111111111111111111111111111111111111111",
+      "rationale": "The snapshot hardcodes the destination DB host to localhost. Read DB_HOST from the injected environment instead, failing explicitly if it is absent rather than silently connecting to localhost.",
+      "risk": "low",
+      "edits": [
+        {
+          "path": "src/config.py",
+          "before_sha256": "f9b997a0ef8e589e291cb5f631a55e8e43f8affa29e5315c602aec5a64b11fcf",
+          "replacement": "import os\n\nDB_HOST = os.environ[\"DB_HOST\"]\n"
+        }
+      ]
+    },
+    "proposal_digest": "1251cf43a1a4e98c63f9d78240af4abb90a691613c32fc3ae900f43333d19241",
+    "attempts": [
+      {
+        "attempt": 1,
+        "input": {
+          "run_id": "synthetic-ci-example",
+          "source_sha": "1111111111111111111111111111111111111111",
+          "failure_code": "DB_CONNECTION_FAILED",
+          "summary": "Synthetic example: destination DB host should come from the injected environment.",
+          "evidence_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "stage": "REHEARSE"
+        },
+        "input_digest": "e66ee3c876ce57671b3932279340f430d3c5a0829e1a94fbdba2c4745ff0e91d",
+        "state": "PROPOSAL_READY",
+        "model_usage": {
+          "provider": "codex_subscription_operator",
+          "model": "gpt-6-astra",
+          "total_tokens": 12974
+        },
+        "audit_event_count": 3,
+        "audit_truncated": false,
+        "proposal": {
+          "schema_version": 1,
+          "run_id": "synthetic-ci-example",
+          "source_sha": "1111111111111111111111111111111111111111",
+          "rationale": "The snapshot hardcodes the destination DB host to localhost. Read DB_HOST from the injected environment instead, failing explicitly if it is absent rather than silently connecting to localhost.",
+          "risk": "low",
+          "edits": [
+            {
+              "path": "src/config.py",
+              "before_sha256": "f9b997a0ef8e589e291cb5f631a55e8e43f8affa29e5315c602aec5a64b11fcf",
+              "replacement": "import os\n\nDB_HOST = os.environ[\"DB_HOST\"]\n"
+            }
+          ]
+        },
+        "proposal_digest": "1251cf43a1a4e98c63f9d78240af4abb90a691613c32fc3ae900f43333d19241"
+      }
+    ],
+    "audit": [
+      {
+        "run_id": "synthetic-ci-example",
+        "attempt": 1,
+        "tool": "repo.read",
+        "outcome": "ALLOWED",
+        "reason": "POLICY_ACCEPTED",
+        "path": "src/config.py",
+        "content_digest": "f9b997a0ef8e589e291cb5f631a55e8e43f8affa29e5315c602aec5a64b11fcf"
+      },
+      {
+        "run_id": "synthetic-ci-example",
+        "attempt": 1,
+        "tool": "plan.propose",
+        "outcome": "ALLOWED",
+        "reason": "POLICY_ACCEPTED",
+        "proposal_digest": "1251cf43a1a4e98c63f9d78240af4abb90a691613c32fc3ae900f43333d19241"
+      },
+      {
+        "run_id": "synthetic-ci-example",
+        "attempt": 1,
+        "tool": "model",
+        "outcome": "COMPLETED",
+        "reason": "PROPOSAL_COLLECTED"
+      }
+    ]
+  },
+  "independent_t15_verification_run": false,
+  "production_deployment_run": false,
+  "local_post_run_checks": {
+    "proposal_schema_and_digests_match": true,
+    "python_syntax_valid": true,
+    "injected_host_used": true,
+    "missing_host_fails_closed": true,
+    "t15_receipt": false
+  }
+}

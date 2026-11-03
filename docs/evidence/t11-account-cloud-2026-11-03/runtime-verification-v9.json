@@ -1,0 +1,19 @@
+{
+  "observed_at": "2026-11-03T11:14:11.320Z",
+  "ssm_command_id": "8aafb1e6-3b65-4f24-bd2c-d8f63ae3c732",
+  "private_receipt_sha256": "a55dba5b47f3bd1bbe9a53418dc11ef8e03de44a140b9c5ebac1739ee52d0bf7",
+  "result": {
+    "auth_file_count_in_run_directory": 0,
+    "binary_and_archive_hashes": {
+      "code-mode-host.tar.gz": "47d32419e895c9cddbb664a2890bfb250ef0e3fded3da70e5f2bc61479f1989c",
+      "codex": "1a822376d4634ac32dddc030e5117c63359f7f8cd4b1b64382c68190287d0258",
+      "codex-code-mode-host": "ae34226adad3fe8acb361a78618e81b5a17638861bb7a689fcccaf8c3ef32aa8",
+      "codex.tar.gz": "db3fe3adaa35c50edfb68a988a117782fe3492960fb63d7003eb6748ccc0657b"
+    },
+    "original_fixture_unchanged": true,
+    "proposal_state": "PROPOSAL_READY",
+    "remaining_validation_process_count": 0,
+    "source_file_count": 22,
+    "source_hashes_match": true
+  }
+}

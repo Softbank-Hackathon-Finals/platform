@@ -1,0 +1,76 @@
+{
+  "observed_at": "2026-11-03T11:02:22.391Z",
+  "ssm_command_id": "1a3da972-38f0-4c7a-ad17-99d262adca8a",
+  "private_receipt_sha256": "40f4d52c5839f18b9846957f3233312de91cc2e581fa4106e47f9aee05ef0335",
+  "public_format": "selected result fields; account, instance, device code and status-log auth instructions omitted",
+  "source_commit": "9666723f86ef58a8494c0fb652a33952b3e05ae8",
+  "model": "gpt-6-astra",
+  "subscription_authenticated": true,
+  "credentials_persisted": false,
+  "account_scope": "operator selected the active Codex account in the official device flow; identity omitted",
+  "prior_quota_receipt_scope": "a different previously selected browser account; not a current-operator quota result",
+  "new_quota_reset_consumed": false,
+  "execution": "isolated non-root process on existing AWS T7 node; not Kubernetes Job",
+  "input_kind": "synthetic approved snapshot and failure bundle",
+  "coordinator_result": {
+    "run_id": "synthetic-ci-example",
+    "source_sha": "1111111111111111111111111111111111111111",
+    "attempt": 1,
+    "state": "NEEDS_HUMAN",
+    "input_digest": "e66ee3c876ce57671b3932279340f430d3c5a0829e1a94fbdba2c4745ff0e91d",
+    "input": {
+      "run_id": "synthetic-ci-example",
+      "source_sha": "1111111111111111111111111111111111111111",
+      "failure_code": "DB_CONNECTION_FAILED",
+      "summary": "Synthetic example: destination DB host should come from the injected environment.",
+      "evidence_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "stage": "REHEARSE"
+    },
+    "snapshot_digest": "43f0c55ce2e889e5798e25195d5d9d9b1318d57670dbfbf506319d92a10cb795",
+    "proposal": null,
+    "proposal_digest": null,
+    "attempts": [
+      {
+        "attempt": 1,
+        "input": {
+          "run_id": "synthetic-ci-example",
+          "source_sha": "1111111111111111111111111111111111111111",
+          "failure_code": "DB_CONNECTION_FAILED",
+          "summary": "Synthetic example: destination DB host should come from the injected environment.",
+          "evidence_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "stage": "REHEARSE"
+        },
+        "input_digest": "e66ee3c876ce57671b3932279340f430d3c5a0829e1a94fbdba2c4745ff0e91d",
+        "state": "NEEDS_HUMAN",
+        "model_usage": {
+          "provider": "codex_subscription_operator",
+          "model": "gpt-6-astra",
+          "total_tokens": 8308
+        },
+        "audit_event_count": 2,
+        "audit_truncated": false,
+        "proposal": null,
+        "proposal_digest": null
+      }
+    ],
+    "audit": [
+      {
+        "run_id": "synthetic-ci-example",
+        "attempt": 1,
+        "tool": "model",
+        "outcome": "STOPPED",
+        "reason": "ACCOUNT_TURN_COMPLETION_FAILED"
+      },
+      {
+        "run_id": "synthetic-ci-example",
+        "attempt": 1,
+        "tool": "model",
+        "outcome": "STOPPED",
+        "reason": "MODEL_OR_POLICY_FAILURE"
+      }
+    ]
+  },
+  "independent_t15_verification_run": false,
+  "production_deployment_run": false,
+  "finding": "host enabled but required standalone companion executable was absent on AWS; fixed before v9"
+}
