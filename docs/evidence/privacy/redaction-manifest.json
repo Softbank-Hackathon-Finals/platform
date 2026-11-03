@@ -79,11 +79,17 @@
           "path": "docs/research/ci-agents-2026-11-03.md",
           "checkout_commit": "969bb20d3fe9d5888e936dba48cb3e06a124612d",
           "original_sha256": "1fc96f3aad744c4f46eafe48c8850232eafb947dffd47a23fcc3dfbddcec7ef2",
-          "public_sha256": "763e9557d848eeef64f097c52d26d1552cad04028b726ac02b1af4a637ce64de",
+          "public_sha256": "b23b25a8d706c0297e9e19b26d51c033e7ac26c69358244b8a3b6719a610a7e6",
           "redactions": {
             "HOME": 1
           },
-          "public_is_raw": false
+          "public_is_raw": false,
+          "post_redaction_edits": [
+            {
+              "prior_public_sha256": "763e9557d848eeef64f097c52d26d1552cad04028b726ac02b1af4a637ce64de",
+              "reason": "Coordinate concurrent ADR numbering: model provider ADR-0006 -> ADR-0007 and corresponding relative link only. Original source hashes and measurements unchanged."
+            }
+          ]
         }
       ]
     }

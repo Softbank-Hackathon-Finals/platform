@@ -1175,7 +1175,7 @@ footer { margin-top: 72px; padding-top: 16px; border-top: 1px solid var(--line);
 
 <h3 id="s8-3"><span class="num">8.3</span>에이전트</h3>
 <ul>
-  <li><b>모델 호출</b>: OpenAI Responses API를 기본으로 쓰는 <b>플랫폼 워커 프로세스</b>다. 예선 피드백("로컬 스킬보다 클라우드 워커에서 도는 AI 네이티브 에이전트")의 실행 위치는 유지한다. 모델 키는 플랫폼에만 두고 운영·리허설 자격증명과 분리한다. Claude Agent SDK는 명시적으로 선택하는 어댑터이며 자동 제공자 전환은 없다. 플랫폼의 AWS 배치와 고객 AI 서비스의 Bedrock 이전은 별개 결정이다(<a href="adr/0006-model-provider-and-s2-ci.md">ADR-0006, 제안</a>).</li>
+  <li><b>모델 호출</b>: OpenAI Responses API를 기본으로 쓰는 <b>플랫폼 워커 프로세스</b>다. 예선 피드백("로컬 스킬보다 클라우드 워커에서 도는 AI 네이티브 에이전트")의 실행 위치는 유지한다. 모델 키는 플랫폼에만 두고 운영·리허설 자격증명과 분리한다. Claude Agent SDK는 명시적으로 선택하는 어댑터이며 자동 제공자 전환은 없다. 플랫폼의 AWS 배치와 고객 AI 서비스의 Bedrock 이전은 별개 결정이다(<a href="adr/0007-model-provider-and-s2-ci.md">ADR-0007, 제안</a>).</li>
   <li><b>할 일</b>: 의존성 분류, 번역 · 수정 제안서, 실패 원인 추정, 승인자용 요약, 사후 리포트 초안.</li>
   <li><b>못 하는 일</b>: 실행, merge, 배포 동기화, 운영 자격증명 사용. 도구 목록에 아예 없다.</li>
   <li><b>교차 검토</b>(P1): 다른 모델에 변경안 검토를 1회 맡겨 의견을 승인 화면에 붙인다.</li>
