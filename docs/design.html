@@ -1381,11 +1381,11 @@ verdict         MATCH | MISMATCH</code></pre>
 <tr><td class="mono">POST /v1/plans/{id}/approvals</td><td>단계와 결속할 값(plan, diff, digest, 대상, 만료) → 결속된 승인</td></tr>
 <tr><td class="mono">POST /v1/plans/{id}/shift | cutover | failback</td><td>→ 단계 결과, 쓰기 정지 ms, 무결성 영수증</td></tr>
 <tr><td class="mono">GET /v1/environments/{id}/controls</td><td>→ 통제별 시험 결과, 증거, 수집 시각</td></tr>
-<tr><td class="mono">GET /v1/plans/{id}</td><td>계획 상태 · 버전 · 불변 참조와 같은 읽기 시점의 last_event_id (T10 제안, ADR-0007)</td></tr>
+<tr><td class="mono">GET /v1/plans/{id}</td><td>계획 상태 · 버전 · 불변 참조와 같은 읽기 시점의 last_event_id (T10 제안, ADR-0008)</td></tr>
 <tr><td class="mono">GET /v1/plans/{id}/events</td><td>진행 이벤트 SSE, 마지막 이벤트 ID로 재접속</td></tr>
 </tbody></table></div>
 <p>모든 실행 요청에는 <code>Idempotency-Key</code>가 필요하고, 같은 키에 다른 입력이 오면 거부한다.</p>
-<p><b>T10 읽기 모델 제안:</b> 계획 조회와 SSE에는 동일한 서버 인증 · 계획 접근 정책을 적용한다. 상태 전이 · 이벤트 · 명령 영수증은 한 DB 트랜잭션에 저장하며, 상태 조회와 이벤트 watermark도 한 읽기 트랜잭션에서 가져온다. 조회 결과는 계획 상태의 스냅샷이며 승인 · 게이트 · 감사 이력 전체를 복구하지 않는다. <code>last_event_id</code> 이후 재생은 해당 상태 화면을 이어가는 용도다. 자세한 범위와 오류는 <a href="contracts/T10-plan-snapshot-v1-proposal.md">계획 조회 계약</a>, 선택 근거는 <a href="adr/0007-plan-state-event-transaction.md">ADR-0007</a>에 둔다.</p>
+<p><b>T10 읽기 모델 제안:</b> 계획 조회와 SSE에는 동일한 서버 인증 · 계획 접근 정책을 적용한다. 상태 전이 · 이벤트 · 명령 영수증은 한 DB 트랜잭션에 저장하며, 상태 조회와 이벤트 watermark도 한 읽기 트랜잭션에서 가져온다. 조회 결과는 계획 상태의 스냅샷이며 승인 · 게이트 · 감사 이력 전체를 복구하지 않는다. <code>last_event_id</code> 이후 재생은 해당 상태 화면을 이어가는 용도다. 자세한 범위와 오류는 <a href="contracts/T10-plan-snapshot-v1-proposal.md">계획 조회 계약</a>, 선택 근거는 <a href="adr/0008-plan-state-event-transaction.md">ADR-0008</a>에 둔다.</p>
 
 <h3 id="s8-10"><span class="num">8.10</span>데모 앱 요구사항</h3>
 <p>금융권 사람 간 실시간 채팅(WebSocket)으로 잠정 결정(11/1). 데모 앱은 평가 대상이 아니므로 오픈소스를 활용해도 되고, 플랫폼 틀이 잡힌 뒤(수~금) 만든다. 다만 아래 조건은 플랫폼이 동작하려면 반드시 지켜야 한다.</p>

@@ -6,7 +6,7 @@
 
 기존 SSE 모듈에 계획 상태 읽기 모델을 추가했다. 내부 등록은 최초 상태/이벤트를 함께 저장하고, 신뢰된 수집 완료 증거에 한해서 COLLECT→ANALYZE를 허용한다. 전이 상태 · 이벤트 · 멱등 명령 영수증은 같은 DB 트랜잭션에 있다. `GET /v1/plans/{id}`는 같은 읽기 시점의 상태/버전과 마지막 이벤트 ID를 반환하고 기존 SSE와 서버 principal/tenant 정책을 공유한다. 기본 접근은 거부한다.
 
-설계 초안 v0.3, [ADR-0007](../../adr/0007-plan-state-event-transaction.md), [조회 계약](../../contracts/T10-plan-snapshot-v1-proposal.md)은 제안 상태다. v0.2 사본은 변경 전 develop `c7822e5fb1f6b4adea4392914ff4010e5a258dcd`의 설계 문서 바이트를 보존했다. 로컬 구현을 운영 서비스/DB 채택으로 간주하지 않는다.
+설계 초안 v0.3, [ADR-0008](../../adr/0008-plan-state-event-transaction.md), [조회 계약](../../contracts/T10-plan-snapshot-v1-proposal.md)은 제안 상태다. v0.2 사본은 변경 전 develop `c7822e5fb1f6b4adea4392914ff4010e5a258dcd`의 설계 문서 바이트를 보존했다. 로컬 구현을 운영 서비스/DB 채택으로 간주하지 않는다.
 
 ## 재현과 관찰
 

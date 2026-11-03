@@ -27,7 +27,7 @@
 
 | 버전 | 기간 | 파일 | 무엇이 바뀌었나 | 관련 ADR |
 |---|---|---|---|---|
-| **v0.3 (현재 초안)** | 2026-11-03 ~ | [`docs/design.html`](../design.html) | 8.9 계획 조회 제안: 상태 · 이벤트 원자 저장, snapshot watermark, SSE와 동일한 계획 접근 정책 | [ADR-0007](../adr/0007-plan-state-event-transaction.md) |
+| **v0.3 (현재 초안)** | 2026-11-03 ~ | [`docs/design.html`](../design.html) | 8.9 계획 조회 제안: 상태 · 이벤트 원자 저장, snapshot watermark, SSE와 동일한 계획 접근 정책 | [ADR-0008](../adr/0008-plan-state-event-transaction.md) |
 | v0.2 | 2026-11-03 | [`design-v0.2.html`](design-v0.2.html) | 8.4 리허설 네임스페이스 격리 규칙: 송신 허용 범위에 시험용 SeaweedFS · OpenBao(지정 Pod · 포트)를 넣고, 서버 안 권한(T9)을 격리의 일부로 명시. 7.5 네트워크 경로 규칙 표에 허용 줄 추가 | [ADR-0002](../adr/0002-rehearsal-egress-allowlist.md) |
 | v0.1 | 2026-11-02 ~ 2026-11-03 | [`design-v0.1.html`](design-v0.1.html) · [태그](https://github.com/Softbank-Hackathon-Finals/platform/tree/design-v0.1) | 첫 버전 (11/2 회의 반영: 역할별 담당자, 이전 대상 추천 P1) |  |
 
