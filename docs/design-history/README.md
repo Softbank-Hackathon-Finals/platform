@@ -27,5 +27,6 @@
 
 | 버전 | 기간 | 파일 | 무엇이 바뀌었나 | 관련 ADR |
 |---|---|---|---|---|
-| **v0.2 (현재)** | 2026-11-03 ~ | [`docs/design.html`](../design.html) | 8.4 리허설 네임스페이스 격리 규칙: 송신 허용 범위에 시험용 SeaweedFS · OpenBao(지정 Pod · 포트)를 넣고, 서버 안 권한(T9)을 격리의 일부로 명시. 7.5 네트워크 경로 규칙 표에 허용 줄 추가 | [ADR-0002](../adr/0002-rehearsal-egress-allowlist.md) |
+| **v0.3 (현재)** | 2026-11-03 ~ | [`docs/design.html`](../design.html) | 8.3 모델 호출을 OpenAI 기본·Claude 선택으로 제안하고 플랫폼 AWS 배치와 Bedrock 고객 이전 시나리오를 분리. S2 실패 분석과 결정적 CI·T15·T31 책임을 명시 | [ADR-0007 (제안)](../adr/0007-model-provider-and-s2-ci.md) |
+| v0.2 | 2026-11-03 ~ 2026-11-03 | [`design-v0.2.html`](design-v0.2.html) · [태그](https://github.com/Softbank-Hackathon-Finals/platform/tree/design-v0.2) | 8.4 리허설 네임스페이스 격리 규칙: 송신 허용 범위에 시험용 SeaweedFS · OpenBao(지정 Pod · 포트)를 넣고, 서버 안 권한(T9)을 격리의 일부로 명시. 7.5 네트워크 경로 규칙 표에 허용 줄 추가 | [ADR-0002](../adr/0002-rehearsal-egress-allowlist.md) |
 | v0.1 | 2026-11-02 ~ 2026-11-03 | [`design-v0.1.html`](design-v0.1.html) · [태그](https://github.com/Softbank-Hackathon-Finals/platform/tree/design-v0.1) | 첫 버전 (11/2 회의 반영: 역할별 담당자, 이전 대상 추천 P1) |  |
