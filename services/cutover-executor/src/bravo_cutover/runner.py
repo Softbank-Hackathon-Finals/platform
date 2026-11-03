@@ -502,8 +502,8 @@ class Cutover:
         올려 SAFE_HOLD가 되고 lease는 유지된다(재생성된 PgBouncer가 출발지 설정으로 뜨는 상태를 DONE으로 두지 않는다)."""
         dst = run.dst.site
         for side in (run.src, run.dst):
-            self._same_pool(run, side)
             s = side.site
+            self._same_pool(run, side)
             current, version = side.kube.read_configmap_versioned(
                 s.namespace, s.pgbouncer_configmap, s.pgbouncer_configmap_key)
             self._hook(f"persist:read:{s.environment_id}", run)
@@ -516,13 +516,16 @@ class Cutover:
                           s.pgbouncer_configmap_key, wanted, version)
             if side.kube.read_configmap(s.namespace, s.pgbouncer_configmap, s.pgbouncer_configmap_key) != wanted:
                 raise Unconfirmed(f"{s.environment_id} pgbouncer configmap does not point to target")
-        # A replacement may have copied the old ConfigMap after the last ACK.
-        # A successful patch does not update that replacement's emptyDir.
+        # ConfigMap만 보면, 마지막 ACK와 ConfigMap 변경 사이에 재생성된 PgBouncer(옛 ConfigMap = 출발지를 복사해
+        # 뜬 파드)를 놓친다(#116 재검토). 실제로 도는 풀러까지 완료 조건으로 본다: 고정한 파드가 그대로이고,
+        # 목적지를 가리키며 PAUSE가 풀려 있고, 그 경로로 쓰기가 된다. 하나라도 아니면 SAFE_HOLD(lease 유지).
         for side in (run.src, run.dst):
+            env = side.site.environment_id
             self._same_pool(run, side)
             state = side.pool.state()
             if state.host != dst.db_host or state.paused:
-                raise Unconfirmed(f"{side.site.environment_id} runtime pooler is not serving the target")
+                raise Unconfirmed(f"{env} pgbouncer is not serving the target after persist: {state}")
+            self._act(run, app_write, side.site.pgbouncer_app_dsn, f"persist:{run.execution_id}")
 
     def _result(self, run: Run) -> dict[str, Any]:
         last = max(run.acks.values())

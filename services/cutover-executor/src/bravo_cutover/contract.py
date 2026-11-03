@@ -52,11 +52,6 @@ class CutoverRequest(BaseModel):
     # 이미 지난 deadline이어도 그대로 읽혀야 상태를 돌려주고 재시작 판정을 할 수 있다.
     deadline: AwareDatetime
 
-    def scope(self) -> str:
-        """같은 DB 쌍을 다루는 실행끼리 epoch · lease를 공유한다. 되돌리기(T20)도 같은 범위다."""
-        a, b = sorted((self.source.environment_id, self.target.environment_id))
-        return f"{a}|{b}"
-
     def deadline_passed(self) -> bool:
         return self.deadline <= datetime.now(UTC)
 

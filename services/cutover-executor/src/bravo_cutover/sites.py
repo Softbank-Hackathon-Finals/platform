@@ -14,7 +14,9 @@ class Site(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     environment_id: str
-    connection_ref: str | None = None
+    # 실제 DB 자원 ID와 허용 접속 참조(resources.Registry). lease · epoch는 resource_id마다 걸린다.
+    resource_id: str
+    connection_ref: str
     kube_context: str
     namespace: str
     app_selector: str = "app=demo-chat"
@@ -67,16 +69,21 @@ class Config(BaseModel):
     settings: Settings = Settings()
     sites: dict[str, Site]
 
-    def request_bindings(self) -> dict[str, str]:
+    def deployment_registry(self):
         if len(self.sites) != 2 or any(k != s.environment_id for k, s in self.sites.items()):
             raise ValueError("the deployed executor requires one fixed pair of environments")
-        if any(not s.connection_ref for s in self.sites.values()):
-            raise ValueError("each deployed environment requires its immutable connection_ref")
-        bindings = {k: s.connection_ref for k, s in self.sites.items()}
-        if len(set(bindings.values())) != 2:
-            raise ValueError("the two database connection references must be distinct")
-        return bindings
+        if len({s.resource_id for s in self.sites.values()}) != 2:
+            raise ValueError("deployment requires two distinct database resources")
+        return registry_from_sites(self.sites)
 
 
 def load_config(path: str | Path) -> Config:
     return Config.model_validate(json.loads(Path(path).read_text()))
+
+
+def registry_from_sites(sites: dict[str, Site]):
+    """실행기 설정의 환경 목록으로 자원 등록을 만든다(설정 파일 하나로 실행기와 API가 같은 등록을 쓴다)."""
+    from bravo_cutover.resources import Registry, Resource
+
+    return Registry([Resource(environment_id=s.environment_id, resource_id=s.resource_id,
+                              connection_ref=s.connection_ref) for s in sites.values()])

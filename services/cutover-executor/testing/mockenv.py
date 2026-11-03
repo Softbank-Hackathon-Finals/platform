@@ -194,6 +194,8 @@ def write_sites() -> None:
     sites = {
         s["environment_id"]: {
             "environment_id": s["environment_id"],
+            # 실제 DB 자원 ID와 허용 접속 참조(lease · epoch는 자원마다). 시험 요청의 connection_ref와 같다.
+            "resource_id": f"mock-{ns}/chat",
             "connection_ref": f"mock/{ns}",
             "kube_context": CONTEXT,
             "namespace": ns,

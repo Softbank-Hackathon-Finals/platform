@@ -18,14 +18,15 @@ from bravo_cutover.remote import Unconfirmed
 from bravo_cutover.remote.db import Subscription, WriteRefusal
 from bravo_cutover.remote.pgbouncer import PoolState
 from bravo_cutover.runner import STEPS, Cutover
-from bravo_cutover.sites import Config, Settings, Site
+from bravo_cutover.sites import Config, Settings, Site, registry_from_sites
 
 INI = "[databases]\nchat = host={host} port=5432 dbname=chat\n\n[pgbouncer]\nlisten_port = 6432\n"
 
 
 def site(env: str, ns: str, subscription: str) -> Site:
     return Site(
-        environment_id=env, kube_context="fake", namespace=ns, subscription=subscription,
+        environment_id=env, resource_id=f"fake-{ns}/chat", connection_ref=f"fake/{ns}",
+        kube_context="fake", namespace=ns, subscription=subscription,
         pgbouncer_admin_dsn=f"fake:{ns}:admin", pgbouncer_app_dsn=f"fake:{ns}:pool",
         db_control_dsn=f"fake:{ns}:control", db_app_dsn=f"fake:{ns}:db", db_host=f"{ns}-db",
     )
@@ -236,7 +237,7 @@ def start(store) -> uuid.UUID:
         target={"environment_id": "env-onprem", "connection_ref": "fake/dst"},
         write_pause_budget_ms=5000, deadline=datetime.now(UTC) + timedelta(minutes=1),
     )
-    return store.create(str(uuid.uuid4()), request)[0].execution_id
+    return store.create(str(uuid.uuid4()), request, registry_from_sites(CONFIG.sites).resolve(request))[0].execution_id
 
 
 def test_happy_path_with_fakes(store, world):
@@ -350,23 +351,6 @@ def test_pgbouncer_pod_changed_during_execution_is_unknown(store, world, when, c
     assert not (world.login["src"] and world.login["dst"])
 
 
-@pytest.mark.parametrize("point", ["before:persist", "persist:read:env-aws"])
-def test_recreated_pooler_during_persistence_keeps_lease(store, world, point):
-    def replacement(_run):
-        assert world.configmap["src"][0] == INI.format(host="src-db")
-        world.pod["src"]["uid"] = "replacement-uid"
-        world.ini_host["src"] = "src-db"
-        world.paused["src"] = False
-
-    execution_id = start(store)
-    FakeCutover(store, world, hooks={point: replacement}).run(execution_id)
-    assert store.get(execution_id).status == Status.SAFE_HOLD
-    from bravo_cutover.store import LeaseHeld
-
-    with pytest.raises(LeaseHeld):
-        start(store)
-
-
 def test_comparison_receipt_is_durable_before_target_opens_and_survives_hold(store, world):
     execution_id = start(store)
 
@@ -390,3 +374,33 @@ def test_source_websockets_close_before_entry_release(store, world):
     assert world.calls.index("src.ws:1012") < world.calls.index("src.entry:False")
     assert "dst.ws:1012" not in world.calls
     assert store.get(execution_id).result["receipt"]["websocket_closed"] == {"app-0": 1}
+
+@pytest.mark.parametrize("point", ["before:persist", "persist:read:env-aws"])
+def test_pgbouncer_regenerated_around_persist_is_safe_hold(store, world, point):
+    """#116 재검토: 마지막 ACK와 ConfigMap 변경 사이(또는 ConfigMap을 읽은 직후)에 PgBouncer가 재생성되면
+    새 파드는 아직 출발지인 ConfigMap을 복사해 뜬다. ConfigMap만 목적지로 바꾸고 DONE으로 끝내지 않는다."""
+    def regenerate(_run):
+        world.pod["src"]["uid"] = "u-src-regenerated"
+        world.ini_host["src"] = world.configmap["src"][0].split("host=")[1].split()[0]  # 옛 ConfigMap 복사
+        world.paused["src"] = False
+
+    execution_id = start(store)
+    FakeCutover(store, world, hooks={point: regenerate}).run(execution_id)
+    execution = store.get(execution_id)
+    assert execution.status == Status.SAFE_HOLD, execution.result
+    assert execution.result["failed_step"] == "persist"
+    assert world.ini_host["src"] == "src-db"  # 실제 풀러는 여전히 출발지를 가리킨다
+    from bravo_cutover.store import LeaseHeld
+
+    with pytest.raises(LeaseHeld):
+        start(store)  # lease를 쥐고 있다
+
+
+def test_persist_requires_target_reachable_through_each_pool(store, world):
+    """ConfigMap과 파드가 맞아도 풀러 경로로 목적지에 쓰지 못하면 DONE이 아니다."""
+    def close_target(_run):
+        world.login["dst"] = False
+
+    execution_id = start(store)
+    FakeCutover(store, world, hooks={"persist:read:env-onprem": close_target}).run(execution_id)
+    assert store.get(execution_id).status == Status.SAFE_HOLD

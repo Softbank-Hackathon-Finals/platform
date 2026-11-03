@@ -14,6 +14,15 @@ uvx ruff check .
 uv run uvicorn bravo_cutover.api:create_app --factory --port 8080
 ```
 
+실행 설정: `EXECUTOR_DB`(실행 기록 DB), `EXECUTOR_RESOURCES`(환경별 실제 DB 자원 등록 파일).
+
+```json
+{"env-aws": {"resource_id": "cnpg-aws/chat", "connection_ref": "secret/source"},
+ "env-onprem": {"resource_id": "cnpg-onprem/chat", "connection_ref": "secret/target"}}
+```
+
+요청의 `environment_id` · `connection_ref`는 이 등록 정보와 맞아야 하고, lease · epoch는 `resource_id`마다 걸린다. 같은 DB를 다른 환경 이름으로 등록해도 같은 `resource_id`면 겹치는 실행으로 막힌다.
+
 ## 모의 환경 (k3d)
 
 T8(복제) · T30(목적지) 전에 Executor를 시험하는 곳. 클러스터 하나에 출발지 `src` · 목적지 `dst` 네임스페이스를 두고 각각 Postgres 16 · PgBouncer 1.26.1 · demo-chat 2개를 띄운다. 가짜 AWS(moto)는 `aws` 네임스페이스. 복제는 직접 만든 구독으로 흉내 낸다: `dst`의 `bravo_fwd`(src → dst, 켜짐), `src`의 `bravo_rev`(dst → src, 꺼짐).
@@ -35,7 +44,7 @@ python3 testing/mockenv.py down
 `api:create_app`의 실행기 없는 인스턴스는 조회만 가능하며 POST는 503이다.
 
 - `env-aws` / `cutover/source`, `env-onprem` / `cutover/target`를 `sites.json`에 등록한다.
-  `environment_id`와 `connection_ref`가 모두 일치하는 두 방향만 받는다. 별칭, 한쪽만 공유하는
+  `resource_id`로 실제 DB를 식별한다. `environment_id`와 `connection_ref`가 모두 일치하는 두 방향만 받는다. 별칭, 한쪽만 공유하는
   제3의 DB 쌍, 참조 교환은 기록/실행 전에 422로 거부한다. 이 배포는 다중 DB 쌍 서버가 아니다.
 - 모든 `/v1/` 요청에 Bearer 인증을 적용한다. T10의 승인/현재 계획/게이트 검증은 별도 선행이며,
   API 토큰을 가졌다는 사실을 사람의 컷오버 승인으로 간주하지 않는다.
@@ -48,7 +57,7 @@ python3 testing/mockenv.py down
   플랫폼에서만 사용하며 로컬 파일·로그·PR에 복사하지 않는다. Kube API는 각 환경의
   관측된 앱·PgBouncer Pod exec와 해당 ConfigMap get/patch 권한만 가진다.
 - `cutover-executor-state`의 `dsn`은 플랫폼 DB의 별도 `cutover_executor_runtime` 계정이다.
-  이 계정은 `executor` schema USAGE와 두 테이블 SELECT/INSERT/UPDATE만 갖는다.
+  이 계정은 `executor` schema USAGE와 executions/resource_fences/leases 테이블 SELECT/INSERT/UPDATE만 갖는다.
   DDL은 `--migration`으로 출력하는 일회 Job이 별도 `cutover-executor-migration` Secret을
   사용해 실행한다. 완료 뒤 migration Secret을 회수하고 runtime Deployment에는 마운트하지 않는다.
 - DB 제어는 실제 PG18에서 `control_functions=true`를 사용한다. `provision.control_sql()`은
