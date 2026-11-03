@@ -1,0 +1,14 @@
+{
+  "simulation": {
+    "auth": "allowed",
+    "target_push": "allowed",
+    "target_pull": "allowed",
+    "other_repo_push": "implicitDeny",
+    "delete_repo": "implicitDeny",
+    "secret_read": "implicitDeny"
+  },
+  "access_analyzer_finding_count": 0,
+  "terraform_drift_exit_code": 0,
+  "trust_main_only": true,
+  "note": "Simulation is not a destructive live API test."
+}

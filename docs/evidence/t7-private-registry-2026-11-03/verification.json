@@ -1,0 +1,16 @@
+{
+  "script_tests": 119,
+  "terraform_mock_tests": 3,
+  "ruff": "pass",
+  "terraform_fmt_validate": "pass",
+  "trivy_config_high_critical": "pass",
+  "provider_binary_fixable_high_critical_vulnerability_count": 0,
+  "terraform_drift_exit_code": 0,
+  "transfer_workflow_run": "https://github.com/Softbank-Hackathon-Finals/demo-chat/actions/runs/41610561593",
+  "transfer_workflow_main_commit": "6b1e1b14ff45e90df8505b792347cf0d0dd3afb4",
+  "provider_installer_sha256": "297617aeac2f416d5bef3dab8f485c9389c053351a6646e7e9bea2f4208566d1",
+  "kubelet_pull_probe_sha256": "305929547b81548813c9beea64bb84b6b031304dbc20e1b0d7223ea81c5f62a1",
+  "raw_command_and_resource_identifiers": "operator-private only",
+  "credential_expiry_renewal_observed": false,
+  "whole_T7_complete": false
+}
