@@ -12,12 +12,19 @@ from botocore.exceptions import BotoCoreError, ClientError
 
 def create(session, request):
     options = Config(connect_timeout=10, read_timeout=30, retries={"total_max_attempts": 1})
-    if session.client("sts", config=options).get_caller_identity()["Account"] != request["expected_account"]:
+    if (
+        session.client("sts", config=options).get_caller_identity()["Account"]
+        != request["expected_account"]
+    ):
         raise ValueError("account_boundary_failed")
     iam = session.client("iam", config=options)
     user = iam.get_user(UserName=request["user_name"])["User"]
     tags = {tag["Key"]: tag["Value"] for tag in user.get("Tags", [])}
-    if user.get("Path") != "/team-bravo/humans/" or tags.get("principal-type") != "human" or tags.get("project") != "softbank-finals":
+    if (
+        user.get("Path") != "/team-bravo/humans/"
+        or tags.get("principal-type") != "human"
+        or tags.get("project") != "softbank-finals"
+    ):
         raise ValueError("target_not_managed_human")
     try:
         iam.get_login_profile(UserName=request["user_name"])
@@ -25,11 +32,18 @@ def create(session, request):
     except ClientError as error:
         if error.response["Error"]["Code"] != "NoSuchEntity":
             raise
-    iam.create_login_profile(UserName=request["user_name"], Password=request["password"], PasswordResetRequired=True)
+    iam.create_login_profile(
+        UserName=request["user_name"], Password=request["password"], PasswordResetRequired=True
+    )
     profile = iam.get_login_profile(UserName=request["user_name"])["LoginProfile"]
     if profile.get("PasswordResetRequired") is not True:
         raise ValueError("profile_readback_failed")
-    return {"console_profile": "created", "password_reset_required": True, "login_verified": False, "secret_output": False}
+    return {
+        "console_profile": "created",
+        "password_reset_required": True,
+        "login_verified": False,
+        "secret_output": False,
+    }
 
 
 def main():

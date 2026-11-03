@@ -10,8 +10,8 @@ preflight = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(preflight)
 
 ACCOUNT = "111122223333"
-ROLE = f"arn:aws:iam::{ACCOUNT}:role/aws-reserved/sso.amazonaws.com/ap-northeast-2/AWSReservedSSO_Operator_example"
-SESSION = f"arn:aws:sts::{ACCOUNT}:assumed-role/AWSReservedSSO_Operator_example/person@example.com"
+ROLE = "arn:aws:iam::111122223333:role/aws-reserved/sso.amazonaws.com/ap-northeast-2/AWSReservedSSO_Operator_example"
+SESSION = "arn:aws:sts::111122223333:assumed-role/AWSReservedSSO_Operator_example/person@example.com"
 
 
 class AccessPreflightTests(unittest.TestCase):
@@ -40,7 +40,7 @@ class AccessPreflightTests(unittest.TestCase):
         self.assertIn("each_user_sso_login", result["remaining_operational_checks"])
 
     def test_wrong_account_stops_before_service_inventory(self):
-        aws = Mock(read=Mock(return_value={"Account": "999988887777", "Arn": SESSION}))
+        aws = Mock(read=Mock(return_value={"Account": "222222222222", "Arn": SESSION}))
         result = self.inspect(aws)
         self.assertEqual(result["checks"][0]["state"], "mismatch")
         self.assertEqual(aws.read.call_count, 1)
@@ -57,7 +57,7 @@ class AccessPreflightTests(unittest.TestCase):
     def test_iam_user_and_region_empty_response_remain_incomplete(self):
         def empty(service, operation, region, **params):
             if operation == "get-caller-identity":
-                return {"Account": ACCOUNT, "Arn": f"arn:aws:iam::{ACCOUNT}:user/local"}
+                return {"Account": ACCOUNT, "Arn": "arn:aws:iam::111122223333:user/local"}
             if operation == "list-instances":
                 return {"Instances": []}
             if operation == "list-clusters":
@@ -73,6 +73,12 @@ class AccessPreflightTests(unittest.TestCase):
         aws = Mock()
         with self.assertRaisesRegex(ValueError, "iam_role"):
             self.inspect(aws, cluster="example", role=SESSION)
+        aws.read.assert_not_called()
+
+    def test_role_in_another_account_stops_before_any_aws_call(self):
+        aws = Mock()
+        with self.assertRaisesRegex(ValueError, "iam_role"):
+            self.inspect(aws, role=ROLE.replace(ACCOUNT, "222222222222"))
         aws.read.assert_not_called()
 
     def test_unknown_authentication_mode_never_looks_ready(self):

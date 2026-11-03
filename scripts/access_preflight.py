@@ -69,8 +69,10 @@ def principal_type(arn):
 def inspect(aws, expected_account, region, identity_center_region, cluster=None, role=None):
     if not re.fullmatch(r"[0-9]{12}", expected_account):
         raise ValueError("expected_account_must_have_12_digits")
-    if role and not re.fullmatch(r"arn:aws:iam::" + expected_account + r":role/[A-Za-z0-9+=,.@_/-]+", role):
-        raise ValueError("principal_must_be_an_iam_role_in_expected_account")
+    if role:
+        match = re.fullmatch(r"arn:aws:iam::([0-9]{12}):role/[A-Za-z0-9+=,.@_/-]+", role)
+        if match is None or match[1] != expected_account:
+            raise ValueError("principal_must_be_an_iam_role_in_expected_account")
     checks = []
 
     def record(name, state, **facts):

@@ -13,7 +13,7 @@
 | 서비스의 Kubernetes YAML·Dockerfile | 해당 프로젝트 + IaC·Dockerfile 검사 |
 | infra | Terraform root/module 전체 fmt·validate·mock tests와 IaC 검사 |
 | infra 아래 Python 코드·삭제 | 위 infra 검사 + 해당 코드를 import하는 repository unittest |
-| scripts 일반 도구 | repository unittest |
+| scripts 일반 도구 | repository unittest + 변경 경로를 소유하는 언어 프로젝트 검사 |
 | workflow·CI 선택기·공통 계약·루트 설정 | 전체 검사 |
 | 알 수 없는 경로·비교 이력 없음·삭제된 manifest | 전체 검사 |
 | local path/workspace dependency가 있는 프로젝트 변경 | 소비자 누락을 피하기 위해 전체 검사 |
@@ -26,6 +26,10 @@ Terraform은 아직 root 간 의존 그래프를 만들지 않는다. 공통 mod
 필수 `secrets`, `infra`, `platform` 이름은 유지한다. 워크플로 자체에는 path filter를 두지 않는다. `platform`은 `always()`로 scope·선택 프로젝트의 결과를 확인한다. 선택된 검사가 skipped/cancelled/failure이면 실패하며, 선택이 빈 경우에만 skipped를 허용한다. scope 자체 실패도 통과시키지 않는다. [GitHub 필수 검사 규칙](https://docs.github.com/en/pull-requests/how-tos/merge-and-close-pull-requests/troubleshooting-required-status-checks)
 
 프로젝트 검사는 최대 3개 병렬, 각 20분이다. 같은 PR의 이전 실행은 새 커밋이 오면 취소한다. develop/main 통합 검사는 취소하지 않는다. 전체 실행에서는 저장소 전체 취약점 검사를 한 번만 하고, 부분 실행에서는 선택 프로젝트만 검사한다. Python은 `uv sync --locked`로 manifest와 lock의 일치까지 확인하고 lock에 든 pytest, 고정 Ruff 0.17.3을 쓴다.
+
+언어 프로젝트의 검사는 필수다. Python은 시험 파일 이름을 먼저 추측하지 않고 항상 pytest를 실행한다. 마지막 시험 삭제·수집 0건·수집 오류는 pytest의 실패 종료를 그대로 전달한다. Node는 `lint`·`test`·`build` 명령을 모두 선언해야 하며 누락·빈 명령은 실패한다. 현재 시험 없는 프로젝트 예외는 두지 않는다.
+
+SDK 의존성이 있는 저장소 도구도 코드·시험·`pyproject.toml`·`uv.lock`을 같은 디렉터리에 둔다. `scripts/` 또는 `infra/` 아래라는 이유로 프로젝트 검사를 생략하지 않는다. 경로 공통 검사와 해당 프로젝트 검사를 함께 실행하므로 표준 라이브러리 unittest 밖의 SDK 회귀도 필수 `platform` 결과에 포함된다.
 
 ```sh
 python3 scripts/ci_scope.py --base <40자리-base-SHA>

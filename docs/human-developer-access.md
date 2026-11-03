@@ -44,12 +44,11 @@ AdministratorAccess는 AWS 서비스와 자원에 대한 전체 허용 정책이
 python3 scripts/provision_human_access.py plan --config /private/path/human-access.json --with-console
 swiftc scripts/iam_console_keychain.swift -o /private/path/iam-console-keychain
 /private/path/iam-console-keychain --probe
-python3 -m venv /private/path/iam-console-venv
-/private/path/iam-console-venv/bin/python -m pip install -r scripts/iam-console-requirements.txt
+uv sync --project scripts/iam-console --locked --no-dev
 python3 scripts/provision_human_access.py apply \
   --config /private/path/human-access.json --with-console \
   --keychain-helper /private/path/iam-console-keychain \
-  --sdk-python /private/path/iam-console-venv/bin/python
+  --sdk-python scripts/iam-console/.venv/bin/python
 python3 scripts/provision_human_access.py verify --config /private/path/human-access.json
 python3 scripts/provision_human_access.py plan --config /private/path/human-access.json --with-console
 ```
@@ -72,7 +71,7 @@ AWS 호출 클라이언트는 사용자·그룹 생성, 정책 연결, 그룹 �
 
 ## 완료 판단
 
-로컬 검증은 `python3 -m unittest discover -s scripts/tests -v`와 SDK 가상환경 Python으로 `-m unittest discover -s scripts/iam-console-tests -v`를 각각 실행한다. SDK 시험은 추가 의존성이 없는 기본 보드 도구 CI와 분리되어 있으며 이번 로컬 실행 결과를 증거에 기록한다. Keychain 검증은 macOS에서만 수행한다.
+로컬 검증은 `python3 -m unittest discover -s scripts/tests -v`와 `python3 scripts/ci_project.py scripts/iam-console python`이다. SDK 도우미·시험·잠금 의존성은 `scripts/iam-console` 프로젝트가 소유한다. 공통 CI 선택기가 이 프로젝트를 발견하므로 SDK 코드·시험·의존성 변경은 필수 `platform` 결과에 포함된다. 기본 보드 도구는 SDK를 import하지 않는다. Keychain 검증은 macOS에서만 수행한다.
 
 IAM 사용자·그룹·정책·콘솔 프로필을 읽어 확인한 결과는 **접근 준비**다. 실제 팀원 로그인, MFA 등록, SSO 전환, EKS access entry/RBAC, RKE2 개별 신원, DB/PgBouncer 제어 시험은 별도다. 새 access key 수 0, 런타임 역할 변경 없음, 외부 메시지 전송 없음도 실행 영수증에 구별해 적는다.
 

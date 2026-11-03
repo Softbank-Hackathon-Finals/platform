@@ -67,7 +67,7 @@ class HumanProvisioningTests(unittest.TestCase):
         self.assertFalse(receipt["effective_access_and_human_login_verified"])
 
     def test_wrong_account_prevents_inventory_and_changes(self):
-        aws = FakeAWS(); aws.account = "999988887777"
+        aws = FakeAWS(); aws.account = "222222222222"
         with self.assertRaisesRegex(human.Failure, "account_boundary"):
             human.snapshot(aws, CONFIG)
         self.assertEqual(aws.writes, [])

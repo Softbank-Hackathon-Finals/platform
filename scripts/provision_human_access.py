@@ -152,7 +152,7 @@ def sdk_probe(python):
     if python is None:
         raise Failure("sdk_python_required")
     try:
-        result = subprocess.run([str(python), "-I", str(Path(__file__).with_name("create_initial_console_profile.py").resolve()), "--probe"],
+        result = subprocess.run([str(python), "-I", str(Path(__file__).resolve().parent / "iam-console" / "create_initial_console_profile.py"), "--probe"],
                                 check=False, capture_output=True, text=True, timeout=30)
         if result.returncode or json.loads(result.stdout).get("sdk_probe") != "PASS":
             raise Failure("sdk_probe_failed")
@@ -184,7 +184,7 @@ def apply(aws, config, before, actions, helper=None, sdk_python=None):
         elif kind == "create_initial_console_profile":
             outcome = native(helper, {"expected_account": config["expected_account"], "user_name": name, "profile": config.get("profile"),
                                       "sdk_python": str(sdk_python) if sdk_python else None,
-                                      "sdk_script": str(Path(__file__).with_name("create_initial_console_profile.py").resolve())})
+                                      "sdk_script": str(Path(__file__).resolve().parent / "iam-console" / "create_initial_console_profile.py")})
         else:
             raise Failure("unknown_action")
         results.append({**action, "result": "applied", **outcome})
