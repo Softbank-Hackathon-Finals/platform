@@ -1,12 +1,12 @@
 name: sync-tasks
 
 # 진행 상황의 기준은 보드(이슈)다.
-# - tasks.md가 main에 들어오면(push): 계획(작업 · 할 일 문장 · 우선순위)을 이슈에 반영. 체크 상태는 이슈 것을 유지
+# - tasks.md가 develop에 들어오면(push): 계획(작업 · 할 일 문장 · 우선순위)을 이슈에 반영. 체크 상태는 이슈 것을 유지
 # - 이슈가 바뀌면(issues): 체크 상태로 보드를 옮기고, 체크 · 담당을 tasks.md에 반영하는 PR을 자동 머지
 # 보드를 옮기면 Slack 채널에 알린다(SLACK_BOT_TOKEN, SLACK_CHANNEL_ID가 있을 때).
 on:
   push:
-    branches: [main]
+    branches: [develop]
     paths: [docs/tasks.md, scripts/sync_tasks.py]
   issues:
     types: [edited, closed, reopened, assigned, unassigned]
@@ -42,6 +42,7 @@ jobs:
       - uses: actions/checkout@v7
         with:
           token: ${{ secrets.PROJECT_TOKEN }}
+          ref: develop
       - name: 동기화
         id: sync
         shell: bash  # pipefail: 스크립트가 실패하면 tee 뒤에서도 job이 실패한다
@@ -60,9 +61,9 @@ jobs:
           git commit -qam "[sync] 보드의 체크 · 담당을 tasks.md에 반영"
           git push -qf origin bot/sync-tasks
           gh pr view bot/sync-tasks --json state -q .state 2>/dev/null | grep -q OPEN \
-            || gh pr create --head bot/sync-tasks --title "[sync] 보드 → tasks.md" \
+            || gh pr create --base develop --head bot/sync-tasks --title "[sync] 보드 → tasks.md" \
                  --body "이슈의 할 일 체크와 담당을 tasks.md에 반영한다. sync-tasks 워크플로가 만들었다."
-          gh pr merge bot/sync-tasks --auto --squash
+          gh pr merge bot/sync-tasks --auto --merge
       - name: Slack 테스트 메시지
         if: inputs.slack-test
         run: echo "Slack 연결 테스트 (보드 동기화 알림이 이 채널로 온다)" >> moves.txt
