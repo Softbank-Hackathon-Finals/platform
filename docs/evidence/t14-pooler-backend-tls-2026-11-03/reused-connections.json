@@ -1,0 +1,54 @@
+[
+  {
+    "mode": "verify-ca",
+    "observed": null,
+    "unknown_reason": "UNEXPECTED_RESPONSE",
+    "output_sha256": "sha256:63df00b02ac0b512b6c6fb0d58d2ad9c7d02acae581b36c81c492b817647766f",
+    "evidence": {
+      "app": "demo-chat",
+      "binding_sha256": "sha256:de597d2b0b3e9e117175488e230fd89b13848e485b73c5e63d750407683a610a",
+      "collected_at": "2026-11-03T13:51:16.641547+00:00",
+      "environment": {
+        "id": "backend-tls-local",
+        "ref": "local:kind/owned",
+        "role": "rehearsal"
+      },
+      "facts": {
+        "readback_valid": false
+      },
+      "format_version": "1",
+      "method_version": "1",
+      "observed": null,
+      "run_id": "backend-tls-verify-ca",
+      "started_at": "2026-11-03T13:51:14.604256+00:00",
+      "test_id": "ENC-01.5",
+      "unknown_reason": "UNEXPECTED_RESPONSE"
+    }
+  },
+  {
+    "mode": "verify-full",
+    "observed": null,
+    "unknown_reason": "UNEXPECTED_RESPONSE",
+    "output_sha256": "sha256:b6310acb622f980a8896a4f88048fcfac99775ea48e0293dd4064538a50d3000",
+    "evidence": {
+      "app": "demo-chat",
+      "binding_sha256": "sha256:38a3251029f3bbd4643aea898c7b78dc29bba981f1cdca5ecb48b51d45b88721",
+      "collected_at": "2026-11-03T13:51:18.669034+00:00",
+      "environment": {
+        "id": "backend-tls-local",
+        "ref": "local:kind/owned",
+        "role": "rehearsal"
+      },
+      "facts": {
+        "readback_valid": false
+      },
+      "format_version": "1",
+      "method_version": "1",
+      "observed": null,
+      "run_id": "backend-tls-verify-full",
+      "started_at": "2026-11-03T13:51:16.808338+00:00",
+      "test_id": "ENC-01.5",
+      "unknown_reason": "UNEXPECTED_RESPONSE"
+    }
+  }
+]
