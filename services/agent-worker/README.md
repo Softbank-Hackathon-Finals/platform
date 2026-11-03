@@ -39,6 +39,13 @@ uv run bravo-agent analyze \
 
 Claude 어댑터는 `uv sync --frozen --extra claude`로 설치하고 `--provider claude`를 명시하며 플랫폼의 `ANTHROPIC_API_KEY`만 전달한다. 기본 production 이미지에는 Claude CLI를 포함하지 않는다.
 
+### 팀 공통 인증과 공유 파일
+
+- AWS 자동 실행은 기존 GitHub Actions OIDC 역할을 사용한다. 역할·실행 대상 참조는 팀 GitHub Secrets에 두며 장기 AWS 액세스 키를 만들지 않는다. T7의 고정 검증 역할을 모델 키 조회나 임의 실행 권한으로 확대하지 않는다.
+- 모델 API 키는 팀 전용 플랫폼 Secrets 저장소에 두고, 승인된 실행 경로가 `OPENAI_API_KEY`로 주입한다. 앱 소스·리허설 guest·일반 PR CI에 키를 전달하지 않는다. 저장소에 있는 `PROJECT_TOKEN`·`SLACK_BOT_TOKEN`이나 출발지 DB 시크릿을 모델 인증에 재사용하지 않는다. 키가 아직 발급·등록되지 않았다면 팀 무인 실행의 인증은 미완료다. OIDC의 AWS 권한은 OpenAI API 인증을 대신하지 않는다.
+- `.gitignore`는 로컬 Terraform 입력·상태, `.env`, AWS/Kubernetes/개인 CLI 인증과 비공개 협업 기록을 제외한다. 예시 입력, 공통 코드·설정, 검토된 예산 정책과 개인정보를 제거한 검증 기록은 커밋한다. 이미 추적된 파일의 비밀은 ignore 추가만으로 제거되지 않으므로 공개 증빙 검사와 자격 탐지를 별도로 수행한다.
+- 아래 구독 검증은 사용자가 직접 인증하는 일회성 진단이다. 개인 OAuth·`auth.json`을 팀 Secrets에 복사해 공통 자동 인증으로 사용하지 않는다.
+
 실행 결과 `PROPOSAL_READY`는 스키마·로컬 정책을 통과한 제안이 생겼다는 뜻이다. 실제 리허설 성공이나 승인이 아니다. 모델·입력·정책 실패는 `NEEDS_HUMAN`과 종료 코드 2다. 출력 파일을 덮어쓰지 않는다. 예시 파일은 `examples/`의 **합성 입력**이며 실계정 실행 결과가 아니다.
 
 `failure.json`은 T15가 만든 민감정보 없는 실패 요약이다. `snapshot-manifest.json`의 `source_sha`, 파일별 SHA-256, `editable_paths`는 신뢰된 수집기가 고정한다. 모델이 정하지 않는다. 이 모듈은 파일 바이트와 manifest의 SHA-256 일치를 검사한다. Git 커밋 SHA와 snapshot을 연결해 발급하는 수집기는 T10/T15 통합 지점으로 남아 있다. 임의 manifest를 신뢰할 수 있는 커밋 증명으로 취급하면 안 된다.
