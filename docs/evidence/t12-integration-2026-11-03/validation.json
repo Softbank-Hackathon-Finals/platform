@@ -1,9 +1,9 @@
 {
-  "source_commit": "98a9fecd7496441a893cee8319091624c442f4b7",
+  "source_commit": "8a27c6f8956ade2c8364be529b2cfbf88c7b2231",
   "scope": "Executor integration preparation; real cutover not executed",
   "local_validation": {
     "postgres_version": "18.4",
-    "passed": 145,
+    "passed": 146,
     "skipped": 39,
     "skip_reason": "k3d environment tests not run",
     "ruff": "PASS",
@@ -35,7 +35,8 @@
       },
       "https_hostname_verification": true,
       "private_key_files_created": 0,
-      "runtime_started": false
+      "runtime_started": false,
+      "strict_tls_hostname_verification": true
     },
     "replication_control": {
       "completed_at": "2026-11-03T14:39:01.836764+00:00",
@@ -84,6 +85,15 @@
       },
       "business_writes": 0,
       "named_exec_rebound": true
+    },
+    "collation": {
+      "observed_at": "2026-11-03T15:15:30Z",
+      "database_and_column_semantics_equal": true,
+      "provider": "libc",
+      "encoding": "UTF8",
+      "collate": "C",
+      "ctype": "C",
+      "scope": "operator read-only metadata; not platform-origin execution"
     }
   },
   "not_verified": [
