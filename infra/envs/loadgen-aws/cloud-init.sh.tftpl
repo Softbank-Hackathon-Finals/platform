@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+set -euo pipefail
+# No credentials pass through this script, and the non-root SSM user must be able to run what it installs.
+export DEBIAN_FRONTEND=noninteractive
+# Ubuntu cloud images use HTTP apt mirrors by default; this host only allows HTTPS.
+sed -i -E 's|http://[^ /]*archive.ubuntu.com/ubuntu|https://archive.ubuntu.com/ubuntu|g; s|http://security.ubuntu.com/ubuntu|https://security.ubuntu.com/ubuntu|g' /etc/apt/sources.list.d/ubuntu.sources
+apt-get update -qq
+apt-get install -y -qq ca-certificates curl git python3-venv tmux
+
+python3 -m venv /opt/uv
+/opt/uv/bin/pip install --disable-pip-version-check 'uv==0.9.5'
+ln -s /opt/uv/bin/uv /usr/local/bin/uv
+
+curl --fail --silent --show-error --location --retry 3 https://pkgs.tailscale.com/stable/ubuntu/noble.noarmor.gpg -o /usr/share/keyrings/tailscale-archive-keyring.gpg
+echo '3e03dacf222698c60b8e2f990b809ca1b3e104de127767864284e6c228f1fb39  /usr/share/keyrings/tailscale-archive-keyring.gpg' | sha256sum -c -
+echo 'deb [signed-by=/usr/share/keyrings/tailscale-archive-keyring.gpg] https://pkgs.tailscale.com/stable/ubuntu noble main' >/etc/apt/sources.list.d/tailscale.list
+apt-get update -qq
+apt-get install -y -qq tailscale=1.104.4
+
+# The one-time key arrives on stdin so it never reaches argv, shell history, user data or Terraform state.
+cat >/usr/local/sbin/bravo-tailnet-join <<'JOIN'
+#!/bin/sh
+set -eu
+exec tailscale up --auth-key=file:/dev/stdin --advertise-tags='${tailscale_tag}' --hostname='${hostname}'
+JOIN
+chmod 0700 /usr/local/sbin/bravo-tailnet-join
+touch /var/lib/bravo-loadgen-ready

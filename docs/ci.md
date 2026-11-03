@@ -43,7 +43,7 @@ trivy config --ignorefile .trivyignore.yaml --severity HIGH,CRITICAL --exit-code
 
 PR 검사는 `contents: read`만 쓴다. 클라우드 배포/모델 키를 PR에 주입하지 않는다. 검사 선택과 판정에 LLM을 넣지 않는다. 새 AI 수정 기능이 workflow·검증 정책·lock을 고쳐 검사를 무력화하지 않도록, 모델의 쓰기 허용 경로는 별도 제안 계약에서 제한한다.
 
-Trivy 예외는 `.trivyignore.yaml`의 정확한 파일 경로에 한정한다. 기존 리허설 Role의 KSV-0053/0056 예외도 저장소 전역에서 해당 Role 파일로 좁혔다. 임시 AWS 검증 호스트의 외부 HTTPS(AWS-0104)는 bootstrap·SSM을 위한 예외이며 2026-11-10 만료다. 이 호스트는 인바운드 0·90분 종료·운영 네트워크 미연결이며, Pod는 별도 default-deny 시험을 통과해야 한다. [Trivy 경로·만료일 필터](https://trivy.dev/docs/latest/configuration/filtering/)
+Trivy 예외는 `.trivyignore.yaml`의 정확한 파일 경로에 한정한다. 기존 리허설 Role의 KSV-0053/0056 예외도 저장소 전역에서 해당 Role 파일로 좁혔다. 임시 AWS 검증 호스트의 외부 HTTPS(AWS-0104)는 bootstrap·SSM을 위한 예외이며 2026-11-10 만료다. 이 호스트는 인바운드 0·90분 종료·운영 네트워크 미연결이며, Pod는 별도 default-deny 시험을 통과해야 한다. 부하 생성기 호스트의 외부 HTTPS(AWS-0104)는 바뀌는 Edge·SSM 주소에 닿기 위한 예외이며 2026-11-30 만료다. 인바운드 0과 443 외 차단을 시험으로 고정했다. [Trivy 경로·만료일 필터](https://trivy.dev/docs/latest/configuration/filtering/)
 
 보드 동기화는 CI와 다른 workflow다. 상태가 같으면 쓰지 않으며, 이슈 체크와 PR 승인을 혼동하지 않는다. 이벤트 병합으로 누락된 상태는 주기적 대조로 복구하고 개별 API·job 시간을 제한한다. `platform` 저장소의 GitHub 기본 auto-merge는 최종 필수 CI와 리뷰 승인 1건 이상, 변경 요청 해소를 요구한다. 리뷰 요청 대상 전체의 승인을 기다리는 규칙은 아니다. `demo-chat`의 승인 요건은 자체 문서·실제 보호 규칙에서 별도로 확인한다([저장소별 적용 범위](development.md)). 고객 앱을 실행하는 제품 CI의 승인·실행 권한은 아래 T10/T15/T31 계약을 따른다.
 
