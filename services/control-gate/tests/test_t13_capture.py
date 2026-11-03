@@ -38,7 +38,7 @@ def tls_postgres(tmp_path_factory):
         cid = run("docker", "run", "-d", "--rm", "--name", "t19-schema-" + secrets.token_hex(6),
                   "-e", "POSTGRES_PASSWORD=" + password, "-v", str(root) + ":/certs:ro",
                   "-p", "127.0.0.1::5432", "--entrypoint", "sh", IMAGE, "-c",
-                  "cp /certs/server.key /tmp/t19-server.key && chown postgres /tmp/t19-server.key && chmod 600 /tmp/t19-server.key && exec docker-entrypoint.sh postgres -c ssl=on -c ssl_cert_file=/certs/server.crt -c ssl_key_file=/tmp/t19-server.key")
+                  "cp /certs/server.key /tmp/t19-server.key && chown postgres /tmp/t19-server.key && chmod 600 /tmp/t19-server.key && exec docker-entrypoint.sh postgres -c wal_level=logical -c max_replication_slots=10 -c max_wal_senders=10 -c ssl=on -c ssl_cert_file=/certs/server.crt -c ssl_key_file=/tmp/t19-server.key")
         port = int(run("docker", "port", cid, "5432/tcp").split(":")[-1])
         kwargs = dict(host="127.0.0.1", port=port, user="postgres", password=password,
                       dbname="postgres", sslmode="verify-full", sslrootcert=str(root / "server.crt"),
