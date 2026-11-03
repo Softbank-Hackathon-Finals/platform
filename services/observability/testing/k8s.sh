@@ -7,6 +7,7 @@
 #  4. Collector를 0개로 줄이면 BravoEnvUnobservable 알림이 onprem에 대해 뜬다
 #  5. 콘솔용 조회 API가 restricted로 뜨고, platform-client 라벨 네임스페이스에서만 호출된다(토큰 필수)
 #  6. DB 오버레이: T6과 같은 CNPG(오퍼레이터 1.30.1, PostgreSQL 18.4)의 지표가 최소 권한으로 수집되고 조회 API DB 뷰에 보인다
+#  7. 창 수신(T36)이 restricted로 뜨고, window-producer 라벨 네임스페이스의 수신 토큰만 받으며, 밖으로 나가지 못한다
 # helm이 필요하다(CNPG 차트).
 set -euo pipefail
 cd "$(dirname "$0")"
@@ -20,6 +21,7 @@ NS=bravo-observability
 CERT_DIR=$(mktemp -d)
 KUBECONFIG="$CERT_DIR/kubeconfig"
 API_TOKEN=$(openssl rand -hex 24)
+WINDOW_TOKEN=$(openssl rand -hex 24)
 export CERT_DIR KUBECONFIG
 PF=""
 # set -e 아래에서 죽인 port-forward의 wait가 143을 돌려주면 정리가 멈추고 결과와 다른 종료 코드가 나간다. 실패를 무시하고 끝까지 정리한다
@@ -48,7 +50,7 @@ docker exec "$NAME" cat /etc/rancher/k3s/k3s.yaml | sed "s#https://127.0.0.1:644
 for _ in $(seq 60); do kubectl get nodes 2>/dev/null | grep -q " Ready" && break; sleep 2; done
 kubectl wait --for=condition=Ready node --all --timeout=120s >/dev/null
 # 조회 API 이미지를 로컬에서 빌드해 k3s에 넣는다(레지스트리를 쓰지 않음)
-docker build -q -t bravo-observability-api:dev .. >/dev/null
+docker build -q -t bravo-observability-api:dev -f ../Dockerfile ../../.. >/dev/null
 docker save bravo-observability-api:dev | docker exec -i "$NAME" ctr -n k8s.io images import - >/dev/null
 
 echo "== CNPG (T6 출발지와 같은 버전)"
@@ -75,6 +77,8 @@ done
 kubectl -n "$NS" create secret generic bravo-observability-api-tls --from-file="$CERT_DIR/console-api/ca.crt" \
   --from-file="$CERT_DIR/console-api/tls.crt" --from-file="$CERT_DIR/console-api/tls.key" >/dev/null
 kubectl -n "$NS" create secret generic bravo-observability-api-token --from-literal=token="$API_TOKEN" >/dev/null
+kubectl -n "$NS" create secret generic bravo-window-intake-token --from-literal=token="$WINDOW_TOKEN" >/dev/null
+kubectl -n "$NS" create configmap bravo-window-intake --from-literal=plans=plan-k8s >/dev/null
 kubectl -n "$NS" create configmap bravo-collector-env --from-literal=BRAVO_ENV=onprem \
   --from-literal=PLATFORM_OTLP_ENDPOINT="https://bravo-prometheus.$NS.svc:9090/api/v1/otlp" \
   --from-literal=BRAVO_DB_NAMESPACE=source-dev >/dev/null
@@ -85,7 +89,8 @@ r=ok
 kubectl -n "$NS" rollout status deploy/bravo-prometheus --timeout=240s >/dev/null || r=fail
 kubectl -n "$NS" rollout status deploy/bravo-collector --timeout=240s >/dev/null || r=fail
 kubectl -n "$NS" rollout status deploy/bravo-observability-api --timeout=240s >/dev/null || r=fail
-check $r "restricted 네임스페이스에서 지표 저장소 · Collector · 조회 API가 준비됨"
+kubectl -n "$NS" rollout status deploy/bravo-window-intake --timeout=240s >/dev/null || r=fail
+check $r "restricted 네임스페이스에서 지표 저장소 · Collector · 조회 API · 창 수신이 준비됨"
 
 kubectl -n "$NS" port-forward svc/bravo-prometheus 19090:9090 >/dev/null 2>&1 &
 PF=$!
@@ -148,6 +153,42 @@ check $r "틀린 토큰은 거부(401)"
 [ "$control" = ok ] && [ "$(call stranger "$API_TOKEN" stranger)" = Failed ] && r=ok || r=fail
 check $r "라벨이 없는 네임스페이스(stranger)는 올바른 토큰이 있어도 NetworkPolicy가 막음"
 
+echo "== 창 수신 (T36)"
+kubectl create namespace loadgen >/dev/null
+kubectl label namespace loadgen bravo.observability/window-producer=true >/dev/null
+win() { # 창 끝 시각(epoch 초) → 계약을 지킨 빈 SliWindow
+  python3 -c 'import json,sys,datetime as d
+e=d.datetime.fromtimestamp(int(sys.argv[1]),d.UTC);f=lambda t:t.strftime("%Y-%m-%dT%H:%M:%SZ")
+p={"requests":0,"http_5xx":0,"integrity_conflict":0,"p95_ms":None}
+print(json.dumps({"kind":"sli_window","schema_version":"1","plan_id":"plan-k8s","source":"loadgen","window":{"start":f(e-d.timedelta(seconds=10)),"end":f(e)},"received_at":f(e),"pools":{"source":p,"target":p},"unattributed":{"timeout":0,"connect":0,"other":0}}))' "$1"
+}
+post() { # 네임스페이스 토큰 이름 본문 → Pod 결과(2xx면 Succeeded)
+  kubectl -n "$1" run "post-$3" --image=busybox:1.37.0@sha256:a7dbc319b1438115a207e11930dc4bb3e643dcb3ec0bdd694bb36cd8fad289ec \
+    --restart=Never -- wget -q -T 5 -O - --header "Authorization: Bearer $2" --header "Content-Type: application/json" \
+    --post-data "$4" "http://bravo-window-intake.$NS.svc:8080/v1/observability/windows" >/dev/null
+  for _ in $(seq 30); do p=$(kubectl -n "$1" get pod "post-$3" -o jsonpath='{.status.phase}'); case $p in Succeeded|Failed) break;; esac; sleep 2; done
+  echo "$p"
+}
+t0=$(( $(date +%s) - 10 ))
+W1=$(win "$t0"); W2=$(win $((t0 + 1))); W3=$(win $((t0 + 2)))
+phase=$(post loadgen "$WINDOW_TOKEN" ok "$W1")
+# 생산자가 넣은 received_at(창 끝)은 버리고 플랫폼이 받은 시각으로 덮어써야 한다
+got=$(kubectl -n loadgen logs post-ok 2>/dev/null | W="$W1" python3 -c 'import json,os,sys;d=json.load(sys.stdin);print(d["plan_id"], d["received_at"] != json.loads(os.environ["W"])["received_at"])' 2>/dev/null || echo 없음)
+[ "$phase" = Succeeded ] && [ "$got" = "plan-k8s True" ] && control=ok || control=fail
+check $control "loadgen 네임스페이스에서 수신 토큰으로 창 저장(201), received_at은 플랫폼 시각 (pod: $phase)"
+[ "$control" = ok ] && [ "$(post loadgen "$WINDOW_TOKEN" dup "$W1")" = Failed ] && \
+  [ "$(post loadgen "$API_TOKEN" console-token "$W2")" = Failed ] && r=ok || r=fail
+check $r "같은 창은 한 번만(409), 콘솔 토큰으로는 보낼 수 없음(401)"
+# 막힌 뒤 같은 창을 loadgen이 보내 성공해야, 막힌 쪽이 저장하지 못했음이 확인된다
+[ "$control" = ok ] && [ "$(post stranger "$WINDOW_TOKEN" stranger "$W2")" = Failed ] && \
+  [ "$(post console "$WINDOW_TOKEN" console "$W3")" = Failed ] && \
+  [ "$(post loadgen "$WINDOW_TOKEN" after "$W3")" = Succeeded ] && r=ok || r=fail
+check $r "라벨이 없는 네임스페이스와 콘솔 네임스페이스는 올바른 토큰이 있어도 NetworkPolicy가 막음"
+dns=$(kubectl -n kube-system get svc kube-dns -o jsonpath='{.spec.clusterIP}')
+reach() { kubectl -n "$NS" exec "deploy/$1" -- python -c "import socket;socket.create_connection(('$dns',53),3)" >/dev/null 2>&1; }
+reach bravo-observability-api && ! reach bravo-window-intake && r=ok || r=fail
+check $r "창 수신은 밖으로 나가지 못함 (대조군: 조회 API는 DNS 53 연결 성공)"
+
 echo "== DB 지표 (CNPG)"
 sa=system:serviceaccount:$NS:bravo-collector
 [ "$(kubectl auth can-i list pods -n source-dev --as "$sa")" = yes ] && \
@@ -175,12 +216,33 @@ check $r "조회 API DB 뷰: 상태 OK, 논리 슬롯과 비활성 여부 표시
 
 if [ "${BRAVO_K8S_CAPACITY:-0}" = 1 ]; then
   echo "== 자원 실측: 평상(60초)"
-  python3 stats.py "$NAME" 60 5 collector prometheus api
-  echo "== 자원 실측: 부하(앱 지표 약 2000건/초 = 데모 예상의 약 10배, 180초)"
+  python3 stats.py "$NAME" 60 5 collector prometheus api intake
+  echo "== 자원 실측: 부하(앱 지표 약 2000건/초 = 데모 예상의 약 10배, 창 10건/초 = 100배, 180초)"
+  kubectl -n loadgen run winload --image=docker.io/library/bravo-observability-api:dev --restart=Never \
+    --env=BRAVO_WINDOW_TOKEN="$WINDOW_TOKEN" --command -- python -c '
+import collections, datetime as d, os, time, httpx
+from bravo_observability import Record, build_window
+recs = [Record("aws", 200, 100.0)] * 1800 + [Record("onprem", 200, 120.0)] * 200
+c = httpx.Client(base_url="http://bravo-window-intake.bravo-observability.svc:8080", headers={"Authorization": "Bearer " + os.environ["BRAVO_WINDOW_TOKEN"]})
+f = lambda t: t.isoformat().replace("+00:00", "Z")
+stop, results = time.time() + 180, collections.Counter()
+while time.time() < stop:
+    e = d.datetime.now(d.UTC) - d.timedelta(seconds=1)
+    w = build_window(recs, plan_id="plan-k8s", start=f(e - d.timedelta(seconds=10)), end=f(e), pools={"aws": "source", "onprem": "target"})
+    try:
+        results[c.post("/v1/observability/windows", json=w).status_code] += 1
+    except httpx.HTTPError as err:
+        results[type(err).__name__] += 1
+    time.sleep(0.1)
+print(dict(results))' >/dev/null
   kubectl -n app run load --image="$GEN" --restart=Never -- metrics \
     --otlp-endpoint "bravo-collector.$NS.svc:4317" --otlp-insecure --duration 180s --workers 20 --rate 100 \
     --otlp-metric-name bravo_load --otlp-attributes 'service.name="demo-chat"' >/dev/null
-  python3 stats.py "$NAME" 180 5 collector prometheus api
+  python3 stats.py "$NAME" 180 5 collector prometheus api intake
+  kubectl -n loadgen wait --for=jsonpath='{.status.phase}'=Succeeded pod/winload --timeout=60s >/dev/null || true
+  echo "  창 전송 결과(응답 코드별): $(kubectl -n loadgen logs winload 2>/dev/null | tail -1 || echo 없음)"
+  echo "  창 수신 재시작: $(kubectl -n "$NS" get pod -l app=bravo-window-intake -o jsonpath='{.items[0].status.containerStatuses[0].restartCount} {.items[0].status.containerStatuses[0].lastState.terminated.reason}')"
+  kubectl -n "$NS" get events --field-selector involvedObject.kind=Pod -o custom-columns=R:.reason,O:.involvedObject.name,M:.message --no-headers 2>/dev/null | grep -E "Unhealthy|BackOff|Killing" | sed 's/^/  이벤트: /' || true
   echo "  저장소 시계열 수: $(q 'prometheus_tsdb_head_series' | python3 -c 'import json,sys;r=json.load(sys.stdin)["data"]["result"];print(r[0]["value"][1] if r else "자기 지표 미수집")')"
 fi
 
