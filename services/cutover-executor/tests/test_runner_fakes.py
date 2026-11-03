@@ -341,3 +341,33 @@ def test_pgbouncer_pod_changed_during_execution_is_unknown(store, world, when, c
     assert not (world.login["src"] and world.login["dst"])
 
 
+
+@pytest.mark.parametrize("point", ["before:persist", "persist:read:env-aws"])
+def test_pgbouncer_regenerated_around_persist_is_safe_hold(store, world, point):
+    """#116 재검토: 마지막 ACK와 ConfigMap 변경 사이(또는 ConfigMap을 읽은 직후)에 PgBouncer가 재생성되면
+    새 파드는 아직 출발지인 ConfigMap을 복사해 뜬다. ConfigMap만 목적지로 바꾸고 DONE으로 끝내지 않는다."""
+    def regenerate(_run):
+        world.pod["src"]["uid"] = "u-src-regenerated"
+        world.ini_host["src"] = world.configmap["src"][0].split("host=")[1].split()[0]  # 옛 ConfigMap 복사
+        world.paused["src"] = False
+
+    execution_id = start(store)
+    FakeCutover(store, world, hooks={point: regenerate}).run(execution_id)
+    execution = store.get(execution_id)
+    assert execution.status == Status.SAFE_HOLD, execution.result
+    assert execution.result["failed_step"] == "persist"
+    assert world.ini_host["src"] == "src-db"  # 실제 풀러는 여전히 출발지를 가리킨다
+    from bravo_cutover.store import LeaseHeld
+
+    with pytest.raises(LeaseHeld):
+        start(store)  # lease를 쥐고 있다
+
+
+def test_persist_requires_target_reachable_through_each_pool(store, world):
+    """ConfigMap과 파드가 맞아도 풀러 경로로 목적지에 쓰지 못하면 DONE이 아니다."""
+    def close_target(_run):
+        world.login["dst"] = False
+
+    execution_id = start(store)
+    FakeCutover(store, world, hooks={"persist:read:env-onprem": close_target}).run(execution_id)
+    assert store.get(execution_id).status == Status.SAFE_HOLD
