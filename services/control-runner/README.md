@@ -162,3 +162,5 @@ uv build
 공식 출력 계약 출처는 `tool_reports.py`에 있으며, AWS 권한 차이는
 [GetObject API](https://docs.aws.amazon.com/AmazonS3/latest/API/API_GetObject.html),
 오류 규칙은 [Secrets Manager Common Errors](https://docs.aws.amazon.com/secretsmanager/latest/apireference/CommonErrors.html)를 따른다.
+
+환경 내부 OTLP 감사 기록 연결: [등록 원천·수신 시각·전체 export 검증](docs/otlp-audit.md).
