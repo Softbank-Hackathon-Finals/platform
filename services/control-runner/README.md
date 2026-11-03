@@ -11,6 +11,8 @@ T5의 평가 프로필에 따라 관찰 결과를 `PASS / FAIL / UNKNOWN`으로 
 | 공통 판정기 | 등록된 앱·환경·실행 ID·방법 버전 결속, T5 스키마 검사, 누락 시험 UNKNOWN | 단위 시험 |
 | gitleaks 결과 어댑터 | 소스와 렌더된 설정 양쪽 보고서, 정확한 버전·수집 범위·종료코드 확인 | 합성 보고서 및 로컬 시험 입력 |
 | Prowler / kube-bench 결과 어댑터 | 고정한 점검 ID·대상 집합과 개별 결과 비교 | 합성 보고서; 실제 IAM 점검 매핑 미확정 |
+| AWS Secret 시험 | 앱 역할과 다른 역할로 같은 현재 Secret 읽기 시도 (`SEC-01.1`) | SDK 인터페이스 모의 시험 |
+| AWS 객체 시험 | 앱 읽기 성공 후 동일 객체의 익명 일반 GET (`IAM-01.1`) | SDK 인터페이스 모의 시험 |
 
 **T14 전체 완료가 아니다.** T6 출발지·T9 목적지와의 실제 연결, 나머지 하위 시험,
 Prowler/kube-bench 실행과 실환경 매핑, 양쪽 환경 통제 비교는 남아 있다.
@@ -83,6 +85,32 @@ Prowler/kube-bench 매핑은 도구·정확한 버전·범위·매핑 버전·�
 각 원문의 8바이트 big-endian 길이를 순서대로 붙여 해시한다. 원문에는 민감한 값이 있을 수
 있으므로 콘솔·PR에 저장하지 않는다. 공개 결과에는 고정 사유·건수·해시만 남긴다.
 
+## AWS 읽기 전용 시험
+
+AWS 사용 시 `uv sync --extra aws`로 설치한다. 서버가 각각의 역할로 인증한 SDK 클라이언트를
+주입한다. `SecretTarget` / `ObjectTarget`도 서버 등록 정보에서 가져온다.
+
+- `SecretAccessProbe`: 앱 역할과 별도 역할의 같은 `AWSCURRENT` Secret 읽기. 응답 ARN,
+  버전과 stage가 등록 정보와 다르면 UNKNOWN이다. Secret 값은 증거에 저장하지 않는다.
+- `S3AnonymousReadProbe`: 앱의 일반 GetObject 성공 후 `botocore.UNSIGNED` 클라이언트로
+  익명 일반 GetObject를 시도한다. **요청에 VersionId를 넣지 않는다.** 그러면 다른 권한인
+  GetObjectVersion 시험으로 바뀌기 때문이다. 대신 응답 VersionId가 등록된 현재 버전과
+  같은지 확인한다. 현재는 버전 관리된 객체만 지원한다. 응답 Body는 읽지 않고 닫는다.
+- S3 익명 요청이 거부된 뒤 앱 역할로 같은 버전을 다시 읽어 존재를 확인한다.
+  객체 삭제도 익명 요청에는 403으로 보일 수 있기 때문이다. 전후 대조군 중 하나라도
+  실패하면 UNKNOWN이며 `postpositive`를 증거에 보존한다. 이는 정책과 객체의 원자적
+  스냅샷을 보장하지 않으므로 시험 전용 객체와 승인된 시험 창이 필요하다.
+- 정확한 AccessDenied 계열 코드와 HTTP 상태를 함께 확인한다. Secrets Manager는 해당
+  오류에 400도 사용한다. 403이라는 숫자만으로 잘못된 서명·만료 인증을 정상 거부로 세지 않는다.
+- 연결·읽기 timeout은 각각 10초 이하, standard 재시도는 총 2회 이하만 허용한다.
+  이 설정은 요청마다 다시 확인한다. 전체 작업의 종료 시한을 보장하는 기능은 아니다.
+- `evidence_sink(bytes)`가 성공해야 결과를 반환한다. 보존한 정규 JSON과 결과의 해시를
+  연결한다. 저장소의 실제 내구성·소유권·보존 정책은 호출 서버가 검증해야 한다.
+
+역할 ARN 문자열은 SDK의 실제 호출 신원을 증명하지 않는다. 서버는 별도 신원 확인 후
+클라이언트와 역할을 연결해야 한다. SDK wire/debug 로그를 금지하고, 사용자 코드가 없는
+시험 워커에서 실행한다. 실제 AWS 자격 시험은 수행하지 않았다.
+
 ## 검증
 
 ```sh
@@ -96,4 +124,6 @@ uv build
 등록 정보·최소 권한 클라이언트·시험 전용 객체·증거 저장소를 연결한 뒤 별도로 수행한다.
 감사·회전·복원처럼 쓰기 효과가 있는 시험은 승인된 전용 자원과 정리 절차가 갖춰진 후 추가한다.
 
-공식 출력 계약 출처는 `tool_reports.py`에 명시한다.
+공식 출력 계약 출처는 `tool_reports.py`에 있으며, AWS 권한 차이는
+[GetObject API](https://docs.aws.amazon.com/AmazonS3/latest/API/API_GetObject.html),
+오류 규칙은 [Secrets Manager Common Errors](https://docs.aws.amazon.com/secretsmanager/latest/apireference/CommonErrors.html)를 따른다.
