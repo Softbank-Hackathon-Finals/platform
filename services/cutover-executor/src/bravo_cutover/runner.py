@@ -87,12 +87,13 @@ def _describe(error: Exception) -> str:
 
 class Cutover:
     def __init__(self, store: Store, config: Config, *, comparer: Comparer | None = None,
-                 kube: Callable[[str], Kube] = Kube, hooks: dict[str, Callable[[], None]] | None = None,
+                 kube: Callable[[str], Kube] = Kube, hooks: dict[str, Callable[["Run"], None]] | None = None,
                  clock: Callable[[], float] = time.monotonic):
         self._store, self._config, self._settings = store, config, config.settings
         self._comparer = comparer or RowCountComparer()
         self._kube_factory, self._kubes = kube, {}
-        # 장애 주입 지점(시험 · T25용): "before:<단계>", "commit:subscriptions_changed", "release:<environment_id>"
+        # 장애 주입 지점(시험 · T25용). 함수는 Run을 받는다:
+        # "before:<단계>", "commit:subscriptions_changed", "reconnect:target_opened", "release:<environment_id>"
         self._hooks = hooks or {}
         self._clock = clock
 
@@ -124,22 +125,78 @@ class Cutover:
         확정 뒤면 아무것도 새로 열지 않고 멈춘다(SAFE_HOLD, spec D6)."""
         failure = {"failed_step": run.step, "error": _describe(error)}
         if self._store.get(run.execution_id).committed_at is not None:
-            self._store.set_status(run.execution_id, Status.SAFE_HOLD,
-                                   {"outcome": Status.SAFE_HOLD.value, **failure, "reason": "failed after commit"})
+            self._hold(run, failure, "failed after commit")
             return
         restored: list[str] = []
         try:
             self._restore_source(run, restored)
         except Exception as e:  # noqa: BLE001
             self._store.record_step(run.execution_id, "abort", StepStatus.UNKNOWN, detail=_describe(e))
-            self._store.set_status(run.execution_id, Status.SAFE_HOLD, {
-                "outcome": Status.SAFE_HOLD.value, **failure, "reason": "abort could not be confirmed",
-                "abort_error": _describe(e), "restored": restored,
-            })
+            self._hold(run, failure | {"abort_error": _describe(e), "restored": restored},
+                       "abort could not be confirmed")
             return
         self._store.record_step(run.execution_id, "abort", StepStatus.SUCCEEDED)
         self._store.set_status(run.execution_id, Status.ABORT_PRE_WRITE,
                                {"outcome": Status.ABORT_PRE_WRITE.value, **failure, "restored": restored})
+
+    def _hold(self, run: Run, failure: dict[str, Any], reason: str) -> None:
+        """SAFE_HOLD: 아무것도 새로 열거나 닫지 않는다(spec D10). 양쪽의 지금 상태를 읽어 남기고 사람을 기다린다."""
+        self._store.set_status(run.execution_id, Status.SAFE_HOLD, {
+            "outcome": Status.SAFE_HOLD.value, **failure, "reason": reason, "observed": self._observe(run),
+        })
+
+    def _observe(self, run: Run) -> dict[str, Any]:
+        def read(fn):
+            try:
+                return fn()
+            except Exception:  # noqa: BLE001
+                return "unknown"
+
+        sides = {}
+        for role, side in (("source", run.src), ("target", run.dst)):
+            s = side.site
+            pool = read(side.pool.state)
+            sides[role] = {
+                "environment_id": s.environment_id,
+                "app_role_can_login": read(lambda side=side, s=s: side.db.can_login(s.app_role)),
+                "pgbouncer": pool if pool == "unknown" else {"paused": pool.paused, "host": pool.host},
+                "write_block": read(side.entry.get),
+                "subscription_enabled": read(lambda side=side, s=s: side.db.subscription(s.subscription).enabled),
+            }
+        return {
+            "sides": sides,
+            "writable": [r for r, v in sides.items() if v["app_role_can_login"] is True],
+            "unknown": [r for r, v in sides.items() if v["app_role_can_login"] == "unknown"],
+        }
+
+    # 재시작 ---------------------------------------------------------------
+    def recover(self) -> list[UUID]:
+        """프로세스가 다시 떴을 때 끝나지 않은 실행을 판정한다. 하던 명령을 다시 보내지 않고,
+        원격 상태를 읽어 ABORT_PRE_WRITE(확정 전 · 목적지 닫힘 확인) 또는 SAFE_HOLD로 끝낸다(spec D6)."""
+        handled = []
+        for execution in self._store.unfinished():
+            handled.append(execution.execution_id)
+            if execution.status == Status.PENDING:
+                # 실행기가 시작하기 전에 멈췄다. RUNNING으로 바꾸는 것이 첫 조작이라 원격 효과가 없다.
+                self._store.set_status(execution.execution_id, Status.ABORT_PRE_WRITE, {
+                    "outcome": Status.ABORT_PRE_WRITE.value, "error": "executor restarted before the execution started",
+                    "restored": [],
+                })
+                continue
+            request = CutoverRequest.model_validate(execution.request)
+            self._store.record_step(execution.execution_id, "recover", StepStatus.STARTED)
+            started = [e["step"] for e in execution.steps if e["status"] == StepStatus.STARTED]
+            try:
+                run = Run(execution.execution_id, request, self._side(request.source.environment_id),
+                          self._side(request.target.environment_id), step=started[-1] if started else None)
+            except Exception as e:  # noqa: BLE001
+                self._store.set_status(execution.execution_id, Status.SAFE_HOLD, {
+                    "outcome": Status.SAFE_HOLD.value, "reason": "cannot read remote state after restart",
+                    "error": _describe(e),
+                })
+                continue
+            self._fail(run, RuntimeError("executor restarted during execution"))
+        return handled
 
     def _restore_source(self, run: Run, restored: list[str]) -> None:
         """컷오버 전 상태로 되돌리고 하나씩 확인한다. 이미 그 상태인 것은 건너뛴다(다시 불러도 같다)."""
@@ -180,11 +237,18 @@ class Cutover:
                 raise Unconfirmed(f"{side.site.environment_id} write block still on")
         restored.append("entry_unblocked")
         # 6) 결과 시험: 출발지는 쓰기를 받고, 목적지는 거부한다
-        if try_app_write(src.site.pgbouncer_app_dsn, f"abort:{run.execution_id}") != WriteRefusal.ACCEPTED:
-            raise Unconfirmed("source does not accept app writes after abort")
+        deadline = self._clock() + self._settings.restore_verify_timeout_s
+        while try_app_write(src.site.pgbouncer_app_dsn, f"abort:{run.execution_id}") != WriteRefusal.ACCEPTED:
+            if self._clock() > deadline:
+                raise Unconfirmed("source does not accept app writes after abort")
+            time.sleep(0.5)
         if try_app_write(dst.site.db_app_dsn, f"abort:{run.execution_id}") != WriteRefusal.REFUSED:
             raise Unconfirmed("target does not refuse app writes after abort")
         restored.append("writes_verified")
+
+    def _hook(self, point: str, run: "Run") -> None:
+        if hook := self._hooks.get(point):
+            hook(run)
 
     def _side(self, environment_id: str) -> Side:
         site = self._config.sites.get(environment_id)
@@ -201,8 +265,7 @@ class Cutover:
         self._store.record_step(run.execution_id, name, StepStatus.STARTED)
         start = self._clock()
         try:
-            if hook := self._hooks.get(f"before:{name}"):
-                hook()
+            self._hook(f"before:{name}", run)
             yield
         except StepFailed as e:
             self._store.record_step(run.execution_id, name, StepStatus.FAILED, self._ms(start), str(e))
@@ -332,8 +395,7 @@ class Cutover:
         self._store.mark(run.execution_id, "stage6_entered_at")
         dst.db.set_subscription(dst.site.subscription, False, dst.site.subscription_owner)
         src.db.set_subscription(src.site.subscription, True, src.site.subscription_owner)
-        if hook := self._hooks.get("commit:subscriptions_changed"):
-            hook()
+        self._hook("commit:subscriptions_changed", run)
         self._store.mark(run.execution_id, "committed_at")
         run.receipt["committed_at"] = datetime.now(UTC).isoformat()
 
@@ -341,6 +403,7 @@ class Cutover:
     def _reconnect(self, run: Run) -> None:
         dst = run.dst
         dst.db.set_login(dst.site.app_role, True)
+        self._hook("reconnect:target_opened", run)
         for side in (run.src, run.dst):
             side.pool_config.retarget(side.site.pgbouncer_database, dst.site.db_host, dst.site.db_port, dst.site.db_name)
             side.pool.reload()
@@ -354,8 +417,7 @@ class Cutover:
     def _release(self, run: Run) -> None:
         def release(side: Side) -> None:
             env = side.site.environment_id
-            if hook := self._hooks.get(f"release:{env}"):
-                hook()
+            self._hook(f"release:{env}", run)
             if any(side.entry.set(False).values()):
                 raise Unconfirmed(f"{env} write block still on")
             run.acks[f"entry:{env}"] = self._clock()
@@ -394,11 +456,18 @@ class Cutover:
 
 
 class ThreadRunner:
-    """API가 요청을 받으면 기록을 남긴 뒤 이 실행기로 넘긴다. 한 번에 한 실행만 돈다."""
+    """API가 요청을 받으면 기록을 남긴 뒤 이 실행기로 넘긴다. 한 번에 한 실행만 돈다.
 
-    def __init__(self, cutover: Cutover):
+    시작할 때 다른 Executor 프로세스가 없는지 확인하고(DB 잠금), 끝나지 않은 실행부터 판정한다.
+    """
+
+    def __init__(self, cutover: Cutover, store: Store | None = None):
+        if store is not None and not store.acquire_singleton():
+            raise RuntimeError("another cutover executor holds the executor lock")
         self._cutover = cutover
         self._pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="cutover")
+        if store is not None:
+            cutover.recover()
 
     def submit(self, execution_id: UUID) -> None:
         self._pool.submit(self._cutover.run, execution_id)

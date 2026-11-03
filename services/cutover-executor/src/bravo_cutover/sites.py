@@ -48,6 +48,9 @@ class Settings(BaseModel):
     pause_timeout_s: float = 3
     barrier_timeout_s: float = 10
     fence_timeout_s: float = 3
+    # 복구 뒤 출발지 쓰기 확인을 기다리는 시간. PgBouncer는 서버 로그인 실패를 server_login_retry(기본 15초)
+    # 동안 기억하고 바로 거절하므로, 펜싱 중 로그인을 시도한 PgBouncer는 복구 직후 잠시 쓰기를 거절한다.
+    restore_verify_timeout_s: float = 20
     # 비교 대상과 시퀀스(올리기만). 시퀀스는 {이름: [테이블, 열]}
     tables: list[str] = ["public.attachments", "public.messages"]
     sequences: dict[str, tuple[str, str]] = {"public.messages_id_seq": ("public.messages", "id")}

@@ -101,7 +101,7 @@ def test_cutover_happy_path(store, config, sides):
 def test_write_pause_ends_at_the_last_path_ack(store, config, sides):
     """한 경로의 차단 해제를 2초 늦추면 쓰기 정지 시간이 그만큼 늘어난다(첫 ACK에서 끝내지 않는다)."""
     execution_id = start(store)
-    Cutover(store, config, hooks={"release:env-onprem": lambda: time.sleep(2)}).run(execution_id)
+    Cutover(store, config, hooks={"release:env-onprem": lambda _run: time.sleep(2)}).run(execution_id)
     result = store.get(execution_id).result
     assert store.get(execution_id).status == Status.DONE
     acks = result["path_acks_ms"]

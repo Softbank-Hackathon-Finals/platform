@@ -6,12 +6,13 @@ from pathlib import Path
 
 import pytest
 
-from bravo_cutover.remote.db import DbControl
+from bravo_cutover.remote.db import DbControl, WriteRefusal, try_app_write
 from bravo_cutover.remote.kube import Kube, WriteBlock
 from bravo_cutover.remote.pgbouncer import PgBouncerAdmin, PgBouncerConfig, retarget_ini
 from bravo_cutover.sites import Config, Site, load_config
 
 SITES_FILE = Path(__file__).resolve().parents[1] / "testing" / ".state" / "sites.json"
+REPLICATED = ["public.attachments", "public.messages", "cutover.barrier", "cutover.probe"]
 needs_mockenv = pytest.mark.skipif(not SITES_FILE.exists(), reason="모의 환경 없음 (testing/mockenv.py up)")
 
 
@@ -28,9 +29,10 @@ def reset(src: Site, dst: Site) -> None:
         ddb.set_login(dst.app_role, False)
     ddb.terminate_sessions(dst.app_role)
     if sdb.subscription(src.subscription).enabled:
-        # 목적지에 쓴 것이 출발지에 다 따라온 뒤 역방향을 끈다
-        wanted, deadline = int(ddb.current_wal_lsn()), time.monotonic() + 15
-        while int(sdb.received_lsn(src.subscription) or 0) < wanted:
+        # 목적지에 쓴 것이 출발지에 다 따라온 뒤 역방향을 끈다. 목적지가 쉬면 위치(LSN) 보고가 늦게 갱신되므로
+        # 행 수로 본다(목적지는 이미 닫혀 새 쓰기가 없다).
+        deadline = time.monotonic() + 15
+        while any(sdb.row_count(t) != ddb.row_count(t) for t in REPLICATED):
             assert time.monotonic() < deadline, "reverse replication did not catch up"
             time.sleep(0.1)
         sdb.set_subscription(src.subscription, False, src.subscription_owner)
@@ -49,6 +51,11 @@ def reset(src: Site, dst: Site) -> None:
         kube.patch_configmap(site.namespace, site.pgbouncer_configmap, site.pgbouncer_configmap_key,
                              retarget_ini(ini, site.pgbouncer_database, src.db_host, src.db_port, src.db_name))
         WriteBlock(kube, site.namespace, site.app_selector).set(False)
+    # PgBouncer가 기억한 로그인 실패(server_login_retry)가 풀릴 때까지 기다린다
+    deadline = time.monotonic() + 30
+    while try_app_write(src.pgbouncer_app_dsn, "reset") != WriteRefusal.ACCEPTED:
+        assert time.monotonic() < deadline, "source path does not accept writes after reset"
+        time.sleep(0.5)
 
 
 class WriterWatch:

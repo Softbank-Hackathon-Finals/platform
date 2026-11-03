@@ -71,7 +71,7 @@ def test_long_transaction_is_rejected_before_pause(store, sides):
     src, dst = sides
     tx = psycopg.connect(src.pgbouncer_app_dsn)
 
-    def open_long_transaction():
+    def open_long_transaction(_run):
         tx.execute("SELECT 1")
         time.sleep(0.4)
 
@@ -90,7 +90,7 @@ def test_pause_deadline_exceeded(store, sides):
     src, dst = sides
     tx = psycopg.connect(src.pgbouncer_app_dsn)
     try:
-        execution = run_with(store, src, dst, {"before:pause": lambda: tx.execute("SELECT 1")},
+        execution = run_with(store, src, dst, {"before:pause": lambda _run: tx.execute("SELECT 1")},
                              pause_timeout_s=1, long_transaction_ms=60_000)
     finally:
         tx.rollback()
@@ -103,7 +103,7 @@ def test_pause_deadline_exceeded(store, sides):
 def test_barrier_does_not_arrive(store, sides):
     src, dst = sides
     ddb = DbControl(dst.db_control_dsn)
-    stop_forward = lambda: ddb.set_subscription(dst.subscription, False, dst.subscription_owner)  # noqa: E731
+    stop_forward = lambda _run: ddb.set_subscription(dst.subscription, False, dst.subscription_owner)  # noqa: E731
     execution = run_with(store, src, dst, {"before:compare": stop_forward}, barrier_timeout_s=1.5)
     assert execution.status == Status.ABORT_PRE_WRITE, execution.result
     assert failed_step(execution) == "compare" and "barrier" in execution.result["error"]
@@ -115,7 +115,7 @@ def test_failure_after_subscription_change_restores_replication(store, sides):
     """6단계에서 구독을 바꾼 뒤 확정 기록 전에 실패하면 구독까지 되돌린다."""
     src, dst = sides
 
-    def crash():
+    def crash(_run):
         raise RuntimeError("injected after subscription change")
 
     execution = run_with(store, src, dst, {"commit:subscriptions_changed": crash})
@@ -137,7 +137,10 @@ def test_integrity_mismatch(store, sides):
                         "--", "psql", "-U", "postgres", "-d", "chat", "-v", "ON_ERROR_STOP=1"],
                        input=sql, text=True, check=True, capture_output=True)
 
-    plant = lambda: psql(f"INSERT INTO messages (idempotency_key, author, body) VALUES ('{key}', 'x', 'only on target');")  # noqa: E731
+    # 목적지에서 넣고 지운 기록도 다음 컷오버 때 역방향 복제로 출발지에 간다. 출발지 id와 겹치지 않게 큰 id를 쓴다.
+    planted_id = 10**12 + uuid.uuid4().int % 10**9
+    plant = lambda _run: psql(  # noqa: E731
+        f"INSERT INTO messages (id, idempotency_key, author, body) VALUES ({planted_id}, '{key}', 'x', 'only on target');")
     try:
         execution = run_with(store, src, dst, {"before:compare": plant})
     finally:

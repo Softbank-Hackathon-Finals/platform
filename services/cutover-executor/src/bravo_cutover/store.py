@@ -12,6 +12,7 @@ from datetime import datetime
 from typing import Any
 from uuid import UUID, uuid4
 
+import psycopg
 from psycopg import errors
 from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
@@ -108,10 +109,13 @@ class Execution:
 
 class Store:
     def __init__(self, conninfo: str, *, max_size: int = 8):
+        self._conninfo = conninfo
         self._pool = ConnectionPool(conninfo, min_size=1, max_size=max_size, open=True,
                                     kwargs={"row_factory": dict_row})
 
     def close(self) -> None:
+        if getattr(self, "_singleton", None) is not None:
+            self._singleton.close()
         self._pool.close()
 
     def migrate(self) -> None:
@@ -208,3 +212,22 @@ class Store:
                 f"UPDATE executor.executions SET {milestone} = now(), updated_at = now() WHERE execution_id = %s",
                 (execution_id,),
             )
+
+    def unfinished(self) -> list[Execution]:
+        with self._pool.connection() as conn:
+            rows = conn.execute(
+                "SELECT * FROM executor.executions WHERE status = ANY(%s) ORDER BY created_at",
+                ([Status.PENDING.value, Status.RUNNING.value],),
+            ).fetchall()
+        return [Execution.from_row(r) for r in rows]
+
+    def acquire_singleton(self) -> bool:
+        """Executor 프로세스를 하나로 제한한다. 잠금은 이 연결이 살아 있는 동안 유지되고, 프로세스가 죽으면 풀린다."""
+        if getattr(self, "_singleton", None) is not None:
+            return True
+        conn = psycopg.connect(self._conninfo, autocommit=True)
+        if conn.execute("SELECT pg_try_advisory_lock(hashtext('bravo_cutover_executor'))").fetchone()[0]:
+            self._singleton = conn
+            return True
+        conn.close()
+        return False

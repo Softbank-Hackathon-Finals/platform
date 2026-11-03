@@ -36,7 +36,7 @@ def create_app(store: Store | None = None, runner: Runner | None = None) -> Fast
         from bravo_cutover.runner import Cutover, ThreadRunner
         from bravo_cutover.sites import load_config
 
-        runner = ThreadRunner(Cutover(store, load_config(os.environ["EXECUTOR_CONFIG"])))
+        runner = ThreadRunner(Cutover(store, load_config(os.environ["EXECUTOR_CONFIG"])), store)
     runner = runner or NoRunner()
     app = FastAPI(title="cutover-executor")
 
