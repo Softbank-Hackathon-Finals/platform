@@ -27,7 +27,7 @@ from bravo_agent.subscription_store import (
     host_id,
 )
 
-HOST = "urn:uuid:00000000-0000-4000-8000-000000000001"
+HOST = "urn:uuid:00000000-0000-4000-8000-000000000000"
 ARN = "arn:aws:secretsmanager:ap-northeast-2:111122223333:secret:subscription-example-abcdef"
 
 
