@@ -26,6 +26,16 @@ def json_command(args):
         return None
 
 
+def pod_ready(pod):
+    status = pod.get("status", {})
+    if status.get("phase") == "Succeeded":
+        return True
+    return status.get("phase") == "Running" and any(
+        c.get("type") == "Ready" and c.get("status") == "True"
+        for c in status.get("conditions", [])
+    )
+
+
 def collect():
     kube = "/var/lib/rancher/rke2/bin/kubectl"
     nodes = json_command([kube, "get", "nodes", "-o", "json", "--request-timeout=10s"])
@@ -51,7 +61,7 @@ def collect():
     curl_code, curl_output = command(["curl", "--silent", "--output", "/dev/null", "--write-out", "%{http_code}",
                                       "--connect-timeout", "5", "--max-time", "10", "https://ghcr.io/v2/"])
     return {
-        "schema_version": 1,
+        "schema_version": 2,
         "cloud_init_status": cloud_status,
         "bootstrap_marker_exists": Path("/var/lib/bravo-runtime-ready").is_file(),
         "rke2_service_active": command(["systemctl", "is-active", "--quiet", "rke2-server"])[0] == 0,
@@ -65,6 +75,7 @@ def collect():
         "system_pods_query_succeeded": pods is not None,
         "system_pod_count": len(pod_items),
         "system_pods_pending_or_failed": sum(x.get("status", {}).get("phase") in ("Pending", "Failed", "Unknown") for x in pod_items),
+        "system_pods_not_ready": sum(not pod_ready(x) for x in pod_items),
         "smoke_can_get_secret": can_i("get", "secrets", "platform-smoke"),
         "smoke_can_create_configmap": can_i("create", "configmaps", "platform-smoke"),
         "smoke_can_write_other_namespace": can_i("create", "configmaps", "default"),

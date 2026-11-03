@@ -25,7 +25,7 @@ python3 scripts/t7_runtime_readback.py \
 
 실행 전 계정·인스턴스·기반 VPC·`project=bravo-platform`·`component=platform`·Terraform 소유 태그·전용 인스턴스 프로필·공인 IP 없음·running을 확인한다. 다른 자원이나 상태 불일치가 있으면 명령을 보내지 않는다. SSM 명령 ID와 실제 대상 ID는 비공개 receipt에만 보관한다. 같은 receipt 파일을 덮어쓰지 않는다.
 
-SSM에서 하는 일은 서비스 상태, `/readyz`, 노드 Ready, 시스템 Pod 수/비정상 phase 수, CIS 프로필 설정, kubeconfig 파일 권한, 제한된 smoke 서비스 계정의 RBAC 판정, GHCR HTTPS 도달 조회다. 임의 명령·매니페스트 입력이나 쓰기 동작을 받지 않는다. 표준출력은 정해진 boolean·숫자·버전·열거값만 허용하고 원격 stdout/stderr·오류 원문은 내보내지 않는다. 로컬에 AWS 자격증명이나 kubeconfig를 새로 만들지 않는다.
+SSM에서 하는 일은 서비스 상태, `/readyz`, 노드 Ready, 시스템 Pod 수/Ready 조건/비정상 phase 수, CIS 프로필 설정, kubeconfig 파일 권한, 제한된 smoke 서비스 계정의 RBAC 판정, GHCR HTTPS 도달 조회다. `kube-system` Pod 목록이 비어 있으면 실패하며, Running Pod는 Ready=True여야 한다. 정상 종료된 Succeeded 작업 Pod는 허용한다. 임의 명령·매니페스트 입력이나 쓰기 동작을 받지 않는다. 표준출력은 정해진 boolean·숫자·버전·열거값만 허용하고 원격 stdout/stderr·오류 원문은 내보내지 않는다. 로컬에 AWS 자격증명이나 kubeconfig를 새로 만들지 않는다.
 
 | 결과 | 뜻 |
 |---|---|
@@ -33,7 +33,7 @@ SSM에서 하는 일은 서비스 상태, `/readyz`, 노드 Ready, 시스템 Pod
 | exit 2, `operator_readiness=NOT_READY` | 명령은 성공했으나 서비스·노드·권한 등 준비 조건이 충족되지 않음 |
 | exit 1, `readiness=NOT_VERIFIED` | 계정/소유 경계, API 응답, 실행 또는 결과 스키마를 신뢰할 수 없음 |
 
-프로세스 실행 성공만으로 준비 완료를 표시하지 않는다. 시스템 Pod phase 검사도 모든 workload readiness probe의 성공을 의미하지 않는다. `profile: cis`는 설정 확인이며 CIS benchmark 합격 판정이 아니다. `ghcr_http_status=401`은 레지스트리에 도달했다는 뜻이고 이미지 인증·pull 성공이 아니다.
+프로세스 실행 성공만으로 준비 완료를 표시하지 않는다. 이 검사는 `kube-system` Pod의 Ready 조건 또는 정상 종료를 확인하며, 다른 namespace의 앱 workload까지 검증하지 않는다. `profile: cis`는 설정 확인이며 CIS benchmark 합격 판정이 아니다. `ghcr_http_status=401`은 레지스트리에 도달했다는 뜻이고 이미지 인증·pull 성공이 아니다.
 
 ## Actions OIDC와 배포 증거
 

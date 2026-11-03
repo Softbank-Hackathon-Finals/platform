@@ -11,3 +11,9 @@
 로컬 scripts 시험 58개와 Ruff가 통과했다. [local-tests.txt](local-tests.txt), [sources.json](sources.json). 소스 해시는 최종 검사 코드이며 AWS 실제 probe 해시는 host receipt에서 확인한다. 운영자 인증에 의한 서버 내부 kubectl과 팀원별 Kubernetes 인증은 분리한다. 인스턴스는 운영 기반이므로 시험 종료 후 삭제하지 않았다. 검사 종료로 남은 터널이나 새 키는 없다.
 
 다음은 GHCR 앱 이미지 digest와 실제 pull 증거를 확보해 T6에 전달하고, 개인 인증과 제품 역할별 접근/플랫폼 DB 등 T7의 나머지 항목을 검증하는 것이다. 이 기록만으로 이슈 #12 전체를 완료 처리하지 않는다. [검증 절차](../../t7-runtime-verification.md).
+
+## 리뷰 후 시스템 Pod 준비 검사 강화
+
+초기 schema v1은 시스템 Pod의 phase만 확인해 Running/Ready=False 또는 빈 목록을 준비 성공으로 잘못 받아들일 수 있었다. 원래 [host-readback.json](host-readback.json)과 소스/시험 기록은 이력으로 보존한다. 현재 schema v2는 목록이 비어 있으면 실패하고 Running Pod의 Ready=True를 요구하며, 정상 종료된 Succeeded 작업 Pod는 허용한다. CrashLoopBackOff/Ready=False, 빈 목록, 정상 완료 작업 반례를 검사했다.
+
+17:39:46 KST 같은 운영 서버에서 읽기 전용 SSM 검사를 한 번 더 실행했다. 시스템 Pod 17개 중 `system_pods_not_ready=0`, 노드 1/1 Ready, 나머지 경계 검사도 유지되어 `operator_readiness=PASS`를 확인했다. 최신 판정은 [host-readback-v2.json](host-readback-v2.json)을 사용한다. [local-tests-v2.txt](local-tests-v2.txt)의 전체 107개 시험 및 Ruff가 통과했다. 최종 소스 해시는 [sources-v2.json](sources-v2.json)에 있다.

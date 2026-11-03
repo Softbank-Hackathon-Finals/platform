@@ -43,10 +43,10 @@ def validate_instance(instance, config):
 
 def validate_host(body):
     boolean_fields = {"bootstrap_marker_exists", "rke2_service_active", "cis_profile_configured", "kubeconfig_owner_only", "api_ready", "nodes_query_succeeded", "system_pods_query_succeeded", "human_kubernetes_login_verified", "ghcr_image_pull_verified", "cis_benchmark_verified"}
-    count_fields = {"node_count", "ready_node_count", "system_pod_count", "system_pods_pending_or_failed"}
+    count_fields = {"node_count", "ready_node_count", "system_pod_count", "system_pods_pending_or_failed", "system_pods_not_ready"}
     rbac_fields = {"smoke_can_get_secret", "smoke_can_create_configmap", "smoke_can_write_other_namespace"}
     expected = boolean_fields | count_fields | rbac_fields | {"schema_version", "cloud_init_status", "rke2_version", "ghcr_http_status"}
-    if set(body) != expected or type(body.get("schema_version")) is not int or body["schema_version"] != 1:
+    if set(body) != expected or type(body.get("schema_version")) is not int or body["schema_version"] != 2:
         raise Failure("host_receipt_schema_mismatch")
     if any(type(body[k]) is not bool for k in boolean_fields):
         raise Failure("host_receipt_boolean_invalid")
@@ -67,7 +67,8 @@ def validate_host(body):
 def operator_path_ready(body):
     required = ("bootstrap_marker_exists", "rke2_service_active", "cis_profile_configured", "kubeconfig_owner_only", "api_ready", "nodes_query_succeeded", "system_pods_query_succeeded")
     return (all(body[k] for k in required) and body["cloud_init_status"] == "done" and body["node_count"] > 0
-            and body["ready_node_count"] == body["node_count"] and body["system_pods_pending_or_failed"] == 0
+            and body["ready_node_count"] == body["node_count"] and body["system_pod_count"] > 0
+            and body["system_pods_pending_or_failed"] == 0 and body["system_pods_not_ready"] == 0
             and body["smoke_can_get_secret"] == "no" and body["smoke_can_create_configmap"] == "yes"
             and body["smoke_can_write_other_namespace"] == "no")
 
