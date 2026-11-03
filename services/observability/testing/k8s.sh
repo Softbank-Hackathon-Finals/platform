@@ -6,9 +6,13 @@
 #  3. 라벨이 없는 네임스페이스는 NetworkPolicy가 막는다 (Collector로 보내기, 지표 저장소 연결 모두)
 #  4. Collector를 0개로 줄이면 BravoEnvUnobservable 알림이 onprem에 대해 뜬다
 #  5. 콘솔용 조회 API가 restricted로 뜨고, platform-client 라벨 네임스페이스에서만 호출된다(토큰 필수)
+#  6. DB 오버레이: T6과 같은 CNPG(오퍼레이터 1.30.1, PostgreSQL 18.4)의 지표가 최소 권한으로 수집되고 조회 API DB 뷰에 보인다
+# helm이 필요하다(CNPG 차트).
 set -euo pipefail
 cd "$(dirname "$0")"
 
+CNPG_IMAGE=1.30.1@sha256:923c267ec29636db3bee20f993d0ec4973fa22998e1adad37da79e4d32b5bc07
+PG_IMAGE=ghcr.io/cloudnative-pg/postgresql:18.4-system-trixie@sha256:42708a75345b7a48fdd9257b071830783a97fd228529196b6313187a7198e185
 K3S=rancher/k3s:v1.35.9-k3s1@sha256:ec9868c6a38d4e8c1869832fb5fd1eb8473c39794a0b44d2b952e7ba911951bc
 GEN=ghcr.io/open-telemetry/opentelemetry-collector-contrib/telemetrygen:v0.164.0@sha256:b536c7220c5ea587f04dff6c5e6eecb48e40b5b58ce70690b15734aae98d8321
 NAME=bravo-obs-k3s
@@ -42,6 +46,19 @@ kubectl wait --for=condition=Ready node --all --timeout=120s >/dev/null
 docker build -q -t bravo-observability-api:dev .. >/dev/null
 docker save bravo-observability-api:dev | docker exec -i "$NAME" ctr -n k8s.io images import - >/dev/null
 
+echo "== CNPG (T6 출발지와 같은 버전)"
+kubectl create namespace cnpg-system >/dev/null
+kubectl create namespace source-dev >/dev/null
+helm repo add cnpg https://cloudnative-pg.github.io/charts >/dev/null 2>&1 || true
+helm install cnpg cnpg/cloudnative-pg --version 0.29.1 -n cnpg-system --set image.tag="$CNPG_IMAGE" \
+  --set config.data.WATCH_NAMESPACE=source-dev --wait --timeout 5m >/dev/null
+kubectl apply -f - >/dev/null <<EOF
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata: {name: source-db, namespace: source-dev}
+spec: {instances: 1, imageName: "$PG_IMAGE", storage: {size: 1Gi}}
+EOF
+
 echo "== 배포"
 # Secret · ConfigMap을 먼저 넣으려고 네임스페이스를 미리 만든다(뒤의 apply와 충돌하지 않게 create).
 kubectl create namespace "$NS" --save-config >/dev/null
@@ -54,9 +71,11 @@ kubectl -n "$NS" create secret generic bravo-observability-api-tls --from-file="
   --from-file="$CERT_DIR/console-api/tls.crt" --from-file="$CERT_DIR/console-api/tls.key" >/dev/null
 kubectl -n "$NS" create secret generic bravo-observability-api-token --from-literal=token="$API_TOKEN" >/dev/null
 kubectl -n "$NS" create configmap bravo-collector-env --from-literal=BRAVO_ENV=onprem \
-  --from-literal=PLATFORM_OTLP_ENDPOINT="https://bravo-prometheus.$NS.svc:9090/api/v1/otlp" >/dev/null
+  --from-literal=PLATFORM_OTLP_ENDPOINT="https://bravo-prometheus.$NS.svc:9090/api/v1/otlp" \
+  --from-literal=BRAVO_DB_NAMESPACE=source-dev >/dev/null
 kubectl apply -k k8s-overlay >/dev/null
-kubectl apply -k ../deploy/collector >/dev/null
+kubectl apply -k ../deploy/collector-db >/dev/null
+kubectl apply -k ../deploy/collector-db-access >/dev/null
 r=ok
 kubectl -n "$NS" rollout status deploy/bravo-prometheus --timeout=240s >/dev/null || r=fail
 kubectl -n "$NS" rollout status deploy/bravo-collector --timeout=240s >/dev/null || r=fail
@@ -107,9 +126,9 @@ check $r "대조군: platform-client 라벨 네임스페이스(console)에서는
 check $r "라벨이 없는 네임스페이스(stranger)에서 지표 저장소 9090 연결은 NetworkPolicy가 막음 (probe: ${denied:-없음})"
 
 echo "== 조회 API"
-call() { # 네임스페이스 토큰
+call() { # 네임스페이스 토큰 이름 [경로]
   kubectl -n "$1" run "call-$3" --image=busybox:1.37.0@sha256:a7dbc319b1438115a207e11930dc4bb3e643dcb3ec0bdd694bb36cd8fad289ec \
-    --restart=Never -- wget -q -T 5 -O - --header "Authorization: Bearer $2" "http://bravo-observability-api.$NS.svc:8080/v1/observability/environments" >/dev/null
+    --restart=Never -- wget -q -T 5 -O - --header "Authorization: Bearer $2" "http://bravo-observability-api.$NS.svc:8080${4:-/v1/observability/environments}" >/dev/null
   for _ in $(seq 30); do p=$(kubectl -n "$1" get pod "call-$3" -o jsonpath='{.status.phase}'); case $p in Succeeded|Failed) break;; esac; sleep 2; done
   echo "$p"
 }
@@ -123,6 +142,31 @@ check $control "console 네임스페이스에서 조회 API 호출 성공, onpre
 check $r "틀린 토큰은 거부(401)"
 [ "$control" = ok ] && [ "$(call stranger "$API_TOKEN" stranger)" = Failed ] && r=ok || r=fail
 check $r "라벨이 없는 네임스페이스(stranger)는 올바른 토큰이 있어도 NetworkPolicy가 막음"
+
+echo "== DB 지표 (CNPG)"
+sa=system:serviceaccount:$NS:bravo-collector
+[ "$(kubectl auth can-i list pods -n source-dev --as "$sa")" = yes ] && \
+  [ "$(kubectl auth can-i get secrets -n source-dev --as "$sa")" = no ] && \
+  [ "$(kubectl auth can-i create pods/exec -n source-dev --as "$sa")" = no ] && \
+  [ "$(kubectl auth can-i list pods -n default --as "$sa")" = no ] && r=ok || r=fail
+check $r "Collector 권한: source-dev Pod 조회만 가능 (Secret · exec · 다른 네임스페이스 거부)"
+kubectl -n source-dev wait --for=condition=Ready cluster/source-db --timeout=300s >/dev/null || true
+kubectl -n source-dev exec source-db-1 -c postgres -- psql -U postgres -tAc \
+  "SELECT pg_create_logical_replication_slot('bravo_t37_slot','pgoutput')" >/dev/null
+for _ in $(seq 60); do [ "$(count 'cnpg_pg_replication_slots_pg_wal_lsn_diff{slot_type="logical"}')" -gt 0 ] && break; sleep 3; done
+upl=$(q 'cnpg_collector_up{cnpg_cluster="source-db"}' | python3 -c 'import json,sys;r=json.load(sys.stdin)["data"]["result"];print(json.dumps([x["metric"] for x in r]))')
+echo "  cnpg_collector_up 라벨: $upl"
+echo "$upl" | python3 -c 'import json,sys;ms=json.load(sys.stdin);sys.exit(0 if ms and all(m.get("bravo_env")=="onprem" and m.get("pod")=="source-db-1" and m.get("instance_role")=="primary" for m in ms) else 1)' && r=ok || r=fail
+check $r "CNPG 인스턴스 지표가 환경 · 클러스터 · Pod · 역할 라벨과 함께 도착"
+[ "$(count 'cnpg_pg_replication_slots_pg_wal_lsn_diff{slot_name="bravo_t37_slot", slot_type="logical"}')" -gt 0 ] && r=ok || r=fail
+check $r "논리 복제 슬롯 지연(바이트) 지표 도착"
+echo "  보관 실패 지표 이름: $(q '{__name__=~"cnpg_pg_stat_archiver_failed_count.*"}' | python3 -c 'import json,sys;print(sorted({x["metric"]["__name__"] for x in json.load(sys.stdin)["data"]["result"]}))')"
+echo "  DB 수집 up 라벨: $(q 'up{job="bravo-cnpg"}' | python3 -c 'import json,sys;print([x["metric"] for x in json.load(sys.stdin)["data"]["result"]])')"
+phase=$(call console "$API_TOKEN" db /v1/observability/environments/onprem/database)
+db=$(kubectl -n console logs call-db 2>/dev/null || true)
+echo "  조회 API DB 뷰: $db"
+echo "$db" | python3 -c 'import json,sys;d=json.load(sys.stdin);sys.exit(0 if d["state"]=="OK" and any(s["slot"]=="bravo_t37_slot" and s["type"]=="logical" and s["active"] is False for s in d["replication_slots"]) else 1)' 2>/dev/null && r=ok || r=fail
+check $r "조회 API DB 뷰: 상태 OK, 논리 슬롯과 비활성 여부 표시 (pod: $phase)"
 
 echo "== Collector 중지 → 알림"
 for _ in $(seq 60); do [ "$(count 'up{bravo_signal="collector-self", bravo_env="onprem"}')" -gt 0 ] && break; sleep 2; done

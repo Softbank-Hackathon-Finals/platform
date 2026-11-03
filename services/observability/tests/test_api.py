@@ -108,3 +108,29 @@ def test_alerts_only_bravo_rules():
 def test_rejects_bad_environment_lists(envs):
     with pytest.raises(ValueError):
         create_app(Prometheus(httpx.Client()), envs)
+
+
+def test_database_view_states_and_slots():
+    def m(value, **labels):
+        return {"metric": labels, "value": [0, str(value)]}
+
+    store = FakeStore(
+        results={
+            "cnpg_collector_up": [
+                m(1, cnpg_cluster="source-db", pod="source-db-1", instance_role="primary"),
+                m(0, cnpg_cluster="source-db", pod="source-db-2", instance_role="replica"),
+            ],
+            "pg_wal_lsn_diff": [m(4096, cnpg_cluster="source-db", slot_name="sub_target", slot_type="logical")],
+            "replication_slots_active": [m(1, cnpg_cluster="source-db", slot_name="sub_target")],
+        }
+    )
+    body = client(store).get("/v1/observability/environments/aws/database", headers=AUTH).json()
+    assert body["state"] == "DOWN"
+    assert [i["up"] for i in body["instances"]] == [True, False]
+    assert body["replication_slots"] == [{"cluster": "source-db", "slot": "sub_target", "type": "logical", "lag_bytes": 4096.0, "active": True}]
+    assert all('bravo_env="aws"' in q for q in store.seen)
+
+
+def test_database_view_without_metrics_is_unobservable():
+    body = client(FakeStore()).get("/v1/observability/environments/aws/database", headers=AUTH).json()
+    assert (body["state"], body["instances"], body["replication_slots"]) == ("UNOBSERVABLE", [], [])

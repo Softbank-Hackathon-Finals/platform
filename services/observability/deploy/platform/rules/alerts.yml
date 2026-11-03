@@ -39,3 +39,41 @@ groups:
         annotations:
           summary: "{{ $labels.bravo_env }} Collector가 앱 지표를 거부했다 (메모리 상한 등, 최근 5분)"
           runbook: docs/observability/runbooks.md#bravotelemetryrefused
+  # DB(CNPG) 알림. 지표 이름은 k3s 실측으로 확인했다(counter는 저장소에서 _total이 붙는다).
+  # 컷오버 조건의 복제 지연은 Executor가 DB에서 직접 읽는다(설계 8.6). 아래는 운영 알림이다.
+  - name: bravo-database
+    rules:
+      - alert: BravoDatabaseDown
+        expr: |
+          max by (bravo_env, cnpg_cluster, pod) (cnpg_collector_up) == 0
+          or max by (bravo_env, cnpg_cluster, pod) (up{job="bravo-cnpg"}) == 0
+        for: 1m
+        labels:
+          severity: page
+        annotations:
+          summary: "{{ $labels.bravo_env }}/{{ $labels.cnpg_cluster }} {{ $labels.pod }} DB에 접속할 수 없거나 지표를 긁을 수 없다"
+          runbook: docs/observability/runbooks.md#bravodatabasedown
+      # 64MiB: 설계 5.3 데이터 크기(200MB 이하)의 약 3분의 1. 이만큼 밀리면 따라잡는 데 쓰기 정지 예산을 넘긴다(제안값)
+      - alert: BravoReplicationSlotLagHigh
+        expr: max by (bravo_env, cnpg_cluster, slot_name) (cnpg_pg_replication_slots_pg_wal_lsn_diff{slot_type="logical"}) > 64 * 1024 * 1024
+        for: 2m
+        labels:
+          severity: ticket
+        annotations:
+          summary: "{{ $labels.bravo_env }}/{{ $labels.cnpg_cluster }} 논리 복제 슬롯 {{ $labels.slot_name }}이 64MiB 넘게 밀렸다"
+          runbook: docs/observability/runbooks.md#bravoreplicationslotlaghigh
+      - alert: BravoReplicationSlotInactive
+        expr: max by (bravo_env, cnpg_cluster, slot_name) (cnpg_pg_replication_slots_active{slot_type="logical"}) == 0
+        for: 10m
+        labels:
+          severity: ticket
+        annotations:
+          summary: "{{ $labels.bravo_env }}/{{ $labels.cnpg_cluster }} 논리 복제 슬롯 {{ $labels.slot_name }}이 10분 넘게 비활성이다. WAL이 쌓인다"
+          runbook: docs/observability/runbooks.md#bravoreplicationslotinactive
+      - alert: BravoWalArchivingFailing
+        expr: sum by (bravo_env, cnpg_cluster) (increase(cnpg_pg_stat_archiver_failed_count_total[10m])) > 0
+        labels:
+          severity: ticket
+        annotations:
+          summary: "{{ $labels.bravo_env }}/{{ $labels.cnpg_cluster }} WAL 보관이 실패했다 (최근 10분). 백업 · 복원(DR-01)에 영향"
+          runbook: docs/observability/runbooks.md#bravowalarchivingfailing

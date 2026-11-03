@@ -163,6 +163,50 @@ def create_app(
             values["error_ratio"] = values["p95_seconds"] = None
         return {"queried_at": _now(), "environment": e, "window": "1m", **values}
 
+    @app.get("/v1/observability/environments/{env}/database")
+    def database_view(env: str, request: Request):
+        guard(request)
+        e = env_or_404(env)
+        sel = f'bravo_env="{e}"'
+        up, lag, active = run(
+            lambda: (
+                store.query(f"max by (cnpg_cluster, pod, instance_role) (cnpg_collector_up{{{sel}}})"),
+                store.query(
+                    f"max by (cnpg_cluster, slot_name, slot_type) (cnpg_pg_replication_slots_pg_wal_lsn_diff{{{sel}}})"
+                ),
+                store.query(f"max by (cnpg_cluster, slot_name) (cnpg_pg_replication_slots_active{{{sel}}})"),
+            )
+        )
+        is_active = {(r["metric"].get("cnpg_cluster"), r["metric"].get("slot_name")): float(r["value"][1]) == 1 for r in active}
+        instances = sorted(
+            (
+                {
+                    "cluster": r["metric"].get("cnpg_cluster"),
+                    "pod": r["metric"].get("pod"),
+                    "role": r["metric"].get("instance_role"),
+                    "up": float(r["value"][1]) == 1,
+                }
+                for r in up
+            ),
+            key=lambda i: (i["cluster"] or "", i["pod"] or ""),
+        )
+        slots = sorted(
+            (
+                {
+                    "cluster": r["metric"].get("cnpg_cluster"),
+                    "slot": r["metric"].get("slot_name"),
+                    "type": r["metric"].get("slot_type"),
+                    "lag_bytes": float(r["value"][1]),
+                    "active": is_active.get((r["metric"].get("cnpg_cluster"), r["metric"].get("slot_name"))),
+                }
+                for r in lag
+            ),
+            key=lambda s: (s["cluster"] or "", s["slot"] or ""),
+        )
+        # 인스턴스 지표가 하나도 없으면 "DB 없음"이 아니라 확인 불가다
+        state = "UNOBSERVABLE" if not instances else "OK" if all(i["up"] for i in instances) else "DOWN"
+        return {"queried_at": _now(), "environment": e, "state": state, "instances": instances, "replication_slots": slots}
+
     return app
 
 

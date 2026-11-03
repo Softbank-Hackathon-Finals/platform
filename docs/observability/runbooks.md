@@ -46,3 +46,40 @@
 **확인:** Collector 메모리 사용량과 Pod 자원 상한, 앱이 보내는 지표 양.
 
 **조치:** 앱의 지표 양을 줄이거나 Collector 자원 상한을 조정한다. 메모리 상한을 끄지 않는다. 상한이 없으면 Collector가 죽어 생존 신호까지 끊긴다.
+
+## BravoDatabaseDown
+
+**뜻:** CNPG 인스턴스의 지표 수집기가 PostgreSQL에 접속하지 못하거나(`cnpg_collector_up == 0`), Collector가 그 Pod의 지표를 긁지 못한 상태(`up{job="bravo-cnpg"} == 0`)가 1분 넘게 이어진다.
+
+**영향:** 그 DB의 쓰기 · 읽기가 실패하고 있을 수 있다. 이 알림은 판정 입력이 아니다. 컷오버와 되돌리기는 Executor가 DB에서 직접 확인한다.
+
+**확인 순서**
+1. `kubectl -n <DB 네임스페이스> get cluster,pods`
+2. `kubectl cnpg status <클러스터>`(CNPG 플러그인이 있으면): 인스턴스 상태, 기본 · 대기 역할
+3. 컷오버 · 되돌리기 중이면 상태 머신이 SAFE_HOLD인지 확인한다.
+
+**하지 말 것:** 이 알림만 보고 쓰기를 다른 DB로 열지 않는다. 쓰기를 받는 DB는 항상 최대 하나다(설계 원칙).
+
+## BravoReplicationSlotLagHigh
+
+**뜻:** 논리 복제 슬롯이 64MiB 넘게 밀린 상태가 2분 넘게 이어진다(`cnpg_pg_replication_slots_pg_wal_lsn_diff{slot_type="logical"}`). 64MiB는 설계 5.3 데이터 크기(200MB 이하)의 약 3분의 1이고, 실측 뒤 조정하는 제안값이다.
+
+**영향:** 이만큼 밀린 채로 컷오버하면 따라잡는 시간이 쓰기 정지 예산(5초)을 넘긴다. Executor는 컷오버 1단계에서 복제 지연을 직접 확인하고, 기준을 넘으면 시작하지 않는다.
+
+**확인:** 구독 쪽(목적지) 적용이 멈췄는가(`pg_stat_subscription`), Tailscale 경로가 느리거나 DERP를 거치는가(T8 실측), 출발지 쓰기가 갑자기 늘었는가.
+
+## BravoReplicationSlotInactive
+
+**뜻:** 논리 복제 슬롯이 10분 넘게 비활성이다(`cnpg_pg_replication_slots_active == 0`). 구독자가 붙어 있지 않다.
+
+**영향:** 비활성 슬롯은 WAL을 계속 붙잡아 디스크를 채운다. 이전 작업 중이면 복제가 멈춘 것이다.
+
+**확인 · 조치:** 구독이 살아 있는가(목적지 `pg_subscription`). 이전이 끝났거나 취소된 슬롯이면 담당(T8)이 정리한다. 이 알림을 보고 슬롯을 지우지 않는다. 되돌리기 경로(역방향 복제)일 수 있다.
+
+## BravoWalArchivingFailing
+
+**뜻:** 최근 10분 사이 WAL 보관이 실패했다(`cnpg_pg_stat_archiver_failed_count_total` 증가).
+
+**영향:** 백업 · 복원(T35, DR-01)의 복구 지점이 끊긴다. 보관이 계속 실패하면 WAL이 쌓여 디스크를 채운다.
+
+**확인:** CNPG 클러스터 상태와 Pod 로그의 보관 오류(저장소 자격 · 권한 · 네트워크). 출발지는 S3, 목적지는 SeaweedFS다.

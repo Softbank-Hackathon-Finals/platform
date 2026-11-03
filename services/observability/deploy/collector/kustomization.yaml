@@ -7,3 +7,4 @@ configMapGenerator:
   - name: bravo-collector-config
     files:
       - collector.yaml
+      - collector-db.yaml
