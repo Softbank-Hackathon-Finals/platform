@@ -1,0 +1,56 @@
+{
+  "base_develop": "e69c5c5",
+  "local_tests": {
+    "scripts": 38,
+    "sdk_console": 4,
+    "status": "PASS"
+  },
+  "ruff": "PASS",
+  "swift_compile": "PASS_WITH_DEPRECATION_WARNING",
+  "keychain_probe": "PASS",
+  "memory_pipe_probe": {
+    "aws_calls": 0,
+    "memory_pipe_probe": "PASS"
+  },
+  "human_login_verified": false,
+  "sources": [
+    {
+      "path": "scripts/access_preflight.py",
+      "sha256": "90452c4f378a86b3eef65fd38f957b5895e6677f23fda6288dedef58376d3e5e"
+    },
+    {
+      "path": "scripts/provision_human_access.py",
+      "sha256": "e4444d2277d185f6786564a03f4d6401c0757fd8f6a174b132dfd6c55219f2c2"
+    },
+    {
+      "path": "scripts/create_initial_console_profile.py",
+      "sha256": "99ec346272b8cf5c165ba977ee839732e51c2e7bd627cc7f9e14ab967d08c769"
+    },
+    {
+      "path": "scripts/iam_console_keychain.swift",
+      "sha256": "721ffd38d3086943e780acebc72527b6befbc990cef92afb8fa3469bd81a54d1"
+    },
+    {
+      "path": "scripts/iam-console-requirements.txt",
+      "sha256": "d96dad5fbe102c82752e5c850aacbfdb4108226c5e798f92bc70f290404be98c"
+    },
+    {
+      "path": "scripts/tests/test_provision_human_access.py",
+      "sha256": "55d9ec5af3c536adaa1d41baf410327ebec63942f5b4922bbda3dd5cdd16c5c5"
+    },
+    {
+      "path": "scripts/iam-console-tests/test_initial_console_profile.py",
+      "sha256": "34e95c4a79318ce541e9d61ca060a79bea5dbfdeb61d91d03a3f13b1a14f5804"
+    },
+    {
+      "path": "docs/human-developer-access.md",
+      "sha256": "7fe1a2d3f299c3fc70449c9e6644ab2253953931732a90c31ac2af438e73af16"
+    }
+  ],
+  "post_rebase_validation": {
+    "base_develop": "88fee51f5a2e11493932d02b8dce25ff7d96bd41",
+    "scripts_tests": 73,
+    "status": "PASS",
+    "source_hashes_unchanged": true
+  }
+}
