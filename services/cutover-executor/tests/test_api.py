@@ -137,6 +137,28 @@ def test_state_survives_new_process(store, postgres_dsn):
         other.close()
 
 
+def test_same_key_after_deadline_returns_stored_execution(client, runner):
+    """deadline이 지난 뒤 같은 키로 재요청해도(응답 유실 후 재시도) 저장된 실행을 돌려준다."""
+    import time
+
+    request = body(deadline=(datetime.now(UTC) + timedelta(seconds=1)).isoformat())
+    first = post(client, "k1", request).json()
+    time.sleep(1.2)
+    again = post(client, "k1", request)
+    assert again.status_code == 200 and again.json()["execution_id"] == first["execution_id"]
+    assert len(runner.submitted) == 1
+    late = post(client, "k2", request | {"epoch": 2})
+    assert late.status_code == 422 and late.json()["detail"]["code"] == "deadline_passed"
+
+
+def test_stored_request_with_past_deadline_still_parses(store):
+    """재시작 판정은 저장된 요청을 다시 읽는다. 지난 deadline 때문에 읽기가 실패하면 안 된다."""
+    from bravo_cutover.contract import CutoverRequest
+
+    stored = body(deadline=(datetime.now(UTC) - timedelta(hours=1)).isoformat())
+    assert CutoverRequest.model_validate(stored).deadline_passed()
+
+
 def test_unknown_execution_is_404(client):
     assert client.get("/v1/cutovers/00000000-0000-0000-0000-000000000000").status_code == 404
 

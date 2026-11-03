@@ -3,6 +3,7 @@
 - 멱등 키: 같은 키 · 같은 입력이면 저장된 실행을 돌려주고, 입력이 다르면 거부한다.
 - epoch: 범위(DB 쌍)마다 받은 최댓값보다 크지 않으면 거부한다. 재시도는 같은 키로 한다.
 - lease: 범위마다 PENDING · RUNNING · SAFE_HOLD인 실행은 하나뿐이다(부분 유니크 인덱스).
+지난 deadline은 새 실행에서만 거부한다(같은 키 재요청은 저장된 실행을 돌려준다).
 거부는 모두 원격 조작 전에 끝난다. 실행기(runner)는 기록이 커밋된 뒤에만 불린다.
 """
 
@@ -45,9 +46,10 @@ CREATE TABLE IF NOT EXISTS executor.fences (
 
 
 class Rejected(Exception):
-    """원격 조작 없이 거부한 요청. code는 API 오류 코드다."""
+    """원격 조작 없이 거부한 요청. code는 API 오류 코드, http_status는 응답 코드다."""
 
     code = "rejected"
+    http_status = 409
 
 
 class IdempotencyConflict(Rejected):
@@ -60,6 +62,11 @@ class StaleEpoch(Rejected):
 
 class LeaseHeld(Rejected):
     code = "lease_held"
+
+
+class DeadlinePassed(Rejected):
+    code = "deadline_passed"
+    http_status = 422
 
 
 @dataclass(frozen=True)
@@ -128,6 +135,8 @@ class Store:
                 if row["request_digest"] != digest:
                     raise IdempotencyConflict("same Idempotency-Key with a different request")
                 return Execution.from_row(row), False
+            if request.deadline_passed():
+                raise DeadlinePassed(f"deadline {request.deadline.isoformat()} has passed")
             if request.epoch <= max_epoch:
                 raise StaleEpoch(f"epoch {request.epoch} <= {max_epoch}")
             holder = conn.execute(

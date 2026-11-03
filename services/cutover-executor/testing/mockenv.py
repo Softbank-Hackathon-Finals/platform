@@ -221,12 +221,17 @@ def check() -> None:
     results["dst_app_write"] = post_message(state["sites"]["dst"]["app_url"], key, "목적지 앱 → 출발지 DB")
     results["dst_app_write_lands_in_src"] = psql("src", f"SELECT count(*) FROM messages WHERE idempotency_key = '{key}'") == "1"
 
+    # 목적지 앱 역할이 닫혀 있는지: 카탈로그 값과, 맞는 비밀번호로 접속했을 때 "로그인 금지"로 거부되는지를 함께 본다.
+    # 비밀번호 오류 · 통신 실패 같은 다른 실패를 거부로 세지 않는다.
+    results["dst_chat_app_rolcanlogin"] = psql("dst", "SELECT rolcanlogin FROM pg_roles WHERE rolname = 'chat_app'")
     conn = f"host=postgres.dst.svc.cluster.local port=5432 dbname=chat user=chat_app password={creds['chat-app-password']}"
     try:
         psql("dst", "SELECT 1;", conninfo=conn)
         results["dst_chat_app_login_refused"] = False
-    except subprocess.CalledProcessError:
-        results["dst_chat_app_login_refused"] = True
+    except subprocess.CalledProcessError as e:
+        results["dst_chat_app_login_refused"] = "is not permitted to log in" in e.stderr
+        if not results["dst_chat_app_login_refused"]:
+            results["dst_chat_app_login_error"] = e.stderr.strip()[-200:]
     results["subscriptions"] = {
         ns: psql(ns, "SELECT string_agg(subname || '=' || subenabled, ',') FROM pg_subscription") for ns in SITES
     }
@@ -239,6 +244,7 @@ def check() -> None:
         and results["dst_app_write"] in (200, 201)
         and results["dst_app_write_lands_in_src"]
         and results["dst_chat_app_login_refused"]
+        and results["dst_chat_app_rolcanlogin"] == "f"
         and results["subscriptions"] == {"src": "bravo_rev=false", "dst": "bravo_fwd=true"}
     )
     sys.exit(0 if ok else 1)

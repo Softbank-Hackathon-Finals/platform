@@ -48,7 +48,7 @@ def create_app(store: Store | None = None, runner: Runner | None = None) -> Fast
         try:
             execution, created = store.create(idempotency_key, request)
         except Rejected as e:
-            raise HTTPException(409, {"code": e.code, "message": str(e)}) from e
+            raise HTTPException(e.http_status, {"code": e.code, "message": str(e)}) from e
         if created:
             runner.submit(execution.execution_id)
         return JSONResponse(execution.view(), status_code=202 if created else 200)

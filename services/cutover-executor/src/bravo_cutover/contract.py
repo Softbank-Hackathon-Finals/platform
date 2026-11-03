@@ -6,7 +6,7 @@ from datetime import UTC, datetime
 from enum import StrEnum
 from typing import Annotated
 
-from pydantic import AfterValidator, AwareDatetime, BaseModel, ConfigDict, Field
+from pydantic import AwareDatetime, BaseModel, ConfigDict, Field
 
 Identifier = Annotated[str, Field(pattern=r"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$")]
 
@@ -40,12 +40,6 @@ class Endpoint(BaseModel):
     connection_ref: Annotated[str, Field(min_length=1, max_length=256)]
 
 
-def _future(value: datetime) -> datetime:
-    if value <= datetime.now(UTC):
-        raise ValueError("deadline is in the past")
-    return value
-
-
 class CutoverRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -54,12 +48,17 @@ class CutoverRequest(BaseModel):
     source: Endpoint
     target: Endpoint
     write_pause_budget_ms: Annotated[int, Field(gt=0, le=600_000)]
-    deadline: Annotated[AwareDatetime, AfterValidator(_future)]
+    # 지난 deadline은 새 실행에서만 거부한다(store.create). 저장된 요청을 다시 읽거나 같은 키로 재요청할 때는
+    # 이미 지난 deadline이어도 그대로 읽혀야 상태를 돌려주고 재시작 판정을 할 수 있다.
+    deadline: AwareDatetime
 
     def scope(self) -> str:
         """같은 DB 쌍을 다루는 실행끼리 epoch · lease를 공유한다. 되돌리기(T20)도 같은 범위다."""
         a, b = sorted((self.source.environment_id, self.target.environment_id))
         return f"{a}|{b}"
+
+    def deadline_passed(self) -> bool:
+        return self.deadline <= datetime.now(UTC)
 
     def digest(self) -> str:
         """같은 Idempotency-Key로 다른 입력이 왔는지 가리는 값."""
