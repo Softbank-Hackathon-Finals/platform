@@ -12,9 +12,11 @@ from botocore.exceptions import BotoCoreError, ClientError
 BUCKET = "demo-chat-attachments"
 KEY = "t8-development-canary/object-v1.txt"
 BODY = b"Team Bravo T8 isolated development object canary v1\n"
+STAGE = "configuration"
 
 
 def main():
+    global STAGE
     mode = sys.argv[1]
     if mode not in {"bootstrap", "write", "read"}:
         raise ValueError("bounded probe mode required")
@@ -41,6 +43,7 @@ def main():
     s3 = client()
     checks = {}
     if mode == "bootstrap":
+        STAGE = "bootstrap_bucket"
         try:
             s3.head_bucket(Bucket=BUCKET)
         except ClientError as error:
@@ -52,11 +55,14 @@ def main():
     else:
         if mode == "write":
             # This fixed namespace is owned by the isolated development canary.
+            STAGE = "signed_put"
             s3.put_object(Bucket=BUCKET, Key=KEY, Body=BODY, ContentType="text/plain")
+        STAGE = "signed_get"
         response = s3.get_object(Bucket=BUCKET, Key=KEY)
         with response["Body"] as stream:
             value = stream.read(len(BODY) + 1)
         checks["object_length_and_sha256"] = len(value) == len(BODY) and hashlib.sha256(value).digest() == hashlib.sha256(BODY).digest()
+        STAGE = "scoped_list"
         listing = s3.list_objects_v2(Bucket=BUCKET, Prefix=KEY, MaxKeys=2)
         checks["scoped_list"] = any(x.get("Key") == KEY for x in listing.get("Contents", []))
         checks["anonymous_get_denied"] = denied(lambda: client(unsigned=True).get_object(Bucket=BUCKET, Key=KEY))
@@ -73,5 +79,10 @@ if __name__ == "__main__":
     try:
         raise SystemExit(main())
     except (OSError, ValueError, KeyError, BotoCoreError, ClientError) as error:
-        print(json.dumps({"pass": False, "error_category": type(error).__name__, "raw_output_suppressed": True}))
+        safe_codes = {"AccessDenied", "SignatureDoesNotMatch", "InvalidAccessKeyId", "NoSuchBucket",
+                      "NoSuchKey", "InternalError", "ServiceUnavailable", "NotImplemented"}
+        code = error.response.get("Error", {}).get("Code") if isinstance(error, ClientError) else None
+        print(json.dumps({"pass": False, "stage": STAGE, "error_category": type(error).__name__,
+                          "s3_error_code": code if code in safe_codes else "unclassified",
+                          "raw_output_suppressed": True}))
         raise SystemExit(1) from None
