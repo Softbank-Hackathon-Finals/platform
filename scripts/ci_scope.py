@@ -49,21 +49,20 @@ def select(files: list[str], changed: list[str], full_reason: str = "") -> dict:
             reasons.append(f"removed-manifest:{path}")
         elif documentation(path):
             continue
-        elif path.startswith("infra/"):
-            infra = True
-            # Repository tests import infra Python helpers (including deleted helpers).
-            if PurePosixPath(path).suffix.lower() == ".py":
-                scripts = True
-        elif path.startswith("scripts/"):
-            scripts = True
         else:
             owners = [p for p in modules if p["path"] == "." or path.startswith(p["path"] + "/")]
+            # A language project may also live under scripts/ or infra/.
+            # Directory-wide checks supplement its own tests, never replace them.
+            infrastructure = path.startswith("infra/")
+            repository_tool = path.startswith("scripts/")
+            infra |= infrastructure
+            scripts |= repository_tool or (infrastructure and PurePosixPath(path).suffix.lower() == ".py")
             if owners:
                 # Nested workspaces are checked with their owning parent too.
                 selected.update((p["path"], p["kind"]) for p in owners)
                 if PurePosixPath(path).name == "Dockerfile" or path.endswith((".Dockerfile", ".yaml", ".yml")):
                     infra = True
-            else:
+            elif not infrastructure and not repository_tool:
                 reasons.append(f"unknown:{path}")
     full = bool(reasons)
     chosen = modules if full else [p for p in modules if (p["path"], p["kind"]) in selected]

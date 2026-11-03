@@ -1,0 +1,46 @@
+{
+  "mode": "plan",
+  "account_boundary_matches": true,
+  "actions": [
+    {
+      "target": "member-02",
+      "action": "create_initial_console_profile"
+    },
+    {
+      "target": "member-03",
+      "action": "create_user"
+    },
+    {
+      "target": "member-03",
+      "action": "add_to_developer_group"
+    },
+    {
+      "target": "member-03",
+      "action": "create_initial_console_profile"
+    },
+    {
+      "target": "member-04",
+      "action": "create_user"
+    },
+    {
+      "target": "member-04",
+      "action": "add_to_developer_group"
+    },
+    {
+      "target": "member-04",
+      "action": "create_initial_console_profile"
+    },
+    {
+      "target": "member-05",
+      "action": "create_user"
+    },
+    {
+      "target": "member-05",
+      "action": "add_to_developer_group"
+    },
+    {
+      "target": "member-05",
+      "action": "create_initial_console_profile"
+    }
+  ]
+}
