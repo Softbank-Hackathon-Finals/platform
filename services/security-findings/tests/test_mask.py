@@ -19,3 +19,17 @@ def test_mask_walks_nested_structures_and_keeps_other_types():
 
 def test_does_not_mask_short_numbers_or_timestamps():
     assert mask_text("port 8443, 2026-11-04T09:00:00Z") == "port 8443, 2026-11-04T09:00:00Z"
+
+
+def test_credentials_are_redacted_in_known_fields_and_text_patterns():
+    sentinel = "SYNTHETIC_ONLY_NOT_A_REAL_SECRET"
+    raw = {
+        "Password": sentinel,
+        "nested": {"AWS_SESSION_TOKEN": sentinel, "proc.cmdline": sentinel},
+        "message": f'password="{sentinel}" Bearer {sentinel}',
+        "url": f"postgresql://app:{sentinel}@database/app",
+        "pem": f"-----BEGIN PRIVATE KEY-----\n{sentinel}\n-----END PRIVATE KEY-----",
+    }
+    once = mask(raw)
+    assert sentinel not in str(once)
+    assert mask(once) == once

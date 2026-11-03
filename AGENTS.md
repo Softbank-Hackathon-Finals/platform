@@ -33,7 +33,7 @@
 - 시크릿 값을 로그 · 파일 · 커밋 · PR 본문에 남기지 않는다. 모델 키는 플랫폼에만 둔다.
 - 공개 문서·증빙의 개인 이메일, 홈 절대경로, 계정·운영 리소스 식별자는 가린다. 원본은 비공개로 보존하고 [공개 증빙 절차](docs/public-evidence-policy.md)를 따른다. `python3 scripts/public_evidence.py check`는 값 없이 위반 종류만 출력한다.
 - 모든 클라우드 자원에 `component` 태그를 단다(비용 정산, 데모 후 `terraform destroy`).
-- 검사 예외는 `.gitleaks.toml` · `.trivyignore`에 사유 주석과 함께만 추가한다.
+- 검사 예외는 `.gitleaks.toml` · `.trivyignore.yaml`에 사유와 적용 경로를 명시해서만 추가한다. 임시 예외는 만료일도 둔다.
 
 ## 검증
 
@@ -44,5 +44,7 @@ PR마다 CI(`ci.yml`)가 `secrets` · `infra` · `platform`을 검사한다. CI 
 - Node(`package.json`): `pnpm lint`, `pnpm test`, `pnpm build`
 - Go(`go.mod`): `go vet ./...`, `go test ./...`
 - 워크플로: `actionlint`
+
+CI 실행 범위와 플랫폼 S2 실패 분석의 경계는 [CI 안내](docs/ci.md)를 따른다. 필수 결과는 항상 보고하며, 변경 범위가 불명확하면 전체 검사한다.
 
 여러 PR의 리뷰 확인·수정·해소는 [리뷰 플레이북](docs/review-playbook.md)과 `.agents/skills/pr-review/SKILL.md`를 따른다. `python3 scripts/review_packet.py <PR번호...> --output-dir <개인 출력 경로>`로 현재 SHA의 근거를 수집하고 판단 기록을 남긴다. 수집 성공이나 스레드 해소는 팀원 승인을 대신하지 않는다.

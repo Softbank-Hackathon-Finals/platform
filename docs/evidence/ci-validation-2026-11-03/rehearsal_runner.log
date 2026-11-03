@@ -1,0 +1,31 @@
+All checks passed!
+============================= test session starts ==============================
+platform linux -- Python 3.12.3, pytest-9.2.0, pluggy-1.7.0
+rootdir: /opt/bravo-validation/repo-ci/services/rehearsal-runner
+configfile: pyproject.toml
+testpaths: tests
+collected 19 items
+
+tests/test_kube.py ......                                                [ 31%]
+tests/test_model.py ......                                               [ 63%]
+tests/test_namespace.py .......                                          [100%]
+
+============================== 19 passed in 0.07s ==============================
+Using CPython 3.12.3 interpreter at: /usr/bin/python3
+Creating virtual environment at: .venv
+Resolved 7 packages in 0.81ms
+   Building bravo-rehearsal-runner @ file:///opt/bravo-validation/repo-ci/services/rehearsal-runner
+Downloading pygments (1.2MiB)
+ Downloading pygments
+      Built bravo-rehearsal-runner @ file:///opt/bravo-validation/repo-ci/services/rehearsal-runner
+Prepared 6 packages in 519ms
+Installed 6 packages in 8ms
+ + bravo-rehearsal-runner==0.1.0 (from file:///opt/bravo-validation/repo-ci/services/rehearsal-runner)
+ + iniconfig==2.3.1
+ + packaging==26.3
+ + pluggy==1.7.0
+ + pygments==2.21.0
+ + pytest==9.2.0
+Downloading ruff (9.6MiB)
+ Downloading ruff
+Installed 1 package in 1ms

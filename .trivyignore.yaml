@@ -1,0 +1,15 @@
+# Reviewed exceptions apply only to these files, never the whole repository.
+misconfigurations:
+  - id: AVD-KSV-0053
+    paths:
+      - services/rehearsal-runner/templates/20-rbac.yaml
+    statement: Namespace-scoped rehearsal.exec only; restricted Pods, tokenless workloads and isolation tests enforce ADR-0003.
+  - id: AVD-KSV-0056
+    paths:
+      - services/rehearsal-runner/templates/20-rbac.yaml
+    statement: Rehearsal app Services only; ResourceQuota forbids NodePort and LoadBalancer (N11).
+  - id: AVD-AWS-0104
+    paths:
+      - infra/envs/ci-validation-aws/main.tf
+    expired_at: 2026-11-10
+    statement: Ephemeral SSM-only validation host needs HTTPS bootstrap; inbound is empty, lifetime <=90min, no production routes or credentials. Workload egress is separately default-deny and live-tested. Remove/review before reuse after expiry.
