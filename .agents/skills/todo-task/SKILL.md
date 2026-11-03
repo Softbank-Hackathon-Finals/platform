@@ -49,8 +49,8 @@ description: 본선(Team Bravo) 팀 작업 진행. 프로젝트 보드(이슈)�
    - 새 작업이 필요하면 현재 마지막 번호 다음의 빈 번호로 해당 `## N단계` 섹션 안에 기존 작업과 같은 형식으로 추가한다. 담당은 그 영역 담당자(설계 문서 11.2) 중 한 명. 이슈와 역할 분담 목록의 줄은 머지 후 봇이 만든다.
 3. 이슈 번호는 `gh issue list --search "[T3]" --state all`로 찾는다. PR 본문에 `Refs #번호`, 할 일이 다 끝나고 **완료 기준**을 만족하면 `Closes #번호`.
 4. 사용자에게 확인받은 뒤 브랜치를 push하고 PR을 연다: `gh pr create --base develop --title "[T3] …" --body "…"`.
-5. 자동 머지를 건다: `gh pr merge --auto --merge`. CI(`secrets` · `infra` · `platform`)가 실패하면 고쳐서 같은 브랜치에 다시 push한다. CI 실패를 워크플로를 고쳐서 넘기지 않는다.
-6. `.github/workflows/`나 `CODEOWNERS`를 바꾼 PR은 팀원에게 리뷰 요청 알림이 간다(승인은 필요 없음). CI 검사를 약하게 만드는 변경이면 사용자에게 알린다.
+5. `docs/review-routing.md`에서 T번호의 파트를 확인하고 주·부 참여자 모두에게 리뷰를 요청한다(작성자 제외). 파트 5와 전원 공통 작업은 전원에서 작성자를 뺀다. 초기 허들 댓글보다 후속 공식 배정과 현재 이슈 담당을 확인한다. 전원 승인을 기다리지 않는다. 최종 커밋의 필수 CI 통과, 팀원 승인 1건 이상, 변경 요청 해소를 병합 조건으로 둔다. `gh pr merge --auto --merge --match-head-commit <검증한 HEAD SHA>`로 GitHub 기본 auto-merge를 예약할 수 있다. 보호 규칙을 우회하거나 변경 요청 리뷰를 임의 해제하지 않는다. 코드가 바뀌면 다시 리뷰받는다. CI(`secrets` · `infra` · `platform`)가 실패하면 고쳐서 같은 브랜치에 다시 push한다. CI 실패를 워크플로를 고쳐서 넘기지 않는다.
+6. `.github/workflows/`나 `CODEOWNERS`를 바꾼 PR은 팀원에게 리뷰 요청 알림이 간다. 알림만으로 리뷰 승인을 대신하지 않는다. CI 검사를 약하게 만드는 변경이면 사용자에게 알린다.
 
 ## 5. 이슈에서 체크하기
 
@@ -58,7 +58,7 @@ description: 본선(Team Bravo) 팀 작업 진행. 프로젝트 보드(이슈)�
    `python3 scripts/sync_tasks.py tick T3 <할 일 순번>` (순번은 1부터, 이슈 본문의 할 일 순서). 아직 머지 전이면 사용자에게 머지 후 체크하라고 알린다.
 2. 그다음은 자동이다(`sync-tasks` 워크플로):
    - 체크가 생기면 보드 **In progress**, 전부 체크되면 이슈가 닫히고 **Done**
-   - `docs/tasks.md`의 체크박스 · 담당이 봇 PR로 갱신된다
+   - `docs/tasks.md`의 체크박스 · 담당은 봇 PR을 리뷰·승인하고 머지한 뒤 갱신된다
    - 보드가 움직이면 Slack으로 알린다
 3. 담당을 바꿔야 하면 이슈 Assignees를 바꾼다(tasks.md가 따라간다).
 

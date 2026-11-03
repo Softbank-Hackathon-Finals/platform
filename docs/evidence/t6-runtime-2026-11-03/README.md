@@ -1,4 +1,29 @@
-# T6 출발지 실제 구축 검증 · 2026-11-03
+# T6 runtime evidence · 2026-11-03
+
+Foundation and workload observations below were collected by separate owners. Each section retains its original scope and timestamps; foundation readiness alone does not establish application readiness.
+
+## EKS foundation — 2026-11-03
+
+Actual AWS validation used the existing individual IAM operator in the reviewed T1 account. It did not use SSO.
+
+| Check | Result |
+|---|---|
+| Terraform fmt/init/validate | PASS |
+| Mock boundary tests | 3 PASS |
+| Trivy HIGH/CRITICAL | 0 findings in this stack |
+| EKS/nodegroup | ACTIVE; Kubernetes 1.35 |
+| Kubernetes API | private endpoint; CA/TLS server name checked through SSM tunnel; `/readyz=ok` |
+| Nodes | 1/1 Ready |
+| Namespace ConfigMap read | actual request allowed |
+| Secret read and other-namespace request | actual requests returned Forbidden |
+| EKS audit canary | ConfigMap create event (201) observed in CloudWatch |
+| Disposable test namespace | removed |
+| Individual SSO | NOT VERIFIED |
+| App/DB/CNPG/PgBouncer/ESO/cutover | separate workload follow-up |
+
+[Machine-readable results](results.json) include the measured scope and hashes of the runtime source files. Raw provider responses, expected account, object IDs, command IDs, endpoint/CA and original canary namespace are preserved in the operator's private evidence directory. They are not published here. The workload verification session reuses this cluster and owns dependent workload resources separately. T6 remains in progress.
+
+## 출발지 워크로드 실제 구축 검증 · 2026-11-03
 
 사용자가 실제 개발 환경 구축을 요청했고, 기존 기반 배포 담당의 완료·소유권 인계 뒤 별도 `source-workloads` state와 새 `source-dev` namespace에서 작업했다. EKS 기반 state·VPC·NAT·기존 IAM OIDC provider·노드 역할·vpc-cni는 변경하지 않았다. 처음 Kubernetes 조회에서 사용자 namespace와 운영 데이터가 없음을 확인했다.
 
@@ -33,7 +58,7 @@
 
 `workload-identity-readback.json`은 **08:53:15.961942Z** 실제 역할 경계 검사다. namespace의 SA TokenRequest를 `sts.amazonaws.com` audience로 발급하고 STS web identity 교환 결과는 메모리에만 두었다. 앱 역할은 DB secret 읽기 허용/control secret 거부, ESO 역할은 control 읽기 허용/DB secret 및 첨부 목록 거부를 실제 AWS API에서 확인했다. 앱 역할로 합성 문자열 1개를 첨부 버킷에 쓰고 읽어 byte 일치·KMS 암호화를 확인했다. 이는 IAM/S3 SDK 경로의 실측이며 아직 앱 HTTP 첨부 API의 성공을 뜻하지 않는다.
 
-## T14 수집기 실제 연결
+### T14 수집기 실제 연결
 
 **08:57:03.516623Z**에 병합된 T14 라이브러리 `2ec5ec834c63f75ff8432c59c1224d1fa4ac2ef2`의 `SecretAccessProbe`와 `S3AnonymousReadProbe`를 위 환경에 연결했다. operator 프로세스에서 두 STS 세션의 실제 계정/assumed-role을 독립 조회해 등록 역할과 대조한 뒤 bounded SDK client(connect/read timeout 5초, standard total attempts 2)를 넘겼다. 단기 자격증명은 메모리에만 있었고 새 키를 만들지 않았다.
 
