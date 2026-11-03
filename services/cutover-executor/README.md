@@ -111,6 +111,16 @@ pooler Pod identity·실제 목적지·RESUME 상태를 다시 읽고, 바뀌면
 새 Secret에는 source/target의 공개 CA 합본만 넣으며 CNPG 자체 CA/서버 인증서는 수정하지 않는다.
 풀러가 교체되면 새 UID/이름을 읽어 named-pod 권한을 다시 인가하고 플랫폼 위치에서 검증한다.
 
+출발지 풀러가 목적지로 전환된 뒤에도 `verify-full`을 유지하려면 목적지 DB의 원래 인증서
+호스트 이름을 출발지에서 해석할 수 있어야 한다. `prepare.target_route_patch()`는 관측한
+출발지 Deployment, `target-db-for-pooler` Service, 해당 ProxyGroup의 생성 Service를 받아
+목적지 인증서 이름의 `hostAliases`만 추가한다. 별도 `bravo-source-pooler` 경로, 서비스 관계와
+준비 상태, 단일 Recreate 풀러, 양쪽 CA 합본을 확인하며 기존에 다른 주소가 있으면 거부한다.
+현재 DB 대상 설정·자격·LOGIN은 변경하지 않는다. 적용은 resourceVersion 조건으로 수행하고
+Pod 교체 뒤 기존 설정 보존, 실제 풀러 Pod의 TLS 연결과 잘못된 호출자의 거부, named-pod 권한
+재결속을 검증한다. Service의 Ready 표시는 네트워크 정책의 실제 거부 시험을 대신하지 않는다.
+기본 source manifest를 다시 적용할 때도 이 관측 기반 패치를 반영해야 한다.
+
 초기 target 앱은 source 자격으로 source-backed pooler에 붙는다. 현재 host-only retarget 계약은
 양쪽 DB의 `chat_app` 자격이 같아야 하므로, 실제 준비 단계에서 target NOLOGIN을 유지한 채
 source 자격/SCRAM을 target DB와 app Secret에 맞춘다. 이 일회 인계와 이후 암호 회전은

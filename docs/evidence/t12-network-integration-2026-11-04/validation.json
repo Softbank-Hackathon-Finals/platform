@@ -1,0 +1,140 @@
+{
+  "environment_scope": {
+    "platform": "EC2/RKE2",
+    "source": "EKS",
+    "target": "local development VM"
+  },
+  "platform_control": {
+    "started_at": "2026-11-03T15:44:11.332043+00:00",
+    "completed_at": "2026-11-03T15:45:03.232024+00:00",
+    "positive_before": {
+      "source_db_tls_auth_read": true,
+      "source_db_wrong_password_denied": true,
+      "source_db_wrong_hostname_denied": true,
+      "source_db_positive_after_negatives": true,
+      "source_pooler_tls_auth_read": true,
+      "source_pooler_wrong_password_denied": true,
+      "source_pooler_wrong_hostname_denied": true,
+      "source_pooler_positive_after_negatives": true,
+      "target_db_tls_auth_read": true,
+      "target_db_wrong_password_denied": true,
+      "target_db_wrong_hostname_denied": true,
+      "target_db_positive_after_negatives": true,
+      "target_pooler_tls_auth_read": true,
+      "target_pooler_wrong_password_denied": true,
+      "target_pooler_wrong_hostname_denied": true,
+      "target_pooler_positive_after_negatives": true
+    },
+    "wrong_caller": {
+      "source-db-for-cutover_denied": true,
+      "source-pooler-for-cutover_denied": true,
+      "target-db-for-cutover_denied": true,
+      "target-pooler-for-cutover_denied": true
+    },
+    "positive_after": {
+      "source_db_tls_auth_read": true,
+      "source_db_wrong_password_denied": true,
+      "source_db_wrong_hostname_denied": true,
+      "source_db_positive_after_negatives": true,
+      "source_pooler_tls_auth_read": true,
+      "source_pooler_wrong_password_denied": true,
+      "source_pooler_wrong_hostname_denied": true,
+      "source_pooler_positive_after_negatives": true,
+      "target_db_tls_auth_read": true,
+      "target_db_wrong_password_denied": true,
+      "target_db_wrong_hostname_denied": true,
+      "target_db_positive_after_negatives": true,
+      "target_pooler_tls_auth_read": true,
+      "target_pooler_wrong_password_denied": true,
+      "target_pooler_wrong_hostname_denied": true,
+      "target_pooler_positive_after_negatives": true
+    },
+    "passed": true,
+    "probe_cpu_request": "10m",
+    "business_writes": 0
+  },
+  "platform_state": {
+    "scope": "platform state DB actual runtime role, read-only",
+    "checks": {
+      "strict_tls_runtime_role": true,
+      "least_privilege_state_boundary": true,
+      "wrong_password_denied": true,
+      "wrong_hostname_denied": true,
+      "positive_after_negatives": true
+    },
+    "database_writes": 0,
+    "execution_count": 0,
+    "passed": true
+  },
+  "platform_cleanup": {
+    "at": "2026-11-03T15:48:00.441806+00:00",
+    "checks": {
+      "jobs_absent": true,
+      "pods_absent": true,
+      "secrets_absent": true
+    },
+    "passed": true,
+    "mutations": 0
+  },
+  "source_websocket": {
+    "source_sha": "66e7419f404f4ec4addc71014aabfcdd44f34688",
+    "image_digest": "sha256:4562bbf761d761cafc89f9db9153eb74550eb23972ea4f9080e93681d9d90d1d",
+    "only_image_changed": true,
+    "restart_count": 0,
+    "probe": {
+      "passed": true,
+      "checks": {
+        "startup_and_runtime_blocked": true,
+        "unauthorized_close_denied": true,
+        "both_connected_while_blocked": true,
+        "admin_close_ack": true,
+        "both_received_1012": true,
+        "repeat_close_zero": true,
+        "reconnect_hello": true,
+        "original_messages_readable": true,
+        "block_preserved": true
+      },
+      "business_writes": 0
+    },
+    "completed_at": "2026-11-03T15:36:07.583534+00:00"
+  },
+  "source_pooler_tls": {
+    "only_host_alias_changed": true,
+    "config_and_runtime_unchanged": true,
+    "restart_count": 0,
+    "checks": {
+      "strict_tls": true,
+      "wrong_hostname_denied": true,
+      "positive_after_negative": true
+    },
+    "database_mutations": 0,
+    "completed_at": "2026-11-03T15:49:41.001754+00:00"
+  },
+  "source_pooler_denial_initial": {
+    "started_at": "2026-11-03T15:50:56.986046+00:00",
+    "positive_before": true,
+    "negative": {
+      "denied": false
+    },
+    "positive_after": true,
+    "passed": false,
+    "owned_job_and_pods_absent": true,
+    "completed_at": "2026-11-03T15:51:12.100125+00:00"
+  },
+  "limits": {
+    "executor_100m_scheduling_verified": false,
+    "executor_deployed": false,
+    "source_pooler_wrong_caller_denial_accepted": false,
+    "actual_cutover_executions": 0,
+    "t12_issue_complete": false,
+    "t13_issue_complete": false
+  },
+  "private_source_sha256": {
+    "platform_control": "cd6571c1ae5d9e6656bbff692eeca0830f7b8735f0eaeafd80386d3f78a8315c",
+    "platform_state": "9bd229cc4b2bcca45dbc0d2119f54d5ce8c35de401ee63148fd8cb24ae5afae5",
+    "platform_cleanup": "c8fca8a35cb33615c5e5b6095ab961e5a4751f8e2af2bda2ad7c0b2055ba2a5d",
+    "source_websocket": "9d0a58905dd4add8b1a266b2b9be9f51a0de24ccef460ea7b9e290c7e0b40123",
+    "source_pooler_tls": "c9f167ec9bc415c1afd40ea1adfbf3c2567f92f5b84feed085b5ef3af92ad1e8",
+    "source_pooler_denial_initial": "4d6e29abbb7c0404ce044d9a21fef7710a74d5a99a613ff3be1eccb135d8e7d5"
+  }
+}
