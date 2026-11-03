@@ -7,6 +7,8 @@
 - `schemas/event.schema.json`: JSON Schema 2020-12. 버전·이벤트 종류별 payload·결속 필드.
 - `contract.py`: 스키마와 계획/순번 일치 검사, UTF-8 SSE 인코딩.
 - `store.py`: SQLite를 이용한 로컬 순번·멱등 append·재접속 재생 참조 구현.
+- `plans.py`: 같은 DB 트랜잭션의 계획 등록 · COLLECT→ANALYZE · 명령 영수증 · 상태 snapshot.
+- `plan_api.py`: 서버 principal/tenant 정책을 공유하는 계획 조회와 기존 SSE 경로. [계획 조회 제안](../../docs/contracts/T10-plan-snapshot-v1-proposal.md).
 - `api.py`: plan-scoped 읽기 전용 FastAPI 어댑터. 인증·인가 callback이 없으면 모든 요청을 거부한다.
 - `examples/events.json`: 5종 이벤트의 합성 fixture. 전체 상태 전이 또는 실제 이전의 증거가 아니다.
 
@@ -32,4 +34,18 @@ uv run pytest -q
 
 스키마 검사는 역사적 승인 기록의 형식을 검증한다. 승인 만료·현재 계획/diff/digest와의 대조, 승인자의 권한, 게이트 통과 여부, 상태 전이 허용 여부는 여기서 결정하지 않는다. 그 판정을 담당하는 코드가 실행 전에 다시 검증해야 한다. SSE를 받았다는 이유로 쓰기나 실행을 열어서는 안 된다.
 
-SQLite 파일은 로컬 참조 저장소이며 S3 Object Lock이나 불변 감사 저장소가 아니다. 운영 상태 DB와 이벤트의 원자적 저장(outbox), 실제 로그인·테넌트 정책, 보존 정책·스냅샷 복구 API, PostgreSQL·다중 인스턴스, 프록시 부하·중단 시험, T21/T24 연결, 팀 리뷰는 남아 있다. CI·클라우드·팀 E2E를 수행했다는 뜻도 아니다.
+SQLite 파일은 로컬 참조 저장소이며 S3 Object Lock이나 불변 감사 저장소가 아니다. `PlanStore`는 상태 · 이벤트 · 명령 영수증의 로컬 원자 저장과 계획 상태 snapshot을 추가한다. 이력 전체/삭제된 cursor 복구 API, 운영 outbox/DB, 실제 로그인·역할 정책, PostgreSQL·다중 인스턴스, 프록시 부하·중단 시험, T21/T24 연결, 팀 채택은 남아 있다. 클라우드·팀 E2E를 수행했다는 뜻도 아니다.
+
+## 계획 조회의 로컬 사용
+
+```python
+from bravo_platform_events.plan_api import create_plan_app
+from bravo_platform_events.plans import PlanStore
+
+store = PlanStore("local-plans.db")
+app = create_plan_app(store)  # 기본 미인증: 모든 요청 거부
+```
+
+호스트는 검증한 서버 등록값으로 `PlanSpec`을 만들고 `register_plan`을 호출한다. 신뢰된 수집기에서 얻은 `CollectionProof`에만 `complete_collection`을 허용한다. 실제 사용 시 검증된 `Principal`을 반환하는 동기 resolver를 `resolve_principal`로 제공한다. 요청의 tenant 헤더/`complete` 값을 그대로 신뢰하는 예제는 제공하지 않는다.
+
+조회 JSON의 `version`은 상태 변경 횟수이며 `last_event_id`는 같은 읽기 시점의 **전체 이벤트** 마지막 ID다. 상태 화면 초기화 뒤 그 다음부터 SSE를 적용할 수 있지만, snapshot에 없는 승인/감사 이력까지 복구한 것은 아니다. API는 읽기 전용이며 계획 생성 · 임의 전이 · 승인 · 실행 HTTP 경로를 추가하지 않는다. 최초 상태와 유일한 전이 COLLECT→ANALYZE만 다루며 이후 전이와 T5 정본/승인 결속은 후속 작업이다.
