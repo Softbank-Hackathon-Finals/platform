@@ -59,8 +59,11 @@ def verify(kubeconfig, namespace, configmap, app_pods, pooler_pod, db_pod,
         def call(*args, token_config_json=config):
             return run(["kubectl", "--kubeconfig", "/dev/stdin", "--namespace", namespace, *args], token_config_json)
 
-        def can(verb, resource):
-            result = call("auth", "can-i", verb, resource)
+        def can(verb, resource, subresource=None):
+            args = ("auth", "can-i", verb, resource)
+            if subresource:
+                args += ("--subresource=" + subresource,)
+            result = call(*args)
             if result.returncode == 0 and result.stdout.strip() == "yes":
                 return True
             if result.returncode == 1 and result.stdout.strip() == "no":
@@ -81,7 +84,8 @@ def verify(kubeconfig, namespace, configmap, app_pods, pooler_pod, db_pod,
         checks[prefix + "_other_namespace_denied"] = denied(call("-n", "kube-system", "get", "pods"))
         checks[prefix + "_pod_create_denied"] = not can("create", "pods")
         checks[prefix + "_rbac_patch_denied"] = not can("patch", "roles.rbac.authorization.k8s.io")
-        checks[prefix + "_token_issue_denied"] = not can("create", "serviceaccounts/token")
+        checks[prefix + "_token_issue_denied"] = not can(
+            "create", "serviceaccounts/" + identity, subresource="token")
         checks[prefix + "_other_config_patch_denied"] = not can("patch", "configmaps/cutover-unrelated")
         if identity == "bravo-executor":
             checks["executor_exact_config_get"] = call("get", "configmap", configmap, "-o", "name").returncode == 0

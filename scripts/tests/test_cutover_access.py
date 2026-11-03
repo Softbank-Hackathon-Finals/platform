@@ -70,6 +70,25 @@ class CutoverAccessTests(unittest.TestCase):
         self.assertFalse(report["app_access_verified"])
         self.assertFalse(report["cutover_ready"])
 
+    def test_token_check_queries_named_token_subresource(self):
+        seen = []
+
+        def call(args, payload=None):
+            seen.append(args)
+            if "can-i" in args:
+                allowed = "--subresource=token" in args
+                return CompletedProcess(args, 0 if allowed else 1, "yes" if allowed else "no", "")
+            return CompletedProcess(args, 1, "", "Forbidden")
+
+        with patch.object(verify, "token_config", return_value="private config"), patch.object(
+            verify, "run", side_effect=call
+        ):
+            report = verify.verify("private", "target-dev", "pooler-config", [], "pooler", "db", "pooler", check_app=False)
+        for identity in ("executor", "collector"):
+            self.assertFalse(report["checks"][identity + "_token_issue_denied"])
+            self.assertTrue(any("serviceaccounts/bravo-" + identity in args and "--subresource=token" in args for args in seen))
+        self.assertFalse(any("serviceaccounts/token" in args for args in seen))
+
     def test_reject_wildcards_and_system_namespaces(self):
         for ns in ("kube-system", "default", "*", "source;evil", "", None):
             with self.assertRaises(ValueError):
