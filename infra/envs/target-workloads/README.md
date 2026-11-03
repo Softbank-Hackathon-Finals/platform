@@ -152,3 +152,10 @@ Copy only while source attachment writes are quiescent. Remove only the exact
 synthetic development canary after its known content hash is verified; never
 clear a bucket to make counts match. This is a one-way attachment copy, not
 continuous object replication or the complete T9 security configuration.
+
+A prior source readiness canary may exist beside DB-referenced attachments.
+The default still rejects every unexplained source object. A trusted operator
+may supply `approved_extra_keys` only after matching each extra key to retained
+creation/use evidence and freezing its size and content hash. The result reports
+DB-referenced and approved-extra counts separately. This is an explicit exact
+inventory, not a prefix wildcard or a reason to delete either side's objects.

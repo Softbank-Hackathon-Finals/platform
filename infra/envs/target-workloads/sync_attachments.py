@@ -2,7 +2,8 @@
 
 Adapters expose list_keys(), read(key)->bytes and create(key, bytes). The source
 adapter must be read-only; destination create must reject an existing key.
-No names, credential values or object bodies are returned as evidence.
+An optional trusted operator inventory can name individually verified extra
+objects; unknown extras still fail. No names, credentials or bodies are returned.
 """
 import hashlib
 
@@ -10,8 +11,12 @@ MAX_OBJECTS = 100
 MAX_BYTES = 16 * 1024 * 1024
 
 
-def synchronize(source, destination, expected_keys):
-    expected = set(expected_keys)
+def synchronize(source, destination, expected_keys, *, approved_extra_keys=()):
+    referenced = set(expected_keys)
+    approved = set(approved_extra_keys)
+    if referenced & approved:
+        raise ValueError('approved extras must be distinct from database references')
+    expected = referenced | approved
     if not expected or len(expected) > MAX_OBJECTS or any(not isinstance(k, str) or not k for k in expected):
         raise ValueError('bounded nonempty attachment inventory required')
     if set(source.list_keys()) != expected:
@@ -48,6 +53,7 @@ def synchronize(source, destination, expected_keys):
     import json
     inventory_digest = hashlib.sha256(json.dumps(hashes, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
     return {'passed': True, 'source_count': len(expected), 'destination_count': len(expected),
+            'database_referenced_count': len(referenced), 'operator_approved_extra_count': len(approved),
             'copied': copied, 'reused': reused, 'bytes_verified': total,
             'key_content_inventory_sha256': inventory_digest,
             'content_sha256': sorted(hashes.values()), 'source_write_calls': 0}
