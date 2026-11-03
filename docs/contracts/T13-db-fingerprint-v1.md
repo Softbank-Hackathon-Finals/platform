@@ -78,7 +78,7 @@ db-sql-v1:fixed-session-text;columns-by-name;jsonb-array;utf8;sha256-of-row-sha2
 | 둘 다 | 양쪽 PostgreSQL 메이저가 다름 | `UNKNOWN` |
 | 둘 다 | 미지원 타입 · 미지원 메이저 · 시간 초과 · 연결 실패 · 오래된 정렬 버전 등 지문을 못 읽음 | `UNKNOWN` |
 
-전체 값은 하나라도 `MISMATCH`면 `MISMATCH`, 그렇지 않고 모두 `MATCH`면 `MATCH`, 나머지는 `UNKNOWN`이다. 비교한 표가 없어도 `UNKNOWN`이다. 
+전체 값은 하나라도 `MISMATCH`면 `MISMATCH`, 그렇지 않고 모두 `MATCH`면 `MATCH`, 나머지는 `UNKNOWN`이다. 비교한 표가 없어도 `UNKNOWN`이다.
 ### 오류 코드
 
 표 결과의 `error`에는 아래 고정 코드만 들어가고, `sqlstate`에는 형식이 맞는(영문 대문자 · 숫자 5자) SQLSTATE만 들어간다. 연결 문자열 · 호스트 · 서버 오류 원문 · 표와 컬럼 이름은 복사하지 않는다. 원문은 예외 연결(cause)로도 넘기지 않아 로그에 찍히지 않는다.
