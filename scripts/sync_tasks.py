@@ -78,7 +78,7 @@ class Task:
 
 
 def run(*args: str, input: str | None = None) -> str:
-    r = subprocess.run(args, check=False, capture_output=True, text=True, input=input)
+    r = subprocess.run(args, check=False, capture_output=True, text=True, input=input, timeout=60)
     if r.returncode != 0:
         raise RuntimeError(f"{' '.join(args[:4])}: {r.stderr.strip()}")
     return r.stdout
@@ -613,14 +613,23 @@ def sync_prs(dry: bool) -> None:
             p=board.id, i=board.items[issue["number"]][0], f=status_field["id"], t=detail)
 
 
+def reconcile(dry: bool) -> None:
+    """Recover coalesced events from current authoritative state, in source order."""
+    push(dry)
+    pull(dry)
+    sync_prs(dry)
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("command", choices=["push", "pull", "tick", "status", "start", "prs"])
+    ap.add_argument("command", choices=["push", "pull", "tick", "status", "start", "prs", "reconcile"])
     ap.add_argument("args", nargs="*")
     ap.add_argument("--dry-run", action="store_true")
     ap.add_argument("--moves-file", help="보드로 옮긴 내역을 적을 파일 (Slack 알림용)")
     a = ap.parse_args()
-    if a.command == "push":
+    if a.command == "reconcile":
+        reconcile(a.dry_run)
+    elif a.command == "push":
         push(a.dry_run)
     elif a.command == "pull":
         pull(a.dry_run)

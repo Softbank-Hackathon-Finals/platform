@@ -76,6 +76,15 @@ if __name__ == "__main__":
 
 
 class PRBoardTest(unittest.TestCase):
+    def test_reconcile_recovers_plan_issue_and_pr_events_in_order(self):
+        calls = Mock()
+        with patch.object(sync, 'push', calls.push), patch.object(sync, 'pull', calls.pull), \
+             patch.object(sync, 'sync_prs', calls.prs):
+            sync.reconcile(True)
+        self.assertEqual([c[0] for c in calls.mock_calls], ['push', 'pull', 'prs'])
+        for c in calls.mock_calls:
+            self.assertEqual(c.args, (True,))
+
     def issue(self, body='- [x] network\n- [ ] budget'):
         return {'state': 'OPEN', 'body': body}
 

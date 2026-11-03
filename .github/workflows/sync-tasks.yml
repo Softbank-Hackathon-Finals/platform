@@ -21,7 +21,7 @@ on:
     inputs:
       command:
         type: choice
-        options: [pull, push, status, prs]
+        options: [pull, push, status, prs, reconcile]
         default: pull
       dry-run:
         type: boolean
@@ -45,6 +45,7 @@ env:
 jobs:
   sync:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
         with:
@@ -57,7 +58,7 @@ jobs:
         id: sync
         shell: bash  # pipefail: 스크립트가 실패하면 tee 뒤에서도 job이 실패한다
         env:
-          COMMAND: ${{ github.event_name == 'push' && 'push' || (github.event_name == 'pull_request_target' || github.event_name == 'pull_request_review' || github.event_name == 'schedule') && 'prs' || inputs.command || 'pull' }}
+          COMMAND: ${{ github.event_name == 'push' && 'push' || github.event_name == 'schedule' && 'reconcile' || (github.event_name == 'pull_request_target' || github.event_name == 'pull_request_review') && 'prs' || inputs.command || 'pull' }}
           DRY: ${{ inputs.dry-run && '--dry-run' || '' }}
         run: |
           python3 scripts/sync_tasks.py "$COMMAND" ${DRY:+"$DRY"} --moves-file moves.txt | tee -a "$GITHUB_STEP_SUMMARY"

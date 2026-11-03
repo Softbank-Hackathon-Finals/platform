@@ -62,7 +62,7 @@ gh run view <run-id> -R Softbank-Hackathon-Finals/platform --log
 
 여러 PR이 열려 있으면 하나라도 초안·변경 요청이면 In progress다. 나머지는 In review이며 열린 PR을 함께 표시한다. 부분 구현 PR 병합은 T1 전체 완료를 뜻하지 않는다. 완료 체크는 기존대로 **리뷰 승인 후 PR 머지와 검증을 확인한 뒤** 한다.
 
-PR 생성·재열기·닫기·초안 전환·새 커밋·리뷰 요청·리뷰 제출/해제 이벤트에 실행한다. CI 결과의 후속 변경과 누락 이벤트는 매시 17분/47분 재조회로 보정한다(GitHub 예약 실행은 지연될 수 있음). 이벤트의 오래된 상태를 그대로 쓰지 않고 매번 현재 PR을 조회한다. 기존 이슈 동기화와 같은 concurrency 그룹으로 직렬화한다.
+PR 생성·재열기·닫기·초안 전환·새 커밋·리뷰 요청·리뷰 제출/해제 이벤트에 실행한다. CI 결과의 후속 변경과 누락 이벤트는 매시 17분/47분 `reconcile`(계획 push → 이슈 pull → PR 상태)로 보정한다(GitHub 예약 실행은 지연될 수 있음). 이벤트의 오래된 상태를 그대로 쓰지 않고 매번 현재 PR을 조회한다. 기존 이슈 동기화와 같은 concurrency 그룹으로 직렬화한다.
 
 토큰을 쓰는 PR/review/예약 실행은 **develop 코드만** 체크아웃한다. 포크 PR 코드·제목·본문은 실행하지 않는다. 수동 dispatch만 운영자가 지정한 브랜치를 사용하므로 리뷰 전 브랜치 검증이 가능하다. `PROJECT_TOKEN`은 기존 Actions 시크릿을 재사용한다.
 
@@ -73,3 +73,5 @@ python3 scripts/sync_tasks.py prs
 # 실제 자동 이벤트/예약 실행 활성화는 리뷰 승인 후 develop 병합 시점이다.
 gh workflow run sync-tasks.yml --ref feature/T29-review-before-merge -f command=prs -f dry-run=true
 ```
+
+`reconcile`은 이벤트가 몰려 pending 실행이 대체돼도 현재 정본 계획·이슈·PR을 순서대로 다시 읽는다. 달라진 값만 쓰며, PR 리뷰는 완료 체크를 대신하지 않는다. 동기화 job은 최대 10분, 개별 gh 호출은 60초로 제한한다. 시간 초과한 쓰기를 즉시 재시도하지 않고 다음 대조에서 현재 상태를 확인한다.
