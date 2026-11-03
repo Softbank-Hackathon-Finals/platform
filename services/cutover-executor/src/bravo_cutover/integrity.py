@@ -22,7 +22,7 @@ def canonical(value):
         return ["null"]
     if isinstance(value, bool):
         return ["bool", value]
-    if isinstance(value, (int, Decimal)):
+    if isinstance(value, int | Decimal):
         number = Decimal(value)
         if number == 0 or not number.is_finite():
             return ["number", "0" if number == 0 else str(number)]
@@ -36,15 +36,15 @@ def canonical(value):
         return ["float", value.hex() if math.isfinite(value) else str(value)]
     if isinstance(value, str):
         return ["text", value]
-    if isinstance(value, (bytes, bytearray, memoryview)):
+    if isinstance(value, bytes | bytearray | memoryview):
         return ["bytes", base64.b64encode(value).decode("ascii")]
     if isinstance(value, datetime):
         if value.tzinfo is not None:
             return ["timestamptz", value.astimezone(UTC).isoformat(timespec="microseconds")]
         return ["timestamp", value.isoformat(timespec="microseconds")]
-    if isinstance(value, (date, time, UUID)):
+    if isinstance(value, date | time | UUID):
         return [type(value).__name__, value.isoformat() if hasattr(value, "isoformat") else str(value)]
-    if isinstance(value, (list, tuple)):
+    if isinstance(value, list | tuple):
         return ["array", [canonical(v) for v in value]]
     if isinstance(value, dict) and all(isinstance(k, str) for k in value):
         return ["object", [[k, canonical(value[k])] for k in sorted(value)]]

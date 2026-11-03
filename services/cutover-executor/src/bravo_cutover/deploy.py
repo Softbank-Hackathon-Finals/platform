@@ -18,12 +18,15 @@ def manifests(image: str, *, migration: bool = False) -> dict:
                  "securityContext": security,
                  "resources": {"requests": {"cpu": "100m", "memory": "128Mi"},
                                "limits": {"cpu": "1", "memory": "512Mi"}},
-                 "volumeMounts": [{"name": "tmp", "mountPath": "/tmp"}]}
+                 "volumeMounts": [{"name": "tmp", "mountPath": "/tmp"},
+                                  {"name": "state-ca", "mountPath": "/run/state-ca", "readOnly": True}]}
     pod = {"serviceAccountName": NAME, "automountServiceAccountToken": False,
            "securityContext": {"runAsNonRoot": True, "runAsUser": 10001, "runAsGroup": 10001,
                                "fsGroup": 10001, "seccompProfile": {"type": "RuntimeDefault"}},
            "containers": [container], "terminationGracePeriodSeconds": 60,
-           "volumes": [{"name": "tmp", "emptyDir": {"medium": "Memory", "sizeLimit": "16Mi"}}]}
+           "volumes": [{"name": "tmp", "emptyDir": {"medium": "Memory", "sizeLimit": "16Mi"}},
+                       {"name": "state-ca", "secret": {"secretName": "cutover-executor-state-ca",
+                                                     "defaultMode": 0o440}}]}
     sa = {"apiVersion": "v1", "kind": "ServiceAccount",
           "metadata": {"name": NAME, "namespace": NAMESPACE, "labels": LABELS},
           "automountServiceAccountToken": False}

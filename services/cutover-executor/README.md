@@ -57,6 +57,9 @@ python3 testing/mockenv.py down
   플랫폼에서만 사용하며 로컬 파일·로그·PR에 복사하지 않는다. Kube API는 각 환경의
   관측된 앱·PgBouncer Pod exec와 해당 ConfigMap get/patch 권한만 가진다.
 - `cutover-executor-state`의 `dsn`은 플랫폼 DB의 별도 `cutover_executor_runtime` 계정이다.
+  state DSN은 `sslmode=verify-full sslrootcert=/run/state-ca/ca.crt`를 사용한다.
+  `cutover-executor-state-ca` Secret의 `ca.crt`는 runtime과 migration Job에 각각
+  읽기 전용으로 마운트하며, 업무 DB 자격이 있는 runtime Secret과 분리한다.
   이 계정은 `executor` schema USAGE와 executions/resource_fences/leases 테이블 SELECT/INSERT/UPDATE만 갖는다.
   DDL은 `--migration`으로 출력하는 일회 Job이 별도 `cutover-executor-migration` Secret을
   사용해 실행한다. 완료 뒤 migration Secret을 회수하고 runtime Deployment에는 마운트하지 않는다.

@@ -29,3 +29,13 @@ def test_migration_has_no_remote_cluster_credentials_or_http_server():
 def test_mutable_image_tag_is_rejected():
     with pytest.raises(ValueError, match="digest"):
         manifests("registry.example.invalid/team/executor:latest")
+
+
+@pytest.mark.parametrize("migration", [False, True])
+def test_both_database_clients_mount_dedicated_state_ca(migration):
+    workload = manifests(IMAGE, migration=migration)["items"][1]
+    pod = workload["spec"]["template"]["spec"]
+    volume = next(v for v in pod["volumes"] if v["name"] == "state-ca")
+    assert volume["secret"]["secretName"] == "cutover-executor-state-ca"
+    mount = next(m for m in pod["containers"][0]["volumeMounts"] if m["name"] == "state-ca")
+    assert mount == {"name": "state-ca", "mountPath": "/run/state-ca", "readOnly": True}
