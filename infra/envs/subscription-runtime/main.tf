@@ -101,7 +101,8 @@ resource "aws_ssm_document" "service" {
         start) systemctl start bravo-subscription.service; echo '{"service_command_completed":true}' ;;
         stop) systemctl stop bravo-subscription.service; echo '{"service_command_completed":true}' ;;
         verify)
-          test -n "$SSM_runId" && test -n "$SSM_proposalDigest"
+          test -n "$SSM_runId"
+          test -n "$SSM_proposalDigest"
           export KUBECONFIG=/etc/rancher/rke2/rke2.yaml
           export PYTHONDONTWRITEBYTECODE=1
           /opt/bravo-subscription/worker/.venv/bin/python -m bravo_agent.verification \
