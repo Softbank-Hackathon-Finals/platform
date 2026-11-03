@@ -22,12 +22,12 @@ spec:
       image: busybox:1.36
       command: ["httpd", "-f", "-p", "8333"]
       ports: [{containerPort: 8333}]
-      securityContext: {allowPrivilegeEscalation: false, capabilities: {drop: ["ALL"]}}
+      securityContext: {allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: {drop: ["ALL"]}}
     - name: other-port
       image: busybox:1.36
       command: ["httpd", "-f", "-p", "9333"]
       ports: [{containerPort: 9333}]
-      securityContext: {allowPrivilegeEscalation: false, capabilities: {drop: ["ALL"]}}
+      securityContext: {allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: {drop: ["ALL"]}}
 ---
 apiVersion: v1
 kind: Pod
@@ -43,7 +43,7 @@ spec:
       image: busybox:1.36
       command: ["httpd", "-f", "-p", "8333"]
       ports: [{containerPort: 8333}]
-      securityContext: {allowPrivilegeEscalation: false, capabilities: {drop: ["ALL"]}}
+      securityContext: {allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: {drop: ["ALL"]}}
 ---
 apiVersion: v1
 kind: Namespace
@@ -64,12 +64,12 @@ spec:
       image: busybox:1.36
       command: ["httpd", "-f", "-p", "8200"]
       ports: [{containerPort: 8200}]
-      securityContext: {allowPrivilegeEscalation: false, capabilities: {drop: ["ALL"]}}
+      securityContext: {allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: {drop: ["ALL"]}}
     - name: other-port
       image: busybox:1.36
       command: ["httpd", "-f", "-p", "8201"]
       ports: [{containerPort: 8201}]
-      securityContext: {allowPrivilegeEscalation: false, capabilities: {drop: ["ALL"]}}
+      securityContext: {allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: {drop: ["ALL"]}}
 ---
 apiVersion: v1
 kind: Pod
@@ -85,4 +85,4 @@ spec:
       image: busybox:1.36
       command: ["httpd", "-f", "-p", "8200"]
       ports: [{containerPort: 8200}]
-      securityContext: {allowPrivilegeEscalation: false, capabilities: {drop: ["ALL"]}}
+      securityContext: {allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: {drop: ["ALL"]}}

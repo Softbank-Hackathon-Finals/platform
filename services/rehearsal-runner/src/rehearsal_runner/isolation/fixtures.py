@@ -62,6 +62,7 @@ class Fixtures:
                         },
                         "securityContext": {
                             "allowPrivilegeEscalation": False,
+                            "readOnlyRootFilesystem": True,
                             "capabilities": {"drop": ["ALL"]},
                         },
                     }
