@@ -1280,17 +1280,19 @@ footer { margin-top: 72px; padding-top: 16px; border-top: 1px solid var(--line);
 </ul>
 
 <h4>규제 매핑표</h4>
-<p>판정은 위 통제로 고정하고, 규제는 근거로만 연결한다. 규제나 나라가 바뀌면 이 표만 교체한다. 조항 번호는 원문 확인 뒤 채운다(태스크 T23).</p>
+<p>판정은 T5 시험 계약으로 고정하고, 규제는 근거로만 연결한다. 아래는 <b>2026-11-03 원문 확인</b> 결과다. 조항 확인은 전체 규제 준수 판정이 아니다. 적용 범위·시험의 한계·원문 버전은 <a href="controls/regulatory-mapping.md">T23 상세 대응표</a>에서 확인한다.</p>
+<p>일본은 <a href="https://www.fsa.go.jp/common/law/cybersecurity_guideline.pdf">금융청 가이드라인(2025-07 일부 개정)</a>, 한국은 <a href="https://www.law.go.kr/LSW/admRulInfoP.do?admRulSeq=2200000108629&amp;chrClsCd=010201">시행세칙(2026-04-20)</a>과 <a href="https://www.law.go.kr/LSW/admRulInfoP.do?admRulSeq=2100000282622&amp;chrClsCd=010201">감독규정(2026-07-15)</a>을 대조했다. <b>시행세칙 별표7은 망분리 예외의 대체 통제</b>이며, 모든 앱·서버에 같은 항목이 적용된다는 뜻이 아니다.</p>
 <div class="tbl"><table>
-<thead><tr><th>통제</th><th>일본 (금융청 가이드라인 등)</th><th>한국 (전자금융감독규정 시행세칙 별표7 등)</th><th>국제 (CIS)</th></tr></thead>
+<thead><tr><th>통제</th><th>일본 금융청 가이드라인</th><th>한국 원문 근거</th><th>확인 범위</th></tr></thead>
 <tbody>
-<tr><td>비밀 저장</td><td><span class="pill hold">원문 확인</span></td><td>안전한 인증 · 암호화 관련 항목 <span class="pill hold">조항 확인</span></td><td>CIS K8s: Secrets 관련 항목</td></tr>
-<tr><td>전송 암호화</td><td><span class="pill hold">원문 확인</span></td><td>구간 암호화 <span class="pill hold">조항 확인</span></td><td>CIS K8s: TLS 관련 항목</td></tr>
-<tr><td>감사 로그</td><td><span class="pill hold">원문 확인</span></td><td>로그 수집 · 보관 <span class="pill hold">조항 확인</span></td><td>CIS K8s: audit 관련 항목</td></tr>
-<tr><td>네트워크 노출</td><td><span class="pill hold">원문 확인</span></td><td><span class="pill hold">조항 확인</span></td><td>CIS K8s: NetworkPolicy</td></tr>
-<tr><td>최소 권한</td><td><span class="pill hold">원문 확인</span></td><td>최소 권한 <span class="pill hold">조항 확인</span></td><td>CIS K8s: RBAC</td></tr>
-<tr><td>백업 · 복구 / 출구전략 시험</td><td>가이드라인 2.6 출구전략 · 대체 수단 정기 시험</td><td>클라우드 이용 가이드 출구전략</td><td>-</td></tr>
+<tr><td>비밀 저장</td><td>2.3.1 기본③, 2.3.3 기본①·②</td><td>감독규정 제19조제2항·제19조의2, 별표2의4 제5항목. 별표7 단말기 저장 암호화는 단말기 범위에 한정</td><td>원문 확인 · 기술 시험은 부분 대응</td></tr>
+<tr><td>전송 암호화</td><td>2.3.3 기본①, 2.3.4.4 기본③·⑤</td><td>별표7 내부 업무망 SaaS 구간 보호, 원격접속/통신 회선. 감독규정 별표2의4 제3항목 추가 사항</td><td>원문 확인 · DB TLS만으로 전체 통신 보호를 입증하지 않음</td></tr>
+<tr><td>감사 로그</td><td>2.3.4.2 기본①·②</td><td>시행세칙 제2조의2 제1~3호, 감독규정 제13조제1항제9호. 별표7 SaaS·원격접속 기록</td><td>원문 확인 · 카나리 검색과 전체 기록·보존 검증은 구별</td></tr>
+<tr><td>네트워크 노출</td><td>2.3.4.1 기본①, 2.3.4.4 기본①·② / 바람직 b·c</td><td>감독규정 제15조제1항제1·3·5호, 제17조제1호. 별표7 연구·개발·SaaS·원격접속 경로 통제</td><td>원문 확인 · NetworkPolicy를 법적 망분리 전체와 동일시하지 않음</td></tr>
+<tr><td>최소 권한</td><td>2.3.1 기본①·②·④</td><td>감독규정 제13조제1항제1·11호 및 제3항. 별표7 단말기 관리자 제한·SaaS 최소권한·원격 이중인증</td><td>원문 확인 · 사람 인증과 서비스 계정 거부 시험은 구별</td></tr>
+<tr><td>백업 · 복구 / 출구전략 시험</td><td>2.3.3 기본⑤, 2.2.5 바람직 a, 2.6 바람직 d</td><td>별표7 직접 항목 없음. 감독규정 제13조제1항제6~7호·제14조제5호, 별표2의3 제1·4항목</td><td>원문 확인 · 복원 시험과 RPO/RTO·출구전략 전체 검증은 구별</td></tr>
 </tbody></table></div>
+<p>금융청의 출구전략·대체 수단 시험은 <b>2.6 d의 바람직한 사항</b>이다. 한국의 적용성은 업무·데이터·위험성 평가 및 승인 조건에 따라 검토한다. CIS의 버전별 세부 번호 대조는 이번 원문 확인 범위에 포함하지 않는다.</p>
 
 <h3 id="s8-6"><span class="num">8.6</span>데이터 이전과 Cutover Executor</h3>
 <p>데이터 이전 방식은 10/31 팀 합의를 그대로 따른다: PostgreSQL 논리 복제로 초기 데이터를 복사하고 변경분을 따라간 뒤, PgBouncer(transaction 풀링)를 잠깐 PAUSE하고 대상을 바꿔 RESUME한다. Executor는 이 짧은 쓰기 정지 구간을 정해진 순서로 실행하는 프로그램이며, 팀이 직접 만드는 핵심 부품이다.</p>
