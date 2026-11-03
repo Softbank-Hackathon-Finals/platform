@@ -269,9 +269,13 @@ def test_invalid_source_time_is_quarantined(context, stamp):
 
 def test_lossy_mask_does_not_merge_different_accounts():
     store, n = Store(), Normalizer()
-    for account in ("123456789012", "999999999012"):
+    accounts = ("123456789012", "9" * 8 + "9012")  # Synthetic IDs with a colliding masked suffix.
+    assert accounts[0] != accounts[1] and accounts[0][-4:] == accounts[1][-4:]
+    for account in accounts:
         event = raw("aws-security-hub-control")
-        event["Id"] = f"arn:aws:securityhub:ap-northeast-1:{account}:finding/a"
+        arn_parts = event["Id"].split(":", 5)
+        arn_parts[4] = account
+        event["Id"] = ":".join(arn_parts)
         store.upsert(
             n.normalize("aws_security_hub", event, environment_id="env-aws", collected_time=NOW)
         )
