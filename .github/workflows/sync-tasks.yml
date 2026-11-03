@@ -13,8 +13,9 @@ on:
   pull_request_target:
     branches: [develop]
     types: [opened, reopened, closed, ready_for_review, converted_to_draft, synchronize, edited, review_requested, review_request_removed]
-  pull_request_review:
-    types: [submitted, dismissed]
+  workflow_run:
+    workflows: [pr-review-signal]
+    types: [completed]
   schedule:
     - cron: '17,47 * * * *'
   workflow_dispatch:
@@ -44,21 +45,23 @@ env:
 
 jobs:
   sync:
+    # Review workflows run from a PR merge commit. Only the default-branch
+    # workflow consumes their completion signal; no PR code or artifacts cross over.
+    if: github.event_name != 'workflow_run' || (github.event.workflow_run.event == 'pull_request_review' && github.event.workflow_run.conclusion == 'success')
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
         with:
-          token: ${{ secrets.PROJECT_TOKEN }}
-          # PR/review events always execute trusted develop code, never a PR head.
-          # Manual dispatch uses the explicitly selected branch for pre-merge verification.
-          ref: ${{ github.event_name == 'workflow_dispatch' && github.ref || 'develop' }}
+          # Keep the workflow and script at the same immutable revision.
+          # Automatic events use trusted code; manual dispatch uses the selected revision.
+          ref: ${{ github.workflow_sha }}
           persist-credentials: false
       - name: 동기화
         id: sync
         shell: bash  # pipefail: 스크립트가 실패하면 tee 뒤에서도 job이 실패한다
         env:
-          COMMAND: ${{ github.event_name == 'push' && 'push' || github.event_name == 'schedule' && 'reconcile' || (github.event_name == 'pull_request_target' || github.event_name == 'pull_request_review') && 'prs' || inputs.command || 'pull' }}
+          COMMAND: ${{ github.event_name == 'push' && 'push' || github.event_name == 'schedule' && 'reconcile' || (github.event_name == 'pull_request_target' || github.event_name == 'workflow_run') && 'prs' || inputs.command || 'pull' }}
           DRY: ${{ inputs.dry-run && '--dry-run' || '' }}
         run: |
           python3 scripts/sync_tasks.py "$COMMAND" ${DRY:+"$DRY"} --moves-file moves.txt | tee -a "$GITHUB_STEP_SUMMARY"

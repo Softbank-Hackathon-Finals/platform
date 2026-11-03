@@ -1,0 +1,17 @@
+name: pr-review-signal
+
+# This workflow can come from an unmerged PR. It only signals that a review
+# changed; sync-tasks re-reads GitHub state using its own trusted revision.
+on:
+  pull_request_review:
+    types: [submitted, dismissed]
+
+permissions: {}
+
+jobs:
+  signal:
+    runs-on: ubuntu-latest
+    timeout-minutes: 1
+    steps:
+      - name: Notify trusted synchronization workflow
+        run: echo 'Review event received; synchronization reads current state separately.'

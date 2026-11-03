@@ -64,7 +64,9 @@ gh run view <run-id> -R Softbank-Hackathon-Finals/platform --log
 
 PR 생성·재열기·닫기·초안 전환·새 커밋·리뷰 요청·리뷰 제출/해제 이벤트에 실행한다. CI 결과의 후속 변경과 누락 이벤트는 매시 17분/47분 `reconcile`(계획 push → 이슈 pull → PR 상태)로 보정한다(GitHub 예약 실행은 지연될 수 있음). 이벤트의 오래된 상태를 그대로 쓰지 않고 매번 현재 PR을 조회한다. 기존 이슈 동기화와 같은 concurrency 그룹으로 직렬화한다.
 
-토큰을 쓰는 PR/review/예약 실행은 **develop 코드만** 체크아웃한다. 포크 PR 코드·제목·본문은 실행하지 않는다. 수동 dispatch만 운영자가 지정한 브랜치를 사용하므로 리뷰 전 브랜치 검증이 가능하다. `PROJECT_TOKEN`은 기존 Actions 시크릿을 재사용한다.
+리뷰 제출/해제는 권한 없는 `pr-review-signal.yml`이 받고, 그 완료를 기본 브랜치의 `sync-tasks.yml`이 `workflow_run`으로 받는다. 신호 workflow에는 checkout·시크릿·산출물이 없다. 동기화는 신호의 상태·본문·산출물을 복사하지 않고 GitHub에서 현재 PR 상태를 다시 읽는다. 실패한 신호는 동기화를 시작하지 않으며 누락된 상태는 예약 대조로 복구한다.
+
+토큰을 쓰는 자동 PR/review/예약 실행은 **신뢰된 workflow와 같은 커밋(`github.workflow_sha`)의 코드**를 체크아웃한다. 움직이는 `develop` 참조나 PR head를 사용하지 않아, 새 workflow와 옛 스크립트가 섞이지 않는다. 수동 dispatch는 운영자가 지정한 revision의 workflow와 코드를 함께 사용하므로 리뷰 전 `--dry-run` 검증이 가능하다. `PROJECT_TOKEN`은 기존 Actions 시크릿을 재사용하고 checkout에는 기본 읽기 토큰만 사용한다. 포크 PR 코드·제목·본문은 실행하지 않는다.
 
 ```sh
 python3 scripts/sync_tasks.py prs --dry-run  # 로컬 인증에 project 조회 권한 필요
