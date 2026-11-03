@@ -145,6 +145,20 @@ def verify_qmp(client: QMP, vm: Path, launch_id: str):
         raise VMError("QEMU disk mismatch")
 
 
+def process_exiting(pid: int, identity: str) -> bool:
+    """Darwin can expose a truncated comm while the same process is exiting."""
+    result = subprocess.run(
+        ["ps", "-ww", "-p", str(pid), "-o", "lstart=", "-o", "stat="],
+        capture_output=True, text=True, timeout=5, check=False,
+        env={**os.environ, "LC_ALL": "C"},
+    )
+    fields = result.stdout.split()
+    if result.returncode or len(fields) != 6 or fields[:5] != identity.split(maxsplit=5)[:5]:
+        return False
+    status = fields[5]
+    return status.startswith("Z") or (platform.system() == "Darwin" and "E" in status)
+
+
 def down(state: Path, *, timeout: float = 30):
     vm = state / "vm"
     if not vm.exists() and not vm.is_symlink():
@@ -166,8 +180,14 @@ def down(state: Path, *, timeout: float = 30):
             pass  # QEMU may close before replying; process exit is still required.
     deadline = time.monotonic() + timeout
     while (current := process_identity(pid)) is not None:
-        if current != identity or time.monotonic() >= deadline:
+        if time.monotonic() >= deadline:
             raise VMError("QEMU exit not confirmed; state preserved")
+        if current != identity and not process_exiting(pid, identity):
+            # It may have disappeared between the two ps reads. A different live
+            # identity is still rejected; E/Z is never itself proof of absence.
+            if process_identity(pid) is not None:
+                raise VMError("QEMU process changed during shutdown; state preserved")
+            break
         time.sleep(0.1)
     current_directory = vm.lstat()
     if (current_directory.st_dev, current_directory.st_ino) != (directory.st_dev, directory.st_ino):

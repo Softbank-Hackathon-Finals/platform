@@ -288,6 +288,36 @@ class LocalVMTests(unittest.TestCase):
         self.assertIsNone(process.poll())
         self.preserved()
 
+    def test_exiting_state_requires_same_start_time(self):
+        original = "Tue Nov  3 20:43:02 2026 /opt/qemu-system-aarch64"
+        for row, system, expected in (
+            ("Tue Nov 3 20:43:02 2026 ?E", "Darwin", True),
+            ("Tue Nov 3 20:43:02 2026 Z", "Linux", True),
+            ("Tue Nov 3 20:43:03 2026 ?E", "Darwin", False),
+            ("Tue Nov 3 20:43:02 2026 S", "Darwin", False),
+            ("Tue Nov 3 20:43:02 2026 ?E", "Linux", False),
+        ):
+            with self.subTest(row=row, system=system), \
+                    patch.object(vm_tool.subprocess, "run", return_value=subprocess.CompletedProcess([], 0, row, "")), \
+                    patch.object(vm_tool.platform, "system", return_value=system):
+                self.assertEqual(vm_tool.process_exiting(100, original), expected)
+
+    def test_exiting_or_reused_identity_never_counts_as_process_absence(self):
+        process = self.process()
+        identity = vm_tool.process_identity(process.pid)
+        for exiting in (True, False):
+            socket_path = self.vm / "qmp.sock"
+            if socket_path.exists():
+                socket_path.unlink()
+            identities = iter([identity])  # The pre-quit identity check still matches.
+            with self.subTest(exiting=exiting), self.server(), \
+                    patch.object(vm_tool, "owned_process", return_value=(process.pid, identity)), \
+                    patch.object(vm_tool, "process_identity", side_effect=lambda _, values=identities: next(values, "changed identity")), \
+                    patch.object(vm_tool, "process_exiting", return_value=exiting), self.assertRaises(ValueError):
+                vm_tool.down(self.state, timeout=0.15)
+            self.assertIsNone(process.poll())
+            self.preserved()
+
     def test_delete_only_after_actual_process_exit(self):
         process = self.process()
         identity = vm_tool.process_identity(process.pid)
