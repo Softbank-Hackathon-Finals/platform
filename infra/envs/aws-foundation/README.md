@@ -12,11 +12,13 @@ SG는 상태를 추적하므로 허용된 연결의 응답은 돌아온다. 플�
 
 기본 대역은 `10.80.0.0/15`에서 출발지 `/16`과 플랫폼 `/16`으로 나눈다. 실제 연결 전에는 온프렘·기존 VPC·Tailscale 경로와의 중복을 확인한다. 이 단계는 IGW·NAT·노드·공인 IP를 만들지 않는다. T6·T7에서 클러스터 통신과 필요한 외부 egress를 추가해야 앱을 띄울 수 있다.
 
+이 환경 root는 [`../../modules/network/aws`](../../modules/network/aws)를 조합한다. 재사용 자원은 모듈, 계정·태그·backend·실행 명령은 이 폴더가 맡는다. 기존 파일 경로에서 옮긴 운영자 state는 `moved.tf`로 자원 재생성 없이 연결한다.
+
 ## 작업 순서
 
 준비: 팀 CI와 같은 Terraform **1.16.5**, AWS CLI, Python **3.9+**. 사람은 본인 인증, 자동화는 OIDC를 사용한다. 장기 키를 공유하지 않는다.
 
-1. [`../state-backend`](../state-backend)의 상태 저장소를 한 번 준비한다.
+1. [`../../bootstrap/state-backend`](../../bootstrap/state-backend)의 상태 저장소를 한 번 준비한다.
 2. `operator.auto.tfvars.example`을 `operator.auto.tfvars`로 복사해 계정·배포 ID·AZ·대역을 넣는다. 실제 입력 파일은 Git에서 제외된다.
 3. `backend.hcl.example`을 저장소 밖의 개인 경로로 복사해 bootstrap 출력과 배포별 key를 넣는다. **서로 다른 배포에 같은 key를 쓰지 않는다.**
 

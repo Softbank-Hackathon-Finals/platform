@@ -8,7 +8,9 @@ check:
 	$(TF) fmt -check
 	$(TF) init -backend=false -input=false
 	$(TF) validate
-	$(TF) test
+	$(TF) -chdir=../../modules/network/aws init -backend=false -input=false
+	$(TF) -chdir=../../modules/network/aws validate
+	$(TF) -chdir=../../modules/network/aws test
 
 init:
 	@test -n "$(BACKEND_CONFIG)" || (echo 'Set BACKEND_CONFIG to an S3 backend JSON file'; exit 1)
