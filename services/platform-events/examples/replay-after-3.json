@@ -1,0 +1,8 @@
+{
+  "last_event_id": "plan-demo:3",
+  "event_ids": [
+    "plan-demo:4",
+    "plan-demo:5"
+  ],
+  "sse": "id: plan-demo:4\nevent: approval.decided\ndata: {\"schema_version\":\"1.0\",\"event_id\":\"plan-demo:4\",\"sequence\":4,\"plan_id\":\"plan-demo\",\"run_id\":\"run-demo-1\",\"event_type\":\"approval.decided\",\"data\":{\"approval_id\":\"approval-demo-1\",\"approval_kind\":\"cutover\",\"binding\":{\"plan_id\":\"plan-demo\",\"plan_revision\":\"sha256:1111111111111111111111111111111111111111111111111111111111111111\",\"diff_hash\":\"sha256:2222222222222222222222222222222222222222222222222222222222222222\",\"image_digest\":\"sha256:3333333333333333333333333333333333333333333333333333333333333333\",\"target_environment_id\":\"onprem-demo\",\"expires_at\":\"2026-11-03T12:00:00Z\",\"gate_run_id\":\"gate-demo-1\"},\"decision\":\"approved\",\"actor_id\":\"operator-demo\"},\"occurred_at\":\"2026-11-03T10:00:04Z\"}\n\nid: plan-demo:5\nevent: execution.updated\ndata: {\"schema_version\":\"1.0\",\"event_id\":\"plan-demo:5\",\"sequence\":5,\"plan_id\":\"plan-demo\",\"run_id\":\"run-demo-1\",\"event_type\":\"execution.updated\",\"data\":{\"execution_id\":\"execution-demo-1\",\"step\":\"pause-writes\",\"status\":\"started\"},\"occurred_at\":\"2026-11-03T10:00:05Z\"}\n\n"
+}
