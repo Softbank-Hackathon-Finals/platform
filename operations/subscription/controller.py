@@ -21,6 +21,15 @@ def prove_denied(call):
     raise RuntimeError("permission boundary was not enforced")
 
 
+def prove_session_denied(ssm, **arguments):
+    def attempt():
+        created = ssm.start_session(**arguments)
+        # Do not open a channel or run a command if a negative probe is accepted.
+        ssm.terminate_session(SessionId=created["SessionId"])
+        return created
+    return prove_denied(attempt)
+
+
 def main():
     region = "ap-northeast-2"
     instance = os.environ["BRAVO_INSTANCE_ID"]
@@ -33,6 +42,10 @@ def main():
                 InstanceIds=[instance], DocumentName="AWS-RunShellScript",
                 Parameters={"commands": ["true"]})),
             "secret_inventory": prove_denied(lambda: boto3.client("secretsmanager", region_name=region).list_secrets()),
+            "default_shell_session": prove_session_denied(ssm, Target=instance),
+            "arbitrary_port_session": prove_session_denied(
+                ssm, Target=instance, DocumentName="AWS-StartPortForwardingSession",
+                Parameters={"portNumber": ["22"], "localPortNumber": ["18763"]}),
         }
         command = ssm.send_command(InstanceIds=[instance], DocumentName="bravo-subscription-service",
                                    Parameters={"operation": ["start"]})["Command"]["CommandId"]
