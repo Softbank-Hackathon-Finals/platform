@@ -1,0 +1,32 @@
+{
+  "created_at_utc": "2026-11-03T09:44:36.824625+00:00",
+  "canonical_evidence_bytes_unchanged": true,
+  "raw_findings_or_input_filenames_exported": false,
+  "artifacts": [
+    {
+      "artifact": "SEC-01.2.json",
+      "sha256": "sha256:0979e62be08b83e325c997dd229aa8f442b7cf1a4d16af52a204b05aa2e510d2",
+      "private_and_public_bytes_equal": true
+    },
+    {
+      "artifact": "control-run.json",
+      "sha256": "sha256:08037ebb9c543f93e68a64ca8c6aacf366fc3096e947810f22cfd55807998ac6",
+      "private_and_public_bytes_equal": true
+    },
+    {
+      "artifact": "execution-source.json",
+      "sha256": "sha256:ad0ab4bd581deffa0d8c9209bc4b689d09a860cb6f82e8623198ea40100a9d51",
+      "private_and_public_bytes_equal": true
+    },
+    {
+      "artifact": "summary.json",
+      "sha256": "sha256:b93d9fa57aaf2026dc941630b55eb71a8fc313aeed53a5ef44a769218a36227c",
+      "private_and_public_bytes_equal": true
+    },
+    {
+      "artifact": "source-binding.json",
+      "sha256": "sha256:f74c349d41ef95d25ea887e71109b9511cfe1dc059253ec9668b37d72d69c86e",
+      "private_and_public_bytes_equal": true
+    }
+  ]
+}
