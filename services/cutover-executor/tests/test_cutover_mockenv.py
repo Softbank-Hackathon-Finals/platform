@@ -34,12 +34,12 @@ def sides(config):
     reset(src, dst)
 
 
-def start(store, epoch=None):
+def start(store, epoch=None, deadline_s=120):
     request = CutoverRequest(
         plan_id="plan-mock", epoch=epoch or int(time.time() * 1000),
         source={"environment_id": "env-aws", "connection_ref": "mock/src"},
         target={"environment_id": "env-onprem", "connection_ref": "mock/dst"},
-        write_pause_budget_ms=5000, deadline=datetime.now(UTC) + timedelta(minutes=2),
+        write_pause_budget_ms=5000, deadline=datetime.now(UTC) + timedelta(seconds=deadline_s),
     )
     execution, _ = store.create(str(uuid.uuid4()), request)
     return execution.execution_id
@@ -65,7 +65,7 @@ def test_cutover_happy_path(store, config, sides):
 
     # 기준 1: 어느 순간에도 앱 역할이 로그인할 수 있는 DB는 최대 하나
     assert watch.samples[0][1:] == (True, False) and watch.samples[-1][1:] == (False, True)
-    assert watch.both_writable() == []
+    watch.assert_safe()
 
     # 기준 7: 결과와 영수증
     result = execution.result

@@ -50,7 +50,7 @@ def crash_then_recover(store, src, dst, point):
             Cutover(store, mock_config(), hooks={point: crash}).run(execution_id)
         assert store.get(execution_id).status == Status.RUNNING
         assert Cutover(store, mock_config()).recover() == [execution_id]
-    assert watch.both_writable() == []
+    watch.assert_safe()
     return store.get(execution_id)
 
 
@@ -112,7 +112,7 @@ def test_target_unreachable_before_reconnect(store, sides):
     execution_id = start(store)
     with WriterWatch(src, dst) as watch:
         Cutover(store, mock_config(), hooks={"before:reconnect": unreachable("dst.db._dsn")}).run(execution_id)
-    assert watch.both_writable() == []
+    watch.assert_safe()
     execution = store.get(execution_id)
     assert execution.status == Status.SAFE_HOLD and execution.result["reason"] == "failed after commit"
     assert execution.result["observed"]["unknown"] == ["target"]
@@ -127,7 +127,7 @@ def test_target_pgbouncer_unreachable_after_target_opened(store, sides):
     execution_id = start(store)
     with WriterWatch(src, dst) as watch:
         Cutover(store, mock_config(), hooks={"reconnect:target_opened": unreachable("dst.pool._dsn")}).run(execution_id)
-    assert watch.both_writable() == []
+    watch.assert_safe()
     execution = store.get(execution_id)
     assert execution.status == Status.SAFE_HOLD, execution.result
     observed = execution.result["observed"]
@@ -169,7 +169,7 @@ def test_pod_restarts_during_hold_do_not_open_writes(store, sides):
         # 새 파드는 차단이 풀린 채 떴지만 DB가 거부한다(503 또는 응답 없음)
         assert post_status(30480) != 201
         assert [DbControl(s.db_control_dsn).row_count("public.messages") for s in (src, dst)] == counts
-    assert watch.both_writable() == []
+    watch.assert_safe()
     assert try_app_write(src.db_app_dsn, "hold") == WriteRefusal.REFUSED
     assert try_app_write(dst.db_app_dsn, "hold") == WriteRefusal.REFUSED
 
@@ -190,3 +190,40 @@ def test_only_one_executor_process(postgres_dsn, store):
         assert second.acquire_singleton() is True
     finally:
         second.close()
+
+
+def test_restart_after_deadline_still_decides(store, sides):
+    """deadline이 지난 뒤 재시작해도 저장된 요청을 읽어 판정한다(검토 갭 2)."""
+    src, dst = sides
+    execution_id = start(store, deadline_s=4)
+    with pytest.raises(Crash):
+        Cutover(store, mock_config(), hooks={"before:fence": crash}).run(execution_id)
+    time.sleep(4.5)
+    assert Cutover(store, mock_config()).recover() == [execution_id]
+    assert store.get(execution_id).status == Status.ABORT_PRE_WRITE
+    assert_source_is_writer_again(src, dst)
+
+
+@pytest.mark.parametrize(("point", "decided"), [("before:fence", Status.ABORT_PRE_WRITE),
+                                                ("before:reconnect", Status.SAFE_HOLD)])
+def test_old_executor_stops_after_takeover(store, postgres_dsn, sides, point, decided):
+    """잠금을 잃은 앞 Executor가 아직 살아 있을 때 새 Executor가 넘겨받으면, 앞 Executor는 다음 조작 전에 멈춘다.
+    넘겨받은 쪽의 판정만 남고 목적지는 열리지 않는다(검토 갭 1)."""
+    src, dst = sides
+    newer = Store(postgres_dsn)
+
+    def takeover(_run):
+        Cutover(newer, mock_config()).recover()
+
+    try:
+        execution_id = start(store)
+        with WriterWatch(src, dst) as watch:
+            Cutover(store, mock_config(), hooks={point: takeover}).run(execution_id)
+        watch.assert_safe()
+        execution = store.get(execution_id)
+        assert execution.status == decided, execution.result
+        assert DbControl(dst.db_control_dsn).can_login(dst.app_role) is False
+        # 넘겨받은 지점의 단계는 앞 Executor가 시작하지 않았다
+        assert not [e for e in execution.steps if e["step"] == point.split(":")[1] and e["status"] == "started"]
+    finally:
+        newer.close()

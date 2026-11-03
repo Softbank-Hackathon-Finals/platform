@@ -59,9 +59,11 @@ def reset(src: Site, dst: Site) -> None:
 
 
 class WriterWatch:
-    """실행 중 앱 역할이 로그인할 수 있는 DB 수를 계속 읽는다 (spec 완성 기준 1).
+    """실행 중 각 DB가 앱 역할의 쓰기를 받을 수 있는지 계속 읽는다 (spec 완성 기준 1).
 
-    sample은 (시각, 출발지, 목적지) 튜플. None은 그 순간 읽지 못했다는 뜻이다.
+    "쓰기 가능"은 앱 역할이 로그인할 수 있거나, 이미 붙어 있는 앱 역할 세션이 남아 있는 것이다
+    (NOLOGIN 전에 연결된 세션은 계속 쓸 수 있으므로). sample은 (시각, 출발지, 목적지)이고 None은 읽지 못한 것이다.
+    읽지 못한 표본이 하나라도 있으면 안전을 확인한 것이 아니므로 assert_safe()가 실패한다.
     """
 
     def __init__(self, src: Site, dst: Site, interval_s: float = 0.02):
@@ -72,7 +74,7 @@ class WriterWatch:
 
     def _read(self, db, role):
         try:
-            return db.can_login(role)
+            return db.can_login(role) or db.sessions(role) > 0
         except Exception:  # noqa: BLE001
             return None
 
@@ -91,3 +93,11 @@ class WriterWatch:
 
     def both_writable(self):
         return [s for s in self.samples if s[1] and s[2]]
+
+    def unreadable(self):
+        return [s for s in self.samples if s[1] is None or s[2] is None]
+
+    def assert_safe(self):
+        assert len(self.samples) >= 2, "too few samples to judge"
+        assert self.unreadable() == [], f"{len(self.unreadable())} samples could not be read"
+        assert self.both_writable() == [], f"both writable at {self.both_writable()[:3]}"

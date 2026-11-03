@@ -60,7 +60,8 @@ def test_pause_resume_reads_back(sites):
     src.resume()  # 이미 풀려 있어도 오류 없이 끝난다
 
 
-def test_pause_timeout_unpauses_and_does_not_hang(sites):
+def test_pause_timeout_leaves_pool_paused_and_does_not_hang(sites):
+    """시간 초과만으로 풀지 않는다(NFR-3). 연결을 끊어도 일시정지는 남고, RESUME해야 풀린다(검토 갭 3)."""
     src = sites[0]
     tx = psycopg.connect(src.pgbouncer_app_dsn)
     tx.execute("SELECT 1")  # 열린 트랜잭션이 PAUSE를 붙잡는다
@@ -69,12 +70,13 @@ def test_pause_timeout_unpauses_and_does_not_hang(sites):
         with pytest.raises(PauseTimeout):
             admin(src).pause(timeout_s=1)
         assert time.monotonic() - start < 4
-        assert not admin(src).state().paused
+        assert admin(src).state().paused
     finally:
         tx.rollback()
         tx.close()
-    # 붙잡혀 있던 PAUSE가 나중에 다시 걸리지 않는다
-    time.sleep(1)
+    time.sleep(0.5)
+    assert admin(src).state().paused  # 트랜잭션이 끝나도 스스로 풀리지 않는다
+    admin(src).resume()
     assert not admin(src).state().paused
 
 

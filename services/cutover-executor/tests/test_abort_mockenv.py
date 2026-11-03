@@ -36,7 +36,7 @@ def run_with(store, src, dst, hooks, **settings):
     execution_id = start(store)
     with WriterWatch(src, dst) as watch:
         Cutover(store, mock_config(**settings), hooks=hooks).run(execution_id)
-    assert watch.both_writable() == []
+    watch.assert_safe()
     return store.get(execution_id)
 
 

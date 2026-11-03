@@ -1,8 +1,9 @@
 """PgBouncer 관리 콘솔: PAUSE · RESUME · RELOAD와 상태 읽기, 파드 안 설정 파일의 대상 교체(spec D3).
 
-실측(PgBouncer 1.26.1): PAUSE는 열린 트랜잭션이 끝날 때까지 응답하지 않는다. 기다리는 중에 다른 연결로
-RESUME하면 일시정지는 풀리지만, PAUSE를 보낸 연결은 끝내 응답을 받지 못한다. 그래서 시간 초과 때는
-RESUME한 뒤 그 연결의 소켓을 직접 끊는다.
+실측(PgBouncer 1.26.1): PAUSE는 열린 트랜잭션이 끝날 때까지 응답하지 않는다. 기다리는 동안에도 상태는
+paused=1이고, PAUSE를 보낸 연결을 끊어도 그대로다. 다른 연결로 RESUME해야 풀리며, 그때도 PAUSE를 보낸 연결은
+응답을 받지 못한다. 그래서 시간 초과 때는 그 연결의 소켓만 끊고 RESUME하지 않는다. 시간 초과만으로 쓰기를
+다시 열지 않는다(NFR-3). RESUME은 목적지가 닫혀 있음을 확인한 원상 복구 절차가 한다.
 """
 
 import base64
@@ -20,7 +21,7 @@ from bravo_cutover.remote.kube import Kube
 
 
 class PauseTimeout(Exception):
-    """deadline 안에 PAUSE가 끝나지 않았다. 일시정지는 풀어 두었다."""
+    """deadline 안에 PAUSE가 끝나지 않았다. 일시정지는 걸린 채로 둔다(풀지 않는다)."""
 
 
 @dataclass(frozen=True)
@@ -65,10 +66,9 @@ class PgBouncerAdmin:
 
         threading.Thread(target=run, daemon=True).start()
         if not done.wait(timeout_s):
-            self._command("RESUME", tolerate="not paused")
             _abort(conn)
             done.wait(2)
-            raise PauseTimeout(f"PAUSE {self._db} did not finish in {timeout_s}s")
+            raise PauseTimeout(f"PAUSE {self._db} did not finish in {timeout_s}s (left paused)")
         conn.close()
         if failed:
             raise Unconfirmed(f"PAUSE failed: {failed[0]}")

@@ -35,6 +35,11 @@ class StepFailed(Exception):
     """조건을 확인했고, 그 결과가 실패다(상태 불명과 다르다)."""
 
 
+class OwnershipLost(Exception):
+    """이 프로세스가 더 이상 실행을 맡고 있지 않다(잠금 연결이 끊겼거나 재시작 판정이 넘겨받았다).
+    아무 원격 조작도 더 하지 않고, 실행 기록도 바꾸지 않고 멈춘다."""
+
+
 class Comparer(Protocol):
     def compare(self, src: DbControl, dst: DbControl, tables: list[str]) -> dict[str, Any]: ...
 
@@ -99,49 +104,62 @@ class Cutover:
 
     # 실행 ----------------------------------------------------------------
     def run(self, execution_id: UUID) -> None:
+        if not self._store.claim(execution_id):
+            return  # 이미 다른 프로세스가 맡았거나 끝났다
         execution = self._store.get(execution_id)
         request = CutoverRequest.model_validate(execution.request)
-        self._store.set_status(execution_id, Status.RUNNING)
         try:
             run = Run(execution_id, request, self._side(request.source.environment_id),
                       self._side(request.target.environment_id))
         except Exception as e:  # noqa: BLE001
             # 원격 조작을 하나도 하지 않았다
-            self._store.set_status(execution_id, Status.ABORT_PRE_WRITE,
-                                   {"outcome": Status.ABORT_PRE_WRITE.value, "error": _describe(e), "restored": []})
+            self._store.finish(execution_id, Status.ABORT_PRE_WRITE,
+                               {"outcome": Status.ABORT_PRE_WRITE.value, "error": _describe(e), "restored": []})
             return
         try:
             for name in STEPS:
                 run.step = name
                 with self._step(run, name):
                     getattr(self, f"_{name}")(run)
+        except OwnershipLost:
+            return
         except Exception as e:  # noqa: BLE001
             self._fail(run, e)
             return
-        self._store.set_status(execution_id, Status.DONE, self._result(run))
+        self._store.finish(execution_id, Status.DONE, self._result(run))
+
+    def _guard(self, run: "Run") -> None:
+        """원격 상태를 바꾸기 전에 아직 이 프로세스가 실행을 맡고 있는지 확인한다(검토 갭 1).
+        확인과 조작 사이의 짧은 틈은 남는다(ADR-0011)."""
+        if not self._store.owns(run.execution_id):
+            raise OwnershipLost(str(run.execution_id))
 
     def _fail(self, run: Run, error: Exception) -> None:
         """전환 확정 기록 전이면 원상 복구를 시도한다(ABORT_PRE_WRITE). 복구를 하나라도 확인하지 못하거나
         확정 뒤면 아무것도 새로 열지 않고 멈춘다(SAFE_HOLD, spec D6)."""
         failure = {"failed_step": run.step, "error": _describe(error)}
+        if not self._store.owns(run.execution_id):
+            return
         if self._store.get(run.execution_id).committed_at is not None:
             self._hold(run, failure, "failed after commit")
             return
         restored: list[str] = []
         try:
             self._restore_source(run, restored)
+        except OwnershipLost:
+            return
         except Exception as e:  # noqa: BLE001
             self._store.record_step(run.execution_id, "abort", StepStatus.UNKNOWN, detail=_describe(e))
             self._hold(run, failure | {"abort_error": _describe(e), "restored": restored},
                        "abort could not be confirmed")
             return
         self._store.record_step(run.execution_id, "abort", StepStatus.SUCCEEDED)
-        self._store.set_status(run.execution_id, Status.ABORT_PRE_WRITE,
-                               {"outcome": Status.ABORT_PRE_WRITE.value, **failure, "restored": restored})
+        self._store.finish(run.execution_id, Status.ABORT_PRE_WRITE,
+                           {"outcome": Status.ABORT_PRE_WRITE.value, **failure, "restored": restored})
 
     def _hold(self, run: Run, failure: dict[str, Any], reason: str) -> None:
         """SAFE_HOLD: 아무것도 새로 열거나 닫지 않는다(spec D10). 양쪽의 지금 상태를 읽어 남기고 사람을 기다린다."""
-        self._store.set_status(run.execution_id, Status.SAFE_HOLD, {
+        self._store.finish(run.execution_id, Status.SAFE_HOLD, {
             "outcome": Status.SAFE_HOLD.value, **failure, "reason": reason, "observed": self._observe(run),
         })
 
@@ -175,10 +193,13 @@ class Cutover:
         원격 상태를 읽어 ABORT_PRE_WRITE(확정 전 · 목적지 닫힘 확인) 또는 SAFE_HOLD로 끝낸다(spec D6)."""
         handled = []
         for execution in self._store.unfinished():
+            # 넘겨받는다. 앞 프로세스가 아직 살아 있어도 다음 조작 전에 소유를 잃은 것을 보고 멈춘다.
+            if not self._store.claim(execution.execution_id, takeover=execution.status == Status.RUNNING):
+                continue
             handled.append(execution.execution_id)
             if execution.status == Status.PENDING:
-                # 실행기가 시작하기 전에 멈췄다. RUNNING으로 바꾸는 것이 첫 조작이라 원격 효과가 없다.
-                self._store.set_status(execution.execution_id, Status.ABORT_PRE_WRITE, {
+                # 실행기가 시작하기 전에 멈췄다. 원격 조작을 하나도 하지 않았다.
+                self._store.finish(execution.execution_id, Status.ABORT_PRE_WRITE, {
                     "outcome": Status.ABORT_PRE_WRITE.value, "error": "executor restarted before the execution started",
                     "restored": [],
                 })
@@ -190,7 +211,7 @@ class Cutover:
                 run = Run(execution.execution_id, request, self._side(request.source.environment_id),
                           self._side(request.target.environment_id), step=started[-1] if started else None)
             except Exception as e:  # noqa: BLE001
-                self._store.set_status(execution.execution_id, Status.SAFE_HOLD, {
+                self._store.finish(execution.execution_id, Status.SAFE_HOLD, {
                     "outcome": Status.SAFE_HOLD.value, "reason": "cannot read remote state after restart",
                     "error": _describe(e),
                 })
@@ -215,23 +236,27 @@ class Cutover:
             dst.db.set_subscription(dst.site.subscription, True, dst.site.subscription_owner)
             restored.append("forward_subscription_enabled")
         # 3) 출발지 앱 역할 로그인
+        self._guard(run)
         if not src.db.can_login(src.site.app_role):
             src.db.set_login(src.site.app_role, True)
             restored.append("source_login_restored")
-        # 4) 두 PgBouncer: 출발지를 가리키는지 확인하고 RESUME
+        # 4) 두 PgBouncer: 출발지를 가리키는지 확인하고 RESUME. PAUSE 시간 초과로 걸려 있는 일시정지도
+        #    여기서 푼다(목적지 닫힘을 확인한 뒤). 이미 풀려 있어도 RESUME은 오류 없이 끝난다.
+        self._guard(run)
         for side in (src, dst):
             state = side.pool.state()
             if state.host != src.site.db_host:
                 side.pool_config.retarget(side.site.pgbouncer_database, src.site.db_host, src.site.db_port, src.site.db_name)
                 side.pool.reload()
                 restored.append(f"pgbouncer_retargeted:{side.site.environment_id}")
+            side.pool.resume()
             if state.paused:
-                side.pool.resume()
                 restored.append(f"pgbouncer_resumed:{side.site.environment_id}")
             state = side.pool.state()
             if state.paused or state.host != src.site.db_host:
                 raise Unconfirmed(f"{side.site.environment_id} pgbouncer not restored: {state}")
         # 5) 진입점 차단 해제
+        self._guard(run)
         for side in (src, dst):
             if any(side.entry.set(False).values()):
                 raise Unconfirmed(f"{side.site.environment_id} write block still on")
@@ -262,11 +287,14 @@ class Cutover:
     def _step(self, run: Run, name: str):
         if datetime.now(UTC) > run.request.deadline:
             raise StepFailed("deadline passed")
+        self._hook(f"before:{name}", run)
+        self._guard(run)
         self._store.record_step(run.execution_id, name, StepStatus.STARTED)
         start = self._clock()
         try:
-            self._hook(f"before:{name}", run)
             yield
+        except OwnershipLost:
+            raise
         except StepFailed as e:
             self._store.record_step(run.execution_id, name, StepStatus.FAILED, self._ms(start), str(e))
             raise
@@ -402,6 +430,7 @@ class Cutover:
     # 7. 재연결 ---------------------------------------------------------------
     def _reconnect(self, run: Run) -> None:
         dst = run.dst
+        self._guard(run)  # 목적지를 열기 직전에 한 번 더
         dst.db.set_login(dst.site.app_role, True)
         self._hook("reconnect:target_opened", run)
         for side in (run.src, run.dst):

@@ -1,5 +1,6 @@
 """실행 요청 API: 멱등 키 · epoch · lease · 상태 조회 (spec 완성 기준 5 · 6 · 8)."""
 
+import time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
 
@@ -139,8 +140,6 @@ def test_state_survives_new_process(store, postgres_dsn):
 
 def test_same_key_after_deadline_returns_stored_execution(client, runner):
     """deadline이 지난 뒤 같은 키로 재요청해도(응답 유실 후 재시도) 저장된 실행을 돌려준다."""
-    import time
-
     request = body(deadline=(datetime.now(UTC) + timedelta(seconds=1)).isoformat())
     first = post(client, "k1", request).json()
     time.sleep(1.2)
@@ -176,3 +175,72 @@ def test_unknown_execution_is_404(client):
 def test_invalid_requests_are_rejected_without_remote_effect(client, runner, headers, request_body, status):
     assert client.post("/v1/cutovers", json=request_body, headers=headers).status_code == status
     assert runner.submitted == []
+
+
+def test_watch_fails_when_it_cannot_read():
+    """감시가 아무것도 읽지 못하면 안전을 확인한 것이 아니다(검토 갭 5)."""
+    from tests.mockenv_support import WriterWatch
+
+    watch = WriterWatch.__new__(WriterWatch)
+    watch.samples = [(0.0, None, None), (0.1, None, None)]
+    with pytest.raises(AssertionError, match="could not be read"):
+        watch.assert_safe()
+    watch.samples = [(0.0, True, False), (0.1, False, True)]
+    watch.assert_safe()
+
+
+def test_upgrade_from_first_schema_keeps_old_executions(postgres_dsn):
+    """PR 1 시점의 executor 스키마에 있던 기록을 이후 버전에서 그대로 읽는다(검토 갭 4)."""
+    import psycopg
+
+    from bravo_cutover.store import Store
+
+    first_schema = """
+    DROP SCHEMA IF EXISTS executor CASCADE;
+    CREATE SCHEMA executor;
+    CREATE TABLE executor.executions (
+        execution_id uuid PRIMARY KEY, idempotency_key text NOT NULL UNIQUE, request_digest text NOT NULL,
+        scope text NOT NULL, plan_id text NOT NULL, epoch bigint NOT NULL, request jsonb NOT NULL,
+        status text NOT NULL, steps jsonb NOT NULL DEFAULT '[]', result jsonb,
+        created_at timestamptz NOT NULL DEFAULT now(), updated_at timestamptz NOT NULL DEFAULT now(),
+        UNIQUE (scope, epoch));
+    CREATE TABLE executor.fences (scope text PRIMARY KEY, max_epoch bigint NOT NULL);
+    INSERT INTO executor.executions (execution_id, idempotency_key, request_digest, scope, plan_id, epoch, request, status)
+    VALUES ('11111111-1111-1111-1111-111111111111', 'old', 'd', 'a|b', 'plan-old', 1, '{}', 'DONE');
+    """
+    with psycopg.connect(postgres_dsn, autocommit=True) as conn:
+        conn.execute(first_schema)
+    store = Store(postgres_dsn)
+    try:
+        store.migrate()
+        old = store.get("11111111-1111-1111-1111-111111111111")
+        assert old.status == Status.DONE and old.committed_at is None and old.stage6_entered_at is None
+    finally:
+        store.close()
+        with psycopg.connect(postgres_dsn, autocommit=True) as conn:
+            conn.execute("DROP SCHEMA executor CASCADE")
+
+
+def test_ownership_moves_on_takeover_and_on_lost_lock(postgres_dsn, store):
+    """재시작 판정이 넘겨받거나 프로세스 잠금 연결이 끊기면 앞 프로세스는 소유를 잃는다(검토 갭 1)."""
+    import psycopg
+
+    from bravo_cutover.store import Store
+
+    execution_id = post(TestClient(create_app(store, CountingRunner())), "k1", body()).json()["execution_id"]
+    assert store.claim(execution_id) and store.owns(execution_id)
+    other = Store(postgres_dsn)
+    try:
+        assert other.claim(execution_id, takeover=True)
+        assert not store.owns(execution_id) and other.owns(execution_id)
+        assert not store.finish(execution_id, Status.DONE, {})  # 넘겨받힌 실행의 결과를 쓰지 못한다
+    finally:
+        other.close()
+
+    assert store.acquire_singleton() and store.claim(execution_id, takeover=True)
+    assert store.owns(execution_id)
+    pid = store._singleton.info.backend_pid
+    with psycopg.connect(postgres_dsn, autocommit=True) as conn:
+        conn.execute("SELECT pg_terminate_backend(%s)", (pid,))
+    time.sleep(0.2)
+    assert not store.owns(execution_id)
