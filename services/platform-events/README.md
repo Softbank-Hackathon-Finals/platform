@@ -72,3 +72,8 @@ app = create_plan_app(store)  # 검증된 principal resolver가 없으면 거부
 로컬 실제 PostgreSQL에서 서로 다른 어댑터 인스턴스의 동시 등록·전이·재시도·append, 쓰기 실패 롤백, 상태와 watermark의 동일 시점, 강제 DB 재시작/WAL 복구 및 권한 거부를 시험한다. 이 결과는 RKE2/CNPG/PgBouncer 연결, 클라우드 Secret 배포, 운영 복원·HA·용량·부하, T33 저장소 이식을 검증한 것이 아니다.
 
 이미 migration된 실제 DB의 제한된 소비 검증은 `python -m bravo_platform_events.runtime_probe`로 수행한다. 기존 `BRAVO_PLATFORM_DATABASE_URL` 주입 경로를 사용하고 TLS/역할을 먼저 확인한다. 합성 계획 한 개와 비공개 checkpoint를 남기는 `exercise`, 새 프로세스에서 같은 상태·이벤트·영수증을 확인하는 `verify`가 있다. DB 재시작·배포·삭제는 수행하지 않는다. [런타임 검증 절차](../../docs/contracts/T10-postgres-runtime-verification.md)의 자격·접속·관측 경계를 따른다.
+## CUTOVER 승인·접수 어댑터
+
+`cutover.CutoverService`와 `cutover_api.create_cutover_app`은 호스트가 검증한 CUTOVER 승인을 기존 상태 DB에 결속하고 Executor POST를 한 번만 전송한다. 재시작·응답 유실 뒤에는 저장된 명령으로 GET 조회를 하며 단계별 SSE를 중복 없이 저장한다. `ExecutorReader`는 계속 GET 전용이고 `ExecutorClient`만 POST를 제공한다.
+
+기본 authority와 인증은 거부한다. 실제 T19 정본·SHIFT·승인자 권한을 검증하는 호스트와 전체 계획 상태 머신은 아직 연결되지 않았다. 합성 시험을 운영 승인으로 사용할 수 없다. [계약·신뢰 경계·복구 조건](../../docs/contracts/T10-cutover-submit-v1-proposal.md)을 먼저 읽는다.
