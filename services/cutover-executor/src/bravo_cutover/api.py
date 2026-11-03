@@ -23,7 +23,7 @@ class Runner(Protocol):
 
 
 class NoRunner:
-    """실행기는 다음 커밋에서 붙인다. 지금은 기록만 남긴다."""
+    """실행기 없이 기록만 남긴다(EXECUTOR_CONFIG가 없을 때)."""
 
     def submit(self, execution_id: UUID) -> None:
         return None
@@ -31,10 +31,18 @@ class NoRunner:
 
 def create_app(store: Store | None = None, runner: Runner | None = None,
                registry: Registry | None = None) -> FastAPI:
-    """EXECUTOR_DB(실행 기록 DB), EXECUTOR_RESOURCES(환경별 실제 DB 자원 등록 파일)."""
+    """EXECUTOR_DB(실행 기록 DB), EXECUTOR_CONFIG(환경 설정 파일)로 실제 실행기를 만든다.
+    자원 등록은 EXECUTOR_CONFIG의 환경 목록에서 만들고, 설정 파일 없이 기록만 남길 때는 EXECUTOR_RESOURCES를 읽는다."""
     if store is None:
         store = Store(os.environ["EXECUTOR_DB"])
         store.migrate()
+    if (runner is None or registry is None) and os.environ.get("EXECUTOR_CONFIG"):
+        from bravo_cutover.runner import Cutover, ThreadRunner
+        from bravo_cutover.sites import load_config, registry_from_sites
+
+        config = load_config(os.environ["EXECUTOR_CONFIG"])
+        registry = registry or registry_from_sites(config.sites)
+        runner = runner or ThreadRunner(Cutover(store, config), store)
     if registry is None:
         registry = Registry.from_file(os.environ["EXECUTOR_RESOURCES"])
     runner = runner or NoRunner()

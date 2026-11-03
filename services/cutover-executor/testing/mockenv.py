@@ -4,6 +4,7 @@
     python3 testing/mockenv.py up      # 생성 (이미 있으면 클러스터는 그대로 두고 다시 적용하지 않는다)
     python3 testing/mockenv.py check   # 복제 · 쓰기 경로 · 관리 콘솔 확인. 실패하면 종료 코드 1
     python3 testing/mockenv.py env     # 접속 정보(JSON). 비밀번호 포함, 화면 공유 주의
+    python3 testing/mockenv.py sites   # Executor 설정 testing/.state/sites.json 다시 쓰기
     python3 testing/mockenv.py down    # 삭제
 
 각 네임스페이스: Postgres 16(wal_level=logical) · PgBouncer(설정은 쓰기 가능한 emptyDir) · demo-chat 2개.
@@ -18,6 +19,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import urllib.error
 import urllib.request
 import uuid
 from pathlib import Path
@@ -25,6 +27,7 @@ from string import Template
 
 HERE = Path(__file__).resolve().parent
 STATE = HERE / ".state" / "env.json"
+SITES_FILE = HERE / ".state" / "sites.json"  # Executor 설정(bravo_cutover.sites)
 CLUSTER = "bravo-cutover"
 CONTEXT = f"k3d-{CLUSTER}"
 K3S_IMAGE = "rancher/k3s:v1.35.5-k3s1"
@@ -34,8 +37,8 @@ DEMO_CHAT_DIR = HERE.parents[3] / "demo-chat"
 DEMO_CHAT_REF = "origin/main"
 
 SITES = {
-    "src": {"app_env": "aws", "pg": 30432, "pgb": 30433, "app": 30480},
-    "dst": {"app_env": "onprem", "pg": 30532, "pgb": 30533, "app": 30580},
+    "src": {"app_env": "aws", "environment_id": "env-aws", "pg": 30432, "pgb": 30433, "app": 30480},
+    "dst": {"app_env": "onprem", "environment_id": "env-onprem", "pg": 30532, "pgb": 30533, "app": 30580},
 }
 UPSTREAM = "postgres.src.svc.cluster.local"  # 두 PgBouncer 모두 처음엔 출발지 DB
 
@@ -177,17 +180,57 @@ def up() -> None:
         },
     }, indent=2))
     STATE.chmod(0o600)
+    write_sites()
     print(f"준비됨: {CONTEXT}, demo-chat {image}. 확인: python3 testing/mockenv.py check")
 
 
-def post_message(url: str, key: uuid.UUID, body: str) -> int:
-    req = urllib.request.Request(
-        f"{url}/api/messages", method="POST",
-        data=json.dumps({"idempotency_key": str(key), "author": "mockenv", "body": body}).encode(),
-        headers={"Content-Type": "application/json"},
-    )
-    with urllib.request.urlopen(req, timeout=5) as res:
-        return res.status
+def write_sites() -> None:
+    """Executor가 읽는 환경 설정. 키는 environment_id다. 호스트에서 NodePort로 붙는다."""
+    creds = load_state()["credentials"]
+
+    def dsn(port: int, dbname: str, user: str, key: str) -> str:
+        return f"host=localhost port={port} dbname={dbname} user={user} password={creds[key]}"
+
+    sites = {
+        s["environment_id"]: {
+            "environment_id": s["environment_id"],
+            # 실제 DB 자원 ID와 허용 접속 참조(lease · epoch는 자원마다). 시험 요청의 connection_ref와 같다.
+            "resource_id": f"mock-{ns}/chat",
+            "connection_ref": f"mock/{ns}",
+            "kube_context": CONTEXT,
+            "namespace": ns,
+            "pgbouncer_admin_dsn": dsn(s["pgb"], "pgbouncer", "cutover_control", "control-password"),
+            "pgbouncer_app_dsn": dsn(s["pgb"], "chat", "chat_app", "chat-app-password"),
+            "db_control_dsn": dsn(s["pg"], "chat", "cutover_control", "control-password"),
+            "db_app_dsn": dsn(s["pg"], "chat", "chat_app", "chat-app-password"),
+            "db_host": f"postgres.{ns}.svc.cluster.local",
+            "subscription": "bravo_rev" if ns == "src" else "bravo_fwd",
+        }
+        for ns, s in SITES.items()
+    }
+    # 모의 환경에는 T13 비교가 없어 임시 비교(UNVERIFIED)를 통과로 본다(spec D11).
+    config = {"settings": {"allow_unverified_compare": True}, "sites": sites}
+    SITES_FILE.write_text(json.dumps(config, indent=2))
+    SITES_FILE.chmod(0o600)
+
+
+def post_message(url: str, key: uuid.UUID, body: str, author: str = "mockenv", retry_s: float = 20) -> int:
+    """앱에 메시지를 쓴다. 503이면 Retry-After만큼 기다렸다가 같은 멱등 키로 다시 보낸다(demo-chat 클라이언트 규칙).
+    쓰기 정지 · DB 경로 변경 직후 앱 커넥션 풀이 끊긴 연결을 버리는 동안 잠시 503이 난다."""
+    deadline = time.monotonic() + retry_s
+    while True:
+        req = urllib.request.Request(
+            f"{url}/api/messages", method="POST",
+            data=json.dumps({"idempotency_key": str(key), "author": author, "body": body}).encode(),
+            headers={"Content-Type": "application/json"},
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=5) as res:
+                return res.status
+        except urllib.error.HTTPError as e:
+            if e.code != 503 or time.monotonic() > deadline:
+                return e.code
+            time.sleep(float(e.headers.get("Retry-After") or 1))
 
 
 def wait_row(ns: str, key: uuid.UUID, timeout: float = 15) -> float | None:
@@ -253,10 +296,12 @@ def check() -> None:
 def down() -> None:
     run("k3d", "cluster", "delete", CLUSTER, check=False)
     STATE.unlink(missing_ok=True)
+    SITES_FILE.unlink(missing_ok=True)
 
 
 if __name__ == "__main__":
-    commands = {"up": up, "check": check, "down": down, "env": lambda: print(STATE.read_text())}
+    commands = {"up": up, "check": check, "down": down, "sites": write_sites,
+                "env": lambda: print(STATE.read_text())}
     if len(sys.argv) != 2 or sys.argv[1] not in commands:
         sys.exit(f"사용법: {sys.argv[0]} [{'|'.join(commands)}]")
     try:
