@@ -6,7 +6,7 @@ approval array, LLM, resource execution or automatic exception creation.
 
 from datetime import timedelta
 
-from .contract import GateError, decode, fingerprint, invoke, server_time, time
+from .contract import GateError, canonical, decode, fingerprint, invoke, server_time, time
 from .engine import consume, evaluate
 from .models import (
     GateContext,
@@ -34,6 +34,27 @@ def accept(callback, *args, expected=None, deadlines=None, clock=None):
         raise GateError("AUTHORITY_DENIED")
 
 
+def registered_result(actor, ctx, candidate, *, provider, authenticate, deadlines, clock):
+    """T5 full-document comparison against a separately registered server result."""
+    try:
+        value = invoke(provider, actor, ctx)
+    except GateError:
+        raise GateError("GATE_RESULT_UNAVAILABLE") from None
+    if value is None:
+        raise GateError("GATE_RESULT_NOT_FOUND")
+    if not isinstance(value, RunSnapshot) or value.ref != ctx.gate_id:
+        raise GateError("GATE_RESULT_UNAVAILABLE")
+    try:
+        accept(authenticate, actor, ctx, value,
+               expected=(ctx.fingerprint, value.fingerprint, "gate-result"),
+               deadlines=deadlines, clock=clock)
+    except GateError:
+        raise GateError("GATE_RESULT_UNAVAILABLE") from None
+    if canonical(candidate) != canonical(value.document):
+        raise GateError("GATE_RESULT_MISMATCH")
+    return value
+
+
 class GateService:
     def __init__(
         self,
@@ -45,6 +66,8 @@ class GateService:
         authenticate_context,
         authenticate_run,
         authenticate_approval,
+        report_provider,
+        authenticate_report,
         authorize,
         clock,
         network_verifier=None,
@@ -56,6 +79,8 @@ class GateService:
             authenticate_context,
             authenticate_run,
             authenticate_approval,
+            report_provider,
+            authenticate_report,
             authorize,
             clock,
         ):
@@ -68,6 +93,8 @@ class GateService:
         self.authenticate_context = authenticate_context
         self.authenticate_run = authenticate_run
         self.authenticate_approval = authenticate_approval
+        self.report_provider = report_provider
+        self.authenticate_report = authenticate_report
         self.authorize = authorize
         self.clock = lambda: server_time(clock)
         self.network_verifier = network_verifier
@@ -291,6 +318,8 @@ class GateService:
             approvals=approvals,
             network_verified=network,
         )
+        registered_result(actor, ctx, candidate, provider=self.report_provider,
+                          authenticate=self.authenticate_report, deadlines=deadlines, clock=self.clock)
         self._same(actor, context_id, approval_ids, loaded, action=action, deadlines=deadlines)
         final = self.clock()
         if final < at:
@@ -309,6 +338,8 @@ class GateService:
         )
         deadlines.extend(self._deadlines(ctx, runs, approvals))
         self._same(actor, context_id, approval_ids, loaded, action=action, deadlines=deadlines)
+        registered_result(actor, ctx, candidate, provider=self.report_provider,
+                          authenticate=self.authenticate_report, deadlines=deadlines, clock=self.clock)
         ended = self.clock()
         if ended < final or min(deadlines) <= ended:
             raise GateError("SECURITY_PREREQUISITE_EXPIRED")

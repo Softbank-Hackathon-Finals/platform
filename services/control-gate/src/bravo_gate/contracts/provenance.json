@@ -1,11 +1,11 @@
 {
   "repository": "Softbank-Hackathon-Finals/platform",
-  "commit": "8a7b961ed37cfb5b2f1dc06591ed5703c10c8872",
-  "status": "PR51 review revision, local commit; not yet pushed or merged",
+  "commit": "626bca041e2bceca7692a5d4c458a699a047941d",
+  "status": "Merged develop contract; schema/profile byte-identical to the pinned T5 revision",
   "sha256": {
     "control-result.schema.json": "f1273e751b31288c6d2ed927d888032474ce05f132dde7545bc12e2d9b38b654",
     "profiles.json": "4ba6e539b422985a43c20875ae00b21e1bd461daf4f8240b5b7b02debe0f2c90",
-    "contract-cases.json": "b71d9dd721ce27de592b8d5e56ba3e2e4add53543fbd00ee807237a6e4c23107",
+    "contract-cases.json": "a4c2f5bc8f26f40943da9c2b62c9a45c673cd8acd113477ed3e6948f02b7c9ee",
     "evaluation-contexts.json": "2c07da78a9d021b9cae63c3bbd54489eaab0f0245af946aa103535d72b087345"
   }
 }

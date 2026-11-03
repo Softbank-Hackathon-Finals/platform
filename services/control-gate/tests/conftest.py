@@ -61,6 +61,7 @@ def service(contract, bundle):
             "target": RunSnapshot(ctx.target_ref, canonical(target)),
         },
         "approvals": {},
+        "reports": {},
         "allowed": True,
         "trusted": True,
         "now": now,
@@ -82,9 +83,19 @@ def service(contract, bundle):
         authenticate_context=authenticate,
         authenticate_run=authenticate,
         authenticate_approval=authenticate,
+        report_provider=lambda _, ctx: state["reports"].get(ctx.gate_id),
+        authenticate_report=authenticate,
         authorize=authorize,
         clock=lambda: state["now"],
     )
+    # Test-only persistence adapter. Production evaluate() does not publish or
+    # trust client documents; the host must persist its own evaluator result.
+    evaluate = app.evaluate
+    def evaluate_and_store(*args, **kwargs):
+        report = evaluate(*args, **kwargs)
+        state["reports"][report["gate_id"]] = RunSnapshot(report["gate_id"], canonical(report))
+        return report
+    app.evaluate = evaluate_and_store
     return app, state
 
 

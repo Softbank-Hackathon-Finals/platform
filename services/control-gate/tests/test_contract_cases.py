@@ -10,6 +10,7 @@ from conftest import approval, load
 from bravo_gate.contract import GateError, canonical, fingerprint
 from bravo_gate.engine import consume, evaluate
 from bravo_gate.models import RunSnapshot
+from bravo_gate.service import registered_result
 
 CASES = load("contract-cases.json")
 
@@ -91,18 +92,32 @@ def test_t19_contract_case(contract, bundle, case):
 def test_t10_t21_consumption_contract_case(contract, bundle, case):
     ctx, source, target, now = bundle
     document = jsonpatch.apply_patch(
-        load("examples/gate-after-fix.json"), case["patch"], in_place=False
+        load(case.get("base", "examples/gate-after-fix.json")), case["patch"], in_place=False
     )
     ctx = replace(ctx, source_digest=fingerprint(source), target_digest=fingerprint(target))
     records = tuple(approval(body, ctx) for body in case["approvals"])
+    server = case.get("server_result", CASES["gate_document"]["server_result"])
+    registered = load(server["document"])
+    contexts = load("evaluation-contexts.json")
+    if registered["gate_id"] != ctx.gate_id:
+        ctx = type(ctx)(**contexts["before-fix"])
+        target = load("examples/target-run-before-fix.json")
+    def provider(*_):
+        if server["status"] == "unavailable":
+            raise RuntimeError("server offline")
+        if server["status"] == "missing":
+            return None
+        return RunSnapshot(ctx.gate_id, canonical(registered))
+    def check():
+        registered_result("actor", ctx, document, provider=provider,
+                          authenticate=lambda *_: server["status"] == "available",
+                          deadlines=[], clock=lambda: now)
+        return consume(contract, ctx, document, source, target, now=now, approvals=records)
     if case["expect"].get("consumer") == "accept":
-        assert (
-            consume(contract, ctx, document, source, target, now=now, approvals=records)["decision"]
-            == "PASS"
-        )
+        assert check()["decision"] == "PASS"
     else:
         with pytest.raises(GateError):
-            consume(contract, ctx, document, source, target, now=now, approvals=records)
+            check()
 
 
 def test_full_profile_keeps_all_20_tests_and_missing_dr_blocks(contract, bundle):

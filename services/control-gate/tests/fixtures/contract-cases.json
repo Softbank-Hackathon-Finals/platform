@@ -487,7 +487,7 @@
     ]
   },
   "gate_document": {
-    "description": "T10 · T21 입력: GateComparison 문서 하나. 문서를 그대로 믿지 않고 스키마, 프로필의 required_test_ids(정확히 한 행씩), 서버 승인 기록과 대조한다",
+    "description": "T10 · T21 입력: GateComparison 문서. 스키마·프로필·서버 승인 기록·현재 context에 더해 인증된 T19 서버 정본과 전체 결과를 대조한다. 아래 server_result는 서버 측 시험 fixture이며 요청 JSON으로 받는 값이 아니다. 상태 available/missing/unavailable/unauthenticated는 신뢰된 저장소 어댑터의 조회 결과를 모의한다. 사례별 base/server_result가 없으면 묶음의 기본값을 쓴다. patch는 제출 문서에만 적용하며 정본은 변경하지 않는다. consumer accept는 보안 승인 근거로 사용 가능함을 뜻하며 실행 권한을 뜻하지 않는다. 여러 검사가 실패하면 expect.check에 명시한 거부 사유를 반드시 검출하되 검사 순서는 구현이 정한다.",
     "base": "examples/gate-after-fix.json",
     "cases": [
       {
@@ -833,8 +833,125 @@
         "expect": {
           "schema": "reject"
         }
+      },
+      {
+        "id": "GD-10",
+        "description": "같은 gate/context/원본 참조를 유지하고 IAM FAIL·AUD UNKNOWN과 BLOCK 판정만 모두 PASS로 변조",
+        "base": "examples/gate-before-fix.json",
+        "server_result": {
+          "status": "available",
+          "document": "examples/gate-before-fix.json"
+        },
+        "patch": [
+          {
+            "op": "replace",
+            "path": "/decision",
+            "value": "PASS"
+          },
+          {
+            "op": "replace",
+            "path": "/rows/0/target_verdict",
+            "value": "PASS"
+          },
+          {
+            "op": "replace",
+            "path": "/rows/0/decision",
+            "value": "PASS"
+          },
+          {
+            "op": "replace",
+            "path": "/rows/0/reason",
+            "value": "BOTH_PASS"
+          },
+          {
+            "op": "replace",
+            "path": "/rows/2/target_verdict",
+            "value": "PASS"
+          },
+          {
+            "op": "replace",
+            "path": "/rows/2/decision",
+            "value": "PASS"
+          },
+          {
+            "op": "replace",
+            "path": "/rows/2/reason",
+            "value": "BOTH_PASS"
+          }
+        ],
+        "approvals": [],
+        "expect": {
+          "schema": "accept",
+          "consumer": "reject",
+          "check": "GATE_RESULT_MISMATCH"
+        }
+      },
+      {
+        "id": "GD-11",
+        "description": "제출 PASS는 정상이지만 서버 정본이 없음",
+        "server_result": {
+          "status": "missing",
+          "document": "examples/gate-after-fix.json"
+        },
+        "patch": [],
+        "approvals": [],
+        "expect": {
+          "schema": "accept",
+          "consumer": "reject",
+          "check": "GATE_RESULT_NOT_FOUND"
+        }
+      },
+      {
+        "id": "GD-12",
+        "description": "서버 정본 조회가 실패해도 제출 PASS로 대체하지 않음",
+        "server_result": {
+          "status": "unavailable",
+          "document": "examples/gate-after-fix.json"
+        },
+        "patch": [],
+        "approvals": [],
+        "expect": {
+          "schema": "accept",
+          "consumer": "reject",
+          "check": "GATE_RESULT_UNAVAILABLE"
+        }
+      },
+      {
+        "id": "GD-13",
+        "description": "정본과 같은 내용이어도 조회 출처 인증 실패 시 거부",
+        "server_result": {
+          "status": "unauthenticated",
+          "document": "examples/gate-after-fix.json"
+        },
+        "patch": [],
+        "approvals": [],
+        "expect": {
+          "schema": "accept",
+          "consumer": "reject",
+          "check": "GATE_RESULT_UNAVAILABLE"
+        }
+      },
+      {
+        "id": "GD-14",
+        "description": "변조되지 않은 서버 BLOCK과 일치해도 보안 승인 근거로 사용 불가",
+        "base": "examples/gate-before-fix.json",
+        "server_result": {
+          "status": "available",
+          "document": "examples/gate-before-fix.json"
+        },
+        "patch": [],
+        "approvals": [],
+        "expect": {
+          "schema": "accept",
+          "consumer": "reject",
+          "check": "GATE_BLOCKED"
+        }
       }
-    ]
+    ],
+    "server_result": {
+      "status": "available",
+      "document": "examples/gate-after-fix.json"
+    }
   },
   "evaluation_binding": {
     "description": "GI-12의 유효한 예외 보고서와 서버 승인 기록을 먼저 만든다. 이후 context_patch/source_patch/target_patch를 적용하고 원본 hash를 재계산한다. rewrite_document_binding이면 문서의 gate_id/context_digest/run_id만 현행값으로 고친다. 승인 기록은 그대로 둔다. 단순 스키마 수용이 아니라 T10/T19 소비 거부를 검사한다.",
