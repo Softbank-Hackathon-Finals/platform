@@ -1,0 +1,23 @@
+{
+  "scope": "real Kubernetes RBAC and existing backup readback; not restore or AWS qualification",
+  "three_named_gets_and_completed_backup_readback": true,
+  "denied": {
+    "list_clusters": true,
+    "list_backups": true,
+    "other_backup": true,
+    "secret": true,
+    "pods": true,
+    "other_namespace": true,
+    "create_backup_dry_run": true,
+    "delete_backup_dry_run": true,
+    "patch_cluster_dry_run": true
+  },
+  "revoked_binding_cannot_produce_receipt": true,
+  "permission_restored_positive_control": true,
+  "status": "PASS",
+  "own_rbac_resources_cleaned": true,
+  "source_sha256": {
+    "services/control-runner/src/bravo_controls/backup_rbac.py": "db81d598d413723b889027993d267923d3b695beb21ea3c0db8e8fbb05a9a2c4",
+    "services/control-runner/tests/integration/verify_backup_readback_rbac.py": "1ec9fa5b2abeb9521c40b9fb0efec811324c5695ff43aa88849e10a9b514a5f4"
+  }
+}
