@@ -78,16 +78,43 @@ DB 제어 역할 분리를 우회할 수 있다. RBAC는 명령·컨테이너·l
 | 플랫폼 Executor | target DB primary | TCP 5432, verify-full, T12 DB 제어 역할 | 같은 시험, 반대편 쓰기 차단 유지 |
 
 기존 T8 복제 경로는 PgBouncer를 노출하지 않는다. 별도 태그 후보는
-`bravo-platform-executor`, `bravo-source-pooler`, `bravo-target-pooler`이며 아직 생성·승인된
+`bravo-platform-executor`, `bravo-source-pooler-admin`, `bravo-target-pooler-admin`이며 아직 생성·승인된
 네트워크 정책이라는 뜻은 아니다. T8의 `bravo-source-db`, `bravo-target-db`를 재사용하되
 Executor에서 TCP 5432만 허용하는 별도 규칙을 검토한다. API는 기존 private 경로를 우선한다.
 ClusterIP와 `.svc.cluster.local`은 다른 클러스터에서 저절로 해석·접속되지 않는다.
 주소·CA·Secret 참조는 비공개 접속 계약에 기록하고 인증값은 문서/PR에 넣지 않는다.
 
-현재 cutover_control은 pooler 계정이며 PostgreSQL 역할이 아니다. DB 제어 SQL 목록
-(앱 NOLOGIN/LOGIN, 세션 종료, barrier, sequence, subscription 제어)과 최소권한 역할은
-T12 코드/ADR을 대조해 별도로 확정한다. 근거 없이 superuser/CREATEROLE이나 DB exec를
-주지 않는다. CNPG managed role의 `login: true` 재조정과 펜싱의 충돌도 실제 구현에서 확인한다.
+기존 `bravo-target-pooler`는 target→source DB 접속용 egress 주체이므로
+풀러 관리 콘솔 ingress 태그로 재사용하지 않는다.
+
+현재 출발지 cutover_control은 pooler 계정이며 PostgreSQL 역할이 아니다.
+T12 담당자가 [11/3 20:12에 공유한 DB·복제 요구](https://softbankhackathon2026.slack.com/archives/C0CDEFEB83U/p1793704349319319)는 다음과 같다.
+초안 경로는 `services/cutover-executor/testing/sql/10-roles.sql`이며,
+게시된 SQL 바이트와의 대조 및 실제 환경 적용은 별도다.
+
+| 목적 | T12가 요청한 권한/조건 | 검증 경계 |
+|---|---|---|
+| 펜싱 | CREATEROLE + chat_app ADMIN OPTION, 앱 권한 상속 없음 | 직접/SET ROLE 앱 쓰기 권한을 얻지 않는지 확인; 단순 NOINHERIT만으로 SET ROLE을 막았다고 주장하지 않음 |
+| 세션·긴 트랜잭션 | pg_signal_backend, pg_read_all_stats | 실제 필요한 세션 종료·관측과 superuser 세션 거부 확인 |
+| 구독 켜기/끄기 | 구독 소유 역할로 SET ROLE, 평상시 권한 상속 없음 | 역할·구독 이름을 고정하고 그 밖의 효과 검토 |
+| 시퀀스 | UPDATE, setval은 올리기만 | UPDATE 자체가 감소를 막지는 않음; Executor 단조 증가 검증 필요 |
+| barrier·비교 | cutover.barrier INSERT/SELECT, 비교 테이블 SELECT | 앱 업무 테이블 직접 쓰기 불허 |
+| 역복제 | 미리 생성하되 disabled, copy_data=false, origin=none | 실행 중 생성하지 않고 ENABLE/DISABLE; 양방향 동시 쓰기 불허 |
+| 구독 소유자 | LOGIN 필요, 비밀번호는 없어도 됨 | 담당자의 k3d 관측이며 실제 PG18.4에서 확인 |
+| publication | barrier/probe용 cutover 스키마 포함 | 앱 전용 publication 목록과 대조·적용 |
+| T13 | compare(src,dst,tables) → verdict/hash_rule/tables | 임시 행 수 비교 UNVERIFIED는 운영 통과 금지 |
+
+CNPG의 inline managed.roles는 DB catalog를 주기적으로 선언에 맞춘다.
+현재 `chat_app login:true`는 SQL NOLOGIN 펜싱과 충돌한다. 역할 제어의 소유자를
+분리한 뒤 장시간 NOLOGIN 유지와 반대편 LOGIN 전환을 시험해야 한다.
+속성만 지우면 기본값이 적용될 수 있으므로 해결됐다고 가정하지 않는다.
+[CNPG 1.30 역할 관리](https://cloudnative-pg.io/docs/1.30/declarative_role_management/).
+이 PR은 T8 소유의 live DB 역할을 임의 변경하지 않으며, 전체 컷오버 준비 판정을 하지 않는다.
+
+앱에는 [WebSocket 종료 요청](https://softbankhackathon2026.slack.com/archives/C0CDEFEB83U/p1793703703704249)도 있다.
+제안은 POST `/admin/websockets/close`, 기존 ADMIN_TOKEN 인증, 프로세스별 1012 종료와 closed 수 반환이다.
+Executor가 모든 앱 파드에 호출하므로 이미지의 Python과 localhost:8080 관리 경로를 유지해야 한다.
+배포 전 demo-chat의 실제 구현/이미지 digest로 확인한다.
 
 ## T10 소비 계약
 
