@@ -18,7 +18,8 @@ def main():
     started = time.monotonic()
     with psycopg.connect(**args) as conn:
         connect_seconds = time.monotonic() - started
-        checks['client_tls'] = conn.info.ssl_in_use
+        # libpq verify-full succeeds only with TLS and a matching trusted certificate.
+        checks['client_verify_full_connection'] = not conn.closed
         with conn.cursor() as cur:
             cur.execute("SELECT current_user,current_setting('cluster_name'),ssl FROM pg_stat_ssl WHERE pid=pg_backend_pid()")
             role, cluster, ssl = cur.fetchone()
@@ -37,11 +38,10 @@ def main():
             cur.execute('SELECT count(*) FROM messages WHERE idempotency_key=%s', (key,))
             checks['synthetic_write_rolled_back'] = cur.fetchone()[0] == 0
     with psycopg.connect(**{**args, 'dbname': 'pgbouncer', 'user': 'cutover_control',
-                           'password': credentials['cutover_control']}, autocommit=True) as conn:
-        with conn.cursor() as cur:
-            cur.execute('SHOW CONFIG'); config = {row[0]: row[1] for row in cur.fetchall()}
-            checks['verified_server_tls_config'] = config['server_tls_sslmode'] == 'verify-full'
-            checks['reviewed_admin_retry_config'] = config['admin_users'] == 'cutover_control' and config['server_login_retry'] == '2'
+                           'password': credentials['cutover_control']}, autocommit=True) as conn, conn.cursor() as cur:
+        cur.execute('SHOW CONFIG'); config = {row[0]: row[1] for row in cur.fetchall()}
+        checks['verified_server_tls_config'] = config['server_tls_sslmode'] == 'verify-full'
+        checks['reviewed_admin_retry_config'] = config['admin_users'] == 'cutover_control' and config['server_login_retry'] == '2'
     for name, changes in [('wrong_password_denied', {'password': 'intentionally-wrong'}),
                            ('wrong_tls_hostname_denied', {'host': 'wrong-host.invalid', 'hostaddr': os.environ['POOLER_IP']})]:
         try:
@@ -51,7 +51,7 @@ def main():
             checks[name] = (error.sqlstate in {'28P01', '28000'} if name == 'wrong_password_denied'
                             else 'certificate' in str(error).lower() and 'match' in str(error).lower())
     with psycopg.connect(**args) as conn:
-        checks['positive_connection_after_negative_tests'] = conn.info.ssl_in_use
+        checks['positive_connection_after_negative_tests'] = conn.execute('SELECT 1').fetchone() == (1,)
     print(json.dumps({'passed': all(checks.values()), 'checks': checks,
                       'connect_seconds': connect_seconds, 'rollback_write_seconds': rollback_write_seconds,
                       'timing_scope': 'single emulated-development probe, not p95 or app SLO',
@@ -62,6 +62,6 @@ def main():
 if __name__ == '__main__':
     try:
         raise SystemExit(main())
-    except (OSError, ValueError, KeyError, psycopg.Error) as error:
+    except (OSError, ValueError, KeyError, AttributeError, psycopg.Error) as error:
         print(json.dumps({'passed': False, 'error_category': type(error).__name__, 'raw_output_suppressed': True}))
         raise SystemExit(1) from None

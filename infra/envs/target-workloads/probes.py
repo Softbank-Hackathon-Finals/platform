@@ -27,9 +27,9 @@ def probe(stage, run_suffix="", pooler_ip=None):
            {"name": "PYTHONDONTWRITEBYTECODE", "value": "1"}]
     volumes, mounts, items = [], [], []
     if stage == "image":
-        command = ["/app/.venv/bin/python", "-c", "import json,os,app.main,psycopg.pq; assert os.getuid()==10001; "
+        command = ["/app/.venv/bin/python", "-c", ("import json,os,app.main,psycopg.pq; assert os.getuid()==10001; "
                    "print(json.dumps({'pass':True,'uid':os.getuid(),'app_import':True,"
-                   "'libpq_version':psycopg.pq.version(),'app_startup_verified':False}))"]
+                   "'libpq_version':psycopg.pq.version(),'app_startup_verified':False}))")]
     else:
         script = "db_probe.py" if stage == "db" else "pooler_probe.py" if stage == "pooler" else "object_probe.py"
         config = resource("v1", "ConfigMap", name, data={script: Path(__file__).with_name(script).read_text()})

@@ -16,7 +16,7 @@ def main():
         if conninfo:
             args.extend(["--dbname", conninfo])
         return subprocess.run(args, input=sql.encode(), capture_output=True,
-                              env={**base, **(env or {})}, timeout=30)
+                              env={**base, **(env or {})}, timeout=30, check=False)
 
     checks = {}
     result = query("SELECT current_user || '|' || ssl FROM pg_stat_ssl WHERE pid=pg_backend_pid();")
