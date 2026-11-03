@@ -1,0 +1,11 @@
+# T29, sangmu1126, 2026-11-04: RFC 6455 section 1.3's public example
+# Sec-WebSocket-Key decodes to "the sample nonce". This is not an API credential.
+# Exact historical finding only: do not exempt the rule, file, path, or later commits.
+# https://www.rfc-editor.org/rfc/rfc6455#section-1.3
+7569da67a115803b2353f17d7e3c9fef61837338:services/exit-drill/src/bravo_exit_drill/probe.py:generic-api-key:19
+# T29, sangmu1126, 2026-11-04: the following three historical values are SHA-256
+# source-file fingerprints, recomputed against results.json's checkout_commit.
+# They are evidence integrity hashes, not authentication tokens. Exact findings only.
+c9fa40ab714b3bddabc9550166488d2b177705cb:docs/evidence/t37-observability-2026-11-04/results.json:generic-api-key:11
+c9fa40ab714b3bddabc9550166488d2b177705cb:docs/evidence/t37-observability-2026-11-04/results.json:generic-api-key:26
+c9fa40ab714b3bddabc9550166488d2b177705cb:docs/evidence/t37-observability-2026-11-04/results.json:generic-api-key:35
