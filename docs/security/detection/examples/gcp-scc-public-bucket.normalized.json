@@ -7,7 +7,7 @@
   "status_id": 1,
   "time": 1793783400000,
   "finding_info": {
-    "uid": "organizations/****/sources/****/findings/public-bucket-001",
+    "uid": "sha256:05228826cf9f16cc0e8d3035710d118ae927cbef7a3bdc3ef26b51eef941f37c",
     "title": "PUBLIC_BUCKET_ACL",
     "types": [
       "MISCONFIGURATION",
@@ -28,6 +28,7 @@
     "status": "Fail"
   },
   "bravo": {
+    "normalizer_version": "2",
     "source": "gcp_scc",
     "environment_id": "env-gcp",
     "category": "EXPOSURE",

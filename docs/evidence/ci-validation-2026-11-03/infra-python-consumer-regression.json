@@ -1,0 +1,49 @@
+{
+  "scope": "local isolated copies; no cloud calls; T6 is a separate unmerged PR snapshot",
+  "cases": [
+    {
+      "implementation": "infra/envs/cost-aws/verify.py",
+      "consumer": "scripts/tests/test_budget_verify.py",
+      "supporting_files": [
+        "scripts/cost_report.py"
+      ],
+      "source_commit": "7d154b791f114c64f9ad1354fc568d4aa3f5b44b",
+      "before": {
+        "infra": true,
+        "scripts": false,
+        "projects": []
+      },
+      "after": {
+        "infra": true,
+        "scripts": true,
+        "projects": []
+      },
+      "healthy_test_count": 3,
+      "healthy_exit": 0,
+      "syntax_error_exit": 1,
+      "syntax_error_detected": true
+    },
+    {
+      "implementation": "infra/envs/source-aws/preflight.py",
+      "consumer": "scripts/tests/test_source_preflight.py",
+      "supporting_files": [
+        "infra/envs/source-aws/configuration.example.json"
+      ],
+      "source_commit": "ea4ec860c9d60ec11ffe551873e351ccda41b488",
+      "before": {
+        "infra": true,
+        "scripts": false,
+        "projects": []
+      },
+      "after": {
+        "infra": true,
+        "scripts": true,
+        "projects": []
+      },
+      "healthy_test_count": 15,
+      "healthy_exit": 0,
+      "syntax_error_exit": 1,
+      "syntax_error_detected": true
+    }
+  ]
+}
