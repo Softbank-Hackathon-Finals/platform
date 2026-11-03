@@ -1,9 +1,11 @@
 """Credential ownership, fail-closed verification and source contract regressions."""
 
 import importlib.util
+import io
 import json
 import subprocess
 import unittest
+from contextlib import redirect_stdout
 from pathlib import Path
 from unittest.mock import patch
 
@@ -21,9 +23,44 @@ render = module("workload_render", "infra/envs/source-workloads/render.py")
 seed = module("workload_seed", "infra/envs/source-workloads/seed.py")
 verify = module("workload_verify", "infra/envs/source-workloads/verify.py")
 preflight = module("source_preflight", "infra/envs/source-aws/preflight.py")
+app_probe = module("source_app_probe", "infra/envs/source-workloads/app_probe.py")
 
 
 class WorkloadTests(unittest.TestCase):
+    def test_app_probe_restores_write_block_after_ambiguous_enable_timeout(self):
+        calls = []
+
+        def request(method, path, body=None, admin=False, headers=None):
+            calls.append((method, path, body))
+            if path == "/api/info":
+                return 200, {}, b'{"env":"aws","write_blocked":true}'
+            if path == "/admin/write-block":
+                if not admin:
+                    return 401, {}, b'{}'
+                if body == {"blocked": False}:
+                    raise TimeoutError("ambiguous request outcome")
+                return 200, {}, b'{"write_blocked":true}'
+            if method == "POST":
+                return 503, {"retry-after": "5"}, b'{}'
+            return 200, {}, b'{}'
+
+        output = io.StringIO()
+        with patch.object(app_probe, "request", side_effect=request), redirect_stdout(output):
+            self.assertEqual(app_probe.run(), 1)
+        result = json.loads(output.getvalue())
+        self.assertFalse(result["passed"])
+        self.assertEqual(result["error_type"], "TimeoutError")
+        self.assertTrue(result["checks"]["restore_write_block"])
+        self.assertTrue(result["checks"]["final_write_blocked"])
+        self.assertIn(("PUT", "/admin/write-block", {"blocked": True}), calls)
+
+    def test_app_probe_refuses_to_open_writes_when_initial_state_is_not_blocked(self):
+        output = io.StringIO()
+        with patch.object(app_probe, "request", return_value=(200, {}, b'{"env":"aws","write_blocked":false}')) as request, redirect_stdout(output):
+            self.assertEqual(app_probe.run(), 1)
+        self.assertEqual(request.call_count, 1)
+        self.assertFalse(json.loads(output.getvalue())["passed"])
+
     def settings(self):
         return {"region": "ap-northeast-2", "app_role_arn": "arn:aws:iam::123456789012:role/test-app",
                 "eso_role_arn": "arn:aws:iam::123456789012:role/test-eso",
