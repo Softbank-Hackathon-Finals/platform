@@ -95,6 +95,56 @@ def job(namespace, name, image, maps, env, *, verifier=False):
                                            "containers": [container], "volumes": volumes}}}}
 
 
+def observe_job_pod(kube, created, image, *, complete=None):
+    """Resolve one execution from its created Job, never from a reusable name alone."""
+    meta = created["metadata"]
+    name, namespace, uid = meta["name"], meta["namespace"], meta["uid"]
+    current = kube.get("job", name, namespace)
+    if not uid or current["metadata"]["uid"] != uid:
+        raise ValueError("job replaced")
+    pods = json.loads(kube.call("get", "pods", "-n", namespace, "-l",
+                                "batch.kubernetes.io/controller-uid=" + uid, "-o", "json"))["items"]
+    if len(pods) != 1:
+        raise ValueError("ambiguous execution pod")
+    pod = pods[0]
+    metadata, spec, status = pod["metadata"], pod["spec"], pod["status"]
+    owners = [o for o in metadata.get("ownerReferences", []) if o.get("controller") is True]
+    if (len(owners) != 1 or owners[0].get("uid") != uid or owners[0].get("name") != name
+            or owners[0].get("kind") != "Job" or owners[0].get("apiVersion") != "batch/v1"
+            or metadata.get("namespace") != namespace or not metadata.get("uid")
+            or not metadata.get("name") or metadata.get("deletionTimestamp")):
+        raise ValueError("pod owner mismatch")
+    containers, statuses = spec["containers"], status["containerStatuses"]
+    if (len(containers) != 1 or len(statuses) != 1 or spec.get("initContainers")
+            or spec.get("ephemeralContainers") or containers[0].get("name") != "run"
+            or containers[0].get("image") != image or statuses[0].get("name") != "run"):
+        raise ValueError("unexpected execution container")
+    execution = statuses[0]
+    image_id = execution.get("imageID", "")
+    if (image_id.split("@")[-1] != image.split("@")[-1]
+            or execution.get("restartCount") != 0 or not execution.get("containerID")):
+        raise ValueError("unexpected running image or container restart")
+    state = execution["state"]
+    if complete is None:
+        if (status.get("phase") != "Running" or not state.get("running")
+                or execution.get("ready") is not True or not status.get("podIP")):
+            raise ValueError("candidate is not running and ready")
+    else:
+        terminated = state.get("terminated", {})
+        expected_exit = 0 if complete else 1
+        conditions = current.get("status", {}).get("conditions", [])
+        condition = "Complete" if complete else "Failed"
+        if (status.get("phase") != ("Succeeded" if complete else "Failed")
+                or terminated.get("exitCode") != expected_exit
+                or terminated.get("containerID") != execution["containerID"]
+                or not terminated.get("finishedAt")
+                or not any(c["type"] == condition and c["status"] == "True" for c in conditions)):
+            raise ValueError("verifier did not finish the expected execution")
+    return {"job_uid": uid, "pod_name": metadata["name"], "pod_uid": metadata["uid"],
+            "container": "run", "container_id": execution["containerID"], "image_id": image_id,
+            "pod_ip": status.get("podIP"), "exit_code": state.get("terminated", {}).get("exitCode")}
+
+
 def verify_environment(kube, proposal, image):
     """Bounded DB_HOST integration fixture, not the T9 product-template acceptance."""
     if not re.fullmatch(r"[a-zA-Z0-9./:_-]+@sha256:[a-f0-9]{64}", image):
@@ -107,7 +157,8 @@ def verify_environment(kube, proposal, image):
                 "namespace_deleted": False, "checks": {}, "failure_code": "VERIFIER_UNAVAILABLE"}
     try:
         ns = kube.create({"apiVersion": "v1", "kind": "Namespace", "metadata": {"name": namespace,
-                          "labels": {"component": "platform", "pod-security.kubernetes.io/enforce": "restricted"}}})
+                          "labels": {"component": "platform", "bravo.run-id": proposal.run_id,
+                                     "pod-security.kubernetes.io/enforce": "restricted"}}})
         uid = ns["metadata"]["uid"]
         kube.create({"apiVersion": "networking.k8s.io/v1", "kind": "NetworkPolicy",
                      "metadata": {"name": "deny", "namespace": namespace},
@@ -127,23 +178,24 @@ def verify_environment(kube, proposal, image):
             kube.create({"apiVersion": "v1", "kind": "ConfigMap", "metadata": {"name": name, "namespace": namespace},
                          "immutable": True, "data": contents})
         marker = "db-" + uuid.uuid4().hex
-        addresses = {}
+        addresses, jobs, executions = {}, {}, {}
         for name, env in [("present", {"DB_HOST": marker}), ("missing", {})]:
-            kube.create(job(namespace, name, image, {"candidate": "/candidate", "wrapper": "/runner"}, env))
+            created = kube.create(job(namespace, name, image, {"candidate": "/candidate", "wrapper": "/runner"}, env))
+            jobs[name] = created
+            selector = "batch.kubernetes.io/controller-uid=" + created["metadata"]["uid"]
             for _ in range(30):
-                pods = json.loads(kube.call("get", "pods", "-n", namespace, "-l", "job=" + name, "-o", "json"))["items"]
+                pods = json.loads(kube.call("get", "pods", "-n", namespace, "-l", selector, "-o", "json"))["items"]
                 if pods:
                     break
                 time.sleep(1)
-            kube.call("wait", "pod", "-n", namespace, "-l", "job=" + name, "--for=condition=Ready", "--timeout=40s")
-            pods = json.loads(kube.call("get", "pods", "-n", namespace, "-l", "job=" + name, "-o", "json"))["items"]
-            if len(pods) != 1:
-                raise ValueError("ambiguous candidate pod")
-            addresses[name] = pods[0]["status"]["podIP"]
+            kube.call("wait", "pod", "-n", namespace, "-l", selector, "--for=condition=Ready", "--timeout=40s")
+            executions[name] = observe_job_pod(kube, created, image)
+            addresses[name] = executions[name]["pod_ip"]
         created = kube.create(job(namespace, "verify", image, {"verifier": "/runner"},
                                   {"PRESENT_HOST": addresses["present"], "MISSING_HOST": addresses["missing"],
                                    "EXPECTED_VALUE": marker}, verifier=True))
         verifier_uid = created["metadata"]["uid"]
+        jobs["verify"] = created
         for _ in range(90):
             current = kube.get("job", "verify", namespace)
             if current["metadata"]["uid"] != verifier_uid:
@@ -152,10 +204,20 @@ def verify_environment(kube, proposal, image):
             complete = any(c["type"] == "Complete" and c["status"] == "True" for c in conditions)
             failed = any(c["type"] == "Failed" and c["status"] == "True" for c in conditions)
             if complete or failed:
-                checks = json.loads(kube.call("logs", "job/verify", "-n", namespace, "--limit-bytes=2048"))
+                executions["verify"] = observe_job_pod(kube, created, image, complete=complete)
+                raw = kube.call("logs", "pod/" + executions["verify"]["pod_name"], "-c", "run",
+                                "-n", namespace, "--limit-bytes=2048")
+                for name, execution in executions.items():
+                    if observe_job_pod(kube, jobs[name], image,
+                                       complete=complete if name == "verify" else None) != execution:
+                        raise ValueError("execution replaced while reading logs")
+                checks = json.loads(raw)
                 if set(checks) != {"injected_value", "missing_value_closed"} or any(type(v) is not bool for v in checks.values()):
                     raise ValueError("invalid verifier output")
-                evidence.update(job_complete=complete, checks=checks,
+                if complete != all(checks.values()):
+                    raise ValueError("verifier exit and checks disagree")
+                evidence.update(job_complete=complete, checks=checks, executions=executions,
+                                log_sha256=hashlib.sha256(raw.encode()).hexdigest(),
                                 failure_code="NONE" if complete and all(checks.values()) else "TEMPLATE_TEST_FAILED")
                 break
             time.sleep(1)
@@ -171,14 +233,28 @@ def verify_environment(kube, proposal, image):
     return evidence
 
 
-def integrate(bundle, manifest, snapshot_root, result, kube, image):
+def validate_result(result):
+    """Validate broker output once at each external boundary using the same contract."""
+    bundle = FailureBundle.model_validate(result["input"])
+    proposal = Proposal.model_validate(result["proposal"])
+    if (result.get("state") != "PROPOSAL_READY" or type(result.get("attempt")) is not int
+            or result["attempt"] != 1 or result.get("input_digest") != digest(bundle)
+            or result.get("proposal_digest") != digest(proposal)
+            or result.get("run_id") != bundle.run_id or proposal.run_id != bundle.run_id
+            or result.get("source_sha") != bundle.source_sha or proposal.source_sha != bundle.source_sha
+            or not re.fullmatch(r"[a-f0-9]{64}", result.get("snapshot_digest", ""))):
+        raise ValueError("unbound proposal result")
+    return bundle, proposal
+
+
+def integrate(bundle, manifest, snapshot_root, result, kube, image, *, run_id=None, proposal_digest=None):
     bundle = FailureBundle.model_validate(bundle)
     manifest = SnapshotManifest.model_validate(manifest)
-    proposal = Proposal.model_validate(result["proposal"])
-    if (result.get("state") != "PROPOSAL_READY" or result.get("attempt") != 1
-            or result.get("input_digest") != digest(bundle)
+    received_bundle, proposal = validate_result(result)
+    if (received_bundle != bundle
             or result.get("snapshot_digest") != digest(manifest)
-            or result.get("proposal_digest") != digest(proposal)):
+            or (run_id is not None and bundle.run_id != run_id)
+            or (proposal_digest is not None and digest(proposal) != proposal_digest)):
         raise ValueError("unbound proposal result")
     coordinator = Coordinator(bundle, Snapshot(Path(snapshot_root), manifest))
 
@@ -216,6 +292,8 @@ def main():
         parser.add_argument("--" + name, type=Path, required=True)
     parser.add_argument("--image", required=True)
     parser.add_argument("--kubectl", default="kubectl")
+    parser.add_argument("--run-id")
+    parser.add_argument("--proposal-digest")
     args = parser.parse_args()
 
     def read(path):
@@ -228,7 +306,8 @@ def main():
 
     try:
         output = integrate(read(args.bundle), read(args.manifest), args.snapshot,
-                           read(args.result), Kube(args.kubectl), args.image)
+                           read(args.result), Kube(args.kubectl), args.image,
+                           run_id=args.run_id, proposal_digest=args.proposal_digest)
         print(json.dumps(output, sort_keys=True))
         return 0
     except Exception:

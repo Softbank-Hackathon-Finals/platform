@@ -5,10 +5,31 @@ import os
 import subprocess
 import time
 import urllib.request
+import uuid
 from pathlib import Path
 
 import boto3
 from botocore.exceptions import ClientError
+
+from bravo_agent.contracts import VerificationReceipt, digest
+from bravo_agent.verification import validate_result
+
+
+def accept_verification(result, verification):
+    bundle, proposal = validate_result(result["result"])
+    receipt = VerificationReceipt.model_validate(verification["receipt"])
+    evidence = verification["evidence"]
+    checks = evidence.get("checks", {})
+    if (verification.get("state") != "AWAITING_APPROVAL"
+            or receipt.run_id != bundle.run_id or receipt.source_sha != bundle.source_sha
+            or receipt.proposal_digest != digest(proposal) or receipt.attempt != result["result"]["attempt"]
+            or receipt.verdict != "PASS" or not receipt.effects_known
+            or receipt.evidence_digest != digest(evidence)
+            or evidence.get("namespace_deleted") is not True or evidence.get("job_complete") is not True
+            or evidence.get("failure_code") != "NONE"
+            or set(checks) != {"injected_value", "missing_value_closed"}
+            or not all(value is True for value in checks.values())):
+        raise ValueError("verification does not prove this proposal")
 
 
 def prove_denied(call):
@@ -72,28 +93,36 @@ def main():
             raise RuntimeError("tunnel unavailable")
         results = []
         for _ in range(2):
+            run_id = "subscription-" + uuid.uuid4().hex
             url = os.environ["ACTIONS_ID_TOKEN_REQUEST_URL"] + "&audience=sts.amazonaws.com"
             request = urllib.request.Request(url, headers={"Authorization": "Bearer " + os.environ["ACTIONS_ID_TOKEN_REQUEST_TOKEN"]})
             with urllib.request.urlopen(request, timeout=20) as response:
                 token = json.load(response)["value"]
-            body = json.dumps({"web_identity_token": token}).encode()
+            body = json.dumps({"web_identity_token": token, "run_id": run_id}).encode()
             request = urllib.request.Request("http://127.0.0.1:18762/run", data=body,
                                              headers={"Content-Type": "application/json"})
             with urllib.request.urlopen(request, timeout=260) as response:
                 result = json.load(response)
             results.append(result)
-            if (result.get("state") != "PROPOSAL_READY" or not result.get("active_after")
+            if (result.get("state") != "PROPOSAL_READY" or result.get("active_after") is not True
+                    or result.get("exit_code") != 0
                     or result.get("runtime_source_sha") != os.environ["BRAVO_RUNTIME_SOURCE_SHA"]):
                 raise RuntimeError("broker did not produce a proposal")
+            bundle, proposal = validate_result(result["result"])
+            if bundle.run_id != run_id:
+                raise ValueError("broker returned a different execution")
             command = ssm.send_command(InstanceIds=[instance], DocumentName="bravo-subscription-service",
-                                       Parameters={"operation": ["verify"]})["Command"]["CommandId"]
+                                       Parameters={"operation": ["verify"], "runId": [run_id],
+                                                   "proposalDigest": [digest(proposal)]})["Command"]["CommandId"]
             ssm.get_waiter("command_executed").wait(CommandId=command, InstanceId=instance,
                                                   WaiterConfig={"Delay": 2, "MaxAttempts": 180})
             verification = json.loads(ssm.get_command_invocation(CommandId=command, InstanceId=instance)["StandardOutputContent"])
             result["verification"] = verification
-            if verification.get("state") != "AWAITING_APPROVAL":
+            try:
+                accept_verification(result, verification)
+            except (KeyError, TypeError, ValueError):
                 Path("runtime-result.json").write_text(json.dumps({"denied": denied, "runs": results}, indent=2) + "\n")
-                raise RuntimeError("independent verification did not pass")
+                raise RuntimeError("independent verification did not pass") from None
         Path("runtime-result.json").write_text(json.dumps({"denied": denied, "runs": results}, indent=2) + "\n")
         print(json.dumps({"runs": len(results), "states": [r["state"] for r in results],
                           "credential_rotated": any(r["credential_rotated"] for r in results),

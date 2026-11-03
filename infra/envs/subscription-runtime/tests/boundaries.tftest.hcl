@@ -27,6 +27,10 @@ run "credential_and_session_boundaries" {
     condition     = jsondecode(aws_ssm_document.tunnel.content).properties.portNumber == "18761" && jsondecode(aws_ssm_document.tunnel.content).sessionType == "Port"
     error_message = "The tunnel must target the fixed loopback broker port."
   }
+  assert {
+    condition = can(regex(jsondecode(aws_ssm_document.service.content).parameters.runId.allowedPattern, "subscription-0123456789abcdef0123456789abcdef")) && !can(regex(jsondecode(aws_ssm_document.service.content).parameters.runId.allowedPattern, "../../proposal")) && !can(regex(jsondecode(aws_ssm_document.service.content).parameters.proposalDigest.allowedPattern, "not-a-digest"))
+    error_message = "Verification accepts only bounded execution IDs and proposal digests, never paths or commands."
+  }
 }
 run "wildcard_secret_rejected" {
   command = plan

@@ -89,7 +89,11 @@ resource "aws_ssm_document" "service" {
   name          = "bravo-subscription-service"
   document_type = "Command"
   content = jsonencode({ schemaVersion = "2.2", description = "Start/stop the installed bounded broker; no command input.",
-    parameters = { operation = { type = "String", allowedValues = ["start", "stop", "verify"], interpolationType = "ENV_VAR" } },
+    parameters = {
+      operation      = { type = "String", allowedValues = ["start", "stop", "verify"], interpolationType = "ENV_VAR" }
+      runId          = { type = "String", default = "", allowedPattern = "^(subscription-[a-f0-9]{32})?$", interpolationType = "ENV_VAR" }
+      proposalDigest = { type = "String", default = "", allowedPattern = "^([a-f0-9]{64})?$", interpolationType = "ENV_VAR" }
+    },
     mainSteps = [{ action = "aws:runShellScript", name = "service", inputs = { timeoutSeconds = "360", runCommand = [
       "set -eu",
       <<-SH
@@ -97,15 +101,17 @@ resource "aws_ssm_document" "service" {
         start) systemctl start bravo-subscription.service; echo '{"service_command_completed":true}' ;;
         stop) systemctl stop bravo-subscription.service; echo '{"service_command_completed":true}' ;;
         verify)
+          test -n "$SSM_runId" && test -n "$SSM_proposalDigest"
           export KUBECONFIG=/etc/rancher/rke2/rke2.yaml
           export PYTHONDONTWRITEBYTECODE=1
           /opt/bravo-subscription/worker/.venv/bin/python -m bravo_agent.verification \
-            --bundle /opt/bravo-subscription/worker/examples/failure.json \
+            --bundle "/var/lib/bravo-t11-subscription/runs/$SSM_runId/bundle.json" \
             --manifest /opt/bravo-subscription/worker/examples/snapshot-manifest.json \
             --snapshot /opt/bravo-subscription/worker/examples/source \
-            --result /var/lib/bravo-t11-subscription/proposal.json \
+            --result "/var/lib/bravo-t11-subscription/runs/$SSM_runId/proposal.json" \
+            --run-id "$SSM_runId" --proposal-digest "$SSM_proposalDigest" \
             --kubectl /var/lib/rancher/rke2/bin/kubectl \
-            --image docker.io/library/python@sha256:b18b261e1b4974b4f321451ad5251ded85abb22c2b8b262da527dda1d031ab30 ;;
+            --image docker.io/library/python@sha256:1148dbb014615300fa7e713b2f94f550c0d1c69780c0805f84f093ceee34dd0b ;;
         *) exit 2 ;;
       esac
       SH

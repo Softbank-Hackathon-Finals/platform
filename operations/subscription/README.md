@@ -15,8 +15,9 @@ broker 메모리에만 존재하며 인증 값은 GitHub Secrets나 파일로 �
 
 `SessionDocumentAccessCheck`를 강제하여 DocumentName을 생략한 기본 shell도 거부한다.
 워크플로는 임의 shell 명령, 기본 shell session, 임의 port session, Secret 목록 조회의
-거부를 실제 호출로 확인한다. 허용된 SSM 문서는 start/stop/verify enum만 받고 사용자
-명령·포트·manifest 입력은 받지 않는다. `GetCommandInvocation`은 AWS에서 리소스 수준
+거부를 실제 호출로 확인한다. 허용된 SSM 문서는 start/stop/verify enum과 검증용
+`runId`/`proposalDigest`만 받는다. 두 식별자는 고정 정규식으로 제한하며 verify에서는
+빈 값을 거부한다. 사용자 명령·포트·manifest 입력은 받지 않는다. `GetCommandInvocation`은 AWS에서 리소스 수준
 권한을 지원하지 않아 Resource `*`를 사용한다.
 [AWS 권한 명세](https://docs.aws.amazon.com/service-authorization/latest/reference/list_ssm.html).
 
@@ -61,11 +62,21 @@ uv run --directory services/agent-worker python ../../operations/subscription/in
 실제 목적지 profile, 읽기 전용 credential 파일·회전 계약, 합성 시험 bucket/path가
 준비되기 전에는 T15 전체 완료나 T9/T31/T30 통합 성공으로 사용하지 않는다.
 
+controller는 요청마다 새 run ID를 보내고 broker는 `runs/<runId>/`를 한 번만 생성한다.
+해당 bundle과 검증한 proposal을 읽기 전용 파일로 확정하므로 다음 요청이 덮어쓰지 않는다.
+SSM verify는 그 파일과 요청한 run ID/proposal digest를 대조한 후에만 Job을 생성한다.
+controller도 broker의 input/proposal digest와 receipt의 run/source/proposal/attempt,
+PASS/effects_known, 실제 evidence digest와 정리·시험 결과를 대조해야 성공을 기록한다.
+
 고정 source snapshot과 proposal digest를 다시 검증한 뒤 두 candidate Pod(환경값 있음/없음)와
 별도의 verifier Job을 만든다. candidate는 숨긴 verifier 파일을 mount하지 않으며,
 모든 Pod는 비루트·읽기 전용 루트·service-account token 없음으로 실행한다.
 네트워크는 verifier→candidate의 HTTP 포트만 허용한다. image는 digest로 고정한다.
-검증 Job UID가 바뀌면 결과를 거부하고, namespace는 원래 UID를 precondition으로 삭제한 뒤
+생성 Job UID, Pod의 controller owner UID, Pod UID, `run` 컨테이너의 imageID/실행 ID와
+종료 상태를 확인한다. imageID는 요청한 digest와 같아야 하므로 실행 플랫폼의 manifest
+digest를 사용한다. verifier의 고정 Pod와 `run` 컨테이너에서 로그를 읽은 뒤 candidate와
+verifier의 동일성을 다시 확인한다. 소유권 불일치·재생성·복수 Pod·다른 이미지·재시작은
+UNKNOWN이다. namespace는 원래 UID를 precondition으로 삭제한 뒤
 부재까지 확인한다. cleanup 실패나 검증 불가이면 UNKNOWN/NEEDS_HUMAN이다.
 
 PASS는 proposal/source/attempt/evidence digest가 일치하는 receipt로 승인 **대기**만 만든다.

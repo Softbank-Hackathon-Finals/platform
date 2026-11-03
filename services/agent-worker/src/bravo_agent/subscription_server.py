@@ -4,6 +4,7 @@ import contextlib
 import io
 import json
 import os
+import re
 import time
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
@@ -12,11 +13,15 @@ from types import SimpleNamespace
 import boto3
 from botocore.config import Config
 
+from .contracts import FailureBundle, SnapshotManifest, digest
 from .subscription_admin import run_worker
 from .subscription_store import SubscriptionStore
+from .verification import validate_result
 
 
-def execute(settings, web_token):
+def execute(settings, web_token, run_id):
+    if not isinstance(run_id, str) or not re.fullmatch(r"subscription-[a-f0-9]{32}", run_id):
+        raise ValueError("invalid execution id")
     config = Config(retries={"total_max_attempts": 1}, connect_timeout=10, read_timeout=20)
     # Web identity is validated by STS against the exact repository/ref trust policy.
     credentials = boto3.client("sts", region_name=settings["region"], config=config).assume_role_with_web_identity(
@@ -29,14 +34,32 @@ def execute(settings, web_token):
     store = SubscriptionStore(settings["secret_arn"], settings["runtime_host_id"], client=client)
     before, old_version = store.read()
     root = Path(settings["worker"])
-    output = Path(settings["state_dir"]).parent / "proposal.json"
-    output.unlink(missing_ok=True)
-    args = SimpleNamespace(model=settings["model"], bundle=root / "examples/failure.json",
+    runs = Path(settings["state_dir"]).parent / "runs"
+    runs.mkdir(mode=0o700, exist_ok=True)
+    execution = runs / run_id
+    execution.mkdir(mode=0o700)  # Reuse must fail, even after a failed worker call.
+    bundle = FailureBundle.model_validate({**json.loads((root / "examples/failure.json").read_text()),
+                                           "run_id": run_id})
+    bundle_path = execution / "bundle.json"
+    with bundle_path.open("x") as stream:
+        stream.write(bundle.model_dump_json())
+    bundle_path.chmod(0o400)
+    output = execution / "worker-result.json"
+    args = SimpleNamespace(model=settings["model"], bundle=bundle_path,
                            manifest=root / "examples/snapshot-manifest.json",
                            snapshot=root / "examples/source", output=output)
     with contextlib.redirect_stdout(io.StringIO()):
         code = run_worker(store, Path(settings["state_dir"]), args)
     result = json.loads(output.read_text()) if output.exists() else {}
+    if code == 0:
+        received_bundle, _ = validate_result(result)
+        manifest = SnapshotManifest.model_validate_json(args.manifest.read_text())
+        if received_bundle != bundle or result["snapshot_digest"] != digest(manifest):
+            raise ValueError("worker returned a different input")
+        published = execution / "proposal.json"
+        with published.open("x") as stream:
+            json.dump(result, stream)
+        published.chmod(0o400)
     after, new_version = store.read()
     return {"state": result.get("state", "NEEDS_HUMAN"), "exit_code": code, "result": result,
             "runtime_source_sha": settings["source_sha"],
@@ -68,9 +91,9 @@ def serve(settings):
                 if self.path != "/run" or not 0 < size <= 32768:
                     raise ValueError("invalid request")
                 body = json.loads(self.rfile.read(size))
-                if set(body) != {"web_identity_token"} or not isinstance(body["web_identity_token"], str):
+                if set(body) != {"web_identity_token", "run_id"} or not isinstance(body["web_identity_token"], str):
                     raise ValueError("invalid fields")
-                response = execute(settings, body["web_identity_token"])
+                response = execute(settings, body["web_identity_token"], body["run_id"])
             except Exception:
                 pass  # SDK responses may include credentials; return a fixed error only.
             finally:
