@@ -1,0 +1,7 @@
+bucket              = "bravo-platform-state-123456789012-ap-northeast-2"
+key                 = "foundation/aws.tfstate"
+region              = "ap-northeast-2"
+encrypt             = true
+kms_key_id          = "arn:aws:kms:ap-northeast-2:123456789012:key/REPLACE_WITH_BOOTSTRAP_OUTPUT"
+use_lockfile        = true
+allowed_account_ids = ["123456789012"]

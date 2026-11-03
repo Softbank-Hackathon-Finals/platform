@@ -64,7 +64,7 @@ jobs:
         uses: hashicorp/setup-terraform@v4
         with:
           terraform_version: ${{ env.TF_VERSION }}
-      - name: Terraform fmt · validate
+      - name: Terraform fmt · validate · test
         if: steps.tf.outputs.dirs != ''
         env:
           DIRS: ${{ steps.tf.outputs.dirs }}
@@ -74,6 +74,7 @@ jobs:
             echo "::group::$d"
             terraform -chdir="$d" init -backend=false -input=false >/dev/null
             terraform -chdir="$d" validate
+            terraform -chdir="$d" test -no-color
             echo "::endgroup::"
           done <<< "$DIRS"
       - name: IaC 설정 검사 (Trivy config)

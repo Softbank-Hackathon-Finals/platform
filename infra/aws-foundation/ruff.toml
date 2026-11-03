@@ -1,0 +1,2 @@
+# The verifier also runs with macOS Command Line Tools' Python 3.9.
+target-version = "py39"

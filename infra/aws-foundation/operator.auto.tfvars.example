@@ -1,0 +1,6 @@
+account_id         = "123456789012"
+name               = "bravo-foundation"
+owner              = "team-bravo"
+region             = "ap-northeast-2"
+availability_zones = ["ap-northeast-2a", "ap-northeast-2c"]
+network_cidr       = "10.80.0.0/15"
