@@ -9,6 +9,7 @@ import json
 import os
 import re
 import subprocess
+import sys
 from pathlib import Path
 
 PATTERNS = {
@@ -92,7 +93,9 @@ def findings(text, path):
 
 
 def tracked(repo):
-    return subprocess.check_output(["git", "-C", str(repo), "ls-files", "-z"]).decode().split("\0")[:-1]
+    return subprocess.check_output(
+        ["git", "-C", str(repo), "ls-files", "-z"], stderr=subprocess.PIPE,
+    ).decode().split("\0")[:-1]
 
 
 def read_text(repo, name):
@@ -206,7 +209,9 @@ def sanitize(repo, paths, private_root, manifest_path):
     archive = private_root / run
     archive.mkdir(parents=True, mode=0o700)
     archive.chmod(0o700)
-    source_ref = subprocess.check_output(["git", "-C", str(repo), "rev-parse", "HEAD"], text=True).strip()
+    source_ref = subprocess.check_output(
+        ["git", "-C", str(repo), "rev-parse", "HEAD"], text=True, stderr=subprocess.PIPE,
+    ).strip()
     entries = []
     for name, original, public, applied in prepared:
         backup = archive / name
@@ -228,6 +233,8 @@ def sanitize(repo, paths, private_root, manifest_path):
     if not path.resolve().is_relative_to(repo):
         raise ValueError("public manifest must be inside repository")
     previous = json.loads(path.read_text()) if path.exists() else {"format_version": 1, "runs": []}
+    if not isinstance(previous, dict) or not isinstance(previous.get("runs"), list):
+        raise ValueError("invalid redaction manifest")  # noqa: TRY004 - JSON input validation.
     previous["runs"].append({"run": run, "originals": "preserved privately outside repository",
                               "embedded_hashes": "unchanged; identify the original measured inputs",
                               "artifacts": entries})
@@ -246,14 +253,19 @@ def main():
     parser.add_argument("--private-root", type=Path)
     parser.add_argument("--manifest", default="docs/evidence/privacy/redaction-manifest.json")
     args = parser.parse_args()
-    repo = args.repo.resolve()
-    paths = args.paths or tracked(repo)
-    if args.command == "check":
-        return check(repo, paths)
-    if not args.paths or args.private_root is None:
-        parser.error("sanitize requires explicit paths and --private-root")
-    sanitize(repo, paths, args.private_root, args.manifest)
-    return 0
+    try:
+        repo = args.repo.resolve()
+        paths = args.paths or tracked(repo)
+        if args.command == "check":
+            return check(repo, paths)
+        if not args.paths or args.private_root is None:
+            parser.error("sanitize requires explicit paths and --private-root")
+        sanitize(repo, paths, args.private_root, args.manifest)
+        return 0
+    except (ValueError, OSError, subprocess.SubprocessError):
+        # Tracebacks and subprocess stderr can disclose operator paths or raw input.
+        print("Public evidence validation failed: input could not be safely processed.", file=sys.stderr)
+        return 2
 
 
 if __name__ == "__main__":

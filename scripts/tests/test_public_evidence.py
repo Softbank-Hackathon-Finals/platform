@@ -5,6 +5,7 @@ import io
 import json
 import os
 import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -111,3 +112,34 @@ class PublicEvidence(unittest.TestCase):
             (repo / "large.txt").write_bytes(b"a" * (4 * 1024 * 1024 + 1))
             self.assertIsNone(privacy.read_text(repo, "binary.bin"))
             self.assertIsNone(privacy.read_text(repo, "large.txt"))
+
+    def test_cli_fails_closed_without_private_paths_or_input_in_errors(self):
+        script = Path(privacy.__file__).resolve()
+        with tempfile.TemporaryDirectory() as directory:
+            repo = Path(directory)
+            subprocess.run(["git", "init", "-q", str(repo)], check=True)
+            deleted = repo / "deleted.md"
+            deleted.write_text("example")
+            subprocess.run(["git", "-C", str(repo), "add", "deleted.md"], check=True)
+            deleted.unlink()
+            raw_value = "operator@" + "private-mail.org"
+            malformed = repo / "docs/evidence/invalid.json"
+            malformed.parent.mkdir(parents=True)
+            malformed.write_text('{"private": "' + raw_value + '",')
+            cases = [
+                ["check", "--repo", str(repo)],  # Tracked, then deleted without staging.
+                ["check", "missing.md", "--repo", str(repo)],
+                ["check", "docs/evidence/invalid.json", "--repo", str(repo)],
+                ["check", "--repo", str(repo / "missing-repository")],
+            ]
+            commands = [(args, None) for args in cases]
+            commands.append((["check", "--repo", str(repo)], {**os.environ, "PATH": ""}))
+            for args, env in commands:
+                with self.subTest(args=args[:2], missing_git=env is not None):
+                    result = subprocess.run([sys.executable, str(script), *args],
+                                            capture_output=True, text=True, check=False, env=env)
+                    self.assertEqual(result.returncode, 2)
+                    output = result.stdout + result.stderr
+                    self.assertIn("validation failed", output)
+                    for forbidden in (str(repo), str(script), str(Path.home()), raw_value, "Traceback"):
+                        self.assertNotIn(forbidden, output)
