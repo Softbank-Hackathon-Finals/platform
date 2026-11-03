@@ -6,7 +6,7 @@
 
 ## 판단
 
-쓰기 정지 예산 5,000ms는 따라잡는 시간, 최종 비교, 나머지 단계로 나뉜다. 아래 표는 [results.json](results.json)의 `budget_view`다. 최종 비교는 큰 쪽 값 1,300ms를 넣었다.
+쓰기 정지 예산 5,000ms는 따라잡는 시간, 최종 비교, 나머지 단계로 나뉜다. 아래 표는 [results.json](results.json)의 `budget_view`다. 최종 비교는 T13 측정의 큰 쪽 값 1,300ms를 넣었다(아래 조건 3).
 
 | 무엇을 기다리나 | 따라잡는 시간 | 나머지 단계에 남는 시간 |
 |---|---|---|
@@ -21,9 +21,9 @@
 
 유지하려면 확인할 조건 세 가지:
 
-1. **T13의 DB 안 비교(`db-sql-v1`)가 실행기에 연결돼야 한다.** 지금 `develop`의 행 읽기 비교는 목적지에서만 약 205MB를 받는다(T13 측정, `feature/T13-db-fingerprint` 아직 머지 전). 20Mbit에서 82초, 100Mbit에서 16초라 예산을 넘는다. 이 경우 5.3을 유지할 수 없다.
+1. **T13의 DB 안 비교(`db-sql-v1`)가 실행기에 연결돼야 한다.** 지금 `develop`의 기본 비교기는 행을 모두 읽는 방식이라 목적지에서만 약 205MB를 받는다. T13 측정(가정 네트워크)에서 100Mbps 61.6초, 20Mbps 132.3초가 걸렸다. 이 상태로는 예산을 넘으므로 5.3을 유지할 수 없다. 구현은 [#154](https://github.com/Softbank-Hackathon-Finals/platform/pull/154) 머지 전이고, 연결은 T12 몫이다.
 2. **실제 경로를 `observe`로 다시 재야 한다.** 2KB 행 50 req/s의 평상 전송량은 1.04Mbit/s였다. 실제 대역폭이 이 근처까지 낮으면 지연이 계속 쌓일 것이다. 계산일 뿐, 이 측정의 어느 조건도 그만큼 좁지 않아 재지는 않았다.
-3. **비교 1.3초의 출처를 확인해야 한다.** 총괄 세션이 준 범위(0.6~1.3초)를 그대로 썼다. T13 증거 파일에서 확인되는 것은 로컬 중앙값 0.63초와 전송 20회까지다. 위쪽 값은 찾지 못했다.
+3. **비교 시간을 실제 경로와 현재 규칙으로 다시 재야 한다.** 1,300ms의 출처는 [노션 T13 글](https://app.notion.com/p/40d8bee9ada4814881e7e74bac7f9908) 「구현 방식 비교 (11/3 측정)」의 DB 안 방식 100Mbps · 20Mbps(RTT 30ms) 값이다(출발지 + 목적지 합계, 2회 중앙값). 네트워크 제한은 프록시로 건 가정값이고, 콜레이션 항목을 넣기 전 규칙으로 쟀다. 현재 규칙으로 잰 값은 제한 없는 로컬 0.631초([#154](https://github.com/Softbank-Hackathon-Finals/platform/pull/154))뿐이다.
 
 ## 측정
 
@@ -118,6 +118,6 @@ uv run --script infra/envs/target-workloads/testing/replication_lag.py lab --out
 
 ## 입력
 
-- **측정 코드:** `environment.scripts_sha256`은 본 측정 당시 바이트이고 커밋 `3844333`과 같다. 그 뒤 검증 시험 순서와 예산 계산만 바꿨고, 측정 경로는 그대로다. 다시 돌린 검증의 해시는 `validation_scripts_sha256`에 있다.
+- **측정 코드:** `environment.scripts_sha256`은 본 측정 당시 바이트이고 커밋 `3844333`과 같다. 그 뒤 검증 시험 순서와 예산 계산만 바꿨고, 측정 경로는 그대로다. 다시 돌린 검증의 해시는 `validation_scripts_sha256`에 있고 커밋 `14d7cdd`와 같다. 그 뒤에는 비교 시간 출처 주석 한 줄만 고쳤다.
 - **이미지 · 스키마:** `environment.postgres_image_id`, `environment.schema_sha256`.
 - **단위 시험:** `scripts/tests/test_replication_lag.py`.

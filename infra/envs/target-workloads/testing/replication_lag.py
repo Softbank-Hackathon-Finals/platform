@@ -71,7 +71,8 @@ WRITE_RATE = 50  # Design 5.3.
 ROWS = {"messages": 98_000, "attachments": 2_000}
 BODY_CHARS = 1_800
 BUDGET_MS = 5_000
-# T13 local comparison time, source plus target, assumed network (T13 evidence; not measured here).
+# T13 DB-side comparison, source plus target: unlimited and 100/20 Mbps RTT 30 ms, proxy-limited
+# assumed links, before collation checks (Notion T13 page, 11/3 comparison). Not measured here.
 COMPARE_MS = (600, 1_300)
 GATE_BYTES = 1024 * 1024  # bravo_cutover Settings.max_lag_bytes.
 EXECUTOR_POLL_MS = 50  # bravo_cutover runner: time.sleep(0.05) in the barrier wait.

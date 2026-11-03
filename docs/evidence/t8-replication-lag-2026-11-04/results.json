@@ -7,7 +7,7 @@
    600,
    1300
   ],
-  "compare_source": "T13 local measurement, source plus target"
+  "compare_source": "Notion T13 page, implementation comparison (11/3): DB-side method, source plus target median; 0.6 s unlimited, 1.3 s at 100 and 20 Mbps RTT 30 ms; proxy-limited assumed links; rule before collation checks"
  },
  "write_rate_per_s": 50,
  "body_chars": 1800,
