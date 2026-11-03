@@ -34,7 +34,7 @@ class OperatorSSOTests(unittest.TestCase):
         self.assertEqual(sso.check_identity({"Account": "111122223333", "Arn": "arn:aws:iam::111122223333:user/operator"}, "111122223333", "BravoOperator"), "NOT_EXPECTED_SSO_ROLE")
 
     def test_other_account_rejected(self):
-        self.assertEqual(sso.check_identity({"Account": "999900001111"}, "111122223333", "BravoOperator"), "ACCOUNT_MISMATCH")
+        self.assertEqual(sso.check_identity({"Account": "222222222222"}, "111122223333", "BravoOperator"), "ACCOUNT_MISMATCH")
 
     def test_exact_permission_set_role(self):
         identity = {"Account": "111122223333", "Arn": "arn:aws:sts::111122223333:assumed-role/AWSReservedSSO_BravoOperator_0123456789abcdef/session"}
@@ -46,7 +46,7 @@ class OperatorSSOTests(unittest.TestCase):
             path = Path(directory) / "config"
             path.write_text(CONFIG)
             with patch.object(sso.subprocess, "run") as call:
-                result = sso.run("operator", "999900001111", path)
+                result = sso.run("operator", "222222222222", path)
                 self.assertFalse(result["sso_verified"])
                 call.assert_not_called()
 
