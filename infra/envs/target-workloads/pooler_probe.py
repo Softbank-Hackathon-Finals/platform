@@ -21,7 +21,7 @@ def main():
     with psycopg.connect(**args) as conn:
         connect_seconds = time.monotonic() - started
         # libpq verify-full succeeds only with TLS and a matching trusted certificate.
-        checks['client_verify_full_connection'] = not conn.closed
+        checks['client_verify_full_connection'] = bool(conn.pgconn.ssl_in_use)
         STAGE = "source_backend_query"
         with conn.cursor() as cur:
             cur.execute("SELECT current_user,current_setting('cluster_name'),ssl FROM pg_stat_ssl WHERE pid=pg_backend_pid()")
@@ -54,10 +54,12 @@ def main():
             with psycopg.connect(**{**args, **changes}):
                 checks[name] = False
         except psycopg.OperationalError as error:
-            checks[name] = (error.sqlstate in {'28P01', '28000'} if name == 'wrong_password_denied'
-                            else 'certificate' in str(error).lower() and 'match' in str(error).lower())
+            message = str(error).lower()
+            checks[name] = ((error.sqlstate in {'28P01', '28000'} or any(
+                marker in message for marker in ['password authentication failed', 'sasl authentication failed']))
+                if name == 'wrong_password_denied' else 'certificate' in message and 'match' in message)
     with psycopg.connect(**args) as conn:
-        checks['positive_connection_after_negative_tests'] = conn.execute('SELECT 1').fetchone() == (1,)
+        checks['positive_connection_after_negative_tests'] = bool(conn.pgconn.ssl_in_use) and conn.execute('SELECT 1').fetchone() == (1,)
     print(json.dumps({'passed': all(checks.values()), 'checks': checks,
                       'connect_seconds': connect_seconds, 'rollback_write_seconds': rollback_write_seconds,
                       'timing_scope': 'single emulated-development probe, not p95 or app SLO',
