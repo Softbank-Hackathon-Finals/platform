@@ -20,13 +20,25 @@ spec:
     spec:
       # Service 이름이 moto라 K8s가 넣는 MOTO_PORT=tcp://… 를 moto가 자기 설정으로 읽고 죽는다
       enableServiceLinks: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        seccompProfile: {type: RuntimeDefault}
       containers:
         - name: moto
           image: motoserver/moto:5.1.4
+          env: [{name: HOME, value: /tmp}]
           ports: [{containerPort: 5000}]
           readinessProbe:
             tcpSocket: {port: 5000}
             periodSeconds: 2
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: [ALL]}
+          volumeMounts: [{name: tmp, mountPath: /tmp}]
+      volumes: [{name: tmp, emptyDir: {}}]
 ---
 apiVersion: v1
 kind: Service
@@ -47,10 +59,22 @@ spec:
   template:
     spec:
       restartPolicy: OnFailure
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        seccompProfile: {type: RuntimeDefault}
+      volumes: [{name: tmp, emptyDir: {}}]
       containers:
         - name: seed
           image: amazon/aws-cli:2.27.0
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: [ALL]}
+          volumeMounts: [{name: tmp, mountPath: /tmp}]
           env:
+            - {name: HOME, value: /tmp}
             - {name: AWS_ENDPOINT_URL, value: "http://moto.aws.svc:5000"}
             - {name: AWS_REGION, value: ap-northeast-1}
             - {name: AWS_ACCESS_KEY_ID, value: local}
