@@ -12,6 +12,7 @@ from bravo_platform_events.plans import CollectionProof, PlanSpec
 from bravo_platform_events.postgres import PostgresPlanStore
 from fastapi.testclient import TestClient
 from psycopg.conninfo import make_conninfo
+from tls_verification import verify_plaintext_rejection
 
 
 def main():
@@ -83,13 +84,10 @@ def main():
                 # Abort instead of committing even if a broken privilege allowed the probe.
                 raise AssertionError("privilege_boundary_failed")
     checks["history_unchanged_after_denials"] = reopened.snapshot(probe_id) == snapshot
-    try:
-        psycopg.connect(conninfo, sslmode="disable").close()
-    except psycopg.OperationalError:
-        checks["plaintext_denied"] = True
-    else:
-        checks["plaintext_denied"] = False
-    result = {"status": "PASS" if all(checks.values()) else "FAIL", "server_version": version,
+    plaintext = verify_plaintext_rejection(conninfo, psycopg.connect, psycopg.OperationalError)
+    checks["plaintext_denied"] = {"PASS": True, "FAIL": False, "UNKNOWN": None}[plaintext["verdict"]]
+    status = "FAIL" if any(value is False for value in checks.values()) else "UNKNOWN" if None in checks.values() else "PASS"
+    result = {"status": status, "server_version": version, "plaintext": plaintext,
               "checks": checks, "check_count": len(checks),
               "snapshot_sha256": hashlib.sha256(json.dumps(snapshot, sort_keys=True).encode()).hexdigest(),
               "receipt_sha256": hashlib.sha256(json.dumps(receipts[0], sort_keys=True).encode()).hexdigest(),

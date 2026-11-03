@@ -1,0 +1,32 @@
+{
+  "review": "https://github.com/Softbank-Hackathon-Finals/platform/pull/113#pullrequestreview-5751556300",
+  "original_head": "998dd629167edd47fa71a5a1aace5e6c37299d54",
+  "records": [
+    {
+      "record": "platform-isolation.json",
+      "original_sha256": "933764fd84b80f4c9c7fc5bef974831bd6f5de773f369940c74bb9350ad97ef0",
+      "superseded_interpretations": {
+        "platform-collector_database_network_denied": "UNKNOWN",
+        "platform-executor_database_network_denied": "UNKNOWN"
+      },
+      "reason": "The original verifier counted transport failure as policy denial without bound positive controls. Raw original records are preserved."
+    },
+    {
+      "record": "initial.json",
+      "original_sha256": "8b506e6094e2169e1c951a41621b99c23c3adbe37fa7ab9e9e3d312f7fbd3518",
+      "superseded_interpretations": {
+        "plaintext_denied": "UNKNOWN"
+      },
+      "reason": "The original verifier counted transport failure as policy denial without bound positive controls. Raw original records are preserved."
+    },
+    {
+      "record": "recovery.json",
+      "original_sha256": "4d264665e10e7f10cb2a7ab0ba2b0497aa6d94a64603072f66eae19e42eedd1e",
+      "superseded_interpretations": {
+        "plaintext_denied": "UNKNOWN"
+      },
+      "reason": "The original verifier counted transport failure as policy denial without bound positive controls. Raw original records are preserved."
+    }
+  ],
+  "limits": "This correction does not invalidate unrelated API RBAC, storage or state/event checks. New executions do not retroactively validate old denials or rerun the DB restart."
+}

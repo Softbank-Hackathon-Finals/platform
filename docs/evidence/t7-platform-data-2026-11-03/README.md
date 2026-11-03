@@ -8,14 +8,23 @@
 | T7 로컬 저장소·역할 경계 회귀 | **11 PASS** | `scripts/tests/test_platform_data.py` |
 | 최신 develop 포함 저장소 Python 검사 | **178 PASS · QEMU 검사 1 skip** | 179개 실행, `scripts/tests` 전체 |
 | Terraform mock 경계 | **4 PASS** | 암호화·용량·소유자·VPC·사설 호스트 조건 |
-| 클라우드 DB 첫 소비 | **26 PASS** | [initial.json](initial.json) |
-| DB Pod 재생성 후 별도 Job·새 프로세스 소비 | **26 PASS**, snapshot/receipt SHA 동일 | [restart.json](restart.json), [recovery.json](recovery.json) |
+| 클라우드 DB 첫 소비 (기존 기록) | **25개 유효, 평문 거부 1개 UNKNOWN으로 정정** | [initial.json](initial.json) |
+| DB Pod 재생성 후 별도 Job·새 프로세스 소비 (기존 기록) | **25개 유효, 평문 거부 1개 UNKNOWN으로 정정**, snapshot/receipt SHA 동일 | [restart.json](restart.json), [recovery.json](recovery.json) |
 | 상시 정책만 사용한 새 psql 연결 | **8 PASS** | [permanent-path.json](permanent-path.json), 임시 정책 없이 TLS·schema·T10 테이블 조회 |
 | Terraform 적용 후 재계획 | **변경 0** | [terraform-drift.json](terraform-drift.json), 전용 data state만 |
 | 검증 자원 정리 | 완료 Job 2개·임시 다운로드 정책 제거, bundle 보존 | [cleanup.json](cleanup.json) |
 | 출발지 EKS 실제 collector/Executor 단기 토큰 | **18 PASS** | [source-access.json](source-access.json) |
-| 플랫폼 세 ServiceAccount API 접근 및 두 역할의 DB 네트워크 | **11 PASS** | [platform-isolation.json](platform-isolation.json) |
+| 플랫폼 세 ServiceAccount API 접근 및 두 역할의 DB 네트워크 (기존 기록) | **API 9개 유효, 네트워크 2개 UNKNOWN으로 정정** | [platform-isolation.json](platform-isolation.json) |
 | 별도 EBS 읽기 확인 | 암호화·16GiB·종료 시 보존·component 태그 | [storage.json](storage.json) |
+
+[P1 판정 정정](p1-correction.json): 이전 검증기는 TCP timeout과 일반 DB 연결 오류를 각각 네트워크/평문 거부로 집계했다. 대상 중단·경로 장애·인증 실패를 배제하지 못했으므로 해당 보안 판정은 UNKNOWN이다. 원본 JSON·해시는 보존하며, 아래 신규 실행 결과를 과거 실행이나 DB 재생성 시험에 소급하지 않는다.
+
+### P1 수정 후 별도 실측
+
+- [플랫폼 API·네트워크 재시험](p1-network-controls-v1.json): **11 PASS**. 두 시험 주체 각각 DB 전후 허용 접속, 같은 Pod의 DNS·대조 서비스 접속을 확인했다. DB 접속만 timeout이었고 각 시험 창은 약 11초, 정책·대상·Pod는 전후 같았다. 고유 시험 Pod에만 DNS/8080을 허용하는 임시 대조 정책을 사용했으며 기존 DB 허용 정책은 변경하지 않았다.
+- [새 T10 Job](p1-tls-read-v2.json): **26 PASS**. 평문 검사는 같은 서버 주소/기동 세대에 `connected_tls → rejected_no_encryption → connected_tls`를 43ms 안에 확인했다. 고정 T10 소비 코드와 기존 스키마를 사용한 새 합성 ID의 소비 시험이다. DB Pod 재생성이나 출발지·목적지 컷오버를 다시 실행한 결과는 아니다.
+- [정리](p1-probe-cleanup-v1.json): 완료된 새 Job 1개와 임시 다운로드 정책을 제거하고 immutable bundle과 DB 자원을 보존했다. 네트워크 시험 자원은 검증기 자체의 UID 확인 후 정리 경로가 성공했다.
+- [실행 결속](p1-execution-manifest.json): AWS가 보관한 명령의 실제 Python source·JSON 입력 hash를 로컬 receipt와 대조했고, 제출된 immutable bundle의 `verify_t10.py`/`tls_verification.py`가 최종 파일과 동일함을 확인했다. 검증기/대조 실패 회귀 15건과 기존 경계 11건이 로컬에서 통과했다.
 
 첫/재생성 후 26개 소비 검사는 임시 `t7-verification` 정책을 사용하는 동안 실행했다. 상시 `runtime-database` egress를 적용하고 임시 정책을 제거한 뒤, 별도의 새 psql Job에서 TLS·schema·상태/이벤트/영수증 테이블 읽기를 8개 항목으로 확인했다. 앞선 26개 전체 소비 검사를 상시 정책으로 재실행했다고 주장하지 않는다.
 
@@ -25,7 +34,7 @@ DB 검사는 verify-full TLS/SCRAM으로 실제 제한 runtime 로그인에 접�
 
 출발지 역할 시험은 관리자 impersonation 대신 실제 10분 TokenRequest 토큰을 사용했다. collector의 읽기·쓰기 거부, Executor의 정확한 ConfigMap annotation patch, 두 역할의 Secret/다른 namespace/Pod 생성/exec/토큰 발급 거부를 확인했다. 최초 판정에서 TokenRequest 오류의 소문자 `forbidden`을 놓쳤으며, 대소문자를 정규화한 검증기로 다시 실행한 결과를 게시했다. 기존 PgBouncer `data`와 annotation은 원래대로 보존됐다. DB 쓰기 차단이나 PAUSE/RELOAD는 실행하지 않았다.
 
-플랫폼의 collector/Executor는 각각 독립 namespace·ServiceAccount를 사용한다. 플랫폼 DB Secret·Pod·kube-system Secret 조회가 실제로 거부되고, 두 namespace의 새 검증 Pod에서 정상 동작 중인 DB Service로의 TCP 연결이 timeout으로 차단됐다. runtime 계정도 Kubernetes Secret 조회 권한은 없다.
+플랫폼의 collector/Executor는 각각 독립 namespace·ServiceAccount를 사용한다. 플랫폼 DB Secret·Pod·kube-system Secret 조회가 실제로 거부되고, 두 namespace의 새 검증 Pod에서 DB Service 접속 timeout이 관측됐다. 이전 실행에는 같은 시험 창의 대조군이 없어 이 관측만으로 정책 차단을 입증하지 못한다. runtime 계정도 Kubernetes Secret 조회 권한은 없다.
 
 추가 AWS 자원은 전용 gp3와 attachment 두 개다. 기존 EC2/IAM/VPC/root disk는 Terraform 변경 대상이 아니며 DB는 공개 endpoint가 없다. T7 실제 적용은 리뷰 전 사용자 승인 범위의 개발 검증이다. 팀 리뷰 승인과 필수 CI를 충족하기 전에 PR을 병합하지 않는다.
 

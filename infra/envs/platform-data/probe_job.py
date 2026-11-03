@@ -28,7 +28,8 @@ def resources(consumer, requirements, name, probe_id):
     files = {str(p.relative_to(consumer)): p.read_bytes() for p in sorted((consumer / "src").rglob("*"))
              if p.is_file() and "__pycache__" not in p.parts}
     files["requirements.txt"] = requirements.read_bytes()
-    files["verify_t10.py"] = Path(__file__).with_name("verify_t10.py").read_bytes()
+    for module in ("verify_t10.py", "tls_verification.py"):
+        files[module] = Path(__file__).with_name(module).read_bytes()
     data = io.BytesIO()
     with tarfile.open(fileobj=data, mode="w") as tar:
         for path, content in files.items():

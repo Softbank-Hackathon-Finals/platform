@@ -55,6 +55,14 @@ Job은 고정 Python image와 hash-pinned wheel을 사용한다. 코드/요구�
 
 검증 뒤에는 `operate --phase cleanup`에 명시한 완료 Job 목록(`{"jobs":["t7-db-initial","t7-db-recovery"]}`)만 제거한다. 다른 T7 probe가 실행 중이면 임시 `t7-verification` 정책도 보존한다. immutable ConfigMap은 다른 Pod/컨트롤러가 재사용할 수 있으므로 보존한다. `operate --phase runtime-path`로 임시 정책 부재와 상시 경로의 새 TLS 연결을 확인한다. 이 검사는 전체 T10 소비 시험과 별도로 기록한다. DB·Secret·PVC·볼륨·source 역할은 개발 연결을 위해 유지한다. cleanup 전에 정확한 Job 참조와 이름을 확인하며 namespace/PVC/DB를 삭제하지 않는다.
 
+## 거부 판정의 대조 시험
+
+`verify_platform_host.py`는 API의 실제 Forbidden 9개와 DB 네트워크 2개를 분리한다. 네트워크 시도 자체는 `connected`, `timeout`, `refused`, `unreachable` 관측만 낸다. 같은 DB Service 주소·포트에 허용 runtime Pod가 전후로 연결되고, **동일 시험 Pod**가 DNS와 허용 대조 서비스에 연결된 경우에만 timeout/refused를 PASS로 판정한다. 다섯 관측은 순서대로 60초 안에 있어야 하며 DB Service/EndpointSlice, Pod UID, 정책 명세가 전후 같아야 한다. 누락·실패·변경·창 초과는 UNKNOWN이며 명확한 연결 허용은 유효한 대조 아래 FAIL이다. FAIL/UNKNOWN은 비영 종료한다.
+
+대조 시험은 실행마다 고유 이름의 Job 3개와 Service 1개를 만들고, 해당 Pod만 선택하는 임시 정책 3개로 DNS(53)와 대조 서비스(8080)만 허용한다. collector/Executor의 DB(5432) 허용·자격 mount·API 토큰 권한을 추가하지 않는다. 상시 정책은 변경하지 않고 임시 객체는 생성 시 받은 UID를 대조해 정리한다. 따라서 이 결과는 명시된 대조 경로를 허용한 시험 Pod의 DB 격리 결과이며, 해당 역할의 실제 업무 통신 전체 검증은 아니다.
+
+`verify_t10.py`의 평문 시험은 `tls_verification.py`로 분리했다. 같은 자격과 고정 서버 주소에 verify-full TLS 접속을 전후로 확인하고, 같은 서버 기동 세대와 60초 창을 유지한다. PostgreSQL의 정확한 HBA `no encryption` 거부만 PASS이며 일반 OperationalError·인증 오류·다른 언어/알 수 없는 응답·대조 실패는 UNKNOWN이다. 원시 오류/비밀번호/주소는 결과에 남기지 않는다. 이 제한은 [PostgreSQL 18 인증 구현](https://github.com/postgres/postgres/blob/REL_18_STABLE/src/backend/libpq/auth.c)과 [psycopg 연결 정보](https://www.psycopg.org/psycopg3/docs/api/objects.html)에 근거한다.
+
 ## 운영 제한
 
 - 단일 인스턴스·단일 노드·단일 AZ다. Pod 재생성은 HA·볼륨 손실·off-host 복원 시험이 아니다. PV Retain과 EBS 보존도 백업을 대신하지 않는다.
