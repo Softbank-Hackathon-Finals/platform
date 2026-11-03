@@ -31,7 +31,6 @@ from bravo_cutover.rejections import (  # noqa: F401 - 호출하는 쪽이 store
 )
 
 SCHEMA_SQL = """
-CREATE SCHEMA IF NOT EXISTS executor;
 CREATE TABLE IF NOT EXISTS executor.executions (
     execution_id    uuid        PRIMARY KEY,
     idempotency_key text        NOT NULL UNIQUE,
@@ -123,6 +122,10 @@ class Store:
 
     def migrate(self) -> None:
         with self._pool.connection() as conn:
+            # Operators can pre-create this schema for a migrator without database-wide CREATE.
+            # Even CREATE SCHEMA IF NOT EXISTS checks that broader privilege before its no-op.
+            if conn.execute("SELECT to_regnamespace('executor') AS schema").fetchone()["schema"] is None:
+                conn.execute("CREATE SCHEMA executor")
             conn.execute(SCHEMA_SQL)
 
     def create(self, key: str, request: CutoverRequest, resources: tuple[str, str]) -> tuple[Execution, bool]:

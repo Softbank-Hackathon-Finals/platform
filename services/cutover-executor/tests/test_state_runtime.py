@@ -13,6 +13,25 @@ from bravo_cutover.provision import state_runtime_grants_sql
 from bravo_cutover.store import Store
 
 
+def test_migrator_can_reapply_its_schema_without_database_create(postgres_dsn):
+    password = secrets.token_urlsafe(24)
+    with psycopg.connect(postgres_dsn, autocommit=True) as admin:
+        admin.execute("DROP SCHEMA IF EXISTS executor CASCADE")
+        admin.execute(sql.SQL("CREATE ROLE cutover_executor_migration LOGIN PASSWORD {}").format(sql.Literal(password)))
+        admin.execute("CREATE SCHEMA executor AUTHORIZATION cutover_executor_migration")
+        params = conninfo_to_dict(postgres_dsn) | {"user": "cutover_executor_migration", "password": password}
+        migrator = Store(make_conninfo(**params))
+        try:
+            assert admin.execute("SELECT has_database_privilege('cutover_executor_migration',current_database(),'CREATE')").fetchone()[0] is False
+            migrator.migrate()
+            migrator.migrate()
+            assert admin.execute("SELECT tableowner FROM pg_tables WHERE schemaname='executor' AND tablename='executions'").fetchone()[0] == "cutover_executor_migration"
+        finally:
+            migrator.close()
+            admin.execute("DROP OWNED BY cutover_executor_migration")
+            admin.execute("DROP ROLE cutover_executor_migration")
+
+
 def test_runtime_can_record_and_recover_execution_but_cannot_migrate(store, postgres_dsn):
     password = secrets.token_urlsafe(24)
     with psycopg.connect(postgres_dsn, autocommit=True) as admin:
