@@ -20,6 +20,9 @@ out/
 *.tfstate
 *.tfstate.*
 *.tfplan
+backend.local.tf
+*.backend.json
+evidence.local.json
 crash.log
 
 # Helm

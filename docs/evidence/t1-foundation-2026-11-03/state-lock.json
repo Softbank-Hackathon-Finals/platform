@@ -1,0 +1,10 @@
+{
+  "backend": "S3 use_lockfile=true",
+  "holder": "terraform apply waiting for human yes; cancelled with no",
+  "contender": "terraform plan -lock-timeout=0s",
+  "contender_exit": 1,
+  "lock_conflict_rejected": true,
+  "resources_created_by_holder": 0,
+  "lock_released": true,
+  "implementation_commit": "e8f534d27e46380e9029718dda2f8497284c78c2"
+}
