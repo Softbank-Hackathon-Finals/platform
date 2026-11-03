@@ -70,6 +70,24 @@ Actual AWS validation used the existing individual IAM operator in the reviewed 
 
 시크릿 게시 첫 시도는 macOS AWS CLI stdin paramfile 처리에서 종료 252로 실패했다. 값은 출력하지 않았고, Boto3의 메모리 호출로 전환해 성공했다. 이미 AWS에 값이 있으면 동일함을 확인해 재사용하며 다르면 덮어쓰지 않는다. 기존 비밀번호를 갱신하거나 새 장기 키를 만들지 않았다.
 
-앱 이미지·API 검증은 후속 기록으로 추가한다. 이 시점의 배포 목록은 PgBouncer만 포함하며 demo-chat 배포 성공을 이 JSON으로 주장하지 않는다. T8의 원격 DB 라우팅·왕복 복제, T12 실제 cutover, T14 통제 비교, T35 백업·복원, 고가용성은 각각 별도 후속 검증이다. source 자원은 요청에 따라 후속 작업을 위해 유지한다.
+위 초기 JSON 시점의 배포 목록은 PgBouncer만 포함하며 demo-chat 배포 성공을 그 JSON으로 주장하지 않는다. 후속 앱 검증은 아래에 별도 시각과 실행 소스로 기록한다. T8의 원격 DB 라우팅·왕복 복제, T12 실제 cutover, T14 통제 비교, T35 백업·복원, 고가용성은 각각 별도 후속 검증이다. source 자원은 요청에 따라 후속 작업을 위해 유지한다.
+
+### Private ECR 앱 배포와 실제 업무 경로
+
+사용자가 GHCR 조직 공개 정책을 유지하기로 결정해, 별도 이미지 담당이 main Actions OIDC로 기존 OCI index를 private ECR에 복사했다. [복사·검증 run 41610561593](https://github.com/Softbank-Hackathon-Finals/demo-chat/actions/runs/41610561593)은 원본/목적지 index·2 child·15 blob 바이트 일치, 취약점/secret 0건 및 ECR 실제 pull/runtime probe를 통과했다. 소스는 `ce5727eb3e3d2355077afdaadcb1a722aba9c7cd`, OCI index는 `sha256:001adc35a9fc767566552fb55c3c19a67b7c5efc7231fb02dc28cdeace99d0d4`다. 공개 정책·기반 노드 역할은 바꾸지 않았고 장기 registry secret을 만들지 않았다.
+
+출발지 operator는 private contract의 exact URL·현재 STS 계정·앱 역할 계정·region을 대조하고, ECR에서 가져온 index 원문 bytes의 SHA-256과 linux/amd64 child를 독립 확인한 뒤 server dry-run/apply했다. 배포 소스는 `6d8a8dfbc59dd8815d9f162e33977d7bf4b76c2d`다. **09:31:43.376935Z** 재조회에서 앱 Ready 1, 재시작 0, UID 10001, x86_64, web identity 존재/정적 AWS key 없음, `verify-full`과 CA 존재를 확인했다. 컨테이너 런타임의 imageID는 child가 아니라 **원본 index digest**를 보고했다. 이 차이를 [`application-deployment-readback.json`](application-deployment-readback.json)에 그대로 보존한다.
+
+**09:28:39.541815Z**에 실행한 [`application-readback.json`](application-readback.json)은 실제 앱 HTTP 관측 **31개 모두 true**다. 시작 시 Secrets Manager SDK 조회를 요구하는 앱이 기동했고, DB Secret → PgBouncer → PostgreSQL 업무 query와 S3 첨부 경로를 사용했다.
+
+- 메시지 생성 201, 동일 멱등 키 재시도 200/같은 ID, 다른 내용 재사용 409, 저장한 메시지 재조회가 성공했다.
+- 첨부 upload/download와 SHA-256 byte 대조, DB 첨부 참조 연결·재조회가 성공했다. 합성 메시지 2개와 첨부 1개를 후속 복제 시험을 위해 보존했다.
+- 누락/잘못된 관리자 인증 401, 처음·마지막의 업무 쓰기 503과 Retry-After를 확인했다. 시험 후 `write_blocked=true`, 복원 1회 성공, 일시 실패 0, `manual_write_block_required=false`다. 차단 뒤에도 읽기/healthz/readyz/DB health는 200이었다. 09:31 재조회에서도 차단 상태였다.
+
+앱 시험 실행 전 **`27b0ef46f89c26c6a11c11b4aaf0bfc94a52d75b`**와 probe hash를 [`application-probe-source.json`](application-probe-source.json)에 기록했다. 실행 뒤 독립 검토가 추가로 찾은 HTTP 본문 단절/잘못된 JSON shape의 복원 경계는 `1e2f33e`에서 보완하고 모의 실패 시험으로 검증했다. 그 후속 코드를 09:28 실행 소스로 소급하지 않는다. 잘못된 admin 시험은 차단 요청만 보내며, 복원은 PUT 실패 후 GET readback·최대 3회·영구 실패 시 수동 차단 필요 표시를 사용한다. 최신 전체 scripts **131개**, 독립 HBA/image/복원 경계 **9개**가 통과했다.
+
+09:29 재조회는 최근 20분 창에 이전 감사 canary가 없어 DDL/K8s canary 관측이 false였다. 09:30에 전용 canary를 다시 실행한 직후 DB DDL은 관측됐지만 EKS 전달은 아직 false였고, **09:31:44.865853Z** 재조회에서 둘 다 true가 됐다. 중간 false 결과를 덮어쓰지 않고 `final-runtime-readback.json`, `fresh-audit-readback.json`, [`final-audit-delivery-readback.json`](final-audit-delivery-readback.json)을 모두 보존했다. 마지막 조회는 앱/pooler Ready 1, DB/PVC/ESO 정상, 논리 복제 허용·물리 복제 거부, CloudTrail 전달 정상도 확인한다.
+
+[`application-evidence-manifest.json`](application-evidence-manifest.json)은 선택 필드만 수집한 비공개 원본과 공개 사본의 byte/hash 일치를 기록한다. 원문 Secret·자격증명·AWS 계정/ECR URL은 수집·공개하지 않았다. 이 결과는 source 개발 환경 완료 근거이며 환경 간 연결·전환·동등성 전체 완료 근거는 아니다.
 
 배포·재검증과 소비 계약: [`infra/envs/source-workloads/README.md`](../../../infra/envs/source-workloads/README.md). 공개 기록은 실제 계정/ARN/endpoint나 자격증명 전달 경로를 포함하지 않는다.

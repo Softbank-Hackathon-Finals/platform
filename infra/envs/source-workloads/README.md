@@ -53,7 +53,7 @@ CNPG의 기본 Pooler는 관리 DB가 local peer 인증 전용이므로 전환�
 
 ESO는 namespace SecretStore와 별도 IRSA 역할로 control secret만 읽고 `ADMIN_TOKEN`만 주입한다. 앱 역할은 DB secret 한 개, 첨부 버킷의 List/Get/Put, 해당 KMS key의 서비스 경유 연산만 허용한다. ESO 역할은 DB secret을 읽을 수 없다. 이 경계를 이유 없이 합치지 않는다. [ESO AWS 인증](https://external-secrets.io/v2.14.0/provider/aws-access/)
 
-T8의 다른 환경에서 이 ClusterIP/DNS로 직접 접속할 수 있다고 주장하지 않는다. Tailscale/라우팅·허용 경로, 복제 슬롯과 subscription, 왕복/시퀀스·PK 보정은 T8/T30에서 추가한다. 현재 publication은 빈 출발지 앱 테이블에 대해 준비됐으며 실제 업무 데이터는 없다. 저장소는 encrypted gp3, Retain이고 단일 노드/단일 DB 인스턴스의 개발 구성이다. 백업·복원 및 고가용성은 아직 검증하지 않았다.
+T8의 다른 환경에서 이 ClusterIP/DNS로 직접 접속할 수 있다고 주장하지 않는다. Tailscale/라우팅·허용 경로, 복제 슬롯과 subscription, 왕복/시퀀스·PK 보정은 T8/T30에서 추가한다. 빈 앱 테이블로 시작했고 실제 앱 검증 뒤 합성 메시지 2개/첨부 1개만 보존했다. 고객 업무 데이터는 없다. 저장소는 encrypted gp3, Retain이고 단일 노드/단일 DB 인스턴스의 개발 구성이다. 백업·복원 및 고가용성은 아직 검증하지 않았다.
 
 ## 감사와 검증
 

@@ -1,0 +1,40 @@
+{
+  "created_at_utc": "2026-11-03T09:31:43.377560+00:00",
+  "public_is_raw_selected_fields": true,
+  "credential_values_collected": false,
+  "files": [
+    {
+      "path": "application-deployment-readback.json",
+      "sha256": "ed96a4660d9372dfeb6f2c47fe167f2364e1291d7e93f0ce4e00c9fc1ae5692a",
+      "private_and_public_bytes_equal": true
+    },
+    {
+      "path": "application-probe-source.json",
+      "sha256": "ad91a86502b8916c78554ce8cb8940eddcb24d287cb316f22ac8746d8b59eec7",
+      "private_and_public_bytes_equal": true
+    },
+    {
+      "path": "application-readback.json",
+      "sha256": "f2fd58790c70a737bbe231d6c7c06e31133d1a8a7c5aeff263da9c8ae5b7b950",
+      "private_and_public_bytes_equal": true
+    },
+    {
+      "path": "final-runtime-readback.json",
+      "sha256": "f38ebf0121a4b16951cf7b664f154348ff30e5d34555f164be36db02217baf69",
+      "private_and_public_bytes_equal": true
+    },
+    {
+      "path": "fresh-audit-readback.json",
+      "sha256": "67e121ad53bfe6c4fe143d923d50cc0eb012063040661fd7cc444087a5b3db77",
+      "private_and_public_bytes_equal": true
+    },
+    {
+      "path": "final-audit-delivery-readback.json",
+      "sha256": "16fcf59aa9f01e5d8ec521b2094f365288fa3d24fa1d8d44b46ab771d4773a22",
+      "private_and_public_bytes_equal": true
+    }
+  ],
+  "updated_at_utc": "2026-11-03T09:32:53.457428+00:00",
+  "runtime_verifier_source_commit": "1e2f33e6a654616fc9504c4a58c753b0f209c0b1",
+  "runtime_verifier_sha256": "749c4ffafa954a2f1c3dd3cacc9c2fae8b05cb3d7eee9527591278dda3e7fac7"
+}
