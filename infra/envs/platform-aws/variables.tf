@@ -18,6 +18,18 @@ variable "instance_type" {
   type        = string
   default     = "t3.xlarge"
 }
+variable "private_ecr_repository_name" {
+  description = "Optional exact ECR repository name in this account and region. Its lifecycle belongs to the registry stack."
+  type        = string
+  default     = null
+  validation {
+    condition = var.private_ecr_repository_name == null ? true : (
+      length(var.private_ecr_repository_name) >= 2 && length(var.private_ecr_repository_name) <= 256 &&
+      can(regex("^([a-z0-9]+([._-][a-z0-9]+)*/)*[a-z0-9]+([._-][a-z0-9]+)*$", var.private_ecr_repository_name))
+    )
+    error_message = "Use one literal ECR repository name, with no wildcard, registry URL, account ID or ARN."
+  }
+}
 variable "rke2_version" {
   default = "v1.35.9+rke2r1"
   validation {
