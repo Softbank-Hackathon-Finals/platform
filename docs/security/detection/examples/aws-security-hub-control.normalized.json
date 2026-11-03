@@ -1,0 +1,50 @@
+{
+  "class_uid": 2003,
+  "category_uid": 2,
+  "activity_id": 1,
+  "type_uid": 200301,
+  "severity_id": 4,
+  "status_id": 1,
+  "time": 1793783100000,
+  "finding_info": {
+    "uid": "arn:aws:securityhub:ap-northeast-1:****1234:security-control/IAM.1/finding/xxx",
+    "title": "IAM policies should not allow full administrative privileges",
+    "types": [
+      "Software and Configuration Checks/Industry and Regulatory Standards"
+    ],
+    "first_seen_time": 1793783100000,
+    "last_seen_time": 1793783100000
+  },
+  "metadata": {
+    "product": {
+      "name": "Security Hub"
+    },
+    "version": "1.1.0"
+  },
+  "cloud": {
+    "provider": "AWS",
+    "region": "ap-northeast-1",
+    "account": {
+      "uid": "****1234"
+    }
+  },
+  "compliance": {
+    "control": "IAM.1",
+    "status": "Fail"
+  },
+  "bravo": {
+    "source": "aws_security_hub",
+    "environment_id": "env-aws",
+    "category": "IAM",
+    "control_ids": [],
+    "collected_time": 1793783160000,
+    "raw_sha256": "sha256:5957d8119447fa9aaf685cfa3f0f3be389fc337c49a4c65f63a6ebe7756ff747",
+    "native_url": "https://console.aws.amazon.com/securityhub/home?region=ap-northeast-1#/findings"
+  },
+  "resources": [
+    {
+      "type": "AwsIamPolicy",
+      "uid": "arn:aws:iam::****1234:policy/demo-admin"
+    }
+  ]
+}

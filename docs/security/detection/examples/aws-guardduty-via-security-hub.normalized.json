@@ -1,0 +1,50 @@
+{
+  "class_uid": 2004,
+  "category_uid": 2,
+  "activity_id": 1,
+  "type_uid": 200401,
+  "severity_id": 4,
+  "status_id": 1,
+  "time": 1793782800000,
+  "finding_info": {
+    "uid": "arn:aws:guardduty:ap-northeast-1:****1234:detector/xxx/finding/sample-001",
+    "title": "SSH brute force attack against EC2 instance",
+    "types": [
+      "TTPs/Initial Access/UnauthorizedAccess:EC2-SSHBruteForce"
+    ],
+    "first_seen_time": 1793782800000,
+    "last_seen_time": 1793782800000
+  },
+  "metadata": {
+    "product": {
+      "name": "GuardDuty"
+    },
+    "version": "1.1.0"
+  },
+  "cloud": {
+    "provider": "AWS",
+    "region": "ap-northeast-1",
+    "account": {
+      "uid": "****1234"
+    }
+  },
+  "unmapped": {
+    "source_category": "TTPs/Initial Access/UnauthorizedAccess:EC2-SSHBruteForce"
+  },
+  "bravo": {
+    "source": "aws_security_hub",
+    "environment_id": "env-aws",
+    "category": "THREAT",
+    "control_ids": [],
+    "collected_time": 1793782860000,
+    "raw_sha256": "sha256:460b7efd077e3ec977985a37a45ed91cf709da03442eef2674829baea55e565c",
+    "native_url": "https://console.aws.amazon.com/securityhub/home?region=ap-northeast-1#/findings",
+    "sample": true
+  },
+  "resources": [
+    {
+      "type": "AwsEc2Instance",
+      "uid": "arn:aws:ec2:ap-northeast-1:****1234:instance/i-****abcd"
+    }
+  ]
+}

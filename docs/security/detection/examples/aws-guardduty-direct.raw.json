@@ -1,0 +1,20 @@
+{
+  "_note": "형식 예시. 실제 수집 결과가 아니라 출처 문서의 필드 구조로 만든 것이다. 계정 ID 등은 마스킹 값",
+  "Id": "sample-gd-0002",
+  "AccountId": "****1234",
+  "Region": "ap-northeast-1",
+  "Type": "Recon:EC2/PortProbeUnprotectedPort",
+  "Title": "Unprotected port on EC2 instance is being probed",
+  "Severity": 5.0,
+  "Resource": {
+    "ResourceType": "Instance"
+  },
+  "Service": {
+    "Archived": false,
+    "AdditionalInfo": {
+      "Sample": true
+    }
+  },
+  "CreatedAt": "2026-11-04T09:02:00Z",
+  "UpdatedAt": "2026-11-04T09:02:00Z"
+}

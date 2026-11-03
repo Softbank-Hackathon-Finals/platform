@@ -1,7 +1,7 @@
 # 보안 설계 고려사항
 
 > **작성자:** 이상무 (보안 통제 · 게이트 담당)
-> **원본:** 노션 (팀원 전용). 이 폴더의 문서는 2026-11-03 기준 사본이다. 고칠 때는 노션을 먼저 고친다.
+> **원본:** 문서마다 아래 표에 적었다. 노션이 원본인 문서는 2026-11-03 기준 사본이라 고칠 때 노션을 먼저 고치고, 레포가 원본인 문서는 여기서 고친다.
 > **상태:** 추후 고려사항. 현재 작업(T5 등 `docs/tasks.md`의 스켈레톤)의 범위를 바꾸지 않는다.
 
 `docs/tasks.md`의 보안 작업은 최소 구색을 갖추기 위한 스켈레톤이다(11/2 회의). 이 폴더는 담당자가 그 너머로 고려한 보안 설계를 남겨 둔다. 설계 문서에 반영할 때는 `scripts/design-bump.sh`로 버전을 올리고 ADR을 함께 쓴다.
@@ -10,6 +10,7 @@
 |---|---|---|
 | [사고 기반 멀티클라우드 보안 아키텍처](incident-based-architecture.md) | [v1](https://app.notion.com/p/v1-40c8bee9ada48020b86ff86df8f59e0f) | 실제 침해사고 9건 분석 → 통제 CTRL-01~09, 정책 POL-01~12, 신뢰 경계, 실행 계약, 검증 시험 T-01~10 |
 | [Patching as a Service 기반 지속적 보안 개선](continuous-secure-modernization.md) | [Patching as a Service](https://app.notion.com/p/Patching-as-a-Service-40c8bee9ada4804ca2b9d33928e33c98) | 취약점 진단 · AI 수정 · 격리 검증 · 재진단 순환을 이전에 적용, Security Parity Test, SEC-PATCH-01~10 |
+| [보안 탐지 통합 (T33)](detection-integration.md) | 없음 (**레포가 원본**) | AWS · Google Cloud · 온프렘 탐지 결과를 OCSF 부분집합으로 정규화해 한 화면에. 진행 중인 작업 T33의 설계 |
 
 ## 지금 설계 문서와의 관계
 

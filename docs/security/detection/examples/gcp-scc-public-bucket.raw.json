@@ -1,0 +1,11 @@
+{
+  "_note": "형식 예시. 실제 수집 결과가 아니라 출처 문서의 필드 구조로 만든 것이다. 계정 ID 등은 마스킹 값",
+  "name": "organizations/****/sources/****/findings/public-bucket-001",
+  "category": "PUBLIC_BUCKET_ACL",
+  "findingClass": "MISCONFIGURATION",
+  "severity": "HIGH",
+  "state": "ACTIVE",
+  "mute": "UNMUTED",
+  "resourceName": "//storage.googleapis.com/demo-chat-attachments-test",
+  "eventTime": "2026-11-04T09:10:00Z"
+}

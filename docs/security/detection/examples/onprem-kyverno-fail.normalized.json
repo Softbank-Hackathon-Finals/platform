@@ -1,0 +1,41 @@
+{
+  "class_uid": 2003,
+  "category_uid": 2,
+  "activity_id": 1,
+  "type_uid": 200301,
+  "severity_id": 3,
+  "status_id": 1,
+  "time": 1793784600000,
+  "finding_info": {
+    "uid": "demo-chat/Pod/violating-pod/require-run-as-nonroot/run-as-non-root",
+    "title": "require-run-as-nonroot: run-as-non-root"
+  },
+  "metadata": {
+    "product": {
+      "name": "Kyverno"
+    },
+    "version": "1.1.0"
+  },
+  "cloud": {
+    "provider": "onprem"
+  },
+  "compliance": {
+    "control": "require-run-as-nonroot",
+    "status": "Fail"
+  },
+  "bravo": {
+    "source": "kyverno",
+    "environment_id": "env-onprem",
+    "category": "POLICY",
+    "control_ids": [],
+    "collected_time": 1793784660000,
+    "raw_sha256": "sha256:775683e0b583b0dc3e45b563d546d9ed06a45241e2fe9080c417159909982915"
+  },
+  "resources": [
+    {
+      "type": "Pod",
+      "uid": "violating-pod",
+      "namespace": "demo-chat"
+    }
+  ]
+}
