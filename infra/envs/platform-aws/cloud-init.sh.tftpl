@@ -1,0 +1,51 @@
+#!/usr/bin/env bash
+set -euo pipefail
+umask 077
+# Ubuntu cloud images use HTTP apt mirrors by default; this host only allows HTTPS.
+sed -i -E 's|http://[^ /]*archive.ubuntu.com/ubuntu|https://archive.ubuntu.com/ubuntu|g; s|http://security.ubuntu.com/ubuntu|https://security.ubuntu.com/ubuntu|g' /etc/apt/sources.list.d/ubuntu.sources
+apt-get update -qq
+DEBIAN_FRONTEND=noninteractive apt-get install -y -qq curl ca-certificates
+export RKE2_VERSION='${rke2_version}'
+cat >/run/bravo-rke2-bootstrap.sh <<'BOOTSTRAP'
+${rke2_bootstrap}
+BOOTSTRAP
+bash /run/bravo-rke2-bootstrap.sh
+export KUBECONFIG=/etc/rancher/rke2/rke2.yaml
+/var/lib/rancher/rke2/bin/kubectl apply -f - <<'YAML'
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: platform-smoke
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: deployer
+  namespace: platform-smoke
+automountServiceAccountToken: false
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: smoke-config
+  namespace: platform-smoke
+rules:
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["get", "create", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: smoke-config
+  namespace: platform-smoke
+subjects:
+  - kind: ServiceAccount
+    name: deployer
+    namespace: platform-smoke
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: smoke-config
+YAML
+touch /var/lib/bravo-runtime-ready
