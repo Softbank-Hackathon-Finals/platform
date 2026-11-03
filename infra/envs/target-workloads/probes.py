@@ -26,7 +26,7 @@ def probe(stage, run_suffix=""):
            {"name": "PYTHONDONTWRITEBYTECODE", "value": "1"}]
     volumes, mounts, items = [], [], []
     if stage == "image":
-        command = ["python", "-c", "import json,os,app.main,psycopg.pq; assert os.getuid()==10001; "
+        command = ["/app/.venv/bin/python", "-c", "import json,os,app.main,psycopg.pq; assert os.getuid()==10001; "
                    "print(json.dumps({'pass':True,'uid':os.getuid(),'app_import':True,"
                    "'libpq_version':psycopg.pq.version(),'app_startup_verified':False}))"]
     else:
@@ -35,7 +35,7 @@ def probe(stage, run_suffix=""):
         items.append(config)
         volumes.append({"name": "script", "configMap": {"name": name}})
         mounts.append({"name": "script", "mountPath": "/probe", "readOnly": True})
-        command = ["python3" if stage == "db" else "python", "/probe/" + script]
+        command = ["python3" if stage == "db" else "/app/.venv/bin/python", "/probe/" + script]
         if stage != "db":
             command.append(stage.split("-", 1)[1])
     if stage == "db":
