@@ -278,22 +278,34 @@ class Board:
     def __init__(self) -> None:
         d = gql(
             """query($o:String!,$n:Int!){organization(login:$o){projectV2(number:$n){id
-            fields(first:50){nodes{... on ProjectV2SingleSelectField{id name options{id name}}}}
-            items(first:100){nodes{id content{... on Issue{number repository{nameWithOwner}}}
-            fieldValueByName(name:"Status"){... on ProjectV2ItemFieldSingleSelectValue{name}}}}}}}""",
-            o=OWNER,
-            n=PROJECT_NUMBER,
+            fields(first:100){nodes{... on ProjectV2SingleSelectField{id name options{id name}}}}}}}""",
+            o=OWNER, n=PROJECT_NUMBER,
         )["organization"]["projectV2"]
         self.id = d["id"]
         status = next(f for f in d["fields"]["nodes"] if f and f.get("name") == "Status")
         self.field = status["id"]
         self.options = {o["name"]: o["id"] for o in status["options"]}
         self.items: dict[int, tuple[str, str | None]] = {}
-        for it in d["items"]["nodes"]:
-            c = it["content"] or {}
-            if c.get("repository", {}).get("nameWithOwner") == REPO:
-                v = it["fieldValueByName"]
-                self.items[c["number"]] = (it["id"], v["name"] if v else None)
+        cursor = ""
+        while True:
+            query = """query($p:ID!,$after:String){node(id:$p){... on ProjectV2{
+              items(first:100,after:$after){nodes{id content{... on Issue{number repository{nameWithOwner}}}
+                fieldValueByName(name:"Status"){... on ProjectV2ItemFieldSingleSelectValue{name}}}
+                pageInfo{hasNextPage endCursor}}}}}"""
+            params = {"p": self.id}
+            if cursor:
+                params["after"] = cursor
+            else:
+                query = query.replace(",$after:String", "").replace(",after:$after", "")
+            page = gql(query, **params)["node"]["items"]
+            for it in page["nodes"]:
+                c = it["content"] or {}
+                if c.get("repository", {}).get("nameWithOwner") == REPO and "number" in c:
+                    value = it["fieldValueByName"]
+                    self.items[c["number"]] = (it["id"], value["name"] if value else None)
+            if not page["pageInfo"]["hasNextPage"]:
+                break
+            cursor = page["pageInfo"]["endCursor"]
 
     def status(self, number: int) -> str | None:
         return self.items.get(number, (None, None))[1]
@@ -499,9 +511,92 @@ def start(task: str, dry: bool) -> None:
     board.set(issue["number"], issue["id"], "In progress", f"{task} #{issue['number']}", dry)
 
 
+
+def load_prs() -> list[dict]:
+    result, cursor = [], ""
+    while True:
+        data = gql("""query($o:String!,$after:String){repository(owner:$o,name:"platform"){
+          pullRequests(first:100,after:$after,orderBy:{field:UPDATED_AT,direction:DESC}){
+            nodes{number title state isDraft headRefName reviewDecision mergedAt
+              headRepository{nameWithOwner} url
+              commits(last:1){nodes{commit{statusCheckRollup{state}}}}}
+            pageInfo{hasNextPage endCursor}}}}""".replace(
+                "after:$after,", "after:$after," if cursor else "").replace(
+                ",$after:String", ",$after:String" if cursor else ""),
+            **({"o": OWNER, "after": cursor} if cursor else {"o": OWNER}))
+        page = data["repository"]["pullRequests"]
+        result.extend(page["nodes"])
+        if not page["pageInfo"]["hasNextPage"]:
+            return result
+        cursor = page["pageInfo"]["endCursor"]
+
+
+def pr_summary(pr: dict) -> str:
+    if pr["state"] == "MERGED":
+        state = "병합됨"
+    elif pr["state"] == "CLOSED":
+        state = "병합 없이 닫힘"
+    elif pr["isDraft"]:
+        state = "초안"
+    else:
+        state = {"APPROVED": "승인 · 병합 대기", "CHANGES_REQUESTED": "수정 요청"}.get(
+            pr["reviewDecision"], "리뷰 대기")
+    nodes = pr.get("commits", {}).get("nodes", [])
+    rollup = nodes[-1]["commit"].get("statusCheckRollup") if nodes else None
+    ci = rollup["state"] if rollup else "미보고"
+    return f"#{pr['number']} {state} / CI {ci}"
+
+
+def pr_task_status(issue: dict, prs: list[dict]) -> str:
+    checks = issue_steps(issue["body"])
+    if issue["state"] == "CLOSED" or (checks and all(checks.values())):
+        return "Done"
+    opened = [pr for pr in prs if pr["state"] == "OPEN"]
+    if not opened or any(pr["isDraft"] or pr["reviewDecision"] == "CHANGES_REQUESTED" for pr in opened):
+        return "In progress"
+    # Approval is not merge, and a partial merge is not task completion.
+    return "In review"
+
+
+def sync_prs(dry: bool) -> None:
+    """Update existing task cards only. Never check tasks, close issues, or merge PRs."""
+    issues, board, grouped = load_issues(), Board(), {}
+    for pr in load_prs():
+        match = re.match(r"^\[(T\d+)\]", pr["title"])
+        if not match or not re.match(rf"^feature/{match[1]}-", pr["headRefName"]):
+            continue
+        if (pr.get("headRepository") or {}).get("nameWithOwner") != REPO:
+            continue
+        if match[1] in issues:
+            grouped.setdefault(match[1], []).append(pr)
+    fields = gql("""query($p:ID!){node(id:$p){... on ProjectV2{
+      fields(first:100){nodes{... on ProjectV2Field{id name dataType}}}}}}""", p=board.id)
+    status_field = next((f for f in fields["node"]["fields"]["nodes"] if f.get("name") == "PR 상태"), None)
+    if status_field and status_field["dataType"] != "TEXT":
+        raise RuntimeError("PR 상태 must be a text field")
+    if status_field is None and not dry:
+        status_field = gql("""mutation($p:ID!){createProjectV2Field(input:{projectId:$p,
+          dataType:TEXT,name:"PR 상태"}){projectV2Field{... on ProjectV2Field{id}}}}""", p=board.id)["createProjectV2Field"]["projectV2Field"]
+    for task, prs in grouped.items():
+        issue = issues[task]
+        opened = sorted((p for p in prs if p["state"] == "OPEN"), key=lambda p: p["number"])
+        displayed = opened or [max(prs, key=lambda p: p["number"])]
+        detail = " | ".join(pr_summary(pr) for pr in displayed)
+        if len(detail) > 900:
+            detail = detail[:897] + "..."
+        state = pr_task_status(issue, prs)
+        board.set(issue["number"], issue["id"], state, f"{task} #{issue['number']}", dry)
+        print(f"{task}: {detail}")
+        if dry:
+            continue
+        gql("""mutation($p:ID!,$i:ID!,$f:ID!,$t:String!){updateProjectV2ItemFieldValue(input:{
+          projectId:$p,itemId:$i,fieldId:$f,value:{text:$t}}){projectV2Item{id}}}""",
+            p=board.id, i=board.items[issue["number"]][0], f=status_field["id"], t=detail)
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("command", choices=["push", "pull", "tick", "status", "start"])
+    ap.add_argument("command", choices=["push", "pull", "tick", "status", "start", "prs"])
     ap.add_argument("args", nargs="*")
     ap.add_argument("--dry-run", action="store_true")
     ap.add_argument("--moves-file", help="보드로 옮긴 내역을 적을 파일 (Slack 알림용)")
@@ -510,6 +605,8 @@ def main() -> int:
         push(a.dry_run)
     elif a.command == "pull":
         pull(a.dry_run)
+    elif a.command == "prs":
+        sync_prs(a.dry_run)
     elif a.command == "status":
         if a.args:
             ap.error("status는 인자를 받지 않는다")

@@ -10,11 +10,18 @@ on:
     paths: [docs/tasks.md, scripts/sync_tasks.py]
   issues:
     types: [edited, closed, reopened, assigned, unassigned]
+  pull_request_target:
+    branches: [develop]
+    types: [opened, reopened, closed, ready_for_review, converted_to_draft, synchronize, edited, review_requested, review_request_removed]
+  pull_request_review:
+    types: [submitted, dismissed]
+  schedule:
+    - cron: '17,47 * * * *'
   workflow_dispatch:
     inputs:
       command:
         type: choice
-        options: [pull, push, status]
+        options: [pull, push, status, prs]
         default: pull
       dry-run:
         type: boolean
@@ -42,12 +49,15 @@ jobs:
       - uses: actions/checkout@v7
         with:
           token: ${{ secrets.PROJECT_TOKEN }}
-          ref: develop
+          # PR/review events always execute trusted develop code, never a PR head.
+          # Manual dispatch uses the explicitly selected branch for pre-merge verification.
+          ref: ${{ github.event_name == 'workflow_dispatch' && github.ref || 'develop' }}
+          persist-credentials: false
       - name: 동기화
         id: sync
         shell: bash  # pipefail: 스크립트가 실패하면 tee 뒤에서도 job이 실패한다
         env:
-          COMMAND: ${{ github.event_name == 'push' && 'push' || inputs.command || 'pull' }}
+          COMMAND: ${{ github.event_name == 'push' && 'push' || (github.event_name == 'pull_request_target' || github.event_name == 'pull_request_review' || github.event_name == 'schedule') && 'prs' || inputs.command || 'pull' }}
           DRY: ${{ inputs.dry-run && '--dry-run' || '' }}
         run: |
           python3 scripts/sync_tasks.py "$COMMAND" ${DRY:+"$DRY"} --moves-file moves.txt | tee -a "$GITHUB_STEP_SUMMARY"
@@ -55,6 +65,7 @@ jobs:
       - name: tasks.md 반영 PR (리뷰 대기)
         if: steps.sync.outputs.changed == 'true'
         run: |
+          gh auth setup-git
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git switch -c bot/sync-tasks

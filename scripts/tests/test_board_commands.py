@@ -72,3 +72,48 @@ class BoardCommandsTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class PRBoardTest(unittest.TestCase):
+    def issue(self, body='- [x] network\n- [ ] budget'):
+        return {'state': 'OPEN', 'body': body}
+
+    def pr(self, **updates):
+        return {'number': 73, 'title': '[T29] workflow', 'headRefName': 'feature/T29-board',
+                'state': 'OPEN', 'isDraft': False, 'reviewDecision': 'REVIEW_REQUIRED',
+                'headRepository': {'nameWithOwner': sync.REPO}, **updates}
+
+    def test_approval_and_partial_merge_do_not_finish_task(self):
+        self.assertEqual(sync.pr_task_status(self.issue(), [self.pr(reviewDecision='APPROVED')]), 'In review')
+        self.assertEqual(sync.pr_task_status(self.issue(), [self.pr(state='MERGED')]), 'In progress')
+        self.assertEqual(sync.pr_task_status(self.issue(), [self.pr(state='CLOSED')]), 'In progress')
+        self.assertEqual(sync.pr_task_status(self.issue('- [x] everything'), [self.pr(state='MERGED')]), 'Done')
+
+    def test_draft_or_changes_requested_wins_over_other_reviews(self):
+        self.assertEqual(sync.pr_task_status(self.issue(), [self.pr(), self.pr(isDraft=True)]), 'In progress')
+        self.assertEqual(sync.pr_task_status(self.issue(), [self.pr(), self.pr(reviewDecision='CHANGES_REQUESTED')]), 'In progress')
+        self.assertIn('승인 · 병합 대기', sync.pr_summary(self.pr(reviewDecision='APPROVED')))
+        self.assertIn('CI 미보고', sync.pr_summary(self.pr()))
+
+    def test_dry_run_does_not_write_and_ignores_fork_or_mismatched_task(self):
+        board = Mock(id='project')
+        prs = [self.pr(), self.pr(headRefName='feature/T1-other'), self.pr(headRepository={'nameWithOwner': 'fork/platform'})]
+        issues = {'T29': {**self.issue(), 'number': 33, 'id': 'issue'}}
+        fields = {'node': {'fields': {'nodes': []}}}
+        with patch.object(sync, 'load_issues', return_value=issues), patch.object(sync, 'Board', return_value=board), \
+             patch.object(sync, 'load_prs', return_value=prs), patch.object(sync, 'gql', return_value=fields) as gql, \
+             patch.object(sync, 'run') as run, contextlib.redirect_stdout(io.StringIO()):
+            sync.sync_prs(True)
+        board.set.assert_called_once_with(33, 'issue', 'In review', 'T29 #33', True)
+        self.assertEqual(gql.call_count, 1)
+        run.assert_not_called()
+
+    def test_board_pages_include_later_issue_and_ignore_pr_cards(self):
+        responses = [
+            {'organization': {'projectV2': {'id': 'p', 'fields': {'nodes': [{'id': 'f', 'name': 'Status', 'options': []}]}}}},
+            {'node': {'items': {'nodes': [{'id': 'pr', 'content': {}, 'fieldValueByName': None}], 'pageInfo': {'hasNextPage': True, 'endCursor': 'next'}}}},
+            {'node': {'items': {'nodes': [{'id': 'i', 'content': {'number': 5, 'repository': {'nameWithOwner': sync.REPO}}, 'fieldValueByName': {'name': 'In review'}}], 'pageInfo': {'hasNextPage': False}}}},
+        ]
+        with patch.object(sync, 'gql', side_effect=responses) as gql:
+            self.assertEqual(sync.Board().status(5), 'In review')
+        self.assertEqual(gql.call_args.kwargs['after'], 'next')
