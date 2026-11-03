@@ -1,6 +1,6 @@
 {
-  "total": 54,
-  "caught": 54,
+  "total": 67,
+  "caught": 67,
   "missed": 0,
   "results": [
     {
@@ -293,6 +293,84 @@
     },
     {
       "mutation": "스킴 없는 주소를 받아들임",
+      "file": "cli.py",
+      "test": "test_cli.py",
+      "caught": true
+    },
+    {
+      "mutation": "창 전송에 토큰을 붙이지 않음",
+      "file": "cli.py",
+      "test": "test_cli.py",
+      "caught": true
+    },
+    {
+      "mutation": "토큰 없이도 시작함",
+      "file": "cli.py",
+      "test": "test_cli.py",
+      "caught": true
+    },
+    {
+      "mutation": "토큰 형식을 보지 않음",
+      "file": "cli.py",
+      "test": "test_cli.py",
+      "caught": true
+    },
+    {
+      "mutation": "토큰 뒤의 줄바꿈을 통과시킴",
+      "file": "cli.py",
+      "test": "test_cli.py",
+      "caught": true
+    },
+    {
+      "mutation": "형식 오류에 토큰을 되풀이함",
+      "file": "cli.py",
+      "test": "test_cli.py",
+      "caught": true
+    },
+    {
+      "mutation": "토큰을 부하 대상에도 보냄",
+      "file": "cli.py",
+      "test": "test_cli.py",
+      "caught": true
+    },
+    {
+      "mutation": "리다이렉트를 따라가 토큰을 넘김",
+      "file": "cli.py",
+      "test": "test_cli.py",
+      "caught": true
+    },
+    {
+      "mutation": "리포트와 실행 상태 파일에 토큰을 남김",
+      "file": "cli.py",
+      "test": "test_cli.py::test_token_is_left_in_no_file_output_or_log",
+      "caught": true
+    },
+    {
+      "mutation": "창 파일에 토큰을 남김",
+      "file": "cli.py",
+      "test": "test_cli.py::test_token_is_left_in_no_file_output_or_log",
+      "caught": true
+    },
+    {
+      "mutation": "표준 오류에 토큰을 남김",
+      "file": "cli.py",
+      "test": "test_cli.py::test_token_is_left_in_no_file_output_or_log",
+      "caught": true
+    },
+    {
+      "mutation": "로그에 토큰을 남김",
+      "file": "cli.py",
+      "test": "test_cli.py::test_token_is_left_in_no_file_output_or_log",
+      "caught": true
+    },
+    {
+      "mutation": "창 주소의 자격 증명을 받아들임",
+      "file": "cli.py",
+      "test": "test_cli.py",
+      "caught": true
+    },
+    {
+      "mutation": "창 주소를 검사하지 않음",
       "file": "cli.py",
       "test": "test_cli.py",
       "caught": true

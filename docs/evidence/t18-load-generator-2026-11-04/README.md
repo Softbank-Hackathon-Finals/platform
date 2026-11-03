@@ -2,13 +2,15 @@
 
 **결론.** 로컬에서 쓰기 50 · 읽기 150 req/s를 넣고 DB와 전수 대조해 실패 · 유실 · 중복 0건을 확인했다. 일부러 넣은 결함은 모두 잡혔다(검사 90건, 실패 0건). **실제 Edge · 실제 클러스터 측정이 아니다.** 그리고 앱과 DB 사이에 모의 왕복 지연을 넣으면 쓰기 잠금이 초당 50건을 못 견디는 구간이 나왔다(5절). 실제 지연이 정해지면 다시 봐야 한다.
 
+측정 뒤 창 전송에 인증을 더했다. **수치는 다시 재지 않았다.** 바뀐 범위와 다시 돌린 검사는 10절에 있다.
+
 ## 1. 측정 환경
 
 모든 수치는 **로컬 실측**이다. 실제 Cloudflare, 클러스터, PgBouncer, 클라우드 사이 경로를 거치지 않았다.
 
 | 항목 | 값 |
 |---|---|
-| 측정 코드 | 측정할 때의 커밋은 `0e37393680e5eb95318f6cda93f5eebc04f5ebaf`, 미커밋 변경 없음. 뒤에 리베이스하면 커밋 해시가 바뀌므로 Git 트리 해시로 확인한다: `services/loadgen/src` `fe66a51295dfc8a6cc42045b36d61d9ca1c050f8`, `services/loadgen/testing` `b9a35b40aaee0cf22c93913dda801a3ed7cd1536`, `services/observability/src` `b808a5d7c7fc57bd1bf8cc0f90bbbfded5211fa2` |
+| 측정 코드 | 측정할 때의 커밋은 `0e37393680e5eb95318f6cda93f5eebc04f5ebaf`, 미커밋 변경 없음. 뒤에 리베이스하면 커밋 해시가 바뀌므로 Git 트리 해시로 확인한다: `services/loadgen/src` `fe66a51295dfc8a6cc42045b36d61d9ca1c050f8`, `services/loadgen/testing` `b9a35b40aaee0cf22c93913dda801a3ed7cd1536`, `services/observability/src` `b808a5d7c7fc57bd1bf8cc0f90bbbfded5211fa2`. 뒤에 바뀐 코드는 10절 |
 | 대상 앱 | demo-chat `b71d4aa1a51e219c5b1d75f1d373b121d4c947ca`, **수정 없음**. 환경마다 uvicorn 프로세스 1개로 직접 실행 (컨테이너 이미지 아님) |
 | DB | `public.ecr.aws/docker/library/postgres@sha256:5db6dac2ef5dcff512f4f00a009c3c332b9f2f28f24277175bf3e4a3d02ef83a` |
 | Edge 대역 | `nginx@sha256:df221db836e1754089190208cee7eeda94f233197056426eda74a43ab1abeac2`. 가중치 분배와 `X-Bravo-Env`만 흉내 낸다 |
@@ -151,15 +153,15 @@
 
 ## 7. 시험이 정말로 재는지
 
-- **변이 시험:** 코드를 일부러 망가뜨린 54건 중 54건을 시험이 잡았고 놓친 것은 0건이다(`mutation.json`, `testing/mutation_check.py`). 실제 Postgres를 붙여 돌렸다.
+- **변이 시험:** 코드를 일부러 망가뜨린 67건 중 67건을 시험이 잡았고 놓친 것은 0건이다(`mutation.json`, `testing/mutation_check.py`). 실제 Postgres를 붙여 돌렸다. 인증을 넣은 코드로 다시 돌린 값이다.
 - **코드 검토:** 작성과 분리한 검토에서 실행이 통째로 무너지는 응답, 이전 PASS 리포트가 남는 경로, 잠금 측정이 멈춤을 숨기는 경로, 잘못된 연결 문자열의 비밀번호 노출 등을 찾아 고치고 시험을 넣었다.
 
 ## 8. 검사
 
 | 검사 | 결과 |
 |---|---|
-| `uv run pytest` | 137 통과, 8 건너뜀 (CI와 같은 조건) |
-| `TEST_DATABASE_URL`을 준 `uv run pytest` | 145 통과 |
+| `uv run pytest` | 155 통과, 8 건너뜀 (CI와 같은 조건) |
+| `TEST_DATABASE_URL`을 준 `uv run pytest` | 163 통과 |
 | `uvx ruff==0.17.3 check .` | 통과 |
 | 커밋마다 `pytest` | 각 커밋 통과 |
 | `python3 scripts/public_evidence.py check` | 통과 |
@@ -171,9 +173,32 @@
 
 - 실제 Cloudflare Edge · Tunnel 경유 측정, 실제 `X-Bravo-Env` 헤더, 실제 클러스터와 PgBouncer 경유 쓰기
 - 클라우드 사이 실제 왕복 지연, 실제 컷오버 중 측정 (T17 · T12와 통합 때)
-- 플랫폼 창 수신 경로 연결: 주소가 아직 없다. `--window-url`은 로컬 시험 서버로만 확인했다
+- 플랫폼 창 수신 경로 연결: 주소가 아직 없다. `--window-url`은 로컬 시험 서버로만 확인했다. 받는 쪽의 토큰 검사도 아직 없어, 보낸 헤더 값만 확인했다
 - 부하 생성기 실행 위치인 별도 EC2에서의 CPU · 메모리: 아직 만들지 않았다
 - WebSocket과 첨부 업로드 부하: 범위 밖이다
+
+## 10. 측정 뒤 바뀐 것: 창 전송 인증
+
+**2~6절의 수치는 다시 재지 않았다.** 측정 뒤 T36 계약 3절에 맞춰 `--window-url` 전송에 `Authorization: Bearer <토큰>`을 붙였다. 측정 때 트리와 비교하면 `services/loadgen/src`에서 바뀐 파일은 `cli.py` 하나이고, 바뀐 내용은 시작 전 검사와 창 전송 요청이다. 부하, 재시도, 대조, 창 내용, 잠금 측정 코드는 그대로다.
+
+| 트리 | 측정 때 (2~6절) | 인증을 넣은 코드 | 바뀐 파일 |
+|---|---|---|---|
+| `services/loadgen/src` | `fe66a51295dfc8a6cc42045b36d61d9ca1c050f8` | `a6f5c2ff75ba7da10c480febe6a3e5ad5b567464` | `bravo_loadgen/cli.py` |
+| `services/loadgen/testing` | `b9a35b40aaee0cf22c93913dda801a3ed7cd1536` | `af92cedf6dccf817e9ff51a97b0fba923cfbfde9` | `e2e.py` (시험용 토큰 변수), `mutation_check.py` (변이 추가) |
+| `services/observability/src` | `b808a5d7c7fc57bd1bf8cc0f90bbbfded5211fa2` | 같음 | 없음 |
+
+인증을 넣은 코드(커밋 `04e3cab62e758dfda40cd8b5f24c2214f6b84a31`, 리베이스하면 커밋 해시는 바뀐다)로 다시 돌린 시험은 아래가 전부다.
+
+| 검사 | 측정 때 | 인증을 넣은 코드 |
+|---|---|---|
+| `uv run pytest` | 137 통과, 8 건너뜀 | 155 통과, 8 건너뜀 |
+| `TEST_DATABASE_URL`을 준 `uv run pytest` | 145 통과 | 163 통과 |
+| 변이 시험 | 54건 중 54건 잡음 | 67건 중 67건 잡음 (인증 변이 13건 추가) |
+| 종단 시험 `window-breaks` | 전체 90건에 포함 | 검사 9건, 실패 0건 (`auth-recheck/results.json`) |
+
+- `window-breaks`는 종단 시험에서 `--window-url`을 쓰는 유일한 시나리오다(`sink-down`). 나머지 시나리오는 다시 돌리지 않았다. `results.json`, `reports/`, `windows/`는 측정 때 그대로다.
+- `sink-down`은 받는 쪽이 죽은 경우다. 토큰을 받아 주는 쪽은 `tests/test_cli.py`의 로컬 시험 서버로 확인했다. 창 요청에만 `Bearer <토큰>`이 붙고 부하 요청에는 붙지 않는다.
+- **토큰이 남지 않는지:** 받아 줌 · 401 · 리다이렉트 · 받는 쪽 죽음의 네 경우에 산출물 전체, 표준 출력 · 표준 오류, DEBUG 로그를 시험이 뒤진다. 일부러 토큰을 남기게 한 변이 4건(리포트와 실행 상태, 창 파일, 표준 오류, 로그)을 이 시험 하나로 잡았다. 종단 시험 산출물에서도 시험용 토큰 문자열은 0건이었다.
 
 ## 파일
 
@@ -184,6 +209,7 @@
 | `windows/<시나리오>.jsonl` | 주 측정 · 생성기 멈춤 · 3분 실행의 창 요약 |
 | `mutation.json` | 변이 시험 결과 |
 | `build-window-comparison.json` | `build_window` 대조 결과 |
+| `auth-recheck/results.json` | 창 전송 인증을 넣은 코드로 다시 돌린 `window-breaks` 시나리오 |
 | `earlier-run/` | 이전 실행의 리포트 두 개. 코드 이전 버전이라 위 표와 섞지 않는다 |
 
 재현 방법은 [`services/loadgen/README.md`](../../../services/loadgen/README.md).
