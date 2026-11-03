@@ -45,7 +45,7 @@ AWS 공식 문서상 일부 Anthropic 경로는 최초 사용 등록이 필요�
 
 **기존 AWS 월 50만원 예산은 OpenAI 직접 청구를 합산하지 않는다.** OpenAI 예산 배분과 경고 수신 경로를 회의에서 정하고 T1 비용 뷰에 제공자·모델·run 기준을 추가할지 결정한다. 지금은 OAI 사용료가 0이라고 추정하거나 AWS 예산으로 보호된다고 표시하지 않는다.
 
-로컬·AWS에서 가짜 응답과 실제 SDK 직렬화, 정책 경계, 컨테이너 제약을 검증한다. 실제 모델 호출은 플랫폼용 OpenAI 인증 경로가 준비된 뒤 별도 증거로 기록한다. T10의 신뢰 snapshot 발급·영속 시도 수·취소, T15의 실제 Job·인증된 receipt, T31 반영은 통합 완료 전까지 미완료다. [워커 구현](../../services/agent-worker/README.md), [비교 조사](../research/ci-agents-2026-11-03.md)
+로컬·AWS에서 가짜 응답과 실제 SDK 직렬화, 정책 경계, 컨테이너 제약을 검증한다. 기존 ChatGPT 로그인으로 공식 Codex CLI의 실제 모델 응답과 제안서 정책 수용을 [로컬에서 확인했다](../evidence/t11-ci-2026-11-03/openai-account-local.md). 개인 OAuth를 플랫폼에 복사하지 않았으며, Responses API의 실제 인증·클라우드 호출은 플랫폼용 경로가 준비된 뒤 별도로 검증한다. T10의 신뢰 snapshot 발급·영속 시도 수·취소, T15의 실제 Job·인증된 receipt, T31 반영은 통합 완료 전까지 미완료다. [워커 구현](../../services/agent-worker/README.md), [비교 조사](../research/ci-agents-2026-11-03.md)
 
 ## 6. 다음 회의에서 정할 질문
 

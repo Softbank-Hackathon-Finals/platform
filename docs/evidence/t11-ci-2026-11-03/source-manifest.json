@@ -91,7 +91,7 @@
     }
   ],
   "target": "/opt/bravo-validation/t11-worker",
-  "instance": "i-05c13c836cf78b0a2",
+  "instance": "AWS_RESOURCE_001",
   "upload_command_ids": [
     "60c13559-24e8-4243-bea9-1ce5472a6208",
     "ec18bcb1-56f0-4955-924a-3fb75b371ca3",

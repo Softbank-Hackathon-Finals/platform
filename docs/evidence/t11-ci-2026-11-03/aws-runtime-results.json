@@ -197,7 +197,7 @@
   "docker_version": "29.1.3",
   "bootstrap_correction": "Regional Ubuntu ARM mirror hostname failed HTTPS certificate verification. Replaced only that mirror with https://ports.ubuntu.com/ubuntu-ports and installed docker.io + docker-buildx; TLS validation remained enabled.",
   "read_at": "2026-11-03T06:50:06.829968+00:00",
-  "instance_id": "i-05c13c836cf78b0a2",
+  "instance_id": "AWS_RESOURCE_001",
   "region": "ap-northeast-2",
   "tests_passed": 74,
   "ruff_passed": true,

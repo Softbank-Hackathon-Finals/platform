@@ -1,0 +1,91 @@
+{
+  "format_version": 1,
+  "runs": [
+    {
+      "run": "20261103T072141353059Z",
+      "originals": "preserved privately outside repository",
+      "embedded_hashes": "unchanged; identify the original measured inputs",
+      "artifacts": [
+        {
+          "path": "docs/evidence/t1-foundation-2026-11-03/aws-readback.json",
+          "checkout_commit": "440a7a25d8a0052d18c325961991d66ebe518b1b",
+          "original_sha256": "053991ae7901c0a1fc50ae035968f72139bd3a4a6c6cd3c1b4a3e4bc14fd87b7",
+          "public_sha256": "23bba33c6f1952ab3e0f80115c08c266442a7bcaf680ae15ae6843fbfead243b",
+          "redactions": {
+            "RESOURCE_NAME": 6,
+            "AWS_RESOURCE": 9
+          },
+          "public_is_raw": false
+        },
+        {
+          "path": "docs/evidence/t1-foundation-2026-11-03/module-aws-readback.json",
+          "checkout_commit": "440a7a25d8a0052d18c325961991d66ebe518b1b",
+          "original_sha256": "aff6a50ada320770d5432bb3fe0d5ce01ff84ca56b8ea9fdf0e8cfca0d1c5244",
+          "public_sha256": "614eacdaf6d102284a71b5b80895dcf61cbd4fa4fbd26e7ae8e6f7aabc985a16",
+          "redactions": {
+            "RESOURCE_NAME": 6,
+            "AWS_RESOURCE": 9
+          },
+          "public_is_raw": false
+        }
+      ]
+    },
+    {
+      "run": "20261103T072631113071Z",
+      "originals": "preserved privately outside repository",
+      "embedded_hashes": "unchanged; identify the original measured inputs",
+      "artifacts": [
+        {
+          "path": "docs/evidence/t11-ci-2026-11-03/README.md",
+          "checkout_commit": "969bb20d3fe9d5888e936dba48cb3e06a124612d",
+          "original_sha256": "d55e1eb5dc6bc85984b2c4e8ff5bb837fae1ab4351777e11abe35e9c90b51c4a",
+          "public_sha256": "6a7e015a9b29ff2899128084b43aad020e9923dfd29e7e6f7435fc314587bae7",
+          "redactions": {
+            "AWS_RESOURCE": 1
+          },
+          "public_is_raw": false
+        },
+        {
+          "path": "docs/evidence/t11-ci-2026-11-03/aws-runtime-results.json",
+          "checkout_commit": "969bb20d3fe9d5888e936dba48cb3e06a124612d",
+          "original_sha256": "b790e4c155b39210e192c6865840296882e9acfca1a8962c92d238e5294d224f",
+          "public_sha256": "d27a778b4fa0a5b09682a7b1366cf5057bd35fd99e614b42db941726d39b4893",
+          "redactions": {
+            "AWS_RESOURCE": 1
+          },
+          "public_is_raw": false
+        },
+        {
+          "path": "docs/evidence/t11-ci-2026-11-03/cleanup-readback.json",
+          "checkout_commit": "969bb20d3fe9d5888e936dba48cb3e06a124612d",
+          "original_sha256": "95f975d792a7d958d85b03ad5454c953083cde3633b4ee37684a0b2607828391",
+          "public_sha256": "c83dd2082600ba5c67801f293122f797f673ebbff962581dc3572154c9771133",
+          "redactions": {
+            "AWS_RESOURCE": 2
+          },
+          "public_is_raw": false
+        },
+        {
+          "path": "docs/evidence/t11-ci-2026-11-03/source-manifest.json",
+          "checkout_commit": "969bb20d3fe9d5888e936dba48cb3e06a124612d",
+          "original_sha256": "37a5eda582be9fad58256e6feab601694064eebfc5f391bc64333a76ab5947cf",
+          "public_sha256": "78a53778b9af6d5cf524b79641364ad304c873a4ae141116e8c1b1dce857bfca",
+          "redactions": {
+            "AWS_RESOURCE": 1
+          },
+          "public_is_raw": false
+        },
+        {
+          "path": "docs/research/ci-agents-2026-11-03.md",
+          "checkout_commit": "969bb20d3fe9d5888e936dba48cb3e06a124612d",
+          "original_sha256": "1fc96f3aad744c4f46eafe48c8850232eafb947dffd47a23fcc3dfbddcec7ef2",
+          "public_sha256": "763e9557d848eeef64f097c52d26d1552cad04028b726ac02b1af4a637ce64de",
+          "redactions": {
+            "HOME": 1
+          },
+          "public_is_raw": false
+        }
+      ]
+    }
+  ]
+}

@@ -27,7 +27,7 @@
 
 ## 재현과 출처
 
-[소스 manifest](source-manifest.json)는 해당 commit에서 추출한 22개 파일의 경로와 SHA-256, archive SHA-256, SSM 명령 ID를 담는다. `.git`, `.env`, Terraform state/plan, 운영자 홈·자격증명은 전송하지 않았다. 호스트는 T7 임시 검증 root의 `i-05c13c836cf78b0a2`이며 root의 종료 타이머·Terraform 정리 범위 안에서 사용했다. 해당 호스트의 SSM instance role은 Parameter 값·Secrets Manager 값·KMS 복호화를 명시적으로 거부한다.
+[소스 manifest](source-manifest.json)는 해당 commit에서 추출한 22개 파일의 경로와 SHA-256, archive SHA-256, SSM 명령 ID를 담는다. `.git`, `.env`, Terraform state/plan, 운영자 홈·자격증명은 전송하지 않았다. 호스트는 T7 임시 검증 root의 `AWS_RESOURCE_001`이며 root의 종료 타이머·Terraform 정리 범위 안에서 사용했다. 해당 호스트의 SSM instance role은 Parameter 값·Secrets Manager 값·KMS 복호화를 명시적으로 거부한다.
 
 시험 후 비교에서 실행 코드·테스트·lock·Dockerfile은 전송 시점과 일치했다. 로컬 `services/agent-worker/README.md`의 후속 설명 변경만 달랐다. 이미지와 wheel은 위 commit의 README를 포함한다.
 
@@ -43,3 +43,5 @@
 실제 모델 응답, T10 영속 상태·승인, T15 실행·비공개 검증, T31 반영은 이 증거 범위 밖이며 T11 전체 완료 체크의 대체물이 아니다.
 
 검증 뒤 15:55 KST에 임시 root의 16개 자원을 삭제했다. state 잔여 0, 인스턴스 terminated와 VPC·루트 EBS·IAM 역할 부재를 [AWS 재조회](cleanup-readback.json)로 확인했다.
+
+별도 로컬 실행에서는 [기존 ChatGPT 계정으로 실제 OpenAI 응답](openai-account-local.md)을 검증했다. 위 AWS 실행에서 모델을 호출하지 않았다는 범위는 그대로이며, 두 결과를 하나의 클라우드 모델 호출로 합치지 않는다.
