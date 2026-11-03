@@ -118,12 +118,12 @@ db-sql-v1:fixed-session-text;columns-by-name;jsonb-array;utf8;sha256-of-row-sha2
 
 ## 소비자 연결
 
-**T12 (`runner.py`).** 기존 비교기 자리에 넣는다.
+**T12 (`runner.py`).** 기존 비교기 자리에 넣는다. 실제 비교 결과가 실행 단계 판정을 통과하는지는 `tests/test_db_fingerprint_runner.py`가 재고 있다.
 
 1. `IntegrityComparer()`를 `DbFingerprintComparer()`로 바꾼다.
 2. `_compare`의 시퀀스 계산을 `self._act(run, correct_sequence, src.db, dst.db, name, table, column)`로 바꾼다.
 3. 영수증에 `data_verdict` · `schema_verdict`를 더한다.
-4. `integrity.py`, `DbControl.fingerprint`, `test_integrity.py`를 지운다. 시험용 `FakeDb`에는 `sequence_state`를 더한다.
+4. `integrity.py`, `DbControl.fingerprint`, `test_integrity.py`를 지우고 README의 「T13 비교 규칙 v1」을 이 문서 링크로 바꾼다. 시험용 `FakeDb`에는 `sequence_state`를 더한다.
 
 **T19 (데이터 준비).** `schema_fingerprint(conn, 표)`가 `schema_hash` · `primary_key`를 준다. 시퀀스는 쓰지 않고 `sequence_state`와 `next_safe_value`로 읽어 제안값을 만든다. 이 패키지를 어떻게 호출할지는 T19 생산자에서 정한다.
 
