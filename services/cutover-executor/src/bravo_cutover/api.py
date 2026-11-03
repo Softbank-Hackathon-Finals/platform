@@ -13,7 +13,9 @@ from fastapi import FastAPI, Header, HTTPException, Query
 from fastapi.responses import JSONResponse
 
 from bravo_cutover.contract import CutoverRequest
-from bravo_cutover.store import Rejected, Store
+from bravo_cutover.rejections import Rejected
+from bravo_cutover.resources import Registry
+from bravo_cutover.store import Store
 
 
 class Runner(Protocol):
@@ -27,10 +29,14 @@ class NoRunner:
         return None
 
 
-def create_app(store: Store | None = None, runner: Runner | None = None) -> FastAPI:
+def create_app(store: Store | None = None, runner: Runner | None = None,
+               registry: Registry | None = None) -> FastAPI:
+    """EXECUTOR_DB(실행 기록 DB), EXECUTOR_RESOURCES(환경별 실제 DB 자원 등록 파일)."""
     if store is None:
         store = Store(os.environ["EXECUTOR_DB"])
         store.migrate()
+    if registry is None:
+        registry = Registry.from_file(os.environ["EXECUTOR_RESOURCES"])
     runner = runner or NoRunner()
     app = FastAPI(title="cutover-executor")
 
@@ -46,7 +52,8 @@ def create_app(store: Store | None = None, runner: Runner | None = None) -> Fast
         if not idempotency_key:
             raise HTTPException(400, {"code": "idempotency_key_required"})
         try:
-            execution, created = store.create(idempotency_key, request)
+            # 요청의 환경 · 접속 참조를 서버 등록 정보로 실제 DB 자원에 결속한 뒤 판정한다
+            execution, created = store.create(idempotency_key, request, registry.resolve(request))
         except Rejected as e:
             raise HTTPException(e.http_status, {"code": e.code, "message": str(e)}) from e
         if created:

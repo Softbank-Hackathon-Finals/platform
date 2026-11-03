@@ -8,6 +8,23 @@ from fastapi.testclient import TestClient
 
 from bravo_cutover.api import create_app
 from bravo_cutover.contract import Status
+from bravo_cutover.resources import Registry, Resource
+
+# 서버에 등록한 실제 DB 자원. env-alias는 env-aws와 같은 DB를 다른 이름으로 등록한 것이다.
+REGISTRY = Registry([
+    Resource(environment_id="env-aws", resource_id="cnpg-aws/chat", connection_ref="secret/source"),
+    Resource(environment_id="env-onprem", resource_id="cnpg-onprem/chat", connection_ref="secret/target"),
+    Resource(environment_id="env-alias", resource_id="cnpg-aws/chat", connection_ref="secret/source"),
+    Resource(environment_id="env-gcp", resource_id="cnpg-gcp/chat", connection_ref="secret/gcp"),
+    Resource(environment_id="env-gcp2", resource_id="cnpg-gcp2/chat", connection_ref="secret/gcp2"),
+])
+ENDPOINTS = {
+    "aws": {"environment_id": "env-aws", "connection_ref": "secret/source"},
+    "onprem": {"environment_id": "env-onprem", "connection_ref": "secret/target"},
+    "alias": {"environment_id": "env-alias", "connection_ref": "secret/source"},
+    "gcp": {"environment_id": "env-gcp", "connection_ref": "secret/gcp"},
+    "gcp2": {"environment_id": "env-gcp2", "connection_ref": "secret/gcp2"},
+}
 
 
 class CountingRunner:
@@ -39,7 +56,7 @@ def runner():
 
 @pytest.fixture
 def client(store, runner):
-    return TestClient(create_app(store, runner))
+    return TestClient(create_app(store, runner, REGISTRY))
 
 
 def post(client, key, request):
@@ -129,7 +146,7 @@ def test_lost_response_can_be_recovered_by_reading_state(client):
 def test_state_survives_new_process(store, postgres_dsn):
     from bravo_cutover.store import Store
 
-    created = post(TestClient(create_app(store, CountingRunner())), "k1", body()).json()
+    created = post(TestClient(create_app(store, CountingRunner(), REGISTRY)), "k1", body()).json()
     other = Store(postgres_dsn)
     try:
         assert other.get(created["execution_id"]).status == Status.PENDING
@@ -175,4 +192,66 @@ def test_unknown_execution_is_404(client):
 )
 def test_invalid_requests_are_rejected_without_remote_effect(client, runner, headers, request_body, status):
     assert client.post("/v1/cutovers", json=request_body, headers=headers).status_code == status
+    assert runner.submitted == []
+
+
+def pair(src, dst, epoch, plan_id="plan-demo"):
+    return body(epoch=epoch, plan_id=plan_id, source=ENDPOINTS[src], target=ENDPOINTS[dst])
+
+
+@pytest.mark.parametrize(("second", "why"), [
+    (("aws", "onprem"), "같은 쌍"),
+    (("onprem", "aws"), "역방향"),
+    (("alias", "onprem"), "별칭(같은 DB를 다른 이름으로 등록)"),
+    (("aws", "gcp"), "출발지 DB 공유"),
+    (("gcp", "onprem"), "목적지 DB 공유"),
+])
+def test_overlapping_real_resources_are_not_run_twice(client, runner, second, why):
+    """#115 리뷰: 실제 DB 자원이 하나라도 겹치면 두 번째 요청은 실행기에 가지 않는다."""
+    assert post(client, "k1", pair("aws", "onprem", epoch=1)).status_code == 202
+    response = post(client, "k2", pair(*second, epoch=2, plan_id="plan-other"))
+    assert response.status_code == 409, why
+    assert response.json()["detail"]["code"] == "lease_held"
+    assert len(runner.submitted) == 1
+
+
+def test_safe_hold_keeps_every_resource_locked(client, store, runner):
+    first = post(client, "k1", pair("aws", "onprem", epoch=1)).json()
+    store.set_status(first["execution_id"], Status.SAFE_HOLD)
+    for key, (src, dst) in enumerate([("aws", "gcp"), ("gcp", "onprem"), ("alias", "gcp2")]):
+        assert post(client, f"k{key + 2}", pair(src, dst, epoch=key + 2)).json()["detail"]["code"] == "lease_held"
+    assert len(runner.submitted) == 1
+
+
+def test_disjoint_resource_pairs_run_independently(client, runner):
+    assert post(client, "k1", pair("aws", "onprem", epoch=1)).status_code == 202
+    assert post(client, "k2", pair("gcp", "gcp2", epoch=1)).status_code == 202
+    assert len(runner.submitted) == 2
+
+
+def test_epoch_is_tracked_per_resource(client, store):
+    first = post(client, "k1", pair("aws", "onprem", epoch=5)).json()
+    store.set_status(first["execution_id"], Status.DONE)
+    assert post(client, "k2", pair("gcp", "gcp2", epoch=1)).status_code == 202  # 겹치지 않는 자원
+    late = post(client, "k3", pair("alias", "gcp", epoch=3))  # aws 자원은 이미 5까지 받았다
+    assert late.json()["detail"]["code"] in ("stale_epoch", "lease_held")
+    assert late.status_code == 409
+
+
+def test_concurrent_overlapping_requests_accept_one(client, runner):
+    requests = [("k-a", pair("aws", "onprem", epoch=1)), ("k-b", pair("alias", "gcp", epoch=2)),
+                ("k-c", pair("gcp", "onprem", epoch=3)), ("k-d", pair("onprem", "aws", epoch=4))]
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        codes = sorted(pool.map(lambda kr: post(client, kr[0], kr[1]).status_code, requests))
+    assert codes.count(202) == 1 and len(runner.submitted) == 1
+
+
+@pytest.mark.parametrize(("source", "target", "code"), [
+    ({"environment_id": "env-unknown", "connection_ref": "secret/source"}, ENDPOINTS["onprem"], "unknown_environment"),
+    ({"environment_id": "env-aws", "connection_ref": "secret/other"}, ENDPOINTS["onprem"], "connection_ref_mismatch"),
+    (ENDPOINTS["aws"], ENDPOINTS["alias"], "same_resource"),
+])
+def test_requests_not_bound_to_registered_resources_are_rejected(client, runner, source, target, code):
+    response = post(client, "k1", body(source=source, target=target))
+    assert response.status_code == 422 and response.json()["detail"]["code"] == code
     assert runner.submitted == []
