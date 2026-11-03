@@ -29,6 +29,10 @@ run "private_foundation" {
     error_message = "Source ingress must use peer group references on exactly HTTPS and PostgreSQL."
   }
   assert {
+    condition     = alltrue([for key, vpc in aws_vpc.environment : vpc.tags.component == key]) && alltrue([for _, subnet in aws_subnet.private : subnet.tags.component == subnet.tags.environment])
+    error_message = "NFR-8 attributes each environment resource to its source/platform component."
+  }
+  assert {
     condition = alltrue([
       for log in aws_flow_log.vpc : log.traffic_type == "ALL"
     ]) && aws_kms_key.flow_logs.enable_key_rotation

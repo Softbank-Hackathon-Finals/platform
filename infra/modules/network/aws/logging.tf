@@ -35,7 +35,7 @@ resource "aws_cloudwatch_log_group" "vpc" {
   name              = "/bravo/${var.name}/${each.key}/vpc"
   retention_in_days = 7
   kms_key_id        = aws_kms_key.flow_logs.arn
-  tags              = { environment = each.key }
+  tags              = { environment = each.key, component = each.key }
 }
 
 resource "aws_iam_role" "flow_logs" {
@@ -82,6 +82,6 @@ resource "aws_flow_log" "vpc" {
   log_destination          = aws_cloudwatch_log_group.vpc[each.key].arn
   iam_role_arn             = aws_iam_role.flow_logs.arn
   max_aggregation_interval = 60
-  tags                     = { Name = "${var.name}-${each.key}-flow", environment = each.key }
+  tags                     = { Name = "${var.name}-${each.key}-flow", environment = each.key, component = each.key }
   depends_on               = [aws_iam_role_policy.flow_logs]
 }
