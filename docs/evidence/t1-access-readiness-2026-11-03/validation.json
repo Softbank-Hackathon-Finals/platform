@@ -1,0 +1,30 @@
+{
+  "baseline_commit": "440a7a25d8a0052d18c325961991d66ebe518b1b",
+  "preflight_exit_code": 2,
+  "expected_account_source": "reviewed local foundation operator input; value not retained",
+  "cloud_mutations": false,
+  "team_account_invitation_sent": false,
+  "team_access_verified": false,
+  "unit_tests": {
+    "count": 9,
+    "result": "PASS"
+  },
+  "observed_at": "2026-11-03T07:31:58+00:00",
+  "ruff": "PASS (--target-version py39)",
+  "diff_check": "PASS",
+  "sources": [
+    {
+      "path": "scripts/access_preflight.py",
+      "sha256": "90452c4f378a86b3eef65fd38f957b5895e6677f23fda6288dedef58376d3e5e"
+    },
+    {
+      "path": "scripts/tests/test_access_preflight.py",
+      "sha256": "234722f74b168133576f11fa8e4c99a561d2dda1e5eba1077cbd96038c0fa910"
+    },
+    {
+      "path": "docs/access-readiness.md",
+      "sha256": "1cf5437fe87eb7533b29e06d65ee992fab77241f8ebd23fccbd1d9ad9074114e"
+    }
+  ],
+  "gitleaks": "PASS (CI v8.24.3, staged scan; installed v8.30.1 rejects existing empty allowlist)"
+}
