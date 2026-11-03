@@ -1,0 +1,9 @@
+{
+  "source_sha": "bce854c73447c6967306ddafb58ef00fa6ad70be",
+  "source_archive_sha256": "37a4ed7a0187e8808620594e5b60eb8246ae363574f80965a2f56bf0f65d81d8",
+  "ssm_command_id_sha256": "5c658f940c4c01a3fd9ecea74cdf51f8d497ca72ab347ee0a75fa0465dade407",
+  "raw_receipt_sha256": "4c9601d5e6d685b469796ff14454e3046b73ac8308d9d277f400156e1dc2876d",
+  "tests_passed": 177,
+  "ruff": "PASS",
+  "nonroot_tests": true
+}
