@@ -94,3 +94,13 @@ GRANT EXECUTE ON FUNCTION cutover.set_app_login(boolean), cutover.terminate_app_
     cutover.set_subscription(text,boolean), cutover.raise_messages_sequence(bigint) TO cutover_control;
 COMMIT;
 """
+
+
+def state_runtime_grants_sql() -> str:
+    """Apply after migration; no ownership or DDL grant reaches the API runtime."""
+    return """REVOKE ALL ON SCHEMA executor FROM PUBLIC, cutover_executor_runtime;
+GRANT USAGE ON SCHEMA executor TO cutover_executor_runtime;
+REVOKE ALL ON ALL TABLES IN SCHEMA executor FROM cutover_executor_runtime;
+GRANT SELECT, INSERT, UPDATE ON executor.executions, executor.resource_fences, executor.leases
+    TO cutover_executor_runtime;
+"""
