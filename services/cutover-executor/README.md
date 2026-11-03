@@ -13,3 +13,17 @@ uv run pytest
 uvx ruff check .
 uv run uvicorn bravo_cutover.api:create_app --factory --port 8080
 ```
+
+## 모의 환경 (k3d)
+
+T8(복제) · T30(목적지) 전에 Executor를 시험하는 곳. 클러스터 하나에 출발지 `src` · 목적지 `dst` 네임스페이스를 두고 각각 Postgres 16 · PgBouncer 1.26.1 · demo-chat 2개를 띄운다. 가짜 AWS(moto)는 `aws` 네임스페이스. 복제는 직접 만든 구독으로 흉내 낸다: `dst`의 `bravo_fwd`(src → dst, 켜짐), `src`의 `bravo_rev`(dst → src, 꺼짐).
+
+```bash
+python3 testing/mockenv.py up      # 약 2분. demo-chat은 ../../../demo-chat의 origin/main으로 이미지를 만든다
+python3 testing/mockenv.py check   # 관리 콘솔 · 복제 · 목적지 앱 → 출발지 DB 쓰기 · 목적지 앱 역할 로그인 거부
+python3 testing/mockenv.py down
+```
+
+- 비밀번호는 실행마다 새로 만들어 `testing/.state/env.json`(git 제외)에만 둔다.
+- PgBouncer 설정은 initContainer가 ConfigMap을 emptyDir로 복사한 파일이다. Executor가 파드 안 파일을 바꾸고 RELOAD한다(spec D3).
+- 역할과 권한은 `testing/sql/10-roles.sql` · `30-cutover.sql`. `cutover_control` 권한이 Executor에 필요한 권한 목록의 초안이다(실제 환경은 T6 · T8 담당과 확정).
