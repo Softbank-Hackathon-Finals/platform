@@ -121,3 +121,34 @@ T9의 OpenBao/ESO·TLS 통제나 목적지 앱 업무 기동 완료를 대신하
 - [고정 버전 S3 작업 권한](https://github.com/seaweedfs/seaweedfs/blob/984eac6a790be89e2a11de175a7413e1e3e32dd3/weed/s3api/s3api_server.go)
 
 T2/T6/T8/T9/T30 전체 완료나 실제 데모 머신의 준비 완료는 이 문서만으로 판정하지 않는다.
+
+## Pre-cutover pooler and attachment copy
+
+`pooler.py` consumes the verified `source-for-pooler` egress Service IPv4 address
+and UID. It preserves the original source certificate hostname in `hostAliases`
+and `server_tls_sslmode=verify-full`. Client TLS uses the target CNPG certificate
+with the predeclared target-pgbouncer SAN. The writable config init container,
+one replica/Recreate strategy, admin identity and login retry follow PR #114
+commit `65797a1bcc60f71b51d2f7c2d5598914f95790ea`. Runtime pooler authentication
+is a new target Secret copied in memory from the source pooler, because the
+backend is still source. The independent target application credential is not
+changed. Future host-only retargeting is insufficient: destination credential
+rotation, DB role ownership, CA and hostname routing require their own reviewed
+cutover contract.
+
+Use the same reviewed cutover-access renderer/verifier with `pooler_only=true`
+and `check_app=false` until a destination app exists. Bind the grant to the exact
+live pooler Pod and recheck UID/owners around verification. Pooler access does
+not establish app startup, business readiness or cutover readiness.
+
+`sync_attachments.py` accepts read-only source and conditional-create destination
+adapters. Compare the source bucket inventory to the database attachment keys,
+reject unrelated destination objects, preserve conflicting existing bytes and
+verify every copied byte with readback. The current development bound is 100
+objects and 16MiB total; larger inputs require an explicitly reviewed transfer.
+The operator transport uses memory/stdin and emits only bounded counts/content
+hashes; object keys, filenames, bytes and credentials are not public evidence.
+Copy only while source attachment writes are quiescent. Remove only the exact
+synthetic development canary after its known content hash is verified; never
+clear a bucket to make counts match. This is a one-way attachment copy, not
+continuous object replication or the complete T9 security configuration.
