@@ -33,6 +33,31 @@ def evidence_fixture(body):
 
 
 class PublicEvidence(unittest.TestCase):
+    def test_github_ssh_transport_is_not_a_personal_email_allowlist(self):
+        transport = "git" + "@github.com"
+        person = "operator" + "@github.com"
+        neighbor = "person" + "@private-mail.org"
+        for remote in (transport + ":owner/repo.git", "ssh://" + transport + "/owner/repo",
+                       transport + ":{REPO}"):
+            with self.subTest(remote=remote):
+                self.assertFalse(privacy.findings(remote, "scripts/tool.py"))
+                found = privacy.findings(remote + " " + neighbor + " " + person, "scripts/tool.py")
+                self.assertEqual(found, {("EMAIL", neighbor), ("EMAIL", person)})
+        for address in (transport, person + ":owner/repo", "ssh://" + person + "/owner/repo", transport + ": no-path"):
+            with self.subTest(address=address):
+                self.assertTrue(privacy.findings(address, "scripts/tool.py"))
+
+    def test_sanitization_keeps_transport_when_same_address_is_also_an_email(self):
+        transport = "git" + "@github.com"
+        body = {"remote": "ssh://" + transport + "/owner/repo", "email": transport}
+        with evidence_fixture(body) as (repo, private, name, path):
+            with contextlib.redirect_stdout(io.StringIO()):
+                privacy.sanitize(repo, [name], private, "manifest.json")
+            public = json.loads(path.read_text())
+            self.assertEqual(public["remote"], body["remote"])
+            self.assertNotEqual(public["email"], body["email"])
+            self.assertFalse(privacy.findings(path.read_text(), name))
+
     def test_resource_names_cannot_change_hashes_verdicts_or_json_keys(self):
         for resource_name in ("db", "PASS", "db_count"):
             with self.subTest(resource_name=resource_name):

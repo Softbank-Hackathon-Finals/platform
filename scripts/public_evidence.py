@@ -78,11 +78,22 @@ def permitted(kind, value):
     return False
 
 
+def permitted_match(kind, match, text):
+    if permitted(kind, match.group()):
+        return True
+    # This is GitHub's fixed SSH transport user, only when followed by a repository path.
+    # A standalone address or a different user on the same host remains an EMAIL finding.
+    if kind == "EMAIL" and match.group().partition("@") == ("git", "@", "github.com"):
+        separator = "/" if text[:match.start()].endswith("ssh://") else ":"
+        return re.match(re.escape(separator) + r"[A-Za-z0-9_{][A-Za-z0-9_./{}-]*", text[match.end():]) is not None
+    return False
+
+
 def findings(text, path):
     found = set()
     for kind, pattern in PATTERNS.items():
         for match in pattern.finditer(text):
-            if not permitted(kind, match.group()):
+            if not permitted_match(kind, match, text):
                 found.add((kind, match.group()))
     if path.startswith("docs/evidence/"):
         for match in IP.finditer(text):
@@ -166,7 +177,7 @@ def replace_identifiers(value, path, mapping, applied):
     """Replace detected token spans, never every occurrence of a discovered substring."""
     patterns = [*PATTERNS.items()] + ([("IP", IP)] if path.startswith("docs/evidence/") else [])
     spans = sorted({(m.start(), m.end(), m.group()) for kind, pattern in patterns
-                    for m in pattern.finditer(value) if m.group() in mapping and not permitted(kind, m.group())},
+                    for m in pattern.finditer(value) if m.group() in mapping and not permitted_match(kind, m, value)},
                    key=lambda span: (span[0], -(span[1] - span[0])))
     pieces, end = [], 0
     for start, stop, raw in spans:
