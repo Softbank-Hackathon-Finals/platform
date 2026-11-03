@@ -191,13 +191,21 @@ def run(root):
                  "objectRef": {"resource": "rolebindings", "namespace": "audit-test", "name": "bravo-audit-role"},
                  "responseStatus": {"code": 201, "message": "private-marker-must-not-leak"},
                  "requestObject": {"data": "private-marker-must-not-leak"}, "requestURI": "private-marker-must-not-leak"}
-        audit.write_text(json.dumps(event) + "\n")
+        # Malformed nested objects must not bypass redaction as strings/lists,
+        # or prevent a subsequent genuine event from reaching the receiver.
+        malformed = []
+        for field in ("user", "impersonatedUser", "objectRef", "responseStatus"):
+            for value in ("private-marker-must-not-leak", ["private-marker-must-not-leak"], None):
+                malformed.append({"apiVersion": "audit.k8s.io/v1", "kind": "Event",
+                                  "auditID": "malformed-" + str(len(malformed)), field: value})
+        audit.write_text("".join(json.dumps(row) + "\n" for row in [*malformed, event]))
         wait_for(lambda: present("audit-canary"))
         data = (root / "output/logs.json").read_text()
         assert "private-marker-must-not-leak" not in data
         assert "unregistered-source-marker" not in data
         assert all(a["bravo.environment"] == "source" and a["bravo.audit.registration"] == bind.registration_digest for a, _ in records(root / "output/logs.json"))
         result.update(redaction=True, exact_pod_uid_scope=True, collector_bound_origin=True)
+        result["malformed_kubernetes_objects_redacted"] = len(malformed)
         result["received_records"] = len(records(root / "output/logs.json"))
         result["status"] = "PASS"
     finally:

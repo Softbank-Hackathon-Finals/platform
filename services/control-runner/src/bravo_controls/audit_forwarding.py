@@ -129,6 +129,10 @@ def collector_config(binding: AuditForwardingRegistration) -> dict:
             "error_mode": "propagate", "log_statements": [{"context": "log", "statements": [
                 'set(cache, ParseJSON(body))',
                 'keep_keys(cache, ["apiVersion", "kind", "auditID", "stage", "verb", "user", "impersonatedUser", "objectRef", "responseStatus", "requestReceivedTimestamp", "stageTimestamp"])',
+                'delete_key(cache, "user") where not IsMap(cache["user"])',
+                'delete_key(cache, "impersonatedUser") where not IsMap(cache["impersonatedUser"])',
+                'delete_key(cache, "objectRef") where not IsMap(cache["objectRef"])',
+                'delete_key(cache, "responseStatus") where not IsMap(cache["responseStatus"])',
                 'keep_keys(cache["user"], ["username", "uid"]) where IsMap(cache["user"])',
                 'keep_keys(cache["impersonatedUser"], ["username", "uid"]) where IsMap(cache["impersonatedUser"])',
                 'keep_keys(cache["objectRef"], ["apiGroup", "resource", "subresource", "namespace", "name", "uid", "apiVersion", "resourceVersion"]) where IsMap(cache["objectRef"])',
