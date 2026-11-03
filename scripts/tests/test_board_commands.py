@@ -70,12 +70,118 @@ class BoardCommandsTest(unittest.TestCase):
         self.board.set.assert_not_called()
         self.mutate.assert_not_called()
 
+    def activity_prs(self, **changes):
+        pr = {"number": 84, "title": "[T1] partial change", "headRefName": "feature/T1-partial",
+              "baseRefName": "develop", "headRepository": {"nameWithOwner": sync.REPO},
+              "state": "OPEN", "isDraft": False, "reviewDecision": "REVIEW_REQUIRED", **changes}
+        p = patch.object(sync, "load_prs", return_value=[pr])
+        result = p.start()
+        self.addCleanup(p.stop)
+        return result
+
+    def test_activity_dry_run_scopes_one_card_without_any_mutation(self):
+        self.activity_prs()
+        self.issues["T2"] = {**self.issues["T1"], "number": 6, "id": "issue-2"}
+        with patch.object(sync, "gql") as gql:
+            sync.activity("T1", "active", True)
+        self.board.set.assert_called_once_with(5, "issue-1", "In progress", "T1 #5", True)
+        gql.assert_not_called()
+        self.mutate.assert_not_called()
+        self.assertNotIn("labels", self.issues["T1"])
+
+    def test_active_work_keeps_ready_pr_and_completion_unchanged(self):
+        self.activity_prs()
+        original = self.issues["T1"]["body"]
+        self.board.status.return_value = "In review"
+        with patch.object(sync, "gql", return_value={"repository": {"label": None}}):
+            sync.activity("T1", "active", False)
+        self.assertEqual(self.mutate.call_count, 2)
+        self.assertEqual(self.mutate.call_args_list[0].args[:4], ("gh", "label", "create", sync.ACTIVE_WORK_LABEL))
+        self.assertEqual(self.mutate.call_args.args,
+                         ("gh", "issue", "edit", "5", "-R", sync.REPO, "--add-label", sync.ACTIVE_WORK_LABEL))
+        self.board.set.assert_called_once_with(5, "issue-1", "In progress", "T1 #5", False)
+        self.assertEqual(self.issues["T1"]["body"], original)
+
+    def test_existing_label_and_repeated_activity_are_idempotent(self):
+        self.activity_prs()
+        with patch.object(sync, "gql", return_value={"repository": {"label": {"id": "l"}}}):
+            sync.activity("T1", "active", False)
+        self.assertEqual(self.mutate.call_count, 1)
+        self.mutate.reset_mock()
+        self.issues["T1"]["labels"] = [{"name": sync.ACTIVE_WORK_LABEL}]
+        with patch.object(sync, "gql") as gql:
+            sync.activity("T1", "active", False)
+        self.mutate.assert_not_called()
+        gql.assert_not_called()
+
+    def test_auto_removes_only_activity_and_uses_current_pr_state(self):
+        prs = self.activity_prs()
+        self.issues["T1"]["labels"] = [{"name": "P0"}, {"name": sync.ACTIVE_WORK_LABEL}]
+        for update, expected in (({}, "In review"), ({"state": "MERGED"}, "In progress"),
+                                 ({"reviewDecision": "CHANGES_REQUESTED"}, "In progress")):
+            with self.subTest(update=update):
+                self.board.reset_mock()
+                original = prs.return_value[0]
+                prs.return_value = [{**original, "state": "OPEN", "reviewDecision": "REVIEW_REQUIRED", **update}]
+                sync.activity("T1", "auto", False)
+                self.board.set.assert_called_once_with(5, "issue-1", expected, "T1 #5", False)
+                self.assertEqual(self.mutate.call_args.args[-2:], ("--remove-label", sync.ACTIVE_WORK_LABEL))
+        self.assertEqual(self.issues["T1"]["labels"][0], {"name": "P0"})
+
+    def test_pr_read_failure_never_changes_activity_or_board(self):
+        self.activity_prs().side_effect = RuntimeError("incomplete repository page")
+        with self.assertRaisesRegex(RuntimeError, "incomplete"):
+            sync.activity("T1", "active", False)
+        self.mutate.assert_not_called()
+        self.board.set.assert_not_called()
+
+    def test_label_failure_does_not_claim_board_changed(self):
+        self.activity_prs()
+        self.mutate.side_effect = RuntimeError("label write denied")
+        with patch.object(sync, "gql", return_value={"repository": {"label": {"id": "l"}}}), \
+             self.assertRaisesRegex(RuntimeError, "denied"):
+            sync.activity("T1", "active", False)
+        self.board.set.assert_not_called()
+
+    def test_activity_rejects_unknown_mode_task_and_completed_work(self):
+        prs = self.activity_prs()
+        for task, mode in (("T1", "invalid"), ("T999", "active")):
+            with self.subTest(task=task, mode=mode), self.assertRaises(ValueError):
+                sync.activity(task, mode, False)
+        for update in ({"state": "CLOSED"}, {"state": "OPEN", "body": "- [x] done"}):
+            self.issues["T1"].update(update)
+            with self.assertRaisesRegex(ValueError, "완료"):
+                sync.activity("T1", "active", False)
+        prs.assert_not_called()
+        self.mutate.assert_not_called()
+        self.board.set.assert_not_called()
+
+    def test_pull_and_status_preserve_and_report_explicit_activity(self):
+        self.issues["T1"]["labels"] = [{"name": sync.ACTIVE_WORK_LABEL}]
+        self.board.status.return_value = "In review"
+        with patch.object(sync, "rewrite_tasks", return_value="plan"):
+            sync.pull(True)
+        self.board.set.assert_called_once_with(5, "issue-1", "In progress", "T1 #5", True)
+        with contextlib.redirect_stdout(io.StringIO()) as out:
+            sync.status()
+        self.assertTrue(json.loads(out.getvalue())["tasks"][0]["active_work"])
+        self.mutate.assert_not_called()
+
 
 if __name__ == "__main__":
     unittest.main()
 
 
 class PRBoardTest(unittest.TestCase):
+    def test_active_task_survives_partial_pr_review_approval_and_merge(self):
+        issue = {**self.issue(), "labels": [{"name": sync.ACTIVE_WORK_LABEL}]}
+        for pr in (self.pr(), self.pr(reviewDecision="APPROVED"), self.pr(state="MERGED")):
+            with self.subTest(pr=pr):
+                self.assertEqual(sync.pr_task_status(issue, [pr]), "In progress")
+        self.assertEqual(sync.pr_task_status({**issue, "state": "CLOSED"}, [self.pr()]), "Done")
+        self.assertEqual(sync.pr_task_status({**issue, "body": "- [x] done"}, [self.pr()]), "Done")
+        self.assertEqual(sync.pr_task_status({**issue, "labels": [{"name": "work:active-other"}]}, [self.pr()]), "In review")
+
     def test_reconcile_recovers_plan_issue_and_pr_events_in_order(self):
         calls = Mock()
         with patch.object(sync, 'push', calls.push), patch.object(sync, 'pull', calls.pull), \
