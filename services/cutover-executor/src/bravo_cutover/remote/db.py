@@ -68,6 +68,32 @@ class DbControl:
             (role, older_than_ms),
         )
 
+    def other_sessions(self, system_roles: list[str]) -> list[str]:
+        """업무 역할이 아닌데도 남아 있는 클라이언트 세션(우회 쓰기 후보: worker · CronJob · 직접 연결)."""
+        try:
+            with self._connect() as conn:
+                rows = conn.execute(
+                    """SELECT DISTINCT usename FROM pg_stat_activity
+                       WHERE backend_type = 'client backend' AND pid <> pg_backend_pid()
+                         AND NOT (usename = ANY(%s))""",
+                    (system_roles,),
+                ).fetchall()
+        except psycopg.Error as e:
+            raise Unconfirmed(str(e)) from e
+        return sorted(r[0] for r in rows)
+
+    # 복제 위치 ------------------------------------------------------------
+    def current_wal_lsn(self) -> int:
+        return self._one("SELECT pg_current_wal_lsn() - '0/0'::pg_lsn")
+
+    def received_lsn(self, subscription: str) -> int | None:
+        """구독이 발행 쪽에서 받아 반영을 보고한 위치(발행 쪽 WAL 기준)."""
+        return self._one(
+            """SELECT latest_end_lsn - '0/0'::pg_lsn FROM pg_stat_subscription
+               WHERE subname = %s AND relid IS NULL""",
+            (subscription,),
+        )
+
     # barrier ------------------------------------------------------------
     def insert_barrier(self, barrier_id: uuid.UUID, epoch: int) -> None:
         self._do(sql.SQL("INSERT INTO cutover.barrier (barrier_id, epoch) VALUES ({}, {})").format(

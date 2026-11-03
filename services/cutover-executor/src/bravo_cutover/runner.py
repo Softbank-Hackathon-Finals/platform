@@ -1,0 +1,324 @@
+"""8단계 컷오버 실행기 (설계 문서 8.6, spec 2절).
+
+안전은 DB의 앱 역할 로그인 상태로 지킨다. 진입점 차단과 PAUSE는 쓰기 정지 중 요청을 503 · 대기로 처리하는
+수단이다. 쓰기 정지 시간은 첫 쓰기 제한 직전부터 모든 쓰기 경로(앱 파드 차단 해제, PgBouncer 경로)의
+마지막 ACK까지다.
+"""
+
+import time
+import uuid
+from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor
+from contextlib import contextmanager
+from dataclasses import dataclass, field
+from datetime import UTC, datetime
+from typing import Any, Protocol
+from uuid import UUID
+
+from bravo_cutover.contract import CutoverRequest, Status, StepStatus
+from bravo_cutover.remote import Unconfirmed
+from bravo_cutover.remote.db import DbControl, WriteRefusal, app_write, try_app_write
+from bravo_cutover.remote.kube import Kube, WriteBlock
+from bravo_cutover.remote.pgbouncer import (
+    PauseTimeout,
+    PgBouncerAdmin,
+    PgBouncerConfig,
+    retarget_ini,
+)
+from bravo_cutover.sites import Config, Site
+from bravo_cutover.store import Store
+
+STEPS = ("precheck", "entry", "pause", "fence", "compare", "commit", "reconnect", "release")
+
+
+class StepFailed(Exception):
+    """조건을 확인했고, 그 결과가 실패다(상태 불명과 다르다)."""
+
+
+class Comparer(Protocol):
+    def compare(self, src: DbControl, dst: DbControl, tables: list[str]) -> dict[str, Any]: ...
+
+
+class RowCountComparer:
+    """T13 연결 전 임시 비교(spec D11). 행 수만 보므로 같아도 MATCH가 아니라 UNVERIFIED다."""
+
+    hash_rule = "none (T13 미연결: 행 수만 비교)"
+
+    def compare(self, src: DbControl, dst: DbControl, tables: list[str]) -> dict[str, Any]:
+        rows = [{"name": t, "rows_src": src.row_count(t), "rows_dst": dst.row_count(t)} for t in tables]
+        same = all(r["rows_src"] == r["rows_dst"] for r in rows)
+        return {"hash_rule": self.hash_rule, "tables": rows, "verdict": "UNVERIFIED" if same else "MISMATCH"}
+
+
+@dataclass
+class Side:
+    site: Site
+    kube: Kube
+    db: DbControl = field(init=False)
+    pool: PgBouncerAdmin = field(init=False)
+    pool_config: PgBouncerConfig = field(init=False)
+    entry: WriteBlock = field(init=False)
+
+    def __post_init__(self):
+        s = self.site
+        self.db = DbControl(s.db_control_dsn)
+        self.pool = PgBouncerAdmin(s.pgbouncer_admin_dsn, s.pgbouncer_database)
+        self.pool_config = PgBouncerConfig(self.kube, s.namespace, s.pgbouncer_selector, s.pgbouncer_ini)
+        self.entry = WriteBlock(self.kube, s.namespace, s.app_selector)
+
+
+@dataclass
+class Run:
+    execution_id: UUID
+    request: CutoverRequest
+    src: Side
+    dst: Side
+    t0: float | None = None
+    stages_ms: dict[str, int] = field(default_factory=dict)
+    acks: dict[str, float] = field(default_factory=dict)
+    receipt: dict[str, Any] = field(default_factory=dict)
+    warnings: list[str] = field(default_factory=list)
+
+
+class Cutover:
+    def __init__(self, store: Store, config: Config, *, comparer: Comparer | None = None,
+                 kube: Callable[[str], Kube] = Kube, hooks: dict[str, Callable[[], None]] | None = None,
+                 clock: Callable[[], float] = time.monotonic):
+        self._store, self._config, self._settings = store, config, config.settings
+        self._comparer = comparer or RowCountComparer()
+        self._kube_factory, self._kubes = kube, {}
+        # 장애 주입 지점(시험 · T25용): "before:<단계>", "release:<environment_id>"
+        self._hooks = hooks or {}
+        self._clock = clock
+
+    # 실행 ----------------------------------------------------------------
+    def run(self, execution_id: UUID) -> None:
+        execution = self._store.get(execution_id)
+        request = CutoverRequest.model_validate(execution.request)
+        self._store.set_status(execution_id, Status.RUNNING)
+        try:
+            run = Run(execution_id, request, self._side(request.source.environment_id),
+                      self._side(request.target.environment_id))
+            for name in STEPS:
+                with self._step(run, name):
+                    getattr(self, f"_{name}")(run)
+        except Exception as e:  # noqa: BLE001
+            # 실패 분기(ABORT_PRE_WRITE · SAFE_HOLD 판정)는 다음 커밋에서 붙인다. 지금은 아무것도 열지 않고 멈춘다.
+            self._store.set_status(execution_id, Status.SAFE_HOLD, {"error": f"{type(e).__name__}: {e}"})
+            return
+        self._store.set_status(execution_id, Status.DONE, self._result(run))
+
+    def _side(self, environment_id: str) -> Side:
+        site = self._config.sites.get(environment_id)
+        if site is None:
+            raise StepFailed(f"unknown environment {environment_id}")
+        if site.kube_context not in self._kubes:
+            self._kubes[site.kube_context] = self._kube_factory(site.kube_context)
+        return Side(site, self._kubes[site.kube_context])
+
+    @contextmanager
+    def _step(self, run: Run, name: str):
+        if datetime.now(UTC) > run.request.deadline:
+            raise StepFailed("deadline passed")
+        self._store.record_step(run.execution_id, name, StepStatus.STARTED)
+        start = self._clock()
+        try:
+            if hook := self._hooks.get(f"before:{name}"):
+                hook()
+            yield
+        except StepFailed as e:
+            self._store.record_step(run.execution_id, name, StepStatus.FAILED, self._ms(start), str(e))
+            raise
+        except Exception as e:
+            self._store.record_step(run.execution_id, name, StepStatus.UNKNOWN, self._ms(start), f"{type(e).__name__}: {e}")
+            raise
+        run.stages_ms[name] = self._ms(start)
+        self._store.record_step(run.execution_id, name, StepStatus.SUCCEEDED, run.stages_ms[name])
+
+    def _ms(self, start: float) -> int:
+        return int((self._clock() - start) * 1000)
+
+    def _remaining_s(self, run: Run) -> float:
+        return max(0.0, (run.request.deadline - datetime.now(UTC)).total_seconds())
+
+    # 1. 사전 확인 -----------------------------------------------------------
+    def _precheck(self, run: Run) -> None:
+        src, dst = run.src, run.dst
+        for side in (src, dst):
+            side.pool_config.pod()  # PgBouncer 파드가 정확히 하나
+            state = side.pool.state()
+            if state.paused or state.host != src.site.db_host:
+                raise StepFailed(f"{side.site.environment_id} pgbouncer is not serving the source: {state}")
+        if dst.db.can_login(dst.site.app_role):
+            raise StepFailed("target app role can already log in")
+        if not src.db.can_login(src.site.app_role):
+            raise StepFailed("source app role cannot log in")
+        forward = dst.db.subscription(dst.site.subscription)
+        if not (forward.enabled and forward.workers):
+            raise StepFailed(f"forward subscription is not running: {forward}")
+        if src.db.subscription(src.site.subscription).enabled:
+            raise StepFailed("reverse subscription is already enabled")
+        received = dst.db.received_lsn(dst.site.subscription)
+        lag = int(src.db.current_wal_lsn()) - int(received or 0)
+        if received is None or lag > self._settings.max_lag_bytes:
+            raise StepFailed(f"replication lag {lag} bytes exceeds {self._settings.max_lag_bytes}")
+        # 첫 쓰기 제한 직전에 타이머를 켠다
+        run.t0 = self._clock()
+
+    # 2. 진입점 쓰기 차단 -------------------------------------------------------
+    def _entry(self, run: Run) -> None:
+        sides = (run.src, run.dst)
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            applied = list(pool.map(lambda side: side.entry.set(True), sides))
+        for side, states in zip(sides, applied, strict=True):
+            if not all(states.values()):
+                raise Unconfirmed(f"{side.site.environment_id} write block not applied: {states}")
+            # 차단하는 동안 새로 뜬 파드가 있으면 그 파드에도 건다. 아직 뜨는 중인 파드는 DB 쪽(PAUSE · NOLOGIN)이 막는다.
+            if set(side.entry.running()) - set(states):
+                states = side.entry.set(True)
+                if not all(states.values()):
+                    raise Unconfirmed(f"{side.site.environment_id} write block missing on {states}")
+
+    # 3. PAUSE --------------------------------------------------------------
+    def _pause(self, run: Run) -> None:
+        src = run.src
+        if src.db.long_transactions(src.site.app_role, self._settings.long_transaction_ms):
+            raise StepFailed("long transaction open on source")
+        for side in (run.src, run.dst):
+            timeout = min(self._settings.pause_timeout_s, self._remaining_s(run))
+            try:
+                side.pool.pause(timeout)
+            except PauseTimeout as e:
+                raise StepFailed(str(e)) from e
+            if not side.pool.state().paused:
+                raise Unconfirmed(f"{side.site.environment_id} pgbouncer not paused")
+
+    # 4. 출발지 펜싱 -----------------------------------------------------------
+    def _fence(self, run: Run) -> None:
+        src = run.src
+        role = src.site.app_role
+        src.db.set_login(role, False)
+        deadline = self._clock() + self._settings.fence_timeout_s
+        while src.db.terminate_sessions(role) or src.db.sessions(role):
+            if self._clock() > deadline:
+                raise StepFailed("app sessions still open on source")
+            time.sleep(0.05)
+        if bypass := src.db.other_sessions(src.site.system_roles + [role]):
+            raise StepFailed(f"possible bypass writers on source: {bypass}")
+        refusal = try_app_write(src.site.db_app_dsn, f"fence-check:{run.execution_id}")
+        if refusal == WriteRefusal.ACCEPTED:
+            raise StepFailed("source accepted an app write after fencing")
+        if refusal == WriteRefusal.UNKNOWN:
+            raise Unconfirmed("could not confirm that source refuses app writes")
+
+    # 5. barrier · 비교 · 시퀀스 -------------------------------------------------
+    def _compare(self, run: Run) -> None:
+        src, dst = run.src, run.dst
+        barrier = uuid.uuid4()
+        src.db.insert_barrier(barrier, run.request.epoch)
+        source_lsn = int(src.db.current_wal_lsn())
+        deadline = self._clock() + self._settings.barrier_timeout_s
+        while not dst.db.has_barrier(barrier):
+            if self._clock() > deadline:
+                raise StepFailed("barrier did not arrive at target")
+            time.sleep(0.05)
+        result = self._comparer.compare(src.db, dst.db, self._settings.tables)
+        sequences = []
+        for name, (table, column) in self._settings.sequences.items():
+            src_next = src.db.sequence_next(name)
+            wanted = max(src_next, dst.db.max_value(table, column) + 1)
+            sequences.append({"name": name, "src_next": src_next, "dst_set": dst.db.raise_sequence(name, wanted)})
+        run.receipt = {
+            "receipt_id": str(uuid.uuid4()),
+            "epoch": run.request.epoch,
+            "direction": "cutover",
+            "source": src.site.environment_id,
+            "target": dst.site.environment_id,
+            "barrier_id": str(barrier),
+            "watermark": {"source_lsn": source_lsn,
+                          "received_lsn": int(dst.db.received_lsn(dst.site.subscription) or 0)},
+            "hash_rule": result["hash_rule"],
+            "tables": result["tables"],
+            "sequences": sequences,
+            "verdict": result["verdict"],
+        }
+        if result["verdict"] == "MISMATCH":
+            raise StepFailed("integrity comparison: MISMATCH")
+        if result["verdict"] == "UNVERIFIED" and not self._settings.allow_unverified_compare:
+            raise StepFailed("integrity comparison is not verified (T13 not connected)")
+
+    # 6. 전환 확정 ------------------------------------------------------------
+    def _commit(self, run: Run) -> None:
+        src, dst = run.src, run.dst
+        # 구독을 바꾸기 전에 남긴다. 재시작하면 이 기록으로 구독 복원이 필요한지 안다.
+        self._store.mark(run.execution_id, "stage6_entered_at")
+        dst.db.set_subscription(dst.site.subscription, False, dst.site.subscription_owner)
+        src.db.set_subscription(src.site.subscription, True, src.site.subscription_owner)
+        self._store.mark(run.execution_id, "committed_at")
+        run.receipt["committed_at"] = datetime.now(UTC).isoformat()
+
+    # 7. 재연결 ---------------------------------------------------------------
+    def _reconnect(self, run: Run) -> None:
+        dst = run.dst
+        dst.db.set_login(dst.site.app_role, True)
+        for side in (run.src, run.dst):
+            side.pool_config.retarget(side.site.pgbouncer_database, dst.site.db_host, dst.site.db_port, dst.site.db_name)
+            side.pool.reload()
+            if side.pool.state().host != dst.site.db_host:
+                raise Unconfirmed(f"{side.site.environment_id} pgbouncer did not switch to target")
+            side.pool.resume()
+            if side.pool.state().paused:
+                raise Unconfirmed(f"{side.site.environment_id} pgbouncer still paused")
+
+    # 8. 해제와 마지막 ACK ---------------------------------------------------------
+    def _release(self, run: Run) -> None:
+        def release(side: Side) -> None:
+            env = side.site.environment_id
+            if hook := self._hooks.get(f"release:{env}"):
+                hook()
+            if any(side.entry.set(False).values()):
+                raise Unconfirmed(f"{env} write block still on")
+            run.acks[f"entry:{env}"] = self._clock()
+
+        def probe(side: Side) -> None:
+            app_write(side.site.pgbouncer_app_dsn, f"cutover:{run.execution_id}")
+            run.acks[f"pool:{side.site.environment_id}"] = self._clock()
+
+        # 경로마다 동시에 열고, 각 경로의 ACK 시각을 따로 남긴다. 쓰기 정지는 그중 마지막 ACK에서 끝난다.
+        with ThreadPoolExecutor(max_workers=4) as pool:
+            futures = [pool.submit(f, side) for side in (run.src, run.dst) for f in (release, probe)]
+        for future in futures:
+            future.result()
+        # 여기까지가 쓰기 정지 시간이다. 아래는 재시작 뒤에도 목적지를 가리키게 하는 마무리다.
+        for side in (run.src, run.dst):
+            s = side.site
+            try:
+                current = side.kube.read_configmap(s.namespace, s.pgbouncer_configmap, s.pgbouncer_configmap_key)
+                side.kube.patch_configmap(s.namespace, s.pgbouncer_configmap, s.pgbouncer_configmap_key, retarget_ini(
+                    current, s.pgbouncer_database, run.dst.site.db_host, run.dst.site.db_port, run.dst.site.db_name))
+            except (Unconfirmed, ValueError) as e:
+                run.warnings.append(f"{s.environment_id} pgbouncer configmap not persisted: {e}")
+
+    def _result(self, run: Run) -> dict[str, Any]:
+        last = max(run.acks.values())
+        write_pause_ms = int((last - run.t0) * 1000)
+        run.receipt["write_pause_ms"] = write_pause_ms
+        return {
+            "outcome": Status.DONE.value,
+            "write_pause_ms": write_pause_ms,
+            "stages_ms": run.stages_ms,
+            "path_acks_ms": {path: int((t - run.t0) * 1000) for path, t in run.acks.items()},
+            "receipt": run.receipt,
+            "warnings": run.warnings,
+        }
+
+
+class ThreadRunner:
+    """API가 요청을 받으면 기록을 남긴 뒤 이 실행기로 넘긴다. 한 번에 한 실행만 돈다."""
+
+    def __init__(self, cutover: Cutover):
+        self._cutover = cutover
+        self._pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="cutover")
+
+    def submit(self, execution_id: UUID) -> None:
+        self._pool.submit(self._cutover.run, execution_id)

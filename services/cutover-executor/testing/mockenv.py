@@ -200,10 +200,13 @@ def write_sites() -> None:
             "db_control_dsn": dsn(s["pg"], "chat", "cutover_control", "control-password"),
             "db_app_dsn": dsn(s["pg"], "chat", "chat_app", "chat-app-password"),
             "db_host": f"postgres.{ns}.svc.cluster.local",
+            "subscription": "bravo_rev" if ns == "src" else "bravo_fwd",
         }
         for ns, s in SITES.items()
     }
-    SITES_FILE.write_text(json.dumps(sites, indent=2))
+    # 모의 환경에는 T13 비교가 없어 임시 비교(UNVERIFIED)를 통과로 본다(spec D11).
+    config = {"settings": {"allow_unverified_compare": True}, "sites": sites}
+    SITES_FILE.write_text(json.dumps(config, indent=2))
     SITES_FILE.chmod(0o600)
 
 

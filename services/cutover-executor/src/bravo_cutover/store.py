@@ -32,6 +32,9 @@ CREATE TABLE IF NOT EXISTS executor.executions (
     status          text        NOT NULL,
     steps           jsonb       NOT NULL DEFAULT '[]',
     result          jsonb,
+    -- 6단계: 구독을 바꾸기 전(stage6_entered_at), 전환 확정(committed_at, 되돌릴 수 없는 지점)
+    stage6_entered_at timestamptz,
+    committed_at    timestamptz,
     created_at      timestamptz NOT NULL DEFAULT now(),
     updated_at      timestamptz NOT NULL DEFAULT now(),
     UNIQUE (scope, epoch)
@@ -80,6 +83,8 @@ class Execution:
     status: Status
     steps: list[dict[str, Any]]
     result: dict[str, Any] | None
+    stage6_entered_at: datetime | None
+    committed_at: datetime | None
     created_at: datetime
     updated_at: datetime
 
@@ -95,6 +100,7 @@ class Execution:
             "status": self.status.value,
             "steps": self.steps,
             "result": self.result,
+            "committed": self.committed_at is not None,
             "created_at": self.created_at.isoformat(),
             "updated_at": self.updated_at.isoformat(),
         }
@@ -176,4 +182,29 @@ class Store:
                 """UPDATE executor.executions SET status = %s, result = COALESCE(%s, result), updated_at = now()
                    WHERE execution_id = %s""",
                 (status.value, Jsonb(result) if result is not None else None, execution_id),
+            )
+
+    def record_step(self, execution_id: UUID, step: str, status: str, elapsed_ms: int | None = None,
+                    detail: str | None = None) -> None:
+        """단계 이벤트를 덧붙인다. T10은 이 목록을 execution.updated 이벤트로 바꾼다."""
+        event = {"step": step, "status": status}
+        if elapsed_ms is not None:
+            event["elapsed_ms"] = elapsed_ms
+        if detail:
+            event["detail"] = detail[:500]
+        with self._pool.connection() as conn:
+            conn.execute(
+                """UPDATE executor.executions SET steps = steps || %s, updated_at = now()
+                   WHERE execution_id = %s""",
+                (Jsonb([event]), execution_id),
+            )
+
+    def mark(self, execution_id: UUID, milestone: str) -> None:
+        """6단계 기록. 되돌릴 수 없는 지점이라 DB에 남은 뒤에만 다음 조작을 한다."""
+        if milestone not in ("stage6_entered_at", "committed_at"):
+            raise ValueError(milestone)
+        with self._pool.connection() as conn:
+            conn.execute(
+                f"UPDATE executor.executions SET {milestone} = now(), updated_at = now() WHERE execution_id = %s",
+                (execution_id,),
             )

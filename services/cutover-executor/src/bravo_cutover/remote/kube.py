@@ -2,10 +2,12 @@
 
 쓰기 차단 스위치는 API 서버 프록시로 부를 수 없다. 프록시가 Authorization 헤더를 파드에 넘기지 않아
 demo-chat이 401을 낸다(모의 환경 실측). 그래서 파드 안에서 그 파드의 토큰으로 자기 자신을 부른다(spec D4).
-필요한 권한: pods list · get, pods/exec.
+필요한 권한: pods list · get, pods/exec, configmaps get · patch(PgBouncer 설정 영구 반영).
 """
 
 import json
+import threading
+from concurrent.futures import ThreadPoolExecutor
 
 from kubernetes import client, config
 from kubernetes.stream import stream
@@ -15,7 +17,16 @@ from bravo_cutover.remote import Unconfirmed
 
 class Kube:
     def __init__(self, context: str):
+        self._context = context
         self._api = client.CoreV1Api(config.new_client_from_config(context=context))
+        # kubernetes.stream.stream은 호출 중에 클라이언트의 request를 바꿔 끼운다. 동시에 exec하려면
+        # 스레드마다 클라이언트를 따로 쓴다.
+        self._local = threading.local()
+
+    def _exec_api(self) -> client.CoreV1Api:
+        if not hasattr(self._local, "api"):
+            self._local.api = client.CoreV1Api(config.new_client_from_config(context=self._context))
+        return self._local.api
 
     def running_pods(self, namespace: str, selector: str) -> list[str]:
         try:
@@ -32,10 +43,25 @@ class Kube:
             raise Unconfirmed(f"list pods {namespace}/{selector}: {e}") from e
         return sorted(p.metadata.name for p in pods if p.status.phase in ("Pending", "Running"))
 
+    def patch_configmap(self, namespace: str, name: str, key: str, value: str) -> None:
+        try:
+            self._api.patch_namespaced_config_map(name, namespace, {"data": {key: value}}, _request_timeout=5)
+            current = self._api.read_namespaced_config_map(name, namespace, _request_timeout=5).data[key]
+        except Exception as e:  # noqa: BLE001
+            raise Unconfirmed(f"patch configmap {namespace}/{name}: {e}") from e
+        if current != value:
+            raise Unconfirmed(f"configmap {namespace}/{name} was not updated")
+
+    def read_configmap(self, namespace: str, name: str, key: str) -> str:
+        try:
+            return self._api.read_namespaced_config_map(name, namespace, _request_timeout=5).data[key]
+        except Exception as e:  # noqa: BLE001
+            raise Unconfirmed(f"read configmap {namespace}/{name}: {e}") from e
+
     def exec(self, namespace: str, pod: str, argv: list[str], timeout_s: float = 10) -> str:
         try:
             resp = stream(
-                self._api.connect_get_namespaced_pod_exec, pod, namespace, command=argv,
+                self._exec_api().connect_get_namespaced_pod_exec, pod, namespace, command=argv,
                 stdout=True, stderr=True, stdin=False, tty=False, _preload_content=False,
             )
             resp.run_forever(timeout=timeout_s)
@@ -73,13 +99,20 @@ class WriteBlock:
         except (ValueError, KeyError) as e:
             raise Unconfirmed(f"write-block response from {pod}: {out[:200]}") from e
 
+    def _each(self, pods: list[str], arg: str) -> dict[str, bool]:
+        # 쓰기 정지 시간 안의 조작이라 파드마다 동시에 부른다
+        with ThreadPoolExecutor(max_workers=max(1, min(8, len(pods)))) as pool:
+            return dict(zip(pods, pool.map(lambda pod: self._call(pod, arg), pods), strict=True))
+
     def set(self, blocked: bool) -> dict[str, bool]:
-        """모든 실행 중 파드에 적용하고, 응답으로 받은 상태를 돌려준다."""
-        return {pod: self._call(pod, "on" if blocked else "off")
-                for pod in self._kube.running_pods(self._ns, self._selector)}
+        """모든 실행 중 파드에 적용하고, 각 파드가 응답한 상태를 돌려준다."""
+        return self._each(self._kube.running_pods(self._ns, self._selector), "on" if blocked else "off")
 
     def get(self) -> dict[str, bool]:
-        return {pod: self._call(pod, "get") for pod in self._kube.running_pods(self._ns, self._selector)}
+        return self._each(self._kube.running_pods(self._ns, self._selector), "get")
+
+    def running(self) -> list[str]:
+        return self._kube.running_pods(self._ns, self._selector)
 
     def pods(self) -> list[str]:
         return self._kube.all_pods(self._ns, self._selector)
