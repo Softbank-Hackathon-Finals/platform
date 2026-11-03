@@ -50,6 +50,8 @@ def token_config(kubeconfig, namespace, identity):
 
 def verify(kubeconfig, namespace, configmap, app_pods, pooler_pod, db_pod,
            pooler_container, app_container="app", identity_namespace=None, check_app=True):
+    if check_app != bool(app_pods):
+        raise ValueError("explicit_app_or_pooler_only_scope_required")
     checks = {}
     for identity in ("bravo-executor", "bravo-collector"):
         config = token_config(kubeconfig, identity_namespace or namespace, identity)
@@ -96,6 +98,9 @@ def verify(kubeconfig, namespace, configmap, app_pods, pooler_pod, db_pod,
             checks["collector_pooler_exec_denied"] = denied(call("exec", pooler_pod, "-c", pooler_container, "--", "true"))
     return {"observed_at": datetime.now(timezone.utc).isoformat(), "checks": checks,
             "passed": all(checks.values()), "app_block_read_requested": check_app,
+            "app_access_verified": check_app and all(
+                checks[f"executor_app_{index}_authenticated_block_read"] for index in range(len(app_pods))),
+            "cutover_ready": False,
             "configmap_data_changed": False, "business_writes_opened": False,
             "secret_values_exported": False,
             "scope": "Kubernetes access and local config filesystem; not network or cutover verification"}
@@ -109,14 +114,17 @@ if __name__ == "__main__":
     parser.add_argument("--pooler-config", required=True)
     parser.add_argument("--pooler-pod", required=True)
     parser.add_argument("--pooler-container", required=True)
-    parser.add_argument("--app-pod", required=True, action="append")
+    workloads = parser.add_mutually_exclusive_group(required=True)
+    workloads.add_argument("--app-pod", action="append")
+    workloads.add_argument("--pooler-only", action="store_true",
+                           help="Verify only pooler/RBAC; app access remains unverified")
     parser.add_argument("--app-container", default="app")
     parser.add_argument("--db-pod", required=True)
     args = parser.parse_args()
     try:
-        report = verify(args.kubeconfig, args.namespace, args.pooler_config, args.app_pod,
+        report = verify(args.kubeconfig, args.namespace, args.pooler_config, args.app_pod or [],
                         args.pooler_pod, args.db_pod, args.pooler_container,
-                        args.app_container, args.identity_namespace)
+                        args.app_container, args.identity_namespace, check_app=not args.pooler_only)
     except (RuntimeError, ValueError, KeyError, OSError, subprocess.TimeoutExpired):
         report = {"passed": False, "error": "verification_failed", "raw_provider_output_suppressed": True}
     print(json.dumps(report, indent=2))

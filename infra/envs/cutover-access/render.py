@@ -15,13 +15,14 @@ def name(value):
     return value
 
 
-def render(namespace, pooler_config, app_pods, pooler_pod, identity_namespace=None):
+def render(namespace, pooler_config, app_pods, pooler_pod, identity_namespace=None,
+           pooler_only=False):
     identity_namespace = identity_namespace or namespace
     for value in [namespace, identity_namespace, pooler_config, pooler_pod, *app_pods]:
         name(value)
     if namespace in {"default", "kube-system", "kube-public", "kube-node-lease"}:
         raise ValueError("dedicated_workload_namespace_required")
-    if not app_pods or pooler_pod in app_pods:
+    if (pooler_only and app_pods) or (not pooler_only and not app_pods) or pooler_pod in app_pods:
         raise ValueError("distinct_app_and_pooler_pods_required")
     meta = {"name": "bravo-executor-cutover", "namespace": namespace,
             "labels": {"app.kubernetes.io/part-of": "bravo-platform-access", "component": "platform"}}
@@ -48,10 +49,14 @@ if __name__ == "__main__":
     parser.add_argument("--identity-namespace")
     parser.add_argument("--pooler-config", required=True)
     parser.add_argument("--pooler-pod", required=True)
-    parser.add_argument("--app-pod", required=True, action="append")
+    workloads = parser.add_mutually_exclusive_group(required=True)
+    workloads.add_argument("--app-pod", action="append")
+    workloads.add_argument("--pooler-only", action="store_true",
+                           help="Grant only the current pooler; no app capability or cutover readiness")
     args = parser.parse_args()
     try:
-        result = render(args.namespace, args.pooler_config, args.app_pod, args.pooler_pod, args.identity_namespace)
+        result = render(args.namespace, args.pooler_config, args.app_pod or [], args.pooler_pod,
+                        args.identity_namespace, args.pooler_only)
     except ValueError as exc:
         parser.error(str(exc))
     print(json.dumps(result, indent=2))

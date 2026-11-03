@@ -38,6 +38,38 @@ class CutoverAccessTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 access.render("source-dev", "pooler-config", pods, "pooler-a")
 
+    def test_explicit_pooler_only_grants_no_current_or_future_app(self):
+        result = access.render("target-dev", "pooler-config", [], "pooler-a", pooler_only=True)
+        self.assertEqual(result["items"][0]["rules"][1]["resourceNames"], ["pooler-a"])
+        with self.assertRaises(ValueError):
+            access.render("target-dev", "pooler-config", ["app-a"], "pooler-a", pooler_only=True)
+
+    def test_empty_app_set_cannot_silently_pass_full_verification(self):
+        with patch.object(verify, "token_config") as token, self.assertRaises(ValueError):
+            verify.verify("private", "target-dev", "pooler-config", [], "pooler", "db", "pooler")
+        token.assert_not_called()
+
+    def test_pooler_only_report_does_not_claim_app_or_cutover_ready(self):
+        def call(args, payload=None):
+            verb = args[args.index("--namespace") + 2]
+            if verb == "auth":
+                allowed = ("configmaps/pooler-config" in args or "--subresource=exec" in args) and payload == "bravo-executor"
+                return CompletedProcess(args, 0 if allowed else 1, "yes" if allowed else "no", "")
+            if verb == "get" and args[-1] == "name" and ("pods" in args or payload == "bravo-executor"):
+                return CompletedProcess(args, 0, "name", "")
+            if verb == "exec" and "pooler" in args and payload == "bravo-executor":
+                return CompletedProcess(args, 0, "writable", "")
+            return CompletedProcess(args, 1, "", "Forbidden")
+
+        with patch.object(verify, "token_config", side_effect=lambda _k, _n, identity: identity), patch.object(
+            verify, "run", side_effect=call
+        ):
+            report = verify.verify("private", "target-dev", "pooler-config", [], "pooler", "db", "pooler", check_app=False)
+        self.assertTrue(report["passed"])
+        self.assertFalse(report["app_block_read_requested"])
+        self.assertFalse(report["app_access_verified"])
+        self.assertFalse(report["cutover_ready"])
+
     def test_reject_wildcards_and_system_namespaces(self):
         for ns in ("kube-system", "default", "*", "source;evil", "", None):
             with self.assertRaises(ValueError):
