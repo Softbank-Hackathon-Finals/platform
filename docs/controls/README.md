@@ -188,8 +188,32 @@ Prowler와 kube-bench는 점검 수가 공급자 · 버전마다 다르므로 �
 예외 승인의 근거는 **T10이 저장한 서버 승인 기록**이다. JSON의 `approved_by` 문자열은 표시용이고 권한 근거가 아니다. 승인자 권한 확인은 기록을 만들 때 T10이 한다.
 
 - `approval_id`로 서버 기록을 찾고, 문서의 예외가 그 기록과 같아야 한다.
-- 기록의 `scope`(앱, 목적지 환경 ID, 시험 ID, 프로필 ID · 버전)가 지금 게이트와 같아야 한다. 다르면 이 행의 예외가 아니다(T19는 적용하지 않고, T10 · T21은 문서를 거부한다).
+- 기록의 `scope`(앱, 목적지 환경 ID, 시험 ID, 프로필 ID · 버전, 평가 결속값 `context_digest`)가 지금 게이트와 같아야 한다. 다르면 이 행의 예외가 아니다(T19는 적용하지 않고, T10 · T21은 문서를 거부한다).
 - `approved_at ≤ evaluated_at < expires_at`이어야 한다. 아니면 `EXCEPTION_INVALID`로 BLOCK.
+
+#### 계획·평가 결속 (T10 · T19)
+
+여기서 예외는 **한 계획의 고정된 평가에 대한 예외**다. 유효기간 동안 여러 계획에 적용하는 환경 정책 예외가 아니며, 운영 실행 승인도 대신하지 않는다.
+
+T10은 인증된 tenant 안에서 아래 평가 context를 불변으로 저장한다. `gate_id`는 이 context 하나를 식별한다. 계획 수정, 재측정, 원본 교체, 환경·프로필 변경에는 새 context와 새 `gate_id`를 발급하고 예외를 다시 승인받는다. 같은 입력을 다시 조회하거나 검증 시각만 갱신하는 것은 재측정이 아니다.
+
+| context 필드 | 서버가 고정할 내용 |
+|---|---|
+| `tenant_id`, `app`, `gate_id` | 소유 조직, 앱, 고정 평가 ID |
+| `plan_digest` | 승인 대상 불변 계획의 내용 해시 |
+| `profile_id`, `profile_version`, `catalog_digest` | 프로필 ID·버전 및 시험 불변조건을 포함한 전체 카탈로그 해시 |
+| `source_environment_id`, `source_environment_ref`, `target_environment_id`, `target_environment_ref` | 등록 환경 ID 및 실제 자원 참조 |
+| `source_ref`, `target_ref`, `source_digest`, `target_digest` | 양쪽 불변 시험 결과 참조 및 문서 내용 해시 |
+
+`context_digest`는 위 **15개 필드 전체**를 JSON 객체로 직렬화한 UTF-8 바이트의 SHA-256 소문자 64자리다. 문자열은 Unicode를 그대로 유지하고, 키는 정렬하고 구분 공백은 제거한다. 모든 context 값은 문자열이다. Python 기준은 `json.dumps(context, sort_keys=True, separators=(',', ':'), ensure_ascii=False, allow_nan=False).encode('utf-8')`다. 원본 결과·카탈로그 해시도 같은 직렬화를 쓴다. RFC 8785/JCS와 같다고 가정하지 않는다. 다른 언어 구현은 [`evaluation-contexts.json`](evaluation-contexts.json)과 게이트 예시의 결속값을 상호운용 시험으로 확인한다. 증거의 `output_sha256`은 이와 달리 원본 출력 바이트의 해시다.
+
+- `GateComparison.context_digest`, `GateRow.exception.scope.context_digest`, 서버 승인 기록의 결속값이 **현재 서버 context의 해시와 모두 같아야 한다**.
+- T10은 승인 생성 시 현재 context와 승인자 권한을 확인하고 승인 ID·revision·폐기 상태를 저장한다. T19는 현재 서버 기록을 읽기만 한다. 문서의 값을 서버 승인 기록으로 복사해 결속을 재발급하지 않는다.
+- 소비자는 서버 context의 `gate_id`와 문서의 `gate_id`, 양쪽 결과·환경·프로필도 대조한다. 결속값 문자열만 복사했거나, 결속값까지 새로 계산했어도 기존 서버 승인이면 거부한다.
+- 예외가 없는 PASS 문서도 현재 context와 다르면 거부한다. 계획 변경 후 예전 PASS를 현재 계획의 승인 근거로 재사용하지 않는다.
+- 최초 평가 시각뿐 아니라 **실제 소비 시각에도** 기간·폐기·현재 권한을 검사한다. 조회 실패·출처 불명·등록 변경은 BLOCK/거부로 처리한다.
+
+T10의 저장소가 gate ID 재할당을 막는 책임을 갖는다. T19도 context digest를 다시 대조하여 같은 ID의 계획·원본이 변경된 경우 과거 문서와 예외를 거부한다. 이 계약은 T10 저장소가 이미 연결됐다는 의미가 아니며, 실제 연결은 T10/T19 통합 시험에서 확인한다.
 
 ### 게이트 문서를 쓰는 쪽의 검사 (T10 · T21)
 
@@ -198,6 +222,7 @@ Prowler와 kube-bench는 점검 수가 공급자 · 버전마다 다르므로 �
 - 스키마 검증 (전체 판정과 행 판정의 일관성, 예외의 `approval_id` · `scope` 필수는 스키마가 강제한다)
 - 행의 시험 ID가 프로필의 `required_test_ids`와 정확히 같다 (빠짐 · 중복 없음)
 - `EXCEPTION` 행마다 위 "예외 승인의 유효성"
+- 서버의 현재 계획·고정 평가 context와 문서의 `gate_id` · `context_digest` · 결과 참조를 대조하고, 예외가 없어도 다른 계획·평가 문서는 거부
 
 ### 계약 시험
 
@@ -207,6 +232,7 @@ Prowler와 kube-bench는 점검 수가 공급자 · 버전마다 다르므로 �
 |---|---|
 | `gate_input` (T19) | 결과 비어 있음, 같은 시험 두 건, 대조군 생략, 통제 ID 바꿈, 기대값 바꿈, 방법 버전 다름, 앱 · 환경 역할 · 같은 환경, 프로필 밖 결과, 만료 · 대상 불일치 · 평가 뒤 승인된 예외, 유효한 예외, 대조군 실패인데 PASS, 판정과 관찰 불일치 2종 |
 | `gate_document` (T10 · T21) | 프로필 3개 중 1개 행만 남긴 PASS, 중복 행, 판정 불일치 2종, 만료된 예외로 PASS, 서버 기록 없는 예외, 서버 기록과 다른 예외, `approval_id` 없는 예외, 실행 묶음 문제가 있는데 PASS |
+| `evaluation_binding` (T10 · T19) | 같은 고정 평가의 재조회 허용, 문서 gate ID 변경, 다른 계획·게이트, 재측정, 같은 run ID의 증거 변경, 문서와 예외 결속값 위조 거부 (7건) |
 
 ### 스키마가 강제하지 못하는 것
 
@@ -215,7 +241,7 @@ Prowler와 kube-bench는 점검 수가 공급자 · 버전마다 다르므로 �
 - PASS면 `observed`와 `expected`가 같다.
 - 프로필 대조: 필수 시험 · 정확히 한 건 · 불변조건 · 방법 버전
 - 시각 비교: 증거 만료, 예외 승인 기간
-- 다른 문서와의 대조: 두 `ControlRun`의 앱 · 환경, 서버 승인 기록
+- 다른 문서와의 대조: 두 `ControlRun`의 앱 · 환경, 불변 계획·평가 context, 현재 서버 승인 기록과 폐기 상태
 
 ## 5. 게이트 질문
 
@@ -234,7 +260,7 @@ Prowler와 kube-bench는 점검 수가 공급자 · 버전마다 다르므로 �
 
 ## 6. 결과 · 증거 형식
 
-[`control-result.schema.json`](control-result.schema.json)이 계약이다. 세 가지 문서를 정의한다.
+[`control-result.schema.json`](control-result.schema.json)이 계약이다. 다음 문서를 정의한다.
 
 | 문서 | 만드는 쪽 → 쓰는 쪽 | 내용 |
 |---|---|---|
@@ -243,7 +269,7 @@ Prowler와 kube-bench는 점검 수가 공급자 · 버전마다 다르므로 �
 | `GateComparison` | T19 → T10, T21 | 평가 프로필 기준으로 출발지 · 목적지 결과를 시험 ID별로 비교한 게이트 판정과 예외 승인 |
 | `EvaluationProfiles` | T5 → T19, T10 | 시험별 불변조건과 게이트가 요구하는 시험 범위 (`profiles.json`) |
 
-예외 승인은 시험기가 아니라 게이트에서 사람이 하므로 `GateRow.exception`에 둔다. 권한 근거는 `approval_id`가 가리키는 T10 서버 승인 기록이다(4절). API `GET /v1/environments/{id}/controls`(설계 문서 8.9)는 가장 최근 `ControlRun`을 돌려준다. 계약을 바꿀 때는 `schema_version`을 올리고 이 문서와 예시를 함께 고친다.
+예외 승인은 시험기가 아니라 게이트에서 사람이 하므로 `GateRow.exception`에 둔다. 권한 근거는 `approval_id`가 가리키는 T10 서버 승인 기록이다(4절). `evaluation-contexts.json`은 문서 hash를 재현하기 위한 비밀값 없는 시험 벡터이며 서버 등록을 대체하지 않는다. 이번 보완은 미병합 v1 계약의 필수 필드 추가다. 이전 초안의 결속값 없는 게이트·예외는 자동 보충하지 않고 재평가·재승인한다. API `GET /v1/environments/{id}/controls`(설계 문서 8.9)는 가장 최근 `ControlRun`을 돌려준다. 계약을 바꿀 때는 `schema_version`을 올리고 이 문서와 예시를 함께 고친다.
 
 ## 7. 다른 작업에 걸린 전제
 
@@ -269,6 +295,6 @@ Prowler와 kube-bench는 점검 수가 공급자 · 버전마다 다르므로 �
 | DR-01 | "새 환경으로 실제 복원 성공" | 표식 행 id 기준으로 행 수 비교 (DR-01.1) | 쓰기가 계속 들어와 "백업 시점의 행 수"가 정의되지 않는다 |
 | 판정 | "UNKNOWN은 차단" | 시험 UNKNOWN 사유 6개 · 게이트 사유 6개, 허용 대조군, "관찰 못 함"(UNKNOWN)과 "관찰했더니 없음"(FAIL) 구분, 네트워크 차단은 대조군 2개로 장애와 구분 | 서비스 장애로 인한 타임아웃을 "거부"로 오판하지 않기 위해 |
 | 게이트 범위 | (없음) | 버전 있는 평가 프로필이 필수 시험과 시험별 불변조건을 정한다 | 결과가 빠진 시험이 판정에서 사라지지 않게 하고, 대조군 생략 · 기대값 변경을 막기 위해 |
-| 예외 승인 | "승인 · 기간 · 대체 통제" | 서버 승인 기록(`approval_id`)과 범위(`scope`)에 결속, 평가 시각에 유효해야 함, FAIL에만 적용 | 문서 안의 승인자 문자열은 권한 근거가 될 수 없다 |
+| 예외 승인 | "승인 · 기간 · 대체 통제" | 서버 승인 기록(`approval_id`)과 계획·평가 결속값(`context_digest`)에 결속, 평가·소비 시각에 유효해야 함, FAIL에만 적용 | 문서 안의 승인자 문자열은 권한 근거가 될 수 없다 |
 
 `tasks.md`의 T6에는 "pgaudit, CloudTrail 활성화"만 있다. `log_connections`와 EKS 컨트롤 플레인 `audit` 로그 활성화와 로그 위치 전달은 T6 담당(류지환)이 반영하고, 수집 · 검색 검증은 T34가 한다(7절).

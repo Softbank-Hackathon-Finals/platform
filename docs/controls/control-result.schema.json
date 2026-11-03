@@ -132,7 +132,7 @@
     },
     "ExceptionApproval": {
       "type": "object",
-      "description": "대체 불가 예외. 게이트에서 사람이 승인한다. 동등 판정에 넣지 않고 따로 표시한다. 권한의 근거는 approval_id가 가리키는 서버 승인 기록(T10)이다. 이 문서의 approved_by는 표시용이다.",
+      "description": "대체 불가 예외. 게이트에서 사람이 승인한다. 동등 판정에 넣지 않고 따로 표시한다. 권한의 근거는 approval_id가 가리키는 서버 승인 기록(T10)이다. 이 문서의 approved_by는 표시용이다. 계획·평가 단위 예외이며 환경 정책 예외가 아니다. scope.context_digest는 서버 승인 기록과 현재 평가 context에 모두 일치해야 한다.",
       "required": [
         "approval_id",
         "scope",
@@ -157,7 +157,8 @@
             "target_environment_id",
             "test_id",
             "profile_id",
-            "profile_version"
+            "profile_version",
+            "context_digest"
           ],
           "additionalProperties": false,
           "properties": {
@@ -175,6 +176,9 @@
             },
             "profile_version": {
               "type": "string"
+            },
+            "context_digest": {
+              "$ref": "#/$defs/ContextDigest"
             }
           }
         },
@@ -515,7 +519,8 @@
         "target_environment_id",
         "run_issues",
         "decision",
-        "rows"
+        "rows",
+        "context_digest"
       ],
       "additionalProperties": false,
       "properties": {
@@ -589,6 +594,9 @@
           "items": {
             "$ref": "#/$defs/GateRow"
           }
+        },
+        "context_digest": {
+          "$ref": "#/$defs/ContextDigest"
         }
       },
       "allOf": [
@@ -904,6 +912,11 @@
           }
         }
       }
+    },
+    "ContextDigest": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$",
+      "description": "T10이 고정한 평가 context의 SHA-256. 알고리즘과 구성 필드는 README 4절 참조. 문자열 자체는 권한 근거가 아니다."
     }
   }
 }
