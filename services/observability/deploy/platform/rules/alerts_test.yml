@@ -149,3 +149,19 @@ tests:
             exp_annotations:
               summary: "aws/source-db WAL 보관이 실패했다 (최근 10분). 백업 · 복원(DR-01)에 영향"
               runbook: docs/observability/runbooks.md#bravowalarchivingfailing
+
+  # 시각이 새로워도 up=0은 성공한 생존 신호가 아니다.
+  - interval: 10s
+    input_series:
+      - series: 'up{bravo_signal="collector-self", bravo_env="aws"}'
+        values: '0x10'
+      - series: 'up{bravo_signal="collector-self", bravo_env="onprem"}'
+        values: '1x10'
+    alert_rule_test:
+      - eval_time: 30s
+        alertname: BravoEnvUnobservable
+        exp_alerts:
+          - exp_labels: {severity: page, bravo_env: aws}
+            exp_annotations:
+              summary: "aws 환경의 관측 경로가 끊겼다. 이 환경의 지표는 확인 불가다"
+              runbook: docs/observability/runbooks.md#bravoenvunobservable

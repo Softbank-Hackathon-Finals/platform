@@ -5,6 +5,8 @@
 """
 
 import hmac
+import json
+import math
 import os
 import re
 import ssl
@@ -18,6 +20,8 @@ from fastapi import FastAPI, HTTPException, Request
 STALE_AFTER_SECONDS = 30
 ENV_NAME = re.compile(r"^[a-z0-9][a-z0-9-]{0,62}$")
 HTTP_METRIC = "http_server_request_duration_seconds"
+MAX_STORE_BYTES = 2 * 1024 * 1024
+MAX_STORE_ROWS = 10_000
 
 Authorizer = Callable[[Request], bool]
 
@@ -27,6 +31,8 @@ def deny_all(_request: Request) -> bool:
 
 
 def bearer_token(token: str) -> Authorizer:
+    if not isinstance(token, str) or not 32 <= len(token) <= 512 or not token.isascii() or any(c.isspace() for c in token):
+        raise ValueError("invalid observability API token")
     expected = f"Bearer {token}".encode()
 
     def authorize(request: Request) -> bool:
@@ -45,24 +51,77 @@ class Prometheus:
 
     client: httpx.Client
 
-    def query(self, promql: str) -> list[dict]:
+    def _read(self, path: str, *, params=None) -> dict:
         try:
-            r = self.client.get("/api/v1/query", params={"query": promql})
-            r.raise_for_status()
-            body = r.json()
-        except (httpx.HTTPError, ValueError) as e:
-            raise StoreUnavailable(type(e).__name__) from e
-        if body.get("status") != "success":
-            raise StoreUnavailable("query_failed")
-        return body["data"]["result"]
+            with self.client.stream("GET", path, params=params) as response:
+                response.raise_for_status()
+                raw = bytearray()
+                for chunk in response.iter_bytes():
+                    if len(raw) + len(chunk) > MAX_STORE_BYTES:
+                        raise StoreUnavailable("response_too_large")
+                    raw.extend(chunk)
+                body = json.loads(raw)
+            if not isinstance(body, dict) or body.get("status") != "success" or not isinstance(body.get("data"), dict):
+                raise StoreUnavailable("invalid_response")
+            return body["data"]
+        except (httpx.HTTPError, ValueError, RecursionError) as exc:
+            raise StoreUnavailable("store_request_failed") from exc
+
+    def query(self, promql: str) -> list[dict]:
+        data = self._read("/api/v1/query", params={"query": promql})
+        rows = data.get("result")
+        if data.get("resultType") != "vector" or not isinstance(rows, list) or len(rows) > MAX_STORE_ROWS:
+            raise StoreUnavailable("invalid_vector")
+        for row in rows:
+            if not isinstance(row, dict) or not _labels(row.get("metric")):
+                raise StoreUnavailable("invalid_sample")
+            value = row.get("value")
+            if not isinstance(value, list) or len(value) != 2 or type(value[0]) not in (int, float) or not math.isfinite(value[0]) or not isinstance(value[1], str):
+                raise StoreUnavailable("invalid_sample")
+            _number(row)  # reject invalid numeric encoding before any output
+        return rows
 
     def alerts(self) -> list[dict]:
-        try:
-            r = self.client.get("/api/v1/alerts")
-            r.raise_for_status()
-            return r.json()["data"]["alerts"]
-        except (httpx.HTTPError, ValueError, KeyError) as e:
-            raise StoreUnavailable(type(e).__name__) from e
+        rows = self._read("/api/v1/alerts").get("alerts")
+        if not isinstance(rows, list) or len(rows) > MAX_STORE_ROWS:
+            raise StoreUnavailable("invalid_alerts")
+        for row in rows:
+            if not isinstance(row, dict) or not _labels(row.get("labels")) or not _labels(row.get("annotations", {})):
+                raise StoreUnavailable("invalid_alert")
+            if row.get("state") not in ("pending", "firing") or not isinstance(row.get("activeAt"), str):
+                raise StoreUnavailable("invalid_alert")
+        return rows
+
+
+def _labels(value) -> bool:
+    return isinstance(value, dict) and len(value) <= 128 and all(isinstance(k, str) and isinstance(v, str) and len(k) <= 256 and len(v) <= 8192 for k, v in value.items())
+
+
+def _number(row: dict) -> float | None:
+    try:
+        value = float(row["value"][1])
+    except (KeyError, IndexError, TypeError, ValueError, OverflowError) as exc:
+        raise StoreUnavailable("invalid_number") from exc
+    return value if math.isfinite(value) else None
+
+
+def _boolean(row: dict) -> bool | None:
+    value = _number(row)
+    return bool(value) if value in (0.0, 1.0) else None
+
+
+def _heartbeat_query(env: str | None = None) -> str:
+    selector = 'bravo_signal="collector-self"'
+    if env is not None:
+        selector += f',bravo_env="{env}"'
+    metric = f"up{{{selector}}}"
+    return f"time() - max by (bravo_env) (timestamp({metric}) and ({metric} == 1))"
+
+
+def _fresh_series(name: str, selector: str) -> str:
+    metric = f"{name}{{{selector}}}"
+    age = f"time() - timestamp({metric})"
+    return f"({metric} and ({age} >= 0) and ({age} <= {STALE_AFTER_SECONDS}))"
 
 
 def _now() -> str:
@@ -72,8 +131,9 @@ def _now() -> str:
 def _scalar(result: list[dict]) -> float | None:
     if not result:
         return None
-    value = float(result[0]["value"][1])
-    return None if value != value else value  # NaN(0으로 나눔)은 값 없음
+    if len(result) != 1:
+        raise StoreUnavailable("ambiguous_scalar")
+    return _number(result[0])
 
 
 def create_app(
@@ -84,6 +144,14 @@ def create_app(
         raise ValueError(f"invalid environment list: {environments}")
     registered = tuple(environments)
     app = FastAPI(title="T37 observability query API", docs_url=None, redoc_url=None, openapi_url=None)
+
+    @app.middleware("http")
+    async def no_cache(request: Request, call_next):
+        response = await call_next(request)
+        response.headers["Cache-Control"] = "no-store"
+        response.headers["Pragma"] = "no-cache"
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        return response
 
     def guard(request: Request) -> None:
         if authorize(request) is not True:
@@ -107,12 +175,16 @@ def create_app(
     @app.get("/v1/observability/environments")
     def environments_view(request: Request):
         guard(request)
-        rows = run(
-            lambda: store.query(
-                'time() - max by (bravo_env) (timestamp(up{bravo_signal="collector-self"}))'
-            )
-        )
-        ages = {r["metric"].get("bravo_env"): float(r["value"][1]) for r in rows}
+        rows = run(lambda: store.query(_heartbeat_query()))
+        ages = {}
+        for row in rows:
+            env = row["metric"].get("bravo_env")
+            if env not in registered:
+                continue
+            if env in ages:
+                raise HTTPException(503, "store_unavailable")
+            age = _number(row)
+            ages[env] = age if age is not None and age >= 0 else None
         out = []
         for env in registered:
             age = ages.get(env)
@@ -141,10 +213,16 @@ def create_app(
                 "active_at": a.get("activeAt"),
             }
             for a in rows
-            if str(a.get("labels", {}).get("alertname", "")).startswith("Bravo")
+            if str(a.get("labels", {}).get("alertname", "")).startswith("Bravo") and a["labels"].get("bravo_env") in registered
         ]
         alerts.sort(key=lambda a: (a["alertname"] or "", a["environment"] or ""))
         return {"queried_at": _now(), "alerts": alerts}
+
+    def freshness(env: str) -> tuple[bool, float | None]:
+        age = run(lambda: _scalar(store.query(_heartbeat_query(env))))
+        if age is None or age < 0:
+            return False, None
+        return age <= STALE_AFTER_SECONDS, round(age, 1)
 
     @app.get("/v1/observability/environments/{env}/http")
     def http_view(env: str, request: Request):
@@ -157,34 +235,41 @@ def create_app(
             "error_ratio": f'sum(rate({count}{{{sel}, http_response_status_code=~"5.."}}[1m])) / sum(rate({count}{{{sel}}}[1m]))',
             "p95_seconds": f"histogram_quantile(0.95, sum by (le) (rate({HTTP_METRIC}_bucket{{{sel}}}[1m])))",
         }
-        values = run(lambda: {k: _scalar(store.query(q)) for k, q in queries.items()})
+        fresh, age = freshness(e)
+        values = run(lambda: {k: _scalar(store.query(q)) for k, q in queries.items()}) if fresh else dict.fromkeys(queries)
+        for key, value in values.items():
+            if value is not None and (value < 0 or (key == "error_ratio" and value > 1)):
+                values[key] = None
         # 요청이 하나도 없으면 오류율 · p95는 계산할 수 없다(0이 아니다)
         if not values["requests_per_second"]:
             values["error_ratio"] = values["p95_seconds"] = None
-        return {"queried_at": _now(), "environment": e, "window": "1m", **values}
+        return {"queried_at": _now(), "environment": e, "window": "1m", "state": "OK" if fresh and values["requests_per_second"] is not None else "UNOBSERVABLE", "last_received_seconds_ago": age, **values}
 
     @app.get("/v1/observability/environments/{env}/database")
     def database_view(env: str, request: Request):
         guard(request)
         e = env_or_404(env)
         sel = f'bravo_env="{e}"'
+        fresh, age = freshness(e)
+        if not fresh:
+            return {"queried_at": _now(), "environment": e, "state": "UNOBSERVABLE", "last_received_seconds_ago": age, "instances": [], "replication_slots": []}
         up, lag, active = run(
             lambda: (
-                store.query(f"max by (cnpg_cluster, pod, instance_role) (cnpg_collector_up{{{sel}}})"),
+                store.query(f"max by (cnpg_cluster, pod, instance_role) ({_fresh_series('cnpg_collector_up', sel)})"),
                 store.query(
-                    f"max by (cnpg_cluster, slot_name, slot_type) (cnpg_pg_replication_slots_pg_wal_lsn_diff{{{sel}}})"
+                    f"max by (cnpg_cluster, slot_name, slot_type) ({_fresh_series('cnpg_pg_replication_slots_pg_wal_lsn_diff', sel)})"
                 ),
-                store.query(f"max by (cnpg_cluster, slot_name) (cnpg_pg_replication_slots_active{{{sel}}})"),
+                store.query(f"max by (cnpg_cluster, slot_name) ({_fresh_series('cnpg_pg_replication_slots_active', sel)})"),
             )
         )
-        is_active = {(r["metric"].get("cnpg_cluster"), r["metric"].get("slot_name")): float(r["value"][1]) == 1 for r in active}
+        is_active = {(r["metric"].get("cnpg_cluster"), r["metric"].get("slot_name")): _boolean(r) for r in active}
         instances = sorted(
             (
                 {
                     "cluster": r["metric"].get("cnpg_cluster"),
                     "pod": r["metric"].get("pod"),
                     "role": r["metric"].get("instance_role"),
-                    "up": float(r["value"][1]) == 1,
+                    "up": _boolean(r),
                 }
                 for r in up
             ),
@@ -196,7 +281,7 @@ def create_app(
                     "cluster": r["metric"].get("cnpg_cluster"),
                     "slot": r["metric"].get("slot_name"),
                     "type": r["metric"].get("slot_type"),
-                    "lag_bytes": float(r["value"][1]),
+                    "lag_bytes": value if (value := _number(r)) is not None and value >= 0 else None,
                     "active": is_active.get((r["metric"].get("cnpg_cluster"), r["metric"].get("slot_name"))),
                 }
                 for r in lag
@@ -204,8 +289,8 @@ def create_app(
             key=lambda s: (s["cluster"] or "", s["slot"] or ""),
         )
         # 인스턴스 지표가 하나도 없으면 "DB 없음"이 아니라 확인 불가다
-        state = "UNOBSERVABLE" if not instances else "OK" if all(i["up"] for i in instances) else "DOWN"
-        return {"queried_at": _now(), "environment": e, "state": state, "instances": instances, "replication_slots": slots}
+        state = "UNOBSERVABLE" if not instances or any(i["up"] is None for i in instances) else "OK" if all(i["up"] for i in instances) else "DOWN"
+        return {"queried_at": _now(), "environment": e, "state": state, "last_received_seconds_ago": age, "instances": instances, "replication_slots": slots}
 
     return app
 
@@ -219,7 +304,7 @@ def from_env() -> FastAPI:
     ctx = ssl.create_default_context(cafile=f"{tls}/ca.crt")
     ctx.minimum_version = ssl.TLSVersion.TLSv1_3
     ctx.load_cert_chain(f"{tls}/tls.crt", f"{tls}/tls.key")
-    client = httpx.Client(base_url=os.environ["PROMETHEUS_URL"], verify=ctx, timeout=3.0)
+    client = httpx.Client(base_url=os.environ["PROMETHEUS_URL"], verify=ctx, timeout=3.0, trust_env=False)
     envs = [e.strip() for e in os.environ["BRAVO_ENVIRONMENTS"].split(",") if e.strip()]
     return create_app(Prometheus(client), envs, authorize=bearer_token(token))
 
