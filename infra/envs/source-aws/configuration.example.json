@@ -1,0 +1,53 @@
+{
+  "schema_version": 1,
+  "eks_request": {
+    "logging": {"clusterLogging": [{"types": ["api", "audit", "authenticator"], "enabled": true}]}
+  },
+  "cnpg_cluster": {
+    "apiVersion": "postgresql.cnpg.io/v1",
+    "kind": "Cluster",
+    "metadata": {"name": "source-db", "namespace": "source"},
+    "spec": {"postgresql": {"parameters": {
+      "wal_level": "logical",
+      "log_connections": "on",
+      "pgaudit.log": "ddl,role",
+      "pgaudit.log_parameter": "off"
+    }}}
+  },
+  "pooler_service": {
+    "apiVersion": "v1", "kind": "Service",
+    "metadata": {"name": "source-pgbouncer", "namespace": "source"},
+    "spec": {"type": "ClusterIP", "ports": [{"port": 5432, "targetPort": 5432}], "selector": {"app": "source-pgbouncer"}}
+  },
+  "pgbouncer_ini": "[databases]\nchat = host=source-db-rw.source.svc.cluster.local port=5432 dbname=chat\n\n[pgbouncer]\nlisten_port = 5432\nauth_type = scram-sha-256\nserver_tls_sslmode = verify-full\nserver_tls_ca_file = /etc/cnpg-ca/ca.crt\nadmin_users = cutover_control\n",
+  "app_deployment": {
+    "apiVersion": "apps/v1", "kind": "Deployment",
+    "metadata": {"name": "demo-chat", "namespace": "source"},
+    "spec": {"template": {"spec": {"serviceAccountName": "demo-chat", "containers": [{
+      "name": "app",
+      "env": [
+        {"name": "APP_ENV", "value": "aws"},
+        {"name": "DB_HOST", "value": "source-pgbouncer.source.svc.cluster.local"},
+        {"name": "DB_PORT", "value": "5432"},
+        {"name": "DB_NAME", "value": "chat"},
+        {"name": "DB_SECRET_ID", "value": "team-bravo/source/demo-chat/db"},
+        {"name": "ADMIN_TOKEN", "valueFrom": {"secretKeyRef": {"name": "demo-chat-control", "key": "admin-token"}}}
+      ],
+      "readinessProbe": {"httpGet": {"path": "/readyz", "port": 8080}},
+      "livenessProbe": {"httpGet": {"path": "/healthz", "port": 8080}}
+    }]}}}
+  },
+  "secret_store": {
+    "apiVersion": "external-secrets.io/v1", "kind": "SecretStore",
+    "metadata": {"name": "source-secrets", "namespace": "source"},
+    "spec": {"provider": {"aws": {"service": "SecretsManager", "region": "ap-northeast-2",
+      "auth": {"jwt": {"serviceAccountRef": {"name": "source-secret-reader"}}}}}}
+  },
+  "external_secret": {
+    "apiVersion": "external-secrets.io/v1", "kind": "ExternalSecret",
+    "metadata": {"name": "demo-chat-control", "namespace": "source"},
+    "spec": {"refreshInterval": "1h", "secretStoreRef": {"name": "source-secrets", "kind": "SecretStore"},
+      "target": {"name": "demo-chat-control", "creationPolicy": "Owner"},
+      "data": [{"secretKey": "admin-token", "remoteRef": {"key": "team-bravo/source/demo-chat/control", "property": "admin_token"}}]}
+  }
+}

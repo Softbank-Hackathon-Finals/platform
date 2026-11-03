@@ -1,6 +1,6 @@
 # T1 네트워크·공유 상태 검증 — 2026-11-03
 
-팀 `platform` 구현을 사용자 AWS 계정에서 검증했다. 개인 B-free 실측을 재사용하지 않았다. 구현 commit과 파일 SHA-256은 [`source-sha256.json`](source-sha256.json)에 있다. 공유 파일에서는 AWS 계정 번호를 가렸다. 원본 readback과 실행 로그는 운영자 로컬에 보존했다.
+팀 `platform` 구현을 사용자 AWS 계정에서 검증했다. 개인 B-free 실측을 재사용하지 않았다. 구현 commit과 파일 SHA-256은 [`source-sha256.json`](source-sha256.json)에 있다. 공개 readback은 계정 번호·리소스 ID·로그그룹 이름을 가린 사본이며, 원본 readback과 실행 로그는 접근을 제한한 비공개 경로에 보존했다. [가림 manifest](../privacy/redaction-manifest.json)는 원본과 공개본의 SHA-256을 구분한다. 기존 소스 해시는 실측 당시 입력을 가리키며 변경하지 않았다. [공개 증빙 절차](../../public-evidence-policy.md)를 따른다.
 
 | 검증 | 결과 | 증거 수준 |
 |---|---|---|

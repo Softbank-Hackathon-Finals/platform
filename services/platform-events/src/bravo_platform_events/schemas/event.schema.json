@@ -1,0 +1,379 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:bravo:t10:event:1.0",
+  "title": "T10 plan event — local proposal 1.0",
+  "type": "object",
+  "properties": {
+    "schema_version": {
+      "const": "1.0"
+    },
+    "event_id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}:[1-9][0-9]{0,15}$"
+    },
+    "sequence": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 9007199254740991
+    },
+    "plan_id": {
+      "$ref": "#/$defs/identifier"
+    },
+    "run_id": {
+      "$ref": "#/$defs/identifier"
+    },
+    "occurred_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "event_type": {
+      "enum": [
+        "state.changed",
+        "approval.requested",
+        "approval.decided",
+        "gate.completed",
+        "execution.updated"
+      ]
+    },
+    "data": {
+      "type": "object"
+    }
+  },
+  "required": [
+    "schema_version",
+    "event_id",
+    "sequence",
+    "plan_id",
+    "run_id",
+    "occurred_at",
+    "event_type",
+    "data"
+  ],
+  "additionalProperties": false,
+  "$defs": {
+    "identifier": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$"
+    },
+    "state": {
+      "type": "string",
+      "enum": [
+        "COLLECT",
+        "ANALYZE",
+        "PROPOSE",
+        "REHEARSE",
+        "GATE",
+        "AWAIT_APPROVAL",
+        "SHIFT",
+        "CUTOVER",
+        "WATCH",
+        "FAILBACK",
+        "SAFE_HOLD",
+        "NEEDS_HUMAN",
+        "DONE"
+      ]
+    },
+    "digest": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "binding": {
+      "type": "object",
+      "properties": {
+        "plan_id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "plan_digest": {
+          "$ref": "#/$defs/context_digest"
+        },
+        "diff_hash": {
+          "$ref": "#/$defs/digest"
+        },
+        "image_digest": {
+          "$ref": "#/$defs/digest"
+        },
+        "target_environment_id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "expires_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "gate_id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "context_digest": {
+          "$ref": "#/$defs/context_digest"
+        }
+      },
+      "required": [
+        "plan_id",
+        "plan_digest",
+        "diff_hash",
+        "image_digest",
+        "target_environment_id",
+        "expires_at"
+      ],
+      "additionalProperties": false,
+      "dependentRequired": {
+        "gate_id": [
+          "context_digest"
+        ],
+        "context_digest": [
+          "gate_id"
+        ]
+      }
+    },
+    "context_digest": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$",
+      "description": "T5 SHA-256 encoding; see docs/controls/README.md for canonical evaluation context inputs."
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "event_type": {
+            "const": "state.changed"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "data": {
+            "type": "object",
+            "properties": {
+              "from": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/state"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "to": {
+                "$ref": "#/$defs/state"
+              }
+            },
+            "required": [
+              "from",
+              "to"
+            ],
+            "additionalProperties": false
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "event_type": {
+            "const": "approval.requested"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "data": {
+            "type": "object",
+            "properties": {
+              "approval_id": {
+                "$ref": "#/$defs/identifier"
+              },
+              "approval_kind": {
+                "enum": [
+                  "change",
+                  "cutover"
+                ]
+              },
+              "binding": {
+                "$ref": "#/$defs/binding"
+              }
+            },
+            "required": [
+              "approval_id",
+              "approval_kind",
+              "binding"
+            ],
+            "additionalProperties": false,
+            "allOf": [
+              {
+                "if": {
+                  "properties": {
+                    "approval_kind": {
+                      "const": "cutover"
+                    }
+                  }
+                },
+                "then": {
+                  "properties": {
+                    "binding": {
+                      "required": [
+                        "gate_id",
+                        "context_digest"
+                      ]
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "event_type": {
+            "const": "approval.decided"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "data": {
+            "type": "object",
+            "properties": {
+              "approval_id": {
+                "$ref": "#/$defs/identifier"
+              },
+              "approval_kind": {
+                "enum": [
+                  "change",
+                  "cutover"
+                ]
+              },
+              "binding": {
+                "$ref": "#/$defs/binding"
+              },
+              "decision": {
+                "enum": [
+                  "approved",
+                  "rejected",
+                  "expired"
+                ]
+              },
+              "actor_id": {
+                "$ref": "#/$defs/identifier"
+              }
+            },
+            "required": [
+              "approval_id",
+              "approval_kind",
+              "binding",
+              "decision",
+              "actor_id"
+            ],
+            "additionalProperties": false,
+            "allOf": [
+              {
+                "if": {
+                  "properties": {
+                    "approval_kind": {
+                      "const": "cutover"
+                    }
+                  }
+                },
+                "then": {
+                  "properties": {
+                    "binding": {
+                      "required": [
+                        "gate_id",
+                        "context_digest"
+                      ]
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "event_type": {
+            "const": "gate.completed"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "data": {
+            "type": "object",
+            "properties": {
+              "gate_id": {
+                "$ref": "#/$defs/identifier"
+              },
+              "evidence_ref": {
+                "$ref": "#/$defs/identifier"
+              },
+              "decision": {
+                "enum": [
+                  "PASS",
+                  "BLOCK"
+                ]
+              },
+              "context_digest": {
+                "$ref": "#/$defs/context_digest"
+              }
+            },
+            "required": [
+              "gate_id",
+              "context_digest",
+              "decision",
+              "evidence_ref"
+            ],
+            "additionalProperties": false
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "event_type": {
+            "const": "execution.updated"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "data": {
+            "type": "object",
+            "properties": {
+              "execution_id": {
+                "$ref": "#/$defs/identifier"
+              },
+              "step": {
+                "$ref": "#/$defs/identifier"
+              },
+              "status": {
+                "enum": [
+                  "started",
+                  "succeeded",
+                  "failed",
+                  "unknown"
+                ]
+              },
+              "elapsed_ms": {
+                "type": "integer",
+                "minimum": 0
+              }
+            },
+            "required": [
+              "execution_id",
+              "step",
+              "status"
+            ],
+            "additionalProperties": false
+          }
+        }
+      }
+    }
+  ]
+}
