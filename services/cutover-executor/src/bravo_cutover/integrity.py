@@ -14,7 +14,7 @@ from psycopg.types.json import set_json_loads
 
 from bravo_cutover.remote import Unconfirmed
 
-HASH_RULE = "v1:pg-types;pk-order;typed-json;utf8;sha256-length-prefix"
+HASH_RULE = "v1:pg-types-collation;pk-order;typed-json;utf8;sha256-length-prefix"
 
 
 def canonical(value):
@@ -61,6 +61,26 @@ def _append(digest, value) -> None:
     digest.update(encoded)
 
 
+def _collation(raw, actual, database, database_actual):
+    """Compare semantics, not cluster-local OIDs/names (PG16-18 catalog names)."""
+    if raw is None:
+        return None
+    provider = raw["collprovider"]
+    if provider == "d":
+        provider = database["datlocprovider"]
+        collate, ctype = database["datcollate"], database["datctype"]
+        locale = database.get("datlocale", database.get("daticulocale"))
+        rules, version, actual = database.get("daticurules"), database["datcollversion"], database_actual
+    else:
+        collate, ctype = raw["collcollate"], raw["collctype"]
+        locale = raw.get("colllocale", raw.get("colliculocale"))
+        rules, version = raw.get("collicurules"), raw["collversion"]
+    if provider not in ("b", "c", "i") or version != actual:
+        raise Unconfirmed("unsupported or stale collation provider/version")
+    return [provider, raw["collisdeterministic"], database["encoding"],
+            collate, ctype, locale, rules, version, actual]
+
+
 def fingerprint(conn, table: str) -> dict:
     """Call on a dedicated connection; takes a repeatable-read, read-only snapshot."""
     parts = table.split(".")
@@ -73,10 +93,16 @@ def fingerprint(conn, table: str) -> dict:
         if not oid_row or oid_row[0] is None:
             raise Unconfirmed(f"comparison table missing: {table}")
         oid = oid_row[0]
+        database, database_actual = conn.execute("""SELECT to_jsonb(d),
+            pg_database_collation_actual_version(d.oid) FROM pg_database d
+            WHERE datname=current_database()""").fetchone()
         columns = conn.execute("""SELECT a.attname, format_type(a.atttypid,a.atttypmod),
-            a.attnotnull, a.attidentity, a.attgenerated, pg_get_expr(d.adbin,d.adrelid)
+            a.attnotnull, a.attidentity, a.attgenerated, pg_get_expr(d.adbin,d.adrelid),
+            to_jsonb(c), pg_collation_actual_version(c.oid)
             FROM pg_attribute a LEFT JOIN pg_attrdef d ON d.adrelid=a.attrelid AND d.adnum=a.attnum
+            LEFT JOIN pg_collation c ON c.oid=a.attcollation
             WHERE a.attrelid=%s AND a.attnum>0 AND NOT a.attisdropped ORDER BY a.attnum""", (oid,)).fetchall()
+        columns = [(*c[:-2], _collation(c[-2], c[-1], database, database_actual)) for c in columns]
         constraints = conn.execute("""SELECT contype, pg_get_constraintdef(oid, false)
             FROM pg_constraint WHERE conrelid=%s ORDER BY contype, pg_get_constraintdef(oid, false)""", (oid,)).fetchall()
         keys = conn.execute("""SELECT a.attname, a.attcollation <> 0 FROM pg_constraint c

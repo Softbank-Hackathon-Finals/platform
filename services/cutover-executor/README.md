@@ -82,6 +82,9 @@ python3 testing/mockenv.py down
 
 기본 비교기는 실제 행 수, PK 정렬 해시, 전체 행 내용 해시와 테이블/컬럼/제약 스키마 해시를 비교한다.
 콜레이션이 있는 PK는 `C` 순서이며, 타입과 NULL/텍스트/바이너리/숫자/시간/JSON은 별도 태그를 쓴다.
+문자열 컬럼의 비교 의미는 정렬 순서와 별도로 해시에 담는다. collation의 제공자·로케일·규칙·
+deterministic 여부·기록/실제 버전을 비교하며, default는 해당 DB의 로케일 설정으로 해석한다.
+이름과 클러스터별 OID는 제외한다. 기록 버전과 실제 제공자 버전이 다르거나 미지원 제공자면 UNKNOWN이다.
 정확한 숫자는 Decimal 전체 정밀도를 유지하고 UTC timestamp·정렬된 JSON 키·길이 접두어 SHA256을 사용한다.
 양쪽 업무 쓰기 차단과 복제 barrier 확인 뒤 각 연결의 repeatable-read/read-only snapshot을 비교한다.
 공간/확장 사용자 타입 등 미지원 값은 UNKNOWN으로 거부하며 전체 PostgreSQL 타입 호환을 주장하지 않는다.
@@ -90,6 +93,12 @@ python3 testing/mockenv.py down
 비교 영수증은 **목적지 LOGIN 이전** 실행 DB에 저장되고 실패/재시작 결과에도 유지된다.
 MISMATCH면 전환을 취소하며 시퀀스는 감소시키지 않는다. 마지막 ACK 뒤 ConfigMap을 영속화한 후에도
 pooler Pod identity·실제 목적지·RESUME 상태를 다시 읽고, 바뀌면 DONE 대신 SAFE_HOLD와 lease 유지로 끝난다.
+
+사전 점검은 기존 NOLOGIN·PAUSE·앱 쓰기 차단을 인수하지 않는다. 이미 차단된 환경은 상태를 보존한 채
+거부한다. 확인된 기준선(앱/풀러 Pod identity와 초기 상태)과 원격 변경 시작 단계를 실행 DB에 먼저 기록한다.
+변경 시작 전 실패·프로세스 유실은 복구 명령을 보내지 않으며, 시작 후에도 그 단계의 효과만 복원한다.
+기준선이 없는 이전 실행이나 교체된 파드, 실행 범위 밖에서 바뀐 상태는 SAFE_HOLD로 보류한다.
+이 기록은 다른 운영자의 동시 원격 변경을 원자적으로 잠그지는 않으므로, 실행 중 수동 변경은 금지한다.
 
 현재 자동 시험은 임시 PostgreSQL과 원격 대역이다. `EXECUTOR_TEST_POSTGRES_IMAGE=postgres:18.4`
 로 실제 배포 버전의 SQL 경계를 시험할 수 있다. k3d 시험은 해당 환경이 있을 때만 실행한다.

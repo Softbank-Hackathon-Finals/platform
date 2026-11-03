@@ -298,12 +298,19 @@ class Store:
 
     def record_receipt(self, execution_id: UUID, receipt: dict[str, Any]) -> bool:
         """Persist comparison evidence before any target LOGIN, retaining it on failure/restart."""
+        return self._merge_result(execution_id, {"receipt": receipt})
+
+    def record_recovery(self, execution_id: UUID, recovery: dict[str, Any]) -> bool:
+        """Commit the verified baseline and mutation intents before sending remote changes."""
+        return self._merge_result(execution_id, {"recovery": recovery})
+
+    def _merge_result(self, execution_id: UUID, value: dict[str, Any]) -> bool:
         with self._pool.connection() as conn:
             row = conn.execute(
                 """UPDATE executor.executions SET
                    result = COALESCE(result, '{}'::jsonb) || %s, updated_at = now()
                    WHERE execution_id = %s AND status = %s AND owner = %s RETURNING execution_id""",
-                (Jsonb({"receipt": receipt}), execution_id, Status.RUNNING.value, self.owner_id),
+                (Jsonb(value), execution_id, Status.RUNNING.value, self.owner_id),
             ).fetchone()
         return row is not None
 

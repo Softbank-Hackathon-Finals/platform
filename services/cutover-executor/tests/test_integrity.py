@@ -15,12 +15,13 @@ from bravo_cutover.remote.db import DbControl
 
 
 @pytest.fixture
-def pair(postgres_dsn):
+def pair(postgres_dsn, request):
     names = ["integrity_" + uuid4().hex for _ in range(2)]
     with psycopg.connect(postgres_dsn, autocommit=True) as admin:
         try:
-            for name in names:
-                admin.execute(sql.SQL("CREATE DATABASE {}").format(sql.Identifier(name)))
+            options = getattr(request, "param", ["", ""])
+            for name, option in zip(names, options, strict=True):
+                admin.execute(sql.SQL("CREATE DATABASE {} ").format(sql.Identifier(name)) + sql.SQL(option))
             dsns = [make_conninfo(**(conninfo_to_dict(postgres_dsn) | {"dbname": name})) for name in names]
             for dsn in dsns:
                 with psycopg.connect(dsn, autocommit=True) as conn:
@@ -85,3 +86,52 @@ def test_canonical_numbers_and_timestamps_are_exact():
     now = datetime(2026, 11, 3, tzinfo=UTC)
     assert canonical(now) == canonical(now.astimezone(timezone(timedelta(hours=9))))
     assert canonical(None) != canonical("null")
+
+
+def test_identical_rows_with_different_collation_semantics_mismatch(pair):
+    seed(pair)
+    with psycopg.connect(pair[0], autocommit=True) as conn:
+        conn.execute('ALTER TABLE sample ALTER COLUMN content TYPE text COLLATE "C"')
+        assert conn.execute("SELECT count(*) FROM sample WHERE content='null'").fetchone()[0] == 0
+    with psycopg.connect(pair[1], autocommit=True) as conn:
+        conn.execute("CREATE COLLATION foldcase (provider=icu, locale='und-u-ks-level2', deterministic=false)")
+        conn.execute('ALTER TABLE sample ALTER COLUMN content TYPE text COLLATE foldcase')
+        assert conn.execute("SELECT count(*) FROM sample WHERE content='null'").fetchone()[0] == 1
+    result = compare(pair)
+    assert result["verdict"] == "MISMATCH"
+    source, target = (result["tables"][0][side] for side in ("source", "target"))
+    assert source["content_hash"] == target["content_hash"]
+    assert source["schema_hash"] != target["schema_hash"]
+
+
+def test_equivalent_collations_do_not_depend_on_name_or_oid(pair):
+    seed(pair)
+    for i, dsn in enumerate(pair):
+        with psycopg.connect(dsn, autocommit=True) as conn:
+            conn.execute(sql.SQL('CREATE COLLATION {} FROM "C"').format(sql.Identifier(f"alias_{i}")))
+            conn.execute(sql.SQL('ALTER TABLE sample ALTER COLUMN content TYPE text COLLATE {}')
+                         .format(sql.Identifier(f"alias_{i}")))
+    assert compare(pair)["verdict"] == "MATCH"
+
+
+def test_stale_provider_version_is_unconfirmed(pair):
+    seed(pair)
+    with psycopg.connect(pair[1], autocommit=True) as conn:
+        conn.execute("CREATE COLLATION stale (provider=icu, locale='und')")
+        conn.execute('ALTER TABLE sample ALTER COLUMN content TYPE text COLLATE stale')
+        conn.execute("UPDATE pg_collation SET collversion='old-provider-version' WHERE collname='stale'")
+    with pytest.raises(Unconfirmed, match="stale collation"):
+        compare(pair)
+
+
+@pytest.mark.parametrize("pair", [[
+    "TEMPLATE template0 LOCALE_PROVIDER libc LC_COLLATE 'C' LC_CTYPE 'C'",
+    "TEMPLATE template0 LOCALE_PROVIDER icu ICU_LOCALE 'und-u-ks-level2'",
+]], indirect=True)
+def test_default_collation_resolves_actual_database_locale(pair):
+    seed(pair)
+    result = compare(pair)
+    assert result["verdict"] == "MISMATCH"
+    source, target = (result["tables"][0][side] for side in ("source", "target"))
+    assert source["content_hash"] == target["content_hash"]
+    assert source["schema_hash"] != target["schema_hash"]

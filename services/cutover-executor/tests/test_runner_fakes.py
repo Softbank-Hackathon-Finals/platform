@@ -173,6 +173,10 @@ class FakeEntry:
     def running(self):
         return ["app-0"]
 
+    def identities(self):
+        return [{"name": "app-0", "uid": "app-uid-" + self.ns, "restarts": 0,
+                 "ready": True, "terminating": False}]
+
     def close_websockets(self):
         self.w.did(f"{self.ns}.ws:1012")
         return {"app-0": 1}
@@ -347,7 +351,7 @@ def test_pgbouncer_pod_changed_during_execution_is_unknown(store, world, when, c
     assert execution.status in (Status.ABORT_PRE_WRITE, Status.SAFE_HOLD), execution.result
     assert "pgbouncer pod changed" in execution.result["error"]
     if execution.committed_at is None:
-        assert execution.status == Status.ABORT_PRE_WRITE  # 확정 전이면 원상 복구
+        assert execution.status == Status.SAFE_HOLD  # replacement process is not ours to resume
     else:
         assert execution.status == Status.SAFE_HOLD
     assert not (world.login["src"] and world.login["dst"])
@@ -527,3 +531,98 @@ def test_waits_are_capped_by_remaining_budget(store, world):
     FakeCutover(store, world, clock=clock).run(execution_id)
     assert time.monotonic() - began < 3  # barrier_timeout_s(10초)까지 기다리지 않았다
     assert store.get(execution_id).status == Status.ABORT_PRE_WRITE
+
+
+@pytest.mark.parametrize("restriction", ["nologin", "pause", "write_block"])
+def test_preexisting_restrictions_are_not_released_on_precheck_failure(store, world, restriction):
+    if restriction == "nologin":
+        world.login["src"] = False
+    elif restriction == "pause":
+        world.paused["src"] = True
+    else:
+        world.blocked = {"src": True, "dst": True}
+    before = (world.login.copy(), world.paused.copy(), world.blocked.copy())
+    execution_id = start(store)
+    FakeCutover(store, world).run(execution_id)
+    execution = store.get(execution_id)
+    assert execution.status == Status.ABORT_PRE_WRITE
+    assert execution.result["restored"] == []
+    assert (world.login, world.paused, world.blocked) == before
+    assert world.calls == []
+
+
+class ProcessLost(BaseException):
+    pass
+
+
+@pytest.mark.parametrize("point", ["before:precheck", "before:entry", "before:pause", "before:compare"])
+def test_restart_uses_durable_baseline_and_effect_boundary(store, postgres_dsn, world, point):
+    from bravo_cutover.store import Store
+
+    execution_id = start(store)
+
+    def lost(_run):
+        raise ProcessLost()
+
+    with pytest.raises(ProcessLost):
+        FakeCutover(store, world, hooks={point: lost}).run(execution_id)
+    if point in ("before:precheck", "before:entry"):
+        # Maintenance restriction after the process died must not be undone by recovery.
+        world.login["src"] = False
+        world.paused["src"] = True
+        world.blocked = {"src": True, "dst": True}
+    prior_calls = list(world.calls)
+    newer = Store(postgres_dsn)
+    try:
+        FakeCutover(newer, world).recover()
+        execution = newer.get(execution_id)
+        assert execution.status == Status.ABORT_PRE_WRITE, execution.result
+        if point in ("before:precheck", "before:entry"):
+            assert world.calls == prior_calls
+            assert world.login["src"] is False and world.paused["src"] is True
+            assert all(world.blocked.values())
+        elif point == "before:pause":
+            assert "src.resume" not in world.calls and "src.set_login:True" not in world.calls
+            assert not any(world.blocked.values())
+        else:
+            assert world.login == {"src": True, "dst": False}
+    finally:
+        newer.close()
+
+
+def test_legacy_running_execution_without_baseline_is_held(store, world):
+    execution_id = start(store)
+    assert store.claim(execution_id)
+    store.record_step(execution_id, "fence", "started")
+    world.login["src"] = False
+    FakeCutover(store, world).recover()
+    assert store.get(execution_id).status == Status.SAFE_HOLD
+    assert world.calls == [] and world.login["src"] is False
+
+
+def test_block_added_between_precheck_and_entry_is_preserved(store, world):
+    execution_id = start(store)
+
+    def maintenance(_run):
+        world.blocked["src"] = True
+
+    FakeCutover(store, world, hooks={"before:entry": maintenance}).run(execution_id)
+    assert store.get(execution_id).status == Status.ABORT_PRE_WRITE
+    assert world.blocked["src"] is True and world.calls == []
+
+
+def test_process_loss_inside_precheck_preserves_existing_restrictions(store, world, monkeypatch):
+    execution_id = start(store)
+    world.blocked = {"src": True, "dst": True}
+
+    def lost(_self):
+        raise ProcessLost()
+
+    with monkeypatch.context() as patch:
+        patch.setattr(FakeEntry, "get", lost)
+        with pytest.raises(ProcessLost):
+            FakeCutover(store, world).run(execution_id)
+    assert store.get(execution_id).result["recovery"] == {"version": 1, "baseline": None, "effects": []}
+    FakeCutover(store, world).recover()
+    assert store.get(execution_id).status == Status.ABORT_PRE_WRITE
+    assert world.calls == [] and all(world.blocked.values())

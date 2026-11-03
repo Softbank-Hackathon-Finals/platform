@@ -149,6 +149,12 @@ class WriteBlock:
     def running(self) -> list[str]:
         return self._kube.running_pods(self._ns, self._selector)
 
+    def identities(self) -> list[dict]:
+        pods = self._kube.pod_details(self._ns, self._selector)
+        if not pods or any(not p["ready"] or p["terminating"] for p in pods):
+            raise Unconfirmed("app pod set is empty, not Ready or changing")
+        return sorted(pods, key=lambda p: p["name"])
+
     def pods(self) -> list[str]:
         return self._kube.all_pods(self._ns, self._selector)
 
