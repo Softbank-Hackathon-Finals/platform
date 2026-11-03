@@ -14,8 +14,8 @@ provider "aws" {
   allowed_account_ids = [var.account_id]
   default_tags {
     tags = {
-      project      = var.name
-      component    = "network"
+      project      = "bravo-platform"
+      component    = "platform"
       owner        = var.owner
       "managed-by" = "terraform"
     }
