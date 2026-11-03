@@ -1,0 +1,27 @@
+{
+  "format_version": 1,
+  "checkout_commit": "e6c06320b07ffaeeb0549803709d97355d37aee6",
+  "observed_at": "2026-11-03T11:13:34.966458+00:00",
+  "artifact": {
+    "path": "runtime-readback.json",
+    "original_bounded_stdout_sha256": "5fc5a0dab7b426159093e2a3b35d1881c80bcb1cd94260f6dc782d27e9a646c3",
+    "public_sha256": "5fc5a0dab7b426159093e2a3b35d1881c80bcb1cd94260f6dc782d27e9a646c3",
+    "public_is_raw": true,
+    "extraction": "Exact StandardOutputContent bytes from the private successful SSM read invocation; not the complete provider response.",
+    "redactions": {}
+  },
+  "private_provider_response_sha256": "b01c6c6dd8dc086e1aa3e8d19d88c2ea88eaf8b2b7456656018ca3f6bc84dbae",
+  "private_command_receipt_sha256": "11d61f483ec081d3e13466543ebca16e3267aa53566442b868059dbba60184c1",
+  "checkpoint_sha256": "e7ee13a09682a5ba3771250c7764931f6dc2d83f0bbe9faaa6d3cd88c2dfadd0",
+  "source_binding_verified": true,
+  "credential_values_present": false,
+  "cleanup_artifact": {
+    "path": "cleanup-readback.json",
+    "original_bounded_stdout_sha256": "5c8200bb4fc2805d4fca278f8e50b326032d39e597082e7b654ac3ac9024a38b",
+    "public_sha256": "5c8200bb4fc2805d4fca278f8e50b326032d39e597082e7b654ac3ac9024a38b",
+    "public_is_raw": true,
+    "private_provider_response_sha256": "c14a742f93341214c615e746a25079296e5ae743cef5a8e9d038f80aa2cbec00",
+    "source_sha256": "227b8278bba31a003307fc0795cd40f930c86eba82775ff79fdc9138eed0612e",
+    "redactions": {}
+  }
+}

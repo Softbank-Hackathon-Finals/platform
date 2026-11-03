@@ -52,7 +52,7 @@ pgx와 client-go를 쓴다.
 **지킬 것**
 
 * 판정 · 실행 모듈 원칙에 따라 Executor 패키지는 LLM 클라이언트를 의존성에 넣지도, import하지도 않는다.
-* 단계별 deadline은 클라이언트 타이머만으로 두지 않는다. 클라이언트에서 시간이 끝나도 서버 쪽 작업은 계속될 수 있으므로 `connect_timeout` · `statement_timeout` · `lock_timeout`을 서버 쪽에도 건다.
+* 단계별 deadline은 클라이언트 타이머만으로 두지 않는다. `connect_timeout`은 클라이언트의 연결 대기 제한이다. 클라이언트에서 시간이 끝나도 서버 쪽 작업은 계속될 수 있으므로 서버에는 `statement_timeout` · `lock_timeout`을 별도로 건다.
 
 **남은 일**
 

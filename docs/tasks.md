@@ -54,7 +54,7 @@ Claude Code는 `/todo-task`, Codex는 `$todo-task`로 이 순서를 따르는 �
 - `T25` 반복 측정 · 장애 주입 · SAFE_HOLD 시험 (P1)
 - `T26` Harbor 평가: 결함 시나리오 반복 (역할 확정 후) (P1)
 
-**이상무** · 보안 통제 · 게이트, 플랫폼 API · 콘솔 · 데모 앱 (10개, P0 8개)
+**이상무** · 보안 통제 · 게이트, 플랫폼 API · 콘솔 · 데모 앱 (12개, P0 9개)
 - `T4` 데모 앱 v0: 채팅 스텁 (P0)
 - `T5` 6개 통제 시험 설계 (P0)
 - `T14` 통제 시험기와 통제 비교표 (P0)
@@ -65,6 +65,8 @@ Claude Code는 `/todo-task`, Codex는 `$todo-task`로 이 순서를 따르는 �
 - `T33` 보안 탐지 통합: AWS · Google Cloud · 온프렘 탐지를 한 형식 · 한 화면으로 (P1)
 - `T34` 감사 로그 수집: 출발지 · 목적지 (DB 접속 · DDL · K8s 권한 변경) (P0)
 - `T35` CNPG 백업 · 복원: 출발지 · 목적지 (P0)
+- `T36` 판정용 관측 계약: 오류율 · p95 창 요약과 SHIFT · WATCH 판정 규칙 (P0)
+- `T37` 환경 횡단 지표 수집: OpenTelemetry Collector → 플랫폼 지표 저장소 (P1)
 
 **전동훈** · 보안 통제 · 게이트, 에이전트 · 리허설 (6개, P0 4개)
 - `T9` 목적지 보안 구성요소: OpenBao · ESO · SeaweedFS (P0)
@@ -115,8 +117,8 @@ Claude Code는 `/todo-task`, Codex는 `$todo-task`로 이 순서를 따르는 �
 **목표** 새 VM에 스크립트 한 번으로 같은 기준의 목적지가 선다.
 
 **할 일**
-- [ ] CIS 조건(sysctl, etcd 사용자)을 cloud-init에 고정
-- [ ] kube-bench 실행
+- [x] CIS 조건(sysctl, etcd 사용자)을 cloud-init에 고정
+- [x] kube-bench 실행
 - [ ] 온프렘 데모 머신 확정 후 같은 스크립트로 재설치 확인
 
 **완료 기준** 새 VM에서 RKE2가 CIS 프로필로 뜨고 kube-bench 결과가 나온다.
@@ -300,8 +302,8 @@ Claude Code는 `/todo-task`, Codex는 `$todo-task`로 이 순서를 따르는 �
 **목표** 판정 기준과 규제 근거를 조항 단위로 잇는다.
 
 **할 일**
-- [ ] 일본 금융청 가이드라인 조항 확인
-- [ ] 전자금융감독규정 시행세칙 별표7 조항 확인
+- [x] 일본 금융청 가이드라인 조항 확인
+- [x] 전자금융감독규정 시행세칙 별표7 조항 확인
 
 **완료 기준** 매핑표의 "원문 확인" 칸이 모두 출처와 함께 채워진다.
 
@@ -358,7 +360,7 @@ Claude Code는 `/todo-task`, Codex는 `$todo-task`로 이 순서를 따르는 �
 **목표** 오류율 · p95 판정이 평가 대상 밖에서 잰 값으로, 같은 입력이면 같은 결과로 나오고, 관측이 끊기면 진행하지 않는다.
 
 **할 일**
-- [ ] 판정 계약 고정: 스키마 · 기준 프로필 · 계약 시험 (docs/observability)
+- [x] 판정 계약 고정: 스키마 · 기준 프로필 · 계약 시험 (docs/observability)
 - [ ] T17 · T18 · T10 담당과 계약 합의: 판정 구현 · 창 요약 생산 · 판정 기록 저장과 이벤트
 - [ ] 데모 앱 응답에 처리 환경 헤더 `X-Bravo-Env` (T22와 협의)
 - [ ] 기준 프로필 실측 확정: p95 상한(T8 지연 실측), UNKNOWN 연속 한도(T17 가중치 반영 시간)
@@ -414,7 +416,7 @@ Claude Code는 `/todo-task`, Codex는 `$todo-task`로 이 순서를 따르는 �
 
 **어디에 필요** S1 분류와 S2 수정의 주체(8.3).
 
-**만들 것** Claude Agent SDK 워커, 도구 화이트리스트, 파괴적 명령 차단 목록, 제안서 JSON Schema, 실패 원인 추정 · 승인용 요약, 입출력 기록.
+**만들 것** 관리자 구독(SIWC) 기반 OpenAI Responses 워커와 선택형 Claude 어댑터(ADR-0007 제안), 도구 화이트리스트, 파괴적 명령 차단 목록, 제안서 JSON Schema, 실패 원인 추정 · 승인용 요약, 입출력 기록.
 
 - **우선순위** P0 · **영역** 에이전트 · 리허설 · **담당** 전동훈
 - **선행** `T7` · **후속** `T15`, `T16`, `T32` · **설계 문서** 8.3, NFR-4~5
@@ -524,6 +526,10 @@ Claude Code는 `/todo-task`, Codex는 `$todo-task`로 이 순서를 따르는 �
 - [ ] epoch · Idempotency-Key 처리
 - [ ] ABORT_PRE_WRITE · SAFE_HOLD 분기
 - [ ] 진입점 쓰기 차단은 앱 쓰기 차단 스위치(T4)로 호출
+- [ ] 출발지 WebSocket 1012 종료 (demo-chat 관리 API로 호출)
+- [ ] 무결성 비교를 T13에 연결 (임시 비교 `UNVERIFIED` 제거)
+- [ ] Executor 배포: 이미지 · 플랫폼 클러스터 매니페스트 · 두 클러스터 권한
+- [ ] 실제 환경(T8 · T30)에서 컷오버 1회 · ABORT_PRE_WRITE · SAFE_HOLD 확인
 
 **완료 기준** 부하 없이 컷오버 1회 성공, ABORT_PRE_WRITE · SAFE_HOLD 분기를 각 1회 시험.
 

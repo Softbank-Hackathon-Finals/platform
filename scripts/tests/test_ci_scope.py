@@ -110,6 +110,21 @@ class ScopeTest(unittest.TestCase):
         plan = scope.select(FILES + ["services/a/sub/pyproject.toml"], ["services/a/sub/api.py"])
         self.assertEqual(len(plan["projects"]), 2)
 
+    def test_tool_and_infra_projects_keep_their_own_dependency_checks(self):
+        for directory in ("scripts/iam-console", "infra/validator"):
+            with self.subTest(directory=directory):
+                manifest = directory + "/pyproject.toml"
+                files = FILES + [manifest]
+                for changed in (manifest, directory + "/client.py", directory + "/tests/test_client.py"):
+                    plan = scope.select(files, [changed])
+                    self.assertEqual(plan["projects"], [{"path": directory, "kind": "python"}])
+                    self.assertEqual(plan["scripts"], directory.startswith("scripts/") or changed.endswith(".py"))
+                    self.assertEqual(plan["infra"], directory.startswith("infra/"))
+
+    def test_removing_tool_manifest_still_checks_all_consumers(self):
+        plan = scope.select(FILES, ["scripts/iam-console/pyproject.toml"])
+        self.assertTrue(plan["full"])
+
     def test_unsafe_matrix_directory_is_rejected(self):
         with self.assertRaises(ValueError):
             scope.projects(["services/a\nunsafe/pyproject.toml"])

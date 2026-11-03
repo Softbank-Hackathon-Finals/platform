@@ -1,0 +1,56 @@
+{
+  "scope": "owned local kind namespace; not team AWS EKS or on-prem RKE2",
+  "date": "2026-11-03",
+  "client": "18.4 (Debian 18.4-1.pgdg13+1)",
+  "pooler": "PgBouncer 1.25.2 / CloudNativePG 1.30.1",
+  "source_sha256": "34d32c602e91d78dc94b79724f81c24036ffb6c6510653ba76d352ea12102792",
+  "tests": [
+    {
+      "test": "ENC-01.1",
+      "observed": "success",
+      "positive_control": "not_applicable",
+      "unknown_reason": null,
+      "sha256": "sha256:c6d9d47740eaaca5854c906bdc764f5d37b0710956ecfdf8c4d7c0102de81e0c"
+    },
+    {
+      "test": "ENC-01.2",
+      "observed": "deny",
+      "positive_control": "pass",
+      "unknown_reason": null,
+      "sha256": "sha256:17dcae3cc9008c77bb1a4f2295fa3b2463d8be4d82513c64fdcb36507d6b24bb"
+    },
+    {
+      "test": "ENC-01.3",
+      "observed": "deny",
+      "positive_control": "pass",
+      "unknown_reason": null,
+      "sha256": "sha256:4040987617b903a87f2c0a90f7d26c0bd4643848ab28e0d471b118e1059a9c5a"
+    }
+  ],
+  "negative_controls": {
+    "wrong_password_is_unknown": true,
+    "plaintext_policy_allow_observed": "allow",
+    "tls_required_restored_and_retested": true
+  },
+  "runtime_boundary": {
+    "same_namespace": true,
+    "service_account_token": false,
+    "root_filesystem_read_only": true,
+    "non_root": true,
+    "capabilities_dropped": true,
+    "seccomp": "RuntimeDefault",
+    "temporary_files_memory_volume": true
+  },
+  "not_verified": [
+    "team AWS/RKE2 registrations",
+    "pooler-to-DB ENC-01.5",
+    "replication ENC-01.4",
+    "production credential delivery and network policy"
+  ],
+  "source_commit": "cd4f2ba",
+  "validation": {
+    "tests_passed": 341,
+    "subtests_passed": 58,
+    "real_gitleaks_included": true
+  }
+}

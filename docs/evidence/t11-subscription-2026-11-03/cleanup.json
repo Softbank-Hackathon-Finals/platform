@@ -1,0 +1,42 @@
+{
+  "source_hashes_match": true,
+  "file_count": 29,
+  "model_results": [
+    {
+      "run": 1,
+      "sha256": "4ae7b70d894374779c4ffb9d842d14d26331745f5531943784c818ba5983dfa3",
+      "state": "PROPOSAL_READY",
+      "model_usage": {
+        "provider": "chatgpt_plan",
+        "model": "gpt-6.1-sol",
+        "requests": 2,
+        "total_tokens": 1493
+      }
+    },
+    {
+      "run": 2,
+      "sha256": "a68ead1476d4b229ac5ceb918654e2011fb45e75fbbb5035321f9d12192cf78e",
+      "state": "PROPOSAL_READY",
+      "model_usage": {
+        "provider": "chatgpt_plan",
+        "model": "gpt-6.1-sol",
+        "requests": 2,
+        "total_tokens": 1543
+      }
+    }
+  ],
+  "validation_unit": "inactive",
+  "temporary_runtime_removed": true,
+  "host_id_preserved": true,
+  "temporary_results_removed": true,
+  "rke2_active": true,
+  "ssm_command_id_sha256": "589033c36aff3f6a8e853efaf4fdd9a6388bf6dfc8faf0d0d1e067898cd4110d",
+  "raw_receipt_sha256": "372d305fa06aa4aabfebc99fa46c01091471fd06879e0f2e55cb6e0e3ae006ef",
+  "encrypted_port_forward_terminated": true,
+  "retained_for_reuse": [
+    "app-owned administrator session in AWS Secrets Manager",
+    "exact-secret broker IAM role trusted only by current administrator",
+    "designated VM host ID"
+  ],
+  "automatic_runtime_deployment": false
+}

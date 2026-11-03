@@ -1,0 +1,11 @@
+{
+  "library_commit": "2ec5ec834c63f75ff8432c59c1224d1fa4ac2ef2",
+  "python": "3.12.12",
+  "botocore": "1.43.123",
+  "artifact_sha256": {
+    "summary.json": "052512c56caade6fa1de5719f335d8d7bf2ab122aae14167fe6ec5401ca5f02a",
+    "IAM-01.1.json": "4b94b9d769448ad7d25b46f9884313a2d093d45351b5ee97946a2e2c0b70729e",
+    "control-run.json": "8ce01869be16cac21b3a707a847b6628299fea8b3fc70376d2421db43848a416",
+    "SEC-01.1.json": "527022071c2e1c3825317a6de6a946530ff3cb556c97d897b3599cf7b5a8295e"
+  }
+}
