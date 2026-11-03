@@ -1,4 +1,4 @@
 # 코드 오너. 보안 경계 파일이 생기면 여기에 추가한다.
-# 아래 파일을 바꾸는 PR은 코드 오너에게 리뷰 요청 알림이 간다. 승인은 필요 없다(main ruleset의 코드 오너 리뷰 꺼짐).
+# 아래 파일을 바꾸는 PR은 코드 오너에게 리뷰 요청 알림이 간다. main/develop의 PR은 팀원 승인 1건 이상이 필요하다. 특정 코드 오너 승인을 강제하는 별도 규칙은 두지 않는다.
 /.github/CODEOWNERS  @baekyutae @Jeonsubb @kth4778 @mangowhoiscloud @sangmu1126
 /.github/workflows/  @baekyutae @Jeonsubb @kth4778 @mangowhoiscloud @sangmu1126

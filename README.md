@@ -82,7 +82,7 @@ platform/
 ## 팀원 작업 방법
 
 1. [프로젝트 보드](https://github.com/orgs/Softbank-Hackathon-Finals/projects/2)나 [`docs/tasks.md`](docs/tasks.md)에서 맡은 작업을 찾는다. 진행 상황의 기준은 보드(이슈)다.
-2. `develop`에서 `feature/T번호-설명` 브랜치를 만들어 `develop`으로 PR을 올린다. 대상 브랜치의 현재 ruleset·필수 CI·리뷰 요건을 확인한 뒤 merge commit으로 합친다. `main`은 release/hotfix로 반영한다. [Gitflow 순서](docs/development.md)와 [리뷰 안내](docs/review-playbook.md)를 따른다.
+2. `develop`에서 `feature/T번호-설명` 브랜치를 만들어 `develop`으로 PR을 올린다. 대상 브랜치의 현재 ruleset·필수 CI·리뷰 요건을 충족한 뒤 merge commit으로 합친다. 이 조건을 GitHub가 확인하도록 기본 auto-merge를 예약할 수 있다. `main`은 release/hotfix로 반영한다. [Gitflow 순서](docs/development.md)와 [리뷰 안내](docs/review-playbook.md)를 따른다.
 3. 커밋 메시지와 PR 제목 앞에 `[T번호]`. 끝낸 할 일은 **이슈에서** 체크한다. 보드 이동과 tasks.md 갱신은 자동이다. 계획(완료 기준 · 할 일 · 새 작업)을 바꿀 때는 `tasks.md`를 고쳐 PR로 올린다.
 4. Claude Code에서는 `/todo-task`, Codex에서는 `$todo-task`로 이 과정을 스킬로 진행할 수 있다.
 
