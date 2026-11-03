@@ -2,7 +2,7 @@
 
 병합된 T5의 프로필·시험 불변조건·서버 예외 승인 계약을 실행하는 결정적 Python 모듈이다. 보안 게이트 계산과 T10/T21의 소비 검증을 제공한다. LLM·클라우드 변경·시험 실행·예외 승인 발급은 하지 않는다.
 
-**범위:** T19의 보안 전제조건. `CombinedGateService`는 T13 데이터 준비 관측과 보안 결과를 함께 검사한다. 실제 T13 수집기·T14 환경 연결·T10 운영 승인 및 실행권 통합은 별도다. `SecurityPrerequisite.authorizes_cutover`는 항상 `False`다. T19 이슈 전체의 완료나 실환경 동등성 검증 완료로 간주하지 않는다.
+**범위:** T19의 보안 전제조건. `CombinedGateService`는 T13 데이터 준비 관측과 보안 결과를 함께 검사한다. 실제 T13 수집기·T14 환경 연결·T10 운영 공급자 연결은 별도다. 선택적 T10 어댑터는 실제 승인·실행 접수 코드와 SQLite/PostgreSQL에서 시험한다. `SecurityPrerequisite.authorizes_cutover`는 항상 `False`다. T19 이슈 전체의 완료나 실환경 동등성 검증 완료로 간주하지 않는다.
 
 ## 계약 출처
 
@@ -134,3 +134,61 @@ uv run pytest -q
 시험은 인증 공급자 대역과 합성 데이터, 실제 T14 Runner 코드의 상호운용을 사용한다.
 실제 EKS/RKE2 데이터 수집, T10 정본 저장소·인증/현재 정책, T13 규칙 확정과 SQL 관측,
 실제 컷오버는 아직 연결하지 않았으며 T19 완료 조건은 열린 상태로 유지한다.
+
+
+## T10 승인·실행 접수 어댑터
+
+`bravo_gate.t10.T10GateAuthority`는 T10 `CutoverService.authority`에 연결한다.
+기존 운영 권한·SHIFT·보안 보류·실행 epoch 검사 공급자 `upstream`을 필수로 받아
+T19를 추가한다. T19가 운영 승인이나 실행권을 대신 발급하지 않는다.
+선택 의존성 `bravo-control-gate[t10]`을 설치하고 같은 버전의 `bravo-platform-events`를 제공한다.
+저장소 개발 환경에서는 uv가 인접한 platform-events 패키지를 사용한다.
+
+```python
+from bravo_gate.t10 import T10GateAuthority
+
+# 두 공급자는 호스트의 인증된 서버 구현이다. 기본 허용 공급자는 없다.
+authority = T10GateAuthority(
+    upstream=current_operational_authority,
+    load_session=load_registered_plan_gate_session,
+)
+# CutoverService(..., authority=authority, check_access=...)에 전달한다.
+```
+
+`load_session(connection, principal, plan)`은 T10이 전달한 **동일 트랜잭션**에서
+인증된 tenant·plan ID로 등록을 읽고 `PlanGateSession`을 반환한다.
+세션에는 `service`, `plan_id`, `context_id`, `context`, 불변 `report`, `readiness`,
+서버 예외 `approval_ids`가 들어간다. service의 모든 조회·권한·폐기 콜백도 같은
+계획 잠금 경계에 연결한다. 요청 본문을 결과 등록으로 쓰지 않는다.
+
+| 접수 조건 | 검사 및 실패 처리 |
+| --- | --- |
+| 계획·테넌트·앱 | 서버 계획과 세션·context·T10 binding/command를 대조. 다른 계획에 재사용 거부 |
+| 대상 자원 | 양쪽 환경 ID와 등록 DB 참조, gate/context/plan hash 대조 |
+| 현재 결과 | 보안 정본·데이터 준비·권한·예외·기한 재검증. BLOCK/미확인/만료는 승인·실행 거부 |
+| 검사 중 변경 | 운영 판단과 등록을 다시 읽어 변경 또는 5초 이하 전제조건 만료 시 거부 |
+| 승인 후 변경 | 정확한 결과·정책·등록의 지문을 T10 승인 context에 포함. 새 PASS라도 재승인 필요 |
+| 응답 유실 | 기존 T10의 durable claim·SAFE_HOLD·조회 전용 복구 유지. 자동 재실행 금지 |
+
+5초짜리 전제조건은 승인 이후 저장해 재사용하지 않고 매 접수 때 다시 발급한다.
+검사 시각만 바뀌어도 사람의 승인이 매번 무효화되는 문제를 피하기 위해, 승인 지문은
+정확한 등록 결과와 운영 revision에 결속한다. 실제 원본·정책·권한 변경은 계속 차단한다.
+검사 후 실행 claim까지의 트랜잭션 시간 제한과 실행기의 기한·epoch 확인은 T10/T12 책임이다.
+
+### 운영 인계에서 반드시 검증할 사항
+
+1. 등록·권한 회수 writer와 소비자가 같은 plan lock을 사용하고 tenant를 먼저 제한한다.
+   Python 콜백이 실제로 올바른 DB 격리를 구현했는지는 이 어댑터가 자동 증명하지 않는다.
+2. `load_session`과 모든 하위 공급자의 timeout·재시도·정본 인증 및 운영 로그인 연결을 시험한다.
+3. 실제 T13/T14 입력을 공급하고 SHIFT 관측·보류·승인 폐기를 같은 접수 경계에서 확인한다.
+4. T12 Executor의 최종 쓰기 정지 비교와 fencing, 응답 유실·프로세스 재시작 복구를 실환경에서 검증한다.
+
+`tests/test_t10_interop.py`는 **실제 T10 SQLite/PostgreSQL 저장소와 승인·접수 코드**를 사용한다.
+PostgreSQL은 임시 Unix socket 서버이며 비관리자 runtime 역할을 사용한다. T10 소유 시험
+bootstrap을 재사용하며 기존 서버에 접속하지 않는다. 결과 저장은 테스트용 append-only
+기록으로만 연결한다. 운영 기록 스키마·API를 새로 정의한 것이 아니다.
+통제/데이터 관측과 운영 정책은 합성 fixture, Executor는 기록용 대역이다.
+따라서 이 시험은 실제 클라우드 컷오버·운영 인증·외부 서비스 사이의 원자성을 입증하지 않는다.
+
+전체 시험에는 PostgreSQL 서버 도구(`pg_config`, `initdb`, `pg_ctl`, `postgres`)가 필요하다.
+도구가 없으면 PostgreSQL 시험을 생략하지 않고 실패한다.
