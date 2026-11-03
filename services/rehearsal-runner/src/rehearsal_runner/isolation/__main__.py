@@ -36,7 +36,14 @@ def run(kube: Kubectl, fx: Fixtures, profile_path: Path) -> list[Result]:
     ready = checks.pods_ready(kube, fx)
     if ready.status is not Status.PASS:
         return [ready]
-    return [ready, *checks.controls(kube, fx, allowed)]
+    control = checks.controls(kube, fx, allowed)
+    if any(r.status is not Status.PASS for r in control):
+        # 대조가 깨지면 막힘 결과를 믿을 수 없으므로 격리 시험을 돌리지 않는다
+        return [ready, *control]
+    try:
+        return [ready, *control, *checks.isolation(kube, fx, allowed)]
+    except ProbeError as e:
+        return [ready, *control, Result("N0", "격리 시험 준비", Kind.CONTROL, Status.FAIL, str(e))]
 
 
 def main(argv: list[str] | None = None) -> int:
