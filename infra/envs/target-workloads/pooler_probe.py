@@ -47,8 +47,11 @@ def main():
         try:
             with psycopg.connect(**{**args, **changes}):
                 checks[name] = False
-        except psycopg.OperationalError:
-            checks[name] = True
+        except psycopg.OperationalError as error:
+            checks[name] = (error.sqlstate in {'28P01', '28000'} if name == 'wrong_password_denied'
+                            else 'certificate' in str(error).lower() and 'match' in str(error).lower())
+    with psycopg.connect(**args) as conn:
+        checks['positive_connection_after_negative_tests'] = conn.info.ssl_in_use
     print(json.dumps({'passed': all(checks.values()), 'checks': checks,
                       'connect_seconds': connect_seconds, 'rollback_write_seconds': rollback_write_seconds,
                       'timing_scope': 'single emulated-development probe, not p95 or app SLO',
