@@ -48,12 +48,15 @@ python3 scripts/cost_report.py --account-id 123456789012 \
 |---|---|
 | account_components | 계정 전체에서 관측된 source/platform/target 비용. 다른 프로젝트도 포함 가능 |
 | components | `project=bravo-platform`까지 확인된 각 component 비용 |
-| project_unattributed | project 키로 귀속하지 못한 금액 |
-| bravo_unknown_component | 팀 project는 확인됐으나 component가 없거나 계약 외 값인 비용 |
+| project_unattributed | project 키로 귀속하지 못한 순금액과 일별 그룹 수(`group_count`) |
+| bravo_unknown_component | 팀 project는 확인됐으나 component가 없거나 계약 외 값인 순금액과 일별 그룹 수(`group_count`) |
 | other_projects | 다른 project 값에 귀속된 합계. 이름은 출력하지 않음 |
 | account_total | 위 팀 귀속·미귀속·다른 프로젝트의 합계 |
 | estimated / tag_status | AWS 추정 여부와 키 활성화 상태 |
 | null / observed=false | 해당 component 관측 없음. 0원이 아님 |
+| attribution_complete | 두 태그가 Active이고 미귀속·미등록 component 그룹이 모두 없을 때만 true |
+
+비용과 환불이 상쇄돼 순금액이 0이어도 미귀속 그룹이 남으면 귀속 완료가 아니다. 금액 0인 그룹도 집계한다. `group_count`는 조회한 일자·project·component 조합의 수이며, 개별 청구 항목 수는 아니다.
 
 원시 비용 결과는 개인 경로에 보관한다. PR에는 검사 통과 여부·귀속 가능 여부와 필요한 최소 증빙만 올린다.
 

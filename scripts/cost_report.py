@@ -49,6 +49,7 @@ def aggregate(batches, expected_days, rate):
     other = Decimal(0)
     unattributed = Decimal(0)
     unknown = Decimal(0)
+    unattributed_groups = unknown_groups = 0
     days, observed_groups = set(), set()
     estimated = False
     for batch in batches:
@@ -77,10 +78,12 @@ def aggregate(batches, expected_days, rate):
                     account_unknown += amount
                 if not project:
                     unattributed += amount
+                    unattributed_groups += 1
                 elif project != "bravo-platform":
                     other += amount
                 elif component not in COMPONENTS:
                     unknown += amount
+                    unknown_groups += 1
                 else:
                     totals[component] = (totals[component] or Decimal(0)) + amount
     if days != expected_days:
@@ -93,8 +96,10 @@ def aggregate(batches, expected_days, rate):
     return {"estimated": estimated,
             "account_components": {c: money(v) for c, v in account_components.items()},
             "account_unallocated_component": money(account_unknown), "components": {c: money(v) for c, v in totals.items()},
-            "bravo_unknown_component": money(unknown), "bravo_attributed_total": money(accounted),
-            "project_unattributed": money(unattributed), "other_projects": money(other),
+            "bravo_unknown_component": {**money(unknown), "group_count": unknown_groups},
+            "bravo_attributed_total": money(accounted),
+            "project_unattributed": {**money(unattributed), "group_count": unattributed_groups},
+            "other_projects": money(other),
             "account_total": money(accounted + unattributed + other),
             "observed_group_count": len(observed_groups)}
 
@@ -116,9 +121,10 @@ def report(account, start, end, policy, call=aws):
                    "tag_status": {key: tags.get(key, "NOT_AVAILABLE") for key in ("project", "component")},
                    "fx": policy,
                    "attribution_complete": all(tags.get(k) == "Active" for k in ("project", "component"))
-                       and Decimal(result["project_unattributed"]["usd"]) == 0
-                       and Decimal(result["bravo_unknown_component"]["usd"]) == 0,
+                       and result["project_unattributed"]["group_count"] == 0
+                       and result["bravo_unknown_component"]["group_count"] == 0,
                    "notes": ["Null component amounts are NOT_OBSERVED, not zero.",
+                             "Unattributed groups remain incomplete even when charges and credits net to zero.",
                              "AWS billing and tag activation are delayed; historical costs may remain unattributed.",
                              "Account guard includes other projects; KRW figures are reference-rate estimates."]})
     return result

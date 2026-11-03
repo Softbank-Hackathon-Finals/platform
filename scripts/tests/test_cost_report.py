@@ -22,6 +22,52 @@ class Costs(unittest.TestCase):
     def aggregate(self, batches):
         return cost.aggregate(batches, {"2026-11-01"}, Decimal(1300))
 
+    def report(self, *groups):
+        def call(service, operation, **params):
+            if service == "sts":
+                return {"Account": "123"}
+            if operation == "list-cost-allocation-tags":
+                return {"CostAllocationTags": [
+                    {"TagKey": key, "Status": "Active"} for key in ("project", "component")
+                ]}
+            return {"ResultsByTime": [day(*groups)]}
+        return cost.report("123", "2026-11-01", "2026-11-02", {"krw_per_usd": 1300}, call)
+
+    def test_offsetting_unattributed_costs_are_not_complete(self):
+        result = self.report(group("", "source", "10"), group("", "platform", "-10"))
+        self.assertFalse(result["attribution_complete"])
+        self.assertEqual(result["project_unattributed"]["usd"], "0")
+        self.assertEqual(result["project_unattributed"]["group_count"], 2)
+        self.assertTrue(all(value["usd"] is None for value in result["components"].values()))
+
+    def test_offsetting_unknown_components_are_not_complete(self):
+        result = self.report(group("bravo-platform", "", "10"),
+                             group("bravo-platform", "network", "-10"))
+        self.assertFalse(result["attribution_complete"])
+        self.assertEqual(result["bravo_unknown_component"]["usd"], "0")
+        self.assertEqual(result["bravo_unknown_component"]["group_count"], 2)
+        self.assertEqual(result["account_total"]["usd"], "0")
+
+    def test_zero_amount_unattributed_groups_are_not_complete(self):
+        for project, component, field in (
+            ("", "source", "project_unattributed"),
+            ("bravo-platform", "", "bravo_unknown_component"),
+            ("bravo-platform", "network", "bravo_unknown_component"),
+        ):
+            with self.subTest(project=project, component=component):
+                result = self.report(group(project, component, "0"))
+                self.assertFalse(result["attribution_complete"])
+                self.assertEqual(result[field]["usd"], "0")
+                self.assertEqual(result[field]["group_count"], 1)
+
+    def test_fully_attributed_zero_net_cost_is_complete(self):
+        result = self.report(group("bravo-platform", "source", "10"),
+                             group("bravo-platform", "platform", "-10"))
+        self.assertTrue(result["attribution_complete"])
+        self.assertEqual(result["account_total"]["usd"], "0")
+        self.assertEqual(result["project_unattributed"]["group_count"], 0)
+        self.assertEqual(result["bravo_unknown_component"]["group_count"], 0)
+
     def test_pages_reconcile_negative_credit_and_missing_components(self):
         result = self.aggregate([[day(group("bravo-platform", "source", "3.1"), group("", "", "2"))],
                                  [day(group("bravo-platform", "platform", "-0.1"),
