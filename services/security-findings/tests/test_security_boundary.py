@@ -529,3 +529,21 @@ def test_persistent_database_permissions_fail_closed(tmp_path):
     link.symlink_to(path)
     with pytest.raises(OSError):
         Store(str(link))
+
+
+def test_late_quarantine_overrides_newer_success_across_connections(tmp_path):
+    path = str(tmp_path / "out-of-order.db")
+    slow, fast = Store(path), Store(path)
+    slow.register_source("aws_security_hub", "env-aws")
+    # The later attempt succeeds while the older pull is still collecting pages.
+    fast.record_success("aws_security_hub", "env-aws", NOW + 1000, cursor=str(NOW + 1000))
+    slow.quarantine("aws_security_hub", "env-aws", NOW, "NORMALIZATION_FAILED")
+    slow.record_success("aws_security_hub", "env-aws", NOW, cursor=str(NOW))
+    # Ordering must preserve the cursor, but must never hide the persistent gap.
+    row = fast.source("aws_security_hub", "env-aws")
+    assert row.cursor == str(NOW + 1000)
+    assert row.error_code == "INGESTION_GAP"
+    cells = View(fast, Rules()).summary(NOW + 1000)["environments"][0]["cells"]
+    assert all(cell["state"] == "UNKNOWN" for cell in cells.values())
+    fast.record_success("aws_security_hub", "env-aws", NOW + 2000, cursor=str(NOW + 2000))
+    assert fast.source("aws_security_hub", "env-aws").cursor == str(NOW + 1000)

@@ -320,7 +320,9 @@ class Store:
     def sources(self) -> list[SourceRow]:
         with self._lock:
             rows = self._db.execute(
-                "SELECT * FROM source_status ORDER BY environment_id, source"
+                "SELECT s.*, EXISTS(SELECT 1 FROM quarantine q WHERE q.source=s.source "
+                "AND q.environment_id=s.environment_id) AS has_gap "
+                "FROM source_status s ORDER BY environment_id, source"
             ).fetchall()
         return [
             SourceRow(
@@ -329,7 +331,7 @@ class Store:
                 bool(r["enabled"]),
                 r["last_attempt_time"],
                 r["last_success_time"],
-                r["error_code"],
+                "INGESTION_GAP" if r["has_gap"] else r["error_code"],
                 r["cursor"],
             )
             for r in rows

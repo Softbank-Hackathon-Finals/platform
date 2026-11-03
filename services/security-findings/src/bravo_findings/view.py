@@ -12,6 +12,8 @@ def source_state(row: SourceRow, now: int, stale_ms: int) -> str:
     """OK · FAILED(확인 불가) · STALE(오래됨) · DISABLED(없음). 수집 실패를 0건으로 보지 않는다."""
     if not row.enabled:
         return "DISABLED"
+    if row.error_code == "INGESTION_GAP":
+        return "FAILED"
     if row.error_code and (
         row.last_success_time is None or (row.last_attempt_time or 0) >= row.last_success_time
     ):
