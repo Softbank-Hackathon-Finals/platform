@@ -6,6 +6,7 @@ import json
 import subprocess
 import unittest
 from contextlib import redirect_stdout
+from http.client import IncompleteRead
 from pathlib import Path
 from unittest.mock import patch
 
@@ -27,7 +28,8 @@ app_probe = module("source_app_probe", "infra/envs/source-workloads/app_probe.py
 
 
 class WorkloadTests(unittest.TestCase):
-    def probe_restore_case(self, restore_timeouts=0, accept_wrong_admin=False):
+    def probe_restore_case(self, restore_timeouts=0, accept_wrong_admin=False,
+                           restore_error=None, restore_readback=None):
         state = {"blocked": True, "restore_attempts": 0}
 
         def request(method, path, body=None, admin=False, headers=None):
@@ -40,8 +42,10 @@ class WorkloadTests(unittest.TestCase):
                     if admin and body["blocked"]:
                         state["restore_attempts"] += 1
                         if state["restore_attempts"] <= restore_timeouts:
-                            raise TimeoutError("synthetic failure before block applied")
+                            raise restore_error or TimeoutError("synthetic failure before block applied")
                     state["blocked"] = body["blocked"]
+                if admin and method == "GET" and restore_readback is not None:
+                    return 200, {}, restore_readback
                 return 200, {}, json.dumps({"write_blocked": state["blocked"]}).encode()
             if method == "POST":
                 if state["blocked"]:
@@ -73,6 +77,21 @@ class WorkloadTests(unittest.TestCase):
         self.assertFalse(result["checks"]["final_write_blocked"])
         self.assertTrue(result["manual_write_block_required"])
         self.assertFalse(result["passed"])
+
+    def test_incomplete_http_restore_response_is_retried(self):
+        state, result = self.probe_restore_case(restore_timeouts=1, restore_error=IncompleteRead(b"", 10))
+        self.assertTrue(state["blocked"])
+        self.assertEqual(state["restore_attempts"], 2)
+        self.assertTrue(result["checks"]["final_write_blocked"])
+        self.assertIn("IncompleteRead", result["restore_transient_errors"])
+
+    def test_non_object_restore_readback_never_claims_verified_block(self):
+        for raw in (b"[]", b"null"):
+            with self.subTest(raw=raw):
+                state, result = self.probe_restore_case(restore_readback=raw)
+                self.assertEqual(state["restore_attempts"], 3)
+                self.assertFalse(result["checks"]["final_write_blocked"])
+                self.assertTrue(result["manual_write_block_required"])
 
     def test_app_probe_restores_write_block_after_ambiguous_enable_timeout(self):
         calls = []

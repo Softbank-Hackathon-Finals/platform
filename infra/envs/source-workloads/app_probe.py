@@ -10,6 +10,7 @@ import os
 import sys
 import uuid
 from datetime import datetime, timezone
+from http.client import HTTPException
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
@@ -86,7 +87,7 @@ def run():
         rows = json.loads(raw)
         check("written_rows_read_back", {first["id"], saved["id"]}.issubset({row["id"] for row in rows}))
         check("attachment_reference_read_back", any(row["id"] == saved["id"] and row["attachment_id"] == attachment_id for row in rows))
-    except (OSError, ValueError, KeyError, TypeError, RuntimeError) as error:
+    except (OSError, HTTPException, ValueError, KeyError, TypeError, RuntimeError) as error:
         result["error_type"] = type(error).__name__
     finally:
         if opened:
@@ -99,12 +100,13 @@ def run():
                     code, _, _ = request("PUT", "/admin/write-block", body={"blocked": True}, admin=True)
                     if code != 200:
                         restore_errors.append("PutStatus" + str(code))
-                except (OSError, ValueError, KeyError, TypeError, RuntimeError) as error:
+                except (OSError, HTTPException, ValueError, KeyError, TypeError, RuntimeError) as error:
                     restore_errors.append(type(error).__name__)
                 try:
                     code, _, raw = request("GET", "/admin/write-block", admin=True)
-                    restored = code == 200 and json.loads(raw).get("write_blocked") is True
-                except (OSError, ValueError, KeyError, TypeError, RuntimeError) as error:
+                    payload = json.loads(raw)
+                    restored = code == 200 and isinstance(payload, dict) and payload.get("write_blocked") is True
+                except (OSError, HTTPException, ValueError, KeyError, TypeError, RuntimeError) as error:
                     restore_errors.append(type(error).__name__)
                 if restored:
                     break
@@ -122,7 +124,7 @@ def run():
                 check("final_retry_after", bool(headers.get("retry-after")))
                 for path in ("/healthz", "/readyz", "/api/health/db", "/api/messages"):
                     status("blocked" + path, "GET", path, 200)
-            except (OSError, ValueError, KeyError, TypeError, RuntimeError) as error:
+            except (OSError, HTTPException, ValueError, KeyError, TypeError, RuntimeError) as error:
                 result["restore_error_type"] = type(error).__name__
     result["passed"] = bool(checks) and all(checks.values()) and not any(key.endswith("error_type") for key in result)
     print(json.dumps(result, indent=2))
