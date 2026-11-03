@@ -77,3 +77,12 @@ app = create_plan_app(store)  # 검증된 principal resolver가 없으면 거부
 `cutover.CutoverService`와 `cutover_api.create_cutover_app`은 호스트가 검증한 CUTOVER 승인을 기존 상태 DB에 결속하고 Executor POST를 한 번만 전송한다. 재시작·응답 유실 뒤에는 저장된 명령으로 GET 조회를 하며 단계별 SSE를 중복 없이 저장한다. `ExecutorReader`는 계속 GET 전용이고 `ExecutorClient`만 POST를 제공한다.
 
 기본 authority와 인증은 거부한다. 실제 T19 정본·SHIFT·승인자 권한을 검증하는 호스트와 전체 계획 상태 머신은 아직 연결되지 않았다. 합성 시험을 운영 승인으로 사용할 수 없다. [계약·신뢰 경계·복구 조건](../../docs/contracts/T10-cutover-submit-v1-proposal.md)을 먼저 읽는다.
+
+### 운영자 신원·계획별 권한 연결
+
+`operator_identity.OperatorTokenVerifier`는 host가 고정한 IdP 공개 키와
+issuer/audience/client/ACR, 실제 사람 subject 목록으로 access token을 검증한다.
+`operator_access.create_operator_cutover_app`은 검증된 신원과 현재 계획의 조회·승인·실행
+권한, 승인 취소를 기존 DB/plan lock에 연결한다. 실제 T19/SHIFT authority는 별도로 필요하고
+생략하면 거부한다. 로그인 제공자나 운영 권한을 자동 생성하지 않는다.
+계약·미연결 입력·관리 경계는 [운영자 연결 제안](../../docs/contracts/T10-operator-access-v1-proposal.md)을 본다.

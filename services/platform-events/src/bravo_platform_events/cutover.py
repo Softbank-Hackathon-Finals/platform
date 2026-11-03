@@ -75,7 +75,7 @@ def _snapshot(value):
 
 class CutoverService:
     def __init__(self, store: PlanStore, executor, *, bindings: dict[str, str],
-                 authority: CutoverAuthority = unavailable_authority, clock=None):
+                 authority: CutoverAuthority = unavailable_authority, check_access=None, clock=None):
         if (len(bindings) != 2 or len(set(bindings.values())) != 2
                 or any(not isinstance(v, str) or not 1 <= len(v) <= 256 for v in bindings.values())):
             raise ValueError("fixed_database_pair_required")
@@ -84,6 +84,7 @@ class CutoverService:
         self.store, self.executor = store, executor
         self.bindings = dict(bindings)
         self.authority = authority
+        self.check_access = check_access
         self.clock = clock or (lambda: datetime.now(UTC).isoformat())
 
     def _plan(self, c, principal, plan_id):
@@ -95,13 +96,20 @@ class CutoverService:
         row = c.execute("SELECT * FROM plans WHERE plan_id=?", (plan_id,)).fetchone()
         if row is None or row["tenant_id"] != principal.tenant_id:
             raise EventError("forbidden")
-        return dict(row)
+        plan = dict(row)
+        if self.check_access is not None:
+            self.check_access(c, principal, plan)
+        return plan
 
     def _current(self, c, principal, plan, now, approved_by=None, approval_id=None):
         if plan["state"] != "SHIFT":
             raise EventError("transition_not_allowed")
         try:
             current = self.authority(c, principal, plan, now=now, approved_by=approved_by, approval_id=approval_id)
+        except EventError as error:
+            if error.code == "forbidden":
+                raise
+            raise EventError("authority_unavailable") from None
         except Exception:
             raise EventError("authority_unavailable") from None
         if not isinstance(current, CurrentCutover):
@@ -144,11 +152,11 @@ class CutoverService:
         validate_identifier(command_key)
         if not isinstance(principal, Principal):
             raise EventError("forbidden")
-        now = self.clock()
         request = dict(binding=binding, expected_version=expected_version,
                        actor_id=principal.subject_id)
         key = _key("approval-key", command_key)
         with self.store._transaction(write=True, plan_id=plan_id) as c:
+            now = self.clock()
             plan = self._plan(c, principal, plan_id)
             old = _get(c, plan_id, key)
             if old:
@@ -177,10 +185,10 @@ class CutoverService:
         validate_identifier(command_key)
         if not isinstance(principal, Principal):
             raise EventError("forbidden")
-        now = self.clock()
         request = dict(approval_id=approval_id, actor_id=principal.subject_id)
         key = _key("submit", command_key)
         with self.store._transaction(write=True, plan_id=plan_id) as c:
+            now = self.clock()
             plan = self._plan(c, principal, plan_id)
             old = _get(c, plan_id, key)
             if old:
