@@ -1,0 +1,88 @@
+{
+  "environment": {
+    "statement": "로컬 컨테이너 측정. 실제 Tailscale · TLS 경로, RKE2 위 CNPG, 부하 상태가 아니다. 컷오버를 실행하지 않았다.",
+    "network_limit": "없음",
+    "tls": false,
+    "load": "없음",
+    "same_machine": true,
+    "image": "public.ecr.aws/docker/library/postgres:18.4",
+    "image_id": "sha256:a02db8cac496f15b094798a38254f14d6e00741f709360e5e00bb6668ea31636",
+    "data": {
+      "messages": 100000,
+      "attachments": 2000,
+      "total_mb": 202
+    }
+  },
+  "source_sha256": {
+    "db_fingerprint.py": "a9d5497b341b2657f63c1ee5c33e1ee4a5648bab57492a5d66ca3205c4b65505",
+    "measure_fingerprint.py": "95305c3a2abd21d81bbb39c465062a445e4a0e94c68c50b9d5026fd8bea58549",
+    "baseline_integrity.py": "c2e85106599ce9014b3ebdd6b28d827c2dc78f30d52d3b6d36363823eaeec2a5"
+  },
+  "hash_rule": "db-sql-v1:fixed-session-text;columns-by-name;jsonb-array;utf8;sha256-of-row-sha256;pk-order-collate-c",
+  "statement_timeout_ms": 3000,
+  "first_run_s": {
+    "db_sql": 0.639,
+    "python_134": 5.01
+  },
+  "compare_two_sides": {
+    "db_sql": {
+      "verdict": "MATCH",
+      "data_verdict": "MATCH",
+      "schema_verdict": "MATCH",
+      "median_s": 0.632,
+      "max_s": 0.799,
+      "samples_s": [
+        0.799,
+        0.649,
+        0.627,
+        0.595,
+        0.632
+      ]
+    },
+    "python_134": {
+      "verdict": "MATCH",
+      "median_s": 4.554,
+      "max_s": 5.004,
+      "samples_s": [
+        5.004,
+        4.554,
+        4.558,
+        4.421,
+        4.446
+      ]
+    }
+  },
+  "one_table_one_side_s": {
+    "db_sql": {
+      "public.attachments": 0.009,
+      "public.messages": 0.289
+    }
+  },
+  "traffic_from_target": {
+    "db_sql": {
+      "received_bytes": 7437,
+      "sent_bytes": 5444,
+      "client_sends": 20
+    },
+    "python_134": {
+      "received_bytes": 204913692,
+      "sent_bytes": 49804,
+      "client_sends": 1054
+    }
+  },
+  "collation_differs": {
+    "verdict": "MISMATCH",
+    "data_verdict": "MATCH",
+    "schema_verdict": "MISMATCH"
+  },
+  "provider_version_differs": {
+    "image": "public.ecr.aws/docker/library/postgres:18.4-bookworm",
+    "versions": {
+      "source": "2.41",
+      "target": "2.36"
+    },
+    "verdict": "UNKNOWN",
+    "data_verdict": "MATCH",
+    "schema_verdict": "UNKNOWN"
+  }
+}

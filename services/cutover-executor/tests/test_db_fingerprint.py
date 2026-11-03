@@ -166,6 +166,11 @@ def test_schema_only_change_keeps_data_verdict(pair, query):
     assert (result["verdict"], result["data_verdict"], result["schema_verdict"]) == ("MISMATCH", "MATCH", "MISMATCH")
 
 
+def test_constraint_name_alone_does_not_change_schema(pair):
+    run(pair[1], "ALTER TABLE sample RENAME CONSTRAINT sample_pkey TO renamed_pkey")
+    assert compare(pair)["verdict"] == "MATCH"
+
+
 def test_added_column_mismatches_schema_and_data(pair):
     run(pair[1], "ALTER TABLE sample ADD COLUMN extra text")
     result = compare(pair)
