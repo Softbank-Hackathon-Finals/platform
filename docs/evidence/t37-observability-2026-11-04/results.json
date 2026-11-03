@@ -1,0 +1,142 @@
+{
+  "task": "T37",
+  "date": "2026-11-04",
+  "scope": "로컬 Docker · Docker 안 k3s. 클라우드 자원 생성 · 변경 없음. 실제 출발지 · 목적지 · 플랫폼 클러스터 배포 아님",
+  "checkout_commit": "c28cd02e4bd53269b7d527d75200ddfe9d10fe3f",
+  "source_sha256": {
+    "docs/observability/certificates.md": "701a832f4af03b5a43571a05a44c5e09f283fbfccf4a8336bce71f57c5eec9c1",
+    "docs/observability/runbooks.md": "82025d9aac801dcd8caa674f917e77a073dfb15d56bde838ba0083ad82075e7d",
+    "services/observability/Dockerfile": "1a730cd54db7fbc6275278aab28b3898d28f1670cc6cc9a1bc56df6084849570",
+    "services/observability/deploy/certs/issue.sh": "3e3b4bf9c3ce77a97fb858a44df27597c0e0b05b872c64a8f5e665b8a0c4feec",
+    "services/observability/deploy/collector-db-access/access.yaml": "1f79c18e0cdcec8f7965f94512824ae1291ac30d108af83f3492194f5cc41e6d",
+    "services/observability/deploy/collector-db-access/kustomization.yaml": "6f6d973e9da08afe8bd074bf911ad85ffcc0a7424b578742dcc0ae1ae9522d6a",
+    "services/observability/deploy/collector-db/kustomization.yaml": "e9bda16ff05bc810191b5a3a724e3753dab15f74e0c6d727a09f7b76689b9492",
+    "services/observability/deploy/collector/collector-db.yaml": "6fd1adffa850e52c003d97cb3c5bb4784a31998aa1b4b55f66472cde0aa48fda",
+    "services/observability/deploy/collector/collector.yaml": "55ccc4dfe731228e09e91c124a5927a7a0e72c9ea582fdd452d016c7702f26a7",
+    "services/observability/deploy/collector/kustomization.yaml": "080c2733dd094d2245fc619161a1b17ddd87250278782fa073627d283ce7384a",
+    "services/observability/deploy/collector/resources.yaml": "7f1e238c8ead375fde8c88afba8c025cee2f40735239d85b58160028d022974d",
+    "services/observability/deploy/platform/kustomization.yaml": "1b28c135d2a74c7855b7f5bb48590ef6b08d12a543aa0754d4e20b7cff7707b5",
+    "services/observability/deploy/platform/prometheus.yml": "7d88697ec03f0522e331af7769d0c17031b645ec44e106527f3ec7c995e07c00",
+    "services/observability/deploy/platform/resources.yaml": "ec90d8762d38e7677ccbc8e1ff1d02163aac5114fb6c228b38cb8dcfb0b5633a",
+    "services/observability/deploy/platform/rules/alerts.yml": "43c4dda88727594d0b69e0daab131d45bc98cee5dc7ccea1a7c0897c8d1bf970",
+    "services/observability/deploy/platform/rules/alerts_test.yml": "4a522215d1d170002b564a0c20f458d05b0efe883a3122681bad7426dcfc0641",
+    "services/observability/deploy/platform/web.yml": "3bcc31c36fcfbe5c9181d13415b74bc54bac7889780ecf7bf914b13537bd3e7b",
+    "services/observability/pyproject.toml": "324664458330c8a9208ec5fd5676dc7f0a619c7c92eb5917adcc79703ac6f4cd",
+    "services/observability/src/bravo_observability/__init__.py": "5a6097549a02872d847445c66e65097ef9d4683b925a16dab4cc76d5d1b5645c",
+    "services/observability/src/bravo_observability/api.py": "67826384a16b24fcbfff5e4fac2d1d20e00d9cc0b4c833dc1d0211e8c3dd5d91",
+    "services/observability/src/bravo_observability/sli.py": "8e30d9c107cd6ccfbea9c46976cd321f826b6292dc719caa74eee331a270537e",
+    "services/observability/testing/certs.sh": "629281fb91e369b7ff224c26bf0d8c89e05cbd85265e1a2f1905a4e32ca3a814",
+    "services/observability/testing/compose.yaml": "1f0487760858a59f4c4222ccf23345a1ddca20d0d9a79b0cbda96d30ee3729d2",
+    "services/observability/testing/k8s-overlay/kustomization.yaml": "b15d17f9a1ace6ffaf513911e2199272736f5e3f8579f954bf5403792db8e256",
+    "services/observability/testing/k8s.sh": "eb853129ad333d7d531a141ed63d74bb1f3aff0edd15bd8bf3a09f089d5bcc94",
+    "services/observability/testing/rotation.sh": "c00cba922db22542805e0a22ba6dee47d7106b19f223b9ab93e6156f93cd3344",
+    "services/observability/testing/run.sh": "08c9e92b1a581e46998a6505e48c25c93c1243414626d8da7cb594ab07c4f90d",
+    "services/observability/testing/stats.py": "8a6e0f46cd3db90d3f355dc0c7c976ca48c4c8cdb79a058676527218e7154dae",
+    "services/observability/tests/test_api.py": "4d5131dd9cd28419c7e17e1589920eb620f5ed927f06af3d76980a163080ae67",
+    "services/observability/tests/test_contract.py": "2e929ab27a754287862da15e38e313cd4b19f1ae3e6cdb98da07a803bb986a6f",
+    "services/observability/tests/test_runbooks.py": "0cb04255608999b3f977ffc2ed595ab136e12626fa6ccc6d97475408079b4637",
+    "services/observability/tests/test_window.py": "bb06ac6273fcc610a59f92f30a93122602188e439aa02f8b77797ecde319fc24",
+    "services/observability/uv.lock": "8ee1a2b02df1407774d74ef46fcf7deea5b87a0116aa26d4c4465d8bfcb44618"
+  },
+  "tools": {
+    "otel_collector": "otel/opentelemetry-collector-contrib:0.164.0@sha256:340c9ca6a36617084c6661bdc4f0fe92b7cda5a805d61673ec8db375fddc522b",
+    "prometheus": "prom/prometheus:v3.15.1@sha256:fa3302279710be2f21a8301ec17a8b4f2301fd829bd113839b3b6b02b6f191a2",
+    "telemetrygen": "ghcr.io/open-telemetry/opentelemetry-collector-contrib/telemetrygen:v0.164.0@sha256:b536c7220c5ea587f04dff6c5e6eecb48e40b5b58ce70690b15734aae98d8321",
+    "k3s": "rancher/k3s:v1.35.9-k3s1@sha256:ec9868c6a38d4e8c1869832fb5fd1eb8473c39794a0b44d2b952e7ba911951bc",
+    "cnpg": "chart 0.29.1 / operator 1.30.1@sha256:923c267ec29636db3bee20f993d0ec4973fa22998e1adad37da79e4d32b5bc07 (T6와 같음)",
+    "postgresql": "ghcr.io/cloudnative-pg/postgresql:18.4-system-trixie@sha256:42708a75345b7a48fdd9257b071830783a97fd228529196b6313187a7198e185",
+    "trivy": "aquasec/trivy:0.76.1",
+    "python": "uv 0.13.6, ruff 0.17.3, pytest (uv.lock)"
+  },
+  "results": {
+    "pytest": {
+      "command": "uv sync --locked && uvx ruff==0.17.3 check . && uv run --locked pytest",
+      "passed": 55,
+      "failed": 0
+    },
+    "promtool": {
+      "command": "promtool check rules · test rules deploy/platform/rules/alerts_test.yml",
+      "rules": 8,
+      "result": "SUCCESS"
+    },
+    "compose": {
+      "command": "testing/run.sh",
+      "passed": 17,
+      "failed": 0
+    },
+    "k8s": {
+      "command": "testing/k8s.sh",
+      "passed": 14,
+      "failed": 0
+    },
+    "rotation": {
+      "command": "testing/rotation.sh",
+      "passed": 14,
+      "failed": 0
+    },
+    "trivy_config": {
+      "command": "trivy config services/observability",
+      "high_critical": 0,
+      "remaining": [
+        "KSV-0125 (MEDIUM, 신뢰 레지스트리 제한: 클러스터 승인 정책 몫)"
+      ]
+    },
+    "note": "compose · k8s · rotation · pytest · promtool은 checkout_commit의 소스로 실행했다"
+  },
+  "capacity": {
+    "command": "BRAVO_K8S_CAPACITY=1 testing/k8s.sh",
+    "load": "telemetrygen 20 workers x 100/s = 약 2000 데이터 포인트/초(데모 예상의 약 10배), 180초, CNPG 수집 포함",
+    "idle": {
+      "collector": {
+        "max_memory_mib": 63.2,
+        "avg_cpu_m": 8.9
+      },
+      "prometheus": {
+        "max_memory_mib": 72.1,
+        "avg_cpu_m": 4.1
+      },
+      "api": {
+        "max_memory_mib": 49.8,
+        "avg_cpu_m": 3.5
+      }
+    },
+    "load_result": {
+      "collector": {
+        "max_memory_mib": 107.4,
+        "avg_cpu_m": 33.1,
+        "max_cpu_m": 91.8
+      },
+      "prometheus": {
+        "max_memory_mib": 82.8,
+        "avg_cpu_m": 15.2,
+        "max_cpu_m": 41.8
+      },
+      "api": {
+        "max_memory_mib": 50.0,
+        "avg_cpu_m": 4.0,
+        "max_cpu_m": 16.0
+      }
+    },
+    "limits": "시계열 종류 수는 적었고 Docker Desktop VM이라 EC2와 CPU 특성이 다르다. 실제 환경에서 다시 잰다",
+    "measured_at_commit": "0d9e8bd (인증서 작업 전. 이후 Collector 설정 변경: keep-alive 끔 · HTTP/1.1 · TLS 다시 읽기 · 기능 게이트)"
+  },
+  "mutations_caught": [
+    "허용 목록 제거 → 카나리 검사 실패",
+    "환경 덮어쓰기 제거 → 위조 검사 실패",
+    "생존 신호를 job 라벨로 선택 → 사칭 검사 실패",
+    "디스크 큐를 메모리 큐로 → 재시작 뒤 도착 0개",
+    "알림 신뢰 라벨 조건 제거 · absent 제거 → promtool 실패",
+    "논리 슬롯 조건 제거 · _total 제거 → promtool 실패",
+    "판정 규칙(늦은 창 · 환경별 오류율) 제거 → 계약 사례 J21 · J24 실패"
+  ],
+  "defects_found_by_tests": [
+    "Prometheus 재시작 뒤 무작위 호스트 포트가 바뀌어 시험이 무한 대기(시험 수정)",
+    "Namespace를 apply로 만들고 붙인 라벨이 kubectl apply -k three-way merge로 지워져 NetworkPolicy 차단(정책에 같은 네임스페이스 Collector 허용 추가)",
+    "조회 API Pod에 fsGroup이 없어 0440 인증서 Secret을 못 읽음(fsGroup 추가)",
+    "조회 API가 없는데 거부 항목이 통과로 셈(대조군 성공 시에만 통과로 셈)",
+    "CNPG counter가 저장소에서 _total로 바뀜(실측 이름으로 알림 작성)",
+    "Collector 0.164.0이 기능 게이트 pkg.confighttp.PrioritizeNewKeepalive(Beta) 경로에서 disable_keep_alives를 무시해 인증서 교체 · 신뢰 제거가 기존 연결에 반영되지 않음(게이트 끔)",
+    "Collector는 서버 검증 CA 목록을 시작 시에만 읽음(CA 묶음 배포 때 재시작을 절차에 명시)",
+    "발급 스크립트: bash에서 변수 뒤 한글이 붙으면 변수 이름으로 읽힘, leaf가 CA보다 오래 발급됨(둘 다 수정)"
+  ]
+}
