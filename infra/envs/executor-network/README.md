@@ -240,3 +240,17 @@ its child Service mappings and ready endpoints. Runtime validation must use
 the actual source pooler and include forbidden callers; successful rendering
 or readiness alone does not prove a DB connection or successful cutover.
 The one-replica route is for the current development environment.
+
+On source EKS, first detect whether the VPC CNI actually enforces NetworkPolicy:
+verify `enableNetworkPolicy: "true"` in the live add-on configuration,
+`--enable-network-policy=true` on the nodeagent, and generated PolicyEndpoints
+covering this exact proxy Pod and the intended peer addresses/ports. A healthy
+agent or a stored NetworkPolicy alone does not establish enforcement. The
+[source EKS configuration](../source-eks/README.md#network-policy-enforcement)
+sets this feature explicitly and documents verification of the dedicated CNI
+role on both the service account and newly created CNI Pods. Require those
+Pods to become Ready with the expected web identity before traffic testing.
+After it reconciles, require fresh successful
+TLS connections from the actual source PgBouncer and failed business-port
+connections from wrong-label and wrong-namespace callers. Successful isolation
+on the separate RKE2 platform does not prove source EKS isolation.
