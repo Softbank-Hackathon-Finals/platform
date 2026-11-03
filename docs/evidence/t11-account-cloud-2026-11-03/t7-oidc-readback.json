@@ -1,0 +1,75 @@
+{
+  "observed_at": "2026-11-03T08:39:50.473288+00:00",
+  "workflow_url": "https://github.com/Softbank-Hackathon-Finals/platform/actions/runs/41602534226",
+  "workflow_sha": "ca52cc7d129e8808fff9e32951d346763b1f1452",
+  "event": "push",
+  "conclusion": "success",
+  "steps": [
+    {
+      "name": "Set up job",
+      "conclusion": "success"
+    },
+    {
+      "name": "Short-lived AWS session",
+      "conclusion": "success"
+    },
+    {
+      "name": "Fixed namespace deployment and denial checks",
+      "conclusion": "success"
+    },
+    {
+      "name": "Prove arbitrary shell document is denied",
+      "conclusion": "success"
+    },
+    {
+      "name": "Post Short-lived AWS session",
+      "conclusion": "success"
+    },
+    {
+      "name": "Complete job",
+      "conclusion": "success"
+    }
+  ],
+  "ssm_readback": [
+    {
+      "command_id": "200f5b80-320b-417f-8841-39fa2709b7ae",
+      "requested_at": "2026-11-03T17:20:29.758000+09:00",
+      "status": "Success",
+      "response_code": 0,
+      "result": {
+        "rke2_ready": true,
+        "namespace_deploy": true,
+        "secret_denied": true,
+        "other_namespace_denied": true
+      }
+    },
+    {
+      "command_id": "157217c9-24d5-4bba-92fa-7daaf5b53bd2",
+      "requested_at": "2026-11-03T17:18:52.382000+09:00",
+      "status": "Success",
+      "response_code": 0,
+      "result": {
+        "rke2_ready": true,
+        "namespace_deploy": true,
+        "secret_denied": true,
+        "other_namespace_denied": true
+      }
+    }
+  ],
+  "verified_scope": [
+    "private RKE2 readiness",
+    "OIDC to fixed SSM document",
+    "namespace ConfigMap deployment",
+    "Secret read denial",
+    "other namespace write denial",
+    "arbitrary shell document denial"
+  ],
+  "production_platform_complete": false,
+  "not_verified": [
+    "platform DB",
+    "GHCR application image push and digest pull",
+    "collector and executor role integration",
+    "platform worker Kubernetes Job",
+    "persistent production availability"
+  ]
+}

@@ -1,0 +1,105 @@
+{
+  "observed_at": "2026-11-03T08:34:40.737Z",
+  "environment": {
+    "provider": "AWS",
+    "region": "ap-northeast-2",
+    "host": "T7 private RKE2 node",
+    "execution": "isolated non-root systemd process; not a Kubernetes worker Job"
+  },
+  "input_kind": "repository synthetic example",
+  "codex_version": "0.157.0",
+  "model": "gpt-6-astra",
+  "authentication_method": "official ChatGPT device login with ephemeral credentials",
+  "subscription_authenticated": true,
+  "credentials_persisted": false,
+  "model_request_attempted": true,
+  "model_response_received": false,
+  "provider_error_category": "usageLimitExceeded",
+  "proposal_ready": false,
+  "coordinator_state": "NEEDS_HUMAN",
+  "model_usage_reported": false,
+  "public_result": {
+    "run_id": "synthetic-ci-example",
+    "source_sha": "1111111111111111111111111111111111111111",
+    "attempt": 1,
+    "state": "NEEDS_HUMAN",
+    "input_digest": "e66ee3c876ce57671b3932279340f430d3c5a0829e1a94fbdba2c4745ff0e91d",
+    "input": {
+      "run_id": "synthetic-ci-example",
+      "source_sha": "1111111111111111111111111111111111111111",
+      "failure_code": "DB_CONNECTION_FAILED",
+      "summary": "Synthetic example: destination DB host should come from the injected environment.",
+      "evidence_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "stage": "REHEARSE"
+    },
+    "snapshot_digest": "43f0c55ce2e889e5798e25195d5d9d9b1318d57670dbfbf506319d92a10cb795",
+    "proposal": null,
+    "proposal_digest": null,
+    "attempts": [
+      {
+        "attempt": 1,
+        "input": {
+          "run_id": "synthetic-ci-example",
+          "source_sha": "1111111111111111111111111111111111111111",
+          "failure_code": "DB_CONNECTION_FAILED",
+          "summary": "Synthetic example: destination DB host should come from the injected environment.",
+          "evidence_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "stage": "REHEARSE"
+        },
+        "input_digest": "e66ee3c876ce57671b3932279340f430d3c5a0829e1a94fbdba2c4745ff0e91d",
+        "state": "NEEDS_HUMAN",
+        "model_usage": {},
+        "audit_event_count": 3,
+        "audit_truncated": false,
+        "proposal": null,
+        "proposal_digest": null
+      }
+    ],
+    "audit": [
+      {
+        "run_id": "synthetic-ci-example",
+        "attempt": 1,
+        "tool": "model",
+        "outcome": "STOPPED",
+        "reason": "ACCOUNT_MODEL_ERROR",
+        "category": "usageLimitExceeded",
+        "http_status": null,
+        "hints": []
+      },
+      {
+        "run_id": "synthetic-ci-example",
+        "attempt": 1,
+        "tool": "model",
+        "outcome": "STOPPED",
+        "reason": "ACCOUNT_MODEL_ERROR_FAILED"
+      },
+      {
+        "run_id": "synthetic-ci-example",
+        "attempt": 1,
+        "tool": "model",
+        "outcome": "STOPPED",
+        "reason": "MODEL_OR_POLICY_FAILURE"
+      }
+    ]
+  },
+  "model_source_binding": {
+    "base_worker_commit": "b8229328af66eefcdd06d8881384c979e5acb3f6",
+    "adapter_commit": null,
+    "adapter_tree": "uncommitted diagnostic version before final source manifest",
+    "adapter_sha256": "a38fe8d8f662d7e77cd8b4605b71343afd714f549e816696c8ac7ed180eb4caf"
+  },
+  "final_source_test": {
+    "source_commit": "22fe8d26a7e9acf680c9d6a3edc4da86d0effd1d",
+    "file_hashes_matched": 22,
+    "pytest_passed": 87,
+    "ruff": "PASS",
+    "ssm_command_id_sha256": "8c4364b8e55e934d0631203a5b3ab2fc03fdd3afe7afc3c22776fc6dbc325d82"
+  },
+  "live_model_receipt_ssm_command_id_sha256": "45e929caf5fbac2c2b1819c9762cba86e08382ab646a711962d728acfadd1d56",
+  "remaining": [
+    "successful model response on the final source revision",
+    "T15 independent verification",
+    "unattended platform model authentication",
+    "production deployment"
+  ]
+}

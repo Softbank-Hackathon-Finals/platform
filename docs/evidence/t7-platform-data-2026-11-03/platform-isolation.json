@@ -1,0 +1,24 @@
+{
+  "execution_started_at": "2026-11-03T11:01:33.760Z",
+  "execution_finished_at": "2026-11-03T11:01:55.760Z",
+  "ssm_status": "Success",
+  "response_code": 0,
+  "result": {
+    "status": "PASS",
+    "checks": {
+      "platform-runtime_denied_platform-state_secrets": true,
+      "platform-runtime_denied_platform-state_pods": true,
+      "platform-runtime_denied_kube-system_secrets": true,
+      "platform-collector_denied_platform-state_secrets": true,
+      "platform-collector_denied_platform-state_pods": true,
+      "platform-collector_denied_kube-system_secrets": true,
+      "platform-executor_denied_platform-state_secrets": true,
+      "platform-executor_denied_platform-state_pods": true,
+      "platform-executor_denied_kube-system_secrets": true,
+      "platform-collector_database_network_denied": true,
+      "platform-executor_database_network_denied": true
+    },
+    "auth": "actual_TokenRequest_10m",
+    "check_count": 11
+  }
+}

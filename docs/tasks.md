@@ -416,7 +416,7 @@ Claude Code는 `/todo-task`, Codex는 `$todo-task`로 이 순서를 따르는 �
 
 **어디에 필요** S1 분류와 S2 수정의 주체(8.3).
 
-**만들 것** Claude Agent SDK 워커, 도구 화이트리스트, 파괴적 명령 차단 목록, 제안서 JSON Schema, 실패 원인 추정 · 승인용 요약, 입출력 기록.
+**만들 것** 관리자 구독(SIWC) 기반 OpenAI Responses 워커와 선택형 Claude 어댑터(ADR-0007 제안), 도구 화이트리스트, 파괴적 명령 차단 목록, 제안서 JSON Schema, 실패 원인 추정 · 승인용 요약, 입출력 기록.
 
 - **우선순위** P0 · **영역** 에이전트 · 리허설 · **담당** 전동훈
 - **선행** `T7` · **후속** `T15`, `T16`, `T32` · **설계 문서** 8.3, NFR-4~5
@@ -526,6 +526,10 @@ Claude Code는 `/todo-task`, Codex는 `$todo-task`로 이 순서를 따르는 �
 - [ ] epoch · Idempotency-Key 처리
 - [ ] ABORT_PRE_WRITE · SAFE_HOLD 분기
 - [ ] 진입점 쓰기 차단은 앱 쓰기 차단 스위치(T4)로 호출
+- [ ] 출발지 WebSocket 1012 종료 (demo-chat 관리 API로 호출)
+- [ ] 무결성 비교를 T13에 연결 (임시 비교 `UNVERIFIED` 제거)
+- [ ] Executor 배포: 이미지 · 플랫폼 클러스터 매니페스트 · 두 클러스터 권한
+- [ ] 실제 환경(T8 · T30)에서 컷오버 1회 · ABORT_PRE_WRITE · SAFE_HOLD 확인
 
 **완료 기준** 부하 없이 컷오버 1회 성공, ABORT_PRE_WRITE · SAFE_HOLD 분기를 각 1회 시험.
 
