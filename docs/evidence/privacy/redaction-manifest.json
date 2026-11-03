@@ -29,69 +29,6 @@
           "public_is_raw": false
         }
       ]
-    },
-    {
-      "run": "20261103T072631113071Z",
-      "originals": "preserved privately outside repository",
-      "embedded_hashes": "unchanged; identify the original measured inputs",
-      "artifacts": [
-        {
-          "path": "docs/evidence/t11-ci-2026-11-03/README.md",
-          "checkout_commit": "969bb20d3fe9d5888e936dba48cb3e06a124612d",
-          "original_sha256": "d55e1eb5dc6bc85984b2c4e8ff5bb837fae1ab4351777e11abe35e9c90b51c4a",
-          "public_sha256": "6a7e015a9b29ff2899128084b43aad020e9923dfd29e7e6f7435fc314587bae7",
-          "redactions": {
-            "AWS_RESOURCE": 1
-          },
-          "public_is_raw": false
-        },
-        {
-          "path": "docs/evidence/t11-ci-2026-11-03/aws-runtime-results.json",
-          "checkout_commit": "969bb20d3fe9d5888e936dba48cb3e06a124612d",
-          "original_sha256": "b790e4c155b39210e192c6865840296882e9acfca1a8962c92d238e5294d224f",
-          "public_sha256": "d27a778b4fa0a5b09682a7b1366cf5057bd35fd99e614b42db941726d39b4893",
-          "redactions": {
-            "AWS_RESOURCE": 1
-          },
-          "public_is_raw": false
-        },
-        {
-          "path": "docs/evidence/t11-ci-2026-11-03/cleanup-readback.json",
-          "checkout_commit": "969bb20d3fe9d5888e936dba48cb3e06a124612d",
-          "original_sha256": "95f975d792a7d958d85b03ad5454c953083cde3633b4ee37684a0b2607828391",
-          "public_sha256": "c83dd2082600ba5c67801f293122f797f673ebbff962581dc3572154c9771133",
-          "redactions": {
-            "AWS_RESOURCE": 2
-          },
-          "public_is_raw": false
-        },
-        {
-          "path": "docs/evidence/t11-ci-2026-11-03/source-manifest.json",
-          "checkout_commit": "969bb20d3fe9d5888e936dba48cb3e06a124612d",
-          "original_sha256": "37a5eda582be9fad58256e6feab601694064eebfc5f391bc64333a76ab5947cf",
-          "public_sha256": "78a53778b9af6d5cf524b79641364ad304c873a4ae141116e8c1b1dce857bfca",
-          "redactions": {
-            "AWS_RESOURCE": 1
-          },
-          "public_is_raw": false
-        },
-        {
-          "path": "docs/research/ci-agents-2026-11-03.md",
-          "checkout_commit": "969bb20d3fe9d5888e936dba48cb3e06a124612d",
-          "original_sha256": "1fc96f3aad744c4f46eafe48c8850232eafb947dffd47a23fcc3dfbddcec7ef2",
-          "public_sha256": "b23b25a8d706c0297e9e19b26d51c033e7ac26c69358244b8a3b6719a610a7e6",
-          "redactions": {
-            "HOME": 1
-          },
-          "public_is_raw": false,
-          "post_redaction_edits": [
-            {
-              "prior_public_sha256": "763e9557d848eeef64f097c52d26d1552cad04028b726ac02b1af4a637ce64de",
-              "reason": "Coordinate concurrent ADR numbering: model provider ADR-0006 -> ADR-0007 and corresponding relative link only. Original source hashes and measurements unchanged."
-            }
-          ]
-        }
-      ]
     }
   ]
 }
