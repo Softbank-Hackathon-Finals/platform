@@ -33,7 +33,7 @@ description: 본선(Team Bravo) 팀 작업 진행. 프로젝트 보드(이슈)�
 
 ## 3. 작업하기
 
-0. `main`은 보호돼 있어 직접 push할 수 없다. `main`에서 브랜치를 만든다: `git switch -c t<번호>-<짧은-이름>` (예: `t3-onprem-k3d`).
+0. `git fetch origin` 후 `git switch -c feature/T<번호>-<짧은-이름> origin/develop`으로 브랜치를 만든다(예: `feature/T3-onprem-k3d`). PR 대상은 `develop`이다. `main`은 release/hotfix로 반영하며 자세한 순서는 `docs/development.md`를 따른다.
 1. 고른 작업의 **어디에 필요 · 만들 것 · 목표 · 완료 기준**과 관련 설계 문서 절(`docs/design.html`)을 읽고 시작한다.
 2. 남은 할 일을 위에서부터 하나씩 한다. 한 번에 하나.
 3. 다른 사람 작업 영역(다른 담당의 파일이나 할 일)을 바꿔야 하면 멈추고 사용자에게 알린다.
@@ -46,10 +46,10 @@ description: 본선(Team Bravo) 팀 작업 진행. 프로젝트 보드(이슈)�
 
 1. 코드 변경을 커밋한다. 메시지 앞에 작업 번호: `[T3] k3d 클러스터 생성 스크립트 추가`
 2. 계획이 바뀌었으면(완료 기준 · 할 일 문장 수정 · 추가 · 다른 작업으로 이동) 같은 PR에서 `docs/tasks.md`의 그 작업 섹션을 고친다. **체크박스는 고치지 않는다.** 이슈 본문은 직접 고치지 않는다(동기화 때 덮어써진다).
-   - 새 작업이 필요하면 다음 빈 번호(`T33`부터)로 해당 `## N단계` 섹션 안에 기존 작업과 같은 형식으로 추가한다. 담당은 그 영역 담당자(설계 문서 11.2) 중 한 명. 이슈와 역할 분담 목록의 줄은 머지 후 봇이 만든다.
+   - 새 작업이 필요하면 현재 마지막 번호 다음의 빈 번호로 해당 `## N단계` 섹션 안에 기존 작업과 같은 형식으로 추가한다. 담당은 그 영역 담당자(설계 문서 11.2) 중 한 명. 이슈와 역할 분담 목록의 줄은 머지 후 봇이 만든다.
 3. 이슈 번호는 `gh issue list --search "[T3]" --state all`로 찾는다. PR 본문에 `Refs #번호`, 할 일이 다 끝나고 **완료 기준**을 만족하면 `Closes #번호`.
-4. 사용자에게 확인받은 뒤 브랜치를 push하고 PR을 연다: `gh pr create --title "[T3] …" --body "…"`.
-5. 자동 머지를 건다: `gh pr merge --auto --squash`. CI(`secrets` · `infra` · `platform`)가 실패하면 고쳐서 같은 브랜치에 다시 push한다. CI 실패를 워크플로를 고쳐서 넘기지 않는다.
+4. 사용자에게 확인받은 뒤 브랜치를 push하고 PR을 연다: `gh pr create --base develop --title "[T3] …" --body "…"`.
+5. 자동 머지를 건다: `gh pr merge --auto --merge`. CI(`secrets` · `infra` · `platform`)가 실패하면 고쳐서 같은 브랜치에 다시 push한다. CI 실패를 워크플로를 고쳐서 넘기지 않는다.
 6. `.github/workflows/`나 `CODEOWNERS`를 바꾼 PR은 팀원에게 리뷰 요청 알림이 간다(승인은 필요 없음). CI 검사를 약하게 만드는 변경이면 사용자에게 알린다.
 
 ## 5. 이슈에서 체크하기

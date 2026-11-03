@@ -76,13 +76,13 @@ platform/
 
 | 워크플로 | 하는 일 |
 |---|---|
-| `ci.yml` | PR · main push마다 필수 검사 3개. `secrets`(PR 제목 형식 · gitleaks), `infra`(actionlint · hadolint · Terraform · Trivy config), `platform`(`pyproject.toml` · `package.json` · `go.mod`를 찾아 언어별 lint · test, Trivy fs) |
+| `ci.yml` | PR · main/develop push마다 필수 검사 3개. `secrets`(PR 제목 형식 · gitleaks), `infra`(actionlint · hadolint · Terraform · Trivy config), `platform`(`pyproject.toml` · `package.json` · `go.mod`를 찾아 언어별 lint · test, Trivy fs) |
 | `sync-tasks.yml` | `tasks.md`가 머지되면 계획을 이슈에 반영하고, 이슈의 체크 · 담당이 바뀌면 보드를 옮기고 `tasks.md`를 봇 PR로 고친다 |
 
 ## 팀원 작업 방법
 
 1. [프로젝트 보드](https://github.com/orgs/Softbank-Hackathon-Finals/projects/2)나 [`docs/tasks.md`](docs/tasks.md)에서 맡은 작업을 찾는다. 진행 상황의 기준은 보드(이슈)다.
-2. 브랜치에서 작업하고 PR로 올린다. `main`은 보호돼 있어 CI가 통과해야 머지된다(리뷰 승인 불필요).
+2. `develop`에서 `feature/T번호-설명` 브랜치를 만들어 `develop`으로 PR을 올린다. CI 통과 후 merge commit으로 합친다(리뷰 승인 불필요). `main`은 release/hotfix로 반영한다. [Gitflow 순서](docs/development.md)를 따른다.
 3. 커밋 메시지와 PR 제목 앞에 `[T번호]`. 끝낸 할 일은 **이슈에서** 체크한다. 보드 이동과 tasks.md 갱신은 자동이다. 계획(완료 기준 · 할 일 · 새 작업)을 바꿀 때는 `tasks.md`를 고쳐 PR로 올린다.
 4. Claude Code에서는 `/todo-task`, Codex에서는 `$todo-task`로 이 과정을 스킬로 진행할 수 있다.
 
@@ -100,3 +100,5 @@ platform/
 ## 작업 현황
 
 [Team Bravo Finals](https://github.com/orgs/Softbank-Hackathon-Finals/projects/2) 보드와 이 레포의 이슈를 본다.
+
+칸반 조회·시작·완료 체크는 [프로젝트 보드 안내](docs/project-board.md)와 루트 Makefile을 사용한다.

@@ -1,13 +1,13 @@
 name: ci
 
-# PR · main push마다 도는 검사. job 이름(secrets · infra · platform)은 main ruleset의 필수 검사라 바꾸지 않는다.
+# PR · main/develop push마다 도는 검사. job 이름(secrets · infra · platform)은 main/develop ruleset의 필수 검사라 바꾸지 않는다.
 # 경로 필터를 두지 않는다. 워크플로가 건너뛰어지면 필수 검사 결과가 오지 않아 머지가 막힌다.
 # 검사할 대상이 없으면 그 단계만 건너뛰고 job은 통과한다.
 # 예외는 레포 루트의 .gitleaks.toml · .trivyignore에 사유 주석과 함께 적는다.
 on:
   pull_request:
   push:
-    branches: [main]
+    branches: [main, develop]
 
 permissions:
   contents: read
@@ -91,6 +91,8 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7
+      - name: 작업 보드 도구 (unittest)
+        run: python3 -m unittest discover -s scripts/tests -v
       # 프로젝트 파일(pyproject.toml · package.json · go.mod)이 있는 폴더마다 해당 언어 검사를 돌린다.
       # 새 언어를 쓰게 되면 여기에 감지 규칙을 한 줄 추가한다. 필수 검사 이름은 그대로 둔다.
       - name: 프로젝트 감지
