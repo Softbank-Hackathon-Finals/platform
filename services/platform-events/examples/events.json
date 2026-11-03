@@ -21,9 +21,10 @@
     "occurred_at": "2026-11-03T10:00:02Z",
     "event_type": "gate.completed",
     "data": {
-      "gate_run_id": "gate-demo-1",
-      "verdict": "PASS",
-      "evidence_ref": "evidence-demo-1"
+      "gate_id": "gate-demo-1",
+      "evidence_ref": "evidence-demo-1",
+      "decision": "PASS",
+      "context_digest": "4444444444444444444444444444444444444444444444444444444444444444"
     }
   },
   {
@@ -39,12 +40,13 @@
       "approval_kind": "cutover",
       "binding": {
         "plan_id": "plan-demo",
-        "plan_revision": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+        "plan_digest": "1111111111111111111111111111111111111111111111111111111111111111",
         "diff_hash": "sha256:2222222222222222222222222222222222222222222222222222222222222222",
         "image_digest": "sha256:3333333333333333333333333333333333333333333333333333333333333333",
         "target_environment_id": "onprem-demo",
         "expires_at": "2026-11-03T12:00:00Z",
-        "gate_run_id": "gate-demo-1"
+        "gate_id": "gate-demo-1",
+        "context_digest": "4444444444444444444444444444444444444444444444444444444444444444"
       }
     }
   },
@@ -61,12 +63,13 @@
       "approval_kind": "cutover",
       "binding": {
         "plan_id": "plan-demo",
-        "plan_revision": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+        "plan_digest": "1111111111111111111111111111111111111111111111111111111111111111",
         "diff_hash": "sha256:2222222222222222222222222222222222222222222222222222222222222222",
         "image_digest": "sha256:3333333333333333333333333333333333333333333333333333333333333333",
         "target_environment_id": "onprem-demo",
         "expires_at": "2026-11-03T12:00:00Z",
-        "gate_run_id": "gate-demo-1"
+        "gate_id": "gate-demo-1",
+        "context_digest": "4444444444444444444444444444444444444444444444444444444444444444"
       },
       "decision": "approved",
       "actor_id": "operator-demo"

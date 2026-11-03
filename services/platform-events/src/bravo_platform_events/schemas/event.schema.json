@@ -83,8 +83,8 @@
         "plan_id": {
           "$ref": "#/$defs/identifier"
         },
-        "plan_revision": {
-          "$ref": "#/$defs/digest"
+        "plan_digest": {
+          "$ref": "#/$defs/context_digest"
         },
         "diff_hash": {
           "$ref": "#/$defs/digest"
@@ -99,19 +99,35 @@
           "type": "string",
           "format": "date-time"
         },
-        "gate_run_id": {
+        "gate_id": {
           "$ref": "#/$defs/identifier"
+        },
+        "context_digest": {
+          "$ref": "#/$defs/context_digest"
         }
       },
       "required": [
         "plan_id",
-        "plan_revision",
+        "plan_digest",
         "diff_hash",
         "image_digest",
         "target_environment_id",
         "expires_at"
       ],
-      "additionalProperties": false
+      "additionalProperties": false,
+      "dependentRequired": {
+        "gate_id": [
+          "context_digest"
+        ],
+        "context_digest": [
+          "gate_id"
+        ]
+      }
+    },
+    "context_digest": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$",
+      "description": "T5 SHA-256 encoding; see docs/controls/README.md for canonical evaluation context inputs."
     }
   },
   "allOf": [
@@ -196,7 +212,8 @@
                   "properties": {
                     "binding": {
                       "required": [
-                        "gate_run_id"
+                        "gate_id",
+                        "context_digest"
                       ]
                     }
                   }
@@ -264,7 +281,8 @@
                   "properties": {
                     "binding": {
                       "required": [
-                        "gate_run_id"
+                        "gate_id",
+                        "context_digest"
                       ]
                     }
                   }
@@ -288,23 +306,26 @@
           "data": {
             "type": "object",
             "properties": {
-              "gate_run_id": {
+              "gate_id": {
                 "$ref": "#/$defs/identifier"
-              },
-              "verdict": {
-                "enum": [
-                  "PASS",
-                  "BLOCK",
-                  "UNKNOWN"
-                ]
               },
               "evidence_ref": {
                 "$ref": "#/$defs/identifier"
+              },
+              "decision": {
+                "enum": [
+                  "PASS",
+                  "BLOCK"
+                ]
+              },
+              "context_digest": {
+                "$ref": "#/$defs/context_digest"
               }
             },
             "required": [
-              "gate_run_id",
-              "verdict",
+              "gate_id",
+              "context_digest",
+              "decision",
               "evidence_ref"
             ],
             "additionalProperties": false

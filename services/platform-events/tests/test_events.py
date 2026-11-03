@@ -78,17 +78,52 @@ def test_event_identity_and_approval_plan_cannot_disagree():
 
 def test_cutover_requires_gate_and_all_binding_values():
     for missing in [
-        "plan_revision",
+        "plan_digest",
         "diff_hash",
         "image_digest",
         "target_environment_id",
         "expires_at",
-        "gate_run_id",
+        "gate_id",
+        "context_digest",
     ]:
         approval = deepcopy(EXAMPLES[2])
         del approval["data"]["binding"][missing]
         with pytest.raises(ValidationError):
             validate_event(approval)
+
+
+@pytest.mark.parametrize("fixture", ["gate-before-fix.json", "gate-after-fix.json"])
+def test_gate_summary_preserves_current_t5_result_fields(fixture):
+    gate = json.loads((Path(__file__).parents[3] / "docs/controls/examples" / fixture).read_text())
+    event = deepcopy(EXAMPLES[1])
+    event["data"].update({key: gate[key] for key in ("gate_id", "context_digest", "decision")})
+    validate_event(event)
+    assert json.loads(encode_sse(event).splitlines()[2].removeprefix("data: ")) == event
+
+
+@pytest.mark.parametrize("decision", ["UNKNOWN", "FAIL"])
+def test_raw_test_verdict_is_not_a_gate_decision(decision):
+    event = deepcopy(EXAMPLES[1])
+    event["data"]["decision"] = decision
+    with pytest.raises(ValidationError):
+        validate_event(event)
+
+
+@pytest.mark.parametrize("digest", ["", "sha256:" + "4" * 64, "A" * 64])
+def test_gate_context_requires_t5_digest_encoding(digest):
+    event = deepcopy(EXAMPLES[1])
+    event["data"]["context_digest"] = digest
+    with pytest.raises(ValidationError):
+        validate_event(event)
+
+
+@pytest.mark.parametrize("missing", ["gate_id", "context_digest"])
+def test_optional_change_approval_gate_reference_must_be_complete(missing):
+    event = deepcopy(EXAMPLES[2])
+    event["data"]["approval_kind"] = "change"
+    del event["data"]["binding"][missing]
+    with pytest.raises(ValidationError):
+        validate_event(event)
 
 
 def test_approval_history_can_contain_expired_values_without_authorizing_execution():

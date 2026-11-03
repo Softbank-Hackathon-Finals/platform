@@ -20,6 +20,8 @@ uv run pytest -q
 
 이벤트 종류는 `state.changed`, `approval.requested`, `approval.decided`, `gate.completed`, `execution.updated`다. 영속 순번은 계획별이며 실행 재시도에서 `run_id`가 바뀌어도 증가한다. 제공자 재전송은 `(plan_id, producer_key)`와 입력 해시로 구별한다. 같은 키·입력은 동일 이벤트를 반환하고 다른 입력은 거부한다.
 
+게이트 요약은 현재 [T5 계약](../../docs/controls/README.md)의 `gate_id`, `context_digest`, `decision`(`PASS`/`BLOCK`)을 보존한다. 컷오버 승인 결속에도 같은 게이트 ID·평가 결속값이 필요하며 `plan_digest`는 T5 서버 context와 같은 형식이다. 이 필드들은 서버 정본의 전체 결과 조회·대조와 소비 시점 권한 검사를 대체하지 않는다. 그런 검사는 향후 승인 처리기가 담당하며, 이 모듈은 이벤트 형식만 검증한다.
+
 호스팅 API는 자신의 인증된 요청과 계획 접근 정책으로 `create_app(store, authorize=...)`에 **동기 함수**를 넘긴다. 반환값이 정확히 `True`일 때만 허용한다. 데이터 존재 여부·cursor 형식을 조회하기 전에 접근을 검사하고 스트림 중에도 재검사한다. append·stream 등록은 HTTP로 노출하지 않는다. 인가된 소유 모듈만 Python API를 호출해야 한다.
 
 `GET /v1/plans/{id}/events`는 기본적으로 계속 읽는다. `Last-Event-ID: plan-demo:3`이면 3 다음부터 재생한다. `?follow=false`는 현재 꼬리를 따라잡으면 닫는 시험·재생 옵션이다. 재접속 손실/중복 시험은 실제 ASGI HTTP 경로를 사용하며, live tail·인가 철회는 비동기 스트림을 직접 검사한다.

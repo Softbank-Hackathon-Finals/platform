@@ -61,12 +61,16 @@ HTTP 응답 헤더가 이미 전송된 뒤 보존 데이터의 구멍이나 SQLi
 | `state.changed` | `from`(최초 상태 표기용 null 허용), `to` | 소유 상태 머신이 기록한 전이. null 사용 시점과 전이 허용 여부는 소유 상태 머신이 판단 |
 | `approval.requested` | `approval_id`, `approval_kind`, `binding` | 화면에서 현재 결속 값을 확인할 승인 요청 |
 | `approval.decided` | 위 필드 + `decision`, `actor_id` | 승인/거절/만료의 역사적 결정. 실행 허가 토큰이 아님 |
-| `gate.completed` | `gate_run_id`, `verdict`, `evidence_ref` | 게이트 소유자의 판정과 안전한 증거 식별자 |
+| `gate.completed` | `gate_id`, `context_digest`, `decision`, `evidence_ref` | T5 `GateComparison`의 식별자·입력 결속값·판정 요약과 안전한 증거 식별자 |
 | `execution.updated` | `execution_id`, `step`, `status`, 선택 `elapsed_ms` | Executor의 관측 상태. 성공 이벤트가 DB 쓰기를 열지 않음 |
 
-`binding`은 `plan_id`, `plan_revision`, `diff_hash`, `image_digest`, `target_environment_id`, `expires_at`를 담는다. `plan_revision`, `diff_hash`, `image_digest`는 `sha256:<64자리 소문자 hex>` 형태다. 컷오버 승인은 `gate_run_id`도 필수다. 변경 승인은 게이트 ID를 선택적으로 담을 수 있다.
+`gate.completed.decision`은 현재 [T5 게이트 계약](../controls/README.md)의 `PASS` 또는 `BLOCK`이다. 개별 시험의 `FAIL`·`UNKNOWN`은 게이트 전체 판정 값이 아니다. `context_digest`는 T5가 정한 평가 입력 15개 필드의 SHA-256 소문자 64자리이며 `sha256:` 접두사를 붙이지 않는다. 이벤트는 전체 `GateComparison`을 대체하지 않는다. `evidence_ref`는 표시용 불투명 식별자이며 클라이언트가 보낸 URL·파일 경로를 정본 조회 위치로 신뢰해서는 안 된다.
 
-계획 revision hash의 정규화 입력, diff hash 계산 방식, 실제 gate 실행 ID 생성과 승인자 주체 형식은 관련 T10/T12/T19/T31 담당이 확정해야 한다. 이 로컬 예시는 합성 값을 사용한다. 결속 값이 스키마에 맞아도 현재 계획·diff·digest·게이트 결과가 다르거나 만료됐다면 실제 승인 실행 모듈은 거부해야 한다. 역사적 `approval.decided`의 만료 시각은 과거일 수 있어 이 이벤트 읽기 모듈은 현재 시각과 비교하지 않는다.
+`binding`은 `plan_id`, `plan_digest`, `diff_hash`, `image_digest`, `target_environment_id`, `expires_at`를 담는다. `plan_digest`는 T5 서버 context의 불변 계획 해시와 같은 소문자 64자리다. `diff_hash`, `image_digest`는 `sha256:<64자리 소문자 hex>` 형태의 제안이다. 컷오버 승인은 `gate_id`와 `context_digest`도 필수다. 변경 승인은 이 두 필드를 함께 선택적으로 담을 수 있다.
+
+T10 승인 처리기는 인증된 현재 테넌트·앱·계획 context의 `gate_id`로 서버 정본을 조회하고 T5의 전체 결과 대조·소비 시점 권한/만료/폐기 검사를 수행해야 한다. 이벤트의 `PASS`, `context_digest` 일치, 과거 `approval.decided`만으로 승인을 발급하거나 실행하지 않는다. 서버 정본 없음·조회 실패·출처 불명·결과 불일치는 거부해야 하며 이벤트나 캐시를 대신 사용하지 않는다. 이 모듈은 그 서버 조회·승인 처리를 구현하지 않는다.
+
+불변 계획 문서의 정규화 입력, diff hash 계산 방식, 실제 gate ID 발급과 승인자 주체 형식은 관련 T10/T12/T19/T31 담당이 확정해야 한다. T5가 이미 정한 평가 context 직렬화는 그대로 따른다. 이 로컬 예시는 합성 값을 사용한다. 결속 값이 스키마에 맞아도 현재 계획·diff·digest·게이트 결과가 다르거나 만료됐다면 실제 승인 실행 모듈은 거부해야 한다. 역사적 `approval.decided`의 만료 시각은 과거일 수 있어 이 이벤트 읽기 모듈은 현재 시각과 비교하지 않는다.
 
 ## 생산·소비와 원자성
 
