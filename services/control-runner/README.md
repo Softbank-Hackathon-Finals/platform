@@ -158,3 +158,5 @@ uv build
 공식 출력 계약 출처는 `tool_reports.py`에 있으며, AWS 권한 차이는
 [GetObject API](https://docs.aws.amazon.com/AmazonS3/latest/API/API_GetObject.html),
 오류 규칙은 [Secrets Manager Common Errors](https://docs.aws.amazon.com/secretsmanager/latest/apireference/CommonErrors.html)를 따른다.
+
+T34의 환경 내부 OTel 수집 구성·중단 복구와 배포 전제는 [감사 전달 구성](docs/audit-forwarding.md)을 따른다. 설정 생성과 로컬 도구 실험은 양쪽 운영 환경의 감사 검색 완료가 아니다.
