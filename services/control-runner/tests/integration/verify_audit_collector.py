@@ -120,9 +120,21 @@ def run(root):
         def present(marker):
             return any(marker in json.dumps(row) for _, row in records(root / "output/logs.json"))
 
+        # Real CNPG emits manager/startup JSON without a PostgreSQL record.
+        # Such a row must not poison the entire batch or leak arbitrary payloads.
+        with source.open("a") as output:
+            for noise in (
+                {"logger": "manager", "msg": "private-marker-must-not-leak"},
+                {"logger": "pgaudit", "record": "private-marker-must-not-leak"},
+                {"logger": "postgres", "record": None},
+                {"logger": "pgaudit", "record": {"audit": "private-marker-must-not-leak"}},
+                {"logger": "postgres", "record": {"query": "private-marker-must-not-leak"}},
+            ):
+                output.write("2026-11-03T00:00:00.000000000Z stdout F " + json.dumps(noise) + "\n")
         first = emit(1)
         wait_for(lambda: present(first))
         result["mtls_forwarding"] = True
+        result["non_audit_startup_rows_do_not_block_canary"] = True
         # No app-provided OTLP endpoint is open. Another Pod UID file must not be read.
         other = root / "input" / "audit-test_fake_33333333-3333-4333-8333-33333333333a" / "postgres"
         other.mkdir(parents=True)

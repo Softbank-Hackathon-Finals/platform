@@ -87,9 +87,11 @@ def collector_config(binding: AuditForwardingRegistration) -> dict:
             "log_statements": [{"context": "log", "statements": [
                 'set(cache, ParseJSON(body))',
                 'keep_keys(cache, ["logger", "record"])',
+                'delete_key(cache, "record") where not IsMap(cache["record"])',
                 'keep_keys(cache["record"], ["user_name", "database_name", "application_name", "error_severity", "message", "audit"]) where IsMap(cache["record"])',
-                'delete_key(cache["record"], "message") where cache["logger"] != "postgres" or not IsString(cache["record"]["message"])',
-                'delete_key(cache["record"], "message") where IsString(cache["record"]["message"]) and not IsMatch(cache["record"]["message"], "^connection authorized: user=")',
+                'delete_key(cache["record"], "message") where IsMap(cache["record"]) and (cache["logger"] != "postgres" or not IsString(cache["record"]["message"]))',
+                'delete_key(cache["record"], "message") where IsMap(cache["record"]) and IsString(cache["record"]["message"]) and not IsMatch(cache["record"]["message"], "^connection authorized: user=")',
+                'delete_key(cache["record"], "audit") where IsMap(cache["record"]) and not IsMap(cache["record"]["audit"])',
                 'keep_keys(cache["record"]["audit"], ["audit_type", "class", "object_type", "object_name", "command"]) where IsMap(cache["record"]["audit"])',
                 'set(body, cache)',
                 'keep_keys(attributes, [])',
