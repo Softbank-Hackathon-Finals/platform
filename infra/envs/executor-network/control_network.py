@@ -10,6 +10,11 @@ CHART_VERSION = "1.104.4"
 CHART_SHA256 = "971ff11ecc285613cd29d6f48a8ada180d7bdf716ac3301a1e663837f6419998"
 OPERATOR_DIGEST = "sha256:48d373932bae9b65f5ded6480276b2290f16b8d43794ec9dcc3faf50137802eb"
 PROXY_DIGEST = "sha256:519bf6f2c386992052216ea7e9391d5ace3a859d458f4f61bc8db8c58377eb7d"
+# v1.104.4 commit 27047635f237d1f3e0b08c0f487674757f30d2f7:
+# egress-services.go unusedPort() uses rand.Int32N(maxPorts) + 10000;
+# maxPorts is 1000. Its earlier reconciler comment still names an old range.
+PROXY_PORT_MIN = 10000
+PROXY_PORT_LIMIT = 11000
 NAMESPACE = "bravo-platform"
 OPERATOR_NAMESPACE = "tailscale-system"
 GROUP = "bravo-cutover-control"
@@ -94,10 +99,8 @@ def pooler_ingress(side):
     })
 
 
-def mapped_ports(observed_services, include_api=False):
+def observed_proxy_ports(observed_services, *, group, namespace, expected):
     """Bind exact proxy ports to the operator's generated child Service readback."""
-    expected = {f"{side}-{kind}-for-cutover": (kind, port)
-                for side, kind, _, port in route_contract(include_api)}
     if isinstance(observed_services, dict) and observed_services.get("kind") in {"List", "ServiceList"}:
         observed_services = observed_services.get("items")
     if not isinstance(observed_services, list):
@@ -108,13 +111,13 @@ def mapped_ports(observed_services, include_api=False):
             raise TypeError("Service objects are required")
         metadata = service.get("metadata", {})
         labels = metadata.get("labels", {})
-        if labels.get("tailscale.com/proxy-group") != GROUP:
+        if labels.get("tailscale.com/proxy-group") != group:
             continue
         parent = labels.get("tailscale.com/parent-resource")
         if parent not in expected or parent in seen:
             raise ValueError("unexpected or duplicate cutover child Service")
         wanted = {"tailscale.com/managed": "true", "tailscale.com/parent-resource-type": "svc",
-                  "tailscale.com/parent-resource-ns": NAMESPACE, "tailscale.com/svc-type": "egress"}
+                  "tailscale.com/parent-resource-ns": namespace, "tailscale.com/svc-type": "egress"}
         if any(labels.get(k) != v for k, v in wanted.items()):
             raise ValueError("cutover child Service ownership labels changed")
         spec = service.get("spec", {})
@@ -139,8 +142,7 @@ def mapped_ports(observed_services, include_api=False):
             if mapping.get("name") != kind or mapping.get("port") != remote or mapping.get("protocol") != "TCP":
                 raise ValueError("child Service remote port differs from the route contract")
             target = mapping.get("targetPort")
-            # v1.104.4 allocates unique match ports in [3000, 4000).
-            if type(target) is not int or not 3000 <= target < 4000 or target in ports:
+            if type(target) is not int or not PROXY_PORT_MIN <= target < PROXY_PORT_LIMIT or target in ports:
                 raise ValueError("invalid or reused proxy target port")
             mappings.append(target)
         if len(mappings) != 1:
@@ -155,6 +157,12 @@ def mapped_ports(observed_services, include_api=False):
     return sorted(ports | {remote for _, remote in expected.values()})
 
 
+def mapped_ports(observed_services, include_api=False):
+    expected = {f"{side}-{kind}-for-cutover": (kind, port)
+                for side, kind, _, port in route_contract(include_api)}
+    return observed_proxy_ports(observed_services, group=GROUP, namespace=NAMESPACE, expected=expected)
+
+
 def network(observed_services, include_api=False):
     ports = mapped_ports(observed_services, include_api)
     return obj("NetworkPolicy", "cutover-executor-tailnet", {
@@ -166,14 +174,52 @@ def network(observed_services, include_api=False):
     }, api="networking.k8s.io/v1")
 
 
+def proxy_ingress_policy(ports, *, group, namespace, caller, transport_ports, policy_name):
+    """Isolate this ProxyGroup using its verified current UDP listen ports."""
+    if (not isinstance(transport_ports, list) or not 1 <= len(transport_ports) <= 2
+            or any(type(port) is not int or not 1 <= port <= 65535 for port in transport_ports)):
+        raise ValueError("one or two verified current proxy WireGuard listen ports are required")
+    if len(set(transport_ports)) != len(transport_ports):
+        raise ValueError("transport ports must be unique")
+    if set(transport_ports) & (set(ports) | {443, 5432, 6432, 9002}):
+        raise ValueError("transport port conflicts with a reserved business or health port")
+    labels = {**PROXY_LABELS, "tailscale.com/parent-resource": group}
+    return obj("NetworkPolicy", policy_name, {
+        "podSelector": {"matchLabels": labels}, "policyTypes": ["Ingress"],
+        "ingress": [
+            {"from": [{
+                "namespaceSelector": {"matchLabels": {"kubernetes.io/metadata.name": namespace}},
+                "podSelector": {"matchLabels": caller.copy()},
+            }], "ports": [{"protocol": "TCP", "port": port} for port in ports]},
+            {"from": [{
+                "namespaceSelector": {"matchLabels": {"kubernetes.io/metadata.name": OPERATOR_NAMESPACE}},
+                "podSelector": {"matchLabels": {"app": "operator"}},
+            }], "ports": [{"protocol": "TCP", "port": 9002}]},
+            # WireGuard authenticates encrypted transport independently of the
+            # cleartext business and operator health routes above.
+            {"ports": [{"protocol": "UDP", "port": port} for port in sorted(transport_ports)]},
+        ],
+    }, namespace=OPERATOR_NAMESPACE, api="networking.k8s.io/v1")
+
+
+def proxy_ingress(observed_services, include_api=False, *, transport_ports):
+    return proxy_ingress_policy(mapped_ports(observed_services, include_api), group=GROUP,
+                                namespace=NAMESPACE, caller=CALLER, transport_ports=transport_ports,
+                                policy_name="cutover-proxy-ingress")
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("stage", choices=["values", "routes", "pooler-ingress", "network"])
+    parser.add_argument("stage", choices=["values", "routes", "pooler-ingress", "network", "proxy-ingress"])
     parser.add_argument("--side", choices=SIDES)
     parser.add_argument("--include-api", action="store_true", help="only after separate HTTPS/API authorization verification")
+    parser.add_argument("--transport-port", type=int, action="append",
+                        help="verified current proxy UDP listen port; repeat for a second address family")
     for side, kind, _, _ in route_contract(True):
         parser.add_argument(f"--{side}-{kind}-fqdn")
     args = parser.parse_args(argv)
+    if args.stage == "proxy-ingress" and args.transport_port is None:
+        parser.error("proxy-ingress requires --transport-port from current Pod-bound readback")
     if args.stage == "values":
         result = values()
     elif args.stage == "pooler-ingress":
@@ -182,8 +228,10 @@ def main(argv=None):
         fqdns = {f"{side}_{kind}": value for side, kind, _, _ in route_contract(True)
                  if (value := getattr(args, f"{side}_{kind}_fqdn")) is not None}
         result = {"apiVersion": "v1", "kind": "List", "items": routes(fqdns, args.include_api)}
-    else:
+    elif args.stage == "network":
         result = network(json.load(sys.stdin), args.include_api)
+    else:
+        result = proxy_ingress(json.load(sys.stdin), args.include_api, transport_ports=args.transport_port)
     print(json.dumps(result, indent=2))
 
 

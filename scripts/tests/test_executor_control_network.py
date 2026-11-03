@@ -34,10 +34,27 @@ def observed_services(api=False):
                 "tailscale.com/parent-resource": parent, "tailscale.com/parent-resource-ns": "bravo-platform",
                 "tailscale.com/proxy-group": "bravo-cutover-control", "tailscale.com/svc-type": "egress",
             }}, "spec": {"type": "ClusterIP", "ports": [
-                {"name": kind, "port": port, "targetPort": 3200 + index, "protocol": "TCP"},
+                {"name": kind, "port": port, "targetPort": 10200 + index, "protocol": "TCP"},
                 {"name": "tailscale-health-check", "port": 9002, "targetPort": 9002, "protocol": "TCP"},
             ]}})
     return {"apiVersion": "v1", "kind": "List", "items": items}
+
+
+def ingress_permits(policy, namespace, labels, protocol, port):
+    """Evaluate this policy's matchLabels/port rules, including transport-only ingress."""
+    for rule in policy["spec"]["ingress"]:
+        if not any(p["protocol"] == protocol and p["port"] == port for p in rule["ports"]):
+            continue
+        if "from" not in rule:
+            return True
+        for peer in rule["from"]:
+            expected_namespace = peer["namespaceSelector"]["matchLabels"]
+            expected_labels = peer["podSelector"]["matchLabels"]
+            if expected_namespace == {"kubernetes.io/metadata.name": namespace} and all(
+                labels.get(key) == value for key, value in expected_labels.items()
+            ):
+                return True
+    return False
 
 
 class RouteBoundaryTests(unittest.TestCase):
@@ -110,22 +127,49 @@ class MappingBoundaryTests(unittest.TestCase):
             "podSelector": {"matchLabels": {"tailscale.com/managed": "true", "tailscale.com/parent-resource-type": "proxygroup",
                                              "tailscale.com/parent-resource": "bravo-cutover-control"}},
         }])
-        self.assertEqual(rule["ports"], [{"protocol": "TCP", "port": p} for p in [3200, 3201, 3202, 3203, 5432, 6432]])
+        self.assertEqual(rule["ports"], [{"protocol": "TCP", "port": p} for p in [5432, 6432, 10200, 10201, 10202, 10203]])
         self.assertNotIn(9002, [p["port"] for p in rule["ports"]])
         self.assertNotIn(443, [p["port"] for p in rule["ports"]])
+        self.assertNotIn(10500, [p["port"] for p in rule["ports"]])
+        self.assertTrue(all("endPort" not in p for p in rule["ports"]))
+
+    def test_allocator_boundaries_match_pinned_implementation(self):
+        # Independent values from upstream unusedPort(): rand.Int32N(1000) + 10000.
+        for target in (10000, 10999):
+            data = observed_services()
+            data["items"][0]["spec"]["ports"][0]["targetPort"] = target
+            with self.subTest(target=target):
+                self.assertEqual(render.mapped_ports(data), sorted([5432, 6432, target, 10201, 10202, 10203]))
+        for target in (9999, 11000, 3200, 9002, True, "10200"):
+            data = observed_services()
+            data["items"][0]["spec"]["ports"][0]["targetPort"] = target
+            with self.subTest(target=target), self.assertRaises(ValueError):
+                render.mapped_ports(data)
 
     def test_fails_closed_on_missing_duplicate_or_foreign_service_readback(self):
         cases = []
-        data = observed_services(); data["items"].pop(); cases.append(data)
-        data = observed_services(); data["items"].append(copy.deepcopy(data["items"][0])); cases.append(data)
+        data = observed_services()
+        data["items"].pop()
+        cases.append(data)
+        data = observed_services()
+        data["items"].append(copy.deepcopy(data["items"][0]))
+        cases.append(data)
         for field, value in [("namespace", "other-system"), ("uid", ""), ("resourceVersion", "")]:
-            data = observed_services(); data["items"][0]["metadata"][field] = value; cases.append(data)
+            data = observed_services()
+            data["items"][0]["metadata"][field] = value
+            cases.append(data)
         for key, value in [("tailscale.com/proxy-group", "unrelated"), ("tailscale.com/parent-resource-ns", "source-dev"),
                            ("tailscale.com/parent-resource-type", "proxygroup"), ("tailscale.com/managed", "false")]:
-            data = observed_services(); data["items"][0]["metadata"]["labels"][key] = value; cases.append(data)
-        for field, value in [("protocol", "UDP"), ("port", 22), ("targetPort", 4000), ("targetPort", "postgres")]:
-            data = observed_services(); data["items"][0]["spec"]["ports"][0][field] = value; cases.append(data)
-        data = observed_services(); data["items"][1]["spec"]["ports"][0]["targetPort"] = 3200; cases.append(data)
+            data = observed_services()
+            data["items"][0]["metadata"]["labels"][key] = value
+            cases.append(data)
+        for field, value in [("protocol", "UDP"), ("port", 22), ("targetPort", 11000), ("targetPort", "postgres")]:
+            data = observed_services()
+            data["items"][0]["spec"]["ports"][0][field] = value
+            cases.append(data)
+        data = observed_services()
+        data["items"][1]["spec"]["ports"][0]["targetPort"] = 10200
+        cases.append(data)
         for index, case in enumerate(cases):
             with self.subTest(index=index), self.assertRaises(ValueError):
                 render.network(case)
@@ -136,7 +180,79 @@ class MappingBoundaryTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             render.network(observed_services(), True)
         ports = render.mapped_ports(observed_services(True), True)
-        self.assertEqual(ports, [443, 3200, 3201, 3202, 3203, 3204, 3205, 5432, 6432])
+        self.assertEqual(ports, [443, 5432, 6432, 10200, 10201, 10202, 10203, 10204, 10205])
+
+
+class ProxyIngressBoundaryTests(unittest.TestCase):
+    def setUp(self):
+        # A synthetic observation, not an assumption about a runtime default.
+        self.policy = render.proxy_ingress(observed_services(), transport_ports=[45000, 46000])
+
+    def test_only_exact_executor_namespace_and_label_can_use_business_ports(self):
+        caller = {"app.kubernetes.io/name": "cutover-executor"}
+        for port in (5432, 6432, 10200, 10201, 10202, 10203):
+            self.assertTrue(ingress_permits(self.policy, "bravo-platform", caller, "TCP", port))
+            self.assertFalse(ingress_permits(self.policy, "other-platform", caller, "TCP", port))
+            self.assertFalse(ingress_permits(self.policy, "bravo-platform", {"app.kubernetes.io/name": "collector"}, "TCP", port))
+            self.assertFalse(ingress_permits(self.policy, "tailscale-system", {"app": "operator"}, "TCP", port))
+
+    def test_operator_health_is_separate_from_executor_business_authority(self):
+        self.assertTrue(ingress_permits(self.policy, "tailscale-system", {"app": "operator"}, "TCP", 9002))
+        for namespace, labels in [("bravo-platform", {"app": "operator"}),
+                                  ("tailscale-system", {"app": "unrelated"}),
+                                  ("bravo-platform", {"app.kubernetes.io/name": "cutover-executor"})]:
+            with self.subTest(namespace=namespace, labels=labels):
+                self.assertFalse(ingress_permits(self.policy, namespace, labels, "TCP", 9002))
+
+    def test_api_ingress_requires_opt_in_and_complete_observations(self):
+        caller = {"app.kubernetes.io/name": "cutover-executor"}
+        self.assertFalse(ingress_permits(self.policy, "bravo-platform", caller, "TCP", 443))
+        with self.assertRaises(ValueError):
+            render.proxy_ingress(observed_services(True), transport_ports=[45000])
+        with self.assertRaises(ValueError):
+            render.proxy_ingress(observed_services(), True, transport_ports=[45000])
+        policy = render.proxy_ingress(observed_services(True), True, transport_ports=[45000])
+        self.assertTrue(ingress_permits(policy, "bravo-platform", caller, "TCP", 443))
+        self.assertFalse(ingress_permits(policy, "other-platform", caller, "TCP", 443))
+
+    def test_transport_rule_does_not_open_tcp_business_or_other_proxy_groups(self):
+        for port in (45000, 46000):
+            self.assertTrue(ingress_permits(self.policy, "arbitrary", {}, "UDP", port))
+            self.assertFalse(ingress_permits(self.policy, "arbitrary", {}, "TCP", port))
+        for port in (5432, 6432, 9002, 10200, 44999, 45001, 45999, 46001):
+            self.assertFalse(ingress_permits(self.policy, "arbitrary", {}, "UDP", port))
+        self.assertEqual(self.policy["metadata"]["namespace"], "tailscale-system")
+        self.assertEqual(self.policy["spec"]["podSelector"], {"matchLabels": {
+            "tailscale.com/managed": "true", "tailscale.com/parent-resource-type": "proxygroup",
+            "tailscale.com/parent-resource": "bravo-cutover-control",
+        }})
+        self.assertEqual(self.policy["spec"]["policyTypes"], ["Ingress"])
+        self.assertNotIn("egress", self.policy["spec"])
+
+    def test_requires_observed_transport_ports_and_rejects_reserved_collisions(self):
+        with self.assertRaises(TypeError):
+            render.proxy_ingress(observed_services())
+        for ports in (None, 45000, (45000,), [], [45000, 45000], [45000, 46000, 47000],
+                      [True], [0], [-1], [65536], ["45000"], [443], [5432], [6432], [9002], [10200],
+                      [45000, 9002], [45000, 10201]):
+            with self.subTest(ports=ports), self.assertRaises(ValueError):
+                render.proxy_ingress(observed_services(), transport_ports=ports)
+
+    def test_transport_accepts_one_or_two_distinct_ports_with_deterministic_output(self):
+        for ports in ([1], [65535], [45000], [46000, 45000]):
+            with self.subTest(ports=ports):
+                policy = render.proxy_ingress(observed_services(), transport_ports=ports)
+                self.assertEqual(policy["spec"]["ingress"][-1]["ports"],
+                                 [{"protocol": "UDP", "port": port} for port in sorted(ports)])
+
+    def test_proxy_ingress_cli_requires_explicit_transport_readback(self):
+        with patch.object(render.sys, "stderr", io.StringIO()), self.assertRaises(SystemExit) as error:
+            render.main(["proxy-ingress"])
+        self.assertEqual(error.exception.code, 2)
+        output = io.StringIO()
+        with patch.object(render.sys, "stdin", io.StringIO(json.dumps(observed_services()))), redirect_stdout(output):
+            render.main(["proxy-ingress", "--transport-port", "46000", "--transport-port", "45000"])
+        self.assertEqual(json.loads(output.getvalue()), self.policy)
 
 
 if __name__ == "__main__":

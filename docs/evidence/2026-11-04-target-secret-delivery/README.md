@@ -37,3 +37,17 @@ Dockerfile HIGH/CRITICAL 구성 검사는 예외 추가 없이 통과했다. 이
 이미지, 앱의 300초 자격 캐시 동작, 전체 T9 통제 및 실제 cutover/SHIFT는 별도다.
 기존 `target-app-db`, DB LOGIN/구독, 업무 데이터와 원본 자격은 이 작업에서
 변경하지 않았다. 재현 구성은 [target-secrets 안내](../../../infra/envs/target-secrets/README.md)를 따른다.
+
+[네트워크 추가 readback](network-readback.json)은 전용 플랫폼 DB·PgBouncer
+경로 4개와 source PgBouncer의 target DB 전용 경로 생성 근거 7개를 별도로
+결속한다. 실제 Service UID·동적 포트, proxy Pod UID와 tailscaled 소유 UDP
+소켓을 확인하고 수신·송신 정책을 적용했다. 기존 복제 그룹과 Service,
+기존 정책 사양은 보존했다. 호출자 업무 경로와 operator 상태 확인을 분리한다.
+
+첫 플랫폼 접속 시험은 CPU 예약량 부족으로 Pod가 배치되지 않아 네트워크
+호출 전에 중단됐다. 이 readback의 Ready·정책 적용은 실제 연결 성공이나
+잘못된 호출자의 차단을 입증하지 않는다. T12의 실제 계정·TLS 및 호출자
+허용/거부 시험은 별도 통합 근거가 필요하다. source pooler의 backend,
+hostAlias와 DB 역할은 이 네트워크 작업에서 변경하지 않았다. proxy 재생성 시
+UDP 소켓·Service 포트가 바뀔 수 있어 현재 값으로 결속한 개발 정책을 다시
+조회·검토해야 한다.
