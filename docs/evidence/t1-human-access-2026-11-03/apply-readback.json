@@ -1,0 +1,140 @@
+{
+  "schema_version": 1,
+  "observed_at": "2026-11-03T08:03:46+00:00",
+  "mode": "apply_readback",
+  "account_boundary_matches": true,
+  "policy": "AdministratorAccess",
+  "scope": "human_development_only",
+  "actions": [
+    {
+      "target": "member-02",
+      "action": "create_initial_console_profile",
+      "result": "applied",
+      "console_profile": "created",
+      "keychain_readback": "PASS",
+      "login_verified": false,
+      "password_reset_required": true,
+      "secret_output": false
+    },
+    {
+      "target": "member-03",
+      "action": "create_user",
+      "result": "applied"
+    },
+    {
+      "target": "member-03",
+      "action": "add_to_developer_group",
+      "result": "applied"
+    },
+    {
+      "target": "member-03",
+      "action": "create_initial_console_profile",
+      "result": "applied",
+      "console_profile": "created",
+      "keychain_readback": "PASS",
+      "login_verified": false,
+      "password_reset_required": true,
+      "secret_output": false
+    },
+    {
+      "target": "member-04",
+      "action": "create_user",
+      "result": "applied"
+    },
+    {
+      "target": "member-04",
+      "action": "add_to_developer_group",
+      "result": "applied"
+    },
+    {
+      "target": "member-04",
+      "action": "create_initial_console_profile",
+      "result": "applied",
+      "console_profile": "created",
+      "keychain_readback": "PASS",
+      "login_verified": false,
+      "password_reset_required": true,
+      "secret_output": false
+    },
+    {
+      "target": "member-05",
+      "action": "create_user",
+      "result": "applied"
+    },
+    {
+      "target": "member-05",
+      "action": "add_to_developer_group",
+      "result": "applied"
+    },
+    {
+      "target": "member-05",
+      "action": "create_initial_console_profile",
+      "result": "applied",
+      "console_profile": "created",
+      "keychain_readback": "PASS",
+      "login_verified": false,
+      "password_reset_required": true,
+      "secret_output": false
+    }
+  ],
+  "members": [
+    {
+      "member": "member-01",
+      "reused_existing": true,
+      "user_exists": true,
+      "administrator_access_policy_attached": true,
+      "permissions_boundary_present": false,
+      "console_profile_exists": false,
+      "password_reset_required": null,
+      "new_access_key_count": 0,
+      "human_login_verified": false
+    },
+    {
+      "member": "member-02",
+      "reused_existing": false,
+      "user_exists": true,
+      "administrator_access_policy_attached": true,
+      "permissions_boundary_present": false,
+      "console_profile_exists": true,
+      "password_reset_required": true,
+      "new_access_key_count": 0,
+      "human_login_verified": false
+    },
+    {
+      "member": "member-03",
+      "reused_existing": false,
+      "user_exists": true,
+      "administrator_access_policy_attached": true,
+      "permissions_boundary_present": false,
+      "console_profile_exists": true,
+      "password_reset_required": true,
+      "new_access_key_count": 0,
+      "human_login_verified": false
+    },
+    {
+      "member": "member-04",
+      "reused_existing": false,
+      "user_exists": true,
+      "administrator_access_policy_attached": true,
+      "permissions_boundary_present": false,
+      "console_profile_exists": true,
+      "password_reset_required": true,
+      "new_access_key_count": 0,
+      "human_login_verified": false
+    },
+    {
+      "member": "member-05",
+      "reused_existing": false,
+      "user_exists": true,
+      "administrator_access_policy_attached": true,
+      "permissions_boundary_present": false,
+      "console_profile_exists": true,
+      "password_reset_required": true,
+      "new_access_key_count": 0,
+      "human_login_verified": false
+    }
+  ],
+  "runtime_roles_changed": false,
+  "external_messages_sent": false,
+  "effective_access_and_human_login_verified": false
+}
