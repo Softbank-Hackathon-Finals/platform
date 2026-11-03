@@ -58,6 +58,17 @@ class PublicEvidence(unittest.TestCase):
             self.assertNotEqual(public["email"], body["email"])
             self.assertFalse(privacy.findings(path.read_text(), name))
 
+    def test_example_prefix_does_not_exempt_real_email_or_cloud_endpoint(self):
+        for value, kind in (("example-operator@" + "mail.org", "EMAIL"),
+                            ("AWS_operator@" + "mail.org", "EMAIL"),
+                            ("example-private." + "rds.amazonaws.com", "ENDPOINT")):
+            with self.subTest(kind=kind):
+                self.assertIn((kind, value), privacy.findings(value, "README.md"))
+
+    def test_github_ssh_transport_is_not_a_personal_email(self):
+        self.assertFalse(privacy.findings(
+            "git@github.com:team/repo.git ssh://git@github.com/team/repo", "script.py"))
+
     def test_resource_names_cannot_change_hashes_verdicts_or_json_keys(self):
         for resource_name in ("db", "PASS", "db_count"):
             with self.subTest(resource_name=resource_name):

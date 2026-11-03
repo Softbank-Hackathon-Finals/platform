@@ -51,11 +51,11 @@ def placeholder(value):
 
 
 def permitted(kind, value):
-    if placeholder(value):
-        return True
     if kind == "EMAIL":
         domain = value.rsplit("@", 1)[1].lower()
         return domain in {"example.com", "example.org", "example.net", "example.invalid", "users.noreply.github.com"} or domain.endswith((".invalid", ".example", ".test"))
+    if kind != "ENDPOINT" and placeholder(value):
+        return True
     if kind == "AWS_ACCOUNT":
         return value in EXAMPLE_ACCOUNTS
     if kind == "AWS_ARN":
