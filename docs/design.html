@@ -1885,7 +1885,7 @@ verdict         MATCH | MISMATCH</code></pre>
     <p><b>만들 것</b> 8단계 컷오버 순서, 펜싱, barrier, PgBouncer PAUSE/RELOAD/RESUME, 단계별 타이머, 실패 3분기, WebSocket 1012 종료 신호.</p>
     <p><b>목표</b> 쓰기를 수 초만 멈추고, 실패해도 쓰기 DB가 둘이 되지 않게 전환한다.</p>
     <p><b>세부 작업</b></p>
-    <ul class="checklist"><li>구현 언어 결정 (11/3 전)</li><li>epoch · Idempotency-Key 처리</li><li>ABORT_PRE_WRITE · SAFE_HOLD 분기</li><li>진입점 쓰기 차단은 앱 쓰기 차단 스위치(T4)로 호출</li></ul>
+    <ul class="checklist"><li>구현 언어: Python 3.12 (ADR-0006)</li><li>epoch · Idempotency-Key 처리</li><li>ABORT_PRE_WRITE · SAFE_HOLD 분기</li><li>진입점 쓰기 차단은 앱 쓰기 차단 스위치(T4)로 호출</li></ul>
     <p><b>완료 기준</b> 부하 없이 컷오버 1회 성공, ABORT_PRE_WRITE · SAFE_HOLD 분기를 각 1회 시험.</p>
     <p class="small"><b>선행</b> <a class="tlink" href="#t8">T8</a>, <a class="tlink" href="#t10">T10</a> (통합 시점: <a class="tlink" href="#t4">T4</a>) · <b>후속</b> <a class="tlink" href="#t20">T20</a>, <a class="tlink" href="#t25">T25</a>, <a class="tlink" href="#t27">T27</a> · <b>관련</b> FR-9, NFR-1, NFR-3</p>
   </div>
@@ -2094,7 +2094,7 @@ verdict         MATCH | MISMATCH</code></pre>
 <tr><td>온프렘 데모 머신</td><td>전원</td><td>Linux VM을 띄울 수 있는 유선 연결 장비 (Mac mini 또는 PC)</td></tr>
 <tr><td>첨부 객체 · 시크릿 값 이전 범위</td><td>데이터 · 컷오버, 보안 통제 · 게이트 담당</td><td>컷오버 직전 1회 동기화 · 이관(T8 · T9), 데모 중 새 첨부 업로드 없음, 되돌리기 대상은 DB</td></tr>
 <tr><td>코드 레포 접근 방식</td><td>인프라 · CI 담당</td><td>데모는 범위를 좁힌 토큰(레포 읽기 · 브랜치 쓰기), 운영은 GitHub App</td></tr>
-<tr><td>Executor 구현 언어</td><td>데이터 · 컷오버 담당</td><td>계약만 고정 (8.6)</td></tr>
+<tr><td>Executor 구현 언어</td><td>데이터 · 컷오버 담당</td><td>Python 3.12 (8.6 · ADR-0006)</td></tr>
 <tr><td>클러스터 안 구성요소 배포 방식</td><td>인프라 · CI 담당</td><td>Argo CD 또는 Actions + Helm</td></tr>
 <tr><td>노드 아키텍처 통일 (arm64)</td><td>인프라 · CI 담당</td><td>통일하지 않으면 멀티 아키텍처 이미지 (논리 복제는 아키텍처와 무관)</td></tr>
 <tr><td>SeaweedFS 채택 확정</td><td>보안 통제 · 게이트 담당</td><td>실패 시 MinIO 마지막 버전 고정</td></tr>
