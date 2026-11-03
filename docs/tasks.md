@@ -801,3 +801,5 @@ Claude Code는 `/todo-task`, Codex는 `$todo-task`로 이 순서를 따르는 �
 - 클러스터 안 버전 교체(Argo Rollouts)
 - AI 추론 서비스 · ETL 파이프라인 이전
 - 이전 대상 추천에 비용 추정 포함 (FR-18)
+
+<!-- 리뷰 규칙 시험(머지하지 않고 닫는다): docs/tasks.md만 바꾼 PR이 승인 없이 머지 가능한지 확인 -->
