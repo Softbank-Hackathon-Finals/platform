@@ -14,48 +14,48 @@
     }
   },
   "source_sha256": {
-    "db_fingerprint.py": "a9d5497b341b2657f63c1ee5c33e1ee4a5648bab57492a5d66ca3205c4b65505",
-    "measure_fingerprint.py": "95305c3a2abd21d81bbb39c465062a445e4a0e94c68c50b9d5026fd8bea58549",
+    "db_fingerprint.py": "98c4aeff1eb29399b03e70c154bfd0d9d575083bdceb594908d3c9b697ee23a4",
+    "measure_fingerprint.py": "5f49f7bb092d6886e07c20ef7bee79ec8bed6a71c645e6acad943211479ac5b2",
     "baseline_integrity.py": "c2e85106599ce9014b3ebdd6b28d827c2dc78f30d52d3b6d36363823eaeec2a5"
   },
   "hash_rule": "db-sql-v1:fixed-session-text;columns-by-name;jsonb-array;utf8;sha256-of-row-sha256;pk-order-collate-c",
   "statement_timeout_ms": 3000,
   "first_run_s": {
-    "db_sql": 0.639,
-    "python_134": 5.01
+    "db_sql": 0.711,
+    "python_134": 5.491
   },
   "compare_two_sides": {
     "db_sql": {
       "verdict": "MATCH",
       "data_verdict": "MATCH",
       "schema_verdict": "MATCH",
-      "median_s": 0.632,
-      "max_s": 0.799,
+      "median_s": 0.652,
+      "max_s": 0.847,
       "samples_s": [
-        0.799,
-        0.649,
-        0.627,
-        0.595,
-        0.632
+        0.847,
+        0.621,
+        0.642,
+        0.652,
+        0.707
       ]
     },
     "python_134": {
       "verdict": "MATCH",
-      "median_s": 4.554,
-      "max_s": 5.004,
+      "median_s": 4.963,
+      "max_s": 5.431,
       "samples_s": [
-        5.004,
-        4.554,
-        4.558,
-        4.421,
-        4.446
+        5.431,
+        4.963,
+        4.92,
+        5.385,
+        4.384
       ]
     }
   },
   "one_table_one_side_s": {
     "db_sql": {
-      "public.attachments": 0.009,
-      "public.messages": 0.289
+      "public.attachments": 0.01,
+      "public.messages": 0.309
     }
   },
   "traffic_from_target": {

@@ -617,6 +617,37 @@ def test_safe_target_receives_no_write():
     assert target.raised == []
 
 
+def test_sequence_state_has_its_own_time_limit(pair):
+    # T19처럼 제한 없는 연결로 불러도 잠금에 무기한 묶이지 않는다
+    with psycopg.connect(pair[0]) as holder, psycopg.connect(pair[0], autocommit=True) as conn:
+        holder.execute("LOCK TABLE events IN ACCESS EXCLUSIVE MODE")
+        with pytest.raises(Unconfirmed, match="statement_timeout"):
+            sequence_state(conn, *SEQUENCE)
+        holder.rollback()
+
+
+def test_row_security_cannot_hide_the_max_id(pair, postgres_dsn):
+    # 숨겨진 행 때문에 최대 ID가 작게 읽히면 새 번호가 기존 행과 겹친다
+    role = "t13_" + uuid4().hex
+    identifier = sql.Identifier(role)
+    seed_events(pair[0], 10)
+    with psycopg.connect(postgres_dsn, autocommit=True) as admin:
+        admin.execute(sql.SQL("CREATE ROLE {}").format(identifier))
+    try:
+        run(pair[0], sql.SQL("GRANT SELECT ON events TO {}").format(identifier),
+            sql.SQL("GRANT SELECT ON SEQUENCE public.events_id_seq TO {}").format(identifier),
+            "ALTER TABLE events ENABLE ROW LEVEL SECURITY", "CREATE POLICY hide_all ON events USING (false)")
+        with psycopg.connect(pair[0], autocommit=True) as conn:
+            conn.execute(sql.SQL("SET ROLE {}").format(identifier))
+            with pytest.raises(Unconfirmed, match="42501"):
+                sequence_state(conn, *SEQUENCE)
+    finally:
+        run(pair[0], "DROP POLICY hide_all ON events", sql.SQL("REVOKE ALL ON events FROM {}").format(identifier),
+            sql.SQL("REVOKE ALL ON SEQUENCE public.events_id_seq FROM {}").format(identifier))
+        with psycopg.connect(postgres_dsn, autocommit=True) as admin:
+            admin.execute(sql.SQL("DROP ROLE {}").format(identifier))
+
+
 def test_missing_sequence_is_unconfirmed(pair):
     run(pair[1], "DROP TABLE events")
     with pytest.raises(Unconfirmed):

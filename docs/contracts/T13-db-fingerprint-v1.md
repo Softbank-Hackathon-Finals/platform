@@ -41,7 +41,7 @@ db-sql-v1:fixed-session-text;columns-by-name;jsonb-array;utf8;sha256-of-row-sha2
 
 `boolean` `smallint` `integer` `bigint` `numeric` `real` `double precision` `text` `character varying` `character` `bytea` `uuid` `date` `time` `timetz` `timestamp` `timestamptz` `interval` `json` `jsonb`
 
-`relkind`가 일반 표가 아니거나 상속 자식이 있는 표, PK가 없는 표, 스키마 이름이 없는 표 이름도 `UNKNOWN`이다.
+`relkind`가 일반 표가 아니거나 상속 자식이 있는 표, PK가 없는 표, 스키마 이름이 없는 표 이름도 `UNKNOWN`이다. `jsonb_build_array`의 인자 제한 때문에 컬럼이 100개를 넘는 표도 `UNKNOWN`(SQLSTATE `54023`)이다.
 
 ## 스키마 지문
 
@@ -76,6 +76,7 @@ db-sql-v1:fixed-session-text;columns-by-name;jsonb-array;utf8;sha256-of-row-sha2
 올릴 값 = max(출발지 다음 값, 출발지 최대 ID + 1, 목적지 다음 값, 목적지 최대 ID + 1)
 ```
 
+- 값을 읽을 때도 지문과 같은 3초 제한과 `row_security=off`를 건다. 행 보안 정책이 행을 숨겨 최대 ID가 작게 읽히면 조용히 넘어가지 않고 오류가 난다.
 - 목적지 다음 값이 이미 올릴 값이면 쓰기를 보내지 않는다.
 - 올린 뒤 다시 읽어 다음 값이 올릴 값과 다르면 `Unconfirmed`다.
 - 증가폭 1이 아니거나 순환하는 시퀀스, 올릴 값이 시퀀스 최댓값을 넘는 경우도 `Unconfirmed`이고 값을 바꾸지 않는다.

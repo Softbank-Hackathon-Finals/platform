@@ -154,7 +154,7 @@ def _snapshot(conn) -> Iterator[None]:
             conn.execute(_SNAPSHOT)
             yield
     except psycopg.errors.QueryCanceled as e:
-        raise Unconfirmed(f"fingerprint exceeded statement_timeout {STATEMENT_TIMEOUT_MS}ms") from e
+        raise Unconfirmed(f"read exceeded statement_timeout {STATEMENT_TIMEOUT_MS}ms") from e
     except psycopg.Error as e:
         raise Unconfirmed(f"integrity snapshot could not be read ({e.sqlstate})") from e
 
@@ -234,11 +234,12 @@ class SequenceState:
 
 def sequence_state(conn, sequence: str, table: str, column: str) -> SequenceState:
     identifier = sql.Identifier(*sequence.split("."))
-    row = conn.execute(sql.SQL("""SELECT s.last_value, s.is_called, p.seqincrement, p.seqcycle, p.seqmax,
-         (SELECT coalesce(max({column}), 0) FROM {table})
-       FROM {sequence} s, pg_catalog.pg_sequence p WHERE p.seqrelid = to_regclass(%s)""").format(
-        column=sql.Identifier(column), table=sql.Identifier(*table.split(".")), sequence=identifier),
-        (identifier.as_string(conn),)).fetchone()
+    with _snapshot(conn):
+        row = conn.execute(sql.SQL("""SELECT s.last_value, s.is_called, p.seqincrement, p.seqcycle, p.seqmax,
+             (SELECT coalesce(max({column}), 0) FROM {table})
+           FROM {sequence} s, pg_catalog.pg_sequence p WHERE p.seqrelid = to_regclass(%s)""").format(
+            column=sql.Identifier(column), table=sql.Identifier(*table.split(".")), sequence=identifier),
+            (identifier.as_string(conn),)).fetchone()
     if row is None:
         raise Unconfirmed(f"sequence settings not found: {sequence}")
     last_value, is_called, increment, cycle, maximum, max_id = row

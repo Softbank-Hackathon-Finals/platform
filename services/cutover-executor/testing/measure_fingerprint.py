@@ -69,6 +69,7 @@ class Server:
                               capture_output=True).returncode == 0:
                 return
             time.sleep(1)
+        self.stop()
         raise SystemExit("postgres did not start")
 
     def psql(self, db: str, text: str) -> str:
@@ -183,8 +184,11 @@ def main() -> None:
         methods["python_134"] = baseline_method(module)
         sources["baseline_integrity.py"] = sha256(args.baseline)
 
-    source, target, other = Server(IMAGE), Server(IMAGE), Server(OTHER_PROVIDER_IMAGE)
+    servers = []
     try:
+        for image in (IMAGE, IMAGE, OTHER_PROVIDER_IMAGE):
+            servers.append(Server(image))
+        source, target, other = servers
         source.create("chat", "C", "UTC")
         target.create("chat", "C", "Asia/Tokyo")
         target.create("chat_en", "en_US.utf8", "UTC")
@@ -235,7 +239,7 @@ def main() -> None:
                                                   "traffic_from_target", "collation_differs", "provider_version_differs")},
                          ensure_ascii=False, indent=1))
     finally:
-        for server in (source, target, other):
+        for server in servers:
             server.stop()
 
 
