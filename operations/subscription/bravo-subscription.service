@@ -1,0 +1,27 @@
+[Unit]
+Description=Bravo bounded subscription broker
+After=network-online.target
+
+[Service]
+Type=simple
+DynamicUser=yes
+StateDirectory=bravo-t11-subscription
+StateDirectoryMode=0700
+UMask=0077
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectProc=invisible
+ProcSubset=pid
+RestrictSUIDSGID=yes
+LockPersonality=yes
+CapabilityBoundingSet=
+IPAddressDeny=169.254.169.254/32
+MemoryMax=1G
+CPUQuota=100%
+RuntimeMaxSec=650
+Environment=PYTHONDONTWRITEBYTECODE=1
+Environment=AWS_EC2_METADATA_DISABLED=true
+ExecStart=/opt/bravo-subscription/worker/.venv/bin/python -m bravo_agent.subscription_server /etc/bravo-subscription/settings.json

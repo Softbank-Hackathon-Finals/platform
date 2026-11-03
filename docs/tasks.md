@@ -523,7 +523,7 @@ Claude Code는 `/todo-task`, Codex는 `$todo-task`로 이 순서를 따르는 �
 
 **할 일**
 - [x] 구현 언어 결정 (11/3 전)
-- [ ] epoch · Idempotency-Key 처리
+- [x] epoch · Idempotency-Key 처리
 - [ ] ABORT_PRE_WRITE · SAFE_HOLD 분기
 - [ ] 진입점 쓰기 차단은 앱 쓰기 차단 스위치(T4)로 호출
 - [ ] 출발지 WebSocket 1012 종료 (demo-chat 관리 API로 호출)

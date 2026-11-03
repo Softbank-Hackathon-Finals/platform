@@ -1,0 +1,101 @@
+{
+  "status": "PASS",
+  "pytest_exit_code": 0,
+  "tests_passed": 177,
+  "python_version": "3.12.3",
+  "nonroot_verified": true,
+  "scope": "existing EC2; isolated non-root process; generated IdP keys; synthetic gate/SHIFT authority; temporary SQLite; real loopback HTTP/TLS fixtures",
+  "actual_executor_deployed": false,
+  "operational_database_accessed": false,
+  "kubernetes_resources_changed": false,
+  "cutover_performed": false,
+  "temporary_directory_removed": true,
+  "ssm_status": "Success",
+  "ssm_response_code": 0,
+  "observed_start": "2026-11-03T15:19:24.320Z",
+  "observed_end": "2026-11-03T15:19:43.320Z",
+  "account_boundary_matches": true,
+  "target_owner_boundary_matches": true,
+  "source_files": [
+    {
+      "path": "src/bravo_platform_events/__init__.py",
+      "sha256": "b8cac0fc14f60759a2637ed97e2d00ae463d1192b267d470afb8b06fd4b4e68b"
+    },
+    {
+      "path": "src/bravo_platform_events/api.py",
+      "sha256": "50216355cf835a07c48206600df60a668d52323de5b951a3b9a334a19132627e"
+    },
+    {
+      "path": "src/bravo_platform_events/contract.py",
+      "sha256": "121ca19facf8aa39ed727caf41267f090ee8b5c6289976171e74c761805508ce"
+    },
+    {
+      "path": "src/bravo_platform_events/cutover.py",
+      "sha256": "116f2e518d627e0bc50c25d91960983af9655c792a483424c79520508361ccf1"
+    },
+    {
+      "path": "src/bravo_platform_events/cutover_api.py",
+      "sha256": "30deed70ba779bfd419e24a9f59534a9eddec5ad74b1a71754c8306b8d260c32"
+    },
+    {
+      "path": "src/bravo_platform_events/executor.py",
+      "sha256": "9612975396242417129151b17a1b2cad526f36d08f0fade50df2d717a0b18b6f"
+    },
+    {
+      "path": "src/bravo_platform_events/operator_access.py",
+      "sha256": "1aa4a2dae4b2ef45669f15584a624b55242efff71e8615850798107fd378defa"
+    },
+    {
+      "path": "src/bravo_platform_events/operator_identity.py",
+      "sha256": "6563828a73dae011fdb0d766b5fc3357117d0258189f77f5ed4cd5b0071f3b97"
+    },
+    {
+      "path": "src/bravo_platform_events/plan_api.py",
+      "sha256": "cefe17ea5884eb3279a330ca475a8adfe5f356d92023653f71643eefd9942929"
+    },
+    {
+      "path": "src/bravo_platform_events/plans.py",
+      "sha256": "71ca10540ad76ea87d445db931226df610be901dca216a2ff6beb18f71868a62"
+    },
+    {
+      "path": "src/bravo_platform_events/postgres.py",
+      "sha256": "6a19ba6aaacce5b9feaed209192ee0484490d636aa979ebfb586a1e91fe72955"
+    },
+    {
+      "path": "src/bravo_platform_events/schemas/event.schema.json",
+      "sha256": "d72975b750439b449449e3150dcd59e038f972418c00fe93420644ea0c4290a4"
+    },
+    {
+      "path": "src/bravo_platform_events/schemas/plan-snapshot.schema.json",
+      "sha256": "9a34c68660d9772c885fbd1cf79d4a5c7ef6f21aeb5bb730912c0597b37c154d"
+    },
+    {
+      "path": "src/bravo_platform_events/store.py",
+      "sha256": "9d31d95f7d8d6e8dc3d350cfb3c00e0a0b2d3b9461699b69da98789884fb8550"
+    },
+    {
+      "path": "tests/conftest.py",
+      "sha256": "49fd05d1df4bfbafa6cc7b71013e4af68af66b27595197def1b502a69415b999"
+    },
+    {
+      "path": "tests/postgres_fixture.py",
+      "sha256": "c6e8e818185cbfb8a5e0a196699fec483ba71e14cc8b846b59a8f44535e192a7"
+    },
+    {
+      "path": "tests/test_cutover.py",
+      "sha256": "53a0ba4c6b55d41460485adee3ee624910008187a863a19890b41399f157ea7b"
+    },
+    {
+      "path": "tests/test_cutover_transport.py",
+      "sha256": "44c061c08d7613ef4e5ec1479b2029e7eff56156ef781b387c6ae750fd609a01"
+    },
+    {
+      "path": "tests/test_executor.py",
+      "sha256": "8119c6a7b23d01a5458ef7fc63d30a7b0dd464e6d487004adf91adb9610de73e"
+    },
+    {
+      "path": "tests/test_operator_access.py",
+      "sha256": "6e61408f3ea0057bf2fdc54486fb9705b3916a2fbb06dd404afb833377003d8c"
+    }
+  ]
+}

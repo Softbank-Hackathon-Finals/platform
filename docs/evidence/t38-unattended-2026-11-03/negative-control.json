@@ -1,0 +1,33 @@
+{
+  "state": "RETRY_ALLOWED",
+  "receipt": {
+    "run_id": "synthetic-ci-example",
+    "source_sha": "1111111111111111111111111111111111111111",
+    "proposal_digest": "b3168457e9f18617a44c29ecc9b86ea51889ea4af5784f945473c4decf37c330",
+    "attempt": 1,
+    "verdict": "FAIL",
+    "effects_known": true,
+    "evidence_digest": "bc7868fa8a395de36d964bfebd7781a9c13adc9a7b8850f8b911af453170731d",
+    "failure": {
+      "run_id": "synthetic-ci-example",
+      "source_sha": "1111111111111111111111111111111111111111",
+      "failure_code": "TEMPLATE_TEST_FAILED",
+      "summary": "Independent environment contract failed.",
+      "evidence_digest": "bc7868fa8a395de36d964bfebd7781a9c13adc9a7b8850f8b911af453170731d",
+      "stage": "REHEARSE"
+    }
+  },
+  "evidence": {
+    "template": "db-environment-integration",
+    "job_complete": false,
+    "namespace_deleted": true,
+    "checks": {
+      "injected_value": true,
+      "missing_value_closed": false
+    },
+    "failure_code": "TEMPLATE_TEST_FAILED",
+    "verifier_image": "docker.io/library/python@sha256:b18b261e1b4974b4f321451ad5251ded85abb22c2b8b262da527dda1d031ab30"
+  },
+  "candidate_sha256": "42f6a7df01d11a48251db075fa4cd84cb762e73cd9b7cce2641df2bbf97f2ab8",
+  "scope": "DB environment integration fixture; T9 product templates remain separate"
+}
