@@ -1,0 +1,21 @@
+{
+  "recorded_at": "2026-11-03T09:13:59.475842+00:00",
+  "evidence_type": "AWS IAM principal policy simulation and live policy readback",
+  "provisioning_source_commit": "ae2c155dcfe7c85fe191c4d6799a961c55a00be2",
+  "checks": {
+    "selected_repository_read": true,
+    "other_repository_read_denied": true,
+    "repository_write_delete_denied": true,
+    "registry_authentication": true,
+    "existing_secret_denial": true,
+    "access_analyzer_no_errors_or_security_warnings": true
+  },
+  "simulated_action_evaluations": 15,
+  "rke2_actual_image_pull": "not measured by this IAM check",
+  "persistent_credential_provider": "not configured by this change",
+  "eks_node_policy": "unchanged AWS managed pull policy; not repository restricted",
+  "source_sha256": {
+    "infra/envs/platform-aws/ecr-pull.tf": "70a5cda8220cf6bdc9e07541a5903aa295efee2d7d72dd42d1a31086f9cdfec6",
+    "infra/envs/platform-aws/variables.tf": "844d6a9527a27b45c3820873b04fcf0e3d0e2ca08aa068716d541ec1d6dc5461"
+  }
+}
