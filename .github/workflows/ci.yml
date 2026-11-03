@@ -68,6 +68,8 @@ jobs:
         run: |
           docker run --rm -v "$PWD:/repo" ghcr.io/gitleaks/gitleaks:v8.24.3 \
             detect --source /repo --redact --verbose
+      - name: 공개 파일 개인정보·운영 식별자 검사
+        run: python3 scripts/public_evidence.py check
 
   infra:
     needs: scope
