@@ -1,0 +1,83 @@
+{
+  "schema_version": "exit-drill-spec/v1",
+  "namespace": "target-dev",
+  "aws_region": "ap-northeast-2",
+  "workloads": {
+    "app": {"selector": {"app": "demo-chat"}, "role": "app", "aws_client": true},
+    "pooler": {"selector": {"app": "target-pgbouncer"}, "role": "app"},
+    "db": {"selector": {"cnpg.io/cluster": "target-db"}, "role": "replication"},
+    "objects": {"selector": {"app.kubernetes.io/name": "target-seaweedfs"}, "role": "infrastructure"},
+    "control": {"selector": {"bravo-exit-drill-control": "true"}, "role": "control"}
+  },
+  "routes": [
+    {
+      "id": "dns",
+      "class": "local",
+      "owners": ["app", "pooler"],
+      "to": {"namespace": "kube-system", "selector": {"k8s-app": "kube-dns"}},
+      "ports": [{"protocol": "UDP", "port": 53}, {"protocol": "TCP", "port": 53}],
+      "probe": {"kind": "dns", "host": "kubernetes.default.svc.cluster.local"}
+    },
+    {
+      "id": "app-to-pooler",
+      "class": "local",
+      "owners": ["app"],
+      "to": {"selector": {"app": "target-pgbouncer"}},
+      "ports": [{"protocol": "TCP", "port": 5432}],
+      "probe": {"kind": "tcp", "host": "target-pgbouncer.target-dev.svc", "port": 5432}
+    },
+    {
+      "id": "app-to-objects",
+      "class": "local",
+      "owners": ["app"],
+      "to": {"selector": {"app.kubernetes.io/name": "target-seaweedfs"}},
+      "ports": [{"protocol": "TCP", "port": 8333}],
+      "probe": {"kind": "tcp", "host": "seaweedfs.target-dev.svc", "port": 8333}
+    },
+    {
+      "id": "pooler-to-db",
+      "class": "local",
+      "owners": ["pooler"],
+      "to": {"selector": {"cnpg.io/cluster": "target-db", "cnpg.io/instanceRole": "primary"}},
+      "ports": [{"protocol": "TCP", "port": 5432}],
+      "probe": {"kind": "tcp", "host": "target-db-rw.target-dev.svc", "port": 5432}
+    },
+    {
+      "id": "pooler-to-source",
+      "class": "source_access",
+      "owners": ["pooler"],
+      "to": {"namespace": "tailscale-system", "selector": {"tailscale.com/parent-resource": "bravo-target-pooler"}},
+      "ports": [{"protocol": "TCP", "port": 5432}],
+      "probe": {"kind": "tcp", "host": "source-db-for-pooler.target-dev.svc", "port": 5432},
+      "roles": ["db"]
+    },
+    {
+      "id": "replication-forward",
+      "class": "replication",
+      "owners": ["db"],
+      "to": {"namespace": "tailscale-system", "selector": {"tailscale.com/parent-resource": "bravo-target-replication"}},
+      "ports": [{"protocol": "TCP", "port": 5432}],
+      "evidence": "tcp",
+      "probe": {"kind": "tcp", "host": "source-db-for-replication.target-dev.svc", "port": 5432}
+    },
+    {
+      "id": "replication-reverse",
+      "class": "replication",
+      "owners": ["db"],
+      "to": {"namespace": "tailscale-system", "selector": {"tailscale.com/parent-resource": "target-db-tailnet"}},
+      "ports": [{"protocol": "TCP", "port": 5432}],
+      "direction": "ingress",
+      "evidence": "stream"
+    }
+  ],
+  "new_connection_checks": [
+    {"id": "http-ready", "kind": "http", "host": "demo-chat.target-dev.svc", "port": 8080, "path": "/readyz"},
+    {"id": "db-via-pooler", "kind": "http", "host": "demo-chat.target-dev.svc", "port": 8080, "path": "/api/health/db"},
+    {"id": "websocket", "kind": "websocket", "host": "demo-chat.target-dev.svc", "port": 8080, "path": "/ws"}
+  ],
+  "declared_residuals": [
+    "tailscale (복제 · 제어 경로)",
+    "github (코드 · 이미지 빌드)",
+    "모델 공급자 (플랫폼의 에이전트 워커)"
+  ]
+}
