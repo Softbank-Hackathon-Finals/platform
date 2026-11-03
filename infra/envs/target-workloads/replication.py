@@ -55,7 +55,9 @@ def external_patch(side, hostaddr, cluster):
     parameters = copy.deepcopy(spec["postgresql"]["parameters"])
     # A disabled reverse slot must not retain WAL without a limit indefinitely.
     # Crossing this limit can invalidate a slot; it requires explicit resync, not data skipping.
-    parameters["max_slot_wal_keep_size"] = "1GB"
+    prior_cap = parameters.get("max_slot_wal_keep_size")
+    if prior_cap is None or prior_cap.strip() == "-1":
+        parameters["max_slot_wal_keep_size"] = "1GB"
     return [
         {"op": "test", "path": "/metadata/resourceVersion", "value": metadata["resourceVersion"]},
         {"op": "add", "path": "/spec/externalClusters", "value": [*prior, external]},
