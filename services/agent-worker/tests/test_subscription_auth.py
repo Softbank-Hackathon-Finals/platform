@@ -332,3 +332,12 @@ def test_broker_policy_is_exact_secret_and_has_no_execution_or_enumeration():
                                         "secretsmanager:UpdateSecretVersionStage"}
     with pytest.raises(AuthFailure):
         credential_policy(ARN + "*")
+
+
+def test_large_model_catalog_is_separate_from_small_auth_response_limit():
+    response = httpx.Response(200, json={"models": [{"slug": "fixture-model", "visibility": "list",
+                                                   "instructions": "x" * 650000}]})
+    oauth = OAuth(httpx.Client(transport=httpx.MockTransport(lambda request: response)))
+    assert oauth.models("access-fixture") == ["fixture-model"]
+    with pytest.raises(AuthFailure, match="AUTH_RESPONSE_TOO_LARGE"):
+        oauth._json(response)

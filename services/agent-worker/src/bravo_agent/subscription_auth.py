@@ -87,8 +87,8 @@ class OAuth:
     def __init__(self, http=None):
         self.http = http or httpx.Client(timeout=20, follow_redirects=False, trust_env=False)
 
-    def _json(self, response):
-        if len(response.content) > 131072:
+    def _json(self, response, *, limit=131072):
+        if len(response.content) > limit:
             raise AuthFailure("AUTH_RESPONSE_TOO_LARGE")
         try:
             data = response.json()
@@ -174,7 +174,9 @@ class OAuth:
         response = self.http.get(RESOURCE + "/models", headers={"Authorization": "Bearer " + access_token})
         if response.status_code != 200:
             raise AuthFailure("SUBSCRIPTION_MODEL_CATALOG_UNAVAILABLE")
-        models = self._json(response).get("models")
+        # The account catalog includes model instructions, well beyond the small
+        # OAuth/JWKS envelope. Keep a separate bounded size without retaining it.
+        models = self._json(response, limit=2097152).get("models")
         if not isinstance(models, list):
             raise AuthFailure("INVALID_MODEL_CATALOG")
         return [item["slug"] for item in models if isinstance(item, dict)
