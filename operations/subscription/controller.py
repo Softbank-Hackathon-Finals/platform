@@ -22,12 +22,16 @@ def prove_denied(call):
 
 
 def prove_session_denied(ssm, **arguments):
-    def attempt():
+    try:
         created = ssm.start_session(**arguments)
-        # Do not open a channel or run a command if a negative probe is accepted.
-        ssm.terminate_session(SessionId=created["SessionId"])
-        return created
-    return prove_denied(attempt)
+    except ClientError as error:
+        if error.response["Error"]["Code"] in {"AccessDenied", "AccessDeniedException"}:
+            return True
+        raise
+    # Do not open a channel or run a command if a negative probe is accepted.
+    # A denied cleanup request is not evidence that StartSession was denied.
+    ssm.terminate_session(SessionId=created["SessionId"])
+    raise RuntimeError("session permission boundary was not enforced")
 
 
 def main():
