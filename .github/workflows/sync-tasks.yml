@@ -79,7 +79,7 @@ jobs:
         if: inputs.slack-test
         run: echo "Slack 연결 테스트 (보드 동기화 알림이 이 채널로 온다)" >> moves.txt
       - name: Slack 알림
-        if: hashFiles('moves.txt') != ''
+        if: hashFiles('moves.txt') != '' && !inputs.dry-run
         env:
           SLACK_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
           CHANNEL: ${{ vars.SLACK_CHANNEL_ID }}

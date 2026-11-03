@@ -577,7 +577,7 @@ def sync_prs(dry: bool) -> None:
     if status_field is None and not dry:
         status_field = gql("""mutation($p:ID!){createProjectV2Field(input:{projectId:$p,
           dataType:TEXT,name:"PR 상태"}){projectV2Field{... on ProjectV2Field{id}}}}""", p=board.id)["createProjectV2Field"]["projectV2Field"]
-    for task, prs in grouped.items():
+    for task, prs in sorted(grouped.items(), key=lambda item: int(item[0][1:])):
         issue = issues[task]
         opened = sorted((p for p in prs if p["state"] == "OPEN"), key=lambda p: p["number"])
         displayed = opened or [max(prs, key=lambda p: p["number"])]
