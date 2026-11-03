@@ -9,6 +9,7 @@
 | [`bootstrap/state-backend`](bootstrap/state-backend) | 버전 관리·KMS 암호화·잠금이 있는 S3 Terraform 상태 저장소 | 환경별 state key, 팀장 관리 권한 |
 | [`envs/cost-aws`](envs/cost-aws) | 월 50만원 예산 경보, 비용 배분 키 활성화 | 운영자 경보와 component별 비용 조회 |
 | [`envs/aws-foundation`](envs/aws-foundation) | AWS VPC 2개, 피어링, 제한된 SG, Flow Logs | T6·T7이 사용할 VPC·서브넷·SG ID |
+| [`envs/onprem`](envs/onprem) | 빈 Ubuntu VM에 RKE2 CIS 프로필과 Tailscale 설치, 로컬 VM 시험, kube-bench | T3·T9·T30이 쓸 클러스터를 세우는 법과 CIS 제약 |
 
 배포마다 별도 state key를 사용한다. T1·T6·T7을 하나의 거대한 state에 합치지 않는다. 계정은 `allowed_account_ids`로 제한하고, 장기 인증 키는 Terraform 입력·출력·state에 넣지 않는다. 수신 이메일은 민감 입력으로 다루며 암호화된 state에는 포함된다. 변경은 저장된 plan으로 검토하고 적용한다. 팀원은 PR에서 경로별 책임과 출력 계약을 확인할 수 있다.
 
