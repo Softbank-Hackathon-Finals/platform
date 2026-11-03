@@ -1,10 +1,18 @@
 import asyncio
 import json
 import tomllib
+from types import SimpleNamespace
 
 import pytest
 
-from bravo_agent.account_smoke import AccountSession, AccountSmokeProvider, configuration
+from bravo_agent.account_smoke import (
+    AccountSession,
+    AccountSmokeProvider,
+    IncompleteCodexInstall,
+    configuration,
+    installed_codex_path,
+    run,
+)
 from bravo_agent.coordinator import Coordinator
 
 
@@ -50,6 +58,38 @@ def test_config_has_ephemeral_auth_and_no_execution():
     assert config["features"]["code_mode_host"] is True
     for name in ("shell_tool", "unified_exec", "apps", "plugins", "hooks", "multi_agent", "code_mode"):
         assert config["features"][name] is False
+
+
+@pytest.mark.parametrize("host_mode", [None, 0o644])
+def test_incomplete_install_rejected_before_login_or_model_call(tmp_path, monkeypatch, host_mode):
+    binary = tmp_path / "codex"
+    binary.write_text("installer fixture")
+    binary.chmod(0o755)
+    if host_mode is not None:
+        host = tmp_path / "codex-code-mode-host"
+        host.write_text("non-executable fixture")
+        host.chmod(host_mode)
+
+    async def unexpected_process(*args, **kwargs):
+        pytest.fail("Incomplete installation must not start authentication or a model process")
+
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", unexpected_process)
+    args = SimpleNamespace(codex=binary, output=tmp_path / "result.json")
+    with pytest.raises(IncompleteCodexInstall):
+        asyncio.run(run(args))
+    assert not args.output.exists()
+
+
+def test_installation_follows_cli_link_to_companion_directory(tmp_path):
+    install = tmp_path / "release"
+    install.mkdir()
+    for name in ("codex", "codex-code-mode-host"):
+        path = install / name
+        path.write_text("installer fixture")
+        path.chmod(0o755)
+    link = tmp_path / "codex"
+    link.symlink_to(install / "codex")
+    assert installed_codex_path(link) == install / "codex"
 
 
 def test_subscription_tools_share_existing_policy(context, tmp_path):

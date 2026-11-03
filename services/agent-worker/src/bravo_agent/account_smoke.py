@@ -45,6 +45,19 @@ def configuration() -> str:
     ]) + '\n'
 
 
+class IncompleteCodexInstall(ValueError):
+    pass
+
+
+def installed_codex_path(codex: Path) -> Path:
+    """Require the installer's verified standalone pair before requesting login."""
+    binary = codex.resolve()
+    host = binary.with_name("codex-code-mode-host")
+    if any(not path.is_file() or not os.access(path, os.X_OK) for path in (binary, host)):
+        raise IncompleteCodexInstall("Codex and its verified companion must be installed together")
+    return binary
+
+
 class AccountSession:
     def __init__(self, process, runtime: Path):
         self.process, self.runtime = process, runtime
@@ -205,6 +218,7 @@ class AccountSmokeProvider:
 async def run(args):
     if args.output.exists() or not args.codex.is_absolute():
         raise ValueError("new output and absolute Codex binary required")
+    codex = installed_codex_path(args.codex)
     bundle = FailureBundle.model_validate(bounded_json(args.bundle, 16384))
     manifest = SnapshotManifest.model_validate(bounded_json(args.manifest, 32768))
     coordinator = Coordinator(bundle, Snapshot(args.snapshot.resolve(), manifest))
@@ -213,12 +227,12 @@ async def run(args):
         (runtime / "config.toml").write_text(configuration())
         env = {"PATH": "/usr/bin:/bin", "LANG": "C.UTF-8", "HOME": directory,
                "CODEX_HOME": directory, "TMPDIR": directory}
-        version = await asyncio.create_subprocess_exec(str(args.codex), "--version", env=env,
+        version = await asyncio.create_subprocess_exec(str(codex), "--version", env=env,
                     stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL)
         stdout, _ = await version.communicate()
         if version.returncode or stdout.decode().strip() != CODEX_VERSION:
             raise RuntimeError("unverified Codex version")
-        process = await asyncio.create_subprocess_exec(str(args.codex), "app-server",
+        process = await asyncio.create_subprocess_exec(str(codex), "app-server",
             "--strict-config", "--stdio", cwd=runtime, env=env, start_new_session=True,
             stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.DEVNULL, limit=1048577)
@@ -250,6 +264,9 @@ def main():
         parser.error("invalid model identifier")
     try:
         return asyncio.run(run(args))
+    except IncompleteCodexInstall:
+        print('{"state":"NEEDS_HUMAN","reason":"ACCOUNT_INSTALLATION_INCOMPLETE"}', flush=True)
+        return 2
     except Exception:
         print('{"state":"NEEDS_HUMAN","reason":"ACCOUNT_OR_PROTOCOL_FAILURE"}', flush=True)
         return 2
