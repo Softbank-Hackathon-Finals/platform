@@ -1,0 +1,10 @@
+{
+  "repository": "Softbank-Hackathon-Finals/platform",
+  "commit": "54c2ce893b6475ca0b59abe09cd8fe369e0e4b9b",
+  "status": "PR51 contract, not yet merged",
+  "sha256": {
+    "control-result.schema.json": "e602da1bb2d9573453283ffa41e425d299c3ae73ee1f15663453372faddcf23d",
+    "profiles.json": "4ba6e539b422985a43c20875ae00b21e1bd461daf4f8240b5b7b02debe0f2c90",
+    "contract-cases.json": "137eb09a62b9053a6fdc8e229d2eaef9b221f313774a29811aa109992763fdee"
+  }
+}
