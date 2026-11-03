@@ -93,7 +93,8 @@ def test_key_scope_is_explicit_tuple_not_substring(authority):
         replace(state["key"], tenants="tenant-one")
 
 
-def test_real_signatures_are_composed_into_service_consumption(service):
+@pytest.mark.parametrize("signature_ttl,key_ttl", [(1, 60), (30, 1), (30, 60)])
+def test_real_signatures_are_composed_into_service_consumption(service, signature_ttl, key_ttl):
     app, state = service
     ctx = state["context"]
     now = state["now"]
@@ -110,7 +111,7 @@ def test_real_signatures_are_composed_into_service_consumption(service):
             (ctx.tenant_id,),
             (purpose,),
             (now - timedelta(minutes=1)).isoformat(),
-            (now + timedelta(minutes=1)).isoformat(),
+            (now + timedelta(seconds=key_ttl)).isoformat(),
             False,
         )
         envelope = AuthorityEnvelope(
@@ -120,7 +121,7 @@ def test_real_signatures_are_composed_into_service_consumption(service):
             ctx.fingerprint,
             subject,
             (now - timedelta(seconds=1)).isoformat(),
-            (now + timedelta(seconds=30)).isoformat(),
+            (now + timedelta(seconds=signature_ttl)).isoformat(),
             "0" * 128,
         )
         envelopes[purpose] = replace(
@@ -138,7 +139,18 @@ def test_real_signatures_are_composed_into_service_consumption(service):
         context, snapshot.fingerprint, "run-" + side
     )
     report = app.evaluate("actor", "context")
-    assert not app.require_security("actor", "context", canonical(report)).authorizes_cutover
+    grant = app.require_security("actor", "context", canonical(report))
+    assert not grant.authorizes_cutover
+    from bravo_gate.contract import time
+
+    assert time(grant.valid_until) <= now + timedelta(seconds=min(signature_ttl, key_ttl))
     keys["run-target"] = replace(keys["run-target"], revoked=True)
     with pytest.raises(GateError):
         app.require_security("actor", "context", canonical(report))
+
+
+@pytest.mark.parametrize("invalid", [None, [], b"a" * 128, "g" * 128])
+def test_invalid_signature_encoding_is_contract_error(authority, invalid):
+    _, state, _ = authority
+    with pytest.raises(GateError, match="INVALID_SIGNATURE_ENVELOPE"):
+        replace(state["envelope"], signature_hex=invalid)

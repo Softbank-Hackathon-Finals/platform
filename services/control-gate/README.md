@@ -36,8 +36,8 @@ T5 PR #51의 프로필·시험 불변조건·서버 예외 승인 계약을 실�
 | `context_provider(actor, context_id)` | 인증된 tenant/앱과 계획·게이트·프로필·환경·양쪽 불변 결과 참조/hash를 읽음 |
 | `run_provider(actor, context, side)` | T14의 불변 결과 `RunSnapshot`. 같은 ID의 내용 변경 거부 |
 | `approval_provider(actor, context, approval_id)` | T10의 권한 검증을 거쳐 저장된 승인 revision과 폐기 상태를 읽음 |
-| `authenticate_context/run/approval` | 각 발급 역할·원본·범위·현재 신뢰를 검증. 명시적 False나 truthy 객체는 거부 |
-| `authorize` | 현재 사용자/서비스의 평가·예외 사용 권한 검사. `approved_by` 표시값과 구분 |
+| `authenticate_context/run/approval` | 각 발급 역할·원본·범위·현재 신뢰를 검증. 명시적 `True` 또는 정확한 범위·기한의 `VerifiedAuthority`만 허용. `None`, False, truthy 객체는 거부 |
+| `authorize` | 현재 사용자/서비스의 `gate:evaluate`, `gate:consume`, `gate:use-exception` 권한을 각각 검사. `approved_by` 표시값과 구분 |
 | `clock` | 서버 UTC 시계. 요청 JSON에서 평가 시간을 고르지 않음 |
 
 ```python
@@ -50,6 +50,8 @@ security = service.require_security(actor, context_id, serialized_report,
 ```
 
 `Ed25519Authority`는 계획 context·문서 hash·발급 목적을 기존 서버 공개키 원장과 대조하는 구체 서명 검증기다. 키 폐기·교체·역할 불일치를 재검증한다. 평가기에 서명 개인 키를 제공하지 않는다. 입력 JSON의 `evidence.signature` 필드만으로 인증하지 않는다. 서명은 발급 출처를 확인하며, 실제 시험이 제대로 실행됐다는 사실은 T14 수집기 자격으로 검증해야 한다.
+
+서명 검증기는 `VerifiedAuthority(context_digest, subject_digest, purpose, valid_until)`을 반환한다. `valid_until`은 키와 서명의 만료 중 빠른 시각이며 최종 전제조건도 이를 넘지 않는다. 목적은 `context`, `run-source`, `run-target`, `exception`이다. 권한 판정의 기한이 있으면 `subject_digest=permission_subject(actor, context_digest, action)`, `purpose=permission:<권한명>`으로 반환한다. 예를 들어 `permission:gate:consume`이다. `permission_subject`는 `kind=gate-permission.v1`, 인증된 actor, context digest, action을 정규화하여 해시하므로 다른 사용자의 권한 증명을 재사용할 수 없다. actor는 요청 본문이 아니라 인증 계층에서 가져온다. 네트워크 출처는 `network-binding`(등록 내용 hash), `network-artifact`(원본 바이트 hash)를 쓴다. 만료 있는 서명·세션·권한의 결과를 `True`로 변환해 기한을 버리는 어댑터는 이 계약에 맞지 않는다. `True`는 별도의 만료가 없는 서버 정책을 매번 직접 검사한 어댑터에만 사용한다. 예외를 던지지 않고 반환만 하는 기존 검증 함수는 명시적 반환 계약으로 바꿔야 한다.
 
 예외 승인 생성은 T10에서 승인자 권한·분리 승인·감사 기록을 확인한 후 수행한다. T19는 그 기록을 읽기만 한다. 임의 JSON 승인 배열이나 사용자 문자열을 DB 승인으로 전환하지 않는다. 소비 문서의 예외는 서버 기록과 완전히 일치해야 한다. 승인 폐기 또는 계획/원본 변경 뒤 예전 PASS 문서를 재사용할 수 없다. 예외가 없는 PASS 문서도 `context_digest`를 대조한다. 계획·gate·재측정 결과가 바뀌면 새 context와 예외 재승인이 필요하다. 같은 고정 입력을 재조회하는 것은 허용한다. 결속값이 빠진 이전 초안을 자동 보충하지 않는다.
 
@@ -70,6 +72,17 @@ NET-01.2/01.3의 PASS에는 `NetworkProofAuthority`가 필요하다. 증거 `out
 이 모듈은 새 승인 DB나 실행 조정기를 만들지 않는다. T10은 불변 계획·원본 결과·평가 context와 승인 revision/폐기를 서버 저장소에 보관하고, 등록 변경을 CAS/트랜잭션으로 관리해야 한다. 검증 예외(`GateError`)는 차단/미확인으로 처리하고 이전 PASS로 대체하지 않는다. 감사용 과거 판정은 현재 실행 허가가 아니다. 반환된 context/report digest와 근거 기한을 실제 실행 조정기에 연결해야 한다.
 
 서비스 경계 전체를 분산 트랜잭션으로 만들었다고 주장하지 않는다. T10의 작업 상태·승인·실행 epoch 재검사, T12의 fencing·최종 비교가 계속 필요하다. 보안과 데이터 준비를 합쳐 최종 승인하는 책임은 T10/T19 접점에 있다.
+
+### 운영 연결 전 필수 조건
+
+- T10의 context 조회는 인증된 actor의 tenant 경계를 먼저 적용한다. gate ID는 tenant 내 불변 등록이며 현재 계획·프로필을 서버 정책에서 선택한다.
+- 실제 실행 접수는 현재 승인 revision/폐기, 실행 epoch, 계획·context·원본 hash, 보안 보류, 데이터 준비를 동일한 트랜잭션/CAS 조건으로 확인하고 outbox에 넣는다. 이 모듈의 반복 조회만으로 원자성이나 즉시 폐기 적용을 주장하지 않는다.
+- 실행기는 출고한 작업의 epoch·기한을 다시 검사하고 이전 실행기의 쓰기를 fencing한다. 만료·폐기·불명 상태에서 과거 PASS로 대체하지 않는다.
+- `SecurityPrerequisite`는 프로세스 내부 검증 결과다. JSON으로 받은 같은 형태의 객체나 사용자가 만든 객체는 권한 증명이 아니다. `report_digest`는 실제 소비한 문서의 정규화 JSON hash이며 재계산 중 갱신한 시각의 문서 hash가 아니다.
+- API는 인증·tenant별 요청 제한·본문 크기 제한을 적용하고, 저장소·키 조회·수집기 호출에 timeout을 둔다. 동기 콜백의 무한 대기를 이 라이브러리가 강제로 취소할 수는 없다. 운영 워커의 외부 timeout과 재시도 정책을 시험해야 한다.
+- 승인자 권한·분리 승인·키 보관/회전·감사 기록의 실제 구현과 T14 수집기의 신뢰성은 통합 시험으로 검증한다. 신뢰된 서버 어댑터를 침해한 경우까지 이 Python 모듈만으로 방어하지 않는다.
+
+외부 공급자가 예기치 않은 예외를 내면 공개 오류는 `AUTHORITY_UNAVAILABLE`로 제한하며 내부 SDK 오류 문자열을 노출하지 않는다. `GateError`는 어댑터가 비밀 없는 고정 오류 코드로만 생성해야 한다. 운영 API도 traceback이나 예외 cause를 응답에 포함하지 않는다.
 
 ## 검증
 

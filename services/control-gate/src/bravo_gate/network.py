@@ -4,12 +4,14 @@ import hashlib
 from dataclasses import asdict, dataclass
 from datetime import datetime, timedelta
 
-from .contract import GateError, decode, fingerprint, time
+from .contract import GateError, decode, fingerprint, invoke, server_time, time
 
 
 def verify_network_proof(raw, *, output_digest, binding, test_id, now):
+    if type(raw) is not bytes or not 0 < len(raw) <= 16384:
+        return False
     proof = decode(raw)
-    if len(raw) > 16384 or output_digest != "sha256:" + hashlib.sha256(raw).hexdigest():
+    if output_digest != "sha256:" + hashlib.sha256(raw).hexdigest():
         return False
     if set(proof) != {
         "kind",
@@ -147,22 +149,52 @@ class NetworkProofAuthority:
         authenticate_artifact,
         clock,
     ):
+        if not all(
+            callable(v)
+            for v in (
+                binding_provider,
+                authenticate_binding,
+                artifact_provider,
+                authenticate_artifact,
+                clock,
+            )
+        ):
+            raise GateError("EXPLICIT_SERVER_AUTHORITY_REQUIRED")
         self.binding_provider = binding_provider
         self.authenticate_binding = authenticate_binding
         self.artifact_provider = artifact_provider
         self.authenticate_artifact = authenticate_artifact
-        self.clock = clock
+        self.clock = lambda: server_time(clock)
 
     def __call__(self, actor, ctx, side, test_id, row):
         from .service import accept
 
-        binding = self.binding_provider(actor, ctx, side, test_id)
+        deadlines = []
+        binding = invoke(self.binding_provider, actor, ctx, side, test_id)
         if not isinstance(binding, NetworkBinding) or binding.context_digest != ctx.fingerprint:
             raise GateError("NETWORK_BINDING_REQUIRED")
-        accept(self.authenticate_binding, actor, ctx, binding)
+        accept(
+            self.authenticate_binding,
+            actor,
+            ctx,
+            binding,
+            expected=(ctx.fingerprint, binding.fingerprint, "network-binding"),
+            deadlines=deadlines,
+            clock=self.clock,
+        )
         digest = row["evidence"]["output_sha256"]
-        raw = self.artifact_provider(actor, ctx, side, digest)
-        accept(self.authenticate_artifact, actor, ctx, side, digest, raw)
+        raw = invoke(self.artifact_provider, actor, ctx, side, digest)
+        accept(
+            self.authenticate_artifact,
+            actor,
+            ctx,
+            side,
+            digest,
+            raw,
+            expected=(ctx.fingerprint, digest.removeprefix("sha256:"), "network-artifact"),
+            deadlines=deadlines,
+            clock=self.clock,
+        )
         now = self.clock()
         if not verify_network_proof(
             raw,
@@ -174,18 +206,36 @@ class NetworkProofAuthority:
             raise GateError("NETWORK_DENIAL_UNVERIFIED")
         if (
             binding.environment_ref != getattr(ctx, side + "_environment_ref")
-            or self.binding_provider(actor, ctx, side, test_id) != binding
+            or invoke(self.binding_provider, actor, ctx, side, test_id) != binding
         ):
             raise GateError("NETWORK_BINDING_CHANGED")
-        accept(self.authenticate_binding, actor, ctx, binding)
-        if self.artifact_provider(actor, ctx, side, digest) != raw:
+        accept(
+            self.authenticate_binding,
+            actor,
+            ctx,
+            binding,
+            expected=(ctx.fingerprint, binding.fingerprint, "network-binding"),
+            deadlines=deadlines,
+            clock=self.clock,
+        )
+        if invoke(self.artifact_provider, actor, ctx, side, digest) != raw:
             raise GateError("NETWORK_EVIDENCE_CHANGED")
-        accept(self.authenticate_artifact, actor, ctx, side, digest, raw)
+        accept(
+            self.authenticate_artifact,
+            actor,
+            ctx,
+            side,
+            digest,
+            raw,
+            expected=(ctx.fingerprint, digest.removeprefix("sha256:"), "network-artifact"),
+            deadlines=deadlines,
+            clock=self.clock,
+        )
         proof = decode(raw)
         until = min(
             time(proof["probe"]["at"]), *(time(c["at"]) for c in proof["controls"])
         ) + timedelta(seconds=60)
-        until = min(until, time(binding.valid_until))
+        until = min(until, time(binding.valid_until), *deadlines)
         if self.clock() >= until:
             raise GateError("NETWORK_EVIDENCE_EXPIRED")
         return VerifiedNetworkProof(ctx.fingerprint, side, test_id, digest, until)

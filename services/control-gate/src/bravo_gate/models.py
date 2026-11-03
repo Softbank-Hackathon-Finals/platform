@@ -2,6 +2,7 @@
 
 import re
 from dataclasses import asdict, dataclass
+from datetime import datetime
 
 from .contract import GateError, canonical, decode, fingerprint
 
@@ -19,6 +20,20 @@ def identity(value):
 def digest(value):
     if type(value) is not str or not re.fullmatch("[0-9a-f]{64}", value):
         raise GateError("INVALID_DIGEST")
+
+
+def permission_subject(actor, context_digest, action):
+    identity(actor)
+    digest(context_digest)
+    identity(action)
+    return fingerprint(
+        {
+            "kind": "gate-permission.v1",
+            "actor": actor,
+            "context_digest": context_digest,
+            "action": action,
+        }
+    )
 
 
 @dataclass(frozen=True)
@@ -98,6 +113,27 @@ class StoredException:
     @property
     def fingerprint(self):
         return fingerprint(asdict(self))
+
+
+@dataclass(frozen=True)
+class VerifiedAuthority:
+    """Authenticated provenance lifetime; not an execution permission."""
+
+    context_digest: str
+    subject_digest: str
+    purpose: str
+    valid_until: datetime
+
+    def __post_init__(self):
+        digest(self.context_digest)
+        digest(self.subject_digest)
+        identity(self.purpose)
+        if (
+            type(self.valid_until) is not datetime
+            or self.valid_until.tzinfo is None
+            or self.valid_until.utcoffset() is None
+        ):
+            raise GateError("INVALID_AUTHORITY_DEADLINE")
 
 
 @dataclass(frozen=True)

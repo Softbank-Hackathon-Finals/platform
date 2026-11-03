@@ -14,6 +14,24 @@ class GateError(ValueError):
     pass
 
 
+def invoke(callback, *args):
+    """A failed external boundary is unavailable, never an old success result."""
+    try:
+        return callback(*args)
+    except GateError:
+        raise
+    except Exception:
+        # SDK/database error text can contain credentials or tenant data.
+        raise GateError("AUTHORITY_UNAVAILABLE") from None
+
+
+def server_time(clock):
+    value = invoke(clock)
+    if type(value) is not datetime or value.tzinfo is None or value.utcoffset() is None:
+        raise GateError("INVALID_SERVER_CLOCK")
+    return value.astimezone(UTC)
+
+
 def time(value):
     try:
         result = datetime.fromisoformat(value.replace("Z", "+00:00"))

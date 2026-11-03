@@ -16,8 +16,16 @@ def test_authenticated_current_pass_is_only_security_prerequisite(service):
     assert grant.context_digest == state["context"].fingerprint
 
 
+def test_delayed_consumption_binds_receipt_to_exact_submitted_report(service):
+    app, state = service
+    report = app.evaluate("actor", "context")
+    state["now"] += timedelta(seconds=1)
+    grant = app.require_security("actor", "context", canonical(report))
+    assert grant.report_digest == fingerprint(report)
+
+
 @pytest.mark.parametrize("boundary", ["authorize", "context", "run", "approval"])
-@pytest.mark.parametrize("rejected", [False, 0, "PASS", {}])
+@pytest.mark.parametrize("rejected", [None, False, 0, "PASS", {}])
 def test_explicit_false_or_truthy_objects_do_not_authenticate(service, boundary, rejected):
     app, state = service
     approval_ids = ()
@@ -46,6 +54,14 @@ def test_changed_run_under_same_id_cannot_reuse_context(service):
     state["runs"]["target"] = RunSnapshot(state["context"].target_ref, canonical(value))
     with pytest.raises(GateError):
         app.evaluate("actor", "context")
+
+
+def test_evaluation_permission_alone_cannot_issue_prerequisite(service):
+    app, _ = service
+    app.authorize = lambda _actor, _ctx, action: action == "gate:evaluate"
+    report = app.evaluate("actor", "context")
+    with pytest.raises(GateError, match="AUTHORITY_DENIED"):
+        app.require_security("actor", "context", canonical(report))
 
 
 def test_pass_without_exception_is_still_bound_to_plan(service):

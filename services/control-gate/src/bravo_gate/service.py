@@ -6,14 +6,31 @@ approval array, LLM, resource execution or automatic exception creation.
 
 from datetime import timedelta
 
-from .contract import GateError, decode, fingerprint, time
+from .contract import GateError, decode, fingerprint, invoke, server_time, time
 from .engine import consume, evaluate
-from .models import GateContext, RunSnapshot, SecurityPrerequisite, StoredException, identity
+from .models import (
+    GateContext,
+    RunSnapshot,
+    SecurityPrerequisite,
+    StoredException,
+    VerifiedAuthority,
+    identity,
+    permission_subject,
+)
 
 
-def accept(callback, *args):
-    result = callback(*args)
-    if result is not None and result is not True:
+def accept(callback, *args, expected=None, deadlines=None, clock=None):
+    result = invoke(callback, *args)
+    if isinstance(result, VerifiedAuthority) and expected is not None:
+        if (
+            (result.context_digest, result.subject_digest, result.purpose) != expected
+            or deadlines is None
+            or clock is None
+            or result.valid_until <= clock()
+        ):
+            raise GateError("AUTHORITY_BINDING_OR_EXPIRY")
+        deadlines.append(result.valid_until)
+    elif result is not True:
         raise GateError("AUTHORITY_DENIED")
 
 
@@ -52,17 +69,36 @@ class GateService:
         self.authenticate_run = authenticate_run
         self.authenticate_approval = authenticate_approval
         self.authorize = authorize
-        self.clock = clock
+        self.clock = lambda: server_time(clock)
         self.network_verifier = network_verifier
 
-    def _load(self, actor, context_id, approval_ids):
+    def _load(self, actor, context_id, approval_ids, *, action, deadlines):
         identity(actor)
         identity(context_id)
-        ctx = self.context_provider(actor, context_id)
+        ctx = invoke(self.context_provider, actor, context_id)
         if not isinstance(ctx, GateContext):
             raise GateError("SERVER_CONTEXT_REQUIRED")
-        accept(self.authorize, actor, ctx, "gate:evaluate")
-        accept(self.authenticate_context, actor, ctx)
+        accept(
+            self.authorize,
+            actor,
+            ctx,
+            action,
+            expected=(
+                ctx.fingerprint,
+                permission_subject(actor, ctx.fingerprint, action),
+                "permission:" + action,
+            ),
+            deadlines=deadlines,
+            clock=self.clock,
+        )
+        accept(
+            self.authenticate_context,
+            actor,
+            ctx,
+            expected=(ctx.fingerprint, ctx.fingerprint, "context"),
+            deadlines=deadlines,
+            clock=self.clock,
+        )
         if (
             type(approval_ids) is not tuple
             or len(approval_ids) > 32
@@ -74,14 +110,23 @@ class GateService:
             identity(approval_id)
         snapshots = []
         for side in ("source", "target"):
-            value = self.run_provider(actor, ctx, side)
+            value = invoke(self.run_provider, actor, ctx, side)
             if (
                 not isinstance(value, RunSnapshot)
                 or value.ref != getattr(ctx, side + "_ref")
                 or value.fingerprint != getattr(ctx, side + "_digest")
             ):
                 raise GateError("RUN_CONTEXT_BINDING_CHANGED")
-            accept(self.authenticate_run, actor, ctx, side, value)
+            accept(
+                self.authenticate_run,
+                actor,
+                ctx,
+                side,
+                value,
+                expected=(ctx.fingerprint, value.fingerprint, "run-" + side),
+                deadlines=deadlines,
+                clock=self.clock,
+            )
             run = value.document
             self.contract.validate(run, "control_run")
             if (
@@ -97,20 +142,55 @@ class GateService:
             snapshots.append(value)
         approvals = []
         for approval_id in approval_ids:
-            accept(self.authorize, actor, ctx, "gate:use-exception")
-            value = self.approval_provider(actor, ctx, approval_id)
+            accept(
+                self.authorize,
+                actor,
+                ctx,
+                "gate:use-exception",
+                expected=(
+                    ctx.fingerprint,
+                    permission_subject(actor, ctx.fingerprint, "gate:use-exception"),
+                    "permission:gate:use-exception",
+                ),
+                deadlines=deadlines,
+                clock=self.clock,
+            )
+            value = invoke(self.approval_provider, actor, ctx, approval_id)
             if (
                 not isinstance(value, StoredException)
                 or value.body.get("approval_id") != approval_id
             ):
                 raise GateError("SERVER_APPROVAL_NOT_FOUND")
-            accept(self.authorize, actor, ctx, "gate:use-exception")
-            accept(self.authenticate_approval, actor, ctx, value)
+            accept(
+                self.authorize,
+                actor,
+                ctx,
+                "gate:use-exception",
+                expected=(
+                    ctx.fingerprint,
+                    permission_subject(actor, ctx.fingerprint, "gate:use-exception"),
+                    "permission:gate:use-exception",
+                ),
+                deadlines=deadlines,
+                clock=self.clock,
+            )
+            accept(
+                self.authenticate_approval,
+                actor,
+                ctx,
+                value,
+                expected=(ctx.fingerprint, value.fingerprint, "exception"),
+                deadlines=deadlines,
+                clock=self.clock,
+            )
             approvals.append(value)
         return ctx, tuple(snapshots), tuple(approvals)
 
-    def _same(self, actor, context_id, approval_ids, loaded):
-        if self._load(actor, context_id, approval_ids) != loaded:
+    def _same(self, actor, context_id, approval_ids, loaded, *, action, deadlines):
+        if (
+            self._load(actor, context_id, approval_ids, action=action, deadlines=deadlines)
+            != loaded
+        ):
             raise GateError("GATE_AUTHORITY_CHANGED")
 
     def _network(self, actor, ctx, deadlines):
@@ -120,7 +200,7 @@ class GateService:
             if self.network_verifier is None:
                 return False
             try:
-                result = self.network_verifier(actor, ctx, side, test_id, row)
+                result = invoke(self.network_verifier, actor, ctx, side, test_id, row)
             except GateError:
                 return False
             if (
@@ -138,10 +218,11 @@ class GateService:
         return check
 
     def evaluate(self, actor, context_id, *, approval_ids=()):
-        loaded = self._load(actor, context_id, approval_ids)
+        action = "gate:evaluate"
+        deadlines = []
+        loaded = self._load(actor, context_id, approval_ids, action=action, deadlines=deadlines)
         ctx, runs, approvals = loaded
         at = self.clock()
-        deadlines = []
         network = self._network(actor, ctx, deadlines)
         report = evaluate(
             self.contract,
@@ -151,7 +232,7 @@ class GateService:
             approvals=approvals,
             network_verified=network,
         )
-        self._same(actor, context_id, approval_ids, loaded)
+        self._same(actor, context_id, approval_ids, loaded, action=action, deadlines=deadlines)
         # A slow authority lookup cannot extend evidence/exception validity.
         final = self.clock()
         if final < at:
@@ -168,7 +249,7 @@ class GateService:
             k: v for k, v in current.items() if k != "evaluated_at"
         }:
             raise GateError("GATE_EXPIRED_DURING_EVALUATION")
-        self._same(actor, context_id, approval_ids, loaded)
+        self._same(actor, context_id, approval_ids, loaded, action=action, deadlines=deadlines)
         ended = self.clock()
         if ended < final:
             raise GateError("CLOCK_REGRESSION")
@@ -190,15 +271,16 @@ class GateService:
             for row in run.document["results"]
             if row["test_id"] in required and row["evidence"] is not None
         ]
-        result.extend(time(r.body["expires_at"]) for r in approvals)
+        result.extend(time(r.body.get("expires_at")) for r in approvals)
         return result
 
     def require_security(self, actor, context_id, document, *, approval_ids=()):
-        loaded = self._load(actor, context_id, approval_ids)
+        action = "gate:consume"
+        deadlines = []
+        loaded = self._load(actor, context_id, approval_ids, action=action, deadlines=deadlines)
         ctx, runs, approvals = loaded
         candidate = decode(document)
         at = self.clock()
-        deadlines = []
         network = self._network(actor, ctx, deadlines)
         report = consume(
             self.contract,
@@ -209,7 +291,7 @@ class GateService:
             approvals=approvals,
             network_verified=network,
         )
-        self._same(actor, context_id, approval_ids, loaded)
+        self._same(actor, context_id, approval_ids, loaded, action=action, deadlines=deadlines)
         final = self.clock()
         if final < at:
             raise GateError("CLOCK_REGRESSION")
@@ -226,13 +308,13 @@ class GateService:
             [final + timedelta(seconds=5), time(candidate["evaluated_at"]) + timedelta(seconds=60)]
         )
         deadlines.extend(self._deadlines(ctx, runs, approvals))
-        self._same(actor, context_id, approval_ids, loaded)
+        self._same(actor, context_id, approval_ids, loaded, action=action, deadlines=deadlines)
         ended = self.clock()
         if ended < final or min(deadlines) <= ended:
             raise GateError("SECURITY_PREREQUISITE_EXPIRED")
         return SecurityPrerequisite(
             ctx.fingerprint,
-            fingerprint(report),
+            fingerprint(candidate),
             min(deadlines).isoformat(),
             tuple(row["exception"]["approval_id"] for row in report["rows"] if row["exception"]),
         )

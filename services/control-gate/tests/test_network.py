@@ -4,6 +4,7 @@ from datetime import timedelta
 import pytest
 
 from bravo_gate.contract import GateError, canonical
+from bravo_gate.models import VerifiedAuthority
 from bravo_gate.network import NetworkBinding, NetworkProofAuthority, verify_network_proof
 
 
@@ -143,3 +144,23 @@ def test_raw_output_bytes_and_authenticated_binding_are_required(network):
     state["trusted"] = False
     with pytest.raises(GateError):
         authority("actor", ctx, "target", "NET-01.3", row)
+
+
+def test_network_authentication_expiry_is_not_discarded(network):
+    ctx, now, binding, doc = network
+    raw = canonical(doc)
+    digest = "sha256:" + hashlib.sha256(raw).hexdigest()
+    expiry = now + timedelta(seconds=1)
+    authority = NetworkProofAuthority(
+        binding_provider=lambda *_: binding,
+        authenticate_binding=lambda *_: VerifiedAuthority(
+            ctx.fingerprint, binding.fingerprint, "network-binding", expiry
+        ),
+        artifact_provider=lambda *_: raw,
+        authenticate_artifact=lambda *_: VerifiedAuthority(
+            ctx.fingerprint, digest.removeprefix("sha256:"), "network-artifact", expiry
+        ),
+        clock=lambda: now,
+    )
+    proof = authority("actor", ctx, "target", "NET-01.3", {"evidence": {"output_sha256": digest}})
+    assert proof.valid_until == expiry

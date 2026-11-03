@@ -9,8 +9,8 @@ from dataclasses import dataclass
 from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 
-from .contract import GateError, canonical, time
-from .models import digest, identity
+from .contract import GateError, canonical, invoke, server_time, time
+from .models import VerifiedAuthority, digest, identity
 
 DOMAIN = b"BRAVO-T19-AUTHORITY-V1\x00"
 
@@ -31,7 +31,12 @@ class AuthorityEnvelope:
             identity(value)
         digest(self.context_digest)
         digest(self.subject_digest)
-        if len(self.signature_hex) != 128 or not time(self.issued_at) < time(self.expires_at):
+        if (
+            type(self.signature_hex) is not str
+            or len(self.signature_hex) != 128
+            or any(c not in "0123456789abcdef" for c in self.signature_hex)
+            or not time(self.issued_at) < time(self.expires_at)
+        ):
             raise GateError("INVALID_SIGNATURE_ENVELOPE")
 
     @property
@@ -65,12 +70,14 @@ class AuthorityKey:
 
 class Ed25519Authority:
     def __init__(self, *, envelope_provider, key_provider, clock):
+        if not all(callable(v) for v in (envelope_provider, key_provider, clock)):
+            raise GateError("EXPLICIT_SERVER_AUTHORITY_REQUIRED")
         self.envelope_provider = envelope_provider
         self.key_provider = key_provider
-        self.clock = clock
+        self.clock = lambda: server_time(clock)
 
     def verify(self, ctx, subject_digest, purpose):
-        envelope = self.envelope_provider(ctx, subject_digest, purpose)
+        envelope = invoke(self.envelope_provider, ctx, subject_digest, purpose)
         if (
             not isinstance(envelope, AuthorityEnvelope)
             or envelope.context_digest != ctx.fingerprint
@@ -78,7 +85,7 @@ class Ed25519Authority:
             or envelope.purpose != purpose
         ):
             raise GateError("SIGNATURE_BINDING_MISMATCH")
-        key = self.key_provider(envelope.issuer_id, envelope.key_id)
+        key = invoke(self.key_provider, envelope.issuer_id, envelope.key_id)
 
         def verify_current():
             now = self.clock()
@@ -103,8 +110,14 @@ class Ed25519Authority:
 
         verify_current()
         if (
-            self.key_provider(envelope.issuer_id, envelope.key_id) != key
-            or self.envelope_provider(ctx, subject_digest, purpose) != envelope
+            invoke(self.key_provider, envelope.issuer_id, envelope.key_id) != key
+            or invoke(self.envelope_provider, ctx, subject_digest, purpose) != envelope
         ):
             raise GateError("SIGNING_AUTHORITY_CHANGED")
         verify_current()
+        return VerifiedAuthority(
+            ctx.fingerprint,
+            subject_digest,
+            purpose,
+            min(time(key.valid_until), time(envelope.expires_at)),
+        )
