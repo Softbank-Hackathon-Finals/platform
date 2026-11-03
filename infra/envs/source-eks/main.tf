@@ -1,3 +1,5 @@
+data "aws_partition" "current" {}
+
 data "aws_subnet" "private" {
   for_each = toset(var.private_subnet_ids)
   id       = each.value
@@ -105,7 +107,7 @@ resource "aws_eks_access_entry" "operator" {
 resource "aws_eks_access_policy_association" "operator" {
   cluster_name  = aws_eks_cluster.source.name
   principal_arn = aws_eks_access_entry.operator.principal_arn
-  policy_arn    = "arn:aws:eks::aws:cluster-access-policy/AmazonEKSClusterAdminPolicy"
+  policy_arn    = "arn:${data.aws_partition.current.partition}:eks::aws:cluster-access-policy/AmazonEKSClusterAdminPolicy"
   access_scope { type = "cluster" }
 }
 resource "aws_iam_role" "node" {

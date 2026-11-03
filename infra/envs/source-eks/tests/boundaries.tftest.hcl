@@ -1,16 +1,18 @@
-mock_provider "aws" {}
+mock_provider "aws" {
+  mock_data "aws_partition" { defaults = { partition = "aws" } }
+}
 override_data {
   target = data.aws_subnet.private["subnet-0123456789abcdef0"]
   values = { vpc_id = "vpc-0123456789abcdef0", availability_zone = "ap-northeast-2a", map_public_ip_on_launch = false }
 }
 override_data {
-  target = data.aws_subnet.private["subnet-0123456789abcdef1"]
+  target = data.aws_subnet.private["subnet-00000000000000000"]
   values = { vpc_id = "vpc-0123456789abcdef0", availability_zone = "ap-northeast-2c", map_public_ip_on_launch = false }
 }
 variables {
   account_id             = "111122223333"
   vpc_id                 = "vpc-0123456789abcdef0"
-  private_subnet_ids     = ["subnet-0123456789abcdef0", "subnet-0123456789abcdef1"]
+  private_subnet_ids     = ["subnet-0123456789abcdef0", "subnet-00000000000000000"]
   private_route_table_id = "rtb-0123456789abcdef0"
   node_release_version   = "1.35.9-20261031"
   vpc_cni_version        = "v1.23.2-eksbuild.8"
@@ -42,6 +44,6 @@ run "session_arn_rejected" {
 }
 run "foreign_operator_rejected" {
   command = plan
-  variables { operator_principal_arn = "arn:aws:iam::999900001111:role/operator" }
+  variables { operator_principal_arn = "arn:aws:iam::222222222222:role/operator" }
   expect_failures = [aws_eks_cluster.source]
 }
