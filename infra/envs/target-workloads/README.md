@@ -90,6 +90,11 @@ TCP 연결이고, SCRAM 역할·테이블 권한·TLS 서버 신원 검증은 �
 객체의 크기를 제한한다. 내부 master/filer/volume은 loopback에만 바인딩하고 S3만
 8333으로 제공한다. 설정 없는 익명 기동을 막기 위해 `target-seaweedfs-auth` Secret의
 `s3.json`은 필수이며, 값은 운영자가 메모리에서 생성·전달한다.
+volume 슬롯은 8개, 개별 volume 크기 한도는 128MB다. 기본 metadata collection이
+먼저 만든 4개 volume과 별도 S3 bucket collection에 필요한 여유를 구분한다.
+새 bucket에 쓸 volume이 없으면 metadata HEAD/CREATE만 성공하고 객체 PUT는 실패할
+수 있으므로 topology와 실제 volume collection을 확인한다. 용량 부족을 고칠 때
+기존 volume/PV/버킷을 삭제하거나 인증 권한을 넓히지 않는다.
 
 정확한 `demo-chat-attachments` 버킷에만 접근하는 bootstrap/client 두 identity를
 분리한다. bootstrap은 해당 버킷 Admin/Read/Write/List/Tagging, client는 Admin을

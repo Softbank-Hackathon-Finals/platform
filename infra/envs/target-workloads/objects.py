@@ -34,7 +34,7 @@ def objects(node_name):
             "containers": [{"name": "seaweedfs", "image": IMAGE,
                 "command": ["/usr/bin/weed"],
                 "args": ["-logtostderr=true", "server", "-dir=/data", "-master.dir=/data",
-                         "-master.peers=none", "-master.volumeSizeLimitMB=128", "-volume.max=4",
+                         "-master.peers=none", "-master.volumeSizeLimitMB=128", "-volume.max=8",
                          "-ip=127.0.0.1", "-ip.bind=127.0.0.1", "-filer", "-s3",
                          "-s3.port=8333", "-s3.ip.bind=0.0.0.0",
                          "-s3.config=/etc/seaweedfs-auth/s3.json", "-s3.iam=false",
