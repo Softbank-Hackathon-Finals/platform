@@ -286,11 +286,13 @@ class Board:
         self.field = status["id"]
         self.options = {o["name"]: o["id"] for o in status["options"]}
         self.items: dict[int, tuple[str, str | None]] = {}
+        self.pr_states: dict[int, str] = {}
         cursor = ""
         while True:
             query = """query($p:ID!,$after:String){node(id:$p){... on ProjectV2{
               items(first:100,after:$after){nodes{id content{... on Issue{number repository{nameWithOwner}}}
-                fieldValueByName(name:"Status"){... on ProjectV2ItemFieldSingleSelectValue{name}}}
+                fieldValueByName(name:"Status"){... on ProjectV2ItemFieldSingleSelectValue{name}}
+                prStatus:fieldValueByName(name:"PR 상태"){... on ProjectV2ItemFieldTextValue{text}}}
                 pageInfo{hasNextPage endCursor}}}}}"""
             params = {"p": self.id}
             if cursor:
@@ -303,6 +305,7 @@ class Board:
                 if c.get("repository", {}).get("nameWithOwner") == REPO and "number" in c:
                     value = it["fieldValueByName"]
                     self.items[c["number"]] = (it["id"], value["name"] if value else None)
+                    self.pr_states[c["number"]] = (it.get("prStatus") or {}).get("text", "")
             if not page["pageInfo"]["hasNextPage"]:
                 break
             cursor = page["pageInfo"]["endCursor"]
@@ -486,6 +489,7 @@ def status() -> None:
             "task": tid, "title": task.title, "issue": issue["number"], "priority": task.prio,
             "assignees": [a["login"] for a in issue["assignees"]],
             "status": board.status(issue["number"]), "state": issue["state"],
+            "pr_status": board.pr_states.get(issue["number"], ""),
             "checked": sum(checks.values()), "total": len(checks),
             "blocked_by": [dep for dep in task.deps if issues.get(dep, {}).get("state") != "CLOSED"],
             "integration_pending": [dep for dep in task.deps_int if issues.get(dep, {}).get("state") != "CLOSED"],
@@ -587,7 +591,7 @@ def sync_prs(dry: bool) -> None:
         state = pr_task_status(issue, prs)
         board.set(issue["number"], issue["id"], state, f"{task} #{issue['number']}", dry)
         print(f"{task}: {detail}")
-        if dry:
+        if dry or board.pr_states.get(issue["number"]) == detail:
             continue
         gql("""mutation($p:ID!,$i:ID!,$f:ID!,$t:String!){updateProjectV2ItemFieldValue(input:{
           projectId:$p,itemId:$i,fieldId:$f,value:{text:$t}}){projectV2Item{id}}}""",

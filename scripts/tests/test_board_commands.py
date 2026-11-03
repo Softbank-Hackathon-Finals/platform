@@ -22,6 +22,7 @@ class BoardCommandsTest(unittest.TestCase):
             "assignees": [{"login": "mangowhoiscloud"}],
         }}
         self.board = Mock()
+        self.board.pr_states = {}
         self.board.status.return_value = "Backlog"
         for name, value in (("load_issues", self.issues), ("Board", self.board), ("parse", {"T1": self.task})):
             p = patch.object(sync, name, return_value=value)
