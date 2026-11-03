@@ -27,3 +27,5 @@
 [GitHub Actions 실행 41602534226](https://github.com/Softbank-Hackathon-Finals/platform/actions/runs/41602534226)의 OIDC 세션과 AWS SSM 영수증을 다시 조회했다. [T7 읽기 결과](t7-oidc-readback.json)에 기록한 RKE2 준비, 고정 명령을 통한 ConfigMap 배포, Secret 조회·다른 namespace 쓰기·임의 셸 문서 실행 거부는 성공했다.
 
 이는 플랫폼 DB, GHCR 앱 이미지의 digest push/pull, 수집·Executor 역할 통합 또는 지속 운영 환경 전체의 완료 증거가 아니다. 이번 T11 검증은 기존 노드를 사용했으며 새 EC2·NAT·VPC를 만들지 않았다.
+
+[정리 영수증](cleanup.json)에 따라 이번 시험의 임시 프로세스·설치 파일·실행 디렉터리를 회수했다. systemd가 만든 실행 디렉터리 심볼릭 링크는 정확한 대상 경로를 검사한 뒤 정리했다. 기존 T7 인프라의 수명은 원래 구축 세션에서 관리한다.
