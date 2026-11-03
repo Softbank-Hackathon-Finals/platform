@@ -7,6 +7,7 @@ The receiver is a test file sink; this does not qualify AWS/RKE2 or retention.
 """
 
 import argparse
+import base64
 import hashlib
 import json
 import os
@@ -196,6 +197,7 @@ def run(root):
                 "metadata": {"name": "audit-db", "namespace": NS},
                 "spec": {
                     "instances": 1,
+                    "enableSuperuserAccess": True,
                     "imageName": PG,
                     "storage": {"size": "1Gi"},
                     "postgresql": {
@@ -232,6 +234,10 @@ def run(root):
         origin = AuditOrigin(
             "source", digest, identity["node_uid"], identity["pod_uid"], NS, "audit-db-1", True
         )
+        # Local disposable cluster only. Never alter a production administrator.
+        superuser = json.loads(k("-n", NS, "get", "secret", "audit-db-superuser", "-o", "json"))
+        admin_password = base64.b64decode(superuser["data"]["password"], validate=True).decode()
+        del superuser
         password = secrets.token_hex(24)
         psql(
             f"CREATE ROLE audit_role LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS CONNECTION LIMIT 3 PASSWORD '{password}';\nCREATE DATABASE audit_db OWNER audit_role;\n"
@@ -267,13 +273,13 @@ def run(root):
             if test_id == "AUD-01.1":
                 assert (
                     psql(
-                        "SELECT current_user;",
-                        user="audit_role",
+                        "SELECT current_user || '|' || rolsuper::text FROM pg_roles WHERE rolname = current_user;",
+                        user="postgres",
                         db="audit_db",
                         marker=marker,
-                        password=password,
+                        password=admin_password,
                     ).strip()
-                    == "audit_role"
+                    == "postgres|true"
                 )
                 acknowledged = frozenset({"login"})
             elif test_id == "AUD-01.2":
@@ -306,7 +312,9 @@ def run(root):
                 context,
                 test_id,
                 marker,
-                actor if test_id == "AUD-01.3" else "audit_role",
+                actor
+                if test_id == "AUD-01.3"
+                else ("postgres" if test_id == "AUD-01.1" else "audit_role"),
                 "audit_db",
                 NS,
                 "bravo_test",
@@ -424,7 +432,7 @@ def run(root):
         command("docker", "stop", "-t", "3", receiver)
         received = datetime.now(UTC)
         raw = exported.read_bytes()
-        assert password.encode() not in raw
+        assert all(value.encode() not in raw for value in (password, admin_password))
         events = tuple(
             e
             for i, line in enumerate(raw.splitlines())
@@ -459,6 +467,7 @@ def run(root):
             results=results,
             decoded_events=len(events),
             credential_redacted=True,
+            administrator_login_confirmed=True,
             collected_at=received.isoformat(),
         )
         assert results == {t: "present" for t in receipts}, "actual_canary_search_failed"

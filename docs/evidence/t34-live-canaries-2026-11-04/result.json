@@ -14,8 +14,9 @@
     "AUD-01.2": "present",
     "AUD-01.3": "present"
   },
-  "decoded_events": 545,
+  "decoded_events": 509,
   "credential_redacted": true,
-  "collected_at": "2026-11-03T23:14:29.638976+00:00",
+  "administrator_login_confirmed": true,
+  "collected_at": "2026-11-03T23:24:54.000341+00:00",
   "owned_resources_removed": true
 }
