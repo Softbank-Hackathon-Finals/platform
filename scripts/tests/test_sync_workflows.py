@@ -59,6 +59,36 @@ class SyncWorkflowTest(unittest.TestCase):
                     self.assertEqual(result.returncode, code, result.stderr)
                     self.assertEqual((root / "summary").read_text(), "sync result\n")
 
+    def test_start_task_is_an_argument_and_rejects_shell_text_before_running(self):
+        block = re.search(
+            r"id: sync\n(?:(?!      - name:).)*?        run: \|\n"
+            r"(?P<body>(?:          [^\n]*(?:\n|$))+)", self.sync, re.DOTALL,
+        )
+        script = "\n".join(line[10:] for line in block["body"].splitlines())
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            executable = root / "python3"
+            executable.write_text("#!/bin/sh\nprintf '%s\\n' \"$@\" > invoked\n")
+            executable.chmod(0o700)
+            env = {**os.environ, "PATH": f"{root}:{os.defpath}", "COMMAND": "start",
+                   "DRY": "--dry-run", "GITHUB_STEP_SUMMARY": str(root / "summary")}
+            for task in ("", "T23; touch injected", "$(touch injected)", "--help", "T23 T24"):
+                with self.subTest(task=task):
+                    result = subprocess.run(
+                        ["bash", "-e", "-o", "pipefail", "-c", script], cwd=root,
+                        env={**env, "TASK": task}, capture_output=True, timeout=10, check=False,
+                    )
+                    self.assertEqual(result.returncode, 2)
+                    self.assertFalse((root / "invoked").exists())
+                    self.assertFalse((root / "injected").exists())
+            result = subprocess.run(
+                ["bash", "-e", "-o", "pipefail", "-c", script], cwd=root,
+                env={**env, "TASK": "T23"}, capture_output=True, timeout=10, check=False,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual((root / "invoked").read_text().splitlines(),
+                             ["scripts/sync_tasks.py", "start", "T23", "--dry-run", "--moves-file", "moves.txt"])
+
 
 if __name__ == "__main__":
     unittest.main()
