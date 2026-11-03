@@ -73,6 +73,9 @@ class WorkloadTests(unittest.TestCase):
         settings = self.settings()
         registry = "123456789012.dkr.ecr.ap-northeast-2.amazonaws.com"
         settings["app_image"] = registry + "/bravo/demo-chat@sha256:" + "a" * 64
+        with self.assertRaises(ValueError):
+            render.application(settings)
+        settings["ecr_repository_url"] = registry + "/bravo/demo-chat"
         render.application(settings)
         invalid = [
             registry + "/bravo/demo-chat-unrelated",
@@ -86,6 +89,10 @@ class WorkloadTests(unittest.TestCase):
                 settings["app_image"] = image + "@sha256:" + "a" * 64
                 with self.assertRaises(ValueError):
                     render.application(settings)
+                settings["ecr_repository_url"] = image
+                with self.assertRaises(ValueError):
+                    render.application(settings)
+                settings["ecr_repository_url"] = registry + "/bravo/demo-chat"
 
     def test_database_storage_retained_and_app_starts_write_blocked(self):
         self.assertEqual(render.database()[1]["reclaimPolicy"], "Retain")

@@ -117,16 +117,18 @@ def pooler():
 def application(settings):
     required = {"region", "app_role_arn", "eso_role_arn", "db_secret_id",
                 "control_secret_id", "s3_bucket", "app_image"}
-    if set(settings) != required:
+    if set(settings) not in (required, required | {"ecr_repository_url"}):
         raise ValueError("application settings must contain exactly the documented metadata fields")
     for field in ("app_role_arn", "eso_role_arn"):
         if not re.fullmatch(r"arn:aws:iam::[0-9]{12}:role/[\w+=,.@/-]+", settings[field]):
             raise ValueError("workload identity must be an AWS IAM role")
     account = settings["app_role_arn"].split(":")[4]
-    repositories = (
-        "ghcr.io/softbank-hackathon-finals/demo-chat",
-        f"{account}.dkr.ecr.{settings['region']}.amazonaws.com/bravo/demo-chat",
-    )
+    repositories = ["ghcr.io/softbank-hackathon-finals/demo-chat"]
+    if "ecr_repository_url" in settings:
+        expected = f"{account}.dkr.ecr.{settings['region']}.amazonaws.com/bravo/demo-chat"
+        if settings["ecr_repository_url"] != expected:
+            raise ValueError("private registry contract must match the workload account, region and repository")
+        repositories.append(settings["ecr_repository_url"])
     suffix = r"(?::[A-Za-z0-9_][A-Za-z0-9_.-]{0,127})?@sha256:[0-9a-f]{64}"
     if not any(re.fullmatch(re.escape(repo) + suffix, settings["app_image"]) for repo in repositories):
         raise ValueError("demo-chat must use the exact registered repository pinned by digest")

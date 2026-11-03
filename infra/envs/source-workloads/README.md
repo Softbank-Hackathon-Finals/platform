@@ -30,7 +30,7 @@
 4. `python3 seed.py db --kubeconfig "$KUBECONFIG"`로 앱·복제 역할의 비밀번호를 생성한다. `render.py database` 출력에 `kubectl apply --server-side --dry-run=server`를 수행한 뒤 실제 적용하고 `Cluster/source-db` Ready를 기다린다.
 5. `python3 seed.py pooler --kubeconfig "$KUBECONFIG"`로 **실제 PostgreSQL의 앱 SCRAM verifier**와 별도 제어 자격증명을 연결한다. `render.py pooler`를 server dry-run 후 적용한다. `source-pgbouncer` rollout과 실제 TLS 접속을 확인한다.
 6. `seed.py publish --metadata "$PRIVATE_DIR/workload-metadata.private.json" --kubeconfig "$KUBECONFIG"`는 Boto3가 있는 Python에서 실행한다(검증 SDK `boto3==1.40.65`). AWS CLI의 stdin paramfile에 의존하지 않는다. 기존 AWS 값이 다르면 덮어쓰지 않고 실패한다.
-7. Terraform `workload_metadata` 출력에 팀 이미지 `app_image`를 더한 metadata로 `render.py application --settings ...`를 실행한다. 출력에는 IAM ARN 등 비공개 식별자가 있으므로 커밋하지 않는다. server dry-run 후 적용하고 SecretStore/ExternalSecret Ready와 앱 rollout을 확인한다.
+7. Terraform `workload_metadata` 출력에 팀 이미지 `app_image`를 더한 metadata로 `render.py application --settings ...`를 실행한다. ECR은 검증 완료된 private registry contract의 exact `repository_url`을 `ecr_repository_url`로 함께 넘긴다. 이 값도 앱 역할 계정·region·정확한 `bravo/demo-chat` 경로와 대조하며 계약 입력이 없으면 ECR을 받지 않는다. 출력에는 IAM ARN 등 비공개 식별자가 있으므로 커밋하지 않는다. server dry-run 후 적용하고 SecretStore/ExternalSecret Ready와 앱 rollout을 확인한다.
 8. `python3 verify.py --kubeconfig "$KUBECONFIG" --canary --output "$PRIVATE_DIR/readback.json"`을 실행한다. 감사 로그 전달이 지연되면 이후 `--canary` 없이 다시 읽는다. 성공 종료 자체는 모든 통제의 합격이 아니며 JSON의 개별 관측값을 확인한다.
 
 `render.py`는 렌더링만 한다. `seed.py`는 정해진 namespace의 새 개발 자격증명과 지정된 Secrets Manager version만 다룬다. 비밀번호·SCRAM verifier·관리 토큰은 프로세스 메모리와 stdin으로만 전달하며 파일·출력·Terraform state에 넣지 않는다. Kubernetes Secret 생성에 client-side apply를 쓰지 않아 plaintext `last-applied-configuration`도 남기지 않는다. 기존 Secret의 소유 label이 다르면 중단한다.
