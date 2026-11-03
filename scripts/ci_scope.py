@@ -51,6 +51,9 @@ def select(files: list[str], changed: list[str], full_reason: str = "") -> dict:
             continue
         elif path.startswith("infra/"):
             infra = True
+            # Repository tests import infra Python helpers (including deleted helpers).
+            if PurePosixPath(path).suffix.lower() == ".py":
+                scripts = True
         elif path.startswith("scripts/"):
             scripts = True
         else:

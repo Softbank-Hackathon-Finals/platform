@@ -12,6 +12,7 @@
 | 한 서비스의 코드·lock·테스트 | 해당 프로젝트 검사와 의존성 취약점 검사 |
 | 서비스의 Kubernetes YAML·Dockerfile | 해당 프로젝트 + IaC·Dockerfile 검사 |
 | infra | Terraform root/module 전체 fmt·validate·mock tests와 IaC 검사 |
+| infra 아래 Python 코드·삭제 | 위 infra 검사 + 해당 코드를 import하는 repository unittest |
 | scripts 일반 도구 | repository unittest |
 | workflow·CI 선택기·공통 계약·루트 설정 | 전체 검사 |
 | 알 수 없는 경로·비교 이력 없음·삭제된 manifest | 전체 검사 |
@@ -19,6 +20,8 @@
 | main/develop push·주간 예약·수동 실행 | 전체 검사 |
 
 Terraform은 아직 root 간 의존 그래프를 만들지 않는다. 공통 module 소비자를 빠뜨리지 않도록 infra 변경 시 모두 검증한다. 현재 규모에서는 이 보수적 범위가 수작업 의존 목록보다 관리하기 쉽다. 프로젝트가 많아지면 실제 실행 시간을 보고 분할한다.
+
+`infra/**/*.py`는 Terraform/IaC 검사만으로 실행 오류를 확인할 수 없다. `cost-aws/verify.py`나 T6 `source-aws/preflight.py`를 가져다 쓰는 `scripts/tests`가 있으므로 Python 변경·삭제에는 repository unittest도 보수적으로 선택한다. 소비자 목록을 따로 등록하지 않는다. 선택기 회귀 시험은 두 경로에서 정상 fixture가 통과하고 문법 오류를 넣은 임시 구현이 실제 unittest 명령을 실패시키는지 확인한다.
 
 필수 `secrets`, `infra`, `platform` 이름은 유지한다. 워크플로 자체에는 path filter를 두지 않는다. `platform`은 `always()`로 scope·선택 프로젝트의 결과를 확인한다. 선택된 검사가 skipped/cancelled/failure이면 실패하며, 선택이 빈 경우에만 skipped를 허용한다. scope 자체 실패도 통과시키지 않는다. [GitHub 필수 검사 규칙](https://docs.github.com/en/pull-requests/how-tos/merge-and-close-pull-requests/troubleshooting-required-status-checks)
 

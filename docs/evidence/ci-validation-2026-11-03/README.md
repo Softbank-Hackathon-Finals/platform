@@ -61,3 +61,15 @@ terraform apply "$HOME/.bravo/ci-validation-20261103/destroy.tfplan"
 ```
 
 정리 대상은 이 state의 자원만이다. 기존 foundation, 다른 태그의 인스턴스, 과거 kubeconfig는 이 정리 대상이 아니다.
+
+## PR #77 후속: infra Python 소비자 시험 선택
+
+리뷰 기준 `7d154b791f114c64f9ad1354fc568d4aa3f5b44b`에서 `infra/envs/cost-aws/verify.py` 또는 T6 `infra/envs/source-aws/preflight.py`만 변경하면 `infra=true, scripts=false, projects=[]`였다. Terraform/IaC 검사는 이 Python 구현을 실행하지 않으므로, 실제로 import하는 repository unittest가 생략됐다.
+
+`infra/**/*.py`의 변경·삭제에는 `scripts=true`도 설정하도록 보완했다. Terraform만 바뀐 경우의 검사 범위와 필수 job 이름은 유지했다. 새 의존성 목록이나 workflow 예외는 추가하지 않았다.
+
+- 회귀 시험을 먼저 추가했을 때 원본 선택기에서 소비자 생략 2건·삭제 경로 1건이 실패했다. 수정 후 `scripts/tests` **33개 시험 통과**, 수정 Python의 Ruff 0.17.3·actionlint 1.7.7·공백 검사 통과.
+- 커밋된 선택기 회귀 시험은 두 경로의 합성 구현과 이를 import하는 소비자를 임시 폴더에 만든다. 선택된 repository unittest 명령이 정상 코드에서는 종료 0, 문법 오류를 넣으면 비정상 종료인지 확인한다.
+- 별도 로컬 교차 확인에서는 실제 `verify.py`와 소비자 시험 **3개**, PR #82의 `ea4ec860c9d60ec11ffe551873e351ccda41b488`에 있는 실제 T6 코드와 소비자 시험 **15개**를 각각 임시 사본으로 실행했다. 두 정상 사본 모두 종료 0이었고, 구현에 문법 오류를 넣으면 모두 `SyntaxError`·종료 1이었다. 파일·기준 커밋·선택 결과는 [JSON 기록](infra-python-consumer-regression.json)에 있다.
+
+실제 코드 재현은 기록된 커밋에서 implementation·consumer·supporting_files를 별도 폴더에 복사하고 `python3 -B -m unittest discover -s scripts/tests -q`로 실행했다. 이후 임시 implementation 끝에 `def injected_syntax_error(:`를 추가하고 같은 명령의 실패를 확인했다. T6 사본은 별도 PR의 미병합 코드이며 이번 PR에 구현을 복사하지 않았다. 이 검증은 로컬 코드·소비자 관계 확인이며 새 AWS 실행이나 배포 증거가 아니다.
