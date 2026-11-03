@@ -23,7 +23,7 @@ from .tools import SYSTEM, PolicyDenied, Snapshot
 CODEX_VERSION = "codex-cli 0.157.0"
 DISABLED_FEATURES = (
     "shell_tool", "unified_exec", "shell_snapshot", "apps", "plugins", "hooks",
-    "memories", "multi_agent", "multi_agent_v2", "code_mode", "code_mode_host",
+    "memories", "multi_agent", "multi_agent_v2", "code_mode",
     "computer_use", "browser_use", "browser_use_external", "in_app_browser",
     "image_generation", "view_image", "skill_search", "skill_mcp_dependency_install",
     "request_permissions_tool", "goals", "sleep_tool", "workspace_dependencies",
@@ -38,6 +38,8 @@ def configuration() -> str:
         'project_doc_max_bytes = 0', 'model_reasoning_effort = "low"',
         '[skills]', 'include_instructions = false', 'bundled.enabled = false',
         '[features]', 'skip_host_skill_discovery = true',
+        # Codex 0.157.0 routes dynamic tools through this host even with Code Mode off.
+        'code_mode_host = true',
         *(f'{name} = false' for name in DISABLED_FEATURES),
         '[analytics]', 'enabled = false',
     ]) + '\n'

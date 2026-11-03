@@ -47,7 +47,8 @@ def test_config_has_ephemeral_auth_and_no_execution():
     assert config["forced_login_method"] == "chatgpt"
     assert config["web_search"] == "disabled"
     assert not config["skills"]["bundled"]["enabled"]
-    for name in ("shell_tool", "apps", "plugins", "hooks", "multi_agent", "code_mode_host"):
+    assert config["features"]["code_mode_host"] is True
+    for name in ("shell_tool", "unified_exec", "apps", "plugins", "hooks", "multi_agent", "code_mode"):
         assert config["features"][name] is False
 
 
@@ -96,6 +97,18 @@ def test_missing_usage_does_not_validate_a_proposal(context, tmp_path):
     result = asyncio.run(Coordinator(bundle, snapshot).propose(AccountSmokeProvider(session, "test-model")))
     assert result["state"] == "NEEDS_HUMAN"
     assert result["proposal"] is None
+
+
+def test_completed_text_without_tool_proposal_remains_human(context, tmp_path):
+    bundle, snapshot, _, _ = context
+    message = {"method": "item/completed", "params": {"item": {
+        "type": "agentMessage", "text": "private-text-claims-proposal-ready"}}}
+    session = Session(tmp_path, [message, usage(), completed()])
+    result = asyncio.run(Coordinator(bundle, snapshot).propose(AccountSmokeProvider(session, "test-model")))
+    assert result["state"] == "NEEDS_HUMAN"
+    assert result["proposal"] is None
+    assert result["attempts"][0]["model_usage"]["total_tokens"] == 200
+    assert "private-text-claims-proposal-ready" not in json.dumps(result)
 
 
 def test_subscription_quota_is_reported_without_error_text(context, tmp_path):
