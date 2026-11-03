@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Render bounded probe Jobs; pass/fail comes from the observed Job output."""
 import argparse
+import ipaddress
 import json
 import re
 from pathlib import Path
@@ -10,8 +11,8 @@ from render import LABELS, POSTGRES_IMAGE, resource
 APP_IMAGE = "ghcr.io/softbank-hackathon-finals/demo-chat@sha256:001adc35a9fc767566552fb55c3c19a67b7c5efc7231fb02dc28cdeace99d0d4"
 
 
-def probe(stage, run_suffix=""):
-    if stage not in {"db", "objects-bootstrap", "objects-write", "objects-read", "image"}:
+def probe(stage, run_suffix="", pooler_ip=None):
+    if stage not in {"db", "objects-bootstrap", "objects-write", "objects-read", "image", "pooler"}:
         raise ValueError("known probe stage required")
     name = "target-probe-" + stage
     if run_suffix:
@@ -30,13 +31,13 @@ def probe(stage, run_suffix=""):
                    "print(json.dumps({'pass':True,'uid':os.getuid(),'app_import':True,"
                    "'libpq_version':psycopg.pq.version(),'app_startup_verified':False}))"]
     else:
-        script = "db_probe.py" if stage == "db" else "object_probe.py"
+        script = "db_probe.py" if stage == "db" else "pooler_probe.py" if stage == "pooler" else "object_probe.py"
         config = resource("v1", "ConfigMap", name, data={script: Path(__file__).with_name(script).read_text()})
         items.append(config)
         volumes.append({"name": "script", "configMap": {"name": name}})
         mounts.append({"name": "script", "mountPath": "/probe", "readOnly": True})
         command = ["python3" if stage == "db" else "/app/.venv/bin/python", "/probe/" + script]
-        if stage != "db":
+        if stage not in {"db", "pooler"}:
             command.append(stage.split("-", 1)[1])
     if stage == "db":
         for key, secret in [("REPLICATION_PASSWORD", "target-replication"), ("APP_PASSWORD", "target-app-db")]:
@@ -44,6 +45,18 @@ def probe(stage, run_suffix=""):
         volumes.append({"name": "ca", "secret": {"secretName": "target-db-ca",
                                                    "items": [{"key": "ca.crt", "path": "ca.crt"}]}})
         mounts.append({"name": "ca", "mountPath": "/tls", "readOnly": True})
+    elif stage == "pooler":
+        address = ipaddress.IPv4Address(pooler_ip)
+        if not address.is_private or address.is_loopback or address.is_link_local:
+            raise ValueError("verified target pooler Service address required")
+        env.extend([{"name": "APP_PASSWORD", "valueFrom": {"secretKeyRef": {
+            "name": "target-pooler-source-app", "key": "password"}}},
+            {"name": "POOLER_IP", "value": str(address)}])
+        volumes.extend([{"name": "ca", "secret": {"secretName": "target-db-ca",
+            "items": [{"key": "ca.crt", "path": "ca.crt"}]}},
+            {"name": "auth", "secret": {"secretName": "target-pgbouncer-auth", "defaultMode": 288}}])
+        mounts.extend([{"name": "ca", "mountPath": "/tls", "readOnly": True},
+                       {"name": "auth", "mountPath": "/auth", "readOnly": True}])
     elif stage.startswith("objects-"):
         secret = "target-object-bootstrap" if stage == "objects-bootstrap" else "target-object-client"
         for key in ["AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY"]:
@@ -74,7 +87,8 @@ def probe(stage, run_suffix=""):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("stage", choices=["db", "objects-bootstrap", "objects-write", "objects-read", "image"])
+    parser.add_argument("stage", choices=["db", "objects-bootstrap", "objects-write", "objects-read", "image", "pooler"])
     parser.add_argument("--run-suffix", default="")
+    parser.add_argument("--pooler-ip")
     args = parser.parse_args()
-    print(json.dumps({"apiVersion": "v1", "kind": "List", "items": probe(args.stage, args.run_suffix)}, indent=2))
+    print(json.dumps({"apiVersion": "v1", "kind": "List", "items": probe(args.stage, args.run_suffix, args.pooler_ip)}, indent=2))
