@@ -1,0 +1,127 @@
+{
+ "checks": [
+  {
+   "code": "DENIED",
+   "id": "block:aws-iam:app",
+   "verdict": "PASS"
+  },
+  {
+   "code": "DENIED",
+   "id": "block:aws-kms:app",
+   "verdict": "PASS"
+  },
+  {
+   "code": "DENIED",
+   "id": "block:aws-s3:app",
+   "verdict": "PASS"
+  },
+  {
+   "code": "DENIED",
+   "id": "block:aws-secretsmanager:app",
+   "verdict": "PASS"
+  },
+  {
+   "code": "DENIED",
+   "id": "block:aws-sts:app",
+   "verdict": "PASS"
+  },
+  {
+   "code": "DENIED",
+   "id": "block:pooler-to-source:pooler",
+   "verdict": "PASS"
+  },
+  {
+   "code": "WRITER_IS_TARGET",
+   "id": "cutover:writer",
+   "verdict": "PASS"
+  },
+  {
+   "code": "OPEN",
+   "id": "keep:replication-forward:db",
+   "verdict": "PASS"
+  },
+  {
+   "code": "STREAMING_ADVANCED",
+   "id": "keep:replication-reverse:stream",
+   "verdict": "PASS"
+  },
+  {
+   "code": "OPEN",
+   "id": "local:app-to-objects:app",
+   "verdict": "PASS"
+  },
+  {
+   "code": "OPEN",
+   "id": "local:app-to-pooler:app",
+   "verdict": "PASS"
+  },
+  {
+   "code": "OPEN",
+   "id": "local:dns:app",
+   "verdict": "PASS"
+  },
+  {
+   "code": "OPEN",
+   "id": "local:dns:pooler",
+   "verdict": "PASS"
+  },
+  {
+   "code": "OPEN",
+   "id": "local:pooler-to-db:pooler",
+   "verdict": "PASS"
+  },
+  {
+   "code": "NEW_CONNECTION_OK",
+   "id": "new-connection:db-via-pooler",
+   "verdict": "PASS"
+  },
+  {
+   "code": "NEW_CONNECTION_OK",
+   "id": "new-connection:http-ready",
+   "verdict": "PASS"
+  },
+  {
+   "code": "NEW_CONNECTION_OK",
+   "id": "new-connection:websocket",
+   "verdict": "PASS"
+  },
+  {
+   "code": "BASELINE_CLEAN",
+   "id": "policy:baseline",
+   "verdict": "PASS"
+  },
+  {
+   "code": "POLICY_MATCHES_PLAN",
+   "id": "policy:readback",
+   "verdict": "PASS"
+  },
+  {
+   "code": "RESTARTED_READY",
+   "id": "restart:app",
+   "verdict": "PASS"
+  },
+  {
+   "code": "RESTARTED_READY",
+   "id": "restart:pooler",
+   "verdict": "PASS"
+  },
+  {
+   "code": "NO_HOST_NETWORK",
+   "id": "scope:host-network",
+   "verdict": "PASS"
+  },
+  {
+   "code": "ALL_PODS_IN_PLAN",
+   "id": "scope:pods",
+   "verdict": "PASS"
+  }
+ ],
+ "plan_digest": "sha256:3ef14c833eb0df6883f19d488bb889835e6d83465e0e6ded2c56a25424151a7f",
+ "schema_version": "exit-drill-report/v1",
+ "summary": {
+  "FAIL": 0,
+  "PASS": 23,
+  "UNKNOWN": 0
+ },
+ "verdict": "PASS"
+}

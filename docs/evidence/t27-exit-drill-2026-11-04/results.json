@@ -1,0 +1,521 @@
+{
+ "all_as_expected": true,
+ "aws_binding": {
+  "bound_to_standin_subnet": true,
+  "hosts": 5,
+  "vantages": [
+   "app",
+   "control"
+  ]
+ },
+ "established_connection": {
+  "held_connection_alive_after_policy": true,
+  "seconds_until_denied": 0.12,
+  "state": "refused"
+ },
+ "k3s_image": "mirror.gcr.io/rancher/k3s:v1.35.5-k3s1",
+ "new_pod_window": [
+  {
+   "attempts": 29,
+   "connected_attempts": 13,
+   "first_attempt": "connected",
+   "seconds_until_first_denied": 0.66
+  },
+  {
+   "attempts": 24,
+   "connected_attempts": 6,
+   "first_attempt": "connected",
+   "seconds_until_first_denied": 0.307
+  },
+  {
+   "attempts": 25,
+   "connected_attempts": 8,
+   "first_attempt": "connected",
+   "seconds_until_first_denied": 0.406
+  }
+ ],
+ "python_image": "python:3.12-slim",
+ "refusals": {
+  "additive_allow_leaves_aws_open": [
+   "UNDECLARED_EGRESS"
+  ],
+  "selector_shared_with_db": [
+   "CONTROL_SELECTED",
+   "REPLICATION_OWNER_SELECTED"
+  ]
+ },
+ "scenarios": [
+  {
+   "as_expected": true,
+   "counts": {
+    "FAIL": 0,
+    "PASS": 23,
+    "UNKNOWN": 0
+   },
+   "expected_codes": [
+    "DENIED",
+    "NEW_CONNECTION_OK",
+    "OPEN",
+    "POLICY_MATCHES_PLAN",
+    "RESTARTED_READY",
+    "STREAMING_ADVANCED"
+   ],
+   "expected_verdict": "PASS",
+   "meaning": "정책을 적용하고 앱과 풀러를 재시작했다. AWS는 닫히고 복제와 앱은 동작해야 한다",
+   "name": "block_then_restart",
+   "not_pass": [],
+   "stream_reconnected_under_block": true,
+   "verdict": "PASS"
+  },
+  {
+   "as_expected": true,
+   "counts": {
+    "FAIL": 6,
+    "PASS": 14,
+    "UNKNOWN": 3
+   },
+   "expected_codes": [
+    "POLICY_NOT_APPLIED",
+    "SOURCE_PATH_OPEN"
+   ],
+   "expected_verdict": "FAIL",
+   "meaning": "정책 없이 재시작만 했다. 대조군: 재는 경로가 실제로 열려 있었음을 보인다",
+   "name": "no_policy",
+   "not_pass": [
+    {
+     "code": "SOURCE_PATH_OPEN",
+     "id": "block:aws-iam:app",
+     "verdict": "FAIL"
+    },
+    {
+     "code": "SOURCE_PATH_OPEN",
+     "id": "block:aws-kms:app",
+     "verdict": "FAIL"
+    },
+    {
+     "code": "SOURCE_PATH_OPEN",
+     "id": "block:aws-s3:app",
+     "verdict": "FAIL"
+    },
+    {
+     "code": "SOURCE_PATH_OPEN",
+     "id": "block:aws-secretsmanager:app",
+     "verdict": "FAIL"
+    },
+    {
+     "code": "SOURCE_PATH_OPEN",
+     "id": "block:aws-sts:app",
+     "verdict": "FAIL"
+    },
+    {
+     "code": "SOURCE_PATH_OPEN",
+     "id": "block:pooler-to-source:pooler",
+     "verdict": "FAIL"
+    },
+    {
+     "code": "POLICY_NOT_APPLIED",
+     "id": "policy:readback",
+     "verdict": "UNKNOWN"
+    },
+    {
+     "code": "POLICY_TIME_UNKNOWN",
+     "id": "restart:app",
+     "verdict": "UNKNOWN"
+    },
+    {
+     "code": "POLICY_TIME_UNKNOWN",
+     "id": "restart:pooler",
+     "verdict": "UNKNOWN"
+    }
+   ],
+   "verdict": "FAIL"
+  },
+  {
+   "as_expected": true,
+   "counts": {
+    "FAIL": 0,
+    "PASS": 21,
+    "UNKNOWN": 2
+   },
+   "expected_codes": [
+    "RESTART_NOT_OBSERVED"
+   ],
+   "expected_verdict": "UNKNOWN",
+   "meaning": "정책만 넣고 재시작하지 않았다. 재시작 시험을 통과한 것으로 치면 안 된다",
+   "name": "policy_without_restart",
+   "not_pass": [
+    {
+     "code": "RESTART_NOT_OBSERVED",
+     "id": "restart:app",
+     "verdict": "UNKNOWN"
+    },
+    {
+     "code": "RESTART_NOT_OBSERVED",
+     "id": "restart:pooler",
+     "verdict": "UNKNOWN"
+    }
+   ],
+   "verdict": "UNKNOWN"
+  },
+  {
+   "as_expected": true,
+   "counts": {
+    "FAIL": 6,
+    "PASS": 17,
+    "UNKNOWN": 0
+   },
+   "expected_codes": [
+    "POLICY_WIDER_THAN_PLAN",
+    "SOURCE_PATH_OPEN"
+   ],
+   "expected_verdict": "FAIL",
+   "meaning": "다른 정책이 외부를 허용해 합집합으로 AWS 경로가 남았다",
+   "name": "additive_allow_leak",
+   "not_pass": [
+    {
+     "code": "SOURCE_PATH_OPEN",
+     "id": "block:aws-iam:app",
+     "verdict": "FAIL"
+    },
+    {
+     "code": "SOURCE_PATH_OPEN",
+     "id": "block:aws-kms:app",
+     "verdict": "FAIL"
+    },
+    {
+     "code": "SOURCE_PATH_OPEN",
+     "id": "block:aws-s3:app",
+     "verdict": "FAIL"
+    },
+    {
+     "code": "SOURCE_PATH_OPEN",
+     "id": "block:aws-secretsmanager:app",
+     "verdict": "FAIL"
+    },
+    {
+     "code": "SOURCE_PATH_OPEN",
+     "id": "block:aws-sts:app",
+     "verdict": "FAIL"
+    },
+    {
+     "code": "POLICY_WIDER_THAN_PLAN",
+     "id": "policy:readback",
+     "verdict": "FAIL"
+    }
+   ],
+   "verdict": "FAIL"
+  },
+  {
+   "as_expected": true,
+   "counts": {
+    "FAIL": 5,
+    "PASS": 18,
+    "UNKNOWN": 0
+   },
+   "expected_codes": [
+    "REPLICATION_NOT_STREAMING",
+    "REPLICATION_PATH_BROKEN"
+   ],
+   "expected_verdict": "FAIL",
+   "meaning": "실수로 DB Pod까지 막았다. 복제 경로 양쪽이 끊겨야 하고 판정이 잡아야 한다",
+   "name": "replication_blocked",
+   "not_pass": [
+    {
+     "code": "REPLICATION_PATH_BROKEN",
+     "id": "keep:replication-forward:db",
+     "verdict": "FAIL"
+    },
+    {
+     "code": "REPLICATION_NOT_STREAMING",
+     "id": "keep:replication-reverse:stream",
+     "verdict": "FAIL"
+    },
+    {
+     "code": "LOCAL_PATH_BROKEN",
+     "id": "local:pooler-to-db:pooler",
+     "verdict": "FAIL"
+    },
+    {
+     "code": "NEW_CONNECTION_FAILED",
+     "id": "new-connection:db-via-pooler",
+     "verdict": "FAIL"
+    },
+    {
+     "code": "NEW_CONNECTION_FAILED",
+     "id": "new-connection:websocket",
+     "verdict": "FAIL"
+    }
+   ],
+   "verdict": "FAIL"
+  },
+  {
+   "as_expected": true,
+   "counts": {
+    "FAIL": 3,
+    "PASS": 19,
+    "UNKNOWN": 1
+   },
+   "expected_codes": [
+    "LOCAL_PATH_BROKEN",
+    "NEW_CONNECTION_FAILED"
+   ],
+   "expected_verdict": "FAIL",
+   "meaning": "허용 목록에서 풀러를 빼 앱이 DB에 못 닿는다. 준비 신호(/readyz)는 초록으로 남는다",
+   "name": "local_path_overblocked",
+   "not_pass": [
+    {
+     "code": "LOCAL_PATH_BROKEN",
+     "id": "local:app-to-pooler:app",
+     "verdict": "FAIL"
+    },
+    {
+     "code": "NEW_CONNECTION_FAILED",
+     "id": "new-connection:db-via-pooler",
+     "verdict": "FAIL"
+    },
+    {
+     "code": "NEW_CONNECTION_FAILED",
+     "id": "new-connection:websocket",
+     "verdict": "FAIL"
+    },
+    {
+     "code": "POLICY_NOT_APPLIED",
+     "id": "policy:readback",
+     "verdict": "UNKNOWN"
+    }
+   ],
+   "verdict": "FAIL"
+  },
+  {
+   "as_expected": true,
+   "counts": {
+    "FAIL": 4,
+    "PASS": 11,
+    "UNKNOWN": 8
+   },
+   "expected_codes": [
+    "NOT_READY"
+   ],
+   "expected_verdict": "FAIL",
+   "meaning": "시작할 때 AWS가 필요한 앱(고정 소스 ce5727e를 흉내). 정책이 걸린 Pod에서 컨테이너를 다시 띄우면 뜨지 않아야 한다",
+   "name": "app_needs_aws_at_start",
+   "not_pass": [
+    {
+     "code": "NOT_OBSERVED",
+     "id": "block:aws-iam:app",
+     "verdict": "UNKNOWN"
+    },
+    {
+     "code": "NOT_OBSERVED",
+     "id": "block:aws-kms:app",
+     "verdict": "UNKNOWN"
+    },
+    {
+     "code": "NOT_OBSERVED",
+     "id": "block:aws-s3:app",
+     "verdict": "UNKNOWN"
+    },
+    {
+     "code": "NOT_OBSERVED",
+     "id": "block:aws-secretsmanager:app",
+     "verdict": "UNKNOWN"
+    },
+    {
+     "code": "NOT_OBSERVED",
+     "id": "block:aws-sts:app",
+     "verdict": "UNKNOWN"
+    },
+    {
+     "code": "NOT_OBSERVED",
+     "id": "local:app-to-objects:app",
+     "verdict": "UNKNOWN"
+    },
+    {
+     "code": "NOT_OBSERVED",
+     "id": "local:app-to-pooler:app",
+     "verdict": "UNKNOWN"
+    },
+    {
+     "code": "NOT_OBSERVED",
+     "id": "local:dns:app",
+     "verdict": "UNKNOWN"
+    },
+    {
+     "code": "NEW_CONNECTION_FAILED",
+     "id": "new-connection:db-via-pooler",
+     "verdict": "FAIL"
+    },
+    {
+     "code": "NEW_CONNECTION_FAILED",
+     "id": "new-connection:http-ready",
+     "verdict": "FAIL"
+    },
+    {
+     "code": "NEW_CONNECTION_FAILED",
+     "id": "new-connection:websocket",
+     "verdict": "FAIL"
+    },
+    {
+     "code": "NOT_READY",
+     "id": "restart:app",
+     "verdict": "FAIL"
+    }
+   ],
+   "verdict": "FAIL"
+  },
+  {
+   "as_expected": true,
+   "counts": {
+    "FAIL": 0,
+    "PASS": 21,
+    "UNKNOWN": 2
+   },
+   "expected_codes": [
+    "STARTUP_NOT_ISOLATED"
+   ],
+   "expected_verdict": "UNKNOWN",
+   "meaning": "같은 앱을 Pod 교체만으로 재시작했다. 새 Pod가 정책에 묶이기 전에 AWS에 닿아 뜰 수 있으므로 통과가 아니다",
+   "name": "pod_replacement_only",
+   "not_pass": [
+    {
+     "code": "STARTUP_NOT_ISOLATED",
+     "id": "restart:app",
+     "verdict": "UNKNOWN"
+    },
+    {
+     "code": "STARTUP_NOT_ISOLATED",
+     "id": "restart:pooler",
+     "verdict": "UNKNOWN"
+    }
+   ],
+   "verdict": "UNKNOWN"
+  },
+  {
+   "as_expected": true,
+   "counts": {
+    "FAIL": 0,
+    "PASS": 18,
+    "UNKNOWN": 5
+   },
+   "expected_codes": [
+    "POSITIVE_CONTROL_FAILED"
+   ],
+   "expected_verdict": "UNKNOWN",
+   "meaning": "AWS 대역을 꺼서 거부처럼 보이게 했다. 대조군이 닿지 않으니 거부로 세면 안 된다",
+   "name": "destination_down",
+   "not_pass": [
+    {
+     "code": "POSITIVE_CONTROL_FAILED",
+     "id": "block:aws-iam:app",
+     "verdict": "UNKNOWN"
+    },
+    {
+     "code": "POSITIVE_CONTROL_FAILED",
+     "id": "block:aws-kms:app",
+     "verdict": "UNKNOWN"
+    },
+    {
+     "code": "POSITIVE_CONTROL_FAILED",
+     "id": "block:aws-s3:app",
+     "verdict": "UNKNOWN"
+    },
+    {
+     "code": "POSITIVE_CONTROL_FAILED",
+     "id": "block:aws-secretsmanager:app",
+     "verdict": "UNKNOWN"
+    },
+    {
+     "code": "POSITIVE_CONTROL_FAILED",
+     "id": "block:aws-sts:app",
+     "verdict": "UNKNOWN"
+    }
+   ],
+   "verdict": "UNKNOWN"
+  },
+  {
+   "as_expected": true,
+   "counts": {
+    "FAIL": 0,
+    "PASS": 22,
+    "UNKNOWN": 1
+   },
+   "expected_codes": [
+    "REPLICATION_IDLE"
+   ],
+   "expected_verdict": "UNKNOWN",
+   "meaning": "쓰기가 없어 LSN이 멈췄다. 채널이 살아 있다고 단정하면 안 된다",
+   "name": "idle_replication",
+   "not_pass": [
+    {
+     "code": "REPLICATION_IDLE",
+     "id": "keep:replication-reverse:stream",
+     "verdict": "UNKNOWN"
+    }
+   ],
+   "verdict": "UNKNOWN"
+  },
+  {
+   "as_expected": true,
+   "counts": {
+    "FAIL": 6,
+    "PASS": 17,
+    "UNKNOWN": 0
+   },
+   "expected_codes": [
+    "POLICY_MATCHES_PLAN",
+    "SOURCE_PATH_OPEN"
+   ],
+   "expected_verdict": "FAIL",
+   "meaning": "NetworkPolicy를 강제하지 않는 클러스터. 정책 객체는 계획과 같지만 AWS가 열려 있다",
+   "name": "cni_does_not_enforce",
+   "not_pass": [
+    {
+     "code": "SOURCE_PATH_OPEN",
+     "id": "block:aws-iam:app",
+     "verdict": "FAIL"
+    },
+    {
+     "code": "SOURCE_PATH_OPEN",
+     "id": "block:aws-kms:app",
+     "verdict": "FAIL"
+    },
+    {
+     "code": "SOURCE_PATH_OPEN",
+     "id": "block:aws-s3:app",
+     "verdict": "FAIL"
+    },
+    {
+     "code": "SOURCE_PATH_OPEN",
+     "id": "block:aws-secretsmanager:app",
+     "verdict": "FAIL"
+    },
+    {
+     "code": "SOURCE_PATH_OPEN",
+     "id": "block:aws-sts:app",
+     "verdict": "FAIL"
+    },
+    {
+     "code": "SOURCE_PATH_OPEN",
+     "id": "block:pooler-to-source:pooler",
+     "verdict": "FAIL"
+    }
+   ],
+   "verdict": "FAIL"
+  }
+ ],
+ "source_sha256": {
+  "src/bravo_exit_drill/__init__.py": "63dd3cfc651c1db6ef6aae4418e5d8c419d553b020039a0dac65e3ded5f69587",
+  "src/bravo_exit_drill/aws_endpoints.py": "f702dc4dad0201e28cb692bffa73768ba25e9274547d90b75eddb6e9518381a8",
+  "src/bravo_exit_drill/cli.py": "a1ff3eebfb05f2dd3d55c6fcf03d809b8190756aa11a19b6062e6d7ddc49c13b",
+  "src/bravo_exit_drill/cluster.py": "8dde85c1a9ad90db26de99d5cb6f776081fdb1286657d21ca664c8a05147a14b",
+  "src/bravo_exit_drill/inventory_input.py": "1b1e5cbb923e4b3390e5c604a769635d16ed5e4841ce9b277ce5880ad21dd786",
+  "src/bravo_exit_drill/observation.py": "a638c5422e328bcf1ce4dfab5fc8716a9ced2789372fe08b5e4b022d613d1962",
+  "src/bravo_exit_drill/policy.py": "99a5b732dfe955f6584f475b334cb0d334c84e85a647110234fe02ba9328f6c9",
+  "src/bravo_exit_drill/probe.py": "0d385fe1bff4a90ed25e466a3271b4d35ab2948e28879059cfa8499204ec838b",
+  "src/bravo_exit_drill/residual_map.py": "c718c207ede105931eb097a351aca42735d5e37430a77825fb61f05e52bf2ba0",
+  "src/bravo_exit_drill/spec.py": "031b7bac19ded3d53ecd30c06294086bb1c48a8a91d118191c39f1e17971a485",
+  "src/bravo_exit_drill/verdict.py": "3e62812b30fad69bc38a90678878f050c389f9502a626ee18f1e3275e93db650",
+  "tests/integration/standin.py": "81c5ef30606593c93c0acff7de99cf0410f0de9a5bda82a251c62bb93b5de29b",
+  "tests/integration/verify_k3s.py": "f91b86e7ff8fca35202bee8f52dd123ada9f916e10c88b9d041aff444e2fe912"
+ }
+}
