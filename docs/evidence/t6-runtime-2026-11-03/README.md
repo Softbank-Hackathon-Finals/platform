@@ -27,6 +27,8 @@
 
 독립 검토에서 T8 역할의 HBA가 물리 복제까지 허용함을 확인해 `hostssl replication chat_replicator ...`를 제거했다. 이 특별한 `replication` DB 항목은 [PostgreSQL 18 문서](https://www.postgresql.org/docs/18/auth-pg-hba-conf.html)상 물리 복제용이다. 실제 source PostgreSQL 18.4에 변경을 적용하고 **09:01:27.268626Z**에 `replication=database` 연결의 `IDENTIFY_SYSTEM` 성공, `replication=true` 연결의 HBA 거부를 확인했다. 암호/시스템 ID는 내보내지 않았다. `replication-boundary-readback.json`에 보존한다. CNPG의 별도 내부 streaming replica 규칙은 변경하지 않았다.
 
+이 replication JSON은 당시의 별도 bounded operator probe 결과다. `verify.py` 전체를 그 시각에 실행한 결과는 아니다. 당시에는 수정된 working tree를 렌더링해 적용했고 실행 전 source hash는 따로 저장하지 않았다. 이후 동일한 명령을 `verify.py`에 재현 경로로 추가했다. 사후 커밋/해시를 당시 실행 전 증거로 소급하지 않는다.
+
 동일 검토에서 이미지 검사의 접미사/하위 저장소 허용도 수정했다. 정확한 팀 `demo-chat` 저장소, 선택적인 유효 Docker tag, SHA-256 digest만 받는다. 비슷한 저장소·하위 경로·다른 조직·빈/잘못된 tag 거부 회귀와 독립 시험 5개가 통과했다. 게시된 앱 digest를 넣은 최종 Deployment는 server-side dry-run을 통과했으며 실제 pull/rollout/API는 별도 완료 조건이다.
 
 `workload-identity-readback.json`은 **08:53:15.961942Z** 실제 역할 경계 검사다. namespace의 SA TokenRequest를 `sts.amazonaws.com` audience로 발급하고 STS web identity 교환 결과는 메모리에만 두었다. 앱 역할은 DB secret 읽기 허용/control secret 거부, ESO 역할은 control 읽기 허용/DB secret 및 첨부 목록 거부를 실제 AWS API에서 확인했다. 앱 역할로 합성 문자열 1개를 첨부 버킷에 쓰고 읽어 byte 일치·KMS 암호화를 확인했다. 이는 IAM/S3 SDK 경로의 실측이며 아직 앱 HTTP 첨부 API의 성공을 뜻하지 않는다.

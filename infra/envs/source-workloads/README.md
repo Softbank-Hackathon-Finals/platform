@@ -16,7 +16,7 @@
 | PostgreSQL | 공식 `18.4-system-trixie`, manifest digest는 `render.py`에 고정 |
 | PgBouncer | 공식 CNPG 이미지 `1.25.1`, manifest digest 고정 |
 | ESO | 공식 chart/image `2.14.0` |
-| demo-chat | 팀 main 소스의 GHCR digest를 비공개 배포 metadata에 전달 |
+| demo-chat | 팀 main 소스의 OCI digest를 보존. 정확한 팀 GHCR 또는 같은 AWS 계정·리전의 private ECR `bravo/demo-chat`만 허용 |
 
 [CNPG 지원 표](https://cloudnative-pg.io/docs/1.30/supported_releases/), [CNPG 차트](https://github.com/cloudnative-pg/charts/releases/tag/cloudnative-pg-v0.29.1), [ESO 릴리스](https://github.com/external-secrets/external-secrets/releases/tag/helm-chart-2.14.0)를 확인했다. CNPG 1.28은 이전 사전 준비 문서에서 참고한 버전이며 이번 설치 버전이 아니다.
 
@@ -34,6 +34,8 @@
 8. `python3 verify.py --kubeconfig "$KUBECONFIG" --canary --output "$PRIVATE_DIR/readback.json"`을 실행한다. 감사 로그 전달이 지연되면 이후 `--canary` 없이 다시 읽는다. 성공 종료 자체는 모든 통제의 합격이 아니며 JSON의 개별 관측값을 확인한다.
 
 `render.py`는 렌더링만 한다. `seed.py`는 정해진 namespace의 새 개발 자격증명과 지정된 Secrets Manager version만 다룬다. 비밀번호·SCRAM verifier·관리 토큰은 프로세스 메모리와 stdin으로만 전달하며 파일·출력·Terraform state에 넣지 않는다. Kubernetes Secret 생성에 client-side apply를 쓰지 않아 plaintext `last-applied-configuration`도 남기지 않는다. 기존 Secret의 소유 label이 다르면 중단한다.
+
+이미지 공개 설정은 변경하지 않는다. 비공개 ECR 경로는 현재 `app_role_arn`의 계정과 `region`, 정확한 `bravo/demo-chat` repository 및 digest에 결속한다. 다른 계정/리전·유사 이름·하위 repository는 거부한다. EKS의 private ECR pull은 **기반 노드 역할**을 사용하며 앱 IRSA의 데이터 접근 권한과 구별한다. 기존 EKS add-on도 사용하는 `AmazonEC2ContainerRegistryPullOnly`를 이 state에서 수정하지 않고, 장기 registry credential이나 imagePullSecret을 생성하지 않는다. 이미지 복사는 별도 CI 소유자와 짧은 수명의 Actions OIDC로 수행하며 원본 OCI digest 일치를 확인한 뒤 배포한다. [EKS의 ECR 이미지 사용](https://docs.aws.amazon.com/AmazonECR/latest/userguide/ECR_on_EKS.html)
 
 ## DB·앱·전환 계약
 

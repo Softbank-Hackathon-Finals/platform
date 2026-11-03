@@ -69,6 +69,24 @@ class WorkloadTests(unittest.TestCase):
         self.assertIn("hostssl chat chat_replicator all scram-sha-256", hba)
         self.assertFalse(any(line.split()[1] == "replication" and "chat_replicator" in line for line in hba))
 
+    def test_private_ecr_is_bound_to_account_region_and_exact_repository(self):
+        settings = self.settings()
+        registry = "123456789012.dkr.ecr.ap-northeast-2.amazonaws.com"
+        settings["app_image"] = registry + "/bravo/demo-chat@sha256:" + "a" * 64
+        render.application(settings)
+        invalid = [
+            registry + "/bravo/demo-chat-unrelated",
+            registry + "/bravo/demo-chat/extra",
+            registry.replace("ap-northeast-2", "us-west-2") + "/bravo/demo-chat",
+            registry.replace("123456789012", "1111" + "2222" + "3333") + "/bravo/demo-chat",
+            registry + ".example.com/bravo/demo-chat",
+        ]
+        for image in invalid:
+            with self.subTest(image=image):
+                settings["app_image"] = image + "@sha256:" + "a" * 64
+                with self.assertRaises(ValueError):
+                    render.application(settings)
+
     def test_database_storage_retained_and_app_starts_write_blocked(self):
         self.assertEqual(render.database()[1]["reclaimPolicy"], "Retain")
         app = render.application(self.settings())[-2]["spec"]["template"]["spec"]["containers"][0]
