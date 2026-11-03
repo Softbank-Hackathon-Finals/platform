@@ -50,6 +50,25 @@ class WorkloadTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 render.application(settings)
 
+    def test_image_reference_cannot_change_repository_or_use_invalid_tag(self):
+        for image in ["ghcr.io/softbank-hackathon-finals/demo-chat-unrelated",
+                      "ghcr.io/softbank-hackathon-finals/demo-chat/unrelated",
+                      "ghcr.io/other/demo-chat", "ghcr.io/softbank-hackathon-finals/demo-chat:",
+                      "ghcr.io/softbank-hackathon-finals/demo-chat:-invalid"]:
+            with self.subTest(image=image):
+                settings = self.settings()
+                settings["app_image"] = image + "@sha256:" + "a" * 64
+                with self.assertRaises(ValueError):
+                    render.application(settings)
+        settings = self.settings()
+        settings["app_image"] = "ghcr.io/softbank-hackathon-finals/demo-chat:sha-main@sha256:" + "a" * 64
+        render.application(settings)
+
+    def test_replication_role_has_database_rule_but_no_physical_replication_rule(self):
+        hba = render.database()[-1]["spec"]["postgresql"]["pg_hba"]
+        self.assertIn("hostssl chat chat_replicator all scram-sha-256", hba)
+        self.assertFalse(any(line.split()[1] == "replication" and "chat_replicator" in line for line in hba))
+
     def test_database_storage_retained_and_app_starts_write_blocked(self):
         self.assertEqual(render.database()[1]["reclaimPolicy"], "Retain")
         app = render.application(self.settings())[-2]["spec"]["template"]["spec"]["containers"][0]

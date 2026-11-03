@@ -23,7 +23,23 @@
 
 초기 EBS PVC는 암호화되어 있었지만 component 태그가 없어 실제 조회로 발견했다. EBS add-on의 공식 configuration schema에 있는 `controller.extraVolumeTags`를 선언해 이후 볼륨에도 비용 태그를 적용하고, 이미 생성한 **자기 namespace의 PVC 볼륨 1개**에만 source/project 태그를 보완·재조회했다. 기반 노드 볼륨은 수정하지 않았다.
 
-로컬 검증은 repository unittest 91개(신규 credential/계약/감사 회귀 8개 포함), 기존 T6 계약 검사 18개, Ruff(py39), Terraform fmt/validate, Trivy config HIGH/CRITICAL, Gitleaks 8.24.3이다. 설치 후 실제 server-side dry-run과 rollout/readback은 별도 수행했다. CI·팀 리뷰·병합 결과는 PR에서 따로 확인한다.
+로컬 검증은 최초 repository unittest 91개(신규 credential/계약/감사 회귀 8개 포함), 최신 develop 통합 후 110개, 독립 검토 수정 후 112개(신규 10개), 기존 T6 계약 검사 18개, Ruff(py39), Terraform fmt/validate, Trivy config HIGH/CRITICAL, Gitleaks 8.24.3과 공개 식별자 검사다. 설치 후 실제 server-side dry-run과 rollout/readback은 별도 수행했다. CI·팀 리뷰·병합 결과는 PR에서 따로 확인한다.
+
+독립 검토에서 T8 역할의 HBA가 물리 복제까지 허용함을 확인해 `hostssl replication chat_replicator ...`를 제거했다. 이 특별한 `replication` DB 항목은 [PostgreSQL 18 문서](https://www.postgresql.org/docs/18/auth-pg-hba-conf.html)상 물리 복제용이다. 실제 source PostgreSQL 18.4에 변경을 적용하고 **09:01:27.268626Z**에 `replication=database` 연결의 `IDENTIFY_SYSTEM` 성공, `replication=true` 연결의 HBA 거부를 확인했다. 암호/시스템 ID는 내보내지 않았다. `replication-boundary-readback.json`에 보존한다. CNPG의 별도 내부 streaming replica 규칙은 변경하지 않았다.
+
+동일 검토에서 이미지 검사의 접미사/하위 저장소 허용도 수정했다. 정확한 팀 `demo-chat` 저장소, 선택적인 유효 Docker tag, SHA-256 digest만 받는다. 비슷한 저장소·하위 경로·다른 조직·빈/잘못된 tag 거부 회귀와 독립 시험 5개가 통과했다. 게시된 앱 digest를 넣은 최종 Deployment는 server-side dry-run을 통과했으며 실제 pull/rollout/API는 별도 완료 조건이다.
+
+`workload-identity-readback.json`은 **08:53:15.961942Z** 실제 역할 경계 검사다. namespace의 SA TokenRequest를 `sts.amazonaws.com` audience로 발급하고 STS web identity 교환 결과는 메모리에만 두었다. 앱 역할은 DB secret 읽기 허용/control secret 거부, ESO 역할은 control 읽기 허용/DB secret 및 첨부 목록 거부를 실제 AWS API에서 확인했다. 앱 역할로 합성 문자열 1개를 첨부 버킷에 쓰고 읽어 byte 일치·KMS 암호화를 확인했다. 이는 IAM/S3 SDK 경로의 실측이며 아직 앱 HTTP 첨부 API의 성공을 뜻하지 않는다.
+
+## T14 수집기 실제 연결
+
+**08:57:03.516623Z**에 병합된 T14 라이브러리 `2ec5ec834c63f75ff8432c59c1224d1fa4ac2ef2`의 `SecretAccessProbe`와 `S3AnonymousReadProbe`를 위 환경에 연결했다. operator 프로세스에서 두 STS 세션의 실제 계정/assumed-role을 독립 조회해 등록 역할과 대조한 뒤 bounded SDK client(connect/read timeout 5초, standard total attempts 2)를 넘겼다. 단기 자격증명은 메모리에만 있었고 새 키를 만들지 않았다.
+
+- `SEC-01.1`: 고정한 DB secret AWSCURRENT version의 앱 읽기 성공, 다른 역할(ESO) 읽기 AccessDenied → **PASS**.
+- `IAM-01.1`: 고정 version의 시험 전용 객체를 앱 일반 GetObject로 읽고, 서명 없는 일반 GetObject 거부 뒤 앱 일반 GetObject 재성공 → **PASS**. GetObjectVersion으로 권한을 바꾸지 않았다.
+- `full` 프로필 20행 중 **나머지 18행은 UNKNOWN/NOT_RUN**이다. 전체 게이트 통과나 T14 전체 완료가 아니다. 이 두 증거도 24시간의 만료 시각을 가진 관측이다.
+
+[`t14-source/control-run.json`](t14-source/control-run.json)과 canonical collector bytes를 보존했다. 각 결과의 `output_sha256`를 실제 보존 파일과 대조했고, 복사 과정에서도 bytes를 바꾸지 않았다. ARN·계정·버킷/key·Secret 값 대신 수집기의 resource/principal hash만 포함한다. 이 실행은 trusted operator의 실제 연결 시험이며 서비스의 사용자 인증/등록 API까지 통합한 결과는 아니다.
 
 시크릿 게시 첫 시도는 macOS AWS CLI stdin paramfile 처리에서 종료 252로 실패했다. 값은 출력하지 않았고, Boto3의 메모리 호출로 전환해 성공했다. 이미 AWS에 값이 있으면 동일함을 확인해 재사용하며 다르면 덮어쓰지 않는다. 기존 비밀번호를 갱신하거나 새 장기 키를 만들지 않았다.
 

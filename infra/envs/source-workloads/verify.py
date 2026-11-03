@@ -130,6 +130,18 @@ class Probe:
         ddl = self.pooler_sql("chat_app", app["password"], "chat",
                              "BEGIN; CREATE TABLE public.t6_permission_probe(id integer); ROLLBACK")
         result["app_ddl_denied"] = ddl.returncode != 0 and "permission denied" in ddl.stderr
+        replication = self.secret("source-replication")
+        replication_command = (
+            'IFS= read -r PGPASSWORD; export PGPASSWORD; '
+            'export PGSSLMODE=verify-full PGSSLROOTCERT=/etc/cnpg-ca/ca.crt '
+            'PGHOST=source-db-rw.source-dev.svc.cluster.local PGPORT=5432 PGUSER=chat_replicator; '
+            'exec psql -XAt -v ON_ERROR_STOP=1 "$1" -c IDENTIFY_SYSTEM')
+        for mode, key in [("database", "logical_replication_startup_allowed"),
+                          ("true", "physical_replication_startup_denied")]:
+            probe = self.run(self.kube + ["exec", "-i", "deployment/source-pgbouncer", "--", "sh", "-c",
+                replication_command, "sh", "dbname=chat replication=" + mode], replication["password"] + "\n", False)
+            result[key] = (probe.returncode == 0 if mode == "database"
+                           else probe.returncode != 0 and "pg_hba.conf" in probe.stderr)
         if canary:
             self.audit_canary(primary)
         logs = self.run(self.kube + ["logs", primary, "-c", "postgres", "--since=20m"]).stdout

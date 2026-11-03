@@ -1,0 +1,30 @@
+{
+  "observed_at": "2026-11-03T08:57:03.516623+00:00",
+  "library_commit": "2ec5ec834c63f75ff8432c59c1224d1fa4ac2ef2",
+  "independent_principal_bindings_verified": 2,
+  "verdicts": {
+    "SEC-01.1": "PASS",
+    "SEC-01.2": "UNKNOWN",
+    "SEC-01.3": "UNKNOWN",
+    "SEC-01.4": "UNKNOWN",
+    "ENC-02.1": "UNKNOWN",
+    "ENC-01.1": "UNKNOWN",
+    "ENC-01.5": "UNKNOWN",
+    "ENC-01.2": "UNKNOWN",
+    "ENC-01.3": "UNKNOWN",
+    "ENC-01.4": "UNKNOWN",
+    "AUD-01.1": "UNKNOWN",
+    "AUD-01.2": "UNKNOWN",
+    "AUD-01.3": "UNKNOWN",
+    "NET-01.1": "UNKNOWN",
+    "NET-01.2": "UNKNOWN",
+    "NET-01.3": "UNKNOWN",
+    "IAM-01.1": "PASS",
+    "IAM-01.2": "UNKNOWN",
+    "ISO-01.1": "UNKNOWN",
+    "DR-01.1": "UNKNOWN"
+  },
+  "retained_evidence_hashes_verified": true,
+  "full_profile_gate_pass": false,
+  "secret_values_exported": false
+}

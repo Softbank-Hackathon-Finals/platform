@@ -77,7 +77,6 @@ def database():
             "pg_hba": ["hostnossl all all all reject",
                        "hostssl chat chat_app all scram-sha-256",
                        "hostssl chat chat_replicator all scram-sha-256",
-                       "hostssl replication chat_replicator all scram-sha-256",
                        "host all all all reject"]},
         "bootstrap": {"initdb": {"database": "chat", "owner": "chat_owner",
             "postInitSQL": ["CREATE ROLE chat_app LOGIN", "CREATE ROLE chat_replicator LOGIN REPLICATION"],
@@ -120,7 +119,7 @@ def application(settings):
                 "control_secret_id", "s3_bucket", "app_image"}
     if set(settings) != required:
         raise ValueError("application settings must contain exactly the documented metadata fields")
-    if not re.fullmatch(r"ghcr\.io/softbank-hackathon-finals/demo-chat(?:[^@]*)@sha256:[0-9a-f]{64}", settings["app_image"]):
+    if not re.fullmatch(r"ghcr\.io/softbank-hackathon-finals/demo-chat(?::[A-Za-z0-9_][A-Za-z0-9_.-]{0,127})?@sha256:[0-9a-f]{64}", settings["app_image"]):
         raise ValueError("demo-chat must use the team GHCR image pinned by digest")
     for field in ("app_role_arn", "eso_role_arn"):
         if not re.fullmatch(r"arn:aws:iam::[0-9]{12}:role/[\w+=,.@/-]+", settings[field]):

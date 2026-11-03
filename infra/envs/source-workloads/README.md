@@ -39,7 +39,7 @@
 
 | 소비자 | 출발지 계약 |
 |---|---|
-| T8 | DB `chat`, primary `source-db-rw.source-dev.svc.cluster.local:5432`, publication `source_chat` = `public.attachments`, `public.messages`; 별도 `chat_replicator` 로그인/복제 역할, Kubernetes Secret `source-replication` |
+| T8 | DB `chat`, primary `source-db-rw.source-dev.svc.cluster.local:5432`, publication `source_chat` = `public.attachments`, `public.messages`; 별도 `chat_replicator` 로그인/논리 복제 역할, Kubernetes Secret `source-replication`. HBA는 `replication=database`만 허용하고 물리 복제 접속은 거부 |
 | 앱 | `DB_HOST=source-pgbouncer.source-dev.svc.cluster.local`, 5432, `chat_app`; DB 암호는 기존 코드의 `DB_SECRET_ID` → Secrets Manager SDK 조회를 그대로 사용 |
 | T12 | PgBouncer transaction 모드. 별도 `cutover_control`은 pooler 관리 DB만 사용하며 PostgreSQL 역할로 만들지 않음. 관리 암호는 control Secrets Manager 항목의 `pgbouncer_password`; PAUSE/RELOAD/RESUME 통합은 T12에서 별도 검증 |
 | T34 | EKS `/aws/eks/<cluster>/cluster` audit stream; CNPG primary Pod의 JSON `logger=pgaudit`, `record.audit`; 접속은 PostgreSQL connection record; CloudTrail 전용 S3에 관리 이벤트와 첨부 버킷 data event |
