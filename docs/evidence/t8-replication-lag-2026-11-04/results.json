@@ -2713,5 +2713,28 @@
   "failed_check": "rows_match",
   "cause": "the read-only check wrote one control row and row counts were compared before it could arrive (18 ms lag); no row was lost",
   "code": "commit 3844333; fixed by waiting for that row, then validation was run again"
+ },
+ "link_blip_check": {
+  "condition": "100mbit-rtt30",
+  "one_off": true,
+  "script_in_repository": false,
+  "method": "netem loss 100% on the target's replication link while writing 50 req/s, then the link restored and 10 s waited",
+  "wal_receiver_timeout": "5s",
+  "disable_on_error": true,
+  "runs": [
+   {
+    "blip_seconds": 3,
+    "subscription_enabled": true,
+    "source_max_id": 2050,
+    "target_max_id": 2050
+   },
+   {
+    "blip_seconds": 8,
+    "subscription_enabled": false,
+    "source_max_id": 2300,
+    "target_max_id": 1902,
+    "target_log": "terminating logical replication worker due to timeout; subscription has been disabled because of an error"
+   }
+  ]
  }
 }
