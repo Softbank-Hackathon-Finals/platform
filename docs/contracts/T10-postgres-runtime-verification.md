@@ -30,4 +30,4 @@ checkpoint는 첫 DB 쓰기 전에 새 파일로만 생성하며 모드 0600이�
 
 표준 출력은 PASS/FAIL과 고정 오류 코드, 개수·boolean·서버 버전·실행 파일 hash·checkpoint hash 중심 JSON이다. DSN, hostname, 계정명, 비밀번호, 서버 오류 DETAIL을 출력하지 않는다. 성공은 합성 저장 계약의 해당 관측이며 실제 API 인증/배포, T33 이식, 승인·Executor, 불변 감사, HA, 백업 복원이나 T7 전체 완료를 뜻하지 않는다.
 
-로컬 시험은 기존 임시 PostgreSQL fixture를 사용하며, 별도 loopback PostgreSQL의 임시 인증서·SCRAM 계정으로 verify-full 및 잘못된 hostname 거부도 검증한다. 이 로컬 fixture의 임시 CA/자격/HBA는 운영 설정 예제가 아니다. 원격 실행 증빙은 실제 실행 이후 별도로 추가한다.
+로컬 시험은 기존 임시 PostgreSQL fixture를 사용하며, 별도 loopback PostgreSQL의 임시 인증서·SCRAM 계정으로 verify-full 및 잘못된 hostname 거부도 검증한다. 이 로컬 fixture의 임시 CA/자격/HBA는 운영 설정 예제가 아니다. [2026-11-03 원격 소비 검증](../evidence/t10-platform-db-consumer-2026-11-03/README.md)은 실제 플랫폼 PostgreSQL 18.4의 별도 프로세스 exercise/verify와 실행 소스·checkpoint 결속을 기록한다. 해당 실행은 DB 재시작·DDL·백업 복원을 수행하지 않았다.
