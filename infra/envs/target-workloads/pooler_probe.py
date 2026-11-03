@@ -44,7 +44,8 @@ def main():
     STAGE = 'pooler_admin'
     with psycopg.connect(**{**args, 'dbname': 'pgbouncer', 'user': 'cutover_control',
                            'password': os.environ['POOLER_CONTROL_PASSWORD']}, autocommit=True) as conn, conn.cursor() as cur:
-        cur.execute('SHOW CONFIG'); config = {row[0]: row[1] for row in cur.fetchall()}
+        cur.execute('SHOW CONFIG')
+        config = {row[0]: row[1] for row in cur.fetchall()}
         checks['verified_server_tls_config'] = config['server_tls_sslmode'] == 'verify-full'
         checks['reviewed_admin_retry_config'] = config['admin_users'] == 'cutover_control' and config['server_login_retry'] == '2'
     STAGE = 'negative_connections'
