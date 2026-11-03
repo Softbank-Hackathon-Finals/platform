@@ -1,9 +1,8 @@
-"""Local plan read model and one guarded transition; no external effects."""
+"""Plan read model and one guarded transition shared by storage backends."""
 
 import hashlib
 import json
 import re
-import sqlite3
 from dataclasses import asdict, dataclass
 
 from .contract import validate_identifier
@@ -75,8 +74,7 @@ class PlanStore(EventStore):
             else:
                 validate_identifier(value)
         canonical = _canonical(values)
-        with self._connection() as c:
-            c.execute("BEGIN IMMEDIATE")
+        with self._transaction(write=True, plan_id=spec.plan_id) as c:
             old = c.execute(
                 "SELECT spec_json FROM plans WHERE plan_id=?", (spec.plan_id,)
             ).fetchone()
@@ -135,8 +133,7 @@ class PlanStore(EventStore):
                 occurred_at=occurred_at,
             )
         )
-        with self._connection() as c:
-            c.execute("BEGIN IMMEDIATE")
+        with self._transaction(write=True, plan_id=proof.plan_id) as c:
             old = c.execute(
                 "SELECT * FROM plan_commands WHERE plan_id=? AND command_key=?",
                 (proof.plan_id, command_key),
@@ -186,21 +183,20 @@ class PlanStore(EventStore):
 
     def tenant_for(self, plan_id: str) -> str | None:
         validate_identifier(plan_id)
-        with self._connection() as c:
+        with self._transaction() as c:
             row = c.execute("SELECT tenant_id FROM plans WHERE plan_id=?", (plan_id,)).fetchone()
             return row["tenant_id"] if row else None
 
     def snapshot(self, plan_id: str) -> dict:
         validate_identifier(plan_id)
-        with self._connection() as c:
-            c.execute("BEGIN")
+        with self._transaction() as c:
             plan = c.execute("SELECT * FROM plans WHERE plan_id=?", (plan_id,)).fetchone()
             if plan is None:
                 raise EventError("plan_not_found")
             return self._snapshot(c, plan)
 
     @staticmethod
-    def _snapshot(c: sqlite3.Connection, plan: sqlite3.Row) -> dict:
+    def _snapshot(c, plan) -> dict:
         sequence = (
             c.execute(
                 "SELECT next_sequence FROM streams WHERE plan_id=?", (plan["plan_id"],)
