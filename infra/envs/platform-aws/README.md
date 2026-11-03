@@ -32,9 +32,17 @@ Actions receives a 900-second session with only fixed-document `ssm:SendCommand`
 
 ## Validation and remaining T7 work
 
-See [live evidence](../../../docs/evidence/t7-runtime-2026-11-03/README.md). Local checks: Terraform fmt/validate, four mocked policy/subnet tests, bash syntax, actionlint and Trivy HIGH/CRITICAL. Live AWS: private EC2, RKE2 Ready and namespace authorization. Live Actions: OIDC → fixed SSM document → RKE2 ConfigMap plus arbitrary-shell denial.
+See [live evidence](../../../docs/evidence/t7-runtime-2026-11-03/README.md). Local checks: Terraform fmt/validate, nine mocked policy/subnet tests (including optional private ECR access), bash syntax, actionlint and Trivy HIGH/CRITICAL. Live AWS: private EC2, RKE2 Ready and namespace authorization. Live Actions: OIDC → fixed SSM document → RKE2 ConfigMap plus arbitrary-shell denial.
 
 Still separate: platform DB, production application deployment, GHCR image digest publication/pull, collector versus Executor AWS/Kubernetes roles, T2 adoption/on-premises benchmark, operator SSO and individual RKE2 access. The workload verification session owns those follow-ups in separate state; it must reuse this host and preserve these Terraform resources.
+
+## Optional private ECR pull
+
+Set `private_ecr_repository_name` in the reviewed private input to grant the EC2 host role read access to exactly one ECR repository in the stack's account and region. The default `null` grants no ECR access. Wildcards, registry URLs and ARNs are rejected. The registry and publisher OIDC role belong to a separate stack; this stack owns only the host's inline policy. No EC2 replacement, RKE2 restart, existing OIDC trust change or organization package-policy change is needed.
+
+The policy permits `BatchCheckLayerAvailability`, `BatchGetImage` and `GetDownloadUrlForLayer` on that repository. `GetAuthorizationToken` uses `Resource: "*"` because AWS does not support a repository resource for that action; repository reads remain restricted. There is no push/delete grant. See [AWS ECR policy examples](https://docs.aws.amazon.com/AmazonECR/latest/userguide/security_iam_id-based-policy-examples.html).
+
+This grants the host an AWS permission; it does not configure containerd or kubelet authentication. A successful temporary-token pull and a persistent credential-provider refresh are separate runtime checks. Do not put ECR passwords in Terraform, user data, Git, GitHub Secrets or command logs. The existing T6 EKS node uses its broader AWS-managed pull policy for system images; this change leaves that policy intact and does not claim repository-restricted EKS access.
 
 ## Cost and teardown
 
