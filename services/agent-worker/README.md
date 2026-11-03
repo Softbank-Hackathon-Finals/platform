@@ -65,6 +65,20 @@ Claude 어댑터는 `uv sync --frozen --extra claude`로 설치하고 `--provide
 - 제안서는 최대 4개의 파일 교체와 이유·위험도만 포함한다. 실행 명령·판정·배포 필드는 스키마에서 거부한다. 알려진 파괴적 명령과 wildcard 권한도 제안 도구에서 차단한다. 이는 임의 코드의 안전성 증명이 아니다. 의미상 권한 약화·검증 우회는 독립 정책 검사와 T15 비공개 검증이 추가로 판단해야 한다.
 - 알려진 키·비밀 패턴을 입력/출력에서 거부한다. 모든 비밀을 탐지한다는 보장은 없다. 수집기는 비밀 검사를 통과한 앱 소스와 정리된 실패 근거만 넘겨야 한다. 모델 키는 API 호출 프로세스에만 주입하며 앱 snapshot과 리허설 guest에 넣지 않는다.
 
+IAM 정책의 전체 허용(`*`) 검사는 JSON 구조를 읽는다. 각 Statement의 정확한 `Effect`가
+`Deny`이면 `Principal: "*"` 등을 사용한 거부 정책을 허용한다. `Allow`에서는
+Action·Resource 배열의 모든 원소와 Principal 객체 안의 배열까지 검사해 값 `"*"`를
+거부하며, 보완 집합을 허용하는 NotAction·NotResource·NotPrincipal도 거부한다.
+다른 Statement의 Deny나 Condition은 이 검사의 예외가 되지 않는다. JSON 설정 안에
+중첩되거나 문자열로 직렬화된 정책도 같은 검사를 받는다. 중복 키, 누락·잘못된 Effect,
+모호한 형식과 64단계를 넘는 중첩은 거부·기록한다. 정책으로 인식되는 Python·YAML·HCL
+등의 소스 문법은 이 경계에서 해석하지 않고 거부하므로, 정책 변경은 완전한 JSON으로
+제출해야 한다. 이는 IAM 전체 문법·유효 권한 검사기가 아니며 `s3:Get*`와 범위를 지정한
+리소스 패턴, 임의 코드의 정책 생성·권한 약화는 T15의 독립 검증에서 확인해야 한다.
+근거: [AWS 정책 문법](https://docs.aws.amazon.com/IAM/latest/UserGuide/reference_policies_grammar.html),
+[Effect](https://docs.aws.amazon.com/IAM/latest/UserGuide/reference_policies_elements_effect.html),
+[Principal](https://docs.aws.amazon.com/IAM/latest/UserGuide/reference_policies_elements_principal.html).
+
 자유 텍스트 모델 응답은 제안서로 채택하지 않는다. `plan.propose` 제출만 수집한다. 한 시도는 모델 호출 최대 8회·180초이며 핸들러는 도구 호출 64회에서 중단한다. OpenAI는 요청 본문 128 KiB로 제한하고, API가 보고한 누적 사용량 32,000토큰을 넘으면 제안을 채택하지 않고 중단한다. 사용량은 응답 후 알려지므로 마지막 호출의 초과 비용을 되돌리지는 못한다. 달러 비용의 강제 상한으로 표현하지 않는다. 구독 경로는 `store=false`, `stream=true`를 강제하고 `response.completed`만 성공으로 본다. 구독에서 지원하지 않는 `max_output_tokens`는 보내지 않으며 스트림은 2 MiB에서 중단한다. 명시적인 API 키 경로만 호출당 출력 4,096토큰 제한을 쓴다. 구독 한도나 일시 오류는 자동 재로그인·초기화·크레딧 추가·API 전환 없이 중단한다. Claude 선택 경로는 SDK `max_budget_usd=0.5`도 지정한다. 모델 오류나 알 수 없는 효과는 자동으로 다시 실행하지 않는다.
 
 ## T15와의 연결

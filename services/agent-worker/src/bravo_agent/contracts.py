@@ -8,6 +8,8 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from .policy import check_policy_permissions
+
 RunId = Annotated[str, Field(pattern=r"^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$")]
 SourceSha = Annotated[str, Field(pattern=r"^[a-f0-9]{40}$")]
 Digest = Annotated[str, Field(pattern=r"^[a-f0-9]{64}$")]
@@ -21,8 +23,7 @@ SECRET = re.compile(
 DESTRUCTIVE = re.compile(
     r"(?i:\brm\s+-[^\n]*r[^\n]*f|\brm\s+-[^\n]*f[^\n]*r|\b(?:DROP|TRUNCATE)\b"
     r"|\bterraform\s+destroy\b|\bkubectl\s+delete\s+(?:namespace|ns)\b"
-    r"|\b(?:delete[-_]?bucket|DeleteBucket)\b|\baws\s+s3\s+rb\b"
-    r"|[\"'](?:Action|Resource|Principal)[\"']\s*:\s*(?:\[\s*)?[\"']\*[\"'])"
+    r"|\b(?:delete[-_]?bucket|DeleteBucket)\b|\baws\s+s3\s+rb\b)"
 )
 
 
@@ -94,7 +95,8 @@ class FileEdit(Contract):
     @classmethod
     def policy(cls, value):
         if DESTRUCTIVE.search(value):
-            raise ValueError("destructive command or wildcard permission")
+            raise ValueError("destructive command")
+        check_policy_permissions(value)
         return value
 
 
