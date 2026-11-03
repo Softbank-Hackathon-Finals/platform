@@ -22,8 +22,12 @@ on:
     inputs:
       command:
         type: choice
-        options: [pull, push, status, prs, reconcile]
+        options: [pull, push, status, start, prs, reconcile]
         default: pull
+      task:
+        description: start 명령의 작업 번호 (예 T23). 다른 명령은 비워 둡니다.
+        type: string
+        default: ''
       dry-run:
         type: boolean
         default: false
@@ -63,8 +67,17 @@ jobs:
         env:
           COMMAND: ${{ github.event_name == 'push' && 'push' || github.event_name == 'schedule' && 'reconcile' || (github.event_name == 'pull_request_target' || github.event_name == 'workflow_run') && 'prs' || inputs.command || 'pull' }}
           DRY: ${{ inputs.dry-run && '--dry-run' || '' }}
+          TASK: ${{ inputs.task || '' }}
         run: |
-          python3 scripts/sync_tasks.py "$COMMAND" ${DRY:+"$DRY"} --moves-file moves.txt | tee -a "$GITHUB_STEP_SUMMARY"
+          args=("$COMMAND")
+          if [ "$COMMAND" = start ]; then
+            if [[ ! "$TASK" =~ ^T[0-9]+$ ]]; then echo "start에는 T번호가 필요합니다" >&2; exit 2; fi
+            args+=("$TASK")
+          elif [ -n "$TASK" ]; then
+            echo "task 입력은 start에서만 사용합니다" >&2; exit 2
+          fi
+          if [ -n "$DRY" ]; then args+=("$DRY"); fi
+          python3 scripts/sync_tasks.py "${args[@]}" --moves-file moves.txt | tee -a "$GITHUB_STEP_SUMMARY"
           if [ -z "$DRY" ] && ! git diff --quiet docs/tasks.md; then echo "changed=true" >> "$GITHUB_OUTPUT"; fi
       - name: tasks.md 반영 PR (리뷰 대기)
         if: steps.sync.outputs.changed == 'true'

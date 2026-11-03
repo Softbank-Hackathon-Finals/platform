@@ -27,6 +27,9 @@ from pathlib import Path
 OWNER = "Softbank-Hackathon-Finals"
 REPO = f"{OWNER}/platform"
 PROJECT_NUMBER = 2
+PR_REPOSITORIES = {REPO: "develop", f"{OWNER}/demo-chat": "main"}
+DEMO_TASKS = frozenset({"T4", "T22"})
+MAX_PR_PAGES = 30
 TASKS = Path(__file__).resolve().parents[1] / "docs/tasks.md"
 # Gitflow 전환 전에 열린 PR만 정확한 번호·작업·브랜치로 허용한다.
 LEGACY_PRS = {51: ("T5", "t5-control-contract")}
@@ -519,22 +522,33 @@ def start(task: str, dry: bool) -> None:
 
 
 def load_prs() -> list[dict]:
-    result, cursor = [], ""
-    while True:
-        data = gql("""query($o:String!,$after:String){repository(owner:$o,name:"platform"){
-          pullRequests(first:100,after:$after,orderBy:{field:UPDATED_AT,direction:DESC}){
-            nodes{number title state isDraft headRefName baseRefName reviewDecision mergedAt
-              headRepository{nameWithOwner} url
-              commits(last:1){nodes{commit{statusCheckRollup{state}}}}}
-            pageInfo{hasNextPage endCursor}}}}""".replace(
-                "after:$after,", "after:$after," if cursor else "").replace(
-                ",$after:String", ",$after:String" if cursor else ""),
-            **({"o": OWNER, "after": cursor} if cursor else {"o": OWNER}))
-        page = data["repository"]["pullRequests"]
-        result.extend(page["nodes"])
-        if not page["pageInfo"]["hasNextPage"]:
-            return result
-        cursor = page["pageInfo"]["endCursor"]
+    """Read all configured repos before mutating any card; incomplete reads fail."""
+    result = []
+    for repository in PR_REPOSITORIES:
+        cursor, seen = "", set()
+        for _ in range(MAX_PR_PAGES):
+            data = gql("""query($o:String!,$r:String!,$after:String){repository(owner:$o,name:$r){
+              pullRequests(first:100,after:$after,orderBy:{field:UPDATED_AT,direction:DESC}){
+                nodes{number title body state isDraft headRefName baseRefName reviewDecision mergedAt updatedAt
+                  headRepository{nameWithOwner} url
+                  commits(last:1){nodes{commit{statusCheckRollup{state}}}}}
+                pageInfo{hasNextPage endCursor}}}}""".replace(
+                    "after:$after,", "after:$after," if cursor else "").replace(
+                    ",$after:String", ",$after:String" if cursor else ""),
+                **{"o": OWNER, "r": repository.split("/")[1],
+                   **({"after": cursor} if cursor else {})})
+            page = data["repository"]["pullRequests"]
+            for pr in page["nodes"]:
+                result.append({**pr, "source_repository": repository})
+            if not page["pageInfo"]["hasNextPage"]:
+                break
+            cursor = page["pageInfo"]["endCursor"]
+            if not cursor or cursor in seen:
+                raise RuntimeError("PR pagination incomplete; board unchanged")
+            seen.add(cursor)
+        else:
+            raise RuntimeError("PR pagination limit; board unchanged")
+    return result
 
 
 def pr_summary(pr: dict) -> str:
@@ -550,7 +564,8 @@ def pr_summary(pr: dict) -> str:
     nodes = pr.get("commits", {}).get("nodes", [])
     rollup = nodes[-1]["commit"].get("statusCheckRollup") if nodes else None
     ci = rollup["state"] if rollup else "미보고"
-    return f"#{pr['number']} {state} / CI {ci}"
+    repository = pr.get("source_repository", REPO).split("/")[-1]
+    return f"{repository}#{pr['number']} {state} / CI {ci}"
 
 
 def pr_task_status(issue: dict, prs: list[dict]) -> str:
@@ -564,28 +579,45 @@ def pr_task_status(issue: dict, prs: list[dict]) -> str:
     return "In review"
 
 
-def pr_task(pr: dict) -> str | None:
-    """Bind only this repository's develop PRs to their matching task."""
-    if (pr.get("headRepository") or {}).get("nameWithOwner") != REPO:
+def pr_task(pr: dict, issues: dict | None = None) -> str | None:
+    """Only same-repository heads and explicit cross-repository task references."""
+    repository = pr.get("source_repository", REPO)
+    if repository not in PR_REPOSITORIES:
         return None
-    if pr.get("baseRefName") != "develop":
+    if (pr.get("headRepository") or {}).get("nameWithOwner") != repository:
+        return None
+    if pr.get("baseRefName") != PR_REPOSITORIES[repository]:
         return None
     match = re.match(r"^\[(T\d+)\] ", pr["title"])
     if not match:
         return None
     task, branch = match[1], pr["headRefName"]
+    if repository != REPO:
+        issue = (issues or {}).get(task)
+        if task not in DEMO_TASKS or issue is None:
+            return None
+        # Require a standalone qualified reference line. A local #15 means a
+        # demo-chat issue, not the platform task. Titles alone never bind tasks.
+        reference = rf"(?im)^(?:refs|closes|fixes|resolves) +{re.escape(REPO)}#{issue['number']}[ \t]*$"
+        if not re.search(reference, pr.get("body", "")):
+            return None
     if re.fullmatch(rf"feature/{task}-[A-Za-z0-9][A-Za-z0-9._-]*", branch):
         return task
-    if LEGACY_PRS.get(pr["number"]) == (task, branch):
+    if repository == REPO and LEGACY_PRS.get(pr["number"]) == (task, branch):
         return task
     return None
+
+
+def pr_order(pr: dict) -> tuple[str, str, int]:
+    # PR numbers are repository-local; compare update timestamps across repos.
+    return (pr.get("updatedAt", ""), pr.get("source_repository", REPO), pr["number"])
 
 
 def sync_prs(dry: bool) -> None:
     """Update existing task cards only. Never check tasks, close issues, or merge PRs."""
     issues, board, grouped = load_issues(), Board(), {}
     for pr in load_prs():
-        task = pr_task(pr)
+        task = pr_task(pr, issues)
         if task in issues:
             grouped.setdefault(task, []).append(pr)
     fields = gql("""query($p:ID!){node(id:$p){... on ProjectV2{
@@ -598,8 +630,8 @@ def sync_prs(dry: bool) -> None:
           dataType:TEXT,name:"PR 상태"}){projectV2Field{... on ProjectV2Field{id}}}}""", p=board.id)["createProjectV2Field"]["projectV2Field"]
     for task, prs in sorted(grouped.items(), key=lambda item: int(item[0][1:])):
         issue = issues[task]
-        opened = sorted((p for p in prs if p["state"] == "OPEN"), key=lambda p: p["number"])
-        displayed = opened or [max(prs, key=lambda p: p["number"])]
+        opened = sorted((p for p in prs if p["state"] == "OPEN"), key=pr_order)
+        displayed = opened or [max(prs, key=pr_order)]
         detail = " | ".join(pr_summary(pr) for pr in displayed)
         if len(detail) > 900:
             detail = detail[:897] + "..."
