@@ -19,7 +19,8 @@ git switch -c feature/T1-aws-foundation origin/develop
 # 구현, 변경에 맞는 로컬 검사, 실제 클라우드 검증, 증거 기록
 git push -u origin feature/T1-aws-foundation
 gh pr create --base develop --title '[T1] 작업 설명' --body-file /path/to/pr.md
-# 관련 팀원에게 리뷰 요청. 승인 전에는 PR을 열린 상태로 둔다.
+# docs/review-routing.md에서 T번호의 주·부 참여자를 확인해 작성자 외 모두 요청.
+# 승인 전에는 PR을 열린 상태로 둔다.
 # 최종 HEAD의 필수 CI · 승인 · 변경 요청 해소를 확인한 뒤:
 gh pr merge --merge --match-head-commit <검토한-HEAD-SHA>
 ```
@@ -31,3 +32,5 @@ gh pr merge --merge --match-head-commit <검토한-HEAD-SHA>
 브랜치 역할·release/hotfix의 양쪽 반영·merge commit 원칙은 [Vincent Driessen의 Git branching model](https://nvie.com/posts/a-successful-git-branching-model/)을 따른다. task prefix는 팀의 작업 추적 규칙이다.
 
 칸반과 이슈·문서의 연동 및 로컬 명령은 [프로젝트 보드 안내](project-board.md)를 따른다.
+
+리뷰 요청자는 [파트별 리뷰 기준과 근거](review-routing.md)를 따른다. 파트 5의 전원 협업, 개별 작업 Assignee, 초기 지원 댓글과 후속 배정을 구분한다.

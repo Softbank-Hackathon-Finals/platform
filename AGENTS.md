@@ -9,6 +9,8 @@
 3. `develop`에서 `feature/T번호-설명` 브랜치를 만들고 `develop`으로 PR을 올린다(필수 CI 통과와 팀원 리뷰 승인 후 merge commit으로 머지). `main`은 release/hotfix로 반영한다. 두 브랜치 모두 보호하며, 자세한 순서는 `docs/development.md`를 따른다. `.github/workflows/`와 `CODEOWNERS`를 바꾸는 PR은 팀원에게 리뷰 요청 알림이 간다. 자동 머지를 예약하지 않고, 변경 요청을 해소한 최종 커밋에 리뷰 승인 1건 이상을 받은 뒤 머지한다.
 4. 커밋 메시지와 PR 제목 앞에 `[T번호]`. 끝낸 할 일은 PR 머지 후 **이슈에서** 체크한다(`python3 scripts/sync_tasks.py tick T번호 순번`). tasks.md 체크박스와 담당은 봇이 고친다.
 
+리뷰 요청 대상은 [파트별 리뷰 기준](docs/review-routing.md)에 따라 작업 번호의 주·부 참여자를 모두 포함하고 작성자는 제외한다. 초기 허들 댓글만으로 후속 공식 배정을 되돌리지 않는다.
+
 이 순서는 `todo-task` 스킬에 정리돼 있다 (Claude Code `/todo-task`, Codex `$todo-task`).
 
 ## 설계 · 결정
