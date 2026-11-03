@@ -1,0 +1,30 @@
+{
+  "arbitrary_shell_document_denied": true,
+  "cis_benchmark_verified": false,
+  "evidence_scope": "foundation and access boundaries; no app/DB/migration completion",
+  "ghcr_app_deployment_verified": false,
+  "github_oidc_smoke_passed": true,
+  "github_run": "https://github.com/Softbank-Hackathon-Finals/platform/actions/runs/41602534226",
+  "github_source_commit": "ca52cc7d129e8808fff9e32951d346763b1f1452",
+  "local_ssm_probe": {
+    "namespace_deploy": true,
+    "other_namespace_denied": true,
+    "rke2_ready": true,
+    "secret_denied": true
+  },
+  "local_terraform_tests": 4,
+  "nodes_ready": 1,
+  "observed_date": "2026-11-03",
+  "oidc_session_seconds": 900,
+  "public_ip": false,
+  "runtime": "RKE2 v1.35.9+rke2r1",
+  "source_file_sha256": {
+    "infra/envs/platform-aws/cloud-init.sh.tftpl": "603a6ce25eab44a31ee51348f1b03ad26446a7f3c5d040c783c586d118f0273d",
+    "infra/envs/platform-aws/main.tf": "f89456f964fdf8dbb3b3dbe3b7bcb571e200ff1d2e992588783cb66ee7a8e049",
+    "infra/envs/platform-aws/oidc.tf": "c4505573d7d3b9af8069163a817a19219547088510188a34a0bad15622cfcf6d",
+    "infra/envs/platform-aws/variables.tf": "0bc0f993d5efa96388de4914e936571635c1d24fa352ac52c4f3b003e6f12176",
+    "infra/envs/platform-aws/versions.tf": "cce873e870755671a1152670f27b5cf7fcf261a5429f4d24fc4cfea024f50abd",
+    "infra/shared/rke2/bootstrap.sh": "c183719d2cc9d648c4b3aebb90fc1e4f798f7b10ac795019872715c267aa0376"
+  },
+  "sso_verified": false
+}
