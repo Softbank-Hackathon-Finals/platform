@@ -1,13 +1,12 @@
 """시험에서 함께 쓰는 입력 생성기. 정상 입력 하나를 만들고 시험마다 한 군데만 망가뜨린다."""
 
-import copy
 import hashlib
 import json
 from pathlib import Path
 
 FIXTURES = Path(__file__).parent / "fixtures"
+PROFILE = Path(__file__).parents[1] / "profiles" / "target-dev.json"
 TAILNET = "tailscale-system"
-TCP_5432 = [{"protocol": "TCP", "port": 5432}]
 
 
 def t16_digest(doc: dict) -> str:
@@ -27,87 +26,8 @@ def redigest(doc: dict) -> dict:
 
 
 def spec_doc() -> dict:
-    return copy.deepcopy(_SPEC)
-
-
-_SPEC = {
-    "schema_version": "exit-drill-spec/v1",
-    "namespace": "target-dev",
-    "aws_region": "ap-northeast-2",
-    "workloads": {
-        "app": {"selector": {"app": "demo-chat"}, "role": "app", "aws_client": True},
-        "pooler": {"selector": {"app": "target-pgbouncer"}, "role": "app"},
-        "db": {"selector": {"cnpg.io/cluster": "target-db"}, "role": "replication"},
-        "objects": {"selector": {"app.kubernetes.io/name": "target-seaweedfs"}, "role": "infrastructure"},
-        "control": {"selector": {"bravo-exit-drill-control": "true"}, "role": "control"},
-    },
-    "routes": [
-        {
-            "id": "dns",
-            "class": "local",
-            "owners": ["app", "pooler"],
-            "to": {"namespace": "kube-system", "selector": {"k8s-app": "kube-dns"}},
-            "ports": [{"protocol": "UDP", "port": 53}, {"protocol": "TCP", "port": 53}],
-            "probe": {"kind": "dns", "host": "kubernetes.default.svc.cluster.local"},
-        },
-        {
-            "id": "app-to-pooler",
-            "class": "local",
-            "owners": ["app"],
-            "to": {"selector": {"app": "target-pgbouncer"}},
-            "ports": TCP_5432,
-            "probe": {"kind": "tcp", "host": "target-pgbouncer.target-dev.svc", "port": 5432},
-        },
-        {
-            "id": "app-to-objects",
-            "class": "local",
-            "owners": ["app"],
-            "to": {"selector": {"app.kubernetes.io/name": "target-seaweedfs"}},
-            "ports": [{"protocol": "TCP", "port": 8333}],
-            "probe": {"kind": "tcp", "host": "seaweedfs.target-dev.svc", "port": 8333},
-        },
-        {
-            "id": "pooler-to-db",
-            "class": "local",
-            "owners": ["pooler"],
-            "to": {"selector": {"cnpg.io/cluster": "target-db", "cnpg.io/instanceRole": "primary"}},
-            "ports": TCP_5432,
-            "probe": {"kind": "tcp", "host": "target-db-rw.target-dev.svc", "port": 5432},
-        },
-        {
-            "id": "pooler-to-source",
-            "class": "source_access",
-            "owners": ["pooler"],
-            "to": {"namespace": TAILNET, "selector": {"tailscale.com/parent-resource": "bravo-target-pooler"}},
-            "ports": TCP_5432,
-            "probe": {"kind": "tcp", "host": "source-for-pooler.target-dev.svc", "port": 5432},
-            "roles": ["db"],
-        },
-        {
-            "id": "replication-forward",
-            "class": "replication",
-            "owners": ["db"],
-            "to": {"namespace": TAILNET, "selector": {"tailscale.com/parent-resource": "bravo-target-replication"}},
-            "ports": TCP_5432,
-            "evidence": "tcp",
-            "probe": {"kind": "tcp", "host": "source-db-for-replication.target-dev.svc", "port": 5432},
-        },
-        {
-            "id": "replication-reverse",
-            "class": "replication",
-            "owners": ["db"],
-            "to": {"namespace": TAILNET, "selector": {"tailscale.com/parent-resource": "bravo-target-db"}},
-            "ports": TCP_5432,
-            "evidence": "stream",
-        },
-    ],
-    "new_connection_checks": [
-        {"id": "http-ready", "kind": "http", "host": "demo-chat.target-dev.svc", "port": 8080, "path": "/readyz"},
-        {"id": "db-via-pooler", "kind": "http", "host": "demo-chat.target-dev.svc", "port": 8080, "path": "/api/health/db"},
-        {"id": "websocket", "kind": "websocket", "host": "demo-chat.target-dev.svc", "port": 8080, "path": "/ws"},
-    ],
-    "declared_residuals": ["tailscale (복제 · 제어 경로)"],
-}
+    """저장소에 있는 실제 명세를 쓴다. 시험이 곧 이 명세의 시험이다."""
+    return json.loads(PROFILE.read_text(encoding="utf-8"))
 
 
 def pod(name: str, labels: dict, *, host_network: bool = False, phase: str = "Running", namespace: str = "target-dev") -> dict:
