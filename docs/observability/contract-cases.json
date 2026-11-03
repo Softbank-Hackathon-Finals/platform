@@ -8,6 +8,7 @@
         "version": "1"
       },
       "inputs": {
+        "plan_id": "plan-demo",
         "state": "SHIFT",
         "weight_target": 10,
         "observe_from": "2026-11-08T05:31:05Z",
@@ -474,6 +475,81 @@
             "WINDOW_BEFORE_CHANGE"
           ],
           "action": "ALERT_UNOBSERVABLE"
+        }
+      },
+      {
+        "id": "J21",
+        "description": "창이 늦게 도착: 05:31:20에 끝난 창을 05:40:00에 처음 받음 → 수신 시각이 최근이어도 창 자체가 오래됨",
+        "patch": [
+          {
+            "op": "replace",
+            "path": "/received_at",
+            "value": "2026-11-08T05:40:00Z"
+          }
+        ],
+        "inputs": {
+          "decided_at": "2026-11-08T05:40:01Z"
+        },
+        "expect": {
+          "verdict": "UNKNOWN",
+          "reasons": [
+            "STALE"
+          ],
+          "action": "HOLD"
+        }
+      },
+      {
+        "id": "J22",
+        "description": "수신 시각이 판정 시각보다 늦음 (플랫폼 시계로는 불가능 → 수신 시각을 믿을 수 없음)",
+        "patch": [
+          {
+            "op": "replace",
+            "path": "/received_at",
+            "value": "2026-11-08T05:31:30Z"
+          }
+        ],
+        "expect": {
+          "verdict": "UNKNOWN",
+          "reasons": [
+            "CLOCK_SKEW"
+          ],
+          "action": "HOLD"
+        }
+      },
+      {
+        "id": "J23",
+        "description": "다른 계획의 창 → 판정에 쓰지 않는다",
+        "patch": [
+          {
+            "op": "replace",
+            "path": "/plan_id",
+            "value": "plan-other"
+          }
+        ],
+        "expect": {
+          "verdict": "UNKNOWN",
+          "reasons": [
+            "PLAN_MISMATCH"
+          ],
+          "action": "HOLD"
+        }
+      },
+      {
+        "id": "J24",
+        "description": "10% 단계에서 목적지만 실패: 목적지 19/200 = 9.5%, 전체로는 0.95% → 환경별 오류율로 FAIL",
+        "patch": [
+          {
+            "op": "replace",
+            "path": "/pools/target/http_5xx",
+            "value": 19
+          }
+        ],
+        "expect": {
+          "verdict": "FAIL",
+          "reasons": [
+            "ERROR_RATE"
+          ],
+          "action": "SET_WEIGHT_0"
         }
       }
     ]

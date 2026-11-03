@@ -7,7 +7,7 @@
 | 이 문서 | 원칙 · 판정 규칙 · 창 요약 생산 규칙 · 보안 규칙 · 접점 |
 | [`sli.schema.json`](sli.schema.json) | 창 요약 `SliWindow` · 판정 기준 `ThresholdProfiles` · 판정 기록 `SliJudgement` (JSON Schema 2020-12) |
 | [`threshold-profiles.json`](threshold-profiles.json) | 판정 기준 `demo-shift` v1 (제안값) |
-| [`contract-cases.json`](contract-cases.json) | 계약 시험: 판정 21건, 스키마 거부 8건 |
+| [`contract-cases.json`](contract-cases.json) | 계약 시험: 판정 25건, 스키마 거부 8건 |
 | [`examples/`](examples/) | 10% 단계의 정상 창 |
 
 근거: 설계 문서 FR-8(단계마다 오류율 · p95, 넘으면 0), 8.2 SHIFT · WATCH, 8.7, S4 1단계("오류율이 기준을 넘어 알림이 간다"), NFR-3 · NFR-5, 5.3 실증 계약, 10장 데모(가중치 전환 1:30~2:10).
@@ -35,29 +35,31 @@
 
 ## 3. 판정 규칙
 
-판정 한 번의 입력은 기준 프로필, 창 하나(없으면 `null`), 상태(`SHIFT` · `WATCH`), Edge에 설정한 목적지 가중치 `w`(%), `observe_from`(SHIFT는 가중치 변경 시각, WATCH는 WATCH 진입 시각), 판정 시각, 직전까지 연속된 UNKNOWN 수다. 시각 비교는 모두 플랫폼 시계로 한다.
+판정 한 번의 입력은 기준 프로필, 서버가 정한 현재 계획 `plan_id`, 창 하나(없으면 `null`), 상태(`SHIFT` · `WATCH`), Edge에 설정한 목적지 가중치 `w`(%), `observe_from`(SHIFT는 가중치 변경 시각, WATCH는 WATCH 진입 시각), 판정 시각, 직전까지 연속된 UNKNOWN 수다. 시각 비교는 모두 플랫폼 시계로 한다.
 
 **① 창을 쓸 수 있는가.** 하나라도 걸리면 내용은 보지 않고 UNKNOWN이다.
 
 | 사유 | 조건 |
 |---|---|
 | `MISSING` | 판정할 창이 없음 |
+| `PLAN_MISMATCH` | 창의 `plan_id` ≠ 서버가 정한 현재 계획 |
 | `WINDOW_BEFORE_CHANGE` | `window.start` < `observe_from` (이전 가중치나 컷오버 구간이 섞임) |
 | `WINDOW_MISMATCH` | 창 길이 ≠ `window_seconds` |
-| `CLOCK_SKEW` | `window.end` − `received_at` > `max_clock_skew_seconds` (생산자 시계가 앞섬) |
-| `STALE` | 판정 시각 − `received_at` > `stale_after_seconds` |
+| `CLOCK_SKEW` | `window.end` − `received_at` > `max_clock_skew_seconds` (생산자 시계가 앞섬), 또는 `received_at` > 판정 시각 (수신 시각을 믿을 수 없음) |
+| `STALE` | 판정 시각 − `received_at` > `stale_after_seconds`, 또는 판정 시각 − `window.end` > `stale_after_seconds` + `max_clock_skew_seconds` (늦게 도착한 오래된 창, J21) |
 
 **② 내용 판정.** `total` = 두 환경 요청 + 환경 미확인 요청, `errors` = 두 환경 5xx + 환경 미확인 요청 전부.
 
 | 사유 | 결과 | 조건 |
 |---|---|---|
 | `INTEGRITY_CONFLICT` | FAIL | 409가 1건이라도 있음 (표본 수와 무관) |
-| `ERROR_RATE` | FAIL | `errors / max(total, min_requests)` > `error_rate_max` |
+| `ERROR_RATE` | FAIL | 전체: `errors / max(total, min_requests)` > `error_rate_max`, 또는 가중치가 0보다 큰 환경별: `http_5xx / max(requests, min_pool_requests)` > `error_rate_max` |
 | `P95` | FAIL | 가중치가 0보다 큰 환경의 `p95_ms` > `p95_ms_max` (그 환경 표본이 충분할 때만) |
 | `INSUFFICIENT_SAMPLES` | UNKNOWN | `total` < `min_requests`, 또는 가중치가 0보다 큰 환경의 요청 < `min_pool_requests` |
 | `NOT_APPLIED` | UNKNOWN | 실제 목적지 비율(환경 확인된 응답 기준)이 `w`와 `share_tolerance`보다 더 차이 남 (가중치 반영 전이거나 분배 이상) |
 
-- 오류율 분모를 `max(total, min_requests)`로 둔다. 시간 초과가 많으면 창 안의 요청 수 자체가 줄어 장애가 UNKNOWN으로 숨는다. 이 분모면 표본이 적어도 오류가 충분히 많을 때 FAIL이 나온다(J14).
+- 오류율은 전체와 환경별을 모두 본다. 10% 단계에서 목적지만 실패하면 전체 오류율은 희석된다(목적지 19/200 = 9.5%가 전체로는 0.95%). 평가 대상인 목적지의 오류가 출발지 정상 요청에 묻히지 않게 환경별로도 판정한다(J24). 환경을 알 수 없는 오류는 전체 오류율에만 들어간다.
+- 오류율 분모를 `max(total, min_requests)`(환경별은 `max(requests, min_pool_requests)`)로 둔다. 시간 초과가 많으면 창 안의 요청 수 자체가 줄어 장애가 UNKNOWN으로 숨는다. 이 분모면 표본이 적어도 오류가 충분히 많을 때 FAIL이 나온다(J14).
 - 가중치가 0인 환경은 표본 · p95를 요구하지 않는다(J16).
 - 결과는 FAIL > UNKNOWN > PASS 순이다. 사유는 해당하는 것을 모두 이름순으로 담는다.
 
@@ -78,6 +80,7 @@ SHIFT에서 가중치 0이 자동인 이유: 이 구간에는 두 환경 앱이 
 **소비자가 확인할 것 (스키마가 강제하지 못함).**
 
 - `received_at`은 플랫폼이 받은 순간 덮어쓴다. 생산자 값은 버린다.
+- 판정의 `plan_id` · `state` · `weight_target` · `observe_from`은 요청이나 창에서 가져오지 않고, 인증된 현재 계획과 상태 머신이 기록한 현재 단계(상태 DB)에서 가져온다. 다른 계획의 창은 `PLAN_MISMATCH`로 판정에 쓰지 않는다(J23). 판정 기록의 값이 현재 계획 · 단계와 다르면 그 판정의 조치를 실행하지 않는다.
 - 같은 `(plan_id, window.start)`의 창은 한 번만 받는다. 판정은 `window.end`가 가장 늦은 창으로 하고, 이미 판정한 창보다 이른 창은 쓰지 않는다. 오래된 정상 창을 다시 보내 장애를 가리지 못하게 한다.
 - 창 수신 경로는 부하 생성기 주체만 쓸 수 있다(6절).
 - 판정 기록의 `profile`이 가리키는 기준 프로필을 실제로 적용했는지, 판정을 다시 계산해 같은지 확인한다.
@@ -127,4 +130,4 @@ SHIFT에서 가중치 0이 자동인 이유: 이 구간에는 두 환경 앱이 
 
 ## 9. 검증
 
-계약 시험의 판정 사례 21건과 스키마 거부 사례 8건을 3절 규칙의 참조 구현으로 돌려 모두 기대값과 같음을 확인했다. 기대값 3개를 일부러 틀리게 바꾸면 3건 모두 실패로 잡히는 것도 확인했다. 참조 구현은 레포에 넣지 않았다. 판정을 구현하는 쪽(T17)이 이 사례들을 단위 시험으로 통과하는 것이 완료 확인이다.
+계약 시험의 판정 사례 25건과 스키마 거부 사례 8건을 3절 규칙의 참조 구현으로 돌려 모두 기대값과 같음을 확인했다. 기대값 3개를 일부러 틀리게 바꾸면 3건 모두 실패로 잡히는 것도 확인했다. 참조 구현은 레포에 넣지 않았다. 판정을 구현하는 쪽(T17)이 이 사례들을 단위 시험으로 통과하는 것이 완료 확인이다.
