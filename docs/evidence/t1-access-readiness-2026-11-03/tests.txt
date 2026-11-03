@@ -1,0 +1,14 @@
+test_access_denied_is_unknown_not_empty_or_success (test_access_preflight.AccessPreflightTests) ... ok
+test_cli_boundary_rejects_mutations_and_redacts_service_errors (test_access_preflight.AccessPreflightTests) ... ok
+test_iam_user_and_region_empty_response_remain_incomplete (test_access_preflight.AccessPreflightTests) ... ok
+test_incomplete_instance_cannot_skip_permission_set_check (test_access_preflight.AccessPreflightTests) ... ok
+test_malformed_success_response_is_not_an_empty_inventory (test_access_preflight.AccessPreflightTests) ... ok
+test_matching_inventory_does_not_claim_team_or_rbac_access (test_access_preflight.AccessPreflightTests) ... ok
+test_sts_session_cannot_be_used_as_eks_principal (test_access_preflight.AccessPreflightTests) ... ok
+test_unknown_authentication_mode_never_looks_ready (test_access_preflight.AccessPreflightTests) ... ok
+test_wrong_account_stops_before_service_inventory (test_access_preflight.AccessPreflightTests) ... ok
+
+----------------------------------------------------------------------
+Ran 9 tests in 0.002s
+
+OK

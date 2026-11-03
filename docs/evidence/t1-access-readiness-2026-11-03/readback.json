@@ -1,0 +1,48 @@
+{
+  "schema_version": 1,
+  "observed_at": "2026-11-03T07:31:58+00:00",
+  "mode": "read_only_inventory",
+  "scope": {
+    "aws_region": "ap-northeast-2",
+    "identity_center_region": "ap-northeast-2"
+  },
+  "checks": [
+    {
+      "check": "account_boundary",
+      "state": "observed",
+      "matches_expected": true
+    },
+    {
+      "check": "caller",
+      "state": "observed",
+      "principal_type": "iam_user"
+    },
+    {
+      "check": "operator_sso_session",
+      "state": "not_verified"
+    },
+    {
+      "check": "identity_center",
+      "state": "missing",
+      "visible_instances": 0
+    },
+    {
+      "check": "eks_inventory",
+      "state": "missing",
+      "visible_clusters": 0
+    },
+    {
+      "check": "source_cluster",
+      "state": "not_checked",
+      "reason": "source_cluster_not_selected"
+    }
+  ],
+  "team_access": "NOT_VERIFIED",
+  "remaining_operational_checks": [
+    "intended_user_and_group_assignments",
+    "each_user_sso_login",
+    "eks_endpoint_reachability_and_allow_deny_rbac",
+    "rke2_individual_identity_and_allow_deny_rbac",
+    "executor_database_and_pgbouncer_authorization"
+  ]
+}

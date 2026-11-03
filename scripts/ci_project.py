@@ -7,37 +7,37 @@ import subprocess
 from pathlib import Path
 
 
-def run(*command: str) -> None:
-    subprocess.run(command, check=True)
+def run(path: Path, *command: str) -> None:
+    subprocess.run(command, cwd=path, check=True)
 
 
 def check(directory: str, kind: str) -> None:
-    import os
-
     root = Path.cwd().resolve()
     path = (root / directory).resolve()
     if not path.is_relative_to(root):
         raise ValueError("Project must be inside repository")
-    os.chdir(path)
     if kind == "python":
-        if not Path("uv.lock").is_file():
+        if not (path / "uv.lock").is_file():
             raise ValueError("Python projects must commit uv.lock")
-        run("uv", "sync", "--locked")
-        run("uvx", "ruff==0.17.3", "check", ".")
-        tests = subprocess.check_output(["git", "ls-files", "-z"]).decode().split("\0")
-        if any(Path(p).name.startswith("test_") and p.endswith(".py") or p.endswith("_test.py") for p in tests):
-            run("uv", "run", "--locked", "pytest")
+        run(path, "uv", "sync", "--locked")
+        run(path, "uvx", "ruff==0.17.3", "check", ".")
+        run(path, "uv", "run", "--locked", "pytest")
     elif kind == "node":
-        if not Path("pnpm-lock.yaml").is_file():
+        if not (path / "pnpm-lock.yaml").is_file():
             raise ValueError("Node projects must commit pnpm-lock.yaml")
-        run("pnpm", "install", "--frozen-lockfile")
-        scripts = json.loads(Path("package.json").read_text())["scripts"]
-        for name in ("lint", "test", "build"):
-            if name in scripts:
-                run("pnpm", "run", name)
+        scripts = json.loads((path / "package.json").read_text()).get("scripts", {})
+        required = ("lint", "test", "build")
+        if not isinstance(scripts, dict) or any(
+            not isinstance(scripts.get(name), str) or not scripts[name].strip()
+            for name in required
+        ):
+            raise ValueError("Node projects must define lint, test and build scripts")
+        run(path, "pnpm", "install", "--frozen-lockfile")
+        for name in required:
+            run(path, "pnpm", "run", name)
     elif kind == "go":
-        run("go", "vet", "-mod=readonly", "./...")
-        run("go", "test", "-mod=readonly", "./...")
+        run(path, "go", "vet", "-mod=readonly", "./...")
+        run(path, "go", "test", "-mod=readonly", "./...")
     else:
         raise ValueError(f"Unsupported project kind: {kind}")
 
