@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+# 리허설 네임스페이스를 템플릿으로 만들고 바로 격리 시험을 돌린다. 종료 코드 0 통과 · 1 격리 실패 · 2 시험 불가.
+#   services/rehearsal-runner/bin/create-and-check <네임스페이스> <프로필.env> [--context <컨텍스트>] [--report <경로>]
+# 예: bin/create-and-check rehearsal-plan1-1 profiles/k3d.env --context k3d-bravo-rehearsal
+set -euo pipefail
+[ $# -ge 2 ] || { sed -n '2,4p' "$0" >&2; exit 2; }
+ns="$1" profile="$(realpath "$2")"
+shift 2
+cd "$(dirname "$0")/.."
+exec uv run --quiet python -m rehearsal_runner.isolation --create --namespace "$ns" --profile "$profile" "$@"
