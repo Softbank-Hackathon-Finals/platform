@@ -2,6 +2,7 @@
 """Render bounded probe Jobs; pass/fail comes from the observed Job output."""
 import argparse
 import json
+import re
 from pathlib import Path
 
 from render import LABELS, POSTGRES_IMAGE, resource
@@ -9,10 +10,14 @@ from render import LABELS, POSTGRES_IMAGE, resource
 APP_IMAGE = "ghcr.io/softbank-hackathon-finals/demo-chat@sha256:001adc35a9fc767566552fb55c3c19a67b7c5efc7231fb02dc28cdeace99d0d4"
 
 
-def probe(stage):
+def probe(stage, run_suffix=""):
     if stage not in {"db", "objects-bootstrap", "objects-write", "objects-read", "image"}:
         raise ValueError("known probe stage required")
     name = "target-probe-" + stage
+    if run_suffix:
+        if not re.fullmatch(r"[a-z0-9][a-z0-9-]{0,19}", run_suffix):
+            raise ValueError("short DNS-safe run suffix required")
+        name += "-" + run_suffix
     uid = 26 if stage == "db" else 10001
     labels = {**LABELS, "bravo-probe": name}
     if stage.startswith("objects-"):
@@ -70,5 +75,6 @@ def probe(stage):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("stage", choices=["db", "objects-bootstrap", "objects-write", "objects-read", "image"])
+    parser.add_argument("--run-suffix", default="")
     args = parser.parse_args()
-    print(json.dumps({"apiVersion": "v1", "kind": "List", "items": probe(args.stage)}, indent=2))
+    print(json.dumps({"apiVersion": "v1", "kind": "List", "items": probe(args.stage, args.run_suffix)}, indent=2))

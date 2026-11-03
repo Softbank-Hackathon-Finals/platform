@@ -23,6 +23,10 @@ def main():
     checks["scram_role_tls_connection"] = result.returncode == 0 and result.stdout.strip() == b"chat_replicator|true"
     result = query("SELECT count(*) FROM messages; SELECT count(*) FROM attachments;")
     checks["replicator_table_select"] = result.returncode == 0
+    result = query("SELECT bool_and(NOT has_table_privilege(current_user, t, p)) "
+                   "FROM unnest(ARRAY['public.messages','public.attachments']) AS t "
+                   "CROSS JOIN unnest(ARRAY['INSERT','UPDATE','DELETE','TRUNCATE']) AS p;")
+    checks["both_tables_all_write_privileges_absent"] = result.returncode == 0 and result.stdout.strip() == b"t"
     result = query("IDENTIFY_SYSTEM;", conninfo="dbname=chat replication=database")
     checks["logical_replication_allowed"] = result.returncode == 0
     result = query("IDENTIFY_SYSTEM;", conninfo="replication=true")
