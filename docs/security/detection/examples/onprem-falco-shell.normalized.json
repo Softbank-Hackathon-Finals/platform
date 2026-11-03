@@ -7,7 +7,7 @@
   "status_id": 1,
   "time": 1793784000000,
   "finding_info": {
-    "uid": "falco-evt-001",
+    "uid": "sha256:08a0e5dda49d9a6a36e5e6d327e05b9931f2210e3498ed40adcaf5e19f972f2f",
     "title": "Terminal shell in container"
   },
   "metadata": {
@@ -23,14 +23,14 @@
     "source_category": "Terminal shell in container"
   },
   "bravo": {
+    "normalizer_version": "2",
     "source": "falco",
     "environment_id": "env-onprem",
     "category": "THREAT",
     "control_ids": [],
     "collected_time": 1793784060000,
-    "raw_sha256": "sha256:b421627ccefaa74d5911f1c9bc5a7342e361744d56f507c83cf76ec247f09b7a"
+    "raw_sha256": "sha256:7ed0959e621a82f1cbdcf5c3723b3497201f39dce26659412c5b0a39c42068e3"
   },
-  "message": "A shell was spawned in a container with an attached terminal (user=root ns=demo-chat pod=chat-xxx)",
   "resources": [
     {
       "type": "k8s.pod",

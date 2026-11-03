@@ -1,6 +1,6 @@
 # T1 AWS 네트워크 기반
 
-출발지와 플랫폼을 같은 계정의 서로 다른 VPC에 놓고, 플랫폼에서 출발지 API·DB로 가는 경로만 연다. 두 VPC에 각각 두 AZ의 사설 서브넷을 만든다. `component=network` 태그는 provider가 붙이고, Flow Logs는 전용 KMS 키로 암호화해 7일간 보관한다.
+출발지와 플랫폼을 같은 계정의 서로 다른 VPC에 놓고, 플랫폼에서 출발지 API·DB로 가는 경로만 연다. 두 VPC에 각각 두 AZ의 사설 서브넷을 만든다. 팀 비용 분류는 `component=source|platform|target`이며, 이 기반은 출발지 자원에 `source`, 플랫폼·공유 자원에 `platform`을 붙인다. Flow Logs는 전용 KMS 키로 암호화해 7일간 보관한다.
 
 | 출발 SG | 목적 SG | 신규 연결 | 포트 |
 |---|---|---|---|
@@ -32,7 +32,7 @@ make destroy-plan                 # 검증용 배포 종료 계획 검토
 make destroy                      # 검토한 destroy.tfplan만 적용
 ```
 
-`check`는 모의 provider로 네트워크 경계와 잘못된 입력을 검사한다. `verify.py`는 실제 AWS에서 VPC/AZ/피어링/DNS/라우팅/SG/로그/태그를 다시 읽고 실패 시 0이 아닌 코드로 끝난다. 이것은 패킷·EKS·DB E2E 시험이 아니다. PR에는 실행 commit과 readback·삭제 증거를 함께 넣는다. 증거 JSON은 결과를 검토한 뒤 `docs/evidence`로 복사한다.
+`check`는 모의 provider로 네트워크 경계와 잘못된 입력을 검사한다. `verify.py`는 실제 AWS에서 VPC/AZ/피어링/DNS/라우팅/SG/로그/태그를 다시 읽고 실패 시 0이 아닌 코드로 끝난다. 이것은 패킷·EKS·DB E2E 시험이 아니다. PR에는 실행 commit과 readback·삭제 증거를 함께 넣는다. 원본은 저장소 밖 비공개 경로에 보존하고, [공개 증빙 절차](../../../docs/public-evidence-policy.md)에 따라 식별자를 가린 JSON과 원본·공개본 해시를 `docs/evidence`에 기록한다.
 
 Terraform은 S3 상태를 `use_lockfile=true`로 잠근다. 이미 다른 실행이 잠금을 잡았으면 중단한다. `force-unlock`으로 다른 작업을 밀어내지 않는다. plan·state·실제 입력은 커밋하지 않는다. 사람이 변경한 AWS 설정은 다음 plan의 drift로 검토한다.
 

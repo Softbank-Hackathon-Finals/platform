@@ -1,0 +1,420 @@
+{
+  "aggregate_cases": [
+    {
+      "scope": "success",
+      "project": "success",
+      "empty": true,
+      "exit_code": 1,
+      "expected_success": false,
+      "correct": true
+    },
+    {
+      "scope": "success",
+      "project": "success",
+      "empty": false,
+      "exit_code": 0,
+      "expected_success": true,
+      "correct": true
+    },
+    {
+      "scope": "success",
+      "project": "failure",
+      "empty": true,
+      "exit_code": 1,
+      "expected_success": false,
+      "correct": true
+    },
+    {
+      "scope": "success",
+      "project": "failure",
+      "empty": false,
+      "exit_code": 1,
+      "expected_success": false,
+      "correct": true
+    },
+    {
+      "scope": "success",
+      "project": "cancelled",
+      "empty": true,
+      "exit_code": 1,
+      "expected_success": false,
+      "correct": true
+    },
+    {
+      "scope": "success",
+      "project": "cancelled",
+      "empty": false,
+      "exit_code": 1,
+      "expected_success": false,
+      "correct": true
+    },
+    {
+      "scope": "success",
+      "project": "skipped",
+      "empty": true,
+      "exit_code": 0,
+      "expected_success": true,
+      "correct": true
+    },
+    {
+      "scope": "success",
+      "project": "skipped",
+      "empty": false,
+      "exit_code": 1,
+      "expected_success": false,
+      "correct": true
+    },
+    {
+      "scope": "failure",
+      "project": "success",
+      "empty": true,
+      "exit_code": 1,
+      "expected_success": false,
+      "correct": true
+    },
+    {
+      "scope": "failure",
+      "project": "success",
+      "empty": false,
+      "exit_code": 1,
+      "expected_success": false,
+      "correct": true
+    },
+    {
+      "scope": "failure",
+      "project": "failure",
+      "empty": true,
+      "exit_code": 1,
+      "expected_success": false,
+      "correct": true
+    },
+    {
+      "scope": "failure",
+      "project": "failure",
+      "empty": false,
+      "exit_code": 1,
+      "expected_success": false,
+      "correct": true
+    },
+    {
+      "scope": "failure",
+      "project": "cancelled",
+      "empty": true,
+      "exit_code": 1,
+      "expected_success": false,
+      "correct": true
+    },
+    {
+      "scope": "failure",
+      "project": "cancelled",
+      "empty": false,
+      "exit_code": 1,
+      "expected_success": false,
+      "correct": true
+    },
+    {
+      "scope": "failure",
+      "project": "skipped",
+      "empty": true,
+      "exit_code": 1,
+      "expected_success": false,
+      "correct": true
+    },
+    {
+      "scope": "failure",
+      "project": "skipped",
+      "empty": false,
+      "exit_code": 1,
+      "expected_success": false,
+      "correct": true
+    },
+    {
+      "scope": "cancelled",
+      "project": "success",
+      "empty": true,
+      "exit_code": 1,
+      "expected_success": false,
+      "correct": true
+    },
+    {
+      "scope": "cancelled",
+      "project": "success",
+      "empty": false,
+      "exit_code": 1,
+      "expected_success": false,
+      "correct": true
+    },
+    {
+      "scope": "cancelled",
+      "project": "failure",
+      "empty": true,
+      "exit_code": 1,
+      "expected_success": false,
+      "correct": true
+    },
+    {
+      "scope": "cancelled",
+      "project": "failure",
+      "empty": false,
+      "exit_code": 1,
+      "expected_success": false,
+      "correct": true
+    },
+    {
+      "scope": "cancelled",
+      "project": "cancelled",
+      "empty": true,
+      "exit_code": 1,
+      "expected_success": false,
+      "correct": true
+    },
+    {
+      "scope": "cancelled",
+      "project": "cancelled",
+      "empty": false,
+      "exit_code": 1,
+      "expected_success": false,
+      "correct": true
+    },
+    {
+      "scope": "cancelled",
+      "project": "skipped",
+      "empty": true,
+      "exit_code": 1,
+      "expected_success": false,
+      "correct": true
+    },
+    {
+      "scope": "cancelled",
+      "project": "skipped",
+      "empty": false,
+      "exit_code": 1,
+      "expected_success": false,
+      "correct": true
+    },
+    {
+      "scope": "skipped",
+      "project": "success",
+      "empty": true,
+      "exit_code": 1,
+      "expected_success": false,
+      "correct": true
+    },
+    {
+      "scope": "skipped",
+      "project": "success",
+      "empty": false,
+      "exit_code": 1,
+      "expected_success": false,
+      "correct": true
+    },
+    {
+      "scope": "skipped",
+      "project": "failure",
+      "empty": true,
+      "exit_code": 1,
+      "expected_success": false,
+      "correct": true
+    },
+    {
+      "scope": "skipped",
+      "project": "failure",
+      "empty": false,
+      "exit_code": 1,
+      "expected_success": false,
+      "correct": true
+    },
+    {
+      "scope": "skipped",
+      "project": "cancelled",
+      "empty": true,
+      "exit_code": 1,
+      "expected_success": false,
+      "correct": true
+    },
+    {
+      "scope": "skipped",
+      "project": "cancelled",
+      "empty": false,
+      "exit_code": 1,
+      "expected_success": false,
+      "correct": true
+    },
+    {
+      "scope": "skipped",
+      "project": "skipped",
+      "empty": true,
+      "exit_code": 1,
+      "expected_success": false,
+      "correct": true
+    },
+    {
+      "scope": "skipped",
+      "project": "skipped",
+      "empty": false,
+      "exit_code": 1,
+      "expected_success": false,
+      "correct": true
+    }
+  ],
+  "first_summary": {
+    "started_epoch": 1793687797.9148908,
+    "finished_epoch": 1793687808.603085,
+    "results": [
+      {
+        "name": "repository_tools",
+        "command": [
+          "python3",
+          "-m",
+          "unittest",
+          "discover",
+          "-s",
+          "scripts/tests",
+          "-v"
+        ],
+        "exit_code": 0,
+        "seconds": 0.167
+      },
+      {
+        "name": "full_selector",
+        "command": [
+          "python3",
+          "scripts/ci_scope.py",
+          "--full"
+        ],
+        "exit_code": 0,
+        "seconds": 0.055
+      },
+      {
+        "name": "rehearsal_runner",
+        "command": [
+          "python3",
+          "scripts/ci_project.py",
+          "services/rehearsal-runner",
+          "python"
+        ],
+        "exit_code": 0,
+        "seconds": 2.053
+      },
+      {
+        "name": "security_findings",
+        "command": [
+          "python3",
+          "scripts/ci_project.py",
+          "services/security-findings",
+          "python"
+        ],
+        "exit_code": 1,
+        "seconds": 8.348
+      },
+      {
+        "name": "workflow_aggregate",
+        "cases": 32,
+        "passed": 32,
+        "exit_code": 0
+      }
+    ],
+    "python": "Python 3.12.3",
+    "uv": "uv 0.9.5",
+    "workflow_sha256": "e625199587988b680395c562f601aaad1ad18e47c963a97a3d7ba2aabd7c45c6"
+  },
+  "trivy": {
+    "version": "Version: 0.76.1\nCheck Bundle:\n  Digest: sha256:b591e9190cff4aa4e385b1a25bccfd9ecf178d3c77fd194e1410b7ce7e1df058\n  DownloadedAt: 2026-11-03 06:39:12.842125197 +0000 UTC\n",
+    "targets": [
+      {
+        "target": "infra/bootstrap/state-backend",
+        "summary": {
+          "Successes": 24,
+          "Failures": 0
+        },
+        "findings": []
+      },
+      {
+        "target": "infra/bootstrap/state-backend/main.tf",
+        "summary": null,
+        "findings": []
+      },
+      {
+        "target": "infra/envs/aws-foundation",
+        "summary": {
+          "Successes": 32,
+          "Failures": 0
+        },
+        "findings": []
+      },
+      {
+        "target": "infra/envs/ci-validation-aws",
+        "summary": {
+          "Successes": 31,
+          "Failures": 0
+        },
+        "findings": []
+      },
+      {
+        "target": "infra/envs/ci-validation-aws/main.tf",
+        "summary": null,
+        "findings": []
+      },
+      {
+        "target": "services/rehearsal-runner/templates/00-namespace.yaml",
+        "summary": {
+          "Successes": 31,
+          "Failures": 0
+        },
+        "findings": []
+      },
+      {
+        "target": "services/rehearsal-runner/templates/10-serviceaccount.yaml",
+        "summary": {
+          "Successes": 31,
+          "Failures": 0
+        },
+        "findings": []
+      },
+      {
+        "target": "services/rehearsal-runner/templates/20-rbac.yaml",
+        "summary": {
+          "Successes": 29,
+          "Failures": 0
+        },
+        "findings": []
+      },
+      {
+        "target": "services/rehearsal-runner/templates/30-networkpolicy.yaml",
+        "summary": {
+          "Successes": 31,
+          "Failures": 0
+        },
+        "findings": []
+      },
+      {
+        "target": "services/rehearsal-runner/templates/40-quota.yaml",
+        "summary": {
+          "Successes": 31,
+          "Failures": 0
+        },
+        "findings": []
+      },
+      {
+        "target": "services/rehearsal-runner/testing/standins.yaml",
+        "summary": {
+          "Successes": 31,
+          "Failures": 0
+        },
+        "findings": []
+      }
+    ]
+  },
+  "ruff": "ruff 0.17.3",
+  "final_results": {
+    "repository_tools": "16 passed",
+    "rehearsal_runner": "19 passed",
+    "security_findings": "45 passed",
+    "workflow_aggregate": "32/32 correct",
+    "trivy_high_critical_findings_after_scoped_exceptions": 0,
+    "ruff": "0.17.3"
+  },
+  "followup_command_id": "56472ea7-e8f5-44ca-b3e2-942b211982f2",
+  "receipt_command_id": "24205218-762f-4829-bdd5-f5919a2b1c59",
+  "validation_scope": "Maintained repository CI code executed on isolated AWS host; no model call or agent-authored code execution."
+}

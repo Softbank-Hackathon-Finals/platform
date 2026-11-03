@@ -283,7 +283,8 @@
             "category",
             "control_ids",
             "collected_time",
-            "raw_sha256"
+            "raw_sha256",
+            "normalizer_version"
           ],
           "additionalProperties": false,
           "properties": {
@@ -324,11 +325,15 @@
             "raw_sha256": {
               "type": "string",
               "pattern": "^sha256:[0-9a-f]{64}$",
-              "description": "마스킹한 원본의 해시"
+              "description": "최소화·마스킹된 출처 투영본의 해시. 원문/서명/출처 진위를 증명하지 않음"
             },
             "sample": {
               "type": "boolean",
               "description": "출처가 샘플로 표시한 결과 (예: GuardDuty CreateSampleFindings)"
+            },
+            "normalizer_version": {
+              "const": "2",
+              "description": "T33 hardening contract version; hashed identity and minimized source projection"
             }
           }
         }
@@ -423,7 +428,8 @@
             "WEBHOOK_SILENT",
             "NOT_ENABLED",
             "TIMEOUT",
-            "SOURCE_UNHEALTHY"
+            "SOURCE_UNHEALTHY",
+            "INGESTION_GAP"
           ]
         },
         "cursor": {
