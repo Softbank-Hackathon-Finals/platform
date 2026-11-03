@@ -1,0 +1,120 @@
+{
+  "kind": "redacted_runtime_summary",
+  "tested_source_sha": "bc45db2ad2fb011fb18d6b6ba1d485243a1d2816",
+  "source_files_sha256": {
+    "infra/envs/subscription-runtime/main.tf": "8eee0522a7f3eaf5a7f7da4bdfd2c2c00917aab4cbb510192969af0b000ea0b8",
+    "infra/envs/subscription-runtime/tests/boundaries.tftest.hcl": "fc653770b2baa87e206324559e842a1154e9b8286b6d368902cdca16634d4846",
+    "operations/subscription/README.md": "8ada31deafba920657cad5be8aa64d2bdacf9c262e564f18819f3ee6bf99ef34",
+    "operations/subscription/controller.py": "7f43c4592e4f990ef7d986803c2d8f0ed848154cd1bb0627ae06c8947b99bc01",
+    "services/agent-worker/src/bravo_agent/subscription_server.py": "2003166625b706be7ee195fa94b21996bccf9f8586c8d60b13b0889c1bb6276d",
+    "services/agent-worker/src/bravo_agent/verification.py": "0835b3c4e7fa02e69bc7ad9cfd26afc95bf887cf2815abf9ce169f0b75115cab",
+    "services/agent-worker/tests/test_subscription_controller.py": "80d211a9aafd35eccd69fdaef9e410a065b2abf590684dcdb4b3952788f2ff97",
+    "services/agent-worker/tests/test_subscription_server.py": "052e8243cc1f4496bb648c3670d46185d3080606f80bef4ecb844cd369d42d12",
+    "services/agent-worker/tests/test_verification.py": "3392772cb5622ff3308ddf559ae95fea7ff5d6e765a6aa2e4910501e9b5e7a03"
+  },
+  "remote_nonroot_tests": 248,
+  "runs": [
+    {
+      "expected": "PASS",
+      "state": "AWAITING_APPROVAL",
+      "verdict": "PASS",
+      "original_evidence_digest": "f0269a137d42a889e2d2278c4c64aaa1f138ea4853cf686612c869bb23ffea01",
+      "evidence_digest_recomputed": true,
+      "namespace_uid_sha256": "cc4cc40dae1fc99fa9822587f4a2fbfa36e00b5c1b1f977e2d5a4379a9e21a3c",
+      "namespace_deleted": true,
+      "checks": {
+        "injected_value": true,
+        "missing_value_closed": true
+      },
+      "failure_code": "NONE",
+      "log_sha256": "7acd72f1c207093d290179a4cb46ce5d46ed4cd7a16e1a43eb9e387856003f36",
+      "executions": {
+        "present": {
+          "job_uid_sha256": "b12b1910787a1009da6908f653e93341339c6d09688c44dada269014087736f8",
+          "pod_uid_sha256": "2f4783d2301c3a752ac29ae93575ed2985e7a18d296dee7694984dd736b65b54",
+          "container_id_sha256": "07f6bb815c29f1c53cc2e5319bde5ea1bb5f4630bdf0f8a94ec9f4871ba8614d",
+          "container": "run",
+          "image_id": "docker.io/library/python@sha256:1148dbb014615300fa7e713b2f94f550c0d1c69780c0805f84f093ceee34dd0b",
+          "exit_code": null
+        },
+        "missing": {
+          "job_uid_sha256": "e4f7f539a750b0644785552bb28383c296582671e8ad797391d2bc2474808115",
+          "pod_uid_sha256": "6677ae3ce22cf65c3fe60fa7bc3daf299e77261086e458c47e853ed212a46265",
+          "container_id_sha256": "e86b4b2b22aab1f49c997b0cabc4b35aa2ec6143c95eea99fe2bff3944783485",
+          "container": "run",
+          "image_id": "docker.io/library/python@sha256:1148dbb014615300fa7e713b2f94f550c0d1c69780c0805f84f093ceee34dd0b",
+          "exit_code": null
+        },
+        "verify": {
+          "job_uid_sha256": "d21f648f7fbe7f52a251d96edbb8e573c7f591ed6656d5d5873888640c0a432a",
+          "pod_uid_sha256": "f12520a6648d71898442aa3527f0e9a22e09a0696f297d69b94a7ee4d4873222",
+          "container_id_sha256": "68f985dba9a3ea238c70bff4305be2fadeedf66c3dc2c5286c58c3005880aa3c",
+          "container": "run",
+          "image_id": "docker.io/library/python@sha256:1148dbb014615300fa7e713b2f94f550c0d1c69780c0805f84f093ceee34dd0b",
+          "exit_code": 0
+        }
+      }
+    },
+    {
+      "expected": "FAIL",
+      "state": "RETRY_ALLOWED",
+      "verdict": "FAIL",
+      "original_evidence_digest": "7cee3a5f1a6e1501d98b0d9249939a9f1118dcfc77e2002390cb5344604e3eef",
+      "evidence_digest_recomputed": true,
+      "namespace_uid_sha256": "ae332e1b9ed56cc51a1034e48bf00f7496a9c109e8af5cdcad1513c1be38bcbc",
+      "namespace_deleted": true,
+      "checks": {
+        "injected_value": false,
+        "missing_value_closed": false
+      },
+      "failure_code": "TEMPLATE_TEST_FAILED",
+      "log_sha256": "58a24619d4798ded15958af5f8ab7cb2d3abaa3e4ac6dcfaa6bedd78cc1aa780",
+      "executions": {
+        "present": {
+          "job_uid_sha256": "3aa9f76c5aa697ad37ef80cc3133ce40af678c2e30544e2f71dc9885679bb290",
+          "pod_uid_sha256": "a0bf579835a5e0a1cef661777cf680f1fa1e2fed4ca7560ebe824cc4663f993a",
+          "container_id_sha256": "df87517a1c856c4995d79370e5e60e0cb46f7821cdd6815ac263a7da76697b2f",
+          "container": "run",
+          "image_id": "docker.io/library/python@sha256:1148dbb014615300fa7e713b2f94f550c0d1c69780c0805f84f093ceee34dd0b",
+          "exit_code": null
+        },
+        "missing": {
+          "job_uid_sha256": "d39bea09cb24673c710e89f9e2028ccbec734cfeb534caac7b12b1e3b6fa8268",
+          "pod_uid_sha256": "042d236717bc73fed9534b3e84008a2ab55389ae5538e6c557eea6346233369e",
+          "container_id_sha256": "0d9c443e88af706fbe03ad55b28f2661ef96864141a41004c7b0271e43e9a52d",
+          "container": "run",
+          "image_id": "docker.io/library/python@sha256:1148dbb014615300fa7e713b2f94f550c0d1c69780c0805f84f093ceee34dd0b",
+          "exit_code": null
+        },
+        "verify": {
+          "job_uid_sha256": "cbef61b986566bea65707891bfae80fc3cf985d1eff6216db6dbbc65b025a997",
+          "pod_uid_sha256": "e1cfd3075367e245bfbfb200af4dbaf697ef000e643a69a8c6ee9cee2951fd1a",
+          "container_id_sha256": "bc69e8af311e7893a3f10a743978718a696b78261be5f9834bba2fcf3f39d557",
+          "container": "run",
+          "image_id": "docker.io/library/python@sha256:1148dbb014615300fa7e713b2f94f550c0d1c69780c0805f84f093ceee34dd0b",
+          "exit_code": 1
+        }
+      }
+    }
+  ],
+  "preservation": {
+    "source_sha": "bc45db2ad2fb011fb18d6b6ba1d485243a1d2816",
+    "existing_namespace_uids_preserved": true,
+    "own_namespaces_absent": true,
+    "settings_unchanged": true,
+    "worker_unchanged": true,
+    "broker": "inactive",
+    "rke2": "active"
+  },
+  "cleanup": {
+    "namespaces_absent": true,
+    "owned_directories_absent": true,
+    "local_baseline_archive_removed": true
+  },
+  "limits": [
+    "Synthetic DB_HOST fixture with deterministic proposals; no new model calls.",
+    "Existing installed broker, SSM document, IAM, settings and team resources were not changed.",
+    "Updated controller/broker/fixed-SSM full OIDC path was not redeployed or rerun.",
+    "Original UID and container IDs are hashed here; this summary is not the original receipt."
+  ]
+}

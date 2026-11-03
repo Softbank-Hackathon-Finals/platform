@@ -1,0 +1,173 @@
+{
+  "runtime_source_sha": "ca71c7354bdda7b3e52137e2c311e59f32a54db2",
+  "files": [
+    {
+      "path": ".github/workflows/subscription-runtime.yml",
+      "sha256": "3dfe9e8b1e0a3454eea6f8a7b3609714b22ab8b8b01bdbe8f0c9ac0a09667fdb"
+    },
+    {
+      "path": "infra/envs/subscription-runtime/.terraform.lock.hcl",
+      "sha256": "6b6b4a5799daf00c3a1ee612593b6f6a9d9f03ae3505e2d0766608934c303793"
+    },
+    {
+      "path": "infra/envs/subscription-runtime/main.tf",
+      "sha256": "ca578157ea4c847f4933349eb78aab4e68f6e1e11cceff55765f29043965edc7"
+    },
+    {
+      "path": "operations/subscription/bravo-subscription.service",
+      "sha256": "51c4879adb924d011aa5ced6f98c2b246f80396f1751eef659a51c9baeb41836"
+    },
+    {
+      "path": "operations/subscription/controller.py",
+      "sha256": "7b77a23bd5b5757d7ee41bbf2ab3e42c7798a182bc49c8e2d728f95e0a5f7804"
+    },
+    {
+      "path": "operations/subscription/install.py",
+      "sha256": "a7179c87c9e6d721525d009c496c324830aaa18432ff4545c6c0b5cf589bdce4"
+    },
+    {
+      "path": "services/agent-worker/.dockerignore",
+      "sha256": "085cec7f624894d2fa0113e35526a052e712632c16324562d454b61e96aa5725"
+    },
+    {
+      "path": "services/agent-worker/Dockerfile",
+      "sha256": "8f5894392f1a2ad238b0df712c11a0b34f8fd1cf196bb08315c6857310a2e54a"
+    },
+    {
+      "path": "services/agent-worker/README.md",
+      "sha256": "27cec2b2c893b9f68ea50de8821e155c65f3af483219674d14bbdf216cfa7975"
+    },
+    {
+      "path": "services/agent-worker/examples/failure.json",
+      "sha256": "5384e01c288d7101992fa64d543ba2060ea910bb40aeb84aaa2f36995deecbae"
+    },
+    {
+      "path": "services/agent-worker/examples/snapshot-manifest.json",
+      "sha256": "0ac822c3b1e84fbac222ab5e15a53b51c9eb3b9a5373b5e1cde026f815c0bc39"
+    },
+    {
+      "path": "services/agent-worker/examples/source/src/config.py",
+      "sha256": "f9b997a0ef8e589e291cb5f631a55e8e43f8affa29e5315c602aec5a64b11fcf"
+    },
+    {
+      "path": "services/agent-worker/pyproject.toml",
+      "sha256": "e9188b4bd7755d3f52654b39b24b6dbe08dbdd00493179967a7b420641c36311"
+    },
+    {
+      "path": "services/agent-worker/src/bravo_agent/__init__.py",
+      "sha256": "afa7d055bc6855bf0abe7d7aac184a19acf3d43902ddab5c93abf88e6ddb8b64"
+    },
+    {
+      "path": "services/agent-worker/src/bravo_agent/account_smoke.py",
+      "sha256": "f1c62a09b2530cf40e92f91312241ddae6bfa40d2c8a343dc08fbfe04a888e1b"
+    },
+    {
+      "path": "services/agent-worker/src/bravo_agent/cli.py",
+      "sha256": "ce87aff3c4447f021a5acc1c930da33f1814dfb6f1472c753b3429a0ff7ddf48"
+    },
+    {
+      "path": "services/agent-worker/src/bravo_agent/contracts.py",
+      "sha256": "39940d44eed85eeb8bd6a21ef9b50ba25d6ce6310648158678af48532c24a0e7"
+    },
+    {
+      "path": "services/agent-worker/src/bravo_agent/coordinator.py",
+      "sha256": "dff84108479a97317d5741342eb9c1978d94ef3c04b554773dfa2a0dad870e4b"
+    },
+    {
+      "path": "services/agent-worker/src/bravo_agent/openai_provider.py",
+      "sha256": "4bf01d19a05275f2d07495315fee5a7a013480075efce538a8fea0a31daebeab"
+    },
+    {
+      "path": "services/agent-worker/src/bravo_agent/policy.py",
+      "sha256": "17983a7a663201a63786d155d517bd2bc5822923ad31e54568833fc7dcc9893f"
+    },
+    {
+      "path": "services/agent-worker/src/bravo_agent/runtime.py",
+      "sha256": "a81f5f4dafef5f540aca0cd6c4e9d6f0dd9e897c5074076908f08b281dc19334"
+    },
+    {
+      "path": "services/agent-worker/src/bravo_agent/sdk.py",
+      "sha256": "23457e58d3dac3a533d7614e112d7d3e68a12836699670bf16b72d0c23da13a6"
+    },
+    {
+      "path": "services/agent-worker/src/bravo_agent/subscription_admin.py",
+      "sha256": "4419b35205c389015a74194d8cfdeea083a1c9983591f50562df580ceee226de"
+    },
+    {
+      "path": "services/agent-worker/src/bravo_agent/subscription_auth.py",
+      "sha256": "2177aa5498fad10fc1557583d413c5de57b4a9270d6e53fd1fe50fe29a90a7df"
+    },
+    {
+      "path": "services/agent-worker/src/bravo_agent/subscription_server.py",
+      "sha256": "11de43edc62998743e1e4a3cfec87103fb11002baf758cc493c12899da71e919"
+    },
+    {
+      "path": "services/agent-worker/src/bravo_agent/subscription_store.py",
+      "sha256": "81b6371f7cf5538869a8f48fc4dfe53fa735c74d3036328997a4f5f96fe34d6f"
+    },
+    {
+      "path": "services/agent-worker/src/bravo_agent/tools.py",
+      "sha256": "7350a655a95d571b8d61952edf699cae8d5f70df74b1ceb7b5ee12cafaee77a5"
+    },
+    {
+      "path": "services/agent-worker/src/bravo_agent/verification.py",
+      "sha256": "395bcc5bea4b4534f595c86c9395f30cf4277046789a04bf323df3216d53854e"
+    },
+    {
+      "path": "services/agent-worker/subscription.md",
+      "sha256": "07e703511d769e83b0f95b39f718f3c4b969899531bf6a58aec0f1b069dcd827"
+    },
+    {
+      "path": "services/agent-worker/tests/conftest.py",
+      "sha256": "ca3fae6ed10d9492b5e9a14758f1862aa5182b8a57c7fec98c9493addec91308"
+    },
+    {
+      "path": "services/agent-worker/tests/test_account_smoke.py",
+      "sha256": "d25dd1f169bc325c99db9200336c7989ca695e9f399e2b0b33d9cf5074417262"
+    },
+    {
+      "path": "services/agent-worker/tests/test_cli.py",
+      "sha256": "8128cb181d3c5cf7a6f654fde7bbf177a934a2196214545c3738c7654810d79a"
+    },
+    {
+      "path": "services/agent-worker/tests/test_coordinator.py",
+      "sha256": "24afca2010e25dd4b8a143e1c30f0ef2a7d20f75d0d507a90522e023ed3be833"
+    },
+    {
+      "path": "services/agent-worker/tests/test_openai.py",
+      "sha256": "b75b4c7d4838a387cfd1ccd1bb7db66b423186763774a00caaea298e6cab8945"
+    },
+    {
+      "path": "services/agent-worker/tests/test_policy.py",
+      "sha256": "98bdf53bf707de42ae3d6a7cb67bac6899e15b34296fd05b73ff59bc032d0438"
+    },
+    {
+      "path": "services/agent-worker/tests/test_sdk.py",
+      "sha256": "3ecf9f719fd8204b2d92a67646c93962eeba66eecb1d3890b8a1b6e7ba8f9163"
+    },
+    {
+      "path": "services/agent-worker/tests/test_subscription_auth.py",
+      "sha256": "9aab335f42769130a503c2720646e08de5986f8287d0a2a26340e810847e812f"
+    },
+    {
+      "path": "services/agent-worker/tests/test_subscription_provider.py",
+      "sha256": "09d8b15aacdaa958c613f8314174e2e7fba83f656db86e10a8835e949fdea52e"
+    },
+    {
+      "path": "services/agent-worker/tests/test_subscription_server.py",
+      "sha256": "786c118724e8927e4aba80f794b53ddbf7da2ae0c32980bdbd4b1205989f81b7"
+    },
+    {
+      "path": "services/agent-worker/tests/test_tools.py",
+      "sha256": "1ca240a8ac8d373d74296c496656b16629f776819ddf420f083711a46e4d35e2"
+    },
+    {
+      "path": "services/agent-worker/tests/test_verification.py",
+      "sha256": "12a120b387fb3634dae3936ea1da199490b5fd790288020d10fc93e0b19f6cdd"
+    },
+    {
+      "path": "services/agent-worker/uv.lock",
+      "sha256": "a4e6334f981c6ca364496508ca86f24dd81afd995db969297035e9b7ae48bf40"
+    }
+  ]
+}
