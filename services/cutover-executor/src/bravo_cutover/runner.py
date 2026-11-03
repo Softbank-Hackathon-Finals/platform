@@ -238,11 +238,15 @@ class Cutover:
         원격 상태를 읽어 ABORT_PRE_WRITE(확정 전 · 목적지 닫힘 확인) 또는 SAFE_HOLD로 끝낸다(spec D6)."""
         handled = []
         for execution in self._store.unfinished():
+            was_pending = execution.status == Status.PENDING
             # 넘겨받는다. 앞 프로세스가 아직 살아 있어도 다음 조작 전에 소유를 잃은 것을 보고 멈춘다.
             if not self._store.claim(execution.execution_id, takeover=execution.status == Status.RUNNING):
                 continue
             handled.append(execution.execution_id)
-            if execution.status == Status.PENDING:
+            # unfinished() is only a discovery snapshot. The old owner may have
+            # persisted a mutation intent before this takeover; read it under our ownership.
+            execution = self._store.get(execution.execution_id)
+            if was_pending:
                 # 실행기가 시작하기 전에 멈췄다. 원격 조작을 하나도 하지 않았다.
                 self._store.finish(execution.execution_id, Status.ABORT_PRE_WRITE, {
                     "outcome": Status.ABORT_PRE_WRITE.value, "error": "executor restarted before the execution started",

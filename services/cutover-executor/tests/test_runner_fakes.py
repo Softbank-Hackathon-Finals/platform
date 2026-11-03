@@ -626,3 +626,38 @@ def test_process_loss_inside_precheck_preserves_existing_restrictions(store, wor
     FakeCutover(store, world).recover()
     assert store.get(execution_id).status == Status.ABORT_PRE_WRITE
     assert world.calls == [] and all(world.blocked.values())
+
+
+def test_recovery_rereads_effects_committed_between_discovery_and_takeover(store, postgres_dsn, world, monkeypatch):
+    from bravo_cutover.store import Store
+
+    execution_id = start(store)
+    captured = []
+
+    def pause_before_entry(run):
+        captured.append(run)
+        raise ProcessLost()
+
+    old = FakeCutover(store, world, hooks={"before:entry": pause_before_entry})
+    with pytest.raises(ProcessLost):
+        old.run(execution_id)
+    stale = store.get(execution_id)
+    assert stale.result["recovery"]["effects"] == []
+    newer = Store(postgres_dsn)
+    claim = newer.claim
+
+    def racing_claim(identifier, *, takeover=False):
+        old._entry(captured[0])  # old owner still owns it after discovery, before takeover
+        return claim(identifier, takeover=takeover)
+
+    monkeypatch.setattr(newer, "unfinished", lambda: [stale])
+    monkeypatch.setattr(newer, "claim", racing_claim)
+    try:
+        FakeCutover(newer, world).recover()
+        execution = newer.get(execution_id)
+        assert execution.status == Status.ABORT_PRE_WRITE
+        assert execution.result["recovery"]["effects"] == ["entry"]
+        assert not any(world.blocked.values())
+        assert "src.entry:False" in world.calls and "src.resume" not in world.calls
+    finally:
+        newer.close()
