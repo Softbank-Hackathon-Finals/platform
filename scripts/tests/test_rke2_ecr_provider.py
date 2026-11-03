@@ -71,6 +71,8 @@ class ProviderTests(unittest.TestCase):
             # Local tests do not require root; scope ownership mock to these files.
             real_stat = pathlib.Path.stat
             def root_stat(path, *args, **kwargs):
+                if path == pathlib.Path("/root/.aws/credentials"):
+                    raise FileNotFoundError(2, "missing")  # Test host has no shared AWS credentials.
                 actual = real_stat(path, *args, **kwargs)
                 return Mock(st_uid=0, st_mode=actual.st_mode)
             stack.enter_context(patch.object(pathlib.Path, "stat", root_stat))
