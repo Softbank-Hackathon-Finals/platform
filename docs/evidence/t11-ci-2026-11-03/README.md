@@ -45,3 +45,11 @@
 검증 뒤 15:55 KST에 임시 root의 16개 자원을 삭제했다. state 잔여 0, 인스턴스 terminated와 VPC·루트 EBS·IAM 역할 부재를 [AWS 재조회](cleanup-readback.json)로 확인했다.
 
 별도 로컬 실행에서는 [기존 ChatGPT 계정으로 실제 OpenAI 응답](openai-account-local.md)을 검증했다. 위 AWS 실행에서 모델을 호출하지 않았다는 범위는 그대로이며, 두 결과를 하나의 클라우드 모델 호출로 합치지 않는다.
+
+## AWS 제공자 상태 재확인 (11/3 17시대 KST)
+
+[읽기 전용 재조회](provider-recheck-2026-11-03.json)에서 현재 AWS 계정이 원래 실행 계정과 일치함을 확인하고, SSM의 원래 명령 상태·반환된 영수증을 다시 대조했다. **`tests_and_wheel`로 이름 붙인 첫 복합 명령의 전체 결과는 Failed / 종료 코드 100**이다. 해당 명령은 Ruff → pytest → wheel 빌드 뒤 Docker 호스트 패키지 설치를 수행했다. 따라서 이 명령 ID 하나를 전체 성공 영수증으로 사용하면 안 된다.
+
+이후 성공한 `receipt` 명령이 반환한 별도 로그에는 `74 passed`, Ruff 성공, wheel 생성이 각각 남아 있다. 반환된 runtime JSON도 기존 `aws-runtime-results.json`의 runtime과 일치했다. 후속 `container_build`, `container_checks`, `receipt` 명령은 모두 Success / 종료 코드 0이다. 최초 호스트 준비 실패와 후속 성공을 합쳐 숨기지 않는다.
+
+실측 manifest의 22개 파일 중 현재 워커 실행 코드·시험·lock·Dockerfile은 같고, 서비스 README만 다르다. 임시 인스턴스 조회 결과는 빈 배열, 해당 VPC·디스크 수는 0이었다. 이는 기존 실행의 재조회이며 새로운 클라우드 시험, 실제 모델 API 인증·호출, 운영 플랫폼 배포, T15 통합 완료의 근거가 아니다.
