@@ -1,0 +1,167 @@
+{
+  "kind": "evaluation_profiles",
+  "schema_version": "1",
+  "tests": {
+    "SEC-01.1": {
+      "control_id": "SEC-01",
+      "method_version": "1",
+      "expected": "deny",
+      "positive_control": "required"
+    },
+    "SEC-01.2": {
+      "control_id": "SEC-01",
+      "method_version": "1",
+      "expected": "absent",
+      "positive_control": "not_applicable"
+    },
+    "SEC-01.3": {
+      "control_id": "SEC-01",
+      "method_version": "1",
+      "expected": "absent",
+      "positive_control": "required"
+    },
+    "SEC-01.4": {
+      "control_id": "SEC-01",
+      "method_version": "1",
+      "expected": "success",
+      "positive_control": "required"
+    },
+    "ENC-02.1": {
+      "control_id": "ENC-02",
+      "method_version": "1",
+      "expected": "enabled",
+      "positive_control": "not_applicable"
+    },
+    "ENC-01.1": {
+      "control_id": "ENC-01",
+      "method_version": "1",
+      "expected": "success",
+      "positive_control": "not_applicable"
+    },
+    "ENC-01.5": {
+      "control_id": "ENC-01",
+      "method_version": "1",
+      "expected": "enabled",
+      "positive_control": "not_applicable"
+    },
+    "ENC-01.2": {
+      "control_id": "ENC-01",
+      "method_version": "1",
+      "expected": "deny",
+      "positive_control": "required"
+    },
+    "ENC-01.3": {
+      "control_id": "ENC-01",
+      "method_version": "1",
+      "expected": "deny",
+      "positive_control": "required"
+    },
+    "ENC-01.4": {
+      "control_id": "ENC-01",
+      "method_version": "1",
+      "expected": "enabled",
+      "positive_control": "not_applicable"
+    },
+    "AUD-01.1": {
+      "control_id": "AUD-01",
+      "method_version": "1",
+      "expected": "present",
+      "positive_control": "not_applicable"
+    },
+    "AUD-01.2": {
+      "control_id": "AUD-01",
+      "method_version": "1",
+      "expected": "present",
+      "positive_control": "not_applicable"
+    },
+    "AUD-01.3": {
+      "control_id": "AUD-01",
+      "method_version": "1",
+      "expected": "present",
+      "positive_control": "not_applicable"
+    },
+    "NET-01.1": {
+      "control_id": "NET-01",
+      "method_version": "1",
+      "expected": "absent",
+      "positive_control": "required"
+    },
+    "NET-01.2": {
+      "control_id": "NET-01",
+      "method_version": "1",
+      "expected": "deny",
+      "positive_control": "required"
+    },
+    "NET-01.3": {
+      "control_id": "NET-01",
+      "method_version": "1",
+      "expected": "deny",
+      "positive_control": "required"
+    },
+    "IAM-01.1": {
+      "control_id": "IAM-01",
+      "method_version": "1",
+      "expected": "deny",
+      "positive_control": "required"
+    },
+    "IAM-01.2": {
+      "control_id": "IAM-01",
+      "method_version": "1",
+      "expected": "absent",
+      "positive_control": "not_applicable"
+    },
+    "ISO-01.1": {
+      "control_id": "ISO-01",
+      "method_version": "1",
+      "expected": "deny",
+      "positive_control": "required"
+    },
+    "DR-01.1": {
+      "control_id": "DR-01",
+      "method_version": "1",
+      "expected": "success",
+      "positive_control": "not_applicable"
+    }
+  },
+  "profiles": [
+    {
+      "id": "demo-gate",
+      "version": "1",
+      "app": "demo-chat",
+      "description": "데모 게이트 질문 3개 (README 5절). examples/의 게이트 예시가 이 프로필을 쓴다",
+      "required_test_ids": [
+        "IAM-01.1",
+        "SEC-01.1",
+        "AUD-01.1"
+      ]
+    },
+    {
+      "id": "full",
+      "version": "1",
+      "app": "demo-chat",
+      "description": "하위 시험 20개 전체. 설계 문서 S1 · S3 인수 조건(6개 통제, 예외 승인 외 FAIL · UNKNOWN 0개)의 판정 범위",
+      "required_test_ids": [
+        "SEC-01.1",
+        "SEC-01.2",
+        "SEC-01.3",
+        "SEC-01.4",
+        "ENC-02.1",
+        "ENC-01.1",
+        "ENC-01.5",
+        "ENC-01.2",
+        "ENC-01.3",
+        "ENC-01.4",
+        "AUD-01.1",
+        "AUD-01.2",
+        "AUD-01.3",
+        "NET-01.1",
+        "NET-01.2",
+        "NET-01.3",
+        "IAM-01.1",
+        "IAM-01.2",
+        "ISO-01.1",
+        "DR-01.1"
+      ]
+    }
+  ]
+}

@@ -2,13 +2,16 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/Softbank-Hackathon-Finals/platform/docs/controls/control-result.schema.json",
   "title": "통제 시험 결과 · 증거 형식 (T5)",
-  "description": "T14가 만드는 ControlRun과 T19가 만드는 GateComparison. 판정 규칙과 스키마가 강제하지 못하는 검사는 docs/controls/README.md.",
+  "description": "T14가 만드는 ControlRun, T19가 만드는 GateComparison, 게이트 범위를 정하는 EvaluationProfiles. 판정 규칙과 스키마가 강제하지 못하는 검사는 docs/controls/README.md.",
   "oneOf": [
     {
       "$ref": "#/$defs/ControlRun"
     },
     {
       "$ref": "#/$defs/GateComparison"
+    },
+    {
+      "$ref": "#/$defs/EvaluationProfiles"
     }
   ],
   "$defs": {
@@ -129,8 +132,10 @@
     },
     "ExceptionApproval": {
       "type": "object",
-      "description": "대체 불가 예외. 게이트에서 사람이 승인한다. 동등 판정에 넣지 않고 따로 표시한다.",
+      "description": "대체 불가 예외. 게이트에서 사람이 승인한다. 동등 판정에 넣지 않고 따로 표시한다. 권한의 근거는 approval_id가 가리키는 서버 승인 기록(T10)이다. 이 문서의 approved_by는 표시용이다.",
       "required": [
+        "approval_id",
+        "scope",
         "approved_by",
         "approved_at",
         "expires_at",
@@ -139,8 +144,43 @@
       ],
       "additionalProperties": false,
       "properties": {
+        "approval_id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "T10이 저장한 승인 기록의 ID. T19 · T10은 이 기록이 있고 아래 scope · 시각과 같은지 확인한다."
+        },
+        "scope": {
+          "type": "object",
+          "description": "승인이 적용되는 범위. 하나라도 현재 게이트와 다르면 예외는 무효다(EXCEPTION_INVALID).",
+          "required": [
+            "app",
+            "target_environment_id",
+            "test_id",
+            "profile_id",
+            "profile_version"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "app": {
+              "type": "string"
+            },
+            "target_environment_id": {
+              "type": "string"
+            },
+            "test_id": {
+              "$ref": "#/$defs/TestId"
+            },
+            "profile_id": {
+              "type": "string"
+            },
+            "profile_version": {
+              "type": "string"
+            }
+          }
+        },
         "approved_by": {
-          "type": "string"
+          "type": "string",
+          "description": "표시용. 권한 근거가 아니다."
         },
         "approved_at": {
           "$ref": "#/$defs/Timestamp"
@@ -286,6 +326,9 @@
               }
             }
           }
+        },
+        {
+          "$ref": "#/$defs/TestIdMatchesControl"
         }
       ]
     },
@@ -402,7 +445,11 @@
             "TARGET_UNKNOWN",
             "EVIDENCE_EXPIRED",
             "METHOD_MISMATCH",
-            "EXCEPTION_APPROVED"
+            "EXCEPTION_APPROVED",
+            "MISSING_RESULT",
+            "DUPLICATE_RESULT",
+            "INVARIANT_VIOLATION",
+            "EXCEPTION_INVALID"
           ]
         },
         "improved": {
@@ -446,19 +493,27 @@
               }
             }
           }
+        },
+        {
+          "$ref": "#/$defs/TestIdMatchesControl"
         }
       ]
     },
     "GateComparison": {
       "type": "object",
-      "description": "원본 대조 게이트(T19)의 보안 질문 판정. 하나라도 BLOCK이면 decision은 BLOCK.",
+      "description": "원본 대조 게이트(T19)의 보안 질문 판정. 행은 평가 프로필의 required_test_ids에서 만든다(실행 결과에서 만들지 않는다). 하나라도 BLOCK이거나 run_issues가 있으면 decision은 BLOCK.",
       "required": [
         "kind",
         "schema_version",
         "gate_id",
+        "profile",
+        "app",
         "evaluated_at",
         "source_run_id",
         "target_run_id",
+        "source_environment_id",
+        "target_environment_id",
+        "run_issues",
         "decision",
         "rows"
       ],
@@ -473,6 +528,26 @@
         "gate_id": {
           "type": "string"
         },
+        "profile": {
+          "type": "object",
+          "description": "이 게이트가 쓴 평가 프로필 (profiles.json)",
+          "required": [
+            "id",
+            "version"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "version": {
+              "type": "string"
+            }
+          }
+        },
+        "app": {
+          "type": "string"
+        },
         "evaluated_at": {
           "$ref": "#/$defs/Timestamp"
         },
@@ -481,6 +556,26 @@
         },
         "target_run_id": {
           "type": "string"
+        },
+        "source_environment_id": {
+          "type": "string"
+        },
+        "target_environment_id": {
+          "type": "string",
+          "description": "예외 승인의 scope.target_environment_id와 같아야 한다"
+        },
+        "run_issues": {
+          "type": "array",
+          "description": "두 실행 묶음 자체의 문제. 하나라도 있으면 BLOCK이다.",
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "RUN_NOT_FOUND",
+              "APP_MISMATCH",
+              "ENVIRONMENT_ROLE_MISMATCH",
+              "SAME_ENVIRONMENT"
+            ]
+          }
         },
         "decision": {
           "enum": [
@@ -493,6 +588,319 @@
           "minItems": 1,
           "items": {
             "$ref": "#/$defs/GateRow"
+          }
+        }
+      },
+      "allOf": [
+        {
+          "description": "PASS면 BLOCK 행과 실행 묶음 문제가 없다.",
+          "if": {
+            "properties": {
+              "decision": {
+                "const": "PASS"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "rows": {
+                "items": {
+                  "properties": {
+                    "decision": {
+                      "enum": [
+                        "PASS",
+                        "EXCEPTION"
+                      ]
+                    }
+                  }
+                }
+              },
+              "run_issues": {
+                "maxItems": 0
+              }
+            }
+          }
+        },
+        {
+          "description": "BLOCK이면 BLOCK 행이나 실행 묶음 문제가 하나 이상 있다.",
+          "if": {
+            "properties": {
+              "decision": {
+                "const": "BLOCK"
+              }
+            }
+          },
+          "then": {
+            "anyOf": [
+              {
+                "properties": {
+                  "rows": {
+                    "contains": {
+                      "properties": {
+                        "decision": {
+                          "const": "BLOCK"
+                        }
+                      }
+                    }
+                  }
+                }
+              },
+              {
+                "properties": {
+                  "run_issues": {
+                    "minItems": 1
+                  }
+                }
+              }
+            ]
+          }
+        }
+      ]
+    },
+    "TestIdMatchesControl": {
+      "description": "시험 ID의 앞부분과 통제 ID가 같아야 한다 (예: IAM-01.1 → IAM-01).",
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "test_id": {
+                "pattern": "^SEC-01\\."
+              }
+            },
+            "required": [
+              "test_id"
+            ]
+          },
+          "then": {
+            "properties": {
+              "control_id": {
+                "const": "SEC-01"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "test_id": {
+                "pattern": "^ENC-01\\."
+              }
+            },
+            "required": [
+              "test_id"
+            ]
+          },
+          "then": {
+            "properties": {
+              "control_id": {
+                "const": "ENC-01"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "test_id": {
+                "pattern": "^ENC-02\\."
+              }
+            },
+            "required": [
+              "test_id"
+            ]
+          },
+          "then": {
+            "properties": {
+              "control_id": {
+                "const": "ENC-02"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "test_id": {
+                "pattern": "^AUD-01\\."
+              }
+            },
+            "required": [
+              "test_id"
+            ]
+          },
+          "then": {
+            "properties": {
+              "control_id": {
+                "const": "AUD-01"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "test_id": {
+                "pattern": "^NET-01\\."
+              }
+            },
+            "required": [
+              "test_id"
+            ]
+          },
+          "then": {
+            "properties": {
+              "control_id": {
+                "const": "NET-01"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "test_id": {
+                "pattern": "^IAM-01\\."
+              }
+            },
+            "required": [
+              "test_id"
+            ]
+          },
+          "then": {
+            "properties": {
+              "control_id": {
+                "const": "IAM-01"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "test_id": {
+                "pattern": "^ISO-01\\."
+              }
+            },
+            "required": [
+              "test_id"
+            ]
+          },
+          "then": {
+            "properties": {
+              "control_id": {
+                "const": "ISO-01"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "test_id": {
+                "pattern": "^DR-01\\."
+              }
+            },
+            "required": [
+              "test_id"
+            ]
+          },
+          "then": {
+            "properties": {
+              "control_id": {
+                "const": "DR-01"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "EvaluationProfiles": {
+      "type": "object",
+      "description": "시험별 불변조건(카탈로그)과 게이트가 요구하는 시험 범위(프로필). profiles.json.",
+      "required": [
+        "kind",
+        "schema_version",
+        "tests",
+        "profiles"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "evaluation_profiles"
+        },
+        "schema_version": {
+          "const": "1"
+        },
+        "tests": {
+          "type": "object",
+          "description": "시험 ID → 결과가 지켜야 할 값. 결과가 하나라도 다르면 그 행은 INVARIANT_VIOLATION으로 BLOCK이다.",
+          "propertyNames": {
+            "$ref": "#/$defs/TestId"
+          },
+          "additionalProperties": {
+            "type": "object",
+            "required": [
+              "control_id",
+              "method_version",
+              "expected",
+              "positive_control"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "control_id": {
+                "$ref": "#/$defs/ControlId"
+              },
+              "method_version": {
+                "type": "string"
+              },
+              "expected": {
+                "$ref": "#/$defs/Outcome"
+              },
+              "positive_control": {
+                "enum": [
+                  "required",
+                  "not_applicable"
+                ],
+                "description": "required면 PASS · FAIL 결과의 positive_control은 pass여야 한다"
+              }
+            }
+          }
+        },
+        "profiles": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "required": [
+              "id",
+              "version",
+              "app",
+              "description",
+              "required_test_ids"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "version": {
+                "type": "string"
+              },
+              "app": {
+                "type": "string"
+              },
+              "description": {
+                "type": "string"
+              },
+              "required_test_ids": {
+                "type": "array",
+                "minItems": 1,
+                "uniqueItems": true,
+                "items": {
+                  "$ref": "#/$defs/TestId"
+                }
+              }
+            }
           }
         }
       }

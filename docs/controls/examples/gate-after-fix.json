@@ -2,9 +2,17 @@
   "kind": "gate_comparison",
   "schema_version": "1",
   "gate_id": "gate-0002",
+  "profile": {
+    "id": "demo-gate",
+    "version": "1"
+  },
+  "app": "demo-chat",
   "evaluated_at": "2026-11-04T11:35:00Z",
   "source_run_id": "run-src-0001",
   "target_run_id": "run-tgt-0002",
+  "source_environment_id": "env-aws",
+  "target_environment_id": "env-onprem",
+  "run_issues": [],
   "decision": "PASS",
   "rows": [
     {
