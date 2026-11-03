@@ -27,6 +27,9 @@ def main():
                    "FROM unnest(ARRAY['public.messages','public.attachments']) AS t "
                    "CROSS JOIN unnest(ARRAY['INSERT','UPDATE','DELETE','TRUNCATE']) AS p;")
     checks["both_tables_all_write_privileges_absent"] = result.returncode == 0 and result.stdout.strip() == b"t"
+    result = query("SELECT bool_and(NOT has_any_column_privilege(current_user, t, 'INSERT,UPDATE')) "
+                   "FROM unnest(ARRAY['public.messages','public.attachments']) AS t;")
+    checks["both_tables_column_write_privileges_absent"] = result.returncode == 0 and result.stdout.strip() == b"t"
     result = query("IDENTIFY_SYSTEM;", conninfo="dbname=chat replication=database")
     checks["logical_replication_allowed"] = result.returncode == 0
     result = query("IDENTIFY_SYSTEM;", conninfo="replication=true")
