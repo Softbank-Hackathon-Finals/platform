@@ -14,6 +14,7 @@ from bravo_cutover.remote.db import DbControl, WriteRefusal, try_app_write
 from bravo_cutover.remote.kube import Kube, WriteBlock
 from bravo_cutover.remote.pgbouncer import PgBouncerAdmin
 from bravo_cutover.runner import STEPS, Cutover
+from bravo_cutover.sites import registry_from_sites
 from tests.mockenv_support import WriterWatch, mock_config, needs_mockenv, post_message, reset
 
 pytestmark = needs_mockenv
@@ -39,7 +40,7 @@ def start(store, epoch=None, deadline_s=120):
         target={"environment_id": "env-onprem", "connection_ref": "mock/dst"},
         write_pause_budget_ms=5000, deadline=datetime.now(UTC) + timedelta(seconds=deadline_s),
     )
-    execution, _ = store.create(str(uuid.uuid4()), request)
+    execution, _ = store.create(str(uuid.uuid4()), request, registry_from_sites(mock_config().sites).resolve(request))
     return execution.execution_id
 
 
@@ -121,7 +122,7 @@ def test_api_runs_cutover_in_background_and_reports_state(store, config, sides):
     from bravo_cutover.api import create_app
     from bravo_cutover.runner import ThreadRunner
 
-    client = TestClient(create_app(store, ThreadRunner(Cutover(store, config))))
+    client = TestClient(create_app(store, ThreadRunner(Cutover(store, config)), registry_from_sites(config.sites)))
     request = {
         "plan_id": "plan-api", "epoch": int(time.time() * 1000),
         "source": {"environment_id": "env-aws", "connection_ref": "mock/src"},

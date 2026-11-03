@@ -14,6 +14,15 @@ uvx ruff check .
 uv run uvicorn bravo_cutover.api:create_app --factory --port 8080
 ```
 
+실행 설정: `EXECUTOR_DB`(실행 기록 DB), `EXECUTOR_RESOURCES`(환경별 실제 DB 자원 등록 파일).
+
+```json
+{"env-aws": {"resource_id": "cnpg-aws/chat", "connection_ref": "secret/source"},
+ "env-onprem": {"resource_id": "cnpg-onprem/chat", "connection_ref": "secret/target"}}
+```
+
+요청의 `environment_id` · `connection_ref`는 이 등록 정보와 맞아야 하고, lease · epoch는 `resource_id`마다 걸린다. 같은 DB를 다른 환경 이름으로 등록해도 같은 `resource_id`면 겹치는 실행으로 막힌다.
+
 ## 모의 환경 (k3d)
 
 T8(복제) · T30(목적지) 전에 Executor를 시험하는 곳. 클러스터 하나에 출발지 `src` · 목적지 `dst` 네임스페이스를 두고 각각 Postgres 16 · PgBouncer 1.26.1 · demo-chat 2개를 띄운다. 가짜 AWS(moto)는 `aws` 네임스페이스. 복제는 직접 만든 구독으로 흉내 낸다: `dst`의 `bravo_fwd`(src → dst, 켜짐), `src`의 `bravo_rev`(dst → src, 꺼짐).

@@ -18,14 +18,15 @@ from bravo_cutover.remote import Unconfirmed
 from bravo_cutover.remote.db import Subscription, WriteRefusal
 from bravo_cutover.remote.pgbouncer import PoolState
 from bravo_cutover.runner import STEPS, Cutover
-from bravo_cutover.sites import Config, Settings, Site
+from bravo_cutover.sites import Config, Settings, Site, registry_from_sites
 
 INI = "[databases]\nchat = host={host} port=5432 dbname=chat\n\n[pgbouncer]\nlisten_port = 6432\n"
 
 
 def site(env: str, ns: str, subscription: str) -> Site:
     return Site(
-        environment_id=env, kube_context="fake", namespace=ns, subscription=subscription,
+        environment_id=env, resource_id=f"fake-{ns}/chat", connection_ref=f"fake/{ns}",
+        kube_context="fake", namespace=ns, subscription=subscription,
         pgbouncer_admin_dsn=f"fake:{ns}:admin", pgbouncer_app_dsn=f"fake:{ns}:pool",
         db_control_dsn=f"fake:{ns}:control", db_app_dsn=f"fake:{ns}:db", db_host=f"{ns}-db",
     )
@@ -232,7 +233,7 @@ def start(store) -> uuid.UUID:
         target={"environment_id": "env-onprem", "connection_ref": "fake/dst"},
         write_pause_budget_ms=5000, deadline=datetime.now(UTC) + timedelta(minutes=1),
     )
-    return store.create(str(uuid.uuid4()), request)[0].execution_id
+    return store.create(str(uuid.uuid4()), request, registry_from_sites(CONFIG.sites).resolve(request))[0].execution_id
 
 
 def test_happy_path_with_fakes(store, world):
@@ -338,3 +339,5 @@ def test_pgbouncer_pod_changed_during_execution_is_unknown(store, world, when, c
     else:
         assert execution.status == Status.SAFE_HOLD
     assert not (world.login["src"] and world.login["dst"])
+
+

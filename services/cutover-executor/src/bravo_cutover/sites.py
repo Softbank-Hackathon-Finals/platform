@@ -14,6 +14,9 @@ class Site(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     environment_id: str
+    # 실제 DB 자원 ID와 허용 접속 참조(resources.Registry). lease · epoch는 resource_id마다 걸린다.
+    resource_id: str
+    connection_ref: str
     kube_context: str
     namespace: str
     app_selector: str = "app=demo-chat"
@@ -67,3 +70,11 @@ class Config(BaseModel):
 
 def load_config(path: str | Path) -> Config:
     return Config.model_validate(json.loads(Path(path).read_text()))
+
+
+def registry_from_sites(sites: dict[str, Site]):
+    """실행기 설정의 환경 목록으로 자원 등록을 만든다(설정 파일 하나로 실행기와 API가 같은 등록을 쓴다)."""
+    from bravo_cutover.resources import Registry, Resource
+
+    return Registry([Resource(environment_id=s.environment_id, resource_id=s.resource_id,
+                              connection_ref=s.connection_ref) for s in sites.values()])
