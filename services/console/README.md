@@ -48,7 +48,7 @@ corepack pnpm test:browser
 
 Python 시험은 실제 T10 HTTP/SSE/상태 저장·승인·접수 코드를 호출하며, 신원·사전 게이트·Executor 응답은 시험 fixture다. 브라우저 시험도 같은 시험용 호스트를 쓰며 실제 AWS 또는 RKE2 자원은 변경하지 않는다. `tests/browser_server.py`를 운영 서버로 배포하면 안 된다.
 
-T10/T18 선행이 아직 완료되지 않아 T21 전체 시연 완료나 보드 Done으로 처리하지 않는다. 실제 환경/앱 등록 API, 의존성·통제 비교의 상세 조회, 관측 권한 연결, 현재 계획의 승인 요청 발행, 팀 로그인·운영 권한, 실환경 컷오버와 팀 사용자 시연은 해당 담당 경로의 통합 자격을 확인해야 한다. 가중치·쓰기 공백을 화면 애니메이션으로 임의 생성하지 않는다.
+T10/T18 선행이 아직 완료되지 않아 T21 전체 시연 완료나 보드 Done으로 처리하지 않는다. 실제 환경/앱 등록 API, 의존성 조회, 통제 보고서 정본·관측 권한 연결, 현재 계획의 승인 요청 발행, 팀 로그인·운영 권한, 실환경 컷오버와 팀 사용자 시연은 해당 담당 경로의 통합 자격을 확인해야 한다. 가중치·쓰기 공백을 화면 애니메이션으로 임의 생성하지 않는다.
 
 ## T37 조회 연결
 
@@ -66,3 +66,27 @@ app = ConsoleApp(authenticated_t10_app, public_origin="https://console.example.i
 ```
 
 호스트 종료 시 `await client.aclose()`를 호출한다. 등록된 계획의 두 환경만 조회하고 임의 URL/PromQL/환경 선택은 받지 않는다. T37 토큰은 브라우저로 전달하지 않는다. 외부 조회 총 기한·응답 크기를 제한하고, scope 변경/권한 회수/응답 환경 불일치/미래·오래된 관측/NaN은 값을 노출하거나 정상으로 대신하지 않는다. 오류율·p95는 표시용이며 `for_gate_decisions: false`다. T36의 부하 창과 판정 기록은 별도 계약으로 유지한다.
+
+## T19 보안 통제 보고서 조회 연결
+
+`PlanControlReport`는 호스트에 등록된 T19 비교 보고서를 시험별 출발지·목적지 판정, 이유 코드, 예외 적용 여부로 투영한다. T5 스키마·프로필 사본은 배포 패키지에 포함하며 원본과의 일치·SHA-256을 시험한다. 별도의 통제 판정기를 만들지 않는다.
+
+```python
+from bravo_console.reports import PlanControlReport, RegisteredGateDocument
+
+# 아래 두 함수는 호스트 구현이다. 요청자가 보고서·프로필·URL을 고르지 않는다.
+# load는 현재 계획에 등록된 불변 보고서 bytes를 반환한다.
+# authenticate는 서버의 발급자 신뢰·테넌트 소유권·계획 결속을 검증한다.
+reports = PlanControlReport(authenticated_t10_app,
+    load=host_load_registered_report, authenticate=host_verify_report_authority)
+app = ConsoleApp(authenticated_t10_app,
+    public_origin="https://console.example.invalid", controls=reports)
+```
+
+- 등록 문서는 `RegisteredGateDocument(plan_id, plan_digest, document)`이며 보고서 원문은 최대 256 KiB다. 호스트의 `authenticate`는 비동기 함수이고 명시적인 `True`만 수용한다. 신뢰할 수 없는 클라이언트 필드나 단순 문자열 비교만으로 발급자를 인증하면 안 된다.
+- T10 조회 권한·계획 snapshot과 보고서 권한을 조회 전후로 확인한다. 다른 앱·환경 쌍, 누락·중복 시험, 알 수 없는 프로필, 모순되는 전체 PASS, 중복 JSON 키·비유한 숫자·미래 판정은 표시하지 않는다. 저장소·검증 오류 원문은 공개 응답에 포함하지 않는다.
+- 브라우저는 현재 게이트 ID·context digest·계획 digest가 일치하고 조회가 15초 이내인 보고서만 표시한다. 권한 회수 시 표도 제거한다. 이는 최근에 **조회한 과거 판정**이며 증거가 지금도 유효하다는 뜻은 아니다.
+- `authorizes_cutover: false`를 고정한다. 예외 적용을 동등성 PASS로 바꾸지 않는다. 전체 컷오버 조건에는 별도의 데이터 준비·SHIFT·현재 권한·승인 검사가 필요하며 T10/T19가 담당한다.
+- `report_digest`는 읽은 원문 bytes의 SHA-256이다. T19의 정규화된 서명·판정 fingerprint나 실행 승인 digest를 대신하지 않는다. 원문 질문·로그·증거 URL·승인자 개인정보는 화면 API에 반환하지 않는다.
+
+시험 호스트의 보고서와 신뢰 콜백은 명시적인 fixture다. 실제 T19 정본 저장소·발급자 인증 연결과 팀 환경 자격은 남아 있으며, fixture PASS를 실제 보안 통제 통과로 사용하지 않는다.
