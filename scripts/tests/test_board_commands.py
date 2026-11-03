@@ -80,7 +80,7 @@ class PRBoardTest(unittest.TestCase):
         return {'state': 'OPEN', 'body': body}
 
     def pr(self, **updates):
-        return {'number': 73, 'title': '[T29] workflow', 'headRefName': 'feature/T29-board',
+        return {'number': 73, 'title': '[T29] workflow', 'headRefName': 'feature/T29-board', 'baseRefName': 'develop',
                 'state': 'OPEN', 'isDraft': False, 'reviewDecision': 'REVIEW_REQUIRED',
                 'headRepository': {'nameWithOwner': sync.REPO}, **updates}
 
@@ -118,3 +118,25 @@ class PRBoardTest(unittest.TestCase):
         with patch.object(sync, 'gql', side_effect=responses) as gql:
             self.assertEqual(sync.Board().status(5), 'In review')
         self.assertEqual(gql.call_args.kwargs['after'], 'next')
+
+    def test_legacy_pr51_reaches_existing_t5_card(self):
+        board = Mock(id='project')
+        pr = self.pr(number=51, title='[T5] 6개 통제 시험 설계', headRefName='t5-control-contract')
+        issues = {'T5': {**self.issue(), 'number': 9, 'id': 'issue-9'}}
+        with patch.object(sync, 'load_issues', return_value=issues), patch.object(sync, 'Board', return_value=board), \
+             patch.object(sync, 'load_prs', return_value=[pr]), \
+             patch.object(sync, 'gql', return_value={'node': {'fields': {'nodes': []}}}), \
+             contextlib.redirect_stdout(io.StringIO()):
+            sync.sync_prs(True)
+        board.set.assert_called_once_with(9, 'issue-9', 'In review', 'T5 #9', True)
+
+    def test_legacy_exception_does_not_accept_other_number_task_repo_or_base(self):
+        pr = self.pr(number=51, title='[T5] controls', headRefName='t5-control-contract')
+        self.assertEqual(sync.pr_task(pr), 'T5')
+        for change in ({'number': 52}, {'title': '[T1] controls'}, {'headRefName': 't5-other'},
+                       {'baseRefName': 'main'}, {'headRepository': None},
+                       {'headRepository': {'nameWithOwner': 'fork/platform'}}):
+            with self.subTest(change=change):
+                self.assertIsNone(sync.pr_task({**pr, **change}))
+        self.assertIsNone(sync.pr_task(self.pr(baseRefName='main')))
+        self.assertIsNone(sync.pr_task(self.pr(title='[T29]workflow')))

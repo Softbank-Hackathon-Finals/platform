@@ -28,6 +28,8 @@ OWNER = "Softbank-Hackathon-Finals"
 REPO = f"{OWNER}/platform"
 PROJECT_NUMBER = 2
 TASKS = Path(__file__).resolve().parents[1] / "docs/tasks.md"
+# Gitflow 전환 전에 열린 PR만 정확한 번호·작업·브랜치로 허용한다.
+LEGACY_PRS = {51: ("T5", "t5-control-contract")}
 
 LOGINS = {
     "류지환": "mangowhoiscloud",
@@ -521,7 +523,7 @@ def load_prs() -> list[dict]:
     while True:
         data = gql("""query($o:String!,$after:String){repository(owner:$o,name:"platform"){
           pullRequests(first:100,after:$after,orderBy:{field:UPDATED_AT,direction:DESC}){
-            nodes{number title state isDraft headRefName reviewDecision mergedAt
+            nodes{number title state isDraft headRefName baseRefName reviewDecision mergedAt
               headRepository{nameWithOwner} url
               commits(last:1){nodes{commit{statusCheckRollup{state}}}}}
             pageInfo{hasNextPage endCursor}}}}""".replace(
@@ -562,17 +564,30 @@ def pr_task_status(issue: dict, prs: list[dict]) -> str:
     return "In review"
 
 
+def pr_task(pr: dict) -> str | None:
+    """Bind only this repository's develop PRs to their matching task."""
+    if (pr.get("headRepository") or {}).get("nameWithOwner") != REPO:
+        return None
+    if pr.get("baseRefName") != "develop":
+        return None
+    match = re.match(r"^\[(T\d+)\] ", pr["title"])
+    if not match:
+        return None
+    task, branch = match[1], pr["headRefName"]
+    if re.fullmatch(rf"feature/{task}-[A-Za-z0-9][A-Za-z0-9._-]*", branch):
+        return task
+    if LEGACY_PRS.get(pr["number"]) == (task, branch):
+        return task
+    return None
+
+
 def sync_prs(dry: bool) -> None:
     """Update existing task cards only. Never check tasks, close issues, or merge PRs."""
     issues, board, grouped = load_issues(), Board(), {}
     for pr in load_prs():
-        match = re.match(r"^\[(T\d+)\]", pr["title"])
-        if not match or not re.match(rf"^feature/{match[1]}-", pr["headRefName"]):
-            continue
-        if (pr.get("headRepository") or {}).get("nameWithOwner") != REPO:
-            continue
-        if match[1] in issues:
-            grouped.setdefault(match[1], []).append(pr)
+        task = pr_task(pr)
+        if task in issues:
+            grouped.setdefault(task, []).append(pr)
     fields = gql("""query($p:ID!){node(id:$p){... on ProjectV2{
       fields(first:100){nodes{... on ProjectV2Field{id name dataType}}}}}}""", p=board.id)
     status_field = next((f for f in fields["node"]["fields"]["nodes"] if f.get("name") == "PR 상태"), None)
