@@ -340,3 +340,102 @@ export function observation(value, current, now) {
   }
   return rows;
 }
+
+export const CONTROL_TESTS = Object.freeze({
+  "SEC-01.1": "다른 서비스 계정의 Secret 읽기 거부",
+  "SEC-01.2": "소스·매니페스트의 평문 비밀 검사",
+  "SEC-01.3": "로그의 비밀 노출 검사",
+  "SEC-01.4": "비밀 회전 후 새 DB 연결·쓰기",
+  "ENC-02.1": "비밀 저장소 암호화",
+  "ENC-01.1": "앱 → Pooler 인증서 검증 TLS",
+  "ENC-01.2": "잘못된 CA·호스트 이름 거부",
+  "ENC-01.3": "평문 DB 연결 거부",
+  "ENC-01.4": "DB 복제 구간 인증서 검증 TLS",
+  "ENC-01.5": "Pooler → DB 인증서 검증 TLS",
+  "AUD-01.1": "관리자 로그인 감사 검색",
+  "AUD-01.2": "DDL 생성·삭제 감사 검색",
+  "AUD-01.3": "권한 변경 감사 검색",
+  "NET-01.1": "허용 목록 외 공개 포트 검사",
+  "NET-01.2": "외부 DB 접속 거부·대조군 확인",
+  "NET-01.3": "다른 namespace DB 접속 거부·대조군 확인",
+  "IAM-01.1": "익명 첨부파일 읽기 거부",
+  "IAM-01.2": "최소 권한 기준선 검사",
+  "ISO-01.1": "앱 간 첨부·DB 접근 격리",
+  "DR-01.1": "새 DB 복원 후 표식·행 수 확인",
+});
+
+// A bound historical read model, never a new execution/approval authority.
+export function controlReport(value, current, gate, now) {
+  if (
+    !object(value) ||
+    value.kind !== "console-control-report.v1" ||
+    value.plan_id !== current.plan_id ||
+    value.plan_digest !== current.plan_digest ||
+    value.source_environment_id !== current.source_environment_id ||
+    value.target_environment_id !== current.target_environment_id ||
+    value.authorizes_cutover !== false ||
+    !gate ||
+    value.gate_id !== gate.data.gate_id ||
+    value.context_digest !== gate.data.context_digest ||
+    !/^[0-9a-f]{64}$/.test(value.report_digest) ||
+    !date(value.queried_at) ||
+    now < Date.parse(value.queried_at) ||
+    now - Date.parse(value.queried_at) > 15000 ||
+    !date(value.evaluated_at) ||
+    Date.parse(value.evaluated_at) > now ||
+    !object(value.profile) ||
+    !["demo-gate", "full"].includes(value.profile.id) ||
+    value.profile.version !== "1" ||
+    !["PASS", "BLOCK", "EXCEPTION"].includes(value.decision) ||
+    !Array.isArray(value.rows) ||
+    value.rows.length !== (value.profile.id === "full" ? 20 : 3) ||
+    !Array.isArray(value.run_issues) ||
+    value.run_issues.some(
+      (x) =>
+        ![
+          "RUN_NOT_FOUND",
+          "APP_MISMATCH",
+          "ENVIRONMENT_ROLE_MISMATCH",
+          "SAME_ENVIRONMENT",
+        ].includes(x),
+    )
+  )
+    fail("invalid_control_report");
+  const seen = new Set();
+  const reasons = [
+    "BOTH_PASS",
+    "IMPROVED",
+    "TARGET_FAIL",
+    "SOURCE_UNKNOWN",
+    "TARGET_UNKNOWN",
+    "EVIDENCE_EXPIRED",
+    "METHOD_MISMATCH",
+    "EXCEPTION_APPROVED",
+    "MISSING_RESULT",
+    "DUPLICATE_RESULT",
+    "INVARIANT_VIOLATION",
+    "EXCEPTION_INVALID",
+  ];
+  for (const row of value.rows) {
+    if (
+      !object(row) ||
+      !Object.hasOwn(CONTROL_TESTS, row.test_id) ||
+      row.control_id !== row.test_id.split(".")[0] ||
+      seen.has(row.test_id) ||
+      !["PASS", "FAIL", "UNKNOWN"].includes(row.source_verdict) ||
+      !["PASS", "FAIL", "UNKNOWN"].includes(row.target_verdict) ||
+      !["PASS", "BLOCK", "EXCEPTION"].includes(row.decision) ||
+      !reasons.includes(row.reason) ||
+      typeof row.improved !== "boolean" ||
+      typeof row.exception_applied !== "boolean"
+    )
+      fail("invalid_control_row");
+    seen.add(row.test_id);
+  }
+  if (
+    value.profile.id === "demo-gate" &&
+    !["IAM-01.1", "SEC-01.1", "AUD-01.1"].every((x) => seen.has(x))
+  )
+    fail("incomplete_control_report");
+  return clone(value);
+}

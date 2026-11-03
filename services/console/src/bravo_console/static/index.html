@@ -131,6 +131,40 @@
       </div>
       <section class="card">
         <div class="section-title">
+          <h2>보안 통제 비교</h2>
+          <span id="control-status">검증된 보고서 미연결</span>
+        </div>
+        <p id="control-time" class="muted">
+          현재 계획·게이트와 일치하는 서버 보고서를 기다립니다.
+        </p>
+        <div
+          class="table-scroll"
+          tabindex="0"
+          role="region"
+          aria-label="출발지와 목적지 보안 시험 비교"
+        >
+          <table class="control-table">
+            <thead>
+              <tr>
+                <th scope="col">시험 ID</th>
+                <th scope="col">출발지</th>
+                <th scope="col">목적지</th>
+                <th scope="col">보안 판정</th>
+                <th scope="col">근거 코드</th>
+              </tr>
+            </thead>
+            <tbody id="control-rows"></tbody>
+          </table>
+        </div>
+        <p id="control-issues" role="status"></p>
+        <p class="muted">
+          기록된 보안 시험 결과입니다. 데이터 준비·운영 승인·실행 직전 재검증을
+          포함한 전체 전환 허가를 뜻하지 않습니다. EXCEPTION은 동등성 통과와
+          구분한 승인 예외입니다.
+        </p>
+      </section>
+      <section class="card">
+        <div class="section-title">
           <h2>실행·차단 이력</h2>
           <span>최신 100건 표시</span>
         </div>

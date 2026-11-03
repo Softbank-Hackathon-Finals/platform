@@ -1,4 +1,11 @@
-import { Model, STATES, identifier, observation } from "./model.js";
+import {
+  Model,
+  STATES,
+  identifier,
+  observation,
+  controlReport,
+  CONTROL_TESTS,
+} from "./model.js";
 import { request, stream } from "./transport.js";
 const $ = (id) => document.getElementById(id);
 let model,
@@ -7,6 +14,7 @@ let model,
   streamController,
   postController;
 let observed = null;
+let controls = null;
 let pending = null,
   commandId = null,
   lastHeartbeat = 0,
@@ -87,6 +95,48 @@ function render() {
         : "미확인",
     );
   }
+  const reportFresh =
+    controls &&
+    now - controls.at < 15000 &&
+    controls.report.gate_id === model.gate?.data.gate_id &&
+    controls.report.context_digest === model.gate?.data.context_digest;
+  text(
+    "control-status",
+    reportFresh
+      ? `${controls.report.profile.id} · 기록된 보안 판정 ${controls.report.decision}`
+      : "검증된 보고서 미연결",
+  );
+  text(
+    "control-time",
+    reportFresh
+      ? `평가 ${new Date(controls.report.evaluated_at).toLocaleString("ko-KR")} · 조회 ${new Date(controls.report.queried_at).toLocaleTimeString("ko-KR")}`
+      : "현재 계획·게이트와 일치하는 서버 보고서를 기다립니다.",
+  );
+  const controlRows = reportFresh
+    ? controls.report.rows.map((row) => {
+        const tr = document.createElement("tr");
+        for (const value of [
+          `${row.test_id} · ${CONTROL_TESTS[row.test_id]}`,
+          row.source_verdict,
+          row.target_verdict,
+          row.decision,
+          row.reason + (row.exception_applied ? " · 예외 적용" : ""),
+        ]) {
+          const td = document.createElement("td");
+          td.textContent = value;
+          tr.append(td);
+        }
+        if (row.decision !== "PASS") tr.className = "blocked-row";
+        return tr;
+      })
+    : [];
+  $("control-rows").replaceChildren(...controlRows);
+  text(
+    "control-issues",
+    reportFresh && controls.report.run_issues.length
+      ? `실행 묶음 문제: ${controls.report.run_issues.join(", ")}`
+      : "",
+  );
   text("cursor", `확인한 이벤트 ${model.cursor}건`);
   text("gate-status", model.gate?.data.decision ?? "미확인");
   const phases = STATES.map((s) => {
@@ -167,6 +217,7 @@ function revokeView(error) {
   model = new Model(model.plan);
   model.error = "forbidden";
   observed = null;
+  controls = null;
   commandId = null;
   notice(messages.forbidden, true);
   text(
@@ -187,17 +238,44 @@ async function refresh(g) {
     });
     if (g !== generation) return;
     model.observeSnapshot(value, Date.now());
-    try {
-      const metrics = await request(`/v1/plans/${model.plan}/observations`, {
+    const [metrics, report] = await Promise.allSettled([
+      request(`/v1/plans/${model.plan}/observations`, {
         signal: AbortSignal.timeout(7000),
-      });
-      if (g === generation)
-        observed = {
-          rows: observation(metrics, model.snapshot, Date.now()),
-          at: Date.now(),
-        };
+      }),
+      request(`/v1/plans/${model.plan}/controls`, {
+        signal: AbortSignal.timeout(7000),
+      }),
+    ]);
+    if (g !== generation) return;
+    for (const result of [metrics, report]) {
+      if (result.status === "rejected" && revokeView(result.reason)) return;
+    }
+    try {
+      observed =
+        metrics.status === "fulfilled"
+          ? {
+              rows: observation(metrics.value, model.snapshot, Date.now()),
+              at: Date.now(),
+            }
+          : null;
     } catch {
-      if (g === generation) observed = null;
+      observed = null;
+    }
+    try {
+      controls =
+        report.status === "fulfilled"
+          ? {
+              report: controlReport(
+                report.value,
+                model.snapshot,
+                model.gate,
+                Date.now(),
+              ),
+              at: Date.now(),
+            }
+          : null;
+    } catch {
+      controls = null;
     }
   } catch (error) {
     if (g !== generation || revokeView(error)) return;
@@ -279,6 +357,7 @@ $("connect-form").onsubmit = async (e) => {
   clearInterval(refreshTimer);
   model = new Model(plan);
   observed = null;
+  controls = null;
   commandId = null;
   lastHeartbeat = 0;
   refreshBusy = false;

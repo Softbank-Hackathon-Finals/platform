@@ -375,3 +375,26 @@ footer {
 [hidden] {
   display: none !important;
 }
+
+.table-scroll {
+  max-width: 100%;
+  overflow-x: auto;
+}
+.control-table {
+  border-collapse: collapse;
+  width: 100%;
+  font-size: 0.85rem;
+}
+.control-table th,
+.control-table td {
+  text-align: left;
+  padding: 12px;
+  border-bottom: 1px solid #e2e8f0;
+  white-space: nowrap;
+}
+.control-table th {
+  color: #475569;
+}
+.control-table .blocked-row {
+  background: #fff7ed;
+}
