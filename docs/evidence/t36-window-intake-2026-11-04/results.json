@@ -1,0 +1,207 @@
+{
+  "task": "T36",
+  "date": "2026-11-04",
+  "scope": "로컬 Docker · Docker 안 k3s. 클라우드 자원 생성 · 변경 없음. 실제 플랫폼 클러스터 배포 아님",
+  "checkout_commit": "d993ec02dc9062e35794ce6b68a98ba3dd7e2d26",
+  "source_sha256": [
+    {
+      "path": "docs/observability/sli.schema.json",
+      "sha256": "846827b8a07de6516fa7ce6bdfb1896a52c07775823190d9e890469e69cb3ef6"
+    },
+    {
+      "path": "services/observability/src/bravo_observability/contract.py",
+      "sha256": "6c9415d7442a4c91f3e4b84843bd785d9894a32f0167cba91fb1a2e8ac7344fa"
+    },
+    {
+      "path": "services/observability/src/bravo_observability/intake.py",
+      "sha256": "22cb88567729e585fb3826ea8cd04005c82fefad0b28d61c7f56f1e02b6b0112"
+    },
+    {
+      "path": "services/observability/src/bravo_observability/intake_api.py",
+      "sha256": "f081d3e4f343ccc8f267629e4e4cec4011021b70ba5261d6a849b633c2d80abe"
+    },
+    {
+      "path": "services/observability/src/bravo_observability/api.py",
+      "sha256": "67826384a16b24fcbfff5e4fac2d1d20e00d9cc0b4c833dc1d0211e8c3dd5d91"
+    },
+    {
+      "path": "services/observability/src/bravo_observability/sli.py",
+      "sha256": "8e30d9c107cd6ccfbea9c46976cd321f826b6292dc719caa74eee331a270537e"
+    },
+    {
+      "path": "services/observability/deploy/platform/window-intake.yaml",
+      "sha256": "d05e01d4c0603fef1a4ee9f132070409e53666f726288917f3beebcbb1d83401"
+    },
+    {
+      "path": "services/observability/deploy/platform/kustomization.yaml",
+      "sha256": "eed9e418e7c48f48bc99628caf8f9892df01def367450530651ecd8051172ef3"
+    },
+    {
+      "path": "services/observability/Dockerfile",
+      "sha256": "e579fb324950e7805b2adecf3846515c81dfb935e013d7cb7631916426ef31e8"
+    },
+    {
+      "path": "services/observability/Dockerfile.dockerignore",
+      "sha256": "4c0b3db0bb7ca8b3e2e60057e88c62ce8d41479d1d62d99d9847fa094d593777"
+    },
+    {
+      "path": "services/observability/pyproject.toml",
+      "sha256": "c52438f46dacec58a4f37473008dff2e46d0e31fb10a83c278e57140fcb8fa71"
+    },
+    {
+      "path": "services/observability/uv.lock",
+      "sha256": "792097f610fc86f2de4e91e28f0ccee43ee508cfe50d5a5707339949ff6f05ad"
+    },
+    {
+      "path": "services/observability/testing/k8s.sh",
+      "sha256": "d1f861040d45c4c198bfb765102f40cc4e9bbf639bce7778f976577a805b3265"
+    },
+    {
+      "path": "services/observability/testing/stats.py",
+      "sha256": "8b3685246ee427c5bec256d7e658df9da50e8539effcdf4858c788b47838dbeb"
+    },
+    {
+      "path": "services/observability/tests/test_intake.py",
+      "sha256": "e66eb3e96a7981a8983414b15ab56826bb24a7eedd499b2b1b3e3aa7ee16ef3b"
+    }
+  ],
+  "tools": {
+    "python": "python:3.12-slim + uv 0.13.6, ruff 0.17.3",
+    "k3s": "rancher/k3s:v1.35.9-k3s1@sha256:ec9868c6a38d4e8c1869832fb5fd1eb8473c39794a0b44d2b952e7ba911951bc",
+    "cnpg": "chart 0.29.1 / operator 1.30.1 / PostgreSQL 18.4 (T6과 같음)",
+    "busybox": "busybox:1.37.0@sha256:a7dbc319b1438115a207e11930dc4bb3e643dcb3ec0bdd694bb36cd8fad289ec",
+    "trivy": "aquasec/trivy:0.76.1",
+    "hadolint": "hadolint/hadolint:v2.12.0",
+    "gitleaks": "ghcr.io/gitleaks/gitleaks:v8.24.3"
+  },
+  "image": {
+    "tested_id": "sha256:1952334001866c68234342951f1fca395b9fde7dfc92ec39df217f1455543795",
+    "note": "k3s 시험 이미지. 파일 시스템 레이어 10개가 checkout_commit 소스(README.md만 시험 당시 판)로 다시 빌드한 이미지와 모두 같다. 이미지 안 소스 내용 해시도 checkout_commit 빌드와 같다. README.md는 자원 표만 시험 뒤에 고쳤다(패키지 설명 문서)."
+  },
+  "results": {
+    "pytest": {
+      "command": "uv sync --locked && uvx ruff@0.17.3 check . && uv run --locked pytest",
+      "passed": 79,
+      "failed": 0,
+      "new": "test_intake.py 24"
+    },
+    "mutations": {
+      "command": "창 수신 보호 장치를 하나씩 빼고 pytest",
+      "caught": 11,
+      "total": 11
+    },
+    "k8s": {
+      "command": "testing/k8s.sh",
+      "passed": 18,
+      "failed": 0,
+      "exit_code": 0,
+      "runs": 4
+    },
+    "compose": {
+      "command": "testing/run.sh (빌드 컨텍스트 변경 확인)",
+      "passed": 17,
+      "failed": 0,
+      "exit_code": 0
+    },
+    "trivy_config": {
+      "command": "trivy config deploy/platform",
+      "window_intake_findings": 0,
+      "remaining": [
+        "KSV-0125 (MEDIUM, 지표 저장소 이미지 신뢰 레지스트리: 클러스터 승인 정책 몫, 기존과 같음)"
+      ]
+    },
+    "hadolint": {
+      "command": "CI와 같은 hadolint --failure-threshold warning",
+      "result": "통과"
+    },
+    "actionlint": {
+      "result": "통과"
+    }
+  },
+  "k8s_checks_added": [
+    "restricted 네임스페이스에서 창 수신 준비",
+    "window-producer 라벨 네임스페이스에서 수신 토큰으로 201, received_at은 생산자 값이 아니라 플랫폼 시각",
+    "같은 창 409, 콘솔 토큰 401",
+    "라벨 없는 네임스페이스 · 콘솔 네임스페이스는 올바른 토큰이 있어도 NetworkPolicy가 막음 (뒤이어 같은 창이 loadgen에서 201: 막힌 쪽이 저장하지 못했음)",
+    "창 수신 Pod는 나가는 연결 불가 (대조군: 조회 API는 DNS 53 연결 성공)"
+  ],
+  "capacity": {
+    "command": "BRAVO_K8S_CAPACITY=1 testing/k8s.sh",
+    "load": "앱 지표 약 2000건/초(데모 예상의 약 10배, CNPG 수집 포함) + 창 10건/초(데모의 100배), 180초",
+    "memory_note": "max_memory_mib는 working set, anon_mib는 cgroup memory.stat anon(프로세스가 쥔 메모리)",
+    "idle": {
+      "collector": {
+        "max_memory_mib": 206.3,
+        "anon_mib": 63.7,
+        "avg_cpu_m": 13.5
+      },
+      "prometheus": {
+        "max_memory_mib": 58.5,
+        "anon_mib": 31.3,
+        "avg_cpu_m": 6.0
+      },
+      "api": {
+        "max_memory_mib": 48.6,
+        "anon_mib": 42.3,
+        "avg_cpu_m": 3.5
+      },
+      "intake": {
+        "max_memory_mib": 42.2,
+        "anon_mib": 40.2,
+        "avg_cpu_m": 3.2
+      }
+    },
+    "load_result": {
+      "collector": {
+        "max_memory_mib": 223.3,
+        "anon_mib": 71.9,
+        "avg_cpu_m": 28.5,
+        "max_cpu_m": 38.2
+      },
+      "prometheus": {
+        "max_memory_mib": 71.6,
+        "anon_mib": 42.5,
+        "avg_cpu_m": 12.7,
+        "max_cpu_m": 19.1
+      },
+      "api": {
+        "max_memory_mib": 49.1,
+        "anon_mib": 42.3,
+        "avg_cpu_m": 2.8,
+        "max_cpu_m": 6.9
+      },
+      "intake": {
+        "max_memory_mib": 43.9,
+        "anon_mib": 41.1,
+        "avg_cpu_m": 29.3,
+        "max_cpu_m": 38.4
+      }
+    },
+    "windows": {
+      "201": 1656,
+      "ConnectError": 6,
+      "intake_restarts": 0
+    },
+    "platform_node_requests": {
+      "observability_cpu_m": 85,
+      "observability_memory_mi": 256,
+      "with_platform_collector_cpu_m": 135,
+      "with_platform_collector_memory_mi": 384
+    },
+    "limits": "시계열 종류 수가 적었고 Docker Desktop VM이라 EC2와 CPU 특성이 다르다. 실제 환경에서 다시 잰다"
+  },
+  "defects_found": [
+    "설계: 순서 규칙(늦게 끝나지 않는 창 거부) 때문에 미래에 끝나는 창 하나가 그 시각까지 이후 창을 모두 막는다 → 수신 시각 + max_clock_skew_seconds 넘는 창 거부(clock_ahead)",
+    "설계: 창 수신을 콘솔 조회 API에 붙이면 Tailscale 대역을 열 때 조회 경로와 mTLS 인증서를 가진 Pod가 함께 노출된다 → 별도 Deployment(나가는 연결 0, TLS Secret 없음)",
+    "jsonschema FormatChecker는 rfc3339-validator가 없으면 date-time을 검사하지 않고 통과시킨다 → 없으면 import 실패",
+    "본문을 끝까지 읽은 뒤 크기를 검사했다 → 읽는 중 64KiB에서 자름",
+    "참조 저장이 무한히 쌓여 emptyDir sizeLimit을 넘으면 Pod가 축출된다 → 1시간 보존, 가장 늦은 창은 유지",
+    "시험 하네스(T37 k8s.sh, #152부터): set -e 아래 정리 trap의 wait가 143을 돌려 정리가 멈췄다. 결과는 '실패 0건'인데 종료 코드 143, k3s 컨테이너와 임시 인증서 디렉터리가 남았다 → 수정 후 종료 코드 0, 남은 것 없음",
+    "시험 결함: received_at 덮어쓰기 확인이 window_start와 비교해 덮어쓰지 않아도 통과했다 → 생산자가 넣은 received_at과 비교",
+    "시험 결함: 창 부하 스크립트가 첫 연결 거부에서 죽어 한 번은 부하 없이 측정됐다 → 응답 코드 · 오류 종류별로 세고 창 수신 재시작 횟수를 함께 기록",
+    "측정 해석: Collector working set(206~223MiB)이 limit 256Mi에 가까웠지만 anon은 64~72MiB였다. 나머지는 디스크 큐 파일 캐시다 → stats.py에 anon 추가, limit 유지"
+  ],
+  "open_observations": [
+    "새로 뜬 부하 Pod의 처음 요청 6건이 연결 거부됐다(창 수신 재시작 0, 시작 직후 외 준비 실패 없음). k3s kube-router가 새 Pod 주소를 NetworkPolicy 허용 목록에 넣기 전 거부한 것으로 추정한다(확인하지 않음). 실제 부하 생성기는 Tailscale ipBlock으로 들어오므로 이 지연이 없다"
+  ]
+}
