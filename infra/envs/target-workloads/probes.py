@@ -51,12 +51,12 @@ def probe(stage, run_suffix="", pooler_ip=None):
             raise ValueError("verified target pooler Service address required")
         env.extend([{"name": "APP_PASSWORD", "valueFrom": {"secretKeyRef": {
             "name": "target-pooler-source-app", "key": "password"}}},
-            {"name": "POOLER_IP", "value": str(address)}])
+            {"name": "POOLER_IP", "value": str(address)},
+            {"name": "POOLER_CONTROL_PASSWORD", "valueFrom": {"secretKeyRef": {
+                "name": "target-pooler-control", "key": "password"}}}])
         volumes.extend([{"name": "ca", "secret": {"secretName": "target-db-ca",
-            "items": [{"key": "ca.crt", "path": "ca.crt"}]}},
-            {"name": "auth", "secret": {"secretName": "target-pgbouncer-auth", "defaultMode": 288}}])
-        mounts.extend([{"name": "ca", "mountPath": "/tls", "readOnly": True},
-                       {"name": "auth", "mountPath": "/auth", "readOnly": True}])
+            "items": [{"key": "ca.crt", "path": "ca.crt"}]}}])
+        mounts.append({"name": "ca", "mountPath": "/tls", "readOnly": True})
     elif stage.startswith("objects-"):
         secret = "target-object-bootstrap" if stage == "objects-bootstrap" else "target-object-client"
         for key in ["AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY"]:

@@ -1,10 +1,8 @@
 """Actual pre-cutover pooler path, TLS and rolled-back synthetic application write."""
 import json
 import os
-import shlex
 import time
 import uuid
-from pathlib import Path
 
 import psycopg
 
@@ -14,7 +12,6 @@ CHECKS = {}
 
 def main():
     global STAGE
-    credentials = dict(shlex.split(line) for line in Path('/auth/userlist.txt').read_text().splitlines())
     args = {'host': 'target-pgbouncer.target-dev.svc.cluster.local', 'dbname': 'chat',
             'user': 'chat_app', 'password': os.environ['APP_PASSWORD'],
             'sslmode': 'verify-full', 'sslrootcert': '/tls/ca.crt', 'connect_timeout': 10}
@@ -46,7 +43,7 @@ def main():
             checks['synthetic_write_rolled_back'] = cur.fetchone()[0] == 0
     STAGE = 'pooler_admin'
     with psycopg.connect(**{**args, 'dbname': 'pgbouncer', 'user': 'cutover_control',
-                           'password': credentials['cutover_control']}, autocommit=True) as conn, conn.cursor() as cur:
+                           'password': os.environ['POOLER_CONTROL_PASSWORD']}, autocommit=True) as conn, conn.cursor() as cur:
         cur.execute('SHOW CONFIG'); config = {row[0]: row[1] for row in cur.fetchall()}
         checks['verified_server_tls_config'] = config['server_tls_sslmode'] == 'verify-full'
         checks['reviewed_admin_retry_config'] = config['admin_users'] == 'cutover_control' and config['server_login_retry'] == '2'
