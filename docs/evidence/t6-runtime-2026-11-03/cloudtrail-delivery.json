@@ -1,0 +1,20 @@
+{
+  "observed_at": "2026-11-03T08:42:24.463076+00:00",
+  "cloudtrail_s3_log_files": 1,
+  "workload_secret_write_events": [
+    {
+      "event_name": "PutSecretValue",
+      "event_time": "2026-11-03T08:37:48Z",
+      "source": "secretsmanager",
+      "error_present": false
+    },
+    {
+      "event_name": "PutSecretValue",
+      "event_time": "2026-11-03T08:37:48Z",
+      "source": "secretsmanager",
+      "error_present": false
+    }
+  ],
+  "kms_encryption_configured": true,
+  "raw_log_or_identifier_exported": false
+}

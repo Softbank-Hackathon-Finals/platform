@@ -1,0 +1,7 @@
+{
+  "status": "PASS",
+  "terraform_detailed_exitcode": 0,
+  "scope": "dedicated_platform_data_state_only",
+  "managed_resources": 2,
+  "existing_foundation_managed_changes": 0
+}

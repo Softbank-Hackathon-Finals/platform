@@ -1,0 +1,52 @@
+test_access_denied_is_unknown_not_empty_or_success (test_access_preflight.AccessPreflightTests) ... ok
+test_cli_boundary_rejects_mutations_and_redacts_service_errors (test_access_preflight.AccessPreflightTests) ... ok
+test_iam_user_and_region_empty_response_remain_incomplete (test_access_preflight.AccessPreflightTests) ... ok
+test_incomplete_instance_cannot_skip_permission_set_check (test_access_preflight.AccessPreflightTests) ... ok
+test_malformed_success_response_is_not_an_empty_inventory (test_access_preflight.AccessPreflightTests) ... ok
+test_matching_inventory_does_not_claim_team_or_rbac_access (test_access_preflight.AccessPreflightTests) ... ok
+test_sts_session_cannot_be_used_as_eks_principal (test_access_preflight.AccessPreflightTests) ... ok
+test_unknown_authentication_mode_never_looks_ready (test_access_preflight.AccessPreflightTests) ... ok
+test_wrong_account_stops_before_service_inventory (test_access_preflight.AccessPreflightTests) ... ok
+test_start_marks_progress_without_checking_or_closing (test_board_commands.BoardCommandsTest) ... ok
+test_start_refuses_closed_or_reviewed_work (test_board_commands.BoardCommandsTest) ... ok
+test_start_requires_prerequisite_but_not_integration_task (test_board_commands.BoardCommandsTest) ... ok
+test_status_is_read_only_and_distinguishes_dependencies (test_board_commands.BoardCommandsTest) ... ok
+test_configuration_does_not_claim_delivery (test_budget_verify.BudgetReadback) ... ok
+test_inactive_allocation_fails (test_budget_verify.BudgetReadback) ... ok
+test_wrong_subscriber_or_threshold_fails (test_budget_verify.BudgetReadback) ... ok
+test_account_component_is_visible_without_project_attribution (test_cost_report.Costs) ... ok
+test_account_guard_and_malformed_response (test_cost_report.Costs) ... ok
+test_fully_attributed_zero_net_cost_is_complete (test_cost_report.Costs) ... ok
+test_inactive_tags_keep_attribution_incomplete (test_cost_report.Costs) ... ok
+test_observed_zero_differs_from_missing (test_cost_report.Costs) ... ok
+test_offsetting_unattributed_costs_are_not_complete (test_cost_report.Costs) ... ok
+test_offsetting_unknown_components_are_not_complete (test_cost_report.Costs) ... ok
+test_pages_reconcile_negative_credit_and_missing_components (test_cost_report.Costs) ... ok
+test_pagination_and_cycle (test_cost_report.Costs) ... ok
+test_reject_duplicate_missing_or_wrong_currency (test_cost_report.Costs) ... ok
+test_reversed_dates (test_cost_report.Costs) ... ok
+test_zero_amount_unattributed_groups_are_not_complete (test_cost_report.Costs) ... ok
+test_apply_is_idempotent_and_preserves_existing_admin (test_provision_human_access.HumanProvisioningTests) ... ok
+test_cli_cannot_generate_access_keys_or_reset_profiles (test_provision_human_access.HumanProvisioningTests) ... ok
+test_existing_person_mapping_blocks_duplicate_creation (test_provision_human_access.HumanProvisioningTests) ... ok
+test_existing_profile_never_gets_password_reset (test_provision_human_access.HumanProvisioningTests) ... ok
+test_keychain_failure_prevents_all_mutation (test_provision_human_access.HumanProvisioningTests) ... ok
+test_missing_sdk_prevents_all_mutation (test_provision_human_access.HumanProvisioningTests) ... ok
+test_runtime_member_in_existing_group_blocks_admin_attachment (test_provision_human_access.HumanProvisioningTests) ... ok
+test_unmanaged_name_collision_is_not_adopted (test_provision_human_access.HumanProvisioningTests) ... ok
+test_worker_principal_and_duplicate_roster_are_rejected (test_provision_human_access.HumanProvisioningTests) ... ok
+test_wrong_account_prevents_inventory_and_changes (test_provision_human_access.HumanProvisioningTests) ... ok
+
+----------------------------------------------------------------------
+Ran 38 tests in 0.006s
+
+OK
+test_existing_profile_is_preserved (test_initial_console_profile.InitialConsoleTests) ... ok
+test_new_profile_requires_change_and_readback (test_initial_console_profile.InitialConsoleTests) ... ok
+test_read_failure_is_not_missing_profile (test_initial_console_profile.InitialConsoleTests) ... ok
+test_wrong_account_and_nonhuman_reject_before_write (test_initial_console_profile.InitialConsoleTests) ... ok
+
+----------------------------------------------------------------------
+Ran 4 tests in 0.001s
+
+OK

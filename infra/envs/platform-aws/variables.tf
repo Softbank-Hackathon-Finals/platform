@@ -13,7 +13,11 @@ variable "private_subnet_id" { type = string }
 variable "private_route_table_id" { type = string }
 variable "egress_subnet_cidr" { default = "10.81.254.0/24" }
 variable "ami_id" { type = string }
-variable "instance_type" { default = "t3.large" }
+variable "instance_type" {
+  description = "One x86_64 server with at least 4 vCPUs and 8 GiB for RKE2 and resident platform workloads."
+  type        = string
+  default     = "t3.xlarge"
+}
 variable "private_ecr_repository_name" {
   description = "Optional exact ECR repository name in this account and region. Its lifecycle belongs to the registry stack."
   type        = string

@@ -1,0 +1,27 @@
+{
+  "observed_at_utc": "2026-11-03T09:31:43.376935+00:00",
+  "scope": "live private ECR source application deployment",
+  "registry": "private-ecr",
+  "image_source_sha": "ce5727eb3e3d2355077afdaadcb1a722aba9c7cd",
+  "image_ci_run": "https://github.com/Softbank-Hackathon-Finals/demo-chat/actions/runs/41610561593",
+  "oci_index_digest": "sha256:001adc35a9fc767566552fb55c3c19a67b7c5efc7231fb02dc28cdeace99d0d4",
+  "amd64_manifest_digest_verified_in_registry": "sha256:bd1cd57a1c3dda9bb2795696167e242fc3b79a80eefb40d068a4124bcc66f384",
+  "runtime_reported_image_id_digest": "sha256:001adc35a9fc767566552fb55c3c19a67b7c5efc7231fb02dc28cdeace99d0d4",
+  "runtime_reports_index_not_child_digest": true,
+  "index_bytes_sha256_verified_before_apply": true,
+  "deployment_source_commit": "6d8a8dfbc59dd8815d9f162e33977d7bf4b76c2d",
+  "renderer_sha256": "f0b08f0fac16d88503672a3bc606db0839d82140c477b4a4e898665e0ec06bf9",
+  "pod_ready": true,
+  "restart_count": 0,
+  "container": {
+    "uid": 10001,
+    "architecture": "x86_64",
+    "aws_web_identity_present": true,
+    "no_static_aws_key": true,
+    "pg_sslmode": "verify-full",
+    "ca_exists": true,
+    "app_env": "aws",
+    "write_blocked": true
+  },
+  "no_long_lived_registry_secret_created": true
+}

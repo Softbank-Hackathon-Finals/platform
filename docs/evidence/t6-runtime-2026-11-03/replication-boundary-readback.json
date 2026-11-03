@@ -1,0 +1,7 @@
+{
+  "logical_replication_startup_allowed": true,
+  "physical_replication_startup_denied": true,
+  "observed_at": "2026-11-03T09:01:27.268626+00:00",
+  "postgres_version": "18.4",
+  "credential_or_system_identifier_exported": false
+}

@@ -1,0 +1,28 @@
+{
+  "read_at": "2026-11-03T06:55:08.837226+00:00",
+  "deployment": "20261103-s2-ci",
+  "terraform": {
+    "destroyed": 16,
+    "added": 0,
+    "changed": 0,
+    "remaining_state_resources": 0
+  },
+  "deleted_volume_ids": [
+    "AWS_RESOURCE_002"
+  ],
+  "aws_readback": {
+    "instances": [
+      {
+        "id": "AWS_RESOURCE_001",
+        "state": "terminated"
+      }
+    ],
+    "vpcs": [],
+    "subnets": [],
+    "network_interfaces": [],
+    "volumes": [],
+    "roles": [],
+    "instance_profiles": []
+  },
+  "scope": "Only dedicated ci-validation-aws state. Existing foundation and budget untouched."
+}

@@ -2,6 +2,15 @@ mock_provider "aws" {
   mock_data "aws_partition" {
     defaults = { partition = "aws" }
   }
+  mock_data "aws_ec2_instance_type" {
+    defaults = {
+      default_vcpus            = 4
+      default_cores            = 2
+      default_threads_per_core = 2
+      memory_size              = 16384
+      supported_architectures  = ["x86_64"]
+    }
+  }
   mock_data "aws_subnet" {
     defaults = { vpc_id = "vpc-0123456789abcdef0", map_public_ip_on_launch = false, availability_zone = "ap-northeast-2a" }
   }
@@ -49,6 +58,45 @@ run "public_subnet_rejected" {
   override_data {
     target = data.aws_subnet.private
     values = { vpc_id = "vpc-0123456789abcdef0", map_public_ip_on_launch = true }
+  }
+  expect_failures = [aws_instance.node]
+}
+
+run "full_cpu_capacity_requested" {
+  command = plan
+  assert {
+    condition = (
+      aws_instance.node.cpu_options[0].core_count *
+      aws_instance.node.cpu_options[0].threads_per_core == 4
+    )
+    error_message = "A resize must request the selected type's full CPU capacity instead of preserving the old two-vCPU options."
+  }
+}
+
+run "two_vcpu_server_rejected" {
+  command = plan
+  variables { instance_type = "t3.large" }
+  override_data {
+    target = data.aws_ec2_instance_type.node
+    values = { default_vcpus = 2, default_cores = 1, default_threads_per_core = 2, memory_size = 8192, supported_architectures = ["x86_64"] }
+  }
+  expect_failures = [aws_instance.node]
+}
+
+run "insufficient_memory_rejected" {
+  command = plan
+  override_data {
+    target = data.aws_ec2_instance_type.node
+    values = { default_vcpus = 4, default_cores = 2, default_threads_per_core = 2, memory_size = 4096, supported_architectures = ["x86_64"] }
+  }
+  expect_failures = [aws_instance.node]
+}
+
+run "incompatible_architecture_rejected" {
+  command = plan
+  override_data {
+    target = data.aws_ec2_instance_type.node
+    values = { default_vcpus = 4, default_cores = 4, default_threads_per_core = 1, memory_size = 16384, supported_architectures = ["arm64"] }
   }
   expect_failures = [aws_instance.node]
 }

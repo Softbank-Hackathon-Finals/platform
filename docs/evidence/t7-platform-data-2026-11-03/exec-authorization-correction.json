@@ -1,0 +1,14 @@
+{
+  "record": "source-access.json",
+  "original_sha256": "fedd5c68faa23326bd1c47e41d6de0319679fc868f75772b80965a64451dc571",
+  "original_status": "PASS",
+  "revised_status": "UNKNOWN",
+  "retained_check_count": 16,
+  "superseded_interpretations": {
+    "collector_denied_exec": "UNKNOWN",
+    "executor_denied_exec": "UNKNOWN"
+  },
+  "reason": "The old kubectl auth can-i create pods/exec query treated exec as a resource name instead of the exec subresource. It did not prove either GET or CREATE denial on an actual workload Pod.",
+  "current_contract": "The later T6/T12 cutover access is an explicit opt-in Role granting exec to named Pods. A blanket baseline denial probe must report this grant, not PASS. Historical evidence and current cutover-access verification are separate.",
+  "original_record_preserved": true
+}
