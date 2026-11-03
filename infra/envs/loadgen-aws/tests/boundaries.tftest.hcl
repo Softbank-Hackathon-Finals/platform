@@ -34,23 +34,38 @@ run "no_inbound_and_https_only_outbound" {
     condition     = aws_route.internet.destination_cidr_block == "0.0.0.0/0" && aws_instance.loadgen.associate_public_ip_address == true && aws_subnet.loadgen.map_public_ip_on_launch == false
     error_message = "The host reaches the Edge directly through the internet gateway, and only this host gets a public address."
   }
+  assert {
+    condition     = length(aws_instance.loadgen.vpc_security_group_ids) == 1 && contains(aws_instance.loadgen.vpc_security_group_ids, aws_security_group.loadgen.id)
+    error_message = "The host may only use the group whose rules the preconditions check."
+  }
 }
 
 # The instance preconditions only see a separate rule resource on the plan after it is applied, and the test
 # framework's mock teardown ignores prevent_destroy, so these are checked in the source.
-run "source_declares_no_extra_rules_or_destroy_guard" {
+run "source_declares_only_reviewed_resources" {
   command = plan
+  # An extra security group, rule or IAM policy would widen the boundary without failing the checks on the
+  # resources named below. Anyone adding a resource must extend this list, and the cost tag check with it.
   assert {
-    condition = alltrue([for name in fileset(path.module, "*.tf") :
-      length(regexall("aws_vpc_security_group_ingress_rule|aws_security_group_rule", file("${path.module}/${name}"))) == 0
+    condition = sort(flatten([for name in fileset(path.module, "*.tf") : [
+      for match in regexall("(?m)^resource \"([a-z0-9_]+)\"", file("${path.module}/${name}")) : match[0]
+      ]])) == sort([
+      "aws_default_security_group",
+      "aws_iam_instance_profile",
+      "aws_iam_role",
+      "aws_iam_role_policy",
+      "aws_iam_role_policy_attachment",
+      "aws_instance",
+      "aws_internet_gateway",
+      "aws_route",
+      "aws_route_table",
+      "aws_route_table_association",
+      "aws_security_group",
+      "aws_subnet",
+      "aws_vpc",
+      "aws_vpc_security_group_egress_rule",
     ])
-    error_message = "Declaring an inbound rule resource breaks the no-inbound boundary."
-  }
-  assert {
-    condition = sum([for name in fileset(path.module, "*.tf") :
-      length(regexall("resource \"aws_vpc_security_group_egress_rule\"", file("${path.module}/${name}")))
-    ]) == 1
-    error_message = "HTTPS is the only outbound rule."
+    error_message = "This stack declares exactly the reviewed resources. Review the network and IAM boundary before adding one."
   }
   assert {
     condition = alltrue([for name in fileset(path.module, "*.tf") :
@@ -67,7 +82,7 @@ run "source_declares_no_extra_rules_or_destroy_guard" {
 run "ssm_only_role" {
   command = apply
   assert {
-    condition     = jsondecode(aws_iam_role.loadgen.assume_role_policy).Statement[0].Principal.Service == "ec2.amazonaws.com" && length(jsondecode(aws_iam_role.loadgen.assume_role_policy).Statement) == 1
+    condition     = length(jsondecode(aws_iam_role.loadgen.assume_role_policy).Statement) == 1 && keys(jsondecode(aws_iam_role.loadgen.assume_role_policy).Statement[0].Principal) == ["Service"] && jsondecode(aws_iam_role.loadgen.assume_role_policy).Statement[0].Principal.Service == "ec2.amazonaws.com" && jsondecode(aws_iam_role.loadgen.assume_role_policy).Statement[0].Action == "sts:AssumeRole"
     error_message = "Only this EC2 instance may assume the role."
   }
   assert {
@@ -154,6 +169,10 @@ run "user_data_installs_tools_but_holds_no_credentials" {
   assert {
     condition     = strcontains(aws_instance.loadgen.user_data, "--auth-key=file:/dev/stdin") && strcontains(aws_instance.loadgen.user_data, "--advertise-tags='tag:bravo-loadgen'")
     error_message = "The tailnet helper must read its key from stdin and join with the supplied tag."
+  }
+  assert {
+    condition     = strcontains(aws_instance.loadgen.user_data, "--shields-up")
+    error_message = "Security groups cannot see inside the tunnel, and the tailnet ACL lives outside this stack; the host refuses connections from peers itself."
   }
   assert {
     condition     = !strcontains(aws_instance.loadgen.user_data, "tskey") && !strcontains(aws_instance.loadgen.user_data, "postgres") && !strcontains(aws_instance.loadgen.user_data, "_DSN")

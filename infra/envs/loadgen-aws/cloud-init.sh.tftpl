@@ -18,10 +18,11 @@ apt-get update -qq
 apt-get install -y -qq tailscale=1.104.4
 
 # The one-time key arrives on stdin so it never reaches argv, shell history, user data or Terraform state.
+# This host only starts connections; shields-up refuses peers, which security groups cannot see inside the tunnel.
 cat >/usr/local/sbin/bravo-tailnet-join <<'JOIN'
 #!/bin/sh
 set -eu
-exec tailscale up --auth-key=file:/dev/stdin --advertise-tags='${tailscale_tag}' --hostname='${hostname}'
+exec tailscale up --auth-key=file:/dev/stdin --advertise-tags='${tailscale_tag}' --hostname='${hostname}' --shields-up
 JOIN
 chmod 0700 /usr/local/sbin/bravo-tailnet-join
 touch /var/lib/bravo-loadgen-ready
