@@ -8,18 +8,24 @@ from pathlib import Path
 
 import psycopg
 
+STAGE = "configuration"
+CHECKS = {}
+
 
 def main():
+    global STAGE
     credentials = dict(shlex.split(line) for line in Path('/auth/userlist.txt').read_text().splitlines())
     args = {'host': 'target-pgbouncer.target-dev.svc.cluster.local', 'dbname': 'chat',
             'user': 'chat_app', 'password': os.environ['APP_PASSWORD'],
             'sslmode': 'verify-full', 'sslrootcert': '/tls/ca.crt', 'connect_timeout': 10}
-    checks = {}
+    checks = CHECKS
     started = time.monotonic()
+    STAGE = "initial_connection"
     with psycopg.connect(**args) as conn:
         connect_seconds = time.monotonic() - started
         # libpq verify-full succeeds only with TLS and a matching trusted certificate.
         checks['client_verify_full_connection'] = not conn.closed
+        STAGE = "source_backend_query"
         with conn.cursor() as cur:
             cur.execute("SELECT current_user,current_setting('cluster_name'),ssl FROM pg_stat_ssl WHERE pid=pg_backend_pid()")
             role, cluster, ssl = cur.fetchone()
@@ -27,6 +33,7 @@ def main():
             cur.execute('SELECT (SELECT count(*) FROM messages),(SELECT count(*) FROM attachments)')
             checks['original_rows_readable'] = cur.fetchone() == (2, 1)
         conn.rollback()
+        STAGE = "rollback_write"
         key = str(uuid.uuid4())
         started = time.monotonic()
         with conn.cursor() as cur:
@@ -37,11 +44,13 @@ def main():
         with conn.cursor() as cur:
             cur.execute('SELECT count(*) FROM messages WHERE idempotency_key=%s', (key,))
             checks['synthetic_write_rolled_back'] = cur.fetchone()[0] == 0
+    STAGE = 'pooler_admin'
     with psycopg.connect(**{**args, 'dbname': 'pgbouncer', 'user': 'cutover_control',
                            'password': credentials['cutover_control']}, autocommit=True) as conn, conn.cursor() as cur:
         cur.execute('SHOW CONFIG'); config = {row[0]: row[1] for row in cur.fetchall()}
         checks['verified_server_tls_config'] = config['server_tls_sslmode'] == 'verify-full'
         checks['reviewed_admin_retry_config'] = config['admin_users'] == 'cutover_control' and config['server_login_retry'] == '2'
+    STAGE = 'negative_connections'
     for name, changes in [('wrong_password_denied', {'password': 'intentionally-wrong'}),
                            ('wrong_tls_hostname_denied', {'host': 'wrong-host.invalid', 'hostaddr': os.environ['POOLER_IP']})]:
         try:
@@ -63,5 +72,10 @@ if __name__ == '__main__':
     try:
         raise SystemExit(main())
     except (OSError, ValueError, KeyError, AttributeError, psycopg.Error) as error:
-        print(json.dumps({'passed': False, 'error_category': type(error).__name__, 'raw_output_suppressed': True}))
+        print(json.dumps({'passed': False, 'stage': STAGE, 'checks': CHECKS, 'error_category': type(error).__name__,
+                          'sqlstate': error.sqlstate if isinstance(error, psycopg.Error) else None,
+                          'timeout_marker': 'timeout' in str(error).lower(),
+                          'authentication_marker': 'authentication' in str(error).lower(),
+                          'certificate_marker': 'certificate' in str(error).lower(),
+                          'raw_output_suppressed': True}))
         raise SystemExit(1) from None
