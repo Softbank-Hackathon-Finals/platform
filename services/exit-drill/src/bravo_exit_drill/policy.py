@@ -9,11 +9,11 @@ tailnet을 거쳐 출발지로 가는 길은 이름을 몰라도 전부 닫힌�
 
 from dataclasses import asdict, dataclass
 
-from .aws_endpoints import endpoint_host, services_for
+from .aws_endpoints import endpoint_host
 from .cluster import (
     Snapshot,
     canonical_digest,
-    egress_allows_pods,
+    path_open,
     selector_matches,
     undeclared_egress,
 )
@@ -29,6 +29,7 @@ POLICY_PREFIX = "exit-drill-egress-"
 DIGEST_ANNOTATION = "bravo.exit-drill/plan-digest"
 _DIGEST_FIELDS = (
     "namespace",
+    "candidate",
     "inventory_digest",
     "workloads",
     "decisions",
@@ -72,6 +73,7 @@ def build_plan(spec: DrillSpec, inventory: InventoryView, snapshot: Snapshot) ->
         raise PlanRefused(sorted(violations, key=lambda v: (v.code, v.subject)))
     core = {
         "namespace": spec.namespace,
+        "candidate": inventory.candidate,
         "inventory_digest": inventory.digest,
         "workloads": {w.name: {"selector": w.selector, "role": w.role} for w in sorted(spec.workloads.values(), key=lambda w: w.name)},
         "decisions": [_decision(r) for r in routes],
@@ -99,13 +101,20 @@ def compute_digest(plan: dict) -> str:
     return canonical_digest(core)
 
 
+def plan_is_intact(plan: dict) -> bool:
+    """손으로 고치거나 망가진 계획은 쓰지 않는다."""
+    try:
+        return compute_digest(plan) == plan.get("digest")
+    except (AttributeError, KeyError, TypeError):
+        return False
+
+
 def _routes_with_aws(spec: DrillSpec, inventory: InventoryView) -> list[Route]:
     """인벤토리가 쓴다고 한 AWS 서비스마다 차단 경로를 하나씩 만든다."""
     roles_by_service: dict[str, set[str]] = {}
-    if inventory.source_kind == "aws":
-        for dependency in inventory.dependencies:
-            for service in services_for(dependency):
-                roles_by_service.setdefault(service, set()).add(dependency.role)
+    for dependency in inventory.dependencies:
+        for service in dependency.aws_services:
+            roles_by_service.setdefault(service, set()).add(dependency.role)
     clients = tuple(sorted(w.name for w in spec.workloads.values() if w.aws_client))
     derived = [
         Route(
@@ -173,13 +182,17 @@ def _decision(route: Route) -> dict:
         "ports": [asdict(p) for p in sorted(route.ports, key=lambda p: (p.protocol, p.port))],
         "roles": sorted(route.roles),
         "evidence": route.evidence,
+        "direction": route.direction,
         "probe": route.probe,
     }
 
 
 def _unmapped(inventory: InventoryView, routes: list[Route]) -> list[dict]:
-    """어느 경로로도 잴 수 없는 의존성. 빼지 않고 적어 두면 판정이 UNKNOWN이 된다."""
-    covered = {role for r in routes for role in r.roles}
+    """차단을 잴 경로가 없는 의존성. 빼지 않고 적어 두면 판정이 UNKNOWN이 된다.
+
+    복제 경로에 역할을 적어도 소용없다. 거기는 막히는지가 아니라 열려 있는지를 잰다.
+    """
+    covered = {role for r in routes if r.klass == "source_access" for role in r.roles}
     return [
         {"id": d.id, "role": d.role, "services": list(d.services)}
         for d in inventory.dependencies
@@ -195,7 +208,7 @@ def _check_workloads(spec: DrillSpec, inventory: InventoryView) -> list[Violatio
     found = [Violation("EMPTY_SELECTOR", w.name) for w in spec.workloads.values() if not w.selector]
     if not _by_role(spec, "control"):
         found.append(Violation("NO_CONTROL", "control"))
-    needs_client = inventory.source_kind == "aws" and any(services_for(d) for d in inventory.dependencies)
+    needs_client = any(d.aws_services for d in inventory.dependencies)
     if needs_client and not any(w.aws_client for w in spec.workloads.values()):
         found.append(Violation("NO_AWS_CLIENT", "workloads"))
     return found
@@ -221,8 +234,11 @@ def _check_routes(spec: DrillSpec, routes: list[Route]) -> list[Violation]:
                 found.append(Violation("REPLICATION_NOT_TAILNET", route.id))
             if route.ports != (POSTGRES,):
                 found.append(Violation("REPLICATION_NOT_POSTGRES", route.id))
-        if route.klass == "source_access" and any(_same_path(route, keep) for keep in replication):
-            found.append(Violation("BLOCK_HITS_REPLICATION", route.id))
+        if route.klass == "source_access":
+            if any(_same_path(route, keep) for keep in replication):
+                found.append(Violation("BLOCK_HITS_REPLICATION", route.id))
+            if any(_also_allowed(route, allow) for allow in routes if allow.klass == "local"):
+                found.append(Violation("BLOCK_ALSO_ALLOWED", route.id))
     return found
 
 
@@ -248,6 +264,16 @@ def _same_path(route: Route, keep: Route) -> bool:
     if route.to == keep.to:
         return True
     return bool(route.probe and keep.probe and route.probe == keep.probe)
+
+
+def _also_allowed(block: Route, allow: Route) -> bool:
+    """같은 Pod에게 막는다면서 허용 목록에 넣은 목적지인가. 허용이 이기므로 막히지 않는다."""
+    if not set(block.owners) & set(allow.owners) or not (block.to.selector and allow.to.selector):
+        return False
+    if block.to.namespace != allow.to.namespace:
+        return False
+    blocked, allowed = block.to.selector.items(), allow.to.selector.items()
+    return blocked <= allowed or allowed <= blocked
 
 
 def _check_pods(spec: DrillSpec, snapshot: Snapshot) -> list[Violation]:
@@ -292,7 +318,8 @@ def _check_existing_policies(spec: DrillSpec, routes: list[Route], manifests: li
             if workload is None or workload.role != "replication":
                 continue
             for pod in _pods_of(workload, snapshot):
-                if not egress_allows_pods(snapshot.policies, pod.labels, spec.namespace, route.to.namespace, route.to.selector):
+                ports = [(p.protocol, p.port) for p in route.ports]
+                if not path_open(snapshot.policies, pod.labels, spec.namespace, route.to.namespace, route.to.selector, route.direction, ports):
                     found.append(Violation("REPLICATION_BLOCKED", f"{route.id}:{pod.name}"))
     return found
 

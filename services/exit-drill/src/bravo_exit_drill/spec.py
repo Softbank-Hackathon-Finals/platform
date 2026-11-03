@@ -13,6 +13,7 @@ PROTOCOLS = {"TCP", "UDP"}
 PROBE_KINDS = {"tcp", "dns"}
 CHECK_KINDS = {"http", "websocket"}
 EVIDENCE_KINDS = {"tcp", "stream"}
+DIRECTIONS = {"egress", "ingress"}
 
 
 class SpecError(ValueError):
@@ -52,6 +53,8 @@ class Route:
     probe: dict[str, Any] | None
     roles: tuple[str, ...]
     evidence: str | None
+    # 누가 연결을 시작하는가. ingress면 to의 Pod가 owners의 Pod로 접속해 온다.
+    direction: str = "egress"
 
 
 @dataclass(frozen=True)
@@ -65,6 +68,13 @@ class DrillSpec:
 
 
 def parse_spec(doc: Any) -> DrillSpec:
+    try:
+        return _parse_spec(doc)
+    except TypeError as exc:  # 목록 같은 값을 이름 자리에 넣으면 집합 검사에서 터진다.
+        raise SpecError("spec value has the wrong type") from exc
+
+
+def _parse_spec(doc: Any) -> DrillSpec:
     _require_keys(doc, "spec", {"schema_version", "namespace", "aws_region", "workloads", "routes", "new_connection_checks"}, {"declared_residuals"})
     if doc["schema_version"] != SPEC_VERSION:
         raise SpecError("unsupported spec schema_version")
@@ -75,12 +85,16 @@ def parse_spec(doc: Any) -> DrillSpec:
     residuals = doc.get("declared_residuals", [])
     if not isinstance(residuals, list) or not all(isinstance(r, str) and r for r in residuals):
         raise SpecError("declared_residuals must be a list of text")
+    parsed_checks = tuple(_check(c) for c in checks)
+    check_ids = [c["id"] for c in parsed_checks]
+    if len(set(check_ids)) != len(check_ids):
+        raise SpecError("new_connection_checks ids must be unique")
     return DrillSpec(
         namespace=namespace,
         aws_region=_text(doc["aws_region"], "aws_region"),
         workloads=_workloads(doc["workloads"]),
         routes=tuple(_route(r, namespace) for r in _list(doc["routes"], "routes")),
-        new_connection_checks=tuple(_check(c) for c in checks),
+        new_connection_checks=parsed_checks,
         declared_residuals=tuple(residuals),
     )
 
@@ -100,7 +114,7 @@ def _workloads(doc: Any) -> dict[str, Workload]:
 
 
 def _route(doc: Any, namespace: str) -> Route:
-    _require_keys(doc, "route", {"id", "class", "owners", "to", "ports"}, {"probe", "roles", "evidence"})
+    _require_keys(doc, "route", {"id", "class", "owners", "to", "ports"}, {"probe", "roles", "evidence", "direction"})
     route_id = _text(doc["id"], "route id")
     klass = doc["class"]
     if klass not in CLASSES:
@@ -111,6 +125,9 @@ def _route(doc: Any, namespace: str) -> Route:
             raise SpecError(f"route {route_id}: replication needs evidence tcp or stream")
     elif evidence is not None:
         raise SpecError(f"route {route_id}: evidence applies to replication only")
+    direction = doc.get("direction", "egress")
+    if direction not in DIRECTIONS or (direction == "ingress" and evidence != "stream"):
+        raise SpecError(f"route {route_id}: ingress applies to stream evidence only")
     probe = doc.get("probe")
     if klass != "replication" or evidence == "tcp":
         probe = _probe(probe, route_id)
@@ -123,6 +140,8 @@ def _route(doc: Any, namespace: str) -> Route:
     if not ports:
         raise SpecError(f"route {route_id}: ports required")
     roles = _list(doc.get("roles", []), f"route {route_id} roles")
+    if not all(isinstance(role, str) for role in roles):
+        raise SpecError(f"route {route_id}: roles must be text")
     return Route(
         id=route_id,
         klass=klass,
@@ -132,6 +151,7 @@ def _route(doc: Any, namespace: str) -> Route:
         probe=probe,
         roles=tuple(roles),
         evidence=evidence,
+        direction=direction,
     )
 
 
@@ -169,6 +189,7 @@ def _probe(doc: Any, route_id: str) -> dict[str, Any]:
 
 def _check(doc: Any) -> dict[str, Any]:
     _require_keys(doc, "new connection check", {"id", "kind", "host", "port", "path"}, set())
+    _text(doc["id"], "new connection check id")
     if doc["kind"] not in CHECK_KINDS:
         raise SpecError("new connection check: unknown kind")
     if type(doc["port"]) is not int or not str(doc["path"]).startswith("/"):

@@ -49,16 +49,16 @@ def test_without_drill_result_nothing_is_called_independent():
     plan, view = plan_and_view()
     result = build_map(view, plan, None)
     assert result["drill_verdict"] == "NOT_RUN"
-    assert "independent" not in {e["status"] for e in result["entries"]}
+    assert "blocked_app_ok" not in {e["status"] for e in result["entries"]}
     assert entries(result)["item-004"]["status"] == "unverified"
 
 
-def test_passed_drill_marks_replaced_items_independent():
+def test_passed_drill_marks_replaced_items_as_blocked_with_app_working():
     plan, view = plan_and_view()
     got = entries(build_map(view, plan, report_for(plan)))
-    assert got["item-004"]["status"] == "independent"
+    assert got["item-004"]["status"] == "blocked_app_ok"
     assert got["item-004"]["evidence"] == ["block:aws-s3:app"]
-    assert got["item-001"]["status"] == "independent"  # db는 출발지 풀러 경로 차단으로 잰다
+    assert got["item-001"]["status"] == "blocked_app_ok"  # db는 출발지 풀러 경로 차단으로 잰다
     assert got["item-001"]["evidence"] == ["block:pooler-to-source:pooler"]
 
 
@@ -76,7 +76,7 @@ def test_open_aws_path_means_the_dependency_remains():
     assert got["item-005"]["status"] == "unverified"  # 드릴 전체가 실패했으면 다른 항목도 독립이라고 못 한다
 
 
-def test_route_passed_but_drill_failed_is_not_independent():
+def test_route_passed_but_drill_failed_is_not_confirmed():
     """막혔어도 앱이 안 뜨면 그 의존성 없이 동작한다고 말할 수 없다."""
     plan, view = plan_and_view()
     assert entries(build_map(view, plan, report_for(plan, verdict="FAIL")))["item-004"]["status"] == "unverified"
@@ -118,7 +118,7 @@ def test_agent_graded_item_follows_the_evidence():
     doc["items"][2]["grade_by"] = "agent"
     doc["items"][2]["rationale"] = "코드에서 쓰지 않음을 확인했다"
     plan, view = plan_and_view(redigest(doc))
-    assert entries(build_map(view, plan, report_for(plan)))["item-003"]["status"] == "independent"
+    assert entries(build_map(view, plan, report_for(plan)))["item-003"]["status"] == "blocked_app_ok"
 
 
 def test_no_replacement_target_is_unknown():
@@ -150,6 +150,30 @@ def test_replication_channels_are_shown_as_kept():
     assert got["channel:replication-reverse"]["evidence"] == ["keep:replication-reverse:stream"]
 
 
+def test_broken_channel_is_not_shown_as_kept():
+    plan, view = plan_and_view()
+    report = report_for(plan, verdict="FAIL", overrides={"keep:replication-forward:db": {"verdict": "FAIL", "code": "REPLICATION_PATH_BROKEN"}})
+    got = entries(build_map(view, plan, report))
+    assert got["channel:replication-forward"]["status"] == "broken"
+    assert got["channel:replication-reverse"]["status"] == "kept"
+
+
+def test_unrecognized_check_result_is_not_a_pass():
+    plan, view = plan_and_view()
+    report = report_for(plan, overrides={"block:aws-s3:app": {"verdict": "SKIPPED", "code": "X"}})
+    got = entries(build_map(view, plan, report))["item-004"]
+    assert got["check_verdict"] == "UNKNOWN"
+    assert got["status"] == "unverified"
+
+
+def test_workload_the_drill_did_not_block_is_listed():
+    """차단하지 않은 구성요소를 거친 AWS 의존은 이 시험으로 잡지 못한다. 그 사실을 드러낸다."""
+    plan, view = plan_and_view()
+    entry = entries(build_map(view, plan, report_for(plan)))["workload:objects"]
+    assert entry["status"] == "not_blocked"
+    assert entry["category"] == "unblocked_workload"
+
+
 def test_residual_services_remain_with_source_recorded():
     plan, view = plan_and_view()
     got = entries(build_map(view, plan, None))
@@ -170,7 +194,7 @@ def test_summary_counts_everything_listed():
     result = build_map(view, plan, report_for(plan))
     assert sum(result["summary"]["status"].values()) == len(result["entries"])
     assert result["summary"]["grade"]["code_change"] == 2
-    assert result["summary"]["grade"]["not_graded"] == 7  # 복제 채널 2 + 인벤토리 2 + 명세 3
+    assert result["summary"]["grade"]["not_graded"] == 8  # 복제 채널 2 + 인벤토리 2 + 명세 3 + 차단 안 한 워크로드 1
 
 
 def test_map_binds_inputs():
@@ -189,6 +213,20 @@ def test_map_refuses_inventory_other_than_the_plans():
     _, other = plan_and_view(redigest(doc))
     with pytest.raises(MapError):
         build_map(other, plan, None)
+
+
+def test_map_refuses_candidate_other_than_the_plans():
+    plan, _ = plan_and_view()
+    other = parse_inventory(inventory_doc(), candidate="onprem-minimal")
+    with pytest.raises(MapError):
+        build_map(other, plan, report_for(plan))
+
+
+@pytest.mark.parametrize("report", [["x"], "x", {"plan_digest": None}])
+def test_map_refuses_malformed_report(report):
+    plan, view = plan_and_view()
+    with pytest.raises(MapError):
+        build_map(view, plan, report)
 
 
 def test_map_refuses_report_of_another_plan():
@@ -225,4 +263,4 @@ def test_markdown_escapes_table_breaking_text():
 def test_markdown_groups_what_remains_first():
     plan, view = plan_and_view()
     text = render_markdown(build_map(view, plan, report_for(plan)))
-    assert text.index("남음") < text.index("대체 확인됨")
+    assert text.index("남음") < text.index("AWS 경로 막힘")

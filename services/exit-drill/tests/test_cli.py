@@ -97,10 +97,12 @@ def test_assemble_builds_observation(plan_path, tmp_path, capsys):
         "--replication", _write(tmp_path, "r.json", []),
         "--cutover", _write(tmp_path, "c.json", {"writer": "target"}),
         "--policy-applied-at", "2026-11-07T03:00:00+00:00",
+        "--induced-restarts", _write(tmp_path, "i.json", {"uid-a1": 1}),
     ]) == 0
     observation = json.loads(capsys.readouterr().out)
     assert observation["phase"] == "after"
     assert observation["cutover"] == {"writer": "target"}
+    assert observation["induced_restarts"] == {"uid-a1": 1}
 
 
 def test_check_with_no_usable_evidence_is_unknown_exit_3(plan_path, tmp_path, capsys):
@@ -136,3 +138,80 @@ def test_map_with_foreign_report_exits_2(plan_path, inputs, tmp_path, capsys):
 def test_probe_command_runs_targets(capsys):
     assert main(["probe", json.dumps({"targets": [{"route_id": "d", "kind": "dns", "host": "localhost"}], "timeout": 1})]) == 0
     assert json.loads(capsys.readouterr().out)[0]["state"] == "resolved"
+
+
+@pytest.mark.parametrize("command", [["manifests"], ["targets", "--vantage", "app"]])
+def test_hand_edited_plan_cannot_be_used(plan_path, capsys, command):
+    """차단 항목을 지운 계획이 적용 목록으로 나가면 안 된다."""
+    plan = json.loads(plan_path.read_text(encoding="utf-8"))
+    plan["manifests"] = plan["manifests"][:1]
+    plan_path.write_text(json.dumps(plan), encoding="utf-8")
+    assert main([command[0], "--plan", str(plan_path), *command[1:]]) == 2
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert "plan" in captured.err
+
+
+def test_garbage_plan_contents_are_reported_not_a_traceback(tmp_path, capsys):
+    broken = _write(tmp_path, "plan.json", {"manifests": [1]})
+    assert main(["manifests", "--plan", broken]) == 2
+    assert main(["check", "--plan", broken, "--before", broken, "--after", broken]) == 3
+    capsys.readouterr()
+
+
+def _assemble_args(plan_path, tmp_path, probes):
+    empty = {"kind": "List", "items": []}
+    return [
+        "assemble", "--plan", str(plan_path), "--phase", "before",
+        "--pods", _write(tmp_path, "pods.json", empty),
+        "--policies-start", _write(tmp_path, "s.json", empty),
+        "--policies-end", _write(tmp_path, "e.json", empty),
+        "--probes", _write(tmp_path, "p.json", probes),
+    ]
+
+
+@pytest.mark.parametrize("probes", [{"app": {"results": [{"route_id": "x"}]}}, {"app": {"pod_uid": "u"}}, {"app": 1}, []])
+def test_malformed_probe_file_exits_2(plan_path, tmp_path, capsys, probes):
+    assert main(_assemble_args(plan_path, tmp_path, probes)) == 2
+    capsys.readouterr()
+
+
+@pytest.mark.parametrize("snapshot", [{"items": [1]}, {"items": [{"kind": "Pod", "metadata": {"namespace": "target-dev"}}]}, []])
+def test_malformed_snapshot_exits_2(inputs, capsys, snapshot):
+    inputs["snapshot"].write_text(json.dumps(snapshot), encoding="utf-8")
+    assert main(render_args(inputs)) == 2
+    capsys.readouterr()
+
+
+def test_malformed_report_exits_2(plan_path, inputs, tmp_path, capsys):
+    plan = json.loads(plan_path.read_text(encoding="utf-8"))
+    report = _write(tmp_path, "report.json", {"plan_digest": plan["digest"]})
+    assert main([
+        "map", "--inventory", str(inputs["inventory"]), "--candidate", "onprem-demo",
+        "--plan", str(plan_path), "--report", report,
+    ]) == 2
+    capsys.readouterr()
+
+
+@pytest.mark.parametrize("request_text", ["not json", '{"targets": [{"kind": "shell"}]}', '{"targets": 1}'])
+def test_probe_with_bad_request_exits_2_not_1(capsys, request_text):
+    """1은 FAIL이다. 처리 못 한 입력이 FAIL로 읽히면 안 된다."""
+    assert main(["probe", request_text]) == 2
+    captured = capsys.readouterr()
+    assert "Traceback" not in captured.err
+
+
+def test_assemble_with_list_inputs_exits_2(plan_path, tmp_path, capsys):
+    args = _assemble_args(plan_path, tmp_path, {})
+    args[args.index("--pods") + 1] = _write(tmp_path, "bad.json", ["not pods"])
+    assert main(args) == 2
+    capsys.readouterr()
+
+
+def test_spec_with_unhashable_value_exits_2(inputs, tmp_path, capsys):
+    doc = json.loads(PROFILE.read_text(encoding="utf-8"))
+    doc["routes"][0]["class"] = ["local"]
+    args = render_args(inputs)
+    args[args.index("--spec") + 1] = _write(tmp_path, "spec.json", doc)
+    assert main(args) == 2
+    capsys.readouterr()

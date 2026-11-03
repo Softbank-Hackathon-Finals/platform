@@ -1,11 +1,14 @@
 """차단 뒤 판정. 판정은 코드가 하고, 증거가 빠지거나 불명확하면 통과가 아니라 UNKNOWN이다."""
 
 import copy
-from datetime import UTC, datetime, timedelta
+import re
+from datetime import UTC, datetime, timedelta, timezone
+from pathlib import Path
 
 import pytest
 from helpers import inventory_doc, network_policy, redigest, snapshot_doc, spec_doc
 
+from bravo_exit_drill import verdict as verdict_module
 from bravo_exit_drill.cluster import parse_snapshot
 from bravo_exit_drill.inventory_input import parse_inventory
 from bravo_exit_drill.policy import build_plan, compute_digest
@@ -38,6 +41,7 @@ def _pods(plan: dict, suffix: str, started: datetime) -> dict:
             "ready": True,
             "started_at": started.isoformat(),
             "restarts": 0,
+            "host_network": False,
         }]
         for name, item in plan["workloads"].items()
     }
@@ -75,8 +79,14 @@ def _probes(plan: dict, pods: dict, *, blocked: bool, start: datetime) -> list[d
 def good_evidence(plan: dict) -> tuple[dict, dict]:
     before_pods = _pods(plan, "old", BASE)
     after_pods = _pods(plan, "old", BASE)
+    induced = {}
     for name in ("app", "pooler"):
         after_pods[name] = _pods(plan, "new", RESTARTED)[name]
+        after_pods[name][0].update(restarts=1, container_started_at=at(10))
+        induced[after_pods[name][0]["uid"]] = 1
+    applied_manifests = copy.deepcopy(plan["manifests"])
+    for manifest in applied_manifests:
+        manifest["metadata"]["creationTimestamp"] = at(1, APPLIED)
     before = {
         "schema_version": "exit-drill-observation/v1",
         "plan_digest": plan["digest"],
@@ -96,9 +106,11 @@ def good_evidence(plan: dict) -> tuple[dict, dict]:
         "policy_applied_at": APPLIED.isoformat(),
         "cutover": {"writer": "target"},
         "pods": after_pods,
+        "induced_restarts": induced,
+        "unclassified_pods": [],
         "policy_readback": {
-            "start": copy.deepcopy(plan["manifests"]),
-            "end": copy.deepcopy(plan["manifests"]),
+            "start": copy.deepcopy(applied_manifests),
+            "end": copy.deepcopy(applied_manifests),
         },
         "probes": _probes(plan, after_pods, blocked=True, start=RESTARTED + timedelta(seconds=30)),
         "replication": [
@@ -391,7 +403,9 @@ def test_unknown_readiness_is_unknown(plan):
 def test_no_pods_after_restart_fails(plan):
     before, after = good_evidence(plan)
     after["pods"]["pooler"] = []
-    assert result(plan, before, after)[1]["restart:pooler"]["code"] == "NO_PODS"
+    verdict, checks = result(plan, before, after)
+    assert verdict == "FAIL"
+    assert checks["restart:pooler"]["code"] == "NO_PODS"
 
 
 def test_pod_list_not_read_is_unknown(plan):
@@ -418,9 +432,71 @@ def test_unreadable_start_time_is_unknown(plan):
     assert result(plan, before, after)[1]["restart:app"]["code"] == "STARTED_BEFORE_BLOCK"
 
 
-def test_crash_recovered_pod_is_unknown(plan):
+def test_pod_replacement_alone_does_not_prove_startup(plan):
+    """정책이 있어도 새 Pod는 처음 잠깐 AWS에 닿는다(k3s에서 실측). 그 사이에 뜬 앱은 증거가 아니다."""
+    before, after = good_evidence(plan)
+    after["pods"]["app"][0]["restarts"] = 0
+    del after["induced_restarts"][after["pods"]["app"][0]["uid"]]
+    verdict, checks = result(plan, before, after)
+    assert verdict == "UNKNOWN"
+    assert checks["restart:app"]["code"] == "STARTUP_NOT_ISOLATED"
+
+
+def test_claimed_in_place_restart_that_did_not_happen_is_unknown(plan):
+    before, after = good_evidence(plan)
+    after["pods"]["app"][0]["restarts"] = 0
+    assert result(plan, before, after)[1]["restart:app"]["code"] == "STARTUP_NOT_ISOLATED"
+
+
+def test_missing_induced_record_is_unknown(plan):
+    before, after = good_evidence(plan)
+    del after["induced_restarts"]
+    assert result(plan, before, after)[1]["restart:app"]["code"] == "UNSTABLE_RESTARTS"
+
+
+def test_in_place_restart_too_soon_after_pod_start_is_unknown(plan):
+    """새 Pod가 정책에 묶이기 전에 컨테이너를 다시 띄우면 틈이 그대로다."""
+    before, after = good_evidence(plan)
+    after["pods"]["app"][0]["container_started_at"] = at(1)
+    assert result(plan, before, after)[1]["restart:app"]["code"] == "STARTUP_NOT_ISOLATED"
+
+
+def test_policy_created_after_the_restart_is_unknown(plan):
+    """적용 시각은 사람이 적는 값이다. 클러스터가 기록한 생성 시각이 재시작보다 늦으면 믿지 않는다."""
+    before, after = good_evidence(plan)
+    for side in ("start", "end"):
+        for manifest in after["policy_readback"][side]:
+            manifest["metadata"]["creationTimestamp"] = at(30)
+    assert result(plan, before, after)[1]["restart:app"]["code"] == "STARTED_BEFORE_BLOCK"
+
+
+def test_policy_created_right_before_the_restart_is_unknown(plan):
+    before, after = good_evidence(plan)
+    for side in ("start", "end"):
+        for manifest in after["policy_readback"][side]:
+            manifest["metadata"]["creationTimestamp"] = at(9)
+    assert result(plan, before, after)[1]["restart:app"]["code"] == "STARTED_BEFORE_BLOCK"
+
+
+def test_unknown_policy_creation_time_is_unknown(plan):
+    before, after = good_evidence(plan)
+    for side in ("start", "end"):
+        for manifest in after["policy_readback"][side]:
+            del manifest["metadata"]["creationTimestamp"]
+    verdict, checks = result(plan, before, after)
+    assert verdict == "UNKNOWN"
+    assert checks["restart:app"]["code"] == "POLICY_TIME_UNKNOWN"
+
+
+def test_crash_beyond_the_induced_restart_is_unknown(plan):
     before, after = good_evidence(plan)
     after["pods"]["app"][0]["restarts"] = 2
+    assert result(plan, before, after)[1]["restart:app"]["code"] == "UNSTABLE_RESTARTS"
+
+
+def test_crash_nobody_caused_is_unknown(plan):
+    before, after = good_evidence(plan)
+    after["induced_restarts"] = {}
     assert result(plan, before, after)[1]["restart:app"]["code"] == "UNSTABLE_RESTARTS"
 
 
@@ -450,6 +526,20 @@ def test_missing_new_connection_is_unknown(plan):
 def test_connection_from_before_restart_is_not_new(plan):
     before, after = good_evidence(plan)
     after["app_checks"][0]["observed_at"] = at(-1)
+    check = result(plan, before, after)[1][f"new-connection:{after['app_checks'][0]['id']}"]
+    assert check["code"] == "CHECK_BEFORE_RESTART"
+
+
+def test_connection_before_the_in_place_restart_is_not_new(plan):
+    before, after = good_evidence(plan)
+    after["pods"]["app"][0]["container_started_at"] = at(61)
+    check = result(plan, before, after)[1][f"new-connection:{after['app_checks'][0]['id']}"]
+    assert check["code"] == "CHECK_BEFORE_RESTART"
+
+
+def test_unreadable_container_start_means_connection_is_not_proven_new(plan):
+    before, after = good_evidence(plan)
+    after["pods"]["app"][0]["container_started_at"] = "soon"
     check = result(plan, before, after)[1][f"new-connection:{after['app_checks'][0]['id']}"]
     assert check["code"] == "CHECK_BEFORE_RESTART"
 
@@ -532,6 +622,14 @@ def test_policy_changed_during_observation_is_unknown(plan):
     assert result(plan, before, after)[1]["policy:readback"]["code"] == "POLICY_CHANGED_DURING_OBSERVATION"
 
 
+def test_same_named_policy_in_another_namespace_is_not_the_plan(plan):
+    before, after = good_evidence(plan)
+    for side in ("start", "end"):
+        for manifest in after["policy_readback"][side]:
+            manifest["metadata"]["namespace"] = "somewhere-else"
+    assert result(plan, before, after)[1]["policy:readback"]["code"] == "POLICY_NOT_READ"
+
+
 def test_policy_differing_from_plan_is_unknown(plan):
     before, after = good_evidence(plan)
     for side in ("start", "end"):
@@ -579,6 +677,80 @@ def test_baseline_readback_missing_is_unknown(plan):
 # ---- 전제와 범위 ----
 
 
+def test_pod_outside_the_plan_is_unknown(plan):
+    """계획을 만든 뒤 새로 뜬 Pod는 차단 범위 밖이라 AWS에 닿는지 모른다."""
+    before, after = good_evidence(plan)
+    after["unclassified_pods"] = ["new-worker"]
+    verdict, checks = result(plan, before, after)
+    assert verdict == "UNKNOWN"
+    assert checks["scope:pods"]["code"] == "POD_OUTSIDE_PLAN"
+
+
+def test_host_network_pod_fails(plan):
+    """계획을 만든 뒤 hostNetwork로 뜬 Pod에는 정책이 안 걸린다."""
+    before, after = good_evidence(plan)
+    after["pods"]["app"][0]["host_network"] = True
+    verdict, checks = result(plan, before, after)
+    assert verdict == "FAIL"
+    assert checks["scope:host-network"]["code"] == "HOST_NETWORK_POD"
+
+
+def test_unknown_host_network_is_unknown(plan):
+    before, after = good_evidence(plan)
+    del after["pods"]["app"][0]["host_network"]
+    assert result(plan, before, after)[1]["scope:host-network"]["code"] == "HOST_NETWORK_UNKNOWN"
+
+
+def test_pod_without_labels_cannot_rule_out_wider_policy(plan):
+    before, after = good_evidence(plan)
+    leak = network_policy("leak", {"matchLabels": {"app": "demo-chat"}}, egress=[{"to": [{"ipBlock": {"cidr": "52.0.0.0/8"}}]}])
+    for side in ("start", "end"):
+        after["policy_readback"][side].append(copy.deepcopy(leak))
+    del after["pods"]["app"][0]["labels"]
+    assert result(plan, before, after)[1]["policy:readback"]["code"] == "POLICY_NOT_READ"
+
+
+def test_garbage_pod_entry_is_not_dropped(plan):
+    before, after = good_evidence(plan)
+    after["pods"]["app"].append("not a pod")
+    assert result(plan, before, after)[1]["restart:app"]["code"] == "NOT_OBSERVED"
+
+
+def test_baseline_from_long_ago_is_unknown(plan):
+    before, after = good_evidence(plan)
+    before["probes"][0]["observed_at"] = at(-90 * 24 * 3600, APPLIED)
+    assert "OBSERVATION_WINDOW_TOO_LONG" in codes(result(plan, before, after)[1])
+
+
+def test_stream_samples_are_ordered_by_time_not_by_text(plan):
+    """시간대가 섞이면 글자 순서와 시간 순서가 다르다. 뒤로 간 LSN을 통과시키면 안 된다."""
+    before, after = good_evidence(plan)
+    earlier, later = RESTARTED + timedelta(seconds=40), RESTARTED + timedelta(seconds=50)
+    after["replication"][0].update(lsn="0/2800", observed_at=earlier.astimezone(timezone(timedelta(hours=9))).isoformat())
+    after["replication"][1].update(lsn="0/2000", observed_at=later.isoformat())
+    assert result(plan, before, after)[1]["keep:replication-reverse:stream"]["code"] == "REPLICATION_IDLE"
+
+
+@pytest.mark.parametrize("damage", [
+    lambda a: a["probes"][0].update(state=["connected"]),
+    lambda a: a["probes"][0].update(pod_uid=["x"]),
+    lambda a: a["pods"]["app"][0].update(uid=["x"]),
+    lambda a: a["app_checks"][0].update(id=["x"]),
+    lambda a: a["replication"][0].update(route_id={"a": 1}),
+])
+def test_values_of_the_wrong_type_are_unknown_not_a_crash(plan, damage):
+    """예외로 죽으면 종료 코드 1이라 FAIL로 읽힌다. 모르는 것은 UNKNOWN이다."""
+    before, after = good_evidence(plan)
+    damage(after)
+    assert judge(plan, before, after)["verdict"] == "UNKNOWN"
+
+
+def test_pod_scope_not_read_is_unknown(plan):
+    before, after = good_evidence(plan)
+    del after["unclassified_pods"]
+    assert result(plan, before, after)[1]["scope:pods"]["code"] == "POD_SCOPE_UNKNOWN"
+
+
 @pytest.mark.parametrize("cutover", [{"writer": "source"}, {"writer": "unknown"}, {}, None])
 def test_cutover_not_confirmed_is_unknown(plan, cutover):
     """쓰기가 아직 출발지면 이 시험의 의미가 없다. 실패가 아니라 판정 불가다."""
@@ -600,6 +772,16 @@ def test_dependency_that_cannot_be_probed_is_unknown():
     verdict, checks = result(plan, before, after)
     assert verdict == "UNKNOWN"
     assert checks["coverage:item-006"]["code"] == "UNMAPPED_DEPENDENCY"
+
+
+def test_every_code_has_one_meaning():
+    """같은 코드가 어떤 때는 FAIL, 어떤 때는 UNKNOWN이면 판정 결과를 믿고 읽을 수 없다."""
+    source = (Path(verdict_module.__file__)).read_text(encoding="utf-8")
+    seen: dict[str, set[str]] = {}
+    for level, code in re.findall(r'Check\([^,]+, (PASS|FAIL|UNKNOWN), "([A-Z_]+)"\)', source):
+        seen.setdefault(code, set()).add(level)
+    assert len(seen) > 30
+    assert {code: levels for code, levels in seen.items() if len(levels) > 1} == {}
 
 
 def test_plan_without_any_required_check_never_passes(plan):

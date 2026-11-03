@@ -190,13 +190,13 @@
    "deploy_refs": [
     {
      "kind": "kms_key",
-     "name": "11111111-2222-3333-4444-555555555555",
+     "name": "00000000-0000-0000-0000-000000000000",
      "via": "Deployment/chat → ServiceAccount/chat → IAMRole → policy chat-kms",
      "actions": [
       "kms:Decrypt"
      ],
      "attributes": {
-      "arn": "arn:aws:kms:ap-northeast-2:000000000000:key/11111111-2222-3333-4444-555555555555",
+      "arn": "arn:aws:kms:ap-northeast-2:000000000000:key/00000000-0000-0000-0000-000000000000",
       "key_manager": "CUSTOMER"
      }
     }
@@ -306,7 +306,7 @@
       "s3:PutObject"
      ],
      "attributes": {
-      "arn": "arn:aws:s3:::demo-chat-attachments/*",
+      "arn": "arn:aws:s3:::attachments.example.invalid/*",
       "public": "False",
       "region": "ap-northeast-2"
      }
@@ -320,7 +320,7 @@
       "s3:PutObject"
      ],
      "attributes": {
-      "arn": "arn:aws:s3:::demo-chat-attachments",
+      "arn": "arn:aws:s3:::attachments.example.invalid",
       "public": "False",
       "region": "ap-northeast-2"
      }
@@ -333,7 +333,7 @@
       "s3:GetObject"
      ],
      "attributes": {
-      "arn": "arn:aws:s3:::chat-audit-archive/*",
+      "arn": "arn:aws:s3:::audit-archive.example.invalid/*",
       "public": "False",
       "region": "ap-northeast-2"
      }
@@ -492,7 +492,7 @@
      "s3:PutObject"
     ],
     "attributes": {
-     "arn": "arn:aws:s3:::demo-chat-attachments/*",
+     "arn": "arn:aws:s3:::attachments.example.invalid/*",
      "public": "False",
      "region": "ap-northeast-2"
     }
@@ -507,7 +507,7 @@
      "s3:PutObject"
     ],
     "attributes": {
-     "arn": "arn:aws:s3:::demo-chat-attachments",
+     "arn": "arn:aws:s3:::attachments.example.invalid",
      "public": "False",
      "region": "ap-northeast-2"
     }
@@ -527,14 +527,14 @@
    },
    {
     "kind": "kms_key",
-    "name": "11111111-2222-3333-4444-555555555555",
+    "name": "00000000-0000-0000-0000-000000000000",
     "role": "kms",
     "via": "Deployment/chat → ServiceAccount/chat → IAMRole → policy chat-kms",
     "actions": [
      "kms:Decrypt"
     ],
     "attributes": {
-     "arn": "arn:aws:kms:ap-northeast-2:000000000000:key/11111111-2222-3333-4444-555555555555",
+     "arn": "arn:aws:kms:ap-northeast-2:000000000000:key/00000000-0000-0000-0000-000000000000",
      "key_manager": "CUSTOMER"
     }
    },
@@ -547,7 +547,7 @@
      "s3:GetObject"
     ],
     "attributes": {
-     "arn": "arn:aws:s3:::chat-audit-archive/*",
+     "arn": "arn:aws:s3:::audit-archive.example.invalid/*",
      "public": "False",
      "region": "ap-northeast-2"
     }
@@ -664,5 +664,5 @@
   "deploy_only": 1,
   "code_only": 0
  },
- "digest": "sha256:af9c09d689b1f7d7c18e448aed98be904c6f204c9699ffac3a8b4b0af963d93b"
+ "digest": "sha256:55271b9513e48c23c1a730faeebd44fc6831a1e1e57c9ef14d59641b60ccbc01"
 }

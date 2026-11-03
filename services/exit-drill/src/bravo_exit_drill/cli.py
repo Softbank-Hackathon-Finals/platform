@@ -13,7 +13,7 @@ from . import probe
 from .cluster import SnapshotError, parse_snapshot
 from .inventory_input import ContractError, parse_inventory
 from .observation import ObservationError, build_observation, probe_request
-from .policy import PlanRefused, build_plan
+from .policy import PlanRefused, build_plan, plan_is_intact
 from .residual_map import MapError, build_map, render_markdown
 from .spec import SpecError, parse_spec
 from .verdict import exit_code, judge
@@ -44,10 +44,12 @@ def _print(value: Any) -> None:
     print(json.dumps(value, ensure_ascii=False, indent=1, sort_keys=True))
 
 
-def _plan(path: str) -> dict:
+def _plan(path: str, *, verify: bool = True) -> dict:
     plan = _load(path, "plan")
     if not isinstance(plan, dict):
         raise _InputError("plan 입력이 계획이 아니다")
+    if verify and not plan_is_intact(plan):
+        raise _InputError("plan 해시가 맞지 않아 쓸 수 없다")
     return plan
 
 
@@ -84,13 +86,15 @@ def _assemble(args) -> int:
         replication=_load(args.replication, "replication") if args.replication else [],
         cutover=_load(args.cutover, "cutover") if args.cutover else None,
         policy_applied_at=args.policy_applied_at,
+        induced_restarts=_load(args.induced_restarts, "induced-restarts") if args.induced_restarts else None,
     ))
     return 0
 
 
 def _check(args) -> int:
-    # 관측 파일이 없거나 깨졌으면 입력 오류가 아니라 '증거 없음'이다. 판정은 UNKNOWN이 된다.
-    report = judge(_plan(args.plan), _load_or_none(args.before), _load_or_none(args.after))
+    # 관측 파일이 없거나 깨졌으면, 또는 계획을 손댔으면 입력 오류가 아니라 '믿을 증거 없음'이다.
+    # 판정은 UNKNOWN이 된다.
+    report = judge(_plan(args.plan, verify=False), _load_or_none(args.before), _load_or_none(args.after))
     _print(report)
     return exit_code(report)
 
@@ -143,6 +147,7 @@ def _parser() -> argparse.ArgumentParser:
     assemble.add_argument("--replication")
     assemble.add_argument("--cutover")
     assemble.add_argument("--policy-applied-at")
+    assemble.add_argument("--induced-restarts", help="일부러 컨테이너를 다시 띄운 횟수 {Pod UID: 횟수}")
     assemble.set_defaults(run=_assemble)
 
     check = commands.add_parser("check", help="전후 관측을 판정한다")
@@ -171,6 +176,8 @@ def main(argv: list[str] | None = None) -> int:
         return args.run(args)
     except (_InputError, ContractError, SpecError, SnapshotError, ObservationError, MapError) as exc:
         print(f"bravo-exit-drill: {exc}", file=sys.stderr)
+    except Exception:  # noqa: BLE001 - 예외로 죽으면 종료 코드 1이라 FAIL로 읽힌다. 내용은 찍지 않는다.
+        print("bravo-exit-drill: 입력을 처리할 수 없다", file=sys.stderr)
     return 2
 
 

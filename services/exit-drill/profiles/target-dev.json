@@ -48,7 +48,7 @@
       "owners": ["pooler"],
       "to": {"namespace": "tailscale-system", "selector": {"tailscale.com/parent-resource": "bravo-target-pooler"}},
       "ports": [{"protocol": "TCP", "port": 5432}],
-      "probe": {"kind": "tcp", "host": "source-for-pooler.target-dev.svc", "port": 5432},
+      "probe": {"kind": "tcp", "host": "source-db-for-pooler.target-dev.svc", "port": 5432},
       "roles": ["db"]
     },
     {
@@ -64,8 +64,9 @@
       "id": "replication-reverse",
       "class": "replication",
       "owners": ["db"],
-      "to": {"namespace": "tailscale-system", "selector": {"tailscale.com/parent-resource": "bravo-target-db"}},
+      "to": {"namespace": "tailscale-system", "selector": {"tailscale.com/parent-resource": "target-db-tailnet"}},
       "ports": [{"protocol": "TCP", "port": 5432}],
+      "direction": "ingress",
       "evidence": "stream"
     }
   ],

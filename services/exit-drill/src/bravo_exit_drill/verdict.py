@@ -12,7 +12,7 @@ from datetime import datetime, timedelta
 from typing import Any
 
 from .cluster import SnapshotError, undeclared_egress
-from .policy import POLICY_PREFIX, compute_digest
+from .policy import POLICY_PREFIX, plan_is_intact
 
 REPORT_VERSION = "exit-drill-report/v1"
 OBSERVATION_VERSION = "exit-drill-observation/v1"
@@ -22,8 +22,11 @@ EXIT_CODES = {PASS: 0, FAIL: 1, UNKNOWN: 3}
 # 거부로 볼 수 있는 결과. CNI마다 막는 방식이 달라 timeout도 refused도 나온다(k3s는 REJECT).
 DENIED_STATES = {"timeout", "refused", "unreachable"}
 OPEN_STATES = {"connected", "resolved"}
-# 차단 직후부터 이 안에 잰 증거만 하나의 시험으로 묶는다.
+# 차단 전후로 이 안에 잰 증거만 하나의 시험으로 묶는다.
 MAX_WINDOW = timedelta(minutes=15)
+# 정책이 Pod에 실제로 걸릴 때까지 기다린 것으로 치는 시간. k3s에서 기존 Pod는 0.2초, 새 Pod는
+# 1초 안쪽이었다. 쿠버네티스 시각이 초 단위라 여유를 둔다.
+ENFORCEMENT_MARGIN = timedelta(seconds=2)
 _LSN = re.compile(r"^([0-9A-Fa-f]+)/([0-9A-Fa-f]+)$")
 
 
@@ -35,8 +38,16 @@ class Check:
 
 
 def judge(plan: dict, before: Any, after: Any) -> dict:
-    if compute_digest(plan) != plan.get("digest"):
+    if not plan_is_intact(plan):
         return _report(plan, [Check("binding:plan", UNKNOWN, "PLAN_TAMPERED")])
+    try:
+        return _judge(plan, before, after)
+    except (AttributeError, KeyError, TypeError, ValueError):
+        # 관측 안의 값이 모양을 벗어났다. 예외로 죽으면 종료 코드 1이라 FAIL로 읽힌다.
+        return _report(plan, [Check("binding:evidence", UNKNOWN, "OBSERVATION_UNREADABLE")])
+
+
+def _judge(plan: dict, before: Any, after: Any) -> dict:
     binding = _check_binding(plan, before, after)
     if binding:
         # 다른 시험의 증거일 수 있으니 내용을 믿고 판정하지 않는다.
@@ -46,6 +57,8 @@ def judge(plan: dict, before: Any, after: Any) -> dict:
         *_check_required(plan),
         *[Check(f"coverage:{d['id']}", UNKNOWN, "UNMAPPED_DEPENDENCY") for d in plan["unmapped_dependencies"]],
         _check_cutover(after),
+        _check_pod_scope(after),
+        _check_host_network(plan, after),
         _check_baseline_policy(plan, before),
         _check_applied_policy(plan, after),
     ]
@@ -53,7 +66,8 @@ def judge(plan: dict, before: Any, after: Any) -> dict:
     for decision in plan["decisions"]:
         checks.extend(_check_decision(decision, control, before, after))
     app_workloads = sorted(name for name, w in plan["workloads"].items() if w["role"] == "app")
-    checks.extend(_check_restart(name, before, after, applied) for name in app_workloads)
+    policy_since = _policy_created(plan, after)
+    checks.extend(_check_restart(name, before, after, applied, policy_since) for name in app_workloads)
     newest = _newest_start(after, app_workloads)
     checks.extend(_check_new_connection(c["id"], after, newest) for c in plan["new_connection_checks"])
     return _report(plan, checks)
@@ -118,7 +132,7 @@ def _check_binding(plan: dict, before: Any, after: Any) -> list[Check]:
         or any(t is None or t < applied for t in after_times)
     ):
         return [Check("binding:timing", UNKNOWN, "OBSERVED_OUTSIDE_PHASE")]
-    if after_times and max(after_times) - applied > MAX_WINDOW:
+    if (after_times and max(after_times) - applied > MAX_WINDOW) or (before_times and applied - min(before_times) > MAX_WINDOW):
         return [Check("binding:timing", UNKNOWN, "OBSERVATION_WINDOW_TOO_LONG")]
     return []
 
@@ -141,6 +155,26 @@ def _check_cutover(after: dict) -> Check:
     if isinstance(cutover, dict) and cutover.get("writer") == "target":
         return Check("cutover:writer", PASS, "WRITER_IS_TARGET")
     return Check("cutover:writer", UNKNOWN, "CUTOVER_NOT_CONFIRMED")
+
+
+def _check_pod_scope(after: dict) -> Check:
+    """계획을 만든 뒤 새로 뜬 Pod는 어느 정책에도 안 걸리고 아무도 재지 않는다."""
+    outside = after.get("unclassified_pods")
+    if not isinstance(outside, list):
+        return Check("scope:pods", UNKNOWN, "POD_SCOPE_UNKNOWN")
+    if outside:
+        return Check("scope:pods", UNKNOWN, "POD_OUTSIDE_PLAN")
+    return Check("scope:pods", PASS, "ALL_PODS_IN_PLAN")
+
+
+def _check_host_network(plan: dict, after: dict) -> Check:
+    """hostNetwork Pod에는 NetworkPolicy가 걸리지 않는다. 계획을 만든 뒤 바뀔 수 있어 다시 본다."""
+    pods = [p for name, w in plan["workloads"].items() if w["role"] == "app" for p in (_pods(after, name) or [])]
+    if any(p.get("host_network") is True for p in pods):
+        return Check("scope:host-network", FAIL, "HOST_NETWORK_POD")
+    if any(p.get("host_network") is not False for p in pods):
+        return Check("scope:host-network", UNKNOWN, "HOST_NETWORK_UNKNOWN")
+    return Check("scope:host-network", PASS, "NO_HOST_NETWORK")
 
 
 def _readback(observation: dict) -> tuple[list, list] | None:
@@ -174,6 +208,8 @@ def _check_applied_policy(plan: dict, after: dict) -> Check:
     if readback is None:
         return Check("policy:readback", UNKNOWN, "POLICY_NOT_READ")
     try:
+        if any(p["metadata"]["namespace"] != plan["namespace"] for p in [*readback[0], *readback[1]]):
+            return Check("policy:readback", UNKNOWN, "POLICY_NOT_READ")
         start, end = _specs(readback[0]), _specs(readback[1])
         if start != end:
             return Check("policy:readback", UNKNOWN, "POLICY_CHANGED_DURING_OBSERVATION")
@@ -193,16 +229,19 @@ def _wider_than_plan(plan: dict, after: dict, policies: list) -> bool:
             continue
         allowed = ours[POLICY_PREFIX + name]["spec"]["egress"]
         for pod in _pods(after, name) or []:
-            if undeclared_egress(policies, pod.get("labels") or {}, allowed, skip_names=ours.keys()):
+            if undeclared_egress(policies, pod["labels"], allowed, skip_names=ours.keys()):
                 return True
     return False
 
 
 def _pods(observation: dict, workload: str) -> list | None:
+    """읽지 못했으면 None이다. 알아볼 수 없는 항목이 하나라도 있으면 읽지 못한 것으로 친다."""
     pods = observation.get("pods")
     if not isinstance(pods, dict) or not isinstance(pods.get(workload), list):
         return None
-    return [p for p in pods[workload] if isinstance(p, dict)]
+    if not all(isinstance(p, dict) for p in pods[workload]):
+        return None
+    return pods[workload]
 
 
 def _uids(observation: dict, workload: str | None) -> set:
@@ -294,7 +333,7 @@ def _lsn(value: Any) -> int | None:
 
 def _stream_rows(observation: dict, route_id: str) -> list[dict]:
     rows = [r for r in _rows(observation, "replication") if isinstance(r, dict) and r.get("route_id") == route_id]
-    return sorted(rows, key=lambda r: str(r.get("observed_at")))
+    return sorted(rows, key=lambda r: _time(r.get("observed_at")))
 
 
 def _check_stream(route_id: str, before: dict, after: dict) -> Check:
@@ -314,7 +353,17 @@ def _check_stream(route_id: str, before: dict, after: dict) -> Check:
     return Check(check_id, PASS, "STREAMING_ADVANCED")
 
 
-def _check_restart(workload: str, before: dict, after: dict, applied: datetime) -> Check:
+def _policy_created(plan: dict, after: dict) -> datetime | None:
+    """클러스터가 기록한, 마지막 차단 정책의 생성 시각. 적용 시각은 사람이 적는 값이라 이것과 대조한다."""
+    readback = _readback(after)
+    if readback is None or not plan["manifests"]:
+        return None
+    created = {p["metadata"]["name"]: _time(p["metadata"].get("creationTimestamp")) for p in readback[0]}
+    times = [created.get(m["metadata"]["name"]) for m in plan["manifests"]]
+    return None if None in times else max(times)
+
+
+def _check_restart(workload: str, before: dict, after: dict, applied: datetime, policy_since: datetime | None) -> Check:
     check_id = f"restart:{workload}"
     now, was = _pods(after, workload), _pods(before, workload)
     if now is None or not was:
@@ -327,17 +376,42 @@ def _check_restart(workload: str, before: dict, after: dict, applied: datetime) 
         return Check(check_id, UNKNOWN, "READINESS_UNKNOWN")
     if {p.get("uid") for p in now} & {p.get("uid") for p in was}:
         return Check(check_id, UNKNOWN, "RESTART_NOT_OBSERVED")
+    if policy_since is None:
+        return Check(check_id, UNKNOWN, "POLICY_TIME_UNKNOWN")
     for pod in now:
         started = _time(pod.get("started_at"))
         if started is None or started < applied:
             return Check(check_id, UNKNOWN, "STARTED_BEFORE_BLOCK")
-    if any(type(p.get("restarts")) is not int or p["restarts"] != 0 for p in now):
-        return Check(check_id, UNKNOWN, "UNSTABLE_RESTARTS")
+        running_since = _time(pod.get("container_started_at"))
+        if running_since is None or running_since < policy_since + ENFORCEMENT_MARGIN:
+            return Check(check_id, UNKNOWN, "STARTED_BEFORE_BLOCK")
+    return _check_induced_restarts(check_id, now, after.get("induced_restarts"))
+
+
+def _check_induced_restarts(check_id: str, pods: list[dict], induced: Any) -> Check:
+    """정책이 이미 걸린 Pod에서 컨테이너만 다시 띄운 기록을 본다.
+
+    Pod를 새로 만드는 것만으로는 "AWS 없이 뜬다"의 증거가 안 된다. 정책이 있어도 새 Pod는 처음
+    잠깐 정책에 묶이지 않아, 시작할 때 AWS를 부르는 앱도 그 틈에 뜰 수 있다(k3s 실측, 매번 1초
+    안쪽). 같은 Pod의 컨테이너 재시작은 그 틈이 없다. 단 Pod가 정책에 묶일 시간은 지나야 한다.
+    시킨 만큼만 재시작했어야 하고, 시키지 않은 재시작은 앱이 죽었다 살아난 것일 수 있다.
+    """
+    counts = induced if isinstance(induced, dict) else {}
+    for pod in pods:
+        restarts, wanted = pod.get("restarts"), counts.get(pod.get("uid"), 0)
+        if type(restarts) is not int or type(wanted) is not int or restarts > wanted:
+            return Check(check_id, UNKNOWN, "UNSTABLE_RESTARTS")
+        if wanted == 0 or restarts < wanted:
+            return Check(check_id, UNKNOWN, "STARTUP_NOT_ISOLATED")
+        if _time(pod.get("container_started_at")) < _time(pod.get("started_at")) + ENFORCEMENT_MARGIN:
+            return Check(check_id, UNKNOWN, "STARTUP_NOT_ISOLATED")
     return Check(check_id, PASS, "RESTARTED_READY")
 
 
 def _newest_start(after: dict, workloads: list[str]) -> datetime | None:
-    starts = [_time(p.get("started_at")) for name in workloads for p in (_pods(after, name) or [])]
+    """마지막 컨테이너 시작 시각. 새 연결은 이보다 뒤에 맺은 것이어야 한다."""
+    pods = [p for name in workloads for p in (_pods(after, name) or [])]
+    starts = [_time(p.get(field)) for p in pods for field in ("started_at", "container_started_at")]
     if not starts or None in starts:
         return None
     return max(starts)

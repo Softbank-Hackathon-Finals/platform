@@ -17,7 +17,7 @@ from helpers import (
 
 from bravo_exit_drill.cluster import parse_snapshot
 from bravo_exit_drill.inventory_input import parse_inventory
-from bravo_exit_drill.policy import PlanRefused, build_plan
+from bravo_exit_drill.policy import PlanRefused, build_plan, plan_is_intact
 from bravo_exit_drill.spec import SpecError, parse_spec
 
 
@@ -88,6 +88,17 @@ def test_changed_input_changes_digest():
     other = spec_doc()
     route(other, "app-to-objects")["ports"] = [{"protocol": "TCP", "port": 8334}]
     assert plan_for()["digest"] != plan_for(spec=other)["digest"]
+
+
+@pytest.mark.parametrize("field", [
+    "namespace", "candidate", "inventory_digest", "workloads", "decisions", "manifests",
+    "new_connection_checks", "unmapped_dependencies", "declared_residuals",
+])
+def test_editing_any_part_of_the_plan_breaks_it(field):
+    """계획의 어느 칸이든 손대면 쓸 수 없어야 한다. 빠진 칸이 있으면 그 칸은 몰래 바꿀 수 있다."""
+    plan = plan_for()
+    assert plan_is_intact(plan)
+    assert not plan_is_intact({**plan, field: "edited"})
 
 
 def test_restarted_pods_do_not_change_digest():
@@ -199,28 +210,61 @@ def test_existing_egress_policy_already_blocking_replication_is_refused():
     assert "REPLICATION_BLOCKED" in refused_codes(snapshot=snapshot_doc(policies=[deny]))
 
 
-def test_existing_db_policy_allowing_only_one_channel_is_refused():
-    allow_one = network_policy("db-egress", {"matchLabels": {"cnpg.io/cluster": "target-db"}}, egress=[{
-        "to": [{
-            "namespaceSelector": {"matchLabels": {"kubernetes.io/metadata.name": TAILNET}},
-            "podSelector": {"matchLabels": {"tailscale.com/parent-resource": "bravo-target-replication"}},
-        }],
-    }])
-    assert "REPLICATION_BLOCKED" in refused_codes(snapshot=snapshot_doc(policies=[allow_one]))
-
-
-def test_existing_db_policy_allowing_the_channels_passes():
+def test_egress_policy_allowing_the_outgoing_channel_passes():
     allow = network_policy("db-egress", {"matchLabels": {"cnpg.io/cluster": "target-db"}}, egress=[{
         "to": [{
             "namespaceSelector": {"matchLabels": {"kubernetes.io/metadata.name": TAILNET}},
             "podSelector": {"matchExpressions": [{
                 "key": "tailscale.com/parent-resource",
                 "operator": "In",
-                "values": ["bravo-target-replication", "bravo-target-db"],
+                "values": ["bravo-target-replication"],
             }]},
         }],
     }])
     assert plan_for(snapshot=snapshot_doc(policies=[allow]))["manifests"]
+
+
+def test_egress_policy_missing_the_outgoing_channel_is_refused():
+    other = network_policy("db-egress", {"matchLabels": {"cnpg.io/cluster": "target-db"}}, egress=[{
+        "to": [{
+            "namespaceSelector": {"matchLabels": {"kubernetes.io/metadata.name": TAILNET}},
+            "podSelector": {"matchLabels": {"tailscale.com/parent-resource": "target-db-tailnet"}},
+        }],
+    }])
+    assert "REPLICATION_BLOCKED" in refused_codes(snapshot=snapshot_doc(policies=[other]))
+
+
+def test_incoming_channel_is_not_judged_by_egress():
+    """역방향은 출발지가 접속해 온다. DB의 송신 정책으로 막히지 않으니 거부 사유가 아니다."""
+    with pytest.raises(PlanRefused) as caught:
+        plan_for(snapshot=snapshot_doc(policies=[
+            network_policy("db-egress", {"matchLabels": {"cnpg.io/cluster": "target-db"}}, egress=[]),
+        ]))
+    assert {v.subject for v in caught.value.violations} == {"replication-forward:target-db-1"}
+
+
+def test_ingress_policy_shutting_out_the_incoming_channel_is_refused():
+    deny = network_policy("db-ingress", {"matchLabels": {"cnpg.io/cluster": "target-db"}}, types=("Ingress",), ingress=[])
+    with pytest.raises(PlanRefused) as caught:
+        plan_for(snapshot=snapshot_doc(policies=[deny]))
+    assert {(v.code, v.subject) for v in caught.value.violations} == {("REPLICATION_BLOCKED", "replication-reverse:target-db-1")}
+
+
+def test_ingress_policy_admitting_the_incoming_channel_passes():
+    allow = network_policy("db-ingress", {"matchLabels": {"cnpg.io/cluster": "target-db"}}, types=("Ingress",), ingress=[{
+        "from": [{
+            "namespaceSelector": {"matchLabels": {"kubernetes.io/metadata.name": TAILNET}},
+            "podSelector": {"matchLabels": {"tailscale.com/parent-resource": "target-db-tailnet"}},
+        }],
+    }])
+    assert plan_for(snapshot=snapshot_doc(policies=[allow]))["manifests"]
+
+
+def test_policy_without_types_always_limits_ingress():
+    """policyTypes를 생략하면 쿠버네티스는 수신 정책으로 본다."""
+    implicit = network_policy("implicit", {"matchLabels": {"cnpg.io/cluster": "target-db"}})
+    del implicit["spec"]["policyTypes"]
+    assert "REPLICATION_BLOCKED" in refused_codes(snapshot=snapshot_doc(policies=[implicit]))
 
 
 def test_replication_must_stay_postgres_over_tailnet():
@@ -338,6 +382,40 @@ def test_local_route_that_leaves_the_cluster_is_refused(to):
     assert "LOCAL_ROUTE_LEAVES_CLUSTER" in refused_codes(spec=spec)
 
 
+def _gateway_routes(local_selector: dict, blocked_selector: dict) -> dict:
+    spec = spec_doc()
+    spec["routes"].append({
+        "id": "app-to-gateway", "class": "local", "owners": ["app"], "to": {"selector": local_selector},
+        "ports": [{"protocol": "TCP", "port": 9000}], "probe": {"kind": "tcp", "host": "gateway.target-dev.svc", "port": 9000},
+    })
+    spec["routes"].append({
+        "id": "app-to-source-gateway", "class": "source_access", "owners": ["app"], "to": {"selector": blocked_selector},
+        "ports": [{"protocol": "TCP", "port": 9000}], "probe": {"kind": "tcp", "host": "source-gateway.target-dev.svc", "port": 9000},
+    })
+    return spec
+
+
+@pytest.mark.parametrize(("local", "blocked"), [
+    ({"app": "gateway"}, {"app": "gateway"}),
+    ({"app": "gateway"}, {"app": "gateway", "tier": "edge"}),
+    ({"app": "gateway", "tier": "edge"}, {"app": "gateway"}),
+])
+def test_destination_both_allowed_and_blocked_is_refused(local, blocked):
+    """허용 목록에 있으면 BLOCK이라고 적어도 막히지 않는다."""
+    assert "BLOCK_ALSO_ALLOWED" in refused_codes(spec=_gateway_routes(local, blocked))
+
+
+def test_different_destinations_are_not_a_conflict():
+    plan = plan_for(spec=_gateway_routes({"app": "gateway"}, {"app": "source-gateway"}))
+    assert decisions(plan)["app-to-source-gateway"]["action"] == "BLOCK"
+
+
+def test_same_destination_for_different_owners_is_not_a_conflict():
+    spec = _gateway_routes({"app": "gateway"}, {"app": "gateway"})
+    route(spec, "app-to-source-gateway")["owners"] = ["pooler"]
+    assert decisions(plan_for(spec=spec))["app-to-gateway"]["action"] == "ALLOW"
+
+
 def test_open_local_selector_is_refused():
     spec = spec_doc()
     route(spec, "app-to-objects")["to"] = {"selector": {}}
@@ -435,6 +513,14 @@ def test_dependency_without_route_is_listed_not_dropped():
     assert plan["unmapped_dependencies"] == [{"id": "item-006", "role": "unknown", "services": ["google.cloud"]}]
 
 
+def test_role_on_a_kept_route_does_not_count_as_measured():
+    """복제 경로는 차단을 재지 않는다. 거기에 역할을 달아도 그 의존성을 잰 것이 아니다."""
+    spec = spec_doc()
+    del route(spec, "pooler-to-source")["roles"]
+    route(spec, "replication-forward")["roles"] = ["db"]
+    assert [d["id"] for d in plan_for(spec=spec)["unmapped_dependencies"]] == ["item-001"]
+
+
 def test_plan_has_no_unmapped_for_real_inventory():
     assert plan_for()["unmapped_dependencies"] == []
 
@@ -442,6 +528,7 @@ def test_plan_has_no_unmapped_for_real_inventory():
 def test_plan_binds_inventory_and_snapshot():
     plan = plan_for()
     assert plan["inventory_digest"] == inventory_doc()["digest"]
+    assert plan["candidate"] == "onprem-demo"
     assert plan["snapshot_digest"].startswith("sha256:")
 
 
@@ -468,6 +555,16 @@ def test_plan_binds_inventory_and_snapshot():
         lambda s: s["new_connection_checks"][0].update(kind="ftp"),
         lambda s: s["routes"][5].pop("evidence"),
         lambda s: s["routes"][6].update(evidence="hope"),
+        lambda s: s["routes"][6].update(direction="sideways"),
+        lambda s: s["routes"][6].update(evidence="tcp", probe={"kind": "tcp", "host": "x", "port": 5432}),
+        lambda s: s["routes"][0].update(direction="ingress"),
+        lambda s: s["routes"][0].update({"class": ["local"]}),
+        lambda s: s["routes"][0].update(roles=[1]),
+        lambda s: s["routes"][0].update(probe={"kind": ["tcp"], "host": "x", "port": 1}),
+        lambda s: s["workloads"]["app"].update(role=["app"]),
+        lambda s: s["new_connection_checks"][0].update(kind=["http"]),
+        lambda s: s["new_connection_checks"][0].update(id=1),
+        lambda s: s["new_connection_checks"].append(dict(s["new_connection_checks"][0])),
     ],
 )
 def test_malformed_spec_stops(mutate):
@@ -482,6 +579,17 @@ def test_snapshot_of_another_namespace_stops():
 
     with pytest.raises(SnapshotError):
         parse_snapshot(snapshot_doc(pods=[pod("x", {}, namespace="source-dev")]), namespace="target-dev")
+
+
+@pytest.mark.parametrize("bad_item", [
+    {"kind": "Pod", "metadata": {"namespace": "target-dev", "name": "x", "labels": "ab"}},
+    {"kind": "NetworkPolicy", "metadata": {"namespace": "target-dev", "name": "x"}, "spec": {"ingress": [{"from": [{"podSelector": {"matchExpressions": [{"key": "a", "operator": "Near"}]}}]}]}},
+])
+def test_malformed_snapshot_item_stops(bad_item):
+    from bravo_exit_drill.cluster import SnapshotError
+
+    with pytest.raises(SnapshotError):
+        parse_snapshot({"items": [bad_item]}, namespace="target-dev")
 
 
 def test_snapshot_with_unknown_selector_operator_stops():

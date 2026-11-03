@@ -40,10 +40,12 @@ def pod(name: str, labels: dict, *, host_network: bool = False, phase: str = "Ru
     }
 
 
-def network_policy(name: str, selector: dict, egress=None, *, types=("Egress",), namespace: str = "target-dev") -> dict:
+def network_policy(name: str, selector: dict, egress=None, *, types=("Egress",), ingress=None, namespace: str = "target-dev") -> dict:
     spec: dict = {"podSelector": selector, "policyTypes": list(types)}
     if egress is not None:
         spec["egress"] = egress
+    if ingress is not None:
+        spec["ingress"] = ingress
     return {
         "apiVersion": "networking.k8s.io/v1",
         "kind": "NetworkPolicy",

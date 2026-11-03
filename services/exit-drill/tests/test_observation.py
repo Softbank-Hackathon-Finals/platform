@@ -24,11 +24,14 @@ def plan() -> dict:
     )
 
 
-def kube_pod(name, labels, *, ready="True", started="2026-11-07T03:00:00Z", restarts=(0,), deleting=False, phase="Running", namespace="target-dev"):
+def kube_pod(name, labels, *, ready="True", started="2026-11-07T03:00:00Z", restarts=(0,), deleting=False, phase="Running", namespace="target-dev", running_since=("2026-11-07T03:00:01Z",)):
     metadata = {"name": name, "uid": f"uid-{name}", "namespace": namespace, "labels": labels}
     if deleting:
         metadata["deletionTimestamp"] = "2026-11-07T03:05:00Z"
-    status = {"phase": phase, "containerStatuses": [{"restartCount": r} for r in restarts]}
+    status = {"phase": phase, "containerStatuses": [
+        {"restartCount": r, "state": {"running": {"startedAt": since}} if since else {"waiting": {}}}
+        for r, since in zip(restarts, running_since, strict=False)
+    ]}
     if started:
         status["startTime"] = started
     if ready is not None:
@@ -47,10 +50,17 @@ def test_pods_are_grouped_by_workload(plan):
     ), plan)
     assert got["app"] == [{
         "name": "a1", "uid": "uid-a1", "labels": {"app": "demo-chat"}, "ready": True,
-        "started_at": "2026-11-07T03:00:00Z", "restarts": 0,
+        "started_at": "2026-11-07T03:00:00Z", "container_started_at": "2026-11-07T03:00:01Z", "restarts": 0,
+        "host_network": False,
     }]
     assert [p["name"] for p in got["pooler"]] == ["p1"]
     assert got["db"] == []
+
+
+def test_host_network_pod_is_marked(plan):
+    pod = kube_pod("a1", {"app": "demo-chat"})
+    pod["spec"] = {"hostNetwork": True}
+    assert normalize_pods(pods_doc(pod), plan)["app"][0]["host_network"] is True
 
 
 def test_not_ready_stays_false(plan):
@@ -65,8 +75,18 @@ def test_missing_condition_stays_unknown(plan):
 
 
 def test_restarts_add_up_across_containers(plan):
-    got = normalize_pods(pods_doc(kube_pod("a1", {"app": "demo-chat"}, restarts=(1, 2))), plan)
+    got = normalize_pods(pods_doc(kube_pod("a1", {"app": "demo-chat"}, restarts=(1, 2), running_since=("2026-11-07T03:00:01Z", "2026-11-07T03:00:02Z"))), plan)
     assert got["app"][0]["restarts"] == 3
+
+
+def test_latest_running_container_is_the_last_start(plan):
+    got = normalize_pods(pods_doc(kube_pod("a1", {"app": "demo-chat"}, restarts=(0, 1), running_since=("2026-11-07T03:00:05Z", "2026-11-07T03:00:09Z"))), plan)
+    assert got["app"][0]["container_started_at"] == "2026-11-07T03:00:09Z"
+
+
+def test_container_not_running_has_no_start_time(plan):
+    got = normalize_pods(pods_doc(kube_pod("a1", {"app": "demo-chat"}, running_since=(None,))), plan)
+    assert got["app"][0]["container_started_at"] is None
 
 
 def test_missing_container_status_stays_unknown(plan):
@@ -82,6 +102,19 @@ def test_terminating_and_finished_pods_are_not_counted(plan):
         kube_pod("new", {"app": "demo-chat"}),
     ), plan)
     assert [p["name"] for p in got["app"]] == ["new"]
+
+
+def test_pod_outside_every_workload_is_listed(plan):
+    observation = build_observation(
+        plan, phase="after", pods=pods_doc(
+            kube_pod("a1", {"app": "demo-chat"}),
+            kube_pod("worker", {"app": "worker"}),
+            kube_pod("finished", {"app": "worker"}, phase="Succeeded"),
+        ),
+        policies_start={"items": []}, policies_end={"items": []},
+        probe_runs={}, replication=[], cutover=None, policy_applied_at=None,
+    )
+    assert observation["unclassified_pods"] == ["worker"]
 
 
 def test_foreign_namespace_stops(plan):
@@ -123,6 +156,7 @@ def test_build_observation_keeps_inputs_and_binds_plan(plan):
         probe_runs={**probes, **control},
         replication=[{"route_id": "replication-reverse", "state": "streaming", "lsn": "0/1", "observed_at": "2026-11-07T03:10:00+00:00"}],
         cutover={"writer": "target"}, policy_applied_at="2026-11-07T03:09:00+00:00",
+        induced_restarts={"uid-a1": 1},
     )
     assert observation["schema_version"] == "exit-drill-observation/v1"
     assert observation["plan_digest"] == plan["digest"]
@@ -133,6 +167,7 @@ def test_build_observation_keeps_inputs_and_binds_plan(plan):
     }]
     assert observation["app_checks"] == [{"id": "http-ready", "ok": True, "observed_at": "2026-11-07T03:10:01+00:00"}]
     assert observation["cutover"] == {"writer": "target"}
+    assert observation["induced_restarts"] == {"uid-a1": 1}
 
 
 def test_build_observation_for_before_has_no_block_time(plan):

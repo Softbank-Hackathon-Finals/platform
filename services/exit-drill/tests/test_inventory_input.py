@@ -13,16 +13,20 @@ from bravo_exit_drill.inventory_input import ContractError, parse_inventory
 def test_reads_real_t16_output():
     view = parse_inventory(inventory_doc(), candidate="onprem-demo")
     assert view.app_id == "demo-chat"
-    assert view.source_kind == "aws"
     assert view.digest.startswith("sha256:")
     assert [d.role for d in view.dependencies] == ["db", "iam", "kms", "object_store", "secrets"]
     s3 = next(d for d in view.dependencies if d.role == "object_store")
-    assert (s3.id, s3.services, s3.grade, s3.grade_by, s3.target_impl) == (
-        "item-004", ("s3",), "config_swap", "rule", "seaweedfs",
+    assert (s3.id, s3.services, s3.grade, s3.grade_by, s3.target_impl, s3.replacement) == (
+        "item-004", ("s3",), "config_swap", "rule", "seaweedfs", "replaceable",
     )
+    assert s3.aws_services == ("s3",)
     kms = next(d for d in view.dependencies if d.role == "kms")
-    assert kms.agent_needed is True
+    assert kms.awaiting_review is True
     assert kms.risk == "migration_omission"
+    db = next(d for d in view.dependencies if d.role == "db")
+    assert db.aws_services == ()
+    iam = next(d for d in view.dependencies if d.role == "iam")
+    assert iam.aws_services == ("iam", "sts")
     assert view.residuals == ("cloudflare (edge · tunnel)", "ghcr.io (image pull)")
     assert view.candidate_verdict == "needs_work"
 
@@ -31,6 +35,39 @@ def test_candidate_selects_its_own_residuals():
     view = parse_inventory(inventory_doc(), candidate="onprem-minimal")
     assert view.residuals == ("cloudflare (edge · tunnel)",)
     assert view.candidate_verdict == "blocked"
+
+
+def test_agent_graded_item_is_not_awaiting_review():
+    doc = inventory_doc()
+    doc["items"][2]["grade_by"] = "agent"
+    view = parse_inventory(redigest(doc), candidate="onprem-demo")
+    assert next(d for d in view.dependencies if d.role == "kms").awaiting_review is False
+
+
+@pytest.mark.parametrize(("grade", "expected"), [
+    ("config_swap", "replaceable"), ("adapter", "replaceable"), ("code_change", "replaceable"),
+    ("none", "none"), ("unknown", "unknown"), ("rewrite", "unknown"),
+])
+def test_grade_becomes_replacement_status(grade, expected):
+    doc = inventory_doc()
+    doc["items"][3]["grade"] = grade
+    view = parse_inventory(redigest(doc), candidate="onprem-demo")
+    assert next(d for d in view.dependencies if d.id == "item-004").replacement == expected
+
+
+def test_source_other_than_aws_has_no_aws_services():
+    doc = inventory_doc()
+    doc["source"]["env_kind"] = "gcp"
+    view = parse_inventory(redigest(doc), candidate="onprem-demo")
+    assert all(d.aws_services == () for d in view.dependencies)
+
+
+def test_target_implementation_of_another_kind_is_not_used():
+    """T16 항목의 목적지 구현은 첫 후보 기준이다. 종류가 다른 후보에는 쓸 수 없다."""
+    doc = inventory_doc()
+    doc["candidates"][1]["env_kind"] = "gcp"
+    view = parse_inventory(redigest(doc), candidate="onprem-minimal")
+    assert all(d.target_impl == "" for d in view.dependencies)
 
 
 def test_comma_joined_service_becomes_separate_services():
@@ -81,24 +118,37 @@ def test_item_missing_a_field_stops(field):
         parse_inventory(redigest(doc), candidate="onprem-demo")
 
 
+@pytest.mark.parametrize("mutate", [
+    lambda d: d["items"][0].update(service=None),
+    lambda d: d["items"][0].update(target=None),
+    lambda d: d.update(items=[1]),
+    lambda d: d.update(app=None),
+])
+def test_wrong_field_types_stop(mutate):
+    doc = inventory_doc()
+    mutate(doc)
+    with pytest.raises(ContractError):
+        parse_inventory(redigest(doc), candidate="onprem-demo")
+
+
 def test_not_a_document_stops():
     with pytest.raises(ContractError):
         parse_inventory([], candidate="onprem-demo")
 
 
 def test_t16_field_names_live_in_one_module():
-    """다른 모듈이 T16 필드를 직접 읽으면 계약이 바뀔 때 고칠 곳이 흩어진다."""
+    """다른 모듈이 T16 값을 직접 다루면 계약이 바뀔 때 고칠 곳이 흩어진다.
+
+    grade_by · found_in은 지도가 내보내는 필드 이름이기도 해서 여기서 보지 않는다.
+    """
     source_dir = Path(inventory_input.__file__).parent
-    t16_only = {"grade_by", "agent_needed", "residual_dependencies", "found_in", "candidates"}
+    t16_only = {
+        "agent_needed", "residual_dependencies", "candidates",
+        "config_swap", "code_change", "object_store", "env_kind",
+    }
     for path in source_dir.glob("*.py"):
         if path.name == "inventory_input.py":
             continue
         tree = ast.parse(path.read_text(encoding="utf-8"))
-        subscripts = {
-            node.value
-            for sub in ast.walk(tree)
-            if isinstance(sub, ast.Subscript)
-            for node in ast.walk(sub.slice)
-            if isinstance(node, ast.Constant) and isinstance(node.value, str)
-        }
-        assert not (subscripts & t16_only), f"{path.name}가 T16 필드를 직접 읽는다"
+        constants = {node.value for node in ast.walk(tree) if isinstance(node, ast.Constant) and isinstance(node.value, str)}
+        assert not (constants & t16_only), f"{path.name}가 T16 값을 직접 다룬다: {constants & t16_only}"

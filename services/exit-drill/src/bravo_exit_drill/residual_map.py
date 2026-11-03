@@ -2,31 +2,28 @@
 
 인벤토리는 이전 전에 찍은 사진이라 그것만으로 "이제 없다"고 말할 수 없다. 대체 구현이 있어도
 Exit Drill을 통과하기 전에는 '확인 안 됨'이고, 항목은 어떤 경우에도 지도에서 빠지지 않는다.
+
+통과해도 "AWS 경로가 막혔고 앱이 떠서 응답했다"까지만 말한다. 첨부 읽기나 OpenBao 호출처럼
+기능별로 대체 구현을 쓰는지는 이 시험이 재지 않는다.
 """
 
-from .inventory_input import Dependency, InventoryView
+from .inventory_input import Dependency, InventoryView, grade_label
 
 MAP_VERSION = "exit-drill-residual-map/v1"
 NOT_GRADED = "not_graded"
 NOT_RUN = "NOT_RUN"
-REPLACEABLE_GRADES = {"config_swap", "adapter", "code_change"}
 
 # 먼저 봐야 할 것부터 적는다. 보고서의 구역 순서이기도 하다.
 STATUS_LABELS = {
     "remains": "남음",
+    "broken": "끊김 (남겨야 할 복제 채널)",
     "unknown": "불명 (판정 못 함)",
     "kept": "유지 (복제 채널)",
+    "not_blocked": "차단 대상 아님 (이 시험으로 확인 안 됨)",
     "unverified": "대체 있음 · 아직 확인 안 됨",
-    "independent": "대체 확인됨 (차단 상태에서 동작)",
+    "blocked_app_ok": "AWS 경로 막힘 · 앱 동작 확인",
 }
-GRADE_LABELS = {
-    "config_swap": "설정 교체",
-    "adapter": "어댑터 추가",
-    "code_change": "코드 수정",
-    "none": "대체 없음",
-    "unknown": "미지",
-    NOT_GRADED: "등급 없음",
-}
+GRADE_LABELS = {NOT_GRADED: "등급 없음"}
 
 
 class MapError(ValueError):
@@ -36,13 +33,17 @@ class MapError(ValueError):
 def build_map(inventory: InventoryView, plan: dict, report: dict | None) -> dict:
     if inventory.digest != plan["inventory_digest"]:
         raise MapError("inventory does not belong to the plan")
+    if inventory.candidate != plan["candidate"]:
+        raise MapError("candidate differs from the plan")
+    if report is not None and not isinstance(report, dict):
+        raise MapError("report is malformed")
     if report is not None and report.get("plan_digest") != plan["digest"]:
         raise MapError("report does not belong to the plan")
-    verdict = report["verdict"] if report else NOT_RUN
-    results = {c["id"]: c["verdict"] for c in report["checks"]} if report else {}
+    verdict, results = _read_report(report)
     entries = [
         *[_dependency_entry(d, plan, results, verdict) for d in inventory.dependencies],
         *[_channel_entry(d, results) for d in plan["decisions"] if d["action"] == "KEEP"],
+        *[_workload_entry(name, w) for name, w in sorted(plan["workloads"].items()) if w["role"] == "infrastructure"],
         *_residual_entries(inventory, plan),
     ]
     return {
@@ -56,6 +57,15 @@ def build_map(inventory: InventoryView, plan: dict, report: dict | None) -> dict
         "summary": {"status": _count(entries, "status"), "grade": _count(entries, "grade")},
         "entries": entries,
     }
+
+
+def _read_report(report: dict | None) -> tuple[str, dict[str, str]]:
+    if report is None:
+        return NOT_RUN, {}
+    try:
+        return report["verdict"], {c["id"]: c["verdict"] for c in report["checks"]}
+    except (KeyError, TypeError) as exc:
+        raise MapError("report is malformed") from exc
 
 
 def _count(entries: list[dict], field: str) -> dict[str, int]:
@@ -85,23 +95,22 @@ def _combined(check_ids: list[str], results: dict[str, str]) -> str:
     values = [results.get(check_id, NOT_RUN) for check_id in check_ids]
     if not values or NOT_RUN in values:
         return NOT_RUN
-    for verdict in ("FAIL", "UNKNOWN"):
-        if verdict in values:
-            return verdict
-    return "PASS"
+    if "FAIL" in values:
+        return "FAIL"
+    return "PASS" if all(v == "PASS" for v in values) else "UNKNOWN"
 
 
 def _dependency_status(dependency: Dependency, check_ids: list[str], combined: str, drill_verdict: str) -> str:
-    if dependency.grade == "none":
+    if dependency.replacement == "none":
         return "remains"
-    if dependency.grade not in REPLACEABLE_GRADES or not dependency.target_impl or not check_ids:
+    if dependency.replacement != "replaceable" or not dependency.target_impl or not check_ids:
         return "unknown"
-    if dependency.agent_needed and dependency.grade_by == "rule":
-        # 규칙이 못 정해 에이전트 확인을 기다리는 항목. 차단 시험에 안 걸렸어도 확정하지 않는다.
+    if dependency.awaiting_review:
+        # 차단 시험에 안 걸렸어도 에이전트 확인을 기다리는 항목은 확정하지 않는다.
         return "unknown"
     if combined == "FAIL":
         return "remains"
-    return "independent" if combined == "PASS" and drill_verdict == "PASS" else "unverified"
+    return "blocked_app_ok" if combined == "PASS" and drill_verdict == "PASS" else "unverified"
 
 
 def _dependency_entry(dependency: Dependency, plan: dict, results: dict[str, str], drill_verdict: str) -> dict:
@@ -129,14 +138,27 @@ def _channel_entry(decision: dict, results: dict[str, str]) -> dict:
     route_id = decision["route_id"]
     suffixes = ["stream"] if decision["evidence"] == "stream" else decision["owners"]
     check_ids = [f"keep:{route_id}:{suffix}" for suffix in suffixes]
+    combined = _combined(check_ids, results)
     return _entry(
         id=f"channel:{route_id}",
         category="replication_channel",
-        name=f"복제 채널 {route_id} (Tailscale → 출발지 DB)",
-        status="kept",
+        name=f"복제 채널 {route_id} (Tailscale로 출발지 DB와 연결)",
+        status="broken" if combined == "FAIL" else "kept",
         evidence=check_ids,
         source="drill-plan",
-        check_verdict=_combined(check_ids, results),
+        check_verdict=combined,
+    )
+
+
+def _workload_entry(name: str, workload: dict) -> dict:
+    """정책을 걸지 않은 구성요소. 이것을 거쳐 AWS에 닿는 의존은 이 시험으로 잡지 못한다."""
+    selector = ", ".join(f"{k}={v}" for k, v in sorted(workload["selector"].items()))
+    return _entry(
+        id=f"workload:{name}",
+        category="unblocked_workload",
+        name=f"{name} ({selector})",
+        status="not_blocked",
+        source="drill-plan",
     )
 
 
@@ -175,7 +197,7 @@ def render_markdown(result: dict) -> str:
             "| --- | --- | --- | --- | --- | --- |",
         ]
         for entry in rows:
-            grade = GRADE_LABELS.get(entry["grade"], entry["grade"])
+            grade = GRADE_LABELS.get(entry["grade"]) or grade_label(entry["grade"])
             lines.append(
                 f"| {_cell(entry['name'])} | {_cell(grade)} | {_cell(entry['target_impl'])} | {_cell(entry['risk'])} "
                 f"| {_cell(entry['check_verdict'])} | {_cell(', '.join(entry['evidence']))} |"

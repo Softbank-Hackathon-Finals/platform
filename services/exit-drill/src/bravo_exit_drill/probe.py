@@ -7,16 +7,17 @@ Pod 안에서 쓰는 도구라 표준 라이브러리만 쓰고 이 파일 하�
 않는다. 상태 판정은 하지 않는다. 그 일은 verdict.py가 한다.
 """
 
+import base64
 import errno
 import http.client
 import json
+import os
 import socket
 import sys
 from datetime import datetime, timezone
 
 MAX_TARGETS = 32
 _UNREACHABLE = {errno.EHOSTUNREACH, errno.ENETUNREACH, errno.EACCES, errno.EPERM}
-_WEBSOCKET_KEY = "dGhlIHNhbXBsZSBub25jZQ=="  # RFC 6455의 예시 값. 비밀이 아니다.
 
 
 def tcp_state(host, port, *, timeout, connect=socket.create_connection):
@@ -45,13 +46,18 @@ def http_status(host, port, path, *, timeout):
     return _request(host, port, path, {"Connection": "close"}, timeout)
 
 
+def websocket_key():
+    """RFC 6455의 핸드셰이크 값. 요청마다 새로 만드는 난수이고 비밀이 아니다."""
+    return base64.b64encode(os.urandom(16)).decode()
+
+
 def websocket_status(host, port, path, *, timeout):
     """업그레이드 응답(101)까지만 본다. 새 연결이 닿는지 확인하는 것이 목적이다."""
     headers = {
         "Connection": "Upgrade",
         "Upgrade": "websocket",
         "Sec-WebSocket-Version": "13",
-        "Sec-WebSocket-Key": _WEBSOCKET_KEY,
+        "Sec-WebSocket-Key": websocket_key(),
     }
     return _request(host, port, path, headers, timeout)
 

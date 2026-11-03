@@ -18,7 +18,12 @@ class ObservationError(ValueError):
 
 def normalize_pods(doc: dict, plan: dict) -> dict[str, list[dict]]:
     """`kubectl get pods -o json`을 워크로드별로 나눈다. 끝났거나 종료 중인 Pod는 세지 않는다."""
+    return _classify_pods(doc, plan)[0]
+
+
+def _classify_pods(doc: dict, plan: dict) -> tuple[dict[str, list[dict]], list[str]]:
     grouped: dict[str, list[dict]] = {name: [] for name in plan["workloads"]}
+    outside: list[str] = []
     for item in doc.get("items") or []:
         metadata = item.get("metadata") or {}
         if metadata.get("namespace") != plan["namespace"]:
@@ -27,19 +32,23 @@ def normalize_pods(doc: dict, plan: dict) -> dict[str, list[dict]]:
         if status.get("phase") in _FINISHED or metadata.get("deletionTimestamp"):
             continue
         labels = metadata.get("labels") or {}
-        for name, workload in plan["workloads"].items():
-            if selector_matches({"matchLabels": workload["selector"]}, labels):
-                grouped[name].append({
-                    "name": metadata.get("name"),
-                    "uid": metadata.get("uid"),
-                    "labels": labels,
-                    "ready": _ready(status),
-                    "started_at": status.get("startTime"),
-                    "restarts": _restarts(status),
-                })
+        owners = [name for name, w in plan["workloads"].items() if selector_matches({"matchLabels": w["selector"]}, labels)]
+        if not owners:
+            outside.append(metadata.get("name"))
+        for name in owners:
+            grouped[name].append({
+                "name": metadata.get("name"),
+                "uid": metadata.get("uid"),
+                "labels": labels,
+                "ready": _ready(status),
+                "started_at": status.get("startTime"),
+                "container_started_at": _container_started(status),
+                "restarts": _restarts(status),
+                "host_network": (item.get("spec") or {}).get("hostNetwork") is True,
+            })
     for pods in grouped.values():
         pods.sort(key=lambda p: str(p["name"]))
-    return grouped
+    return grouped, sorted(outside)
 
 
 def _ready(status: dict) -> bool | None:
@@ -54,6 +63,16 @@ def _restarts(status: dict) -> int | None:
     if not containers:
         return None
     return sum(c.get("restartCount", 0) for c in containers)
+
+
+def _container_started(status: dict) -> str | None:
+    """지금 돌고 있는 컨테이너 중 가장 늦게 시작한 시각. 모두 UTC ISO 형식이라 글자로 비교한다."""
+    started = [
+        c["state"]["running"]["startedAt"]
+        for c in status.get("containerStatuses") or []
+        if (c.get("state") or {}).get("running", {}).get("startedAt")
+    ]
+    return max(started) if started else None
 
 
 def probe_request(plan: dict, vantage: str) -> dict:
@@ -85,13 +104,39 @@ def build_observation(
     replication: list[dict],
     cutover: dict | None,
     policy_applied_at: str | None,
+    induced_restarts: dict[str, int] | None = None,
 ) -> dict:
     """probe_runs는 {위치: {"pod_uid": ..., "results": probe.run 결과}} 형식이다.
 
     대조군 위치는 앞뒤로 두 번 재므로 {"control": [{...}, {...}]}처럼 목록도 받는다.
+    induced_restarts는 {Pod UID: 재시작 횟수}로, 운영자가 일부러 컨테이너를 다시 띄운 기록이다.
     """
     if phase not in PHASES:
         raise ObservationError("unknown phase")
+    try:
+        probes, checks = _flatten_runs(probe_runs)
+    except (AttributeError, KeyError, TypeError) as exc:
+        raise ObservationError("probe results are malformed") from exc
+    grouped, outside = _classify_pods(pods, plan)
+    observation = {
+        "schema_version": OBSERVATION_VERSION,
+        "plan_digest": plan["digest"],
+        "phase": phase,
+        "pods": grouped,
+        "unclassified_pods": outside,
+        "policy_readback": {"start": policies_start.get("items"), "end": policies_end.get("items")},
+        "probes": probes,
+        "replication": replication,
+        "app_checks": checks,
+        "cutover": cutover,
+        "induced_restarts": induced_restarts or {},
+    }
+    if policy_applied_at is not None:
+        observation["policy_applied_at"] = policy_applied_at
+    return observation
+
+
+def _flatten_runs(probe_runs: dict) -> tuple[list[dict], list[dict]]:
     probes, checks = [], []
     for vantage, runs in probe_runs.items():
         for run in runs if isinstance(runs, list) else [runs]:
@@ -106,17 +151,4 @@ def build_observation(
                     })
                 else:
                     checks.append({"id": result.get("check_id"), "ok": result.get("ok"), "observed_at": result.get("observed_at")})
-    observation = {
-        "schema_version": OBSERVATION_VERSION,
-        "plan_digest": plan["digest"],
-        "phase": phase,
-        "pods": normalize_pods(pods, plan),
-        "policy_readback": {"start": policies_start.get("items"), "end": policies_end.get("items")},
-        "probes": probes,
-        "replication": replication,
-        "app_checks": checks,
-        "cutover": cutover,
-    }
-    if policy_applied_at is not None:
-        observation["policy_applied_at"] = policy_applied_at
-    return observation
+    return probes, checks

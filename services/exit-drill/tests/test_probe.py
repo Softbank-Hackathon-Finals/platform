@@ -1,5 +1,6 @@
 """접속 시험 도구. 실제 소켓으로 잰다. 대상은 전부 이 프로세스가 연 로컬 포트다."""
 
+import base64
 import errno
 import json
 import socket
@@ -137,6 +138,13 @@ def test_http_check_on_closed_port_is_none(closed_port):
 def test_websocket_upgrade_reports_status(http_port):
     assert probe.websocket_status("127.0.0.1", http_port, "/ws", timeout=1) == 101
     assert probe.websocket_status("127.0.0.1", http_port, "/ok", timeout=1) == 200
+
+
+def test_websocket_key_is_a_fresh_16_byte_nonce():
+    """RFC 6455는 요청마다 새 16바이트 값을 base64로 보내라고 한다. 고정값을 소스에 두지 않는다."""
+    first, second = probe.websocket_key(), probe.websocket_key()
+    assert first != second
+    assert len(base64.b64decode(first, validate=True)) == 16
 
 
 def test_websocket_on_closed_port_is_none(closed_port):
