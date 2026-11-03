@@ -28,8 +28,8 @@ leaf prometheus bravo-ca "DNS:prometheus,DNS:localhost,IP:127.0.0.1"
 leaf collector-onprem bravo-ca "DNS:collector-onprem"
 leaf console-api bravo-ca "DNS:console-api"
 leaf intruder bravo-ca "DNS:intruder"
-leaf rogue rogue-ca "DNS:collector-onprem"
-chmod -R a+rX "$CERT_DIR"
+leaf rogue rogue-ca "DNS:collector-onprem" collector-onprem
+open_for_containers
 
 "${P[@]}" up -d --quiet-pull --build prometheus collector api >/dev/null 2>&1
 as() { local who=$1; shift; curl -fsS --max-time 5 --cacert "$CERT_DIR/bravo-ca.crt" --cert "$CERT_DIR/$who/tls.crt" --key "$CERT_DIR/$who/tls.key" "$@"; }

@@ -22,13 +22,15 @@ services:
       - queue:/var/lib/otelcol/queue
   collector:
     image: otel/opentelemetry-collector-contrib:0.164.0@sha256:340c9ca6a36617084c6661bdc4f0fe92b7cda5a805d61673ec8db375fddc522b
-    command: ["--config=/etc/otelcol/collector.yaml"]
+    # 0.164.0에서 disable_keep_alives가 적용되게 한다(deploy/collector/collector.yaml 주석)
+    command: ["--config=/etc/otelcol/collector.yaml", "--feature-gates=-pkg.confighttp.PrioritizeNewKeepalive"]
     depends_on:
       queue-init:
         condition: service_completed_successfully
     environment:
       BRAVO_ENV: onprem
       PLATFORM_OTLP_ENDPOINT: https://prometheus:9090/api/v1/otlp
+      BRAVO_TLS_RELOAD_INTERVAL: ${BRAVO_TLS_RELOAD_INTERVAL:-1m}
     volumes:
       - ../deploy/collector/collector.yaml:/etc/otelcol/collector.yaml:ro
       - ${CERT_DIR}/collector-onprem:/etc/bravo-tls:ro

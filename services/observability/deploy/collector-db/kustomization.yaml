@@ -13,7 +13,7 @@ patches:
         value: true
       - op: replace
         path: /spec/template/spec/containers/0/args
-        value: ["--config=/etc/otelcol/collector.yaml", "--config=/etc/otelcol/collector-db.yaml"]
+        value: ["--config=/etc/otelcol/collector.yaml", "--config=/etc/otelcol/collector-db.yaml", "--feature-gates=-pkg.confighttp.PrioritizeNewKeepalive"]
       - op: add
         path: /spec/template/spec/containers/0/env/-
         value:

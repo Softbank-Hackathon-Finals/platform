@@ -52,7 +52,8 @@ spec:
       containers:
         - name: collector
           image: otel/opentelemetry-collector-contrib:0.164.0@sha256:340c9ca6a36617084c6661bdc4f0fe92b7cda5a805d61673ec8db375fddc522b
-          args: ["--config=/etc/otelcol/collector.yaml"]
+          # 0.164.0에서 disable_keep_alives가 적용되게 한다(collector.yaml 주석)
+          args: ["--config=/etc/otelcol/collector.yaml", "--feature-gates=-pkg.confighttp.PrioritizeNewKeepalive"]
           env:
             - name: BRAVO_ENV
               valueFrom:

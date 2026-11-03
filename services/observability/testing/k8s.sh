@@ -30,7 +30,7 @@ check() { if [ "$1" = ok ]; then echo "  ok   $2"; else echo "  FAIL $2"; fails=
 # shellcheck source=certs.sh
 source ./certs.sh
 ca bravo-ca
-leaf prometheus bravo-ca "DNS:bravo-prometheus.$NS.svc,DNS:bravo-prometheus.$NS.svc.cluster.local,DNS:localhost,IP:127.0.0.1"
+leaf prometheus bravo-ca "DNS:prometheus,DNS:bravo-prometheus.$NS.svc,DNS:bravo-prometheus.$NS.svc.cluster.local,DNS:localhost,IP:127.0.0.1"
 leaf collector-onprem bravo-ca "DNS:collector-onprem"
 leaf console-api bravo-ca "DNS:console-api"
 
