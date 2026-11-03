@@ -80,7 +80,7 @@ def job(namespace, name, image, maps, env, *, verifier=False):
                  "command": ["python", "-I", "/runner/main.py"],
                  "env": [{"name": key, "value": value} for key, value in env.items()],
                  "volumeMounts": [{"name": key, "mountPath": path, "readOnly": True} for key, path in maps.items()],
-                 "resources": {"requests": {"cpu": "50m", "memory": "64Mi"},
+                 "resources": {"requests": {"cpu": "10m", "memory": "64Mi"},
                                "limits": {"cpu": "500m", "memory": "256Mi"}},
                  "securityContext": {"allowPrivilegeEscalation": False, "readOnlyRootFilesystem": True,
                                      "capabilities": {"drop": ["ALL"]}}}

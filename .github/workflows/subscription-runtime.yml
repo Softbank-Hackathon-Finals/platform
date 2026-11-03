@@ -44,7 +44,9 @@ jobs:
           BRAVO_RUNTIME_SOURCE_SHA: ${{ vars.BRAVO_SUBSCRIPTION_SOURCE_SHA }}
         run: uv run --frozen --no-dev python ../../operations/subscription/controller.py
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
         with:
           name: subscription-runtime-result
           path: services/agent-worker/runtime-result.json
           retention-days: 7
+          if-no-files-found: ignore
