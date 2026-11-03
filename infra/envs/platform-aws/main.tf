@@ -1,5 +1,6 @@
 data "aws_subnet" "private" { id = var.private_subnet_id }
 data "aws_vpc" "foundation" { id = var.vpc_id }
+data "aws_ec2_instance_type" "node" { instance_type = var.instance_type }
 
 # This stack owns its egress route; it does not rewrite T1 peering routes.
 resource "aws_internet_gateway" "egress" { vpc_id = var.vpc_id }
@@ -68,9 +69,13 @@ resource "aws_iam_instance_profile" "node" {
   role = aws_iam_role.node.name
 }
 resource "aws_instance" "node" {
-  tags                        = { Name = var.name }
-  ami                         = var.ami_id
-  instance_type               = var.instance_type
+  tags          = { Name = var.name }
+  ami           = var.ami_id
+  instance_type = var.instance_type
+  cpu_options {
+    core_count       = data.aws_ec2_instance_type.node.default_cores
+    threads_per_core = data.aws_ec2_instance_type.node.default_threads_per_core
+  }
   subnet_id                   = var.private_subnet_id
   associate_public_ip_address = false
   vpc_security_group_ids      = [aws_security_group.node.id]
@@ -95,6 +100,15 @@ resource "aws_instance" "node" {
   credit_specification { cpu_credits = "standard" }
   depends_on = [aws_route.private_egress, aws_iam_role_policy_attachment.ssm]
   lifecycle {
+    prevent_destroy = true
+    precondition {
+      condition = (
+        data.aws_ec2_instance_type.node.default_vcpus >= 4 &&
+        data.aws_ec2_instance_type.node.memory_size >= 8192 &&
+        contains(data.aws_ec2_instance_type.node.supported_architectures, "x86_64")
+      )
+      error_message = "The single platform server requires at least 4 vCPUs, 8 GiB and x86_64; do not shrink workload requests to fit an undersized node."
+    }
     precondition {
       condition     = data.aws_subnet.private.vpc_id == var.vpc_id && data.aws_subnet.private.map_public_ip_on_launch == false
       error_message = "RKE2 must use the reviewed private subnet in the platform VPC."

@@ -35,6 +35,45 @@
 - 전송은 검증된 HTTPS와 메모리의 Bearer를 사용한다. 전용 CA는 `ssl.create_default_context(cafile=...)`로 만든 `SSLContext`로 주입한다. 인증서 검사와 hostname 검사를 모두 요구한다. 클러스터의 평문 HTTP는 허용하지 않는다. literal loopback HTTP만 시험용으로 유지한다.
 - timeout, 오류 상태, 잘못된 응답, 초과 크기, 중복 JSON key는 UNKNOWN이다. POST 재시도·redirect·환경 프록시는 없다. 승인/명령 저장 실패 시 POST를 보내지 않는다.
 
+## 실행 상태를 읽는 계약
+
+접수와 재개는 같은 `ExecutorReader`를 소비한다. 이전 조회 전용 문서의 이 절을 여기로 통합했다. 조회 자체는 POST·자동 재시도·lease 해제·상태 전이를 하지 않으며, 위 접수 어댑터가 저장과 상태 전이를 맡는다.
+
+| 관측 | 반환 | 호출자의 다음 행동 |
+|---|---|---|
+| 실행 ID·계획·epoch 일치, 정상 형식 | `OBSERVED` + 허용 필드 snapshot | 원격 보고로 보존하고 별도 승인/완료 조건과 대조 |
+| 계획·epoch 조회에서 정확히 1개 | 해당 실행의 식별자까지 검증 | 신뢰된 명령 기록과 대조한 뒤 실행 ID를 영속 결속 |
+| 빈 목록 / 404 | `UNKNOWN` | 원격 미실행으로 단정하거나 새 명령을 만들지 않음 |
+| 복수 실행 / ID·계획·epoch 불일치 | `UNKNOWN` | 소유·결속 문제를 확인 |
+| timeout / 5xx / 인증 거부 / redirect | `UNKNOWN` | 기존 hold와 명령을 유지하고 운영 경로 확인 |
+| 이전 관측보다 짧거나 바뀐 단계 이력, 시간·commit 회귀 | `UNKNOWN` | 과거 snapshot을 덮어쓰지 않음 |
+| 원격 `SAFE_HOLD` | `OBSERVED`, `remote_status=SAFE_HOLD` | 사람이 해제하는 계약 유지 |
+| 원격 `DONE` | `OBSERVED`, `remote_status=DONE` | T10 `DONE`으로 자동 전이하지 않음 |
+
+`UNKNOWN`은 T12가 제공하는 실행 상태와 구별되는 **조회 결과**다. `OBSERVED`도 안전·승인·무결성 판정이 아니다.
+
+## 호출 경계
+
+```python
+from bravo_platform_events.executor import ExecutorReader, ExpectedExecution
+
+# 아래 값은 서버의 명령/환경 기록에서 가져온다. 외부 HTTP 입력을 그대로 쓰지 않는다.
+expected = ExpectedExecution("plan-demo", 7, "aaaaaaaa-aaaa-4aaa-8aaa-abcdefabcdef")
+with ExecutorReader("https://executor.example.invalid") as reader:
+    observation = reader.read(expected)
+```
+
+- `ExpectedExecution` 생성 자체는 인증이나 승인 증명이 아니다. 호스트가 principal/tenant와 계획 접근을 먼저 검증해야 한다. 읽기와 CUTOVER 접수는 같은 호스트의 접근 검증을 통과해야 한다.
+- 원격 접속 origin은 서버 설정으로 고정하고 HTTPS 인증서 검증을 사용한다. URL의 사용자 정보·query·fragment·path를 거부하고 환경 proxy를 상속하지 않는다. HTTP는 시험용 literal loopback만 허용한다. `transport` 주입은 신뢰된 테스트/호스트 구성의 경계이며 별도 transport가 TLS를 끄지 않도록 호스트가 책임진다.
+- 선택적 Bearer 자격은 메모리 인자로만 받는다. Bearer 전달 기능만으로 실제 서비스 인증·네트워크 경계의 구성을 증명하지 않는다.
+- 응답은 256 KiB, 단계 목록은 256개, 단일 socket 작업은 기본 5초로 제한한다. 스트림 처리 중에도 경과 시간을 확인한다. redirect, 압축 응답, 중복 JSON 키를 거부한다. socket timeout은 전체 분산 작업의 취소나 deadline 보장이 아니다.
+- snapshot에는 실행 ID, 계획, epoch, 원격 상태, commit 여부, 단계 이름·상태·시간, 실행 전체의 생성·갱신 시각만 담는다. 원시 `result`, 단계 `detail`, 예외 원문은 반환하지 않는다.
+- `previous`를 주면 동일 실행의 append-only 단계 이력과 시간·commit 진행을 확인한다. `SAFE_HOLD` 또는 종료 상태를 임의로 다시 열지 않는다. 의도한 수동 해제는 별도 인수 절차로 처리한다.
+
+실행 ID가 없는 복구 조회에서는 정확히 하나인 결과를 서버의 불변 명령 기록과 대조한다. T12 GET은 원래 요청 digest·환경 참조를 돌려주지 않으므로, 응답만으로 승인된 실제 DB 쌍을 증명할 수 없다. 위 접수 경로가 저장한 명령·승인·구성 revision과의 결속을 유지해야 한다.
+
+조회 시험과 당시 AWS 관측 범위는 [읽기 어댑터 증빙](../evidence/t10-executor-read-2026-11-03/README.md)에 남긴다. 그 기록은 당시 커밋의 시험이며 이후 접수·인증·전체 통합의 증빙으로 확장하지 않는다.
+
 ## 검증과 남은 연결
 
 합성 authority와 시험 전용 SHIFT seed는 tests에만 있다. SQLite와 실제 임시 PostgreSQL에서 승인 만료·폐기·현재 결속 변경, 타 tenant, 중복/동시 요청, 저장 실패, 커밋 후/응답 후 프로세스 유실, 재개 시 GET, 이벤트 중복 방지와 SAFE_HOLD 보존을 확인한다. 실제 loopback TCP 응답 유실과 전용 CA의 정상/미신뢰/잘못된 hostname도 시험한다.

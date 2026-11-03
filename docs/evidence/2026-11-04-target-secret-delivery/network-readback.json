@@ -1,0 +1,75 @@
+{
+  "schema_version": 1,
+  "published_at": "2026-11-03T15:43:54.544254+00:00",
+  "scope": "Development private DB/pooler route and policy creation; caller connection tests are separate",
+  "public_is_raw": false,
+  "private_originals": [
+    {
+      "artifact": "platform-operator-status-readback.private.json",
+      "sha256": "2936ecd82fdf4dcda11a879e06b660a1c19e0d9ac6facf62c5a5fe77e2ce3498"
+    },
+    {
+      "artifact": "platform-control-route-status-readback.private.json",
+      "sha256": "a6d1a48f229482b7d6c0fed9eca7f0410eea829e616f986cc13588b32a9af437"
+    },
+    {
+      "artifact": "platform-control-policies-readback.private.json",
+      "sha256": "50ed1bf4211085130199ff7db0a2a183e1dd59a0656f238c6bbd0bf6c8bd6ad8"
+    },
+    {
+      "artifact": "source-pooler-route-created.private.json",
+      "sha256": "407c989cf6ccfed7ee9edceee03d0bb28a515196dcaa66f0d0161d319de5074b"
+    },
+    {
+      "artifact": "source-pooler-route-ready.private.json",
+      "sha256": "8595b16f42f18f166d137fa509ff2907ae6c53ef37f1c39edc6caa9002782867"
+    },
+    {
+      "artifact": "source-pooler-policy-readback.private.json",
+      "sha256": "77c126db96f04c62586070e2e1fc1e578217732ec445e8846cb733fc4fa02450"
+    },
+    {
+      "artifact": "tailnet-policy-source-pooler-receipt.json",
+      "sha256": "ff8b249ddc43e3e9505b1730737a23dfc27b5779b603eafe52195abae04b4115"
+    }
+  ],
+  "platform_control": {
+    "at": "2026-11-03T15:33:22.290584+00:00",
+    "db_routes": 2,
+    "pooler_admin_routes": 2,
+    "api_routes": 0,
+    "new_policies": 2,
+    "old_policy_specs_preserved": true,
+    "generated_service_uids_ports_verified": true,
+    "current_proxy_uid_and_owned_udp_sockets_verified": true,
+    "business_caller": "bravo-platform / app.kubernetes.io/name=cutover-executor",
+    "operator_health_separate": true,
+    "allocated_port_range_opened": false,
+    "actual_caller_probe_passed": false
+  },
+  "source_pooler_backend": {
+    "at": "2026-11-03T15:41:21.605397+00:00",
+    "ready_replicas": 1,
+    "new_proxy_groups": 1,
+    "new_services": 1,
+    "new_policies": 1,
+    "existing_replication_groups_services_preserved": true,
+    "tailnet_verified": true,
+    "current_proxy_uid_and_owned_udp_sockets_verified": true,
+    "business_caller": "source-dev / app=source-pgbouncer",
+    "destination": "target DB TCP 5432 only",
+    "deployment_or_backend_changes_by_this_operator": 0,
+    "actual_pooler_probe_passed": false
+  },
+  "limitations": [
+    "Four-route platform probe was initially unschedulable due to CPU requests; no network test ran in that attempt",
+    "Resource/policy readiness does not prove successful or forbidden caller behavior",
+    "Actual source pooler TLS/backend verification and forbidden-caller probes belong to the T12 runtime integration",
+    "Single replica with current UDP sockets: proxy replacement requires fresh readback and policy review",
+    "Private API HTTPS/authorization and full Executor/cutover/SHIFT remain incomplete"
+  ],
+  "publication_code_sha256": {
+    "infra/envs/executor-network/control_network.py": "facd969daf43d82872790b1665c4146aa22f28f301345a3089320f53bd9144ad",
+    "infra/envs/executor-network/pooler_backend.py": "29bf743ca0a8d9c7e21354aa55933b80326c736a299c4d0d4881333fdc8e97ea"
+  }
+}
