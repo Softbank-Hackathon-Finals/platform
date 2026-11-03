@@ -202,6 +202,36 @@ def test_snapshot_budget_and_manifest_are_content_bound(tmp_path, monkeypatch):
         _snapshot(src, tmp_path / "out3")
 
 
+@pytest.mark.parametrize("scopes", [("source",), ("rendered",), ("source", "rendered")])
+def test_zero_byte_snapshot_never_produces_evidence(setup, scopes):
+    probe, evidence = setup
+    for scope in scopes:
+        for path in getattr(probe.target, scope).iterdir():
+            path.write_bytes(b"")
+        # More than one empty file must not change the coverage decision.
+        (getattr(probe.target, scope) / "also-empty").write_bytes(b"")
+    with patch("bravo_controls.secret_scan.subprocess.run", side_effect=clean_run):
+        with pytest.raises(ValueError, match="empty snapshot"):
+            probe(CTX, SPEC)
+    assert evidence == []
+
+
+@pytest.mark.skipif(
+    not os.environ.get("BRAVO_TEST_GITLEAKS"), reason="qualified local binary opt-in"
+)
+@pytest.mark.parametrize("scopes", [("source",), ("rendered",), ("source", "rendered")])
+def test_real_probe_rejects_zero_byte_snapshots(setup, scopes):
+    probe, evidence = setup
+    probe.executable = Path(os.environ["BRAVO_TEST_GITLEAKS"])
+    probe.executable_sha256 = os.environ["BRAVO_TEST_GITLEAKS_SHA256"]
+    for scope in scopes:
+        for path in getattr(probe.target, scope).iterdir():
+            path.write_bytes(b"")
+    with pytest.raises(ValueError, match="empty snapshot"):
+        probe(CTX, SPEC)
+    assert evidence == []
+
+
 @pytest.mark.skipif(
     not os.environ.get("BRAVO_TEST_GITLEAKS"), reason="qualified local binary opt-in"
 )

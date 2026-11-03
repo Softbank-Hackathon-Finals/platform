@@ -115,7 +115,7 @@ def _snapshot(source: Path, destination: Path) -> str:
             output.write_bytes(data)
             output.chmod(0o600)
             manifest.append([str(relative), _digest(data)])
-    if not count:
+    if not count or total == 0:
         raise ValueError("empty snapshot cannot establish coverage")
     return _digest(_json(sorted(manifest)))
 
