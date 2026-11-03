@@ -68,6 +68,7 @@ resource "aws_iam_instance_profile" "node" {
   role = aws_iam_role.node.name
 }
 resource "aws_instance" "node" {
+  tags                        = { Name = var.name }
   ami                         = var.ami_id
   instance_type               = var.instance_type
   subnet_id                   = var.private_subnet_id
