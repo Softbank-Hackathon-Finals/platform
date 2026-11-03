@@ -192,3 +192,38 @@ bootstrap을 재사용하며 기존 서버에 접속하지 않는다. 결과 저
 
 전체 시험에는 PostgreSQL 서버 도구(`pg_config`, `initdb`, `pg_ctl`, `postgres`)가 필요하다.
 도구가 없으면 PostgreSQL 시험을 생략하지 않고 실패한다.
+
+## T13 실제 스키마 관측 어댑터
+
+`bravo_gate.t13.collect_schema`는 등록된 DB의 전용 연결로 T13
+`bravo_cutover.db_fingerprint.schema_fingerprint`를 호출한다. 해시 규칙을 별도로 구현하지 않는다.
+선택 의존성 `bravo-control-gate[t13]`을 사용한다. 해당 T13 구현이 포함된 패키지 버전과
+실제 설치 이미지 digest를 배포 시 함께 고정해야 한다.
+
+- 서버가 선택한 context·정책의 환경/DB 등록과 정확히 일치해야 연결한다.
+- 실제 psycopg 연결의 `verify-full`·TLS 사용·idle/autocommit을 검사한다.
+- `current_database`, session/current role과 등록을 대조하고 superuser/BYPASSRLS를 거부한다.
+- T13의 읽기 전용 반복 가능 읽기·고정 세션 설정·시간 제한을 그대로 사용한다.
+- 스키마/PK를 다시 읽어 수집 중 DDL 변화는 UNKNOWN으로 남긴다. 연결·신원·전체 기한 실패는
+  앞서 읽은 부분 성공도 버린다. 반환되는 시각은 수집 시작 기준이며 최대 30초만 유효하다.
+- DB 행, DSN, SQL 오류 원문을 결과에 넣지 않는다. 확인하지 못한 테이블은 누락시키지 않고
+  hash/PK를 null로 남겨 기존 T19가 BLOCK하게 한다.
+
+`DatabaseRegistration`은 인증된 호스트의 등록이다. 브라우저 JSON을 그대로 변환하지 않는다.
+연결 생성자는 실제 클러스터 UID·호스트·CA·Secret 소유권을 해당 등록에 결속해야 한다.
+같은 DB 이름과 인증서만으로 클러스터 신원을 증명하지 않는다. 연결 시간 제한과 외부 워커의
+전체 종료 한도도 호스트가 강제한다. 이 함수의 시계 재검사로 막힌 소켓을 강제 종료하지는 못한다.
+
+`assemble_snapshot`은 두 스키마 관측과 **호스트가 인증한 별도 복제·시퀀스 리허설 기록**을
+기존 `data-readiness.v1`로 묶는다. 실제 수신한 복제 위치나 시퀀스 readback이 없으면
+미확인으로 남겨야 한다. 제안한 setval 값을 관측값으로 대신 넣으면 안 된다.
+이 모듈은 시퀀스 보정·DB 변경·복제 시작을 하지 않는다. 생성 결과도 기존 snapshot
+인증/불변 저장·T10 접수 경계를 거쳐야 하며 객체 생성만으로 실행 권한을 얻지 않는다.
+
+### 어댑터 검증과 미검증 범위
+
+고정 digest PostgreSQL 18.4에서 실제 TLS와 비관리자 SELECT 역할을 사용했다.
+스키마 일치 → 대상 DDL 불일치 BLOCK, 수집 중 DDL UNKNOWN, TLS 미사용/검증 생략/
+잘못된 호스트/다른 DB/관리자 역할/진행 중 트랜잭션 거부, 만료 관측 BLOCK을 시험했다.
+이 시험은 실제 스키마 수집을 검증하며, 복제 기록과 권한 공급자는 합성 대역이다.
+팀 EKS/RKE2·실제 복제 지연·시퀀스 리허설·운영 승인·컷오버를 검증한 결과가 아니다.
