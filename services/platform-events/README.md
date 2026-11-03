@@ -69,3 +69,5 @@ app = create_plan_app(store)  # 검증된 principal resolver가 없으면 거부
 설치에는 `postgres` extra를 사용한다. 접속값은 호스트의 시크릿 주입 경로에서 받고 출력하지 않는다. 어댑터는 DDL을 실행하지 않으며 사전 적용한 스키마 버전 1을 확인한다. 관리자용 `sql/bootstrap_roles.sql`, 별도 migration 계정용 `sql/0001_state_event.sql`, runtime 계정 권한 및 원격 TLS·운영 적용의 남은 조건은 [저장소 제안](../../docs/contracts/T10-postgres-storage-v1-proposal.md)에 있다.
 
 로컬 실제 PostgreSQL에서 서로 다른 어댑터 인스턴스의 동시 등록·전이·재시도·append, 쓰기 실패 롤백, 상태와 watermark의 동일 시점, 강제 DB 재시작/WAL 복구 및 권한 거부를 시험한다. 이 결과는 RKE2/CNPG/PgBouncer 연결, 클라우드 Secret 배포, 운영 복원·HA·용량·부하, T33 저장소 이식을 검증한 것이 아니다.
+
+이미 migration된 실제 DB의 제한된 소비 검증은 `python -m bravo_platform_events.runtime_probe`로 수행한다. 기존 `BRAVO_PLATFORM_DATABASE_URL` 주입 경로를 사용하고 TLS/역할을 먼저 확인한다. 합성 계획 한 개와 비공개 checkpoint를 남기는 `exercise`, 새 프로세스에서 같은 상태·이벤트·영수증을 확인하는 `verify`가 있다. DB 재시작·배포·삭제는 수행하지 않는다. [런타임 검증 절차](../../docs/contracts/T10-postgres-runtime-verification.md)의 자격·접속·관측 경계를 따른다.
