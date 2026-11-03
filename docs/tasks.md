@@ -526,6 +526,10 @@ Claude Code는 `/todo-task`, Codex는 `$todo-task`로 이 순서를 따르는 �
 - [ ] epoch · Idempotency-Key 처리
 - [ ] ABORT_PRE_WRITE · SAFE_HOLD 분기
 - [ ] 진입점 쓰기 차단은 앱 쓰기 차단 스위치(T4)로 호출
+- [ ] 출발지 WebSocket 1012 종료 (demo-chat 관리 API로 호출)
+- [ ] 무결성 비교를 T13에 연결 (임시 비교 `UNVERIFIED` 제거)
+- [ ] Executor 배포: 이미지 · 플랫폼 클러스터 매니페스트 · 두 클러스터 권한
+- [ ] 실제 환경(T8 · T30)에서 컷오버 1회 · ABORT_PRE_WRITE · SAFE_HOLD 확인
 
 **완료 기준** 부하 없이 컷오버 1회 성공, ABORT_PRE_WRITE · SAFE_HOLD 분기를 각 1회 시험.
 
