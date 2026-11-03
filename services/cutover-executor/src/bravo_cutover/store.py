@@ -196,29 +196,33 @@ class Store:
             )
 
     def record_step(self, execution_id: UUID, step: str, status: str, elapsed_ms: int | None = None,
-                    detail: str | None = None) -> None:
-        """단계 이벤트를 덧붙인다. T10은 이 목록을 execution.updated 이벤트로 바꾼다."""
+                    detail: str | None = None) -> bool:
+        """단계 이벤트를 덧붙인다. T10은 이 목록을 execution.updated 이벤트로 바꾼다.
+        이 프로세스가 맡은 RUNNING 실행일 때만 쓴다(넘겨받힌 뒤에는 False)."""
         event = {"step": step, "status": status}
         if elapsed_ms is not None:
             event["elapsed_ms"] = elapsed_ms
         if detail:
             event["detail"] = detail[:500]
         with self._pool.connection() as conn:
-            conn.execute(
+            row = conn.execute(
                 """UPDATE executor.executions SET steps = steps || %s, updated_at = now()
-                   WHERE execution_id = %s""",
-                (Jsonb([event]), execution_id),
-            )
+                   WHERE execution_id = %s AND status = %s AND owner = %s RETURNING execution_id""",
+                (Jsonb([event]), execution_id, Status.RUNNING.value, self.owner_id),
+            ).fetchone()
+        return row is not None
 
-    def mark(self, execution_id: UUID, milestone: str) -> None:
-        """6단계 기록. 되돌릴 수 없는 지점이라 DB에 남은 뒤에만 다음 조작을 한다."""
+    def mark(self, execution_id: UUID, milestone: str) -> bool:
+        """6단계 기록. 되돌릴 수 없는 지점이라 DB에 남은 뒤에만 다음 조작을 한다. 소유자일 때만 쓴다."""
         if milestone not in ("stage6_entered_at", "committed_at"):
             raise ValueError(milestone)
         with self._pool.connection() as conn:
-            conn.execute(
-                f"UPDATE executor.executions SET {milestone} = now(), updated_at = now() WHERE execution_id = %s",
-                (execution_id,),
-            )
+            row = conn.execute(
+                f"""UPDATE executor.executions SET {milestone} = now(), updated_at = now()
+                    WHERE execution_id = %s AND status = %s AND owner = %s RETURNING execution_id""",
+                (execution_id, Status.RUNNING.value, self.owner_id),
+            ).fetchone()
+        return row is not None
 
     def unfinished(self) -> list[Execution]:
         with self._pool.connection() as conn:

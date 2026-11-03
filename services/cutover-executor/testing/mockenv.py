@@ -19,6 +19,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import urllib.error
 import urllib.request
 import uuid
 from pathlib import Path
@@ -210,14 +211,23 @@ def write_sites() -> None:
     SITES_FILE.chmod(0o600)
 
 
-def post_message(url: str, key: uuid.UUID, body: str) -> int:
-    req = urllib.request.Request(
-        f"{url}/api/messages", method="POST",
-        data=json.dumps({"idempotency_key": str(key), "author": "mockenv", "body": body}).encode(),
-        headers={"Content-Type": "application/json"},
-    )
-    with urllib.request.urlopen(req, timeout=5) as res:
-        return res.status
+def post_message(url: str, key: uuid.UUID, body: str, author: str = "mockenv", retry_s: float = 20) -> int:
+    """앱에 메시지를 쓴다. 503이면 Retry-After만큼 기다렸다가 같은 멱등 키로 다시 보낸다(demo-chat 클라이언트 규칙).
+    쓰기 정지 · DB 경로 변경 직후 앱 커넥션 풀이 끊긴 연결을 버리는 동안 잠시 503이 난다."""
+    deadline = time.monotonic() + retry_s
+    while True:
+        req = urllib.request.Request(
+            f"{url}/api/messages", method="POST",
+            data=json.dumps({"idempotency_key": str(key), "author": author, "body": body}).encode(),
+            headers={"Content-Type": "application/json"},
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=5) as res:
+                return res.status
+        except urllib.error.HTTPError as e:
+            if e.code != 503 or time.monotonic() > deadline:
+                return e.code
+            time.sleep(float(e.headers.get("Retry-After") or 1))
 
 
 def wait_row(ns: str, key: uuid.UUID, timeout: float = 15) -> float | None:

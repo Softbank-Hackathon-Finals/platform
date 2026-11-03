@@ -14,6 +14,7 @@ import uuid
 import pytest
 
 from bravo_cutover.contract import Status
+from bravo_cutover.remote import Unconfirmed
 from bravo_cutover.remote.db import DbControl, WriteRefusal, try_app_write
 from bravo_cutover.remote.kube import Kube, WriteBlock
 from bravo_cutover.remote.pgbouncer import PgBouncerAdmin
@@ -227,3 +228,38 @@ def test_old_executor_stops_after_takeover(store, postgres_dsn, sides, point, de
         assert not [e for e in execution.steps if e["step"] == point.split(":")[1] and e["status"] == "started"]
     finally:
         newer.close()
+
+
+def test_configmap_conflict_holds_and_pod_regeneration_stays_single_writer(store, sides):
+    """#116 리뷰: ConfigMap 영구 반영이 충돌하면 SAFE_HOLD(lease 유지). 그 상태에서 PgBouncer가 재생성돼
+    ConfigMap의 옛 설정으로 떠도 쓰기 DB는 하나다(출발지는 NOLOGIN)."""
+    src, dst = sides
+    ctx = ["kubectl", "--context", dst.kube_context, "-n", dst.namespace]
+
+    def concurrent_edit(_run):  # 읽은 뒤 다른 쪽이 먼저 ConfigMap을 바꿨다
+        subprocess.run([*ctx, "annotate", "configmap", dst.pgbouncer_configmap, f"test/edit={uuid.uuid4().hex}",
+                        "--overwrite"], check=True, capture_output=True)
+
+    execution_id = start(store)
+    with WriterWatch(src, dst) as watch:
+        Cutover(store, mock_config(), hooks={"persist:read:env-onprem": concurrent_edit}).run(execution_id)
+        execution = store.get(execution_id)
+        assert execution.status == Status.SAFE_HOLD and execution.result["failed_step"] == "persist", execution.result
+        subprocess.run([*ctx, "rollout", "restart", "deploy/pgbouncer"], check=True, capture_output=True)
+        subprocess.run([*ctx, "rollout", "status", "deploy/pgbouncer", "--timeout=120s"], check=True, capture_output=True)
+        # 재생성 직후에는 NodePort가 종료 중인 옛 파드로 붙어 끊길 수 있어 다시 읽는다
+        deadline = time.monotonic() + 30
+        while True:
+            try:
+                state = PgBouncerAdmin(dst.pgbouncer_admin_dsn, dst.pgbouncer_database).state()
+                break
+            except Unconfirmed:
+                assert time.monotonic() < deadline
+                time.sleep(0.5)
+        assert state.host == src.db_host  # 재생성된 파드는 ConfigMap의 옛 설정(출발지)으로 떴다
+        assert try_app_write(dst.pgbouncer_app_dsn, "regenerated") == WriteRefusal.REFUSED
+    watch.assert_safe()
+    from bravo_cutover.store import LeaseHeld
+
+    with pytest.raises(LeaseHeld):
+        start(store)  # SAFE_HOLD가 lease를 쥐고 있다

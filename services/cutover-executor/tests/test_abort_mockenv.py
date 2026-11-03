@@ -4,9 +4,7 @@
 끝나면 출발지 쓰기가 다시 되고 목적지로 복제되며, 목적지는 쓰기를 거부해야 한다.
 """
 
-import json
 import time
-import urllib.request
 import uuid
 
 import psycopg
@@ -17,7 +15,7 @@ from bravo_cutover.remote.db import DbControl, WriteRefusal, try_app_write
 from bravo_cutover.remote.kube import Kube, WriteBlock
 from bravo_cutover.remote.pgbouncer import PgBouncerAdmin
 from bravo_cutover.runner import Cutover
-from tests.mockenv_support import WriterWatch, mock_config, needs_mockenv, reset
+from tests.mockenv_support import WriterWatch, mock_config, needs_mockenv, post_message, reset
 from tests.test_cutover_mockenv import start
 
 pytestmark = needs_mockenv
@@ -43,13 +41,7 @@ def run_with(store, src, dst, hooks, **settings):
 def assert_source_is_writer_again(src, dst):
     # 앱 경로로 출발지에 쓰고, 정방향 복제로 목적지에 도착한다
     key = uuid.uuid4()
-    req = urllib.request.Request(
-        "http://localhost:30480/api/messages", method="POST",
-        data=json.dumps({"idempotency_key": str(key), "author": "test", "body": "after abort"}).encode(),
-        headers={"Content-Type": "application/json"},
-    )
-    with urllib.request.urlopen(req, timeout=5) as res:
-        assert res.status == 201
+    assert post_message("http://localhost:30480", key, "after abort") == 201
     ddb, deadline = DbControl(dst.db_control_dsn), time.monotonic() + 10
     while ddb._one("SELECT count(*) FROM messages WHERE idempotency_key = %s", (key,)) != 1:
         assert time.monotonic() < deadline, "source write did not replicate to target"

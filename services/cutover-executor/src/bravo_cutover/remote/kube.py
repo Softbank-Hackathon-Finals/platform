@@ -43,20 +43,47 @@ class Kube:
             raise Unconfirmed(f"list pods {namespace}/{selector}: {e}") from e
         return sorted(p.metadata.name for p in pods if p.status.phase in ("Pending", "Running"))
 
-    def patch_configmap(self, namespace: str, name: str, key: str, value: str) -> None:
+    def pod_details(self, namespace: str, selector: str) -> list[dict]:
+        """파드 이름 · UID · 재시작 횟수 · Ready · 종료 중 여부. 실행 동안 같은 파드인지 대조할 때 쓴다."""
         try:
-            self._api.patch_namespaced_config_map(name, namespace, {"data": {key: value}}, _request_timeout=5)
-            current = self._api.read_namespaced_config_map(name, namespace, _request_timeout=5).data[key]
+            pods = self._api.list_namespaced_pod(namespace, label_selector=selector, _request_timeout=5).items
         except Exception as e:  # noqa: BLE001
-            raise Unconfirmed(f"patch configmap {namespace}/{name}: {e}") from e
-        if current != value:
-            raise Unconfirmed(f"configmap {namespace}/{name} was not updated")
+            raise Unconfirmed(f"list pods {namespace}/{selector}: {e}") from e
+        details = []
+        for p in pods:
+            conditions = {c.type: c.status for c in (p.status.conditions or [])}
+            statuses = p.status.container_statuses or []
+            details.append({
+                "name": p.metadata.name,
+                "uid": p.metadata.uid,
+                "restarts": sum(c.restart_count for c in statuses),
+                "ready": p.status.phase == "Running" and conditions.get("Ready") == "True",
+                "terminating": p.metadata.deletion_timestamp is not None,
+            })
+        return details
 
-    def read_configmap(self, namespace: str, name: str, key: str) -> str:
+    def read_configmap_versioned(self, namespace: str, name: str, key: str) -> tuple[str, str]:
         try:
-            return self._api.read_namespaced_config_map(name, namespace, _request_timeout=5).data[key]
+            cm = self._api.read_namespaced_config_map(name, namespace, _request_timeout=5)
         except Exception as e:  # noqa: BLE001
             raise Unconfirmed(f"read configmap {namespace}/{name}: {e}") from e
+        return cm.data[key], cm.metadata.resource_version
+
+    def read_configmap(self, namespace: str, name: str, key: str) -> str:
+        return self.read_configmap_versioned(namespace, name, key)[0]
+
+    def patch_configmap(self, namespace: str, name: str, key: str, value: str,
+                        resource_version: str | None = None) -> None:
+        """resource_version을 주면 그 사이 다른 쪽이 바꾼 경우 충돌(409)로 실패한다(덮어쓰지 않는다)."""
+        body: dict = {"data": {key: value}}
+        if resource_version is not None:
+            body["metadata"] = {"resourceVersion": resource_version}
+        try:
+            self._api.patch_namespaced_config_map(name, namespace, body, _request_timeout=5)
+        except Exception as e:  # noqa: BLE001
+            raise Unconfirmed(f"patch configmap {namespace}/{name}: {e}") from e
+        if self.read_configmap(namespace, name, key) != value:
+            raise Unconfirmed(f"configmap {namespace}/{name} was not updated")
 
     def exec(self, namespace: str, pod: str, argv: list[str], timeout_s: float = 10) -> str:
         try:

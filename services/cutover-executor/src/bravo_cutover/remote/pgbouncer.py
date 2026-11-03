@@ -125,18 +125,25 @@ class PgBouncerConfig:
     def __init__(self, kube: Kube, namespace: str, selector: str, path: str):
         self._kube, self._ns, self._selector, self._path = kube, namespace, selector, path
 
-    def pod(self) -> str:
-        pods = self._kube.running_pods(self._ns, self._selector)
-        # 관리 콘솔은 Service 하나로 붙는다. 파드가 여럿이면 일부만 PAUSE되므로 거부한다.
+    def identity(self) -> tuple[str, str, int]:
+        """(이름, UID, 재시작 횟수). 파드는 정확히 하나여야 하고 Ready여야 한다.
+        관리 콘솔은 Service로 붙으므로, 실행 동안 이 값이 그대로여야 PAUSE한 프로세스와 설정을 바꾼 프로세스가 같다."""
+        pods = [p for p in self._kube.pod_details(self._ns, self._selector) if not p["terminating"]]
         if len(pods) != 1:
-            raise Unconfirmed(f"expected exactly one pgbouncer pod, found {pods}")
-        return pods[0]
+            raise Unconfirmed(f"expected exactly one pgbouncer pod, found {[p['name'] for p in pods]}")
+        pod = pods[0]
+        if not pod["ready"]:
+            raise Unconfirmed(f"pgbouncer pod {pod['name']} is not ready")
+        return pod["name"], pod["uid"], pod["restarts"]
+
+    def pod(self) -> str:
+        return self.identity()[0]
 
     def read(self) -> str:
         return self._kube.exec(self._ns, self.pod(), ["cat", self._path])
 
-    def retarget(self, database: str, host: str, port: int, dbname: str) -> None:
-        pod = self.pod()
+    def retarget(self, database: str, host: str, port: int, dbname: str, pod: str | None = None) -> None:
+        pod = pod or self.pod()
         new = retarget_ini(self._kube.exec(self._ns, pod, ["cat", self._path]), database, host, port, dbname)
         encoded = base64.b64encode(new.encode()).decode()
         self._kube.exec(self._ns, pod, [

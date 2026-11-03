@@ -1,7 +1,11 @@
 """모의 환경 시험 도우미: 설정 읽기, 컷오버 전 상태로 되돌리기, 쓰기 DB 감시."""
 
+import json
 import threading
 import time
+import urllib.error
+import urllib.request
+import uuid
 from pathlib import Path
 
 import pytest
@@ -51,11 +55,12 @@ def reset(src: Site, dst: Site) -> None:
         kube.patch_configmap(site.namespace, site.pgbouncer_configmap, site.pgbouncer_configmap_key,
                              retarget_ini(ini, site.pgbouncer_database, src.db_host, src.db_port, src.db_name))
         WriteBlock(kube, site.namespace, site.app_selector).set(False)
-    # PgBouncer가 기억한 로그인 실패(server_login_retry)가 풀릴 때까지 기다린다
-    deadline = time.monotonic() + 30
-    while try_app_write(src.pgbouncer_app_dsn, "reset") != WriteRefusal.ACCEPTED:
-        assert time.monotonic() < deadline, "source path does not accept writes after reset"
-        time.sleep(0.5)
+    # 두 PgBouncer가 기억한 로그인 실패(server_login_retry)가 풀릴 때까지 기다린다
+    deadline = time.monotonic() + 40
+    for site in (src, dst):
+        while try_app_write(site.pgbouncer_app_dsn, "reset") != WriteRefusal.ACCEPTED:
+            assert time.monotonic() < deadline, f"{site.environment_id} path does not accept writes after reset"
+            time.sleep(0.5)
 
 
 class WriterWatch:
@@ -101,3 +106,22 @@ class WriterWatch:
         assert len(self.samples) >= 2, "too few samples to judge"
         assert self.unreadable() == [], f"{len(self.unreadable())} samples could not be read"
         assert self.both_writable() == [], f"both writable at {self.both_writable()[:3]}"
+
+
+def post_message(url: str, key: uuid.UUID, body: str, author: str = "test", retry_s: float = 20) -> int:
+    """앱에 메시지를 쓴다. 503이면 Retry-After만큼 기다렸다가 같은 멱등 키로 다시 보낸다(demo-chat 클라이언트 규칙).
+    쓰기 정지 · DB 경로 변경 직후 앱 커넥션 풀이 끊긴 연결을 버리는 동안 잠시 503이 난다."""
+    deadline = time.monotonic() + retry_s
+    while True:
+        req = urllib.request.Request(
+            f"{url}/api/messages", method="POST",
+            data=json.dumps({"idempotency_key": str(key), "author": author, "body": body}).encode(),
+            headers={"Content-Type": "application/json"},
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=5) as res:
+                return res.status
+        except urllib.error.HTTPError as e:
+            if e.code != 503 or time.monotonic() > deadline:
+                return e.code
+            time.sleep(float(e.headers.get("Retry-After") or 1))

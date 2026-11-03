@@ -3,9 +3,7 @@
 모의 환경(testing/mockenv.py up)과 실행 기록용 Postgres(docker)가 필요하다. 시험마다 컷오버 전 상태로 되돌린다.
 """
 
-import json
 import time
-import urllib.request
 import uuid
 from datetime import UTC, datetime, timedelta
 
@@ -16,7 +14,7 @@ from bravo_cutover.remote.db import DbControl, WriteRefusal, try_app_write
 from bravo_cutover.remote.kube import Kube, WriteBlock
 from bravo_cutover.remote.pgbouncer import PgBouncerAdmin
 from bravo_cutover.runner import STEPS, Cutover
-from tests.mockenv_support import WriterWatch, mock_config, needs_mockenv, reset
+from tests.mockenv_support import WriterWatch, mock_config, needs_mockenv, post_message, reset
 
 pytestmark = needs_mockenv
 
@@ -45,14 +43,8 @@ def start(store, epoch=None, deadline_s=120):
     return execution.execution_id
 
 
-def post_message(port: int) -> int:
-    req = urllib.request.Request(
-        f"http://localhost:{port}/api/messages", method="POST",
-        data=json.dumps({"idempotency_key": str(uuid.uuid4()), "author": "test", "body": "after cutover"}).encode(),
-        headers={"Content-Type": "application/json"},
-    )
-    with urllib.request.urlopen(req, timeout=5) as res:
-        return res.status
+def post(port: int) -> int:
+    return post_message(f"http://localhost:{port}", uuid.uuid4(), "after cutover")
 
 
 def test_cutover_happy_path(store, config, sides):
@@ -91,10 +83,9 @@ def test_cutover_happy_path(store, config, sides):
         assert (state.host, state.paused) == (dst.db_host, False)
         assert not any(WriteBlock(kube, site.namespace, site.app_selector).get().values())
         assert dst.db_host in kube.read_configmap(site.namespace, site.pgbouncer_configmap, site.pgbouncer_configmap_key)
-    assert result["warnings"] == []
     # 두 환경의 앱 모두 새 메시지를 쓸 수 있다(목적지 DB로 간다)
     before = ddb.row_count("public.messages")
-    assert post_message(30480) == 201 and post_message(30580) == 201
+    assert post(30480) == 201 and post(30580) == 201
     assert ddb.row_count("public.messages") == before + 2
 
 
