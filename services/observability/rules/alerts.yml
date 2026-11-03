@@ -1,0 +1,41 @@
+# T37 관측 경로 알림. 런북: docs/observability/runbooks.md
+# 모두 Collector 생존 신호 경로(bravo_signal="collector-self")의 지표만 본다. 앱이 같은 이름의 지표를 보내도 알림을 바꾸지 못한다.
+# 환경 이름(aws · onprem)은 데모에 등록한 환경이다. 환경을 추가하면 absent 줄도 추가한다.
+groups:
+  - name: bravo-telemetry
+    rules:
+      - alert: BravoEnvUnobservable
+        # 최근 수신이 30초를 넘었거나(수집 간격 10초의 3배), 5분 조회 범위 안에 아예 없으면 확인 불가
+        expr: |
+          max by (bravo_env) (
+            (time() - max by (bravo_env) (timestamp(up{bravo_signal="collector-self"}))) > 30
+            or absent(up{bravo_signal="collector-self", bravo_env="aws"})
+            or absent(up{bravo_signal="collector-self", bravo_env="onprem"})
+          )
+        labels:
+          severity: page
+        annotations:
+          summary: "{{ $labels.bravo_env }} 환경의 관측 경로가 끊겼다. 이 환경의 지표는 확인 불가다"
+          runbook: docs/observability/runbooks.md#bravoenvunobservable
+      - alert: BravoTelemetryExportFailing
+        expr: sum by (bravo_env) (increase(otelcol_exporter_send_failed_metric_points_total{bravo_signal="collector-self"}[5m])) > 0
+        labels:
+          severity: ticket
+        annotations:
+          summary: "{{ $labels.bravo_env }} Collector가 플랫폼 전송에 실패했다 (최근 5분)"
+          runbook: docs/observability/runbooks.md#bravotelemetryexportfailing
+      - alert: BravoTelemetryQueueFilling
+        expr: max by (bravo_env) (otelcol_exporter_queue_size{bravo_signal="collector-self"} / otelcol_exporter_queue_capacity{bravo_signal="collector-self"}) > 0.5
+        for: 1m
+        labels:
+          severity: ticket
+        annotations:
+          summary: "{{ $labels.bravo_env }} Collector 전송 대기열이 절반을 넘었다. 가득 차면 지표를 버린다"
+          runbook: docs/observability/runbooks.md#bravotelemetryqueuefilling
+      - alert: BravoTelemetryRefused
+        expr: sum by (bravo_env) (increase(otelcol_receiver_refused_metric_points_total{bravo_signal="collector-self"}[5m])) > 0
+        labels:
+          severity: ticket
+        annotations:
+          summary: "{{ $labels.bravo_env }} Collector가 앱 지표를 거부했다 (메모리 상한 등, 최근 5분)"
+          runbook: docs/observability/runbooks.md#bravotelemetryrefused

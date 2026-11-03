@@ -1,6 +1,15 @@
 # T37 클러스터별 OpenTelemetry Collector. 출발지 · 목적지에 하나씩 둔다.
 # BRAVO_ENV(환경 이름)와 PLATFORM_OTLP_ENDPOINT는 배포가 정한다. 앱이 보낸 bravo.env는 지우고 이 값으로 덮어쓴다.
 # 판정 입력이 아니다(ADR-0010). 판정은 T18 창 요약만 쓴다.
+# 플랫폼으로 보내는 경로는 mTLS다. 인증서는 배포가 /etc/bravo-tls에 넣는다(ca.crt · tls.crt · tls.key).
+
+extensions:
+  # 플랫폼에 보내지 못한 지표를 디스크에 쌓아 두고, 재시작 뒤에도 보낸다
+  file_storage/queue:
+    directory: /var/lib/otelcol/queue
+    timeout: 1s
+  health_check:
+    endpoint: 0.0.0.0:13133
 
 receivers:
   # 앱 지표 (클러스터 안에서만 받는다)
@@ -54,8 +63,21 @@ processors:
 exporters:
   otlp_http/platform:
     endpoint: ${env:PLATFORM_OTLP_ENDPOINT}
+    tls:
+      ca_file: /etc/bravo-tls/ca.crt
+      cert_file: /etc/bravo-tls/tls.crt
+      key_file: /etc/bravo-tls/tls.key
+    sending_queue:
+      enabled: true
+      storage: file_storage/queue
+      queue_size: 5000
+    # 지표 저장소가 늦게 도착한 표본을 받는 기간(prometheus.yml out_of_order_time_window)과 맞춘다
+    retry_on_failure:
+      enabled: true
+      max_elapsed_time: 10m
 
 service:
+  extensions: [file_storage/queue, health_check]
   telemetry:
     metrics:
       readers:

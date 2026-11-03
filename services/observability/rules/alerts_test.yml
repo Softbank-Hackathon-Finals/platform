@@ -1,0 +1,89 @@
+# promtool test rules rules/alerts_test.yml
+rule_files: [alerts.yml]
+evaluation_interval: 10s
+tests:
+  # onprem Collector가 120초에 멈춘다. 앱이 생존 신호를 사칭한 시계열(bravo_signal 없음)은 계속 들어와도 알림을 막지 못한다.
+  - interval: 10s
+    input_series:
+      - series: 'up{bravo_signal="collector-self", bravo_env="aws", job="bravo-collector", instance="a"}'
+        values: '1x40'
+      - series: 'up{bravo_signal="collector-self", bravo_env="onprem", job="bravo-collector", instance="o"}'
+        values: '1x12'
+      - series: 'up{bravo_env="onprem", job="bravo-collector", instance="forged"}'
+        values: '1x40'
+    alert_rule_test:
+      - eval_time: 140s
+        alertname: BravoEnvUnobservable
+        exp_alerts: []
+      - eval_time: 160s
+        alertname: BravoEnvUnobservable
+        exp_alerts:
+          - exp_labels: {severity: page, bravo_env: onprem}
+            exp_annotations:
+              summary: "onprem 환경의 관측 경로가 끊겼다. 이 환경의 지표는 확인 불가다"
+              runbook: docs/observability/runbooks.md#bravoenvunobservable
+      # 5분 조회 범위를 넘어 시계열이 사라져도(absent) 같은 라벨로 계속 알린다
+      - eval_time: 400s
+        alertname: BravoEnvUnobservable
+        exp_alerts:
+          - exp_labels: {severity: page, bravo_env: onprem}
+            exp_annotations:
+              summary: "onprem 환경의 관측 경로가 끊겼다. 이 환경의 지표는 확인 불가다"
+              runbook: docs/observability/runbooks.md#bravoenvunobservable
+
+  # aws 환경은 한 번도 보고하지 않았다
+  - interval: 10s
+    input_series:
+      - series: 'up{bravo_signal="collector-self", bravo_env="onprem", job="bravo-collector", instance="o"}'
+        values: '1x10'
+    alert_rule_test:
+      - eval_time: 60s
+        alertname: BravoEnvUnobservable
+        exp_alerts:
+          - exp_labels: {severity: page, bravo_env: aws}
+            exp_annotations:
+              summary: "aws 환경의 관측 경로가 끊겼다. 이 환경의 지표는 확인 불가다"
+              runbook: docs/observability/runbooks.md#bravoenvunobservable
+
+  # 전송 실패 · 대기열 · 거부. 사칭 시계열은 무시한다.
+  - interval: 30s
+    input_series:
+      - series: 'otelcol_exporter_send_failed_metric_points_total{bravo_signal="collector-self", bravo_env="onprem"}'
+        values: '0 0 0 50 100 100 100 100 100 100 100 100 100 100 100 100 100'
+      - series: 'otelcol_exporter_queue_size{bravo_signal="collector-self", bravo_env="onprem"}'
+        values: '0 1000 3000 3000 3000 3000 3000'
+      - series: 'otelcol_exporter_queue_capacity{bravo_signal="collector-self", bravo_env="onprem"}'
+        values: '5000x6'
+      - series: 'otelcol_receiver_refused_metric_points_total{bravo_signal="collector-self", bravo_env="aws"}'
+        values: '0 0 10 10'
+      - series: 'otelcol_receiver_refused_metric_points_total{bravo_env="onprem"}'
+        values: '0 0 999 999'
+    alert_rule_test:
+      - eval_time: 30s
+        alertname: BravoTelemetryExportFailing
+        exp_alerts: []
+      - eval_time: 120s
+        alertname: BravoTelemetryExportFailing
+        exp_alerts:
+          - exp_labels: {severity: ticket, bravo_env: onprem}
+            exp_annotations:
+              summary: "onprem Collector가 플랫폼 전송에 실패했다 (최근 5분)"
+              runbook: docs/observability/runbooks.md#bravotelemetryexportfailing
+      # 3000/5000 = 60%가 1분 이상 이어지면 알린다 (60초 시점에는 아직 대기)
+      - eval_time: 60s
+        alertname: BravoTelemetryQueueFilling
+        exp_alerts: []
+      - eval_time: 150s
+        alertname: BravoTelemetryQueueFilling
+        exp_alerts:
+          - exp_labels: {severity: ticket, bravo_env: onprem}
+            exp_annotations:
+              summary: "onprem Collector 전송 대기열이 절반을 넘었다. 가득 차면 지표를 버린다"
+              runbook: docs/observability/runbooks.md#bravotelemetryqueuefilling
+      - eval_time: 90s
+        alertname: BravoTelemetryRefused
+        exp_alerts:
+          - exp_labels: {severity: ticket, bravo_env: aws}
+            exp_annotations:
+              summary: "aws Collector가 앱 지표를 거부했다 (메모리 상한 등, 최근 5분)"
+              runbook: docs/observability/runbooks.md#bravotelemetryrefused
