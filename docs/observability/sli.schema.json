@@ -1,0 +1,200 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:bravo:t36:sli:1",
+  "title": "T36 판정용 관측 계약",
+  "description": "T18이 내는 창 요약(SliWindow), 판정 기준(ThresholdProfiles), 판정 기록(SliJudgement). 판정 규칙과 스키마가 강제하지 못하는 검사는 docs/observability/README.md.",
+  "oneOf": [
+    { "$ref": "#/$defs/SliWindow" },
+    { "$ref": "#/$defs/ThresholdProfiles" },
+    { "$ref": "#/$defs/SliJudgement" }
+  ],
+  "$defs": {
+    "Count": { "type": "integer", "minimum": 0 },
+    "Identifier": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$" },
+    "PoolStats": {
+      "type": "object",
+      "description": "응답 헤더 X-Bravo-Env로 어느 환경이 처리했는지 확인된 응답만 센다.",
+      "required": ["requests", "http_5xx", "integrity_conflict", "p95_ms"],
+      "additionalProperties": false,
+      "properties": {
+        "requests": { "$ref": "#/$defs/Count" },
+        "http_5xx": { "$ref": "#/$defs/Count", "description": "requests 중 5xx 응답" },
+        "integrity_conflict": { "$ref": "#/$defs/Count", "description": "requests 중 409 (같은 멱등 키에 다른 내용). 가용성이 아니라 무결성 경보" },
+        "p95_ms": {
+          "type": ["number", "null"],
+          "minimum": 0,
+          "description": "이 환경 응답의 지연 p95. requests가 0이면 null"
+        }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "requests": { "const": 0 } } },
+          "then": { "properties": { "p95_ms": { "type": "null" } } },
+          "else": { "properties": { "p95_ms": { "type": "number" } } }
+        }
+      ]
+    },
+    "SliWindow": {
+      "type": "object",
+      "description": "부하 생성기(T18)가 Edge를 거쳐 잰 한 창의 요약. 판정의 유일한 입력이다.",
+      "required": ["kind", "schema_version", "plan_id", "source", "window", "received_at", "pools", "unattributed"],
+      "additionalProperties": false,
+      "properties": {
+        "kind": { "const": "sli_window" },
+        "schema_version": { "const": "1" },
+        "plan_id": { "$ref": "#/$defs/Identifier" },
+        "source": {
+          "const": "loadgen",
+          "description": "판정 입력은 바깥 클라이언트 측정만 받는다. 평가 대상(목적지)이 보낸 서버 지표는 판정에 쓰지 않는다."
+        },
+        "window": {
+          "type": "object",
+          "description": "생산자 시계 기준 창. 판정은 received_at(플랫폼 시계)으로 신선도를 본다.",
+          "required": ["start", "end"],
+          "additionalProperties": false,
+          "properties": {
+            "start": { "type": "string", "format": "date-time" },
+            "end": { "type": "string", "format": "date-time" }
+          }
+        },
+        "received_at": {
+          "type": "string",
+          "format": "date-time",
+          "description": "플랫폼이 받은 시각. 플랫폼이 덮어쓴다. 생산자 값은 쓰지 않는다."
+        },
+        "pools": {
+          "type": "object",
+          "required": ["source", "target"],
+          "additionalProperties": false,
+          "properties": {
+            "source": { "$ref": "#/$defs/PoolStats" },
+            "target": { "$ref": "#/$defs/PoolStats" }
+          }
+        },
+        "unattributed": {
+          "type": "object",
+          "description": "어느 환경이 처리했는지 모르는 요청. Edge · Tunnel 오류, 시간 초과, 연결 실패. 전부 오류로 센다.",
+          "required": ["timeout", "connect", "other"],
+          "additionalProperties": false,
+          "properties": {
+            "timeout": { "$ref": "#/$defs/Count" },
+            "connect": { "$ref": "#/$defs/Count" },
+            "other": { "$ref": "#/$defs/Count", "description": "X-Bravo-Env가 없는 응답 (예: Edge 오류 페이지)" }
+          }
+        }
+      }
+    },
+    "ThresholdProfile": {
+      "type": "object",
+      "required": [
+        "id", "version", "status", "window_seconds", "min_requests", "min_pool_requests",
+        "share_tolerance", "error_rate_max", "p95_ms_max", "stale_after_seconds",
+        "max_clock_skew_seconds", "unknown_limit", "basis"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "$ref": "#/$defs/Identifier" },
+        "version": { "type": "string", "pattern": "^[1-9][0-9]*$" },
+        "status": { "enum": ["proposed", "measured"], "description": "proposed는 실측 전 제안값" },
+        "window_seconds": { "type": "integer", "minimum": 1 },
+        "min_requests": { "type": "integer", "minimum": 1, "description": "창 전체(환경 확인 + 미확인) 최소 요청 수" },
+        "min_pool_requests": { "type": "integer", "minimum": 1, "description": "가중치가 0보다 큰 환경마다 최소 요청 수" },
+        "share_tolerance": { "type": "number", "exclusiveMinimum": 0, "maximum": 1 },
+        "error_rate_max": { "type": "number", "minimum": 0, "maximum": 1 },
+        "p95_ms_max": { "type": "number", "exclusiveMinimum": 0 },
+        "stale_after_seconds": { "type": "integer", "minimum": 1 },
+        "max_clock_skew_seconds": { "type": "integer", "minimum": 0 },
+        "unknown_limit": { "type": "integer", "minimum": 1, "description": "SHIFT에서 UNKNOWN이 이만큼 연속되면 가중치 0" },
+        "basis": { "type": "string", "minLength": 1, "description": "값의 근거 (설계 문서 절, 실측 기록)" }
+      }
+    },
+    "ThresholdProfiles": {
+      "type": "object",
+      "required": ["kind", "schema_version", "profiles"],
+      "additionalProperties": false,
+      "properties": {
+        "kind": { "const": "threshold_profiles" },
+        "schema_version": { "const": "1" },
+        "profiles": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/ThresholdProfile" } }
+      }
+    },
+    "Reason": {
+      "enum": [
+        "MISSING", "PLAN_MISMATCH", "WINDOW_BEFORE_CHANGE", "WINDOW_MISMATCH", "STALE", "CLOCK_SKEW",
+        "INSUFFICIENT_SAMPLES", "NOT_APPLIED",
+        "ERROR_RATE", "P95", "INTEGRITY_CONFLICT"
+      ]
+    },
+    "SliJudgement": {
+      "type": "object",
+      "description": "판정 한 번의 기록. 입력 창과 기준을 그대로 담아, 지표 저장소가 없어져도 같은 판정을 다시 계산할 수 있다.",
+      "required": [
+        "kind", "schema_version", "plan_id", "state", "profile", "weight_target", "observe_from",
+        "decided_at", "prior_unknown", "window", "verdict", "reasons", "action"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "kind": { "const": "sli_judgement" },
+        "schema_version": { "const": "1" },
+        "plan_id": { "$ref": "#/$defs/Identifier" },
+        "state": { "enum": ["SHIFT", "WATCH"] },
+        "profile": {
+          "type": "object",
+          "required": ["id", "version"],
+          "additionalProperties": false,
+          "properties": { "id": { "$ref": "#/$defs/Identifier" }, "version": { "type": "string" } }
+        },
+        "weight_target": { "type": "integer", "minimum": 0, "maximum": 100, "description": "Edge에 설정한 목적지 가중치(%)" },
+        "observe_from": {
+          "type": "string",
+          "format": "date-time",
+          "description": "이 시각 전에 시작한 창은 쓰지 않는다. SHIFT는 가중치 변경 시각, WATCH는 WATCH 진입 시각"
+        },
+        "decided_at": { "type": "string", "format": "date-time" },
+        "prior_unknown": { "$ref": "#/$defs/Count", "description": "이 판정 직전까지 연속된 UNKNOWN 수" },
+        "window": { "oneOf": [{ "$ref": "#/$defs/SliWindow" }, { "type": "null" }] },
+        "verdict": { "enum": ["PASS", "FAIL", "UNKNOWN"] },
+        "reasons": { "type": "array", "uniqueItems": true, "items": { "$ref": "#/$defs/Reason" } },
+        "action": {
+          "enum": ["ADVANCE_ALLOWED", "SET_WEIGHT_0", "HOLD", "NONE", "ALERT_FAILBACK_PROPOSAL", "ALERT_UNOBSERVABLE"]
+        }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "verdict": { "const": "PASS" } } },
+          "then": { "properties": { "reasons": { "maxItems": 0 } } },
+          "else": { "properties": { "reasons": { "minItems": 1 } } }
+        },
+        {
+          "if": { "properties": { "state": { "const": "SHIFT" } } },
+          "then": { "properties": { "action": { "enum": ["ADVANCE_ALLOWED", "SET_WEIGHT_0", "HOLD"] } } },
+          "else": { "properties": { "action": { "enum": ["NONE", "ALERT_FAILBACK_PROPOSAL", "ALERT_UNOBSERVABLE"] } } }
+        },
+        {
+          "if": { "properties": { "verdict": { "const": "PASS" }, "state": { "const": "SHIFT" } } },
+          "then": { "properties": { "action": { "const": "ADVANCE_ALLOWED" } } }
+        },
+        {
+          "if": { "properties": { "verdict": { "const": "FAIL" }, "state": { "const": "SHIFT" } } },
+          "then": { "properties": { "action": { "const": "SET_WEIGHT_0" } } }
+        },
+        {
+          "if": { "properties": { "verdict": { "const": "PASS" }, "state": { "const": "WATCH" } } },
+          "then": { "properties": { "action": { "const": "NONE" } } }
+        },
+        {
+          "if": { "properties": { "verdict": { "const": "FAIL" }, "state": { "const": "WATCH" } } },
+          "then": { "properties": { "action": { "const": "ALERT_FAILBACK_PROPOSAL" } } }
+        },
+        {
+          "if": { "properties": { "verdict": { "const": "UNKNOWN" }, "state": { "const": "WATCH" } } },
+          "then": { "properties": { "action": { "const": "ALERT_UNOBSERVABLE" } } }
+        },
+        {
+          "if": { "properties": { "verdict": { "const": "UNKNOWN" }, "state": { "const": "SHIFT" } } },
+          "then": { "properties": { "action": { "enum": ["HOLD", "SET_WEIGHT_0"] } } }
+        }
+      ]
+    }
+  }
+}

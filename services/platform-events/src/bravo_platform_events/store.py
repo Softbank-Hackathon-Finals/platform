@@ -1,4 +1,4 @@
-"""Shared SQLite event log for local contract and atomic plan-state tests."""
+"""Shared event operations with a SQLite reference transaction boundary."""
 
 import hashlib
 import json
@@ -49,11 +49,17 @@ class EventStore:
         finally:
             c.close()
 
+    @contextmanager
+    def _transaction(self, *, write: bool = False, plan_id: str | None = None):
+        with self._connection() as c:
+            c.execute("BEGIN IMMEDIATE" if write else "BEGIN")
+            yield c
+
     def register_stream(self, plan_id: str) -> None:
         """The owning API must validate plan existence and authorization first."""
         validate_identifier(plan_id)
-        with self._connection() as c:
-            c.execute("INSERT OR IGNORE INTO streams(plan_id) VALUES (?)", (plan_id,))
+        with self._transaction(write=True, plan_id=plan_id) as c:
+            c.execute("INSERT INTO streams(plan_id) VALUES (?) ON CONFLICT(plan_id) DO NOTHING", (plan_id,))
 
     def append(
         self,
@@ -66,8 +72,7 @@ class EventStore:
         producer_key: str,
     ) -> dict:
         """Same plan/key/input replays the same event; changed input is rejected."""
-        with self._connection() as c:
-            c.execute("BEGIN IMMEDIATE")
+        with self._transaction(write=True, plan_id=plan_id) as c:
             return self._append_in_transaction(
                 c,
                 plan_id=plan_id,
@@ -80,7 +85,7 @@ class EventStore:
 
     def _append_in_transaction(
         self,
-        c: sqlite3.Connection,
+        c,
         *,
         plan_id: str,
         run_id: str,
@@ -156,8 +161,7 @@ class EventStore:
             if not match or match[1] != plan_id or int(match[2]) > MAX_SEQUENCE:
                 raise EventError("invalid_cursor")
             sequence = int(match[2])
-        with self._connection() as c:
-            c.execute("BEGIN")
+        with self._transaction() as c:
             stream = c.execute(
                 "SELECT next_sequence FROM streams WHERE plan_id=?", (plan_id,)
             ).fetchone()
