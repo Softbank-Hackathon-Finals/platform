@@ -70,6 +70,28 @@ demo-chat은 T4·T22만 지원하며 본문에 `Refs Softbank-Hackathon-Finals/p
 
 여러 PR이 열려 있으면 하나라도 초안·변경 요청이면 In progress다. 나머지는 In review이며 열린 PR을 함께 표시한다. 부분 구현 PR 병합은 T1 전체 완료를 뜻하지 않는다. 완료 체크는 기존대로 **리뷰 승인 후 PR 머지와 검증을 확인한 뒤** 한다.
 
+### 부분 PR 리뷰와 실제 작업이 동시에 진행될 때
+
+예를 들어 T30 이미지 전달 PR이 리뷰 중이어도 목적지 VM·네트워크·복제 작업은 계속될 수 있다. 이때 담당 세션들과 카드 전체의 상태를 확인한 뒤 `activity T30 active`로 실제 작업 진행을 명시한다. 명령은 해당 이슈에 `work:active` 라벨을 붙이고 **그 카드만 In progress**로 바꾼다. `pull`·`prs`·예약 `reconcile`은 이 표시를 보존하고, `PR 상태` 필드에는 각 PR의 실제 리뷰·CI 상태를 계속 표시한다. 로컬 세션 등록이나 PR 본문에서 진행 의사를 추측하지 않는다.
+
+```sh
+python3 scripts/sync_tasks.py activity T30 active --dry-run
+python3 scripts/sync_tasks.py activity T30 active
+# 관련 담당자 모두가 실제 구현/검증 작업을 마쳐 PR 대기만 남았을 때
+python3 scripts/sync_tasks.py activity T30 auto --dry-run
+python3 scripts/sync_tasks.py activity T30 auto
+```
+
+`auto`는 진행 라벨만 제거하고 현재 PR 상태로 다시 계산한다. 변경 요청·Draft가 있거나 부분 PR만 병합됐다면 In progress, 열린 Ready PR이 있다면 In review다. 이슈가 닫혔거나 모든 항목이 완료됐으면 Done이 우선한다. 이 명령은 이슈 본문·체크·담당, PR의 Draft·승인·병합 상태를 바꾸지 않는다. 시작 권한이나 선행 완료를 부여하는 명령도 아니며, 이미 승인받아 수행 중인 작업의 상태를 기록한다. 최초 착수에는 기존 `start`와 선행 확인을 사용한다.
+
+Projects 권한이 없는 로컬에서는 같은 명령을 공식 Actions로 실행한다. dry-run은 라벨 생성/편집과 보드 쓰기를 하지 않는다. PR 목록·보드 조회 실패 시 쓰기 전에 중단한다. 쓰기 중 실패하면 원격 상태를 다시 확인한 후 같은 명령으로 복구할 수 있다.
+
+```sh
+gh workflow run sync-tasks.yml -R Softbank-Hackathon-Finals/platform --ref develop \
+  -f command=activity -f task=T30 -f activity=active -f dry-run=true
+# 미리보기에서 해당 카드만 변경함을 확인한 뒤 dry-run=false로 실행
+```
+
 **platform**의 PR 생성·재열기·닫기·초안 전환·새 커밋·리뷰 요청·리뷰 제출/해제 이벤트에 실행한다. **demo-chat 이벤트가 platform workflow를 직접 시작하지는 않는다.** demo-chat 변경은 아래 수동 `command=prs` 실행 또는 예약 대조에서 조회한다. 즉시 알림이 필요하면 PR 변경 후 공식 workflow를 dispatch한다. 별도 cross-repository 쓰기 토큰이나 PR 코드 실행은 추가하지 않는다. CI 결과의 후속 변경과 누락 이벤트는 매시 17분/47분 `reconcile`(계획 push → 이슈 pull → PR 상태)로 보정한다(GitHub 예약 실행은 지연될 수 있음). 이벤트의 오래된 상태를 그대로 쓰지 않고 매번 현재 PR을 조회한다. 기존 이슈 동기화와 같은 concurrency 그룹으로 직렬화한다.
 
 리뷰 제출/해제는 권한 없는 `pr-review-signal.yml`이 받고, 그 완료를 기본 브랜치의 `sync-tasks.yml`이 `workflow_run`으로 받는다. 신호 workflow에는 checkout·시크릿·산출물이 없다. 동기화는 신호의 상태·본문·산출물을 복사하지 않고 GitHub에서 현재 PR 상태를 다시 읽는다. 실패한 신호는 동기화를 시작하지 않으며 누락된 상태는 예약 대조로 복구한다.
