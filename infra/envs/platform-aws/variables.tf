@@ -13,7 +13,11 @@ variable "private_subnet_id" { type = string }
 variable "private_route_table_id" { type = string }
 variable "egress_subnet_cidr" { default = "10.81.254.0/24" }
 variable "ami_id" { type = string }
-variable "instance_type" { default = "t3.large" }
+variable "instance_type" {
+  description = "One x86_64 server with at least 4 vCPUs and 8 GiB for RKE2 and resident platform workloads."
+  type        = string
+  default     = "t3.xlarge"
+}
 variable "rke2_version" {
   default = "v1.35.9+rke2r1"
   validation {
