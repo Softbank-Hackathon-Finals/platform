@@ -6,6 +6,7 @@
 |---|---|
 | [`render-user-data.sh`](render-user-data.sh) | 공통 [`bootstrap.sh`](../../shared/rke2/bootstrap.sh)에 Tailscale 설치를 더해 user-data를 출력한다 |
 | [`local-vm.sh`](local-vm.sh) | Mac에서 새 VM을 만들고 지운다. x86 머신에서는 쓰지 않는다 |
+| [`local_vm.py`](local_vm.py) | 시작·종료 배타 잠금, QEMU 신원 확인, 종료 확인 후 디스크 정리 |
 | [`verify-node.sh`](verify-node.sh) | 노드가 기준대로 섰는지 10개 항목을 확인한다 |
 | [`run-kube-bench.sh`](run-kube-bench.sh) | kube-bench로 CIS 점검을 돌리고 요약을 출력한다 |
 
@@ -20,6 +21,29 @@
 ./local-vm.sh down                  # VM과 디스크 삭제. 내려받은 이미지는 남는다
 ```
 
+`up`과 `down`은 같은 상태 디렉터리의 잠금을 사용한다. VM마다 새 UUID를 기록하고
+QEMU에 전달하며 상태·소켓·SSH 키는 현재 사용자만 접근하도록 만든다. `down`은
+양의 PID, 실행 파일·시작 시각·명령행, QMP 연결의 UUID와 열린 디스크 경로를 대조한다.
+종료는 확인된 QMP 연결에 `quit`을 보내며 PID에 종료 신호를 보내지 않는다.
+이 명령은 삭제할 로컬 시험 VM의 QEMU를 종료하는 것이며 게스트의 정상 종료 절차를
+대신하지 않는다. 게스트 데이터를 보존해야 하면 먼저 별도 백업·종료 절차를 따른다.
+
+QMP 응답 성공이나 연결 종료만으로 디스크를 지우지 않는다. 원래 프로세스가 사라진 것을
+최대 30초간 확인한 뒤 VM 디렉터리만 삭제한다. 잘못된 PID·다른 프로세스·신원 불일치·
+명령 실패·시간 초과·동시 실행은 비정상 종료하며 디스크와 로그를 보존한다.
+이미 VM 디렉터리가 없으면 반복 `down`은 성공한다.
+
+이전 도구로 만든 VM에는 UUID/QMP가 없으므로 새 도구가 자동으로 종료·삭제하지 않는다.
+이미 게스트가 종료돼 PID 파일이 없거나 오래된 상태도 보존한다. 이 경우 콘솔과 실제
+QEMU 실행 파일·명령행·열린 파일을 확인해 해당 VM의 종료를 별도로 마무리하고,
+프로세스와 열린 디스크 핸들이 없는 것을 확인한 후 남은 상태를 수동 정리한다.
+추측한 PID를 새 파일에 넣거나 `kill`·재귀 삭제로 검사를 우회하지 않는다.
+
+회귀 시험은 `python3 -m unittest discover -s scripts/tests -p test_local_vm.py -v`로
+실행한다. 로컬에 QEMU가 있으면 `BRAVO_TEST_QEMU=$(command -v qemu-system-aarch64)`를
+같이 지정해 게스트·네트워크 없는 작은 실제 QEMU의 신원 확인·종료·정리를 추가 검증한다.
+Ubuntu 설치·RKE2 운영 검증과 구분한다. 프로토콜은 [QEMU QMP 명세](https://www.qemu.org/docs/master/interop/qmp-spec.html)를 따른다.
+
 Mac의 `kubectl`로 붙으려면 kubeconfig를 꺼낸다. 관리자 권한 파일이므로 커밋하거나 공유하지 않는다.
 
 ```sh
@@ -30,6 +54,11 @@ kubectl --kubeconfig ~/.kube/bravo-onprem.yaml get nodes
 실제 머신은 `./render-user-data.sh`의 출력을 cloud-init user-data로 넣고, `verify-node.sh`와 `run-kube-bench.sh`를 노드 안에서 root로 실행한다.
 
 설치가 10분쯤 멈췄다가 실패하면 `journalctl -u rke2-server`의 `level=fatal` 줄을 본다. CIS 조건이 맞지 않으면 RKE2가 여기에 이유를 남기고 시작을 거부한다. cloud-init 로그에는 `kubectl`이 없다는 줄만 보인다.
+
+`run-kube-bench.sh`는 보고서 생성용이다. 종료 코드 0은 CIS 통과를 뜻하지 않으며,
+후속 CI/게이트는 JSON의 FAIL 수와 개별 WARN의 기대값·감사값을 검토해야 한다.
+WARN을 모두 미실행이나 통과로 합산하지 않는다. 고정한 `rke2-cis-1.9` 결과만으로
+다른 CIS 버전이나 운영 환경 전체의 준수를 선언하지 않는다.
 
 ## 기준을 바꿀 때
 

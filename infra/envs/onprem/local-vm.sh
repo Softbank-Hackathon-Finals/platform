@@ -9,9 +9,10 @@
 #
 # 다른 user-data로 시험하려면 USER_DATA=<파일> ./local-vm.sh up
 set -euo pipefail
+umask 077
 
 HERE=$(cd "$(dirname "$0")" && pwd)
-STATE=${XDG_CACHE_HOME:-$HOME/.cache}/bravo-onprem-vm
+STATE=${BRAVO_VM_STATE:-${XDG_CACHE_HOME:-$HOME/.cache}/bravo-onprem-vm}
 VM=$STATE/vm
 IMAGE_BUILD=release-20261017
 IMAGE_NAME=ubuntu-24.04-server-cloudimg-arm64.img
@@ -56,7 +57,8 @@ start_qemu() {
     -drive "file=$VM/disk.qcow2,if=virtio" \
     -drive "file=$VM/seed.iso,if=virtio,format=raw,readonly=on" \
     -nic "user,model=virtio-net-pci,hostfwd=tcp:127.0.0.1:$SSH_PORT-:22,hostfwd=tcp:127.0.0.1:6443-:6443" \
-    -display none -serial "file:$VM/console.log" -daemonize -pidfile "$VM/qemu.pid"
+    -display none -serial "file:$VM/console.log" -daemonize -pidfile "$VM/qemu.pid" \
+    -uuid "$1" -qmp "unix:$VM/qmp.sock,server=on,wait=off"
 }
 
 wait_for_cloud_init() {
@@ -76,34 +78,27 @@ wait_for_cloud_init() {
   fi
 }
 
-up() {
-  if [ -e "$VM" ]; then
-    echo "이미 VM이 있다. 먼저 down을 실행한다." >&2
-    exit 1
-  fi
+prepare() {
   fetch_image
   write_seed
-  start_qemu
+  start_qemu "$1"
+}
+
+wait_ready() {
   SECONDS=0
   wait_for_cloud_init
   echo "cloud-init 완료: ${SECONDS}초"
 }
 
-down() {
-  if [ -f "$VM/qemu.pid" ]; then
-    kill "$(cat "$VM/qemu.pid")" 2>/dev/null || true
-  fi
-  rm -rf "$VM"
-}
-
 case "${1:-}" in
-  up) up ;;
+  up|down) exec python3 "$HERE/local_vm.py" "$1" "$STATE" ;;
+  _prepare) prepare "${2:?launch UUID required}" ;;
+  _wait) wait_ready ;;
   run) "${SSH[@]}" sudo bash -s <"$2" ;;
   ssh)
     shift
     exec "${SSH[@]}" "$@"
     ;;
-  down) down ;;
   *)
     sed -n '5,8p' "$0"
     exit 2
