@@ -1,0 +1,77 @@
+{
+  "observed_at": "2026-11-03T09:30:21.071173+00:00",
+  "scope": "live_source_workload_readback",
+  "secret_values_exported": false,
+  "canary_requested": true,
+  "database_ready_instances": 1,
+  "database": {
+    "server_version": "18.4 (Debian 18.4-1.pgdg13+1)",
+    "wal_level": "logical",
+    "log_connections": "on",
+    "pgaudit_log": "ddl,role",
+    "pgaudit_log_parameter": "off",
+    "pgaudit_extension": true,
+    "publication_tables": [
+      "attachments",
+      "messages"
+    ],
+    "app_superuser": false,
+    "app_schema_create": false,
+    "replication_role": true,
+    "pooler_control_is_db_role": false,
+    "tables_without_pk": 0
+  },
+  "pvc_phases": [
+    "Bound"
+  ],
+  "deployments": [
+    {
+      "name": "demo-chat",
+      "desired": 1,
+      "ready": 1
+    },
+    {
+      "name": "source-pgbouncer",
+      "desired": 1,
+      "ready": 1
+    }
+  ],
+  "secretstore": [
+    {
+      "name": "source-secrets",
+      "ready": true
+    }
+  ],
+  "externalsecret": [
+    {
+      "name": "demo-chat-control",
+      "ready": true
+    }
+  ],
+  "pooler_tls_read": {
+    "current_user": "chat_app",
+    "tls": true,
+    "tls_version": "TLSv1.3",
+    "message_count": 2
+  },
+  "app_pooler_admin_denied": true,
+  "control_pooler_admin_allowed": true,
+  "wrong_password_denied": true,
+  "plaintext_client_denied": true,
+  "app_ddl_denied": true,
+  "logical_replication_startup_allowed": true,
+  "physical_replication_startup_denied": true,
+  "db_ddl_canary_observed": true,
+  "db_connection_observed": true,
+  "eks_rolebinding_canary_observed": false,
+  "cloudtrail": {
+    "is_logging": true,
+    "delivery_error": false,
+    "delivery_observed": true
+  },
+  "limitations": [
+    "No T8 cross-environment replication or T14 equivalence claim",
+    "No T35 backup/restore or multi-node availability claim",
+    "Application API and S3 read/write verification are reported separately"
+  ]
+}
