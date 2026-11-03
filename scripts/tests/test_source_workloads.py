@@ -27,6 +27,53 @@ app_probe = module("source_app_probe", "infra/envs/source-workloads/app_probe.py
 
 
 class WorkloadTests(unittest.TestCase):
+    def probe_restore_case(self, restore_timeouts=0, accept_wrong_admin=False):
+        state = {"blocked": True, "restore_attempts": 0}
+
+        def request(method, path, body=None, admin=False, headers=None):
+            if path == "/api/info":
+                return 200, {}, b'{"env":"aws","write_blocked":true}'
+            if path == "/admin/write-block":
+                if not admin and not (accept_wrong_admin and method == "PUT"):
+                    return 401, {}, b'{}'
+                if method == "PUT":
+                    if admin and body["blocked"]:
+                        state["restore_attempts"] += 1
+                        if state["restore_attempts"] <= restore_timeouts:
+                            raise TimeoutError("synthetic failure before block applied")
+                    state["blocked"] = body["blocked"]
+                return 200, {}, json.dumps({"write_blocked": state["blocked"]}).encode()
+            if method == "POST":
+                if state["blocked"]:
+                    return 503, {"retry-after": "5"}, b'{}'
+                raise TimeoutError("synthetic business write failure")
+            return 200, {}, b'{}'
+
+        output = io.StringIO()
+        with patch.object(app_probe, "request", side_effect=request), redirect_stdout(output):
+            self.assertEqual(app_probe.run(), 1)
+        return state, json.loads(output.getvalue())
+
+    def test_wrong_admin_unexpected_success_cannot_open_writes(self):
+        state, result = self.probe_restore_case(accept_wrong_admin=True)
+        self.assertTrue(state["blocked"])
+        self.assertFalse(result["checks"]["wrong_admin_denied"])
+
+    def test_transient_block_restore_failure_retries_and_reads_final_state(self):
+        state, result = self.probe_restore_case(restore_timeouts=1)
+        self.assertTrue(state["blocked"])
+        self.assertEqual(state["restore_attempts"], 2)
+        self.assertTrue(result["checks"]["final_write_blocked"])
+        self.assertFalse(result["manual_write_block_required"])
+
+    def test_persistent_restore_failure_is_bounded_and_requires_manual_block(self):
+        state, result = self.probe_restore_case(restore_timeouts=10)
+        self.assertFalse(state["blocked"])
+        self.assertEqual(state["restore_attempts"], 3)
+        self.assertFalse(result["checks"]["final_write_blocked"])
+        self.assertTrue(result["manual_write_block_required"])
+        self.assertFalse(result["passed"])
+
     def test_app_probe_restores_write_block_after_ambiguous_enable_timeout(self):
         calls = []
 

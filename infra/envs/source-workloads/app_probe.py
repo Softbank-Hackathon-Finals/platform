@@ -55,7 +55,7 @@ def run():
             status("initial" + path, "GET", path, 200)
         status("missing_admin_denied", "GET", "/admin/write-block", 401)
         status("wrong_admin_denied", "PUT", "/admin/write-block", 401,
-               body={"blocked": False}, headers={"Authorization": "Bearer invalid-canary"})
+               body={"blocked": True}, headers={"Authorization": "Bearer invalid-canary"})
         message = {"idempotency_key": str(uuid.uuid4()), "author": "T6 runtime canary",
                    "body": "Synthetic source readiness verification; no customer data."}
         _, headers, _ = status("initial_write_denied", "POST", "/api/messages", 503, body=message)
@@ -90,10 +90,33 @@ def run():
         result["error_type"] = type(error).__name__
     finally:
         if opened:
+            restored = False
+            restore_errors = []
+            for attempt in range(1, 4):
+                # A timed-out PUT may already have applied. Always read back, and
+                # retry only the idempotent block operation, never an unblock.
+                try:
+                    code, _, _ = request("PUT", "/admin/write-block", body={"blocked": True}, admin=True)
+                    if code != 200:
+                        restore_errors.append("PutStatus" + str(code))
+                except (OSError, ValueError, KeyError, TypeError, RuntimeError) as error:
+                    restore_errors.append(type(error).__name__)
+                try:
+                    code, _, raw = request("GET", "/admin/write-block", admin=True)
+                    restored = code == 200 and json.loads(raw).get("write_blocked") is True
+                except (OSError, ValueError, KeyError, TypeError, RuntimeError) as error:
+                    restore_errors.append(type(error).__name__)
+                if restored:
+                    break
+            result["restore_attempts"] = attempt
+            result["restore_transient_errors"] = restore_errors
+            result["manual_write_block_required"] = not restored
+            checks["restore_write_block"] = restored
+            checks["final_admin_read"] = restored
+            checks["final_write_blocked"] = restored
             try:
-                status("restore_write_block", "PUT", "/admin/write-block", 200, body={"blocked": True}, admin=True)
-                _, _, raw = status("final_admin_read", "GET", "/admin/write-block", 200, admin=True)
-                check("final_write_blocked", json.loads(raw)["write_blocked"] is True)
+                if not restored:
+                    raise RuntimeError("manual write block required")
                 _, headers, _ = status("final_write_denied", "POST", "/api/messages", 503,
                                         body={"idempotency_key": str(uuid.uuid4()), "author": "T6 canary", "body": "Must be denied"})
                 check("final_retry_after", bool(headers.get("retry-after")))
