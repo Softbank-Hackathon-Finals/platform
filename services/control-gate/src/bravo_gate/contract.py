@@ -83,7 +83,7 @@ class T5Contract:
     def __init__(self):
         root = files("bravo_gate").joinpath("contracts")
         expected = {
-            "control-result.schema.json": "e602da1bb2d9573453283ffa41e425d299c3ae73ee1f15663453372faddcf23d",
+            "control-result.schema.json": "f1273e751b31288c6d2ed927d888032474ce05f132dde7545bc12e2d9b38b654",
             "profiles.json": "4ba6e539b422985a43c20875ae00b21e1bd461daf4f8240b5b7b02debe0f2c90",
         }
         docs = {}

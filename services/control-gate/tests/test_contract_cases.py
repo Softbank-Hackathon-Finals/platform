@@ -1,15 +1,70 @@
-"""Execute all 28 T5 PR51 review regressions, not merely schema acceptance."""
+"""Execute all 35 T5 PR51 review regressions, not merely schema acceptance."""
 
 from copy import deepcopy
+from dataclasses import replace
 
 import jsonpatch
 import pytest
 from conftest import approval, load
 
-from bravo_gate.contract import GateError
+from bravo_gate.contract import GateError, canonical, fingerprint
 from bravo_gate.engine import consume, evaluate
+from bravo_gate.models import RunSnapshot
 
 CASES = load("contract-cases.json")
+
+
+@pytest.mark.parametrize("case", CASES["evaluation_binding"]["cases"], ids=lambda c: c["id"])
+def test_fixed_evaluation_approval_cannot_be_rebound(service, case):
+    app, state = service
+    base = next(c for c in CASES["gate_input"]["cases"] if c["id"] == "GI-12")
+    target = jsonpatch.apply_patch(state["runs"]["target"].document, base["patch"]["target"])
+    state["runs"]["target"] = RunSnapshot(state["context"].target_ref, canonical(target))
+    state["context"] = replace(state["context"], target_digest=fingerprint(target))
+    record = approval(base["approvals"][0], state["context"])
+    state["approvals"]["apr-0001"] = record
+    report = app.evaluate("actor", "context", approval_ids=("apr-0001",))
+    assert report["decision"] == "PASS" and report["rows"][0]["decision"] == "EXCEPTION"
+    assert app.require_security(
+        "actor", "context", canonical(report), approval_ids=("apr-0001",)
+    ).exception_ids == ("apr-0001",)
+
+    from dataclasses import asdict
+
+    context = jsonpatch.apply_patch(asdict(state["context"]), case.get("context_patch", []))
+    for side in ("source", "target"):
+        run = jsonpatch.apply_patch(state["runs"][side].document, case.get(side + "_patch", []))
+        state["runs"][side] = RunSnapshot(context[side + "_ref"], canonical(run))
+        context[side + "_digest"] = fingerprint(run)
+    state["context"] = type(state["context"])(**context)
+    report = jsonpatch.apply_patch(report, case.get("document_patch", []))
+    if case.get("rewrite_document_binding"):
+        report["gate_id"] = state["context"].gate_id
+        report["context_digest"] = state["context"].fingerprint
+        for side in ("source", "target"):
+            report[side + "_run_id"] = state["runs"][side].document["run_id"]
+    if case.get("rewrite_exception_binding"):
+        report["rows"][0]["exception"]["scope"]["context_digest"] = state["context"].fingerprint
+    # These documents are structurally valid: the server binding must reject.
+    app.contract.validate(report, "gate_comparison")
+    if case["expect"] == "accept":
+        app.require_security("actor", "context", canonical(report), approval_ids=("apr-0001",))
+    else:
+        with pytest.raises(GateError, match="GATE_CONTEXT_MISMATCH|EXCEPTION_INVALID"):
+            app.require_security("actor", "context", canonical(report), approval_ids=("apr-0001",))
+    assert state["approvals"]["apr-0001"] == record
+
+
+def test_context_vectors_match_gate_examples(contract):
+    from bravo_gate.models import GateContext
+
+    for name, body in load("evaluation-contexts.json").items():
+        context = GateContext(**body)
+        assert context.catalog_digest == contract.catalog_digest
+        report = load("examples/gate-" + name + ".json")
+        contract.validate(report, "gate_comparison")
+        assert report["context_digest"] == context.fingerprint
+        assert report["gate_id"] == context.gate_id
 
 
 @pytest.mark.parametrize("case", CASES["gate_input"]["cases"], ids=lambda c: c["id"])
@@ -17,6 +72,7 @@ def test_t19_contract_case(contract, bundle, case):
     ctx, source, target, now = bundle
     source = jsonpatch.apply_patch(source, case["patch"].get("source", []), in_place=False)
     target = jsonpatch.apply_patch(target, case["patch"].get("target", []), in_place=False)
+    ctx = replace(ctx, source_digest=fingerprint(source), target_digest=fingerprint(target))
     records = tuple(approval(body, ctx) for body in case["approvals"])
     expected = case["expect"]
     if expected["schema"] == "reject":
@@ -37,6 +93,7 @@ def test_t10_t21_consumption_contract_case(contract, bundle, case):
     document = jsonpatch.apply_patch(
         load("examples/gate-after-fix.json"), case["patch"], in_place=False
     )
+    ctx = replace(ctx, source_digest=fingerprint(source), target_digest=fingerprint(target))
     records = tuple(approval(body, ctx) for body in case["approvals"])
     if case["expect"].get("consumer") == "accept":
         assert (
@@ -69,6 +126,7 @@ def test_expired_evidence_and_method_cannot_be_waived(contract, bundle):
     ctx, source, target, now = bundle
     case = next(c for c in CASES["gate_input"]["cases"] if c["id"] == "GI-12")
     target = jsonpatch.apply_patch(target, case["patch"]["target"])
+    ctx = replace(ctx, source_digest=fingerprint(source), target_digest=fingerprint(target))
     records = tuple(approval(body, ctx) for body in case["approvals"])
     for change, want in [("expiry", "EVIDENCE_EXPIRED"), ("method", "METHOD_MISMATCH")]:
         changed = deepcopy(target)

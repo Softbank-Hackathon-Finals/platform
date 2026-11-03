@@ -278,7 +278,8 @@
               "target_environment_id": "env-onprem",
               "test_id": "IAM-01.1",
               "profile_id": "demo-gate",
-              "profile_version": "1"
+              "profile_version": "1",
+              "context_digest": "816b0bbc8c7b17b8fdec9a43bb924fb5f59bb0663db709666c201257fc510258"
             },
             "approved_by": "approver@example",
             "approved_at": "2026-11-01T00:00:00Z",
@@ -320,7 +321,8 @@
               "target_environment_id": "env-onprem",
               "test_id": "IAM-01.1",
               "profile_id": "demo-gate",
-              "profile_version": "1"
+              "profile_version": "1",
+              "context_digest": "816b0bbc8c7b17b8fdec9a43bb924fb5f59bb0663db709666c201257fc510258"
             },
             "approved_by": "approver@example",
             "approved_at": "2026-11-04T11:00:00Z",
@@ -362,7 +364,8 @@
               "target_environment_id": "env-onprem-old",
               "test_id": "IAM-01.1",
               "profile_id": "demo-gate",
-              "profile_version": "1"
+              "profile_version": "1",
+              "context_digest": "816b0bbc8c7b17b8fdec9a43bb924fb5f59bb0663db709666c201257fc510258"
             },
             "approved_by": "approver@example",
             "approved_at": "2026-11-04T11:00:00Z",
@@ -404,7 +407,8 @@
               "target_environment_id": "env-onprem",
               "test_id": "IAM-01.1",
               "profile_id": "demo-gate",
-              "profile_version": "1"
+              "profile_version": "1",
+              "context_digest": "816b0bbc8c7b17b8fdec9a43bb924fb5f59bb0663db709666c201257fc510258"
             },
             "approved_by": "approver@example",
             "approved_at": "2026-11-04T12:00:00Z",
@@ -606,7 +610,8 @@
                 "target_environment_id": "env-onprem",
                 "test_id": "IAM-01.1",
                 "profile_id": "demo-gate",
-                "profile_version": "1"
+                "profile_version": "1",
+                "context_digest": "dc3618717bf60806e14c67dfa056c1753976fad7035fe401871b0f7772554843"
               },
               "approved_by": "approver@example",
               "approved_at": "2026-11-01T00:00:00Z",
@@ -624,7 +629,8 @@
               "target_environment_id": "env-onprem",
               "test_id": "IAM-01.1",
               "profile_id": "demo-gate",
-              "profile_version": "1"
+              "profile_version": "1",
+              "context_digest": "dc3618717bf60806e14c67dfa056c1753976fad7035fe401871b0f7772554843"
             },
             "approved_by": "approver@example",
             "approved_at": "2026-11-01T00:00:00Z",
@@ -668,7 +674,8 @@
                 "target_environment_id": "env-onprem",
                 "test_id": "IAM-01.1",
                 "profile_id": "demo-gate",
-                "profile_version": "1"
+                "profile_version": "1",
+                "context_digest": "dc3618717bf60806e14c67dfa056c1753976fad7035fe401871b0f7772554843"
               },
               "approved_by": "approver@example",
               "approved_at": "2026-11-04T11:00:00Z",
@@ -686,7 +693,8 @@
               "target_environment_id": "env-onprem",
               "test_id": "IAM-01.1",
               "profile_id": "demo-gate",
-              "profile_version": "1"
+              "profile_version": "1",
+              "context_digest": "dc3618717bf60806e14c67dfa056c1753976fad7035fe401871b0f7772554843"
             },
             "approved_by": "approver@example",
             "approved_at": "2026-11-04T11:00:00Z",
@@ -730,7 +738,8 @@
                 "target_environment_id": "env-onprem",
                 "test_id": "IAM-01.1",
                 "profile_id": "demo-gate",
-                "profile_version": "1"
+                "profile_version": "1",
+                "context_digest": "dc3618717bf60806e14c67dfa056c1753976fad7035fe401871b0f7772554843"
               },
               "approved_by": "approver@example",
               "approved_at": "2026-11-04T11:00:00Z",
@@ -748,7 +757,8 @@
               "target_environment_id": "env-onprem",
               "test_id": "IAM-01.1",
               "profile_id": "demo-gate",
-              "profile_version": "1"
+              "profile_version": "1",
+              "context_digest": "dc3618717bf60806e14c67dfa056c1753976fad7035fe401871b0f7772554843"
             },
             "approved_by": "approver@example",
             "approved_at": "2026-11-04T11:00:00Z",
@@ -791,7 +801,8 @@
                 "target_environment_id": "env-onprem",
                 "test_id": "IAM-01.1",
                 "profile_id": "demo-gate",
-                "profile_version": "1"
+                "profile_version": "1",
+                "context_digest": "dc3618717bf60806e14c67dfa056c1753976fad7035fe401871b0f7772554843"
               },
               "approved_by": "approver@example",
               "approved_at": "2026-11-04T11:00:00Z",
@@ -822,6 +833,100 @@
         "expect": {
           "schema": "reject"
         }
+      }
+    ]
+  },
+  "evaluation_binding": {
+    "description": "GI-12의 유효한 예외 보고서와 서버 승인 기록을 먼저 만든다. 이후 context_patch/source_patch/target_patch를 적용하고 원본 hash를 재계산한다. rewrite_document_binding이면 문서의 gate_id/context_digest/run_id만 현행값으로 고친다. 승인 기록은 그대로 둔다. 단순 스키마 수용이 아니라 T10/T19 소비 거부를 검사한다.",
+    "base_case": "GI-12",
+    "cases": [
+      {
+        "id": "EB-00",
+        "description": "같은 계획·게이트·결과를 재조회: 유효한 예외",
+        "expect": "accept"
+      },
+      {
+        "id": "EB-01",
+        "description": "문서 gate_id만 교체",
+        "document_patch": [
+          {
+            "op": "replace",
+            "path": "/gate_id",
+            "value": "gate-other"
+          }
+        ],
+        "expect": "reject"
+      },
+      {
+        "id": "EB-02",
+        "description": "다른 계획·게이트에 기존 승인을 복사",
+        "context_patch": [
+          {
+            "op": "replace",
+            "path": "/plan_digest",
+            "value": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+          },
+          {
+            "op": "replace",
+            "path": "/gate_id",
+            "value": "gate-other"
+          }
+        ],
+        "rewrite_document_binding": true,
+        "expect": "reject"
+      },
+      {
+        "id": "EB-03",
+        "description": "재측정 결과에 기존 승인을 복사",
+        "target_patch": [
+          {
+            "op": "replace",
+            "path": "/run_id",
+            "value": "run-tgt-new"
+          }
+        ],
+        "rewrite_document_binding": true,
+        "expect": "reject"
+      },
+      {
+        "id": "EB-04",
+        "description": "같은 run ID의 증거 내용이 변경됨",
+        "target_patch": [
+          {
+            "op": "replace",
+            "path": "/results/0/evidence/excerpt",
+            "value": "새 관측 증거"
+          }
+        ],
+        "rewrite_document_binding": true,
+        "expect": "reject"
+      },
+      {
+        "id": "EB-05",
+        "description": "다른 계획에서 문서와 예외 결속값까지 위조해도 서버 기록은 그대로",
+        "context_patch": [
+          {
+            "op": "replace",
+            "path": "/plan_digest",
+            "value": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+          }
+        ],
+        "rewrite_document_binding": true,
+        "rewrite_exception_binding": true,
+        "expect": "reject"
+      },
+      {
+        "id": "EB-06",
+        "description": "게이트 ID만 새 것으로 등록하고 예전 승인 재사용",
+        "context_patch": [
+          {
+            "op": "replace",
+            "path": "/gate_id",
+            "value": "gate-other"
+          }
+        ],
+        "rewrite_document_binding": true,
+        "expect": "reject"
       }
     ]
   }

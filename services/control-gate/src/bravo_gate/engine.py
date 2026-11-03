@@ -27,6 +27,7 @@ def exception_valid(record, ctx, test_id, now, contract):
                 "test_id": test_id,
                 "profile_id": ctx.profile_id,
                 "profile_version": ctx.profile_version,
+                "context_digest": ctx.fingerprint,
             }
             and bool(body["approved_by"].strip())
             and bool(body["compensating_control"].strip())
@@ -135,7 +136,8 @@ def evaluate(contract, ctx, source, target, *, now, approvals=(), network_verifi
             candidates = [
                 r
                 for r in approvals
-                if r.body.get("scope")
+                if isinstance(r.body.get("scope"), dict)
+                and {k: v for k, v in r.body["scope"].items() if k != "context_digest"}
                 == {
                     "app": ctx.app,
                     "target_environment_id": ctx.target_environment_id,
@@ -170,6 +172,7 @@ def evaluate(contract, ctx, source, target, *, now, approvals=(), network_verifi
         "kind": "gate_comparison",
         "schema_version": "1",
         "gate_id": ctx.gate_id,
+        "context_digest": ctx.fingerprint,
         "profile": {"id": ctx.profile_id, "version": ctx.profile_version},
         "app": ctx.app,
         "evaluated_at": now.isoformat().replace("+00:00", "Z"),
@@ -188,6 +191,8 @@ def evaluate(contract, ctx, source, target, *, now, approvals=(), network_verifi
 def consume(contract, ctx, document, source, target, *, now, approvals=(), network_verified=None):
     """Recompute from trusted current inputs. JSON PASS is never a bearer grant."""
     contract.validate(document, "gate_comparison")
+    if document["context_digest"] != ctx.fingerprint or document["gate_id"] != ctx.gate_id:
+        raise GateError("GATE_CONTEXT_MISMATCH")
     profile = contract.profile(ctx.profile_id, ctx.profile_version)
     ids = [r["test_id"] for r in document["rows"]]
     if len(ids) != len(set(ids)) or set(ids) != set(profile["required_test_ids"]):

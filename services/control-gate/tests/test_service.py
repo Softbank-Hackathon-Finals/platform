@@ -48,6 +48,44 @@ def test_changed_run_under_same_id_cannot_reuse_context(service):
         app.evaluate("actor", "context")
 
 
+def test_pass_without_exception_is_still_bound_to_plan(service):
+    app, state = service
+    report = app.evaluate("actor", "context")
+    state["context"] = replace(state["context"], plan_digest="b" * 64)
+    with pytest.raises(GateError, match="GATE_CONTEXT_MISMATCH"):
+        app.require_security("actor", "context", canonical(report))
+
+
+def test_old_exception_body_missing_binding_is_not_accepted(service):
+    app, state = service
+    case = next(c for c in load("contract-cases.json")["gate_input"]["cases"] if c["id"] == "GI-12")
+    value = state["runs"]["target"].document
+    value["results"][0].update(verdict="FAIL", observed="allow")
+    state["runs"]["target"] = RunSnapshot(state["context"].target_ref, canonical(value))
+    state["context"] = replace(state["context"], target_digest=fingerprint(value))
+    body = case["approvals"][0]
+    del body["scope"]["context_digest"]
+    state["approvals"]["apr-0001"] = approval(body, state["context"])
+    report = app.evaluate("actor", "context", approval_ids=("apr-0001",))
+    assert report["decision"] == "BLOCK"
+    assert report["rows"][0]["reason"] == "EXCEPTION_INVALID"
+
+
+@pytest.mark.parametrize("scope", [None, [], "invalid"])
+def test_malformed_stored_exception_scope_stays_blocked(service, scope):
+    app, state = service
+    case = next(c for c in load("contract-cases.json")["gate_input"]["cases"] if c["id"] == "GI-12")
+    value = state["runs"]["target"].document
+    value["results"][0].update(verdict="FAIL", observed="allow")
+    state["runs"]["target"] = RunSnapshot(state["context"].target_ref, canonical(value))
+    state["context"] = replace(state["context"], target_digest=fingerprint(value))
+    body = case["approvals"][0]
+    body["scope"] = scope
+    state["approvals"]["apr-0001"] = approval(body, state["context"])
+    report = app.evaluate("actor", "context", approval_ids=("apr-0001",))
+    assert report["decision"] == "BLOCK"
+
+
 def test_backdated_gate_cannot_resurrect_expired_evidence(service):
     app, state = service
     doc = app.evaluate("actor", "context")
