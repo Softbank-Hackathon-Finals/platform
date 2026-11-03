@@ -91,3 +91,17 @@ pooler Pod identity·실제 목적지·RESUME 상태를 다시 읽고, 바뀌면
 현재 자동 시험은 임시 PostgreSQL과 원격 대역이다. `EXECUTOR_TEST_POSTGRES_IMAGE=postgres:18.4`
 로 실제 배포 버전의 SQL 경계를 시험할 수 있다. k3d 시험은 해당 환경이 있을 때만 실행한다.
 실제 T8/T30 happy path·ABORT_PRE_WRITE·SAFE_HOLD와 T15/T19/T31 선행을 충족해야 이슈를 닫는다.
+
+실제 DB 준비는 `prepare.cluster_patch()`가 관측한 Cluster의 resourceVersion 조건으로
+`chat_app` 관리 항목만 제거하고 제한된 `cutover_control` managed role/전용 Secret 참조와
+정확한 TLS HBA 항목을 추가하는 패치부터 검토한다. 기존 복제 역할과 SQL LOGIN 상태는 바꾸지 않는다.
+`prepare.pooler_trust_patch()`는 풀러의 backend CA mount만 별도 `cutover-backend-ca`로 바꾼다.
+새 Secret에는 source/target의 공개 CA 합본만 넣으며 CNPG 자체 CA/서버 인증서는 수정하지 않는다.
+풀러가 교체되면 새 UID/이름을 읽어 named-pod 권한을 다시 인가하고 플랫폼 위치에서 검증한다.
+
+초기 target 앱은 source 자격으로 source-backed pooler에 붙는다. 현재 host-only retarget 계약은
+양쪽 DB의 `chat_app` 자격이 같아야 하므로, 실제 준비 단계에서 target NOLOGIN을 유지한 채
+source 자격/SCRAM을 target DB와 app Secret에 맞춘다. 이 일회 인계와 이후 암호 회전은
+DB 운영자와 T9 전달 담당이 같은 source Secret 버전에 결속해 수행한다. 암호를 로그/로컬 파일에
+남기지 않는다. 이전 `managed.roles` manifest를 재적용해 LOGIN을 자동 복구하지 않도록
+운영자가 이관 패치를 후속 렌더에도 적용해야 한다. 위 함수는 패치 작성만 하며 실제 적용/준비 완료 증거가 아니다.
