@@ -194,6 +194,7 @@ def write_sites() -> None:
     sites = {
         s["environment_id"]: {
             "environment_id": s["environment_id"],
+            "connection_ref": f"mock/{ns}",
             "kube_context": CONTEXT,
             "namespace": ns,
             "pgbouncer_admin_dsn": dsn(s["pgb"], "pgbouncer", "cutover_control", "control-password"),

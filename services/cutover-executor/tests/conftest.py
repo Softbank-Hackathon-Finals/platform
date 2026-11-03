@@ -13,7 +13,7 @@ import uuid
 import psycopg
 import pytest
 
-IMAGE = "postgres:16"
+IMAGE = os.environ.get("EXECUTOR_TEST_POSTGRES_IMAGE", "postgres:16")
 
 
 @pytest.fixture(scope="session")

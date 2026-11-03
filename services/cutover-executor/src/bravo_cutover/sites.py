@@ -14,6 +14,7 @@ class Site(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     environment_id: str
+    connection_ref: str | None = None
     kube_context: str
     namespace: str
     app_selector: str = "app=demo-chat"
@@ -36,6 +37,8 @@ class Site(BaseModel):
     # 이 DB에 있는, 상대 환경에서 받아 오는 구독과 그 소유 역할
     subscription: str
     subscription_owner: str = "subscriber"
+    # Actual clusters use fixed-target control functions; no SET ROLE to postgres.
+    control_functions: bool = False
     # 업무 쓰기를 하지 않는 역할. 펜싱 때 이 밖의 세션이 남아 있으면 우회 쓰기로 본다.
     system_roles: list[str] = ["cutover_control", "replicator", "subscriber", "postgres"]
 
@@ -63,6 +66,16 @@ class Config(BaseModel):
 
     settings: Settings = Settings()
     sites: dict[str, Site]
+
+    def request_bindings(self) -> dict[str, str]:
+        if len(self.sites) != 2 or any(k != s.environment_id for k, s in self.sites.items()):
+            raise ValueError("the deployed executor requires one fixed pair of environments")
+        if any(not s.connection_ref for s in self.sites.values()):
+            raise ValueError("each deployed environment requires its immutable connection_ref")
+        bindings = {k: s.connection_ref for k, s in self.sites.items()}
+        if len(set(bindings.values())) != 2:
+            raise ValueError("the two database connection references must be distinct")
+        return bindings
 
 
 def load_config(path: str | Path) -> Config:

@@ -16,6 +16,7 @@ from typing import Any, Protocol
 from uuid import UUID
 
 from bravo_cutover.contract import CutoverRequest, Status, StepStatus
+from bravo_cutover.integrity import IntegrityComparer
 from bravo_cutover.remote import Unconfirmed
 from bravo_cutover.remote.db import DbControl, WriteRefusal, app_write, try_app_write
 from bravo_cutover.remote.kube import Kube, WriteBlock
@@ -66,7 +67,7 @@ class Side:
 
     def __post_init__(self):
         s = self.site
-        self.db = DbControl(s.db_control_dsn)
+        self.db = DbControl(s.db_control_dsn, control_functions=s.control_functions)
         self.pool = PgBouncerAdmin(s.pgbouncer_admin_dsn, s.pgbouncer_database)
         self.pool_config = PgBouncerConfig(self.kube, s.namespace, s.pgbouncer_selector, s.pgbouncer_ini)
         self.entry = WriteBlock(self.kube, s.namespace, s.app_selector)
@@ -96,7 +97,7 @@ class Cutover:
                  kube: Callable[[str], Kube] = Kube, hooks: dict[str, Callable[["Run"], None]] | None = None,
                  clock: Callable[[], float] = time.monotonic):
         self._store, self._config, self._settings = store, config, config.settings
-        self._comparer = comparer or RowCountComparer()
+        self._comparer = comparer or (RowCountComparer() if config.settings.allow_unverified_compare else IntegrityComparer())
         self._kube_factory, self._kubes = kube, {}
         # 장애 주입 지점(시험 · T25용). 함수는 Run을 받는다: "before:<단계>", "commit:forward_disabled",
         # "commit:subscriptions_changed", "reconnect:target_opened", "release:<환경>", "persist:read:<환경>"
@@ -436,6 +437,9 @@ class Cutover:
             "sequences": sequences,
             "verdict": result["verdict"],
         }
+        self._guard(run)
+        if not self._store.record_receipt(run.execution_id, run.receipt):
+            raise OwnershipLost(str(run.execution_id))
         if result["verdict"] == "MISMATCH":
             raise StepFailed("integrity comparison: MISMATCH")
         if result["verdict"] == "UNVERIFIED" and not self._settings.allow_unverified_compare:
@@ -470,6 +474,7 @@ class Cutover:
             if side.pool.state().paused:
                 raise Unconfirmed(f"{side.site.environment_id} pgbouncer still paused")
             self._same_pool(run, side)  # 설정을 바꾼 파드와 RELOAD · RESUME을 받은 프로세스가 같은지
+        run.receipt["websocket_closed"] = self._act(run, run.src.entry.close_websockets)
 
     # 8. 해제와 마지막 ACK ---------------------------------------------------------
     def _release(self, run: Run) -> None:
@@ -497,6 +502,7 @@ class Cutover:
         올려 SAFE_HOLD가 되고 lease는 유지된다(재생성된 PgBouncer가 출발지 설정으로 뜨는 상태를 DONE으로 두지 않는다)."""
         dst = run.dst.site
         for side in (run.src, run.dst):
+            self._same_pool(run, side)
             s = side.site
             current, version = side.kube.read_configmap_versioned(
                 s.namespace, s.pgbouncer_configmap, s.pgbouncer_configmap_key)
@@ -510,6 +516,13 @@ class Cutover:
                           s.pgbouncer_configmap_key, wanted, version)
             if side.kube.read_configmap(s.namespace, s.pgbouncer_configmap, s.pgbouncer_configmap_key) != wanted:
                 raise Unconfirmed(f"{s.environment_id} pgbouncer configmap does not point to target")
+        # A replacement may have copied the old ConfigMap after the last ACK.
+        # A successful patch does not update that replacement's emptyDir.
+        for side in (run.src, run.dst):
+            self._same_pool(run, side)
+            state = side.pool.state()
+            if state.host != dst.db_host or state.paused:
+                raise Unconfirmed(f"{side.site.environment_id} runtime pooler is not serving the target")
 
     def _result(self, run: Run) -> dict[str, Any]:
         last = max(run.acks.values())

@@ -170,6 +170,10 @@ class FakeEntry:
     def running(self):
         return ["app-0"]
 
+    def close_websockets(self):
+        self.w.did(f"{self.ns}.ws:1012")
+        return {"app-0": 1}
+
 
 class FakeKube:
     def __init__(self, w: World, ns: str):
@@ -271,7 +275,13 @@ def test_takeover_after_any_change_sends_no_more_changes(store, postgres_dsn, wo
 
     execution_id = start(store)
     newer = Store(postgres_dsn)
-    world.after[point] = lambda: newer.claim(execution_id, takeover=True)
+    before_takeover = []
+
+    def takeover():
+        before_takeover.append(store.get(execution_id).result)
+        newer.claim(execution_id, takeover=True)
+
+    world.after[point] = takeover
     try:
         FakeCutover(store, world).run(execution_id)
         after = world.calls[world.calls.index(point) + 1:]
@@ -281,7 +291,7 @@ def test_takeover_after_any_change_sends_no_more_changes(store, postgres_dsn, wo
                      "src.entry:False": {"dst.entry:False", "src.probe", "dst.probe"}}.get(point, set())
         assert set(after) <= in_flight, after
         assert store.get(execution_id).status == Status.RUNNING
-        assert store.get(execution_id).result is None
+        assert store.get(execution_id).result == before_takeover[0]
     finally:
         newer.close()
 
@@ -338,3 +348,45 @@ def test_pgbouncer_pod_changed_during_execution_is_unknown(store, world, when, c
     else:
         assert execution.status == Status.SAFE_HOLD
     assert not (world.login["src"] and world.login["dst"])
+
+
+@pytest.mark.parametrize("point", ["before:persist", "persist:read:env-aws"])
+def test_recreated_pooler_during_persistence_keeps_lease(store, world, point):
+    def replacement(_run):
+        assert world.configmap["src"][0] == INI.format(host="src-db")
+        world.pod["src"]["uid"] = "replacement-uid"
+        world.ini_host["src"] = "src-db"
+        world.paused["src"] = False
+
+    execution_id = start(store)
+    FakeCutover(store, world, hooks={point: replacement}).run(execution_id)
+    assert store.get(execution_id).status == Status.SAFE_HOLD
+    from bravo_cutover.store import LeaseHeld
+
+    with pytest.raises(LeaseHeld):
+        start(store)
+
+
+def test_comparison_receipt_is_durable_before_target_opens_and_survives_hold(store, world):
+    execution_id = start(store)
+
+    def before_open(run):
+        stored = store.get(execution_id)
+        assert stored.result["receipt"]["barrier_id"] == run.receipt["barrier_id"]
+        assert world.login["dst"] is False
+        raise Unconfirmed("test interruption after commit, before target LOGIN")
+
+    FakeCutover(store, world, hooks={"before:reconnect": before_open}).run(execution_id)
+    stored = store.get(execution_id)
+    assert stored.status == Status.SAFE_HOLD
+    assert stored.result["receipt"]["tables"]
+    assert stored.result["outcome"] == Status.SAFE_HOLD
+
+
+def test_source_websockets_close_before_entry_release(store, world):
+    execution_id = start(store)
+    FakeCutover(store, world).run(execution_id)
+    assert store.get(execution_id).status == Status.DONE
+    assert world.calls.index("src.ws:1012") < world.calls.index("src.entry:False")
+    assert "dst.ws:1012" not in world.calls
+    assert store.get(execution_id).result["receipt"]["websocket_closed"] == {"app-0": 1}

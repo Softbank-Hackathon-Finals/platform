@@ -6,11 +6,13 @@
 """
 
 import os
+import secrets
 from typing import Annotated, Protocol
 from uuid import UUID
 
 from fastapi import FastAPI, Header, HTTPException, Query
 from fastapi.responses import JSONResponse
+from starlette.requests import Request
 
 from bravo_cutover.contract import CutoverRequest
 from bravo_cutover.store import Rejected, Store
@@ -21,24 +23,39 @@ class Runner(Protocol):
 
 
 class NoRunner:
-    """실행기 없이 기록만 남긴다(EXECUTOR_CONFIG가 없을 때)."""
+    """읽기 전용 앱. 실제 실행기와 등록 DB 쌍이 없으면 POST는 거부한다."""
 
     def submit(self, execution_id: UUID) -> None:
         return None
 
 
-def create_app(store: Store | None = None, runner: Runner | None = None) -> FastAPI:
+def create_app(store: Store | None = None, runner: Runner | None = None, *,
+               bindings: dict[str, str] | None = None, api_token: str | None = None,
+               migrate: bool = False) -> FastAPI:
     """EXECUTOR_DB(실행 기록 DB), EXECUTOR_CONFIG(환경 설정 파일)로 실제 실행기를 만든다."""
     if store is None:
         store = Store(os.environ["EXECUTOR_DB"])
-        store.migrate()
+        if migrate:
+            store.migrate()
     if runner is None and os.environ.get("EXECUTOR_CONFIG"):
         from bravo_cutover.runner import Cutover, ThreadRunner
         from bravo_cutover.sites import load_config
 
-        runner = ThreadRunner(Cutover(store, load_config(os.environ["EXECUTOR_CONFIG"])), store)
+        config = load_config(os.environ["EXECUTOR_CONFIG"])
+        bindings = config.request_bindings()
+        runner = ThreadRunner(Cutover(store, config), store)
+    if bindings is not None and (len(bindings) != 2 or len(set(bindings.values())) != 2 or not all(bindings.values())):
+        raise ValueError("exactly one fixed database pair is required")
     runner = runner or NoRunner()
     app = FastAPI(title="cutover-executor")
+
+    @app.middleware("http")
+    async def authenticate(request: Request, call_next):
+        if api_token is not None and request.url.path.startswith("/v1/"):
+            provided = request.headers.get("authorization", "")
+            if not secrets.compare_digest(provided.encode(), ("Bearer " + api_token).encode()):
+                return JSONResponse({"detail": {"code": "unauthorized"}}, status_code=401)
+        return await call_next(request)
 
     @app.get("/healthz")
     async def healthz():
@@ -51,6 +68,12 @@ def create_app(store: Store | None = None, runner: Runner | None = None) -> Fast
     ):
         if not idempotency_key:
             raise HTTPException(400, {"code": "idempotency_key_required"})
+        if bindings is None or isinstance(runner, NoRunner):
+            raise HTTPException(503, {"code": "executor_not_configured"})
+        endpoints = (request.source, request.target)
+        if (set(e.environment_id for e in endpoints) != set(bindings)
+                or any(bindings.get(e.environment_id) != e.connection_ref for e in endpoints)):
+            raise HTTPException(422, {"code": "unregistered_database_pair"})
         try:
             execution, created = store.create(idempotency_key, request)
         except Rejected as e:

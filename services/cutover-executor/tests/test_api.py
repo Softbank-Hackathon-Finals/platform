@@ -10,6 +10,8 @@ from fastapi.testclient import TestClient
 from bravo_cutover.api import create_app
 from bravo_cutover.contract import Status
 
+BINDINGS = {"env-aws": "secret/source", "env-onprem": "secret/target"}
+
 
 class CountingRunner:
     """원격 조작의 대역. 불린 횟수로 "원격 효과 없이 거부"를 확인한다."""
@@ -40,7 +42,7 @@ def runner():
 
 @pytest.fixture
 def client(store, runner):
-    return TestClient(create_app(store, runner))
+    return TestClient(create_app(store, runner, bindings=BINDINGS))
 
 
 def post(client, key, request):
@@ -130,7 +132,7 @@ def test_lost_response_can_be_recovered_by_reading_state(client):
 def test_state_survives_new_process(store, postgres_dsn):
     from bravo_cutover.store import Store
 
-    created = post(TestClient(create_app(store, CountingRunner())), "k1", body()).json()
+    created = post(TestClient(create_app(store, CountingRunner(), bindings=BINDINGS)), "k1", body()).json()
     other = Store(postgres_dsn)
     try:
         assert other.get(created["execution_id"]).status == Status.PENDING
@@ -227,7 +229,7 @@ def test_ownership_moves_on_takeover_and_on_lost_lock(postgres_dsn, store):
 
     from bravo_cutover.store import Store
 
-    execution_id = post(TestClient(create_app(store, CountingRunner())), "k1", body()).json()["execution_id"]
+    execution_id = post(TestClient(create_app(store, CountingRunner(), bindings=BINDINGS)), "k1", body()).json()["execution_id"]
     assert store.claim(execution_id) and store.owns(execution_id)
     other = Store(postgres_dsn)
     try:
@@ -244,3 +246,38 @@ def test_ownership_moves_on_takeover_and_on_lost_lock(postgres_dsn, store):
         conn.execute("SELECT pg_terminate_backend(%s)", (pid,))
     time.sleep(0.2)
     assert not store.owns(execution_id)
+
+
+@pytest.mark.parametrize("change", [
+    {"source": {"environment_id": "alias", "connection_ref": "secret/source"}},
+    {"target": {"environment_id": "third", "connection_ref": "secret/target"}},
+    {"source": {"environment_id": "env-aws", "connection_ref": "secret/target"}},
+    {"target": {"environment_id": "env-aws", "connection_ref": "secret/source"}},
+])
+def test_only_registered_database_pair_can_acquire_lease(client, store, runner, change):
+    response = post(client, "bad-pair", body(**change))
+    assert response.status_code == 422
+    assert runner.submitted == []
+    assert store.find("plan-demo", 1) == []
+    assert post(client, "good-pair", body()).status_code == 202
+
+
+def test_read_only_app_rejects_post_without_creating_execution(store, monkeypatch):
+    monkeypatch.delenv("EXECUTOR_CONFIG", raising=False)
+    client = TestClient(create_app(store))
+    response = post(client, "not-configured", body())
+    assert response.status_code == 503
+    assert response.json()["detail"]["code"] == "executor_not_configured"
+    assert store.find("plan-demo", 1) == []
+
+
+def test_authentication_guards_reads_and_writes(store, runner):
+    client = TestClient(create_app(store, runner, bindings=BINDINGS, api_token="local-test-only"))
+    assert client.get("/healthz").status_code == 200
+    for headers in ({}, {"Authorization": "Bearer wrong"}):
+        assert client.get("/v1/cutovers?plan_id=plan-demo&epoch=1", headers=headers).status_code == 401
+        assert client.post("/v1/cutovers", json=body(), headers=headers).status_code == 401
+    assert runner.submitted == []
+    headers = {"Authorization": "Bearer local-test-only", "Idempotency-Key": "authorized"}
+    assert client.post("/v1/cutovers", json=body(), headers=headers).status_code == 202
+    assert client.get("/v1/cutovers?plan_id=plan-demo&epoch=1", headers=headers).status_code == 200

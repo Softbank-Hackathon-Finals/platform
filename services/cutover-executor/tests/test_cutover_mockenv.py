@@ -121,7 +121,8 @@ def test_api_runs_cutover_in_background_and_reports_state(store, config, sides):
     from bravo_cutover.api import create_app
     from bravo_cutover.runner import ThreadRunner
 
-    client = TestClient(create_app(store, ThreadRunner(Cutover(store, config))))
+    client = TestClient(create_app(store, ThreadRunner(Cutover(store, config)),
+                                   bindings={"env-aws": "mock/src", "env-onprem": "mock/dst"}))
     request = {
         "plan_id": "plan-api", "epoch": int(time.time() * 1000),
         "source": {"environment_id": "env-aws", "connection_ref": "mock/src"},
