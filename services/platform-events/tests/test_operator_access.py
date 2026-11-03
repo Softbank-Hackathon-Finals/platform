@@ -39,7 +39,7 @@ class Identity:
 
     def token(self, *, subject="human-1", remove=None, header=None, **claims):
         value = dict(iss=ISSUER, sub=subject, aud="bravo-platform", iat=EPOCH,
-            nbf=EPOCH, exp=EPOCH + 300, auth_time=EPOCH - 1, jti="fixture-session",
+            nbf=EPOCH, exp=EPOCH + 300, auth_time=EPOCH, jti="fixture-session",
             client_id="console", acr="interactive-mfa") | claims
         if remove:
             value.pop(remove)
@@ -297,11 +297,14 @@ def test_http_real_signatures_and_current_access_protect_snapshot_sse_and_mutati
                                      ("Authorization", headers["Authorization"])]).status_code == 403
 
 
-def test_grant_cutoff_rejects_tokens_issued_before_reauthentication(secured):
+def test_grant_cutoff_requires_new_authentication_not_only_token_refresh(secured):
     f = secured
     f.access.set_permissions(SPEC.plan_id, f.operator, permissions=["read", "approve_cutover"],
         valid_after=f.now, expires_at=EXPIRES, expected_revision=0,
         administration_ref="fixture-force-reauth", command_key="reauth")
+    with pytest.raises(EventError, match="forbidden"):
+        f.approve()
+    f.operator = f.identity.verifier.verify(f.identity.token(iat=EPOCH + 1, nbf=EPOCH + 1))
     with pytest.raises(EventError, match="forbidden"):
         f.approve()
     f.operator = f.identity.verifier.verify(f.identity.token(iat=EPOCH + 1, nbf=EPOCH + 1,

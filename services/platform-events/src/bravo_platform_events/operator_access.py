@@ -101,14 +101,14 @@ class OperatorAccess:
         if (not isinstance(principal, OperatorPrincipal) or principal.tenant_id != plan["tenant_id"]
                 or not principal.issued_at <= now < principal.expires_at):
             raise EventError("forbidden")
-        return self._require_subject(c, plan, principal.subject_id, permission, now, principal.issued_at)
+        return self._require_subject(c, plan, principal.subject_id, permission, now, principal.authenticated_at)
 
-    def _require_subject(self, c, plan, subject_id, permission, now, issued_at=None):
+    def _require_subject(self, c, plan, subject_id, permission, now, authenticated_at=None):
         grant = self._grant(c, plan["plan_id"], subject_id)
         if (grant is None or grant["tenant_id"] != plan["tenant_id"]
                 or permission not in grant["permissions"]
                 or not _timestamp(grant["valid_after"]).timestamp() <= now < _timestamp(grant["expires_at"]).timestamp()
-                or (issued_at is not None and issued_at < _timestamp(grant["valid_after"]).timestamp())):
+                or (authenticated_at is not None and authenticated_at < _timestamp(grant["valid_after"]).timestamp())):
             raise EventError("forbidden")
         return grant
 

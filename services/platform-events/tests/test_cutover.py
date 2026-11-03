@@ -291,3 +291,16 @@ def test_remote_safe_hold_does_not_complete_plan(fixture):
     f.value.update(status="SAFE_HOLD", committed=True)
     assert f.submit(f.approve())["snapshot"]["remote_status"] == "SAFE_HOLD"
     assert f.backend.store.snapshot(SPEC.plan_id)["state"] == "SAFE_HOLD"
+
+
+def test_binding_expiring_during_authority_lookup_is_rejected(fixture):
+    f = fixture
+    authority = f.authority
+    def advance_clock(*args, **kwargs):
+        result = authority(*args, **kwargs)
+        f.now = EXPIRES
+        return result
+    f.authority = advance_clock
+    with pytest.raises(EventError, match="approval_expired"):
+        f.approve()
+    assert not f.requests

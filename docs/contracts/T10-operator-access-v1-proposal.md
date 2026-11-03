@@ -57,7 +57,7 @@ SSE를 포함해 Bearer를 보낼 수 있는 같은 출처의 클라이언트가
 | `set_permissions` | trusted host가 실제 관리 결정을 인증한 뒤 호출. plan/tenant/subject, 권한, 유효 구간, 기대 revision, 관리 감사 참조를 저장 |
 | 권한 | `read`, `approve_cutover`, `execute_cutover`를 구분. 쓰기 권한은 `read`를 함께 요구 |
 | 권한 회수 | 빈 권한 집합을 다음 revision으로 기록. 회수 후 재부여도 새로운 revision |
-| 재인증 요구 | `valid_after`보다 먼저 발급된 토큰 거부 |
+| 재인증 요구 | `auth_time`이 `valid_after`보다 이른 토큰 거부. refresh로 iat만 바꿔도 거부 |
 | `revoke_approval` | 아직 소비하지 않은 승인 ID의 취소를 영속화. 이미 접수된 원격 실행을 취소했다고 반환하지 않음 |
 | 조회/SSE | 현재 계획의 read 권한과 유효 토큰 재검사. 다른 계획/tenant로 권한 전파 없음 |
 | 승인 접수 | 동일 plan lock 안에서 실제 신원, 승인 권한, upstream authority 확인 |

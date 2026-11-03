@@ -1,7 +1,7 @@
 {
   "status": "PASS",
   "pytest_exit_code": 0,
-  "tests_passed": 176,
+  "tests_passed": 177,
   "python_version": "3.12.3",
   "nonroot_verified": true,
   "scope": "existing EC2; isolated non-root process; generated IdP keys; synthetic gate/SHIFT authority; temporary SQLite; real loopback HTTP/TLS fixtures",
@@ -12,8 +12,8 @@
   "temporary_directory_removed": true,
   "ssm_status": "Success",
   "ssm_response_code": 0,
-  "observed_start": "2026-11-03T15:12:49.568Z",
-  "observed_end": "2026-11-03T15:13:08.568Z",
+  "observed_start": "2026-11-03T15:19:24.320Z",
+  "observed_end": "2026-11-03T15:19:43.320Z",
   "account_boundary_matches": true,
   "target_owner_boundary_matches": true,
   "source_files": [
@@ -31,7 +31,7 @@
     },
     {
       "path": "src/bravo_platform_events/cutover.py",
-      "sha256": "69855434ecc5f5b2648cee96ea96ff65bb41e4fff0bd7beb8b0e8079e1bfd8bf"
+      "sha256": "116f2e518d627e0bc50c25d91960983af9655c792a483424c79520508361ccf1"
     },
     {
       "path": "src/bravo_platform_events/cutover_api.py",
@@ -43,7 +43,7 @@
     },
     {
       "path": "src/bravo_platform_events/operator_access.py",
-      "sha256": "d15519122a4bdedbeab05615328eb562d9508b46ea7442d036f0d916a6933cac"
+      "sha256": "1aa4a2dae4b2ef45669f15584a624b55242efff71e8615850798107fd378defa"
     },
     {
       "path": "src/bravo_platform_events/operator_identity.py",
@@ -83,7 +83,7 @@
     },
     {
       "path": "tests/test_cutover.py",
-      "sha256": "d4c43bf81ded92b2e3b6945838a12bf6955cbe7d298270ebe730a0f0ed398feb"
+      "sha256": "53a0ba4c6b55d41460485adee3ee624910008187a863a19890b41399f157ea7b"
     },
     {
       "path": "tests/test_cutover_transport.py",
@@ -95,7 +95,7 @@
     },
     {
       "path": "tests/test_operator_access.py",
-      "sha256": "b0e45284881f7de1632750a8c79d1606401aca2afd373362a49f749cb3297095"
+      "sha256": "6e61408f3ea0057bf2fdc54486fb9705b3916a2fbb06dd404afb833377003d8c"
     }
   ]
 }

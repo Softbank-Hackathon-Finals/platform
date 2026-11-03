@@ -126,7 +126,8 @@ class CutoverService:
                             plan_id=plan["plan_id"], run_id="validation", occurred_at=now,
                             event_type="approval.requested", data=dict(
                                 approval_id="validation", approval_kind="cutover", binding=binding)))
-        if _timestamp(binding["expires_at"]) <= _timestamp(now):
+        checked_at = self.clock()
+        if _timestamp(binding["expires_at"]) <= _timestamp(checked_at):
             raise EventError("approval_expired")
         if set(command) != {"plan_id", "epoch", "source", "target", "write_pause_budget_ms", "deadline"}:
             raise EventError("invalid_command")
@@ -134,7 +135,7 @@ class CutoverService:
                 or not 1 <= command["epoch"] <= 2**63 - 1
                 or type(command["write_pause_budget_ms"]) is not int
                 or not 0 < command["write_pause_budget_ms"] <= 600_000
-                or not _timestamp(now) < _timestamp(command["deadline"]) <= _timestamp(binding["expires_at"])):
+                or not _timestamp(checked_at) < _timestamp(command["deadline"]) <= _timestamp(binding["expires_at"])):
             raise EventError("invalid_command")
         for side in ("source", "target"):
             endpoint = command[side]
