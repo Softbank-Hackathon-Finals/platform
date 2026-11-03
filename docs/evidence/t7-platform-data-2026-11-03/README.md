@@ -34,6 +34,8 @@ DB 검사는 verify-full TLS/SCRAM으로 실제 제한 runtime 로그인에 접�
 
 [exec 권한 질의 정정](exec-authorization-correction.json): 기존 `auth can-i create pods/exec`는 `exec`라는 이름의 Pod를 질의할 수 있어 실제 exec 하위자원 거부 근거가 아니었다. 원본의 두 `*_denied_exec` 판정은 UNKNOWN이며 JSON 바이트를 보존했다. 수정 검증기는 현재 Pod 이름마다 `--subresource=exec`로 GET/CREATE를 각각 질의한다. 이후 #114의 opt-in Role이 허용한 실행 권한은 baseline 실패로 드러나야 하며, 이를 없애려고 정상 cutover 권한을 변경하지 않는다. 당시 기본 역할 시험과 현재 opt-in 역할 시험을 합치지 않는다.
 
+권한 조회 실측의 `source_sha256`은 `72c6089`의 검증 파일에 결속된다. 이후 빈 Pod 목록의 전체 집계를 UNKNOWN으로 맞춘 수정은 로컬 회귀로 검증했으며, 실측에서 호출한 `exec_denial` 함수는 그대로다. 실제 Pod가 있었던 권한 조회 결과를 전체 검증기 실행이나 후속 클라우드 재실행으로 확대하지 않는다.
+
 [수정 질의의 현재 출발지 실측](exec-authorization-readback.json)은 기존 단기 토큰과 SelfSubjectAccessReview만 사용했다. 조회한 Pod 3개는 전후 같았으며 collector GET/CREATE 6개는 모두 DENY, Executor는 의도된 앱/풀러 4개 ALLOW와 DB Pod 2개 DENY였다. 따라서 baseline은 **예상대로 FAIL**이다. 이는 현재 opt-in 권한을 baseline 거부 성공으로 오인하지 않는다는 확인이며, 실제 exec 세션·ConfigMap patch·배포 변경은 수행하지 않았다. 원래 기본 역할이 적용됐던 시점의 exec 거부를 소급 입증하지 않는다.
 
 출발지 역할 시험은 관리자 impersonation 대신 실제 10분 TokenRequest 토큰을 사용했다. collector의 읽기·쓰기 거부, Executor의 정확한 ConfigMap annotation patch, 두 역할의 Secret/다른 namespace/Pod 생성/토큰 발급 거부를 확인했다. exec 거부는 위 질의 결함으로 입증되지 않았다. 최초 판정에서 TokenRequest 오류의 소문자 `forbidden`을 놓쳤으며, 대소문자를 정규화한 검증기로 다시 실행한 결과를 게시했다. 기존 PgBouncer `data`와 annotation은 원래대로 보존됐다. DB 쓰기 차단이나 PAUSE/RELOAD는 실행하지 않았다.

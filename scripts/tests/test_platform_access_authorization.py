@@ -52,24 +52,36 @@ class ExecAuthorizationTests(unittest.TestCase):
         with patch.object(self.access, 'call', side_effect=replies):
             self.assertFalse(self.access.exec_denial({}, 'source-fixture', self.pods[:1])['denied'])
 
-    def test_full_report_retains_unknown_and_fails_on_opt_in_allow(self):
+    def verify_report(self, pods, reply):
         admin = {'contexts': [{'context': {'cluster': 'fixture'}}]}
         cm = json.dumps({'metadata': {'annotations': {}}, 'data': {'mode': 'preserved'}})
         def success(config, *args):
             if args[0:2] == ('create', 'token'):
                 return 'opaque-fixture'
             if args[0:2] == ('get', 'pods'):
-                return json.dumps({'items': self.pods})
+                return json.dumps({'items': pods})
             return cm
+        def call(config, *args):
+            if args[0:2] == ('auth', 'can-i'):
+                return reply
+            return subprocess.CompletedProcess([], 1, '', 'Forbidden')
+        with patch.object(self.access, 'success', success), patch.object(self.access, 'call', call):
+            return self.access.verify(admin, 'source-fixture', 'pooler-fixture')
+
+    def test_empty_workload_remains_unknown_in_full_report(self):
+        result = self.verify_report([], subprocess.CompletedProcess([], 1, 'no', ''))
+        self.assertEqual(result['status'], 'UNKNOWN')
+        for role in ('collector', 'executor'):
+            self.assertIsNone(result['checks'][role + '_can_read_workload'])
+            self.assertIsNone(result['checks'][role + '_denied_exec'])
+            self.assertEqual(result['exec_authorization'][role]['observations'], [])
+
+    def test_full_report_retains_unknown_and_fails_on_opt_in_allow(self):
         for reply, status, denied in [(subprocess.CompletedProcess([], 0, 'yes', ''), 'FAIL', False),
                                       (subprocess.CompletedProcess([], 2, '', ''), 'UNKNOWN', None),
                                       (subprocess.CompletedProcess([], 1, 'no', ''), 'PASS', True)]:
-            def call(config, *args, reply=reply):
-                if args[0:2] == ('auth', 'can-i'):
-                    return reply
-                return subprocess.CompletedProcess([], 1, '', 'Forbidden')
-            with self.subTest(status=status), patch.object(self.access, 'success', success), patch.object(self.access, 'call', call):
-                result = self.access.verify(admin, 'source-fixture', 'pooler-fixture')
+            with self.subTest(status=status):
+                result = self.verify_report(self.pods, reply)
             self.assertEqual(result['status'], status)
             for role in ('collector', 'executor'):
                 self.assertIs(result['checks'][role + '_denied_exec'], denied)

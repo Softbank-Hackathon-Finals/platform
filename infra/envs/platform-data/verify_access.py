@@ -57,7 +57,7 @@ def verify(admin, namespace, configmap):
         config["contexts"] = [{"name": "probe", "context": {"cluster": admin["contexts"][0]["context"]["cluster"], "user": "probe"}}]
         config["current-context"] = "probe"
         result = json.loads(success(config, "get", "pods", "-n", namespace, "-o", "json"))
-        checks[identity + "_can_read_workload"] = bool(result["items"])
+        checks[identity + "_can_read_workload"] = True if result["items"] else None
         denied = {
             "secret_read": ["get", "secrets", "-n", namespace],
             "other_namespace": ["get", "pods", "-n", "kube-system"],
