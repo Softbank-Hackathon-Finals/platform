@@ -1,0 +1,165 @@
+{
+  "read_at": "2026-11-03T06:27:05.004485+00:00",
+  "account_id": "721622471953",
+  "region": "ap-northeast-2",
+  "deployment": "20261103-s2-ci",
+  "instance": [
+    {
+      "id": "i-05c13c836cf78b0a2",
+      "state": "running",
+      "ami": "ami-0e0a5fdc771990a70",
+      "type": "t4g.medium",
+      "arch": "arm64",
+      "launch": "2026-11-03T06:21:40+00:00",
+      "vpc": "vpc-09d98460675583d5e",
+      "subnet": "subnet-0e29297803b471c64",
+      "metadata": {
+        "State": "applied",
+        "HttpTokens": "required",
+        "HttpPutResponseHopLimit": 1,
+        "HttpEndpoint": "enabled",
+        "HttpProtocolIpv6": "disabled",
+        "InstanceMetadataTags": "disabled"
+      },
+      "sgs": [
+        {
+          "GroupId": "sg-0344517133e5cab82",
+          "GroupName": "bravo-ci-20261103-s2-ci"
+        }
+      ],
+      "tags": [
+        {
+          "Key": "managed-by",
+          "Value": "terraform"
+        },
+        {
+          "Key": "project",
+          "Value": "bravo-platform"
+        },
+        {
+          "Key": "component",
+          "Value": "platform"
+        },
+        {
+          "Key": "purpose",
+          "Value": "ci-validation"
+        },
+        {
+          "Key": "Name",
+          "Value": "bravo-ci-20261103-s2-ci"
+        },
+        {
+          "Key": "deployment",
+          "Value": "20261103-s2-ci"
+        },
+        {
+          "Key": "expires_at",
+          "Value": "2026-11-03T07:50:44.812316Z"
+        }
+      ]
+    }
+  ],
+  "security_groups": [
+    {
+      "id": "sg-0344517133e5cab82",
+      "inbound": [],
+      "outbound": [
+        {
+          "IpProtocol": "udp",
+          "FromPort": 53,
+          "ToPort": 53,
+          "UserIdGroupPairs": [],
+          "IpRanges": [
+            {
+              "Description": "VPC resolver only",
+              "CidrIp": "10.92.0.2/32"
+            }
+          ],
+          "Ipv6Ranges": [],
+          "PrefixListIds": []
+        },
+        {
+          "IpProtocol": "tcp",
+          "FromPort": 53,
+          "ToPort": 53,
+          "UserIdGroupPairs": [],
+          "IpRanges": [
+            {
+              "Description": "VPC resolver only",
+              "CidrIp": "10.92.0.2/32"
+            }
+          ],
+          "Ipv6Ranges": [],
+          "PrefixListIds": []
+        },
+        {
+          "IpProtocol": "tcp",
+          "FromPort": 443,
+          "ToPort": 443,
+          "UserIdGroupPairs": [],
+          "IpRanges": [
+            {
+              "Description": "Host package downloads and SSM; sandbox egress is separately denied by NetworkPolicy",
+              "CidrIp": "0.0.0.0/0"
+            }
+          ],
+          "Ipv6Ranges": [],
+          "PrefixListIds": []
+        }
+      ]
+    },
+    {
+      "id": "sg-0cdde91db58a192e9",
+      "inbound": [],
+      "outbound": []
+    }
+  ],
+  "ssm": [
+    {
+      "id": "i-05c13c836cf78b0a2",
+      "ping": "Online",
+      "os": "Ubuntu",
+      "version": "24.04"
+    }
+  ],
+  "credential_policy_simulation": [
+    {
+      "action": "ssm:GetParameter",
+      "decision": "explicitDeny"
+    },
+    {
+      "action": "ssm:GetParameters",
+      "decision": "explicitDeny"
+    },
+    {
+      "action": "secretsmanager:GetSecretValue",
+      "decision": "explicitDeny"
+    },
+    {
+      "action": "kms:Decrypt",
+      "decision": "explicitDeny"
+    },
+    {
+      "action": "ssmmessages:OpenControlChannel",
+      "decision": "allowed"
+    }
+  ],
+  "expiry_timer_utc": "2026-11-03T07:53:13Z",
+  "local_terraform_tests": {
+    "passed": 4,
+    "failed": 0
+  },
+  "t3_command_id": "315ce675-00cb-4059-bd3f-5bbaedb08cfe",
+  "t3_summary": {
+    "results": 21,
+    "exit_code": 0,
+    "started_at": "2026-11-03T06:24:29.356560+00:00",
+    "finished_at": "2026-11-03T06:25:23.979758+00:00"
+  },
+  "not_validated": [
+    "production RKE2 CIS",
+    "T7 platform deployment via Actions OIDC",
+    "actual model invocation",
+    "T10 approval and T31 deployment"
+  ]
+}

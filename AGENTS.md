@@ -32,7 +32,7 @@
 - 장기 액세스 키를 공유하거나 커밋하지 않는다. 사람은 각자 계정, CI는 OIDC로 권한을 받는다.
 - 시크릿 값을 로그 · 파일 · 커밋 · PR 본문에 남기지 않는다. 모델 키는 플랫폼에만 둔다.
 - 모든 클라우드 자원에 `component` 태그를 단다(비용 정산, 데모 후 `terraform destroy`).
-- 검사 예외는 `.gitleaks.toml` · `.trivyignore`에 사유 주석과 함께만 추가한다.
+- 검사 예외는 `.gitleaks.toml` · `.trivyignore.yaml`에 사유와 적용 경로를 명시해서만 추가한다. 임시 예외는 만료일도 둔다.
 
 ## 검증
 
@@ -43,3 +43,5 @@ PR마다 CI(`ci.yml`)가 `secrets` · `infra` · `platform`을 검사한다. CI 
 - Node(`package.json`): `pnpm lint`, `pnpm test`, `pnpm build`
 - Go(`go.mod`): `go vet ./...`, `go test ./...`
 - 워크플로: `actionlint`
+
+CI 실행 범위와 플랫폼 S2 실패 분석의 경계는 [CI 안내](docs/ci.md)를 따른다. 필수 결과는 항상 보고하며, 변경 범위가 불명확하면 전체 검사한다.
