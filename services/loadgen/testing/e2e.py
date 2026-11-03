@@ -344,7 +344,12 @@ class Harness:
         print(f"  {'ok  ' if ok else 'FAIL'} {name} (실제: {actual})", flush=True)
 
     def _env(self) -> dict[str, str]:
-        return {**os.environ, "LOADGEN_DB_DSN": self.stack.app_dsn, "LOADGEN_LOCK_DSN": self.stack.app_dsn}
+        return {
+            **os.environ,
+            "LOADGEN_DB_DSN": self.stack.app_dsn,
+            "LOADGEN_LOCK_DSN": self.stack.app_dsn,
+            "BRAVO_WINDOW_TOKEN": "t18-e2e-window-token",
+        }
 
     def loadgen(
         self,

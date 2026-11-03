@@ -29,6 +29,9 @@ DEFAULT_WINDOW_SECONDS = 10
 WINDOW_POST_TIMEOUT_S = 2
 DB_READ_TIMEOUT_S = 120
 RESULT_FILES = ("journal.jsonl", "windows.jsonl", "run-state.json", "report.json", "report.md")
+WINDOW_TOKEN_ENV = "BRAVO_WINDOW_TOKEN"
+# RFC 6750 b64token. 헤더에 못 넣는 값은 부하 중간에 값이 담긴 오류로 터지므로 시작 전에 막는다.
+BEARER_TOKEN = re.compile(r"[A-Za-z0-9._~+/-]+=*")
 
 MEASUREMENT_PATHS = ("edge", "local-mock-edge", "local-direct")
 
@@ -61,7 +64,7 @@ def _parser() -> argparse.ArgumentParser:
     run.add_argument("--window-seconds", type=int, default=DEFAULT_WINDOW_SECONDS)
     run.add_argument("--attempt-timeout", type=float, default=15)
     run.add_argument("--retry-budget", type=float, default=60)
-    run.add_argument("--window-url", help="창 요약을 POST할 플랫폼 주소")
+    run.add_argument("--window-url", help=f"창 요약을 POST할 플랫폼 주소. 토큰은 환경변수 {WINDOW_TOKEN_ENV}")
     run.add_argument("--db-dsn-env", help="대조용 DB 연결 문자열이 든 환경변수 이름")
     run.add_argument("--lock-dsn-env", help="잠금 측정용 DB 연결 문자열이 든 환경변수 이름")
     run.add_argument("--lock-baseline", type=float, default=3, help="부하 전 잠금 기준 측정(초)")
@@ -101,6 +104,29 @@ def _dsn(variable: str | None) -> str | None:
     return value
 
 
+def _window_token() -> str:
+    """토큰은 비밀이라 명령줄 인자로 받지 않는다. 인자는 프로세스 목록에 보인다."""
+    value = os.environ.get(WINDOW_TOKEN_ENV)
+    if not value:
+        raise LookupError(f"--window-url을 쓰려면 환경변수 {WINDOW_TOKEN_ENV}가 필요하다")
+    if not BEARER_TOKEN.fullmatch(value):
+        raise LookupError(f"환경변수 {WINDOW_TOKEN_ENV}의 토큰 형식이 잘못됐다")
+    return value
+
+
+def _url_problem(option: str, value: str) -> str | None:
+    """받은 값은 되풀이하지 않는다. 자격 증명이 섞여 있을 수 있다."""
+    try:
+        url = httpx.URL(value)
+    except httpx.InvalidURL:
+        return f"{option}이 올바른 주소가 아니다"
+    if url.userinfo:
+        return f"{option}에 자격 증명을 넣지 않는다"
+    if url.scheme not in ("http", "https") or not url.host:
+        return f"{option}은 http(s)://주소 형식이어야 한다"
+    return None
+
+
 def open_files_needed(
     *, write_rps: float, read_rps: float, retry_budget_s: float, attempt_timeout_s: float
 ) -> int:
@@ -122,21 +148,16 @@ def _cmd_run(args: argparse.Namespace) -> int:
     try:
         db_dsn = _dsn(args.db_dsn_env)
         lock_dsn = _dsn(args.lock_dsn_env)
+        window_token = _window_token() if args.window_url else None
     except LookupError as error:
         return _fail(str(error))
-    try:
-        base_url = httpx.URL(args.base_url)
-    except httpx.InvalidURL:
-        return _fail("--base-url이 올바른 주소가 아니다")
-    if base_url.userinfo:
-        return _fail("--base-url에 자격 증명을 넣지 않는다")
-    if base_url.scheme not in ("http", "https") or not base_url.host:
-        return _fail("--base-url은 http(s)://주소 형식이어야 한다")
+    if problem := _url_problem("--base-url", args.base_url):
+        return _fail(problem)
+    if args.window_url and (problem := _url_problem("--window-url", args.window_url)):
+        return _fail(problem)
     if any((args.out / name).exists() for name in RESULT_FILES):
         # 새 실행이 죽으면 이전 판정이 그대로 남아 잘못 읽힌다.
         return _fail(f"{args.out}에 이미 결과가 있다. 새 폴더를 쓴다")
-    if args.window_url and httpx.URL(args.window_url).scheme not in ("http", "https"):
-        return _fail("--window-url이 올바른 주소가 아니다")
     if args.source_env == args.target_env:
         return _fail("--source-env와 --target-env가 같다")
     run_id = args.run_id or f"t18-{datetime.now(UTC):%Y%m%dt%H%M%Sz}"
@@ -164,12 +185,14 @@ def _cmd_run(args: argparse.Namespace) -> int:
         return _fail(str(error))
 
     args.out.mkdir(parents=True, exist_ok=True)
-    state = asyncio.run(_run_load(config, args, lock_dsn))
+    state = asyncio.run(_run_load(config, args, lock_dsn, window_token))
     (args.out / "run-state.json").write_text(json.dumps(state, ensure_ascii=False, indent=2) + "\n")
     return _write_report(args.out, db_dsn, read_journal(args.out / "journal.jsonl"))
 
 
-async def _run_load(config: LoadConfig, args: argparse.Namespace, lock_dsn: str | None) -> dict:
+async def _run_load(
+    config: LoadConfig, args: argparse.Namespace, lock_dsn: str | None, window_token: str | None
+) -> dict:
     limits = httpx.Limits(max_connections=None, max_keepalive_connections=256)
     probe = LockProbe(lock_dsn) if lock_dsn else None
     if probe:
@@ -194,7 +217,12 @@ async def _run_load(config: LoadConfig, args: argparse.Namespace, lock_dsn: str 
                 windows_file.write(json.dumps(window, ensure_ascii=False) + "\n")
                 windows_file.flush()
                 if args.window_url:
-                    (await poster.post(args.window_url, json=window)).raise_for_status()
+                    response = await poster.post(
+                        args.window_url,
+                        json=window,
+                        headers={"Authorization": f"Bearer {window_token}"},
+                    )
+                    response.raise_for_status()
 
             result = await LoadRunner(config, client, journal, window_sink=sink).run()
 

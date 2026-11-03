@@ -14,6 +14,7 @@
 uv sync
 export LOADGEN_DB_DSN=...    # 대조용. messages SELECT 권한이면 된다. 읽기 전용 트랜잭션만 연다
 export LOADGEN_LOCK_DSN=...  # 잠금 측정용. PgBouncer 뒤가 아니라 DB에 직접 붙는다
+export BRAVO_WINDOW_TOKEN=...  # 창 전송 인증. --window-url을 쓸 때 필요하다
 uv run bravo-loadgen run \
   --base-url https://<Edge 주소> --measurement-path edge \
   --plan-id plan-demo --source-env aws --target-env onprem \
@@ -22,7 +23,7 @@ uv run bravo-loadgen run \
   --window-url https://<플랫폼 수신 주소>
 ```
 
-연결 문자열은 비밀이라 환경변수 이름만 받는다. 값은 파일 · 로그에 남기지 않는다. `--base-url`에 자격 증명을 넣으면 거부한다. 이미 결과가 있는 `--out` 폴더도 거부한다. 새 실행이 죽었을 때 이전 판정이 남아 잘못 읽히지 않게 하기 위해서다.
+연결 문자열과 창 전송 토큰은 비밀이라 환경변수로만 받는다. 값은 파일 · 로그에 남기지 않는다. `--base-url` · `--window-url`에 자격 증명을 넣으면 거부한다. 이미 결과가 있는 `--out` 폴더도 거부한다. 새 실행이 죽었을 때 이전 판정이 남아 잘못 읽히지 않게 하기 위해서다.
 
 | 종료 코드 | 뜻 |
 |---|---|
@@ -87,6 +88,15 @@ uv run bravo-loadgen run \
 필요한 사양의 근거는 [증거 폴더](../../docs/evidence/t18-load-generator-2026-11-04/README.md)의 CPU · 메모리 측정값이다. 대조와 잠금 측정은 DB에 닿아야 하므로, 이 EC2에서 DB로 가는 읽기 경로와 계정은 EC2를 만들 때 함께 정한다. 부하만 먼저 돌리고 `reconcile`은 DB에 닿는 곳에서 따로 돌려도 된다.
 
 **창은 플랫폼 수신 경로로 POST한다.** `--window-url`은 창 JSON을 그대로 보내고 2초 안에 2xx를 못 받으면 전달 실패로 센다. Tailscale ACL은 부하 생성기 태그만 허용한다([계약 6절](../../docs/observability/README.md)). 수신 주소는 아직 없다(T10 · T17). 정해질 때까지는 `windows.jsonl`이 기준이다.
+
+**창 전송은 `Authorization: Bearer <토큰>`으로 인증한다.** 계약 3절의 "창 수신 경로는 부하 생성기 주체만 쓸 수 있다"를 지키기 위해서다. 토큰은 받는 쪽(플랫폼 창 수신 경로)에서 정한다. 여기서 만들지 않는다.
+
+- 토큰은 `BRAVO_WINDOW_TOKEN`에서만 읽는다. 명령줄 인자는 프로세스 목록에 보이기 때문이다.
+- `--window-url`을 줬는데 토큰이 없거나 헤더에 넣을 수 없는 값(RFC 6750 `b64token` 밖)이면, 부하를 보내기 전에 종료 코드 2로 멈춘다.
+- **`127.0.0.1`도 예외로 두지 않는다.** 코드 경로를 하나로 두어 로컬 시험이 실제 전송을 그대로 재게 하고, 포트 포워딩이면 로컬 주소의 끝이 실제 수신 경로일 수 있어서다. 로컬 시험은 아무 값이나 넣으면 된다.
+- 토큰은 창 전송에만 붙는다. 부하 대상에는 보내지 않고, 수신 경로의 리다이렉트는 따라가지 않고 전달 실패로 센다.
+- 토큰이 틀려 거부되면 다른 전달 실패와 같다. 부하는 끝까지 가고 `WINDOW_DELIVERY_FAILED`가 뜨며, 받는 쪽에는 창이 없으니 판정은 UNKNOWN으로 멈춘다.
+- 평문 `http://`는 막지 않는다. Tailscale 안의 경로는 Tailscale이 암호화한다. 그 밖의 경로로 보낼 때는 `https://`를 쓴다.
 
 ## 검사
 

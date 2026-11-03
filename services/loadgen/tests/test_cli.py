@@ -1,6 +1,7 @@
 """명령줄: 실제 소켓으로 끝까지 돌려 산출물과 종료 코드를 본다. DB가 필요한 시험은 test_db.py."""
 
 import json
+import logging
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -12,6 +13,7 @@ from bravo_loadgen.cli import DEFAULT_WINDOW_SECONDS, main, open_files_needed
 PROFILE = json.loads(
     (Path(__file__).resolve().parents[3] / "docs/observability/threshold-profiles.json").read_text()
 )["profiles"][0]
+WINDOW_TOKEN = "t18-test-window-token"
 
 
 class _Handler(BaseHTTPRequestHandler):
@@ -32,15 +34,29 @@ class _Handler(BaseHTTPRequestHandler):
         self.wfile.write(payload)
 
     def do_GET(self):
+        self.server.load_auth.append(self.headers.get("Authorization"))
         self._send(200, [])
 
     def do_POST(self):
         body = self.rfile.read(int(self.headers["Content-Length"]))
         if self.path == "/windows":
+            self.server.window_auth.append(self.headers.get("Authorization"))
             self.server.windows.append(json.loads(body))
+            return self._send(202, {})
+        if self.path == "/denied":
+            return self._send(401, {})
+        if self.path == "/moved":
+            self.send_response(307)
+            self.send_header("Location", "/followed")
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+            return None
+        if self.path == "/followed":
+            self.server.followed.append(self.headers.get("Authorization"))
             return self._send(202, {})
         if self.path != "/api/messages":
             return self._send(404, {})
+        self.server.load_auth.append(self.headers.get("Authorization"))
         self.server.count += 1
         self._send(201, {"id": self.server.count})
 
@@ -50,11 +66,20 @@ def server():
     httpd = ThreadingHTTPServer(("127.0.0.1", 0), _Handler)
     httpd.count = 0
     httpd.windows = []
+    httpd.window_auth = []
+    httpd.load_auth = []
+    httpd.followed = []
     thread = threading.Thread(target=httpd.serve_forever, daemon=True)
     thread.start()
     httpd.url = f"http://127.0.0.1:{httpd.server_address[1]}"
     yield httpd
     httpd.shutdown()
+
+
+@pytest.fixture
+def window_token(monkeypatch):
+    monkeypatch.setenv("BRAVO_WINDOW_TOKEN", WINDOW_TOKEN)
+    return WINDOW_TOKEN
 
 
 def args(server, out, *extra):
@@ -71,8 +96,9 @@ def test_window_seconds_default_matches_threshold_profile():
     assert DEFAULT_WINDOW_SECONDS == PROFILE["window_seconds"]
 
 
-def test_invalid_window_url_stops_before_sending_load(server, tmp_path, capsys):
-    assert main(args(server, tmp_path, "--window-url", "not a url")) == 2
+@pytest.mark.parametrize("url", ["not a url", "http://", "http://host:notaport/"])
+def test_invalid_window_url_stops_before_sending_load(server, tmp_path, capsys, window_token, url):
+    assert main(args(server, tmp_path, "--window-url", url)) == 2
     assert "--window-url" in capsys.readouterr().err
     assert not (tmp_path / "journal.jsonl").exists()
 
@@ -218,7 +244,7 @@ def test_check_windows_on_an_empty_file_is_not_a_pass(tmp_path):
     assert main(["check-windows", str(path)]) == 2
 
 
-def test_window_url_receives_the_same_windows_as_the_file(server, tmp_path):
+def test_window_url_receives_the_same_windows_as_the_file(server, tmp_path, window_token):
     main(args(server, tmp_path, "--window-url", f"{server.url}/windows"))
     report = json.loads((tmp_path / "report.json").read_text())
     assert report["windows"]["delivery_failed"] == 0
@@ -228,12 +254,100 @@ def test_window_url_receives_the_same_windows_as_the_file(server, tmp_path):
     assert len(server.windows) == 1
 
 
-def test_window_receiver_rejection_is_counted_and_the_load_finishes(server, tmp_path):
+def test_window_receiver_rejection_is_counted_and_the_load_finishes(server, tmp_path, window_token):
     main(args(server, tmp_path, "--window-url", f"{server.url}/nope"))
     report = json.loads((tmp_path / "report.json").read_text())
     assert report["windows"]["delivery_failed"] == 1
     assert "WINDOW_DELIVERY_FAILED" in report["warnings"]
     assert report["requests"]["write"]["attempts"] == 12
+
+
+# 시험에 쓸 base64도 그대로 지나가야 한다. `openssl rand -base64`로 만든 토큰에 +, /, =가 들어간다.
+@pytest.mark.parametrize("token", [WINDOW_TOKEN, "aB3+/-._~=="])
+def test_window_post_carries_the_token_and_load_requests_do_not(server, tmp_path, monkeypatch, token):
+    """수신 경로의 토큰이 평가 대상 앱으로 새면 안 된다."""
+    monkeypatch.setenv("BRAVO_WINDOW_TOKEN", token)
+    main(args(server, tmp_path, "--window-url", f"{server.url}/windows"))
+    assert server.window_auth == [f"Bearer {token}"]
+    assert server.load_auth and set(server.load_auth) == {None}
+
+
+@pytest.mark.parametrize("value", [None, ""])
+def test_window_url_without_a_token_stops_before_sending_load(server, tmp_path, capsys, monkeypatch, value):
+    """127.0.0.1도 예외가 아니다. 포트 포워딩이면 그 끝이 실제 수신 경로일 수 있다."""
+    monkeypatch.delenv("BRAVO_WINDOW_TOKEN", raising=False)
+    if value is not None:
+        monkeypatch.setenv("BRAVO_WINDOW_TOKEN", value)
+    assert main(args(server, tmp_path, "--window-url", f"{server.url}/windows")) == 2
+    assert "BRAVO_WINDOW_TOKEN" in capsys.readouterr().err
+    assert not (tmp_path / "journal.jsonl").exists()
+    assert server.load_auth == []
+
+
+def test_token_is_not_needed_without_a_window_url(server, tmp_path, monkeypatch):
+    monkeypatch.delenv("BRAVO_WINDOW_TOKEN", raising=False)
+    main(args(server, tmp_path))
+    assert (tmp_path / "report.json").is_file()
+
+
+@pytest.mark.parametrize("value", ["bad\ntoken", "token\n", "bad token", "한글토큰"])
+def test_malformed_token_stops_before_load_and_hides_the_value(server, tmp_path, capsys, monkeypatch, value):
+    """헤더에 못 넣는 값은 부하 중간에 값째 담긴 오류로 터진다. 시작 전에 막는다."""
+    monkeypatch.setenv("BRAVO_WINDOW_TOKEN", value)
+    assert main(args(server, tmp_path, "--window-url", f"{server.url}/windows")) == 2
+    captured = capsys.readouterr()
+    assert "BRAVO_WINDOW_TOKEN" in captured.err
+    assert value not in captured.out + captured.err
+    assert not (tmp_path / "journal.jsonl").exists()
+
+
+@pytest.mark.parametrize("path", ["/windows", "/denied", "/moved"])
+def test_token_is_left_in_no_file_output_or_log(server, tmp_path, capsys, caplog, window_token, path):
+    caplog.set_level(logging.DEBUG)
+    main(args(server, tmp_path, "--window-url", f"{server.url}{path}"))
+    captured = capsys.readouterr()
+    files = {p.name: p.read_text() for p in tmp_path.iterdir()}
+    assert {"journal.jsonl", "windows.jsonl", "run-state.json", "report.json", "report.md"} <= set(files)
+    assert files["windows.jsonl"] and captured.out
+    assert "HTTP Request: POST" in caplog.text  # 로그를 실제로 모았는지 확인한다.
+    assert window_token not in "".join(files.values()) + captured.out + captured.err + caplog.text
+
+
+def test_token_is_left_nowhere_when_the_receiver_is_down(tmp_path, server, capsys, caplog, window_token):
+    caplog.set_level(logging.DEBUG)
+    main(args(server, tmp_path, "--window-url", "http://127.0.0.1:1/windows"))
+    captured = capsys.readouterr()
+    assert json.loads((tmp_path / "report.json").read_text())["windows"]["delivery_failed"] == 1
+    files = "".join(p.read_text() for p in tmp_path.iterdir())
+    assert window_token not in files + captured.out + captured.err + caplog.text
+
+
+def test_crash_while_delivering_a_window_hides_the_token(server, tmp_path, capsys, monkeypatch, window_token):
+    async def explode(*_args, **_kwargs):
+        raise RuntimeError(f"Authorization: Bearer {window_token}")
+
+    monkeypatch.setattr("httpx.AsyncClient.post", explode)
+    assert main(args(server, tmp_path, "--window-url", f"{server.url}/windows")) == 2
+    captured = capsys.readouterr()
+    assert "RuntimeError" in captured.err
+    assert window_token not in captured.out + captured.err
+
+
+def test_redirect_from_the_receiver_is_a_failure_and_the_token_does_not_follow(server, tmp_path, window_token):
+    main(args(server, tmp_path, "--window-url", f"{server.url}/moved"))
+    report = json.loads((tmp_path / "report.json").read_text())
+    assert report["windows"]["delivery_failed"] == 1
+    assert server.followed == []
+
+
+def test_credentials_in_the_window_url_are_rejected(server, tmp_path, capsys, window_token):
+    """주소의 자격 증명은 프로세스 목록에 보이고, httpx가 Bearer 헤더를 Basic으로 덮어쓴다."""
+    bad = args(server, tmp_path, "--window-url", "http://user:topsecret@127.0.0.1:1/windows")
+    assert main(bad) == 2
+    captured = capsys.readouterr()
+    assert "--window-url" in captured.err
+    assert "topsecret" not in captured.out + captured.err
+    assert not (tmp_path / "journal.jsonl").exists()
 
 
 def test_missing_dsn_variable_stops_before_sending_load(server, tmp_path, capsys, monkeypatch):
