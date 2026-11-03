@@ -9,7 +9,8 @@ import uuid
 POSTGRES_IMAGE = "public.ecr.aws/docker/library/postgres:18.4"
 SHAPER_BASE = ("public.ecr.aws/docker/library/alpine:3.20"
                "@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc")
-SHAPER_IMAGE = "t8-lag-shaper:local"
+# One tag per process: each run removes its image at the end, and other runs may still be going.
+SHAPER_IMAGE = f"t8-lag-shaper:{os.getpid()}"
 # Assumed link conditions, not measurements of the actual Tailscale path.
 CONDITIONS = {
     "unlimited": None,
@@ -67,12 +68,17 @@ def remove_shaper():
     docker("image", "rm", "-f", SHAPER_IMAGE, check=False)
 
 
+def other_containers(lines):
+    """Docker prints -- for a container with no CPU reading yet; it still counts as running."""
+    others = [line.split("\t") for line in lines if not line.startswith("t8-lag-")]
+    return {"other_running_containers": len(others),
+            "other_containers_cpu_pct": round(sum(float(cpu.rstrip("%")) for _, cpu in others if cpu != "--"), 1)}
+
+
 def machine_load():
     """Other sessions share this machine, so its load belongs next to every result."""
     lines = docker("stats", "--no-stream", "--format", "{{.Name}}\t{{.CPUPerc}}").splitlines()
-    others = [line.split("\t") for line in lines if not line.startswith("t8-lag-")]
-    return {"load_avg_1m": round(os.getloadavg()[0], 2), "other_running_containers": len(others),
-            "other_containers_cpu_pct": round(sum(float(cpu.rstrip("%")) for _, cpu in others), 1)}
+    return {"load_avg_1m": round(os.getloadavg()[0], 2), **other_containers(lines)}
 
 
 class Lab:

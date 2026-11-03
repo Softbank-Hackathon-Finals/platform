@@ -37,7 +37,7 @@ class NotReadOnly(RuntimeError):
 
 
 class ReadOnlySession:
-    """Runs only named statements, each in its own READ ONLY transaction (works through a pooler)."""
+    """Runs only named statements, each in its own READ ONLY transaction."""
 
     def __init__(self, connection):
         self.connection = connection

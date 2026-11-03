@@ -43,6 +43,7 @@ from lag_metrics import (
     intervals_ms,
     parse_lsn,
     row_lags,
+    share_over_pct,
     summarize,
 )
 from lag_readonly import (
@@ -74,6 +75,8 @@ BUDGET_MS = 5_000
 # T13 DB-side comparison, source plus target: unlimited and 100/20 Mbps RTT 30 ms, proxy-limited
 # assumed links, before collation checks (Notion T13 page, 11/3 comparison). Not measured here.
 COMPARE_MS = (600, 1_300)
+COMPARE_SOURCE = ("Notion T13 page, implementation comparison (11/3): DB-side method, source plus target median; "
+                  "0.6 s unlimited, 1.3 s at 100 and 20 Mbps RTT 30 ms; proxy-limited assumed links; rule before collation checks")
 GATE_BYTES = 1024 * 1024  # bravo_cutover Settings.max_lag_bytes.
 EXECUTOR_POLL_MS = 50  # bravo_cutover runner: time.sleep(0.05) in the barrier wait.
 STATS_FLUSH_SECONDS = 2  # Cumulative statistics reach shared memory about once a second.
@@ -287,7 +290,7 @@ def measure_steady(lab, source, target, seconds):
         "visible_lag_ms": summarize(lags), "rows_never_seen": missing,
         "builtin_replay_lag_ms": summarize([s["replay_lag_ms"] for s in window_source if s["replay_lag_ms"] is not None]),
         "gate_lag_bytes": summarize(gate),
-        "gate_samples_over_limit_pct": round(sum(lag > GATE_BYTES for lag in gate) / len(gate) * 100, 2),
+        "gate_samples_over_limit_pct": share_over_pct(gate, GATE_BYTES),
         "autovacuum_runs_in_window": {"source": autovacuum_runs(source) - vacuums_before[0],
                                       "target": autovacuum_runs(target) - vacuums_before[1]},
         "wal_bytes_per_s": round((wal - parse_lsn(wal_before)) / seconds),
@@ -369,7 +372,7 @@ def load_results(path):
     return {"schema": "t8-replication-lag/v1", "measured_on": time.strftime("%Y-%m-%d"),
             "assumed_not_measured": {
                 "link_conditions": "netem values below are assumptions, not the actual Tailscale path",
-                "compare_ms": list(COMPARE_MS), "compare_source": "T13 local measurement, source plus target"},
+                "compare_ms": list(COMPARE_MS), "compare_source": COMPARE_SOURCE},
             "write_rate_per_s": WRITE_RATE, "body_chars": BODY_CHARS, "environment": environment(),
             "conditions": {}, "size_checks": {}, "validation": {}}
 
@@ -450,7 +453,8 @@ def validate_read_only(lab, source, target, lab_p50_ms, write_seconds=10):
         refused = True
     finally:
         session.close()
-    agrees = abs(under_load["row_lag_ms"]["p50"] - lab_p50_ms) <= 2 * under_load["sample_period_ms"]["p50"]
+    observed_p50 = under_load["row_lag_ms"]["p50"]
+    agrees = observed_p50 is not None and abs(observed_p50 - lab_p50_ms) <= 2 * under_load["sample_period_ms"]["p50"]
     return {"under_load": under_load, "quiet": quiet, "quiet_before": before, "quiet_after": after,
             "lab_row_lag_p50_ms": lab_p50_ms, "agrees_with_lab_within_two_sample_periods": agrees,
             "no_transaction_ids_consumed_while_quiet": before == after,
@@ -559,7 +563,7 @@ def main():
     read_only.add_argument("--subscription", default=SUBSCRIPTION)
     read_only.add_argument("--slot", help="default: same as the subscription")
     read_only.add_argument("--seconds", type=int, default=60)
-    read_only.add_argument("--interval", type=float, default=0.2)
+    read_only.add_argument("--interval", type=float, default=0.02)
     read_only.add_argument("--out", type=Path)
     read_only.set_defaults(run=command_observe)
     args = parser.parse_args()

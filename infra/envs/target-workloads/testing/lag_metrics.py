@@ -81,6 +81,10 @@ def gate_lag_bytes(source, target):
     return lags
 
 
+def share_over_pct(values, limit):
+    return round(sum(value > limit for value in values) / len(values) * 100, 2) if values else None
+
+
 def intervals_ms(times):
     return [(times[index + 1] - times[index]) * 1000 for index in range(len(times) - 1)]
 

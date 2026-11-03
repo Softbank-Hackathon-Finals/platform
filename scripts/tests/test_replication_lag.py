@@ -1,6 +1,7 @@
 """Metric arithmetic, read-only guard and shaping rules for the T8 replication-lag tool."""
 
 import importlib
+import os
 import sys
 import unittest
 from contextlib import nullcontext
@@ -110,6 +111,19 @@ class MetricTests(unittest.TestCase):
         source = [{"t": 1.0, "wal": 100}, {"t": 2.0, "wal": 200}]
         target = [{"t": 0.5, "reported": 90}, {"t": 1.5, "reported": None}, {"t": 1.6, "reported": 150}, {"t": 3.0, "reported": 200}]
         self.assertEqual(metrics.gate_lag_bytes(source, target), [10, 50])
+
+
+class MachineAndShareTests(unittest.TestCase):
+    def test_share_over_limit_has_no_value_without_samples(self):
+        self.assertEqual(metrics.share_over_pct([1, 2, 3, 4], 3), 25.0)
+        self.assertIsNone(metrics.share_over_pct([], 3))
+
+    def test_other_containers_skip_this_tool_and_unavailable_cpu(self):
+        lines = ["t8-lag-abc-src\t90.00%", "other-1\t1.50%", "restarting\t--", "other-2\t2.00%"]
+        self.assertEqual(lab.other_containers(lines), {"other_running_containers": 3, "other_containers_cpu_pct": 3.5})
+
+    def test_shaper_image_belongs_to_this_process(self):
+        self.assertEqual(lab.SHAPER_IMAGE, f"t8-lag-shaper:{os.getpid()}")
 
 
 class FakeCursor:

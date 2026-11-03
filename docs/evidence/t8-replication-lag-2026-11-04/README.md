@@ -118,6 +118,6 @@ uv run --script infra/envs/target-workloads/testing/replication_lag.py lab --out
 
 ## 입력
 
-- **측정 코드:** `environment.scripts_sha256`은 본 측정 당시 바이트이고 커밋 `3844333`과 같다. 그 뒤 검증 시험 순서와 예산 계산만 바꿨고, 측정 경로는 그대로다. 다시 돌린 검증의 해시는 `validation_scripts_sha256`에 있고 커밋 `14d7cdd`와 같다. 그 뒤에는 비교 시간 출처 주석 한 줄만 고쳤다.
+- **측정 코드:** `environment.scripts_sha256`은 본 측정 당시 바이트이고 커밋 `3844333`과 같다. 그 뒤 검증 시험 순서와 예산 계산만 바꿨고, 측정 경로는 그대로다. 다시 돌린 검증의 해시는 `validation_scripts_sha256`에 있고 커밋 `14d7cdd`와 같다. 그 뒤에는 비교 시간 출처 표기와, 리뷰에서 나온 측정 시간에 영향 없는 수정(CPU `--` 처리, 이미지 태그 분리, 표본 0건 방어, `observe` 기본 간격)만 했다.
 - **이미지 · 스키마:** `environment.postgres_image_id`, `environment.schema_sha256`.
 - **단위 시험:** `scripts/tests/test_replication_lag.py`.
