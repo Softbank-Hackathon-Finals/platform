@@ -1,0 +1,31 @@
+{
+  "full": true,
+  "reasons": [
+    "integration-or-scheduled-run"
+  ],
+  "changed": [],
+  "infra": true,
+  "scripts": true,
+  "projects": [
+    {
+      "path": "services/rehearsal-runner",
+      "kind": "python"
+    },
+    {
+      "path": "services/security-findings",
+      "kind": "python"
+    }
+  ],
+  "matrix": {
+    "include": [
+      {
+        "path": "services/rehearsal-runner",
+        "kind": "python"
+      },
+      {
+        "path": "services/security-findings",
+        "kind": "python"
+      }
+    ]
+  }
+}
