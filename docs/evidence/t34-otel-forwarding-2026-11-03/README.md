@@ -30,3 +30,9 @@
 - 송신기는 API 토큰 없이 해당 CNPG Pod UID 디렉터리와 노드 감사 디렉터리만 읽기 전용으로 마운트했다. 노드 소유 파일 읽기를 위한 root UID는 쓰지만 capability 전부 제거·권한 상승 금지·읽기 전용 rootfs로 실행했다. 비root 권한 배치나 호스트 침해 방어까지 검증한 것은 아니다.
 - 이번 Kubernetes 시험의 queue는 emptyDir이므로 Pod 교체 내구성을 주장하지 않는다. 별도 Docker 시험만 동일 영속 경로에서 SIGKILL 복구를 검증했다.
 - 실제 실행한 모듈의 해시는 각 결과에 포함한다. #124 디코더는 별도 PR의 코드이므로 이 PR 단독으로 운영 검색 통합이 완료됐다고 볼 수 없다.
+
+## 비정상 Kubernetes 중첩 필드 후속 검증
+
+`user`, `impersonatedUser`, `objectRef`, `responseStatus`에 문자열·배열·null을 넣은 12개 합성 행을 정상 이벤트와 함께 전달했다. 수정 전에는 문자열/배열의 민감 표식이 수신 결과에 남아 redaction assertion이 실패했다. 객체가 아닌 필드를 제거한 뒤 같은 고정 이미지에서 전체 실험이 통과했다. 정상 이벤트는 계속 도착하며 잘못된 CA·client issuer 거부, 송신기 SIGKILL 후 큐 복구, 회전, 정확한 Pod UID 범위도 다시 확인했다.
+
+[`malformed-fields.json`](malformed-fields.json)은 이 재실행의 공개 요약이다. 28개 수신 행 중 비정상 행도 포함되므로 이 수를 유효 감사 이벤트 28건으로 해석하지 않는다. 필수 필드가 없는 행은 후속 의미 검사에서 카나리 성공 증거가 될 수 없다. 원문·실험용 키·진단 로그는 공개하지 않는다. 이 실험은 합성 Docker 입력이며 팀 EKS/RKE2 운영 완료를 뜻하지 않는다.
