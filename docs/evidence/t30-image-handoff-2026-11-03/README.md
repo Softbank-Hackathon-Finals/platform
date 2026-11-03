@@ -27,3 +27,25 @@ The source and digest remain exactly those already scanned/published/copied in
 [the original private transfer](https://github.com/Softbank-Hackathon-Finals/demo-chat/actions/runs/41610561593).
 No new vulnerability scan, changed source image, successful target application
 read/write, or completed T30 is claimed by this export.
+
+
+## Subsequent verifier correction and offline recheck
+
+An independent local review reproduced a receipt-binding race: replacing the
+archive path between graph verification and the separate checksum read could
+record the replacement's checksum as verified. The correction in
+`aedb4cf0548af6f4d7f9b3d50a5afb691a838de8` reads graph, checksum and size through
+one open file and rejects path replacement or in-place metadata changes before
+issuing a receipt. Regression tests include a same-size write with restored
+mtime; it is still rejected through ctime comparison. The receiving operator
+must compare the checksum again before import because later file changes are
+outside the observation.
+
+`post-fix-verification-receipt.json` is a new offline observation at
+2026-11-03T11:31:10Z using that committed verifier. It is byte-identical to its
+private bounded original and verifies the same 81,745,920-byte archive and
+15-blob graph. The archive checksum remains
+`04ad976a662c973920b8f3b4e39b80833bb9fda0f5ca15e097bf9aeb47fc8d24`.
+The prior export and verification receipts remain unchanged; the new verifier
+hash is not assigned to the earlier export. No image download, transfer,
+registry authentication, target import or cloud mutation was repeated.
