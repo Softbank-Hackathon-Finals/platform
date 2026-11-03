@@ -69,6 +69,7 @@ def verify():
         len(subnets) == 4 and all(not s["MapPublicIpOnLaunch"] for s in subnets),
     )
     default_group_ids = []
+    default_components = {}
     for name, vpc in config["vpcs"].items():
         own = [s for s in subnets if s["VpcId"] == vpc["id"]]
         check(name + " has two AZs", len({s["AvailabilityZone"] for s in own}) == 2)
@@ -101,6 +102,7 @@ def verify():
             "Name=group-name,Values=default",
         )["SecurityGroups"][0]
         default_group_ids.append(default["GroupId"])
+        default_components[default["GroupId"]] = name
         check(
             name + " default SG closed",
             not default["IpPermissions"] and not default["IpPermissionsEgress"],
@@ -185,10 +187,22 @@ def verify():
     tagged = {}
     for tag in ec2_tags:
         tagged.setdefault(tag["ResourceId"], {})[tag["Key"]] = tag["Value"]
+    vpc_components = {value["id"]: name for name, value in config["vpcs"].items()}
+    expected_components = {
+        **vpc_components, **default_components,
+        **{s["SubnetId"]: vpc_components[s["VpcId"]] for s in subnets},
+        **{value: name for name, value in config["route_tables"].items()},
+        **{value: name.split("_")[0] for name, value in config["security_groups"].items()},
+        **{log["FlowLogId"]: vpc_components[log["ResourceId"]] for log in logs},
+        **{r["SecurityGroupRuleId"]: "platform" if r["IsEgress"] else "source" for r in rules},
+        config["peering_id"]: "platform",
+    }
     check(
-        "EC2 resources carry component tags",
-        expected_ids <= tagged.keys()
-        and all(tags.get("component") == "network" for tags in tagged.values()),
+        "EC2 resources carry contract component and project tags",
+        set(expected_components) == expected_ids
+        and all(tagged.get(resource_id, {}).get("component") == component
+                and tagged.get(resource_id, {}).get("project") == "bravo-platform"
+                for resource_id, component in expected_components.items()),
     )
     for name in config["log_groups"]:
         log = aws("logs", "describe-log-groups", "--log-group-name-prefix", name)[
@@ -203,12 +217,12 @@ def verify():
             aws("logs", "list-tags-log-group", "--log-group-name", name)["tags"].get(
                 "component"
             )
-            == "network",
+            == name.split("/")[-2],
         )
     check(
         "log role component tag",
         any(
-            t["Key"] == "component" and t["Value"] == "network"
+            t["Key"] == "component" and t["Value"] == "platform"
             for t in aws(
                 "iam",
                 "list-role-tags",
@@ -220,7 +234,7 @@ def verify():
     check(
         "log key component tag",
         any(
-            t["TagKey"] == "component" and t["TagValue"] == "network"
+            t["TagKey"] == "component" and t["TagValue"] == "platform"
             for t in aws(
                 "kms", "list-resource-tags", "--key-id", config["log_kms_key_id"]
             )["Tags"]
@@ -237,6 +251,6 @@ def verify():
 if __name__ == "__main__":
     if len(sys.argv) != 2:
         raise SystemExit(
-            "Run from infra/aws-foundation: python3 verify.py <evidence.json>"
+            "Run from infra/envs/aws-foundation: python3 verify.py <evidence.json>"
         )
     verify()
