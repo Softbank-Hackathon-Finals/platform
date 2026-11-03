@@ -19,12 +19,37 @@ def success(config, *args):
     return p.stdout
 
 
+def exec_denial(config, namespace, pods):
+    """Query both exec transports on each actual Pod, without opening a session."""
+    observations = []
+    for pod in sorted({item['metadata']['name'] for item in pods}):
+        for verb in ('get', 'create'):
+            decision = 'UNKNOWN'
+            try:
+                result = call(config, 'auth', 'can-i', verb, 'pods/' + pod,
+                              '--subresource=exec', '-n', namespace)
+                if result.returncode == 0 and result.stdout.strip() == 'yes':
+                    decision = 'ALLOW'
+                elif result.returncode == 1 and result.stdout.strip() == 'no':
+                    decision = 'DENY'
+            except (OSError, subprocess.SubprocessError):
+                pass
+            observations.append({'pod_sha256': hashlib.sha256(pod.encode()).hexdigest(),
+                                 'verb': verb, 'decision': decision})
+    denied = None
+    if any(row['decision'] == 'ALLOW' for row in observations):
+        denied = False
+    elif observations and all(row['decision'] == 'DENY' for row in observations):
+        denied = True
+    return {'denied': denied, 'observations': observations}
+
+
 def verify(admin, namespace, configmap):
     original = json.loads(success(admin, "get", "configmap", configmap, "-n", namespace, "-o", "json"))
     key = "bravo.dev/t7-access-probe"
     if key in original["metadata"].get("annotations", {}):
         raise RuntimeError("probe_annotation_already_owned")
-    checks = {}
+    checks, exec_authorization = {}, {}
     for identity in ("collector", "executor"):
         token = success(admin, "create", "token", "bravo-" + identity, "-n", namespace, "--duration=10m").strip()
         config = copy.deepcopy(admin)
@@ -45,9 +70,8 @@ def verify(admin, namespace, configmap):
         for name, args in denied.items():
             p = call(config, *args)
             checks[identity + "_denied_" + name] = p.returncode != 0 and "forbidden" in p.stderr.lower()
-        # Pod/exec authorization checked without opening a command session.
-        p = call(config, "auth", "can-i", "create", "pods/exec", "-n", namespace)
-        checks[identity + "_denied_exec"] = p.returncode == 1 and p.stdout.strip() == "no"
+        exec_authorization[identity] = exec_denial(config, namespace, result["items"])
+        checks[identity + "_denied_exec"] = exec_authorization[identity]["denied"]
         if identity == "executor":
             patch = json.dumps({"metadata": {"annotations": {key: "verified"}}})
             try:
@@ -60,7 +84,12 @@ def verify(admin, namespace, configmap):
     after = json.loads(success(admin, "get", "configmap", configmap, "-n", namespace, "-o", "json"))
     checks["pooler_data_unchanged"] = original.get("data") == after.get("data") and original.get("binaryData") == after.get("binaryData")
     checks["other_annotations_unchanged"] = original["metadata"].get("annotations", {}) == after["metadata"].get("annotations", {})
-    return {"status": "PASS" if all(checks.values()) else "FAIL", "checks": checks, "check_count": len(checks),
+    status = "PASS"
+    if any(value is False for value in checks.values()):
+        status = "FAIL"
+    elif any(value is None for value in checks.values()):
+        status = "UNKNOWN"
+    return {"status": status, "checks": checks, "exec_authorization": exec_authorization, "check_count": len(checks),
             "auth": "actual_TokenRequest_10m", "pooler_data_sha256": hashlib.sha256(json.dumps(after.get("data"), sort_keys=True).encode()).hexdigest(),
             "cutover_executed": False}
 

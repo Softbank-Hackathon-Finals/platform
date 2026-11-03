@@ -63,6 +63,10 @@ Job은 고정 Python image와 hash-pinned wheel을 사용한다. 코드/요구�
 
 `verify_t10.py`의 평문 시험은 `tls_verification.py`로 분리했다. 같은 자격과 고정 서버 주소에 verify-full TLS 접속을 전후로 확인하고, 같은 서버 기동 세대와 60초 창을 유지한다. PostgreSQL의 정확한 HBA `no encryption` 거부만 PASS이며 일반 OperationalError·인증 오류·다른 언어/알 수 없는 응답·대조 실패는 UNKNOWN이다. 원시 오류/비밀번호/주소는 결과에 남기지 않는다. 이 제한은 [PostgreSQL 18 인증 구현](https://github.com/postgres/postgres/blob/REL_18_STABLE/src/backend/libpq/auth.c)과 [psycopg 연결 정보](https://www.psycopg.org/psycopg3/docs/api/objects.html)에 근거한다.
 
+`verify_access.py`는 **초기 baseline 역할** 검증이다. 현재 Pod 이름마다 `auth can-i {get,create} pods/<name> --subresource=exec`를 질의하고, 명시적인 yes/정상 종료는 허용, no/거부 종료만 거부로 판정한다. API 오류·빈 Pod 목록·모호한 결과는 UNKNOWN이며 어떤 현재 Pod라도 허용되면 baseline은 FAIL이다. 실제 exec 세션은 열지 않는다. [kubectl 공식 구문](https://kubernetes.io/docs/reference/kubectl/generated/kubectl_auth/kubectl_auth_can-i/)의 자원 이름과 하위자원을 구분한다.
+
+#114의 opt-in cutover Role을 추가한 환경에서는 Executor의 지정 Pod exec가 의도된 허용이다. 그 환경에 baseline의 blanket-deny 기대를 다시 적용해 PASS를 만들지 않는다. 현재 허용/거부 계약은 `infra/envs/cutover-access/verify.py`로 따로 확인한다. baseline 전체 검증은 ConfigMap annotation patch 시험도 포함하므로, 현재 운영 환경의 단순 권한 조회용으로 재실행하지 않는다.
+
 ## 운영 제한
 
 - 단일 인스턴스·단일 노드·단일 AZ다. Pod 재생성은 HA·볼륨 손실·off-host 복원 시험이 아니다. PV Retain과 EBS 보존도 백업을 대신하지 않는다.
