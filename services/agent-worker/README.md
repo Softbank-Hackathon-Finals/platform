@@ -1,8 +1,8 @@
 # T11 — S2 실패 분석과 수정 제안
 
-플랫폼 워커가 실패 근거와 승인된 앱 소스만 읽고 수정 제안서를 낸다. 설계 8.3의 **별도 CI 에이전트를 두지 않는다**는 원칙에 따라 S2 기능으로 구현했다. GitHub의 저장소 CI, T15의 리허설 실행·비공개 검증, 사람 승인, T31 반영은 각각의 담당 경로에 남는다.
+플랫폼 워커가 실패 근거와 승인된 앱 소스만 읽고 수정 제안서를 낸다. 현재 정본의 S2 기능으로 구현했다. 11/2 회의에서 역할 세분화는 열어 두었으며, 별도 서비스 도입은 실제 격리·배포 책임이 달라질 때 판단한다. GitHub의 저장소 CI, T15의 리허설 실행·비공개 검증, 사람 승인, T31 반영은 각각의 담당 경로에 남는다.
 
-사용자의 11/3 요청에 따라 **OpenAI Responses API를 기본 제공자**로 구현했다. 현재 정본의 Claude Agent SDK 표기와 다른 변경이며, 팀 전체가 이미 합의한 것으로 취급하지 않는다. 검증한 Claude SDK 어댑터는 선택 기능으로 보존한다. 자동 provider fallback과 Bedrock 연결은 없다.
+사용자의 11/3 요청에 따라 **OpenAI Responses API를 기본 제공자**로 구현했다. 정본 v0.2의 Claude Agent SDK 선택을 바꾸는 v0.3·[ADR-0006](../../docs/adr/0006-model-provider-and-s2-ci.md) 제안이며, 팀 전체가 이미 합의한 것으로 취급하지 않는다. 검증한 Claude SDK 어댑터는 선택 기능으로 보존한다. 자동 provider fallback과 Bedrock 연결은 없다.
 
 | 모듈 | 책임 |
 |---|---|
@@ -76,6 +76,6 @@ Claude 어댑터는 `uv sync --frozen --extra claude`로 설치하고 `--provide
 
 `Dockerfile`은 잠긴 의존성을 설치하고 UID/GID 10001로 CLI를 실행한다. 실행할 때 `--read-only`, `/tmp`의 제한된 tmpfs, 입력 볼륨 `:ro`, 별도 결과 볼륨, `--cap-drop=ALL`, `--security-opt=no-new-privileges`, PID·CPU·메모리 한도를 적용해야 한다. Kubernetes Job의 구체적인 namespace·이미지 digest·Secret 참조·송신 정책은 T7 플랫폼 배포에서 결속한다. 임의 Secret 이름이나 열린 네트워크 정책을 기본 배포로 추가하지 않았다.
 
-로컬 시험은 설치된 OpenAI SDK 3.42.1·Claude Agent SDK 0.2.177과 가짜 API/provider를 사용하는 기능/공격 입력 검증이다. OpenAI 함수 스키마·요청 옵션, Claude CLI 인자 생성도 확인한다. 실제 모델, 이미지 빌드, AWS·GCP 배포, 네트워크 격리, 실제 검증 Job은 이 기록으로 검증됐다고 주장하지 않는다. T7 런타임·T15 검증 경로와 통합하기 전에는 T11 전체 완료로 체크하지 않는다.
+로컬 시험은 설치된 OpenAI SDK 3.42.1·Claude Agent SDK 0.2.177과 가짜 API/provider를 사용하는 기능/공격 입력 검증이다. OpenAI 함수 스키마·요청 옵션, Claude CLI 인자 생성도 확인한다. 로컬 시험만으로 실제 모델·클라우드 동작을 검증했다고 주장하지 않는다. 별도 [AWS 실행 기록](../../docs/evidence/t11-ci-2026-11-03/README.md)에는 같은 코드의 74개 시험, arm64 이미지 빌드, 제한된 컨테이너 5개 시나리오 결과가 있다. 실제 모델 호출·GCP·운영 배포·T15 검증 Job은 미실행이다. T7 런타임·T15 검증 경로와 통합하기 전에는 T11 전체 완료로 체크하지 않는다.
 
 근거: [팀 설계 8.3](../../docs/design.html#s8-3), [T11·T15 작업 계획](../../docs/tasks.md), [OpenAI 함수 호출](https://developers.openai.com/api/docs/guides/function-calling), [Responses 상태 보관](https://developers.openai.com/api/docs/guides/migrate-to-responses), [Claude SDK Python 문서](https://code.claude.com/docs/en/agent-sdk/python), [Claude SDK 권한 평가 순서](https://code.claude.com/docs/en/agent-sdk/permissions). SDK 버전과 전이 의존성은 `uv.lock`에 고정했다.
