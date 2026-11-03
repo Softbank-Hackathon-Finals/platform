@@ -1,6 +1,6 @@
 """Run on the verified RKE2 host via SSM; private JSON configuration on stdin.
 
-Install an upstream, hash-pinned ECR kubelet credential provider. No registry
+Install a source-reproduced, hash-pinned ECR kubelet credential provider. No registry
 password is printed, written, passed in argv, or stored in Kubernetes.
 """
 
@@ -11,16 +11,19 @@ import pathlib
 import re
 import subprocess
 import sys
+import tempfile
 import time
-import urllib.request
 
-BINARY_URL = "https://s3.us-west-2.amazonaws.com/amazon-eks/1.35.9/2026-10-29/bin/linux/amd64/ecr-credential-provider"
-BINARY_SHA = "9589cdea0d1ff3efd4d65d48eaed0b0ca6853f92334b3cd0f2d368b670e303b4"
+BINARY_SHA = "83c7897cc39d94502189e5412f70f79fa0dbe64cb7b05b74d10bf955b6930f4a"
+LEGACY_SHA = "9589cdea0d1ff3efd4d65d48eaed0b0ca6853f92334b3cd0f2d368b670e303b4"
+CANDIDATE = pathlib.Path("/var/lib/bravo/private-registry/candidates/ecr-credential-provider-" + BINARY_SHA)
+BINARY_BACKUP = pathlib.Path("/var/lib/bravo/private-registry/ecr-credential-provider-" + LEGACY_SHA + ".before")
 BASE = pathlib.Path("/var/lib/rancher/credentialprovider")
 CONFIG = BASE / "config.yaml"
 BINARY = BASE / "bin/ecr-credential-provider"
 DROPIN = pathlib.Path("/etc/rancher/rke2/config.yaml.d/90-bravo-ecr-credential-provider.yaml")
 MAIN_CONFIG = pathlib.Path("/etc/rancher/rke2/config.yaml")
+PRIMARY_BACKUP = pathlib.Path("/var/lib/bravo/private-registry/config.yaml.before")
 KUBE = ["/var/lib/rancher/rke2/bin/kubectl", "--kubeconfig", "/etc/rancher/rke2/rke2.yaml"]
 
 
@@ -92,7 +95,7 @@ def kubelet_provider_flags():
 
 
 def ensure_owned(path, expected, mode, created):
-    if path.exists():
+    if path.exists() or path.is_symlink():
         if path.is_symlink() or path.read_bytes() != expected or path.stat().st_uid != 0 or path.stat().st_mode & 0o777 != mode:
             raise Failure("existing_configuration_conflict")
         return False
@@ -102,6 +105,33 @@ def ensure_owned(path, expected, mode, created):
     path.chmod(mode)
     created.append(path)
     return True
+
+
+def owned_binary(path, allowed_hashes):
+    if not path.exists() and not path.is_symlink():
+        return None
+    if path.is_symlink() or path.stat().st_uid != 0 or path.stat().st_mode & 0o777 != 0o755:
+        raise Failure("binary_ownership_conflict")
+    content = path.read_bytes()
+    if hashlib.sha256(content).hexdigest() not in allowed_hashes:
+        raise Failure("existing_binary_conflict")
+    return content
+
+
+def replace_binary(content):
+    BINARY.parent.mkdir(parents=True, exist_ok=True, mode=0o755)
+    # The temporary file and destination share a directory/filesystem.
+    descriptor, temporary = tempfile.mkstemp(prefix=".provider-", dir=BINARY.parent)
+    try:
+        with os.fdopen(descriptor, "wb") as output:
+            output.write(content)
+            output.flush()
+            os.fsync(output.fileno())
+            os.fchmod(output.fileno(), 0o755)
+        os.replace(temporary, BINARY)
+    finally:
+        if os.path.exists(temporary):
+            os.unlink(temporary)
 
 
 def main():
@@ -121,7 +151,7 @@ def main():
     if pathlib.Path("/root/.aws/credentials").exists():
         raise Failure("unexpected_shared_host_credentials")
     original = MAIN_CONFIG.read_bytes()
-    backup = pathlib.Path("/var/lib/bravo/private-registry/config.yaml.before")
+    backup = PRIMARY_BACKUP
     backup.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
     if not backup.exists():
         backup.write_bytes(original)
@@ -130,21 +160,27 @@ def main():
               f"image-credential-provider-config: {CONFIG}\n").encode()
     # Check all existing targets before modifying anything.
     for path, expected in ((CONFIG, desired), (DROPIN, dropin)):
-        if path.exists() and (path.is_symlink() or path.read_bytes() != expected or path.stat().st_uid != 0):
+        if (path.exists() or path.is_symlink()) and (
+            path.is_symlink() or path.read_bytes() != expected or path.stat().st_uid != 0
+            or path.stat().st_mode & 0o777 != 0o600
+        ):
             raise Failure("existing_configuration_conflict")
-    if BINARY.exists() and (BINARY.is_symlink() or hashlib.sha256(BINARY.read_bytes()).hexdigest() != BINARY_SHA):
-        raise Failure("existing_binary_conflict")
-    if BINARY.exists():
-        binary = BINARY.read_bytes()
+    previous_binary = owned_binary(BINARY, {BINARY_SHA, LEGACY_SHA})
+    if previous_binary is not None and hashlib.sha256(previous_binary).hexdigest() == BINARY_SHA:
+        binary = previous_binary
     else:
-        with urllib.request.urlopen(BINARY_URL, timeout=90) as response:
-            binary = response.read()
-    if hashlib.sha256(binary).hexdigest() != BINARY_SHA:
-        raise Failure("upstream_binary_checksum_mismatch")
+        binary = owned_binary(CANDIDATE, {BINARY_SHA})
+        if binary is None:
+            raise Failure("reviewed_candidate_missing")
+    if previous_binary is not None and previous_binary != binary:
+        ensure_owned(BINARY_BACKUP, previous_binary, 0o600, [])
     created = []
     changed = False
+    binary_replaced = False
     try:
-        changed |= ensure_owned(BINARY, binary, 0o755, created)
+        if previous_binary != binary:
+            replace_binary(binary)
+            binary_replaced = changed = True
         changed |= ensure_owned(CONFIG, desired, 0o600, created)
         changed |= ensure_owned(DROPIN, dropin, 0o600, created)
         # The provider returns a password to kubelet through stdout. Inspect its
@@ -174,8 +210,13 @@ def main():
         if MAIN_CONFIG.read_bytes() != original:
             raise Failure("original_configuration_changed")
     except Exception:
-        # Only paths newly created by this invocation are removed. Never change
-        # a pre-existing provider or the foundation's primary configuration.
+        # Restore only this invocation's exact allowlisted binary/config changes.
+        # Unknown files and the foundation's primary config are never changed.
+        if binary_replaced:
+            if previous_binary is None:
+                BINARY.unlink()
+            else:
+                replace_binary(previous_binary)
         for path in reversed(created):
             path.unlink()
         if changed:
@@ -183,6 +224,7 @@ def main():
             wait_ready()
         raise
     print(json.dumps({"provider_installed": True, "provider_binary_sha256": BINARY_SHA,
+                      "previous_known_binary_replaced": binary_replaced and previous_binary is not None,
                       "provider_authentication_from_host_role_verified": True,
                       "provider_response_cache_duration": duration, "provider_response_cache_key_type": cache_key,
                       "kubelet_provider_flags_verified": True,
