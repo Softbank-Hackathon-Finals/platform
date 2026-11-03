@@ -78,7 +78,21 @@ db-sql-v1:fixed-session-text;columns-by-name;jsonb-array;utf8;sha256-of-row-sha2
 | 둘 다 | 양쪽 PostgreSQL 메이저가 다름 | `UNKNOWN` |
 | 둘 다 | 미지원 타입 · 미지원 메이저 · 시간 초과 · 연결 실패 · 오래된 정렬 버전 등 지문을 못 읽음 | `UNKNOWN` |
 
-전체 값은 하나라도 `MISMATCH`면 `MISMATCH`, 그렇지 않고 모두 `MATCH`면 `MATCH`, 나머지는 `UNKNOWN`이다. 비교한 표가 없어도 `UNKNOWN`이다. 오류 내용에 행 값이 섞이지 않도록 DB 오류는 SQLSTATE만 남긴다.
+전체 값은 하나라도 `MISMATCH`면 `MISMATCH`, 그렇지 않고 모두 `MATCH`면 `MATCH`, 나머지는 `UNKNOWN`이다. 비교한 표가 없어도 `UNKNOWN`이다. 
+### 오류 코드
+
+표 결과의 `error`에는 아래 고정 코드만 들어가고, `sqlstate`에는 형식이 맞는(영문 대문자 · 숫자 5자) SQLSTATE만 들어간다. 연결 문자열 · 호스트 · 서버 오류 원문 · 표와 컬럼 이름은 복사하지 않는다. 원문은 예외 연결(cause)로도 넘기지 않아 로그에 찍히지 않는다.
+
+| 코드 | 뜻 |
+|---|---|
+| `connection_failed` | 연결 실패. 다른 모듈이 던진 불명도 원문을 버리고 이 코드가 된다 |
+| `statement_timeout` | 쿼리 하나가 3초를 넘음 |
+| `snapshot_unreadable` | 그 밖의 DB 오류. 원인은 `sqlstate`로 본다 |
+| `table_not_qualified` · `table_missing` · `not_plain_table` · `primary_key_missing` | 비교할 수 없는 표 |
+| `unsupported_type` · `unsupported_major` · `collation_unverified` | 지원하지 않는 타입 · 메이저, 낡거나 모르는 정렬 규칙 |
+| `major_version_mismatch` | 양쪽 메이저가 다름. 양쪽 값은 `source` · `target`의 `server_major`에 있다 |
+
+어느 컬럼이 미지원인지는 영수증에 없다. 지원 타입 목록과 카탈로그를 대조해 찾는다.
 
 ## 시퀀스
 
@@ -91,8 +105,8 @@ db-sql-v1:fixed-session-text;columns-by-name;jsonb-array;utf8;sha256-of-row-sha2
 
 - 값을 읽을 때도 지문과 같은 3초 제한과 `row_security=off`를 건다. 행 보안 정책이 행을 숨겨 최대 ID가 작게 읽히면 조용히 넘어가지 않고 오류가 난다.
 - 목적지 다음 값이 이미 올릴 값이면 쓰기를 보내지 않는다.
-- 올린 뒤 다시 읽어 다음 값이 올릴 값과 다르면 `Unconfirmed`다.
-- 증가폭 1이 아니거나 순환하는 시퀀스, 올릴 값이 시퀀스 최댓값을 넘는 경우도 `Unconfirmed`이고 값을 바꾸지 않는다.
+- 올린 뒤 다시 읽어 다음 값이 올릴 값과 다르면 `Unconfirmed`(`sequence_readback_mismatch`)다.
+- 증가폭 1이 아니거나 순환하는 시퀀스, 올릴 값이 시퀀스 최댓값을 넘는 경우도 `Unconfirmed`(`sequence_unsupported`, `sequence_over_maximum`)이고 값을 바꾸지 않는다. 이 함수가 올리는 예외도 고정 코드와 SQLSTATE만 담는다. 연결 실패는 `connection_failed`, 시퀀스를 올리는 호출의 실패는 `sequence_unconfirmed`다.
 - 노션 초안의 여유값 1000은 넣지 않았다(ADR-0013 결정 4).
 
 ## 결과 모양
@@ -111,7 +125,7 @@ db-sql-v1:fixed-session-text;columns-by-name;jsonb-array;utf8;sha256-of-row-sha2
              "match": true, "data_verdict": "MATCH", "schema_verdict": "MATCH"}]}
 ```
 
-못 읽은 표는 `rows_src` · `rows_dst` · `source` · `target`이 `null`이고 `error`가 붙는다. 메이저가 다른 표는 읽은 지문을 남기고 `error`에 양쪽 메이저를 적는다.
+못 읽은 표는 `rows_src` · `rows_dst` · `source` · `target`이 `null`이고 `error` · `sqlstate`가 붙는다. 메이저가 다른 표는 읽은 지문을 남기고 `error`가 `major_version_mismatch`다.
 
 `correct_sequence()`의 영수증 항목: `name` `src_last` `src_is_called` `src_next` `src_max_id` `dst_last_before` `dst_is_called_before` `dst_next_before` `dst_max_id` `dst_set` `raised`. 설계 8.6의 `src_last` · `dst_set`을 포함한다.
 
@@ -180,6 +194,7 @@ db-sql-v1:fixed-session-text;columns-by-name;jsonb-array;utf8;sha256-of-row-sha2
 | 시험하지 않은 메이저 (`major_outside`) | UNKNOWN | UNKNOWN | UNKNOWN |
 | 마이너만 다름, 18.3과 18.4 실제 서버 (증거) | MATCH | MATCH | MATCH |
 | 미지원 타입 (`unsupported_type`) | UNKNOWN | UNKNOWN | UNKNOWN |
+| 연결 실패, 원문에 민감값 포함 (`bad_connection_text`, `raw_exception`, `connection_error_text`) | UNKNOWN | UNKNOWN | UNKNOWN |
 | 3초 초과 · 잠금 대기 초과 (`statement_timeout`, `timeout_through_compare`) | UNKNOWN | UNKNOWN | UNKNOWN |
 | PK 없음 · 표 없음 · 뷰 · 상속 (`unverifiable_table`) | UNKNOWN | UNKNOWN | UNKNOWN |
 
@@ -191,4 +206,5 @@ db-sql-v1:fixed-session-text;columns-by-name;jsonb-array;utf8;sha256-of-row-sha2
 
 - 실제 Tailscale · TLS 경로와 RKE2 위 CNPG에서의 시간. 측정값은 모두 로컬이다.
 - 부하 뒤 실제 데이터에서 쿼리 하나가 3초 안에 끝나는지.
+- `DbControl`의 기존 메서드(`_connect`, `_one`, `_do` 등)는 지금도 연결 · 서버 원문을 `Unconfirmed`에 담고, `runner._describe`가 이를 실행 결과에 저장한다. 이 문서의 함수를 거치는 경로만 고정 코드로 줄였다.
 - Executor 실행 단계에 연결한 상태의 컷오버. 이 문서의 코드만으로 컷오버가 완료되지 않는다.
