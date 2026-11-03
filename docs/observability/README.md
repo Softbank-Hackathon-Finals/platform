@@ -69,6 +69,8 @@
 | FAIL | `SET_WEIGHT_0` 즉시 가중치 0 | `ALERT_FAILBACK_PROPOSAL` 알림과 되돌리기 제안. 되돌리기 실행은 사람 승인 뒤(S4 2단계) |
 | UNKNOWN | `HOLD` 다음 단계로 가지 않음. 연속 `unknown_limit`회째면 `SET_WEIGHT_0` | `ALERT_UNOBSERVABLE` 알림만. 자동 조치 없음 |
 
+연속 UNKNOWN 수(`prior_unknown`)는 같은 `observe_from` 안에서만 센다. PASS나 FAIL이 나오거나 가중치를 바꿔 `observe_from`이 바뀌면 0부터 다시 센다. 앞 단계의 UNKNOWN이 다음 단계로 넘어오지 않는다. 판정은 창 하나마다(`window_seconds`마다) 한 번 한다.
+
 SHIFT에서 가중치 0이 자동인 이유: 이 구간에는 두 환경 앱이 모두 출발지 DB에 쓴다(8.6 "전환 전 쓰기 경로"). 가중치 0은 쓰기를 받는 DB를 바꾸지 않으므로 항상 안전한 방향이다. 실패한 환경이 출발지여도 조치는 같다(FR-8). 어느 환경이 원인인지는 판정 기록의 창에서 읽는다. WATCH는 컷오버 뒤라 되돌리기가 데이터 경로를 바꾸므로 자동으로 하지 않는다.
 
 **판정하지 않는 구간.** CUTOVER · FAILBACK 중에는 이 규칙을 쓰지 않는다. 쓰기 정지 중 503 + `Retry-After`는 설계된 동작이고, 그 구간은 Executor 결과와 T18 전수 대조로 본다. WATCH의 `observe_from`이 컷오버 구간의 창을 걸러 낸다(J20).
