@@ -146,6 +146,11 @@ AWS 사용 시 `uv sync --extra aws`로 설치한다. 서버가 각각의 역할
 클라이언트와 역할을 연결해야 한다. SDK wire/debug 로그를 금지하고, 사용자 코드가 없는
 시험 워커에서 실행한다. 실제 AWS 자격 시험은 수행하지 않았다.
 
+`QualifiedAwsProbe`는 이 신원 결속을 수행하는 선택적 호스트 연결부다. 등록된 역할의
+고유 `RoleId`와 STS 신원을 대조하고, 같은 임시 자격 증명으로 실제 통제 요청을 실행한 뒤
+신원 확인 근거와 probe 증거를 함께 보존한다. [연결 계약과 실환경 인수 항목](docs/aws-qualification.md)을
+따른다. Credential Provider·팀 로그인·최소 권한 발급은 호스트의 책임이다.
+
 ## 검증
 
 ```sh
