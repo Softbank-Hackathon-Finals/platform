@@ -1,12 +1,12 @@
 {
   "baseline_passed": true,
-  "mutation_count": 28,
+  "mutation_count": 33,
   "survivors": [],
   "mutations": [
     {
       "removed_check": "source_inventory_compare",
       "module": "sync_attachments.py",
-      "suite_failed": true,
+      "suite_exit_code": 1,
       "failing_test_count": 4,
       "failing_tests": [
         "test_database_reference_missing_from_source",
@@ -18,7 +18,7 @@
     {
       "removed_check": "unrelated_destination_check",
       "module": "sync_attachments.py",
-      "suite_failed": true,
+      "suite_exit_code": 1,
       "failing_test_count": 1,
       "failing_tests": [
         "test_unrelated_destination_object_is_preserved"
@@ -27,7 +27,7 @@
     {
       "removed_check": "existing_bytes_compare",
       "module": "sync_attachments.py",
-      "suite_failed": true,
+      "suite_exit_code": 1,
       "failing_test_count": 1,
       "failing_tests": [
         "test_existing_different_destination_bytes_are_preserved"
@@ -36,7 +36,7 @@
     {
       "removed_check": "destination_readback",
       "module": "sync_attachments.py",
-      "suite_failed": true,
+      "suite_exit_code": 1,
       "failing_test_count": 1,
       "failing_tests": [
         "test_corrupt_destination_write_cannot_report_success"
@@ -45,7 +45,7 @@
     {
       "removed_check": "source_reread",
       "module": "sync_attachments.py",
-      "suite_failed": true,
+      "suite_exit_code": 1,
       "failing_test_count": 1,
       "failing_tests": [
         "test_body_changed_during_transfer"
@@ -54,7 +54,7 @@
     {
       "removed_check": "final_inventory_compare",
       "module": "sync_attachments.py",
-      "suite_failed": true,
+      "suite_exit_code": 1,
       "failing_test_count": 1,
       "failing_tests": [
         "test_object_added_during_transfer"
@@ -63,7 +63,7 @@
     {
       "removed_check": "object_count_limit",
       "module": "sync_attachments.py",
-      "suite_failed": true,
+      "suite_exit_code": 1,
       "failing_test_count": 1,
       "failing_tests": [
         "test_too_many_database_references_write_nothing"
@@ -72,7 +72,7 @@
     {
       "removed_check": "empty_inventory_check",
       "module": "sync_attachments.py",
-      "suite_failed": true,
+      "suite_exit_code": 1,
       "failing_test_count": 1,
       "failing_tests": [
         "test_empty_database_inventory"
@@ -81,7 +81,7 @@
     {
       "removed_check": "single_object_limit",
       "module": "sync_attachments.py",
-      "suite_failed": true,
+      "suite_exit_code": 1,
       "failing_test_count": 1,
       "failing_tests": [
         "test_object_over_the_limit_after_the_listing_writes_nothing"
@@ -90,7 +90,7 @@
     {
       "removed_check": "running_total_limit",
       "module": "sync_attachments.py",
-      "suite_failed": true,
+      "suite_exit_code": 1,
       "failing_test_count": 1,
       "failing_tests": [
         "test_total_over_the_limit_after_the_listing_stops_copying"
@@ -99,17 +99,18 @@
     {
       "removed_check": "reuse_of_existing_objects",
       "module": "sync_attachments.py",
-      "suite_failed": true,
-      "failing_test_count": 2,
+      "suite_exit_code": 1,
+      "failing_test_count": 3,
       "failing_tests": [
         "test_killed_process_then_rerun_reuses_finished_objects",
+        "test_lost_put_response_is_not_reported_as_a_conflict",
         "test_repeat_run_reuses_identical_objects"
       ]
     },
     {
       "removed_check": "conditional_create",
       "module": "attachment_stores.py",
-      "suite_failed": true,
+      "suite_exit_code": 1,
       "failing_test_count": 2,
       "failing_tests": [
         "test_create_refuses_an_existing_key_at_the_store",
@@ -119,7 +120,7 @@
     {
       "removed_check": "bounded_read",
       "module": "attachment_stores.py",
-      "suite_failed": true,
+      "suite_exit_code": 1,
       "failing_test_count": 1,
       "failing_tests": [
         "test_read_never_loads_more_than_one_past_the_limit"
@@ -128,7 +129,7 @@
     {
       "removed_check": "listing_cap",
       "module": "attachment_stores.py",
-      "suite_failed": true,
+      "suite_exit_code": 1,
       "failing_test_count": 1,
       "failing_tests": [
         "test_listing_stops_one_past_the_object_limit"
@@ -137,7 +138,7 @@
     {
       "removed_check": "cut_stream_check",
       "module": "attachment_stores.py",
-      "suite_failed": true,
+      "suite_exit_code": 1,
       "failing_test_count": 1,
       "failing_tests": [
         "test_cut_stream_is_not_taken_for_the_whole_object"
@@ -146,7 +147,7 @@
     {
       "removed_check": "expected_bucket_owner",
       "module": "attachment_stores.py",
-      "suite_failed": true,
+      "suite_exit_code": 1,
       "failing_test_count": 1,
       "failing_tests": [
         "test_expected_owner_is_sent_with_every_source_request"
@@ -155,7 +156,7 @@
     {
       "removed_check": "source_has_no_write_method",
       "module": "attachment_stores.py",
-      "suite_failed": true,
+      "suite_exit_code": 1,
       "failing_test_count": 1,
       "failing_tests": [
         "test_source_store_has_no_write_surface"
@@ -164,8 +165,8 @@
     {
       "removed_check": "destination_uses_only_its_own_keys",
       "module": "attachment_stores.py",
-      "suite_failed": true,
-      "failing_test_count": 19,
+      "suite_exit_code": 1,
+      "failing_test_count": 20,
       "failing_tests": [
         "test_body_changed_during_transfer",
         "test_copies_real_objects_and_leaves_the_source_untouched",
@@ -178,6 +179,7 @@
         "test_function_form_for_the_cutover_executor",
         "test_individually_approved_extra_from_a_file",
         "test_killed_process_then_rerun_reuses_finished_objects",
+        "test_lost_put_response_is_not_reported_as_a_conflict",
         "test_object_added_during_transfer",
         "test_object_over_the_limit_after_the_listing_writes_nothing",
         "test_repeat_run_reuses_identical_objects",
@@ -189,9 +191,27 @@
       ]
     },
     {
+      "removed_check": "destination_put_not_retried",
+      "module": "attachment_stores.py",
+      "suite_exit_code": 1,
+      "failing_test_count": 1,
+      "failing_tests": [
+        "test_lost_put_response_is_not_reported_as_a_conflict"
+      ]
+    },
+    {
+      "removed_check": "configured_endpoint_ignored",
+      "module": "attachment_stores.py",
+      "suite_exit_code": 1,
+      "failing_test_count": 1,
+      "failing_tests": [
+        "test_source_ignores_an_endpoint_from_the_environment"
+      ]
+    },
+    {
       "removed_check": "read_only_transaction",
       "module": "attachment_copy.py",
-      "suite_failed": true,
+      "suite_exit_code": 1,
       "failing_test_count": 1,
       "failing_tests": [
         "test_database_connection_refuses_writes"
@@ -200,16 +220,34 @@
     {
       "removed_check": "verified_tls_check",
       "module": "attachment_copy.py",
-      "suite_failed": true,
+      "suite_exit_code": 1,
       "failing_test_count": 1,
       "failing_tests": [
         "test_remote_database_without_verify_full_is_refused"
       ]
     },
     {
+      "removed_check": "verified_tls_checks_hostaddr",
+      "module": "attachment_copy.py",
+      "suite_exit_code": 1,
+      "failing_test_count": 1,
+      "failing_tests": [
+        "test_loopback_name_on_a_remote_address_requires_verify_full"
+      ]
+    },
+    {
+      "removed_check": "inventory_statement_timeout",
+      "module": "attachment_copy.py",
+      "suite_exit_code": 1,
+      "failing_test_count": 1,
+      "failing_tests": [
+        "test_inventory_read_blocked_by_a_lock_times_out"
+      ]
+    },
+    {
       "removed_check": "total_size_preflight",
       "module": "attachment_copy.py",
-      "suite_failed": true,
+      "suite_exit_code": 1,
       "failing_test_count": 3,
       "failing_tests": [
         "test_single_object_over_the_limit_writes_nothing",
@@ -220,7 +258,7 @@
     {
       "removed_check": "unmeasured_field_removal",
       "module": "attachment_copy.py",
-      "suite_failed": true,
+      "suite_exit_code": 1,
       "failing_test_count": 2,
       "failing_tests": [
         "test_copies_real_objects_and_leaves_the_source_untouched",
@@ -228,9 +266,18 @@
       ]
     },
     {
+      "removed_check": "exact_extra_keys",
+      "module": "attachment_copy.py",
+      "suite_exit_code": 1,
+      "failing_test_count": 1,
+      "failing_tests": [
+        "test_extra_inventory_file_ignores_blank_lines"
+      ]
+    },
+    {
       "removed_check": "public_reason_allowlist",
       "module": "attachment_copy.py",
-      "suite_failed": true,
+      "suite_exit_code": 1,
       "failing_test_count": 8,
       "failing_tests": [
         "test_certificate_for_another_name_is_refused",
@@ -246,7 +293,7 @@
     {
       "removed_check": "public_s3_code_allowlist",
       "module": "attachment_copy.py",
-      "suite_failed": true,
+      "suite_exit_code": 1,
       "failing_test_count": 1,
       "failing_tests": [
         "test_only_listed_s3_codes_are_published"
@@ -255,7 +302,7 @@
     {
       "removed_check": "raw_exception_suppression",
       "module": "attachment_copy.py",
-      "suite_failed": true,
+      "suite_exit_code": 1,
       "failing_test_count": 1,
       "failing_tests": [
         "test_logged_traceback_carries_no_raw_message"
@@ -264,7 +311,7 @@
     {
       "removed_check": "same_bucket_guard",
       "module": "attachment_copy.py",
-      "suite_failed": true,
+      "suite_exit_code": 1,
       "failing_test_count": 1,
       "failing_tests": [
         "test_same_store_on_both_sides_cannot_report_a_false_copy"
@@ -273,7 +320,7 @@
     {
       "removed_check": "bucket_owner_required",
       "module": "attachment_copy.py",
-      "suite_failed": true,
+      "suite_exit_code": 1,
       "failing_test_count": 1,
       "failing_tests": [
         "test_real_s3_requires_the_expected_bucket_owner"
@@ -282,7 +329,7 @@
     {
       "removed_check": "nonzero_exit_on_failure",
       "module": "attachment_copy.py",
-      "suite_failed": true,
+      "suite_exit_code": 1,
       "failing_test_count": 16,
       "failing_tests": [
         "test_certificate_for_another_name_is_refused",

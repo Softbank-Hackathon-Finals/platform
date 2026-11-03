@@ -177,6 +177,7 @@ inventory, not a prefix wildcard or a reason to delete either side's objects.
 
 - 출발지 첨부 쓰기가 멈춰 있어야 한다. 앱의 `PUT /api/attachments`는 쓰기 차단 중에만 막히고,
   복사가 끝난 뒤 들어온 업로드는 이 명령이 알 수 없다. 그 행은 복제되지만 객체는 목적지에 없다.
+  데모 중 업로드는 앱에서 막기로 정했다(T22 · T28, 아직 반영 전).
 - 목적지 버킷이 있어야 한다. 이 명령은 버킷을 만들지 않는다.
 - 현재 한도는 객체 100개, 합계 16MiB다. 넘으면 아무것도 쓰지 않고 거부한다.
 

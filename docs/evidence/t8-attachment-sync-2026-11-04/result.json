@@ -1,12 +1,12 @@
 {
   "schema_version": 1,
-  "generated_at": "2026-11-03T16:51:03+00:00",
+  "generated_at": "2026-11-03T17:28:47+00:00",
   "artifact_kind": "local container test of the attachment copy; no cloud resource was called",
   "base_commit": "d79d5f13196d9377d59999be46f0d282df4a0666",
   "module_sha256": {
     "sync_attachments.py": "728553d72e915dcb1df7e82d73fa564657529e62c34a7e1fe7a6148cd453381a",
-    "attachment_stores.py": "6bd3c6829c9b7281a9b0376b20c5b0639ad6bb8786930c03537a80eac62f9f39",
-    "attachment_copy.py": "44c1996b254e8ca0dbf37f66928726dc3ec36ec143a94282ed2eae1008bca447"
+    "attachment_stores.py": "572318db5ee23e8b793f365c233536f0e55ca7f01a3b796e54aa38e458b62cba",
+    "attachment_copy.py": "8a2246b8ad8f1674f5b2eeeda7055a8f258207e08172b5384680843017a16bab"
   },
   "unchanged_from_pr_131": {
     "sync_attachments.py": true
@@ -31,18 +31,18 @@
       "python": "Python 3.9.6",
       "summary": "OK (skipped=1)",
       "exit_code": 0,
-      "tests_run": 18
+      "tests_run": 20
     },
     "with_real_containers": {
-      "tests_run": 55,
+      "tests_run": 60,
       "exit_code": 0,
       "summary": "OK"
     }
   },
   "mutation_check": {
     "baseline_passed": true,
-    "removed_checks": 28,
-    "caught": 28,
+    "removed_checks": 33,
+    "caught": 33,
     "survivors": [],
     "details": "mutations.json"
   },
@@ -58,15 +58,15 @@
         "copied": 3,
         "reused": 0,
         "bytes_verified": 7168,
-        "key_content_inventory_sha256": "380a3d847284f7c2e3ab8dceadfe2a8e6bcc78efea19bf90c5fe7df302bf471a",
+        "key_content_inventory_sha256": "9d1cf6a5a670a5489367dbb883b6550677a453ef3ec917d71fd70d87969fb637",
         "content_sha256": [
           "30d6bc164ea54188aa9df0c14f20c4fbc8a155c5644bcc9ef9eb05901cb07d70",
           "5f70bf18a086007016e948b04aed3b82103a36bea41755b6cddfaf10ace3c6ef",
           "7c7d2eb358671b401d2a5e59bf56e7163e16994a170d4788faad9be5d82363b2"
         ]
       },
-      "seconds": 0.567,
-      "peak_rss_bytes": 86147072
+      "seconds": 0.615,
+      "peak_rss_bytes": 86212608
     },
     "repeat_run": {
       "exit_code": 0,
@@ -79,15 +79,15 @@
         "copied": 0,
         "reused": 3,
         "bytes_verified": 7168,
-        "key_content_inventory_sha256": "380a3d847284f7c2e3ab8dceadfe2a8e6bcc78efea19bf90c5fe7df302bf471a",
+        "key_content_inventory_sha256": "9d1cf6a5a670a5489367dbb883b6550677a453ef3ec917d71fd70d87969fb637",
         "content_sha256": [
           "30d6bc164ea54188aa9df0c14f20c4fbc8a155c5644bcc9ef9eb05901cb07d70",
           "5f70bf18a086007016e948b04aed3b82103a36bea41755b6cddfaf10ace3c6ef",
           "7c7d2eb358671b401d2a5e59bf56e7163e16994a170d4788faad9be5d82363b2"
         ]
       },
-      "seconds": 0.464,
-      "peak_rss_bytes": 86114304
+      "seconds": 0.458,
+      "peak_rss_bytes": 86016000
     },
     "unrelated_destination_object": {
       "exit_code": 1,
@@ -99,8 +99,8 @@
         "s3_error_code": null,
         "raw_output_suppressed": true
       },
-      "seconds": 0.544,
-      "peak_rss_bytes": 85917696
+      "seconds": 0.427,
+      "peak_rss_bytes": 85639168
     },
     "destination_conflict": {
       "exit_code": 1,
@@ -112,8 +112,8 @@
         "s3_error_code": null,
         "raw_output_suppressed": true
       },
-      "seconds": 0.52,
-      "peak_rss_bytes": 86654976
+      "seconds": 0.388,
+      "peak_rss_bytes": 85819392
     },
     "total_over_limit": {
       "exit_code": 1,
@@ -125,8 +125,8 @@
         "s3_error_code": null,
         "raw_output_suppressed": true
       },
-      "seconds": 0.423,
-      "peak_rss_bytes": 85639168
+      "seconds": 0.442,
+      "peak_rss_bytes": 85819392
     }
   },
   "local_timing": {
@@ -135,20 +135,20 @@
       "limit_100_objects_16mib": {
         "objects": 100,
         "bytes": 16777216,
-        "seconds": 1.846,
-        "peak_rss_bytes": 86605824
+        "seconds": 1.758,
+        "peak_rss_bytes": 86933504
       },
       "app_maximum_10mib_plus_6mib": {
         "objects": 2,
         "bytes": 16777216,
-        "seconds": 0.952,
-        "peak_rss_bytes": 120733696
+        "seconds": 0.757,
+        "peak_rss_bytes": 120012800
       },
       "small_3_objects": {
         "objects": 3,
         "bytes": 7168,
-        "seconds": 0.46,
-        "peak_rss_bytes": 86228992
+        "seconds": 0.423,
+        "peak_rss_bytes": 85917696
       }
     }
   }
