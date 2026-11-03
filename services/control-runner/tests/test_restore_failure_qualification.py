@@ -14,6 +14,7 @@ q = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(q)
 UID = "c2186bd3-5833-421b-a16b-08b83bc9721a"
 BACKUP = "19990101T000000"
+WAL = "000000010000000000000006"
 
 
 def error(case):
@@ -22,6 +23,14 @@ def error(case):
         event["error"] = "rpc error: code = Unknown desc = no backup found with ID " + BACKUP
     elif case == "wrong-ca":
         event["stderr"] = "SSL validation failed: [SSL: CERTIFICATE_VERIFY_FAILED]"
+    elif case == "missing-wal":
+        event = {
+            "level": "error",
+            "msg": "Error while restoring a backup",
+            "error": "rpc error: code = Unknown desc = encountered an error while checking "
+            "the presence of first needed WAL in the archive: object storage or file "
+            "not found " + WAL + ": WAL not found",
+        }
     else:
         event["stderr"] = "An error occurred (InvalidAccessKeyId) when calling ListObjectsV2"
     return event
@@ -37,10 +46,16 @@ def encoded(event):
         ("missing-backup", "requested_backup_missing"),
         ("wrong-ca", "certificate_verification_failed"),
         ("wrong-credentials", "storage_access_rejected"),
+        ("missing-wal", "required_initial_wal_missing"),
     ],
 )
 def test_specific_actual_error_formats(case, reason):
-    assert q.failure_reason(case, BACKUP, encoded(error(case))) == reason
+    assert (
+        q.failure_reason(
+            case, BACKUP, encoded(error(case)), wal_segment=WAL if case == "missing-wal" else None
+        )
+        == reason
+    )
 
 
 @pytest.mark.parametrize("case", sorted(q.CASES))
@@ -56,7 +71,10 @@ def test_untrusted_or_ambiguous_log_is_not_proof(case, change):
     raw = encoded(event)
     if change == "duplicate-key":
         raw = raw[:-1] + b', "level": "error"}'
-    assert q.failure_reason(case, BACKUP, raw) is None
+    assert (
+        q.failure_reason(case, BACKUP, raw, wal_segment=WAL if case == "missing-wal" else None)
+        is None
+    )
 
 
 def test_wrong_backup_id_or_longer_prefix_is_not_matching():
@@ -214,3 +232,42 @@ def test_reread_detects_changes(fault):
             client.after_cluster["spec"]["instances"] = 2
     with pytest.raises(ValueError):
         inspect(client)
+
+
+def test_missing_wal_is_bound_to_reviewed_backup_segment():
+    client = Client()
+    client.log = encoded(error("missing-wal"))
+    result = q.inspect(
+        client,
+        case="missing-wal",
+        name="trial",
+        uid=UID,
+        expected_spec=q.spec_digest(client.cluster),
+        backup_id=BACKUP,
+        wal_segment=WAL,
+    )
+    assert result["qualified_failure"] is True
+    assert result["evidence"]["reason"] == "required_initial_wal_missing"
+    assert "not DR-01 PASS" in result["scope"]
+    for incorrect in (None, "", "../wal", WAL.lower().replace("0", "g", 1)):
+        with pytest.raises(ValueError):
+            q.failure_reason("missing-wal", BACKUP, client.log, wal_segment=incorrect)
+    assert q.failure_reason("missing-wal", BACKUP, client.log, wal_segment="0" * 24) is None
+
+
+@pytest.mark.parametrize(
+    "fault", ["future-wal", "unrelated-message", "partial", "suffix", "timeout"]
+)
+def test_other_archive_errors_do_not_qualify_initial_wal_loss(fault):
+    event = error("missing-wal")
+    if fault == "future-wal":
+        event["error"] = event["error"].replace("first needed WAL", "next WAL")
+    elif fault == "unrelated-message":
+        event["msg"] = "application message"
+    elif fault == "partial":
+        event["error"] = "WAL not found"
+    elif fault == "suffix":
+        event["error"] += "; unrelated"
+    else:
+        event["error"] = "connection timeout"
+    assert q.failure_reason("missing-wal", BACKUP, encoded(event), wal_segment=WAL) is None

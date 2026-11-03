@@ -16,7 +16,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from uuid import UUID
 
-CASES = {"missing-backup", "wrong-ca", "wrong-credentials"}
+CASES = {"missing-backup", "wrong-ca", "wrong-credentials", "missing-wal"}
 DNS = re.compile(r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\Z")
 SHA = re.compile(r"[a-f0-9]{64}\Z")
 
@@ -42,7 +42,7 @@ def decode(raw):
     return json.loads(raw, object_pairs_hook=unique_object)
 
 
-def failure_reason(case, backup_id, raw):
+def failure_reason(case, backup_id, raw, *, wal_segment=None):
     """Only structured error fields from the bound recovery Pod are inspected.
 
     Generic 'restore failed', pending Pods, timeouts, successful exit and text in
@@ -52,6 +52,12 @@ def failure_reason(case, backup_id, raw):
         raise ValueError("unsupported qualification case")
     if not isinstance(backup_id, str) or not re.fullmatch(r"[0-9]{8}T[0-9]{6}", backup_id):
         raise ValueError("exact backup ID required")
+    if case == "missing-wal" and (
+        not isinstance(wal_segment, str) or not re.fullmatch(r"[0-9A-F]{24}", wal_segment)
+    ):
+        raise ValueError("operator-registered first required WAL segment required")
+    if case != "missing-wal" and wal_segment is not None:
+        raise ValueError("WAL scope is only accepted for missing-wal")
     if not isinstance(raw, bytes) or len(raw) > 256 * 1024:
         raise ValueError("bounded log bytes required")
     for line in raw.splitlines():
@@ -67,6 +73,20 @@ def failure_reason(case, backup_id, raw):
                 r"no backup found with ID " + re.escape(backup_id) + r"(?![A-Za-z0-9])", error
             ):
                 return "requested_backup_missing"
+        if case == "missing-wal" and isinstance(error, str):
+            # Bind the first WAL to reviewed backup metadata, not an arbitrary
+            # missing archive object, network timeout, or absent future WAL.
+            expected = (
+                "encountered an error while checking the presence of first needed WAL "
+                "in the archive: object storage or file not found "
+                + wal_segment
+                + ": WAL not found"
+            )
+            if event.get("msg") in {"Error while restoring a backup", "restore error"} and (
+                error == "rpc error: code = Unknown desc = " + expected
+                or error == "while restoring cluster: rpc error: code = Unknown desc = " + expected
+            ):
+                return "required_initial_wal_missing"
         # The Barman plugin records command stderr separately from its generic
         # exit-status error. Do not match command options or arbitrary messages.
         if event.get("logger") != "barman" or event.get("command") != "barman-cloud-backup-list":
@@ -157,7 +177,7 @@ class Kubectl:
         return decode(self.raw("get", kind, name, "-o", "json"))
 
 
-def inspect(client, *, case, name, uid, expected_spec, backup_id):
+def inspect(client, *, case, name, uid, expected_spec, backup_id, wal_segment=None):
     if case not in CASES or not DNS.fullmatch(name) or not SHA.fullmatch(expected_spec):
         raise ValueError("bounded case, name and spec digest required")
     if str(UUID(uid)) != uid:
@@ -205,7 +225,7 @@ def inspect(client, *, case, name, uid, expected_spec, backup_id):
                 "--limit-bytes=262144",
                 limit=262144,
             )
-            reason = failure_reason(case, backup_id, raw)
+            reason = failure_reason(case, backup_id, raw, wal_segment=wal_segment)
             if reason is not None:
                 after_pod = client.get("pod", pod_name)
                 if after_pod["metadata"]["uid"] != pod_uid or not failed_recovery(after_pod):
@@ -244,6 +264,9 @@ def main():
     p.add_argument("--cluster-uid", required=True)
     p.add_argument("--expected-spec-sha256", required=True)
     p.add_argument("--backup-id", required=True)
+    p.add_argument(
+        "--wal-segment", help="first required WAL from trusted backup metadata; missing-wal only"
+    )
     args = p.parse_args()
     try:
         if (
@@ -259,6 +282,7 @@ def main():
             uid=args.cluster_uid,
             expected_spec=args.expected_spec_sha256,
             backup_id=args.backup_id,
+            wal_segment=args.wal_segment,
         )
     except (ValueError, OSError, subprocess.SubprocessError, KeyError, TypeError):
         print(
