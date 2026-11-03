@@ -7,7 +7,7 @@
   "status_id": 1,
   "time": 1793782920000,
   "finding_info": {
-    "uid": "sample-gd-0002",
+    "uid": "sha256:df1713dc8dd0f8a212488be0d01d8334d47fc0b5692c947200642fa5344d8a6c",
     "title": "Unprotected port on EC2 instance is being probed",
     "types": [
       "Recon:EC2/PortProbeUnprotectedPort"
@@ -30,12 +30,13 @@
     "source_category": "Recon:EC2/PortProbeUnprotectedPort"
   },
   "bravo": {
+    "normalizer_version": "2",
     "source": "aws_guardduty",
     "environment_id": "env-aws",
     "category": "THREAT",
     "control_ids": [],
     "collected_time": 1793782980000,
-    "raw_sha256": "sha256:bf36f8977ce0cb4fd45473c047d917add831327b901bdb7ac170e42dcafc4353",
+    "raw_sha256": "sha256:8baa2a7c7444d5bf16755c5837ffb18b4add40ee9d6e911f74a2710ee0b05af4",
     "native_url": "https://console.aws.amazon.com/guardduty/home?region=ap-northeast-1#/findings",
     "sample": true
   },

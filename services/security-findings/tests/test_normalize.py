@@ -105,7 +105,8 @@ def test_controls_uid_is_stable_across_runs(normalizer):
     second = normalizer.normalize(
         "bravo_controls", later, environment_id="env-onprem", collected_time=2
     )
-    assert first["finding_info"]["uid"] == second["finding_info"]["uid"] == "env-onprem/IAM-01.1"
+    assert first["finding_info"]["uid"] == second["finding_info"]["uid"]
+    assert first["finding_info"]["uid"].startswith("sha256:")
     assert (first["status_id"], second["status_id"]) == (1, 4)
     assert second["compliance"]["status"] == "Pass"
 
