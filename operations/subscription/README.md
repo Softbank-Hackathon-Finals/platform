@@ -55,7 +55,9 @@ uv run --directory services/agent-worker python ../../operations/subscription/in
    분리돼 있다. 설치 소스 SHA가 일치하지 않으면 결과를 수락하지 않는다. 실행이 끝나면
    터널과 broker를 종료하고 공개 가능한 판정/회전 여부만 artifact로 남긴다.
 
-## T15 검증 범위
+## T38 합성 검증과 T15 소비 경계
+
+실행 기반의 담당·완료 기준은 [T38 #150](https://github.com/Softbank-Hackathon-Finals/platform/issues/150), 제품 템플릿·재시도·승인 전달은 [T15 #24](https://github.com/Softbank-Hackathon-Finals/platform/issues/24)에서 관리한다. 아래 합성 시험을 T15 제품 구현이나 전체 T38 통합 완료로 사용하지 않는다.
 
 현재 연결된 템플릿은 `src/config.py`의 **합성 DB_HOST 환경변수 계약**이다.
 실제 demo-chat의 Secrets Manager→OpenBao 수정과 SeaweedFS 정책 템플릿은 별도다.
