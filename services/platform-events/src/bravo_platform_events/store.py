@@ -1,4 +1,4 @@
-"""SQLite replay reference for local contract tests, not the platform state DB."""
+"""Shared SQLite event log for local contract and atomic plan-state tests."""
 
 import hashlib
 import json
@@ -25,6 +25,9 @@ class EventStore:
             c.executescript("""
                 CREATE TABLE IF NOT EXISTS streams (
                     plan_id TEXT PRIMARY KEY, next_sequence INTEGER NOT NULL DEFAULT 1
+                );
+                CREATE TABLE IF NOT EXISTS state_owners (
+                    plan_id TEXT PRIMARY KEY REFERENCES streams(plan_id)
                 );
                 CREATE TABLE IF NOT EXISTS events (
                     plan_id TEXT NOT NULL, sequence INTEGER NOT NULL,
@@ -63,6 +66,31 @@ class EventStore:
         producer_key: str,
     ) -> dict:
         """Same plan/key/input replays the same event; changed input is rejected."""
+        with self._connection() as c:
+            c.execute("BEGIN IMMEDIATE")
+            return self._append_in_transaction(
+                c,
+                plan_id=plan_id,
+                run_id=run_id,
+                event_type=event_type,
+                data=data,
+                occurred_at=occurred_at,
+                producer_key=producer_key,
+            )
+
+    def _append_in_transaction(
+        self,
+        c: sqlite3.Connection,
+        *,
+        plan_id: str,
+        run_id: str,
+        event_type: str,
+        data: dict,
+        occurred_at: str,
+        producer_key: str,
+        state_owner: bool = False,
+    ) -> dict:
+        """Internal owner port: caller holds the shared write transaction."""
         validate_identifier(plan_id)
         validate_identifier(run_id)
         validate_identifier(producer_key)
@@ -77,41 +105,45 @@ class EventStore:
         if len(canonical.encode()) > 32768:
             raise EventError("event_too_large")
         fingerprint = hashlib.sha256(canonical.encode()).hexdigest()
-        with self._connection() as c:
-            c.execute("BEGIN IMMEDIATE")
-            stream = c.execute(
-                "SELECT next_sequence FROM streams WHERE plan_id=?", (plan_id,)
-            ).fetchone()
-            if stream is None:
-                raise EventError("plan_not_found")
-            old = c.execute(
-                "SELECT * FROM events WHERE plan_id=? AND producer_key=?", (plan_id, producer_key)
-            ).fetchone()
-            if old:
-                if old["request_hash"] != fingerprint:
-                    raise EventError("producer_key_conflict")
-                return json.loads(old["event_json"])
-            sequence = stream["next_sequence"]
-            if sequence > MAX_SEQUENCE:
-                raise EventError("sequence_exhausted")
-            event = {
-                "schema_version": "1.0",
-                "event_id": f"{plan_id}:{sequence}",
-                "sequence": sequence,
-                **request,
-            }
-            validate_event(event)
-            c.execute(
-                "INSERT INTO events VALUES (?,?,?,?,?)",
-                (
-                    plan_id,
-                    sequence,
-                    producer_key,
-                    fingerprint,
-                    json.dumps(event, ensure_ascii=False),
-                ),
-            )
-            c.execute("UPDATE streams SET next_sequence=? WHERE plan_id=?", (sequence + 1, plan_id))
+        if (
+            event_type == "state.changed"
+            and not state_owner
+            and c.execute("SELECT 1 FROM state_owners WHERE plan_id=?", (plan_id,)).fetchone()
+        ):
+            raise EventError("managed_state_required")
+        stream = c.execute(
+            "SELECT next_sequence FROM streams WHERE plan_id=?", (plan_id,)
+        ).fetchone()
+        if stream is None:
+            raise EventError("plan_not_found")
+        old = c.execute(
+            "SELECT * FROM events WHERE plan_id=? AND producer_key=?", (plan_id, producer_key)
+        ).fetchone()
+        if old:
+            if old["request_hash"] != fingerprint:
+                raise EventError("producer_key_conflict")
+            return json.loads(old["event_json"])
+        sequence = stream["next_sequence"]
+        if sequence > MAX_SEQUENCE:
+            raise EventError("sequence_exhausted")
+        event = {
+            "schema_version": "1.0",
+            "event_id": f"{plan_id}:{sequence}",
+            "sequence": sequence,
+            **request,
+        }
+        validate_event(event)
+        c.execute(
+            "INSERT INTO events VALUES (?,?,?,?,?)",
+            (
+                plan_id,
+                sequence,
+                producer_key,
+                fingerprint,
+                json.dumps(event, ensure_ascii=False),
+            ),
+        )
+        c.execute("UPDATE streams SET next_sequence=? WHERE plan_id=?", (sequence + 1, plan_id))
         return event
 
     def read_after(self, plan_id: str, cursor: str | None, *, limit: int = 200) -> list[dict]:
