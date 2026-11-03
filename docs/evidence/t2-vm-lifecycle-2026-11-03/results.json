@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "tested_commit": "e20ed92d29a9013676d7c6ba0b2e7eaebd6fdafb",
+  "environment": "local macOS arm64; isolated temporary state; QEMU 11.1.3",
+  "source_sha256": {
+    "infra/envs/onprem/local-vm.sh": "05128b66a9d2589580b8f5c61b660730b8ae65c8262d3d023d12195c63af7291",
+    "infra/envs/onprem/local_vm.py": "8ee3914a66a5106c462d603966a36ec059bfa95bf9e7d7f560c8ffb7d13d6da3",
+    "scripts/tests/test_local_vm.py": "21a18ad0b60cc1a45d48edf96b9698b98de061482a09608514795fea501fbc0b"
+  },
+  "repository_tests": {
+    "run": 127,
+    "failures": 0,
+    "skipped": 0
+  },
+  "lifecycle_tests": {
+    "run": 14,
+    "real_qemu_cli_down": "PASS"
+  },
+  "cloud_calls": 0,
+  "existing_vm_changed": false,
+  "guest_boot_or_rke2_reinstalled": false,
+  "existing_bootstrap_changed": false,
+  "new_background_service_installed": false
+}
