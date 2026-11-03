@@ -32,6 +32,13 @@ through the instance role and returns them in memory; no shared pull secret is
 created. RKE2 configuration is an explicit separate operational change with
 an original-config backup, checksummed provider binary and readiness readback.
 
+The official binary had four fixable HIGH dependency findings when scanned with
+positive Go-binary coverage. A dependency-only patch of official v1.35.2 source
+is built with a pinned Go SDK and must reproduce the independently reviewed
+binary hash before installation. Host replacement preserves a known old binary
+for rollback and rejects unknown binaries. Coverage-zero scans are failed
+verification, even if the scanner exit code is zero.
+
 ## Consequences and evidence boundaries
 
 The AWS development path preserves the source digest and adds a private mirror

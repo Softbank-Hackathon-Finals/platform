@@ -94,7 +94,9 @@ The tool verifies successful pull events and runtime digests, then deletes
 the owned probe pods. The empty namespace and deny-all policy remain for reuse.
 It does not create an imagePullSecret or mount a service account token.
 
-On 2026-11-03 both pods succeeded at the original digest, and final node 1/1
+On 2026-11-03, after the dependency-fixed provider was reproduced on the actual
+host and atomically installed, both new pods succeeded at the original image
+digest, and final node 1/1
 and system pods 17/17 were ready. Repeating installation made no changes or
 restart. The direct provider response reported `cacheKeyType: Registry` and
 `cacheDuration: 6h0m0s`; kubelet's provider flags were observed. A provider-call

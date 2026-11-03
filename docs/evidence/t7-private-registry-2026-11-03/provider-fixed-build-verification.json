@@ -17,7 +17,7 @@
   "independent_rootfs_scan_package_count": 54,
   "independent_rootfs_scan_fixable_high_critical_count": 0,
   "upstream_runtime_authentication_source_changed": false,
-  "host_replacement_verified": false,
+  "host_replacement_verified": true,
   "previous_official_binary_sha256": "9589cdea0d1ff3efd4d65d48eaed0b0ca6853f92334b3cd0f2d368b670e303b4",
   "previous_official_binary_rootfs_gobinary_count": 1,
   "previous_official_binary_rootfs_package_count": 53,

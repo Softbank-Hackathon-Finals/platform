@@ -1,0 +1,35 @@
+{
+  "observed_at": "2026-11-03T09:59:16+00:00",
+  "ssm_status": "Success",
+  "ssm_response_code": 0,
+  "script_sha256": "305929547b81548813c9beea64bb84b6b031304dbc20e1b0d7223ea81c5f62a1",
+  "host": {
+    "private_ecr_kubelet_pull_verified": true,
+    "source_digest": "sha256:001adc35a9fc767566552fb55c3c19a67b7c5efc7231fb02dc28cdeace99d0d4",
+    "probe_pods": [
+      {
+        "phase": "Succeeded",
+        "runtime_digest": "sha256:001adc35a9fc767566552fb55c3c19a67b7c5efc7231fb02dc28cdeace99d0d4",
+        "registry_pull_event": true,
+        "image_pull_policy": "Always",
+        "pull_secret_count": 0,
+        "service_account_token_mounted": false
+      },
+      {
+        "phase": "Succeeded",
+        "runtime_digest": "sha256:001adc35a9fc767566552fb55c3c19a67b7c5efc7231fb02dc28cdeace99d0d4",
+        "registry_pull_event": true,
+        "image_pull_policy": "Always",
+        "pull_secret_count": 0,
+        "service_account_token_mounted": false
+      }
+    ],
+    "provider_metric_calls_before": null,
+    "provider_metric_calls_after": null,
+    "probe_pods_removed": true,
+    "dedicated_namespace_and_deny_all_policy_retained": true,
+    "registry_credentials_persisted": false,
+    "app_database_access_tested": false,
+    "credential_renewal_after_expiry_observed": false
+  }
+}
