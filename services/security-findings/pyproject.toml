@@ -1,6 +1,6 @@
 [project]
 name = "bravo-findings"
-version = "0.1.0"
+version = "0.2.0"
 description = "보안 탐지 결과 정규화 (T33): 출처별 원본 → OCSF 1.1 부분집합"
 requires-python = ">=3.12"
 dependencies = [
