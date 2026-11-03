@@ -1,8 +1,11 @@
+import contextlib
 import hashlib
 import importlib.util
 import io
 import json
+import os
 import pathlib
+import sys
 import tarfile
 import tempfile
 import unittest
@@ -49,6 +52,58 @@ def archive(path, files):
 
 
 class TargetImageExportTests(unittest.TestCase):
+    def test_verify_only_receipt_matches_verified_bytes_without_provider(self):
+        files, index, amd64 = fixture()
+        with tempfile.TemporaryDirectory() as directory, patch.object(export, "INDEX", index), patch.object(export, "AMD64", amd64):
+            path = pathlib.Path(directory) / "fixture.tar"
+            receipt = pathlib.Path(directory) / "receipt.json"
+            archive(path, files)
+            expected = path.read_bytes()
+            with patch.object(sys, "argv", ["export", "--verify-only", "--archive", str(path), "--receipt", str(receipt)]), \
+                    patch.object(export, "run", side_effect=AssertionError("provider call")) as provider, \
+                    contextlib.redirect_stdout(io.StringIO()):
+                export.main()
+            provider.assert_not_called()
+            result = json.loads(receipt.read_text())
+            self.assertEqual(result["archive_sha256"], hashlib.sha256(expected).hexdigest())
+            self.assertEqual(result["archive_bytes"], len(expected))
+            self.assertEqual(result["verified_blob_count"], 15)
+
+    def test_path_replacement_during_verification_does_not_issue_receipt(self):
+        self.assert_concurrent_change_rejected("replace")
+
+    def test_same_size_in_place_write_during_verification_does_not_issue_receipt(self):
+        self.assert_concurrent_change_rejected("in_place")
+
+    def assert_concurrent_change_rejected(self, mode):
+        files, index, amd64 = fixture()
+        with tempfile.TemporaryDirectory() as directory, patch.object(export, "INDEX", index), patch.object(export, "AMD64", amd64):
+            path = pathlib.Path(directory) / "fixture.tar"
+            receipt = pathlib.Path(directory) / "receipt.json"
+            archive(path, files)
+            before = path.stat()
+            original = export._verify_archive_stream
+
+            def mutate(stream):
+                inventory = original(stream)
+                if mode == "replace":
+                    replacement = pathlib.Path(directory) / "replacement"
+                    replacement.write_bytes(b"not an OCI archive\n")
+                    os.replace(replacement, path)
+                else:
+                    # Same length, and restore mtime: ctime still records the write.
+                    with path.open("r+b") as changed:
+                        changed.write(b"not an OCI archive\n")
+                    os.utime(path, ns=(before.st_atime_ns, before.st_mtime_ns))
+                    self.assertEqual(path.stat().st_size, before.st_size)
+                return inventory
+
+            with patch.object(export, "_verify_archive_stream", side_effect=mutate), \
+                    patch.object(sys, "argv", ["export", "--verify-only", "--archive", str(path), "--receipt", str(receipt)]), \
+                    self.assertRaisesRegex(export.Failure, "archive_changed_during_verification"):
+                export.main()
+            self.assertFalse(receipt.exists())
+
     def test_complete_graph_and_fixed_runtime_identity_pass(self):
         files, index, amd64 = fixture()
         with tempfile.TemporaryDirectory() as directory, patch.object(export, "INDEX", index), patch.object(export, "AMD64", amd64):

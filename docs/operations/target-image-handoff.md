@@ -38,6 +38,11 @@ new archive, the tool verifies every blob hash and descriptor size, the complete
 15-blob reachable graph (including attestations), the exact index/amd64 manifest,
 and the image config's source revision, architecture and UID10001. Archive
 verification never extracts files and rejects extra/traversal/link entries.
+Graph verification, checksum and size use the same open file. The verifier
+refuses to issue a receipt if the archive path is replaced or the file changes
+in place during verification. The receiver must still compare the archive with
+the receipt checksum immediately before import; a receipt does not freeze a file
+against subsequent changes.
 Existing artifacts/receipts are not overwritten. Keep the archive and private
 registry contract outside Git; publish only the bounded receipt if needed.
 

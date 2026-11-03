@@ -44,9 +44,9 @@ def validate_contract(contract):
     return account, repository
 
 
-def verify_archive(path):
+def _verify_archive_stream(stream):
     """Read and hash without extracting any archive member onto the filesystem."""
-    with tarfile.open(path) as archive:
+    with tarfile.open(fileobj=stream) as archive:
         members = {}
         inventory = {}
         for member in archive.getmembers():
@@ -112,6 +112,32 @@ def verify_archive(path):
         return inventory
 
 
+def verified_archive_receipt(path):
+    """Bind verification, checksum and size to one unchanged open file."""
+    def identity(value):
+        return (value.st_dev, value.st_ino, value.st_size,
+                value.st_mtime_ns, value.st_ctime_ns)
+
+    path = pathlib.Path(path)
+    with path.open("rb") as stream:
+        before = os.fstat(stream.fileno())
+        inventory = _verify_archive_stream(stream)
+        stream.seek(0)
+        checksum = hashlib.sha256()
+        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+            checksum.update(chunk)
+        # fstat detects in-place writes; stat also rejects replacement of the
+        # supplied path while the original descriptor remains open.
+        if (identity(os.fstat(stream.fileno())) != identity(before)
+                or identity(path.stat()) != identity(before)):
+            raise Failure("archive_changed_during_verification")
+        return inventory, checksum.hexdigest(), before.st_size
+
+
+def verify_archive(path):
+    return verified_archive_receipt(path)[0]
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--contract", type=pathlib.Path)
@@ -154,15 +180,11 @@ def main():
                         archive.add(item, arcname=str(item.relative_to(work / "layout")), recursive=False)
             verify_archive(staged)
             os.link(staged, args.archive)  # Atomic publication without overwriting an existing artifact.
-    inventory = verify_archive(args.archive)
-    checksum = hashlib.sha256()
-    with args.archive.open("rb") as stream:
-        for chunk in iter(lambda stream=stream: stream.read(1024 * 1024), b""):
-            checksum.update(chunk)
+    inventory, checksum, archive_bytes = verified_archive_receipt(args.archive)
     receipt = {"observed_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
                "verifier_source_sha256": hashlib.sha256(pathlib.Path(__file__).read_bytes()).hexdigest(),
                "source_sha": SOURCE, "image": IMAGE, "index_digest": INDEX, "amd64_digest": AMD64,
-               "archive_sha256": checksum.hexdigest(), "archive_bytes": args.archive.stat().st_size,
+               "archive_sha256": checksum, "archive_bytes": archive_bytes,
                "verified_blob_count": len(inventory), "all_blob_hashes_and_descriptors_verified": True,
                "registry_credentials_exported": False, "new_long_lived_credentials_created": False, "temporary_ecr_auth_used": not args.verify_only,
                "registry_auth_disk_cache_disabled": None if args.verify_only else True,
