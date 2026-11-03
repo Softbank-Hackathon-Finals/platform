@@ -1,6 +1,6 @@
 # CNPG 복원 실패 자격 시험
 
-`verify_restore_failure.py`는 운영자가 별도로 만든 **폐기 가능한 시험 복원본**을 읽는다. 잘못된 백업 ID, 신뢰하지 않는 CA, 잘못된 저장소 자격을 주입한 복원이 실제로 거부되는지 확인하는 도구다. 백업·Secret·ObjectStore·Cluster를 생성하거나 수정하지 않는다.
+`verify_restore_failure.py`는 운영자가 별도로 만든 **폐기 가능한 시험 복원본**을 읽는다. 잘못된 백업 ID, 신뢰하지 않는 CA, 잘못된 저장소 자격 또는 최초 복구 WAL 누락을 주입한 복원이 실제로 거부되는지 확인하는 도구다. 백업·Secret·ObjectStore·Cluster를 생성하거나 수정하지 않는다.
 
 이 결과는 DR-01의 PASS도, 복원 성공도 아니다. DR-01.1에는 정상 백업을 새 클러스터로 복원하고 표식 행·행 수를 확인하는 별도 시험이 필요하다. 로컬 kind 결과는 팀 AWS/RKE2의 자격을 대신하지 않는다.
 
@@ -33,3 +33,19 @@ python qualification/verify_restore_failure.py \
 전체 읽기에는 120초 한도, 명령별 15초 한도를 둔다. 16개를 초과하는 Pod·과대 응답·권한 부족·원인 불명은 종료 코드 2와 `UNKNOWN`으로 남긴다. 종료 코드 0은 **주입한 실패가 확인됨**만 뜻한다. 원문 로그나 자격을 표준 출력에 내보내지 않는다.
 
 시험 후에는 생성 영수증의 UID를 서버 `DeleteOptions.preconditions.uid`에 결속해 시험 자원만 정리한다. 정리는 이 읽기 전용 도구의 기능이 아니다. 기존 원본·백업·저장소와 다른 세션 자원은 보존한다.
+
+## 최초 복구 WAL 누락
+
+`missing-wal`은 정상 완료한 백업의 base 파일과 `backup.info`만 **새 시험 prefix**에 복사하고
+WAL을 복사하지 않은 경우를 검증한다. 원본 archive에서 WAL을 삭제하거나 보존 정책을
+완화하지 않는다. 동일 백업의 정상 복원본과 원본의 Ready·UID·spec, 원본 객체 ETag·크기를
+전후 대조한다. 운영 데이터에서는 별도 승인·복사 및 보존 정책 검토가 먼저 필요하다.
+
+`--backup-id`와 함께 `--wal-segment`에 신뢰된 원본 `backup.info`의 `begin_wal`을 전달한다.
+운영자가 메타데이터 원본과 hash를 비공개로 보존해야 하며, 에러 로그에서 임의 문자열을
+추출해 기대값으로 삼으면 안 된다. 24자리 대문자 16진 WAL 이름만 허용한다.
+
+실제 CNPG/Barman의 `first needed WAL ... WAL not found` 오류가 그 세그먼트를 가리키고,
+동일 복원 Cluster가 소유한 recovery 프로세스가 실패해야 해당 결함이 확인된다. 다른 WAL,
+미래 WAL을 기다리는 메시지, 일반 timeout·권한 오류는 이 자격을 통과하지 못한다.
+이 시험은 **백업 시작에 필요한 WAL 누락**에 한정되며 중간 WAL 손상·PITR 전체를 입증하지 않는다.
