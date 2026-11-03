@@ -22,7 +22,12 @@ KUBECONFIG="$CERT_DIR/kubeconfig"
 API_TOKEN=$(openssl rand -hex 24)
 export CERT_DIR KUBECONFIG
 PF=""
-cleanup() { [ -n "$PF" ] && { kill "$PF" 2>/dev/null; wait "$PF" 2>/dev/null; }; docker rm -f "$NAME" >/dev/null 2>&1; rm -rf "$CERT_DIR"; }
+# set -e 아래에서 죽인 port-forward의 wait가 143을 돌려주면 정리가 멈추고 결과와 다른 종료 코드가 나간다. 실패를 무시하고 끝까지 정리한다
+cleanup() {
+  if [ -n "$PF" ]; then kill "$PF" 2>/dev/null || true; wait "$PF" 2>/dev/null || true; fi
+  docker rm -f "$NAME" >/dev/null 2>&1 || true
+  rm -rf "$CERT_DIR"
+}
 trap cleanup EXIT
 fails=0
 check() { if [ "$1" = ok ]; then echo "  ok   $2"; else echo "  FAIL $2"; fails=$((fails + 1)); fi; }
