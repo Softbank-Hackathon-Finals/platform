@@ -20,7 +20,8 @@ import attachment_containers
 
 SYNC, STORES, COPY = "sync_attachments.py", "attachment_stores.py", "attachment_copy.py"
 HERE = Path(__file__).resolve().parent
-RESULT_LINE = re.compile(r"^(test_\w+) \(.*\)(?: \.\.\.)? ?.*\.\.\. (FAIL|ERROR)$|^(FAIL|ERROR): (test_\w+) ")
+# Only a test method counts. A crash in setUpModule or an import error measures nothing.
+RESULT_LINE = re.compile(r"^(?:FAIL|ERROR): (test_\w+) \(test_attachment_copy\w*\.")
 
 MUTATIONS = [
     ("source_inventory_compare", SYNC,
@@ -61,14 +62,21 @@ MUTATIONS = [
     ("destination_uses_only_its_own_keys", STORES,
      ("aws_access_key_id=access_key_id, aws_secret_access_key=secret_access_key,\n"
       "                          aws_session_token=None, "), ""),
+    ("destination_put_not_retried", STORES, 'config=_client_config("path", max_retries=0)',
+     'config=_client_config("path", max_retries=1)'),
+    ("configured_endpoint_ignored", STORES, "                  ignore_configured_endpoint_urls=True,\n", ""),
     ("read_only_transaction", COPY, "    connection.read_only = True\n", ""),
     ("verified_tls_check", COPY,
-     '        require_verified_tls(connection.info.host, connection.info.get_parameters().get("sslmode"))\n',
+     '        require_verified_tls(info.host, info.hostaddr, info.get_parameters().get("sslmode"))\n',
      "        pass\n"),
+    ("verified_tls_checks_hostaddr", COPY, "not {host, hostaddr} <= LOOPBACK_HOSTS", "host not in LOOPBACK_HOSTS"),
+    ("inventory_statement_timeout", COPY,
+     '    connection.execute(f"SET LOCAL statement_timeout = {STATEMENT_TIMEOUT_MS}")\n', ""),
     ("total_size_preflight", COPY,
      ("    if sum(source.sizes().values()) > MAX_BYTES:\n"
      '        raise ValueError("bounded transfer size exceeded")\n'), ""),
-    ("unmeasured_field_removal", COPY, '    del result["source_write_calls"]\n', ""),
+    ("unmeasured_field_removal", COPY, '    result.pop("source_write_calls", None)\n', ""),
+    ("exact_extra_keys", COPY, "[line for line in", "[line.strip() for line in"),
     ("public_reason_allowlist", COPY,
      'reason = str(error) if isinstance(error, ValueError) and str(error) in PUBLIC_REASONS else "unclassified"',
      "reason = str(error)"),
@@ -92,8 +100,7 @@ def run_suite(module_dir, environment):
         env={**os.environ, "T8_ATTACH_E2E": "1", "T8_ATTACH_ENV": json.dumps(environment),
              "T8_ATTACH_MODULE_DIR": str(module_dir), "PYTHONDONTWRITEBYTECODE": "1"},
         check=False, capture_output=True, text=True, timeout=600)
-    failed = sorted({match.group(4) for match in map(RESULT_LINE.match, result.stderr.splitlines())
-                     if match and match.group(4)})
+    failed = sorted({match.group(1) for match in map(RESULT_LINE.match, result.stderr.splitlines()) if match})
     return result.returncode, failed
 
 
@@ -117,11 +124,11 @@ def main(output):
                     raise SystemExit(f"mutation {name} no longer matches {module} exactly once")
                 (mutated / module).write_text(text.replace(old, new))
                 code, failed = run_suite(mutated, environment)
-                results.append({"removed_check": name, "module": module, "suite_failed": bool(code),
+                results.append({"removed_check": name, "module": module, "suite_exit_code": code,
                                 "failing_test_count": len(failed), "failing_tests": failed})
-                if not code:
+                if not failed:
                     survivors.append(name)
-                print(name, "caught" if code else "SURVIVED", len(failed), flush=True)
+                print(name, "caught" if failed else "SURVIVED", len(failed), flush=True)
     finally:
         attachment_containers.stop(environment)
     Path(output).write_text(json.dumps({"baseline_passed": True, "mutation_count": len(results),

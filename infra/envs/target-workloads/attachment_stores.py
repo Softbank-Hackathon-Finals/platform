@@ -59,9 +59,11 @@ class DestinationStore(_BoundedBucket):
             raise
 
 
-def _client_config(addressing_style):
+def _client_config(addressing_style, max_retries):
+    # An ambient AWS_ENDPOINT_URL must not silently point either side at another store.
     return Config(signature_version="s3v4", s3={"addressing_style": addressing_style},
-                  connect_timeout=10, read_timeout=20, retries={"max_attempts": 1},
+                  connect_timeout=10, read_timeout=20, retries={"max_attempts": max_retries},
+                  ignore_configured_endpoint_urls=True,
                   request_checksum_calculation="when_required",
                   response_checksum_validation="when_required")
 
@@ -69,14 +71,18 @@ def _client_config(addressing_style):
 def source_store(bucket, region, expected_owner=None, endpoint_url=None):
     """Credentials come from the SDK default chain (role, IRSA or the operator's profile)."""
     client = boto3.client("s3", region_name=region, endpoint_url=endpoint_url,
-                          config=_client_config("path" if endpoint_url else "auto"))
+                          config=_client_config("path" if endpoint_url else "auto", max_retries=1))
     request = {"ExpectedBucketOwner": expected_owner} if expected_owner else {}
     return SourceStore(client, bucket, **request)
 
 
 def destination_store(endpoint_url, bucket, access_key_id, secret_access_key):
-    """Local signing keys only: these are not AWS keys, so the default chain must stay unused."""
+    """Local signing keys only: these are not AWS keys, so the default chain must stay unused.
+
+    No SDK retries: repeating a PUT whose response was lost would meet its own object and look
+    like a conflict. A rerun of the whole copy reuses it safely instead.
+    """
     client = boto3.client("s3", endpoint_url=endpoint_url, region_name="us-east-1",
                           aws_access_key_id=access_key_id, aws_secret_access_key=secret_access_key,
-                          aws_session_token=None, config=_client_config("path"))
+                          aws_session_token=None, config=_client_config("path", max_retries=0))
     return DestinationStore(client, bucket)

@@ -35,6 +35,7 @@ PUBLIC_S3_CODES = frozenset({
     "InternalError", "ServiceUnavailable", "SlowDown", "RequestTimeout", "NotImplemented",
 })
 LOOPBACK_HOSTS = frozenset({"127.0.0.1", "::1", "localhost"})
+STATEMENT_TIMEOUT_MS = 10_000
 
 
 class AttachmentCopyFailed(Exception):
@@ -63,21 +64,25 @@ def describe_failure(stage, error):
     return AttachmentCopyFailed(stage, reason, error_category=type(error).__name__, s3_error_code=code)
 
 
-def require_verified_tls(host, sslmode):
-    if sslmode != "verify-full" and host not in LOOPBACK_HOSTS:
+def require_verified_tls(host, hostaddr, sslmode):
+    # Both must be local: libpq reports the host name even when hostaddr points elsewhere.
+    if sslmode != "verify-full" and not {host, hostaddr} <= LOOPBACK_HOSTS:
         raise AttachmentCopyFailed("database_inventory", "database connection must use verify-full TLS")
 
 
 def connect_read_only(dsn=""):
-    """An empty DSN uses the libpq PG* environment. Every transaction on it is READ ONLY."""
+    """An empty DSN uses the libpq PG* environment. The transaction is READ ONLY and time-limited."""
     import psycopg  # Default test discovery has no driver installed.
     connection = psycopg.connect(dsn, connect_timeout=10)
     try:
-        require_verified_tls(connection.info.host, connection.info.get_parameters().get("sslmode"))
+        info = connection.info
+        require_verified_tls(info.host, info.hostaddr, info.get_parameters().get("sslmode"))
     except AttachmentCopyFailed:
         connection.close()
         raise
     connection.read_only = True
+    # A lock on the table must end in a receipt, not hold the caller before cutover forever.
+    connection.execute(f"SET LOCAL statement_timeout = {STATEMENT_TIMEOUT_MS}")
     return connection
 
 
@@ -95,7 +100,7 @@ def copy_keys(source, destination, expected_keys, approved_extra_keys=()):
     result = synchronize(source, destination, expected_keys, approved_extra_keys=approved_extra_keys)
     # synchronize() hard-codes this field. Read-only is a property of the source store, tested
     # there; a receipt must not present a constant as a measurement.
-    del result["source_write_calls"]
+    result.pop("source_write_calls", None)
     return result
 
 
@@ -103,7 +108,8 @@ def approved_extras_from(environ):
     path = environ.get("ATTACHMENT_APPROVED_EXTRA_KEYS_FILE")
     if not path:
         return []
-    return [line.strip() for line in Path(path).read_text().splitlines() if line.strip()]
+    # Keys are compared exactly, so only blank lines are dropped.
+    return [line for line in Path(path).read_text(encoding="utf-8").splitlines() if line.strip()]
 
 
 def stores_from(environ):
@@ -132,7 +138,11 @@ def stores_from(environ):
 
 
 def run_copy(environ=os.environ, *, db_dsn="", approved_extra_keys=None):
-    """Run once and return the receipt, or raise AttachmentCopyFailed. Rerunning is safe."""
+    """Run once and return the receipt, or raise AttachmentCopyFailed. Rerunning is safe.
+
+    environ supplies only the ATTACHMENT_* values. libpq and the AWS SDK read PG* and credentials
+    from the process environment, so pass db_dsn to choose the database explicitly.
+    """
     stage = "configuration"
     try:
         extras = approved_extras_from(environ) if approved_extra_keys is None else approved_extra_keys

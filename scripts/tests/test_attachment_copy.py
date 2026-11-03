@@ -88,15 +88,25 @@ class CopyKeysTests(unittest.TestCase):
         self.assertEqual(destination.writes, ["a", "b"])
 
 
+class UnmeasuredFieldTests(unittest.TestCase):
+    def test_absent_field_cannot_fail_a_finished_copy(self):
+        with patch.object(attachment_copy, "synchronize", lambda *_, **__: {"passed": True}):
+            self.assertEqual(attachment_copy.copy_keys(Store({}), Store({}), []), {"passed": True})
+
+
 class VerifiedTlsTests(unittest.TestCase):
     def test_remote_database_requires_verify_full(self):
-        attachment_copy.require_verified_tls("source-db.internal", "verify-full")
+        attachment_copy.require_verified_tls("source-db.internal", "192.0.2.10", "verify-full")
         for mode in (None, "disable", "prefer", "require", "verify-ca"):
             with self.assertRaises(attachment_copy.AttachmentCopyFailed):
-                attachment_copy.require_verified_tls("source-db.internal", mode)
+                attachment_copy.require_verified_tls("source-db.internal", "192.0.2.10", mode)
 
     def test_loopback_test_database_may_skip_tls(self):
-        attachment_copy.require_verified_tls("127.0.0.1", "disable")
+        attachment_copy.require_verified_tls("127.0.0.1", "127.0.0.1", "disable")
+
+    def test_loopback_name_on_a_remote_address_requires_verify_full(self):
+        with self.assertRaises(attachment_copy.AttachmentCopyFailed):
+            attachment_copy.require_verified_tls("localhost", "192.0.2.10", "disable")
 
 
 def environment(**overrides):
@@ -141,10 +151,11 @@ class ConfigurationTests(unittest.TestCase):
 
     def test_extra_inventory_file_ignores_blank_lines(self):
         with tempfile.NamedTemporaryFile("w", suffix=".keys") as stream:
-            stream.write("first\n\n  \nsecond\n")
+            stream.write("first\n\n  \nsecond \n")
             stream.flush()
             extras = attachment_copy.approved_extras_from({"ATTACHMENT_APPROVED_EXTRA_KEYS_FILE": stream.name})
-        self.assertEqual(extras, ["first", "second"])
+        # Keys are compared exactly, so an approved key keeps its own spaces.
+        self.assertEqual(extras, ["first", "second "])
 
 
 class SafeFailureTests(unittest.TestCase):

@@ -12,6 +12,7 @@ import os
 import subprocess
 import sys
 import tempfile
+import threading
 import unittest
 import uuid
 from pathlib import Path
@@ -279,6 +280,24 @@ class ConflictTests(Case):
             attachment_copy.copy_keys(self.source_store(), Racing(self.target_store()), [KEY + "a"])
         self.assertEqual(contents(self.target), {KEY + "a": BODY + b"winner"})
 
+    def test_lost_put_response_is_not_reported_as_a_conflict(self):
+        from botocore.exceptions import ConnectionClosedError
+        self.seed({KEY + "a": BODY})
+        store, applied = self.target_store(), []
+
+        def lost_response(request, **_):
+            # The server applied the PUT but the caller never saw the answer.
+            if not applied:
+                applied.append(True)
+                self.target.put_object(Bucket=BUCKET, Key=KEY + "a", Body=BODY)
+                raise ConnectionClosedError(endpoint_url=request.url)
+
+        store._client.meta.events.register("before-send.s3.PutObject", lost_response)
+        with self.assertRaises(ConnectionClosedError):
+            attachment_copy.copy_keys(self.source_store(), store, [KEY + "a"])
+        retry = attachment_copy.copy_keys(self.source_store(), self.target_store(), [KEY + "a"])
+        self.assertEqual((retry["copied"], retry["reused"]), (0, 1))
+
     def test_corrupt_destination_write_cannot_report_success(self):
         self.seed({KEY + "a": BODY})
         store = self.target_store()
@@ -485,6 +504,27 @@ class ReadOnlyBoundaryTests(Case):
                 psycopg.errors.ReadOnlySqlTransaction):
             connection.execute("INSERT INTO attachments (id, object_key, filename, content_type, size)"
                                " VALUES (%s, 'x', 'x', 'x', 0)", (uuid.uuid4(),))
+
+    def test_source_ignores_an_endpoint_from_the_environment(self):
+        ambient = {"AWS_ENDPOINT_URL": ENV["target_endpoint"], "AWS_ENDPOINT_URL_S3": ENV["target_endpoint"]}
+        with patch.dict(os.environ, ambient):
+            store = attachment_stores.source_store(BUCKET, "us-east-1", expected_owner="123456789012")
+        self.assertNotIn(ENV["target_endpoint"], store._client.meta.endpoint_url)
+        self.assertIn("amazonaws.com", store._client.meta.endpoint_url)
+
+    def test_inventory_read_blocked_by_a_lock_times_out(self):
+        holder = admin_database()
+        self.addCleanup(holder.close)
+        holder.execute("BEGIN")
+        holder.execute("LOCK TABLE attachments IN ACCESS EXCLUSIVE MODE")
+        # Releases the lock later, so a missing timeout fails this test instead of hanging the suite.
+        release = threading.Timer(3, holder.close)
+        release.start()
+        self.addCleanup(release.cancel)
+        with patch.object(attachment_copy, "STATEMENT_TIMEOUT_MS", 200), \
+                attachment_copy.connect_read_only(dsn()) as connection, \
+                self.assertRaises(psycopg.errors.QueryCanceled):
+            attachment_copy.read_referenced_keys(connection)
 
     def test_destination_signs_only_with_its_own_keys(self):
         ambient = {"AWS_ACCESS_KEY_ID": "ambient-key", "AWS_SECRET_ACCESS_KEY": "ambient-secret",
