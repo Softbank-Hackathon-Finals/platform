@@ -1,0 +1,88 @@
+# k3d 전용 대역 서버. T9의 SeaweedFS · OpenBao가 생기기 전에 허용 규칙(allow-target-profile)을 시험한다.
+# 네임스페이스마다
+#   - target: 허용 대상 라벨을 단 Pod. 허용 포트와 허용하지 않은 포트 하나씩 연다.
+#   - other:  같은 네임스페이스의 다른 Pod. 허용 포트와 같은 포트를 열지만 라벨이 달라 막혀야 한다.
+# 실제 클러스터(RKE2)에는 올리지 않는다.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: seaweedfs
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: target
+  namespace: seaweedfs
+  labels:
+    app.kubernetes.io/name: seaweedfs-s3
+spec:
+  securityContext: {runAsNonRoot: true, runAsUser: 65534, seccompProfile: {type: RuntimeDefault}}
+  containers:
+    - name: allowed
+      image: busybox:1.36
+      command: ["httpd", "-f", "-p", "8333"]
+      ports: [{containerPort: 8333}]
+      securityContext: {allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: {drop: ["ALL"]}}
+    - name: other-port
+      image: busybox:1.36
+      command: ["httpd", "-f", "-p", "9333"]
+      ports: [{containerPort: 9333}]
+      securityContext: {allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: {drop: ["ALL"]}}
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: other
+  namespace: seaweedfs
+  labels:
+    app.kubernetes.io/name: seaweedfs-master
+spec:
+  securityContext: {runAsNonRoot: true, runAsUser: 65534, seccompProfile: {type: RuntimeDefault}}
+  containers:
+    - name: same-port
+      image: busybox:1.36
+      command: ["httpd", "-f", "-p", "8333"]
+      ports: [{containerPort: 8333}]
+      securityContext: {allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: {drop: ["ALL"]}}
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: openbao
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: target
+  namespace: openbao
+  labels:
+    app.kubernetes.io/name: openbao
+spec:
+  securityContext: {runAsNonRoot: true, runAsUser: 65534, seccompProfile: {type: RuntimeDefault}}
+  containers:
+    - name: allowed
+      image: busybox:1.36
+      command: ["httpd", "-f", "-p", "8200"]
+      ports: [{containerPort: 8200}]
+      securityContext: {allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: {drop: ["ALL"]}}
+    - name: other-port
+      image: busybox:1.36
+      command: ["httpd", "-f", "-p", "8201"]
+      ports: [{containerPort: 8201}]
+      securityContext: {allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: {drop: ["ALL"]}}
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: other
+  namespace: openbao
+  labels:
+    app.kubernetes.io/name: openbao-agent
+spec:
+  securityContext: {runAsNonRoot: true, runAsUser: 65534, seccompProfile: {type: RuntimeDefault}}
+  containers:
+    - name: same-port
+      image: busybox:1.36
+      command: ["httpd", "-f", "-p", "8200"]
+      ports: [{containerPort: 8200}]
+      securityContext: {allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: {drop: ["ALL"]}}

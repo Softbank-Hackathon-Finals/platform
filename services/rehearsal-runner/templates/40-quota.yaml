@@ -1,0 +1,38 @@
+# 리허설이 목적지 자원을 다 쓰지 못하게 막는 상한. 숫자는 가정값이고 T15 작업 크기를 보고 조정한다.
+# NodePort · LoadBalancer 서비스는 노드 밖으로 포트를 여는 길이라 0개로 막는다.
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: rehearsal
+  namespace: ${NAMESPACE}
+spec:
+  hard:
+    requests.cpu: "2"
+    requests.memory: 4Gi
+    limits.cpu: "4"
+    limits.memory: 8Gi
+    pods: "10"
+    services: "10"
+    services.nodeports: "0"
+    services.loadbalancers: "0"
+    persistentvolumeclaims: "3"
+    requests.storage: 10Gi
+---
+# 자원 값을 적지 않은 컨테이너에 넣는 기본값. 이게 없으면 위 할당량 때문에 값 없는 Pod가 전부 거부된다.
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: rehearsal
+  namespace: ${NAMESPACE}
+spec:
+  limits:
+    - type: Container
+      defaultRequest:
+        cpu: 100m
+        memory: 128Mi
+      default:
+        cpu: 500m
+        memory: 512Mi
+      max:
+        cpu: "2"
+        memory: 4Gi
