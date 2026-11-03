@@ -6,11 +6,11 @@
 flowchart LR
   Plan["develop: docs/tasks.md 계획"] -->|"push: 문장·우선순위"| Issue["GitHub 이슈: 체크·담당"]
   Issue -->|"pull: 체크에 따른 상태"| Board["Projects 2: 칸반"]
-  Issue -->|"pull: bot PR → develop"| Local["docs/tasks.md 체크·담당"]
+  Issue -->|"pull: bot PR → 리뷰·승인 → develop"| Local["docs/tasks.md 체크·담당"]
   Board -->|"sync가 옮긴 내역"| Slack["기존 Slack 보드 알림"]
 ```
 
-`scripts/sync_tasks.py`가 공통 로직이고 `.github/workflows/sync-tasks.yml`이 이벤트를 연결한다. `develop`의 계획 또는 스크립트 변경은 `push`, 이슈 편집·닫기·재열기·담당 변경은 `pull`을 실행한다. 봇은 `bot/sync-tasks → develop` PR을 만들고 기존 CI를 통과한 뒤 merge commit으로 합친다. 이슈 이벤트는 GitHub **기본 브랜치**의 워크플로를 사용하므로 기본 브랜치도 develop이어야 한다.
+`scripts/sync_tasks.py`가 공통 로직이고 `.github/workflows/sync-tasks.yml`이 이벤트를 연결한다. `develop`의 계획 또는 스크립트 변경은 `push`, 이슈 편집·닫기·재열기·담당 변경은 `pull`을 실행한다. 봇은 `bot/sync-tasks → develop` PR을 만들고 필수 CI와 팀원 리뷰 승인 후 merge commit으로 합친다. 봇은 자동 머지를 예약하지 않는다. 이슈·칸반의 상태와 로컬 tasks.md 사이에는 봇 PR 리뷰 대기 시간이 생길 수 있다. 이슈 이벤트는 GitHub **기본 브랜치**의 워크플로를 사용하므로 기본 브랜치도 develop이어야 한다.
 
 | 상태 | 사용 시점 | 자동화 동작 |
 |---|---|---|

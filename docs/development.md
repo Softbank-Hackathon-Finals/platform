@@ -9,9 +9,9 @@
 | `hotfix/T번호-설명` | `main` | `main`, 이후 `develop` 또는 진행 중 release | 운영 버전 긴급 수정 |
 | `bot/sync-tasks` | `develop` | `develop` | 이슈 체크·담당 동기화 |
 
-`develop`은 통합 기준이며 GitHub 기본 브랜치다. `main`은 검증·릴리스 기준이다. 두 브랜치는 PR과 `secrets`·`infra`·`platform` 검사를 요구하며 force push·삭제를 막는다. release/hotfix를 main에 머지한 뒤 버전 태그를 남기고 수정이 develop에도 들어갔는지 확인한다. main에 넣었다는 이유만으로 클라우드 배포 성공을 표시하지 않는다.
+`develop`은 통합 기준이며 GitHub 기본 브랜치다. `main`은 검증·릴리스 기준이다. 두 브랜치는 PR, 최종 커밋에 대한 팀원 리뷰 승인 1건 이상, `secrets`·`infra`·`platform` 검사를 요구하며 force push·삭제를 막는다. release/hotfix를 main에 머지한 뒤 버전 태그를 남기고 수정이 develop에도 들어갔는지 확인한다. main에 넣었다는 이유만으로 클라우드 배포 성공을 표시하지 않는다.
 
-일반 작업은 merge commit으로 합쳐 작업 묶음을 보존한다. `gh pr merge --auto --merge`를 사용한다. 검토 중인 타인의 브랜치를 강제로 다시 쓰지 않는다. 전환 전에 열린 PR은 기존 브랜치 이름을 보존할 수 있으며, 기능 PR의 대상만 develop으로 맞춘다.
+일반 작업은 merge commit으로 합쳐 작업 묶음을 보존한다. 자동 머지를 예약하지 않는다. 변경 요청을 해소하고 최종 커밋의 필수 CI와 팀원 승인을 확인한 뒤 머지한다. 코드가 추가되면 이전 승인은 해제되며 다시 리뷰받는다. 검토 중인 타인의 브랜치를 강제로 다시 쓰지 않는다. 전환 전에 열린 PR은 기존 브랜치 이름을 보존할 수 있으며, 기능 PR의 대상만 develop으로 맞춘다.
 
 ```sh
 git fetch origin
@@ -19,7 +19,9 @@ git switch -c feature/T1-aws-foundation origin/develop
 # 구현, 변경에 맞는 로컬 검사, 실제 클라우드 검증, 증거 기록
 git push -u origin feature/T1-aws-foundation
 gh pr create --base develop --title '[T1] 작업 설명' --body-file /path/to/pr.md
-gh pr merge --auto --merge
+# 관련 팀원에게 리뷰 요청. 승인 전에는 PR을 열린 상태로 둔다.
+# 최종 HEAD의 필수 CI · 승인 · 변경 요청 해소를 확인한 뒤:
+gh pr merge --merge --match-head-commit <검토한-HEAD-SHA>
 ```
 
 리뷰에는 문제·최종 동작·검증·남은 범위를 적는다. PR 전 로컬·클라우드 검증을 완료하며, 변경이 문서·CI뿐이면 그 범위의 정적 검사와 GitHub 설정 readback을 기록한다. 관련 없는 클라우드 자원을 만들어 검증했다고 쓰지 않는다.

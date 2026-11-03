@@ -2,7 +2,7 @@ name: sync-tasks
 
 # 진행 상황의 기준은 보드(이슈)다.
 # - tasks.md가 develop에 들어오면(push): 계획(작업 · 할 일 문장 · 우선순위)을 이슈에 반영. 체크 상태는 이슈 것을 유지
-# - 이슈가 바뀌면(issues): 체크 상태로 보드를 옮기고, 체크 · 담당을 tasks.md에 반영하는 PR을 자동 머지
+# - 이슈가 바뀌면(issues): 체크 상태로 보드를 옮기고, 체크 · 담당을 tasks.md에 반영하는 PR을 만들고 리뷰 대기
 # 보드를 옮기면 Slack 채널에 알린다(SLACK_BOT_TOKEN, SLACK_CHANNEL_ID가 있을 때).
 on:
   push:
@@ -52,7 +52,7 @@ jobs:
         run: |
           python3 scripts/sync_tasks.py "$COMMAND" ${DRY:+"$DRY"} --moves-file moves.txt | tee -a "$GITHUB_STEP_SUMMARY"
           if [ -z "$DRY" ] && ! git diff --quiet docs/tasks.md; then echo "changed=true" >> "$GITHUB_OUTPUT"; fi
-      - name: tasks.md 반영 PR (자동 머지)
+      - name: tasks.md 반영 PR (리뷰 대기)
         if: steps.sync.outputs.changed == 'true'
         run: |
           git config user.name "github-actions[bot]"
@@ -63,7 +63,7 @@ jobs:
           gh pr view bot/sync-tasks --json state -q .state 2>/dev/null | grep -q OPEN \
             || gh pr create --base develop --head bot/sync-tasks --title "[sync] 보드 → tasks.md" \
                  --body "이슈의 할 일 체크와 담당을 tasks.md에 반영한다. sync-tasks 워크플로가 만들었다."
-          gh pr merge bot/sync-tasks --auto --merge
+          echo "봇 PR도 필수 CI와 팀원 리뷰 승인 후 머지한다. 자동 머지는 예약하지 않는다."
       - name: Slack 테스트 메시지
         if: inputs.slack-test
         run: echo "Slack 연결 테스트 (보드 동기화 알림이 이 채널로 온다)" >> moves.txt
