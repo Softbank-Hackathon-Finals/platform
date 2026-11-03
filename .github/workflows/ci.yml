@@ -90,6 +90,8 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7
+      - name: 작업 보드 도구 (unittest)
+        run: python3 -m unittest discover -s scripts/tests -v
       # 프로젝트 파일(pyproject.toml · package.json · go.mod)이 있는 폴더마다 해당 언어 검사를 돌린다.
       # 새 언어를 쓰게 되면 여기에 감지 규칙을 한 줄 추가한다. 필수 검사 이름은 그대로 둔다.
       - name: 프로젝트 감지

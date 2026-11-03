@@ -27,3 +27,5 @@ gh pr merge --auto --merge
 이슈 체크는 기능 PR이 develop에 머지되고 해당 완료 기준을 확인한 뒤 한다. 제품 배포 여부는 release 기록으로 별도 확인한다. `sync-tasks`는 develop의 계획을 읽고 develop으로 봇 PR을 만든다. 기존 main의 설계 문서는 마지막 릴리스 기준이고, 다음 개발 기준은 develop의 같은 경로다.
 
 브랜치 역할·release/hotfix의 양쪽 반영·merge commit 원칙은 [Vincent Driessen의 Git branching model](https://nvie.com/posts/a-successful-git-branching-model/)을 따른다. task prefix는 팀의 작업 추적 규칙이다.
+
+칸반과 이슈·문서의 연동 및 로컬 명령은 [프로젝트 보드 안내](project-board.md)를 따른다.

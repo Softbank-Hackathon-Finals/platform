@@ -14,7 +14,7 @@ on:
     inputs:
       command:
         type: choice
-        options: [pull, push]
+        options: [pull, push, status]
         default: pull
       dry-run:
         type: boolean

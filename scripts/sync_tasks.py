@@ -6,6 +6,8 @@
     python scripts/sync_tasks.py push   # tasks.md의 계획 → 이슈 (체크 상태는 이슈 것을 유지)
     python scripts/sync_tasks.py pull   # 이슈의 체크 · 담당 → tasks.md, 체크 상태 → 보드
     python scripts/sync_tasks.py tick T3 2   # T3 이슈의 2번째 할 일을 체크
+    python scripts/sync_tasks.py status  # 보드 · 체크 · 선행을 읽기 전용으로 조회
+    python scripts/sync_tasks.py start T1  # 완료 체크 없이 작업 시작을 보드에 표시
     --dry-run 을 붙이면 바뀔 내용만 출력한다.
 
 필요: gh CLI, GH_TOKEN(이슈 쓰기 + 조직 프로젝트 쓰기 권한).
@@ -20,11 +22,12 @@ import re
 import subprocess
 import sys
 from dataclasses import dataclass, field
+from pathlib import Path
 
 OWNER = "Softbank-Hackathon-Finals"
 REPO = f"{OWNER}/platform"
 PROJECT_NUMBER = 2
-TASKS = "docs/tasks.md"
+TASKS = Path(__file__).resolve().parents[1] / "docs/tasks.md"
 
 LOGINS = {
     "류지환": "mangowhoiscloud",
@@ -73,7 +76,7 @@ class Task:
 
 
 def run(*args: str, input: str | None = None) -> str:
-    r = subprocess.run(args, capture_output=True, text=True, input=input)
+    r = subprocess.run(args, check=False, capture_output=True, text=True, input=input)
     if r.returncode != 0:
         raise RuntimeError(f"{' '.join(args[:4])}: {r.stderr.strip()}")
     return r.stdout
@@ -225,8 +228,6 @@ def rewrite_roles(text: str, owners: dict[str, str]) -> str:
     for line in lines:
         if line.startswith("**"):
             blocks.append([line])
-        elif blocks and line.startswith("- `T"):
-            blocks[-1].append(line)
         elif blocks:
             blocks[-1].append(line)
         else:
@@ -340,7 +341,7 @@ def load_issues() -> dict[str, dict]:
 
 def push(dry: bool) -> None:
     """tasks.md의 계획을 이슈에 반영한다. 체크 상태는 이슈 것을 유지한다."""
-    tasks = parse(open(TASKS, encoding="utf-8").read())
+    tasks = parse(TASKS.read_text(encoding="utf-8"))
     by_id = load_issues()
     board = Board()
 
@@ -399,19 +400,19 @@ def push(dry: bool) -> None:
             warn(f"{k} #{i['number']}: tasks.md에 없음 (그대로 둠, 필요하면 직접 닫기)")
 
     # 새 작업을 역할 분담 목록에도 넣는다. 바뀌면 워크플로가 봇 PR로 올린다.
-    text = open(TASKS, encoding="utf-8").read()
+    text = TASKS.read_text(encoding="utf-8")
     new = rewrite_roles(text, {})
     if new != text:
         print("tasks.md: 역할 분담 목록 갱신")
         if not dry:
-            open(TASKS, "w", encoding="utf-8").write(new)
+            TASKS.write_text(new, encoding="utf-8")
 
 
 def pull(dry: bool) -> bool:
     """이슈의 체크 · 담당을 tasks.md에 반영하고, 체크 상태로 보드와 이슈 열림을 맞춘다."""
     by_id = load_issues()
     board = Board()
-    tasks = parse(open(TASKS, encoding="utf-8").read())
+    tasks = parse(TASKS.read_text(encoding="utf-8"))
 
     for tid, i in sorted(by_id.items(), key=lambda x: int(x[0][1:])):
         if tid not in tasks:
@@ -433,13 +434,13 @@ def pull(dry: bool) -> bool:
         elif k == 0 and now in (None, "Done"):
             board.set(n, i["id"], "Backlog", label, dry)
 
-    text = open(TASKS, encoding="utf-8").read()
+    text = TASKS.read_text(encoding="utf-8")
     new = rewrite_tasks(text, by_id)
     changed = new != text
     if changed:
         print("tasks.md: 이슈의 체크 · 담당 반영")
         if not dry:
-            open(TASKS, "w", encoding="utf-8").write(new)
+            TASKS.write_text(new, encoding="utf-8")
     return changed
 
 
@@ -457,9 +458,50 @@ def tick(task: str, index: int, dry: bool) -> None:
         run("gh", "issue", "edit", str(i["number"]), "-R", REPO, "--body-file", "-", input="\n".join(lines) + "\n")
 
 
+def status() -> None:
+    """보드와 실제 이슈를 읽는다. 완료 체크나 로컬 계획을 수정하지 않는다."""
+    issues = load_issues()
+    board = Board()
+    tasks = parse(TASKS.read_text(encoding="utf-8"))
+    rows = []
+    for tid, task in sorted(tasks.items(), key=lambda x: int(x[0][1:])):
+        issue = issues.get(tid)
+        if issue is None:
+            rows.append({"task": tid, "error": "issue missing"})
+            continue
+        checks = issue_steps(issue["body"])
+        rows.append({
+            "task": tid, "title": task.title, "issue": issue["number"], "priority": task.prio,
+            "assignees": [a["login"] for a in issue["assignees"]],
+            "status": board.status(issue["number"]), "state": issue["state"],
+            "checked": sum(checks.values()), "total": len(checks),
+            "blocked_by": [dep for dep in task.deps if issues.get(dep, {}).get("state") != "CLOSED"],
+            "integration_pending": [dep for dep in task.deps_int if issues.get(dep, {}).get("state") != "CLOSED"],
+        })
+    print(json.dumps({"project": f"https://github.com/orgs/{OWNER}/projects/{PROJECT_NUMBER}/views/2", "tasks": rows}, ensure_ascii=False, indent=2))
+
+
+def start(task: str, dry: bool) -> None:
+    """검증 전에도 시작 상태를 표시한다. 완료 체크는 머지 후 tick으로 한다."""
+    tasks = parse(TASKS.read_text(encoding="utf-8"))
+    issues = load_issues()
+    if task not in tasks or task not in issues:
+        raise ValueError(f"알 수 없는 작업: {task}")
+    issue = issues[task]
+    if issue["state"] != "OPEN":
+        raise ValueError(f"{task}: 닫힌 작업은 시작으로 바꾸지 않는다")
+    blocked = [dep for dep in tasks[task].deps if issues.get(dep, {}).get("state") != "CLOSED"]
+    if blocked:
+        raise ValueError(f"{task}: 선행 미완료: {', '.join(blocked)}")
+    board = Board()
+    if board.status(issue["number"]) in ("In review", "Done"):
+        raise ValueError(f"{task}: 현재 상태를 In progress로 되돌리지 않는다")
+    board.set(issue["number"], issue["id"], "In progress", f"{task} #{issue['number']}", dry)
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("command", choices=["push", "pull", "tick"])
+    ap.add_argument("command", choices=["push", "pull", "tick", "status", "start"])
     ap.add_argument("args", nargs="*")
     ap.add_argument("--dry-run", action="store_true")
     ap.add_argument("--moves-file", help="보드로 옮긴 내역을 적을 파일 (Slack 알림용)")
@@ -468,12 +510,27 @@ def main() -> int:
         push(a.dry_run)
     elif a.command == "pull":
         pull(a.dry_run)
+    elif a.command == "status":
+        if a.args:
+            ap.error("status는 인자를 받지 않는다")
+        status()
+    elif a.command == "start":
+        if len(a.args) != 1:
+            ap.error("start T번호")
+        start(a.args[0], a.dry_run)
     else:
+        if len(a.args) != 2 or not a.args[1].isdigit():
+            ap.error("tick T번호 순번")
         tick(a.args[0], int(a.args[1]), a.dry_run)
     if a.moves_file and moves:
-        open(a.moves_file, "w", encoding="utf-8").write("\n".join(moves) + "\n")
+        Path(a.moves_file).write_text("\n".join(moves) + "\n", encoding="utf-8")
     return 0
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    try:
+        sys.exit(main())
+    except RuntimeError as exc:
+        if "INSUFFICIENT_SCOPES" in str(exc) or "required scopes" in str(exc):
+            sys.exit("GitHub Projects 권한 부족: status는 read:project, 변경은 project 권한이 필요하다. docs/project-board.md의 Actions 조회 경로를 사용할 수 있다.")
+        raise

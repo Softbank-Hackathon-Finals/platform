@@ -100,3 +100,5 @@ platform/
 ## 작업 현황
 
 [Team Bravo Finals](https://github.com/orgs/Softbank-Hackathon-Finals/projects/2) 보드와 이 레포의 이슈를 본다.
+
+칸반 조회·시작·완료 체크는 [프로젝트 보드 안내](docs/project-board.md)와 루트 Makefile을 사용한다.
