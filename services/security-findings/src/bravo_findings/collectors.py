@@ -10,8 +10,8 @@ from bravo_findings.ingest import Ingestor, collection_error_code
 
 log = logging.getLogger("bravo_findings")
 
-# 커서가 없을 때 처음 가져올 범위
-INITIAL_LOOKBACK_MS = 7 * 24 * 3600 * 1000
+# 최초 조회는 전체 보존 범위. 증분은 지연 도착을 위한 5분 중첩.
+OVERLAP_MS = 5 * 60_000
 
 
 def iso(ms: int) -> str:
@@ -83,15 +83,27 @@ def run_once(
     if row is None:
         store.register_source(pull.source, environment_id)
         row = store.source(pull.source, environment_id)
+    if not row.enabled:
+        return Counter({"disabled": 1})
     now = clock()
-    since = int(row.cursor) if row.cursor else now - INITIAL_LOOKBACK_MS
+    since = max(0, int(row.cursor) - OVERLAP_MS) if row.cursor else 0
     try:
-        raws = list(pull.fetch(since, now))  # 페이지를 끝까지 받은 뒤에만 저장한다
-        counts = ingestor.ingest(pull.source, environment_id, raws, now)
-    except Exception as e:  # noqa: BLE001 — 어떤 실패든 "확인 불가"로 드러낸다
+        raws = []
+        for raw in pull.fetch(since, now):
+            raws.append(raw)
+            if len(raws) > 10_000:
+                raise ValueError("collection batch limit")
+        with store.batch():
+            counts = ingestor.ingest(pull.source, environment_id, raws, now)
+            if counts["source_errors"]:
+                store.record_failure(pull.source, environment_id, now, "SOURCE_UNHEALTHY")
+            else:
+                store.record_success(pull.source, environment_id, now, cursor=str(now))
+            if store.source(pull.source, environment_id).error_code:
+                counts["failed"] += 1
+            return counts
+    except Exception as e:  # noqa: BLE001 — errors are stored as codes, never payloads
         code = collection_error_code(e)
         store.record_failure(pull.source, environment_id, now, code)
-        log.warning("collection failed %s/%s: %s", pull.source, environment_id, code)
+        log.warning("collection failed: %s", code)
         return Counter({"failed": 1})
-    store.record_success(pull.source, environment_id, now, cursor=str(now))
-    return counts

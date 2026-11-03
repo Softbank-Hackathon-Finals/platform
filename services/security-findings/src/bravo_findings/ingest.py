@@ -2,9 +2,9 @@ import logging
 from collections import Counter
 from collections.abc import Iterable
 
-from bravo_findings.mask import mask
+from bravo_findings.mask import source_projection
 from bravo_findings.normalize import CollectionError, Dropped, NormalizationError, Normalizer
-from bravo_findings.store import Store
+from bravo_findings.store import EventConflict, Store
 
 log = logging.getLogger("bravo_findings")
 
@@ -16,24 +16,34 @@ class Ingestor:
         self.store, self.normalizer = store, normalizer
 
     def ingest(self, source: str, environment_id: str, raws: Iterable[dict], now: int) -> Counter:
-        """결과 건수를 돌려준다. 출처가 오류를 보고하면 CollectionError를 그대로 올린다(호출한 쪽이 FAILED로 기록)."""
+        """결과·격리·출처 오류 건수를 돌려준다. 호출자는 오류가 있으면 성공/커서 전진을 금지한다."""
         counts: Counter = Counter()
-        for raw in raws:
-            try:
-                finding = self.normalizer.normalize(
-                    source, raw, environment_id=environment_id, collected_time=now
-                )
-            except Dropped:
-                counts["dropped"] += 1
-                continue
-            except NormalizationError as e:
-                # 한 건이 이상하다고 묶음 전체를 버리지 않는다. 격리하고 계속한다.
-                self.store.quarantine(source, environment_id, now, str(e))
-                log.warning("quarantined %s/%s: %s", source, environment_id, e)
-                counts["quarantined"] += 1
-                continue
-            masked = mask({k: v for k, v in raw.items() if not k.startswith("_")})
-            counts[self.store.upsert(finding, masked)] += 1
+        with self.store.batch():
+            for raw in raws:
+                try:
+                    finding = self.normalizer.normalize(
+                        source, raw, environment_id=environment_id, collected_time=now
+                    )
+                    if not 0 < finding["time"] <= now + 300_000:
+                        raise NormalizationError("INVALID_EVENT_TIME")
+                    counts[self.store.upsert(finding, source_projection(source, raw))] += 1
+                except Dropped:
+                    counts["dropped"] += 1
+                except CollectionError:
+                    counts["source_errors"] += 1
+                except (
+                    NormalizationError,
+                    EventConflict,
+                    ValueError,
+                    TypeError,
+                    KeyError,
+                    AttributeError,
+                    OverflowError,
+                ):
+                    # Never log exception text: schema/type errors can contain the raw secret.
+                    self.store.quarantine(source, environment_id, now, "NORMALIZATION_FAILED")
+                    log.warning("event quarantined: NORMALIZATION_FAILED")
+                    counts["quarantined"] += 1
         return counts
 
 

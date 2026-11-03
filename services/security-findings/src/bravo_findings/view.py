@@ -16,7 +16,7 @@ def source_state(row: SourceRow, now: int, stale_ms: int) -> str:
         row.last_success_time is None or (row.last_attempt_time or 0) >= row.last_success_time
     ):
         return "FAILED"
-    if row.last_success_time is None or now - row.last_success_time > stale_ms:
+    if row.last_success_time is None or not 0 <= now - row.last_success_time <= stale_ms:
         return "STALE"
     return "OK"
 
@@ -47,20 +47,26 @@ class View:
         self.store, self.rules = store, rules
         self.stale_ms = rules.mappings["source_status"]["stale_after_minutes"] * 60_000
 
-    def _sources_by_env(self) -> dict[str, list[SourceRow]]:
+    def _sources_by_env(self, allowed=None) -> dict[str, list[SourceRow]]:
         out: dict[str, list[SourceRow]] = {}
         for row in self.store.sources():
+            if allowed is not None and row.environment_id not in allowed:
+                continue
             out.setdefault(row.environment_id, []).append(row)
         return out
 
-    def statuses(self, now: int) -> list[dict]:
-        return [source_status_doc(r, now, self.stale_ms) for r in self.store.sources()]
+    def statuses(self, now: int, allowed=None) -> list[dict]:
+        return [
+            source_status_doc(r, now, self.stale_ms)
+            for r in self.store.sources()
+            if allowed is None or r.environment_id in allowed
+        ]
 
-    def summary(self, now: int) -> dict:
+    def summary(self, now: int, allowed=None) -> dict:
         coverage = self.rules.mappings["coverage"]
         counts = self.store.open_counts()
         environments = []
-        for env, rows in self._sources_by_env().items():
+        for env, rows in self._sources_by_env(allowed).items():
             cells = {}
             for category in CATEGORIES:
                 covering = [r for r in rows if category in coverage.get(r.source, [])]
@@ -86,10 +92,10 @@ class View:
             environments.append({"environment_id": env, "cells": cells})
         return {"generated_time": now, "categories": CATEGORIES, "environments": environments}
 
-    def capabilities(self, now: int) -> dict:
+    def capabilities(self, now: int, allowed=None) -> dict:
         rows_spec = self.rules.mappings["capabilities"]["rows"]
         environments = []
-        for env, rows in self._sources_by_env().items():
+        for env, rows in self._sources_by_env(allowed).items():
             caps = {}
             for spec in rows_spec:
                 present = [r for r in rows if r.source in spec["sources"] and r.enabled]
