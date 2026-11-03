@@ -2,7 +2,7 @@
 
 이 절차는 여러 PR의 현재 상태를 수집하고, 사람이 판단한 내용과 검증 근거를 남기는 데 쓴다. GitHub가 병합 규칙을 집행한다. 수집기와 LLM은 승인하거나 병합 가능 여부를 대신 판정하지 않는다.
 
-현재 협업 원칙은 **해당 파트의 주·보조 담당자에게 리뷰를 요청하고, 적격한 사람 한 명 이상이 승인하면 필요한 CI와 변경 요청 처리 상태를 확인한 뒤 병합**하는 것이다. 초대한 리뷰어 전원이 승인할 때까지 기다리는 방식은 아니다. 기존 문서의 ‘리뷰 없이 CI만으로 병합’ 설명과 충돌하면 현재 사용자의 이 지시를 우선한다. 실제 적용 규칙은 GitHub의 대상 브랜치에서 매번 확인한다.
+해당 파트의 주·보조 담당자에게 리뷰를 요청하고, **현재 GitHub 대상 브랜치의 ruleset·필수 CI·변경 요청 처리 상태**를 확인한 뒤 병합한다. 2026-11-03 확인한 규칙은 적격한 사람 한 명 이상의 승인을 요구한다. 팀은 이것이 병목이면 승인 필수를 조정하고 필수 CI와 필요한 변경의 리뷰 요청을 유지할 수 있다. 도구에 승인 수를 고정하거나 초대한 리뷰어 전원 승인을 별도 조건으로 추가하지 않는다. 실제 적용 규칙은 GitHub에서 매번 다시 확인한다.
 
 ## 1. 여러 PR의 현재 상태 수집
 
@@ -88,6 +88,45 @@ required checks; applicable rule constraints. This is not approval.>
 2. 영향을 받는 검증을 실행하고 근거를 기록한다. 새 head가 생기면 패킷을 다시 수집한다. 이전 SHA의 승인을 새 SHA 승인으로 세지 않는다.
 3. 원문 지적이 실제로 해결됐고 현재 head가 assessment의 SHA와 같으면 고친 스레드를 resolve할 수 있다. 사용자가 승인한 이 작업 범위에서 처리하되 수집기에는 쓰기 동작을 추가하지 않는다. 검증되지 않은 항목을 읽음 표시처럼 resolve하지 않는다.
 4. 스레드 resolve와 `CHANGES_REQUESTED` 리뷰는 서로 다르다. 변경 요청 리뷰는 리뷰어가 다시 판단해야 한다. 이를 지우거나 봇·자기 승인을 만들어 통과시키지 않는다. 해결 근거를 갖춰 해당 주·보조 담당자에게 재리뷰를 요청한다.
-5. 병합 직전에 head/base, 실제 필수 규칙과 CI, GitHub reviewDecision, 남은 변경 요청을 다시 확인한다. 팀에서 정한 사람 한 명 이상의 승인과 GitHub의 필수 조건을 충족하면 네이티브 auto-merge 절차를 따른다. 초대한 모든 사람의 승인을 별도 장벽으로 만들지 않는다.
+5. 병합 직전에 head/base, 실제 필수 규칙과 CI, GitHub reviewDecision, 남은 변경 요청을 다시 확인한다. 현재 대상 브랜치에 설정된 승인 요건과 GitHub의 필수 조건을 충족하면 네이티브 auto-merge 절차를 따른다. 초대한 모든 사람의 승인을 별도 장벽으로 만들지 않는다.
 
 이 명령은 요청 전송, 스레드 resolve, 리뷰 dismiss, 승인, 브랜치 변경, auto-merge 설정, 병합을 수행하지 않는다. 그런 행동은 검토 기록을 갖춘 담당자가 현재 사용자 권한과 GitHub 규칙 안에서 수행한다. 수집 결과를 이용한 별도 병합 엔진은 만들지 않는다.
+
+## 5. Git CLI에서 리뷰 도착 확인
+
+`gh auth login --hostname github.com`으로 인증한 뒤 레포 루트에서 실행한다. 저장소는 `Softbank-Hackathon-Finals/platform`으로 고정되며 로그인한 본인이 작성한 PR만 확인한다.
+
+```sh
+# 기본은 한 번 조회. 별도 daemon이나 로그인 항목은 설치하지 않는다.
+python3 scripts/review_watch.py
+python3 scripts/review_watch.py --once --json
+
+# 명시적으로 켠 동안만 조회. 각 조회가 끝난 뒤 최소 60초를 기다린다.
+python3 scripts/review_watch.py --watch --interval 60
+python3 scripts/review_watch.py --watch --notify  # macOS 알림도 선택한 경우
+
+# 선택 사항: 이 레포의 Git config에만 alias 설치. 기존 다른 alias는 덮어쓰지 않는다.
+python3 scripts/review_watch.py --install-git-alias
+git review-watch --once
+git review-watch --watch --notify
+```
+
+Git worktree는 보통 repository-local config를 공유한다. alias는 설치한 checkout의 스크립트 절대 경로를 안전하게 shell 인용하여 로컬 Git config에만 저장하므로, 스크립트가 아직 없는 다른 worktree에서도 실행할 수 있다. 설치한 checkout을 이동·삭제하거나 해당 파일이 없는 브랜치로 바꾸면 alias도 작동하지 않는다. 그때는 `git config --local --unset alias.review-watch`로 제거한 뒤 스크립트가 있는 안정된 checkout에서 다시 설치한다. 개인 절대 경로를 레포 파일이나 공유 문서로 복사하지 않는다. alias 설정 외에 자동 실행이나 외부 쓰기는 없다.
+
+| 출력 | 뜻과 다음 행동 |
+|---|---|
+| `BASELINE` / `EXISTING` | 첫 조회에서 현재 열린 본인 PR과 최근 30일에 갱신된 본인 PR의 기존 리뷰를 기록했다. 과거 알림을 새 알림으로 울리지 않는다. |
+| `OK` / `NEW` | 지난 성공 조회 이후 처음 본 제출 리뷰나 인라인 댓글이다. 링크로 원문을 읽는다. |
+| `OK` / `UPDATED` | 이미 본 리뷰의 상태 변경(예: dismiss) 또는 인라인 댓글 수정이다. |
+| `OK`, 이벤트 0개 | 확인한 범위에서 새로 관측한 변경이 없다. PR 승인·CI 성공이라는 뜻은 아니다. |
+| `UNKNOWN`, exit 1 | API·페이지 수집·private cursor 저장 중 실패했다. 성공 cursor를 앞당기지 않는다. watch 모드는 같은 간격으로 다시 시도한다. |
+
+제출된 `APPROVED`, `CHANGES_REQUESTED`, `COMMENTED`와 이후 `DISMISSED` 상태, 인라인 리뷰 댓글의 새 등록·수정을 읽는다. 미제출 `PENDING` 리뷰와 일반 PR 대화 댓글은 알림 대상이 아니다. PR 목록에 `closed`와 `merged` 갱신도 포함하고 이전 조회에서 열린 PR을 한 번 더 확인하므로, 두 조회 사이 병합된 PR의 리뷰도 조회한다. 조회 시작 시각을 checkpoint로 삼고 10분 겹쳐 읽는다. 다만 조회 사이 삭제된 댓글이나 여러 번 바뀐 중간 상태까지 복원하는 이벤트 로그는 아니다.
+
+매번 diff·CI 로그·ruleset을 담은 전체 review packet을 만들지 않는다. PR 발견용 목록 두 종류와 대상 PR별 리뷰·인라인 댓글만 페이지별로 읽는다. 페이지 상한이나 API 오류로 수집이 불완전하면 성공 처리하지 않는다. `--json`은 조회마다 JSON 한 줄을 내며 원문 body·diff·이메일·API 사용자 ID를 저장하지 않는다. 알림에는 도착 건수만 사용하고 원문은 GitHub 링크로 연다. AppleScript는 고정 코드에 인자를 전달하며 댓글을 코드로 삽입하지 않는다.
+
+cursor는 기본 `~/.local/state/bravo-review-watch/<GitHub-login>.json`에 저장한다. 디렉터리 `0700`, cursor와 lock `0600`을 요구하고 Git 저장소 안이나 cursor symlink를 거부한다. 같은 cursor를 동시에 실행하면 두 번째 실행은 실패한다. 다른 터미널에서 별도 관찰이 필요하면 `--state-file "$HOME/.local/state/bravo-review-watch-secondary/cursor.json"`처럼 저장소 밖의 새 전용 경로를 사용한다. 기존 cursor를 지우면 다음 실행은 새 baseline이 된다. cursor는 원자적으로 교체하고 조회 실패 시 기존 파일을 보존한다.
+
+이 알림은 읽음 표시·스레드 resolve·리뷰 제출·승인·병합을 수행하지 않는다. `APPROVED` 알림도 현재 head에 유효한 사람 승인인지 판단하지 않는다. 검토가 필요하면 이 문서의 전체 패킷 수집과 assessment 절차로 넘어가고 실제 GitHub 규칙을 다시 확인한다. macOS 알림 권한이 없으면 터미널 출력으로 확인한다.
+
+API 계약: [GitHub repository issues의 creator/since 및 PR 구분](https://docs.github.com/en/rest/issues/issues#list-repository-issues), [제출 리뷰 목록](https://docs.github.com/en/rest/pulls/reviews#list-reviews-for-a-pull-request), [인라인 리뷰 댓글](https://docs.github.com/en/rest/pulls/comments#list-review-comments-on-a-pull-request), [gh api의 host·method 지정](https://cli.github.com/manual/gh_api).
