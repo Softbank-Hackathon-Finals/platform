@@ -10,6 +10,7 @@
 - `postgres.py`: 기존 상태/이벤트 로직을 재사용하는 선택형 PostgreSQL 저장 어댑터. [접속·역할·검증 계약](../../docs/contracts/T10-postgres-storage-v1-proposal.md).
 - `plans.py`: 같은 DB 트랜잭션의 계획 등록 · COLLECT→ANALYZE · 명령 영수증 · 상태 snapshot.
 - `plan_api.py`: 서버 principal/tenant 정책을 공유하는 계획 조회와 기존 SSE 경로. [계획 조회 제안](../../docs/contracts/T10-plan-snapshot-v1-proposal.md).
+- `executor.py`: T12 실행 상태의 읽기 전용 소비 어댑터. 응답 유실·식별자 불일치·조회 실패는 UNKNOWN으로 유지하고 원시 오류를 반환하지 않는다. [호출 경계와 후속 통합](../../docs/contracts/T10-executor-read-v1-proposal.md).
 - `api.py`: plan-scoped 읽기 전용 FastAPI 어댑터. 인증·인가 callback이 없으면 모든 요청을 거부한다.
 - `examples/events.json`: 5종 이벤트의 합성 fixture. 전체 상태 전이 또는 실제 이전의 증거가 아니다.
 
