@@ -14,54 +14,54 @@
     }
   },
   "source_sha256": {
-    "db_fingerprint.py": "98c4aeff1eb29399b03e70c154bfd0d9d575083bdceb594908d3c9b697ee23a4",
-    "measure_fingerprint.py": "5f49f7bb092d6886e07c20ef7bee79ec8bed6a71c645e6acad943211479ac5b2",
+    "db_fingerprint.py": "e35ef5ac271cae97d5219f5811839531364910378198cf6bc00cdb0ae2d46234",
+    "measure_fingerprint.py": "9dc85d12c46fa2912ecdc82f522fe6c6ab2d8f95099151f48b37697904834355",
     "baseline_integrity.py": "c2e85106599ce9014b3ebdd6b28d827c2dc78f30d52d3b6d36363823eaeec2a5"
   },
   "hash_rule": "db-sql-v1:fixed-session-text;columns-by-name;jsonb-array;utf8;sha256-of-row-sha256;pk-order-collate-c",
   "statement_timeout_ms": 3000,
   "first_run_s": {
-    "db_sql": 0.711,
-    "python_134": 5.491
+    "db_sql": 1.23,
+    "python_134": 6.511
   },
   "compare_two_sides": {
     "db_sql": {
       "verdict": "MATCH",
       "data_verdict": "MATCH",
       "schema_verdict": "MATCH",
-      "median_s": 0.652,
-      "max_s": 0.847,
+      "median_s": 0.882,
+      "max_s": 1.019,
       "samples_s": [
-        0.847,
-        0.621,
-        0.642,
-        0.652,
-        0.707
+        0.958,
+        1.019,
+        0.882,
+        0.82,
+        0.757
       ]
     },
     "python_134": {
       "verdict": "MATCH",
-      "median_s": 4.963,
-      "max_s": 5.431,
+      "median_s": 5.329,
+      "max_s": 6.756,
       "samples_s": [
-        5.431,
-        4.963,
-        4.92,
-        5.385,
-        4.384
+        4.823,
+        5.295,
+        5.329,
+        5.411,
+        6.756
       ]
     }
   },
   "one_table_one_side_s": {
     "db_sql": {
-      "public.attachments": 0.01,
-      "public.messages": 0.309
+      "public.attachments": 0.011,
+      "public.messages": 0.343
     }
   },
   "traffic_from_target": {
     "db_sql": {
-      "received_bytes": 7437,
-      "sent_bytes": 5444,
+      "received_bytes": 7503,
+      "sent_bytes": 5548,
       "client_sends": 20
     },
     "python_134": {
@@ -84,5 +84,25 @@
     "verdict": "UNKNOWN",
     "data_verdict": "MATCH",
     "schema_verdict": "UNKNOWN"
+  },
+  "major_differs": {
+    "image": "public.ecr.aws/docker/library/postgres:16",
+    "server_version": "16.15 (Debian 16.15-1.pgdg13+2)",
+    "reference_version": "18.4 (Debian 18.4-1.pgdg13+1)",
+    "same_rows_pk_content": true,
+    "error": "PostgreSQL major versions differ: 18 and 16",
+    "verdict": "UNKNOWN",
+    "data_verdict": "UNKNOWN",
+    "schema_verdict": "UNKNOWN"
+  },
+  "minor_differs": {
+    "image": "public.ecr.aws/docker/library/postgres:18.3",
+    "server_version": "18.3 (Debian 18.3-1.pgdg13+1)",
+    "reference_version": "18.4 (Debian 18.4-1.pgdg13+1)",
+    "same_rows_pk_content": true,
+    "error": null,
+    "verdict": "MATCH",
+    "data_verdict": "MATCH",
+    "schema_verdict": "MATCH"
   }
 }

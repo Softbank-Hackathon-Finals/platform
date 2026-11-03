@@ -27,6 +27,8 @@ from bravo_cutover.remote.db import DbControl
 IMAGE = "public.ecr.aws/docker/library/postgres:18.4"
 # 데비안 버전이 달라 glibc(정렬 제공자) 버전이 다른 이미지
 OTHER_PROVIDER_IMAGE = "public.ecr.aws/docker/library/postgres:18.4-bookworm"
+OTHER_MAJOR_IMAGE = "public.ecr.aws/docker/library/postgres:16"
+OTHER_MINOR_IMAGE = "public.ecr.aws/docker/library/postgres:18.3"
 TABLES = ["public.attachments", "public.messages"]
 PASSWORD = uuid.uuid4().hex
 
@@ -47,6 +49,13 @@ INSERT INTO messages(id,idempotency_key,author,body,attachment_id,created_at)
    timestamptz '2026-11-01 00:00:00+00'+g*interval '1 millisecond' FROM generate_series(1,100000) g;
 SELECT setval(pg_get_serial_sequence('messages','id'),100000);
 VACUUM ANALYZE;
+"""
+SMALL_SEED = """INSERT INTO attachments(id,object_key,filename,content_type,size,created_at)
+ SELECT md5('a'||g)::uuid,'obj/'||g,'파일 '||g||'.pdf','application/pdf',g,
+   timestamptz '2026-11-01 00:00:00+00'+g*interval '1 microsecond' FROM generate_series(1,20) g;
+INSERT INTO messages(id,idempotency_key,author,body,created_at)
+ SELECT g,md5('k'||g)::uuid,'고객','본문 '||g,timestamptz '2026-11-01 00:00:00+00'+g*interval '1 millisecond'
+ FROM generate_series(1,200) g;
 """
 
 
@@ -76,12 +85,11 @@ class Server:
         return sh("docker", "exec", "-i", self.name, "psql", "-U", "postgres", "-d", db, "-X", "-q", "-A", "-t",
                   "-v", "ON_ERROR_STOP=1", stdin=text)
 
-    def create(self, db: str, locale: str, timezone: str, seed: bool = True) -> None:
+    def create(self, db: str, locale: str, timezone: str, seed: str = SEED) -> None:
         self.psql("postgres", f"CREATE DATABASE {db} TEMPLATE template0 ENCODING 'UTF8' LOCALE '{locale}';")
         self.psql(db, f"ALTER DATABASE {db} SET TimeZone='{timezone}';")
         self.psql(db, SCHEMA)
-        if seed:
-            self.psql(db, SEED)
+        self.psql(db, seed)
 
     def dsn(self, db: str, port: int | None = None) -> str:
         return make_conninfo(host="127.0.0.1", port=port or self.port, dbname=db, user="postgres", password=PASSWORD)
@@ -186,9 +194,9 @@ def main() -> None:
 
     servers = []
     try:
-        for image in (IMAGE, IMAGE, OTHER_PROVIDER_IMAGE):
+        for image in (IMAGE, IMAGE, OTHER_PROVIDER_IMAGE, OTHER_MAJOR_IMAGE, OTHER_MINOR_IMAGE):
             servers.append(Server(image))
-        source, target, other = servers
+        source, target, other, other_major, other_minor = servers
         source.create("chat", "C", "UTC")
         target.create("chat", "C", "Asia/Tokyo")
         target.create("chat_en", "en_US.utf8", "UTC")
@@ -227,16 +235,30 @@ def main() -> None:
         results["collation_differs"] = summarize_verdict(db_method(src, target.dsn("chat_en")))
 
         # 실제로 제공자 버전이 다른 두 서버: 정의는 같으니 불명이어야 한다
-        target.create("small", "en_US.utf8", "UTC", seed=False)
-        other.create("small", "en_US.utf8", "UTC", seed=False)
+        target.create("small", "en_US.utf8", "UTC", seed=SMALL_SEED)
+        other.create("small", "en_US.utf8", "UTC", seed=SMALL_SEED)
         versions = {side: server.psql("small", "SELECT datcollversion FROM pg_database WHERE datname='small'")
                     for side, server in (("source", target), ("target", other))}
         results["provider_version_differs"] = {
             "image": OTHER_PROVIDER_IMAGE, "versions": versions,
             **summarize_verdict(db_method(target.dsn("small"), other.dsn("small")))}
+
+        # 메이저가 다르면 불명, 마이너만 다르면 통과. 같은 데이터로 실제 서버를 맞붙인다.
+        target.create("versions", "C", "UTC", seed=SMALL_SEED)
+        for label, server, image in (("major_differs", other_major, OTHER_MAJOR_IMAGE),
+                                     ("minor_differs", other_minor, OTHER_MINOR_IMAGE)):
+            server.create("versions", "C", "UTC", seed=SMALL_SEED)
+            result = db_method(target.dsn("versions"), server.dsn("versions"))
+            results[label] = {
+                "image": image, "server_version": server.psql("versions", "SHOW server_version"),
+                "reference_version": target.psql("versions", "SHOW server_version"),
+                "same_rows_pk_content": all(t["source"][k] == t["target"][k] for t in result["tables"]
+                                            for k in ("rows", "pk_hash", "content_hash")),
+                "error": result["tables"][0].get("error"), **summarize_verdict(result)}
         args.out.write_text(json.dumps(results, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
         print(json.dumps({k: results[k] for k in ("environment", "first_run_s", "compare_two_sides", "one_table_one_side_s",
-                                                  "traffic_from_target", "collation_differs", "provider_version_differs")},
+                                                  "traffic_from_target", "collation_differs", "provider_version_differs",
+                                                  "major_differs", "minor_differs")},
                          ensure_ascii=False, indent=1))
     finally:
         for server in servers:

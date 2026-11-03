@@ -18,6 +18,8 @@ from bravo_cutover.remote import Unconfirmed
 # 값을 글자로 바꿔 비교하므로 numeric 1.5와 1.50, jsonb 1과 1.0은 다른 값이다. 규칙이 바뀌면 v2로 올린다.
 HASH_RULE = "db-sql-v1:fixed-session-text;columns-by-name;jsonb-array;utf8;sha256-of-row-sha256;pk-order-collate-c"
 STATEMENT_TIMEOUT_MS = 3000
+# 시험을 돌린 메이저만 허용한다. 16은 CI, 18은 실제 DB다. 값 표현이 달라질 수 있어 검증 없이 넓히지 않는다.
+SUPPORTED_MAJORS = (16, 18)
 
 MATCH, MISMATCH, UNKNOWN = "MATCH", "MISMATCH", "UNKNOWN"
 
@@ -40,7 +42,7 @@ SET LOCAL IntervalStyle = 'postgres';
 SET LOCAL extra_float_digits = 1;
 SET LOCAL bytea_output = 'hex'"""
 
-_CATALOG = """SELECT c.relkind::text, c.relhassubclass,
+_CATALOG = """SELECT current_setting('server_version_num')::int / 10000, c.relkind::text, c.relhassubclass,
   (SELECT to_jsonb(d) || jsonb_build_object('actual_version', pg_database_collation_actual_version(d.oid))
      FROM pg_database d WHERE d.datname = current_database()),
   (SELECT jsonb_agg(jsonb_build_object(
@@ -91,6 +93,7 @@ class _Catalog:
     columns: list[str]
     primary_key: list[str]
     collatable: set[str]
+    server_major: int
     schema_hash: str
     schema_definition_hash: str
 
@@ -103,7 +106,9 @@ def _read_catalog(conn, table: str) -> _Catalog:
     row = conn.execute(_CATALOG, {"table": identifier.as_string(conn), "types": _SUPPORTED_TYPES}).fetchone()
     if row is None:
         raise Unconfirmed(f"comparison table missing: {table}")
-    relkind, has_children, database, columns, constraints, primary_key = row
+    server_major, relkind, has_children, database, columns, constraints, primary_key = row
+    if server_major not in SUPPORTED_MAJORS:
+        raise Unconfirmed(f"PostgreSQL major {server_major} is not verified for this rule")
     if relkind != "r" or has_children:
         raise Unconfirmed(f"comparison requires a plain table: {table}")
     if not primary_key:
@@ -123,8 +128,9 @@ def _read_catalog(conn, table: str) -> _Catalog:
         columns=sorted(c["name"] for c in columns),
         primary_key=primary_key,
         collatable={c["name"] for c in columns if c["collation"] is not None},
-        # schema_hash는 제공자 버전까지 포함한다. 이 값만 비교하는 게이트(T19)도 버전 차이에서 통과하지 않는다.
-        schema_hash=_sha256([definition, versions]),
+        server_major=server_major,
+        # schema_hash는 메이저와 제공자 버전까지 포함한다. 이 값만 비교하는 게이트(T19)도 버전 차이에서 통과하지 않는다.
+        schema_hash=_sha256([definition, server_major, versions]),
         schema_definition_hash=_sha256(definition),
     )
 
@@ -159,20 +165,23 @@ def _snapshot(conn) -> Iterator[None]:
         raise Unconfirmed(f"integrity snapshot could not be read ({e.sqlstate})") from e
 
 
+def _schema_fields(catalog: _Catalog) -> dict:
+    return {"schema_hash": catalog.schema_hash, "schema_definition_hash": catalog.schema_definition_hash,
+            "server_major": catalog.server_major}
+
+
 def schema_fingerprint(conn, table: str) -> dict:
     """게이트(T19)용. 데이터를 보지 않는다."""
     with _snapshot(conn):
         catalog = _read_catalog(conn, table)
-    return {"schema_hash": catalog.schema_hash, "schema_definition_hash": catalog.schema_definition_hash,
-            "primary_key": catalog.primary_key}
+    return {**_schema_fields(catalog), "primary_key": catalog.primary_key}
 
 
 def fingerprint(conn, table: str) -> dict:
     with _snapshot(conn):
         catalog = _read_catalog(conn, table)
         rows, pk_hash, content_hash = conn.execute(_fingerprint_query(catalog)).fetchone()
-    return {"rows": rows, "schema_hash": catalog.schema_hash, "schema_definition_hash": catalog.schema_definition_hash,
-            "pk_hash": pk_hash, "content_hash": content_hash}
+    return {"rows": rows, **_schema_fields(catalog), "pk_hash": pk_hash, "content_hash": content_hash}
 
 
 def schema_verdict(source: dict, target: dict) -> str:
@@ -195,12 +204,21 @@ def _combined(verdicts: list[str]) -> str:
     return MATCH if verdicts and all(v == MATCH for v in verdicts) else UNKNOWN
 
 
+def _unknown_table(table: str, error: str, source: dict | None = None, target: dict | None = None) -> dict:
+    return {"name": table, "rows_src": source and source["rows"], "rows_dst": target and target["rows"],
+            "source": source, "target": target, "match": False,
+            "data_verdict": UNKNOWN, "schema_verdict": UNKNOWN, "error": error}
+
+
 def _compare_table(src, dst, table: str) -> dict:
     try:
         source, target = src.db_fingerprint(table), dst.db_fingerprint(table)
     except Unconfirmed as e:
-        return {"name": table, "rows_src": None, "rows_dst": None, "source": None, "target": None, "match": False,
-                "data_verdict": UNKNOWN, "schema_verdict": UNKNOWN, "error": str(e)}
+        return _unknown_table(table, str(e))
+    if source["server_major"] != target["server_major"]:
+        # 값 표현과 카탈로그가 메이저마다 다를 수 있어, 지문이 같아도 달라도 판단하지 않는다
+        majors = f"{source['server_major']} and {target['server_major']}"
+        return _unknown_table(table, f"PostgreSQL major versions differ: {majors}", source, target)
     data, schema = _data_verdict(source, target), schema_verdict(source, target)
     return {"name": table, "rows_src": source["rows"], "rows_dst": target["rows"],
             "source": source, "target": target, "match": data == schema == MATCH,
