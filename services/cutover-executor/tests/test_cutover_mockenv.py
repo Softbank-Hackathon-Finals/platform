@@ -105,8 +105,9 @@ def test_write_pause_ends_at_the_last_path_ack(store, config, sides):
     result = store.get(execution_id).result
     assert store.get(execution_id).status == Status.DONE
     acks = result["path_acks_ms"]
-    assert acks["entry:env-onprem"] - acks["entry:env-aws"] >= 2000
-    assert result["write_pause_ms"] >= acks["entry:env-onprem"]
+    # 경로는 동시에 열린다. 늦춘 경로만 2초 뒤에 ACK하고(시계 오차 여유 200ms), 그 ACK가 쓰기 정지의 끝이다.
+    assert acks["entry:env-onprem"] - max(v for k, v in acks.items() if k != "entry:env-onprem") >= 1800
+    assert result["write_pause_ms"] == acks["entry:env-onprem"] >= 2000
 
 
 def test_unverified_comparison_does_not_finish_outside_mock(store, sides):
@@ -115,7 +116,7 @@ def test_unverified_comparison_does_not_finish_outside_mock(store, sides):
     execution_id = start(store)
     Cutover(store, mock_config(allow_unverified_compare=False)).run(execution_id)
     execution = store.get(execution_id)
-    assert execution.status != Status.DONE
+    assert execution.status == Status.ABORT_PRE_WRITE
     assert execution.committed_at is None
     assert DbControl(dst.db_control_dsn).can_login(dst.app_role) is False
     failed = [s for s in execution.steps if s["status"] == "failed"]

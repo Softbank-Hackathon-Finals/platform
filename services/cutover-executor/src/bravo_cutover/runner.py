@@ -78,6 +78,11 @@ class Run:
     acks: dict[str, float] = field(default_factory=dict)
     receipt: dict[str, Any] = field(default_factory=dict)
     warnings: list[str] = field(default_factory=list)
+    step: str | None = None
+
+
+def _describe(error: Exception) -> str:
+    return f"{type(error).__name__}: {error}"[:500]
 
 
 class Cutover:
@@ -87,7 +92,7 @@ class Cutover:
         self._store, self._config, self._settings = store, config, config.settings
         self._comparer = comparer or RowCountComparer()
         self._kube_factory, self._kubes = kube, {}
-        # 장애 주입 지점(시험 · T25용): "before:<단계>", "release:<environment_id>"
+        # 장애 주입 지점(시험 · T25용): "before:<단계>", "commit:subscriptions_changed", "release:<environment_id>"
         self._hooks = hooks or {}
         self._clock = clock
 
@@ -99,14 +104,87 @@ class Cutover:
         try:
             run = Run(execution_id, request, self._side(request.source.environment_id),
                       self._side(request.target.environment_id))
+        except Exception as e:  # noqa: BLE001
+            # 원격 조작을 하나도 하지 않았다
+            self._store.set_status(execution_id, Status.ABORT_PRE_WRITE,
+                                   {"outcome": Status.ABORT_PRE_WRITE.value, "error": _describe(e), "restored": []})
+            return
+        try:
             for name in STEPS:
+                run.step = name
                 with self._step(run, name):
                     getattr(self, f"_{name}")(run)
         except Exception as e:  # noqa: BLE001
-            # 실패 분기(ABORT_PRE_WRITE · SAFE_HOLD 판정)는 다음 커밋에서 붙인다. 지금은 아무것도 열지 않고 멈춘다.
-            self._store.set_status(execution_id, Status.SAFE_HOLD, {"error": f"{type(e).__name__}: {e}"})
+            self._fail(run, e)
             return
         self._store.set_status(execution_id, Status.DONE, self._result(run))
+
+    def _fail(self, run: Run, error: Exception) -> None:
+        """전환 확정 기록 전이면 원상 복구를 시도한다(ABORT_PRE_WRITE). 복구를 하나라도 확인하지 못하거나
+        확정 뒤면 아무것도 새로 열지 않고 멈춘다(SAFE_HOLD, spec D6)."""
+        failure = {"failed_step": run.step, "error": _describe(error)}
+        if self._store.get(run.execution_id).committed_at is not None:
+            self._store.set_status(run.execution_id, Status.SAFE_HOLD,
+                                   {"outcome": Status.SAFE_HOLD.value, **failure, "reason": "failed after commit"})
+            return
+        restored: list[str] = []
+        try:
+            self._restore_source(run, restored)
+        except Exception as e:  # noqa: BLE001
+            self._store.record_step(run.execution_id, "abort", StepStatus.UNKNOWN, detail=_describe(e))
+            self._store.set_status(run.execution_id, Status.SAFE_HOLD, {
+                "outcome": Status.SAFE_HOLD.value, **failure, "reason": "abort could not be confirmed",
+                "abort_error": _describe(e), "restored": restored,
+            })
+            return
+        self._store.record_step(run.execution_id, "abort", StepStatus.SUCCEEDED)
+        self._store.set_status(run.execution_id, Status.ABORT_PRE_WRITE,
+                               {"outcome": Status.ABORT_PRE_WRITE.value, **failure, "restored": restored})
+
+    def _restore_source(self, run: Run, restored: list[str]) -> None:
+        """컷오버 전 상태로 되돌리고 하나씩 확인한다. 이미 그 상태인 것은 건너뛴다(다시 불러도 같다)."""
+        src, dst = run.src, run.dst
+        self._store.record_step(run.execution_id, "abort", StepStatus.STARTED)
+        # 1) 목적지에 쓰지 않았음을 확인한다. 열려 있으면 쓰기 전이라고 볼 수 없다.
+        if dst.db.can_login(dst.site.app_role):
+            raise Unconfirmed("target app role can log in: cannot prove no write happened on target")
+        restored.append("target_closed_confirmed")
+        # 2) 구독: 역방향 끔 → 정방향 켬 (6단계 도중 실패했을 수 있다)
+        if src.db.subscription(src.site.subscription).enabled:
+            src.db.set_subscription(src.site.subscription, False, src.site.subscription_owner)
+            restored.append("reverse_subscription_disabled")
+        forward = dst.db.subscription(dst.site.subscription)
+        if not (forward.enabled and forward.workers):
+            dst.db.set_subscription(dst.site.subscription, True, dst.site.subscription_owner)
+            restored.append("forward_subscription_enabled")
+        # 3) 출발지 앱 역할 로그인
+        if not src.db.can_login(src.site.app_role):
+            src.db.set_login(src.site.app_role, True)
+            restored.append("source_login_restored")
+        # 4) 두 PgBouncer: 출발지를 가리키는지 확인하고 RESUME
+        for side in (src, dst):
+            state = side.pool.state()
+            if state.host != src.site.db_host:
+                side.pool_config.retarget(side.site.pgbouncer_database, src.site.db_host, src.site.db_port, src.site.db_name)
+                side.pool.reload()
+                restored.append(f"pgbouncer_retargeted:{side.site.environment_id}")
+            if state.paused:
+                side.pool.resume()
+                restored.append(f"pgbouncer_resumed:{side.site.environment_id}")
+            state = side.pool.state()
+            if state.paused or state.host != src.site.db_host:
+                raise Unconfirmed(f"{side.site.environment_id} pgbouncer not restored: {state}")
+        # 5) 진입점 차단 해제
+        for side in (src, dst):
+            if any(side.entry.set(False).values()):
+                raise Unconfirmed(f"{side.site.environment_id} write block still on")
+        restored.append("entry_unblocked")
+        # 6) 결과 시험: 출발지는 쓰기를 받고, 목적지는 거부한다
+        if try_app_write(src.site.pgbouncer_app_dsn, f"abort:{run.execution_id}") != WriteRefusal.ACCEPTED:
+            raise Unconfirmed("source does not accept app writes after abort")
+        if try_app_write(dst.site.db_app_dsn, f"abort:{run.execution_id}") != WriteRefusal.REFUSED:
+            raise Unconfirmed("target does not refuse app writes after abort")
+        restored.append("writes_verified")
 
     def _side(self, environment_id: str) -> Side:
         site = self._config.sites.get(environment_id)
@@ -254,6 +332,8 @@ class Cutover:
         self._store.mark(run.execution_id, "stage6_entered_at")
         dst.db.set_subscription(dst.site.subscription, False, dst.site.subscription_owner)
         src.db.set_subscription(src.site.subscription, True, src.site.subscription_owner)
+        if hook := self._hooks.get("commit:subscriptions_changed"):
+            hook()
         self._store.mark(run.execution_id, "committed_at")
         run.receipt["committed_at"] = datetime.now(UTC).isoformat()
 
