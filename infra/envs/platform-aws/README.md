@@ -41,3 +41,9 @@ Still separate: platform DB, production application deployment, GHCR image diges
 EC2, EBS, NAT, NAT IPv4/data and logs incur charges while retained. `component=platform` is applied to taggable resources and the EBS volume; t3 CPU credits use standard mode. The AWS account budget is an alert, not an automatic spending cap. Do not leave this stack running without the runtime owner and a dated review. Current retention is for the coordinated workload integration; teardown is deferred while another session uses the cluster. Before teardown, reconcile owners, preserve required DB/state/evidence, disable `BRAVO_RUNTIME_SMOKE_ENABLED`, and destroy only this state. Never destroy the shared T1 state. The generic default RKE2 snapshot/local storage is not an off-host backup.
 
 References: [RKE2 CIS guide](https://docs.rke2.io/security/hardening_guide), [RKE2 installation](https://docs.rke2.io/install/methods).
+
+### Retained runtime cost baseline
+
+On 2026-11-03 AWS Price List API in Seoul reports Linux shared-tenancy t3.large at US$0.104/hour and zonal NAT at US$0.059/hour. With **two t3.large nodes, two NAT gateways, one standard-support EKS control plane and two NAT public IPv4 addresses**, the combined T6+T7 baseline is `(2×0.104 + 2×0.059 + 0.10 + 2×0.005) × 730 = US$318.28/month` if all run continuously. This is a planning subtotal, not the bill or an all-in forecast. EBS/CSI volumes, KMS, logs, data transfer/NAT processing, additional nodes, CPU surplus and unrelated existing account resources are extra. The 500,000 KRW account budget (US$372.32 at its recorded conversion) therefore needs review as workload resources grow. No automatic teardown is scheduled while integration is active.
+
+Pricing references: [EKS standard support](https://aws.amazon.com/eks/pricing/), [NAT and public IPv4](https://aws.amazon.com/vpc/pricing/). Keep current per-region Price List evidence privately with the operator receipts.
