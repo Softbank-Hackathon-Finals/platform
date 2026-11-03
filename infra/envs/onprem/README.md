@@ -1,11 +1,11 @@
 # T2 온프렘 RKE2
 
-빈 Ubuntu 24.04 VM에 user-data 하나를 넣으면 RKE2가 CIS 프로필로 뜬다. 온프렘 데모 머신이 정해지기 전까지는 Apple Silicon Mac의 로컬 VM으로 같은 과정을 시험한다. 측정 범위는 [증거 기록](../../../docs/evidence/t2-onprem-rke2-2026-11-03/README.md)에 있다.
+빈 Ubuntu 24.04 VM에 user-data 하나를 넣으면 RKE2가 CIS 프로필로 뜬다. Mac의 로컬 QEMU 도구는 arm64와 x86_64 게스트를 지원하며 같은 공통 bootstrap을 사용한다. 이전 arm64 측정은 [원래 증거 기록](../../../docs/evidence/t2-onprem-rke2-2026-11-03/README.md)에 보존한다.
 
 | 파일 | 하는 일 |
 |---|---|
 | [`render-user-data.sh`](render-user-data.sh) | 공통 [`bootstrap.sh`](../../shared/rke2/bootstrap.sh)에 Tailscale 설치를 더해 user-data를 출력한다 |
-| [`local-vm.sh`](local-vm.sh) | Mac에서 새 VM을 만들고 지운다. x86 머신에서는 쓰지 않는다 |
+| [`local-vm.sh`](local-vm.sh) | Mac에서 arm64 또는 x86_64 VM을 만들고 지운다 |
 | [`local_vm.py`](local_vm.py) | 시작·종료 배타 잠금, QEMU 신원 확인, 종료 확인 후 디스크 정리 |
 | [`verify-node.sh`](verify-node.sh) | 노드가 기준대로 섰는지 10개 항목을 확인한다 |
 | [`run-kube-bench.sh`](run-kube-bench.sh) | kube-bench로 CIS 점검을 돌리고 요약을 출력한다 |
@@ -15,11 +15,33 @@
 로컬 VM은 `brew install qemu` 뒤 아래 순서로 쓴다. VM이 켜져 있는 동안 메모리 8GB를 차지한다.
 
 ```sh
+export BRAVO_VM_ARCH=arm64         # x86_64 또는 amd64도 선택 가능
 ./local-vm.sh up                    # 새 VM 생성. cloud-init이 끝날 때까지 기다린다
 ./local-vm.sh run verify-node.sh    # 기준 확인. 어긋나면 종료 코드 1
 ./local-vm.sh run run-kube-bench.sh # CIS 점검. 결과는 VM의 /var/log/kube-bench.json
 ./local-vm.sh down                  # VM과 디스크 삭제. 내려받은 이미지는 남는다
 ```
+
+아키텍처를 생략하면 호스트 CPU를 사용한다. 같은 CPU는 macOS의 HVF, 다른 CPU는 QEMU TCG를 사용한다. TCG 설치는 느리므로 두 아키텍처를 검증할 때는 순서대로 실행해 호스트 자원 경쟁을 줄인다. Ubuntu `release-20261017` 이미지와 아키텍처별 SHA-256을 고정한다([공식 체크섬](https://cloud-images.ubuntu.com/releases/noble/release-20261017/SHA256SUMS)).
+
+| 게스트 | 기본 상태 경로 (`XDG_CACHE_HOME` 또는 `~/.cache` 아래) | SSH / Kubernetes API |
+|---|---|---|
+| arm64 (`aarch64` 별칭) | `bravo-onprem-vm` | `127.0.0.1:2222` / `127.0.0.1:6443` |
+| x86_64 (`amd64` 별칭) | `bravo-onprem-vm-x86_64` | `127.0.0.1:2223` / `127.0.0.1:6444` |
+
+같은 아키텍처를 여러 세션에서 실행할 때는 `BRAVO_VM_STATE`, `BRAVO_SSH_PORT`, `BRAVO_API_PORT`를 모두 분리한다. 사용 중인 포트는 VM 생성 전에 거부하며 QEMU도 실제 바인딩 충돌을 거부한다. 소켓 경로 길이 제한 때문에 상태 경로는 짧게 지정한다. `up`이 저장한 `vm/connection.json`의 포트를 이후 `ssh`/`run`이 사용하며, 환경변수만 바꿔 다른 포트의 VM으로 접속하지 않는다. 선택한 아키텍처와 기존 VM 메타데이터가 다르면 접속을 거부한다.
+
+```sh
+export BRAVO_VM_ARCH=x86_64
+export BRAVO_VM_STATE=/tmp/bravo-x86-check
+export BRAVO_SSH_PORT=52223 BRAVO_API_PORT=56444
+./local-vm.sh up
+./local-vm.sh run verify-node.sh
+./local-vm.sh run run-kube-bench.sh
+./local-vm.sh down
+```
+
+확인된 QEMU가 실행되는 동안 `caffeinate -is -w <QEMU PID>`로 Mac의 절전을 방지한다. VM이 종료되면 이 임시 assertion도 종료되며 호스트 전역 전원 설정은 바꾸지 않는다. 공용 QEMU 설치본은 다른 세션의 VM이 사용할 수 있으므로 VM 삭제와 Homebrew 도구 제거를 별개로 판단한다.
 
 `up`과 `down`은 같은 상태 디렉터리의 잠금을 사용한다. VM마다 새 UUID를 기록하고
 QEMU에 전달하며 상태·소켓·SSH 키는 현재 사용자만 접근하도록 만든다. `down`은
@@ -38,6 +60,7 @@ QMP 응답 성공이나 연결 종료만으로 디스크를 지우지 않는다.
 QEMU 실행 파일·명령행·열린 파일을 확인해 해당 VM의 종료를 별도로 마무리하고,
 프로세스와 열린 디스크 핸들이 없는 것을 확인한 후 남은 상태를 수동 정리한다.
 추측한 PID를 새 파일에 넣거나 `kill`·재귀 삭제로 검사를 우회하지 않는다.
+접속 메타데이터가 없는 이전 VM도 새 포트 설정으로 추측해 접속하지 않는다. 기존 절차로 필요한 자료를 보존한 뒤 종료·재생성한다. UUID/QMP가 있는 이전 VM의 `down` 안전성 검사는 그대로 사용할 수 있다.
 
 회귀 시험은 `python3 -m unittest discover -s scripts/tests -p test_local_vm.py -v`로
 실행한다. 로컬에 QEMU가 있으면 `BRAVO_TEST_QEMU=$(command -v qemu-system-aarch64)`를
@@ -50,6 +73,8 @@ Mac의 `kubectl`로 붙으려면 kubeconfig를 꺼낸다. 관리자 권한 파�
 (umask 077; mkdir -p ~/.kube; ./local-vm.sh ssh sudo cat /etc/rancher/rke2/rke2.yaml >~/.kube/bravo-onprem.yaml)
 kubectl --kubeconfig ~/.kube/bravo-onprem.yaml get nodes
 ```
+
+위 kubeconfig의 `server` 포트는 게스트의 6443이다. x86_64 기본값이나 사용자 지정 API 포트를 사용하면 로컬 사본의 `server`를 해당 `127.0.0.1:<API 포트>`로 바꾼다.
 
 실제 머신은 `./render-user-data.sh`의 출력을 cloud-init user-data로 넣고, `verify-node.sh`와 `run-kube-bench.sh`를 노드 안에서 root로 실행한다.
 
@@ -79,5 +104,6 @@ RKE2 버전은 `render-user-data.sh`에 고정돼 있다. T7의 `rke2_version` �
 
 ## 남은 일
 
-- 데모 머신이 정해지면 같은 user-data로 재설치하고 위 확인을 다시 한다(#6의 세 번째 할 일). `local-vm.sh`는 arm64 Mac 전용이고, 이 경로의 x86 설치는 아직 재지 않았다.
-- `verify-node.sh`의 절전 차단은 VM 안의 Ubuntu만 확인한다. 데모 머신에 VM을 올리면 호스트의 절전 설정을 따로 끈다.
+- 데모 머신이 정해지면 같은 user-data로 재설치하고 위 확인을 다시 한다(#6의 세 번째 할 일). Apple Silicon 호스트에서 두 게스트를 검증해도 Intel Mac 호스트나 별도 물리 x86 머신에서의 실측으로 확대하지 않는다.
+- `verify-node.sh`의 절전 차단은 VM 안의 Ubuntu를 확인한다. 이 로컬 도구의 호스트 assertion은 `pmset -g assertions`에서 별도로 확인한다.
+- VM의 CPU 지원과 앱 OCI 이미지의 CPU 지원은 다르다. arm64 워크로드는 arm64 이미지가 필요하며, 현재 고정된 amd64 앱 이미지를 arm64 VM에서 검증한 것으로 처리하지 않는다.
