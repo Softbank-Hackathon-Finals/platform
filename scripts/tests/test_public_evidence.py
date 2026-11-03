@@ -9,13 +9,120 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 spec = importlib.util.spec_from_file_location("public_evidence", Path(__file__).parents[1] / "public_evidence.py")
 privacy = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(privacy)
 
 
+@contextlib.contextmanager
+def evidence_fixture(body):
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        repo, private = root / "repo", root / "private"
+        repo.mkdir()
+        subprocess.run(["git", "init", "-q", str(repo)], check=True)
+        subprocess.run(["git", "-C", str(repo), "-c", "user.name=Fixture", "-c",
+                        "user.email=fixture@example.invalid", "commit", "--allow-empty", "-qm", "fixture"], check=True)
+        name = "docs/evidence/probe.json"
+        path = repo / name
+        path.parent.mkdir(parents=True)
+        path.write_text(json.dumps(body) + "\n")
+        yield repo, private, name, path
+
+
 class PublicEvidence(unittest.TestCase):
+    def test_resource_names_cannot_change_hashes_verdicts_or_json_keys(self):
+        for resource_name in ("db", "PASS", "db_count"):
+            with self.subTest(resource_name=resource_name):
+                body = {"GroupName": resource_name, "source_sha256": "db" + "a" * 62,
+                        "decision": "PASS", "status": "PASS", "db_count": 17,
+                        "db": "db", "RESOURCE_NAME_001": "original-key",
+                        "note": "db db_schema PASS", "same_name": resource_name,
+                        "metrics": {"label": resource_name, "elapsed_ms": 19}}
+                with evidence_fixture(body) as (repo, private, name, path):
+                    with contextlib.redirect_stdout(io.StringIO()):
+                        privacy.sanitize(repo, [name], private, "manifest.json")
+                    public = json.loads(path.read_text())
+                    self.assertTrue(public.pop("GroupName").startswith("RESOURCE_NAME_"))
+                    self.assertEqual(public, {k: v for k, v in body.items() if k != "GroupName"})
+                    self.assertFalse(privacy.findings(path.read_text(), name))
+                    self.assertEqual(json.loads(next(private.glob("*/docs/evidence/probe.json")).read_text()), body)
+
+    def test_resource_name_locations_include_lists_and_name_tags_only(self):
+        body = {"GroupName": "db", "log_groups": ["db", "db-two"],
+                "Tags": [{"Key": "Name", "Value": "db"}, {"Key": "role", "Value": "db"}]}
+        with evidence_fixture(body) as (repo, private, name, path):
+            with contextlib.redirect_stdout(io.StringIO()):
+                privacy.sanitize(repo, [name], private, "manifest.json")
+            public = json.loads(path.read_text())
+            self.assertEqual(public["GroupName"], public["log_groups"][0])
+            self.assertEqual(public["GroupName"], public["Tags"][0]["Value"])
+            self.assertEqual(public["Tags"][1], body["Tags"][1])
+            self.assertEqual([tag["Key"] for tag in public["Tags"]], ["Name", "role"])
+            self.assertFalse(privacy.findings(path.read_text(), name))
+
+    def test_generic_identifiers_replace_only_detected_token_boundaries(self):
+        resource = "sg-" + "ab" * 8 + "c"
+        body = {"resource": resource, "message": "group " + resource + " ready",
+                "not_a_token": "prefix" + resource + "suffix", "GroupName": "db"}
+        with evidence_fixture(body) as (repo, private, name, path):
+            with contextlib.redirect_stdout(io.StringIO()):
+                privacy.sanitize(repo, [name], private, "manifest.json")
+            public = json.loads(path.read_text())
+            self.assertEqual(public["message"], "group " + public["resource"] + " ready")
+            self.assertEqual(public["not_a_token"], body["not_a_token"])
+
+    def test_preservation_guard_stops_corrupt_rewriter_before_any_public_write(self):
+        mutations = [
+            lambda value: value.update(source_sha256="RESOURCE_NAME_001" + "a" * 62),
+            lambda value: value.update(decision="RESOURCE_NAME_001"),
+            lambda value: value.update(db_count=18),
+            lambda value: value.update(units=3.0),  # Type changes are not measurement preservation.
+            lambda value: value.update(db_count=value.pop("other_count")),
+            lambda value: value["metrics"].update(label="RESOURCE_NAME_001"),
+        ]
+        for mutate in mutations:
+            with self.subTest(mutate=mutate):
+                body = {"GroupName": "db", "source_sha256": "db" + "a" * 62, "decision": "PASS",
+                        "db_count": 17, "other_count": 17, "units": 3, "metrics": {"label": "db"}}
+                with evidence_fixture(body) as (repo, private, name, path):
+                    original = path.read_bytes()
+                    real_rewrite = privacy.rewrite_json
+
+                    def corrupt(value, *args, _rewrite=real_rewrite, _mutate=mutate, **kwargs):
+                        # Only corrupt the top-level result, including a shared protected subtree.
+                        result = _rewrite(value, *args, **kwargs)
+                        if isinstance(result, dict) and "GroupName" in result:
+                            _mutate(result)
+                        return result
+
+                    with patch.object(privacy, "rewrite_json", side_effect=corrupt), self.assertRaises(ValueError):
+                        privacy.sanitize(repo, [name], private, "manifest.json")
+                    self.assertEqual(path.read_bytes(), original)
+                    self.assertFalse((repo / "manifest.json").exists())
+                    self.assertFalse(private.exists())
+
+    def test_ambiguous_numeric_measurement_is_not_rewritten_as_an_account(self):
+        account = int("9" + "0" * 10 + "1")
+        body = {"account": account, "GroupName": "db", "measured_value": account}
+        with evidence_fixture(body) as (repo, private, name, path):
+            original = path.read_bytes()
+            with self.assertRaises(ValueError):
+                privacy.sanitize(repo, [name], private, "manifest.json")
+            self.assertEqual(path.read_bytes(), original)
+            self.assertFalse((repo / "manifest.json").exists())
+
+    def test_private_identifier_in_json_key_requires_manual_review(self):
+        resource = "sg-" + "ab" * 8 + "c"
+        with evidence_fixture({resource: 17}) as (repo, private, name, path):
+            original = path.read_bytes()
+            with self.assertRaises(ValueError):
+                privacy.sanitize(repo, [name], private, "manifest.json")
+            self.assertEqual(path.read_bytes(), original)
+            self.assertFalse((repo / "manifest.json").exists())
+
     def test_flags_identifiers_without_confusing_hashes_or_svg_coordinates(self):
         account = "9" + "0" * 10 + "1"
         resource = "i-" + "ab" * 8 + "c"

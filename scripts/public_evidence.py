@@ -24,6 +24,23 @@ IP = re.compile(r"(?<![\w.])(?:\d{1,3}\.){3}\d{1,3}(?![\w./])")
 EXAMPLE_ACCOUNTS = {"123456789012", "111122223333", "000000000000", "111111111111", "222222222222"}
 NAME_FIELDS = {"groupname", "keyname", "keypairname", "loggroupname", "bucketname",
                "privatednsname", "publicdnsname", "hostname", "endpoint"}
+ACCOUNT_FIELDS = {"account", "accountid", "awsaccountid", "sourceaccountid", "targetaccountid"}
+PRESERVED_FIELDS = {"decision", "verdict", "status", "outcome", "conclusion", "passed", "failed",
+                    "measurements", "metrics", "counts", "timings", "timestamp", "time", "date"}
+DIGEST = re.compile(r"(?:sha(?:1|224|256|384|512):)?[0-9a-fA-F]{32,128}\Z")
+
+
+def resource_name_field(field, parent):
+    return (field.lower().replace("_", "") in NAME_FIELDS or field == "log_groups"
+            or (field == "Value" and isinstance(parent, dict) and parent.get("Key") == "Name"))
+
+
+def preserved_field(field):
+    field = field.lower().replace("_", "")
+    if field in ACCOUNT_FIELDS:
+        return False
+    return (field in PRESERVED_FIELDS or "hash" in field or "digest" in field or "sha256" in field
+            or field.endswith(("count", "counts", "bytes", "size", "ms", "seconds", "timestamp", "time", "at")))
 
 
 def placeholder(value):
@@ -50,6 +67,14 @@ def permitted(kind, value):
     if kind == "AWS_RESOURCE":
         suffix = value.rsplit("-", 1)[1]
         return set(suffix) == {"0"} or suffix in {"12345678", "0123456789abcdef0"}
+    if kind == "IP":
+        try:
+            address = ipaddress.ip_address(value)
+        except ValueError:
+            return True
+        return (address.is_loopback or address.is_unspecified or value == "169.254.169.254"
+                or any(address in ipaddress.ip_network(net) for net in
+                       ("192.0.2.0/24", "198.51.100.0/24", "203.0.113.0/24")))
     return False
 
 
@@ -61,32 +86,20 @@ def findings(text, path):
                 found.add((kind, match.group()))
     if path.startswith("docs/evidence/"):
         for match in IP.finditer(text):
-            try:
-                address = ipaddress.ip_address(match.group())
-            except ValueError:
-                continue
-            if (address.is_loopback or address.is_unspecified or str(address) == "169.254.169.254"
-                    or any(address in ipaddress.ip_network(net) for net in
-                           ("192.0.2.0/24", "198.51.100.0/24", "203.0.113.0/24"))):
-                continue
-            found.add(("IP", match.group()))
+            if not permitted("IP", match.group()):
+                found.add(("IP", match.group()))
         if path.endswith(".json"):
             data = json.loads(text)
 
-            def walk(value, field=""):
+            def walk(value, field="", parent=None):
                 if isinstance(value, dict):
-                    if value.get("Key") == "Name" and isinstance(value.get("Value"), str):
-                        name = value["Value"]
-                        if not placeholder(name):
-                            found.add(("RESOURCE_NAME", name))
                     for key, child in value.items():
-                        walk(child, key)
+                        walk(child, key, value)
                 elif isinstance(value, list):
                     for child in value:
-                        walk(child, field)
-                elif isinstance(value, str) and value and (
-                    field.lower().replace("_", "") in NAME_FIELDS or field == "log_groups"
-                ) and not placeholder(value):
+                        walk(child, field, parent)
+                elif (isinstance(value, str) and value and resource_name_field(field, parent)
+                      and not placeholder(value)):
                     found.add(("RESOURCE_NAME", value))
             walk(data)
     return found
@@ -149,6 +162,79 @@ def replacement(kind, number):
     return f"{kind}_{number:03d}"
 
 
+def replace_identifiers(value, path, mapping, applied):
+    """Replace detected token spans, never every occurrence of a discovered substring."""
+    patterns = [*PATTERNS.items()] + ([("IP", IP)] if path.startswith("docs/evidence/") else [])
+    spans = sorted({(m.start(), m.end(), m.group()) for kind, pattern in patterns
+                    for m in pattern.finditer(value) if m.group() in mapping and not permitted(kind, m.group())},
+                   key=lambda span: (span[0], -(span[1] - span[0])))
+    pieces, end = [], 0
+    for start, stop, raw in spans:
+        if start < end:
+            continue  # A full ARN/endpoint takes precedence over a contained identifier.
+        kind, token = mapping[raw]
+        pieces.extend((value[end:start], token))
+        applied[kind] += 1
+        end = stop
+    return "".join([*pieces, value[end:]])
+
+
+def rewrite_json(value, path, mapping, applied, field="", parent=None):
+    if preserved_field(field):
+        return value
+    if isinstance(value, dict):
+        return {key: rewrite_json(child, path, mapping, applied, key, value)
+                for key, child in value.items()}
+    if isinstance(value, list):
+        return [rewrite_json(child, path, mapping, applied, field, parent) for child in value]
+    if isinstance(value, str):
+        if DIGEST.fullmatch(value):
+            return value
+        if path.startswith("docs/evidence/") and resource_name_field(field, parent) and value in mapping:
+            kind, token = mapping[value]
+            applied[kind] += 1
+            return token
+        return replace_identifiers(value, path, mapping, applied)
+    if (type(value) is int and field.lower().replace("_", "") in ACCOUNT_FIELDS
+            and str(value) in mapping):
+        kind, token = mapping[str(value)]
+        applied[kind] += 1
+        return token
+    return value
+
+
+def verify_json_preservation(original, public, field="", parent=None):
+    """Compare evidence independently of the rewrite and its redaction counts."""
+    def unchanged():
+        if type(original) is not type(public) or original != public:
+            raise ValueError("evidence preservation check failed")
+
+    if preserved_field(field):
+        unchanged()
+    elif isinstance(original, dict):
+        if not isinstance(public, dict) or original.keys() != public.keys():
+            raise ValueError("evidence JSON keys changed")
+        for key, child in original.items():
+            verify_json_preservation(child, public[key], key, original)
+    elif isinstance(original, list):
+        if not isinstance(public, list) or len(original) != len(public):
+            raise ValueError("evidence JSON structure changed")
+        for before, after in zip(original, public):  # Lengths were compared above (Python 3.9 CLI).
+            verify_json_preservation(before, after, field, parent)
+    elif isinstance(original, str):
+        if not isinstance(public, str):
+            raise ValueError("evidence JSON type changed")
+        if (DIGEST.fullmatch(original) or (not resource_name_field(field, parent)
+                and not any(pattern.search(original) for pattern in [*PATTERNS.values(), IP]))):
+            unchanged()
+    elif (type(original) is int and field.lower().replace("_", "") in ACCOUNT_FIELDS
+          and isinstance(public, str) and re.fullmatch(r"AWS_ACCOUNT_[0-9]+", public)):
+        if not PATTERNS["AWS_ACCOUNT"].fullmatch(str(original)):
+            raise ValueError("invalid account redaction")
+    else:
+        unchanged()
+
+
 def sanitize(repo, paths, private_root, manifest_path):
     repo = repo.resolve()
     private_root = private_root.expanduser().resolve()
@@ -164,38 +250,16 @@ def sanitize(repo, paths, private_root, manifest_path):
     for kind, value in matches:
         counters[kind] += 1
         mapping.setdefault(value, (kind, replacement(kind, counters[kind])))
-    # A raw ARN/endpoint can contain a smaller identifier; replace the longest first.
-    substitutions = sorted(mapping.items(), key=lambda item: len(item[0]), reverse=True)
     prepared = []
     for name, original in contents.items():
         applied = collections.Counter()
-
-        def replace_text(value, applied=applied):
-            for raw, (kind, token) in substitutions:
-                count = value.count(raw)
-                if count:
-                    value = value.replace(raw, token)
-                    applied[kind] += count
-            return value
-
-        def replace_json(value, applied=applied):
-            if isinstance(value, dict):
-                return {replace_text(key): replace_json(child) for key, child in value.items()}
-            if isinstance(value, list):
-                return [replace_json(child) for child in value]
-            if isinstance(value, str):
-                return replace_text(value)
-            if type(value) is int and str(value) in mapping:
-                kind, token = mapping[str(value)]
-                applied[kind] += 1
-                return token
-            return value
-
         if name.endswith(".json"):
-            rewritten = replace_json(json.loads(original))
+            before = json.loads(original)
+            rewritten = rewrite_json(before, name, mapping, applied)
+            verify_json_preservation(json.loads(original), rewritten)
             public = json.dumps(rewritten, ensure_ascii=False, indent=2) + "\n" if applied else original
         else:
-            public = replace_text(original)
+            public = replace_identifiers(original, name, mapping, applied)
         if findings(public, name):
             raise ValueError("sanitized artifact still fails privacy check")
         if original != public:
