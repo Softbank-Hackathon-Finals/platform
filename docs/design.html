@@ -1330,6 +1330,7 @@ tables[]        name  rows(src/dst)  pk_hash(src/dst)  content_hash(src/dst)
 sequences[]     name  src_last  dst_set (올리기만)
 write_pause_ms  stages=entry, pause, fence, compare, reconnect
 verdict         MATCH | MISMATCH</code></pre>
+<p>위 <code>hash_rule v1</code>은 영수증 형식의 예시다. 구체적인 규칙 버전과 DB 내부 지문 생산·소비 경계는 <a href="adr/0013-integrity-fingerprint-producer.md">ADR-0013</a>에서 관리한다. 계산·직렬화 의미가 다른 구현에 같은 규칙 이름을 붙이지 않는다.</p>
 
 <h4>Executor 계약 (언어와 무관하게 고정)</h4>
 <p>구현 언어는 Python 3.12다(ADR-0006). 아래 계약만 지키면 플랫폼 쪽과 Executor 쪽이 서로 기다리지 않고 동시에 개발할 수 있다.</p>
