@@ -53,11 +53,26 @@ resource "aws_ssm_document" "service" {
   name          = "bravo-subscription-service"
   document_type = "Command"
   content = jsonencode({ schemaVersion = "2.2", description = "Start/stop the installed bounded broker; no command input.",
-    parameters = { operation = { type = "String", allowedValues = ["start", "stop"], interpolationType = "ENV_VAR" } },
-    mainSteps = [{ action = "aws:runShellScript", name = "service", inputs = { timeoutSeconds = "40", runCommand = [
+    parameters = { operation = { type = "String", allowedValues = ["start", "stop", "verify"], interpolationType = "ENV_VAR" } },
+    mainSteps = [{ action = "aws:runShellScript", name = "service", inputs = { timeoutSeconds = "360", runCommand = [
       "set -eu",
-      "case \"$SSM_operation\" in start) systemctl start bravo-subscription.service ;; stop) systemctl stop bravo-subscription.service ;; *) exit 2 ;; esac",
-      "echo '{\"service_command_completed\":true}'"
+      <<-SH
+      case "$SSM_operation" in
+        start) systemctl start bravo-subscription.service; echo '{"service_command_completed":true}' ;;
+        stop) systemctl stop bravo-subscription.service; echo '{"service_command_completed":true}' ;;
+        verify)
+          export KUBECONFIG=/etc/rancher/rke2/rke2.yaml
+          export PYTHONDONTWRITEBYTECODE=1
+          /opt/bravo-subscription/worker/.venv/bin/python -m bravo_agent.verification \
+            --bundle /opt/bravo-subscription/worker/examples/failure.json \
+            --manifest /opt/bravo-subscription/worker/examples/snapshot-manifest.json \
+            --snapshot /opt/bravo-subscription/worker/examples/source \
+            --result /var/lib/bravo-t11-subscription/proposal.json \
+            --kubectl /var/lib/rancher/rke2/bin/kubectl \
+            --image docker.io/library/python@sha256:b18b261e1b4974b4f321451ad5251ded85abb22c2b8b262da527dda1d031ab30 ;;
+        *) exit 2 ;;
+      esac
+      SH
   ] } }] })
 }
 

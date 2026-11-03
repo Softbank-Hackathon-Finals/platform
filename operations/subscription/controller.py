@@ -68,6 +68,15 @@ def main():
             if (result.get("state") != "PROPOSAL_READY" or not result.get("active_after")
                     or result.get("runtime_source_sha") != os.environ["BRAVO_RUNTIME_SOURCE_SHA"]):
                 raise RuntimeError("broker did not produce a proposal")
+            command = ssm.send_command(InstanceIds=[instance], DocumentName="bravo-subscription-service",
+                                       Parameters={"operation": ["verify"]})["Command"]["CommandId"]
+            ssm.get_waiter("command_executed").wait(CommandId=command, InstanceId=instance,
+                                                  WaiterConfig={"Delay": 2, "MaxAttempts": 180})
+            verification = json.loads(ssm.get_command_invocation(CommandId=command, InstanceId=instance)["StandardOutputContent"])
+            result["verification"] = verification
+            if verification.get("state") != "AWAITING_APPROVAL":
+                Path("runtime-result.json").write_text(json.dumps({"denied": denied, "runs": results}, indent=2) + "\n")
+                raise RuntimeError("independent verification did not pass")
         Path("runtime-result.json").write_text(json.dumps({"denied": denied, "runs": results}, indent=2) + "\n")
         print(json.dumps({"runs": len(results), "states": [r["state"] for r in results],
                           "credential_rotated": any(r["credential_rotated"] for r in results),
