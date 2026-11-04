@@ -32,4 +32,23 @@ cd services/control-runner
 PYTHONPATH=src python tests/integration/verify_target_audit_store.py --private-output <새_비공개_경로>
 ```
 
-**첫 실행 실패:** 시험 스크립트가 Collector 로그를 읽는 줄에서 `capture_output`과 `stderr`를 함께 넘겨 예외로 끝났다(저장소 성질과 무관). 고친 뒤 새 출력 경로로 다시 실행했다. 두 실행 모두 만든 컨테이너 · 네트워크 · 시험 이미지를 지웠다.
+**실행 기록:** 첫 실행은 시험 스크립트가 Collector 로그를 읽는 줄에서 `capture_output`과 `stderr`를 함께 넘겨 예외로 끝났다(저장소 성질과 무관). 고친 뒤 두 번째 실행이 통과했다. k3s 시제품을 위해 스크립트(저장소 주소 환경 변수 · 검색 단계 · 첫 연결 대기)를 바꾼 뒤 세 번째, 공개 증빙 검사에 맞춰 버킷 ARN 표기만 바꾼 뒤 네 번째로 다시 실행했다. 두 실행 모두 결과가 두 번째와 항목 · 값이 같다. `results.json`은 네 번째 실행 결과와 지금 스크립트 해시다. 모든 실행이 만든 컨테이너 · 네트워크 · 시험 이미지를 지웠다.
+
+## k3s 시제품
+
+[`templates/target-audit-store`](../../../services/control-runner/templates/target-audit-store/)를 Docker 안 k3s v1.35.9(목적지 RKE2 v1.35.9와 같은 쿠버네티스)에 그대로 적용했다. 목적지에 적용할 출발점이고 운영 배포가 아니다(저장소 데이터는 emptyDir).
+
+| 확인 | 결과 |
+|---|---|
+| 저장소(T30과 같은 SeaweedFS 인자 + S3 TLS) · 전달기가 restricted 네임스페이스에서 준비됨 | 통과 |
+| 관리 역할 Pod가 Object Lock 버킷 · COMPLIANCE 보존 · 버킷 정책 생성(`-s3.iam=false`에서도 정책 적용) | 통과 |
+| source 역할 Pod의 OTLP 감사 기록 → 전달기 → HTTPS → 저장소 | 통과 |
+| 검색 역할 Pod: 검색 키만으로 버전 목록을 끝까지 읽음, 객체 1 · 기록 1, 변조 흔적 없음, PUT 거부 | 통과 |
+| 쓰기 · 검색 · 관리 · 익명 권한과 두 함정이 Docker 실측과 같음 | 통과 |
+| 역할 라벨 없는 Pod(같은 네임스페이스) · 다른 네임스페이스 Pod → 저장소 8333 연결 안 됨 | 통과 |
+
+```sh
+bash services/control-runner/tests/integration/verify_target_audit_store_k8s.sh
+```
+
+**k3s 첫 실행 실패:** 관리 역할 Pod의 첫 연결이 `EndpointConnectionError`로 끝나 버킷이 만들어지지 않았고, 그 때문에 검색 · 권한 검사도 이어서 실패했다(3건). 새 Pod의 첫 연결이 NetworkPolicy 반영 전에 거부되는 k3s(kube-router) 현상으로, #199에서도 본 것이다. 검사 스크립트가 연결될 때까지 최대 60초 기다리게 고친 뒤 다시 실행해 6/6 통과했다. 주석과 버킷 ARN 표기를 고친 커밋본으로 두 번 더 실행해 모두 6/6 통과했고, `results.json`의 해시는 마지막 커밋본이다. 모든 실행이 끝나고 클러스터 · 시험 이미지 · 키를 지웠다.

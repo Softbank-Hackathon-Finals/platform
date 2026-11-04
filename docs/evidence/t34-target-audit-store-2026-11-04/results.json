@@ -2,6 +2,48 @@
   "base_commit": "7be33b0ebbaa48e9cc0df259f14a4327f7480113",
   "date": "2026-11-04",
   "environment": "local Docker, internal network, no published ports, no cloud credentials",
+  "k3s": {
+    "checks": {
+      "bootstrap_bucket_retention_policy": "ok",
+      "deploy_ready_restricted": "ok",
+      "rights_and_hazards_match_docker": "ok",
+      "search_role_versions_complete_no_tamper_put_denied": "ok",
+      "source_pod_otlp_to_forwarder": "ok",
+      "store_8333_unreachable_without_role_or_from_other_namespace": "ok"
+    },
+    "environment": "Docker 안 k3s v1.35.9 (rancher/k3s digest, 목적지 RKE2 v1.35.9와 같은 쿠버네티스), restricted PSS, 공개 포트 · 클라우드 자격 없음",
+    "failures": 0,
+    "source_sha256": [
+      {
+        "path": "services/control-runner/tests/integration/verify_target_audit_store_k8s.sh",
+        "sha256": "baa498fccac4b77667e78c972bcc96bb3882bbbd1e08427645dcd5e4f5732a50"
+      },
+      {
+        "path": "services/control-runner/tests/integration/verify_target_audit_store.py",
+        "sha256": "c186b2830272d3b9166ddde489245c58d640e33326d50eef1b970ba238b6ca97"
+      },
+      {
+        "path": "services/control-runner/templates/target-audit-store/collector.yaml",
+        "sha256": "55445f0188b4f5496ae6f811352cc6a9003aead1302244e1659fc49399b1276a"
+      },
+      {
+        "path": "services/control-runner/templates/target-audit-store/forwarder.yaml",
+        "sha256": "3ed6e6a8a642da5bcffd192bdc151614a01be5cfb78b6d819f45cca5f17fefe6"
+      },
+      {
+        "path": "services/control-runner/templates/target-audit-store/kustomization.yaml",
+        "sha256": "e325eaedc19c43a5d8c9d2879c360496e07ac8f8427642c8d35fdbd417cc9269"
+      },
+      {
+        "path": "services/control-runner/templates/target-audit-store/namespace.yaml",
+        "sha256": "648a65b0700cb22e530964874d507bce75349d661a73a6780cd5b58d52f1f324"
+      },
+      {
+        "path": "services/control-runner/templates/target-audit-store/store.yaml",
+        "sha256": "8eb04c46c3233065a2487d775455f3f137a43c57e031606ecb958dfd9bfef6b0"
+      }
+    ]
+  },
   "result": {
     "admin.create_bucket_object_lock": "ok",
     "admin.delete_locked_version": "denied:AccessDenied",
@@ -47,7 +89,7 @@
   "source_sha256": [
     {
       "path": "services/control-runner/tests/integration/verify_target_audit_store.py",
-      "sha256": "8bd5480277db4520862ed901ac3f8f2cd52094c6b8d954b8a7ac941913ba4901"
+      "sha256": "c186b2830272d3b9166ddde489245c58d640e33326d50eef1b970ba238b6ca97"
     }
   ]
 }

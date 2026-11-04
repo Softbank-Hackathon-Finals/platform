@@ -123,6 +123,16 @@
 | LastModified | PUT 시각을 1초 안에서 감쌈(초 단위) |
 | 함정 | 조건 없는 덮어쓰기는 버전 추가, 관리자 삭제 표시는 일반 목록에서 숨김. 두 경우 모두 원본 버전은 그대로 |
 
+**k3s 시제품 (2026-11-04)** — [`templates/target-audit-store`](../../services/control-runner/templates/target-audit-store/)를 Docker 안 k3s v1.35.9(목적지 RKE2와 같은 쿠버네티스 버전)에 적용, [`verify_target_audit_store_k8s.sh`](../../services/control-runner/tests/integration/verify_target_audit_store_k8s.sh) 6/6 통과.
+
+| 확인 | 결과 |
+|---|---|
+| 배포 | 저장소(T30과 같은 SeaweedFS 인자 + S3 TLS) · 전달기가 restricted 네임스페이스에서 준비됨 |
+| 버킷 구성 | `-s3.iam=false`에서도 Object Lock · COMPLIANCE 보존 · 버킷 정책 적용 |
+| 전달 · 검색 | source Pod의 OTLP 기록이 전달기 → HTTPS → 저장소에 남고, 검색 Pod가 검색 키만으로 버전 목록을 끝까지 읽음(변조 흔적 없음, PUT 거부) |
+| 권한 · 함정 | Docker 실측과 같음 |
+| 네트워크 | 저장소 8333은 역할 라벨(전달기 · 검색 · 초기 구성) Pod만. 라벨 없는 Pod와 다른 네임스페이스 Pod는 닿지 않음 |
+
 **긍정적 결과**
 * T34 할 일 3의 저장소가 정해지고, T37 할 일 6이 "합치지 않음"으로 닫힌다.
 * T35 목적지 백업의 "앱 · 실행 역할로 백업 삭제 불가"를 같은 장치로 만들 수 있다.
@@ -131,4 +141,4 @@
 * 검색 어댑터(3절 규칙)를 구현하고, 실제 목적지 RKE2에서 카나리 3종(관리자 로그인 · DDL · RoleBinding)을 10분 안에 검색해야 T34가 끝난다.
 * T9 · T30에 버킷 · identity · 정책 · 보존 적용을 요청한다. 보존 기간과 디스크 상한(볼륨 quota), 수집 중단 알림은 운영 설정으로 정한다.
 * COMPLIANCE 보존 동안에는 데모 정리에서도 버전을 지울 수 없다. 정리는 볼륨 단위로 한다.
-* Kubernetes 배포(restricted, NetworkPolicy, Secret)는 k3s 시제품으로 따로 확인한다.
+* 시제품 저장소는 emptyDir이다. 목적지 적용 때 영속 볼륨 · 용량 상한과 노드 로그를 읽는 운영 전달기(#117 `collector_config`, 영속 큐)를 붙인다.
