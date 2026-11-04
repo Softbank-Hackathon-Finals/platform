@@ -34,7 +34,8 @@ PUBLIC_S3_CODES = frozenset({
     "AccessDenied", "SignatureDoesNotMatch", "InvalidAccessKeyId", "ExpiredToken", "NoSuchBucket", "NoSuchKey",
     "InternalError", "ServiceUnavailable", "SlowDown", "RequestTimeout", "NotImplemented",
 })
-LOOPBACK_HOSTS = frozenset({"127.0.0.1", "::1", "localhost"})
+# Literals only: a name such as localhost is resolved after the decision and could point anywhere.
+LOOPBACK_ADDRESSES = frozenset({"127.0.0.1", "::1"})
 STATEMENT_TIMEOUT_MS = 10_000
 
 
@@ -64,19 +65,51 @@ def describe_failure(stage, error):
     return AttachmentCopyFailed(stage, reason, error_category=type(error).__name__, s3_error_code=code)
 
 
-def require_verified_tls(host, hostaddr, sslmode):
+def require_verified_tls(host, hostaddr, sslmode, *, allow_loopback_plaintext=False):
     # Both must be local: libpq reports the host name even when hostaddr points elsewhere.
-    if sslmode != "verify-full" and not {host, hostaddr} <= LOOPBACK_HOSTS:
+    addresses = {value for value in (host, hostaddr) if value}
+    local_test = allow_loopback_plaintext and addresses <= LOOPBACK_ADDRESSES
+    if sslmode != "verify-full" and not local_test:
         raise AttachmentCopyFailed("database_inventory", "database connection must use verify-full TLS")
 
 
-def connect_read_only(dsn=""):
-    """An empty DSN uses the libpq PG* environment. The transaction is READ ONLY and time-limited."""
+def tls_settings(dsn_settings, process_environ, *, allow_loopback_plaintext=False):
+    """Decide before libpq can send a password, and return the connect settings that hold the decision.
+
+    libpq ranks the DSN, then a service file, then PG*. A service file could name another host
+    after this check, so it is refused instead of parsed.
+    """
+    def effective(name, variable):
+        return dsn_settings[name] if name in dsn_settings else process_environ.get(variable, "")
+
+    host = effective("host", "PGHOST")
+    service = "service" in dsn_settings or "PGSERVICE" in process_environ
+    # libpq skips TLS on a Unix socket whatever sslmode says, and a host list could hold one.
+    socket_or_list = not host or "," in host or host.startswith(("/", "@"))
+    if service or socket_or_list:
+        raise AttachmentCopyFailed("database_inventory",
+                                   "database target must be one host from the DSN or PG* environment")
+    sslmode = effective("sslmode", "PGSSLMODE")
+    require_verified_tls(host, effective("hostaddr", "PGHOSTADDR"), sslmode,
+                         allow_loopback_plaintext=allow_loopback_plaintext)
+    # libpq prefers GSSAPI encryption over TLS whatever sslmode says, so it is turned off here.
+    return {"sslmode": "verify-full", "gssencmode": "disable"} if sslmode == "verify-full" else {}
+
+
+def connect_read_only(dsn="", *, allow_loopback_plaintext=False):
+    """An empty DSN uses the libpq PG* environment. The transaction is READ ONLY and time-limited.
+
+    allow_loopback_plaintext exists for the local test database. Everything else must use verify-full.
+    """
     import psycopg  # Default test discovery has no driver installed.
-    connection = psycopg.connect(dsn, connect_timeout=10)
+    settings = tls_settings(psycopg.conninfo.conninfo_to_dict(dsn), os.environ,
+                            allow_loopback_plaintext=allow_loopback_plaintext)
+    connection = psycopg.connect(dsn, connect_timeout=10, **settings)
     try:
         info = connection.info
-        require_verified_tls(info.host, info.hostaddr, info.get_parameters().get("sslmode"))
+        # Readback of what libpq used; the decision that protects the password is above.
+        require_verified_tls(info.host, info.hostaddr, info.get_parameters().get("sslmode"),
+                             allow_loopback_plaintext=allow_loopback_plaintext)
     except AttachmentCopyFailed:
         connection.close()
         raise
@@ -148,7 +181,8 @@ def run_copy(environ=os.environ, *, db_dsn="", approved_extra_keys=None):
         extras = approved_extras_from(environ) if approved_extra_keys is None else approved_extra_keys
         source, destination = stores_from(environ)
         stage = "database_inventory"
-        with connect_read_only(db_dsn) as connection:
+        allow_loopback_plaintext = environ.get("ATTACHMENT_DB_ALLOW_LOOPBACK_PLAINTEXT") == "1"
+        with connect_read_only(db_dsn, allow_loopback_plaintext=allow_loopback_plaintext) as connection:
             keys = read_referenced_keys(connection)
         stage = "transfer"
         return copy_keys(source, destination, keys, extras)

@@ -10,6 +10,7 @@ import tempfile
 import traceback
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 WORKLOADS = Path(os.environ.get("T8_ATTACH_MODULE_DIR")
@@ -97,16 +98,149 @@ class UnmeasuredFieldTests(unittest.TestCase):
 class VerifiedTlsTests(unittest.TestCase):
     def test_remote_database_requires_verify_full(self):
         attachment_copy.require_verified_tls("source-db.internal", "192.0.2.10", "verify-full")
-        for mode in (None, "disable", "prefer", "require", "verify-ca"):
+        for mode in (None, "", "disable", "prefer", "require", "verify-ca"):
             with self.assertRaises(attachment_copy.AttachmentCopyFailed):
                 attachment_copy.require_verified_tls("source-db.internal", "192.0.2.10", mode)
 
-    def test_loopback_test_database_may_skip_tls(self):
-        attachment_copy.require_verified_tls("127.0.0.1", "127.0.0.1", "disable")
+    def test_loopback_literal_with_the_opt_in_may_skip_tls(self):
+        for address in ("127.0.0.1", "::1"):
+            attachment_copy.require_verified_tls(address, address, "disable", allow_loopback_plaintext=True)
+            attachment_copy.require_verified_tls(address, "", "disable", allow_loopback_plaintext=True)
 
-    def test_loopback_name_on_a_remote_address_requires_verify_full(self):
+    def test_loopback_without_the_opt_in_requires_verify_full(self):
         with self.assertRaises(attachment_copy.AttachmentCopyFailed):
-            attachment_copy.require_verified_tls("localhost", "192.0.2.10", "disable")
+            attachment_copy.require_verified_tls("127.0.0.1", "127.0.0.1", "disable")
+
+    def test_opt_in_does_not_cover_a_name_or_a_remote_address(self):
+        for host, hostaddr in (("localhost", ""), ("localhost", "127.0.0.1"), ("127.0.0.1", "192.0.2.10"),
+                               ("source-db.internal", "127.0.0.1"), ("source-db.internal", "")):
+            with self.assertRaises(attachment_copy.AttachmentCopyFailed):
+                attachment_copy.require_verified_tls(host, hostaddr, "disable", allow_loopback_plaintext=True)
+
+
+PINNED_TLS = {"sslmode": "verify-full", "gssencmode": "disable"}
+REMOTE_DSN = {"host": "db", "sslmode": "verify-full"}
+
+
+class TlsSettingsTests(unittest.TestCase):
+    def refused(self, dsn_settings, process_environ, **options):
+        with self.assertRaises(attachment_copy.AttachmentCopyFailed) as caught:
+            attachment_copy.tls_settings(dsn_settings, process_environ, **options)
+        self.assertEqual(caught.exception.stage, "database_inventory")
+        return caught.exception.reason
+
+    def test_verify_full_is_pinned_from_the_dsn_or_the_environment(self):
+        self.assertEqual(attachment_copy.tls_settings(REMOTE_DSN, {}), PINNED_TLS)
+        self.assertEqual(attachment_copy.tls_settings({}, {"PGHOST": "db", "PGSSLMODE": "verify-full"}), PINNED_TLS)
+
+    def test_dsn_outranks_the_environment_like_libpq(self):
+        safe = {"PGHOST": "db", "PGSSLMODE": "verify-full"}
+        self.assertIn("verify-full", self.refused({"sslmode": "disable"}, safe))
+        self.assertEqual(attachment_copy.tls_settings({"sslmode": "verify-full"},
+                                                      {"PGHOST": "db", "PGSSLMODE": "disable"}), PINNED_TLS)
+        # An explicitly empty DSN value stops libpq from reading PG*, so it reaches the default socket.
+        self.assertIn("one host", self.refused({"host": ""}, safe))
+
+    def test_address_from_the_environment_counts_for_the_loopback_exception(self):
+        self.assertIn("verify-full", self.refused({"host": "127.0.0.1", "sslmode": "disable"},
+                                                  {"PGHOSTADDR": "192.0.2.10"}, allow_loopback_plaintext=True))
+        self.assertEqual(attachment_copy.tls_settings({"host": "127.0.0.1", "hostaddr": "", "sslmode": "disable"},
+                                                      {"PGHOSTADDR": "192.0.2.10"}, allow_loopback_plaintext=True),
+                         {})
+
+    def test_loopback_exception_needs_the_opt_in(self):
+        local = {"host": "127.0.0.1", "sslmode": "disable"}
+        self.assertEqual(attachment_copy.tls_settings(local, {}, allow_loopback_plaintext=True), {})
+        self.assertIn("verify-full", self.refused(local, {}))
+
+    def test_service_file_is_refused_from_either_source(self):
+        self.assertIn("one host", self.refused({**REMOTE_DSN, "service": "copy"}, {}))
+        self.assertIn("one host", self.refused(REMOTE_DSN, {"PGSERVICE": "copy"}))
+
+    def test_anything_but_one_network_host_is_refused(self):
+        for host in ("", "/var/run/postgresql", "@abstract", "db,other", "db,/tmp"):
+            self.assertIn("one host", self.refused({"host": host, "sslmode": "verify-full"}, {}))
+            self.assertIn("one host", self.refused({"host": host, "sslmode": "disable"}, {},
+                                                   allow_loopback_plaintext=True))
+        self.assertIn("one host", self.refused({"hostaddr": "192.0.2.10", "sslmode": "verify-full"}, {}))
+        self.assertIn("one host", self.refused({}, {}))
+
+
+class ConnectedInfo:
+    def __init__(self, host, hostaddr, sslmode):
+        self.host, self.hostaddr, self.sslmode = host, hostaddr, sslmode
+
+    def get_parameters(self):
+        return {"sslmode": self.sslmode}
+
+
+class Driver:
+    """Stands in for psycopg in default discovery. A DSN is passed as an already parsed dict."""
+
+    def __init__(self, info):
+        self.conninfo = SimpleNamespace(conninfo_to_dict=dict)
+        self.calls = []
+        self.info = info
+        self.closed = False
+        self.statements = []
+
+    def connect(self, dsn, **settings):
+        self.calls.append((dsn, settings))
+        return self
+
+    def close(self):
+        self.closed = True
+
+    def execute(self, statement):
+        self.statements.append(statement)
+
+
+class ConnectOrderTests(unittest.TestCase):
+    def connect(self, driver, dsn, **options):
+        with patch.dict(sys.modules, {"psycopg": driver}), patch.dict(os.environ, {}, clear=True):
+            return attachment_copy.connect_read_only(dsn, **options)
+
+    def test_refused_settings_never_reach_connect(self):
+        driver = Driver(ConnectedInfo("db", "192.0.2.10", "verify-full"))
+        with self.assertRaises(attachment_copy.AttachmentCopyFailed):
+            self.connect(driver, {"host": "db", "sslmode": "disable"})
+        self.assertEqual(driver.calls, [])
+
+    def test_accepted_settings_are_pinned_in_the_connect_call(self):
+        driver = Driver(ConnectedInfo("db", "192.0.2.10", "verify-full"))
+        self.connect(driver, REMOTE_DSN)
+        (_, settings), = driver.calls
+        self.assertEqual((settings["sslmode"], settings["gssencmode"]), ("verify-full", "disable"))
+        self.assertIs(driver.read_only, True)
+        self.assertFalse(driver.closed)
+
+    def test_readback_closes_a_connection_that_differs_from_the_decision(self):
+        driver = Driver(ConnectedInfo("db", "192.0.2.10", "prefer"))
+        with self.assertRaises(attachment_copy.AttachmentCopyFailed):
+            self.connect(driver, REMOTE_DSN)
+        self.assertTrue(driver.closed)
+        self.assertEqual(driver.statements, [])
+
+    def test_opt_in_reaches_the_readback(self):
+        driver = Driver(ConnectedInfo("127.0.0.1", "127.0.0.1", "disable"))
+        self.connect(driver, {"host": "127.0.0.1", "sslmode": "disable"}, allow_loopback_plaintext=True)
+        self.assertFalse(driver.closed)
+
+    def test_only_the_exact_opt_in_value_reaches_the_connection(self):
+        seen = []
+
+        def connect(_, *, allow_loopback_plaintext):
+            seen.append(allow_loopback_plaintext)
+            raise ValueError(SECRET_NAME)
+
+        with patch.object(attachment_copy, "stores_from", lambda _: (None, None)), \
+                patch.object(attachment_copy, "connect_read_only", connect):
+            for value in ("1", "true", "0", ""):
+                with self.assertRaises(attachment_copy.AttachmentCopyFailed):
+                    attachment_copy.run_copy({"ATTACHMENT_DB_ALLOW_LOOPBACK_PLAINTEXT": value})
+            with self.assertRaises(attachment_copy.AttachmentCopyFailed):
+                attachment_copy.run_copy({})
+        self.assertEqual(seen, [True, False, False, False, False])
 
 
 def environment(**overrides):

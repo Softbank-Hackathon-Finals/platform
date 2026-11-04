@@ -117,7 +117,8 @@ class Case(unittest.TestCase):
             "ATTACHMENT_TARGET_BUCKET": BUCKET, "ATTACHMENT_TARGET_ACCESS_KEY_ID": ENV["target_client"][0],
             "ATTACHMENT_TARGET_SECRET_ACCESS_KEY": ENV["target_client"][1], "PGHOST": database["host"],
             "PGPORT": database["port"], "PGUSER": database["user"], "PGPASSWORD": database["password"],
-            "PGDATABASE": database["dbname"], "PGSSLMODE": "disable", "PYTHONDONTWRITEBYTECODE": "1",
+            "PGDATABASE": database["dbname"], "PGSSLMODE": "disable", "ATTACHMENT_DB_ALLOW_LOOPBACK_PLAINTEXT": "1",
+            "PYTHONDONTWRITEBYTECODE": "1",
         }
         values.update(overrides)
         return values
@@ -470,6 +471,13 @@ class FailureOutputTests(Case):
         self.assertEqual(receipt["stage"], "database_inventory")
         self.assertEqual(contents(self.target), {})
 
+    def test_loopback_database_without_the_test_opt_in_is_refused(self):
+        self.seed({KEY + "a": BODY})
+        receipt = self.assert_rejected("database connection must use verify-full TLS",
+                                       ATTACHMENT_DB_ALLOW_LOOPBACK_PLAINTEXT="")
+        self.assertEqual(receipt["stage"], "database_inventory")
+        self.assertEqual(contents(self.target), {})
+
 
 class VerifiedDatabaseTlsTests(Case):
     def over_tls(self, host_name):
@@ -500,7 +508,7 @@ class ReadOnlyBoundaryTests(Case):
         self.assertEqual(public, {"list_keys", "read", "sizes"})
 
     def test_database_connection_refuses_writes(self):
-        with attachment_copy.connect_read_only(dsn()) as connection, self.assertRaises(
+        with attachment_copy.connect_read_only(dsn(), allow_loopback_plaintext=True) as connection, self.assertRaises(
                 psycopg.errors.ReadOnlySqlTransaction):
             connection.execute("INSERT INTO attachments (id, object_key, filename, content_type, size)"
                                " VALUES (%s, 'x', 'x', 'x', 0)", (uuid.uuid4(),))
@@ -522,7 +530,7 @@ class ReadOnlyBoundaryTests(Case):
         release.start()
         self.addCleanup(release.cancel)
         with patch.object(attachment_copy, "STATEMENT_TIMEOUT_MS", 200), \
-                attachment_copy.connect_read_only(dsn()) as connection, \
+                attachment_copy.connect_read_only(dsn(), allow_loopback_plaintext=True) as connection, \
                 self.assertRaises(psycopg.errors.QueryCanceled):
             attachment_copy.read_referenced_keys(connection)
 

@@ -194,9 +194,14 @@ inventory, not a prefix wildcard or a reason to delete either side's objects.
 | `ATTACHMENT_TARGET_ACCESS_KEY_ID`, `ATTACHMENT_TARGET_SECRET_ACCESS_KEY` | `target-object-client` Secret의 `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` 값 |
 | `ATTACHMENT_APPROVED_EXTRA_KEYS_FILE` | (선택) 개별 확인한 추가 객체 키를 한 줄에 하나씩 적은 파일. 저장소에 넣지 않는다 |
 | `PGHOST`, `PGPORT`, `PGDATABASE`, `PGUSER`, `PGPASSWORD`, `PGSSLROOTCERT` | 출발지 DB. `attachments`를 SELECT할 수 있는 기존 역할을 쓴다 |
-| `PGSSLMODE` | `verify-full`. 원격 DB에서 다른 값이면 조회 전에 거부한다 |
+| `PGSSLMODE` | `verify-full`. 다른 값이면 연결하기 전에 거부한다 |
+| `ATTACHMENT_DB_ALLOW_LOOPBACK_PLAINTEXT` | 로컬 시험 전용. 값이 `1`이고 DB의 `host`와 `hostaddr`가 모두 `127.0.0.1` 또는 `::1`일 때만 `verify-full`을 요구하지 않는다. 실제 실행과 터널에서는 넣지 않는다 |
 
 출발지 S3 자격은 SDK 기본 경로(역할, 운영자 프로필)에서 온다. 목적지 키는 AWS 키가 아니므로 섞지 않는다.
+
+DB 접속 판단은 비밀번호가 나가기 전에 끝난다. libpq의 우선순위대로 DSN, 그다음 `PG*`를 읽어 판단하고, `verify-full`을
+연결 인수로 고정한다. 판단을 뒤집을 수 있는 설정은 연결하기 전에 거부한다. 서비스 파일(`PGSERVICE`, DSN의 `service`)은
+`PG*`보다 우선해 다른 호스트를 가리킬 수 있고, Unix 소켓은 libpq가 `sslmode`와 상관없이 TLS를 쓰지 않으며, 호스트 목록에는 소켓이 섞일 수 있다.
 
 ### 명령
 
@@ -226,7 +231,8 @@ DB를 터널로 잇는다면 `PGHOST`에 인증서 이름, `PGHOSTADDR`에 로�
 | `destination conflict; existing object is preserved` | 같은 키에 다른 내용이 있다 | 사람이 확인한다. 자동으로 덮어쓰지 않는다 |
 | `source changed during transfer; require quiescent retry`, `final object inventory changed` | 복사 중 출발지가 바뀌었다 | 쓰기를 멈추고 다시 돌린다. 이미 옛 내용이 복사됐다면 재실행은 위의 충돌로 멈추므로 사람이 정리한다 |
 | `bounded transfer size exceeded`, `bounded binary source object required`, `bounded nonempty attachment inventory required` | 한도 초과이거나 DB 목록이 비었다 | 한도를 검토한다 |
-| `database connection must use verify-full TLS` | 원격 DB를 검증 없이 연결하려 했다 | `PGSSLMODE`, `PGSSLROOTCERT`를 고친다 |
+| `database connection must use verify-full TLS` | DB를 검증 없이 연결하려 했다. 연결하기 전에 멈췄다 | `PGSSLMODE`, `PGSSLROOTCERT`를 고친다 |
+| `database target must be one host from the DSN or PG* environment` | 서비스 파일, Unix 소켓, 호스트 목록을 썼거나 호스트가 없다. 연결하기 전에 멈췄다 | `PGHOST`나 DSN의 `host`에 호스트 하나를 적는다 |
 | `unclassified` + `s3_error_code` 또는 `error_category` | 네트워크 · 인증 · 설정 문제 | 원인을 고치고 다시 돌린다. 끝난 객체는 `reused`로 넘어간다 |
 
 ### T12에서 호출
@@ -259,5 +265,8 @@ except AttachmentCopyFailed as failure:
 T8_ATTACH_E2E=1 uv run --no-project --python 3.12 --with boto3==1.43.123 --with 'psycopg[binary]==3.3.6' \
   python -m unittest discover -s scripts/tests -p 'test_attachment_copy*.py' -v
 ```
+
+`scripts/tests/test_attachment_copy_wire.py`는 비밀번호를 요구하는 가짜 PG 서버로 실제 libpq가 보내는 바이트를 확인한다.
+psycopg만 있으면 되고 컨테이너는 필요 없으며, 위 명령에도 포함된다.
 
 `scripts/tests/attachment_mutation_check.py`는 임시 복사본에서 검사를 하나씩 빼고 시험이 실패하는지 확인한다.
