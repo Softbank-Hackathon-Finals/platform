@@ -531,3 +531,23 @@ def test_failback_is_unavailable_until_the_host_wires_it(fixture):
     with TestClient(app(f, failback=True, resolve_principal=lambda _: PRINCIPAL)) as client:
         assert client.post(f"{url}/approvals", json=bad, headers={"Idempotency-Key": "b"}).status_code == 409
     assert not f.requests
+
+
+def test_an_older_command_never_changes_a_newer_failback(fixture):
+    """Codex #2 review: a late reconcile or Edge retry of an aborted run must not move the current run."""
+    f = fixture
+    f.value.update(status="ABORT_PRE_WRITE", committed=False)
+    first = f.submit(f.approve())
+    assert first["failback"] == "aborted" and f.state() == "WATCH"
+    f.context = replace(f.context, command=COMMAND | dict(epoch=9))
+    f.value.update(status="RUNNING", epoch=9, execution_id="dddddddd-dddd-4ddd-8ddd-abcdefabcdef")
+    second = f.submit(f.approve(command_key="approve-2", expected_version=7), command_key="submit-2")
+    assert second["failback"] == "running" and f.state() == "FAILBACK"
+    version = f.backend.reopen().snapshot(SPEC.plan_id)["version"]
+    assert f.advance(first["command_id"]) == "not_failback"  # the stored ABORT is not applied again
+    f.fail_get = True
+    assert f.service().reconcile(PRINCIPAL, SPEC.plan_id, first["command_id"])["outcome"] == "UNKNOWN"
+    snapshot = f.backend.reopen().snapshot(SPEC.plan_id)
+    assert (snapshot["state"], snapshot["version"]) == ("FAILBACK", version)
+    f.fail_get = False
+    assert f.service().reconcile(PRINCIPAL, SPEC.plan_id, second["command_id"])["failback"] == "running"

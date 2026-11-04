@@ -145,7 +145,7 @@ class FailbackService:
     def __init__(self, store, executor, *, bindings: dict[str, str],
                  authority: FailbackAuthority = unavailable_authority,
                  read_integrity: IntegrityReader = unavailable_authority, edge: EdgePort | None = None,
-                 check_access=None, clock=None):
+                 check_access=None, check_execute=None, clock=None):
         if (len(bindings) != 2 or len(set(bindings.values())) != 2
                 or any(not isinstance(v, str) or not 1 <= len(v) <= 256 for v in bindings.values())):
             raise ValueError("fixed_database_pair_required")
@@ -157,7 +157,21 @@ class FailbackService:
         self.read_integrity = read_integrity
         self.edge = edge or UnavailableEdge()
         self.check_access = check_access
+        # Moving a plan on (Edge call, completion, ABORT -> WATCH) is an execution, not a read.
+        # The host passes its execute check here, and runs recovery as a principal that holds it.
+        self.check_execute = check_execute
         self.clock = clock or (lambda: datetime.now(UTC).isoformat())
+
+    def _plan(self, c, principal, plan_id, *, execute=False):
+        plan = authorized_plan(c, principal, plan_id, self.check_access)
+        if execute and self.check_execute is not None:
+            self.check_execute(c, principal, plan)
+        return plan
+
+    @staticmethod
+    def _owns(c, plan, command_id) -> bool:
+        """Only the command that moved the plan to FAILBACK at this version may change its state."""
+        return plan["state"] == "FAILBACK" and active_failback(c, plan["plan_id"], plan["version"]) == command_id
 
     def _current(self, c, principal, plan, now, approved_by=None, approval_id=None):
         if plan["state"] != "WATCH":
@@ -301,7 +315,7 @@ class FailbackService:
         """GET only. Never sends a new remote command."""
         validate_identifier(command_id)
         with self.store._transaction() as c:
-            authorized_plan(c, principal, plan_id, self.check_access)
+            self._plan(c, principal, plan_id, execute=True)
             record = _get(c, plan_id, failback_key("command", command_id))
             if record is None:
                 raise EventError("command_not_found")
@@ -317,7 +331,8 @@ class FailbackService:
         # already back on the origin (T20 spec criterion 1).
         return project_observation(self.store, principal, plan_id, command_id, read,
                                    check_access=self.check_access, now=self.clock(),
-                                   key_for=failback_key, running_state="FAILBACK", hold_after_done=False)
+                                   key_for=failback_key, running_state="FAILBACK", hold_after_done=False,
+                                   owns=lambda c, plan: self._owns(c, plan, command_id))
 
     # After the observation ------------------------------------------------------------
 
@@ -358,18 +373,19 @@ class FailbackService:
         """Move a FAILBACK plan on from its stored observation. Never sends an Executor command.
 
         Returns one of: not_failback, running, aborted, evidence_pending, held, edge_pending, rolled_back.
+        not_failback also covers an older command once a newer failback drives the plan.
         """
         validate_identifier(command_id)
         with self.store._transaction(write=True, plan_id=plan_id) as c:
             now = self.clock()
-            plan = authorized_plan(c, principal, plan_id, self.check_access)
+            plan = self._plan(c, principal, plan_id, execute=True)
             stored = _get(c, plan_id, failback_key("command", command_id))
             if stored is None:
                 raise EventError("command_not_found")
             record = stored[1]
             if _get(c, plan_id, failback_key("rolled-back", command_id)):
                 return "rolled_back"
-            if plan["state"] != "FAILBACK":
+            if not self._owns(c, plan, command_id):
                 return "not_failback"
             snapshot = latest_observation(c, plan_id, command_id, failback_key)["snapshot"]
             if snapshot and snapshot["remote_status"] == "ABORT_PRE_WRITE" and snapshot["committed"] is False:
@@ -406,10 +422,10 @@ class FailbackService:
             return "edge_pending"
         with self.store._transaction(write=True, plan_id=plan_id) as c:
             now = self.clock()
-            plan = authorized_plan(c, principal, plan_id, self.check_access)
+            plan = self._plan(c, principal, plan_id, execute=True)
             if _get(c, plan_id, failback_key("rolled-back", command_id)):
                 return "rolled_back"
-            if plan["state"] != "FAILBACK":
+            if not self._owns(c, plan, command_id):
                 return "not_failback"
             recovery_ms = int((_timestamp(now) - _timestamp(record["dispatch_claimed_at"])).total_seconds() * 1000)
             _put(c, plan_id, failback_key("rolled-back", command_id), {}, dict(finished_at=now, recovery_ms=recovery_ms))

@@ -19,6 +19,8 @@
 | `POST /v1/plans/{id}/failback/{command_id}/reconcile` | GET 관측과 진행 | Executor GET, Edge 호출 가능 |
 | `POST /v1/plans/{id}/failback/{command_id}/edge` | DB 쪽이 끝난 뒤 증거 · Edge만 재시도 | Executor 요청 없음 |
 
+상태를 바꾸는 것은 현재 버전의 진행 명령(`failback-active`)뿐이다. ABORT로 끝난 이전 실행의 늦은 조회 · Edge 재시도는 관측만 기록하고 지금 실행의 계획 상태를 바꾸지 않는다(`not_failback`). `reconcile` · `edge` 경로와 진행(`advance`)은 읽기가 아니라 실행이므로 호스트의 실행 검사(`check_execute`, 운영자 연결에서는 `execute_failback`)를 통과해야 한다. 재시작 복구도 이 권한을 가진 호스트 주체로 실행한다.
+
 응답의 `failback`은 `running` · `aborted` · `evidence_pending` · `held` · `edge_pending` · `rolled_back` · `not_failback` 중 하나다. 원격 detail · 접속 참조 · 내부 revision은 반환하지 않는다. 호스트가 되돌리기 서비스를 연결하지 않으면 승인은 422, 경로는 503(`failback_unavailable`)이다.
 
 ## 호스트가 제공해야 하는 것

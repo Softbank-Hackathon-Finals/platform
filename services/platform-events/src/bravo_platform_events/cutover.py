@@ -246,12 +246,14 @@ def latest_observation(c, plan_id, command_id, key_for=_key):
 
 
 def project_observation(store, principal, plan_id, command_id, read: ExecutionRead, *, check_access, now,
-                        key_for, running_state, hold_after_done=True):
+                        key_for, running_state, hold_after_done=True, owns=None):
     """Append one Executor observation and its new steps; hold the running plan on UNKNOWN/SAFE_HOLD.
 
     key_for keeps each command kind's journal separate (cutover-, failback-). running_state is the
     plan state that an uncertain observation moves to SAFE_HOLD. With hold_after_done=False a stored
     committed DONE is final (Executor DONE never changes), so a later failed GET no longer holds.
+    owns(c, plan) says whether this command drives the plan now; an older command's observation is
+    still journaled but never changes the plan state.
     """
     with store._transaction(write=True, plan_id=plan_id) as c:
         plan = authorized_plan(c, principal, plan_id, check_access)
@@ -284,7 +286,8 @@ def project_observation(store, principal, plan_id, command_id, read: ExecutionRe
         settled = (not hold_after_done and previous is not None
                    and previous.remote_status == "DONE" and previous.committed)
         uncertain = read.outcome == "UNKNOWN" or (snapshot and snapshot.remote_status == "SAFE_HOLD")
-        if uncertain and plan["state"] == running_state and not settled:
+        current = owns is None or owns(c, plan)
+        if uncertain and plan["state"] == running_state and not settled and current:
             c.execute("UPDATE plans SET state='SAFE_HOLD',version=version+1,updated_at=? WHERE plan_id=?",
                       (now, plan_id))
             store._append_in_transaction(c, plan_id=plan_id, run_id=command_id,

@@ -158,6 +158,12 @@ class OperatorAccess:
         """Same operator rules for T20 failback: distinct permissions and its own revocations."""
         return self._authority(upstream, "approve_failback", "execute_failback", failback_key)
 
+    def requires(self, permission):
+        """A check for host services that act outside an approval (e.g. FAILBACK progress)."""
+        def check(c, principal, plan):
+            self.require(c, principal, plan, permission)
+        return check
+
     def _authority(self, upstream, approve_permission, apply_permission, key_for):
         def current(c, principal, plan, *, now, approved_by, approval_id, **selection):
             permission = apply_permission if approval_id else approve_permission
@@ -192,6 +198,6 @@ def create_operator_cutover_app(store, executor, *, verifier, bindings=None, reg
         authority=access.change_authority(change_authority), check_access=access.check_read, clock=clock)
     failback_service = None if failback_authority is None else FailbackService(store, executor,
         bindings=bindings, authority=access.failback_authority(failback_authority), read_integrity=read_integrity,
-        edge=edge, check_access=access.check_read, clock=clock)
+        edge=edge, check_access=access.check_read, check_execute=access.requires("execute_failback"), clock=clock)
     return create_cutover_app(service, resolve_principal=access.resolver(verifier),
                               change_service=change_service, failback_service=failback_service)

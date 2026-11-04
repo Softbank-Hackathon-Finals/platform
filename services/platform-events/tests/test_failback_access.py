@@ -31,7 +31,8 @@ class SecuredFailback(Fixture):
         return FailbackService(self.backend.reopen(), self.client, bindings=BINDINGS,
                                authority=self.access.failback_authority(self.authority),
                                read_integrity=self.read_integrity, edge=self,
-                               check_access=self.access.check_read, clock=lambda: self.now)
+                               check_access=self.access.check_read,
+                               check_execute=self.access.requires("execute_failback"), clock=lambda: self.now)
 
     def approve(self, **changes):
         return self.service().approve(self.operator, SPEC.plan_id,
@@ -88,3 +89,22 @@ def test_revoke_after_dispatch_does_not_claim_remote_cancellation(secured):
         f.access.revoke_approval(SPEC.plan_id, approval["approval_id"], administration_ref="fixture-revoke",
                                  approval_kind="failback")
     assert [r.method for r in f.requests] == ["POST"]
+
+
+def test_reading_is_not_enough_to_move_a_failback_on(secured):
+    """Codex #2 review: Edge retry and reconcile are executions, not reads."""
+    f = secured
+    f.grant()
+    f.grant(f.submitter, permissions=("read",))
+    f.value.update(status="DONE", committed=True)
+    f.edge_result = False
+    receipt = f.submit(f.approve())
+    assert receipt["failback"] == "edge_pending"
+    f.edge_result = True
+    service = f.service()
+    with pytest.raises(EventError, match="forbidden"):
+        service.advance(f.submitter, SPEC.plan_id, receipt["command_id"])
+    with pytest.raises(EventError, match="forbidden"):
+        service.reconcile(f.submitter, SPEC.plan_id, receipt["command_id"])
+    assert len(f.edge_calls) == 1 and f.state() == "FAILBACK"
+    assert service.advance(f.operator, SPEC.plan_id, receipt["command_id"]) == "rolled_back"
