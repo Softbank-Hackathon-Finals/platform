@@ -24,6 +24,9 @@ def validate_event(event: dict) -> None:
     payload = event["data"]
     if "binding" in payload and payload["binding"]["plan_id"] != event["plan_id"]:
         raise ValueError("binding_plan_mismatch")
+    if payload.get("approval_kind") == "failback" and (
+            payload["binding"]["source_environment_id"] == payload["binding"]["target_environment_id"]):
+        raise ValueError("failback_direction_invalid")
 
 
 def encode_sse(event: dict) -> str:
