@@ -38,7 +38,10 @@ spec:
           type: RuntimeDefault
       containers:
         - name: exporter
-          image: prometheuscommunity/pgbouncer-exporter:v0.12.1@sha256:30f31b6c2efdad3647f8182cc7c1a3a19e42bae5d17387694989f969371c230d
+          # upstream master 빌드(revision b7f5aca, 2026-10-14, Go 1.27.2). 릴리스 v0.12.1은 Go 1.26.4라 trivy HIGH 27건이다.
+          # 이 빌드의 HIGH 2건은 이 구성에 해당하지 않는다: crypto/x509 시스템 루트 거부 목록(CVE-2026-111943, 비공개 CA만 씀),
+          # x/net http2(CVE-2026-78669, /metrics는 TLS 없는 HTTP/1.1이고 Collector만 닿음). 다음 릴리스에서 다시 본다
+          image: prometheuscommunity/pgbouncer-exporter:master@sha256:85fa027343bfb20107c37710804551b2f2b98b069994f1c3fc63fb67f8c43cc2
           args: ["--web.listen-address=:9127", "--log.level=warn"]
           env:
             - name: PGBOUNCER_EXPORTER_CONNECTION_STRING
