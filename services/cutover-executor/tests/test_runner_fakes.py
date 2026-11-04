@@ -37,6 +37,7 @@ def site(env: str, ns: str, subscription: str) -> Site:
 CONFIG = Config(
     settings=Settings(restore_verify_timeout_s=1),
     sites={"env-aws": site("env-aws", "src", "bravo_rev"), "env-onprem": site("env-onprem", "dst", "bravo_fwd")},
+    origin="env-aws",
 )
 
 
@@ -267,11 +268,14 @@ def world(monkeypatch):
     return w
 
 
-def start(store) -> uuid.UUID:
+REFS = {"env-aws": "fake/src", "env-onprem": "fake/dst"}
+
+
+def start(store, source: str = "env-aws", target: str = "env-onprem") -> uuid.UUID:
     request = CutoverRequest(
         plan_id="plan-fake", epoch=int(datetime.now(UTC).timestamp() * 1e6),
-        source={"environment_id": "env-aws", "connection_ref": "fake/src"},
-        target={"environment_id": "env-onprem", "connection_ref": "fake/dst"},
+        source={"environment_id": source, "connection_ref": REFS[source]},
+        target={"environment_id": target, "connection_ref": REFS[target]},
         write_pause_budget_ms=5000, deadline=datetime.now(UTC) + timedelta(minutes=1),
     )
     return store.create(str(uuid.uuid4()), request, registry_from_sites(CONFIG.sites).resolve(request))[0].execution_id
@@ -285,6 +289,56 @@ def test_happy_path_with_fakes(store, world):
     assert set(execution.result["stages_ms"]) == set(STEPS)
     assert world.login == {"src": False, "dst": True} and world.sub == {"src": True, "dst": False}
     assert all(world.configmap[ns][0] == INI.format(host="dst-db") for ns in ("src", "dst"))
+
+
+def test_receipt_direction_is_cutover_when_leaving_origin(store, world):
+    execution_id = start(store)
+    FakeCutover(store, world).run(execution_id)
+    execution = store.get(execution_id)
+    assert execution.status == Status.DONE, execution.result
+    receipt = execution.result["receipt"]
+    assert (receipt["direction"], receipt["source"], receipt["target"]) == ("cutover", "env-aws", "env-onprem")
+
+
+def after_cutover(w: World) -> None:
+    """컷오버 DONE 뒤 상태: 온프렘만 쓰기, 역방향 구독만 켜짐, 두 PgBouncer는 온프렘을 가리킨다."""
+    w.login, w.sub = {"src": False, "dst": True}, {"src": True, "dst": False}
+    w.ini_host = {"src": "dst-db", "dst": "dst-db"}
+    w.configmap = {ns: (INI.format(host="dst-db"), "1") for ns in ("src", "dst")}
+
+
+def test_failback_returns_to_origin_with_failback_receipt(store, world):
+    """T20: 출발지 · 목적지를 뒤바꾼 요청은 원래 출발지(AWS)로 돌아가는 되돌리기다."""
+    after_cutover(world)
+    execution_id = start(store, source="env-onprem", target="env-aws")
+    FakeCutover(store, world).run(execution_id)
+    execution = store.get(execution_id)
+    assert execution.status == Status.DONE, execution.result
+    receipt = execution.result["receipt"]
+    assert (receipt["direction"], receipt["source"], receipt["target"]) == ("failback", "env-onprem", "env-aws")
+    # 되돌린 뒤: AWS만 쓰기, 정방향 구독만 켜짐, 두 PgBouncer는 AWS를 가리킨다
+    assert world.login == {"src": True, "dst": False} and world.sub == {"src": False, "dst": True}
+    assert world.ini_host == {"src": "src-db", "dst": "src-db"}
+
+
+def test_config_requires_registered_origin():
+    sites = dict(CONFIG.sites)
+    with pytest.raises(ValidationError):
+        Config(sites=sites)
+    with pytest.raises(ValidationError, match="not a registered environment"):
+        Config(sites=sites, origin="env-gcp")
+
+
+def test_request_not_involving_origin_aborts_before_any_change(store, world):
+    """원래 출발지를 떠나지도 돌아오지도 않는 요청은 방향을 정할 수 없다: 원격 조작 없이 쓰기 전 실패."""
+    config = CONFIG.model_copy(update={"origin": "env-other", "sites": {**CONFIG.sites, "env-other": CONFIG.sites["env-aws"]}})
+    cutover = FakeCutover(store, world)
+    cutover._config = config
+    execution_id = start(store)
+    cutover.run(execution_id)
+    execution = store.get(execution_id)
+    assert execution.status == Status.ABORT_PRE_WRITE
+    assert "does not leave or return to origin" in execution.result["error"] and world.calls == []
 
 
 def test_takeover_inside_commit_stops_further_changes_and_records(store, postgres_dsn, world):

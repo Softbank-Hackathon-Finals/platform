@@ -80,6 +80,8 @@ class Run:
     # 사전 확인 때 고정한 PgBouncer 파드 (이름, UID, 재시작 횟수). 실행 동안 바뀌면 상태 불명으로 본다.
     pools: dict[str, tuple[str, str, int]] = field(default_factory=dict)
     step: str | None = None
+    # 영수증의 방향(cutover | failback). 사전 확인에서 설정의 원래 출발지로 정한다.
+    direction: str | None = None
     committed: bool = False
     recovery: dict[str, Any] = field(default_factory=lambda: {"version": 1, "baseline": None, "effects": []})
 
@@ -444,6 +446,10 @@ class Cutover:
     # 1. 사전 확인 -----------------------------------------------------------
     def _precheck(self, run: Run) -> None:
         src, dst = run.src, run.dst
+        try:
+            run.direction = self._config.direction(src.site.environment_id, dst.site.environment_id)
+        except ValueError as e:
+            raise StepFailed(str(e)) from e
         entries = {}
         for side in (src, dst):
             # PgBouncer 파드가 정확히 하나이고 Ready. 이 파드를 실행 끝까지 고정한다.
@@ -555,7 +561,7 @@ class Cutover:
         run.receipt = {
             "receipt_id": str(uuid.uuid4()),
             "epoch": run.request.epoch,
-            "direction": "cutover",
+            "direction": run.direction,
             "source": src.site.environment_id,
             "target": dst.site.environment_id,
             "barrier_id": str(barrier),

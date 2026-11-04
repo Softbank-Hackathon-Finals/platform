@@ -7,7 +7,7 @@
 import json
 from pathlib import Path
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 class Site(BaseModel):
@@ -66,6 +66,22 @@ class Config(BaseModel):
 
     settings: Settings = Settings()
     sites: dict[str, Site]
+    # 이전 전 주본이던 환경(원래 출발지). 요청의 목적지가 이 환경이면 되돌리기다(영수증 direction, T20).
+    origin: str
+
+    @model_validator(mode="after")
+    def _origin_is_registered(self) -> "Config":
+        if self.origin not in self.sites:
+            raise ValueError(f"origin {self.origin!r} is not a registered environment")
+        return self
+
+    def direction(self, source: str, target: str) -> str:
+        """영수증의 방향. 원래 출발지에서 나가면 cutover, 원래 출발지로 돌아오면 failback."""
+        if source == self.origin and target != self.origin:
+            return "cutover"
+        if target == self.origin and source != self.origin:
+            return "failback"
+        raise ValueError(f"request {source} -> {target} does not leave or return to origin {self.origin}")
 
     def deployment_registry(self):
         if len(self.sites) != 2 or any(k != s.environment_id for k, s in self.sites.items()):
