@@ -91,12 +91,27 @@
     }
   },
   "qualification": "partial actual observations, not a T5 ControlRun or T19 approval",
-  "raw_sha256": {
-    "source-probe-result.json": "e47d4fc2d1bc37920991e464d23ce87d99942202765a34c5b68e94e9f34952d1",
-    "source-negative-result.json": "51297c9a9646accc737606fa2837a06b46fed04f2191da58c67af3a002ca4fe4",
-    "source-pods.json": "e9b351f50bbfae07808e5133a6588985993e681f960f261a2f0f267ddb50cd3b",
-    "source-object-versions.json": "c252c3e56c19d50ebf037e4f45c32856329b056dc94dad5b872a9e1cc04dc2fc",
-    "source-pods-after.json": "6a41bd2b37eb97bdde205f380b08d9f763875224445d4711d840a7b32f11d749"
-  },
-  "pod_uid_and_image_unchanged_on_readback": true
+  "pod_uid_and_image_unchanged_on_readback": true,
+  "raw_artifact_hashes": [
+    {
+      "artifact": "source-negative-result.json",
+      "sha256": "51297c9a9646accc737606fa2837a06b46fed04f2191da58c67af3a002ca4fe4"
+    },
+    {
+      "artifact": "source-object-versions.json",
+      "sha256": "c252c3e56c19d50ebf037e4f45c32856329b056dc94dad5b872a9e1cc04dc2fc"
+    },
+    {
+      "artifact": "source-pods-after.json",
+      "sha256": "6a41bd2b37eb97bdde205f380b08d9f763875224445d4711d840a7b32f11d749"
+    },
+    {
+      "artifact": "source-pods.json",
+      "sha256": "e9b351f50bbfae07808e5133a6588985993e681f960f261a2f0f267ddb50cd3b"
+    },
+    {
+      "artifact": "source-probe-result.json",
+      "sha256": "e47d4fc2d1bc37920991e464d23ce87d99942202765a34c5b68e94e9f34952d1"
+    }
+  ]
 }

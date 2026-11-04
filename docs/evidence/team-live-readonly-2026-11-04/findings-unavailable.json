@@ -1,7 +1,7 @@
 {
   "task": "T33",
   "execution_scope": "local repository collector against actual AWS Security Hub GetFindings",
-  "software_ref": "09f6230",
+  "software_ref": "09f6230d24ae1184411cecbd79803415eb6d440c",
   "security_hub_subscription": "not_enabled",
   "guardduty_detectors": 0,
   "collection": {
@@ -97,9 +97,18 @@
     }
   },
   "qualification": "actual unavailable-source handling verified; real finding ingestion and hosted API not qualified",
-  "raw_sha256": {
-    "findings-live-result.json": "571b89d5bd834f2767c8d84f62689adf8a803e87dfd71c90b97653e6677269a7",
-    "aws-securityhub.json": "291185e373bea85963976731da58341037ff401c735d17e7c7fa5bf89676a16d",
-    "aws-guardduty.json": "400e40e76693cea592d3722cfcf458e3043d9ee5c3d168404974c4814aef69b5"
-  }
+  "raw_artifact_hashes": [
+    {
+      "artifact": "aws-guardduty.json",
+      "sha256": "400e40e76693cea592d3722cfcf458e3043d9ee5c3d168404974c4814aef69b5"
+    },
+    {
+      "artifact": "aws-securityhub.json",
+      "sha256": "291185e373bea85963976731da58341037ff401c735d17e7c7fa5bf89676a16d"
+    },
+    {
+      "artifact": "findings-live-result.json",
+      "sha256": "571b89d5bd834f2767c8d84f62689adf8a803e87dfd71c90b97653e6677269a7"
+    }
+  ]
 }
