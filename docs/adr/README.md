@@ -14,6 +14,7 @@
 | 7.5·8.4 리허설 네트워크와 격리 | [0002 송신 허용 범위](0002-rehearsal-egress-allowlist.md), [0003 격리 구현과 시험](0003-rehearsal-namespace-isolation.md) |
 | 7.3·8.5 보안 결과 형식·인증 | [0001 탐지 결과 형식](0001-security-finding-format.md), [0005 T33 보안 경계](0005-t33-security-boundary.md) |
 | 8.6 Executor 구현·실행·실패·권한 | [0006 Python 선택](0006-cutover-executor-language.md), [0011 실행 기록과 실패 판정](0011-cutover-executor-execution-and-failure.md), [0013 워크로드 접근](0013-executor-workload-access.md) |
+| 6장 S4 · 8.6 되돌리기 전 복제 경로 확인 | [0016 되돌리기 전 복제 경로 확인](0016-failback-replication-path-check.md) |
 | 8.6 무결성 지문 생산자·소비자 | [0013 지문 생산자](0013-integrity-fingerprint-producer.md) |
 | 7.2·8.8 이미지 전달 | [0011 비공개 이미지 전달](0011-private-image-delivery.md) |
 | 5.2·7.3·8.2·8.7 판정용 관측·진단 지표 | [0010 관측 경계](0010-observability-boundary.md) |
