@@ -79,7 +79,7 @@ class Fixture:
         self.during_get = None
         backend.store.register_plan(SPEC, run_id="fixture", occurred_at=NOW)
         seed_completed_cutover(backend)
-        self.client = ExecutorClient("https://executor.example.invalid", token="fixture-token",
+        self.client = ExecutorClient("https://executor.example.invalid", token="fixture-read", command_token="fixture-command",
                                      transport=httpx.MockTransport(self.handle))
 
     def authority(self, c, principal, plan, *, now, approved_by, approval_id):
@@ -162,6 +162,7 @@ def test_approval_then_single_reversed_post(fixture):
     assert [r.method for r in f.requests] == ["POST"]
     assert json.loads(f.requests[0].content) == COMMAND  # onprem -> aws, epoch above the cutover
     assert f.requests[0].headers["Idempotency-Key"] == receipt["command_id"]
+    assert f.requests[0].headers["Authorization"] == "Bearer fixture-command"  # command, not read, credential
     assert f.state() == "FAILBACK"
     decided = f.events("approval.decided")[-1]["data"]
     assert decided["approval_kind"] == "failback" and decided["binding"] == BINDING
