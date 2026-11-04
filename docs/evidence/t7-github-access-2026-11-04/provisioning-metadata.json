@@ -1,0 +1,35 @@
+{
+  "schema_version": 1,
+  "evidence_kind": "provider_settings_readback_and_local_keychain_readback",
+  "repository": "Softbank-Hackathon-Finals/demo-chat",
+  "resource_owner": "Softbank-Hackathon-Finals",
+  "repository_selection": "selected",
+  "expires_on": "2026-11-11",
+  "credentials": [
+    {
+      "role": "reader",
+      "permissions": {
+        "contents": "read",
+        "metadata": "read"
+      },
+      "organization_permissions": []
+    },
+    {
+      "role": "writer",
+      "permissions": {
+        "contents": "write",
+        "metadata": "read"
+      },
+      "organization_permissions": []
+    }
+  ],
+  "protected_storage": "macOS Keychain",
+  "storage_readback_verified": true,
+  "credential_values_in_evidence": false,
+  "consumer_delivery_verified": false,
+  "t31_consumer_verified": false,
+  "readback_at": {
+    "reader": "2026-11-04T04:00:29.970Z",
+    "writer": "2026-11-04T04:00:19.668Z"
+  }
+}

@@ -9,7 +9,9 @@
 - `store.py`: SQLite를 이용한 로컬 순번·멱등 append·재접속 재생 참조 구현.
 - `postgres.py`: 기존 상태/이벤트 로직을 재사용하는 선택형 PostgreSQL 저장 어댑터. [접속·역할·검증 계약](../../docs/contracts/T10-postgres-storage-v1-proposal.md).
 - `plans.py`: 같은 DB 트랜잭션의 계획 등록 · COLLECT→ANALYZE · 명령 영수증 · 상태 snapshot.
+- `window_store.py`: 검증된 생산자 권한과 창 저장을 같은 계획 트랜잭션에 묶는 호스트 포트. [연결·마이그레이션 절차](../../docs/contracts/T10-window-storage.md).
 - `plan_api.py`: 서버 principal/tenant 정책을 공유하는 계획 조회와 기존 SSE 경로. [계획 조회 제안](../../docs/contracts/T10-plan-snapshot-v1-proposal.md).
+- `executor.py`: T12 실행 상태의 읽기 전용 소비 어댑터. 응답 유실·식별자 불일치·조회 실패는 UNKNOWN으로 유지하고 원시 오류를 반환하지 않는다. [호출 경계와 후속 통합](../../docs/contracts/T10-cutover-submit-v1-proposal.md#실행-상태를-읽는-계약).
 - `api.py`: plan-scoped 읽기 전용 FastAPI 어댑터. 인증·인가 callback이 없으면 모든 요청을 거부한다.
 - `examples/events.json`: 5종 이벤트의 합성 fixture. 전체 상태 전이 또는 실제 이전의 증거가 아니다.
 
@@ -66,8 +68,22 @@ store = PostgresPlanStore(os.environ["BRAVO_PLATFORM_DATABASE_URL"])
 app = create_plan_app(store)  # 검증된 principal resolver가 없으면 거부
 ```
 
-설치에는 `postgres` extra를 사용한다. 접속값은 호스트의 시크릿 주입 경로에서 받고 출력하지 않는다. 어댑터는 DDL을 실행하지 않으며 사전 적용한 스키마 버전 1을 확인한다. 관리자용 `sql/bootstrap_roles.sql`, 별도 migration 계정용 `sql/0001_state_event.sql`, runtime 계정 권한 및 원격 TLS·운영 적용의 남은 조건은 [저장소 제안](../../docs/contracts/T10-postgres-storage-v1-proposal.md)에 있다.
+설치에는 `postgres` extra를 사용한다. 접속값은 호스트의 시크릿 주입 경로에서 받고 출력하지 않는다. 어댑터는 DDL을 실행하지 않으며 사전 적용한 스키마 버전 1 또는 2를 확인한다. 창 저장에는 별도 migration 계정으로 적용한 `sql/0002_sli_windows.sql`이 필요하다. v1의 기존 기능은 계속 사용할 수 있다. 관리자용 `sql/bootstrap_roles.sql`, 최초 migration `sql/0001_state_event.sql`, runtime 계정 권한 및 원격 TLS·운영 적용의 남은 조건은 [저장소 제안](../../docs/contracts/T10-postgres-storage-v1-proposal.md)에 있다.
 
 로컬 실제 PostgreSQL에서 서로 다른 어댑터 인스턴스의 동시 등록·전이·재시도·append, 쓰기 실패 롤백, 상태와 watermark의 동일 시점, 강제 DB 재시작/WAL 복구 및 권한 거부를 시험한다. 이 결과는 RKE2/CNPG/PgBouncer 연결, 클라우드 Secret 배포, 운영 복원·HA·용량·부하, T33 저장소 이식을 검증한 것이 아니다.
 
 이미 migration된 실제 DB의 제한된 소비 검증은 `python -m bravo_platform_events.runtime_probe`로 수행한다. 기존 `BRAVO_PLATFORM_DATABASE_URL` 주입 경로를 사용하고 TLS/역할을 먼저 확인한다. 합성 계획 한 개와 비공개 checkpoint를 남기는 `exercise`, 새 프로세스에서 같은 상태·이벤트·영수증을 확인하는 `verify`가 있다. DB 재시작·배포·삭제는 수행하지 않는다. [런타임 검증 절차](../../docs/contracts/T10-postgres-runtime-verification.md)의 자격·접속·관측 경계를 따른다.
+## CUTOVER 승인·접수 어댑터
+
+`cutover.CutoverService`와 `cutover_api.create_cutover_app`은 호스트가 검증한 CUTOVER 승인을 기존 상태 DB에 결속하고 Executor POST를 한 번만 전송한다. 재시작·응답 유실 뒤에는 저장된 명령으로 GET 조회를 하며 단계별 SSE를 중복 없이 저장한다. `ExecutorReader`는 계속 GET 전용이고 `ExecutorClient`만 POST를 제공한다.
+
+기본 authority와 인증은 거부한다. 실제 T19 정본·SHIFT·승인자 권한을 검증하는 호스트와 전체 계획 상태 머신은 아직 연결되지 않았다. 합성 시험을 운영 승인으로 사용할 수 없다. [계약·신뢰 경계·복구 조건](../../docs/contracts/T10-cutover-submit-v1-proposal.md)을 먼저 읽는다.
+
+### 운영자 신원·계획별 권한 연결
+
+`operator_identity.OperatorTokenVerifier`는 host가 고정한 IdP 공개 키와
+issuer/audience/client/ACR, 실제 사람 subject 목록으로 access token을 검증한다.
+`operator_access.create_operator_cutover_app`은 검증된 신원과 현재 계획의 조회·승인·실행
+권한, 승인 취소를 기존 DB/plan lock에 연결한다. 실제 T19/SHIFT authority는 별도로 필요하고
+생략하면 거부한다. 로그인 제공자나 운영 권한을 자동 생성하지 않는다.
+계약·미연결 입력·관리 경계는 [운영자 연결 제안](../../docs/contracts/T10-operator-access-v1-proposal.md)을 본다.

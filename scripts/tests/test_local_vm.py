@@ -182,6 +182,76 @@ class LocalVMTests(unittest.TestCase):
         self.assertEqual(str(uuid.UUID((self.vm / "launch.uuid").read_text().strip())),
                          (self.vm / "launch.uuid").read_text().strip())
 
+    def test_architectures_have_distinct_default_connections(self):
+        arm = vm_tool.connection_settings({"arch": "arm64"})
+        x86 = vm_tool.connection_settings({"arch": "x86_64"})
+        self.assertTrue({arm["ssh_port"], arm["api_port"]}.isdisjoint(
+            {x86["ssh_port"], x86["api_port"]}))
+
+    def test_invalid_connection_settings_cannot_create_a_vm(self):
+        shutil.rmtree(self.vm)
+        for values in ({"BRAVO_VM_ARCH": "riscv64"}, {"BRAVO_SSH_PORT": "0"},
+                       {"BRAVO_SSH_PORT": "65536"}, {"BRAVO_SSH_PORT": "2,hostfwd=tcp::22-:22"},
+                       {"BRAVO_API_PORT": "abc"}, {"BRAVO_SSH_PORT": "2222", "BRAVO_API_PORT": "2222"}):
+            with self.subTest(values=values), patch.dict(os.environ, values, clear=True):
+                with self.assertRaises(ValueError):
+                    vm_tool.up(self.state)
+                self.assertFalse(self.vm.exists())
+
+    def test_busy_port_is_rejected_without_touching_listener_or_disk(self):
+        shutil.rmtree(self.vm)
+        with socket.socket() as listener:
+            listener.bind(("127.0.0.1", 0))
+            listener.listen(1)
+            port = listener.getsockname()[1]
+            with patch.dict(os.environ, {"BRAVO_SSH_PORT": str(port)}, clear=True), \
+                    self.assertRaisesRegex(ValueError, "already in use"):
+                vm_tool.up(self.state)
+            self.assertFalse(self.vm.exists())
+            with socket.create_connection(("127.0.0.1", port), timeout=1):
+                listener.accept()[0].close()
+
+    def test_prepare_receives_persisted_architecture_and_custom_ports(self):
+        shutil.rmtree(self.vm)
+        values = {"BRAVO_VM_ARCH": "x86_64", "BRAVO_SSH_PORT": "52222", "BRAVO_API_PORT": "56443"}
+        with patch.dict(os.environ, values, clear=True), patch.object(vm_tool, "available_ports"), \
+                patch.object(vm_tool.subprocess, "run", side_effect=subprocess.CalledProcessError(1, "prepare")) as run, \
+                self.assertRaises(subprocess.CalledProcessError):
+            vm_tool.up(self.state)
+        stored = json.loads((self.vm / "connection.json").read_text())
+        self.assertEqual(stored, {"arch": "x86_64", "ssh_port": 52222, "api_port": 56443})
+        for key, value in values.items():
+            self.assertEqual(run.call_args.kwargs["env"][key], value)
+
+    def test_connection_uses_saved_ports_and_requires_matching_vm_identity(self):
+        process = self.process()
+        (self.vm / "connection.json").write_text(json.dumps(
+            {"arch": "arm64", "ssh_port": 52222, "api_port": 56443}))
+        with patch.dict(os.environ, {"BRAVO_VM_ARCH": "arm64", "BRAVO_SSH_PORT": "59999"}), \
+                patch.object(vm_tool, "owned_process", return_value=(process.pid, "identity")), self.server():
+            self.assertEqual(vm_tool.connection(self.state), 52222)
+        with self.assertRaisesRegex(ValueError, "does not belong"):
+            vm_tool.connection(self.state)
+
+    def test_connection_rejects_architecture_switch_or_missing_metadata(self):
+        with self.assertRaises(OSError):
+            vm_tool.connection(self.state)
+        (self.vm / "connection.json").write_text(json.dumps(
+            {"arch": "arm64", "ssh_port": 52222, "api_port": 56443}))
+        with patch.dict(os.environ, {"BRAVO_VM_ARCH": "x86_64"}), \
+                patch.object(vm_tool, "owned_process") as inspect, self.assertRaisesRegex(ValueError, "architecture"):
+            vm_tool.connection(self.state)
+        inspect.assert_not_called()
+        self.preserved()
+
+    def test_unknown_architecture_shell_fails_before_state_creation(self):
+        empty = self.state / "uncreated"
+        result = subprocess.run(["bash", str(SCRIPT.with_name("local-vm.sh")), "up"],
+                                env={**os.environ, "BRAVO_VM_ARCH": "unsupported", "BRAVO_VM_STATE": str(empty)},
+                                capture_output=True, timeout=5, check=False)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertFalse(empty.exists())
+
     def test_qmp_uuid_or_disk_mismatch_never_sends_quit(self):
         process = self.process()
         identity = vm_tool.process_identity(process.pid)
@@ -217,6 +287,36 @@ class LocalVMTests(unittest.TestCase):
         self.assertNotIn("quit", self.commands)
         self.assertIsNone(process.poll())
         self.preserved()
+
+    def test_exiting_state_requires_same_start_time(self):
+        original = "Tue Nov  3 20:43:02 2026 /opt/qemu-system-aarch64"
+        for row, system, expected in (
+            ("Tue Nov 3 20:43:02 2026 ?E", "Darwin", True),
+            ("Tue Nov 3 20:43:02 2026 Z", "Linux", True),
+            ("Tue Nov 3 20:43:03 2026 ?E", "Darwin", False),
+            ("Tue Nov 3 20:43:02 2026 S", "Darwin", False),
+            ("Tue Nov 3 20:43:02 2026 ?E", "Linux", False),
+        ):
+            with self.subTest(row=row, system=system), \
+                    patch.object(vm_tool.subprocess, "run", return_value=subprocess.CompletedProcess([], 0, row, "")), \
+                    patch.object(vm_tool.platform, "system", return_value=system):
+                self.assertEqual(vm_tool.process_exiting(100, original), expected)
+
+    def test_exiting_or_reused_identity_never_counts_as_process_absence(self):
+        process = self.process()
+        identity = vm_tool.process_identity(process.pid)
+        for exiting in (True, False):
+            socket_path = self.vm / "qmp.sock"
+            if socket_path.exists():
+                socket_path.unlink()
+            identities = iter([identity])  # The pre-quit identity check still matches.
+            with self.subTest(exiting=exiting), self.server(), \
+                    patch.object(vm_tool, "owned_process", return_value=(process.pid, identity)), \
+                    patch.object(vm_tool, "process_identity", side_effect=lambda _, values=identities: next(values, "changed identity")), \
+                    patch.object(vm_tool, "process_exiting", return_value=exiting), self.assertRaises(ValueError):
+                vm_tool.down(self.state, timeout=0.15)
+            self.assertIsNone(process.poll())
+            self.preserved()
 
     def test_delete_only_after_actual_process_exit(self):
         process = self.process()

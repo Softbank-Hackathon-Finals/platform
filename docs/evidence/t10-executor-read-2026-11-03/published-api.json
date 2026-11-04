@@ -1,0 +1,33 @@
+{
+  "status": "PASS",
+  "checks": {
+    "published_PENDING": true,
+    "published_RUNNING": true,
+    "published_DONE": true,
+    "published_ABORT_PRE_WRITE": true,
+    "published_SAFE_HOLD": true,
+    "lost_response_lookup": true,
+    "missing_id_unknown": true,
+    "empty_lookup_unknown": true,
+    "ambiguous_lookup_unknown": true
+  },
+  "http_get_count": 9,
+  "upstream_sha": "cccddc0ab1a9aef84de8e73dc463603cc8ea9581",
+  "upstream_files": [
+    {
+      "path": "services/cutover-executor/src/bravo_cutover/api.py",
+      "sha256": "8c46d0c811f90754ec25417609766c9c536c3c71b00f6c5267a2ec8afbaac9d4"
+    },
+    {
+      "path": "services/cutover-executor/src/bravo_cutover/store.py",
+      "sha256": "4dae05987b097d282a00d8db0e26b057b87cf6e33ffdeb4f65f4dc8940bee7d9"
+    },
+    {
+      "path": "services/cutover-executor/src/bravo_cutover/contract.py",
+      "sha256": "a9c92bd8021aea278827a381f8f9e01bd0e0266dd86249d749858563c8338126"
+    }
+  ],
+  "scope": "published T12 FastAPI GET handlers over actual loopback HTTP; storage double",
+  "upstream_database_used": false,
+  "cutover_performed": false
+}

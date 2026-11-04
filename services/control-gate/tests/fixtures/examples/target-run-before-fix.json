@@ -1,0 +1,69 @@
+{
+  "kind": "control_run",
+  "schema_version": "1",
+  "run_id": "run-tgt-0001",
+  "environment": {
+    "id": "env-onprem",
+    "role": "target",
+    "ref": "onprem:rke2/target"
+  },
+  "app": "demo-chat",
+  "started_at": "2026-11-04T09:01:00Z",
+  "finished_at": "2026-11-04T09:05:40Z",
+  "results": [
+    {
+      "test_id": "IAM-01.1",
+      "control_id": "IAM-01",
+      "method_version": "1",
+      "expected": "deny",
+      "observed": "allow",
+      "positive_control": "pass",
+      "verdict": "FAIL",
+      "unknown_reason": null,
+      "evidence": {
+        "collected_at": "2026-11-04T09:01:00Z",
+        "expires_at": "2026-11-05T09:01:00Z",
+        "tool": "curl",
+        "command": "curl -s -o /dev/null -w '%{http_code}' http://<seaweedfs-s3>:8333/demo-chat-attachments/attachments/<id>",
+        "output_sha256": "sha256:dde79af027730f702052cb6e5199c88cd19e85af93b63638757b9c267e596141",
+        "excerpt": "anonymous GET -> 200 (bucket policy allows public read); app credential GET -> 200"
+      }
+    },
+    {
+      "test_id": "SEC-01.1",
+      "control_id": "SEC-01",
+      "method_version": "1",
+      "expected": "deny",
+      "observed": "deny",
+      "positive_control": "pass",
+      "verdict": "PASS",
+      "unknown_reason": null,
+      "evidence": {
+        "collected_at": "2026-11-04T09:01:00Z",
+        "expires_at": "2026-11-05T09:01:00Z",
+        "tool": "bao",
+        "command": "bao kv get secret/demo-chat/db (token: other-app SA)",
+        "output_sha256": "sha256:9850993bdd8f04244db7b238547dd1290e276bd586ce2de2afdca6b0712d47de",
+        "excerpt": "other-app SA -> 403 permission denied; app SA -> 200 (value not recorded)"
+      }
+    },
+    {
+      "test_id": "AUD-01.1",
+      "control_id": "AUD-01",
+      "method_version": "1",
+      "expected": "present",
+      "observed": null,
+      "positive_control": "not_applicable",
+      "verdict": "UNKNOWN",
+      "unknown_reason": "OBSERVATION_DENIED",
+      "evidence": {
+        "collected_at": "2026-11-04T09:01:00Z",
+        "expires_at": "2026-11-05T09:01:00Z",
+        "tool": "kubectl",
+        "command": "kubectl logs -n logging deploy/collector | grep audit-canary-7f3a",
+        "output_sha256": "sha256:9278f39f1a43f198ab801bd3ce30694d2f9e196847a361fad04c74ab48a16efe",
+        "excerpt": "Error from server (Forbidden): pods \"collector\" is forbidden"
+      }
+    }
+  ]
+}

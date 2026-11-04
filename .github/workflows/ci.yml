@@ -64,12 +64,26 @@ jobs:
             echo "::error::PR 제목은 [T번호]로 시작한다. 예: [T3] 리허설 네임스페이스 템플릿 추가"
             exit 1
           fi
-      - name: 시크릿 유출 검사 (gitleaks, 전체 이력)
+      - name: 시크릿 유출 검사 (병합 커밋의 전체 조상 이력)
         run: |
-          docker run --rm -v "$PWD:/repo" ghcr.io/gitleaks/gitleaks:v8.24.3 \
-            detect --source /repo --redact --verbose
+          python3 scripts/ci_secrets.py --scope head --receipt "$RUNNER_TEMP/secret-scan.json"
+      - name: 실제 scanner 경계 회귀
+        env:
+          BRAVO_TEST_GITLEAKS: docker
+        run: python3 -m unittest discover -s scripts/tests -p test_ci_secrets.py -v
+      - name: 증빙 소스 해시 형식
+        env:
+          EVIDENCE_BASE: ${{ github.event.pull_request.base.sha || github.event.before || github.sha }}
+        run: python3 scripts/evidence_sources.py check --base "$EVIDENCE_BASE"
       - name: 공개 파일 개인정보·운영 식별자 검사
         run: python3 scripts/public_evidence.py check
+      - name: 검사 입력 기록
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: secret-scan-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/secret-scan.json
+          retention-days: 14
 
   infra:
     needs: scope

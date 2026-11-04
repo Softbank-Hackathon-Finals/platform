@@ -1,0 +1,52 @@
+name: subscription-runtime
+on:
+  workflow_dispatch:
+  push:
+    branches: [feature/T15-subscription-integration]
+    paths: [.github/workflows/subscription-runtime.yml]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: bravo-subscription-vm
+  cancel-in-progress: false
+
+jobs:
+  subscription:
+    if: vars.BRAVO_SUBSCRIPTION_RUNTIME_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          version: 0.10.2
+      - name: Install the pinned AWS tunnel client
+        run: |
+          curl --fail --silent --show-error --location https://s3.amazonaws.com/session-manager-downloads/plugin/1.2.764.0/ubuntu_64bit/session-manager-plugin.deb -o /tmp/session-manager-plugin.deb
+          echo 'beed4c95c42afd29756d9ecea59c3fcbf937b2c35b9ef84d12b93ac6e74726ba  /tmp/session-manager-plugin.deb' | sha256sum -c -
+          sudo dpkg -i /tmp/session-manager-plugin.deb
+      - uses: aws-actions/configure-aws-credentials@cabfdba3510de1431bac9dba27511d97497fc100 # v5
+        with:
+          role-to-assume: ${{ secrets.BRAVO_SUBSCRIPTION_CONTROLLER_ROLE_ARN }}
+          role-session-name: BravoSubscription
+          aws-region: ap-northeast-2
+          role-duration-seconds: 900
+          mask-aws-account-id: true
+      - name: Run the installed VM broker without administrator credentials
+        working-directory: services/agent-worker
+        env:
+          BRAVO_INSTANCE_ID: ${{ secrets.BRAVO_SUBSCRIPTION_INSTANCE_ID }}
+          BRAVO_RUNTIME_SOURCE_SHA: ${{ vars.BRAVO_SUBSCRIPTION_SOURCE_SHA }}
+        run: uv run --frozen --no-dev python ../../operations/subscription/controller.py
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: subscription-runtime-result
+          path: services/agent-worker/runtime-result.json
+          retention-days: 7
+          if-no-files-found: ignore

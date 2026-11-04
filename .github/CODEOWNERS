@@ -1,4 +1,9 @@
-# 코드 오너. 보안 경계 파일이 생기면 여기에 추가한다.
-# 아래 파일을 바꾸는 PR은 코드 오너에게 리뷰 요청 알림이 간다. main/develop의 PR은 팀원 승인 1건 이상이 필요하다. 특정 코드 오너 승인을 강제하는 별도 규칙은 두지 않는다.
-/.github/CODEOWNERS  @baekyutae @Jeonsubb @kth4778 @mangowhoiscloud @sangmu1126
-/.github/workflows/  @baekyutae @Jeonsubb @kth4778 @mangowhoiscloud @sangmu1126
+# 코드 오너. 모든 파일의 오너는 팀원 전원이고, docs/tasks.md(작업 계획)만 오너가 없다.
+# develop ruleset은 "코드 오너 승인 필수 + 필요한 승인 수 0"이다.
+# - 오너가 있는 파일을 하나라도 바꾼 PR: 팀원(코드 오너) 승인 1건 이상 + 필수 CI
+# - docs/tasks.md만 바꾼 PR(할 일 추가 · 수정, 봇 [sync] PR): 승인 없이 필수 CI 통과로 머지
+# main ruleset은 그대로 팀원 승인 1건 이상을 요구한다.
+# 모든 PR에 전원이 리뷰어로 자동 지정되지만 승인은 1명이면 된다. 리뷰는 docs/review-routing.md의 파트 담당이 맡는다.
+# GitHub는 경로가 일치하는 마지막 줄을 쓴다. 오너 없는 줄은 반드시 * 아래에 둔다.
+*               @baekyutae @Jeonsubb @kth4778 @mangowhoiscloud @sangmu1126
+/docs/tasks.md

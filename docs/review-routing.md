@@ -30,11 +30,11 @@
 
 | 팀원 / GitHub | 주 | 부 | 근거 수준 | 현재 직접 할당 |
 |---|---|---|---|---|
-| 류지환 `mangowhoiscloud` | **4 인프라·CI·Edge** | **5 플랫폼 API·콘솔·데모 앱** | 후속 역할표·정본 명시 | T1, T6, T7, T10, T17 |
+| 류지환 `mangowhoiscloud` | **4 인프라·CI·Edge** | **5 플랫폼 API·콘솔·데모 앱** | 후속 역할표·정본 명시 | T1, T6, T7, T10, T17, T38 |
 | 김태현 `kth4778` | 1 데이터·컷오버 | 4 인프라·CI·Edge | [최종 댓글 `1, 4`](https://softbankhackathon2026.slack.com/archives/C0CDEFEB83U/p1793623658354629)의 순서 해석 | T2, T8, T13, T18, T27, T30 |
 | 배규태 `baekyutae` | 1 데이터·컷오버 | 3 에이전트·리허설 | [댓글 `1,3`](https://softbankhackathon2026.slack.com/archives/C0CDEFEB83U/p1793623652233439)의 순서 해석 | T3, T12, T15, T20, T25, T26 |
 | 전동훈 `Jeonsubb` | 3 에이전트·리허설 | 2 보안 통제·게이트 | [마지막 댓글 `3, 2`](https://softbankhackathon2026.slack.com/archives/C0CDEFEB83U/p1793624352883729)의 순서 해석. 앞선 `1, 4`는 대체됨 | T9, T11, T16, T24, T31, T32 |
-| 이상무 `sangmu1126` | 2 보안 통제·게이트 | 5 플랫폼 API·콘솔·데모 앱 | [마지막 댓글 `2, 5`](https://softbankhackathon2026.slack.com/archives/C0CDEFEB83U/p1793623742237299)의 순서 해석. 앞선 `2 4`는 대체됨 | T4, T5, T14, T19, T21, T22, T23, T33, T34, T35 |
+| 이상무 `sangmu1126` | 2 보안 통제·게이트 | 5 플랫폼 API·콘솔·데모 앱 | [마지막 댓글 `2, 5`](https://softbankhackathon2026.slack.com/archives/C0CDEFEB83U/p1793623742237299)의 순서 해석. 앞선 `2 4`는 대체됨 | T4, T5, T14, T19, T21, T22, T23, T33, T34, T35, T36, T37 |
 
 **파트 5는 팀 전체가 함께 완성하는 영역**이라는 사용자 확인을 적용한다. 회의록에도 각자 개발한 뒤 통합해야 한다고 적혀 있다. 정본에 명시된 이상무·류지환과 T4/T10/T21/T22의 개별 Assignee는 구체적인 실행 책임이며, 다른 팀원을 파트 5 협업에서 제외하는 뜻이 아니다. 파트 5 PR의 기본 리뷰 후보는 전원이다.
 
@@ -47,8 +47,8 @@
 | 1 데이터·컷오버 | 배규태 `baekyutae`, 김태현 `kth4778` | T8, T12, T13, T18, T20, T25, T27 |
 | 2 보안 통제·게이트 | 이상무 `sangmu1126`, 전동훈 `Jeonsubb` | T5, T9, T14, T19, T23, T24, T33, T34, T35 |
 | 3 에이전트·리허설 | 배규태 `baekyutae`, 전동훈 `Jeonsubb` | T3, T11, T15, T16, T26, T31, T32 |
-| 4 인프라·CI·Edge | 김태현 `kth4778`, 류지환 `mangowhoiscloud` | T1, T2, T6, T7, T17, T30 |
-| 5 플랫폼 API·콘솔·데모 앱 | 전원. 실행상 명시 담당은 이상무·류지환 | T4, T10, T21, T22 |
+| 4 인프라·CI·Edge | 김태현 `kth4778`, 류지환 `mangowhoiscloud` | T1, T2, T6, T7, T17, T30, T38 |
+| 5 플랫폼 API·콘솔·데모 앱 | 전원. 실행상 명시 담당은 이상무·류지환 | T4, T10, T21, T22, T36, T37 |
 | 공통 통합·문서 | 전원 | T28, T29 |
 
 요청 절차:
@@ -56,14 +56,14 @@
 1. PR의 T번호를 실제 변경 범위와 대조하고 `docs/tasks.md`의 영역을 확인한다.
 2. 해당 파트의 주·부 참여자 합집합에서 PR 작성자를 뺀다. 여러 파트의 구현·공통 계약을 실제로 바꾸면 그 파트도 포함한다.
 3. 이미 요청됐거나 해당 변경을 검토 중인 사람에게 중복 알림을 보내지 않는다. 제출된 리뷰를 리뷰 대상 정리라는 이유로 삭제·무효화하지 않는다.
-4. 요청자 목록을 API로 재조회한다. 리뷰 요청은 승인과 다르다. 전원 승인을 기다리지 않고, 최종 커밋의 필수 CI 통과와 팀원 승인 1건 이상, 변경 요청 해소를 요구한다. GitHub 기본 auto-merge를 예약할 수 있다. 이는 현재 ruleset 기준이며, 병목이 되면 필수 CI를 유지한 채 승인 필수 조건을 조정할 수 있다는 [후속 안내](https://softbankhackathon2026.slack.com/archives/C0CDEFEB83U/p1793690297841029)가 있다. 실행 직전 실제 ruleset을 다시 확인한다.
+4. 요청자 목록을 API로 재조회한다. 리뷰 요청은 승인과 다르며 전원 승인을 기다리지 않는다. 병합 조건·tasks.md 예외·봇 PR 처리는 [개발 규약](development.md#브랜치와-병합)과 실제 GitHub ruleset을 따른다. 다른 담당의 로직 변경은 [사전 범위 합의](development.md#담당-태스크를-넘는-변경)와 그 담당의 리뷰가 필요하다. 리뷰 후보 선정이나 코드 승인은 사전 합의를 대신하지 않는다.
 5. 선행·후속 이슈라는 이유만으로 모든 담당자를 추가하지 않는다. 반대로 R&R 밖의 협업·리뷰 제안을 막지도 않는다. 추가 요청에는 영향을 받는 계약이나 검토 이유를 적는다.
 
-`.github/CODEOWNERS`는 별도의 경로 기반 자동 요청을 한다. 현재 워크플로·CODEOWNERS 변경은 전원에게 알린다. T번호 기반 자동 리뷰어 배정은 아직 구현하지 않았으며 이 문서에 따라 명시적으로 요청한다. 이번 정리는 보호 규칙이나 CODEOWNERS 대상자를 변경하지 않는다.
+`.github/CODEOWNERS`는 모든 파일의 오너를 팀원 전원으로 두어 PR마다 전원을 리뷰어로 자동 지정한다(2026-11-03 팀 합의: [제안](https://softbankhackathon2026.slack.com/archives/C0CDEFEB83U/p1793707496460339) · [공지](https://softbankhackathon2026.slack.com/archives/C0CDEFEB83U/p1793711623617629)). 리뷰는 위 기준의 파트 담당이 맡고 나머지는 알림만 받는다. `docs/tasks.md`는 오너가 없어, 그 파일만 바꾼 PR은 develop에서 승인 없이 필수 CI 통과로 머지된다. T번호 기반 자동 리뷰어 배정은 아직 구현하지 않았으며 이 문서에 따라 명시적으로 요청한다.
 
-## 5. T1~T35별 실행 담당과 리뷰 후보
+## 5. T1~T38별 실행 담당과 리뷰 후보
 
-아래는 2026-11-03 이슈 조회 결과다. 이후 담당이 바뀌면 이슈 Assignees를 먼저 다시 확인한다. 후보 칸은 **작성자 제외 전**이며, 부 역할도 포함한다. T33~T35는 초기 설계표 이후 `tasks.md`와 이슈에 추가된 보안 파트 작업이다.
+아래는 2026-11-03 이슈 조회 결과다. 이후 담당이 바뀌면 이슈 Assignees를 먼저 다시 확인한다. 후보 칸은 **작성자 제외 전**이며, 부 역할도 포함한다. T33~T35는 초기 설계표 이후 추가된 보안 파트 작업이다. T36·T37은 11/4 확인한 `tasks.md`의 플랫폼 파트 작업으로 보완했다. 담당 변경은 이 표를 단독 근거로 실행하지 않는다.
 
 | 작업 | 이름 | 파트 | 현재 이슈 담당 | 리뷰 후보 |
 |---|---|---|---|---|
@@ -102,6 +102,9 @@
 | [T33 · #53](https://github.com/Softbank-Hackathon-Finals/platform/issues/53) | 보안 탐지 통합: AWS · Google Cloud · 온프렘 탐지를 한 형식 · 한 화면으로 | 2 | 이상무 | 이상무 · 전동훈 |
 | [T34 · #56](https://github.com/Softbank-Hackathon-Finals/platform/issues/56) | 감사 로그 수집: 출발지 · 목적지 (DB 접속 · DDL · K8s 권한 변경) | 2 | 이상무 | 이상무 · 전동훈 |
 | [T35 · #57](https://github.com/Softbank-Hackathon-Finals/platform/issues/57) | CNPG 백업 · 복원: 출발지 · 목적지 | 2 | 이상무 | 이상무 · 전동훈 |
+| [T36 · #103](https://github.com/Softbank-Hackathon-Finals/platform/issues/103) | 판정용 관측 계약: 오류율 · p95 창 요약과 SHIFT · WATCH | 5 | 이상무 | 전원 |
+| [T37 · #104](https://github.com/Softbank-Hackathon-Finals/platform/issues/104) | 환경 횡단 지표 수집: OTel Collector → 플랫폼 지표 저장소 | 5 | 이상무 | 전원 |
+| [T38 · #150](https://github.com/Softbank-Hackathon-Finals/platform/issues/150) | 구독 런타임 실행 기반: VM·OIDC·격리 Job | 4 | 류지환 | 김태현 · 류지환 |
 
 ## 6. 이번 PR에 적용한 결과
 
@@ -110,4 +113,4 @@
 | [#74 T1 예산·비용 조회](https://github.com/Softbank-Hackathon-Finals/platform/pull/74) | 파트 4, 작성자 류지환 | 김태현 `kth4778` | 근거 없이 추가했던 배규태의 대기 요청을 제거. 제출된 리뷰 없음 |
 | [#73 T29 공통 규칙·칸반 연동](https://github.com/Softbank-Hackathon-Finals/platform/pull/73) | 전원 공통, 작성자 류지환 | 배규태·김태현·전동훈·이상무 | 기존 요청과 일치하므로 중복 요청하지 않음 |
 
-이 표는 최초 요청 정리 기록이다. 이후 리뷰에서 수정 요청이 오면 수정·재검토를 거친다. 최종 커밋의 CI 통과와 팀원 승인 1건 이상, 변경 요청 해소 후 GitHub 기본 auto-merge로 병합할 수 있다. T1/T29 완료 체크, 이슈 담당, 현재 설계의 역할 배정은 변경하지 않는다.
+이 표는 최초 요청 정리 기록이다. 이후 리뷰에서 수정 요청이 오면 수정·재검토를 거친다. 최종 커밋의 CI·승인·변경 요청 조건은 [개발 규약](development.md#브랜치와-병합)과 현재 GitHub 규칙으로 확인한다. T1/T29 완료 체크, 이슈 담당, 현재 설계의 역할 배정은 변경하지 않는다.
