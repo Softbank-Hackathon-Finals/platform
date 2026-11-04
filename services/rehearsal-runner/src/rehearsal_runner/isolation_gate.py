@@ -31,7 +31,7 @@ def _namespace_uid(kube: Kubectl, namespace: str) -> str:
     metadata = kube.get_json("namespace", namespace).get("metadata", {})
     uid = metadata.get("uid")
     labels = metadata.get("labels", {})
-    if (not isinstance(uid, str) or not uid or metadata.get("deletionTimestamp")
+    if (not isinstance(uid, str) or not uid.strip() or metadata.get("deletionTimestamp")
             or not isinstance(labels, dict)
             or labels.get("app.kubernetes.io/part-of") != "bravo-rehearsal"):
         raise IsolationBlocked("namespace identity unavailable")

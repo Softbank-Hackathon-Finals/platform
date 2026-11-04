@@ -103,6 +103,15 @@ def test_cli_blocks_without_proceeding(monkeypatch, tmp_path, capsys):
     assert '"BLOCK"' in capsys.readouterr().out
 
 
+@pytest.mark.parametrize("uids", [("   ",), ("uid-1", "   "), ("uid-1", "uid-1", "   ")])
+def test_whitespace_namespace_uid_never_passes(monkeypatch, uids):
+    monkeypatch.setattr(gate, "run", lambda *_: [Result("N", "test", Kind.ISOLATION, Status.PASS)])
+    kube = Kube()
+    kube.uids = iter(uids)
+    with pytest.raises(gate.IsolationBlocked, match="identity unavailable"):
+        gate.check_isolation(kube, "rehearsal-test", [], "image")
+
+
 def test_created_uid_mismatch_blocks_before_test_or_cleanup(monkeypatch):
     calls = []
     monkeypatch.setattr(gate, "run", lambda *_: calls.append("run"))
