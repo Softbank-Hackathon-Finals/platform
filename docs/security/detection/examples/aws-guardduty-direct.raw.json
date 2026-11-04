@@ -12,7 +12,8 @@
   "Service": {
     "Archived": false,
     "AdditionalInfo": {
-      "Sample": true
+      "Value": "{\"sample\":true}",
+      "Type": "default"
     }
   },
   "CreatedAt": "2026-11-04T09:02:00Z",
