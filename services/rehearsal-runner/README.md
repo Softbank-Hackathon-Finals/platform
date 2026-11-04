@@ -104,6 +104,15 @@ uv run --frozen --no-default-groups --with pytest pytest -p no:cacheprovider ../
 
 `bucket_s3.bucket_readers`는 신뢰된 세션과 시험용 엔드포인트로 서명된 읽기와 서명 없는 읽기를 별도 클라이언트로 만든다. 로컬 HTTP 시험 서버로 요청 서명 여부와 관측을 확인하며, 실제 S3 정책 적용이나 검증 권한을 제공하지 않는다.
 
+## T10 승인 경계 교차 시험
+
+T15 실제 러너의 미인증 결과·격리 실패·정리 실패를 T10 실제 변경 승인 코드에 전달해 승인 거부를 확인한다. 모의 Job의 PASS는 인증된 제품 검증이나 승인 공급자가 아니다.
+
+```bash
+cd ../platform-events
+PYTHONPATH=../rehearsal-runner/src uv run --frozen --no-default-groups --with pytest pytest -p no:cacheprovider ../rehearsal-runner/testing/test_t10_bucket_boundary.py
+```
+
 ## 단일 시도 실행 순서
 
 `rehearsal_runner.runner.run_once`는 주입된 제안·생성·검증·정리 경계와 `T3Gate`를 이용해 한 번의 시도 순서를 관리한다. T3 시험 전 현재 namespace UID를 생성 결과와 대조하고, 시험 후에도 이름·UID가 다르거나 시험이 실패하면 검증을 호출하지 않는다. 생성 결과의 이름은 `rehearsal-` 범위로 제한하고, 정상·실패 경로 모두 원래 UID로 정리를 요청한다. 정리 부재를 확인하지 못하면 사람에게 넘긴다.
