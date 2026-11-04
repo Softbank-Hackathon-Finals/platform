@@ -65,7 +65,7 @@ views = PlanObservations(authenticated_t10_app, client,
 app = ConsoleApp(authenticated_t10_app, public_origin="https://console.example.invalid", observations=views)
 ```
 
-호스트 종료 시 `await client.aclose()`를 호출한다. 등록된 계획의 두 환경만 조회하고 임의 URL/PromQL/환경 선택은 받지 않는다. T37 토큰은 브라우저로 전달하지 않는다. 외부 조회 총 기한·응답 크기를 제한하고, scope 변경/권한 회수/응답 환경 불일치/미래·오래된 관측/NaN은 값을 노출하거나 정상으로 대신하지 않는다. 오류율·p95는 표시용이며 `for_gate_decisions: false`다. T36의 부하 창과 판정 기록은 별도 계약으로 유지한다.
+호스트 종료 시 `await client.aclose()`를 호출한다. 등록된 계획의 두 환경만 조회하고 임의 URL/PromQL/환경 선택은 받지 않는다. T37 토큰은 브라우저로 전달하지 않는다. 외부 HTTP 조회 전체 기한은 5초(개별 I/O 3초), 응답은 64 KiB로 제한한다. 압축 응답·중복 JSON 키·비UTF-8·비유한 숫자·과도한 중첩을 거부하며, 본문이 조금씩 계속 도착해도 전체 기한을 연장하지 않는다. 이 제한은 T37·T10·보고서의 권한 검증을 대신하지 않는다. 또한 scope 변경/권한 회수/응답 환경 불일치/미래·오래된 관측/NaN은 값을 노출하거나 정상으로 대신하지 않는다. 오류율·p95는 표시용이며 `for_gate_decisions: false`다. T36의 부하 창과 판정 기록은 별도 계약으로 유지한다.
 
 ## T19 보안 통제 보고서 조회 연결
 
