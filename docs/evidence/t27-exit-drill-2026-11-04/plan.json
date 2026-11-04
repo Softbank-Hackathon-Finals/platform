@@ -1,0 +1,599 @@
+{
+ "candidate": "onprem-demo",
+ "decisions": [
+  {
+   "action": "ALLOW",
+   "class": "local",
+   "direction": "egress",
+   "evidence": null,
+   "owners": [
+    "app"
+   ],
+   "ports": [
+    {
+     "port": 8333,
+     "protocol": "TCP"
+    }
+   ],
+   "probe": {
+    "host": "seaweedfs.target-dev.svc",
+    "kind": "tcp",
+    "port": 8333
+   },
+   "reason": "목적지 안의 경로라서 허용 목록에 넣는다",
+   "roles": [],
+   "route_id": "app-to-objects",
+   "to": {
+    "host": null,
+    "namespace": "target-dev",
+    "selector": {
+     "app.kubernetes.io/name": "target-seaweedfs"
+    }
+   }
+  },
+  {
+   "action": "ALLOW",
+   "class": "local",
+   "direction": "egress",
+   "evidence": null,
+   "owners": [
+    "app"
+   ],
+   "ports": [
+    {
+     "port": 5432,
+     "protocol": "TCP"
+    }
+   ],
+   "probe": {
+    "host": "target-pgbouncer.target-dev.svc",
+    "kind": "tcp",
+    "port": 5432
+   },
+   "reason": "목적지 안의 경로라서 허용 목록에 넣는다",
+   "roles": [],
+   "route_id": "app-to-pooler",
+   "to": {
+    "host": null,
+    "namespace": "target-dev",
+    "selector": {
+     "app": "target-pgbouncer"
+    }
+   }
+  },
+  {
+   "action": "BLOCK",
+   "class": "source_access",
+   "direction": "egress",
+   "evidence": null,
+   "owners": [
+    "app"
+   ],
+   "ports": [
+    {
+     "port": 443,
+     "protocol": "TCP"
+    }
+   ],
+   "probe": {
+    "host": "iam.amazonaws.com",
+    "kind": "tcp",
+    "port": 443
+   },
+   "reason": "출발지로 가는 경로라서 허용 목록에서 뺀다",
+   "roles": [
+    "iam"
+   ],
+   "route_id": "aws-iam",
+   "to": {
+    "host": "iam.amazonaws.com",
+    "namespace": null,
+    "selector": null
+   }
+  },
+  {
+   "action": "BLOCK",
+   "class": "source_access",
+   "direction": "egress",
+   "evidence": null,
+   "owners": [
+    "app"
+   ],
+   "ports": [
+    {
+     "port": 443,
+     "protocol": "TCP"
+    }
+   ],
+   "probe": {
+    "host": "kms.ap-northeast-2.amazonaws.com",
+    "kind": "tcp",
+    "port": 443
+   },
+   "reason": "출발지로 가는 경로라서 허용 목록에서 뺀다",
+   "roles": [
+    "kms"
+   ],
+   "route_id": "aws-kms",
+   "to": {
+    "host": "kms.ap-northeast-2.amazonaws.com",
+    "namespace": null,
+    "selector": null
+   }
+  },
+  {
+   "action": "BLOCK",
+   "class": "source_access",
+   "direction": "egress",
+   "evidence": null,
+   "owners": [
+    "app"
+   ],
+   "ports": [
+    {
+     "port": 443,
+     "protocol": "TCP"
+    }
+   ],
+   "probe": {
+    "host": "s3.ap-northeast-2.amazonaws.com",
+    "kind": "tcp",
+    "port": 443
+   },
+   "reason": "출발지로 가는 경로라서 허용 목록에서 뺀다",
+   "roles": [
+    "object_store"
+   ],
+   "route_id": "aws-s3",
+   "to": {
+    "host": "s3.ap-northeast-2.amazonaws.com",
+    "namespace": null,
+    "selector": null
+   }
+  },
+  {
+   "action": "BLOCK",
+   "class": "source_access",
+   "direction": "egress",
+   "evidence": null,
+   "owners": [
+    "app"
+   ],
+   "ports": [
+    {
+     "port": 443,
+     "protocol": "TCP"
+    }
+   ],
+   "probe": {
+    "host": "secretsmanager.ap-northeast-2.amazonaws.com",
+    "kind": "tcp",
+    "port": 443
+   },
+   "reason": "출발지로 가는 경로라서 허용 목록에서 뺀다",
+   "roles": [
+    "secrets"
+   ],
+   "route_id": "aws-secretsmanager",
+   "to": {
+    "host": "secretsmanager.ap-northeast-2.amazonaws.com",
+    "namespace": null,
+    "selector": null
+   }
+  },
+  {
+   "action": "BLOCK",
+   "class": "source_access",
+   "direction": "egress",
+   "evidence": null,
+   "owners": [
+    "app"
+   ],
+   "ports": [
+    {
+     "port": 443,
+     "protocol": "TCP"
+    }
+   ],
+   "probe": {
+    "host": "sts.ap-northeast-2.amazonaws.com",
+    "kind": "tcp",
+    "port": 443
+   },
+   "reason": "출발지로 가는 경로라서 허용 목록에서 뺀다",
+   "roles": [
+    "iam"
+   ],
+   "route_id": "aws-sts",
+   "to": {
+    "host": "sts.ap-northeast-2.amazonaws.com",
+    "namespace": null,
+    "selector": null
+   }
+  },
+  {
+   "action": "ALLOW",
+   "class": "local",
+   "direction": "egress",
+   "evidence": null,
+   "owners": [
+    "app",
+    "pooler"
+   ],
+   "ports": [
+    {
+     "port": 53,
+     "protocol": "TCP"
+    },
+    {
+     "port": 53,
+     "protocol": "UDP"
+    }
+   ],
+   "probe": {
+    "host": "kubernetes.default.svc.cluster.local",
+    "kind": "dns"
+   },
+   "reason": "목적지 안의 경로라서 허용 목록에 넣는다",
+   "roles": [],
+   "route_id": "dns",
+   "to": {
+    "host": null,
+    "namespace": "kube-system",
+    "selector": {
+     "k8s-app": "kube-dns"
+    }
+   }
+  },
+  {
+   "action": "ALLOW",
+   "class": "local",
+   "direction": "egress",
+   "evidence": null,
+   "owners": [
+    "pooler"
+   ],
+   "ports": [
+    {
+     "port": 5432,
+     "protocol": "TCP"
+    }
+   ],
+   "probe": {
+    "host": "target-db-rw.target-dev.svc",
+    "kind": "tcp",
+    "port": 5432
+   },
+   "reason": "목적지 안의 경로라서 허용 목록에 넣는다",
+   "roles": [],
+   "route_id": "pooler-to-db",
+   "to": {
+    "host": null,
+    "namespace": "target-dev",
+    "selector": {
+     "cnpg.io/cluster": "target-db",
+     "cnpg.io/instanceRole": "primary"
+    }
+   }
+  },
+  {
+   "action": "BLOCK",
+   "class": "source_access",
+   "direction": "egress",
+   "evidence": null,
+   "owners": [
+    "pooler"
+   ],
+   "ports": [
+    {
+     "port": 5432,
+     "protocol": "TCP"
+    }
+   ],
+   "probe": {
+    "host": "source-db-for-pooler.target-dev.svc",
+    "kind": "tcp",
+    "port": 5432
+   },
+   "reason": "출발지로 가는 경로라서 허용 목록에서 뺀다",
+   "roles": [
+    "db"
+   ],
+   "route_id": "pooler-to-source",
+   "to": {
+    "host": null,
+    "namespace": "tailscale-system",
+    "selector": {
+     "tailscale.com/parent-resource": "bravo-target-pooler"
+    }
+   }
+  },
+  {
+   "action": "KEEP",
+   "class": "replication",
+   "direction": "egress",
+   "evidence": "tcp",
+   "owners": [
+    "db"
+   ],
+   "ports": [
+    {
+     "port": 5432,
+     "protocol": "TCP"
+    }
+   ],
+   "probe": {
+    "host": "source-db-for-replication.target-dev.svc",
+    "kind": "tcp",
+    "port": 5432
+   },
+   "reason": "복제 채널이라서 이 경로를 쓰는 Pod를 정책으로 고르지 않는다",
+   "roles": [],
+   "route_id": "replication-forward",
+   "to": {
+    "host": null,
+    "namespace": "tailscale-system",
+    "selector": {
+     "tailscale.com/parent-resource": "bravo-target-replication"
+    }
+   }
+  },
+  {
+   "action": "KEEP",
+   "class": "replication",
+   "direction": "ingress",
+   "evidence": "stream",
+   "owners": [
+    "db"
+   ],
+   "ports": [
+    {
+     "port": 5432,
+     "protocol": "TCP"
+    }
+   ],
+   "probe": null,
+   "reason": "복제 채널이라서 이 경로를 쓰는 Pod를 정책으로 고르지 않는다",
+   "roles": [],
+   "route_id": "replication-reverse",
+   "to": {
+    "host": null,
+    "namespace": "tailscale-system",
+    "selector": {
+     "tailscale.com/parent-resource": "target-db-tailnet"
+    }
+   }
+  }
+ ],
+ "declared_residuals": [
+  "github (코드 · 이미지 빌드)",
+  "tailscale (복제 · 제어 경로)",
+  "모델 공급자 (플랫폼의 에이전트 워커)"
+ ],
+ "digest": "sha256:069d6740f73df6611e992db0a3c4a044251f3b1bf4547b7cb60a7ba6b8c6b2ba",
+ "inventory_digest": "sha256:55271b9513e48c23c1a730faeebd44fc6831a1e1e57c9ef14d59641b60ccbc01",
+ "manifests": [
+  {
+   "apiVersion": "networking.k8s.io/v1",
+   "kind": "NetworkPolicy",
+   "metadata": {
+    "annotations": {
+     "bravo.exit-drill/plan-digest": "sha256:069d6740f73df6611e992db0a3c4a044251f3b1bf4547b7cb60a7ba6b8c6b2ba"
+    },
+    "labels": {
+     "app.kubernetes.io/part-of": "bravo-exit-drill",
+     "component": "target"
+    },
+    "name": "exit-drill-egress-app",
+    "namespace": "target-dev"
+   },
+   "spec": {
+    "egress": [
+     {
+      "ports": [
+       {
+        "port": 8333,
+        "protocol": "TCP"
+       }
+      ],
+      "to": [
+       {
+        "podSelector": {
+         "matchLabels": {
+          "app.kubernetes.io/name": "target-seaweedfs"
+         }
+        }
+       }
+      ]
+     },
+     {
+      "ports": [
+       {
+        "port": 5432,
+        "protocol": "TCP"
+       }
+      ],
+      "to": [
+       {
+        "podSelector": {
+         "matchLabels": {
+          "app": "target-pgbouncer"
+         }
+        }
+       }
+      ]
+     },
+     {
+      "ports": [
+       {
+        "port": 53,
+        "protocol": "TCP"
+       },
+       {
+        "port": 53,
+        "protocol": "UDP"
+       }
+      ],
+      "to": [
+       {
+        "namespaceSelector": {
+         "matchLabels": {
+          "kubernetes.io/metadata.name": "kube-system"
+         }
+        },
+        "podSelector": {
+         "matchLabels": {
+          "k8s-app": "kube-dns"
+         }
+        }
+       }
+      ]
+     }
+    ],
+    "podSelector": {
+     "matchLabels": {
+      "app": "demo-chat"
+     }
+    },
+    "policyTypes": [
+     "Egress"
+    ]
+   }
+  },
+  {
+   "apiVersion": "networking.k8s.io/v1",
+   "kind": "NetworkPolicy",
+   "metadata": {
+    "annotations": {
+     "bravo.exit-drill/plan-digest": "sha256:069d6740f73df6611e992db0a3c4a044251f3b1bf4547b7cb60a7ba6b8c6b2ba"
+    },
+    "labels": {
+     "app.kubernetes.io/part-of": "bravo-exit-drill",
+     "component": "target"
+    },
+    "name": "exit-drill-egress-pooler",
+    "namespace": "target-dev"
+   },
+   "spec": {
+    "egress": [
+     {
+      "ports": [
+       {
+        "port": 53,
+        "protocol": "TCP"
+       },
+       {
+        "port": 53,
+        "protocol": "UDP"
+       }
+      ],
+      "to": [
+       {
+        "namespaceSelector": {
+         "matchLabels": {
+          "kubernetes.io/metadata.name": "kube-system"
+         }
+        },
+        "podSelector": {
+         "matchLabels": {
+          "k8s-app": "kube-dns"
+         }
+        }
+       }
+      ]
+     },
+     {
+      "ports": [
+       {
+        "port": 5432,
+        "protocol": "TCP"
+       }
+      ],
+      "to": [
+       {
+        "podSelector": {
+         "matchLabels": {
+          "cnpg.io/cluster": "target-db",
+          "cnpg.io/instanceRole": "primary"
+         }
+        }
+       }
+      ]
+     }
+    ],
+    "podSelector": {
+     "matchLabels": {
+      "app": "target-pgbouncer"
+     }
+    },
+    "policyTypes": [
+     "Egress"
+    ]
+   }
+  }
+ ],
+ "namespace": "target-dev",
+ "new_connection_checks": [
+  {
+   "host": "demo-chat.target-dev.svc",
+   "id": "db-via-pooler",
+   "kind": "http",
+   "path": "/api/health/db",
+   "port": 8080
+  },
+  {
+   "host": "demo-chat.target-dev.svc",
+   "id": "http-ready",
+   "kind": "http",
+   "path": "/readyz",
+   "port": 8080
+  },
+  {
+   "host": "demo-chat.target-dev.svc",
+   "id": "websocket",
+   "kind": "websocket",
+   "path": "/ws",
+   "port": 8080
+  }
+ ],
+ "schema_version": "exit-drill-plan/v1",
+ "snapshot_digest": "sha256:63f310b8e7552ece2fac0f82de1df0e4af759a18c3d5365c1e87264b4d04d0c7",
+ "unmapped_dependencies": [],
+ "workloads": {
+  "app": {
+   "container": "app",
+   "role": "app",
+   "selector": {
+    "app": "demo-chat"
+   }
+  },
+  "control": {
+   "container": null,
+   "role": "control",
+   "selector": {
+    "bravo-exit-drill-control": "true"
+   }
+  },
+  "db": {
+   "container": null,
+   "role": "replication",
+   "selector": {
+    "cnpg.io/cluster": "target-db"
+   }
+  },
+  "objects": {
+   "container": null,
+   "role": "infrastructure",
+   "selector": {
+    "app.kubernetes.io/name": "target-seaweedfs"
+   }
+  },
+  "pooler": {
+   "container": "target-pgbouncer",
+   "role": "app",
+   "selector": {
+    "app": "target-pgbouncer"
+   }
+  }
+ }
+}

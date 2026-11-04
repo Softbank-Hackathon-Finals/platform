@@ -1,0 +1,116 @@
+# T36 창 수신 API의 참조 · 시험 배치(k8s.sh 전용). 운영 배포 묶음(deploy/platform)에는 없다.
+# 운영 수신은 T10 호스트가 맡는다(#186, services/platform-events/deploy/window). 그 호스트가 이 이미지의
+# intake.accept · WindowStore를 고정 소비하고, 상태 DB 트랜잭션 안에서 저장한다.
+# 이 배치는 SQLite 참조 저장소로 accept의 검사 · 인가 분리 · 나가는 연결 차단을 k3s에서 시험한다.
+# 이미지는 조회 API와 같고 진입점만 다르다. k8s.sh가 만드는 것:
+#   Secret bravo-window-intake-token (token, 32자 이상, 콘솔 토큰과 다른 값)
+#   ConfigMap bravo-window-intake (plans: 받을 계획 ID, 쉼표로 구분)
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: bravo-window-intake
+  namespace: bravo-observability
+automountServiceAccountToken: false
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: bravo-window-intake
+  namespace: bravo-observability
+  labels:
+    app: bravo-window-intake
+    component: platform
+spec:
+  # 저장은 참조 구현(SQLite, Pod 로컬)이다. 두 Pod가 따로 받으면 중복 · 순서 검사가 갈라지므로 하나만 띄우고 Recreate로 교체한다
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: bravo-window-intake
+  template:
+    metadata:
+      labels:
+        app: bravo-window-intake
+        component: platform
+    spec:
+      serviceAccountName: bravo-window-intake
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        # 저장 볼륨(emptyDir)에 쓴다
+        fsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: intake
+          # 배포 파이프라인이 kustomize images로 레지스트리@digest를 넣는다(조회 API와 같은 이미지)
+          image: bravo-observability-api:set-by-deploy-pipeline
+          command: ["/src/services/observability/.venv/bin/bravo-observability-intake"]
+          env:
+            - {name: BRAVO_WINDOW_DB, value: /var/lib/bravo-windows/windows.db}
+            - name: BRAVO_WINDOW_PLANS
+              valueFrom:
+                configMapKeyRef: {name: bravo-window-intake, key: plans}
+            - name: BRAVO_WINDOW_TOKEN
+              valueFrom:
+                secretKeyRef: {name: bravo-window-intake-token, key: token}
+          ports:
+            - {name: http, containerPort: 8080}
+          readinessProbe:
+            httpGet: {path: /healthz, port: http}
+          livenessProbe:
+            httpGet: {path: /healthz, port: http}
+            initialDelaySeconds: 10
+          resources:
+            requests: {cpu: 10m, memory: 64Mi}
+            limits: {cpu: 250m, memory: 192Mi}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          volumeMounts:
+            - {name: windows, mountPath: /var/lib/bravo-windows}
+      volumes:
+        # Pod를 다시 만들면 비워진다. 판정은 STALE · MISSING으로 UNKNOWN이 되고(안전한 쪽), 다시 보낸 옛 창은 STALE로 쓰이지 않는다(J21)
+        - name: windows
+          emptyDir:
+            sizeLimit: 32Mi
+---
+# 클러스터 안의 시험 부하 생성기만 부른다. tailnet 노출은 운영 수신(T10)이 한다.
+apiVersion: v1
+kind: Service
+metadata:
+  name: bravo-window-intake
+  namespace: bravo-observability
+  labels:
+    component: platform
+spec:
+  selector:
+    app: bravo-window-intake
+  ports:
+    - {name: http, port: 8080, targetPort: http}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: bravo-window-intake
+  namespace: bravo-observability
+spec:
+  podSelector:
+    matchLabels:
+      app: bravo-window-intake
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - from:
+        # 같은 클러스터의 시험 부하 생성기. 라벨은 kubectl label로 붙인다
+        - namespaceSelector:
+            matchLabels:
+              bravo.observability/window-producer: "true"
+      ports:
+        - {port: 8080, protocol: TCP}
+  # 저장은 Pod 안이다. 밖으로 나갈 일이 없다
+  egress: []

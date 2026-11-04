@@ -1,0 +1,200 @@
+{
+  "scope": "Single forward subscription recovery from the team EKS source to the RKE2 development VM",
+  "status": "PASS",
+  "samples": 1,
+  "run_date_kst": "2026-11-04",
+  "immediately_before_enable": {
+    "observed_at": "2026-11-04T07:26:45.130458+00:00",
+    "source_wal_flush_lsn": "0/1C000000",
+    "source_slot_confirmed_flush_lsn": "0/16000000",
+    "gap_bytes": 100663296,
+    "gap_mib": 96,
+    "slot_active": false,
+    "wal_status": "reserved"
+  },
+  "target_clock": {
+    "start": "Target-side monotonic clock immediately before invoking the guarded ENABLE transaction",
+    "enable_command_return_s": 0.85,
+    "first_observations": {
+      "worker": {
+        "elapsed_s": 3.0002,
+        "previous_sample_s": null,
+        "db_utc": "2026-11-04T07:26:54.712825+00:00"
+      },
+      "received_fixed": {
+        "elapsed_s": 4.4531,
+        "previous_sample_s": 3.0002,
+        "db_utc": "2026-11-04T07:26:56.164668+00:00"
+      },
+      "applied_fixed": {
+        "elapsed_s": 12.1761,
+        "previous_sample_s": 11.1761,
+        "db_utc": "2026-11-04T07:27:03.882335+00:00"
+      },
+      "barrier": {
+        "elapsed_s": 12.1761,
+        "previous_sample_s": 11.1761,
+        "db_utc": "2026-11-04T07:27:03.882335+00:00"
+      }
+    }
+  },
+  "marker": {
+    "insert_lsn_before_commit": "0/1C0001B0",
+    "delete_lsn_before_commit": "0/1C000268",
+    "same_row_on_both_sides_when_present": true,
+    "source_insert_commits": 1,
+    "source_delete_commits": 1,
+    "target_manual_writes": 0
+  },
+  "stages": {
+    "before": {
+      "source_observed_at": "2026-11-04T07:24:18.22799+00:00",
+      "target_observed_at": "2026-11-04T07:24:32.840369+00:00",
+      "forward_enabled": false,
+      "reverse_enabled": false,
+      "apply_workers": 0,
+      "source_slot_active": false,
+      "source_slot_wal_status": "reserved",
+      "source_slot_invalidated": false,
+      "source_sender_state": null,
+      "source_sender_tls": null,
+      "source_slot_confirmed_flush_lsn": "0/16000000",
+      "target_origin_remote_lsn": "0/140125E8",
+      "target_marker_present": false,
+      "source_marker_present": false,
+      "target_app_login": false,
+      "target_apply_errors": 1,
+      "target_sync_errors": 0,
+      "business_tables": {
+        "messages": {
+          "source_rows": 2,
+          "target_rows": 2,
+          "sha256_equal": true,
+          "source_sha256_unchanged": true
+        },
+        "attachments": {
+          "source_rows": 1,
+          "target_rows": 1,
+          "sha256_equal": true,
+          "source_sha256_unchanged": true
+        }
+      }
+    },
+    "delivered": {
+      "source_observed_at": "2026-11-04T07:27:19.717077+00:00",
+      "target_observed_at": "2026-11-04T07:27:21.985462+00:00",
+      "forward_enabled": true,
+      "reverse_enabled": false,
+      "apply_workers": 1,
+      "source_slot_active": true,
+      "source_slot_wal_status": "reserved",
+      "source_slot_invalidated": false,
+      "source_sender_state": "streaming",
+      "source_sender_tls": true,
+      "source_slot_confirmed_flush_lsn": "0/1C000218",
+      "target_origin_remote_lsn": "0/1C0001E0",
+      "target_marker_present": true,
+      "source_marker_present": true,
+      "target_app_login": false,
+      "target_apply_errors": 1,
+      "target_sync_errors": 0,
+      "business_tables": {
+        "messages": {
+          "source_rows": 2,
+          "target_rows": 2,
+          "sha256_equal": true,
+          "source_sha256_unchanged": true
+        },
+        "attachments": {
+          "source_rows": 1,
+          "target_rows": 1,
+          "sha256_equal": true,
+          "source_sha256_unchanged": true
+        }
+      }
+    },
+    "cleaned": {
+      "source_observed_at": "2026-11-04T07:27:53.346077+00:00",
+      "target_observed_at": "2026-11-04T07:27:54.716841+00:00",
+      "forward_enabled": true,
+      "reverse_enabled": false,
+      "apply_workers": 1,
+      "source_slot_active": true,
+      "source_slot_wal_status": "reserved",
+      "source_slot_invalidated": false,
+      "source_sender_state": "streaming",
+      "source_sender_tls": true,
+      "source_slot_confirmed_flush_lsn": "0/1C0002D0",
+      "target_origin_remote_lsn": "0/1C000298",
+      "target_marker_present": false,
+      "source_marker_present": false,
+      "target_app_login": false,
+      "target_apply_errors": 1,
+      "target_sync_errors": 0,
+      "business_tables": {
+        "messages": {
+          "source_rows": 2,
+          "target_rows": 2,
+          "sha256_equal": true,
+          "source_sha256_unchanged": true
+        },
+        "attachments": {
+          "source_rows": 1,
+          "target_rows": 1,
+          "sha256_equal": true,
+          "source_sha256_unchanged": true
+        }
+      }
+    }
+  },
+  "continuity": {
+    "same_subscription_oid_and_origin": true,
+    "same_slot_name": true,
+    "slot_recreations": 0,
+    "publication_refreshes": 0,
+    "enable_submissions": 1,
+    "source_write_block_observed_before_and_after": true,
+    "table_sync_states": {
+      "cutover.probe": "r",
+      "cutover.barrier": "r",
+      "public.messages": "r",
+      "public.attachments": "r"
+    },
+    "source_wal_sender_timeout_ms": 5000,
+    "target_wal_receiver_timeout_ms": 5000,
+    "disable_on_error": true,
+    "timeout_setting_changes": 0,
+    "platform_before_after": {
+      "executions": [
+        0,
+        0
+      ],
+      "leases": [
+        0,
+        0
+      ],
+      "resource_fences": [
+        0,
+        0
+      ],
+      "legacy_fences": [
+        0,
+        0
+      ]
+    }
+  },
+  "private_receipt_sha256": {
+    "baseline": "8b0b453a7c7fdde046b5b8259b30b136859eeb01b2bfa308c39de90da74b67fb",
+    "before_enable": "933b68e7762bbfc08059f2357502afb7bb05bcec2ec3a7a0a1df5d76c453aa02",
+    "publisher_identity": "882cecca7c94e5c1cf4d0c63a66604273f4d70996f95121254745c72c81685b1",
+    "target_observer": "18757ee9e0d1669d16630304c3ce913b49dae75eaa0eb4e83d8e44edd83491d8",
+    "insert": "5ec543f24ac396bec104efbb8e335451bfe010d71281db7e3668d9a64b694b8c",
+    "delivered": "c023949fb7bb156dd4f7227c58041413abadcb0c90c98ad5984a47cc6f3cf384",
+    "delete": "b9f11a592ca0da59c8d3e6a1a23db40c1071cd02f28f525116882d008647fbb9",
+    "cleaned": "91a7b5fb3496076a8cbc8485673ea27bbc77fb5b888376d94b81352cbc257f23",
+    "source_app_before": "35202dc70f6891c1377d0995a07f08da8ff40fa5d973bf3d4fd3911aa77e044b",
+    "source_app_after": "daaf12af2b8b4dfab3cc57c7ece088e68b61916938a6d67cc57193363210ac41",
+    "platform_before": "db7571e2a4ee4fc8982a6e8ee327ad99e6f5c41101c72f12bf24c98ff590a533",
+    "platform_after": "0853c1b3cfa25b3d31d3cd3f7efe6f68317eb5fab51d74f7270c158fa8741f36"
+  }
+}

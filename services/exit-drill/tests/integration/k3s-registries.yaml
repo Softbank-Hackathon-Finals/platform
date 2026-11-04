@@ -1,0 +1,5 @@
+# Docker Hub 익명 한도를 피하려고 공개 미러로 받는다. 자격 증명을 쓰지 않는다.
+mirrors:
+  docker.io:
+    endpoint:
+      - "https://mirror.gcr.io"

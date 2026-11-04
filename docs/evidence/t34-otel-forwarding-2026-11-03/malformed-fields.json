@@ -1,0 +1,18 @@
+{
+  "image": "otel/opentelemetry-collector-contrib@sha256:340c9ca6a36617084c6661bdc4f0fe92b7cda5a805d61673ec8db375fddc522b",
+  "synthetic_input": true,
+  "cloud_resources_changed": false,
+  "mtls_forwarding": true,
+  "non_audit_startup_rows_do_not_block_canary": true,
+  "checkpoint_files_present": true,
+  "outage_and_sender_crash_recovery": true,
+  "collector_rejects_wrong_ca_and_recovers": true,
+  "receiver_rejects_unregistered_client_issuer": true,
+  "rename_rotation": true,
+  "redaction": true,
+  "exact_pod_uid_scope": true,
+  "collector_bound_origin": true,
+  "malformed_kubernetes_objects_redacted": 12,
+  "received_records": 28,
+  "status": "PASS"
+}

@@ -1,0 +1,53 @@
+{
+  "scope": "Local Docker and dedicated Docker k3s/CNPG; not team EKS/RKE2 qualification",
+  "code_commit": "6e5e466110ca27b43f525ffea8f2b781a1681e25",
+  "sources": [
+    {
+      "path": "services/observability/src/bravo_observability/api.py",
+      "sha256": "acf132082c3653d71799dae06d9b824a3c11f0ef140a73a4aade51f6cfba2126"
+    },
+    {
+      "path": "services/observability/tests/test_api.py",
+      "sha256": "27162f59e86a296845f38d612bbaf7eeaf41744e4425001dee8218b156fed003"
+    },
+    {
+      "path": "services/observability/testing/run.sh",
+      "sha256": "f580ab8095d130eb865b9457ee6931c6da2fb0031b3cf3ff0356510e25573489"
+    },
+    {
+      "path": "services/observability/testing/k8s.sh",
+      "sha256": "3dfdd483570ee6b73b17146a80cf52999d8116c1845b4f8508ad860a8c6a2b0c"
+    },
+    {
+      "path": "services/observability/deploy/platform/rules/alerts.yml",
+      "sha256": "883fd2ce39a76f36bc69f5a7ef6f81fa3d69884be3bccaa2d9ea40f0f4314f06"
+    },
+    {
+      "path": "services/observability/deploy/platform/rules/alerts_test.yml",
+      "sha256": "0671b5742047ecbe03843713d2dc723d1a771d052fea8ef1a78f7c67175d2358"
+    }
+  ],
+  "results": {
+    "pytest": {
+      "passed": 88,
+      "failed": 0
+    },
+    "promtool": "SUCCESS",
+    "compose": {
+      "passed": 19,
+      "failed": 0
+    },
+    "k3s_cnpg": {
+      "passed": 15,
+      "failed": 0
+    },
+    "real_effect": "Collector stopped; API changes from actual CNPG OK to UNOBSERVABLE with no old instances/slot values"
+  },
+  "limitations": [
+    "Synthetic HTTP telemetry; not demo-chat instrumentation",
+    "A new test Pod had one connection-refused result in the first k3s run; no uninterrupted-service claim",
+    "Final k3s test uses one established client for before/after comparison",
+    "No actual team cloud credentials, no actual environment deployment",
+    "No T36 admission or T19 gate input from these metrics"
+  ]
+}

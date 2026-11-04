@@ -189,15 +189,6 @@ class DbControl:
     def row_count(self, table: str) -> int:
         return self._one(sql.SQL("SELECT count(*) FROM {}").format(sql.Identifier(*table.split("."))))
 
-    def fingerprint(self, table: str) -> dict:
-        from bravo_cutover.integrity import fingerprint
-
-        try:
-            with self._connect() as conn:
-                return fingerprint(conn, table)
-        except psycopg.Error as e:
-            raise Unconfirmed("integrity snapshot could not be read") from e
-
 
 @dataclass(frozen=True)
 class Subscription:

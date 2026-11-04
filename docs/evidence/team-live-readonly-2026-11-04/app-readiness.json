@@ -1,0 +1,19 @@
+{
+  "at": "2026-11-04T07:37:03.478558+00:00",
+  "checks": {
+    "messages_read": {
+      "http_status": 200,
+      "response_type": "list",
+      "row_count": 2
+    },
+    "websocket": {
+      "connected": true,
+      "first_type": "hello",
+      "own_connection_close_code": 1000
+    }
+  },
+  "task": "T22",
+  "image_digest": "sha256:4562bbf761d761cafc89f9db9153eb74550eb23972ea4f9080e93681d9d90d1d",
+  "qualification": "source read and own WebSocket handshake/close only; not migration, write continuity or attachment migration",
+  "raw_sha256": "cde0fb0b10f822a0400a9fc52a483cd547bff6868bd8f2a1a8900a3ce7342449"
+}

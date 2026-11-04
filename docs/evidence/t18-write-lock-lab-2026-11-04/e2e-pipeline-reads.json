@@ -1,0 +1,706 @@
+{
+  "environment": {
+    "kind": "local-measurement",
+    "edge": "not measured through Cloudflare; mock-edge scenarios use a local nginx stand-in",
+    "platform_commit": "21085aacc2bf9662d562df5cdd9226eca104809b",
+    "platform_dirty": true,
+    "demo_chat_commit": "dc9bece24898b752a77af1d1bbd440c11100e5f2",
+    "postgres_image": [
+      "public.ecr.aws/docker/library/postgres@sha256:5db6dac2ef5dcff512f4f00a009c3c332b9f2f28f24277175bf3e4a3d02ef83a"
+    ],
+    "edge_image": [
+      "nginx@sha256:df221db836e1754089190208cee7eeda94f233197056426eda74a43ab1abeac2"
+    ],
+    "moto_version": "5.1.4",
+    "demo_chat_runtime": "native uvicorn single process per environment (not the container image)",
+    "python": "3.14.7",
+    "machine": {
+      "arch": "arm64",
+      "cpu": "Apple M5",
+      "logical_cores": 10,
+      "memory_gib": 32
+    }
+  },
+  "checks_total": 31,
+  "checks_failed": 0,
+  "load_average_1_5_15m_at_start": {
+    "ack-loss": [
+      3.51,
+      2.89,
+      2.95
+    ],
+    "write-block": [
+      3.02,
+      2.82,
+      2.92
+    ],
+    "db-pause": [
+      2.62,
+      2.74,
+      2.89
+    ],
+    "failed-but-stored": [
+      2.65,
+      2.75,
+      2.88
+    ],
+    "tamper": [
+      2.85,
+      2.79,
+      2.9
+    ],
+    "rtt0-w10": [
+      2.76,
+      2.76,
+      2.89
+    ],
+    "rtt0-w50": [
+      2.89,
+      2.8,
+      2.9
+    ],
+    "rtt5-w10": [
+      2.21,
+      2.65,
+      2.83
+    ],
+    "rtt5-w50": [
+      1.88,
+      2.52,
+      2.78
+    ],
+    "rtt20-w10": [
+      1.69,
+      2.4,
+      2.73
+    ],
+    "rtt20-w50": [
+      1.65,
+      2.31,
+      2.68
+    ],
+    "rtt40-w10": [
+      1.31,
+      2.14,
+      2.6
+    ],
+    "rtt40-w50": [
+      1.83,
+      2.19,
+      2.6
+    ]
+  },
+  "generator_resources": {
+    "ack-loss": {
+      "samples": 12,
+      "cpu_millicores": {
+        "avg": 75,
+        "max_1s": 84
+      },
+      "rss_mib": {
+        "avg": 62.5,
+        "max": 62.5,
+        "first_10_samples_avg": 62.5,
+        "last_10_samples_avg": 62.5
+      },
+      "rss_mib_whole_run_max": 62.5
+    },
+    "write-block": {
+      "samples": 30,
+      "cpu_millicores": {
+        "avg": 213,
+        "max_1s": 318
+      },
+      "rss_mib": {
+        "avg": 59.9,
+        "max": 62.4,
+        "first_10_samples_avg": 62.1,
+        "last_10_samples_avg": 55.5
+      },
+      "rss_mib_whole_run_max": 62.4
+    },
+    "db-pause": {
+      "samples": 30,
+      "cpu_millicores": {
+        "avg": 383,
+        "max_1s": 719
+      },
+      "rss_mib": {
+        "avg": 87.7,
+        "max": 127.7,
+        "first_10_samples_avg": 61.7,
+        "last_10_samples_avg": 122.6
+      },
+      "rss_mib_whole_run_max": 127.7
+    },
+    "failed-but-stored": {
+      "samples": 11,
+      "cpu_millicores": {
+        "avg": 50,
+        "max_1s": 54
+      },
+      "rss_mib": {
+        "avg": 62.0,
+        "max": 62.1,
+        "first_10_samples_avg": 62.0,
+        "last_10_samples_avg": 62.1
+      },
+      "rss_mib_whole_run_max": 62.1
+    },
+    "tamper": {
+      "samples": 11,
+      "cpu_millicores": {
+        "avg": 66,
+        "max_1s": 71
+      },
+      "rss_mib": {
+        "avg": 62.1,
+        "max": 62.2,
+        "first_10_samples_avg": 62.1,
+        "last_10_samples_avg": 62.1
+      },
+      "rss_mib_whole_run_max": 62.2
+    },
+    "rtt0-w10": {
+      "samples": 30,
+      "cpu_millicores": {
+        "avg": 285,
+        "max_1s": 337
+      },
+      "rss_mib": {
+        "avg": 65.2,
+        "max": 65.2,
+        "first_10_samples_avg": 65.2,
+        "last_10_samples_avg": 65.2
+      },
+      "rss_mib_whole_run_max": 65.2
+    },
+    "rtt0-w50": {
+      "samples": 30,
+      "cpu_millicores": {
+        "avg": 287,
+        "max_1s": 331
+      },
+      "rss_mib": {
+        "avg": 65.2,
+        "max": 65.2,
+        "first_10_samples_avg": 65.1,
+        "last_10_samples_avg": 65.2
+      },
+      "rss_mib_whole_run_max": 65.2
+    },
+    "rtt5-w10": {
+      "samples": 30,
+      "cpu_millicores": {
+        "avg": 288,
+        "max_1s": 338
+      },
+      "rss_mib": {
+        "avg": 65.3,
+        "max": 65.3,
+        "first_10_samples_avg": 65.3,
+        "last_10_samples_avg": 65.3
+      },
+      "rss_mib_whole_run_max": 65.3
+    },
+    "rtt5-w50": {
+      "samples": 30,
+      "cpu_millicores": {
+        "avg": 287,
+        "max_1s": 332
+      },
+      "rss_mib": {
+        "avg": 61.0,
+        "max": 64.9,
+        "first_10_samples_avg": 64.9,
+        "last_10_samples_avg": 53.2
+      },
+      "rss_mib_whole_run_max": 64.9
+    },
+    "rtt20-w10": {
+      "samples": 30,
+      "cpu_millicores": {
+        "avg": 293,
+        "max_1s": 338
+      },
+      "rss_mib": {
+        "avg": 65.0,
+        "max": 65.0,
+        "first_10_samples_avg": 65.0,
+        "last_10_samples_avg": 65.0
+      },
+      "rss_mib_whole_run_max": 65.0
+    },
+    "rtt20-w50": {
+      "samples": 30,
+      "cpu_millicores": {
+        "avg": 279,
+        "max_1s": 333
+      },
+      "rss_mib": {
+        "avg": 56.0,
+        "max": 64.9,
+        "first_10_samples_avg": 64.8,
+        "last_10_samples_avg": 51.0
+      },
+      "rss_mib_whole_run_max": 64.9
+    },
+    "rtt40-w10": {
+      "samples": 30,
+      "cpu_millicores": {
+        "avg": 195,
+        "max_1s": 252
+      },
+      "rss_mib": {
+        "avg": 65.2,
+        "max": 65.2,
+        "first_10_samples_avg": 65.2,
+        "last_10_samples_avg": 65.2
+      },
+      "rss_mib_whole_run_max": 65.2
+    },
+    "rtt40-w50": {
+      "samples": 30,
+      "cpu_millicores": {
+        "avg": 282,
+        "max_1s": 344
+      },
+      "rss_mib": {
+        "avg": 59.7,
+        "max": 59.8,
+        "first_10_samples_avg": 59.6,
+        "last_10_samples_avg": 59.8
+      },
+      "rss_mib_whole_run_max": 59.8
+    }
+  },
+  "checks": [
+    {
+      "scenario": "ack-loss",
+      "check": "연결이 실제로 끊김",
+      "ok": true,
+      "actual": 119
+    },
+    {
+      "scenario": "ack-loss",
+      "check": "같은 키 재시도가 저장된 메시지를 돌려받음(200)",
+      "ok": true,
+      "actual": 116
+    },
+    {
+      "scenario": "ack-loss",
+      "check": "전부 확인되어 대조 PASS",
+      "ok": true,
+      "actual": 240
+    },
+    {
+      "scenario": "ack-loss",
+      "check": "실패 · 유실 · 중복 0",
+      "ok": true,
+      "actual": {
+        "failed": 0,
+        "lost": 0,
+        "duplicated": 0
+      }
+    },
+    {
+      "scenario": "write-block",
+      "check": "재시도로 복구되어 대조 PASS",
+      "ok": true,
+      "actual": "PASS"
+    },
+    {
+      "scenario": "write-block",
+      "check": "재시도가 실제로 일어남",
+      "ok": true,
+      "actual": 251
+    },
+    {
+      "scenario": "write-block",
+      "check": "실패 · 유실 · 중복 0",
+      "ok": true,
+      "actual": {
+        "failed": 0,
+        "lost": 0,
+        "duplicated": 0
+      }
+    },
+    {
+      "scenario": "write-block",
+      "check": "쓰기 응답 최대 간격이 차단 시간 이상 (재는 값: 5초 차단)",
+      "ok": true,
+      "actual": {
+        "max_ms": 5040.306,
+        "from_s": 11.744879,
+        "to_s": 16.785185,
+        "position": "between",
+        "acks": 1500
+      }
+    },
+    {
+      "scenario": "write-block",
+      "check": "창에 503이 5xx로 세어짐",
+      "ok": true,
+      "actual": 453
+    },
+    {
+      "scenario": "db-pause",
+      "check": "유실 · 중복 0",
+      "ok": true,
+      "actual": {
+        "failed": 0,
+        "lost": 0,
+        "duplicated": 0
+      }
+    },
+    {
+      "scenario": "db-pause",
+      "check": "쓰기 응답 최대 간격이 정지 시간에 가까움",
+      "ok": true,
+      "actual": {
+        "max_ms": 5058.09,
+        "from_s": 11.646232,
+        "to_s": 16.704322,
+        "position": "between",
+        "acks": 1500
+      }
+    },
+    {
+      "scenario": "db-pause",
+      "check": "DB 정지가 잠금 측정에 멈춤으로 드러남",
+      "ok": true,
+      "actual": {
+        "samples": 120,
+        "wait_ms": {
+          "p50": 0.002,
+          "p95": 2.363,
+          "p99": 15.867,
+          "max": 21.767
+        },
+        "round_trip_ms": {
+          "p95": 9.432,
+          "max": 5022.083
+        },
+        "waiting_sessions_max": 2,
+        "timed_out": 0,
+        "stalled": 1
+      }
+    },
+    {
+      "scenario": "db-pause",
+      "check": "측정기가 정지 뒤에도 표본을 이어 감 (0.2초 간격 × 22초의 절반 이상)",
+      "ok": true,
+      "actual": 120
+    },
+    {
+      "scenario": "failed-but-stored",
+      "check": "FAIL, 종료 코드 1",
+      "ok": true,
+      "actual": [
+        "FAILED"
+      ]
+    },
+    {
+      "scenario": "failed-but-stored",
+      "check": "전부 응답 없음 + 저장됨으로 셈",
+      "ok": true,
+      "actual": 110
+    },
+    {
+      "scenario": "failed-but-stored",
+      "check": "유실 · 중복으로 잘못 세지 않음",
+      "ok": true,
+      "actual": {
+        "failed": 110,
+        "lost": 0,
+        "duplicated": 0
+      }
+    },
+    {
+      "scenario": "tampering",
+      "check": "변조 전에는 PASS",
+      "ok": true,
+      "actual": "PASS"
+    },
+    {
+      "scenario": "tampering",
+      "check": "행 3개 삭제 → 유실 3, FAIL, 종료 1",
+      "ok": true,
+      "actual": {
+        "failed": 0,
+        "lost": 3,
+        "duplicated": 0
+      }
+    },
+    {
+      "scenario": "tampering",
+      "check": "복구하면 다시 PASS",
+      "ok": true,
+      "actual": "PASS"
+    },
+    {
+      "scenario": "tampering",
+      "check": "다른 키로 복사 2건 → 중복 2, FAIL",
+      "ok": true,
+      "actual": {
+        "failed": 0,
+        "lost": 0,
+        "duplicated": 2
+      }
+    },
+    {
+      "scenario": "tampering",
+      "check": "본문 변조 1건 → 내용 불일치 1, FAIL",
+      "ok": true,
+      "actual": [
+        "CONTENT_MISMATCH"
+      ]
+    },
+    {
+      "scenario": "tampering",
+      "check": "요청한 적 없는 행 1건 → 유령 1, FAIL",
+      "ok": true,
+      "actual": [
+        "PHANTOM"
+      ]
+    },
+    {
+      "scenario": "tampering",
+      "check": "모두 되돌리면 PASS",
+      "ok": true,
+      "actual": []
+    },
+    {
+      "scenario": "lock-rtt",
+      "check": "왕복 0ms · 목적지 10%: 측정 완료, 유실 · 중복 0",
+      "ok": true,
+      "actual": {
+        "nfr2": {
+          "failed": 0,
+          "lost": 0,
+          "duplicated": 0
+        },
+        "retried": 0,
+        "write_5xx": 0,
+        "write_p95_ms": 5.496,
+        "write_gap_ms": 52.559,
+        "lock_wait_ms": {
+          "p50": 0.001,
+          "p95": 0.002,
+          "p99": 0.206,
+          "max": 0.572
+        },
+        "lock_waiters_max": 0,
+        "lock_timed_out": 0,
+        "judge_at_this_weight": [
+          "PASS",
+          "PASS",
+          "PASS"
+        ]
+      }
+    },
+    {
+      "scenario": "lock-rtt",
+      "check": "왕복 0ms · 목적지 50%: 측정 완료, 유실 · 중복 0",
+      "ok": true,
+      "actual": {
+        "nfr2": {
+          "failed": 0,
+          "lost": 0,
+          "duplicated": 0
+        },
+        "retried": 0,
+        "write_5xx": 0,
+        "write_p95_ms": 5.423,
+        "write_gap_ms": 41.484,
+        "lock_wait_ms": {
+          "p50": 0.001,
+          "p95": 0.002,
+          "p99": 0.284,
+          "max": 0.4
+        },
+        "lock_waiters_max": 0,
+        "lock_timed_out": 0,
+        "judge_at_this_weight": [
+          "PASS",
+          "PASS",
+          "PASS"
+        ]
+      }
+    },
+    {
+      "scenario": "lock-rtt",
+      "check": "왕복 5ms · 목적지 10%: 측정 완료, 유실 · 중복 0",
+      "ok": true,
+      "actual": {
+        "nfr2": {
+          "failed": 0,
+          "lost": 0,
+          "duplicated": 0
+        },
+        "retried": 0,
+        "write_5xx": 0,
+        "write_p95_ms": 10.72,
+        "write_gap_ms": 42.153,
+        "lock_wait_ms": {
+          "p50": 0.001,
+          "p95": 0.002,
+          "p99": 0.152,
+          "max": 0.322
+        },
+        "lock_waiters_max": 0,
+        "lock_timed_out": 0,
+        "judge_at_this_weight": [
+          "PASS",
+          "PASS",
+          "PASS"
+        ]
+      }
+    },
+    {
+      "scenario": "lock-rtt",
+      "check": "왕복 5ms · 목적지 50%: 측정 완료, 유실 · 중복 0",
+      "ok": true,
+      "actual": {
+        "nfr2": {
+          "failed": 0,
+          "lost": 0,
+          "duplicated": 0
+        },
+        "retried": 0,
+        "write_5xx": 0,
+        "write_p95_ms": 11.793,
+        "write_gap_ms": 41.101,
+        "lock_wait_ms": {
+          "p50": 0.001,
+          "p95": 0.002,
+          "p99": 0.003,
+          "max": 0.125
+        },
+        "lock_waiters_max": 0,
+        "lock_timed_out": 0,
+        "judge_at_this_weight": [
+          "PASS",
+          "PASS",
+          "PASS"
+        ]
+      }
+    },
+    {
+      "scenario": "lock-rtt",
+      "check": "왕복 20ms · 목적지 10%: 측정 완료, 유실 · 중복 0",
+      "ok": true,
+      "actual": {
+        "nfr2": {
+          "failed": 0,
+          "lost": 0,
+          "duplicated": 0
+        },
+        "retried": 0,
+        "write_5xx": 0,
+        "write_p95_ms": 27.041,
+        "write_gap_ms": 45.731,
+        "lock_wait_ms": {
+          "p50": 0.001,
+          "p95": 0.002,
+          "p99": 0.136,
+          "max": 0.352
+        },
+        "lock_waiters_max": 0,
+        "lock_timed_out": 0,
+        "judge_at_this_weight": [
+          "PASS",
+          "PASS",
+          "PASS"
+        ]
+      }
+    },
+    {
+      "scenario": "lock-rtt",
+      "check": "왕복 20ms · 목적지 50%: 측정 완료, 유실 · 중복 0",
+      "ok": true,
+      "actual": {
+        "nfr2": {
+          "failed": 0,
+          "lost": 0,
+          "duplicated": 0
+        },
+        "retried": 0,
+        "write_5xx": 0,
+        "write_p95_ms": 27.463,
+        "write_gap_ms": 45.228,
+        "lock_wait_ms": {
+          "p50": 0.001,
+          "p95": 0.002,
+          "p99": 0.013,
+          "max": 0.44
+        },
+        "lock_waiters_max": 0,
+        "lock_timed_out": 0,
+        "judge_at_this_weight": [
+          "PASS",
+          "PASS",
+          "PASS"
+        ]
+      }
+    },
+    {
+      "scenario": "lock-rtt",
+      "check": "왕복 40ms · 목적지 10%: 측정 완료, 유실 · 중복 0",
+      "ok": true,
+      "actual": {
+        "nfr2": {
+          "failed": 0,
+          "lost": 0,
+          "duplicated": 0
+        },
+        "retried": 0,
+        "write_5xx": 0,
+        "write_p95_ms": 45.471,
+        "write_gap_ms": 62.172,
+        "lock_wait_ms": {
+          "p50": 0.002,
+          "p95": 0.005,
+          "p99": 0.45,
+          "max": 0.911
+        },
+        "lock_waiters_max": 1,
+        "lock_timed_out": 0,
+        "judge_at_this_weight": [
+          "PASS",
+          "PASS",
+          "PASS"
+        ]
+      }
+    },
+    {
+      "scenario": "lock-rtt",
+      "check": "왕복 40ms · 목적지 50%: 측정 완료, 유실 · 중복 0",
+      "ok": true,
+      "actual": {
+        "nfr2": {
+          "failed": 0,
+          "lost": 0,
+          "duplicated": 0
+        },
+        "retried": 0,
+        "write_5xx": 0,
+        "write_p95_ms": 46.906,
+        "write_gap_ms": 63.325,
+        "lock_wait_ms": {
+          "p50": 0.001,
+          "p95": 0.002,
+          "p99": 0.201,
+          "max": 0.247
+        },
+        "lock_waiters_max": 0,
+        "lock_timed_out": 0,
+        "judge_at_this_weight": [
+          "PASS",
+          "PASS",
+          "PASS"
+        ]
+      }
+    }
+  ]
+}

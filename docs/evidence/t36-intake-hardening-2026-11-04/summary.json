@@ -1,0 +1,42 @@
+{
+  "task": "T36",
+  "source_commit": "b874dba6d3035aa97dc8e4224c37aa5512a8d4cd",
+  "scope": "owned local Docker and k3s/CNPG; not team EKS/RKE2",
+  "pytest": {
+    "passed": 143,
+    "failed": 0
+  },
+  "k8s": {
+    "passed": 19,
+    "failed": 0,
+    "exit_code": 0
+  },
+  "app_integration": {
+    "top_level_checks": 15,
+    "passed": true,
+    "scope": "real local app/PG/OTel/HTTP; shared DB, moto AWS API, Nginx edge substitute"
+  },
+  "source_sha256": [
+    {
+      "path": "services/observability/src/bravo_observability/intake.py",
+      "sha256": "d8a9762c2f69c695233677725df6d1bbbdca3fbe8b8cf3b1b7e6e87dde852ab4"
+    },
+    {
+      "path": "services/observability/src/bravo_observability/intake_api.py",
+      "sha256": "0582109fca78548d0d2dfcc59d046d1c59a743b2f2ab1466cf49a5220bae62b7"
+    },
+    {
+      "path": "services/observability/src/bravo_observability/sli.py",
+      "sha256": "df9bc99cd9e9da0339e0c067a686f39fcf3b327631795ee7ee52cdb59e29c62f"
+    },
+    {
+      "path": "services/observability/testing/k8s.sh",
+      "sha256": "b8473b1d339bfbac74598c2d3c1a6588a35f76fc225ad1d17b44fdb000ec1a28"
+    }
+  ],
+  "limitations": [
+    "No team cloud deployment or financial production qualification",
+    "Historical capacity and mutation measurements were not repeated for this revision",
+    "An earlier k8s test failed because its windows overlapped; the corrected trial is reported separately"
+  ]
+}
