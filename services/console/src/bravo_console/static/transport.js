@@ -54,7 +54,16 @@ export async function request(
   path,
   { signal, body, key, fetcher = fetch } = {},
 ) {
-  if (!/^\/v1\/plans\/[A-Za-z0-9][A-Za-z0-9_/-]*$/.test(path))
+  const registration = [
+    "/v1/environments",
+    "/v1/workloads",
+    "/v1/plans",
+  ].includes(path);
+  if (
+    (!registration &&
+      !/^\/v1\/plans\/[A-Za-z0-9][A-Za-z0-9_/-]*$/.test(path)) ||
+    (registration && body === undefined)
+  )
     throw new ApiError("invalid_api_path");
   const headers = { Accept: "application/json" };
   if (body !== undefined) {

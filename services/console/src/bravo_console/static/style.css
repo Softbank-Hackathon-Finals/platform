@@ -398,3 +398,29 @@ footer {
 .control-table .blocked-row {
   background: #fff7ed;
 }
+.registration-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 230px), 1fr));
+  gap: 24px;
+}
+.registration-grid label {
+  display: block;
+  margin: 12px 0;
+}
+.registration-grid input,
+.registration-grid select {
+  width: 100%;
+  min-width: 0;
+  padding: 10px;
+}
+.registration-grid form {
+  min-width: 0;
+}
+#registration-receipts {
+  overflow-wrap: anywhere;
+  padding-left: 20px;
+}
+#registration-panel summary {
+  cursor: pointer;
+  font-weight: 700;
+}

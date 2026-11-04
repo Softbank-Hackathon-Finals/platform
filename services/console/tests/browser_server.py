@@ -4,13 +4,15 @@ import tempfile
 from pathlib import Path
 
 import uvicorn
+from registration_fixture import install
 from test_app import setup
 from test_reports import wire
 
 if __name__ == "__main__":
     with tempfile.TemporaryDirectory(prefix="t21-browser-") as root:
-        app, *_ = setup(
+        app, store, state, _ = setup(
             Path(root) / "state.db", origin="http://127.0.0.1:18121", workload_id="demo-chat"
         )
+        install(app.api, store, state, Path(root))
         app.controls = wire(app.api)
         uvicorn.run(app, host="127.0.0.1", port=18121, log_level="warning")

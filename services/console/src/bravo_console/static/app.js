@@ -7,6 +7,7 @@ import {
   CONTROL_TESTS,
 } from "./model.js";
 import { request, stream } from "./transport.js";
+import { mountRegistration } from "./registration.js";
 const $ = (id) => document.getElementById(id);
 let model,
   generation = 0,
@@ -44,6 +45,13 @@ const messages = {
   approval_expired: "승인 유효기간이 지났습니다.",
   resync_required: "이벤트 재동기화가 필요합니다. 계획을 다시 연결해 주세요.",
 };
+const registration = mountRegistration({
+  onPlan: (id) => {
+    $("plan").value = id;
+    $("connect-form").requestSubmit();
+  },
+  onForbidden: revokeView,
+});
 function text(id, value) {
   $(id).textContent = value;
 }
@@ -214,7 +222,8 @@ function revokeView(error) {
   stopped = true;
   streamController?.abort();
   clearInterval(refreshTimer);
-  model = new Model(model.plan);
+  registration.revoke();
+  model = new Model(model?.plan ?? "unconnected");
   model.error = "forbidden";
   observed = null;
   controls = null;

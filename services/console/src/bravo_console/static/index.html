@@ -33,9 +33,130 @@
           </div>
         </form>
         <p class="muted">
-          등록·권한 부여는 서버 담당 경로에서 수행합니다. 이 화면은 신원이나
-          통과 근거를 생성하지 않습니다.
+          기존 계획을 연결하거나 아래에서 새 계획을 등록합니다. 등록 권한과 실제
+          환경·앱 확인은 서버가 수행합니다.
         </p>
+      </section>
+      <section class="card">
+        <details id="registration-panel">
+          <summary>새 이전 계획 등록</summary>
+          <p>
+            서버 담당자가 준비한 연결 별칭과 검토된 앱 경로를 사용합니다.
+            비밀번호·토큰·인증서는 입력하지 않습니다.
+          </p>
+          <div class="registration-grid">
+            <form
+              data-registration="environment"
+              id="registration-environment-form"
+            >
+              <h2>1. 환경 등록</h2>
+              <label
+                >표시 이름<input
+                  name="name"
+                  required
+                  maxlength="128"
+                  autocomplete="off"
+              /></label>
+              <label
+                >환경 종류<select name="kind">
+                  <option value="aws">AWS · 출발지</option>
+                  <option value="onprem">온프렘 · 목적지</option>
+                </select></label
+              >
+              <label
+                >등록된 연결 별칭<input
+                  name="connection_ref"
+                  required
+                  maxlength="128"
+                  autocomplete="off"
+                  placeholder="source-reader"
+              /></label>
+              <button type="submit">환경 확인·등록</button>
+            </form>
+            <form data-registration="workload" id="registration-workload-form">
+              <h2>2. 앱 등록</h2>
+              <label
+                >표시 이름<input
+                  name="name"
+                  required
+                  maxlength="128"
+                  autocomplete="off"
+              /></label>
+              <label
+                >검토된 저장소 주소<input
+                  name="repo_url"
+                  type="url"
+                  required
+                  maxlength="512"
+                  autocomplete="off"
+              /></label>
+              <label
+                >앱 상대 경로<input
+                  name="app_path"
+                  required
+                  maxlength="256"
+                  autocomplete="off"
+              /></label>
+              <label
+                >IaC 상대 경로<input
+                  name="iac_path"
+                  required
+                  maxlength="256"
+                  autocomplete="off"
+              /></label>
+              <label
+                >출발 환경 ID<input
+                  id="registration-source"
+                  name="source_environment_id"
+                  required
+                  maxlength="128"
+                  autocomplete="off"
+              /></label>
+              <label
+                >출발 namespace<input
+                  name="namespace"
+                  required
+                  maxlength="128"
+                  autocomplete="off"
+              /></label>
+              <button type="submit">실행 앱 확인·등록</button>
+            </form>
+            <form data-registration="plan" id="registration-plan-form">
+              <h2>3. 계획 등록</h2>
+              <label
+                >앱 ID<input
+                  id="registration-workload"
+                  name="workload_id"
+                  required
+                  maxlength="128"
+                  autocomplete="off"
+              /></label>
+              <label
+                >목적 환경 ID<input
+                  id="registration-target"
+                  name="target_environment_id"
+                  required
+                  maxlength="128"
+                  autocomplete="off"
+              /></label>
+              <p class="muted">
+                등록 후 조사 단계부터 조회합니다. 트래픽이나 DB를 전환하지
+                않습니다.
+              </p>
+              <button type="submit">계획 등록·연결</button>
+            </form>
+          </div>
+          <p id="registration-status" role="status">
+            아직 등록을 요청하지 않았습니다.
+          </p>
+          <button id="registration-retry" class="secondary" hidden>
+            같은 등록 요청 결과 확인
+          </button>
+          <ol
+            id="registration-receipts"
+            aria-label="이 창에서 확인한 등록 영수증"
+          ></ol>
+        </details>
       </section>
       <div id="notice" role="alert" class="notice">
         아직 서버 상태를 조회하지 않았습니다.

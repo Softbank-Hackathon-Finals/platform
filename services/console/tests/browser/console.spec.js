@@ -126,3 +126,94 @@ test("report permission loss clears the view even when plan reads still succeed"
   await expect(page.locator("#control-rows tr")).toHaveCount(0);
   await expect(page.locator("#approve")).toBeDisabled();
 });
+
+test("registration recovers lost response and connects the real T10 COLLECT plan", async ({
+  page,
+  context,
+}) => {
+  await context.addCookies([
+    {
+      name: "fixture-session",
+      value: "test-only",
+      url: "http://127.0.0.1:18121",
+      sameSite: "Strict",
+    },
+  ]);
+  await page.goto("/console/");
+  await page.locator("#registration-panel summary").click();
+  const environment = page.locator("#registration-environment-form");
+  const requests = [];
+  let drop = true;
+  await page.route("**/v1/environments", async (route) => {
+    requests.push({
+      body: route.request().postData(),
+      key: route.request().headers()["idempotency-key"],
+    });
+    const response = await route.fetch();
+    if (drop) {
+      drop = false;
+      await route.abort("failed");
+    } else await route.fulfill({ response });
+  });
+  await environment.locator('[name="name"]').fill("Source");
+  await environment.locator('[name="connection_ref"]').fill("source-reader");
+  await environment.locator("button").click();
+  await expect(page.locator("#registration-status")).toContainText(
+    "접수 결과 미확인",
+  );
+  await expect(environment.locator("button")).toBeDisabled();
+  await page.locator("#registration-retry").click();
+  await expect(page.locator("#registration-source")).toHaveValue("env-source");
+  expect(requests).toHaveLength(2);
+  expect(requests[0]).toEqual(requests[1]);
+  await expect(page.locator("#registration-receipts")).toContainText(
+    "write_scope_unknown",
+  );
+  await environment.locator('[name="name"]').fill("Target");
+  await environment.locator('[name="kind"]').selectOption("onprem");
+  await environment.locator('[name="connection_ref"]').fill("target-reader");
+  await environment.locator("button").click();
+  await expect(page.locator("#registration-target")).toHaveValue("env-target");
+  const workload = page.locator("#registration-workload-form");
+  for (const [name, value] of Object.entries({
+    name: "chat",
+    repo_url: "https://example.invalid/chat",
+    app_path: "app",
+    iac_path: "compose.yaml",
+    namespace: "app-source",
+  }))
+    await workload.locator(`[name="${name}"]`).fill(value);
+  await workload.locator("button").click();
+  await expect(page.locator("#registration-workload")).not.toHaveValue("");
+  await page.locator("#registration-plan-form button").click();
+  await expect(page.locator("#state")).toHaveText("조사");
+  await expect(page.locator("#connection")).toHaveText("서버 이벤트 연결됨");
+  await expect(page.locator("#approve")).toBeDisabled();
+  await expect(page.locator("#execute")).toBeDisabled();
+  await expect(page.locator("#registration-receipts li")).toHaveCount(4);
+  await context.clearCookies();
+  await expect(page.locator("#notice")).toHaveText(
+    "접근 권한 또는 로그인 상태를 확인해 주세요.",
+    {
+      timeout: 15000,
+    },
+  );
+  await expect(page.locator("#registration-receipts li")).toHaveCount(0);
+  await expect(page.locator("#registration-source")).toHaveValue("");
+});
+
+test("unauthenticated registration obtains no environment receipt", async ({
+  page,
+}) => {
+  await page.goto("/console/");
+  await page.locator("#registration-panel summary").click();
+  const form = page.locator("#registration-environment-form");
+  await form.locator('[name="name"]').fill("Not authorized");
+  await form.locator('[name="connection_ref"]').fill("source-reader");
+  await form.locator("button").click();
+  await expect(page.locator("#registration-status")).toContainText(
+    "로그인 또는 권한",
+  );
+  await expect(page.locator("#registration-receipts li")).toHaveCount(0);
+  await expect(page.locator("#execute")).toBeDisabled();
+});
