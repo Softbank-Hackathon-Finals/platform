@@ -88,7 +88,7 @@ NetworkPolicy는 **합집합**이다. 기본 차단 정책이 있어도 다른 �
 
 | 시험 | 결과 |
 |---|---|
-| `scripts/tests/test_collector_route.py` | 19개 통과. 기본 차단 readback과 중첩 허용·누락·삭제 상태 거부, operator 주소/UID 보존 및 응답 유실 후 재개 추가. 쪽마다 전용 태그, MagicDNS 이름 검사, 관찰 포트만 허용 · 다른 쪽/바뀐 매핑 거부, proxy 수신 제한, ACL 조각(grant 하나, 저장소에서 찾은 다른 모든 `tag:bravo-*`의 거부 시험), Collector 9090 규칙에 목적지가 있는지 |
+| `scripts/tests/test_collector_route.py` | 20개 통과. 기본 차단 readback과 중첩 허용·누락·삭제 상태 거부, operator 주소/UID 보존 및 응답 유실 후 재개, namespace 전체 목록에서도 다른 group child 주소 거부 추가. 쪽마다 전용 태그, MagicDNS 이름 검사, 관찰 포트만 허용 · 다른 쪽/바뀐 매핑 거부, proxy 수신 제한, ACL 조각(grant 하나, 저장소에서 찾은 다른 모든 `tag:bravo-*`의 거부 시험), Collector 9090 규칙에 목적지가 있는지 |
 | 기본 차단 → 제한 허용(k3s 1.35.9, 11/4) | proxy 라벨의 시험 Pod 생성 전 기본 차단 적용. Collector/잘못된 라벨/다른 namespace 모두 TCP 거부. 잘못된 포트 관찰 후 차단 유지. 10421 제한 허용 뒤 Collector만 연결되고 나머지 두 경로 거부. operator child-port 입력은 합성 fixture이며 실제 Tailscale 검증 아님 |
 | Collector 0.164.0 TLS 이름 A/B(Docker) | `PLATFORM_TLS_SERVER_NAME` 지정: egress Service 이름으로 접속해도 저장소가 OTLP 6건 수신, x509 오류 0. 미지정(빈 기본값): `x509: certificate is valid for bravo-metrics…, not bravo-metrics.bravo-observability.svc`로 거부 |
 

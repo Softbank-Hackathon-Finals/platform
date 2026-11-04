@@ -185,6 +185,17 @@ class Resume(unittest.TestCase):
             self.assertEqual(render.routes("source", FQDN, quarantine_readback(), existing=state), [])
         self.assertEqual(state, before)
 
+    def test_only_validated_group_child_can_supply_external_name(self):
+        state = self.state()
+        other = copy.deepcopy(state["children"]["items"][0])
+        other["metadata"]["name"] = "ts-other-group"
+        other["metadata"]["labels"]["tailscale.com/proxy-group"] = "other-group"
+        state["children"]["items"].append(other)
+        self.assertEqual(render.routes("source", FQDN, quarantine_readback(), existing=state), [])
+        state["service"]["spec"]["externalName"] = "ts-other-group.tailscale-system.svc.cluster.local"
+        with self.assertRaisesRegex(ValueError, "does not reference the observed child"):
+            render.routes("source", FQDN, quarantine_readback(), existing=state)
+
     def test_partial_create_only_outputs_missing_service(self):
         state = self.state()
         state.update(service=None, children={"kind": "ServiceList", "items": []})

@@ -135,7 +135,9 @@ def routes(side, metrics_fqdn, readback, *, existing):
         if actual_name != "placeholder":
             _ports(side, children)
             names = {f"{child['metadata']['name']}.{OPERATOR_NAMESPACE}.svc{suffix}"
-                     for child in children["items"] for suffix in ("", ".cluster.local")}
+                     for child in children["items"]
+                     if child.get("metadata", {}).get("labels", {}).get("tailscale.com/proxy-group") == name
+                     for suffix in ("", ".cluster.local")}
             if actual_name not in names:
                 raise ValueError("operator externalName does not reference the observed child")
         elif children["items"]:
