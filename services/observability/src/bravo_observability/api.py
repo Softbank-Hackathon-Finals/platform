@@ -339,14 +339,19 @@ def create_app(
             r["metric"].get("pooler"): {"pooler": r["metric"].get("pooler"), "up": _boolean(r) if _identified(r, "pooler") else None, "databases": []}
             for r in up
         }
-        for r in sorted(paused, key=lambda r: (r["metric"].get("pooler") or "", r["metric"].get("name") or "")):
-            key = (r["metric"].get("pooler"), r["metric"].get("name"))
+        pause_flags = {
+            (r["metric"].get("pooler"), r["metric"].get("name")): _boolean(r) if _identified(r, "pooler", "name") else None
+            for r in paused
+        }
+        # PAUSE 지표가 빠져도 다른 지표에서 관측한 DB와 대기 수를 숨기지 않는다.
+        database_keys = pause_flags.keys() | clients.keys() | queued.keys() | backends.keys()
+        for key in sorted(database_keys, key=lambda key: (key[0] or "", key[1] or "")):
             # 접속 지표 없이 DB 행만 있는 pooler는 확인할 수 없는 상태다
             target = poolers.setdefault(key[0], {"pooler": key[0], "up": None, "databases": []})
             target["databases"].append(
                 {
                     "name": key[1],
-                    "paused": _boolean(r) if _identified(r, "pooler", "name") else None,
+                    "paused": pause_flags.get(key),
                     "clients_active": clients.get(key),
                     "clients_waiting": queued.get(key),
                     "servers_active": backends.get(key),

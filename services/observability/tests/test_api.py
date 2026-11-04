@@ -230,6 +230,26 @@ def test_pgbouncer_database_rows_without_up_are_unobservable():
     assert body["poolers"][0]["up"] is None
 
 
+@pytest.mark.parametrize("other_database", [False, True])
+def test_pgbouncer_missing_pause_keeps_waiting_database_visible(other_database):
+    store = _pgbouncer_store(waiting=7)
+    store.results["databases_paused"] = [_row(0, pooler="source-pgbouncer", name="orders")] if other_database else []
+    body = client(store).get("/v1/observability/environments/aws/pgbouncer", headers=AUTH).json()
+    assert body["state"] == "UNOBSERVABLE"
+    chat = next(d for d in body["poolers"][0]["databases"] if d["name"] == "chat")
+    assert chat == {"name": "chat", "paused": None, "clients_active": 3, "clients_waiting": 7, "servers_active": 2}
+
+
+@pytest.mark.parametrize("metric", ["client_active", "client_waiting", "server_active"])
+def test_pgbouncer_count_only_pooler_is_visible_but_unobservable(metric):
+    store = FakeStore(results={"timestamp(up": [vec("aws", 2)], metric: [_row(7, pooler="other", database="chat")]})
+    body = client(store).get("/v1/observability/environments/aws/pgbouncer", headers=AUTH).json()
+    assert body["state"] == "UNOBSERVABLE"
+    assert body["poolers"][0]["pooler"] == "other"
+    assert body["poolers"][0]["up"] is None
+    assert body["poolers"][0]["databases"][0]["paused"] is None
+
+
 def test_pgbouncer_view_without_metrics_or_heartbeat_is_unobservable():
     assert client(FakeStore(results={"timestamp(up": [vec("aws", 2)]})).get("/v1/observability/environments/aws/pgbouncer", headers=AUTH).json()["state"] == "UNOBSERVABLE"
     store = FakeStore(results={"timestamp(up": [vec("aws", 31)], "pgbouncer_up": [_row(1, pooler="source-pgbouncer")]})
