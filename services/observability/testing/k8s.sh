@@ -429,8 +429,15 @@ echo "  사칭 뒤 조회 API PgBouncer 뷰: $view"
 check $r "앱이 보낸 pgbouncer_up(${n}개, 출처 라벨 없음)은 PgBouncer 뷰에 들어오지 않음: 상태 OK, pooler는 source-pgbouncer만"
 
 if [ "${BRAVO_K8S_CAPACITY:-0}" = 1 ]; then
+  CAPACITY_TARGETS=(
+    "$NS/bravo-collector/collector"
+    "$NS/bravo-prometheus/prometheus"
+    "$NS/bravo-observability-api/api"
+    "$NS/bravo-window-intake/intake"
+    "$NS/bravo-pgbouncer-exporter/exporter"
+  )
   echo "== 자원 실측: 평상(60초)"
-  python3 stats.py "$NAME" 60 5 collector prometheus api intake exporter
+  python3 stats.py "$NAME" 60 5 "${CAPACITY_TARGETS[@]}"
   echo "== 자원 실측: 부하(앱 지표 약 2000건/초 = 데모 예상의 약 10배, 창 10건/초 = 100배, 180초)"
   kubectl -n loadgen run winload --image="$API_IMAGE" --restart=Never \
     --env=BRAVO_WINDOW_TOKEN="$WINDOW_TOKEN" --command -- python -c '
@@ -454,7 +461,7 @@ print(dict(results))' >/dev/null
   kubectl -n app run load --image="$GEN" --restart=Never -- metrics \
     --otlp-endpoint "bravo-collector.$NS.svc:4317" --otlp-insecure --duration 180s --workers 20 --rate 100 \
     --otlp-metric-name bravo_load --otlp-attributes 'service.name="demo-chat"' >/dev/null
-  python3 stats.py "$NAME" 180 5 collector prometheus api intake exporter
+  python3 stats.py "$NAME" 180 5 "${CAPACITY_TARGETS[@]}"
   kubectl -n loadgen wait --for=jsonpath='{.status.phase}'=Succeeded pod/winload --timeout=60s >/dev/null || true
   echo "  창 전송 결과(응답 코드별): $(kubectl -n loadgen logs winload 2>/dev/null | tail -1 || echo 없음)"
   echo "  창 수신 재시작: $(kubectl -n "$NS" get pod -l app=bravo-window-intake -o jsonpath='{.items[0].status.containerStatuses[0].restartCount} {.items[0].status.containerStatuses[0].lastState.terminated.reason}')"
