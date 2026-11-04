@@ -97,7 +97,7 @@ def run_once(
     except Exception:
         return AttemptResult("NEEDS_HUMAN", "PROPOSAL_UNAVAILABLE")
     if (not _valid_proposal(proposal, run_id)
-            or (hasattr(task, "source_sha") and task.source_sha != proposal.source_sha)):
+            or getattr(task, "source_sha", None) != proposal.source_sha):
         return AttemptResult("BLOCK", "PROPOSAL_INVALID")
     # create() may have succeeded before an error: never retry it automatically.
     try:

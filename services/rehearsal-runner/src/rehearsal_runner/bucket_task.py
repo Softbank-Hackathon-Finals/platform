@@ -10,6 +10,7 @@ from typing import Literal
 @dataclass(frozen=True)
 class BucketPolicyTask:
     run_id: str
+    source_sha: str
     source_sha256: str
     source_policy: str
     target_bucket: str
@@ -18,6 +19,7 @@ class BucketPolicyTask:
     def as_model_input(self) -> dict[str, str]:
         return {
             "run_id": self.run_id,
+            "source_sha": self.source_sha,
             "source_sha256": self.source_sha256,
             "source_policy": self.source_policy,
             "target_service": self.target_service,
@@ -35,10 +37,14 @@ def _no_duplicate_keys(pairs):
     return obj
 
 
-def prepare_bucket_policy_task(run_id: str, source_policy: str, target_bucket: str) -> BucketPolicyTask:
+def prepare_bucket_policy_task(
+    run_id: str, source_policy: str, target_bucket: str, *, source_sha: str
+) -> BucketPolicyTask:
     """Capture source policy without treating a generated proposal as verified."""
     if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]{0,63}", run_id):
         raise ValueError("invalid run ID")
+    if not isinstance(source_sha, str) or not re.fullmatch(r"[a-f0-9]{40}", source_sha):
+        raise ValueError("invalid source revision")
     if not re.fullmatch(r"[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]", target_bucket):
         raise ValueError("invalid test bucket")
     if not isinstance(source_policy, str) or len(source_policy.encode("utf-8")) > 32768:
@@ -49,5 +55,5 @@ def prepare_bucket_policy_task(run_id: str, source_policy: str, target_bucket: s
         raise ValueError("invalid source policy") from None
     if not isinstance(policy, dict) or not isinstance(policy.get("Statement"), (list, dict)):
         raise ValueError("source policy requires statements")
-    return BucketPolicyTask(run_id, hashlib.sha256(source_policy.encode("utf-8")).hexdigest(),
+    return BucketPolicyTask(run_id, source_sha, hashlib.sha256(source_policy.encode("utf-8")).hexdigest(),
                             source_policy, target_bucket)

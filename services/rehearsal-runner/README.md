@@ -42,7 +42,7 @@ uv run python -m rehearsal_runner.isolation_cli --namespace rehearsal-demo-1 --p
 
 ## 버킷 읽기 관측 프로토타입
 
-`bucket_task.prepare_bucket_policy_task`는 원본 정책 원문·SHA-256·실행 ID·시험 버킷을 담은 번역 작업 입력을 만든다. 중복 JSON 키나 범위 밖 입력은 거부한다. 현재 모델 도구 및 T38에는 연결되지 않았으며 SeaweedFS 정책을 생성하거나 적용하지 않는다.
+`bucket_task.prepare_bucket_policy_task`는 원본 revision·정책 원문·정책 SHA-256·실행 ID·시험 버킷을 담은 번역 작업 입력을 만든다. 중복 JSON 키나 범위 밖 입력은 거부한다. 현재 모델 도구 및 T38에는 연결되지 않았으며 SeaweedFS 정책을 생성하거나 적용하지 않는다.
 
 `bucket_probe.observe_bucket_reads`는 신뢰된 호출자가 제공한 인증·무인증 읽기 어댑터로 같은 시험 객체를 인증 → 무인증 → 인증 순서로 관측한다. 기존 객체의 양성 대조와 본문 SHA-256이 모두 일치해야 무인증 403을 해석할 근거가 생긴다. 이 함수의 결과는 관측값이며 T38 영수증이나 승인 판정이 아니다. 테스트는 모의 어댑터만 사용한다.
 
@@ -103,3 +103,8 @@ uv run --frozen --no-default-groups --with pytest pytest -p no:cacheprovider ../
 `rehearsal_runner.runner.run_once`는 주입된 제안·생성·검증·정리 경계와 `T3Gate`를 이용해 한 번의 시도 순서를 관리한다. 격리 결과의 namespace 이름·UID가 생성 결과와 다르거나 시험이 실패하면 검증을 호출하지 않는다. 생성 결과의 이름은 `rehearsal-` 범위로 제한하고, 정상·실패 경로 모두 원래 UID로 정리를 요청한다. 정리 부재를 확인하지 못하면 사람에게 넘긴다.
 
 이 함수에는 실제 T10 실행 승인·잠금·시도 영속화, T11 제안 어댑터, T38 제품 검증 및 인증된 영수증 검증 어댑터가 연결되어 있지 않다. T38이 같은 UID를 실행 중 강제하는 계약도 필요하다. 반환된 `RECEIPT_UNVERIFIED`의 영수증은 신뢰하지 않은 입력이며 승인 대기가 아니다. 실제 자원에서 실행하거나 자동 재시도·승인에 연결해서는 안 된다. 프로세스 중단 시 정리와 외부 효과의 확인·복구도 별도 계약이 필요하다.
+
+
+### T11 경계 확인 사항
+
+현재 T11 `safe_path`는 파일명에 `secret`이 포함된 `app/db_secret.py`를 거부한다. 해당 파일은 demo-chat이 Secrets Manager를 직접 호출하는 위치이므로, T15 작업 입력만으로는 현재 T11 스냅샷·제안에 포함할 수 없다. T11 담당자와 파일 내용·민감값 보호를 유지하는 허용 범위 및 제안서 연결을 합의해야 한다. T15가 별도 우회 읽기 경로를 만들지 않는다.

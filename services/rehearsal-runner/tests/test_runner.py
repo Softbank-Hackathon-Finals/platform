@@ -117,3 +117,23 @@ def test_t3_adapter_calls_existing_gate_with_namespace(monkeypatch):
     gate = runner.T3Gate(kube="mock-kube", targets=[], image="test-image")
     assert gate.check(Namespace("rehearsal-test", "uid-1")) == expected
     assert calls == [("mock-kube", "rehearsal-test", [], "test-image")]
+
+
+def test_bucket_task_rejects_proposal_from_another_source_revision():
+    from rehearsal_runner.bucket_task import prepare_bucket_policy_task
+    from rehearsal_runner.runner import Namespace, ProposalRef, run_once
+
+    calls = []
+    class Proposer:
+        def propose(self, task):
+            calls.append("propose")
+            return ProposalRef(task.run_id, "b" * 40, "c" * 64)
+    class Lifecycle:
+        def create(self, run_id):
+            calls.append("create")
+            return Namespace("rehearsal-test", "uid")
+    task = prepare_bucket_policy_task("run-1", '{"Statement":[]}', "rehearsal-test", source_sha="a" * 40)
+    result = run_once(task, Proposer(), Lifecycle(), None, None)
+    assert result.state == "BLOCK"
+    assert result.reason == "PROPOSAL_INVALID"
+    assert calls == ["propose"]

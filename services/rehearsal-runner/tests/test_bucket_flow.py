@@ -49,7 +49,7 @@ class FakeVerifier:
 
 @pytest.mark.parametrize("status,anonymous", [(200, "allowed"), (403, "denied"), (500, "unknown")])
 def test_task_proposal_and_independent_observation(status, anonymous):
-    task = prepare_bucket_policy_task("run-1", SOURCE, "rehearsal-test")
+    task = prepare_bucket_policy_task("run-1", SOURCE, "rehearsal-test", source_sha="a" * 40)
     agent, verifier = FakeAgent(status), FakeVerifier()
     proposal = agent.propose(task.as_model_input())
     observation = verifier.verify(task, proposal)
@@ -63,7 +63,7 @@ def test_task_proposal_and_independent_observation(status, anonymous):
 
 @pytest.mark.parametrize("field", ["run_id", "source_sha256", "bucket"])
 def test_fake_verifier_rejects_unbound_proposal(field):
-    task = prepare_bucket_policy_task("run-1", SOURCE, "rehearsal-test")
+    task = prepare_bucket_policy_task("run-1", SOURCE, "rehearsal-test", source_sha="a" * 40)
     proposal = FakeAgent(403).propose(task.as_model_input())
     proposal[field] = "different"
     verifier = FakeVerifier()

@@ -33,7 +33,7 @@ class FakeVerificationJob:
 
 def simulate_flow(kube, verifier):
     # Task preparation is read-only. Only an isolation pass reaches the mock job.
-    task = prepare_bucket_policy_task("run-1", '{"Statement":[]}', "rehearsal-test")
+    task = prepare_bucket_policy_task("run-1", '{"Statement":[]}', "rehearsal-test", source_sha="a" * 40)
     result = isolation_gate.check_isolation(kube, "rehearsal-test", [], "test-image", cleanup_timeout=0)
     verifier.submit(task, result.namespace, result.namespace_uid)
 
