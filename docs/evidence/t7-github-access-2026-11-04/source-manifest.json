@@ -1,0 +1,13 @@
+{
+  "source_revision": "3ec71f3475ad73ecadba9336205eef597dd506ac",
+  "source_files": [
+    {
+      "path": "scripts/tests/test_github_access.py",
+      "sha256": "e8441756d2e3fd01de6465ff3ae0a66ab7292a0caae7629a1f8fafbc4a8765c2"
+    },
+    {
+      "path": "scripts/verify_github_access.py",
+      "sha256": "8afdf972d87221b1477ff0d8ede356f218bdd8bddab7625f4735c1558f39bfb6"
+    }
+  ]
+}
