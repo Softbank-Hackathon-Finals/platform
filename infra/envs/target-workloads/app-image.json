@@ -2,5 +2,6 @@
   "source_sha": "8d82a9241d3894737778a77d58349e1aee54eca1",
   "index_digest": "sha256:ca5ce1b24f1deb2e7346643860ff0bb151409c1acec503c105f56d9043a389b6",
   "amd64_digest": "sha256:f9f48872b57d7c94eb01c81622feca66e7fcdcaec304b5c879682777606ac24c",
-  "publish_run": 41803312129
+  "publish_run": 41803312129,
+  "transfer_run": 41815292046
 }

@@ -15,16 +15,19 @@ APP_IMAGE=$(python3 infra/envs/target-workloads/application.py --print-image)
 The earlier `ce5727e` image and its export evidence do not send `X-Bravo-Env`.
 No new application build or registry visibility change is part of this handoff.
 
-**Before exporting**, ECR must hold the same bytes. demo-chat
-`transfer-private-image` validates its inputs against the publication record on
-`main` under `docs/evidence/image-publication-2026-11-03/`, so the T22 owner first
-updates that record to the pinned publication, then a person with Actions access
-runs the workflow with the pinned source SHA and index digest. The export tool has
-not yet run against this image; only its verifier code and unit tests changed for it.
+**ECR already holds the pinned image.** The publication record on demo-chat `main`
+was updated by demo-chat #19, and `transfer-private-image`
+[run 41815292046](https://github.com/Softbank-Hackathon-Finals/demo-chat/actions/runs/41815292046)
+copied it on 2026-11-04 at 19:36 KST, with identical index and attestation blobs and a
+verified destination pull. It verified the pull from CI, not from a cluster. For a new pin,
+the T22 owner first updates that record under `docs/evidence/image-publication-2026-11-03/`,
+because the workflow validates its inputs against it, then a person with Actions access
+runs the workflow. The export tool has not yet run against this image; only its
+verifier code and unit tests changed for it.
 
 ## Export without handing registry credentials to the VM
 
-Use the existing AWS operator identity, `skopeo` and the official
+If `skopeo` is missing, install it first (`brew install skopeo`). Use the existing AWS operator identity, `skopeo` and the official
 `docker-credential-ecr-login` already installed on the operator machine:
 
 ```sh
@@ -32,6 +35,21 @@ python3 scripts/export_target_image.py \
   --contract "$PRIVATE_REGISTRY_CONTRACT" \
   --archive "$PRIVATE_IMAGE_ARCHIVE" \
   --receipt "$PRIVATE_EXPORT_RECEIPT"
+```
+
+Create the private contract outside the repository, from the pin and your own AWS account:
+
+```sh
+python3 - "$PRIVATE_REGISTRY_CONTRACT" "$(aws sts get-caller-identity --query Account --output text)" <<'PY'
+import json, pathlib, sys
+pin = json.loads(pathlib.Path("infra/envs/target-workloads/app-image.json").read_text())
+account = sys.argv[2]
+pathlib.Path(sys.argv[1]).write_text(json.dumps({
+    "account_id": account, "region": "ap-northeast-2",
+    "repository_url": f"{account}.dkr.ecr.ap-northeast-2.amazonaws.com/bravo/demo-chat",
+    "source_sha": pin["source_sha"], "digest": pin["index_digest"],
+    "status": "image_copied_and_ci_pull_verified"}))
+PY
 ```
 
 The private contract contains the expected AWS account, exact repository,

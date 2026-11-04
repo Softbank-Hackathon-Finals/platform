@@ -129,11 +129,9 @@ T9의 OpenBao/ESO·TLS 통제나 목적지 앱 업무 기동 완료를 대신하
 1. **이미지.** 쓸 이미지는 [`app-image.json`](app-image.json) 한 곳에만 적는다. 렌더러와 `scripts/export_target_image.py`가 이 파일을 읽는다.
    새로 게시하면 그 실행 아티팩트의 `image-receipt.json`(`source_sha`, `digest`)과 `registry-index.json`(amd64 `digest`)을 옮겨 적고 끝낸다.
    `X-Bravo-Env`가 없는 이전 게시본 세 개는 렌더러가 거부한다.
-2. **VM에 넣기.** 순서가 정해져 있다. 앞 단계가 끝나야 다음 단계가 통과한다.
-   - T22 담당: demo-chat `main`의 `docs/evidence/image-publication-2026-11-03/`에 있는 `image-receipt.json`, `registry-index.json`, `scan-summary.json`을 이 게시본 값으로 올린다.
-     `transfer-private-image`가 이 영수증과 입력값을 대조하므로, 그전에는 `reviewed_publication_mismatch`로 멈춘다.
-   - Actions 권한자: `transfer-private-image`를 `app-image.json`의 소스 SHA와 digest로 돌린다.
-   - AWS 운영자 · VM 소유자: [이미지 인수인계](../../../docs/operations/target-image-handoff.md) 순서로 묶음을 만들어 VM에 넣고 digest 별칭을 붙인다.
+2. **VM에 넣기.** ECR에는 이미 있다. 이 게시본의 demo-chat 영수증(#19)과 `transfer-private-image`([실행 41815292046](https://github.com/Softbank-Hackathon-Finals/demo-chat/actions/runs/41815292046), 2026-11-04 19:36 KST)가 끝났고, 대상 바이트와 CI Pull까지 확인됐다.
+   남은 일은 AWS 운영자 · VM 소유자가 [이미지 인수인계](../../../docs/operations/target-image-handoff.md) 순서로 묶음을 만들어 VM에 넣고 digest 별칭을 붙이는 것이다.
+   게시본을 바꾸면 앞 두 단계를 다시 한다. T22 담당이 demo-chat `main`의 `docs/evidence/image-publication-2026-11-03/` 영수증을 올리고(그전에는 `reviewed_publication_mismatch`로 멈춘다), Actions 권한자가 전달을 돌린다.
 
    렌더 기본값은 `imagePullPolicy: Never`다. 레지스트리에서 받으려면 `--pull-secret <이름>`을 쓰지만,
    [T7 절차](../../../docs/operations/target-registry-access.md)의 Secret은 시험 뒤 지우는 것이라 상시 자격이 없다. 쓰려면 자격 위치와 갱신 담당을 T7 담당자와 먼저 정한다.

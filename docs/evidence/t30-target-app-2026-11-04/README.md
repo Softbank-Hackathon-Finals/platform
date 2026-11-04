@@ -22,6 +22,7 @@
 **3. `X-Bravo-Env`: `APP_ENV=onprem`으로 목적지 값이 나온다.** 200, 403, 503, 쓰기 차단, 재시작 직후 응답까지 판정한 앱 응답에는 모두 `onprem` 하나만 붙었다.
 이 헤더는 `c1c74ab`부터 있고, 게시본 `8d82a92`([digest `ca5ce1b2`](https://github.com/Softbank-Hackathon-Finals/demo-chat/actions/runs/41803312129))에 들어 있다.
 그 전 게시본 세 개는 헤더가 없어 렌더러가 거부한다(index, amd64 digest 모두).
+이 게시본은 측정 뒤 ECR로 전달됐다([실행 41815292046](https://github.com/Softbank-Hackathon-Finals/demo-chat/actions/runs/41815292046)). 그 바이트를 이 시험에서 띄운 것은 아니다.
 
 ## 잰 것
 
