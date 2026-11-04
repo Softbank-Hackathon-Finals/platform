@@ -2,7 +2,7 @@
 
 병합된 T5의 프로필·시험 불변조건·서버 예외 승인 계약을 실행하는 결정적 Python 모듈이다. 보안 게이트 계산과 T10/T21의 소비 검증을 제공한다. LLM·클라우드 변경·시험 실행·예외 승인 발급은 하지 않는다.
 
-**범위:** T19의 보안 전제조건. `CombinedGateService`는 T13 데이터 준비 관측과 보안 결과를 함께 검사한다. 실제 T13 수집기·T14 환경 연결·T10 운영 공급자 연결은 별도다. 선택적 T10 어댑터는 실제 승인·실행 접수 코드와 SQLite/PostgreSQL에서 시험한다. `SecurityPrerequisite.authorizes_cutover`는 항상 `False`다. T19 이슈 전체의 완료나 실환경 동등성 검증 완료로 간주하지 않는다.
+**범위:** T19의 보안 전제조건. `CombinedGateService`는 T13 데이터 준비 관측과 보안 결과를 함께 검사한다. 선택적 T13 스키마 수집기를 포함하며 T14 환경 연결·T10 운영 공급자 연결은 별도다. 선택적 T10 어댑터는 실제 승인·실행 접수 코드와 SQLite/PostgreSQL에서 시험한다. `SecurityPrerequisite.authorizes_cutover`는 항상 `False`다. T19 이슈 전체의 완료나 실환경 동등성 검증 완료로 간주하지 않는다.
 
 ## 계약 출처
 
@@ -132,8 +132,9 @@ uv run pytest -q
 쓰기 정지 이후 최종 동등성 비교·barrier·시퀀스 재확인을 대신하지 않는다.
 
 시험은 인증 공급자 대역과 합성 데이터, 실제 T14 Runner 코드의 상호운용을 사용한다.
-실제 EKS/RKE2 데이터 수집, T10 정본 저장소·인증/현재 정책, T13 규칙 확정과 SQL 관측,
-실제 컷오버는 아직 연결하지 않았으며 T19 완료 조건은 열린 상태로 유지한다.
+실제 EKS/RKE2 데이터 수집, T10 운영 정본 저장소·인증/현재 정책, 실제 컷오버는 아직
+연결하지 않았다. 아래 선택 어댑터는 T13 SQL 규칙과 로컬 PostgreSQL 관측을 연결하지만
+양쪽 팀 환경의 전체 T19 완료 조건은 열린 상태로 유지한다.
 
 
 ## T10 승인·실행 접수 어댑터
@@ -192,3 +193,65 @@ bootstrap을 재사용하며 기존 서버에 접속하지 않는다. 결과 저
 
 전체 시험에는 PostgreSQL 서버 도구(`pg_config`, `initdb`, `pg_ctl`, `postgres`)가 필요하다.
 도구가 없으면 PostgreSQL 시험을 생략하지 않고 실패한다.
+
+## T13 실제 스키마 관측 어댑터
+
+`bravo_gate.t13.collect_schema`는 등록된 DB의 전용 연결로 T13
+`bravo_cutover.db_fingerprint.schema_fingerprint`를 호출한다. 해시 규칙을 별도로 구현하지 않는다.
+선택 의존성 `bravo-control-gate[t13]`을 사용한다. 해당 T13 구현이 포함된 패키지 버전과
+실제 설치 이미지 digest를 배포 시 함께 고정해야 한다.
+
+- 서버가 선택한 context·정책의 환경/DB 등록과 정확히 일치해야 연결한다.
+- 실제 psycopg 연결의 `verify-full`·TLS 사용·idle/autocommit을 검사한다.
+- DB 신원을 읽기 전에 해당 트랜잭션의 `search_path`를 `pg_catalog`로 고정한다.
+  `pg_catalog.current_database`, session/current role과 등록을 대조하고 superuser/BYPASSRLS를 거부한다.
+  앱 스키마의 동명 함수로 다른 DB를 등록된 DB로 위장할 수 없어야 한다.
+- T13의 읽기 전용 반복 가능 읽기·고정 세션 설정·시간 제한을 그대로 사용한다.
+- 스키마/PK를 다시 읽어 수집 중 DDL 변화는 UNKNOWN으로 남긴다. 연결·신원·전체 기한 실패는
+  앞서 읽은 부분 성공도 버린다. 반환되는 시각은 수집 시작 기준이며 최대 30초만 유효하다.
+- DB 행, DSN, SQL 오류 원문을 결과에 넣지 않는다. 확인하지 못한 테이블은 누락시키지 않고
+  hash/PK를 null로 남겨 기존 T19가 BLOCK하게 한다.
+- `SchemaCapture.errors`는 T13의 허용된 고정 코드만 보존한다:
+  `table_not_qualified`, `table_missing`, `unsupported_major`, `not_plain_table`,
+  `primary_key_missing`, `unsupported_type`, `collation_unverified`,
+  `statement_timeout`, `snapshot_unreadable`. 그 외 예외/미등록 코드는 기존
+  `SCHEMA_UNCONFIRMED` 또는 재조회 시 `SCHEMA_CHANGED_OR_UNCONFIRMED`로 축약한다.
+  원인 구분은 진단용이며 UNKNOWN/BLOCK을 완화하거나 승인 근거로 사용하지 않는다.
+
+`DatabaseRegistration`은 인증된 호스트의 등록이다. 브라우저 JSON을 그대로 변환하지 않는다.
+연결 생성자는 실제 클러스터 UID·호스트·CA·Secret 소유권을 해당 등록에 결속해야 한다.
+같은 DB 이름과 인증서만으로 클러스터 신원을 증명하지 않는다. 연결 시간 제한과 외부 워커의
+전체 종료 한도도 호스트가 강제한다. 이 함수의 시계 재검사로 막힌 소켓을 강제 종료하지는 못한다.
+
+`assemble_snapshot`은 두 스키마 관측과 **호스트가 인증한 별도 복제·시퀀스 리허설 기록**을
+기존 `data-readiness.v1`로 묶는다. 실제 수신한 복제 위치나 시퀀스 readback이 없으면
+미확인으로 남겨야 한다. 제안한 setval 값을 관측값으로 대신 넣으면 안 된다.
+이 모듈은 시퀀스 보정·DB 변경·복제 시작을 하지 않는다. 생성 결과도 기존 snapshot
+인증/불변 저장·T10 접수 경계를 거쳐야 하며 객체 생성만으로 실행 권한을 얻지 않는다.
+
+### 어댑터 검증과 미검증 범위
+
+고정 digest PostgreSQL 18.4에서 실제 TLS와 비관리자 SELECT 역할을 사용했다.
+스키마 일치 → 대상 DDL 불일치 BLOCK, 수집 중 DDL UNKNOWN, TLS 미사용/검증 생략/
+잘못된 호스트/다른 DB/관리자 역할/진행 중 트랜잭션 거부, 만료 관측 BLOCK을 시험했다.
+이 시험은 실제 스키마 수집을 검증하며, 복제 기록과 권한 공급자는 합성 대역이다.
+팀 EKS/RKE2·실제 복제 지연·시퀀스 리허설·운영 승인·컷오버를 검증한 결과가 아니다.
+
+추가 통합 시험은 한 임시 PostgreSQL 프로세스의 서로 다른 DB 사이에서 실제 TLS 논리 복제를
+실행한다. 원본 행이 복제된 뒤에도 목적지 시퀀스가 뒤처지는 것을 확인하고, 제안값만 있는
+경우 BLOCK, T13 보정 후 실제 readback이 있는 경우 준비 PASS, 복제 관측이 미확인인 경우
+BLOCK을 확인한다. 이 시험의 허용 WAL 지연은 1 MiB이며 RPO 0나 무중단 자격이 아니다.
+운영 앱은 없고 신원·정책 정본은 시험 fixture다. 실제 두 환경의 네트워크·writer fencing·
+트랜잭션 drain·최종 데이터 비교와 전체 T19/T10 승인을 대체하지 않는다.
+
+`tests/test_t13_two_servers.py`는 독립된 PostgreSQL 서버 두 대와 서로 다른 CA·접속 비밀을
+사용한다. 두 system_identifier가 다르고 복제 연결이 TLS임을 실제 SQL로 확인한다.
+50행 복제·T13 지문 일치, 시퀀스 제안만 있을 때 BLOCK, 보정 readback 후 준비 PASS,
+복제 중단 뒤 원본 51행/대상 50행에서 BLOCK을 확인한다. DB명과 역할명이 같아도 목적지
+CA로 다른 서버에 연결하면 스키마를 확인할 수 없는 상태로 남는다.
+이것은 로컬 Docker 브리지·루프백 포트를 사용한 시험이며 팀 EKS/RKE2나 운영 신원 발급을
+검증하지 않는다. 해당 시험 전용 컨테이너·네트워크만 생성하고 종료 시 ID로 정리한다.
+
+2026-11-04에는 [실제 출발지 앱 DB의 스키마 수집](../../docs/evidence/t19-source-readiness-2026-11-04/README.md)을
+추가 확인했다. 두 테이블의 PK·스키마 지문 수집, 기대 DB 이름 불일치 시 UNKNOWN,
+목적지·복제·시퀀스 증거 누락 시 BLOCK이다. 출발지 읽기 자격 시험이며 양쪽 환경 게이트 인수는 아니다.

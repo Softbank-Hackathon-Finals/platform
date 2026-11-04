@@ -105,12 +105,10 @@ def test_write_pause_ends_at_the_last_path_ack(store, config, sides):
 
 def test_api_runs_cutover_in_background_and_reports_state(store, config, sides):
     """T10 호출 경로: POST는 202로 바로 돌아오고, 상태 조회로 진행과 결과를 읽는다(spec D1)."""
-    from fastapi.testclient import TestClient
-
-    from bravo_cutover.api import create_app
     from bravo_cutover.runner import ThreadRunner
+    from tests.test_api import command_client
 
-    client = TestClient(create_app(store, ThreadRunner(Cutover(store, config)), registry_from_sites(config.sites)))
+    client = command_client(store, ThreadRunner(Cutover(store, config)), registry_from_sites(config.sites))
     request = {
         "plan_id": "plan-api", "epoch": int(time.time() * 1000),
         "source": {"environment_id": "env-aws", "connection_ref": "mock/src"},

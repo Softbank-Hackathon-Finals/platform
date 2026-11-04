@@ -1,0 +1,109 @@
+# 감사 전달기(T34). 지표 Collector(T37)와 합치지 않는다(ADR-0016): 같은 이미지 digest만 공유한다.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: audit-forwarder
+automountServiceAccountToken: false
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: audit-forwarder
+  labels:
+    app: audit-forwarder
+    component: target
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: audit-forwarder
+  template:
+    metadata:
+      labels:
+        app: audit-forwarder
+        component: target
+        bravo.audit/role: forwarder
+    spec:
+      serviceAccountName: audit-forwarder
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: collector
+          image: otel/opentelemetry-collector-contrib@sha256:340c9ca6a36617084c6661bdc4f0fe92b7cda5a805d61673ec8db375fddc522b
+          args: ["--config=/etc/otelcol/collector.yaml"]
+          env:
+            - name: AWS_CA_BUNDLE
+              value: /etc/audit-ca/ca.crt
+          envFrom:
+            - secretRef:
+                name: audit-writer
+          ports:
+            - {name: otlp-http, containerPort: 4318}
+          resources:
+            requests: {cpu: 10m, memory: 64Mi}
+            limits: {cpu: 250m, memory: 192Mi}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          volumeMounts:
+            - {name: config, mountPath: /etc/otelcol, readOnly: true}
+            - {name: ca, mountPath: /etc/audit-ca, readOnly: true}
+      volumes:
+        - name: config
+          configMap:
+            name: audit-forwarder-config
+        - name: ca
+          secret:
+            secretName: audit-ca
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: audit-forwarder
+  labels:
+    component: target
+spec:
+  selector:
+    app: audit-forwarder
+  ports:
+    - {name: otlp-http, port: 4318, targetPort: otlp-http}
+---
+# 시제품의 OTLP 입력은 bravo.audit/role=source Pod에서만. 운영 전달기는 노드 파일을 읽으므로 받는 연결이 없다.
+# 나가는 연결은 DNS와 저장소 8333뿐이다.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: audit-forwarder
+spec:
+  podSelector:
+    matchLabels:
+      app: audit-forwarder
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              bravo.audit/role: source
+      ports:
+        - {port: 4318, protocol: TCP}
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - {port: 53, protocol: UDP}
+        - {port: 53, protocol: TCP}
+    - to:
+        - podSelector:
+            matchLabels:
+              app: audit-store
+      ports:
+        - {port: 8333, protocol: TCP}

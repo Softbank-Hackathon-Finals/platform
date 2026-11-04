@@ -11,12 +11,14 @@ dependencies = ["jsonschema>=4.26,<5", "cryptography>=46,<51", "rfc3339-validato
 
 [project.optional-dependencies]
 t10 = ["bravo-platform-events==0.1.0"]
+t13 = ["bravo-cutover==0.1.0"]
 
 [dependency-groups]
-dev = ["pytest>=8,<10", "ruff>=0.14,<0.18", "jsonpatch>=1.33,<2", "bravo-platform-events==0.1.0", "psycopg[binary]>=3.2,<4"]
+dev = ["pytest>=8,<10", "ruff>=0.14,<0.18", "jsonpatch>=1.33,<2", "bravo-platform-events==0.1.0", "psycopg[binary]>=3.2,<4", "bravo-cutover==0.1.0"]
 
 [tool.uv.sources]
 bravo-platform-events = { path = "../platform-events" }
+bravo-cutover = { path = "../cutover-executor" }
 
 [tool.setuptools.packages.find]
 where = ["src"]

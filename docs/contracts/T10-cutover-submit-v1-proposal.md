@@ -65,7 +65,7 @@ with ExecutorReader("https://executor.example.invalid") as reader:
 
 - `ExpectedExecution` 생성 자체는 인증이나 승인 증명이 아니다. 호스트가 principal/tenant와 계획 접근을 먼저 검증해야 한다. 읽기와 CUTOVER 접수는 같은 호스트의 접근 검증을 통과해야 한다.
 - 원격 접속 origin은 서버 설정으로 고정하고 HTTPS 인증서 검증을 사용한다. URL의 사용자 정보·query·fragment·path를 거부하고 환경 proxy를 상속하지 않는다. HTTP는 시험용 literal loopback만 허용한다. `transport` 주입은 신뢰된 테스트/호스트 구성의 경계이며 별도 transport가 TLS를 끄지 않도록 호스트가 책임진다.
-- 선택적 Bearer 자격은 메모리 인자로만 받는다. Bearer 전달 기능만으로 실제 서비스 인증·네트워크 경계의 구성을 증명하지 않는다.
+- `ExecutorReader(token=...)`는 조회 자격만 받는다. 승인 실행 호스트의 `ExecutorClient(token=..., command_token=...)`는 등록 및 실행 조회 GET에 조회 자격을, 명령 POST에 별도 실행 자격을 보낸다. 실행 자격이 없으면 명령을 전송하지 않고 UNKNOWN으로 반환한다. Bearer 전달 기능만으로 실제 서비스 인증·네트워크 경계의 구성을 증명하지 않는다.
 - 응답은 256 KiB, 단계 목록은 256개, 단일 socket 작업은 기본 5초로 제한한다. 스트림 처리 중에도 경과 시간을 확인한다. redirect, 압축 응답, 중복 JSON 키를 거부한다. socket timeout은 전체 분산 작업의 취소나 deadline 보장이 아니다.
 - snapshot에는 실행 ID, 계획, epoch, 원격 상태, commit 여부, 단계 이름·상태·시간, 실행 전체의 생성·갱신 시각만 담는다. 원시 `result`, 단계 `detail`, 예외 원문은 반환하지 않는다.
 - `previous`를 주면 동일 실행의 append-only 단계 이력과 시간·commit 진행을 확인한다. `SAFE_HOLD` 또는 종료 상태를 임의로 다시 열지 않는다. 의도한 수동 해제는 별도 인수 절차로 처리한다.
@@ -97,4 +97,4 @@ with ExecutorReader("https://executor.example.invalid") as reader:
 
 ### 배포된 Executor의 DB 쌍 확인
 
-호스트가 `create_operator_cutover_app(..., registered_pair=...)`로 시작하면 T10 클라이언트가 인증된 `GET /v1/resources`를 한 번 보낸다. 입력은 최초 등록 기록에서 읽은 두 환경의 `environment_id`, `resource_id`, `connection_ref`다. 방향과 여섯 값이 모두 같을 때만 응답의 연결 참조로 서비스를 구성한다. 인증 실패·조회 실패·등록 변경이면 앱 구성을 중단한다. 이 조회는 시작 시점의 등록 확인이다. 실행 권한과 매 요청의 승인·게이트 검사는 기존 경로에서 판정한다. [T12 조회 계약](T12-platform-integration.md#등록된-출발지와-목적지-조회)
+호스트가 `create_operator_cutover_app(..., registered_pair=...)`로 시작하면 T10 클라이언트가 인증된 `GET /v1/resources`를 한 번 보낸다. 입력은 최초 등록 기록에서 읽은 두 환경의 `environment_id`, `resource_id`, `connection_ref`다. 최초 등록 기록의 `source`와 `target`이 방향을 정한다. 두 환경 ID, 두 DB 자원 ID, 두 연결 참조는 각각 서로 달라야 한다. 방향과 여섯 값이 모두 같을 때만 응답의 연결 참조로 서비스를 구성한다. 인증 실패·조회 실패·등록 변경이면 앱 구성을 중단한다. 이 조회는 시작 시점의 등록 확인이다. 실행 권한과 매 요청의 승인·게이트 검사는 기존 경로에서 판정한다. [T12 조회 계약](T12-platform-integration.md#등록된-출발지와-목적지-조회)

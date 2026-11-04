@@ -10,12 +10,17 @@
 #  6. DB 오버레이: T6과 같은 CNPG(오퍼레이터 1.30.1, PostgreSQL 18.4)의 지표가 최소 권한으로 수집되고 조회 API DB 뷰에 보인다
 #     DB 긁기 경로의 지표에만 출처 라벨(bravo_signal=cnpg-scrape)이 붙고, 앱이 같은 이름의 지표를 보내도 DB 뷰에 들어오지 않는다
 #  7. 창 수신 참조 배치(T36, k8s-overlay에만 있음)가 restricted로 뜨고, window-producer 라벨 네임스페이스의 수신 토큰만 받으며, 밖으로 나가지 못한다
+#  8. PgBouncer 오버레이: T6과 같은 이미지 · 설정의 PgBouncer를 통계 계정(stats_users)으로 긁는다. 통계 계정은 PAUSE를 못 하고,
+#     exporter는 Collector만 부를 수 있으며, PgBouncer 지표에 출처(pgbouncer-scrape) · pooler 라벨이 붙는다.
+#     조회 API PgBouncer 뷰가 OK · PAUSED를 구분하고, 앱이 같은 이름의 지표를 보내도 뷰에 들어오지 않는다
 # helm이 필요하다(CNPG 차트).
 set -euo pipefail
 cd "$(dirname "$0")"
 
 CNPG_IMAGE=1.30.1@sha256:923c267ec29636db3bee20f993d0ec4973fa22998e1adad37da79e4d32b5bc07
 PG_IMAGE=ghcr.io/cloudnative-pg/postgresql:18.4-system-trixie@sha256:42708a75345b7a48fdd9257b071830783a97fd228529196b6313187a7198e185
+# T6 출발지 PgBouncer와 같은 이미지(infra/envs/source-workloads/render.py)
+PGB_IMAGE=ghcr.io/cloudnative-pg/pgbouncer:1.25.1@sha256:e6ddfe22d845e603825e235dd8334b21ecd125abea2a2172478f556b8dee2bb8
 K3S=rancher/k3s:v1.35.9-k3s1@sha256:ec9868c6a38d4e8c1869832fb5fd1eb8473c39794a0b44d2b952e7ba911951bc
 GEN=ghcr.io/open-telemetry/opentelemetry-collector-contrib/telemetrygen:v0.164.0@sha256:b536c7220c5ea587f04dff6c5e6eecb48e40b5b58ce70690b15734aae98d8321
 NAME="bravo-obs-k3s-$(openssl rand -hex 6)"
@@ -26,6 +31,9 @@ CERT_DIR=$(mktemp -d)
 KUBECONFIG="$CERT_DIR/kubeconfig"
 API_TOKEN=$(openssl rand -hex 24)
 WINDOW_TOKEN=$(openssl rand -hex 24)
+STATS_PW=$(openssl rand -hex 16)
+PGB_HOST=source-pgbouncer.source-dev.svc
+PGB_ADMIN_PW=$(openssl rand -hex 16)
 export CERT_DIR KUBECONFIG
 PF=""
 # Port-forward termination must not abort cleanup; remove only the container ID this run created.
@@ -66,7 +74,84 @@ kubectl apply -f - >/dev/null <<EOF
 apiVersion: postgresql.cnpg.io/v1
 kind: Cluster
 metadata: {name: source-db, namespace: source-dev}
-spec: {instances: 1, imageName: "$PG_IMAGE", storage: {size: 1Gi}}
+spec:
+  instances: 1
+  imageName: "$PG_IMAGE"
+  storage: {size: 1Gi}
+  # T6과 같이 PgBouncer가 CNPG 서버 인증서를 클라이언트 TLS에 쓴다
+  certificates:
+    serverAltDNSNames: [source-pgbouncer, source-pgbouncer.source-dev, source-pgbouncer.source-dev.svc, source-pgbouncer.source-dev.svc.cluster.local]
+EOF
+
+echo "== PgBouncer (T6 출발지와 같은 이미지 · 설정 + 통계 계정)"
+for _ in $(seq 90); do kubectl -n source-dev get secret source-db-ca source-db-server >/dev/null 2>&1 && break; sleep 2; done
+cat > "$CERT_DIR/pgbouncer.ini" <<'EOF'
+[databases]
+chat = host=source-db-rw.source-dev.svc.cluster.local port=5432 dbname=app
+
+[pgbouncer]
+listen_addr = 0.0.0.0
+listen_port = 5432
+unix_socket_dir = /tmp
+pidfile = /tmp/pgbouncer.pid
+auth_type = scram-sha-256
+auth_file = /etc/pgbouncer-auth/userlist.txt
+admin_users = cutover_control
+stats_users = bravo_stats
+pool_mode = transaction
+server_tls_sslmode = verify-full
+server_tls_ca_file = /etc/cnpg-ca/ca.crt
+client_tls_sslmode = require
+client_tls_cert_file = /etc/cnpg-tls/tls.crt
+client_tls_key_file = /etc/cnpg-tls/tls.key
+ignore_startup_parameters = extra_float_digits,options
+EOF
+printf '"cutover_control" "%s"\n"bravo_stats" "%s"\n' "$PGB_ADMIN_PW" "$STATS_PW" > "$CERT_DIR/userlist.txt"
+kubectl -n source-dev create configmap source-pgbouncer-config --from-file="$CERT_DIR/pgbouncer.ini" >/dev/null
+kubectl -n source-dev create secret generic source-pgbouncer-auth --from-file="$CERT_DIR/userlist.txt" >/dev/null
+kubectl apply -f - >/dev/null <<EOF
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: source-pgbouncer, namespace: source-dev}
+spec:
+  replicas: 1
+  strategy: {type: Recreate}
+  selector: {matchLabels: {app: source-pgbouncer}}
+  template:
+    metadata: {labels: {app: source-pgbouncer}}
+    spec:
+      automountServiceAccountToken: false
+      securityContext: {runAsNonRoot: true, runAsUser: 998, runAsGroup: 996, fsGroup: 996, seccompProfile: {type: RuntimeDefault}}
+      initContainers:
+        - name: seed-config
+          image: $PGB_IMAGE
+          command: ["/bin/sh", "-ec", "umask 077; cp /config-seed/pgbouncer.ini /etc/pgbouncer/pgbouncer.ini"]
+          securityContext: {allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: {drop: [ALL]}}
+          volumeMounts: [{name: config-seed, mountPath: /config-seed, readOnly: true}, {name: config, mountPath: /etc/pgbouncer}]
+      containers:
+        - name: source-pgbouncer
+          image: $PGB_IMAGE
+          ports: [{containerPort: 5432}]
+          readinessProbe: {tcpSocket: {port: 5432}}
+          securityContext: {allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: {drop: [ALL]}}
+          volumeMounts:
+            - {name: config, mountPath: /etc/pgbouncer}
+            - {name: auth, mountPath: /etc/pgbouncer-auth, readOnly: true}
+            - {name: ca, mountPath: /etc/cnpg-ca, readOnly: true}
+            - {name: tls, mountPath: /etc/cnpg-tls, readOnly: true}
+            - {name: tmp, mountPath: /tmp}
+      volumes:
+        - {name: config, emptyDir: {}}
+        - {name: config-seed, configMap: {name: source-pgbouncer-config}}
+        - {name: auth, secret: {secretName: source-pgbouncer-auth, defaultMode: 288}}
+        - {name: ca, secret: {secretName: source-db-ca, items: [{key: ca.crt, path: ca.crt}]}}
+        - {name: tls, secret: {secretName: source-db-server, defaultMode: 288}}
+        - {name: tmp, emptyDir: {}}
+---
+apiVersion: v1
+kind: Service
+metadata: {name: source-pgbouncer, namespace: source-dev}
+spec: {selector: {app: source-pgbouncer}, ports: [{port: 5432, targetPort: 5432}]}
 EOF
 
 echo "== 배포"
@@ -84,16 +169,22 @@ kubectl -n "$NS" create secret generic bravo-window-intake-token --from-literal=
 kubectl -n "$NS" create configmap bravo-window-intake --from-literal=plans=plan-k8s >/dev/null
 kubectl -n "$NS" create configmap bravo-collector-env --from-literal=BRAVO_ENV=onprem \
   --from-literal=PLATFORM_OTLP_ENDPOINT="https://bravo-prometheus.$NS.svc:9090/api/v1/otlp" \
-  --from-literal=BRAVO_DB_NAMESPACE=source-dev >/dev/null
+  --from-literal=BRAVO_DB_NAMESPACE=source-dev --from-literal=BRAVO_PGBOUNCER_NAME=source-pgbouncer >/dev/null
+# 통계 계정 연결 문자열과 PgBouncer 인증서의 CA(공개 인증서). 서버 이름까지 검증한다(verify-full)
+kubectl -n source-dev get secret source-db-ca -o jsonpath='{.data.ca\.crt}' | base64 -d > "$CERT_DIR/pgbouncer-ca.crt"
+kubectl -n "$NS" create secret generic bravo-pgbouncer-stats --from-file=ca.crt="$CERT_DIR/pgbouncer-ca.crt" \
+  --from-literal=connection-string="postgres://bravo_stats:${STATS_PW}@${PGB_HOST}:5432/pgbouncer?sslmode=verify-full&sslrootcert=/etc/bravo-pgbouncer/ca.crt" >/dev/null
 kubectl kustomize k8s-overlay | sed "s#docker.io/library/bravo-observability-api:dev#$API_IMAGE#g" | kubectl apply -f - >/dev/null
-kubectl apply -k ../deploy/collector-db >/dev/null
+kubectl apply -k ../deploy/collector-db-pgbouncer >/dev/null
 kubectl apply -k ../deploy/collector-db-access >/dev/null
 r=ok
 kubectl -n "$NS" rollout status deploy/bravo-prometheus --timeout=240s >/dev/null || r=fail
 kubectl -n "$NS" rollout status deploy/bravo-collector --timeout=240s >/dev/null || r=fail
 kubectl -n "$NS" rollout status deploy/bravo-observability-api --timeout=240s >/dev/null || r=fail
 kubectl -n "$NS" rollout status deploy/bravo-window-intake --timeout=240s >/dev/null || r=fail
-check $r "restricted 네임스페이스에서 지표 저장소 · Collector · 조회 API · 창 수신이 준비됨"
+kubectl -n "$NS" rollout status deploy/bravo-pgbouncer-exporter --timeout=240s >/dev/null || r=fail
+kubectl -n source-dev rollout status deploy/source-pgbouncer --timeout=240s >/dev/null || r=fail
+check $r "restricted 네임스페이스에서 지표 저장소 · Collector · 조회 API · 창 수신 · PgBouncer exporter가 준비됨"
 
 kubectl -n "$NS" port-forward svc/bravo-prometheus :9090 >"$CERT_DIR/port-forward.log" 2>&1 &
 PF=$!
@@ -131,9 +222,12 @@ check $r "라벨이 없는 네임스페이스(stranger)의 지표는 NetworkPoli
 # 같은 연결 시험을 허용 대조군(platform-client 라벨)과 함께 돌려, 거부가 DNS · 이미지 문제가 아니라 정책 때문임을 확인한다
 kubectl create namespace console >/dev/null
 kubectl label namespace console bravo.observability/platform-client=true >/dev/null
+# 새 Pod의 첫 연결은 NetworkPolicy 반영 전에 거부될 수 있다(k3s kube-router). Pod 안에서 연결될 때까지
+# 몇 번 다시 시도한다. 허용 쪽은 이 거부를 넘기고, 막혀야 할 쪽은 한 번이라도 뚫리면 Succeeded가 되어 잡힌다.
+NC_RETRY='for _ in 1 2 3 4 5 6 7 8; do nc -z -w 2 "$0" "$1" && exit 0; sleep 1; done; exit 1'
 probe() {
   kubectl -n "$1" run probe --image=busybox:1.37.0@sha256:a7dbc319b1438115a207e11930dc4bb3e643dcb3ec0bdd694bb36cd8fad289ec \
-    --restart=Never -- nc -z -w 5 "bravo-prometheus.$NS.svc" 9090 >/dev/null
+    --restart=Never -- sh -c "$NC_RETRY" "bravo-prometheus.$NS.svc" 9090 >/dev/null
   for _ in $(seq 30); do p=$(kubectl -n "$1" get pod probe -o jsonpath='{.status.phase}'); case $p in Succeeded|Failed) break;; esac; sleep 2; done
   echo "$p"
 }
@@ -151,7 +245,7 @@ kubectl create namespace tailscale-system >/dev/null
 tsproxy() { # Pod 이름, parent-resource
   kubectl -n tailscale-system run "$1" --image=busybox:1.37.0@sha256:a7dbc319b1438115a207e11930dc4bb3e643dcb3ec0bdd694bb36cd8fad289ec --restart=Never \
     --labels="tailscale.com/managed=true,tailscale.com/parent-resource-type=svc,tailscale.com/parent-resource=$2,tailscale.com/parent-resource-ns=$NS" \
-    -- nc -z -w 5 "bravo-prometheus-tailnet.$NS.svc" 9090 >/dev/null
+    -- sh -c "$NC_RETRY" "bravo-prometheus-tailnet.$NS.svc" 9090 >/dev/null
   for _ in $(seq 30); do p=$(kubectl -n tailscale-system get pod "$1" -o jsonpath='{.status.phase}'); case $p in Succeeded|Failed) break;; esac; sleep 2; done
   echo "$p"
 }
@@ -191,30 +285,54 @@ e=d.datetime.fromtimestamp(int(sys.argv[1]),d.UTC);f=lambda t:t.strftime("%Y-%m-
 p={"requests":0,"http_5xx":0,"integrity_conflict":0,"p95_ms":None}
 print(json.dumps({"kind":"sli_window","schema_version":"1","plan_id":"plan-k8s","source":"loadgen","window":{"start":f(e-d.timedelta(seconds=10)),"end":f(e)},"received_at":f(e),"pools":{"source":p,"target":p},"unattributed":{"timeout":0,"connect":0,"other":0}}))' "$1"
 }
-post() { # 네임스페이스 토큰 이름 본문 → Pod 결과(2xx면 Succeeded)
-  kubectl -n "$1" run "post-$3" --image=busybox:1.37.0@sha256:a7dbc319b1438115a207e11930dc4bb3e643dcb3ec0bdd694bb36cd8fad289ec \
-    --restart=Never -- wget -q -T 5 -O - --header "Authorization: Bearer $2" --header "Content-Type: application/json" \
-    --post-data "$4" "http://bravo-window-intake.$NS.svc:8080/v1/observability/windows" >/dev/null
-  for _ in $(seq 30); do p=$(kubectl -n "$1" get pod "post-$3" -o jsonpath='{.status.phase}'); case $p in Succeeded|Failed) break;; esac; sleep 2; done
-  echo "$p"
+# 허용될 쪽(loadgen)은 미리 띄운 Pod로 보내고 응답 코드를 직접 본다. 요청마다 새 Pod를 띄우면 첫 연결이
+# NetworkPolicy 반영 전에 거부될 수 있고(k3s kube-router), 그 거부가 409 · 401 기대 검사를 잘못 통과시킨다.
+# 거부 대상도 Ready인 Pod에서 별도 TCP 검사를 한다. HTTP 오류는 네트워크 차단 근거가 아니다.
+kubectl -n loadgen run win-sender --image=busybox:1.37.0@sha256:a7dbc319b1438115a207e11930dc4bb3e643dcb3ec0bdd694bb36cd8fad289ec --restart=Never -- sleep 900 >/dev/null
+kubectl -n loadgen wait pod/win-sender --for=condition=Ready --timeout=60s >/dev/null
+for _ in $(seq 30); do
+  kubectl -n loadgen exec win-sender -- wget -q -T 2 -O /dev/null "http://bravo-window-intake.$NS.svc:8080/healthz" >/dev/null 2>&1 && break
+  sleep 2
+done
+send() { # 토큰 본문 → "CODE nnn" 줄과 "BODY 응답" 줄
+  kubectl -n loadgen exec win-sender -- sh -c 'rm -f /tmp/body; wget -S -q -T 5 -O /tmp/body --header "Authorization: Bearer $1" \
+    --header "Content-Type: application/json" --post-data "$2" "$3" 2>&1; echo; echo "BODY $(cat /tmp/body 2>/dev/null)"' \
+    sh "$1" "$2" "http://bravo-window-intake.$NS.svc:8080/v1/observability/windows" 2>/dev/null \
+    | sed -n 's/.*HTTP\/1\.[01] \([0-9][0-9][0-9]\).*/CODE \1/p; /^BODY /p'
 }
+code() { sed -n 's/^CODE //p' | head -1; }
 t0=$(( $(date +%s) - 30 ))
 # Independent ten-second windows: a denied request must not consume the
 # following valid window. Overlap rejection is tested separately in Python.
 W1=$(win "$t0"); W2=$(win $((t0 + 10))); W3=$(win $((t0 + 20)))
-phase=$(post loadgen "$WINDOW_TOKEN" ok "$W1")
+first=$(send "$WINDOW_TOKEN" "$W1")
 # 생산자가 넣은 received_at(창 끝)은 버리고 플랫폼이 받은 시각으로 덮어써야 한다
-got=$(kubectl -n loadgen logs post-ok 2>/dev/null | W="$W1" python3 -c 'import json,os,sys;d=json.load(sys.stdin);print(d["plan_id"], d["received_at"] != json.loads(os.environ["W"])["received_at"])' 2>/dev/null || echo 없음)
-[ "$phase" = Succeeded ] && [ "$got" = "plan-k8s True" ] && control=ok || control=fail
-check $control "loadgen 네임스페이스에서 수신 토큰으로 창 저장(201), received_at은 플랫폼 시각 (pod: $phase)"
-[ "$control" = ok ] && [ "$(post loadgen "$WINDOW_TOKEN" dup "$W1")" = Failed ] && \
-  [ "$(post loadgen "$API_TOKEN" console-token "$W2")" = Failed ] && r=ok || r=fail
-check $r "같은 창은 한 번만(409), 콘솔 토큰으로는 보낼 수 없음(401)"
-# 막힌 뒤 같은 창을 loadgen이 보내 성공해야, 막힌 쪽이 저장하지 못했음이 확인된다
-[ "$control" = ok ] && [ "$(post stranger "$WINDOW_TOKEN" stranger "$W2")" = Failed ] && \
-  [ "$(post console "$WINDOW_TOKEN" console "$W3")" = Failed ] && \
-  [ "$(post loadgen "$WINDOW_TOKEN" after "$W3")" = Succeeded ] && r=ok || r=fail
-check $r "라벨이 없는 네임스페이스와 콘솔 네임스페이스는 올바른 토큰이 있어도 NetworkPolicy가 막음"
+got=$(printf '%s\n' "$first" | sed -n 's/^BODY //p' | W="$W1" python3 -c 'import json,os,sys;d=json.load(sys.stdin);print(d["plan_id"], d["received_at"] != json.loads(os.environ["W"])["received_at"])' 2>/dev/null || echo 없음)
+status=$(printf '%s\n' "$first" | code)
+[ "$status" = 201 ] && [ "$got" = "plan-k8s True" ] && control=ok || control=fail
+check $control "loadgen 네임스페이스에서 수신 토큰으로 창 저장(201), received_at은 플랫폼 시각 (응답: ${status:-없음})"
+dup=$(send "$WINDOW_TOKEN" "$W1" | code); console_token=$(send "$API_TOKEN" "$W2" | code)
+[ "$control" = ok ] && [ "$dup" = 409 ] && [ "$console_token" = 401 ] && r=ok || r=fail
+check $r "같은 창은 한 번만(409), 콘솔 토큰으로는 보낼 수 없음(401) (응답: ${dup:-없음}, ${console_token:-없음})"
+# 준비된 거부 대상 Pod에서 DNS/도구 오류와 연결 거부를 구별한다. 수신기가 401/503을
+# 반환하더라도 TCP 연결 한 번이면 실패다. 허용 송신자의 같은 endpoint 전후 대조가 필수다.
+for denied_ns in stranger console; do
+  kubectl -n "$denied_ns" run win-denied --image="$API_IMAGE" --restart=Never --command -- python -c 'import time; time.sleep(900)' >/dev/null
+  kubectl -n "$denied_ns" wait pod/win-denied --for=condition=Ready --timeout=60s >/dev/null
+done
+healthy_window() { kubectl -n loadgen exec win-sender -- wget -q -T 3 -O /dev/null "http://bravo-window-intake.$NS.svc:8080/healthz"; }
+denied_window() {
+  kubectl -n "$1" exec -i win-denied -- python - "bravo-window-intake.$NS.svc" 8080 < connection_probe.py
+}
+r=ok
+[ "$control" = ok ] && healthy_window || r=fail
+denied_window stranger || r=fail
+denied_window console || r=fail
+healthy_window || r=fail
+check $r "Ready Pod의 반복 TCP 검사: 라벨 없는 · 콘솔 namespace 차단 (DNS/실행 오류는 통과 불가)"
+# TCP 검사와 창 저장 여부는 별개의 사실이다.
+[ "$control" = ok ] && [ "$(send "$WINDOW_TOKEN" "$W3" | code)" = 201 ] && r=ok || r=fail
+check $r "거부 검사 후 허용 송신자의 새 창 저장 성공(201)"
 dns=$(kubectl -n kube-system get svc kube-dns -o jsonpath='{.spec.clusterIP}')
 reach() { kubectl -n "$NS" exec "deploy/$1" -- python -c "import socket;socket.create_connection(('$dns',53),3)" >/dev/null 2>&1; }
 reach bravo-observability-api && ! reach bravo-window-intake && r=ok || r=fail
@@ -258,6 +376,57 @@ db=$(kubectl -n console logs call-db-forged 2>/dev/null || true)
 echo "  사칭 뒤 조회 API DB 뷰: $db"
 [ "$n" -gt 0 ] && echo "$db" | python3 -c 'import json,sys;d=json.load(sys.stdin);i=d["instances"];sys.exit(0 if d["state"]=="OK" and i and all(x["cluster"]=="source-db" and x["pod"] for x in i) else 1)' 2>/dev/null && r=ok || r=fail
 check $r "앱이 보낸 cnpg_collector_up(${n}개, 출처 라벨 없음)은 DB 뷰에 들어오지 않음: 상태 OK, 인스턴스는 source-db만 (pod: $phase)"
+
+echo "== PgBouncer 지표"
+pgb_up='pgbouncer_up{bravo_signal="pgbouncer-scrape", pooler="source-pgbouncer"} == 1'
+for _ in $(seq 60); do [ "$(count "$pgb_up")" -gt 0 ] && break; sleep 3; done
+pgl=$(q 'pgbouncer_databases_paused{name="chat"}' | python3 -c 'import json,sys;print(json.dumps([x["metric"] for x in json.load(sys.stdin)["data"]["result"]]))')
+echo "  pgbouncer_databases_paused 라벨: $pgl"
+[ "$(count "$pgb_up")" -gt 0 ] && echo "$pgl" | python3 -c 'import json,sys;ms=json.load(sys.stdin);sys.exit(0 if ms and all(m.get("bravo_env")=="onprem" and m.get("bravo_signal")=="pgbouncer-scrape" and m.get("pooler")=="source-pgbouncer" for m in ms) else 1)' && r=ok || r=fail
+check $r "PgBouncer 지표가 통계 계정 · TLS(verify-full)로 수집되어 출처(pgbouncer-scrape) · 환경 · pooler 라벨과 함께 도착"
+# PgBouncer Pod 안의 psql로 서비스 이름 · CA를 검증해 접속한다(통계 계정 · 컷오버 제어 계정)
+pgsql() { kubectl -n source-dev exec deploy/source-pgbouncer -c source-pgbouncer -- env PGPASSWORD="$2" PGSSLMODE=verify-full PGSSLROOTCERT=/etc/cnpg-ca/ca.crt \
+  psql -h source-pgbouncer.source-dev.svc -p 5432 -U "$1" -d pgbouncer -tAc "$3" 2>&1 || true; }
+shown=$(pgsql bravo_stats "$STATS_PW" 'SHOW DATABASES' | grep -c '^chat|' || true)
+denied=$(pgsql bravo_stats "$STATS_PW" 'PAUSE chat' | tr -d '\n')
+[ "$shown" -ge 1 ] && case "$denied" in *"admin access needed"*) true;; *) false;; esac && r=ok || r=fail
+check $r "통계 계정은 SHOW만 되고 PAUSE는 거부 (SHOW DATABASES chat ${shown}행, PAUSE: ${denied:-응답 없음})"
+kubectl -n stranger run probe-exporter --image=busybox:1.37.0@sha256:a7dbc319b1438115a207e11930dc4bb3e643dcb3ec0bdd694bb36cd8fad289ec \
+  --restart=Never -- nc -z -w 5 "bravo-pgbouncer-exporter.$NS.svc" 9127 >/dev/null
+for _ in $(seq 30); do p=$(kubectl -n stranger get pod probe-exporter -o jsonpath='{.status.phase}'); case $p in Succeeded|Failed) break;; esac; sleep 2; done
+[ "$p" = Failed ] && r=ok || r=fail
+check $r "라벨이 없는 네임스페이스(stranger)에서 exporter 9127 연결은 NetworkPolicy가 막음 (probe: ${p:-없음}, 대조군: Collector는 수집 성공)"
+# 같은 클라이언트 Pod로 전후를 비교한다. 새 Pod는 주소가 NetworkPolicy 허용에 들어가기 전 첫 연결이 거부될 수 있다(k3s kube-router)
+kubectl -n console run pgb-observer --image=busybox:1.37.0@sha256:a7dbc319b1438115a207e11930dc4bb3e643dcb3ec0bdd694bb36cd8fad289ec --restart=Never -- sleep 900 >/dev/null
+kubectl -n console wait pod/pgb-observer --for=condition=Ready --timeout=60s >/dev/null
+pgb_view() { kubectl -n console exec pgb-observer -- wget -q -T 5 -O - --header "Authorization: Bearer $API_TOKEN" \
+  "http://bravo-observability-api.$NS.svc:8080/v1/observability/environments/onprem/pgbouncer" 2>&1 || true; }
+for _ in $(seq 15); do pgb_view | grep -q '"state"' && break; sleep 2; done
+pgb_ok='import json,sys;d=json.load(sys.stdin);p=d["poolers"];sys.exit(0 if d["state"]==sys.argv[1] and len(p)==1 and p[0]["pooler"]=="source-pgbouncer" and p[0]["up"] is True and any(x["name"]=="chat" and x["paused"] is (sys.argv[1]=="PAUSED") for x in p[0]["databases"]) else 1)'
+view=$(pgb_view)
+echo "  조회 API PgBouncer 뷰: $view"
+echo "$view" | python3 -c "$pgb_ok" OK 2>/dev/null && r=ok || r=fail
+check $r "조회 API PgBouncer 뷰: 상태 OK, source-pgbouncer의 chat이 PAUSE 아님"
+# 컷오버 제어 계정의 PAUSE는 콘솔에 PAUSED로 보인다. 판정 · 실행은 이 값을 쓰지 않는다
+paused_out=$(pgsql cutover_control "$PGB_ADMIN_PW" 'PAUSE chat' | tr -d '\n')
+for _ in $(seq 40); do [ "$(count 'pgbouncer_databases_paused{bravo_signal="pgbouncer-scrape", pooler="source-pgbouncer", name="chat"} == 1')" -gt 0 ] && break; sleep 3; done
+view=$(pgb_view)
+echo "  PAUSE 중 조회 API PgBouncer 뷰: $view"
+resumed=$(pgsql cutover_control "$PGB_ADMIN_PW" 'RESUME chat' | tr -d '\n')
+echo "$view" | python3 -c "$pgb_ok" PAUSED 2>/dev/null && r=ok || r=fail
+check $r "컷오버 제어 계정의 PAUSE가 조회 API에 PAUSED로 보이고 RESUME으로 풀림 (PAUSE: ${paused_out:-없음}, RESUME: ${resumed:-없음})"
+for _ in $(seq 40); do [ "$(count 'pgbouncer_databases_paused{bravo_signal="pgbouncer-scrape", pooler="source-pgbouncer", name="chat"} == 0')" -gt 0 ] && break; sleep 3; done
+kubectl -n app run forger-pgb --image="$GEN" --restart=Never -- metrics \
+  --otlp-endpoint "bravo-collector.$NS.svc:4317" --otlp-insecure --duration 20s --rate 2 \
+  --otlp-metric-name pgbouncer_up --otlp-attributes 'service.name="bravo-pgbouncer"' \
+  --telemetry-attributes 'pooler="source-pgbouncer"' >/dev/null
+forged_pgb() { count 'pgbouncer_up{bravo_env="onprem"} unless pgbouncer_up{bravo_signal="pgbouncer-scrape"}'; }
+for _ in $(seq 60); do [ "$(forged_pgb)" -gt 0 ] && break; sleep 2; done
+n=$(forged_pgb)
+view=$(pgb_view)
+echo "  사칭 뒤 조회 API PgBouncer 뷰: $view"
+[ "$n" -gt 0 ] && echo "$view" | python3 -c "$pgb_ok" OK 2>/dev/null && r=ok || r=fail
+check $r "앱이 보낸 pgbouncer_up(${n}개, 출처 라벨 없음)은 PgBouncer 뷰에 들어오지 않음: 상태 OK, pooler는 source-pgbouncer만"
 
 if [ "${BRAVO_K8S_CAPACITY:-0}" = 1 ]; then
   echo "== 자원 실측: 평상(60초)"

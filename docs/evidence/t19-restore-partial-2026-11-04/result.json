@@ -1,0 +1,18 @@
+{
+  "status": "PASS",
+  "scope": "one actual local restore run and an explicitly unverified target; test authority",
+  "cloud_resources_changed": false,
+  "full_profile_tests": 20,
+  "actual_audit_controls_passed": 0,
+  "actual_source_restore_verified": true,
+  "unexecuted_controls_blocked": 20,
+  "whole_gate_decision": "BLOCK",
+  "missing_controls_refuse_prerequisite": "SECURITY_GATE_BLOCKED",
+  "fabricated_pass_rejected": "SCHEMA_REJECTED",
+  "expired_authority_rejected": "SIGNING_AUTHORITY_REVOKED_OR_EXPIRED",
+  "revoked_authority_rejected": "SIGNING_AUTHORITY_REVOKED_OR_EXPIRED",
+  "both_owned_environments_removed": null,
+  "production_authority": false,
+  "application_cutover_executed": false,
+  "gate_result_sha256": "7fca01f089707f22f03867931f5e7a2c50ef6568cf8e82ba61fd55d68d4c3e54"
+}

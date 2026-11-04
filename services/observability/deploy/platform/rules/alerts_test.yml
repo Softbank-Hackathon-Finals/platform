@@ -173,3 +173,77 @@ tests:
             exp_annotations:
               summary: "aws 환경의 관측 경로가 끊겼다. 이 환경의 지표는 확인 불가다"
               runbook: docs/observability/runbooks.md#bravoenvunobservable
+
+  # PgBouncer: 다운, PAUSE 2분 초과, PAUSE가 아닌 대기. 관리 DB와 앱 경로 사칭(출처 라벨 없음)은 알림을 만들지 않는다
+  - interval: 30s
+    input_series:
+      - series: 'pgbouncer_up{bravo_signal="pgbouncer-scrape", bravo_env="aws", pooler="source-pgbouncer"}'
+        values: '1 1 0 0 0 0 0 0 0'
+      - series: 'up{bravo_signal="pgbouncer-scrape", bravo_env="onprem", pooler="target-pgbouncer", job="bravo-pgbouncer"}'
+        values: '1 0 0 0 0 0 0 0 0'
+      - series: 'pgbouncer_databases_paused{bravo_signal="pgbouncer-scrape", bravo_env="aws", pooler="source-pgbouncer", name="chat", database="app"}'
+        values: '0 1 1 1 1 1 1 1 1'
+      - series: 'pgbouncer_databases_paused{bravo_signal="pgbouncer-scrape", bravo_env="aws", pooler="source-pgbouncer", name="pgbouncer", database="pgbouncer"}'
+        values: '1x8'
+      # PAUSE 중의 대기는 정상이다
+      - series: 'pgbouncer_pools_client_waiting_connections{bravo_signal="pgbouncer-scrape", bravo_env="aws", pooler="source-pgbouncer", database="chat", user="chat_app"}'
+        values: '3x8'
+      - series: 'pgbouncer_databases_paused{bravo_signal="pgbouncer-scrape", bravo_env="onprem", pooler="target-pgbouncer", name="chat", database="app"}'
+        values: '0x8'
+      - series: 'pgbouncer_pools_client_waiting_connections{bravo_signal="pgbouncer-scrape", bravo_env="onprem", pooler="target-pgbouncer", database="chat", user="chat_app"}'
+        values: '0 2 2 2 2 2 2 2 2'
+      # 앱 경로 사칭: 이름 · 환경 · job(service.name)은 같지만 출처 라벨이 없다
+      - series: 'pgbouncer_up{bravo_env="aws", job="bravo-pgbouncer"}'
+        values: '0x8'
+      - series: 'pgbouncer_databases_paused{bravo_env="onprem", job="bravo-pgbouncer", name="chat"}'
+        values: '1x8'
+      - series: 'pgbouncer_pools_client_waiting_connections{bravo_env="aws", job="bravo-pgbouncer", database="orders"}'
+        values: '5x8'
+      # PAUSE 누락·다른 DB/환경/pooler의 PAUSE=0·잘못된 PAUSE 값은 풀 고갈 증거가 아니다.
+      - series: 'pgbouncer_pools_client_waiting_connections{bravo_signal="pgbouncer-scrape", bravo_env="aws", pooler="missing-pause", database="chat"}'
+        values: '7x8'
+      - series: 'pgbouncer_databases_paused{bravo_signal="pgbouncer-scrape", bravo_env="aws", pooler="missing-pause", name="orders"}'
+        values: '0x8'
+      - series: 'pgbouncer_databases_paused{bravo_signal="pgbouncer-scrape", bravo_env="onprem", pooler="missing-pause", name="chat"}'
+        values: '0x8'
+      - series: 'pgbouncer_databases_paused{bravo_signal="pgbouncer-scrape", bravo_env="aws", pooler="different-pooler", name="chat"}'
+        values: '0x8'
+      - series: 'pgbouncer_pools_client_waiting_connections{bravo_signal="pgbouncer-scrape", bravo_env="aws", pooler="invalid-pause", database="chat"}'
+        values: '7x8'
+      - series: 'pgbouncer_databases_paused{bravo_signal="pgbouncer-scrape", bravo_env="aws", pooler="invalid-pause", name="chat"}'
+        values: '2x8'
+    alert_rule_test:
+      - eval_time: 60s
+        alertname: BravoPgBouncerDown
+        exp_alerts: []
+      - eval_time: 150s
+        alertname: BravoPgBouncerDown
+        exp_alerts:
+          - exp_labels: {severity: page, bravo_env: aws, pooler: source-pgbouncer}
+            exp_annotations:
+              summary: "aws/source-pgbouncer PgBouncer에 접속할 수 없거나 통계를 긁을 수 없다"
+              runbook: docs/observability/runbooks.md#bravopgbouncerdown
+          - exp_labels: {severity: page, bravo_env: onprem, pooler: target-pgbouncer}
+            exp_annotations:
+              summary: "onprem/target-pgbouncer PgBouncer에 접속할 수 없거나 통계를 긁을 수 없다"
+              runbook: docs/observability/runbooks.md#bravopgbouncerdown
+      - eval_time: 120s
+        alertname: BravoPgBouncerPausedTooLong
+        exp_alerts: []
+      - eval_time: 180s
+        alertname: BravoPgBouncerPausedTooLong
+        exp_alerts:
+          - exp_labels: {severity: ticket, bravo_env: aws, pooler: source-pgbouncer, name: chat}
+            exp_annotations:
+              summary: "aws/source-pgbouncer chat PAUSE가 2분 넘게 이어진다. 앱 요청이 대기 중이다"
+              runbook: docs/observability/runbooks.md#bravopgbouncerpausedtoolong
+      - eval_time: 120s
+        alertname: BravoPgBouncerClientsWaiting
+        exp_alerts: []
+      - eval_time: 180s
+        alertname: BravoPgBouncerClientsWaiting
+        exp_alerts:
+          - exp_labels: {severity: ticket, bravo_env: onprem, pooler: target-pgbouncer, database: chat}
+            exp_annotations:
+              summary: "onprem/target-pgbouncer chat 풀에서 클라이언트가 2분 넘게 서버 연결을 기다린다(PAUSE 아님)"
+              runbook: docs/observability/runbooks.md#bravopgbouncerclientswaiting

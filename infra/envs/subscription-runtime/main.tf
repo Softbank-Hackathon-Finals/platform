@@ -55,7 +55,8 @@ variable "subscription_secret_arn" {
 }
 
 locals {
-  trust = jsonencode({ Version = "2012-10-17", Statement = [
+  broker_name = "bravo-subscription-oidc-broker"
+  github_trust = [
     { Effect = "Allow", Action = "sts:AssumeRoleWithWebIdentity", Principal = { Federated = var.oidc_provider_arn },
       Condition = { StringEquals = { "token.actions.githubusercontent.com:aud" = "sts.amazonaws.com",
     "token.actions.githubusercontent.com:sub" = var.production_subject } } },
@@ -64,17 +65,23 @@ locals {
         "token.actions.githubusercontent.com:sub" = var.validation_subject },
         DateLessThan = { "aws:CurrentTime" = var.validation_expires_at }
     } }
-  ] })
+  ]
 }
 
 resource "aws_iam_role" "controller" {
   name               = "bravo-subscription-controller"
-  assume_role_policy = local.trust
+  assume_role_policy = jsonencode({ Version = "2012-10-17", Statement = local.github_trust })
 }
 
 resource "aws_iam_role" "broker" {
-  name               = "bravo-subscription-oidc-broker"
-  assume_role_policy = local.trust
+  name = local.broker_name
+  assume_role_policy = jsonencode({ Version = "2012-10-17", Statement = [
+    for grant in local.github_trust : merge(grant, { Condition = merge(grant.Condition, {
+      StringEquals = merge(grant.Condition.StringEquals, { "aws:SourceVpce" = aws_vpc_endpoint.broker_sts.id })
+      IpAddress    = { "aws:VpcSourceIp" = "${local.broker_source_ip}/32" }
+    }) })
+  ] })
+  depends_on = [aws_ssm_association.broker_sts]
 }
 
 resource "aws_iam_role_policy" "broker" {

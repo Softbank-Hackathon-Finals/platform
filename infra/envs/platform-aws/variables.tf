@@ -13,6 +13,16 @@ variable "private_subnet_id" { type = string }
 variable "private_route_table_id" { type = string }
 variable "egress_subnet_cidr" { default = "10.81.254.0/24" }
 variable "ami_id" { type = string }
+variable "subscription_broker_ipv4" {
+  description = "Optional unused secondary IPv4 for broker STS source NAT. Leave it unconfigured in the guest OS."
+  type        = string
+  default     = null
+  validation {
+    condition     = var.subscription_broker_ipv4 == null ? true : can(cidrnetmask("${var.subscription_broker_ipv4}/32"))
+    error_message = "Use a single private-subnet IPv4 address without a prefix."
+  }
+}
+
 variable "instance_type" {
   description = "One x86_64 server with at least 4 vCPUs and 8 GiB for RKE2 and resident platform workloads."
   type        = string

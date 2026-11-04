@@ -80,3 +80,38 @@ groups:
         annotations:
           summary: "{{ $labels.bravo_env }}/{{ $labels.cnpg_cluster }} WAL 보관이 실패했다 (최근 10분). 백업 · 복원(DR-01)에 영향"
           runbook: docs/observability/runbooks.md#bravowalarchivingfailing
+  # PgBouncer 알림. 모두 PgBouncer 긁기 경로(bravo_signal="pgbouncer-scrape")의 지표만 보고, 관리 DB(pgbouncer)는 뺀다.
+  # 컷오버의 PAUSE · RESUME 판정은 Executor가 PgBouncer에서 직접 읽는다(설계 8.6). 아래는 운영 알림이다.
+  - name: bravo-pgbouncer
+    rules:
+      - alert: BravoPgBouncerDown
+        expr: |
+          max by (bravo_env, pooler) (pgbouncer_up{bravo_signal="pgbouncer-scrape"}) == 0
+          or max by (bravo_env, pooler) (up{bravo_signal="pgbouncer-scrape"}) == 0
+        for: 1m
+        labels:
+          severity: page
+        annotations:
+          summary: "{{ $labels.bravo_env }}/{{ $labels.pooler }} PgBouncer에 접속할 수 없거나 통계를 긁을 수 없다"
+          runbook: docs/observability/runbooks.md#bravopgbouncerdown
+      # 컷오버의 PAUSE는 몇 초다. 2분 넘게 이어지면 앱 요청이 응답 없이 대기 중이다
+      - alert: BravoPgBouncerPausedTooLong
+        expr: max by (bravo_env, pooler, name) (pgbouncer_databases_paused{bravo_signal="pgbouncer-scrape", name!="pgbouncer"}) == 1
+        for: 2m
+        labels:
+          severity: ticket
+        annotations:
+          summary: "{{ $labels.bravo_env }}/{{ $labels.pooler }} {{ $labels.name }} PAUSE가 2분 넘게 이어진다. 앱 요청이 대기 중이다"
+          runbook: docs/observability/runbooks.md#bravopgbouncerpausedtoolong
+      # PAUSE가 아닌데 서버 연결을 기다리는 클라이언트: 풀 고갈이나 DB 지연. 풀의 database는 PgBouncer DB 항목 이름(name)이다
+      - alert: BravoPgBouncerClientsWaiting
+        expr: |
+          sum by (bravo_env, pooler, database) (pgbouncer_pools_client_waiting_connections{bravo_signal="pgbouncer-scrape", database!="pgbouncer"}) > 0
+          and on (bravo_env, pooler, database)
+            label_replace(max by (bravo_env, pooler, name) (pgbouncer_databases_paused{bravo_signal="pgbouncer-scrape"}) == 0, "database", "$1", "name", "(.*)")
+        for: 2m
+        labels:
+          severity: ticket
+        annotations:
+          summary: "{{ $labels.bravo_env }}/{{ $labels.pooler }} {{ $labels.database }} 풀에서 클라이언트가 2분 넘게 서버 연결을 기다린다(PAUSE 아님)"
+          runbook: docs/observability/runbooks.md#bravopgbouncerclientswaiting

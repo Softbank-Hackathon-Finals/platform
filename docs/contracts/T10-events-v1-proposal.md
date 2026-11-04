@@ -63,10 +63,11 @@ HTTP 응답 헤더가 이미 전송된 뒤 보존 데이터의 구멍이나 SQLi
 | `approval.decided` | 위 필드 + `decision`, `actor_id` | 승인/거절/만료의 역사적 결정. 실행 허가 토큰이 아님 |
 | `gate.completed` | `gate_id`, `context_digest`, `decision`, `evidence_ref` | T5 `GateComparison`의 식별자·입력 결속값·판정 요약과 안전한 증거 식별자 |
 | `execution.updated` | `execution_id`, `step`, `status`, 선택 `elapsed_ms` | Executor의 관측 상태. 성공 이벤트가 DB 쓰기를 열지 않음 |
+| `failback.recorded` | `command_id`, `approval_id`, `approved_by`, `status`, `started_at`. 상태별 추가 필드는 아래 | 되돌리기(T20)의 진행 기록. 실행 허가나 Edge 호출 근거가 아님 |
 
 `gate.completed.decision`은 현재 [T5 게이트 계약](../controls/README.md)의 `PASS` 또는 `BLOCK`이다. 개별 시험의 `FAIL`·`UNKNOWN`은 게이트 전체 판정 값이 아니다. `context_digest`는 T5가 정한 평가 입력 15개 필드의 SHA-256 소문자 64자리이며 `sha256:` 접두사를 붙이지 않는다. 이벤트는 전체 `GateComparison`을 대체하지 않는다. `evidence_ref`는 표시용 불투명 식별자이며 클라이언트가 보낸 URL·파일 경로를 정본 조회 위치로 신뢰해서는 안 된다.
 
-`binding`은 `plan_id`, `plan_digest`, `diff_hash`, `image_digest`, `target_environment_id`, `expires_at`를 담는다. `plan_digest`는 T5 서버 context의 불변 계획 해시와 같은 소문자 64자리다. `diff_hash`, `image_digest`는 `sha256:<64자리 소문자 hex>` 형태의 제안이다. 컷오버 승인은 `gate_id`와 `context_digest`도 필수다. 변경 승인은 이 두 필드를 함께 선택적으로 담을 수 있다.
+`binding`은 `approval_kind`가 `change` · `cutover`이면 `plan_id`, `plan_digest`, `diff_hash`, `image_digest`, `target_environment_id`, `expires_at`를 담는다. `plan_digest`는 T5 서버 context의 불변 계획 해시와 같은 소문자 64자리다. `diff_hash`, `image_digest`는 `sha256:<64자리 소문자 hex>` 형태의 제안이다. 컷오버 승인은 `gate_id`와 `context_digest`도 필수다. 변경 승인은 이 두 필드를 함께 선택적으로 담을 수 있다.
 
 T10 승인 처리기는 인증된 현재 테넌트·앱·계획 context의 `gate_id`로 서버 정본을 조회하고 T5의 전체 결과 대조·소비 시점 권한/만료/폐기 검사를 수행해야 한다. 이벤트의 `PASS`, `context_digest` 일치, 과거 `approval.decided`만으로 승인을 발급하거나 실행하지 않는다. 서버 정본 없음·조회 실패·출처 불명·결과 불일치는 거부해야 하며 이벤트나 캐시를 대신 사용하지 않는다. 이 모듈은 그 서버 조회·승인 처리를 구현하지 않는다.
 
@@ -86,3 +87,20 @@ T10 승인 처리기는 인증된 현재 테넌트·앱·계획 context의 `gate
 로컬 검사에는 5종 fixture 스키마, 잘못된 버전·필드·시각·결속 거부, 같은 키 재시도/충돌, 재시작, 24개 동시 쓰기의 연속 순번, 계획 간 cursor 차단, 보존 구멍 감지, HTTP 재연결, 기본 거부, live tail·권한 철회가 포함된다. [로컬 어댑터](../../services/platform-events/README.md)는 운영 배포물이 아니다.
 
 T21/T24 소비자 검토, 운영 상태 DB outbox, 승인 처리기와 원격 효과 결속, 전체 이력 스냅샷 복구, 보존 정책, 실제 인증, PostgreSQL·다중 인스턴스·프록시, 클라우드 통합·CI·E2E는 남아 있다. T10 전체 완료 기준인 목업 COLLECT→DONE 및 조건 미충족 전이 거부를 충족했다고 표시하지 않는다.
+
+## 되돌리기(T20) 승인과 기록
+
+설계 6장 S4 · 8.2를 따른다. 근거와 결정은 T20 spec(D5 · D7)과 [ADR-0016](../adr/0016-failback-replication-path-check.md)이다. 예시는 [failback-events.json](../../services/platform-events/examples/failback-events.json)이다.
+
+- 상태 `DONE_ROLLED_BACK`: 되돌리기의 DB 복귀와 Edge 복귀가 모두 확인된 끝 상태다. 콘솔 표시는 '출발지 복귀'다.
+- `approval_kind=failback`의 `binding`은 전용 형식이다. `plan_id`, `plan_digest`, `source_environment_id`, `target_environment_id`(계획의 반대 방향), 되돌릴 컷오버의 `cutover_execution_id` · `cutover_epoch` · `integrity_receipt_id`, `expires_at`을 모두 담는다. 다른 칸은 허용하지 않는다. 출발지와 목적지가 같으면 `failback_direction_invalid`다. 컷오버 · 변경 승인에 이 형식을 쓰거나 그 반대도 거부한다.
+- `failback.recorded.status`:
+
+| status | 뜻 | 추가 필수 | 금지 |
+|---|---|---|---|
+| `edge_pending` | DB 복귀와 일치 증거는 확인됐고 Edge 복귀를 기다린다 | `execution_id`, `integrity_receipt_id` | `finished_at`, `recovery_ms` |
+| `rolled_back` | Edge 복귀까지 확인됐다 | `finished_at`, `recovery_ms`, `execution_id`, `integrity_receipt_id` | — |
+| `aborted` | Executor가 쓰기 전에 실패했다(ABORT_PRE_WRITE). 계획은 WATCH로 돌아간다 | `finished_at`, `execution_id` | — |
+
+`recovery_ms`는 명령 접수(`started_at`)부터 Edge 복귀 확인(`finished_at`)까지다. 승인 시각은 `approval.decided`에 따로 남는다. 소비자(T21 · T24)는 알 수 없는 `approval_kind` · 상태 · 이벤트 종류를 성공으로 처리하지 않는다.
+
