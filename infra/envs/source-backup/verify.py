@@ -31,6 +31,8 @@ PROTECT_ACTIONS = {"s3:DeleteBucket", "s3:DeleteBucketPolicy", "s3:PutBucketPoli
 ROLE_ARN = re.compile(r"arn:aws:iam::([0-9]{12}):role/(?:[A-Za-z0-9+=,.@_-]+/)*([A-Za-z0-9+=,.@_-]+)\Z")
 ASSUMED = re.compile(r"arn:aws:sts::([0-9]{12}):assumed-role/([A-Za-z0-9+=,.@_-]+)/[A-Za-z0-9+=,.@_-]+\Z")
 EXIT = {"PASS": 0, "FAIL": 1, "UNKNOWN": 2, "PARTIAL": 3}
+# Every run must show these were refused; the restore identity is required for the final PASS.
+REQUIRED = ("writer", "app", "executor")
 
 
 def run(command, check=True):
@@ -216,8 +218,8 @@ def status(readback_result, probe_result, stage):
         return "UNKNOWN"
     identities = {k: v for k, v in probe_result.items() if k not in
                   ("probe_version_intact", "no_delete_marker", "custodian_removed_probe")}
-    others = {k: v for k, v in identities.items() if k != "reader"}
-    if not others or any(v != "DENIED" for v in others.values()):
+    if any(identities.get(k) != "DENIED" for k in REQUIRED) or any(
+            v != "DENIED" for k, v in identities.items() if k != "reader"):
         return "UNKNOWN"
     if identities.get("reader") == "DENIED":
         return "PASS"
@@ -247,6 +249,8 @@ def main(argv=None):
     parser.add_argument("--stage", choices=["before-restore", "final"], default="final",
                         help="before-restore reports PARTIAL while the restore ServiceAccount does not exist")
     parser.add_argument("--app-role-arn", help="source-workloads app role (workload_metadata.app_role_arn)")
+    parser.add_argument("--executor", type=_identity, metavar="NAMESPACE/SERVICEACCOUNT=ROLE_ARN",
+                        help="the Executor identity and the role its Pods run as; without it the run stays UNKNOWN")
     parser.add_argument("--also-deny", action="append", default=[], type=_identity,
                         metavar="NAMESPACE/SERVICEACCOUNT=ROLE_ARN",
                         help="another identity that must not delete and the role its Pods run as")
@@ -261,8 +265,12 @@ def main(argv=None):
         subjects = {"writer": (reg["writer"]["namespace"], reg["writer"]["name"], reg["writer_role_arn"]),
                     "reader": (reg["reader"]["namespace"], reg["reader"]["name"], reg["reader_role_arn"]),
                     "app": (*APP, args.app_role_arn)}
+        if args.executor:
+            subjects["executor"] = args.executor
         subjects.update({f"extra:{ns}/{sa}": (ns, sa, role) for ns, sa, role in args.also_deny})
         probe_result = result["delete_probe"] = probe(aws, ["kubectl", "--kubeconfig", args.kubeconfig], reg, subjects)
+        if not args.executor:
+            probe_result["executor"] = "UNKNOWN_NOT_REGISTERED"
     result["status"] = status(result["readback"], probe_result, args.stage)
     json.dump(result, sys.stdout, indent=2)
     print()
