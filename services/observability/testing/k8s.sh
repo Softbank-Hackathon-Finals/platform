@@ -131,9 +131,12 @@ check $r "라벨이 없는 네임스페이스(stranger)의 지표는 NetworkPoli
 # 같은 연결 시험을 허용 대조군(platform-client 라벨)과 함께 돌려, 거부가 DNS · 이미지 문제가 아니라 정책 때문임을 확인한다
 kubectl create namespace console >/dev/null
 kubectl label namespace console bravo.observability/platform-client=true >/dev/null
+# 새 Pod의 첫 연결은 NetworkPolicy 반영 전에 거부될 수 있다(k3s kube-router). Pod 안에서 연결될 때까지
+# 몇 번 다시 시도한다. 허용 쪽은 이 거부를 넘기고, 막혀야 할 쪽은 한 번이라도 뚫리면 Succeeded가 되어 잡힌다.
+NC_RETRY='for _ in 1 2 3 4 5 6 7 8; do nc -z -w 2 "$0" "$1" && exit 0; sleep 1; done; exit 1'
 probe() {
   kubectl -n "$1" run probe --image=busybox:1.37.0@sha256:a7dbc319b1438115a207e11930dc4bb3e643dcb3ec0bdd694bb36cd8fad289ec \
-    --restart=Never -- nc -z -w 5 "bravo-prometheus.$NS.svc" 9090 >/dev/null
+    --restart=Never -- sh -c "$NC_RETRY" "bravo-prometheus.$NS.svc" 9090 >/dev/null
   for _ in $(seq 30); do p=$(kubectl -n "$1" get pod probe -o jsonpath='{.status.phase}'); case $p in Succeeded|Failed) break;; esac; sleep 2; done
   echo "$p"
 }
@@ -151,7 +154,7 @@ kubectl create namespace tailscale-system >/dev/null
 tsproxy() { # Pod 이름, parent-resource
   kubectl -n tailscale-system run "$1" --image=busybox:1.37.0@sha256:a7dbc319b1438115a207e11930dc4bb3e643dcb3ec0bdd694bb36cd8fad289ec --restart=Never \
     --labels="tailscale.com/managed=true,tailscale.com/parent-resource-type=svc,tailscale.com/parent-resource=$2,tailscale.com/parent-resource-ns=$NS" \
-    -- nc -z -w 5 "bravo-prometheus-tailnet.$NS.svc" 9090 >/dev/null
+    -- sh -c "$NC_RETRY" "bravo-prometheus-tailnet.$NS.svc" 9090 >/dev/null
   for _ in $(seq 30); do p=$(kubectl -n tailscale-system get pod "$1" -o jsonpath='{.status.phase}'); case $p in Succeeded|Failed) break;; esac; sleep 2; done
   echo "$p"
 }
