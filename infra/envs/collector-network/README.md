@@ -17,7 +17,7 @@ T30 [`network.py`](../target-workloads/network.py)의 역할별 ProxyGroup + Ext
 | 단계 | 결과 |
 |---|---|
 | `proxy-quarantine --side S` | 아직 없는 전용 proxy Pod까지 선택하는 ingress 기본 차단. 경로/ACL 생성 전에 적용·서버 readback |
-| `routes --side S --metrics-fqdn F --policy-readback R` | 클러스터 범위 ProxyGroup `bravo-S-collector`(egress, 1개, 태그 `tag:bravo-S-collector`)와 `bravo-observability/bravo-metrics` ExternalName Service(TCP 9090만) |
+| `routes --side S --metrics-fqdn F --policy-readback R --route-readback E` | 클러스터 범위 ProxyGroup `bravo-S-collector`(egress, 1개, 태그 `tag:bravo-S-collector`)와 `bravo-observability/bravo-metrics` ExternalName Service(TCP 9090만) |
 | `collector-egress --side S` | `bravo-collector-tailnet` NetworkPolicy: Collector Pod → `tailscale-system`의 이 ProxyGroup Pod만, 9090과 관찰한 재매핑 포트만 |
 | `proxy-ingress --side S --transport-port P` | proxy Pod 수신 제한: Collector에서 오는 업무 포트, operator 상태 확인 9002, WireGuard UDP |
 | [`tailnet-fragment.json`](tailnet-fragment.json) | 기존 tailnet 정책에 **합칠 추가분**. 태그 소유, 두 Collector 태그 → `tag:bravo-metrics` TCP 9090 grant, 허용 2 · 거부 시험 16 |
@@ -39,13 +39,19 @@ NetworkPolicy는 **합집합**이다. 기본 차단 정책이 있어도 다른 �
 
    서버 readback의 정책 UID/resourceVersion·선택 라벨·빈 ingress와 다른 정책의 중첩을 확인한다. 전체 namespace 정책 목록을 넘긴다. 별도 허용 정책을 지워 검사를 통과시키지 말고 그 담당자와 범위를 합의한다.
 
-2. **경로 렌더링.** 저장소의 MagicDNS 이름을 확인한 뒤 적용한다. 이 단계에서 proxy가 기동돼도 기본 차단 상태다. 잘못된 관찰·렌더링 실패가 나면 차단을 유지한다.
+2. **경로 생성 또는 읽기 전용 재개.** 저장소의 MagicDNS 이름과 현재 자원을 읽는다. `route-state.json`은 `group`(ProxyGroup 원문 또는 없을 때 null), `service`(bravo-observability/bravo-metrics 원문 또는 null), `children`(tailscale-system의 해당 group child Service 전체 List) 세 키를 가진다. NotFound만 null로 바꾸며 API 오류/권한 오류는 중단한다.
+
+   신규 자원에만 `externalName=placeholder`를 넣는다. 기존 자원은 UID·등록·태그·포트 및 operator가 만든 child FQDN 연결을 확인하고 **출력에서 제외**한다. operator가 아직 조정 중인 placeholder도 다시 쓰지 않는다. child 관찰이 완료되기 전에는 3단계로 넘어가지 않는다. 생성 직후 응답을 잃어도 현재 상태를 다시 읽으면 이미 존재하는 자원은 재생성/재적용하지 않는다.
+
+   출력은 **생성할 자원만** 담으므로 `apply`가 아니라 `create`를 쓴다. 둘 사이 다른 세션이 생성했다면 AlreadyExists에서 멈추고 다시 읽는다. `--force-conflicts`나 자원 삭제로 우회하지 않는다. 이 단계에서 proxy가 기동돼도 기본 차단 상태다. 관찰·렌더링 실패가 나면 차단을 유지한다.
 
    ```sh
    python3 infra/envs/collector-network/collector_route.py routes --side source \
-     --metrics-fqdn "$VERIFIED_METRICS_FQDN" --policy-readback policies-before-route.json > route.json
-   kubectl apply --server-side --dry-run=server -f route.json
-   kubectl apply --server-side -f route.json
+     --metrics-fqdn "$VERIFIED_METRICS_FQDN" --policy-readback policies-before-route.json \
+     --route-readback route-state.json > route.json
+   # items가 비어 있으면 create를 건너뛴다. 부분 생성 실패는 readback부터 재개한다.
+   kubectl create --dry-run=server -f route.json
+   kubectl create -f route.json
    ```
 
 3. **관찰한 포트로만 제한 해제.** operator의 child Service UID/포트와 ProxyGroup Pod UID/UDP listen port를 읽는다. 기존 기본 차단과 **같은 이름**의 정책을 좁은 허용 정책으로 갱신한다. 교체 전에 기본 차단을 삭제하지 않는다.
@@ -82,8 +88,10 @@ NetworkPolicy는 **합집합**이다. 기본 차단 정책이 있어도 다른 �
 
 | 시험 | 결과 |
 |---|---|
-| `scripts/tests/test_collector_route.py` | 15개 통과. 기본 차단 readback과 중첩 허용·누락·삭제 상태 거부 추가. 쪽마다 전용 태그, MagicDNS 이름 검사, 관찰 포트만 허용 · 다른 쪽/바뀐 매핑 거부, proxy 수신 제한, ACL 조각(grant 하나, 저장소에서 찾은 다른 모든 `tag:bravo-*`의 거부 시험), Collector 9090 규칙에 목적지가 있는지 |
+| `scripts/tests/test_collector_route.py` | 19개 통과. 기본 차단 readback과 중첩 허용·누락·삭제 상태 거부, operator 주소/UID 보존 및 응답 유실 후 재개 추가. 쪽마다 전용 태그, MagicDNS 이름 검사, 관찰 포트만 허용 · 다른 쪽/바뀐 매핑 거부, proxy 수신 제한, ACL 조각(grant 하나, 저장소에서 찾은 다른 모든 `tag:bravo-*`의 거부 시험), Collector 9090 규칙에 목적지가 있는지 |
 | 기본 차단 → 제한 허용(k3s 1.35.9, 11/4) | proxy 라벨의 시험 Pod 생성 전 기본 차단 적용. Collector/잘못된 라벨/다른 namespace 모두 TCP 거부. 잘못된 포트 관찰 후 차단 유지. 10421 제한 허용 뒤 Collector만 연결되고 나머지 두 경로 거부. operator child-port 입력은 합성 fixture이며 실제 Tailscale 검증 아님 |
 | Collector 0.164.0 TLS 이름 A/B(Docker) | `PLATFORM_TLS_SERVER_NAME` 지정: egress Service 이름으로 접속해도 저장소가 OTLP 6건 수신, x509 오류 0. 미지정(빈 기본값): `x509: certificate is valid for bravo-metrics…, not bravo-metrics.bravo-observability.svc`로 거부 |
+
+실제 k3s API에서 경로 생성 후 operator 역할의 시험 업데이트로 child FQDN을 반영하고, 생성 응답을 버린 상황에서 readback 재개를 두 번 수행했다. 기존 Service UID·child FQDN이 유지되고 기존 객체 쓰기는 0건이며, 무조건 재생성은 AlreadyExists로 거부됐다. operator 동작은 시험 코드로 모사했으며 실제 Tailscale operator 자격 시험으로 계산하지 않는다.
 
 **재지 않은 것:** 실제 Tailscale operator · ProxyGroup · ACL 저장 시험. k3s에는 operator가 없다. 실제 tailnet 경로는 T7 · T30 적용 뒤 위 5단계로 확인한다.
