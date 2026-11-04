@@ -46,7 +46,8 @@
         "FAILBACK",
         "SAFE_HOLD",
         "NEEDS_HUMAN",
-        "DONE"
+        "DONE",
+        "DONE_ROLLED_BACK"
       ]
     },
     "version": {
