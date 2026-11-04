@@ -37,7 +37,8 @@ class BoundCredentialProposalSource:
             raise ValueError("invalid proposal result")
         proposal = result.get("proposal")
         if (result.get("state") != "PROPOSAL_READY" or type(result.get("attempt")) is not int
-                or result["attempt"] != 1 or result.get("run_id") != request.run_id
+                or type(request.attempt) is not int or not 1 <= request.attempt <= 3
+                or result["attempt"] != request.attempt or result.get("run_id") != request.run_id
                 or result.get("source_sha") != request.source_sha
                 or result.get("proposal_digest") != request.proposal_digest
                 or not isinstance(proposal, dict)):

@@ -158,7 +158,7 @@ PYTHONPATH=../rehearsal-runner/src uv run --frozen --no-default-groups --with py
 
 ### 버킷 작업과 T11 제안 연결
 
-`bucket_proposer.T11BucketProposer`는 같은 run·revision의 T11 Coordinator와 읽기 전용 snapshot을 사용한다. 원본 정책 내용·해시와 고정된 작업 요약을 대조하고, T11이 검증한 제안이라도 지정된 대상 파일 한 개를 벗어나면 차단한다. 현재 최초 시도만 지원하며 동기 호출이다.
+`bucket_proposer.T11BucketProposer`는 같은 run·revision의 T11 Coordinator와 읽기 전용 snapshot을 사용한다. 원본 정책 내용·해시와 고정된 작업 요약을 대조하고, T11이 검증한 제안이라도 지정된 대상 파일 한 개를 벗어나면 차단한다. 동기 호출이며 2·3회차에는 같은 실행·원본 revision, Coordinator의 `RETRY_ALLOWED` 상태와 외부에서 인증한 실패 증거 digest가 일치해야 한다. 증거 인증과 재시작 후 시도 영속성은 호출 호스트의 책임이다.
 
 ```bash
 cd ../agent-worker
@@ -198,3 +198,5 @@ PYTHONPATH="$T10_CHECKOUT/services/platform-events/src:../rehearsal-runner/src" 
 PR #237의 수신기는 기본적으로 네트워크 경로와 운영 원문 조회기가 설치되지 않으며, 이 시험은 실제 제품 검증이나 사람 승인을 뜻하지 않는다.
 
 재시도는 T10 수신 계약에 맞춰 이전 검증 ID의 hold 커밋을 확인한 다음에만 시작한다. `T10PreviousHold`에는 T10 관리 호스트가 승인한 hold 권한과 intake를 주입한다. 응답·권한·저장 확인이 불명확하면 다음 시도를 시작하지 않는다. T15 워크로드나 모델에 hold 권한을 부여하는 설정은 이 코드에 없다.
+
+두 제안 어댑터와 제안 조회 경계는 시도 번호를 일치시킨다. 재시도 digest 비교만으로 실패 증거의 출처가 인증되는 것은 아니며, 실제 T38 인증 결과와 T10 실행 권한·영속 복구 연결이 필요하다.

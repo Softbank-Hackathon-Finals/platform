@@ -187,3 +187,123 @@ def test_actual_t11_proposal_can_be_resolved_by_its_digest(tmp_path):
     assert outcome.state == "RECEIPT_UNVERIFIED"
     assert outcome.untrusted_receipt.replacement == TARGET
     assert outcome.untrusted_receipt.proposal_digest == coordinator.result()["proposal_digest"]
+
+
+def test_t11_bucket_adapter_resumes_second_and_third_attempt_with_verified_feedback(tmp_path):
+    import asyncio
+
+    from bravo_agent.contracts import VerificationReceipt
+
+    task = prepare_bucket_policy_task("run-1", SOURCE, "rehearsal-test", source_sha="1" * 40)
+    coordinator = make_coordinator(tmp_path, task)
+    provider = FakeProvider()
+    first = T11BucketProposer(coordinator, provider, SOURCE_PATH, TARGET_PATH).propose(task)
+    for attempt in (1, 2):
+        failure = coordinator.bundle.model_copy(update={
+            "summary": "Independent verifier reports a known failure", "evidence_digest": "e" * 64,
+        })
+        receipt = VerificationReceipt(run_id=task.run_id, source_sha=task.source_sha,
+                                      proposal_digest=first.proposal_digest, attempt=attempt,
+                                      verdict="FAIL", effects_known=True, evidence_digest="e" * 64,
+                                      failure=failure)
+        assert coordinator.verify(receipt) == "RETRY_ALLOWED"
+        proposer = T11BucketProposer(coordinator, provider, SOURCE_PATH, TARGET_PATH,
+                                     attempt=attempt + 1, feedback_digest="e" * 64)
+        first = proposer.propose(task)
+        assert coordinator.attempt == attempt + 1
+    assert provider.calls == 3
+    with pytest.raises(ValueError):
+        asyncio.run(coordinator.propose(provider))
+
+
+def test_t11_bucket_retry_rejects_mismatched_feedback_before_model_call(tmp_path):
+    from bravo_agent.contracts import VerificationReceipt
+
+    task = prepare_bucket_policy_task("run-1", SOURCE, "rehearsal-test", source_sha="1" * 40)
+    coordinator = make_coordinator(tmp_path, task)
+    provider = FakeProvider()
+    first = T11BucketProposer(coordinator, provider, SOURCE_PATH, TARGET_PATH).propose(task)
+    failure = coordinator.bundle.model_copy(update={"evidence_digest": "e" * 64})
+    receipt = VerificationReceipt(run_id=task.run_id, source_sha=task.source_sha,
+                                  proposal_digest=first.proposal_digest, attempt=1,
+                                  verdict="FAIL", effects_known=True, evidence_digest="e" * 64, failure=failure)
+    assert coordinator.verify(receipt) == "RETRY_ALLOWED"
+    with pytest.raises(ValueError, match="feedback mismatch"):
+        T11BucketProposer(coordinator, provider, SOURCE_PATH, TARGET_PATH,
+                          attempt=2, feedback_digest="f" * 64).propose(task)
+    assert provider.calls == 1
+
+
+def test_t15_runner_resumes_real_t11_after_known_failure_with_same_attempt_binding(tmp_path):
+    """T11 coordinator is real; verifier, hold and receipt authentication are fixtures."""
+    from bravo_agent.contracts import VerificationReceipt
+
+    from rehearsal_runner.bucket_proposal_source import BoundBucketProposalSource
+    from rehearsal_runner.bucket_verifier import BucketVerificationRequest
+    from rehearsal_runner.integration_handoff import HandoffVerifier
+    from rehearsal_runner.retry import AttemptPorts, RetryDecision, run_retries
+
+    task = prepare_bucket_policy_task("run-1", SOURCE, "rehearsal-test", source_sha="1" * 40)
+    coordinator = make_coordinator(tmp_path, task)
+    provider = FakeProvider()
+
+    class Ports:
+        def __init__(self):
+            self.events = []
+            self.index = 0
+
+        def prepare(self, attempt, feedback_ref):
+            self.events.append(("prepare", attempt, feedback_ref))
+            proposer = T11BucketProposer(coordinator, provider, SOURCE_PATH, TARGET_PATH,
+                                         attempt=attempt, feedback_digest=feedback_ref)
+            verifier = HandoffVerifier(self, attempt, b"fixture diff", "sha256:" + "c" * 64, "env-onprem")
+            return AttemptPorts(proposer, self, self, verifier)
+
+        def create(self, run_id):
+            self.index += 1
+            namespace = Namespace(f"rehearsal-{self.index}", f"uid-{self.index}")
+            self.events.append(("create", namespace.uid))
+            return namespace
+
+        def check(self, namespace):
+            return IsolationPass(namespace.name, namespace.uid, "probe-1")
+
+        def verify(self, handoff):
+            request = BucketVerificationRequest(task.run_id, task.source_sha, task.source_sha256,
+                                                handoff.proposal.proposal_digest, task.target_bucket,
+                                                handoff.namespace, handoff.attempt)
+            proposal = BoundBucketProposalSource(coordinator, TARGET_PATH).resolve(request)
+            assert proposal.proposal_digest == handoff.proposal.proposal_digest
+            verdict = "FAIL" if handoff.attempt == 1 else "PASS"
+            failure = (coordinator.bundle.model_copy(update={"evidence_digest": "e" * 64})
+                       if verdict == "FAIL" else None)
+            self.events.append(("job", handoff.attempt, handoff.namespace.uid))
+            return VerificationReceipt(run_id=task.run_id, source_sha=task.source_sha,
+                                       proposal_digest=handoff.proposal.proposal_digest, attempt=handoff.attempt,
+                                       verdict=verdict, effects_known=True, evidence_digest="e" * 64,
+                                       failure=failure)
+
+        def cleanup(self, namespace):
+            self.events.append(("cleanup", namespace.uid))
+            return True
+
+        def assess(self, receipt, proposal, attempt):
+            # This is a synthetic assessor; production must authenticate the receipt.
+            state = coordinator.verify(receipt)
+            outcome = "RETRY_ALLOWED" if state == "RETRY_ALLOWED" else "PASS"
+            self.events.append(("assess", attempt))
+            return RetryDecision(proposal.run_id, proposal.source_sha, proposal.proposal_digest, attempt,
+                                 outcome, "e" * 64, f"verification-{attempt}")
+
+        def confirm(self, run_id, verification_id):
+            self.events.append(("hold", verification_id))
+            return True
+
+    ports = Ports()
+    result = run_retries(task, ports, ports, hold=ports)
+    assert result.state == "RECEIPT_UNVERIFIED" and result.attempts == 2
+    assert ports.events == [("prepare", 1, None), ("create", "uid-1"), ("job", 1, "uid-1"),
+                            ("cleanup", "uid-1"), ("assess", 1), ("hold", "verification-1"),
+                            ("prepare", 2, "e" * 64), ("create", "uid-2"), ("job", 2, "uid-2"),
+                            ("cleanup", "uid-2"), ("assess", 2)]
+    assert coordinator.attempt == 2 and provider.calls == 2

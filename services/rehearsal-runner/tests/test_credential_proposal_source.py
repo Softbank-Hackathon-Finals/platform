@@ -95,3 +95,14 @@ def test_runner_verifier_delivers_bound_edit_to_job():
     assert result.state == "RECEIPT_UNVERIFIED"
     assert ports.received[0].path == "app/db_secret.py"
     assert ports.received[0].replacement == "private-source-marker"
+
+
+@pytest.mark.parametrize("attempt", [2, 3])
+def test_retry_resolves_only_matching_attempt(attempt):
+    source, request = make()
+    original = source.result
+    source.result = lambda: original() | {"attempt": attempt}
+    value = BoundCredentialProposalSource(source).resolve(replace(request, attempt=attempt))
+    assert value[0].path == "app/db_secret.py"
+    with pytest.raises(ValueError):
+        BoundCredentialProposalSource(source).resolve(request)

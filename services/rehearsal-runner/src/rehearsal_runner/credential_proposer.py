@@ -7,7 +7,7 @@ bypasses the snapshot policy or supplies credentials to the proposal provider.
 import asyncio
 from dataclasses import dataclass
 
-from .bucket_proposer import Coordinator
+from .bucket_proposer import Coordinator, validate_coordinator_attempt
 from .runner import ProposalRef
 from .secret_task import CredentialMigrationTask, prepare_credential_migration
 
@@ -27,18 +27,18 @@ def credential_summary(task: CredentialMigrationTask) -> str:
 class T11CredentialProposer:
     coordinator: Coordinator
     provider: object
+    attempt: int = 1
+    feedback_digest: str | None = None
 
     def propose(self, task: object) -> ProposalRef:
         if (not isinstance(task, CredentialMigrationTask)
                 or task != prepare_credential_migration(task.run_id, task.source_sha)):
             raise ValueError("invalid credential task")
         coordinator = self.coordinator
-        bundle = coordinator.bundle
-        if (coordinator.state != "READY" or coordinator.attempt != 0
-                or getattr(bundle, "run_id", None) != task.run_id
-                or getattr(bundle, "source_sha", None) != task.source_sha
-                or getattr(bundle, "summary", None) != credential_summary(task)):
-            raise ValueError("task and coordinator mismatch")
+        validate_coordinator_attempt(
+            coordinator, run_id=task.run_id, source_sha=task.source_sha, attempt=self.attempt,
+            feedback_digest=self.feedback_digest, initial_summary=credential_summary(task),
+        )
         # Preserve T11 snapshot checks; a blocked path fails closed here.
         for path in SOURCE_PATHS:
             coordinator.snapshot.read(path)
@@ -50,7 +50,7 @@ class T11CredentialProposer:
             raise RuntimeError("synchronous proposer cannot run inside an event loop")
         result = asyncio.run(coordinator.propose(self.provider))
         if (result.get("state") != "PROPOSAL_READY" or type(result.get("attempt")) is not int
-                or result["attempt"] != 1 or result.get("run_id") != task.run_id
+                or result["attempt"] != self.attempt or result.get("run_id") != task.run_id
                 or result.get("source_sha") != task.source_sha
                 or not result.get("proposal_digest")):
             raise ValueError("T11 proposal unavailable")

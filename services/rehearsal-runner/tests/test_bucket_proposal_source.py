@@ -64,3 +64,16 @@ def test_rejects_stale_or_changed_proposal(fault):
         original = request(source)
     with pytest.raises(ValueError):
         BoundBucketProposalSource(source, PATH).resolve(original)
+
+
+@pytest.mark.parametrize("attempt", [2, 3])
+def test_retry_resolves_only_matching_attempt(attempt):
+    from dataclasses import replace
+
+    source = Source()
+    source.output["attempt"] = attempt
+    original = request(source)
+    value = BoundBucketProposalSource(source, PATH).resolve(replace(original, attempt=attempt))
+    assert value.proposal_digest == original.proposal_digest
+    with pytest.raises(ValueError):
+        BoundBucketProposalSource(source, PATH).resolve(original)

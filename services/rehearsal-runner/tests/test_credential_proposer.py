@@ -70,3 +70,13 @@ def test_rejects_wrong_source_revision_before_snapshot_or_model():
     with pytest.raises(ValueError):
         T11CredentialProposer(c, object()).propose(t)
     assert c.snapshot.paths == [] and c.calls == 0
+
+
+def test_retry_rejects_unverified_feedback_before_snapshot_or_model():
+    t = task()
+    c = Coordinator(t)
+    c.state, c.attempt = "RETRY_ALLOWED", 1
+    c.bundle.evidence_digest = "a" * 64
+    with pytest.raises(ValueError, match="feedback mismatch"):
+        T11CredentialProposer(c, object(), attempt=2, feedback_digest="b" * 64).propose(t)
+    assert c.snapshot.paths == [] and c.calls == 0

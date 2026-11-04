@@ -23,6 +23,7 @@ class BucketVerificationRequest:
     proposal_digest: str
     target_bucket: str
     namespace: Namespace
+    attempt: int = 1
 
 
 class BucketVerificationJob(Protocol):
@@ -35,9 +36,12 @@ class BucketVerificationJob(Protocol):
 class BucketVerifier:
     task: BucketPolicyTask
     job: BucketVerificationJob
+    attempt: int = 1
 
     def verify(self, proposal: ProposalRef, namespace: Namespace) -> object:
         task = self.task
+        if type(self.attempt) is not int or not 1 <= self.attempt <= 3:
+            raise ValueError("invalid verification attempt")
         if not isinstance(task, BucketPolicyTask):
             raise ValueError("bucket task required")
         if task != prepare_bucket_policy_task(
@@ -59,5 +63,5 @@ class BucketVerifier:
             source_policy_sha256=task.source_sha256,
             proposal_digest=proposal.proposal_digest,
             target_bucket=task.target_bucket,
-            namespace=namespace,
+            namespace=namespace, attempt=self.attempt,
         ))

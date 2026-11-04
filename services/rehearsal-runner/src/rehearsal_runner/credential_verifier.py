@@ -16,6 +16,7 @@ class CredentialVerificationRequest:
     source_sha: str
     proposal_digest: str
     namespace: Namespace
+    attempt: int = 1
 
 
 class CredentialVerificationJob(Protocol):
@@ -28,9 +29,12 @@ class CredentialVerificationJob(Protocol):
 class CredentialVerifier:
     task: CredentialMigrationTask
     job: CredentialVerificationJob
+    attempt: int = 1
 
     def verify(self, proposal: ProposalRef, namespace: Namespace) -> object:
         task = self.task
+        if type(self.attempt) is not int or not 1 <= self.attempt <= 3:
+            raise ValueError("invalid verification attempt")
         if (not isinstance(task, CredentialMigrationTask)
                 or task != prepare_credential_migration(task.run_id, task.source_sha)):
             raise ValueError("invalid credential migration task")
@@ -45,5 +49,5 @@ class CredentialVerifier:
             raise ValueError("invalid namespace identity")
         return self.job.verify(CredentialVerificationRequest(
             run_id=task.run_id, source_sha=task.source_sha,
-            proposal_digest=proposal.proposal_digest, namespace=namespace,
+            proposal_digest=proposal.proposal_digest, namespace=namespace, attempt=self.attempt,
         ))
