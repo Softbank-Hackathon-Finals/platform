@@ -1,0 +1,278 @@
+{
+  "denied": {
+    "arbitrary_shell": true,
+    "secret_inventory": true,
+    "default_shell_session": true,
+    "arbitrary_port_session": true
+  },
+  "runs": [
+    {
+      "state": "PROPOSAL_READY",
+      "exit_code": 0,
+      "result": {
+        "run_id": "synthetic-ci-example",
+        "source_sha": "1111111111111111111111111111111111111111",
+        "attempt": 1,
+        "state": "PROPOSAL_READY",
+        "input_digest": "a8630a19475a2687ebfc32cae412f3219e2aa57696b6e04c33e5333bc3da74d7",
+        "input": {
+          "run_id": "synthetic-ci-example",
+          "source_sha": "1111111111111111111111111111111111111111",
+          "failure_code": "DB_CONNECTION_FAILED",
+          "summary": "Synthetic example: destination DB host must come from the injected DB_HOST environment variable. If DB_HOST is absent, fail closed instead of using a localhost or other default.",
+          "evidence_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "stage": "REHEARSE"
+        },
+        "snapshot_digest": "43f0c55ce2e889e5798e25195d5d9d9b1318d57670dbfbf506319d92a10cb795",
+        "proposal": {
+          "schema_version": 1,
+          "run_id": "synthetic-ci-example",
+          "source_sha": "1111111111111111111111111111111111111111",
+          "rationale": "The approved snapshot hardcodes DB_HOST to localhost, ignoring the injected destination. Read DB_HOST directly from the environment with no fallback. Missing DB_HOST raises KeyError during configuration loading; an empty or whitespace-only value is also rejected to avoid implicit local connection defaults. Nonempty injected values are preserved unchanged.",
+          "risk": "low",
+          "edits": [
+            {
+              "path": "src/config.py",
+              "before_sha256": "f9b997a0ef8e589e291cb5f631a55e8e43f8affa29e5315c602aec5a64b11fcf",
+              "replacement": "import os\n\nDB_HOST = os.environ[\"DB_HOST\"]\nif not DB_HOST.strip():\n    raise ValueError(\"DB_HOST must be a nonempty host\")\n"
+            }
+          ]
+        },
+        "proposal_digest": "4ced12b3b2d2ffdcdcba0c82e10facb934c5571bd1a9e30340ad8350668faa0c",
+        "attempts": [
+          {
+            "attempt": 1,
+            "input": {
+              "run_id": "synthetic-ci-example",
+              "source_sha": "1111111111111111111111111111111111111111",
+              "failure_code": "DB_CONNECTION_FAILED",
+              "summary": "Synthetic example: destination DB host must come from the injected DB_HOST environment variable. If DB_HOST is absent, fail closed instead of using a localhost or other default.",
+              "evidence_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "stage": "REHEARSE"
+            },
+            "input_digest": "a8630a19475a2687ebfc32cae412f3219e2aa57696b6e04c33e5333bc3da74d7",
+            "state": "PROPOSAL_READY",
+            "model_usage": {
+              "provider": "chatgpt_plan",
+              "model": "gpt-6.1-sol",
+              "requests": 2,
+              "total_tokens": 1565
+            },
+            "audit_event_count": 3,
+            "audit_truncated": false,
+            "proposal": {
+              "schema_version": 1,
+              "run_id": "synthetic-ci-example",
+              "source_sha": "1111111111111111111111111111111111111111",
+              "rationale": "The approved snapshot hardcodes DB_HOST to localhost, ignoring the injected destination. Read DB_HOST directly from the environment with no fallback. Missing DB_HOST raises KeyError during configuration loading; an empty or whitespace-only value is also rejected to avoid implicit local connection defaults. Nonempty injected values are preserved unchanged.",
+              "risk": "low",
+              "edits": [
+                {
+                  "path": "src/config.py",
+                  "before_sha256": "f9b997a0ef8e589e291cb5f631a55e8e43f8affa29e5315c602aec5a64b11fcf",
+                  "replacement": "import os\n\nDB_HOST = os.environ[\"DB_HOST\"]\nif not DB_HOST.strip():\n    raise ValueError(\"DB_HOST must be a nonempty host\")\n"
+                }
+              ]
+            },
+            "proposal_digest": "4ced12b3b2d2ffdcdcba0c82e10facb934c5571bd1a9e30340ad8350668faa0c"
+          }
+        ],
+        "audit": [
+          {
+            "run_id": "synthetic-ci-example",
+            "attempt": 1,
+            "tool": "repo.read",
+            "outcome": "ALLOWED",
+            "reason": "POLICY_ACCEPTED",
+            "path": "src/config.py",
+            "content_digest": "f9b997a0ef8e589e291cb5f631a55e8e43f8affa29e5315c602aec5a64b11fcf"
+          },
+          {
+            "run_id": "synthetic-ci-example",
+            "attempt": 1,
+            "tool": "plan.propose",
+            "outcome": "ALLOWED",
+            "reason": "POLICY_ACCEPTED",
+            "proposal_digest": "4ced12b3b2d2ffdcdcba0c82e10facb934c5571bd1a9e30340ad8350668faa0c"
+          },
+          {
+            "run_id": "synthetic-ci-example",
+            "attempt": 1,
+            "tool": "model",
+            "outcome": "COMPLETED",
+            "reason": "PROPOSAL_COLLECTED"
+          }
+        ]
+      },
+      "runtime_source_sha": "ca71c7354bdda7b3e52137e2c311e59f32a54db2",
+      "credential_rotated": false,
+      "access_rotated": false,
+      "refresh_rotated": false,
+      "registration_reused": true,
+      "subject_reused": true,
+      "active_after": true,
+      "uid_nonroot": true,
+      "expires_at_increased": false,
+      "verification": {
+        "candidate_sha256": "7d46202ab36cfa9b71df8ad505837d539e6db0ae107809ed933932110757d2f6",
+        "evidence": {
+          "checks": {
+            "injected_value": true,
+            "missing_value_closed": true
+          },
+          "failure_code": "NONE",
+          "job_complete": true,
+          "namespace_deleted": true,
+          "template": "db-environment-integration",
+          "verifier_image": "docker.io/library/python@sha256:b18b261e1b4974b4f321451ad5251ded85abb22c2b8b262da527dda1d031ab30"
+        },
+        "receipt": {
+          "attempt": 1,
+          "effects_known": true,
+          "evidence_digest": "ba0c0044bf92f9eb0797873a3dd2495a2bda685c35e4a5c97543b7030fe2d274",
+          "failure": null,
+          "proposal_digest": "4ced12b3b2d2ffdcdcba0c82e10facb934c5571bd1a9e30340ad8350668faa0c",
+          "run_id": "synthetic-ci-example",
+          "source_sha": "1111111111111111111111111111111111111111",
+          "verdict": "PASS"
+        },
+        "scope": "DB environment integration fixture; T9 product templates remain separate",
+        "state": "AWAITING_APPROVAL"
+      }
+    },
+    {
+      "state": "PROPOSAL_READY",
+      "exit_code": 0,
+      "result": {
+        "run_id": "synthetic-ci-example",
+        "source_sha": "1111111111111111111111111111111111111111",
+        "attempt": 1,
+        "state": "PROPOSAL_READY",
+        "input_digest": "a8630a19475a2687ebfc32cae412f3219e2aa57696b6e04c33e5333bc3da74d7",
+        "input": {
+          "run_id": "synthetic-ci-example",
+          "source_sha": "1111111111111111111111111111111111111111",
+          "failure_code": "DB_CONNECTION_FAILED",
+          "summary": "Synthetic example: destination DB host must come from the injected DB_HOST environment variable. If DB_HOST is absent, fail closed instead of using a localhost or other default.",
+          "evidence_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "stage": "REHEARSE"
+        },
+        "snapshot_digest": "43f0c55ce2e889e5798e25195d5d9d9b1318d57670dbfbf506319d92a10cb795",
+        "proposal": {
+          "schema_version": 1,
+          "run_id": "synthetic-ci-example",
+          "source_sha": "1111111111111111111111111111111111111111",
+          "rationale": "The approved snapshot hard-codes DB_HOST to localhost, contrary to the requirement that the destination host come from the injected DB_HOST environment variable. Read DB_HOST with os.environ indexing so an absent variable raises KeyError immediately rather than falling back to any default host. This proposal has not been applied or verified.",
+          "risk": "low",
+          "edits": [
+            {
+              "path": "src/config.py",
+              "before_sha256": "f9b997a0ef8e589e291cb5f631a55e8e43f8affa29e5315c602aec5a64b11fcf",
+              "replacement": "import os\n\nDB_HOST = os.environ[\"DB_HOST\"]\n"
+            }
+          ]
+        },
+        "proposal_digest": "626ca5e2baec10c6c9512a2119c1411c5c2cd7626752ac81f165d7d91c3586b6",
+        "attempts": [
+          {
+            "attempt": 1,
+            "input": {
+              "run_id": "synthetic-ci-example",
+              "source_sha": "1111111111111111111111111111111111111111",
+              "failure_code": "DB_CONNECTION_FAILED",
+              "summary": "Synthetic example: destination DB host must come from the injected DB_HOST environment variable. If DB_HOST is absent, fail closed instead of using a localhost or other default.",
+              "evidence_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "stage": "REHEARSE"
+            },
+            "input_digest": "a8630a19475a2687ebfc32cae412f3219e2aa57696b6e04c33e5333bc3da74d7",
+            "state": "PROPOSAL_READY",
+            "model_usage": {
+              "provider": "chatgpt_plan",
+              "model": "gpt-6.1-sol",
+              "requests": 2,
+              "total_tokens": 1542
+            },
+            "audit_event_count": 3,
+            "audit_truncated": false,
+            "proposal": {
+              "schema_version": 1,
+              "run_id": "synthetic-ci-example",
+              "source_sha": "1111111111111111111111111111111111111111",
+              "rationale": "The approved snapshot hard-codes DB_HOST to localhost, contrary to the requirement that the destination host come from the injected DB_HOST environment variable. Read DB_HOST with os.environ indexing so an absent variable raises KeyError immediately rather than falling back to any default host. This proposal has not been applied or verified.",
+              "risk": "low",
+              "edits": [
+                {
+                  "path": "src/config.py",
+                  "before_sha256": "f9b997a0ef8e589e291cb5f631a55e8e43f8affa29e5315c602aec5a64b11fcf",
+                  "replacement": "import os\n\nDB_HOST = os.environ[\"DB_HOST\"]\n"
+                }
+              ]
+            },
+            "proposal_digest": "626ca5e2baec10c6c9512a2119c1411c5c2cd7626752ac81f165d7d91c3586b6"
+          }
+        ],
+        "audit": [
+          {
+            "run_id": "synthetic-ci-example",
+            "attempt": 1,
+            "tool": "repo.read",
+            "outcome": "ALLOWED",
+            "reason": "POLICY_ACCEPTED",
+            "path": "src/config.py",
+            "content_digest": "f9b997a0ef8e589e291cb5f631a55e8e43f8affa29e5315c602aec5a64b11fcf"
+          },
+          {
+            "run_id": "synthetic-ci-example",
+            "attempt": 1,
+            "tool": "plan.propose",
+            "outcome": "ALLOWED",
+            "reason": "POLICY_ACCEPTED",
+            "proposal_digest": "626ca5e2baec10c6c9512a2119c1411c5c2cd7626752ac81f165d7d91c3586b6"
+          },
+          {
+            "run_id": "synthetic-ci-example",
+            "attempt": 1,
+            "tool": "model",
+            "outcome": "COMPLETED",
+            "reason": "PROPOSAL_COLLECTED"
+          }
+        ]
+      },
+      "runtime_source_sha": "ca71c7354bdda7b3e52137e2c311e59f32a54db2",
+      "credential_rotated": false,
+      "access_rotated": false,
+      "refresh_rotated": false,
+      "registration_reused": true,
+      "subject_reused": true,
+      "active_after": true,
+      "uid_nonroot": true,
+      "expires_at_increased": false,
+      "verification": {
+        "candidate_sha256": "cce06833431dde9f655b660c10c396a0f8dbc56f8fa86eda07ab40748e3d02c5",
+        "evidence": {
+          "checks": {
+            "injected_value": true,
+            "missing_value_closed": true
+          },
+          "failure_code": "NONE",
+          "job_complete": true,
+          "namespace_deleted": true,
+          "template": "db-environment-integration",
+          "verifier_image": "docker.io/library/python@sha256:b18b261e1b4974b4f321451ad5251ded85abb22c2b8b262da527dda1d031ab30"
+        },
+        "receipt": {
+          "attempt": 1,
+          "effects_known": true,
+          "evidence_digest": "ba0c0044bf92f9eb0797873a3dd2495a2bda685c35e4a5c97543b7030fe2d274",
+          "failure": null,
+          "proposal_digest": "626ca5e2baec10c6c9512a2119c1411c5c2cd7626752ac81f165d7d91c3586b6",
+          "run_id": "synthetic-ci-example",
+          "source_sha": "1111111111111111111111111111111111111111",
+          "verdict": "PASS"
+        },
+        "scope": "DB environment integration fixture; T9 product templates remain separate",
+        "state": "AWAITING_APPROVAL"
+      }
+    }
+  ]
+}

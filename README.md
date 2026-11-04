@@ -48,6 +48,7 @@ platform/
 │   ├── adr/                    # 결정 기록 (0000-template.md)
 │   └── assets/                 # README 그림
 ├── services/
+│   ├── loadgen/                # T18 부하 생성기 · 대조 리포트 · 창 요약 (Python)
 │   └── security-findings/      # T33 보안 탐지 정규화 (Python)
 ├── scripts/
 │   ├── sync_tasks.py           # tasks.md ↔ 이슈 · 보드 동기화
@@ -90,10 +91,11 @@ platform/
 
 ## 문서
 
+- [계약 목차](docs/contracts/README.md): 보안·관측·무결성·승인 계약의 원본과 생산·소비 연결
 - [설계 문서](docs/design.html): 브라우저로 열어 본다 (그림은 SVG로 들어 있다). 원본은 이 파일이다
 - [설계 문서 버전 이력](docs/design-history/README.md): 버전을 올리는 기준과 이전 버전 사본
 - [해야 할 일](docs/tasks.md): 단계별 작업과 역할 분담
-- [ADR](docs/adr/): 결정 기록. 새 결정은 [`0000-template.md`](docs/adr/0000-template.md)로 쓴다
+- [결정 기록과 실측 근거](docs/adr/README.md): 설계별 ADR과 기존 측정 자료의 위치. 새 결정은 [`0000-template.md`](docs/adr/0000-template.md)로 쓴다
 - [보안 설계 고려사항](docs/security/README.md): 스켈레톤 너머로 고려한 보안 설계 (추후 반영 후보, 원본은 노션)
 - [에이전트 작업 안내](AGENTS.md): 작업 규칙, 설계 원칙, 보안 규칙, 검증 명령
 

@@ -1,0 +1,236 @@
+{
+  "evidence_grade": "local live runtime",
+  "date": "2026-11-03",
+  "public_is_raw": false,
+  "format": "Selected measurements derived from private logs; not a complete raw transcript.",
+  "host": {
+    "model": "Mac mini",
+    "cpu": "Apple M5 Pro",
+    "cpu_cores": 18,
+    "memory_gib": 64
+  },
+  "guest": {
+    "os": "Ubuntu 24.04",
+    "vcpus": 4,
+    "memory_gib": 8,
+    "disk_virtual_gib": 40,
+    "image_build": "release-20261017",
+    "rke2": "v1.35.9+rke2r1",
+    "kube_bench": "0.16.0",
+    "benchmark": "rke2-cis-1.9"
+  },
+  "guest_image_sha256": {
+    "arm64": "50e24e1fb79e89116e939d90aa7738f7af48c442fa1bc2510131e0b39c50348e",
+    "x86_64": "04e8f2461a16a44e78a370284471f29616cdd9baf1893df25807b71f985b6c94"
+  },
+  "runs": {
+    "arm64": {
+      "result": "PASS",
+      "accelerator": "HVF",
+      "uname": "aarch64",
+      "cloud_init_wait_seconds": 182,
+      "up_total_seconds": 183.852,
+      "base_image_preloaded": true,
+      "verify_node_before_reboot": {
+        "pass": 10,
+        "fail": 0
+      },
+      "kube_bench": {
+        "total_pass": 82,
+        "total_fail": 0,
+        "total_warn": 41,
+        "total_info": 7
+      },
+      "warning_types": {
+        "audited": 8,
+        "manual": 33
+      },
+      "audited_warning_ids": [
+        "1.1.8",
+        "1.1.9",
+        "1.1.20",
+        "1.2.3",
+        "1.2.9",
+        "1.2.11",
+        "4.2.12",
+        "4.2.13"
+      ],
+      "persisted_ssh_port_overrides_later_environment": true,
+      "host_sleep_assertion_attached_to_qemu": true,
+      "reboot": {
+        "boot_id_changed": true,
+        "verified_seconds": 110.835,
+        "verify_node": {
+          "pass": 10,
+          "fail": 0
+        }
+      },
+      "pods_after_reboot": {
+        "Running": 11,
+        "Succeeded": 6
+      },
+      "pods_ready_seconds_after_reboot": 121.536,
+      "consecutive_ready_snapshots": 2,
+      "all_running_pods_ready": true,
+      "down_exit": 0,
+      "cleanup": {
+        "qemu_absent": true,
+        "runtime_root_absent": true,
+        "open_handles": 0,
+        "protected_t8_identity_unchanged": true
+      }
+    },
+    "x86_64": {
+      "result": "PASS",
+      "accelerator": "TCG",
+      "uname": "x86_64",
+      "cloud_init_wait_seconds": 913,
+      "up_total_seconds": 914.047,
+      "base_image_preloaded": true,
+      "verify_node_before_reboot": {
+        "pass": 10,
+        "fail": 0
+      },
+      "kube_bench": {
+        "total_pass": 82,
+        "total_fail": 0,
+        "total_warn": 41,
+        "total_info": 7
+      },
+      "warning_types": {
+        "audited": 8,
+        "manual": 33
+      },
+      "audited_warning_ids": [
+        "1.1.8",
+        "1.1.9",
+        "1.1.20",
+        "1.2.3",
+        "1.2.9",
+        "1.2.11",
+        "4.2.12",
+        "4.2.13"
+      ],
+      "persisted_ssh_port_overrides_later_environment": true,
+      "host_sleep_assertion_attached_to_qemu": true,
+      "reboot": {
+        "boot_id_changed": true,
+        "verified_seconds": 211.115,
+        "verify_node": {
+          "pass": 10,
+          "fail": 0
+        }
+      },
+      "pods_after_reboot": {
+        "Running": 11,
+        "Succeeded": 6
+      },
+      "pods_ready_seconds_after_reboot": 326.046,
+      "consecutive_ready_snapshots": 2,
+      "all_running_pods_ready": true,
+      "down_exit": 0,
+      "cleanup": {
+        "qemu_absent": true,
+        "runtime_root_absent": true,
+        "open_handles": 0,
+        "protected_t8_identity_unchanged": true
+      }
+    }
+  },
+  "private_original_sha256": {
+    "arm64-results.json": "02e0359a5307c1390d6d272e5c10aaa0e649174e5c42798de75693876b24c283",
+    "arm64-up.log": "c765f510eb6c8b8d32c0f8ad36b1ef4090f41ceab32db646ba13edf36044720a",
+    "arm64-verify.txt": "b71b74d9a97a10dfc7241ea31be34150b9cc5a12a47913c13e28a6fe48df3d15",
+    "arm64-verify-after-reboot.txt": "b71b74d9a97a10dfc7241ea31be34150b9cc5a12a47913c13e28a6fe48df3d15",
+    "arm64-kube-bench.json": "6fa95ab33fc2bae2e1dd9beedc1fa8bb785e59fe30b0cb8bd90914883ec57f0b",
+    "x86_64-results.json": "355e685442f293d0880f0db153ac852a506cd04634f02f1c9c841e7c05e41adf",
+    "x86_64-up.log": "7a717f5ef901917b5f6cb2bdbcf3a4c7e8c64664acbeee1b91741af4f0b526de",
+    "x86_64-verify.txt": "b71b74d9a97a10dfc7241ea31be34150b9cc5a12a47913c13e28a6fe48df3d15",
+    "x86_64-verify-after-reboot.txt": "b71b74d9a97a10dfc7241ea31be34150b9cc5a12a47913c13e28a6fe48df3d15",
+    "x86_64-kube-bench.json": "9a1f2f47edb69bf7ec8d128563a2e3bfaffa5ef6659ad5da3bac309a798a9e7f",
+    "first-x86_64/x86_64-results.json": "3fda4d4dcab7cca547a4cc3926220d02cd79306609f05dad0c10339fbf472306",
+    "exit-state-probe-before.json": "a9245caf615aef4cb602945b7bf08bba3843cc6d342c68aa2c92f81976490b12",
+    "exit-state-probe.json": "0a327a53865630c204361496993d9db85802d66c0b1e3e8a9a6f017dfaeffc59",
+    "repository-tests-final.txt": "164d6980afe2ceb309bc7376935e7ce868b528489be4e20bc9b92cc886361ccb",
+    "actual-port-collision.json": "4897e2b4785485d51aafa16623bf760ba77a318b07cd110ab543f38e72cd8e46",
+    "final-cleanup-receipt.json": "75177edd008452699925b05785508073a53af8cc97342a9f8a314b89a1a5e1c1"
+  },
+  "tool_versions": {
+    "macos": "27.0",
+    "python": "3.14.6",
+    "qemu_arm64": "QEMU emulator version 11.1.3",
+    "qemu_x86_64": "QEMU emulator version 11.1.3"
+  },
+  "execution_commit": "dd03235cfa20dcbdb04974f75591465df03b4df9",
+  "source_sha256": {
+    "infra/envs/onprem/local-vm.sh": "046112346c51c6ca43fb0da416152e8241f9c3499f596f5d954ae1a908fb581b",
+    "infra/envs/onprem/local_vm.py": "f395ffcc6242369a83b7fb870b6d9f238c43a6b5bcf75a9cffd209d4db0532a2",
+    "infra/envs/onprem/render-user-data.sh": "25cbb35125cdbc8c81b9b29ca6dce56022115f49cb4c42382c320037e0b82708",
+    "infra/shared/rke2/bootstrap.sh": "c183719d2cc9d648c4b3aebb90fc1e4f798f7b10ac795019872715c267aa0376",
+    "infra/envs/onprem/verify-node.sh": "69cbe2e0242fa9e150f4f56bb37d5615e75c5e33f82efdf8fec4fc190d7ba593",
+    "infra/envs/onprem/run-kube-bench.sh": "e794b1be9e62e0b0e08131a008b27ceff755c9d6ac7b68a5ba5c6bfdc4922654"
+  },
+  "terminal_state_regression": {
+    "actual_qemu_memory_gib": 8,
+    "observed_states": [
+      "S",
+      "?E",
+      "PID absent"
+    ],
+    "before_down_exit": 1,
+    "after_down_exit": 0,
+    "before_behavior": "Preserved state on truncated comm while process was exiting.",
+    "after_behavior": "Waited for actual PID absence, then removed owned VM state.",
+    "after_cleanup": {
+      "process_absent": true,
+      "root_absent": true,
+      "open_handles": 0
+    }
+  },
+  "first_x86_attempt": {
+    "overall_result": "FAIL",
+    "reason": "Immediate system-pod snapshot after node verification contained pods still recovering.",
+    "up_exit": 0,
+    "up_total_seconds": 977.446,
+    "kube_bench": {
+      "total_pass": 82,
+      "total_fail": 0,
+      "total_warn": 41,
+      "total_info": 7
+    },
+    "reboot_node_verified_seconds": 177.136,
+    "down_exit": 0,
+    "runtime_root_absent": true,
+    "retry_change": "Same product source, bounded wait for two consecutive complete system-pod ready snapshots."
+  },
+  "local_regression": {
+    "tests": 177,
+    "pass": 177,
+    "skip": 0,
+    "actual_qemu_opt_in": true
+  },
+  "actual_port_collision": {
+    "observed_at": "2026-11-03T12:10:33.698821+00:00",
+    "result": "PASS",
+    "up_exit": 1,
+    "diagnostic": "VM up failed: ssh_port is already in use; choose a separate port. State preserved.",
+    "existing_arm_and_t8_unchanged": true,
+    "new_vm_not_created": true,
+    "temporary_state_removed": true
+  },
+  "final_cleanup": {
+    "observed_at": "2026-11-03T12:38:29.365642+00:00",
+    "all_temp_roots_absent": true,
+    "all_probe_qemu_absent": true,
+    "all_sleep_helpers_absent": true,
+    "protected_t8_identity_unchanged": true,
+    "shared_qemu_retained": true
+  },
+  "limitations": [
+    "Intel Mac host and physical x86 machine not measured.",
+    "App OCI multi-architecture publishing and T8/T30 integration not tested here.",
+    "Final event demo machine remains unassigned; issue 6 item 3 is not completed.",
+    "41 CIS WARN items are not passes; no blanket CIS compliance claim.",
+    "Raw private resources cannot be independently identified from this selected public summary."
+  ]
+}

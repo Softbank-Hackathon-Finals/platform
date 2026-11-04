@@ -1,0 +1,25 @@
+{
+  "observed_at": "2026-11-03T09:59:37+00:00",
+  "ssm_status": "Success",
+  "ssm_response_code": 0,
+  "script_sha256": "39df7b2268d778701c8100387bf76f5892033573027cb3e7fb6889768bf8ac75",
+  "host": {
+    "provider_installed": true,
+    "provider_binary_sha256": "83c7897cc39d94502189e5412f70f79fa0dbe64cb7b05b74d10bf955b6930f4a",
+    "previous_known_binary_replaced": false,
+    "provider_authentication_from_host_role_verified": true,
+    "provider_response_cache_duration": "6h0m0s",
+    "provider_response_cache_key_type": "Registry",
+    "kubelet_provider_flags_verified": true,
+    "original_rke2_config_unchanged": true,
+    "rke2_service_restarted": false,
+    "node_count": 1,
+    "ready_node_count": 1,
+    "system_pod_count": 17,
+    "ready_system_pod_count": 17,
+    "long_lived_registry_credentials_written": false,
+    "kubernetes_pull_secret_created": false,
+    "cluster_image_pull_verified": false,
+    "credential_renewal_after_expiry_observed": false
+  }
+}

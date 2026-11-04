@@ -1,0 +1,12 @@
+{
+  "execution_started_at": "2026-11-03T10:59:51.555Z",
+  "execution_finished_at": "2026-11-03T11:00:06.555Z",
+  "ssm_status": "Success",
+  "response_code": 0,
+  "result": {
+    "database_pod_recreated": true,
+    "ready": true,
+    "old_uid_sha256": "b23a9edf4b527cbfef6dfb7692a6101b52d6a390a95b876b75cb09e5fbf9a412",
+    "new_uid_sha256": "b24e76f28d95eff1d0872211c663692b99e7107c9fc51a1e86be03bdf2d7feab"
+  }
+}

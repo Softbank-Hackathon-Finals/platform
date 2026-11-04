@@ -1,0 +1,14 @@
+{
+  "t10_commit": "4d670fb565fba2fde9d7c7eb84776c5a7f211def",
+  "t10_develop_merge": "7449745f35318aff5b5a187e7e31dfa8be107e95",
+  "initial": {
+    "bundle_sha256": "8b673abc5c2d4c5954149ecb7d9f48e6c80ee9825b781023e318321058079b8b"
+  },
+  "recovery": {
+    "bundle_sha256": "462f26828815368cb57f7fc27688f28fead4acec67cea5edf0ae7d2e70dc9278"
+  },
+  "sql": {
+    "bootstrap_roles.sql": "f474e0b4cdb3e618d71e6ad0accd7df4337ee70ed0b5ded90424b499369149ce",
+    "0001_state_event.sql": "26d2d4291df7e342e6b17110d6f85e998c22aa1f4005ed036baece612fe084a2"
+  }
+}

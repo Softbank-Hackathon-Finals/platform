@@ -1,0 +1,27 @@
+{
+  "status": "PASS",
+  "checks": {
+    "collector_can_read_workload": true,
+    "collector_denied_secret_read": true,
+    "collector_denied_other_namespace": true,
+    "collector_denied_token_escalation": true,
+    "collector_denied_pod_create": true,
+    "collector_denied_other_config_write": true,
+    "collector_denied_pooler_write": true,
+    "collector_denied_exec": true,
+    "executor_can_read_workload": true,
+    "executor_denied_secret_read": true,
+    "executor_denied_other_namespace": true,
+    "executor_denied_token_escalation": true,
+    "executor_denied_pod_create": true,
+    "executor_denied_other_config_write": true,
+    "executor_denied_exec": true,
+    "executor_exact_config_patch": true,
+    "pooler_data_unchanged": true,
+    "other_annotations_unchanged": true
+  },
+  "check_count": 18,
+  "auth": "actual_TokenRequest_10m",
+  "pooler_data_sha256": "5bec3c0d7394d39c721469d823bb57ef2aab67ba0ba2b4b5ae65cd34968385a7",
+  "cutover_executed": false
+}

@@ -56,5 +56,5 @@ pgx와 client-go를 쓴다.
 
 **남은 일**
 
-* PgBouncer 관리 콘솔(`PAUSE` · `RELOAD` · `RESUME`)은 simple query protocol만 받는 것으로 알고 있다. psycopg 3(autocommit, `ClientCursor`)으로 실제로 명령이 통하는지 k3d에서 확인한다. 통하지 않으면 관리 콘솔 접속만 다른 방식으로 바꾸고, 이 ADR에 결과를 적는다.
+* ~~PgBouncer 관리 콘솔에 psycopg 3으로 명령이 통하는지 확인~~ → 확인함(2026-11-03, PgBouncer 1.26.1): 기본 커서와 `ClientCursor` 모두 `PAUSE` · `RELOAD` · `RESUME` · `SHOW`가 통한다. Executor는 `ClientCursor` + autocommit을 쓴다. 실행 기록과 실패 판정은 [ADR-0011](0011-cutover-executor-execution-and-failure.md).
 * 공용 JSON Schema(Executor 입출력, 무결성 영수증)를 T10과 같이 쓰는 방법은 T10 담당과 정한다.

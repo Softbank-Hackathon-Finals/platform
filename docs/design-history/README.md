@@ -27,10 +27,15 @@
 
 | 버전 | 기간 | 파일 | 무엇이 바뀌었나 | 관련 ADR |
 |---|---|---|---|---|
-| **v0.3 (현재 초안)** | 2026-11-03 ~ | [`docs/design.html`](../design.html) | 8.9 계획 조회 제안: 상태 · 이벤트 원자 저장, snapshot watermark, SSE와 동일한 계획 접근 정책 | [ADR-0008](../adr/0008-plan-state-event-transaction.md) |
+| **v0.4 (현재 초안)** | 2026-11-03 ~ | [`docs/design.html`](../design.html) | 8.3 모델 제공자와 S2 CI 실패 분석: 관리자 구독(SIWC) 기반 OpenAI Responses 워커, 선택형 Claude 어댑터, 제안·검증·반영 경계 | [ADR-0007](../adr/0007-model-provider-and-s2-ci.md) |
+| v0.3 | 2026-11-03 | [`design-v0.3.html`](design-v0.3.html) | 8.9 계획 조회 제안: 상태 · 이벤트 원자 저장, snapshot watermark, SSE와 동일한 계획 접근 정책 | [ADR-0008](../adr/0008-plan-state-event-transaction.md) |
 | v0.2 | 2026-11-03 | [`design-v0.2.html`](design-v0.2.html) | 8.4 리허설 네임스페이스 격리 규칙: 송신 허용 범위에 시험용 SeaweedFS · OpenBao(지정 Pod · 포트)를 넣고, 서버 안 권한(T9)을 격리의 일부로 명시. 7.5 네트워크 경로 규칙 표에 허용 줄 추가 | [ADR-0002](../adr/0002-rehearsal-egress-allowlist.md) |
 | v0.1 | 2026-11-02 ~ 2026-11-03 | [`design-v0.1.html`](design-v0.1.html) · [태그](https://github.com/Softbank-Hackathon-Finals/platform/tree/design-v0.1) | 첫 버전 (11/2 회의 반영: 역할별 담당자, 이전 대상 추천 P1) |  |
 
 ### v0.3 보관 기준
 
 개발 정본인 `develop`의 `c7822e5fb1f6b4adea4392914ff4010e5a258dcd`에서 v0.2를 바이트 그대로 보관했다. 당시 bump 스크립트는 `origin/main`을 읽고 원격 태그를 자동 게시했으므로 해당 변경에는 실행하지 않았다. 이후 도구는 위의 로컬 준비 절차로 수정했다. 기존 사본과 그 보관 기준은 그대로 유지한다.
+
+### v0.4 보관 기준
+
+T10의 v0.3이 먼저 병합되어, 개발 정본 `develop`의 `2c43d59914efe9a59133ce285923faa185dcbfe5`에서 v0.3을 바이트 그대로 보관했다. 이미 보관된 v0.2는 변경하지 않았다. T11의 모델 제공자 제안은 v0.4로 구분하고 T10 계획 조회 계약은 유지한다. 보관 당시 bump 스크립트는 `origin/main`과 원격 태그 게시를 전제로 하므로 사본을 직접 보관했다. 이후 도구는 위의 로컬 준비 절차로 수정됐으며, 이 이력과 기존 보관본은 당시 기준을 유지한다.

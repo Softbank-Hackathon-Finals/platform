@@ -24,6 +24,61 @@ Private input also supplies an exact AL2023 EKS release, vpc-cni addon version a
 
 One managed node starts by default; max size 2 is a limit, not an autoscaler installation or HA guarantee. EKS manages its cluster SG. This foundation does not claim workload egress isolation or T3/T14 pass results. Kubernetes network policies and app permissions require their own real deny tests.
 
+## Network policy enforcement
+
+The VPC CNI add-on explicitly sets `enableNetworkPolicy` to the string `"true"`
+through `configuration_values`. The version remains the reviewed input and
+the CNI retains its dedicated IRSA role. Updates use
+`resolve_conflicts_on_update = "PRESERVE"` for existing managed-field conflicts;
+this is not a substitute for reading and preserving the add-on's current
+version, role and any additional configuration when coordinating a live update.
+See the [AWS enablement procedure](https://docs.aws.amazon.com/eks/latest/userguide/cni-network-policy-configure.html).
+
+For a live `UpdateAddon` request, explicitly include the currently verified
+dedicated CNI `serviceAccountRoleArn`; with the CLI, pass
+`--service-account-role-arn "$CURRENT_CNI_ROLE_ARN"`. Preserve the reviewed
+version and other configuration in the same request. After reconciliation,
+compare the returned role ARN with the `eks.amazonaws.com/role-arn` annotation
+on `kube-system/aws-node`. Verify that each newly created CNI Pod has the
+expected `AWS_ROLE_ARN` and `AWS_WEB_IDENTITY_TOKEN_FILE` injection and becomes
+Ready without CNI IAM errors. Keep actual role values private and do not read
+or print the web identity token. The add-on ARN field alone is insufficient
+evidence that the running CNI uses that identity.
+
+During one observed activation, the first update request omitted the existing
+role ARN. The in-progress add-on still reported that role, but the service
+account annotation was absent and new CNI Pods lacked the web identity
+environment. They failed readiness with `MissingIAM` for
+`ec2:DescribeNetworkInterfaces`; the previous Pod had the dedicated-role
+environment. Once that update completed, its add-on role field was also absent.
+This matches the [UpdateAddon API contract](https://docs.aws.amazon.com/eks/latest/APIReference/API_UpdateAddon.html#API_UpdateAddon_RequestBody):
+omitting this role selects the node's IAM permissions. `PRESERVE` did not supply
+the missing request field. Restoring the original service-account annotation,
+replacing only the affected CNI Pod with a UID precondition, and explicitly
+resubmitting the same dedicated role restored ACTIVE/Ready with identity
+agreement at all three layers. No IAM permissions were broadened. Readiness
+and identity recovery remain distinct from actual traffic-denial verification.
+
+Creating a NetworkPolicy or seeing a healthy nodeagent container is insufficient.
+The pinned VPC CNI chart defaults the feature to
+[`"false"`](https://github.com/aws/amazon-vpc-cni-k8s/blob/7bb32b54d7c56f3ee3c5a63bddf97c4af49ea8ec/charts/aws-vpc-cni/values.yaml#L124-L126),
+and nodeagent 1.4.3 initializes the policy controllers and eBPF client only when
+[enforcement is enabled](https://github.com/aws/aws-network-policy-agent/blob/6b9c41cc2a373ad990faca10173cda64d4aace41/main.go#L107-L133).
+Before treating a policy as enforced, verify the live add-on configuration,
+the nodeagent's `--enable-network-policy=true` argument, and generated
+`PolicyEndpoint` objects that select the intended Pods and resolve the intended
+caller addresses and ports. Inspect reconciliation errors and eBPF attachment
+when these observations disagree; do not edit the managed PolicyEndpoints.
+
+After reconciliation, test fresh connections from the actual permitted
+workload and from callers with the wrong label and wrong namespace. Record
+the current policy and Pod identities with those results. For the source pooler
+route, the real PgBouncer must still establish its verified TLS DB connection
+while unauthorized callers cannot use the proxy's business ports. Standard
+startup mode initially allows traffic until policies are programmed; this
+change does not switch the entire cluster to strict mode. Neither mocked
+Terraform tests nor an enabled argument prove runtime denial.
+
 ## Logs, validation and ownership
 
 All five EKS control-plane log types are enabled. CloudWatch audit logs and Kubernetes Secrets use a rotating CMK. Retention is seven days for the demo. CloudTrail management/data-event logging and DB pgAudit are separate follow-ups; EKS audit does not substitute for them.

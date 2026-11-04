@@ -1,0 +1,12 @@
+{
+  "execution_started_at": "2026-11-03T12:06:37.248Z",
+  "execution_finished_at": "2026-11-03T12:06:37.248Z",
+  "ssm_status": "Success",
+  "response_code": 0,
+  "result": {
+    "removed_probe_jobs": 1,
+    "immutable_bundles_preserved": true,
+    "temporary_download_policy_removed": true,
+    "database_resources_preserved": true
+  }
+}
