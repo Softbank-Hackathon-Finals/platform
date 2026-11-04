@@ -149,7 +149,6 @@ class RefusalTests(unittest.TestCase):
                               (not_subscribed, "barrier_not_subscribed"),
                               (changed(["target", "barrier_readable"], False), "barrier_not_readable_on_target"),
                               (changed(["source", "barrier_readable"], False), "barrier_not_readable_on_source"),
-                              (changed(["target", "origin_readable"], False), "applied_position_unreadable"),
                               (changed(["probe_allowed"], False), "barrier_probe_not_permitted")):
             with self.subTest(reason=reason):
                 self.assertEqual(resume.refusals(state), [])
@@ -157,6 +156,10 @@ class RefusalTests(unittest.TestCase):
 
     def test_a_probe_role_that_could_not_be_read_is_not_permitted(self):
         self.assertIn("barrier_probe_not_permitted", resume.refusals(changed(["probe_allowed"], None), probe=True))
+
+    def test_a_role_that_cannot_read_the_applied_position_can_still_probe(self):
+        # The Executor's role cannot read it. A marker's round trip proves the same thing.
+        self.assertEqual(resume.refusals(changed(["target", "origin_readable"], False), probe=True), [])
 
     def test_a_barrier_copy_still_running_is_not_subscribed(self):
         state = healthy()
@@ -220,6 +223,16 @@ class EnableMethodTests(unittest.TestCase):
 
     def test_hashes_do_not_depend_on_the_session_time_zone(self):
         self.assertIn("timezone=UTC", resume.READ_ONLY_OPTIONS)
+
+    def test_hashing_never_holds_a_whole_table_in_one_value(self):
+        # A row digest per row, then a digest of those: 200 MB of rows must not sit in one backend of a 1 GiB database.
+        statement = resume.STATEMENTS["business_tables"]
+        self.assertIn("string_agg(encode(sha256(convert_to(m::text", statement)
+        self.assertIn("string_agg(encode(sha256(convert_to(a::text", statement)
+
+    def test_the_command_does_not_mistake_its_own_closing_session_for_a_control_session(self):
+        for name in ("source_status", "target_status"):
+            self.assertIn("application_name <> 't8_resume'", resume.STATEMENTS[name])
 
 
 class NamingTests(unittest.TestCase):
@@ -422,6 +435,17 @@ class PostCheckTests(unittest.TestCase):
         self.assertEqual(firsts["received_fixed"]["elapsed_s"], 1)
         self.assertEqual(firsts["applied_fixed"]["elapsed_s"], 2)
         self.assertEqual(firsts["applied_fixed"]["db_utc"], "2026-11-04T07:26:46+00:00")
+
+    def test_a_later_phase_continues_from_the_last_sample_of_the_one_before(self):
+        firsts = {}
+        behind = caught_up()
+        behind["target"]["target_origin_remote_lsn"] = None
+        earlier = self.run_loop([behind], settle=0)
+        self.assertEqual(earlier["last_sample_s"], 0)
+        clock = Clock()
+        resume.post_check(resume.baseline_of(healthy()), caught_up, lambda: caught_up()["target_rows"], firsts=firsts,
+                          previous_sample=9.5, timeout=3, settle=0, poll=1, clock=clock, sleep=clock.sleep)
+        self.assertEqual(firsts["applied_fixed"]["previous_sample_s"], 9.5)
 
     def test_the_first_sample_has_no_sample_before_it(self):
         firsts = {}
@@ -722,6 +746,38 @@ class RunTests(unittest.TestCase):
             self.apply_flow("--settle", "0.01")
         self.assertEqual(order, [("check", 0), ("check", 0.01)])
 
+    def test_without_origin_access_the_round_trip_is_the_proof(self):
+        state = {"value": changed(["target", "origin_readable"], False)}
+        events = []
+
+        def read(dsn, name, params=None):
+            if name == "barrier_row":
+                return {"barrier_id": "x"} if events.count("insert") and not events.count("delete") else None
+            return fake_read(state["value"])(dsn, name, params)
+
+        def enable(*_):
+            after = caught_up()
+            after["target"].update(origin_readable=False, target_origin_remote_lsn=None)
+            state["value"] = after
+
+        def write(_dsn, statement, _params):
+            events.append("insert" if statement.startswith("INSERT") else "delete")
+            return "0/6000190"
+
+        with (patch.object(resume, "read_one", side_effect=read), patch.object(resume, "enable", side_effect=enable),
+              patch.object(resume, "write_marker", side_effect=write)):
+            buffer = io.StringIO()
+            with redirect_stdout(buffer):
+                code = resume.main(["--apply", *PINS, *FAST], ENVIRON)
+        report = json.loads(buffer.getvalue())
+        self.assertEqual(code, 0, report)
+        self.assertNotIn("applied_fixed", report["post_check"]["checks"])
+        self.assertEqual(report["continuity"]["applied_position"], "implied_by_marker")
+
+    def test_the_applied_position_is_read_when_the_role_may(self):
+        _, report, _ = self.apply_flow()
+        self.assertEqual(report["continuity"]["applied_position"], "read_from_origin")
+
     def test_no_marker_means_a_plain_final_stage_and_no_applied_requirement(self):
         code, report, events = self.apply_flow("--no-barrier-probe")
         self.assertEqual(code, 0, report)
@@ -838,7 +894,7 @@ class RunTests(unittest.TestCase):
         self.assertEqual(report["stage"], "marker")
 
     def test_new_errors_after_the_marker_fail_the_run(self):
-        results = iter([{"passed": True}, {"passed": False}])
+        results = iter([{"passed": True, "last_sample_s": 1}, {"passed": False}])
         with patch.object(resume, "post_check", side_effect=lambda *_a, **_k: next(results)):
             code, report, _ = self.apply_flow()
         self.assertEqual(code, 1)

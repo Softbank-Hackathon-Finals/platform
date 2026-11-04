@@ -69,7 +69,7 @@ STATEMENTS = {
             'barrier_readable', {BARRIER_READABLE},
             'source_app_login', (SELECT rolcanlogin FROM pg_roles WHERE rolname = 'chat_app'),
             'control_sessions', (SELECT count(*) FROM pg_stat_activity
-                                 WHERE usename = 'cutover_control' AND pid <> pg_backend_pid()),
+                                 WHERE usename = 'cutover_control' AND application_name <> 't8_resume'),
             'source_wal_sender_timeout_ms', (SELECT setting::bigint FROM pg_settings WHERE name = 'wal_sender_timeout'),
             'max_slot_wal_keep_size', current_setting('max_slot_wal_keep_size'),
             'slot_exists', s.slot_name IS NOT NULL, 'slot_type', s.slot_type,
@@ -101,7 +101,7 @@ STATEMENTS = {
             'app_sessions', (SELECT count(*) FROM pg_stat_activity
                              WHERE usename = 'chat_app' AND pid <> pg_backend_pid()),
             'control_sessions', (SELECT count(*) FROM pg_stat_activity
-                                 WHERE usename = 'cutover_control' AND pid <> pg_backend_pid()),
+                                 WHERE usename = 'cutover_control' AND application_name <> 't8_resume'),
             'target_wal_receiver_timeout_ms', (SELECT setting::bigint FROM pg_settings WHERE name = 'wal_receiver_timeout'),
             'reverse_slot_active', (SELECT active FROM pg_replication_slots WHERE slot_name = %(reverse)s),
             'barrier_readable', {BARRIER_READABLE},
@@ -137,15 +137,16 @@ STATEMENTS = {
             'attachments', (SELECT count(*) FROM public.attachments))
         FROM public.messages""",
     # Bounded by the first source snapshot. The application only inserts, so these rows cannot change.
+    # A digest per row, then a digest of those: a whole table must not sit in one value of a 1 GiB database.
     "business_tables": """
         SELECT json_build_object(
             'messages', (SELECT json_build_object(
                              'rows', count(*),
-                             'sha256', encode(sha256(convert_to(coalesce(string_agg(m::text, E'\n' ORDER BY m.id), ''), 'UTF8')), 'hex'))
+                             'sha256', encode(sha256(convert_to(coalesce(string_agg(encode(sha256(convert_to(m::text, 'UTF8')), 'hex'), '' ORDER BY m.id), ''), 'UTF8')), 'hex'))
                          FROM public.messages AS m WHERE m.id <= %(messages_max_id)s),
             'attachments', (SELECT json_build_object(
                                 'rows', count(*),
-                                'sha256', encode(sha256(convert_to(coalesce(string_agg(a::text, E'\n' ORDER BY a.id), ''), 'UTF8')), 'hex'))
+                                'sha256', encode(sha256(convert_to(coalesce(string_agg(encode(sha256(convert_to(a::text, 'UTF8')), 'hex'), '' ORDER BY a.id), ''), 'UTF8')), 'hex'))
                             FROM public.attachments AS a WHERE a.created_at <= %(attachments_max_created_at)s::timestamptz))""",
     "barrier_row": """
         SELECT json_build_object('barrier_id', barrier_id, 'epoch', epoch, 'created_at', created_at)
@@ -341,8 +342,6 @@ def probe_refusals(state):
         found.append("barrier_not_readable_on_target")
     if source and not source["barrier_readable"]:
         found.append("barrier_not_readable_on_source")
-    if target and not target["origin_readable"]:
-        found.append("applied_position_unreadable")
     if state.get("probe_allowed") is not True:
         found.append("barrier_probe_not_permitted")
     return found
@@ -454,17 +453,17 @@ def lsn_text(position):
 
 
 def post_check(baseline, read_state, read_rows, *, timeout, settle, poll, firsts=None, applied_floor=None,
-               elapsed=None, clock=time.monotonic, sleep=time.sleep):
+               previous_sample=None, elapsed=None, clock=time.monotonic, sleep=time.sleep):
     """Pass only after every check holds for the whole settle period. Unconfirmed at the deadline is a failure."""
     started = clock()
     since_start = elapsed or (lambda: clock() - started)
     checks, read_errors, worker_pids, positions = {}, {}, set(), {}
-    arrived, good_since, cleared_at, previous = False, None, None, None
+    arrived, good_since, cleared_at, previous = False, None, None, previous_sample
 
     def result(passed, reason):
         return {"passed": passed, "reason": reason, "checks": checks, "seconds": round(clock() - started, 1),
                 "confirmed_fixed_seconds": cleared_at, "positions": positions, "read_errors": read_errors,
-                "worker_pids_seen": len(worker_pids)}
+                "worker_pids_seen": len(worker_pids), "last_sample_s": round(now, 4)}
 
     while True:
         now = since_start()
@@ -713,13 +712,16 @@ class Run:
             marker = self.send_marker()
             if not marker["passed"]:
                 return
-            # Its commit is past the fixed position, so the applied position must now have passed both.
-            applied_floor = parse_lsn(marker["delete_lsn_before_commit"])
+            # Its commit is past the fixed position, so the applied position must now have passed both. Reading
+            # it takes more than pg_read_all_stats. Where the role cannot, the delete's arrival proves the same.
+            readable = target["origin_readable"]
+            report["continuity"]["applied_position"] = "read_from_origin" if readable else "implied_by_marker"
+            applied_floor = parse_lsn(marker["delete_lsn_before_commit"]) if readable else None
         else:
             report["marker"] = report.get("marker", {"state": "skipped_by_operator"})
         report["stage"] = "post_check"
-        report["post_check"] = post_check(baseline, status, rows, timeout=args.timeout, settle=args.settle,
-                                          applied_floor=applied_floor, **common)
+        report["post_check"] = post_check(baseline, status, rows, timeout=args.timeout, settle=args.settle, applied_floor=applied_floor,
+                                          previous_sample=report["catch_up"]["last_sample_s"], **common)
         if not report["post_check"]["passed"]:
             return
         if not self.probe:
