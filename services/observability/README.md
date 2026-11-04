@@ -90,7 +90,7 @@ T18 부하 생성기가 창 요약을 보내는 곳이다. 콘솔 조회 API와 
 - **창 수신 인가:** 조회와 다른 Bearer 토큰. 조회 API에는 수신 경로가 없고, 창 수신에는 조회 경로가 없다.
 - **NetworkPolicy**
   - Collector는 `bravo.observability/send=true` 라벨 네임스페이스에서만 받는다. 나가는 연결은 DNS와 저장소 포트, DB 오버레이면 API 서버와 9187.
-  - 저장소는 같은 네임스페이스의 Collector · 조회 API, `platform-client` 라벨 네임스페이스, Tailscale 대역만 받는다. 나가는 연결은 없다.
+  - 저장소는 같은 네임스페이스의 Collector · 조회 API, `platform-client` 라벨 네임스페이스, 이 저장소 전용 Tailscale operator proxy Pod만 받는다. 나가는 연결은 없다.
   - 조회 API는 `platform-client` 라벨 네임스페이스에서만 받고, 저장소 9090으로만 나간다.
   - 창 수신은 `bravo.observability/window-producer=true` 라벨 네임스페이스와 Tailscale 대역(노드 포트 30981)에서만 받는다. 콘솔 네임스페이스도 보낼 수 없다. 나가는 연결은 없다(DNS 포함). 전송 암호화는 Tailscale이 한다.
   - 라벨은 `kubectl label`로 붙인다(Namespace 매니페스트를 apply하면 없는 라벨이 지워진다).
@@ -102,6 +102,22 @@ T18 부하 생성기가 창 요약을 보내는 곳이다. 콘솔 조회 API와 
   - Secret: `bravo-collector-tls`, `bravo-prometheus-tls`, `bravo-observability-api-tls`, `bravo-observability-api-token`, `bravo-window-intake-token`
   - ConfigMap: `bravo-collector-env`(`BRAVO_ENV`, `PLATFORM_OTLP_ENDPOINT`, DB 오버레이면 `BRAVO_DB_NAMESPACE`), `bravo-window-intake`(`plans`)
 - 리허설 네임스페이스에는 Collector로 가는 송신 예외를 열지 않는다(ADR-0002).
+
+### tailnet 노출 (다른 클러스터의 Collector → 지표 저장소)
+
+플랫폼 노드에는 호스트 Tailscale이 없고, T7이 설치한 Tailscale operator(`tailscale-system`)만 있다. 그래서 노드 주소(NodePort)가 아니라 operator Service로 노출한다. 출발지(AWS)와 플랫폼은 VPC가 달라 출발지에서 플랫폼으로 가는 새 연결이 닫혀 있으므로(`infra/envs/aws-foundation`), 두 환경의 Collector 모두 tailnet으로 들어온다.
+
+| 항목 | 값 |
+|---|---|
+| Service | `bravo-prometheus-tailnet` (`tailscale.com/expose`), tailnet 이름 `bravo-metrics`, 태그 `tag:bravo-metrics` |
+| Collector 주소 | `PLATFORM_OTLP_ENDPOINT=https://bravo-metrics.<tailnet>.ts.net:9090/api/v1/otlp`. 서버 인증서 SAN에 이 이름을 넣는다([인증서](../../docs/observability/certificates.md)) |
+| NetworkPolicy | `tailscale-system`의 이 Service proxy Pod만(`tailscale.com/parent-resource=bravo-prometheus-tailnet` 등 4개 라벨). Tailscale 대역 허용은 없앴다 |
+| tailnet ACL (T30 제안) | `tag:bravo-metrics`의 소유자는 플랫폼 operator 태그. Collector 쪽 태그에서 `tag:bravo-metrics:9090`만 허용 |
+
+- **출발지 주소:** operator proxy는 받은 연결을 이 Service로 DNAT하고, 응답이 proxy로 돌아오도록 tailscaled가 출발지를 proxy Pod 주소로 바꾼다. 그래서 저장소가 보는 출발지는 Tailscale 주소가 아니라 proxy Pod다. 고정 소스(1.104.4)로 판단했다.
+  - **실제 플랫폼 근거:** T10 창 수신이 같은 방식(ClusterIP + `tailscale.com/expose`, `tailscale-system`의 같은 4개 proxy 라벨만 허용하는 NetworkPolicy)으로 실제 AWS 플랫폼에서 HTTP 201을 받았다. 허용 태그는 응답을 받았고 다른 태그는 연결 시간 초과였다([T10 증빙](../../docs/evidence/t10-window-ingress-2026-11-04/README.md)). 그러니 operator 위치, proxy 라벨, proxy Pod를 출발지로 보는 정책은 실제 환경과 맞는다. 지표 저장소 Service 자체는 아직 배포하지 않았다.
+- **Collector 쪽 경로:** 온프렘은 노드에 Tailscale이 있어 위 주소로 바로 나간다. 노드에 Tailscale이 없고 operator만 있는 클러스터는 operator egress Service가 필요하다. 이때 proxy가 포트를 `[10000, 11000)`으로 바꾸므로 Collector egress 정책은 T12 `infra/envs/executor-network`처럼 실제 포트를 읽어 만든다(후속).
+- **k3s 시험의 한계:** operator가 없어 실제 tailnet 경로는 재지 않는다. 같은 라벨의 Pod로 NetworkPolicy가 이 proxy만 받는지 본다.
 
 ### 자원 (실측)
 
@@ -140,7 +156,7 @@ T18 부하 생성기가 창 요약을 보내는 곳이다. 콘솔 조회 API와 
 
 ```sh
 services/observability/testing/run.sh        # compose: 20항목
-services/observability/testing/k8s.sh        # k3s + CNPG + 창 수신 + DB 출처 회귀: 20항목 (helm 필요)
+services/observability/testing/k8s.sh        # k3s + CNPG + 창 수신 + DB 출처 회귀 + tailnet 노출: 22항목 (helm 필요)
 services/observability/testing/rotation.sh   # 인증서 교체: 14항목, 약 1분 반
 ```
 

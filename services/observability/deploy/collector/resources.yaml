@@ -144,7 +144,6 @@ spec:
       ports:
         - {port: 53, protocol: UDP}
         - {port: 53, protocol: TCP}
-    # 플랫폼 지표 저장소 포트만. 목적지 주소는 환경마다 다르므로 배포할 때 ipBlock으로 더 좁힌다
+    # 플랫폼 지표 저장소의 tailnet 포트(bravo-metrics:9090)만. 목적지 주소는 환경마다 다르므로 배포할 때 ipBlock으로 더 좁힌다
     - ports:
         - {port: 9090, protocol: TCP}
-        - {port: 30990, protocol: TCP}

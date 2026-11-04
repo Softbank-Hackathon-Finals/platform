@@ -10,7 +10,7 @@ Collector → 지표 저장소, 콘솔 API → 지표 저장소는 모두 mTLS�
 | 출발지 Collector | `collector-aws` | Secret `bravo-collector-tls` (출발지 클러스터) | 30일 |
 | 목적지 Collector | `collector-onprem` | Secret `bravo-collector-tls` (목적지 클러스터) | 30일 |
 | 콘솔 API | `console-api` | Secret `bravo-observability-api-tls` | 30일 |
-| 지표 저장소(서버) | `prometheus` + Collector가 부르는 주소 전부(서비스 DNS, 노드 주소) | Secret `bravo-prometheus-tls` | 30일 |
+| 지표 저장소(서버) | `prometheus` + Collector가 부르는 주소 전부(서비스 DNS, tailnet 이름 `bravo-metrics.<tailnet>.ts.net`) | Secret `bravo-prometheus-tls` | 30일 |
 
 - 클라이언트 이름은 지표 저장소 `web.yml`의 `client_allowed_sans`에 있어야 한다. 발급 스크립트는 이름이 SAN에 없으면 발급하지 않는다.
 - 환경 이름과 인증서 이름은 묶이지 않는다(README "남는 위험"). 인증서는 환경마다 따로 발급하고 다른 환경에 복사하지 않는다.
@@ -23,7 +23,7 @@ Collector → 지표 저장소, 콘솔 API → 지표 저장소는 모두 mTLS�
 I=services/observability/deploy/certs/issue.sh
 $I ca  ./obs-ca 90                                                     # CA 키는 이 디렉터리 밖으로 내보내지 않는다
 $I leaf ./obs-ca collector-onprem DNS:collector-onprem ./out/collector-onprem
-$I leaf ./obs-ca prometheus "DNS:prometheus,DNS:bravo-prometheus.bravo-observability.svc,IP:<플랫폼 노드 Tailscale 주소>" ./out/prometheus
+$I leaf ./obs-ca prometheus "DNS:prometheus,DNS:bravo-prometheus.bravo-observability.svc,DNS:bravo-metrics.<tailnet>.ts.net" ./out/prometheus
 kubectl -n bravo-observability create secret generic bravo-collector-tls \
   --from-file=./out/collector-onprem/ca.crt --from-file=./out/collector-onprem/tls.crt --from-file=./out/collector-onprem/tls.key
 ```
