@@ -1,4 +1,7 @@
 """Bounded diagnostics for local-only test infrastructure, never raw command errors."""
+import json
+import re
+import secrets
 import subprocess
 
 
@@ -37,3 +40,55 @@ def run(*args, env=None):
         code = failure_code(result.stderr) if tool == "docker" else "UNCLASSIFIED_FAILURE"
         raise FixtureCommandError(f"{tool}:{code}:exit={result.returncode}")
     return result.stdout.strip()
+
+
+class OwnedDocker:
+    """One fixture's labels and exact IDs, including lost create responses."""
+
+    label_key = "bravo.test-fixture"
+
+    def __init__(self):
+        self.owner = secrets.token_hex(16)
+        self.label = f"{self.label_key}={self.owner}"
+
+    def __enter__(self):
+        return self
+
+    def network(self, name):
+        return run("docker", "network", "create", "--label", self.label, name)
+
+    def container(self, *args, env=None):
+        __tracebackhide__ = True
+        return run("docker", "run", "--label", self.label, *args, env=env)
+
+    def _ids(self, kind):
+        listing = run("docker", kind, "ls", "--quiet", "--no-trunc",
+                      *( ["--all"] if kind == "container" else []),
+                      "--filter", "label=" + self.label)
+        ids = listing.splitlines()
+        if any(not re.fullmatch(r"[a-f0-9]{64}", item) for item in ids):
+            raise FixtureCommandError("docker:CLEANUP_ID_UNCONFIRMED")
+        return ids
+
+    def cleanup(self):
+        # Never retry creates. Discovery includes resources whose create reply was lost.
+        for kind in ("container", "network"):
+            for identity in self._ids(kind):
+                template = "{{json .Config.Labels}}" if kind == "container" else "{{json .Labels}}"
+                labels = json.loads(run("docker", kind, "inspect", "--format", template, identity))
+                if not isinstance(labels, dict) or labels.get(self.label_key) != self.owner:
+                    raise FixtureCommandError("docker:CLEANUP_OWNERSHIP_UNCONFIRMED")
+                run("docker", kind, "rm", *( ["-fv"] if kind == "container" else []), identity)
+            if self._ids(kind):
+                raise FixtureCommandError("docker:CLEANUP_REMAINS")
+
+    def __exit__(self, exc_type, exc, tb):
+        __tracebackhide__ = True
+        try:
+            self.cleanup()
+        except Exception:
+            if exc is not None:
+                exc.add_note("docker:CLEANUP_UNCONFIRMED")
+            else:
+                raise FixtureCommandError("docker:CLEANUP_UNCONFIRMED") from None
+        return False

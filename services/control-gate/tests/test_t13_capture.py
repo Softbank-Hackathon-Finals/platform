@@ -9,7 +9,7 @@ from datetime import UTC, datetime, timedelta
 import psycopg
 import pytest
 from bravo_cutover.db_fingerprint import HASH_RULE
-from fixture_process import run
+from fixture_process import OwnedDocker, run
 from psycopg import sql
 
 from bravo_gate.contract import GateError
@@ -31,9 +31,8 @@ def tls_postgres(tmp_path_factory):
     (root / "server.key").chmod(0o644)
     (root / "server.crt").chmod(0o644)
     password = secrets.token_urlsafe(32)
-    cid = None
-    try:
-        cid = run("docker", "run", "-d", "--rm", "--name", "t19-schema-" + secrets.token_hex(6),
+    with OwnedDocker() as owned:
+        cid = owned.container( "-d", "--rm", "--name", "t19-schema-" + secrets.token_hex(6),
                   "-e", "POSTGRES_PASSWORD", "-v", str(root) + ":/certs:ro",
                   "-p", "127.0.0.1::5432", "--entrypoint", "sh", IMAGE, "-c",
                   "cp /certs/server.key /tmp/t19-server.key && chown postgres /tmp/t19-server.key && chmod 600 /tmp/t19-server.key && exec docker-entrypoint.sh postgres -c wal_level=logical -c max_replication_slots=10 -c max_wal_senders=10 -c ssl=on -c ssl_cert_file=/certs/server.crt -c ssl_key_file=/tmp/t19-server.key",
@@ -55,9 +54,6 @@ def tls_postgres(tmp_path_factory):
             conn.execute(sql.SQL("CREATE ROLE reader LOGIN PASSWORD {}").format(sql.Literal(password)))
             conn.execute("ALTER ROLE reader SET default_transaction_read_only = on")
         yield kwargs
-    finally:
-        if cid:
-            run("docker", "rm", "-f", cid)
 
 
 @pytest.fixture
