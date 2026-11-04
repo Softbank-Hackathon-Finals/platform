@@ -1,0 +1,683 @@
+{
+ "app_checks": [
+  {
+   "id": "db-via-pooler",
+   "observed_at": "2026-11-04T04:55:52.766612+00:00",
+   "ok": true
+  },
+  {
+   "id": "http-ready",
+   "observed_at": "2026-11-04T04:55:52.767138+00:00",
+   "ok": true
+  },
+  {
+   "id": "websocket",
+   "observed_at": "2026-11-04T04:55:52.768440+00:00",
+   "ok": true
+  },
+  {
+   "id": "db-via-pooler",
+   "observed_at": "2026-11-04T04:55:53.656990+00:00",
+   "ok": true
+  },
+  {
+   "id": "http-ready",
+   "observed_at": "2026-11-04T04:55:53.657462+00:00",
+   "ok": true
+  },
+  {
+   "id": "websocket",
+   "observed_at": "2026-11-04T04:55:53.658755+00:00",
+   "ok": true
+  }
+ ],
+ "cutover": {
+  "note": "stand-in app has always used the stand-in target",
+  "writer": "target"
+ },
+ "induced_restarts": {
+  "a1ae5e3b-1696-46b3-826c-aee01a66468f": {
+   "container": "target-pgbouncer",
+   "replaced_container_id": "containerd://99ed2204142264df121951a19e2de5d2cf0be7785147744395481cd902b78c49"
+  },
+  "c00ad1ae-1e60-4e52-ab4c-02b2a530e020": {
+   "container": "app",
+   "replaced_container_id": "containerd://cd41413bf107cdc90f275e416d9d418751835b658217216c42ea92b720e3393a"
+  }
+ },
+ "phase": "after",
+ "plan_digest": "sha256:069d6740f73df6611e992db0a3c4a044251f3b1bf4547b7cb60a7ba6b8c6b2ba",
+ "pods": {
+  "app": [
+   {
+    "container_id": "containerd://571b77a807b5d892f1df878f6ea21ca97ffe3b6dd24ce249df56ca20f4293891",
+    "container_name": "app",
+    "container_started_at": "2026-11-04T04:55:43Z",
+    "host_network": false,
+    "labels": {
+     "app": "demo-chat",
+     "app.kubernetes.io/part-of": "bravo-target",
+     "component": "target",
+     "pod-template-hash": "d6f6c4c79"
+    },
+    "name": "demo-chat-d6f6c4c79-qn4qr",
+    "other_restarts": 0,
+    "previous_container_id": "containerd://cd41413bf107cdc90f275e416d9d418751835b658217216c42ea92b720e3393a",
+    "ready": true,
+    "restarts": 1,
+    "started_at": "2026-11-04T04:55:37Z",
+    "uid": "c00ad1ae-1e60-4e52-ab4c-02b2a530e020"
+   }
+  ],
+  "control": [
+   {
+    "container_id": null,
+    "container_name": null,
+    "container_started_at": null,
+    "host_network": false,
+    "labels": {
+     "app.kubernetes.io/part-of": "bravo-target",
+     "bravo-exit-drill-control": "true",
+     "component": "target",
+     "pod-template-hash": "66fb59c76b"
+    },
+    "name": "exit-drill-control-66fb59c76b-tffwj",
+    "other_restarts": null,
+    "previous_container_id": null,
+    "ready": true,
+    "restarts": null,
+    "started_at": "2026-11-04T04:54:44Z",
+    "uid": "ddd3e6fc-3187-48cd-ad2b-3f86014efa5a"
+   }
+  ],
+  "db": [
+   {
+    "container_id": null,
+    "container_name": null,
+    "container_started_at": null,
+    "host_network": false,
+    "labels": {
+     "app.kubernetes.io/part-of": "bravo-target",
+     "cnpg.io/cluster": "target-db",
+     "cnpg.io/instanceRole": "primary",
+     "component": "target",
+     "pod-template-hash": "64c87c444"
+    },
+    "name": "target-db-64c87c444-nm6wt",
+    "other_restarts": null,
+    "previous_container_id": null,
+    "ready": true,
+    "restarts": null,
+    "started_at": "2026-11-04T04:54:44Z",
+    "uid": "7731db47-49e9-4ef8-83ac-c0f753fa1c75"
+   }
+  ],
+  "objects": [
+   {
+    "container_id": null,
+    "container_name": null,
+    "container_started_at": null,
+    "host_network": false,
+    "labels": {
+     "app.kubernetes.io/name": "target-seaweedfs",
+     "app.kubernetes.io/part-of": "bravo-target",
+     "component": "target",
+     "pod-template-hash": "866447657d"
+    },
+    "name": "target-seaweedfs-866447657d-bqbs5",
+    "other_restarts": null,
+    "previous_container_id": null,
+    "ready": true,
+    "restarts": null,
+    "started_at": "2026-11-04T04:54:44Z",
+    "uid": "63b07ec7-9d4c-494f-b078-042ca231ff66"
+   }
+  ],
+  "pooler": [
+   {
+    "container_id": "containerd://5bbcdf977724bcf961b402ac932cfc8fdab0e3102492519a331a8a955dd7219f",
+    "container_name": "target-pgbouncer",
+    "container_started_at": "2026-11-04T04:55:46Z",
+    "host_network": false,
+    "labels": {
+     "app": "target-pgbouncer",
+     "app.kubernetes.io/part-of": "bravo-target",
+     "component": "target",
+     "pod-template-hash": "6468656fcc"
+    },
+    "name": "target-pgbouncer-6468656fcc-2csxl",
+    "other_restarts": 0,
+    "previous_container_id": "containerd://99ed2204142264df121951a19e2de5d2cf0be7785147744395481cd902b78c49",
+    "ready": true,
+    "restarts": 1,
+    "started_at": "2026-11-04T04:55:37Z",
+    "uid": "a1ae5e3b-1696-46b3-826c-aee01a66468f"
+   }
+  ]
+ },
+ "policy_applied_at": "2026-11-04T04:55:34.237737+00:00",
+ "policy_readback": {
+  "end": [
+   {
+    "apiVersion": "networking.k8s.io/v1",
+    "kind": "NetworkPolicy",
+    "metadata": {
+     "annotations": {
+      "bravo.exit-drill/plan-digest": "sha256:069d6740f73df6611e992db0a3c4a044251f3b1bf4547b7cb60a7ba6b8c6b2ba"
+     },
+     "creationTimestamp": "2026-11-04T04:55:34Z",
+     "generation": 1,
+     "labels": {
+      "app.kubernetes.io/part-of": "bravo-exit-drill",
+      "component": "target"
+     },
+     "name": "exit-drill-egress-app",
+     "namespace": "target-dev",
+     "resourceVersion": "726",
+     "uid": "c68df5fb-0bad-4a28-a7e2-ff158e9f3da7"
+    },
+    "spec": {
+     "egress": [
+      {
+       "ports": [
+        {
+         "port": 8333,
+         "protocol": "TCP"
+        }
+       ],
+       "to": [
+        {
+         "podSelector": {
+          "matchLabels": {
+           "app.kubernetes.io/name": "target-seaweedfs"
+          }
+         }
+        }
+       ]
+      },
+      {
+       "ports": [
+        {
+         "port": 5432,
+         "protocol": "TCP"
+        }
+       ],
+       "to": [
+        {
+         "podSelector": {
+          "matchLabels": {
+           "app": "target-pgbouncer"
+          }
+         }
+        }
+       ]
+      },
+      {
+       "ports": [
+        {
+         "port": 53,
+         "protocol": "TCP"
+        },
+        {
+         "port": 53,
+         "protocol": "UDP"
+        }
+       ],
+       "to": [
+        {
+         "namespaceSelector": {
+          "matchLabels": {
+           "kubernetes.io/metadata.name": "kube-system"
+          }
+         },
+         "podSelector": {
+          "matchLabels": {
+           "k8s-app": "kube-dns"
+          }
+         }
+        }
+       ]
+      }
+     ],
+     "podSelector": {
+      "matchLabels": {
+       "app": "demo-chat"
+      }
+     },
+     "policyTypes": [
+      "Egress"
+     ]
+    }
+   },
+   {
+    "apiVersion": "networking.k8s.io/v1",
+    "kind": "NetworkPolicy",
+    "metadata": {
+     "annotations": {
+      "bravo.exit-drill/plan-digest": "sha256:069d6740f73df6611e992db0a3c4a044251f3b1bf4547b7cb60a7ba6b8c6b2ba"
+     },
+     "creationTimestamp": "2026-11-04T04:55:34Z",
+     "generation": 1,
+     "labels": {
+      "app.kubernetes.io/part-of": "bravo-exit-drill",
+      "component": "target"
+     },
+     "name": "exit-drill-egress-pooler",
+     "namespace": "target-dev",
+     "resourceVersion": "727",
+     "uid": "ad72ac4f-58f2-44b8-9c8b-1a609e9b0731"
+    },
+    "spec": {
+     "egress": [
+      {
+       "ports": [
+        {
+         "port": 53,
+         "protocol": "TCP"
+        },
+        {
+         "port": 53,
+         "protocol": "UDP"
+        }
+       ],
+       "to": [
+        {
+         "namespaceSelector": {
+          "matchLabels": {
+           "kubernetes.io/metadata.name": "kube-system"
+          }
+         },
+         "podSelector": {
+          "matchLabels": {
+           "k8s-app": "kube-dns"
+          }
+         }
+        }
+       ]
+      },
+      {
+       "ports": [
+        {
+         "port": 5432,
+         "protocol": "TCP"
+        }
+       ],
+       "to": [
+        {
+         "podSelector": {
+          "matchLabels": {
+           "cnpg.io/cluster": "target-db",
+           "cnpg.io/instanceRole": "primary"
+          }
+         }
+        }
+       ]
+      }
+     ],
+     "podSelector": {
+      "matchLabels": {
+       "app": "target-pgbouncer"
+      }
+     },
+     "policyTypes": [
+      "Egress"
+     ]
+    }
+   }
+  ],
+  "start": [
+   {
+    "apiVersion": "networking.k8s.io/v1",
+    "kind": "NetworkPolicy",
+    "metadata": {
+     "annotations": {
+      "bravo.exit-drill/plan-digest": "sha256:069d6740f73df6611e992db0a3c4a044251f3b1bf4547b7cb60a7ba6b8c6b2ba"
+     },
+     "creationTimestamp": "2026-11-04T04:55:34Z",
+     "generation": 1,
+     "labels": {
+      "app.kubernetes.io/part-of": "bravo-exit-drill",
+      "component": "target"
+     },
+     "name": "exit-drill-egress-app",
+     "namespace": "target-dev",
+     "resourceVersion": "726",
+     "uid": "c68df5fb-0bad-4a28-a7e2-ff158e9f3da7"
+    },
+    "spec": {
+     "egress": [
+      {
+       "ports": [
+        {
+         "port": 8333,
+         "protocol": "TCP"
+        }
+       ],
+       "to": [
+        {
+         "podSelector": {
+          "matchLabels": {
+           "app.kubernetes.io/name": "target-seaweedfs"
+          }
+         }
+        }
+       ]
+      },
+      {
+       "ports": [
+        {
+         "port": 5432,
+         "protocol": "TCP"
+        }
+       ],
+       "to": [
+        {
+         "podSelector": {
+          "matchLabels": {
+           "app": "target-pgbouncer"
+          }
+         }
+        }
+       ]
+      },
+      {
+       "ports": [
+        {
+         "port": 53,
+         "protocol": "TCP"
+        },
+        {
+         "port": 53,
+         "protocol": "UDP"
+        }
+       ],
+       "to": [
+        {
+         "namespaceSelector": {
+          "matchLabels": {
+           "kubernetes.io/metadata.name": "kube-system"
+          }
+         },
+         "podSelector": {
+          "matchLabels": {
+           "k8s-app": "kube-dns"
+          }
+         }
+        }
+       ]
+      }
+     ],
+     "podSelector": {
+      "matchLabels": {
+       "app": "demo-chat"
+      }
+     },
+     "policyTypes": [
+      "Egress"
+     ]
+    }
+   },
+   {
+    "apiVersion": "networking.k8s.io/v1",
+    "kind": "NetworkPolicy",
+    "metadata": {
+     "annotations": {
+      "bravo.exit-drill/plan-digest": "sha256:069d6740f73df6611e992db0a3c4a044251f3b1bf4547b7cb60a7ba6b8c6b2ba"
+     },
+     "creationTimestamp": "2026-11-04T04:55:34Z",
+     "generation": 1,
+     "labels": {
+      "app.kubernetes.io/part-of": "bravo-exit-drill",
+      "component": "target"
+     },
+     "name": "exit-drill-egress-pooler",
+     "namespace": "target-dev",
+     "resourceVersion": "727",
+     "uid": "ad72ac4f-58f2-44b8-9c8b-1a609e9b0731"
+    },
+    "spec": {
+     "egress": [
+      {
+       "ports": [
+        {
+         "port": 53,
+         "protocol": "TCP"
+        },
+        {
+         "port": 53,
+         "protocol": "UDP"
+        }
+       ],
+       "to": [
+        {
+         "namespaceSelector": {
+          "matchLabels": {
+           "kubernetes.io/metadata.name": "kube-system"
+          }
+         },
+         "podSelector": {
+          "matchLabels": {
+           "k8s-app": "kube-dns"
+          }
+         }
+        }
+       ]
+      },
+      {
+       "ports": [
+        {
+         "port": 5432,
+         "protocol": "TCP"
+        }
+       ],
+       "to": [
+        {
+         "podSelector": {
+          "matchLabels": {
+           "cnpg.io/cluster": "target-db",
+           "cnpg.io/instanceRole": "primary"
+          }
+         }
+        }
+       ]
+      }
+     ],
+     "podSelector": {
+      "matchLabels": {
+       "app": "target-pgbouncer"
+      }
+     },
+     "policyTypes": [
+      "Egress"
+     ]
+    }
+   }
+  ]
+ },
+ "probes": [
+  {
+   "observed_at": "2026-11-04T04:55:52.988986+00:00",
+   "pod_uid": "c00ad1ae-1e60-4e52-ab4c-02b2a530e020",
+   "route_id": "app-to-objects",
+   "state": "connected",
+   "vantage": "app"
+  },
+  {
+   "observed_at": "2026-11-04T04:55:52.989369+00:00",
+   "pod_uid": "c00ad1ae-1e60-4e52-ab4c-02b2a530e020",
+   "route_id": "app-to-pooler",
+   "state": "connected",
+   "vantage": "app"
+  },
+  {
+   "observed_at": "2026-11-04T04:55:52.989420+00:00",
+   "pod_uid": "c00ad1ae-1e60-4e52-ab4c-02b2a530e020",
+   "route_id": "aws-iam",
+   "state": "refused",
+   "vantage": "app"
+  },
+  {
+   "observed_at": "2026-11-04T04:55:52.989443+00:00",
+   "pod_uid": "c00ad1ae-1e60-4e52-ab4c-02b2a530e020",
+   "route_id": "aws-kms",
+   "state": "refused",
+   "vantage": "app"
+  },
+  {
+   "observed_at": "2026-11-04T04:55:52.989461+00:00",
+   "pod_uid": "c00ad1ae-1e60-4e52-ab4c-02b2a530e020",
+   "route_id": "aws-s3",
+   "state": "refused",
+   "vantage": "app"
+  },
+  {
+   "observed_at": "2026-11-04T04:55:52.989477+00:00",
+   "pod_uid": "c00ad1ae-1e60-4e52-ab4c-02b2a530e020",
+   "route_id": "aws-secretsmanager",
+   "state": "refused",
+   "vantage": "app"
+  },
+  {
+   "observed_at": "2026-11-04T04:55:52.989494+00:00",
+   "pod_uid": "c00ad1ae-1e60-4e52-ab4c-02b2a530e020",
+   "route_id": "aws-sts",
+   "state": "refused",
+   "vantage": "app"
+  },
+  {
+   "observed_at": "2026-11-04T04:55:52.989970+00:00",
+   "pod_uid": "c00ad1ae-1e60-4e52-ab4c-02b2a530e020",
+   "route_id": "dns",
+   "state": "resolved",
+   "vantage": "app"
+  },
+  {
+   "observed_at": "2026-11-04T04:55:53.194152+00:00",
+   "pod_uid": "7731db47-49e9-4ef8-83ac-c0f753fa1c75",
+   "route_id": "replication-forward",
+   "state": "connected",
+   "vantage": "db"
+  },
+  {
+   "observed_at": "2026-11-04T04:55:53.437536+00:00",
+   "pod_uid": "a1ae5e3b-1696-46b3-826c-aee01a66468f",
+   "route_id": "dns",
+   "state": "resolved",
+   "vantage": "pooler"
+  },
+  {
+   "observed_at": "2026-11-04T04:55:53.437837+00:00",
+   "pod_uid": "a1ae5e3b-1696-46b3-826c-aee01a66468f",
+   "route_id": "pooler-to-db",
+   "state": "connected",
+   "vantage": "pooler"
+  },
+  {
+   "observed_at": "2026-11-04T04:55:53.438203+00:00",
+   "pod_uid": "a1ae5e3b-1696-46b3-826c-aee01a66468f",
+   "route_id": "pooler-to-source",
+   "state": "refused",
+   "vantage": "pooler"
+  },
+  {
+   "observed_at": "2026-11-04T04:55:52.760830+00:00",
+   "pod_uid": "ddd3e6fc-3187-48cd-ad2b-3f86014efa5a",
+   "route_id": "aws-iam",
+   "state": "connected",
+   "vantage": "control"
+  },
+  {
+   "observed_at": "2026-11-04T04:55:52.760879+00:00",
+   "pod_uid": "ddd3e6fc-3187-48cd-ad2b-3f86014efa5a",
+   "route_id": "aws-kms",
+   "state": "connected",
+   "vantage": "control"
+  },
+  {
+   "observed_at": "2026-11-04T04:55:52.760905+00:00",
+   "pod_uid": "ddd3e6fc-3187-48cd-ad2b-3f86014efa5a",
+   "route_id": "aws-s3",
+   "state": "connected",
+   "vantage": "control"
+  },
+  {
+   "observed_at": "2026-11-04T04:55:52.760952+00:00",
+   "pod_uid": "ddd3e6fc-3187-48cd-ad2b-3f86014efa5a",
+   "route_id": "aws-secretsmanager",
+   "state": "connected",
+   "vantage": "control"
+  },
+  {
+   "observed_at": "2026-11-04T04:55:52.760995+00:00",
+   "pod_uid": "ddd3e6fc-3187-48cd-ad2b-3f86014efa5a",
+   "route_id": "aws-sts",
+   "state": "connected",
+   "vantage": "control"
+  },
+  {
+   "observed_at": "2026-11-04T04:55:52.761500+00:00",
+   "pod_uid": "ddd3e6fc-3187-48cd-ad2b-3f86014efa5a",
+   "route_id": "pooler-to-source",
+   "state": "connected",
+   "vantage": "control"
+  },
+  {
+   "observed_at": "2026-11-04T04:55:53.654513+00:00",
+   "pod_uid": "ddd3e6fc-3187-48cd-ad2b-3f86014efa5a",
+   "route_id": "aws-iam",
+   "state": "connected",
+   "vantage": "control"
+  },
+  {
+   "observed_at": "2026-11-04T04:55:53.654551+00:00",
+   "pod_uid": "ddd3e6fc-3187-48cd-ad2b-3f86014efa5a",
+   "route_id": "aws-kms",
+   "state": "connected",
+   "vantage": "control"
+  },
+  {
+   "observed_at": "2026-11-04T04:55:53.654576+00:00",
+   "pod_uid": "ddd3e6fc-3187-48cd-ad2b-3f86014efa5a",
+   "route_id": "aws-s3",
+   "state": "connected",
+   "vantage": "control"
+  },
+  {
+   "observed_at": "2026-11-04T04:55:53.654616+00:00",
+   "pod_uid": "ddd3e6fc-3187-48cd-ad2b-3f86014efa5a",
+   "route_id": "aws-secretsmanager",
+   "state": "connected",
+   "vantage": "control"
+  },
+  {
+   "observed_at": "2026-11-04T04:55:53.654641+00:00",
+   "pod_uid": "ddd3e6fc-3187-48cd-ad2b-3f86014efa5a",
+   "route_id": "aws-sts",
+   "state": "connected",
+   "vantage": "control"
+  },
+  {
+   "observed_at": "2026-11-04T04:55:53.655096+00:00",
+   "pod_uid": "ddd3e6fc-3187-48cd-ad2b-3f86014efa5a",
+   "route_id": "pooler-to-source",
+   "state": "connected",
+   "vantage": "control"
+  }
+ ],
+ "replication": [
+  {
+   "lsn": "1A1/A4E9E240",
+   "observed_at": "2026-11-04T04:55:53.924898+00:00",
+   "route_id": "replication-reverse",
+   "state": "streaming"
+  },
+  {
+   "lsn": "1A1/A4E9EAEC",
+   "observed_at": "2026-11-04T04:55:56.757201+00:00",
+   "route_id": "replication-reverse",
+   "state": "streaming"
+  }
+ ],
+ "schema_version": "exit-drill-observation/v1",
+ "unclassified_pods": []
+}

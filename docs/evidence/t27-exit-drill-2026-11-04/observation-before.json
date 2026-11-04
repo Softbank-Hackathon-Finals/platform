@@ -1,0 +1,339 @@
+{
+ "app_checks": [
+  {
+   "id": "db-via-pooler",
+   "observed_at": "2026-11-04T04:55:28.107981+00:00",
+   "ok": true
+  },
+  {
+   "id": "http-ready",
+   "observed_at": "2026-11-04T04:55:28.108836+00:00",
+   "ok": true
+  },
+  {
+   "id": "websocket",
+   "observed_at": "2026-11-04T04:55:28.110996+00:00",
+   "ok": true
+  },
+  {
+   "id": "db-via-pooler",
+   "observed_at": "2026-11-04T04:55:28.976653+00:00",
+   "ok": true
+  },
+  {
+   "id": "http-ready",
+   "observed_at": "2026-11-04T04:55:28.977208+00:00",
+   "ok": true
+  },
+  {
+   "id": "websocket",
+   "observed_at": "2026-11-04T04:55:28.978553+00:00",
+   "ok": true
+  }
+ ],
+ "cutover": {
+  "note": "stand-in app has always used the stand-in target",
+  "writer": "target"
+ },
+ "induced_restarts": {},
+ "phase": "before",
+ "plan_digest": "sha256:069d6740f73df6611e992db0a3c4a044251f3b1bf4547b7cb60a7ba6b8c6b2ba",
+ "pods": {
+  "app": [
+   {
+    "container_id": "containerd://3fddf860c4388890de9630d27e504c83e14de6ec053636840f7031129a38ab9f",
+    "container_name": "app",
+    "container_started_at": "2026-11-04T04:54:50Z",
+    "host_network": false,
+    "labels": {
+     "app": "demo-chat",
+     "app.kubernetes.io/part-of": "bravo-target",
+     "component": "target",
+     "pod-template-hash": "6dfcc4d4f"
+    },
+    "name": "demo-chat-6dfcc4d4f-7zmnz",
+    "other_restarts": 0,
+    "previous_container_id": null,
+    "ready": true,
+    "restarts": 0,
+    "started_at": "2026-11-04T04:54:50Z",
+    "uid": "05362547-f690-47d3-8a8d-42add4f7b18c"
+   }
+  ],
+  "control": [
+   {
+    "container_id": null,
+    "container_name": null,
+    "container_started_at": null,
+    "host_network": false,
+    "labels": {
+     "app.kubernetes.io/part-of": "bravo-target",
+     "bravo-exit-drill-control": "true",
+     "component": "target",
+     "pod-template-hash": "66fb59c76b"
+    },
+    "name": "exit-drill-control-66fb59c76b-tffwj",
+    "other_restarts": null,
+    "previous_container_id": null,
+    "ready": true,
+    "restarts": null,
+    "started_at": "2026-11-04T04:54:44Z",
+    "uid": "ddd3e6fc-3187-48cd-ad2b-3f86014efa5a"
+   }
+  ],
+  "db": [
+   {
+    "container_id": null,
+    "container_name": null,
+    "container_started_at": null,
+    "host_network": false,
+    "labels": {
+     "app.kubernetes.io/part-of": "bravo-target",
+     "cnpg.io/cluster": "target-db",
+     "cnpg.io/instanceRole": "primary",
+     "component": "target",
+     "pod-template-hash": "64c87c444"
+    },
+    "name": "target-db-64c87c444-nm6wt",
+    "other_restarts": null,
+    "previous_container_id": null,
+    "ready": true,
+    "restarts": null,
+    "started_at": "2026-11-04T04:54:44Z",
+    "uid": "7731db47-49e9-4ef8-83ac-c0f753fa1c75"
+   }
+  ],
+  "objects": [
+   {
+    "container_id": null,
+    "container_name": null,
+    "container_started_at": null,
+    "host_network": false,
+    "labels": {
+     "app.kubernetes.io/name": "target-seaweedfs",
+     "app.kubernetes.io/part-of": "bravo-target",
+     "component": "target",
+     "pod-template-hash": "866447657d"
+    },
+    "name": "target-seaweedfs-866447657d-bqbs5",
+    "other_restarts": null,
+    "previous_container_id": null,
+    "ready": true,
+    "restarts": null,
+    "started_at": "2026-11-04T04:54:44Z",
+    "uid": "63b07ec7-9d4c-494f-b078-042ca231ff66"
+   }
+  ],
+  "pooler": [
+   {
+    "container_id": "containerd://a31fa6f52a0fc8af2b7d5d913fc05ff17a19893a2c1a2ce464f5a2b92c569a3c",
+    "container_name": "target-pgbouncer",
+    "container_started_at": "2026-11-04T04:54:44Z",
+    "host_network": false,
+    "labels": {
+     "app": "target-pgbouncer",
+     "app.kubernetes.io/part-of": "bravo-target",
+     "component": "target",
+     "pod-template-hash": "6476fd8546"
+    },
+    "name": "target-pgbouncer-6476fd8546-ld49z",
+    "other_restarts": 0,
+    "previous_container_id": null,
+    "ready": true,
+    "restarts": 0,
+    "started_at": "2026-11-04T04:54:44Z",
+    "uid": "1c505020-db71-42d8-a4ac-cbde187ee461"
+   }
+  ]
+ },
+ "policy_readback": {
+  "end": [],
+  "start": []
+ },
+ "probes": [
+  {
+   "observed_at": "2026-11-04T04:55:28.329340+00:00",
+   "pod_uid": "05362547-f690-47d3-8a8d-42add4f7b18c",
+   "route_id": "app-to-objects",
+   "state": "connected",
+   "vantage": "app"
+  },
+  {
+   "observed_at": "2026-11-04T04:55:28.329699+00:00",
+   "pod_uid": "05362547-f690-47d3-8a8d-42add4f7b18c",
+   "route_id": "app-to-pooler",
+   "state": "connected",
+   "vantage": "app"
+  },
+  {
+   "observed_at": "2026-11-04T04:55:28.329772+00:00",
+   "pod_uid": "05362547-f690-47d3-8a8d-42add4f7b18c",
+   "route_id": "aws-iam",
+   "state": "connected",
+   "vantage": "app"
+  },
+  {
+   "observed_at": "2026-11-04T04:55:28.329801+00:00",
+   "pod_uid": "05362547-f690-47d3-8a8d-42add4f7b18c",
+   "route_id": "aws-kms",
+   "state": "connected",
+   "vantage": "app"
+  },
+  {
+   "observed_at": "2026-11-04T04:55:28.329823+00:00",
+   "pod_uid": "05362547-f690-47d3-8a8d-42add4f7b18c",
+   "route_id": "aws-s3",
+   "state": "connected",
+   "vantage": "app"
+  },
+  {
+   "observed_at": "2026-11-04T04:55:28.329851+00:00",
+   "pod_uid": "05362547-f690-47d3-8a8d-42add4f7b18c",
+   "route_id": "aws-secretsmanager",
+   "state": "connected",
+   "vantage": "app"
+  },
+  {
+   "observed_at": "2026-11-04T04:55:28.329874+00:00",
+   "pod_uid": "05362547-f690-47d3-8a8d-42add4f7b18c",
+   "route_id": "aws-sts",
+   "state": "connected",
+   "vantage": "app"
+  },
+  {
+   "observed_at": "2026-11-04T04:55:28.330368+00:00",
+   "pod_uid": "05362547-f690-47d3-8a8d-42add4f7b18c",
+   "route_id": "dns",
+   "state": "resolved",
+   "vantage": "app"
+  },
+  {
+   "observed_at": "2026-11-04T04:55:28.548686+00:00",
+   "pod_uid": "7731db47-49e9-4ef8-83ac-c0f753fa1c75",
+   "route_id": "replication-forward",
+   "state": "connected",
+   "vantage": "db"
+  },
+  {
+   "observed_at": "2026-11-04T04:55:28.760024+00:00",
+   "pod_uid": "1c505020-db71-42d8-a4ac-cbde187ee461",
+   "route_id": "dns",
+   "state": "resolved",
+   "vantage": "pooler"
+  },
+  {
+   "observed_at": "2026-11-04T04:55:28.760347+00:00",
+   "pod_uid": "1c505020-db71-42d8-a4ac-cbde187ee461",
+   "route_id": "pooler-to-db",
+   "state": "connected",
+   "vantage": "pooler"
+  },
+  {
+   "observed_at": "2026-11-04T04:55:28.760728+00:00",
+   "pod_uid": "1c505020-db71-42d8-a4ac-cbde187ee461",
+   "route_id": "pooler-to-source",
+   "state": "connected",
+   "vantage": "pooler"
+  },
+  {
+   "observed_at": "2026-11-04T04:55:28.097532+00:00",
+   "pod_uid": "ddd3e6fc-3187-48cd-ad2b-3f86014efa5a",
+   "route_id": "aws-iam",
+   "state": "connected",
+   "vantage": "control"
+  },
+  {
+   "observed_at": "2026-11-04T04:55:28.097576+00:00",
+   "pod_uid": "ddd3e6fc-3187-48cd-ad2b-3f86014efa5a",
+   "route_id": "aws-kms",
+   "state": "connected",
+   "vantage": "control"
+  },
+  {
+   "observed_at": "2026-11-04T04:55:28.097610+00:00",
+   "pod_uid": "ddd3e6fc-3187-48cd-ad2b-3f86014efa5a",
+   "route_id": "aws-s3",
+   "state": "connected",
+   "vantage": "control"
+  },
+  {
+   "observed_at": "2026-11-04T04:55:28.097638+00:00",
+   "pod_uid": "ddd3e6fc-3187-48cd-ad2b-3f86014efa5a",
+   "route_id": "aws-secretsmanager",
+   "state": "connected",
+   "vantage": "control"
+  },
+  {
+   "observed_at": "2026-11-04T04:55:28.097664+00:00",
+   "pod_uid": "ddd3e6fc-3187-48cd-ad2b-3f86014efa5a",
+   "route_id": "aws-sts",
+   "state": "connected",
+   "vantage": "control"
+  },
+  {
+   "observed_at": "2026-11-04T04:55:28.099099+00:00",
+   "pod_uid": "ddd3e6fc-3187-48cd-ad2b-3f86014efa5a",
+   "route_id": "pooler-to-source",
+   "state": "connected",
+   "vantage": "control"
+  },
+  {
+   "observed_at": "2026-11-04T04:55:28.974033+00:00",
+   "pod_uid": "ddd3e6fc-3187-48cd-ad2b-3f86014efa5a",
+   "route_id": "aws-iam",
+   "state": "connected",
+   "vantage": "control"
+  },
+  {
+   "observed_at": "2026-11-04T04:55:28.974072+00:00",
+   "pod_uid": "ddd3e6fc-3187-48cd-ad2b-3f86014efa5a",
+   "route_id": "aws-kms",
+   "state": "connected",
+   "vantage": "control"
+  },
+  {
+   "observed_at": "2026-11-04T04:55:28.974097+00:00",
+   "pod_uid": "ddd3e6fc-3187-48cd-ad2b-3f86014efa5a",
+   "route_id": "aws-s3",
+   "state": "connected",
+   "vantage": "control"
+  },
+  {
+   "observed_at": "2026-11-04T04:55:28.974119+00:00",
+   "pod_uid": "ddd3e6fc-3187-48cd-ad2b-3f86014efa5a",
+   "route_id": "aws-secretsmanager",
+   "state": "connected",
+   "vantage": "control"
+  },
+  {
+   "observed_at": "2026-11-04T04:55:28.974163+00:00",
+   "pod_uid": "ddd3e6fc-3187-48cd-ad2b-3f86014efa5a",
+   "route_id": "aws-sts",
+   "state": "connected",
+   "vantage": "control"
+  },
+  {
+   "observed_at": "2026-11-04T04:55:28.974645+00:00",
+   "pod_uid": "ddd3e6fc-3187-48cd-ad2b-3f86014efa5a",
+   "route_id": "pooler-to-source",
+   "state": "connected",
+   "vantage": "control"
+  }
+ ],
+ "replication": [
+  {
+   "lsn": "1A1/A4E9820A",
+   "observed_at": "2026-11-04T04:55:29.249760+00:00",
+   "route_id": "replication-reverse",
+   "state": "streaming"
+  },
+  {
+   "lsn": "1A1/A4E98AB4",
+   "observed_at": "2026-11-04T04:55:31.725556+00:00",
+   "route_id": "replication-reverse",
+   "state": "streaming"
+  }
+ ],
+ "schema_version": "exit-drill-observation/v1",
+ "unclassified_pods": []
+}
