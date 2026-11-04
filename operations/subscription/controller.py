@@ -99,7 +99,7 @@ def main():
             with urllib.request.urlopen(request, timeout=20) as response:
                 token = json.load(response)["value"]
             body = json.dumps({"web_identity_token": token, "run_id": run_id}).encode()
-            request = urllib.request.Request("http://127.0.0.1:18762/run", data=body,
+            request = urllib.request.Request("http://127.0.0.1:18762/validation/fixture", data=body,
                                              headers={"Content-Type": "application/json"})
             with urllib.request.urlopen(request, timeout=260) as response:
                 result = json.load(response)
@@ -108,6 +108,8 @@ def main():
                     or result.get("exit_code") != 0
                     or result.get("runtime_source_sha") != os.environ["BRAVO_RUNTIME_SOURCE_SHA"]):
                 raise RuntimeError("broker did not produce a proposal")
+            if result["result"].get("input_kind") != "synthetic_db_host_fixture":
+                raise ValueError("broker did not identify the validation fixture")
             bundle, proposal = validate_result(result["result"])
             if bundle.run_id != run_id:
                 raise ValueError("broker returned a different execution")

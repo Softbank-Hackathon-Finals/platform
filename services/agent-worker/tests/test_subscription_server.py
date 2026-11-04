@@ -1,5 +1,9 @@
 import asyncio
+import http.client
 import json
+import queue
+import threading
+from http.server import HTTPServer
 
 import pytest
 
@@ -56,7 +60,7 @@ def test_broker_uses_web_identity_in_memory_and_reports_rotation(monkeypatch, tm
                              "worker": str(tmp_path), "state_dir": str(tmp_path / "state"),
                              "model": "test-model", "source_sha": "a" * 40}
     run_id = "subscription-" + "a" * 32
-    result = server.execute(settings, "test-web-identity", run_id)
+    result = server.execute_fixture(settings, "test-web-identity", run_id)
     assert calls[1] == {"RoleArn": "test-role", "RoleSessionName": "bravo-subscription-vm",
                         "WebIdentityToken": "test-web-identity", "DurationSeconds": 900}
     assert calls[2]["aws_session_token"] == credentials["SessionToken"]
@@ -66,13 +70,15 @@ def test_broker_uses_web_identity_in_memory_and_reports_rotation(monkeypatch, tm
     assert "test-private" not in json.dumps(result)
     published = tmp_path / "runs" / run_id / "proposal.json"
     original = published.read_bytes()
+    assert result["result"]["input_kind"] == json.loads(original)["input_kind"] == "synthetic_db_host_fixture"
     assert published.stat().st_mode & 0o222 == 0
-    second = server.execute(settings, "test-web-identity", "subscription-" + "b" * 32)
+    second = server.execute_fixture(settings, "test-web-identity", "subscription-" + "b" * 32)
     assert second["result"]["run_id"] != result["result"]["run_id"]
     assert published.read_bytes() == original
     with pytest.raises(FileExistsError):
-        server.execute(settings, "test-web-identity", run_id)
+        server.execute_fixture(settings, "test-web-identity", run_id)
     assert published.read_bytes() == original
+    assert sum(call.get("service") == "secretsmanager" for call in calls) == 2
 
 
 def test_rejected_identity_never_reads_secret_or_starts_model(monkeypatch):
@@ -83,5 +89,47 @@ def test_rejected_identity_never_reads_secret_or_starts_model(monkeypatch):
     monkeypatch.setattr(server.boto3, "client", lambda name, **kwargs: STS())
     monkeypatch.setattr(server, "run_worker", lambda *args: pytest.fail("must not start model"))
     with pytest.raises(ValueError, match="identity denied"):
-        server.execute({"region": "ap-northeast-2", "broker_role_arn": "test-role"}, "invalid",
+        server.execute_fixture({"region": "ap-northeast-2", "broker_role_arn": "test-role"}, "invalid",
                        "subscription-" + "a" * 32)
+
+
+def test_product_route_cannot_dispatch_fixtures_or_consume_validation_slots(monkeypatch):
+    ready = queue.Queue()
+    calls = []
+
+    def bind(address, handler):
+        listener = HTTPServer((address[0], 0), handler)
+        ready.put(listener.server_port)
+        return listener
+
+    def fixture(settings, token, run_id):
+        calls.append(run_id)
+        return {"state": "PROPOSAL_READY", "result": {"input_kind": "synthetic_db_host_fixture"}}
+
+    monkeypatch.setattr(server, "HTTPServer", bind)
+    monkeypatch.setattr(server, "execute_fixture", fixture)
+    thread = threading.Thread(target=server.serve, args=({},), daemon=True)
+    thread.start()
+    port = ready.get(timeout=5)
+
+    def post(path, payload):
+        connection = http.client.HTTPConnection("127.0.0.1", port, timeout=5)
+        try:
+            connection.request("POST", path, json.dumps(payload))
+            response = connection.getresponse()
+            return response.status, json.load(response)
+        finally:
+            connection.close()
+
+    body = {"web_identity_token": "synthetic", "run_id": "subscription-" + "a" * 32}
+    for payload in (body, {**body, "input_kind": "synthetic_db_host_fixture"},
+                    {**body, "bundle": {"source_sha": "1" * 40}}):
+        assert post("/run", payload) == (503, {"state": "NEEDS_HUMAN", "reason": "PRODUCT_INPUT_UNAVAILABLE"})
+    assert post("/validation/fixture", {**body, "snapshot": "elsewhere"})[0] == 400
+    assert not calls
+    assert post("/validation/fixture", body)[0] == 200
+    other = {**body, "run_id": "subscription-" + "b" * 32}
+    assert post("/validation/fixture", other)[0] == 200
+    thread.join(5)
+    assert not thread.is_alive()
+    assert calls == [body["run_id"], other["run_id"]]
