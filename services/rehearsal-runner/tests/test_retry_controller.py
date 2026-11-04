@@ -19,6 +19,7 @@ class Ports:
 
     def prepare(self, attempt, feedback_ref):
         self.attempts.append((attempt, feedback_ref))
+        self.attempt = attempt
         return AttemptPorts(self, self, self, self)
 
     def propose(self, task):
@@ -138,3 +139,16 @@ def test_retry_rejects_missing_verification_id():
     ports.change = {"verification_id": None}
     assert execute(ports).reason == "PREVIOUS_HOLD_UNCONFIRMED"
     assert len(ports.attempts) == 1
+
+
+def test_stale_verifier_attempt_never_starts_namespace_or_job():
+    ports = Ports()
+    def stale(attempt, feedback_ref):
+        ports.attempts.append((attempt, feedback_ref))
+        ports.attempt = 2
+        return AttemptPorts(ports, ports, ports, ports)
+    ports.prepare = stale
+    result = execute(ports)
+    assert result.reason == "ATTEMPT_PREPARATION_UNAVAILABLE"
+    assert result.attempts == 0
+    assert ports.events == []

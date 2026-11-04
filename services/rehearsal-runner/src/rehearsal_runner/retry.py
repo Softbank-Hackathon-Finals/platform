@@ -74,7 +74,9 @@ def run_retries(
     for attempt in range(1, 4):
         try:
             ports = factory.prepare(attempt, feedback_ref)
-            if not isinstance(ports, AttemptPorts):
+            if (not isinstance(ports, AttemptPorts)
+                    or type(getattr(ports.verifier, "attempt", None)) is not int
+                    or ports.verifier.attempt != attempt):
                 raise ValueError("invalid attempt ports")
         except Exception:
             return RetryResult("NEEDS_HUMAN", "ATTEMPT_PREPARATION_UNAVAILABLE", attempt - 1)

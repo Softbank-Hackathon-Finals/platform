@@ -15,6 +15,7 @@ from rehearsal_runner.runner import Namespace, ProposalRef
 
 class Ports:
     def prepare(self, attempt, feedback_ref):
+        self.attempt = attempt
         return AttemptPorts(self, self, self, self)
 
     def propose(self, task):
