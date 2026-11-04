@@ -133,6 +133,8 @@ Job이나 T31 배포가 실행되지 않는다.
 운영자 호스트에 서명 신원 검증기와 T15 어댑터(`rehearsal_host`)를 연결한다. 운영자는
 계획별 `read`와 `start_rehearsal` 권한이 있어야 한다. 다음 요청에서 T10은 계획 잠금을
 얻은 뒤 권한, 현재 `REHEARSE` 상태와 버전, 서버가 해당 계획에 등록한 작업과 소스 revision을 확인한다.
+`task_digest`는 같은 계획 버전의 논리 작업을 식별하므로 시도 간 유지된다. `proposal_digest`는
+각 시도의 수정안을 식별하므로 다음 시도에서 달라질 수 있다.
 
 ```http
 POST /v1/plans/{plan_id}/rehearsals
