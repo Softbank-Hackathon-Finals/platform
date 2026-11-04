@@ -13,6 +13,7 @@ export const STATES = [
   "SAFE_HOLD",
   "NEEDS_HUMAN",
   "DONE",
+  "DONE_ROLLED_BACK",
 ];
 const ID = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/;
 const DIGEST = /^[0-9a-f]{64}$/;
@@ -57,6 +58,69 @@ export function binding(v) {
       .split(" ")
       .map((k) => [k, v[k]]),
   );
+}
+// Failback has its own binding; it never reuses CUTOVER's execution receipt.
+export function failbackBinding(v, plan) {
+  exact(
+    v,
+    "plan_id plan_digest source_environment_id target_environment_id cutover_execution_id cutover_epoch integrity_receipt_id expires_at",
+  );
+  if (
+    v.plan_id !== plan ||
+    ![
+      v.plan_id,
+      v.source_environment_id,
+      v.target_environment_id,
+      v.cutover_execution_id,
+      v.integrity_receipt_id,
+    ].every(identifier) ||
+    v.source_environment_id === v.target_environment_id ||
+    typeof v.plan_digest !== "string" ||
+    !DIGEST.test(v.plan_digest) ||
+    !Number.isSafeInteger(v.cutover_epoch) ||
+    v.cutover_epoch < 1 ||
+    !date(v.expires_at)
+  )
+    fail("invalid_failback_binding");
+  return clone(v);
+}
+export function failbackRecord(v) {
+  const required = "command_id approval_id approved_by status started_at".split(
+    " ",
+  );
+  const optional =
+    "finished_at recovery_ms execution_id integrity_receipt_id".split(" ");
+  if (
+    !object(v) ||
+    required.some((k) => !Object.hasOwn(v, k)) ||
+    Object.keys(v).some((k) => ![...required, ...optional].includes(k)) ||
+    ![v.command_id, v.approval_id, v.approved_by].every(identifier) ||
+    !["edge_pending", "rolled_back", "aborted"].includes(v.status) ||
+    !date(v.started_at) ||
+    !identifier(v.execution_id) ||
+    ("integrity_receipt_id" in v && !identifier(v.integrity_receipt_id)) ||
+    (v.status !== "aborted" && !identifier(v.integrity_receipt_id)) ||
+    ("finished_at" in v &&
+      (!date(v.finished_at) ||
+        Date.parse(v.finished_at) < Date.parse(v.started_at))) ||
+    ("recovery_ms" in v &&
+      (!Number.isSafeInteger(v.recovery_ms) || v.recovery_ms < 0)) ||
+    (v.status === "edge_pending" &&
+      ("finished_at" in v || "recovery_ms" in v)) ||
+    (v.status !== "edge_pending" && !date(v.finished_at)) ||
+    (v.status === "rolled_back" && !Number.isSafeInteger(v.recovery_ms))
+  )
+    fail("invalid_failback_record");
+  return clone(v);
+}
+export function failbackSummary(record) {
+  if (!record) return "복귀 검증 기록 없음";
+  const v = failbackRecord(record);
+  return {
+    edge_pending: "DB 복귀 검증 기록됨 · 트래픽 복귀 확인 대기",
+    rolled_back: `복귀 완료 기록됨 · 복구 시간 ${v.recovery_ms} ms`,
+    aborted: "쓰기 전 복귀 중단 · 대상 환경 관측으로 돌아감",
+  }[v.status];
 }
 export function snapshot(v, plan) {
   exact(
@@ -130,11 +194,12 @@ export function event(v, plan) {
     );
     if (
       !identifier(d.approval_id) ||
-      !["change", "cutover"].includes(d.approval_kind)
+      !["change", "cutover", "failback"].includes(d.approval_kind)
     )
       fail("invalid_approval");
     // Change approvals remain visible, but this console has no change-apply route.
     if (d.approval_kind === "cutover") binding(d.binding);
+    else if (d.approval_kind === "failback") failbackBinding(d.binding, plan);
     else if (!object(d.binding)) fail("invalid_change_binding");
     if (
       v.event_type.endsWith("decided") &&
@@ -142,6 +207,9 @@ export function event(v, plan) {
         !["approved", "rejected", "expired"].includes(d.decision))
     )
       fail("invalid_decision");
+  } else if (v.event_type === "failback.recorded") {
+    failbackRecord(d);
+    if (d.command_id !== v.run_id) fail("failback_run_mismatch");
   } else if (v.event_type === "execution.updated") {
     if (
       Object.keys(d).some(
@@ -167,6 +235,7 @@ export class Model {
     this.gate = null;
     this.request = null;
     this.approval = null;
+    this.failback = null;
     this.state = null;
     this.snapshotAt = 0;
     this.snapshot = null;
@@ -201,6 +270,15 @@ export class Model {
       return false;
     }
     if (next.sequence !== this.cursor + 1) fail("event_gap");
+    if (next.data.approval_kind === "failback" && this.snapshot) {
+      const b = next.data.binding;
+      if (
+        b.plan_digest !== this.snapshot.plan_digest ||
+        b.source_environment_id !== this.snapshot.target_environment_id ||
+        b.target_environment_id !== this.snapshot.source_environment_id
+      )
+        fail("failback_scope_mismatch");
+    }
     const size = new TextEncoder().encode(JSON.stringify(next)).length;
     if (
       this.historyBytes + size > 8 * 1024 * 1024 ||
@@ -211,6 +289,9 @@ export class Model {
     if (next.event_type === "state.changed") {
       if (next.data.from !== this.state) fail("state_history_mismatch");
       this.state = next.data.to;
+    } else if (next.event_type === "failback.recorded") {
+      this.failback = next;
+      this.approval = null;
     } else if (next.event_type === "gate.completed") {
       this.gate = next;
       this.request = null;
@@ -221,6 +302,7 @@ export class Model {
     } else if (next.event_type === "approval.decided") {
       // An event alone cannot be used as this browser's execution receipt.
       if (
+        next.data.approval_kind !== "cutover" ||
         !this.approval ||
         next.data.approval_id !== this.approval.approval_id ||
         next.data.decision !== "approved" ||
