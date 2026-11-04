@@ -14,7 +14,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 credential = importlib.import_module("target_registry_credential")
 ACCOUNT = "123456789012"
 REGISTRY = f"{ACCOUNT}.dkr.ecr.ap-northeast-2.amazonaws.com"
-REPOSITORY = f"arn:aws:ecr:ap-northeast-2:{ACCOUNT}:repository/bravo/demo-chat"
+REPOSITORY = "arn:aws:ecr:ap-northeast-2:123456789012:repository/bravo/demo-chat"
 CONTRACT = {"account_id": ACCOUNT, "region": "ap-northeast-2",
             "repository_arn": REPOSITORY, "repository_url": REGISTRY + "/bravo/demo-chat"}
 NOW = datetime(2026, 11, 4, 0, 0, tzinfo=UTC)
@@ -35,10 +35,10 @@ class Provider:
         self.calls.append((service, operation, parameters, credentials))
         if operation == "get-caller-identity":
             if credentials is None:
-                return {"Account": ACCOUNT, "Arn": f"arn:aws:iam::{ACCOUNT}:user/operator"}
+                return {"Account": ACCOUNT, "Arn": "arn:aws:iam::123456789012:user/operator"}
             return {"Account": ACCOUNT, "Arn": self.arn if self.narrowed_identity_matches else "wrong"}
         if operation == "get-federation-token":
-            self.arn = f"arn:aws:sts::{ACCOUNT}:federated-user/{parameters['Name']}"
+            self.arn = "arn:aws:sts::123456789012:federated-user/" + parameters["Name"]
             return {"Credentials": self.session, "FederatedUser": {"Arn": self.arn}}
         if operation == "get-authorization-token":
             return {"authorizationData": [{"proxyEndpoint": self.endpoint,

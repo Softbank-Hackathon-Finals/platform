@@ -31,12 +31,17 @@ class Material:
     policy: dict
 
 
+def aws_arn(service, account, resource, region=""):
+    parts = ("arn", "aws", service, region, account, resource)
+    return ":".join(parts)
+
+
 def repository_boundary(contract):
     account = contract.get("account_id")
     if not isinstance(account, str) or not re.fullmatch(r"[0-9]{12}", account):
         raise Failure("account_invalid")
     registry = f"{account}.dkr.ecr.{REGION}.amazonaws.com"
-    arn = f"arn:aws:ecr:{REGION}:{account}:repository/bravo/demo-chat"
+    arn = aws_arn("ecr", account, "repository/bravo/demo-chat", REGION)
     if (contract.get("region") != REGION or contract.get("repository_arn") != arn
             or contract.get("repository_url") != registry + "/bravo/demo-chat"):
         raise Failure("repository_boundary_invalid")
@@ -96,7 +101,7 @@ def issue(contract, request=aws, now=None):
     account, registry, arn = repository_boundary(contract)
     started = now or datetime.now(UTC)
     identity = request("sts", "get-caller-identity", {})
-    if identity.get("Account") != account or not str(identity.get("Arn", "")).startswith(f"arn:aws:iam::{account}:user/"):
+    if identity.get("Account") != account or not str(identity.get("Arn", "")).startswith(aws_arn("iam", account, "user/")):
         raise Failure("operator_identity_invalid")
     policy = session_policy(arn)
     name = "t7-target-" + uuid.uuid4().hex[:16]
@@ -107,7 +112,7 @@ def issue(contract, request=aws, now=None):
     if not all(isinstance(credentials.get(k), str) and credentials[k] for k in
                ("AccessKeyId", "SecretAccessKey", "SessionToken", "Expiration")):
         raise Failure("session_response_invalid")
-    if response.get("FederatedUser", {}).get("Arn") != f"arn:aws:sts::{account}:federated-user/{name}":
+    if response.get("FederatedUser", {}).get("Arn") != aws_arn("sts", account, "federated-user/" + name):
         raise Failure("session_identity_invalid")
     session_end = expiry(credentials["Expiration"])
     if not 300 < (session_end - started).total_seconds() <= 3660:
