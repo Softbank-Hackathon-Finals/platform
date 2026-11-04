@@ -302,6 +302,8 @@ infra/envs/target-workloads/resume_replication.py --apply --source-write-block o
 | 꺼짐 | 사전 확인만. `would_run`에 실행할 문장을 보여 준다 | 사전 확인 → ENABLE 1회 → 기준점까지 따라잡기 → 시험 행 왕복 → 유지 확인 |
 | 이미 켜짐 | 사전 확인 → 따라잡기 → 유지 확인. 쓰기 없음 | ENABLE 없이 따라잡기 → 시험 행 왕복 → 유지 확인 |
 
+시험 행 정리가 `pending`으로 끝났다면 `--cleanup-marker <barrier_id>`로 마저 끝낸다. 아래 시험 행 절을 본다.
+
 이미 다른 사람이 켠 구독에 돌려도 다시 켜지 않는다(`continuity.enable_submissions`가 0). 쓰기를 전혀 원하지 않으면 옵션 없이 돌린다.
 
 ### 접속 정보
@@ -311,10 +313,11 @@ infra/envs/target-workloads/resume_replication.py --apply --source-write-block o
 | `T8_RESUME_SOURCE_DSN` | 출발지 읽기 | `chat_replicator`로 충분하다. 슬롯과 업무 테이블, `cutover.barrier`를 읽는다 |
 | `T8_RESUME_TARGET_DSN` | 목적지 읽기와 ENABLE | 읽기는 `chat_replicator`로 충분하다. ENABLE은 `cutover.set_subscription` 실행 권한 또는 구독 소유 권한이 필요하다 |
 | `T8_RESUME_EXECUTOR_DSN` | 실행 기록 읽기 | `executor.executions`, `leases`, `resource_fences` SELECT |
-| `T8_RESUME_SOURCE_PROBE_DSN` | `--apply`의 시험 행 쓰기 | `cutover.barrier` INSERT · SELECT · DELETE |
+| `T8_RESUME_SOURCE_PROBE_DSN` | `--apply`와 `--cleanup-marker`의 시험 행 쓰기 | `cutover.barrier` INSERT · SELECT · DELETE. `T8_RESUME_SOURCE_DSN`과 같은 클러스터의 같은 DB여야 한다 |
 | `T8_RESUME_ALLOW_LOOPBACK_PLAINTEXT` | 로컬 시험 전용 | 값이 `1`이고 host와 hostaddr가 모두 loopback 주소일 때만 `verify-full`을 요구하지 않는다 |
 
 - 모든 DSN은 `verify-full`이어야 한다. 비밀번호가 나가기 전에 판단한다. 규칙은 첨부 복사와 같다.
+- `verify-full`은 어느 서버가 답했는지만 보장한다. 쓰기 DSN이 검증한 출발지인지는 따로 본다. 그 연결에서 `system_identifier`와 DB 이름을 읽어 출발지와 대조하고, 다르거나 읽지 못하면 ENABLE과 INSERT 전에 거부한다. 쓰는 세션에서도 쓰기 직전에 다시 대조한다.
 - `cutover_control`은 `cutover.barrier`에 DELETE가 없어 시험 행 쓰기에 쓸 수 없다. 그 역할을 넓히지 않는다.
   그런 역할이 없으면 `--no-barrier-probe`로 건너뛰고 출력에 그 사실을 남긴다.
 - `target_origin_remote_lsn`은 `pg_read_all_stats`로도 읽을 수 없다(실측: `cutover_control`). 읽지 못하는 역할이면 값은 `null`이고,
@@ -344,6 +347,9 @@ ENABLE 권한이 없어 `no_enable_privilege`만 남았다면 권한을 넓히�
 | `source_and_target_are_one_cluster`, `*_identity_mismatch`, `*_identity_not_pinned` | 두 DSN이 같은 클러스터이거나 의도한 클러스터가 아니거나 대조값이 없다 | DSN을 고친다 |
 | `no_enable_privilege` | ENABLE 권한이 없다 | 위 문단을 따른다 |
 | `barrier_not_published`, `barrier_not_subscribed`, `barrier_not_readable_on_*`, `barrier_probe_not_permitted` | `--apply`의 시험 행 왕복을 할 수 없다 | 아래 시험 행 절을 본다 |
+| `barrier_probe_wrong_database`, `barrier_probe_not_primary`, `barrier_probe_unconfirmed` | 쓰기 DSN이 검증한 출발지가 아니거나, 대기 서버이거나, 읽지 못했다 | `T8_RESUME_SOURCE_PROBE_DSN`을 고친다. 권한이 있어도 통과시키지 않는다 |
+| `source_wrong_database` | 읽기 DSN이 슬롯이 있는 DB가 아니다 | `T8_RESUME_SOURCE_DSN`의 DB를 고친다 |
+| `not_a_marker_row`, `invalid_barrier_id` | `--cleanup-marker`에 준 ID가 시험 행이 아니거나 UUID가 아니다 | 출력의 `marker.barrier_id`를 쓴다. 다른 실행의 행은 지우지 않는다 |
 
 ### 출력과 #201의 대응
 
@@ -355,7 +361,7 @@ ENABLE 권한이 없어 `no_enable_privilege`만 남았다면 권한을 넓히�
 | `immediately_before_enable` | `source_wal_flush_lsn`, `source_slot_confirmed_flush_lsn`, `gap_bytes`, `gap_mib`, `slot_active`, `wal_status` |
 | `command_clock.first_observations` | `worker`, `received_fixed`, `applied_fixed`, `barrier`. 각각 `elapsed_s`, `previous_sample_s`, `db_utc`. 시계는 #201과 달리 이 명령을 돌리는 머신의 단조 시계다 |
 | `stages.before`, `delivered`, `cleaned` | `forward_enabled`, `reverse_enabled`, `apply_workers`, `source_slot_active`, `source_slot_wal_status`, `source_slot_invalidated`, `source_sender_state`, `source_sender_tls`, `source_slot_confirmed_flush_lsn`, `target_origin_remote_lsn`, `target_app_login`, `target_apply_errors`, `target_sync_errors`, `business_tables` |
-| `marker` | `insert_lsn_before_commit`, `delete_lsn_before_commit`, `same_row_on_both_sides_when_present`, `source_insert_commits`, `source_delete_commits` |
+| `marker` | `insert_lsn_before_commit`, `delete_lsn_before_commit`, `same_row_on_both_sides_when_present`, `source_insert_commits`, `source_delete_commits`. 이 명령은 여기에 `source_insert_submissions`, `source_delete_submissions`, `cleanup`을 더한다 |
 | `continuity` | `same_subscription_oid_and_origin`, `enable_submissions`, `table_sync_states`, `source_wal_sender_timeout_ms`, `target_wal_receiver_timeout_ms`, `disable_on_error`, `platform_before_after` |
 
 `business_tables`의 해시는 첫 출발지 조회 시점까지의 행만 대상으로 한다. 출발지에 쓰기가 계속돼도 비교할 수 있게 하려는 것이며,
@@ -386,7 +392,24 @@ ENABLE 권한이 없어 `no_enable_privilege`만 남았다면 권한을 넓히�
 ### 시험 행
 
 `--apply`는 따라잡은 뒤 `cutover.barrier`에 `epoch` 0인 행 하나를 넣고, 목적지 도착을 기다렸다가 지우고, 삭제 도착까지 기다린다.
-도착하지 않아도 출발지 행은 지운다. 목적지 행은 지우지 않고 보고만 한다.
+INSERT는 한 번만 보낸다. 지우는 것은 이 실행의 UUID이면서 `epoch`가 0인 행뿐이고, 목적지 행은 지우지 않고 보고만 한다. 다른 실행의 행에는 손대지 않는다.
+
+제출과 확인을 나눠 적는다. `*_submissions`는 보낸 횟수이고, `*_commits`는 응답이나 출발지 재조회로 확인한 결과다. 커밋한 뒤 응답만 끊기면 재조회로 찾아 지운다. `source_insert_commits`가 `null`이면 재조회도 실패해 커밋 여부를 모른다는 뜻이다.
+
+`marker.cleanup`은 다음 둘 중 하나다.
+
+| 값 | 뜻 | 다음 행동 |
+| --- | --- | --- |
+| `confirmed` | 출발지와 목적지에서 행이 없음을 읽어 확인했다 | 없음. 왕복이 실패했다면 원인을 고쳐 `--apply`를 다시 돌린다. 새 UUID로 보낸다 |
+| `pending` | 없음을 확인하지 못했다. `pending_on`이 어느 쪽인지 알려 준다 | `marker.resume`의 명령을 대조값을 채워 돌린다 |
+
+```sh
+infra/envs/target-workloads/resume_replication.py --cleanup-marker <barrier_id> --source-system-id <값> --target-system-id <값>
+```
+
+`--cleanup-marker`는 ENABLE이나 INSERT를 하지 않고, 이미 지워졌으면 쓰기 없이 통과한다. 여러 번 돌려도 된다. `pending_on`이 `target`뿐이면 출발지 삭제는 끝난 것이다. 복제가 멈춰 있을 수 있으니 구독 상태를 먼저 본다. 목적지 행은 이 명령도 지우지 않는다.
+
+응답이 끊긴 직후 재조회에 행이 없으면 커밋 0으로 적는다. 커밋이 그 뒤에 늦게 서버에 닿는 경우까지는 막지 못하므로, 응답 유실이 있었던 실행(`error_category`)은 같은 명령으로 한 번 더 확인할 수 있다.
 
 `cutover.barrier`는 기본 `schema.sql`의 publication에 없다. 환경마다 추가하고 구독을 `copy_data=false`로 갱신하는 단계다
 ([T12 계약](../../../docs/contracts/T12-platform-integration.md)). 그래서 재개의 조건으로 삼지 않고 사전 확인에서 읽는다.
