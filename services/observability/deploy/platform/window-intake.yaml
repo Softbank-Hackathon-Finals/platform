@@ -1,0 +1,120 @@
+# T36 창 수신 API. 부하 생성기(T18)만 쓴다(계약 6절). 콘솔 조회 API와 다른 Pod · 다른 토큰이고, 지표 저장소에 붙지 않는다.
+# 이미지는 조회 API와 같고 진입점만 다르다.
+# 배포 전에 만든다(git에 두지 않음):
+#   Secret bravo-window-intake-token (token, 32자 이상, 콘솔 토큰과 다른 값)
+#   ConfigMap bravo-window-intake (plans: 받을 계획 ID, 쉼표로 구분. T10 상태 DB에 연결하기 전까지 배포 설정으로 정한다)
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: bravo-window-intake
+  namespace: bravo-observability
+automountServiceAccountToken: false
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: bravo-window-intake
+  namespace: bravo-observability
+  labels:
+    app: bravo-window-intake
+    component: platform
+spec:
+  # 저장은 참조 구현(SQLite, Pod 로컬)이다. 두 Pod가 따로 받으면 중복 · 순서 검사가 갈라지므로 하나만 띄우고 Recreate로 교체한다
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: bravo-window-intake
+  template:
+    metadata:
+      labels:
+        app: bravo-window-intake
+        component: platform
+    spec:
+      serviceAccountName: bravo-window-intake
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        # 저장 볼륨(emptyDir)에 쓴다
+        fsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: intake
+          # 배포 파이프라인이 kustomize images로 레지스트리@digest를 넣는다(조회 API와 같은 이미지)
+          image: bravo-observability-api:set-by-deploy-pipeline
+          command: ["/src/services/observability/.venv/bin/bravo-observability-intake"]
+          env:
+            - {name: BRAVO_WINDOW_DB, value: /var/lib/bravo-windows/windows.db}
+            - name: BRAVO_WINDOW_PLANS
+              valueFrom:
+                configMapKeyRef: {name: bravo-window-intake, key: plans}
+            - name: BRAVO_WINDOW_TOKEN
+              valueFrom:
+                secretKeyRef: {name: bravo-window-intake-token, key: token}
+          ports:
+            - {name: http, containerPort: 8080}
+          readinessProbe:
+            httpGet: {path: /healthz, port: http}
+          livenessProbe:
+            httpGet: {path: /healthz, port: http}
+            initialDelaySeconds: 10
+          resources:
+            requests: {cpu: 10m, memory: 64Mi}
+            limits: {cpu: 250m, memory: 192Mi}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          volumeMounts:
+            - {name: windows, mountPath: /var/lib/bravo-windows}
+      volumes:
+        # Pod를 다시 만들면 비워진다. 판정은 STALE · MISSING으로 UNKNOWN이 되고(안전한 쪽), 다시 보낸 옛 창은 STALE로 쓰이지 않는다(J21)
+        - name: windows
+          emptyDir:
+            sizeLimit: 32Mi
+---
+# 부하 생성기가 플랫폼 노드 Tailscale 주소:30981로 보낸다. 지표 저장소(30990)와 같은 방식이다.
+# 원래 출발지 주소를 보존해 NetworkPolicy가 판단하게 한다. 전송 암호화는 Tailscale(WireGuard)이 한다.
+apiVersion: v1
+kind: Service
+metadata:
+  name: bravo-window-intake
+  namespace: bravo-observability
+  labels:
+    component: platform
+spec:
+  type: NodePort
+  externalTrafficPolicy: Local
+  selector:
+    app: bravo-window-intake
+  ports:
+    - {name: http, port: 8080, targetPort: http, nodePort: 30981}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: bravo-window-intake
+  namespace: bravo-observability
+spec:
+  podSelector:
+    matchLabels:
+      app: bravo-window-intake
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - from:
+        # 같은 클러스터에서 부하 생성기를 돌릴 때. 라벨은 kubectl label로 붙인다
+        - namespaceSelector:
+            matchLabels:
+              bravo.observability/window-producer: "true"
+        # 다른 곳의 부하 생성기(Tailscale 주소 대역). Tailscale ACL이 부하 생성기 태그만 허용한다(계약 6절)
+        - ipBlock:
+            cidr: 100.64.0.0/10
+      ports:
+        - {port: 8080, protocol: TCP}
+  # 저장은 Pod 안이다. 밖으로 나갈 일이 없다
+  egress: []

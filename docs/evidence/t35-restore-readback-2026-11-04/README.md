@@ -31,3 +31,5 @@
 팀 EKS/RKE2 연결, 운영 실행 원장, 일반 앱, 전체 행 내용 검증, PITR, RTO/SLO,
 실패 도메인 분리 또는 금융 보안 인증의 완료 근거로 사용하지 않는다.
 세부 신뢰 경계는 `services/control-runner/docs/cnpg-readback.md`를 따른다.
+
+T14 통합도 추가 확인했다. 서버 등록 RunContext를 그대로 전달해 백업 영수증의 실행 ID를 바꾸지 않고 새로운 TLS SQL readback을 수행했다. 전체20행 중 DR-01.1만 PASS, 나머지19개는 UNKNOWN이다. SELECT 회수 시 DR-01.1도 UNKNOWN이며 증거를 생성하지 않았고, 권한 복구 후 다시 실제 읽기에 성공했다. 호출자는 등록·단일 실행권·증거 저장을 책임지며 외부 JSON의 실행 ID를 신뢰하지 않는다. 전체control-runner431개·58subtest 통과(조건부4개 제외).

@@ -1,0 +1,8 @@
+# 컨텍스트는 저장소 루트. 이미지에 필요한 파일만 허용한다
+*
+!docs/observability/sli.schema.json
+!services/observability/pyproject.toml
+!services/observability/uv.lock
+!services/observability/README.md
+!services/observability/src
+**/__pycache__

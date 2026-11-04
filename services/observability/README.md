@@ -9,12 +9,35 @@
 | `build_window(records, plan_id=, start=, end=, pools=)` | T18 부하 생성기 | 한 창의 요청 결과(`Record`)를 `SliWindow`로 요약한다. `pools`는 `X-Bravo-Env` 값 → `source` · `target` |
 | `receive(window, now)` | 플랫폼 수신 경로 | `received_at`을 플랫폼이 받은 시각으로 덮어쓴다 |
 | `judge(profile, window, plan_id=, state=, weight_target=, observe_from=, decided_at=, prior_unknown=)` | T17 · T10 | `SliJudgement`를 돌려준다. 판정 · 사유 · 조치와 입력 창 원본을 담는다 |
+| `contract.validate(definition, document)` | 누구나 (api extra) | 계약 스키마로 검증한다. 스키마는 패키지에 들어 있어 저장소 경로 없이 쓴다. 오류 메시지에 값을 담지 않는다 |
+| `intake.accept(store, window, now=, is_active_plan=)` | 플랫폼 수신 경로 | 계약 3절 "소비자가 확인할 것"을 검사하고 `WindowStore`에 저장한다 |
 
 ```sh
 cd services/observability && uv sync --locked && uv run --locked pytest
 ```
 
-시험은 계약 시험 전체(판정 25건, 스키마 거부 8건)와 창 요약 생성 규칙(환경 분류, nearest-rank p95, 빈 환경, 수신 시각 덮어쓰기)을 돈다.
+시험은 계약 시험 전체(판정 25건, 스키마 거부 8건), 창 요약 생성 규칙(환경 분류, nearest-rank p95, 빈 환경, 수신 시각 덮어쓰기), 창 수신 규칙을 돈다.
+
+### 창 수신 (`POST /v1/observability/windows`)
+
+T18 부하 생성기가 창 요약을 보내는 곳이다. 콘솔 조회 API와 같은 이미지의 다른 진입점(`bravo-observability-intake`)이고, 다른 Pod · 다른 토큰으로 뜬다. 판정은 하지 않는다.
+
+- **인가:** `Authorization: Bearer <BRAVO_WINDOW_TOKEN>`. 콘솔 토큰과 다른 Secret이다. 설정이 없으면 시작하지 않는다.
+- **받는 계획:** `BRAVO_WINDOW_PLANS`(쉼표 구분)에 있는 `plan_id`만 받는다. T10 상태 DB에 연결하면 "현재 계획"으로 바꾼다.
+- **검사:**
+  - 계약 스키마 검증, `window.end` > `window.start`
+  - `received_at`을 플랫폼 시각으로 덮어쓰기
+  - 같은 `(plan_id, window.start)`는 한 번만
+  - 이미 받은 창보다 늦게 끝나지 않는 창 거부(오래된 정상 창으로 장애를 가리지 못함)
+  - 끝 시각이 늦어도 기존 창과 겹치면 거부. 인접 창은 허용하며, 비교·저장은 한 트랜잭션으로 수행한다
+  - 중복 JSON 필드, 비 UTF-8, NaN/Infinity, 과도한 중첩, 음수·불리언 카운터와 요청 수를 초과한 오류 합계를 거부한다
+  - 받은 시각보다 2초(`max_clock_skew_seconds`) 넘게 미래에 끝나는 창 거부. 그런 창 하나가 이후 창을 모두 막지 못하게 한다
+  - 시각은 문자열이 아니라 순간으로 비교한다(`+09:00`과 `Z`는 같은 창)
+- **응답:** 201(저장, `received_at` 반환), 400 잘못된 JSON, 401, 404 받지 않는 계획, 408 본문 수신 5초 초과, 409 `duplicate` · `out_of_order` · `overlapping_window`, 413 64KiB 초과(읽는 중에 자름), 415 압축 본문, 422 계약 위반 · `clock_ahead`, 503 권한·저장 결과 확인 불가. 응답은 `no-store`다.
+- **실행 직전 확인:** 느린 업로드 전의 권한·시각을 재사용하지 않는다. 저장 직전에 생산자 권한과 현재 계획을 다시 확인하고 플랫폼 시각을 읽는다. 저장 오류는 성공으로 표시하거나 내부 재시도하지 않는다. 재전송은 같은 창 키를 유지해야 하며, 409는 새 저장 성공을 뜻하지 않는다.
+- **저장:** `WindowStore` 인터페이스(`insert_if_newer` · `latest`)의 참조 구현 `SqliteWindowStore`. Pod 로컬이라 하나만 띄운다(Recreate). 1시간이 지난 창은 지우지만 가장 늦은 창은 남아 순서 검사가 유지된다. 플랫폼 상태 DB(T10)에 같은 인터페이스로 연결하는 것을 제안한다.
+
+`judge()`를 Python/DB에서 직접 호출해도 비유한 통계·손상된 임계값은 `ValueError`로 거부한다. 호출자는 이 경우 이전 PASS를 재사용하거나 조치를 실행하지 않아야 한다. 정상적인 관측 부재는 기존 `UNKNOWN` 규칙을 따른다. 정적 토큰·계획 허용 목록은 단일 생산자 참조 배치이며, 조직별 권한·생산자 등록·정책 승인 및 T10의 원자적 실행 인가를 대신하지 않는다.
 
 ## 환경 횡단 지표 수집 (T37)
 
@@ -25,9 +48,9 @@ cd services/observability && uv sync --locked && uv run --locked pytest
 | [`deploy/collector/`](deploy/collector/) | 클러스터별 Collector: 설정 · 매니페스트 · NetworkPolicy |
 | [`deploy/collector-db/`](deploy/collector-db/) | DB(CNPG)가 있는 클러스터용 오버레이: DB 지표 수집 추가 |
 | [`deploy/collector-db-access/`](deploy/collector-db-access/) | DB 네임스페이스의 Pod 조회 권한(Role)만. 환경마다 namespace를 바꿔 적용 |
-| [`deploy/platform/`](deploy/platform/) | 플랫폼: 지표 저장소(mTLS `web.yml`, 알림 `rules/`)와 콘솔용 조회 API |
+| [`deploy/platform/`](deploy/platform/) | 플랫폼: 지표 저장소(mTLS `web.yml`, 알림 `rules/`), 콘솔용 조회 API, 창 수신(`window-intake.yaml`, T36) |
 | [`deploy/certs/issue.sh`](deploy/certs/issue.sh) | 인증서 발급 · 만료 검사. 절차: [인증서](../../docs/observability/certificates.md) |
-| [`Dockerfile`](Dockerfile) | 조회 API 이미지(비루트, digest 고정 기반 이미지) |
+| [`Dockerfile`](Dockerfile) | 조회 API · 창 수신 이미지(비루트, digest 고정 기반 이미지). 빌드 컨텍스트는 저장소 루트다: `docker build -f services/observability/Dockerfile .` |
 | [`testing/`](testing/) | `run.sh`(compose), `k8s.sh`(Docker 안 k3s + CNPG), `rotation.sh`(인증서 교체) |
 | [런북](../../docs/observability/runbooks.md) | 알림 8개의 뜻 · 확인 순서 · 조치 |
 
@@ -64,39 +87,60 @@ cd services/observability && uv sync --locked && uv run --locked pytest
 - **전송마다 새 연결:** 인증서 교체와 신뢰 제거가 다음 전송(10초 이내)에 반영된다. Collector 0.164.0은 기능 게이트 결함 때문에 `--feature-gates=-pkg.confighttp.PrioritizeNewKeepalive`가 필요하다([인증서 3절](../../docs/observability/certificates.md)).
 - **남는 위험:** 인증서 이름은 환경 이름과 묶이지 않는다. 한 Collector 인증서가 유출되면 다른 환경 이름으로 서버 지표를 넣을 수 있다. 이 지표는 판정 입력이 아니다.
 - **조회 API 인가:** Bearer 토큰(32자 이상, Secret). 설정이 없으면 시작하지 않는다.
+- **창 수신 인가:** 조회와 다른 Bearer 토큰. 조회 API에는 수신 경로가 없고, 창 수신에는 조회 경로가 없다.
 - **NetworkPolicy**
   - Collector는 `bravo.observability/send=true` 라벨 네임스페이스에서만 받는다. 나가는 연결은 DNS와 저장소 포트, DB 오버레이면 API 서버와 9187.
   - 저장소는 같은 네임스페이스의 Collector · 조회 API, `platform-client` 라벨 네임스페이스, Tailscale 대역만 받는다. 나가는 연결은 없다.
   - 조회 API는 `platform-client` 라벨 네임스페이스에서만 받고, 저장소 9090으로만 나간다.
+  - 창 수신은 `bravo.observability/window-producer=true` 라벨 네임스페이스와 Tailscale 대역(노드 포트 30981)에서만 받는다. 콘솔 네임스페이스도 보낼 수 없다. 나가는 연결은 없다(DNS 포함). 전송 암호화는 Tailscale이 한다.
   - 라벨은 `kubectl label`로 붙인다(Namespace 매니페스트를 apply하면 없는 라벨이 지워진다).
 - **DB 접근:** Collector는 DB 네임스페이스에서 Pod 조회만 할 수 있다(Secret · exec · 다른 네임스페이스는 거부, k3s에서 확인).
   - DB 네임스페이스에 Collector 허용 NetworkPolicy를 넣지 않는다. 그 정책이 DB Pod를 고르면 격리가 켜져 앱 → DB 연결까지 막힐 수 있다.
   - DB 네임스페이스가 이미 격리돼 있다면, 그 담당(T6 · T30)이 Collector → 9187을 허용한다.
-- **Pod 보안:** 세 워크로드 모두 Pod 보안 표준 restricted를 만족한다(비루트, 읽기 전용 루트, 권한 상승 금지, capability 제거, seccomp). ServiceAccount 토큰은 DB 오버레이의 Collector만 붙인다(Pod 조회용).
+- **Pod 보안:** 네 워크로드 모두 Pod 보안 표준 restricted를 만족한다(비루트, 읽기 전용 루트, 권한 상승 금지, capability 제거, seccomp). ServiceAccount 토큰은 DB 오버레이의 Collector만 붙인다(Pod 조회용).
 - **배포 전에 만들 것(git에 두지 않음)**
-  - Secret: `bravo-collector-tls`, `bravo-prometheus-tls`, `bravo-observability-api-tls`, `bravo-observability-api-token`
-  - ConfigMap: `bravo-collector-env`(`BRAVO_ENV`, `PLATFORM_OTLP_ENDPOINT`, DB 오버레이면 `BRAVO_DB_NAMESPACE`)
+  - Secret: `bravo-collector-tls`, `bravo-prometheus-tls`, `bravo-observability-api-tls`, `bravo-observability-api-token`, `bravo-window-intake-token`
+  - ConfigMap: `bravo-collector-env`(`BRAVO_ENV`, `PLATFORM_OTLP_ENDPOINT`, DB 오버레이면 `BRAVO_DB_NAMESPACE`), `bravo-window-intake`(`plans`)
 - 리허설 네임스페이스에는 Collector로 가는 송신 예외를 열지 않는다(ADR-0002).
 
 ### 자원 (실측)
 
-데모 예상의 약 10배 부하(앱 지표 2000건/초, 3분)에서 잰 값이다.
+데모 예상의 약 10배 부하(앱 지표 2000건/초, CNPG 수집 포함)와 창 10건/초(데모의 100배)를 3분 동안 넣고 잰 값이다(2026-11-04).
 
-| 워크로드 | 최대 메모리 | 평균 / 최대 CPU | request / limit |
+| 워크로드 | 최대 메모리 (anon) | 평균 / 최대 CPU | request / limit |
 |---|---|---|---|
-| Collector | 107MiB | 33m / 92m | 50m · 128Mi / 500m · 256Mi |
-| Prometheus | 83MiB | 15m / 42m | 50m · 128Mi / 1 · 512Mi |
-| 조회 API | 50MiB | 4m / 16m | 25m · 64Mi / 500m · 192Mi |
+| Collector | 223MiB (72MiB) | 29m / 38m | 50m · 128Mi / 500m · 256Mi |
+| Prometheus | 72MiB (43MiB) | 13m / 19m | 50m · 128Mi / 1 · 512Mi |
+| 조회 API | 49MiB (42MiB) | 3m / 7m | 25m · 64Mi / 500m · 192Mi |
+| 창 수신 | 44MiB (41MiB) | 29m / 38m (평상 3m) | 10m · 64Mi / 250m · 192Mi |
 
-`BRAVO_K8S_CAPACITY=1 testing/k8s.sh`로 다시 잰다. 시계열 종류 수가 적은 부하였고 Docker Desktop VM이라, 실제 환경에서 다시 잰다.
+- **최대 메모리는 working set이고, 괄호는 프로세스가 실제로 쥔 메모리(cgroup anon)다.** Collector의 working set에는 디스크 큐 파일 캐시가 150MiB 남짓 섞인다. 커널은 OOM 전에 이 캐시를 회수하므로 limit 256Mi는 anon 72MiB 기준으로 충분하다.
+- 창 수신의 CPU는 창 수에 비례한다. 데모(10초에 1건)에서는 평상값 3m 근처다.
+- `BRAVO_K8S_CAPACITY=1 testing/k8s.sh`로 다시 잰다. 시계열 종류 수가 적은 부하였고 Docker Desktop VM이라, 실제 환경에서 다시 잰다.
+
+### 플랫폼 노드 몫
+
+플랫폼 클러스터(T7)에 뜨는 관측 워크로드의 request 합이다.
+
+| 워크로드 | CPU | 메모리 |
+|---|---|---|
+| 지표 저장소 | 50m | 128Mi |
+| 조회 API | 25m | 64Mi |
+| 창 수신 | 10m | 64Mi |
+| **합계** | **85m** | **256Mi** |
+| (선택) 플랫폼 자체 지표용 Collector | +50m | +128Mi |
+
+- T7 실측([용량 문서](../../infra/envs/platform-aws/capacity.md), 2026-11-04)은 할당 2,000m 중 1,976m가 이미 예약돼 24m가 남는다. 그래서 관측 워크로드는 지금 노드에 스케줄되지 않는다.
+- T7이 제안한 t3.xlarge(4 vCPU)에서는 기존 1,976m + Executor 100m + 관측 85~135m = 2,161~2,211m다. 그 문서의 용량 계산에는 관측 몫이 없으므로 리사이즈 판단에 이 값을 더한다(제안).
+- request를 평상 사용량에 맞춰 더 낮추지 않는다. 창 수신과 Collector는 부하에 따라 평상의 약 10배까지 쓴다.
 
 ### 검증 (2026-11-04 로컬)
 
 결과 · 소스 해시 · 이미지 digest: [증빙](../../docs/evidence/t37-observability-2026-11-04/README.md).
 
 ```sh
-services/observability/testing/run.sh        # compose: 20항목, 약 2분
-services/observability/testing/k8s.sh        # k3s + CNPG: 16항목, 약 4분 (helm 필요)
+services/observability/testing/run.sh        # compose: 20항목
+services/observability/testing/k8s.sh        # k3s + CNPG + 창 수신 + DB 출처 회귀: 20항목 (helm 필요)
 services/observability/testing/rotation.sh   # 인증서 교체: 14항목, 약 1분 반
 ```
 
@@ -109,7 +153,8 @@ services/observability/testing/rotation.sh   # 인증서 교체: 14항목, 약 1
 ### 남은 일
 
 - **실제 환경 배포:** 플랫폼 RKE2(T7), 출발지 EKS(T6), 목적지 RKE2(T30). 남은 것은 배포 경로, 클러스터 접근, 인증서 발급, 조회 API 이미지 게시다.
-- **영속성:** 디스크 큐 · 저장소가 emptyDir이다. 저장소 클래스가 정해지면 PVC로 바꾼다.
+- **영속성:** 디스크 큐 · 저장소 · 창 수신 저장이 emptyDir이다. 저장소 클래스가 정해지면 PVC로 바꾼다. 창 수신은 T10 상태 DB 연결이 우선이다.
+- **판정 연결:** 저장한 창을 판정(T17)이 읽는 경로가 없다. `WindowStore`를 상태 DB(T10)에 구현하고 판정이 `latest(plan_id)`를 읽는 것을 제안한다.
 - **나가는 주소 좁히기:** Collector의 나가는 연결은 포트로만 제한한다. 환경별 플랫폼 주소와 출발지 VPC 대역을 ipBlock으로 더한다.
 - **앱 지표:** 데모 앱에 OTel 계측이 없다(T22). 조회 API의 HTTP 뷰는 계측이 들어오면 채워진다.
 - **PgBouncer 지표:** 출발지 PgBouncer는 별도 Deployment라 exporter가 필요하다(T6).

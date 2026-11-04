@@ -28,7 +28,10 @@ class Record:
 
 
 def _ts(value: str) -> datetime:
-    return datetime.fromisoformat(value)
+    parsed = datetime.fromisoformat(value)
+    if parsed.utcoffset() is None:
+        raise ValueError("timezone_required")
+    return parsed
 
 
 def _p95(latencies: list[float]) -> float | None:
@@ -81,6 +84,35 @@ def build_window(
 def receive(window: dict, now: str) -> dict:
     """플랫폼이 창을 받은 시각으로 received_at을 덮어쓴다. 생산자 값은 버린다."""
     return {**window, "received_at": now}
+
+
+def validate_window_counts(window: dict) -> None:
+    """Semantic checks also apply to Python/DB callers, not only JSON intake.
+
+    NaN compares false to every threshold and must never become a PASS.
+    The schema cannot express the sum of disjoint response categories.
+    Invalid input raises instead of manufacturing a judgement/action.
+    """
+    try:
+        if set(window["pools"]) != {"source", "target"} or set(window["unattributed"]) != {"timeout", "connect", "other"}:
+            raise ValueError
+        for pool in window["pools"].values():
+            counts = [pool[k] for k in ("requests", "http_5xx", "integrity_conflict")]
+            if any(type(value) is not int or value < 0 for value in counts):
+                raise ValueError
+            requests, errors, conflicts = counts
+            if errors + conflicts > requests:
+                raise ValueError
+            latency = pool["p95_ms"]
+            if requests == 0:
+                if latency is not None:
+                    raise ValueError
+            elif type(latency) not in (int, float) or not math.isfinite(latency) or latency < 0:
+                raise ValueError
+        if any(type(value) is not int or value < 0 for value in window["unattributed"].values()):
+            raise ValueError
+    except (KeyError, TypeError, AttributeError, ValueError, OverflowError):
+        raise ValueError("invalid_window_statistics") from None
 
 
 def _usable(window: dict, plan_id: str, observe_from: datetime, now: datetime, p: dict) -> set[str]:
@@ -140,6 +172,27 @@ def _action(verdict: str, state: State, prior_unknown: int, p: dict) -> str:
     return {"PASS": "NONE", "FAIL": "ALERT_FAILBACK_PROPOSAL"}.get(verdict, "ALERT_UNOBSERVABLE")
 
 
+def _validate_inputs(profile, state, weight_target, prior_unknown):
+    try:
+        if state not in {"SHIFT", "WATCH"} or type(weight_target) is not int or not 0 <= weight_target <= 100:
+            raise ValueError
+        if type(prior_unknown) is not int or prior_unknown < 0:
+            raise ValueError
+        for key in ("window_seconds", "min_requests", "min_pool_requests", "stale_after_seconds", "unknown_limit"):
+            if type(profile[key]) is not int or profile[key] <= 0:
+                raise ValueError
+        if type(profile["max_clock_skew_seconds"]) is not int or profile["max_clock_skew_seconds"] < 0:
+            raise ValueError
+        for key in ("share_tolerance", "error_rate_max", "p95_ms_max"):
+            value = profile[key]
+            if type(value) not in (int, float) or not math.isfinite(value):
+                raise ValueError
+        if not 0 < profile["share_tolerance"] <= 1 or not 0 <= profile["error_rate_max"] <= 1 or profile["p95_ms_max"] <= 0:
+            raise ValueError
+    except (KeyError, TypeError, ValueError, OverflowError):
+        raise ValueError("invalid_judgement_policy") from None
+
+
 def judge(
     profile: dict,
     window: dict | None,
@@ -155,6 +208,9 @@ def judge(
 
     prior_unknown은 같은 observe_from 안에서 직전까지 연속된 UNKNOWN 수다.
     """
+    _validate_inputs(profile, state, weight_target, prior_unknown)
+    if window is not None:
+        validate_window_counts(window)
     fail: set[str] = set()
     unknown = (
         {"MISSING"}
