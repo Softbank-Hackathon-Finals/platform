@@ -42,7 +42,7 @@ uv run python -m rehearsal_runner.isolation_cli --namespace rehearsal-demo-1 --p
 
 ## 버킷 읽기 관측 프로토타입
 
-`bucket_task.prepare_bucket_policy_task`는 원본 revision·정책 원문·정책 SHA-256·실행 ID·시험 버킷을 담은 번역 작업 입력을 만든다. 중복 JSON 키나 범위 밖 입력은 거부한다. 현재 모델 도구 및 T38에는 연결되지 않았으며 SeaweedFS 정책을 생성하거나 적용하지 않는다.
+`bucket_task.prepare_bucket_policy_task`는 원본 revision·정책 원문·정책 SHA-256·실행 ID·시험 버킷을 담은 번역 작업 입력을 만든다. 중복 JSON 키나 범위 밖 입력은 거부한다. T11 bucket proposer는 원본 스냅샷과 일치하는 경우에만 기존 Coordinator에 제안을 요청하고 지정된 대상 파일 외의 수정은 거부한다. 실제 모델 실행과 T38 제품 검증에는 아직 연결되지 않았으며 SeaweedFS 정책을 적용하지 않는다.
 
 `bucket_probe.observe_bucket_reads`는 신뢰된 호출자가 제공한 인증·무인증 읽기 어댑터로 같은 시험 객체를 인증 → 무인증 → 인증 순서로 관측한다. 기존 객체의 양성 대조와 본문 SHA-256이 모두 일치해야 무인증 403을 해석할 근거가 생긴다. 이 함수의 결과는 관측값이며 T38 영수증이나 승인 판정이 아니다. 테스트는 모의 어댑터만 사용한다.
 
@@ -120,3 +120,15 @@ PYTHONPATH=../rehearsal-runner/src uv run --frozen --no-default-groups --with py
 ```
 
 아직 실제 T38 검증 Job은 T3가 시험한 namespace·UID를 입력으로 받지 않는다. 생성·시험·Job·정리의 단일 UID 보장과 정리 책임, 공통 클러스터 context, T10 실행 잠금 및 재시작 복구를 담당자와 확정하기 전에는 이 경로를 실제 자원에 연결하지 않는다. 템플릿 적용 전후 UID 조회는 그 사이의 변경을 원자적으로 막지 못한다.
+
+
+### 버킷 작업과 T11 제안 연결
+
+`bucket_proposer.T11BucketProposer`는 같은 run·revision의 T11 Coordinator와 읽기 전용 snapshot을 사용한다. 원본 정책 내용·해시와 고정된 작업 요약을 대조하고, T11이 검증한 제안이라도 지정된 대상 파일 한 개를 벗어나면 차단한다. 현재 최초 시도만 지원하며 동기 호출이다.
+
+```bash
+cd ../agent-worker
+PYTHONPATH=../rehearsal-runner/src uv run --frozen --no-default-groups --with pytest pytest -p no:cacheprovider ../rehearsal-runner/testing/test_bucket_t11.py
+```
+
+이 시험은 실제 T11 Coordinator·도구 정책과 모의 모델·검증기를 사용한다. 리허설 기본 `pytest` 수집에는 포함되지 않는다. 실제 모델·SeaweedFS 정책 적용·T38 검증, UID 결속, 승인 여부는 확인하지 않는다. T38 실행 통로에 제안서를 저장·전달하는 어댑터와 T10 실행 권한·재시도 복구는 별도다.
