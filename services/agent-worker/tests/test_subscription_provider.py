@@ -186,6 +186,28 @@ def streamed_call(name, args):
     return [created, added, done, dict(final, sequence_number=3)]
 
 
+@pytest.mark.parametrize(("kind", "position", "label", "phase", "extra", "fields"), [
+    ("response.metadata", 0, "response.metadata", "before_response", {"metadata": {"id": "private-value"}}, ["metadata"]),
+    ("codex.rate_limits", 1, "codex.rate_limits", "after_created", {"rate_limits": {"id": "private-value"}}, ["rate_limits"]),
+    ("response.refusal.delta", 2, "response.refusal.delta", "after_added", {"delta": "private-value"}, ["delta"]),
+    ("private-event", 3, "other", "after_done", {"private-field": "private-value"}, []),
+])
+def test_first_rejected_event_reports_protocol_shape_without_admitting_it(
+        context, monkeypatch, kind, position, label, phase, extra, fields):
+    bundle, snapshot, _proposal, _ = context
+    events = streamed_call("repo_read", {"path": "src/config.py"})
+    events.insert(position, {"type": kind, "sequence_number": 0, **extra})
+    for index, event in enumerate(events):
+        event["sequence_number"] = index
+    requests = install_stream(monkeypatch, [events])
+    result = asyncio.run(Coordinator(bundle, snapshot).propose(OpenAIProvider("fixture-model", subscription=True)))
+    shape, stop = result["audit"]
+    assert shape["rejected_event"] == {"kind": label, "phase": phase, "fields": fields, "other_fields": not fields}
+    assert shape["stream_resolution"] == "unrecognized_event" and shape["function_call_count"] == 0
+    assert result["state"] == "NEEDS_HUMAN" and result["proposal"] is None and len(requests) == 1
+    assert stop["reason"] == "MODEL_OR_POLICY_FAILURE" and "private-" not in json.dumps(result)
+
+
 def test_completed_streamed_call_with_empty_terminal_runs_under_normal_tool_policy(context, monkeypatch):
     bundle, snapshot, proposal, _ = context
     read = streamed_call("repo_read", {"path": "src/config.py"})
