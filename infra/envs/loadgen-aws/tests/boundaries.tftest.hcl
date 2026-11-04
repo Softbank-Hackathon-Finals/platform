@@ -175,7 +175,7 @@ run "user_data_installs_tools_but_holds_no_credentials" {
     error_message = "Security groups cannot see inside the tunnel, and the tailnet ACL lives outside this stack; the host refuses connections from peers itself."
   }
   assert {
-    condition     = !strcontains(aws_instance.loadgen.user_data, "tskey") && !strcontains(aws_instance.loadgen.user_data, "postgres") && !strcontains(aws_instance.loadgen.user_data, "_DSN")
+    condition     = !strcontains(aws_instance.loadgen.user_data, "tskey") && !strcontains(aws_instance.loadgen.user_data, "postgres") && !strcontains(aws_instance.loadgen.user_data, "_DSN") && !strcontains(aws_instance.loadgen.user_data, "BRAVO_WINDOW_TOKEN")
     error_message = "User data stays readable on the host and in state; credentials must arrive through an operator session."
   }
   assert {

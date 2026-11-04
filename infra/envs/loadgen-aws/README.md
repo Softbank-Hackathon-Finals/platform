@@ -69,10 +69,11 @@ aws ssm start-session --target "$INSTANCE_ID"
 cloud-init status --wait && test -f /var/lib/bravo-loadgen-ready   # 첫 부팅 설치 완료 확인
 tmux new -A -s loadgen bash
 read -rs TS_KEY && printf '%s' "$TS_KEY" | sudo bravo-tailnet-join; unset TS_KEY
-cd ~ && git clone https://github.com/Softbank-Hackathon-Finals/platform.git   # #158 머지 전에는 --branch로 받는다
+cd ~ && git clone https://github.com/Softbank-Hackathon-Finals/platform.git
 cd platform/services/loadgen && uv sync
-read -rs LOADGEN_DB_DSN && export LOADGEN_DB_DSN      # DB 경로가 정해진 뒤
-read -rs LOADGEN_LOCK_DSN && export LOADGEN_LOCK_DSN  # DB 경로가 정해진 뒤
+read -rs LOADGEN_DB_DSN && export LOADGEN_DB_DSN          # DB 경로가 정해진 뒤
+read -rs LOADGEN_LOCK_DSN && export LOADGEN_LOCK_DSN      # DB 경로가 정해진 뒤
+read -rs BRAVO_WINDOW_TOKEN && export BRAVO_WINDOW_TOKEN  # 창 수신 주소가 정해진 뒤
 uv run bravo-loadgen run \
   --base-url https://<Edge 주소> --measurement-path edge \
   --plan-id plan-demo --source-env aws --target-env onprem \
@@ -81,7 +82,7 @@ uv run bravo-loadgen run \
   --window-url https://<플랫폼 수신 주소>
 ```
 
-DB 경로와 수신 주소가 정해지기 전에는 해당 줄과 옵션을 뺀다. 그때 리포트는 `NOT_RECONCILED`이고 종료 코드는 2다. 통과가 아니므로 나중에 `reconcile`로 대조한다.
+DB 경로와 수신 주소가 정해지기 전에는 해당 줄과 옵션을 뺀다. 그때 리포트는 `NOT_RECONCILED`이고 종료 코드는 2다. 통과가 아니므로 나중에 `reconcile`로 대조한다. `--window-url`을 주고 `BRAVO_WINDOW_TOKEN`을 넣지 않으면 부하를 보내기 전에 종료 코드 2로 멈춘다. `--out` 폴더에 이전 결과가 있어도 멈추므로 실행마다 새 폴더를 쓴다.
 
 **결과 가져오기.** 이 호스트에는 S3 권한도 들어오는 포트도 없으므로 SSM 포트 포워딩으로 받는다. 호스트에서 `python3 -m http.server 8080 --bind 127.0.0.1 --directory out/run1`을 띄우고 운영자 PC에서 아래를 실행한다.
 
@@ -106,7 +107,7 @@ aws ec2 stop-instances --instance-ids "$INSTANCE_ID"
 |---|---|---|
 | `tailscale status` | 이 노드와 수신 대상이 보이고 경로가 `relay`로 표시됨 | ACL의 태그 규칙과 키의 태그를 확인한다 |
 | 리포트 경고 `GENERATOR_LAGGING` | 없음 | 부하 생성기가 병목이다. `instance_type`을 올린다 |
-| 리포트 경고 `WINDOW_DELIVERY_FAILED` | 없음 | Tailscale 중계 경로가 창 전송 제한 2초를 못 맞춘 것일 수 있다. 아래 표의 UDP 항목을 본다 |
+| 리포트 경고 `WINDOW_DELIVERY_FAILED` | 없음 | 토큰이 거부됐거나, Tailscale 중계 경로가 창 전송 제한 2초를 못 맞춘 것일 수 있다. 토큰을 먼저 확인하고 아래 표의 UDP 항목을 본다 |
 | 리포트 경고 `LOCK_PROBE_STALLED` | 없음 | 중계 경로 지연인지 DB 멈춤인지 가른다 |
 | `ulimit -Hn` | 5,506 이상 (`50×60 + 150×15 + 256`) | 부하 생성기가 시작하지 않고 종료 코드 2로 끝난다 |
 | `timedatectl` | 시계 동기화 `yes` | 창 시각을 믿을 수 없다. UDP 123이 막혀 있어 공용 NTP로는 맞출 수 없으므로 시간 서버를 [Amazon Time Sync](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/configure-ec2-ntp.html)의 `169.254.169.123`으로 설정한다. [보안 그룹이 거르지 않는 주소](https://docs.aws.amazon.com/vpc/latest/userguide/vpc-security-groups.html)다 |
@@ -115,7 +116,7 @@ aws ec2 stop-instances --instance-ids "$INSTANCE_ID"
 
 ## 비밀 값 전달
 
-**Tailscale 키와 DB 연결 문자열은 운영자의 SSM 세션에서 프로세스 환경으로만 들어간다.** Terraform 입력 · 상태 · user-data에 없고, 호스트 역할은 비밀을 읽을 수 없다.
+**Tailscale 키, DB 연결 문자열, 창 전송 토큰은 운영자의 SSM 세션에서 프로세스 환경으로만 들어간다.** Terraform 입력 · 상태 · user-data에 없고, 호스트 역할은 비밀을 읽을 수 없다. 창 전송 토큰은 받는 쪽(플랫폼 창 수신 경로)에서 정하고 `BRAVO_WINDOW_TOKEN`으로만 넘긴다.
 
 | 기존 방식 | 위치 | 여기서 |
 |---|---|---|
@@ -135,7 +136,7 @@ Tailscale 키는 [태그 · 1회용 · 임시(ephemeral)](https://tailscale.com/
 | Tailscale 태그와 ACL | `tailscale_tag` 입력. `tag:bravo-*`만 받는다 | tailnet 소유자(T30)가 태그 소유자와, 이 태그에서 플랫폼 수신 포트로만 가는 규칙을 추가한다. ACL은 이 스택 밖이다 |
 | Tailscale 키 발급자 | 미정 | 측정할 때마다 키를 만들 사람 |
 | DB 읽기 경로와 계정 | 미정. 이 스택은 DB 자원을 만들지 않는다 | `messages` SELECT 계정, 잠금 측정용 직접 연결, tailnet 경로. T30은 5432를 복제 역할만 허용하므로 그 규칙과 함께 검토한다. 그전에는 부하만 돌리고 [`reconcile`을 DB에 닿는 곳에서](../../../services/loadgen/README.md#실행-위치와-창-전송) 돌린다 |
-| 창 수신 주소 | 없음 (T10 · T17) | `--window-url`에 넣을 주소 |
+| 창 수신 주소와 토큰 | 없음 (T10 · T17) | `--window-url`에 넣을 주소와, 받는 쪽에서 정해 운영자에게 넘길 `BRAVO_WINDOW_TOKEN` 값 |
 | Tailscale UDP | 열지 않음. [UDP가 막히면 중계(DERP)로만 통신한다](https://tailscale.com/kb/1082/firewall-ports) | 첫 실행에서 느리면 바깥 방향 UDP 추가를 검토한다. 시험이 막으므로 리뷰가 필요한 변경이다 |
 
 ## 비용
@@ -171,9 +172,10 @@ aws pricing get-products --region us-east-1 --service-code AmazonEC2 --filters T
 |---|---|
 | Terraform 1.16.5 `fmt -check`, `init -backend=false`, `validate` | 통과 |
 | `terraform test` (모의 공급자) | 20건 통과. 양성 8건 + 거부 12건 |
-| 일부러 망가뜨리기 | 복사본에 결함 61종을 하나씩 넣어 61종 모두 시험이 잡음. 둘째 보안 그룹과 추가 IAM 정책은 독립 리뷰가 찾아 시험에 더한 것이다. 스크립트는 저장소에 넣지 않아 다시 돌릴 수 없다 |
+| 일부러 망가뜨리기 | 복사본에 결함 62종을 하나씩 넣어 62종 모두 시험이 잡음. 둘째 보안 그룹과 추가 IAM 정책은 독립 리뷰가 찾아 시험에 더한 것이다. 스크립트는 저장소에 넣지 않아 다시 돌릴 수 없다 |
 | Trivy `config` HIGH · CRITICAL (`.trivyignore.yaml` 적용, CI와 같은 명령) | 통과. 예외 없이 돌리면 바깥 방향 HTTPS(AWS-0104)가 나온다 |
 | 부팅 스크립트 | amd64 Ubuntu 24.04 컨테이너에서 iptables로 바깥 방향을 TCP 443과 DNS만 열고 실행. 80번 차단을 먼저 확인했고, 설치와 비루트 사용자의 `uv sync`, `bravo-loadgen run --help`까지 통과. Ubuntu 기본 `sudo`(`use_pty`)의 파이프로 `/dev/stdin`을 읽는 것과 `bravo-tailnet-join`의 플래그 해석도 확인했다. 로그인 전 단계에서 멈췄고 키가 출력되지 않았다 |
+| 운영 절차 | 같은 컨테이너에서 위 `git clone`으로 받은 머지된 `develop`을 대역 서버(부하 대상과 창 수신을 흉내 냄)에 짧게 돌림. 토큰 없이 `--window-url`을 주면 요청 0건에 종료 코드 2. `read -rs`로 토큰을 넣으면 창 수신만 Bearer 토큰을 받고 부하 대상에는 가지 않으며 산출물에도 남지 않음. DB 없이는 `NOT_RECONCILED`에 종료 코드 2. 결과가 있는 `--out`은 거부. 다섯 파일은 호스트의 `http.server`에서 받아짐(SSM 포트 포워딩은 흉내 내지 않음) |
 | 공급자 동작 | v6.71.0 소스에서 정지 시 공인 IP 교체 계획과, 고정 성능 종류의 크레딧 설정 처리를 읽음 |
 
 거부 시험은 인바운드 규칙, HTTPS 외 아웃바운드, 사양 미달(메모리 · vCPU), 다른 아키텍처, 태그 누락 · 계약 외 값, 잘못된 Tailscale 태그 · 계정 · AMI를 다룬다. 스택의 자원 종류와 개수도 검토한 목록과 정확히 같아야 한다. 자원을 하나 더 넣으면 시험이 실패하므로 그때 경계와 태그 시험을 함께 고친다.
@@ -186,7 +188,8 @@ aws pricing get-products --region us-east-1 --service-code AmazonEC2 --filters T
 - 콘솔에서 인바운드 규칙을 추가했을 때 다음 plan이 실제로 멈추는지
 - 정지 · 시작 뒤 plan에 변경이 없는지. 소스를 읽어 막았을 뿐 돌려 보지 않았다
 - `t3.small`에서 쓰기 50 · 읽기 150 req/s의 CPU · 메모리, `GENERATOR_LAGGING` 여부, 응답 없는 대상에 연결이 최대 5,506개까지 쌓일 때의 메모리
-- 실제 Edge 경유 측정과 대상 쪽 결과. 이 작업은 부하를 한 건도 보내지 않았다
+- 실제 Edge 경유 측정과 대상 쪽 결과. 이 작업은 대역 서버 밖으로 부하를 한 건도 보내지 않았다
+- 실제 플랫폼 창 수신 경로의 토큰 검증. 수신 경로가 아직 없다(T10 · T17)
 - Tailscale 실제 로그인(`--auth-key=file:/dev/stdin`), `--shields-up`의 실제 차단, 임시 노드의 정지 뒤 재가입, 중계 경로의 지연과 창 전송 2초 제한
 - 실제 이미지의 시간 동기화
 - 실제 청구 금액과 태그 귀속. 컨테이너 시험은 EC2 이미지가 아니며 VPC 해석기와 시간 동기화 경로는 흉내 내지 않았다
