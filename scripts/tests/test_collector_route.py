@@ -5,6 +5,7 @@ import io
 import json
 import re
 import sys
+import tempfile
 import unittest
 from contextlib import redirect_stdout
 from pathlib import Path
@@ -34,10 +35,16 @@ def observed(side="source", target_port=10421, uid="00000000-0000-4000-8000-0000
             ]}}]}
 
 
+def quarantine_readback(side="source"):
+    policy = render.proxy_quarantine(side)
+    policy["metadata"].update(uid="fixture-uid", resourceVersion="1")
+    return {"kind": "NetworkPolicyList", "items": [policy]}
+
+
 class Routes(unittest.TestCase):
     def test_each_side_gets_its_own_proxy_identity(self):
         for side in ("source", "target"):
-            group, service = render.routes(side, FQDN)
+            group, service = render.routes(side, FQDN, quarantine_readback(side))
             self.assertEqual(group["spec"], {"type": "egress", "replicas": 1, "tags": [f"tag:bravo-{side}-collector"]})
             self.assertEqual(service["metadata"]["namespace"], "bravo-observability")
             self.assertEqual(service["metadata"]["annotations"], {
@@ -48,9 +55,9 @@ class Routes(unittest.TestCase):
         for bad in ("bravo-metrics.ts.net", "bravo-window-intake.example-tailnet.ts.net", FQDN + ".",
                     "bravo-metrics.example-tailnet.ts.net.evil", "BRAVO-metrics.example-tailnet.ts.net", None):
             with self.assertRaises(ValueError):
-                render.routes("source", bad)
+                render.routes("source", bad, quarantine_readback())
         with self.assertRaises(ValueError):
-            render.routes("platform", FQDN)
+            render.routes("platform", FQDN, quarantine_readback())
 
 
 class Policies(unittest.TestCase):
@@ -102,8 +109,12 @@ class Policies(unittest.TestCase):
 
     def test_cli(self):
         out = io.StringIO()
-        with redirect_stdout(out):
-            render.main(["routes", "--side", "source", "--metrics-fqdn", FQDN])
+        with tempfile.TemporaryDirectory() as tmp:
+            readback = Path(tmp) / "policies.json"
+            readback.write_text(json.dumps(quarantine_readback()))
+            with redirect_stdout(out):
+                render.main(["routes", "--side", "source", "--metrics-fqdn", FQDN,
+                             "--policy-readback", str(readback)])
         self.assertEqual([i["kind"] for i in json.loads(out.getvalue())["items"]], ["ProxyGroup", "Service"])
         out = io.StringIO()
         with patch.object(sys, "stdin", io.StringIO(json.dumps(observed()))), redirect_stdout(out):
@@ -111,6 +122,49 @@ class Policies(unittest.TestCase):
         self.assertEqual(json.loads(out.getvalue())["metadata"]["name"], "bravo-collector-tailnet")
         with self.assertRaises(SystemExit), redirect_stdout(io.StringIO()), patch("sys.stderr", io.StringIO()):
             render.main(["routes", "--side", "source"])
+
+
+class Quarantine(unittest.TestCase):
+    def test_no_routes_before_server_readback(self):
+        for readback in ({}, {"kind": "NetworkPolicyList", "items": []},
+                         {"kind": "NetworkPolicyList", "items": [render.proxy_quarantine("source")]}):
+            with self.assertRaises(ValueError):
+                render.routes("source", FQDN, readback)
+
+    def test_bootstrap_selects_same_proxy_as_final_policy(self):
+        bootstrap = render.proxy_quarantine("target")
+        final = render.proxy_ingress("target", observed("target"), transport_ports=[41641])
+        self.assertEqual(bootstrap["metadata"], final["metadata"])
+        self.assertEqual(bootstrap["spec"]["podSelector"], final["spec"]["podSelector"])
+        self.assertEqual(bootstrap["spec"]["ingress"], [])
+
+    def test_additive_allow_partial_or_wrong_side_is_rejected(self):
+        for mutation in (
+            lambda d: d["items"].append({"kind": "NetworkPolicy", "metadata": {
+                "namespace": "tailscale-system", "name": "open"},
+                "spec": {"podSelector": {}, "ingress": [{}]}}),
+            lambda d: d.update(metadata={"continue": "more"}),
+            lambda d: d["items"][0]["metadata"].update(deletionTimestamp="now"),
+            lambda d: d["items"][0]["spec"].update(ingress=[{}]),
+            lambda d: d["items"].append(copy.deepcopy(d["items"][0])),
+        ):
+            data = quarantine_readback()
+            mutation(data)
+            with self.assertRaises(ValueError):
+                render.routes("source", FQDN, data)
+        with self.assertRaises(ValueError):
+            render.routes("target", FQDN, quarantine_readback("source"))
+
+    def test_apiserver_may_omit_empty_ingress(self):
+        data = quarantine_readback()
+        del data["items"][0]["spec"]["ingress"]
+        self.assertEqual(len(render.routes("source", FQDN, data)), 2)
+
+    def test_other_groups_policy_does_not_block_route(self):
+        data = quarantine_readback()
+        other = render.proxy_ingress("target", observed("target"), transport_ports=[41641])
+        data["items"].append(other)
+        self.assertEqual(len(render.routes("source", FQDN, data)), 2)
 
 
 class Fragment(unittest.TestCase):
