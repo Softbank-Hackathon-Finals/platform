@@ -72,6 +72,9 @@ exporters:
     force_attempt_http2: false
     tls:
       ca_file: /etc/bravo-tls/ca.crt
+      # 다른 클러스터에서는 tailnet egress Service(bravo-metrics.bravo-observability.svc)로 접속하므로
+      # 저장소 인증서의 이름(bravo-metrics.<tailnet>.ts.net)을 따로 검증한다. 비우면 접속 주소의 이름을 쓴다.
+      server_name_override: ${env:PLATFORM_TLS_SERVER_NAME:-}
       cert_file: /etc/bravo-tls/tls.crt
       key_file: /etc/bravo-tls/tls.key
       min_version: "1.3"
