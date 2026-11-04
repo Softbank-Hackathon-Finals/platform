@@ -1,0 +1,25 @@
+{
+  "source_revision": "8ef547569e019b5d3d932f6c24307afe2d1a64cd",
+  "source_files": [
+    {
+      "path": "docs/controls/control-result.schema.json",
+      "sha256": "f1273e751b31288c6d2ed927d888032474ce05f132dde7545bc12e2d9b38b654"
+    },
+    {
+      "path": "docs/controls/profiles.json",
+      "sha256": "4ba6e539b422985a43c20875ae00b21e1bd461daf4f8240b5b7b02debe0f2c90"
+    },
+    {
+      "path": "services/control-runner/src/bravo_controls/runner.py",
+      "sha256": "29e09bca2a6d28991340a4e26ba42496f794cde4ecfc83558d13b5fbe0eff0bf"
+    },
+    {
+      "path": "services/control-runner/src/bravo_controls/secret_scan.py",
+      "sha256": "198963568ae30de8ea1cff8588f14de6bb24c133fc60fd921983901838074248"
+    },
+    {
+      "path": "services/control-runner/src/bravo_controls/tool_reports.py",
+      "sha256": "3ce90e35826b9651a5db7aa66703d56de3caefd841b21eb3f6d5bab63c876ee0"
+    }
+  ]
+}
