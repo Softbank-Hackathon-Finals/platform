@@ -1,0 +1,40 @@
+# T37 DB 지표(CNPG) 수집. DB가 있는 클러스터에서만 deploy/collector-db 오버레이가 이 파일을 두 번째 --config로 더한다.
+# BRAVO_DB_NAMESPACE의 CNPG 인스턴스 Pod(cnpg.io/podRole=instance)의 metrics 포트(9187)를 긁는다.
+# DB 지표는 운영 화면 · 알림용이다. 컷오버 조건의 복제 지연은 Executor가 DB에서 직접 읽는다(설계 8.6).
+receivers:
+  prometheus/db:
+    config:
+      scrape_configs:
+        - job_name: bravo-cnpg
+          scrape_interval: 15s
+          kubernetes_sd_configs:
+            - role: pod
+              namespaces:
+                names: ["${env:BRAVO_DB_NAMESPACE}"]
+          relabel_configs:
+            - source_labels: [__meta_kubernetes_pod_label_cnpg_io_podRole, __meta_kubernetes_pod_container_port_name]
+              regex: instance;metrics
+              action: keep
+            - source_labels: [__meta_kubernetes_pod_label_cnpg_io_cluster]
+              target_label: cnpg_cluster
+            - source_labels: [__meta_kubernetes_pod_name]
+              target_label: pod
+            - source_labels: [__meta_kubernetes_pod_label_cnpg_io_instanceRole]
+              target_label: instance_role
+
+processors:
+  # DB 긁기 경로에만 붙는 신뢰 라벨. 조회 API · DB 알림은 이 라벨이 있는 지표만 본다.
+  # 앱 OTLP 경로는 허용 목록이 bravo.signal을 지우므로, 앱이 cnpg_* 이름의 지표를 보내도 DB 상태를 바꾸지 못한다.
+  # job 라벨(service.name)은 앱도 보낼 수 있어 출처 판단에 쓰지 않는다.
+  resource/db:
+    attributes:
+      - key: bravo.signal
+        value: cnpg-scrape
+        action: upsert
+
+service:
+  pipelines:
+    metrics/db:
+      receivers: [prometheus/db]
+      processors: [memory_limiter, resource/db, resource/env, batch]
+      exporters: [otlp_http/platform]
