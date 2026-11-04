@@ -10,11 +10,11 @@
 
 ## 실행
 
-```sh
+```bash
 uv sync
-export LOADGEN_DB_DSN=...    # 대조용. messages SELECT 권한이면 된다. 읽기 전용 트랜잭션만 연다
-export LOADGEN_LOCK_DSN=...  # 잠금 측정용. PgBouncer 뒤가 아니라 DB에 직접 붙는다
-export BRAVO_WINDOW_TOKEN=...  # 창 전송 인증. --window-url을 쓸 때 필요하다
+read -rs LOADGEN_DB_DSN && export LOADGEN_DB_DSN          # 대조용. messages SELECT 권한이면 된다. 읽기 전용 트랜잭션만 연다
+read -rs LOADGEN_LOCK_DSN && export LOADGEN_LOCK_DSN      # 잠금 측정용. PgBouncer 뒤가 아니라 DB에 직접 붙는다
+read -rs BRAVO_WINDOW_TOKEN && export BRAVO_WINDOW_TOKEN  # 창 전송 인증. --window-url을 쓸 때 필요하다
 uv run bravo-loadgen run \
   --base-url https://<Edge 주소> --measurement-path edge \
   --plan-id plan-demo --source-env aws --target-env onprem \
@@ -22,6 +22,8 @@ uv run bravo-loadgen run \
   --db-dsn-env LOADGEN_DB_DSN --lock-dsn-env LOADGEN_LOCK_DSN \
   --window-url https://<플랫폼 수신 주소>
 ```
+
+`read -rs`는 입력을 화면과 셸 기록에 남기지 않고 받는다. `bash`에서 **한 줄씩** 실행하고, 줄마다 값을 붙여 넣은 뒤 Enter를 누른다. 여러 줄을 한꺼번에 붙여 넣으면 다음 명령이 값으로 들어가고, 밀린 값이 명령으로 실행돼 화면과 셸 기록에 남는다. `sh`(dash)에는 `-s`가 없어 실패한다.
 
 연결 문자열과 창 전송 토큰은 비밀이라 환경변수로만 받는다. 값은 파일 · 로그에 남기지 않는다. `--base-url` · `--window-url`에 자격 증명을 넣으면 거부한다. 이미 결과가 있는 `--out` 폴더도 거부한다. 새 실행이 죽었을 때 이전 판정이 남아 잘못 읽히지 않게 하기 위해서다.
 
@@ -80,12 +82,12 @@ uv run bravo-loadgen run \
 
 ## 실행 위치와 창 전송
 
-**실행 위치는 별도 소형 EC2다. 아직 만들지 않았다.** 측정과 데모 때만 켠다. 이유는 둘이다.
+**실행 위치는 별도 소형 EC2다. Terraform 스택은 [`infra/envs/loadgen-aws`](../../infra/envs/loadgen-aws/README.md)에 있지만 EC2는 아직 만들지 않았다.** 측정과 데모 때만 켠다. 이유는 둘이다.
 
 - 판정 입력은 평가 대상 밖에서 사용자와 같은 경로로, Edge를 거쳐 재야 한다(ADR-0010). 출발지 · 목적지 클러스터 안에 두지 않는다.
 - 플랫폼 노드는 CPU 2,000m 중 1,976m가 이미 예약돼 있어(#146) 같은 서버에 두지 않는다.
 
-필요한 사양의 근거는 [증거 폴더](../../docs/evidence/t18-load-generator-2026-11-04/README.md)의 CPU · 메모리 측정값이다. 대조와 잠금 측정은 DB에 닿아야 하므로, 이 EC2에서 DB로 가는 읽기 경로와 계정은 EC2를 만들 때 함께 정한다. 부하만 먼저 돌리고 `reconcile`은 DB에 닿는 곳에서 따로 돌려도 된다.
+필요한 사양의 근거는 [증거 폴더](../../docs/evidence/t18-load-generator-2026-11-04/README.md)의 CPU · 메모리 측정값이다. 대조와 잠금 측정은 DB에 닿아야 하므로, 이 EC2에서 DB로 가는 읽기 경로와 계정은 EC2와 별도로 정한다. 부하만 먼저 돌리고 `reconcile`은 DB에 닿는 곳에서 따로 돌려도 된다.
 
 **창은 플랫폼 수신 경로로 POST한다.** `--window-url`은 창 JSON을 그대로 보내고 2초 안에 2xx를 못 받으면 전달 실패로 센다. Tailscale ACL은 부하 생성기 태그만 허용한다([계약 6절](../../docs/observability/README.md)). 수신 주소는 아직 없다(T10 · T17). 정해질 때까지는 `windows.jsonl`이 기준이다.
 
