@@ -32,6 +32,7 @@ class AttemptResult:
     state: Literal["BLOCK", "NEEDS_HUMAN", "RECEIPT_UNVERIFIED"]
     reason: str
     untrusted_receipt: object | None = field(default=None, repr=False, compare=False)
+    proposal: ProposalRef | None = field(default=None, repr=False, compare=False)
 
 
 class Proposer(Protocol):
@@ -137,7 +138,7 @@ def run_once(
                 result = AttemptResult("NEEDS_HUMAN", "RECEIPT_MISSING")
             else:
                 # Receipt/evidence authentication and approval binding are a later boundary.
-                result = AttemptResult("RECEIPT_UNVERIFIED", "RECEIPT_REQUIRES_VALIDATION", receipt)
+                result = AttemptResult("RECEIPT_UNVERIFIED", "RECEIPT_REQUIRES_VALIDATION", receipt, proposal)
     except IsolationBlocked:
         result = AttemptResult("BLOCK", "ISOLATION_BLOCKED")
     except Exception:
