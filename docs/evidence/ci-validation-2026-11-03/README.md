@@ -41,7 +41,7 @@ SSM 관리 정책은 Parameter Store 읽기를 기본 포함하므로 명시적 
 
 첫 전송에서는 `docs/security/detection`의 JSON 규칙·골든을 빠뜨려 security-findings가 파일 누락으로 실패했다. [첫 결과](repository-ci-first-attempt.json)를 보존하고, 해당 tracked JSON 17개만 추가한 뒤 실패한 서비스만 다시 실행했다. 코드나 판정 기준을 바꾸지 않았다. 이것은 `docs/`의 JSON도 실행 의존성일 수 있다는 실제 사례이며 선택기는 그런 변경을 전체 검사로 처리한다.
 
-최종 결과는 [repository-ci-results.json](repository-ci-results.json), 각 실행 로그는 같은 폴더에 있다. 테스트가 만든 `.venv`는 config scan에서 제외해 CI의 새 checkout과 같은 소스 범위를 검사했다. Trivy 다운로드 archive는 공식 release의 SHA-256과 대조했다. 이 실행은 유지관리되는 저장소 CI 코드의 AWS 실행이며 모델 호출·에이전트 제안 실행 증거와 구분한다.
+실행 명령·종료 코드·판정은 [AWS 실행 결과](repository-ci-results.json)에, 세 시험의 전체 출력은 [PR #77의 검증 폴더](https://github.com/Softbank-Hackathon-Finals/platform/tree/5feb0d6623a32a732ca80def9af8ec0a52cde29c/docs/evidence/ci-validation-2026-11-03)에 있다. 테스트가 만든 `.venv`는 config scan에서 제외해 CI의 새 checkout과 같은 소스 범위를 검사했다. Trivy 다운로드 archive는 공식 release의 SHA-256과 대조했다. 이 실행은 유지관리되는 저장소 CI 코드의 AWS 실행이며 모델 호출·에이전트 제안 실행 증거와 구분한다.
 
 ## Bootstrap 보정
 

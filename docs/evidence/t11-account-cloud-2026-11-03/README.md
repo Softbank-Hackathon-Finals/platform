@@ -36,4 +36,4 @@
 
 [Actions 실행 41602534226](https://github.com/Softbank-Hackathon-Finals/platform/actions/runs/41602534226)과 [읽기 영수증](t7-oidc-readback.json)은 OIDC→고정 SSM→RKE2 ConfigMap 배포와 Secret 조회·다른 namespace 쓰기·임의 셸 문서 실행 거부를 확인한 이전 실측이다. 이 증거만으로 플랫폼 DB·앱 이미지 전달·Executor 통합이나 T7 전체 완료를 주장하지 않는다.
 
-이 폴더의 기존 `account-cloud-result.json`, `source-manifest.json`, `cloud-checks.log`, `execution-isolation.json`, `cleanup.json`은 과거 실행 기록으로 보존한다. 현재 결과는 `*-v9.*` 파일을 따른다.
+이 폴더의 기존 [계정 검증 기록](account-cloud-result.json)의 `final_source_test`에 당시 pytest 87개와 Ruff 통과 결과가 있다. `source-manifest.json`, `execution-isolation.json`, `cleanup.json`도 같은 시기의 기록이다. 현재 결과는 `*-v9.*` 파일을 따른다.
