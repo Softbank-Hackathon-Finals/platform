@@ -91,17 +91,17 @@ tests:
   # DB: 인스턴스 다운(PG 미접속, 긁기 실패), 슬롯 지연 · 비활성, WAL 보관 실패
   - interval: 30s
     input_series:
-      - series: 'cnpg_collector_up{bravo_env="aws", cnpg_cluster="source-db", pod="source-db-1", cluster="source-db"}'
+      - series: 'cnpg_collector_up{bravo_signal="cnpg-scrape", bravo_env="aws", cnpg_cluster="source-db", pod="source-db-1", cluster="source-db"}'
         values: '1 1 0 0 0 0 0'
-      - series: 'up{job="bravo-cnpg", bravo_env="onprem", cnpg_cluster="target-db", pod="target-db-1"}'
+      - series: 'up{bravo_signal="cnpg-scrape", job="bravo-cnpg", bravo_env="onprem", cnpg_cluster="target-db", pod="target-db-1"}'
         values: '1 0 0 0 0 0 0'
-      - series: 'cnpg_pg_replication_slots_pg_wal_lsn_diff{bravo_env="aws", cnpg_cluster="source-db", slot_name="sub_target", slot_type="logical"}'
+      - series: 'cnpg_pg_replication_slots_pg_wal_lsn_diff{bravo_signal="cnpg-scrape", bravo_env="aws", cnpg_cluster="source-db", slot_name="sub_target", slot_type="logical"}'
         values: '1000 70000000 70000000 70000000 70000000 70000000 70000000'
-      - series: 'cnpg_pg_replication_slots_pg_wal_lsn_diff{bravo_env="aws", cnpg_cluster="source-db", slot_name="ha", slot_type="physical"}'
+      - series: 'cnpg_pg_replication_slots_pg_wal_lsn_diff{bravo_signal="cnpg-scrape", bravo_env="aws", cnpg_cluster="source-db", slot_name="ha", slot_type="physical"}'
         values: '90000000x6'
-      - series: 'cnpg_pg_replication_slots_active{bravo_env="aws", cnpg_cluster="source-db", slot_name="sub_target", slot_type="logical"}'
+      - series: 'cnpg_pg_replication_slots_active{bravo_signal="cnpg-scrape", bravo_env="aws", cnpg_cluster="source-db", slot_name="sub_target", slot_type="logical"}'
         values: '0x30'
-      - series: 'cnpg_pg_stat_archiver_failed_count_total{bravo_env="aws", cnpg_cluster="source-db", pod="source-db-1"}'
+      - series: 'cnpg_pg_stat_archiver_failed_count_total{bravo_signal="cnpg-scrape", bravo_env="aws", cnpg_cluster="source-db", pod="source-db-1"}'
         values: '0 0 0 1 1 1 1'
     alert_rule_test:
       - eval_time: 30s
@@ -165,3 +165,24 @@ tests:
             exp_annotations:
               summary: "aws 환경의 관측 경로가 끊겼다. 이 환경의 지표는 확인 불가다"
               runbook: docs/observability/runbooks.md#bravoenvunobservable
+
+  # 앱 경로 또는 DB 식별자 누락은 DB 알림의 근거가 아니다.
+  - interval: 30s
+    input_series:
+      - series: 'cnpg_collector_up{bravo_env="aws", cnpg_cluster="forged", pod="forged-1"}'
+        values: '0x30'
+      - series: 'cnpg_collector_up{bravo_signal="cnpg-scrape", bravo_env="aws"}'
+        values: '0x30'
+      - series: 'up{job="bravo-cnpg", bravo_env="aws", cnpg_cluster="forged", pod="forged-1"}'
+        values: '0x30'
+      - series: 'cnpg_pg_replication_slots_pg_wal_lsn_diff{bravo_env="aws", cnpg_cluster="forged", slot_name="forged", slot_type="logical"}'
+        values: '90000000x30'
+      - series: 'cnpg_pg_replication_slots_active{bravo_env="aws", cnpg_cluster="forged", slot_name="forged", slot_type="logical"}'
+        values: '0x30'
+      - series: 'cnpg_pg_stat_archiver_failed_count_total{bravo_env="aws", cnpg_cluster="forged"}'
+        values: '0+1x30'
+    alert_rule_test:
+      - {eval_time: 12m, alertname: BravoDatabaseDown, exp_alerts: []}
+      - {eval_time: 12m, alertname: BravoReplicationSlotLagHigh, exp_alerts: []}
+      - {eval_time: 12m, alertname: BravoReplicationSlotInactive, exp_alerts: []}
+      - {eval_time: 12m, alertname: BravoWalArchivingFailing, exp_alerts: []}

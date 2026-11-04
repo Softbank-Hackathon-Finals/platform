@@ -254,17 +254,19 @@ def create_app(
     def database_view(env: str, request: Request):
         guard(request)
         e = env_or_404(env)
-        sel = f'bravo_env="{e}"'
+        sel = f'bravo_env="{e}",bravo_signal="cnpg-scrape",cnpg_cluster!=""'
+        instance_sel = sel + ',pod!="",instance_role=~"primary|replica"'
+        slot_sel = sel + ',slot_name!=""'
         fresh, age = freshness(e)
         if not fresh:
             return {"queried_at": _now(), "environment": e, "state": "UNOBSERVABLE", "last_received_seconds_ago": age, "instances": [], "replication_slots": []}
         up, lag, active = run(
             lambda: (
-                store.query(f"max by (cnpg_cluster, pod, instance_role) ({_fresh_series('cnpg_collector_up', sel)})"),
+                store.query(f"max by (cnpg_cluster, pod, instance_role) ({_fresh_series('cnpg_collector_up', instance_sel)})"),
                 store.query(
-                    f"max by (cnpg_cluster, slot_name, slot_type) ({_fresh_series('cnpg_pg_replication_slots_pg_wal_lsn_diff', sel)})"
+                    f"max by (cnpg_cluster, slot_name, slot_type) ({_fresh_series('cnpg_pg_replication_slots_pg_wal_lsn_diff', slot_sel)})"
                 ),
-                store.query(f"max by (cnpg_cluster, slot_name) ({_fresh_series('cnpg_pg_replication_slots_active', sel)})"),
+                store.query(f"max by (cnpg_cluster, slot_name) ({_fresh_series('cnpg_pg_replication_slots_active', slot_sel)})"),
             )
         )
         is_active = {(r["metric"].get("cnpg_cluster"), r["metric"].get("slot_name")): _boolean(r) for r in active}
@@ -277,6 +279,8 @@ def create_app(
                     "up": _boolean(r),
                 }
                 for r in up
+                if all(r["metric"].get(k) for k in ("cnpg_cluster", "pod"))
+                and r["metric"].get("instance_role") in {"primary", "replica"}
             ),
             key=lambda i: (i["cluster"] or "", i["pod"] or ""),
         )
@@ -290,6 +294,7 @@ def create_app(
                     "active": is_active.get((r["metric"].get("cnpg_cluster"), r["metric"].get("slot_name"))),
                 }
                 for r in lag
+                if all(r["metric"].get(k) for k in ("cnpg_cluster", "slot_name", "slot_type"))
             ),
             key=lambda s: (s["cluster"] or "", s["slot"] or ""),
         )

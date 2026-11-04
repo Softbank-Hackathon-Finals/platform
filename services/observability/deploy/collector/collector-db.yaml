@@ -22,9 +22,17 @@ receivers:
             - source_labels: [__meta_kubernetes_pod_label_cnpg_io_instanceRole]
               target_label: instance_role
 
+processors:
+  # 앱 수신 경로의 allowlist가 이 속성을 지운다. DB scrape 경로만 다시 부여한다.
+  resource/db:
+    attributes:
+      - key: bravo.signal
+        value: cnpg-scrape
+        action: upsert
+
 service:
   pipelines:
     metrics/db:
       receivers: [prometheus/db]
-      processors: [memory_limiter, resource/env, batch]
+      processors: [memory_limiter, resource/db, resource/env, batch]
       exporters: [otlp_http/platform]

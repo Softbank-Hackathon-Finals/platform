@@ -199,7 +199,7 @@ def test_http_invalid_metric_is_null_not_success_or_500(value):
 
 @pytest.mark.parametrize("value", ["NaN", "Inf", "-Inf", 2, -1])
 def test_invalid_db_boolean_is_unknown_not_down(value):
-    store = FakeStore(results={"timestamp(up": [vec("aws", 2)], "cnpg_collector_up": [vec("aws", value)]})
+    store = FakeStore(results={"timestamp(up": [vec("aws", 2)], "cnpg_collector_up": [{"metric": {"cnpg_cluster": "source-db", "pod": "source-db-1", "instance_role": "primary"}, "value": [0, str(value)]}]})
     response = client(store).get("/v1/observability/environments/aws/database", headers=AUTH)
     assert response.status_code == 200
     assert response.json()["instances"][0]["up"] is None
@@ -244,3 +244,12 @@ def test_foreign_environment_alerts_are_not_returned():
     response = client(store).get("/v1/observability/alerts", headers=AUTH)
     assert response.status_code == 200
     assert response.json()["alerts"] == []
+
+
+@pytest.mark.parametrize("labels", [{}, {"cnpg_cluster": "source-db"}, {"cnpg_cluster": "source-db", "pod": "source-db-1"}, {"cnpg_cluster": "source-db", "pod": "source-db-1", "instance_role": "unknown"}])
+def test_database_identity_missing_cannot_be_promoted_to_ok(labels):
+    store = FakeStore(results={"timestamp(up": [vec("aws", 2)], "cnpg_collector_up": [{"metric": labels, "value": [0, "1"]}]})
+    body = client(store).get("/v1/observability/environments/aws/database", headers=AUTH).json()
+    assert body["state"] == "UNOBSERVABLE" and body["instances"] == []
+    assert all('bravo_signal="cnpg-scrape"' in q and 'cnpg_cluster!=""' in q for q in store.seen[1:])
+    assert 'pod!=""' in store.seen[1] and 'instance_role=~"primary|replica"' in store.seen[1]

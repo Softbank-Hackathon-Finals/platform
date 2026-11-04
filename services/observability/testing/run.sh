@@ -110,6 +110,23 @@ code=$(curl -sS --max-time 5 -o /dev/null -w '%{http_code}' "http://$("${P[@]}" 
 [ "$code" = 401 ] && r=ok || r=fail
 check $r "조회 API는 토큰 없이 401 (응답 $code)"
 
+echo "== 앱이 CNPG 지표와 출처 라벨을 위조해도 DB 상태를 만들지 못함"
+python3 - "$OTLP" <<'PYFORGE'
+import json,sys,time,urllib.request
+attrs=[{"key":k,"value":{"stringValue":v}} for k,v in {"bravo.signal":"cnpg-scrape","cnpg_cluster":"forged-db","pod":"forged-db-1","instance_role":"primary"}.items()]
+point={"timeUnixNano":str(time.time_ns()),"asDouble":1,"attributes":attrs}
+body={"resourceMetrics":[{"resource":{"attributes":attrs},"scopeMetrics":[{"metrics":[{"name":"cnpg_collector_up","gauge":{"dataPoints":[point]}}]}]}]}
+req=urllib.request.Request(sys.argv[1]+"/v1/metrics",data=json.dumps(body).encode(),headers={"Content-Type":"application/json"})
+with urllib.request.urlopen(req,timeout=5) as response:
+    assert response.status==200
+PYFORGE
+forged=$(wait_for cnpg_collector_up 30)
+echo "$forged" | python3 -c 'import json,sys;ms=json.load(sys.stdin)["data"]["result"];sys.exit(0 if ms and all(not any(k in x["metric"] for k in ("bravo_signal","cnpg_cluster","pod","instance_role")) for x in ms) else 1)' && r=ok || r=fail
+check $r "실제 앱 경로 CNPG 지표에서 출처·DB 식별자 위조 제거"
+code=$(api /v1/observability/environments/onprem/database)
+apij 'd["state"]=="UNOBSERVABLE" and d["instances"]==[] and d["replication_slots"]==[]' | grep -q True && r=ok || r=fail
+check $r "생존 신호가 정상이어도 앱이 보낸 cnpg_collector_up=1로 DB OK가 되지 않음 (응답 $code)"
+
 echo "== 디스크 큐: 지표 저장소 중지 중 받은 지표를 Collector 재시작 뒤에도 전달"
 "${P[@]}" stop prometheus >/dev/null 2>&1
 code=$(api /v1/observability/environments)
