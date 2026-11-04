@@ -6,6 +6,11 @@ const paths = {
   workload: "/v1/workloads",
   plan: "/v1/plans",
 };
+const environmentChoices = new Map([
+  ["aws", { kind: "aws", role: "source" }],
+  ["onprem", { kind: "onprem", role: "target" }],
+  ["onprem-source", { kind: "onprem", role: "source" }],
+]);
 const fields = {
   environment: ["name", "kind", "roles", "connection_ref"],
   workload: [
@@ -64,9 +69,8 @@ export function registrationInput(kind, input) {
     kind === "environment" &&
     (!Array.isArray(value.roles) ||
       value.roles.length !== 1 ||
-      !(
-        (value.kind === "aws" && value.roles[0] === "source") ||
-        (value.kind === "onprem" && value.roles[0] === "target")
+      !Array.from(environmentChoices.values()).some(
+        ({ kind, role }) => kind === value.kind && role === value.roles[0],
       ))
   )
     throw new ApiError("invalid_registration_input");
@@ -262,10 +266,13 @@ export function mountRegistration({ onPlan, onForbidden }) {
       event.preventDefault();
       if (attempt) return;
       const data = Object.fromEntries(new FormData(form));
-      if (form.dataset.registration === "environment") {
-        data.roles = [data.kind === "aws" ? "source" : "target"];
-      }
       try {
+        if (form.dataset.registration === "environment") {
+          const choice = environmentChoices.get(data.kind);
+          if (!choice) throw new ApiError("invalid_registration_input");
+          data.kind = choice.kind;
+          data.roles = [choice.role];
+        }
         attempt = new RegistrationAttempt(form.dataset.registration, data);
       } catch {
         status(
