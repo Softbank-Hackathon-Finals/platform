@@ -146,12 +146,12 @@ db-sql-v1:fixed-session-text;columns-by-name;jsonb-array;utf8;sha256-of-row-sha2
 
 ## 소비자 연결
 
-**T12 (`runner.py`).** 기존 비교기 자리에 넣는다. 실제 비교 결과가 실행 단계 판정을 통과하는지는 `tests/test_db_fingerprint_runner.py`가 재고 있다.
+**T12 (`runner.py`).** [#176](https://github.com/Softbank-Hackathon-Finals/platform/pull/176)에서 연결했다. 컷오버 5단계 `_compare`가 아래처럼 쓴다. 실제 비교 결과가 실행 단계 판정을 통과하는지는 `tests/test_db_fingerprint_runner.py`가, 시퀀스 순서와 소유권은 `tests/test_runner_fakes.py`가 잰다.
 
-1. `IntegrityComparer()`를 `DbFingerprintComparer()`로 바꾼다.
-2. `_compare`의 시퀀스 계산을 `self._act(run, correct_sequence, src.db, dst.db, name, table, column)`로 바꾼다.
-3. 영수증에 `data_verdict` · `schema_verdict`를 더한다.
-4. `integrity.py`, `DbControl.fingerprint`, `test_integrity.py`를 지우고 README의 「T13 비교 규칙 v1」을 이 문서 링크로 바꾼다. 시험용 `FakeDb`에는 `sequence_state`를 더한다.
+1. 비교기는 `DbFingerprintComparer()` 하나다. `integrity.py`, `RowCountComparer`, `allow_unverified_compare`는 지웠다.
+2. 시퀀스는 판정 전이 아니라 비교가 MATCH일 때만(`_not_matched`가 `None`일 때) `correct_sequence`로 올린다. 중단될 실행에서는 목적지에 쓰지 않는다. 소유권은 시퀀스를 읽기 전이 아니라 실제 `raise_sequence` 직전에 다시 확인한다. `_GuardedRaise`가 읽기는 그대로 넘기고 이 호출만 `_act`로 보내므로, 읽는 도중 넘겨받혔으면 올리지 않고 `OwnershipLost`로 멈춘다. 확인과 호출 사이의 짧은 틈은 남는다(ADR-0011).
+3. 영수증에 `data_verdict` · `schema_verdict`와 `sequences`를 남기고 목적지를 열기 전에 저장한다. 비교가 MATCH가 아니면 `sequences`는 비어 있다. 시퀀스 보정을 확인하지 못하면 `sequence_error`(`code`, `sqlstate`)를 남기고 쓰기 전 실패로 끝낸다.
+4. 진행 조건은 `_not_matched`의 허용 목록이다. 전체 · 표별 데이터 · 스키마 판정, `match`, 양쪽 지문, `hash_rule`이 이 문서의 「결과 모양」과 맞고 표가 빠지거나 겹치지 않을 때만 진행한다.
 
 **T19 (데이터 준비, [#141](https://github.com/Softbank-Hackathon-Finals/platform/pull/141)).** SQL을 다시 만들지 않고 아래 함수를 읽어 게이트 입력을 채운다. `services/control-gate`는 이 패키지에 의존하지 않으므로, 함수를 어디서 호출할지는 T19 생산자에서 정한다.
 
@@ -207,4 +207,5 @@ db-sql-v1:fixed-session-text;columns-by-name;jsonb-array;utf8;sha256-of-row-sha2
 - 실제 Tailscale · TLS 경로와 RKE2 위 CNPG에서의 시간. 측정값은 모두 로컬이다.
 - 부하 뒤 실제 데이터에서 쿼리 하나가 3초 안에 끝나는지.
 - `DbControl`의 기존 메서드(`_connect`, `_one`, `_do` 등)는 지금도 연결 · 서버 원문을 `Unconfirmed`에 담고, `runner._describe`가 이를 실행 결과에 저장한다. 이 문서의 함수를 거치는 경로만 고정 코드로 줄였다.
-- Executor 실행 단계에 연결한 상태의 컷오버. 이 문서의 코드만으로 컷오버가 완료되지 않는다.
+- 실제 환경의 컷오버. 실행 단계 연결은 #176에서 끝났고, #176 기록에는 k3d 모의 환경의 정상 컷오버 영수증이 `MATCH` · `db-sql-v1`로 남았다고 되어 있다. 실제 복제 환경(EKS · RKE2)에서 이 비교기로 끝까지 돈 적은 없다.
+- 시퀀스가 여러 개일 때 일부만 올라간 경우. 지금 설정은 `public.messages_id_seq` 하나다.
