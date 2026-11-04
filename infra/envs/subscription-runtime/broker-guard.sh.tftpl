@@ -13,6 +13,9 @@ EOF
 cat > "$stage/bravo-sts-guard" <<'EOF'
 #!/bin/sh
 set -eu
+# EC2 assigns this address to the ENI for return delivery. Only conntrack
+# should translate it back to a local socket; a guest alias would permit bind().
+ip -j -4 address show | python3 -c 'import json,sys; sys.exit(any(a["local"] == "${broker_source_ip}" for link in json.load(sys.stdin) for a in link["addr_info"]))'
 rules=$(mktemp)
 trap 'rm -f "$rules"' EXIT
 if nft list table inet bravo_broker_sts >/dev/null 2>&1; then
@@ -28,6 +31,10 @@ table inet bravo_broker_sts {
     type filter hook output priority 10; policy accept;
     ip daddr ${endpoint_ip} tcp dport 443 socket cgroupv2 level 1 "bravobroker.slice" counter accept
     ip daddr ${endpoint_ip} tcp dport 443 counter drop
+  }
+  chain postrouting {
+    type nat hook postrouting priority 90; policy accept;
+    ip daddr ${endpoint_ip} tcp dport 443 snat ip to ${broker_source_ip}
   }
 }
 RULES

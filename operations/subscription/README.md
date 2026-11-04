@@ -12,25 +12,31 @@ broker 메모리에만 존재하며 인증 값은 GitHub Secrets나 파일로 �
 있다. broker는 팀 구독 Secret 한 개의 Get/Put/UpdateVersionStage만 허용한다.
 두 역할 모두 immutable repository ID, STS audience, 정확한 ref에 결속한다.
 검증 브랜치의 trust는 고정 만료시각을 갖고, 운영 경로는 보호된 develop이다.
-broker는 역할을 받을 때 같은 토큰에 더해 지정 VM의 사설 IPv4와 전용 STS interface endpoint를 요구한다.
-Terraform이 VM과 같은 서브넷에 단일 AZ endpoint를 만들고 SSM으로 broker 서비스에만
-`AWS_ENDPOINT_URL_STS`를 설정한다. VM 교체 시 이 스택을 다시 적용한다.
-endpoint의 사설 DNS는 꺼져 있으므로 같은 VPC의 다른 서비스는 기존 STS 경로를 쓴다.
-이 VM은 RKE2 노드이기도 하다. Canal이 Pod 트래픽을 노드 IP로 변환하면 보안 그룹만으로
-Pod와 broker를 구분할 수 없다. SSM이 endpoint ENI의 IPv4를 읽어 호스트 nftables에
-전용 테이블 하나를 설치한다. 이 주소의 TCP 443에 한해 Pod 전달 패킷을 차단하고
-호스트에서 시작한 연결은 broker의 systemd slice에만 허용한다. 표준 Linux 네트워크를
-사용하는 이 지정 노드가 대상이다. 호스트 root·관리자 또는 다른 데이터 경로까지
-격리한다는 뜻은 아니다. 일반 STS, CNI 규칙, 노드 역할은 변경하지 않는다.
+broker 역할의 AWS trust와 전용 STS endpoint 보안 그룹은 broker용 보조 사설 IPv4만
+허용한다. T7 운영자는 비공개 `platform-aws` 변수 `subscription_broker_ipv4`에 같은
+서브넷의 미사용 주소를 지정한다. T7이 기본 ENI에 보조 주소를 할당하고 인스턴스 태그에
+용도를 기록하면, T38은 그 주소가 실제로 할당된 보조 주소인지 확인한다.
+일반 호스트와 Canal Pod가 사용하는 노드 기본 주소는 AWS에서 거부된다.
 
-운영 확인: `bravo-sts-guard.service`가 active인지와 `nft list table inet bravo_broker_sts`로
-endpoint 전용 규칙·카운터를 확인한다. broker slice에서 TCP가 열리고 일반 slice·Pod에서
-막혀야 한다. 같은 Pod에서 별도 허용 목적지에 연결돼야 차단 시험이 유효하다.
-재부팅 시 guard를 시작하며 broker 시작은 guard 성공을 요구한다. VM 또는 endpoint 교체
-후에는 Terraform을 적용하고 이 확인을 반복한다. 공유 노드를 남기고 스택을 철거할 때는
-실행을 멈추고 broker의 IAM trust 및 endpoint를 먼저 제거한 뒤 guard를 disable하고
-이 스택의 `bravo_broker_sts` 테이블, guard unit·script, slice unit과 broker의
-`sts.conf`만 제거하고 `systemctl daemon-reload`한다.
+이 구성은 DHCP로 기본 주소 하나를 받는 T7 Ubuntu 노드에서 사용한다. 보조 주소는
+EC2 ENI에만 할당한다. guest 인터페이스, netplan 주소 목록, 보조 주소를 자동 등록하는
+도구에 넣으면 일반 프로세스도 그 주소에 bind할 수 있어 이 배치 조건을 위반한다.
+설치기는 guest에 이미 등록된 주소를 거부한다. AMI 또는 네트워크 관리자를 바꾸면
+새 호스트에서 이 조건부터 확인한다.
+
+broker guard는 endpoint TCP 443에 한해 전달 패킷과 일반 호스트 연결을 차단한다.
+broker slice의 연결만 허용하고 같은 nft 트랜잭션에서 출발 주소를 보조 IPv4로 바꾼다.
+커널 conntrack이 응답을 원래 소켓에 전달한다. 부팅 때 guard가 없거나 처음 설치에
+실패하면 주소 변환도 생기지 않으므로 AWS가 기본 주소에서 온 연결을 막는다.
+broker는 guard 시작 성공을 요구한다. RKE2는 독립적으로 시작한다.
+
+운영 순서는 T7의 보조 주소 할당, T38의 endpoint 보안 그룹·guard·역할 trust 적용,
+broker slice 연결 성공과 일반 Pod·호스트 연결 거부 대조 순이다. 시험 Pod에서는 별도의
+허용 목적지도 연결해야 한다. Terraform 재계획과 `nft list table inet bravo_broker_sts`로
+규칙을 다시 읽는다. 사설 DNS를 끈 단일 AZ endpoint이므로 다른 STS 사용자는 기존 DNS를 쓴다.
+스택 철거 시 먼저 실행을 닫고 broker trust와 endpoint를 제거한 뒤 호스트의 전용
+guard 서비스·스크립트·slice·`sts.conf` 및 `bravo_broker_sts` 테이블을 정리한다.
+마지막에 T7의 보조 주소를 해제한다.
 
 controller는 GitHub 러너에서 같은 토큰으로 broker 역할의 직접 발급이 거부되는지 한 번 확인한다.
 그 검사에서 발급을 잘못 허용해도 시험 세션에는 모든 API를 거부하는 정책이 적용된다.

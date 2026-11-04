@@ -78,7 +78,7 @@ resource "aws_iam_role" "broker" {
   assume_role_policy = jsonencode({ Version = "2012-10-17", Statement = [
     for grant in local.github_trust : merge(grant, { Condition = merge(grant.Condition, {
       StringEquals = merge(grant.Condition.StringEquals, { "aws:SourceVpce" = aws_vpc_endpoint.broker_sts.id })
-      IpAddress    = { "aws:VpcSourceIp" = "${data.aws_instance.broker.private_ip}/32" }
+      IpAddress    = { "aws:VpcSourceIp" = "${local.broker_source_ip}/32" }
     }) })
   ] })
   depends_on = [aws_ssm_association.broker_sts]

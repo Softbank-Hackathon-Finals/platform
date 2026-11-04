@@ -1,6 +1,15 @@
 # Leave the VPC default STS route unchanged; only the broker uses the private endpoint.
 data "aws_instance" "broker" {
   instance_id = split("/", var.instance_arn)[1]
+  lifecycle {
+    postcondition {
+      condition = try(
+        contains(self.secondary_private_ips, self.tags["bravo:subscription-sts-ipv4"]) &&
+        self.tags["bravo:subscription-sts-ipv4"] != self.private_ip, false
+      )
+      error_message = "The platform node must designate an assigned secondary IPv4 for broker STS."
+    }
+  }
 }
 
 data "aws_subnet" "broker" {
@@ -15,7 +24,7 @@ resource "aws_security_group" "broker_sts" {
     protocol    = "tcp"
     from_port   = 443
     to_port     = 443
-    cidr_blocks = ["${data.aws_instance.broker.private_ip}/32"]
+    cidr_blocks = ["${local.broker_source_ip}/32"]
   }
 }
 
@@ -34,6 +43,8 @@ resource "aws_vpc_endpoint" "broker_sts" {
 }
 
 locals {
+  broker_source_ip = data.aws_instance.broker.tags["bravo:subscription-sts-ipv4"]
+
   # Exclude the zonal DNS entry. Endpoints are discovered from the provider, never from a run request.
   broker_sts_dns = one([for entry in aws_vpc_endpoint.broker_sts.dns_entry : entry.dns_name
     if can(regex("^vpce-[a-f0-9]+-[a-z0-9]+\\.sts\\.ap-northeast-2\\.vpce\\.amazonaws\\.com$", entry.dns_name))
@@ -54,8 +65,9 @@ resource "aws_ssm_association" "broker_sts" {
   }
   parameters = {
     commands = templatefile("${path.module}/broker-guard.sh.tftpl", {
-      endpoint_dns = local.broker_sts_dns
-      endpoint_ip  = data.aws_network_interface.broker_sts.private_ip
+      broker_source_ip = local.broker_source_ip
+      endpoint_dns     = local.broker_sts_dns
+      endpoint_ip      = data.aws_network_interface.broker_sts.private_ip
     })
   }
   lifecycle {
