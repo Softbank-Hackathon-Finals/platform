@@ -7,7 +7,7 @@
 | [`render-user-data.sh`](render-user-data.sh) | 공통 [`bootstrap.sh`](../../shared/rke2/bootstrap.sh)에 Tailscale 설치를 더해 user-data를 출력한다 |
 | [`local-vm.sh`](local-vm.sh) | Mac에서 새 VM을 만들고 지운다. x86 머신에서는 쓰지 않는다 |
 | [`local_vm.py`](local_vm.py) | 시작·종료 배타 잠금, QEMU 신원 확인, 종료 확인 후 디스크 정리 |
-| [`verify-node.sh`](verify-node.sh) | 노드가 기준대로 섰는지 10개 항목을 확인한다 |
+| [`verify-node.sh`](verify-node.sh) | 노드가 기준대로 섰는지 12개 항목을 확인한다 |
 | [`run-kube-bench.sh`](run-kube-bench.sh) | kube-bench로 CIS 점검을 돌리고 요약을 출력한다 |
 
 ## 쓰는 법
@@ -66,6 +66,8 @@ RKE2와 CIS 기준은 `infra/shared/rke2/bootstrap.sh` 한 곳에 있고 T7 플�
 
 RKE2 버전은 `render-user-data.sh`에 고정돼 있다. T7의 `rke2_version` 기본값과 출발지 EKS의 Kubernetes 1.35에 맞췄다. 올릴 때는 세 곳을 같이 본다.
 
+감사 정책 원본은 [`rke2-audit-policy.yaml`](../../../services/control-runner/templates/rke2-audit-policy.yaml) 한 곳이다. user-data는 이 파일을 그대로 넣는다. T7 EC2는 `bootstrap.sh`만 쓰므로 이 정책을 받지 않는다.
+
 ## 후속 작업이 알아야 할 것
 
 아래는 새 VM에서 잰 값이다.
@@ -75,7 +77,9 @@ RKE2 버전은 `render-user-data.sh`에 고정돼 있다. T7의 `rke2_version` �
 - **T5:** 시크릿 암호화는 기본으로 켜져 있다(`rke2 secrets-encrypt status`가 `Enabled`).
 - **T17:** `rke2-ingress-nginx`와 `rke2-traefik`을 끄므로 클러스터 안에 Ingress 컨트롤러가 없다.
 - **T30:** Tailscale은 설치만 돼 있다. 로그인과 ACL은 T30에서 한다.
-- **T30 · T34:** 기본 감사 정책이 `level: None`이라 `audit.log`가 0바이트다. T34의 후보 정책([#97](https://github.com/Softbank-Hackathon-Finals/platform/pull/97))이 머지되면 T30에서 적용한다.
+- **T30 · T34:** 감사 로그는 `/var/lib/rancher/rke2/server/logs/audit.log`에 Metadata 수준으로 남고 Secret 값은 남지 않는다([측정](../../../docs/evidence/t30-rke2-audit-2026-11-04/README.md)). 이 정책은 새 VM부터 들어간다. 이미 떠 있는 VM은 `/etc/rancher/rke2/audit-policy.yaml`에 정책을 넣고 `rke2-server`를 재시작한다(약 42초, API 서버도 다시 뜬다).
+- **T34:** 회전은 RKE2 값(100MiB, 백업 10개, 30일)이고 상한은 약 1.1GiB다. 워크로드 없는 노드에서도 하루 약 380MiB가 쌓여 노드 안 보존은 3일쯤이다. 더 오래 둘 로그는 노드 밖으로 보낸다.
+- **T12 · T34:** `pods/exec` 명령 인자는 요청 주소에 실려 Metadata 수준에도 로그에 남는다. 비밀은 인자로 넘기지 않는다.
 
 ## 남은 일
 

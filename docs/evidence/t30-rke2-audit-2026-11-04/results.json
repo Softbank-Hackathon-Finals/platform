@@ -1,0 +1,298 @@
+{
+  "evidence_scope": "new local QEMU VMs built from infra/envs/onprem/render-user-data.sh; not the on-premises demo machine, not the T7 EC2 host, not a log forwarding or central search path",
+  "observed_date": "2026-11-04",
+  "measurement_runs": {
+    "first": {
+      "verify_node_sha256": "cdde75638fa66ecb7ce196af30452b06a3b663be66c23327792c04fb62bf0f20",
+      "sections": [
+        "policy_on_node",
+        "rolebinding_canary",
+        "rolebinding_denied",
+        "secret_canary",
+        "other_values",
+        "exec_argument",
+        "t34_aud_01_3_decision_on_real_events",
+        "kube_bench",
+        "rotation_and_retention"
+      ],
+      "why_not_measured_again": "These do not run verify-node.sh, and render-user-data.sh and the policy template kept the same hashes"
+    },
+    "after_review_fix": {
+      "verify_node_sha256": "2dae0a23f3e52df25c398e34cdd7e3827262859bb246e7d186a17f3b402dc67f",
+      "sections": [
+        "fresh_install",
+        "negative_tests",
+        "verify_node_review_fix"
+      ]
+    }
+  },
+  "runtime": "RKE2 v1.35.9+rke2r1",
+  "environment": {
+    "host": "Apple Silicon Mac, QEMU 11.1.3 with HVF",
+    "guest": "Ubuntu 24.04 cloud image release-20261017 arm64",
+    "vcpus": 4,
+    "memory_gib": 8,
+    "disk_gib": 40
+  },
+  "fresh_install": {
+    "cloud_init_exit": 0,
+    "cloud_init_seconds": 127,
+    "node_checks_passed": 12,
+    "node_checks_failed": 0,
+    "first_run_cloud_init_seconds": 117
+  },
+  "policy_on_node": {
+    "file_sha256_equals_template": true,
+    "file_mode": "600",
+    "owner_uid": 0,
+    "directory_mode": "700",
+    "manifest_and_process_args_equal": true,
+    "kube_apiserver_args": [
+      "--audit-log-maxage=30",
+      "--audit-log-maxbackup=10",
+      "--audit-log-maxsize=100",
+      "--audit-log-path=/var/lib/rancher/rke2/server/logs/audit.log",
+      "--audit-policy-file=/etc/rancher/rke2/audit-policy.yaml"
+    ],
+    "log_file_mode": "600",
+    "log_directory_mode": "755"
+  },
+  "rolebinding_canary": {
+    "actor": "system:admin",
+    "stages_seen": [
+      "ResponseComplete"
+    ],
+    "request_or_response_body_recorded": false,
+    "events": [
+      {
+        "verb": "create",
+        "code": 201,
+        "level": "Metadata",
+        "sha256": "898bc95b6a2fd86b9fb8b0dd4821910665c3e6727f4b66cd814f6234822c9e68"
+      },
+      {
+        "verb": "delete",
+        "code": 200,
+        "level": "Metadata",
+        "sha256": "37702fb12f5ec0924a132c730ffaca26944c5dca9e8c01e9e6d8336417eb6814"
+      },
+      {
+        "verb": "get",
+        "code": 404,
+        "level": "Metadata",
+        "sha256": "1b7d1a1d73e21583796677ec84ccfeeaea4bdce0941070f8765e7d774474ba1c",
+        "note": "kubectl delete waits for the object to disappear"
+      }
+    ],
+    "seconds_until_in_local_file": 0.001
+  },
+  "rolebinding_denied": {
+    "kubectl_exit": 1,
+    "code": 403,
+    "level": "Metadata",
+    "impersonated_user_recorded": true,
+    "object_name_recorded": false,
+    "note": "A denied create ends before the body is read, so it cannot be found by RoleBinding name"
+  },
+  "secret_canary": {
+    "verbs_recorded": [
+      "create",
+      "get",
+      "get",
+      "patch",
+      "delete",
+      "get"
+    ],
+    "all_levels": "Metadata",
+    "request_or_response_body_recorded": false,
+    "api_returned_value": true,
+    "value_and_base64_occurrences_in_log": 0,
+    "name_occurrences_in_log": 6
+  },
+  "other_values": {
+    "configmap_value_and_base64_occurrences_in_log": 0,
+    "issued_token_returned": true,
+    "issued_token_and_signature_occurrences_in_log": 0
+  },
+  "exec_argument": {
+    "marker_only": true,
+    "api_code": 101,
+    "events_containing_argument": 2,
+    "field": "requestURI",
+    "level": "Metadata",
+    "meaning": "A command argument passed through pods/exec is written to the log even at Metadata level"
+  },
+  "t34_aud_01_3_decision_on_real_events": {
+    "input": "local copy of the canary events with a fixed clock; forwarding, search permission and collection latency are not exercised",
+    "create_and_delete": "present",
+    "create_only_before_deadline": "NOT_RUN",
+    "create_only_after_deadline": "absent",
+    "other_actor_after_deadline": "absent"
+  },
+  "kube_bench": {
+    "version": "0.16.0",
+    "benchmark": "rke2-cis-1.9",
+    "with_policy": {
+      "pass": 82,
+      "fail": 0,
+      "warn": 41,
+      "info": 7
+    },
+    "without_policy": {
+      "pass": 82,
+      "fail": 0,
+      "warn": 41,
+      "info": 7
+    },
+    "tests_with_different_status": [],
+    "test_3_2_1_minimal_audit_policy": {
+      "with_policy": "PASS",
+      "without_policy": "PASS"
+    },
+    "test_3_2_2_policy_covers_concerns_manual": {
+      "with_policy": "WARN",
+      "without_policy": "WARN"
+    }
+  },
+  "rotation_and_retention": {
+    "configured_by": "RKE2 CIS profile; this change sets none of these flags",
+    "max_size_mib": 100,
+    "max_backups": 10,
+    "max_age_days": 30,
+    "compressed_files": 0,
+    "separate_disk_limit": false,
+    "forced_rotation": {
+      "padded_requests": 83435,
+      "padded_mib_requested": 1305,
+      "backup_count": 10,
+      "active_log_present": true,
+      "total_mib": 1061.2,
+      "largest_file_mib": 100.0,
+      "disk_used_mb_before": 5460,
+      "disk_used_mb_after": 6517
+    },
+    "idle_growth": {
+      "seconds": 300,
+      "bytes": 1361149,
+      "events": 1165,
+      "mib_per_day": 374,
+      "earlier_run_mib_per_day": 384,
+      "lease_update_share_percent": 74.8,
+      "workloads_running": false
+    },
+    "calculated_days_until_oldest_is_dropped_when_idle": 2.9
+  },
+  "negative_tests": {
+    "user_data_without_policy_block": {
+      "cloud_init_seconds": 121,
+      "verify_exit": 1,
+      "node_checks_passed": 10,
+      "node_checks_failed": 2,
+      "failed_checks": [
+        "audit rolebinding recorded",
+        "audit secret value absent"
+      ],
+      "policy_file_exists_anyway": true,
+      "rke2_default_policy_rule": "level: None",
+      "audit_log_bytes": 0,
+      "kube_apiserver_args_same_as_with_policy": true
+    },
+    "template_added_to_running_node_then_restart": {
+      "restart_seconds": 42,
+      "apiserver_restarted": true,
+      "verify_exit": 0,
+      "node_checks_passed": 12
+    },
+    "policy_recording_secret_bodies_then_restart": {
+      "restart_seconds": 42,
+      "apiserver_restarted": true,
+      "verify_exit": 1,
+      "node_checks_passed": 11,
+      "failed_checks": [
+        "audit secret value absent"
+      ],
+      "secret_events_with_request_body": 1
+    },
+    "template_restored_then_restart": {
+      "restart_seconds": 42,
+      "verify_exit": 0,
+      "node_checks_passed": 12
+    }
+  },
+  "verify_node_review_fix": {
+    "finding": "A read error, or a rotation between the event check and the value check, counted as value not found",
+    "previous_script_reproduction": {
+      "missing_log_with_event_check_stubbed": {
+        "grep_error_printed": true,
+        "function_exit": 0
+      },
+      "regression_tests_total": 10,
+      "regression_tests_failing_on_previous_script": [
+        "test_fails_when_any_log_in_range_cannot_be_read",
+        "test_fails_when_rotation_during_the_check_moves_the_value_away",
+        "test_fails_when_the_log_is_deleted_during_the_check_and_the_value_was_logged",
+        "test_passes_when_rotation_moves_the_event_away_before_the_check"
+      ]
+    },
+    "fixed_behaviour": "One grep over audit.log and the rotated files decides both the event and the value; grep exit 2 or higher fails the check",
+    "same_negated_grep_found_elsewhere": 0,
+    "local_vm": {
+      "unreadable_file_in_log_range": {
+        "verify_exit": 1,
+        "node_checks_passed": 10,
+        "node_checks_failed": 2,
+        "failed_checks": [
+          "audit rolebinding recorded",
+          "audit secret value absent"
+        ],
+        "node_checks_passed_after_removal": 12
+      },
+      "all_audit_logs_moved_away": {
+        "verify_exit": 1,
+        "node_checks_passed": 10,
+        "node_checks_failed": 2,
+        "failed_checks": [
+          "audit rolebinding recorded",
+          "audit secret value absent"
+        ]
+      },
+      "while_rotation_was_running": {
+        "backups_before_verify": 0,
+        "backups_after_verify": 1,
+        "verify_exit": 0,
+        "node_checks_passed": 12,
+        "note": "Rotation happened during the run; its exact moment relative to the read is not controlled here and is pinned by the regression tests"
+      },
+      "after_rotation_to_backup_limit": {
+        "padded_requests": 84435,
+        "backup_count": 10,
+        "total_mib": 1026.8,
+        "verify_exit": 0,
+        "node_checks_passed": 12,
+        "verify_seconds_rounded": 1
+      }
+    }
+  },
+  "not_claimed": [
+    "on-premises demo machine install",
+    "x86_64 install through this path",
+    "T7 EC2 host or T6 EKS audit logging",
+    "CNPG log_connections or pgAudit",
+    "log forwarding, central search, search permission or the ten-minute window",
+    "log volume with workloads running",
+    "behaviour when the disk is full",
+    "behaviour with a malformed policy file",
+    "recovery after reboot",
+    "verify-node.sh run overlapping the moment the oldest backup is deleted"
+  ],
+  "source_file_sha256": {
+    "infra/shared/rke2/bootstrap.sh": "c183719d2cc9d648c4b3aebb90fc1e4f798f7b10ac795019872715c267aa0376",
+    "infra/envs/onprem/render-user-data.sh": "9cce17223416cd1b54a70d64448e2f6b7127be3f661f2f8d2e8e0ea3ecc60158",
+    "infra/envs/onprem/verify-node.sh": "2dae0a23f3e52df25c398e34cdd7e3827262859bb246e7d186a17f3b402dc67f",
+    "infra/envs/onprem/local-vm.sh": "05128b66a9d2589580b8f5c61b660730b8ae65c8262d3d023d12195c63af7291",
+    "infra/envs/onprem/local_vm.py": "8ee3914a66a5106c462d603966a36ec059bfa95bf9e7d7f560c8ffb7d13d6da3",
+    "infra/envs/onprem/run-kube-bench.sh": "e794b1be9e62e0b0e08131a008b27ceff755c9d6ac7b68a5ba5c6bfdc4922654",
+    "services/control-runner/templates/rke2-audit-policy.yaml": "44db1bde11f732c22216bd219b91a1138ad1a119e889716f898a065ac8d1a7fe",
+    "services/control-runner/src/bravo_controls/audit_probes.py": "ca543e73a502ed53691f644e365bca382b4f9313efcb1fa1ba3170c653b8dec3"
+  }
+}
