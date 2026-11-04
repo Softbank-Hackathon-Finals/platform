@@ -21,6 +21,7 @@ IMAGE = "public.ecr.aws/docker/library/postgres:18.4@sha256:a02db8cac496f15b0947
 
 @pytest.fixture(scope="module")
 def tls_postgres(tmp_path_factory):
+    __tracebackhide__ = True
     root = tmp_path_factory.mktemp("t19-tls")
     root.chmod(0o755)
     run("openssl", "req", "-x509", "-newkey", "rsa:2048", "-nodes", "-days", "1",

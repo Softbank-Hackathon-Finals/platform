@@ -40,6 +40,7 @@ def await_condition(predicate, seconds=30):
 
 @pytest.fixture
 def tls_pair(tmp_path):
+    __tracebackhide__ = True
     endpoint = os.environ.get("DOCKER_HOST") or json.loads(tool("docker", "context", "inspect"))[0]["Endpoints"]["docker"]["Host"]
     if not endpoint.startswith("unix://"):
         pytest.fail("local_unix_docker_required", pytrace=False)
