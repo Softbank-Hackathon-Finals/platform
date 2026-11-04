@@ -173,3 +173,5 @@ PYTHONPATH=../rehearsal-runner/src uv run --frozen --no-default-groups --with py
 `T11CredentialProposer`는 demo-chat 세 소스 경로와 원본 revision을 기존 T11 snapshot·제안 검증에 전달한다. 실제 T11 경로 정책이 `app/db_secret.py`를 막는 동안에는 모델 호출 전에 중단한다. 이 어댑터는 정책을 우회하지 않는다.
 
 `retry.run_retries`는 시도별 T3 시험과 UID 조건 정리를 완료한 후 신뢰된 결과 판정 포트가 같은 실행·제안·시도의 재시도를 허용한 경우에만 다음 시도를 시작하며 최대 3회다. 결과 불명, 정리 미확인, 결과 불일치는 사람에게 넘긴다. 모든 의존성은 주입된 포트이며, 현재 영수증 인증기·T11 후속 시도 어댑터·T10 실행 잠금과 영속 복구는 설치되지 않았다. 메모리 시뮬레이션을 실서비스 승인 또는 안전한 재시작으로 취급하지 않는다.
+
+`credential_proposal_source.BoundCredentialProposalSource`는 제안의 실행·원본 revision·digest와 허용된 demo-chat 파일 및 원본 해시를 대조해 수정안을 검증 Job 경계에 전달한다. 수정 내용은 객체 표현에 출력하지 않는다. 이 조회만으로 수정안·이미지의 안전성이나 실제 실행을 증명하지 않는다.
