@@ -47,7 +47,7 @@ trivy config --ignorefile .trivyignore.yaml --severity HIGH,CRITICAL --exit-code
 
 별도 `security-history.yml`의 `history-secrets`는 모든 fetch된 브랜치·태그의 전체 이력을 `--scope repository`로 검사한다. main/develop push, 기존 주간 주기, 수동 실행을 지원한다. 감사 구현·설정 자체를 바꾸는 PR에서도 실행해 변경을 검증한다. 일반 PR에는 이 workflow가 실행되지 않으며, 필수 `secrets/infra/platform`과 의존 관계가 없다. 이 job은 실패 시 그대로 실패와 탐지 위치를 보고한다. `continue-on-error`나 탐지 규칙 완화로 녹색을 만들지 않는다. `history-secrets`를 모든 PR의 필수 context로 추가하면 이 격리가 깨지므로 추가하지 않는다.
 
-두 경로 모두 같은 Gitleaks 8.24.3, `.gitleaks.toml`과 검토된 개별 ignore 설정을 사용한다. shallow/빈 이력, 버전 불일치와 도구 오류는 실패다. 검사 입력 기록은 scope·checkout SHA·검사 버전·설정 해시·run/attempt·전체 감사의 fetched refs·종료 코드를 포함하며 14일간 Actions artifact로 보존한다. 탐지 원문 값은 redacted로만 출력한다. 같은 PR head라도 전체 감사의 refs 집합은 달라질 수 있으므로 두 결과를 같은 검사로 합치지 않는다.
+두 경로 모두 같은 Gitleaks 8.24.3, `.gitleaks.toml`과 검토된 개별 ignore 설정을 사용한다. [공식 배포 안내](https://github.com/gitleaks/gitleaks/blob/v8.24.3/README.md#installing)의 Docker Hub 이미지를 `ci_secrets.py`에 manifest digest로 고정한다. 버전 출력의 선택적 `v` 접두사만 정규화하며 다른 버전은 거부한다. shallow/빈 이력, 버전 불일치와 도구 오류는 실패다. 검사 입력 기록은 scope·checkout SHA·검사 버전·이미지 digest·설정 해시·run/attempt·전체 감사의 fetched refs·종료 코드를 포함하며 14일간 Actions artifact로 보존한다. 탐지 원문 값은 redacted로만 출력한다. 같은 PR head라도 전체 감사의 refs 집합은 달라질 수 있으므로 두 결과를 같은 검사로 합치지 않는다.
 
 `secrets`는 실제 scanner 회귀와 [증빙 소스 해시 형식](public-evidence-policy.md#소스-파일-해시-형식)도 확인한다. 변경 전 기준은 PR base 또는 push의 before SHA이며, 예약/수동 실행에서는 현재 SHA를 사용한다. 기준 커밋을 읽을 수 없으면 형식 검사를 성공시키지 않는다. 기존 공개 증빙의 의미와 해시를 소급해서 바꾸지 않는다.
 

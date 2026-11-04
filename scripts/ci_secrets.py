@@ -9,7 +9,7 @@ import sys
 from pathlib import Path
 
 VERSION = "8.24.3"
-IMAGE = f"ghcr.io/gitleaks/gitleaks:v{VERSION}"
+IMAGE = f"zricethezav/gitleaks:v{VERSION}@sha256:e1b35e12a8c6fa8901f060459cfb6b2fc4c484d3afbe3b029733a3bbfab07055"
 
 
 def git(repo, *args):
@@ -17,6 +17,8 @@ def git(repo, *args):
 
 
 def scan(repo, scope, receipt, native=None):
+    # A preparation failure must not leave an earlier successful receipt behind.
+    receipt.unlink(missing_ok=True)
     repo = repo.resolve()
     if git(repo, "rev-parse", "--is-shallow-repository") != "false":
         raise ValueError("complete history required")
@@ -32,7 +34,7 @@ def scan(repo, scope, receipt, native=None):
     if not commits:
         raise ValueError("empty scan input")
     command = [str(native)] if native else ["docker", "run", "--rm", "-v", f"{repo}:/repo:ro", IMAGE]
-    version = subprocess.check_output([*command, "version"], stderr=subprocess.PIPE, text=True).strip()
+    version = subprocess.check_output([*command, "version"], stderr=subprocess.PIPE, text=True).strip().removeprefix("v")
     if version != VERSION:
         raise ValueError("use the CI scanner version")
     source = str(repo) if native else "/repo"
@@ -43,6 +45,7 @@ def scan(repo, scope, receipt, native=None):
     ], cwd=repo, check=False)
     record = {
         "scope": scope, "scanner_version": version, "config_sha256": config_hash,
+        "scanner_image": None if native else IMAGE,
         "ignore_sha256": ignore_hash,
         "checkout_sha": head, "log_opts": log_opts, "reachable_commit_count": commits,
         "fetched_refs": refs, "run_id": os.getenv("GITHUB_RUN_ID"),
@@ -62,6 +65,9 @@ def main():
     args = parser.parse_args()
     try:
         return scan(args.repo, args.scope, args.receipt, args.native)
+    except subprocess.CalledProcessError as error:
+        print(f"Secret scan preparation command failed (exit {error.returncode}); no scan result recorded.", file=sys.stderr)
+        return 2
     except (OSError, ValueError, subprocess.SubprocessError):
         print("Secret scan could not complete; check history, config and scanner version.", file=sys.stderr)
         return 2

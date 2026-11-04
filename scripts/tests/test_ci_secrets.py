@@ -46,6 +46,18 @@ class GitFixture(unittest.TestCase):
 
 
 class ExitBoundaryTest(GitFixture):
+    def test_official_container_version_prefix_and_unavailable_scanner(self):
+        binary = Path(self.temp.name) / "scanner"
+        binary.write_text(f"#!{sys.executable}\nimport sys\nif sys.argv[1] == 'version':\n print('v8.24.3')\n")
+        binary.chmod(0o700)
+        self.assertEqual(self.run_scan("head", str(binary)).returncode, 0)
+        self.assertEqual(json.loads(self.receipt.read_text())["scanner_version"], scanner.VERSION)
+        binary.write_text(f"#!{sys.executable}\nimport sys\nsys.exit(125)\n")
+        result = self.run_scan("head", str(binary))
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("preparation command failed (exit 125)", result.stderr)
+        self.assertFalse(self.receipt.exists())
+
     def test_scanner_failures_are_not_hidden_by_receipt_write(self):
         binary = Path(self.temp.name) / "scanner"
         for code in (0, 1, 2, 124):

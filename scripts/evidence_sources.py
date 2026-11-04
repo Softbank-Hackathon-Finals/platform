@@ -51,9 +51,12 @@ def format_errors(value, previous=None, pointer=""):
         if ambiguous and value != previous:
             errors.append(pointer or "/")
         if "source_files" in value and (not isinstance(previous, dict)
-                                        or value["source_files"] != previous.get("source_files")):
+                                        or value["source_files"] != previous.get("source_files")
+                                        or value.get("source_revision") != previous.get("source_revision")):
             rows = value["source_files"]
-            valid = isinstance(rows, list) and bool(rows)
+            commit = value.get("source_revision")
+            valid = (isinstance(rows, list) and bool(rows) and isinstance(commit, str)
+                     and bool(re.fullmatch(r"[0-9a-f]{40}", commit)))
             paths = []
             for row in rows if isinstance(rows, list) else []:
                 if not isinstance(row, dict) or set(row) != {"path", "sha256"}:

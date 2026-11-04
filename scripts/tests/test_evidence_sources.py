@@ -87,7 +87,17 @@ class SourceEvidenceTest(unittest.TestCase):
         for rows in ([], {}, [row, row], [dict(row, path="../api.py")], [dict(row, sha256="broken")],
                      [dict(row, path=["api.py"])], [dict(row, extra=True)]):
             with self.subTest(rows=rows):
-                self.assertTrue(sources.format_errors({"source_files": rows}))
+                self.assertTrue(sources.format_errors({"source_revision": self.base, "source_files": rows}))
+
+    def test_new_manifest_requires_full_revision_even_when_only_revision_changes(self):
+        record = sources.create(self.repo, self.base, ["api.py"])
+        for revision in (None, "main", self.base[:7], "A" * 40, 123):
+            with self.subTest(revision=revision):
+                changed = dict(record, source_revision=revision)
+                self.assertTrue(sources.format_errors(changed))
+                self.assertTrue(sources.format_errors(changed, record))
+        del record["source_revision"]
+        self.assertTrue(sources.format_errors(record))
 
     def test_unavailable_base_and_invalid_json_exit_two_without_original_error(self):
         for base, content in (("f" * 40, "{}"), (self.base, "invalid private document")):
