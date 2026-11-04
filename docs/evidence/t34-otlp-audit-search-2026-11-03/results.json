@@ -25,9 +25,15 @@
     "status": "PASS",
     "collected_at": "2026-11-03T12:29:03.834322+00:00"
   },
-  "source_sha256": {
-    "services/control-runner/src/bravo_controls/otlp_audit.py": "423af0bc79371e778567be79655e7e094496681ede3669263c43dfdc367c3213",
-    "services/control-runner/tests/integration/verify_otlp_audit_search.py": "c931a16ba40165b4f6e46eb4bb3693b02bb9f03d4eb45e0bc1661889f74774b0"
-  },
+  "source_sha256": [
+    {
+      "path": "services/control-runner/src/bravo_controls/otlp_audit.py",
+      "sha256": "423af0bc79371e778567be79655e7e094496681ede3669263c43dfdc367c3213"
+    },
+    {
+      "path": "services/control-runner/tests/integration/verify_otlp_audit_search.py",
+      "sha256": "c931a16ba40165b4f6e46eb4bb3693b02bb9f03d4eb45e0bc1661889f74774b0"
+    }
+  ],
   "real_capture_harness_sha256": "e45332f7b4d64e77ec222b3ff8c31dfab78db3a5256822d17d6c773f6fe10b8f"
 }
