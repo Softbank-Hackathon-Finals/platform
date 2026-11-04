@@ -5,6 +5,7 @@ import {
   observation,
   controlReport,
   CONTROL_TESTS,
+  failbackSummary,
 } from "./model.js";
 import { request, stream } from "./transport.js";
 import { recoveryCommand, canResubmit } from "./recovery.js";
@@ -36,6 +37,7 @@ const names = {
   SAFE_HOLD: "안전 보류",
   NEEDS_HUMAN: "담당자 확인",
   DONE: "완료",
+  DONE_ROLLED_BACK: "복귀 완료",
 };
 const messages = {
   forbidden: "접근 권한 또는 로그인 상태를 확인해 주세요.",
@@ -151,6 +153,24 @@ function render() {
       ? `실행 묶음 문제: ${controls.report.run_issues.join(", ")}`
       : "",
   );
+  text("failback-status", failbackSummary(model.failback?.data));
+  details(
+    "failback-detail",
+    model.failback
+      ? [
+          ["명령 ID", model.failback.data.command_id],
+          ["승인 ID", model.failback.data.approval_id],
+          ["승인자", model.failback.data.approved_by],
+          ["실행 ID", model.failback.data.execution_id],
+          [
+            "무결성 근거",
+            model.failback.data.integrity_receipt_id ??
+              "해당 없음 (쓰기 전 중단)",
+          ],
+          ["기록 시각", model.failback.occurred_at],
+        ]
+      : [],
+  );
   text("cursor", `확인한 이벤트 ${model.cursor}건`);
   text("gate-status", model.gate?.data.decision ?? "미확인");
   const phases = STATES.map((s) => {
@@ -161,7 +181,20 @@ function render() {
   });
   $("phases").replaceChildren(...phases);
   const b = model.request?.data.binding;
-  if (b)
+  if (b && model.request.data.approval_kind === "failback")
+    details("binding", [
+      ["승인 종류", "복귀 (조회 전용)"],
+      ["계획 digest", b.plan_digest],
+      [
+        "복귀 출발 → 도착",
+        `${b.source_environment_id} → ${b.target_environment_id}`,
+      ],
+      ["기존 전환 실행", b.cutover_execution_id],
+      ["기존 전환 epoch", b.cutover_epoch],
+      ["무결성 근거", b.integrity_receipt_id],
+      ["만료 시각", b.expires_at],
+    ]);
+  else if (b)
     details("binding", [
       ["승인 종류", model.request.data.approval_kind],
       ["계획 digest", b.plan_digest ?? "없음"],
@@ -210,9 +243,11 @@ function render() {
           ? `${e.data.from ?? "시작"} → ${e.data.to}`
           : e.event_type === "gate.completed"
             ? `${e.data.decision} · ${e.data.gate_id}`
-            : e.event_type.startsWith("approval.")
-              ? `${e.data.approval_kind} · ${e.data.decision ?? "요청"} · ${e.data.approval_id}`
-              : `${e.data.step} · ${e.data.status}${e.data.elapsed_ms === undefined ? "" : ` · ${e.data.elapsed_ms} ms`}`;
+            : e.event_type === "failback.recorded"
+              ? failbackSummary(e.data)
+              : e.event_type.startsWith("approval.")
+                ? `${e.data.approval_kind} · ${e.data.decision ?? "요청"} · ${e.data.approval_id}`
+                : `${e.data.step} · ${e.data.status}${e.data.elapsed_ms === undefined ? "" : ` · ${e.data.elapsed_ms} ms`}`;
       if (
         ["BLOCK", "failed", "unknown"].some((v) =>
           Object.values(e.data).includes(v),
