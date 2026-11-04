@@ -26,7 +26,7 @@ AWS는 터널을 연 SSO 주체를 확인하고 RKE2는 인증서의 CN을 사�
 
 ## 2. 본인 장치: SSO 확인과 개인 키·CSR
 
-AWS CLI v2, Session Manager plugin, 서버 버전과 호환되는 kubectl, OpenSSL을 사용한다. 아래 환경 초기화는 이 작업 전용 터미널에서만 수행한다. 프로필의 임의 endpoint override를 사용하지 않으며, 검증 도구가 혼합 인증 설정을 거부하면 먼저 그 설정을 해결한다.
+AWS CLI v2, Session Manager plugin, 서버 버전과 호환되는 kubectl, OpenSSL을 사용한다. 아래 환경 초기화는 이후 개인 키·kubeconfig·kubectl 작업을 이어갈 **본인 작업 터미널 A**에서 수행한다. 프로필의 임의 endpoint override를 사용하지 않으며, 검증 도구가 혼합 인증 설정을 거부하면 먼저 그 설정을 해결한다.
 
 ```bash
 set -euo pipefail
@@ -144,16 +144,17 @@ openssl dgst -sha256 "$RKE2_REVIEW_DIR/server-ca.crt"
 
 ## 4. 본인 장치: 개인 kubeconfig와 엄격한 TLS 터널
 
-본인은 받은 인증서·CA를 자신의 기존 `RKE2_PERSONAL_DIR`에 저장한다. CN·만료를 다시 읽고, 다음 두 공개키 지문이 같은지 확인한다. 개인 키 자체를 출력하지 않는다.
+본인은 받은 인증서·CA를 자신의 기존 `RKE2_PERSONAL_DIR`에 저장하고 **터미널 A**에서 아래를 실행한다. 다른 터미널에는 셸 변수가 자동 전달되지 않는다. A를 새로 열었다면 2절에서 사용한 개인 디렉터리·CSR 이름·CN과 전달받은 `RKE2_TLS_NAME`을 비공개 기록에서 다시 설정한다. 키·CSR 생성은 반복하지 않는다. CN·만료를 다시 읽고, 다음 두 공개키 지문이 같은지 확인한다. 개인 키 자체를 출력하지 않는다.
 
 ```bash
+: "${RKE2_PERSONAL_DIR:?본인의 기존 발급 디렉터리}" "${RKE2_USER_CN:?이번 발급의 CN}"
+: "${RKE2_CSR_NAME:?이번 발급의 CSR 이름}" "${RKE2_TLS_NAME:?인증된 경로로 대조한 서버 SAN}"
 openssl pkey -in "$RKE2_PERSONAL_DIR/client.key" -pubout -outform DER |
   openssl dgst -sha256
 openssl x509 -in "$RKE2_PERSONAL_DIR/client.crt" -pubkey -noout |
   openssl pkey -pubin -outform DER | openssl dgst -sha256
 openssl x509 -in "$RKE2_PERSONAL_DIR/client.crt" -noout -subject -dates
 openssl dgst -sha256 "$RKE2_PERSONAL_DIR/server-ca.crt"
-: "${RKE2_TLS_NAME:?인증된 경로로 대조한 서버 SAN}"
 RKE2_LOCAL_PORT=16443
 RKE2_KUBECONFIG="$RKE2_PERSONAL_DIR/kubeconfig"
 test ! -e "$RKE2_KUBECONFIG"
@@ -172,18 +173,33 @@ chmod 600 "$RKE2_KUBECONFIG"
 
 기존 기본 kubeconfig와 합치지 않고 매번 명시한 파일을 쓴다. `insecure-skip-tls-verify`, 토큰, exec 인증 plugin, 임의 proxy URL을 추가하지 않는다. `tls-server-name`은 CA 검증에 더해 확인할 서버 이름을 지정한다. 새 kubeconfig의 클러스터·사용자 참조를 비공개로 검토한 뒤 연결한다. [kubeconfig TLS 필드](https://kubernetes.io/docs/reference/config-api/kubeconfig.v1/)
 
-본인 SSO 환경을 설정한 별도 터미널에서 터널을 열고 session ID를 비공개로 기록한다. `AWS-StartPortForwardingSession`은 관리 호스트 자신의 포트로 연결하므로 다른 remote-host 경로를 사용할 필요가 없다. 로컬 포트가 이미 사용 중이면 다른 포트를 정하고 kubeconfig도 함께 맞춘다.
+터널은 **별도 터미널 B**에서 연다. B에 검토한 `RKE2_PROFILE`, `RKE2_REGION`, `BRAVO_EXPECTED_AWS_ACCOUNT`를 직접 설정하고 **2절의 첫 환경 초기화·SSO 확인 블록만** 이 터미널에서도 실행한다. 이어 `RKE2_INSTANCE_ID`와 A에서 만든 개인 kubeconfig의 절대경로인 `RKE2_KUBECONFIG`를 설정한다. A의 변수나 AWS 인증 환경이 B에 남아 있다고 가정하지 않는다.
+
+아래에서 B의 포트도 명시하고, 로컬 kubeconfig의 서버 주소와 일치하는지 확인한 뒤 SSM을 시작한다. `config view`는 로컬 파일 조회이며 API 접속이나 키 출력이 아니다. session ID는 비공개로 기록한다. `AWS-StartPortForwardingSession`은 관리 호스트 자신의 포트로 연결하므로 다른 remote-host 경로를 사용할 필요가 없다. 로컬 포트가 이미 사용 중이면 다른 포트를 정하고 **A의 kubeconfig 서버 포트와 B의 포트를 함께** 맞춘다.
 
 ```bash
+: "${RKE2_PROFILE:?B에서 SSO 확인한 본인 프로필}" "${RKE2_REGION:?B에서 확인한 호스트 리전}"
 : "${RKE2_INSTANCE_ID:?검토한 기존 플랫폼 호스트}"
+: "${RKE2_KUBECONFIG:?A에서 만든 개인 kubeconfig의 절대경로}"
+RKE2_LOCAL_PORT=16443
+test -f "$RKE2_KUBECONFIG"
+test "$(kubectl --kubeconfig="$RKE2_KUBECONFIG" config view --minify \
+  -o jsonpath='{.clusters[0].cluster.server}')" = "https://127.0.0.1:$RKE2_LOCAL_PORT"
 aws ssm start-session --profile "$RKE2_PROFILE" --region "$RKE2_REGION" \
   --target "$RKE2_INSTANCE_ID" --document-name AWS-StartPortForwardingSession \
   --parameters "{\"portNumber\":[\"6443\"],\"localPortNumber\":[\"$RKE2_LOCAL_PORT\"]}"
 ```
 
-터널은 루프백에서만 사용할 것을 확인하고, 다른 장치에 중계하지 않는다. kubectl을 실행할 본인 터미널에서도 명시한 개인 변수·파일을 확인하고 루프백 통신에 환경 proxy가 개입하지 않도록 한다. [SSM 포트 전달](https://docs.aws.amazon.com/systems-manager/latest/userguide/session-manager-working-with-sessions-start.html#sessions-start-port-forwarding)
+터널은 루프백에서만 사용할 것을 확인하고, 다른 장치에 중계하지 않는다. **B를 열어 둔 채 A로 돌아와** 아래와 5절의 본인 명령을 실행한다. A도 새 셸이면 기존 `RKE2_PERSONAL_DIR`, `RKE2_CSR_NAME`, `RKE2_USER_CN`, `RKE2_TLS_NAME`과 B에서 선택한 `RKE2_LOCAL_PORT`를 다시 설정한다. 개인 kubeconfig 경로는 기존 디렉터리에서 복원하며, B의 변수·함수가 A로 전달된다고 가정하지 않는다. 루프백 통신에 환경 proxy가 개입하지 않도록 한다. [SSM 포트 전달](https://docs.aws.amazon.com/systems-manager/latest/userguide/session-manager-working-with-sessions-start.html#sessions-start-port-forwarding)
 
 ```bash
+: "${RKE2_PERSONAL_DIR:?본인의 기존 발급 디렉터리}" "${RKE2_CSR_NAME:?이번 발급의 CSR 이름}"
+: "${RKE2_USER_CN:?이번 발급의 CN}" "${RKE2_TLS_NAME:?확인한 서버 SAN}"
+: "${RKE2_LOCAL_PORT:?B에서 선택한 동일 로컬 포트}"
+RKE2_KUBECONFIG="$RKE2_PERSONAL_DIR/kubeconfig"
+test -f "$RKE2_KUBECONFIG"
+test "$(kubectl --kubeconfig="$RKE2_KUBECONFIG" config view --minify \
+  -o jsonpath='{.clusters[0].cluster.server}')" = "https://127.0.0.1:$RKE2_LOCAL_PORT"
 unset HTTP_PROXY HTTPS_PROXY ALL_PROXY http_proxy https_proxy all_proxy
 kself() { kubectl --kubeconfig="$RKE2_KUBECONFIG" --request-timeout=15s "$@"; }
 kself auth whoami -o json
@@ -273,8 +289,10 @@ Kubernetes 1.35는 발급된 X.509 인증서의 개별 폐기를 지원하지 �
 | SSM 터널 | 본인 session ID를 명시적으로 종료하고 데이터 연결 종료를 확인. 창만 닫거나 SSO 로그아웃한 것을 종료 증거로 쓰지 않음. |
 | SSO·AWS 역할 | 사용자 할당·로그인·발급된 IAM 역할 세션의 수명이 별개임을 확인. 신규 발급 차단만으로 기존 세션의 즉시 무효화를 주장하지 않음. |
 
+종료 명령은 본인 또는 지정 회수 담당자의 승인된 터미널에서 실행한다. 새 터미널이면 자신의 프로필·기대 계정·리전을 설정하고 2절의 첫 환경 초기화·SSO 확인 블록을 먼저 실행한다. 터널을 열었던 B의 변수가 다른 종료 터미널에 전달된다고 가정하지 않는다.
+
 ```bash
-# 본인 또는 지정 회수 담당자의 승인된 세션에서 정확한 session ID만 종료한다.
+: "${RKE2_PROFILE:?종료 담당자의 SSO 확인한 프로필}" "${RKE2_REGION:?해당 SSM 세션의 리전}"
 : "${RKE2_SSM_SESSION_ID:?이 인수에서 기록한 본인 SSM session ID}"
 aws ssm terminate-session --profile "$RKE2_PROFILE" --region "$RKE2_REGION" \
   --session-id "$RKE2_SSM_SESSION_ID"
