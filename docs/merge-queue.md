@@ -32,9 +32,9 @@ CI는 `contents: read`만 사용하고 클라우드·모델 자격 증명을 주
 
 - 기존 develop/main ruleset과 열린 PR 상태를 비공개로 백업한다.
 - 미해결 PR의 자동 병합 예약을 해제한다. Slack 봇은 재활성화하지 않는다.
-- merge_group 지원 CI와 이 규약을 **기존 보호 규칙 아래** 병합한다.
+- merge_group 지원 CI와 이 규약을 PR로 올리고 기존 보호 규칙 아래 필수 CI를 검증한다.
 - 별도 소유 시험 브랜치에 실제 큐를 붙여 승인 없는 병합과 실패 차단을 확인한다. 시험용 실패 코드는 develop에 넣지 않는다.
-- develop에만 설정을 적용하고 readback으로 승인 0·codeowner false·큐·필수 CI·bypass 없음을 확인한다. main 백업과 현재 규칙을 비교한다.
+- develop에만 승인 해제와 큐 필수를 한 번에 적용하고 readback으로 승인 0·codeowner false·큐·필수 CI·bypass 없음을 확인한다. main 백업과 현재 규칙을 비교한다. 지원 CI가 아직 develop에 없으면 그 PR을 첫 번째로 큐에 넣고 실제 group head의 워크플로를 검증한 뒤 나머지를 등록한다.
 - 실제 그룹의 SHA·Actions run·병합/차단 결과를 T40 이슈에 기록한다. 검증 전 항목은 완료로 체크하지 않는다.
 - 기존 PR은 최신 head/CI/지적/범위를 기준으로 개별 처리한다. 승인 대기를 없앤 것과 코드 결함 해결을 구분한다.
 
