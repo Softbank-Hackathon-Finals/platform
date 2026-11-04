@@ -14,6 +14,7 @@ from pathlib import Path
 from jsonschema import Draft202012Validator, FormatChecker
 
 from .observations import ObservationError, _plan
+from .wire import object_document
 
 CONTRACTS = Path(__file__).parent / "contracts"
 SCHEMA = json.loads((CONTRACTS / "control-result.schema.json").read_text())
@@ -29,19 +30,6 @@ class RegisteredGateDocument:
     plan_id: str
     plan_digest: str
     document: bytes
-
-
-def _unique(pairs):
-    value = {}
-    for key, item in pairs:
-        if key in value:
-            raise ValueError("duplicate report field")
-        value[key] = item
-    return value
-
-
-def _constant(_):
-    raise ValueError("nonfinite report number")
 
 
 class PlanControlReport:
@@ -60,9 +48,7 @@ class PlanControlReport:
             or not 1 <= len(registered.document) <= 262144
         ):
             raise ObservationError("control_report_scope_mismatch")
-        report = json.loads(
-            registered.document, object_pairs_hook=_unique, parse_constant=_constant
-        )
+        report = object_document(registered.document, max_bytes=262144)
         VALIDATOR.validate(report)
         if report["app"] != plan["workload_id"] or any(
             report[side + "_environment_id"] != plan[side + "_environment_id"]

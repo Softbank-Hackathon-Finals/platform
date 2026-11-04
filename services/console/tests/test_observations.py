@@ -133,6 +133,22 @@ def test_t37_connection_configuration_rejects_insecure_external_route_and_tls():
         T37Client("https://remote.invalid/?q=a", "x" * 32)
 
 
+@pytest.mark.parametrize(
+    "origin",
+    ["https://remote.invalid\n", "https://remote.invalid\\other", " https://remote.invalid"],
+)
+def test_ambiguous_upstream_origin_rejected(origin):
+    with pytest.raises(ValueError):
+        T37Client(origin, "x" * 32)
+
+
+def test_control_character_token_and_wrong_tls_type_rejected():
+    with pytest.raises(ValueError):
+        T37Client("https://remote.invalid", "x" * 32 + "\x00")
+    with pytest.raises(ValueError):
+        T37Client("https://remote.invalid", "x" * 32, tls=False)
+
+
 def test_real_loopback_t37_transport_bounds_body_and_does_not_follow_redirect():
     import asyncio
     import json
@@ -148,6 +164,7 @@ def test_real_loopback_t37_transport_bounds_body_and_does_not_follow_redirect():
 
         def do_GET(self):
             seen.append(self.path)
+            assert self.headers["Accept-Encoding"] == "identity"
             if self.headers.get("Authorization") != "Bearer " + token:
                 self.send_error(401)
                 return
@@ -159,8 +176,21 @@ def test_real_loopback_t37_transport_bounds_body_and_does_not_follow_redirect():
             body = json.dumps(
                 {"private": "x" * 70000} if "/large/" in self.path else {"environment": "source"}
             ).encode()
+            variants = {
+                "duplicate": b'{"environment":"wrong","environment":"source"}',
+                "nan": b'{"requests_per_second":NaN}',
+                "overflow": b'{"requests_per_second":1e999}',
+                "utf16": '{"environment":"source"}'.encode("utf-16"),
+                "deep": b'{"a":' + b"[" * 40 + b"0" + b"]" * 40 + b"}",
+                "surrogate": b'{"environment":"\\ud800"}',
+            }
+            for key, value in variants.items():
+                if f"/{key}/" in self.path:
+                    body = value
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
+            if "/compressed/" in self.path:
+                self.send_header("Content-Encoding", "gzip")
             self.send_header("Content-Length", str(len(body)))
             self.end_headers()
             self.wfile.write(body)
@@ -175,12 +205,69 @@ def test_real_loopback_t37_transport_bounds_body_and_does_not_follow_redirect():
         transport = T37Client(f"http://127.0.0.1:{server.server_port}", token)
         try:
             assert await transport.http("source") == {"environment": "source"}
-            for env in ("redirect", "large"):
+            for env in (
+                "redirect",
+                "large",
+                "duplicate",
+                "nan",
+                "overflow",
+                "utf16",
+                "deep",
+                "surrogate",
+                "compressed",
+            ):
                 with pytest.raises(ObservationError, match="observation_unavailable"):
                     await transport.http(env)
             assert not any("should-not-follow" in path for path in seen)
         finally:
             await transport.aclose()
+
+    try:
+        asyncio.run(check())
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=3)
+
+
+def test_drip_response_has_whole_request_deadline():
+    import asyncio
+    import threading
+    import time
+    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+    from bravo_console.observations import ObservationError
+
+    class Handler(BaseHTTPRequestHandler):
+        def log_message(self, *_):
+            pass
+
+        def do_GET(self):
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", "200")
+            self.end_headers()
+            try:
+                for _ in range(200):
+                    self.wfile.write(b" ")
+                    self.wfile.flush()
+                    time.sleep(0.1)  # Faster than the per-read timeout.
+            except OSError:
+                pass
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+
+    async def check():
+        client = T37Client(f"http://127.0.0.1:{server.server_port}", "x" * 40)
+        started = time.monotonic()
+        try:
+            with pytest.raises(ObservationError, match="observation_unavailable"):
+                await client.http("source")
+            assert 4.5 <= time.monotonic() - started < 8
+        finally:
+            await client.aclose()
 
     try:
         asyncio.run(check())

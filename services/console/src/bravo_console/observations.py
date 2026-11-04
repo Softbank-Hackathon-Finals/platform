@@ -1,7 +1,6 @@
 """Plan-scoped, read-only T37 view. Never a T36 judgement or change authority."""
 
 import asyncio
-import json
 import math
 import re
 import ssl
@@ -10,6 +9,8 @@ from datetime import UTC, datetime
 from urllib.parse import urlsplit
 
 import httpx
+
+from .wire import object_document
 
 ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$")
 ENV = re.compile(r"^[a-z0-9][a-z0-9-]{0,62}$")
@@ -25,6 +26,12 @@ class T37Client:
     """Host-configured fixed origin/token; no browser-supplied URL or PromQL."""
 
     def __init__(self, origin: str, token: str, *, tls: ssl.SSLContext | None = None):
+        if (
+            type(origin) is not str
+            or any(ord(c) < 33 or ord(c) == 127 for c in origin)
+            or "\\" in origin
+        ):
+            raise ValueError("fixed_secure_observation_origin_required")
         parts = urlsplit(origin)
         if (
             parts.scheme not in ("https", "http")
@@ -41,10 +48,14 @@ class T37Client:
             not isinstance(token, str)
             or not 32 <= len(token) <= 512
             or not token.isascii()
-            or any(c.isspace() for c in token)
+            or any(ord(c) < 33 or ord(c) > 126 for c in token)
         ):
             raise ValueError("invalid_observation_credential")
-        if tls is not None and (not tls.check_hostname or tls.verify_mode != ssl.CERT_REQUIRED):
+        if tls is not None and (
+            not isinstance(tls, ssl.SSLContext)
+            or not tls.check_hostname
+            or tls.verify_mode != ssl.CERT_REQUIRED
+        ):
             raise ValueError("verified_tls_required")
         self.client = httpx.AsyncClient(
             base_url=origin,
@@ -52,26 +63,33 @@ class T37Client:
             timeout=3,
             trust_env=False,
             follow_redirects=False,
-            headers={"Authorization": "Bearer " + token},
+            headers={"Authorization": "Bearer " + token, "Accept-Encoding": "identity"},
         )
 
     async def http(self, environment):
         if not ENV.fullmatch(environment):
             raise ObservationError("invalid_observation_environment")
         try:
-            async with self.client.stream(
-                "GET", f"/v1/observability/environments/{environment}/http"
-            ) as r:
+            async with (
+                asyncio.timeout(5),
+                self.client.stream(
+                    "GET", f"/v1/observability/environments/{environment}/http"
+                ) as r,
+            ):
                 r.raise_for_status()
-                if not r.headers.get("content-type", "").startswith("application/json"):
+                if (
+                    r.headers.get("content-type", "").split(";", 1)[0].strip().lower()
+                    != "application/json"
+                    or r.headers.get("content-encoding", "identity").lower() != "identity"
+                ):
                     raise ObservationError("invalid_observation_response")
                 raw = bytearray()
                 async for part in r.aiter_bytes():
                     if len(raw) + len(part) > 65536:
                         raise ObservationError("observation_response_limit")
                     raw.extend(part)
-                return json.loads(raw)
-        except (httpx.HTTPError, ValueError, RecursionError):
+                return object_document(raw, max_bytes=65536)
+        except (httpx.HTTPError, ValueError, RecursionError, TimeoutError):
             raise ObservationError("observation_unavailable") from None
 
     async def aclose(self):
@@ -110,7 +128,7 @@ async def _plan(api, scope, plan_id):
             raise ObservationError("forbidden", 403)
         if status != 200:
             raise ObservationError("plan_unavailable")
-        value = json.loads(raw)
+        value = object_document(raw, max_bytes=65536)
         if type(value) is not dict or value.get("plan_id") != plan_id:
             raise ObservationError("plan_mismatch")
         return value
