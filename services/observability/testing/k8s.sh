@@ -177,8 +177,10 @@ post() { # 네임스페이스 토큰 이름 본문 → Pod 결과(2xx면 Succeed
   for _ in $(seq 30); do p=$(kubectl -n "$1" get pod "post-$3" -o jsonpath='{.status.phase}'); case $p in Succeeded|Failed) break;; esac; sleep 2; done
   echo "$p"
 }
-t0=$(( $(date +%s) - 10 ))
-W1=$(win "$t0"); W2=$(win $((t0 + 1))); W3=$(win $((t0 + 2)))
+t0=$(( $(date +%s) - 30 ))
+# Independent ten-second windows: a denied request must not consume the
+# following valid window. Overlap rejection is tested separately in Python.
+W1=$(win "$t0"); W2=$(win $((t0 + 10))); W3=$(win $((t0 + 20)))
 phase=$(post loadgen "$WINDOW_TOKEN" ok "$W1")
 # 생산자가 넣은 received_at(창 끝)은 버리고 플랫폼이 받은 시각으로 덮어써야 한다
 got=$(kubectl -n loadgen logs post-ok 2>/dev/null | W="$W1" python3 -c 'import json,os,sys;d=json.load(sys.stdin);print(d["plan_id"], d["received_at"] != json.loads(os.environ["W"])["received_at"])' 2>/dev/null || echo 없음)
