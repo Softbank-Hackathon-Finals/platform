@@ -71,6 +71,41 @@ def test_rejects_changed_registry_and_unsafe_responses(fault):
     assert calls == ["/v1/resources"]
 
 
+@pytest.mark.parametrize("source,target", [
+    ("env-onprem", "env-aws"), ("west-db", "east-db"), ("east-db", "west-db"),
+])
+def test_registration_defines_direction_independently_of_names_and_key_order(source, target):
+    enrolled = {"source": dict(PAIR["source"], environment_id=source),
+                "target": dict(PAIR["target"], environment_id=target)}
+    remote = {"target": enrolled["target"], "source": enrolled["source"]}
+    with ExecutorClient("https://executor.invalid", token="fixture-token",
+                        transport=httpx.MockTransport(lambda _: httpx.Response(200, json=remote))) as client:
+        assert client.verified_bindings(enrolled) == {source: "cutover/source", target: "cutover/target"}
+        with pytest.raises(ExecutorReadError, match="^registry_mismatch$"):
+            client.verified_bindings({"source": enrolled["target"], "target": enrolled["source"]})
+
+
+@pytest.mark.parametrize("invalid_env", [None, "", "postgresql://private.invalid/db", "x" * 129])
+def test_invalid_environment_id_stops_before_network(invalid_env):
+    invalid = deepcopy(PAIR)
+    invalid["source"]["environment_id"] = invalid_env
+    with ExecutorClient("https://executor.invalid", token="fixture-token",
+                        transport=httpx.MockTransport(lambda _: pytest.fail("unexpected GET"))) as client:
+        with pytest.raises(ValueError, match="^invalid_registered_pair$"):
+            client.verified_bindings(invalid)
+
+
+@pytest.mark.parametrize("side", ["source", "target"])
+@pytest.mark.parametrize("invalid_env", ["", "postgresql://private.invalid/db"])
+def test_remote_environment_id_is_neither_adopted_nor_exposed(side, invalid_env):
+    remote = deepcopy(PAIR)
+    remote[side]["environment_id"] = invalid_env
+    with ExecutorClient("https://executor.invalid", token="fixture-token",
+                        transport=httpx.MockTransport(lambda _: httpx.Response(200, json=remote))) as client:
+        with pytest.raises(ExecutorReadError, match="^registry_mismatch$"):
+            client.verified_bindings(PAIR)
+
+
 def test_no_credential_or_invalid_enrollment_stops_before_network():
     def handle(request):
         pytest.fail("unexpected request")
@@ -78,7 +113,7 @@ def test_no_credential_or_invalid_enrollment_stops_before_network():
     with ExecutorClient("https://executor.invalid", transport=httpx.MockTransport(handle)) as client:
         with pytest.raises(ExecutorReadError, match="registry_auth_required"):
             client.verified_bindings(PAIR)
-        for field in ("connection_ref", "resource_id"):
+        for field in ("environment_id", "connection_ref", "resource_id"):
             bad = deepcopy(PAIR)
             bad["source"][field] = PAIR["target"][field]
             with pytest.raises(ValueError, match="invalid_registered_pair"):

@@ -16,7 +16,7 @@ from uuid import UUID
 
 import httpx
 
-from .contract import validate_identifier
+from .contract import IDENTIFIER, validate_identifier
 
 MAX_RESPONSE_BYTES = 262_144
 MAX_STEPS = 256
@@ -239,10 +239,11 @@ class ExecutorReader:
         if not isinstance(registered_pair, dict) or set(registered_pair) != {"source", "target"}:
             raise ValueError("invalid_registered_pair")
         expected = {}
-        for side, env in (("source", "env-aws"), ("target", "env-onprem")):
-            resource = registered_pair[side]
-            if (not isinstance(resource, dict) or set(resource) != resource_fields
-                    or resource["environment_id"] != env):
+        for side, resource in registered_pair.items():
+            if not isinstance(resource, dict) or set(resource) != resource_fields:
+                raise ValueError("invalid_registered_pair")
+            env = resource["environment_id"]
+            if not isinstance(env, str) or not IDENTIFIER.fullmatch(env):
                 raise ValueError("invalid_registered_pair")
             for field in ("resource_id", "connection_ref"):
                 value = resource[field]
@@ -251,7 +252,7 @@ class ExecutorReader:
                     raise ValueError("invalid_registered_pair")
             expected[side] = dict(resource)
         if any(expected["source"][field] == expected["target"][field]
-               for field in ("resource_id", "connection_ref")):
+               for field in resource_fields):
             raise ValueError("invalid_registered_pair")
         if "Authorization" not in self._client.headers:
             raise ExecutorReadError("registry_auth_required")
