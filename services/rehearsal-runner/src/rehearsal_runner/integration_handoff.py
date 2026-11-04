@@ -7,7 +7,7 @@ producer and T10 contracts to be connected by their trusted hosts.
 
 import hashlib
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Protocol
 
 from .isolation_gate import IsolationPass
@@ -81,9 +81,9 @@ class HandoffJob(Protocol):
 class HandoffVerifier:
     """Local adapter for a job port; no production transport is installed."""
 
-    job: HandoffJob
+    job: HandoffJob = field(repr=False)
     attempt: int
-    diff: bytes
+    diff: bytes = field(repr=False)
     image_digest: str
     target_environment_id: str
 

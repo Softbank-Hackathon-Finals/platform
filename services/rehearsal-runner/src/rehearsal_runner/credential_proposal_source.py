@@ -27,7 +27,7 @@ class ProposedEdit:
 
 @dataclass(frozen=True)
 class BoundCredentialProposalSource:
-    source: ProposalSource
+    source: ProposalSource = field(repr=False)
 
     def resolve(self, request: CredentialVerificationRequest) -> tuple[ProposedEdit, ...]:
         if not isinstance(request, CredentialVerificationRequest):

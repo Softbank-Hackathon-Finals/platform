@@ -8,7 +8,7 @@ executes a proposal, supplies runtime credentials, or judges verification.
 import asyncio
 import hashlib
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Protocol
 
 from .bucket_task import BucketPolicyTask, prepare_bucket_policy_task
@@ -62,8 +62,8 @@ def bucket_summary(task: BucketPolicyTask, source_path: str, target_path: str) -
 
 @dataclass(frozen=True)
 class T11BucketProposer:
-    coordinator: Coordinator
-    provider: object
+    coordinator: Coordinator = field(repr=False)
+    provider: object = field(repr=False)
     source_policy_path: str
     target_policy_path: str
     attempt: int = 1

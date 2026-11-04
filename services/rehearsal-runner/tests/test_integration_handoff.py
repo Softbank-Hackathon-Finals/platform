@@ -50,3 +50,14 @@ def test_changed_diff_changes_binding():
     second = prepare_handoff(**(args | {"diff": args["diff"] + b"!"}))
     assert first.diff_hash != second.diff_hash
     assert replace(first, diff_hash=second.diff_hash) == second
+
+
+def test_verifier_representation_hides_diff_and_job_data():
+    from rehearsal_runner.integration_handoff import HandoffVerifier
+
+    class Job:
+        def __repr__(self):
+            return "private-job-value"
+    verifier = HandoffVerifier(Job(), 1, b"private-diff-value", "sha256:" + "c" * 64, "onprem")
+    assert "private-diff-value" not in repr(verifier)
+    assert "private-job-value" not in repr(verifier)

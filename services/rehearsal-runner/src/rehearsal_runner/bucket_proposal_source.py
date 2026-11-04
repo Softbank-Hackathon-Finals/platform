@@ -6,7 +6,7 @@ proof of T38 verification. The source must be controlled by the caller.
 
 import hashlib
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Protocol
 
 from .bucket_verifier import BucketVerificationRequest
@@ -21,12 +21,12 @@ class BucketProposal:
     proposal_digest: str
     source_policy_sha256: str
     target_bucket: str
-    replacement: str
+    replacement: str = field(repr=False)
 
 
 @dataclass(frozen=True)
 class BoundBucketProposalSource:
-    source: ProposalSource
+    source: ProposalSource = field(repr=False)
     target_policy_path: str
 
     def resolve(self, request: BucketVerificationRequest) -> BucketProposal:

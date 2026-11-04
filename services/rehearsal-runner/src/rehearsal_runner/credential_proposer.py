@@ -5,7 +5,7 @@ bypasses the snapshot policy or supplies credentials to the proposal provider.
 """
 
 import asyncio
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from .bucket_proposer import Coordinator, validate_coordinator_attempt
 from .runner import ProposalRef
@@ -25,8 +25,8 @@ def credential_summary(task: CredentialMigrationTask) -> str:
 
 @dataclass(frozen=True)
 class T11CredentialProposer:
-    coordinator: Coordinator
-    provider: object
+    coordinator: Coordinator = field(repr=False)
+    provider: object = field(repr=False)
     attempt: int = 1
     feedback_digest: str | None = None
 

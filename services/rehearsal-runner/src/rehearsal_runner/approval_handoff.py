@@ -6,7 +6,7 @@ cancellation and holds. The wire schema and transport remain subject to agreemen
 """
 
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from .integration_handoff import ProposedHandoff
 from .runner import Namespace, ProposalRef
@@ -134,8 +134,8 @@ class T10PreviousHold:
     plan_id: str
     run_id: str
     decision_ref: str
-    intake: object
-    credential_supplier: object
+    intake: object = field(repr=False)
+    credential_supplier: object = field(repr=False)
 
     def confirm(self, run_id: str, verification_id: str) -> bool:
         if run_id != self.run_id or any(

@@ -40,3 +40,9 @@ def test_input_size_is_bounded():
 def test_invalid_revision_is_rejected(revision):
     with pytest.raises(ValueError):
         prepare_bucket_policy_task("run-1", SOURCE, "rehearsal-test", source_sha=revision)
+
+
+def test_task_representation_hides_policy_contents():
+    task = prepare_bucket_policy_task("run-1", '{"Statement":[],"marker":"private-policy-marker"}',
+                                      "rehearsal-test", source_sha="a" * 40)
+    assert "private-policy-marker" not in repr(task)

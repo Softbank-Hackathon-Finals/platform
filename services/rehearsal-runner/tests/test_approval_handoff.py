@@ -136,3 +136,13 @@ def test_t10_hold_unconfirmed_on_invalid_response(receipt):
             return receipt
     hold = T10PreviousHold("plan-1", "run-1", "decision-1", Intake(), lambda: "fixture-token")
     assert not hold.confirm("run-1", "verification-1")
+
+
+def test_hold_representation_hides_credential_supplier_and_host():
+    from rehearsal_runner.approval_handoff import T10PreviousHold
+
+    class Sensitive:
+        def __repr__(self):
+            return "private-host-credential"
+    hold = T10PreviousHold("plan-1", "run-1", "decision-1", Sensitive(), Sensitive())
+    assert "private-host-credential" not in repr(hold)

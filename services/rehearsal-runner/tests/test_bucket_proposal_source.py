@@ -77,3 +77,9 @@ def test_retry_resolves_only_matching_attempt(attempt):
     assert value.proposal_digest == original.proposal_digest
     with pytest.raises(ValueError):
         BoundBucketProposalSource(source, PATH).resolve(original)
+
+
+def test_bucket_proposal_representation_hides_replacement():
+    source = Source()
+    value = BoundBucketProposalSource(source, PATH).resolve(request(source))
+    assert PROPOSAL["edits"][0]["replacement"] not in repr(value)
