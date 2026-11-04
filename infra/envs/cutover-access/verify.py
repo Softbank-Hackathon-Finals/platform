@@ -9,6 +9,7 @@ overwriting the deployment's durable cutover destination.
 import argparse
 import json
 import subprocess
+import tempfile
 from datetime import datetime, timezone
 
 APP_READ = (
@@ -48,11 +49,72 @@ def token_config(kubeconfig, namespace, identity):
     return json.dumps(config)
 
 
+def secret_read_audit(call, can, namespace):
+    """Audit effective rules; use SSAR for live authorization, never fetch Secrets.
+
+    RulesReview discovers named grants, including names of nonexistent Secrets.
+    It is not an authorization decision. An incomplete inventory or any reported
+    read grant prevents a clean audit, even if the subsequent SSAR says no.
+    """
+    summary = {"namespace": namespace, "rules_complete": False,
+               "read_rule_count": None, "named_targets_checked": 0,
+               "allowed_read_queries": 0}
+    verbs = ("get", "list", "watch")
+    summary["allowed_read_queries"] = sum(can(verb, "secrets", target_namespace=namespace) for verb in verbs)
+    request = {"apiVersion": "authorization.k8s.io/v1", "kind": "SelfSubjectRulesReview",
+               "spec": {"namespace": namespace}}
+    # stdin already carries the token kubeconfig. This temporary file contains
+    # only the namespace and review kind; no token, rule output or Secret data.
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".json") as body:
+        json.dump(request, body)
+        body.flush()
+        response = call("create", "--raw", "/apis/authorization.k8s.io/v1/selfsubjectrulesreviews",
+                        "-f", body.name, target_namespace=namespace)
+    if response.returncode:
+        return False, summary
+    try:
+        document = json.loads(response.stdout)
+        if document.get("kind") != "SelfSubjectRulesReview" or document.get("apiVersion") != "authorization.k8s.io/v1":
+            return False, summary
+        status = document["status"]
+        rules = status["resourceRules"]
+        if not isinstance(rules, list):
+            return False, summary
+        names = set()
+        read_rules = 0
+        for rule in rules:
+            fields = [rule[key] for key in ("apiGroups", "resources", "verbs")]
+            resource_names = rule.get("resourceNames", [])
+            if any(not isinstance(values, list) or not all(isinstance(v, str) for v in values)
+                   for values in [*fields, resource_names]):
+                return False, summary
+            groups, resources, actions = fields
+            if not groups or not resources or not actions:
+                return False, summary
+            if (set(groups) & {"", "*"} and set(resources) & {"secrets", "*"}
+                    and set(actions) & {*verbs, "*"}):
+                read_rules += 1
+                names.update(resource_names)
+        summary["rules_complete"] = status.get("incomplete") is False and not status.get("evaluationError")
+    except (ValueError, KeyError, TypeError, AttributeError):
+        return False, summary
+    summary["read_rule_count"] = read_rules
+    for name in sorted(names):
+        summary["allowed_read_queries"] += sum(
+            can(verb, "secrets/" + name, target_namespace=namespace) for verb in verbs)
+    summary["named_targets_checked"] = len(names)
+    return (summary["rules_complete"] and read_rules == 0 and summary["allowed_read_queries"] == 0), summary
+
+
 def verify(kubeconfig, namespace, configmap, app_pods, pooler_pod, db_pod,
            pooler_container, app_container="app", identity_namespace=None, check_app=True):
     if check_app != bool(app_pods):
         raise ValueError("explicit_app_or_pooler_only_scope_required")
     checks = {}
+    secret_audits = {}
+    secret_namespaces = {"workload": namespace}
+    if identity_namespace and identity_namespace != namespace:
+        secret_namespaces["identity"] = identity_namespace
     for identity in ("bravo-executor", "bravo-collector"):
         config = token_config(kubeconfig, identity_namespace or namespace, identity)
 
@@ -80,7 +142,12 @@ def verify(kubeconfig, namespace, configmap, app_pods, pooler_pod, db_pod,
             allowed = result.returncode == 0 and result.stdout.strip() == "yes"
             checks[f"{prefix}_named_exec_{verb}"] = allowed == (identity == "bravo-executor")
         checks[prefix + "_db_exec_denied"] = denied(call("exec", db_pod, "-c", "postgres", "--", "true"))
-        checks[prefix + "_secret_list_denied"] = denied(call("get", "secrets"))
+        checks[prefix + "_secret_list_denied"] = not can("list", "secrets")
+        secret_audits[prefix] = []
+        for scope, secret_namespace in secret_namespaces.items():
+            clean, audit = secret_read_audit(call, can, secret_namespace)
+            checks[f"{prefix}_{scope}_secret_read_denied"] = clean
+            secret_audits[prefix].append(audit)
         checks[prefix + "_other_namespace_denied"] = denied(call("-n", "kube-system", "get", "pods"))
         checks[prefix + "_pod_create_denied"] = not can("create", "pods")
         checks[prefix + "_rbac_patch_denied"] = not can("patch", "roles.rbac.authorization.k8s.io")
@@ -108,6 +175,9 @@ def verify(kubeconfig, namespace, configmap, app_pods, pooler_pod, db_pod,
             "cutover_ready": False,
             "configmap_data_changed": False, "business_writes_opened": False,
             "secret_values_exported": False,
+            "secret_read_audit": {"identities": secret_audits,
+                                  "scope": "workload and identity namespaces at observation; not cluster-wide or future grants",
+                                  "incomplete_rules_require_operator_review": True},
             "scope": "Kubernetes access and local config filesystem; not network or cutover verification"}
 
 

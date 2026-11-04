@@ -1,6 +1,7 @@
 """Keep the Executor's new capability away from database/operator pods."""
 
 import importlib.util
+import json
 import unittest
 from pathlib import Path
 from subprocess import CompletedProcess
@@ -13,6 +14,39 @@ spec.loader.exec_module(access)
 spec = importlib.util.spec_from_file_location("cutover_verify", ROOT / "infra/envs/cutover-access/verify.py")
 verify = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(verify)
+
+
+def rules_response(args, rules=None, **status):
+    return CompletedProcess(args, 0, json.dumps({
+        "kind": "SelfSubjectRulesReview", "apiVersion": "authorization.k8s.io/v1",
+        "status": {"incomplete": False, "resourceRules": rules or [], **status},
+    }), "")
+
+
+def permitted_workload_call(args, payload=None, *, secret_holder=None, rules=None,
+                            secret_namespace="target-dev", status=None, seen=None):
+    if seen is not None:
+        seen.append((args, payload))
+    namespace = args[args.index("--namespace") + 1]
+    verb = args[args.index("--namespace") + 2]
+    if "--raw" in args:
+        request = json.loads(Path(args[args.index("-f") + 1]).read_text())
+        assert request["spec"]["namespace"] == namespace
+        relevant = payload == secret_holder and namespace == secret_namespace
+        return rules_response(args, rules if relevant else [], **(status or {}))
+    if verb == "auth":
+        allowed = ("configmaps/pooler-config" in args or "--subresource=exec" in args) and payload == "bravo-executor"
+        # An additive Role grants only GET of an absent/future named Secret.
+        # Generic get/list/watch queries remain denied.
+        if (payload == secret_holder and namespace == secret_namespace and
+                "get" in args and "secrets/future-private" in args):
+            allowed = True
+        return CompletedProcess(args, 0 if allowed else 1, "yes" if allowed else "no", "")
+    if verb == "get" and args[-1] == "name" and ("pods" in args or payload == "bravo-executor"):
+        return CompletedProcess(args, 0, "name", "")
+    if verb == "exec" and "pooler" in args and payload == "bravo-executor":
+        return CompletedProcess(args, 0, "writable", "")
+    return CompletedProcess(args, 1, "", "Forbidden")
 
 
 class CutoverAccessTests(unittest.TestCase):
@@ -51,6 +85,8 @@ class CutoverAccessTests(unittest.TestCase):
 
     def test_pooler_only_report_does_not_claim_app_or_cutover_ready(self):
         def call(args, payload=None):
+            if "--raw" in args:
+                return rules_response(args)
             verb = args[args.index("--namespace") + 2]
             if verb == "auth":
                 allowed = ("configmaps/pooler-config" in args or "--subresource=exec" in args) and payload == "bravo-executor"
@@ -100,6 +136,8 @@ class CutoverAccessTests(unittest.TestCase):
                 token_queries = []
 
                 def call(args, payload=None, token_queries=token_queries, token_holder=token_holder):
+                    if "--raw" in args:
+                        return rules_response(args)
                     namespace = args[args.index("--namespace") + 1]
                     verb = args[args.index("--namespace") + 2]
                     if verb == "auth":
@@ -128,6 +166,112 @@ class CutoverAccessTests(unittest.TestCase):
                 ])
                 for identity in ("executor", "collector"):
                     self.assertEqual(report["checks"][identity + "_token_issue_denied"], "bravo-" + identity != token_holder)
+
+    def test_named_secret_get_overgrant_fails_for_each_identity(self):
+        for holder in ("bravo-executor", "bravo-collector"):
+            for secret_namespace in ("target-dev", "platform-access"):
+                with self.subTest(holder=holder, namespace=secret_namespace):
+                    seen = []
+                    rule = {"apiGroups": [""], "resources": ["secrets"],
+                            "verbs": ["get"], "resourceNames": ["future-private"]}
+
+                    def call(args, payload=None):
+                        return permitted_workload_call(
+                            args, payload, secret_holder=holder, rules=[rule],
+                            secret_namespace=secret_namespace, seen=seen)
+
+                    with patch.object(verify, "token_config", side_effect=lambda _k, _n, identity: identity), patch.object(
+                        verify, "run", side_effect=call
+                    ):
+                        report = verify.verify("private", "target-dev", "pooler-config", [], "pooler", "db", "pooler",
+                                               identity_namespace="platform-access", check_app=False)
+                    self.assertFalse(report["passed"])
+                    self.assertTrue(report["checks"][holder.removeprefix("bravo-") + "_secret_list_denied"])
+                    self.assertTrue(any("secrets/future-private" in args and payload == holder for args, payload in seen))
+                    # Secret data must never be fetched, even when authorization is accidentally broad.
+                    self.assertFalse(any("can-i" not in args and "secrets" in args for args, _ in seen))
+
+    def test_secret_audit_rejects_wildcard_or_named_read_rules(self):
+        for action in ("get", "list", "watch", "*"):
+            for names in ([], ["future-private"]):
+                with self.subTest(action=action, names=names):
+                    rule = {"apiGroups": ["*"], "resources": ["*"],
+                            "verbs": [action], "resourceNames": names}
+                    call = lambda *a, **kw: rules_response(a, [rule])
+                    queries = []
+
+                    def can(verb, resource, target_namespace):
+                        queries.append((verb, resource, target_namespace))
+                        return resource == "secrets/future-private" and verb in (action, "get" if action == "*" else action)
+
+                    clean, audit = verify.secret_read_audit(call, can, "target-dev")
+                    self.assertFalse(clean)
+                    self.assertEqual(audit["read_rule_count"], 1)
+                    self.assertEqual(audit["named_targets_checked"], len(names))
+                    self.assertEqual(len(queries), 3 + 3 * len(names))
+                    self.assertTrue(all(ns == "target-dev" for _, _, ns in queries))
+                    self.assertNotIn("future-private", json.dumps(audit))
+
+    def test_live_secret_authorization_overrides_empty_rule_inventory(self):
+        for allowed in ("get", "list", "watch"):
+            with self.subTest(allowed=allowed):
+                call = lambda *a, **kw: rules_response(a)
+                can = lambda verb, resource, target_namespace: verb == allowed
+                clean, audit = verify.secret_read_audit(call, can, "target-dev")
+                self.assertFalse(clean)
+                self.assertEqual(audit["allowed_read_queries"], 1)
+
+    def test_incomplete_unavailable_and_malformed_rules_never_pass(self):
+        responses = [
+            rules_response([], incomplete=True),
+            rules_response([], evaluationError="authorizer cannot enumerate"),
+            rules_response([], incomplete=None),
+            rules_response([], resourceRules=None),
+            rules_response([], [{"apiGroups": [""], "resources": "secrets", "verbs": ["get"]}]),
+            rules_response([], [{"apiGroups": [], "resources": ["secrets"], "verbs": ["get"]}]),
+            CompletedProcess([], 0, '{"status": {"incomplete": false}}', ""),
+            CompletedProcess([], 0, "[]", ""),
+            CompletedProcess([], 0, "not-json", ""),
+            CompletedProcess([], 1, "", "Forbidden"),
+        ]
+        for response in responses:
+            with self.subTest(response=response):
+                call = lambda *a, **kw: response
+                clean, audit = verify.secret_read_audit(call, lambda *a, **kw: False, "target-dev")
+                self.assertFalse(clean)
+                self.assertFalse(audit["rules_complete"])
+
+    def test_non_secret_rules_pass_and_request_file_contains_no_credentials(self):
+        paths = []
+
+        def call(*args, target_namespace):
+            body = Path(args[args.index("-f") + 1])
+            paths.append(body)
+            self.assertEqual(json.loads(body.read_text()), {
+                "apiVersion": "authorization.k8s.io/v1", "kind": "SelfSubjectRulesReview",
+                "spec": {"namespace": "target-dev"},
+            })
+            self.assertEqual(target_namespace, "target-dev")
+            return rules_response(args, [
+                {"apiGroups": [""], "resources": ["pods"], "verbs": ["get", "list"]},
+                {"apiGroups": ["example.test"], "resources": ["secrets"], "verbs": ["*"]},
+            ])
+
+        clean, audit = verify.secret_read_audit(call, lambda *a, **kw: False, "target-dev")
+        self.assertTrue(clean)
+        self.assertTrue(audit["rules_complete"])
+        self.assertTrue(paths and all(not path.exists() for path in paths))
+
+    def test_secret_audit_request_file_is_removed_on_transport_failure(self):
+        paths = []
+
+        def call(*args, **kwargs):
+            paths.append(Path(args[args.index("-f") + 1]))
+            raise OSError("connection failed")
+
+        with self.assertRaises(OSError):
+            verify.secret_read_audit(call, lambda *a, **kw: False, "target-dev")
+        self.assertTrue(paths and all(not path.exists() for path in paths))
 
     def test_replacement_does_not_inherit_exec(self):
         rules = access.render("source-dev", "pooler-config", ["app-old"], "pooler-old")["items"][0]["rules"]
