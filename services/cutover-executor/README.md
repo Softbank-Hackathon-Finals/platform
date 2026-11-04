@@ -104,7 +104,8 @@ pooler Pod identity·실제 목적지·RESUME 상태를 다시 읽고, 바뀌면
 
 현재 자동 시험은 임시 PostgreSQL과 원격 대역이다. `EXECUTOR_TEST_POSTGRES_IMAGE=postgres:18.4`
 로 실제 배포 버전의 SQL 경계를 시험할 수 있다. k3d 시험은 해당 환경이 있을 때만 실행한다.
-실제 T8/T30 happy path·ABORT_PRE_WRITE·SAFE_HOLD와 T15/T19/T31 선행을 충족해야 이슈를 닫는다.
+T12는 k3d 모의 환경의 정상 컷오버·ABORT_PRE_WRITE·SAFE_HOLD 시험으로 닫는다. 이미지 게시와 플랫폼 배포는 T7(#140),
+실제 T8/T30 환경의 첫 컷오버와 두 분기 확인은 T25에서 한다.
 
 실제 DB 준비는 `prepare.cluster_patch()`가 관측한 Cluster의 resourceVersion 조건으로
 `chat_app` 관리 항목만 제거하고 제한된 `cutover_control` managed role/전용 Secret 참조와
