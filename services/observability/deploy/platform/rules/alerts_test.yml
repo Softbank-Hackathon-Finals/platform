@@ -89,20 +89,28 @@ tests:
               runbook: docs/observability/runbooks.md#bravotelemetryrefused
 
   # DB: 인스턴스 다운(PG 미접속, 긁기 실패), 슬롯 지연 · 비활성, WAL 보관 실패
+  # 앱 경로로 들어온 같은 이름의 지표(bravo_signal 없음, CNPG 식별자 없음)는 알림을 만들지 않는다
   - interval: 30s
     input_series:
-      - series: 'cnpg_collector_up{bravo_env="aws", cnpg_cluster="source-db", pod="source-db-1", cluster="source-db"}'
+      - series: 'cnpg_collector_up{bravo_signal="cnpg-scrape", bravo_env="aws", cnpg_cluster="source-db", pod="source-db-1", cluster="source-db"}'
         values: '1 1 0 0 0 0 0'
-      - series: 'up{job="bravo-cnpg", bravo_env="onprem", cnpg_cluster="target-db", pod="target-db-1"}'
+      - series: 'up{bravo_signal="cnpg-scrape", job="bravo-cnpg", bravo_env="onprem", cnpg_cluster="target-db", pod="target-db-1"}'
         values: '1 0 0 0 0 0 0'
-      - series: 'cnpg_pg_replication_slots_pg_wal_lsn_diff{bravo_env="aws", cnpg_cluster="source-db", slot_name="sub_target", slot_type="logical"}'
+      - series: 'cnpg_pg_replication_slots_pg_wal_lsn_diff{bravo_signal="cnpg-scrape", bravo_env="aws", cnpg_cluster="source-db", slot_name="sub_target", slot_type="logical"}'
         values: '1000 70000000 70000000 70000000 70000000 70000000 70000000'
-      - series: 'cnpg_pg_replication_slots_pg_wal_lsn_diff{bravo_env="aws", cnpg_cluster="source-db", slot_name="ha", slot_type="physical"}'
+      - series: 'cnpg_pg_replication_slots_pg_wal_lsn_diff{bravo_signal="cnpg-scrape", bravo_env="aws", cnpg_cluster="source-db", slot_name="ha", slot_type="physical"}'
         values: '90000000x6'
-      - series: 'cnpg_pg_replication_slots_active{bravo_env="aws", cnpg_cluster="source-db", slot_name="sub_target", slot_type="logical"}'
+      - series: 'cnpg_pg_replication_slots_active{bravo_signal="cnpg-scrape", bravo_env="aws", cnpg_cluster="source-db", slot_name="sub_target", slot_type="logical"}'
         values: '0x30'
-      - series: 'cnpg_pg_stat_archiver_failed_count_total{bravo_env="aws", cnpg_cluster="source-db", pod="source-db-1"}'
+      - series: 'cnpg_pg_stat_archiver_failed_count_total{bravo_signal="cnpg-scrape", bravo_env="aws", cnpg_cluster="source-db", pod="source-db-1"}'
         values: '0 0 0 1 1 1 1'
+      # 앱 경로 사칭: 이름 · 환경 · job(service.name)은 같지만 출처 라벨이 없다
+      - series: 'cnpg_collector_up{bravo_env="aws", job="bravo-cnpg"}'
+        values: '0x6'
+      - series: 'up{bravo_env="aws", job="bravo-cnpg"}'
+        values: '0x6'
+      - series: 'cnpg_pg_stat_archiver_failed_count_total{bravo_env="onprem", job="bravo-cnpg"}'
+        values: '0 1 2 3 4 5 6'
     alert_rule_test:
       - eval_time: 30s
         alertname: BravoDatabaseDown

@@ -20,6 +20,9 @@ from fastapi import FastAPI, HTTPException, Request
 STALE_AFTER_SECONDS = 30
 ENV_NAME = re.compile(r"^[a-z0-9][a-z0-9-]{0,62}$")
 HTTP_METRIC = "http_server_request_duration_seconds"
+# DB 지표는 Collector의 DB 긁기 경로(collector-db.yaml)가 붙이는 출처 라벨로만 고른다. 앱 OTLP 경로는 이 라벨을 지우므로
+# 앱이 같은 이름(cnpg_collector_up 등)의 지표를 보내도 DB 상태에 들어오지 않는다.
+DB_SIGNAL = 'bravo_signal="cnpg-scrape"'
 MAX_STORE_BYTES = 2 * 1024 * 1024
 MAX_STORE_ROWS = 10_000
 
@@ -122,6 +125,11 @@ def _fresh_series(name: str, selector: str) -> str:
     metric = f"{name}{{{selector}}}"
     age = f"time() - timestamp({metric})"
     return f"({metric} and ({age} >= 0) and ({age} <= {STALE_AFTER_SECONDS}))"
+
+
+def _identified(row: dict, *labels: str) -> bool:
+    """CNPG 식별자가 모두 있는 행만 상태에 쓴다. 식별자 없는 행을 정상 인스턴스로 올리지 않는다."""
+    return all(isinstance(v := row["metric"].get(k), str) and v for k in labels)
 
 
 def _now() -> str:
@@ -254,7 +262,7 @@ def create_app(
     def database_view(env: str, request: Request):
         guard(request)
         e = env_or_404(env)
-        sel = f'bravo_env="{e}"'
+        sel = f'bravo_env="{e}",{DB_SIGNAL}'
         fresh, age = freshness(e)
         if not fresh:
             return {"queried_at": _now(), "environment": e, "state": "UNOBSERVABLE", "last_received_seconds_ago": age, "instances": [], "replication_slots": []}
@@ -274,7 +282,7 @@ def create_app(
                     "cluster": r["metric"].get("cnpg_cluster"),
                     "pod": r["metric"].get("pod"),
                     "role": r["metric"].get("instance_role"),
-                    "up": _boolean(r),
+                    "up": _boolean(r) if _identified(r, "cnpg_cluster", "pod") else None,
                 }
                 for r in up
             ),
@@ -286,7 +294,7 @@ def create_app(
                     "cluster": r["metric"].get("cnpg_cluster"),
                     "slot": r["metric"].get("slot_name"),
                     "type": r["metric"].get("slot_type"),
-                    "lag_bytes": value if (value := _number(r)) is not None and value >= 0 else None,
+                    "lag_bytes": value if (value := _number(r)) is not None and value >= 0 and _identified(r, "cnpg_cluster", "slot_name") else None,
                     "active": is_active.get((r["metric"].get("cnpg_cluster"), r["metric"].get("slot_name"))),
                 }
                 for r in lag

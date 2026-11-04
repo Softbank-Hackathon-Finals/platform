@@ -1,5 +1,6 @@
 # T37 관측 경로 알림. 런북: docs/observability/runbooks.md
-# 모두 Collector 생존 신호 경로(bravo_signal="collector-self")의 지표만 본다. 앱이 같은 이름의 지표를 보내도 알림을 바꾸지 못한다.
+# 모두 Collector가 출처 라벨을 붙인 지표만 본다: 수집 경로는 bravo_signal="collector-self", DB는 bravo_signal="cnpg-scrape".
+# 앱 경로는 이 라벨을 지우므로 앱이 같은 이름의 지표를 보내도 알림을 바꾸지 못한다.
 # 환경 이름(aws · onprem)은 데모에 등록한 환경이다. 환경을 추가하면 absent 줄도 추가한다.
 groups:
   - name: bravo-telemetry
@@ -47,8 +48,8 @@ groups:
     rules:
       - alert: BravoDatabaseDown
         expr: |
-          max by (bravo_env, cnpg_cluster, pod) (cnpg_collector_up) == 0
-          or max by (bravo_env, cnpg_cluster, pod) (up{job="bravo-cnpg"}) == 0
+          max by (bravo_env, cnpg_cluster, pod) (cnpg_collector_up{bravo_signal="cnpg-scrape"}) == 0
+          or max by (bravo_env, cnpg_cluster, pod) (up{bravo_signal="cnpg-scrape"}) == 0
         for: 1m
         labels:
           severity: page
@@ -57,7 +58,7 @@ groups:
           runbook: docs/observability/runbooks.md#bravodatabasedown
       # 64MiB: 설계 5.3 데이터 크기(200MB 이하)의 약 3분의 1. 이만큼 밀리면 따라잡는 데 쓰기 정지 예산을 넘긴다(제안값)
       - alert: BravoReplicationSlotLagHigh
-        expr: max by (bravo_env, cnpg_cluster, slot_name) (cnpg_pg_replication_slots_pg_wal_lsn_diff{slot_type="logical"}) > 64 * 1024 * 1024
+        expr: max by (bravo_env, cnpg_cluster, slot_name) (cnpg_pg_replication_slots_pg_wal_lsn_diff{bravo_signal="cnpg-scrape", slot_type="logical"}) > 64 * 1024 * 1024
         for: 2m
         labels:
           severity: ticket
@@ -65,7 +66,7 @@ groups:
           summary: "{{ $labels.bravo_env }}/{{ $labels.cnpg_cluster }} 논리 복제 슬롯 {{ $labels.slot_name }}이 64MiB 넘게 밀렸다"
           runbook: docs/observability/runbooks.md#bravoreplicationslotlaghigh
       - alert: BravoReplicationSlotInactive
-        expr: max by (bravo_env, cnpg_cluster, slot_name) (cnpg_pg_replication_slots_active{slot_type="logical"}) == 0
+        expr: max by (bravo_env, cnpg_cluster, slot_name) (cnpg_pg_replication_slots_active{bravo_signal="cnpg-scrape", slot_type="logical"}) == 0
         for: 10m
         labels:
           severity: ticket
@@ -73,7 +74,7 @@ groups:
           summary: "{{ $labels.bravo_env }}/{{ $labels.cnpg_cluster }} 논리 복제 슬롯 {{ $labels.slot_name }}이 10분 넘게 비활성이다. WAL이 쌓인다"
           runbook: docs/observability/runbooks.md#bravoreplicationslotinactive
       - alert: BravoWalArchivingFailing
-        expr: sum by (bravo_env, cnpg_cluster) (increase(cnpg_pg_stat_archiver_failed_count_total[10m])) > 0
+        expr: sum by (bravo_env, cnpg_cluster) (increase(cnpg_pg_stat_archiver_failed_count_total{bravo_signal="cnpg-scrape"}[10m])) > 0
         labels:
           severity: ticket
         annotations:

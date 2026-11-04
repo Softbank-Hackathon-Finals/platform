@@ -153,6 +153,23 @@ def test_database_view_states_and_slots():
     assert [i["up"] for i in body["instances"]] == [True, False]
     assert body["replication_slots"] == [{"cluster": "source-db", "slot": "sub_target", "type": "logical", "lag_bytes": 4096.0, "active": True}]
     assert all('bravo_env="aws"' in q for q in store.seen)
+    # 생존 신호 다음의 DB 조회 3개는 모두 DB 긁기 경로의 출처 라벨로 고른다
+    assert len(store.seen) == 4 and all('bravo_signal="cnpg-scrape"' in q for q in store.seen[1:])
+
+
+def test_app_forged_cnpg_rows_without_identity_are_never_ok():
+    """#160 리뷰 반례: 앱 경로의 cnpg_collector_up=1은 허용 목록이 CNPG 식별자를 지워 식별자 없는 행이 된다."""
+    store = FakeStore(
+        results={
+            "timestamp(up": [vec("aws", 2)],
+            "cnpg_collector_up": [{"metric": {"bravo_env": "aws"}, "value": [0, "1"]}],
+            "pg_wal_lsn_diff": [{"metric": {"bravo_env": "aws", "slot_type": "logical"}, "value": [0, "4096"]}],
+        }
+    )
+    body = client(store).get("/v1/observability/environments/aws/database", headers=AUTH).json()
+    assert body["state"] == "UNOBSERVABLE"
+    assert body["instances"] == [{"cluster": None, "pod": None, "role": None, "up": None}]
+    assert body["replication_slots"][0]["lag_bytes"] is None
 
 
 def test_database_view_without_metrics_is_unobservable():
@@ -199,7 +216,8 @@ def test_http_invalid_metric_is_null_not_success_or_500(value):
 
 @pytest.mark.parametrize("value", ["NaN", "Inf", "-Inf", 2, -1])
 def test_invalid_db_boolean_is_unknown_not_down(value):
-    store = FakeStore(results={"timestamp(up": [vec("aws", 2)], "cnpg_collector_up": [vec("aws", value)]})
+    row = {"metric": {"bravo_env": "aws", "cnpg_cluster": "source-db", "pod": "source-db-1"}, "value": [0, str(value)]}
+    store = FakeStore(results={"timestamp(up": [vec("aws", 2)], "cnpg_collector_up": [row]})
     response = client(store).get("/v1/observability/environments/aws/database", headers=AUTH)
     assert response.status_code == 200
     assert response.json()["instances"][0]["up"] is None

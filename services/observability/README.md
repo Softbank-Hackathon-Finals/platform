@@ -41,6 +41,8 @@ cd services/observability && uv sync --locked && uv run --locked pytest
   - 데이터 포인트: `http.request.method` · `http.response.status_code` · `http.route`
 - **생존 신호:** Collector 자기 지표에만 신뢰 라벨 `bravo.signal=collector-self`를 붙인다. 성공한 `up=1` 원 표본이 30초 넘게 오지 않거나, 없거나, 미래 시각이면 그 환경은 "확인 불가"이고 `BravoEnvUnobservable` 알림이 뜬다.
 - **DB 지표:** CNPG 인스턴스 Pod(`cnpg.io/podRole=instance`)의 `metrics` 포트를 15초마다 긁는다. 인스턴스 상태, 논리 복제 슬롯 지연 · 활성, WAL 보관 실패를 본다. 컷오버 조건의 복제 지연은 Executor가 DB에서 직접 읽는다(설계 8.6).
+  - DB 긁기 경로에만 출처 라벨 `bravo.signal=cnpg-scrape`를 붙인다. 조회 API와 DB 알림은 이 라벨이 있는 지표만 쓰고, 조회 API는 CNPG 식별자(클러스터 · Pod)가 없는 행을 정상으로 올리지 않는다.
+  - 앱 경로는 허용 목록이 이 라벨과 CNPG 식별자를 지운다. 앱이 같은 이름(`cnpg_collector_up` 등)이나 `service.name=bravo-cnpg`(`job` 라벨)로 보내도 DB 상태 · 알림을 바꾸지 못한다.
 - **조회 API:** 정해 둔 조회식만 실행한다. 환경 이름은 등록 목록과 정확히 같을 때만 식에 들어간다. 저장소 장애·손상 응답·중복 단일 값은 503, 값이 없거나 NaN/Inf이면 null이다(0이 아님). 응답에는 `Cache-Control: no-store`를 넣는다.
   - HTTP·DB 뷰도 성공한 Collector 생존 신호를 먼저 확인한다. 신호가 오래되거나 없으면 과거 수치를 숨기고 `UNOBSERVABLE`로 응답한다.
   - DB 원 표본에도 30초 제한을 적용한다. Collector가 살아 있다는 이유만으로 오래된 DB 표본을 정상으로 표시하지 않는다.
@@ -93,8 +95,8 @@ cd services/observability && uv sync --locked && uv run --locked pytest
 결과 · 소스 해시 · 이미지 digest: [증빙](../../docs/evidence/t37-observability-2026-11-04/README.md).
 
 ```sh
-services/observability/testing/run.sh        # compose: 19항목, 약 2분
-services/observability/testing/k8s.sh        # k3s + CNPG: 15항목, 약 4분 (helm 필요)
+services/observability/testing/run.sh        # compose: 20항목, 약 2분
+services/observability/testing/k8s.sh        # k3s + CNPG: 16항목, 약 4분 (helm 필요)
 services/observability/testing/rotation.sh   # 인증서 교체: 14항목, 약 1분 반
 ```
 
