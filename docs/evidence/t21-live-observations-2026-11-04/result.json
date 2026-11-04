@@ -1,0 +1,146 @@
+{
+  "kind": "selected_field_summary",
+  "public_is_raw": false,
+  "raw_sha256": "cf891400e4c224d8facf6805b662887a9d2b0c56d6f791f55c91c6270571b589",
+  "status": "PASS",
+  "scope": "actual local app/PostgreSQL/OTel/T36 HTTP; Nginx Edge substitute; shared DB; moto AWS APIs; not cloud migration",
+  "checks": {
+    "collector_requires_client_certificate": true,
+    "source_writes_reconciled": true,
+    "source_header_attribution": true,
+    "source_whole_run_http_clean": true,
+    "source_whole_run_windows_complete": true,
+    "source_whole_run_generator_healthy": true,
+    "target_writes_reconciled": true,
+    "target_header_attribution": true,
+    "target_whole_run_http_clean": true,
+    "target_whole_run_windows_complete": true,
+    "target_whole_run_generator_healthy": true,
+    "actual_http_histogram": true,
+    "no_metric_sensitive_labels": true,
+    "both_environments": true,
+    "window_http_received": true,
+    "bad_intake_token_rejected": true,
+    "replayed_window_rejected": true,
+    "final_display_window_zero_errors": true,
+    "console_collecting": true,
+    "websocket_switch_verified": true,
+    "collector_stop_not_zero": true,
+    "source_still_observed": true,
+    "console_target-stopped": true
+  },
+  "revisions": {
+    "t18_commit": "dea9ced667ead5c2d3b52c1e37723ace61e8e97d",
+    "t36_commit": "020c6c78bdc6133ab0ee15e2a990bb9527b3182f",
+    "t37_commit": "143f5d12b36eda67c500584f808cf50559168132",
+    "demo_commit": "16d9433076ffd675e1fa48d1615f93cd00a7a9f1",
+    "t21_commit": "465b18bcc34d84677891998cfd11a5382e494439"
+  },
+  "load_seconds_per_environment": 30,
+  "owned_compose_removed": true,
+  "source": {
+    "logical_writes": 1500,
+    "reads": 4500,
+    "http_error_rate": 0.0,
+    "p95_ms": 5.336,
+    "reconciliation": {
+      "failed": 0,
+      "lost": 0,
+      "duplicated": 0
+    },
+    "window_count": 3,
+    "window_delivery_failed": 0
+  },
+  "target": {
+    "logical_writes": 1500,
+    "reads": 4500,
+    "http_error_rate": 0.0,
+    "p95_ms": 5.68,
+    "reconciliation": {
+      "failed": 0,
+      "lost": 0,
+      "duplicated": 0
+    },
+    "window_count": 3,
+    "window_delivery_failed": 0
+  },
+  "console_collecting": {
+    "scope": "actual T37 HTTP and T21 projection; local fixture identity/plan; no execution authority",
+    "phase": "collecting",
+    "checks": {
+      "unauthenticated_query_denied": true,
+      "fixed_environment_pair": true,
+      "no_gate_authority": true,
+      "source_observed": true,
+      "target_observed": true,
+      "token_not_returned": true,
+      "separate_environment_permission_required": true,
+      "session_revoked_query_denied": true,
+      "actual_browser_projection": true
+    },
+    "status": "PASS",
+    "browsers": {
+      "projects": [
+        "chromium",
+        "webkit"
+      ],
+      "status": "PASS"
+    },
+    "display_states": [
+      {
+        "side": "source",
+        "state": "OK",
+        "has_values": true
+      },
+      {
+        "side": "target",
+        "state": "OK",
+        "has_values": true
+      }
+    ],
+    "for_gate_decisions": false
+  },
+  "console_after_collector_stop": {
+    "scope": "actual T37 HTTP and T21 projection; local fixture identity/plan; no execution authority",
+    "phase": "target-stopped",
+    "checks": {
+      "unauthenticated_query_denied": true,
+      "fixed_environment_pair": true,
+      "no_gate_authority": true,
+      "source_observed": true,
+      "target_stop_is_unknown": true,
+      "target_stop_has_no_invented_values": true,
+      "token_not_returned": true,
+      "separate_environment_permission_required": true,
+      "session_revoked_query_denied": true,
+      "actual_browser_projection": true
+    },
+    "status": "PASS",
+    "browsers": {
+      "projects": [
+        "chromium",
+        "webkit"
+      ],
+      "status": "PASS"
+    },
+    "display_states": [
+      {
+        "side": "source",
+        "state": "OK",
+        "has_values": true
+      },
+      {
+        "side": "target",
+        "state": "UNOBSERVABLE",
+        "has_values": false
+      }
+    ],
+    "for_gate_decisions": false
+  },
+  "limits": [
+    "Local combined checkout: remote PRs are not yet merged together.",
+    "Cloud/Edge/Tailscale/production identity/executor integration not qualified.",
+    "Initial host-origin fixture and broad revocation-text test failures preserved in private v1/v2 trials; final v3 passed.",
+    "Short qualification does not overturn the separate one-hour soak failures."
+  ]
+}
