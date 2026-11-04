@@ -27,31 +27,40 @@ ENVIRON = {"T8_RESUME_SOURCE_DSN": f"host=source.invalid password={SECRET}",
            "T8_RESUME_SOURCE_PROBE_DSN": f"host=probe.invalid password={SECRET}"}
 SOURCE_ID, TARGET_ID = "7000000000000000001", "7000000000000000002"
 PINS = ("--source-system-id", SOURCE_ID, "--target-system-id", TARGET_ID)
+FAST = ("--settle", "0", "--poll", "0", "--probe-poll", "0")
+TABLES = {"messages": {"rows": 10, "sha256": "aa"}, "attachments": {"rows": 2, "sha256": "bb"}}
+EVERY_TABLE_READY = {"public.messages": "r", "public.attachments": "r", "cutover.barrier": "r", "cutover.probe": "r"}
+
+
+def without(*names):
+    return {key: value for key, value in ENVIRON.items() if key not in names}
 
 
 def healthy():
     """The state reported by the actual incident: the forward subscription off, everything else as designed."""
     return {
         "source": {
-            "system_identifier": SOURCE_ID, "barrier_published": True,
-            "in_recovery": False, "app_can_login": True, "control_sessions": 0,
-            "wal_sender_timeout": "5s", "max_slot_wal_keep_size": "1GB",
-            "slot": {"type": "logical", "active": False, "wal_status": "reserved", "safe_wal_size": 900,
-                     "invalidation_reason": None, "confirmed_flush_lsn": "0/1000000"},
-            "reverse": {"enabled": False, "workers": 0},
+            "source_observed_at": "2026-11-04T07:26:45+00:00", "system_identifier": SOURCE_ID, "in_recovery": False,
+            "barrier_published": True, "barrier_readable": True, "source_app_login": True, "control_sessions": 0,
+            "source_wal_flush_lsn": "0/6000000", "source_wal_sender_timeout_ms": 5000, "max_slot_wal_keep_size": "1GB",
+            "slot_exists": True, "slot_type": "logical", "source_slot_active": False, "source_slot_wal_status": "reserved",
+            "source_slot_invalidated": False, "invalidation_reason": None, "safe_wal_size": 900,
+            "source_slot_confirmed_flush_lsn": "0/1000000", "source_sender_state": None, "source_sender_tls": None,
+            "reverse_enabled": False, "reverse_workers": 0,
         },
         "target": {
-            "system_identifier": TARGET_ID,
-            "in_recovery": False, "app_can_login": False, "app_sessions": 0, "control_sessions": 0,
-            "wal_receiver_timeout": "5s", "reverse_slot_active": False,
-            "subscription": {"enabled": False, "disable_on_error": True, "tables_not_ready": 0,
-                             "barrier_subscribed": True, "barrier_readable": True, "worker_pid": None,
-                             "received_lsn": None, "latest_end_lsn": None, "apply_error_count": 1,
-                             "sync_error_count": 0, "conflicts": 0, "can_alter": True, "can_call_control": False},
+            "target_observed_at": "2026-11-04T07:26:46+00:00", "system_identifier": TARGET_ID, "in_recovery": False,
+            "target_app_login": False, "app_sessions": 0, "control_sessions": 0,
+            "target_wal_receiver_timeout_ms": 5000, "reverse_slot_active": False, "subscription_exists": True,
+            "subscription_oid": 16400, "forward_enabled": False, "disable_on_error": True,
+            "table_sync_states": dict(EVERY_TABLE_READY), "apply_workers": 0, "worker_pid": None,
+            "received_lsn": None, "latest_end_lsn": None, "origin_readable": True, "target_origin_remote_lsn": None,
+            "target_apply_errors": 1, "target_sync_errors": 0, "target_conflicts": 0,
+            "barrier_readable": True, "can_alter": True, "can_call_control": False,
         },
-        "source_rows": {"messages": 10, "messages_max_id": 10, "attachments": 2, "wal_lsn": "0/6000000"},
+        "source_rows": {"messages": 10, "messages_max_id": 10, "attachments": 2, "attachments_max_created_at": "2026-11-04 00:00:00+00"},
         "target_rows": {"messages": 8, "messages_max_id": 8, "attachments": 2},
-        "executor": {"state": "idle", "holders": 0},
+        "executor": {"state": "idle", "holding": 0, "executions": 0, "leases": 0, "resource_fences": 0},
         "probe_allowed": True,
     }
 
@@ -65,11 +74,18 @@ def changed(path, value):
     return state
 
 
+def starting():
+    """Just after ENABLE: the flag is on and the launcher has not started a worker yet."""
+    return changed(["target", "forward_enabled"], True)
+
+
 def caught_up():
-    """What a read shows once the target has confirmed everything up to the watermark."""
+    """What a read shows once the target has confirmed everything up to the fixed position."""
     state = healthy()
-    state["target"]["subscription"].update(enabled=True, worker_pid=4242, received_lsn="0/6000100", latest_end_lsn="0/6000100")
-    state["source"]["slot"].update(active=True, confirmed_flush_lsn="0/6000100")
+    state["target"].update(forward_enabled=True, apply_workers=1, worker_pid=4242, received_lsn="0/6000100",
+                           latest_end_lsn="0/6000100", target_origin_remote_lsn="0/6000200")
+    state["source"].update(source_slot_active=True, source_slot_confirmed_flush_lsn="0/6000100",
+                           source_sender_state="streaming", source_sender_tls=True)
     state["target_rows"] = {"messages": 10, "messages_max_id": 10, "attachments": 2}
     return state
 
@@ -80,20 +96,20 @@ class RefusalTests(unittest.TestCase):
 
     def test_each_unsafe_state_is_refused_for_its_own_reason(self):
         cases = {
-            "slot_missing": changed(["source", "slot"], None),
-            "slot_invalidated": changed(["source", "slot", "invalidation_reason"], "wal_removed"),
-            "slot_at_risk": changed(["source", "slot", "wal_status"], "unreserved"),
-            "slot_not_logical": changed(["source", "slot", "type"], "physical"),
-            "slot_in_use": changed(["source", "slot", "active"], True),
-            "subscription_missing": changed(["target", "subscription"], None),
-            "reverse_active": changed(["source", "reverse", "enabled"], True),
+            "slot_missing": changed(["source", "slot_exists"], False),
+            "slot_invalidated": changed(["source", "source_slot_invalidated"], True),
+            "slot_at_risk": changed(["source", "source_slot_wal_status"], "unreserved"),
+            "slot_not_logical": changed(["source", "slot_type"], "physical"),
+            "slot_in_use": changed(["source", "source_slot_active"], True),
+            "subscription_missing": changed(["target", "subscription_exists"], False),
+            "reverse_active": changed(["source", "reverse_enabled"], True),
             "reverse_slot_in_use": changed(["target", "reverse_slot_active"], True),
-            "target_app_can_login": changed(["target", "app_can_login"], True),
+            "target_app_can_login": changed(["target", "target_app_login"], True),
             "target_app_sessions": changed(["target", "app_sessions"], 1),
-            "source_app_cannot_login": changed(["source", "app_can_login"], False),
+            "source_app_cannot_login": changed(["source", "source_app_login"], False),
             "source_is_not_primary": changed(["source", "in_recovery"], True),
             "target_is_not_primary": changed(["target", "in_recovery"], True),
-            "executor_running": changed(["executor"], {"state": "holding", "holders": 1}),
+            "executor_running": changed(["executor"], {"state": "holding", "holding": 1}),
             "executor_state_unconfirmed": changed(["executor"], {"state": "unconfirmed"}),
             "control_session_present": changed(["target", "control_sessions"], 1),
             "target_ahead_of_source": changed(["target_rows", "messages_max_id"], 11),
@@ -104,45 +120,48 @@ class RefusalTests(unittest.TestCase):
                 self.assertIn(reason, resume.refusals(state))
 
     def test_a_running_reverse_worker_counts_even_if_the_flag_says_off(self):
-        state = changed(["source", "reverse"], {"enabled": False, "workers": 1})
-        self.assertIn("reverse_active", resume.refusals(state))
+        self.assertIn("reverse_active", resume.refusals(changed(["source", "reverse_workers"], 1)))
 
     def test_lost_wal_status_is_invalidated_without_a_reason_column(self):
-        state = changed(["source", "slot", "wal_status"], "lost")
-        self.assertIn("slot_invalidated", resume.refusals(state))
+        self.assertIn("slot_at_risk", resume.refusals(changed(["source", "source_slot_wal_status"], "unreserved")))
+        lost = changed(["source", "source_slot_wal_status"], "lost")
+        lost["source"]["source_slot_invalidated"] = True
+        self.assertIn("slot_invalidated", resume.refusals(lost))
+        self.assertNotIn("slot_at_risk", resume.refusals(lost))
 
     def test_a_role_that_cannot_be_read_is_not_a_safe_role(self):
-        self.assertIn("target_app_can_login", resume.refusals(changed(["target", "app_can_login"], None)))
-        self.assertIn("source_app_cannot_login", resume.refusals(changed(["source", "app_can_login"], None)))
-
-    def test_no_reverse_subscription_is_off_rather_than_unknown(self):
-        self.assertEqual(resume.refusals(changed(["source", "reverse"], None)), [])
+        self.assertIn("target_app_can_login", resume.refusals(changed(["target", "target_app_login"], None)))
+        self.assertIn("source_app_cannot_login", resume.refusals(changed(["source", "source_app_login"], None)))
 
     def test_the_slot_is_expected_to_be_held_once_the_subscription_runs(self):
         self.assertEqual(resume.refusals(caught_up()), [])
 
     def test_no_privilege_to_enable_is_refused_only_when_enabling_is_needed(self):
-        state = healthy()
-        state["target"]["subscription"]["can_alter"] = False
-        self.assertIn("no_enable_privilege", resume.refusals(state))
+        self.assertIn("no_enable_privilege", resume.refusals(changed(["target", "can_alter"], False)))
         running = caught_up()
-        running["target"]["subscription"]["can_alter"] = False
+        running["target"]["can_alter"] = False
         self.assertEqual(resume.refusals(running), [])
 
     def test_a_barrier_outside_the_publication_only_stops_the_probe(self):
-        for path, reason in ((["source", "barrier_published"], "barrier_not_published"),
-                             (["target", "subscription", "barrier_subscribed"], "barrier_not_subscribed"),
-                             (["target", "subscription", "barrier_readable"], "barrier_not_readable_on_target"),
-                             (["probe_allowed"], "barrier_probe_not_permitted")):
+        not_subscribed = healthy()
+        del not_subscribed["target"]["table_sync_states"]["cutover.barrier"]
+        for state, reason in ((changed(["source", "barrier_published"], False), "barrier_not_published"),
+                              (not_subscribed, "barrier_not_subscribed"),
+                              (changed(["target", "barrier_readable"], False), "barrier_not_readable_on_target"),
+                              (changed(["source", "barrier_readable"], False), "barrier_not_readable_on_source"),
+                              (changed(["target", "origin_readable"], False), "applied_position_unreadable"),
+                              (changed(["probe_allowed"], False), "barrier_probe_not_permitted")):
             with self.subTest(reason=reason):
-                state = changed(path, False)
                 self.assertEqual(resume.refusals(state), [])
                 self.assertIn(reason, resume.refusals(state, probe=True))
 
     def test_a_probe_role_that_could_not_be_read_is_not_permitted(self):
+        self.assertIn("barrier_probe_not_permitted", resume.refusals(changed(["probe_allowed"], None), probe=True))
+
+    def test_a_barrier_copy_still_running_is_not_subscribed(self):
         state = healthy()
-        state["probe_allowed"] = None
-        self.assertIn("barrier_probe_not_permitted", resume.refusals(state, probe=True))
+        state["target"]["table_sync_states"]["cutover.barrier"] = "d"
+        self.assertIn("barrier_not_subscribed", resume.refusals(state, probe=True))
 
     def test_lease_statuses_match_the_executor_contract(self):
         contract = (ROOT / "services/cutover-executor/src/bravo_cutover/contract.py").read_text()
@@ -152,8 +171,7 @@ class RefusalTests(unittest.TestCase):
 
 class EnableMethodTests(unittest.TestCase):
     def test_the_narrow_control_function_wins_over_ownership(self):
-        subscription = {"can_call_control": True, "can_alter": True}
-        self.assertEqual(resume.enable_method(subscription), "control_function")
+        self.assertEqual(resume.enable_method({"can_call_control": True, "can_alter": True}), "control_function")
 
     def test_ownership_is_the_fallback_and_nothing_else_is_tried(self):
         self.assertEqual(resume.enable_method({"can_call_control": False, "can_alter": True}), "alter_subscription")
@@ -182,11 +200,11 @@ class EnableMethodTests(unittest.TestCase):
         self.assertRegex(resume.PROBE_INSERT, r"^INSERT INTO cutover\.barrier \(barrier_id, epoch\)")
         self.assertRegex(resume.PROBE_DELETE, r"^DELETE FROM cutover\.barrier WHERE barrier_id = %s$")
 
-    def test_probe_permission_needs_both_privileges_in_separate_calls(self):
-        # has_table_privilege is true when any listed privilege is held; cutover_control has only INSERT.
+    def test_probe_permission_needs_each_privilege_in_its_own_call(self):
+        # has_table_privilege is true when any listed privilege is held; cutover_control has INSERT and SELECT.
         statement = resume.STATEMENTS["probe_allowed"]
-        self.assertIn("'INSERT')", statement)
-        self.assertIn("'DELETE')", statement)
+        for privilege in ("'INSERT')", "'DELETE')", "'SELECT')"):
+            self.assertIn(privilege, statement)
         self.assertNotIn("INSERT,DELETE", statement)
 
     def test_the_catalog_reads_do_not_raise_on_a_schema_the_role_cannot_use(self):
@@ -194,110 +212,168 @@ class EnableMethodTests(unittest.TestCase):
             self.assertNotIn("to_regclass", statement)
             self.assertNotIn("to_regprocedure", statement)
 
+    def test_the_restricted_origin_view_stays_out_of_the_status_read(self):
+        # Privileges are checked before execution, so a guard inside one statement cannot protect the read.
+        for name in ("source_status", "target_status"):
+            self.assertNotIn("FROM pg_replication_origin_status", resume.STATEMENTS[name])
+        self.assertIn("FROM pg_replication_origin_status", resume.STATEMENTS["target_origin"])
+
+    def test_hashes_do_not_depend_on_the_session_time_zone(self):
+        self.assertIn("timezone=UTC", resume.READ_ONLY_OPTIONS)
+
+
+class NamingTests(unittest.TestCase):
+    """The first actual resume (PR #201) is the reference, so a later run must read the same way."""
+
+    def test_a_stage_uses_the_names_of_the_first_resume(self):
+        stage = resume.stage_view(caught_up()["source"], caught_up()["target"])
+        for name in ("source_observed_at", "target_observed_at", "forward_enabled", "reverse_enabled", "apply_workers",
+                     "source_slot_active", "source_slot_wal_status", "source_slot_invalidated", "source_sender_state",
+                     "source_sender_tls", "source_slot_confirmed_flush_lsn", "target_origin_remote_lsn",
+                     "target_app_login", "target_apply_errors", "target_sync_errors"):
+            self.assertIn(name, stage)
+
+    def test_the_position_gap_is_flush_minus_confirmed_flush_in_both_units(self):
+        state = healthy()
+        state["source"].update(source_wal_flush_lsn="0/1C000000", source_slot_confirmed_flush_lsn="0/16000000")
+        view = resume.before_enable_view(state["source"])
+        self.assertEqual(view["gap_bytes"], 100_663_296)
+        self.assertEqual(view["gap_mib"], 96)
+        self.assertEqual((view["slot_active"], view["wal_status"]), (False, "reserved"))
+        self.assertEqual(view["source_wal_flush_lsn"], "0/1C000000")
+        self.assertEqual(view["source_slot_confirmed_flush_lsn"], "0/16000000")
+
+    def test_tables_report_rows_and_only_whether_the_hashes_match(self):
+        before = {"messages": {"rows": 2, "sha256": "aa"}, "attachments": {"rows": 1, "sha256": "bb"}}
+        view = resume.tables_view(before, before, before)
+        self.assertEqual(view["messages"], {"source_rows": 2, "target_rows": 2, "sha256_equal": True, "source_sha256_unchanged": True})
+        self.assertNotIn("aa", json.dumps(view))
+        changed_source = {"messages": {"rows": 3, "sha256": "cc"}, "attachments": {"rows": 1, "sha256": "bb"}}
+        view = resume.tables_view(before, changed_source, before)
+        self.assertEqual(view["messages"], {"source_rows": 3, "target_rows": 2, "sha256_equal": False, "source_sha256_unchanged": False})
+
+    def test_timeouts_are_reported_in_milliseconds(self):
+        for statement, name in (("source_status", "wal_sender_timeout"), ("target_status", "wal_receiver_timeout")):
+            self.assertIn(f"name = '{name}'", resume.STATEMENTS[statement])
+        self.assertIn("source_wal_sender_timeout_ms", resume.STATEMENTS["source_status"])
+        self.assertIn("target_wal_receiver_timeout_ms", resume.STATEMENTS["target_status"])
+
 
 class AssessTests(unittest.TestCase):
     def setUp(self):
         self.baseline = resume.baseline_of(healthy())
 
-    def checks(self, state, rows_arrived=True):
-        return resume.assess(self.baseline, state, rows_arrived=rows_arrived)
+    def checks(self, state, rows_arrived=True, applied_floor=None):
+        return resume.assess(self.baseline, state, rows_arrived=rows_arrived, applied_floor=applied_floor)
 
     def test_everything_true_after_a_real_catch_up(self):
         self.assertTrue(all(self.checks(caught_up()).values()))
 
     def test_a_worker_that_has_not_reached_the_publisher_is_not_connected(self):
         state = caught_up()
-        state["source"]["slot"]["active"] = False
-        self.assertFalse(self.checks(state)["publisher_connected"])
+        state["source"]["source_slot_active"] = False
+        self.assertFalse(self.checks(state)["source_slot_active"])
 
-    def test_the_applied_position_must_also_pass_the_watermark(self):
+    def test_the_fixed_position_needs_every_view_of_it(self):
+        for side, field in (("target", "latest_end_lsn"), ("source", "source_slot_confirmed_flush_lsn")):
+            for value in ("0/5FFFFFF", None):
+                with self.subTest(field=field, value=value):
+                    state = caught_up()
+                    state[side][field] = value
+                    self.assertFalse(self.checks(state)["confirmed_fixed"])
+
+    def test_receiving_the_position_is_reported_separately(self):
         state = caught_up()
-        state["target"]["subscription"]["latest_end_lsn"] = "0/5FFFFFF"
-        self.assertFalse(self.checks(state)["backlog_cleared"])
-        state["target"]["subscription"]["latest_end_lsn"] = None
-        self.assertFalse(self.checks(state)["backlog_cleared"])
+        state["target"]["received_lsn"] = "0/5FFFFFF"
+        self.assertFalse(self.checks(state)["received_fixed"])
+        state["target"]["received_lsn"] = "0/6000000"
+        self.assertTrue(self.checks(state)["received_fixed"])
 
     def test_no_worker_means_not_confirmed(self):
         state = caught_up()
-        state["target"]["subscription"]["worker_pid"] = None
-        self.assertFalse(self.checks(state)["worker_running"])
+        state["target"]["apply_workers"] = 0
+        self.assertFalse(self.checks(state)["apply_worker_running"])
 
     def test_position_that_did_not_move_is_not_progress(self):
         state = caught_up()
-        state["source"]["slot"]["confirmed_flush_lsn"] = "0/1000000"
+        state["source"]["source_slot_confirmed_flush_lsn"] = "0/1000000"
         checks = self.checks(state)
-        self.assertFalse(checks["lsn_advanced"])
-        self.assertFalse(checks["backlog_cleared"])
+        self.assertFalse(checks["confirmed_flush_advanced"])
+        self.assertFalse(checks["confirmed_fixed"])
 
-    def test_movement_short_of_the_watermark_is_progress_but_not_caught_up(self):
+    def test_movement_short_of_the_fixed_position_is_progress_but_not_caught_up(self):
         state = caught_up()
-        state["source"]["slot"]["confirmed_flush_lsn"] = "0/5FFFFFF"
+        state["source"]["source_slot_confirmed_flush_lsn"] = "0/5FFFFFF"
         checks = self.checks(state)
-        self.assertTrue(checks["lsn_advanced"])
-        self.assertFalse(checks["backlog_cleared"])
+        self.assertTrue(checks["confirmed_flush_advanced"])
+        self.assertFalse(checks["confirmed_fixed"])
 
-    def test_no_backlog_needs_the_worker_to_report_the_watermark(self):
+    def test_no_backlog_needs_the_worker_to_report_the_fixed_position(self):
         idle = healthy()
-        idle["source"]["slot"]["confirmed_flush_lsn"] = "0/6000000"
+        idle["source"]["source_slot_confirmed_flush_lsn"] = "0/6000000"
         baseline = resume.baseline_of(idle)
         state = caught_up()
-        state["source"]["slot"]["confirmed_flush_lsn"] = "0/6000000"
-        state["target"]["subscription"]["received_lsn"] = None
-        self.assertFalse(resume.assess(baseline, state, rows_arrived=True)["lsn_advanced"])
-        state["target"]["subscription"]["received_lsn"] = "0/6000000"
-        self.assertTrue(resume.assess(baseline, state, rows_arrived=True)["lsn_advanced"])
+        state["source"]["source_slot_confirmed_flush_lsn"] = "0/6000000"
+        state["target"]["received_lsn"] = None
+        self.assertFalse(resume.assess(baseline, state, rows_arrived=True)["confirmed_flush_advanced"])
+        state["target"]["received_lsn"] = "0/6000000"
+        self.assertTrue(resume.assess(baseline, state, rows_arrived=True)["confirmed_flush_advanced"])
+
+    def test_the_applied_position_is_required_only_once_a_marker_must_have_moved_it(self):
+        # A subscriber's origin moves only on a commit. On a quiet source, WAL alone leaves it behind for ever.
+        state = caught_up()
+        state["target"]["target_origin_remote_lsn"] = "0/1000000"
+        self.assertNotIn("applied_fixed", self.checks(state))
+        floor = resume.parse_lsn("0/6000200")
+        self.assertFalse(self.checks(state, applied_floor=floor)["applied_fixed"])
+        state["target"]["target_origin_remote_lsn"] = "0/6000200"
+        self.assertTrue(self.checks(state, applied_floor=floor)["applied_fixed"])
+        state["target"]["target_origin_remote_lsn"] = None
+        self.assertFalse(self.checks(state, applied_floor=floor)["applied_fixed"])
 
     def test_any_new_error_or_conflict_fails(self):
-        for field in ("apply_error_count", "sync_error_count", "conflicts"):
+        for field in ("target_apply_errors", "target_sync_errors", "target_conflicts"):
             with self.subTest(field=field):
                 state = caught_up()
-                state["target"]["subscription"][field] += 1
+                state["target"][field] += 1
                 self.assertFalse(self.checks(state)["errors_not_increased"])
 
     def test_tables_still_copying_are_not_caught_up(self):
         state = caught_up()
-        state["target"]["subscription"]["tables_not_ready"] = 1
+        state["target"]["table_sync_states"]["public.messages"] = "d"
         self.assertFalse(self.checks(state)["tables_ready"])
 
     def test_the_single_writer_rule_is_rechecked_at_the_end(self):
-        for path, value in ((["target", "app_can_login"], True), (["target", "app_sessions"], 1),
-                            (["source", "app_can_login"], False), (["source", "reverse", "enabled"], True)):
-            with self.subTest(path=path):
+        for side, field, value in (("target", "target_app_login", True), ("target", "app_sessions", 1),
+                                   ("source", "source_app_login", False), ("source", "reverse_enabled", True)):
+            with self.subTest(field=field):
                 state = caught_up()
-                node = state
-                for key in path[:-1]:
-                    node = node[key]
-                node[path[-1]] = value
+                state[side][field] = value
                 self.assertFalse(self.checks(state)["single_writer_kept"])
 
     def test_a_vanished_subscription_or_slot_is_false_rather_than_a_crash(self):
         state = caught_up()
-        state["target"]["subscription"] = None
-        self.assertFalse(self.checks(state)["subscription_enabled"])
+        state["target"].update(subscription_exists=False, forward_enabled=None, target_apply_errors=None,
+                               target_sync_errors=None, target_conflicts=None, table_sync_states=None)
+        self.assertFalse(self.checks(state)["forward_enabled"])
+        self.assertFalse(self.checks(state)["errors_not_increased"])
         state = caught_up()
-        state["source"]["slot"] = None
-        self.assertFalse(self.checks(state)["slot_valid"])
+        state["source"].update(slot_exists=False, source_slot_invalidated=None, source_slot_confirmed_flush_lsn=None)
+        self.assertFalse(self.checks(state)["source_slot_valid"])
 
-    def test_rows_are_compared_against_the_watermark_snapshot(self):
+    def test_rows_are_compared_against_the_source_snapshot(self):
         rows = resume.rows_arrived
-        watermark = healthy()["source_rows"]
-        self.assertTrue(rows(watermark, {"messages": 10, "messages_max_id": 10, "attachments": 2}))
-        self.assertTrue(rows(watermark, {"messages": 12, "messages_max_id": 12, "attachments": 3}))
-        self.assertFalse(rows(watermark, {"messages": 9, "messages_max_id": 10, "attachments": 2}))
-        self.assertFalse(rows(watermark, {"messages": 10, "messages_max_id": 9, "attachments": 2}))
-        self.assertFalse(rows(watermark, {"messages": 10, "messages_max_id": 10, "attachments": 1}))
-        self.assertFalse(rows(watermark, {"messages": 0, "messages_max_id": None, "attachments": 2}))
+        snapshot = healthy()["source_rows"]
+        self.assertTrue(rows(snapshot, {"messages": 10, "messages_max_id": 10, "attachments": 2}))
+        self.assertTrue(rows(snapshot, {"messages": 12, "messages_max_id": 12, "attachments": 3}))
+        self.assertFalse(rows(snapshot, {"messages": 9, "messages_max_id": 10, "attachments": 2}))
+        self.assertFalse(rows(snapshot, {"messages": 10, "messages_max_id": 9, "attachments": 2}))
+        self.assertFalse(rows(snapshot, {"messages": 10, "messages_max_id": 10, "attachments": 1}))
+        self.assertFalse(rows(snapshot, {"messages": 0, "messages_max_id": None, "attachments": 2}))
 
     def test_an_empty_source_needs_no_rows(self):
-        empty = {"messages": 0, "messages_max_id": None, "attachments": 0, "wal_lsn": "0/6000000"}
+        empty = {"messages": 0, "messages_max_id": None, "attachments": 0}
         self.assertTrue(resume.rows_arrived(empty, {"messages": 0, "messages_max_id": None, "attachments": 0}))
-
-
-def starting():
-    """Just after ENABLE: the flag is on and the launcher has not started a worker yet."""
-    state = healthy()
-    state["target"]["subscription"]["enabled"] = True
-    return state
 
 
 class Clock:
@@ -312,7 +388,7 @@ class Clock:
 
 
 class PostCheckTests(unittest.TestCase):
-    def run_loop(self, reads, *, timeout=10, settle=2, poll=1):
+    def run_loop(self, reads, *, timeout=10, settle=2, poll=1, firsts=None, applied_floor=None):
         clock = Clock()
         sequence = iter(reads)
         last = {}
@@ -324,43 +400,59 @@ class PostCheckTests(unittest.TestCase):
             last["value"] = value
             return value
 
-        return resume.post_check(resume.baseline_of(healthy()), status, lambda: caught_up()["target_rows"],
-                                 timeout=timeout, settle=settle, poll=poll, clock=clock, sleep=clock.sleep)
+        return resume.post_check(resume.baseline_of(healthy()), status, lambda: caught_up()["target_rows"], firsts=firsts,
+                                 applied_floor=applied_floor, timeout=timeout, settle=settle, poll=poll, clock=clock, sleep=clock.sleep)
 
     def test_passes_after_staying_good_for_the_settle_period(self):
         result = self.run_loop([starting(), caught_up()])
         self.assertTrue(result["passed"])
         self.assertEqual(result["reason"], "confirmed")
         self.assertGreaterEqual(result["seconds"], 2)
-        self.assertEqual(result["backlog_cleared_seconds"], 1)
-        self.assertEqual(result["positions"], {"watermark": "0/6000000", "confirmed_flush": "0/6000100", "latest_end": "0/6000100"})
+        self.assertEqual(result["confirmed_fixed_seconds"], 1)
+        self.assertEqual(result["positions"], {"fixed": "0/6000000", "source_slot_confirmed_flush_lsn": "0/6000100",
+                                               "latest_end_lsn": "0/6000100", "target_origin_remote_lsn": "0/6000200"})
+
+    def test_it_notes_when_each_position_was_first_seen_and_the_sample_before_it(self):
+        firsts = {}
+        received = starting()
+        received["target"].update(apply_workers=1, worker_pid=1, received_lsn="0/6000100")
+        self.run_loop([starting(), received, caught_up()], firsts=firsts)
+        self.assertEqual(firsts["worker"]["elapsed_s"], 1)
+        self.assertEqual(firsts["worker"]["previous_sample_s"], 0)
+        self.assertEqual(firsts["received_fixed"]["elapsed_s"], 1)
+        self.assertEqual(firsts["applied_fixed"]["elapsed_s"], 2)
+        self.assertEqual(firsts["applied_fixed"]["db_utc"], "2026-11-04T07:26:46+00:00")
+
+    def test_the_first_sample_has_no_sample_before_it(self):
+        firsts = {}
+        self.run_loop([caught_up()], firsts=firsts)
+        self.assertIsNone(firsts["worker"]["previous_sample_s"])
 
     def test_stops_at_once_when_the_subscription_turns_itself_off_again(self):
         off = caught_up()
-        off["target"]["subscription"]["enabled"] = False
+        off["target"]["forward_enabled"] = False
         result = self.run_loop([off], timeout=600)
-        self.assertFalse(result["passed"])
-        self.assertEqual(result["reason"], "failed_check")
+        self.assertEqual((result["passed"], result["reason"]), (False, "failed_check"))
         self.assertLess(result["seconds"], 5)
 
     def test_stops_at_once_on_a_new_error(self):
         errored = caught_up()
-        errored["target"]["subscription"]["apply_error_count"] = 2
+        errored["target"]["target_apply_errors"] = 2
         result = self.run_loop([errored], timeout=600)
         self.assertEqual((result["passed"], result["reason"]), (False, "failed_check"))
 
     def test_stops_at_once_when_the_slot_is_invalidated_during_catch_up(self):
         lost = caught_up()
-        lost["source"]["slot"]["invalidation_reason"] = "wal_removed"
+        lost["source"]["source_slot_invalidated"] = True
         result = self.run_loop([lost], timeout=600)
         self.assertEqual((result["passed"], result["reason"]), (False, "failed_check"))
 
     def test_no_worker_until_the_deadline_is_a_failure(self):
         waiting = caught_up()
-        waiting["target"]["subscription"]["worker_pid"] = None
+        waiting["target"]["apply_workers"] = 0
         result = self.run_loop([waiting], timeout=5)
         self.assertEqual((result["passed"], result["reason"]), (False, "deadline"))
-        self.assertFalse(result["checks"]["worker_running"])
+        self.assertFalse(result["checks"]["apply_worker_running"])
 
     def test_reads_that_keep_failing_are_a_failure_not_a_pass(self):
         result = self.run_loop([OSError(f"host=target.invalid password={SECRET}")] * 20, timeout=5)
@@ -369,21 +461,19 @@ class PostCheckTests(unittest.TestCase):
         self.assertNotIn(SECRET, json.dumps(result))
 
     def test_a_brief_read_failure_does_not_end_the_check(self):
-        result = self.run_loop([OSError("blip"), caught_up()])
-        self.assertTrue(result["passed"])
+        self.assertTrue(self.run_loop([OSError("blip"), caught_up()])["passed"])
 
     def test_the_settle_period_restarts_when_the_worker_goes_away(self):
         gone = caught_up()
-        gone["target"]["subscription"]["worker_pid"] = None
+        gone["target"]["apply_workers"] = 0
         result = self.run_loop([caught_up(), gone, caught_up()], settle=2)
         self.assertTrue(result["passed"])
         self.assertGreaterEqual(result["seconds"], 4)
 
     def test_it_reports_every_worker_it_saw(self):
         second = caught_up()
-        second["target"]["subscription"]["worker_pid"] = 4343
-        result = self.run_loop([caught_up(), second], settle=1)
-        self.assertEqual(result["worker_pids_seen"], 2)
+        second["target"]["worker_pid"] = 4343
+        self.assertEqual(self.run_loop([caught_up(), second], settle=1)["worker_pids_seen"], 2)
 
     def test_rows_that_never_arrive_fail_at_the_deadline(self):
         clock = Clock()
@@ -393,15 +483,25 @@ class PostCheckTests(unittest.TestCase):
         self.assertEqual((result["passed"], result["reason"]), (False, "deadline"))
         self.assertFalse(result["checks"]["rows_arrived"])
 
+    def test_the_applied_floor_is_enforced_when_given(self):
+        behind = caught_up()
+        behind["target"]["target_origin_remote_lsn"] = "0/1000000"
+        result = self.run_loop([behind], timeout=3, applied_floor=resume.parse_lsn("0/6000200"))
+        self.assertEqual((result["passed"], result["reason"]), (False, "deadline"))
+        self.assertFalse(result["checks"]["applied_fixed"])
+
+
+MARKER_ROW = {"barrier_id": "id-1", "epoch": 0, "created_at": "t"}
+
 
 class BarrierProbeTests(unittest.TestCase):
-    def probe(self, counts, *, write=None, timeout=3):
+    def probe(self, target_rows, *, source_row=MARKER_ROW, write=None, timeout=3):
         clock = Clock()
-        sequence = iter(counts)
-        writes = []
+        sequence = iter(target_rows)
+        writes, stages = [], []
 
-        def read():
-            value = next(sequence, counts[-1])
+        def read_target():
+            value = next(sequence, target_rows[-1])
             if isinstance(value, Exception):
                 raise value
             return value
@@ -410,31 +510,46 @@ class BarrierProbeTests(unittest.TestCase):
             writes.append((statement, params))
             if write:
                 write(statement)
+            return "0/1C0001B0" if statement.startswith("INSERT") else "0/1C000268"
 
-        report = resume.barrier_probe(record, read, "id-1", timeout=timeout, poll=1, clock=clock, sleep=clock.sleep)
-        return report, writes
+        report = resume.barrier_probe(record, read_target, lambda: source_row, "id-1",
+                                      on_delivered=lambda: stages.append("delivered"), on_cleaned=lambda: stages.append("cleaned"),
+                                      elapsed=clock, timeout=timeout, poll=1, sleep=clock.sleep)
+        return report, writes, stages
 
     def test_row_arrives_and_its_delete_follows(self):
-        report, writes = self.probe([0, 1, 1, 0])
+        report, writes, stages = self.probe([None, MARKER_ROW, MARKER_ROW, None])
         self.assertTrue(report["passed"])
-        self.assertEqual(report["arrived_ms"], 1000)
-        self.assertEqual(report["delete_arrived_ms"], 1000)
+        self.assertEqual(report["barrier"]["elapsed_s"], 1)
+        self.assertEqual(report["barrier"]["previous_sample_s"], 0)
+        self.assertEqual(report["delete_arrived"]["elapsed_s"], 1)
+        self.assertEqual((report["source_insert_commits"], report["source_delete_commits"]), (1, 1))
+        self.assertEqual((report["insert_lsn_before_commit"], report["delete_lsn_before_commit"]), ("0/1C0001B0", "0/1C000268"))
+        self.assertTrue(report["same_row_on_both_sides_when_present"])
         self.assertEqual([statement.split()[0] for statement, _ in writes], ["INSERT", "DELETE"])
         self.assertEqual(writes[0][1], ("id-1", resume.PROBE_EPOCH))
         self.assertEqual(writes[1][1], ("id-1",))
+        self.assertEqual(stages, ["delivered", "cleaned"])
 
     def test_a_row_that_never_arrives_fails_and_is_still_deleted_from_the_source(self):
-        report, writes = self.probe([0])
+        report, writes, stages = self.probe([None])
         self.assertFalse(report["passed"])
-        self.assertIsNone(report["arrived_ms"])
-        self.assertTrue(report["deleted_on_source"])
+        self.assertIsNone(report["barrier"])
+        self.assertEqual(report["source_delete_commits"], 1)
         self.assertEqual(len(writes), 2)
+        self.assertEqual(stages, [])
 
     def test_a_delete_that_never_arrives_fails(self):
-        report, _ = self.probe([1])
+        report, _, stages = self.probe([MARKER_ROW])
         self.assertFalse(report["passed"])
-        self.assertEqual(report["arrived_ms"], 0)
-        self.assertIsNone(report["delete_arrived_ms"])
+        self.assertIsNotNone(report["barrier"])
+        self.assertIsNone(report["delete_arrived"])
+        self.assertEqual(stages, ["delivered"])
+
+    def test_a_different_row_on_the_target_fails(self):
+        report, _, _ = self.probe([{**MARKER_ROW, "epoch": 9}, None])
+        self.assertFalse(report["passed"])
+        self.assertFalse(report["same_row_on_both_sides_when_present"])
 
     def test_a_refused_insert_fails_without_its_message(self):
         class Denied(Exception):
@@ -443,9 +558,9 @@ class BarrierProbeTests(unittest.TestCase):
         def refuse(_):
             raise Denied(f"password={SECRET}")
 
-        report, _ = self.probe([0], write=refuse)
+        report, _, _ = self.probe([None], write=refuse)
         self.assertFalse(report["passed"])
-        self.assertFalse(report["inserted"])
+        self.assertEqual(report["source_insert_commits"], 0)
         self.assertEqual((report["error_category"], report["sqlstate"]), ("Denied", "42501"))
         self.assertNotIn(SECRET, json.dumps(report))
 
@@ -454,27 +569,33 @@ class BarrierProbeTests(unittest.TestCase):
             if statement.startswith("DELETE"):
                 raise OSError("no route")
 
-        report, _ = self.probe([1], write=refuse_delete)
+        report, _, _ = self.probe([MARKER_ROW], write=refuse_delete)
         self.assertFalse(report["passed"])
-        self.assertTrue(report["inserted"])
-        self.assertFalse(report["deleted_on_source"])
+        self.assertEqual((report["source_insert_commits"], report["source_delete_commits"]), (1, 0))
         self.assertEqual(report["barrier_id"], "id-1")
 
     def test_a_read_failure_counts_as_not_yet(self):
-        report, _ = self.probe([OSError("blip"), 1, 0])
+        report, _, _ = self.probe([OSError("blip"), MARKER_ROW, MARKER_ROW, OSError("blip"), None])
         self.assertTrue(report["passed"])
 
 
 def fake_read(state):
     """Reads a prepared state; the first argument is which database the DSN named."""
     def read(dsn, name, params=None):
+        if name == "business_tables":
+            return copy.deepcopy(TABLES)
+        if name == "barrier_row":
+            return None
+        # Copies, as a real read returns a new value each time.
         if "source.invalid" in dsn:
-            return state["source_rows"] if name == "source_rows" else state["source"]
+            return copy.deepcopy(state["source_rows"] if name == "source_rows" else state["source"])
         if "target.invalid" in dsn:
-            return state["target_rows"] if name == "target_rows" else state["target"]
+            if name == "target_origin":
+                return state["target"]["target_origin_remote_lsn"]
+            return copy.deepcopy(state["target_rows"] if name == "target_rows" else state["target"])
         if "probe.invalid" in dsn:
             return state["probe_allowed"]
-        return state["executor"]["holders"]
+        return {key: state["executor"].get(key, 0) for key in ("holding", "executions", "leases", "resource_fences")}
     return read
 
 
@@ -492,14 +613,30 @@ class GatherTests(unittest.TestCase):
             resume.gather(ENVIRON["T8_RESUME_SOURCE_DSN"], ENVIRON["T8_RESUME_TARGET_DSN"], None, False)
         self.assertLess(order.index("target_rows"), order.index("source_rows"))
 
+    def test_the_applied_position_is_read_only_where_the_role_may(self):
+        order = []
+        state = changed(["target", "origin_readable"], False)
+
+        def read(dsn, name, params=None):
+            order.append(name)
+            return fake_read(state)(dsn, name, params)
+
+        with patch.object(resume, "read_one", side_effect=read):
+            resume.read_status(ENVIRON["T8_RESUME_SOURCE_DSN"], ENVIRON["T8_RESUME_TARGET_DSN"])
+        self.assertNotIn("target_origin", order)
+
 
 class RunTests(unittest.TestCase):
     def run_tool(self, state, *arguments, environ=ENVIRON):
-        with (patch.object(resume, "read_one", side_effect=fake_read(state)),
-              patch.object(resume, "enable") as enable):
+        def write(_dsn, statement, _params):
+            return "0/6000300" if statement.startswith("INSERT") else "0/6000400"
+
+        with (patch.object(resume, "read_one", side_effect=fake_read(state)), patch.object(resume, "enable") as enable,
+              patch.object(resume, "write_marker", side_effect=write) as marker):
             buffer = io.StringIO()
             with redirect_stdout(buffer):
                 code = resume.main(list(arguments), environ)
+        self.marker = marker
         return code, json.loads(buffer.getvalue()), enable
 
     def test_dry_run_is_the_default_and_never_enables(self):
@@ -508,59 +645,112 @@ class RunTests(unittest.TestCase):
         self.assertEqual(report["mode"], "dry-run")
         self.assertIn("t8_source_to_target", report["would_run"])
         enable.assert_not_called()
+        self.marker.assert_not_called()
+
+    def test_the_default_reports_the_gap_the_way_the_first_resume_did(self):
+        _, report, _ = self.run_tool(healthy())
+        self.assertEqual(report["immediately_before_enable"]["gap_bytes"], 0x5000000)
+        self.assertEqual(report["stages"]["before"]["target_apply_errors"], 1)
+        self.assertEqual(report["stages"]["before"]["business_tables"]["messages"]["source_rows"], 10)
+        self.assertEqual(report["continuity"]["source_wal_sender_timeout_ms"], 5000)
+        self.assertEqual(report["continuity"]["target_wal_receiver_timeout_ms"], 5000)
+        self.assertTrue(report["continuity"]["disable_on_error"])
 
     def test_refused_dry_run_exits_nonzero_and_names_the_reason(self):
-        code, report, enable = self.run_tool(changed(["source", "reverse", "enabled"], True))
+        code, report, enable = self.run_tool(changed(["source", "reverse_enabled"], True))
         self.assertEqual(code, 1)
         self.assertIn("reverse_active", report["refusals"])
         self.assertNotIn("would_run", report)
         enable.assert_not_called()
 
     def test_refused_apply_never_enables(self):
-        code, report, enable = self.run_tool(changed(["target", "app_can_login"], True), "--apply", *PINS)
+        code, report, enable = self.run_tool(changed(["target", "target_app_login"], True), "--apply", *PINS)
         self.assertEqual(code, 1)
         self.assertEqual(report["stage"], "preflight")
         enable.assert_not_called()
 
-    def test_apply_enables_once_then_verifies(self):
-        reads = iter([healthy()])
+    def apply_flow(self, *arguments):
+        """--apply with the state moving: off before ENABLE, caught up after it."""
+        state = {"value": healthy()}
+        events = []
 
-        def status(*_):
-            return next(reads, caught_up())
+        def read(dsn, name, params=None):
+            if name == "barrier_row":
+                present = events.count("insert") and not events.count("delete")
+                return {"barrier_id": "x"} if present else None
+            return fake_read(state["value"])(dsn, name, params)
 
-        with (patch.object(resume, "gather", side_effect=lambda *_: next(reads, caught_up())),
-              patch.object(resume, "enable") as enable, patch.object(resume, "read_status", side_effect=status),
-              patch.object(resume, "read_one", return_value=caught_up()["target_rows"])):
+        def enable(*_):
+            events.append("enable")
+            state["value"] = caught_up()
+
+        def write(_dsn, statement, _params):
+            events.append("insert" if statement.startswith("INSERT") else "delete")
+            return "0/6000180" if statement.startswith("INSERT") else "0/6000190"
+
+        with (patch.object(resume, "read_one", side_effect=read), patch.object(resume, "enable", side_effect=enable),
+              patch.object(resume, "write_marker", side_effect=write)):
             buffer = io.StringIO()
             with redirect_stdout(buffer):
-                code = resume.main(["--apply", "--no-barrier-probe", *PINS, "--settle", "0", "--poll", "0"], ENVIRON)
-        report = json.loads(buffer.getvalue())
+                code = resume.main(["--apply", *PINS, *FAST, *arguments], ENVIRON)
+        return code, json.loads(buffer.getvalue()), events
+
+    def test_apply_enables_once_then_sends_the_marker_through(self):
+        code, report, events = self.apply_flow()
         self.assertEqual(code, 0, report)
-        enable.assert_called_once()
+        self.assertEqual(events, ["enable", "insert", "delete"])
         self.assertEqual(report["enabled_by"], "alter_subscription")
+        self.assertEqual(report["continuity"]["enable_submissions"], 1)
+        self.assertEqual(sorted(report["stages"]), ["before", "cleaned", "delivered"])
+        self.assertTrue(report["catch_up"]["passed"])
         self.assertTrue(report["post_check"]["passed"])
+        self.assertTrue(report["post_check"]["checks"]["applied_fixed"])
+        self.assertEqual(report["marker"]["source_insert_commits"], 1)
+        self.assertIn("barrier", report["command_clock"]["first_observations"])
+        self.assertIsNotNone(report["command_clock"]["enable_command_return_s"])
+        self.assertTrue(report["stages"]["cleaned"]["business_tables"]["messages"]["sha256_equal"])
+
+    def test_the_marker_goes_in_before_the_settle_period_so_it_is_settled_too(self):
+        order = []
+        real = resume.post_check
+
+        def spy(*args, **kwargs):
+            order.append(("check", kwargs["settle"]))
+            return real(*args, **kwargs)
+
+        with patch.object(resume, "post_check", side_effect=spy):
+            self.apply_flow("--settle", "0.01")
+        self.assertEqual(order, [("check", 0), ("check", 0.01)])
+
+    def test_no_marker_means_a_plain_final_stage_and_no_applied_requirement(self):
+        code, report, events = self.apply_flow("--no-barrier-probe")
+        self.assertEqual(code, 0, report)
+        self.assertEqual(events, ["enable"])
+        self.assertEqual(sorted(report["stages"]), ["before", "final"])
+        self.assertNotIn("applied_fixed", report["post_check"]["checks"])
+        self.assertEqual(report["marker"], {"state": "skipped_by_operator"})
 
     def test_apply_on_a_running_subscription_never_enables_again(self):
-        code, report, enable = self.run_tool(caught_up(), "--apply", "--no-barrier-probe", *PINS, "--settle", "0", "--poll", "0")
+        code, report, enable = self.run_tool(caught_up(), "--apply", "--no-barrier-probe", *PINS, *FAST)
         enable.assert_not_called()
         self.assertIsNone(report["enabled_by"])
+        self.assertEqual(report["continuity"]["enable_submissions"], 0)
         self.assertEqual(code, 0, report)
         self.assertTrue(report["post_check"]["passed"])
 
     def test_the_default_on_a_running_subscription_runs_the_read_only_post_check(self):
-        with patch.object(resume, "write_probe") as write:
-            code, report, enable = self.run_tool(caught_up(), "--settle", "0", "--poll", "0")
+        code, report, enable = self.run_tool(caught_up(), *FAST)
         self.assertEqual(code, 0, report)
         self.assertIsNone(report["would_run"])
         self.assertTrue(report["post_check"]["passed"])
-        self.assertNotIn("barrier_probe", report)
+        self.assertEqual(report["marker"], {"state": "not_run_without_apply"})
         enable.assert_not_called()
-        write.assert_not_called()
+        self.marker.assert_not_called()
 
     def test_the_default_needs_no_privilege_on_a_running_subscription(self):
         state = caught_up()
-        state["target"]["subscription"].update(can_alter=False, can_call_control=False)
-        code, report, _ = self.run_tool(state, "--settle", "0", "--poll", "0")
+        state["target"].update(can_alter=False, can_call_control=False)
+        code, report, _ = self.run_tool(state, *FAST)
         self.assertEqual(code, 0, report)
 
     def test_the_default_on_a_stopped_subscription_ends_at_the_preflight(self):
@@ -586,11 +776,10 @@ class RunTests(unittest.TestCase):
         self.assertEqual(report["preflight"]["target"]["system_identifier"], TARGET_ID)
 
     def test_apply_without_a_probe_dsn_is_refused_before_any_connection(self):
-        environ = {key: value for key, value in ENVIRON.items() if key != "T8_RESUME_SOURCE_PROBE_DSN"}
         with patch.object(resume, "read_one") as read:
             buffer = io.StringIO()
             with redirect_stdout(buffer):
-                code = resume.main(["--apply", *PINS], environ)
+                code = resume.main(["--apply", *PINS], without("T8_RESUME_SOURCE_PROBE_DSN"))
         self.assertEqual(code, 1)
         read.assert_not_called()
         self.assertEqual(json.loads(buffer.getvalue())["refusals"], ["missing_T8_RESUME_SOURCE_PROBE_DSN"])
@@ -614,58 +803,113 @@ class RunTests(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertEqual(report["barrier_gaps"], ["barrier_not_published"])
 
-    def test_apply_sends_the_probe_after_the_checks_and_reads_them_again(self):
-        order = []
+    def test_the_source_write_block_is_only_ever_recorded(self):
+        for argument, expected in ((("--source-write-block", "on"), "on"), (("--source-write-block", "off"), "off"), ((), "not_read")):
+            with self.subTest(expected=expected):
+                code, report, enable = self.run_tool(healthy(), *argument)
+                self.assertEqual(code, 0)
+                self.assertEqual(report["continuity"]["source_write_block_before"], expected)
+                enable.assert_not_called()
 
-        def probe(*_args, **_kwargs):
-            order.append("probe")
-            return {"passed": True}
+    def test_a_failed_catch_up_never_writes_the_marker(self):
+        before, off = healthy(), caught_up()
+        off["target"]["forward_enabled"] = False
+        state = {"value": before}
 
-        def check(*_args, **_kwargs):
-            order.append("check")
-            return {"passed": True}
+        def enable(*_):
+            state["value"] = off
 
-        with (patch.object(resume, "barrier_probe", side_effect=probe), patch.object(resume, "post_check", side_effect=check),
-              patch.object(resume, "read_one", side_effect=fake_read(caught_up()))):
+        def read(dsn, name, params=None):
+            return fake_read(state["value"])(dsn, name, params)
+
+        with (patch.object(resume, "read_one", side_effect=read), patch.object(resume, "enable", side_effect=enable),
+              patch.object(resume, "write_marker") as marker):
             buffer = io.StringIO()
             with redirect_stdout(buffer):
-                code = resume.main(["--apply", *PINS], ENVIRON)
-        self.assertEqual(code, 0)
-        self.assertEqual(order, ["check", "probe", "check"])
-
-    def test_a_failed_post_check_never_writes_the_probe_row(self):
-        with (patch.object(resume, "barrier_probe") as probe, patch.object(resume, "post_check", return_value={"passed": False}),
-              patch.object(resume, "read_one", side_effect=fake_read(caught_up()))):
-            buffer = io.StringIO()
-            with redirect_stdout(buffer):
-                code = resume.main(["--apply", *PINS], ENVIRON)
+                code = resume.main(["--apply", *PINS, *FAST], ENVIRON)
         self.assertEqual(code, 1)
-        probe.assert_not_called()
+        marker.assert_not_called()
+        self.assertEqual(json.loads(buffer.getvalue())["stage"], "catch_up")
 
-    def test_a_failed_probe_fails_the_run(self):
-        with (patch.object(resume, "barrier_probe", return_value={"passed": False}),
-              patch.object(resume, "post_check", return_value={"passed": True}),
-              patch.object(resume, "read_one", side_effect=fake_read(caught_up()))):
+    def test_a_failed_marker_fails_the_run(self):
+        with patch.object(resume, "barrier_probe", return_value={"passed": False, "delete_lsn_before_commit": None}):
+            code, report, _ = self.apply_flow()
+        self.assertEqual(code, 1)
+        self.assertEqual(report["stage"], "marker")
+
+    def test_new_errors_after_the_marker_fail_the_run(self):
+        results = iter([{"passed": True}, {"passed": False}])
+        with patch.object(resume, "post_check", side_effect=lambda *_a, **_k: next(results)):
+            code, report, _ = self.apply_flow()
+        self.assertEqual(code, 1)
+        self.assertEqual(report["stage"], "post_check")
+
+    def test_an_execution_that_started_meanwhile_fails_the_run(self):
+        reads = {"count": 0}
+        state = caught_up()
+        real = fake_read(state)
+
+        def read(dsn, name, params=None):
+            if name == "platform_counts":
+                reads["count"] += 1
+                holding = 0 if reads["count"] <= 2 else 1
+                return {"holding": holding, "executions": holding, "leases": holding, "resource_fences": holding}
+            return real(dsn, name, params)
+
+        with patch.object(resume, "read_one", side_effect=read):
             buffer = io.StringIO()
             with redirect_stdout(buffer):
-                code = resume.main(["--apply", *PINS], ENVIRON)
+                code = resume.main([*FAST], ENVIRON)
+        report = json.loads(buffer.getvalue())
         self.assertEqual(code, 1)
+        self.assertEqual(report["stage"], "continuity")
+        self.assertEqual(report["continuity"]["platform_before_after"]["executions"], [0, 1])
 
-    def test_new_errors_after_the_probe_fail_the_run(self):
-        checks = iter([{"passed": True}, {"passed": False}])
-        with (patch.object(resume, "barrier_probe", return_value={"passed": True}),
-              patch.object(resume, "post_check", side_effect=lambda *_a, **_k: next(checks)),
-              patch.object(resume, "read_one", side_effect=fake_read(caught_up()))):
+    def test_a_replaced_subscription_fails_the_run(self):
+        state = caught_up()
+        reads = {"count": 0}
+        real = fake_read(state)
+
+        def read(dsn, name, params=None):
+            value = real(dsn, name, params)
+            if name == "target_status":
+                reads["count"] += 1
+                # Twice for the preflight, once for the "before" stage, then the catch-up.
+                return {**value, "subscription_oid": 16400 if reads["count"] <= 3 else 17000}
+            return value
+
+        with patch.object(resume, "read_one", side_effect=read):
             buffer = io.StringIO()
             with redirect_stdout(buffer):
-                code = resume.main(["--apply", *PINS], ENVIRON)
+                code = resume.main([*FAST], ENVIRON)
+        report = json.loads(buffer.getvalue())
         self.assertEqual(code, 1)
+        self.assertFalse(report["continuity"]["same_subscription_oid_and_origin"])
+
+    def test_hashes_that_differ_at_the_end_fail_the_run(self):
+        state = caught_up()
+        real = fake_read(state)
+
+        def read(dsn, name, params=None):
+            value = real(dsn, name, params)
+            if name == "business_tables" and "target.invalid" in dsn:
+                value["messages"]["sha256"] = "different"
+            return value
+
+        with patch.object(resume, "read_one", side_effect=read):
+            buffer = io.StringIO()
+            with redirect_stdout(buffer):
+                code = resume.main([*FAST], ENVIRON)
+        report = json.loads(buffer.getvalue())
+        self.assertEqual(code, 1)
+        self.assertFalse(report["stages"]["final"]["business_tables"]["messages"]["sha256_equal"])
+        self.assertNotIn("different", json.dumps(report))
 
     def test_a_failed_enable_is_reported_without_its_message(self):
         class Denied(Exception):
             sqlstate = "42501"
 
-        with (patch.object(resume, "gather", return_value=healthy()),
+        with (patch.object(resume, "read_one", side_effect=fake_read(healthy())),
               patch.object(resume, "enable", side_effect=Denied(f"host=target.invalid password={SECRET}"))):
             buffer = io.StringIO()
             with redirect_stdout(buffer):
@@ -711,29 +955,25 @@ class RunTests(unittest.TestCase):
         self.assertEqual(json.loads(buffer.getvalue())["error_category"], "RuntimeError")
 
     def test_without_executor_access_the_state_is_unconfirmed(self):
-        environ = {key: value for key, value in ENVIRON.items() if key != "T8_RESUME_EXECUTOR_DSN"}
-        code, report, _ = self.run_tool(healthy(), environ=environ)
+        code, report, _ = self.run_tool(healthy(), environ=without("T8_RESUME_EXECUTOR_DSN"))
         self.assertEqual(code, 1)
         self.assertIn("executor_state_unconfirmed", report["refusals"])
 
     def test_an_operator_can_declare_no_executor_and_the_receipt_says_so(self):
-        environ = {key: value for key, value in ENVIRON.items() if key != "T8_RESUME_EXECUTOR_DSN"}
-        code, report, _ = self.run_tool(healthy(), "--executor-not-deployed", environ=environ)
+        code, report, _ = self.run_tool(healthy(), "--executor-not-deployed", environ=without("T8_RESUME_EXECUTOR_DSN"))
         self.assertEqual(code, 0)
         self.assertEqual(report["preflight"]["executor"], {"state": "declared_not_deployed"})
 
     def test_the_declaration_cannot_hide_a_running_executor(self):
         state = healthy()
-        state["executor"] = {"state": "holding", "holders": 1}
+        state["executor"] = {"state": "holding", "holding": 1, "executions": 1, "leases": 1, "resource_fences": 1}
         code, report, _ = self.run_tool(state, "--executor-not-deployed")
         self.assertEqual(code, 1)
         self.assertIn("executor_running", report["refusals"])
 
     def test_control_sessions_still_block_a_declared_absent_executor(self):
-        environ = {key: value for key, value in ENVIRON.items() if key != "T8_RESUME_EXECUTOR_DSN"}
-        state = copy.deepcopy(healthy())
-        state["source"]["control_sessions"] = 2
-        code, report, _ = self.run_tool(state, "--executor-not-deployed", environ=environ)
+        code, report, _ = self.run_tool(changed(["source", "control_sessions"], 2), "--executor-not-deployed",
+                                        environ=without("T8_RESUME_EXECUTOR_DSN"))
         self.assertEqual(code, 1)
         self.assertIn("control_session_present", report["refusals"])
 

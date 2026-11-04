@@ -281,7 +281,7 @@ def recover_run(condition, repetition):
         dry = run_tool(lab)
         still_off_after_dry_run = not is_enabled(target)
         stopped_until_id = source.execute("SELECT max(id) FROM messages").fetchone()[0]
-        applied = run_tool(lab, "--apply", *pins(dry["report"]))
+        applied = run_tool(lab, "--apply", *pins(dry["report"]), "--source-write-block", "off")
         verify_again = run_tool(lab, "--settle", "2")
         acks = writer.stop()
         loss = verify_no_loss(source, target, acks, stopped_after_id=stopped_after_id, stopped_until_id=stopped_until_id)
@@ -293,8 +293,11 @@ def recover_run(condition, repetition):
             "dry_run_changed_nothing": dry["exit"] == 0 and still_off_after_dry_run,
             "apply_passed": applied["exit"] == 0,
             "enabled_by_this_run": applied["report"].get("enabled_by") in ("control_function", "alter_subscription"),
-            "barrier_went_both_ways": bool(applied["report"].get("barrier_probe", {}).get("passed")),
-            "second_run_only_verified": verify_again["exit"] == 0 and verify_again["report"].get("would_run") is None,
+            "barrier_went_both_ways": bool(applied["report"].get("marker", {}).get("passed")),
+            "applied_position_passed_the_marker": bool(applied["report"].get("post_check", {}).get("checks", {}).get("applied_fixed")),
+            "hashes_equal_at_the_end": all(table["sha256_equal"] for table in applied["report"].get("stages", {}).get("cleaned", {}).get("business_tables", {"none": {"sha256_equal": False}}).values()),
+            "second_run_only_verified": verify_again["exit"] == 0 and verify_again["report"].get("would_run") is None
+            and verify_again["report"]["continuity"]["enable_submissions"] == 0,
             "no_acknowledged_row_lost": loss["acknowledged_rows_missing_on_target"] == 0 and loss["newest_row_arrived"],
             "backlog_held_real_rows": loss["rows_written_while_stopped"] >= BACKLOG_MINIMUM_ROWS,
             "rows_written_while_stopped_arrived": loss["rows_written_while_stopped"] == loss["of_those_on_target"],
@@ -484,8 +487,10 @@ def run_paths():
         applied_run = run_tool(lab, *apply_fast)
         outcome["resumed_by_hand_first"] = {
             "default": default_run, "apply": applied_run,
-            "passed": default_run["exit"] == 0 and default_run["report"]["would_run"] is None and "barrier_probe" not in default_run["report"]
-            and applied_run["exit"] == 0 and applied_run["report"]["enabled_by"] is None and applied_run["report"]["barrier_probe"]["passed"]}
+            "passed": default_run["exit"] == 0 and default_run["report"]["would_run"] is None
+            and default_run["report"]["marker"] == {"state": "not_run_without_apply"}
+            and applied_run["exit"] == 0 and applied_run["report"]["enabled_by"] is None and applied_run["report"]["marker"]["passed"]
+            and applied_run["report"]["continuity"]["enable_submissions"] == 0}
 
         # The link is still down when the command runs: nothing to confirm, so it fails at the deadline.
         stop_cleanly(source, target)
@@ -497,8 +502,8 @@ def run_paths():
         rerun = run_tool(lab, *apply_fast)
         outcome["link_still_down"] = {
             "first": no_link, "stayed_enabled": stayed_enabled, "rerun": rerun,
-            "passed": no_link["exit"] == 1 and no_link["report"]["post_check"]["reason"] == "deadline"
-            and not no_link["report"]["post_check"]["checks"]["publisher_connected"]
+            "passed": no_link["exit"] == 1 and no_link["report"]["catch_up"]["reason"] == "deadline"
+            and not no_link["report"]["catch_up"]["checks"]["source_slot_active"]
             and rerun["exit"] == 0 and rerun["report"]["enabled_by"] is None}
 
         # The link is lost again during catch-up: it stops at once, then resumes once more without loss.
@@ -524,7 +529,7 @@ def run_paths():
         first = found["first"]
         outcome["link_lost_during_catch_up"] = {
             "backlog_bytes": behind, "first": first, "turned_itself_off": turned_off, "again": again, "rows_arrived": arrived,
-            "passed": started and first["exit"] == 1 and first["report"]["post_check"]["reason"] == "failed_check"
+            "passed": started and first["exit"] == 1 and first["report"]["catch_up"]["reason"] == "failed_check"
             and turned_off and again["exit"] == 0 and arrived}
 
         # An apply error rather than a lost link: same flag, different cause, and retrying alone cannot fix it.
@@ -537,7 +542,7 @@ def run_paths():
         healed = run_tool(lab, *apply_fast)
         outcome["apply_conflict"] = {
             "first": conflict, "after_removing_the_row": healed,
-            "passed": conflict["exit"] == 1 and conflict["report"]["post_check"]["reason"] == "failed_check"
+            "passed": conflict["exit"] == 1 and conflict["report"]["catch_up"]["reason"] == "failed_check"
             and healed["exit"] == 0}
 
         # A publication that drops deletes: the row arrives, the delete does not, and only the probe can tell.
@@ -545,9 +550,9 @@ def run_paths():
         no_delete = run_tool(lab, *apply_fast, "--probe-timeout", "5")
         source.execute("ALTER PUBLICATION source_chat SET (publish = 'insert, update, delete, truncate')")
         target.execute("DELETE FROM cutover.barrier")
-        probe = no_delete["report"].get("barrier_probe", {})
+        marker = no_delete["report"].get("marker", {})
         outcome["delete_not_replicated"] = {
-            "run": no_delete, "passed": no_delete["exit"] == 1 and probe.get("arrived_ms") is not None and probe.get("delete_arrived_ms") is None}
+            "run": no_delete, "passed": no_delete["exit"] == 1 and marker.get("barrier") is not None and marker.get("delete_arrived") is None}
 
         # The Executor's narrow role instead of the subscription owner.
         stop_cleanly(source, target)
@@ -587,7 +592,7 @@ def run_paths():
         target.execute(f"ALTER SUBSCRIPTION {SUBSCRIPTION} SET (disable_on_error = true)")
         outcome["conflict_with_disable_on_error_off"] = {
             "stayed_enabled": enabled_during_conflict, "errors_added_in_16_s": errors_during_conflict - errors_before,
-            "command_exit": noticed["exit"], "command_reason": noticed["report"].get("post_check", {}).get("reason"),
+            "command_exit": noticed["exit"], "command_reason": noticed["report"].get("catch_up", {}).get("reason"),
             "healed_after_removing_the_row": healed_alone,
             "passed": enabled_during_conflict and errors_during_conflict > errors_before and noticed["exit"] == 1 and healed_alone}
 
@@ -746,12 +751,18 @@ def summarize_recover(runs):
     def column(read):
         return condense([read(run) for run in runs])
 
+    def first(run, name):
+        return run["apply"]["report"]["command_clock"]["first_observations"][name]["elapsed_s"]
+
     return {"runs": len(runs), "passed": sum(run["passed"] for run in runs),
             "backlog_bytes": column(lambda run: run["backlog_bytes"]),
             "disabled_after_link_cut_s": column(lambda run: run["disabled_after_link_cut_s"]),
-            "backlog_cleared_s": column(lambda run: run["apply"]["report"]["post_check"]["backlog_cleared_seconds"]),
-            "barrier_arrived_ms": column(lambda run: run["apply"]["report"]["barrier_probe"]["arrived_ms"]),
-            "barrier_delete_arrived_ms": column(lambda run: run["apply"]["report"]["barrier_probe"]["delete_arrived_ms"]),
+            "gap_bytes": column(lambda run: run["apply"]["report"]["immediately_before_enable"]["gap_bytes"]),
+            "worker_elapsed_s": column(lambda run: first(run, "worker")),
+            "received_fixed_elapsed_s": column(lambda run: first(run, "received_fixed")),
+            "barrier_elapsed_s": column(lambda run: first(run, "barrier")),
+            "applied_fixed_elapsed_s": column(lambda run: first(run, "applied_fixed")),
+            "confirmed_fixed_s": column(lambda run: run["apply"]["report"]["catch_up"]["confirmed_fixed_seconds"]),
             "rows_written_while_stopped": column(lambda run: run["no_loss"]["rows_written_while_stopped"]),
             "acknowledged_rows_missing": column(lambda run: run["no_loss"]["acknowledged_rows_missing_on_target"])}
 
@@ -771,8 +782,12 @@ def command_assemble(args):
     merged["timeouts"]["summary"] = summarize_timeout_trials(merged["timeouts"]["trials"])
     merged["recover_summary"] = {condition: summarize_recover(runs) for condition, runs in merged["recover"].items()}
     files = [str(path.relative_to(ROOT)) for path in (TOOL, Path(__file__).resolve(), HERE / "lag_lab.py", HERE / "lag_metrics.py", HERE / "lag_readonly.py")]
-    merged["measured_code"] = json.loads(subprocess.check_output(
-        [sys.executable, str(ROOT / "scripts/evidence_sources.py"), "--repo", str(ROOT), "create", "--revision", args.revision, *files]))
+
+    def sources(revision):
+        return json.loads(subprocess.check_output(
+            [sys.executable, str(ROOT / "scripts/evidence_sources.py"), "--repo", str(ROOT), "create", "--revision", revision, *files]))
+
+    merged["measured_code"] = {"recover_refusals_paths": sources(args.revision), "timeouts": sources(args.timeouts_revision)}
     merged["environment"] = {"postgres_image": POSTGRES_IMAGE, "db_limits": list(DB_LIMITS), "log_parameters": LOG_PARAMETERS,
                              "resting_timeouts": {"wal_receiver_timeout": DB_PARAMETERS["wal_receiver_timeout"],
                                                   "wal_sender_timeout": DB_PARAMETERS["wal_sender_timeout"]},
@@ -803,7 +818,8 @@ def main():
     timeouts.set_defaults(run=command_timeouts)
     assemble = commands.add_parser("assemble")
     assemble.add_argument("--out", type=Path, required=True)
-    assemble.add_argument("--revision", required=True, help="the full commit the parts were measured at")
+    assemble.add_argument("--revision", required=True, help="the full commit recover, refusals and paths were measured at")
+    assemble.add_argument("--timeouts-revision", required=True, help="the full commit the timeout trials were measured at")
     assemble.add_argument("parts", nargs="+", type=Path)
     assemble.set_defaults(run=command_assemble)
     args = parser.parse_args()
