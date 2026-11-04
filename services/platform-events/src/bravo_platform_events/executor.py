@@ -161,6 +161,12 @@ class ExecutorReadError(RuntimeError):
     """Bounded failure code, safe to expose without upstream response contents."""
 
 
+def _validate_token(token: str | None) -> None:
+    if token is not None and (not isinstance(token, str) or not 1 <= len(token) <= 8192
+                              or any(not 33 <= ord(c) <= 126 for c in token)):
+        raise ValueError("invalid_executor_token")
+
+
 class ExecutorReader:
     """One bounded GET against a configured origin, with TLS and no redirects.
 
@@ -189,8 +195,7 @@ class ExecutorReader:
             raise ValueError("invalid_executor_origin")
         if type(timeout_seconds) not in {int, float} or not math.isfinite(timeout_seconds) or not 0 < timeout_seconds <= 30:
             raise ValueError("invalid_executor_timeout")
-        if token is not None and (not isinstance(token, str) or not 1 <= len(token) <= 8192 or any(not 33 <= ord(c) <= 126 for c in token)):
-            raise ValueError("invalid_executor_token")
+        _validate_token(token)
         if tls_context is not None and (not isinstance(tls_context, ssl.SSLContext)
                 or tls_context.verify_mode != ssl.CERT_REQUIRED or not tls_context.check_hostname):
             raise ValueError("verified_tls_context_required")
@@ -315,6 +320,18 @@ class ExecutorClient(ExecutorReader):
     host resumes through the inherited read path and its saved plan/epoch.
     """
 
+    def __init__(
+        self, base_url: str, *, token: str | None = None, command_token: str | None = None,
+        timeout_seconds: float = 5.0, transport: httpx.BaseTransport | None = None,
+        tls_context: ssl.SSLContext | None = None,
+    ):
+        _validate_token(command_token)
+        if command_token is not None and (not token or command_token == token):
+            raise ValueError("distinct_executor_credentials_required")
+        super().__init__(base_url, token=token, timeout_seconds=timeout_seconds,
+                         transport=transport, tls_context=tls_context)
+        self._command_token = command_token
+
     def submit(self, expected: ExpectedExecution, command: dict, *, idempotency_key: str):
         if not isinstance(expected, ExpectedExecution):
             raise ValueError("trusted_execution_context_required")
@@ -322,6 +339,8 @@ class ExecutorClient(ExecutorReader):
         if (not isinstance(command, dict) or command.get("plan_id") != expected.plan_id
                 or type(command.get("epoch")) is not int or command["epoch"] != expected.epoch):
             raise ValueError("command_context_mismatch")
+        if self._command_token is None:
+            return _unknown("command_credential_missing")
         return self._request("POST", "/v1/cutovers", expected, body=command,
-                             headers={"Idempotency-Key": idempotency_key},
+                             headers={"Idempotency-Key": idempotency_key, "Authorization": f"Bearer {self._command_token}"},
                              accepted_statuses=(200, 202))

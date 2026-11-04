@@ -6,6 +6,7 @@ import subprocess
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
+import httpx
 import pytest
 from test_cutover import COMMAND
 from test_executor import EXPECTED, response_value
@@ -46,7 +47,7 @@ def test_real_post_and_response_loss_query(lose_response):
             self.send_value(202)
 
         def do_GET(self):
-            received.append((self.command,))
+            received.append((self.command, self.headers["Authorization"]))
             self.send_value(200)
 
         def send_value(self, status):
@@ -61,12 +62,12 @@ def test_real_post_and_response_loss_query(lose_response):
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     try:
-        with ExecutorClient(f"http://127.0.0.1:{server.server_port}", token="fixture-bearer") as client:
+        with ExecutorClient(f"http://127.0.0.1:{server.server_port}", token="fixture-read", command_token="fixture-command") as client:
             result = client.submit(EXPECTED, COMMAND, idempotency_key="command-1")
             assert result.outcome == ("UNKNOWN" if lose_response else "OBSERVED")
             assert client.read(EXPECTED).outcome == "OBSERVED"
-        assert received[0] == ("POST", "Bearer fixture-bearer", "command-1", COMMAND)
-        assert [r[0] for r in received] == ["POST", "GET"]
+        assert received[0] == ("POST", "Bearer fixture-command", "command-1", COMMAND)
+        assert received[1:] == [("GET", "Bearer fixture-read")]
     finally:
         server.shutdown()
         server.server_close()
@@ -110,3 +111,15 @@ def test_real_tls_requires_trusted_ca_and_matching_hostname(tmp_path):
         server.shutdown()
         server.server_close()
         thread.join(timeout=5)
+
+
+def test_reader_credential_is_never_sent_as_a_command():
+    def unexpected_post(_request):
+        pytest.fail("reader attempted a network request")
+
+    with ExecutorClient("https://executor.invalid", token="fixture-read",
+                        transport=httpx.MockTransport(unexpected_post)) as client:
+        result = client.submit(EXPECTED, COMMAND, idempotency_key="read-only")
+        assert (result.outcome, result.reason) == ("UNKNOWN", "command_credential_missing")
+    with pytest.raises(ValueError, match="distinct_executor_credentials_required"):
+        ExecutorClient("https://executor.invalid", token="same", command_token="same")
