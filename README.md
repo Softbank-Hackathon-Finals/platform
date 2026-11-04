@@ -48,6 +48,7 @@ platform/
 │   ├── adr/                    # 결정 기록 (0000-template.md)
 │   └── assets/                 # README 그림
 ├── services/
+│   ├── loadgen/                # T18 부하 생성기 · 대조 리포트 · 창 요약 (Python)
 │   └── security-findings/      # T33 보안 탐지 정규화 (Python)
 ├── scripts/
 │   ├── sync_tasks.py           # tasks.md ↔ 이슈 · 보드 동기화
