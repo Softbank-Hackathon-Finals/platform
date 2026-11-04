@@ -16,8 +16,14 @@
   "permission_restored_positive_control": true,
   "status": "PASS",
   "own_rbac_resources_cleaned": true,
-  "source_sha256": {
-    "services/control-runner/src/bravo_controls/backup_rbac.py": "db81d598d413723b889027993d267923d3b695beb21ea3c0db8e8fbb05a9a2c4",
-    "services/control-runner/tests/integration/verify_backup_readback_rbac.py": "1ec9fa5b2abeb9521c40b9fb0efec811324c5695ff43aa88849e10a9b514a5f4"
-  }
+  "source_sha256": [
+    {
+      "path": "services/control-runner/src/bravo_controls/backup_rbac.py",
+      "sha256": "db81d598d413723b889027993d267923d3b695beb21ea3c0db8e8fbb05a9a2c4"
+    },
+    {
+      "path": "services/control-runner/tests/integration/verify_backup_readback_rbac.py",
+      "sha256": "1ec9fa5b2abeb9521c40b9fb0efec811324c5695ff43aa88849e10a9b514a5f4"
+    }
+  ]
 }
