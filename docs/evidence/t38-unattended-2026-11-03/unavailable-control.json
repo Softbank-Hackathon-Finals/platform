@@ -1,0 +1,23 @@
+{
+  "state": "NEEDS_HUMAN",
+  "receipt": {
+    "run_id": "synthetic-ci-example",
+    "source_sha": "1111111111111111111111111111111111111111",
+    "proposal_digest": "b3168457e9f18617a44c29ecc9b86ea51889ea4af5784f945473c4decf37c330",
+    "attempt": 1,
+    "verdict": "UNKNOWN",
+    "effects_known": false,
+    "evidence_digest": "47adfb4ba5c10c134cb29dfdefedd6e37da6367d8b39e036c5901c18c7bb8d71",
+    "failure": null
+  },
+  "evidence": {
+    "template": "db-environment-integration",
+    "job_complete": false,
+    "namespace_deleted": true,
+    "checks": {},
+    "failure_code": "VERIFIER_UNAVAILABLE",
+    "verifier_image": "docker.io/library/python@sha256:b18b261e1b4974b4f321451ad5251ded85abb22c2b8b262da527dda1d031ab30"
+  },
+  "candidate_sha256": "42f6a7df01d11a48251db075fa4cd84cb762e73cd9b7cce2641df2bbf97f2ab8",
+  "scope": "DB environment integration fixture; T9 product templates remain separate"
+}

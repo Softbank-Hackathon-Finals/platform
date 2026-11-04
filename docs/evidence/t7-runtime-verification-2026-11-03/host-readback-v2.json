@@ -1,0 +1,33 @@
+{
+  "observed_at": "2026-11-03T08:39:46+00:00",
+  "account_boundary_matches": true,
+  "target_owner_boundary_matches": true,
+  "ssm_status": "Success",
+  "ssm_response_code": 0,
+  "probe_sha256": "0b2fee777aec8d79d5eb5c9d426a6140e67f635e9bf14a8efe9a8594ab2183cd",
+  "host": {
+    "api_ready": true,
+    "bootstrap_marker_exists": true,
+    "cis_benchmark_verified": false,
+    "cis_profile_configured": true,
+    "cloud_init_status": "done",
+    "ghcr_http_status": "401",
+    "ghcr_image_pull_verified": false,
+    "human_kubernetes_login_verified": false,
+    "kubeconfig_owner_only": true,
+    "node_count": 1,
+    "nodes_query_succeeded": true,
+    "ready_node_count": 1,
+    "rke2_service_active": true,
+    "rke2_version": "v1.35.9+rke2r1",
+    "schema_version": 2,
+    "smoke_can_create_configmap": "yes",
+    "smoke_can_get_secret": "no",
+    "smoke_can_write_other_namespace": "no",
+    "system_pod_count": 17,
+    "system_pods_not_ready": 0,
+    "system_pods_pending_or_failed": 0,
+    "system_pods_query_succeeded": true
+  },
+  "operator_readiness": "PASS"
+}

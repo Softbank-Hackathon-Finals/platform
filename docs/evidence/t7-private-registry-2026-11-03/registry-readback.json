@@ -1,0 +1,15 @@
+{
+  "observed_at": "2026-11-03T09:18:26.568581+00:00",
+  "account_boundary_matches": true,
+  "repository": "bravo/demo-chat",
+  "repository_private": true,
+  "immutable_tags": true,
+  "kms_encryption": true,
+  "scan_on_push": true,
+  "oidc_provider_reused": true,
+  "oidc_subjects_main_only": true,
+  "publisher_repository_scoped": true,
+  "foundation_mutations": 0,
+  "long_lived_credentials_created": 0,
+  "image_copy_verified": false
+}

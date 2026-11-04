@@ -6,6 +6,7 @@ import contextlib
 import fcntl
 import json
 import os
+import platform
 import re
 import shutil
 import socket
@@ -144,6 +145,20 @@ def verify_qmp(client: QMP, vm: Path, launch_id: str):
         raise VMError("QEMU disk mismatch")
 
 
+def process_exiting(pid: int, identity: str) -> bool:
+    """Darwin can expose a truncated comm while the same process is exiting."""
+    result = subprocess.run(
+        ["ps", "-ww", "-p", str(pid), "-o", "lstart=", "-o", "stat="],
+        capture_output=True, text=True, timeout=5, check=False,
+        env={**os.environ, "LC_ALL": "C"},
+    )
+    fields = result.stdout.split()
+    if result.returncode or len(fields) != 6 or fields[:5] != identity.split(maxsplit=5)[:5]:
+        return False
+    status = fields[5]
+    return status.startswith("Z") or (platform.system() == "Darwin" and "E" in status)
+
+
 def down(state: Path, *, timeout: float = 30):
     vm = state / "vm"
     if not vm.exists() and not vm.is_symlink():
@@ -165,8 +180,14 @@ def down(state: Path, *, timeout: float = 30):
             pass  # QEMU may close before replying; process exit is still required.
     deadline = time.monotonic() + timeout
     while (current := process_identity(pid)) is not None:
-        if current != identity or time.monotonic() >= deadline:
+        if time.monotonic() >= deadline:
             raise VMError("QEMU exit not confirmed; state preserved")
+        if current != identity and not process_exiting(pid, identity):
+            # It may have disappeared between the two ps reads. A different live
+            # identity is still rejected; E/Z is never itself proof of absence.
+            if process_identity(pid) is not None:
+                raise VMError("QEMU process changed during shutdown; state preserved")
+            break
         time.sleep(0.1)
     current_directory = vm.lstat()
     if (current_directory.st_dev, current_directory.st_ino) != (directory.st_dev, directory.st_ino):
@@ -174,30 +195,96 @@ def down(state: Path, *, timeout: float = 30):
     shutil.rmtree(vm)
 
 
+def connection_settings(values) -> dict:
+    arch = values.get("arch", "arm64")
+    if arch not in ("arm64", "x86_64"):
+        raise VMError("unsupported VM architecture")
+    settings = {"arch": arch}
+    for name, default in (("ssh_port", 2222 if arch == "arm64" else 2223),
+                          ("api_port", 6443 if arch == "arm64" else 6444)):
+        raw = str(values.get(name, default))
+        if not re.fullmatch(r"[0-9]{1,5}", raw) or not 1024 <= int(raw) <= 65535:
+            raise VMError("VM ports must be integers from 1024 to 65535")
+        settings[name] = int(raw)
+    if settings["ssh_port"] == settings["api_port"]:
+        raise VMError("SSH and API ports must differ")
+    return settings
+
+
+def available_ports(settings):
+    # QEMU also binds exclusively; a race after this preflight fails startup safely.
+    with contextlib.ExitStack() as stack:
+        for name in ("ssh_port", "api_port"):
+            listener = stack.enter_context(socket.socket(socket.AF_INET, socket.SOCK_STREAM))
+            try:
+                listener.bind(("127.0.0.1", settings[name]))
+            except OSError:
+                raise VMError(f"{name} is already in use; choose a separate port") from None
+
+
+def connection(state: Path) -> int:
+    vm = state / "vm"
+    if vm.is_symlink():
+        raise VMError("VM directory must not be a link")
+    stored = json.loads(read_regular(vm / "connection.json"))
+    if not isinstance(stored, dict) or set(stored) != {"arch", "ssh_port", "api_port"}:
+        raise VMError("invalid VM connection metadata")
+    settings = connection_settings(stored)
+    if settings["arch"] != os.environ.get("BRAVO_VM_ARCH", "arm64"):
+        raise VMError("selected architecture does not match the existing VM")
+    launch_id = read_regular(vm / "launch.uuid").strip()
+    owned_process(vm, launch_id)
+    with qmp(vm) as client:
+        verify_qmp(client, vm, launch_id)
+    return settings["ssh_port"]
+
+
 def up(state: Path):
     vm = state / "vm"
+    # Preserve the old refusal before probing ports or changing any existing state.
+    if vm.exists() or vm.is_symlink():
+        raise FileExistsError("existing VM state")
+    settings = connection_settings({key: value for key, value in {
+        "arch": os.environ.get("BRAVO_VM_ARCH", "arm64"),
+        "ssh_port": os.environ.get("BRAVO_SSH_PORT"),
+        "api_port": os.environ.get("BRAVO_API_PORT"),
+    }.items() if value is not None})
+    available_ports(settings)
     vm.mkdir(mode=0o700)  # Exclusive: previous state is never reused or deleted.
     launch_id = str(uuid.uuid4())
     with (vm / "launch.uuid").open("x", encoding="utf-8") as output:
         output.write(launch_id + "\n")
+    with (vm / "connection.json").open("x", encoding="utf-8") as output:
+        json.dump(settings, output)
     script = Path(__file__).with_name("local-vm.sh")
-    environment = {**os.environ, "BRAVO_VM_STATE": str(state)}
+    environment = {**os.environ, "BRAVO_VM_STATE": str(state),
+                   "BRAVO_VM_ARCH": settings["arch"],
+                   "BRAVO_SSH_PORT": str(settings["ssh_port"]),
+                   "BRAVO_API_PORT": str(settings["api_port"])}
     subprocess.run(["bash", str(script), "_prepare", launch_id], env=environment, check=True)
-    owned_process(vm, launch_id)
+    pid, _ = owned_process(vm, launch_id)
     with qmp(vm) as client:
         verify_qmp(client, vm, launch_id)
+    if platform.system() == "Darwin":
+        # A process-scoped assertion, not a persistent host power-policy change.
+        subprocess.Popen(["caffeinate", "-is", "-w", str(pid)], stdin=subprocess.DEVNULL,
+                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                         start_new_session=True)
     subprocess.run(["bash", str(script), "_wait"], env=environment, check=True)
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("action", choices=("up", "down"))
+    parser.add_argument("action", choices=("up", "down", "connection"))
     parser.add_argument("state", type=Path)
     args = parser.parse_args()
     try:
         state = args.state.resolve()
         with lifecycle_lock(state):
-            (up if args.action == "up" else down)(state)
+            if args.action == "connection":
+                print(connection(state))
+            else:
+                (up if args.action == "up" else down)(state)
     except VMError as error:
         parser.exit(1, f"VM {args.action} failed: {error}. State preserved.\n")
     except (ValueError, TypeError, OSError, EOFError, subprocess.SubprocessError) as error:
