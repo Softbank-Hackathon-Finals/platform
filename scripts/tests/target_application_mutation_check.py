@@ -20,7 +20,7 @@ C = "infra/envs/target-workloads/secrets_manager_compat.py"
 RESULT_LINE = re.compile(r"^(?:FAIL|ERROR): test_\w+ \(test_target_application\.", re.MULTILINE)
 COPIED = ("infra/envs/target-workloads", "infra/envs/target-secrets", "scripts/tests/test_target_application.py",
           "scripts/export_target_image.py", "docs/operations/target-image-handoff.md",
-          "docs/adr/0016-target-app-secrets-manager-compat.md")
+          "docs/adr/0017-target-app-secrets-manager-compat.md")
 MUTATIONS = [
  (A, 'APP_ENV = "onprem"', 'APP_ENV = "aws"'),
  (A, '"WRITE_BLOCKED": "true"', '"WRITE_BLOCKED": "false"'),

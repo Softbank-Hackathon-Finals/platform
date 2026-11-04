@@ -5,14 +5,14 @@
 **실제 환경이 아니다.** RKE2, Tailscale, Edge, 게시된 이미지 바이트, 개발 VM의 QEMU에서는 재지 않았다.
 클라우드 자원과 실제 클러스터는 건드리지 않았다.
 
-숫자는 [`lab-result.json`](lab-result.json)에서 왔다. 소스는 플랫폼 `8118619`, demo-chat `8d82a92`(게시본과 같은 소스의 로컬 빌드)이다.
+숫자는 [`lab-result.json`](lab-result.json)에서 왔다. 측정 뒤 ADR 번호만 0016에서 0017로 바꿨고, 렌더 결과에서 달라진 것은 호환 스크립트 주석의 경로 한 줄이다. 소스는 플랫폼 `8118619`, demo-chat `8d82a92`(게시본과 같은 소스의 로컬 빌드)이다.
 
 ## 판단 세 가지
 
 **1. 지금 이미지가 AWS 없이 뜨는가: 뜨지 않는다.** `ce5727e`의 제약이 게시본 `8d82a92`에도 그대로다. `app/main.py`의 lifespan이
 `credentials.get()`으로 `app/db_secret.py`의 `GetSecretValue`를 호출하고, 실패하면 앱이 죽는다. 같은 이미지로 응답 지점을 없애
 봤더니 `EndpointConnectionError`로 시작에 실패했다. 이 호출은 S2 시연을 위해 일부러 남긴 것이라 앱을 고치지 않았다.
-[ADR-0016](../../adr/0016-target-app-secrets-manager-compat.md)대로 같은 Pod의 별도 컨테이너가 루프백에서 응답한다. **출구 증거가 아니다.**
+[ADR-0017](../../adr/0017-target-app-secrets-manager-compat.md)대로 같은 Pod의 별도 컨테이너가 루프백에서 응답한다. **출구 증거가 아니다.**
 
 **2. T9 없이 DB 접속 정보를 어떻게 주는가: T9 계약의 Secret 이름을 참조만 한다.** 렌더 결과에 Secret 객체와 값이 없다.
 [T9 전달 실측](../2026-11-04-target-secret-delivery/README.md)을 보면 세 Secret이 개발 VM에 이미 ESO로 전달됐을 수 있어서, 적용 전에

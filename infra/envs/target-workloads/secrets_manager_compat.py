@@ -4,7 +4,7 @@
 The unchanged image calls GetSecretValue at startup. This separate container lets
 it start for development measurement without AWS. It is NOT evidence that the app
 left AWS: the code dependency stays until the approved T15 change and T31 image
-replace this container (docs/adr/0016-target-app-secrets-manager-compat.md).
+replace this container (docs/adr/0017-target-app-secrets-manager-compat.md).
 
 Standard library only, so it runs from the same image. Nothing is logged: requests
 carry a signature and responses carry the credential.

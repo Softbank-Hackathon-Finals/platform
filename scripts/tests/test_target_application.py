@@ -274,7 +274,7 @@ class ImageContractTests(unittest.TestCase):
         # A new publication must change app-image.json alone. Evidence keeps what was actually measured.
         for relative in ("infra/envs/target-workloads/application.py", "infra/envs/target-workloads/README.md",
                          "scripts/export_target_image.py", "docs/operations/target-image-handoff.md",
-                         "docs/adr/0016-target-app-secrets-manager-compat.md"):
+                         "docs/adr/0017-target-app-secrets-manager-compat.md"):
             text = (ROOT / relative).read_text()
             for value in (PIN["source_sha"], PIN["index_digest"], PIN["amd64_digest"]):
                 with self.subTest(file=relative, value=value[:15]):
