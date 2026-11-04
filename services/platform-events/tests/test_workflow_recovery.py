@@ -13,6 +13,7 @@ import pytest
 from test_cutover import BINDING, BINDINGS, COMMAND, EXPIRES, NOW, PRINCIPAL, SPEC
 from test_executor import EXECUTION, response_value
 
+from bravo_platform_events.change import ChangeApprovalService, CurrentChange
 from bravo_platform_events.cutover import CurrentCutover, CutoverService
 from bravo_platform_events.executor import ExecutorClient
 from bravo_platform_events.plans import CollectionProof, PlanStore
@@ -36,9 +37,6 @@ PLAN = SPEC.plan_id
 CHANGE = Change(BINDING["diff_hash"], BINDING["image_digest"])
 ANALYSIS = Analysis(SPEC.collection_scope_digest, "1" * 64, "2" * 64)
 PROPOSAL = Proposal(ANALYSIS.inventory_digest, ANALYSIS.comparison_digest, CHANGE, True, True)
-APPLIED = Application(
-    CHANGE, "verified-job", "change-approved", "apply-1", True, CHANGE.image_digest
-)
 GATE = Gate(CHANGE, BINDING["gate_id"], BINDING["context_digest"], "PASS")
 APPROVAL = ShiftApproval(GATE, "shift-approved", True, EXPIRES)
 ROUTE = [
@@ -61,6 +59,7 @@ class Producers:
     def __init__(self, ledger):
         self.ledger = ledger
         self.override = {}
+        self.application = None
 
     def read(self, c, plan, previous, run):
         stage = plan["state"]
@@ -69,7 +68,7 @@ class Producers:
         result = {
             "ANALYZE": ANALYSIS,
             "PROPOSE": PROPOSAL,
-            "REHEARSE": APPLIED,
+            "REHEARSE": self.application,
             "GATE": GATE,
             "AWAIT_APPROVAL": APPROVAL,
         }.get(stage)
@@ -115,10 +114,27 @@ def collect(store):
     )
 
 
+def admit_change(store, change=CHANGE):
+    binding = {k: v for k, v in BINDING.items() if k not in ("gate_id", "context_digest")}
+    binding.update(diff_hash=change.diff_hash, image_digest=change.image_digest)
+    candidate = CurrentChange(binding, "rehearsal-1", "verified-job", "revision-1")
+    service = ChangeApprovalService(store, clock=lambda: NOW, authority=lambda *a, **kw: candidate)
+    version = store.snapshot(PLAN)["version"]
+    approval = service.approve(PRINCIPAL, PLAN, run_id=candidate.rehearsal_id, binding=binding,
+                               expected_version=version, command_key="approve-change")
+    claim, created = service.claim_application(PRINCIPAL, PLAN, approval_id=approval["approval_id"],
+                                               command_key="apply-change")
+    assert created
+    return Application(change, claim["verification_id"], approval["approval_id"],
+                       claim["application_id"], True, change.image_digest)
+
+
 def to_shift(store, producers):
     collect(store)
     recovery = WorkflowRecovery(service(store, None), read_evidence=producers.read)
     for target in ROUTE[2:7]:
+        if target == "GATE":
+            producers.application = admit_change(store)
         assert recovery.resume_once(PRINCIPAL, PLAN) == target
 
 
@@ -270,10 +286,13 @@ def test_rejects_missing_stale_or_failed_producer_evidence(backend, tmp_path):
     for stage, bad in [
         ("ANALYZE", replace(ANALYSIS, scope_digest="0" * 64)),
         ("PROPOSE", replace(PROPOSAL, lint_passed=False)),
-        ("REHEARSE", replace(APPLIED, deployed_digest="sha256:" + "0" * 64)),
+        ("REHEARSE", None),
         ("GATE", replace(GATE, verdict="UNKNOWN")),
         ("AWAIT_APPROVAL", replace(APPROVAL, expires_at=NOW)),
     ]:
+        if stage == "REHEARSE":
+            producers.application = admit_change(store)
+            bad = replace(producers.application, deployed_digest="sha256:" + "0" * 64)
         before = store.snapshot(PLAN)
         assert before["state"] == stage
         good = producers.read(None, before, None, None)
@@ -289,6 +308,42 @@ def test_rejects_missing_stale_or_failed_producer_evidence(backend, tmp_path):
             assert store.snapshot(PLAN) == before
         del producers.override[stage]
         recovery.resume_once(PRINCIPAL, PLAN)
+
+
+@pytest.mark.parametrize("fault", ["no-claim", "approval_id", "application_id", "verification_id",
+                                   "other-diff", "other-image", "older-plan"])
+def test_deployment_must_match_the_plans_admitted_change(backend, tmp_path, fault):
+    store = backend.store
+    producers = Producers(tmp_path / "unused")
+    collect(store)
+    recovery = WorkflowRecovery(service(store, None), read_evidence=producers.read)
+    assert recovery.resume_once(PRINCIPAL, PLAN) == "PROPOSE"
+    assert recovery.resume_once(PRINCIPAL, PLAN) == "REHEARSE"
+    if fault == "no-claim":
+        observed = Application(CHANGE, "verified-job", "unrelated", "foreign-apply",
+                               True, CHANGE.image_digest)
+    else:
+        approved_change = CHANGE
+        if fault == "other-diff":
+            approved_change = replace(CHANGE, diff_hash="sha256:" + "0" * 64)
+        if fault == "other-image":
+            approved_change = replace(CHANGE, image_digest="sha256:" + "0" * 64)
+        if fault == "older-plan":
+            # Model a claim from a prior visit to REHEARSE on this plan.
+            with store._transaction(write=True, plan_id=PLAN) as c:
+                c.execute("UPDATE plans SET version=3 WHERE plan_id=?", (PLAN,))
+        admitted = admit_change(store, approved_change)
+        if fault == "older-plan":
+            with store._transaction(write=True, plan_id=PLAN) as c:
+                c.execute("UPDATE plans SET version=4 WHERE plan_id=?", (PLAN,))
+        observed = replace(admitted, change=CHANGE, deployed_digest=CHANGE.image_digest)
+        if fault in ("approval_id", "application_id", "verification_id"):
+            observed = replace(observed, **{fault: "different"})
+    producers.application = observed
+    before = store.snapshot(PLAN)
+    with pytest.raises(EventError, match="workflow_condition_unmet"):
+        recovery.resume_once(PRINCIPAL, PLAN)
+    assert backend.reopen().snapshot(PLAN) == before
 
 
 def test_committed_executor_still_requires_integrity_watch_and_retest(backend, tmp_path):
