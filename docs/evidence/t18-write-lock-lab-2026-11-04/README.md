@@ -27,7 +27,7 @@
 | 측정 코드 | 측정은 #158 브랜치의 `21085aa` 위에서 했다. 그 뒤 `dea9ced`(창 전송 Bearer 인증)로 rebase했고, #158이 머지된 뒤 develop `399f297`을 머지 커밋으로 합쳤다. `services/loadgen/testing`의 Git 트리 해시 `7b4c6c98a4a2dd78de9541f61b6b7d849bd8175a`는 rebase 뒤 값이고 머지로 바뀌지 않았다. develop이 `services/loadgen`을 바꾸지 않아 머지 뒤에는 다시 재지 않았다. 측정 뒤에 고친 도구는 결과를 읽는 코드(`lock_lab_report.py`, Edge 오류 집계)뿐이다. rebase 뒤에 안 3+읽기 설정 20ms · 50% 1칸을 다시 돌려 도구가 도는지 확인했다(P, 5xx 0, 쓰기 p95 27ms, 실패 · 유실 · 중복 0 · 0 · 0). `matrix-smoke-after-rebase.jsonl` |
 | 대상 앱 | demo-chat main `dc9bece24898b752a77af1d1bbd440c11100e5f2`. `app/store.py`는 #158에서 쓴 `b71d4aa`와 같다. 안마다 `app/store.py`만 바꾼 복사본을 저장소 밖에서 썼다. 환경마다 uvicorn 프로세스 1개로 직접 실행(컨테이너 이미지 아님) |
 | DB | 행렬: `public.ecr.aws/docker/library/postgres@sha256:5db6dac2ef5dcff512f4f00a009c3c332b9f2f28f24277175bf3e4a3d02ef83a`(16). 불변식은 16과 18.4 `@sha256:a02db8cac496f15b094798a38254f14d6e00741f709360e5e00bb6668ea31636` 둘 다. 실제 DB는 18.4다 |
-| PgBouncer | `ghcr.io/cloudnative-pg/pgbouncer:1.25.1@sha256:e6ddfe22d845e603825e235dd8334b21ecd125abea2a2172478f556b8dee2bb8`. 설정은 `infra/envs/source-workloads/pgbouncer.ini`와 같은 값(transaction 모드, `default_pool_size=10`, `max_prepared_statements=0`). **목적지 설정은 저장소에서 찾지 못해 같다고 가정했다** |
+| PgBouncer | `ghcr.io/cloudnative-pg/pgbouncer:1.25.1@sha256:e6ddfe22d845e603825e235dd8334b21ecd125abea2a2172478f556b8dee2bb8`. 설정은 `infra/envs/source-workloads/pgbouncer.ini`와 같은 값(transaction 모드, `default_pool_size=10`, `max_prepared_statements=0`). **측정 때는 목적지 설정이 저장소에 없어 같다고 가정했다.** develop을 합치며 들어온 `infra/envs/target-workloads/pgbouncer.ini`의 세 값도 같다 |
 | Edge 대역 | `nginx@sha256:df221db836e1754089190208cee7eeda94f233197056426eda74a43ab1abeac2`. 가중치 분배와 `X-Bravo-Env`만 흉내 낸다. 실제 Cloudflare가 아니다 |
 | 지연 | `testing/tcp_fault.py`가 패킷을 받아 정해진 시간만큼 늦춘다. 지터 · 손실 없음. **모의 지연이다** |
 | 부하 | 쓰기 50 · 읽기 150 req/s, 칸마다 30초. judge는 `window_seconds=10`, `min_requests=1000`, `error_rate_max=0.01`, `p95_ms_max=1500`(자리값) |
@@ -322,7 +322,7 @@
 2. **패치 채택(T22).** `patches/3r-pipeline-reads.patch`는 `app/store.py` 한 파일이다. 자체 시험 24개와 불변식 검사를 통과했다. 안 2+읽기를 더 선호할 이유(파이프라인 의존 회피)가 있는지도 묻는다.
    **열려 있는 demo-chat PR #14(`app/main.py`의 `X-Bravo-Env` 등, head `7c821c3`)와 파일이 겹치지 않는다.** 그 PR은 `app/store.py`와 `tests/test_store.py`를 바꾸지 않고, psycopg 3.3.6 · psycopg-pool 3.3.3도 그대로다. 패치 3개(`1-`, `2r-`, `3r-`)와 `test-lock-order.patch`가 그 head에 `git apply --check`로 적용된다. 합친 앱으로 다시 재지는 않았다.
 3. **시험 보강(T22).** `patches/test-lock-order.patch`. 지금 시험은 잠금을 지워도 통과한다.
-4. **목적지 PgBouncer 설정(T17).** 저장소에서 찾지 못했다. 패치 뒤의 한계는 `연결 수 ÷ 왕복`이라 `default_pool_size`가 경계를 정한다. 앱 복제본을 늘려도 PgBouncer 연결 수가 그대로면 늘지 않는다.
+4. **목적지 PgBouncer 설정(T17).** 측정 때는 저장소에 없었고, 지금은 `infra/envs/target-workloads/pgbouncer.ini`에 측정에 쓴 값과 같은 `default_pool_size=10`으로 있다. 이 값으로 충분한지 정해야 한다. 패치 뒤의 한계는 `연결 수 ÷ 왕복`이라 `default_pool_size`가 경계를 정한다. 앱 복제본을 늘려도 PgBouncer 연결 수가 그대로면 늘지 않는다.
 5. **p95 기준 확정(T17).** 자리값 1500ms 기준으로 잰 경계다.
 
 ## 14. 재현
