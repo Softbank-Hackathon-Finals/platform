@@ -1,0 +1,39 @@
+{
+  "scope": "actual Kubernetes named-Pod log readback fixture; not production log query service",
+  "reader_token_seconds": 600,
+  "positive_named_pod_and_logs": 200,
+  "negative_access": {
+    "secret-list": 403,
+    "pod-list": 403,
+    "other-pod": 403,
+    "other-pod-logs": 403,
+    "source-db-logs": 403,
+    "delete-readback": 403,
+    "create-role": 403
+  },
+  "binding_revocation": 403,
+  "binding_restored": 200,
+  "receiver_uid_unchanged": true,
+  "query_sha256": "a802f32dcd77ad05090b6d3c8d2dfbdd07a0cc4c0abbdae40ff139ec1637edae",
+  "query_bytes": 9002783,
+  "query_limit_bytes": 16000000,
+  "three_canary_kinds_in_fixture_export": true,
+  "status": "PASS",
+  "observed_at": "2026-11-03T13:23:51.848535+00:00",
+  "reader_query_results": {
+    "AUD-01.1": "present",
+    "AUD-01.2": "present",
+    "AUD-01.3": "present"
+  },
+  "reader_query_decoded_events": 10544,
+  "public_is_raw": false,
+  "original_sha256": "1adbc8f0d1af2edc3ed9b261c0b24362f9958acc6c9e5ce08a0c9f132ddd1761",
+  "source_sha256": {
+    "services/control-runner/src/bravo_controls/audit_forwarding.py": "26ed052a900eca7e6280f0a3f8cdafaad385373a86c002f4661d9d55bd83eea6",
+    "services/control-runner/tests/integration/verify_audit_collector.py": "1fc24679f3bdb48eb37ec1d83a5595aba9ff9916a9fe34811d10b2afcf1770c8"
+  },
+  "decoder_sha256": "423af0bc79371e778567be79655e7e094496681ede3669263c43dfdc367c3213",
+  "decoder_pr": 124,
+  "private_qualification_harness_sha256": "8415b7c06edcf34f714a7c0fa67e6f3184295b5c9d08f225478199e9dbb5f1e4",
+  "private_search_verification_sha256": "56ae327ec7b7e292a31cc70db4bb1b66fbbb1a79421ef17cc1339f6577a2ebe3"
+}

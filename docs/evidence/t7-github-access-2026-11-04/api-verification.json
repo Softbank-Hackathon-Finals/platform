@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "observed_at": "2026-11-04T04:02:32.974232+00:00",
+  "repository": "Softbank-Hackathon-Finals/demo-chat",
+  "repository_id": 1443045289,
+  "status": "PASS",
+  "checks": {
+    "reader_contents_read": true,
+    "writer_contents_read": true,
+    "writer_before": true,
+    "reader_write_denied": true,
+    "writer_after": true
+  },
+  "probe_refs": [
+    "heads/t7-access-probe/6e50df54526941d7866ed68c170d128c-writer_before",
+    "heads/t7-access-probe/6e50df54526941d7866ed68c170d128c-reader",
+    "heads/t7-access-probe/6e50df54526941d7866ed68c170d128c-writer_after"
+  ],
+  "cleanup_verified": true,
+  "t31_consumer_verified": false,
+  "base_revision": "dc9bece24898b752a77af1d1bbd440c11100e5f2"
+}

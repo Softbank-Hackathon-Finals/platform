@@ -1,0 +1,12 @@
+diff --git a/app/store.py b/app/store.py
+index 1059aa0..983d68e 100644
+--- a/app/store.py
++++ b/app/store.py
+@@ -41,7 +41,6 @@ class Store:
+             )
+             # 커밋 순서를 id 순서와 맞춘다. 전파가 "마지막 id 이후"를 조회하므로,
+             # 늦게 커밋된 작은 id를 구독자가 건너뛰지 않게 한다.
+-            await cur.execute("SELECT pg_advisory_xact_lock(%s)", (MESSAGE_WRITE_LOCK,))
+             try:
+                 await cur.execute(
+                     """

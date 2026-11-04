@@ -1,0 +1,40 @@
+{
+  "private_receipts": [
+    {
+      "path": "verify2.invocation.private.json",
+      "sha256": "880351285d0c67453fdce1a0a1d45cfa4d67474531035660f70833bc023dbecc"
+    },
+    {
+      "path": "cleanup.invocation.private.json",
+      "sha256": "024e5a929940d8a3ac453fa74920a178a7f1833aea8a89f1db41676447604f7d"
+    },
+    {
+      "path": "migrate4.invocation.private.json",
+      "sha256": "db915d416de79056629eedc86121a2e6e398fc4a9b2888763dc203a4588d74d2"
+    },
+    {
+      "path": "enroll4.invocation.private.json",
+      "sha256": "edfafe16a030270e0bddcbd3257a4c42ff7c74bcdcddf54586667bc46441b073"
+    },
+    {
+      "path": "import_image_5.invocation.private.json",
+      "sha256": "9af926b087e0800d6e8c7e7e04bf76af6476443a4f264bde098390bbedbd0cd7"
+    },
+    {
+      "path": "policy-before.private.json",
+      "sha256": "9f501604959364954aa4547cc645ad67d2a520b2d39b23fe0ca97bd1d2be07d1"
+    },
+    {
+      "path": "policy-readback.private.json",
+      "sha256": "fd25be5aa71200d844f80739c15e068af4b2295d4e87e96fc6748fc6906f87a4"
+    },
+    {
+      "path": "all-final-tests.txt",
+      "sha256": "36de2d7ffc421383521105f8a806ca1a84af3f0ab1a5198741ecbfcc98e4ccbc"
+    },
+    {
+      "path": "targeted-final-tests.txt",
+      "sha256": "669a3b7c12425f9ffa0e9bdeba9274fc363637aa61fc0a20d5cf2d65a946240f"
+    }
+  ]
+}

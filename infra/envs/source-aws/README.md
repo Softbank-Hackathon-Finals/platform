@@ -1,6 +1,6 @@
 # T6 출발지 사전 준비
 
-**현재 범위는 로컬 구성 검토용 초안이다. EKS·CNPG·PgBouncer·ESO를 배포한 결과가 아니다.** [T6 #11](https://github.com/Softbank-Hackathon-Finals/platform/issues/11)의 선행 T1이 부분 완료이므로 실제 출발지 구축·접속·감사 카나리는 별도 단계로 남긴다. 팀 설계 원본은 [설계 7.2·7.5·8.6·8.10](../../../docs/design.html), 요청 근거는 [T34 작업](../../../docs/tasks.md)이다. T5/T19 원본 대조 게이트의 판정 규칙을 이 도구로 대신하지 않는다.
+**이 디렉터리의 도구 범위는 로컬 구성 검토다. 도구의 PASS는 실제 배포 결과가 아니다.** 실제 출발지 구현은 [EKS 기반](../source-eks/README.md)과 [워크로드](../source-workloads/README.md), 관측 결과는 [11/3 구축 기록](../../../docs/evidence/t6-runtime-2026-11-03/README.md)과 [11/4 원본 검토·현재 상태 확인](../../../docs/evidence/t6-completion-2026-11-04/README.md)을 따른다. 팀 설계 원본은 [설계 7.2·7.5·8.6·8.10](../../../docs/design.html), 요청 근거는 [T34 작업](../../../docs/tasks.md)이다. T5/T19 원본 대조 게이트의 판정 규칙을 이 도구로 대신하지 않는다.
 
 | 파일 | 역할 |
 |---|---|
@@ -31,7 +31,7 @@ python3 -m unittest discover -s scripts/tests -p test_source_preflight.py -v
 
 현재 foundation은 기본 egress를 닫고 피어링의 443/5432만 명시한다. **VPC 존재만으로 EKS 노드 기동과 외부 API 접근이 준비됐다고 볼 수 없다.** EKS/EC2·STS·Secrets Manager·S3/KMS, GHCR/DNS·시간 동기화와 필요한 운영 경로를 먼저 열거하고 NAT/endpoint/프록시 선택·비용·접근 범위를 팀과 정한다. 이번 파일들은 네트워크 정책을 변경하지 않는다. 사람의 SSO/EKS access entry는 T1 접근 준비 산출물을 따르고, 앱·ESO의 workload identity와 구별한다.
 
-예선 참고 범위를 확인했다. 로컬 Railshot의 `infrastructure/terraform/aws`는 EC2/SSM 노드 모듈이었고, 해당 경로 및 Jasmin의 검색 범위에서 EKS Terraform 리소스/모듈 선언은 찾지 못했다. 이 확인을 T6의 “예선 EKS 모듈 구조 참고” 완료로 체크하지 않는다. 다른 브랜치에 원본이 있으면 위치·커밋을 다시 확보한다. 개인 B-free의 EKS 구현이나 실행 결과도 자동으로 팀 정본에 옮기지 않는다.
+11/4에 예선 Railshot·Jasmin의 현재 원격 브랜치 43개와 그 도달 가능한 구현 이력을 조사했다. EKS 리소스·모듈 선언은 검색 범위에서 발견되지 않았고, [Railshot의 고정 원문](https://github.com/Jasmin-Softbank/Railshot/blob/645e28aefa7f3d3996c57ea6853c6e2f67c5bcc4/docs/architecture/self-managed-ingress.md)은 VM 위 K3s를 사용하며 EKS를 전제로 하지 않는다고 명시한다. 따라서 T6의 참고 항목은 예선 구현의 적용 가능성을 검토하고 현재 EKS 모듈의 구조·실환경 근거를 확인하는 것으로 구체화했다. [검색 범위·구조 비교·항목별 완료 근거](../../../docs/evidence/t6-completion-2026-11-04/README.md)를 함께 확인한다. 예선 EKS 모듈을 확보·재사용했다고 표시하지 않으며, 개인 B-free의 구현·실행 결과를 팀 구현으로 대체하지 않는다.
 
 ## 앱·DB·시크릿 경계
 

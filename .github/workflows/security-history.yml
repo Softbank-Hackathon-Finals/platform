@@ -1,0 +1,40 @@
+name: security-history
+
+# This audit fails visibly, but is not a required PR context. It never feeds
+# the secrets/infra/platform gates of unrelated pull requests.
+on:
+  push:
+    branches: [main, develop]
+  schedule:
+    - cron: '23 3 * * 1'
+  workflow_dispatch:
+  # Validate this audit in CI when its own policy or implementation changes.
+  pull_request:
+    paths:
+      - .github/workflows/security-history.yml
+      - scripts/ci_secrets.py
+      - scripts/tests/test_ci_secrets.py
+      - .gitleaks.toml
+      - .gitleaksignore
+
+permissions:
+  contents: read
+
+jobs:
+  history-secrets:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: All fetched branches and tags, complete history
+        run: python3 scripts/ci_secrets.py --scope repository --receipt "$RUNNER_TEMP/history-scan.json"
+      - name: Preserve scan input and result
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: history-scan-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/history-scan.json
+          retention-days: 14
