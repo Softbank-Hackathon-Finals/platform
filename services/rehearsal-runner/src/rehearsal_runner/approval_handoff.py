@@ -9,8 +9,9 @@ import re
 from dataclasses import dataclass
 
 from .integration_handoff import ProposedHandoff
+from .runner import Namespace, ProposalRef
 
-_IDENTIFIER = r"[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}"
+_IDENTIFIER = r"[A-Za-z0-9][A-Za-z0-9_-]{0,127}"
 
 
 @dataclass(frozen=True)
@@ -28,6 +29,20 @@ class CandidateSubmission:
     namespace_uid: str
     cleanup_uid: str
 
+    def t10_fields(self) -> dict:
+        """Return the T10 intake fields, never the locally asserted UID evidence.
+
+        T10's authenticated original supplies created/removed UID and absence.
+        The host must send these fields only via a configured trusted transport.
+        """
+        return {
+            "plan_id": self.plan_id, "run_id": self.run_id, "attempt": self.attempt,
+            "verification_id": self.verification_id, "evidence_ref": self.evidence_ref,
+            "target_environment_id": self.target_environment_id, "namespace": self.namespace,
+            "proposal_digest": self.proposal_digest, "diff_hash": self.diff_hash,
+            "image_digest": self.image_digest,
+        }
+
 
 def prepare_candidate(
     handoff: ProposedHandoff,
@@ -41,7 +56,17 @@ def prepare_candidate(
     """Create candidate data only; the receiver must verify every assertion."""
     if not isinstance(handoff, ProposedHandoff):
         raise ValueError("invalid handoff")
-    for value in (plan_id, verification_id, evidence_ref):
+    if (not isinstance(handoff.proposal, ProposalRef) or not isinstance(handoff.namespace, Namespace)
+            or type(handoff.attempt) is not int or not 1 <= handoff.attempt <= 3
+            or not isinstance(handoff.proposal.source_sha, str)
+            or re.fullmatch(r"[a-f0-9]{40}", handoff.proposal.source_sha) is None
+            or not isinstance(handoff.proposal.proposal_digest, str)
+            or re.fullmatch(r"[a-f0-9]{64}", handoff.proposal.proposal_digest) is None
+            or any(not isinstance(value, str) or re.fullmatch(r"sha256:[a-f0-9]{64}", value) is None
+                   for value in (handoff.diff_hash, handoff.image_digest))):
+        raise ValueError("invalid handoff binding")
+    for value in (plan_id, verification_id, evidence_ref, handoff.proposal.run_id,
+                  handoff.target_environment_id, handoff.namespace.name):
         if not isinstance(value, str) or re.fullmatch(_IDENTIFIER, value) is None:
             raise ValueError("invalid reference")
     if (cleanup_confirmed is not True or not isinstance(cleanup_uid, str)
@@ -55,3 +80,44 @@ def prepare_candidate(
         image_digest=handoff.image_digest, target_environment_id=handoff.target_environment_id,
         namespace=handoff.namespace.name, namespace_uid=handoff.namespace.uid, cleanup_uid=cleanup_uid,
     )
+
+
+@dataclass(frozen=True)
+class IntakeResult:
+    """Intake acknowledgement only; not human approval or deployment authority."""
+
+    state: str
+    verification_id: str
+    attempt: int
+    revision: str | None = None
+
+
+def submit_candidate(submission: CandidateSubmission, *, candidate_type, intake, token_supplier) -> IntakeResult:
+    """Call a host-configured T10 intake once, without logging token or evidence.
+
+    T10 must authenticate the workload, independently read the verifier's
+    original and confirm the artifacts, cleanup, current plan and holds. This
+    function does not authenticate evidence, grant approval, retry, or install a
+    transport. An exception or malformed acknowledgement leaves the remote
+    outcome unknown; the host must resolve it by the T10 idempotency contract.
+    """
+    if not isinstance(submission, CandidateSubmission):
+        raise ValueError("invalid submission")
+    unknown = IntakeResult("UNKNOWN", submission.verification_id, submission.attempt)
+    try:
+        candidate = candidate_type(**submission.t10_fields())
+        candidate.validate()
+        token = token_supplier()
+        if not isinstance(token, str) or not token:
+            return unknown
+        receipt = intake.receive(token, candidate)
+        if (not isinstance(receipt, dict)
+                or set(receipt) != {"verification_id", "attempt", "revision"}
+                or receipt["verification_id"] != submission.verification_id
+                or type(receipt["attempt"]) is not int or receipt["attempt"] != submission.attempt
+                or not isinstance(receipt["revision"], str)
+                or re.fullmatch(r"[a-f0-9]{64}", receipt["revision"]) is None):
+            return unknown
+        return IntakeResult("ACKNOWLEDGED", submission.verification_id, submission.attempt, receipt["revision"])
+    except Exception:
+        return unknown

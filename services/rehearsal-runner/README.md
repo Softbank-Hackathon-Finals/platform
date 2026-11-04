@@ -183,3 +183,16 @@ PYTHONPATH=../rehearsal-runner/src uv run --frozen --no-default-groups --with py
 리허설 기본 NetworkPolicy는 Kubernetes API 송신을 막고 기본 계정에 토큰을 마운트하지 않는다. 이 명령을 실행하려고 격리 정책을 임의로 완화하지 않는다. 신뢰된 별도 검증 Job, 대상 계정의 식별·권한 전달, 양성 대조, 인증된 Job 증거와 UID 정리 방식은 T38 접점에 맞춰 연결해야 한다. 실제 앱의 DB 응답과 대상 Secret에 대한 별도 양성·음성 확인이 모두 필요하다.
 
 로컬에서 실제 수정된 demo-chat과 PostgreSQL 연결을 재현하려면 수정본의 `.venv`와 PostgreSQL 도구(`pg_config`, `initdb`, `pg_ctl`, `psql`)를 준비한 뒤 `testing/verify_real_demo_db.sh <수정된-demo-chat-경로>`를 실행한다. 이 시험은 임시 DB와 자격을 만들고 초기 접속, 비밀번호 회전 후 재접속, DB 중단 관측을 확인한 뒤 정리한다. Kubernetes·OpenBao·ESO·T38 제품 Job 검증을 대신하지 않는다.
+
+## T10 수신 교차 시험
+
+`approval_handoff.submit_candidate`는 호스트가 주입한 T10 `Candidate`, `ChangeIntake`, 토큰 공급자를 이용해 후보를 한 번 전달한다. T10의 응답을 검증하며 예외·응답 불명일 때 자동으로 재전송하거나 승인되었다고 표시하지 않는다. 인증 원문 조회와 수신자 권한 검증은 T10 책임이다.
+
+T10 수신 PR #237의 `6fce3d54a9c825aaf66140d69211d11d7d5f807e` 소스를 별도 체크아웃에 준비하고 `T10_CHECKOUT`으로 지정하면 다음 교차 시험을 실행할 수 있다. 이 시험은 T10 실제 수신 코드와 합성 원문·시험용 서명 키를 사용한다.
+
+```bash
+cd ../platform-events
+PYTHONPATH="$T10_CHECKOUT/services/platform-events/src:../rehearsal-runner/src" uv run --frozen --no-default-groups --with pytest pytest -p no:cacheprovider ../rehearsal-runner/testing/test_t10_intake_compat.py
+```
+
+PR #237의 수신기는 기본적으로 네트워크 경로와 운영 원문 조회기가 설치되지 않으며, 이 시험은 실제 제품 검증이나 사람 승인을 뜻하지 않는다.
