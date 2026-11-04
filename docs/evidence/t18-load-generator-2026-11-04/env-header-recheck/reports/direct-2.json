@@ -1,0 +1,150 @@
+{
+  "kind": "t18_run_report",
+  "schema_version": "1",
+  "run_id": "t18-direct-2-ea2fd9",
+  "plan_id": "plan-local",
+  "started_at": "2026-11-04T05:35:21.951877+00:00",
+  "target": "http://127.0.0.1:52381",
+  "measurement": {
+    "path": "local-direct",
+    "edge_measured": false
+  },
+  "journal_sha256": "48e3904577d9ea8181e436e48342dd9592878427f85c44c2f3fd377377c2f174",
+  "verdict": "PASS",
+  "reasons": [],
+  "warnings": [
+    "NOT_EDGE_MEASURED"
+  ],
+  "sli_usable_for_judgement": false,
+  "load": {
+    "duration_s": 60.0,
+    "target_write_rps": 50.0,
+    "target_read_rps": 150.0,
+    "achieved_write_rps": 50.0,
+    "achieved_read_rps": 150.0,
+    "attempt_timeout_s": 15,
+    "retry_budget_s": 60,
+    "scheduler_lag_ms": {
+      "p95": 1.407,
+      "max": 47.813
+    }
+  },
+  "requests": {
+    "write": {
+      "attempts": 3000,
+      "http_5xx": 0,
+      "http_4xx": 0,
+      "timeout": 0,
+      "connect": 0,
+      "p95_ms": 7.178
+    },
+    "read": {
+      "attempts": 9000,
+      "http_5xx": 0,
+      "http_4xx": 0,
+      "timeout": 0,
+      "connect": 0,
+      "p95_ms": 4.456
+    }
+  },
+  "http_error_rate": 0.0,
+  "contract_error_rate": 0.0,
+  "p95_ms": 6.333,
+  "env_header": {
+    "responses": 12000,
+    "responses_without_header": 0,
+    "registered_values": {
+      "aws": 12000
+    },
+    "unregistered_values": {}
+  },
+  "reconciliation": {
+    "verdict": "PASS",
+    "reasons": [],
+    "nfr2": {
+      "failed": 0,
+      "lost": 0,
+      "duplicated": 0
+    },
+    "counts": {
+      "confirmed": 3000,
+      "lost": 0,
+      "duplicated": 0,
+      "failed_not_stored": 0,
+      "failed_but_stored": 0,
+      "integrity_conflict": 0,
+      "content_mismatch": 0,
+      "logical_writes": 3000,
+      "attempts": 3000,
+      "retried": 0,
+      "idempotent_replays": 0,
+      "duplicate_extra_rows": 0,
+      "phantom_rows": 0
+    },
+    "max_attempts": 1,
+    "samples": {}
+  },
+  "write_gap": {
+    "max_ms": 74.926,
+    "from_s": 39.645513,
+    "to_s": 39.720439,
+    "position": "between",
+    "acks": 3000
+  },
+  "lock_probe": {
+    "key": 4310001,
+    "interval_s": 0.2,
+    "connection_errors": 0,
+    "baseline": {
+      "samples": 15,
+      "wait_ms": {
+        "p50": 0.004,
+        "p95": 0.008,
+        "p99": 0.008,
+        "max": 0.008
+      },
+      "round_trip_ms": {
+        "p95": 4.077,
+        "max": 4.077
+      },
+      "waiting_sessions_max": 0,
+      "timed_out": 0,
+      "stalled": 0
+    },
+    "load": {
+      "samples": 294,
+      "wait_ms": {
+        "p50": 0.001,
+        "p95": 0.388,
+        "p99": 3.619,
+        "max": 8.48
+      },
+      "round_trip_ms": {
+        "p95": 2.142,
+        "max": 20.608
+      },
+      "waiting_sessions_max": 0,
+      "timed_out": 0,
+      "stalled": 0
+    }
+  },
+  "windows": {
+    "emitted": 6,
+    "requests_in_windows": 12000,
+    "tail_requests_not_in_a_window": 0,
+    "late_requests": 0,
+    "conserved": true,
+    "delivery_failed": 0,
+    "invalid": 0,
+    "continuity_problems": [],
+    "pools_total": {
+      "source": 12000,
+      "target": 0
+    },
+    "unattributed_total": {
+      "timeout": 0,
+      "connect": 0,
+      "other": 0
+    }
+  }
+}

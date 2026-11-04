@@ -1,0 +1,356 @@
+{
+  "schema_version": 1,
+  "kind": "selected_field_summary",
+  "public_is_raw": false,
+  "assembled_at": "2026-11-04T02:41:58.898196+00:00",
+  "reviewed_platform_revision": "d3b00c8c59d7d6a3a6ed0fff4c4419d1a046bb13",
+  "reference_search": {
+    "remote_snapshots": [
+      {
+        "observed_at": "2026-11-04T02:38:48.961306+00:00",
+        "repository": "Jasmin-Softbank/Railshot",
+        "refs": [
+          {
+            "sha": "e4eb5845cc42b1901abed98e3d1c7f5ff135db64",
+            "ref": "refs/heads/deployment/apps"
+          },
+          {
+            "sha": "4a87bf924b0a56b4233886c744e290f928377b0e",
+            "ref": "refs/heads/deployment/platform"
+          },
+          {
+            "sha": "1b3bd57792c5d86616f80c48bc8524f41554a865",
+            "ref": "refs/heads/design/k8s-secrets-injection"
+          },
+          {
+            "sha": "762e49a3a29646245222218b3033e2f4d68f2653",
+            "ref": "refs/heads/dev"
+          },
+          {
+            "sha": "62a052b2f89ee590211141d6e6c65c9883ed5af7",
+            "ref": "refs/heads/develop"
+          },
+          {
+            "sha": "7ecbd524a7373735b5eb3144989ac68ce9b49570",
+            "ref": "refs/heads/docs/readme-dev-20261004"
+          },
+          {
+            "sha": "ec5f155048cea4ef5ddcea1b4ce6bb65f9d58659",
+            "ref": "refs/heads/docs/readme-images-20261005"
+          },
+          {
+            "sha": "fe36929152399221b6c03db1352a5eb0651f930c",
+            "ref": "refs/heads/docs/readme-presentation-20261004"
+          },
+          {
+            "sha": "b014823b7c22df4e84ab38bc7dd17f253866fa1e",
+            "ref": "refs/heads/feat/platform-agent-credentials-20261006"
+          },
+          {
+            "sha": "8b8dfdf41706653dd23dbc0b6d8126dfd2325510",
+            "ref": "refs/heads/feature/application-lifecycle-quality-20261006"
+          },
+          {
+            "sha": "d73056261603e1a5e564a7b0f9c85de8f1ca6d23",
+            "ref": "refs/heads/feature/dispatch-actions"
+          },
+          {
+            "sha": "0cf8779dcda5c8adb956d5a9285781a9bb817df3",
+            "ref": "refs/heads/feature/observer-bootstrap-order-20261005"
+          },
+          {
+            "sha": "af83cff457474f00ef93f8d040e66334cd6416cc",
+            "ref": "refs/heads/feature/on-prem/install-process"
+          },
+          {
+            "sha": "49a0516824bc41878ae14fdbb7c8263bbfaba0c3",
+            "ref": "refs/heads/feature/openstack-installer-handoff"
+          },
+          {
+            "sha": "b5b5e46b09ffe33b5d92c427c2dd509cbddff785",
+            "ref": "refs/heads/feature/operating-node-metrics-20261005"
+          },
+          {
+            "sha": "497e9e0195bf11db8b9ca8530248d26dcf17a5c7",
+            "ref": "refs/heads/feature/operating-observability-20261005"
+          },
+          {
+            "sha": "176491fb683ff8dde490b483e1c7067cc9b0b4c2",
+            "ref": "refs/heads/feature/platform-recovery-20261005"
+          },
+          {
+            "sha": "4fc6413ac05b767d6c70bbd35de12e44a5ca9de0",
+            "ref": "refs/heads/feature/route-reservation-recovery-20261006"
+          },
+          {
+            "sha": "0da549aa0b18b438c2d4e7602cf3c10687096609",
+            "ref": "refs/heads/feature/runtime-stability-20261005"
+          },
+          {
+            "sha": "3263b15c6f544e3e97b354514519a3d7e1f193aa",
+            "ref": "refs/heads/feature/smooth-deployment-20261006"
+          },
+          {
+            "sha": "cf2a6576a94c949578dd8e0f92aeec65bb5ee4e6",
+            "ref": "refs/heads/fix/browser-request-observation-20261006"
+          },
+          {
+            "sha": "5115cfbdb3b9e222fb4ee39cd5dcce27a41e2b72",
+            "ref": "refs/heads/fix/dashboard-progress-refresh-20261004"
+          },
+          {
+            "sha": "cd9f96a499df0e7bce138a8c600730f1523b307d",
+            "ref": "refs/heads/fix/dashboard-stage-numbers-20261003"
+          },
+          {
+            "sha": "6885dab110e4affdb4280c3639e6751fed4d4c6d",
+            "ref": "refs/heads/fix/gcp-cli-credentials-20261003"
+          },
+          {
+            "sha": "85614745318c7d1d86d6635a4903f69890be945d",
+            "ref": "refs/heads/fix/lifecycle-dialog-scroll-20261003"
+          },
+          {
+            "sha": "ec2544f52404a955267fb4c9dc400b32eae859b5",
+            "ref": "refs/heads/fix/missing-cd-record-recovery-20261004"
+          },
+          {
+            "sha": "5c34ca965e1c425ed2a768d952aef19e7349ee77",
+            "ref": "refs/heads/fix/platform-account-workspace-20261006"
+          },
+          {
+            "sha": "cade2e7fba97d2d6600148674e7ed62c8ab400b0",
+            "ref": "refs/heads/fix/secret-boundary-20261005"
+          },
+          {
+            "sha": "2605cbde2622dcaf3f6d5bc575a10c913f241e33",
+            "ref": "refs/heads/fix/tunnel-dns-records-20261003"
+          },
+          {
+            "sha": "3c4e3ced10182524bc0eaa3efc9e5466764e69d8",
+            "ref": "refs/heads/fix/verified-rollout-completion-20261006"
+          },
+          {
+            "sha": "bb94bf9ff9e540cba886a6e17009ddc9b442cb4c",
+            "ref": "refs/heads/integration/team-assembly-20261002"
+          },
+          {
+            "sha": "645e28aefa7f3d3996c57ea6853c6e2f67c5bcc4",
+            "ref": "refs/heads/main"
+          },
+          {
+            "sha": "49d50fc268949a2b23712aed5fd4261b2ce5445c",
+            "ref": "refs/heads/ops/personal-runtime-production-20261004"
+          },
+          {
+            "sha": "8f370892e6d5090a252b5d6de04dcb35924d9cda",
+            "ref": "refs/heads/perf/lean-platform-ci-20261003"
+          },
+          {
+            "sha": "6188fbd7ca27674184b8fcfa05588e7470b438ff",
+            "ref": "refs/heads/review/pr-158-reopened-20261004"
+          }
+        ]
+      },
+      {
+        "observed_at": "2026-11-04T02:38:49.480756+00:00",
+        "repository": "Jasmin-Softbank/Jasmin",
+        "refs": [
+          {
+            "sha": "4b5e22cb575c6b7ab8fb69f0b0dbe101064bc034",
+            "ref": "refs/heads/chore/railshot-structure"
+          },
+          {
+            "sha": "90b5196f643850aeff16dfc0ebb17606d035b686",
+            "ref": "refs/heads/feature/ansible_JB"
+          },
+          {
+            "sha": "ec6a9df0258eee9843aa457bc10703aa7026db40",
+            "ref": "refs/heads/feature/deployment-runtime-seungmin"
+          },
+          {
+            "sha": "6840d1387798d375234bbf97919210eec96709a3",
+            "ref": "refs/heads/feature/fe-mcp-jingi"
+          },
+          {
+            "sha": "9e13c7c2e50b003c146852ccf22c9e9399271cf7",
+            "ref": "refs/heads/feature/poc-cloud-jihwan"
+          },
+          {
+            "sha": "fb503fd609161dc94cd167f75da0eef456d148e2",
+            "ref": "refs/heads/feature/poc-cloud-seungmin"
+          },
+          {
+            "sha": "e308749cc78408c3d933ea76aa06ab982045450b",
+            "ref": "refs/heads/feature/poc-onprem-hwagyun"
+          },
+          {
+            "sha": "e100373528352f1b9594311c643e9ad30ba87580",
+            "ref": "refs/heads/main"
+          }
+        ]
+      }
+    ],
+    "tag_count": 0,
+    "repositories_shallow": false,
+    "history_patterns": [
+      "aws_eks_",
+      "eksctl",
+      "terraform-aws-modules/eks"
+    ],
+    "history_extensions": [
+      "tf",
+      "tf.json",
+      "yaml",
+      "yml",
+      "sh",
+      "py",
+      "ts",
+      "go"
+    ],
+    "reachable_history_matches": 0,
+    "limitation": "Observed remote refs and reachable history only; deleted, inaccessible or unpublished sources excluded."
+  },
+  "current_source_readiness": {
+    "observed_at": "2026-11-04T02:34:49.992172+00:00",
+    "completed_at": "2026-11-04T02:34:54.452716+00:00",
+    "application_observed_at": "2026-11-04T02:36:56.832707+00:00",
+    "cnpg_healthy": true,
+    "database_audit_settings": {
+      "pgaudit_extension": true,
+      "pgaudit_log": "ddl,role",
+      "pgaudit_log_parameter": "off",
+      "log_connections": "on"
+    },
+    "application": {
+      "db_host_is_source_pooler": true,
+      "pg_sslmode_verify_full": true,
+      "readyz_status": 200,
+      "db_health_status": 200
+    },
+    "cloudtrail": {
+      "is_logging": true,
+      "delivery_error": false,
+      "latest_delivery_time": "2026-11-04T11:30:02.827000+09:00"
+    },
+    "passed": true,
+    "business_writes": 0,
+    "new_audit_canary": false,
+    "diagnostic_corrections": [
+      "Initial PGHOST check was wrong; actual renderer and app use DB_HOST.",
+      "Initial /health/db path was wrong; actual /api/health/db returned200.",
+      "One corrected-path operator command also failed with UnclassifiedApiFailure; no HTTP code was captured, so cause is unconfirmed. Later diagnostic captured all statuses explicitly. No product configuration changed."
+    ],
+    "eso_secretstore_ready": true,
+    "eso_externalsecret_ready": true
+  },
+  "readiness_original_sha256": "7e4948fda0f99789e9989992aaa58ca44b7f94c97ea23598a92195c5c4760abb",
+  "access_verification": [
+    {
+      "head": "2364a76391d447a24ecfece612de4056216e60aa",
+      "verify_sha256": "98ad0cc635ba58e4164704276eee7f40417dc9a22fafa07928012c236e544da7",
+      "observed_at": "2026-11-04T02:32:38.925988+00:00",
+      "completed_at": "2026-11-04T02:32:44.057765+00:00",
+      "passed": true,
+      "app_access_verified": true,
+      "cutover_ready": false,
+      "configmap_data_changed": false,
+      "business_writes_opened": false,
+      "secret_values_exported": false,
+      "pods_unchanged": true,
+      "serviceaccounts_unchanged": true,
+      "role_objects_unchanged": true,
+      "configmap_unchanged": true,
+      "pooler_config_file_unchanged": true,
+      "temporary_probe_files_absent": true,
+      "process_returncode": 0,
+      "side": "source",
+      "checks": {
+        "executor_pods_list": true,
+        "executor_named_exec_get": true,
+        "executor_named_exec_create": true,
+        "executor_db_exec_denied": true,
+        "executor_secret_list_denied": true,
+        "executor_other_namespace_denied": true,
+        "executor_pod_create_denied": true,
+        "executor_rbac_patch_denied": true,
+        "executor_token_issue_denied": true,
+        "executor_other_config_patch_denied": true,
+        "executor_exact_config_get": true,
+        "executor_exact_config_patch_authorized": true,
+        "executor_config_directory_writable": true,
+        "executor_app_0_authenticated_block_read": true,
+        "collector_pods_list": true,
+        "collector_named_exec_get": true,
+        "collector_named_exec_create": true,
+        "collector_db_exec_denied": true,
+        "collector_secret_list_denied": true,
+        "collector_other_namespace_denied": true,
+        "collector_pod_create_denied": true,
+        "collector_rbac_patch_denied": true,
+        "collector_token_issue_denied": true,
+        "collector_other_config_patch_denied": true,
+        "collector_config_get_denied": true,
+        "collector_config_patch_denied": true,
+        "collector_pooler_exec_denied": true
+      },
+      "original_sha256": "bc7914227f4b5012625290870d798ae1a43b5950be7d1f0cc9a0ad07cf20b91f"
+    },
+    {
+      "head": "2364a76391d447a24ecfece612de4056216e60aa",
+      "verify_sha256": "98ad0cc635ba58e4164704276eee7f40417dc9a22fafa07928012c236e544da7",
+      "observed_at": "2026-11-04T02:33:17.244309+00:00",
+      "completed_at": "2026-11-04T02:33:26.900276+00:00",
+      "passed": true,
+      "app_access_verified": false,
+      "cutover_ready": false,
+      "configmap_data_changed": false,
+      "business_writes_opened": false,
+      "secret_values_exported": false,
+      "pods_unchanged": true,
+      "serviceaccounts_unchanged": true,
+      "role_objects_unchanged": true,
+      "configmap_unchanged": true,
+      "pooler_config_file_unchanged": true,
+      "temporary_probe_files_absent": true,
+      "process_returncode": 0,
+      "side": "target",
+      "checks": {
+        "executor_pods_list": true,
+        "executor_named_exec_get": true,
+        "executor_named_exec_create": true,
+        "executor_db_exec_denied": true,
+        "executor_secret_list_denied": true,
+        "executor_other_namespace_denied": true,
+        "executor_pod_create_denied": true,
+        "executor_rbac_patch_denied": true,
+        "executor_token_issue_denied": true,
+        "executor_other_config_patch_denied": true,
+        "executor_exact_config_get": true,
+        "executor_exact_config_patch_authorized": true,
+        "executor_config_directory_writable": true,
+        "collector_pods_list": true,
+        "collector_named_exec_get": true,
+        "collector_named_exec_create": true,
+        "collector_db_exec_denied": true,
+        "collector_secret_list_denied": true,
+        "collector_other_namespace_denied": true,
+        "collector_pod_create_denied": true,
+        "collector_rbac_patch_denied": true,
+        "collector_token_issue_denied": true,
+        "collector_other_config_patch_denied": true,
+        "collector_config_get_denied": true,
+        "collector_config_patch_denied": true,
+        "collector_pooler_exec_denied": true
+      },
+      "original_sha256": "112dfe90cdb67fb2f4b21134edda675f10e535d39101b56e44f61991142f2ce8"
+    }
+  ],
+  "new_resources_created": 0,
+  "existing_t8_preserved": true,
+  "limitations": [
+    "Runtime executed by existing environment owner; document author independently read stored receipts and compared verifier source hash.",
+    "Current activation readback does not repeat historical audit canaries.",
+    "Personal SSO, full network qualification and end-to-end cutover not established."
+  ]
+}

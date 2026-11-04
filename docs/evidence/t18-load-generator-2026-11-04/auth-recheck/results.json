@@ -1,0 +1,165 @@
+{
+  "environment": {
+    "kind": "local-measurement",
+    "edge": "not measured through Cloudflare; mock-edge scenarios use a local nginx stand-in",
+    "platform_commit": "04e3cab62e758dfda40cd8b5f24c2214f6b84a31",
+    "platform_dirty": false,
+    "demo_chat_commit": "b71d4aa1a51e219c5b1d75f1d373b121d4c947ca",
+    "postgres_image": [
+      "public.ecr.aws/docker/library/postgres@sha256:5db6dac2ef5dcff512f4f00a009c3c332b9f2f28f24277175bf3e4a3d02ef83a"
+    ],
+    "edge_image": [
+      "nginx@sha256:df221db836e1754089190208cee7eeda94f233197056426eda74a43ab1abeac2"
+    ],
+    "moto_version": "5.1.4",
+    "demo_chat_runtime": "native uvicorn single process per environment (not the container image)",
+    "python": "3.14.7",
+    "machine": {
+      "arch": "arm64",
+      "cpu": "Apple M5",
+      "logical_cores": 10,
+      "memory_gib": 32
+    }
+  },
+  "checks_total": 9,
+  "checks_failed": 0,
+  "load_average_1_5_15m_at_start": {
+    "low-sample": [
+      3.08,
+      3.42,
+      3.63
+    ],
+    "sink-down": [
+      3.13,
+      3.4,
+      3.61
+    ],
+    "generator-stall": [
+      3.84,
+      3.54,
+      3.66
+    ]
+  },
+  "generator_resources": {
+    "low-sample": {
+      "samples": 25,
+      "cpu_millicores": {
+        "avg": 11,
+        "max_1s": 15
+      },
+      "rss_mib": {
+        "avg": 62.4,
+        "max": 62.4,
+        "first_10_samples_avg": 62.4,
+        "last_10_samples_avg": 62.4
+      },
+      "rss_mib_whole_run_max": 62.4
+    },
+    "sink-down": {
+      "samples": 12,
+      "cpu_millicores": {
+        "avg": 29,
+        "max_1s": 34
+      },
+      "rss_mib": {
+        "avg": 62.5,
+        "max": 62.5,
+        "first_10_samples_avg": 62.5,
+        "last_10_samples_avg": 62.5
+      },
+      "rss_mib_whole_run_max": 62.5
+    },
+    "generator-stall": {
+      "samples": 30,
+      "cpu_millicores": {
+        "avg": 175,
+        "max_1s": 739
+      },
+      "rss_mib": {
+        "avg": 65.0,
+        "max": 73.1,
+        "first_10_samples_avg": 62.1,
+        "last_10_samples_avg": 70.9
+      },
+      "rss_mib_whole_run_max": 73.1
+    }
+  },
+  "checks": [
+    {
+      "scenario": "low-sample",
+      "check": "표본을 부풀리지 않음: 창 전체 < 1000",
+      "ok": true,
+      "actual": [
+        50,
+        50
+      ]
+    },
+    {
+      "scenario": "low-sample",
+      "check": "기준 구현 judge가 INSUFFICIENT_SAMPLES로 UNKNOWN",
+      "ok": true,
+      "actual": [
+        "UNKNOWN",
+        [
+          "INSUFFICIENT_SAMPLES",
+          "NOT_APPLIED"
+        ]
+      ]
+    },
+    {
+      "scenario": "window-gap",
+      "check": "가운데 창을 지운 파일을 끊김으로 잡음, 종료 1",
+      "ok": true,
+      "actual": "창 2개, 스키마 위반 0개, 연속성 문제 1건"
+    },
+    {
+      "scenario": "sink-down",
+      "check": "플랫폼이 죽어도 부하는 끝까지 간다",
+      "ok": true,
+      "actual": 120
+    },
+    {
+      "scenario": "sink-down",
+      "check": "전달 실패를 세고 경고",
+      "ok": true,
+      "actual": 1
+    },
+    {
+      "scenario": "generator-stall",
+      "check": "생성기가 14초 멈춘 구간이 빈 창으로 드러남 (건너뛰지 않음)",
+      "ok": true,
+      "actual": [
+        310,
+        0,
+        890
+      ]
+    },
+    {
+      "scenario": "generator-stall",
+      "check": "창은 끊기지 않고 이어짐",
+      "ok": true,
+      "actual": 3
+    },
+    {
+      "scenario": "generator-stall",
+      "check": "빈 창을 기준 구현 judge가 UNKNOWN으로 읽음 (0을 정상으로 읽지 않음)",
+      "ok": true,
+      "actual": [
+        "UNKNOWN",
+        [
+          "INSUFFICIENT_SAMPLES",
+          "NOT_APPLIED"
+        ]
+      ]
+    },
+    {
+      "scenario": "generator-stall",
+      "check": "생성기 지연 경고",
+      "ok": true,
+      "actual": {
+        "p95": 12543.731,
+        "max": 14047.812
+      }
+    }
+  ]
+}

@@ -1,0 +1,20 @@
+# Merge after collector.yaml. App-facing trust is separate from platform export.
+receivers:
+  otlp:
+    protocols:
+      http:
+        tls:
+          cert_file: /etc/bravo-app-tls/tls.crt
+          key_file: /etc/bravo-app-tls/tls.key
+          client_ca_file: /etc/bravo-app-tls/client-ca.crt
+          client_ca_file_reload: true
+          min_version: "1.3"
+          reload_interval: 1m
+      grpc:
+        tls:
+          cert_file: /etc/bravo-app-tls/tls.crt
+          key_file: /etc/bravo-app-tls/tls.key
+          client_ca_file: /etc/bravo-app-tls/client-ca.crt
+          client_ca_file_reload: true
+          min_version: "1.3"
+          reload_interval: 1m

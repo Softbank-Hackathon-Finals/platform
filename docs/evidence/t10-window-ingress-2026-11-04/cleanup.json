@@ -1,0 +1,17 @@
+{
+  "status": "PASS",
+  "removed_resources": 10,
+  "old_image_references_removed": 2,
+  "existing_pod_uids_restart_counts_preserved": true,
+  "receiver_ready": true,
+  "receiver_image_id": "sha256:5dafd63f42e470bfec417753bc3454263989c3a26e571189f46389ea270a3eab",
+  "retained": [
+    "receiver Deployment/Service/ServiceAccount/NetworkPolicy",
+    "receiver Operator proxy",
+    "revoked hash identity Secret",
+    "schema v2 and synthetic plan/windows/admin receipts"
+  ],
+  "plaintext_producer_secret_removed": true,
+  "probe_proxy_removed": true,
+  "observed_end": "2026-11-04T04:05:40.135Z"
+}

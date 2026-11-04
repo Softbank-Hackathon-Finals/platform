@@ -1,0 +1,35 @@
+{
+  "provider_response_sha256": "45046277eafe8b664e719879f0801ac5462fda760f0c48c256dc73d3c8709830",
+  "submitted_source_sha256": "3d7be755024e6da4885f771cb18577ac4fc596ae8e0cdc3eecbb6f6db9e50617",
+  "public_receipt_sha256": "076a40e38043e24ee53454e74eaee36ac0a183a17c303d24efa281e4eb3283e9",
+  "current_inputs_match_cloud_receipt": true,
+  "prior_attempts": [
+    {
+      "attempt": 1,
+      "status": "FAIL",
+      "reason": "docker_not_installed",
+      "failed_before_container_creation": true
+    },
+    {
+      "attempt": 2,
+      "status": "FAIL",
+      "reason": "ctr_capability_argument",
+      "container_snapshot_temp_removed": true,
+      "operational_pods_unchanged": true
+    },
+    {
+      "attempt": 3,
+      "status": "FAIL",
+      "reason": "ctr_capability_argument_confirmed",
+      "container_snapshot_temp_removed": true,
+      "operational_pods_unchanged": true
+    }
+  ],
+  "delivery_preflights": "Two size checks stopped locally before SSM submission; compressed payload and omitted unused upstream HTTP modules.",
+  "cloud_fixture_substitution": {
+    "bundle_path": "services/platform-events/tests/postgres_fixture.py",
+    "repository_source": "services/platform-events/testing/window_cloud_fixture.py"
+  },
+  "upstream_revision": "020c6c78bdc6133ab0ee15e2a990bb9527b3182f",
+  "public_serialization": "Source hashes are represented as path/sha256 records; values are unchanged from the private provider receipt."
+}

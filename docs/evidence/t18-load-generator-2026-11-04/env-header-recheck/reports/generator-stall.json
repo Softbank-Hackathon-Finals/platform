@@ -1,0 +1,117 @@
+{
+  "kind": "t18_run_report",
+  "schema_version": "1",
+  "run_id": "t18-generator-stall-e7f6f2",
+  "plan_id": "plan-local",
+  "started_at": "2026-11-04T05:41:37.197981+00:00",
+  "target": "http://127.0.0.1:53383",
+  "measurement": {
+    "path": "local-mock-edge",
+    "edge_measured": false
+  },
+  "journal_sha256": "93e6882bfcadb746c2fa36099be0b86e1d85fc8ef3870ab0669dea0b6965e004",
+  "verdict": "PASS",
+  "reasons": [],
+  "warnings": [
+    "NOT_EDGE_MEASURED",
+    "GENERATOR_LAGGING",
+    "HTTP_ERRORS"
+  ],
+  "sli_usable_for_judgement": false,
+  "load": {
+    "duration_s": 30.0,
+    "target_write_rps": 20.0,
+    "target_read_rps": 20.0,
+    "achieved_write_rps": 20.0,
+    "achieved_read_rps": 20.0,
+    "attempt_timeout_s": 15,
+    "retry_budget_s": 60,
+    "scheduler_lag_ms": {
+      "p95": 12508.118,
+      "max": 14003.895
+    }
+  },
+  "requests": {
+    "write": {
+      "attempts": 601,
+      "http_5xx": 0,
+      "http_4xx": 0,
+      "timeout": 1,
+      "connect": 0,
+      "p95_ms": 5324.077
+    },
+    "read": {
+      "attempts": 600,
+      "http_5xx": 0,
+      "http_4xx": 0,
+      "timeout": 4,
+      "connect": 0,
+      "p95_ms": 5205.58
+    }
+  },
+  "http_error_rate": 0.004163,
+  "contract_error_rate": 0.004163,
+  "p95_ms": 5257.456,
+  "env_header": {
+    "responses": 1196,
+    "responses_without_header": 0,
+    "registered_values": {
+      "aws": 1056,
+      "onprem": 140
+    },
+    "unregistered_values": {}
+  },
+  "reconciliation": {
+    "verdict": "PASS",
+    "reasons": [],
+    "nfr2": {
+      "failed": 0,
+      "lost": 0,
+      "duplicated": 0
+    },
+    "counts": {
+      "confirmed": 600,
+      "lost": 0,
+      "duplicated": 0,
+      "failed_not_stored": 0,
+      "failed_but_stored": 0,
+      "integrity_conflict": 0,
+      "content_mismatch": 0,
+      "logical_writes": 600,
+      "attempts": 601,
+      "retried": 1,
+      "idempotent_replays": 0,
+      "duplicate_extra_rows": 0,
+      "phantom_rows": 0
+    },
+    "max_attempts": 2,
+    "samples": {}
+  },
+  "write_gap": {
+    "max_ms": 14135.466,
+    "from_s": 7.657087,
+    "to_s": 21.792553,
+    "position": "between",
+    "acks": 599
+  },
+  "lock_probe": null,
+  "windows": {
+    "emitted": 4,
+    "requests_in_windows": 1199,
+    "tail_requests_not_in_a_window": 2,
+    "late_requests": 0,
+    "conserved": true,
+    "delivery_failed": 0,
+    "invalid": 0,
+    "continuity_problems": [],
+    "pools_total": {
+      "source": 1056,
+      "target": 140
+    },
+    "unattributed_total": {
+      "timeout": 3,
+      "connect": 0,
+      "other": 0
+    }
+  }
+}

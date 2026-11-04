@@ -1,0 +1,22 @@
+{
+  "case": "missing-wal",
+  "qualified_failure": true,
+  "cluster_ready": false,
+  "restore_spec_sha256": "dc85236d5495cdc3f4d49c64d512cbf7e1cea432c9f7c55a3f4167edd334582e",
+  "evidence": {
+    "reason": "required_initial_wal_missing",
+    "log_sha256": "3eb4281c3f4903a4519d414bcb2a54d88c7f36aa99980dc24e95a2c6ef46f011",
+    "pod_identity_sha256": "63d5986f56aed0b58a9640c88457a95fec3d028319279debc98be152eb11f49e",
+    "restore_process_failed": true
+  },
+  "observed_at": "2026-11-03T23:29:38.785882+00:00",
+  "scope": "operator-prepared-disposable-restore; not DR-01 PASS",
+  "original_preserved": true,
+  "normal_restore_ready": true,
+  "base_backup_objects_copied": 2,
+  "wal_objects_copied": 0,
+  "backup_metadata_sha256": "88f3ae9f7396790f89028b20554be100c5b780e7351ad74e79cb8514f18dae26",
+  "trial_cluster_and_store_removed": true,
+  "cloned_archive_retained": true,
+  "retention_policy_changed": false
+}

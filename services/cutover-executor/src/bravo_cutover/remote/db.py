@@ -10,14 +10,21 @@ from dataclasses import dataclass
 import psycopg
 from psycopg import sql
 
+from bravo_cutover.db_fingerprint import (
+    SequenceState,
+    fingerprint,
+    only_fixed_errors,
+    sequence_state,
+)
 from bravo_cutover.remote import Unconfirmed
 
 _TIMEOUTS = "-c statement_timeout=3000 -c lock_timeout=1000"
 
 
 class DbControl:
-    def __init__(self, dsn: str):
+    def __init__(self, dsn: str, *, control_functions: bool = False):
         self._dsn = dsn
+        self._control_functions = control_functions
 
     def _connect(self) -> psycopg.Connection:
         try:
@@ -49,7 +56,12 @@ class DbControl:
         return value
 
     def set_login(self, role: str, allowed: bool) -> None:
-        self._do(sql.SQL("ALTER ROLE {} {}").format(sql.Identifier(role), sql.SQL("LOGIN" if allowed else "NOLOGIN")))
+        if self._control_functions:
+            if role != "chat_app":
+                raise Unconfirmed("control functions only manage chat_app")
+            self._one("SELECT cutover.set_app_login(%s)", (allowed,))
+        else:
+            self._do(sql.SQL("ALTER ROLE {} {}").format(sql.Identifier(role), sql.SQL("LOGIN" if allowed else "NOLOGIN")))
         if self.can_login(role) != allowed:
             raise Unconfirmed(f"role {role} login is not {allowed}")
 
@@ -57,6 +69,10 @@ class DbControl:
         return self._one("SELECT count(*) FROM pg_stat_activity WHERE usename = %s", (role,))
 
     def terminate_sessions(self, role: str) -> int:
+        if self._control_functions:
+            if role != "chat_app":
+                raise Unconfirmed("control functions only manage chat_app")
+            return self._one("SELECT cutover.terminate_app_sessions()")
         return self._one(
             "SELECT count(pg_terminate_backend(pid)) FROM pg_stat_activity WHERE usename = %s", (role,)
         )
@@ -120,10 +136,13 @@ class DbControl:
 
     def set_subscription(self, name: str, enabled: bool, owner: str, wait_s: float = 5) -> None:
         """켜고 끈 뒤 적용 작업자까지 그 상태가 됐는지 기다린다(끄면 작업자가 멈춰야 한다)."""
-        self._do(
-            sql.SQL("SET ROLE {}").format(sql.Identifier(owner)),
-            sql.SQL("ALTER SUBSCRIPTION {} {}").format(sql.Identifier(name), sql.SQL("ENABLE" if enabled else "DISABLE")),
-        )
+        if self._control_functions:
+            self._one("SELECT cutover.set_subscription(%s, %s)", (name, enabled))
+        else:
+            self._do(
+                sql.SQL("SET ROLE {}").format(sql.Identifier(owner)),
+                sql.SQL("ALTER SUBSCRIPTION {} {}").format(sql.Identifier(name), sql.SQL("ENABLE" if enabled else "DISABLE")),
+            )
         deadline = time.monotonic() + wait_s
         while time.monotonic() < deadline:
             sub = self.subscription(name)
@@ -146,6 +165,10 @@ class DbControl:
 
     def raise_sequence(self, sequence: str, next_value: int) -> int:
         """다음 값이 next_value 이상이 되게 올린다. 내리지 않는다(T13 "시퀀스는 올리기만")."""
+        if self._control_functions:
+            if sequence != "public.messages_id_seq":
+                raise Unconfirmed("control functions only manage messages_id_seq")
+            return self._one("SELECT cutover.raise_messages_sequence(%s)", (next_value,))
         current = self.sequence_next(sequence)
         if current < next_value:
             self._one("SELECT setval(%s, %s, false)", (sequence, next_value))
@@ -154,6 +177,14 @@ class DbControl:
     def max_value(self, table: str, column: str) -> int:
         return self._one(sql.SQL("SELECT coalesce(max({}), 0) FROM {}").format(
             sql.Identifier(column), sql.Identifier(*table.split("."))))
+
+    def sequence_state(self, sequence: str, table: str, column: str) -> SequenceState:
+        with only_fixed_errors("connection_failed"), self._connect() as conn:
+            return sequence_state(conn, sequence, table, column)
+
+    def db_fingerprint(self, table: str) -> dict:
+        with only_fixed_errors("connection_failed"), self._connect() as conn:
+            return fingerprint(conn, table)
 
     def row_count(self, table: str) -> int:
         return self._one(sql.SQL("SELECT count(*) FROM {}").format(sql.Identifier(*table.split("."))))

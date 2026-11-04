@@ -63,7 +63,7 @@ class CrossRepositoryBoardTest(unittest.TestCase):
                  contextlib.redirect_stdout(io.StringIO()):
                 sync.sync_prs(True)
             board.set.assert_called_once_with(15, "i15", state, "T22 #15", True)
-            self.assertEqual(gql.call_count, 1, "dry run must not update fields")
+            gql.assert_not_called()  # Board is mocked; no field writes escape it.
 
     def page(self, number, more=False, cursor=None):
         return {"repository": {"pullRequests": {"nodes": [{"number": number}],

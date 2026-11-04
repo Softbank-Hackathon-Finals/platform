@@ -1,0 +1,1107 @@
+{
+  "environment": {
+    "kind": "local-measurement",
+    "edge": "not measured through Cloudflare; mock-edge scenarios use a local nginx stand-in",
+    "platform_commit": "8158d1db4fc28a7541dfa8c51d81f166b007fe31",
+    "platform_dirty": false,
+    "demo_chat_commit": "c1c74ab2381221e04fcbd0dead70406512f00266",
+    "postgres_image": [
+      "public.ecr.aws/docker/library/postgres@sha256:5db6dac2ef5dcff512f4f00a009c3c332b9f2f28f24277175bf3e4a3d02ef83a"
+    ],
+    "edge_image": [
+      "nginx@sha256:df221db836e1754089190208cee7eeda94f233197056426eda74a43ab1abeac2"
+    ],
+    "moto_version": "5.1.4",
+    "demo_chat_runtime": "native uvicorn single process per environment (not the container image)",
+    "python": "3.14.7",
+    "machine": {
+      "arch": "arm64",
+      "cpu": "Apple M5",
+      "logical_cores": 10,
+      "memory_gib": 32
+    }
+  },
+  "checks_total": 86,
+  "checks_failed": 0,
+  "load_average_1_5_15m_at_start": {
+    "direct": [
+      2.54,
+      2.61,
+      2.69
+    ],
+    "direct-2": [
+      3.2,
+      2.73,
+      2.72
+    ],
+    "direct-3": [
+      3.45,
+      2.75,
+      2.72
+    ],
+    "mock-edge-10": [
+      2.56,
+      2.62,
+      2.67
+    ],
+    "write-block": [
+      3.09,
+      2.75,
+      2.72
+    ],
+    "ack-loss": [
+      2.58,
+      2.67,
+      2.69
+    ],
+    "failed-but-stored": [
+      2.3,
+      2.61,
+      2.66
+    ],
+    "tamper": [
+      2.16,
+      2.56,
+      2.65
+    ],
+    "all-failed": [
+      2.2,
+      2.55,
+      2.64
+    ],
+    "edge-error": [
+      2.08,
+      2.51,
+      2.63
+    ],
+    "db-pause": [
+      3.06,
+      2.72,
+      2.7
+    ],
+    "low-sample": [
+      4.65,
+      3.18,
+      2.87
+    ],
+    "sink-down": [
+      4.43,
+      3.23,
+      2.89
+    ],
+    "generator-stall": [
+      4.38,
+      3.28,
+      2.92
+    ],
+    "soak": [
+      5.95,
+      3.86,
+      3.15
+    ]
+  },
+  "generator_resources": {
+    "direct": {
+      "samples": 60,
+      "cpu_millicores": {
+        "avg": 309,
+        "max_1s": 372
+      },
+      "rss_mib": {
+        "avg": 65.2,
+        "max": 65.2,
+        "first_10_samples_avg": 65.2,
+        "last_10_samples_avg": 65.2
+      },
+      "rss_mib_whole_run_max": 65.2
+    },
+    "direct-2": {
+      "samples": 60,
+      "cpu_millicores": {
+        "avg": 300,
+        "max_1s": 395
+      },
+      "rss_mib": {
+        "avg": 61.9,
+        "max": 65.1,
+        "first_10_samples_avg": 65.1,
+        "last_10_samples_avg": 53.1
+      },
+      "rss_mib_whole_run_max": 65.1
+    },
+    "direct-3": {
+      "samples": 60,
+      "cpu_millicores": {
+        "avg": 272,
+        "max_1s": 411
+      },
+      "rss_mib": {
+        "avg": 58.1,
+        "max": 65.1,
+        "first_10_samples_avg": 65.1,
+        "last_10_samples_avg": 50.1
+      },
+      "rss_mib_whole_run_max": 65.1
+    },
+    "mock-edge-10": {
+      "samples": 60,
+      "cpu_millicores": {
+        "avg": 227,
+        "max_1s": 328
+      },
+      "rss_mib": {
+        "avg": 60.1,
+        "max": 65.5,
+        "first_10_samples_avg": 65.4,
+        "last_10_samples_avg": 52.8
+      },
+      "rss_mib_whole_run_max": 65.5
+    },
+    "write-block": {
+      "samples": 30,
+      "cpu_millicores": {
+        "avg": 239,
+        "max_1s": 353
+      },
+      "rss_mib": {
+        "avg": 62.1,
+        "max": 62.3,
+        "first_10_samples_avg": 62.0,
+        "last_10_samples_avg": 62.3
+      },
+      "rss_mib_whole_run_max": 62.3
+    },
+    "ack-loss": {
+      "samples": 12,
+      "cpu_millicores": {
+        "avg": 67,
+        "max_1s": 76
+      },
+      "rss_mib": {
+        "avg": 62.1,
+        "max": 62.1,
+        "first_10_samples_avg": 62.1,
+        "last_10_samples_avg": 62.1
+      },
+      "rss_mib_whole_run_max": 62.1
+    },
+    "failed-but-stored": {
+      "samples": 11,
+      "cpu_millicores": {
+        "avg": 51,
+        "max_1s": 55
+      },
+      "rss_mib": {
+        "avg": 62.4,
+        "max": 62.4,
+        "first_10_samples_avg": 62.4,
+        "last_10_samples_avg": 62.4
+      },
+      "rss_mib_whole_run_max": 62.4
+    },
+    "tamper": {
+      "samples": 11,
+      "cpu_millicores": {
+        "avg": 68,
+        "max_1s": 80
+      },
+      "rss_mib": {
+        "avg": 62.3,
+        "max": 62.3,
+        "first_10_samples_avg": 62.3,
+        "last_10_samples_avg": 62.3
+      },
+      "rss_mib_whole_run_max": 62.3
+    },
+    "all-failed": {
+      "samples": 11,
+      "cpu_millicores": {
+        "avg": 44,
+        "max_1s": 49
+      },
+      "rss_mib": {
+        "avg": 63.6,
+        "max": 64.0,
+        "first_10_samples_avg": 63.6,
+        "last_10_samples_avg": 63.7
+      },
+      "rss_mib_whole_run_max": 64.0
+    },
+    "edge-error": {
+      "samples": 21,
+      "cpu_millicores": {
+        "avg": 266,
+        "max_1s": 317
+      },
+      "rss_mib": {
+        "avg": 62.1,
+        "max": 62.1,
+        "first_10_samples_avg": 62.1,
+        "last_10_samples_avg": 62.1
+      },
+      "rss_mib_whole_run_max": 62.1
+    },
+    "db-pause": {
+      "samples": 30,
+      "cpu_millicores": {
+        "avg": 449,
+        "max_1s": 728
+      },
+      "rss_mib": {
+        "avg": 82.0,
+        "max": 105.5,
+        "first_10_samples_avg": 64.8,
+        "last_10_samples_avg": 105.2
+      },
+      "rss_mib_whole_run_max": 138.7
+    },
+    "low-sample": {
+      "samples": 25,
+      "cpu_millicores": {
+        "avg": 11,
+        "max_1s": 15
+      },
+      "rss_mib": {
+        "avg": 50.4,
+        "max": 62.1,
+        "first_10_samples_avg": 55.6,
+        "last_10_samples_avg": 47.0
+      },
+      "rss_mib_whole_run_max": 62.1
+    },
+    "sink-down": {
+      "samples": 12,
+      "cpu_millicores": {
+        "avg": 28,
+        "max_1s": 40
+      },
+      "rss_mib": {
+        "avg": 62.2,
+        "max": 62.2,
+        "first_10_samples_avg": 62.2,
+        "last_10_samples_avg": 62.2
+      },
+      "rss_mib_whole_run_max": 62.2
+    },
+    "generator-stall": {
+      "samples": 30,
+      "cpu_millicores": {
+        "avg": 136,
+        "max_1s": 600
+      },
+      "rss_mib": {
+        "avg": 54.6,
+        "max": 62.6,
+        "first_10_samples_avg": 53.9,
+        "last_10_samples_avg": 59.3
+      },
+      "rss_mib_whole_run_max": 62.6
+    },
+    "soak": {
+      "samples": 179,
+      "cpu_millicores": {
+        "avg": 254,
+        "max_1s": 341
+      },
+      "rss_mib": {
+        "avg": 53.7,
+        "max": 64.7,
+        "first_10_samples_avg": 59.8,
+        "last_10_samples_avg": 47.8
+      },
+      "rss_mib_whole_run_max": 132.9
+    }
+  },
+  "checks": [
+    {
+      "scenario": "direct",
+      "check": "대조 판정 PASS, 종료 코드 0",
+      "ok": true,
+      "actual": "PASS"
+    },
+    {
+      "scenario": "direct",
+      "check": "실패 · 유실 · 중복 0",
+      "ok": true,
+      "actual": {
+        "failed": 0,
+        "lost": 0,
+        "duplicated": 0
+      }
+    },
+    {
+      "scenario": "direct",
+      "check": "쓰기 50 req/s 달성 (±1%)",
+      "ok": true,
+      "actual": 50.0
+    },
+    {
+      "scenario": "direct",
+      "check": "읽기 150 req/s 달성 (±1%)",
+      "ok": true,
+      "actual": 150.0
+    },
+    {
+      "scenario": "direct",
+      "check": "모든 응답이 출발지로 세어짐, 환경 미확인 0",
+      "ok": true,
+      "actual": {
+        "responses": 12000,
+        "responses_without_header": 0,
+        "registered_values": {
+          "aws": 12000
+        },
+        "unregistered_values": {}
+      }
+    },
+    {
+      "scenario": "direct",
+      "check": "판정 입력으로 쓸 수 없다고 표시",
+      "ok": true,
+      "actual": [
+        "NOT_EDGE_MEASURED"
+      ]
+    },
+    {
+      "scenario": "direct",
+      "check": "창 집계가 전체 시도와 일치",
+      "ok": true,
+      "actual": 12000
+    },
+    {
+      "scenario": "direct",
+      "check": "잠금 대기를 부하 중에 측정",
+      "ok": true,
+      "actual": {
+        "samples": 294,
+        "wait_ms": {
+          "p50": 0.001,
+          "p95": 0.002,
+          "p99": 0.937,
+          "max": 1.11
+        },
+        "round_trip_ms": {
+          "p95": 1.738,
+          "max": 3.929
+        },
+        "waiting_sessions_max": 0,
+        "timed_out": 0,
+        "stalled": 0
+      }
+    },
+    {
+      "scenario": "direct",
+      "check": "창 파일이 스키마 · 연속성 통과",
+      "ok": true,
+      "actual": "창 6개, 스키마 위반 0개, 연속성 문제 0건"
+    },
+    {
+      "scenario": "direct",
+      "check": "기준 구현 judge가 가중치 0%에서 PASS로 읽음",
+      "ok": true,
+      "actual": [
+        "PASS",
+        "PASS",
+        "PASS",
+        "PASS",
+        "PASS",
+        "PASS"
+      ]
+    },
+    {
+      "scenario": "direct",
+      "check": "가중치 10%로 읽으면 목적지 표본이 없어 UNKNOWN (PASS로 읽지 않음)",
+      "ok": true,
+      "actual": [
+        "UNKNOWN",
+        [
+          "INSUFFICIENT_SAMPLES",
+          "NOT_APPLIED"
+        ]
+      ]
+    },
+    {
+      "scenario": "direct-2",
+      "check": "대조 판정 PASS, 종료 코드 0",
+      "ok": true,
+      "actual": "PASS"
+    },
+    {
+      "scenario": "direct-2",
+      "check": "실패 · 유실 · 중복 0",
+      "ok": true,
+      "actual": {
+        "failed": 0,
+        "lost": 0,
+        "duplicated": 0
+      }
+    },
+    {
+      "scenario": "direct-2",
+      "check": "쓰기 50 req/s 달성 (±1%)",
+      "ok": true,
+      "actual": 50.0
+    },
+    {
+      "scenario": "direct-2",
+      "check": "읽기 150 req/s 달성 (±1%)",
+      "ok": true,
+      "actual": 150.0
+    },
+    {
+      "scenario": "direct-2",
+      "check": "모든 응답이 출발지로 세어짐, 환경 미확인 0",
+      "ok": true,
+      "actual": {
+        "responses": 12000,
+        "responses_without_header": 0,
+        "registered_values": {
+          "aws": 12000
+        },
+        "unregistered_values": {}
+      }
+    },
+    {
+      "scenario": "direct-2",
+      "check": "판정 입력으로 쓸 수 없다고 표시",
+      "ok": true,
+      "actual": [
+        "NOT_EDGE_MEASURED"
+      ]
+    },
+    {
+      "scenario": "direct-2",
+      "check": "창 집계가 전체 시도와 일치",
+      "ok": true,
+      "actual": 12000
+    },
+    {
+      "scenario": "direct-2",
+      "check": "잠금 대기를 부하 중에 측정",
+      "ok": true,
+      "actual": {
+        "samples": 294,
+        "wait_ms": {
+          "p50": 0.001,
+          "p95": 0.388,
+          "p99": 3.619,
+          "max": 8.48
+        },
+        "round_trip_ms": {
+          "p95": 2.142,
+          "max": 20.608
+        },
+        "waiting_sessions_max": 0,
+        "timed_out": 0,
+        "stalled": 0
+      }
+    },
+    {
+      "scenario": "direct-2",
+      "check": "창 파일이 스키마 · 연속성 통과",
+      "ok": true,
+      "actual": "창 6개, 스키마 위반 0개, 연속성 문제 0건"
+    },
+    {
+      "scenario": "direct-2",
+      "check": "기준 구현 judge가 가중치 0%에서 PASS로 읽음",
+      "ok": true,
+      "actual": [
+        "PASS",
+        "PASS",
+        "PASS",
+        "PASS",
+        "PASS",
+        "PASS"
+      ]
+    },
+    {
+      "scenario": "direct-2",
+      "check": "가중치 10%로 읽으면 목적지 표본이 없어 UNKNOWN (PASS로 읽지 않음)",
+      "ok": true,
+      "actual": [
+        "UNKNOWN",
+        [
+          "INSUFFICIENT_SAMPLES",
+          "NOT_APPLIED"
+        ]
+      ]
+    },
+    {
+      "scenario": "direct-3",
+      "check": "대조 판정 PASS, 종료 코드 0",
+      "ok": true,
+      "actual": "PASS"
+    },
+    {
+      "scenario": "direct-3",
+      "check": "실패 · 유실 · 중복 0",
+      "ok": true,
+      "actual": {
+        "failed": 0,
+        "lost": 0,
+        "duplicated": 0
+      }
+    },
+    {
+      "scenario": "direct-3",
+      "check": "쓰기 50 req/s 달성 (±1%)",
+      "ok": true,
+      "actual": 50.0
+    },
+    {
+      "scenario": "direct-3",
+      "check": "읽기 150 req/s 달성 (±1%)",
+      "ok": true,
+      "actual": 150.0
+    },
+    {
+      "scenario": "direct-3",
+      "check": "모든 응답이 출발지로 세어짐, 환경 미확인 0",
+      "ok": true,
+      "actual": {
+        "responses": 12000,
+        "responses_without_header": 0,
+        "registered_values": {
+          "aws": 12000
+        },
+        "unregistered_values": {}
+      }
+    },
+    {
+      "scenario": "direct-3",
+      "check": "판정 입력으로 쓸 수 없다고 표시",
+      "ok": true,
+      "actual": [
+        "NOT_EDGE_MEASURED"
+      ]
+    },
+    {
+      "scenario": "direct-3",
+      "check": "창 집계가 전체 시도와 일치",
+      "ok": true,
+      "actual": 12000
+    },
+    {
+      "scenario": "direct-3",
+      "check": "잠금 대기를 부하 중에 측정",
+      "ok": true,
+      "actual": {
+        "samples": 294,
+        "wait_ms": {
+          "p50": 0.001,
+          "p95": 0.822,
+          "p99": 2.444,
+          "max": 11.414
+        },
+        "round_trip_ms": {
+          "p95": 2.488,
+          "max": 65.665
+        },
+        "waiting_sessions_max": 2,
+        "timed_out": 0,
+        "stalled": 0
+      }
+    },
+    {
+      "scenario": "direct-3",
+      "check": "창 파일이 스키마 · 연속성 통과",
+      "ok": true,
+      "actual": "창 6개, 스키마 위반 0개, 연속성 문제 0건"
+    },
+    {
+      "scenario": "direct-3",
+      "check": "기준 구현 judge가 가중치 0%에서 PASS로 읽음",
+      "ok": true,
+      "actual": [
+        "PASS",
+        "PASS",
+        "PASS",
+        "PASS",
+        "PASS",
+        "PASS"
+      ]
+    },
+    {
+      "scenario": "direct-3",
+      "check": "가중치 10%로 읽으면 목적지 표본이 없어 UNKNOWN (PASS로 읽지 않음)",
+      "ok": true,
+      "actual": [
+        "UNKNOWN",
+        [
+          "INSUFFICIENT_SAMPLES",
+          "NOT_APPLIED"
+        ]
+      ]
+    },
+    {
+      "scenario": "mock-edge",
+      "check": "대조 판정 PASS",
+      "ok": true,
+      "actual": "PASS"
+    },
+    {
+      "scenario": "mock-edge",
+      "check": "실패 · 유실 · 중복 0",
+      "ok": true,
+      "actual": {
+        "failed": 0,
+        "lost": 0,
+        "duplicated": 0
+      }
+    },
+    {
+      "scenario": "mock-edge",
+      "check": "환경 미확인 0",
+      "ok": true,
+      "actual": {
+        "timeout": 0,
+        "connect": 0,
+        "other": 0
+      }
+    },
+    {
+      "scenario": "mock-edge",
+      "check": "응답마다 앱 헤더 하나, 등록된 환경 값만",
+      "ok": true,
+      "actual": {
+        "responses": 12000,
+        "responses_without_header": 0,
+        "registered_values": {
+          "aws": 10808,
+          "onprem": 1192
+        },
+        "unregistered_values": {}
+      }
+    },
+    {
+      "scenario": "mock-edge",
+      "check": "창마다 전체 표본 ≥ 1000",
+      "ok": true,
+      "actual": [
+        2000,
+        2000,
+        2000,
+        2000,
+        2000,
+        2000
+      ]
+    },
+    {
+      "scenario": "mock-edge",
+      "check": "창마다 목적지 표본 ≥ 100",
+      "ok": true,
+      "actual": [
+        224,
+        196,
+        197,
+        189,
+        199,
+        187
+      ]
+    },
+    {
+      "scenario": "mock-edge",
+      "check": "목적지 비율 10% ± 0.05",
+      "ok": true,
+      "actual": [
+        0.112,
+        0.098,
+        0.099,
+        0.095,
+        0.1,
+        0.093
+      ]
+    },
+    {
+      "scenario": "mock-edge",
+      "check": "창 전부 기준 구현 judge가 PASS로 읽음 (가중치 10%)",
+      "ok": true,
+      "actual": [
+        "PASS",
+        "PASS",
+        "PASS",
+        "PASS",
+        "PASS",
+        "PASS"
+      ]
+    },
+    {
+      "scenario": "mock-edge",
+      "check": "Edge 측정이 아니라고 표시",
+      "ok": true,
+      "actual": {
+        "path": "local-mock-edge",
+        "edge_measured": false
+      }
+    },
+    {
+      "scenario": "mock-edge",
+      "check": "창 파일이 스키마 · 연속성 통과",
+      "ok": true,
+      "actual": "창 6개, 스키마 위반 0개, 연속성 문제 0건"
+    },
+    {
+      "scenario": "write-block",
+      "check": "재시도로 복구되어 대조 PASS",
+      "ok": true,
+      "actual": "PASS"
+    },
+    {
+      "scenario": "write-block",
+      "check": "재시도가 실제로 일어남",
+      "ok": true,
+      "actual": 251
+    },
+    {
+      "scenario": "write-block",
+      "check": "실패 · 유실 · 중복 0",
+      "ok": true,
+      "actual": {
+        "failed": 0,
+        "lost": 0,
+        "duplicated": 0
+      }
+    },
+    {
+      "scenario": "write-block",
+      "check": "쓰기 응답 최대 간격이 차단 시간 이상 (재는 값: 5초 차단)",
+      "ok": true,
+      "actual": {
+        "max_ms": 5023.472,
+        "from_s": 11.786136,
+        "to_s": 16.809608,
+        "position": "between",
+        "acks": 1500
+      }
+    },
+    {
+      "scenario": "write-block",
+      "check": "창에 503이 5xx로 세어짐",
+      "ok": true,
+      "actual": 452
+    },
+    {
+      "scenario": "ack-loss",
+      "check": "연결이 실제로 끊김",
+      "ok": true,
+      "actual": 120
+    },
+    {
+      "scenario": "ack-loss",
+      "check": "같은 키 재시도가 저장된 메시지를 돌려받음(200)",
+      "ok": true,
+      "actual": 116
+    },
+    {
+      "scenario": "ack-loss",
+      "check": "전부 확인되어 대조 PASS",
+      "ok": true,
+      "actual": 240
+    },
+    {
+      "scenario": "ack-loss",
+      "check": "실패 · 유실 · 중복 0",
+      "ok": true,
+      "actual": {
+        "failed": 0,
+        "lost": 0,
+        "duplicated": 0
+      }
+    },
+    {
+      "scenario": "failed-but-stored",
+      "check": "FAIL, 종료 코드 1",
+      "ok": true,
+      "actual": [
+        "FAILED"
+      ]
+    },
+    {
+      "scenario": "failed-but-stored",
+      "check": "전부 응답 없음 + 저장됨으로 셈",
+      "ok": true,
+      "actual": 110
+    },
+    {
+      "scenario": "failed-but-stored",
+      "check": "유실 · 중복으로 잘못 세지 않음",
+      "ok": true,
+      "actual": {
+        "failed": 110,
+        "lost": 0,
+        "duplicated": 0
+      }
+    },
+    {
+      "scenario": "tampering",
+      "check": "변조 전에는 PASS",
+      "ok": true,
+      "actual": "PASS"
+    },
+    {
+      "scenario": "tampering",
+      "check": "행 3개 삭제 → 유실 3, FAIL, 종료 1",
+      "ok": true,
+      "actual": {
+        "failed": 0,
+        "lost": 3,
+        "duplicated": 0
+      }
+    },
+    {
+      "scenario": "tampering",
+      "check": "복구하면 다시 PASS",
+      "ok": true,
+      "actual": "PASS"
+    },
+    {
+      "scenario": "tampering",
+      "check": "다른 키로 복사 2건 → 중복 2, FAIL",
+      "ok": true,
+      "actual": {
+        "failed": 0,
+        "lost": 0,
+        "duplicated": 2
+      }
+    },
+    {
+      "scenario": "tampering",
+      "check": "본문 변조 1건 → 내용 불일치 1, FAIL",
+      "ok": true,
+      "actual": [
+        "CONTENT_MISMATCH"
+      ]
+    },
+    {
+      "scenario": "tampering",
+      "check": "요청한 적 없는 행 1건 → 유령 1, FAIL",
+      "ok": true,
+      "actual": [
+        "PHANTOM"
+      ]
+    },
+    {
+      "scenario": "tampering",
+      "check": "모두 되돌리면 PASS",
+      "ok": true,
+      "actual": []
+    },
+    {
+      "scenario": "all-failed",
+      "check": "FAIL, 종료 코드 1",
+      "ok": true,
+      "actual": "FAIL"
+    },
+    {
+      "scenario": "all-failed",
+      "check": "논리 쓰기 전부 실패로 셈",
+      "ok": true,
+      "actual": 110
+    },
+    {
+      "scenario": "all-failed",
+      "check": "성공 응답이 없으면 간격이 부하 전체",
+      "ok": true,
+      "actual": {
+        "max_ms": 11000.0,
+        "from_s": 0.0,
+        "to_s": 11.0,
+        "position": "no_ack",
+        "acks": 0
+      }
+    },
+    {
+      "scenario": "edge-error",
+      "check": "헤더 없는 502가 환경 미확인 other로 세어짐",
+      "ok": true,
+      "actual": 382
+    },
+    {
+      "scenario": "edge-error",
+      "check": "목적지 표본 0",
+      "ok": true,
+      "actual": {
+        "source": 3741,
+        "target": 0
+      }
+    },
+    {
+      "scenario": "edge-error",
+      "check": "계약 오류율이 기준(1%)을 넘음 → 판정이 FAIL로 읽을 값",
+      "ok": true,
+      "actual": 0.0927
+    },
+    {
+      "scenario": "edge-error",
+      "check": "기준 구현 judge가 오류율 FAIL로 읽음",
+      "ok": true,
+      "actual": [
+        "FAIL",
+        [
+          "ERROR_RATE",
+          "INSUFFICIENT_SAMPLES",
+          "NOT_APPLIED"
+        ]
+      ]
+    },
+    {
+      "scenario": "edge-error",
+      "check": "쓰기는 재시도로 복구, 실패 · 유실 · 중복 0",
+      "ok": true,
+      "actual": {
+        "failed": 0,
+        "lost": 0,
+        "duplicated": 0
+      }
+    },
+    {
+      "scenario": "db-pause",
+      "check": "유실 · 중복 0",
+      "ok": true,
+      "actual": {
+        "failed": 0,
+        "lost": 0,
+        "duplicated": 0
+      }
+    },
+    {
+      "scenario": "db-pause",
+      "check": "쓰기 응답 최대 간격이 정지 시간에 가까움",
+      "ok": true,
+      "actual": {
+        "max_ms": 5082.854,
+        "from_s": 11.68873,
+        "to_s": 16.771584,
+        "position": "between",
+        "acks": 1234
+      }
+    },
+    {
+      "scenario": "db-pause",
+      "check": "DB 정지가 잠금 측정에 멈춤으로 드러남",
+      "ok": true,
+      "actual": {
+        "samples": 120,
+        "wait_ms": {
+          "p50": 0.002,
+          "p95": 42.848,
+          "p99": 66.603,
+          "max": 87.253
+        },
+        "round_trip_ms": {
+          "p95": 45.426,
+          "max": 4899.595
+        },
+        "waiting_sessions_max": 5,
+        "timed_out": 0,
+        "stalled": 1
+      }
+    },
+    {
+      "scenario": "db-pause",
+      "check": "측정기가 정지 뒤에도 표본을 이어 감 (0.2초 간격 × 22초의 절반 이상)",
+      "ok": true,
+      "actual": 120
+    },
+    {
+      "scenario": "low-sample",
+      "check": "표본을 부풀리지 않음: 창 전체 < 1000",
+      "ok": true,
+      "actual": [
+        50,
+        50
+      ]
+    },
+    {
+      "scenario": "low-sample",
+      "check": "기준 구현 judge가 INSUFFICIENT_SAMPLES로 UNKNOWN",
+      "ok": true,
+      "actual": [
+        "UNKNOWN",
+        [
+          "INSUFFICIENT_SAMPLES"
+        ]
+      ]
+    },
+    {
+      "scenario": "window-gap",
+      "check": "가운데 창을 지운 파일을 끊김으로 잡음, 종료 1",
+      "ok": true,
+      "actual": "창 2개, 스키마 위반 0개, 연속성 문제 1건"
+    },
+    {
+      "scenario": "sink-down",
+      "check": "플랫폼이 죽어도 부하는 끝까지 간다",
+      "ok": true,
+      "actual": 120
+    },
+    {
+      "scenario": "sink-down",
+      "check": "전달 실패를 세고 경고",
+      "ok": true,
+      "actual": 1
+    },
+    {
+      "scenario": "generator-stall",
+      "check": "생성기가 14초 멈춘 구간이 빈 창으로 드러남 (건너뛰지 않음)",
+      "ok": true,
+      "actual": [
+        308,
+        0,
+        887,
+        4
+      ]
+    },
+    {
+      "scenario": "generator-stall",
+      "check": "창은 끊기지 않고 이어짐",
+      "ok": true,
+      "actual": 4
+    },
+    {
+      "scenario": "generator-stall",
+      "check": "빈 창을 기준 구현 judge가 UNKNOWN으로 읽음 (0을 정상으로 읽지 않음)",
+      "ok": true,
+      "actual": [
+        "UNKNOWN",
+        [
+          "INSUFFICIENT_SAMPLES",
+          "NOT_APPLIED"
+        ]
+      ]
+    },
+    {
+      "scenario": "generator-stall",
+      "check": "생성기 지연 경고",
+      "ok": true,
+      "actual": {
+        "p95": 12508.118,
+        "max": 14003.895
+      }
+    },
+    {
+      "scenario": "soak",
+      "check": "대조 판정 PASS",
+      "ok": true,
+      "actual": "PASS"
+    },
+    {
+      "scenario": "soak",
+      "check": "창 18개가 끊기지 않고 나옴",
+      "ok": true,
+      "actual": 18
+    },
+    {
+      "scenario": "soak",
+      "check": "메모리가 처음의 1.5배 안에 머묾",
+      "ok": true,
+      "actual": {
+        "avg": 53.7,
+        "max": 64.7,
+        "first_10_samples_avg": 59.8,
+        "last_10_samples_avg": 47.8
+      }
+    }
+  ]
+}

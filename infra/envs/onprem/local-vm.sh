@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Apple Silicon Mac에서 새 Ubuntu VM을 QEMU로 띄워 render-user-data.sh의 결과를 넣는다.
-# 온프렘 데모 머신이 정해지기 전 시험과 T3 · T9 개발에 쓴다. brew install qemu가 필요하다.
+# Mac에서 arm64 또는 x86_64 Ubuntu VM에 같은 render-user-data.sh를 넣는다.
+# BRAVO_VM_ARCH=arm64|x86_64 (기본: 호스트 CPU). brew install qemu가 필요하다.
 #
 #   ./local-vm.sh up             새 VM을 만들고 cloud-init이 끝날 때까지 기다린다
 #   ./local-vm.sh run <스크립트>  VM 안에서 스크립트를 root로 실행한다 (예: verify-node.sh)
@@ -12,12 +12,33 @@ set -euo pipefail
 umask 077
 
 HERE=$(cd "$(dirname "$0")" && pwd)
-STATE=${BRAVO_VM_STATE:-${XDG_CACHE_HOME:-$HOME/.cache}/bravo-onprem-vm}
+HOST_ARCH=$(uname -m)
+case "$HOST_ARCH" in arm64|aarch64) HOST_ARCH=arm64 ;; x86_64|amd64) HOST_ARCH=x86_64 ;; esac
+case "${BRAVO_VM_ARCH:-$HOST_ARCH}" in
+  arm64|aarch64)
+    ARCH=arm64 IMAGE_ARCH=arm64 MACHINE=virt QEMU=qemu-system-aarch64 CPU=cortex-a72
+    IMAGE_SHA256=50e24e1fb79e89116e939d90aa7738f7af48c442fa1bc2510131e0b39c50348e
+    SUFFIX= DEFAULT_SSH_PORT=2222 DEFAULT_API_PORT=6443
+    ;;
+  x86_64|amd64)
+    ARCH=x86_64 IMAGE_ARCH=amd64 MACHINE=q35 QEMU=qemu-system-x86_64 CPU=max
+    IMAGE_SHA256=04e8f2461a16a44e78a370284471f29616cdd9baf1893df25807b71f985b6c94
+    SUFFIX=-x86_64 DEFAULT_SSH_PORT=2223 DEFAULT_API_PORT=6444
+    ;;
+  *) echo 'BRAVO_VM_ARCH must be arm64 or x86_64' >&2; exit 2 ;;
+esac
+ACCEL=tcg,thread=multi
+if [ "$ARCH" = "$HOST_ARCH" ]; then ACCEL=hvf; CPU=host; fi
+STATE=${BRAVO_VM_STATE:-${XDG_CACHE_HOME:-$HOME/.cache}/bravo-onprem-vm$SUFFIX}
 VM=$STATE/vm
 IMAGE_BUILD=release-20261017
-IMAGE_NAME=ubuntu-24.04-server-cloudimg-arm64.img
-IMAGE_SHA256=50e24e1fb79e89116e939d90aa7738f7af48c442fa1bc2510131e0b39c50348e
-SSH_PORT=2222
+IMAGE_NAME=ubuntu-24.04-server-cloudimg-$IMAGE_ARCH.img
+SSH_PORT=${BRAVO_SSH_PORT:-$DEFAULT_SSH_PORT}
+API_PORT=${BRAVO_API_PORT:-$DEFAULT_API_PORT}
+export BRAVO_VM_ARCH=$ARCH BRAVO_SSH_PORT=$SSH_PORT BRAVO_API_PORT=$API_PORT
+if [ "${1:-}" = ssh ] || [ "${1:-}" = run ]; then
+  SSH_PORT=$(python3 "$HERE/local_vm.py" connection "$STATE")
+fi
 SSH=(ssh -i "$VM/id_ed25519" -p "$SSH_PORT" -o StrictHostKeyChecking=no
   -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR -o ConnectTimeout=3 ubuntu@127.0.0.1)
 
@@ -51,12 +72,13 @@ EOF
 }
 
 start_qemu() {
+  local platform_args=(-M "$MACHINE" -accel "$ACCEL" -cpu "$CPU")
+  if [ "$ARCH" = arm64 ]; then platform_args+=(-bios "$(brew --prefix)/share/qemu/edk2-aarch64-code.fd"); fi
   qemu-img create -q -f qcow2 -F qcow2 -b "$STATE/$IMAGE_NAME" "$VM/disk.qcow2" 40G
-  qemu-system-aarch64 -M virt -accel hvf -cpu host -smp 4 -m 8192 \
-    -bios "$(brew --prefix)/share/qemu/edk2-aarch64-code.fd" \
+  "$QEMU" "${platform_args[@]}" -smp 4 -m 8192 \
     -drive "file=$VM/disk.qcow2,if=virtio" \
     -drive "file=$VM/seed.iso,if=virtio,format=raw,readonly=on" \
-    -nic "user,model=virtio-net-pci,hostfwd=tcp:127.0.0.1:$SSH_PORT-:22,hostfwd=tcp:127.0.0.1:6443-:6443" \
+    -nic "user,model=virtio-net-pci,hostfwd=tcp:127.0.0.1:$SSH_PORT-:22,hostfwd=tcp:127.0.0.1:$API_PORT-:6443" \
     -display none -serial "file:$VM/console.log" -daemonize -pidfile "$VM/qemu.pid" \
     -uuid "$1" -qmp "unix:$VM/qmp.sock,server=on,wait=off"
 }
@@ -65,7 +87,7 @@ wait_for_cloud_init() {
   local tries=0
   until "${SSH[@]}" true 2>/dev/null; do
     tries=$((tries + 1))
-    if [ "$tries" -gt 60 ]; then
+    if [ "$tries" -gt 180 ]; then
       echo "VM에 접속하지 못했다. 부팅 기록: $VM/console.log" >&2
       exit 1
     fi

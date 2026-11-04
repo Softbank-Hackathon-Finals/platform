@@ -100,17 +100,30 @@ def pooler():
                       "limits": {"cpu": "250m", "memory": "256Mi"}},
         "readinessProbe": {"tcpSocket": {"port": 5432}},
         "livenessProbe": {"tcpSocket": {"port": 5432}, "initialDelaySeconds": 10},
-        "volumeMounts": [{"name": n, "mountPath": p, "readOnly": True} for n, p in [
-            ("config", "/etc/pgbouncer"), ("auth", "/etc/pgbouncer-auth"),
+        "volumeMounts": [{"name": "config", "mountPath": "/etc/pgbouncer"}] +
+            [{"name": n, "mountPath": p, "readOnly": True} for n, p in [
+            ("auth", "/etc/pgbouncer-auth"),
             ("ca", "/etc/cnpg-ca"), ("tls", "/etc/cnpg-tls")]] +
             [{"name": "tmp", "mountPath": "/tmp"}]}, [
-        {"name": "config", "configMap": {"name": "source-pgbouncer-config"}},
+        {"name": "config", "emptyDir": {}},
+        {"name": "config-seed", "configMap": {"name": "source-pgbouncer-config"}},
         {"name": "auth", "secret": {"secretName": "source-pgbouncer-auth", "defaultMode": 288}},
         {"name": "ca", "secret": {"secretName": "source-db-ca", "items": [{"key": "ca.crt", "path": "ca.crt"}]}},
         {"name": "tls", "secret": {"secretName": "source-db-server", "defaultMode": 288}},
         {"name": "tmp", "emptyDir": {}}])
     deploy["spec"]["template"]["spec"]["securityContext"].update(
         {"runAsUser": 998, "runAsGroup": 996, "fsGroup": 996})
+    # Service admin commands must address one pooler, including during updates.
+    deploy["spec"]["strategy"] = {"type": "Recreate"}
+    deploy["spec"]["template"]["spec"]["initContainers"] = [{
+        "name": "seed-config", "image": POOLER_IMAGE, "imagePullPolicy": "IfNotPresent",
+        "command": ["/bin/sh", "-ec", "umask 077; cp /config-seed/pgbouncer.ini /etc/pgbouncer/pgbouncer.ini; chmod 600 /etc/pgbouncer/pgbouncer.ini"],
+        "securityContext": {"allowPrivilegeEscalation": False, "readOnlyRootFilesystem": True,
+                            "capabilities": {"drop": ["ALL"]}},
+        "resources": {"requests": {"cpu": "10m", "memory": "16Mi"},
+                      "limits": {"cpu": "100m", "memory": "64Mi"}},
+        "volumeMounts": [{"name": "config-seed", "mountPath": "/config-seed", "readOnly": True},
+                         {"name": "config", "mountPath": "/etc/pgbouncer"}]}]
     return [config, deploy, service("source-pgbouncer", 5432)]
 
 

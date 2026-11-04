@@ -6,15 +6,17 @@
 """
 
 import os
+import secrets
 from typing import Annotated, Protocol
 from uuid import UUID
 
 from fastapi import FastAPI, Header, HTTPException, Query
 from fastapi.responses import JSONResponse
+from starlette.requests import Request
 
 from bravo_cutover.contract import CutoverRequest
 from bravo_cutover.rejections import Rejected
-from bravo_cutover.resources import Registry
+from bravo_cutover.resources import RegisteredPair, Registry
 from bravo_cutover.store import Store
 
 
@@ -23,19 +25,21 @@ class Runner(Protocol):
 
 
 class NoRunner:
-    """실행기 없이 기록만 남긴다(EXECUTOR_CONFIG가 없을 때)."""
+    """읽기 전용 앱. 실제 실행기와 자원 등록이 없으면 POST를 거부한다."""
 
     def submit(self, execution_id: UUID) -> None:
         return None
 
 
 def create_app(store: Store | None = None, runner: Runner | None = None,
-               registry: Registry | None = None) -> FastAPI:
+               registry: Registry | None = None, *, api_token: str | None = None,
+               migrate: bool = False) -> FastAPI:
     """EXECUTOR_DB(실행 기록 DB), EXECUTOR_CONFIG(환경 설정 파일)로 실제 실행기를 만든다.
     자원 등록은 EXECUTOR_CONFIG의 환경 목록에서 만들고, 설정 파일 없이 기록만 남길 때는 EXECUTOR_RESOURCES를 읽는다."""
     if store is None:
         store = Store(os.environ["EXECUTOR_DB"])
-        store.migrate()
+        if migrate:
+            store.migrate()
     if (runner is None or registry is None) and os.environ.get("EXECUTOR_CONFIG"):
         from bravo_cutover.runner import Cutover, ThreadRunner
         from bravo_cutover.sites import load_config, registry_from_sites
@@ -43,14 +47,29 @@ def create_app(store: Store | None = None, runner: Runner | None = None,
         config = load_config(os.environ["EXECUTOR_CONFIG"])
         registry = registry or registry_from_sites(config.sites)
         runner = runner or ThreadRunner(Cutover(store, config), store)
-    if registry is None:
+    if registry is None and os.environ.get("EXECUTOR_RESOURCES"):
         registry = Registry.from_file(os.environ["EXECUTOR_RESOURCES"])
     runner = runner or NoRunner()
     app = FastAPI(title="cutover-executor")
 
+    @app.middleware("http")
+    async def authenticate(request: Request, call_next):
+        if api_token is not None and request.url.path.startswith("/v1/"):
+            provided = request.headers.get("authorization", "")
+            if not secrets.compare_digest(provided.encode(), ("Bearer " + api_token).encode()):
+                return JSONResponse({"detail": {"code": "unauthorized"}}, status_code=401)
+        return await call_next(request)
+
     @app.get("/healthz")
     async def healthz():
         return {"status": "ok"}
+
+    @app.get("/v1/resources", response_model=RegisteredPair)
+    def get_resources():
+        pair = registry.public_pair() if registry is not None and api_token else None
+        if pair is None:
+            raise HTTPException(503, {"code": "executor_not_configured"})
+        return pair
 
     @app.post("/v1/cutovers")
     def start_cutover(
@@ -59,6 +78,8 @@ def create_app(store: Store | None = None, runner: Runner | None = None,
     ):
         if not idempotency_key:
             raise HTTPException(400, {"code": "idempotency_key_required"})
+        if registry is None or isinstance(runner, NoRunner):
+            raise HTTPException(503, {"code": "executor_not_configured"})
         try:
             # 요청의 환경 · 접속 참조를 서버 등록 정보로 실제 DB 자원에 결속한 뒤 판정한다
             execution, created = store.create(idempotency_key, request, registry.resolve(request))

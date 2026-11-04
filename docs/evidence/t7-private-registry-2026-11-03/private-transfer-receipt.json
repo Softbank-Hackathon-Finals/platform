@@ -1,0 +1,17 @@
+{
+  "source_image": "ghcr.io/softbank-hackathon-finals/demo-chat",
+  "source_sha": "ce5727eb3e3d2355077afdaadcb1a722aba9c7cd",
+  "digest": "sha256:001adc35a9fc767566552fb55c3c19a67b7c5efc7231fb02dc28cdeace99d0d4",
+  "destination_registry": "aws-ecr-private",
+  "repository_name": "bravo/demo-chat",
+  "account_and_publisher_boundary_matches": true,
+  "oidc_session_seconds": 900,
+  "vulnerability_count": 0,
+  "secret_match_count": 0,
+  "index_and_attestation_blobs_identical": true,
+  "verified_blob_count": 15,
+  "destination_pull_verified": true,
+  "runtime_probe_verified": true,
+  "organization_visibility_changed": false,
+  "cluster_pull_verified": false
+}

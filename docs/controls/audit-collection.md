@@ -62,20 +62,26 @@ CloudWatch로 전달되기 전에는 이 어댑터로 DB 로그 검색을 완료
 ## 목적지 RKE2와 CNPG
 
 [`rke2-audit-policy.yaml`](../../services/control-runner/templates/rke2-audit-policy.yaml)은
-T2/T30 담당자가 검토·적용할 후보다. Secret 본문을 담지 않는 Metadata 수준으로 권한 변경을
-기록한다. 이 파일만으로 로그 수집이나 보존이 활성화되지는 않는다.
+온프렘 user-data가 RKE2 첫 시작 전에 넣는다. Secret 본문을 담지 않는 Metadata 수준으로 권한 변경을
+기록한다. 측정은 [로컬 VM 기록](../evidence/t30-rke2-audit-2026-11-04/README.md)에 있고 데모 머신과
+T7 EC2에는 적용하지 않았다. 이 파일만으로 로그가 노드 밖으로 전달되지는 않는다.
 
-1. RKE2 kube-apiserver가 해당 policy와 audit 파일 경로를 사용하게 한다.
+실제 로그에서 확인한 주의점이 둘 있다. `pods/exec` 명령 인자는 `requestURI`에 실려 Metadata에도
+남으므로 비밀을 인자로 넘기지 않는다. 거부된 생성(403)은 `objectRef.name`이 없어 이름으로 찾을 수 없다.
+
+1. RKE2 kube-apiserver가 해당 policy와 audit 파일 경로를 사용하게 한다. 온프렘 경로는 로컬 VM에서
+   확인했고 데모 머신은 재설치 뒤 다시 잰다.
 2. CNPG는 접속 성공 로그·pgAudit DDL을 활성화하고 파라미터 로깅은 끈다.
 3. 기존 수집기를 이용해 **목적지에서 시작하는 TLS 연결**로 저장소에 전달한다.
    별도 외부 수신 포트를 열지 않는다. writer는 쓰기 전용, verifier는 검색 전용으로 분리한다.
 4. 클러스터·namespace·pod/container 신원을 수집기에서 확인한다. 앱이 임의로 같은 로그
    label을 붙이는 것으로 CNPG/K8s audit 원본을 사칭할 수 없어야 한다.
-5. 회전·보존·디스크 한도·전송 재시도·수집 중단 알림을 운영 설정으로 확인한다.
+5. 회전·보존·디스크 한도·전송 재시도·수집 중단 알림을 운영 설정으로 확인한다. RKE2 값은 100MiB,
+   백업 10개, 30일이고 상한은 약 1.1GiB다. 워크로드 없는 노드에서도 하루 약 380MiB가 쌓여 실제 보존은
+   3일쯤이다(로컬 VM 실측). 전송 재시도와 수집 중단 알림은 남아 있다.
 6. 목적지 검색 어댑터가 같은 `AuditBatch` 의미를 구현한 뒤 실측한다.
 
-현재 목적지의 수집·검색 backend는 이 PR에서 선택하거나 배포하지 않는다.
-Harbor, T2/T6/T30의 클러스터·로그 설정도 변경하지 않는다.
+목적지의 수집·검색 backend는 아직 선택하거나 배포하지 않았다.
 
 ## 실제 완료 전 필수 시험
 

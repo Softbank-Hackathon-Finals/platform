@@ -1,5 +1,5 @@
-# T34 candidate policy for the T2/T30 owner's review, not an automatic apply.
-# Retention, rotation, authenticated outbound shipping and disk quota are also required.
+# infra/envs/onprem/render-user-data.sh writes this file before the first RKE2 start.
+# RKE2 sets log rotation and retention. Authenticated outbound shipping is separate.
 apiVersion: audit.k8s.io/v1
 kind: Policy
 omitStages:

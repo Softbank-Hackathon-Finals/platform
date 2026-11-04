@@ -1,0 +1,15 @@
+[
+  {
+    "mode": "verify-ca",
+    "uid_precondition": true,
+    "pooler_absent": true
+  },
+  {
+    "mode": "verify-full",
+    "uid_precondition": true,
+    "pooler_absent": true
+  },
+  {
+    "source_still_ready": true
+  }
+]
