@@ -18,6 +18,7 @@ import importlib.util
 import json
 import os
 import signal
+import socket
 import subprocess
 import sys
 import threading
@@ -182,6 +183,64 @@ def stop_cleanly(source, target):
         raise TimeoutError("slot was not released")
 
 
+class LostAnswerProxy:
+    """Stands between the command and a database: delivers the first COMMIT, then closes without its answer.
+
+    That is the failure a client cannot tell from no commit at all. stay_down keeps later connections
+    out too, so that the row cannot be removed through this path.
+    """
+
+    def __init__(self, upstream_port, *, stay_down=False):
+        self.upstream_port, self.stay_down = upstream_port, stay_down
+        self.dropped = threading.Event()
+        self.listener = socket.create_server(("127.0.0.1", 0))
+        self.port = self.listener.getsockname()[1]
+        threading.Thread(target=self._serve, daemon=True).start()
+
+    def _serve(self):
+        while True:
+            try:
+                client, _ = self.listener.accept()
+            except OSError:
+                return
+            if self.stay_down and self.dropped.is_set():
+                client.close()
+            else:
+                threading.Thread(target=self._relay, args=(client,), daemon=True).start()
+
+    def _relay(self, client):
+        server = socket.create_connection(("127.0.0.1", self.upstream_port))
+        muted = threading.Event()
+
+        def answers():
+            try:
+                while data := server.recv(65536):
+                    if not muted.is_set():
+                        client.sendall(data)
+            except OSError:
+                pass
+            client.close()
+
+        threading.Thread(target=answers, daemon=True).start()
+        try:
+            while data := client.recv(65536):
+                if not self.dropped.is_set() and b"COMMIT\x00" in data:
+                    muted.set()
+                    self.dropped.set()
+                    server.sendall(data)
+                    time.sleep(0.5)  # Long enough for the server to finish it before the session goes away.
+                    client.close()
+                    server.close()
+                    return
+                server.sendall(data)
+        except OSError:
+            pass
+        server.close()
+
+    def close(self):
+        self.listener.close()
+
+
 class Writer(threading.Thread):
     """50 writes per second until told to stop, the design's load. Keeps every acknowledged row id."""
 
@@ -220,6 +279,10 @@ def pile_up(source, wanted_bytes):
     return slot_row(source)[3]
 
 
+def barrier_counts(source, target):
+    return [connection.execute("SELECT count(*) FROM cutover.barrier").fetchone()[0] for connection in (source, target)]
+
+
 def table_digest(connection, table):
     return connection.execute(f"SELECT count(*), sum(hashtextextended(t::text, 0)::numeric) FROM {table} AS t").fetchone()
 
@@ -241,8 +304,7 @@ def verify_no_loss(source, target, acks, *, stopped_after_id, stopped_until_id):
             "rows_written_while_stopped": piled_source, "of_those_on_target": piled_target,
             "messages_identical": table_digest(source, "public.messages") == table_digest(target, "public.messages"),
             "attachments_identical": table_digest(source, "public.attachments") == table_digest(target, "public.attachments"),
-            "barrier_rows_left": {"source": source.execute("SELECT count(*) FROM cutover.barrier").fetchone()[0],
-                                  "target": target.execute("SELECT count(*) FROM cutover.barrier").fetchone()[0]}}
+            "barrier_rows_left": dict(zip(("source", "target"), barrier_counts(source, target)))}
 
 
 def resting_state(source, target):
@@ -293,7 +355,8 @@ def recover_run(condition, repetition):
             "dry_run_changed_nothing": dry["exit"] == 0 and still_off_after_dry_run,
             "apply_passed": applied["exit"] == 0,
             "enabled_by_this_run": applied["report"].get("enabled_by") in ("control_function", "alter_subscription"),
-            "barrier_went_both_ways": bool(applied["report"].get("marker", {}).get("passed")),
+            "barrier_went_both_ways": bool(applied["report"].get("marker", {}).get("passed"))
+            and applied["report"]["marker"]["cleanup"] == "confirmed",
             "applied_position_passed_the_marker": bool(applied["report"].get("post_check", {}).get("checks", {}).get("applied_fixed")),
             "hashes_equal_at_the_end": all(table["sha256_equal"] for table in applied["report"].get("stages", {}).get("cleaned", {}).get("business_tables", {"none": {"sha256_equal": False}}).values()),
             "second_run_only_verified": verify_again["exit"] == 0 and verify_again["report"].get("would_run") is None
@@ -407,6 +470,11 @@ def refusal_cases(lab, source, target, state_dsn):
         Case("remote host without verified TLS", "source_unconfirmed", error="database connection must use verify-full TLS",
              source="host=db.example.invalid dbname=chat user=x"),
         Case("probe role without DELETE", "barrier_probe_not_permitted", probe=lab.dsn("source", "cutover_control")),
+        # The probe role really can write on all of these, which is why permission alone must not be enough.
+        Case("probe DSN on the target cluster", "barrier_probe_wrong_database", probe=lab.dsn("target")),
+        Case("probe DSN on another database of the source", "barrier_probe_wrong_database",
+             probe=lab.dsn("source", dbname="executor_state")),
+        Case("probe DSN unreachable", "barrier_probe_unconfirmed", probe=wrong_port),
         Case("no barrier in the publication", "barrier_not_published",
              lambda: source.execute("ALTER PUBLICATION source_chat DROP TABLE cutover.barrier"),
              lambda: source.execute("ALTER PUBLICATION source_chat ADD TABLE cutover.barrier")),
@@ -434,14 +502,15 @@ def run_refusals():
                 case.arrange()
             refused = run_tool(lab, "--apply", *identity, **case.tool)
             stayed_off = not is_enabled(target)
+            rows_left = sum(barrier_counts(source, target))
             if case.undo:
                 case.undo()
             passed_again = run_tool(lab)
             results.append({"case": case.name, "reason": case.reason, "exit": refused["exit"],
                             "refusals": refused["report"].get("refusals"), "subscription_stayed_off": stayed_off,
                             "passes_once_undone": passed_again["exit"] == 0, "credentials_in_output": refused["credentials_in_output"],
-                            "errors": refused["report"].get("errors"),
-                            "passed": (refused["exit"] == 1 and case.reason in (refused["report"].get("refusals") or [])
+                            "errors": refused["report"].get("errors"), "barrier_rows_left": rows_left,
+                            "passed": (refused["exit"] == 1 and case.reason in (refused["report"].get("refusals") or []) and rows_left == 0
                                        and (case.error is None or refused["report"].get("errors", {}).get("source") == case.error)
                                        and stayed_off and passed_again["exit"] == 0 and not refused["credentials_in_output"])})
             print(json.dumps({"case": case.name, "passed": results[-1]["passed"]}, ensure_ascii=False), flush=True)
@@ -562,6 +631,43 @@ def run_paths():
         narrow = run_tool(lab, *apply_fast, target=lab.dsn("target", "cutover_control"))
         outcome["control_function_role"] = {
             "run": narrow, "passed": narrow["exit"] == 0 and narrow["report"]["enabled_by"] == "control_function"}
+
+        # The answer to the test row's commit is lost, and the command can still reach the source.
+        wait_until(lambda: slot_row(source)[0], 30)
+        proxy = LostAnswerProxy(lab.ports["source"])
+        answer_lost = run_tool(lab, *apply_fast, "--probe-timeout", "10", probe=f"host=127.0.0.1 port={proxy.port} dbname=chat user=t8_probe")
+        proxy.close()
+        marker = answer_lost["report"].get("marker", {})
+        outcome["insert_answer_lost"] = {
+            "commit_really_reached_the_server": proxy.dropped.is_set(), "run": answer_lost,
+            "barrier_rows_left": barrier_counts(source, target),
+            "passed": proxy.dropped.is_set() and answer_lost["exit"] == 1 and marker.get("source_insert_submissions") == 1
+            and marker.get("source_insert_commits") == 1 and marker.get("cleanup") == "confirmed"
+            and barrier_counts(source, target) == [0, 0]}
+
+        # Worse: the write path stays down as well. The row of another execution sits beside it and must survive.
+        other = uuid.uuid4()
+        source.execute("INSERT INTO cutover.barrier (barrier_id, epoch) VALUES (%s, 7)", (other,))
+        proxy = LostAnswerProxy(lab.ports["source"], stay_down=True)
+        stranded = run_tool(lab, *apply_fast, "--probe-timeout", "3", probe=f"host=127.0.0.1 port={proxy.port} dbname=chat user=t8_probe")
+        proxy.close()
+        marker = stranded["report"].get("marker", {})
+        left_behind = source.execute("SELECT count(*) FROM cutover.barrier WHERE barrier_id = %s", (marker.get("barrier_id"),)).fetchone()[0]
+        refused_other = run_tool(lab, "--cleanup-marker", str(other), *identity, "--probe-timeout", "3")
+        finished = run_tool(lab, "--cleanup-marker", marker.get("barrier_id"), *identity, "--probe-timeout", "20")
+        again = run_tool(lab, "--cleanup-marker", marker.get("barrier_id"), *identity, "--probe-timeout", "20")
+        other_survived = source.execute("SELECT count(*) FROM cutover.barrier WHERE barrier_id = %s", (other,)).fetchone()[0] == 1
+        source.execute("DELETE FROM cutover.barrier WHERE barrier_id = %s", (other,))
+        wait_until(lambda: barrier_counts(source, target) == [0, 0], 20)
+        outcome["cleanup_left_pending"] = {
+            "commit_really_reached_the_server": proxy.dropped.is_set(), "run": stranded, "row_left_on_source": left_behind,
+            "row_of_another_execution_refused": refused_other, "cleanup": finished, "cleanup_again": again,
+            "row_of_another_execution_survived": other_survived,
+            "passed": proxy.dropped.is_set() and stranded["exit"] == 1 and marker.get("cleanup") == "pending"
+            and "source" in marker.get("pending_on", []) and "--cleanup-marker" in marker.get("resume", "") and left_behind == 1
+            and refused_other["report"].get("refusals") == ["not_a_marker_row"] and other_survived
+            and finished["exit"] == 0 and finished["report"]["marker"]["cleanup"] == "confirmed"
+            and again["exit"] == 0 and again["report"]["marker"]["source_delete_submissions"] == 0}
 
         # Enabled by hand while another reader still holds the slot: it retries, it does not turn itself off.
         stop_cleanly(source, target)

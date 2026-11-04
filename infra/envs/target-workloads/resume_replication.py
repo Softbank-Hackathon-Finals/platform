@@ -9,7 +9,9 @@ The default writes nothing: read-only checks, and if the subscription is already
 post-check as well. --apply adds at most two things, and only when every check passed: one ENABLE
 of the forward subscription if it is off, and one test row in cutover.barrier that is deleted again.
 A running subscription is never enabled a second time. Slots, roles, the reverse subscription and the
-application's write block are never touched, and nothing is ever written to the target.
+application's write block are never touched, and nothing is ever written to the target. The test row
+goes only to the database verified as the source, and --cleanup-marker finishes removing one a failed
+run reported as pending.
 
 The output uses the names and units of the first actual resume (docs/evidence/t8-forward-recovery-2026-11-04,
 PR #201), so that a later run reads the same way. Rows are hashed only up to the source snapshot taken
@@ -62,6 +64,7 @@ STATEMENTS = {
         SELECT json_build_object(
             'source_observed_at', now(),
             'system_identifier', (SELECT system_identifier::text FROM pg_control_system()),
+            'database', current_database(), 'slot_database', s.database,
             'in_recovery', pg_is_in_recovery(),
             'source_wal_flush_lsn', CASE WHEN pg_is_in_recovery() THEN NULL ELSE pg_current_wal_flush_lsn()::text END,
             'barrier_published', EXISTS (SELECT FROM pg_publication_tables WHERE pubname = %(publication)s
@@ -96,6 +99,7 @@ STATEMENTS = {
         SELECT json_build_object(
             'target_observed_at', now(),
             'system_identifier', (SELECT system_identifier::text FROM pg_control_system()),
+            'database', current_database(),
             'in_recovery', pg_is_in_recovery(),
             'target_app_login', (SELECT rolcanlogin FROM pg_roles WHERE rolname = 'chat_app'),
             'app_sessions', (SELECT count(*) FROM pg_stat_activity
@@ -159,11 +163,14 @@ STATEMENTS = {
             'resource_fences', (SELECT count(*) FROM executor.resource_fences))""",
     # Separate calls: has_table_privilege is true when any listed privilege is held, and cutover_control has
     # INSERT and SELECT. The DELETE's WHERE clause needs SELECT as well.
-    "probe_allowed": f"""
-        SELECT coalesce(has_table_privilege(current_user, {BARRIER_TABLE}, 'INSERT')
-                        AND has_table_privilege(current_user, {BARRIER_TABLE}, 'DELETE')
-                        AND has_table_privilege(current_user, {BARRIER_TABLE}, 'SELECT')
-                        AND {BARRIER_SCHEMA_USABLE}, false)""",
+    "probe_status": f"""
+        SELECT json_build_object(
+            'system_identifier', (SELECT system_identifier::text FROM pg_control_system()),
+            'database', current_database(), 'in_recovery', pg_is_in_recovery(),
+            'allowed', coalesce(has_table_privilege(current_user, {BARRIER_TABLE}, 'INSERT')
+                                AND has_table_privilege(current_user, {BARRIER_TABLE}, 'DELETE')
+                                AND has_table_privilege(current_user, {BARRIER_TABLE}, 'SELECT')
+                                AND {BARRIER_SCHEMA_USABLE}, false))""",
 }
 NAMES = {"forward": FORWARD, "reverse": REVERSE, "publication": PUBLICATION}
 # A failed one of these will not fix itself while waiting, so the post-check ends at once.
@@ -171,7 +178,9 @@ FATAL_CHECKS = ("forward_enabled", "source_slot_valid", "errors_not_increased", 
 # Not an execution's epoch. The Executor finds its own barrier by id and never reads this column back.
 PROBE_EPOCH = 0
 PROBE_INSERT = "INSERT INTO cutover.barrier (barrier_id, epoch) VALUES (%s, %s)"
-PROBE_DELETE = "DELETE FROM cutover.barrier WHERE barrier_id = %s"
+# The epoch keeps it off the Executor's rows, which always have one of 1 or more.
+PROBE_DELETE = "DELETE FROM cutover.barrier WHERE barrier_id = %s AND epoch = %s"
+PROBE_IDENTITY = "SELECT (SELECT system_identifier::text FROM pg_control_system()), current_database()"
 ERROR_FIELDS = ("target_apply_errors", "target_sync_errors", "target_conflicts")
 STAGE_SOURCE_FIELDS = ("source_observed_at", "reverse_enabled", "source_slot_active", "source_slot_wal_status",
                        "source_slot_invalidated", "source_sender_state", "source_sender_tls", "source_slot_confirmed_flush_lsn")
@@ -226,9 +235,19 @@ def enable(dsn, method):
         connection.execute(enable_statement(method))
 
 
-def write_marker(dsn, statement, params):
-    """One committed statement. Returns the WAL position just before the commit, as in the first resume."""
+class ProbeTargetChanged(RuntimeError):
+    pass
+
+
+def write_marker(dsn, statement, params, identity):
+    """One committed statement. Returns the WAL position just before the commit, as in the first resume.
+
+    Checked in the session that writes, because the preflight's session has gone by then: the name in
+    the DSN may lead elsewhere now, and verify-full proves only which server answered.
+    """
     with connect(dsn, options=CONTROL_OPTIONS) as connection:
+        if connection.execute(PROBE_IDENTITY).fetchone() != (identity["system_identifier"], identity["database"]):
+            raise ProbeTargetChanged
         connection.execute(statement, params)
         return connection.execute("SELECT pg_current_wal_insert_lsn()::text").fetchone()[0]
 
@@ -281,7 +300,7 @@ def gather(source_dsn, target_dsn, executor_dsn, executor_not_deployed, probe_ds
     else:
         state["executor"] = {"state": "declared_not_deployed" if executor_not_deployed else "unconfirmed"}
     if probe_dsn:
-        attempt("probe_allowed", "probe", lambda: read_one(probe_dsn, "probe_allowed"))
+        attempt("probe", "probe", lambda: read_one(probe_dsn, "probe_status"))
     if errors:
         state["errors"] = errors
     return state
@@ -298,6 +317,8 @@ def source_refusals(source):
         found.append("reverse_active")
     if not source["slot_exists"]:
         return [*found, "slot_missing"]
+    if source["slot_database"] != source["database"]:
+        found.append("source_wrong_database")
     if source["slot_type"] != "logical":
         found.append("slot_not_logical")
     if source["source_slot_invalidated"]:
@@ -335,14 +356,21 @@ def barrier_gaps(source, target):
     return gaps
 
 
-def probe_refusals(state):
-    source, target = state["source"], state["target"]
-    found = barrier_gaps(source, target)
+def probe_access_refusals(state):
+    """The write has to land in the database verified as the source. verify-full proves only which server answered."""
+    source, target, probe = state["source"], state["target"], state.get("probe")
+    found = []
     if target and not target["barrier_readable"]:
         found.append("barrier_not_readable_on_target")
     if source and not source["barrier_readable"]:
         found.append("barrier_not_readable_on_source")
-    if state.get("probe_allowed") is not True:
+    if probe is None:
+        return [*found, "barrier_probe_unconfirmed"]
+    if source and (probe["system_identifier"], probe["database"]) != (source["system_identifier"], source["database"]):
+        found.append("barrier_probe_wrong_database")
+    if probe["in_recovery"]:
+        found.append("barrier_probe_not_primary")
+    if probe["allowed"] is not True:
         found.append("barrier_probe_not_permitted")
     return found
 
@@ -371,7 +399,7 @@ def refusals(state, *, probe=False):
         if ahead or state["target_rows"]["attachments"] > state["source_rows"]["attachments"]:
             found.append("target_ahead_of_source")
     if probe:
-        found += probe_refusals(state)
+        found += barrier_gaps(source, target) + probe_access_refusals(state)
     return found
 
 
@@ -382,7 +410,7 @@ def identity_refusals(args, state):
     for side, pinned in (("source", args.source_system_id), ("target", args.target_system_id)):
         seen = state[side]["system_identifier"] if state[side] else None
         if pinned is None:
-            if args.apply:
+            if args.apply or args.cleanup_marker:
                 found.append(f"{side}_identity_not_pinned")
         elif pinned != seen:
             found.append(f"{side}_identity_mismatch")
@@ -524,44 +552,87 @@ def wait_for(condition, *, elapsed, timeout, poll, sleep):
         sleep(poll)
 
 
+def new_marker_report(barrier_id):
+    """Submissions are what was sent. Commits are what is known: 1 from an answer or a read, None if neither came."""
+    return {"barrier_id": barrier_id, "passed": False, "insert_lsn_before_commit": None, "delete_lsn_before_commit": None,
+            "same_row_on_both_sides_when_present": None, "source_insert_submissions": 0, "source_insert_commits": 0,
+            "source_delete_submissions": 0, "source_delete_commits": 0, "barrier": None, "delete_arrived": None,
+            "cleanup": "not_started"}
+
+
+def note_error(report, error):
+    # Its message can carry a host; class and state are enough.
+    report["error_category"] = describe(error)
+    report["sqlstate"] = getattr(error, "sqlstate", None)
+
+
+def remove_marker(write, read_target_row, read_source_row, report, wait):
+    """Take one row off the source and confirm by reading on both sides. An answer alone proves neither."""
+    barrier_id = report["barrier_id"]
+
+    def remove():
+        row = read_source_row()
+        if report["source_insert_commits"] is None:
+            report["source_insert_commits"] = 0 if row is None else 1
+        if row is None:
+            return True
+        report["source_delete_submissions"] += 1
+        try:
+            report["delete_lsn_before_commit"] = write(PROBE_DELETE, (barrier_id, PROBE_EPOCH))
+        except Exception as error:  # noqa: BLE001 - See note_error(). Removing by this id can safely repeat.
+            note_error(report, error)
+            return False
+        report["source_delete_commits"] = 1
+        return read_source_row() is None
+
+    gone = wait(remove)
+    if gone and report["source_delete_submissions"]:
+        report["source_delete_commits"] = 1  # Its answer may have been lost, but the row was there and now is not.
+    report["delete_arrived"] = wait(lambda: read_target_row() is None) if gone else None
+    pending = [side for side, done in (("source", gone), ("target", report["delete_arrived"])) if not done]
+    report["cleanup"] = "pending" if pending else "confirmed"
+    if pending:
+        report["pending_on"] = pending
+        report["resume"] = (f"resume_replication.py --cleanup-marker {barrier_id} "
+                            "--source-system-id <source> --target-system-id <target>")
+
+
 def barrier_probe(write, read_target_row, read_source_row, barrier_id, *, on_delivered, on_cleaned, elapsed, timeout, poll,
                   sleep=time.sleep):
     """One row through the whole path: a new write has to arrive, and its delete has to follow it.
 
-    The delete runs even if the row never arrived, so a failed probe leaves nothing on the source. The
-    target is only read: a row it received and never lost again is reported, not removed.
+    The insert is sent once. If its answer is lost the commit may still have happened, so only this run's id
+    is read back and removed. Whatever goes wrong, the row does not knowingly stay on the source, and a
+    cleanup that could not be confirmed is reported with the way to finish it. The target is only read.
     """
-    report = {"barrier_id": barrier_id, "passed": False, "insert_lsn_before_commit": None, "delete_lsn_before_commit": None,
-              "same_row_on_both_sides_when_present": None, "source_insert_commits": 0, "source_delete_commits": 0,
-              "barrier": None, "delete_arrived": None}
+    report = new_marker_report(barrier_id)
 
-    def note(error):
-        # Its message can carry a host; class and state are enough.
-        report["error_category"] = describe(error)
-        report["sqlstate"] = getattr(error, "sqlstate", None)
+    def wait(condition):
+        return wait_for(condition, elapsed=elapsed, timeout=timeout, poll=poll, sleep=sleep)
 
+    report["source_insert_submissions"] = 1
     try:
         report["insert_lsn_before_commit"] = write(PROBE_INSERT, (barrier_id, PROBE_EPOCH))
         report["source_insert_commits"] = 1
-        report["barrier"] = wait_for(lambda: read_target_row() is not None, elapsed=elapsed, timeout=timeout, poll=poll, sleep=sleep)
-        if report["barrier"]:
-            report["same_row_on_both_sides_when_present"] = read_target_row() == read_source_row()
-            on_delivered()
-    except Exception as error:  # noqa: BLE001 - See note().
-        note(error)
-    # Apart from the block above: whatever went wrong there, the row must not stay on the source.
-    if report["source_insert_commits"]:
+    except Exception as error:  # noqa: BLE001 - See note_error().
+        note_error(report, error)
+        report["source_insert_commits"] = None
+    if report["source_insert_commits"] == 1:
         try:
-            report["delete_lsn_before_commit"] = write(PROBE_DELETE, (barrier_id,))
-            report["source_delete_commits"] = 1
+            report["barrier"] = wait(lambda: read_target_row() is not None)
             if report["barrier"]:
-                report["delete_arrived"] = wait_for(lambda: read_target_row() is None, elapsed=elapsed, timeout=timeout, poll=poll, sleep=sleep)
-                if report["delete_arrived"]:
-                    on_cleaned()
-        except Exception as error:  # noqa: BLE001 - See note().
-            note(error)
+                report["same_row_on_both_sides_when_present"] = read_target_row() == read_source_row()
+                on_delivered()
+        except Exception as error:  # noqa: BLE001 - See note_error().
+            note_error(report, error)
+    remove_marker(write, read_target_row, read_source_row, report, wait)
+    if report["barrier"] and report["delete_arrived"]:
+        try:
+            on_cleaned()
+        except Exception as error:  # noqa: BLE001 - See note_error().
+            note_error(report, error)
     report["passed"] = bool(report["barrier"] and report["delete_arrived"] and report["same_row_on_both_sides_when_present"]
-                            and "error_category" not in report)
+                            and report["cleanup"] == "confirmed" and "error_category" not in report)
     return report
 
 
@@ -590,7 +661,8 @@ class Run:
         self.source_dsn, self.target_dsn = environ.get(SOURCE_DSN_ENV), environ.get(TARGET_DSN_ENV)
         self.executor_dsn, self.probe_dsn = environ.get(EXECUTOR_DSN_ENV), environ.get(PROBE_DSN_ENV)
         self.probe = args.apply and not args.no_barrier_probe
-        self.report = {"mode": "apply" if args.apply else "dry-run", "passed": False, "stage": "preflight", "refusals": []}
+        mode = "cleanup-marker" if args.cleanup_marker else "apply" if args.apply else "dry-run"
+        self.report = {"mode": mode, "passed": False, "stage": "preflight", "refusals": []}
         self.clock_start = None
         self.firsts = {}
         self.bounds = None
@@ -634,10 +706,58 @@ class Run:
     def marker_rows(self, barrier_id, dsn):
         return read_one(dsn, "barrier_row", {"barrier_id": barrier_id})
 
-    def send_marker(self):
+    def writer(self, source):
+        identity = {"system_identifier": source["system_identifier"], "database": source["database"]}
+        return lambda statement, params: write_marker(self.probe_dsn, statement, params, identity)
+
+    def clean_up(self):
+        """Finish the cleanup a failed run left pending. Only the row named here, only a marker, only on the source."""
+        args, report = self.args, self.report
+        barrier_id = args.cleanup_marker
+        required = [(SOURCE_DSN_ENV, self.source_dsn), (TARGET_DSN_ENV, self.target_dsn), (PROBE_DSN_ENV, self.probe_dsn)]
+        report["refusals"] = [f"missing_{name}" for name, value in required if not value]
+        try:
+            uuid.UUID(barrier_id)
+        except ValueError:
+            report["refusals"] = ["invalid_barrier_id"]
+        if report["refusals"]:
+            return
+        state = gather(self.source_dsn, self.target_dsn, None, True, self.probe_dsn)
+        state.pop("executor")  # Not read here: removing a marker by its id touches nothing an execution uses.
+        if "errors" in state:
+            report["errors"] = state.pop("errors")
+        report["preflight"] = state
+        source, target = state["source"], state["target"]
+        found = identity_refusals(args, state) + probe_access_refusals(state)
+        found += ["source_unconfirmed"] if source is None else []
+        found += ["target_unconfirmed"] if target is None else []
+        if source and source["slot_exists"] and source["slot_database"] != source["database"]:
+            found.append("source_wrong_database")
+        report["refusals"] = found
+        if found:
+            return
+
+        def source_row():
+            return self.marker_rows(barrier_id, self.source_dsn)
+
+        row = source_row()
+        if row is not None and row["epoch"] != PROBE_EPOCH:
+            report["refusals"] = ["not_a_marker_row"]
+            return
+        report["stage"] = "cleanup"
+        self.clock_start = time.monotonic()
+        marker = report["marker"] = new_marker_report(barrier_id)
+
+        def wait(condition):
+            return wait_for(condition, elapsed=self.elapsed, timeout=args.probe_timeout, poll=args.probe_poll, sleep=time.sleep)
+
+        remove_marker(self.writer(source), lambda: self.marker_rows(barrier_id, self.target_dsn), source_row, marker, wait)
+        report["passed"] = marker["passed"] = marker["cleanup"] == "confirmed"
+
+    def send_marker(self, source):
         barrier_id = str(uuid.uuid4())
         report = self.report
-        marker = barrier_probe(lambda statement, params: write_marker(self.probe_dsn, statement, params),
+        marker = barrier_probe(self.writer(source),
                                lambda: self.marker_rows(barrier_id, self.target_dsn),
                                lambda: self.marker_rows(barrier_id, self.source_dsn), barrier_id,
                                on_delivered=lambda: self.stage("delivered"), on_cleaned=lambda: self.stage("cleaned"),
@@ -726,7 +846,7 @@ class Run:
         applied_floor = None
         if self.probe:
             report["stage"] = "marker"
-            marker = self.send_marker()
+            marker = self.send_marker(state["source"])
             if not marker["passed"]:
                 return
             # Its commit is past the fixed position, so the applied position must now have passed both. Reading
@@ -752,7 +872,7 @@ class Run:
 def run(args, environ):
     work = Run(args, environ)
     try:
-        work.execute()
+        work.clean_up() if args.cleanup_marker else work.execute()
     except Exception as error:  # noqa: BLE001 - A traceback could print a driver message, so never let one out.
         # Added to the report, not in place of it: it may be what says that ENABLE was already sent.
         work.report.update(passed=False, error_category=describe(error))
@@ -761,10 +881,13 @@ def run(args, environ):
 
 def main(argv, environ):
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--apply", action="store_true",
+    action = parser.add_mutually_exclusive_group()
+    action.add_argument("--apply", action="store_true",
                         help="enable the forward subscription if it is off, and send one barrier row through it")
-    parser.add_argument("--source-system-id", help="required with --apply: the source identifier printed by a dry run")
-    parser.add_argument("--target-system-id", help="required with --apply: the target identifier printed by a dry run")
+    action.add_argument("--cleanup-marker", metavar="BARRIER_ID",
+                        help="finish a cleanup a failed run reported as pending: remove only this test row from the source")
+    parser.add_argument("--source-system-id", help="required to write: the source identifier printed by a dry run")
+    parser.add_argument("--target-system-id", help="required to write: the target identifier printed by a dry run")
     parser.add_argument("--source-write-block", choices=["on", "off"], default="not_read",
                         help="what the operator read from the application beforehand. Only recorded: never read or changed here")
     parser.add_argument("--no-barrier-probe", action="store_true",
