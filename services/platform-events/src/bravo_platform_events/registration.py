@@ -62,7 +62,8 @@ class Registry:
 
     def _checked_environment(self, tenant, registered, release=None):
         env = self._env(tenant, registered["connection_ref"])
-        if env.environment_id != registered["environment_id"] or env.role != registered["role"]:
+        if (env.environment_id != registered["environment_id"] or env.kind != registered["kind"]
+                or env.role != registered["role"]):
             raise EventError("environment_changed")
         obs = self.probe.inspect(env, release)
         if any(obs[k] != registered["checks"][k] for k in ("namespace", "database_identity", "collector")):
