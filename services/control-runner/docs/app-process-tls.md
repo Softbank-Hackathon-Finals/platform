@@ -74,3 +74,17 @@ T6와 합의한 범위는 기존 앱 경계의 읽기 전용 관측까지다. �
   나머지 full 프로필 17개는 NOT_RUN. 종료 시 이 시험의 컨테이너·네트워크·시험 키를 정리한다.
 - **로컬 시험의 자원 readback은 fixture**다. 실제 앱 UID·IRSA·Secret·CA의
   서버 검증과 운영자 보존 채널을 연결한 새 실행 전에는 팀 출발지/목적지의 PASS가 아니다.
+
+### 평문 응답의 형식 검증
+
+인증 번호·본문 길이와 최초 SASL 메커니즘 목록의 종료를 검사한다. 초기 인증 요청으로
+유효한 프레임만 평문 startup 허용으로 센다. continuation, 정의되지 않은 번호,
+잘린 MD5 salt/SASL 목록은 `UNKNOWN/UNEXPECTED_RESPONSE`다.
+ErrorResponse는 첫 종료 바이트 뒤의 필드를 다시 읽지 않으며, 중복/빈 필드와 필수
+severity·SQLSTATE·message 누락을 거부한다. 유효한 형식에서만 등록된 TLS 필수 오류를 판정한다.
+형식 기준은 [PostgreSQL 18 메시지 형식](https://www.postgresql.org/docs/18/protocol-message-formats.html)과
+[오류 필드](https://www.postgresql.org/docs/18/protocol-error-fields.html)다.
+
+로컬 실제 TLS 시험에는 같은 등록 주소의 중계기가 TLS 트래픽을 그대로 통과시키고
+평문 응답만 바꾸는 경우를 추가했다. 정상 대조군 전후 성공을 유지하면서 깨진 종료/인증
+프레임은 UNKNOWN, 정상 TLS 필수 응답은 PASS, 유효한 평문 인증 요청은 FAIL이어야 한다.

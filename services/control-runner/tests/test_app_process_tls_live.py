@@ -7,10 +7,16 @@ The host registration/readback is a local fixture, not Kubernetes attestation.
 import json
 import os
 import secrets
+import select
+import socket
+import socketserver
+import struct
 import subprocess
 import sys
 import time
+from dataclasses import replace
 from pathlib import Path
+from threading import Thread
 
 import psycopg
 import pytest
@@ -151,6 +157,82 @@ ignore_startup_parameters = extra_float_digits,options
             assert len(proofs) == (0 if rejected else 3)
             assert password not in json.dumps(run)
             assert all(password.encode() not in proof for proof in proofs)
+        class PlaintextOverride(socketserver.BaseRequestHandler):
+            def handle(self):
+                self.request.settimeout(5)
+                initial = b""
+                while len(initial) < 8:
+                    part = self.request.recv(8 - len(initial))
+                    if not part:
+                        return
+                    initial += part
+                if initial == struct.pack("!II", 8, 80877103):
+                    # Preserve the real TLS/auth/SELECT path byte-for-byte.
+                    with socket.create_connection(("127.0.0.1", port), timeout=5) as upstream:
+                        upstream.sendall(initial)
+                        try:
+                            while True:
+                                readable, _, _ = select.select([self.request, upstream], [], [], 5)
+                                if not readable:
+                                    return
+                                for source in readable:
+                                    chunk = source.recv(8192)
+                                    if not chunk:
+                                        return
+                                    (upstream if source is self.request else self.request).sendall(chunk)
+                        except OSError:
+                            return
+                else:
+                    length, version = struct.unpack("!II", initial)
+                    if version != 196608 or not 8 <= length <= 4096:
+                        return
+                    body = b""
+                    while len(body) < length - 8:
+                        part = self.request.recv(length - 8 - len(body))
+                        if not part:
+                            return
+                        body += part
+                    self.server.startups.append(initial + body)
+                    self.request.sendall(self.server.plain_response)
+
+        class Proxy(socketserver.ThreadingTCPServer):
+            daemon_threads = True
+
+        cases = [
+            (b"E", b"SFATAL\0MSSL required\0\0C08P01\0\0", "UNKNOWN"),
+            (b"R", struct.pack("!I", 0xffffffff), "UNKNOWN"),
+            (b"E", b"SFATAL\0C08P01\0MSSL required\0\0", "PASS"),
+            (b"R", struct.pack("!I", 3), "FAIL"),
+        ]
+        for kind, body, expected in cases:
+            with Proxy(("127.0.0.1", 0), PlaintextOverride) as proxy:
+                proxy.plain_response = kind + struct.pack("!I", len(body) + 4) + body
+                proxy.startups = []
+                thread = Thread(target=proxy.serve_forever, daemon=True)
+                thread.start()
+                try:
+                    changed = replace(reg, target=replace(target, port=proxy.server_address[1]))
+                    retained = []
+
+                    def proxy_sink(raw, saved=retained):
+                        saved.append(json.loads(raw))
+                        return sink(raw, reject=False)
+
+                    probe = AppProcessTLSProbe(changed, credential_provider=lambda ctx: password,
+                        binding_reader=lambda ctx, active=changed: digest(encoded(active.binding())),
+                        evidence_sink=proxy_sink)
+                    run = Runner(catalog, {"ENC-01.3": probe}).run(profile_id="full", profile_version="1",
+                                                               app="demo-chat", environment=environment)
+                    row = next(row for row in run["results"] if row["test_id"] == "ENC-01.3")
+                    assert row["verdict"] == expected
+                    assert row["positive_control"] == "pass"
+                    assert row["unknown_reason"] == ("UNEXPECTED_RESPONSE" if expected == "UNKNOWN" else None)
+                    assert len(retained) == len(proxy.startups) == 1
+                    assert password.encode() not in proxy.startups[0]
+                    assert retained[0]["checks"][0]["outcome"] == retained[0]["checks"][-1]["outcome"] == "allow"
+                finally:
+                    proxy.shutdown()
+                    thread.join(timeout=5)
     finally:
         for container in reversed(containers):
             subprocess.run(["docker", "rm", "-fv", container], capture_output=True, timeout=30)
