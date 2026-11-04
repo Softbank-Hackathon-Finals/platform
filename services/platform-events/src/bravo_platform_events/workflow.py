@@ -10,6 +10,7 @@ from .executor import _timestamp
 from .failback import FailbackService, active_failback, cutover_checkpoint, failback_key
 from .plan_api import Principal
 from .plans import _digest
+from .rehearsal import require_rehearsals_complete
 from .store import EventError
 
 
@@ -258,6 +259,8 @@ class WorkflowRecovery:
             plan = self._plan(c, principal, plan_id)
             if (plan["state"], plan["version"]) != (state, version):
                 return plan["state"]
+            if state == "REHEARSE":
+                require_rehearsals_complete(c, plan)
             run = _observed_run(c, service, plan_id, command_id) if command_id else None
             if command_id and run is None:
                 return state

@@ -18,10 +18,11 @@ from .executor import _timestamp
 from .failback import FailbackService, failback_key
 from .operator_identity import OperatorPrincipal
 from .plans import _canonical
+from .rehearsal import RehearsalService
 from .store import EventError
 
 PERMISSIONS = frozenset({"read", "approve_cutover", "execute_cutover", "approve_change", "apply_change",
-                         "approve_failback", "execute_failback"})
+                         "approve_failback", "execute_failback", "start_rehearsal"})
 APPROVAL_KEYS = {"cutover": _key, "change": change_key, "failback": failback_key}
 
 
@@ -185,7 +186,7 @@ class OperatorAccess:
 def create_operator_cutover_app(store, executor, *, verifier, bindings=None, registered_pair=None,
                                authority=unavailable_authority,
                                change_authority=None, failback_authority=None,
-                               read_integrity=unavailable_authority, edge=None, clock=None):
+                               read_integrity=unavailable_authority, edge=None, clock=None, rehearsal_host=None):
     """Explicit host wiring. No IdP, grants or gate/SHIFT fixture is installed."""
     if (registered_pair is None) == (bindings is None):
         raise ValueError("exactly_one_binding_source_required")
@@ -199,5 +200,7 @@ def create_operator_cutover_app(store, executor, *, verifier, bindings=None, reg
     failback_service = None if failback_authority is None else FailbackService(store, executor,
         bindings=bindings, authority=access.failback_authority(failback_authority), read_integrity=read_integrity,
         edge=edge, check_access=access.check_read, check_execute=access.requires("execute_failback"), clock=clock)
-    return create_cutover_app(service, resolve_principal=access.resolver(verifier),
+    rehearsals = None if rehearsal_host is None else RehearsalService(
+        store, host=rehearsal_host, check_start=access.requires("start_rehearsal"))
+    return create_cutover_app(service, resolve_principal=access.resolver(verifier), rehearsal_service=rehearsals,
                               change_service=change_service, failback_service=failback_service)

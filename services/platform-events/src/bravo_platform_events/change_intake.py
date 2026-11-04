@@ -7,11 +7,12 @@ from collections.abc import Callable
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
 
-from .change import CurrentChange, change_key
+from .change import CurrentChange, change_key, intake_binding
 from .contract import validate_identifier
 from .cutover import _get, _put
 from .executor import _timestamp
 from .plans import _canonical, _digest
+from .rehearsal import require_admitted_delivery, require_current_run
 from .store import EventError
 from .workload_identity import WorkloadSender
 
@@ -68,7 +69,7 @@ def _latest(c, plan_id, run_id):
 
 
 def _plan(c, plan_id, tenant):
-    row = c.execute("SELECT tenant_id, spec_json, state, version FROM plans WHERE plan_id=?", (plan_id,)).fetchone()
+    row = c.execute("SELECT plan_id, tenant_id, spec_json, state, version FROM plans WHERE plan_id=?", (plan_id,)).fetchone()
     if row is None or row["tenant_id"] != tenant:
         raise EventError("forbidden")
     return row
@@ -131,6 +132,7 @@ class ChangeIntake:
                 raise EventError("version_conflict")
             if plan["state"] != "REHEARSE" or expiry <= _timestamp(self.clock()):
                 raise EventError("candidate_unavailable")
+            require_admitted_delivery(c, plan, r, candidate.attempt)
             latest = _latest(c, p, r)
             if latest and latest["attempt"] >= candidate.attempt:
                 raise EventError("attempt_conflict")
@@ -167,10 +169,9 @@ class ChangeIntake:
         head = _latest(c, p, rehearsal_id)
         if not head or _get(c, p, change_key("intake-hold", head["verification_id"])):
             raise EventError("authority_unavailable")
-        record, _ = _get(c, p, change_key("intake-proof", head["verification_id"]))
+        record = require_current_run(c, plan, rehearsal_id, head["verification_id"])
+        if record is None:  # Candidate from before managed rehearsal admission.
+            record, _ = _get(c, p, change_key("intake-proof", head["verification_id"]))
         if record["plan_version"] != plan["version"]:
             raise EventError("authority_unavailable")
-        candidate = record["candidate"]
-        binding = {k: candidate[k] for k in ("plan_id", "target_environment_id", "diff_hash", "image_digest")}
-        binding.update(plan_digest=record["plan_digest"], expires_at=record["expires_at"])
-        return CurrentChange(binding, rehearsal_id, head["verification_id"], head["revision"])
+        return CurrentChange(intake_binding(record), rehearsal_id, head["verification_id"], head["revision"])
