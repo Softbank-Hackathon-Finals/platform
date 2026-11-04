@@ -285,16 +285,9 @@ e=d.datetime.fromtimestamp(int(sys.argv[1]),d.UTC);f=lambda t:t.strftime("%Y-%m-
 p={"requests":0,"http_5xx":0,"integrity_conflict":0,"p95_ms":None}
 print(json.dumps({"kind":"sli_window","schema_version":"1","plan_id":"plan-k8s","source":"loadgen","window":{"start":f(e-d.timedelta(seconds=10)),"end":f(e)},"received_at":f(e),"pools":{"source":p,"target":p},"unattributed":{"timeout":0,"connect":0,"other":0}}))' "$1"
 }
-post() { # 네임스페이스 토큰 이름 본문 → Pod 결과(2xx면 Succeeded)
-  kubectl -n "$1" run "post-$3" --image=busybox:1.37.0@sha256:a7dbc319b1438115a207e11930dc4bb3e643dcb3ec0bdd694bb36cd8fad289ec \
-    --restart=Never -- wget -q -T 5 -O - --header "Authorization: Bearer $2" --header "Content-Type: application/json" \
-    --post-data "$4" "http://bravo-window-intake.$NS.svc:8080/v1/observability/windows" >/dev/null
-  for _ in $(seq 30); do p=$(kubectl -n "$1" get pod "post-$3" -o jsonpath='{.status.phase}'); case $p in Succeeded|Failed) break;; esac; sleep 2; done
-  echo "$p"
-}
 # 허용될 쪽(loadgen)은 미리 띄운 Pod로 보내고 응답 코드를 직접 본다. 요청마다 새 Pod를 띄우면 첫 연결이
 # NetworkPolicy 반영 전에 거부될 수 있고(k3s kube-router), 그 거부가 409 · 401 기대 검사를 잘못 통과시킨다.
-# 막혀야 할 쪽은 새 Pod 그대로 둔다(차단은 결정적이고, 뚫리면 201이 와서 실패한다).
+# 거부 대상도 Ready인 Pod에서 별도 TCP 검사를 한다. HTTP 오류는 네트워크 차단 근거가 아니다.
 kubectl -n loadgen run win-sender --image=busybox:1.37.0@sha256:a7dbc319b1438115a207e11930dc4bb3e643dcb3ec0bdd694bb36cd8fad289ec --restart=Never -- sleep 900 >/dev/null
 kubectl -n loadgen wait pod/win-sender --for=condition=Ready --timeout=60s >/dev/null
 for _ in $(seq 30); do
@@ -321,11 +314,25 @@ check $control "loadgen 네임스페이스에서 수신 토큰으로 창 저장(
 dup=$(send "$WINDOW_TOKEN" "$W1" | code); console_token=$(send "$API_TOKEN" "$W2" | code)
 [ "$control" = ok ] && [ "$dup" = 409 ] && [ "$console_token" = 401 ] && r=ok || r=fail
 check $r "같은 창은 한 번만(409), 콘솔 토큰으로는 보낼 수 없음(401) (응답: ${dup:-없음}, ${console_token:-없음})"
-# 막힌 뒤 같은 창을 loadgen이 보내 성공해야, 막힌 쪽이 저장하지 못했음이 확인된다
-[ "$control" = ok ] && [ "$(post stranger "$WINDOW_TOKEN" stranger "$W2")" = Failed ] && \
-  [ "$(post console "$WINDOW_TOKEN" console "$W3")" = Failed ] && \
-  [ "$(send "$WINDOW_TOKEN" "$W3" | code)" = 201 ] && r=ok || r=fail
-check $r "라벨이 없는 네임스페이스와 콘솔 네임스페이스는 올바른 토큰이 있어도 NetworkPolicy가 막음"
+# 준비된 거부 대상 Pod에서 DNS/도구 오류와 연결 거부를 구별한다. 수신기가 401/503을
+# 반환하더라도 TCP 연결 한 번이면 실패다. 허용 송신자의 같은 endpoint 전후 대조가 필수다.
+for denied_ns in stranger console; do
+  kubectl -n "$denied_ns" run win-denied --image="$API_IMAGE" --restart=Never --command -- python -c 'import time; time.sleep(900)' >/dev/null
+  kubectl -n "$denied_ns" wait pod/win-denied --for=condition=Ready --timeout=60s >/dev/null
+done
+healthy_window() { kubectl -n loadgen exec win-sender -- wget -q -T 3 -O /dev/null "http://bravo-window-intake.$NS.svc:8080/healthz"; }
+denied_window() {
+  kubectl -n "$1" exec -i win-denied -- python - "bravo-window-intake.$NS.svc" 8080 < connection_probe.py
+}
+r=ok
+[ "$control" = ok ] && healthy_window || r=fail
+denied_window stranger || r=fail
+denied_window console || r=fail
+healthy_window || r=fail
+check $r "Ready Pod의 반복 TCP 검사: 라벨 없는 · 콘솔 namespace 차단 (DNS/실행 오류는 통과 불가)"
+# TCP 검사와 창 저장 여부는 별개의 사실이다.
+[ "$control" = ok ] && [ "$(send "$WINDOW_TOKEN" "$W3" | code)" = 201 ] && r=ok || r=fail
+check $r "거부 검사 후 허용 송신자의 새 창 저장 성공(201)"
 dns=$(kubectl -n kube-system get svc kube-dns -o jsonpath='{.spec.clusterIP}')
 reach() { kubectl -n "$NS" exec "deploy/$1" -- python -c "import socket;socket.create_connection(('$dns',53),3)" >/dev/null 2>&1; }
 reach bravo-observability-api && ! reach bravo-window-intake && r=ok || r=fail
