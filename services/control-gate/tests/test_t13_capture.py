@@ -110,6 +110,37 @@ def test_actual_tls_schema_match_then_mismatch_blocks(actual_capture):
     assert any(r["reason"] == "SCHEMA_MISMATCH" for r in result["rows"])
 
 
+def test_shadowed_database_function_cannot_impersonate_registered_source(actual_capture):
+    f = actual_capture
+    _, _, regs, _, capture, admin = f
+    source_name, target_name = (regs[side].database_name for side in ("source", "target"))
+    with psycopg.connect(**(admin | {"dbname": source_name})) as conn:
+        conn.execute("ALTER TABLE public.messages ADD COLUMN source_only text")
+    with psycopg.connect(**(admin | {"dbname": target_name})) as conn:
+        conn.execute(sql.SQL(
+            "CREATE FUNCTION public.current_database() RETURNS name LANGUAGE sql "
+            "AS {}"
+        ).format(sql.Literal("SELECT " + sql.Literal(source_name).as_string(conn) + "::name")))
+        conn.execute(sql.SQL("ALTER DATABASE {} SET search_path = public, pg_catalog").format(
+            sql.Identifier(target_name)))
+    assert combined_data(f, capture("source"), capture("target"))["decision"] == "BLOCK"
+
+    @contextmanager
+    def wrong_database(reg):
+        with psycopg.connect(**(admin | {"dbname": target_name, "user": reg.role_name})) as conn:
+            # The attack is effective before the collector hardens its own transaction.
+            assert conn.execute("SELECT current_database(), pg_catalog.current_database()").fetchone() == (
+                source_name, target_name)
+            yield conn
+            # SET LOCAL must not persistently rewrite the caller's session configuration.
+            assert conn.execute("SHOW search_path").fetchone() == ("public, pg_catalog",)
+
+    result = capture("source", connect=wrong_database)
+    assert result.errors == (("public.messages", "SCHEMA_CAPTURE_UNAVAILABLE"),)
+    assert result.document["tables"][0]["schema_hash"] is None
+    assert combined_data(f, result, capture("target"))["decision"] == "BLOCK"
+
+
 @pytest.mark.parametrize("fault", ["non-tls", "no-verification", "wrong-database", "superuser", "not-autocommit", "busy"])
 def test_connection_boundary_cannot_return_schema_pass(actual_capture, fault):
     _, _, _, _, capture, admin = actual_capture

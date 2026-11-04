@@ -60,8 +60,11 @@ def _verified_connection(connection, registration):
         connection.execute("SET TRANSACTION READ ONLY")
         connection.execute("SET LOCAL statement_timeout = '3s'")
         connection.execute("SET LOCAL lock_timeout = '1s'")
+        # A database/role default can place an application schema before pg_catalog.
+        # Do not execute its functions or operators while establishing DB identity.
+        connection.execute("SET LOCAL search_path = pg_catalog")
         row = connection.execute(
-            "SELECT current_database(), session_user, current_user, rolsuper, rolbypassrls "
+            "SELECT pg_catalog.current_database(), session_user, current_user, rolsuper, rolbypassrls "
             "FROM pg_catalog.pg_roles WHERE rolname = current_user"
         ).fetchone()
     if row != (registration.database_name, registration.role_name, registration.role_name, False, False):
