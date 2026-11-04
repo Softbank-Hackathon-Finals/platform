@@ -102,11 +102,13 @@ def probe(phase):
     import boto3
     from botocore import UNSIGNED
     from botocore.config import Config
-    from botocore.exceptions import ClientError
+    from botocore.exceptions import ClientError, ConnectionClosedError, EndpointConnectionError
 
-    endpoint = "https://audit-store:8333"
+    endpoint = os.environ.get("AUDIT_STORE_ENDPOINT", "https://audit-store:8333")
 
     def client(prefix):
+        if prefix + "_AK" not in os.environ:
+            return None  # a Kubernetes job receives only its own identity
         return boto3.client("s3", endpoint_url=endpoint, region_name="us-east-1",
                             aws_access_key_id=os.environ[prefix + "_AK"], aws_secret_access_key=os.environ[prefix + "_SK"],
                             config=Config(signature_version="s3v4", s3={"addressing_style": "path"}, retries={"max_attempts": 1}))
@@ -115,6 +117,19 @@ def probe(phase):
     anonymous = boto3.client("s3", endpoint_url=endpoint, region_name="us-east-1",
                              config=Config(signature_version=UNSIGNED, s3={"addressing_style": "path"}, retries={"max_attempts": 1}))
     out = {}
+    # A new Kubernetes Pod can be refused until its address reaches the NetworkPolicy allow set.
+    # Any HTTP answer, including 403, proves the path is open; only connection errors are retried.
+    deadline = time.monotonic() + 60
+    while True:
+        try:
+            anonymous.list_objects_v2(Bucket=BUCKET)
+            break
+        except ClientError:
+            break
+        except (EndpointConnectionError, ConnectionClosedError):
+            if time.monotonic() > deadline:
+                raise
+            time.sleep(2)
 
     def attempt(name, fn):
         try:
@@ -188,6 +203,20 @@ def probe(phase):
             out["collector.retention_mode"] = retention.get("Retention", {}).get("Mode")
             attempt("collector.admin_delete_version", lambda v=v: admin.delete_object(Bucket=BUCKET, Key=v["Key"], VersionId=v["VersionId"]))
         out["collector.otlp_records"] = records
+    elif phase == "search":
+        # Search identity only: every version is read once; extra versions or delete markers are tamper evidence.
+        listing = reader.list_object_versions(Bucket=BUCKET, Prefix=PREFIX + "/")
+        versions, markers = listing.get("Versions", []), listing.get("DeleteMarkers", [])
+        keys = [v["Key"] for v in versions]
+        out["search.complete"] = not listing.get("IsTruncated", False)
+        out["search.objects"] = len(versions)
+        out["search.tamper_evidence"] = bool(markers) or len(keys) != len(set(keys))
+        out["search.otlp_records"] = sum(
+            len(s.get("logRecords", []))
+            for v in versions
+            for r in json.loads(reader.get_object(Bucket=BUCKET, Key=v["Key"], VersionId=v["VersionId"])["Body"].read()).get("resourceLogs", [])
+            for s in r.get("scopeLogs", []))
+        attempt("search.put_object", lambda: reader.put_object(Bucket=BUCKET, Key=f"{PREFIX}/search.json", Body=b"x"))
     print(json.dumps(out))
 
 
@@ -300,7 +329,7 @@ def run(root):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--private-output", type=Path)
-    parser.add_argument("--probe", choices=["setup", "rights", "collector"], help=argparse.SUPPRESS)
+    parser.add_argument("--probe", choices=["setup", "rights", "collector", "search"], help=argparse.SUPPRESS)
     args = parser.parse_args()
     if args.probe:
         probe(args.probe)
