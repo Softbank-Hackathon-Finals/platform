@@ -1,0 +1,32 @@
+{
+  "at": "2026-11-04T07:35:54.995587+00:00",
+  "checks": {
+    "/healthz": {
+      "http_status": 200,
+      "cache_control": "no-store"
+    },
+    "/readyz": {
+      "http_status": 200,
+      "cache_control": "no-store"
+    },
+    "/v1/observability/windows": {
+      "http_status": 401,
+      "cache_control": "no-store"
+    }
+  },
+  "task": "T36/T37",
+  "qualification": "existing receiver readiness and anonymous rejection only; no producer credential or plan creation",
+  "platform_allocatable": [
+    {
+      "cpu": "4",
+      "memory": "16162348Ki"
+    }
+  ],
+  "prometheus_collector_query_api_deployed": false,
+  "source_app_metrics_http_status": 404,
+  "raw_sha256": {
+    "platform-http-result.json": "a91f7c5ca010b74d5da63e07d63afe069942b6a75fa38d1797b9e9d68dfe2a75",
+    "platform-pods.json": "b4da523eee96146961415591916bf80b7732f6c5e2e99f84f15d0796b83a6d78",
+    "platform-nodes.json": "4931c11ed41ed031a9a8109c0720dc096215cd551150101a45b015e28c852333"
+  }
+}
