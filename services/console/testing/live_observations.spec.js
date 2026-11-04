@@ -45,9 +45,14 @@ test("actual T37 observations render without granting execution and disappear on
     fullPage: true,
   });
   await context.clearCookies();
-  await expect(page.locator("#notice")).toContainText("권한", {
-    timeout: 15000,
-  });
+  // The normal connected notice also contains "권한". Wait for the actual
+  // revocation response rather than treating that earlier text as revocation.
+  await expect(page.locator("#notice")).toHaveText(
+    "접근 권한 또는 로그인 상태를 확인해 주세요.",
+    {
+      timeout: 15000,
+    },
+  );
   await expect(page.locator("#source-http")).toHaveText("미확인");
   await expect(page.locator("#target-http")).toHaveText("미확인");
   await expect(page.locator("#execute")).toBeDisabled();
