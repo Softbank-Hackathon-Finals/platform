@@ -1,0 +1,24 @@
+{
+  "observed_at": "2026-11-03T08:18:20.325836+00:00",
+  "account_boundary_matches": true,
+  "instances": [
+    {
+      "alias": "instance-1",
+      "state": "running",
+      "type": "t3.large",
+      "public_ip_present": false,
+      "imds_tokens": "required",
+      "profile_present": true
+    }
+  ],
+  "node_role_exists": true,
+  "actions_role_exists": true,
+  "oidc_provider_count": 1,
+  "ssm_statuses": [
+    {
+      "status": "Online",
+      "platform": "Ubuntu",
+      "version": "24.04"
+    }
+  ]
+}

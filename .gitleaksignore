@@ -9,3 +9,7 @@
 c9fa40ab714b3bddabc9550166488d2b177705cb:docs/evidence/t37-observability-2026-11-04/results.json:generic-api-key:11
 c9fa40ab714b3bddabc9550166488d2b177705cb:docs/evidence/t37-observability-2026-11-04/results.json:generic-api-key:26
 c9fa40ab714b3bddabc9550166488d2b177705cb:docs/evidence/t37-observability-2026-11-04/results.json:generic-api-key:35
+# T29, sangmu1126, 2026-11-04: SHA-256 of the public T36 intake_api.py,
+# independently recomputed at b874dba. The adjacent API filename caused a false
+# credential match; no rule/path exemption. Review again if the evidence changes.
+d3c14b562750fb3f630eefd949cf46203cd65d7e:docs/evidence/t36-intake-hardening-2026-11-04/summary.json:generic-api-key:21
