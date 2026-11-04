@@ -1,0 +1,29 @@
+# T37 PgBouncer 지표 수집. deploy/components/pgbouncer가 --config로 더한다.
+# 같은 네임스페이스의 bravo-pgbouncer-exporter를 긁는다. exporter는 PgBouncer 통계 계정(stats_users)으로 SHOW만 한다.
+# pooler 라벨은 배포가 정한 BRAVO_PGBOUNCER_NAME이다. 조회 API는 이 라벨이 없는 행을 정상으로 올리지 않는다.
+# PgBouncer 지표는 운영 화면 · 알림용이다. 컷오버의 PAUSE · RESUME 판정은 Executor가 PgBouncer에서 직접 읽는다(설계 8.6).
+receivers:
+  prometheus/pgbouncer:
+    config:
+      scrape_configs:
+        - job_name: bravo-pgbouncer
+          scrape_interval: 15s
+          static_configs:
+            - targets: ["bravo-pgbouncer-exporter:9127"]
+              labels:
+                pooler: ${env:BRAVO_PGBOUNCER_NAME}
+
+processors:
+  # PgBouncer 긁기 경로에만 붙는 출처 라벨. 앱 OTLP 경로는 허용 목록이 bravo.signal을 지운다(DB의 cnpg-scrape와 같은 방식)
+  resource/pgbouncer:
+    attributes:
+      - key: bravo.signal
+        value: pgbouncer-scrape
+        action: upsert
+
+service:
+  pipelines:
+    metrics/pgbouncer:
+      receivers: [prometheus/pgbouncer]
+      processors: [memory_limiter, resource/pgbouncer, resource/env, batch]
+      exporters: [otlp_http/platform]
