@@ -1,4 +1,4 @@
-"""알림 규칙마다 런북 절이 있다. promtool 단위 시험은 testing/ 스크립트가 돌린다(README)."""
+"""알림 규칙마다 런북 절이 있다. promtool 단위 시험은 test_promtool.py가 돌린다."""
 
 import re
 from pathlib import Path

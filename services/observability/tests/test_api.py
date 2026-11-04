@@ -172,6 +172,91 @@ def test_app_forged_cnpg_rows_without_identity_are_never_ok():
     assert body["replication_slots"][0]["lag_bytes"] is None
 
 
+def _row(value, **labels):
+    return {"metric": labels, "value": [0, str(value)]}
+
+
+def _pgbouncer_store(up=1, paused=0, waiting=0):
+    return FakeStore(
+        results={
+            "timestamp(up": [vec("aws", 2)],
+            "pgbouncer_up": [_row(up, pooler="source-pgbouncer")],
+            "databases_paused": [_row(paused, pooler="source-pgbouncer", name="chat")],
+            "client_active": [_row(3, pooler="source-pgbouncer", database="chat")],
+            "client_waiting": [_row(waiting, pooler="source-pgbouncer", database="chat")],
+            "server_active": [_row(2, pooler="source-pgbouncer", database="chat")],
+        }
+    )
+
+
+def test_pgbouncer_view_ok_with_fixed_queries():
+    store = _pgbouncer_store()
+    body = client(store).get("/v1/observability/environments/aws/pgbouncer", headers=AUTH).json()
+    assert body["state"] == "OK"
+    assert body["poolers"] == [
+        {
+            "pooler": "source-pgbouncer",
+            "up": True,
+            "databases": [{"name": "chat", "paused": False, "clients_active": 3.0, "clients_waiting": 0.0, "servers_active": 2.0}],
+        }
+    ]
+    # 생존 신호 다음의 조회 5개는 모두 PgBouncer 긁기 경로의 출처 라벨과 환경으로 고르고, 관리 DB(pgbouncer)는 뺀다
+    assert len(store.seen) == 6
+    assert all('bravo_env="aws"' in q and 'bravo_signal="pgbouncer-scrape"' in q for q in store.seen[1:])
+    assert 'name!="pgbouncer"' in store.seen[2] and all('database!="pgbouncer"' in q for q in store.seen[3:])
+
+
+@pytest.mark.parametrize(
+    ("up", "paused", "state"),
+    [(1, 1, "PAUSED"), (0, 0, "DOWN"), (0, 1, "DOWN"), ("NaN", 0, "UNOBSERVABLE"), (1, 2, "UNOBSERVABLE")],
+)
+def test_pgbouncer_view_states(up, paused, state):
+    body = client(_pgbouncer_store(up=up, paused=paused)).get("/v1/observability/environments/aws/pgbouncer", headers=AUTH).json()
+    assert body["state"] == state
+
+
+def test_pgbouncer_rows_without_pooler_identity_are_never_ok():
+    """앱 경로 사칭은 출처 라벨로 걸러진다. 그래도 pooler 식별자 없는 행이 오면 정상으로 올리지 않는다."""
+    store = FakeStore(results={"timestamp(up": [vec("aws", 2)], "pgbouncer_up": [_row(1, bravo_env="aws")]})
+    body = client(store).get("/v1/observability/environments/aws/pgbouncer", headers=AUTH).json()
+    assert body["state"] == "UNOBSERVABLE"
+    assert body["poolers"] == [{"pooler": None, "up": None, "databases": []}]
+
+
+def test_pgbouncer_database_rows_without_up_are_unobservable():
+    store = FakeStore(results={"timestamp(up": [vec("aws", 2)], "databases_paused": [_row(0, pooler="target-pgbouncer", name="chat")]})
+    body = client(store).get("/v1/observability/environments/aws/pgbouncer", headers=AUTH).json()
+    assert body["state"] == "UNOBSERVABLE"
+    assert body["poolers"][0]["up"] is None
+
+
+@pytest.mark.parametrize("other_database", [False, True])
+def test_pgbouncer_missing_pause_keeps_waiting_database_visible(other_database):
+    store = _pgbouncer_store(waiting=7)
+    store.results["databases_paused"] = [_row(0, pooler="source-pgbouncer", name="orders")] if other_database else []
+    body = client(store).get("/v1/observability/environments/aws/pgbouncer", headers=AUTH).json()
+    assert body["state"] == "UNOBSERVABLE"
+    chat = next(d for d in body["poolers"][0]["databases"] if d["name"] == "chat")
+    assert chat == {"name": "chat", "paused": None, "clients_active": 3, "clients_waiting": 7, "servers_active": 2}
+
+
+@pytest.mark.parametrize("metric", ["client_active", "client_waiting", "server_active"])
+def test_pgbouncer_count_only_pooler_is_visible_but_unobservable(metric):
+    store = FakeStore(results={"timestamp(up": [vec("aws", 2)], metric: [_row(7, pooler="other", database="chat")]})
+    body = client(store).get("/v1/observability/environments/aws/pgbouncer", headers=AUTH).json()
+    assert body["state"] == "UNOBSERVABLE"
+    assert body["poolers"][0]["pooler"] == "other"
+    assert body["poolers"][0]["up"] is None
+    assert body["poolers"][0]["databases"][0]["paused"] is None
+
+
+def test_pgbouncer_view_without_metrics_or_heartbeat_is_unobservable():
+    assert client(FakeStore(results={"timestamp(up": [vec("aws", 2)]})).get("/v1/observability/environments/aws/pgbouncer", headers=AUTH).json()["state"] == "UNOBSERVABLE"
+    store = FakeStore(results={"timestamp(up": [vec("aws", 31)], "pgbouncer_up": [_row(1, pooler="source-pgbouncer")]})
+    body = client(store).get("/v1/observability/environments/aws/pgbouncer", headers=AUTH).json()
+    assert (body["state"], body["poolers"], len(store.seen)) == ("UNOBSERVABLE", [], 1)
+
+
 def test_database_view_without_metrics_is_unobservable():
     body = client(FakeStore()).get("/v1/observability/environments/aws/database", headers=AUTH).json()
     assert (body["state"], body["instances"], body["replication_slots"]) == ("UNOBSERVABLE", [], [])

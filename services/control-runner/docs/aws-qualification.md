@@ -81,5 +81,9 @@ AWS의 [GetCallerIdentity](https://docs.aws.amazon.com/STS/latest/APIReference/A
 3. 시험 전용 버전 관리 객체의 앱 전후 읽기·익명 일반 GET 거부.
 4. 만료/회수 자격의 UNKNOWN, 저장 실패 시 PASS 미발행, T19에 같은 증거 참조 전달.
 
-현재 팀 계정 인증·kubeconfig 인계가 완료되지 않은 상태이므로 이 PR 병합만으로
-T14 전체 완료, 양쪽 환경 통제 동등성 또는 기업·금융 규정 준수를 표시하지 않는다.
+2026-11-04에는 팀 출발지 앱의 실제 IRSA 신원으로 `IAM-01.1`을 실행했다.
+앱 GET 200 → 익명 GET 403 → 앱 GET 200과 RoleId 불일치·증거 보존 거부 시 UNKNOWN을
+확인했다. [실측 범위와 원본 출력](../../../docs/evidence/t14-qualified-aws-2026-11-04/README.md)에
+상세 결과를 남겼다. 운영자 readback을 고정한 시험이며 T10 등록 정본과 중앙 증거 저장소를
+통한 무인 실행 인수는 아니다. 위 Secret·다른 역할 시험, 실제 자격 만료/회수와 목적지 시험은
+남아 있다. 이 결과로 T14 전체 완료, 양쪽 환경 통제 동등성 또는 기업·금융 규정 준수를 표시하지 않는다.
