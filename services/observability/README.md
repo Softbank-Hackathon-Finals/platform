@@ -82,6 +82,7 @@ T18 부하 생성기가 창 요약을 보내는 곳이다. 콘솔 조회 API와 
   - `GET /v1/observability/alerts`: Bravo 알림과 런북
   - `GET /v1/observability/environments/{env}/http`: 요청률 · 오류율 · p95. OTel `http.server.request.duration` 기준
   - `GET /v1/observability/environments/{env}/database`: 인스턴스, 논리 슬롯
+  - `GET /v1/observability/environments/{env}/pgbouncer`: pooler별 접속 가능, DB별 PAUSE와 활성 · 대기 클라이언트 · 활성 서버 연결. 상태는 OK · PAUSED · DOWN · UNOBSERVABLE. PAUSED는 컷오버 중의 정상 상태일 수 있으며 판정 · 실행에 쓰지 않는다
 - **유실 내구성:** 보내지 못한 지표는 디스크 큐(5000건)에 쌓이고 10분 동안 재시도한다. 저장소가 늦은 표본을 받는 기간과 같다.
 - **알림 8개(코드 · 단위 시험 · 런북)**
   - 관측 경로: 확인 불가, 전송 실패, 대기열, 거부

@@ -23,6 +23,8 @@ HTTP_METRIC = "http_server_request_duration_seconds"
 # DB 지표는 Collector의 DB 긁기 경로(collector-db.yaml)가 붙이는 출처 라벨로만 고른다. 앱 OTLP 경로는 이 라벨을 지우므로
 # 앱이 같은 이름(cnpg_collector_up 등)의 지표를 보내도 DB 상태에 들어오지 않는다.
 DB_SIGNAL = 'bravo_signal="cnpg-scrape"'
+# PgBouncer 지표도 같은 방식으로 PgBouncer 긁기 경로(components/pgbouncer)의 출처 라벨로만 고른다.
+PGBOUNCER_SIGNAL = 'bravo_signal="pgbouncer-scrape"'
 MAX_STORE_BYTES = 2 * 1024 * 1024
 MAX_STORE_ROWS = 10_000
 
@@ -304,6 +306,62 @@ def create_app(
         # 인스턴스 지표가 하나도 없으면 "DB 없음"이 아니라 확인 불가다
         state = "UNOBSERVABLE" if not instances or any(i["up"] is None for i in instances) else "OK" if all(i["up"] for i in instances) else "DOWN"
         return {"queried_at": _now(), "environment": e, "state": state, "last_received_seconds_ago": age, "instances": instances, "replication_slots": slots}
+
+    @app.get("/v1/observability/environments/{env}/pgbouncer")
+    def pgbouncer_view(env: str, request: Request):
+        guard(request)
+        e = env_or_404(env)
+        sel = f'bravo_env="{e}",{PGBOUNCER_SIGNAL}'
+        fresh, age = freshness(e)
+        if not fresh:
+            return {"queried_at": _now(), "environment": e, "state": "UNOBSERVABLE", "last_received_seconds_ago": age, "poolers": []}
+        # PgBouncer 관리 DB(pgbouncer)는 업무 DB가 아니므로 뺀다
+        dbs, pools = f'{sel},name!="pgbouncer"', f'{sel},database!="pgbouncer"'
+        up, paused, active, waiting, servers = run(
+            lambda: (
+                store.query(f"max by (pooler) ({_fresh_series('pgbouncer_up', sel)})"),
+                store.query(f"max by (pooler, name) ({_fresh_series('pgbouncer_databases_paused', dbs)})"),
+                store.query(f"sum by (pooler, database) ({_fresh_series('pgbouncer_pools_client_active_connections', pools)})"),
+                store.query(f"sum by (pooler, database) ({_fresh_series('pgbouncer_pools_client_waiting_connections', pools)})"),
+                store.query(f"sum by (pooler, database) ({_fresh_series('pgbouncer_pools_server_active_connections', pools)})"),
+            )
+        )
+
+        def counts(rows):
+            return {
+                (r["metric"].get("pooler"), r["metric"].get("database")): value if (value := _number(r)) is not None and value >= 0 else None
+                for r in rows
+                if _identified(r, "pooler", "database")
+            }
+
+        clients, queued, backends = counts(active), counts(waiting), counts(servers)
+        poolers = {
+            r["metric"].get("pooler"): {"pooler": r["metric"].get("pooler"), "up": _boolean(r) if _identified(r, "pooler") else None, "databases": []}
+            for r in up
+        }
+        for r in sorted(paused, key=lambda r: (r["metric"].get("pooler") or "", r["metric"].get("name") or "")):
+            key = (r["metric"].get("pooler"), r["metric"].get("name"))
+            # 접속 지표 없이 DB 행만 있는 pooler는 확인할 수 없는 상태다
+            target = poolers.setdefault(key[0], {"pooler": key[0], "up": None, "databases": []})
+            target["databases"].append(
+                {
+                    "name": key[1],
+                    "paused": _boolean(r) if _identified(r, "pooler", "name") else None,
+                    "clients_active": clients.get(key),
+                    "clients_waiting": queued.get(key),
+                    "servers_active": backends.get(key),
+                }
+            )
+        rows = sorted(poolers.values(), key=lambda x: x["pooler"] or "")
+        flags = [d["paused"] for x in rows for d in x["databases"]]
+        # PAUSED는 컷오버 중의 정상 상태일 수 있다. 판정 · 실행은 이 값을 쓰지 않는다(Executor가 PgBouncer에서 직접 읽는다)
+        if not rows or any(x["up"] is None for x in rows) or any(f is None for f in flags):
+            state = "UNOBSERVABLE"
+        elif not all(x["up"] for x in rows):
+            state = "DOWN"
+        else:
+            state = "PAUSED" if any(flags) else "OK"
+        return {"queried_at": _now(), "environment": e, "state": state, "last_received_seconds_ago": age, "poolers": rows}
 
     return app
 

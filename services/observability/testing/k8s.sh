@@ -10,7 +10,8 @@
 #     DB 긁기 경로의 지표에만 출처 라벨(bravo_signal=cnpg-scrape)이 붙고, 앱이 같은 이름의 지표를 보내도 DB 뷰에 들어오지 않는다
 #  7. 창 수신(T36)이 restricted로 뜨고, window-producer 라벨 네임스페이스의 수신 토큰만 받으며, 밖으로 나가지 못한다
 #  8. PgBouncer 오버레이: T6과 같은 이미지 · 설정의 PgBouncer를 통계 계정(stats_users)으로 긁는다. 통계 계정은 PAUSE를 못 하고,
-#     exporter는 Collector만 부를 수 있으며, PgBouncer 지표에 출처(pgbouncer-scrape) · pooler 라벨이 붙는다
+#     exporter는 Collector만 부를 수 있으며, PgBouncer 지표에 출처(pgbouncer-scrape) · pooler 라벨이 붙는다.
+#     조회 API PgBouncer 뷰가 OK · PAUSED를 구분하고, 앱이 같은 이름의 지표를 보내도 뷰에 들어오지 않는다
 # helm이 필요하다(CNPG 차트).
 set -euo pipefail
 cd "$(dirname "$0")"
@@ -347,6 +348,30 @@ kubectl -n stranger run probe-exporter --image=busybox:1.37.0@sha256:a7dbc319b14
 for _ in $(seq 30); do p=$(kubectl -n stranger get pod probe-exporter -o jsonpath='{.status.phase}'); case $p in Succeeded|Failed) break;; esac; sleep 2; done
 [ "$p" = Failed ] && r=ok || r=fail
 check $r "라벨이 없는 네임스페이스(stranger)에서 exporter 9127 연결은 NetworkPolicy가 막음 (probe: ${p:-없음}, 대조군: Collector는 수집 성공)"
+pgb_view() { call console "$API_TOKEN" "$1" /v1/observability/environments/onprem/pgbouncer >/dev/null; kubectl -n console logs "call-$1" 2>/dev/null || true; }
+pgb_ok='import json,sys;d=json.load(sys.stdin);p=d["poolers"];sys.exit(0 if d["state"]==sys.argv[1] and len(p)==1 and p[0]["pooler"]=="source-pgbouncer" and p[0]["up"] is True and any(x["name"]=="chat" and x["paused"] is (sys.argv[1]=="PAUSED") for x in p[0]["databases"]) else 1)'
+view=$(pgb_view pgb)
+echo "  조회 API PgBouncer 뷰: $view"
+echo "$view" | python3 -c "$pgb_ok" OK 2>/dev/null && r=ok || r=fail
+check $r "조회 API PgBouncer 뷰: 상태 OK, source-pgbouncer의 chat이 PAUSE 아님"
+# 컷오버 제어 계정의 PAUSE는 콘솔에 PAUSED로 보인다. 판정 · 실행은 이 값을 쓰지 않는다
+paused_out=$(pgsql cutover_control "$PGB_ADMIN_PW" 'PAUSE chat' | tr -d '\n')
+for _ in $(seq 40); do [ "$(count 'pgbouncer_databases_paused{bravo_signal="pgbouncer-scrape", pooler="source-pgbouncer", name="chat"} == 1')" -gt 0 ] && break; sleep 3; done
+view=$(pgb_view pgb-paused)
+resumed=$(pgsql cutover_control "$PGB_ADMIN_PW" 'RESUME chat' | tr -d '\n')
+echo "$view" | python3 -c "$pgb_ok" PAUSED 2>/dev/null && r=ok || r=fail
+check $r "컷오버 제어 계정의 PAUSE가 조회 API에 PAUSED로 보이고 RESUME으로 풀림 (PAUSE: ${paused_out:-없음}, RESUME: ${resumed:-없음})"
+for _ in $(seq 40); do [ "$(count 'pgbouncer_databases_paused{bravo_signal="pgbouncer-scrape", pooler="source-pgbouncer", name="chat"} == 0')" -gt 0 ] && break; sleep 3; done
+kubectl -n app run forger-pgb --image="$GEN" --restart=Never -- metrics \
+  --otlp-endpoint "bravo-collector.$NS.svc:4317" --otlp-insecure --duration 20s --rate 2 \
+  --otlp-metric-name pgbouncer_up --otlp-attributes 'service.name="bravo-pgbouncer"' \
+  --telemetry-attributes 'pooler="source-pgbouncer"' >/dev/null
+forged_pgb() { count 'pgbouncer_up{bravo_env="onprem"} unless pgbouncer_up{bravo_signal="pgbouncer-scrape"}'; }
+for _ in $(seq 60); do [ "$(forged_pgb)" -gt 0 ] && break; sleep 2; done
+n=$(forged_pgb)
+view=$(pgb_view pgb-forged)
+[ "$n" -gt 0 ] && echo "$view" | python3 -c "$pgb_ok" OK 2>/dev/null && r=ok || r=fail
+check $r "앱이 보낸 pgbouncer_up(${n}개, 출처 라벨 없음)은 PgBouncer 뷰에 들어오지 않음: 상태 OK, pooler는 source-pgbouncer만"
 
 if [ "${BRAVO_K8S_CAPACITY:-0}" = 1 ]; then
   echo "== 자원 실측: 평상(60초)"
