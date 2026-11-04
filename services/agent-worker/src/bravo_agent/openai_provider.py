@@ -5,6 +5,7 @@ import copy
 import json
 import os
 import re
+from collections import Counter
 
 from openai import APIStatusError, AsyncOpenAI
 
@@ -45,6 +46,22 @@ def function_tools() -> list[dict]:
     ]
 
 
+def output_kind(item) -> str:
+    """Return a code-owned label; never retain response text, names, IDs or arguments."""
+    kind = getattr(item, "type", None)
+    if kind == "function_call":
+        if getattr(item, "namespace", None) != "bravo":
+            return "other_function"
+        for name in FUNCTIONS:
+            if getattr(item, "name", None) == name:
+                return "bravo_" + name
+        return "other_function"
+    if kind == "message":
+        content = getattr(item, "content", None)
+        return "refusal" if isinstance(content, list) and any(getattr(p, "type", None) == "refusal" for p in content) else "message"
+    return kind if kind in ("reasoning", "custom_tool_call", "tool_search_call") else "other"
+
+
 class OpenAIProvider:
     def __init__(self, model: str, *, subscription: bool = False):
         if not re.fullmatch(r"[A-Za-z0-9_.:-]{1,128}", model):
@@ -61,7 +78,7 @@ class OpenAIProvider:
         tools.record("provider", "STOPPED", "SUBSCRIPTION_REQUEST_FAILED", {
             "category": code if code in known else "unknown", "http_status": status})
 
-    async def response(self, client, request, tools):
+    async def response(self, client, request, tools, stream_shape=None):
         if not self.subscription:
             return await client.responses.create(**request)
         try:
@@ -72,6 +89,9 @@ class OpenAIProvider:
                     size += len(event.model_dump_json().encode())
                     if size > 2097152:
                         raise RuntimeError("subscription stream exceeded bounded response size")
+                    if stream_shape is not None and event.type in ("response.output_item.added", "response.output_item.done"):
+                        bucket = "stream_done" if event.type == "response.output_item.done" else "stream_added"
+                        stream_shape[bucket][output_kind(getattr(event, "item", None))] += 1
                     if event.type == "response.failed":
                         error = event.response.error
                         self.record_subscription_error(tools, getattr(error, "code", None))
@@ -119,7 +139,8 @@ class OpenAIProvider:
                         request["max_output_tokens"] = min(4096, 32000 - tokens)
                     if tokens >= 32000 or len(json.dumps(request).encode()) > 131072:
                         raise RuntimeError("model input or token budget reached")
-                    response = await self.response(client, request, tools)
+                    stream_shape = {"stream_added": Counter(), "stream_done": Counter()} if self.subscription and index == 0 else None
+                    response = await self.response(client, request, tools, stream_shape)
                     if response.status != "completed" or response.usage is None:
                         raise RuntimeError("incomplete model response or unknown usage")
                     if type(response.usage.total_tokens) is not int or response.usage.total_tokens < 0:
@@ -129,10 +150,13 @@ class OpenAIProvider:
                                    "requests": index + 1, "total_tokens": tokens}
                     if tokens > 32000:
                         raise RuntimeError("model usage limit reached")
-                    outputs = [item.model_dump(exclude_none=True) for item in response.output]
+                    outputs = [item.model_dump(exclude_none=True) for item in (response.output or [])]
                     calls = [item for item in outputs if item["type"] == "function_call"]
-                    if self.subscription and index == 0:
+                    if stream_shape is not None:
                         tools.record("provider", "OBSERVED", "FIRST_RESPONSE_SHAPE", {
+                            **{key: dict(counts) for key, counts in stream_shape.items()},
+                            "terminal_output_missing": response.output is None,
+                            "terminal_items": dict(Counter(output_kind(item) for item in (response.output or []))),
                             "function_call_count": len(calls),
                             "bravo_namespace_matches": all(call.get("namespace") == "bravo" for call in calls)
                             if calls else None,
