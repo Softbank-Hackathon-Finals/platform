@@ -58,3 +58,14 @@ uv run --frozen --no-default-groups --with pytest pytest -p no:cacheprovider ../
 ```
 
 현재 기록은 도구 미허용 또는 제안 거부라는 일반 사유다. 삭제 시도라고 식별되는 감사 이벤트, 향후 허용될 `rehearsal.exec`의 실행 경계, 감사 로그 저장·콘솔 표시는 확인되지 않았다. 해당 계약은 T11·감사 경로 담당자와 확인해야 한다. 이 검사는 T15 버킷 삭제 차단 데모 인수 증거가 아니다.
+
+## 검증 영수증과 재시도 모의 시험
+
+아래 시험은 실제 T11 `Coordinator`에 모의 provider와 영수증을 전달한다. 세 번의 검증 실패, 실패 후 성공, UNKNOWN·효과 불명·실행 정보 불일치, 실패 증거 불일치와 중복 영수증을 확인한다.
+
+```bash
+cd ../agent-worker
+uv run --frozen --no-default-groups --with pytest pytest -p no:cacheprovider ../rehearsal-runner/testing/test_retry_flow.py
+```
+
+이 시험은 프로세스 메모리에서만 실행한다. T38의 실제 두 번째 이후 검증, 영수증 인증·증거 대조, T10의 실행 잠금과 시도 횟수 영속화 또는 재시작 복구는 증명하지 않는다.
