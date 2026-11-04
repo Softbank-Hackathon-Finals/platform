@@ -42,12 +42,15 @@ def _fixtures_absent(kube: Kubectl, fx: Fixtures) -> bool:
 
 
 def check_isolation(
-    kube: Kubectl, namespace: str, targets: list[Target], image: str, *, cleanup_timeout: float = 30
+    kube: Kubectl, namespace: str, targets: list[Target], image: str, *,
+    expected_uid: str | None = None, cleanup_timeout: float = 30
 ) -> IsolationPass:
     """Run T3 checks and return an identity only after confirmed fixture cleanup."""
     fx = Fixtures(namespace, secrets.token_hex(8), image)
     try:
         uid = _namespace_uid(kube, namespace)
+        if expected_uid is not None and (not expected_uid.strip() or uid != expected_uid):
+            raise IsolationBlocked("namespace identity does not match creation")
         try:
             results = run(kube, fx, targets)
         finally:

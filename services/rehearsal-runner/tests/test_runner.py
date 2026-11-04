@@ -110,13 +110,13 @@ def test_t3_adapter_calls_existing_gate_with_namespace(monkeypatch):
 
     calls = []
     expected = IsolationPass("rehearsal-test", "uid-1", "probe-1")
-    def check(kube, name, targets, image):
-        calls.append((kube, name, targets, image))
+    def check(kube, name, targets, image, *, expected_uid):
+        calls.append((kube, name, targets, image, expected_uid))
         return expected
     monkeypatch.setattr(runner, "check_isolation", check)
     gate = runner.T3Gate(kube="mock-kube", targets=[], image="test-image")
     assert gate.check(Namespace("rehearsal-test", "uid-1")) == expected
-    assert calls == [("mock-kube", "rehearsal-test", [], "test-image")]
+    assert calls == [("mock-kube", "rehearsal-test", [], "test-image", "uid-1")]
 
 
 def test_bucket_task_rejects_proposal_from_another_source_revision():

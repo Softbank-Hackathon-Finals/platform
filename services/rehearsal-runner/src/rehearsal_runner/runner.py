@@ -61,7 +61,9 @@ class T3Gate:
     image: str
 
     def check(self, namespace: Namespace) -> IsolationPass:
-        return check_isolation(self.kube, namespace.name, self.targets, self.image)
+        return check_isolation(
+            self.kube, namespace.name, self.targets, self.image, expected_uid=namespace.uid
+        )
 
 
 class Verifier(Protocol):

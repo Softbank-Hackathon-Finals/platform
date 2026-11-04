@@ -101,3 +101,19 @@ def test_cli_blocks_without_proceeding(monkeypatch, tmp_path, capsys):
     profile.write_text("bad profile")
     assert isolation_cli.main(["--namespace", "test", "--profile", str(profile)]) == 1
     assert '"BLOCK"' in capsys.readouterr().out
+
+
+def test_created_uid_mismatch_blocks_before_test_or_cleanup(monkeypatch):
+    calls = []
+    monkeypatch.setattr(gate, "run", lambda *_: calls.append("run"))
+    monkeypatch.setattr(gate.Fixtures, "cleanup", lambda *_: calls.append("cleanup"))
+    kube = Kube()
+    kube.uids = iter(["replacement-uid"])
+    with pytest.raises(gate.IsolationBlocked, match="does not match"):
+        gate.check_isolation(kube, "rehearsal-test", [], "image", expected_uid="original-uid")
+    assert calls == []
+
+
+def test_expected_uid_matches_before_and_after_test(passed):
+    result = gate.check_isolation(Kube(), "rehearsal-test", [], "image", expected_uid="uid-1")
+    assert result.namespace_uid == "uid-1"
