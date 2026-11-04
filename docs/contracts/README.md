@@ -9,6 +9,7 @@
 | SHIFT·WATCH 관측 판정 | [observability](../observability/README.md), [ADR-0010](../adr/0010-observability-boundary.md), [T10 창 저장](T10-window-storage.md) | T18 창 요약 → T36 기준 판정 → T17/T10 소비 → T21 표시 |
 | 계획·이벤트·재조회 | [계획 snapshot](T10-plan-snapshot-v1-proposal.md), [이벤트](T10-events-v1-proposal.md), [저장](T10-postgres-storage-v1-proposal.md) | T10 트랜잭션 → T21 조회·SSE |
 | 승인·명령·Executor 관측 | [CUTOVER 접수와 상태 읽기](T10-cutover-submit-v1-proposal.md), [운영자 접근](T10-operator-access-v1-proposal.md), [ADR-0011](../adr/0011-cutover-executor-execution-and-failure.md) | T19 정본·T17 SHIFT·호스트 권한 → T10 접수 → T12 실행 → T10 영속 관측 |
+| S2 변경 승인 | [변경 승인과 반영 접수](T10-change-approval.md) | T15의 확인된 검증 결과 → T10 사람 승인·1회 접수 → T31 반영. 미인증 응답은 승인 근거가 아님 |
 | 구독 실행 기반·제품 리허설 | [구독 실행 기반](../../operations/subscription/README.md), [T38 #150](https://github.com/Softbank-Hackathon-Finals/platform/issues/150), [T15 #24](https://github.com/Softbank-Hackathon-Finals/platform/issues/24) | T38 VM·OIDC·격리 Job 기반 → T15 제품 템플릿·최대 3회 재시도·diff/digest 승인 결속. 합성 DB_HOST 검증은 T15 제품 인수가 아님 |
 | 인프라 접근·자격 | [ADR-0012](../adr/0012-platform-data-access-boundary.md), [platform-data](../../infra/envs/platform-data/README.md) | T7/T30 설치·전달 → 각 런타임 소비. T14의 독립 검증을 대체하지 않음 |
 
