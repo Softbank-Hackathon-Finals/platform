@@ -3,6 +3,7 @@
 import importlib.util
 import sys
 from pathlib import Path
+from string import Template
 from unittest.mock import patch
 
 HERE = Path(__file__).resolve().parents[3] / "infra/envs/target-backup"
@@ -32,7 +33,7 @@ def test_policy_only_denies_and_covers_deletion_and_protection():
     for statement in (deletion, protect):
         assert statement["Effect"] == "Deny" and statement["Principal"] == {"AWS": [WRITER, READER]}
     assert set(deletion["Action"]) == {"s3:DeleteObject", "s3:DeleteObjectVersion"}
-    assert deletion["Resource"] == ["arn:aws:s3:::bravo-backup/*"]
+    assert deletion["Resource"] == [Template("arn:aws:s3:::${b}/*").substitute(b="bravo-backup")]
     assert {"s3:PutBucketPolicy", "s3:DeleteBucketPolicy", "s3:PutBucketVersioning", "s3:DeleteBucket"} == set(protect["Action"])
 
 
