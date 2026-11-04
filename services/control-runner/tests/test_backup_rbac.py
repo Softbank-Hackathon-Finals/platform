@@ -2,7 +2,7 @@ import copy
 
 import pytest
 
-from bravo_controls.backup_rbac import backup_readback_rbac
+from bravo_controls.backup_rbac import backup_readback_rbac, restore_readback_rbac
 
 ARGS = dict(
     namespace="backup-test",
@@ -64,3 +64,40 @@ def test_manifests_do_not_share_mutable_metadata():
     manifests[0]["metadata"]["labels"]["component"] = "other"
     assert manifests[1:] == retained[1:]
     assert backup_readback_rbac(**ARGS) == retained
+
+
+RESTORE_ARGS = dict(
+    namespace="backup-test",
+    identity="restore-reader",
+    restored_cluster="new-db",
+    reader_store="reader-store",
+)
+
+
+def test_restore_reader_cannot_read_source_backup_or_credentials():
+    account, role, binding = restore_readback_rbac(**RESTORE_ARGS)
+    assert account["automountServiceAccountToken"] is False
+    assert role["rules"] == [
+        {
+            "apiGroups": ["postgresql.cnpg.io"],
+            "resources": ["clusters"],
+            "resourceNames": ["new-db"],
+            "verbs": ["get"],
+        },
+        {
+            "apiGroups": ["barmancloud.cnpg.io"],
+            "resources": ["objectstores"],
+            "resourceNames": ["reader-store"],
+            "verbs": ["get"],
+        },
+    ]
+    assert binding["subjects"] == [
+        {"kind": "ServiceAccount", "name": "restore-reader", "namespace": "backup-test"}
+    ]
+
+
+@pytest.mark.parametrize("field", RESTORE_ARGS)
+@pytest.mark.parametrize("bad", ["*", "", "../secret", "x/y", "UPPER", "a" * 64, None])
+def test_restore_names_cannot_broaden_permission(field, bad):
+    with pytest.raises(ValueError):
+        restore_readback_rbac(**(RESTORE_ARGS | {field: bad}))

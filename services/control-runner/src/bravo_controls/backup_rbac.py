@@ -16,6 +16,35 @@ def backup_readback_rbac(*, namespace, identity, source_cluster, object_store, b
     dispatcher, with the API server's intended audience and bounded lifetime.
     """
     _names(namespace, identity, source_cluster, object_store, backup)
+    return _named_get_rbac(
+        namespace,
+        identity,
+        (
+            ("postgresql.cnpg.io", "clusters", source_cluster),
+            ("postgresql.cnpg.io", "backups", backup),
+            ("barmancloud.cnpg.io", "objectstores", object_store),
+        ),
+    )
+
+
+def restore_readback_rbac(*, namespace, identity, restored_cluster, reader_store):
+    """GET only the new restore and read-only archive reference, not source/Backup.
+
+    SQL authentication and the registered connection resolver are separate from
+    this Kubernetes identity. No Secret or Pod exec/read permission is added.
+    """
+    _names(namespace, identity, restored_cluster, reader_store)
+    return _named_get_rbac(
+        namespace,
+        identity,
+        (
+            ("postgresql.cnpg.io", "clusters", restored_cluster),
+            ("barmancloud.cnpg.io", "objectstores", reader_store),
+        ),
+    )
+
+
+def _named_get_rbac(namespace, identity, resources):
     labels = {"app.kubernetes.io/part-of": "bravo", "component": "backup"}
 
     def metadata():
@@ -39,11 +68,7 @@ def backup_readback_rbac(*, namespace, identity, source_cluster, object_store, b
                     "resourceNames": [name],
                     "verbs": ["get"],
                 }
-                for group, resource, name in (
-                    ("postgresql.cnpg.io", "clusters", source_cluster),
-                    ("postgresql.cnpg.io", "backups", backup),
-                    ("barmancloud.cnpg.io", "objectstores", object_store),
-                )
+                for group, resource, name in resources
             ],
         },
         {

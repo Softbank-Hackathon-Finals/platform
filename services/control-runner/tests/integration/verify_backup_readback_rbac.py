@@ -20,7 +20,7 @@ from datetime import datetime
 from pathlib import Path
 from uuid import uuid4
 
-from bravo_controls.backup_rbac import backup_readback_rbac
+from bravo_controls.backup_rbac import backup_readback_rbac, restore_readback_rbac
 from bravo_controls.runner import Environment, RunContext
 
 
@@ -29,7 +29,9 @@ class NoRedirect(urllib.request.HTTPRedirectHandler):
         return None
 
 
-def run(kubeconfig, request, output):
+def run(kubeconfig, request, output, *, mode="backup"):
+    if mode not in {"backup", "restore"}:
+        raise ValueError("unknown qualification mode")
     from bravo_controls.cnpg_readback import CNPGBackupReader, RequestBinding
 
     output.mkdir(parents=True, mode=0o700, exist_ok=False)
@@ -37,15 +39,41 @@ def run(kubeconfig, request, output):
     raw["context"]["environment"] = Environment(**raw["context"]["environment"])
     raw["context"] = RunContext(**raw["context"])
     raw["requested_at"] = datetime.fromisoformat(raw["requested_at"])
-    binding = RequestBinding(**raw)
+    if mode == "backup":
+        binding = RequestBinding(**raw)
+        cluster_name, cluster_uid = binding.source_name, binding.source_uid
+        store_name, store_uid = binding.store_name, binding.store_uid
+        backup_name, backup_uid = binding.backup_name, binding.backup_uid
+    else:
+        from bravo_controls.backup_restore import CompletedBackup
+        from bravo_controls.cnpg_restore_readback import RestoreRequestBinding
+
+        b = raw["backup"]
+        b["context"] = raw["context"]
+        for field in ("requested_at", "started_at", "completed_at"):
+            b[field] = datetime.fromisoformat(b[field])
+        raw["backup"] = CompletedBackup(**b)
+        binding = RestoreRequestBinding(**raw)
+        cluster_name, cluster_uid = binding.target_name, binding.target_uid
+        store_name, store_uid = binding.reader_store_name, binding.reader_store_uid
+        backup_name, backup_uid = "not-registered", binding.backup.backup_uid
     namespace = binding.namespace
     name = "bravo-backup-read-" + uuid4().hex[:12]
-    manifests = backup_readback_rbac(
-        namespace=namespace,
-        identity=name,
-        source_cluster=binding.source_name,
-        object_store=binding.store_name,
-        backup=binding.backup_name,
+    manifests = (
+        backup_readback_rbac(
+            namespace=namespace,
+            identity=name,
+            source_cluster=cluster_name,
+            object_store=store_name,
+            backup=backup_name,
+        )
+        if mode == "backup"
+        else restore_readback_rbac(
+            namespace=namespace,
+            identity=name,
+            restored_cluster=cluster_name,
+            reader_store=store_name,
+        )
     )
     cli = ["kubectl", "--kubeconfig", str(kubeconfig)]
 
@@ -78,14 +106,13 @@ def run(kubeconfig, request, output):
     )
     created = []
     report = {
-        "scope": "real Kubernetes RBAC and existing backup readback; not restore or AWS qualification"
+        "scope": "real Kubernetes RBAC; restore mode validates object identity, not SQL or AWS",
+        "mode": mode,
     }
     base = f"/apis/postgresql.cnpg.io/v1/namespaces/{namespace}"
-    cluster_path = base + "/clusters/" + binding.source_name
-    backup_path = base + "/backups/" + binding.backup_name
-    store_path = (
-        f"/apis/barmancloud.cnpg.io/v1/namespaces/{namespace}/objectstores/{binding.store_name}"
-    )
+    cluster_path = base + "/clusters/" + cluster_name
+    backup_path = base + "/backups/" + backup_name
+    store_path = f"/apis/barmancloud.cnpg.io/v1/namespaces/{namespace}/objectstores/{store_name}"
 
     def remove(obj):
         kind = obj["kind"]
@@ -159,9 +186,9 @@ def run(kubeconfig, request, output):
             if ns != namespace:
                 raise ValueError("unregistered namespace")
             paths = {
-                ("clusters.postgresql.cnpg.io", binding.source_name): cluster_path,
-                ("backups.postgresql.cnpg.io", binding.backup_name): backup_path,
-                ("objectstores.barmancloud.cnpg.io", binding.store_name): store_path,
+                ("clusters.postgresql.cnpg.io", cluster_name): cluster_path,
+                ("backups.postgresql.cnpg.io", backup_name): backup_path,
+                ("objectstores.barmancloud.cnpg.io", store_name): store_path,
             }
             status, document = api(paths[(resource, resource_name)])
             if status != 200:
@@ -178,9 +205,48 @@ def run(kubeconfig, request, output):
 
         eventually(lambda: api(cluster_path)[0] == 200)
         evidence = []
-        reader = CNPGBackupReader(binding=binding, get_resource=get, evidence_sink=evidence.append)
+        if mode == "backup":
+            reader = CNPGBackupReader(
+                binding=binding, get_resource=get, evidence_sink=evidence.append
+            )
+        else:
+            from bravo_controls.cnpg_readback import resource_fingerprint
+
+            def reader(context):
+                if context != binding.context:
+                    raise ValueError("wrong registered context")
+                values = {}
+                for kind, resource, object_name, uid, expected in (
+                    (
+                        "Cluster",
+                        "clusters.postgresql.cnpg.io",
+                        cluster_name,
+                        cluster_uid,
+                        binding.target_sha256,
+                    ),
+                    (
+                        "ObjectStore",
+                        "objectstores.barmancloud.cnpg.io",
+                        store_name,
+                        store_uid,
+                        binding.reader_store_sha256,
+                    ),
+                ):
+                    observed = resource_fingerprint(
+                        get(resource, namespace, object_name),
+                        kind=kind,
+                        namespace=namespace,
+                        name=object_name,
+                        uid=uid,
+                    )
+                    if observed != expected:
+                        raise ValueError("registered restore identity changed")
+                    values[kind] = observed
+                evidence.append(json.dumps(values, sort_keys=True).encode())
+                return values
+
         receipt = reader(binding.context)
-        report["three_named_gets_and_completed_backup_readback"] = True
+        report["named_gets_and_bound_identity_readback"] = True
         negatives = {
             "list_clusters": (base + "/clusters", "GET", None),
             "list_backups": (base + "/backups", "GET", None),
@@ -196,7 +262,7 @@ def run(kubeconfig, request, output):
                     "kind": "Backup",
                     "metadata": {"name": name, "namespace": namespace},
                     "spec": {
-                        "cluster": {"name": binding.source_name},
+                        "cluster": {"name": cluster_name},
                         "method": "plugin",
                         "pluginConfiguration": {"name": "barman-cloud.cloudnative-pg.io"},
                     },
@@ -208,7 +274,7 @@ def run(kubeconfig, request, output):
                 {
                     "apiVersion": "v1",
                     "kind": "DeleteOptions",
-                    "preconditions": {"uid": binding.backup_uid},
+                    "preconditions": {"uid": backup_uid},
                 },
             ),
             "patch_cluster_dry_run": (
@@ -217,6 +283,27 @@ def run(kubeconfig, request, output):
                 {"metadata": {"annotations": {"bravo-test": "dry-run-only"}}},
             ),
         }
+        if mode == "restore":
+            negatives.update(
+                {
+                    "source_cluster": (base + "/clusters/" + binding.source_name, "GET", None),
+                    "any_backup": (backup_path, "GET", None),
+                    "writer_store": (
+                        f"/apis/barmancloud.cnpg.io/v1/namespaces/{namespace}/objectstores/writer-store",
+                        "GET",
+                        None,
+                    ),
+                    "delete_restore_dry_run": (
+                        cluster_path + "?dryRun=All",
+                        "DELETE",
+                        {
+                            "apiVersion": "v1",
+                            "kind": "DeleteOptions",
+                            "preconditions": {"uid": cluster_uid},
+                        },
+                    ),
+                }
+            )
         denied = {}
         for label, (path, method, body) in negatives.items():
             status, document = api(
@@ -250,7 +337,11 @@ def run(kubeconfig, request, output):
         eventually(lambda: api(cluster_path)[0] == 200)
         assert reader(binding.context) == receipt
         report["permission_restored_positive_control"] = True
-        (output / "receipt.json").write_text(json.dumps(asdict(receipt), default=str, indent=2))
+        (output / "receipt.json").write_text(
+            json.dumps(
+                receipt if isinstance(receipt, dict) else asdict(receipt), default=str, indent=2
+            )
+        )
         for i, data in enumerate(evidence):
             (output / f"evidence-{i}.json").write_bytes(data)
         report["status"] = "PASS"
@@ -267,10 +358,16 @@ if __name__ == "__main__":
     parser.add_argument("--kubeconfig", type=Path, required=True)
     parser.add_argument("--request", type=Path, required=True)
     parser.add_argument("--private-output", type=Path, required=True)
+    parser.add_argument("--mode", choices=("backup", "restore"), default="backup")
     args = parser.parse_args()
     print(
         json.dumps(
-            run(args.kubeconfig.resolve(), args.request.resolve(), args.private_output.resolve()),
+            run(
+                args.kubeconfig.resolve(),
+                args.request.resolve(),
+                args.private_output.resolve(),
+                mode=args.mode,
+            ),
             indent=2,
         )
     )
