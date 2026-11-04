@@ -1,0 +1,49 @@
+{
+  "source_revision": "a3aba4ba7aa6bf79370eb06ef581b3b4487b04f9",
+  "measured_from_utc": "2026-11-04T19:37:51.651776+00:00",
+  "measured_until_utc": "2026-11-04T19:40:04.743979+00:00",
+  "target": "registered development RKE2",
+  "registered_cluster_matched": true,
+  "local_admission_store": "SQLite",
+  "remote_effect": "restricted synthetic Kubernetes Job",
+  "product_t15_exercised": false,
+  "results": [
+    {
+      "crash_before_or_after_remote_create": "before",
+      "original_and_alternate_keys_same_admission": true,
+      "restart_submissions": 0,
+      "matching_kubernetes_jobs": 0,
+      "created_uid_matches_read_uid": null,
+      "job_succeeded": null,
+      "matching_owned_pod_without_api_token": null,
+      "reconcile": "UNCONFIRMED",
+      "gate_blocked": true
+    },
+    {
+      "crash_before_or_after_remote_create": "after",
+      "original_and_alternate_keys_same_admission": true,
+      "restart_submissions": 0,
+      "matching_kubernetes_jobs": 1,
+      "created_uid_matches_read_uid": true,
+      "job_succeeded": true,
+      "matching_owned_pod_without_api_token": true,
+      "reconcile": "UNCONFIRMED",
+      "gate_blocked": true
+    }
+  ],
+  "namespace_absence_checked_after_deletion": true,
+  "audit_preflight": {
+    "source": "target API server configuration and a server-side dry-run using an empty Secret",
+    "effective_rule": "None",
+    "kubectl_exit": 0,
+    "object_absent_before_and_after": true,
+    "matching_events": 0,
+    "log_bytes_before": 0,
+    "log_bytes_after": 0,
+    "observation_seconds": 6,
+    "log_identity_unchanged": true,
+    "t7_secret_probe_run": false
+  },
+  "private_operator_record_sha256": "b747a7c7c9596a2c6c2a9ba148484e7c6c8d55531265fc7d1d133223397e0192",
+  "private_audit_record_sha256": "d337d24a42b6236740e96e58f6e2351a63cb9fbed8afcef96b7df5db4eb49df6"
+}
