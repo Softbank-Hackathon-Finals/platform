@@ -151,6 +151,42 @@ def test_time_comparison_is_by_instant_not_string():
     assert store.latest("plan-demo")["window"]["end"] == "2026-11-08T05:31:30.75Z"
 
 
+def test_newer_end_cannot_hide_overlap_and_adjacent_window_is_accepted(tmp_path):
+    store = SqliteWindowStore(str(tmp_path / "windows.db"))
+    client = app(store, clock=lambda: "2026-11-08T05:31:31Z")
+    assert client.post("/v1/observability/windows", json=window(), headers=LOADGEN).status_code == 201
+    overlap = window(start="2026-11-08T14:31:15+09:00", end="2026-11-08T14:31:25+09:00")
+    response = client.post("/v1/observability/windows", json=overlap, headers=LOADGEN)
+    assert (response.status_code, response.json()["detail"]) == (409, "overlapping_window")
+    assert store.latest("plan-demo")["window"]["end"] == "2026-11-08T05:31:20Z"
+    adjacent = window(start="2026-11-08T05:31:20Z", end="2026-11-08T05:31:30Z")
+    assert client.post("/v1/observability/windows", json=adjacent, headers=LOADGEN).status_code == 201
+
+
+def test_two_store_connections_cannot_admit_overlapping_windows(tmp_path):
+    path = str(tmp_path / "windows.db")
+    stores = [SqliteWindowStore(path), SqliteWindowStore(path)]
+    windows = [window(), window(start="2026-11-08T05:31:15Z", end="2026-11-08T05:31:25Z")]
+    results = []
+    barrier = threading.Barrier(2)
+
+    def send(index):
+        barrier.wait()
+        try:
+            accept(stores[index], windows[index], now="2026-11-08T05:31:26Z", is_active_plan=lambda _: True)
+            results.append("stored")
+        except IntakeRejected as error:
+            results.append(error.code)
+
+    threads = [threading.Thread(target=send, args=(index,)) for index in range(2)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+    assert results.count("stored") == 1
+    assert set(results) <= {"stored", "out_of_order", "overlapping_window"}
+
+
 def test_future_window_is_rejected_and_does_not_block_later_windows():
     store = SqliteWindowStore()
     future = window(start="2099-01-01T00:00:00Z", end="2099-01-01T00:00:10Z")
@@ -217,3 +253,114 @@ def test_contract_validation_reports_location_without_values():
     with pytest.raises(ContractViolation) as e:
         validate("SliWindow", {**window(), "plan_id": "Secret Value!"})
     assert "Secret Value" not in str(e.value) and "plan_id" in str(e.value)
+
+
+@pytest.mark.parametrize("raw", [
+    b'{"plan_id":"plan-demo","plan_id":"plan-other"}',
+    json.dumps(window()).replace('"http_5xx": 0', '"http_5xx": NaN', 1).encode(),
+    json.dumps(window()).replace('"p95_ms": 100', '"p95_ms": 1e309', 1).encode(),
+    b'[' * 2000 + b']' * 2000,
+    json.dumps(window()).encode('utf-16'),
+])
+def test_ambiguous_or_nonfinite_json_never_reaches_storage(raw):
+    store = SqliteWindowStore()
+    response = app(store).post('/v1/observability/windows', content=raw, headers=LOADGEN)
+    assert response.status_code == 400
+    assert response.json() == {'detail':'invalid_json'}
+    assert response.headers['cache-control'] == 'no-store'
+    assert store.latest('plan-demo') is None
+
+
+def test_auth_revoked_while_body_arrives_never_stores():
+    calls = []
+    def authorize(_request):
+        calls.append(True)
+        return len(calls) == 1
+    store = SqliteWindowStore()
+    c = TestClient(create_intake_app(store, authorize=authorize,
+        is_active_plan=lambda _:True, clock=lambda:NOW))
+    response = c.post('/v1/observability/windows', json=window())
+    assert response.status_code == 401
+    assert len(calls) == 2
+    assert store.latest('plan-demo') is None
+
+
+def test_slow_upload_is_bounded_and_does_not_store(monkeypatch):
+    import asyncio
+    monkeypatch.setattr('bravo_observability.intake_api.MAX_BODY_SECONDS', .03)
+    store = SqliteWindowStore()
+    api = create_intake_app(store, authorize=lambda _:True,
+                           is_active_plan=lambda _:True, clock=lambda:NOW)
+    async def run():
+        async def body():
+            yield b'{'
+            await asyncio.sleep(.1)
+            yield b'}'
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=api),base_url='http://fixture') as c:
+            return await c.post('/v1/observability/windows', content=body())
+    response = asyncio.run(run())
+    assert response.status_code == 408
+    assert response.json() == {'detail':'window_read_timeout'}
+    assert store.latest('plan-demo') is None
+
+
+@pytest.mark.parametrize('fault', ['authorization', 'store'])
+def test_backend_failures_do_not_expose_diagnostics(fault):
+    def broken(*_):
+        raise RuntimeError('PRIVATE_PASSWORD_AND_DATABASE_PATH')
+    class BrokenStore:
+        insert_if_newer = broken
+    api = create_intake_app(BrokenStore(),
+        authorize=broken if fault=='authorization' else lambda _:True,
+        is_active_plan=lambda _:True,clock=lambda:NOW)
+    response = TestClient(api).post('/v1/observability/windows',json=window())
+    assert response.status_code == 503
+    assert 'PRIVATE_' not in response.text
+    assert response.headers['cache-control'] == 'no-store'
+
+
+def test_encoded_upload_not_accepted():
+    store=SqliteWindowStore()
+    response=app(store).post('/v1/observability/windows',json=window(),
+                             headers=LOADGEN|{'Content-Encoding':'gzip'})
+    assert response.status_code==415
+    assert store.latest('plan-demo') is None
+
+
+@pytest.mark.parametrize('token', ['w'*513, 'w'*32+' ', '한'*32])
+def test_invalid_producer_credentials_rejected_at_start(monkeypatch,tmp_path,token):
+    monkeypatch.setenv('BRAVO_WINDOW_TOKEN',token)
+    monkeypatch.setenv('BRAVO_WINDOW_PLANS','plan-demo')
+    monkeypatch.setenv('BRAVO_WINDOW_DB',str(tmp_path/'w.db'))
+    with pytest.raises(ValueError):
+        intake_from_env()
+
+
+@pytest.mark.parametrize('mutate', [
+    lambda w:w['pools']['source'].update(p95_ms=float('nan')),
+    lambda w:w['pools']['source'].update(p95_ms=float('inf')),
+    lambda w:w['pools']['source'].update(http_5xx=1801),
+    lambda w:w['pools']['source'].update(http_5xx=1800,integrity_conflict=1),
+    lambda w:w['pools']['source'].update(requests=True),
+    lambda w:w['unattributed'].clear(),
+    lambda w:w['pools'].pop('target'),
+])
+def test_in_process_invalid_statistics_cannot_be_stored_or_pass(mutate):
+    w=window()
+    mutate(w)
+    with pytest.raises(IntakeRejected,match='invalid_window'):
+        accept(SqliteWindowStore(),w,now=NOW,is_active_plan=lambda _:True)
+    with pytest.raises(ValueError,match='invalid_window_statistics'):
+        judge(PROFILE,w,plan_id='plan-demo',state='SHIFT',weight_target=10,
+              observe_from='2026-11-08T05:31:00Z',decided_at=NOW,prior_unknown=0)
+
+
+@pytest.mark.parametrize('key,value', [
+    ('error_rate_max',float('nan')),('p95_ms_max',float('inf')),
+    ('share_tolerance',float('nan')),('min_requests',0),
+    ('unknown_limit',True),('max_clock_skew_seconds',-1),
+])
+def test_corrupt_policy_never_authorizes_advance(key,value):
+    with pytest.raises(ValueError,match='invalid_judgement_policy'):
+        judge(PROFILE|{key:value},window(),plan_id='plan-demo',state='SHIFT',weight_target=10,
+              observe_from='2026-11-08T05:31:00Z',decided_at=NOW,prior_unknown=0)

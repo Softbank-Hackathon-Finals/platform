@@ -5,6 +5,7 @@
 - 서버가 받기로 한 계획(is_active_plan)의 창만 받는다. 계획 목록은 호스트(T10 상태 DB)가 정한다.
 - 같은 (plan_id, window.start)는 한 번만 받는다.
 - 이미 받은 창보다 늦게 끝나지 않는 창은 받지 않는다. 오래된 정상 창을 다시 보내 장애를 가리지 못하게 한다.
+- 끝 시각이 더 늦어도 기존 창과 겹치면 받지 않는다. 같은 요청을 여러 판정 창에 중복 계산하지 않는다.
 - 받은 시각보다 MAX_CLOCK_AHEAD_SECONDS 넘게 미래에 끝나는 창은 받지 않는다. 위 규칙 때문에 그런 창 하나가
   그 시각까지 이후 창을 모두 막기 때문이다. 판정은 같은 창을 CLOCK_SKEW로 쓰지 않으므로 결과는 같다(UNKNOWN).
 
@@ -19,7 +20,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Protocol
 
 from bravo_observability.contract import ContractViolation, validate
-from bravo_observability.sli import receive
+from bravo_observability.sli import receive, validate_window_counts
 
 _EPOCH = datetime(1970, 1, 1, tzinfo=UTC)
 # 기준 프로필 demo-shift의 max_clock_skew_seconds와 같다(시험이 대조한다)
@@ -36,7 +37,7 @@ class IntakeRejected(Exception):
 
 class WindowStore(Protocol):
     def insert_if_newer(self, plan_id: str, start: str, end: str, document: dict) -> str:
-        """원자적으로 저장한다. 결과: "stored" · "duplicate" · "out_of_order"."""
+        """원자적으로 저장한다. 결과: stored · duplicate · out_of_order · overlapping_window."""
 
     def latest(self, plan_id: str) -> dict | None:
         """window.end가 가장 늦은 창."""
@@ -75,6 +76,8 @@ class SqliteWindowStore:
                     ).fetchone()
                     if latest is not None and end_us <= latest:
                         result = "out_of_order"
+                    elif latest is not None and start_us < latest:
+                        result = "overlapping_window"
                     else:
                         self._db.execute(
                             "INSERT INTO windows VALUES (?,?,?,?)",
@@ -105,7 +108,8 @@ def accept(
     """받은 창을 검증 · 저장하고 저장한 문서를 돌려준다. 거부는 IntakeRejected(code)."""
     try:
         validate("SliWindow", document)
-    except ContractViolation as e:
+        validate_window_counts(document)
+    except (ContractViolation, ValueError) as e:
         raise IntakeRejected("invalid_window") from e
     assert isinstance(document, dict)
     start, end = (datetime.fromisoformat(document["window"][k]) for k in ("start", "end"))
