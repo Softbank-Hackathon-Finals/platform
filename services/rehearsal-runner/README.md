@@ -175,3 +175,9 @@ PYTHONPATH=../rehearsal-runner/src uv run --frozen --no-default-groups --with py
 `retry.run_retries`는 시도별 T3 시험과 UID 조건 정리를 완료한 후 신뢰된 결과 판정 포트가 같은 실행·제안·시도의 재시도를 허용한 경우에만 다음 시도를 시작하며 최대 3회다. 결과 불명, 정리 미확인, 결과 불일치는 사람에게 넘긴다. 모든 의존성은 주입된 포트이며, 현재 영수증 인증기·T11 후속 시도 어댑터·T10 실행 잠금과 영속 복구는 설치되지 않았다. 메모리 시뮬레이션을 실서비스 승인 또는 안전한 재시작으로 취급하지 않는다.
 
 `credential_proposal_source.BoundCredentialProposalSource`는 제안의 실행·원본 revision·digest와 허용된 demo-chat 파일 및 원본 해시를 대조해 수정안을 검증 Job 경계에 전달한다. 수정 내용은 객체 표현에 출력하지 않는다. 이 조회만으로 수정안·이미지의 안전성이나 실제 실행을 증명하지 않는다.
+
+## 자격 주입 검증 관측 명령
+
+`python -m rehearsal_runner.credential_job_probe secret-get --namespace <namespace> --name <secret>`은 실행된 Pod의 서비스 계정으로 Kubernetes API의 Secret GET 상태만 확인한다. 응답 본문과 토큰은 읽어 출력하지 않으며, 200은 `yes`, 403은 `no`, 나머지는 `unknown`이다. `app-db --namespace <namespace> --service <service> --port <port>`는 demo-chat DB health 응답을 확인한다. 각 명령은 관측값만 출력하며 T38 영수증이 아니다.
+
+리허설 기본 NetworkPolicy는 Kubernetes API 송신을 막고 기본 계정에 토큰을 마운트하지 않는다. 이 명령을 실행하려고 격리 정책을 임의로 완화하지 않는다. 신뢰된 별도 검증 Job, 대상 계정의 식별·권한 전달, 양성 대조, 인증된 Job 증거와 UID 정리 방식은 T38 접점에 맞춰 연결해야 한다. 실제 앱의 DB 응답과 대상 Secret에 대한 별도 양성·음성 확인이 모두 필요하다.
