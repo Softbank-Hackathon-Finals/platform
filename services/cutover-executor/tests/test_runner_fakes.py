@@ -11,9 +11,11 @@ from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 
 import pytest
+from pydantic import ValidationError
 
 from bravo_cutover import runner as runner_module
 from bravo_cutover.contract import CutoverRequest, Status
+from bravo_cutover.db_fingerprint import SequenceState
 from bravo_cutover.remote import Unconfirmed
 from bravo_cutover.remote.db import Subscription, WriteRefusal
 from bravo_cutover.remote.pgbouncer import PoolState
@@ -33,7 +35,7 @@ def site(env: str, ns: str, subscription: str) -> Site:
 
 
 CONFIG = Config(
-    settings=Settings(allow_unverified_compare=True, restore_verify_timeout_s=1),
+    settings=Settings(restore_verify_timeout_s=1),
     sites={"env-aws": site("env-aws", "src", "bravo_rev"), "env-onprem": site("env-onprem", "dst", "bravo_fwd")},
 )
 
@@ -54,6 +56,9 @@ class World:
         self.barriers: set = set()
         self.sessions = {"src": 0, "dst": 0}  # 앱 역할 세션(NOLOGIN 전에 붙은 연결 포함)
         self.bypass = {"src": [], "dst": []}  # 업무 역할이 아닌 클라이언트 세션
+        self.seq = {"src": SequenceState(9, True, 9, 2**63 - 1), "dst": SequenceState(9, True, 9, 2**63 - 1)}
+        self.seq_readback_lost = False  # 목적지 시퀀스를 올려도 다시 읽으면 그대로(올리기 미반영)
+        self.on_sequence_read: dict[str, object] = {}  # 환경 → 그 환경 시퀀스를 처음 읽을 때 실행할 함수
         self.calls: list[str] = []
         self.after: dict[str, object] = {}  # 호출 이름 → 그 호출 직후 실행할 함수
 
@@ -110,18 +115,17 @@ class FakeDb:
     def has_barrier(self, barrier_id):
         return barrier_id in self.w.barriers
 
-    def row_count(self, table):
-        return 5
-
-    def sequence_next(self, sequence):
-        return 10
-
-    def max_value(self, table, column):
-        return 9
+    def sequence_state(self, sequence, table, column):
+        if fn := self.w.on_sequence_read.pop(self.ns, None):
+            fn()
+        return self.w.seq[self.ns]
 
     def raise_sequence(self, sequence, next_value):
         self.w.did(f"{self.ns}.raise_sequence")
-        return max(10, next_value)
+        current = self.w.seq[self.ns]
+        if not self.w.seq_readback_lost and next_value > current.next_value:
+            self.w.seq[self.ns] = SequenceState(next_value, False, current.max_id, current.maximum)
+        return max(current.next_value, next_value)
 
 
 class FakePool:
@@ -173,6 +177,14 @@ class FakeEntry:
     def running(self):
         return ["app-0"]
 
+    def identities(self):
+        return [{"name": "app-0", "uid": "app-uid-" + self.ns, "restarts": 0,
+                 "ready": True, "terminating": False}]
+
+    def close_websockets(self):
+        self.w.did(f"{self.ns}.ws:1012")
+        return {"app-0": 1}
+
 
 class FakeKube:
     def __init__(self, w: World, ns: str):
@@ -194,8 +206,35 @@ class FakeKube:
         self.w.configmap[self.ns] = (value, str(int(version) + 1))
 
 
+class FixedComparer:
+    def __init__(self, result):
+        self.result = result
+
+    def compare(self, src, dst, tables):
+        return self.result
+
+
+# T13 계약 「결과 모양」과 같은 칸. 지문 값은 실행기가 해석하지 않으므로 아무 값이나 된다.
+TABLES = [{"name": t, "rows_src": 5, "rows_dst": 5, "source": {"rows": 5}, "target": {"rows": 5},
+           "match": True, "data_verdict": "MATCH", "schema_verdict": "MATCH"} for t in CONFIG.settings.tables]
+MATCH = {"verdict": "MATCH", "data_verdict": "MATCH", "schema_verdict": "MATCH", "hash_rule": "v1", "tables": TABLES}
+
+
+def match_with(table: int | None = None, drop: tuple[str, ...] = (), **fields):
+    """MATCH 결과에서 한 곳만 바꾼다. table을 주면 그 표의 칸을, 아니면 전체 칸을 바꾸거나 뺀다."""
+    result = {**MATCH, "tables": [dict(t) for t in TABLES]}
+    target = result if table is None else result["tables"][table]
+    target.update(fields)
+    for key in drop:
+        target.pop(key)
+    return result
+
+
 class FakeCutover(Cutover):
+    """비교는 기본으로 MATCH를 돌려준다. 실제 DB 지문 비교는 test_db_fingerprint_runner가 잰다."""
+
     def __init__(self, store, world: World, **kwargs):
+        kwargs.setdefault("comparer", FixedComparer(MATCH))
         super().__init__(store, CONFIG, kube=lambda context: None, **kwargs)
         self.world = world
 
@@ -274,7 +313,13 @@ def test_takeover_after_any_change_sends_no_more_changes(store, postgres_dsn, wo
 
     execution_id = start(store)
     newer = Store(postgres_dsn)
-    world.after[point] = lambda: newer.claim(execution_id, takeover=True)
+    before_takeover = []
+
+    def takeover():
+        before_takeover.append(store.get(execution_id).result)
+        newer.claim(execution_id, takeover=True)
+
+    world.after[point] = takeover
     try:
         FakeCutover(store, world).run(execution_id)
         after = world.calls[world.calls.index(point) + 1:]
@@ -284,7 +329,7 @@ def test_takeover_after_any_change_sends_no_more_changes(store, postgres_dsn, wo
                      "src.entry:False": {"dst.entry:False", "src.probe", "dst.probe"}}.get(point, set())
         assert set(after) <= in_flight, after
         assert store.get(execution_id).status == Status.RUNNING
-        assert store.get(execution_id).result is None
+        assert store.get(execution_id).result == before_takeover[0]
     finally:
         newer.close()
 
@@ -337,12 +382,35 @@ def test_pgbouncer_pod_changed_during_execution_is_unknown(store, world, when, c
     assert execution.status in (Status.ABORT_PRE_WRITE, Status.SAFE_HOLD), execution.result
     assert "pgbouncer pod changed" in execution.result["error"]
     if execution.committed_at is None:
-        assert execution.status == Status.ABORT_PRE_WRITE  # 확정 전이면 원상 복구
+        assert execution.status == Status.SAFE_HOLD  # replacement process is not ours to resume
     else:
         assert execution.status == Status.SAFE_HOLD
     assert not (world.login["src"] and world.login["dst"])
 
 
+def test_comparison_receipt_is_durable_before_target_opens_and_survives_hold(store, world):
+    execution_id = start(store)
+
+    def before_open(run):
+        stored = store.get(execution_id)
+        assert stored.result["receipt"]["barrier_id"] == run.receipt["barrier_id"]
+        assert world.login["dst"] is False
+        raise Unconfirmed("test interruption after commit, before target LOGIN")
+
+    FakeCutover(store, world, hooks={"before:reconnect": before_open}).run(execution_id)
+    stored = store.get(execution_id)
+    assert stored.status == Status.SAFE_HOLD
+    assert stored.result["receipt"]["tables"]
+    assert stored.result["outcome"] == Status.SAFE_HOLD
+
+
+def test_source_websockets_close_before_entry_release(store, world):
+    execution_id = start(store)
+    FakeCutover(store, world).run(execution_id)
+    assert store.get(execution_id).status == Status.DONE
+    assert world.calls.index("src.ws:1012") < world.calls.index("src.entry:False")
+    assert "dst.ws:1012" not in world.calls
+    assert store.get(execution_id).result["receipt"]["websocket_closed"] == {"app-0": 1}
 
 @pytest.mark.parametrize("point", ["before:persist", "persist:read:env-aws"])
 def test_pgbouncer_regenerated_around_persist_is_safe_hold(store, world, point):
@@ -376,42 +444,89 @@ def test_persist_requires_target_reachable_through_each_pool(store, world):
 
 
 
-class FixedComparer:
-    def __init__(self, result):
-        self.result = result
-
-    def compare(self, src, dst, tables):
-        return self.result
-
-
-TABLES = [{"name": t, "rows_src": 5, "rows_dst": 5} for t in CONFIG.settings.tables]
 
 
 @pytest.mark.parametrize("result", [
     {"verdict": "UNKNOWN", "hash_rule": "unavailable", "tables": TABLES},
+    {"verdict": "UNVERIFIED", "hash_rule": "none", "tables": TABLES},  # 지운 임시 비교의 판정
     {"verdict": "match", "hash_rule": "v1", "tables": TABLES},  # 오타(대소문자)
     {"hash_rule": "v1", "tables": TABLES},  # verdict 누락
-    {"verdict": "MATCH", "hash_rule": "v1", "tables": TABLES[:1]},  # 비교 대상 테이블 누락
-    {"verdict": "MATCH", "hash_rule": "v1", "tables": "all"},  # 잘못된 형식
+    match_with(tables=TABLES[:1]),  # 비교 대상 테이블 누락
+    match_with(tables="all"),  # 잘못된 형식
+    match_with(tables=[*TABLES, {**TABLES[0], "data_verdict": "MISMATCH"}]),  # 같은 표가 두 번, 하나는 MISMATCH
+    match_with(drop=("data_verdict",)),  # 전체 데이터 판정 누락
+    match_with(schema_verdict="UNKNOWN"),  # 전체는 MATCH인데 스키마 판정은 UNKNOWN
+    match_with(drop=("hash_rule",)),  # 규칙 누락
+    match_with(table=1, data_verdict="MISMATCH", match=False),  # 표별 판정은 MISMATCH, 전체만 MATCH
+    match_with(table=0, drop=("data_verdict", "schema_verdict", "match", "source", "target")),  # 이름만 있는 표
+    match_with(table=1, drop=("target",)),  # 지문 누락
+    match_with(table=0, match="true"),  # 형식 오류
     "MATCH",  # dict가 아님
 ])
 def test_only_explicit_match_opens_target(store, world, result):
-    """#116 이상무 리뷰: MATCH(또는 시험 설정의 UNVERIFIED)만 진행한다. 그 밖에는 목적지를 열지 않는다."""
+    """#116 이상무 리뷰: MATCH만 진행한다. 그 밖에는 목적지를 열지 않고 목적지 시퀀스도 바꾸지 않는다."""
+    world.seq["dst"] = SequenceState(1, False, 9, 2**63 - 1)  # MATCH였다면 올렸을 상태
     execution_id = start(store)
     FakeCutover(store, world, comparer=FixedComparer(result)).run(execution_id)
     execution = store.get(execution_id)
     assert execution.status == Status.ABORT_PRE_WRITE, execution.result
     assert execution.result["failed_step"] == "compare"
     assert "dst.set_login:True" not in world.calls and world.login["dst"] is False
+    assert "dst.raise_sequence" not in world.calls
+    assert execution.result.get("receipt", {}).get("sequences", []) == []
 
 
-def test_match_proceeds_without_unverified_allowance(store, world):
-    strict = CONFIG.model_copy(update={"settings": CONFIG.settings.model_copy(update={"allow_unverified_compare": False})})
+def test_unverified_allowance_is_no_longer_a_setting():
+    """임시 비교를 켜는 설정은 없다(spec D1). 남아 있는 설정 파일은 불러오기에서 거부된다."""
+    with pytest.raises(ValidationError):
+        Settings(allow_unverified_compare=True)
+
+
+def test_match_raises_lagging_target_sequence_before_opening_target(store, world):
+    """논리 복제는 시퀀스를 옮기지 않는다. MATCH 뒤 목적지 시퀀스를 출발지 다음 값까지 올리고, 그 뒤에 연다."""
+    world.seq["src"] = SequenceState(41, True, 41, 2**63 - 1)
+    world.seq["dst"] = SequenceState(1, False, 41, 2**63 - 1)
     execution_id = start(store)
-    cutover = FakeCutover(store, world, comparer=FixedComparer({"verdict": "MATCH", "hash_rule": "v1", "tables": TABLES}))
-    cutover._config, cutover._settings = strict, strict.settings
-    cutover.run(execution_id)
-    assert store.get(execution_id).status == Status.DONE
+    FakeCutover(store, world).run(execution_id)
+    execution = store.get(execution_id)
+    assert execution.status == Status.DONE, execution.result
+    [sequence] = execution.result["receipt"]["sequences"]
+    assert (sequence["src_next"], sequence["dst_set"], sequence["raised"]) == (42, 42, True)
+    assert world.calls.index("dst.raise_sequence") < world.calls.index("dst.set_login:True")
+
+
+def test_takeover_during_sequence_read_sends_no_raise(store, postgres_dsn, world):
+    """#176 류지환 리뷰: 목적지 시퀀스를 읽는 도중 넘겨받히면, 앞 프로세스는 그 뒤 시퀀스를 올리지 않는다."""
+    from bravo_cutover.store import Store
+
+    world.seq["dst"] = SequenceState(1, False, 9, 2**63 - 1)  # 올려야 하는 상태
+    execution_id = start(store)
+    newer = Store(postgres_dsn)
+
+    def takeover():
+        newer.claim(execution_id, takeover=True)
+        assert not store.owns(execution_id)
+
+    world.on_sequence_read["dst"] = takeover
+    try:
+        FakeCutover(store, world).run(execution_id)
+        assert "dst.raise_sequence" not in world.calls and world.calls[-1] == "src.insert_barrier"
+        assert world.seq["dst"].next_value == 1
+    finally:
+        newer.close()
+
+
+def test_unconfirmed_sequence_raise_aborts_before_write(store, world):
+    """올린 값을 다시 읽어 확인하지 못하면 쓰기 전 실패다. 영수증에는 고정 코드만 남는다."""
+    world.seq["dst"] = SequenceState(1, False, 1, 2**63 - 1)
+    world.seq_readback_lost = True
+    execution_id = start(store)
+    FakeCutover(store, world).run(execution_id)
+    execution = store.get(execution_id)
+    assert execution.status == Status.ABORT_PRE_WRITE, execution.result
+    assert execution.result["failed_step"] == "compare"
+    assert execution.result["receipt"]["sequence_error"] == {"code": "sequence_readback_mismatch", "sqlstate": None}
+    assert "dst.set_login:True" not in world.calls and world.login["dst"] is False
 
 
 @pytest.mark.parametrize("leftover", ["session", "bypass"])
@@ -494,3 +609,133 @@ def test_waits_are_capped_by_remaining_budget(store, world):
     FakeCutover(store, world, clock=clock).run(execution_id)
     assert time.monotonic() - began < 3  # barrier_timeout_s(10초)까지 기다리지 않았다
     assert store.get(execution_id).status == Status.ABORT_PRE_WRITE
+
+
+@pytest.mark.parametrize("restriction", ["nologin", "pause", "write_block"])
+def test_preexisting_restrictions_are_not_released_on_precheck_failure(store, world, restriction):
+    if restriction == "nologin":
+        world.login["src"] = False
+    elif restriction == "pause":
+        world.paused["src"] = True
+    else:
+        world.blocked = {"src": True, "dst": True}
+    before = (world.login.copy(), world.paused.copy(), world.blocked.copy())
+    execution_id = start(store)
+    FakeCutover(store, world).run(execution_id)
+    execution = store.get(execution_id)
+    assert execution.status == Status.ABORT_PRE_WRITE
+    assert execution.result["restored"] == []
+    assert (world.login, world.paused, world.blocked) == before
+    assert world.calls == []
+
+
+class ProcessLost(BaseException):
+    pass
+
+
+@pytest.mark.parametrize("point", ["before:precheck", "before:entry", "before:pause", "before:compare"])
+def test_restart_uses_durable_baseline_and_effect_boundary(store, postgres_dsn, world, point):
+    from bravo_cutover.store import Store
+
+    execution_id = start(store)
+
+    def lost(_run):
+        raise ProcessLost()
+
+    with pytest.raises(ProcessLost):
+        FakeCutover(store, world, hooks={point: lost}).run(execution_id)
+    if point in ("before:precheck", "before:entry"):
+        # Maintenance restriction after the process died must not be undone by recovery.
+        world.login["src"] = False
+        world.paused["src"] = True
+        world.blocked = {"src": True, "dst": True}
+    prior_calls = list(world.calls)
+    newer = Store(postgres_dsn)
+    try:
+        FakeCutover(newer, world).recover()
+        execution = newer.get(execution_id)
+        assert execution.status == Status.ABORT_PRE_WRITE, execution.result
+        if point in ("before:precheck", "before:entry"):
+            assert world.calls == prior_calls
+            assert world.login["src"] is False and world.paused["src"] is True
+            assert all(world.blocked.values())
+        elif point == "before:pause":
+            assert "src.resume" not in world.calls and "src.set_login:True" not in world.calls
+            assert not any(world.blocked.values())
+        else:
+            assert world.login == {"src": True, "dst": False}
+    finally:
+        newer.close()
+
+
+def test_legacy_running_execution_without_baseline_is_held(store, world):
+    execution_id = start(store)
+    assert store.claim(execution_id)
+    store.record_step(execution_id, "fence", "started")
+    world.login["src"] = False
+    FakeCutover(store, world).recover()
+    assert store.get(execution_id).status == Status.SAFE_HOLD
+    assert world.calls == [] and world.login["src"] is False
+
+
+def test_block_added_between_precheck_and_entry_is_preserved(store, world):
+    execution_id = start(store)
+
+    def maintenance(_run):
+        world.blocked["src"] = True
+
+    FakeCutover(store, world, hooks={"before:entry": maintenance}).run(execution_id)
+    assert store.get(execution_id).status == Status.ABORT_PRE_WRITE
+    assert world.blocked["src"] is True and world.calls == []
+
+
+def test_process_loss_inside_precheck_preserves_existing_restrictions(store, world, monkeypatch):
+    execution_id = start(store)
+    world.blocked = {"src": True, "dst": True}
+
+    def lost(_self):
+        raise ProcessLost()
+
+    with monkeypatch.context() as patch:
+        patch.setattr(FakeEntry, "get", lost)
+        with pytest.raises(ProcessLost):
+            FakeCutover(store, world).run(execution_id)
+    assert store.get(execution_id).result["recovery"] == {"version": 1, "baseline": None, "effects": []}
+    FakeCutover(store, world).recover()
+    assert store.get(execution_id).status == Status.ABORT_PRE_WRITE
+    assert world.calls == [] and all(world.blocked.values())
+
+
+def test_recovery_rereads_effects_committed_between_discovery_and_takeover(store, postgres_dsn, world, monkeypatch):
+    from bravo_cutover.store import Store
+
+    execution_id = start(store)
+    captured = []
+
+    def pause_before_entry(run):
+        captured.append(run)
+        raise ProcessLost()
+
+    old = FakeCutover(store, world, hooks={"before:entry": pause_before_entry})
+    with pytest.raises(ProcessLost):
+        old.run(execution_id)
+    stale = store.get(execution_id)
+    assert stale.result["recovery"]["effects"] == []
+    newer = Store(postgres_dsn)
+    claim = newer.claim
+
+    def racing_claim(identifier, *, takeover=False):
+        old._entry(captured[0])  # old owner still owns it after discovery, before takeover
+        return claim(identifier, takeover=takeover)
+
+    monkeypatch.setattr(newer, "unfinished", lambda: [stale])
+    monkeypatch.setattr(newer, "claim", racing_claim)
+    try:
+        FakeCutover(newer, world).recover()
+        execution = newer.get(execution_id)
+        assert execution.status == Status.ABORT_PRE_WRITE
+        assert execution.result["recovery"]["effects"] == ["entry"]
+        assert not any(world.blocked.values())
+        assert "src.entry:False" in world.calls and "src.resume" not in world.calls
+    finally:
+        newer.close()

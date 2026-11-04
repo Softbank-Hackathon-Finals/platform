@@ -1,0 +1,434 @@
+{
+  "rtt_ms": 20.0,
+  "variants": {
+    "baseline": {
+      "fresh": {
+        "outcome": "ok",
+        "elapsed_ms": 149.607,
+        "round_trips": 6,
+        "statements": [
+          "BEGIN",
+          "set_config",
+          "lock",
+          "INSERT",
+          "SELECT",
+          "COMMIT"
+        ],
+        "hold_round_trips": 3,
+        "hold_ms": 75.961,
+        "errors": []
+      },
+      "replay": {
+        "outcome": "ok",
+        "elapsed_ms": 172.177,
+        "round_trips": 7,
+        "statements": [
+          "BEGIN",
+          "set_config",
+          "lock",
+          "INSERT",
+          "SELECT",
+          "SELECT",
+          "COMMIT"
+        ],
+        "hold_round_trips": 4,
+        "hold_ms": 98.286,
+        "errors": []
+      },
+      "conflict": {
+        "outcome": "IdempotencyConflict",
+        "elapsed_ms": 143.106,
+        "round_trips": 6,
+        "statements": [
+          "BEGIN",
+          "set_config",
+          "lock",
+          "INSERT",
+          "SELECT",
+          "ROLLBACK"
+        ],
+        "hold_round_trips": 3,
+        "hold_ms": 71.465,
+        "errors": []
+      },
+      "unknown_attachment": {
+        "outcome": "UnknownAttachment",
+        "elapsed_ms": 120.008,
+        "round_trips": 5,
+        "statements": [
+          "BEGIN",
+          "set_config",
+          "lock",
+          "INSERT",
+          "ROLLBACK"
+        ],
+        "hold_round_trips": 2,
+        "hold_ms": 46.558,
+        "errors": [
+          "23503"
+        ]
+      }
+    },
+    "select-after-commit": {
+      "fresh": {
+        "outcome": "ok",
+        "elapsed_ms": 204.03,
+        "round_trips": 8,
+        "statements": [
+          "BEGIN",
+          "set_config",
+          "lock",
+          "INSERT",
+          "COMMIT",
+          "BEGIN",
+          "SELECT",
+          "COMMIT"
+        ],
+        "hold_round_trips": 2,
+        "hold_ms": 49.306,
+        "errors": []
+      },
+      "replay": {
+        "outcome": "ok",
+        "elapsed_ms": 218.74,
+        "round_trips": 9,
+        "statements": [
+          "BEGIN",
+          "set_config",
+          "lock",
+          "INSERT",
+          "SELECT",
+          "COMMIT",
+          "BEGIN",
+          "SELECT",
+          "COMMIT"
+        ],
+        "hold_round_trips": 3,
+        "hold_ms": 72.11,
+        "errors": []
+      },
+      "conflict": {
+        "outcome": "IdempotencyConflict",
+        "elapsed_ms": 145.223,
+        "round_trips": 6,
+        "statements": [
+          "BEGIN",
+          "set_config",
+          "lock",
+          "INSERT",
+          "SELECT",
+          "ROLLBACK"
+        ],
+        "hold_round_trips": 3,
+        "hold_ms": 70.851,
+        "errors": []
+      },
+      "unknown_attachment": {
+        "outcome": "UnknownAttachment",
+        "elapsed_ms": 116.687,
+        "round_trips": 5,
+        "statements": [
+          "BEGIN",
+          "set_config",
+          "lock",
+          "INSERT",
+          "ROLLBACK"
+        ],
+        "hold_round_trips": 2,
+        "hold_ms": 46.506,
+        "errors": [
+          "23503"
+        ]
+      }
+    },
+    "cte-autocommit": {
+      "fresh": {
+        "outcome": "ok",
+        "elapsed_ms": 31.731,
+        "round_trips": 1,
+        "statements": [
+          "CTE(lock+insert+select)"
+        ],
+        "hold_round_trips": 0,
+        "hold_ms": 0.0,
+        "errors": []
+      },
+      "replay": {
+        "outcome": "ok",
+        "elapsed_ms": 49.568,
+        "round_trips": 2,
+        "statements": [
+          "CTE(lock+insert+select)",
+          "SELECT"
+        ],
+        "hold_round_trips": 0,
+        "hold_ms": 0.0,
+        "errors": []
+      },
+      "conflict": {
+        "outcome": "IdempotencyConflict",
+        "elapsed_ms": 43.488,
+        "round_trips": 2,
+        "statements": [
+          "CTE(lock+insert+select)",
+          "SELECT"
+        ],
+        "hold_round_trips": 0,
+        "hold_ms": 0.0,
+        "errors": []
+      },
+      "unknown_attachment": {
+        "outcome": "UnknownAttachment",
+        "elapsed_ms": 25.965,
+        "round_trips": 1,
+        "statements": [
+          "CTE(lock+insert+select)"
+        ],
+        "hold_round_trips": 0,
+        "hold_ms": 0.0,
+        "errors": [
+          "23503"
+        ]
+      }
+    },
+    "pipeline": {
+      "fresh": {
+        "outcome": "ok",
+        "elapsed_ms": 32.958,
+        "round_trips": 1,
+        "statements": [
+          "set_config",
+          "lock",
+          "INSERT",
+          "SELECT"
+        ],
+        "hold_round_trips": 0,
+        "hold_ms": 0.223,
+        "errors": []
+      },
+      "replay": {
+        "outcome": "ok",
+        "elapsed_ms": 26.582,
+        "round_trips": 1,
+        "statements": [
+          "set_config",
+          "lock",
+          "INSERT",
+          "SELECT"
+        ],
+        "hold_round_trips": 0,
+        "hold_ms": 0.326,
+        "errors": []
+      },
+      "conflict": {
+        "outcome": "IdempotencyConflict",
+        "elapsed_ms": 28.357,
+        "round_trips": 1,
+        "statements": [
+          "set_config",
+          "lock",
+          "INSERT",
+          "SELECT"
+        ],
+        "hold_round_trips": 0,
+        "hold_ms": 0.151,
+        "errors": []
+      },
+      "unknown_attachment": {
+        "outcome": "UnknownAttachment",
+        "elapsed_ms": 25.96,
+        "round_trips": 1,
+        "statements": [
+          "set_config",
+          "lock",
+          "INSERT",
+          "SELECT"
+        ],
+        "hold_round_trips": 0,
+        "hold_ms": 0.13,
+        "errors": [
+          "23503"
+        ]
+      }
+    },
+    "pipeline-begin": {
+      "fresh": {
+        "outcome": "ok",
+        "elapsed_ms": 86.34,
+        "round_trips": 3,
+        "statements": [
+          "BEGIN",
+          "set_config",
+          "lock",
+          "INSERT",
+          "SELECT",
+          "COMMIT"
+        ],
+        "hold_round_trips": 0,
+        "hold_ms": 0.289,
+        "errors": []
+      },
+      "replay": {
+        "outcome": "ok",
+        "elapsed_ms": 72.545,
+        "round_trips": 3,
+        "statements": [
+          "BEGIN",
+          "set_config",
+          "lock",
+          "INSERT",
+          "SELECT",
+          "COMMIT"
+        ],
+        "hold_round_trips": 0,
+        "hold_ms": 0.042,
+        "errors": []
+      },
+      "conflict": {
+        "outcome": "IdempotencyConflict",
+        "elapsed_ms": 73.446,
+        "round_trips": 3,
+        "statements": [
+          "BEGIN",
+          "set_config",
+          "lock",
+          "INSERT",
+          "SELECT",
+          "COMMIT"
+        ],
+        "hold_round_trips": 0,
+        "hold_ms": 0.115,
+        "errors": []
+      },
+      "unknown_attachment": {
+        "outcome": "UnknownAttachment",
+        "elapsed_ms": 99.616,
+        "round_trips": 4,
+        "statements": [
+          "BEGIN",
+          "set_config",
+          "lock",
+          "INSERT",
+          "SELECT",
+          "COMMIT",
+          "ROLLBACK"
+        ],
+        "hold_round_trips": 0,
+        "hold_ms": 0.072,
+        "errors": [
+          "23503"
+        ]
+      }
+    },
+    "cte-autocommit-reads": {
+      "fresh": {
+        "outcome": "ok",
+        "elapsed_ms": 32.751,
+        "round_trips": 1,
+        "statements": [
+          "CTE(lock+insert+select)"
+        ],
+        "hold_round_trips": 0,
+        "hold_ms": 0.0,
+        "errors": []
+      },
+      "replay": {
+        "outcome": "ok",
+        "elapsed_ms": 50.747,
+        "round_trips": 2,
+        "statements": [
+          "CTE(lock+insert+select)",
+          "SELECT"
+        ],
+        "hold_round_trips": 0,
+        "hold_ms": 0.0,
+        "errors": []
+      },
+      "conflict": {
+        "outcome": "IdempotencyConflict",
+        "elapsed_ms": 49.964,
+        "round_trips": 2,
+        "statements": [
+          "CTE(lock+insert+select)",
+          "SELECT"
+        ],
+        "hold_round_trips": 0,
+        "hold_ms": 0.0,
+        "errors": []
+      },
+      "unknown_attachment": {
+        "outcome": "UnknownAttachment",
+        "elapsed_ms": 24.809,
+        "round_trips": 1,
+        "statements": [
+          "CTE(lock+insert+select)"
+        ],
+        "hold_round_trips": 0,
+        "hold_ms": 0.0,
+        "errors": [
+          "23503"
+        ]
+      }
+    },
+    "pipeline-reads": {
+      "fresh": {
+        "outcome": "ok",
+        "elapsed_ms": 26.444,
+        "round_trips": 1,
+        "statements": [
+          "set_config",
+          "lock",
+          "INSERT",
+          "SELECT"
+        ],
+        "hold_round_trips": 0,
+        "hold_ms": 0.097,
+        "errors": []
+      },
+      "replay": {
+        "outcome": "ok",
+        "elapsed_ms": 25.567,
+        "round_trips": 1,
+        "statements": [
+          "set_config",
+          "lock",
+          "INSERT",
+          "SELECT"
+        ],
+        "hold_round_trips": 0,
+        "hold_ms": 0.094,
+        "errors": []
+      },
+      "conflict": {
+        "outcome": "IdempotencyConflict",
+        "elapsed_ms": 25.423,
+        "round_trips": 1,
+        "statements": [
+          "set_config",
+          "lock",
+          "INSERT",
+          "SELECT"
+        ],
+        "hold_round_trips": 0,
+        "hold_ms": 0.088,
+        "errors": []
+      },
+      "unknown_attachment": {
+        "outcome": "UnknownAttachment",
+        "elapsed_ms": 24.207,
+        "round_trips": 1,
+        "statements": [
+          "set_config",
+          "lock",
+          "INSERT",
+          "SELECT"
+        ],
+        "hold_round_trips": 0,
+        "hold_ms": 0.027,
+        "errors": [
+          "23503"
+        ]
+      }
+    }
+  }
+}

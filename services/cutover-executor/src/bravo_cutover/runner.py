@@ -12,10 +12,16 @@ from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from functools import partial
 from typing import Any, Protocol
 from uuid import UUID
 
 from bravo_cutover.contract import CutoverRequest, Status, StepStatus
+from bravo_cutover.db_fingerprint import (
+    DbFingerprintComparer,
+    FingerprintUnconfirmed,
+    correct_sequence,
+)
 from bravo_cutover.remote import Unconfirmed
 from bravo_cutover.remote.db import DbControl, WriteRefusal, app_write, try_app_write
 from bravo_cutover.remote.kube import Kube, WriteBlock
@@ -44,17 +50,6 @@ class Comparer(Protocol):
     def compare(self, src: DbControl, dst: DbControl, tables: list[str]) -> dict[str, Any]: ...
 
 
-class RowCountComparer:
-    """T13 연결 전 임시 비교(spec D11). 행 수만 보므로 같아도 MATCH가 아니라 UNVERIFIED다."""
-
-    hash_rule = "none (T13 미연결: 행 수만 비교)"
-
-    def compare(self, src: DbControl, dst: DbControl, tables: list[str]) -> dict[str, Any]:
-        rows = [{"name": t, "rows_src": src.row_count(t), "rows_dst": dst.row_count(t)} for t in tables]
-        same = all(r["rows_src"] == r["rows_dst"] for r in rows)
-        return {"hash_rule": self.hash_rule, "tables": rows, "verdict": "UNVERIFIED" if same else "MISMATCH"}
-
-
 @dataclass
 class Side:
     site: Site
@@ -66,7 +61,7 @@ class Side:
 
     def __post_init__(self):
         s = self.site
-        self.db = DbControl(s.db_control_dsn)
+        self.db = DbControl(s.db_control_dsn, control_functions=s.control_functions)
         self.pool = PgBouncerAdmin(s.pgbouncer_admin_dsn, s.pgbouncer_database)
         self.pool_config = PgBouncerConfig(self.kube, s.namespace, s.pgbouncer_selector, s.pgbouncer_ini)
         self.entry = WriteBlock(self.kube, s.namespace, s.app_selector)
@@ -86,6 +81,50 @@ class Run:
     pools: dict[str, tuple[str, str, int]] = field(default_factory=dict)
     step: str | None = None
     committed: bool = False
+    recovery: dict[str, Any] = field(default_factory=lambda: {"version": 1, "baseline": None, "effects": []})
+
+
+class _GuardedRaise:
+    """correct_sequence에 넘기는 목적지. 읽기는 그대로 넘기고, 시퀀스를 올리는 호출만 _act로 보내
+    실제 변경 직전에 소유를 확인한다(앞의 조회 도중 넘겨받혔으면 올리지 않는다)."""
+
+    def __init__(self, db: DbControl, act: Callable[..., Any]):
+        self._db, self._act = db, act
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._db, name)
+
+    def raise_sequence(self, sequence: str, next_value: int) -> int:
+        return self._act(self._db.raise_sequence, sequence, next_value)
+
+
+def _not_matched(result: dict[str, Any], tables: list[str]) -> str | None:
+    """진행해도 되는 비교 결과면 None, 아니면 이유. 허용 목록이다: 전체 · 표별 데이터 · 스키마 판정이 모두
+    MATCH이고 설정한 표마다 지문이 하나씩 있을 때만 진행한다. 판정 값 · 칸 누락 · 형식 오류는 모두 쓰기 전 실패다.
+    결과 모양은 T13 계약 문서 「결과 모양」."""
+    verdict = result.get("verdict")
+    if verdict == "MISMATCH":
+        return "integrity comparison: MISMATCH"
+    if verdict != "MATCH":
+        return f"integrity comparison returned an unexpected verdict {verdict!r}"
+    if not isinstance(result.get("hash_rule"), str) or not result["hash_rule"]:
+        return "integrity comparison has no hash_rule"
+    if result.get("data_verdict") != "MATCH" or result.get("schema_verdict") != "MATCH":
+        return "integrity comparison: overall data or schema verdict is not MATCH"
+    entries = result.get("tables")
+    if not isinstance(entries, list) or not all(isinstance(t, dict) and isinstance(t.get("name"), str) for t in entries):
+        return "integrity comparison: tables is not a list of named results"
+    names = [t["name"] for t in entries]
+    if missing := sorted(set(tables) - set(names)):
+        return f"integrity comparison does not cover {missing}"
+    if len(names) != len(set(names)):
+        return "integrity comparison: duplicate table results"
+    for t in entries:
+        if t.get("match") is not True or t.get("data_verdict") != "MATCH" or t.get("schema_verdict") != "MATCH":
+            return f"integrity comparison: table {t['name']} is not MATCH"
+        if not isinstance(t.get("source"), dict) or not isinstance(t.get("target"), dict):
+            return f"integrity comparison: table {t['name']} has no fingerprints"
+    return None
 
 
 def _describe(error: Exception) -> str:
@@ -97,7 +136,7 @@ class Cutover:
                  kube: Callable[[str], Kube] = Kube, hooks: dict[str, Callable[["Run"], None]] | None = None,
                  clock: Callable[[], float] = time.monotonic):
         self._store, self._config, self._settings = store, config, config.settings
-        self._comparer = comparer or RowCountComparer()
+        self._comparer = comparer or DbFingerprintComparer()
         self._kube_factory, self._kubes = kube, {}
         # 장애 주입 지점(시험 · T25용). 함수는 Run을 받는다: "before:<단계>", "commit:forward_disabled",
         # "commit:subscriptions_changed", "reconnect:target_opened", "release:<환경>", "persist:read:<환경>"
@@ -119,6 +158,7 @@ class Cutover:
                                {"outcome": Status.ABORT_PRE_WRITE.value, "error": _describe(e), "restored": []})
             return
         try:
+            self._save_recovery(run)
             for name in STEPS:
                 run.step = name
                 with self._step(run, name):
@@ -158,6 +198,10 @@ class Cutover:
         if current != run.pools[env]:
             raise Unconfirmed(f"{env} pgbouncer pod changed during execution: {run.pools[env]} -> {current}")
 
+    def _save_recovery(self, run: Run) -> None:
+        if not self._store.record_recovery(run.execution_id, run.recovery):
+            raise OwnershipLost(str(run.execution_id))
+
     def _fail(self, run: Run, error: Exception) -> None:
         """전환 확정 기록 전이면 원상 복구를 시도한다(ABORT_PRE_WRITE). 복구를 하나라도 확인하지 못하거나
         확정 뒤면 아무것도 새로 열지 않고 멈춘다(SAFE_HOLD, spec D6)."""
@@ -166,6 +210,20 @@ class Cutover:
             return
         if self._store.get(run.execution_id).committed_at is not None:
             self._hold(run, failure, "failed after commit")
+            return
+        if run.recovery.get("version") != 1:
+            self._hold(run, failure, "no durable recovery baseline from this executor version")
+            return
+        if not run.recovery["effects"]:
+            # Read-only precheck (including a crash) never authorizes unblocking anything.
+            if isinstance(error, Unconfirmed):
+                self._hold(run, failure, "precheck could not confirm remote state; no changes sent")
+            else:
+                self._store.record_step(run.execution_id, "abort", StepStatus.SUCCEEDED)
+                self._store.finish(run.execution_id, Status.ABORT_PRE_WRITE, {
+                    "outcome": Status.ABORT_PRE_WRITE.value, **failure, "restored": [],
+                    "remote_changes_started": False,
+                })
             return
         restored: list[str] = []
         try:
@@ -217,11 +275,15 @@ class Cutover:
         원격 상태를 읽어 ABORT_PRE_WRITE(확정 전 · 목적지 닫힘 확인) 또는 SAFE_HOLD로 끝낸다(spec D6)."""
         handled = []
         for execution in self._store.unfinished():
+            was_pending = execution.status == Status.PENDING
             # 넘겨받는다. 앞 프로세스가 아직 살아 있어도 다음 조작 전에 소유를 잃은 것을 보고 멈춘다.
             if not self._store.claim(execution.execution_id, takeover=execution.status == Status.RUNNING):
                 continue
             handled.append(execution.execution_id)
-            if execution.status == Status.PENDING:
+            # unfinished() is only a discovery snapshot. The old owner may have
+            # persisted a mutation intent before this takeover; read it under our ownership.
+            execution = self._store.get(execution.execution_id)
+            if was_pending:
                 # 실행기가 시작하기 전에 멈췄다. 원격 조작을 하나도 하지 않았다.
                 self._store.finish(execution.execution_id, Status.ABORT_PRE_WRITE, {
                     "outcome": Status.ABORT_PRE_WRITE.value, "error": "executor restarted before the execution started",
@@ -234,6 +296,9 @@ class Cutover:
             try:
                 run = Run(execution.execution_id, request, self._side(request.source.environment_id),
                           self._side(request.target.environment_id), step=started[-1] if started else None)
+                run.recovery = (execution.result or {}).get("recovery", {})
+                baseline = run.recovery.get("baseline") or {}
+                run.pools = {env: tuple(identity) for env, identity in baseline.get("pools", {}).items()}
             except Exception as e:  # noqa: BLE001
                 self._store.finish(execution.execution_id, Status.SAFE_HOLD, {
                     "outcome": Status.SAFE_HOLD.value, "reason": "cannot read remote state after restart",
@@ -246,33 +311,46 @@ class Cutover:
     def _restore_source(self, run: Run, restored: list[str]) -> None:
         """컷오버 전 상태로 되돌리고 하나씩 확인한다. 이미 그 상태인 것은 건너뛴다(다시 불러도 같다)."""
         src, dst = run.src, run.dst
+        baseline, effects = run.recovery["baseline"], run.recovery["effects"]
+        if not baseline:
+            raise Unconfirmed("remote mutation has no verified baseline")
         self._record(run, "abort", StepStatus.STARTED)
+        # A replacement process, or a change outside our started stages, is not ours to undo.
+        for side in (src, dst):
+            self._same_pool(run, side)
+            env = side.site.environment_id
+            if side.entry.identities() != baseline["entries"][env]:
+                raise Unconfirmed(f"{env} app pod set changed since precheck")
+            state = side.pool.state()
+            if state.host != src.site.db_host or (state.paused and "pause" not in effects):
+                raise Unconfirmed(f"{env} pool changed outside this execution's effects")
+        if "fence" not in effects and not src.db.can_login(src.site.app_role):
+            raise Unconfirmed("source LOGIN changed outside this execution's effects")
+        if "commit" not in effects and (src.db.subscription(src.site.subscription).enabled
+                                       or not dst.db.subscription(dst.site.subscription).enabled):
+            raise Unconfirmed("subscription changed outside this execution's effects")
         # 1) 목적지에 쓰지 않았고 쓸 수도 없음을 확인한다. 아니면 쓰기 전이라고 볼 수 없다.
         self._target_closed(run)
         restored.append("target_closed_confirmed")
         # 2) 구독: 역방향 끔 → 정방향 켬 (6단계 도중 실패했을 수 있다)
-        if src.db.subscription(src.site.subscription).enabled:
+        if "commit" in effects and src.db.subscription(src.site.subscription).enabled:
             self._act(run, src.db.set_subscription, src.site.subscription, False, src.site.subscription_owner)
             restored.append("reverse_subscription_disabled")
         forward = dst.db.subscription(dst.site.subscription)
-        if not (forward.enabled and forward.workers):
+        if "commit" in effects and not (forward.enabled and forward.workers):
             self._act(run, dst.db.set_subscription, dst.site.subscription, True, dst.site.subscription_owner)
             restored.append("forward_subscription_enabled")
         # 3) 출발지 앱 역할 로그인. 출발지를 다시 열기 직전에 목적지가 여전히 닫혀 있는지 한 번 더 본다.
         self._target_closed(run)
-        if not src.db.can_login(src.site.app_role):
+        if "fence" in effects and not src.db.can_login(src.site.app_role):
             self._act(run, src.db.set_login, src.site.app_role, True)
             restored.append("source_login_restored")
         # 4) 두 PgBouncer: 출발지를 가리키는지 확인하고 RESUME. PAUSE 시간 초과로 걸려 있는 일시정지도
         #    여기서 푼다(목적지 닫힘을 확인한 뒤). 이미 풀려 있어도 RESUME은 오류 없이 끝난다.
         for side in (src, dst):
             state = side.pool.state()
-            if state.host != src.site.db_host:
-                self._act(run, side.pool_config.retarget, side.site.pgbouncer_database, src.site.db_host,
-                          src.site.db_port, src.site.db_name)
-                self._act(run, side.pool.reload)
-                restored.append(f"pgbouncer_retargeted:{side.site.environment_id}")
-            self._act(run, side.pool.resume)
+            if "pause" in effects:
+                self._act(run, side.pool.resume)
             if state.paused:
                 restored.append(f"pgbouncer_resumed:{side.site.environment_id}")
             state = side.pool.state()
@@ -316,6 +394,11 @@ class Cutover:
             raise StepFailed(f"write pause budget {run.request.write_pause_budget_ms}ms exceeded before commit")
         self._guard(run)
         self._record(run, name, StepStatus.STARTED)
+        if name not in ("precheck", "entry"):
+            if not run.recovery["baseline"]:
+                raise Unconfirmed("remote step requires a durable verified baseline")
+            run.recovery["effects"].append(name)
+            self._save_recovery(run)  # a crash after this commit may have an in-flight effect
         start = self._clock()
         try:
             yield
@@ -361,12 +444,20 @@ class Cutover:
     # 1. 사전 확인 -----------------------------------------------------------
     def _precheck(self, run: Run) -> None:
         src, dst = run.src, run.dst
+        entries = {}
         for side in (src, dst):
             # PgBouncer 파드가 정확히 하나이고 Ready. 이 파드를 실행 끝까지 고정한다.
             run.pools[side.site.environment_id] = side.pool_config.identity()
             state = side.pool.state()
             if state.paused or state.host != src.site.db_host:
                 raise StepFailed(f"{side.site.environment_id} pgbouncer is not serving the source: {state}")
+            identity = side.entry.identities()
+            blocks = side.entry.get()
+            if set(blocks) != {p["name"] for p in identity} or side.entry.identities() != identity:
+                raise Unconfirmed("app pod set changed while checking write blocks")
+            if any(blocks.values()):
+                raise StepFailed(f"{side.site.environment_id} already has an entry write block")
+            entries[side.site.environment_id] = identity
         self._target_closed(run)
         if not src.db.can_login(src.site.app_role):
             raise StepFailed("source app role cannot log in")
@@ -379,12 +470,26 @@ class Cutover:
         lag = int(src.db.current_wal_lsn()) - int(received or 0)
         if received is None or lag > self._settings.max_lag_bytes:
             raise StepFailed(f"replication lag {lag} bytes exceeds {self._settings.max_lag_bytes}")
+        run.recovery["baseline"] = {"pools": run.pools, "entries": entries,
+                                    "source_login": True, "target_login": False,
+                                    "forward_enabled": True, "reverse_enabled": False,
+                                    "pools_paused": False, "entries_blocked": False,
+                                    "pool_host": src.site.db_host}
+        self._save_recovery(run)
         # 첫 쓰기 제한 직전에 타이머를 켠다
         run.t0 = self._clock()
 
     # 2. 진입점 쓰기 차단 -------------------------------------------------------
     def _entry(self, run: Run) -> None:
         sides = (run.src, run.dst)
+        for side in sides:
+            env = side.site.environment_id
+            if side.entry.identities() != run.recovery["baseline"]["entries"][env]:
+                raise Unconfirmed(f"{env} app pod set changed before entry")
+            if any(side.entry.get().values()):
+                raise StepFailed(f"{env} acquired an entry block after precheck")
+        run.recovery["effects"].append("entry")
+        self._save_recovery(run)
         with ThreadPoolExecutor(max_workers=2) as pool:
             applied = list(pool.map(lambda side: self._act(run, side.entry.set, True), sides))
         for side, states in zip(sides, applied, strict=True):
@@ -445,14 +550,8 @@ class Cutover:
         if not isinstance(result, dict):
             raise StepFailed(f"integrity comparison returned {type(result).__name__}, not a result")
         tables = result.get("tables") if isinstance(result.get("tables"), list) else []
-        covered = {t.get("name") for t in tables if isinstance(t, dict)}
         verdict = result.get("verdict")
-        sequences = []
-        for name, (table, column) in self._settings.sequences.items():
-            src_next = src.db.sequence_next(name)
-            wanted = max(src_next, dst.db.max_value(table, column) + 1)
-            sequences.append({"name": name, "src_next": src_next,
-                              "dst_set": self._act(run, dst.db.raise_sequence, name, wanted)})
+        problem = _not_matched(result, self._settings.tables)
         run.receipt = {
             "receipt_id": str(uuid.uuid4()),
             "epoch": run.request.epoch,
@@ -464,23 +563,29 @@ class Cutover:
                           "received_lsn": int(dst.db.received_lsn(dst.site.subscription) or 0)},
             "hash_rule": result.get("hash_rule"),
             "tables": tables,
-            "sequences": sequences,
+            "sequences": [],
             "verdict": verdict,
+            "data_verdict": result.get("data_verdict"),
+            "schema_verdict": result.get("schema_verdict"),
             "write_pause_budget_ms": run.request.write_pause_budget_ms,
         }
-        # 허용 목록: 명시적인 MATCH만 진행한다. UNVERIFIED(임시 비교)는 시험용 설정을 켰을 때만.
-        # 그 밖의 값(UNKNOWN · 오타 · 누락 · 잘못된 형식)과 비교 대상 테이블 누락은 모두 쓰기 전 실패다.
-        if missing := sorted(set(self._settings.tables) - covered):
-            raise StepFailed(f"integrity comparison does not cover {missing}")
-        if verdict == "MATCH":
-            return
-        if verdict == "UNVERIFIED" and self._settings.allow_unverified_compare:
-            return
-        if verdict == "MISMATCH":
-            raise StepFailed("integrity comparison: MISMATCH")
-        if verdict == "UNVERIFIED":
-            raise StepFailed("integrity comparison is not verified (T13 not connected)")
-        raise StepFailed(f"integrity comparison returned an unexpected verdict {verdict!r}")
+        # 시퀀스는 비교가 MATCH일 때만 올린다(spec D2). 중단될 실행에서는 목적지에 아무것도 쓰지 않는다.
+        sequence_error = None
+        if problem is None:
+            try:
+                for name, (table, column) in self._settings.sequences.items():
+                    run.receipt["sequences"].append(
+                        correct_sequence(src.db, _GuardedRaise(dst.db, partial(self._act, run)), name, table, column))
+            except FingerprintUnconfirmed as e:
+                sequence_error = e
+                run.receipt["sequence_error"] = {"code": e.code, "sqlstate": e.sqlstate}
+        self._guard(run)
+        if not self._store.record_receipt(run.execution_id, run.receipt):
+            raise OwnershipLost(str(run.execution_id))
+        if problem is not None:
+            raise StepFailed(problem)
+        if sequence_error is not None:
+            raise sequence_error
 
     # 6. 전환 확정 ------------------------------------------------------------
     def _commit(self, run: Run) -> None:
@@ -512,6 +617,7 @@ class Cutover:
             if side.pool.state().paused:
                 raise Unconfirmed(f"{side.site.environment_id} pgbouncer still paused")
             self._same_pool(run, side)  # 설정을 바꾼 파드와 RELOAD · RESUME을 받은 프로세스가 같은지
+        run.receipt["websocket_closed"] = self._act(run, run.src.entry.close_websockets)
 
     # 8. 해제와 마지막 ACK ---------------------------------------------------------
     def _release(self, run: Run) -> None:

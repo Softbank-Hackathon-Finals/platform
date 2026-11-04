@@ -2,21 +2,21 @@
 
 상태: 읽기 전용 사전 조회와 사람용 개발자 IAM 준비 도구. 11/3 후속 사용자 지시로 회의 대기보다 IAM 사전 준비를 우선하며, 사람용 개인 주체에 개발용 AdministratorAccess를 적용한다. 이 권한 확대는 제품 AI 워커·CI 역할에 적용하지 않는다. EKS/RKE2 실제 접속과 개인 로그인 검증은 별도다. 아래의 최초 준비 조회는 당시 상태이며, 적용 결과는 [개발자 접근 운영 안내](human-developer-access.md)와 최신 실행 증거를 본다.
 
-11/3 [접근 요청과 답변 스레드](https://softbankhackathon2026.slack.com/archives/C0CDEFEB83U/p1793688724749199)는 개인 SSO, 출발지 EKS 접근, 플랫폼 RKE2 경로·권한별 kubeconfig를 요구한다. 당시에는 초대·배포를 운영자 검증 뒤 회의에서 확정한다는 답변이 있었고, 이후 사용자가 IAM을 먼저 준비하도록 명시했다. 실제 비밀 전달·초대 메시지는 별도이며 전송하지 않는다. 팀 정본은 현재 **한 AWS 계정 안의 출발지/플랫폼 VPC 분리**다(`design.html` 7.2). 요청의 “앱·플랫폼 계정”이라는 표현만으로 새 AWS 계정 둘을 만들지 않는다.
+11/3 [접근 요청과 답변 스레드](https://softbankhackathon2026.slack.com/archives/C0CDEFEB83U/p1793688724749199)는 개인 SSO, 출발지 EKS 접근, 플랫폼 RKE2 경로·권한별 kubeconfig를 요구한다. 당시에는 초대·배포를 운영자 검증 뒤 회의에서 확정한다는 답변이 있었고, 이후 사용자가 IAM을 먼저 준비하도록 명시했다. 이후 11/4 사용자는 기존 계정 하나의 서울 단일 리전 조직형 SSO와 운영자 검증 후 요청한 팀원 초대를 승인했다. 현재 생성·할당과 미완료 개인 로그인은 [운영자 SSO 검증](operator-sso-verification.md)에 구분한다. 초대 수락·실제 본인 접속을 확인하기 전에는 접근 인수 완료로 표시하지 않는다. 팀 정본은 현재 **한 AWS 계정 안의 출발지/플랫폼 VPC 분리**다(`design.html` 7.2). 요청의 “앱·플랫폼 계정”이라는 표현만으로 새 AWS 계정 둘을 만들지 않는다.
 
 ## 접근 계약
 
 | 주체 / 목적 | 준비할 계약 | 확인할 것 |
 |---|---|---|
-| 사람 | 개별 SSO 사용자·그룹, 대상 계정 permission set, 세션 만료, 해제 담당자 | 본인 SSO 로그인, 허용 역할과 작업 범위, 다른 역할/자원 거부 |
-| T6 EKS | IAM 역할 ARN의 STANDARD access entry, 작업 namespace 범위 RBAC 또는 access policy, endpoint 도달 경로 | 개인 로그인으로 namespace 조회/허용 작업, 다른 namespace·Secret·관리 작업 거부 |
+| 사람 | 개별 SSO 사용자·그룹, 대상 계정 permission set, 세션 만료, 해제 담당자 | 본인 SSO 로그인과 승인된 역할/계정 대조, 잘못된 자격·미할당 접근·만료/해제 시험 |
+| T6 EKS | IAM 역할 ARN의 STANDARD access entry, 작업 namespace 범위 RBAC 또는 access policy, endpoint 도달 경로 | 개인 로그인으로 실제 허용 작업 확인. 제한 역할은 namespace·Secret·관리 작업 거부를 확인하고, 승인된 개발 관리자는 무자격·잘못된 자격·권한 해제 대조군을 적용 |
 | T7 RKE2 | 개별 신원 인증 방식, endpoint·CA 검증, 역할별 RBAC, 만료/폐기 절차 | 개인 kubeconfig로 허용·거부 시험, 만료 또는 해제 뒤 재접속 거부 |
 | 수집기 | 읽기 전용 IAM/서비스 계정 | 원본 읽기는 성공, 쓰기는 거부 |
 | Executor | 명시된 DB/PgBouncer 제어와 클러스터 동작만 허용 | T12/T15의 실제 제어·시험 동작, 업무 데이터/임의 관리자 동작의 별도 경계 |
 | AI 워커 | 운영 자격 없음, 도구 계층의 리허설 namespace 권한만 사용 | 운영 kubeconfig·DB 자격 접근 거부 |
 | GitHub Actions | OIDC와 배포 역할 | 사람 로그인·AI 워커 권한과 분리 |
 
-사람의 개발/운영 접근과 제품의 에이전트 권한은 다른 경계다. 이 표는 실제 IAM 정책이나 RBAC에 이미 반영된 상태를 뜻하지 않는다. 이름·역할·namespace와 필요한 동작은 배포 전에 각 소비자와 확정한다. 모든 사람에게 관리자 권한을 주거나 Executor의 제어 권한을 AI 워커에 넘기지 않는다.
+사람의 개발/운영 접근과 제품의 에이전트 권한은 다른 경계다. 이 표는 실제 IAM 정책이나 RBAC에 이미 반영된 상태를 뜻하지 않는다. 이름·역할·namespace와 필요한 동작은 배포 전에 각 소비자와 확정한다. 후속 사용자 승인은 확인된 개발 운영자의 사람용 AdministratorAccess와 개인 EKS 관리자 접근 준비에 적용한다. 해당 permission set에 할당된 모든 사용자가 같은 역할 권한을 받으므로 실제 할당 명단을 함께 검토한다. 이를 미승인 팀원 일괄 초대나 CI·노드·제품 AI 워커 권한 확대로 해석하지 않는다. Executor의 제어 권한도 AI 워커에 넘기지 않는다.
 
 AWS 계정 permission set에는 조직 인스턴스가 필요하다. 계정 인스턴스는 AWS 계정 접근용 permission set을 지원하지 않는다. 실제 Identity Center 리전을 운영자가 확인한 뒤 조회한다. 특정 리전의 0개 결과는 다른 리전의 부재를 증명하지 않는다. [AWS permission sets](https://docs.aws.amazon.com/singlesignon/latest/userguide/permissionsets.html), [계정 인스턴스 제한](https://docs.aws.amazon.com/singlesignon/latest/userguide/account-instances-identity-center.html), [리전별 데이터와 작업](https://docs.aws.amazon.com/singlesignon/latest/userguide/regions.html).
 

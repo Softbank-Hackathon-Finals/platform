@@ -1,0 +1,62 @@
+{
+  "results": [
+    {
+      "variant": "baseline",
+      "returncode": 0,
+      "summary": "4 passed in 0.29s",
+      "failed": []
+    },
+    {
+      "variant": "select-after-commit",
+      "returncode": 0,
+      "summary": "4 passed in 0.26s",
+      "failed": []
+    },
+    {
+      "variant": "cte-autocommit",
+      "returncode": 0,
+      "summary": "4 passed in 0.22s",
+      "failed": []
+    },
+    {
+      "variant": "cte-autocommit-reads",
+      "returncode": 0,
+      "summary": "4 passed in 0.23s",
+      "failed": []
+    },
+    {
+      "variant": "pipeline",
+      "returncode": 0,
+      "summary": "4 passed in 0.24s",
+      "failed": []
+    },
+    {
+      "variant": "pipeline-begin",
+      "returncode": 0,
+      "summary": "4 passed in 0.24s",
+      "failed": []
+    },
+    {
+      "variant": "pipeline-reads",
+      "returncode": 0,
+      "summary": "4 passed in 0.23s",
+      "failed": []
+    },
+    {
+      "variant": "no-lock",
+      "returncode": 1,
+      "summary": "1 failed, 3 passed in 0.25s",
+      "failed": [
+        "AssertionError: 잠금을 쥔 동안 쓰기가 끝났다"
+      ]
+    },
+    {
+      "variant": "cte-late-lock",
+      "returncode": 1,
+      "summary": "1 failed, 3 passed in 0.23s",
+      "failed": [
+        "AssertionError: 잠금을 잡기 전에 id를 받았다"
+      ]
+    }
+  ]
+}

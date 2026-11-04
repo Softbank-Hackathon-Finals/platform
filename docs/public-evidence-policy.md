@@ -28,6 +28,22 @@
 
 ## 작성·공개 순서
 
+### 소스 파일 해시 형식
+
+새 소스 파일 manifest는 `source_revision`에 측정한 전체 커밋 SHA를, `source_files`에 `path`·`sha256` 행 배열을 기록한다. `path`는 해당 저장소 기준 상대 경로이고 `sha256`은 그 파일 바이트의 SHA-256이다. 파일 경로를 JSON 키로 두고 해시를 값으로 넣지 않는다. `api.py` 같은 키는 파일 해시와 결합해 generic-api-key 오탐을 만들 수 있다.
+
+```sh
+python3 scripts/evidence_sources.py create \
+  --revision "$(git rev-parse HEAD)" \
+  scripts/ci_secrets.py scripts/evidence_sources.py > source-manifest.json
+```
+
+생성기는 지정 커밋의 regular-file blob을 읽고 경로 순으로 정렬한 행을 출력한다. 작업 트리의 미커밋 파일은 그 커밋의 증거로 섞지 않는다. 실제 측정 소스가 미커밋 상태였다면 먼저 측정 당시 바이트를 보존하고 정확한 소스를 식별해야 하며, 나중 커밋의 값을 과거 실행 해시로 쓰지 않는다. 이 manifest 자체가 그 소스로 실제 실행했다는 증명은 아니다.
+
+`python3 scripts/evidence_sources.py check --base <전체-SHA>`는 추적된 `docs/evidence/**/*.json`에서 새로 추가되거나 값이 바뀐 경로→해시 객체와 잘못된 `source_files` 행을 거부한다. 새 파일에 과거 형식을 복사해도 실패한다. 기존 기준 커밋과 동일한 위치·내용의 과거 증빙 하위 구조는 보존한다. 변경 없는 기존 문서를 일괄 재작성하거나 과거 실행의 해시를 다시 계산하지 않는다. `source_sha256`처럼 단일 입력의 해시인 scalar 필드, 이미지 digest, 측정값은 파일 목록과 구별한다.
+
+공통 생성기는 새 공개본의 작성 경로다. 기존 런타임이 출력하는 비공개 원본 형식은 해당 소비 계약을 유지하며, 새 공개 manifest를 만들 때 위 행 형식을 사용한다. 구조 형식 검사는 비밀 탐지의 예외가 아니며 gitleaks 검사를 그대로 통과해야 한다.
+
 1. 운영 결과를 저장소 밖 비공개 경로에 저장하고, 판정·측정값·실행 소스를 확인한다. 원본에 인증 정보가 들어갔다면 공개 절차를 멈추고 해당 정보의 관리 담당자에게 알린다.
 2. 공개할 사본을 준비한다. 아래 명령은 사본의 바이트도 먼저 비공개로 보존한 뒤 파일을 바꾸며, 원문 매핑은 비공개 디렉터리에만 기록한다.
 

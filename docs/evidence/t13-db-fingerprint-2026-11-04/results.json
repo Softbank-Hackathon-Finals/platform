@@ -1,0 +1,108 @@
+{
+  "environment": {
+    "statement": "로컬 컨테이너 측정. 실제 Tailscale · TLS 경로, RKE2 위 CNPG, 부하 상태가 아니다. 컷오버를 실행하지 않았다.",
+    "network_limit": "없음",
+    "tls": false,
+    "load": "없음",
+    "same_machine": true,
+    "image": "public.ecr.aws/docker/library/postgres:18.4",
+    "image_id": "sha256:a02db8cac496f15b094798a38254f14d6e00741f709360e5e00bb6668ea31636",
+    "data": {
+      "messages": 100000,
+      "attachments": 2000,
+      "total_mb": 202
+    }
+  },
+  "source_sha256": {
+    "db_fingerprint.py": "4f6f27a769f0d8340d5dbb293208179d6ce2e6fc506f7bda2adeb4373f9c9fdd",
+    "measure_fingerprint.py": "9dc85d12c46fa2912ecdc82f522fe6c6ab2d8f95099151f48b37697904834355",
+    "baseline_integrity.py": "c2e85106599ce9014b3ebdd6b28d827c2dc78f30d52d3b6d36363823eaeec2a5"
+  },
+  "hash_rule": "db-sql-v1:fixed-session-text;columns-by-name;jsonb-array;utf8;sha256-of-row-sha256;pk-order-collate-c",
+  "statement_timeout_ms": 3000,
+  "first_run_s": {
+    "db_sql": 0.665,
+    "python_134": 4.179
+  },
+  "compare_two_sides": {
+    "db_sql": {
+      "verdict": "MATCH",
+      "data_verdict": "MATCH",
+      "schema_verdict": "MATCH",
+      "median_s": 0.631,
+      "max_s": 0.658,
+      "samples_s": [
+        0.618,
+        0.658,
+        0.624,
+        0.631,
+        0.632
+      ]
+    },
+    "python_134": {
+      "verdict": "MATCH",
+      "median_s": 4.21,
+      "max_s": 4.973,
+      "samples_s": [
+        4.21,
+        4.209,
+        4.165,
+        4.973,
+        4.376
+      ]
+    }
+  },
+  "one_table_one_side_s": {
+    "db_sql": {
+      "public.attachments": 0.01,
+      "public.messages": 0.304
+    }
+  },
+  "traffic_from_target": {
+    "db_sql": {
+      "received_bytes": 7503,
+      "sent_bytes": 5548,
+      "client_sends": 20
+    },
+    "python_134": {
+      "received_bytes": 204913692,
+      "sent_bytes": 49804,
+      "client_sends": 1054
+    }
+  },
+  "collation_differs": {
+    "verdict": "MISMATCH",
+    "data_verdict": "MATCH",
+    "schema_verdict": "MISMATCH"
+  },
+  "provider_version_differs": {
+    "image": "public.ecr.aws/docker/library/postgres:18.4-bookworm",
+    "versions": {
+      "source": "2.41",
+      "target": "2.36"
+    },
+    "verdict": "UNKNOWN",
+    "data_verdict": "MATCH",
+    "schema_verdict": "UNKNOWN"
+  },
+  "major_differs": {
+    "image": "public.ecr.aws/docker/library/postgres:16",
+    "server_version": "16.15 (Debian 16.15-1.pgdg13+2)",
+    "reference_version": "18.4 (Debian 18.4-1.pgdg13+1)",
+    "same_rows_pk_content": true,
+    "error": "major_version_mismatch",
+    "verdict": "UNKNOWN",
+    "data_verdict": "UNKNOWN",
+    "schema_verdict": "UNKNOWN"
+  },
+  "minor_differs": {
+    "image": "public.ecr.aws/docker/library/postgres:18.3",
+    "server_version": "18.3 (Debian 18.3-1.pgdg13+1)",
+    "reference_version": "18.4 (Debian 18.4-1.pgdg13+1)",
+    "same_rows_pk_content": true,
+    "error": null,
+    "verdict": "MATCH",
+    "data_verdict": "MATCH",
+    "schema_verdict": "MATCH"
+  }
+}

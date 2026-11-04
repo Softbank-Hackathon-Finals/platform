@@ -1,0 +1,17 @@
+{
+  "schema_version": 2,
+  "sources": [
+    {
+      "path": "scripts/t7_runtime_checks.py",
+      "sha256": "0b2fee777aec8d79d5eb5c9d426a6140e67f635e9bf14a8efe9a8594ab2183cd"
+    },
+    {
+      "path": "scripts/t7_runtime_readback.py",
+      "sha256": "8a6c075aa41d0c9dede65a9700b06a7e8e50f8282aa67c10b468a733bf835018"
+    },
+    {
+      "path": "scripts/tests/test_t7_runtime_readback.py",
+      "sha256": "425cb23d531b8675f85eb1c34239f6665a15fc14be87f2c1fa2b0e4dca8d261b"
+    }
+  ]
+}

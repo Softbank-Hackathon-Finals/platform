@@ -1,0 +1,17 @@
+{
+  "observed_at": "2026-11-03T09:57:53+00:00",
+  "ssm_status": "Success",
+  "ssm_response_code": 0,
+  "script_sha256": "b41f23d41c56f8172cdf9246074b8b08243c5a3e49e1748f3666b6741d85d08f",
+  "host": {
+    "candidate_verified": true,
+    "binary_sha256": "83c7897cc39d94502189e5412f70f79fa0dbe64cb7b05b74d10bf955b6930f4a",
+    "build_reused": false,
+    "source_commit": "1c494fbc3edacf55e2a1e06df21858c03ff9c457",
+    "toolchain": "go1.26.10",
+    "upstream_package_tests": "pass",
+    "dependency_hashes_match": true,
+    "installed": false,
+    "service_restarted": false
+  }
+}
