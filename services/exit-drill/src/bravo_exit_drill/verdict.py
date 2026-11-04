@@ -390,13 +390,17 @@ def _check_restart(workload: str, container: Any, before: dict, after: dict, app
     return _check_induced_restarts(check_id, now, after.get("induced_restarts"))
 
 
+def _is_id(value: Any) -> bool:
+    """컨테이너 ID로 쓸 수 있는 값인가. 빈 값끼리 같아도 같은 컨테이너라는 뜻이 아니다."""
+    return isinstance(value, str) and bool(value.strip())
+
+
 def _container_known(pod: dict, container: Any) -> bool:
     """계획이 정한 그 컨테이너의 상태를 빠짐없이 읽었는가. 앱 컨테이너가 아닌 값은 근거가 아니다."""
     return (
         isinstance(container, str)
         and pod.get("container_name") == container
-        and isinstance(pod.get("container_id"), str)
-        and bool(pod["container_id"])
+        and _is_id(pod.get("container_id"))
         and type(pod.get("restarts")) is int
         and type(pod.get("other_restarts")) is int
     )
@@ -407,7 +411,7 @@ def _record_matches(record: Any, pod: dict) -> bool:
     if not isinstance(record, dict) or record.get("container") != pod["container_name"]:
         return False
     replaced = record.get("replaced_container_id")
-    return isinstance(replaced, str) and replaced == pod.get("previous_container_id") and replaced != pod["container_id"]
+    return _is_id(replaced) and replaced == pod.get("previous_container_id") and replaced != pod["container_id"]
 
 
 def _check_induced_restarts(check_id: str, pods: list[dict], induced: Any) -> Check:

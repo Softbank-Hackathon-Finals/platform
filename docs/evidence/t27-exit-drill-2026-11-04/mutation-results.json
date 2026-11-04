@@ -1,7 +1,7 @@
 {
  "baseline_passed": true,
- "total": 119,
- "caught": 119,
+ "total": 121,
+ "caught": 121,
  "survived": [],
  "results": [
   {
@@ -252,7 +252,7 @@
   },
   {
    "file": "verdict.py",
-   "removed": "컨테이너 ID가 있는지",
+   "removed": "지금 도는 컨테이너 ID가 있는지",
    "caught": true,
    "first_failure": "tests/test_verdict.py::test_missing_or_malformed_container_state_is_unknown[<lambda>0-container_id]"
   },
@@ -261,6 +261,18 @@
    "removed": "빈 컨테이너 ID 거부",
    "caught": true,
    "first_failure": "tests/test_verdict.py::test_missing_or_malformed_container_state_is_unknown[<lambda>2-container_id]"
+  },
+  {
+   "file": "verdict.py",
+   "removed": "공백뿐인 컨테이너 ID 거부",
+   "caught": true,
+   "first_failure": "tests/test_verdict.py::test_blank_ids_in_record_and_last_state_prove_nothing["
+  },
+  {
+   "file": "verdict.py",
+   "removed": "재시작 기록의 빈 ID 거부",
+   "caught": true,
+   "first_failure": "tests/test_verdict.py::test_blank_ids_in_record_and_last_state_prove_nothing[]"
   },
   {
    "file": "verdict.py",

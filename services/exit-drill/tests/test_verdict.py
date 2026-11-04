@@ -573,6 +573,30 @@ def test_container_that_kept_its_id_did_not_restart(plan):
     assert result(plan, before, after)[1]["restart:app"]["code"] == "RESTART_RECORD_MISMATCH"
 
 
+BLANK_IDS = ["", " ", "\t\n"]
+
+
+@pytest.mark.parametrize("blank", BLANK_IDS)
+def test_blank_ids_in_record_and_last_state_prove_nothing(plan, blank):
+    """빈 값끼리 같아도 어떤 컨테이너의 재시작을 승인했는지 알 수 없다(PR #165 리뷰)."""
+    before, after = good_evidence(plan)
+    pod = after["pods"]["app"][0]
+    pod["previous_container_id"] = blank
+    after["induced_restarts"][pod["uid"]]["replaced_container_id"] = blank
+    verdict, checks = result(plan, before, after)
+    assert verdict == "UNKNOWN"
+    assert (checks["restart:app"]["verdict"], checks["restart:app"]["code"]) == ("UNKNOWN", "RESTART_RECORD_MISMATCH")
+
+
+@pytest.mark.parametrize("blank", BLANK_IDS)
+def test_blank_running_container_id_is_unknown(plan, blank):
+    before, after = good_evidence(plan)
+    after["pods"]["app"][0]["container_id"] = blank
+    verdict, checks = result(plan, before, after)
+    assert verdict == "UNKNOWN"
+    assert (checks["restart:app"]["verdict"], checks["restart:app"]["code"]) == ("UNKNOWN", "CONTAINER_UNKNOWN")
+
+
 # ---- 여러 컨테이너. kubectl이 주는 모양을 normalize_pods로 읽어 판정까지 잇는다 ----
 
 
@@ -631,6 +655,27 @@ def test_approved_app_container_restart_passes_beside_a_quiet_sidecar(plan):
     verdict, checks = result(plan, before, after)
     assert verdict == "PASS", [c for c in checks.values() if c["verdict"] != "PASS"]
     assert checks["restart:app"]["code"] == "RESTARTED_READY"
+
+
+@pytest.mark.parametrize("blank", BLANK_IDS)
+def test_blank_last_state_id_from_kubectl_is_unknown(plan, blank):
+    app = container("app", 1, since=at(10))
+    app["lastState"]["terminated"]["containerID"] = blank
+    before, after = evidence_with_app_containers(plan, [app])
+    after["induced_restarts"][after["pods"]["app"][0]["uid"]]["replaced_container_id"] = blank
+    verdict, checks = result(plan, before, after)
+    assert verdict == "UNKNOWN"
+    assert checks["restart:app"]["code"] == "RESTART_RECORD_MISMATCH"
+
+
+@pytest.mark.parametrize("blank", BLANK_IDS)
+def test_blank_running_id_from_kubectl_is_unknown(plan, blank):
+    app = container("app", 1, since=at(10))
+    app["containerID"] = blank
+    before, after = evidence_with_app_containers(plan, [app])
+    verdict, checks = result(plan, before, after)
+    assert verdict == "UNKNOWN"
+    assert checks["restart:app"]["code"] == "CONTAINER_UNKNOWN"
 
 
 def test_sidecar_listed_first_is_not_mistaken_for_the_app(plan):

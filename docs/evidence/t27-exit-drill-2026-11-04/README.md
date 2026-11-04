@@ -4,9 +4,9 @@
 
 | 검사 | 결과 |
 |---|---|
-| k3s 시나리오 | 12개 모두 기대한 판정 |
-| 변이 시험(검사를 일부러 뺌) | 119개 모두 시험이 잡음 |
-| 단위 시험 492개 · ruff · 공개 파일 검사 · 증거 해시 형식 검사 | 통과 |
+| k3s 시나리오(`27239a6` 측정) | 12개 모두 기대한 판정 |
+| 변이 시험(검사를 일부러 뺌) | 121개 모두 시험이 잡음 |
+| 단위 시험 504개 · ruff · 공개 파일 검사 · 증거 해시 형식 검사 | 통과 |
 | gitleaks(CI와 같은 v8.24.3) | `origin/develop..HEAD` 모든 커밋에서 없음 |
 | 남은 자원 | `t27-` 컨테이너 · 네트워크 0개 |
 
@@ -59,6 +59,8 @@ k3s(kube-router) 값이다. RKE2의 Canal은 다를 수 있다.
 
 **PR #165 리뷰: 사이드카 재시작을 앱 재시작으로 읽었다.** 재시작 횟수를 합산하고 가장 늦은 시작 시각을 골라서, 앱 0회 · 사이드카 1회인 Pod가 `restart:app=PASS/RESTARTED_READY`와 전체 PASS로 나왔다. 수정 전 코드(`8dd6ca4`)에 그 상태를 넣어 재현했다(k3s로 재지는 않았다). 단일 컨테이너만 받는 대신 검사 대상 컨테이너 이름을 명세에 적어 계획 해시에 넣었다. 실제 앱에 Tailscale이나 수집기 사이드카가 붙을 수 있어서다. 지금은 `STARTUP_NOT_ISOLATED`로 UNKNOWN이고, 실제 kubelet 값으로도 쟀다(`sidecar_restarted_instead`).
 
+**PR #165 리뷰: 빈 컨테이너 ID끼리 같다고 봤다.** 끝난 컨테이너의 ID와 재시작 기록의 ID가 둘 다 빈 값이거나 공백이어도, 지금 도는 ID만 공백이어도 `restart:app=PASS`와 전체 PASS로 나왔다. 수정 전 코드(`905ebb6`)에 그 입력을 넣어 재현했다. 지금은 `RESTART_RECORD_MISMATCH`와 `CONTAINER_UNKNOWN`으로 UNKNOWN이다. **이 수정 뒤로 k3s는 다시 재지 않았다.** `results.json`은 `27239a6`의 측정이다. 실제 kubelet ID는 비어 있지 않아 시나리오 판정에 영향이 없다고 보았고, 이 폴더의 PASS 관측을 수정한 코드로 다시 판정해 `report-pass.json`과 같은 결과를 확인했다. 다른 시나리오의 관측은 저장하지 않아 다시 판정하지 못했다.
+
 **그 밖에.** 변이 시험에서 처음 살아남은 항목과, 넓게 잘못 읽어도 통과하던 `matchExpressions` 시험을 보강했다. gitleaks가 잡은 고정 WebSocket 값은 예외를 두지 않고 요청마다 만드는 난수로 바꿨다.
 
 ## 재지 못한 것
@@ -108,7 +110,7 @@ uv run python tests/integration/mutation_check.py --out <파일>
 | `plan.json` | 차단 계획(결정과 NetworkPolicy) |
 | `observation-before.json` · `observation-after.json` · `report-pass.json` | PASS 시나리오의 전후 관측과 판정 |
 | `residual-map.md` · `residual-map.json` | 잔존 의존성 지도 |
-| `mutation-results.json` | 변이 119개와 각각을 잡은 시험 |
+| `mutation-results.json` | 변이 121개와 각각을 잡은 시험 |
 | `first-run-false-pass.json` | 첫 측정의 거짓 PASS. 고치기 전 코드의 값이다 |
 
 `source_revision`과 `source_files`는 측정에 쓴 커밋과 파일 해시이고, 서명이나 제3자 인증을 뜻하지 않는다. 관측 파일에 호스트 주소는 없다.
