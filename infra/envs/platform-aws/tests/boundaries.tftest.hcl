@@ -1,4 +1,7 @@
 mock_provider "aws" {
+  mock_data "aws_partition" {
+    defaults = { partition = "aws" }
+  }
   mock_data "aws_ec2_instance_type" {
     defaults = {
       default_vcpus            = 4
@@ -96,4 +99,46 @@ run "incompatible_architecture_rejected" {
     values = { default_vcpus = 4, default_cores = 4, default_threads_per_core = 1, memory_size = 16384, supported_architectures = ["arm64"] }
   }
   expect_failures = [aws_instance.node]
+}
+
+run "no_registry_permission_by_default" {
+  command = plan
+  assert {
+    condition     = length(aws_iam_role_policy.private_ecr_pull) == 0
+    error_message = "An unset repository must not grant ECR access."
+  }
+}
+
+run "exact_repository_read_only" {
+  command = apply
+  variables { private_ecr_repository_name = "example/demo-app" }
+  assert {
+    condition = jsondecode(aws_iam_role_policy.private_ecr_pull[0].policy).Statement == jsondecode(jsonencode([
+      { Sid = "RegistryAuthentication", Effect = "Allow", Action = "ecr:GetAuthorizationToken", Resource = "*" },
+      {
+        Sid      = "ReadSelectedRepository", Effect = "Allow"
+        Action   = ["ecr:BatchCheckLayerAvailability", "ecr:BatchGetImage", "ecr:GetDownloadUrlForLayer"]
+        Resource = "arn:aws:ecr:ap-northeast-2:111122223333:repository/example/demo-app"
+      }
+    ]))
+    error_message = "Only authentication and reads from the single same-account regional repository are allowed."
+  }
+}
+
+run "wildcard_repository_rejected" {
+  command = plan
+  variables { private_ecr_repository_name = "example/*" }
+  expect_failures = [var.private_ecr_repository_name]
+}
+
+run "foreign_repository_arn_rejected" {
+  command = plan
+  variables { private_ecr_repository_name = "arn:aws:ecr:ap-northeast-2:222222222222:repository/example/demo-app" }
+  expect_failures = [var.private_ecr_repository_name]
+}
+
+run "empty_repository_rejected" {
+  command = plan
+  variables { private_ecr_repository_name = "" }
+  expect_failures = [var.private_ecr_repository_name]
 }
