@@ -56,6 +56,9 @@ python3 testing/mockenv.py down
 - `env-aws` / `cutover/source`, `env-onprem` / `cutover/target`를 `sites.json`에 등록한다.
   `resource_id`로 실제 DB를 식별한다. `environment_id`와 `connection_ref`가 모두 일치하는 두 방향만 받는다. 별칭, 한쪽만 공유하는
   제3의 DB 쌍, 참조 교환은 기록/실행 전에 422로 거부한다. 이 배포는 다중 DB 쌍 서버가 아니다.
+- `sites.json` 최상위에 원래 출발지 `"origin": "env-aws"`를 둔다(T20). 없거나 등록된 환경이 아니면 시작을 거부한다.
+  설정은 `extra="forbid"`라서 옛 이미지는 `origin`이 있는 설정을, 새 이미지는 없는 설정을 거부한다(실행 중이면 재시작 판정도 못 한다).
+  이미지와 `cutover-executor-runtime` Secret의 `sites.json`은 같은 배포에서 함께 바꾸고, 끝나지 않은 실행이 없을 때만 교체한다.
 - 모든 `/v1/` 요청에 Bearer 인증을 적용한다. T10의 승인/현재 계획/게이트 검증은 별도 선행이며,
   API 토큰을 가졌다는 사실을 사람의 컷오버 승인으로 간주하지 않는다.
 - `python -m bravo_cutover.deploy --image <registry/repository@sha256:...>`는
@@ -87,6 +90,24 @@ python3 testing/mockenv.py down
 - 앱은 `POST /admin/websockets/close`를 제공해야 한다. Executor는 source 각 Pod 안에서
   그 Pod의 `ADMIN_TOKEN`으로 호출하며, `{closed: nonnegative integer}` ACK 뒤 쓰기 차단을 해제한다.
   Pod 변경/응답 누락은 성공으로 세지 않는다. 기존 관리 API가 없는 앱 이미지는 통합 시험 대상이 아니다.
+
+## 되돌리기 (T20)
+
+되돌리기(failback)는 같은 9단계를 출발지 · 목적지를 뒤바꾼 요청으로 실행한다. 사이트마다 자기 쪽 구독(목적지가 받는 구독)을
+가지므로 사전 확인 · 원상 복구 · 재시작 판정이 방향과 상관없이 같다. lease와 epoch는 DB 쌍 단위라 되돌리기는 컷오버보다
+큰 epoch로 요청한다. 영수증의 `direction`은 설정의 `origin`으로 정한다: 원래 출발지를 떠나면 `cutover`, 돌아오면
+`failback`, 둘 다 아니면 원격 조작 없이 쓰기 전 실패다. 승인 · Edge 복귀 · 기록은 상태 머신(T10)이 지휘한다.
+
+사전 확인 끝에 출발지 `cutover.barrier`에 시험 행을 넣고 목적지에 `path_probe_timeout_s`(기본 10초, 쓰기 정지 밖) 안에
+보이는지 확인한다([ADR-0016](../../docs/adr/0016-failback-replication-path-check.md)). 컷오버 방향에도 똑같이 적용한다.
+
+- 오지 않으면 진입점 · PAUSE · LOGIN · 구독을 바꾸지 않고 ABORT_PRE_WRITE, `reason_code=replication_path_unconfirmed`.
+- 결과의 `path_probe`에 도착 여부 · 소요 · 목적지 구독의 마지막 수신 시각을 남긴다. 수신 시각은 진단용이며 판정하지 않는다.
+- `remote_changes_started`는 복구 대상 효과(진입점 · PAUSE · LOGIN · 구독)를 시작했는지다. 시험 행은 여기에 들지 않는다.
+- 쓰기를 막은 뒤 본 barrier가 오지 않으면 되돌아갈 쪽을 열지 않고 원상 복구한다(ABORT_PRE_WRITE). 확인하지 못하면 SAFE_HOLD.
+
+모의 시험은 `tests/test_failback_mockenv.py`다. 경로 단절은 publication에서 `cutover.barrier`를 잠시 빼서 만들고,
+빠진 동안 쓴 행은 시험 정리에서 지운 뒤 publication을 되돌린다. 실제 환경의 첫 되돌리기는 T25에서 한다.
 
 ## 영수증과 실패 처리
 
