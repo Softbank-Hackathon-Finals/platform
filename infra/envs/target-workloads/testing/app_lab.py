@@ -413,9 +413,12 @@ def scenario_precutover(passwords):
     out["requests_right_after_rollout"] = len(burst)
     out["failed_right_after_rollout"] = sum(1 for result in burst.values() if result.get("status") != 200)
     out["unlabelled_right_after_rollout"] = sum(1 for result in burst.values() if result.get("x_bravo_env") != ["onprem"])
-    out["after_restart"] = next((r["info"] for r in burst.values() if "info" in r), None)
+    # The retiring Pod keeps answering during preStop, with the switch it already had.
+    out["open_switch_answers_right_after_rollout"] = sum(
+        1 for result in burst.values() if result.get("info", {}).get("write_blocked") is False)
     wait(lambda: len(app_pods()) == 1, "old Pod gone", 120)
     out["old_pod_gone_seconds_after_rollout"] = round(time.monotonic() - started, 1)
+    out["after_restart"] = client([("info", "GET", "/api/info", None)])["info"].get("info")
     return out
 
 

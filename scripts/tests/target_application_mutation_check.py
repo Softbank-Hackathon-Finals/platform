@@ -74,7 +74,7 @@ MUTATIONS = [
  (A, '"sha256:e3c8e9cf6defa8d5932c2f28b26362b12cd2101de7c67360166801f3fa933ada"}', '"sha256:0000"}'),
  (C, 'if (self.path != "/" or not 0 < length', 'if (not 0 < length'),
  (C, 'except (ValueError, RecursionError):', 'except ValueError:'),
- (C, 'if self.close_connection:\n                self.send_header("Connection", "close")\n', ''),
+ (C, '            if self.close_connection:\n                self.send_header("Connection", "close")\n', ''),
  (C, 'self.close_connection = True\n', ''),
  (C, '        def log_message(self, *args):\n            pass\n\n', ''),
  (A, '"timeoutSeconds": 5, "periodSeconds": 2, "failureThreshold": 60', '"timeoutSeconds": 1, "periodSeconds": 1, "failureThreshold": 30'),
