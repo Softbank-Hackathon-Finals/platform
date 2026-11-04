@@ -36,9 +36,17 @@
       "enum": [
         "COLLECT",
         "ANALYZE",
+        "PROPOSE",
+        "REHEARSE",
+        "GATE",
+        "AWAIT_APPROVAL",
+        "SHIFT",
+        "CUTOVER",
         "WATCH",
         "FAILBACK",
         "SAFE_HOLD",
+        "NEEDS_HUMAN",
+        "DONE",
         "DONE_ROLLED_BACK"
       ]
     },

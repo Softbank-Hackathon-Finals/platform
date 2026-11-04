@@ -326,9 +326,10 @@ def test_snapshot_does_not_claim_audit_history_recovery(store):
 
 
 def test_published_snapshot_schema_and_example_match_local_read_model(store):
-    schema = json.loads(
-        files("bravo_platform_events").joinpath("schemas/plan-snapshot.schema.json").read_text()
-    )
+    schemas = files("bravo_platform_events").joinpath("schemas")
+    schema = json.loads(schemas.joinpath("plan-snapshot.schema.json").read_text())
+    events = json.loads(schemas.joinpath("event.schema.json").read_text())
+    assert set(schema["properties"]["state"]["enum"]) == set(events["$defs"]["state"]["enum"])
     validator = Draft202012Validator(schema, format_checker=FormatChecker())
     validator.check_schema(schema)
     example = json.loads((Path(__file__).parents[1] / "examples/plan-snapshot.json").read_text())
@@ -338,7 +339,7 @@ def test_published_snapshot_schema_and_example_match_local_read_model(store):
     validator.validate(store.snapshot(SPEC.plan_id))
     for invalid in [
         dict(example, tenant_id="other"),
-        dict(example, state="DONE"),
+        dict(example, state="INVALID_STATE"),
         dict(example, version=True),
     ]:
         with pytest.raises(ValidationError):
