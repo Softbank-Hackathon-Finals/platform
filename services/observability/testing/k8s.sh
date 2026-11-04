@@ -337,7 +337,7 @@ echo "  pgbouncer_databases_paused 라벨: $pgl"
 [ "$(count "$pgb_up")" -gt 0 ] && echo "$pgl" | python3 -c 'import json,sys;ms=json.load(sys.stdin);sys.exit(0 if ms and all(m.get("bravo_env")=="onprem" and m.get("bravo_signal")=="pgbouncer-scrape" and m.get("pooler")=="source-pgbouncer" for m in ms) else 1)' && r=ok || r=fail
 check $r "PgBouncer 지표가 통계 계정 · TLS(verify-full)로 수집되어 출처(pgbouncer-scrape) · 환경 · pooler 라벨과 함께 도착"
 # PgBouncer Pod 안의 psql로 서비스 이름 · CA를 검증해 접속한다(통계 계정 · 컷오버 제어 계정)
-pgsql() { kubectl -n source-dev exec deploy/source-pgbouncer -- env PGPASSWORD="$2" PGSSLMODE=verify-full PGSSLROOTCERT=/etc/cnpg-ca/ca.crt \
+pgsql() { kubectl -n source-dev exec deploy/source-pgbouncer -c source-pgbouncer -- env PGPASSWORD="$2" PGSSLMODE=verify-full PGSSLROOTCERT=/etc/cnpg-ca/ca.crt \
   psql -h source-pgbouncer.source-dev.svc -p 5432 -U "$1" -d pgbouncer -tAc "$3" 2>&1 || true; }
 shown=$(pgsql bravo_stats "$STATS_PW" 'SHOW DATABASES' | grep -c '^chat|' || true)
 denied=$(pgsql bravo_stats "$STATS_PW" 'PAUSE chat' | tr -d '\n')
@@ -348,16 +348,22 @@ kubectl -n stranger run probe-exporter --image=busybox:1.37.0@sha256:a7dbc319b14
 for _ in $(seq 30); do p=$(kubectl -n stranger get pod probe-exporter -o jsonpath='{.status.phase}'); case $p in Succeeded|Failed) break;; esac; sleep 2; done
 [ "$p" = Failed ] && r=ok || r=fail
 check $r "라벨이 없는 네임스페이스(stranger)에서 exporter 9127 연결은 NetworkPolicy가 막음 (probe: ${p:-없음}, 대조군: Collector는 수집 성공)"
-pgb_view() { call console "$API_TOKEN" "$1" /v1/observability/environments/onprem/pgbouncer >/dev/null; kubectl -n console logs "call-$1" 2>/dev/null || true; }
+# 같은 클라이언트 Pod로 전후를 비교한다. 새 Pod는 주소가 NetworkPolicy 허용에 들어가기 전 첫 연결이 거부될 수 있다(k3s kube-router)
+kubectl -n console run pgb-observer --image=busybox:1.37.0@sha256:a7dbc319b1438115a207e11930dc4bb3e643dcb3ec0bdd694bb36cd8fad289ec --restart=Never -- sleep 900 >/dev/null
+kubectl -n console wait pod/pgb-observer --for=condition=Ready --timeout=60s >/dev/null
+pgb_view() { kubectl -n console exec pgb-observer -- wget -q -T 5 -O - --header "Authorization: Bearer $API_TOKEN" \
+  "http://bravo-observability-api.$NS.svc:8080/v1/observability/environments/onprem/pgbouncer" 2>&1 || true; }
+for _ in $(seq 15); do pgb_view | grep -q '"state"' && break; sleep 2; done
 pgb_ok='import json,sys;d=json.load(sys.stdin);p=d["poolers"];sys.exit(0 if d["state"]==sys.argv[1] and len(p)==1 and p[0]["pooler"]=="source-pgbouncer" and p[0]["up"] is True and any(x["name"]=="chat" and x["paused"] is (sys.argv[1]=="PAUSED") for x in p[0]["databases"]) else 1)'
-view=$(pgb_view pgb)
+view=$(pgb_view)
 echo "  조회 API PgBouncer 뷰: $view"
 echo "$view" | python3 -c "$pgb_ok" OK 2>/dev/null && r=ok || r=fail
 check $r "조회 API PgBouncer 뷰: 상태 OK, source-pgbouncer의 chat이 PAUSE 아님"
 # 컷오버 제어 계정의 PAUSE는 콘솔에 PAUSED로 보인다. 판정 · 실행은 이 값을 쓰지 않는다
 paused_out=$(pgsql cutover_control "$PGB_ADMIN_PW" 'PAUSE chat' | tr -d '\n')
 for _ in $(seq 40); do [ "$(count 'pgbouncer_databases_paused{bravo_signal="pgbouncer-scrape", pooler="source-pgbouncer", name="chat"} == 1')" -gt 0 ] && break; sleep 3; done
-view=$(pgb_view pgb-paused)
+view=$(pgb_view)
+echo "  PAUSE 중 조회 API PgBouncer 뷰: $view"
 resumed=$(pgsql cutover_control "$PGB_ADMIN_PW" 'RESUME chat' | tr -d '\n')
 echo "$view" | python3 -c "$pgb_ok" PAUSED 2>/dev/null && r=ok || r=fail
 check $r "컷오버 제어 계정의 PAUSE가 조회 API에 PAUSED로 보이고 RESUME으로 풀림 (PAUSE: ${paused_out:-없음}, RESUME: ${resumed:-없음})"
@@ -369,7 +375,8 @@ kubectl -n app run forger-pgb --image="$GEN" --restart=Never -- metrics \
 forged_pgb() { count 'pgbouncer_up{bravo_env="onprem"} unless pgbouncer_up{bravo_signal="pgbouncer-scrape"}'; }
 for _ in $(seq 60); do [ "$(forged_pgb)" -gt 0 ] && break; sleep 2; done
 n=$(forged_pgb)
-view=$(pgb_view pgb-forged)
+view=$(pgb_view)
+echo "  사칭 뒤 조회 API PgBouncer 뷰: $view"
 [ "$n" -gt 0 ] && echo "$view" | python3 -c "$pgb_ok" OK 2>/dev/null && r=ok || r=fail
 check $r "앱이 보낸 pgbouncer_up(${n}개, 출처 라벨 없음)은 PgBouncer 뷰에 들어오지 않음: 상태 OK, pooler는 source-pgbouncer만"
 
