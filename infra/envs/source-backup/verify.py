@@ -20,6 +20,7 @@ import sys
 import tempfile
 import time
 import uuid
+from string import Template
 
 AWS_CLI = "docker.io/amazon/aws-cli:2.38.0@sha256:ed3233c28ad56d6a66e9e7623a495ab2d7eb08d425f8eea0fdbdfacb12de2ba8"
 APP = ("source-dev", "demo-chat")
@@ -45,7 +46,7 @@ def _set(value):
 
 def guarded_policy(policy, bucket, custodians):
     """The deployed policy must be exactly the stack's three Deny statements."""
-    bucket_arn = f"arn:aws:s3:::{bucket}"
+    bucket_arn = Template("arn:aws:s3:::${bucket}").substitute(bucket=bucket)
     statements = policy.get("Statement") if isinstance(policy, dict) else None
     if not isinstance(statements, list) or not all(isinstance(s, dict) for s in statements):
         return False

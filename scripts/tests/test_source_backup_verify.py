@@ -5,6 +5,7 @@ import json
 import types
 import unittest
 from pathlib import Path
+from string import Template
 from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -13,7 +14,7 @@ verify = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(verify)
 
 BUCKET = "bravo-source-backup-111122223333"
-ARN = f"arn:aws:s3:::{BUCKET}"
+ARN = Template("arn:aws:s3:::${bucket}").substitute(bucket=BUCKET)
 CUSTODIANS = ["arn:aws:iam::111122223333:role/aws-reserved/sso.amazonaws.com/ap-northeast-2/AWSReservedSSO_Admin_0123456789abcdef"]
 WRITER = "arn:aws:iam::111122223333:role/bravo-source-backup-writer"
 READER = "arn:aws:iam::111122223333:role/bravo-source-backup-reader"
@@ -59,7 +60,7 @@ class Policy(unittest.TestCase):
         for change in (
             lambda p: p["Statement"][1].update(Action=["s3:DeleteObject"]),
             lambda p: p["Statement"][2]["Action"].remove("s3:PutBucketPolicy"),
-            lambda p: p["Statement"][1].update(Resource="arn:aws:s3:::other-bucket/*"),
+            lambda p: p["Statement"][1].update(Resource=Template("arn:aws:s3:::${bucket}/*").substitute(bucket="other-bucket")),
             lambda p: p["Statement"][1].update(Principal={"AWS": APP}),
             lambda p: p["Statement"][1]["Condition"]["ArnNotEquals"].update({"aws:PrincipalArn": CUSTODIANS + [APP]}),
             lambda p: p["Statement"][1].update(Condition={"ArnNotLike": {"aws:PrincipalArn": "*"}}),
