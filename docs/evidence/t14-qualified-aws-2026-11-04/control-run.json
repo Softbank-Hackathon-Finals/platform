@@ -1,0 +1,60 @@
+{
+  "kind": "control_run",
+  "schema_version": "1",
+  "run_id": "bc1da233-2b7a-423b-8d5a-dd48bba4f94d",
+  "app": "demo-chat",
+  "environment": {
+    "id": "aws",
+    "role": "source",
+    "ref": "operator-qualified/source"
+  },
+  "started_at": "2026-11-04T09:45:32.349239Z",
+  "finished_at": "2026-11-04T09:45:33.390641Z",
+  "results": [
+    {
+      "test_id": "IAM-01.1",
+      "control_id": "IAM-01",
+      "method_version": "1",
+      "expected": "deny",
+      "observed": "deny",
+      "positive_control": "pass",
+      "verdict": "PASS",
+      "unknown_reason": null,
+      "evidence": {
+        "collected_at": "2026-11-04T09:45:33.353392Z",
+        "expires_at": "2026-11-05T09:45:33.353392Z",
+        "tool": "bravo-controls-aws-qualified",
+        "tool_version": "1",
+        "output_sha256": "sha256:14ffb75c703bc61b45f6ae180c334b3175284aa882790636ffd9bd16a72d3a3d"
+      },
+      "started_at": "2026-11-04T09:45:32.349256Z",
+      "duration_ms": 1039
+    },
+    {
+      "test_id": "SEC-01.1",
+      "control_id": "SEC-01",
+      "method_version": "1",
+      "expected": "deny",
+      "observed": null,
+      "positive_control": "fail",
+      "verdict": "UNKNOWN",
+      "unknown_reason": "NOT_RUN",
+      "evidence": null,
+      "started_at": "2026-11-04T09:45:33.390604Z",
+      "duration_ms": 0
+    },
+    {
+      "test_id": "AUD-01.1",
+      "control_id": "AUD-01",
+      "method_version": "1",
+      "expected": "present",
+      "observed": null,
+      "positive_control": "not_applicable",
+      "verdict": "UNKNOWN",
+      "unknown_reason": "NOT_RUN",
+      "evidence": null,
+      "started_at": "2026-11-04T09:45:33.390631Z",
+      "duration_ms": 0
+    }
+  ]
+}
