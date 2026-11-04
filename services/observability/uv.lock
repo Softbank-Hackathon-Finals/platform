@@ -51,6 +51,8 @@ source = { editable = "." }
 api = [
     { name = "fastapi" },
     { name = "httpx" },
+    { name = "jsonschema" },
+    { name = "rfc3339-validator" },
     { name = "uvicorn" },
 ]
 
@@ -68,6 +70,8 @@ dev = [
 requires-dist = [
     { name = "fastapi", marker = "extra == 'api'", specifier = ">=0.115,<1" },
     { name = "httpx", marker = "extra == 'api'", specifier = ">=0.27,<1" },
+    { name = "jsonschema", marker = "extra == 'api'", specifier = ">=4.23,<5" },
+    { name = "rfc3339-validator", marker = "extra == 'api'", specifier = ">=0.1.4" },
     { name = "uvicorn", marker = "extra == 'api'", specifier = ">=0.30,<1" },
 ]
 provides-extras = ["api"]

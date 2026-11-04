@@ -39,7 +39,9 @@ services:
       - "127.0.0.1::4318"
   # 콘솔용 조회 API. 저장소에는 console-api 인증서로 붙는다
   api:
-    build: ..
+    build:
+      context: ../../..
+      dockerfile: services/observability/Dockerfile
     environment:
       PROMETHEUS_URL: https://prometheus:9090
       BRAVO_ENVIRONMENTS: aws,onprem
