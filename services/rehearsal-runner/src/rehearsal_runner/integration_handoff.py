@@ -8,6 +8,7 @@ producer and T10 contracts to be connected by their trusted hosts.
 import hashlib
 import re
 from dataclasses import dataclass
+from typing import Protocol
 
 from .isolation_gate import IsolationPass
 from .runner import Namespace, ProposalRef, _valid_proposal
@@ -68,3 +69,29 @@ def prepare_handoff(
         attempt=attempt, diff_hash="sha256:" + hashlib.sha256(diff).hexdigest(),
         image_digest=image_digest, target_environment_id=target_environment_id,
     )
+
+
+class HandoffJob(Protocol):
+    def verify(self, handoff: ProposedHandoff) -> object:
+        """Submit candidate values; any response remains untrusted."""
+        ...
+
+
+@dataclass(frozen=True)
+class HandoffVerifier:
+    """Local adapter for a job port; no production transport is installed."""
+
+    job: HandoffJob
+    attempt: int
+    diff: bytes
+    image_digest: str
+    target_environment_id: str
+
+    def verify_isolated(
+        self, proposal: ProposalRef, namespace: Namespace, isolation: IsolationPass
+    ) -> object:
+        handoff = prepare_handoff(
+            proposal, namespace, isolation, attempt=self.attempt, diff=self.diff,
+            image_digest=self.image_digest, target_environment_id=self.target_environment_id,
+        )
+        return self.job.verify(handoff)

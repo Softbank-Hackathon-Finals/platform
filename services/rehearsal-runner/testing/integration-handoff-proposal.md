@@ -17,3 +17,5 @@ T15는 후보 diff 바이트의 `sha256`과 제품 이미지 digest, 대상 환�
 승인 결속은 기존 이벤트 스키마의 `plan_id`, `plan_digest`, `diff_hash`, `image_digest`, `target_environment_id`, `expires_at`를 사용한다. T10 공급자 호출에서 불변 `verification_id`와 최신 `revision`을 조회하고, 현재 계획·권한·만료를 승인과 반영 접수 시 다시 검사한다. 이 확인의 저장소, 인증 방식과 트랜잭션 경계는 T10 담당자와 합의한다.
 
 `integration_handoff.prepare_handoff`는 위 논의를 위한 T15 내부 후보값을 만든다. 네임스페이스 UID와 시험 ID, 시도 번호, 정확한 diff 바이트 해시와 이미지 digest를 묶지만, 제안과 diff·이미지가 실제로 동일한 출처라는 증명이나 승인 권한은 없다. T38과 T10의 운영 연결은 구현되어 있지 않다.
+
+`run_once`의 `isolated_verifier` 접점과 `HandoffVerifier`는 성공한 T3 결과를 후보 요청에 전달한다. 기존 verifier와 동시에 지정하면 네임스페이스 생성 전에 차단한다. 테스트는 모의 Job만 사용하고, Job 실행 중 UID 확인·영수증 인증·T10 승인 공급자를 구현하거나 대신하지 않는다.

@@ -76,6 +76,14 @@ class Verifier(Protocol):
         ...
 
 
+class IsolatedVerifier(Protocol):
+    def verify_isolated(
+        self, proposal: ProposalRef, namespace: Namespace, isolation: IsolationPass
+    ) -> object:
+        """Use the exact T3 result; return an untrusted receipt."""
+        ...
+
+
 def _valid_proposal(proposal: object, run_id: str) -> bool:
     return (
         isinstance(proposal, ProposalRef)
@@ -88,7 +96,8 @@ def _valid_proposal(proposal: object, run_id: str) -> bool:
 
 
 def run_once(
-    task: object, proposer: Proposer, lifecycle: Lifecycle, isolation: IsolationGate, verifier: Verifier
+    task: object, proposer: Proposer, lifecycle: Lifecycle, isolation: IsolationGate,
+    verifier: Verifier | None, *, isolated_verifier: IsolatedVerifier | None = None
 ) -> AttemptResult:
     """Execute one attempt through injected ports; never emit an approval state."""
     run_id = getattr(task, "run_id", None)
@@ -101,6 +110,8 @@ def run_once(
     if (not _valid_proposal(proposal, run_id)
             or getattr(task, "source_sha", None) != proposal.source_sha):
         return AttemptResult("BLOCK", "PROPOSAL_INVALID")
+    if (verifier is None) == (isolated_verifier is None):
+        return AttemptResult("BLOCK", "VERIFIER_CONFIGURATION_INVALID")
     # create() may have succeeded before an error: never retry it automatically.
     try:
         namespace = lifecycle.create(run_id)
@@ -118,7 +129,10 @@ def run_once(
                 or not isolated.probe_run_id.strip()):
             result = AttemptResult("BLOCK", "ISOLATION_IDENTITY_MISMATCH")
         else:
-            receipt = verifier.verify(proposal, namespace)
+            if isolated_verifier is not None:
+                receipt = isolated_verifier.verify_isolated(proposal, namespace, isolated)
+            else:
+                receipt = verifier.verify(proposal, namespace)
             if receipt is None:
                 result = AttemptResult("NEEDS_HUMAN", "RECEIPT_MISSING")
             else:
