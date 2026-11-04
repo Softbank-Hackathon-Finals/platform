@@ -9,7 +9,6 @@ kubectl은 시험 컨테이너 안의 것만 쓰므로 사용자의 kubeconfig�
 
 import argparse
 import copy
-import hashlib
 import ipaddress
 import json
 import subprocess
@@ -29,6 +28,7 @@ from bravo_exit_drill.verdict import judge
 
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[1]
+REPO = ROOT.parents[1]
 PROBE_SOURCE = Path(probe_module.__file__).read_text(encoding="utf-8")
 STANDIN_SOURCE = (HERE / "standin.py").read_text(encoding="utf-8")
 
@@ -49,6 +49,8 @@ TAILNET = "tailscale-system"
 COMMON_LABELS = {"component": "target", "app.kubernetes.io/part-of": "bravo-target"}
 PROBE_TIMEOUT_S = 3
 SETTLE_S = 3
+# 앱 Pod에 함께 도는 사이드카. 실제 앱에도 수집기나 Tailscale이 붙을 수 있다.
+SIDECAR = "collector"
 
 
 def guard(name: str) -> str:
@@ -122,16 +124,20 @@ def wait_until(condition, seconds: int, what: str, interval: float = 2) -> None:
     raise TimeoutError(f"timed out waiting for {what}")
 
 
-def deployment(name: str, namespace: str, labels: dict, env: dict, *, command=None, readiness=None, aliases=None, strategy=None) -> dict:
+def standin_container(name: str, env: dict, command=None) -> dict:
+    return {
+        "name": name,
+        "image": PY_IMAGE,
+        "imagePullPolicy": "Never",
+        "command": command or ["python3", "/standin/standin.py"],
+        "env": [{"name": k, "value": str(v)} for k, v in env.items()],
+        "volumeMounts": [{"name": "standin", "mountPath": "/standin"}],
+    }
+
+
+def deployment(name: str, namespace: str, labels: dict, env: dict, *, command=None, readiness=None, aliases=None, strategy=None, container="main", sidecars=()) -> dict:
     spec: dict = {
-        "containers": [{
-            "name": "main",
-            "image": PY_IMAGE,
-            "imagePullPolicy": "Never",
-            "command": command or ["python3", "/standin/standin.py"],
-            "env": [{"name": k, "value": str(v)} for k, v in env.items()],
-            "volumeMounts": [{"name": "standin", "mountPath": "/standin"}],
-        }],
+        "containers": [standin_container(container, env, command), *sidecars],
         "volumes": [{"name": "standin", "configMap": {"name": "standin"}}],
         "terminationGracePeriodSeconds": 1,
     }
@@ -182,9 +188,10 @@ def install_workloads(aws_hosts: list[str]) -> None:
     objects += [
         deployment("demo-chat", NS, {"app": "demo-chat"}, {
             "ROLE": "app", "POOLER_HOST": f"target-pgbouncer.{NS}.svc", "POOLER_PORT": 5432, "HOLD_HOST": aws_hosts[0],
-        }, readiness={"httpGet": {"path": "/readyz", "port": 8080}, "periodSeconds": 1}, aliases=aliases),
+        }, readiness={"httpGet": {"path": "/readyz", "port": 8080}, "periodSeconds": 1}, aliases=aliases, container="app",
+            sidecars=[standin_container(SIDECAR, {"ROLE": "tcp", "PORTS": 15090})]),
         service("demo-chat", NS, {"app": "demo-chat"}, 8080),
-        deployment("target-pgbouncer", NS, {"app": "target-pgbouncer"}, {"ROLE": "relay", "LISTEN_PORT": 5432, "UPSTREAM_HOST": f"target-db-rw.{NS}.svc", "UPSTREAM_PORT": 5432}),
+        deployment("target-pgbouncer", NS, {"app": "target-pgbouncer"}, {"ROLE": "relay", "LISTEN_PORT": 5432, "UPSTREAM_HOST": f"target-db-rw.{NS}.svc", "UPSTREAM_PORT": 5432}, container="target-pgbouncer"),
         service("target-pgbouncer", NS, {"app": "target-pgbouncer"}, 5432),
         deployment("target-db", NS, {"cnpg.io/cluster": "target-db", "cnpg.io/instanceRole": "primary"}, {"ROLE": "db"}, strategy="Recreate"),
         service("target-db-rw", NS, {"cnpg.io/cluster": "target-db", "cnpg.io/instanceRole": "primary"}, 5432),
@@ -304,23 +311,29 @@ def _ready_pods(selector: str) -> list[dict]:
     ]
 
 
-def _restart_count(pod_name: str) -> int:
+def _container_status(pod_name: str, container: str) -> dict:
     status = json.loads(kubectl("get", "pod", pod_name, "-n", NS, "-o", "json"))["status"]
-    return sum(c.get("restartCount", 0) for c in status.get("containerStatuses", []))
+    return next(c for c in status.get("containerStatuses", []) if c["name"] == container)
 
 
-def in_place_restart(plan: dict, *workloads: str, tolerate_failure: bool = False) -> dict:
-    """Pod는 두고 컨테이너만 다시 띄운다. 이미 정책에 묶인 Pod라 시작 순간부터 차단이 걸려 있다."""
+def in_place_restart(plan: dict, *workloads: str, tolerate_failure: bool = False, signal_instead: dict | None = None) -> dict:
+    """Pod는 두고 앱 컨테이너만 다시 띄운다. 이미 정책에 묶인 Pod라 시작 순간부터 차단이 걸려 있다.
+
+    signal_instead는 {워크로드: 컨테이너}로, 앱 대신 다른 컨테이너를 죽이고도 앱을 적는 실수를 재현한다.
+    """
     induced = {}
     code = "import os, signal; os.kill(1, signal.SIGTERM)"
     for workload in workloads:
+        container = plan["workloads"][workload]["container"]
+        victim = (signal_instead or {}).get(workload, container)
         for pod in _ready_pods(selector_text(plan, workload)):
             name = pod["metadata"]["name"]
-            count = _restart_count(name)
-            kubectl("exec", "-n", NS, name, "--", "python3", "-c", code, check=False)
-            wait_until(lambda n=name, c=count: _restart_count(n) > c, 30, "container restart")
+            replaced = _container_status(name, container)["containerID"]
+            count = _container_status(name, victim)["restartCount"]
+            kubectl("exec", "-n", NS, name, "-c", victim, "--", "python3", "-c", code, check=False)
+            wait_until(lambda n=name, v=victim, c=count: _container_status(n, v)["restartCount"] > c, 30, "container restart")
             # 이번에 시킨 1회만 적는다. 그 전에 죽은 적이 있으면 판정이 UNSTABLE_RESTARTS로 잡는다.
-            induced[pod["metadata"]["uid"]] = 1
+            induced[pod["metadata"]["uid"]] = {"container": container, "replaced_container_id": replaced}
     for workload in workloads:
         selector = selector_text(plan, workload)
         try:
@@ -382,7 +395,7 @@ def summarize(report: dict) -> dict:
     }
 
 
-def scenario(plan: dict, *, name: str, meaning: str, expected: str, expected_codes: set[str], apply_plan=True, mutate=None, undo=None, restart_workloads=True, in_place=True, restart_failure_ok: bool = False, on_after=None) -> dict:
+def scenario(plan: dict, *, name: str, meaning: str, expected: str, expected_codes: set[str], apply_plan=True, mutate=None, undo=None, restart_workloads=True, in_place=True, restart_failure_ok: bool = False, on_after=None, signal_instead=None) -> dict:
     """한 바퀴: 차단 전 측정 → 정책 적용 → 망가뜨리기 → Pod 교체 → 컨테이너 재시작 → 측정 → 판정 → 되돌리기."""
     print(f"== {name}", flush=True)
     remove_policies()
@@ -399,7 +412,7 @@ def scenario(plan: dict, *, name: str, meaning: str, expected: str, expected_cod
         restart("demo-chat", "target-pgbouncer", tolerate_failure=restart_failure_ok, timeout=25 if restart_failure_ok else 90)
         time.sleep(SETTLE_S)  # 새 Pod가 정책에 묶일 시간. 실측은 1초 안쪽이다.
         if in_place:
-            induced = in_place_restart(plan, "app", "pooler", tolerate_failure=restart_failure_ok)
+            induced = in_place_restart(plan, "app", "pooler", tolerate_failure=restart_failure_ok, signal_instead=signal_instead)
             time.sleep(SETTLE_S)  # Service가 다시 뜬 컨테이너로 돌아올 시간
     after = collect(plan, "after", applied_at, induced)
     report = judge(plan, before, after)
@@ -414,6 +427,7 @@ def scenario(plan: dict, *, name: str, meaning: str, expected: str, expected_cod
         "expected_codes": sorted(expected_codes),
         **summarize(report),
         "as_expected": report["verdict"] == expected and expected_codes <= codes,
+        "app_container_restarts": [{"app": p["restarts"], "others": p["other_restarts"]} for p in after["pods"]["app"]],
         **extra,
     }
     print(f"   {report['verdict']} (want {expected}) {report['summary']}", flush=True)
@@ -462,7 +476,17 @@ def refused_codes(spec_doc: dict, inventory, snapshot) -> list[str]:
     return []
 
 
+def source_manifest() -> dict:
+    """측정에 쓴 소스를 커밋으로 식별한다. 커밋과 다른 작업 트리로 잰 값을 그 커밋의 증거로 적지 않는다."""
+    paths = [str(p.relative_to(REPO)) for p in [*sorted((ROOT / "src/bravo_exit_drill").glob("*.py")), HERE / "standin.py", Path(__file__).resolve()]]
+    if run("git", "-C", str(REPO), "status", "--porcelain", "--", *paths).strip():
+        raise RuntimeError("commit the measured sources first")
+    revision = run("git", "-C", str(REPO), "rev-parse", "HEAD").strip()
+    return json.loads(run("python3", str(REPO / "scripts/evidence_sources.py"), "--repo", str(REPO), "create", "--revision", revision, *paths))
+
+
 def run_all(out: Path) -> int:
+    sources = source_manifest()
     inventory_doc = json.loads((ROOT / "tests/fixtures/inventory-demo-chat.json").read_text(encoding="utf-8"))
     spec_doc = json.loads((ROOT / "profiles/target-dev.json").read_text(encoding="utf-8"))
     spec = parse_spec(spec_doc)
@@ -592,6 +616,10 @@ def run_all(out: Path) -> int:
             expected="UNKNOWN", expected_codes={"STARTUP_NOT_ISOLATED"}, mutate=require_aws, undo=unrequire_aws, in_place=False, restart_failure_ok=True,
         )["outcome"])
         results["scenarios"].append(scenario(
+            plan, name="sidecar_restarted_instead", meaning="앱 컨테이너 대신 같은 Pod의 사이드카를 다시 띄우고 앱을 적었다. 앱 0회 · 사이드카 1회는 앱이 차단된 채 떴다는 증거가 아니다",
+            expected="UNKNOWN", expected_codes={"STARTUP_NOT_ISOLATED"}, signal_instead={"app": SIDECAR},
+        )["outcome"])
+        results["scenarios"].append(scenario(
             plan, name="destination_down", meaning="AWS 대역을 꺼서 거부처럼 보이게 했다. 대조군이 닿지 않으니 거부로 세면 안 된다",
             expected="UNKNOWN", expected_codes={"POSITIVE_CONTROL_FAILED"}, mutate=stop_aws, undo=start_aws,
         )["outcome"])
@@ -618,10 +646,7 @@ def run_all(out: Path) -> int:
         )
         results["k3s_image"] = K3S_IMAGE
         results["python_image"] = PY_IMAGE
-        results["source_sha256"] = {
-            str(p.relative_to(ROOT)): hashlib.sha256(p.read_bytes()).hexdigest()
-            for p in [*sorted((ROOT / "src/bravo_exit_drill").glob("*.py")), HERE / "standin.py", Path(__file__).resolve()]
-        }
+        results.update(sources)
         out.mkdir(parents=True, exist_ok=True)
         (out / "results.json").write_text(json.dumps(results, ensure_ascii=False, indent=1, sort_keys=True) + "\n", encoding="utf-8")
         (out / "plan.json").write_text(json.dumps(plan, ensure_ascii=False, indent=1, sort_keys=True) + "\n", encoding="utf-8")
