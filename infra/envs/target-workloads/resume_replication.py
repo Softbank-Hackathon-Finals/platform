@@ -534,6 +534,12 @@ def barrier_probe(write, read_target_row, read_source_row, barrier_id, *, on_del
     report = {"barrier_id": barrier_id, "passed": False, "insert_lsn_before_commit": None, "delete_lsn_before_commit": None,
               "same_row_on_both_sides_when_present": None, "source_insert_commits": 0, "source_delete_commits": 0,
               "barrier": None, "delete_arrived": None}
+
+    def note(error):
+        # Its message can carry a host; class and state are enough.
+        report["error_category"] = describe(error)
+        report["sqlstate"] = getattr(error, "sqlstate", None)
+
     try:
         report["insert_lsn_before_commit"] = write(PROBE_INSERT, (barrier_id, PROBE_EPOCH))
         report["source_insert_commits"] = 1
@@ -541,16 +547,21 @@ def barrier_probe(write, read_target_row, read_source_row, barrier_id, *, on_del
         if report["barrier"]:
             report["same_row_on_both_sides_when_present"] = read_target_row() == read_source_row()
             on_delivered()
-        report["delete_lsn_before_commit"] = write(PROBE_DELETE, (barrier_id,))
-        report["source_delete_commits"] = 1
-        if report["barrier"]:
-            report["delete_arrived"] = wait_for(lambda: read_target_row() is None, elapsed=elapsed, timeout=timeout, poll=poll, sleep=sleep)
-            if report["delete_arrived"]:
-                on_cleaned()
-    except Exception as error:  # noqa: BLE001 - Its message can carry a host; class and state are enough.
-        report["error_category"] = describe(error)
-        report["sqlstate"] = getattr(error, "sqlstate", None)
-    report["passed"] = bool(report["barrier"] and report["delete_arrived"] and report["same_row_on_both_sides_when_present"])
+    except Exception as error:  # noqa: BLE001 - See note().
+        note(error)
+    # Apart from the block above: whatever went wrong there, the row must not stay on the source.
+    if report["source_insert_commits"]:
+        try:
+            report["delete_lsn_before_commit"] = write(PROBE_DELETE, (barrier_id,))
+            report["source_delete_commits"] = 1
+            if report["barrier"]:
+                report["delete_arrived"] = wait_for(lambda: read_target_row() is None, elapsed=elapsed, timeout=timeout, poll=poll, sleep=sleep)
+                if report["delete_arrived"]:
+                    on_cleaned()
+        except Exception as error:  # noqa: BLE001 - See note().
+            note(error)
+    report["passed"] = bool(report["barrier"] and report["delete_arrived"] and report["same_row_on_both_sides_when_present"]
+                            and "error_category" not in report)
     return report
 
 
@@ -612,6 +623,14 @@ class Run:
         self.report.setdefault("stages", {})[name] = view
         return status, view
 
+    def tables_match(self):
+        """Read last, and more than once: a row committed between the two reads differs only for a moment."""
+        def equal():
+            source_now, target_now = self.tables(self.source_dsn), self.tables(self.target_dsn)
+            return all(table["sha256_equal"] for table in tables_view(self.source_tables_before, source_now, target_now).values())
+
+        return wait_for(equal, elapsed=self.elapsed, timeout=self.args.probe_timeout, poll=self.args.probe_poll, sleep=time.sleep) is not None
+
     def marker_rows(self, barrier_id, dsn):
         return read_one(dsn, "barrier_row", {"barrier_id": barrier_id})
 
@@ -632,11 +651,8 @@ class Run:
         report = self.report
         status = read_status(self.source_dsn, self.target_dsn)
         continuity = report["continuity"]
-        before = state["target"]
-        continuity["same_subscription_oid_and_origin"] = (
-            status["target"]["subscription_oid"] == before["subscription_oid"]
-            and (not before["origin_readable"] or status["target"]["target_origin_remote_lsn"] is not None
-                 or before["target_origin_remote_lsn"] is None))
+        # A subscription's origin is named after its oid, so the same oid means the same origin.
+        continuity["same_subscription_oid_and_origin"] = status["target"]["subscription_oid"] == state["target"]["subscription_oid"]
         continuity["table_sync_states"] = status["target"]["table_sync_states"]
         unchanged = continuity["same_subscription_oid_and_origin"]
         if self.executor_dsn:
@@ -685,13 +701,14 @@ class Run:
                                            "enable_command_return_s": None, "first_observations": self.firsts}
         if method is not None:
             report["stage"] = "enable"
+            # Before the call: the server may have committed it even if the connection then fails.
+            report["continuity"]["enable_submissions"] = 1
             try:
                 enable(self.target_dsn, method)
             except Exception as error:  # noqa: BLE001 - Its message can carry a host; class and state are enough.
                 report["error_category"] = describe(error)
                 report["sqlstate"] = getattr(error, "sqlstate", None)
                 return
-            report["continuity"]["enable_submissions"] = 1
             clock["enable_command_return_s"] = round(self.elapsed(), 4)
         baseline = baseline_of(state)
 
@@ -726,15 +743,19 @@ class Run:
             return
         if not self.probe:
             self.stage("final")
-        final = report["stages"]["cleaned" if self.probe else "final"]["business_tables"]
         report["stage"] = "continuity"
         unchanged = self.finish_continuity(state)
-        report["passed"] = unchanged and all(table["sha256_equal"] for table in final.values())
+        report["continuity"]["business_tables_match"] = self.tables_match()
+        report["passed"] = unchanged and report["continuity"]["business_tables_match"]
 
 
 def run(args, environ):
     work = Run(args, environ)
-    work.execute()
+    try:
+        work.execute()
+    except Exception as error:  # noqa: BLE001 - A traceback could print a driver message, so never let one out.
+        # Added to the report, not in place of it: it may be what says that ENABLE was already sent.
+        work.report.update(passed=False, error_category=describe(error))
     return work.report
 
 
@@ -756,10 +777,7 @@ def main(argv, environ):
     parser.add_argument("--probe-timeout", type=float, default=60, help="seconds to wait for each barrier arrival")
     parser.add_argument("--probe-poll", type=float, default=0.2, help="seconds between barrier reads")
     args = parser.parse_args(argv)
-    try:
-        report = run(args, environ)
-    except Exception as error:  # noqa: BLE001 - A traceback could print a driver message, so never let one out.
-        report = {"passed": False, "stage": "unexpected", "error_category": describe(error)}
+    report = run(args, environ)
     print(json.dumps(report, ensure_ascii=False, default=str))
     return 0 if report["passed"] else 1
 

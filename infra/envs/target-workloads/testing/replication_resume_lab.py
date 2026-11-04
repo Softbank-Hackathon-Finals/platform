@@ -298,7 +298,8 @@ def recover_run(condition, repetition):
             "hashes_equal_at_the_end": all(table["sha256_equal"] for table in applied["report"].get("stages", {}).get("cleaned", {}).get("business_tables", {"none": {"sha256_equal": False}}).values()),
             "second_run_only_verified": verify_again["exit"] == 0 and verify_again["report"].get("would_run") is None
             and verify_again["report"]["continuity"]["enable_submissions"] == 0,
-            "no_acknowledged_row_lost": loss["acknowledged_rows_missing_on_target"] == 0 and loss["newest_row_arrived"],
+            "no_acknowledged_row_lost": loss["acknowledged_rows"] > 0 and loss["acknowledged_rows_missing_on_target"] == 0
+            and loss["newest_row_arrived"],
             "backlog_held_real_rows": loss["rows_written_while_stopped"] >= BACKLOG_MINIMUM_ROWS,
             "rows_written_while_stopped_arrived": loss["rows_written_while_stopped"] == loss["of_those_on_target"],
             "tables_identical": loss["messages_identical"] and loss["attachments_identical"],
@@ -329,8 +330,15 @@ def release_slot(source):
 class Case:
     """A state to refuse: arrange it, confirm the refusal, undo it, confirm the same command passes again."""
 
-    def __init__(self, name, reason, arrange=None, undo=None, **tool):
-        self.name, self.reason, self.arrange, self.undo, self.tool = name, reason, arrange, undo, tool
+    def __init__(self, name, reason, arrange=None, undo=None, error=None, **tool):
+        self.name, self.reason, self.arrange, self.undo, self.error, self.tool = name, reason, arrange, undo, error, tool
+
+
+def record_execution(state_dsn, status):
+    with psycopg.connect(state_dsn, autocommit=True) as state:
+        state.execute("""INSERT INTO executor.executions
+            (execution_id, idempotency_key, request_digest, scope, plan_id, epoch, request, status)
+            VALUES (gen_random_uuid(), %s, 'lab', 'lab', 'lab', 1, '{}', %s)""", (str(uuid.uuid4()), status))
 
 
 def open_session(lab, side, user):
@@ -341,13 +349,7 @@ def refusal_cases(lab, source, target, state_dsn):
     held = {}
 
     def execution(status):
-        def arrange():
-            with psycopg.connect(state_dsn, autocommit=True) as state:
-                state.execute("""INSERT INTO executor.executions
-                    (execution_id, idempotency_key, request_digest, scope, plan_id, epoch, request, status)
-                    VALUES (gen_random_uuid(), %s, 'lab', 'lab', 'lab', 1, '{}', %s)""", (str(uuid.uuid4()), status))
-
-        return arrange
+        return lambda: record_execution(state_dsn, status)
 
     def clear_executions():
         with psycopg.connect(state_dsn, autocommit=True) as state:
@@ -401,7 +403,9 @@ def refusal_cases(lab, source, target, state_dsn):
         Case("both DSNs on one cluster", "source_and_target_are_one_cluster", source=lab.dsn("target")),
         Case("source unreachable", "source_unconfirmed", source=wrong_port),
         Case("target unreachable", "target_unconfirmed", target=wrong_port),
-        Case("remote host without verified TLS", "source_unconfirmed", source="host=db.example.invalid dbname=chat user=x"),
+        # The fixed reason matters: a name that does not resolve would give the same refusal without any TLS check.
+        Case("remote host without verified TLS", "source_unconfirmed", error="database connection must use verify-full TLS",
+             source="host=db.example.invalid dbname=chat user=x"),
         Case("probe role without DELETE", "barrier_probe_not_permitted", probe=lab.dsn("source", "cutover_control")),
         Case("no barrier in the publication", "barrier_not_published",
              lambda: source.execute("ALTER PUBLICATION source_chat DROP TABLE cutover.barrier"),
@@ -436,14 +440,13 @@ def run_refusals():
             results.append({"case": case.name, "reason": case.reason, "exit": refused["exit"],
                             "refusals": refused["report"].get("refusals"), "subscription_stayed_off": stayed_off,
                             "passes_once_undone": passed_again["exit"] == 0, "credentials_in_output": refused["credentials_in_output"],
+                            "errors": refused["report"].get("errors"),
                             "passed": (refused["exit"] == 1 and case.reason in (refused["report"].get("refusals") or [])
+                                       and (case.error is None or refused["report"].get("errors", {}).get("source") == case.error)
                                        and stayed_off and passed_again["exit"] == 0 and not refused["credentials_in_output"])})
             print(json.dumps({"case": case.name, "passed": results[-1]["passed"]}, ensure_ascii=False), flush=True)
         controls = {"no_execution_record_but_declared": run_tool(lab, "--executor-not-deployed", omit=("T8_RESUME_EXECUTOR_DSN",))["exit"] == 0}
-        with psycopg.connect(lab.dsn("source", dbname="executor_state"), autocommit=True) as state:
-            state.execute("""INSERT INTO executor.executions
-                (execution_id, idempotency_key, request_digest, scope, plan_id, epoch, request, status)
-                VALUES (gen_random_uuid(), 'done', 'lab', 'lab', 'lab', 1, '{}', 'DONE')""")
+        record_execution(lab.dsn("source", dbname="executor_state"), "DONE")
         controls["finished_execution_does_not_block"] = run_tool(lab)["exit"] == 0
         wrong_identity = run_tool(lab, "--source-system-id", identity[1], "--target-system-id", "1")
         unpinned = run_tool(lab, "--apply")

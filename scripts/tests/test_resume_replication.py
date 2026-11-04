@@ -602,6 +602,45 @@ class BarrierProbeTests(unittest.TestCase):
         report, _, _ = self.probe([OSError("blip"), MARKER_ROW, MARKER_ROW, OSError("blip"), None])
         self.assertTrue(report["passed"])
 
+    def run_with_stage(self, on_delivered, on_cleaned=lambda: None):
+        clock = Clock()
+        writes = []
+        rows = iter([MARKER_ROW, MARKER_ROW, None])
+
+        def write(statement, params):
+            writes.append(statement.split()[0])
+            return "0/1"
+
+        report = resume.barrier_probe(write, lambda: next(rows), lambda: MARKER_ROW, "id-1", on_delivered=on_delivered,
+                                      on_cleaned=on_cleaned, elapsed=clock, timeout=3, poll=1, sleep=clock.sleep)
+        return report, writes
+
+    def test_a_failure_after_arrival_still_deletes_the_row_from_the_source(self):
+        def fails():
+            raise OSError(f"password={SECRET}")
+
+        report, writes = self.run_with_stage(fails)
+        self.assertEqual(writes, ["INSERT", "DELETE"])
+        self.assertEqual(report["source_delete_commits"], 1)
+        self.assertFalse(report["passed"])
+        self.assertEqual(report["error_category"], "OSError")
+        self.assertNotIn(SECRET, json.dumps(report))
+
+    def test_a_failure_after_the_delete_arrived_fails_the_probe(self):
+        def fails():
+            raise OSError("late")
+
+        report, writes = self.run_with_stage(lambda: None, fails)
+        self.assertEqual(writes, ["INSERT", "DELETE"])
+        self.assertFalse(report["passed"])
+
+    def test_a_refused_insert_has_nothing_to_delete(self):
+        def refuse(_):
+            raise OSError("denied")
+
+        _, writes, _ = self.probe([None], write=refuse)
+        self.assertEqual([statement.split()[0] for statement, _ in writes], ["INSERT"])
+
 
 def fake_read(state):
     """Reads a prepared state; the first argument is which database the DSN named."""
@@ -955,11 +994,69 @@ class RunTests(unittest.TestCase):
         with patch.object(resume, "read_one", side_effect=read):
             buffer = io.StringIO()
             with redirect_stdout(buffer):
-                code = resume.main([*FAST], ENVIRON)
+                code = resume.main([*FAST, "--probe-timeout", "0"], ENVIRON)
         report = json.loads(buffer.getvalue())
         self.assertEqual(code, 1)
         self.assertFalse(report["stages"]["final"]["business_tables"]["messages"]["sha256_equal"])
+        self.assertFalse(report["continuity"]["business_tables_match"])
         self.assertNotIn("different", json.dumps(report))
+
+    def test_a_failure_after_enable_keeps_the_receipt(self):
+        state = {"value": healthy()}
+        reads = {"platform": 0}
+
+        def read(dsn, name, params=None):
+            if name == "platform_counts":
+                reads["platform"] += 1
+                if reads["platform"] > 2:
+                    raise OSError(f"password={SECRET}")
+            return fake_read(state["value"])(dsn, name, params)
+
+        def enable(*_):
+            state["value"] = caught_up()
+
+        with patch.object(resume, "read_one", side_effect=read), patch.object(resume, "enable", side_effect=enable):
+            buffer = io.StringIO()
+            with redirect_stdout(buffer):
+                code = resume.main(["--apply", "--no-barrier-probe", *PINS, *FAST], ENVIRON)
+        report = json.loads(buffer.getvalue())
+        self.assertEqual(code, 1)
+        self.assertEqual(report["enabled_by"], "alter_subscription")
+        self.assertEqual(report["continuity"]["enable_submissions"], 1)
+        self.assertTrue(report["post_check"]["passed"])
+        self.assertEqual(report["error_category"], "OSError")
+        self.assertNotIn(SECRET, buffer.getvalue())
+
+    def test_an_enable_that_raised_still_counts_as_submitted(self):
+        # The server may have committed it before the connection failed.
+        with (patch.object(resume, "read_one", side_effect=fake_read(healthy())),
+              patch.object(resume, "enable", side_effect=OSError("lost"))):
+            buffer = io.StringIO()
+            with redirect_stdout(buffer):
+                resume.main(["--apply", "--no-barrier-probe", *PINS], ENVIRON)
+        self.assertEqual(json.loads(buffer.getvalue())["continuity"]["enable_submissions"], 1)
+
+    def test_a_row_committed_between_the_two_hash_reads_does_not_fail_the_run(self):
+        state = caught_up()
+        reads = {"target": 0}
+        real = fake_read(state)
+
+        def read(dsn, name, params=None):
+            value = real(dsn, name, params)
+            if name == "business_tables" and "target.invalid" in dsn:
+                reads["target"] += 1
+                # The "before" and "final" stages, then one final comparison that lags, then it agrees.
+                if reads["target"] == 3:
+                    value["messages"]["sha256"] = "lagging"
+            return value
+
+        with patch.object(resume, "read_one", side_effect=read):
+            buffer = io.StringIO()
+            with redirect_stdout(buffer):
+                code = resume.main([*FAST, "--probe-timeout", "5"], ENVIRON)
+        report = json.loads(buffer.getvalue())
+        self.assertEqual(code, 0, report)
+        self.assertTrue(report["continuity"]["business_tables_match"])
 
     def test_a_failed_enable_is_reported_without_its_message(self):
         class Denied(Exception):
