@@ -97,4 +97,4 @@ with ExecutorReader("https://executor.example.invalid") as reader:
 
 ### 배포된 Executor의 DB 쌍 확인
 
-호스트가 `create_operator_cutover_app(..., registered_pair=...)`로 시작하면 T10 클라이언트가 인증된 `GET /v1/resources`를 한 번 보낸다. 입력은 최초 등록 기록에서 읽은 두 환경의 `environment_id`, `resource_id`, `connection_ref`다. 방향과 여섯 값이 모두 같을 때만 응답의 연결 참조로 서비스를 구성한다. 인증 실패·조회 실패·등록 변경이면 앱 구성을 중단한다. 이 조회는 시작 시점의 등록 확인이다. 실행 권한과 매 요청의 승인·게이트 검사는 기존 경로에서 판정한다. [T12 조회 계약](T12-platform-integration.md#등록된-출발지와-목적지-조회)
+호스트가 `create_operator_cutover_app(..., registered_pair=...)`로 시작하면 T10 클라이언트가 인증된 `GET /v1/resources`를 한 번 보낸다. 입력은 최초 등록 기록에서 읽은 두 환경의 `environment_id`, `resource_id`, `connection_ref`다. 최초 등록 기록의 `source`와 `target`이 방향을 정한다. 두 환경 ID, 두 DB 자원 ID, 두 연결 참조는 각각 서로 달라야 한다. 방향과 여섯 값이 모두 같을 때만 응답의 연결 참조로 서비스를 구성한다. 인증 실패·조회 실패·등록 변경이면 앱 구성을 중단한다. 이 조회는 시작 시점의 등록 확인이다. 실행 권한과 매 요청의 승인·게이트 검사는 기존 경로에서 판정한다. [T12 조회 계약](T12-platform-integration.md#등록된-출발지와-목적지-조회)

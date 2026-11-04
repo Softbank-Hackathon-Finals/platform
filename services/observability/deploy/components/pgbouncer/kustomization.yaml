@@ -1,0 +1,48 @@
+# T37 PgBouncer 지표. PgBouncer가 있는 클러스터의 Collector에 exporter와 수집 설정을 더한다.
+# 배포 전에 만든다(git에 두지 않음):
+#   Secret    bravo-pgbouncer-stats : connection-string, ca.crt
+#     connection-string 예: postgres://bravo_stats:<URL 인코딩한 암호>@source-pgbouncer.source-dev.svc:5432/pgbouncer?sslmode=verify-full&sslrootcert=/etc/bravo-pgbouncer/ca.crt
+#     ca.crt: PgBouncer 클라이언트 TLS 인증서를 발급한 CA(출발지는 source-dev의 source-db-ca). 공개 인증서만 넣는다
+#   ConfigMap bravo-collector-env : BRAVO_PGBOUNCER_NAME (pooler 라벨 값, 예: source-pgbouncer)
+# PgBouncer 쪽(T6 · T30): pgbouncer.ini의 stats_users에 통계 계정을 넣고 auth_file에 그 계정을 더한다.
+#   컷오버 제어 계정(admin_users)을 공유하지 않는다. 통계 계정은 SHOW만 되고 PAUSE · RELOAD · SHUTDOWN은 거부된다.
+#   통계 계정은 PgBouncer 관리 DB에만 쓰이므로 PostgreSQL 역할 · pg_hba는 바꾸지 않는다.
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+resources:
+  - exporter.yaml
+configMapGenerator:
+  - name: bravo-pgbouncer-config
+    files:
+      - collector-pgbouncer.yaml
+patches:
+  - target: {kind: Deployment, name: bravo-collector}
+    patch: |-
+      - op: add
+        path: /spec/template/spec/containers/0/args/-
+        value: --config=/etc/otelcol-pgbouncer/collector-pgbouncer.yaml
+      - op: add
+        path: /spec/template/spec/containers/0/env/-
+        value:
+          name: BRAVO_PGBOUNCER_NAME
+          valueFrom:
+            configMapKeyRef: {name: bravo-collector-env, key: BRAVO_PGBOUNCER_NAME}
+      - op: add
+        path: /spec/template/spec/containers/0/volumeMounts/-
+        value: {name: pgbouncer-config, mountPath: /etc/otelcol-pgbouncer, readOnly: true}
+      - op: add
+        path: /spec/template/spec/volumes/-
+        value:
+          name: pgbouncer-config
+          configMap: {name: bravo-pgbouncer-config}
+  - target: {kind: NetworkPolicy, name: bravo-collector}
+    patch: |-
+      # 같은 네임스페이스의 exporter 지표 포트만
+      - op: add
+        path: /spec/egress/-
+        value:
+          to:
+            - podSelector:
+                matchLabels: {app: bravo-pgbouncer-exporter}
+          ports:
+            - {port: 9127, protocol: TCP}

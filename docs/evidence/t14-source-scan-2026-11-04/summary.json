@@ -1,0 +1,56 @@
+{
+  "deployment_unchanged": true,
+  "other_tests": "NOT_RUN",
+  "proofs": [
+    {
+      "artifact": "proof-0.json",
+      "sha256": "603e2eabaf0656b02ace1ba356b1b13b821d6f6cbc45fdebb46839aae5811f53"
+    }
+  ],
+  "provenance": "operator qualification; no T10 production authority",
+  "runtime_app_file_count": 14,
+  "runtime_app_files_match": true,
+  "scope": "tracked source plus actual Deployment/Pod and referenced ConfigMap manifests; excludes runtime Secret payloads, mounted files and image layers",
+  "source_sha": "66e7419f404f4ec4addc71014aabfcdd44f34688",
+  "test": "SEC-01.2",
+  "unknown_reason": null,
+  "verdict": "PASS",
+  "source_revision": "8ef547569e019b5d3d932f6c24307afe2d1a64cd",
+  "app_image_digest": "sha256:4562bbf761d761cafc89f9db9153eb74550eb23972ea4f9080e93681d9d90d1d",
+  "deployment_generation_unchanged": true,
+  "configmap_manifest_count": 0,
+  "raw_artifacts": [
+    {
+      "artifact": "control-run.json",
+      "sha256": "f426b3ee9fcf8833e5e0630c39761f7ac2e4d444fd93905880cd2f4ab3dc6a91"
+    },
+    {
+      "artifact": "proof-0.json",
+      "sha256": "603e2eabaf0656b02ace1ba356b1b13b821d6f6cbc45fdebb46839aae5811f53"
+    },
+    {
+      "artifact": "summary.json",
+      "sha256": "787c6fd9f0b987c194805160ba2628af4dd64a9f31710d22370bc05362538311"
+    },
+    {
+      "artifact": "binding-before.json",
+      "sha256": "25d408bab8eb0e0e4d1628ce6285b5b2b29648735129a58440b6986cbcb28a05"
+    },
+    {
+      "artifact": "binding-after.json",
+      "sha256": "de54f62cef8c20679e9da2e3a6fa08702b0a0c21548a522981e016dc8f4daeb5"
+    },
+    {
+      "artifact": "source-files.json",
+      "sha256": "7fb4eeb4e51408a2039edbb7ab0a55f4ce6ae08294065d56060d568810cf9445"
+    }
+  ],
+  "qualification_harness": [
+    {
+      "artifact": "qualify_source_scan.py",
+      "sha256": "d514f404a430a6d6c381e8526d91568bbb55d01e13b42a65723629dcb01e76ac"
+    }
+  ],
+  "negative_scope": "No synthetic secret was inserted in the live application. Existing product regression tests cover negative scan cases.",
+  "source_file_count": 66
+}

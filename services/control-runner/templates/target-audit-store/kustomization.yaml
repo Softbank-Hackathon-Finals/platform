@@ -1,0 +1,18 @@
+# ADR-0016 목적지 감사 저장소 제안 매니페스트(T34). T30 · T9가 목적지에 적용할 때의 출발점이며, 그대로 운영 배포가 아니다.
+# 배포 전에 만든다(git에 두지 않음):
+#   Secret audit-store-auth   : s3.json (관리 · 쓰기 · 검색 identity, 버킷 이름 고정, 익명 · 와일드카드 없음)
+#   Secret audit-store-tls    : tls.crt · tls.key (서버 이름 audit-store.bravo-audit.svc)
+#   Secret audit-writer       : AWS_ACCESS_KEY_ID · AWS_SECRET_ACCESS_KEY (쓰기 identity만)
+#   Secret audit-ca           : ca.crt (전달기 · 검색 주체가 저장소 인증서를 검증)
+# 버킷 · Object Lock · 보존 · 버킷 정책은 관리 identity로 한 번 만든다(tests/integration/verify_target_audit_store.py --probe setup).
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: bravo-audit
+resources:
+  - namespace.yaml
+  - store.yaml
+  - forwarder.yaml
+configMapGenerator:
+  - name: audit-forwarder-config
+    files:
+      - collector.yaml

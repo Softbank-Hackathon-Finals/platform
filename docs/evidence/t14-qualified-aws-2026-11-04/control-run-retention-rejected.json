@@ -1,0 +1,54 @@
+{
+  "kind": "control_run",
+  "schema_version": "1",
+  "run_id": "d4a5a963-cbb9-4a50-a1d8-1c425ef4c39f",
+  "app": "demo-chat",
+  "environment": {
+    "id": "aws",
+    "role": "source",
+    "ref": "operator-qualified/source"
+  },
+  "started_at": "2026-11-04T09:48:35.445398Z",
+  "finished_at": "2026-11-04T09:48:36.541614Z",
+  "results": [
+    {
+      "test_id": "IAM-01.1",
+      "control_id": "IAM-01",
+      "method_version": "1",
+      "expected": "deny",
+      "observed": null,
+      "positive_control": "fail",
+      "verdict": "UNKNOWN",
+      "unknown_reason": "TOOL_ERROR",
+      "evidence": null,
+      "started_at": "2026-11-04T09:48:35.445413Z",
+      "duration_ms": 1096
+    },
+    {
+      "test_id": "SEC-01.1",
+      "control_id": "SEC-01",
+      "method_version": "1",
+      "expected": "deny",
+      "observed": null,
+      "positive_control": "fail",
+      "verdict": "UNKNOWN",
+      "unknown_reason": "NOT_RUN",
+      "evidence": null,
+      "started_at": "2026-11-04T09:48:36.541590Z",
+      "duration_ms": 0
+    },
+    {
+      "test_id": "AUD-01.1",
+      "control_id": "AUD-01",
+      "method_version": "1",
+      "expected": "present",
+      "observed": null,
+      "positive_control": "not_applicable",
+      "verdict": "UNKNOWN",
+      "unknown_reason": "NOT_RUN",
+      "evidence": null,
+      "started_at": "2026-11-04T09:48:36.541605Z",
+      "duration_ms": 0
+    }
+  ]
+}
