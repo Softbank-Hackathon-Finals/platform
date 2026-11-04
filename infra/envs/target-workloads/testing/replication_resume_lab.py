@@ -617,7 +617,7 @@ SWEEP = [(5, 5, True, seconds, 100) for seconds in (2, 3, 4, 5, 6, 8)]
 SETTINGS = [(5, 5, True), (30, 5, True), (60, 5, True), (5, 30, True), (30, 30, True), (60, 60, True), (5, 5, False), (60, 60, False)]
 KNOBS = [(*setting, seconds, 100) for setting in SETTINGS for seconds in (8, 20) if (setting, seconds) != ((5, 5, True), 8)]
 LONG = [(30, 30, True, 40, 100), (60, 60, True, 40, 100), (5, 5, False, 40, 100)]
-LOSSY = [(5, 5, True, 30, 30), (60, 60, True, 30, 30)]
+LOSSY = [(5, 5, True, 30, 30), (60, 60, True, 30, 30), (5, 5, False, 30, 30)]
 TRIALS = SWEEP + KNOBS + LONG + LOSSY
 
 
@@ -788,6 +788,8 @@ def command_assemble(args):
             [sys.executable, str(ROOT / "scripts/evidence_sources.py"), "--repo", str(ROOT), "create", "--revision", revision, *files]))
 
     merged["measured_code"] = {"recover_refusals_paths": sources(args.revision), "timeouts": sources(args.timeouts_revision)}
+    if args.timeouts_added_revision:
+        merged["measured_code"]["timeouts_lossy_without_disable"] = sources(args.timeouts_added_revision)
     merged["environment"] = {"postgres_image": POSTGRES_IMAGE, "db_limits": list(DB_LIMITS), "log_parameters": LOG_PARAMETERS,
                              "resting_timeouts": {"wal_receiver_timeout": DB_PARAMETERS["wal_receiver_timeout"],
                                                   "wal_sender_timeout": DB_PARAMETERS["wal_sender_timeout"]},
@@ -820,6 +822,7 @@ def main():
     assemble.add_argument("--out", type=Path, required=True)
     assemble.add_argument("--revision", required=True, help="the full commit recover, refusals and paths were measured at")
     assemble.add_argument("--timeouts-revision", required=True, help="the full commit the timeout trials were measured at")
+    assemble.add_argument("--timeouts-added-revision", help="the full commit of a trial added after the others")
     assemble.add_argument("parts", nargs="+", type=Path)
     assemble.set_defaults(run=command_assemble)
     args = parser.parse_args()
