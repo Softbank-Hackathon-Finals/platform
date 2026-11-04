@@ -89,10 +89,17 @@ def failback_key(kind: str, value: str) -> str:
 
 
 def cutover_record(c, plan_id) -> dict:
-    """The cutover this plan would roll back, read from stored records (not version arithmetic).
+    """The cutover this plan would roll back: its run and matched integrity receipt."""
+    run, checkpoint = cutover_checkpoint(c, plan_id)
+    return run | {"integrity_receipt_id": checkpoint["receipt_id"]}
 
-    Exactly one cutover command must be observed as a committed DONE, with exactly one matched
-    integrity checkpoint for that run. Anything else is not a failback candidate.
+
+def cutover_checkpoint(c, plan_id) -> tuple[dict, dict]:
+    """The committed cutover run and its integrity checkpoint, read from stored records.
+
+    Plan versions move on during FAILBACK and back to WATCH, so neither is found by version
+    arithmetic. Exactly one cutover command must be observed as a committed DONE, with exactly one
+    matched integrity checkpoint for that run. Anything else raises cutover_record_unavailable.
     """
     done = []
     rows = c.execute("SELECT command_key,receipt_json FROM plan_commands WHERE plan_id=? AND command_key LIKE ?",
@@ -108,17 +115,23 @@ def cutover_record(c, plan_id) -> dict:
         raise EventError("cutover_record_unavailable")
     command_id, snapshot = done[0]
     run = dict(command_id=command_id, epoch=snapshot["epoch"], execution_id=snapshot["execution_id"])
-    receipts = []
+    checkpoints = []
     for row in c.execute("SELECT receipt_json FROM plan_commands WHERE plan_id=? AND command_key LIKE ?",
                          (plan_id, "workflow:%")).fetchall():
         evidence = json.loads(row["receipt_json"])
         result = evidence.get("result")
         if isinstance(result, dict) and set(result) == {"run", "matched"} and result["run"] == run \
                 and result["matched"] is True:
-            receipts.append(evidence["receipt_id"])
-    if len(receipts) != 1:
+            checkpoints.append(evidence)
+    if len(checkpoints) != 1:
         raise EventError("cutover_record_unavailable")
-    return run | {"integrity_receipt_id": receipts[0]}
+    return run, checkpoints[0]
+
+
+def active_failback(c, plan_id, version) -> str | None:
+    """The failback command that moved the plan to FAILBACK at this plan version."""
+    stored = _get(c, plan_id, failback_key("active", str(version)))
+    return stored[1]["command_id"] if stored else None
 
 
 def used_epochs(c, plan_id) -> list[int]:
@@ -266,6 +279,8 @@ class FailbackService:
             _put(c, plan_id, failback_key("command", command_id), request, receipt)
             _put(c, plan_id, failback_key("consumed", approval_id), request, receipt)
             _put(c, plan_id, _key("epoch", str(epoch)), request, receipt)
+            # Recovery finds the running failback by the version this claim creates.
+            _put(c, plan_id, failback_key("active", str(plan["version"] + 1)), request, receipt)
             c.execute("UPDATE plans SET state='FAILBACK',version=version+1,updated_at=? WHERE plan_id=?",
                       (now, plan_id))
             self.store._append_in_transaction(c, plan_id=plan_id, run_id=command_id,

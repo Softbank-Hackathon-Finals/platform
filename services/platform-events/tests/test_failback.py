@@ -19,7 +19,7 @@ from bravo_platform_events.failback import CurrentFailback, FailbackIntegrity, F
 from bravo_platform_events.plan_api import Principal
 from bravo_platform_events.plans import PlanSpec
 from bravo_platform_events.store import EventError
-from bravo_platform_events.workflow import Evidence, Integrity, Run
+from bravo_platform_events.workflow import Evidence, Integrity, Run, Watch, WorkflowRecovery
 
 NOW = "2026-11-04T10:00:00+00:00"
 EXPIRES = "2026-11-04T10:10:00+00:00"
@@ -92,6 +92,10 @@ class Fixture:
             return httpx.Response(202, json=self.value)
         if self.fail_get:
             raise httpx.ReadTimeout("PRIVATE_GET_LOSS")
+        if request.url.path.endswith(CUTOVER_EXECUTION):  # the completed cutover, as seeded
+            return httpx.Response(200, json=response_value() | dict(
+                execution_id=CUTOVER_EXECUTION, epoch=7, status="DONE", committed=True, created_at=NOW,
+                updated_at=NOW, steps=[dict(step="precheck", status="succeeded", elapsed_ms=1)]))
         if self.empty_get:
             return httpx.Response(200, json=[])
         return httpx.Response(200, json=[self.value] if request.url.path == "/v1/cutovers" else self.value)
@@ -429,3 +433,50 @@ def test_abort_returns_to_watch_and_a_retry_needs_a_new_approval_and_epoch(fixtu
     second = f.approve(command_key="approve-2", expected_version=7)
     assert f.submit(second, command_key="submit-2")["failback"] == "rolled_back"
     assert [json.loads(r.content)["epoch"] for r in f.requests if r.method == "POST"] == [8, 9]
+
+
+# Restart recovery (spec commit 5) --------------------------------------------------------------
+
+def recovery(f):
+    cutover = CutoverService(f.backend.reopen(), f.client, bindings=BINDINGS, clock=lambda: f.now)
+
+    def read_evidence(c, plan, previous, run):
+        assert plan["state"] == "WATCH"
+        return Evidence(SPEC.plan_id, SPEC.plan_digest, SPEC.target_environment_id, plan["version"], "r-watch",
+                        Watch(run, previous["receipt_id"], "PASS", "PASS"))
+
+    return WorkflowRecovery(cutover, read_evidence=read_evidence, failback=f.service())
+
+
+def test_resume_after_claim_before_post_only_gets(fixture):
+    f = fixture
+    approval = f.approve()
+    f.service()._prepare(PRINCIPAL, SPEC.plan_id, approval["approval_id"], "submit-1")
+    f.empty_get = True
+    assert recovery(f).resume_once(PRINCIPAL, SPEC.plan_id) == "SAFE_HOLD"
+    assert [r.method for r in f.requests] == ["GET"] and not f.edge_calls
+
+
+def test_resume_after_stored_done_calls_only_the_edge(fixture):
+    f = fixture
+    f.edge_result = False
+    _, receipt = done(f)
+    assert receipt["failback"] == "edge_pending"
+    sent = len(f.requests)
+    f.edge_result = True
+    assert recovery(f).resume_once(PRINCIPAL, SPEC.plan_id) == "DONE_ROLLED_BACK"
+    assert len(f.requests) == sent  # no GET, no POST: the DB part is final
+    assert len(f.edge_calls) == 2 and f.edge_calls[0] == f.edge_calls[1]
+
+
+def test_two_aborted_failbacks_then_watch_still_completes(fixture):
+    f = fixture
+    f.value.update(status="ABORT_PRE_WRITE", committed=False)
+    for attempt, (epoch, execution) in enumerate(((8, FAILBACK_EXECUTION),
+                                                  (9, "dddddddd-dddd-4ddd-8ddd-abcdefabcdef"))):
+        f.context = replace(f.context, command=COMMAND | dict(epoch=epoch))
+        f.value.update(epoch=epoch, execution_id=execution)  # the Executor names each run anew
+        approval = f.approve(command_key=f"approve-{attempt}", expected_version=5 + 2 * attempt)
+        assert f.submit(approval, command_key=f"submit-{attempt}")["failback"] == "aborted"
+    assert f.state() == "WATCH" and f.backend.reopen().snapshot(SPEC.plan_id)["version"] == 9
+    assert recovery(f).resume_once(PRINCIPAL, SPEC.plan_id) == "DONE"
