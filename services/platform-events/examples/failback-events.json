@@ -1,0 +1,114 @@
+[
+  {
+    "schema_version": "1.0",
+    "plan_id": "plan-demo",
+    "occurred_at": "2026-11-04T10:00:00Z",
+    "event_id": "plan-demo:21",
+    "sequence": 21,
+    "run_id": "failback-approval-1",
+    "event_type": "approval.requested",
+    "data": {
+      "approval_id": "failback-approval-1",
+      "approval_kind": "failback",
+      "binding": {
+        "plan_id": "plan-demo",
+        "plan_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "source_environment_id": "env-onprem",
+        "target_environment_id": "env-aws",
+        "cutover_execution_id": "6f1c2a9e-0b7d-4c3e-9a51-2d4e8f7b1c30",
+        "cutover_epoch": 1793760000000,
+        "integrity_receipt_id": "r-cutover-55",
+        "expires_at": "2026-11-04T10:30:00Z"
+      }
+    }
+  },
+  {
+    "schema_version": "1.0",
+    "plan_id": "plan-demo",
+    "occurred_at": "2026-11-04T10:00:00Z",
+    "event_id": "plan-demo:22",
+    "sequence": 22,
+    "run_id": "failback-approval-1",
+    "event_type": "approval.decided",
+    "data": {
+      "approval_id": "failback-approval-1",
+      "approval_kind": "failback",
+      "binding": {
+        "plan_id": "plan-demo",
+        "plan_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "source_environment_id": "env-onprem",
+        "target_environment_id": "env-aws",
+        "cutover_execution_id": "6f1c2a9e-0b7d-4c3e-9a51-2d4e8f7b1c30",
+        "cutover_epoch": 1793760000000,
+        "integrity_receipt_id": "r-cutover-55",
+        "expires_at": "2026-11-04T10:30:00Z"
+      },
+      "decision": "approved",
+      "actor_id": "ops-kim"
+    }
+  },
+  {
+    "schema_version": "1.0",
+    "plan_id": "plan-demo",
+    "occurred_at": "2026-11-04T10:00:00Z",
+    "event_id": "plan-demo:23",
+    "sequence": 23,
+    "run_id": "failback-command-1",
+    "event_type": "state.changed",
+    "data": {
+      "from": "WATCH",
+      "to": "FAILBACK"
+    }
+  },
+  {
+    "schema_version": "1.0",
+    "plan_id": "plan-demo",
+    "occurred_at": "2026-11-04T10:00:00Z",
+    "event_id": "plan-demo:24",
+    "sequence": 24,
+    "run_id": "failback-command-1",
+    "event_type": "failback.recorded",
+    "data": {
+      "command_id": "failback-command-1",
+      "approval_id": "failback-approval-1",
+      "approved_by": "ops-kim",
+      "started_at": "2026-11-04T10:01:00Z",
+      "execution_id": "9a3e7c51-4b2d-4f80-8c16-5e7d0a2b9f41",
+      "integrity_receipt_id": "r-failback-56",
+      "status": "edge_pending"
+    }
+  },
+  {
+    "schema_version": "1.0",
+    "plan_id": "plan-demo",
+    "occurred_at": "2026-11-04T10:00:00Z",
+    "event_id": "plan-demo:25",
+    "sequence": 25,
+    "run_id": "failback-command-1",
+    "event_type": "failback.recorded",
+    "data": {
+      "command_id": "failback-command-1",
+      "approval_id": "failback-approval-1",
+      "approved_by": "ops-kim",
+      "started_at": "2026-11-04T10:01:00Z",
+      "execution_id": "9a3e7c51-4b2d-4f80-8c16-5e7d0a2b9f41",
+      "integrity_receipt_id": "r-failback-56",
+      "status": "rolled_back",
+      "finished_at": "2026-11-04T10:01:09Z",
+      "recovery_ms": 9000
+    }
+  },
+  {
+    "schema_version": "1.0",
+    "plan_id": "plan-demo",
+    "occurred_at": "2026-11-04T10:00:00Z",
+    "event_id": "plan-demo:26",
+    "sequence": 26,
+    "run_id": "failback-command-1",
+    "event_type": "state.changed",
+    "data": {
+      "from": "FAILBACK",
+      "to": "DONE_ROLLED_BACK"
+    }
+  }
+]

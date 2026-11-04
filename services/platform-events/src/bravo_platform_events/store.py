@@ -110,12 +110,19 @@ class EventStore:
         if len(canonical.encode()) > 32768:
             raise EventError("event_too_large")
         fingerprint = hashlib.sha256(canonical.encode()).hexdigest()
-        if (
-            event_type == "state.changed"
-            and not state_owner
-            and c.execute("SELECT 1 FROM state_owners WHERE plan_id=?", (plan_id,)).fetchone()
-        ):
+        managed = not state_owner and c.execute(
+            "SELECT 1 FROM state_owners WHERE plan_id=?", (plan_id,)
+        ).fetchone()
+        if managed and event_type == "state.changed":
             raise EventError("managed_state_required")
+        # T20: only the FAILBACK adapter records failback approvals and progress for a managed plan,
+        # so a request visible on SSE is always the one its decision names.
+        if managed and (
+            event_type == "failback.recorded"
+            or (event_type in ("approval.requested", "approval.decided")
+                and isinstance(data, dict) and data.get("approval_kind") == "failback")
+        ):
+            raise EventError("managed_failback_required")
         stream = c.execute(
             "SELECT next_sequence FROM streams WHERE plan_id=?", (plan_id,)
         ).fetchone()

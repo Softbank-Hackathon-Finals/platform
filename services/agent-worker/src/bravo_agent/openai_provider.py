@@ -98,18 +98,21 @@ class OpenAIProvider:
             "failure": bundle.model_dump(), "snapshot": tools.snapshot.manifest.model_dump(),
         }, sort_keys=True)}]
         definitions = function_tools()
-        if self.subscription:
-            definitions = [{"type": "namespace", "name": "bravo",
-                            "description": "Approved snapshot reads and proposal submission only.",
-                            "tools": definitions}]
+        needs_read = self.subscription
         tokens = 0
         async with asyncio.timeout(180):
             async with AsyncOpenAI(api_key=os.environ[credential],
                                    base_url="https://api.openai.com/v1",
                                    max_retries=0, timeout=60) as client:
                 for index in range(8):
+                    offered = definitions
+                    if needs_read:
+                        offered = [tool for tool in definitions if tool["name"] == "repo_read"]
+                    if self.subscription:
+                        offered = [{"type": "namespace", "name": "bravo", "tools": offered,
+                                    "description": "Approved snapshot reads and proposal submission only."}]
                     request = {"model": self.model, "instructions": SYSTEM,
-                               "input": history, "tools": definitions, "tool_choice": "auto",
+                               "input": history, "tools": offered, "tool_choice": "required" if needs_read else "auto",
                                "parallel_tool_calls": False, "store": False,
                                "include": ["reasoning.encrypted_content"]}
                     if not self.subscription:
@@ -140,12 +143,15 @@ class OpenAIProvider:
                     item = calls[0]
                     if self.subscription and item.get("namespace") != "bravo":
                         raise RuntimeError("unexpected subscription tool namespace")
+                    if needs_read and item.get("name") != "repo_read":
+                        raise RuntimeError("subscription must read the snapshot before proposing")
                     name = FUNCTIONS.get(item["name"], "unlisted")
                     try:
                         if len(item["arguments"]) > 140000:
                             raise ValueError("arguments too large")
                         arguments = json.loads(item["arguments"])
                         result = tools.dispatch(name, arguments)
+                        needs_read = False
                     except (ValueError, PolicyDenied):
                         result = {"error": "POLICY_DENIED"}
                         if name in FUNCTIONS.values():

@@ -32,7 +32,8 @@
         "approval.requested",
         "approval.decided",
         "gate.completed",
-        "execution.updated"
+        "execution.updated",
+        "failback.recorded"
       ]
     },
     "data": {
@@ -70,7 +71,8 @@
         "FAILBACK",
         "SAFE_HOLD",
         "NEEDS_HUMAN",
-        "DONE"
+        "DONE",
+        "DONE_ROLLED_BACK"
       ]
     },
     "digest": {
@@ -128,6 +130,49 @@
       "type": "string",
       "pattern": "^[0-9a-f]{64}$",
       "description": "T5 SHA-256 encoding; see docs/controls/README.md for canonical evaluation context inputs."
+    },
+    "failback_binding": {
+      "type": "object",
+      "properties": {
+        "plan_id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "plan_digest": {
+          "$ref": "#/$defs/context_digest"
+        },
+        "source_environment_id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "target_environment_id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "cutover_execution_id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "cutover_epoch": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "integrity_receipt_id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "expires_at": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "plan_id",
+        "plan_digest",
+        "source_environment_id",
+        "target_environment_id",
+        "cutover_execution_id",
+        "cutover_epoch",
+        "integrity_receipt_id",
+        "expires_at"
+      ],
+      "additionalProperties": false
     }
   },
   "allOf": [
@@ -186,11 +231,12 @@
               "approval_kind": {
                 "enum": [
                   "change",
-                  "cutover"
+                  "cutover",
+                  "failback"
                 ]
               },
               "binding": {
-                "$ref": "#/$defs/binding"
+                "type": "object"
               }
             },
             "required": [
@@ -215,6 +261,29 @@
                         "gate_id",
                         "context_digest"
                       ]
+                    }
+                  }
+                }
+              },
+              {
+                "if": {
+                  "properties": {
+                    "approval_kind": {
+                      "const": "failback"
+                    }
+                  }
+                },
+                "then": {
+                  "properties": {
+                    "binding": {
+                      "$ref": "#/$defs/failback_binding"
+                    }
+                  }
+                },
+                "else": {
+                  "properties": {
+                    "binding": {
+                      "$ref": "#/$defs/binding"
                     }
                   }
                 }
@@ -243,11 +312,12 @@
               "approval_kind": {
                 "enum": [
                   "change",
-                  "cutover"
+                  "cutover",
+                  "failback"
                 ]
               },
               "binding": {
-                "$ref": "#/$defs/binding"
+                "type": "object"
               },
               "decision": {
                 "enum": [
@@ -284,6 +354,29 @@
                         "gate_id",
                         "context_digest"
                       ]
+                    }
+                  }
+                }
+              },
+              {
+                "if": {
+                  "properties": {
+                    "approval_kind": {
+                      "const": "failback"
+                    }
+                  }
+                },
+                "then": {
+                  "properties": {
+                    "binding": {
+                      "$ref": "#/$defs/failback_binding"
+                    }
+                  }
+                },
+                "else": {
+                  "properties": {
+                    "binding": {
+                      "$ref": "#/$defs/binding"
                     }
                   }
                 }
@@ -371,6 +464,129 @@
               "status"
             ],
             "additionalProperties": false
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "event_type": {
+            "const": "failback.recorded"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "data": {
+            "type": "object",
+            "properties": {
+              "command_id": {
+                "$ref": "#/$defs/identifier"
+              },
+              "approval_id": {
+                "$ref": "#/$defs/identifier"
+              },
+              "approved_by": {
+                "$ref": "#/$defs/identifier"
+              },
+              "status": {
+                "enum": [
+                  "edge_pending",
+                  "rolled_back",
+                  "aborted"
+                ]
+              },
+              "started_at": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "finished_at": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "recovery_ms": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "execution_id": {
+                "$ref": "#/$defs/identifier"
+              },
+              "integrity_receipt_id": {
+                "$ref": "#/$defs/identifier"
+              }
+            },
+            "required": [
+              "command_id",
+              "approval_id",
+              "approved_by",
+              "status",
+              "started_at"
+            ],
+            "additionalProperties": false,
+            "allOf": [
+              {
+                "if": {
+                  "properties": {
+                    "status": {
+                      "const": "rolled_back"
+                    }
+                  }
+                },
+                "then": {
+                  "required": [
+                    "finished_at",
+                    "recovery_ms",
+                    "execution_id",
+                    "integrity_receipt_id"
+                  ]
+                }
+              },
+              {
+                "if": {
+                  "properties": {
+                    "status": {
+                      "const": "aborted"
+                    }
+                  }
+                },
+                "then": {
+                  "required": [
+                    "finished_at",
+                    "execution_id"
+                  ]
+                }
+              },
+              {
+                "if": {
+                  "properties": {
+                    "status": {
+                      "const": "edge_pending"
+                    }
+                  }
+                },
+                "then": {
+                  "required": [
+                    "execution_id",
+                    "integrity_receipt_id"
+                  ],
+                  "not": {
+                    "anyOf": [
+                      {
+                        "required": [
+                          "finished_at"
+                        ]
+                      },
+                      {
+                        "required": [
+                          "recovery_ms"
+                        ]
+                      }
+                    ]
+                  }
+                }
+              }
+            ]
           }
         }
       }
