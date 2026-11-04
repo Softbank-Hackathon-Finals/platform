@@ -25,7 +25,7 @@ def main():
     parser.add_argument("--runner-checkout", type=Path)
     parser.add_argument("--source-run", type=Path)
     parser.add_argument("--target-run", type=Path)
-    parser.add_argument("--mode", choices=("audit-pair", "restore-partial"), default="audit-pair")
+    parser.add_argument("--mode", choices=("audit-pair", "restore-partial", "source-scan-partial"), default="audit-pair")
     parser.add_argument("--private-output", type=Path, required=True)
     args = parser.parse_args()
     os.umask(0o077)
@@ -39,7 +39,7 @@ def main():
         # Explicit operator-selected checkout, never a user upload or URL.
         from verify_live_audit_canaries import run
     elif not args.source_run or not args.target_run or args.runner_checkout:
-        parser.error("restore-partial requires only existing source-run and target-run")
+        parser.error("partial qualification requires only existing source-run and target-run")
 
     result = {
         "status": "INCOMPLETE",
@@ -60,15 +60,21 @@ def main():
             source = json.loads(raw["source"])
             target = json.loads(raw["target"])
             assert len(source["results"]) == len(target["results"]) == 20
-            assert {r["test_id"] for r in source["results"] if r["verdict"] == "PASS"} == {"DR-01.1"}
+            source_test = "SEC-01.2" if args.mode == "source-scan-partial" else "DR-01.1"
+            assert {r["test_id"] for r in source["results"] if r["verdict"] == "PASS"} == {source_test}
             assert all(r["verdict"] == "UNKNOWN" for r in target["results"])
-            result["scope"] = "one actual local restore run and an explicitly unverified target; test authority"
+            if args.mode == "source-scan-partial":
+                assert all(r["unknown_reason"] == "NOT_RUN" for r in target["results"])
+                result["scope"] = "retained AWS source SEC-01.2 run and an explicitly unexecuted target; local test authority"
+            else:
+                result["scope"] = "one actual local restore run and an explicitly unverified target; test authority"
         snapshots = {side: RunSnapshot(side + "-registered", data) for side, data in raw.items()}
         contract = T5Contract()
         ctx = GateContext(
             "local-trial-tenant",
             "demo-chat",
-            "local-audit-gate" if args.mode == "audit-pair" else "local-restore-partial-gate",
+            {"audit-pair": "local-audit-gate", "restore-partial": "local-restore-partial-gate",
+             "source-scan-partial": "local-source-scan-partial-gate"}[args.mode],
             fingerprint({"local_plan": str(root.name)}),
             "full",
             "1",
@@ -151,8 +157,8 @@ def main():
             assert all(row["reason"] == "SOURCE_UNKNOWN" for t, row in rows.items() if t not in audit_ids)
         else:
             assert all(row["decision"] == "BLOCK" for row in rows.values())
-            assert rows["DR-01.1"]["reason"] == "TARGET_UNKNOWN"
-            assert all(row["reason"] == "SOURCE_UNKNOWN" for t, row in rows.items() if t != "DR-01.1")
+            assert rows[source_test]["reason"] == "TARGET_UNKNOWN"
+            assert all(row["reason"] == "SOURCE_UNKNOWN" for t, row in rows.items() if t != source_test)
         assert report["decision"] == "BLOCK"
 
         def rejected(callback):
@@ -186,6 +192,7 @@ def main():
             full_profile_tests=20,
             actual_audit_controls_passed=3 if args.mode == "audit-pair" else 0,
             actual_source_restore_verified=args.mode == "restore-partial",
+            retained_source_scan_loaded=args.mode == "source-scan-partial",
             unexecuted_controls_blocked=17 if args.mode == "audit-pair" else 20,
             whole_gate_decision=report["decision"],
             missing_controls_refuse_prerequisite=legitimate_block,
