@@ -28,6 +28,57 @@ async function counters(page, plan) {
   return (await page.request.get(`/v1/plans/${plan}/fixture-stats`)).json();
 }
 
+test("cutover approval lookup cannot create a missing approval", async ({
+  page,
+  context,
+}) => {
+  const plan = "plan-approve-loss",
+    posts = [];
+  let blocked = true;
+  await context.addCookies([
+    {
+      name: "fixture-session",
+      value: "test-only",
+      url: "http://127.0.0.1:18121",
+      sameSite: "Strict",
+    },
+  ]);
+  await page.goto("/console/");
+  await page.locator("#plan").fill(plan);
+  await page.locator("#connect").click();
+  await expect(page.locator("#connection")).toHaveText("서버 이벤트 연결됨");
+  await page.route(`**/v1/plans/${plan}/approvals`, async (route) => {
+    posts.push({
+      body: route.request().postData(),
+      key: route.request().headers()["idempotency-key"],
+    });
+    if (blocked) await route.abort("failed");
+    else await route.continue();
+  });
+  await page.locator("#confirm").check();
+  await page.locator("#approve").click();
+  await expect(page.locator("#action-status")).toContainText(
+    "응답을 확인하지 못했습니다",
+  );
+  await page.locator("#retry").click();
+  await expect(page.locator("#action-status")).toContainText(
+    "이번 요청의 접수 여부는 미확정",
+  );
+  expect(posts).toHaveLength(1);
+  const replay = await (
+    await page.request.get(`/v1/plans/${plan}/events?follow=false`)
+  ).text();
+  expect(replay).not.toContain('"event_type":"approval.decided"');
+  await expect(page.locator("#execute")).toBeDisabled();
+  blocked = false;
+  await page.locator("#confirm").check();
+  await page.locator("#approve").click();
+  await expect(page.locator("#action-status")).toContainText("승인 기록 완료");
+  expect(posts).toHaveLength(2);
+  expect(posts[0]).toEqual(posts[1]);
+  expect(await counters(page, plan)).toEqual({ submitted: 0, reads: 0 });
+});
+
 test("lost response after server receipt recovers through lookup only", async ({
   page,
   context,
