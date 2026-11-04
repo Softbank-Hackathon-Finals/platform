@@ -1,0 +1,64 @@
+{
+  "verifier_sha256": "dfb8186eb6ea931dbf6fb8915179622caedddfb32253b4cfddde941992d0ac1d",
+  "cases": [
+    {
+      "case": "missing-backup",
+      "exit_code": 0,
+      "output": {
+        "case": "missing-backup",
+        "cluster_ready": false,
+        "evidence": {
+          "log_sha256": "996679560df529b8b0f6d66a9dbb710fd5059d1c629c64f334695f24f29302b7",
+          "pod_identity_sha256": "94dc94ba43fd51c1e699ee28eca483f7b3f629ccd464203cb6be1652860ad528",
+          "reason": "requested_backup_missing",
+          "restore_process_failed": true
+        },
+        "observed_at": "2026-11-03T13:07:44.350140+00:00",
+        "qualified_failure": true,
+        "restore_spec_sha256": "ff3ac1d61b018397116be4f1dc8e67eae31a048475647acae79d5278f7929349",
+        "scope": "operator-prepared-disposable-restore; not DR-01 PASS"
+      }
+    },
+    {
+      "case": "wrong-ca",
+      "exit_code": 0,
+      "output": {
+        "case": "wrong-ca",
+        "cluster_ready": false,
+        "evidence": {
+          "log_sha256": "26ecffe0a41384d19dfae884ae01fe9eab747fc71a2f19ea858e4a1daa15962f",
+          "pod_identity_sha256": "a4caae52e30b44c8b24c1b21f8e3f7ed2e2740e4e9d0de12a192d73c3cf7be94",
+          "reason": "certificate_verification_failed",
+          "restore_process_failed": true
+        },
+        "observed_at": "2026-11-03T13:07:44.917680+00:00",
+        "qualified_failure": true,
+        "restore_spec_sha256": "d76f4d959a9d9542ee1199a6f406b376f5c7869fd108687774ae3e743e476b8b",
+        "scope": "operator-prepared-disposable-restore; not DR-01 PASS"
+      }
+    },
+    {
+      "case": "wrong-credentials",
+      "exit_code": 0,
+      "output": {
+        "case": "wrong-credentials",
+        "cluster_ready": false,
+        "evidence": {
+          "log_sha256": "ec7d2779ebe929c70185342d5ff16f3894f71d0b5a3d0ab007ac0aa7dfb6c59c",
+          "pod_identity_sha256": "24d717888a2b1585c51c6d370bd55286d7d2ac5e6f0015d4f17dfc4597fe0f84",
+          "reason": "storage_access_rejected",
+          "restore_process_failed": true
+        },
+        "observed_at": "2026-11-03T13:07:45.512323+00:00",
+        "qualified_failure": true,
+        "restore_spec_sha256": "9a972a3fb2b11042aa1f51a70f2e8002cfb03a5f13f977d19aef99b53deff166",
+        "scope": "operator-prepared-disposable-restore; not DR-01 PASS"
+      }
+    }
+  ],
+  "format": "operator_qualification_projection_v1",
+  "public_is_raw": false,
+  "source_and_reader_store_unchanged": true,
+  "existing_restore_healthy": true,
+  "original_readback_sha256": "64d6aad5f09e5ec9a66c72389a1206df9d487144db6071a66d31f6f597ee97ce"
+}
