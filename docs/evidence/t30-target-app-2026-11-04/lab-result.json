@@ -1,0 +1,359 @@
+{
+  "schema_version": 1,
+  "stand_ins": {
+    "cluster": "single-node k3s in Docker, not RKE2 on the development VM",
+    "image": "local arm64 build of the demo-chat source, not the published GHCR bytes",
+    "source_db": "CNPG source-db in the same cluster, not EKS",
+    "tailscale": "ClusterIP of source-db-rw given to pooler.py as the egress Service; no tailnet",
+    "t9_secrets": "generated values in the T9 Secret names; no OpenBao or ESO",
+    "operator_install": "official 1.30.1 release manifest, not the Helm chart with its namespace scope",
+    "object_store": "absent; attachments were not exercised",
+    "edge": "absent; requests came from a Pod through the Service DNS name"
+  },
+  "kubernetes": "mirror.gcr.io/rancher/k3s:v1.35.5-k3s1",
+  "passed": true,
+  "platform_revision": "cbf881889305d7665912566c9d6aa23584ffaa92",
+  "platform_tree_clean": true,
+  "demo_chat_revision": "8d82a9241d3894737778a77d58349e1aee54eca1",
+  "local_image_digest": "sha256:c3ee149d045b8875e7c4ddc5bab609e623e219929362cf4d20331a271d5cff9e",
+  "restricted_server_dry_run": "accepted",
+  "closed_when_unusable": {
+    "secret_missing": {
+      "ready_endpoints": 0,
+      "pod_phase": "Pending",
+      "app_started": false
+    },
+    "secret_malformed": {
+      "ready_endpoints": 0,
+      "sidecar_restarts": 1,
+      "app_started": false
+    },
+    "secrets_manager_unreachable": {
+      "app_restarts": 1,
+      "ready": false,
+      "ready_endpoints": 0,
+      "application_startup_failed": true,
+      "endpoint_connection_error": true
+    }
+  },
+  "security": {
+    "live_app_has_command": false,
+    "namespace_pod_security": "restricted"
+  },
+  "nologin_direct": {
+    "before": {
+      "source_messages": 0,
+      "target_messages": 0,
+      "target_chat_app_can_login": false
+    },
+    "ready_endpoints": 1,
+    "reads": {
+      "healthz": {
+        "status": 200,
+        "x_bravo_env": [
+          "onprem"
+        ],
+        "retry_after": null,
+        "seconds": 0.01
+      },
+      "readyz": {
+        "status": 200,
+        "x_bravo_env": [
+          "onprem"
+        ],
+        "retry_after": null,
+        "seconds": 0.0
+      },
+      "info": {
+        "status": 200,
+        "x_bravo_env": [
+          "onprem"
+        ],
+        "retry_after": null,
+        "seconds": 0.0,
+        "info": {
+          "env": "onprem",
+          "write_blocked": true,
+          "attachment_upload_enabled": false
+        }
+      },
+      "health_db": {
+        "status": 503,
+        "x_bravo_env": [
+          "onprem"
+        ],
+        "retry_after": null,
+        "seconds": 2.0
+      },
+      "messages": {
+        "status": 503,
+        "x_bravo_env": [
+          "onprem"
+        ],
+        "retry_after": "2",
+        "seconds": 5.0
+      }
+    },
+    "post_while_blocked": {
+      "status": 503,
+      "x_bravo_env": [
+        "onprem"
+      ],
+      "retry_after": "2",
+      "seconds": 0.01
+    },
+    "unblock_status": "200",
+    "post_after_unblock": {
+      "status": 503,
+      "x_bravo_env": [
+        "onprem"
+      ],
+      "retry_after": "2",
+      "seconds": 5.02
+    },
+    "reblock_status": "200",
+    "app_log_not_permitted_lines": 9,
+    "target_db_log_not_permitted_lines": 9,
+    "after": {
+      "source_messages": 0,
+      "target_messages": 0,
+      "target_chat_app_can_login": false
+    }
+  },
+  "nologin_via_pooler": {
+    "before": {
+      "source_messages": 0,
+      "target_messages": 0,
+      "target_chat_app_can_login": false
+    },
+    "ready_endpoints": 1,
+    "reads": {
+      "healthz": {
+        "status": 200,
+        "x_bravo_env": [
+          "onprem"
+        ],
+        "retry_after": null,
+        "seconds": 0.01
+      },
+      "readyz": {
+        "status": 200,
+        "x_bravo_env": [
+          "onprem"
+        ],
+        "retry_after": null,
+        "seconds": 0.0
+      },
+      "info": {
+        "status": 200,
+        "x_bravo_env": [
+          "onprem"
+        ],
+        "retry_after": null,
+        "seconds": 0.0,
+        "info": {
+          "env": "onprem",
+          "write_blocked": true,
+          "attachment_upload_enabled": false
+        }
+      },
+      "health_db": {
+        "status": 503,
+        "x_bravo_env": [
+          "onprem"
+        ],
+        "retry_after": null,
+        "seconds": 2.0
+      },
+      "messages": {
+        "status": 503,
+        "x_bravo_env": [
+          "onprem"
+        ],
+        "retry_after": "2",
+        "seconds": 5.02
+      }
+    },
+    "post_while_blocked": {
+      "status": 503,
+      "x_bravo_env": [
+        "onprem"
+      ],
+      "retry_after": "2",
+      "seconds": 0.01
+    },
+    "unblock_status": "200",
+    "post_after_unblock": {
+      "status": 503,
+      "x_bravo_env": [
+        "onprem"
+      ],
+      "retry_after": "2",
+      "seconds": 5.01
+    },
+    "reblock_status": "200",
+    "app_log_not_permitted_lines": 9,
+    "target_db_log_not_permitted_lines": 20,
+    "after": {
+      "source_messages": 0,
+      "target_messages": 0,
+      "target_chat_app_can_login": false
+    }
+  },
+  "pooler_first_login": {
+    "wrong_first": {
+      "first_wrong": "password_rejected",
+      "then_right": "pooler_has_no_scram_keys",
+      "right_again": "pooler_has_no_scram_keys"
+    },
+    "right_first": {
+      "first_right": "ok",
+      "then_wrong": "password_rejected",
+      "then_right": "ok"
+    }
+  },
+  "precutover_via_pooler_to_source": {
+    "db_path_open_seconds_after_ready": 0.2,
+    "before": {
+      "source_messages": 0,
+      "target_messages": 0,
+      "target_chat_app_can_login": false
+    },
+    "ready_endpoints": 1,
+    "reads": {
+      "healthz": {
+        "status": 200,
+        "x_bravo_env": [
+          "onprem"
+        ],
+        "retry_after": null,
+        "seconds": 0.01
+      },
+      "readyz": {
+        "status": 200,
+        "x_bravo_env": [
+          "onprem"
+        ],
+        "retry_after": null,
+        "seconds": 0.0
+      },
+      "info": {
+        "status": 200,
+        "x_bravo_env": [
+          "onprem"
+        ],
+        "retry_after": null,
+        "seconds": 0.0,
+        "info": {
+          "env": "onprem",
+          "write_blocked": true,
+          "attachment_upload_enabled": false
+        }
+      },
+      "health_db": {
+        "status": 200,
+        "x_bravo_env": [
+          "onprem"
+        ],
+        "retry_after": null,
+        "seconds": 0.0
+      },
+      "messages": {
+        "status": 200,
+        "x_bravo_env": [
+          "onprem"
+        ],
+        "retry_after": null,
+        "seconds": 0.0
+      }
+    },
+    "upload_refused": {
+      "status": 403,
+      "x_bravo_env": [
+        "onprem"
+      ],
+      "retry_after": null,
+      "seconds": 0.01
+    },
+    "post_while_blocked": {
+      "status": 503,
+      "x_bravo_env": [
+        "onprem"
+      ],
+      "retry_after": "2",
+      "seconds": 0.01
+    },
+    "unblock_status": "200",
+    "post_after_unblock": {
+      "status": 201,
+      "x_bravo_env": [
+        "onprem"
+      ],
+      "retry_after": null,
+      "seconds": 0.01
+    },
+    "same_key_retry": {
+      "status": 200,
+      "x_bravo_env": [
+        "onprem"
+      ],
+      "retry_after": null,
+      "seconds": 0.01
+    },
+    "read_back": {
+      "status": 200,
+      "x_bravo_env": [
+        "onprem"
+      ],
+      "retry_after": null,
+      "seconds": 0.01
+    },
+    "after": {
+      "source_messages": 1,
+      "target_messages": 0,
+      "target_chat_app_can_login": false
+    },
+    "requests_right_after_rollout": 12,
+    "failed_right_after_rollout": 0,
+    "after_restart": {
+      "env": "onprem",
+      "write_blocked": true,
+      "attachment_upload_enabled": false
+    },
+    "old_pod_gone_seconds_after_rollout": 7.2
+  },
+  "checks": {
+    "restricted_namespace": true,
+    "app_keeps_image_entrypoint": true,
+    "missing_secret_serves_nothing": true,
+    "malformed_secret_stops_sidecar_before_app": true,
+    "image_fails_without_secrets_manager": true,
+    "nologin_direct_pod_stays_ready": true,
+    "nologin_direct_business_reports_503": true,
+    "nologin_direct_write_blocked_then_503": true,
+    "nologin_direct_no_row_anywhere": true,
+    "nologin_direct_role_stays_closed": true,
+    "nologin_direct_refused_by_the_role_check": true,
+    "nologin_direct_every_response_labelled": true,
+    "nologin_pooler_pod_stays_ready": true,
+    "nologin_pooler_business_reports_503": true,
+    "nologin_pooler_write_blocked_then_503": true,
+    "nologin_pooler_no_row_anywhere": true,
+    "nologin_pooler_role_stays_closed": true,
+    "nologin_pooler_refused_by_the_role_check": true,
+    "nologin_pooler_every_response_labelled": true,
+    "pooler_wrong_first_login_blocks_correct_logins": true,
+    "pooler_restart_and_right_first_login_recovers": true,
+    "precutover_db_path_works": true,
+    "precutover_starts_write_blocked": true,
+    "attachment_upload_refused_before_cutover": true,
+    "precutover_blocked_post_is_503": true,
+    "precutover_opened_post_commits_once": true,
+    "single_writer_target_db_untouched": true,
+    "target_role_stays_nologin": true,
+    "every_response_labelled_onprem": true,
+    "restart_returns_to_write_blocked": true,
+    "rollout_is_not_held_by_the_sidecar": true,
+    "rollout_drops_no_request": true
+  }
+}
