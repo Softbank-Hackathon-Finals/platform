@@ -9,6 +9,7 @@
 - `store.py`: SQLite를 이용한 로컬 순번·멱등 append·재접속 재생 참조 구현.
 - `postgres.py`: 기존 상태/이벤트 로직을 재사용하는 선택형 PostgreSQL 저장 어댑터. [접속·역할·검증 계약](../../docs/contracts/T10-postgres-storage-v1-proposal.md).
 - `plans.py`: 같은 DB 트랜잭션의 계획 등록 · COLLECT→ANALYZE · 명령 영수증 · 상태 snapshot.
+- `window_store.py`: 검증된 생산자 권한과 창 저장을 같은 계획 트랜잭션에 묶는 호스트 포트. [연결·마이그레이션 절차](../../docs/contracts/T10-window-storage.md).
 - `plan_api.py`: 서버 principal/tenant 정책을 공유하는 계획 조회와 기존 SSE 경로. [계획 조회 제안](../../docs/contracts/T10-plan-snapshot-v1-proposal.md).
 - `executor.py`: T12 실행 상태의 읽기 전용 소비 어댑터. 응답 유실·식별자 불일치·조회 실패는 UNKNOWN으로 유지하고 원시 오류를 반환하지 않는다. [호출 경계와 후속 통합](../../docs/contracts/T10-cutover-submit-v1-proposal.md#실행-상태를-읽는-계약).
 - `api.py`: plan-scoped 읽기 전용 FastAPI 어댑터. 인증·인가 callback이 없으면 모든 요청을 거부한다.
@@ -67,7 +68,7 @@ store = PostgresPlanStore(os.environ["BRAVO_PLATFORM_DATABASE_URL"])
 app = create_plan_app(store)  # 검증된 principal resolver가 없으면 거부
 ```
 
-설치에는 `postgres` extra를 사용한다. 접속값은 호스트의 시크릿 주입 경로에서 받고 출력하지 않는다. 어댑터는 DDL을 실행하지 않으며 사전 적용한 스키마 버전 1을 확인한다. 관리자용 `sql/bootstrap_roles.sql`, 별도 migration 계정용 `sql/0001_state_event.sql`, runtime 계정 권한 및 원격 TLS·운영 적용의 남은 조건은 [저장소 제안](../../docs/contracts/T10-postgres-storage-v1-proposal.md)에 있다.
+설치에는 `postgres` extra를 사용한다. 접속값은 호스트의 시크릿 주입 경로에서 받고 출력하지 않는다. 어댑터는 DDL을 실행하지 않으며 사전 적용한 스키마 버전 1 또는 2를 확인한다. 창 저장에는 별도 migration 계정으로 적용한 `sql/0002_sli_windows.sql`이 필요하다. v1의 기존 기능은 계속 사용할 수 있다. 관리자용 `sql/bootstrap_roles.sql`, 최초 migration `sql/0001_state_event.sql`, runtime 계정 권한 및 원격 TLS·운영 적용의 남은 조건은 [저장소 제안](../../docs/contracts/T10-postgres-storage-v1-proposal.md)에 있다.
 
 로컬 실제 PostgreSQL에서 서로 다른 어댑터 인스턴스의 동시 등록·전이·재시도·append, 쓰기 실패 롤백, 상태와 watermark의 동일 시점, 강제 DB 재시작/WAL 복구 및 권한 거부를 시험한다. 이 결과는 RKE2/CNPG/PgBouncer 연결, 클라우드 Secret 배포, 운영 복원·HA·용량·부하, T33 저장소 이식을 검증한 것이 아니다.
 
