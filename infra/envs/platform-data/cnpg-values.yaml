@@ -1,0 +1,14 @@
+# Reuse the reviewed T6 operator and PostgreSQL minor releases on the separate T7 cluster.
+replicaCount: 1
+image:
+  tag: 1.30.1@sha256:923c267ec29636db3bee20f993d0ec4973fa22998e1adad37da79e4d32b5bc07
+config:
+  data:
+    WATCH_NAMESPACE: platform-state
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    cpu: 500m
+    memory: 512Mi

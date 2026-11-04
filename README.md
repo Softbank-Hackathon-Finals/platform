@@ -48,6 +48,7 @@ platform/
 │   ├── adr/                    # 결정 기록 (0000-template.md)
 │   └── assets/                 # README 그림
 ├── services/
+│   ├── loadgen/                # T18 부하 생성기 · 대조 리포트 · 창 요약 (Python)
 │   └── security-findings/      # T33 보안 탐지 정규화 (Python)
 ├── scripts/
 │   ├── sync_tasks.py           # tasks.md ↔ 이슈 · 보드 동기화
@@ -90,6 +91,7 @@ platform/
 
 ## 문서
 
+- [계약 목차](docs/contracts/README.md): 보안·관측·무결성·승인 계약의 원본과 생산·소비 연결
 - [설계 문서](docs/design.html): 브라우저로 열어 본다 (그림은 SVG로 들어 있다). 원본은 이 파일이다
 - [설계 문서 버전 이력](docs/design-history/README.md): 버전을 올리는 기준과 이전 버전 사본
 - [해야 할 일](docs/tasks.md): 단계별 작업과 역할 분담

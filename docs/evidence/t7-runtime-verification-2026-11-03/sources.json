@@ -1,0 +1,17 @@
+{
+  "runtime_builder_commit": "ca52cc7d129e8808fff9e32951d346763b1f1452",
+  "sources": [
+    {
+      "path": "scripts/t7_runtime_checks.py",
+      "sha256": "68358d937c96ad4410164725d659d22c553ac674cb1f2e75a064e82798f34911"
+    },
+    {
+      "path": "scripts/t7_runtime_readback.py",
+      "sha256": "d9b209a0583fe593bbce87b287f235da60f4f417bf414eb08e452ba0ee936bef"
+    },
+    {
+      "path": "scripts/tests/test_t7_runtime_readback.py",
+      "sha256": "fc62d45ef94dc7751a74c8b6f83db4b3ed7e9d36c170d560b5b582984bba2402"
+    }
+  ]
+}

@@ -1,0 +1,13 @@
+{
+  "command_id": "150d8284-5404-4eaf-b61f-f37a88a057ab",
+  "observed_at": "2026-11-03T08:45:09.202Z",
+  "status": "Success",
+  "response_code": 0,
+  "result": {
+    "temporary_worker_files_removed": true,
+    "temporary_runtime_files_removed": true,
+    "existing_rke2_and_aws_resources_unchanged": true
+  },
+  "scope": "Only this verification run's transient units, /opt worker files and exact systemd runtime directory. Existing T7 infrastructure is owned by its original session.",
+  "initial_cleanup": "Worker files were removed; runtime cleanup stopped at a systemd-created symlink. Follow-up checked its exact /run/private target and removed only the owned runtime directory."
+}

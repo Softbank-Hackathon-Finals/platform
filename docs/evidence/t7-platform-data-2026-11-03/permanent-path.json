@@ -1,0 +1,21 @@
+{
+  "ssm_execution_started_at": "2026-11-03T11:18:11.366Z",
+  "ssm_execution_finished_at": "2026-11-03T11:18:16.366Z",
+  "ssm_status": "Success",
+  "response_code": 0,
+  "result": {
+    "status": "PASS",
+    "checks": {
+      "runtime_login": true,
+      "tls": true,
+      "schema_version": true,
+      "state_readable": true,
+      "events_readable": true,
+      "receipts_readable": true,
+      "temporary_policy_absent": true,
+      "persistent_volume_bound": true
+    },
+    "check_count": 8,
+    "scope": "fresh_psql_process_TLS_and_T10_tables_on_permanent_policy_not_full_consumer_suite"
+  }
+}

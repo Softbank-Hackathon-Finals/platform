@@ -1,0 +1,8 @@
+{
+  "broker_inactive": true,
+  "rke2_active": true,
+  "rehearsal_namespaces_remaining": 0,
+  "host_binding_preserved": true,
+  "installed_runtime_source_sha": "ca71c7354bdda7b3e52137e2c311e59f32a54db2",
+  "active_own_tunnels": 0
+}

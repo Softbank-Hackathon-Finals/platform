@@ -1,0 +1,20 @@
+{
+  "observed_at": "2026-11-03T11:31:10Z",
+  "verifier_source_sha256": "c7817ef1ba53d7ddfc7e5d92dc09bc84488b94facdda3cd7b8f2867de46990ff",
+  "source_sha": "ce5727eb3e3d2355077afdaadcb1a722aba9c7cd",
+  "image": "ghcr.io/softbank-hackathon-finals/demo-chat",
+  "index_digest": "sha256:001adc35a9fc767566552fb55c3c19a67b7c5efc7231fb02dc28cdeace99d0d4",
+  "amd64_digest": "sha256:bd1cd57a1c3dda9bb2795696167e242fc3b79a80eefb40d068a4124bcc66f384",
+  "archive_sha256": "04ad976a662c973920b8f3b4e39b80833bb9fda0f5ca15e097bf9aeb47fc8d24",
+  "archive_bytes": 81745920,
+  "verified_blob_count": 15,
+  "all_blob_hashes_and_descriptors_verified": true,
+  "registry_credentials_exported": false,
+  "new_long_lived_credentials_created": false,
+  "temporary_ecr_auth_used": false,
+  "registry_auth_disk_cache_disabled": null,
+  "verification_only": true,
+  "target_import_verified": false,
+  "target_application_startup_verified": false,
+  "aws_free_database_credentials_supported": false
+}

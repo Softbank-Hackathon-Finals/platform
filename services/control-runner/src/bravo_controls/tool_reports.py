@@ -7,7 +7,9 @@ scanner configuration and exclusions. ``complete`` means that collector verified
 whole approved scope was scanned without truncation, timeout or collection errors.
 
 No IAM-01.2 mapping is provided: real tool/version/target qualification is still due.
-Shapes were checked against upstream sources (tests are synthetic, not live scans):
+Shapes were checked against upstream sources. Synthetic tests are supplemented by
+captured manual/WARN output projections; those are not live cluster qualifications.
+See docs/evidence/t14-kube-bench-2026-11-03 in the repository root.
 https://github.com/prowler-cloud/prowler/blob/5.10.0/prowler/lib/outputs/ocsf/ocsf.py
 https://github.com/aquasecurity/kube-bench/blob/v0.10.2/check/controls.go
 https://github.com/aquasecurity/kube-bench/blob/main/check/check.go

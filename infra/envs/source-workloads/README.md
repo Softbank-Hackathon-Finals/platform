@@ -55,6 +55,11 @@ ESO는 namespace SecretStore와 별도 IRSA 역할로 control secret만 읽고 `
 
 T8의 다른 환경에서 이 ClusterIP/DNS로 직접 접속할 수 있다고 주장하지 않는다. Tailscale/라우팅·허용 경로, 복제 슬롯과 subscription, 왕복/시퀀스·PK 보정은 T8/T30에서 추가한다. 빈 앱 테이블로 시작했고 실제 앱 검증 뒤 합성 메시지 2개/첨부 1개만 보존했다. 고객 업무 데이터는 없다. 저장소는 encrypted gp3, Retain이고 단일 노드/단일 DB 인스턴스의 개발 구성이다. 백업·복원 및 고가용성은 아직 검증하지 않았다.
 
+PgBouncer 설정은 initContainer가 ConfigMap에서 emptyDir로 복사한다. 단일 파드와
+Recreate 전략, `server_login_retry=2`를 사용하며 `/etc/pgbouncer/pgbouncer.ini`만 변경 가능하다.
+실행 중 파일 교체·RELOAD 뒤 ConfigMap 영속화, 파드 교체 시 권한 갱신 및 실패 복구는
+[T12 연결 계약](../../../docs/contracts/T12-platform-integration.md)을 따른다.
+
 ## 감사와 검증
 
 `verify.py --canary`는 `t6_audit_canary` 스키마/시험 테이블과 namespace 전용 `t6-audit-canary` SA·Role·RoleBinding만 만든다. 앱 데이터·암호·사용자 권한을 바꾸지 않는다. PgBouncer의 실제 접속, 잘못된 암호·평문 접속·앱 관리 DB·앱 DDL 거부를 시험한다. DDL 음성 시험은 트랜잭션 안에서 시도하고 허용되더라도 rollback한다.
@@ -70,3 +75,19 @@ trivy config --severity HIGH,CRITICAL --exit-code 1 .
 ```
 
 기존 18개 T6 사전 계약 검사와 연결해 probe/SDK 의존·TLS·역할 분리가 어긋나지 않는지 시험한다. 실제 canary 성공, 로컬 시험, 원격 CI, 팀 리뷰/병합은 각각 별도 증거다. 이 디렉터리는 삭제·destroy 자동화를 실행하지 않는다. 자원 유지/정리는 기반 및 후속 작업 담당과 수명·데이터 보존 범위를 합의한 뒤 진행한다.
+
+## 목적지 DB 이름 해석 준비 (T6 → T12 인계)
+
+출발지 풀러가 목적지로 전환된 뒤에도 `verify-full`을 유지하려면 목적지 DB의 원래 인증서
+호스트 이름을 출발지에서 해석할 수 있어야 한다. `pooler_route.target_route_patch()`는 관측한
+출발지 Deployment, `target-db-for-pooler` Service, 해당 ProxyGroup의 생성 Service를 받아
+목적지 인증서 이름의 `hostAliases`만 추가한다. 별도 `bravo-source-pooler` 경로, 서비스 관계와
+준비 상태, 단일 Recreate 풀러, 양쪽 CA 합본을 확인하며 기존에 다른 주소가 있으면 거부한다.
+현재 DB 대상 설정·자격·LOGIN은 변경하지 않는다. 적용은 resourceVersion 조건으로 수행하고
+Pod 교체 뒤 기존 설정 보존, 실제 풀러 Pod의 TLS 연결과 잘못된 호출자의 거부, named-pod 권한
+재결속을 검증한다. Service의 Ready 표시는 네트워크 정책의 실제 거부 시험을 대신하지 않는다.
+기본 source manifest를 다시 적용할 때도 이 관측 기반 패치를 반영해야 한다.
+
+이 함수는 T6 인프라 준비용이며 Executor가 자동 호출하지 않는다. 적용 전 현 Deployment·부모 Service·생성 Service를 다시 읽고 반환된 JSON Patch를 검토한다. EKS의 NetworkPolicy 기능과 정확한 PolicyEndpoint가 반영된 뒤 실제 풀러의 정상 TLS → 다른 label 및 namespace 거부 → 정상 TLS를 각각 검증해야 한다.
+
+실측과 첫 실패의 수정 과정은 [연결 증빙](../../../docs/evidence/t12-network-integration-2026-11-04/README.md)에 있다. 비교기·1012 호출·실패 처리·Executor 배포 및 실제 컷오버는 공식 T12 담당과 인수 범위를 맞춘 뒤 진행한다.
