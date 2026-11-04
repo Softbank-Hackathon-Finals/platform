@@ -1,6 +1,6 @@
 # T10 Executor 읽기 어댑터 검증 — 2026-11-03
 
-새 명령을 보내지 않고 T12 실행을 재조회하는 소비 단위다. 실제 Executor 서비스 배포나 컷오버 인수 결과가 아니다. [소비 계약](../../contracts/T10-executor-read-v1-proposal.md)에서 입력 신뢰 경계와 후속 작업을 설명한다.
+새 명령을 보내지 않고 T12 실행을 재조회하는 소비 단위다. 실제 Executor 서비스 배포나 컷오버 인수 결과가 아니다. [소비 계약](https://github.com/Softbank-Hackathon-Finals/platform/blob/ed7b54084a9a6f25248d07fa100dc4404f88104a/docs/contracts/T10-executor-read-v1-proposal.md)에서 입력 신뢰 경계와 후속 작업을 설명한다.
 
 | 검증 | 결과 | 입증 범위 |
 |---|---|---|
