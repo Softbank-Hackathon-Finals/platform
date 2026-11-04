@@ -1,6 +1,6 @@
 # 설계 문서 밖의 추가 작업 · 설계 (이상무)
 
-설계 문서([`docs/design.html`](../design.html), v0.4)에 없는데 이상무가 추가한 작업, 설계, 결정, 구현을 한곳에 모은 목록이다. 2026-11-04 기준이다.
+설계 문서([`docs/design.html`](../design.html), v0.4)에 없는데 이상무가 추가한 작업, 설계, 결정, 구현을 한곳에 모은 목록이다. 2026-11-04 00:04 KST 작성 당시의 기록이다.
 
 - **설계 문서는 고치지 않았다.** 정본은 `design.html` 그대로다. 아래 항목을 설계 문서에 반영할지는 6절의 제안으로 남기고, 설계 문서 담당(배규태, [리뷰 기준](../review-routing.md) 3절)과 정한다.
 - **파일은 원래 위치에 둔다.** 다른 작업의 코드 · 문서 · 시험이 지금 경로를 참조하므로 옮기지 않고 링크만 모은다.
@@ -52,9 +52,11 @@
 | [`docs/security/incident-based-architecture.md`](../security/incident-based-architecture.md) | 실제 사이버공격 사례 기반 멀티클라우드 보안 아키텍처 설계 |
 | [`docs/security/continuous-secure-modernization.md`](../security/continuous-secure-modernization.md) | Patching as a Service 기반 지속적 보안 개선 및 멀티클라우드 마이그레이션 아키텍처 |
 
-## 3. 결정 기록 (ADR)
+## 3. 설계 제안 기록 (ADR)
 
-| ADR | 결정 | 작업 |
+아래 세 ADR은 모두 원문에서 **Proposed(제안)** 상태다. 병합된 구현 이력은 4절에 따로 기록하며, 구현이 존재한다는 이유로 ADR이 채택됐다고 해석하지 않는다. 채택 여부는 각 ADR의 상태를 따른다.
+
+| ADR | 제안 내용 | 작업 |
 |---|---|---|
 | [ADR-0001](../adr/0001-security-finding-format.md) | 탐지 결과 형식은 OCSF 부분집합 | T33 |
 | [ADR-0005 (T33)](../adr/0005-t33-security-boundary.md) | T33의 범위 제한 인증과 실패 보존 | T33 |
@@ -68,14 +70,16 @@
 | [`services/control-runner`](../../services/control-runner/) | 통제 시험기. T34 감사 카나리 · 검색 연결과 T35 백업 · 복원 검증을 포함한다 | T14 · T34 · T35 |
 | [`services/observability`](../../services/observability/) | 클러스터별 OTel Collector · 플랫폼 Prometheus 설정과 재현 시험(T37). 판정 기준 구현(T36)은 PR #137 | T36 · T37 |
 
-## 5. 진행 중인 PR (2026-11-04)
+## 5. 2026-11-04 00:04 KST 당시 열려 있던 PR
+
+작성 당시의 목록을 보존한다. 현재 열림·병합 여부는 아래 PR 링크에서, 작업 완료 여부는 1절의 이슈와 프로젝트 보드에서 확인한다.
 
 | PR | 작업 | 내용 |
 |---|---|---|
-| #137 | T36 | 판정 기준 구현 `bravo_observability`, 계약 시험을 CI에서 실행 |
-| #117 · #124 | T34 | 환경 내부 OTel 감사 전달, OTLP 감사 원천 · 수신 시각 검증 |
-| #120 · #126 · #128 | T35 | 백업 완료 결속, 상태 조회 최소권한, 잘못된 백업 · 인증서의 복원 거부 |
-| #122 · #127 · #132 | T14 | DB · Pooler 네트워크 거부, kube-bench 결과, Pooler→DB TLS 판정 |
+| [#137](https://github.com/Softbank-Hackathon-Finals/platform/pull/137) | T36 | 판정 기준 구현 `bravo_observability`, 계약 시험을 CI에서 실행 |
+| [#117](https://github.com/Softbank-Hackathon-Finals/platform/pull/117) · [#124](https://github.com/Softbank-Hackathon-Finals/platform/pull/124) | T34 | 환경 내부 OTel 감사 전달, OTLP 감사 원천 · 수신 시각 검증 |
+| [#120](https://github.com/Softbank-Hackathon-Finals/platform/pull/120) · [#126](https://github.com/Softbank-Hackathon-Finals/platform/pull/126) · [#128](https://github.com/Softbank-Hackathon-Finals/platform/pull/128) | T35 | 백업 완료 결속, 상태 조회 최소권한, 잘못된 백업 · 인증서의 복원 거부 |
+| [#122](https://github.com/Softbank-Hackathon-Finals/platform/pull/122) · [#127](https://github.com/Softbank-Hackathon-Finals/platform/pull/127) · [#132](https://github.com/Softbank-Hackathon-Finals/platform/pull/132) | T14 | DB · Pooler 네트워크 거부, kube-bench 결과, Pooler→DB TLS 판정 |
 
 ## 6. 설계 문서에 반영할 것 (제안)
 
