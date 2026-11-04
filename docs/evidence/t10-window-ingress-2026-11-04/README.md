@@ -4,7 +4,7 @@
 
 | 확인 | 결과 | 근거 |
 |---|---|---|
-| 로컬 전체 서비스 | 462 passed | [local-test.json](local-test.json) |
+| 로컬 전체 서비스 | 462 passed, 제외·실패 0. Starlette TestClient의 httpx 사용 중단 경고 1종 | [PR #186 검증 결과](https://github.com/Softbank-Hackathon-Finals/platform/pull/186) |
 | HTTP·저장 집중 시험 | 79 passed, 신규 HTTP 38개 | SQLite와 실제 PostgreSQL; 잠금 대기 중 파일 토큰 교체 포함 |
 | 비루트 컨테이너 | 읽기 전용·네트워크 차단 import PASS | [image.json](image.json) |
 | migration | 별도 migration 로그인으로 v1 → v2 commit | [migration.json](migration.json) |

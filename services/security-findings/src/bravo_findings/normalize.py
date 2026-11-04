@@ -6,7 +6,7 @@ from typing import Any
 
 from jsonschema import Draft202012Validator
 
-from bravo_findings.mask import source_projection
+from bravo_findings.mask import guardduty_sample, source_projection
 from bravo_findings.rules import Rules, get_path
 
 
@@ -196,7 +196,7 @@ class Normalizer:
             "native_url": f"https://console.aws.amazon.com/guardduty/home?region={region}#/findings"
             if region
             else None,
-            "sample": get_path(raw, "Service.AdditionalInfo.Sample") is True or None,
+            "sample": guardduty_sample(raw),
         }
 
     def _gcp_scc(self, raw: dict) -> dict:

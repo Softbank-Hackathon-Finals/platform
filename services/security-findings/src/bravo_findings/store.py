@@ -120,6 +120,10 @@ class Store:
             );
         """)
 
+    def close(self) -> None:
+        with self._lock:
+            self._db.close()
+
     @contextmanager
     def _tx(self) -> Iterator[sqlite3.Connection]:
         with self._lock:

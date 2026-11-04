@@ -3,8 +3,7 @@
 2026-11-03에 실행한 **읽기 전용 사전 조회**다. 사용자·permission set·계정 할당·EKS access entry 생성, RKE2 자격 발급, 팀원 초대·전송은 수행하지 않았다.
 
 - [readback.json](readback.json): 지정한 서울 리전과 현재 인증의 관측 결과. 계정 경계는 검토된 로컬 foundation 입력과 대조했으며 식별값은 기록하지 않는다.
-- [validation.json](validation.json): 기준 커밋, 검사 소스 해시, 종료 코드와 실행 범위.
-- [tests.txt](tests.txt): 로컬 단위 검사 결과.
+- [validation.json](validation.json): 기준 커밋, 검사 소스 해시, 종료 코드, 실행 범위와 로컬 단위 시험 9개의 결과.
 - [접근 계약·후속 절차](../../access-readiness.md).
 
 ## 확인 결과
