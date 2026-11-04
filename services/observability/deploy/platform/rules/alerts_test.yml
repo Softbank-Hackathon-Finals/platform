@@ -199,6 +199,19 @@ tests:
         values: '1x8'
       - series: 'pgbouncer_pools_client_waiting_connections{bravo_env="aws", job="bravo-pgbouncer", database="orders"}'
         values: '5x8'
+      # PAUSE 누락·다른 DB/환경/pooler의 PAUSE=0·잘못된 PAUSE 값은 풀 고갈 증거가 아니다.
+      - series: 'pgbouncer_pools_client_waiting_connections{bravo_signal="pgbouncer-scrape", bravo_env="aws", pooler="missing-pause", database="chat"}'
+        values: '7x8'
+      - series: 'pgbouncer_databases_paused{bravo_signal="pgbouncer-scrape", bravo_env="aws", pooler="missing-pause", name="orders"}'
+        values: '0x8'
+      - series: 'pgbouncer_databases_paused{bravo_signal="pgbouncer-scrape", bravo_env="onprem", pooler="missing-pause", name="chat"}'
+        values: '0x8'
+      - series: 'pgbouncer_databases_paused{bravo_signal="pgbouncer-scrape", bravo_env="aws", pooler="different-pooler", name="chat"}'
+        values: '0x8'
+      - series: 'pgbouncer_pools_client_waiting_connections{bravo_signal="pgbouncer-scrape", bravo_env="aws", pooler="invalid-pause", database="chat"}'
+        values: '7x8'
+      - series: 'pgbouncer_databases_paused{bravo_signal="pgbouncer-scrape", bravo_env="aws", pooler="invalid-pause", name="chat"}'
+        values: '2x8'
     alert_rule_test:
       - eval_time: 60s
         alertname: BravoPgBouncerDown

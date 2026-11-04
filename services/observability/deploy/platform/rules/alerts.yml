@@ -107,8 +107,8 @@ groups:
       - alert: BravoPgBouncerClientsWaiting
         expr: |
           sum by (bravo_env, pooler, database) (pgbouncer_pools_client_waiting_connections{bravo_signal="pgbouncer-scrape", database!="pgbouncer"}) > 0
-          unless on (bravo_env, pooler, database)
-            label_replace(max by (bravo_env, pooler, name) (pgbouncer_databases_paused{bravo_signal="pgbouncer-scrape"}) == 1, "database", "$1", "name", "(.*)")
+          and on (bravo_env, pooler, database)
+            label_replace(max by (bravo_env, pooler, name) (pgbouncer_databases_paused{bravo_signal="pgbouncer-scrape"}) == 0, "database", "$1", "name", "(.*)")
         for: 2m
         labels:
           severity: ticket

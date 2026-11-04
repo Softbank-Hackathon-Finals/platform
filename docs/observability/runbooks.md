@@ -112,7 +112,9 @@
 
 ## BravoPgBouncerClientsWaiting
 
-**뜻:** PAUSE가 아닌데 서버 연결을 기다리는 클라이언트가 2분 넘게 있다.
+**뜻:** 같은 환경·pooler·DB에서 `paused=0`을 관측했고, 서버 연결을 기다리는 클라이언트가 2분 넘게 있다.
+
+PAUSE 지표가 없으면 이 경보는 발화하지 않는다. 조회 API는 대기 수를 보존하되 `paused=null`·`UNOBSERVABLE`로 표시한다. 경보가 없다는 사실만으로 정상 또는 PAUSE 해제를 판단하지 않는다.
 
 **영향:** 풀이 모자라거나(`default_pool_size`) DB가 느려 앱 요청이 밀린다.
 
