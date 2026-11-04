@@ -124,4 +124,4 @@ uv run python testing/lock_lab.py <calibrate|wire|ceiling|invariants|matrix> --v
 uv run python testing/lock_lab_report.py <결과.jsonl>...   # 결과를 표로 바꾼다
 ```
 
-demo-chat 수정본 여러 벌을 같은 조건으로 잰다. 왕복 수를 중계기(`lock_lab_tap.py`)로 세고, 처리량 한계, 불변식(커밋 순서, 전파 건너뛰기, 멱등, 없는 첨부, PgBouncer transaction 모드), 왕복 지연 × 목적지 비중 행렬을 잰다. 모의 지연이고, 컨테이너는 `lock-lab-` 접두사로 띄운 뒤 지운다. 결과와 재현 순서는 [증거 폴더](../../docs/evidence/t18-write-lock-lab-2026-11-04/README.md).
+demo-chat 수정본 여러 벌을 같은 조건으로 잰다. 왕복 수를 중계기(`lock_lab_tap.py`)로 세고, 처리량 한계, 불변식(커밋 순서, 전파 건너뛰기, 멱등, 없는 첨부, PgBouncer transaction 모드), 왕복 지연 × 목적지 비중 행렬을 잰다. 모의 지연이고, 컨테이너는 `lock-lab-` 접두사로 띄운 뒤 지운다. 표의 판정은 창별 판정(`judge`)을 모은 것이고, 부하가 끝난 뒤 시작한 창은 결과에 그 근거(`judge_after_load`)가 있을 때만 뺀다. 결과와 재현 순서는 [증거 폴더](../../docs/evidence/t18-write-lock-lab-2026-11-04/README.md).

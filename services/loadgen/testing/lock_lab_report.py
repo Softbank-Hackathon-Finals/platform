@@ -7,11 +7,13 @@
 
 - 칸마다 회차를 모두 적는다(`회차1 / 회차2`). 한쪽만 나쁜 칸을 평균으로 감추지 않는다.
 - 5xx는 쓰기와 읽기를 더한 수다. 실패 · 유실 · 중복이 0이 아닌 칸만 따로 적는다.
+- 부하가 끝난 뒤 시작한 창은 결과에 그 근거(`judge_after_load`)가 있을 때만 판정에서 뺀다.
 """
 
 import argparse
 import json
 from collections import defaultdict
+from datetime import datetime, timedelta
 from pathlib import Path
 
 LABELS = {
@@ -29,9 +31,18 @@ def verdict(row: dict) -> str:
     judged = row["judge"]
     if "FAIL" in judged:
         return "FAIL"
-    # 부하가 끝난 뒤 남은 재시도만 담긴 마지막 창은 표본이 모자라 UNKNOWN이 된다. 부하 구간의 판정이 아니다.
-    body = judged[:-1] if judged[-1] == "UNKNOWN" else judged
-    return "PASS" if all(v == "PASS" for v in body) else "UNKNOWN"
+    # 부하가 끝난 뒤 시작한 창은 표본이 모자라 UNKNOWN이 된다. 부하 구간의 판정이 아니지만, 근거가 없으면 부하 중 창과 구별할 수 없다.
+    after_load = row.get("judge_after_load", [False] * len(judged))
+    during_load = [v for v, after in zip(judged, after_load, strict=True) if not after]
+    return "PASS" if during_load and all(v == "PASS" for v in during_load) else "UNKNOWN"
+
+
+def windows_after_load(windows: list[dict], journal: list[dict]) -> list[bool]:
+    """창마다 부하가 끝난 뒤에 시작했는지 적는다. 부하의 끝은 예정된 요청의 첫 시도를 마지막으로 보낸 시각이다."""
+    started = datetime.fromisoformat(next(e["start_wall"] for e in journal if e["type"] == "run_start"))
+    last_send = max(e["sent_at_s"] for e in journal if e["type"] == "attempt" and e["attempt_no"] == 1)
+    load_end = started + timedelta(seconds=last_send)
+    return [datetime.fromisoformat(w["window"]["start"]) >= load_end for w in windows]
 
 
 def seconds_or_ms(value: float | None) -> str:

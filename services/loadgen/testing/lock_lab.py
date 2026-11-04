@@ -23,6 +23,7 @@ from pathlib import Path
 
 import psycopg
 from e2e import Harness, Stack, free_port, judged, run_quiet
+from lock_lab_report import windows_after_load
 
 HERE = Path(__file__).resolve().parent
 PREFIX = "lock-lab"
@@ -445,6 +446,7 @@ def edge_error_counts(container: str, log: Path) -> dict[str, int]:
 def summarize_cell(variant: str, rep: int, rtt: float, percent: int, path: str, run, app_errors: dict, load: list[float], pause_ms) -> dict:
     report, reconciliation, probe = run.report, run.report["reconciliation"], run.report["lock_probe"]["load"]
     verdicts = judged(run.windows, percent)
+    journal = [json.loads(line) for line in (run.out / "journal.jsonl").read_text().splitlines()]
     pools = {
         pool: {
             "requests": sum(w["pools"][pool]["requests"] for w in run.windows),
@@ -471,6 +473,7 @@ def summarize_cell(variant: str, rep: int, rtt: float, percent: int, path: str, 
         "pools": pools,
         "unattributed": {k: sum(w["unattributed"][k] for w in run.windows) for k in ("timeout", "connect", "other")},
         "judge": [v for v, _ in verdicts],
+        "judge_after_load": windows_after_load(run.windows, journal),
         "judge_reasons": dict(Counter(reason for _, why in verdicts for reason in why)),
         "lock_wait_ms": probe["wait_ms"], "lock_waiters_max": probe["waiting_sessions_max"], "lock_timed_out": probe["timed_out"],
         "app_errors": app_errors,
