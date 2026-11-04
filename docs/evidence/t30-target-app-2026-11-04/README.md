@@ -64,7 +64,7 @@ NOLOGIN에서 앱은 **Ready로 보인다.** `/readyz`가 DB를 보지 않기 �
 | 맞음 → 틀림 → 맞음 | 성공 | 비밀번호 거부 | 성공 |
 
 풀러 재시작으로 회복하는 것을 쟀다. `auth_file`이 바뀐 뒤의 `RELOAD`도 소스(`loader.c`)상 이 상태를 풀지만 재지 않았다.
-렌더 결과의 결함이 아니고 같은 이미지와 verifier 방식을 쓰는 출발지 풀러에도 해당될 수 있다. 운영 규칙을 문서에 적었고, 시험은 경로를 바꾸기 전에 앱을 먼저 멈춘다.
+렌더 결과의 결함이 아니다. 출발지 풀러도 같은 이미지 digest, 바이트까지 같은 `pgbouncer.ini`, SCRAM verifier를 쓰므로 같은 조건이지만, 출발지에서 첫 인증 실패를 재현한 기록은 없다(기존 출발지 시험은 정상 비밀번호가 먼저다, #210 댓글). 운영 규칙을 문서에 적었고, 시험은 경로를 바꾸기 전에 앱을 먼저 멈춘다.
 그렇게 바꾼 뒤 경로 전환을 8번 반복했더니 모두 0.2~0.3초에 DB 경로가 열렸다([`route-switch-repeat.jsonl`](route-switch-repeat.jsonl), 일회성 측정).
 
 **롤아웃 직후 요청 실패.** 재시작 직후 Service가 사라지는 Pod로 요청을 보낸다. 종료 전 대기(preStop)를 넣었다
@@ -78,9 +78,20 @@ NOLOGIN에서 앱은 **Ready로 보인다.** `/readyz`가 DB를 보지 않기 �
 **호환 컨테이너 결함 2건.** SIGTERM을 무시해 재시작마다 Pod가 유예 시간을 다 썼다(PID 1). Python으로 만든 시작 확인이
 CPU 제한 아래서 1초를 넘겼다. 둘 다 고쳤고 시험을 넣었다. 수정 뒤 이전 Pod는 롤아웃 후 6.8초 만에 사라졌다.
 
-**독립 리뷰.** critical은 없었고 비밀값 유출 경로도 찾지 못했다. major 1건은 아래 "재지 않은 것"의 Exit Drill 항목이다. 응답기의 경로 고정, 거절 시 `Connection: close`, 깊은 JSON의 traceback, amd64 digest 거부는 재현한 뒤 고쳤다.
+**독립 리뷰.** critical은 없었고 비밀값 유출 경로도 찾지 못했다. major 1건은 Exit Drill이 표지를 읽지 않는 것이었고, #210 리뷰 요청으로 코드로 막았다(아래). 응답기의 경로 고정, 거절 시 `Connection: close`, 깊은 JSON의 traceback, amd64 digest 거부는 재현한 뒤 고쳤다.
 
 **변이 시험 결함.** 문서를 읽는 시험을 넣자 임시 복사본에서 항상 실패해 모든 변이가 잡힌 것처럼 세어졌다. 복사 범위를 고치고 기준선을 넣었다. 위 숫자는 그 뒤의 값이다.
+
+**Exit Drill 자격.** 이 Pod로는 PASS가 나오지 않는다. 수집기가 실제 Pod에서 표지와 `AWS_ENDPOINT_URL*`을 읽고 `judge()`가 UNKNOWN을 낸다.
+로컬 k3s의 실제 API Pod 객체로 확인했다([`exit-eligibility-real-pod.json`](exit-eligibility-real-pod.json), 일회성). 컨테이너는 띄우지 않았고 `spec`과 `metadata`만 읽었다.
+
+| Pod | `exit_blockers` |
+| --- | --- |
+| 렌더 그대로 | `NOT_EXIT_EVIDENCE`, `AWS_ENDPOINT_REDIRECTED` |
+| 표지만 제거 | `AWS_ENDPOINT_REDIRECTED` |
+| 호환 구성을 모두 제거 | 없음 (자격 회복) |
+
+이 뒤로 Exit Drill의 전체 k3s 시나리오(`verify_k3s.py`)는 다시 돌리지 않았다. 단위 시험과 변이 시험만 돌렸다.
 
 **기각한 가설.** Secret을 바꾼 직후의 옛 값 마운트: 즉시 재시작 6회, 3초 뒤 재시작 4회 모두 최신 값이었다.
 DB 경로 지연: 느린 회차에도 앱↔풀러 TCP는 이미 `ESTABLISHED`였다. 진단 6회차 하나는 다음 실험과 겹쳐 무효로 처리했다.
@@ -101,7 +112,6 @@ DB 경로 지연: 느린 회차에도 앱↔풀러 TCP는 이미 `ESTABLISHED`�
 
 ## 재지 않은 것
 
-- **이 구성으로 Exit Drill을 돌리면 통과할 수 있다.** `bravo.t30/not-exit-evidence`를 읽는 코드는 아직 없다. 후속 작업이다
 - 실제 Edge 경유, 실제 Tailscale 왕복, 부하. 지연 수치로 쓰지 않는다
 - 게시된 이미지의 Pull과 시작, `export_target_image.py`의 새 이미지 실행(비공개 ECR 자격 필요), amd64 QEMU에서의 시작 시간과 부하 중 응답. probe 제한을 넉넉히 두었지만 재지 않았다
 - `probes.py`의 패키징 시험은 아직 옛 digest를 쓴다. 옛 이미지가 VM에 없으면 `ErrImageNeverPull`이 난다

@@ -10,6 +10,10 @@ from .verdict import OBSERVATION_VERSION
 
 PHASES = {"before", "after"}
 _FINISHED = {"Succeeded", "Failed"}
+# 개발 측정용 호환 구성을 T30 렌더러가 표시하는 annotation(ADR-0017).
+NOT_EXIT_EVIDENCE_ANNOTATION = "bravo.t30/not-exit-evidence"
+# boto3가 호출 대상을 바꾸는 환경 변수. AWS_ENDPOINT_URL과 AWS_ENDPOINT_URL_<서비스>.
+AWS_ENDPOINT_OVERRIDE = "AWS_ENDPOINT_URL"
 
 
 class ObservationError(ValueError):
@@ -43,6 +47,7 @@ def _classify_pods(doc: dict, plan: dict) -> tuple[dict[str, list[dict]], list[s
                 "ready": _ready(status),
                 "started_at": status.get("startTime"),
                 "host_network": (item.get("spec") or {}).get("hostNetwork") is True,
+                "exit_blockers": _exit_blockers(metadata, item.get("spec")),
                 **_target_container(status, plan["workloads"][name].get("container")),
             })
     for pods in grouped.values():
@@ -55,6 +60,32 @@ def _ready(status: dict) -> bool | None:
         if condition.get("type") == "Ready":
             return condition.get("status") == "True"
     return None
+
+
+def _exit_blockers(metadata: dict, spec: Any) -> list[str] | None:
+    """이 Pod로 출구를 말할 수 없는 이유. 읽지 못하면 None이고, 판정기가 UNKNOWN으로 본다.
+
+    표지만 보면 지우는 것으로 통과한다. AWS 호출을 돌리는 설정이 남아 있으면 차단을 잰 것이 아니므로
+    그것도 따로 본다. 재시작 가능한 사이드카는 init 컨테이너 목록에 있다. envFrom으로 넣은 값은 읽지 못한다.
+    """
+    annotations = metadata.get("annotations", {})
+    if not isinstance(annotations, dict) or not isinstance(spec, dict):
+        return None
+    containers, sidecars = spec.get("containers"), spec.get("initContainers", [])
+    if not containers or not isinstance(containers, list) or not isinstance(sidecars, list):
+        return None
+    names = []
+    for container in [*containers, *sidecars]:
+        env = container.get("env", []) if isinstance(container, dict) else None
+        if not isinstance(env, list) or not all(isinstance(e, dict) and isinstance(e.get("name"), str) for e in env):
+            return None
+        names.extend(e["name"] for e in env)
+    blockers = []
+    if NOT_EXIT_EVIDENCE_ANNOTATION in annotations:
+        blockers.append("NOT_EXIT_EVIDENCE")
+    if any(name.startswith(AWS_ENDPOINT_OVERRIDE) for name in names):
+        blockers.append("AWS_ENDPOINT_REDIRECTED")
+    return blockers
 
 
 def _target_container(status: dict, wanted: str | None) -> dict:

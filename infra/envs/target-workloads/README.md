@@ -113,7 +113,7 @@ T9의 OpenBao/ESO·TLS 통제나 목적지 앱 업무 기동 완료를 대신하
 
 `application.py`는 T17 · T8 · T18의 Edge 경유 측정에 쓸 `demo-chat` Deployment와 Service를 렌더한다.
 **이 구성은 출구 증거가 아니다.** 앱은 여전히 Secrets Manager SDK를 부르고, 같은 Pod의 호환 컨테이너가
-루프백에서 대신 응답한다. 이유와 없앨 조건은 [ADR-0017](../../../docs/adr/0017-target-app-secrets-manager-compat.md)에 있다.
+루프백에서 대신 응답한다. 이 Pod로 Exit Drill을 돌리면 판정은 `NOT_EXIT_EVIDENCE`로 UNKNOWN이다. 이유와 없앨 조건은 [ADR-0017](../../../docs/adr/0017-target-app-secrets-manager-compat.md)에 있다.
 
 | 항목 | 값 | 이유 |
 | --- | --- | --- |

@@ -1,0 +1,27 @@
+{
+  "scope": "real Kubernetes API Pod objects on local k3s; rendered manifest; containers not started (image absent)",
+  "kubernetes": "mirror.gcr.io/rancher/k3s:v1.35.5-k3s1",
+  "as_rendered": {
+    "pod_read": true,
+    "exit_blockers": [
+      "NOT_EXIT_EVIDENCE",
+      "AWS_ENDPOINT_REDIRECTED"
+    ],
+    "has_init_sidecar": true,
+    "annotation_present": true
+  },
+  "marker_removed_only": {
+    "pod_read": true,
+    "exit_blockers": [
+      "AWS_ENDPOINT_REDIRECTED"
+    ],
+    "has_init_sidecar": true,
+    "annotation_present": false
+  },
+  "compat_setup_removed": {
+    "pod_read": true,
+    "exit_blockers": [],
+    "has_init_sidecar": false,
+    "annotation_present": false
+  }
+}

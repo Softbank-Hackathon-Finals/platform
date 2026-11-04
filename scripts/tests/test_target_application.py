@@ -202,6 +202,15 @@ class RenderContractTests(unittest.TestCase):
         self.assertEqual(metadata["annotations"]["bravo.t30/not-exit-evidence"],
                          "secrets-manager-compat-sidecar")
 
+    def test_exit_drill_reads_the_same_marker_and_endpoint_variable(self):
+        # The render and the Exit Drill collector are separate projects, so their CI runs can miss a rename.
+        collector = (ROOT / "services/exit-drill/src/bravo_exit_drill/observation.py").read_text()
+        metadata = rendered()["Deployment"]["spec"]["template"]["metadata"]
+        for key in metadata["annotations"]:
+            self.assertIn(f'NOT_EXIT_EVIDENCE_ANNOTATION = "{key}"', collector)
+        self.assertIn('AWS_ENDPOINT_OVERRIDE = "AWS_ENDPOINT_URL"', collector)
+        self.assertIn("AWS_ENDPOINT_URL_SECRETS_MANAGER", env_values(app_container()))
+
     def test_no_aws_endpoint_or_ambient_identity_is_configured(self):
         values = env_values(app_container())
         self.assertEqual(values["AWS_EC2_METADATA_DISABLED"], "true")

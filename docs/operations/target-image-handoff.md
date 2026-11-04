@@ -147,8 +147,8 @@ read/write completion, T9 completion, or a successful cutover. Temporary registr
 auth is kept on the operator side and cannot solve application Secret/S3 auth.
 
 For development Edge measurement only, [ADR-0017](../adr/0017-target-app-secrets-manager-compat.md)
-runs a loopback compatibility container beside the unchanged app. It is labelled
-as not exit evidence and does not change the rule above. See
+runs a loopback compatibility container beside the unchanged app. It does not change
+the rule above, and Exit Drill judges such a Pod UNKNOWN from the Pod itself. See
 [target-workloads](../../infra/envs/target-workloads/README.md#개발-측정용-앱).
 
 Official tool references:
