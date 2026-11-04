@@ -1,0 +1,26 @@
+# Pod 메타데이터 읽기만(get · list · watch). Secret · exec · 쓰기 권한은 없다.
+# DB 네임스페이스에 수신 격리 NetworkPolicy가 있다면, 그 담당(T6 · T30)이 bravo-observability의 Collector → 9187을 허용해야 한다.
+# 여기서 DB Pod를 고르는 NetworkPolicy를 만들지 않는다: 격리가 없던 Pod가 격리되어 앱 → DB 연결까지 막힐 수 있다.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: bravo-collector-db-discovery
+  namespace: source-dev
+rules:
+  - apiGroups: [""]
+    resources: [pods]
+    verbs: [get, list, watch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: bravo-collector-db-discovery
+  namespace: source-dev
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: bravo-collector-db-discovery
+subjects:
+  - kind: ServiceAccount
+    name: bravo-collector
+    namespace: bravo-observability

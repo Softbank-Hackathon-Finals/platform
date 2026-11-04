@@ -1,0 +1,13 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: bravo-observability
+resources:
+  - resources.yaml
+configMapGenerator:
+  - name: bravo-prometheus-config
+    files:
+      - prometheus.yml
+      - web.yml
+  - name: bravo-prometheus-rules
+    files:
+      - rules/alerts.yml
