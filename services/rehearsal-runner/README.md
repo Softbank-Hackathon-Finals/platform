@@ -108,3 +108,15 @@ uv run --frozen --no-default-groups --with pytest pytest -p no:cacheprovider ../
 ### T11 경계 확인 사항
 
 현재 T11 `safe_path`는 파일명에 `secret`이 포함된 `app/db_secret.py`를 거부한다. 해당 파일은 demo-chat이 Secrets Manager를 직접 호출하는 위치이므로, T15 작업 입력만으로는 현재 T11 스냅샷·제안에 포함할 수 없다. T11 담당자와 파일 내용·민감값 보호를 유지하는 허용 범위 및 제안서 연결을 합의해야 한다. T15가 별도 우회 읽기 경로를 만들지 않는다.
+
+
+### 네임스페이스 생성과 UID 정리 접점
+
+`namespace_lifecycle.NamespaceLifecycle`은 새 이름의 네임스페이스를 생성해 API가 반환한 UID를 보존하고 T3 템플릿 적용 전후로 UID를 확인한다. 정리는 주입된 UID 조건 cleaner에 원래 이름과 UID를 전달한다. 테스트에서는 T38의 기존 `Kube.cleanup`과 모의 Kubernetes API를 연결해 UID 조건과 부재 확인을 검증한다.
+
+```bash
+cd ../agent-worker
+PYTHONPATH=../rehearsal-runner/src uv run --frozen --no-default-groups --with pytest pytest -p no:cacheprovider ../rehearsal-runner/testing/test_namespace_cleanup_interop.py
+```
+
+아직 실제 T38 검증 Job은 T3가 시험한 namespace·UID를 입력으로 받지 않는다. 생성·시험·Job·정리의 단일 UID 보장과 정리 책임, 공통 클러스터 context, T10 실행 잠금 및 재시작 복구를 담당자와 확정하기 전에는 이 경로를 실제 자원에 연결하지 않는다. 템플릿 적용 전후 UID 조회는 그 사이의 변경을 원자적으로 막지 못한다.
