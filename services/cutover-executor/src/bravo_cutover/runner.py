@@ -38,7 +38,14 @@ STEPS = ("precheck", "entry", "pause", "fence", "compare", "commit", "reconnect"
 
 
 class StepFailed(Exception):
-    """조건을 확인했고, 그 결과가 실패다(상태 불명과 다르다)."""
+    """조건을 확인했고, 그 결과가 실패다(상태 불명과 다르다). code는 결과의 reason_code로 남는다."""
+
+    def __init__(self, message: str, code: str | None = None):
+        super().__init__(message)
+        self.code = code
+
+
+REPLICATION_PATH_UNCONFIRMED = "replication_path_unconfirmed"
 
 
 class OwnershipLost(Exception):
@@ -82,6 +89,8 @@ class Run:
     step: str | None = None
     # 영수증의 방향(cutover | failback). 사전 확인에서 설정의 원래 출발지로 정한다.
     direction: str | None = None
+    # 사전 확인의 복제 경로 왕복 시험 기록(ADR-0016). 복구 대상 효과가 아니다.
+    path_probe: dict[str, Any] | None = None
     committed: bool = False
     recovery: dict[str, Any] = field(default_factory=lambda: {"version": 1, "baseline": None, "effects": []})
 
@@ -208,6 +217,10 @@ class Cutover:
         """전환 확정 기록 전이면 원상 복구를 시도한다(ABORT_PRE_WRITE). 복구를 하나라도 확인하지 못하거나
         확정 뒤면 아무것도 새로 열지 않고 멈춘다(SAFE_HOLD, spec D6)."""
         failure = {"failed_step": run.step, "error": _describe(error)}
+        if code := getattr(error, "code", None):
+            failure["reason_code"] = code
+        if run.path_probe is not None:
+            failure["path_probe"] = run.path_probe
         if not self._store.owns(run.execution_id):
             return
         if self._store.get(run.execution_id).committed_at is not None:
@@ -217,13 +230,15 @@ class Cutover:
             self._hold(run, failure, "no durable recovery baseline from this executor version")
             return
         if not run.recovery["effects"]:
-            # Read-only precheck (including a crash) never authorizes unblocking anything.
+            # A precheck failure (including a crash) never authorizes unblocking anything. The precheck
+            # writes only the path probe row (ADR-0016), which is not a recovery effect.
             if isinstance(error, Unconfirmed):
                 self._hold(run, failure, "precheck could not confirm remote state; no changes sent")
             else:
                 self._store.record_step(run.execution_id, "abort", StepStatus.SUCCEEDED)
                 self._store.finish(run.execution_id, Status.ABORT_PRE_WRITE, {
                     "outcome": Status.ABORT_PRE_WRITE.value, **failure, "restored": [],
+                    # 복구 대상 효과(진입점 · PAUSE · LOGIN · 구독)를 시작하지 않았다. 경로 시험 행은 path_probe에 남는다.
                     "remote_changes_started": False,
                 })
             return
@@ -476,6 +491,7 @@ class Cutover:
         lag = int(src.db.current_wal_lsn()) - int(received or 0)
         if received is None or lag > self._settings.max_lag_bytes:
             raise StepFailed(f"replication lag {lag} bytes exceeds {self._settings.max_lag_bytes}")
+        self._probe_path(run)
         run.recovery["baseline"] = {"pools": run.pools, "entries": entries,
                                     "source_login": True, "target_login": False,
                                     "forward_enabled": True, "reverse_enabled": False,
@@ -484,6 +500,29 @@ class Cutover:
         self._save_recovery(run)
         # 첫 쓰기 제한 직전에 타이머를 켠다
         run.t0 = self._clock()
+
+    def _probe_path(self, run: Run) -> None:
+        """쓰기를 막기 전에 출발지 → 목적지 복제 경로가 실제로 데이터를 옮기는지 본다(ADR-0016).
+        시험 행이 시간 안에 목적지에 보이지 않으면 확인된 실패로 끝낸다(아무것도 막지 않았다).
+        마지막 수신 시각은 진단용으로만 남긴다."""
+        src, dst = run.src, run.dst
+        probe = uuid.uuid4()
+        try:
+            receipt_time = dst.db.last_msg_receipt_time(dst.site.subscription)
+        except Exception:  # noqa: BLE001
+            receipt_time = "unknown"
+        run.path_probe = {"probe_id": str(probe), "arrived": False, "elapsed_ms": None,
+                          "last_msg_receipt_time": receipt_time}
+        start = self._clock()
+        self._act(run, src.db.insert_path_probe, probe, run.request.epoch)
+        deadline = start + min(self._settings.path_probe_timeout_s, self._remaining_s(run))
+        while not dst.db.has_barrier(probe):
+            if self._clock() > deadline:
+                run.path_probe["elapsed_ms"] = self._ms(start)
+                raise StepFailed(f"replication path probe did not arrive at {dst.site.environment_id} "
+                                 f"within {self._settings.path_probe_timeout_s}s", code=REPLICATION_PATH_UNCONFIRMED)
+            time.sleep(0.05)
+        run.path_probe.update(arrived=True, elapsed_ms=self._ms(start))
 
     # 2. 진입점 쓰기 차단 -------------------------------------------------------
     def _entry(self, run: Run) -> None:
@@ -689,6 +728,7 @@ class Cutover:
             # 확정 뒤에 예산을 넘긴 경우: 전환은 끝냈지만(쓰기 DB는 목적지 하나) 예산 위반이다
             "write_pause_budget_exceeded": budget_exceeded,
             "stages_ms": run.stages_ms,
+            "path_probe": run.path_probe,
             "path_acks_ms": {path: int((t - run.t0) * 1000) for path, t in run.acks.items()},
             "receipt": run.receipt,
         }

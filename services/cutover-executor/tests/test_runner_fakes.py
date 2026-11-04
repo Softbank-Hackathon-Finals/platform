@@ -55,6 +55,7 @@ class World:
         self.configmap = {ns: (INI.format(host="src-db"), "1") for ns in ("src", "dst")}
         self.configmap_error: dict[str, Exception] = {}
         self.barriers: set = set()
+        self.path_down = False  # 복제 경로가 끊겼다: 사전 확인의 시험 행이 목적지에 오지 않는다
         self.sessions = {"src": 0, "dst": 0}  # 앱 역할 세션(NOLOGIN 전에 붙은 연결 포함)
         self.bypass = {"src": [], "dst": []}  # 업무 역할이 아닌 클라이언트 세션
         self.seq = {"src": SequenceState(9, True, 9, 2**63 - 1), "dst": SequenceState(9, True, 9, 2**63 - 1)}
@@ -113,8 +114,16 @@ class FakeDb:
         self.w.barriers.add(barrier_id)
         self.w.did(f"{self.ns}.insert_barrier")
 
+    def insert_path_probe(self, probe_id, epoch):
+        if not self.w.path_down:
+            self.w.barriers.add(probe_id)
+        self.w.did(f"{self.ns}.insert_path_probe")
+
     def has_barrier(self, barrier_id):
         return barrier_id in self.w.barriers
+
+    def last_msg_receipt_time(self, subscription):
+        return "2026-11-04T00:00:00+00:00"
 
     def sequence_state(self, sequence, table, column):
         if fn := self.w.on_sequence_read.pop(self.ns, None):
@@ -740,7 +749,8 @@ def test_block_added_between_precheck_and_entry_is_preserved(store, world):
 
     FakeCutover(store, world, hooks={"before:entry": maintenance}).run(execution_id)
     assert store.get(execution_id).status == Status.ABORT_PRE_WRITE
-    assert world.blocked["src"] is True and world.calls == []
+    # 사전 확인이 쓴 것은 복제 경로 시험 행 하나뿐이다(ADR-0016). 차단은 그대로 둔다.
+    assert world.blocked["src"] is True and world.calls == ["src.insert_path_probe"]
 
 
 def test_process_loss_inside_precheck_preserves_existing_restrictions(store, world, monkeypatch):
@@ -793,3 +803,58 @@ def test_recovery_rereads_effects_committed_between_discovery_and_takeover(store
         assert "src.entry:False" in world.calls and "src.resume" not in world.calls
     finally:
         newer.close()
+
+
+# 사전 확인의 복제 경로 왕복 시험 (T20, ADR-0016) -------------------------------------------
+
+def fast_probe(cutover: Cutover, timeout_s: float = 0.2) -> Cutover:
+    cutover._settings = cutover._settings.model_copy(update={"path_probe_timeout_s": timeout_s})
+    return cutover
+
+
+@pytest.mark.parametrize("direction", ["cutover", "failback"])
+def test_path_down_aborts_before_any_write_restriction(store, world, direction):
+    """경로가 끊겨 시험 행이 오지 않으면 진입점 · PAUSE · LOGIN · 구독을 하나도 바꾸지 않고 쓰기 전 실패다."""
+    if direction == "failback":
+        after_cutover(world)
+        execution_id = start(store, source="env-onprem", target="env-aws")
+        source_ns = "dst"
+    else:
+        execution_id = start(store)
+        source_ns = "src"
+    before = (dict(world.login), dict(world.sub), dict(world.paused), dict(world.blocked))
+    world.path_down = True
+    fast_probe(FakeCutover(store, world)).run(execution_id)
+    execution = store.get(execution_id)
+    assert execution.status == Status.ABORT_PRE_WRITE, execution.result
+    assert execution.result["failed_step"] == "precheck"
+    assert execution.result["reason_code"] == "replication_path_unconfirmed"
+    assert execution.result["remote_changes_started"] is False
+    assert execution.result["path_probe"]["arrived"] is False
+    assert world.calls == [f"{source_ns}.insert_path_probe"]
+    assert (world.login, world.sub, world.paused, world.blocked) == before
+
+
+def test_path_probe_runs_before_the_write_pause_and_is_recorded(store, world):
+    execution_id = start(store)
+    FakeCutover(store, world).run(execution_id)
+    execution = store.get(execution_id)
+    assert execution.status == Status.DONE, execution.result
+    assert world.calls.index("src.insert_path_probe") < world.calls.index("src.entry:True")
+    probe = execution.result["path_probe"]
+    assert probe["arrived"] is True and probe["last_msg_receipt_time"] == "2026-11-04T00:00:00+00:00"
+    # 시험 행은 5단계 barrier와 다른 행이다
+    assert probe["probe_id"] != execution.result["receipt"]["barrier_id"]
+
+
+def test_unreadable_receipt_time_does_not_decide(store, world, monkeypatch):
+    """마지막 수신 시각은 진단용이다. 읽지 못해도 왕복 시험이 통과하면 진행한다."""
+    def unreadable(self, subscription):
+        raise Unconfirmed("pg_stat_subscription unreadable")
+
+    monkeypatch.setattr(FakeDb, "last_msg_receipt_time", unreadable)
+    execution_id = start(store)
+    FakeCutover(store, world).run(execution_id)
+    execution = store.get(execution_id)
+    assert execution.status == Status.DONE, execution.result
+    assert execution.result["path_probe"]["last_msg_receipt_time"] == "unknown"

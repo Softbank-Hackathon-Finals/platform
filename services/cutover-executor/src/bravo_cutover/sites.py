@@ -52,6 +52,8 @@ class Settings(BaseModel):
     long_transaction_ms: int = 200
     pause_timeout_s: float = 3
     barrier_timeout_s: float = 10
+    # 사전 확인의 복제 경로 왕복 시험 대기(ADR-0016). 실제 값은 T8 복제 지연 실측 뒤 정한다.
+    path_probe_timeout_s: float = 10
     fence_timeout_s: float = 3
     # 복구 뒤 출발지 쓰기 확인을 기다리는 시간. PgBouncer는 서버 로그인 실패를 server_login_retry(기본 15초)
     # 동안 기억하고 바로 거절하므로, 펜싱 중 로그인을 시도한 PgBouncer는 복구 직후 잠시 쓰기를 거절한다.
