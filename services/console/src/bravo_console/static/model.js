@@ -59,6 +59,32 @@ export function binding(v) {
       .map((k) => [k, v[k]]),
   );
 }
+// S2 has no mandatory gate and includes the rehearsal run in the request.
+export function changeBinding(v) {
+  const fields =
+    "plan_id plan_digest diff_hash image_digest target_environment_id expires_at";
+  const hasGate = object(v) && ("gate_id" in v || "context_digest" in v);
+  exact(v, fields + (hasGate ? " gate_id context_digest" : ""));
+  if (
+    ![v.plan_id, v.target_environment_id].every(identifier) ||
+    typeof v.plan_digest !== "string" ||
+    !DIGEST.test(v.plan_digest) ||
+    ![v.diff_hash, v.image_digest].every(
+      (x) => typeof x === "string" && IMAGE.test(x),
+    ) ||
+    !date(v.expires_at) ||
+    (hasGate &&
+      (!identifier(v.gate_id) ||
+        typeof v.context_digest !== "string" ||
+        !DIGEST.test(v.context_digest)))
+  )
+    fail("invalid_change_binding");
+  return Object.fromEntries(
+    (fields + (hasGate ? " gate_id context_digest" : ""))
+      .split(" ")
+      .map((k) => [k, v[k]]),
+  );
+}
 // Failback has its own binding; it never reuses CUTOVER's execution receipt.
 export function failbackBinding(v, plan) {
   exact(
@@ -197,10 +223,10 @@ export function event(v, plan) {
       !["change", "cutover", "failback"].includes(d.approval_kind)
     )
       fail("invalid_approval");
-    // Change approvals remain visible, but this console has no change-apply route.
+    // Approval never supplies a change-apply route or a cutover receipt.
     if (d.approval_kind === "cutover") binding(d.binding);
     else if (d.approval_kind === "failback") failbackBinding(d.binding, plan);
-    else if (!object(d.binding)) fail("invalid_change_binding");
+    else changeBinding(d.binding);
     if (
       v.event_type.endsWith("decided") &&
       (!identifier(d.actor_id) ||
@@ -343,6 +369,63 @@ export class Model {
       b.context_digest === g.context_digest &&
       Date.parse(b.expires_at) > now
     );
+  }
+  changeEligible(now) {
+    const req = this.request,
+      b = req?.data.binding;
+    return Boolean(
+      this.connected &&
+        !this.error &&
+        this.snapshot &&
+        now >= this.snapshotAt &&
+        now - this.snapshotAt < 15000 &&
+        this.state === "REHEARSE" &&
+        this.snapshot.state === "REHEARSE" &&
+        Number(this.snapshot.last_event_id.split(":")[1]) <= this.cursor &&
+        req?.data.approval_kind === "change" &&
+        b.plan_id === this.plan &&
+        b.plan_digest === this.snapshot.plan_digest &&
+        b.target_environment_id === this.snapshot.target_environment_id &&
+        Date.parse(b.expires_at) > now &&
+        !this.events.some(
+          (e) =>
+            e.sequence > req.sequence &&
+            e.event_type === "approval.decided" &&
+            e.data.approval_kind === "change" &&
+            e.run_id === req.run_id &&
+            JSON.stringify(changeBinding(e.data.binding)) ===
+              JSON.stringify(changeBinding(b)),
+        ),
+    );
+  }
+  changeApprovalRequest(now) {
+    if (!this.changeEligible(now)) fail("change_approval_not_ready");
+    return {
+      approval_kind: "change",
+      run_id: this.request.run_id,
+      binding: changeBinding(this.request.data.binding),
+      expected_version: this.snapshot.version,
+    };
+  }
+  recordChangeApproval(receipt, sent) {
+    exact(
+      receipt,
+      "approval_id approval_kind run_id binding actor_id approved_at",
+    );
+    if (
+      sent.approval_kind !== "change" ||
+      receipt.approval_kind !== "change" ||
+      !identifier(receipt.approval_id) ||
+      !identifier(receipt.actor_id) ||
+      !identifier(receipt.run_id) ||
+      receipt.run_id !== sent.run_id ||
+      !date(receipt.approved_at) ||
+      JSON.stringify(changeBinding(receipt.binding)) !==
+        JSON.stringify(changeBinding(sent.binding))
+    )
+      fail("invalid_change_approval_receipt");
+    // S2 receipt must never become the S3 execution receipt.
+    return clone(receipt);
   }
   approvalRequest(now) {
     if (!this.eligible(now)) fail("approval_not_ready");
