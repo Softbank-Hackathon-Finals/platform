@@ -1,0 +1,21 @@
+{
+  "source_revision": "4d0b9a6383f3528e7312c63cb838d950826c4d73",
+  "source_files": [
+    {
+      "path": "scripts/target_registry_credential.py",
+      "sha256": "a5f93cc34f5d6a28a5c7b869f7c9d0c848e15fa0bad43d8d00c428a58384a9e2"
+    },
+    {
+      "path": "scripts/target_registry_probe.py",
+      "sha256": "027748f353e56de0518745766b00d8d783d02e37e5b777079bc7ff611327f0b3"
+    },
+    {
+      "path": "scripts/tests/test_target_registry_credential.py",
+      "sha256": "c6af0587d56b781c42273c7e35807ede4c35dd9f4e512a7fe3f19d87dc08bd47"
+    },
+    {
+      "path": "scripts/tests/test_target_registry_probe.py",
+      "sha256": "1be5812a4ff4b905d9bc412562b88ad0b45ad8a650871f196f2a209ffe804285"
+    }
+  ]
+}
