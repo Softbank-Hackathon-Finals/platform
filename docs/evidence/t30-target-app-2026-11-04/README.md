@@ -43,7 +43,7 @@ NOLOGIN에서 앱은 **Ready로 보인다.** `/readyz`가 DB를 보지 않기 �
 
 컨테이너를 지정하지 않은 `kubectl exec`는 호환 컨테이너가 있어도 `app`으로 간다(T12 Executor 경로). Pod Security는 namespace가 `restricted`인 상태에서 Pod가 실제로 뜬 것이 근거다. 위반이 거부되는지 보는 대조 시험은 없다.
 
-단위 시험 45개, 변이 57개 모두 잡음(`scripts/tests/target_application_mutation_check.py`, 변이 없는 복사본이 먼저 통과해야 돈다).
+단위 시험 46개, 변이 58개 모두 잡음(`scripts/tests/target_application_mutation_check.py`, 변이 없는 복사본이 먼저 통과해야 돈다). Exit Drill은 단위 시험 551개, 변이 132개 모두 잡음(`services/exit-drill/tests/integration/mutation_check.py`).
 실제 SDK 호출 시험은 demo-chat이 잠근 boto3 1.43.123으로 따로 돌렸다. CI에는 boto3가 없어 이 시험만 건너뛴다. 저장소 전체 시험은 로컬 Python 3.9에서 기존 오류 26건이 그대로 남고 새 오류는 없다.
 
 ## 시험에서 찾은 것
