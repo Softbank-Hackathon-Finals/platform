@@ -1,0 +1,34 @@
+{
+  "source_revision": "93f9b3b3d727ac082e85e6df3d67ff096a5f6905",
+  "scope": "actual source schema capture; no target or production authority",
+  "raw_artifacts": [
+    {
+      "artifact": "result.json",
+      "sha256": "698a93211c2b58d5e15939f945a951c9f90ce26be642d7e09b382e3790722f13"
+    },
+    {
+      "artifact": "source-manifest.json",
+      "sha256": "9c97a05f966afd703452e19033d2d16eddf70b71089943f6e2e6a58a47b988f8"
+    },
+    {
+      "artifact": "additional-dependencies.json",
+      "sha256": "23ca52caebb727532c12c9752e6d77e2ae76e2d2421f9b9edc64c7deb94308d4"
+    },
+    {
+      "artifact": "remote.py",
+      "sha256": "b4707913e29847e30314cd11dd9b350055b640b6c4b8b3a6321bd5590f6d9043"
+    },
+    {
+      "artifact": "error.txt",
+      "sha256": "914bef2de7e8713072c662226351562eaea51a843fc81a8eadde1a79b91053b3"
+    }
+  ],
+  "source_capture": "two tables, no errors",
+  "wrong_expected_database": "SCHEMA_CAPTURE_UNAVAILABLE for both tables",
+  "unavailable_target": "SCHEMA_CAPTURE_UNAVAILABLE for both tables",
+  "readiness": "BLOCK",
+  "database_changes": false,
+  "credential_export": false,
+  "tls_mode": "verify-full",
+  "initial_attempt": "rfc3339-validator missing; failed before DB credential read; lockfile-hashed dependencies supplied for retry"
+}
