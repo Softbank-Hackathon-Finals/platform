@@ -1,4 +1,23 @@
 mock_provider "aws" {
+  mock_data "aws_instance" {
+    defaults = { private_ip = "10.0.1.8", subnet_id = "subnet-0123456789abcdef0" }
+  }
+  mock_data "aws_subnet" {
+    defaults = { vpc_id = "vpc-0123456789abcdef0" }
+  }
+  mock_data "aws_network_interface" {
+    defaults = { private_ip = "10.0.1.12" }
+  }
+  mock_resource "aws_vpc_endpoint" {
+    defaults = {
+      id                    = "vpce-0123456789abcdef0"
+      network_interface_ids = ["eni-0123456789abcdef0"]
+      dns_entry = [
+        { dns_name = "vpce-0123456789abcdef0-abc123.sts.ap-northeast-2.vpce.amazonaws.com", hosted_zone_id = "ZEXAMPLE" },
+        { dns_name = "vpce-0123456789abcdef0-abc123-ap-northeast-2a.sts.ap-northeast-2.vpce.amazonaws.com", hosted_zone_id = "ZEXAMPLE" }
+      ]
+    }
+  }
   mock_data "aws_caller_identity" {
     defaults = { account_id = "111122223333" }
   }
@@ -15,6 +34,21 @@ variables {
 
 run "credential_and_session_boundaries" {
   command = apply
+  assert {
+    condition = alltrue([for grant in jsondecode(aws_iam_role.broker.assume_role_policy).Statement :
+      grant.Condition.StringEquals["aws:SourceVpce"] == aws_vpc_endpoint.broker_sts.id &&
+      grant.Condition.IpAddress["aws:VpcSourceIp"] == "${data.aws_instance.broker.private_ip}/32"
+    ])
+    error_message = "Each broker grant must require the endpoint and the designated VM address."
+  }
+  assert {
+    condition = alltrue([for grant in jsondecode(aws_iam_role.controller.assume_role_policy).Statement :
+      !contains(keys(grant.Condition.StringEquals), "aws:SourceVpce")
+      ]) && !aws_vpc_endpoint.broker_sts.private_dns_enabled && strcontains(
+      aws_ssm_association.broker_sts.parameters["commands"], "AWS_ENDPOINT_URL_STS=https://vpce-0123456789abcdef0-abc123.sts."
+    )
+    error_message = "Keep the hosted controller on public STS and configure private STS only for the broker."
+  }
   assert {
     condition     = jsondecode(aws_iam_role_policy.broker.policy).Statement[0].Resource == var.subscription_secret_arn && length(jsondecode(aws_iam_role_policy.broker.policy).Statement[0].Action) == 3
     error_message = "The VM broker only reads and rotates its exact subscription Secret."

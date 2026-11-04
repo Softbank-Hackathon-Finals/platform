@@ -12,6 +12,28 @@ broker 메모리에만 존재하며 인증 값은 GitHub Secrets나 파일로 �
 있다. broker는 팀 구독 Secret 한 개의 Get/Put/UpdateVersionStage만 허용한다.
 두 역할 모두 immutable repository ID, STS audience, 정확한 ref에 결속한다.
 검증 브랜치의 trust는 고정 만료시각을 갖고, 운영 경로는 보호된 develop이다.
+broker는 역할을 받을 때 같은 토큰에 더해 지정 VM의 사설 IPv4와 전용 STS interface endpoint를 요구한다.
+Terraform이 VM과 같은 서브넷에 단일 AZ endpoint를 만들고 SSM으로 broker 서비스에만
+`AWS_ENDPOINT_URL_STS`를 설정한다. VM 교체 시 이 스택을 다시 적용한다.
+endpoint의 사설 DNS는 꺼져 있으므로 같은 VPC의 다른 서비스는 기존 STS 경로를 쓴다.
+이 VM은 RKE2 노드이기도 하다. Canal이 Pod 트래픽을 노드 IP로 변환하면 보안 그룹만으로
+Pod와 broker를 구분할 수 없다. SSM이 endpoint ENI의 IPv4를 읽어 호스트 nftables에
+전용 테이블 하나를 설치한다. 이 주소의 TCP 443에 한해 Pod 전달 패킷을 차단하고
+호스트에서 시작한 연결은 broker의 systemd slice에만 허용한다. 표준 Linux 네트워크를
+사용하는 이 지정 노드가 대상이다. 호스트 root·관리자 또는 다른 데이터 경로까지
+격리한다는 뜻은 아니다. 일반 STS, CNI 규칙, 노드 역할은 변경하지 않는다.
+
+운영 확인: `bravo-sts-guard.service`가 active인지와 `nft list table inet bravo_broker_sts`로
+endpoint 전용 규칙·카운터를 확인한다. broker slice에서 TCP가 열리고 일반 slice·Pod에서
+막혀야 한다. 같은 Pod에서 별도 허용 목적지에 연결돼야 차단 시험이 유효하다.
+재부팅 시 guard를 시작하며 broker 시작은 guard 성공을 요구한다. VM 또는 endpoint 교체
+후에는 Terraform을 적용하고 이 확인을 반복한다. 공유 노드를 남기고 스택을 철거할 때는
+실행을 멈추고 broker의 IAM trust 및 endpoint를 먼저 제거한 뒤 guard를 disable하고
+이 스택의 `bravo_broker_sts` 테이블, guard unit·script, slice unit과 broker의
+`sts.conf`만 제거하고 `systemctl daemon-reload`한다.
+
+controller는 GitHub 러너에서 같은 토큰으로 broker 역할의 직접 발급이 거부되는지 한 번 확인한다.
+그 검사에서 발급을 잘못 허용해도 시험 세션에는 모든 API를 거부하는 정책이 적용된다.
 
 `SessionDocumentAccessCheck`를 강제하여 DocumentName을 생략한 기본 shell도 거부한다.
 워크플로는 임의 shell 명령, 기본 shell session, 임의 port session, Secret 목록 조회의
@@ -47,7 +69,10 @@ uv run --directory services/agent-worker python ../../operations/subscription/in
   --settings "$PRIVATE_METADATA_JSON" --instance-id "$DESIGNATED_INSTANCE_ID"
 ```
 
-4. SSM 설치 성공과 서비스 비활성을 확인한다. GitHub repository Secrets에는
+4. broker가 비활성인 작업 창에서 Terraform 계획을 적용한다. SSM association 성공과
+   서비스의 STS endpoint 설정을 확인한 후 새 broker를 시작한다. broker 역할 ARN은
+   `terraform output -raw broker_role_arn | gh secret set BRAVO_SUBSCRIPTION_BROKER_ROLE_ARN`
+   으로 대상 저장소에 등록한다. SSM 설치 성공과 서비스 비활성을 확인한다. GitHub repository Secrets에는
    `BRAVO_SUBSCRIPTION_CONTROLLER_ROLE_ARN`, `BRAVO_SUBSCRIPTION_INSTANCE_ID` 참조만 넣는다.
    Variables에는 `BRAVO_SUBSCRIPTION_SOURCE_SHA`와 명시적 실행 허용
    `BRAVO_SUBSCRIPTION_RUNTIME_ENABLED=true`를 설정한다.

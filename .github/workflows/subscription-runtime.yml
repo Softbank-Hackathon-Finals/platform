@@ -40,6 +40,7 @@ jobs:
       - name: Run the installed VM broker without administrator credentials
         working-directory: services/agent-worker
         env:
+          BRAVO_BROKER_ROLE_ARN: ${{ secrets.BRAVO_SUBSCRIPTION_BROKER_ROLE_ARN }}
           BRAVO_INSTANCE_ID: ${{ secrets.BRAVO_SUBSCRIPTION_INSTANCE_ID }}
           BRAVO_RUNTIME_SOURCE_SHA: ${{ vars.BRAVO_SUBSCRIPTION_SOURCE_SHA }}
         run: uv run --frozen --no-dev python ../../operations/subscription/controller.py
