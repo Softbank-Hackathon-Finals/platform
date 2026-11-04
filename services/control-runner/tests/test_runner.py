@@ -8,6 +8,7 @@ from zoneinfo import ZoneInfo
 import pytest
 
 from bravo_controls import Catalog, Environment, Observation, Runner
+from bravo_controls.runner import RunContext
 
 ROOT = Path(__file__).resolve().parents[3]
 NOW = datetime(2026, 11, 3, 9, tzinfo=UTC)
@@ -69,6 +70,56 @@ def test_fixture_observations_form_t5_run_without_gate_authority(catalog):
     assert run["environment"] == {"id": ENV.id, "role": ENV.role, "ref": ENV.ref}
     assert len({r["test_id"] for r in run["results"]}) == 20
     assert run["run_id"] != execute(catalog, probes, "full")["run_id"]
+
+
+def test_registered_invocation_preserves_prepared_receipt_identity(catalog):
+    context = RunContext("server-registered-backup-attempt", "demo-chat", ENV)
+    seen = []
+
+    def probe(ctx, spec):
+        seen.append(ctx)
+        assert ctx is context
+        return good(ctx, spec)
+
+    result = Runner(catalog, {"DR-01.1": probe}, clock=lambda: NOW).run(
+        profile_id="full", profile_version="1", app="demo-chat",
+        environment=ENV, registered_context=context,
+    )
+    assert seen == [context]
+    assert result["run_id"] == context.run_id
+    assert next(r for r in result["results"] if r["test_id"] == "DR-01.1")["verdict"] == "PASS"
+    assert sum(r["verdict"] == "UNKNOWN" for r in result["results"]) == 19
+
+
+@pytest.mark.parametrize("context", [
+    {}, "claimed-id", RunContext("", "demo-chat", ENV),
+    RunContext("bad\nidentifier", "demo-chat", ENV),
+    RunContext("a" * 257, "demo-chat", ENV),
+    RunContext("attempt", "other-app", ENV),
+    RunContext("attempt", "demo-chat", replace(ENV, ref="aws:eks/other")),
+    RunContext("attempt", "demo-chat", replace(ENV, role="target")),
+    RunContext("attempt", "demo-chat", replace(ENV, id="other")),
+])
+def test_unbound_registered_invocation_is_rejected_before_probes(catalog, context):
+    seen = []
+    with pytest.raises(ValueError):
+        Runner(catalog, {"DR-01.1": lambda *a: seen.append(a)}, clock=lambda: NOW).run(
+            profile_id="full", profile_version="1", app="demo-chat", environment=ENV,
+            registered_context=context,
+        )
+    assert not seen
+
+
+def test_registered_invocation_does_not_accept_old_observation(catalog):
+    context = RunContext("registered", "demo-chat", ENV)
+    result = Runner(catalog, {
+        "DR-01.1": lambda c, s: replace(good(c, s), collected_at=NOW - timedelta(seconds=1))
+    }, clock=lambda: NOW).run(
+        profile_id="full", profile_version="1", app="demo-chat", environment=ENV,
+        registered_context=context,
+    )
+    row = next(r for r in result["results"] if r["test_id"] == "DR-01.1")
+    assert row["verdict"] == "UNKNOWN" and row["evidence"] is None
 
 
 @pytest.mark.parametrize(
