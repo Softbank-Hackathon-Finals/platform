@@ -28,11 +28,24 @@ class Handler(BaseHTTPRequestHandler):
   self.send_response(code);self.end_headers();self.wfile.write(data)
 HTTPServer(("0.0.0.0",8080),Handler).serve_forever()
 '''
-VERIFIER = '''import json,os,urllib.request,urllib.error
+VERIFIER = '''import json,os,time,urllib.request,urllib.error
 def request(host):
- try:
-  with urllib.request.urlopen("http://"+host+":8080/",timeout=10) as r:return r.status,json.load(r)
- except urllib.error.HTTPError as e:return e.code,json.load(e)
+    deadline = time.monotonic() + 10
+    while True:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise TimeoutError("candidate connection unavailable")
+        try:
+            with urllib.request.urlopen("http://" + host + ":8080/", timeout=remaining) as response:
+                return response.status, json.load(response)
+        except urllib.error.HTTPError as error:
+            with error:
+                return error.code, json.load(error)
+        except urllib.error.URLError as error:
+            # Pod readiness may precede reachability from the verifier's network.
+            if not isinstance(error.reason, ConnectionRefusedError):
+                raise
+            time.sleep(min(0.5, max(0, deadline - time.monotonic())))
 good=request(os.environ["PRESENT_HOST"]);missing=request(os.environ["MISSING_HOST"])
 checks={"injected_value":good==(200,{"value":os.environ["EXPECTED_VALUE"]}),
         "missing_value_closed":missing==(503,{"missing":True})}
