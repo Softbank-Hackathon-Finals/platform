@@ -15,7 +15,7 @@ from test_executor import response_value
 
 from bravo_platform_events.cutover import CutoverService, _key, _put
 from bravo_platform_events.executor import ExecutionSnapshot, ExecutionStep, ExecutorClient
-from bravo_platform_events.failback import CurrentFailback, FailbackService
+from bravo_platform_events.failback import CurrentFailback, FailbackIntegrity, FailbackService
 from bravo_platform_events.plan_api import Principal
 from bravo_platform_events.plans import PlanSpec
 from bravo_platform_events.store import EventError
@@ -68,6 +68,10 @@ class Fixture:
         self.fail_post = False
         self.empty_get = False
         self.fail_get = False
+        self.integrity = "match"  # match | missing | other_run | unmatched
+        self.edge_calls = []
+        self.edge_result = True
+        self.during_edge = None
         backend.store.register_plan(SPEC, run_id="fixture", occurred_at=NOW)
         seed_completed_cutover(backend)
         self.client = ExecutorClient("https://executor.example.invalid", token="fixture-token",
@@ -92,9 +96,28 @@ class Fixture:
             return httpx.Response(200, json=[])
         return httpx.Response(200, json=[self.value] if request.url.path == "/v1/cutovers" else self.value)
 
+    def read_integrity(self, c, plan, *, command_id, epoch, execution_id):
+        if self.integrity == "missing":
+            raise LookupError("PRIVATE_NOT_FOUND")
+        if self.integrity == "other_run":  # e.g. the reader returned the cutover's receipt
+            return FailbackIntegrity(RECEIPT, CUTOVER_COMMAND, 7, CUTOVER_EXECUTION, True)
+        return FailbackIntegrity("r-failback-56", command_id, epoch, execution_id, self.integrity == "match")
+
+    def restore_origin(self, **kwargs):
+        self.edge_calls.append(kwargs)
+        if self.during_edge:
+            self.during_edge()
+        if isinstance(self.edge_result, BaseException):
+            raise self.edge_result
+        return self.edge_result
+
     def service(self, **kwargs):
         return FailbackService(self.backend.reopen(), self.client, bindings=BINDINGS,
-                               authority=kwargs.get("authority", self.authority), clock=lambda: self.now)
+                               authority=kwargs.get("authority", self.authority),
+                               read_integrity=self.read_integrity, edge=self, clock=lambda: self.now)
+
+    def advance(self, command_id):
+        return self.service().advance(PRINCIPAL, SPEC.plan_id, command_id)
 
     def approve(self, **changes):
         args = dict(binding=BINDING, expected_version=5, command_key="approve-1")
@@ -267,9 +290,142 @@ def test_consumed_approval_and_key_namespaces_are_separate(fixture):
 def test_stored_committed_done_is_not_held_by_a_later_failed_get(fixture):
     f = fixture
     f.value.update(status="DONE", committed=True)
+    f.edge_result = False  # DB is back on the origin, the Edge is not confirmed yet
     approval = f.approve()
     receipt = f.submit(approval)
-    assert receipt["snapshot"]["remote_status"] == "DONE" and f.state() == "FAILBACK"
+    assert receipt["snapshot"]["remote_status"] == "DONE" and receipt["failback"] == "edge_pending"
     f.fail_get = True
     assert f.service().reconcile(PRINCIPAL, SPEC.plan_id, receipt["command_id"])["outcome"] == "UNKNOWN"
-    assert f.state() == "FAILBACK"  # the DB is already back on the origin; Edge decides next (commit 4)
+    assert f.state() == "FAILBACK"  # not SAFE_HOLD: only the Edge remains
+
+
+# After a committed DONE: evidence, Edge restore and completion (spec commit 4) -----------------
+
+def done(f):
+    f.value.update(status="DONE", committed=True)
+    approval = f.approve()
+    return approval, f.submit(approval)
+
+
+def records(f):
+    return [e["data"] for e in f.events("failback.recorded")]
+
+
+def test_rollback_completes_after_bound_evidence_and_confirmed_edge(fixture):
+    f = fixture
+    f.now = "2026-11-04T10:00:00+00:00"
+    approval, receipt = done(f)
+    assert receipt["failback"] == "rolled_back" and f.state() == "DONE_ROLLED_BACK"
+    assert f.edge_calls == [dict(plan_id=SPEC.plan_id, command_id=receipt["command_id"],
+                                 execution_id=FAILBACK_EXECUTION, epoch=8)]
+    pending, finished = records(f)
+    assert pending["status"] == "edge_pending" and pending["integrity_receipt_id"] == "r-failback-56"
+    assert finished == pending | dict(status="rolled_back", finished_at=f.now, recovery_ms=0)
+    assert finished["approved_by"] == "operator" and finished["approval_id"] == approval["approval_id"]
+    assert f.events("state.changed")[-1]["data"] == {"from": "FAILBACK", "to": "DONE_ROLLED_BACK"}
+    assert [r.method for r in f.requests] == ["POST"]
+
+
+def test_edge_failure_waits_and_retries_only_the_edge(fixture):
+    f = fixture
+    f.edge_result = RuntimeError("PRIVATE_CLOUDFLARE_ERROR")
+    _, receipt = done(f)
+    assert receipt["failback"] == "edge_pending" and f.state() == "FAILBACK"
+    f.edge_result = False  # reachable but not confirmed yet
+    assert f.advance(receipt["command_id"]) == "edge_pending"
+    f.edge_result, f.now = True, "2026-11-04T10:00:09+00:00"
+    assert f.advance(receipt["command_id"]) == "rolled_back" and f.state() == "DONE_ROLLED_BACK"
+    assert [r["status"] for r in records(f)] == ["edge_pending", "rolled_back"]
+    assert records(f)[-1]["recovery_ms"] == 9000  # dispatch claim -> confirmed Edge (D6)
+    assert [r.method for r in f.requests] == ["POST"]  # the DB command was never sent again
+    assert len({tuple(sorted(c.items())) for c in f.edge_calls}) == 1  # one idempotent request
+
+
+class Crash(BaseException):
+    """Process loss after the Edge confirmed but before completion was stored."""
+
+
+def test_crash_after_edge_success_retries_the_same_request_and_completes_once(fixture):
+    f = fixture
+    f.edge_result = Crash()
+    with pytest.raises(Crash):
+        done(f)
+    assert f.state() == "FAILBACK" and [r["status"] for r in records(f)] == ["edge_pending"]
+    f.edge_result = True
+    command_id = f.edge_calls[0]["command_id"]
+    assert f.advance(command_id) == "rolled_back"
+    assert f.advance(command_id) == "rolled_back"
+    assert f.edge_calls[0] == f.edge_calls[1] and len(f.edge_calls) == 2
+    assert [r["status"] for r in records(f)] == ["edge_pending", "rolled_back"]
+
+
+def test_concurrent_advance_completes_once(fixture):
+    f = fixture
+    f.edge_result = False
+    _, receipt = done(f)
+    f.edge_result = True
+    barrier = Barrier(4)
+
+    def advance(_):
+        barrier.wait(timeout=10)
+        return f.advance(receipt["command_id"])
+
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        assert set(pool.map(advance, range(4))) == {"rolled_back"}
+    assert [r["status"] for r in records(f)].count("rolled_back") == 1
+    assert [e["data"]["to"] for e in f.events("state.changed")].count("DONE_ROLLED_BACK") == 1
+
+
+def test_hold_before_or_during_the_edge_call_wins(fixture):
+    f = fixture
+    approval = f.approve()
+    f.fail_post = True
+    receipt = f.submit(approval)  # UNKNOWN before any DONE: SAFE_HOLD
+    assert f.state() == "SAFE_HOLD"
+    assert f.advance(receipt["command_id"]) == "not_failback" and not f.edge_calls
+
+
+def test_hold_stored_while_the_edge_call_is_in_flight_is_not_overwritten(fixture):
+    f = fixture
+
+    def operator_hold():
+        with f.backend.admin() as c:
+            c.execute("UPDATE plans SET state='SAFE_HOLD' WHERE plan_id='plan-demo'")
+
+    f.during_edge = operator_hold
+    _, receipt = done(f)
+    assert receipt["failback"] == "not_failback" and f.state() == "SAFE_HOLD"
+    assert [r["status"] for r in records(f)] == ["edge_pending"]
+
+
+@pytest.mark.parametrize("integrity,result,state", [
+    ("missing", "evidence_pending", "FAILBACK"),
+    ("other_run", "held", "SAFE_HOLD"),
+    ("unmatched", "held", "SAFE_HOLD"),
+])
+def test_no_edge_call_without_evidence_bound_to_this_run(fixture, integrity, result, state):
+    f = fixture
+    f.integrity = integrity
+    _, receipt = done(f)
+    assert receipt["failback"] == result and f.state() == state
+    assert not f.edge_calls and not records(f)
+
+
+def test_abort_returns_to_watch_and_a_retry_needs_a_new_approval_and_epoch(fixture):
+    f = fixture
+    f.value.update(status="ABORT_PRE_WRITE", committed=False)
+    approval = f.approve()
+    receipt = f.submit(approval)
+    assert receipt["failback"] == "aborted" and f.state() == "WATCH"
+    aborted = records(f)[-1]
+    assert aborted["status"] == "aborted" and aborted["execution_id"] == FAILBACK_EXECUTION
+    assert f.events("state.changed")[-1]["data"] == {"from": "FAILBACK", "to": "WATCH"}
+    with pytest.raises(EventError, match="approval_unavailable"):  # the approval stays consumed
+        f.service()._prepare(PRINCIPAL, SPEC.plan_id, approval["approval_id"], "submit-2")
+    with pytest.raises(EventError, match="epoch_not_increasing"):  # 7 -> 8 (aborted) -> 8 again
+        f.approve(command_key="approve-2", expected_version=7)
+    f.context = replace(f.context, command=COMMAND | dict(epoch=9))
+    f.value.update(status="DONE", committed=True, epoch=9, execution_id="cccccccc-cccc-4ccc-8ccc-abcdefabcdef")
+    second = f.approve(command_key="approve-2", expected_version=7)
+    assert f.submit(second, command_key="submit-2")["failback"] == "rolled_back"
+    assert [json.loads(r.content)["epoch"] for r in f.requests if r.method == "POST"] == [8, 9]
