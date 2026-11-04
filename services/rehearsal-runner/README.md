@@ -188,11 +188,11 @@ PYTHONPATH=../rehearsal-runner/src uv run --frozen --no-default-groups --with py
 
 `approval_handoff.submit_candidate`는 호스트가 주입한 T10 `Candidate`, `ChangeIntake`, 토큰 공급자를 이용해 후보를 한 번 전달한다. T10의 응답을 검증하며 예외·응답 불명일 때 자동으로 재전송하거나 승인되었다고 표시하지 않는다. 인증 원문 조회와 수신자 권한 검증은 T10 책임이다.
 
-T10 수신 PR #237의 `6fce3d54a9c825aaf66140d69211d11d7d5f807e` 소스를 별도 체크아웃에 준비하고 `T10_CHECKOUT`으로 지정하면 다음 교차 시험을 실행할 수 있다. 이 시험은 T10 실제 수신 코드와 합성 원문·시험용 서명 키를 사용한다.
+머지된 T10 수신 PR #237의 실제 코드와 합성 원문·시험용 서명 키로 다음 교차 시험을 실행한다.
 
 ```bash
 cd ../platform-events
-PYTHONPATH="$T10_CHECKOUT/services/platform-events/src:../rehearsal-runner/src" uv run --frozen --no-default-groups --with pytest pytest -p no:cacheprovider ../rehearsal-runner/testing/test_t10_intake_compat.py
+PYTHONPATH=../rehearsal-runner/src uv run --frozen --no-default-groups --with pytest pytest -p no:cacheprovider ../rehearsal-runner/testing/test_t10_intake_compat.py
 ```
 
 PR #237의 수신기는 기본적으로 네트워크 경로와 운영 원문 조회기가 설치되지 않으며, 이 시험은 실제 제품 검증이나 사람 승인을 뜻하지 않는다.
