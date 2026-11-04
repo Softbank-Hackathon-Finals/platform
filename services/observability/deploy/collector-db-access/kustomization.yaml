@@ -1,0 +1,7 @@
+# DB 네임스페이스에서 Collector가 CNPG Pod를 찾도록 읽기 권한만 준다. 환경마다 namespace를 그 환경의 DB 네임스페이스로 바꾼다.
+# 출발지(T6)는 source-dev. 목적지(T30)는 정해지면 같은 방식으로 적용한다.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: source-dev
+resources:
+  - access.yaml

@@ -1,0 +1,28 @@
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+configMapGenerator:
+  - name: bravo-app-mtls-config
+    files:
+      - receiver-mtls.yaml
+patches:
+  - target: {kind: Deployment, name: bravo-collector}
+    patch: |-
+      - op: add
+        path: /spec/template/spec/containers/0/args/-
+        value: --config=/etc/otelcol-app/receiver-mtls.yaml
+      - op: add
+        path: /spec/template/spec/containers/0/volumeMounts/-
+        value: {name: app-mtls-config, mountPath: /etc/otelcol-app, readOnly: true}
+      - op: add
+        path: /spec/template/spec/containers/0/volumeMounts/-
+        value: {name: app-tls, mountPath: /etc/bravo-app-tls, readOnly: true}
+      - op: add
+        path: /spec/template/spec/volumes/-
+        value:
+          name: app-mtls-config
+          configMap: {name: bravo-app-mtls-config}
+      - op: add
+        path: /spec/template/spec/volumes/-
+        value:
+          name: app-tls
+          secret: {secretName: bravo-collector-app-tls, defaultMode: 0440}
