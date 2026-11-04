@@ -4,7 +4,8 @@ import pytest
 
 from rehearsal_runner.bucket_task import prepare_bucket_policy_task
 
-SOURCE = '{"Version":"2012-10-17","Statement":[{"Effect":"Deny","Action":"s3:GetObject","Principal":"*","Resource":"arn:aws:s3:::example/*"}]}'
+SOURCE = ('{"Version":"2012-10-17","Statement":[{"Effect":"Deny","Action":"s3:GetObject",'
+          '"Principal":"*","Resource":"example-policy-resource"}]}')
 
 
 def test_task_captures_exact_source_and_scope_without_applying_it():
