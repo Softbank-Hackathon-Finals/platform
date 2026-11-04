@@ -1,0 +1,73 @@
+{
+  "source_revision": "93f9b3b3d727ac082e85e6df3d67ff096a5f6905",
+  "source_files": [
+    {
+      "path": "services/control-gate/src/bravo_gate/__init__.py",
+      "sha256": "f73553ffba9fe831041a1f2642d69811a46506a7bd554c8bf891c50f5bbea283"
+    },
+    {
+      "path": "services/control-gate/src/bravo_gate/combined.py",
+      "sha256": "98c4d9082069ea1707475b5e0fb422516e66147d634b185a8343bfcda552fac9"
+    },
+    {
+      "path": "services/control-gate/src/bravo_gate/contract.py",
+      "sha256": "70dca503d33011d3bf4874d56a2b437a09698aeb4189ec5f5b6dc362c0e0f1f7"
+    },
+    {
+      "path": "services/control-gate/src/bravo_gate/contracts/control-result.schema.json",
+      "sha256": "f1273e751b31288c6d2ed927d888032474ce05f132dde7545bc12e2d9b38b654"
+    },
+    {
+      "path": "services/control-gate/src/bravo_gate/contracts/profiles.json",
+      "sha256": "4ba6e539b422985a43c20875ae00b21e1bd461daf4f8240b5b7b02debe0f2c90"
+    },
+    {
+      "path": "services/control-gate/src/bravo_gate/contracts/provenance.json",
+      "sha256": "2446f1b8cd0119173a3c2763f02aa987cd3c98a6e9b6cf51c89256f81b55cb31"
+    },
+    {
+      "path": "services/control-gate/src/bravo_gate/engine.py",
+      "sha256": "8a7ca813560eb298e8c04723f889b56b25a07c50deb683126a96d4c9eea02d06"
+    },
+    {
+      "path": "services/control-gate/src/bravo_gate/models.py",
+      "sha256": "13a4b064f88f1c28f74fe28b2f275872a2cab721acd43010c659230742d4430a"
+    },
+    {
+      "path": "services/control-gate/src/bravo_gate/network.py",
+      "sha256": "021b25f4f2f0d7da163068dcf06d189b9a77a0a073cc83996bef93009f871772"
+    },
+    {
+      "path": "services/control-gate/src/bravo_gate/readiness.py",
+      "sha256": "1df6f34b96caca2dba459697f47fca9287793572f4ea63d5843abe2676f9c803"
+    },
+    {
+      "path": "services/control-gate/src/bravo_gate/service.py",
+      "sha256": "1bb806c7a9003c279c5d41b2ca6d0e4f7312dc7b8eca470795af0bc2202d8a92"
+    },
+    {
+      "path": "services/control-gate/src/bravo_gate/signatures.py",
+      "sha256": "d2128f1749da839c824c3cb819be2490b7fbb6de401b717f86b0ac34cd53f8c3"
+    },
+    {
+      "path": "services/control-gate/src/bravo_gate/t10.py",
+      "sha256": "0df3373c53b3cd7b627f95acb1fd685e39e499c894b892dbfdb7fcc5f42a8cc9"
+    },
+    {
+      "path": "services/control-gate/src/bravo_gate/t13.py",
+      "sha256": "4ce578a8edf9596c00d74b9587fb9dee3ed1b6fd588b5eed05073ff4fecd927f"
+    },
+    {
+      "path": "services/cutover-executor/src/bravo_cutover/__init__.py",
+      "sha256": "2d0034012bdb8d827a3d75bebd4d95fdf13154b6a4734261ec18e65e23b1f866"
+    },
+    {
+      "path": "services/cutover-executor/src/bravo_cutover/db_fingerprint.py",
+      "sha256": "4f6f27a769f0d8340d5dbb293208179d6ce2e6fc506f7bda2adeb4373f9c9fdd"
+    },
+    {
+      "path": "services/cutover-executor/src/bravo_cutover/remote/__init__.py",
+      "sha256": "bac4ba0c821ade4ef37bf977f78a9acb03d1975508b3cbc70a7adde7e934fdf9"
+    }
+  ]
+}

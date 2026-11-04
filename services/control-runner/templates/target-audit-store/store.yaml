@@ -1,0 +1,118 @@
+# 감사 저장소: SeaweedFS 4.52(T30과 같은 digest · 인자) + S3 TLS. 내부 master · filer · volume은 loopback, S3만 8333.
+# 데이터는 시제품이라 emptyDir이다. 목적지에서는 Retain PV와 볼륨 quota를 쓴다(T30 objects.py와 같은 방식).
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: audit-store
+automountServiceAccountToken: false
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: audit-store
+  labels:
+    app: audit-store
+    component: target
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: audit-store
+  template:
+    metadata:
+      labels:
+        app: audit-store
+        component: target
+        bravo.audit/role: store
+    spec:
+      serviceAccountName: audit-store
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: seaweedfs
+          image: docker.io/chrislusf/seaweedfs:4.52@sha256:a54ba35b44895a449f5cdd415999062201b17b9835ec0ffc19ea605b72ffa3d1
+          command: ["/usr/bin/weed"]
+          args: ["-logtostderr=true", "server", "-dir=/data", "-master.dir=/data", "-master.peers=none",
+                 "-master.volumeSizeLimitMB=128", "-volume.max=8", "-ip=127.0.0.1", "-ip.bind=127.0.0.1", "-filer", "-s3",
+                 "-s3.port=8333", "-s3.ip.bind=0.0.0.0", "-s3.config=/etc/seaweedfs-auth/s3.json", "-s3.iam=false",
+                 "-s3.cert.file=/etc/audit-store-tls/tls.crt", "-s3.key.file=/etc/audit-store-tls/tls.key",
+                 "-s3.port.iceberg=0", "-s3.port.lance=0"]
+          ports:
+            - {name: s3, containerPort: 8333}
+          startupProbe:
+            tcpSocket: {port: s3}
+            periodSeconds: 5
+            failureThreshold: 120
+          readinessProbe:
+            tcpSocket: {port: s3}
+            periodSeconds: 5
+          resources:
+            requests: {cpu: 100m, memory: 128Mi}
+            limits: {cpu: "1", memory: 768Mi}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          volumeMounts:
+            - {name: data, mountPath: /data}
+            - {name: tmp, mountPath: /tmp}
+            - {name: auth, mountPath: /etc/seaweedfs-auth, readOnly: true}
+            - {name: tls, mountPath: /etc/audit-store-tls, readOnly: true}
+      volumes:
+        - name: data
+          emptyDir:
+            sizeLimit: 1Gi
+        - name: tmp
+          emptyDir:
+            sizeLimit: 64Mi
+        - name: auth
+          secret:
+            secretName: audit-store-auth
+            defaultMode: 0440
+            items:
+              - {key: s3.json, path: s3.json}
+        - name: tls
+          secret:
+            secretName: audit-store-tls
+            defaultMode: 0440
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: audit-store
+  labels:
+    component: target
+spec:
+  selector:
+    app: audit-store
+  ports:
+    - {name: s3, port: 8333, targetPort: s3}
+---
+# 정해진 역할의 Pod만 S3에 닿는다: 전달기(쓰기), 검색(읽기), 관리 Job(버킷 · 보존 · 정책 생성).
+# 앱 · DB 네임스페이스와 같은 네임스페이스의 다른 Pod는 닿지 않는다. 저장소는 밖으로 나가지 않는다.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: audit-store
+spec:
+  podSelector:
+    matchLabels:
+      app: audit-store
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - from:
+        - podSelector:
+            matchExpressions:
+              - {key: bravo.audit/role, operator: In, values: [forwarder, searcher, bootstrap]}
+      ports:
+        - {port: 8333, protocol: TCP}
+  egress: []

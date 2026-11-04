@@ -1,0 +1,26 @@
+# 감사 전달기 시제품 설정. 운영 전달기는 #117 collector_config가 노드 로그(filelog) · 영속 큐를 구성하고,
+# 이 설정의 awss3 exporter 부분을 내보내기로 쓴다. 여기서는 OTLP 입력으로 저장소 경로만 시험한다.
+receivers:
+  otlp:
+    protocols:
+      http:
+        endpoint: 0.0.0.0:4318
+exporters:
+  awss3:
+    s3uploader:
+      region: us-east-1
+      s3_bucket: bravo-audit
+      s3_prefix: audit/onprem
+      s3_partition_format: '%Y/%m/%d/%H/%M'
+      endpoint: https://audit-store:8333
+      s3_force_path_style: true
+      unique_key_func_name: uuidv7
+    marshaler: otlp_json
+service:
+  pipelines:
+    logs:
+      receivers: [otlp]
+      exporters: [awss3]
+  telemetry:
+    logs:
+      level: warn

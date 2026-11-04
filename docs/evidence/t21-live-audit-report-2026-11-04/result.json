@@ -1,0 +1,17 @@
+{
+  "scope": "real retained local T19 report through T10 HTTP/SSE and T21 browser",
+  "report_sha256": "bd9c4e795b179d9998f1901be422ef9f70d53ae219cb9feb6ee30dc2509097d0",
+  "decision": "BLOCK",
+  "actual_audit_pass_count": 3,
+  "unknown_count": 17,
+  "browsers": [
+    "Chromium",
+    "WebKit"
+  ],
+  "approval_disabled": true,
+  "execution_disabled": true,
+  "revocation_clears_previous_results": true,
+  "mutating_browser_requests": 0,
+  "production_authentication": false,
+  "production_cutover": false
+}
