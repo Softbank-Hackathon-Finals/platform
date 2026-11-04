@@ -11,9 +11,11 @@ from threading import Barrier
 
 import httpx
 import pytest
+from fastapi.testclient import TestClient
 from test_executor import response_value
 
 from bravo_platform_events.cutover import CutoverService, _key, _put
+from bravo_platform_events.cutover_api import create_cutover_app
 from bravo_platform_events.executor import ExecutionSnapshot, ExecutionStep, ExecutorClient
 from bravo_platform_events.failback import CurrentFailback, FailbackIntegrity, FailbackService
 from bravo_platform_events.plan_api import Principal
@@ -480,3 +482,52 @@ def test_two_aborted_failbacks_then_watch_still_completes(fixture):
         assert f.submit(approval, command_key=f"submit-{attempt}")["failback"] == "aborted"
     assert f.state() == "WATCH" and f.backend.reopen().snapshot(SPEC.plan_id)["version"] == 9
     assert recovery(f).resume_once(PRINCIPAL, SPEC.plan_id) == "DONE"
+
+
+# HTTP routes (spec commit 6) -------------------------------------------------------------------
+
+def app(f, *, failback=False, **kwargs):
+    store = f.backend.reopen()
+    cutover = CutoverService(store, f.client, bindings=BINDINGS, clock=lambda: f.now)
+    service = FailbackService(store, f.client, bindings=BINDINGS, authority=f.authority,
+                              read_integrity=f.read_integrity, edge=f, clock=lambda: f.now)
+    return create_cutover_app(cutover, failback_service=service if failback else None, **kwargs)
+
+
+def test_failback_routes_approve_submit_and_retry_only_the_edge(fixture):
+    f = fixture
+    f.value.update(status="DONE", committed=True)
+    f.edge_result = False
+    url = f"/v1/plans/{SPEC.plan_id}"
+    body = dict(approval_kind="failback", binding=BINDING, expected_version=5)
+    with TestClient(app(f, failback=True)) as client:
+        assert client.post(f"{url}/approvals", json=body, headers={"Idempotency-Key": "a"}).status_code == 403
+    with TestClient(app(f, failback=True, resolve_principal=lambda _: PRINCIPAL)) as client:
+        approval = client.post(f"{url}/approvals", json=body, headers={"Idempotency-Key": "a"})
+        assert approval.status_code == 200
+        assert set(approval.json()) == {"approval_id", "approval_kind", "binding", "actor_id", "approved_at"}
+        submitted = client.post(f"{url}/failback", json={"approval_id": approval.json()["approval_id"]},
+                                headers={"Idempotency-Key": "s"})
+        assert submitted.status_code == 202 and submitted.json()["failback"] == "edge_pending"
+        command_id = submitted.json()["command_id"]
+        f.edge_result = True
+        retried = client.post(f"{url}/failback/{command_id}/edge")
+        assert retried.json() == {"command_id": command_id, "failback": "rolled_back"}
+        assert client.post(f"{url}/failback/{command_id}/reconcile").json()["failback"] == "rolled_back"
+    assert [r.method for r in f.requests] == ["POST", "GET"]  # the Edge route sent no Executor request
+    assert f.state() == "DONE_ROLLED_BACK"
+
+
+def test_failback_is_unavailable_until_the_host_wires_it(fixture):
+    f = fixture
+    url = f"/v1/plans/{SPEC.plan_id}"
+    body = dict(approval_kind="failback", binding=BINDING, expected_version=5)
+    with TestClient(app(f, resolve_principal=lambda _: PRINCIPAL)) as client:
+        assert client.post(f"{url}/approvals", json=body, headers={"Idempotency-Key": "a"}).status_code == 422
+        response = client.post(f"{url}/failback", json={"approval_id": "x"}, headers={"Idempotency-Key": "s"})
+        assert response.status_code == 503 and response.json() == {"detail": {"code": "failback_unavailable"}}
+        # A cutover binding sent as failback is not a failback approval
+        bad = body | {"binding": {"plan_id": SPEC.plan_id}}
+    with TestClient(app(f, failback=True, resolve_principal=lambda _: PRINCIPAL)) as client:
+        assert client.post(f"{url}/approvals", json=bad, headers={"Idempotency-Key": "b"}).status_code == 409
+    assert not f.requests

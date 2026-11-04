@@ -15,11 +15,14 @@ from .contract import validate_identifier
 from .cutover import CutoverService, _get, _key, _put, unavailable_authority
 from .cutover_api import create_cutover_app
 from .executor import _timestamp
+from .failback import FailbackService, failback_key
 from .operator_identity import OperatorPrincipal
 from .plans import _canonical
 from .store import EventError
 
-PERMISSIONS = frozenset({"read", "approve_cutover", "execute_cutover", "approve_change", "apply_change"})
+PERMISSIONS = frozenset({"read", "approve_cutover", "execute_cutover", "approve_change", "apply_change",
+                         "approve_failback", "execute_failback"})
+APPROVAL_KEYS = {"cutover": _key, "change": change_key, "failback": failback_key}
 
 
 class OperatorAccess:
@@ -80,9 +83,9 @@ class OperatorAccess:
     def revoke_approval(self, plan_id, approval_id, *, administration_ref: str,
                         approval_kind="cutover"):
         """Trusted host revocation; durable, idempotent, never cancels remote work."""
-        if approval_kind not in ("cutover", "change"):
+        if approval_kind not in APPROVAL_KEYS:
             raise ValueError("invalid_approval_kind")
-        key_for = change_key if approval_kind == "change" else _key
+        key_for = APPROVAL_KEYS[approval_kind]
         for value in (plan_id, approval_id, administration_ref):
             validate_identifier(value)
         with self.store._transaction(write=True, plan_id=plan_id) as c:
@@ -151,6 +154,10 @@ class OperatorAccess:
         """Same operator rules, with distinct S2 permissions and revocations."""
         return self._authority(upstream, "approve_change", "apply_change", change_key)
 
+    def failback_authority(self, upstream=unavailable_authority):
+        """Same operator rules for T20 failback: distinct permissions and its own revocations."""
+        return self._authority(upstream, "approve_failback", "execute_failback", failback_key)
+
     def _authority(self, upstream, approve_permission, apply_permission, key_for):
         def current(c, principal, plan, *, now, approved_by, approval_id, **selection):
             permission = apply_permission if approval_id else approve_permission
@@ -171,7 +178,8 @@ class OperatorAccess:
 
 def create_operator_cutover_app(store, executor, *, verifier, bindings=None, registered_pair=None,
                                authority=unavailable_authority,
-                               change_authority=None, clock=None):
+                               change_authority=None, failback_authority=None,
+                               read_integrity=unavailable_authority, edge=None, clock=None):
     """Explicit host wiring. No IdP, grants or gate/SHIFT fixture is installed."""
     if (registered_pair is None) == (bindings is None):
         raise ValueError("exactly_one_binding_source_required")
@@ -182,5 +190,8 @@ def create_operator_cutover_app(store, executor, *, verifier, bindings=None, reg
                              check_access=access.check_read, clock=clock)
     change_service = None if change_authority is None else ChangeApprovalService(store,
         authority=access.change_authority(change_authority), check_access=access.check_read, clock=clock)
+    failback_service = None if failback_authority is None else FailbackService(store, executor,
+        bindings=bindings, authority=access.failback_authority(failback_authority), read_integrity=read_integrity,
+        edge=edge, check_access=access.check_read, clock=clock)
     return create_cutover_app(service, resolve_principal=access.resolver(verifier),
-                              change_service=change_service)
+                              change_service=change_service, failback_service=failback_service)
