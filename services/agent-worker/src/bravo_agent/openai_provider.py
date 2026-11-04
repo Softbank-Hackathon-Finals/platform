@@ -106,6 +106,12 @@ class FinalizedStreamCall:
             elif event.type == "response.function_call_arguments.done":
                 self.final_args = event.arguments
         elif event.type != "response.completed":
+            fields = (event.model_fields_set | (event.model_extra or {}).keys()) - {"type", "sequence_number"}
+            # A reply annotation carries no function output. It cannot complete a call or enter model history.
+            if (event.type == "response.metadata" and self.added is not None and self.done is None
+                    and fields == {"response_id", "metadata"} and isinstance(self.response_id, str)
+                    and event.response_id == self.response_id and isinstance(event.metadata, dict)):
+                return
             self.problem = "unrecognized_event"
             if not self.diagnose:
                 return
@@ -114,7 +120,6 @@ class FinalizedStreamCall:
             literals = get_args(type(event).model_fields["type"].annotation)
             extensions = ("response.metadata", "codex.response.metadata", "codex.rate_limits",
                           "responsesapi.websocket_timing", "ping", "keepalive")
-            fields = (event.model_fields_set | (event.model_extra or {}).keys()) - {"type", "sequence_number"}
             known = {"response", "response_id", "item", "item_id", "output_index", "content_index",
                      "part", "delta", "arguments", "headers", "metadata", "rate_limits", "safety_buffering"}
             phase = "before_response"
