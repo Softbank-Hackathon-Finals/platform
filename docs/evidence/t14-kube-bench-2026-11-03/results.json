@@ -1,0 +1,29 @@
+{
+  "tool": "kube-bench",
+  "version": "0.10.2",
+  "archive_sha256": "a8c0fb6b57c8b76037e0aee8d3522db2528fb4eabf0a571106aca745001dee82",
+  "binary_sha256": "61e8c915501bbf52a89b558475f8478c086f740751855913990f108218a01f44",
+  "scope": "offline tool-output qualification only; KUBECONFIG=/dev/null; no cluster scanned",
+  "runs": [
+    {
+      "benchmark": "rke2-cis-1.7",
+      "exit_code": 0,
+      "raw_output_sha256": "90ea2bcfb668a1a3fad7c19bcd5f23e2c2a9901ac5f38ddc0a990dd1930d9caa",
+      "projection_sha256": "74db15c36d649870cb4f5e7c75d10ed4079b5303cff4f362e3ecdc784d5be460",
+      "config_sha256": "11b5941f04d63384169661fc74e16861de4039496e8ed8fc4934938fb3fad024",
+      "selected_checks": 6,
+      "manual_warn": 6,
+      "qualified_for_IAM-01.2": false
+    },
+    {
+      "benchmark": "eks-1.5.0",
+      "exit_code": 0,
+      "raw_output_sha256": "a9183e79acc65dca5a025a528f8452838cc3bc72348f4552e3d44e96e7676d72",
+      "projection_sha256": "b3b9fb98065d647e64ac329904f0e93b31b754ce99f06fa2e01cca7d3225f79b",
+      "config_sha256": "5937343696b1740a27b1303edcc1ed41d7511c3cc27ebf04b0af6d663c559211",
+      "selected_checks": 6,
+      "manual_warn": 6,
+      "qualified_for_IAM-01.2": false
+    }
+  ]
+}

@@ -1,37 +1,71 @@
 #!/usr/bin/env bash
-# T37 로컬 재현 시험. Docker만 있으면 된다.
-#  1. 앱이 bravo.env를 다른 환경으로 위조해 보내도 Collector의 환경(onprem)으로 기록된다
-#  2. 허용 목록 밖 속성(authorization, chat.body)은 지표 저장소에 남지 않는다 (카나리 문자열 0건)
-#  3. Collector를 멈추면 그 환경의 최근 수신 시각이 기준을 넘어 "확인 불가"가 된다
-#  4. 앱이 생존 신호를 사칭해도(job=bravo-collector · bravo.signal · 미래 시각의 up=1) 3이 그대로 성립한다
+# T37 로컬 재현 시험. Docker와 openssl만 있으면 된다. 인증서는 실행할 때 임시로 만들고 끝나면 지운다.
+#  1. 지표 저장소는 이 CA가 발급하고 허용 목록에 있는 이름의 클라이언트 인증서만 받는다 (없음 · 다른 CA · 다른 이름 거부)
+#  2. 앱이 bravo.env를 다른 환경으로 위조해 보내도 Collector의 환경(onprem)으로 기록된다
+#  3. 허용 목록 밖 속성(authorization, chat.body)은 지표 저장소에 남지 않는다 (카나리 문자열 0건)
+#  4. 지표 저장소가 멈춘 동안 받은 지표는 Collector를 재시작해도 디스크 큐에 남아 있다가 전달된다
+#  5. Collector를 멈추면 그 환경의 최근 수신 시각이 기준을 넘어 "확인 불가"가 되고 BravoEnvUnobservable 알림이 뜬다
+#  6. 앱이 생존 신호를 사칭해도(job=bravo-collector · bravo.signal · 미래 시각의 up=1) 5가 그대로 성립한다
+#  6-1. 앱이 DB 지표를 사칭해도(cnpg_collector_up=1 · job=bravo-cnpg · bravo.signal · CNPG 식별자) 조회 API의 DB는 확인 불가로 남는다
+#  7. 조회 API: OTel 표준 HTTP 히스토그램으로 요청률 · 오류율 · p95, 저장소가 멈추면 503, 확인 불가 · 알림이 그대로 보인다
 set -euo pipefail
 cd "$(dirname "$0")"
 
 CANARY="bravo-canary-t37"
 STALE_AFTER=30
-P=(docker compose -p bravo-obs-test -f compose.yaml)
-trap '"${P[@]}" down -v --remove-orphans >/dev/null 2>&1' EXIT
+P=(docker compose -p "bravo-obs-test-$$" -f compose.yaml)
+CERT_DIR=$(mktemp -d)
+API_TOKEN=$(openssl rand -hex 24)
+export CERT_DIR API_TOKEN
+trap '"${P[@]}" down -v --remove-orphans >/dev/null 2>&1; rm -rf "$CERT_DIR"' EXIT
 fails=0
 check() { if [ "$1" = ok ]; then echo "  ok   $2"; else echo "  FAIL $2"; fails=$((fails + 1)); fi; }
 
-"${P[@]}" up -d --quiet-pull prometheus collector >/dev/null
-PROM="http://$("${P[@]}" port prometheus 9090)"
-q() { curl -fsS --get "$PROM/api/v1/query" --data-urlencode "query=$1"; }
-until curl -fsS "$PROM/-/ready" >/dev/null 2>&1; do sleep 1; done
+# shellcheck source=certs.sh
+source ./certs.sh
+ca bravo-ca
+ca rogue-ca
+leaf prometheus bravo-ca "DNS:prometheus,DNS:localhost,IP:127.0.0.1"
+leaf collector-onprem bravo-ca "DNS:collector-onprem"
+leaf console-api bravo-ca "DNS:console-api"
+leaf intruder bravo-ca "DNS:intruder"
+leaf rogue rogue-ca "DNS:collector-onprem" collector-onprem
+open_for_containers
+
+"${P[@]}" up -d --quiet-pull --build prometheus collector api >/dev/null 2>&1
+as() { local who=$1; shift; curl -fsS --max-time 5 --cacert "$CERT_DIR/bravo-ca.crt" --cert "$CERT_DIR/$who/tls.crt" --key "$CERT_DIR/$who/tls.key" "$@"; }
+q() { as console-api --get "$PROM/api/v1/query" --data-urlencode "query=$1"; }
+# 재시작하면 호스트 포트가 바뀌므로 매번 다시 읽는다
+ready() {
+  for _ in $(seq 60); do
+    PROM="https://$("${P[@]}" port prometheus 9090 2>/dev/null)"
+    as console-api "$PROM/-/ready" >/dev/null 2>&1 && return 0
+    sleep 1
+  done
+  echo "  지표 저장소가 60초 안에 준비되지 않음"; exit 1
+}
+ready
+wait_for() { for _ in $(seq "$2"); do r=$(q "$1" || echo '{"data":{"result":[]}}'); [ "$(echo "$r" | python3 -c 'import json,sys;print(len(json.load(sys.stdin)["data"]["result"]))')" -gt 0 ] && { echo "$r"; return; }; sleep 1; done; echo "$r"; }
+api() { curl -sS --max-time 5 -o "$CERT_DIR/api.json" -w '%{http_code}' -H "Authorization: Bearer $API_TOKEN" "http://$("${P[@]}" port api 8080)$1"; }
+apij() { python3 -c "import json,sys;d=json.load(open('$CERT_DIR/api.json'));print($1)"; }
+send() { "${P[@]}" run --rm --quiet-pull telemetrygen metrics --otlp-endpoint collector:4317 --otlp-insecure "$@" >/dev/null 2>&1; }
+
+echo "== 지표 저장소 mTLS"
+as console-api "$PROM/api/v1/status/buildinfo" >/dev/null 2>&1 && r=ok || r=fail
+check $r "허용된 이름(console-api)의 인증서로 조회 성공"
+curl -fsS --max-time 5 --cacert "$CERT_DIR/bravo-ca.crt" "$PROM/api/v1/status/buildinfo" >/dev/null 2>&1 && r=fail || r=ok
+check $r "클라이언트 인증서 없이는 거부"
+as rogue "$PROM/api/v1/status/buildinfo" >/dev/null 2>&1 && r=fail || r=ok
+check $r "다른 CA가 발급한 인증서(이름은 collector-onprem)는 거부"
+as intruder "$PROM/api/v1/status/buildinfo" >/dev/null 2>&1 && r=fail || r=ok
+check $r "같은 CA라도 허용 목록에 없는 이름(intruder)은 거부"
 
 echo "== 위조 · 민감 속성을 붙인 앱 지표 전송"
-"${P[@]}" run --rm --quiet-pull telemetrygen metrics \
-  --otlp-endpoint collector:4317 --otlp-insecure --duration 5s --rate 2 \
-  --otlp-metric-name bravo_t37_probe \
+send --duration 5s --rate 2 --otlp-metric-name bravo_t37_probe \
   --otlp-attributes 'service.name="demo-chat"' --otlp-attributes 'bravo.env="aws"' \
   --telemetry-attributes 'http.route="/api/messages"' \
-  --telemetry-attributes "authorization=\"$CANARY\"" --telemetry-attributes "chat.body=\"$CANARY\"" >/dev/null 2>&1
-
-for _ in $(seq 30); do
-  probe=$(q 'bravo_t37_probe')
-  [ "$(echo "$probe" | python3 -c 'import json,sys;print(len(json.load(sys.stdin)["data"]["result"]))')" -gt 0 ] && break
-  sleep 1
-done
+  --telemetry-attributes "authorization=\"$CANARY\"" --telemetry-attributes "chat.body=\"$CANARY\""
+probe=$(wait_for bravo_t37_probe 30)
 labels=$(echo "$probe" | python3 -c 'import json,sys;r=json.load(sys.stdin)["data"]["result"];print(json.dumps([x["metric"] for x in r]))')
 echo "  저장된 시계열 라벨: $labels"
 
@@ -43,13 +77,13 @@ echo "$labels" | python3 -c 'import json,sys;ms=json.load(sys.stdin);sys.exit(0 
 check $r "허용 목록 속성 http.route는 남음"
 
 hits=0
-for l in $(curl -fsS "$PROM/api/v1/labels" | python3 -c 'import json,sys;print(" ".join(json.load(sys.stdin)["data"]))'); do
-  if curl -fsS "$PROM/api/v1/label/$l/values" | grep -q "$CANARY"; then hits=$((hits + 1)); fi
+for l in $(as console-api "$PROM/api/v1/labels" | python3 -c 'import json,sys;print(" ".join(json.load(sys.stdin)["data"]))'); do
+  if as console-api "$PROM/api/v1/label/$l/values" | grep -q "$CANARY"; then hits=$((hits + 1)); fi
 done
 [ "$hits" -eq 0 ] && r=ok || r=fail
 check $r "카나리 문자열이 지표 저장소 라벨 값에 0건 (실제: ${hits}개 라벨)"
 
-AGE='time() - max by (bravo_env) (timestamp(up{bravo_signal="collector-self"}))'
+AGE='time() - max by (bravo_env) (timestamp(up{bravo_signal="collector-self"}) and (up{bravo_signal="collector-self"} == 1))'
 age() { q "$AGE" | python3 -c 'import json,sys;r={x["metric"].get("bravo_env"):float(x["value"][1]) for x in json.load(sys.stdin)["data"]["result"]};print(r.get("onprem",""))'; }
 
 echo "== 수집 경로 생존 신호"
@@ -57,8 +91,61 @@ for _ in $(seq 30); do a=$(age); [ -n "$a" ] && break; sleep 1; done
 python3 -c "import sys;sys.exit(0 if '$a' and float('$a') < $STALE_AFTER else 1)" && r=ok || r=fail
 check $r "onprem 최근 수신 ${a:-없음}초 전 (기준 ${STALE_AFTER}초 미만)"
 
-echo "== 앱 경로로 생존 신호 사칭 (20초 뒤 시각의 up=1, job=bravo-collector, bravo.signal) 후 Collector 중지"
+echo "== 조회 API"
 OTLP="http://$("${P[@]}" port collector 4318)"
+start=$(python3 -c 'import time;print(int((time.time()-60)*1e9))')
+# OTel 의미 규약 http.server.request.duration(단위 s) 누적 히스토그램. 두 번 보내야 rate가 나온다
+hist() { now=$(python3 -c 'import time;print(int(time.time()*1e9))')
+  curl -fsS -o /dev/null -H 'Content-Type: application/json' "$OTLP/v1/metrics" -d '{"resourceMetrics":[{"resource":{"attributes":[{"key":"service.name","value":{"stringValue":"demo-chat"}}]},"scopeMetrics":[{"metrics":[{"name":"http.server.request.duration","unit":"s","histogram":{"aggregationTemporality":2,"dataPoints":[
+    {"attributes":[{"key":"http.response.status_code","value":{"intValue":"201"}},{"key":"http.route","value":{"stringValue":"/api/messages"}}],"startTimeUnixNano":"'"$start"'","timeUnixNano":"'"$now"'","count":"'"$1"'","sum":1,"bucketCounts":["'"$(( $1 * 80 / 100 ))"'","'"$(( $1 * 15 / 100 ))"'","'"$(( $1 - $1 * 80 / 100 - $1 * 15 / 100 ))"'","0"],"explicitBounds":[0.1,0.3,1.0]},
+    {"attributes":[{"key":"http.response.status_code","value":{"intValue":"503"}},{"key":"http.route","value":{"stringValue":"/api/messages"}}],"startTimeUnixNano":"'"$start"'","timeUnixNano":"'"$now"'","count":"'"$2"'","sum":0.1,"bucketCounts":["'"$2"'","0","0","0"],"explicitBounds":[0.1,0.3,1.0]}]}}]}]}]}'; }
+hist 1000 10; sleep 15; hist 2000 20
+for _ in $(seq 30); do code=$(api /v1/observability/environments/onprem/http); [ "$code" = 200 ] && [ "$(apij 'd["requests_per_second"] is not None')" = True ] && break; sleep 2; done
+echo "  HTTP 지표: $(cat "$CERT_DIR/api.json")"
+apij '0 < d["requests_per_second"] and 0.009 < d["error_ratio"] < 0.011 and 0.1 < d["p95_seconds"] <= 1.0' | grep -q True && r=ok || r=fail
+check $r "조회 API가 OTel HTTP 히스토그램으로 요청률 · 오류율(약 1%) · p95(0.1~1초 구간)를 계산"
+code=$(api /v1/observability/environments)
+[ "$code" = 200 ] && [ "$(apij '[(e["environment"],e["state"]) for e in d["environments"]]')" = "[('aws', 'UNOBSERVABLE'), ('onprem', 'OK')]" ] && r=ok || r=fail
+check $r "조회 API 환경 상태: onprem OK, 보고 없는 aws는 확인 불가 (응답 $code)"
+code=$(curl -sS --max-time 5 -o /dev/null -w '%{http_code}' "http://$("${P[@]}" port api 8080)/v1/observability/environments")
+[ "$code" = 401 ] && r=ok || r=fail
+check $r "조회 API는 토큰 없이 401 (응답 $code)"
+
+echo "== 디스크 큐: 지표 저장소 중지 중 받은 지표를 Collector 재시작 뒤에도 전달"
+"${P[@]}" stop prometheus >/dev/null 2>&1
+code=$(api /v1/observability/environments)
+[ "$code" = 503 ] && r=ok || r=fail
+check $r "저장소가 멈추면 조회 API는 0이 아니라 503 (응답 $code)"
+send --duration 5s --rate 2 --otlp-metric-name bravo_t37_queued --otlp-attributes 'service.name="demo-chat"'
+sleep 5
+"${P[@]}" restart collector >/dev/null 2>&1
+sleep 3
+"${P[@]}" start prometheus >/dev/null 2>&1
+ready
+queued=$(wait_for bravo_t37_queued 90 | python3 -c 'import json,sys;print(len(json.load(sys.stdin)["data"]["result"]))')
+[ "$queued" -gt 0 ] && r=ok || r=fail
+check $r "저장소가 멈췄을 때 보낸 지표가 Collector 재시작 뒤 도착 (시계열 ${queued}개)"
+
+echo "== 앱 경로로 DB 지표 사칭 (cnpg_collector_up=1, job=bravo-cnpg, bravo.signal=cnpg-scrape, CNPG 식별자)"
+OTLP="http://$("${P[@]}" port collector 4318)"
+onprem_env() { api /v1/observability/environments >/dev/null; apij '[e["state"] for e in d["environments"] if e["environment"]=="onprem"][0]'; }
+for _ in $(seq 60); do [ "$(onprem_env)" = OK ] && break; sleep 1; done
+now=$(python3 -c 'import time;print(int(time.time()*1e9))')
+curl -fsS -o /dev/null -H 'Content-Type: application/json' "$OTLP/v1/metrics" -d '{"resourceMetrics":[{"resource":{"attributes":[
+  {"key":"service.name","value":{"stringValue":"bravo-cnpg"}},
+  {"key":"bravo.signal","value":{"stringValue":"cnpg-scrape"}}]},
+  "scopeMetrics":[{"metrics":[{"name":"cnpg_collector_up","gauge":{"dataPoints":[{"asDouble":1,"timeUnixNano":"'"$now"'","attributes":[
+  {"key":"cnpg_cluster","value":{"stringValue":"forged-db"}},{"key":"pod","value":{"stringValue":"forged-db-1"}}]}]}}]}]}]}'
+# 대조군: 출처 라벨 없이 고르면(이전 조회식) 사칭 시계열이 보인다
+seen=$(wait_for 'cnpg_collector_up{bravo_env="onprem"}' 30 | python3 -c 'import json,sys;print(len(json.load(sys.stdin)["data"]["result"]))')
+trusted=$(q 'count(cnpg_collector_up{bravo_signal="cnpg-scrape"}) or vector(0)' | python3 -c 'import json,sys;print(json.load(sys.stdin)["data"]["result"][0]["value"][1])')
+api /v1/observability/environments/onprem/database >/dev/null
+db=$(apij 'd["state"]')
+env_state=$(onprem_env)
+[ "$seen" -ge 1 ] && [ "$trusted" = 0 ] && [ "$env_state" = OK ] && [ "$db" = UNOBSERVABLE ] && r=ok || r=fail
+check $r "앱이 보낸 DB 지표는 저장되지만(${seen}개) 출처 라벨이 없어(${trusted}개) 수집 경로가 살아 있어도 DB는 확인 불가 (환경 $env_state, DB $db)"
+
+echo "== 앱 경로로 생존 신호 사칭 (20초 뒤 시각의 up=1, job=bravo-collector, bravo.signal) 후 Collector 중지"
 future=$(python3 -c 'import time;print(int((time.time()+20)*1e9))')
 curl -fsS -o /dev/null -H 'Content-Type: application/json' "$OTLP/v1/metrics" -d '{"resourceMetrics":[{"resource":{"attributes":[
   {"key":"service.name","value":{"stringValue":"bravo-collector"}},
@@ -74,6 +161,22 @@ check $r "사칭 시계열이 저장됐지만 신뢰 라벨이 없음 (${forged}
 a=$(age)
 if [ -z "$a" ] || python3 -c "import sys;sys.exit(0 if float('$a') > $STALE_AFTER else 1)"; then r=ok; else r=fail; fi
 check $r "Collector 중지 45초 뒤 onprem이 확인 불가 (최근 수신: ${a:-없음}초 전)"
+firing=$(as console-api "$PROM/api/v1/alerts" | python3 -c 'import json,sys;print(",".join(sorted(a["labels"].get("bravo_env","") for a in json.load(sys.stdin)["data"]["alerts"] if a["labels"]["alertname"]=="BravoEnvUnobservable" and a["state"]=="firing")))')
+case ",$firing," in *,onprem,*) r=ok;; *) r=fail;; esac
+check $r "BravoEnvUnobservable 알림이 onprem에 대해 firing (firing 환경: ${firing:-없음})"
+api /v1/observability/environments >/dev/null
+onprem_state=$(apij '[e["state"] for e in d["environments"] if e["environment"]=="onprem"][0]')
+api /v1/observability/alerts >/dev/null
+api_alert=$(apij 'any(a["alertname"]=="BravoEnvUnobservable" and a["environment"]=="onprem" and a["state"]=="firing" and a["runbook"] for a in d["alerts"])')
+[ "$onprem_state" = UNOBSERVABLE ] && [ "$api_alert" = True ] && r=ok || r=fail
+check $r "조회 API에도 onprem 확인 불가와 런북이 붙은 알림이 보임 (상태 $onprem_state)"
+
+api /v1/observability/environments/onprem/http >/dev/null
+[ "$(apij 'd["state"] == "UNOBSERVABLE" and all(d[k] is None for k in ("requests_per_second", "error_ratio", "p95_seconds"))')" = True ] && r=ok || r=fail
+check $r "Collector 중단 후 HTTP 창의 과거 표본을 정상 수치로 표시하지 않음"
+api /v1/observability/environments/onprem/database >/dev/null
+[ "$(apij 'd["state"] == "UNOBSERVABLE" and d["instances"] == [] and d["replication_slots"] == []')" = True ] && r=ok || r=fail
+check $r "Collector 중단 후 DB는 없음·정상 대신 확인 불가"
 
 echo
 echo "실패 ${fails}건"

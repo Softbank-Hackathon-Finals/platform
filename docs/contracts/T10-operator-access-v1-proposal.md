@@ -55,7 +55,7 @@ SSE를 포함해 Bearer를 보낼 수 있는 같은 출처의 클라이언트가
 | 동작 | 저장/검사 |
 |---|---|
 | `set_permissions` | trusted host가 실제 관리 결정을 인증한 뒤 호출. plan/tenant/subject, 권한, 유효 구간, 기대 revision, 관리 감사 참조를 저장 |
-| 권한 | `read`, `approve_cutover`, `execute_cutover`를 구분. 쓰기 권한은 `read`를 함께 요구 |
+| 권한 | `read`, `approve_cutover`, `execute_cutover`와 S2의 `approve_change`, `apply_change`를 구분. 쓰기 권한은 `read`를 함께 요구 |
 | 권한 회수 | 빈 권한 집합을 다음 revision으로 기록. 회수 후 재부여도 새로운 revision |
 | 재인증 요구 | `auth_time`이 `valid_after`보다 이른 토큰 거부. refresh로 iat만 바꿔도 거부 |
 | `revoke_approval` | 아직 소비하지 않은 승인 ID의 취소를 영속화. 이미 접수된 원격 실행을 취소했다고 반환하지 않음 |
@@ -82,6 +82,11 @@ SSE를 포함해 Bearer를 보낼 수 있는 같은 출처의 클라이언트가
 한 곳에서 resolver, 현재 read 검사, 권한 검사와 기존 T19/SHIFT authority를 연결한다.
 `authority`를 생략하면 여전히 거부한다. 기존 `create_cutover_app`의 기본 인증 거부도 유지한다.
 순수 `Principal`이나 서명 확인 없이 만든 HTTP actor 값은 이 연결의 사람 자격으로 받아들이지 않는다.
+
+S2는 같은 factory에 `change_authority`를 명시적으로 연결할 때 활성화한다.
+승인 종류별 권한과 취소 기록을 분리하며, `revoke_approval(..., approval_kind="change")`로
+아직 소비되지 않은 변경 승인을 취소한다. 기본 `cutover` 취소 동작은 유지한다.
+T15 공급자와 T31 반영 접수의 경계는 [변경 승인 계약](T10-change-approval.md)을 따른다.
 
 권한 변경은 트랜잭션이 먼저 저장된 뒤 효력을 갖는다. DB 재시작 뒤에도 그대로 읽으며
 SQLite `BEGIN IMMEDIATE`와 PostgreSQL의 기존 plan advisory lock을 사용한다.

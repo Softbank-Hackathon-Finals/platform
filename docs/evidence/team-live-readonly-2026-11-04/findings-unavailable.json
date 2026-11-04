@@ -1,0 +1,116 @@
+{
+  "task": "T33",
+  "execution_scope": "local repository collector against actual AWS Security Hub GetFindings",
+  "software_ref": "09f6230d24ae1184411cecbd79803415eb6d440c",
+  "security_hub_subscription": "not_enabled",
+  "guardduty_detectors": 0,
+  "collection": {
+    "counts": {
+      "failed": 1
+    },
+    "source": {
+      "source": "aws_security_hub",
+      "environment_id": "team-source",
+      "enabled": true,
+      "last_attempt_time": 1793777591887,
+      "last_success_time": null,
+      "error_code": "API_ERROR",
+      "cursor": null
+    },
+    "statuses": [
+      {
+        "kind": "source_status",
+        "source": "aws_security_hub",
+        "environment_id": "team-source",
+        "state": "FAILED",
+        "checked_time": 1793777592915,
+        "error_code": "API_ERROR"
+      }
+    ],
+    "summary": {
+      "generated_time": 1793777592915,
+      "categories": [
+        "IAM",
+        "ENCRYPTION",
+        "AUDIT",
+        "EXPOSURE",
+        "POLICY",
+        "THREAT",
+        "VULNERABILITY"
+      ],
+      "environments": [
+        {
+          "environment_id": "team-source",
+          "cells": {
+            "IAM": {
+              "state": "UNKNOWN",
+              "counts": {},
+              "sources": [
+                "aws_security_hub"
+              ]
+            },
+            "ENCRYPTION": {
+              "state": "UNKNOWN",
+              "counts": {},
+              "sources": [
+                "aws_security_hub"
+              ]
+            },
+            "AUDIT": {
+              "state": "UNKNOWN",
+              "counts": {},
+              "sources": [
+                "aws_security_hub"
+              ]
+            },
+            "EXPOSURE": {
+              "state": "UNKNOWN",
+              "counts": {},
+              "sources": [
+                "aws_security_hub"
+              ]
+            },
+            "POLICY": {
+              "state": "UNKNOWN",
+              "counts": {},
+              "sources": [
+                "aws_security_hub"
+              ]
+            },
+            "THREAT": {
+              "state": "UNKNOWN",
+              "counts": {},
+              "sources": [
+                "aws_security_hub"
+              ]
+            },
+            "VULNERABILITY": {
+              "state": "UNKNOWN",
+              "counts": {},
+              "sources": [
+                "aws_security_hub"
+              ]
+            }
+          }
+        }
+      ]
+    }
+  },
+  "qualification": "actual unavailable-source handling verified; real finding ingestion and hosted API not qualified",
+  "raw_artifact_hashes": [
+    {
+      "artifact": "aws-guardduty.json",
+      "sha256": "400e40e76693cea592d3722cfcf458e3043d9ee5c3d168404974c4814aef69b5"
+    },
+    {
+      "artifact": "aws-securityhub.json",
+      "sha256": "291185e373bea85963976731da58341037ff401c735d17e7c7fa5bf89676a16d"
+    },
+    {
+      "artifact": "findings-live-result.json",
+      "sha256": "571b89d5bd834f2767c8d84f62689adf8a803e87dfd71c90b97653e6677269a7"
+    }
+  ],
+  "aws_region": "ap-northeast-2",
+  "other_regions_checked": false
+}

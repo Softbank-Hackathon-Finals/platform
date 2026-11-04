@@ -1,0 +1,11 @@
+# k8s.sh 전용: 로컬에서 빌드해 k3s에 넣은 조회 API 이미지를 쓴다. 실제 배포는 레지스트리 digest로 같은 자리를 채운다.
+# 창 수신 참조 배치(window-intake.yaml)도 여기서만 더한다. 운영 수신은 T10 호스트다.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ../../deploy/platform
+  - window-intake.yaml
+images:
+  - name: bravo-observability-api
+    newName: docker.io/library/bravo-observability-api
+    newTag: dev

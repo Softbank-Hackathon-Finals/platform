@@ -33,9 +33,7 @@
 
 로그:
 
-- [74개 시험](t11-tests.log)
-- [Ruff](t11-ruff.log)
-- [wheel 빌드](t11-build-wheel.log)
+- [시험 74개·Ruff·wheel 빌드의 개별 결과와 첫 복합 명령 실패 내역](provider-recheck-2026-11-03.json)
 - [AWS 실행 정책·5개 결과·이미지·wheel 영수증](aws-runtime-results.json)
 
 검증 과정에서 Ubuntu 지역 ARM 미러를 HTTP에서 HTTPS로 바꾸기만 하면 인증서 hostname이 맞지 않는 사례를 확인했다. 공식 `https://ports.ubuntu.com/ubuntu-ports`로 정규화한 뒤 Docker를 설치했고 TLS 검증은 유지했다. Ubuntu는 Buildx를 별도 패키지로 제공해 `docker-buildx`도 설치했다. 이 호스트 준비 수정은 워커 소스나 판정 기준 변경이 아니다. T7 cloud-init에 같은 URI 정규화를 반영하는 변경은 별도로 리뷰한다.

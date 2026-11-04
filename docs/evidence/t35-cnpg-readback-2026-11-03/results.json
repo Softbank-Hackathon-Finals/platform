@@ -1,0 +1,16 @@
+{
+  "authenticated_completed_backup": true,
+  "pre_request_spec_and_uid_bound": true,
+  "six_read_validation": true,
+  "secret_values_read": false,
+  "backup_creation_count": 1,
+  "restored_data_test_in_this_run": false,
+  "wrong_source_uid_rejected": true,
+  "wrong_backup_uid_rejected": true,
+  "wrong_archive_rejected": true,
+  "evidence_count": 1,
+  "tested_at": "2026-11-03T11:50:15.768782+00:00",
+  "source_sha256": "ee0dc73c25f2272fedc11810059bc965e9666303ed7eaae1d89a6ec1e549311a",
+  "final_recheck_at": "2026-11-03T11:51:59.805620+00:00",
+  "backup_spec_generation_unchanged": true
+}

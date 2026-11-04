@@ -1,0 +1,13 @@
+{
+  "tagOwners": {
+    "tag:bravo-window-intake": ["tag:bravo-platform-operator"],
+    "tag:bravo-loadgen": ["autogroup:admin", "tag:bravo-platform-operator"]
+  },
+  "grants": [{"src": ["tag:bravo-loadgen"], "dst": ["tag:bravo-window-intake"], "ip": ["tcp:30981"]}],
+  "tests": [
+    {"src": "tag:bravo-loadgen", "accept": ["tag:bravo-window-intake:30981"], "deny": ["tag:bravo-window-intake:22", "tag:bravo-window-intake:5432", "tag:bravo-source-db:5432", "tag:bravo-target-db:5432"]},
+    {"src": "tag:bravo-cutover-control", "deny": ["tag:bravo-window-intake:30981"]},
+    {"src": "tag:bravo-source-operator", "deny": ["tag:bravo-window-intake:30981"]},
+    {"src": "tag:bravo-target-operator", "deny": ["tag:bravo-window-intake:30981"]}
+  ]
+}

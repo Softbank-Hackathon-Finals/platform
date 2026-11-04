@@ -56,6 +56,7 @@ AREAS = {
 # 스크립트가 관리하는 라벨. 이 접두사의 라벨은 tasks.md 값으로 덮어쓴다.
 MANAGED = ("P0", "P1", "P2", "stage:", "area:")
 ACTIVE_WORK_LABEL = "work:active"
+TEXT_FIELDS = ("PR 상태", "할 일 진행", "병합 기여")
 STEP = re.compile(r"^- \[([ x])\] (.+)$")
 
 # 보드로 옮긴 내역. 워크플로가 Slack으로 보낸다.
@@ -157,6 +158,14 @@ def parse(text: str) -> dict[str, Task]:
 def issue_steps(body: str) -> dict[str, bool]:
     """이슈 본문의 할 일 문장 → 체크 여부."""
     return {m.group(2): m.group(1) == "x" for line in (body or "").splitlines() if (m := STEP.match(line))}
+
+
+def progress_summary(body: str) -> str:
+    checks = issue_steps(body)
+    if not checks:
+        return "할 일 없음 · 완료 여부 확인 필요"
+    total, checked = len(checks), sum(checks.values())
+    return f"{checked}/{total} 완료 · {total - checked}개 남음"
 
 
 def body(t: Task, num: dict[str, int]) -> str:
@@ -286,21 +295,30 @@ class Board:
     def __init__(self) -> None:
         d = gql(
             """query($o:String!,$n:Int!){organization(login:$o){projectV2(number:$n){id
-            fields(first:100){nodes{... on ProjectV2SingleSelectField{id name options{id name}}}}}}}""",
+            fields(first:100){nodes{... on ProjectV2Field{id name dataType}
+              ... on ProjectV2SingleSelectField{id name dataType options{id name}}
+              ... on ProjectV2IterationField{id name dataType}}
+              pageInfo{hasNextPage}}}}}""",
             o=OWNER, n=PROJECT_NUMBER,
         )["organization"]["projectV2"]
         self.id = d["id"]
+        if d["fields"].get("pageInfo", {}).get("hasNextPage"):
+            raise RuntimeError("Project fields incomplete; board unchanged")
+        self.fields = {f["name"]: f for f in d["fields"]["nodes"] if f and "name" in f}
         status = next(f for f in d["fields"]["nodes"] if f and f.get("name") == "Status")
         self.field = status["id"]
         self.options = {o["name"]: o["id"] for o in status["options"]}
         self.items: dict[int, tuple[str, str | None]] = {}
-        self.pr_states: dict[int, str] = {}
+        self.text_values: dict[str, dict[int, str]] = {name: {} for name in TEXT_FIELDS}
+        self.pr_states = self.text_values["PR 상태"]
         cursor = ""
         while True:
             query = """query($p:ID!,$after:String){node(id:$p){... on ProjectV2{
               items(first:100,after:$after){nodes{id content{... on Issue{number repository{nameWithOwner}}}
                 fieldValueByName(name:"Status"){... on ProjectV2ItemFieldSingleSelectValue{name}}
-                prStatus:fieldValueByName(name:"PR 상태"){... on ProjectV2ItemFieldTextValue{text}}}
+                prStatus:fieldValueByName(name:"PR 상태"){... on ProjectV2ItemFieldTextValue{text}}
+                progress:fieldValueByName(name:"할 일 진행"){... on ProjectV2ItemFieldTextValue{text}}
+                contributions:fieldValueByName(name:"병합 기여"){... on ProjectV2ItemFieldTextValue{text}}}
                 pageInfo{hasNextPage endCursor}}}}}"""
             params = {"p": self.id}
             if cursor:
@@ -313,13 +331,40 @@ class Board:
                 if c.get("repository", {}).get("nameWithOwner") == REPO and "number" in c:
                     value = it["fieldValueByName"]
                     self.items[c["number"]] = (it["id"], value["name"] if value else None)
-                    self.pr_states[c["number"]] = (it.get("prStatus") or {}).get("text", "")
+                    for name, alias in zip(TEXT_FIELDS, ("prStatus", "progress", "contributions")):
+                        self.text_values[name][c["number"]] = (it.get(alias) or {}).get("text", "")
             if not page["pageInfo"]["hasNextPage"]:
                 break
             cursor = page["pageInfo"]["endCursor"]
 
     def status(self, number: int) -> str | None:
         return self.items.get(number, (None, None))[1]
+
+    def ensure_text_fields(self, names: tuple[str, ...], dry: bool) -> None:
+        # Validate every requested field before creating any field or moving cards.
+        for name in names:
+            if name in self.fields and self.fields[name]["dataType"] != "TEXT":
+                raise RuntimeError(f"{name} must be a text field")
+        for name in names:
+            if name in self.fields:
+                continue
+            print(f"보드: {name} 텍스트 필드 생성")
+            if not dry:
+                created = gql("""mutation($p:ID!,$name:String!){createProjectV2Field(input:{
+                  projectId:$p,dataType:TEXT,name:$name}){projectV2Field{... on ProjectV2Field{id}}}}""",
+                    p=self.id, name=name)["createProjectV2Field"]["projectV2Field"]
+                self.fields[name] = {"id": created["id"], "name": name, "dataType": "TEXT"}
+
+    def set_text(self, number: int, name: str, value: str, label: str, dry: bool) -> None:
+        if self.text_values[name].get(number) == value:
+            return
+        print(f"{label}: {name} → {value}")
+        if dry:
+            return
+        gql("""mutation($p:ID!,$i:ID!,$f:ID!,$t:String!){updateProjectV2ItemFieldValue(input:{
+          projectId:$p,itemId:$i,fieldId:$f,value:{text:$t}}){projectV2Item{id}}}""",
+            p=self.id, i=self.items[number][0], f=self.fields[name]["id"], t=value)
+        self.text_values[name][number] = value
 
     def set(self, number: int, node_id: str, name: str, label: str, dry: bool) -> None:
         before = self.status(number)
@@ -436,6 +481,7 @@ def pull(dry: bool) -> bool:
     by_id = load_issues()
     board = Board()
     tasks = parse(TASKS.read_text(encoding="utf-8"))
+    board.ensure_text_fields(("할 일 진행",), dry)
 
     for tid, i in sorted(by_id.items(), key=lambda x: int(x[0][1:])):
         if tid not in tasks:
@@ -456,6 +502,7 @@ def pull(dry: bool) -> bool:
             board.set(n, i["id"], "In progress", label, dry)
         elif k == 0 and now in (None, "Done"):
             board.set(n, i["id"], "Backlog", label, dry)
+        board.set_text(n, "할 일 진행", progress_summary(i["body"]), label, dry)
 
     text = TASKS.read_text(encoding="utf-8")
     new = rewrite_tasks(text, by_id)
@@ -498,6 +545,8 @@ def status() -> None:
             "assignees": [a["login"] for a in issue["assignees"]],
             "status": board.status(issue["number"]), "state": issue["state"],
             "pr_status": board.pr_states.get(issue["number"], ""),
+            "progress": board.text_values["할 일 진행"].get(issue["number"], ""),
+            "merged_contributions": board.text_values["병합 기여"].get(issue["number"], ""),
             "checked": sum(checks.values()), "total": len(checks),
             "active_work": has_active_work(issue),
             "blocked_by": [dep for dep in task.deps if issues.get(dep, {}).get("state") != "CLOSED"],
@@ -575,7 +624,7 @@ def load_prs() -> list[dict]:
             data = gql("""query($o:String!,$r:String!,$after:String){repository(owner:$o,name:$r){
               pullRequests(first:100,after:$after,orderBy:{field:UPDATED_AT,direction:DESC}){
                 nodes{number title body state isDraft headRefName baseRefName reviewDecision mergedAt updatedAt
-                  headRepository{nameWithOwner} url
+                  headRepository{nameWithOwner} author{login} url
                   commits(last:1){nodes{commit{statusCheckRollup{state}}}}}
                 pageInfo{hasNextPage endCursor}}}}""".replace(
                     "after:$after,", "after:$after," if cursor else "").replace(
@@ -660,6 +709,18 @@ def pr_order(pr: dict) -> tuple[str, str, int]:
     return (pr.get("updatedAt", ""), pr.get("source_repository", REPO), pr["number"])
 
 
+def contribution_summary(prs: list[dict]) -> str:
+    """Count authors of eligible merged PRs, independently of the issue assignee."""
+    authors: dict[str, set[tuple[str, int]]] = {}
+    for pr in prs:
+        if pr["state"] != "MERGED":
+            continue
+        login = (pr.get("author") or {}).get("login")
+        author = f"@{login}" if login else "작성자 미확인"
+        authors.setdefault(author, set()).add((pr.get("source_repository", REPO), pr["number"]))
+    return " · ".join(f"{author} {len(numbers)} PR" for author, numbers in sorted(authors.items())) or "병합 PR 없음"
+
+
 def sync_prs(dry: bool) -> None:
     """Update existing task cards only. Never check tasks, close issues, or merge PRs."""
     issues, board, grouped = load_issues(), Board(), {}
@@ -667,14 +728,7 @@ def sync_prs(dry: bool) -> None:
         task = pr_task(pr, issues)
         if task in issues:
             grouped.setdefault(task, []).append(pr)
-    fields = gql("""query($p:ID!){node(id:$p){... on ProjectV2{
-      fields(first:100){nodes{... on ProjectV2Field{id name dataType}}}}}}""", p=board.id)
-    status_field = next((f for f in fields["node"]["fields"]["nodes"] if f.get("name") == "PR 상태"), None)
-    if status_field and status_field["dataType"] != "TEXT":
-        raise RuntimeError("PR 상태 must be a text field")
-    if status_field is None and not dry:
-        status_field = gql("""mutation($p:ID!){createProjectV2Field(input:{projectId:$p,
-          dataType:TEXT,name:"PR 상태"}){projectV2Field{... on ProjectV2Field{id}}}}""", p=board.id)["createProjectV2Field"]["projectV2Field"]
+    board.ensure_text_fields(TEXT_FIELDS, dry)
     for task, prs in sorted(grouped.items(), key=lambda item: int(item[0][1:])):
         issue = issues[task]
         opened = sorted((p for p in prs if p["state"] == "OPEN"), key=pr_order)
@@ -684,12 +738,15 @@ def sync_prs(dry: bool) -> None:
             detail = detail[:897] + "..."
         state = pr_task_status(issue, prs)
         board.set(issue["number"], issue["id"], state, f"{task} #{issue['number']}", dry)
-        print(f"{task}: {detail}")
-        if dry or board.pr_states.get(issue["number"]) == detail:
+        board.set_text(issue["number"], "PR 상태", detail, task, dry)
+    # Include cards without a PR so untouched work gets an explicit zero rather
+    # than a blank field. Do not move those cards or infer completion from PRs.
+    for task, issue in sorted(issues.items(), key=lambda item: int(item[0][1:])):
+        number = issue["number"]
+        if number not in board.items:
             continue
-        gql("""mutation($p:ID!,$i:ID!,$f:ID!,$t:String!){updateProjectV2ItemFieldValue(input:{
-          projectId:$p,itemId:$i,fieldId:$f,value:{text:$t}}){projectV2Item{id}}}""",
-            p=board.id, i=board.items[issue["number"]][0], f=status_field["id"], t=detail)
+        board.set_text(number, "할 일 진행", progress_summary(issue["body"]), task, dry)
+        board.set_text(number, "병합 기여", contribution_summary(grouped.get(task, [])), task, dry)
 
 
 def reconcile(dry: bool) -> None:

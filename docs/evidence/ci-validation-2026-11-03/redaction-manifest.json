@@ -10,12 +10,26 @@
           "path": "docs/evidence/ci-validation-2026-11-03/README.md",
           "checkout_commit": "d6d34962adb4daf1a60cbf4128c3fc5f58f48cff",
           "original_sha256": "fba99ab18694d240d1ac1509241b57b146d9b0d9dc11c926c7e79db55ac75f2d",
-          "public_sha256": "85aef72892fdfedb94d6f76e004e283bc998a2ab97f9523b5f80a859e3915573",
+          "public_sha256": "d823e76a9dd438fba1b1b773ca66092d5018324fda212e395f6ab6796b1dfe6d",
           "redactions": {
             "AWS_RESOURCE": 2,
             "AWS_ACCOUNT": 1
           },
-          "public_is_raw": false
+          "public_is_raw": false,
+          "post_redaction_edits": [
+            {
+              "prior_public_sha256": "85aef72892fdfedb94d6f76e004e283bc998a2ab97f9523b5f80a859e3915573",
+              "reason": "PR #77 added the infrastructure Python consumer regression results."
+            },
+            {
+              "prior_public_sha256": "f7e6f08882e312d8be46e19f10d99e97ee5075684ea12515ab77360ada5b04e5",
+              "reason": "PR #77 incorporated the reviewed CI guidance."
+            },
+            {
+              "prior_public_sha256": "6443ea67ec7b675350157bb125b591300fd5510cb0ee195fe62f7584eb1a51c7",
+              "reason": "Point readers to the retained results instead of duplicate passing test output."
+            }
+          ]
         },
         {
           "path": "docs/evidence/ci-validation-2026-11-03/ci-contract-source-manifest.json",

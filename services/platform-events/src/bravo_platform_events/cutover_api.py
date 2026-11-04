@@ -8,6 +8,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field, StrictInt
 
+from .change import ChangeApprovalService
 from .cutover import CutoverService
 from .plan_api import Principal, PrincipalResolver, create_plan_app, unauthenticated
 from .store import EventError
@@ -20,13 +21,24 @@ class ApprovalInput(BaseModel):
     expected_version: StrictInt = Field(ge=1)
 
 
+class ChangeInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    approval_kind: Literal["change"]
+    run_id: str = Field(pattern=r"^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$")
+    binding: dict
+    expected_version: StrictInt = Field(ge=1)
+
+
 class SubmitInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
     approval_id: str = Field(pattern=r"^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$")
 
 
 def create_cutover_app(service: CutoverService, *,
-                       resolve_principal: PrincipalResolver = unauthenticated):
+                       resolve_principal: PrincipalResolver = unauthenticated,
+                       change_service: ChangeApprovalService | None = None):
+    if change_service is not None and change_service.store is not service.store:
+        raise ValueError("shared_plan_store_required")
     app = create_plan_app(service.store, resolve_principal=resolve_principal)
 
     def principal(request):
@@ -51,14 +63,19 @@ def create_cutover_app(service: CutoverService, *,
         return JSONResponse({"detail": {"code": "invalid_request"}}, status_code=422)
 
     @app.post("/v1/plans/{plan_id}/approvals")
-    async def approve(plan_id: str, body: ApprovalInput, request: Request,
+    async def approve(plan_id: str, body: ApprovalInput | ChangeInput, request: Request,
                       idempotency_key: str = Header(max_length=128)):
-        receipt = await asyncio.to_thread(service.approve, principal(request), plan_id,
-                                         binding=body.binding, expected_version=body.expected_version,
-                                         command_key=idempotency_key)
+        actor = principal(request)
+        approval_service = change_service if body.approval_kind == "change" else service
+        if approval_service is None:
+            raise HTTPException(422, detail={"code": "unsupported_approval_kind"})
+        receipt = await asyncio.to_thread(approval_service.approve, actor, plan_id,
+                                         **body.model_dump(exclude={"approval_kind"}), command_key=idempotency_key)
         # Configuration/connection refs and internal authorization revisions stay private.
-        return JSONResponse({k: receipt[k] for k in
-                             ("approval_id", "approval_kind", "binding", "actor_id", "approved_at")},
+        fields = ("approval_id", "approval_kind", "binding", "actor_id", "approved_at")
+        if isinstance(body, ChangeInput):
+            fields += ("run_id",)
+        return JSONResponse({k: receipt[k] for k in fields},
                             headers={"Cache-Control": "no-store"})
 
     @app.post("/v1/plans/{plan_id}/cutover")

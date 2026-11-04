@@ -35,6 +35,15 @@ class Kubectl:
         if out.returncode != 0:
             raise ProbeError(f"apply 실패: {out.stderr.strip()}")
 
+    def create(self, manifest: dict) -> dict:
+        out = self.run("create", "-f", "-", "-o", "json", stdin=json.dumps(manifest))
+        if out.returncode != 0:
+            raise ProbeError("create 실패")
+        try:
+            return json.loads(out.stdout)
+        except (ValueError, TypeError):
+            raise ProbeError("create 응답 확인 불가") from None
+
     def get_json(self, *args: str) -> dict:
         out = self.run("get", *args, "-o", "json")
         if out.returncode != 0:

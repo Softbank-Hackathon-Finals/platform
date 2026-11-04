@@ -1,0 +1,35 @@
+{
+  "checked_at": "2026-11-04T08:18:43.157000+00:00",
+  "scope": "team AWS account, ap-northeast-2; readonly STS and GuardDuty",
+  "collector_exit_code": 1,
+  "source_state": "FAILED",
+  "error_code": "NOT_ENABLED",
+  "cursor": null,
+  "last_success_time": null,
+  "stored_findings": 0,
+  "positive_provider_collection": "NOT_VERIFIED",
+  "cloud_changes": false,
+  "credentials_or_raw_events_persisted": false,
+  "sources": [
+    {
+      "artifact": "services/security-findings/src/bravo_findings/aws_pull.py",
+      "sha256": "ef502074beb3f7127ff99c2f47bd1b98a4c85a71dd53c4b8bc59e2775cc3c4ba"
+    },
+    {
+      "artifact": "services/security-findings/src/bravo_findings/guardduty.py",
+      "sha256": "563d70fa162eb91cff52f638c2983548b141f87134b5caff8ce0422f6166c5a6"
+    },
+    {
+      "artifact": "services/security-findings/src/bravo_findings/normalize.py",
+      "sha256": "61a35c6571785b8b8cbd34c67a56c2df7ffeb06b0d3356af585bfc6ba9197c88"
+    },
+    {
+      "artifact": "services/security-findings/src/bravo_findings/mask.py",
+      "sha256": "c76e7ed4f05076c7084b7bd828a98b6226f895e2a91e8c57b197bd872fb17e51"
+    },
+    {
+      "artifact": "docs/security/detection/mappings.json",
+      "sha256": "c8a92c136c824e2245c650f83796113774856bacc8c68f8004beaec597df178d"
+    }
+  ]
+}
