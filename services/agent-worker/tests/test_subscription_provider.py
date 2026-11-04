@@ -44,8 +44,13 @@ def completed(name, args, namespace="bravo"):
 
 def test_real_sdk_subscription_stream_namespaces_tools_and_collects_proposal(context, monkeypatch):
     bundle, snapshot, proposal, _ = context
-    calls = install_stream(monkeypatch, [[completed("repo_read", {"path": "src/config.py"})],
-                                         [completed("plan_propose", proposal)]])
+    first = completed("repo_read", {"path": "src/config.py"})
+    item = first["response"]["output"][0]
+    added = {"type": "response.output_item.added", "output_index": 0, "sequence_number": 0,
+             "item": dict(item, arguments="", status="in_progress")}
+    done = dict(added, type="response.output_item.done", sequence_number=1, item=item)
+    first["sequence_number"] = 2
+    calls = install_stream(monkeypatch, [[added, done, first], [completed("plan_propose", proposal)]])
     result = asyncio.run(Coordinator(bundle, snapshot).propose(OpenAIProvider("fixture-model", subscription=True)))
     assert result["state"] == "PROPOSAL_READY" and len(calls) == 2
     assert result["attempts"][0]["model_usage"] == {
@@ -60,6 +65,7 @@ def test_real_sdk_subscription_stream_namespaces_tools_and_collects_proposal(con
     assert {t["name"] for t in calls[1]["tools"][0]["tools"]} == {"repo_read", "plan_propose"}
     shapes = [event for event in result["audit"] if event["reason"] == "FIRST_RESPONSE_SHAPE"]
     assert len(shapes) == 1 and shapes[0]["function_call_count"] == 1 and shapes[0]["bravo_namespace_matches"] is True
+    assert shapes[0]["stream_added"] == shapes[0]["stream_done"] == shapes[0]["terminal_items"] == {"bravo_repo_read": 1}
     assert calls[1]["input"][-1]["type"] == "function_call_output"
     assert "subscription-fixture" not in str(result)
 
@@ -115,7 +121,9 @@ def test_first_subscription_response_shape_is_private_and_fails_closed(context, 
     shape, stopped = result["audit"]
     assert shape == {"run_id": bundle.run_id, "attempt": 1, "tool": "model", "outcome": "OBSERVED",
                      "reason": "FIRST_RESPONSE_SHAPE", "function_call_count": len(namespaces),
-                     "bravo_namespace_matches": match}
+                     "bravo_namespace_matches": match, "stream_added": {}, "stream_done": {},
+                     "terminal_output_missing": False,
+                     "terminal_items": {"other_function": len(namespaces)} if namespaces else {"message": 1}}
     assert result["state"] == "NEEDS_HUMAN" and result["proposal"] is None and len(requests) == 1
     assert stopped["reason"] == "MODEL_OR_POLICY_FAILURE"
     assert "private-" not in json.dumps(result)
@@ -139,3 +147,29 @@ def test_subscription_can_stop_after_a_read_without_proposing(context, monkeypat
     result = asyncio.run(Coordinator(bundle, snapshot).propose(OpenAIProvider("fixture-model", subscription=True)))
     assert [c["tool_choice"] for c in calls] == ["required", "auto"]
     assert result["state"] == "NEEDS_HUMAN" and result["proposal"] is None
+
+
+@pytest.mark.parametrize("terminal_shape", ["empty", "omitted", "refusal"])
+def test_done_call_is_observed_but_never_dispatched_without_terminal_call(context, monkeypatch, terminal_shape):
+    bundle, snapshot, _, _ = context
+    terminal = completed("repo_read", {"path": "src/config.py"})
+    item = terminal["response"]["output"].pop()
+    item["arguments"] = '{"path":"private-provider-path"}'
+    events = [{"type": "response.output_item.done", "output_index": 0, "sequence_number": 0, "item": item}]
+    if terminal_shape == "omitted":
+        del terminal["response"]["output"]
+    elif terminal_shape == "refusal":
+        terminal["response"]["output"] = [{
+            "type": "message", "id": "private-id", "status": "completed", "role": "assistant",
+            "content": [{"type": "refusal", "refusal": "private-provider-reason"}],
+        }]
+    requests = install_stream(monkeypatch, [[*events, terminal]])
+    result = asyncio.run(Coordinator(bundle, snapshot).propose(OpenAIProvider("fixture-model", subscription=True)))
+    audit = result["audit"]
+    shape, stop = audit
+    assert shape["reason"] == "FIRST_RESPONSE_SHAPE"
+    assert shape["stream_done"] == {"bravo_repo_read": 1}
+    assert shape["terminal_items"] == ({"refusal": 1} if terminal_shape == "refusal" else {})
+    assert shape["terminal_output_missing"] is (terminal_shape == "omitted")
+    assert len(requests) == 1 and result["state"] == "NEEDS_HUMAN" and result["proposal"] is None
+    assert stop["reason"] == "MODEL_OR_POLICY_FAILURE" and "private-" not in json.dumps(result)
