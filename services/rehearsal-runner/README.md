@@ -80,3 +80,9 @@ uv run --frozen --no-default-groups --with pytest pytest -p no:cacheprovider ../
 ```
 
 T10 변경 승인 경로, diff 계산 방식, 검증한 제품 이미지와 승인 digest의 신뢰된 결속은 담당자와 확인이 필요하다. 이 모의 시험은 영수증 진위, 이미지 빌드·실행·정리 또는 실제 승인 전달을 증명하지 않는다.
+
+## 자격증명 코드 수정 작업 입력과 모의 시험
+
+`secret_task.prepare_credential_migration`은 demo-chat의 원본 revision과 `app/db_secret.py`, `app/config.py`, `app/main.py`를 대상으로 `/run/bravo/database/credentials.json` 주입 방식의 변경 작업 입력을 만든다. 기존 자격 캐시 및 인증 실패 후 재조회 유지와 값 비노출을 요구한다. 파일 경로와 JSON 키는 `infra/envs/target-secrets/README.md`의 현재 소비 계약을 따른다.
+
+`tests/test_secret_simulation.py`는 가짜 전달자와 DB를 사용하며 실제 demo-chat 수정안 실행이나 Kubernetes RBAC·OpenBao·ESO·DB 연결의 증거가 아니다. T11 제안서·스냅샷과 T38 독립 검증 Job, 실제 Secret 전달·접근 거부 및 자격 회전 검증은 후속 통합으로 남는다.
