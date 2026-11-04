@@ -88,3 +88,5 @@ uv run --project services/platform-events --extra postgres pytest services/platf
 ```
 
 [실제 검증 기록](../../../docs/evidence/t7-platform-data-2026-11-03/README.md)을 PR에서 함께 검토한다. 준비된 PR은 `In review`, 수정·추가 구현 중이면 `In progress`로 보드를 유지하며 전체 인수 전 Done 처리하지 않는다.
+
+별도 신뢰 Job에서 합성 Secret의 단건 읽기 허용·거부를 증명할 때는 [T7 단일 Secret 접근 시험](secret_probe/README.md)을 사용한다. 실행자는 두 서비스 계정의 응답을 같은 API 서버 감사 기록과 대조하고 자신이 만든 객체의 UID로 정리한다.
