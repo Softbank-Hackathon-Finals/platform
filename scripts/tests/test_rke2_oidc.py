@@ -16,10 +16,13 @@ from rke2_sso import emit_credential, kubeconfig
 class OIDCConfigTests(unittest.TestCase):
     def setUp(self):
         account = "0" * 12
+        def fixture_arn(service, resource):
+            return ":".join(("arn", "aws", service, "", account, resource))
+
         self.user = "abcdefab-1234-4567-8901-abcdefabcdef"
         self.config = {"account": account, "issuer": "https://test.tokens.sts.global.api.aws",
-                       "role_arn": f"arn:aws:iam::{account}:role/aws-reserved/sso.amazonaws.com/ap-northeast-2/AWSReservedSSO_BravoDevelopmentAdministrator_0123456789abcdef",
-                       "store_arn": f"arn:aws:identitystore::{account}:identitystore/d-0000000000",
+                       "role_arn": fixture_arn("iam", "role/aws-reserved/sso.amazonaws.com/ap-northeast-2/AWSReservedSSO_BravoDevelopmentAdministrator_0123456789abcdef"),
+                       "store_arn": fixture_arn("identitystore", "identitystore/d-0000000000"),
                        "access_until": "2026-11-09T09:05:00+09:00", "members": {"member-03": self.user}}
 
     def test_bind_exact_human(self):
