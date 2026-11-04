@@ -12,6 +12,7 @@ from .change import ChangeApprovalService
 from .cutover import CutoverService
 from .failback import FailbackService
 from .plan_api import Principal, PrincipalResolver, create_plan_app, unauthenticated
+from .rehearsal import RehearsalService
 from .store import EventError
 
 
@@ -37,6 +38,13 @@ class FailbackApprovalInput(BaseModel):
     expected_version: StrictInt = Field(ge=1)
 
 
+class RehearsalInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    task_id: str = Field(pattern=r"^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$")
+    expected_version: StrictInt = Field(ge=1)
+    attempt: StrictInt = Field(ge=1, le=3, default=1)
+
+
 class SubmitInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
     approval_id: str = Field(pattern=r"^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$")
@@ -45,8 +53,9 @@ class SubmitInput(BaseModel):
 def create_cutover_app(service: CutoverService, *,
                        resolve_principal: PrincipalResolver = unauthenticated,
                        change_service: ChangeApprovalService | None = None,
-                       failback_service: FailbackService | None = None):
-    for other in (change_service, failback_service):
+                       failback_service: FailbackService | None = None,
+                       rehearsal_service: RehearsalService | None = None):
+    for other in (change_service, failback_service, rehearsal_service):
         if other is not None and other.store is not service.store:
             raise ValueError("shared_plan_store_required")
     app = create_plan_app(service.store, resolve_principal=resolve_principal)
@@ -64,13 +73,27 @@ def create_cutover_app(service: CutoverService, *,
     @app.exception_handler(EventError)
     async def rejected(_request, error):
         status = 403 if error.code == "forbidden" else 409
-        if error.code == "authority_unavailable":
+        if error.code in ("authority_unavailable", "rehearsal_submission_unknown"):
             status = 503
         return JSONResponse({"detail": {"code": error.code}}, status_code=status)
 
     @app.exception_handler(ValueError)
     async def invalid_value(_request, _error):
         return JSONResponse({"detail": {"code": "invalid_request"}}, status_code=422)
+
+    if rehearsal_service is not None:
+        @app.post("/v1/plans/{plan_id}/rehearsals")
+        async def start_rehearsal(plan_id: str, body: RehearsalInput, request: Request,
+                                  idempotency_key: str = Header(max_length=128)):
+            receipt = await asyncio.to_thread(rehearsal_service.start, principal(request), plan_id,
+                                              **body.model_dump(), command_key=idempotency_key)
+            return JSONResponse(receipt, status_code=202, headers={"Cache-Control": "no-store"})
+
+        @app.post("/v1/plans/{plan_id}/rehearsals/{rehearsal_id}/attempts/{attempt}/reconcile")
+        async def reconcile_rehearsal(plan_id: str, rehearsal_id: str, attempt: int, request: Request):
+            receipt = await asyncio.to_thread(rehearsal_service.reconcile, principal(request), plan_id,
+                                              rehearsal_id=rehearsal_id, attempt=attempt)
+            return JSONResponse(receipt, headers={"Cache-Control": "no-store"})
 
     @app.post("/v1/plans/{plan_id}/approvals")
     async def approve(plan_id: str, body: ApprovalInput | ChangeInput | FailbackApprovalInput, request: Request,
