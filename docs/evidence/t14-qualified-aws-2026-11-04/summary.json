@@ -1,0 +1,67 @@
+{
+  "source_revision": "27b16745cf2a9aef684c4e60a28fb8d768e2efb4",
+  "scope": "operator-qualified source AWS IAM-01.1 only",
+  "environment_registration": "operator readback; not T10 registered environment",
+  "probe_source": "unchanged QualifiedAwsProbe and Runner",
+  "app_credentials": "existing app IRSA temporary credentials; no operator credentials injected",
+  "binding": "IAM GetRole RoleId and current versioned object readback before probe",
+  "positive_case": "PASS",
+  "wrong_role_id_case": "UNKNOWN/TOOL_ERROR",
+  "retention_rejected_case": "UNKNOWN/TOOL_ERROR",
+  "unrun_tests": [
+    "SEC-01.1",
+    "AUD-01.1"
+  ],
+  "unrun_verdict": "UNKNOWN/NOT_RUN",
+  "deployment_uid_unchanged": true,
+  "deployment_spec_unchanged": true,
+  "deployment_generation_unchanged": true,
+  "temporary_remote_directory_count_after_positive": 0,
+  "raw_artifacts": [
+    {
+      "artifact": "control-run.json",
+      "sha256": "9fdaf9e16ffe0db39ae849f24cdb8ac7d7a1f5f31af2344394916fe29d0b4e10"
+    },
+    {
+      "artifact": "control-run-wrong-role-id.json",
+      "sha256": "01d0129d7b7d05a3d801b3e4faa8c37a8db23a3319a35f141a5c72867e0d39fb"
+    },
+    {
+      "artifact": "control-run-retention-rejected.json",
+      "sha256": "c932ad6d45ed347f1829765e922a7718688d7ced868fcbc7e4c7eedd29276f8f"
+    },
+    {
+      "artifact": "dependency-hashes.json",
+      "sha256": "4dd15ff26762f2116180b99da36d122f1d74cca34cd48814bb94ec367dca7aef"
+    },
+    {
+      "artifact": "evidence-14ffb75c703bc61b45f6ae180c334b3175284aa882790636ffd9bd16a72d3a3d.json",
+      "sha256": "14ffb75c703bc61b45f6ae180c334b3175284aa882790636ffd9bd16a72d3a3d"
+    },
+    {
+      "artifact": "evidence-b37663b40d7b89b7778c6607799a4ee39abbdbbceee9fbe6b46026ebb036424d.json",
+      "sha256": "b37663b40d7b89b7778c6607799a4ee39abbdbbceee9fbe6b46026ebb036424d"
+    }
+  ],
+  "qualification_harness": [
+    {
+      "artifact": "prepare.py",
+      "sha256": "4a34d85ca47d3a477fb410bf4c00c60b1f17b45df82fc966598889fbccdc9b8d"
+    },
+    {
+      "artifact": "remote.py",
+      "sha256": "237910c21001bd0f0261e7c057330bb4411c1a04d8cb13e461f8104bc1f3e15d"
+    },
+    {
+      "artifact": "run.py",
+      "sha256": "a26da1537c652314537fec739c24e3efcd6300574d96d7662e46561339224b6c"
+    }
+  ],
+  "limits": [
+    "No destination execution",
+    "No Secret or audit control qualification",
+    "No expired/revoked AWS credential trial",
+    "No T19 gate authorization",
+    "No central evidence-retention policy qualification"
+  ]
+}
