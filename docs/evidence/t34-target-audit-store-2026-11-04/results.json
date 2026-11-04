@@ -1,0 +1,53 @@
+{
+  "base_commit": "7be33b0ebbaa48e9cc0df259f14a4327f7480113",
+  "date": "2026-11-04",
+  "environment": "local Docker, internal network, no published ports, no cloud credentials",
+  "result": {
+    "admin.create_bucket_object_lock": "ok",
+    "admin.delete_locked_version": "denied:AccessDenied",
+    "admin.get_versioning": "ok",
+    "admin.put_bucket_policy": "ok",
+    "admin.put_default_retention": "ok",
+    "anonymous.list": "denied:AccessDenied",
+    "cloud_resources_changed": false,
+    "collector.admin_delete_version": "denied:AccessDenied",
+    "collector.objects": 1,
+    "collector.otlp_records": 1,
+    "collector.retention_mode": "COMPLIANCE",
+    "collector_errors_logged": false,
+    "failures": {},
+    "hazard.delete_marker_hides_from_plain_list": true,
+    "hazard.unconditional_overwrite_adds_version": true,
+    "images": {
+      "boto3": "boto3==1.40.70",
+      "collector": "otel/opentelemetry-collector-contrib@sha256:340c9ca6a36617084c6661bdc4f0fe92b7cda5a805d61673ec8db375fddc522b",
+      "python": "python:3.12-slim@sha256:2c941e860699f878900b0edc2403613c234d4b32eda3cc9fa7036991a2a63c4a",
+      "seaweedfs": "docker.io/chrislusf/seaweedfs:4.52@sha256:a54ba35b44895a449f5cdd415999062201b17b9835ec0ffc19ea605b72ffa3d1"
+    },
+    "last_modified_bounds_put": true,
+    "original_version_intact": true,
+    "passed": true,
+    "reader.delete_object": "denied:AccessDenied",
+    "reader.get_version": "ok",
+    "reader.list": "ok",
+    "reader.list_versions": "ok",
+    "reader.put_object": "denied:AccessDenied",
+    "reader.version_matches": true,
+    "tls": "private CA, server name audit-store",
+    "versioning": "Enabled",
+    "writer.delete_bucket_policy": "denied:AccessDenied",
+    "writer.delete_object": "denied:AccessDenied",
+    "writer.delete_version": "denied:AccessDenied",
+    "writer.get_object": "denied:AccessDenied",
+    "writer.list": "denied:AccessDenied",
+    "writer.put_existing_key_if_none_match": "denied:PreconditionFailed",
+    "writer.put_if_none_match": "ok",
+    "writer.suspend_versioning": "denied:AccessDenied"
+  },
+  "source_sha256": [
+    {
+      "path": "services/control-runner/tests/integration/verify_target_audit_store.py",
+      "sha256": "8bd5480277db4520862ed901ac3f8f2cd52094c6b8d954b8a7ac941913ba4901"
+    }
+  ]
+}
