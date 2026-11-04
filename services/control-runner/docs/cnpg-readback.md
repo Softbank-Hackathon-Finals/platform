@@ -59,3 +59,34 @@ GET 클라이언트는 등록된 Kubernetes 서버 인증서와 신원을 검증
 
 CNPG 1.30.1 / Barman Cloud plugin 0.15.1에서 확인한 API 응답을 기준으로 한다.
 향후 버전이 상태 필드나 기본 spec을 바꾸면 자격 시험 후 명시적으로 지원한다.
+
+## 복원 대상과 실제 SQL 조회의 결속
+
+`CNPGRestoreReader`는 별도 `RestoreRequestBinding`과 인증된 GET·DB 연결 factory를 받는다.
+실행기가 정확한 백업 ID와 읽기 전용 아카이브 경로를 검증하고 복원을 한 번 생성한 뒤,
+**생성 응답의** UID·기본값 적용 후 spec 지문 및 생성 전에 읽은 ObjectStore 지문을 기록한다.
+복원이 끝난 다음 지문을 만들어 과거 결속이 있었다고 주장하면 안 된다.
+
+- `CompletedBackup`과 앱·환경·run 문맥이 동일한 요청만 수용한다.
+- 새 Cluster UID, generation 1, 정확한 `backupID`와 `targetImmediate`, 원본 이름과
+  reader ObjectStore, 단일 인스턴스 및 archive writer 부재를 확인한다.
+- Ready/Initialized와 현재 primary를 확인하고 전용 SQL 연결에서 표식·행 수를 조회한다.
+- SQL host·DB 이름, `verify-full`과 실제 TLS 사용을 검증한다.
+- 조회 뒤 Cluster/ObjectStore 지문·primary·Ready 시각을 다시 확인한다.
+- 대상 교체·설정 변경·권한 부족·시간 초과·증거 저장 실패면 성공 영수증을 반환하지 않는다.
+- 데이터가 정상 조회됐지만 표식이 없거나 다르면 `RestoreProbe`가 FAIL로 판정한다.
+  관측 실패는 Runner의 UNKNOWN이며 같은 의미가 아니다.
+
+**연결 factory의 의무:** 신뢰된 등록에서 얻은 대상 CA를 고정하고 실제 연결을 해당
+Cluster의 primary에 결속해야 한다. DNS 이름 검사만으로 자원 소유권이 증명되지는 않는다.
+이름이 같은 원본/다른 대상의 CA를 임의로 사용하거나 사용자 입력 URL을 받아서는 안 된다.
+로컬 실험에서는 인증된 Pod ownerReference UID를 확인한 후 그 Pod로 터널링했다.
+운영 factory에는 전송 기한·취소와 등록 신원·CA 정책이 필요하다.
+
+**아카이브 factory의 의무:** reader ObjectStore가 완료 백업과 같은 원본 아카이브를
+읽는지, 읽기 전용 역할이 실제 강제되는지 실행 전에 확인해 등록한다.
+이 검증기는 Secret 내용이나 저장소 IAM 정책을 새로 읽지 않는다.
+
+이 경로는 단일 인스턴스의 정확한 base-backup 복원 시험이다. HA 복원·PITR·전체 테이블
+정합성·운영 RTO/SLO 자격을 대신하지 않는다. 두 API 조회도 분산 원자적 스냅샷이 아니며,
+계속 유지되는 실행권과 실행 직전 재검증은 오케스트레이터 책임이다.
