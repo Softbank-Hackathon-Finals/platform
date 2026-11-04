@@ -38,7 +38,7 @@ uv sync && uvx ruff check . && uv run pytest
 uv run python -m rehearsal_runner.isolation_cli --namespace rehearsal-demo-1 --profile profiles/k3d.env --context k3d-bravo-rehearsal
 ```
 
-통과 시 namespace UID와 시험 실행 ID를 출력한다. 시험 실패·확인 불가·UID 변경·시험용 자원 정리 미확인은 BLOCK이며 종료 코드 1이다. 정리는 최대 30초 기다린다. 이 결과는 검증 Job 실행이나 승인 권한이 아니다. T38 연결 시 Job과 네임스페이스 정리는 같은 UID에 결속하고, T10 실행 권한을 별도로 확인해야 한다.
+통과 시 namespace UID와 시험 실행 ID를 출력한다. 시험 실패·확인 불가·UID 변경·시험용 자원 정리 미확인은 BLOCK이며 종료 코드 1이다. 정리는 최대 30초 기다린다. 모의 리허설 흐름 시험은 격리 실패·불명·UID 변경·시험 자원 누수 시 모의 Job이 호출되지 않고, 성공 시 시험한 namespace UID가 모의 Job으로 전달되는지 확인한다. 이 모의 흐름은 테스트 코드 안에만 있으며 실제 러너를 연결하지 않는다. 이 결과는 검증 Job 실행이나 승인 권한이 아니다. T38 연결 시 Job과 네임스페이스 정리는 같은 UID에 결속하고, T10 실행 권한을 별도로 확인해야 한다.
 
 ## 버킷 읽기 관측 프로토타입
 
