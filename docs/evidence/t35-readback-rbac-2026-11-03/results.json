@@ -16,7 +16,8 @@
   "permission_restored_positive_control": true,
   "status": "PASS",
   "own_rbac_resources_cleaned": true,
-  "source_sha256": [
+  "source_revision": "e7e04240c0e4a52dd0337f6cb95b608023fd9118",
+  "source_files": [
     {
       "path": "services/control-runner/src/bravo_controls/backup_rbac.py",
       "sha256": "db81d598d413723b889027993d267923d3b695beb21ea3c0db8e8fbb05a9a2c4"
