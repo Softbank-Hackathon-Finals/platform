@@ -84,6 +84,8 @@ S4 3a 문구대로, 쓰기를 막은 뒤 본 barrier가 오지 않으면 양쪽 
 
 * **경로 단절은 옵션 3(사전 barrier 왕복)으로 판정한다.** 컷오버 방향에도 똑같이 적용한다.
   * 왕복 실패는 확인된 실패(`StepFailed`)다. 진입점 · PAUSE · LOGIN · 구독을 하나도 바꾸지 않았으므로 ABORT_PRE_WRITE로 끝내고, 결과에 `reason_code=replication_path_unconfirmed`를 남긴다. 상태 불명(`Unconfirmed`)으로 던지면 SAFE_HOLD가 되므로 쓰지 않는다.
+  * 왕복 시험 중 출발지 · 목적지 DB에 쓰거나 읽지 못하면 경로 단절이 아니라 상태 불명(`Unconfirmed`)이다. 사전 확인 규칙([ADR-0011](0011-cutover-executor-execution-and-failure.md))대로 바꾼 것 없이 SAFE_HOLD로 멈추고 lease를 유지한다.
+  * 제한 시간은 시험 행을 쓰기 전에 정한다(쓰는 시간을 남은 deadline에서 두 번 빼지 않는다). 제한을 넘긴 뒤 본 도착은 성공으로 치지 않는다.
   * 결과의 `remote_changes_started`는 "복구 대상 효과(진입점 · PAUSE · LOGIN · 구독)를 시작했는가"로 정의한다. 시험 행은 `path_probe`(도착 여부 · 소요 · 마지막 수신 시각)로 따로 남긴다. 시험 행은 업무 데이터가 아니며 무결성 비교 대상(`public.attachments`, `public.messages`)에 들어가지 않는다.
 * **쓰기를 막은 뒤 따라잡지 못하면 옵션 5(ABORT_PRE_WRITE)로 끝낸다.** S4 3a의 "쓰기를 열지 않고"는 되돌아갈 쪽(AWS)을 열지 않는다는 뜻으로 해석한다. 원상 복구를 확인하지 못하면 기존 규칙대로 SAFE_HOLD다.
 * **옵션 2(마지막 수신 시각)는 판정에 쓰지 않고 진단용으로만 기록한다.**

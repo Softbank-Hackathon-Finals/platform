@@ -102,6 +102,8 @@ python3 testing/mockenv.py down
 보이는지 확인한다([ADR-0016](../../docs/adr/0016-failback-replication-path-check.md)). 컷오버 방향에도 똑같이 적용한다.
 
 - 오지 않으면 진입점 · PAUSE · LOGIN · 구독을 바꾸지 않고 ABORT_PRE_WRITE, `reason_code=replication_path_unconfirmed`.
+  제한은 시험 행을 쓰기 전에 정하고, 제한을 넘긴 뒤 본 도착은 인정하지 않는다.
+- 시험 중 DB에 쓰거나 읽지 못하면 상태 불명이다: 바꾼 것 없이 SAFE_HOLD(사전 확인 규칙, lease 유지).
 - 결과의 `path_probe`에 도착 여부 · 소요 · 목적지 구독의 마지막 수신 시각을 남긴다. 수신 시각은 진단용이며 판정하지 않는다.
 - `remote_changes_started`는 복구 대상 효과(진입점 · PAUSE · LOGIN · 구독)를 시작했는지다. 시험 행은 여기에 들지 않는다.
 - 쓰기를 막은 뒤 본 barrier가 오지 않으면 되돌아갈 쪽을 열지 않고 원상 복구한다(ABORT_PRE_WRITE). 확인하지 못하면 SAFE_HOLD.

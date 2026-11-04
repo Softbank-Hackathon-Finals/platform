@@ -280,12 +280,13 @@ def world(monkeypatch):
 REFS = {"env-aws": "fake/src", "env-onprem": "fake/dst"}
 
 
-def start(store, source: str = "env-aws", target: str = "env-onprem") -> uuid.UUID:
+def start(store, source: str = "env-aws", target: str = "env-onprem",
+          deadline: timedelta = timedelta(minutes=1)) -> uuid.UUID:
     request = CutoverRequest(
         plan_id="plan-fake", epoch=int(datetime.now(UTC).timestamp() * 1e6),
         source={"environment_id": source, "connection_ref": REFS[source]},
         target={"environment_id": target, "connection_ref": REFS[target]},
-        write_pause_budget_ms=5000, deadline=datetime.now(UTC) + timedelta(minutes=1),
+        write_pause_budget_ms=5000, deadline=datetime.now(UTC) + deadline,
     )
     return store.create(str(uuid.uuid4()), request, registry_from_sites(CONFIG.sites).resolve(request))[0].execution_id
 
@@ -858,3 +859,48 @@ def test_unreadable_receipt_time_does_not_decide(store, world, monkeypatch):
     execution = store.get(execution_id)
     assert execution.status == Status.DONE, execution.result
     assert execution.result["path_probe"]["last_msg_receipt_time"] == "unknown"
+
+
+def test_probe_seen_after_the_limit_is_not_accepted(store, world):
+    """시험 행을 본 시각이 제한(기본 10초)을 넘었으면 늦은 도착이다. 성공으로 치지 않는다."""
+    clock = Clock()
+    world.after["src.insert_path_probe"] = lambda: setattr(clock, "offset", 20)
+    execution_id = start(store)
+    FakeCutover(store, world, clock=clock).run(execution_id)
+    execution = store.get(execution_id)
+    assert execution.status == Status.ABORT_PRE_WRITE, execution.result
+    assert execution.result["reason_code"] == "replication_path_unconfirmed"
+    assert world.calls == ["src.insert_path_probe"]
+
+
+def test_probe_limit_is_fixed_before_the_insert(store, world):
+    """요청 deadline이 가까울 때 시험 행을 쓰는 데 걸린 시간을 남은 시간에서 두 번 빼지 않는다."""
+    import time
+
+    world.path_down = True
+    world.after["src.insert_path_probe"] = lambda: time.sleep(1)
+    execution_id = start(store, deadline=timedelta(seconds=1.8))
+    FakeCutover(store, world).run(execution_id)
+    execution = store.get(execution_id)
+    assert execution.status == Status.ABORT_PRE_WRITE, execution.result
+    # 남은 약 1.7초를 다 기다린다(쓰기 1초를 빼고 0.7초만 기다리면 약 1초에서 실패한다)
+    assert execution.result["path_probe"]["elapsed_ms"] >= 1400
+
+
+def test_unreadable_target_during_probe_holds_without_changes(store, world, monkeypatch):
+    """목적지 DB를 읽지 못하는 것은 경로 단절(확인된 실패)이 아니라 상태 불명이다: 바꾼 것 없이 SAFE_HOLD."""
+    original = FakeDb.has_barrier
+
+    def unreadable(self, barrier_id):
+        if self.ns == "dst":
+            raise Unconfirmed("target control connection lost")
+        return original(self, barrier_id)
+
+    monkeypatch.setattr(FakeDb, "has_barrier", unreadable)
+    execution_id = start(store)
+    FakeCutover(store, world).run(execution_id)
+    execution = store.get(execution_id)
+    assert execution.status == Status.SAFE_HOLD, execution.result
+    assert execution.result["reason"] == "precheck could not confirm remote state; no changes sent"
+    assert execution.result["path_probe"]["arrived"] is False
+    assert world.calls == ["src.insert_path_probe"]

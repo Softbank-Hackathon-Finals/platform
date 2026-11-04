@@ -513,14 +513,20 @@ class Cutover:
             receipt_time = "unknown"
         run.path_probe = {"probe_id": str(probe), "arrived": False, "elapsed_ms": None,
                           "last_msg_receipt_time": receipt_time}
+        # 제한은 시험 행을 쓰기 전에 정한다(쓰는 데 걸린 시간을 남은 deadline에서 두 번 빼지 않는다).
+        limit = min(self._settings.path_probe_timeout_s, self._remaining_s(run))
         start = self._clock()
         self._act(run, src.db.insert_path_probe, probe, run.request.epoch)
-        deadline = start + min(self._settings.path_probe_timeout_s, self._remaining_s(run))
-        while not dst.db.has_barrier(probe):
-            if self._clock() > deadline:
+        # 목적지 DB를 읽지 못하면(Unconfirmed) 상태 불명이다: 사전 확인 규칙대로 SAFE_HOLD(바꾼 것 없음).
+        while True:
+            arrived = dst.db.has_barrier(probe)
+            # 도착을 본 시각이 제한을 넘었으면 늦은 도착이다. 성공으로 치지 않는다.
+            if self._clock() - start > limit:
                 run.path_probe["elapsed_ms"] = self._ms(start)
                 raise StepFailed(f"replication path probe did not arrive at {dst.site.environment_id} "
-                                 f"within {self._settings.path_probe_timeout_s}s", code=REPLICATION_PATH_UNCONFIRMED)
+                                 f"within {limit:.3g}s", code=REPLICATION_PATH_UNCONFIRMED)
+            if arrived:
+                break
             time.sleep(0.05)
         run.path_probe.update(arrived=True, elapsed_ms=self._ms(start))
 

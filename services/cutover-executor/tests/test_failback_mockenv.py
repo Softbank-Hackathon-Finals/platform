@@ -71,24 +71,30 @@ def admin_psql(site, sql: str) -> list[str]:
     return [line for line in out.stdout.splitlines() if line]
 
 
+BARRIER_PUBLISHED = ("SELECT count(*) FROM pg_publication_tables "
+                     "WHERE pubname = 'bravo_pub' AND schemaname = 'cutover' AND tablename = 'barrier';")
+
+
 @pytest.fixture
 def barrier_path(sides):
-    """온프렘 → AWS 경로에서 barrier 표만 끊는다. 구독 worker는 살아 있어 사전 확인의 worker · 지연 검사는 통과한다."""
+    """온프렘 → AWS 경로에서 barrier 표만 끊는다. 구독 worker는 살아 있어 사전 확인의 worker · 지연 검사는 통과한다.
+
+    정리는 DROP 명령의 성공 여부가 아니라 publication의 실제 상태를 읽고 한다(DROP이 반영된 뒤 응답만 잃어도 복원한다).
+    """
     aws, onprem = sides
-    state = {"cut": False}
 
     def cut(_run=None):
         admin_psql(onprem, "ALTER PUBLICATION bravo_pub DROP TABLE cutover.barrier;")
-        state["cut"] = True
 
     yield cut
-    if state["cut"]:
+    if admin_psql(onprem, BARRIER_PUBLISHED) != ["1"]:
         arrived = set(admin_psql(aws, "SELECT barrier_id FROM cutover.barrier;"))
         orphans = [b for b in admin_psql(onprem, "SELECT barrier_id FROM cutover.barrier;") if b not in arrived]
         if orphans:
             admin_psql(onprem, "DELETE FROM cutover.barrier WHERE barrier_id IN ("
                        + ",".join(f"'{uuid.UUID(b)}'" for b in orphans) + ");")
         admin_psql(onprem, "ALTER PUBLICATION bravo_pub ADD TABLE cutover.barrier;")
+    assert admin_psql(onprem, BARRIER_PUBLISHED) == ["1"], "barrier table was not restored to the publication"
 
 
 def onprem_is_writer_again(aws, onprem) -> None:
