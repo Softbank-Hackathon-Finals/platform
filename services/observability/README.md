@@ -18,71 +18,102 @@ cd services/observability && uv sync --locked && uv run --locked pytest
 
 ## 환경 횡단 지표 수집 (T37)
 
-출발지 · 목적지 클러스터마다 OpenTelemetry Collector를 두고, 앱 지표를 플랫폼 지표 저장소(Prometheus)로 보낸다. 결정 배경은 [ADR-0010](../../docs/adr/0010-observability-boundary.md)이다. **판정 입력이 아니다.** SHIFT · WATCH 판정은 T18 창 요약만 쓴다([판정용 관측 계약](../../docs/observability/README.md)).
+출발지 · 목적지 클러스터마다 OpenTelemetry Collector를 두고, 앱 · DB 지표를 플랫폼 지표 저장소(Prometheus)로 보낸다. 콘솔은 조회 API로 읽는다. 결정 배경은 [ADR-0010](../../docs/adr/0010-observability-boundary.md)이다. **판정 입력이 아니다.** SHIFT · WATCH 판정은 T18 창 요약만 쓴다([판정용 관측 계약](../../docs/observability/README.md)).
 
-| 파일 | 내용 |
+| 경로 | 내용 |
 |---|---|
-| [`collector.yaml`](collector.yaml) | 클러스터별 Collector 설정. 환경 이름(`BRAVO_ENV`)과 플랫폼 주소(`PLATFORM_OTLP_ENDPOINT`)는 배포가 정한다 |
-| [`prometheus.yml`](prometheus.yml) | 플랫폼 지표 저장소 설정. OTLP로만 받는다 |
-| [`testing/run.sh`](testing/run.sh) | 로컬 재현 시험 (Docker) |
+| [`deploy/collector/`](deploy/collector/) | 클러스터별 Collector: 설정 · 매니페스트 · NetworkPolicy |
+| [`deploy/collector-db/`](deploy/collector-db/) | DB(CNPG)가 있는 클러스터용 오버레이: DB 지표 수집 추가 |
+| [`deploy/collector-db-access/`](deploy/collector-db-access/) | DB 네임스페이스의 Pod 조회 권한(Role)만. 환경마다 namespace를 바꿔 적용 |
+| [`deploy/platform/`](deploy/platform/) | 플랫폼: 지표 저장소(mTLS `web.yml`, 알림 `rules/`)와 콘솔용 조회 API |
+| [`deploy/certs/issue.sh`](deploy/certs/issue.sh) | 인증서 발급 · 만료 검사. 절차: [인증서](../../docs/observability/certificates.md) |
+| [`Dockerfile`](Dockerfile) | 조회 API 이미지(비루트, digest 고정 기반 이미지) |
+| [`testing/`](testing/) | `run.sh`(compose), `k8s.sh`(Docker 안 k3s + CNPG), `rotation.sh`(인증서 교체) |
+| [런북](../../docs/observability/runbooks.md) | 알림 8개의 뜻 · 확인 순서 · 조치 |
+
+적용 순서(실제 환경): Secret · ConfigMap을 만들고(아래 "배포 전에 만들 것"), 플랫폼은 `kubectl apply -k deploy/platform`을 적용한다. DB가 있는 클러스터는 `deploy/collector-db`와 `deploy/collector-db-access`를, 없는 클러스터는 `deploy/collector`를 적용한다. 조회 API 이미지는 배포 파이프라인이 kustomize `images`로 레지스트리@digest를 넣는다. 넣지 않으면 pull이 실패한다.
 
 ### 동작
 
-- **환경 이름은 Collector가 붙인다.** 앱이 보낸 `bravo.env`는 허용 목록에서 지워지고, Collector의 `BRAVO_ENV`로 덮어쓴다. 앱이 다른 환경을 사칭할 수 없다.
-- **허용 목록:** 앱 지표는 아래 속성만 남는다. 채팅 본문, `Authorization`, 토큰, SQL 파라미터는 저장되지 않는다.
-  - 리소스 속성: `service.name` · `service.instance.id`
-  - 데이터 포인트 속성: `http.request.method` · `http.response.status_code` · `http.route`
-- **수집 경로 생존 신호:** Collector가 자기 지표를 10초마다 긁어 같은 경로로 보낸다. 이 경로에서만 신뢰 라벨 `bravo.signal=collector-self`를 붙인다. 앱 경로는 허용 목록이 이 속성을 지우므로, 앱이 `service.name=bravo-collector`나 지표 이름 `up`을 써도 생존 신호로 세지 않는다. 플랫폼은 환경별 최근 수신 시각을 아래 식으로 본다.
-
-  ```promql
-  time() - max by (bravo_env) (timestamp(up{bravo_signal="collector-self"}))
-  ```
-
-  등록된 환경이 결과에 없거나 30초를 넘으면 그 환경은 "확인 불가"다. 보내는 방식이라 데이터가 오지 않는 것을 "정상"으로 읽지 않는다. 기준 30초는 수집 간격(10초)의 3배로 둔 제안값이다. `job` 라벨로 고르지 않는다(앱도 보낼 수 있다).
-- **시계:** 생존 신호의 시각은 Collector 호스트 시계다. 호스트 시계가 앞서면 그만큼 "확인 불가" 판정이 늦어지므로 클러스터 노드는 시간 동기화(chrony 등)를 켠다.
-- **보존 기간 3일.** 데모와 증빙에 충분한 기간만 둔다. 판정의 근거는 판정 기록(`SliJudgement`)에 따로 남으므로 지표 저장소를 지워도 판정은 다시 계산할 수 있다.
+- **환경 이름은 Collector가 붙인다.** 앱이 보낸 `bravo.env`는 허용 목록에서 지워지고, Collector의 `BRAVO_ENV`로 덮어쓴다.
+- **허용 목록:** 앱 지표는 아래 속성만 남는다. 채팅 본문 · 헤더 · 토큰 · SQL 파라미터는 저장되지 않는다.
+  - 리소스: `service.name` · `service.instance.id`
+  - 데이터 포인트: `http.request.method` · `http.response.status_code` · `http.route`
+- **생존 신호:** Collector 자기 지표에만 신뢰 라벨 `bravo.signal=collector-self`를 붙인다. 성공한 `up=1` 원 표본이 30초 넘게 오지 않거나, 없거나, 미래 시각이면 그 환경은 "확인 불가"이고 `BravoEnvUnobservable` 알림이 뜬다.
+- **DB 지표:** CNPG 인스턴스 Pod(`cnpg.io/podRole=instance`)의 `metrics` 포트를 15초마다 긁는다. 인스턴스 상태, 논리 복제 슬롯 지연 · 활성, WAL 보관 실패를 본다. 컷오버 조건의 복제 지연은 Executor가 DB에서 직접 읽는다(설계 8.6).
+  - DB 긁기 경로에만 출처 라벨 `bravo.signal=cnpg-scrape`를 붙인다. 조회 API와 DB 알림은 이 라벨이 있는 지표만 쓰고, 조회 API는 CNPG 식별자(클러스터 · Pod)가 없는 행을 정상으로 올리지 않는다.
+  - 앱 경로는 허용 목록이 이 라벨과 CNPG 식별자를 지운다. 앱이 같은 이름(`cnpg_collector_up` 등)이나 `service.name=bravo-cnpg`(`job` 라벨)로 보내도 DB 상태 · 알림을 바꾸지 못한다.
+- **조회 API:** 정해 둔 조회식만 실행한다. 환경 이름은 등록 목록과 정확히 같을 때만 식에 들어간다. 저장소 장애·손상 응답·중복 단일 값은 503, 값이 없거나 NaN/Inf이면 null이다(0이 아님). 응답에는 `Cache-Control: no-store`를 넣는다.
+  - HTTP·DB 뷰도 성공한 Collector 생존 신호를 먼저 확인한다. 신호가 오래되거나 없으면 과거 수치를 숨기고 `UNOBSERVABLE`로 응답한다.
+  - DB 원 표본에도 30초 제한을 적용한다. Collector가 살아 있다는 이유만으로 오래된 DB 표본을 정상으로 표시하지 않는다.
+  - `last_received_seconds_ago`는 성공한 **Collector 원 표본의 나이**이며 DB 트랜잭션/업무 응답 시각이 아니다. HTTP `state=OK`는 지표 조회 가능을 뜻하며 앱 건강·컷오버 허가가 아니다.
+  - Prometheus JSON은 최대 2MiB·10,000행이다. 잘못된 숫자/구조를 응답에 반영하지 않으며 등록되지 않은 환경의 경보는 반환하지 않는다.
+  - `GET /v1/observability/environments`: 환경별 OK · UNOBSERVABLE
+  - `GET /v1/observability/alerts`: Bravo 알림과 런북
+  - `GET /v1/observability/environments/{env}/http`: 요청률 · 오류율 · p95. OTel `http.server.request.duration` 기준
+  - `GET /v1/observability/environments/{env}/database`: 인스턴스, 논리 슬롯
+- **유실 내구성:** 보내지 못한 지표는 디스크 큐(5000건)에 쌓이고 10분 동안 재시도한다. 저장소가 늦은 표본을 받는 기간과 같다.
+- **알림 8개(코드 · 단위 시험 · 런북)**
+  - 관측 경로: 확인 불가, 전송 실패, 대기열, 거부
+  - DB: 다운, 논리 슬롯 지연(64MiB, 제안값), 슬롯 비활성, WAL 보관 실패. 지표 이름은 k3s 실측으로 확인했다(counter는 `_total`).
+- **보존:** 3일 또는 4GB. 판정의 근거는 판정 기록에 따로 남는다.
 
 ### 보안 경계
 
-- Prometheus의 OTLP 수신(`/api/v1/otlp`)과 조회 API에는 인증이 없다. 배포할 때 네트워크로 막는다.
-  - 수신: 출발지 · 목적지 Collector 태그만 Tailscale ACL로 허용한다.
-  - 조회: 플랫폼 안의 콘솔 API만 허용한다.
-  - 이 경로를 열어 두면 누구나 다른 환경 이름으로 지표를 넣을 수 있다. 환경 덮어쓰기는 Collector를 거친 지표에만 적용된다.
-- Collector의 OTLP 수신(4317 · 4318)은 클러스터 안에서만 받는다(Service는 ClusterIP, NetworkPolicy로 앱 네임스페이스만 허용).
+- **mTLS:** 지표 저장소는 쓰기 · 조회 모두 같은 CA가 발급하고 허용된 이름(`client_allowed_sans`)인 클라이언트 인증서만 받는다. TLS 1.3만 쓴다.
+- **전송마다 새 연결:** 인증서 교체와 신뢰 제거가 다음 전송(10초 이내)에 반영된다. Collector 0.164.0은 기능 게이트 결함 때문에 `--feature-gates=-pkg.confighttp.PrioritizeNewKeepalive`가 필요하다([인증서 3절](../../docs/observability/certificates.md)).
+- **남는 위험:** 인증서 이름은 환경 이름과 묶이지 않는다. 한 Collector 인증서가 유출되면 다른 환경 이름으로 서버 지표를 넣을 수 있다. 이 지표는 판정 입력이 아니다.
+- **조회 API 인가:** Bearer 토큰(32자 이상, Secret). 설정이 없으면 시작하지 않는다.
+- **NetworkPolicy**
+  - Collector는 `bravo.observability/send=true` 라벨 네임스페이스에서만 받는다. 나가는 연결은 DNS와 저장소 포트, DB 오버레이면 API 서버와 9187.
+  - 저장소는 같은 네임스페이스의 Collector · 조회 API, `platform-client` 라벨 네임스페이스, Tailscale 대역만 받는다. 나가는 연결은 없다.
+  - 조회 API는 `platform-client` 라벨 네임스페이스에서만 받고, 저장소 9090으로만 나간다.
+  - 라벨은 `kubectl label`로 붙인다(Namespace 매니페스트를 apply하면 없는 라벨이 지워진다).
+- **DB 접근:** Collector는 DB 네임스페이스에서 Pod 조회만 할 수 있다(Secret · exec · 다른 네임스페이스는 거부, k3s에서 확인).
+  - DB 네임스페이스에 Collector 허용 NetworkPolicy를 넣지 않는다. 그 정책이 DB Pod를 고르면 격리가 켜져 앱 → DB 연결까지 막힐 수 있다.
+  - DB 네임스페이스가 이미 격리돼 있다면, 그 담당(T6 · T30)이 Collector → 9187을 허용한다.
+- **Pod 보안:** 세 워크로드 모두 Pod 보안 표준 restricted를 만족한다(비루트, 읽기 전용 루트, 권한 상승 금지, capability 제거, seccomp). ServiceAccount 토큰은 DB 오버레이의 Collector만 붙인다(Pod 조회용).
+- **배포 전에 만들 것(git에 두지 않음)**
+  - Secret: `bravo-collector-tls`, `bravo-prometheus-tls`, `bravo-observability-api-tls`, `bravo-observability-api-token`
+  - ConfigMap: `bravo-collector-env`(`BRAVO_ENV`, `PLATFORM_OTLP_ENDPOINT`, DB 오버레이면 `BRAVO_DB_NAMESPACE`)
 - 리허설 네임스페이스에는 Collector로 가는 송신 예외를 열지 않는다(ADR-0002).
-- 이미지는 태그와 digest로 고정한다: `otel/opentelemetry-collector-contrib:0.163.2`, `prom/prometheus:v3.15.1` (digest는 `testing/compose.yaml`).
 
-### 검증
+### 자원 (실측)
+
+데모 예상의 약 10배 부하(앱 지표 2000건/초, 3분)에서 잰 값이다.
+
+| 워크로드 | 최대 메모리 | 평균 / 최대 CPU | request / limit |
+|---|---|---|---|
+| Collector | 107MiB | 33m / 92m | 50m · 128Mi / 500m · 256Mi |
+| Prometheus | 83MiB | 15m / 42m | 50m · 128Mi / 1 · 512Mi |
+| 조회 API | 50MiB | 4m / 16m | 25m · 64Mi / 500m · 192Mi |
+
+`BRAVO_K8S_CAPACITY=1 testing/k8s.sh`로 다시 잰다. 시계열 종류 수가 적은 부하였고 Docker Desktop VM이라, 실제 환경에서 다시 잰다.
+
+### 검증 (2026-11-04 로컬)
+
+결과 · 소스 해시 · 이미지 digest: [증빙](../../docs/evidence/t37-observability-2026-11-04/README.md).
 
 ```sh
-services/observability/testing/run.sh
+services/observability/testing/run.sh        # compose: 20항목, 약 2분
+services/observability/testing/k8s.sh        # k3s + CNPG: 16항목, 약 4분 (helm 필요)
+services/observability/testing/rotation.sh   # 인증서 교체: 14항목, 약 1분 반
 ```
 
-Prometheus와 목적지 역할(`BRAVO_ENV=onprem`) Collector를 띄운다. 시험용 지표에는 `bravo.env="aws"` 위조값과 카나리 문자열을 넣은 `authorization` · `chat.body` 속성을 붙여 보낸다.
+시험의 Compose 프로젝트·k3s 컨테이너·API 이미지·포트는 실행별로 분리한다. k3s 정리는 이번 실행이 생성한 컨테이너 ID에만 적용한다.
 
-| 확인 | 결과 (2026-11-03 로컬) |
-|---|---|
-| 위조한 `bravo.env=aws`가 `onprem`으로 기록됨 | 통과 |
-| 허용 목록의 `http.route`는 남음 | 통과 |
-| 카나리 문자열이 모든 라벨 값에서 0건 (SEC-01.3과 같은 방식) | 통과 |
-| 생존 신호: 최근 수신 1초 미만 | 통과 |
-| 앱이 생존 신호를 사칭(`service.name=bravo-collector` · `bravo.signal` · 20초 뒤 시각의 `up=1`)한 뒤 Collector를 멈추면, 45초 뒤 "확인 불가" (사칭 시계열은 저장되지만 신뢰 라벨이 없음) | 통과 |
+알림 단위 시험은 `promtool test rules deploy/platform/rules/alerts_test.yml`이다.
 
-설정 검증도 통과했다: `otelcol-contrib validate`, `promtool check config`.
-
-일부러 망가뜨린 설정으로도 돌려 봤다.
-- 허용 목록을 빼면 카나리 검사가 실패한다.
-- 허용 목록과 환경 덮어쓰기를 함께 빼면 위조 검사와 카나리 검사가 모두 실패한다.
-- 생존 신호를 신뢰 라벨 대신 `job="bravo-collector"`로 고르면, Collector를 멈추고 45초 뒤에도 최근 수신이 28초 전으로 나와 "확인 불가" 검사가 실패한다(리뷰에서 지적한 사칭 재현).
-
-시험이 이 보호 장치들을 실제로 확인한다는 뜻이다.
+보호 장치를 하나씩 빼 보는 변이 시험으로, 시험이 실제로 결함을 잡는지 확인했다(증빙 `mutations_caught`). 대상은 허용 목록, 환경 덮어쓰기, 생존 신호 선택, 디스크 큐, 알림 조건 4종이다.
 
 ### 남은 일
 
-이 PR은 설정과 로컬 시험까지다. 클러스터 배포와 실제 환경 검증은 아직 하지 않았다.
-
-- **배포:** 플랫폼 RKE2의 지표 저장소, 출발지 EKS · 목적지 RKE2의 Collector. T7의 앱 배포 방식이 정해지면 그 방식을 따른다. 지금 T7 README는 "production application deployment"를 남은 일로 둔다.
-- **Tailscale ACL:** Collector 태그 → 플랫폼 지표 저장소 포트만 허용 (T30 tailnet ACL과 함께).
-- **PgBouncer · CNPG 지표 수집 대상:** 배포된 Service 이름이 정해진 뒤 `collector.yaml`에 추가.
-- **콘솔용 조회 API:** 환경별 요청 · 오류 · p95, 최근 수신 시각.
-- **T34와 협의:** 목적지 Collector를 로그 파이프라인과 하나로 둘지.
+- **실제 환경 배포:** 플랫폼 RKE2(T7), 출발지 EKS(T6), 목적지 RKE2(T30). 남은 것은 배포 경로, 클러스터 접근, 인증서 발급, 조회 API 이미지 게시다.
+- **영속성:** 디스크 큐 · 저장소가 emptyDir이다. 저장소 클래스가 정해지면 PVC로 바꾼다.
+- **나가는 주소 좁히기:** Collector의 나가는 연결은 포트로만 제한한다. 환경별 플랫폼 주소와 출발지 VPC 대역을 ipBlock으로 더한다.
+- **앱 지표:** 데모 앱에 OTel 계측이 없다(T22). 조회 API의 HTTP 뷰는 계측이 들어오면 채워진다.
+- **PgBouncer 지표:** 출발지 PgBouncer는 별도 Deployment라 exporter가 필요하다(T6).
+- **CI:** `promtool`과 `testing/` 스크립트는 지금 CI에서 돌지 않는다(워크플로 변경 필요). pytest는 돈다.
+- **신뢰 레지스트리 제한(KSV-0125):** 클러스터 승인 정책 몫이다.
+- **T34와 하나로:** 목적지 Collector를 감사 로그 파이프라인과 합칠지는 #117 머지 뒤 정한다.
+- **Collector 버전을 올리면** `testing/rotation.sh`로 keep-alive 게이트 결함이 고쳐졌는지 확인하고 게이트 인자를 뺀다.

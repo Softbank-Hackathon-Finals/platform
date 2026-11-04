@@ -1,0 +1,100 @@
+{
+  "rule_files": [],
+  "evaluation_interval": "10s",
+  "tests": [
+    {
+      "interval": "10s",
+      "input_series": [
+        {
+          "series": "http_server_request_duration_seconds_count{bravo_env=\"aws\", http_response_status_code=\"200\"}",
+          "values": "0+100x6"
+        }
+      ],
+      "promql_expr_test": [
+        {
+          "expr": "(sum(rate(http_server_request_duration_seconds_count{bravo_env=\"aws\", http_response_status_code=~\"5..\"}[1m])) or (0 * sum(rate(http_server_request_duration_seconds_count{bravo_env=\"aws\"}[1m])))) / sum(rate(http_server_request_duration_seconds_count{bravo_env=\"aws\"}[1m]))",
+          "eval_time": "1m",
+          "exp_samples": [
+            {
+              "labels": "{}",
+              "value": 0
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "interval": "10s",
+      "input_series": [
+        {
+          "series": "http_server_request_duration_seconds_count{bravo_env=\"aws\", http_response_status_code=\"200\"}",
+          "values": "0+99x6"
+        },
+        {
+          "series": "http_server_request_duration_seconds_count{bravo_env=\"aws\", http_response_status_code=\"500\"}",
+          "values": "0+1x6"
+        }
+      ],
+      "promql_expr_test": [
+        {
+          "expr": "(sum(rate(http_server_request_duration_seconds_count{bravo_env=\"aws\", http_response_status_code=~\"5..\"}[1m])) or (0 * sum(rate(http_server_request_duration_seconds_count{bravo_env=\"aws\"}[1m])))) / sum(rate(http_server_request_duration_seconds_count{bravo_env=\"aws\"}[1m]))",
+          "eval_time": "1m",
+          "exp_samples": [
+            {
+              "labels": "{}",
+              "value": 0.01
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "interval": "10s",
+      "input_series": [],
+      "promql_expr_test": [
+        {
+          "expr": "(sum(rate(http_server_request_duration_seconds_count{bravo_env=\"aws\", http_response_status_code=~\"5..\"}[1m])) or (0 * sum(rate(http_server_request_duration_seconds_count{bravo_env=\"aws\"}[1m])))) / sum(rate(http_server_request_duration_seconds_count{bravo_env=\"aws\"}[1m]))",
+          "eval_time": "1m",
+          "exp_samples": []
+        }
+      ]
+    },
+    {
+      "interval": "10s",
+      "input_series": [
+        {
+          "series": "http_server_request_duration_seconds_count{bravo_env=\"aws\", http_response_status_code=\"200\"}",
+          "values": "100x6"
+        }
+      ],
+      "promql_expr_test": [
+        {
+          "expr": "((sum(rate(http_server_request_duration_seconds_count{bravo_env=\"aws\", http_response_status_code=~\"5..\"}[1m])) or (0 * sum(rate(http_server_request_duration_seconds_count{bravo_env=\"aws\"}[1m])))) / sum(rate(http_server_request_duration_seconds_count{bravo_env=\"aws\"}[1m]))) >= 0",
+          "eval_time": "1m",
+          "exp_samples": []
+        }
+      ]
+    },
+    {
+      "interval": "10s",
+      "input_series": [
+        {
+          "series": "http_server_request_duration_seconds_count{bravo_env=\"aws\", http_response_status_code=\"200\"}",
+          "values": "0 100 200 0 100 200 300"
+        }
+      ],
+      "promql_expr_test": [
+        {
+          "expr": "(sum(rate(http_server_request_duration_seconds_count{bravo_env=\"aws\", http_response_status_code=~\"5..\"}[1m])) or (0 * sum(rate(http_server_request_duration_seconds_count{bravo_env=\"aws\"}[1m])))) / sum(rate(http_server_request_duration_seconds_count{bravo_env=\"aws\"}[1m]))",
+          "eval_time": "1m",
+          "exp_samples": [
+            {
+              "labels": "{}",
+              "value": 0
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
