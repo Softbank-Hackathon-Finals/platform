@@ -29,7 +29,7 @@ def test_deployment_registry_readback_is_authenticated_and_public(tmp_path, monk
         )
         sites[env] = value
     config, token = tmp_path / "sites.json", tmp_path / "token"
-    config.write_text(json.dumps({"sites": sites}))
+    config.write_text(json.dumps({"origin": "env-aws", "sites": sites}))
     token.write_text(TOKEN)
     monkeypatch.setenv("EXECUTOR_CONFIG", str(config))
     monkeypatch.setenv("EXECUTOR_API_TOKEN_FILE", str(token))
