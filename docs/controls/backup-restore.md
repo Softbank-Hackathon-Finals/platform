@@ -8,6 +8,8 @@ T35는 백업 API의 성공만으로 DR-01.1을 통과시키지 않는다. 백�
 
 - `bravo_controls.cnpg_backup`: CNPG/Barman ObjectStore, Backup, 새 복원 Cluster를 생성하는
   순수 함수. 실행·승인·Terraform 적용을 하지 않는다.
+- `bravo_controls.cnpg_readback`: 요청 전 보존한 UID·설정과 인증된 API의 완료 상태를 대조한다.
+  [읽기 검증 계약](../../services/control-runner/docs/cnpg-readback.md)을 따른다.
 - `bravo_controls.backup_restore`: 실행·백업·복원 영수증의 결속과 신선도를 확인하고
   실제 복원 표식·행 수를 비교하는 T14 DR-01.1 관찰기.
 - `bravo_controls.postgres_restore`: `postgres` extra의 psycopg를 사용한 고정
