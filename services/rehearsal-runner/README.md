@@ -86,3 +86,14 @@ T10 변경 승인 경로, diff 계산 방식, 검증한 제품 이미지와 승�
 `secret_task.prepare_credential_migration`은 demo-chat의 원본 revision과 `app/db_secret.py`, `app/config.py`, `app/main.py`를 대상으로 `/run/bravo/database/credentials.json` 주입 방식의 변경 작업 입력을 만든다. 기존 자격 캐시 및 인증 실패 후 재조회 유지와 값 비노출을 요구한다. 파일 경로와 JSON 키는 `infra/envs/target-secrets/README.md`의 현재 소비 계약을 따른다.
 
 `tests/test_secret_simulation.py`는 가짜 전달자와 DB를 사용하며 실제 demo-chat 수정안 실행이나 Kubernetes RBAC·OpenBao·ESO·DB 연결의 증거가 아니다. T11 제안서·스냅샷과 T38 독립 검증 Job, 실제 Secret 전달·접근 거부 및 자격 회전 검증은 후속 통합으로 남는다.
+
+## 정리와 재시작 경계 시험
+
+아래 시험은 T38의 기존 `Kube.cleanup`에 모의 Kubernetes API 응답을 주어 생성 UID 조건, 삭제 후 부재 확인, 다른 UID의 네임스페이스 발견, 삭제·조회 실패와 시간 초과를 확인한다. 기존 Coordinator를 새로 생성하면 시도 이력이 복구되지 않는다는 한계도 확인한다.
+
+```bash
+cd ../agent-worker
+uv run --frozen --no-default-groups --with pytest pytest -p no:cacheprovider ../rehearsal-runner/testing/test_cleanup_recovery.py ../rehearsal-runner/testing/test_retry_flow.py
+```
+
+모의 API 시험은 실제 네임스페이스 삭제·부재나 T38 제품 리허설 연결을 증명하지 않는다. 재시작 후 실행 잠금·시도 수·영수증 복구와 원격 효과 재조회는 T10/T38 계약 및 실제 구현이 필요하다. 확인 불가 상태에서 승인을 전달하지 않아야 한다.
