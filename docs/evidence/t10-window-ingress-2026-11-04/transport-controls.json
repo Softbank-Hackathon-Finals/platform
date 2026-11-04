@@ -1,0 +1,13 @@
+{
+  "allowed_probe": {
+    "http_status": 200,
+    "exit_code": 0,
+    "elapsed_seconds": 0.18035107300056552
+  },
+  "denied_probe": {
+    "http_response_received": false,
+    "exit_code": 1,
+    "elapsed_seconds": 4.169305602999884
+  },
+  "prior_unacknowledged_commit_rows": 1
+}
