@@ -37,3 +37,31 @@ def test_exact_bytes_required_even_when_logical_gate_remains_blocked(monkeypatch
         changed = json.dumps(document).encode()
     with pytest.raises(ValueError, match="retained_source_digest_mismatch"):
         module.verify_retained_source(changed)
+
+
+@pytest.mark.parametrize("fault", [None, "timeout", "pass", "missing", "empty"])
+@pytest.mark.parametrize("optimized", [False, True])
+def test_target_qualification_survives_python_optimization(fault, optimized):
+    import subprocess
+    import sys
+
+    rows = [{"verdict": "UNKNOWN", "unknown_reason": "NOT_RUN"} for _ in range(20)]
+    if fault == "timeout":
+        rows[0]["unknown_reason"] = "TIMEOUT"
+    elif fault == "pass":
+        rows[0].update(verdict="PASS", unknown_reason=None)
+    elif fault == "missing":
+        rows.pop()
+    elif fault == "empty":
+        rows = []
+    code = (
+        "import json,runpy,sys; "
+        "runpy.run_path(sys.argv[1])['require_unexecuted_target'](json.loads(sys.argv[2]))"
+    )
+    result = subprocess.run(
+        [sys.executable, *(["-O"] if optimized else []), "-c", code,
+         str(SPEC.origin), json.dumps({"results": rows})], capture_output=True, timeout=10,
+    )
+    assert (result.returncode == 0) == (fault is None)
+    if fault:
+        assert b"target_run_not_fully_unexecuted" in result.stderr

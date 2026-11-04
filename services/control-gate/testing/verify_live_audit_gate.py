@@ -32,6 +32,19 @@ def verify_retained_source(raw: bytes) -> str:
     return digest
 
 
+def require(condition, reason):
+    if not condition:
+        raise ValueError(reason)
+
+
+def require_unexecuted_target(target):
+    results = target.get("results", [])
+    if len(results) != 20 or any(
+        r.get("verdict") != "UNKNOWN" or r.get("unknown_reason") != "NOT_RUN" for r in results
+    ):
+        raise ValueError("target_run_not_fully_unexecuted")
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--runner-checkout", type=Path)
@@ -61,10 +74,10 @@ def main():
     try:
         if args.mode == "audit-pair":
             checks = {side: run(root / side, side=side) for side in ("source", "target")}
-            assert all(
+            require(all(
                 check["status"] == "PASS" and check["owned_resources_removed"]
                 for check in checks.values()
-            )
+            ), "audit_qualification_incomplete")
             raw = {side: (root / side / "control-run.json").read_bytes() for side in checks}
         else:
             # Explicit local test inputs, not an operational upload/trust API.
@@ -73,12 +86,12 @@ def main():
                 result["source_run_sha256"] = verify_retained_source(raw["source"])
             source = json.loads(raw["source"])
             target = json.loads(raw["target"])
-            assert len(source["results"]) == len(target["results"]) == 20
+            require(len(source["results"]) == len(target["results"]) == 20, "unexpected_run_row_count")
             source_test = "SEC-01.2" if args.mode == "source-scan-partial" else "DR-01.1"
-            assert {r["test_id"] for r in source["results"] if r["verdict"] == "PASS"} == {source_test}
-            assert all(r["verdict"] == "UNKNOWN" for r in target["results"])
+            require({r["test_id"] for r in source["results"] if r["verdict"] == "PASS"} == {source_test}, "unexpected_source_pass_set")
+            require(all(r["verdict"] == "UNKNOWN" for r in target["results"]), "target_run_not_unknown")
             if args.mode == "source-scan-partial":
-                assert all(r["unknown_reason"] == "NOT_RUN" for r in target["results"])
+                require_unexecuted_target(target)
                 result["scope"] = "retained AWS source SEC-01.2 run and an explicitly unexecuted target; local test authority"
             else:
                 result["scope"] = "one actual local restore run and an explicitly unverified target; test authority"
@@ -164,16 +177,16 @@ def main():
         reports[ctx.gate_id] = RunSnapshot(ctx.gate_id, canonical(report))
         sign("gate-result", reports[ctx.gate_id].fingerprint)
         rows = {row["test_id"]: row for row in report["rows"]}
-        assert len(rows) == 20
+        require(len(rows) == 20, "unexpected_gate_row_count")
         if args.mode == "audit-pair":
             audit_ids = {"AUD-01.1", "AUD-01.2", "AUD-01.3"}
-            assert {t for t, row in rows.items() if row["decision"] == "PASS"} == audit_ids
-            assert all(row["reason"] == "SOURCE_UNKNOWN" for t, row in rows.items() if t not in audit_ids)
+            require({t for t, row in rows.items() if row["decision"] == "PASS"} == audit_ids, "unexpected_audit_pass_set")
+            require(all(row["reason"] == "SOURCE_UNKNOWN" for t, row in rows.items() if t not in audit_ids), "unexpected_audit_unknown_reason")
         else:
-            assert all(row["decision"] == "BLOCK" for row in rows.values())
-            assert rows[source_test]["reason"] == "TARGET_UNKNOWN"
-            assert all(row["reason"] == "SOURCE_UNKNOWN" for t, row in rows.items() if t != source_test)
-        assert report["decision"] == "BLOCK"
+            require(all(row["decision"] == "BLOCK" for row in rows.values()), "partial_gate_has_nonblocking_row")
+            require(rows[source_test]["reason"] == "TARGET_UNKNOWN", "unexpected_target_unknown_reason")
+            require(all(row["reason"] == "SOURCE_UNKNOWN" for t, row in rows.items() if t != source_test), "unexpected_source_unknown_reason")
+        require(report["decision"] == "BLOCK", "unexpected_whole_gate_decision")
 
         def rejected(callback):
             try:
