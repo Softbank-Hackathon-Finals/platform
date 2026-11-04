@@ -37,5 +37,13 @@
       "kind": "restore-comparison-recheck.json",
       "sha256": "00d737fa429cdf4d69e0605bde17681c2729a25a68d67ee844741ca79b3918a9"
     }
-  ]
+  ],
+  "runner_integration": {
+    "registered_context_preserved": true,
+    "source_restore_pass": true,
+    "other_source_tests_unknown": 19,
+    "revoked_select_unknown_without_evidence": true,
+    "unverified_target_tests_unknown": 20,
+    "checked_at": "2026-11-04T01:34:57.161108+00:00"
+  }
 }
