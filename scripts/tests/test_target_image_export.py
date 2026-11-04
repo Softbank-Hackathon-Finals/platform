@@ -52,6 +52,36 @@ def archive(path, files):
 
 
 class TargetImageExportTests(unittest.TestCase):
+    def test_pins_the_published_image_that_has_the_environment_header(self):
+        self.assertEqual(export.SOURCE, "8d82a9241d3894737778a77d58349e1aee54eca1")
+        self.assertEqual(export.INDEX, "sha256:ca5ce1b24f1deb2e7346643860ff0bb151409c1acec503c105f56d9043a389b6")
+        self.assertEqual(export.AMD64, "sha256:f9f48872b57d7c94eb01c81622feca66e7fcdcaec304b5c879682777606ac24c")
+
+    def test_blob_count_is_not_pinned_only_the_graph_must_be_complete(self):
+        files, index, amd64 = fixture()
+        manifest = json.loads(files["blobs/sha256/" + amd64[7:]])
+        extra = b"one more layer"
+        digest = "sha256:" + hashlib.sha256(extra).hexdigest()
+        files["blobs/sha256/" + digest[7:]] = extra
+        manifest["layers"].append({"digest": digest, "size": len(extra), "mediaType": "layer"})
+        data = json.dumps(manifest).encode()
+        new_amd64 = "sha256:" + hashlib.sha256(data).hexdigest()
+        del files["blobs/sha256/" + amd64[7:]]
+        files["blobs/sha256/" + new_amd64[7:]] = data
+        root = json.loads(files["blobs/sha256/" + index[7:]])
+        root["manifests"][0].update(digest=new_amd64, size=len(data))
+        data = json.dumps(root).encode()
+        new_index = "sha256:" + hashlib.sha256(data).hexdigest()
+        del files["blobs/sha256/" + index[7:]]
+        files["blobs/sha256/" + new_index[7:]] = data
+        wrapper = json.loads(files["index.json"])
+        wrapper["manifests"][0].update(digest=new_index, size=len(data))
+        files["index.json"] = json.dumps(wrapper).encode()
+        with tempfile.TemporaryDirectory() as directory, patch.object(export, "INDEX", new_index), patch.object(export, "AMD64", new_amd64):
+            path = pathlib.Path(directory) / "fixture.tar"
+            archive(path, files)
+            self.assertEqual(len(export.verify_archive(path)), 16)
+
     def test_verify_only_receipt_matches_verified_bytes_without_provider(self):
         files, index, amd64 = fixture()
         with tempfile.TemporaryDirectory() as directory, patch.object(export, "INDEX", index), patch.object(export, "AMD64", amd64):

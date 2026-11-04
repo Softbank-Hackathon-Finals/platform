@@ -4,13 +4,19 @@ This procedure prepares the existing reviewed demo-chat image for an independent
 owned local amd64 development VM. It does not install a VM, change a cluster,
 issue credentials, or make the unchanged application AWS-independent.
 
-The fixed source is `ce5727eb3e3d2355077afdaadcb1a722aba9c7cd`; the index is
-`sha256:001adc35a9fc767566552fb55c3c19a67b7c5efc7231fb02dc28cdeace99d0d4` and
+The fixed source is `8d82a9241d3894737778a77d58349e1aee54eca1`; the index is
+`sha256:ca5ce1b24f1deb2e7346643860ff0bb151409c1acec503c105f56d9043a389b6` and
 linux/amd64 child is
-`sha256:bd1cd57a1c3dda9bb2795696167e242fc3b79a80eefb40d068a4124bcc66f384`.
-They are the same bytes previously copied privately in
-[demo-chat run41610561593](https://github.com/Softbank-Hackathon-Finals/demo-chat/actions/runs/41610561593).
+`sha256:f9f48872b57d7c94eb01c81622feca66e7fcdcaec304b5c879682777606ac24c`, from
+[demo-chat run41803312129](https://github.com/Softbank-Hackathon-Finals/demo-chat/actions/runs/41803312129).
+The earlier `ce5727e` image and its export evidence do not send `X-Bravo-Env`.
 No new application build or registry visibility change is part of this handoff.
+
+**Before exporting**, a person with Actions access runs demo-chat
+`transfer-private-image` on `main` with that source SHA and index digest, so ECR
+holds the same bytes. As of 2026-11-04 18:05 KST its last run was for `dc9bece`, so
+this image is not yet in ECR. The export tool has not yet run against this image;
+only its verifier code and unit tests changed for it.
 
 ## Export without handing registry credentials to the VM
 
@@ -35,7 +41,7 @@ The user's Docker and AWS configuration are not changed.
 
 Skopeo copies **all** manifests with `--preserve-digests`. Before publishing a
 new archive, the tool verifies every blob hash and descriptor size, the complete
-15-blob reachable graph (including attestations), the exact index/amd64 manifest,
+reachable graph (including attestations), the exact index/amd64 manifest,
 and the image config's source revision, architecture and UID10001. Archive
 verification never extracts files and rejects extra/traversal/link entries.
 Graph verification, checksum and size use the same open file. The verifier
@@ -67,8 +73,8 @@ sudo /var/lib/rancher/rke2/bin/ctr \
 
 Check that the exact index reference exists in `k8s.io`, and the amd64 content
 is unpacked. Import can retain the OCI annotation's tag
-`ghcr.io/softbank-hackathon-finals/demo-chat:sha-ce5727eb3e3d2355077afdaadcb1a722aba9c7cd`
-without creating the exact `ghcr.io/softbank-hackathon-finals/demo-chat@sha256:001adc35a9fc767566552fb55c3c19a67b7c5efc7231fb02dc28cdeace99d0d4`
+`ghcr.io/softbank-hackathon-finals/demo-chat:sha-8d82a9241d3894737778a77d58349e1aee54eca1`
+without creating the exact `ghcr.io/softbank-hackathon-finals/demo-chat@sha256:ca5ce1b24f1deb2e7346643860ff0bb151409c1acec503c105f56d9043a389b6`
 name, even with `--base-name` and `--digests`. A `Never` Pod using the absent
 name will fail although the index bytes are present.
 
@@ -81,7 +87,7 @@ original index digest** above, not the amd64 child digest. Set
 sudo /var/lib/rancher/rke2/bin/ctr \
   --address /run/k3s/containerd/containerd.sock --namespace k8s.io \
   images tag "$VERIFIED_IMPORTED_REFERENCE" \
-  ghcr.io/softbank-hackathon-finals/demo-chat@sha256:001adc35a9fc767566552fb55c3c19a67b7c5efc7231fb02dc28cdeace99d0d4
+  ghcr.io/softbank-hackathon-finals/demo-chat@sha256:ca5ce1b24f1deb2e7346643860ff0bb151409c1acec503c105f56d9043a389b6
 ```
 
 Read the exact destination name and descriptor digest again before launching
@@ -120,6 +126,7 @@ The actual fixed source is authoritative:
 | `S3_BUCKET`, `S3_ENDPOINT_URL`, `S3_FORCE_PATH_STYLE=true` | Support an S3-compatible endpoint, but require the T9-owned SeaweedFS service, bucket and signing identity. The existing code uses boto3's default credential chain; endpoint configuration alone does not provide authorization. |
 | Both AWS clients | Secrets Manager and S3 share the default credential chain. Setting SeaweedFS access-key environment variables would also affect the AWS Secrets Manager call. Do not copy an operator's AWS admin credentials into the target to conceal this dependency. |
 | `ADMIN_TOKEN` | Consumed from environment; T9/owner must provide its secret reference. No value is generated or transmitted here. |
+| `ATTACHMENT_UPLOAD_ENABLED=false` | Refuses uploads before cutover. An upload's object would otherwise stay in target storage while its row goes to the source DB through the pooler. |
 | `WRITE_BLOCKED=true` | Required initial target application state. Leave source/target write control to the cutover owner; do not independently open both environments. |
 
 The source AGENTS explicitly keeps the direct Secrets Manager dependency as
@@ -133,6 +140,11 @@ Until those dependencies are ready, a restricted packaging/import probe and
 separate DB replication checks are valid progress. They are not T30 application
 read/write completion, T9 completion, or a successful cutover. Temporary registry
 auth is kept on the operator side and cannot solve application Secret/S3 auth.
+
+For development Edge measurement only, [ADR-0016](../adr/0016-target-app-secrets-manager-compat.md)
+runs a loopback compatibility container beside the unchanged app. It is labelled
+as not exit evidence and does not change the rule above. See
+[target-workloads](../../infra/envs/target-workloads/README.md#개발-측정용-앱).
 
 Official tool references:
 [ECR authentication](https://docs.aws.amazon.com/AmazonECR/latest/userguide/registry_auth.html),

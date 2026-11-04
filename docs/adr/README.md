@@ -16,6 +16,7 @@
 | 8.6 Executor 구현·실행·실패·권한 | [0006 Python 선택](0006-cutover-executor-language.md), [0011 실행 기록과 실패 판정](0011-cutover-executor-execution-and-failure.md), [0013 워크로드 접근](0013-executor-workload-access.md) |
 | 8.6 무결성 지문 생산자·소비자 | [0013 지문 생산자](0013-integrity-fingerprint-producer.md) |
 | 7.2·8.8 이미지 전달 | [0011 비공개 이미지 전달](0011-private-image-delivery.md) |
+| 7.2 목적지 개발 앱의 Secrets Manager 호환 (측정용, 출구 증거 아님) | [0016 호환 컨테이너](0016-target-app-secrets-manager-compat.md) |
 | 5.2·7.3·8.2·8.7 판정용 관측·진단 지표 | [0010 관측 경계](0010-observability-boundary.md) |
 | 11·12장 브랜치·리뷰·CI 운영 규칙 | [0004 Gitflow](0004-gitflow-task-branches.md), [0005 병합 전 리뷰](0005-review-before-merge.md), [0014 비밀 이력 검사 범위](0014-secret-history-scope.md) |
 

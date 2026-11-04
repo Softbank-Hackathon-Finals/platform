@@ -12,9 +12,9 @@ import tarfile
 import tempfile
 import time
 
-SOURCE = "ce5727eb3e3d2355077afdaadcb1a722aba9c7cd"
-INDEX = "sha256:001adc35a9fc767566552fb55c3c19a67b7c5efc7231fb02dc28cdeace99d0d4"
-AMD64 = "sha256:bd1cd57a1c3dda9bb2795696167e242fc3b79a80eefb40d068a4124bcc66f384"
+SOURCE = "8d82a9241d3894737778a77d58349e1aee54eca1"
+INDEX = "sha256:ca5ce1b24f1deb2e7346643860ff0bb151409c1acec503c105f56d9043a389b6"
+AMD64 = "sha256:f9f48872b57d7c94eb01c81622feca66e7fcdcaec304b5c879682777606ac24c"
 IMAGE = "ghcr.io/softbank-hackathon-finals/demo-chat"
 REGION = "ap-northeast-2"
 
@@ -101,7 +101,7 @@ def _verify_archive_stream(stream):
                 visited.add(digest)
                 if "manifest" in item["mediaType"] or "index" in item["mediaType"]:
                     pending.append(document("blobs/sha256/" + digest.removeprefix("sha256:")))
-        if visited != set(inventory) or len(inventory) != 15:
+        if visited != set(inventory):
             raise Failure("blob_graph_incomplete_or_extra")
         manifest = document("blobs/sha256/" + AMD64.removeprefix("sha256:"))
         config = document("blobs/sha256/" + manifest["config"]["digest"].removeprefix("sha256:"))

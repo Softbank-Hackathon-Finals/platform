@@ -43,10 +43,11 @@ T2의 기존 VM, AWS 플랫폼 RKE2의 상태 DB, 실제 온프렘 데모 머신
 앱 배포가 완성되지 않는다. T8의 실제 왕복 지연·재연결·단일 쓰기·해시 근거는
 실행 시점의 코드와 두 환경 신원에 결속해야 한다. 플랫폼 DB를 목적지 DB로 사용하지 않는다.
 
-고정 앱 소스 ce5727e는 시작 시 AWS Secrets Manager SDK를 필수로 호출한다.
+앱 소스는 ce5727e부터 게시본 8d82a92까지 시작 시 AWS Secrets Manager SDK를 필수로 호출한다.
 OpenBao/ESO의 환경 변수만으로 같은 이미지가 AWS 없이 시작한다고 주장하지 않는다.
 OCI 원본 바이트 수입/패키징 확인과 실제 목적지 업무 기동을 구별하며, 앱 의존성 변경은
 T11/T15의 검증·승인 경계에 따라 처리한다. 개인키·AWS 자격을 이미지에 넣지 않는다.
+개발 측정용 앱 배포는 아래 [개발 측정용 앱](#개발-측정용-앱)을 따른다.
 
 ## 분리된 네트워크 경로
 
@@ -107,6 +108,119 @@ AWS SDK의 기본 인증 체인·session token을 재사용하지 않는다.
 TCP readiness 이후 별도로 서명 put/get·SHA-256 대조, 익명/오서명/범위 밖 작업 및
 client의 버킷 생성 거절, 재시작 후 객체 보존을 확인한다. 이 개발용 HTTP 경로는
 T9의 OpenBao/ESO·TLS 통제나 목적지 앱 업무 기동 완료를 대신하지 않는다.
+
+## 개발 측정용 앱
+
+`application.py`는 T17 · T8 · T18의 Edge 경유 측정에 쓸 `demo-chat` Deployment와 Service를 렌더한다.
+**이 구성은 출구 증거가 아니다.** 앱은 여전히 Secrets Manager SDK를 부르고, 같은 Pod의 호환 컨테이너가
+루프백에서 대신 응답한다. 이유와 없앨 조건은 [ADR-0016](../../../docs/adr/0016-target-app-secrets-manager-compat.md)에 있다.
+
+| 항목 | 값 | 이유 |
+| --- | --- | --- |
+| Service | `demo-chat.target-dev.svc.cluster.local:8080` (ClusterIP) | Tunnel이 가리킬 주소. 다른 공개 경로는 만들지 않는다 |
+| `APP_ENV` | `onprem` | `X-Bravo-Env` 값. T18 `--target-env`, T37 `BRAVO_ENV`와 같다 |
+| `DB_HOST` | `target-pgbouncer` | 컷오버 전에는 출발지 DB로 간다. 목적지 DB에 직접 붙지 않는다 |
+| `WRITE_BLOCKED` | `true` | 항상 닫힌 채 시작한다. Pod가 다시 뜨면 다시 닫힌다 |
+| `ATTACHMENT_UPLOAD_ENABLED` | `false` | 컷오버 전 업로드는 403이다. 받으면 객체는 목적지에, 행은 출발지 DB에 들어가 어긋난다 |
+| probe | `/readyz`, `/healthz` | DB를 보지 않는다. DB 경로는 `/api/health/db`로 따로 본다 |
+
+### 적용 전 조건
+
+1. **이미지.** `ghcr.io/softbank-hackathon-finals/demo-chat@sha256:ca5ce1b24f1deb2e7346643860ff0bb151409c1acec503c105f56d9043a389b6`을 쓴다.
+   소스는 `8d82a92`이고 [게시 실행](https://github.com/Softbank-Hackathon-Finals/demo-chat/actions/runs/41803312129)의 영수증에서 읽었다.
+   그 전 게시본 세 개는 `X-Bravo-Env`가 없어 렌더러가 거부한다.
+2. **VM에 넣기.** Actions 권한자가 demo-chat `transfer-private-image`를 이 소스 SHA와 digest로 먼저 돌린다.
+   그다음 [이미지 인수인계](../../../docs/operations/target-image-handoff.md) 순서로 묶음을 만들어 VM에 넣고 digest 별칭을 붙인다.
+   렌더 기본값은 `imagePullPolicy: Never`다. 레지스트리에서 받으려면 `--pull-secret <이름>`을 쓰지만,
+   [T7 절차](../../../docs/operations/target-registry-access.md)의 Secret은 시험 뒤 지우는 것이라 상시 자격이 없다. 쓰려면 자격 위치와 갱신 담당을 T7 담당자와 먼저 정한다.
+3. **PgBouncer.** `pooler.py`의 `target-pgbouncer`가 출발지를 가리키는지 확인한다. 앱은 이 경로만 쓴다.
+4. **Secret.** 아래 세 개가 있어야 한다. 하나라도 없거나 형식이 틀리면 앱이 뜨지 않고 Service도 비어 있다.
+
+| Secret | 키 | 쓰임 |
+| --- | --- | --- |
+| `target-app-credentials` | `credentials.json` (`username`, `password`) | 컷오버 전 출발지 앱 계정. 호환 컨테이너에만 마운트한다 |
+| `target-app-objects` | `access_key`, `secret_key` | SeaweedFS 서명. boto3 공용 자격이라 호환 컨테이너 호출에도 쓰이지만 AWS로 나가지 않는다 |
+| `target-app-admin` | `token` | 쓰기 차단 스위치 |
+
+T9의 `delivery`가 적용돼 있으면 이 이름으로 이미 있으므로 만들지 않는다. 먼저 확인한다.
+
+```sh
+kubectl -n target-dev get secret target-app-credentials target-app-objects target-app-admin
+```
+
+없을 때만 값을 메모리로 옮겨 만든다. 파일 · 인수 · 출력에 남기지 않고, `apply` 대신 `create`를 쓴다.
+목적지 역할의 `target-app-db`가 아니라 출발지 비밀번호를 쓴다. 풀러 뒤가 아직 출발지이기 때문이다.
+T9를 나중에 적용할 때 ESO가 이 Secret을 넘겨받는지는 재지 않았다. 그때 T9 담당자가 확인한다.
+
+```sh
+kubectl -n target-dev get secret target-pooler-source-app -o json | python3 -c '
+import base64, json, sys
+password = base64.b64decode(json.load(sys.stdin)["data"]["password"]).decode()
+json.dump({"username": "chat_app", "password": password}, sys.stdout)' \
+  | kubectl -n target-dev create secret generic target-app-credentials --from-file=credentials.json=/dev/stdin
+kubectl -n target-dev get secret target-object-client -o json | python3 -c '
+import json, sys
+data = json.load(sys.stdin)["data"]
+json.dump({"apiVersion": "v1", "kind": "Secret", "metadata": {"name": "target-app-objects", "namespace": "target-dev"},
+           "data": {"access_key": data["AWS_ACCESS_KEY_ID"], "secret_key": data["AWS_SECRET_ACCESS_KEY"]}}, sys.stdout)' \
+  | kubectl create -f -
+python3 -c 'import secrets, sys; sys.stdout.write(secrets.token_urlsafe(32))' \
+  | kubectl -n target-dev create secret generic target-app-admin --from-file=token=/dev/stdin
+kubectl -n target-dev label secret target-app-credentials target-app-objects target-app-admin component=target
+```
+
+### 적용과 확인
+
+```sh
+APP_IMAGE=ghcr.io/softbank-hackathon-finals/demo-chat@sha256:ca5ce1b24f1deb2e7346643860ff0bb151409c1acec503c105f56d9043a389b6
+python3 application.py --image "$APP_IMAGE" > "$OUTPUT_DIR/application.json"
+kubectl apply --server-side --dry-run=server -f "$OUTPUT_DIR/application.json"
+kubectl apply --server-side -f "$OUTPUT_DIR/application.json"
+kubectl -n target-dev rollout status deployment/demo-chat
+kubectl -n target-dev port-forward service/demo-chat 18080:8080
+curl -si http://127.0.0.1:18080/api/info        # X-Bravo-Env: onprem, write_blocked: true
+curl -si http://127.0.0.1:18080/api/health/db   # 200이어야 DB 경로가 열린 것이다
+```
+
+**`/api/health/db`가 200이 아니면 Edge에 넣지 않는다.** `/readyz`는 DB를 보지 않아서, 아래처럼 DB가 막혀도 Pod는
+Ready이고 Service에 잡힌다. Edge 헬스 체크가 `/readyz`나 `/healthz`면 이 상태를 정상으로 본다.
+
+| 상태 | Pod · Service | `/readyz` | `/api/health/db` | `GET /api/messages` | `POST /api/messages` |
+| --- | --- | --- | --- | --- | --- |
+| 목적지 `chat_app` NOLOGIN (직접, 풀러 경유 모두) | Ready, 엔드포인트 1 | 200 | 503 (2초) | 503 + `Retry-After: 2` (5초) | 차단 중 503 즉시, 해제해도 503 (5초). 행 없음 |
+| 풀러 → 출발지 | Ready, 엔드포인트 1 | 200 | 200 | 200 | 차단 중 503, 해제 뒤 201. 행은 출발지에만 |
+| Secret 없음 · 형식 오류 · Secrets Manager 응답 없음 | Ready 아님, 엔드포인트 0 | 연결 실패 | 연결 실패 | 연결 실패 | 연결 실패 |
+
+모든 앱 응답에 `X-Bravo-Env: onprem`이 붙는다. 측정값과 대역은
+[증거](../../../docs/evidence/t30-target-app-2026-11-04/README.md)에 있다.
+
+**풀러가 시작된 뒤 첫 로그인은 맞는 비밀번호여야 한다.** PgBouncer 1.25.1은 프로세스가 뜬 뒤 첫 시도가 아니면
+SCRAM 키를 저장하지 않는다. 첫 시도가 틀리면 그 뒤에 맞는 비밀번호로 와도 서버 로그인이 실패하고 저절로 낫지 않는다.
+`/api/health/db`가 계속 503이고 풀러 로그에 `did not provide SCRAM keys`가 보이면 이 상태다. 앱 Secret을 고친 뒤
+`kubectl -n target-dev rollout restart deployment/target-pgbouncer`로 회복한다. 풀러를 재시작하기 전에는 옛 비밀번호를
+가진 클라이언트(이전 앱 Pod 등)를 먼저 멈춘다. 첫 로그인이 성공한 뒤의 틀린 시도는 영향이 없다.
+
+### 쓰기 스위치
+
+목적지 앱 쓰기를 열어도 행은 풀러 뒤의 DB 하나에만 들어간다. 다만 `/api/health/db`와 풀러 대상을 확인하기 전에는
+열지 않는다. 측정 담당자가 정해 여는 것이고 자동으로 열지 않는다. 롤아웃이 끝난 뒤에 실행한다.
+재시작하면 다시 닫히므로 측정 중에는 앱을 재시작하지 않는다. 마지막 인수가 `false`면 열고 `true`면 닫는다.
+앱에는 종료 전 5초 대기(preStop)가 있다. 없으면 재시작 직후 요청 12개 중 3~8개가 연결에 실패했다(k3s 10회).
+
+```sh
+kubectl -n target-dev exec deployment/demo-chat -c app -- python -c '
+import json, os, sys, urllib.request as u
+print(u.urlopen(u.Request("http://127.0.0.1:8080/admin/write-block", json.dumps({"blocked": sys.argv[1] == "true"}).encode(),
+    {"Authorization": "Bearer " + os.environ["ADMIN_TOKEN"], "Content-Type": "application/json"}, method="PUT"), timeout=10).read())' false
+```
+
+### 재현
+
+`testing/app_lab.py`가 실제 렌더 결과를 임시 k3s에 올려 위 표를 다시 잰다. `t30-app-*` Docker 자원만 쓴다.
+
+```sh
+infra/envs/target-workloads/testing/app_lab.py --demo-chat-src <demo-chat 체크아웃> --output <결과 파일>
+```
 
 ## 공식 계약
 
