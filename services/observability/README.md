@@ -126,13 +126,13 @@ T18 부하 생성기가 창 요약을 보내는 곳이다. 콘솔 조회 API와 
 | 항목 | 값 |
 |---|---|
 | Service | `bravo-prometheus-tailnet` (`tailscale.com/expose`), tailnet 이름 `bravo-metrics`, 태그 `tag:bravo-metrics` |
-| Collector 주소 | `PLATFORM_OTLP_ENDPOINT=https://bravo-metrics.<tailnet>.ts.net:9090/api/v1/otlp`. 서버 인증서 SAN에 이 이름을 넣는다([인증서](../../docs/observability/certificates.md)) |
+| Collector 주소 | `PLATFORM_OTLP_ENDPOINT=https://bravo-metrics.bravo-observability.svc:9090/api/v1/otlp`(그 클러스터의 egress Service), `PLATFORM_TLS_SERVER_NAME=bravo-metrics.<tailnet>.ts.net`. 서버 인증서 SAN에 이 이름을 넣는다([인증서](../../docs/observability/certificates.md)) |
 | NetworkPolicy | `tailscale-system`의 이 Service proxy Pod만(`tailscale.com/parent-resource=bravo-prometheus-tailnet` 등 4개 라벨). Tailscale 대역 허용은 없앴다 |
-| tailnet ACL (T30 제안) | `tag:bravo-metrics`의 소유자는 플랫폼 operator 태그. Collector 쪽 태그에서 `tag:bravo-metrics:9090`만 허용 |
+| tailnet ACL | [`infra/envs/collector-network/tailnet-fragment.json`](../../infra/envs/collector-network/tailnet-fragment.json): `tag:bravo-source-collector` · `tag:bravo-target-collector`에서 `tag:bravo-metrics:9090`만. 다른 태그는 거부 시험 |
 
 - **출발지 주소:** operator proxy는 받은 연결을 이 Service로 DNAT하고, 응답이 proxy로 돌아오도록 tailscaled가 출발지를 proxy Pod 주소로 바꾼다. 그래서 저장소가 보는 출발지는 Tailscale 주소가 아니라 proxy Pod다. 고정 소스(1.104.4)로 판단했다.
   - **실제 플랫폼 근거:** T10 창 수신이 같은 방식(ClusterIP + `tailscale.com/expose`, `tailscale-system`의 같은 4개 proxy 라벨만 허용하는 NetworkPolicy)으로 실제 AWS 플랫폼에서 HTTP 201을 받았다. 허용 태그는 응답을 받았고 다른 태그는 연결 시간 초과였다([T10 증빙](../../docs/evidence/t10-window-ingress-2026-11-04/README.md)). 그러니 operator 위치, proxy 라벨, proxy Pod를 출발지로 보는 정책은 실제 환경과 맞는다. 지표 저장소 Service 자체는 아직 배포하지 않았다.
-- **Collector 쪽 경로:** 온프렘은 노드에 Tailscale이 있어 위 주소로 바로 나간다. 노드에 Tailscale이 없고 operator만 있는 클러스터는 operator egress Service가 필요하다. 이때 proxy가 포트를 `[10000, 11000)`으로 바꾸므로 Collector egress 정책은 T12 `infra/envs/executor-network`처럼 실제 포트를 읽어 만든다(후속).
+- **Collector 쪽 경로:** 두 클러스터 모두 T30이 설치한 operator의 Collector 전용 egress ProxyGroup으로 나간다([`infra/envs/collector-network`](../../infra/envs/collector-network/README.md)). 온프렘 노드의 호스트 Tailscale은 쓰지 않는다(노드의 모든 Pod가 같은 태그가 된다). proxy가 포트를 `[10000, 11000)`으로 바꾸므로 Collector 송신 정책은 관찰한 포트로 만든다. Collector 기본 정책의 9090은 같은 클러스터의 `app: bravo-prometheus`로만 열려 있다.
 - **k3s 시험의 한계:** operator가 없어 실제 tailnet 경로는 재지 않는다. 같은 라벨의 Pod로 NetworkPolicy가 이 proxy만 받는지 본다.
 
 ### 자원 (실측)
@@ -187,7 +187,7 @@ services/observability/testing/rotation.sh   # 인증서 교체: 14항목, 약 1
 - **실제 환경 배포:** 플랫폼 RKE2(T7), 출발지 EKS(T6), 목적지 RKE2(T30). 남은 것은 배포 경로, 클러스터 접근, 인증서 발급, 조회 API 이미지 게시다.
 - **영속성:** 디스크 큐 · 저장소 · 창 수신 저장이 emptyDir이다. 저장소 클래스가 정해지면 PVC로 바꾼다. 운영 창 수신은 T10 상태 DB에 저장한다(#181 · #186).
 - **판정 연결:** 저장한 창을 판정(T17)이 읽는 경로가 없다. `WindowStore`를 상태 DB(T10)에 구현하고 판정이 `latest(plan_id)`를 읽는 것을 제안한다.
-- **나가는 주소 좁히기:** Collector의 나가는 연결은 포트로만 제한한다. 환경별 플랫폼 주소와 출발지 VPC 대역을 ipBlock으로 더한다.
+- **나가는 경로 적용:** Collector의 다른 클러스터 송신은 [`infra/envs/collector-network`](../../infra/envs/collector-network/README.md)의 전용 egress ProxyGroup · 관찰 포트 정책 · ACL 조각으로 좁혔다. 실제 operator · tailnet에 적용하고 양성 · 음성 연결을 확인하는 일이 남았다(T7 · T30).
 - **앱 지표:** 데모 앱에 OTel 계측이 없다(T22). 조회 API의 HTTP 뷰는 계측이 들어오면 채워진다.
 - **PgBouncer 지표:** 출발지 PgBouncer는 별도 Deployment라 exporter가 필요하다(T6).
 - **CI:** promtool 시험은 pytest(`tests/test_promtool.py`)로 돈다. `testing/`의 Compose · k3s · 인증서 교체 스크립트는 CI에서 돌지 않는다(특권 컨테이너, 수 분~10분).
