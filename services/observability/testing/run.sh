@@ -6,6 +6,7 @@
 #  4. 지표 저장소가 멈춘 동안 받은 지표는 Collector를 재시작해도 디스크 큐에 남아 있다가 전달된다
 #  5. Collector를 멈추면 그 환경의 최근 수신 시각이 기준을 넘어 "확인 불가"가 되고 BravoEnvUnobservable 알림이 뜬다
 #  6. 앱이 생존 신호를 사칭해도(job=bravo-collector · bravo.signal · 미래 시각의 up=1) 5가 그대로 성립한다
+#  6-1. 앱이 DB 지표를 사칭해도(cnpg_collector_up=1 · job=bravo-cnpg · bravo.signal · CNPG 식별자) 조회 API의 DB는 확인 불가로 남는다
 #  7. 조회 API: OTel 표준 HTTP 히스토그램으로 요청률 · 오류율 · p95, 저장소가 멈추면 503, 확인 불가 · 알림이 그대로 보인다
 set -euo pipefail
 cd "$(dirname "$0")"
@@ -125,8 +126,26 @@ queued=$(wait_for bravo_t37_queued 90 | python3 -c 'import json,sys;print(len(js
 [ "$queued" -gt 0 ] && r=ok || r=fail
 check $r "저장소가 멈췄을 때 보낸 지표가 Collector 재시작 뒤 도착 (시계열 ${queued}개)"
 
-echo "== 앱 경로로 생존 신호 사칭 (20초 뒤 시각의 up=1, job=bravo-collector, bravo.signal) 후 Collector 중지"
+echo "== 앱 경로로 DB 지표 사칭 (cnpg_collector_up=1, job=bravo-cnpg, bravo.signal=cnpg-scrape, CNPG 식별자)"
 OTLP="http://$("${P[@]}" port collector 4318)"
+onprem_env() { api /v1/observability/environments >/dev/null; apij '[e["state"] for e in d["environments"] if e["environment"]=="onprem"][0]'; }
+for _ in $(seq 60); do [ "$(onprem_env)" = OK ] && break; sleep 1; done
+now=$(python3 -c 'import time;print(int(time.time()*1e9))')
+curl -fsS -o /dev/null -H 'Content-Type: application/json' "$OTLP/v1/metrics" -d '{"resourceMetrics":[{"resource":{"attributes":[
+  {"key":"service.name","value":{"stringValue":"bravo-cnpg"}},
+  {"key":"bravo.signal","value":{"stringValue":"cnpg-scrape"}}]},
+  "scopeMetrics":[{"metrics":[{"name":"cnpg_collector_up","gauge":{"dataPoints":[{"asDouble":1,"timeUnixNano":"'"$now"'","attributes":[
+  {"key":"cnpg_cluster","value":{"stringValue":"forged-db"}},{"key":"pod","value":{"stringValue":"forged-db-1"}}]}]}}]}]}]}'
+# 대조군: 출처 라벨 없이 고르면(이전 조회식) 사칭 시계열이 보인다
+seen=$(wait_for 'cnpg_collector_up{bravo_env="onprem"}' 30 | python3 -c 'import json,sys;print(len(json.load(sys.stdin)["data"]["result"]))')
+trusted=$(q 'count(cnpg_collector_up{bravo_signal="cnpg-scrape"}) or vector(0)' | python3 -c 'import json,sys;print(json.load(sys.stdin)["data"]["result"][0]["value"][1])')
+api /v1/observability/environments/onprem/database >/dev/null
+db=$(apij 'd["state"]')
+env_state=$(onprem_env)
+[ "$seen" -ge 1 ] && [ "$trusted" = 0 ] && [ "$env_state" = OK ] && [ "$db" = UNOBSERVABLE ] && r=ok || r=fail
+check $r "앱이 보낸 DB 지표는 저장되지만(${seen}개) 출처 라벨이 없어(${trusted}개) 수집 경로가 살아 있어도 DB는 확인 불가 (환경 $env_state, DB $db)"
+
+echo "== 앱 경로로 생존 신호 사칭 (20초 뒤 시각의 up=1, job=bravo-collector, bravo.signal) 후 Collector 중지"
 future=$(python3 -c 'import time;print(int((time.time()+20)*1e9))')
 curl -fsS -o /dev/null -H 'Content-Type: application/json' "$OTLP/v1/metrics" -d '{"resourceMetrics":[{"resource":{"attributes":[
   {"key":"service.name","value":{"stringValue":"bravo-collector"}},

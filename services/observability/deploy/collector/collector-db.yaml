@@ -22,9 +22,19 @@ receivers:
             - source_labels: [__meta_kubernetes_pod_label_cnpg_io_instanceRole]
               target_label: instance_role
 
+processors:
+  # DB 긁기 경로에만 붙는 신뢰 라벨. 조회 API · DB 알림은 이 라벨이 있는 지표만 본다.
+  # 앱 OTLP 경로는 허용 목록이 bravo.signal을 지우므로, 앱이 cnpg_* 이름의 지표를 보내도 DB 상태를 바꾸지 못한다.
+  # job 라벨(service.name)은 앱도 보낼 수 있어 출처 판단에 쓰지 않는다.
+  resource/db:
+    attributes:
+      - key: bravo.signal
+        value: cnpg-scrape
+        action: upsert
+
 service:
   pipelines:
     metrics/db:
       receivers: [prometheus/db]
-      processors: [memory_limiter, resource/env, batch]
+      processors: [memory_limiter, resource/db, resource/env, batch]
       exporters: [otlp_http/platform]

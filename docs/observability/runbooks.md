@@ -49,7 +49,7 @@
 
 ## BravoDatabaseDown
 
-**뜻:** CNPG 인스턴스의 지표 수집기가 PostgreSQL에 접속하지 못하거나(`cnpg_collector_up == 0`), Collector가 그 Pod의 지표를 긁지 못한 상태(`up{job="bravo-cnpg"} == 0`)가 1분 넘게 이어진다.
+**뜻:** CNPG 인스턴스의 지표 수집기가 PostgreSQL에 접속하지 못하거나(`cnpg_collector_up == 0`), Collector가 그 Pod의 지표를 긁지 못한 상태(`up == 0`)가 1분 넘게 이어진다. 둘 다 DB 긁기 경로의 출처 라벨(`bravo_signal="cnpg-scrape"`)이 있는 지표만 본다. 앱이 같은 이름으로 보낸 지표는 이 알림을 만들지 않는다.
 
 **영향:** 그 DB의 쓰기 · 읽기가 실패하고 있을 수 있다. 이 알림은 판정 입력이 아니다. 컷오버와 되돌리기는 Executor가 DB에서 직접 확인한다.
 

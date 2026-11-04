@@ -7,6 +7,7 @@
 #  4. Collector를 0개로 줄이면 BravoEnvUnobservable 알림이 onprem에 대해 뜬다
 #  5. 콘솔용 조회 API가 restricted로 뜨고, platform-client 라벨 네임스페이스에서만 호출된다(토큰 필수)
 #  6. DB 오버레이: T6과 같은 CNPG(오퍼레이터 1.30.1, PostgreSQL 18.4)의 지표가 최소 권한으로 수집되고 조회 API DB 뷰에 보인다
+#     DB 긁기 경로의 지표에만 출처 라벨(bravo_signal=cnpg-scrape)이 붙고, 앱이 같은 이름의 지표를 보내도 DB 뷰에 들어오지 않는다
 #  7. 창 수신(T36)이 restricted로 뜨고, window-producer 라벨 네임스페이스의 수신 토큰만 받으며, 밖으로 나가지 못한다
 # helm이 필요하다(CNPG 차트).
 set -euo pipefail
@@ -212,8 +213,8 @@ kubectl -n source-dev exec source-db-1 -c postgres -- psql -U postgres -tAc \
 for _ in $(seq 60); do [ "$(count 'cnpg_pg_replication_slots_pg_wal_lsn_diff{slot_type="logical"}')" -gt 0 ] && break; sleep 3; done
 upl=$(q 'cnpg_collector_up{cnpg_cluster="source-db"}' | python3 -c 'import json,sys;r=json.load(sys.stdin)["data"]["result"];print(json.dumps([x["metric"] for x in r]))')
 echo "  cnpg_collector_up 라벨: $upl"
-echo "$upl" | python3 -c 'import json,sys;ms=json.load(sys.stdin);sys.exit(0 if ms and all(m.get("bravo_env")=="onprem" and m.get("pod")=="source-db-1" and m.get("instance_role")=="primary" for m in ms) else 1)' && r=ok || r=fail
-check $r "CNPG 인스턴스 지표가 환경 · 클러스터 · Pod · 역할 라벨과 함께 도착"
+echo "$upl" | python3 -c 'import json,sys;ms=json.load(sys.stdin);sys.exit(0 if ms and all(m.get("bravo_env")=="onprem" and m.get("bravo_signal")=="cnpg-scrape" and m.get("pod")=="source-db-1" and m.get("instance_role")=="primary" for m in ms) else 1)' && r=ok || r=fail
+check $r "CNPG 인스턴스 지표가 출처(cnpg-scrape) · 환경 · 클러스터 · Pod · 역할 라벨과 함께 도착"
 [ "$(count 'cnpg_pg_replication_slots_pg_wal_lsn_diff{slot_name="bravo_t37_slot", slot_type="logical"}')" -gt 0 ] && r=ok || r=fail
 check $r "논리 복제 슬롯 지연(바이트) 지표 도착"
 echo "  보관 실패 지표 이름: $(q '{__name__=~"cnpg_pg_stat_archiver_failed_count.*"}' | python3 -c 'import json,sys;print(sorted({x["metric"]["__name__"] for x in json.load(sys.stdin)["data"]["result"]}))')"
@@ -223,6 +224,20 @@ db=$(kubectl -n console logs call-db 2>/dev/null || true)
 echo "  조회 API DB 뷰: $db"
 echo "$db" | python3 -c 'import json,sys;d=json.load(sys.stdin);sys.exit(0 if d["state"]=="OK" and any(s["slot"]=="bravo_t37_slot" and s["type"]=="logical" and s["active"] is False for s in d["replication_slots"]) else 1)' 2>/dev/null && r=ok || r=fail
 check $r "조회 API DB 뷰: 상태 OK, 논리 슬롯과 비활성 여부 표시 (pod: $phase)"
+
+echo "== 앱 경로로 DB 지표 사칭 (cnpg_collector_up, service.name=bravo-cnpg, cnpg_cluster 속성)"
+kubectl -n app run forger --image="$GEN" --restart=Never -- metrics \
+  --otlp-endpoint "bravo-collector.$NS.svc:4317" --otlp-insecure --duration 20s --rate 2 \
+  --otlp-metric-name cnpg_collector_up --otlp-attributes 'service.name="bravo-cnpg"' \
+  --telemetry-attributes 'cnpg_cluster="forged-db"' >/dev/null
+forged() { count 'cnpg_collector_up{bravo_env="onprem"} unless cnpg_collector_up{bravo_signal="cnpg-scrape"}'; }
+for _ in $(seq 60); do [ "$(forged)" -gt 0 ] && break; sleep 2; done
+n=$(forged)
+phase=$(call console "$API_TOKEN" db-forged /v1/observability/environments/onprem/database)
+db=$(kubectl -n console logs call-db-forged 2>/dev/null || true)
+echo "  사칭 뒤 조회 API DB 뷰: $db"
+[ "$n" -gt 0 ] && echo "$db" | python3 -c 'import json,sys;d=json.load(sys.stdin);i=d["instances"];sys.exit(0 if d["state"]=="OK" and i and all(x["cluster"]=="source-db" and x["pod"] for x in i) else 1)' 2>/dev/null && r=ok || r=fail
+check $r "앱이 보낸 cnpg_collector_up(${n}개, 출처 라벨 없음)은 DB 뷰에 들어오지 않음: 상태 OK, 인스턴스는 source-db만 (pod: $phase)"
 
 if [ "${BRAVO_K8S_CAPACITY:-0}" = 1 ]; then
   echo "== 자원 실측: 평상(60초)"
