@@ -172,11 +172,53 @@ def test_unsupported_schema_is_unknown_and_database_not_mutated(actual_capture):
         conn.execute("ALTER TABLE public.messages ADD COLUMN unsupported money")
     result = capture("target")
     assert result.document["tables"][0]["schema_hash"] is None
-    assert result.errors == (("public.messages", "SCHEMA_UNCONFIRMED"),)
+    assert result.errors == (("public.messages", "unsupported_type"),)
     with connect(regs["target"]) as conn:
         assert conn.execute("SELECT count(*) FROM public.messages").fetchone()[0] == 0
         with pytest.raises(psycopg.errors.ReadOnlySqlTransaction):
             conn.execute("INSERT INTO public.messages(id,body) VALUES (1,'forbidden')")
+
+
+@pytest.mark.parametrize(("change", "expected"), [
+    ("ALTER TABLE public.messages DROP CONSTRAINT messages_pkey", "primary_key_missing"),
+    ("DROP TABLE public.messages", "table_missing"),
+])
+def test_fixed_t13_schema_failure_codes_are_retained(actual_capture, change, expected):
+    _, _, regs, _, capture, admin = actual_capture
+    with psycopg.connect(**(admin | {"dbname": regs["target"].database_name})) as conn:
+        conn.execute(change)
+    result = capture("target")
+    assert result.errors == (("public.messages", expected),)
+    assert result.document["tables"][0]["schema_hash"] is None
+    assert combined_data(actual_capture, capture("source"), result)["decision"] == "BLOCK"
+
+
+@pytest.mark.parametrize("second_read", [False, True])
+@pytest.mark.parametrize("failure", ["unknown_code", "raw_exception", "known_code"])
+def test_schema_diagnostics_keep_only_allowlisted_codes(actual_capture, monkeypatch, second_read, failure):
+    import bravo_cutover.db_fingerprint as t13
+    _, _, _, _, capture, _ = actual_capture
+    original = t13.schema_fingerprint
+    calls = 0
+
+    def fail(conn, table):
+        nonlocal calls
+        calls += 1
+        if second_read and calls == 1:
+            return original(conn, table)
+        if failure == "raw_exception":
+            raise RuntimeError("private-sql-dsn-canary")
+        code = "table_missing" if failure == "known_code" else "private-sql-dsn-canary"
+        raise t13.FingerprintUnconfirmed(code)
+
+    monkeypatch.setattr(t13, "schema_fingerprint", fail)
+    result = capture("source")
+    expected = "table_missing" if failure == "known_code" else (
+        "SCHEMA_CHANGED_OR_UNCONFIRMED" if second_read else "SCHEMA_UNCONFIRMED")
+    assert result.errors == (("public.messages", expected),)
+    assert "private-sql-dsn-canary" not in repr(result)
+    assert result.document["tables"][0]["schema_hash"] is None
+    assert result.document["tables"][0]["primary_key"] is None
 
 
 def test_timeout_clears_partial_success(actual_capture):

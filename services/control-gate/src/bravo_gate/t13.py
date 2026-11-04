@@ -15,6 +15,23 @@ from .contract import GateError, canonical, fingerprint, server_time
 from .models import GateContext, RunSnapshot, identity
 from .readiness import ReadinessBinding, ReadinessPolicy
 
+# Only T13's fixed schema-capture codes cross this boundary. Never serialize an
+# exception's text, arbitrary code, SQLSTATE detail, or connection parameters.
+_SCHEMA_FAILURE_CODES = frozenset({
+    "table_not_qualified", "table_missing", "unsupported_major", "not_plain_table",
+    "primary_key_missing", "unsupported_type", "collation_unverified",
+    "statement_timeout", "snapshot_unreadable",
+})
+
+
+def _schema_error(error, fallback):
+    from bravo_cutover.db_fingerprint import FingerprintUnconfirmed
+
+    if isinstance(error, FingerprintUnconfirmed) and type(error.code) is str:
+        if error.code in _SCHEMA_FAILURE_CODES:
+            return error.code
+    return fallback
+
 
 @dataclass(frozen=True)
 class DatabaseRegistration:
@@ -109,10 +126,8 @@ not lock DDL across gate approval: T12 must recheck after fencing at cutover.
                 try:
                     observed = schema_fingerprint(connection, name)
                     rows[name].update(schema_hash=observed["schema_hash"], primary_key=observed["primary_key"])
-                except Exception:
-                    # T13's fixed error detail stays in its private diagnostic;
-                    # neither SDK exceptions nor SQL/DSN text leave this boundary.
-                    errors[name] = "SCHEMA_UNCONFIRMED"
+                except Exception as error:
+                    errors[name] = _schema_error(error, "SCHEMA_UNCONFIRMED")
             for name in policy.tables:
                 within_deadline()
                 if name in errors:
@@ -121,9 +136,9 @@ not lock DDL across gate approval: T12 must recheck after fencing at cutover.
                     reread = schema_fingerprint(connection, name)
                     if any(reread[k] != rows[name][k] for k in ("schema_hash", "primary_key")):
                         raise GateError("SCHEMA_CHANGED")
-                except Exception:
+                except Exception as error:
                     rows[name].update(schema_hash=None, primary_key=None)
-                    errors[name] = "SCHEMA_CHANGED_OR_UNCONFIRMED"
+                    errors[name] = _schema_error(error, "SCHEMA_CHANGED_OR_UNCONFIRMED")
             _verified_connection(connection, registration)
             within_deadline()
     except Exception:

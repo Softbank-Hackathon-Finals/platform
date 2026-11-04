@@ -203,12 +203,20 @@ bootstrap을 재사용하며 기존 서버에 접속하지 않는다. 결과 저
 
 - 서버가 선택한 context·정책의 환경/DB 등록과 정확히 일치해야 연결한다.
 - 실제 psycopg 연결의 `verify-full`·TLS 사용·idle/autocommit을 검사한다.
-- `current_database`, session/current role과 등록을 대조하고 superuser/BYPASSRLS를 거부한다.
+- DB 신원을 읽기 전에 해당 트랜잭션의 `search_path`를 `pg_catalog`로 고정한다.
+  `pg_catalog.current_database`, session/current role과 등록을 대조하고 superuser/BYPASSRLS를 거부한다.
+  앱 스키마의 동명 함수로 다른 DB를 등록된 DB로 위장할 수 없어야 한다.
 - T13의 읽기 전용 반복 가능 읽기·고정 세션 설정·시간 제한을 그대로 사용한다.
 - 스키마/PK를 다시 읽어 수집 중 DDL 변화는 UNKNOWN으로 남긴다. 연결·신원·전체 기한 실패는
   앞서 읽은 부분 성공도 버린다. 반환되는 시각은 수집 시작 기준이며 최대 30초만 유효하다.
 - DB 행, DSN, SQL 오류 원문을 결과에 넣지 않는다. 확인하지 못한 테이블은 누락시키지 않고
   hash/PK를 null로 남겨 기존 T19가 BLOCK하게 한다.
+- `SchemaCapture.errors`는 T13의 허용된 고정 코드만 보존한다:
+  `table_not_qualified`, `table_missing`, `unsupported_major`, `not_plain_table`,
+  `primary_key_missing`, `unsupported_type`, `collation_unverified`,
+  `statement_timeout`, `snapshot_unreadable`. 그 외 예외/미등록 코드는 기존
+  `SCHEMA_UNCONFIRMED` 또는 재조회 시 `SCHEMA_CHANGED_OR_UNCONFIRMED`로 축약한다.
+  원인 구분은 진단용이며 UNKNOWN/BLOCK을 완화하거나 승인 근거로 사용하지 않는다.
 
 `DatabaseRegistration`은 인증된 호스트의 등록이다. 브라우저 JSON을 그대로 변환하지 않는다.
 연결 생성자는 실제 클러스터 UID·호스트·CA·Secret 소유권을 해당 등록에 결속해야 한다.
