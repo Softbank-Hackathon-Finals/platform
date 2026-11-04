@@ -1,0 +1,33 @@
+{
+  "status": "PASS",
+  "scope": "unchanged real AWS source SEC-01.2 evidence through local T19 and local T10/T21; target not executed",
+  "cloud_resources_changed": false,
+  "full_profile_tests": 20,
+  "actual_audit_controls_passed": 0,
+  "actual_source_restore_verified": false,
+  "retained_source_scan_loaded": true,
+  "unexecuted_controls_blocked": 20,
+  "whole_gate_decision": "BLOCK",
+  "missing_controls_refuse_prerequisite": "SECURITY_GATE_BLOCKED",
+  "fabricated_pass_rejected": "SCHEMA_REJECTED",
+  "expired_authority_rejected": "SIGNING_AUTHORITY_REVOKED_OR_EXPIRED",
+  "revoked_authority_rejected": "SIGNING_AUTHORITY_REVOKED_OR_EXPIRED",
+  "both_owned_environments_removed": null,
+  "production_authority": false,
+  "application_cutover_executed": false,
+  "source_revision": "40f9522aff350f19975dc5c75edcb92b47db86b7",
+  "source_scan_revision": "e70210f3673c5e9e33e186669b7e478bec143495",
+  "source_run_sha256": "f426b3ee9fcf8833e5e0630c39761f7ac2e4d444fd93905880cd2f4ab3dc6a91",
+  "gate_report_sha256": "24edbd65f795fdc58e7757f9e6738c28af2246cfd9e14a1b0c8cbbc7621ac6dc",
+  "browser": {
+    "chromium": 3,
+    "webkit": 3,
+    "passed": 6,
+    "unauthorized_view_cleared": true,
+    "mutation_requests": 0,
+    "approvals_enabled": false,
+    "execution_enabled": false
+  },
+  "runtime_identity": "explicit local fixture; not Cognito/OIDC production authentication",
+  "production_migration": false
+}

@@ -61,6 +61,7 @@
                 >환경 종류<select name="kind">
                   <option value="aws">AWS · 출발지</option>
                   <option value="onprem">온프렘 · 목적지</option>
+                  <option value="onprem-source">온프렘 · 출발지</option>
                 </select></label
               >
               <label
@@ -297,6 +298,16 @@
         인증·테넌트 권한·최종 게이트 판단·실행 제어는 서버에서 검사합니다.
         미확인 상태는 실행 허용으로 해석하지 않습니다.
       </footer>
+      <section class="card" aria-labelledby="failback-heading">
+        <h2 id="failback-heading">복귀 검증 이력</h2>
+        <p id="failback-status">복귀 검증 기록 없음</p>
+        <dl id="failback-detail"></dl>
+        <p class="muted">
+          서버에 기록된 결과를 조회합니다. 복귀 승인·실행은 이 화면에서 제공하지
+          않습니다. DB 검증만으로 트래픽 복귀나 서비스 무중단을 판정하지
+          않습니다.
+        </p>
+      </section>
     </main>
   </body>
 </html>

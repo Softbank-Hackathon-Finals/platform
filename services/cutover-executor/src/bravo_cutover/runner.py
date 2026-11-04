@@ -305,6 +305,11 @@ class Cutover:
                     "error": _describe(e),
                 })
                 continue
+            # The previous owner records abort STARTED before sending source LOGIN.
+            # Its SQL can still arrive after takeover. Retain both leases until it is reconciled.
+            if "abort" in started:
+                self._hold(run, {"failed_step": "abort"}, "source restoration interrupted; remote effects unconfirmed")
+                continue
             self._fail(run, RuntimeError("executor restarted during execution"))
         return handled
 

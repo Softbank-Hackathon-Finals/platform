@@ -5,6 +5,7 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
 
 import pytest
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from bravo_cutover.api import create_app
@@ -50,6 +51,11 @@ def body(epoch=1, plan_id="plan-demo", **override):
     return request | override
 
 
+def command_client(store, runner=None, registry=None):
+    return TestClient(create_app(store, runner, registry, api_token="read-fixture", command_token="command-fixture"),
+                      headers={"Authorization": "Bearer command-fixture"})
+
+
 @pytest.fixture
 def runner():
     return CountingRunner()
@@ -57,7 +63,7 @@ def runner():
 
 @pytest.fixture
 def client(store, runner):
-    return TestClient(create_app(store, runner, REGISTRY))
+    return command_client(store, runner, REGISTRY)
 
 
 def post(client, key, request):
@@ -147,7 +153,7 @@ def test_lost_response_can_be_recovered_by_reading_state(client):
 def test_state_survives_new_process(store, postgres_dsn):
     from bravo_cutover.store import Store
 
-    created = post(TestClient(create_app(store, CountingRunner(), REGISTRY)), "k1", body()).json()
+    created = post(command_client(store, CountingRunner(), REGISTRY), "k1", body()).json()
     other = Store(postgres_dsn)
     try:
         assert other.get(created["execution_id"]).status == Status.PENDING
@@ -244,7 +250,7 @@ def test_ownership_moves_on_takeover_and_on_lost_lock(postgres_dsn, store):
 
     from bravo_cutover.store import Store
 
-    execution_id = post(TestClient(create_app(store, CountingRunner(), REGISTRY)), "k1", body()).json()["execution_id"]
+    execution_id = post(command_client(store, CountingRunner(), REGISTRY), "k1", body()).json()["execution_id"]
     assert store.claim(execution_id) and store.owns(execution_id)
     other = Store(postgres_dsn)
     try:
@@ -339,20 +345,48 @@ def test_only_registered_database_pair_can_acquire_lease(client, store, runner, 
 
 def test_read_only_app_rejects_post_without_creating_execution(store, monkeypatch):
     monkeypatch.delenv("EXECUTOR_CONFIG", raising=False)
-    client = TestClient(create_app(store))
+    client = command_client(store)
     response = post(client, "not-configured", body())
     assert response.status_code == 503
     assert response.json()["detail"]["code"] == "executor_not_configured"
     assert store.find("plan-demo", 1) == []
 
 
-def test_authentication_guards_reads_and_writes(store, runner):
-    client = TestClient(create_app(store, runner, registry=REGISTRY, api_token="local-test-only"))
+@pytest.mark.parametrize("command_token", [None, "command-fixture"])
+def test_read_credential_cannot_claim_a_cutover(store, runner, command_token):
+    client = TestClient(create_app(store, runner, REGISTRY, api_token="read-fixture", command_token=command_token))
     assert client.get("/healthz").status_code == 200
     for headers in ({}, {"Authorization": "Bearer wrong"}):
         assert client.get("/v1/cutovers?plan_id=plan-demo&epoch=1", headers=headers).status_code == 401
         assert client.post("/v1/cutovers", json=body(), headers=headers).status_code == 401
+    key = {"Idempotency-Key": "same-request"}
+    request = body()
+    reader = {"Authorization": "Bearer read-fixture"}
+    assert client.get("/v1/cutovers?plan_id=plan-demo&epoch=1", headers=reader).status_code == 200
+    assert client.post("/v1/cutovers", json=request, headers=reader | key).status_code == 403
+    assert store.find("plan-demo", 1) == []
     assert runner.submitted == []
-    headers = {"Authorization": "Bearer local-test-only", "Idempotency-Key": "authorized"}
-    assert client.post("/v1/cutovers", json=body(), headers=headers).status_code == 202
-    assert client.get("/v1/cutovers?plan_id=plan-demo&epoch=1", headers=headers).status_code == 200
+    if command_token:
+        writer = {"Authorization": "Bearer " + command_token}
+        assert client.post("/v1/cutovers", json=request, headers=writer | key).status_code == 202
+        assert client.post("/v1/cutovers", json=request, headers=writer | key).status_code == 200
+        assert client.post("/v1/cutovers", json=request, headers=reader | key).status_code == 403
+        assert len(store.find("plan-demo", 1)) == len(runner.submitted) == 1
+
+
+@pytest.mark.parametrize("mount", ["", "/mounted"])
+def test_authentication_precedes_json_parsing_on_the_matched_route(store, runner, mount):
+    app = create_app(store, runner, REGISTRY, api_token="reader", command_token="writer")
+    if mount:
+        parent = FastAPI()
+        parent.mount(mount, app)
+        app = parent
+    client = TestClient(app)
+    for token, expected in [(None, 401), ("unknown", 401), ("reader", 403), ("writer", 422)]:
+        headers = {"Content-Type": "application/json"}
+        if token:
+            headers["Authorization"] = "Bearer " + token
+        response = client.post(mount + "/%761/cutovers", content=b"{", headers=headers)
+        assert response.status_code == expected
+    assert runner.submitted == []
+    assert store.find("plan-demo", 1) == []

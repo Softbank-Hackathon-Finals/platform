@@ -23,6 +23,23 @@ def denied(operation):
     return ClientError({"Error": {"Code": "AccessDeniedException"}}, operation)
 
 
+@pytest.mark.parametrize("result", ["allowed", "AccessDenied", "InvalidIdentityToken"])
+def test_direct_broker_probe_requires_a_real_denial(result):
+    class STS:
+        def assume_role_with_web_identity(self, **args):
+            assert args["WebIdentityToken"] == "synthetic" and args["RoleArn"] == "broker"
+            assert json.loads(args["Policy"])["Statement"] == [{"Effect": "Deny", "Action": "*", "Resource": "*"}]
+            if result != "allowed":
+                raise ClientError({"Error": {"Code": result}}, "AssumeRoleWithWebIdentity")
+            return {}
+
+    if result == "AccessDenied":
+        assert controller.direct_broker_denied(STS(), "broker", "synthetic")
+    else:
+        with pytest.raises(RuntimeError if result == "allowed" else ClientError):
+            controller.direct_broker_denied(STS(), "broker", "synthetic")
+
+
 def test_only_start_denial_proves_session_boundary():
     class SSM:
         def start_session(self, **kwargs):
@@ -71,6 +88,7 @@ def response_pair(context):
     receipt = {"run_id": bundle.run_id, "source_sha": bundle.source_sha,
                "proposal_digest": result["proposal_digest"], "attempt": 1,
                "verdict": "PASS", "effects_known": True, "evidence_digest": digest(evidence)}
+    result["input_kind"] = "synthetic_db_host_fixture"
     return {"result": result, "state": "PROPOSAL_READY", "active_after": True, "exit_code": 0,
             "runtime_source_sha": "a" * 40, "credential_rotated": False, "registration_reused": True}, {
                 "state": "AWAITING_APPROVAL", "receipt": receipt, "evidence": evidence}
@@ -118,14 +136,14 @@ def test_controller_rejects_tampered_evidence(context):
         controller.accept_verification(broker, verification)
 
 
-@pytest.mark.parametrize("replay", [False, True])
+@pytest.mark.parametrize("replay", [False, True, "unmarked"])
 def test_main_binds_ssm_to_current_request_and_rejects_previous_receipt(context, monkeypatch, tmp_path, replay):
     broker, verification = response_pair(context)
     calls, received, receipts = [], [], []
     ids = iter(["a" * 32, "b" * 32])
     monkeypatch.setattr(uuid, "uuid4", lambda: SimpleNamespace(hex=next(ids)))
     monkeypatch.chdir(tmp_path)
-    for key, value in {"BRAVO_INSTANCE_ID": "synthetic", "BRAVO_RUNTIME_SOURCE_SHA": "a" * 40,
+    for key, value in {"BRAVO_BROKER_ROLE_ARN": "synthetic-broker", "BRAVO_INSTANCE_ID": "synthetic", "BRAVO_RUNTIME_SOURCE_SHA": "a" * 40,
                        "ACTIONS_ID_TOKEN_REQUEST_URL": "https://synthetic.invalid/token?x=1",
                        "ACTIONS_ID_TOKEN_REQUEST_TOKEN": "synthetic"}.items():
         monkeypatch.setenv(key, value)
@@ -134,9 +152,12 @@ def test_main_binds_ssm_to_current_request_and_rejects_previous_receipt(context,
         if request.data is None:
             data = {"value": "synthetic"}
         else:
+            assert request.full_url.endswith("/validation/fixture")
             run_id = json.loads(request.data).get("run_id", "subscription-" + ("a" if not received else "b") * 32)
             data = copy.deepcopy(broker)
             result = data["result"]
+            if replay == "unmarked":
+                result.pop("input_kind")
             for entry in (result, result["input"], result["proposal"]):
                 entry["run_id"] = run_id
             result["input_digest"] = digest(result["input"])
@@ -172,6 +193,12 @@ def test_main_binds_ssm_to_current_request_and_rejects_previous_receipt(context,
     monkeypatch.setattr("socket.create_connection", lambda *args, **kwargs: io.BytesIO())
     monkeypatch.setattr(controller.subprocess, "Popen", lambda *args, **kwargs: SimpleNamespace(
         terminate=lambda: None, wait=lambda **kwargs: None))
+    if replay == "unmarked":
+        with pytest.raises(ValueError, match="identify the validation fixture"):
+            controller.main()
+        assert all(c["Parameters"]["operation"] != ["verify"] for c in calls)
+        assert calls[-1]["Parameters"] == {"operation": ["stop"]}
+        return
     if replay:
         with pytest.raises(RuntimeError, match="verification did not pass"):
             controller.main()

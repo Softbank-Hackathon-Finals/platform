@@ -11,17 +11,27 @@ Cutover Executor. 상태 머신(T10)의 호출을 받아 쓰기 정지 구간(DB
 uv sync
 uv run pytest
 uvx ruff check .
-uv run uvicorn bravo_cutover.api:create_app --factory --port 8080
 ```
 
-실행 설정: `EXECUTOR_DB`(실행 기록 DB), `EXECUTOR_RESOURCES`(환경별 실제 DB 자원 등록 파일).
+로컬 API는 실행 기록 DB(`EXECUTOR_DB`), [환경 설정](testing/mockenv.py)(`EXECUTOR_CONFIG`), 조회 토큰 파일(`EXECUTOR_API_TOKEN_FILE`)을 준비한 뒤 기동한다. 명령 접수를 시험할 때만 별도 파일을 `EXECUTOR_COMMAND_TOKEN_FILE`로 지정한다.
 
-```json
-{"env-aws": {"resource_id": "cnpg-aws/chat", "connection_ref": "secret/source"},
- "env-onprem": {"resource_id": "cnpg-onprem/chat", "connection_ref": "secret/target"}}
+```bash
+uv run uvicorn bravo_cutover.server:create_app --factory --host 127.0.0.1 --port 8080
 ```
 
 요청의 `environment_id` · `connection_ref`는 이 등록 정보와 맞아야 하고, lease · epoch는 `resource_id`마다 걸린다. 같은 DB를 다른 환경 이름으로 등록해도 같은 `resource_id`면 겹치는 실행으로 막힌다.
+
+## 조회와 컷오버 명령 자격
+
+- 기존 `api-token`은 조회용이다. 이 자격으로 GET을 허용하고 POST를 403으로 거부한다.
+  컷오버 접수에는 별도로 생성한 명령 토큰이 필요하다. 두 값이 같으면 실행기를 시작하지 않는다.
+  배포 전에 운영자는 `cutover-executor-command` Secret의 `token` 키를 준비한다.
+  조회 서비스에는 조회 값만 공급한다. 명령 토큰은 승인 실행 호스트와 Executor에만 제공한다.
+  이 버전의 서버를 기존 매니페스트로 기동해 `EXECUTOR_COMMAND_TOKEN_FILE`이 없으면 조회만 가능하다.
+  새 매니페스트에 명시한 파일이 없으면 시작을 중단한다.
+- 두 프로세스는 토큰을 기동 시 읽는다. 교체 전에 새 명령 접수를 중단하고 진행 중인 실행이 있는지 조회한다.
+  Secret 교체 후 Executor와 승인 실행 호스트를 새 자격으로 재기동한 뒤, 조회 자격의 GET 성공과 POST 거부를 확인한다.
+  구 이미지에서는 조회 자격으로도 명령을 보낼 수 있다. 그 이미지로 돌아가야 하면 먼저 읽기 전용 소비자의 접근을 차단하고 기존 공유 토큰을 폐기한다.
 
 ## DB 안 무결성 지문 (T13)
 
@@ -51,7 +61,7 @@ python3 testing/mockenv.py down
 
 운영 시작점은 `bravo_cutover.server:create_app`이다. 이 factory는 등록된 **한 DB 쌍**,
 검증된 비교기, 파일에서 읽는 32자 이상의 API 토큰을 요구하고 시작 시 DDL을 실행하지 않는다.
-`api:create_app`의 실행기 없는 인스턴스는 조회만 가능하며 POST는 503이다.
+명령 자격을 인증했더라도 실행기나 등록 정보가 준비되지 않으면 POST는 503이다.
 
 - `env-aws` / `cutover/source`, `env-onprem` / `cutover/target`를 `sites.json`에 등록한다.
   `resource_id`로 실제 DB를 식별한다. `environment_id`와 `connection_ref`가 모두 일치하는 두 방향만 받는다. 별칭, 한쪽만 공유하는

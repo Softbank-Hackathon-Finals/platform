@@ -6,7 +6,9 @@
 - PgBouncer 파드가 Ready가 아니거나 실행 도중 바뀌면 상태 불명으로 본다
 """
 
+import threading
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 
@@ -332,6 +334,46 @@ def test_takeover_after_any_change_sends_no_more_changes(store, postgres_dsn, wo
         assert store.get(execution_id).result == before_takeover[0]
     finally:
         newer.close()
+
+
+def test_takeover_during_source_restoration_retains_both_leases(store, postgres_dsn, world, monkeypatch):
+    from bravo_cutover.store import LeaseHeld, Store
+
+    dispatched, deliver = threading.Event(), threading.Event()
+    set_login = FakeDb.set_login
+
+    def delay_first_source_open(db, role, allowed):
+        if db.ns == "src" and allowed and not dispatched.is_set():
+            dispatched.set()
+            assert deliver.wait(15)
+        set_login(db, role, allowed)
+
+    def fail_precommit(_run):
+        raise RuntimeError("failure after source fencing")
+
+    monkeypatch.setattr(FakeDb, "set_login", delay_first_source_open)
+    first = start(store)
+    replacement = Store(postgres_dsn)
+    try:
+        with ThreadPoolExecutor(1) as pool:
+            old = FakeCutover(store, world, hooks={"before:compare": fail_precommit})
+            running = pool.submit(old.run, first)
+            try:
+                assert dispatched.wait(10)
+                assert FakeCutover(replacement, world).recover() == [first]
+                assert replacement.get(first).status == Status.SAFE_HOLD
+                assert world.login == {"src": False, "dst": False}
+                with pytest.raises(LeaseHeld):
+                    start(replacement)
+            finally:
+                deliver.set()
+            running.result(timeout=10)
+        assert world.login == {"src": True, "dst": False}
+        assert replacement.get(first).status == Status.SAFE_HOLD
+        with pytest.raises(LeaseHeld):
+            start(replacement)
+    finally:
+        replacement.close()
 
 
 @pytest.mark.parametrize("failure", ["error", "conflict"])

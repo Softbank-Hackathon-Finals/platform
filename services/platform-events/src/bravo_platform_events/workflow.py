@@ -3,6 +3,7 @@
 import json
 from dataclasses import asdict, dataclass
 
+from .change import change_key
 from .contract import validate_identifier
 from .cutover import CutoverService, _get, _key, _put, unavailable_authority
 from .executor import _timestamp
@@ -140,7 +141,8 @@ def _observed_run(c, service, plan_id, command_id):
     return None
 
 
-def _satisfied(result, spec, previous, run, now):
+def _satisfied(c, proof, spec, previous, run, now):
+    result = proof.result
     if isinstance(result, Analysis):
         _digest(result.inventory_digest)
         _digest(result.comparison_digest)
@@ -160,8 +162,20 @@ def _satisfied(result, spec, previous, run, now):
     if isinstance(result, Application):
         for value in (result.verification_id, result.approval_id, result.application_id):
             validate_identifier(value)
+        # T31 reports the remote effect. T10 owns the approval and its one-time
+        # claim. Read both under the lock that advances the plan.
+        approval = _get(c, proof.plan_id, change_key("approval", result.approval_id))
+        consumed = _get(c, proof.plan_id, change_key("consumed", result.approval_id))
+        if approval is None or consumed is None:
+            return False
+        claim = consumed[1]
         return (
-            asdict(result.change) == old.get("change")
+            approval[1]["plan_version"] == proof.version
+            and claim["application_id"] == result.application_id
+            and claim["verification_id"] == result.verification_id
+            and claim["binding"]["diff_hash"] == result.change.diff_hash
+            and claim["binding"]["image_digest"] == result.change.image_digest
+            and asdict(result.change) == old.get("change")
             and result.job_passed is True
             and result.deployed_digest == result.change.image_digest
         )
@@ -255,7 +269,7 @@ class WorkflowRecovery:
                 raise EventError("workflow_evidence_unavailable")
             validate_identifier(proof.receipt_id)
             now = service.clock()
-            if not _satisfied(proof.result, spec, previous, run, now):
+            if not _satisfied(c, proof, spec, previous, run, now):
                 raise EventError("workflow_condition_unmet")
             _put(c, plan_id, _checkpoint(version), {}, asdict(proof))
             c.execute(

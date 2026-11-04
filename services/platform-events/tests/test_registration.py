@@ -71,8 +71,8 @@ class Fixture:
     def post(self, route, data, key):
         return self.client.post("/v1/" + route, json=data, headers={"Idempotency-Key": key})
 
-    def setup_workload(self):
-        assert self.post("environments", SRC, "src-key").status_code == 201
+    def setup_workload(self, source=SRC):
+        assert self.post("environments", source, "src-key").status_code == 201
         assert self.post("environments", DST, "dst-key").status_code == 201
         app = self.post("workloads", APP, "app-key")
         assert app.status_code == 201
@@ -115,6 +115,42 @@ def test_missing_foreign_or_unapproved_refs_never_probe(registered):
     f.actor = replace(f.actor, tenant_id="other")
     assert f.post("workloads", APP, "app-key").status_code == 404
     assert f.post("environments", SRC, "src-key").status_code == 404
+    assert f.probe.results == []
+
+
+def test_onprem_source_requires_its_own_catalog_role(registered):
+    f = registered
+    ref = (TENANT, SRC["connection_ref"])
+    f.registry.environments[ref] = replace(f.registry.environments[ref], kind="onprem", catalog_role="source")
+    source = SRC | {"kind": "onprem"}
+    assert f.post("environments", source | {"connection_ref": DST["connection_ref"]}, "bad-src").status_code == 409
+    assert f.post("environments", source | {"roles": ["target"]}, "bad-dst").status_code == 409
+    assert f.probe.results == []
+    body = f.setup_workload(source)
+    created = f.post("plans", body, "plan-key")
+    assert created.status_code == 201
+    receipt = created.json()
+    assert (receipt["source_environment_id"], receipt["target_environment_id"], receipt["state"]) == (
+        "env-src", "env-dst", "COLLECT")
+    assert f.post("plans", body, "plan-key").json() == receipt
+
+
+@pytest.mark.parametrize(("kind", "role"), [("aws", "target"), ("onprem", "both"), ("onprem", "")])
+def test_invalid_catalog_role_is_rejected(tmp_path, kind, role):
+    with pytest.raises(ValueError, match="invalid_environment_role"):
+        EnvironmentRef(TENANT, "env", kind, "app", "db", "uid", "https://api.example.invalid",
+                       tmp_path / "ca", lambda: "test-only", catalog_role=role)
+
+
+def test_existing_source_receipt_cannot_be_rebound_to_another_kind(registered):
+    f = registered
+    assert f.post("environments", SRC, "src-key").status_code == 201
+    ref = (TENANT, SRC["connection_ref"])
+    f.registry.environments[ref] = replace(f.registry.environments[ref], kind="onprem", catalog_role="source")
+    assert f.post("environments", SRC, "src-key").status_code == 200
+    f.probe.results.clear()
+    refused = f.post("workloads", APP, "app-key")
+    assert refused.status_code == 409 and refused.json()["detail"]["code"] == "environment_changed"
     assert f.probe.results == []
 
 

@@ -1,6 +1,6 @@
 """Actual PostgreSQL/TLS schema capture, synthetic context/replication authority."""
+import os
 import secrets
-import subprocess
 import time
 from contextlib import contextmanager
 from dataclasses import replace
@@ -9,6 +9,7 @@ from datetime import UTC, datetime, timedelta
 import psycopg
 import pytest
 from bravo_cutover.db_fingerprint import HASH_RULE
+from fixture_process import OwnedDocker, run
 from psycopg import sql
 
 from bravo_gate.contract import GateError
@@ -18,12 +19,9 @@ from bravo_gate.t13 import DatabaseRegistration, assemble_snapshot, collect_sche
 IMAGE = "public.ecr.aws/docker/library/postgres:18.4@sha256:a02db8cac496f15b094798a38254f14d6e00741f709360e5e00bb6668ea31636"
 
 
-def run(*args):
-    return subprocess.run(args, capture_output=True, text=True, check=True, timeout=90).stdout.strip()
-
-
 @pytest.fixture(scope="module")
 def tls_postgres(tmp_path_factory):
+    __tracebackhide__ = True
     root = tmp_path_factory.mktemp("t19-tls")
     root.chmod(0o755)
     run("openssl", "req", "-x509", "-newkey", "rsa:2048", "-nodes", "-days", "1",
@@ -33,12 +31,12 @@ def tls_postgres(tmp_path_factory):
     (root / "server.key").chmod(0o644)
     (root / "server.crt").chmod(0o644)
     password = secrets.token_urlsafe(32)
-    cid = None
-    try:
-        cid = run("docker", "run", "-d", "--rm", "--name", "t19-schema-" + secrets.token_hex(6),
-                  "-e", "POSTGRES_PASSWORD=" + password, "-v", str(root) + ":/certs:ro",
+    with OwnedDocker() as owned:
+        cid = owned.container( "-d", "--rm", "--name", "t19-schema-" + secrets.token_hex(6),
+                  "-e", "POSTGRES_PASSWORD", "-v", str(root) + ":/certs:ro",
                   "-p", "127.0.0.1::5432", "--entrypoint", "sh", IMAGE, "-c",
-                  "cp /certs/server.key /tmp/t19-server.key && chown postgres /tmp/t19-server.key && chmod 600 /tmp/t19-server.key && exec docker-entrypoint.sh postgres -c wal_level=logical -c max_replication_slots=10 -c max_wal_senders=10 -c ssl=on -c ssl_cert_file=/certs/server.crt -c ssl_key_file=/tmp/t19-server.key")
+                  "cp /certs/server.key /tmp/t19-server.key && chown postgres /tmp/t19-server.key && chmod 600 /tmp/t19-server.key && exec docker-entrypoint.sh postgres -c wal_level=logical -c max_replication_slots=10 -c max_wal_senders=10 -c ssl=on -c ssl_cert_file=/certs/server.crt -c ssl_key_file=/tmp/t19-server.key",
+                  env=dict(os.environ, POSTGRES_PASSWORD=password))
         port = int(run("docker", "port", cid, "5432/tcp").split(":")[-1])
         kwargs = dict(host="127.0.0.1", port=port, user="postgres", password=password,
                       dbname="postgres", sslmode="verify-full", sslrootcert=str(root / "server.crt"),
@@ -56,9 +54,6 @@ def tls_postgres(tmp_path_factory):
             conn.execute(sql.SQL("CREATE ROLE reader LOGIN PASSWORD {}").format(sql.Literal(password)))
             conn.execute("ALTER ROLE reader SET default_transaction_read_only = on")
         yield kwargs
-    finally:
-        if cid:
-            run("docker", "rm", "-f", cid)
 
 
 @pytest.fixture

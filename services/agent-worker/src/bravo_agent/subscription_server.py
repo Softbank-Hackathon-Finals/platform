@@ -19,7 +19,7 @@ from .subscription_store import SubscriptionStore
 from .verification import validate_result
 
 
-def execute(settings, web_token, run_id):
+def execute_fixture(settings, web_token, run_id):
     if not isinstance(run_id, str) or not re.fullmatch(r"subscription-[a-f0-9]{32}", run_id):
         raise ValueError("invalid execution id")
     config = Config(retries={"total_max_attempts": 1}, connect_timeout=10, read_timeout=20)
@@ -27,17 +27,17 @@ def execute(settings, web_token, run_id):
     credentials = boto3.client("sts", region_name=settings["region"], config=config).assume_role_with_web_identity(
         RoleArn=settings["broker_role_arn"], RoleSessionName="bravo-subscription-vm",
         WebIdentityToken=web_token, DurationSeconds=900)["Credentials"]
+    root = Path(settings["worker"])
+    runs = Path(settings["state_dir"]).parent / "runs"
+    runs.mkdir(mode=0o700, exist_ok=True)
+    execution = runs / run_id
+    execution.mkdir(mode=0o700)  # Reuse must fail, even after a failed worker call.
     client = boto3.client("secretsmanager", region_name=settings["region"], config=config,
                          aws_access_key_id=credentials["AccessKeyId"],
                          aws_secret_access_key=credentials["SecretAccessKey"],
                          aws_session_token=credentials["SessionToken"])
     store = SubscriptionStore(settings["secret_arn"], settings["runtime_host_id"], client=client)
     before, old_version = store.read()
-    root = Path(settings["worker"])
-    runs = Path(settings["state_dir"]).parent / "runs"
-    runs.mkdir(mode=0o700, exist_ok=True)
-    execution = runs / run_id
-    execution.mkdir(mode=0o700)  # Reuse must fail, even after a failed worker call.
     bundle = FailureBundle.model_validate({**json.loads((root / "examples/failure.json").read_text()),
                                            "run_id": run_id})
     bundle_path = execution / "bundle.json"
@@ -51,6 +51,7 @@ def execute(settings, web_token, run_id):
     with contextlib.redirect_stdout(io.StringIO()):
         code = run_worker(store, Path(settings["state_dir"]), args)
     result = json.loads(output.read_text()) if output.exists() else {}
+    result["input_kind"] = "synthetic_db_host_fixture"
     if code == 0:
         received_bundle, _ = validate_result(result)
         manifest = SnapshotManifest.model_validate_json(args.manifest.read_text())
@@ -83,28 +84,42 @@ def serve(settings):
             super().setup()
             self.connection.settimeout(240)
 
-        def do_POST(self):
-            nonlocal completed
-            response = {"state": "NEEDS_HUMAN", "reason": "CONTROLLED_RUNTIME_FAILURE"}
-            try:
-                size = int(self.headers.get("Content-Length", "0"))
-                if self.path != "/run" or not 0 < size <= 32768:
-                    raise ValueError("invalid request")
-                body = json.loads(self.rfile.read(size))
-                if set(body) != {"web_identity_token", "run_id"} or not isinstance(body["web_identity_token"], str):
-                    raise ValueError("invalid fields")
-                response = execute(settings, body["web_identity_token"], body["run_id"])
-            except Exception:
-                pass  # SDK responses may include credentials; return a fixed error only.
-            finally:
-                completed += 1
+        def respond(self, status, response):
             data = json.dumps(response).encode()
-            self.send_response(200)
+            self.send_response(status)
             self.send_header("Content-Type", "application/json")
             self.send_header("Content-Length", str(len(data)))
             self.send_header("Cache-Control", "no-store")
             self.end_headers()
             self.wfile.write(data)
+
+        def do_POST(self):
+            nonlocal completed
+            if self.path == "/run":
+                # No protected product source supplies this broker with a snapshot yet.
+                self.respond(503, {"state": "NEEDS_HUMAN", "reason": "PRODUCT_INPUT_UNAVAILABLE"})
+                return
+            if self.path != "/validation/fixture":
+                self.respond(404, {"state": "NEEDS_HUMAN", "reason": "UNKNOWN_ROUTE"})
+                return
+            try:
+                size = int(self.headers.get("Content-Length", "0"))
+                if not 0 < size <= 32768:
+                    raise ValueError("invalid length")
+                body = json.loads(self.rfile.read(size))
+                if (not isinstance(body, dict) or set(body) != {"web_identity_token", "run_id"}
+                        or not isinstance(body["web_identity_token"], str)):
+                    raise ValueError("invalid fields")
+            except (ValueError, RecursionError):
+                self.respond(400, {"state": "NEEDS_HUMAN", "reason": "INVALID_FIXTURE_REQUEST"})
+                return
+            completed += 1
+            try:
+                response = execute_fixture(settings, body["web_identity_token"], body["run_id"])
+            except Exception:
+                # SDK responses may include credentials; return a fixed error only.
+                response = {"state": "NEEDS_HUMAN", "reason": "CONTROLLED_RUNTIME_FAILURE"}
+            self.respond(200, response)
 
     with HTTPServer(("127.0.0.1", 18761), Handler) as server:
         server.timeout = 1
