@@ -87,3 +87,7 @@ issuer/audience/client/ACR, 실제 사람 subject 목록으로 access token을 �
 권한, 승인 취소를 기존 DB/plan lock에 연결한다. 실제 T19/SHIFT authority는 별도로 필요하고
 생략하면 거부한다. 로그인 제공자나 운영 권한을 자동 생성하지 않는다.
 계약·미연결 입력·관리 경계는 [운영자 연결 제안](../../docs/contracts/T10-operator-access-v1-proposal.md)을 본다.
+
+## 환경·앱·계획 등록
+
+운영자 API의 세 POST 경로는 실제 collector 접속·권한과 앱 배포를 확인해 계획을 COLLECT에서 시작한다. 호스트 설정과 v2→v3 적용 순서는 [등록 계약](../../docs/contracts/T10-registration.md)에 있다.

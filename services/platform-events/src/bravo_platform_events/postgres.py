@@ -38,7 +38,7 @@ class PostgresPlanStore(PlanStore):
         self._conninfo = conninfo
         with self._transaction() as c:
             versions = c.execute("SELECT version FROM schema_version").fetchall()
-            if versions not in ([{"version": 1}], [{"version": 2}]):
+            if versions not in ([{"version": 1}], [{"version": 2}], [{"version": 3}]):
                 raise StorageUnavailable("unsupported_storage_schema")
 
     @contextmanager
