@@ -528,10 +528,10 @@ Claude Code는 `/todo-task`, Codex는 `$todo-task`로 이 순서를 따르는 �
 - [ ] 진입점 쓰기 차단은 앱 쓰기 차단 스위치(T4)로 호출
 - [ ] 출발지 WebSocket 1012 종료 (demo-chat 관리 API로 호출)
 - [ ] 무결성 비교를 T13에 연결 (임시 비교 `UNVERIFIED` 제거)
-- [ ] Executor 배포: 이미지 · 플랫폼 배포 매니페스트 (두 클러스터 권한 · 접속 경로는 T6 · T7 · T30에서 받음)
-- [ ] 실제 환경(T8 · T30)에서 컷오버 1회 · ABORT_PRE_WRITE · SAFE_HOLD 확인
+- [ ] Executor 이미지(Dockerfile) · 플랫폼 배포 매니페스트 생성기 (이미지 게시 · 플랫폼 배포는 T7)
+- [ ] k3d 모의 환경에서 컷오버 1회 · ABORT_PRE_WRITE · SAFE_HOLD 확인 (실제 환경 확인은 T25)
 
-**완료 기준** 부하 없이 컷오버 1회 성공, ABORT_PRE_WRITE · SAFE_HOLD 분기를 각 1회 시험.
+**완료 기준** k3d 모의 환경에서 부하 없이 컷오버 1회 성공, ABORT_PRE_WRITE · SAFE_HOLD 분기를 각 1회 시험. 실제 환경(T8 · T30) 확인은 T25에서 한다.
 
 ### [T13] 무결성 비교와 영수증
 
@@ -788,6 +788,7 @@ Claude Code는 `/todo-task`, Codex는 `$todo-task`로 이 순서를 따르는 �
 **목표** 쓰기 정지와 안전 동작을 반복 측정으로 보인다.
 
 **할 일**
+- [ ] 실제 환경(T8 · T30)에서 부하 없이 첫 컷오버 1회 · ABORT_PRE_WRITE · SAFE_HOLD 확인 (T12에서 이동, Executor 배포는 T7)
 - [ ] 5회 측정 리포트
 - [ ] 장애별 결과(ABORT_PRE_WRITE / SAFE_HOLD) 기록
 

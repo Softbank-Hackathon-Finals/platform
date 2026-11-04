@@ -37,11 +37,13 @@ T18이 만든 창의 형식·시간·통계 검사는 [T36 관측 계약](../obs
 | T18 생산자 | 검증된 HTTP 호스트 호출만. SQL 자격 없음 |
 | Collector / Executor | 이번 변경으로 새 DB 권한 없음 |
 
-이번 PR은 운영 DB에 migration을 적용하지 않는다. SQLite 참조 저장소는 자체 초기화 시 창 테이블을 만들며, PostgreSQL 호스트가 DDL을 자동 실행하는 방식으로 바꾸지 않는다.
+저장 포트의 최초 검증(#181)은 운영 DB에 migration을 적용하지 않았다. HTTP 배포는 [수신부 운영 절차](../../services/platform-events/deploy/window/README.md)에 따라 별도 migration 작업으로 진행한다. SQLite 참조 저장소는 자체 초기화 시 창 테이블을 만들며, PostgreSQL HTTP 서버는 DDL을 자동 실행하지 않는다.
 
 ## T18 접속 인계
 
-[T18 실행 위치 스레드](https://softbankhackathon2026.slack.com/archives/C0CDEFEB83U/p1793721617426529)에 맞춰 창 POST·전용 Bearer·Tailscale 생산자 ACL을 유지한다. 제안 포트 30981은 배포 완료된 수신 주소가 아니다. 실제 생산자 EC2/태그·수신 주소·전용 Secret·제한된 DB egress는 T7/T18/T36과 인계 후 연결한다. 현재 T36 HTTP 호스트는 이 포트에 연결되지 않았고, 이 PR은 공개 HTTP 경로나 토큰 검증기를 추가하지 않는다. 연결 전 생산자는 기존 `windows.jsonl` 경로를 유지한다.
+[T18 실행 위치 스레드](https://softbankhackathon2026.slack.com/archives/C0CDEFEB83U/p1793721617426529)에 맞춰 창 POST·전용 Bearer·Tailscale 생산자 ACL을 유지한다. T10 HTTP 호스트는 `window_api.py`이며 T36의 고정된 파서·제한·검사 코드를 소비한다. Kubernetes Service의 30981을 Tailscale Operator가 노출하고 `tag:bravo-loadgen`만 수신 태그에 접근한다. 호스트 NodePort나 공인 HTTP를 열지 않는다. 실제 주소와 자격 값은 공개 문서에 넣지 않는다.
+
+전용 Secret의 SHA-256 매핑으로 서버 소유 `ProducerIdentity`를 만든다. 업로드 뒤와 계획 잠금을 얻은 직후에 다시 읽고, DB의 최신 binding도 같은 트랜잭션에서 검사한다. HTTP에는 binding 관리·계획 생성·SQL·실행 경로가 없다. `201`은 commit 뒤에만 반환한다. 운영 절차와 토큰 교체·회수 순서는 [수신부 안내](../../services/platform-events/deploy/window/README.md)를 따른다. T18의 실제 EC2·계획·전달 경로가 인수되기 전까지 `windows.jsonl`도 보존한다.
 
 ## 검증
 

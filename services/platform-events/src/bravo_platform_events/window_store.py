@@ -61,7 +61,13 @@ class _TransactionWindows:
 
     @staticmethod
     def _us(value):
-        return (_timestamp(value) - datetime(1970, 1, 1, tzinfo=UTC)) // timedelta(microseconds=1)
+        try:
+            instant = _timestamp(value)
+        except ValueError:
+            # The pinned upstream accepts longer fractional seconds than our
+            # timestamp primitive. This is invalid input, not a DB outage.
+            raise IntakeRejected("invalid_window") from None
+        return (instant - datetime(1970, 1, 1, tzinfo=UTC)) // timedelta(microseconds=1)
 
     def _require_plan(self, plan_id):
         if plan_id != self.plan_id:
@@ -159,16 +165,20 @@ class WindowIntake:
             raise EventError("forbidden")
         return plan
 
-    def receive(self, producer: ProducerIdentity, document: object):
+    def receive(self, producer: ProducerIdentity, document: object, *, revalidate=None):
         """Return only after commit; StorageUnavailable may mean commit is unknown.
 
         T36 owns schema/statistics/time validation. This host owns identity,
         current plan binding and the transaction. A retained old window still
         becomes STALE under T36 judgement; receiving it never means PASS.
+        A credential host can revalidate its external authority after this
+        transaction obtains the lock; never use a body-supplied callback.
         """
         if not isinstance(producer, ProducerIdentity):
             raise EventError("forbidden")
         with self.store._transaction(write=True, plan_id=producer.plan_id) as c:
+            if revalidate is not None and revalidate() != producer:
+                raise EventError("forbidden")
             now = self.clock()  # After waiting for the plan lock, not at HTTP entry.
             self._authorized(c, producer, now)
             result = accept(_TransactionWindows(c, producer.plan_id), document, now=now,
