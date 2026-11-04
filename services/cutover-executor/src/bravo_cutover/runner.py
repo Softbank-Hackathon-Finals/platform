@@ -12,6 +12,7 @@ from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from functools import partial
 from typing import Any, Protocol
 from uuid import UUID
 
@@ -81,6 +82,20 @@ class Run:
     step: str | None = None
     committed: bool = False
     recovery: dict[str, Any] = field(default_factory=lambda: {"version": 1, "baseline": None, "effects": []})
+
+
+class _GuardedRaise:
+    """correct_sequence에 넘기는 목적지. 읽기는 그대로 넘기고, 시퀀스를 올리는 호출만 _act로 보내
+    실제 변경 직전에 소유를 확인한다(앞의 조회 도중 넘겨받혔으면 올리지 않는다)."""
+
+    def __init__(self, db: DbControl, act: Callable[..., Any]):
+        self._db, self._act = db, act
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._db, name)
+
+    def raise_sequence(self, sequence: str, next_value: int) -> int:
+        return self._act(self._db.raise_sequence, sequence, next_value)
 
 
 def _not_matched(result: dict[str, Any], tables: list[str]) -> str | None:
@@ -560,7 +575,7 @@ class Cutover:
             try:
                 for name, (table, column) in self._settings.sequences.items():
                     run.receipt["sequences"].append(
-                        self._act(run, correct_sequence, src.db, dst.db, name, table, column))
+                        correct_sequence(src.db, _GuardedRaise(dst.db, partial(self._act, run)), name, table, column))
             except FingerprintUnconfirmed as e:
                 sequence_error = e
                 run.receipt["sequence_error"] = {"code": e.code, "sqlstate": e.sqlstate}

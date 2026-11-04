@@ -58,6 +58,7 @@ class World:
         self.bypass = {"src": [], "dst": []}  # 업무 역할이 아닌 클라이언트 세션
         self.seq = {"src": SequenceState(9, True, 9, 2**63 - 1), "dst": SequenceState(9, True, 9, 2**63 - 1)}
         self.seq_readback_lost = False  # 목적지 시퀀스를 올려도 다시 읽으면 그대로(올리기 미반영)
+        self.on_sequence_read: dict[str, object] = {}  # 환경 → 그 환경 시퀀스를 처음 읽을 때 실행할 함수
         self.calls: list[str] = []
         self.after: dict[str, object] = {}  # 호출 이름 → 그 호출 직후 실행할 함수
 
@@ -115,6 +116,8 @@ class FakeDb:
         return barrier_id in self.w.barriers
 
     def sequence_state(self, sequence, table, column):
+        if fn := self.w.on_sequence_read.pop(self.ns, None):
+            fn()
         return self.w.seq[self.ns]
 
     def raise_sequence(self, sequence, next_value):
@@ -490,6 +493,27 @@ def test_match_raises_lagging_target_sequence_before_opening_target(store, world
     [sequence] = execution.result["receipt"]["sequences"]
     assert (sequence["src_next"], sequence["dst_set"], sequence["raised"]) == (42, 42, True)
     assert world.calls.index("dst.raise_sequence") < world.calls.index("dst.set_login:True")
+
+
+def test_takeover_during_sequence_read_sends_no_raise(store, postgres_dsn, world):
+    """#176 류지환 리뷰: 목적지 시퀀스를 읽는 도중 넘겨받히면, 앞 프로세스는 그 뒤 시퀀스를 올리지 않는다."""
+    from bravo_cutover.store import Store
+
+    world.seq["dst"] = SequenceState(1, False, 9, 2**63 - 1)  # 올려야 하는 상태
+    execution_id = start(store)
+    newer = Store(postgres_dsn)
+
+    def takeover():
+        newer.claim(execution_id, takeover=True)
+        assert not store.owns(execution_id)
+
+    world.on_sequence_read["dst"] = takeover
+    try:
+        FakeCutover(store, world).run(execution_id)
+        assert "dst.raise_sequence" not in world.calls and world.calls[-1] == "src.insert_barrier"
+        assert world.seq["dst"].next_value == 1
+    finally:
+        newer.close()
 
 
 def test_unconfirmed_sequence_raise_aborts_before_write(store, world):
