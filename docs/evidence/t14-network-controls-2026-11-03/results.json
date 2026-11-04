@@ -15,8 +15,14 @@
   "timestamp": "2026-11-03T12:17:52.183901+00:00",
   "module_sha256": "0074b376af8ac7b45a021666b19e6115eac097143c8e98f277f9a06ea0256476",
   "evidence_count": 12,
-  "source_sha256": {
-    "services/control-runner/src/bravo_controls/network_probes.py": "0074b376af8ac7b45a021666b19e6115eac097143c8e98f277f9a06ea0256476",
-    "services/control-runner/tests/integration/verify_network_controls.py": "6fa30bbb29fde4dcc678541f4bc433fa4e4dc1647db4f6e86266af302ca4a4cd"
-  }
+  "source_files": [
+    {
+      "path": "services/control-runner/src/bravo_controls/network_probes.py",
+      "sha256": "0074b376af8ac7b45a021666b19e6115eac097143c8e98f277f9a06ea0256476"
+    },
+    {
+      "path": "services/control-runner/tests/integration/verify_network_controls.py",
+      "sha256": "6fa30bbb29fde4dcc678541f4bc433fa4e4dc1647db4f6e86266af302ca4a4cd"
+    }
+  ]
 }
