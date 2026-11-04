@@ -83,3 +83,44 @@
 **영향:** 백업 · 복원(T35, DR-01)의 복구 지점이 끊긴다. 보관이 계속 실패하면 WAL이 쌓여 디스크를 채운다.
 
 **확인:** CNPG 클러스터 상태와 Pod 로그의 보관 오류(저장소 자격 · 권한 · 네트워크). 출발지는 S3, 목적지는 SeaweedFS다.
+
+## BravoPgBouncerDown
+
+**뜻:** exporter가 PgBouncer 관리 DB에 접속하지 못하거나(`pgbouncer_up == 0`), Collector가 exporter를 긁지 못한 상태(`up == 0`)가 1분 넘게 이어진다. 둘 다 PgBouncer 긁기 경로의 출처 라벨(`bravo_signal="pgbouncer-scrape"`)이 있는 지표만 본다.
+
+**영향:** 앱 → PgBouncer → DB 경로가 끊겼을 수 있다. exporter만의 문제(통계 계정 · TLS · NetworkPolicy)일 수도 있다. 이 알림은 판정 입력이 아니다. 컷오버는 Executor가 PgBouncer에서 직접 확인한다.
+
+**확인 순서**
+1. `kubectl -n <pooler 네임스페이스> get deploy,pods -l app=<pooler>`: PgBouncer Pod가 Ready인가
+2. 앱의 `/api/health/db`가 성공하는가. 성공하면 exporter 쪽 문제다
+3. `kubectl -n bravo-observability logs deploy/bravo-pgbouncer-exporter`: 인증 실패(통계 계정 · auth_file), TLS 검증 실패(CA · 서버 이름), 연결 시간 초과(NetworkPolicy)
+
+**하지 말 것:** 통계 계정 대신 컷오버 제어 계정(`admin_users`)을 exporter에 넣지 않는다. 그 계정은 PAUSE · RELOAD를 할 수 있다.
+
+## BravoPgBouncerPausedTooLong
+
+**뜻:** PgBouncer DB 항목이 PAUSE 상태로 2분 넘게 있다. 컷오버의 PAUSE는 보통 몇 초다.
+
+**영향:** 그 DB로 가는 앱 요청이 오류 없이 대기한다. 사용자는 응답 없음으로 느낀다.
+
+**확인 순서**
+1. 상태 머신이 컷오버 중이거나 SAFE_HOLD인가. SAFE_HOLD면 의도한 정지일 수 있다
+2. Executor 기록에서 PAUSE 뒤 RESUME이 실패했거나 실행되지 않았는가
+3. `SHOW DATABASES`로 `paused` 값을 직접 확인한다(통계 계정으로 볼 수 있다)
+
+**하지 말 것:** 상태 머신과 Executor를 확인하지 않고 RESUME하지 않는다. 쓰기를 받는 DB가 둘이 될 수 있다(설계 원칙).
+
+## BravoPgBouncerClientsWaiting
+
+**뜻:** 같은 환경·pooler·DB에서 `paused=0`을 관측했고, 서버 연결을 기다리는 클라이언트가 2분 넘게 있다.
+
+PAUSE 지표가 없으면 이 경보는 발화하지 않는다. 조회 API는 대기 수를 보존하되 `paused=null`·`UNOBSERVABLE`로 표시한다. 경보가 없다는 사실만으로 정상 또는 PAUSE 해제를 판단하지 않는다.
+
+**영향:** 풀이 모자라거나(`default_pool_size`) DB가 느려 앱 요청이 밀린다.
+
+**확인 순서**
+1. 조회 API PgBouncer 뷰에서 그 DB의 활성 · 대기 클라이언트와 활성 서버 연결 수
+2. DB 쪽: `BravoDatabaseDown`, 느린 쿼리, 잠금
+3. 부하가 데모 예상보다 큰가(T18 실행 요약)
+
+**하지 말 것:** 원인을 보지 않고 풀 크기만 늘리지 않는다. DB 연결 한도를 넘길 수 있다.
