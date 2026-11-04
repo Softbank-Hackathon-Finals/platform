@@ -20,7 +20,7 @@ if __name__ == "__main__":
         # Separate durable stores/real T10 APIs for the two response-loss cases.
         # Fixtures exist only in this local test entry point, never ConsoleApp.
         apps = {}
-        for plan in ("plan-before", "plan-after"):
+        for plan in ("plan-before", "plan-after", "plan-approve-loss"):
             case, _, counters, _ = setup(
                 Path(root) / (plan + ".db"),
                 origin="http://127.0.0.1:18121", plan_id=plan,
@@ -36,7 +36,7 @@ if __name__ == "__main__":
             case.api.add_api_route(f"/v1/plans/{plan}/fixture-stats", stats_endpoint(counters))
             apps[plan] = case
 
-        for plan in ("plan-change", "plan-change-loss"):
+        for plan in ("plan-change", "plan-change-loss", "plan-change-pre", "plan-change-version"):
             case, _, counters, _ = setup_change(
                 Path(root) / (plan + ".db"), origin="http://127.0.0.1:18121", plan_id=plan,
             )

@@ -370,7 +370,7 @@ export class Model {
       Date.parse(b.expires_at) > now
     );
   }
-  changeEligible(now) {
+  changeReady(now) {
     const req = this.request,
       b = req?.data.binding;
     return Boolean(
@@ -386,16 +386,22 @@ export class Model {
         b.plan_id === this.plan &&
         b.plan_digest === this.snapshot.plan_digest &&
         b.target_environment_id === this.snapshot.target_environment_id &&
-        Date.parse(b.expires_at) > now &&
-        !this.events.some(
-          (e) =>
-            e.sequence > req.sequence &&
-            e.event_type === "approval.decided" &&
-            e.data.approval_kind === "change" &&
-            e.run_id === req.run_id &&
-            JSON.stringify(changeBinding(e.data.binding)) ===
-              JSON.stringify(changeBinding(b)),
-        ),
+        Date.parse(b.expires_at) > now,
+    );
+  }
+  changeEligible(now) {
+    const req = this.request;
+    return (
+      this.changeReady(now) &&
+      !this.events.some(
+        (e) =>
+          e.sequence > req.sequence &&
+          e.event_type === "approval.decided" &&
+          e.data.approval_kind === "change" &&
+          e.run_id === req.run_id &&
+          JSON.stringify(changeBinding(e.data.binding)) ===
+            JSON.stringify(changeBinding(req.data.binding)),
+      )
     );
   }
   changeApprovalRequest(now) {

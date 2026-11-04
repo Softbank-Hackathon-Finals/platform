@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { Model, changeBinding } from "../src/bravo_console/static/model.js";
 import { plan, snap, now, ev, bind, receipt } from "./fixtures.js";
+import { canRepeatApproval } from "../src/bravo_console/static/recovery.js";
 
 const { gate_id, context_digest, ...candidate } = bind;
 function setup(binding = candidate) {
@@ -21,6 +22,38 @@ function setup(binding = candidate) {
   });
   m.connected = true;
   return m;
+}
+
+for (const fault of [
+  "none",
+  "version",
+  "run",
+  "new-request",
+  "expired",
+  "offline",
+  "gap",
+  "body",
+]) {
+  test(`approval repeat requires explicit frozen current context: ${fault}`, () => {
+    const m = setup(),
+      pending = {
+        kind: "approve-change",
+        plan,
+        body: m.changeApprovalRequest(now),
+        snapshot: structuredClone(m.snapshot),
+        cursor: m.cursor,
+        requestEventId: m.request.event_id,
+      };
+    let at = now;
+    if (fault === "version") m.snapshot.version++;
+    if (fault === "run") m.request.run_id = "other-run";
+    if (fault === "new-request") m.request.event_id = `${plan}:9`;
+    if (fault === "expired") at += 600000;
+    if (fault === "offline") m.connected = false;
+    if (fault === "gap") m.snapshot.last_event_id = `${plan}:3`;
+    if (fault === "body") pending.body.expected_version++;
+    assert.equal(canRepeatApproval(m, pending, at), fault === "none");
+  });
 }
 
 for (const binding of [candidate, bind]) {
