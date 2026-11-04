@@ -115,6 +115,12 @@ app = ConsoleApp(authenticated_t10_app,
 
 시험 호스트의 보고서와 신뢰 콜백은 명시적인 fixture다. 실제 T19 정본 저장소·발급자 인증 연결과 팀 환경 자격은 남아 있으며, fixture PASS를 실제 보안 통제 통과로 사용하지 않는다.
 
+`tests/test_gate_interop.py`는 실제 T14 Runner → T19 GateService → T10 계획 저장 →
+T21 HTTP 투영을 연결한다. 정상·목적지 실패·출발/목적 시험 누락·증거 만료 5개 경로에서
+판정과 이유가 유지되고, 보고서 발급 권한을 회수하면 같은 문서도 공개되지 않는지 확인한다.
+수집 관찰·호스트 신원은 명시적인 합성 fixture다. 이 시험은 실제 AWS/RKE2 통제 성공이나
+운영 인증을 증명하지 않으며, 화면 조회 과정에서 Executor 호출은 0건이어야 한다.
+
 ## 실제 T37 관측 투영 시험
 
 T22 하네스에 `--console-browser`를 함께 주면 같은 T21/T37 경로를 실제 Chromium과
