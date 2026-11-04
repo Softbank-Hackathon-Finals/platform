@@ -4,11 +4,12 @@
 #  1. 두 매니페스트가 Pod 보안 표준 restricted 네임스페이스에서 뜬다 (비루트 · 읽기 전용 루트 · 권한 제거)
 #  2. 라벨(bravo.observability/send=true)을 붙인 네임스페이스의 앱 지표만 Collector를 거쳐 mTLS로 저장소에 도착한다
 #  3. 라벨이 없는 네임스페이스는 NetworkPolicy가 막는다 (Collector로 보내기, 지표 저장소 연결 모두)
+#     다른 클러스터의 Collector 경로: tailnet Service의 Tailscale operator proxy Pod(같은 라벨로 흉내)만 닿고, 다른 Service의 proxy는 막힌다
 #  4. Collector를 0개로 줄이면 BravoEnvUnobservable 알림이 onprem에 대해 뜬다
 #  5. 콘솔용 조회 API가 restricted로 뜨고, platform-client 라벨 네임스페이스에서만 호출된다(토큰 필수)
 #  6. DB 오버레이: T6과 같은 CNPG(오퍼레이터 1.30.1, PostgreSQL 18.4)의 지표가 최소 권한으로 수집되고 조회 API DB 뷰에 보인다
 #     DB 긁기 경로의 지표에만 출처 라벨(bravo_signal=cnpg-scrape)이 붙고, 앱이 같은 이름의 지표를 보내도 DB 뷰에 들어오지 않는다
-#  7. 창 수신(T36)이 restricted로 뜨고, window-producer 라벨 네임스페이스의 수신 토큰만 받으며, 밖으로 나가지 못한다
+#  7. 창 수신 참조 배치(T36, k8s-overlay에만 있음)가 restricted로 뜨고, window-producer 라벨 네임스페이스의 수신 토큰만 받으며, 밖으로 나가지 못한다
 #  8. PgBouncer 오버레이: T6과 같은 이미지 · 설정의 PgBouncer를 통계 계정(stats_users)으로 긁는다. 통계 계정은 PAUSE를 못 하고,
 #     exporter는 Collector만 부를 수 있으며, PgBouncer 지표에 출처(pgbouncer-scrape) · pooler 라벨이 붙는다.
 #     조회 API PgBouncer 뷰가 OK · PAUSED를 구분하고, 앱이 같은 이름의 지표를 보내도 뷰에 들어오지 않는다
@@ -234,6 +235,25 @@ denied=$(probe stranger)
 check $r "대조군: platform-client 라벨 네임스페이스(console)에서는 지표 저장소 9090 연결 성공 (probe: ${allowed:-없음})"
 [ "$denied" = Failed ] && r=ok || r=fail
 check $r "라벨이 없는 네임스페이스(stranger)에서 지표 저장소 9090 연결은 NetworkPolicy가 막음 (probe: ${denied:-없음})"
+
+# k3s에는 Tailscale operator가 없다. operator가 tailnet Service마다 tailscale-system에 띄우는 proxy Pod의 라벨
+# (1.104.4 childResourceLabels)을 붙인 Pod로, NetworkPolicy가 이 저장소의 proxy만 받는지 본다. tailnet 경로 자체는 재지 않는다.
+kubectl create namespace tailscale-system >/dev/null
+tsproxy() { # Pod 이름, parent-resource
+  kubectl -n tailscale-system run "$1" --image=busybox:1.37.0@sha256:a7dbc319b1438115a207e11930dc4bb3e643dcb3ec0bdd694bb36cd8fad289ec --restart=Never \
+    --labels="tailscale.com/managed=true,tailscale.com/parent-resource-type=svc,tailscale.com/parent-resource=$2,tailscale.com/parent-resource-ns=$NS" \
+    -- nc -z -w 5 "bravo-prometheus-tailnet.$NS.svc" 9090 >/dev/null
+  for _ in $(seq 30); do p=$(kubectl -n tailscale-system get pod "$1" -o jsonpath='{.status.phase}'); case $p in Succeeded|Failed) break;; esac; sleep 2; done
+  echo "$p"
+}
+ts_ok=$(tsproxy ts-metrics bravo-prometheus-tailnet)
+ts_other=$(tsproxy ts-other bravo-window-intake)
+svcdesc() { kubectl -n "$NS" get svc "$1" -o jsonpath='{.spec.type}/{.metadata.annotations.tailscale\.com/expose}/{.metadata.annotations.tailscale\.com/tags}'; }
+svc="$(svcdesc bravo-prometheus) $(svcdesc bravo-prometheus-tailnet)"
+[ "$ts_ok" = Succeeded ] && [ "$svc" = "ClusterIP// ClusterIP/true/tag:bravo-metrics" ] && r=ok || r=fail
+check $r "tailnet Service(bravo-metrics, tag:bravo-metrics)의 operator proxy Pod는 9090 연결 성공, NodePort 없음 (proxy: ${ts_ok:-없음}, Service: ${svc})"
+[ "$ts_other" = Failed ] && r=ok || r=fail
+check $r "다른 Service의 operator proxy Pod(parent-resource=bravo-window-intake)는 NetworkPolicy가 막음 (proxy: ${ts_other:-없음})"
 
 echo "== 조회 API"
 call() { # 네임스페이스 토큰 이름 [경로]

@@ -17,7 +17,7 @@
 **확인 순서**
 1. Collector Pod가 떠 있는가: `kubectl -n <관측 네임스페이스> get pods`. 상태 확인 엔드포인트는 13133이다.
 2. Collector 로그에 TLS 오류(인증서 만료, 이름이 허용 목록에 없음)나 전송 실패가 있는가.
-3. 클러스터에서 플랫폼 지표 저장소 포트로 가는 Tailscale 경로가 살아 있는가. 온프렘은 바깥 방향 연결만 쓴다.
+3. 클러스터에서 플랫폼 지표 저장소(`bravo-metrics.<tailnet>.ts.net:9090`)로 가는 Tailscale 경로가 살아 있는가. 온프렘은 바깥 방향 연결만 쓴다. 플랫폼 쪽은 `tailscale-system`에서 `tailscale.com/parent-resource=bravo-prometheus-tailnet` proxy Pod가 Running인가.
 4. 플랫폼 지표 저장소 자체가 살아 있는가. 모든 환경이 동시에 알리면 저장소 쪽 문제다.
 5. 노드 시계가 맞는가. 생존 신호 시각은 Collector 호스트 시계다.
 

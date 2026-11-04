@@ -3,7 +3,6 @@ kind: Kustomization
 namespace: bravo-observability
 resources:
   - resources.yaml
-  - window-intake.yaml
 configMapGenerator:
   - name: bravo-prometheus-config
     files:
