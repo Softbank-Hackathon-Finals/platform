@@ -120,7 +120,9 @@ def test_secret_rotation_during_body_upload_rejects_old_bearer(host):
             yield b" "
             value = json.loads(path.read_text())
             value["token_sha256"] = hashlib.sha256(b"replacement-token").hexdigest()
-            path.write_text(json.dumps(value))
+            replacement = path.with_suffix(".new")
+            replacement.write_text(json.dumps(value))
+            replacement.replace(path)  # Secret volumes replace files atomically.
             yield json.dumps(window()).encode()
         async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
             return await client.post(URL, content=body(), headers=HEADERS)
@@ -167,7 +169,9 @@ def test_secret_rotation_while_waiting_for_actual_database_lock(host):
                         time.sleep(0.01)
             value = json.loads(path.read_text())
             value["token_sha256"] = hashlib.sha256(b"replacement-token").hexdigest()
-            path.write_text(json.dumps(value))
+            replacement = path.with_suffix(".new")
+            replacement.write_text(json.dumps(value))
+            replacement.replace(path)  # Never expose an artificial partial JSON file.
         assert pending.result(timeout=10).status_code == 401
     assert fixture.raw_latest() is None
 

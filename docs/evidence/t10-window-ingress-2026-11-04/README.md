@@ -40,3 +40,9 @@ DB 담당이 12:48 KST에 migration 직전 암호화 백업과 격리 복구를 
 T18의 실제 EC2 위치·실제 계획 ID·토큰 전달 경로는 담당자 확인 대기다. 원문 토큰을 팀원에게 전송하지 않았고 수신 URL도 공개 증빙에 넣지 않았다. 실제 연결은 새 자격과 현재 계획 binding을 발급해 인수한다. T36 담당자는 전용 Operator/태그 경로가 계약과 맞음을 확인했으며, T10 호스트 사용과 오류 코드 시험 결과를 원 스레드에 답했다.
 
 현재 배포는 단일 노드의 검증된 OCI cache를 쓴다. 새 노드·cache 유실 시 재import가 필요하며 지속 registry 배포·HA를 완료한 것으로 보지 않는다. T10 #19의 기존 7개 체크 중 이번 수신부만으로 추가 완료 체크를 만들지 않는다.
+
+## 첫 CI 실행의 보완
+
+[첫 실행](https://github.com/Softbank-Hackathon-Finals/platform/actions/runs/41771486839)에서는 제품과 다른 방식으로 파일을 교체하던 SQLite 시험 fixture에서 경합이 드러났다. truncate/write 중 인증기가 부분 JSON을 읽으면 정상적으로 503으로 닫히지만, 시험은 401을 기대했다. fixture를 Kubernetes Secret처럼 임시 파일의 원자적 교체로 바꿨다. HTTP 38개와 SQLite/PostgreSQL 잠금 대기 교체를 각각 15회(총 30회) 다시 확인했다. 제품 runtime·배포 이미지·클라우드 검증 대상은 바뀌지 않았다.
+
+같은 실행의 `control-gate`는 #181의 T10 path dependency에 추가된 고정 관측 패키지를 lock에 반영하지 않아 `uv sync --locked`에서 멈췄다. [상무님의 범위 합의](https://softbankhackathon2026.slack.com/archives/C0CDEFEB83U/p1793765699730399) 후 `services/control-gate/uv.lock`만 갱신했다. 실제 PR 작업본에서 locked sync와 gate 231개 시험을 통과했다. 판정 코드·CI 규칙은 유지했다. 결과와 변경 범위는 [ci-followup.json](ci-followup.json)에 기록하며, 최종 GitHub CI와 리뷰 승인은 PR에서 별도로 확인한다.
