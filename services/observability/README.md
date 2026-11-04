@@ -54,7 +54,7 @@ T18 부하 생성기가 창 요약을 보내는 곳이다. 콘솔 조회 API와 
 | [`deploy/certs/issue.sh`](deploy/certs/issue.sh) | 인증서 발급 · 만료 검사. 절차: [인증서](../../docs/observability/certificates.md) |
 | [`Dockerfile`](Dockerfile) | 조회 API · 창 수신 이미지(비루트, digest 고정 기반 이미지). 빌드 컨텍스트는 저장소 루트다: `docker build -f services/observability/Dockerfile .` |
 | [`testing/`](testing/) | `run.sh`(compose), `k8s.sh`(Docker 안 k3s + CNPG), `rotation.sh`(인증서 교체) |
-| [런북](../../docs/observability/runbooks.md) | 알림 8개의 뜻 · 확인 순서 · 조치 |
+| [런북](../../docs/observability/runbooks.md) | 알림 11개의 뜻 · 확인 순서 · 조치 |
 
 적용 순서(실제 환경): Secret · ConfigMap을 만들고(아래 "배포 전에 만들 것"), 플랫폼은 `kubectl apply -k deploy/platform`을 적용한다. DB가 있는 클러스터는 `deploy/collector-db`(PgBouncer도 있으면 `deploy/collector-db-pgbouncer`)와 `deploy/collector-db-access`를, 없는 클러스터는 `deploy/collector`를 적용한다. 조회 API 이미지는 배포 파이프라인이 kustomize `images`로 레지스트리@digest를 넣는다. 넣지 않으면 pull이 실패한다.
 
@@ -84,9 +84,10 @@ T18 부하 생성기가 창 요약을 보내는 곳이다. 콘솔 조회 API와 
   - `GET /v1/observability/environments/{env}/database`: 인스턴스, 논리 슬롯
   - `GET /v1/observability/environments/{env}/pgbouncer`: pooler별 접속 가능, DB별 PAUSE와 활성 · 대기 클라이언트 · 활성 서버 연결. 상태는 OK · PAUSED · DOWN · UNOBSERVABLE. PAUSED는 컷오버 중의 정상 상태일 수 있으며 판정 · 실행에 쓰지 않는다
 - **유실 내구성:** 보내지 못한 지표는 디스크 큐(5000건)에 쌓이고 10분 동안 재시도한다. 저장소가 늦은 표본을 받는 기간과 같다.
-- **알림 8개(코드 · 단위 시험 · 런북)**
+- **알림 11개(코드 · 단위 시험 · 런북)**
   - 관측 경로: 확인 불가, 전송 실패, 대기열, 거부
   - DB: 다운, 논리 슬롯 지연(64MiB, 제안값), 슬롯 비활성, WAL 보관 실패. 지표 이름은 k3s 실측으로 확인했다(counter는 `_total`).
+  - PgBouncer: 다운(page), PAUSE 2분 초과(컷오버 PAUSE는 몇 초), PAUSE가 아닌 클라이언트 대기 2분. 관리 DB와 출처 라벨 없는 지표는 보지 않는다.
 - **보존:** 3일 또는 4GB. 판정의 근거는 판정 기록에 따로 남는다.
 
 ### 보안 경계
