@@ -1,0 +1,9 @@
+{
+  "edge_log_files": 121,
+  "error_kinds": {
+    "connect() to <ipv6> failed (101: Network unreachable)": 5803,
+    "upstream prematurely closed connection": 2,
+    "no live upstreams": 305
+  },
+  "files_with_no_live_upstreams": 2
+}
