@@ -305,3 +305,45 @@ AWS `AdministratorAccess`와 Kubernetes `cluster-admin`을 가진 사람은 다�
 비공개 영수증은 본인 SSO 확인 시각/매핑, 클러스터·CA 지문, CSR UID·공개키 지문·CN, 승인자, 실제 만료, binding UID와 범위, 본인 `whoami`, 무자격/허용/일시 회수/복구/만료 결과, SSM session ID와 종료, 시험 객체 정리 및 남은 담당을 연결한다. 키·SSO 토큰·암호·관리자 kubeconfig는 영수증에 넣지 않는다. 공개본은 [공개 증빙 절차](public-evidence-policy.md)로 가리고 `PASS`/`FAIL`/`UNKNOWN`/`NOT_VERIFIED`를 보존한다.
 
 파일 전달, CSR 승인, 터널 연결, 정책 질의 중 어느 하나만으로 개인 인수를 완료 처리하지 않는다. 정상 본인 접속과 실제 작업·대조군의 관측 범위만 보고한다. T1 전체 완료, 제품 콘솔 로그인, DB/PgBouncer·Executor 소비자 인수는 각 기존 계약의 별도 완료 기준이다.
+
+## AWS SSO로 접속하는 OIDC 경로
+
+개인 인증서와 병행할 수 있는 T7 전용 경로다. 아래 준비와 운영자 실접속 검증을 마친 환경에서 사용한다. 팀원의 AWS SSO 세션에서 5분짜리 RKE2 전용 토큰을 발급한다. Kubernetes는 AWS가 서명한 Identity Store 사용자 ID로 개인을 식별한다. 이미 인증서를 받은 사람은 만료 전까지 기존 방법을 계속 쓸 수 있다.
+
+### 팀원 접속
+
+운영자가 제공한 **팀 공통 접속 설정 JSON**을 비공개로 보관한다. 파일에는 팀 AWS 계정·리전·역할 이름, 호스트 ID, Identity Store ID, 클러스터 UID, TLS 이름과 공개 서버 CA가 들어간다. 운영자가 확인한 경로에서 한 번 받아 사용한다. 실제 값은 저장소에 올리지 않는다.
+
+AWS CLI v2의 개인 SSO 프로필, Session Manager plugin, kubectl, uv가 필요하다. 저장소 루트에서 실행한다.
+
+```bash
+uv run scripts/rke2_sso.py ~/bravo/connection.private.json
+# 같은 신원·클러스터 검사를 거쳐 kubectl 명령 하나를 실행
+uv run scripts/rke2_sso.py ~/bravo/connection.private.json -- get pods -n bravo-platform
+```
+
+기본 프로필은 `bravo-personal`이다. 다른 개인 SSO 프로필은 `--profile 이름`으로 지정한다. 명령은 본인 CLI 로그인을 확인하고 SSM 터널을 연다. 서버 CA·TLS 이름을 검증한 뒤 본인 Kubernetes 이름, 대상 클러스터 UID, 노드와 필요한 권한을 확인한다. 종료할 때 이번 터널을 닫고 해당 SSM 세션의 활성 여부를 확인한다. EKS 접속은 기존 경로를 사용한다.
+
+### 운영자 적용과 회수
+
+1. AWS IAM에서 **해당 계정**의 outbound identity federation 활성화 여부와 실제 issuer를 확인한다. 최초 활성화는 계정 전체에 적용된다. 현재 SSO로 서명한 실제 토큰에서 서명, issuer, audience, 정확한 팀 역할 ARN, AWS가 넣은 `identity_store_arn`과 `identity_store_user_id`를 먼저 대조한다. 토큰은 출력하거나 보관하지 않는다. 클레임이 없으면 배포를 중단한다. 요청 태그·세션 이름으로 개인 ID를 채우지 않는다. [AWS 토큰 클레임](https://docs.aws.amazon.com/IAM/latest/UserGuide/id_roles_providers_outbound_token_claims.html)
+2. 비공개 운영 입력 JSON에 `issuer`, `account`, `role_arn`, `store_arn`, 시간대가 있는 `access_until`, `members`를 채운다. `members`는 승인된 별칭을 현재 계정에 할당된 디렉터리 사용자 ID에 매핑한다. 도구가 발급 종료 시각을 넘는 토큰을 거부하므로 마지막 5분에는 새 5분 세션을 시작할 수 없다.
+3. 아래 명령으로 인증 설정과 개인별 binding을 각각 생성한다. 최초 적용 전 기존 OIDC 또는 `--authentication-config`를 확인하고, 기존 구성과 경로·이름이 겹치면 중단한다. 생성한 binding의 subject와 현재 할당을 다시 대조한다. 기존 인증서용 binding을 덮어쓰지 않는다.
+
+   ```bash
+   umask 077
+   python3 scripts/rke2_oidc_config.py "$PRIVATE_INPUT" authenticator > authentication.json
+   python3 scripts/rke2_oidc_config.py "$PRIVATE_INPUT" bindings > human-bindings.json
+   ```
+
+4. 승인된 T7 유지보수 창에서 `authentication.json`을 root 소유 전용 디렉터리 `/etc/rancher/rke2/bravo-human-oidc/`에 설치한다. 그 디렉터리를 API 서버 컨테이너에 읽기 전용으로 마운트한다. 다음 항목만 **별도** `config.yaml.d` 파일에 추가한다. `+`는 기존 인수·마운트에 추가하는 RKE2 문법이다. 서버에서 지원하는 설정 API 버전과 issuer의 TLS·discovery·JWKS 도달성을 먼저 확인한다. [RKE2 설정 파일](https://docs.rke2.io/install/configuration) · [Kubernetes 다중 인증](https://kubernetes.io/docs/reference/access-authn-authz/authentication/#authentication-methods)
+
+   ```yaml
+   kube-apiserver-arg+:
+     - authentication-config=/etc/rancher/rke2/bravo-human-oidc/authentication.json
+   kube-apiserver-extra-mount+:
+     - /etc/rancher/rke2/bravo-human-oidc:/etc/rancher/rke2/bravo-human-oidc:ro
+   ```
+
+5. 호스트 소유자와 합의한 창에서만 서버 설정을 반영한다. API ready, 기존 인증서의 개인 이름과 권한, 노드 및 소유자가 지정한 워크로드가 회복됐는지 확인한다. 준비한 binding을 서버 dry-run으로 검증한 뒤 신규 이름으로 생성한다. 기존 이름이 있으면 정확한 subject와 roleRef가 같은지 먼저 대조한다. 운영자 개인 SSO 장치로 위 팀원 명령을 실행해 긍정 경로와 터널 종료를 확인한 후 팀 공통 접속 설정을 전달한다.
+6. 실패하면 이번에 생성한 binding과 설정만 식별해 되돌린다. 설정 복구에 필요한 재시작도 같은 창에서 수행하고 기존 인증서 접속과 워크로드를 다시 확인한다. 개인 회수는 해당 OIDC binding 제거와 허용 명단 갱신으로 처리한다. AWS 계정 기능의 비활성화는 다른 신뢰 서비스 사용 여부를 계정 소유자가 확인한 뒤 별도로 결정한다.

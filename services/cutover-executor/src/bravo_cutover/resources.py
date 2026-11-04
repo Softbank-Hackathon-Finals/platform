@@ -7,6 +7,7 @@ lease와 epoch는 이 자원 ID 하나하나에 걸린다(store). 그래서 별�
 """
 
 import json
+import re
 from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -25,6 +26,13 @@ class Resource(BaseModel):
     connection_ref: str = Field(min_length=1, max_length=256)
 
 
+class RegisteredPair(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    source: Resource
+    target: Resource
+
+
 class Registry:
     def __init__(self, resources: list[Resource]):
         self._by_env: dict[str, Resource] = {}
@@ -38,6 +46,21 @@ class Registry:
         """{"env-aws": {"resource_id": "...", "connection_ref": "..."}, ...}"""
         raw = json.loads(Path(path).read_text())
         return cls([Resource(environment_id=env, **value) for env, value in raw.items()])
+
+    def public_pair(self) -> RegisteredPair | None:
+        """Return the two registered deployment resources in their documented direction."""
+        if self._by_env.keys() != {"env-aws", "env-onprem"}:
+            return None
+        source, target = self._by_env["env-aws"], self._by_env["env-onprem"]
+        # A URI or a key=value DSN in a public identifier is a configuration error.
+        public_id = r"[A-Za-z0-9_.:-]+(?:/[A-Za-z0-9_.:-]+)*"
+        if source.resource_id == target.resource_id or not all(
+            re.fullmatch(public_id, value)
+            for resource in (source, target)
+            for value in (resource.resource_id, resource.connection_ref)
+        ):
+            return None
+        return RegisteredPair(source=source, target=target)
 
     def _resource(self, endpoint: Endpoint) -> str:
         resource = self._by_env.get(endpoint.environment_id)

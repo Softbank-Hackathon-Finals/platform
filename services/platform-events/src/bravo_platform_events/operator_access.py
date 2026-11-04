@@ -10,6 +10,7 @@ import json
 from dataclasses import replace
 from datetime import UTC, datetime
 
+from .change import ChangeApprovalService, change_key
 from .contract import validate_identifier
 from .cutover import CutoverService, _get, _key, _put, unavailable_authority
 from .cutover_api import create_cutover_app
@@ -18,7 +19,7 @@ from .operator_identity import OperatorPrincipal
 from .plans import _canonical
 from .store import EventError
 
-PERMISSIONS = frozenset({"read", "approve_cutover", "execute_cutover"})
+PERMISSIONS = frozenset({"read", "approve_cutover", "execute_cutover", "approve_change", "apply_change"})
 
 
 class OperatorAccess:
@@ -76,17 +77,21 @@ class OperatorAccess:
             _put(c, plan_id, key, request, receipt)
             return receipt
 
-    def revoke_approval(self, plan_id, approval_id, *, administration_ref: str):
+    def revoke_approval(self, plan_id, approval_id, *, administration_ref: str,
+                        approval_kind="cutover"):
         """Trusted host revocation; durable, idempotent, never cancels remote work."""
+        if approval_kind not in ("cutover", "change"):
+            raise ValueError("invalid_approval_kind")
+        key_for = change_key if approval_kind == "change" else _key
         for value in (plan_id, approval_id, administration_ref):
             validate_identifier(value)
         with self.store._transaction(write=True, plan_id=plan_id) as c:
-            if _get(c, plan_id, _key("approval", approval_id)) is None:
+            if _get(c, plan_id, key_for("approval", approval_id)) is None:
                 raise EventError("approval_unavailable")
             # Once dispatch is durable, revocation cannot pretend to roll it back.
-            if _get(c, plan_id, _key("consumed", approval_id)):
+            if _get(c, plan_id, key_for("consumed", approval_id)):
                 raise EventError("approval_already_consumed")
-            key = _key("operator-revoked-approval", approval_id)
+            key = key_for("operator-revoked-approval", approval_id)
             old = _get(c, plan_id, key)
             if old:
                 return old[1]
@@ -140,27 +145,42 @@ class OperatorAccess:
         full gate provenance/context/exception revocation, actual SHIFT/latency,
         security holds and command settings. This wrapper cannot manufacture it.
         """
-        def current(c, principal, plan, *, now, approved_by, approval_id):
-            permission = "execute_cutover" if approval_id else "approve_cutover"
+        return self._authority(upstream, "approve_cutover", "execute_cutover", _key)
+
+    def change_authority(self, upstream=unavailable_authority):
+        """Same operator rules, with distinct S2 permissions and revocations."""
+        return self._authority(upstream, "approve_change", "apply_change", change_key)
+
+    def _authority(self, upstream, approve_permission, apply_permission, key_for):
+        def current(c, principal, plan, *, now, approved_by, approval_id, **selection):
+            permission = apply_permission if approval_id else approve_permission
             self.require(c, principal, plan, permission)
             actor = approved_by or principal.subject_id
-            grant = self._require_subject(c, plan, actor, "approve_cutover", _timestamp(self.clock()).timestamp())
-            if approval_id and _get(c, plan["plan_id"], _key("operator-revoked-approval", approval_id)):
+            grant = self._require_subject(c, plan, actor, approve_permission, _timestamp(self.clock()).timestamp())
+            if approval_id and _get(c, plan["plan_id"], key_for("operator-revoked-approval", approval_id)):
                 raise EventError("forbidden")
-            context = upstream(c, principal, plan, now=now, approved_by=approved_by, approval_id=approval_id)
+            context = upstream(c, principal, plan, now=now, approved_by=approved_by, approval_id=approval_id, **selection)
             # Time may pass while upstream verifies authoritative records.
             self.require(c, principal, plan, permission)
-            self._require_subject(c, plan, actor, "approve_cutover", _timestamp(self.clock()).timestamp())
+            self._require_subject(c, plan, actor, approve_permission, _timestamp(self.clock()).timestamp())
             revision = hashlib.sha256(_canonical(dict(upstream=context.revision,
                 approved_by=actor, permission_revision=grant["revision"])).encode()).hexdigest()
             return replace(context, revision=revision)
         return current
 
 
-def create_operator_cutover_app(store, executor, *, bindings, verifier, authority=unavailable_authority,
-                               clock=None):
+def create_operator_cutover_app(store, executor, *, verifier, bindings=None, registered_pair=None,
+                               authority=unavailable_authority,
+                               change_authority=None, clock=None):
     """Explicit host wiring. No IdP, grants or gate/SHIFT fixture is installed."""
+    if (registered_pair is None) == (bindings is None):
+        raise ValueError("exactly_one_binding_source_required")
+    if registered_pair is not None:
+        bindings = executor.verified_bindings(registered_pair)
     access = OperatorAccess(store, clock=clock)
     service = CutoverService(store, executor, bindings=bindings, authority=access.authority(authority),
                              check_access=access.check_read, clock=clock)
-    return create_cutover_app(service, resolve_principal=access.resolver(verifier))
+    change_service = None if change_authority is None else ChangeApprovalService(store,
+        authority=access.change_authority(change_authority), check_access=access.check_read, clock=clock)
+    return create_cutover_app(service, resolve_principal=access.resolver(verifier),
+                              change_service=change_service)
