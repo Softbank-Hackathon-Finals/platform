@@ -263,8 +263,6 @@ class Stack:
             ("__SOURCE_PORT__", self.source_port),
             ("__TARGET_PORT__", target_port or self.target_port),
             ("__TARGET_PERCENT__", target_percent),
-            ("__SOURCE_ENV__", SOURCE_ENV),
-            ("__TARGET_ENV__", TARGET_ENV),
         ):
             conf = conf.replace(placeholder, str(value))
         path = self.out / f"edge-{name}.conf"
@@ -457,7 +455,7 @@ def window_total(window: dict) -> int:
 
 
 def scenario_direct(h: Harness) -> None:
-    """주 측정 1: 수정하지 않은 demo-chat에 직접. 헤더가 없으니 계약대로 전부 환경 미확인이다."""
+    """주 측정 1: 수정하지 않은 demo-chat에 직접. 앱이 붙인 헤더로 전부 출발지에 세어진다."""
     # 다른 작업이 값을 흔들 수 있어 세 번 돈다. 고르지 않고 셋 다 남긴다.
     for name in ("direct", "direct-2", "direct-3"):
         print(f"== {name}: 50 + 150 req/s, demo-chat 직접", flush=True)
@@ -467,21 +465,24 @@ def scenario_direct(h: Harness) -> None:
         h.check(name, "실패 · 유실 · 중복 0", rec["nfr2"] == {"failed": 0, "lost": 0, "duplicated": 0}, rec["nfr2"])
         h.check(name, "쓰기 50 req/s 달성 (±1%)", abs(rep["load"]["achieved_write_rps"] - 50) <= 0.5, rep["load"]["achieved_write_rps"])
         h.check(name, "읽기 150 req/s 달성 (±1%)", abs(rep["load"]["achieved_read_rps"] - 150) <= 1.5, rep["load"]["achieved_read_rps"])
-        h.check(name, "모든 응답이 환경 미확인으로 세어짐 (X-Bravo-Env 없음)",
-                "ENV_HEADER_MISSING" in rep["warnings"] and rep["windows"]["pools_total"] == {"source": 0, "target": 0}
-                and rep["windows"]["unattributed_total"]["other"] == rep["windows"]["requests_in_windows"],
-                rep["env_header"]["responses_without_header"])  # fmt: skip
+        h.check(name, "모든 응답이 출발지로 세어짐, 환경 미확인 0",
+                not {"ENV_HEADER_MISSING", "ENV_HEADER_UNREGISTERED"} & set(rep["warnings"])
+                and rep["windows"]["pools_total"] == {"source": rep["windows"]["requests_in_windows"], "target": 0}
+                and sum(rep["windows"]["unattributed_total"].values()) == 0 and rep["contract_error_rate"] == 0,
+                rep["env_header"])  # fmt: skip
         h.check(name, "판정 입력으로 쓸 수 없다고 표시", rep["sli_usable_for_judgement"] is False, rep["warnings"])
         h.check(name, "창 집계가 전체 시도와 일치", rep["windows"]["conserved"], rep["windows"]["requests_in_windows"])
         h.check(name, "잠금 대기를 부하 중에 측정", rep["lock_probe"]["load"]["samples"] > 0, rep["lock_probe"]["load"])
         code, line = h.check_windows_command(r.out / "windows.jsonl")
         h.check(name, "창 파일이 스키마 · 연속성 통과", code == 0, line)
+        verdicts = judged(r.windows, 0)
+        h.check(name, "기준 구현 judge가 가중치 0%에서 PASS로 읽음", all(v == "PASS" for v, _ in verdicts), [v for v, _ in verdicts])
         verdicts = judged(r.windows, 10)
-        h.check(name, "헤더가 없으니 기준 구현 judge가 오류율 FAIL로 읽음", all(v == "FAIL" and "ERROR_RATE" in why for v, why in verdicts), verdicts[0])
+        h.check(name, "가중치 10%로 읽으면 목적지 표본이 없어 UNKNOWN (PASS로 읽지 않음)", all(v == "UNKNOWN" and "NOT_APPLIED" in why for v, why in verdicts), verdicts[0])
 
 
 def scenario_mock_edge(h: Harness) -> None:
-    """주 측정 2: Edge 대역(10%)으로 환경별 집계를 본다. 헤더는 대역이 붙인다."""
+    """주 측정 2: Edge 대역(10%)으로 환경별 집계를 본다. 헤더는 앱이 붙이고 대역은 나누기만 한다."""
     print("== mock-edge: 10% 단계, Edge 대역", flush=True)
     edge = h.stack.edge("w10", target_percent=10)
     r = h.loadgen("mock-edge-10", edge, duration=h.duration, path="local-mock-edge", lock=True)
@@ -489,12 +490,14 @@ def scenario_mock_edge(h: Harness) -> None:
     h.check("mock-edge", "대조 판정 PASS", r.code == 0, rep["verdict"])
     h.check("mock-edge", "실패 · 유실 · 중복 0", rec["nfr2"] == {"failed": 0, "lost": 0, "duplicated": 0}, rec["nfr2"])
     h.check("mock-edge", "환경 미확인 0", sum(rep["windows"]["unattributed_total"].values()) == 0, rep["windows"]["unattributed_total"])
+    h.check("mock-edge", "응답마다 앱 헤더 하나, 등록된 환경 값만", rep["env_header"]["responses_without_header"] == 0 and not rep["env_header"]["unregistered_values"] and rep["contract_error_rate"] == 0, rep["env_header"])
     samples = [window_total(w) for w in r.windows]
     h.check("mock-edge", f"창마다 전체 표본 ≥ {PROFILE['min_requests']}", all(s >= PROFILE["min_requests"] for s in samples), samples)
     targets = [w["pools"]["target"]["requests"] for w in r.windows]
     h.check("mock-edge", f"창마다 목적지 표본 ≥ {PROFILE['min_pool_requests']}", all(t >= PROFILE["min_pool_requests"] for t in targets), targets)
-    shares = [round(w["pools"]["target"]["requests"] / pool_total(w), 3) for w in r.windows]
-    h.check("mock-edge", f"목적지 비율 10% ± {PROFILE['share_tolerance']}", all(abs(s - 0.10) <= PROFILE["share_tolerance"] for s in shares), shares)
+    # 환경을 하나도 못 읽은 창은 비율이 없다. 시험을 죽이지 않고 실패로 남긴다.
+    shares = [round(w["pools"]["target"]["requests"] / pool_total(w), 3) if pool_total(w) else None for w in r.windows]
+    h.check("mock-edge", f"목적지 비율 10% ± {PROFILE['share_tolerance']}", all(s is not None and abs(s - 0.10) <= PROFILE["share_tolerance"] for s in shares), shares)
     verdicts = judged(r.windows, 10)
     h.check("mock-edge", "창 전부 기준 구현 judge가 PASS로 읽음 (가중치 10%)", all(v == "PASS" for v, _ in verdicts), [v for v, _ in verdicts])
     h.check("mock-edge", "Edge 측정이 아니라고 표시", "NOT_EDGE_MEASURED" in rep["warnings"] and not rep["measurement"]["edge_measured"], rep["measurement"])
