@@ -31,6 +31,7 @@ KUBECONFIG="$CERT_DIR/kubeconfig"
 API_TOKEN=$(openssl rand -hex 24)
 WINDOW_TOKEN=$(openssl rand -hex 24)
 STATS_PW=$(openssl rand -hex 16)
+PGB_HOST=source-pgbouncer.source-dev.svc
 PGB_ADMIN_PW=$(openssl rand -hex 16)
 export CERT_DIR KUBECONFIG
 PF=""
@@ -171,7 +172,7 @@ kubectl -n "$NS" create configmap bravo-collector-env --from-literal=BRAVO_ENV=o
 # 통계 계정 연결 문자열과 PgBouncer 인증서의 CA(공개 인증서). 서버 이름까지 검증한다(verify-full)
 kubectl -n source-dev get secret source-db-ca -o jsonpath='{.data.ca\.crt}' | base64 -d > "$CERT_DIR/pgbouncer-ca.crt"
 kubectl -n "$NS" create secret generic bravo-pgbouncer-stats --from-file=ca.crt="$CERT_DIR/pgbouncer-ca.crt" \
-  --from-literal=connection-string="postgres://bravo_stats:$STATS_PW@source-pgbouncer.source-dev.svc:5432/pgbouncer?sslmode=verify-full&sslrootcert=/etc/bravo-pgbouncer/ca.crt" >/dev/null
+  --from-literal=connection-string="postgres://bravo_stats:${STATS_PW}@${PGB_HOST}:5432/pgbouncer?sslmode=verify-full&sslrootcert=/etc/bravo-pgbouncer/ca.crt" >/dev/null
 kubectl kustomize k8s-overlay | sed "s#docker.io/library/bravo-observability-api:dev#$API_IMAGE#g" | kubectl apply -f - >/dev/null
 kubectl apply -k ../deploy/collector-db-pgbouncer >/dev/null
 kubectl apply -k ../deploy/collector-db-access >/dev/null
