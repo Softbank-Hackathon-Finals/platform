@@ -179,3 +179,14 @@ def test_registry_without_origin_is_not_exposed():
     response = client.get("/v1/resources", headers=AUTH)
     assert response.status_code == 503
     assert response.json() == {"detail": {"code": "executor_not_configured"}}
+
+
+@pytest.mark.parametrize("invalid", ["", "postgresql://invalid.example/chat", "a" * 129])
+@pytest.mark.parametrize("side", [0, 1])
+def test_invalid_environment_is_not_published(tmp_path, monkeypatch, invalid, side):
+    order = [("env-one", "db-a", "cutover/source"), ("env-two", "db-b", "cutover/target")]
+    order[side] = (invalid, *order[side][1:])
+    client, _ = start_server(tmp_path, monkeypatch, order[0][0], order)
+    response = client.get("/v1/resources", headers=AUTH)
+    assert response.status_code == 503
+    assert response.json() == {"detail": {"code": "executor_not_configured"}}

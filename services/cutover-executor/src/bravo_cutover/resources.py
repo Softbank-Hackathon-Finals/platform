@@ -12,7 +12,7 @@ from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from bravo_cutover.contract import CutoverRequest, Endpoint
+from bravo_cutover.contract import IDENTIFIER_PATTERN, CutoverRequest, Endpoint
 from bravo_cutover.rejections import ConnectionRefMismatch, SameResource, UnknownEnvironment
 
 
@@ -54,6 +54,8 @@ class Registry:
         """Return the two registered deployment resources: the configured origin is the source.
         Environment names are not fixed, so a cloud-to-cloud pair is projected the same way."""
         if self.origin is None or len(self._by_env) != 2 or self.origin not in self._by_env:
+            return None
+        if not all(re.fullmatch(IDENTIFIER_PATTERN, env) for env in self._by_env):
             return None
         source = self._by_env[self.origin]
         [target] = [r for env, r in self._by_env.items() if env != self.origin]
