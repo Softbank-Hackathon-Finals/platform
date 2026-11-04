@@ -17,6 +17,7 @@ ASSETS = {
     "/console/app.js": ("app.js", "text/javascript"),
     "/console/model.js": ("model.js", "text/javascript"),
     "/console/transport.js": ("transport.js", "text/javascript"),
+    "/console/registration.js": ("registration.js", "text/javascript"),
     "/console/style.css": ("style.css", "text/css"),
 }
 HEADERS = {
@@ -88,8 +89,11 @@ class ConsoleApp:
                 scope, receive, send
             )
             return
-        if not path.startswith("/v1/plans/"):
+        registration = path in ("/v1/environments", "/v1/workloads", "/v1/plans")
+        if not registration and not path.startswith("/v1/plans/"):
             return await reject(404, "not_found")
+        if registration and method != "POST":
+            return await reject(405, "method_not_allowed")
         if method not in ("GET", "POST"):
             return await reject(405, "method_not_allowed")
         if match := re.fullmatch(r"/v1/plans/([A-Za-z0-9][A-Za-z0-9_-]{0,127})/observations", path):
