@@ -4,6 +4,8 @@ test("actual retained full report shows unknown controls and no cutover authorit
   page,
   context,
 }) => {
+  const pageErrors = [];
+  page.on("pageerror", (error) => pageErrors.push(error.message));
   await context.addCookies([
     {
       name: "local-validation",
@@ -31,12 +33,13 @@ test("actual retained full report shows unknown controls and no cutover authorit
   expect(report.decision).toBe("BLOCK");
   expect(report.authorizes_cutover).toBe(false);
   expect(report.report_digest).toBe(process.env.BRAVO_TEST_GATE_SHA256);
-  if (process.env.BRAVO_TEST_REPORT_KIND === "restore-partial") {
+  if (["restore-partial", "source-scan-partial"].includes(process.env.BRAVO_TEST_REPORT_KIND)) {
     expect(report.rows.every((row) => row.decision === "BLOCK")).toBe(true);
-    const restore = report.rows.find((row) => row.test_id === "DR-01.1");
-    expect(restore.source_verdict).toBe("PASS");
-    expect(restore.target_verdict).toBe("UNKNOWN");
-    expect(restore.reason).toBe("TARGET_UNKNOWN");
+    const testId = process.env.BRAVO_TEST_REPORT_KIND === "source-scan-partial" ? "SEC-01.2" : "DR-01.1";
+    const observed = report.rows.find((row) => row.test_id === testId);
+    expect(observed.source_verdict).toBe("PASS");
+    expect(observed.target_verdict).toBe("UNKNOWN");
+    expect(observed.reason).toBe("TARGET_UNKNOWN");
     expect(
       report.rows.filter((row) => row.source_verdict === "UNKNOWN"),
     ).toHaveLength(19);
@@ -57,9 +60,10 @@ test("actual retained full report shows unknown controls and no cutover authorit
     fullPage: true,
   });
   await context.clearCookies();
-  await expect(page.locator("#notice")).toContainText("권한", {
+  await expect(page.locator("#notice")).toHaveText("접근 권한 또는 로그인 상태를 확인해 주세요.", {
     timeout: 15000,
   });
+  expect(pageErrors).toEqual([]);
   await expect(page.locator("#control-rows tr")).toHaveCount(0);
   await expect(page.locator("#approve")).toBeDisabled();
 });
