@@ -198,22 +198,39 @@ post() { # 네임스페이스 토큰 이름 본문 → Pod 결과(2xx면 Succeed
   for _ in $(seq 30); do p=$(kubectl -n "$1" get pod "post-$3" -o jsonpath='{.status.phase}'); case $p in Succeeded|Failed) break;; esac; sleep 2; done
   echo "$p"
 }
+# 허용될 쪽(loadgen)은 미리 띄운 Pod로 보내고 응답 코드를 직접 본다. 요청마다 새 Pod를 띄우면 첫 연결이
+# NetworkPolicy 반영 전에 거부될 수 있고(k3s kube-router), 그 거부가 409 · 401 기대 검사를 잘못 통과시킨다.
+# 막혀야 할 쪽은 새 Pod 그대로 둔다(차단은 결정적이고, 뚫리면 201이 와서 실패한다).
+kubectl -n loadgen run win-sender --image=busybox:1.37.0@sha256:a7dbc319b1438115a207e11930dc4bb3e643dcb3ec0bdd694bb36cd8fad289ec --restart=Never -- sleep 900 >/dev/null
+kubectl -n loadgen wait pod/win-sender --for=condition=Ready --timeout=60s >/dev/null
+for _ in $(seq 30); do
+  kubectl -n loadgen exec win-sender -- wget -q -T 2 -O /dev/null "http://bravo-window-intake.$NS.svc:8080/healthz" >/dev/null 2>&1 && break
+  sleep 2
+done
+send() { # 토큰 본문 → "CODE nnn" 줄과 "BODY 응답" 줄
+  kubectl -n loadgen exec win-sender -- sh -c 'rm -f /tmp/body; wget -S -q -T 5 -O /tmp/body --header "Authorization: Bearer $1" \
+    --header "Content-Type: application/json" --post-data "$2" "$3" 2>&1; echo; echo "BODY $(cat /tmp/body 2>/dev/null)"' \
+    sh "$1" "$2" "http://bravo-window-intake.$NS.svc:8080/v1/observability/windows" 2>/dev/null \
+    | sed -n 's/.*HTTP\/1\.[01] \([0-9][0-9][0-9]\).*/CODE \1/p; /^BODY /p'
+}
+code() { sed -n 's/^CODE //p' | head -1; }
 t0=$(( $(date +%s) - 30 ))
 # Independent ten-second windows: a denied request must not consume the
 # following valid window. Overlap rejection is tested separately in Python.
 W1=$(win "$t0"); W2=$(win $((t0 + 10))); W3=$(win $((t0 + 20)))
-phase=$(post loadgen "$WINDOW_TOKEN" ok "$W1")
+first=$(send "$WINDOW_TOKEN" "$W1")
 # 생산자가 넣은 received_at(창 끝)은 버리고 플랫폼이 받은 시각으로 덮어써야 한다
-got=$(kubectl -n loadgen logs post-ok 2>/dev/null | W="$W1" python3 -c 'import json,os,sys;d=json.load(sys.stdin);print(d["plan_id"], d["received_at"] != json.loads(os.environ["W"])["received_at"])' 2>/dev/null || echo 없음)
-[ "$phase" = Succeeded ] && [ "$got" = "plan-k8s True" ] && control=ok || control=fail
-check $control "loadgen 네임스페이스에서 수신 토큰으로 창 저장(201), received_at은 플랫폼 시각 (pod: $phase)"
-[ "$control" = ok ] && [ "$(post loadgen "$WINDOW_TOKEN" dup "$W1")" = Failed ] && \
-  [ "$(post loadgen "$API_TOKEN" console-token "$W2")" = Failed ] && r=ok || r=fail
-check $r "같은 창은 한 번만(409), 콘솔 토큰으로는 보낼 수 없음(401)"
+got=$(printf '%s\n' "$first" | sed -n 's/^BODY //p' | W="$W1" python3 -c 'import json,os,sys;d=json.load(sys.stdin);print(d["plan_id"], d["received_at"] != json.loads(os.environ["W"])["received_at"])' 2>/dev/null || echo 없음)
+status=$(printf '%s\n' "$first" | code)
+[ "$status" = 201 ] && [ "$got" = "plan-k8s True" ] && control=ok || control=fail
+check $control "loadgen 네임스페이스에서 수신 토큰으로 창 저장(201), received_at은 플랫폼 시각 (응답: ${status:-없음})"
+dup=$(send "$WINDOW_TOKEN" "$W1" | code); console_token=$(send "$API_TOKEN" "$W2" | code)
+[ "$control" = ok ] && [ "$dup" = 409 ] && [ "$console_token" = 401 ] && r=ok || r=fail
+check $r "같은 창은 한 번만(409), 콘솔 토큰으로는 보낼 수 없음(401) (응답: ${dup:-없음}, ${console_token:-없음})"
 # 막힌 뒤 같은 창을 loadgen이 보내 성공해야, 막힌 쪽이 저장하지 못했음이 확인된다
 [ "$control" = ok ] && [ "$(post stranger "$WINDOW_TOKEN" stranger "$W2")" = Failed ] && \
   [ "$(post console "$WINDOW_TOKEN" console "$W3")" = Failed ] && \
-  [ "$(post loadgen "$WINDOW_TOKEN" after "$W3")" = Succeeded ] && r=ok || r=fail
+  [ "$(send "$WINDOW_TOKEN" "$W3" | code)" = 201 ] && r=ok || r=fail
 check $r "라벨이 없는 네임스페이스와 콘솔 네임스페이스는 올바른 토큰이 있어도 NetworkPolicy가 막음"
 dns=$(kubectl -n kube-system get svc kube-dns -o jsonpath='{.spec.clusterIP}')
 reach() { kubectl -n "$NS" exec "deploy/$1" -- python -c "import socket;socket.create_connection(('$dns',53),3)" >/dev/null 2>&1; }
