@@ -1,0 +1,84 @@
+{
+  "tested_code": "117158594b38e2d520bd4f883c2e656e5f742f79",
+  "observed_at": "2026-11-04T13:53:03.524335+00:00",
+  "operator_and_storage": "Isolated signed test operator and plan-scoped read grant, loopback HTTP console host, SQLite. No customer production login, production migration, observability/control integration or cutover exercised.",
+  "data_plane": "Distinct live Kubernetes clusters: local non-AWS K3s/CNPG/PostgREST source and existing RKE2/CNPG development target. CA and hostname verified with separate short-lived collector credentials.",
+  "scope_agreement": "https://github.com/Softbank-Hackathon-Finals/platform/issues/27#issuecomment-6632241931",
+  "browser": "Ego Lite; submitted the product forms and observed snapshots/events",
+  "source_repo": "https://github.com/PostgREST/postgrest",
+  "source_revision": "cd3cf9ed978c8892e3ac460cb4d0b8c621d4c98f",
+  "source_image_digest": "sha256:5f4ce744539bbba786b4e24dbbd95bdb2a956dcf568c5374995a0ff4a68f5bd2",
+  "app_db_http_check": "PostgREST served its OpenAPI document from the source service.",
+  "environment_receipts": [
+    {
+      "kind": "onprem",
+      "role": "source",
+      "status": 201,
+      "read_access": "verified",
+      "warnings": [],
+      "write_checks": {
+        "create_pods": "denied",
+        "patch_registered_cnpg": "denied"
+      }
+    },
+    {
+      "kind": "onprem",
+      "role": "target",
+      "status": 201,
+      "read_access": "verified",
+      "warnings": [],
+      "write_checks": {
+        "create_pods": "denied",
+        "patch_registered_cnpg": "denied"
+      }
+    }
+  ],
+  "source_negative_permissions": {
+    "registration-source:create:pods": "denied",
+    "registration-source:patch:clusters": "denied",
+    "registration-source:get:secrets": "denied",
+    "registration-source:list:secrets": "denied",
+    "default:list:pods": "denied"
+  },
+  "onprem_source": {
+    "target_only_alias_as_source": 409,
+    "workload_post": 201,
+    "repo_deploy_match": true,
+    "plan_post": 201,
+    "plan_get": 200,
+    "stored_state": "COLLECT",
+    "snapshot_digests_match": true,
+    "browser_receipts": 4,
+    "first_state_event": "COLLECT",
+    "browser_sse_connected": true
+  },
+  "aws_source_regression": {
+    "data_plane": "Existing AWS EKS demo-chat source and RKE2 development target; real collector tokens, in-process ASGI and isolated SQLite.",
+    "request_statuses": [
+      201,
+      201,
+      201,
+      201
+    ],
+    "plan_replay": 200,
+    "stored_state": "COLLECT",
+    "negative": {
+      "bad_token": "collector_denied",
+      "wrong_uid": "environment_replaced",
+      "stale_authenticated_release": 409
+    },
+    "ssm_terminated": true,
+    "source_warnings": [
+      "write_scope_unknown"
+    ]
+  },
+  "cleanup": {
+    "browser_closed": true,
+    "server_closed": true,
+    "private_mounts_and_sqlite_removed": true,
+    "owned_k3s_removed": true,
+    "owned_volumes_removed": true,
+    "shared_destination_rbac_changed": false,
+    "shared_collector_token_request_duration": "15m"
+  }
+}

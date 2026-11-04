@@ -25,6 +25,8 @@
 
 `/registration/catalog.json`은 운영자 전용 읽기 전용 설정이다.
 
+온프렘 Kubernetes를 출발지로 등록하려면 운영자가 새 `environment_id`와 `connection_ref`를 만들고 해당 환경에 `"kind": "onprem", "catalog_role": "source"`를 지정한다. 기존 설정에서 `catalog_role`을 생략하면 AWS는 출발지, 온프렘은 목적지로 동작한다. AWS 목적지와 한 별칭의 이중 역할은 허용하지 않는다. 등록 요청의 `roles`에는 서버에 지정한 역할 하나를 보낸다. 출발지 앱은 기존 CNPG·ReplicaSet·이미지 검사를 통과해야 한다.
+
 | 키 | 운영자가 준비할 값 |
 |---|---|
 | `operator_verifier` | 기존 [운영자 신원 검증기](T10-operator-access-v1-proposal.md)의 issuer, audience, client_id, assurance, 실제 사람의 subject→tenant 매핑, 공개 JWK |
