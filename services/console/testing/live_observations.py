@@ -6,7 +6,9 @@ No approval or executor is mounted. Not a production authentication recipe.
 
 import asyncio
 import json
+import os
 import secrets
+import socket
 import sys
 import tempfile
 from datetime import UTC, datetime
@@ -14,11 +16,52 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 import httpx
+import uvicorn
 from bravo_platform_events.plan_api import Principal, create_plan_app
 from bravo_platform_events.plans import PlanSpec, PlanStore
 
 from bravo_console import ConsoleApp
 from bravo_console.observations import PlanObservations, T37Client
+
+
+async def browser_projection(app, cookie, phase, output):
+    """The browser talks to the same real T21/T37 path; identity remains a fixture."""
+    listener = socket.socket()
+    listener.bind(("127.0.0.1", 0))
+    origin = f"http://127.0.0.1:{listener.getsockname()[1]}"
+    # ConsoleApp validates the origin on writes, which this read-only trial never sends.
+    server = uvicorn.Server(uvicorn.Config(app, log_level="error", access_log=False))
+    serving = asyncio.create_task(server.serve(sockets=[listener]))
+    process = None
+    try:
+        async with asyncio.timeout(5):
+            while not server.started:
+                if serving.done():
+                    await serving
+                    raise RuntimeError("local_browser_server_not_started")
+                await asyncio.sleep(0.02)
+        env = {k: v for k, v in os.environ.items() if not k.startswith(
+            ("AWS_", "GH_", "GITHUB_", "OPENAI_", "ANTHROPIC_", "API_TOKEN")
+        )}
+        env.update(BRAVO_BROWSER_ORIGIN=origin, BRAVO_BROWSER_COOKIE=cookie,
+                   BRAVO_BROWSER_PHASE=phase, BRAVO_BROWSER_OUTPUT=str(output))
+        process = await asyncio.create_subprocess_exec(
+            "node", "node_modules/@playwright/test/cli.js", "test",
+            "--config", "testing/live_observations.config.js",
+            env=env, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+        )
+        async with asyncio.timeout(70):
+            stdout, stderr = await process.communicate()
+        if process.returncode or len(stdout) + len(stderr) > 65536:
+            raise RuntimeError("live_observation_browser_check_failed")
+        return {"projects": ["chromium", "webkit"], "status": "PASS"}
+    finally:
+        if process and process.returncode is None:
+            process.kill()
+            await process.wait()
+        server.should_exit = True
+        await asyncio.wait_for(serving, timeout=10)
+        listener.close()
 
 
 async def qualify(config):
@@ -89,12 +132,20 @@ async def qualify(config):
                 )
                 http.cookies.clear()
                 checks["session_revoked_query_denied"] = (await http.get(path)).status_code == 403
+                browsers = None
+                if config.get("browser_output"):
+                    permission["allowed"] = True
+                    browsers = await browser_projection(
+                        app, cookie, config["phase"], Path(config["browser_output"])
+                    )
+                    checks["actual_browser_projection"] = browsers["status"] == "PASS"
                 return {
                     "scope": "actual T37 HTTP and T21 projection; local fixture identity/plan; no execution authority",
                     "phase": config["phase"],
                     "checks": checks,
                     "status": "PASS" if all(checks.values()) else "FAIL",
                     "observations": document,
+                    "browsers": browsers,
                 }
     finally:
         await client.aclose()

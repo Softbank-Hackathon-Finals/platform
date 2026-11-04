@@ -93,6 +93,13 @@ app = ConsoleApp(authenticated_t10_app,
 
 ## 실제 T37 관측 투영 시험
 
+T22 하네스에 `--console-browser`를 함께 주면 같은 T21/T37 경로를 실제 Chromium과
+WebKit에서 읽는다. 정상 수집 값, 목적지 Collector 중단 뒤 미확인 표시, 로그인 회수 뒤
+표시 삭제와 변경 요청 0건을 검사한다. 브라우저용 신원·계획은 로컬 fixture이며
+운영 SSO 또는 팀 환경 검증을 대신하지 않는다. 실행 권한은 연결하지 않는다.
+임시 서버는 loopback의 OS 할당 포트만 사용하고 종료하며, T37 토큰은 브라우저에
+전달하지 않는다. 스크린샷은 운영자가 지정한 비공개 결과 폴더에만 저장한다.
+
 `testing/live_observations.py`는 운영 서버가 아닌 명시적 로컬 시험 도구다. T22의
 `testing/observability_e2e.py --console <services/console>`에서 생성한 T37 HTTP 주소와
 일회성 시험 토큰을 stdin으로 받아, 실제 T21 `PlanObservations`와 T10 계획 조회를 거친다.
