@@ -132,7 +132,7 @@ def test_irsa_role_annotates_cluster_service_account_only():
     for bad in (
         "arn:aws:iam::123456789012:user/backup",
         "arn:aws:iam::123456789012:role/*",
-        "arn:aws:iam::12345678901:role/backup",
+        "arn:aws:iam::1234567890123:role/backup",
         "arn:aws:iam::123456789012:role/backup\n",
         123,
     ):
