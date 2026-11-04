@@ -1,0 +1,904 @@
+{
+  "rows": [
+    {
+      "variant": "baseline",
+      "rtt_ms": 0.0,
+      "tx_timeout_ms": 5000,
+      "load_average": [
+        4.01,
+        3.62,
+        3.1
+      ],
+      "ok": 6489,
+      "timeout": 0,
+      "pool": 0,
+      "tx_per_s": 811.12,
+      "latency_p50_ms": 12.48
+    },
+    {
+      "variant": "baseline",
+      "rtt_ms": 0.0,
+      "tx_timeout_ms": 200,
+      "load_average": [
+        4.16,
+        3.67,
+        3.12
+      ],
+      "ok": 6355,
+      "timeout": 0,
+      "pool": 0,
+      "tx_per_s": 794.38,
+      "latency_p50_ms": 11.93
+    },
+    {
+      "variant": "baseline",
+      "rtt_ms": 5.0,
+      "tx_timeout_ms": 5000,
+      "load_average": [
+        3.67,
+        3.58,
+        3.1
+      ],
+      "ok": 374,
+      "timeout": 0,
+      "pool": 0,
+      "tx_per_s": 46.75,
+      "latency_p50_ms": 214.52
+    },
+    {
+      "variant": "baseline",
+      "rtt_ms": 5.0,
+      "tx_timeout_ms": 200,
+      "load_average": [
+        3.49,
+        3.55,
+        3.09
+      ],
+      "ok": 376,
+      "timeout": 0,
+      "pool": 0,
+      "tx_per_s": 47.0,
+      "latency_p50_ms": 211.59
+    },
+    {
+      "variant": "baseline",
+      "rtt_ms": 10.0,
+      "tx_timeout_ms": 5000,
+      "load_average": [
+        3.26,
+        3.49,
+        3.08
+      ],
+      "ok": 204,
+      "timeout": 0,
+      "pool": 0,
+      "tx_per_s": 25.5,
+      "latency_p50_ms": 390.86
+    },
+    {
+      "variant": "baseline",
+      "rtt_ms": 10.0,
+      "tx_timeout_ms": 200,
+      "load_average": [
+        3.09,
+        3.45,
+        3.07
+      ],
+      "ok": 209,
+      "timeout": 95,
+      "pool": 0,
+      "tx_per_s": 26.12,
+      "latency_p50_ms": 268.45
+    },
+    {
+      "variant": "baseline",
+      "rtt_ms": 20.0,
+      "tx_timeout_ms": 5000,
+      "load_average": [
+        3.06,
+        3.44,
+        3.07
+      ],
+      "ok": 107,
+      "timeout": 0,
+      "pool": 0,
+      "tx_per_s": 13.38,
+      "latency_p50_ms": 745.31
+    },
+    {
+      "variant": "baseline",
+      "rtt_ms": 20.0,
+      "tx_timeout_ms": 200,
+      "load_average": [
+        2.74,
+        3.35,
+        3.04
+      ],
+      "ok": 114,
+      "timeout": 149,
+      "pool": 0,
+      "tx_per_s": 14.25,
+      "latency_p50_ms": 327.33
+    },
+    {
+      "variant": "baseline",
+      "rtt_ms": 40.0,
+      "tx_timeout_ms": 5000,
+      "load_average": [
+        2.4,
+        3.26,
+        3.01
+      ],
+      "ok": 59,
+      "timeout": 0,
+      "pool": 0,
+      "tx_per_s": 7.38,
+      "latency_p50_ms": 1356.27
+    },
+    {
+      "variant": "baseline",
+      "rtt_ms": 40.0,
+      "tx_timeout_ms": 200,
+      "load_average": [
+        2.11,
+        3.17,
+        2.98
+      ],
+      "ok": 61,
+      "timeout": 141,
+      "pool": 0,
+      "tx_per_s": 7.62,
+      "latency_p50_ms": 442.86
+    },
+    {
+      "variant": "select-after-commit",
+      "rtt_ms": 0.0,
+      "tx_timeout_ms": 5000,
+      "load_average": [
+        1.91,
+        3.08,
+        2.95
+      ],
+      "ok": 8476,
+      "timeout": 0,
+      "pool": 0,
+      "tx_per_s": 1059.5,
+      "latency_p50_ms": 8.83
+    },
+    {
+      "variant": "select-after-commit",
+      "rtt_ms": 0.0,
+      "tx_timeout_ms": 200,
+      "load_average": [
+        2.63,
+        3.19,
+        3.0
+      ],
+      "ok": 8958,
+      "timeout": 0,
+      "pool": 0,
+      "tx_per_s": 1119.75,
+      "latency_p50_ms": 8.79
+    },
+    {
+      "variant": "select-after-commit",
+      "rtt_ms": 5.0,
+      "tx_timeout_ms": 5000,
+      "load_average": [
+        2.75,
+        3.2,
+        3.0
+      ],
+      "ok": 578,
+      "timeout": 0,
+      "pool": 0,
+      "tx_per_s": 72.25,
+      "latency_p50_ms": 138.4
+    },
+    {
+      "variant": "select-after-commit",
+      "rtt_ms": 5.0,
+      "tx_timeout_ms": 200,
+      "load_average": [
+        2.33,
+        3.09,
+        2.96
+      ],
+      "ok": 578,
+      "timeout": 0,
+      "pool": 0,
+      "tx_per_s": 72.25,
+      "latency_p50_ms": 138.38
+    },
+    {
+      "variant": "select-after-commit",
+      "rtt_ms": 10.0,
+      "tx_timeout_ms": 5000,
+      "load_average": [
+        1.97,
+        2.99,
+        2.93
+      ],
+      "ok": 309,
+      "timeout": 0,
+      "pool": 0,
+      "tx_per_s": 38.62,
+      "latency_p50_ms": 258.51
+    },
+    {
+      "variant": "select-after-commit",
+      "rtt_ms": 10.0,
+      "tx_timeout_ms": 200,
+      "load_average": [
+        2.44,
+        3.06,
+        2.95
+      ],
+      "ok": 310,
+      "timeout": 0,
+      "pool": 0,
+      "tx_per_s": 38.75,
+      "latency_p50_ms": 257.98
+    },
+    {
+      "variant": "select-after-commit",
+      "rtt_ms": 20.0,
+      "tx_timeout_ms": 5000,
+      "load_average": [
+        2.59,
+        3.07,
+        2.96
+      ],
+      "ok": 163,
+      "timeout": 0,
+      "pool": 0,
+      "tx_per_s": 20.38,
+      "latency_p50_ms": 489.9
+    },
+    {
+      "variant": "select-after-commit",
+      "rtt_ms": 20.0,
+      "tx_timeout_ms": 200,
+      "load_average": [
+        2.62,
+        3.05,
+        2.95
+      ],
+      "ok": 167,
+      "timeout": 55,
+      "pool": 0,
+      "tx_per_s": 20.88,
+      "latency_p50_ms": 381.05
+    },
+    {
+      "variant": "select-after-commit",
+      "rtt_ms": 40.0,
+      "tx_timeout_ms": 5000,
+      "load_average": [
+        2.69,
+        3.05,
+        2.95
+      ],
+      "ok": 89,
+      "timeout": 0,
+      "pool": 0,
+      "tx_per_s": 11.12,
+      "latency_p50_ms": 898.33
+    },
+    {
+      "variant": "select-after-commit",
+      "rtt_ms": 40.0,
+      "tx_timeout_ms": 200,
+      "load_average": [
+        2.58,
+        3.01,
+        2.94
+      ],
+      "ok": 90,
+      "timeout": 84,
+      "pool": 0,
+      "tx_per_s": 11.25,
+      "latency_p50_ms": 534.32
+    },
+    {
+      "variant": "cte-autocommit",
+      "rtt_ms": 0.0,
+      "tx_timeout_ms": 5000,
+      "load_average": [
+        2.26,
+        2.93,
+        2.91
+      ],
+      "ok": 47808,
+      "timeout": 0,
+      "pool": 0,
+      "tx_per_s": 5976.0,
+      "latency_p50_ms": 1.63
+    },
+    {
+      "variant": "cte-autocommit",
+      "rtt_ms": 0.0,
+      "tx_timeout_ms": 200,
+      "load_average": [
+        2.96,
+        3.05,
+        2.95
+      ],
+      "ok": 45321,
+      "timeout": 0,
+      "pool": 0,
+      "tx_per_s": 5665.12,
+      "latency_p50_ms": 1.65
+    },
+    {
+      "variant": "cte-autocommit",
+      "rtt_ms": 5.0,
+      "tx_timeout_ms": 5000,
+      "load_average": [
+        3.35,
+        3.13,
+        2.98
+      ],
+      "ok": 12496,
+      "timeout": 0,
+      "pool": 0,
+      "tx_per_s": 1562.0,
+      "latency_p50_ms": 6.37
+    },
+    {
+      "variant": "cte-autocommit",
+      "rtt_ms": 5.0,
+      "tx_timeout_ms": 200,
+      "load_average": [
+        3.61,
+        3.19,
+        3.01
+      ],
+      "ok": 12463,
+      "timeout": 0,
+      "pool": 0,
+      "tx_per_s": 1557.88,
+      "latency_p50_ms": 6.39
+    },
+    {
+      "variant": "cte-autocommit",
+      "rtt_ms": 10.0,
+      "tx_timeout_ms": 5000,
+      "load_average": [
+        3.36,
+        3.15,
+        2.99
+      ],
+      "ok": 6388,
+      "timeout": 0,
+      "pool": 0,
+      "tx_per_s": 798.5,
+      "latency_p50_ms": 12.55
+    },
+    {
+      "variant": "cte-autocommit",
+      "rtt_ms": 10.0,
+      "tx_timeout_ms": 200,
+      "load_average": [
+        3.15,
+        3.11,
+        2.98
+      ],
+      "ok": 6403,
+      "timeout": 0,
+      "pool": 0,
+      "tx_per_s": 800.38,
+      "latency_p50_ms": 12.49
+    },
+    {
+      "variant": "cte-autocommit",
+      "rtt_ms": 20.0,
+      "tx_timeout_ms": 5000,
+      "load_average": [
+        2.98,
+        3.08,
+        2.97
+      ],
+      "ok": 3350,
+      "timeout": 0,
+      "pool": 0,
+      "tx_per_s": 418.75,
+      "latency_p50_ms": 23.99
+    },
+    {
+      "variant": "cte-autocommit",
+      "rtt_ms": 20.0,
+      "tx_timeout_ms": 200,
+      "load_average": [
+        2.6,
+        2.99,
+        2.94
+      ],
+      "ok": 3298,
+      "timeout": 0,
+      "pool": 0,
+      "tx_per_s": 412.25,
+      "latency_p50_ms": 24.32
+    },
+    {
+      "variant": "cte-autocommit",
+      "rtt_ms": 40.0,
+      "tx_timeout_ms": 5000,
+      "load_average": [
+        2.73,
+        3.01,
+        2.95
+      ],
+      "ok": 1720,
+      "timeout": 0,
+      "pool": 0,
+      "tx_per_s": 215.0,
+      "latency_p50_ms": 46.53
+    },
+    {
+      "variant": "cte-autocommit",
+      "rtt_ms": 40.0,
+      "tx_timeout_ms": 200,
+      "load_average": [
+        2.77,
+        3.01,
+        2.95
+      ],
+      "ok": 1700,
+      "timeout": 0,
+      "pool": 0,
+      "tx_per_s": 212.5,
+      "latency_p50_ms": 46.97
+    },
+    {
+      "variant": "pipeline",
+      "rtt_ms": 0.0,
+      "tx_timeout_ms": 5000,
+      "load_average": [
+        2.44,
+        2.92,
+        2.92
+      ],
+      "ok": 27317,
+      "timeout": 0,
+      "pool": 0,
+      "tx_per_s": 3414.62,
+      "latency_p50_ms": 2.81
+    },
+    {
+      "variant": "pipeline",
+      "rtt_ms": 0.0,
+      "tx_timeout_ms": 200,
+      "load_average": [
+        3.29,
+        3.09,
+        2.98
+      ],
+      "ok": 28293,
+      "timeout": 0,
+      "pool": 0,
+      "tx_per_s": 3536.62,
+      "latency_p50_ms": 2.77
+    },
+    {
+      "variant": "pipeline",
+      "rtt_ms": 5.0,
+      "tx_timeout_ms": 5000,
+      "load_average": [
+        4.39,
+        3.33,
+        3.06
+      ],
+      "ok": 12924,
+      "timeout": 0,
+      "pool": 0,
+      "tx_per_s": 1615.5,
+      "latency_p50_ms": 6.13
+    },
+    {
+      "variant": "pipeline",
+      "rtt_ms": 5.0,
+      "tx_timeout_ms": 200,
+      "load_average": [
+        4.43,
+        3.37,
+        3.08
+      ],
+      "ok": 12749,
+      "timeout": 0,
+      "pool": 0,
+      "tx_per_s": 1593.62,
+      "latency_p50_ms": 6.16
+    },
+    {
+      "variant": "pipeline",
+      "rtt_ms": 10.0,
+      "tx_timeout_ms": 5000,
+      "load_average": [
+        4.88,
+        3.51,
+        3.13
+      ],
+      "ok": 6368,
+      "timeout": 0,
+      "pool": 0,
+      "tx_per_s": 796.0,
+      "latency_p50_ms": 12.49
+    },
+    {
+      "variant": "pipeline",
+      "rtt_ms": 10.0,
+      "tx_timeout_ms": 200,
+      "load_average": [
+        4.93,
+        3.56,
+        3.15
+      ],
+      "ok": 6325,
+      "timeout": 0,
+      "pool": 0,
+      "tx_per_s": 790.62,
+      "latency_p50_ms": 12.56
+    },
+    {
+      "variant": "pipeline",
+      "rtt_ms": 20.0,
+      "tx_timeout_ms": 5000,
+      "load_average": [
+        4.92,
+        3.6,
+        3.17
+      ],
+      "ok": 2983,
+      "timeout": 0,
+      "pool": 0,
+      "tx_per_s": 372.88,
+      "latency_p50_ms": 26.85
+    },
+    {
+      "variant": "pipeline",
+      "rtt_ms": 20.0,
+      "tx_timeout_ms": 200,
+      "load_average": [
+        5.07,
+        3.68,
+        3.21
+      ],
+      "ok": 2901,
+      "timeout": 0,
+      "pool": 0,
+      "tx_per_s": 362.62,
+      "latency_p50_ms": 27.71
+    },
+    {
+      "variant": "pipeline",
+      "rtt_ms": 40.0,
+      "tx_timeout_ms": 5000,
+      "load_average": [
+        5.25,
+        3.77,
+        3.24
+      ],
+      "ok": 1632,
+      "timeout": 0,
+      "pool": 0,
+      "tx_per_s": 204.0,
+      "latency_p50_ms": 49.01
+    },
+    {
+      "variant": "pipeline",
+      "rtt_ms": 40.0,
+      "tx_timeout_ms": 200,
+      "load_average": [
+        4.89,
+        3.74,
+        3.24
+      ],
+      "ok": 1750,
+      "timeout": 0,
+      "pool": 0,
+      "tx_per_s": 218.75,
+      "latency_p50_ms": 45.65
+    },
+    {
+      "variant": "pipeline-begin",
+      "rtt_ms": 0.0,
+      "tx_timeout_ms": 5000,
+      "load_average": [
+        4.03,
+        3.61,
+        3.2
+      ],
+      "ok": 21763,
+      "timeout": 0,
+      "pool": 0,
+      "tx_per_s": 2720.38,
+      "latency_p50_ms": 3.6
+    },
+    {
+      "variant": "pipeline-begin",
+      "rtt_ms": 0.0,
+      "tx_timeout_ms": 200,
+      "load_average": [
+        4.5,
+        3.72,
+        3.25
+      ],
+      "ok": 21774,
+      "timeout": 0,
+      "pool": 0,
+      "tx_per_s": 2721.75,
+      "latency_p50_ms": 3.59
+    },
+    {
+      "variant": "pipeline-begin",
+      "rtt_ms": 5.0,
+      "tx_timeout_ms": 5000,
+      "load_average": [
+        5.57,
+        3.98,
+        3.34
+      ],
+      "ok": 3751,
+      "timeout": 0,
+      "pool": 0,
+      "tx_per_s": 468.88,
+      "latency_p50_ms": 21.35
+    },
+    {
+      "variant": "pipeline-begin",
+      "rtt_ms": 5.0,
+      "tx_timeout_ms": 200,
+      "load_average": [
+        6.91,
+        4.32,
+        3.47
+      ],
+      "ok": 3842,
+      "timeout": 0,
+      "pool": 0,
+      "tx_per_s": 480.25,
+      "latency_p50_ms": 20.98
+    },
+    {
+      "variant": "pipeline-begin",
+      "rtt_ms": 10.0,
+      "tx_timeout_ms": 5000,
+      "load_average": [
+        6.24,
+        4.26,
+        3.46
+      ],
+      "ok": 1824,
+      "timeout": 0,
+      "pool": 0,
+      "tx_per_s": 228.0,
+      "latency_p50_ms": 44.56
+    },
+    {
+      "variant": "pipeline-begin",
+      "rtt_ms": 10.0,
+      "tx_timeout_ms": 200,
+      "load_average": [
+        5.9,
+        4.25,
+        3.46
+      ],
+      "ok": 1891,
+      "timeout": 0,
+      "pool": 0,
+      "tx_per_s": 236.38,
+      "latency_p50_ms": 42.79
+    },
+    {
+      "variant": "pipeline-begin",
+      "rtt_ms": 20.0,
+      "tx_timeout_ms": 5000,
+      "load_average": [
+        5.14,
+        4.14,
+        3.44
+      ],
+      "ok": 1027,
+      "timeout": 0,
+      "pool": 0,
+      "tx_per_s": 128.38,
+      "latency_p50_ms": 77.69
+    },
+    {
+      "variant": "pipeline-begin",
+      "rtt_ms": 20.0,
+      "tx_timeout_ms": 200,
+      "load_average": [
+        5.4,
+        4.24,
+        3.48
+      ],
+      "ok": 1091,
+      "timeout": 0,
+      "pool": 0,
+      "tx_per_s": 136.38,
+      "latency_p50_ms": 73.04
+    },
+    {
+      "variant": "pipeline-begin",
+      "rtt_ms": 40.0,
+      "tx_timeout_ms": 5000,
+      "load_average": [
+        4.72,
+        4.13,
+        3.45
+      ],
+      "ok": 563,
+      "timeout": 0,
+      "pool": 0,
+      "tx_per_s": 70.38,
+      "latency_p50_ms": 141.6
+    },
+    {
+      "variant": "pipeline-begin",
+      "rtt_ms": 40.0,
+      "tx_timeout_ms": 200,
+      "load_average": [
+        4.46,
+        4.09,
+        3.44
+      ],
+      "ok": 565,
+      "timeout": 0,
+      "pool": 0,
+      "tx_per_s": 70.62,
+      "latency_p50_ms": 141.45
+    },
+    {
+      "variant": "pipeline-reads",
+      "rtt_ms": 0.0,
+      "tx_timeout_ms": 5000,
+      "load_average": [
+        4.0,
+        4.0,
+        3.42
+      ],
+      "ok": 26826,
+      "timeout": 0,
+      "pool": 0,
+      "tx_per_s": 3353.25,
+      "latency_p50_ms": 2.78
+    },
+    {
+      "variant": "pipeline-reads",
+      "rtt_ms": 0.0,
+      "tx_timeout_ms": 200,
+      "load_average": [
+        4.93,
+        4.2,
+        3.5
+      ],
+      "ok": 28661,
+      "timeout": 0,
+      "pool": 0,
+      "tx_per_s": 3582.62,
+      "latency_p50_ms": 2.75
+    },
+    {
+      "variant": "pipeline-reads",
+      "rtt_ms": 5.0,
+      "tx_timeout_ms": 5000,
+      "load_average": [
+        5.79,
+        4.41,
+        3.58
+      ],
+      "ok": 12868,
+      "timeout": 0,
+      "pool": 0,
+      "tx_per_s": 1608.5,
+      "latency_p50_ms": 6.15
+    },
+    {
+      "variant": "pipeline-reads",
+      "rtt_ms": 5.0,
+      "tx_timeout_ms": 200,
+      "load_average": [
+        7.42,
+        4.79,
+        3.72
+      ],
+      "ok": 12618,
+      "timeout": 0,
+      "pool": 0,
+      "tx_per_s": 1577.25,
+      "latency_p50_ms": 6.19
+    },
+    {
+      "variant": "pipeline-reads",
+      "rtt_ms": 10.0,
+      "tx_timeout_ms": 5000,
+      "load_average": [
+        8.85,
+        5.18,
+        3.87
+      ],
+      "ok": 6418,
+      "timeout": 0,
+      "pool": 0,
+      "tx_per_s": 802.25,
+      "latency_p50_ms": 12.33
+    },
+    {
+      "variant": "pipeline-reads",
+      "rtt_ms": 10.0,
+      "tx_timeout_ms": 200,
+      "load_average": [
+        7.95,
+        5.11,
+        3.86
+      ],
+      "ok": 6286,
+      "timeout": 0,
+      "pool": 0,
+      "tx_per_s": 785.75,
+      "latency_p50_ms": 12.66
+    },
+    {
+      "variant": "pipeline-reads",
+      "rtt_ms": 20.0,
+      "tx_timeout_ms": 5000,
+      "load_average": [
+        7.35,
+        5.07,
+        3.86
+      ],
+      "ok": 3086,
+      "timeout": 0,
+      "pool": 0,
+      "tx_per_s": 385.75,
+      "latency_p50_ms": 25.93
+    },
+    {
+      "variant": "pipeline-reads",
+      "rtt_ms": 20.0,
+      "tx_timeout_ms": 200,
+      "load_average": [
+        6.98,
+        5.07,
+        3.88
+      ],
+      "ok": 2983,
+      "timeout": 0,
+      "pool": 0,
+      "tx_per_s": 372.88,
+      "latency_p50_ms": 26.72
+    },
+    {
+      "variant": "pipeline-reads",
+      "rtt_ms": 40.0,
+      "tx_timeout_ms": 5000,
+      "load_average": [
+        6.58,
+        5.05,
+        3.88
+      ],
+      "ok": 1650,
+      "timeout": 0,
+      "pool": 0,
+      "tx_per_s": 206.25,
+      "latency_p50_ms": 48.61
+    },
+    {
+      "variant": "pipeline-reads",
+      "rtt_ms": 40.0,
+      "tx_timeout_ms": 200,
+      "load_average": [
+        6.09,
+        5.0,
+        3.88
+      ],
+      "ok": 1654,
+      "timeout": 0,
+      "pool": 0,
+      "tx_per_s": 206.75,
+      "latency_p50_ms": 48.41
+    }
+  ]
+}

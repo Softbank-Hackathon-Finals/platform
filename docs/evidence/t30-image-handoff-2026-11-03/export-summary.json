@@ -1,0 +1,21 @@
+{
+  "observed_at": "2026-11-03T10:53:48Z",
+  "source_sha": "ce5727eb3e3d2355077afdaadcb1a722aba9c7cd",
+  "image": "ghcr.io/softbank-hackathon-finals/demo-chat",
+  "index_digest": "sha256:001adc35a9fc767566552fb55c3c19a67b7c5efc7231fb02dc28cdeace99d0d4",
+  "amd64_digest": "sha256:bd1cd57a1c3dda9bb2795696167e242fc3b79a80eefb40d068a4124bcc66f384",
+  "archive_sha256": "04ad976a662c973920b8f3b4e39b80833bb9fda0f5ca15e097bf9aeb47fc8d24",
+  "archive_bytes": 81745920,
+  "verified_blob_count": 15,
+  "all_blob_hashes_and_descriptors_verified": true,
+  "registry_credentials_exported": false,
+  "registry_auth_disk_cache_disabled": true,
+  "verification_only": false,
+  "target_import_verified": false,
+  "target_application_startup_verified": false,
+  "aws_free_database_credentials_supported": false,
+  "new_long_lived_credentials_created": false,
+  "temporary_ecr_auth_used": true,
+  "original_export_receipt_sha256": "0654d0b2bdc7b1b8456241d763ffb4e5080d02c8d492d41fdcb93fd70f9b74b2",
+  "summary_note": "Original generic new_credentials_created=false meant no new long-lived keys; temporary ECR authentication was used. This derived summary makes that scope explicit."
+}

@@ -1,4 +1,22 @@
-# 환경 횡단 지표 수집 (T37)
+# 관측: 판정 기준 구현(T36)과 환경 횡단 지표 수집(T37)
+
+## 판정 기준 구현 (T36)
+
+`src/bravo_observability`는 [판정용 관측 계약](../../docs/observability/README.md)의 기준 구현이다. 표준 라이브러리만 쓰고, LLM · 네트워크 · 시계를 쓰지 않는다.
+
+| 함수 | 누가 | 하는 일 |
+|---|---|---|
+| `build_window(records, plan_id=, start=, end=, pools=)` | T18 부하 생성기 | 한 창의 요청 결과(`Record`)를 `SliWindow`로 요약한다. `pools`는 `X-Bravo-Env` 값 → `source` · `target` |
+| `receive(window, now)` | 플랫폼 수신 경로 | `received_at`을 플랫폼이 받은 시각으로 덮어쓴다 |
+| `judge(profile, window, plan_id=, state=, weight_target=, observe_from=, decided_at=, prior_unknown=)` | T17 · T10 | `SliJudgement`를 돌려준다. 판정 · 사유 · 조치와 입력 창 원본을 담는다 |
+
+```sh
+cd services/observability && uv sync --locked && uv run --locked pytest
+```
+
+시험은 계약 시험 전체(판정 25건, 스키마 거부 8건)와 창 요약 생성 규칙(환경 분류, nearest-rank p95, 빈 환경, 수신 시각 덮어쓰기)을 돈다.
+
+## 환경 횡단 지표 수집 (T37)
 
 출발지 · 목적지 클러스터마다 OpenTelemetry Collector를 두고, 앱 지표를 플랫폼 지표 저장소(Prometheus)로 보낸다. 결정 배경은 [ADR-0010](../../docs/adr/0010-observability-boundary.md)이다. **판정 입력이 아니다.** SHIFT · WATCH 판정은 T18 창 요약만 쓴다([판정용 관측 계약](../../docs/observability/README.md)).
 
@@ -8,7 +26,7 @@
 | [`prometheus.yml`](prometheus.yml) | 플랫폼 지표 저장소 설정. OTLP로만 받는다 |
 | [`testing/run.sh`](testing/run.sh) | 로컬 재현 시험 (Docker) |
 
-## 동작
+### 동작
 
 - **환경 이름은 Collector가 붙인다.** 앱이 보낸 `bravo.env`는 허용 목록에서 지워지고, Collector의 `BRAVO_ENV`로 덮어쓴다. 앱이 다른 환경을 사칭할 수 없다.
 - **허용 목록:** 앱 지표는 아래 속성만 남는다. 채팅 본문, `Authorization`, 토큰, SQL 파라미터는 저장되지 않는다.
@@ -24,7 +42,7 @@
 - **시계:** 생존 신호의 시각은 Collector 호스트 시계다. 호스트 시계가 앞서면 그만큼 "확인 불가" 판정이 늦어지므로 클러스터 노드는 시간 동기화(chrony 등)를 켠다.
 - **보존 기간 3일.** 데모와 증빙에 충분한 기간만 둔다. 판정의 근거는 판정 기록(`SliJudgement`)에 따로 남으므로 지표 저장소를 지워도 판정은 다시 계산할 수 있다.
 
-## 보안 경계
+### 보안 경계
 
 - Prometheus의 OTLP 수신(`/api/v1/otlp`)과 조회 API에는 인증이 없다. 배포할 때 네트워크로 막는다.
   - 수신: 출발지 · 목적지 Collector 태그만 Tailscale ACL로 허용한다.
@@ -34,7 +52,7 @@
 - 리허설 네임스페이스에는 Collector로 가는 송신 예외를 열지 않는다(ADR-0002).
 - 이미지는 태그와 digest로 고정한다: `otel/opentelemetry-collector-contrib:0.163.2`, `prom/prometheus:v3.15.1` (digest는 `testing/compose.yaml`).
 
-## 검증
+### 검증
 
 ```sh
 services/observability/testing/run.sh
@@ -59,7 +77,7 @@ Prometheus와 목적지 역할(`BRAVO_ENV=onprem`) Collector를 띄운다. 시�
 
 시험이 이 보호 장치들을 실제로 확인한다는 뜻이다.
 
-## 남은 일
+### 남은 일
 
 이 PR은 설정과 로컬 시험까지다. 클러스터 배포와 실제 환경 검증은 아직 하지 않았다.
 
