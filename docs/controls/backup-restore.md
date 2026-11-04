@@ -8,6 +8,8 @@ T35는 백업 API의 성공만으로 DR-01.1을 통과시키지 않는다. 백�
 
 - `bravo_controls.cnpg_backup`: CNPG/Barman ObjectStore, Backup, 새 복원 Cluster를 생성하는
   순수 함수. 실행·승인·Terraform 적용을 하지 않는다.
+- `bravo_controls.cnpg_readback`: 요청 전 보존한 UID·설정과 인증된 API의 완료 상태를 대조한다.
+  [읽기 검증 계약](../../services/control-runner/docs/cnpg-readback.md)을 따른다.
 - `bravo_controls.backup_restore`: 실행·백업·복원 영수증의 결속과 신선도를 확인하고
   실제 복원 표식·행 수를 비교하는 T14 DR-01.1 관찰기.
 - `bravo_controls.postgres_restore`: `postgres` extra의 psycopg를 사용한 고정
@@ -126,3 +128,15 @@ AWS IAM 삭제 거부, 팀 로그 수집 경로는 이 시험으로 입증하지
 - [S3/호환 저장소 인증·CA·수명 관리](https://cloudnative-pg.io/plugin-barman-cloud/docs/object_stores/)
 - [CNPG API 계약](https://cloudnative-pg.io/docs/current/cloudnative-pg.v1/)
 - [SeaweedFS 버킷 정책](https://github.com/seaweedfs/seaweedfs/wiki/S3-Bucket-Policies)
+
+## 11/4 최초 복구 WAL 누락 추가 시험
+
+기존 작업 전용 kind/CNPG에서 정상 백업의 base 파일 두 개만 새로운 archive prefix에 복사했다.
+원본 WAL은 수정·삭제하지 않았다. Barman이 해당 백업의 `begin_wal` 부재를 명시하고,
+별도 복원 프로세스가 오류 종료했음을 UID·spec·소유권과 함께 확인했다.
+원본 백업 객체의 ETag·크기, 원본 UID·spec·Ready, 기존 정상 복원본 Ready는 유지됐다.
+
+시험 Cluster·ObjectStore만 생성 UID 조건으로 정리했다. 기존 삭제 제한을 해제하지 않아
+복사한 두 개의 base 파일은 로컬 시험 저장소에 보존한다. 원문과 생성 영수증은 비공개다.
+[공개 결과](../evidence/t35-wal-loss-2026-11-04/README.md)는 정상 복원 PASS를 대신하지 않는다.
+팀 AWS/RKE2, 중간 WAL 손상, PITR, 복구 시간 보장은 별도다.

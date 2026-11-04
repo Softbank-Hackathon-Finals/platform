@@ -159,6 +159,16 @@ AWS 사용 시 `uv sync --extra aws`로 설치한다. 서버가 각각의 역할
 신원 확인 근거와 probe 증거를 함께 보존한다. [연결 계약과 실환경 인수 항목](docs/aws-qualification.md)을
 따른다. Credential Provider·팀 로그인·최소 권한 발급은 호스트의 책임이다.
 
+## 네트워크 대조 시험 (T14)
+
+DB 5432·Pooler 6432 모두에 전후 허용 대조와 시험 주체의 정상 대조를 연결한다.
+접속 시간 초과만으로 PASS를 만들지 않는다. [계약·배치·검증 범위](docs/network-controls.md)를 따른다.
+
+## CNPG 백업 완료 읽기 검증 (T35)
+
+등록된 자원 UID·요청 전 설정·컨트롤러 완료 상태를 대조한다. 백업 생성과 복원 데이터
+검증은 별도 단계다. [계약·통합 경계](docs/cnpg-readback.md)를 따른다.
+
 ## 검증
 
 ```sh
@@ -176,4 +186,7 @@ uv build
 [GetObject API](https://docs.aws.amazon.com/AmazonS3/latest/API/API_GetObject.html),
 오류 규칙은 [Secrets Manager Common Errors](https://docs.aws.amazon.com/secretsmanager/latest/apireference/CommonErrors.html)를 따른다.
 
+환경 내부 OTLP 감사 기록 연결: [등록 원천·수신 시각·전체 export 검증](docs/otlp-audit.md).
 T34의 환경 내부 OTel 수집 구성·중단 복구와 배포 전제는 [감사 전달 구성](docs/audit-forwarding.md)을 따른다. 설정 생성과 로컬 도구 실험은 양쪽 운영 환경의 감사 검색 완료가 아니다.
+
+실제 로컬 DB·Kubernetes 감사 발생부터 수집·검색까지: [자격 시험](docs/live-audit-qualification.md). 팀 환경 완료와 구분한다.
