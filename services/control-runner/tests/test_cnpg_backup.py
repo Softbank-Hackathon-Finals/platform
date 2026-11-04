@@ -113,6 +113,35 @@ def test_backup_and_archive_fragment_exact_plugin():
     assert doc["spec"]["method"] == "plugin"
     patch = archive_patch(namespace="test", source_cluster="source-one", writer_store="writer")
     assert patch["spec"]["plugins"][0]["isWALArchiver"] is True
+    assert "serviceAccountTemplate" not in patch["spec"]
+
+
+def test_irsa_role_annotates_cluster_service_account_only():
+    writer = "arn:aws:iam::123456789012:role/source-backup-writer"
+    reader = "arn:aws:iam::123456789012:role/source-backup-reader"
+    patch = archive_patch(
+        namespace="test", source_cluster="source-one", writer_store="writer", iam_role_arn=writer
+    )
+    annotations = patch["spec"]["serviceAccountTemplate"]["metadata"]["annotations"]
+    assert annotations == {"eks.amazonaws.com/role-arn": writer}
+    restored = restore(iam_role_arn=reader)["spec"]
+    assert restored["serviceAccountTemplate"]["metadata"]["annotations"] == {
+        "eks.amazonaws.com/role-arn": reader
+    }
+    assert "serviceAccountTemplate" not in restore()["spec"]
+    for bad in (
+        "arn:aws:iam::123456789012:user/backup",
+        "arn:aws:iam::123456789012:role/*",
+        "arn:aws:iam::1234567890123:role/backup",
+        "arn:aws:iam::123456789012:role/backup\n",
+        123,
+    ):
+        with pytest.raises(ValueError):
+            archive_patch(
+                namespace="test", source_cluster="source-one", writer_store="w", iam_role_arn=bad
+            )
+        with pytest.raises(ValueError):
+            restore(iam_role_arn=bad)
 
 
 def test_delete_guard_exact_principals_prefix_and_versions():
