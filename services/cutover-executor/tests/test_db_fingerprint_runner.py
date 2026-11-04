@@ -1,7 +1,6 @@
 """T13 비교기의 실제 결과가 실행 단계 판정을 그대로 통과하는지 본다(T12 연결 계약).
 
-원격 조작은 test_runner_fakes의 가짜이고, 비교만 실제 PostgreSQL DB 두 개에서 돈다.
-k3d 모의 환경은 임시 비교기를 켜 두므로(allow_unverified_compare) 이 경로를 재지 않는다.
+원격 조작과 시퀀스는 test_runner_fakes의 가짜이고, 비교만 실제 PostgreSQL DB 두 개에서 돈다.
 """
 
 import json
@@ -14,8 +13,6 @@ from bravo_cutover.db_fingerprint import HASH_RULE, DbFingerprintComparer
 from bravo_cutover.remote.db import DbControl
 from tests.test_db_fingerprint import pair, run  # noqa: F401
 from tests.test_runner_fakes import CONFIG, FakeCutover, start, world  # noqa: F401
-
-STRICT = CONFIG.model_copy(update={"settings": CONFIG.settings.model_copy(update={"allow_unverified_compare": False})})
 
 
 class RealDatabases:
@@ -41,9 +38,7 @@ def tables(pair):  # noqa: F811
 
 def execute(store, world, dsns):  # noqa: F811
     execution_id = start(store)
-    cutover = FakeCutover(store, world, comparer=RealDatabases(dsns))
-    cutover._config, cutover._settings = STRICT, STRICT.settings
-    cutover.run(execution_id)
+    FakeCutover(store, world, comparer=RealDatabases(dsns)).run(execution_id)
     return store.get(execution_id)
 
 
@@ -52,7 +47,7 @@ def test_real_match_proceeds_and_keeps_the_rule_in_the_receipt(store, world, tab
     assert execution.status == Status.DONE, execution.result
     receipt = execution.result["receipt"]
     assert (receipt["verdict"], receipt["hash_rule"]) == ("MATCH", HASH_RULE)
-    assert {t["name"] for t in receipt["tables"]} == set(STRICT.settings.tables)
+    assert {t["name"] for t in receipt["tables"]} == set(CONFIG.settings.tables)
     assert all(t["data_verdict"] == t["schema_verdict"] == "MATCH" for t in receipt["tables"])
     assert "dst.set_login:True" in world.calls
 

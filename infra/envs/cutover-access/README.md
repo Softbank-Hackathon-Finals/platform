@@ -26,6 +26,22 @@ python3 infra/envs/cutover-access/verify.py \
 검증에 발급한 토큰을 파일로 저장하거나 커밋하지 않는다.
 본인 토큰 발급 거부는 workload namespace가 아니라 해당 ServiceAccount의 namespace에서 검사한다.
 
+Secret 읽기는 두 SA 각각에 대해 workload namespace와, 다르면 identity namespace에서 검사한다.
+일반 `get/list/watch` 거부만으로 이름 제한 권한이 없다고 판단하지 않는다.
+SelfSubjectRulesReview로 합산된 규칙의 `resourceNames`를 수집하므로 아직 존재하지 않는
+Secret 이름도 포함한다. 각 이름의 `get/list/watch`와 이름 없는 세 요청은
+SelfSubjectAccessReview로 조회하며 Secret 값은 가져오지 않는다.
+규칙에 Secret 읽기 허용이 남아 있거나 실제 권한 조회가 허용이면 실패한다.
+규칙 목록이 불완전하거나 조회·형식 오류가 있으면 통과시키지 않고 운영자 검토가 필요하다.
+규칙 목록은 권한 감사용이며 런타임 접근 허가를 대신하지 않는다.
+([Kubernetes SelfSubjectRulesReview](https://kubernetes.io/docs/reference/kubernetes-api/definitions/self-subject-rules-review-v1-authorization/))
+
+`secret_read_audit`에는 검사한 namespace, 규칙 완전성, 이름별 검사 수와 허용 응답 수를 남긴다.
+이름과 원시 규칙·자격증명은 출력하지 않는다. 통과 범위는 **그 시점의 위 namespace들**이며
+클러스터 전체, 다른 namespace, 이후 추가된 권한이나 exec로 접근 가능한 파드 내부 자격증명을
+포함하지 않는다. 다른 namespace의 권한은 운영자가 별도로 검토해야 한다.
+과거 결과의 `secret_list_denied`만으로 특정 Secret의 `get` 거부까지 주장하지 않는다.
+
 목적지 앱이 아직 배포되지 않은 준비 단계에는 두 명령 모두 `--app-pod` 대신
 `--pooler-only`를 명시할 수 있다. 이 모드는 현재 풀러 하나에만 exec를 부여하며
 미래 앱 이름을 임의로 넣지 않는다. 검증 결과의 `app_access_verified`는 false이고

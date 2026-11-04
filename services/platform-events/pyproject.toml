@@ -4,12 +4,18 @@ version = "0.1.0"
 description = "T10 SSE contract proposal and local replay adapter for T21/T24"
 requires-python = ">=3.12"
 dependencies = [
+    "bravo-observability[api]",
     "fastapi>=0.115",
     "httpx>=0.27",
     "jsonschema>=4.23",
     "pyjwt[crypto]>=2.10.1,<3",
     "rfc3339-validator>=0.1.4",
 ]
+
+[tool.uv.sources]
+# T36 intake is proposed in #168, not yet on develop. Consume its immutable
+# source without copying the validator or merging another owner's branch.
+bravo-observability = { git = "https://github.com/Softbank-Hackathon-Finals/platform.git", rev = "020c6c78bdc6133ab0ee15e2a990bb9527b3182f", subdirectory = "services/observability" }
 
 [project.optional-dependencies]
 postgres = ["psycopg[binary]>=3.2,<4"]

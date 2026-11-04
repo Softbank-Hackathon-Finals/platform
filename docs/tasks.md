@@ -211,7 +211,7 @@ Claude Code는 `/todo-task`, Codex는 `$todo-task`로 이 순서를 따르는 �
 **목표** 데모 앱이 AWS 매니지드 기능을 실제로 쓰는 출발지를 만든다.
 
 **할 일**
-- [ ] 예선 EKS 모듈 구조 참고
+- [ ] 예선 인프라 원본의 적용 가능성을 검토하고 현재 EKS 모듈 구조·실환경 검증 근거 확인
 - [ ] 앱은 PgBouncer 경유로 DB 접속
 - [ ] pgaudit, CloudTrail 활성화
 

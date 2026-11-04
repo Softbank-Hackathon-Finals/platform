@@ -1,7 +1,5 @@
 # bravo-cutover (T12)
 
-무결성 SQL의 생산·소비 방향은 [ADR-0013](../../docs/adr/0013-integrity-fingerprint-producer.md)을 따른다. 현재 Executor 내부 비교를 DB 내부 방식의 완료 구현으로 간주하지 않는다. T13이 계산·규칙 시험을 제공하고 T12 담당이 기존 `compare()`·영수증·실행 단계에 연결한 뒤, 사용하지 않는 비교 경로를 제거한다.
-
 Cutover Executor. 상태 머신(T10)의 호출을 받아 쓰기 정지 구간(DB 쓰기를 잠깐 멈추고 쓰기 대상을 출발지에서 목적지로 바꾸는 몇 초)을 8단계 순서대로 실행한다. 순서 · 실패 처리 · 호출 계약은 [설계 문서 8.6](../../docs/design.html), 언어 결정은 [ADR-0006](../../docs/adr/0006-cutover-executor-language.md).
 
 - **쓰기를 받는 DB는 어느 순간에도 최대 하나다.** 상태를 확인할 수 없으면 아무것도 열지 않고 SAFE_HOLD로 멈춘다.
@@ -27,7 +25,13 @@ uv run uvicorn bravo_cutover.api:create_app --factory --port 8080
 
 ## DB 안 무결성 지문 (T13)
 
-`db_fingerprint.py`는 각 DB 안에서 지문을 계산하고 지문만 가져오는 비교기다. **아직 실행 단계에 연결하지 않았다.** 지금 기본 비교기는 아래 「T13 비교 규칙 v1」의 `integrity.py`다. 규칙 · 지원 타입 · 판정 · 연결 방법은 [계약 문서](../../docs/contracts/T13-db-fingerprint-v1.md)에, 시간과 전송량은 [로컬 측정 증거](../../docs/evidence/t13-db-fingerprint-2026-11-04/README.md)에 있다. `uv run python testing/measure_fingerprint.py --out results.json`으로 다시 잴 수 있다.
+compare 단계의 비교기는 `db_fingerprint.py`의 `DbFingerprintComparer`(규칙 `db-sql-v1`) 하나다. 각 DB 안에서 지문을 계산하고 지문만 가져온다. 생산·소비 방향은 [ADR-0013](../../docs/adr/0013-integrity-fingerprint-producer.md)을 따른다.
+
+- 진행은 전체 `verdict`가 `MATCH`일 때만이다. `MISMATCH` · `UNKNOWN` · 그 밖의 값은 영수증을 저장한 뒤 쓰기 전 실패(ABORT_PRE_WRITE)다.
+- 시퀀스는 비교가 `MATCH`일 때만 `correct_sequence`로 올린다(올리기만). 다시 읽어 확인하지 못하면 영수증 `sequence_error`에 고정 코드를 남기고 쓰기 전 실패다.
+- 행 수만 보는 임시 비교와 `allow_unverified_compare` 설정은 없다. 이 키가 남은 설정 파일은 불러오기에서 거부된다.
+
+규칙 · 지원 타입 · 판정 · 연결 방법은 [계약 문서](../../docs/contracts/T13-db-fingerprint-v1.md)에, 시간과 전송량은 [로컬 측정 증거](../../docs/evidence/t13-db-fingerprint-2026-11-04/README.md)에 있다. `uv run python testing/measure_fingerprint.py --out results.json`으로 다시 잴 수 있다.
 
 ## 모의 환경 (k3d)
 
@@ -84,17 +88,9 @@ python3 testing/mockenv.py down
   그 Pod의 `ADMIN_TOKEN`으로 호출하며, `{closed: nonnegative integer}` ACK 뒤 쓰기 차단을 해제한다.
   Pod 변경/응답 누락은 성공으로 세지 않는다. 기존 관리 API가 없는 앱 이미지는 통합 시험 대상이 아니다.
 
-## T13 비교 규칙 v1
+## 영수증과 실패 처리
 
-기본 비교기는 실제 행 수, PK 정렬 해시, 전체 행 내용 해시와 테이블/컬럼/제약 스키마 해시를 비교한다.
-콜레이션이 있는 PK는 `C` 순서이며, 타입과 NULL/텍스트/바이너리/숫자/시간/JSON은 별도 태그를 쓴다.
-문자열 컬럼의 비교 의미는 정렬 순서와 별도로 해시에 담는다. collation의 제공자·로케일·규칙·
-deterministic 여부·기록/실제 버전을 비교하며, default는 해당 DB의 로케일 설정으로 해석한다.
-이름과 클러스터별 OID는 제외한다. 기록 버전과 실제 제공자 버전이 다르거나 미지원 제공자면 UNKNOWN이다.
-정확한 숫자는 Decimal 전체 정밀도를 유지하고 UTC timestamp·정렬된 JSON 키·길이 접두어 SHA256을 사용한다.
-양쪽 업무 쓰기 차단과 복제 barrier 확인 뒤 각 연결의 repeatable-read/read-only snapshot을 비교한다.
-공간/확장 사용자 타입 등 미지원 값은 UNKNOWN으로 거부하며 전체 PostgreSQL 타입 호환을 주장하지 않는다.
-현재 demo-chat의 기본 타입·PK·컬럼·제약을 지원한다. DB 객체 소유자/ACL은 이 해시에 포함하지 않는다.
+비교 규칙 · 지원 타입 · 판정은 [T13 계약 문서](../../docs/contracts/T13-db-fingerprint-v1.md)가 원문이다.
 
 비교 영수증은 **목적지 LOGIN 이전** 실행 DB에 저장되고 실패/재시작 결과에도 유지된다.
 MISMATCH면 전환을 취소하며 시퀀스는 감소시키지 않는다. 마지막 ACK 뒤 ConfigMap을 영속화한 후에도

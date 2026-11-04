@@ -67,7 +67,7 @@ def test_runtime_adapter_fails_closed_on_missing_or_unknown_schema(pg_backend):
         pg_backend.reopen()
     with pg_backend.admin() as c:
         c.execute("ALTER TABLE schema_version DROP CONSTRAINT schema_version_version_check")
-        c.execute("INSERT INTO schema_version VALUES (2)")
+        c.execute("INSERT INTO schema_version VALUES (3)")
     with pytest.raises(StorageUnavailable, match="^unsupported_storage_schema$"):
         pg_backend.reopen()
     with pg_backend.admin() as c:
