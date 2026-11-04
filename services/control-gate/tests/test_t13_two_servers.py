@@ -71,6 +71,7 @@ def tls_pair(tmp_path):
             cid = tool("docker", "run", "-d", "--network", network,
                 "--network-alias", side, "--name", network + "-" + side,
                 "--memory", "384m", "--cpus", "1", "-p", "127.0.0.1::5432",
+                "--tmpfs", "/var/lib/postgresql:rw,size=268435456",
                 "-e", "POSTGRES_PASSWORD", "--mount",
                 f"type=bind,src={root / (side + '.key')},dst=/certs/server.key,readonly",
                 "--mount", f"type=bind,src={root / (side + '.crt')},dst=/certs/server.crt,readonly",
@@ -79,6 +80,9 @@ def tls_pair(tmp_path):
                 "cp /certs/server.key /tmp/server.key && chown postgres /tmp/server.key && chmod 600 /tmp/server.key && exec docker-entrypoint.sh postgres -c wal_level=logical -c max_replication_slots=10 -c max_wal_senders=10 -c ssl=on -c ssl_cert_file=/certs/server.crt -c ssl_key_file=/tmp/server.key",
                 env=dict(os.environ, POSTGRES_PASSWORD=password))
             containers.append(cid)
+            inspected = json.loads(tool("docker", "inspect", cid))[0]
+            assert inspected["HostConfig"]["Tmpfs"].get("/var/lib/postgresql") == "rw,size=268435456"
+            assert not any(mount["Type"] == "volume" for mount in inspected["Mounts"])
             try:
                 port = int(tool("docker", "port", cid, "5432/tcp").split(":")[-1])
             except (RuntimeError, ValueError):
@@ -112,7 +116,9 @@ def tls_pair(tmp_path):
         failures = []
         for cid in reversed(containers):
             try:
-                tool("docker", "rm", "-f", cid)
+                # These exact IDs belong to this fixture only. Also remove any
+                # anonymous volumes if a future image adds another VOLUME path.
+                tool("docker", "rm", "-fv", cid)
             except RuntimeError:
                 failures.append("container")
         try:
