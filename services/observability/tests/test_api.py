@@ -1,5 +1,8 @@
 """콘솔용 조회 API. 지표 저장소는 가짜 전송으로 대신하고, 실행한 조회식을 기록해 고정 조회식만 쓰는지 본다."""
 
+import json
+from pathlib import Path
+
 import httpx
 import pytest
 from fastapi.testclient import TestClient
@@ -90,6 +93,25 @@ def test_http_view_values():
     )
     body = client(store).get("/v1/observability/environments/onprem/http", headers=AUTH).json()
     assert (body["requests_per_second"], body["error_ratio"], body["p95_seconds"]) == (20.0, 0.02, 0.25)
+
+
+def test_live_query_matches_promtool_zero_error_and_absent_series_cases():
+    store = FakeStore(results={"timestamp(up": [vec("aws", 2)]})
+    client(store).get("/v1/observability/environments/aws/http", headers=AUTH)
+    fixture = json.loads((Path(__file__).parents[1] / "testing/http_queries_test.yml").read_text())
+    actual = next(query for query in store.seen if '=~"5.."' in query)
+    assert all(test["promql_expr_test"][0]["expr"] in {actual, f"({actual}) >= 0"} for test in fixture["tests"])
+
+
+@pytest.mark.parametrize("rate,expected", [(20, 0.0), (0, None)])
+def test_zero_error_ratio_requires_positive_observed_traffic(rate, expected):
+    store = FakeStore(results={
+        "timestamp(up": [vec("aws", 2)],
+        '=~"5.."': [vec("aws", 0)],
+        "sum(rate": [vec("aws", rate)],
+    })
+    body = client(store).get("/v1/observability/environments/aws/http", headers=AUTH).json()
+    assert body["error_ratio"] == expected
 
 
 def test_alerts_only_bravo_rules():

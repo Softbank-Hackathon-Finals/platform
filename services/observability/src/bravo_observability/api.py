@@ -230,9 +230,14 @@ def create_app(
         e = env_or_404(env)
         sel = f'bravo_env="{e}"'
         count = f"{HTTP_METRIC}_count"
+        total = f"sum(rate({count}{{{sel}}}[1m]))"
+        errors = f'sum(rate({count}{{{sel}, http_response_status_code=~"5.."}}[1m]))'
         queries = {
-            "requests_per_second": f"sum(rate({count}{{{sel}}}[1m]))",
-            "error_ratio": f'sum(rate({count}{{{sel}, http_response_status_code=~"5.."}}[1m])) / sum(rate({count}{{{sel}}}[1m]))',
+            "requests_per_second": total,
+            # No 5xx series is normal when every recorded response succeeded.
+            # Derive zero only from an existing denominator; absent telemetry
+            # stays absent, and an idle denominator yields NaN -> null below.
+            "error_ratio": f"({errors} or (0 * {total})) / {total}",
             "p95_seconds": f"histogram_quantile(0.95, sum by (le) (rate({HTTP_METRIC}_bucket{{{sel}}}[1m])))",
         }
         fresh, age = freshness(e)
