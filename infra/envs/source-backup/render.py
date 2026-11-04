@@ -8,8 +8,8 @@ Rendering is not apply: the source owner reviews and applies it.
 
 import argparse
 import json
+import re
 import sys
-from datetime import UTC, datetime
 
 from bravo_controls.cnpg_backup import archive_patch, backup_request, object_store, restore_cluster
 
@@ -44,10 +44,15 @@ def cluster_patches(reg):
             "archive-patch": {"spec": {"plugins": spec["plugins"]}}}
 
 
-def backup(reg, now):
+def backup(reg, run_id):
+    """One name per T35 run, so a lost response is re-read by name instead of creating a second Backup."""
+    if not isinstance(run_id, str) or not re.fullmatch(r"[a-z0-9](?:[a-z0-9-]{0,30}[a-z0-9])?", run_id):
+        raise ValueError("T35 run ID required: lowercase letters, digits and hyphens, at most 32")
     writer = reg["writer"]
-    name = f"{writer['name']}-t35-{now:%Y%m%dt%H%M%S}"
-    return [backup_request(namespace=writer["namespace"], name=name, source_cluster=writer["name"])]
+    request = backup_request(namespace=writer["namespace"], name=f"{writer['name']}-t35-{run_id}",
+                             source_cluster=writer["name"])
+    request["metadata"]["annotations"] = {"bravo.t35/run-id": run_id}
+    return [request]
 
 
 def restore(reg, backup_id, image, storage_class, storage_gib):
@@ -67,7 +72,8 @@ def main(argv=None):
     sub.add_parser("stores")
     sub.add_parser("role-patch")
     sub.add_parser("archive-patch")
-    sub.add_parser("backup")
+    b = sub.add_parser("backup")
+    b.add_argument("--run-id", required=True, help="fixed for this T35 run; reuse it after a lost response")
     r = sub.add_parser("restore")
     r.add_argument("--backup-id", required=True)
     r.add_argument("--image", required=True, help="the source PostgreSQL image, tag and digest")
@@ -82,7 +88,7 @@ def main(argv=None):
     if args.step == "stores":
         items = stores(reg)
     elif args.step == "backup":
-        items = backup(reg, datetime.now(UTC))
+        items = backup(reg, args.run_id)
     else:
         items = restore(reg, args.backup_id, args.image, args.storage_class, args.storage_gib)
     json.dump({"apiVersion": "v1", "kind": "List", "items": items}, sys.stdout, indent=2)
