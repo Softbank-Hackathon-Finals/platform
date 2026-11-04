@@ -181,3 +181,5 @@ PYTHONPATH=../rehearsal-runner/src uv run --frozen --no-default-groups --with py
 `python -m rehearsal_runner.credential_job_probe secret-get --namespace <namespace> --name <secret>`은 실행된 Pod의 서비스 계정으로 Kubernetes API의 Secret GET 상태만 확인한다. 응답 본문과 토큰은 읽어 출력하지 않으며, 200은 `yes`, 403은 `no`, 나머지는 `unknown`이다. `app-db --namespace <namespace> --service <service> --port <port>`는 demo-chat DB health 응답을 확인한다. 각 명령은 관측값만 출력하며 T38 영수증이 아니다.
 
 리허설 기본 NetworkPolicy는 Kubernetes API 송신을 막고 기본 계정에 토큰을 마운트하지 않는다. 이 명령을 실행하려고 격리 정책을 임의로 완화하지 않는다. 신뢰된 별도 검증 Job, 대상 계정의 식별·권한 전달, 양성 대조, 인증된 Job 증거와 UID 정리 방식은 T38 접점에 맞춰 연결해야 한다. 실제 앱의 DB 응답과 대상 Secret에 대한 별도 양성·음성 확인이 모두 필요하다.
+
+로컬에서 실제 수정된 demo-chat과 PostgreSQL 연결을 재현하려면 수정본의 `.venv`와 PostgreSQL 도구(`pg_config`, `initdb`, `pg_ctl`, `psql`)를 준비한 뒤 `testing/verify_real_demo_db.sh <수정된-demo-chat-경로>`를 실행한다. 이 시험은 임시 DB와 자격을 만들고 초기 접속, 비밀번호 회전 후 재접속, DB 중단 관측을 확인한 뒤 정리한다. Kubernetes·OpenBao·ESO·T38 제품 Job 검증을 대신하지 않는다.
