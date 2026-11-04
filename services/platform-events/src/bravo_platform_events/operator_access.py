@@ -169,9 +169,14 @@ class OperatorAccess:
         return current
 
 
-def create_operator_cutover_app(store, executor, *, bindings, verifier, authority=unavailable_authority,
+def create_operator_cutover_app(store, executor, *, verifier, bindings=None, registered_pair=None,
+                               authority=unavailable_authority,
                                change_authority=None, clock=None):
     """Explicit host wiring. No IdP, grants or gate/SHIFT fixture is installed."""
+    if (registered_pair is None) == (bindings is None):
+        raise ValueError("exactly_one_binding_source_required")
+    if registered_pair is not None:
+        bindings = executor.verified_bindings(registered_pair)
     access = OperatorAccess(store, clock=clock)
     service = CutoverService(store, executor, bindings=bindings, authority=access.authority(authority),
                              check_access=access.check_read, clock=clock)

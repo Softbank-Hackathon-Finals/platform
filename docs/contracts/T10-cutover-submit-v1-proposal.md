@@ -94,3 +94,7 @@ with ExecutorReader("https://executor.example.invalid") as reader:
 증빙 조회는 신뢰된 호스트 전용이다. 호스트는 각 담당 서비스의 정본, 현재 보류·권한 회수, 증빙 유효 기간을 같은 계획 잠금 아래 확인해야 한다. 모의 시험은 생산자의 판정을 대역으로 제공한다. 운영 생산자 연결과 T18 실제 창 수신은 각각의 인수 절차에서 확인한다.
 
 재현하려면 `services/platform-events`에서 `uv sync --locked` 후 `uv run pytest -q tests/test_workflow_recovery.py`를 실행한다. PostgreSQL 서버 도구가 필요하다. 시험은 독립된 HTTP Executor와 임시 DB를 사용하며, 적용 직전과 적용 직후에 플랫폼 프로세스를 강제 종료한다. [재시작 시험](../../services/platform-events/tests/test_workflow_recovery.py)
+
+### 배포된 Executor의 DB 쌍 확인
+
+호스트가 `create_operator_cutover_app(..., registered_pair=...)`로 시작하면 T10 클라이언트가 인증된 `GET /v1/resources`를 한 번 보낸다. 입력은 최초 등록 기록에서 읽은 두 환경의 `environment_id`, `resource_id`, `connection_ref`다. 방향과 여섯 값이 모두 같을 때만 응답의 연결 참조로 서비스를 구성한다. 인증 실패·조회 실패·등록 변경이면 앱 구성을 중단한다. 이 조회는 시작 시점의 등록 확인이다. 실행 권한과 매 요청의 승인·게이트 검사는 기존 경로에서 판정한다. [T12 조회 계약](T12-platform-integration.md#등록된-출발지와-목적지-조회)
