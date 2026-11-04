@@ -24,7 +24,7 @@
 
 | 항목 | 값 |
 |---|---|
-| 측정 코드 | 측정은 `feature/T18-load-generator` `21085aa` 위에서 했다. 그 뒤 `dea9ced`(창 전송 Bearer 인증)로 rebase했고, `services/loadgen/testing`의 Git 트리 해시 `7b4c6c98a4a2dd78de9541f61b6b7d849bd8175a`는 rebase 뒤 값이다. 측정 뒤에 고친 도구는 결과를 읽는 코드(`lock_lab_report.py`, Edge 오류 집계)뿐이다. rebase 뒤에 안 3+읽기 설정 20ms · 50% 1칸을 다시 돌려 도구가 도는지 확인했다(P, 5xx 0, 쓰기 p95 27ms, 실패 · 유실 · 중복 0 · 0 · 0). `matrix-smoke-after-rebase.jsonl` |
+| 측정 코드 | 측정은 #158 브랜치의 `21085aa` 위에서 했다. 그 뒤 `dea9ced`(창 전송 Bearer 인증)로 rebase했고, #158이 머지된 뒤 develop `399f297`을 머지 커밋으로 합쳤다. `services/loadgen/testing`의 Git 트리 해시 `7b4c6c98a4a2dd78de9541f61b6b7d849bd8175a`는 rebase 뒤 값이고 머지로 바뀌지 않았다. develop이 `services/loadgen`을 바꾸지 않아 머지 뒤에는 다시 재지 않았다. 측정 뒤에 고친 도구는 결과를 읽는 코드(`lock_lab_report.py`, Edge 오류 집계)뿐이다. rebase 뒤에 안 3+읽기 설정 20ms · 50% 1칸을 다시 돌려 도구가 도는지 확인했다(P, 5xx 0, 쓰기 p95 27ms, 실패 · 유실 · 중복 0 · 0 · 0). `matrix-smoke-after-rebase.jsonl` |
 | 대상 앱 | demo-chat main `dc9bece24898b752a77af1d1bbd440c11100e5f2`. `app/store.py`는 #158에서 쓴 `b71d4aa`와 같다. 안마다 `app/store.py`만 바꾼 복사본을 저장소 밖에서 썼다. 환경마다 uvicorn 프로세스 1개로 직접 실행(컨테이너 이미지 아님) |
 | DB | 행렬: `public.ecr.aws/docker/library/postgres@sha256:5db6dac2ef5dcff512f4f00a009c3c332b9f2f28f24277175bf3e4a3d02ef83a`(16). 불변식은 16과 18.4 `@sha256:a02db8cac496f15b094798a38254f14d6e00741f709360e5e00bb6668ea31636` 둘 다. 실제 DB는 18.4다 |
 | PgBouncer | `ghcr.io/cloudnative-pg/pgbouncer:1.25.1@sha256:e6ddfe22d845e603825e235dd8334b21ecd125abea2a2172478f556b8dee2bb8`. 설정은 `infra/envs/source-workloads/pgbouncer.ini`와 같은 값(transaction 모드, `default_pool_size=10`, `max_prepared_statements=0`). **목적지 설정은 저장소에서 찾지 못해 같다고 가정했다** |
