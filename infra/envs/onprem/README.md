@@ -4,7 +4,7 @@
 
 | 파일 | 하는 일 |
 |---|---|
-| [`render-user-data.sh`](render-user-data.sh) | 공통 [`bootstrap.sh`](../../shared/rke2/bootstrap.sh)에 Tailscale 설치를 더해 user-data를 출력한다 |
+| [`render-user-data.sh`](render-user-data.sh) | 공통 [`bootstrap.sh`](../../shared/rke2/bootstrap.sh)에 감사 정책과 Tailscale 설치를 더해 user-data를 출력한다 |
 | [`local-vm.sh`](local-vm.sh) | Mac에서 arm64 또는 x86_64 VM을 만들고 지운다 |
 | [`local_vm.py`](local_vm.py) | 시작·종료 배타 잠금, QEMU 신원 확인, 종료 확인 후 디스크 정리 |
 | [`verify-node.sh`](verify-node.sh) | 노드가 기준대로 섰는지 12개 항목을 확인한다 |
