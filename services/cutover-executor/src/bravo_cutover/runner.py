@@ -16,7 +16,11 @@ from typing import Any, Protocol
 from uuid import UUID
 
 from bravo_cutover.contract import CutoverRequest, Status, StepStatus
-from bravo_cutover.integrity import IntegrityComparer
+from bravo_cutover.db_fingerprint import (
+    DbFingerprintComparer,
+    FingerprintUnconfirmed,
+    correct_sequence,
+)
 from bravo_cutover.remote import Unconfirmed
 from bravo_cutover.remote.db import DbControl, WriteRefusal, app_write, try_app_write
 from bravo_cutover.remote.kube import Kube, WriteBlock
@@ -43,17 +47,6 @@ class OwnershipLost(Exception):
 
 class Comparer(Protocol):
     def compare(self, src: DbControl, dst: DbControl, tables: list[str]) -> dict[str, Any]: ...
-
-
-class RowCountComparer:
-    """T13 연결 전 임시 비교(spec D11). 행 수만 보므로 같아도 MATCH가 아니라 UNVERIFIED다."""
-
-    hash_rule = "none (T13 미연결: 행 수만 비교)"
-
-    def compare(self, src: DbControl, dst: DbControl, tables: list[str]) -> dict[str, Any]:
-        rows = [{"name": t, "rows_src": src.row_count(t), "rows_dst": dst.row_count(t)} for t in tables]
-        same = all(r["rows_src"] == r["rows_dst"] for r in rows)
-        return {"hash_rule": self.hash_rule, "tables": rows, "verdict": "UNVERIFIED" if same else "MISMATCH"}
 
 
 @dataclass
@@ -99,7 +92,7 @@ class Cutover:
                  kube: Callable[[str], Kube] = Kube, hooks: dict[str, Callable[["Run"], None]] | None = None,
                  clock: Callable[[], float] = time.monotonic):
         self._store, self._config, self._settings = store, config, config.settings
-        self._comparer = comparer or (RowCountComparer() if config.settings.allow_unverified_compare else IntegrityComparer())
+        self._comparer = comparer or DbFingerprintComparer()
         self._kube_factory, self._kubes = kube, {}
         # 장애 주입 지점(시험 · T25용). 함수는 Run을 받는다: "before:<단계>", "commit:forward_disabled",
         # "commit:subscriptions_changed", "reconnect:target_opened", "release:<환경>", "persist:read:<환경>"
@@ -515,12 +508,7 @@ class Cutover:
         tables = result.get("tables") if isinstance(result.get("tables"), list) else []
         covered = {t.get("name") for t in tables if isinstance(t, dict)}
         verdict = result.get("verdict")
-        sequences = []
-        for name, (table, column) in self._settings.sequences.items():
-            src_next = src.db.sequence_next(name)
-            wanted = max(src_next, dst.db.max_value(table, column) + 1)
-            sequences.append({"name": name, "src_next": src_next,
-                              "dst_set": self._act(run, dst.db.raise_sequence, name, wanted)})
+        missing = sorted(set(self._settings.tables) - covered)
         run.receipt = {
             "receipt_id": str(uuid.uuid4()),
             "epoch": run.request.epoch,
@@ -532,26 +520,35 @@ class Cutover:
                           "received_lsn": int(dst.db.received_lsn(dst.site.subscription) or 0)},
             "hash_rule": result.get("hash_rule"),
             "tables": tables,
-            "sequences": sequences,
+            "sequences": [],
             "verdict": verdict,
+            "data_verdict": result.get("data_verdict"),
+            "schema_verdict": result.get("schema_verdict"),
             "write_pause_budget_ms": run.request.write_pause_budget_ms,
         }
+        # 시퀀스는 비교가 MATCH일 때만 올린다(spec D2). 중단될 실행에서는 목적지에 아무것도 쓰지 않는다.
+        sequence_error = None
+        if verdict == "MATCH" and not missing:
+            try:
+                for name, (table, column) in self._settings.sequences.items():
+                    run.receipt["sequences"].append(
+                        self._act(run, correct_sequence, src.db, dst.db, name, table, column))
+            except FingerprintUnconfirmed as e:
+                sequence_error = e
+                run.receipt["sequence_error"] = {"code": e.code, "sqlstate": e.sqlstate}
         self._guard(run)
         if not self._store.record_receipt(run.execution_id, run.receipt):
             raise OwnershipLost(str(run.execution_id))
-        # 허용 목록: 명시적인 MATCH만 진행한다. UNVERIFIED(임시 비교)는 시험용 설정을 켰을 때만.
-        # 그 밖의 값(UNKNOWN · 오타 · 누락 · 잘못된 형식)과 비교 대상 테이블 누락은 모두 쓰기 전 실패다.
-        if missing := sorted(set(self._settings.tables) - covered):
+        # 허용 목록: 명시적인 MATCH만 진행한다. 그 밖의 값(UNKNOWN · 오타 · 누락 · 잘못된 형식)과
+        # 비교 대상 테이블 누락은 모두 쓰기 전 실패다.
+        if missing:
             raise StepFailed(f"integrity comparison does not cover {missing}")
-        if verdict == "MATCH":
-            return
-        if verdict == "UNVERIFIED" and self._settings.allow_unverified_compare:
-            return
         if verdict == "MISMATCH":
             raise StepFailed("integrity comparison: MISMATCH")
-        if verdict == "UNVERIFIED":
-            raise StepFailed("integrity comparison is not verified (T13 not connected)")
-        raise StepFailed(f"integrity comparison returned an unexpected verdict {verdict!r}")
+        if verdict != "MATCH":
+            raise StepFailed(f"integrity comparison returned an unexpected verdict {verdict!r}")
+        if sequence_error is not None:
+            raise sequence_error
 
     # 6. 전환 확정 ------------------------------------------------------------
     def _commit(self, run: Run) -> None:

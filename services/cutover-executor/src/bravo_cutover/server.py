@@ -11,8 +11,6 @@ from bravo_cutover.store import Store
 
 def create_app():
     config = load_config(os.environ["EXECUTOR_CONFIG"])
-    if config.settings.allow_unverified_compare:
-        raise ValueError("deployment requires the verified integrity comparer")
     registry = config.deployment_registry()
     token = Path(os.environ["EXECUTOR_API_TOKEN_FILE"]).read_text().strip()
     if len(token) < 32:
