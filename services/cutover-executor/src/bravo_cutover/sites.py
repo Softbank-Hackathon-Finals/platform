@@ -59,8 +59,6 @@ class Settings(BaseModel):
     # 비교 대상과 시퀀스(올리기만). 시퀀스는 {이름: [테이블, 열]}
     tables: list[str] = ["public.attachments", "public.messages"]
     sequences: dict[str, tuple[str, str]] = {"public.messages_id_seq": ("public.messages", "id")}
-    # T13 연결 전 임시 비교(UNVERIFIED)를 통과로 볼지. 모의 환경에서만 켠다(spec D11).
-    allow_unverified_compare: bool = False
 
 
 class Config(BaseModel):

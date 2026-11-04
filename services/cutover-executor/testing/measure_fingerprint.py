@@ -3,7 +3,8 @@
 
     uv run python testing/measure_fingerprint.py --out results.json [--baseline integrity.py]
 
---baseline에 #134 integrity.py를 주면 같은 실행에서 같은 데이터로 함께 잰다.
+--baseline에 #134 integrity.py를 주면 같은 실행에서 같은 데이터로 함께 잰다. 이 파일은 지웠으므로
+`git show bcbefb6:services/cutover-executor/src/bravo_cutover/integrity.py`로 꺼내 쓴다.
 """
 
 import argparse
