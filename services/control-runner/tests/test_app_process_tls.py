@@ -148,7 +148,19 @@ class RawSocket:
     (b"SFATAL\0C08P01\0MSSL required\0\0", b"E", "deny"),
     (b"SFATAL\0C28P01\0Mwrong password\0\0", b"E", None),
     (b"C08P01\0C08P01\0MSSL required\0\0", b"E", None),
+    (b"SFATAL\0MSSL required\0\0C08P01\0\0", b"E", None),
+    (b"C08P01\0MSSL required\0\0", b"E", None),
+    (b"S\0C08P01\0MSSL required\0\0", b"E", None),
+    (b"SFATAL\0C\0MSSL required\0\0", b"E", None),
+    (b"SFATAL\0C08P01\0M\0\0", b"E", None),
+    (struct.pack("!I", 2), b"R", "allow"),
     (struct.pack("!I", 3), b"R", "allow"),
+    (struct.pack("!I", 5) + b"salt", b"R", "allow"),
+    (struct.pack("!I", 10) + b"SCRAM-SHA-256\0\0", b"R", "allow"),
+    (struct.pack("!I", 0xffffffff), b"R", None),
+    (struct.pack("!I", 5), b"R", None),
+    (struct.pack("!I", 10) + b"SCRAM-SHA-256\0", b"R", None),
+    (struct.pack("!I", 11) + b"challenge", b"R", None),
 ])
 def test_plaintext_never_sends_password_and_only_exact_tls_refusal_counts(setup, body, kind, outcome):
     probe, _ = setup

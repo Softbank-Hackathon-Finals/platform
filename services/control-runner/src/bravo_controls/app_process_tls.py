@@ -119,18 +119,25 @@ def _wire(target, mode):
         raw.sendall(struct.pack("!I", len(payload) + 4) + payload)
         header = _recv(raw, 5, deadline)
         body = _recv(raw, struct.unpack("!I", header[1:])[0] - 4, deadline)
-        if header[:1] == b"R" and len(body) >= 4:
-            # Auth challenge over plaintext already violates TLS-required startup.
-            return {"outcome": "allow", "reason": None}
+        if header[:1] == b"R":
+            method = int.from_bytes(body[:4], "big")
+            # Only well-formed initial authentication messages prove plaintext
+            # startup was accepted. Continuation/unknown/truncated frames do not.
+            sizes = {0: 4, 2: 4, 3: 4, 5: 8, 7: 4, 9: 4}
+            if len(body) == sizes.get(method) or (
+                method == 10 and re.fullmatch(rb"(?:[A-Z0-9_-]{1,20}\x00)+\x00", body[4:])
+            ):
+                return {"outcome": "allow", "reason": None}
+            return {"outcome": None, "reason": "UNEXPECTED_RESPONSE"}
         if header[:1] != b"E" or not body.endswith(b"\0\0"):
             return {"outcome": None, "reason": "UNEXPECTED_RESPONSE"}
         fields = {}
-        for field in body[:-1].split(b"\0"):
-            if not field:
-                continue
-            if field[:1] in fields:
+        for field in body[:-2].split(b"\0"):
+            if not field or field[:1] in fields:
                 return {"outcome": None, "reason": "UNEXPECTED_RESPONSE"}
             fields[field[:1]] = field[1:]
+        if not fields.get(b"S") or not fields.get(b"M") or not re.fullmatch(rb"[A-Z0-9]{5}", fields.get(b"C", b"")):
+            return {"outcome": None, "reason": "UNEXPECTED_RESPONSE"}
         if fields.get(b"C") == b"08P01" and fields.get(b"M") in (b"SSL required", b"TLS required"):
             return {"outcome": "deny", "reason": None}
         return {"outcome": None, "reason": "UNEXPECTED_RESPONSE"}
