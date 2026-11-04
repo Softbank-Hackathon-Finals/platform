@@ -47,3 +47,14 @@ uv run python -m rehearsal_runner.isolation_cli --namespace rehearsal-demo-1 --p
 `bucket_probe.observe_bucket_reads`는 신뢰된 호출자가 제공한 인증·무인증 읽기 어댑터로 같은 시험 객체를 인증 → 무인증 → 인증 순서로 관측한다. 기존 객체의 양성 대조와 본문 SHA-256이 모두 일치해야 무인증 403을 해석할 근거가 생긴다. 이 함수의 결과는 관측값이며 T38 영수증이나 승인 판정이 아니다. 테스트는 모의 어댑터만 사용한다.
 
 실제 연결 전에 T9와 시험 전용 버킷·객체·자격 및 지원 정책 형식을, T38과 독립 검증 Job의 인증된 관측 전달 및 비공개 시험 격리 방식을 확인해야 한다. 정책 번역, 실제 SeaweedFS 시험, 버킷 삭제 명령 차단·감사, 정리 및 승인 결속은 아직 구현하지 않았다. T9 개발용 SeaweedFS 구성은 S3 IAM 모드를 끈 상태이므로 임의의 AWS 정책이 적용된다고 가정하지 않는다.
+
+## 버킷 삭제 요청의 현재 차단 경계
+
+현재 T11은 `rehearsal.exec`를 제공하지 않으므로 요청 자체를 거절하고 `TOOL_NOT_ALLOWED`로 기록한다. 제안 내용의 `delete_bucket`도 T11 정책으로 거부한다. 다음 검사는 실제 T11 도구 계층을 호출하지만 버킷 삭제 API나 클러스터를 호출하지 않는다.
+
+```bash
+cd ../agent-worker
+uv run --frozen --no-default-groups --with pytest pytest -p no:cacheprovider ../rehearsal-runner/testing/test_delete_boundary.py
+```
+
+현재 기록은 도구 미허용 또는 제안 거부라는 일반 사유다. 삭제 시도라고 식별되는 감사 이벤트, 향후 허용될 `rehearsal.exec`의 실행 경계, 감사 로그 저장·콘솔 표시는 확인되지 않았다. 해당 계약은 T11·감사 경로 담당자와 확인해야 한다. 이 검사는 T15 버킷 삭제 차단 데모 인수 증거가 아니다.
