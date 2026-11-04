@@ -26,11 +26,11 @@ def fixture(tmp_path):
     return setup(tmp_path / "state.db")
 
 
-def setup(path, origin=ORIGIN, workload_id="chat"):
+def setup(path, origin=ORIGIN, workload_id="chat", plan_id="plan-demo"):
     store = PlanStore(path)
     now = datetime.now(UTC)
     spec = PlanSpec(
-        "plan-demo", "tenant-demo", workload_id, "env-source", "env-target", "a" * 64, "b" * 64
+        plan_id, "tenant-demo", workload_id, "env-source", "env-target", "a" * 64, "b" * 64
     )
     store.register_plan(spec, run_id="setup", occurred_at=now.isoformat())
     state = {"allowed": True, "submitted": 0, "reads": 0}

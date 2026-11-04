@@ -7,6 +7,7 @@ import {
   CONTROL_TESTS,
 } from "./model.js";
 import { request, stream } from "./transport.js";
+import { recoveryCommand, canResubmit } from "./recovery.js";
 import { mountRegistration } from "./registration.js";
 const $ = (id) => document.getElementById(id);
 let model,
@@ -74,7 +75,12 @@ function render() {
   if (!model) return;
   const now = Date.now(),
     eligible = model.eligible(now),
-    usable = eligible && !pending;
+    usable =
+      eligible &&
+      (!pending ||
+        (pending.retryReady &&
+          !pending.running &&
+          canResubmit(model, pending, now)));
   text(
     "connection",
     model.connected ? "서버 이벤트 연결됨" : "연결 끊김 · 실행 잠금",
@@ -179,8 +185,12 @@ function render() {
   $("confirm").disabled = !usable;
   if (!usable) $("confirm").checked = false;
   $("approve").disabled =
-    !usable || !$("confirm").checked || Boolean(model.approval);
-  $("execute").disabled = !usable || !model.approval || !$("confirm").checked;
+    !usable ||
+    Boolean(pending) ||
+    !$("confirm").checked ||
+    Boolean(model.approval);
+  $("execute").disabled =
+    !usable || (!pending && !model.approval) || !$("confirm").checked;
   $("retry").hidden =
     !pending || pending.running || model.error === "forbidden";
   $("reconcile").hidden = !commandId || Boolean(pending);
@@ -286,8 +296,9 @@ async function refresh(g) {
     } catch {
       controls = null;
     }
+    return true;
   } catch (error) {
-    if (g !== generation || revokeView(error)) return;
+    if (g !== generation || revokeView(error)) return false;
     model.connected = false;
     notice(
       messages[error.code] ??
@@ -322,6 +333,7 @@ async function follow(g) {
           render();
         },
       });
+      if (g !== generation) return;
       model.connected = false;
     } catch (error) {
       if (g !== generation || revokeView(error)) return;
@@ -348,17 +360,16 @@ async function follow(g) {
     if (g === generation) await refresh(g);
   }
 }
-$("connect-form").onsubmit = async (e) => {
-  e.preventDefault();
-  if (pending) {
+async function connectPlan(plan, recovery = false) {
+  if (pending && ((pending.running && !recovery) || pending.plan !== plan)) {
     notice(
       "결과가 확인되지 않은 요청이 있습니다. 먼저 같은 요청의 결과를 확인해 주세요.",
       true,
     );
     return;
   }
-  const plan = $("plan").value.trim();
-  if (!identifier(plan)) return;
+  if (!identifier(plan)) return false;
+  if (pending) pending.retryReady = false;
   generation++;
   const g = generation;
   stopped = false;
@@ -391,9 +402,21 @@ $("connect-form").onsubmit = async (e) => {
     return;
   }
   if (g !== generation) return;
+  // Read a fresh snapshot after the complete replay. A concurrent event that
+  // was not replayed leaves the model locked until the follow stream catches up.
+  const refreshed = await refresh(g);
+  if (!refreshed || g !== generation || model.error || !model.snapshot)
+    return false;
+  model.connected = true;
+  lastHeartbeat = Date.now();
   notice("서버 기록을 연결했습니다. 최종 실행 권한은 서버가 다시 확인합니다.");
   refreshTimer = setInterval(() => refresh(g), 5000);
   follow(g);
+  return true;
+}
+$("connect-form").onsubmit = async (e) => {
+  e.preventDefault();
+  await connectPlan($("plan").value.trim());
 };
 $("confirm").onchange = render;
 async function perform() {
@@ -401,6 +424,7 @@ async function perform() {
   const g = generation,
     current = pending;
   current.running = true;
+  current.retryReady = false;
   render();
   text("action-status", "서버 응답을 확인하고 있습니다.");
   postController = new AbortController();
@@ -463,6 +487,7 @@ $("approve").onclick = async () => {
   if (pending || !$("confirm").checked || !model?.eligible(Date.now())) return;
   pending = {
     kind: "approve",
+    plan: model.plan,
     path: `/v1/plans/${model.plan}/approvals`,
     body: model.approvalRequest(Date.now()),
     key: crypto.randomUUID(),
@@ -472,10 +497,11 @@ $("approve").onclick = async () => {
 };
 $("execute").onclick = async () => {
   if (
-    pending ||
+    (pending &&
+      (!pending.retryReady || !canResubmit(model, pending, Date.now()))) ||
     !$("confirm").checked ||
     !model?.eligible(Date.now()) ||
-    !model.approval
+    (!pending && !model.approval)
   )
     return;
   if (
@@ -484,8 +510,17 @@ $("execute").onclick = async () => {
     )
   )
     return;
-  pending = {
+  if (
+    !model.eligible(Date.now()) ||
+    (pending && !canResubmit(model, pending, Date.now()))
+  )
+    return;
+  pending ??= {
     kind: "execute",
+    plan: model.plan,
+    snapshot: structuredClone(model.snapshot),
+    approval: structuredClone(model.approval),
+    cursor: model.cursor,
     path: `/v1/plans/${model.plan}/cutover`,
     body: { approval_id: model.approval.approval_id },
     key: crypto.randomUUID(),
@@ -493,11 +528,55 @@ $("execute").onclick = async () => {
   };
   await perform();
 };
-$("retry").onclick = perform;
+async function recoverPending() {
+  if (!pending || pending.running || model.error === "forbidden") return;
+  if (pending.kind !== "execute") return perform();
+  const current = pending;
+  current.running = true;
+  current.retryReady = false;
+  render();
+  text(
+    "action-status",
+    "계획·이벤트 이력을 읽어 기존 접수를 확인하고 있습니다.",
+  );
+  try {
+    if (!(await connectPlan(current.plan, true)) || pending !== current) return;
+    const id = recoveryCommand(model, current);
+    if (id) {
+      // A plan event identifies an existing dispatch claim. Reconcile can only
+      // read it; never repeat the submit endpoint while checking its result.
+      commandId = id;
+      current.kind = "reconcile";
+      current.path = `/v1/plans/${current.plan}/cutover/${id}/reconcile`;
+      current.body = {};
+      current.key = crypto.randomUUID();
+      current.running = false;
+      return await perform();
+    }
+    current.retryReady = canResubmit(model, current, Date.now());
+    text(
+      "action-status",
+      current.retryReady
+        ? "확인한 이력에 접수 기록이 없습니다. 대상·유효기간을 다시 확인하고 ‘승인된 전환 실행’을 눌러야 같은 요청을 전송합니다. 결과 확인만으로 실행하지 않습니다."
+        : "접수 여부 또는 현재 승인 근거를 확인할 수 없어 실행을 잠갔습니다. 같은 계획을 다시 연결하거나 결과 확인을 다시 시도하세요.",
+    );
+  } catch (error) {
+    if (pending !== current || revokeView(error)) return;
+    text(
+      "action-status",
+      "접수 여부를 확인할 수 없어 실행을 잠갔습니다. 계획·이벤트를 재동기화한 뒤 다시 확인하세요.",
+    );
+  } finally {
+    current.running = false;
+    render();
+  }
+}
+$("retry").onclick = recoverPending;
 $("reconcile").onclick = async () => {
   if (!commandId || pending) return;
   pending = {
     kind: "reconcile",
+    plan: model.plan,
     path: `/v1/plans/${model.plan}/cutover/${commandId}/reconcile`,
     body: {},
     key: crypto.randomUUID(),

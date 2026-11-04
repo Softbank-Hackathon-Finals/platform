@@ -17,6 +17,7 @@ ASSETS = {
     "/console/app.js": ("app.js", "text/javascript"),
     "/console/model.js": ("model.js", "text/javascript"),
     "/console/transport.js": ("transport.js", "text/javascript"),
+    "/console/recovery.js": ("recovery.js", "text/javascript"),
     "/console/registration.js": ("registration.js", "text/javascript"),
     "/console/style.css": ("style.css", "text/css"),
 }

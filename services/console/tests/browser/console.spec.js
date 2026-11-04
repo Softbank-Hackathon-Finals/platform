@@ -1,4 +1,126 @@
 import { test, expect } from "@playwright/test";
+
+async function approved(page, context, plan) {
+  await context.addCookies([
+    {
+      name: "fixture-session",
+      value: "test-only",
+      url: "http://127.0.0.1:18121",
+      sameSite: "Strict",
+    },
+  ]);
+  await page.goto("/console/");
+  await page.locator("#plan").fill(plan);
+  await page.locator("#connect").click();
+  await expect(page.locator("#connection")).toHaveText("서버 이벤트 연결됨");
+  await page.locator("#confirm").check();
+  await page.locator("#approve").click();
+  await expect(page.locator("#action-status")).toContainText("승인 기록 완료");
+}
+
+async function execute(page) {
+  await page.locator("#confirm").check();
+  page.once("dialog", (dialog) => dialog.accept());
+  await page.locator("#execute").click();
+}
+
+async function counters(page, plan) {
+  return (await page.request.get(`/v1/plans/${plan}/fixture-stats`)).json();
+}
+
+test("lost response after server receipt recovers through lookup only", async ({
+  page,
+  context,
+}) => {
+  const plan = "plan-after";
+  await approved(page, context, plan);
+  let submits = 0;
+  await page.route(`**/v1/plans/${plan}/cutover`, async (route) => {
+    submits++;
+    await route.fetch();
+    await route.abort("failed");
+  });
+  await execute(page);
+  await expect(page.locator("#action-status")).toContainText(
+    "응답을 확인하지 못했습니다",
+  );
+  expect(await counters(page, plan)).toEqual({ submitted: 1, reads: 0 });
+  await page.locator("#retry").click();
+  await expect(page.locator("#action-status")).toContainText(
+    "실행 결과 미확인",
+  );
+  expect(await counters(page, plan)).toEqual({ submitted: 1, reads: 1 });
+  expect(submits).toBe(1);
+  await expect(page.locator("#execute")).toBeDisabled();
+});
+
+test("pre-server failure plus event gap cannot submit through result check", async ({
+  page,
+  context,
+}) => {
+  const plan = "plan-before";
+  await approved(page, context, plan);
+  const requests = [];
+  let blocked = true;
+  await page.route(`**/v1/plans/${plan}/cutover`, async (route) => {
+    requests.push({
+      body: route.request().postData(),
+      key: route.request().headers()["idempotency-key"],
+    });
+    if (blocked)
+      await route.fulfill({
+        status: 503,
+        contentType: "application/json",
+        body: '{"detail":{"code":"test_pre_server_loss"}}',
+      });
+    else await route.continue();
+  });
+  await execute(page);
+  await expect(page.locator("#retry")).toBeVisible();
+  expect(await counters(page, plan)).toEqual({ submitted: 0, reads: 0 });
+  await page.route(`**/v1/plans/${plan}/events**`, (route) => {
+    const event = {
+      schema_version: "1.0",
+      event_id: `${plan}:999`,
+      sequence: 999,
+      plan_id: plan,
+      run_id: "gap-only",
+      occurred_at: new Date().toISOString(),
+      event_type: "state.changed",
+      data: { from: "SHIFT", to: "CUTOVER" },
+    };
+    return route.fulfill({
+      status: 200,
+      contentType: "text/event-stream",
+      body: `id: ${plan}:999\nevent: state.changed\ndata: ${JSON.stringify(event)}\n\n`,
+    });
+  });
+  await page.evaluate(() => window.dispatchEvent(new Event("offline")));
+  await expect(page.locator("#connection")).toHaveText("연결 끊김 · 실행 잠금");
+  await page.locator("#retry").click();
+  await expect(page.locator("#notice")).toContainText(
+    "이력을 완전히 확인할 수 없어",
+  );
+  expect(await counters(page, plan)).toEqual({ submitted: 0, reads: 0 });
+  expect(requests).toHaveLength(1);
+  await expect(page.locator("#execute")).toBeDisabled();
+  // Pending requests no longer prevent reconnecting this same plan.
+  await page.unroute(`**/v1/plans/${plan}/events**`);
+  await page.locator("#connect").click();
+  await expect(page.locator("#connection")).toHaveText("서버 이벤트 연결됨");
+  await page.locator("#retry").click();
+  await expect(page.locator("#action-status")).toContainText(
+    "결과 확인만으로 실행하지 않습니다",
+  );
+  expect(await counters(page, plan)).toEqual({ submitted: 0, reads: 0 });
+  await expect(page.locator("#execute")).toBeDisabled();
+  blocked = false;
+  await execute(page);
+  await expect(page.locator("#state")).toHaveText("안전 보류");
+  expect(await counters(page, plan)).toEqual({ submitted: 1, reads: 0 });
+  expect(requests).toHaveLength(2);
+  expect(requests[0]).toEqual(requests[1]);
+});
 test("unauthenticated browser sees no plan data or approval permission", async ({
   page,
 }) => {
