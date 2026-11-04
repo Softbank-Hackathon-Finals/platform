@@ -1,0 +1,21 @@
+{
+  "source_revision": "40f9522aff350f19975dc5c75edcb92b47db86b7",
+  "source_files": [
+    {
+      "path": "services/control-gate/testing/verify_live_audit_gate.py",
+      "sha256": "d67df426909cddcc73ff5374017cb23947f30266bbe91f252a65c019db00effb"
+    },
+    {
+      "path": "services/console/testing/live_report_server.py",
+      "sha256": "7bf184a9c01941a0bbbd82bcc7eb58f14e16eac2b50778bb399afbc5c82995a4"
+    },
+    {
+      "path": "services/console/testing/live_report.spec.js",
+      "sha256": "cee2aefbff43088bde6f700ac84d5216fa4e6760ec7d821b841a1e625bd09ed7"
+    },
+    {
+      "path": "services/console/testing/live_report.config.js",
+      "sha256": "eb60bd173b78aa5f8afd8dbd5758b41454c5241046cf68a5ca8c3e2123169aa6"
+    }
+  ]
+}
