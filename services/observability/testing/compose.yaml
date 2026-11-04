@@ -1,25 +1,56 @@
-# T37 로컬 재현 시험용. 실제 배포 구성이 아니다. run.sh가 띄우고 지운다.
+# T37 로컬 재현 시험용. 실제 배포 구성이 아니다. run.sh가 인증서를 임시로 만들고(CERT_DIR), 띄우고, 지운다.
 services:
   prometheus:
     image: prom/prometheus:v3.15.1@sha256:fa3302279710be2f21a8301ec17a8b4f2301fd829bd113839b3b6b02b6f191a2
     command:
       - --config.file=/etc/prometheus/prometheus.yml
+      - --web.config.file=/etc/prometheus/web.yml
       - --web.enable-otlp-receiver
       - --storage.tsdb.retention.time=3d
     volumes:
-      - ../prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ../deploy/platform/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ../deploy/platform/web.yml:/etc/prometheus/web.yml:ro
+      - ../deploy/platform/rules:/etc/prometheus/rules:ro
+      - ${CERT_DIR}/prometheus:/etc/bravo-tls:ro
     ports:
       - "127.0.0.1::9090"
+  # 디스크 큐 볼륨을 Collector 사용자(10001)에게 넘긴다. 쿠버네티스에서는 fsGroup이 같은 일을 한다.
+  queue-init:
+    image: busybox:1.37.0@sha256:a7dbc319b1438115a207e11930dc4bb3e643dcb3ec0bdd694bb36cd8fad289ec
+    command: ["chown", "10001:10001", "/var/lib/otelcol/queue"]
+    volumes:
+      - queue:/var/lib/otelcol/queue
   collector:
-    image: otel/opentelemetry-collector-contrib:0.163.2@sha256:7f22d2a6748110ffb6a59bc0df448bccbf501cdb667d610ede4c61d3863d5849
-    command: ["--config=/etc/otelcol/collector.yaml"]
+    image: otel/opentelemetry-collector-contrib:0.164.0@sha256:340c9ca6a36617084c6661bdc4f0fe92b7cda5a805d61673ec8db375fddc522b
+    # 0.164.0에서 disable_keep_alives가 적용되게 한다(deploy/collector/collector.yaml 주석)
+    command: ["--config=/etc/otelcol/collector.yaml", "--feature-gates=-pkg.confighttp.PrioritizeNewKeepalive"]
+    depends_on:
+      queue-init:
+        condition: service_completed_successfully
     environment:
       BRAVO_ENV: onprem
-      PLATFORM_OTLP_ENDPOINT: http://prometheus:9090/api/v1/otlp
+      PLATFORM_OTLP_ENDPOINT: https://prometheus:9090/api/v1/otlp
+      BRAVO_TLS_RELOAD_INTERVAL: ${BRAVO_TLS_RELOAD_INTERVAL:-1m}
     volumes:
-      - ../collector.yaml:/etc/otelcol/collector.yaml:ro
+      - ../deploy/collector/collector.yaml:/etc/otelcol/collector.yaml:ro
+      - ${CERT_DIR}/collector-onprem:/etc/bravo-tls:ro
+      - queue:/var/lib/otelcol/queue
     ports:
       - "127.0.0.1::4318"
+  # 콘솔용 조회 API. 저장소에는 console-api 인증서로 붙는다
+  api:
+    build: ..
+    environment:
+      PROMETHEUS_URL: https://prometheus:9090
+      BRAVO_ENVIRONMENTS: aws,onprem
+      BRAVO_OBSERVABILITY_API_TOKEN: ${API_TOKEN}
+    volumes:
+      - ${CERT_DIR}/console-api:/etc/bravo-tls:ro
+    ports:
+      - "127.0.0.1::8080"
   telemetrygen:
-    image: ghcr.io/open-telemetry/opentelemetry-collector-contrib/telemetrygen:v0.163.0@sha256:569b79a39f8313db839a727e8eac161c66b8a6c2e633f2da4ad352ce7b383c23
+    image: ghcr.io/open-telemetry/opentelemetry-collector-contrib/telemetrygen:v0.164.0@sha256:b536c7220c5ea587f04dff6c5e6eecb48e40b5b58ce70690b15734aae98d8321
     profiles: [sender]
+
+volumes:
+  queue: {}
