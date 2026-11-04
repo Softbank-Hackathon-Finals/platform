@@ -165,10 +165,15 @@ class RehearsalService:
                 return old[1]
             if plan["version"] != expected_version or plan["state"] != "REHEARSE":
                 raise EventError("rehearsal_not_allowed")
-            task = self.host.task(c, plan, task_id)
-            if not isinstance(task, RehearsalTask) or not re.fullmatch("[a-f0-9]{40}", task.source_sha):
-                raise EventError("authority_unavailable")
-            _digest(task.task_digest)
+            try:
+                task = self.host.task(c, plan, task_id)
+                if type(task) is not RehearsalTask or not re.fullmatch("[a-f0-9]{40}", task.source_sha):
+                    raise ValueError("invalid_source")
+                _digest(task.task_digest)
+            except EventError:
+                raise
+            except Exception:
+                raise EventError("authority_unavailable") from None
             _enable_managed(c, plan)
             slot = _attempt_key(expected_version, task_id, attempt)
             existing = _get(c, plan_id, slot)
@@ -238,9 +243,12 @@ class RehearsalService:
                     or seen.verdict not in ("PASS", "FAIL") or seen.absence_confirmed is not True
                     or seen.created_uid != seen.removed_uid):
                 raise EventError("rehearsal_observation_mismatch")
-            for value in (seen.verification_id, seen.namespace, seen.created_uid):
-                validate_identifier(value)
-            _digest(seen.proposal_digest)
+            try:
+                for value in (seen.verification_id, seen.namespace, seen.created_uid):
+                    validate_identifier(value)
+                _digest(seen.proposal_digest)
+            except ValueError:
+                raise EventError("rehearsal_observation_mismatch") from None
             if seen.verdict == "PASS":
                 self._check_pass(c, admission, seen)
             use = "rehearsal-verification:" + seen.verification_id

@@ -372,3 +372,19 @@ def test_http_admission_requires_live_plan_specific_grant_and_idempotency_key(sc
     assert client.post(path, json=body, headers=headers).status_code == 403
     assert client.post(reconcile, headers=authorization).status_code == 403
     assert s.worker.effects == [attempt]
+
+
+def test_malformed_authority_is_not_a_client_error(scenario, monkeypatch):
+    s = scenario
+    with monkeypatch.context() as patch:
+        patch.setattr(s.worker, "task", lambda *_: RehearsalTask(None, "bad"))
+        with pytest.raises(EventError, match="authority_unavailable"):
+            s.start()
+    assert not s.worker.effects
+    s.start()
+    admission, = s.worker.effects
+    s.result(admission, "FAIL", proposal_digest="bad")
+    with pytest.raises(EventError, match="rehearsal_observation_mismatch"):
+        s.reconcile(admission)
+    with pytest.raises(EventError, match="rehearsal_incomplete"):
+        s.guard()
