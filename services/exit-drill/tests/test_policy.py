@@ -371,6 +371,48 @@ def test_finished_job_pod_is_ignored():
     assert plan_for(snapshot=snapshot_doc(pods=pods))["manifests"]
 
 
+def test_plan_names_the_container_to_judge_for_each_app_role():
+    workloads = plan_for()["workloads"]
+    assert (workloads["app"]["container"], workloads["pooler"]["container"]) == ("app", "target-pgbouncer")
+    assert workloads["db"]["container"] is None
+
+
+def test_container_name_is_bound_to_the_plan_digest():
+    spec = spec_doc()
+    spec["workloads"]["app"]["container"] = "other"
+    pods = healthy_pods()
+    pods[0] = pod("demo-chat-1", {"app": "demo-chat"}, containers=["other"])
+    assert plan_for(spec=spec, snapshot=snapshot_doc(pods=pods))["digest"] != plan_for()["digest"]
+
+
+def test_sidecar_does_not_change_the_plan():
+    pods = healthy_pods()
+    pods[0] = pod("demo-chat-1", {"app": "demo-chat"}, containers=["app", "collector"])
+    assert plan_for(snapshot=snapshot_doc(pods=pods))["digest"] == plan_for()["digest"]
+
+
+def test_named_container_missing_from_a_pod_is_refused():
+    """이름이 틀리면 드릴을 다 돌린 뒤에야 판정 불가가 된다. 만들 때 멈춘다."""
+    pods = healthy_pods()
+    pods[0] = pod("demo-chat-1", {"app": "demo-chat"}, containers=["collector"])
+    with pytest.raises(PlanRefused) as caught:
+        plan_for(snapshot=snapshot_doc(pods=pods))
+    assert [(v.code, v.subject) for v in caught.value.violations] == [("CONTAINER_NOT_IN_POD", "app:demo-chat-1")]
+
+
+def test_init_container_is_not_the_named_container():
+    pods = healthy_pods()
+    pods[1] = pod("pgbouncer-1", {"app": "target-pgbouncer"}, containers=["other"])
+    pods[1]["spec"]["initContainers"] = [{"name": "target-pgbouncer"}]
+    assert "CONTAINER_NOT_IN_POD" in refused_codes(snapshot=snapshot_doc(pods=pods))
+
+
+def test_infrastructure_pods_need_no_named_container():
+    pods = healthy_pods()
+    pods[2] = pod("target-db-1", {"cnpg.io/cluster": "target-db", "cnpg.io/instanceRole": "primary"}, containers=[])
+    assert plan_for(snapshot=snapshot_doc(pods=pods))["manifests"]
+
+
 @pytest.mark.parametrize("to", [
     {"host": "s3.ap-northeast-2.amazonaws.com"},
     {"namespace": TAILNET, "selector": {"tailscale.com/parent-resource": "bravo-target-pooler"}},
@@ -565,6 +607,10 @@ def test_plan_binds_inventory_and_snapshot():
         lambda s: s["new_connection_checks"][0].update(kind=["http"]),
         lambda s: s["new_connection_checks"][0].update(id=1),
         lambda s: s["new_connection_checks"].append(dict(s["new_connection_checks"][0])),
+        lambda s: s["workloads"]["app"].pop("container"),
+        lambda s: s["workloads"]["pooler"].update(container=""),
+        lambda s: s["workloads"]["app"].update(container=["app"]),
+        lambda s: s["workloads"]["db"].update(container="postgres"),
     ],
 )
 def test_malformed_spec_stops(mutate):

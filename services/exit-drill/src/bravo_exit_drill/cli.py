@@ -147,7 +147,7 @@ def _parser() -> argparse.ArgumentParser:
     assemble.add_argument("--replication")
     assemble.add_argument("--cutover")
     assemble.add_argument("--policy-applied-at")
-    assemble.add_argument("--induced-restarts", help="일부러 컨테이너를 다시 띄운 횟수 {Pod UID: 횟수}")
+    assemble.add_argument("--induced-restarts", help='일부러 앱 컨테이너를 다시 띄운 기록 {Pod UID: {"container": 이름, "replaced_container_id": 죽이기 전 ID}}')
     assemble.set_defaults(run=_assemble)
 
     check = commands.add_parser("check", help="전후 관측을 판정한다")

@@ -26,6 +26,8 @@ class Workload:
     selector: dict[str, str]
     role: str
     aws_client: bool = False
+    # 재시작을 판정할 컨테이너. 사이드카 재시작을 앱 재시작으로 읽지 않으려고 앱 역할에 꼭 적는다.
+    container: str | None = None
 
 
 @dataclass(frozen=True)
@@ -104,12 +106,15 @@ def _workloads(doc: Any) -> dict[str, Workload]:
         raise SpecError("workloads must be an object")
     result = {}
     for name, item in doc.items():
-        _require_keys(item, f"workload {name}", {"selector", "role"}, {"aws_client"})
+        _require_keys(item, f"workload {name}", {"selector", "role"}, {"aws_client", "container"})
         if item["role"] not in ROLES:
             raise SpecError(f"workload {name}: unknown role")
         if item.get("aws_client", False) not in (True, False):
             raise SpecError(f"workload {name}: aws_client must be boolean")
-        result[name] = Workload(name, _labels(item["selector"], f"workload {name} selector"), item["role"], item.get("aws_client", False))
+        if item["role"] != "app" and "container" in item:
+            raise SpecError(f"workload {name}: container applies to app role only")
+        container = _text(item.get("container"), f"workload {name} container") if item["role"] == "app" else None
+        result[name] = Workload(name, _labels(item["selector"], f"workload {name} selector"), item["role"], item.get("aws_client", False), container)
     return result
 
 

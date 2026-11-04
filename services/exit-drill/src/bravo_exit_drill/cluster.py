@@ -23,6 +23,7 @@ class PodView:
     uid: str
     labels: dict[str, str]
     host_network: bool
+    containers: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -65,13 +66,14 @@ def _read_items(items: list, namespace: str) -> Snapshot:
                     uid=metadata.get("uid", ""),
                     labels=dict(metadata.get("labels") or {}),
                     host_network=(item.get("spec") or {}).get("hostNetwork") is True,
+                    containers=tuple(c["name"] for c in (item.get("spec") or {}).get("containers") or []),
                 ))
         else:
             raise SnapshotError("snapshot contains an unexpected kind")
     pods.sort(key=lambda p: p.name)
     policies.sort(key=lambda p: p["metadata"]["name"])
     digest = canonical_digest({
-        "pods": [[p.name, p.uid, p.labels, p.host_network] for p in pods],
+        "pods": [[p.name, p.uid, p.labels, p.host_network, p.containers] for p in pods],
         "policies": [[p["metadata"]["name"], p["spec"]] for p in policies],
     })
     return Snapshot(tuple(pods), tuple(policies), digest)

@@ -75,7 +75,7 @@ def build_plan(spec: DrillSpec, inventory: InventoryView, snapshot: Snapshot) ->
         "namespace": spec.namespace,
         "candidate": inventory.candidate,
         "inventory_digest": inventory.digest,
-        "workloads": {w.name: {"selector": w.selector, "role": w.role} for w in sorted(spec.workloads.values(), key=lambda w: w.name)},
+        "workloads": {w.name: {"selector": w.selector, "role": w.role, "container": w.container} for w in sorted(spec.workloads.values(), key=lambda w: w.name)},
         "decisions": [_decision(r) for r in routes],
         "manifests": manifests,
         "new_connection_checks": sorted(spec.new_connection_checks, key=lambda c: c["id"]),
@@ -283,6 +283,8 @@ def _check_pods(spec: DrillSpec, snapshot: Snapshot) -> list[Violation]:
             continue
         if not any(selector_matches({"matchLabels": workload.selector}, p.labels) for p in snapshot.pods):
             found.append(Violation("SELECTOR_MATCHES_NOTHING", workload.name))
+        if workload.role == "app":
+            found.extend(Violation("CONTAINER_NOT_IN_POD", f"{workload.name}:{p.name}") for p in _pods_of(workload, snapshot) if workload.container not in p.containers)
     for pod in snapshot.pods:
         owners = [w for w in spec.workloads.values() if w.selector and selector_matches({"matchLabels": w.selector}, pod.labels)]
         if not owners:

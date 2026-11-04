@@ -7,6 +7,8 @@ from pathlib import Path
 FIXTURES = Path(__file__).parent / "fixtures"
 PROFILE = Path(__file__).parents[1] / "profiles" / "target-dev.json"
 TAILNET = "tailscale-system"
+# app 레이블별 컨테이너 이름. 명세의 workloads.*.container와 같다.
+CONTAINERS = {"demo-chat": "app", "target-pgbouncer": "target-pgbouncer"}
 
 
 def t16_digest(doc: dict) -> str:
@@ -30,12 +32,16 @@ def spec_doc() -> dict:
     return json.loads(PROFILE.read_text(encoding="utf-8"))
 
 
-def pod(name: str, labels: dict, *, host_network: bool = False, phase: str = "Running", namespace: str = "target-dev") -> dict:
+def pod(name: str, labels: dict, *, host_network: bool = False, phase: str = "Running", namespace: str = "target-dev", containers=None) -> dict:
+    names = [CONTAINERS.get(labels.get("app"), "main")] if containers is None else containers
+    spec: dict = {"containers": [{"name": c} for c in names]}
+    if host_network:
+        spec["hostNetwork"] = True
     return {
         "apiVersion": "v1",
         "kind": "Pod",
         "metadata": {"name": name, "namespace": namespace, "uid": f"uid-{name}", "labels": labels},
-        "spec": {"hostNetwork": host_network} if host_network else {},
+        "spec": spec,
         "status": {"phase": phase},
     }
 

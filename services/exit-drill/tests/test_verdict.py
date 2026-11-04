@@ -11,6 +11,7 @@ from helpers import inventory_doc, network_policy, redigest, snapshot_doc, spec_
 from bravo_exit_drill import verdict as verdict_module
 from bravo_exit_drill.cluster import parse_snapshot
 from bravo_exit_drill.inventory_input import parse_inventory
+from bravo_exit_drill.observation import normalize_pods
 from bravo_exit_drill.policy import build_plan, compute_digest
 from bravo_exit_drill.spec import parse_spec
 from bravo_exit_drill.verdict import exit_code, judge
@@ -40,8 +41,13 @@ def _pods(plan: dict, suffix: str, started: datetime) -> dict:
             "labels": dict(item["selector"]),
             "ready": True,
             "started_at": started.isoformat(),
-            "restarts": 0,
             "host_network": False,
+            "container_name": item.get("container"),
+            "container_id": f"containerd://{name}-{suffix}-1",
+            "previous_container_id": None,
+            "container_started_at": started.isoformat(),
+            "restarts": 0,
+            "other_restarts": 0,
         }]
         for name, item in plan["workloads"].items()
     }
@@ -82,8 +88,12 @@ def good_evidence(plan: dict) -> tuple[dict, dict]:
     induced = {}
     for name in ("app", "pooler"):
         after_pods[name] = _pods(plan, "new", RESTARTED)[name]
-        after_pods[name][0].update(restarts=1, container_started_at=at(10))
-        induced[after_pods[name][0]["uid"]] = 1
+        replaced = after_pods[name][0]["container_id"]
+        after_pods[name][0].update(
+            restarts=1, container_started_at=at(10),
+            container_id=f"containerd://{name}-new-2", previous_container_id=replaced,
+        )
+        induced[after_pods[name][0]["uid"]] = {"container": plan["workloads"][name]["container"], "replaced_container_id": replaced}
     applied_manifests = copy.deepcopy(plan["manifests"])
     for manifest in applied_manifests:
         manifest["metadata"]["creationTimestamp"] = at(1, APPLIED)
@@ -500,10 +510,187 @@ def test_crash_nobody_caused_is_unknown(plan):
     assert result(plan, before, after)[1]["restart:app"]["code"] == "UNSTABLE_RESTARTS"
 
 
-def test_missing_restart_count_is_unknown(plan):
+@pytest.mark.parametrize("field", ["container_name", "container_id", "restarts", "other_restarts"])
+@pytest.mark.parametrize("change", [lambda p, k: p.pop(k), lambda p, k: p.update({k: None}), lambda p, k: p.update({k: "x" if k.endswith("restarts") else ""})])
+def test_missing_or_malformed_container_state_is_unknown(plan, field, change):
     before, after = good_evidence(plan)
-    del after["pods"]["app"][0]["restarts"]
-    assert result(plan, before, after)[1]["restart:app"]["code"] == "UNSTABLE_RESTARTS"
+    change(after["pods"]["app"][0], field)
+    verdict, checks = result(plan, before, after)
+    assert verdict == "UNKNOWN"
+    assert (checks["restart:app"]["verdict"], checks["restart:app"]["code"]) == ("UNKNOWN", "CONTAINER_UNKNOWN")
+
+
+def test_state_of_another_container_is_unknown(plan):
+    before, after = good_evidence(plan)
+    after["pods"]["app"][0]["container_name"] = "collector"
+    assert result(plan, before, after)[1]["restart:app"]["code"] == "CONTAINER_UNKNOWN"
+
+
+def test_plan_without_container_name_cannot_pass(plan):
+    """이름 없는 대상과 이름 없는 관측이 같다고 통과하면 안 된다."""
+    before, after = good_evidence(plan)
+    del plan["workloads"]["app"]["container"]
+    plan["digest"] = before["plan_digest"] = after["plan_digest"] = compute_digest(plan)
+    after["pods"]["app"][0]["container_name"] = None
+    verdict, checks = result(plan, before, after)
+    assert verdict == "UNKNOWN"
+    assert checks["restart:app"]["code"] == "CONTAINER_UNKNOWN"
+
+
+def test_not_ready_still_fails_when_the_container_is_not_running(plan):
+    """시작하지 못한 컨테이너는 상태가 비어 있다. 모른다가 아니라 앱이 안 뜬 것이다."""
+    before, after = good_evidence(plan)
+    after["pods"]["app"][0].update(ready=False, container_started_at=None, container_id=None)
+    verdict, checks = result(plan, before, after)
+    assert verdict == "FAIL"
+    assert checks["restart:app"]["code"] == "NOT_READY"
+
+
+@pytest.mark.parametrize("record", [
+    1,
+    "yes",
+    {},
+    {"container": "app"},
+    {"replaced_container_id": "containerd://app-new-1"},
+    {"container": "collector", "replaced_container_id": "containerd://app-new-1"},
+    {"container": "app", "replaced_container_id": "containerd://someone-else"},
+    {"container": "app", "replaced_container_id": None},
+])
+def test_record_that_does_not_match_the_observed_restart_is_unknown(plan, record):
+    before, after = good_evidence(plan)
+    pod = after["pods"]["app"][0]
+    after["induced_restarts"][pod["uid"]] = record
+    verdict, checks = result(plan, before, after)
+    assert verdict == "UNKNOWN"
+    assert checks["restart:app"]["code"] == "RESTART_RECORD_MISMATCH"
+
+
+def test_container_that_kept_its_id_did_not_restart(plan):
+    """횟수가 같아도 지금 도는 컨테이너가 기록의 그 컨테이너면 다시 뜬 것이 아니다."""
+    before, after = good_evidence(plan)
+    pod = after["pods"]["app"][0]
+    pod["container_id"] = pod["previous_container_id"]
+    assert result(plan, before, after)[1]["restart:app"]["code"] == "RESTART_RECORD_MISMATCH"
+
+
+# ---- 여러 컨테이너. kubectl이 주는 모양을 normalize_pods로 읽어 판정까지 잇는다 ----
+
+
+def kube_pod(row: dict, plan: dict, statuses: list[dict], init_statuses=()) -> dict:
+    status = {
+        "phase": "Running",
+        "startTime": row["started_at"],
+        "conditions": [{"type": "Ready", "status": "True"}],
+        "containerStatuses": statuses,
+    }
+    if init_statuses:
+        status["initContainerStatuses"] = list(init_statuses)
+    return {
+        "kind": "Pod",
+        "metadata": {"name": row["name"], "uid": row["uid"], "namespace": plan["namespace"], "labels": row["labels"]},
+        "status": status,
+    }
+
+
+def container(name: str, restarts: int, *, since: str, current: str = "2", previous: str | None = "1") -> dict:
+    status: dict = {
+        "name": name,
+        "restartCount": restarts,
+        "containerID": f"containerd://{name}-{current}",
+        "state": {"running": {"startedAt": since}},
+    }
+    if previous:
+        status["lastState"] = {"terminated": {"containerID": f"containerd://{name}-{previous}"}}
+    return status
+
+
+def evidence_with_app_containers(plan: dict, statuses: list[dict], init_statuses=()) -> tuple[dict, dict]:
+    before, after = good_evidence(plan)
+    row = after["pods"]["app"][0]
+    after["pods"]["app"] = normalize_pods({"items": [kube_pod(row, plan, statuses, init_statuses)]}, plan)["app"]
+    after["induced_restarts"][row["uid"]] = {"container": "app", "replaced_container_id": "containerd://app-1"}
+    return before, after
+
+
+def test_sidecar_restart_does_not_prove_the_app_restarted(plan):
+    """앱 0회 · 사이드카 1회. 합산하면 시킨 재시작이 일어난 것처럼 읽혀 전체 PASS가 됐다(PR #165 리뷰)."""
+    before, after = evidence_with_app_containers(plan, [
+        container("app", 0, since=at(1), current="1", previous=None),
+        container("collector", 1, since=at(10)),
+    ])
+    verdict, checks = result(plan, before, after)
+    assert verdict == "UNKNOWN"
+    assert (checks["restart:app"]["verdict"], checks["restart:app"]["code"]) == ("UNKNOWN", "STARTUP_NOT_ISOLATED")
+
+
+def test_approved_app_container_restart_passes_beside_a_quiet_sidecar(plan):
+    before, after = evidence_with_app_containers(plan, [
+        container("app", 1, since=at(10)),
+        container("collector", 0, since=at(1), current="1", previous=None),
+    ])
+    verdict, checks = result(plan, before, after)
+    assert verdict == "PASS", [c for c in checks.values() if c["verdict"] != "PASS"]
+    assert checks["restart:app"]["code"] == "RESTARTED_READY"
+
+
+def test_sidecar_listed_first_is_not_mistaken_for_the_app(plan):
+    before, after = evidence_with_app_containers(plan, [
+        container("collector", 0, since=at(1), current="1", previous=None),
+        container("app", 1, since=at(10)),
+    ])
+    assert result(plan, before, after)[0] == "PASS"
+
+
+def test_sidecar_crash_beside_the_approved_restart_is_unknown(plan):
+    """차단 아래에서 사이드카가 죽었다. 근거로 세지 않지만 없던 일로 넘기지도 않는다."""
+    before, after = evidence_with_app_containers(plan, [
+        container("app", 1, since=at(10)),
+        container("collector", 1, since=at(5)),
+    ])
+    verdict, checks = result(plan, before, after)
+    assert verdict == "UNKNOWN"
+    assert checks["restart:app"]["code"] == "OTHER_CONTAINER_RESTARTED"
+
+
+def test_restartable_init_sidecar_crash_is_unknown(plan):
+    before, after = evidence_with_app_containers(
+        plan, [container("app", 1, since=at(10))], init_statuses=[container("tailscale", 2, since=at(5))],
+    )
+    assert result(plan, before, after)[1]["restart:app"]["code"] == "OTHER_CONTAINER_RESTARTED"
+
+
+@pytest.mark.parametrize("statuses", [
+    [],
+    [{"restartCount": 1, "containerID": "containerd://x", "state": {"running": {"startedAt": at(10)}}}],
+    [container("collector", 1, since=at(10))],
+    [container("app", 1, since=at(10)), container("app", 1, since=at(10))],
+])
+def test_missing_or_ambiguous_container_status_is_unknown(plan, statuses):
+    before, after = evidence_with_app_containers(plan, statuses)
+    verdict, checks = result(plan, before, after)
+    assert verdict == "UNKNOWN"
+    assert checks["restart:app"]["code"] == "CONTAINER_UNKNOWN"
+
+
+def test_planned_name_found_only_among_init_containers_is_unknown(plan):
+    before, after = evidence_with_app_containers(plan, [container("collector", 0, since=at(1))], init_statuses=[container("app", 1, since=at(10))])
+    assert result(plan, before, after)[1]["restart:app"]["code"] == "CONTAINER_UNKNOWN"
+
+
+def test_container_not_running_has_no_start_to_trust(plan):
+    waiting = container("app", 1, since=at(10))
+    waiting["state"] = {"waiting": {"reason": "CrashLoopBackOff"}}
+    before, after = evidence_with_app_containers(plan, [waiting])
+    assert result(plan, before, after)[1]["restart:app"]["code"] == "STARTED_BEFORE_BLOCK"
+
+
+def test_slow_sidecar_start_does_not_move_the_new_connection_bar(plan):
+    """새 연결은 앱 컨테이너가 다시 뜬 뒤면 된다. 재시작 없이 늦게 뜬 사이드카는 기준이 아니다."""
+    before, after = evidence_with_app_containers(plan, [
+        container("app", 1, since=at(10)),
+        container("collector", 0, since=at(100), current="1", previous=None),
+    ])
+    assert result(plan, before, after)[0] == "PASS"
 
 
 # ---- 새 연결 ----

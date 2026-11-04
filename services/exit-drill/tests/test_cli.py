@@ -97,12 +97,12 @@ def test_assemble_builds_observation(plan_path, tmp_path, capsys):
         "--replication", _write(tmp_path, "r.json", []),
         "--cutover", _write(tmp_path, "c.json", {"writer": "target"}),
         "--policy-applied-at", "2026-11-07T03:00:00+00:00",
-        "--induced-restarts", _write(tmp_path, "i.json", {"uid-a1": 1}),
+        "--induced-restarts", _write(tmp_path, "i.json", {"uid-a1": {"container": "app", "replaced_container_id": "containerd://old"}}),
     ]) == 0
     observation = json.loads(capsys.readouterr().out)
     assert observation["phase"] == "after"
     assert observation["cutover"] == {"writer": "target"}
-    assert observation["induced_restarts"] == {"uid-a1": 1}
+    assert observation["induced_restarts"] == {"uid-a1": {"container": "app", "replaced_container_id": "containerd://old"}}
 
 
 def test_check_with_no_usable_evidence_is_unknown_exit_3(plan_path, tmp_path, capsys):

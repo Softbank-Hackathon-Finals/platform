@@ -67,7 +67,7 @@ def _judge(plan: dict, before: Any, after: Any) -> dict:
         checks.extend(_check_decision(decision, control, before, after))
     app_workloads = sorted(name for name, w in plan["workloads"].items() if w["role"] == "app")
     policy_since = _policy_created(plan, after)
-    checks.extend(_check_restart(name, before, after, applied, policy_since) for name in app_workloads)
+    checks.extend(_check_restart(name, plan["workloads"][name].get("container"), before, after, applied, policy_since) for name in app_workloads)
     newest = _newest_start(after, app_workloads)
     checks.extend(_check_new_connection(c["id"], after, newest) for c in plan["new_connection_checks"])
     return _report(plan, checks)
@@ -363,7 +363,7 @@ def _policy_created(plan: dict, after: dict) -> datetime | None:
     return None if None in times else max(times)
 
 
-def _check_restart(workload: str, before: dict, after: dict, applied: datetime, policy_since: datetime | None) -> Check:
+def _check_restart(workload: str, container: Any, before: dict, after: dict, applied: datetime, policy_since: datetime | None) -> Check:
     check_id = f"restart:{workload}"
     now, was = _pods(after, workload), _pods(before, workload)
     if now is None or not was:
@@ -376,6 +376,8 @@ def _check_restart(workload: str, before: dict, after: dict, applied: datetime, 
         return Check(check_id, UNKNOWN, "READINESS_UNKNOWN")
     if {p.get("uid") for p in now} & {p.get("uid") for p in was}:
         return Check(check_id, UNKNOWN, "RESTART_NOT_OBSERVED")
+    if not all(_container_known(p, container) for p in now):
+        return Check(check_id, UNKNOWN, "CONTAINER_UNKNOWN")
     if policy_since is None:
         return Check(check_id, UNKNOWN, "POLICY_TIME_UNKNOWN")
     for pod in now:
@@ -388,28 +390,54 @@ def _check_restart(workload: str, before: dict, after: dict, applied: datetime, 
     return _check_induced_restarts(check_id, now, after.get("induced_restarts"))
 
 
+def _container_known(pod: dict, container: Any) -> bool:
+    """계획이 정한 그 컨테이너의 상태를 빠짐없이 읽었는가. 앱 컨테이너가 아닌 값은 근거가 아니다."""
+    return (
+        isinstance(container, str)
+        and pod.get("container_name") == container
+        and isinstance(pod.get("container_id"), str)
+        and bool(pod["container_id"])
+        and type(pod.get("restarts")) is int
+        and type(pod.get("other_restarts")) is int
+    )
+
+
+def _record_matches(record: Any, pod: dict) -> bool:
+    """기록한 컨테이너가 실제로 끝났고 지금은 다른 컨테이너가 돈다."""
+    if not isinstance(record, dict) or record.get("container") != pod["container_name"]:
+        return False
+    replaced = record.get("replaced_container_id")
+    return isinstance(replaced, str) and replaced == pod.get("previous_container_id") and replaced != pod["container_id"]
+
+
 def _check_induced_restarts(check_id: str, pods: list[dict], induced: Any) -> Check:
-    """정책이 이미 걸린 Pod에서 컨테이너만 다시 띄운 기록을 본다.
+    """정책이 이미 걸린 Pod에서 앱 컨테이너만 다시 띄운 기록을 본다.
 
     Pod를 새로 만드는 것만으로는 "AWS 없이 뜬다"의 증거가 안 된다. 정책이 있어도 새 Pod는 처음
     잠깐 정책에 묶이지 않아, 시작할 때 AWS를 부르는 앱도 그 틈에 뜰 수 있다(k3s 실측, 매번 1초
     안쪽). 같은 Pod의 컨테이너 재시작은 그 틈이 없다. 단 Pod가 정책에 묶일 시간은 지나야 한다.
-    시킨 만큼만 재시작했어야 하고, 시키지 않은 재시작은 앱이 죽었다 살아난 것일 수 있다.
+    새 Pod이므로 시킨 한 번만 재시작했어야 하고, 시키지 않은 재시작은 앱이 죽었다 살아난 것일 수 있다.
+    같은 Pod의 다른 컨테이너가 다시 떴어도 앱의 근거가 되지 않는다. 차단 아래에서 죽은 것일 수
+    있어 통과시키지도 않는다.
     """
-    counts = induced if isinstance(induced, dict) else {}
+    records = induced if isinstance(induced, dict) else {}
     for pod in pods:
-        restarts, wanted = pod.get("restarts"), counts.get(pod.get("uid"), 0)
-        if type(restarts) is not int or type(wanted) is not int or restarts > wanted:
+        record, restarts = records.get(pod["uid"]), pod["restarts"]
+        if restarts > (0 if record is None else 1):
             return Check(check_id, UNKNOWN, "UNSTABLE_RESTARTS")
-        if wanted == 0 or restarts < wanted:
+        if record is None or restarts == 0:
             return Check(check_id, UNKNOWN, "STARTUP_NOT_ISOLATED")
+        if not _record_matches(record, pod):
+            return Check(check_id, UNKNOWN, "RESTART_RECORD_MISMATCH")
         if _time(pod.get("container_started_at")) < _time(pod.get("started_at")) + ENFORCEMENT_MARGIN:
             return Check(check_id, UNKNOWN, "STARTUP_NOT_ISOLATED")
+        if pod["other_restarts"] != 0:
+            return Check(check_id, UNKNOWN, "OTHER_CONTAINER_RESTARTED")
     return Check(check_id, PASS, "RESTARTED_READY")
 
 
 def _newest_start(after: dict, workloads: list[str]) -> datetime | None:
-    """마지막 컨테이너 시작 시각. 새 연결은 이보다 뒤에 맺은 것이어야 한다."""
+    """앱 컨테이너가 마지막으로 시작한 시각. 새 연결은 이보다 뒤에 맺은 것이어야 한다."""
     pods = [p for name in workloads for p in (_pods(after, name) or [])]
     starts = [_time(p.get(field)) for p in pods for field in ("started_at", "container_started_at")]
     if not starts or None in starts:

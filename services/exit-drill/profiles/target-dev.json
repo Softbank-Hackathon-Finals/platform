@@ -3,8 +3,8 @@
   "namespace": "target-dev",
   "aws_region": "ap-northeast-2",
   "workloads": {
-    "app": {"selector": {"app": "demo-chat"}, "role": "app", "aws_client": true},
-    "pooler": {"selector": {"app": "target-pgbouncer"}, "role": "app"},
+    "app": {"selector": {"app": "demo-chat"}, "role": "app", "aws_client": true, "container": "app"},
+    "pooler": {"selector": {"app": "target-pgbouncer"}, "role": "app", "container": "target-pgbouncer"},
     "db": {"selector": {"cnpg.io/cluster": "target-db"}, "role": "replication"},
     "objects": {"selector": {"app.kubernetes.io/name": "target-seaweedfs"}, "role": "infrastructure"},
     "control": {"selector": {"bravo-exit-drill-control": "true"}, "role": "control"}

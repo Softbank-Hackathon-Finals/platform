@@ -42,9 +42,8 @@ def _classify_pods(doc: dict, plan: dict) -> tuple[dict[str, list[dict]], list[s
                 "labels": labels,
                 "ready": _ready(status),
                 "started_at": status.get("startTime"),
-                "container_started_at": _container_started(status),
-                "restarts": _restarts(status),
                 "host_network": (item.get("spec") or {}).get("hostNetwork") is True,
+                **_target_container(status, plan["workloads"][name].get("container")),
             })
     for pods in grouped.values():
         pods.sort(key=lambda p: str(p["name"]))
@@ -58,21 +57,26 @@ def _ready(status: dict) -> bool | None:
     return None
 
 
-def _restarts(status: dict) -> int | None:
-    containers = status.get("containerStatuses")
-    if not containers:
-        return None
-    return sum(c.get("restartCount", 0) for c in containers)
+def _target_container(status: dict, wanted: str | None) -> dict:
+    """계획이 정한 컨테이너 하나의 상태. 없거나 같은 이름이 둘이면 모두 None으로 둔다.
 
-
-def _container_started(status: dict) -> str | None:
-    """지금 돌고 있는 컨테이너 중 가장 늦게 시작한 시각. 모두 UTC ISO 형식이라 글자로 비교한다."""
-    started = [
-        c["state"]["running"]["startedAt"]
-        for c in status.get("containerStatuses") or []
-        if (c.get("state") or {}).get("running", {}).get("startedAt")
-    ]
-    return max(started) if started else None
+    다른 컨테이너의 재시작은 앱이 다시 떴다는 근거가 아니다. 횟수만 따로 적어 판정이 보게 한다.
+    재시작 가능한 사이드카는 init 컨테이너 목록에 나오므로 함께 센다.
+    """
+    containers = status.get("containerStatuses") or []
+    matches = [c for c in containers if c.get("name") == wanted]
+    if wanted is None or len(matches) != 1:
+        return dict.fromkeys(("container_name", "container_id", "previous_container_id", "container_started_at", "restarts", "other_restarts"))
+    target = matches[0]
+    others = [c.get("restartCount") for c in [*containers, *(status.get("initContainerStatuses") or [])] if c.get("name") != wanted]
+    return {
+        "container_name": wanted,
+        "container_id": target.get("containerID"),
+        "previous_container_id": ((target.get("lastState") or {}).get("terminated") or {}).get("containerID"),
+        "container_started_at": ((target.get("state") or {}).get("running") or {}).get("startedAt"),
+        "restarts": target.get("restartCount"),
+        "other_restarts": sum(others) if all(type(r) is int for r in others) else None,
+    }
 
 
 def probe_request(plan: dict, vantage: str) -> dict:
@@ -109,7 +113,8 @@ def build_observation(
     """probe_runs는 {위치: {"pod_uid": ..., "results": probe.run 결과}} 형식이다.
 
     대조군 위치는 앞뒤로 두 번 재므로 {"control": [{...}, {...}]}처럼 목록도 받는다.
-    induced_restarts는 {Pod UID: 재시작 횟수}로, 운영자가 일부러 컨테이너를 다시 띄운 기록이다.
+    induced_restarts는 운영자가 일부러 컨테이너를 다시 띄운 기록이다. Pod마다 한 번이고, 형식은
+    {Pod UID: {"container": 컨테이너 이름, "replaced_container_id": 죽이기 전의 컨테이너 ID}}이다.
     """
     if phase not in PHASES:
         raise ObservationError("unknown phase")

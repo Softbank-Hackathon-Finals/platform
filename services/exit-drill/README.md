@@ -57,6 +57,7 @@ AWS 경로는 명세에 적지 않는다. **인벤토리가 쓴다고 한 서비
 | `LOCAL_ROUTE_LEAVES_CLUSTER` | 내부 경로라면서 외부 주소나 tailnet 프록시를 가리킨다 |
 | `SELECTOR_MATCHES_NOTHING` | 오타 난 선택자의 정책은 조용히 아무것도 막지 않는다 |
 | `CONTROL_SELECTED` · `NO_CONTROL` | 대조군이 차단되거나 없으면 대상이 살아 있는지 잴 수 없다 |
+| `CONTAINER_NOT_IN_POD` | 명세의 앱 컨테이너 이름이 Pod에 없다. 드릴을 다 돌린 뒤 판정 불가가 되기 전에 멈춘다 |
 | `OWNER_ROLE_MISMATCH` · `UNKNOWN_WORKLOAD` · `DUPLICATE_ROUTE` · `POLICY_NAME_CONFLICT` · `NO_REPLICATION_ROUTE` · `NO_SOURCE_ROUTE` · `NO_AWS_CLIENT` · `EMPTY_SELECTOR` | 명세 자체의 모순 |
 
 ## 판정
@@ -71,9 +72,12 @@ AWS 경로는 명세에 적지 않는다. **인벤토리가 쓴다고 한 서비
 | 차단 전에도 닫혀 있었음 | `BASELINE_NOT_OPEN` | 지금 닫힌 것이 정책 덕분인지 모른다 |
 | 이름 풀이 실패 | `UNEXPECTED_STATE` | DNS 고장과 구별되지 않는다 |
 | Pod UID가 그대로 | `RESTART_NOT_OBSERVED` | 재시작 시험을 하지 않은 것이다. 이미 맺은 연결은 정책을 넣어도 끊기지 않는다 |
-| Pod 교체만 하고 컨테이너 재시작은 안 함 | `STARTUP_NOT_ISOLATED` | 새 Pod는 처음 잠깐 정책에 묶이지 않는다. 아래 "재시작을 두 번 하는 이유" |
+| Pod 교체만 함, 또는 앱 대신 사이드카만 다시 뜸 | `STARTUP_NOT_ISOLATED` | 새 Pod는 처음 잠깐 정책에 묶이지 않는다. 아래 "재시작을 두 번 하는 이유" |
 | 정책 생성 시각이 재시작보다 늦거나 모름 | `STARTED_BEFORE_BLOCK` · `POLICY_TIME_UNKNOWN` | 적용 시각은 사람이 적는 값이라 클러스터 기록과 대조한다 |
 | 시키지 않은 재시작이 있음 | `UNSTABLE_RESTARTS` | 앱이 죽었다 살아난 것일 수 있다 |
+| 앱 컨테이너 상태가 없거나 이름이 모호함 | `CONTAINER_UNKNOWN` | 어느 컨테이너의 값인지 모른다 |
+| 재시작 기록이 관측과 다름 | `RESTART_RECORD_MISMATCH` | 기록한 컨테이너가 끝나지 않았거나 다른 컨테이너다 |
+| 같은 Pod의 다른 컨테이너가 다시 뜸 | `OTHER_CONTAINER_RESTARTED` | 앱의 근거가 아니고, 차단 아래에서 죽은 것일 수 있다 |
 | 계획을 만든 뒤 명세에 없는 Pod가 뜸 | `POD_OUTSIDE_PLAN` | 어느 정책에도 안 걸리고 아무도 재지 않는다 |
 | LSN이 안 움직임 | `REPLICATION_IDLE` | 쓰기가 없으면 채널이 살아 있는지 모른다 |
 | 쓰기 대상이 목적지로 확인 안 됨 | `CUTOVER_NOT_CONFIRMED` | 컷오버 전이면 이 시험의 의미가 없다 |
@@ -91,9 +95,11 @@ AWS 경로는 명세에 적지 않는다. **인벤토리가 쓴다고 한 서비
 이 틈 때문에 시작할 때 AWS를 부르는 앱이 첫 측정에서 PASS로 나왔다. 그래서 두 단계로 재시작한다.
 
 1. **Pod 교체**(`rollout restart`): 정책을 건 뒤 Pod를 새로 만든다. 이미 맺은 연결을 모두 없앤다.
-2. **컨테이너만 재시작**(1번 프로세스에 SIGTERM): Pod와 IP가 그대로라 이미 정책에 묶여 있다. 앱은 차단된 채로 시작한다. 이 횟수를 `--induced-restarts`로 넘긴다.
+2. **앱 컨테이너만 재시작**(`kubectl exec -c <컨테이너>`로 1번 프로세스에 SIGTERM): Pod와 IP가 그대로라 이미 정책에 묶여 있다. 앱은 차단된 채로 시작한다. 죽이기 전의 컨테이너 ID를 `--induced-restarts`로 넘긴다.
 
 판정은 두 번째가 있어야 `restart:*`를 통과시키고, 새 연결도 그 뒤에 맺은 것만 센다. 컨테이너 재시작은 정책 생성과 Pod 시작 양쪽에서 2초 이상 지난 뒤여야 한다. 그 전이면 아직 틈 안일 수 있어서다.
+
+**판정 대상은 명세가 앱 역할마다 적은 컨테이너(`workloads.*.container`) 하나다.** 이 이름은 계획 해시에 들어간다. 재시작 횟수 · 시작 시각 · 컨테이너 ID는 그 컨테이너의 값만 쓰고, 끝난 컨테이너의 ID(`lastState.terminated.containerID`)가 기록과 같고 지금 도는 ID와 달라야 통과한다. 사이드카가 다시 뜬 것은 앱의 근거가 되지 않는다. 그렇다고 넘기지도 않아서, 앱은 통과 조건을 채워도 `OTHER_CONTAINER_RESTARTED`로 UNKNOWN이다.
 
 종료 코드: 0 PASS · 1 FAIL(또는 계획 거부) · 2 입력 오류 · 3 UNKNOWN.
 
@@ -129,9 +135,9 @@ bravo-exit-drill render --spec profiles/target-dev.json --inventory inventory.js
 bravo-exit-drill manifests --plan plan.json > policies.json       # 운영자가 검토 후 적용
 bravo-exit-drill targets --plan plan.json --vantage app           # 위치별 대상. Pod 안에서 probe.py로 잰다
 bravo-exit-drill assemble --plan plan.json --phase before ...     # 적용 전 관측
-#   운영자: 정책 적용 → 몇 초 기다림 → 앱 · 풀러 Pod 교체 → 몇 초 기다림 → 컨테이너만 재시작 → 다시 잼
+#   운영자: 정책 적용 → 몇 초 기다림 → 앱 · 풀러 Pod 교체 → 몇 초 기다림 → 앱 컨테이너만 재시작 → 다시 잼
 bravo-exit-drill assemble --plan plan.json --phase after --policy-applied-at <적용 시각> \
-  --induced-restarts induced.json ...                              # {Pod UID: 재시작 횟수}
+  --induced-restarts induced.json ...   # {Pod UID: {"container": 이름, "replaced_container_id": 죽이기 전 ID}}
 bravo-exit-drill check --plan plan.json --before before.json --after after.json > report.json
 bravo-exit-drill map --inventory inventory.json --candidate onprem-demo --plan plan.json \
   --report report.json --format markdown
@@ -157,7 +163,8 @@ uv run python tests/integration/mutation_check.py --out mutation-results.json
 | 값 | 출처 | 상태 |
 |---|---|---|
 | 앱 `app=demo-chat`, 8080 | T12 `sites.py` 기본값 · 모의 환경 | 실제 목적지 배포는 T15 · T31 뒤에 확인 |
-| 풀러 `app=target-pgbouncer`, Pod 포트 5432 | T30 `pooler.py` | PR #131 |
+| 앱 컨테이너 `app` | 출발지 배포 `infra/envs/source-workloads/render.py` | 목적지 배포에서 같은지 T15 · T31 뒤에 확인 |
+| 풀러 `app=target-pgbouncer`, 컨테이너 `target-pgbouncer`, Pod 포트 5432 | T30 `pooler.py` | PR #131 |
 | DB `cnpg.io/cluster=target-db` | T30 `render.py` | PR #131 |
 | 객체 저장소 `target-seaweedfs`, 8333 | T30 `objects.py` | PR #131 |
 | 프록시 `bravo-target-pooler` · `bravo-target-replication` | T8 `network.py` | PR #131 |
