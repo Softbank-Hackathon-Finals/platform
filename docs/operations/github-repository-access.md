@@ -82,5 +82,15 @@ Coordinate the credential input name and delivery destination before modifying
 that implementation. Track expiry, replacement and revocation with the receiving
 owner. Never send token values through issue comments, chat or review evidence.
 
+The [2026-11-04 live evidence](../evidence/t7-github-access-2026-11-04/README.md)
+records issued credentials and a successful API probe. Consumer delivery is open.
+The issuer holds separate `reader` and `writer` entries in the local protected store.
+The receiving owner must confirm the execution location, secret input names and
+the existing protected injection mechanism. The issuer then transfers each role
+through that mechanism and confirms access with the receiving process.
+Share credential references and expiry metadata, never values, in the handoff.
+Before 2026-11-11, replace the pair through the same process or revoke unused entries.
+T31's full approval, patch and deployment run is not an extra T7 completion condition.
+
 References: [fine-grained token management](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens),
 [Git reference API and Contents permission](https://docs.github.com/en/rest/git/refs).
