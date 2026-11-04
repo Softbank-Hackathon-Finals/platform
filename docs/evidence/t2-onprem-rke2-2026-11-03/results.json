@@ -1,0 +1,144 @@
+{
+  "evidence_scope": "new local QEMU VM with the T2/T7 common bootstrap; not the on-premises demo machine",
+  "observed_date": "2026-11-03",
+  "runtime": "RKE2 v1.35.9+rke2r1",
+  "environment": {
+    "host": "Apple Silicon Mac, QEMU 11.1.3 with HVF",
+    "guest": "Ubuntu 24.04 cloud image release-20261017 arm64",
+    "vcpus": 4,
+    "memory_gib": 8,
+    "disk_gib": 40
+  },
+  "fresh_install": {
+    "cloud_init_exit": 0,
+    "cloud_init_seconds": 104,
+    "node_checks_passed": 10,
+    "node_checks_failed": 0
+  },
+  "kube_bench": {
+    "version": "0.16.0",
+    "benchmark": "rke2-cis-1.9",
+    "pass": 82,
+    "fail": 0,
+    "warn": 41,
+    "info": 7,
+    "warn_all_unscored_manual": true,
+    "warn_by_section": {
+      "1.1": 3,
+      "1.2": 3,
+      "3.1": 3,
+      "3.2": 1,
+      "4.2": 2,
+      "5.1": 7,
+      "5.2": 13,
+      "5.3": 2,
+      "5.4": 2,
+      "5.5": 1,
+      "5.7": 4
+    },
+    "warn_tests": [
+      "1.1.8",
+      "1.1.9",
+      "1.1.20",
+      "1.2.3",
+      "1.2.9",
+      "1.2.11",
+      "3.1.1",
+      "3.1.2",
+      "3.1.3",
+      "3.2.2",
+      "4.2.12",
+      "4.2.13",
+      "5.1.7",
+      "5.1.8",
+      "5.1.9",
+      "5.1.10",
+      "5.1.11",
+      "5.1.12",
+      "5.1.13",
+      "5.2.1",
+      "5.2.2",
+      "5.2.3",
+      "5.2.4",
+      "5.2.5",
+      "5.2.6",
+      "5.2.7",
+      "5.2.8",
+      "5.2.9",
+      "5.2.10",
+      "5.2.11",
+      "5.2.12",
+      "5.2.13",
+      "5.3.1",
+      "5.3.2",
+      "5.4.1",
+      "5.4.2",
+      "5.5.1",
+      "5.7.1",
+      "5.7.2",
+      "5.7.3",
+      "5.7.4"
+    ]
+  },
+  "kubectl_from_host": {
+    "nodes_ready": 1,
+    "pods_running": 11,
+    "pods_completed": 6
+  },
+  "negative_tests": {
+    "user_data_without_sysctl_and_etcd": {
+      "lines_removed": 4,
+      "cloud_init_exit": 1,
+      "seconds_to_failure": 621,
+      "node_checks_passed": 3,
+      "node_checks_failed": 7,
+      "refusal": "invalid kernel parameter value",
+      "systemctl_start_exit": 1,
+      "systemctl_enable_now_exit": 0
+    },
+    "etcd_user_and_group_deleted": {
+      "systemctl_start_exit": 1,
+      "refusal": "missing required: user: unknown user etcd"
+    },
+    "api_server_manifest_mode_666": {
+      "kube_bench_fail": 1,
+      "failed_test": "1.1.1",
+      "kube_bench_fail_after_restore": 0
+    }
+  },
+  "node_observations": {
+    "secrets_encryption": "Enabled",
+    "audit_policy_level": "None",
+    "audit_log_bytes": 0,
+    "pod_security_enforce": "restricted",
+    "pod_security_exempt_namespaces": [
+      "kube-system",
+      "compliance-operator-system",
+      "tigera-operator"
+    ],
+    "memory_used_mib_just_after_install": 1219,
+    "disk_used_gib_just_after_install": 5.2
+  },
+  "local_checks": {
+    "shellcheck": "PASS",
+    "bash_syntax": "PASS",
+    "public_evidence": "PASS"
+  },
+  "not_claimed": [
+    "on-premises demo machine reinstall",
+    "x86_64 install through this path",
+    "Tailscale login or connectivity",
+    "recovery after reboot",
+    "host sleep settings",
+    "CNPG, OpenBao or application workload",
+    "kube-bench on the T7 EC2 host",
+    "full CIS benchmark compliance"
+  ],
+  "source_file_sha256": {
+    "infra/shared/rke2/bootstrap.sh": "c183719d2cc9d648c4b3aebb90fc1e4f798f7b10ac795019872715c267aa0376",
+    "infra/envs/onprem/local-vm.sh": "1b3fd0c3acf00562f3edce345aa43f474713076becceaa75b49d52e7bd494cbd",
+    "infra/envs/onprem/render-user-data.sh": "25cbb35125cdbc8c81b9b29ca6dce56022115f49cb4c42382c320037e0b82708",
+    "infra/envs/onprem/run-kube-bench.sh": "e794b1be9e62e0b0e08131a008b27ceff755c9d6ac7b68a5ba5c6bfdc4922654",
+    "infra/envs/onprem/verify-node.sh": "69cbe2e0242fa9e150f4f56bb37d5615e75c5e33f82efdf8fec4fc190d7ba593"
+  }
+}

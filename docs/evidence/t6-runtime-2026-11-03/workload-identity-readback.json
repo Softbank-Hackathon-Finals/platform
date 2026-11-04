@@ -1,0 +1,11 @@
+{
+  "observed_at": "2026-11-03T08:53:15.961942+00:00",
+  "temporary_role_credentials_in_memory_only": true,
+  "app_db_secret_read": true,
+  "app_control_secret_denied": true,
+  "eso_control_secret_read": true,
+  "eso_db_secret_denied": true,
+  "eso_attachment_list_denied": true,
+  "app_attachment_roundtrip": true,
+  "attachment_kms_encrypted": true
+}

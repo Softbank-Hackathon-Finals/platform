@@ -22,8 +22,17 @@ on:
     inputs:
       command:
         type: choice
-        options: [pull, push, status, prs, reconcile]
+        options: [pull, push, status, start, activity, prs, reconcile]
         default: pull
+      task:
+        description: start/activity 명령의 작업 번호 (예 T23). 다른 명령은 비워 둡니다.
+        type: string
+        default: ''
+      activity:
+        description: activity 명령 전용. active는 실제 작업 진행, auto는 PR 기반 상태로 복귀.
+        type: choice
+        options: [active, auto]
+        default: active
       dry-run:
         type: boolean
         default: false
@@ -63,8 +72,22 @@ jobs:
         env:
           COMMAND: ${{ github.event_name == 'push' && 'push' || github.event_name == 'schedule' && 'reconcile' || (github.event_name == 'pull_request_target' || github.event_name == 'workflow_run') && 'prs' || inputs.command || 'pull' }}
           DRY: ${{ inputs.dry-run && '--dry-run' || '' }}
+          TASK: ${{ inputs.task || '' }}
+          ACTIVITY: ${{ inputs.activity || 'active' }}
         run: |
-          python3 scripts/sync_tasks.py "$COMMAND" ${DRY:+"$DRY"} --moves-file moves.txt | tee -a "$GITHUB_STEP_SUMMARY"
+          args=("$COMMAND")
+          if [ "$COMMAND" = start ] || [ "$COMMAND" = activity ]; then
+            if [[ ! "$TASK" =~ ^T[0-9]+$ ]]; then echo "start/activity에는 T번호가 필요합니다" >&2; exit 2; fi
+            args+=("$TASK")
+            if [ "$COMMAND" = activity ]; then
+              if [[ ! "$ACTIVITY" =~ ^(active|auto)$ ]]; then echo "activity는 active/auto만 허용합니다" >&2; exit 2; fi
+              args+=("$ACTIVITY")
+            fi
+          elif [ -n "$TASK" ]; then
+            echo "task 입력은 start/activity에서만 사용합니다" >&2; exit 2
+          fi
+          if [ -n "$DRY" ]; then args+=("$DRY"); fi
+          python3 scripts/sync_tasks.py "${args[@]}" --moves-file moves.txt | tee -a "$GITHUB_STEP_SUMMARY"
           if [ -z "$DRY" ] && ! git diff --quiet docs/tasks.md; then echo "changed=true" >> "$GITHUB_OUTPUT"; fi
       - name: tasks.md 반영 PR (리뷰 대기)
         if: steps.sync.outputs.changed == 'true'
@@ -78,7 +101,7 @@ jobs:
           gh pr view bot/sync-tasks --json state -q .state 2>/dev/null | grep -q OPEN \
             || gh pr create --base develop --head bot/sync-tasks --title "[sync] 보드 → tasks.md" \
                  --body "이슈의 할 일 체크와 담당을 tasks.md에 반영한다. sync-tasks 워크플로가 만들었다."
-          echo "봇 PR도 필수 CI와 팀원 승인 1건 이상, 변경 요청 해소 후 머지한다. 전원 승인은 요구하지 않는다."
+          echo "봇 tasks.md 전용 PR은 현재 보호 규칙과 필수 CI 확인 후 팀원이 머지 버튼으로 반영한다. docs/development.md 참조."
       - name: Slack 테스트 메시지
         if: inputs.slack-test
         run: echo "Slack 연결 테스트 (보드 동기화 알림이 이 채널로 온다)" >> moves.txt

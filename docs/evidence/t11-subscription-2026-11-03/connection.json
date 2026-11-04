@@ -1,0 +1,20 @@
+{
+  "state": "ACTIVE",
+  "requested_account_verified": true,
+  "app_owned_client_verified": true,
+  "chatgpt_plan_scope_verified": true,
+  "actual_model_catalog": true,
+  "model_catalog_reused_without_login": true,
+  "token_files_written": false,
+  "secrets_version_write_readback": true,
+  "own_secret_read": true,
+  "account_wide_secret_listing_denied": true,
+  "role_session_credentials_short_lived": true,
+  "existing_node_identity_unchanged": true,
+  "live_renewal": "NOT_RUN_PROVIDER_EARLIEST_REFRESH_IN_FUTURE",
+  "live_revocation": "NOT_RUN_RETAIN_REQUESTED_CONNECTION",
+  "rotation_and_revocation_failure_tests": "PASS_WITH_MOCK_PROVIDER",
+  "raw_connection_proof_sha256": "dfa50b7dee3b4d1205890ec3dda6f307ee83340292febc04ec73a20902670bf4",
+  "api_key_fallback": false,
+  "usage_reset_or_extra_credit_used": false
+}

@@ -52,9 +52,9 @@ pgx와 client-go를 쓴다.
 **지킬 것**
 
 * 판정 · 실행 모듈 원칙에 따라 Executor 패키지는 LLM 클라이언트를 의존성에 넣지도, import하지도 않는다.
-* 단계별 deadline은 클라이언트 타이머만으로 두지 않는다. 클라이언트에서 시간이 끝나도 서버 쪽 작업은 계속될 수 있으므로 `connect_timeout` · `statement_timeout` · `lock_timeout`을 서버 쪽에도 건다.
+* 단계별 deadline은 클라이언트 타이머만으로 두지 않는다. `connect_timeout`은 클라이언트의 연결 대기 제한이다. 클라이언트에서 시간이 끝나도 서버 쪽 작업은 계속될 수 있으므로 서버에는 `statement_timeout` · `lock_timeout`을 별도로 건다.
 
 **남은 일**
 
-* PgBouncer 관리 콘솔(`PAUSE` · `RELOAD` · `RESUME`)은 simple query protocol만 받는 것으로 알고 있다. psycopg 3(autocommit, `ClientCursor`)으로 실제로 명령이 통하는지 k3d에서 확인한다. 통하지 않으면 관리 콘솔 접속만 다른 방식으로 바꾸고, 이 ADR에 결과를 적는다.
+* ~~PgBouncer 관리 콘솔에 psycopg 3으로 명령이 통하는지 확인~~ → 확인함(2026-11-03, PgBouncer 1.26.1): 기본 커서와 `ClientCursor` 모두 `PAUSE` · `RELOAD` · `RESUME` · `SHOW`가 통한다. Executor는 `ClientCursor` + autocommit을 쓴다. 실행 기록과 실패 판정은 [ADR-0011](0011-cutover-executor-execution-and-failure.md).
 * 공용 JSON Schema(Executor 입출력, 무결성 영수증)를 T10과 같이 쓰는 방법은 T10 담당과 정한다.

@@ -1,0 +1,62 @@
+{
+  "note": "New executions only; old records remain preserved. SSM times identify submission/read operations, while per-observation timestamps identify the security trial. No DB restart was performed in this correction.",
+  "operations": [
+    {
+      "operation": "p1-network-controls-v1",
+      "source_file": "infra/envs/platform-data/verify_platform_host.py",
+      "source_sha256": "5e3db820f66fbef7f1af88867cca38e291e2f9b4d9b66e5f84082842f3ba0c04",
+      "submitted_source_verified": true,
+      "submitted_payload_verified": true,
+      "ssm_status": "Success",
+      "response_code": 0,
+      "execution_started_at": "2026-11-03T12:03:32.168Z",
+      "execution_finished_at": "2026-11-03T12:04:10.168Z",
+      "private_output_sha256": "a98345373c410e101fe789327f1be16292f8d7f8adc7f9ad940f6c45c6fff0b5",
+      "payload_sha256": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a"
+    },
+    {
+      "operation": "p1-tls-apply-v1",
+      "source_file": "infra/envs/platform-data/run_probe_host.py",
+      "source_sha256": "c45ef5bff32258bd3b5af4d490c01796c5b9dd055bf59a112713a2767a79ea5e",
+      "submitted_source_verified": true,
+      "submitted_payload_verified": true,
+      "ssm_status": "Success",
+      "response_code": 0,
+      "execution_started_at": "2026-11-03T12:04:16.563Z",
+      "execution_finished_at": "2026-11-03T12:04:16.563Z",
+      "private_output_sha256": "2b16d5eb75d532ce48efe4436de1a5af690c4e772169c0979155cca953888360",
+      "payload_sha256": "cef3e6d4bcddb9dbcdef22535bbad1271d33d4e8fd8cbe3f2600a2f2d047a73a",
+      "bundle_sha256": "83af5c63e84b86759c8a3560943d89e9ccd4363f707594c1ffcbaf40ed2f627a",
+      "bundled_probe_sources": {
+        "verify_t10.py": "7b19c146243400cc300c91f0a158203c52033a3626cbbb2e84833a4cc5c0106d",
+        "tls_verification.py": "b569fa74bddf75f4206833c29369ca81138715aec423ad15e85c58a4f91b968d"
+      }
+    },
+    {
+      "operation": "p1-tls-read-v2",
+      "source_file": "infra/envs/platform-data/run_probe_host.py",
+      "source_sha256": "c45ef5bff32258bd3b5af4d490c01796c5b9dd055bf59a112713a2767a79ea5e",
+      "submitted_source_verified": true,
+      "submitted_payload_verified": true,
+      "ssm_status": "Success",
+      "response_code": 0,
+      "execution_started_at": "2026-11-03T12:06:07.666Z",
+      "execution_finished_at": "2026-11-03T12:06:07.666Z",
+      "private_output_sha256": "f9715512ee4b7d28ac4d2b2e3677c8fb6961a044d9df274cedd15d346865a658",
+      "payload_sha256": "aaa2c905fb247edd1fb7403df3d745e1d342f7498af4588cb784694a6c0d7afa"
+    },
+    {
+      "operation": "p1-probe-cleanup-v1",
+      "source_file": "infra/envs/platform-data/cleanup_probes.py",
+      "source_sha256": "d23ed2cabafa8387acaf77ca3298fdc95ef2ccbbc905c060db49aa872ea6f7ce",
+      "submitted_source_verified": true,
+      "submitted_payload_verified": true,
+      "ssm_status": "Success",
+      "response_code": 0,
+      "execution_started_at": "2026-11-03T12:06:37.248Z",
+      "execution_finished_at": "2026-11-03T12:06:37.248Z",
+      "private_output_sha256": "0ed38ba50848f12932273375ecd915cda6d709bdf03fdadde65eee0d405c158d",
+      "payload_sha256": "553376515afa6f90ff13708c035db5c2cd2d497ef6279d37cbd6345f41eda9d4"
+    }
+  ]
+}

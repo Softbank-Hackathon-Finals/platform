@@ -1,0 +1,6 @@
+{
+  "recorded_before_execution_at_utc": "2026-11-03T09:28:38.283191+00:00",
+  "source_commit": "27b0ef46f89c26c6a11c11b4aaf0bfc94a52d75b",
+  "probe_sha256": "e8173870ed9061c44ff004977e44c4305e504a84800dbf66fa4448951cb0ac28",
+  "scope": "approved synthetic canary in new source-dev; target has no business app writes"
+}

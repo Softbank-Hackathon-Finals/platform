@@ -1,0 +1,128 @@
+{
+  "schema_version": 1,
+  "published_at": "2026-11-03T16:08:05.615840+00:00",
+  "scope": "Source EKS dedicated pooler route enforcement repair and actual caller tests; not cutover",
+  "public_is_raw": false,
+  "private_originals": [
+    {
+      "artifact": "source-pooler-route-denial-20261103T155056Z.json",
+      "sha256": "4d6e29abbb7c0404ce044d9a21fef7710a74d5a99a613ff3be1eccb135d8e7d5"
+    },
+    {
+      "artifact": "source-pooler-route-denial-20261103T160523Z.json",
+      "sha256": "b6f3eec6d55ffa07cb463ee0875d99a8aa339acfa62e44d83abc6beee7a1014a"
+    },
+    {
+      "artifact": "source-pooler-route-denial-20261103T160551Z.json",
+      "sha256": "e7521a7f82cc98a8419d7c61fb09ae5dd2483e795a8ef4e54fd4b77c4be5344f"
+    },
+    {
+      "artifact": "source-policy-diagnosis.private.json",
+      "sha256": "acdd6e9d06761b1badcd3f35c94f4f03ee32e98a2a3d2674d1d9da69b701f505"
+    },
+    {
+      "artifact": "cni-identity-diagnosis.private.json",
+      "sha256": "241e191b9ba98e90426658c6935791ae6e62ca05542f9424d4c1cb326ef036a3"
+    },
+    {
+      "artifact": "cni-irsa-restored-readback.private.json",
+      "sha256": "bbcb60cee7f88b2c37cd706a67f5963ce35610a4ddcb568afac31466f25e4578"
+    },
+    {
+      "artifact": "cni-role-rebind-readback.private.json",
+      "sha256": "bda497d8891776738dfe3ea1023e4b9d72f6863ee1a0b7bb536a7bcec07e5948"
+    },
+    {
+      "artifact": "cni-endpoint-ready.private.json",
+      "sha256": "7d2175c5118d2c9e0516b64f84e51df02897ce450750e7dfd6dd8f2edce8deff"
+    },
+    {
+      "artifact": "cni-enable-request.private.json",
+      "sha256": "e261da260bdfde7bc31a66172ac2711bf4b4a955d271861edc54db934c3d0197"
+    },
+    {
+      "artifact": "cni-enable-update.private.json",
+      "sha256": "f307d09db183c130d4a4f4c501a2e2ed79645ede3c20de1a2c2e0087f572035d"
+    },
+    {
+      "artifact": "cni-role-rebind-request.private.json",
+      "sha256": "3ac399d8f19c86bd208612156b3b5d8899c625c95e880945b817a0bb4d630320"
+    }
+  ],
+  "initial_failure": {
+    "started_at": "2026-11-03T15:50:56.986046+00:00",
+    "completed_at": "2026-11-03T15:51:12.100125+00:00",
+    "database_writes": 0,
+    "probe_credentials": 0,
+    "positive_before": true,
+    "negative": {
+      "denied": false
+    },
+    "positive_after": true,
+    "passed": false,
+    "owned_job_and_pods_absent": true
+  },
+  "diagnosis": {
+    "network_policy_objects": 1,
+    "agent_enforcement_enabled": false,
+    "policy_endpoint_count": 0,
+    "intended_proxy_labels_matched": true
+  },
+  "activation": {
+    "pinned_cni_version": "v1.23.2-eksbuild.8",
+    "enable_network_policy": "true",
+    "first_update_role_explicitly_supplied": false,
+    "observed_role_mismatch": true,
+    "recovery_same_existing_role": true,
+    "final_addon_status": "ACTIVE",
+    "same_role_verified_in_addon_serviceaccount_pod": true,
+    "ready": true,
+    "restarts_after_identity_recovery": 0,
+    "iam_permission_changes": 0,
+    "node_or_business_pod_restarts_requested": 0,
+    "old_non_cni_pod_uids_unchanged": true,
+    "exact_policy_endpoint_and_actual_pooler_addresses_verified": true
+  },
+  "wrong_label": {
+    "started_at": "2026-11-03T16:05:23.567466+00:00",
+    "completed_at": "2026-11-03T16:05:45.174904+00:00",
+    "database_writes": 0,
+    "probe_credentials": 0,
+    "positive_before": true,
+    "negative": {
+      "denied": true
+    },
+    "positive_after": true,
+    "passed": true,
+    "owned_job_and_pods_absent": true
+  },
+  "wrong_namespace": {
+    "started_at": "2026-11-03T16:05:51.340792+00:00",
+    "completed_at": "2026-11-03T16:06:11.445440+00:00",
+    "database_writes": 0,
+    "probe_credentials": 0,
+    "positive_before": true,
+    "negative": {
+      "denied": true
+    },
+    "positive_after": true,
+    "passed": true,
+    "owned_job_and_pods_absent": true
+  },
+  "negative_probe_method": {
+    "fresh_tcp_to_generated_cluster_ip": true,
+    "no_probe_credentials": true,
+    "caller_egress_policy_count": 0,
+    "actual_pooler_strict_tls_before_after": true
+  },
+  "limitations": [
+    "Checks use the current development proxy and caller; no full Executor or cutover ran",
+    "Standard CNI startup mode allows traffic until policy programming completes; Pod replacement needs fresh identity/readback and traffic tests",
+    "The current dynamic Service mapping was tested; this does not certify every mapping supported by VPC CNI",
+    "Current one-replica socket bindings require revalidation after restart"
+  ],
+  "publication_code_sha256": {
+    "infra/envs/source-eks/main.tf": "c42b43cd1448f541bb0b74dafcca8ecc7f70cafacd5d26d80ffaa0e9c00535d7",
+    "infra/envs/executor-network/pooler_backend.py": "29bf743ca0a8d9c7e21354aa55933b80326c736a299c4d0d4881333fdc8e97ea"
+  }
+}

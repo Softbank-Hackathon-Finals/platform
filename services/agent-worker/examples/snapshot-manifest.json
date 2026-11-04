@@ -1,0 +1,9 @@
+{
+  "source_sha": "1111111111111111111111111111111111111111",
+  "files": {
+    "src/config.py": "f9b997a0ef8e589e291cb5f631a55e8e43f8affa29e5315c602aec5a64b11fcf"
+  },
+  "editable_paths": [
+    "src/config.py"
+  ]
+}
