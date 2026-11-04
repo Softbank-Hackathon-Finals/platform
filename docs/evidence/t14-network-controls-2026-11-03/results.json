@@ -24,5 +24,6 @@
       "path": "services/control-runner/tests/integration/verify_network_controls.py",
       "sha256": "6fa30bbb29fde4dcc678541f4bc433fa4e4dc1647db4f6e86266af302ca4a4cd"
     }
-  ]
+  ],
+  "source_revision": "d65f30c86f2d3c5ac3f945a41071f0352cc033be"
 }
