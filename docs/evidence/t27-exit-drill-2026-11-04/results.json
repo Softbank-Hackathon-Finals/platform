@@ -10,28 +10,28 @@
  },
  "established_connection": {
   "held_connection_alive_after_policy": true,
-  "seconds_until_denied": 0.12,
+  "seconds_until_denied": 0.13,
   "state": "refused"
  },
  "k3s_image": "mirror.gcr.io/rancher/k3s:v1.35.5-k3s1",
  "new_pod_window": [
   {
+   "attempts": 20,
+   "connected_attempts": 2,
+   "first_attempt": "connected",
+   "seconds_until_first_denied": 0.103
+  },
+  {
+   "attempts": 22,
+   "connected_attempts": 4,
+   "first_attempt": "connected",
+   "seconds_until_first_denied": 0.204
+  },
+  {
    "attempts": 29,
    "connected_attempts": 13,
    "first_attempt": "connected",
-   "seconds_until_first_denied": 0.66
-  },
-  {
-   "attempts": 24,
-   "connected_attempts": 6,
-   "first_attempt": "connected",
-   "seconds_until_first_denied": 0.307
-  },
-  {
-   "attempts": 25,
-   "connected_attempts": 8,
-   "first_attempt": "connected",
-   "seconds_until_first_denied": 0.406
+   "seconds_until_first_denied": 0.674
   }
  ],
  "python_image": "python:3.12-slim",
@@ -40,12 +40,19 @@
    "UNDECLARED_EGRESS"
   ],
   "selector_shared_with_db": [
+   "CONTAINER_NOT_IN_POD",
    "CONTROL_SELECTED",
    "REPLICATION_OWNER_SELECTED"
   ]
  },
  "scenarios": [
   {
+   "app_container_restarts": [
+    {
+     "app": 1,
+     "others": 0
+    }
+   ],
    "as_expected": true,
    "counts": {
     "FAIL": 0,
@@ -68,6 +75,12 @@
    "verdict": "PASS"
   },
   {
+   "app_container_restarts": [
+    {
+     "app": 1,
+     "others": 0
+    }
+   ],
    "as_expected": true,
    "counts": {
     "FAIL": 6,
@@ -131,6 +144,12 @@
    "verdict": "FAIL"
   },
   {
+   "app_container_restarts": [
+    {
+     "app": 1,
+     "others": 0
+    }
+   ],
    "as_expected": true,
    "counts": {
     "FAIL": 0,
@@ -158,6 +177,12 @@
    "verdict": "UNKNOWN"
   },
   {
+   "app_container_restarts": [
+    {
+     "app": 1,
+     "others": 0
+    }
+   ],
    "as_expected": true,
    "counts": {
     "FAIL": 6,
@@ -206,6 +231,12 @@
    "verdict": "FAIL"
   },
   {
+   "app_container_restarts": [
+    {
+     "app": 1,
+     "others": 0
+    }
+   ],
    "as_expected": true,
    "counts": {
     "FAIL": 5,
@@ -249,6 +280,12 @@
    "verdict": "FAIL"
   },
   {
+   "app_container_restarts": [
+    {
+     "app": 1,
+     "others": 0
+    }
+   ],
    "as_expected": true,
    "counts": {
     "FAIL": 3,
@@ -287,11 +324,21 @@
    "verdict": "FAIL"
   },
   {
+   "app_container_restarts": [
+    {
+     "app": 2,
+     "others": 0
+    },
+    {
+     "app": 3,
+     "others": 0
+    }
+   ],
    "as_expected": true,
    "counts": {
-    "FAIL": 4,
-    "PASS": 11,
-    "UNKNOWN": 8
+    "FAIL": 1,
+    "PASS": 19,
+    "UNKNOWN": 3
    },
    "expected_codes": [
     "NOT_READY"
@@ -301,59 +348,19 @@
    "name": "app_needs_aws_at_start",
    "not_pass": [
     {
-     "code": "NOT_OBSERVED",
-     "id": "block:aws-iam:app",
-     "verdict": "UNKNOWN"
-    },
-    {
-     "code": "NOT_OBSERVED",
-     "id": "block:aws-kms:app",
-     "verdict": "UNKNOWN"
-    },
-    {
-     "code": "NOT_OBSERVED",
-     "id": "block:aws-s3:app",
-     "verdict": "UNKNOWN"
-    },
-    {
-     "code": "NOT_OBSERVED",
-     "id": "block:aws-secretsmanager:app",
-     "verdict": "UNKNOWN"
-    },
-    {
-     "code": "NOT_OBSERVED",
-     "id": "block:aws-sts:app",
-     "verdict": "UNKNOWN"
-    },
-    {
-     "code": "NOT_OBSERVED",
-     "id": "local:app-to-objects:app",
-     "verdict": "UNKNOWN"
-    },
-    {
-     "code": "NOT_OBSERVED",
-     "id": "local:app-to-pooler:app",
-     "verdict": "UNKNOWN"
-    },
-    {
-     "code": "NOT_OBSERVED",
-     "id": "local:dns:app",
-     "verdict": "UNKNOWN"
-    },
-    {
-     "code": "NEW_CONNECTION_FAILED",
+     "code": "CHECK_BEFORE_RESTART",
      "id": "new-connection:db-via-pooler",
-     "verdict": "FAIL"
+     "verdict": "UNKNOWN"
     },
     {
-     "code": "NEW_CONNECTION_FAILED",
+     "code": "CHECK_BEFORE_RESTART",
      "id": "new-connection:http-ready",
-     "verdict": "FAIL"
+     "verdict": "UNKNOWN"
     },
     {
-     "code": "NEW_CONNECTION_FAILED",
+     "code": "CHECK_BEFORE_RESTART",
      "id": "new-connection:websocket",
-     "verdict": "FAIL"
+     "verdict": "UNKNOWN"
     },
     {
      "code": "NOT_READY",
@@ -364,6 +371,12 @@
    "verdict": "FAIL"
   },
   {
+   "app_container_restarts": [
+    {
+     "app": 0,
+     "others": 0
+    }
+   ],
    "as_expected": true,
    "counts": {
     "FAIL": 0,
@@ -391,6 +404,40 @@
    "verdict": "UNKNOWN"
   },
   {
+   "app_container_restarts": [
+    {
+     "app": 0,
+     "others": 1
+    }
+   ],
+   "as_expected": true,
+   "counts": {
+    "FAIL": 0,
+    "PASS": 22,
+    "UNKNOWN": 1
+   },
+   "expected_codes": [
+    "STARTUP_NOT_ISOLATED"
+   ],
+   "expected_verdict": "UNKNOWN",
+   "meaning": "앱 컨테이너 대신 같은 Pod의 사이드카를 다시 띄우고 앱을 적었다. 앱 0회 · 사이드카 1회는 앱이 차단된 채 떴다는 증거가 아니다",
+   "name": "sidecar_restarted_instead",
+   "not_pass": [
+    {
+     "code": "STARTUP_NOT_ISOLATED",
+     "id": "restart:app",
+     "verdict": "UNKNOWN"
+    }
+   ],
+   "verdict": "UNKNOWN"
+  },
+  {
+   "app_container_restarts": [
+    {
+     "app": 1,
+     "others": 0
+    }
+   ],
    "as_expected": true,
    "counts": {
     "FAIL": 0,
@@ -433,6 +480,12 @@
    "verdict": "UNKNOWN"
   },
   {
+   "app_container_restarts": [
+    {
+     "app": 1,
+     "others": 0
+    }
+   ],
    "as_expected": true,
    "counts": {
     "FAIL": 0,
@@ -455,6 +508,12 @@
    "verdict": "UNKNOWN"
   },
   {
+   "app_container_restarts": [
+    {
+     "app": 1,
+     "others": 0
+    }
+   ],
    "as_expected": true,
    "counts": {
     "FAIL": 6,
@@ -503,19 +562,59 @@
    "verdict": "FAIL"
   }
  ],
- "source_sha256": {
-  "src/bravo_exit_drill/__init__.py": "63dd3cfc651c1db6ef6aae4418e5d8c419d553b020039a0dac65e3ded5f69587",
-  "src/bravo_exit_drill/aws_endpoints.py": "f702dc4dad0201e28cb692bffa73768ba25e9274547d90b75eddb6e9518381a8",
-  "src/bravo_exit_drill/cli.py": "a1ff3eebfb05f2dd3d55c6fcf03d809b8190756aa11a19b6062e6d7ddc49c13b",
-  "src/bravo_exit_drill/cluster.py": "8dde85c1a9ad90db26de99d5cb6f776081fdb1286657d21ca664c8a05147a14b",
-  "src/bravo_exit_drill/inventory_input.py": "1b1e5cbb923e4b3390e5c604a769635d16ed5e4841ce9b277ce5880ad21dd786",
-  "src/bravo_exit_drill/observation.py": "a638c5422e328bcf1ce4dfab5fc8716a9ced2789372fe08b5e4b022d613d1962",
-  "src/bravo_exit_drill/policy.py": "99a5b732dfe955f6584f475b334cb0d334c84e85a647110234fe02ba9328f6c9",
-  "src/bravo_exit_drill/probe.py": "0d385fe1bff4a90ed25e466a3271b4d35ab2948e28879059cfa8499204ec838b",
-  "src/bravo_exit_drill/residual_map.py": "c718c207ede105931eb097a351aca42735d5e37430a77825fb61f05e52bf2ba0",
-  "src/bravo_exit_drill/spec.py": "031b7bac19ded3d53ecd30c06294086bb1c48a8a91d118191c39f1e17971a485",
-  "src/bravo_exit_drill/verdict.py": "3e62812b30fad69bc38a90678878f050c389f9502a626ee18f1e3275e93db650",
-  "tests/integration/standin.py": "81c5ef30606593c93c0acff7de99cf0410f0de9a5bda82a251c62bb93b5de29b",
-  "tests/integration/verify_k3s.py": "f91b86e7ff8fca35202bee8f52dd123ada9f916e10c88b9d041aff444e2fe912"
- }
+ "source_files": [
+  {
+   "path": "services/exit-drill/src/bravo_exit_drill/__init__.py",
+   "sha256": "63dd3cfc651c1db6ef6aae4418e5d8c419d553b020039a0dac65e3ded5f69587"
+  },
+  {
+   "path": "services/exit-drill/src/bravo_exit_drill/aws_endpoints.py",
+   "sha256": "f702dc4dad0201e28cb692bffa73768ba25e9274547d90b75eddb6e9518381a8"
+  },
+  {
+   "path": "services/exit-drill/src/bravo_exit_drill/cli.py",
+   "sha256": "a2c3416d62b0b994d2e0ca463fe3c1e7772a097d0d165ce14d2468b4356845d6"
+  },
+  {
+   "path": "services/exit-drill/src/bravo_exit_drill/cluster.py",
+   "sha256": "31ba1aec3b6a7d512e44baf32f84756d5297e8cb3a638fd765d82523e7b0ee97"
+  },
+  {
+   "path": "services/exit-drill/src/bravo_exit_drill/inventory_input.py",
+   "sha256": "1b1e5cbb923e4b3390e5c604a769635d16ed5e4841ce9b277ce5880ad21dd786"
+  },
+  {
+   "path": "services/exit-drill/src/bravo_exit_drill/observation.py",
+   "sha256": "ed1ebf125083cf907b480ae052661e925253441072e17077c790cb0120c2a26f"
+  },
+  {
+   "path": "services/exit-drill/src/bravo_exit_drill/policy.py",
+   "sha256": "9afc1a832c222c2f8b0310845f2797cc31fa676411f45479611b19a9e6ce8637"
+  },
+  {
+   "path": "services/exit-drill/src/bravo_exit_drill/probe.py",
+   "sha256": "0d385fe1bff4a90ed25e466a3271b4d35ab2948e28879059cfa8499204ec838b"
+  },
+  {
+   "path": "services/exit-drill/src/bravo_exit_drill/residual_map.py",
+   "sha256": "c718c207ede105931eb097a351aca42735d5e37430a77825fb61f05e52bf2ba0"
+  },
+  {
+   "path": "services/exit-drill/src/bravo_exit_drill/spec.py",
+   "sha256": "5ad28287cc169bba7fb072fc3898ac88214aadd2d21426b1e52210143e43e703"
+  },
+  {
+   "path": "services/exit-drill/src/bravo_exit_drill/verdict.py",
+   "sha256": "733410fb2cc8b6513ed181200ecd2dd81f0876f870f8f8ff748954daaaeca814"
+  },
+  {
+   "path": "services/exit-drill/tests/integration/standin.py",
+   "sha256": "81c5ef30606593c93c0acff7de99cf0410f0de9a5bda82a251c62bb93b5de29b"
+  },
+  {
+   "path": "services/exit-drill/tests/integration/verify_k3s.py",
+   "sha256": "88c4c7dbb729893ff8532f01f28fa2054139473b597fe4f80d09ec898e85b32f"
+  }
+ ],
+ "source_revision": "27239a6855fc612721d970c84fbc2499675aa36b"
 }

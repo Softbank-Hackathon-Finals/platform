@@ -3,7 +3,7 @@
 - Exit Drill 판정: **PASS**
 - 후보 적합성(T16): needs_work
 - 인벤토리: `sha256:55271b9513e48c23c1a730faeebd44fc6831a1e1e57c9ef14d59641b60ccbc01`
-- 차단 계획: `sha256:3ef14c833eb0df6883f19d488bb889835e6d83465e0e6ded2c56a25424151a7f`
+- 차단 계획: `sha256:069d6740f73df6611e992db0a3c4a044251f3b1bf4547b7cb60a7ba6b8c6b2ba`
 
 ## 남음 (5)
 

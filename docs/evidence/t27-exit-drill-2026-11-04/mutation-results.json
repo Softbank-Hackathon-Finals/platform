@@ -1,7 +1,7 @@
 {
  "baseline_passed": true,
- "total": 96,
- "caught": 96,
+ "total": 119,
+ "caught": 119,
  "survived": [],
  "results": [
   {
@@ -234,6 +234,150 @@
   },
   {
    "file": "verdict.py",
+   "removed": "대상 컨테이너 상태를 모르면 판정 보류",
+   "caught": true,
+   "first_failure": "tests/test_verdict.py::test_missing_or_malformed_container_state_is_unknown[<lambda>0-container_name]"
+  },
+  {
+   "file": "verdict.py",
+   "removed": "이름 없는 대상과 이름 없는 관측을 같다고 치지 않기",
+   "caught": true,
+   "first_failure": "tests/test_verdict.py::test_plan_without_container_name_cannot_pass"
+  },
+  {
+   "file": "verdict.py",
+   "removed": "계획이 정한 이름의 컨테이너인지",
+   "caught": true,
+   "first_failure": "tests/test_verdict.py::test_missing_or_malformed_container_state_is_unknown[<lambda>0-container_name]"
+  },
+  {
+   "file": "verdict.py",
+   "removed": "컨테이너 ID가 있는지",
+   "caught": true,
+   "first_failure": "tests/test_verdict.py::test_missing_or_malformed_container_state_is_unknown[<lambda>0-container_id]"
+  },
+  {
+   "file": "verdict.py",
+   "removed": "빈 컨테이너 ID 거부",
+   "caught": true,
+   "first_failure": "tests/test_verdict.py::test_missing_or_malformed_container_state_is_unknown[<lambda>2-container_id]"
+  },
+  {
+   "file": "verdict.py",
+   "removed": "대상 컨테이너 재시작 횟수가 있는지",
+   "caught": true,
+   "first_failure": "tests/test_verdict.py::test_missing_or_malformed_container_state_is_unknown[<lambda>0-restarts]"
+  },
+  {
+   "file": "verdict.py",
+   "removed": "다른 컨테이너 재시작 횟수가 있는지",
+   "caught": true,
+   "first_failure": "tests/test_verdict.py::test_missing_or_malformed_container_state_is_unknown[<lambda>0-other_restarts]"
+  },
+  {
+   "file": "verdict.py",
+   "removed": "차단 아래에서 다시 뜬 사이드카를 통과로 안 치기",
+   "caught": true,
+   "first_failure": "tests/test_verdict.py::test_sidecar_crash_beside_the_approved_restart_is_unknown"
+  },
+  {
+   "file": "verdict.py",
+   "removed": "재시작 기록과 관측 대조",
+   "caught": true,
+   "first_failure": "tests/test_verdict.py::test_record_that_does_not_match_the_observed_restart_is_unknown[1]"
+  },
+  {
+   "file": "verdict.py",
+   "removed": "기록의 컨테이너 이름 대조",
+   "caught": true,
+   "first_failure": "tests/test_verdict.py::test_record_that_does_not_match_the_observed_restart_is_unknown[record4]"
+  },
+  {
+   "file": "verdict.py",
+   "removed": "기록한 컨테이너가 실제로 끝났는지",
+   "caught": true,
+   "first_failure": "tests/test_verdict.py::test_record_that_does_not_match_the_observed_restart_is_unknown[record6]"
+  },
+  {
+   "file": "verdict.py",
+   "removed": "지금 도는 컨테이너가 기록과 다른지",
+   "caught": true,
+   "first_failure": "tests/test_verdict.py::test_container_that_kept_its_id_did_not_restart"
+  },
+  {
+   "file": "observation.py",
+   "removed": "첫 컨테이너를 앱으로 치지 않기",
+   "caught": true,
+   "first_failure": "tests/test_observation.py::test_only_the_planned_container_is_evidence"
+  },
+  {
+   "file": "observation.py",
+   "removed": "같은 이름이 둘이면 모른다고 두기",
+   "caught": true,
+   "first_failure": "tests/test_observation.py::test_missing_or_duplicate_name_gives_no_evidence[containers3]"
+  },
+  {
+   "file": "observation.py",
+   "removed": "컨테이너 재시작 횟수를 합산하지 않기",
+   "caught": true,
+   "first_failure": "tests/test_observation.py::test_only_the_planned_container_is_evidence"
+  },
+  {
+   "file": "observation.py",
+   "removed": "가장 늦은 컨테이너 시작을 앱 시작으로 치지 않기",
+   "caught": true,
+   "first_failure": "tests/test_observation.py::test_only_the_planned_container_is_evidence"
+  },
+  {
+   "file": "observation.py",
+   "removed": "끝난 컨테이너 ID 읽기",
+   "caught": true,
+   "first_failure": "tests/test_observation.py::test_replaced_container_id_comes_from_the_last_state"
+  },
+  {
+   "file": "observation.py",
+   "removed": "재시작 가능한 사이드카도 세기",
+   "caught": true,
+   "first_failure": "tests/test_observation.py::test_other_restarts_count_init_containers"
+  },
+  {
+   "file": "observation.py",
+   "removed": "다른 컨테이너 재시작 기록",
+   "caught": true,
+   "first_failure": "tests/test_observation.py::test_only_the_planned_container_is_evidence"
+  },
+  {
+   "file": "policy.py",
+   "removed": "계획에 대상 컨테이너 결속",
+   "caught": true,
+   "first_failure": "tests/test_policy.py::test_plan_names_the_container_to_judge_for_each_app_role"
+  },
+  {
+   "file": "policy.py",
+   "removed": "Pod에 없는 컨테이너 이름 거부",
+   "caught": true,
+   "first_failure": "tests/test_policy.py::test_named_container_missing_from_a_pod_is_refused"
+  },
+  {
+   "file": "cluster.py",
+   "removed": "Pod의 컨테이너 이름 읽기",
+   "caught": true,
+   "first_failure": "tests/test_cli.py::test_render_prints_plan"
+  },
+  {
+   "file": "spec.py",
+   "removed": "앱 역할 밖의 컨테이너 이름 거부",
+   "caught": true,
+   "first_failure": "tests/test_policy.py::test_malformed_spec_stops[<lambda>30]"
+  },
+  {
+   "file": "spec.py",
+   "removed": "앱 역할은 컨테이너 이름 필수",
+   "caught": true,
+   "first_failure": "tests/test_policy.py::test_malformed_spec_stops[<lambda>27]"
+  },
+  {
+   "file": "verdict.py",
    "removed": "Pod가 정책에 묶인 뒤의 재시작인지",
    "caught": true,
    "first_failure": "tests/test_verdict.py::test_in_place_restart_too_soon_after_pod_start_is_unknown"
@@ -309,12 +453,6 @@
    "removed": "재시작 기록 전달",
    "caught": true,
    "first_failure": "tests/test_cli.py::test_assemble_builds_observation"
-  },
-  {
-   "file": "observation.py",
-   "removed": "가장 늦은 컨테이너 시작 고르기",
-   "caught": true,
-   "first_failure": "tests/test_observation.py::test_latest_running_container_is_the_last_start"
   },
   {
    "file": "verdict.py",

@@ -116,7 +116,7 @@
    "verdict": "PASS"
   }
  ],
- "plan_digest": "sha256:3ef14c833eb0df6883f19d488bb889835e6d83465e0e6ded2c56a25424151a7f",
+ "plan_digest": "sha256:069d6740f73df6611e992db0a3c4a044251f3b1bf4547b7cb60a7ba6b8c6b2ba",
  "schema_version": "exit-drill-report/v1",
  "summary": {
   "FAIL": 0,

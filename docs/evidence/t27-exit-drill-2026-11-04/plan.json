@@ -370,7 +370,7 @@
   "tailscale (복제 · 제어 경로)",
   "모델 공급자 (플랫폼의 에이전트 워커)"
  ],
- "digest": "sha256:3ef14c833eb0df6883f19d488bb889835e6d83465e0e6ded2c56a25424151a7f",
+ "digest": "sha256:069d6740f73df6611e992db0a3c4a044251f3b1bf4547b7cb60a7ba6b8c6b2ba",
  "inventory_digest": "sha256:55271b9513e48c23c1a730faeebd44fc6831a1e1e57c9ef14d59641b60ccbc01",
  "manifests": [
   {
@@ -378,7 +378,7 @@
    "kind": "NetworkPolicy",
    "metadata": {
     "annotations": {
-     "bravo.exit-drill/plan-digest": "sha256:3ef14c833eb0df6883f19d488bb889835e6d83465e0e6ded2c56a25424151a7f"
+     "bravo.exit-drill/plan-digest": "sha256:069d6740f73df6611e992db0a3c4a044251f3b1bf4547b7cb60a7ba6b8c6b2ba"
     },
     "labels": {
      "app.kubernetes.io/part-of": "bravo-exit-drill",
@@ -465,7 +465,7 @@
    "kind": "NetworkPolicy",
    "metadata": {
     "annotations": {
-     "bravo.exit-drill/plan-digest": "sha256:3ef14c833eb0df6883f19d488bb889835e6d83465e0e6ded2c56a25424151a7f"
+     "bravo.exit-drill/plan-digest": "sha256:069d6740f73df6611e992db0a3c4a044251f3b1bf4547b7cb60a7ba6b8c6b2ba"
     },
     "labels": {
      "app.kubernetes.io/part-of": "bravo-exit-drill",
@@ -557,34 +557,39 @@
   }
  ],
  "schema_version": "exit-drill-plan/v1",
- "snapshot_digest": "sha256:7aed965a264e82f452b3836aea0f284b9ffa2b3e0afb36331411777b740c5ed8",
+ "snapshot_digest": "sha256:63f310b8e7552ece2fac0f82de1df0e4af759a18c3d5365c1e87264b4d04d0c7",
  "unmapped_dependencies": [],
  "workloads": {
   "app": {
+   "container": "app",
    "role": "app",
    "selector": {
     "app": "demo-chat"
    }
   },
   "control": {
+   "container": null,
    "role": "control",
    "selector": {
     "bravo-exit-drill-control": "true"
    }
   },
   "db": {
+   "container": null,
    "role": "replication",
    "selector": {
     "cnpg.io/cluster": "target-db"
    }
   },
   "objects": {
+   "container": null,
    "role": "infrastructure",
    "selector": {
     "app.kubernetes.io/name": "target-seaweedfs"
    }
   },
   "pooler": {
+   "container": "target-pgbouncer",
    "role": "app",
    "selector": {
     "app": "target-pgbouncer"
