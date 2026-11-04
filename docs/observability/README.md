@@ -128,7 +128,7 @@ SHIFT에서 가중치 0이 자동인 이유: 이 구간에는 두 환경 앱이 
 |---|---|
 | T18 부하 생성기 (김태현) | 4절 규칙으로 `SliWindow`를 10초마다 플랫폼 창 수신(`POST /v1/observability/windows`, `Authorization: Bearer`)에 보낸다. 토큰은 명령 인자가 아니라 환경 변수로 받는다. 쓰기 응답 최대 간격을 실행 요약에 추가한다 |
 | T17 Edge (류지환) | "단계 판정"에 기준 구현 `bravo_observability.judge`를 그대로 쓴다(판정 코드를 한 벌로 유지). 따로 구현하면 `contract-cases.json`을 단위 시험으로 쓴다. 측정한 가중치 반영 시간으로 `unknown_limit`을 확정한다 |
-| T10 상태 머신 (류지환) | 판정마다 `SliJudgement`를 상태 DB와 감사 로그(T24)에 저장한다. 이벤트 계약 v1의 5종에 판정 · 알림을 담을 종류가 없으므로 `observation.judged` 추가를 제안한다. 창 수신의 저장(`WindowStore`)을 상태 DB에 구현하고, 받을 계획을 "현재 계획"으로 정한다 |
+| T10 상태 머신 (류지환) | 판정마다 `SliJudgement`를 상태 DB와 감사 로그(T24)에 저장한다. 이벤트 계약 v1의 5종에 판정 · 알림을 담을 종류가 없으므로 `observation.judged` 추가를 제안한다. 운영 창 수신을 맡는다: `WindowStore`를 상태 DB에 구현했고(#181), 전용 HTTP 호스트가 `accept`를 소비하며 현재 계획 · 생산자 binding으로 받을 창을 정한다(#186) |
 | T21 콘솔 | 7절 |
 | T22 데모 앱 v1 | 모든 HTTP 응답에 `X-Bravo-Env` 헤더 |
 | T8 복제 경로 (김태현) | 클라우드 간 쓰기 지연 실측값으로 `p95_ms_max` 확정 |
