@@ -27,7 +27,7 @@ def main():
         connection_checks(conninfo)
         store = PostgresPlanStore(conninfo)
         with store._transaction() as c:
-            if c.execute("SELECT version FROM schema_version").fetchall() != [{"version": 2}]:
+            if c.execute("SELECT version FROM schema_version").fetchall() not in ([{"version": 2}], [{"version": 3}]):
                 raise ValueError("window_schema_required")
         app = create_window_app(WindowIntake(store),
             resolve_producer=FileProducerCredential(Path("/producer/producer.json")))

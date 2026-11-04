@@ -21,7 +21,7 @@ from .executor import (
     _extends,
     _timestamp,
 )
-from .plan_api import Principal
+from .plan_api import Principal, authorized_plan
 from .plans import PlanStore, _canonical
 from .store import EventError
 
@@ -87,20 +87,6 @@ class CutoverService:
         self.check_access = check_access
         self.clock = clock or (lambda: datetime.now(UTC).isoformat())
 
-    def _plan(self, c, principal, plan_id):
-        validate_identifier(plan_id)
-        if not isinstance(principal, Principal):
-            raise EventError("forbidden")
-        validate_identifier(principal.subject_id)
-        validate_identifier(principal.tenant_id)
-        row = c.execute("SELECT * FROM plans WHERE plan_id=?", (plan_id,)).fetchone()
-        if row is None or row["tenant_id"] != principal.tenant_id:
-            raise EventError("forbidden")
-        plan = dict(row)
-        if self.check_access is not None:
-            self.check_access(c, principal, plan)
-        return plan
-
     def _current(self, c, principal, plan, now, approved_by=None, approval_id=None):
         if plan["state"] != "SHIFT":
             raise EventError("transition_not_allowed")
@@ -158,7 +144,7 @@ class CutoverService:
         key = _key("approval-key", command_key)
         with self.store._transaction(write=True, plan_id=plan_id) as c:
             now = self.clock()
-            plan = self._plan(c, principal, plan_id)
+            plan = authorized_plan(c, principal, plan_id, self.check_access)
             old = _get(c, plan_id, key)
             if old:
                 if _canonical(old[0]) != _canonical(request):
@@ -190,7 +176,7 @@ class CutoverService:
         key = _key("submit", command_key)
         with self.store._transaction(write=True, plan_id=plan_id) as c:
             now = self.clock()
-            plan = self._plan(c, principal, plan_id)
+            plan = authorized_plan(c, principal, plan_id, self.check_access)
             old = _get(c, plan_id, key)
             if old:
                 if _canonical(old[0]) != _canonical(request):
@@ -239,7 +225,7 @@ class CutoverService:
     def reconcile(self, principal, plan_id, command_id):
         validate_identifier(command_id)
         with self.store._transaction() as c:
-            self._plan(c, principal, plan_id)
+            authorized_plan(c, principal, plan_id, self.check_access)
             record = _get(c, plan_id, _key("command", command_id))
             if record is None:
                 raise EventError("command_not_found")
@@ -252,7 +238,7 @@ class CutoverService:
     def _project(self, principal, plan_id, command_id, read: ExecutionRead):
         now = self.clock()
         with self.store._transaction(write=True, plan_id=plan_id) as c:
-            plan = self._plan(c, principal, plan_id)
+            plan = authorized_plan(c, principal, plan_id, self.check_access)
             latest = self._latest(c, plan_id, command_id)
             previous = _snapshot(latest["snapshot"])
             snapshot = read.snapshot if read.outcome == "OBSERVED" else None

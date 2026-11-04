@@ -76,7 +76,9 @@ uv run bravo-loadgen run \
 - 전달에 실패한 창은 다시 보내지 않고 세기만 한다. 늦은 창은 판정에 쓰이지 않고, 없는 창은 UNKNOWN이다.
 - `received_at`은 `build_window`가 창 끝으로 채운다. 플랫폼이 `receive()`로 덮어쓴다.
 
-**지금 demo-chat에는 `X-Bravo-Env`가 없다.** 계약대로 모든 응답이 `unattributed.other`, 곧 오류로 세어진다. 리포트는 HTTP 오류율과 계약 오류율을 나란히 보이고 `ENV_HEADER_MISSING`을 띄운다. 헤더는 T22가 추가한다. 이 상태의 창을 판정에 넣으면 전부 FAIL이 된다.
+**demo-chat은 `c1c74ab`(T22)부터 모든 HTTP 응답에 `X-Bravo-Env`를 넣는다.** 로컬 재측정에서 직접 실행의 환경 미확인이 12,000건에서 0건이 됐고, 응답은 모두 등록된 환경으로 세어졌다([증거 11절](../../docs/evidence/t18-load-generator-2026-11-04/README.md)). 실제 Edge 경유 측정은 아니다. 이전 `b71d4aa`에는 헤더가 없어 모든 응답이 `unattributed.other`로 세어졌고, 그 창을 판정에 넣으면 전부 FAIL이었다.
+
+헤더가 없거나 등록되지 않은 값이면 지금도 계약대로 `unattributed.other`, 곧 오류로 세어진다. 리포트는 HTTP 오류율과 계약 오류율을 나란히 보이고 `ENV_HEADER_MISSING` · `ENV_HEADER_UNREGISTERED`를 띄운다. Edge 오류 페이지가 이 경우다. Edge가 같은 헤더를 덧붙여도 `aws, aws`로 읽혀 이 경우가 된다.
 
 리포트의 `sli_usable_for_judgement`는 Edge 경유이고, 환경을 모두 알 수 있고, 창이 온전할 때만 `true`다. 종료 코드는 쓰기 대조(NFR-2)만 본다. 읽기 5xx는 `HTTP_ERRORS` 경고와 창의 오류로 드러난다.
 
@@ -117,7 +119,7 @@ git clone https://github.com/Softbank-Hackathon-Finals/demo-chat.git <폴더>
 uv run python testing/e2e.py --demo-chat <폴더> --out <산출물 폴더>
 ```
 
-실제 `demo-chat`(수정 없음)과 실제 Postgres를 띄워 일부러 유실 · 중복 · 실패를 넣고 잡히는지 본다. 약 17분 걸린다. Docker가 필요하고, 로컬에 이미 받은 이미지만 쓴다(`public.ecr.aws/docker/library/postgres:16`, `nginx:alpine`). 없으면 받지 않고 멈춘다. 실제 Cloudflare가 아니다. `testing/mock-edge.conf`는 가중치 분배와 헤더만 흉내 낸 대역이다. 결과는 [증거 폴더](../../docs/evidence/t18-load-generator-2026-11-04/README.md).
+실제 `demo-chat`(수정 없음)과 실제 Postgres를 띄워 일부러 유실 · 중복 · 실패를 넣고 잡히는지 본다. 약 17분 걸린다. Docker가 필요하고, 로컬에 이미 받은 이미지만 쓴다(`public.ecr.aws/docker/library/postgres:16`, `nginx:alpine`). 없으면 받지 않고 멈춘다. 실제 Cloudflare가 아니다. `testing/mock-edge.conf`는 가중치 분배만 흉내 낸 대역이고, 헤더는 앱이 붙인다. 그래서 `c1c74ab` 이후의 demo-chat이 필요하다. 결과는 [증거 폴더](../../docs/evidence/t18-load-generator-2026-11-04/README.md).
 
 ## 쓰기 잠금 실험
 
@@ -126,4 +128,4 @@ uv run python testing/lock_lab.py <calibrate|wire|ceiling|invariants|matrix> --v
 uv run python testing/lock_lab_report.py <결과.jsonl>...   # 결과를 표로 바꾼다
 ```
 
-demo-chat 수정본 여러 벌을 같은 조건으로 잰다. 왕복 수를 중계기(`lock_lab_tap.py`)로 세고, 처리량 한계, 불변식(커밋 순서, 전파 건너뛰기, 멱등, 없는 첨부, PgBouncer transaction 모드), 왕복 지연 × 목적지 비중 행렬을 잰다. 모의 지연이고, 컨테이너는 `lock-lab-` 접두사로 띄운 뒤 지운다. 표의 판정은 창별 판정(`judge`)을 모은 것이고, 부하가 끝난 뒤 시작한 창은 결과에 그 근거(`judge_after_load`)가 있을 때만 뺀다. 결과와 재현 순서는 [증거 폴더](../../docs/evidence/t18-write-lock-lab-2026-11-04/README.md).
+demo-chat 수정본 여러 벌을 같은 조건으로 잰다. Edge 대역이 헤더를 붙이지 않으므로 수정본은 `c1c74ab` 이후의 demo-chat에서 만든다. 왕복 수를 중계기(`lock_lab_tap.py`)로 세고, 처리량 한계, 불변식(커밋 순서, 전파 건너뛰기, 멱등, 없는 첨부, PgBouncer transaction 모드), 왕복 지연 × 목적지 비중 행렬을 잰다. 모의 지연이고, 컨테이너는 `lock-lab-` 접두사로 띄운 뒤 지운다. 표의 판정은 창별 판정(`judge`)을 모은 것이고, 부하가 끝난 뒤 시작한 창은 결과에 그 근거(`judge_after_load`)가 있을 때만 뺀다. 결과와 재현 순서는 [증거 폴더](../../docs/evidence/t18-write-lock-lab-2026-11-04/README.md).

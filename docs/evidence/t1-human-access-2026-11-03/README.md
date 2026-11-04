@@ -22,7 +22,7 @@
 
 ## 검증과 남은 범위
 
-[tests.txt](tests.txt)는 기본 scripts 시험 38개와 별도 SDK 프로필 시험 4개의 로컬 결과다. 계정 불일치, 런타임 주체가 섞인 그룹, 중복 사람 매핑, 기존 사용자 충돌, Keychain/SDK 미준비, 기존 프로필 보존, 재실행 무변경, 키 생성·기존 암호 변경 금지 등을 검사했다. Swift 컴파일·Keychain 시험·메모리 전달 시험과 Ruff도 통과했다. macOS의 기존 Keychain API 사용에 대한 컴파일 deprecation 경고는 있으며, 실행 시험은 통과했다.
+기본 scripts 시험 38개와 SDK 프로필 시험 4개가 통과했다([검증 결과](validation.json)). 계정 불일치, 런타임 주체가 섞인 그룹, 중복 사람 매핑, 기존 사용자 충돌, Keychain/SDK 미준비, 기존 프로필 보존, 재실행 무변경, 키 생성·기존 암호 변경 금지 등을 검사했다. Swift 컴파일·Keychain 시험·메모리 전달 시험과 Ruff도 통과했다. macOS의 기존 Keychain API 사용에 대한 컴파일 deprecation 경고는 있으며, 실행 시험은 통과했다.
 
 [validation.json](validation.json)의 해시는 최종 검토/검증 소스에 대한 것이다. 첫 실패 시도 코드의 해시나 원격 배포 아티팩트로 해석하지 않는다. CI와 PR 리뷰는 GitHub에서 별도로 확인한다.
 

@@ -67,7 +67,7 @@ def test_matches_golden(normalizer, name):
     [
         ("aws-guardduty-via-security-hub", (2004, 4, 1, "THREAT")),
         ("aws-security-hub-control", (2003, 4, 1, "IAM")),
-        ("aws-guardduty-direct", (2004, 0, 1, "THREAT")),
+        ("aws-guardduty-direct", (2004, 3, 1, "THREAT")),
         ("gcp-scc-public-bucket", (2003, 4, 1, "EXPOSURE")),
         ("onprem-falco-shell", (2004, 2, 1, "THREAT")),
         ("onprem-kyverno-fail", (2003, 3, 1, "POLICY")),

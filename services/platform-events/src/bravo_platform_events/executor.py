@@ -6,6 +6,7 @@ durably claimed command. Neither retries commands or releases leases.
 
 import json
 import math
+import re
 import ssl
 import time
 from dataclasses import dataclass
@@ -156,6 +157,10 @@ def _extends(current: ExecutionSnapshot, previous: ExecutionSnapshot) -> bool:
     )
 
 
+class ExecutorReadError(RuntimeError):
+    """Bounded failure code, safe to expose without upstream response contents."""
+
+
 class ExecutorReader:
     """One bounded GET against a configured origin, with TLS and no redirects.
 
@@ -228,26 +233,61 @@ class ExecutorReader:
         return self._request("GET", path, expected, params=params, previous=previous,
                              list_response=expected.execution_id is None)
 
+    def verified_bindings(self, registered_pair: dict) -> dict[str, str]:
+        """Read the deployed pair once and bind this host to its independent enrollment."""
+        resource_fields = {"environment_id", "resource_id", "connection_ref"}
+        if not isinstance(registered_pair, dict) or set(registered_pair) != {"source", "target"}:
+            raise ValueError("invalid_registered_pair")
+        expected = {}
+        for side, env in (("source", "env-aws"), ("target", "env-onprem")):
+            resource = registered_pair[side]
+            if (not isinstance(resource, dict) or set(resource) != resource_fields
+                    or resource["environment_id"] != env):
+                raise ValueError("invalid_registered_pair")
+            for field in ("resource_id", "connection_ref"):
+                value = resource[field]
+                if (not isinstance(value, str) or not 1 <= len(value) <= 256
+                        or not re.fullmatch(r"[A-Za-z0-9_.:-]+(?:/[A-Za-z0-9_.:-]+)*", value)):
+                    raise ValueError("invalid_registered_pair")
+            expected[side] = dict(resource)
+        if any(expected["source"][field] == expected["target"][field]
+               for field in ("resource_id", "connection_ref")):
+            raise ValueError("invalid_registered_pair")
+        if "Authorization" not in self._client.headers:
+            raise ExecutorReadError("registry_auth_required")
+        try:
+            pair = self._request_json("GET", "/v1/resources")
+        except (ExecutorReadError, httpx.HTTPError, ValueError, RecursionError):
+            raise ExecutorReadError("registry_unavailable") from None
+        if pair != expected:
+            raise ExecutorReadError("registry_mismatch")
+        return {site["environment_id"]: site["connection_ref"] for site in pair.values()}
+
+    def _request_json(self, method, path, *, params=None, body=None, headers=None,
+                      accepted_statuses=(200,)):
+        started = time.monotonic()
+        with self._client.stream(method, path, params=params, json=body, headers=headers) as response:
+            if response.status_code not in accepted_statuses:
+                raise ExecutorReadError("http_status")
+            if response.headers.get("content-type", "").split(";", 1)[0].strip().lower() != "application/json":
+                raise ExecutorReadError("invalid_response")
+            if response.headers.get("content-encoding", "identity").lower() != "identity":
+                raise ExecutorReadError("invalid_response")
+            body = bytearray()
+            # Check each received chunk; batching to 8 KiB can hide a slow drip.
+            for chunk in response.iter_bytes():
+                if time.monotonic() - started > self._timeout:
+                    raise ExecutorReadError("read_timeout")
+                body.extend(chunk)
+                if len(body) > MAX_RESPONSE_BYTES:
+                    raise ExecutorReadError("response_too_large")
+        return json.loads(body, object_pairs_hook=_object)
+
     def _request(self, method, path, expected, *, params=None, body=None, headers=None,
                  previous=None, list_response=False, accepted_statuses=(200,)):
-        started = time.monotonic()
         try:
-            with self._client.stream(method, path, params=params, json=body, headers=headers) as response:
-                if response.status_code not in accepted_statuses:
-                    return _unknown("http_status")
-                if response.headers.get("content-type", "").split(";", 1)[0].strip().lower() != "application/json":
-                    return _unknown("invalid_response")
-                if response.headers.get("content-encoding", "identity").lower() != "identity":
-                    return _unknown("invalid_response")
-                body = bytearray()
-                # Check each received chunk; batching to 8 KiB can hide a slow drip.
-                for chunk in response.iter_bytes():
-                    if time.monotonic() - started > self._timeout:
-                        return _unknown("read_timeout")
-                    body.extend(chunk)
-                    if len(body) > MAX_RESPONSE_BYTES:
-                        return _unknown("response_too_large")
-            value = json.loads(body, object_pairs_hook=_object)
+            value = self._request_json(method, path, params=params, body=body, headers=headers,
+                                       accepted_statuses=accepted_statuses)
             if list_response:
                 if not isinstance(value, list):
                     return _unknown("invalid_response")
@@ -258,6 +298,8 @@ class ExecutorReader:
             if previous is not None and not _extends(snapshot, previous):
                 return _unknown("history_mismatch")
             return ExecutionRead("OBSERVED", snapshot=snapshot)
+        except ExecutorReadError as error:
+            return _unknown(str(error))
         except httpx.HTTPError:
             return _unknown("transport_failure")
         except (ValueError, TypeError, KeyError, RecursionError, OverflowError):

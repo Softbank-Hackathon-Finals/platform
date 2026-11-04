@@ -1,0 +1,151 @@
+{
+  "kind": "t18_run_report",
+  "schema_version": "1",
+  "run_id": "t18-mock-edge-10-78ab6b",
+  "plan_id": "plan-local",
+  "started_at": "2026-11-04T05:37:31.343008+00:00",
+  "target": "http://127.0.0.1:53383",
+  "measurement": {
+    "path": "local-mock-edge",
+    "edge_measured": false
+  },
+  "journal_sha256": "06d7c940ebb121632bf1fe7cf07465841a017fae787d4c3058ea64d1b06c3330",
+  "verdict": "PASS",
+  "reasons": [],
+  "warnings": [
+    "NOT_EDGE_MEASURED"
+  ],
+  "sli_usable_for_judgement": false,
+  "load": {
+    "duration_s": 60.0,
+    "target_write_rps": 50.0,
+    "target_read_rps": 150.0,
+    "achieved_write_rps": 50.0,
+    "achieved_read_rps": 150.0,
+    "attempt_timeout_s": 15,
+    "retry_budget_s": 60,
+    "scheduler_lag_ms": {
+      "p95": 1.238,
+      "max": 38.515
+    }
+  },
+  "requests": {
+    "write": {
+      "attempts": 3000,
+      "http_5xx": 0,
+      "http_4xx": 0,
+      "timeout": 0,
+      "connect": 0,
+      "p95_ms": 7.026
+    },
+    "read": {
+      "attempts": 9000,
+      "http_5xx": 0,
+      "http_4xx": 0,
+      "timeout": 0,
+      "connect": 0,
+      "p95_ms": 4.48
+    }
+  },
+  "http_error_rate": 0.0,
+  "contract_error_rate": 0.0,
+  "p95_ms": 5.898,
+  "env_header": {
+    "responses": 12000,
+    "responses_without_header": 0,
+    "registered_values": {
+      "aws": 10808,
+      "onprem": 1192
+    },
+    "unregistered_values": {}
+  },
+  "reconciliation": {
+    "verdict": "PASS",
+    "reasons": [],
+    "nfr2": {
+      "failed": 0,
+      "lost": 0,
+      "duplicated": 0
+    },
+    "counts": {
+      "confirmed": 3000,
+      "lost": 0,
+      "duplicated": 0,
+      "failed_not_stored": 0,
+      "failed_but_stored": 0,
+      "integrity_conflict": 0,
+      "content_mismatch": 0,
+      "logical_writes": 3000,
+      "attempts": 3000,
+      "retried": 0,
+      "idempotent_replays": 0,
+      "duplicate_extra_rows": 0,
+      "phantom_rows": 0
+    },
+    "max_attempts": 1,
+    "samples": {}
+  },
+  "write_gap": {
+    "max_ms": 100.796,
+    "from_s": 34.929724,
+    "to_s": 35.03052,
+    "position": "between",
+    "acks": 3000
+  },
+  "lock_probe": {
+    "key": 4310001,
+    "interval_s": 0.2,
+    "connection_errors": 0,
+    "baseline": {
+      "samples": 15,
+      "wait_ms": {
+        "p50": 0.003,
+        "p95": 0.009,
+        "p99": 0.009,
+        "max": 0.009
+      },
+      "round_trip_ms": {
+        "p95": 6.089,
+        "max": 6.089
+      },
+      "waiting_sessions_max": 0,
+      "timed_out": 0,
+      "stalled": 0
+    },
+    "load": {
+      "samples": 295,
+      "wait_ms": {
+        "p50": 0.001,
+        "p95": 0.324,
+        "p99": 1.15,
+        "max": 7.407
+      },
+      "round_trip_ms": {
+        "p95": 1.645,
+        "max": 8.634
+      },
+      "waiting_sessions_max": 0,
+      "timed_out": 0,
+      "stalled": 0
+    }
+  },
+  "windows": {
+    "emitted": 6,
+    "requests_in_windows": 12000,
+    "tail_requests_not_in_a_window": 0,
+    "late_requests": 0,
+    "conserved": true,
+    "delivery_failed": 0,
+    "invalid": 0,
+    "continuity_problems": [],
+    "pools_total": {
+      "source": 10808,
+      "target": 1192
+    },
+    "unattributed_total": {
+      "timeout": 0,
+      "connect": 0,
+      "other": 0
+    }
+  }
+}

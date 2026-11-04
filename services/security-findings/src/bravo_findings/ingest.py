@@ -48,6 +48,10 @@ class Ingestor:
 
 
 def collection_error_code(exc: BaseException) -> str:
+    from bravo_findings.guardduty import SourceNotEnabled
+
+    if isinstance(exc, SourceNotEnabled):
+        return "NOT_ENABLED"
     if isinstance(exc, CollectionError):
         return "SOURCE_UNHEALTHY"
     name = type(exc).__name__

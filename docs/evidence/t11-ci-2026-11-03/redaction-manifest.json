@@ -10,11 +10,21 @@
           "path": "docs/evidence/t11-ci-2026-11-03/README.md",
           "checkout_commit": "969bb20d3fe9d5888e936dba48cb3e06a124612d",
           "original_sha256": "d55e1eb5dc6bc85984b2c4e8ff5bb837fae1ab4351777e11abe35e9c90b51c4a",
-          "public_sha256": "6a7e015a9b29ff2899128084b43aad020e9923dfd29e7e6f7435fc314587bae7",
+          "public_sha256": "2ddf2803eec426734052f93d527a9b163e3f7d58d8070899904b31c1df42ceaf",
           "redactions": {
             "AWS_RESOURCE": 1
           },
-          "public_is_raw": false
+          "public_is_raw": false,
+          "post_redaction_edits": [
+            {
+              "prior_public_sha256": "6a7e015a9b29ff2899128084b43aad020e9923dfd29e7e6f7435fc314587bae7",
+              "reason": "PR #78 added the AWS receipt recheck and distinguished host setup failure from test and wheel outcomes."
+            },
+            {
+              "prior_public_sha256": "32a803c210d7aa38b85584db83b81fe7a5cd80e5db7c82104656da63bf1f1320",
+              "reason": "Point readers to the retained results instead of duplicate passing test output."
+            }
+          ]
         },
         {
           "path": "docs/evidence/t11-ci-2026-11-03/aws-runtime-results.json",

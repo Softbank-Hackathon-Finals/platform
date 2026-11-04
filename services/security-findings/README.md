@@ -55,7 +55,7 @@ uv run uvicorn bravo_findings.api:create_app --factory --host 127.0.0.1 --port 8
 
 - 모든 조회 API도 `read` 자격이 필요하다. 다른 환경 요청은 403이고, 환경을 생략해도 허용된 환경만 반환한다.
 - **미인증 요청은 401이고 탐지·수집 상태를 바꾸지 않는다.** 거부 감사는 남긴다. 수신이 끊기면 기준 시간(15분) 뒤 `STALE`로 드러난다.
-- 끌어오기(AWS Security Hub, Google Cloud SCC)는 `collectors.run_once`를 주기 작업으로 부른다. 최초에는 전체 보존 범위를 조회하고 증분은 5분 겹친다. 커서는 페이지·정규화·저장까지 성공했을 때만 전진한다. 격리 기록이 있으면 `INGESTION_GAP`이며 커서를 유지한다.
+- 끌어오기(AWS Security Hub, GuardDuty 직접, Google Cloud SCC)는 `collectors.run_once`를 주기 작업으로 부른다. 최초에는 전체 보존 범위를 조회하고 증분은 5분 겹친다. 커서는 페이지·정규화·저장까지 성공했을 때만 전진한다. 격리 기록이 있으면 `INGESTION_GAP`이며 커서를 유지한다.
 - 온프렘 에이전트(`agent.collect`)는 클러스터 안에서 Kyverno PolicyReport를 읽고 Falco DaemonSet 준비 상태를 확인해 플랫폼으로 **바깥 방향으로만** 보낸다.
 - 저장소는 플랫폼 DB(T10)가 정해지기 전까지 SQLite다(`store.py`). 테이블은 PostgreSQL로 옮길 수 있게 단순하게 둔다.
 
@@ -64,8 +64,28 @@ uv run uvicorn bravo_findings.api:create_app --factory --host 127.0.0.1 --port 8
 | 출처 | 코드 · 테스트 | 실제 확인 |
 |---|---|---|
 | AWS Security Hub | botocore Stubber로 ASFF 응답 형식까지 검증 | AWS 계정 · Security Hub 활성화 필요 (T1) |
+| GuardDuty 직접 | SDK 형식·다중 페이지·계정/리전/탐지기 결속·실패 시 커서 유지 | 11/4 팀 계정 서울 리전에서 `NOT_ENABLED` 확인. 양성 탐지 수집은 미검증 |
 | Google Cloud SCC | 가짜 HTTP 세션 | GCP 프로젝트 · SCC 필요. 필터 문법 확인 필요 |
 | Kyverno · Falco | 예시 PolicyReport(두 형태) · Falco 이벤트 | 온프렘 클러스터에 설치 필요 (T2 · T30 · T9) |
+
+### GuardDuty 직접 수집
+
+Security Hub를 사용하지 않기로 정한 환경에서 운영자가 명시적으로 선택하는 경로다. SDK 실패를 이유로 자동 전환하지 않는다. 같은 환경에 Security Hub 등록이 있으면 실행을 거부하며, 기존 기록의 삭제나 출처 전환은 수행하지 않는다.
+
+```bash
+uv run python -m bravo_findings.aws_pull \
+  --profile bravo-personal --account-id "$EXPECTED_AWS_ACCOUNT" \
+  --region ap-northeast-2 --environment-id env-aws --database "$PRIVATE_FINDINGS_DB"
+```
+
+- `--account-id`는 승인된 접속 설정의 기대 계정이다. STS에서 실제 계정을 대조한 뒤 수집한다. IAM 권한은 `guardduty:ListDetectors`, `GetDetector`, `ListFindings`, `GetFindings`만 필요하다(계정 확인은 STS). 탐지기·샘플·IAM 자원을 생성하지 않는다.
+- SDK의 기본 TLS 인증서 검증을 유지하고 사용자 지정 endpoint·프록시를 적용하지 않는다. 연결 5초·읽기 10초·최대 3회 시도이며, 페이지 200개·한 번 수집 10,000건 상한 초과 시 실패한다.
+- 실제 `ListDetectors`가 빈 결과이거나 `GetDetector`가 `DISABLED`인 경우에만 `NOT_ENABLED`다. 권한 거부·누락된 응답·부분 페이지는 별도 실패로 남는다. 실패 종료 코드 1, `FAILED`/`UNKNOWN`, 이전 커서를 보존한다.
+- `AdditionalInfo.Value`의 JSON에서 boolean `sample`만 보관한다. 자유 서술 필드는 버리며 잘못된 샘플 표시는 격리한다. `Archived=true`는 `Suppressed`이고 해결 증거가 아니다.
+- 신규 검증은 별도 DB를 사용한다. 기존 GuardDuty의 심각도 0 예시나 이전 형식으로 저장된 동일 시각 이벤트는 의미 충돌로 격리될 수 있다. 운영 데이터 자동 재작성·삭제·커서 초기화는 하지 않으며 기존 저장소 인계/재처리는 별도 승인·검증 대상이다.
+- 현재 제공 범위는 1회 실행과 기존 저장소·조회 모델 연결이다. 운영 스케줄러, 서비스 배포 및 실제 양성 탐지→인증된 조회 API의 전체 연결은 아직 완료하지 않았다.
+
+근거: [ListFindings](https://docs.aws.amazon.com/guardduty/latest/APIReference/API_ListFindings.html), [GetFindings](https://docs.aws.amazon.com/guardduty/latest/APIReference/API_GetFindings.html), [AdditionalInfo](https://docs.aws.amazon.com/guardduty/latest/APIReference/API_ServiceAdditionalInfo.html), [심각도](https://docs.aws.amazon.com/guardduty/latest/ug/guardduty_findings-severity.html).
 
 ## 호환성과 배포 주의
 

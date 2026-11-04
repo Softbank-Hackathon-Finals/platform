@@ -1,0 +1,67 @@
+{
+  "evidence_grade": "live local development target with remote private ECR access",
+  "public_is_raw": false,
+  "private_receipt_sha256": "32ddeb995e682f3abd3dd33ff8e911f7334146f79acbc3087fbee452dc971ea5",
+  "source_revision": "4d0b9a6383f3528e7312c63cb838d950826c4d73",
+  "receiver_sha256": "027748f353e56de0518745766b00d8d783d02e37e5b777079bc7ff611327f0b3",
+  "observed_at": "2026-11-04T04:32:52.443970+00:00",
+  "completed_before": "2026-11-04T04:37:26.995820+00:00",
+  "remote_exit_code": 0,
+  "status": "PASS",
+  "target_identity_bound": true,
+  "audit_mode": "None",
+  "metadata_audit_verified": false,
+  "audit_policy_sha256": "5321b16727c50078758bc9bd59208048b0e77b9f1d406b51cc5a33684dc876c0",
+  "pulls": [
+    {
+      "authenticated": true,
+      "runtime_digest": "sha256:001adc35a9fc767566552fb55c3c19a67b7c5efc7231fb02dc28cdeace99d0d4",
+      "pull_event": true,
+      "runtime_uid": 10001
+    },
+    {
+      "authenticated": false,
+      "unauthorized_observed": true
+    },
+    {
+      "authenticated": true,
+      "runtime_digest": "sha256:001adc35a9fc767566552fb55c3c19a67b7c5efc7231fb02dc28cdeace99d0d4",
+      "pull_event": true,
+      "runtime_uid": 10001
+    }
+  ],
+  "credential_refresh_readback_verified": true,
+  "credentials": [
+    {
+      "session_expires_at": "2026-11-04T05:32:42+00:00",
+      "registry_expires_at": "2026-11-04T16:32:43.313000+00:00",
+      "refresh_before": "2026-11-04T05:32:42+00:00"
+    },
+    {
+      "session_expires_at": "2026-11-04T05:32:44+00:00",
+      "registry_expires_at": "2026-11-04T16:32:45.449000+00:00",
+      "refresh_before": "2026-11-04T05:32:44+00:00"
+    }
+  ],
+  "cleanup_verified": true,
+  "created_resource_counts": {
+    "secrets": 1,
+    "networkpolicies": 1,
+    "pods": 3
+  },
+  "independent_cleanup": {
+    "observed_at": "2026-11-04T04:37:26.995820+00:00",
+    "owned_resources_remaining": 0,
+    "cleanup_verified": true
+  },
+  "existing_pod_uids_preserved": true,
+  "automatic_renewal_verified": false,
+  "expiry_and_renewal_observed": false,
+  "product_deployment_verified": false,
+  "standing_consumer_credential_installed": false,
+  "summary_omissions": [
+    "private account and registry URL",
+    "cluster, node, namespace and probe resource names and UIDs",
+    "random probe identifier"
+  ]
+}

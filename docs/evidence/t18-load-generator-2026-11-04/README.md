@@ -4,6 +4,8 @@
 
 측정 뒤 창 전송에 인증을 더했다. **수치는 다시 재지 않았다.** 바뀐 범위와 다시 돌린 검사는 10절에 있다.
 
+그 뒤 demo-chat `c1c74ab`가 `X-Bravo-Env`를 보내게 되어 같은 조건으로 다시 쟀다. **직접 실행의 환경 미확인이 12,000건에서 0건이 됐다**(11절). 이것도 로컬 측정이다. 2~10절의 값은 이전 demo-chat 기준으로 그대로 둔다.
+
 ## 1. 측정 환경
 
 모든 수치는 **로컬 실측**이다. 실제 Cloudflare, 클러스터, PgBouncer, 클라우드 사이 경로를 거치지 않았다.
@@ -11,9 +13,9 @@
 | 항목 | 값 |
 |---|---|
 | 측정 코드 | 측정할 때의 커밋은 `0e37393680e5eb95318f6cda93f5eebc04f5ebaf`, 미커밋 변경 없음. 뒤에 리베이스하면 커밋 해시가 바뀌므로 Git 트리 해시로 확인한다: `services/loadgen/src` `fe66a51295dfc8a6cc42045b36d61d9ca1c050f8`, `services/loadgen/testing` `b9a35b40aaee0cf22c93913dda801a3ed7cd1536`, `services/observability/src` `b808a5d7c7fc57bd1bf8cc0f90bbbfded5211fa2`. 뒤에 바뀐 코드는 10절 |
-| 대상 앱 | demo-chat `b71d4aa1a51e219c5b1d75f1d373b121d4c947ca`, **수정 없음**. 환경마다 uvicorn 프로세스 1개로 직접 실행 (컨테이너 이미지 아님) |
+| 대상 앱 | demo-chat `b71d4aa1a51e219c5b1d75f1d373b121d4c947ca`, **수정 없음**. 환경마다 uvicorn 프로세스 1개로 직접 실행 (컨테이너 이미지 아님). 11절은 `c1c74ab` |
 | DB | `public.ecr.aws/docker/library/postgres@sha256:5db6dac2ef5dcff512f4f00a009c3c332b9f2f28f24277175bf3e4a3d02ef83a` |
-| Edge 대역 | `nginx@sha256:df221db836e1754089190208cee7eeda94f233197056426eda74a43ab1abeac2`. 가중치 분배와 `X-Bravo-Env`만 흉내 낸다 |
+| Edge 대역 | `nginx@sha256:df221db836e1754089190208cee7eeda94f233197056426eda74a43ab1abeac2`. 가중치 분배와 `X-Bravo-Env`만 흉내 낸다. 11절의 대역은 가중치 분배만 하고 헤더는 앱이 붙인다 |
 | Secrets Manager · S3 | moto 5.1.4 (로컬 대역) |
 | 측정 머신 | Apple M5, 논리 코어 10개, 메모리 32 GiB, Python 3.14.7 |
 | 함께 돈 작업 | 같은 맥에서 다른 작업의 Docker 시험과 앱들이 함께 돌았다. 시작 때 부하 평균을 표에 적었다 |
@@ -43,8 +45,8 @@
 | 환경 헤더 없는 응답 | 12000 / 12000 | 0 / 12000 |
 | 판정 입력으로 쓸 수 있음 | False | False |
 
-- **`direct`의 계약 오류율 1.0은 계약대로다.** demo-chat에 `X-Bravo-Env`가 없어 모든 응답이 환경 미확인으로 세어졌다. HTTP 오류율은 별도 줄이다. 헤더는 T22가 추가한다.
-- `mock-edge-10`은 대역이 헤더를 붙인 경우다. 창 6개 모두 T36 기준 구현 `judge`가 PASS로 읽었다. T18 창이 판정 입력으로 동작한다는 뜻이지, Edge 경유 측정이라는 뜻은 아니다.
+- **`direct`의 계약 오류율 1.0은 계약대로다.** 이 측정의 demo-chat `b71d4aa`에는 `X-Bravo-Env`가 없어 모든 응답이 환경 미확인으로 세어졌다. HTTP 오류율은 별도 줄이다. T22가 헤더를 넣은 `c1c74ab`에서는 0.0이다(11절).
+- `mock-edge-10`은 대역이 헤더를 붙인 경우다. 앱이 헤더를 붙인 결과는 11절에 있다. 창 6개 모두 T36 기준 구현 `judge`가 PASS로 읽었다. T18 창이 판정 입력으로 동작한다는 뜻이지, Edge 경유 측정이라는 뜻은 아니다.
 
 같은 측정을 세 번 돌렸다. 고르지 않고 모두 적는다.
 
@@ -171,7 +173,7 @@
 
 ## 9. 재지 못한 것
 
-- 실제 Cloudflare Edge · Tunnel 경유 측정, 실제 `X-Bravo-Env` 헤더, 실제 클러스터와 PgBouncer 경유 쓰기
+- 실제 Cloudflare Edge · Tunnel 경유 측정, 실제 클러스터와 PgBouncer 경유 쓰기. 앱이 보내는 실제 `X-Bravo-Env` 헤더는 로컬에서만 쟀다(11절)
 - 클라우드 사이 실제 왕복 지연, 실제 컷오버 중 측정 (T17 · T12와 통합 때)
 - 플랫폼 창 수신 경로 연결: 주소가 아직 없다. `--window-url`은 로컬 시험 서버로만 확인했다. 받는 쪽의 토큰 검사도 아직 없어, 보낸 헤더 값만 확인했다
 - 부하 생성기 실행 위치인 별도 EC2에서의 CPU · 메모리: 아직 만들지 않았다
@@ -200,6 +202,64 @@
 - `sink-down`은 받는 쪽이 죽은 경우다. 토큰을 받아 주는 쪽은 `tests/test_cli.py`의 로컬 시험 서버로 확인했다. 창 요청에만 `Bearer <토큰>`이 붙고 부하 요청에는 붙지 않는다.
 - **토큰이 남지 않는지:** 받아 줌 · 401 · 리다이렉트 · 받는 쪽 죽음의 네 경우에 산출물 전체, 표준 출력 · 표준 오류, DEBUG 로그를 시험이 뒤진다. 일부러 토큰을 남기게 한 변이 4건(리포트와 실행 상태, 창 파일, 표준 오류, 로그)을 이 시험 하나로 잡았다. 종단 시험 산출물에서도 시험용 토큰 문자열은 0건이었다.
 
+## 11. demo-chat `c1c74ab` 재측정: 앱이 보내는 환경 헤더
+
+**직접 실행의 환경 미확인이 12,000건에서 0건이 됐다.** demo-chat이 `c1c74ab`(T22)부터 모든 HTTP 응답에 `X-Bravo-Env`를 넣어, 직접 실행의 응답 12,000건이 모두 출발지 `aws`로 세어졌다. Edge 대역 10%는 이제 앱이 붙인 헤더로 `aws` 10,808건, `onprem` 1,192건이 나뉘었고, `judge`가 창 6개를 모두 PASS로 읽었다. 조건은 2절과 같다(쓰기 50 · 읽기 150 req/s, 60초, 앱 직접 실행). **이것도 로컬 측정이고 실제 Edge 경유가 아니다.** 2~6절의 값은 그대로 두고 새 결과를 여기에 함께 적는다.
+
+| 항목 | `direct` 이전 | `direct` 지금 | `mock-edge-10` 이전 | `mock-edge-10` 지금 |
+|---|---:|---:|---:|---:|
+| demo-chat | `b71d4aa` | `c1c74ab` | `b71d4aa` | `c1c74ab` |
+| 헤더를 붙인 쪽 | 없음 | 앱 | Edge 대역 | 앱 |
+| 판정 | PASS | PASS | PASS | PASS |
+| **실패 / 유실 / 중복** | 0 / 0 / 0 | 0 / 0 / 0 | 0 / 0 / 0 | 0 / 0 / 0 |
+| 환경 헤더 없는 응답 | 12,000 / 12,000 | 0 / 12,000 | 0 / 12,000 | 0 / 12,000 |
+| 헤더 값 `aws` / `onprem` | 0 / 0 | 12,000 / 0 | 10,790 / 1,210 | 10,808 / 1,192 |
+| 등록되지 않은 헤더 값 | 0 | 0 | 0 | 0 |
+| 창의 출발지 / 목적지 요청 | 0 / 0 | 12,000 / 0 | 10,790 / 1,210 | 10,808 / 1,192 |
+| **창의 환경 미확인 (`unattributed.other`)** | 12,000 | 0 | 0 | 0 |
+| HTTP 오류율 | 0.0 | 0.0 | 0.0 | 0.0 |
+| 계약 오류율 (환경 미확인 포함) | 1.0 | 0.0 | 0.0 | 0.0 |
+| 창별 `judge` | 가중치 10%: FAIL 6 | 가중치 0%: PASS 6 · 가중치 10%: UNKNOWN 6 | 가중치 10%: PASS 6 | 가중치 10%: PASS 6 |
+| 경고 | `NOT_EDGE_MEASURED` · `ENV_HEADER_MISSING` | `NOT_EDGE_MEASURED` | `NOT_EDGE_MEASURED` | `NOT_EDGE_MEASURED` |
+| 쓰기 p95 (ms) | 8.729 | 6.637 | 6.771 | 7.026 |
+| 읽기 p95 (ms) | 5.103 | 4.125 | 4.251 | 4.48 |
+| 쓰기 응답 최대 간격 (ms) | 140.181 | 76.157 | 54.028 | 100.796 |
+| 잠금 대기, 부하 중 p95 (ms) | 0.472 | 0.002 | 0.07 | 0.324 |
+| 시작 때 부하 평균(1분) | 6.18 | 2.54 | 2.74 | 2.56 |
+
+- **환경 미확인 0은 실패 0과 다른 값이다.** 쓰기 대조 결과는 이전에도 0이었고 지금도 0이다. 바뀐 것은 창이 응답을 환경별로 셀 수 있게 된 점이다.
+- `direct`를 가중치 10%로 읽으면 이전에는 환경 미확인 때문에 오류율 FAIL이었고, 지금은 목적지 표본이 없어 UNKNOWN이다. 직접 실행은 출발지만 지나므로 맞는 가중치인 0%에서 PASS다.
+- `sli_usable_for_judgement`는 여전히 `false`다. 남은 경고는 실제 Edge 측정이 아니라는 `NOT_EDGE_MEASURED` 하나다.
+- **헤더가 없는 응답을 오류로 세는 동작은 그대로다.** 목적지가 죽어 Edge 대역이 직접 낸 502는 헤더가 없어 창에서 환경 미확인 382건으로 세어졌고 `judge`가 오류율 FAIL로 읽었다(`edge-error`).
+
+세 번 돌린 직접 실행과 Edge 대역 실행이다. 고르지 않고 모두 적는다.
+
+| 실행 | 환경 미확인 | 쓰기 p95 (ms) | 읽기 p95 (ms) | 쓰기 응답 최대 간격 (ms) | 잠금 p95 / 최대 (ms) | 재시도 | 실패 / 유실 / 중복 | 시작 때 부하 평균(1분) |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| `direct` | 0 | 6.637 | 4.125 | 76.157 | 0.002 / 1.11 | 0 | 0 / 0 / 0 | 2.54 |
+| `direct-2` | 0 | 7.178 | 4.456 | 74.926 | 0.388 / 8.48 | 0 | 0 / 0 / 0 | 3.2 |
+| `direct-3` | 0 | 8.865 | 5.362 | 214.017 | 0.822 / 11.414 | 0 | 0 / 0 / 0 | 3.45 |
+| `mock-edge-10` | 0 | 7.026 | 4.48 | 100.796 | 0.324 / 7.407 | 0 | 0 / 0 / 0 | 2.56 |
+
+**지연 값의 차이를 헤더 때문이라고 읽지 않는다.** 2절과 이번 실행 사이에 demo-chat(헤더 · 지표), Edge 대역, `services/observability`가 함께 바뀌었고 시작 때 부하 평균도 다르다. 같은 조건의 세 번 사이에서도 쓰기 p95가 6.637~8.865ms로 흔들렸다.
+
+**Edge가 같은 헤더를 덧붙이면 전부 환경 미확인이 된다.** 먼저 이전 대역 그대로 12초 돌렸더니 앱 헤더와 대역의 `add_header`가 겹쳐 값이 `aws, aws` 2,171건, `onprem, onprem` 229건으로 읽혔다. 등록되지 않은 값이라 계약 오류율이 1.0이 됐고 쓰기 대조는 그대로 PASS였다(`reports/mock-edge-10-before-fix.json`). 대역은 이제 나누기만 한다. 실제 Edge(T17)도 이 헤더를 더하면 같은 일이 생긴다. 이 동작은 실제 Cloudflare로 재지 않았다.
+
+| 항목 | 이번 측정 |
+|---|---|
+| 측정 코드 | `8158d1db4fc28a7541dfa8c51d81f166b007fe31`, 미커밋 변경 없음. 뒤에 커밋 해시가 바뀌면 트리 해시로 확인한다: `services/loadgen/src` `a6f5c2ff75ba7da10c480febe6a3e5ad5b567464`(10절과 같음), `services/loadgen/testing` `2b693285da6fd159a38f41066e7e2171424098bc`, `services/observability/src` `4b6167ed7360c19811094b4bb76bae86e02f37ca` |
+| 대상 앱 | demo-chat `c1c74ab2381221e04fcbd0dead70406512f00266`, **수정 없음**. `app/store.py`와 `db/schema.sql`은 `b71d4aa`와 같다 |
+| 바뀐 시험 코드 | `testing/mock-edge.conf`에서 헤더를 붙이는 줄을 뺐다. `testing/e2e.py`는 직접 실행의 기대값을 환경 미확인 0, 가중치 0% PASS로 바꿨다 |
+| 함께 돈 작업 | 15초마다 `docker ps`를 45번 읽었다. 이 측정의 컨테이너 말고는 이 과제와 무관한 컨테이너 1개가 재시작을 반복한 것만 보였고, 다른 Docker 시험은 보이지 않았다. 표본 사이에 잠깐 떴다 사라진 컨테이너는 못 봤을 수 있다 |
+| 종단 시험 | `lock-rtt`를 뺀 시나리오 11개에서 검사 86건, 실패 0건 (`env-header-recheck/results.json`) |
+| 돌리지 않은 것 | 왕복 지연 칸(`lock-rtt`). demo-chat #16이 아직 초안이라 뺐다. 5절의 값은 이전 demo-chat과 이전 대역의 값이다 |
+| `uv run pytest` | 172 통과, 8 건너뜀 (CI와 같은 조건) |
+| `TEST_DATABASE_URL`을 준 `uv run pytest` | 180 통과 |
+| `services/observability`의 `uv run pytest` | 144 통과 |
+| `uvx ruff==0.17.3 check .` | `services/loadgen` · `services/observability` 통과 |
+
+변이 시험은 다시 돌리지 않았다. `services/loadgen/src`가 10절과 같아서다.
+
 ## 파일
 
 | 파일 | 내용 |
@@ -210,6 +270,9 @@
 | `mutation.json` | 변이 시험 결과 |
 | `build-window-comparison.json` | `build_window` 대조 결과 |
 | `auth-recheck/results.json` | 창 전송 인증을 넣은 코드로 다시 돌린 `window-breaks` 시나리오 |
+| `env-header-recheck/results.json` | demo-chat `c1c74ab`로 다시 돌린 종단 시험. 왕복 지연 칸은 없다 |
+| `env-header-recheck/reports/<시나리오>.json` | 그 실행의 리포트. `mock-edge-10-before-fix.json`은 이전 대역과 앱 헤더가 겹친 12초 시험이다 |
+| `env-header-recheck/windows/<시나리오>.jsonl` | 직접 실행과 Edge 대역 10%의 창 요약 |
 | `earlier-run/` | 이전 실행의 리포트 두 개. 코드 이전 버전이라 위 표와 섞지 않는다 |
 
 재현 방법은 [`services/loadgen/README.md`](../../../services/loadgen/README.md).
