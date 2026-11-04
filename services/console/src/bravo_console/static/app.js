@@ -37,7 +37,7 @@ const names = {
   SAFE_HOLD: "안전 보류",
   NEEDS_HUMAN: "담당자 확인",
   DONE: "완료",
-  DONE_ROLLED_BACK: "복귀 완료",
+  DONE_ROLLED_BACK: "출발지 복귀",
 };
 const messages = {
   forbidden: "접근 권한 또는 로그인 상태를 확인해 주세요.",

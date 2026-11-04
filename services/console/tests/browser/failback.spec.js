@@ -3,7 +3,7 @@ import { timeline } from "../failback-fixtures.js";
 import { snap, plan } from "../fixtures.js";
 for (const [status, label, state] of [
   ["edge_pending", "트래픽 복귀 확인 대기", "복귀"],
-  ["rolled_back", "복구 시간 9000 ms", "복귀 완료"],
+  ["rolled_back", "복구 시간 9000 ms", "출발지 복귀"],
   ["aborted", "쓰기 전 복귀 중단", "관측"],
 ]) {
   test(`proposed T20 contract renders ${status} without any mutation`, async ({
