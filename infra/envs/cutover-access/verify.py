@@ -56,7 +56,7 @@ def secret_read_audit(call, can, namespace):
     It is not an authorization decision. An incomplete inventory or any reported
     read grant prevents a clean audit, even if the subsequent SSAR says no.
     """
-    summary = {"namespace": namespace, "rules_complete": False,
+    summary = {"namespace": namespace, "rules_complete": False, "rules_status": "unavailable",
                "read_rule_count": None, "named_targets_checked": 0,
                "allowed_read_queries": 0}
     verbs = ("get", "list", "watch")
@@ -72,6 +72,7 @@ def secret_read_audit(call, can, namespace):
                         "-f", body.name, target_namespace=namespace)
     if response.returncode:
         return False, summary
+    summary["rules_status"] = "invalid_response"
     try:
         document = json.loads(response.stdout)
         if document.get("kind") != "SelfSubjectRulesReview" or document.get("apiVersion") != "authorization.k8s.io/v1":
@@ -99,6 +100,7 @@ def secret_read_audit(call, can, namespace):
     except (ValueError, KeyError, TypeError, AttributeError):
         return False, summary
     summary["read_rule_count"] = read_rules
+    summary["rules_status"] = "complete" if summary["rules_complete"] else "incomplete"
     for name in sorted(names):
         summary["allowed_read_queries"] += sum(
             can(verb, "secrets/" + name, target_namespace=namespace) for verb in verbs)
