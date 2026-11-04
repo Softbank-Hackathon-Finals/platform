@@ -54,6 +54,10 @@ def test_real_sdk_subscription_stream_namespaces_tools_and_collects_proposal(con
         assert call["stream"] is True and call["store"] is False
         assert not {"max_output_tokens", "previous_response_id", "conversation", "metadata"} & call.keys()
         assert call["tools"][0]["type"] == "namespace" and call["tools"][0]["name"] == "bravo"
+    assert calls[0]["tool_choice"] == "required"
+    assert [t["name"] for t in calls[0]["tools"][0]["tools"]] == ["repo_read"]
+    assert calls[1]["tool_choice"] == "auto"
+    assert {t["name"] for t in calls[1]["tools"][0]["tools"]} == {"repo_read", "plan_propose"}
     shapes = [event for event in result["audit"] if event["reason"] == "FIRST_RESPONSE_SHAPE"]
     assert len(shapes) == 1 and shapes[0]["function_call_count"] == 1 and shapes[0]["bravo_namespace_matches"] is True
     assert calls[1]["input"][-1]["type"] == "function_call_output"
@@ -115,3 +119,23 @@ def test_first_subscription_response_shape_is_private_and_fails_closed(context, 
     assert result["state"] == "NEEDS_HUMAN" and result["proposal"] is None and len(requests) == 1
     assert stopped["reason"] == "MODEL_OR_POLICY_FAILURE"
     assert "private-" not in json.dumps(result)
+
+@pytest.mark.parametrize("bad_read", [False, True])
+def test_proposal_before_successful_read_is_rejected(context, monkeypatch, bad_read):
+    bundle, snapshot, proposal, _ = context
+    streams = [[completed("repo_read", {"path": "../outside"})]] if bad_read else []
+    streams.append([completed("plan_propose", proposal)])
+    calls = install_stream(monkeypatch, streams)
+    result = asyncio.run(Coordinator(bundle, snapshot).propose(OpenAIProvider("fixture-model", subscription=True)))
+    assert len(calls) == len(streams) and all(c["tool_choice"] == "required" for c in calls)
+    assert result["state"] == "NEEDS_HUMAN" and result["proposal"] is None
+
+
+def test_subscription_can_stop_after_a_read_without_proposing(context, monkeypatch):
+    bundle, snapshot, _, _ = context
+    no_call = completed("plan_propose", {})
+    no_call["response"]["output"] = []
+    calls = install_stream(monkeypatch, [[completed("repo_read", {"path": "src/config.py"})], [no_call]])
+    result = asyncio.run(Coordinator(bundle, snapshot).propose(OpenAIProvider("fixture-model", subscription=True)))
+    assert [c["tool_choice"] for c in calls] == ["required", "auto"]
+    assert result["state"] == "NEEDS_HUMAN" and result["proposal"] is None
