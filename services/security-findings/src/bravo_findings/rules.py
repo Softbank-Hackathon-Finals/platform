@@ -1,4 +1,5 @@
 import json
+import math
 import os
 from pathlib import Path
 from typing import Any
@@ -50,6 +51,16 @@ class Rules:
         spec = self.mappings["severity"][source]
         value = get_path(raw, spec["field"])
         if value is _MISSING or value is None:
+            return spec["default"]
+        if "ranges" in spec:
+            if type(value) not in (int, float) or not math.isfinite(value):
+                return spec["default"]
+            for band in spec["ranges"]:
+                if band["min"] <= value and (
+                    value < band["max_exclusive"]
+                    or (band.get("max_inclusive") is True and value == band["max_exclusive"])
+                ):
+                    return band["severity_id"]
             return spec["default"]
         table = spec["map"]
         if spec.get("case_insensitive"):

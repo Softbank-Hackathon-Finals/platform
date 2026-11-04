@@ -1,3 +1,4 @@
+import json
 import re
 from typing import Any
 
@@ -98,7 +99,7 @@ _PROJECTIONS = {
         "Region": None,
         "AccountId": None,
         "Severity": None,
-        "Service": {"Archived": None, "AdditionalInfo": {"Sample": None}},
+        "Service": {"Archived": None},
         "Resource": {"ResourceType": None},
     },
     "gcp_scc": {
@@ -113,6 +114,32 @@ _PROJECTIONS = {
         "severity": None,
     },
 }
+
+
+def guardduty_sample(raw: dict) -> bool | None:
+    """SDK AdditionalInfo.Value is JSON text; retain only a typed sample flag."""
+    service = raw.get("Service", {})
+    info = service.get("AdditionalInfo", {})
+    value = info.get("Value")
+    if value is None:
+        return None
+    if not isinstance(value, str) or len(value) > 8192:
+        raise ValueError("invalid_guardduty_additional_info")
+
+    def unique_pairs(pairs):
+        result = {}
+        for key, item in pairs:
+            if key in result:
+                raise ValueError("duplicate_additional_info_key")
+            result[key] = item
+        return result
+
+    parsed = json.loads(value, object_pairs_hook=unique_pairs)
+    if not isinstance(parsed, dict):
+        raise ValueError("invalid_guardduty_additional_info")
+    if "sample" in parsed and type(parsed["sample"]) is not bool:
+        raise ValueError("invalid_guardduty_sample")
+    return parsed.get("sample")
 
 
 def source_projection(source: str, raw: dict) -> dict:
@@ -131,4 +158,9 @@ def source_projection(source: str, raw: dict) -> dict:
             raise ValueError("invalid object")
         return {key: project(value[key], child) for key, child in spec.items() if key in value}
 
-    return mask(project(raw, _PROJECTIONS[source]))
+    projected = project(raw, _PROJECTIONS[source])
+    if source == "aws_guardduty" and (sample := guardduty_sample(raw)) is not None:
+        projected.setdefault("Service", {})["AdditionalInfo"] = {
+            "Value": json.dumps({"sample": sample}, separators=(",", ":"))
+        }
+    return mask(projected)
