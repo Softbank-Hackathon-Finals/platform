@@ -1,12 +1,14 @@
 """verify_audit_store_search.sh가 컨테이너 안에서 부르는 단계.
 
-실제 저장소에서 ObjectStoreAuditSearch를 돌린다. 정상이면 present, 관리자 덮어쓰기 · 삭제 표시는
+실제 저장소에서 ObjectStoreAuditSearch를 돌린다. 정상이면 present, 보존 기한이 지난 사본 · 관리자 덮어쓰기 · 삭제 표시는
 변조 흔적(예외)이어야 한다. 키는 환경 변수로만 받고 출력하지 않는다.
 """
 
 import json
 import os
+import secrets
 import sys
+import time
 from datetime import UTC, datetime, timedelta
 
 import botocore.session
@@ -50,7 +52,16 @@ def main(phase):
                             start, start + timedelta(seconds=1), start + timedelta(minutes=10), frozenset({"login"}))
     if phase != "normal":
         stored = admin.list_object_versions(Bucket=BUCKET, Prefix=PREFIX + "/")["Versions"][0]
-        if phase == "tamper-overwrite":
+        if phase == "expired-retention":
+            # Same export again under a new uuidv7 key, retained for only a few seconds, then let it lapse
+            ms = int(time.time() * 1000)
+            raw = f"{ms:012x}7{secrets.token_hex(2)[1:]}{(8 | secrets.randbelow(4)):x}{secrets.token_hex(8)[1:]}"
+            copy = stored["Key"].rsplit("/", 1)[0] + f"/logs_{raw[:8]}-{raw[8:12]}-{raw[12:16]}-{raw[16:20]}-{raw[20:32]}.json"
+            body = admin.get_object(Bucket=BUCKET, Key=stored["Key"])["Body"].read()
+            admin.put_object(Bucket=BUCKET, Key=copy, Body=body, ObjectLockMode="COMPLIANCE",
+                             ObjectLockRetainUntilDate=datetime.now(UTC) + timedelta(seconds=3))
+            time.sleep(6)
+        elif phase == "tamper-overwrite":
             admin.put_object(Bucket=BUCKET, Key=stored["Key"], Body=b"{}")
         else:
             admin.delete_object(Bucket=BUCKET, Key=stored["Key"])

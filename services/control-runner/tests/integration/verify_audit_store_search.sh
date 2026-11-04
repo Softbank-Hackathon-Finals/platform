@@ -2,8 +2,9 @@
 # T34 검색 어댑터(audit_store.py)를 실제 SeaweedFS 4.52 + Collector 0.164.0(awss3)이 쓴 객체로 시험한다.
 # 내부 네트워크 · 일회용 키 · 공개 포트 없음. 끝나면 컨테이너 · 이미지 · 키를 지운다.
 #  1. 정상: 등록 출처의 표식 접속 기록 1건 → present
-#  2. 관리자가 같은 키를 덮어씀 → 변조 흔적(UNKNOWN)
-#  3. 관리자가 삭제 표시를 남김 → 변조 흔적(UNKNOWN)
+#  2. 같은 기록을 짧은 COMPLIANCE 기한으로 쓴 사본, 기한이 지난 뒤 → UNKNOWN(보존 중인 버전만 증거)
+#  3. 관리자가 같은 키를 덮어씀 → 변조 흔적(UNKNOWN)
+#  4. 관리자가 삭제 표시를 남김 → 변조 흔적(UNKNOWN)
 set -euo pipefail
 HERE=$(cd "$(dirname "$0")" && pwd)
 REPO=$(cd "$HERE/../../../.." && pwd)
@@ -64,6 +65,7 @@ expect() { # 이름 단계 기대(파이썬 식)
   if python3 -c "import json,sys; r=json.loads(sys.argv[1]); sys.exit(0 if ($3) else 1)" "$got"; then echo "  ok   $1 $got"; else echo "  FAIL $1 $got"; fails=$((fails + 1)); fi
 }
 expect "정상: 표식 접속 기록 → present" normal 'r.get("observed") == "present" and r.get("events") == 1'
+expect "보존 기한이 지난 사본 → UNKNOWN" expired-retention '"retention missing or expired" in r.get("error", "")'
 expect "관리자 덮어쓰기 → 변조 흔적" tamper-overwrite '"several versions" in r.get("error", "")'
 expect "관리자 삭제 표시 → 변조 흔적" tamper-delete '"delete marker" in r.get("error", "")'
 echo "실패 ${fails}건"
