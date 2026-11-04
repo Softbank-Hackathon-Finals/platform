@@ -44,6 +44,25 @@ def identity(obj):
     return obj["metadata"]["uid"]
 
 
+def check_admitted_pod(requested, observed):
+    spec = observed["spec"]
+    expected = requested["spec"]
+    # Kubelet writes the termination message using these API defaults.
+    containers = [dict(container) for container in spec["containers"]]
+    for container in containers:
+        if (container.pop("terminationMessagePath", "/dev/termination-log") != "/dev/termination-log"
+                or container.pop("terminationMessagePolicy", "File") != "File"):
+            raise Failure("admitted_probe_spec_changed")
+    if (containers != expected["containers"]
+            or any(spec.get(k) != v for k, v in expected.items() if k not in ("containers", "imagePullSecrets"))
+            or spec.get("imagePullSecrets", []) != expected.get("imagePullSecrets", [])
+            or spec.get("serviceAccountName", "default") != "default"
+            or any(spec.get(k) for k in ("volumes", "initContainers", "ephemeralContainers",
+                                         "hostNetwork", "hostIPC", "hostPID", "shareProcessNamespace"))
+            or observed["metadata"].get("labels", {}).get(OWNER) != requested["metadata"]["labels"][OWNER]):
+        raise Failure("admitted_probe_spec_changed")
+
+
 def validate(config):
     if not isinstance(config, dict):
         raise Failure("input_invalid")
@@ -129,12 +148,17 @@ class Probe:
         if get(resource, name) is not None:
             raise Failure("resource_already_exists")
         record = {"resource": resource, "name": name, "uid": None}
-        self.owned.append(record)  # A lost create response must still be recoverable.
-        call(["create", "-f", "-", "-o", "json"], obj)
-        actual = get(resource, name)
-        if actual["metadata"].get("labels", {}).get(OWNER) != self.run:
+        self.owned.append(record)  # Keep uncertain creates visible for independent reconciliation.
+        created = json.loads(call(["create", "-f", "-", "-o", "json"], obj))
+        metadata = created["metadata"]
+        uid = metadata.get("uid")
+        if (not isinstance(uid, str) or not uid or metadata.get("name") != name
+                or metadata.get("namespace") != NAMESPACE or metadata.get("labels", {}).get(OWNER) != self.run):
             raise Failure("created_resource_identity_unknown")
-        record["uid"] = identity(actual)
+        record["uid"] = uid
+        actual = get(resource, name)
+        if actual is None or identity(actual) != uid or actual["metadata"].get("labels", {}).get(OWNER) != self.run:
+            raise Failure("created_resource_identity_unknown")
         return actual
 
     def secret(self, pair):
@@ -171,18 +195,13 @@ class Probe:
             obj["spec"]["imagePullSecrets"] = [{"name": self.prefix + "-auth"}]
         actual = self.create(obj, "pods")
         pod_uid = identity(actual)
-        actual_spec = actual["spec"]
-        if (len(actual_spec.get("containers", [])) != 1
-                or actual_spec["containers"][0].get("image") != obj["spec"]["containers"][0]["image"]
-                or actual_spec["containers"][0].get("imagePullPolicy") != "Always"
-                or actual_spec.get("imagePullSecrets", []) != obj["spec"].get("imagePullSecrets", [])
-                or actual_spec.get("automountServiceAccountToken") is not False):
-            raise Failure("admitted_probe_spec_changed")
+        check_admitted_pod(obj, actual)
         deadline = time.monotonic() + 120
         while time.monotonic() < deadline:
             actual = get("pods", obj["metadata"]["name"])
             if actual is None or identity(actual) != pod_uid:
                 raise Failure("probe_pod_identity_changed")
+            check_admitted_pod(obj, actual)
             states = actual.get("status", {}).get("containerStatuses", [])
             if not authenticated:
                 for state in states:
@@ -218,18 +237,21 @@ class Probe:
         results = []
         for record in reversed(self.owned):
             try:
+                if record["uid"] is None:
+                    results.append(False)
+                    continue
                 actual = get(record["resource"], record["name"])
                 if actual is None:
                     results.append(True)
                     continue
                 if (actual["metadata"].get("labels", {}).get(OWNER) != self.run
-                        or record["uid"] is not None and identity(actual) != record["uid"]):
+                        or identity(actual) != record["uid"]):
                     results.append(False)
                     continue
                 group = "/apis/networking.k8s.io/v1" if record["resource"] == "networkpolicies" else "/api/v1"
                 path = f"{group}/namespaces/{NAMESPACE}/{record['resource']}/{record['name']}"
                 call(["delete", "--raw", path, "-f", "-"], {
-                    "apiVersion": "v1", "kind": "DeleteOptions", "preconditions": {"uid": identity(actual)},
+                    "apiVersion": "v1", "kind": "DeleteOptions", "preconditions": {"uid": record["uid"]},
                     "gracePeriodSeconds": 0})
                 deadline = time.monotonic() + 20
                 while get(record["resource"], record["name"]) is not None and time.monotonic() < deadline:

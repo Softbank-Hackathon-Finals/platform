@@ -75,7 +75,14 @@ a read-only root filesystem and a command that prints only its UID. It makes
 no application or database requests.
 
 Both authenticated controls require the expected runtime digest, UID and a
-successful image-pull event bound to that Pod UID. Anonymous access counts as
+successful image-pull event bound to that Pod UID. Before using container
+status or logs, the receiver compares the observed Pod with the requested
+command, arguments, environment, security settings, pull credentials and
+owner label. Extra containers, volumes (including projected tokens), mounts
+and devices invalidate the observation. Scheduling defaults and standard
+termination-message defaults are accepted. This check assesses an admitted
+Pod; cluster admission policy controls what may start running.
+Anonymous access counts as
 denied only for an explicit authentication rejection. Timeout, DNS failure,
 missing controls, unexpected ambient credentials and generic image errors are
 UNKNOWN. The test does not delete the container image cache; the anonymous
@@ -83,16 +90,20 @@ control must still be denied when layers already exist locally.
 
 ## Cleanup and handoff
 
-Secret refresh uses UID and resource-version checks. Cleanup targets only the
-new resources with the recorded owner label and UID; deletion includes an API
-UID precondition. A resource with a different UID or owner is preserved and
-the result stays UNKNOWN. The receiver verifies every owned resource is absent
-and that pre-existing target application Pod UIDs are unchanged.
+Secret refresh uses UID and resource-version checks. The receiver records each
+UID from the successful create response before reading the object by name.
+It checks the current UID and owner label before sending a deletion with the
+recorded UID as an API precondition. A replacement is preserved, including a
+replacement carrying the same owner label. The receiver verifies removal and
+checks the pre-existing application Pod UIDs.
 
-If the transport is interrupted, list only the names derived from the saved
-probe ID, reconcile their owner labels and UIDs, and use the same preconditioned
-cleanup. Do not delete a namespace or use a broad selector cleanup. Keep the
-failed attempt and recovery receipt separately.
+If a create response is lost, the receipt records the uncertain resource name
+with a null UID. Automatic deletion stops for that resource and the result is
+UNKNOWN. For independent recovery, check the saved intent and obtain the
+original create UID from a trusted acknowledgement. Compare it with the current
+UID and label and use that UID as a deletion precondition. If no such evidence
+exists, leave the object in place for the namespace owner and record the
+unresolved cleanup. Keep recovery evidence separate from the failed attempt.
 
 The probe Secret is removed, so this is a bounded access and manual refresh
 test, not a standing deployment credential. Before T31 uses the path, its owner

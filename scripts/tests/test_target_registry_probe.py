@@ -32,6 +32,7 @@ class Kube:
         self.objects = {}
         self.calls = []
         self.lost_create_response = False
+        self.replace_before_readback = False
 
     def get(self, kind, name=None, namespace="target-dev"):
         return copy.deepcopy(self.objects.get((kind, name)))
@@ -43,6 +44,10 @@ class Kube:
             current["metadata"].update(uid=str(uuid.uuid4()), resourceVersion="1")
             key = ("secrets", current["metadata"]["name"])
             self.objects[key] = current
+            if self.replace_before_readback:
+                replacement = copy.deepcopy(current)
+                replacement["metadata"]["uid"] = str(uuid.uuid4())
+                self.objects[key] = replacement
             if self.lost_create_response:
                 raise module.Failure("kubernetes_transport_unknown")
             return json.dumps(current)
@@ -87,13 +92,28 @@ class ProbeTest(unittest.TestCase):
         deletion = next(obj for args, obj in self.kube.calls if args[0] == "delete")
         self.assertEqual(deletion["preconditions"], {"uid": initial["metadata"]["uid"]})
 
-    def test_lost_create_response_is_reconciled_by_ownership_and_deleted(self):
-        self.kube.lost_create_response = True
+    def test_replacement_between_create_and_first_get_is_never_adopted(self):
+        self.kube.replace_before_readback = True
         with patch.object(module, "get", self.kube.get), patch.object(module, "call", self.kube.call):
             with self.assertRaises(module.Failure):
                 self.create_secret()
-            self.assertTrue(self.probe.cleanup())
-        self.assertFalse(self.kube.objects)
+            self.assertFalse(self.probe.cleanup())
+        self.assertEqual(len(self.kube.objects), 1)
+        self.assertFalse(any(args[0] == "delete" for args, _ in self.kube.calls))
+
+    def test_lost_create_response_never_authorizes_delete_by_name_and_label(self):
+        for replaced in (False, True):
+            with self.subTest(replaced=replaced):
+                self.setUp()
+                self.kube.lost_create_response = True
+                self.kube.replace_before_readback = replaced
+                with patch.object(module, "get", self.kube.get), patch.object(module, "call", self.kube.call):
+                    with self.assertRaises(module.Failure):
+                        self.create_secret()
+                    self.assertFalse(self.probe.cleanup())
+                self.assertIsNone(self.probe.owned[0]["uid"])
+                self.assertEqual(len(self.kube.objects), 1)
+                self.assertFalse(any(args[0] == "delete" for args, _ in self.kube.calls))
 
     def test_replaced_or_relabeled_resource_is_never_deleted(self):
         for field in ("uid", "labels"):
@@ -165,6 +185,63 @@ class ProbeTest(unittest.TestCase):
                     else:
                         with self.assertRaisesRegex(module.Failure, "anonymous_failure_not_permission_proof"):
                             self.probe.pod("anonymous", False)
+
+    def run_admitted_pod(self, mutate, *, after_create=False):
+        observed = {}
+        pod_uid = str(uuid.uuid4())
+
+        def create(obj, resource):
+            observed.update(copy.deepcopy(obj))
+            observed["metadata"]["uid"] = pod_uid
+            observed["spec"].update(dnsPolicy="ClusterFirst", schedulerName="default-scheduler",
+                                    serviceAccountName="default")
+            observed["spec"]["containers"][0].update(
+                terminationMessagePolicy="File", terminationMessagePath="/dev/termination-log")
+            observed["status"] = {"phase": "Succeeded", "containerStatuses": [{
+                "imageID": self.input["digest"]}]}
+            if not after_create:
+                mutate(observed)
+            return copy.deepcopy(observed)
+
+        def read(*_):
+            if after_create:
+                mutate(observed)
+            return copy.deepcopy(observed)
+
+        def call(args):
+            if args[0] == "logs":
+                return '{"uid": 10001}'
+            self.assertIn("involvedObject.uid=" + pod_uid, args)
+            return '{"items": [{"reason":"Pulled","message":"Successfully pulled image"}]}'
+
+        with patch.object(self.probe, "create", side_effect=create), patch.object(module, "get", side_effect=read), \
+                patch.object(module, "call", side_effect=call):
+            return self.probe.pod("before", True)
+
+    def test_normal_kubernetes_defaults_preserve_probe_contract(self):
+        self.assertTrue(self.run_admitted_pod(lambda pod: None)["pull_event"])
+
+    def test_forged_uid_log_cannot_mask_admission_changes(self):
+        token = {"name": "api", "projected": {"sources": [{"serviceAccountToken": {"path": "token"}}]}}
+        mutations = {
+            "command": lambda p: p["spec"]["containers"][0].update(command=["echo", '{"uid":10001}']),
+            "args": lambda p: p["spec"]["containers"][0].update(args=["different"]),
+            "root": lambda p: p["spec"]["securityContext"].update(runAsUser=0, runAsNonRoot=False),
+            "container privilege": lambda p: p["spec"]["containers"][0]["securityContext"].update(privileged=True),
+            "env": lambda p: p["spec"]["containers"][0].update(env=[{"name": "PYTHONHOME", "value": "/tmp"}]),
+            "token": lambda p: p["spec"].update(volumes=[token]),
+            "mount": lambda p: p["spec"]["containers"][0].update(volumeMounts=[{"name": "api", "mountPath": "/api"}]),
+            "init": lambda p: p["spec"].update(initContainers=[{"name": "init"}]),
+            "ephemeral": lambda p: p["spec"].update(ephemeralContainers=[{"name": "debug"}]),
+            "owner": lambda p: p["metadata"]["labels"].clear(),
+        }
+        for name, mutate in mutations.items():
+            with self.subTest(name=name), self.assertRaises(module.Failure):
+                self.run_admitted_pod(mutate)
+
+    def test_late_ephemeral_container_cannot_pass_from_initial_admission_snapshot(self):
+        with self.assertRaises(module.Failure):
+            self.run_admitted_pod(lambda p: p["spec"].update(ephemeralContainers=[{"name": "late"}]), after_create=True)
 
     def test_provider_failure_does_not_emit_secret_or_raw_error(self):
         secret = "synthetic-credential-in-provider-error"
