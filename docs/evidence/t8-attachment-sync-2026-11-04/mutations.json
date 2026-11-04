@@ -1,6 +1,6 @@
 {
   "baseline_passed": true,
-  "mutation_count": 33,
+  "mutation_count": 46,
   "survivors": [],
   "mutations": [
     {
@@ -212,27 +212,173 @@
       "removed_check": "read_only_transaction",
       "module": "attachment_copy.py",
       "suite_exit_code": 1,
-      "failing_test_count": 1,
+      "failing_test_count": 2,
       "failing_tests": [
+        "test_accepted_settings_are_pinned_in_the_connect_call",
         "test_database_connection_refuses_writes"
       ]
     },
     {
-      "removed_check": "verified_tls_check",
+      "removed_check": "verified_tls_readback",
       "module": "attachment_copy.py",
       "suite_exit_code": 1,
       "failing_test_count": 1,
       "failing_tests": [
-        "test_remote_database_without_verify_full_is_refused"
+        "test_readback_closes_a_connection_that_differs_from_the_decision"
       ]
     },
     {
       "removed_check": "verified_tls_checks_hostaddr",
       "module": "attachment_copy.py",
       "suite_exit_code": 1,
+      "failing_test_count": 2,
+      "failing_tests": [
+        "test_address_from_the_environment_counts_for_the_loopback_exception",
+        "test_opt_in_does_not_cover_a_name_or_a_remote_address"
+      ]
+    },
+    {
+      "removed_check": "tls_decided_before_connect",
+      "module": "attachment_copy.py",
+      "suite_exit_code": 1,
+      "failing_test_count": 13,
+      "failing_tests": [
+        "test_accepted_settings_are_pinned_in_the_connect_call",
+        "test_dsn_sslmode_outranks_a_safe_environment",
+        "test_environment_without_sslmode_uses_the_weak_default",
+        "test_host_list_cannot_carry_a_unix_socket",
+        "test_loopback_address_is_not_an_implicit_exception",
+        "test_opt_in_does_not_cover_a_remote_name",
+        "test_refused_settings_never_reach_connect",
+        "test_remote_name_on_a_local_address_from_the_dsn",
+        "test_remote_settings_from_the_environment_with_an_empty_dsn",
+        "test_service_cannot_hide_behind_a_loopback_environment",
+        "test_service_named_by_the_dsn",
+        "test_service_named_by_the_environment",
+        "test_unix_socket_is_refused_because_libpq_skips_tls_there"
+      ]
+    },
+    {
+      "removed_check": "verify_full_pinned_in_connect",
+      "module": "attachment_copy.py",
+      "suite_exit_code": 1,
+      "failing_test_count": 3,
+      "failing_tests": [
+        "test_accepted_settings_are_pinned_in_the_connect_call",
+        "test_dsn_outranks_the_environment_like_libpq",
+        "test_verify_full_is_pinned_from_the_dsn_or_the_environment"
+      ]
+    },
+    {
+      "removed_check": "gssapi_turned_off",
+      "module": "attachment_copy.py",
+      "suite_exit_code": 1,
+      "failing_test_count": 3,
+      "failing_tests": [
+        "test_accepted_settings_are_pinned_in_the_connect_call",
+        "test_dsn_outranks_the_environment_like_libpq",
+        "test_verify_full_is_pinned_from_the_dsn_or_the_environment"
+      ]
+    },
+    {
+      "removed_check": "loopback_needs_opt_in",
+      "module": "attachment_copy.py",
+      "suite_exit_code": 1,
+      "failing_test_count": 4,
+      "failing_tests": [
+        "test_loopback_address_is_not_an_implicit_exception",
+        "test_loopback_database_without_the_test_opt_in_is_refused",
+        "test_loopback_exception_needs_the_opt_in",
+        "test_loopback_without_the_opt_in_requires_verify_full"
+      ]
+    },
+    {
+      "removed_check": "opt_in_limited_to_loopback",
+      "module": "attachment_copy.py",
+      "suite_exit_code": 1,
+      "failing_test_count": 4,
+      "failing_tests": [
+        "test_address_from_the_environment_counts_for_the_loopback_exception",
+        "test_opt_in_does_not_cover_a_name_or_a_remote_address",
+        "test_opt_in_does_not_cover_a_remote_name",
+        "test_remote_database_without_verify_full_is_refused"
+      ]
+    },
+    {
+      "removed_check": "loopback_literals_only",
+      "module": "attachment_copy.py",
+      "suite_exit_code": 1,
       "failing_test_count": 1,
       "failing_tests": [
-        "test_loopback_name_on_a_remote_address_requires_verify_full"
+        "test_opt_in_does_not_cover_a_name_or_a_remote_address"
+      ]
+    },
+    {
+      "removed_check": "opt_in_value_exact",
+      "module": "attachment_copy.py",
+      "suite_exit_code": 1,
+      "failing_test_count": 1,
+      "failing_tests": [
+        "test_only_the_exact_opt_in_value_reaches_the_connection"
+      ]
+    },
+    {
+      "removed_check": "service_in_dsn_refused",
+      "module": "attachment_copy.py",
+      "suite_exit_code": 1,
+      "failing_test_count": 1,
+      "failing_tests": [
+        "test_service_file_is_refused_from_either_source"
+      ]
+    },
+    {
+      "removed_check": "service_in_environment_refused",
+      "module": "attachment_copy.py",
+      "suite_exit_code": 1,
+      "failing_test_count": 2,
+      "failing_tests": [
+        "test_service_cannot_hide_behind_a_loopback_environment",
+        "test_service_file_is_refused_from_either_source"
+      ]
+    },
+    {
+      "removed_check": "missing_host_refused",
+      "module": "attachment_copy.py",
+      "suite_exit_code": 1,
+      "failing_test_count": 2,
+      "failing_tests": [
+        "test_anything_but_one_network_host_is_refused",
+        "test_dsn_outranks_the_environment_like_libpq"
+      ]
+    },
+    {
+      "removed_check": "host_list_refused",
+      "module": "attachment_copy.py",
+      "suite_exit_code": 1,
+      "failing_test_count": 1,
+      "failing_tests": [
+        "test_anything_but_one_network_host_is_refused"
+      ]
+    },
+    {
+      "removed_check": "unix_socket_refused",
+      "module": "attachment_copy.py",
+      "suite_exit_code": 1,
+      "failing_test_count": 2,
+      "failing_tests": [
+        "test_anything_but_one_network_host_is_refused",
+        "test_unix_socket_is_refused_because_libpq_skips_tls_there"
+      ]
+    },
+    {
+      "removed_check": "dsn_outranks_environment",
+      "module": "attachment_copy.py",
+      "suite_exit_code": 1,
+      "failing_test_count": 3,
+      "failing_tests": [
+        "test_address_from_the_environment_counts_for_the_loopback_exception",
+        "test_dsn_outranks_the_environment_like_libpq",
+        "test_dsn_sslmode_outranks_a_safe_environment"
       ]
     },
     {
@@ -330,13 +476,14 @@
       "removed_check": "nonzero_exit_on_failure",
       "module": "attachment_copy.py",
       "suite_exit_code": 1,
-      "failing_test_count": 16,
+      "failing_test_count": 17,
       "failing_tests": [
         "test_certificate_for_another_name_is_refused",
         "test_database_reference_missing_from_source",
         "test_empty_database_inventory",
         "test_existing_different_destination_bytes_are_preserved",
         "test_failure_prints_safe_json_and_exits_nonzero",
+        "test_loopback_database_without_the_test_opt_in_is_refused",
         "test_missing_table_is_reported_without_values",
         "test_remote_database_without_verify_full_is_refused",
         "test_single_object_over_the_limit_writes_nothing",
