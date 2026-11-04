@@ -35,7 +35,11 @@
     "state": {
       "enum": [
         "COLLECT",
-        "ANALYZE"
+        "ANALYZE",
+        "WATCH",
+        "FAILBACK",
+        "SAFE_HOLD",
+        "DONE_ROLLED_BACK"
       ]
     },
     "version": {

@@ -5,7 +5,7 @@
 ## 순서
 
 1. 계획이 `WATCH`이고 `FailbackAuthority`가 같은 계획 잠금 안에서 현재 조건을 검증해야 승인할 수 있다. 되돌릴 컷오버는 저장 기록에서 찾는다. 확정 DONE으로 관측된 컷오버 명령 하나와 그 실행에 결속된 일치 Integrity 체크포인트 하나가 있어야 하고, 없으면 `cutover_record_unavailable`이다.
-2. `POST /v1/plans/{id}/approvals`는 `approval_kind=failback`, 전용 `binding`, `expected_version`, `Idempotency-Key`를 받는다. binding의 계획 · 반대 방향 · 컷오버 실행 · epoch · 영수증이 현재 값과 다르면 `binding_mismatch`다.
+2. `POST /v1/plans/{id}/approvals`는 `approval_kind=failback`, 전용 `binding`, `expected_version`, `Idempotency-Key`를 받는다. binding의 계획 · 반대 방향 · 컷오버 실행 · epoch · 영수증이 현재 값과 다르면 `binding_mismatch`다. 승인 시 `approval.requested`와 `approval.decided`를 같은 승인 ID · binding으로 한 트랜잭션에 기록해 이력과 SSE 재생에서 요청과 결정을 잇는다.
 3. `POST /v1/plans/{id}/failback`은 승인 ID와 새 `Idempotency-Key`만 받는다. 명령은 등록 DB 쌍의 정확한 반대 방향(출발지 = 계획의 목적지)이어야 한다. epoch는 이 계획이 쓴 모든 epoch(컷오버와 이전 되돌리기 포함)보다 커야 한다(`epoch_not_increasing`).
 4. 명령 · 승인 소비 · epoch 사용 · `WATCH → FAILBACK` 이벤트를 한 DB 트랜잭션에 저장한 뒤에만 Executor에 POST를 한 번 보낸다. 재시도 · 응답 유실 · 재시작은 GET만 한다. 전송 전에 종료되면 POST는 0번이고, 이후 GET이 UNKNOWN이면 SAFE_HOLD다.
 5. 관측 반영은 컷오버와 같다. 확정 DONE을 저장하기 전의 UNKNOWN · 원격 SAFE_HOLD는 SAFE_HOLD로 저장한다. 확정 DONE을 저장한 뒤의 GET 실패는 상태를 바꾸지 않는다.
@@ -19,7 +19,7 @@
 | `POST /v1/plans/{id}/failback/{command_id}/reconcile` | GET 관측과 진행 | Executor GET, Edge 호출 가능 |
 | `POST /v1/plans/{id}/failback/{command_id}/edge` | DB 쪽이 끝난 뒤 증거 · Edge만 재시도 | Executor 요청 없음 |
 
-상태를 바꾸는 것은 현재 버전의 진행 명령(`failback-active`)뿐이다. ABORT로 끝난 이전 실행의 늦은 조회 · Edge 재시도는 관측만 기록하고 지금 실행의 계획 상태를 바꾸지 않는다(`not_failback`). `reconcile` · `edge` 경로와 진행(`advance`)은 읽기가 아니라 실행이므로 호스트의 실행 검사(`check_execute`, 운영자 연결에서는 `execute_failback`)를 통과해야 한다. 재시작 복구도 이 권한을 가진 호스트 주체로 실행한다.
+상태를 바꾸는 것은 현재 버전의 진행 명령(`failback-active`)뿐이다. ABORT로 끝난 이전 실행의 늦은 조회 · Edge 재시도는 관측만 기록하고 지금 실행의 계획 상태를 바꾸지 않는다(`not_failback`). `reconcile` · `edge` 경로와 진행(`advance`)은 읽기가 아니라 실행이므로 Executor 조회 전과 상태를 쓰는 트랜잭션 안에서 다시 호스트의 실행 검사(`check_execute`, 운영자 연결에서는 `execute_failback`)를 통과해야 한다. 재시작 복구도 이 권한을 가진 호스트 주체로 실행한다.
 
 응답의 `failback`은 `running` · `aborted` · `evidence_pending` · `held` · `edge_pending` · `rolled_back` · `not_failback` 중 하나다. 원격 detail · 접속 참조 · 내부 revision은 반환하지 않는다. 호스트가 되돌리기 서비스를 연결하지 않으면 승인은 422, 경로는 503(`failback_unavailable`)이다.
 
@@ -29,6 +29,8 @@
 - `IntegrityReader(connection, plan, command_id, epoch, execution_id) → FailbackIntegrity`: 이번 되돌리기 실행의 T13 비교 결과를 정본에서 읽는다. 기본 구현은 증거 없음이다.
 - `EdgePort.restore_origin(plan_id, command_id, execution_id, epoch) → bool`: 같은 인자의 재호출은 멱등해야 한다. `True`는 복귀가 확인됐다는 뜻이다. T17 전까지는 시험용 가짜 구현만 있다.
 - 운영자 권한은 `approve_failback` · `execute_failback`이고, 컷오버 권한과 분리된다. 승인 취소는 `revoke_approval(..., approval_kind="failback")`이다. 접수 뒤 취소는 원격 작업을 취소했다고 표시하지 않는다.
+
+계획 조회(`GET /v1/plans/{id}`)의 공개 스키마 `plan-snapshot.schema.json`은 되돌리기 흐름의 상태 `WATCH` · `FAILBACK` · `SAFE_HOLD` · `DONE_ROLLED_BACK`을 허용한다. 그 밖의 상태(SHIFT · CUTOVER · DONE 등)는 기존 범위 그대로다.
 
 재시작 복구(`WorkflowRecovery`)는 FAILBACK이면 확정 DONE 전에는 GET만, 뒤에는 증거 · Edge만 진행한다. WATCH 재개는 컷오버 명령과 Integrity 체크포인트를 버전 계산이 아니라 저장 기록으로 찾는다. 되돌리기가 ABORT로 끝나 버전이 올라가도 `WATCH → DONE`이 막히지 않는다.
 

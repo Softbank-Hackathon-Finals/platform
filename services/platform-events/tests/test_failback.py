@@ -7,11 +7,13 @@ and its matched integrity checkpoint. No production authority, gate or Edge is m
 import json
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict, replace
+from importlib.resources import files
 from threading import Barrier
 
 import httpx
 import pytest
 from fastapi.testclient import TestClient
+from jsonschema import Draft202012Validator, FormatChecker
 from test_executor import response_value
 
 from bravo_platform_events.cutover import CutoverService, _key, _put
@@ -74,6 +76,7 @@ class Fixture:
         self.edge_calls = []
         self.edge_result = True
         self.during_edge = None
+        self.during_get = None
         backend.store.register_plan(SPEC, run_id="fixture", occurred_at=NOW)
         seed_completed_cutover(backend)
         self.client = ExecutorClient("https://executor.example.invalid", token="fixture-token",
@@ -92,6 +95,8 @@ class Fixture:
             if self.fail_post:
                 raise httpx.ReadTimeout("PRIVATE_RESPONSE_LOSS")
             return httpx.Response(202, json=self.value)
+        if self.during_get:
+            self.during_get()
         if self.fail_get:
             raise httpx.ReadTimeout("PRIVATE_GET_LOSS")
         if request.url.path.endswith(CUTOVER_EXECUTION):  # the completed cutover, as seeded
@@ -551,3 +556,45 @@ def test_an_older_command_never_changes_a_newer_failback(fixture):
     assert (snapshot["state"], snapshot["version"]) == ("FAILBACK", version)
     f.fail_get = False
     assert f.service().reconcile(PRINCIPAL, SPEC.plan_id, second["command_id"])["failback"] == "running"
+
+
+# #222 review --------------------------------------------------------------------------------
+
+def test_request_and_decision_share_one_approval_id_in_the_durable_history(fixture):
+    f = fixture
+    approval = f.approve()
+    assert f.approve() == approval  # a retry adds no second request or decision
+    requested, decided = f.events("approval.requested"), f.events("approval.decided")
+    assert len(requested) == len(decided) == 1
+    assert requested[0]["data"]["approval_id"] == decided[0]["data"]["approval_id"] == approval["approval_id"]
+    assert requested[0]["data"]["binding"] == decided[0]["data"]["binding"] == BINDING
+    assert requested[0]["sequence"] < decided[0]["sequence"]
+    with TestClient(app(f, failback=True, resolve_principal=lambda _: PRINCIPAL)) as client:
+        replay = client.get(f"/v1/plans/{SPEC.plan_id}/events?follow=false").text
+    ids = [json.loads(line.removeprefix("data: "))["data"].get("approval_id")
+           for line in replay.splitlines() if line.startswith("data: ") and "approval." in line]
+    assert ids == [approval["approval_id"]] * 2
+
+
+SNAPSHOT = Draft202012Validator(json.loads(files("bravo_platform_events").joinpath(
+    "schemas/plan-snapshot.schema.json").read_text()), format_checker=FormatChecker())
+
+
+@pytest.mark.parametrize("scenario,state", [
+    ("edge_pending", "FAILBACK"), ("rolled_back", "DONE_ROLLED_BACK"), ("aborted", "WATCH"), ("held", "SAFE_HOLD"),
+])
+def test_plan_get_during_failback_matches_the_published_snapshot_schema(fixture, scenario, state):
+    f = fixture
+    if scenario == "aborted":
+        f.value.update(status="ABORT_PRE_WRITE", committed=False)
+    else:
+        f.value.update(status="DONE", committed=True)
+    f.edge_result = scenario == "rolled_back"
+    f.integrity = "unmatched" if scenario == "held" else "match"
+    f.submit(f.approve())
+    with TestClient(app(f, failback=True, resolve_principal=lambda _: PRINCIPAL)) as client:
+        snapshot = client.get(f"/v1/plans/{SPEC.plan_id}")
+    assert snapshot.status_code == 200 and snapshot.json()["state"] == state
+    SNAPSHOT.validate(snapshot.json())
+    events = f.backend.store.read_after(SPEC.plan_id, None)
+    assert snapshot.json()["last_event_id"] == events[-1]["event_id"]  # same read point as the replay cursor

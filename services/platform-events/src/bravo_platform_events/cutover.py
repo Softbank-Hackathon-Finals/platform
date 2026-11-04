@@ -246,17 +246,20 @@ def latest_observation(c, plan_id, command_id, key_for=_key):
 
 
 def project_observation(store, principal, plan_id, command_id, read: ExecutionRead, *, check_access, now,
-                        key_for, running_state, hold_after_done=True, owns=None):
+                        key_for, running_state, hold_after_done=True, owns=None, authorize=None):
     """Append one Executor observation and its new steps; hold the running plan on UNKNOWN/SAFE_HOLD.
 
     key_for keeps each command kind's journal separate (cutover-, failback-). running_state is the
     plan state that an uncertain observation moves to SAFE_HOLD. With hold_after_done=False a stored
     committed DONE is final (Executor DONE never changes), so a later failed GET no longer holds.
     owns(c, plan) says whether this command drives the plan now; an older command's observation is
-    still journaled but never changes the plan state.
+    still journaled but never changes the plan state. authorize(c, principal, plan) re-checks a
+    permission in this write transaction: a grant revoked during the remote GET stores nothing.
     """
     with store._transaction(write=True, plan_id=plan_id) as c:
         plan = authorized_plan(c, principal, plan_id, check_access)
+        if authorize is not None:
+            authorize(c, principal, plan)
         latest = latest_observation(c, plan_id, command_id, key_for)
         previous = _snapshot(latest["snapshot"])
         snapshot = read.snapshot if read.outcome == "OBSERVED" else None

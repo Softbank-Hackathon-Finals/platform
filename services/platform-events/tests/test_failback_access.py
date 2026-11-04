@@ -108,3 +108,23 @@ def test_reading_is_not_enough_to_move_a_failback_on(secured):
         service.reconcile(f.submitter, SPEC.plan_id, receipt["command_id"])
     assert len(f.edge_calls) == 1 and f.state() == "FAILBACK"
     assert service.advance(f.operator, SPEC.plan_id, receipt["command_id"]) == "rolled_back"
+
+
+def test_execute_revoked_during_the_remote_get_stores_nothing(secured):
+    """#222 review: a hold is a state write and needs the execute permission at write time."""
+    f = secured
+    f.grant()
+    receipt = f.submit(f.approve())
+    assert receipt["failback"] == "running" and f.state() == "FAILBACK"
+    before = f.backend.reopen().snapshot(SPEC.plan_id)
+
+    def revoke():
+        f.during_get = None
+        f.grant(revision=1, permissions=("read",))
+
+    f.during_get, f.fail_get = revoke, True
+    with pytest.raises(EventError, match="forbidden"):
+        f.service().reconcile(f.operator, SPEC.plan_id, receipt["command_id"])
+    after = f.backend.reopen().snapshot(SPEC.plan_id)
+    assert (after["state"], after["version"], after["last_event_id"]) == \
+        (before["state"], before["version"], before["last_event_id"])

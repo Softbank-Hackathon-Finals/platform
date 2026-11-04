@@ -253,6 +253,11 @@ class FailbackService:
                            plan_version=plan["version"], context=asdict(current))
             _put(c, plan_id, failback_key("approval", approval_id), request, receipt)
             _put(c, plan_id, key, request, receipt)
+            # The request and the decision share one approval ID and binding, in one transaction, so the
+            # durable history (and SSE replay) links who decided which request.
+            self.store._append_in_transaction(c, plan_id=plan_id, run_id=approval_id,
+                event_type="approval.requested", occurred_at=now, producer_key=failback_key("requested", approval_id),
+                data=dict(approval_id=approval_id, approval_kind="failback", binding=current.binding))
             self.store._append_in_transaction(c, plan_id=plan_id, run_id=approval_id,
                 event_type="approval.decided", occurred_at=now, producer_key=failback_key("approved", approval_id),
                 data=dict(approval_id=approval_id, approval_kind="failback", binding=current.binding,
@@ -332,7 +337,8 @@ class FailbackService:
         return project_observation(self.store, principal, plan_id, command_id, read,
                                    check_access=self.check_access, now=self.clock(),
                                    key_for=failback_key, running_state="FAILBACK", hold_after_done=False,
-                                   owns=lambda c, plan: self._owns(c, plan, command_id))
+                                   owns=lambda c, plan: self._owns(c, plan, command_id),
+                                   authorize=self.check_execute)
 
     # After the observation ------------------------------------------------------------
 
