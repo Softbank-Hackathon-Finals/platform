@@ -8,7 +8,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 access = importlib.import_module("verify_github_access")
@@ -148,6 +148,18 @@ class GithubAccessTest(unittest.TestCase):
 
     def test_redirects_do_not_forward_credentials(self):
         self.assertIsNone(access.NoRedirect().redirect_request(None, None, 302, "", {}, "https://other.invalid"))
+
+    def test_body_read_failure_is_unknown_without_provider_error_text(self):
+        secret = "never-print-this-provider-fixture"
+        for error in (TimeoutError(secret), access.HTTPException(secret)):
+            with self.subTest(error=type(error).__name__):
+                client = access.Client(REPOSITORY, secret)
+                response = MagicMock()
+                response.read.side_effect = error
+                with patch.object(client.opener, "open", return_value=response):
+                    with self.assertRaisesRegex(access.ObservationError, "^transport_unknown$"):
+                        client.request("POST", "/git/refs", {"ref": "refs/heads/probe", "sha": BASE})
+                response.__exit__.assert_called_once()
 
     def test_cli_exit_codes_follow_observed_outcome(self):
         for status, exit_code in ((403, 0), (201, 1), (503, 2)):

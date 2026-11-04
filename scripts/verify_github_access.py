@@ -12,6 +12,7 @@ import urllib.error
 import urllib.request
 import uuid
 from datetime import UTC, datetime
+from http.client import HTTPException
 from pathlib import Path
 
 API = "https://api.github.com"
@@ -50,17 +51,20 @@ class Client:
             response = error
         except (OSError, ValueError):
             raise ObservationError("transport_unknown") from None
-        with response:
-            raw = response.read(2_000_001)
-            if len(raw) > 2_000_000:
-                raise ObservationError("response_too_large")
-            try:
-                body = json.loads(raw) if raw else {}
-            except (ValueError, UnicodeError):
-                raise ObservationError("response_invalid") from None
-            if not isinstance(body, dict):
-                raise ObservationError("response_invalid")
-            return response.code, body, dict(response.headers.items())
+        try:
+            with response:
+                raw = response.read(2_000_001)
+                if len(raw) > 2_000_000:
+                    raise ObservationError("response_too_large")
+                try:
+                    body = json.loads(raw) if raw else {}
+                except (ValueError, UnicodeError):
+                    raise ObservationError("response_invalid") from None
+                if not isinstance(body, dict):
+                    raise ObservationError("response_invalid")
+                return response.code, body, dict(response.headers.items())
+        except (OSError, HTTPException):
+            raise ObservationError("transport_unknown") from None
 
 
 def require(response, status, category):
