@@ -16,7 +16,7 @@ from starlette.requests import Request
 
 from bravo_cutover.contract import CutoverRequest
 from bravo_cutover.rejections import Rejected
-from bravo_cutover.resources import Registry
+from bravo_cutover.resources import RegisteredPair, Registry
 from bravo_cutover.store import Store
 
 
@@ -63,6 +63,13 @@ def create_app(store: Store | None = None, runner: Runner | None = None,
     @app.get("/healthz")
     async def healthz():
         return {"status": "ok"}
+
+    @app.get("/v1/resources", response_model=RegisteredPair)
+    def get_resources():
+        pair = registry.public_pair() if registry is not None and api_token else None
+        if pair is None:
+            raise HTTPException(503, {"code": "executor_not_configured"})
+        return pair
 
     @app.post("/v1/cutovers")
     def start_cutover(
