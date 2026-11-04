@@ -173,3 +173,74 @@ def test_done_call_is_observed_but_never_dispatched_without_terminal_call(contex
     assert shape["terminal_output_missing"] is (terminal_shape == "omitted")
     assert len(requests) == 1 and result["state"] == "NEEDS_HUMAN" and result["proposal"] is None
     assert stop["reason"] == "MODEL_OR_POLICY_FAILURE" and "private-" not in json.dumps(result)
+
+
+def streamed_call(name, args):
+    final = completed(name, args)
+    item = final["response"]["output"].pop()
+    created = dict(final, type="response.created", sequence_number=0,
+                   response=dict(final["response"], status="in_progress", usage=None))
+    added = {"type": "response.output_item.added", "output_index": 0, "sequence_number": 1,
+             "item": dict(item, arguments="", status="in_progress")}
+    done = dict(added, type="response.output_item.done", sequence_number=2, item=item)
+    return [created, added, done, dict(final, sequence_number=3)]
+
+
+def test_completed_streamed_call_with_empty_terminal_runs_under_normal_tool_policy(context, monkeypatch):
+    bundle, snapshot, proposal, _ = context
+    read = streamed_call("repo_read", {"path": "src/config.py"})
+    args = read[2]["item"]["arguments"]
+    read[2]["sequence_number"], read[3]["sequence_number"] = 4, 5
+    read[2:2] = [
+        {"type": "response.function_call_arguments.delta", "output_index": 0, "item_id": "fc_fixture",
+         "sequence_number": 2, "delta": args},
+        {"type": "response.function_call_arguments.done", "output_index": 0, "item_id": "fc_fixture",
+         "sequence_number": 3, "arguments": args},
+    ]
+    requests = install_stream(monkeypatch, [read, streamed_call("plan_propose", proposal)])
+    result = asyncio.run(Coordinator(bundle, snapshot).propose(OpenAIProvider("fixture-model", subscription=True)))
+    assert result["state"] == "PROPOSAL_READY" and len(requests) == 2
+    shape, = [e for e in result["audit"] if e["reason"] == "FIRST_RESPONSE_SHAPE"]
+    assert shape["stream_resolution"] == "matched_finalized_call"
+    assert shape["terminal_items"] == {} and shape["function_call_count"] == 1
+    assert shape["stream_done"] == {"bravo_repo_read": 1} and shape["bravo_namespace_matches"] is True
+    assert requests[1]["input"][-1]["call_id"] == "call_fixture"
+
+
+@pytest.mark.parametrize("case", ["no_done", "no_terminal", "other_response", "other_index", "other_call",
+                                  "other_item", "wrong_namespace", "partial", "duplicate", "extra_message",
+                                  "wrong_name", "args_mismatch", "incomplete_status", "no_usage", "early_proposal", "bad_path"])
+def test_unbound_or_denied_stream_output_cannot_submit(context, monkeypatch, case):
+    bundle, snapshot, proposal, _ = context
+    events = streamed_call("plan_propose", proposal) if case == "early_proposal" else streamed_call(
+        "repo_read", {"path": "../private-path" if case == "bad_path" else "src/config.py"})
+    created, added, done, final = events
+    if case == "no_done":
+        events.remove(done)
+    elif case == "no_terminal":
+        events.remove(final)
+    elif case == "other_response":
+        created["response"]["id"] = "different"
+    elif case == "other_index":
+        done["output_index"] = 1
+    elif case in ("other_call", "other_item", "wrong_namespace", "wrong_name", "partial"):
+        field = {"other_call": "call_id", "other_item": "id", "wrong_namespace": "namespace",
+                 "wrong_name": "name", "partial": "status"}[case]
+        done["item"][field] = "in_progress" if case == "partial" else "different"
+    elif case == "duplicate":
+        events.insert(-1, done)
+    elif case == "extra_message":
+        events.insert(-1, dict(done, output_index=1, item={
+            "id": "msg", "type": "message", "status": "completed", "role": "assistant", "content": []}))
+    elif case == "args_mismatch":
+        events.insert(2, {"type": "response.function_call_arguments.done", "item_id": "fc_fixture", "output_index": 0,
+                          "sequence_number": 2, "arguments": "{}"})
+    elif case == "incomplete_status":
+        final["response"]["status"] = "incomplete"
+    elif case == "no_usage":
+        final["response"]["usage"] = None
+    requests = install_stream(monkeypatch, [events, [completed("plan_propose", proposal)]])
+    result = asyncio.run(Coordinator(bundle, snapshot).propose(OpenAIProvider("fixture-model", subscription=True)))
+    assert result["state"] == "NEEDS_HUMAN" and result["proposal"] is None
+    assert len(requests) == (2 if case == "bad_path" else 1)
+    assert all(r["tool_choice"] == "required" for r in requests)
