@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Edge 대역 뒤의 앱을 0.5초 죽였을 때 502가 얼마나 이어지는지 잰다. 컨테이너 lock-lab-edge-blip 하나만 쓰고 지운다.
 
     python3 edge_blip.py <산출물 폴더>
@@ -107,13 +106,13 @@ server {{
         for second in range(18):
             row = [code for at, code in results if second <= at < second + 1]
             print(f"{second:2d}s 요청 {len(row):2d} 비정상 {sum(code != 200 for code in row)}")
-        logs = subprocess.run(["docker", "logs", CONTAINER], capture_output=True, text=True).stderr
+        logs = subprocess.run(["docker", "logs", CONTAINER], capture_output=True, text=True, check=False).stderr
         print("no live upstreams:", logs.count("no live upstreams"), "/ temporarily disabled:", logs.count("temporarily disabled"))
-        addresses = subprocess.run(["docker", "exec", CONTAINER, "getent", "ahosts", "host.docker.internal"], capture_output=True, text=True).stdout
+        addresses = subprocess.run(["docker", "exec", CONTAINER, "getent", "ahosts", "host.docker.internal"], capture_output=True, text=True, check=False).stdout
         print("host.docker.internal 주소 종류:", sorted({"IPv6" if ":" in line.split()[0] else "IPv4" for line in addresses.splitlines()}))
     finally:
         server.kill()
-        subprocess.run(["docker", "rm", "-f", CONTAINER], capture_output=True)
+        subprocess.run(["docker", "rm", "-f", CONTAINER], capture_output=True, check=False)
 
 
 if __name__ == "__main__":
