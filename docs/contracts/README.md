@@ -7,6 +7,7 @@
 | 보안 접근 시험·원본 대조 | [controls](../controls/README.md) | T5 계약 → T14 시험 결과 → T19 게이트 → T10 승인 조건 |
 | 데이터·스키마 지문 | [설계 §8.6](../design.html#s8-6), [ADR-0013](../adr/0013-integrity-fingerprint-producer.md) | T13 SQL·규칙 버전 → T12/T20 최종 비교, T19 사전 준비 판정 |
 | SHIFT·WATCH 관측 판정 | [observability](../observability/README.md), [ADR-0010](../adr/0010-observability-boundary.md), [T10 창 저장](T10-window-storage.md) | T18 창 요약 → T36 기준 판정 → T17/T10 소비 → T21 표시 |
+| 환경·앱·계획 등록 | [등록과 접속·권한 확인](T10-registration.md) | T6/T30 환경 담당의 읽기 참조와 릴리스 출처 → T10 등록 → COLLECT |
 | 계획·이벤트·재조회 | [계획 snapshot](T10-plan-snapshot-v1-proposal.md), [이벤트](T10-events-v1-proposal.md), [저장](T10-postgres-storage-v1-proposal.md) | T10 트랜잭션 → T21 조회·SSE |
 | 승인·명령·Executor 관측 | [CUTOVER 접수와 상태 읽기](T10-cutover-submit-v1-proposal.md), [운영자 접근](T10-operator-access-v1-proposal.md), [ADR-0011](../adr/0011-cutover-executor-execution-and-failure.md) | T19 정본·T17 SHIFT·호스트 권한 → T10 접수 → T12 실행 → T10 영속 관측 |
 | S2 변경 승인 | [변경 승인과 반영 접수](T10-change-approval.md) | T15의 확인된 검증 결과 → T10 사람 승인·1회 접수 → T31 반영. 미인증 응답은 승인 근거가 아님 |
