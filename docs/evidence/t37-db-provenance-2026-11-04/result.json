@@ -1,0 +1,58 @@
+{
+  "scope": "local fixed Collector/Prometheus and new single-cluster k3s/CNPG; not team AWS/RKE2",
+  "status": "PASS",
+  "python_tests_passed": 95,
+  "compose_checks": 21,
+  "k3s_checks": 15,
+  "promtool_suites_passed": 2,
+  "app_metric_name_and_source_spoof_rejected": true,
+  "no_db_scrape_remains_unobservable": true,
+  "real_cnpg_scrape_database_state": "OK",
+  "real_cnpg_identity_observed": [
+    "cluster",
+    "pod",
+    "role"
+  ],
+  "collector_stop_database_state": "UNOBSERVABLE",
+  "source_revision": "4f7a4aaed480f539869123212fad5d00719e4b2a",
+  "source_files": [
+    {
+      "path": "services/observability/src/bravo_observability/api.py",
+      "sha256": "246d826777792efea3d5d2ce8456b890fa7026595f35e50936e5844292424461"
+    },
+    {
+      "path": "services/observability/deploy/collector/collector-db.yaml",
+      "sha256": "7868783d4299e70bf139ccf741aa0e773b87e2e77c93367ca856bc961adb283d"
+    },
+    {
+      "path": "services/observability/deploy/platform/rules/alerts.yml",
+      "sha256": "be53253e10b5b01edc86c8187d8f2544d17da1f403c2504ea0d44de696c5c664"
+    },
+    {
+      "path": "services/observability/testing/run.sh",
+      "sha256": "3be2c4495c165afb3b11a00edf13bf12ad19785fe8fbd9032bde42f1891f13b4"
+    },
+    {
+      "path": "services/observability/testing/k8s.sh",
+      "sha256": "c8a825639c2825f42aae0410f9079a6c27e3f5e7f6274a15679f385b144b915e"
+    }
+  ],
+  "private_log_digests": [
+    {
+      "kind": "unit",
+      "sha256": "331740d3b77a7a34153f82ef24ba084069fd4ab6c6d3771216e36e9c9ea3ec63"
+    },
+    {
+      "kind": "compose",
+      "sha256": "d74f136ec5bb649c0eb6293138900e1a293d32964c93a3a00baeeb67bed45176"
+    },
+    {
+      "kind": "promtool",
+      "sha256": "8a3be89d22d7f8befd97426703d6bb03df7bff5801441a7d6d30e0d438ae9ac9"
+    },
+    {
+      "kind": "k8s",
+      "sha256": "0bd9a26c39fa0aa76f9f5049eeaeb41bbf42503ab26894dbea22d846d6517979"
+    }
+  ]
+}
