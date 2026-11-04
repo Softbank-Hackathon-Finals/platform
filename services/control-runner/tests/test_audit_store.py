@@ -94,13 +94,15 @@ def listing(stub, through, objects=None, extra=None):
         stub.add_response("list_object_versions", page, {"Bucket": BUCKET, "Prefix": partition, "MaxKeys": 1000})
 
 
-def fetch(stub, k, data, modified, lock="COMPLIANCE", version_id=VERSION):
-    stub.add_response(
-        "get_object",
-        {"Body": StreamingBody(io.BytesIO(data), len(data)), "VersionId": version_id, "LastModified": modified,
-         "ObjectLockMode": lock, "ContentLength": len(data), "ResponseMetadata": {"HTTPStatusCode": 200}},
-        {"Bucket": BUCKET, "Key": k, "VersionId": version_id},
-    )
+RETAINED = START + timedelta(days=1)
+
+
+def fetch(stub, k, data, modified, lock="COMPLIANCE", version_id=VERSION, retain_until=RETAINED):
+    body = {"Body": StreamingBody(io.BytesIO(data), len(data)), "VersionId": version_id, "LastModified": modified,
+            "ObjectLockMode": lock, "ContentLength": len(data), "ResponseMetadata": {"HTTPStatusCode": 200}}
+    if retain_until is not None:
+        body["ObjectLockRetainUntilDate"] = retain_until
+    stub.add_response("get_object", body, {"Bucket": BUCKET, "Key": k, "VersionId": version_id})
 
 
 def search(c, now=START + timedelta(minutes=10)):
@@ -167,7 +169,8 @@ def test_unretained_or_changed_object_is_refused():
         with Stubber(c) as stub:
             listing(stub, through, {MINUTE: [version(key(MINUTE), MODIFIED, len(data))]})
             body = {"Body": StreamingBody(io.BytesIO(data), len(data)), "VersionId": version_id,
-                    "LastModified": MODIFIED, "ContentLength": len(data), "ResponseMetadata": {"HTTPStatusCode": 200}}
+                    "LastModified": MODIFIED, "ContentLength": len(data), "ObjectLockRetainUntilDate": RETAINED,
+                    "ResponseMetadata": {"HTTPStatusCode": 200}}
             if lock:
                 body["ObjectLockMode"] = lock
             stub.add_response("get_object", body, {"Bucket": BUCKET, "Key": key(MINUTE), "VersionId": VERSION})
@@ -229,3 +232,35 @@ def test_registration_and_window_are_fixed():
             ObjectStoreAuditSearch(c, **values)
     with pytest.raises(ValueError, match="canary window"):
         search(c)(receipt(), START - timedelta(seconds=1))
+
+
+def test_lapsed_or_missing_retention_is_not_evidence():
+    # Review reproduction: after COMPLIANCE retention lapses the mode is still reported and an admin can delete
+    now = START + timedelta(minutes=10)
+    for retain_until in (now - timedelta(seconds=1), now, None):
+        c = client()
+        data = export((START + timedelta(seconds=2), login()))
+        with Stubber(c) as stub:
+            listing(stub, now, {MINUTE: [version(key(MINUTE), MODIFIED, len(data))]})
+            fetch(stub, key(MINUTE), data, MODIFIED, retain_until=retain_until)
+            with pytest.raises(ValueError, match="retention missing or expired"):
+                search(c, now)(receipt(), now)
+
+
+def test_listing_must_say_it_ended():
+    # Review reproduction: no IsTruncated but next markers present used to end the search as complete
+    through = START + timedelta(minutes=10)
+    first = START - timedelta(minutes=1)
+    partition = f"{PREFIX}/{first:%Y/%m/%d/%H/%M}/"
+    for page in (
+        {"Versions": [], "NextKeyMarker": "k", "NextVersionIdMarker": "v"},
+        {"Versions": []},
+        {"Versions": [], "IsTruncated": False, "NextKeyMarker": "k", "NextVersionIdMarker": "v"},
+        {"Versions": [], "IsTruncated": True},
+    ):
+        c = client()
+        with Stubber(c) as stub:
+            stub.add_response("list_object_versions", dict(page, ResponseMetadata={"HTTPStatusCode": 200}),
+                              {"Bucket": BUCKET, "Prefix": partition, "MaxKeys": 1000})
+            with pytest.raises(ValueError, match="listing end|pagination"):
+                search(c)(receipt(), through)

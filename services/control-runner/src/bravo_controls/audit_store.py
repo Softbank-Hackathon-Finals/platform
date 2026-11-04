@@ -104,9 +104,13 @@ class ObjectStoreAuditSearch:
             if not isinstance(rows, list):
                 raise ValueError("audit store listing lacks versions")
             versions.extend(rows)
-            if page.get("IsTruncated") is not True:
-                return versions
+            truncated = page.get("IsTruncated")
             marker = (page.get("NextKeyMarker"), page.get("NextVersionIdMarker"))
+            # Only an explicit "not truncated" without a next marker ends the listing.
+            if truncated is False and marker == (None, None):
+                return versions
+            if truncated is not True:
+                raise ValueError("audit store listing end is missing or contradicts its markers")
             if not all(isinstance(m, str) and m for m in marker) or marker in seen:
                 raise ValueError("invalid or repeated audit store pagination")
             seen.add(marker)
@@ -149,6 +153,7 @@ class ObjectStoreAuditSearch:
             if received > through:
                 continue  # acknowledged after this search's horizon; a later poll reads it
             body = self._call("get_object", started, Bucket=self.bucket, Key=key, VersionId=row["VersionId"])
+            retain_until = body.get("ObjectLockRetainUntilDate")
             if (
                 body.get("VersionId") != row["VersionId"]
                 or body.get("LastModified") != row["LastModified"]
@@ -156,6 +161,9 @@ class ObjectStoreAuditSearch:
                 or body.get("ContentLength") != row["Size"]
             ):
                 raise ValueError("audit store object differs from listing or is not retained")
+            # A lapsed COMPLIANCE retention still reports the mode; only a version retained now is evidence.
+            if not isinstance(retain_until, datetime) or _utc(retain_until) <= _utc(self.clock()):
+                raise ValueError("audit store object retention missing or expired")
             payload = body["Body"].read(MAX_PAYLOAD + 1)
             if len(payload) != row["Size"]:
                 raise ValueError("audit store object size mismatch")
