@@ -16,7 +16,7 @@ NOW = datetime(2026, 11, 4, 1, tzinfo=UTC)
 CTX = RunContext("restore-trial", "chat", Environment("source", "source", "local:test"))
 UID = [f"aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeee{i}" for i in range(4)]
 SHA = "sha256:" + "a" * 64
-MARKER = "11111111-2222-4333-8444-555555555555"
+MARKER = "11111111-2222-4333-8444-55555555555a"
 
 
 def setup(monkeypatch):
