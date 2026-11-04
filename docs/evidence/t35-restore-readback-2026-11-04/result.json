@@ -1,0 +1,41 @@
+{
+  "scope": "owned local kind/CNPG, exact base-backup restore and marker/count",
+  "cloud_resources_changed": false,
+  "qualification": "PASS",
+  "new_backup_and_restore": true,
+  "actual_sql_tls": "verify-full",
+  "query_role": "SELECT-only",
+  "checks": {
+    "positive_readback": true,
+    "revoked_select_denied": true,
+    "permission_restored_positive_control": true,
+    "wrong_ca_denied": true,
+    "wrong_target_uid_denied": true,
+    "wrong_backup_receipt_denied": true,
+    "final_positive_readback": true,
+    "source_and_existing_restores_unchanged": true
+  },
+  "source_sha256": "b2fd00217c8be9bdcc7fee4870065de7b5f45d08689c9de6bbff4b82a297d8ad",
+  "validation_time": "2026-11-04T01:09:55.543940+00:00",
+  "production_qualification": false,
+  "whole_database_integrity": false,
+  "owned_restore_retained_for_inspection": true,
+  "evidence": [
+    {
+      "kind": "backup-readback.json",
+      "sha256": "47a7cd3dd1558ae60a62fb1178ba33e9931bac36dca4fb2bea875d9fe50a3fa4"
+    },
+    {
+      "kind": "restore-readback.json",
+      "sha256": "b326297f20127193ffa8e394a7532ad613e9ee7eff6c9a4cd7f23df4c2c88d5a"
+    },
+    {
+      "kind": "restore-comparison.json",
+      "sha256": "a5b5974893bfa14ee975499f8dfaf5c1b155bdf95d299b545914aaecd37b06d6"
+    },
+    {
+      "kind": "restore-comparison-recheck.json",
+      "sha256": "00d737fa429cdf4d69e0605bde17681c2729a25a68d67ee844741ca79b3918a9"
+    }
+  ]
+}
