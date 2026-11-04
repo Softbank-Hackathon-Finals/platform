@@ -9,6 +9,7 @@ import socket
 import subprocess
 import sys
 from contextlib import suppress
+from string import Template
 
 import boto3
 from botocore.exceptions import ClientError
@@ -91,7 +92,7 @@ try:
     signed.client.put_object(Bucket=bucket, Key="canary", Body=canary)
     results["before"] = obs(signed, unsigned)
     policy = {"Version": "2012-10-17", "Statement": [{"Sid": "DenyAnonymousRead", "Effect": "Deny",
-              "Principal": "*", "Action": "s3:GetObject", "Resource": "arn:aws:s3:::" + bucket + "/*",
+              "Principal": "*", "Action": "s3:GetObject", "Resource": Template("arn:aws:s3:::${bucket}/*").substitute(bucket=bucket),
               "Condition": {"StringEquals": {"aws:PrincipalType": "Anonymous"}}}]}
     try:
         signed.client.put_bucket_policy(Bucket=bucket, Policy=json.dumps(policy))

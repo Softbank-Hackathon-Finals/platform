@@ -10,6 +10,7 @@ import sys
 import tempfile
 import time
 from contextlib import suppress
+from string import Template
 
 import boto3
 from bravo_agent.contracts import FailureBundle, SnapshotManifest
@@ -47,9 +48,9 @@ CANARY_HASH = hashlib.sha256(CANARY).hexdigest()
 KUBECTL = '/var/lib/rancher/rke2/bin/kubectl'
 SOURCE_PATH, TARGET_PATH = 'src/source-policy.json', 'src/target-policy.json'
 public = {'Version': '2012-10-17', 'Statement': [{'Sid': 'PublicRead', 'Effect': 'Allow',
-          'Principal': '*', 'Action': 's3:GetObject', 'Resource': 'arn:aws:s3:::' + BUCKET + '/*'}]}
+          'Principal': '*', 'Action': 's3:GetObject', 'Resource': Template('arn:aws:s3:::${bucket}/*').substitute(bucket=BUCKET)}]}
 restricted = {'Version': '2012-10-17', 'Statement': [{'Sid': 'DenyAnonymousRead', 'Effect': 'Deny',
-              'Principal': '*', 'Action': 's3:GetObject', 'Resource': 'arn:aws:s3:::' + BUCKET + '/*',
+              'Principal': '*', 'Action': 's3:GetObject', 'Resource': Template('arn:aws:s3:::${bucket}/*').substitute(bucket=BUCKET),
               'Condition': {'StringEquals': {'aws:PrincipalType': 'Anonymous'}}}]}
 source, replacement = json.dumps(public, sort_keys=True), json.dumps(restricted, sort_keys=True)
 profile = {'SEAWEEDFS_NAMESPACE': TARGET_NS, 'SEAWEEDFS_LABEL_KEY': 'app',
