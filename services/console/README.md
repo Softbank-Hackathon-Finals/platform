@@ -90,3 +90,16 @@ app = ConsoleApp(authenticated_t10_app,
 - `report_digest`는 읽은 원문 bytes의 SHA-256이다. T19의 정규화된 서명·판정 fingerprint나 실행 승인 digest를 대신하지 않는다. 원문 질문·로그·증거 URL·승인자 개인정보는 화면 API에 반환하지 않는다.
 
 시험 호스트의 보고서와 신뢰 콜백은 명시적인 fixture다. 실제 T19 정본 저장소·발급자 인증 연결과 팀 환경 자격은 남아 있으며, fixture PASS를 실제 보안 통제 통과로 사용하지 않는다.
+
+## 실제 T37 관측 투영 시험
+
+`testing/live_observations.py`는 운영 서버가 아닌 명시적 로컬 시험 도구다. T22의
+`testing/observability_e2e.py --console <services/console>`에서 생성한 T37 HTTP 주소와
+일회성 시험 토큰을 stdin으로 받아, 실제 T21 `PlanObservations`와 T10 계획 조회를 거친다.
+토큰을 argv·결과·브라우저에 넣지 않는다. 계획 등록과 로그인/환경 권한은 시험 fixture이며,
+관측값은 실행 중인 T37에서 조회한다. 승인·Executor는 연결하지 않는다.
+
+수집 중 양쪽 환경 조회, 무인증 거부, 별도 환경 권한 회수, 세션 회수와 토큰 비노출을
+검사한다. 목적지 Collector를 중단한 단계에서는 목적지 `UNOBSERVABLE`과 null 수치,
+출발지 관측 유지도 확인한다. 이 시험은 화면용 API 투영이며 실제 IdP·브라우저 SSO나
+팀 클라우드의 운영 권한 인수를 대신하지 않는다.
