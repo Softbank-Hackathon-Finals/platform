@@ -114,7 +114,8 @@ T18 부하 생성기가 창 요약을 보내는 곳이다. 콘솔 조회 API와 
 | NetworkPolicy | `tailscale-system`의 이 Service proxy Pod만(`tailscale.com/parent-resource=bravo-prometheus-tailnet` 등 4개 라벨). Tailscale 대역 허용은 없앴다 |
 | tailnet ACL (T30 제안) | `tag:bravo-metrics`의 소유자는 플랫폼 operator 태그. Collector 쪽 태그에서 `tag:bravo-metrics:9090`만 허용 |
 
-- **출발지 주소:** operator proxy는 받은 연결을 이 Service로 DNAT하고, 응답이 proxy로 돌아오도록 tailscaled가 출발지를 proxy Pod 주소로 바꾼다. 그래서 저장소가 보는 출발지는 Tailscale 주소가 아니라 proxy Pod다. 고정 소스(1.104.4)로 판단했고, 실제 플랫폼에서 확인해야 한다.
+- **출발지 주소:** operator proxy는 받은 연결을 이 Service로 DNAT하고, 응답이 proxy로 돌아오도록 tailscaled가 출발지를 proxy Pod 주소로 바꾼다. 그래서 저장소가 보는 출발지는 Tailscale 주소가 아니라 proxy Pod다. 고정 소스(1.104.4)로 판단했다.
+  - **실제 플랫폼 근거:** T10 창 수신이 같은 방식(ClusterIP + `tailscale.com/expose`, `tailscale-system`의 같은 4개 proxy 라벨만 허용하는 NetworkPolicy)으로 실제 AWS 플랫폼에서 HTTP 201을 받았다. 허용 태그는 응답을 받았고 다른 태그는 연결 시간 초과였다([T10 증빙](../../docs/evidence/t10-window-ingress-2026-11-04/README.md)). 그러니 operator 위치, proxy 라벨, proxy Pod를 출발지로 보는 정책은 실제 환경과 맞는다. 지표 저장소 Service 자체는 아직 배포하지 않았다.
 - **Collector 쪽 경로:** 온프렘은 노드에 Tailscale이 있어 위 주소로 바로 나간다. 노드에 Tailscale이 없고 operator만 있는 클러스터는 operator egress Service가 필요하다. 이때 proxy가 포트를 `[10000, 11000)`으로 바꾸므로 Collector egress 정책은 T12 `infra/envs/executor-network`처럼 실제 포트를 읽어 만든다(후속).
 - **k3s 시험의 한계:** operator가 없어 실제 tailnet 경로는 재지 않는다. 같은 라벨의 Pod로 NetworkPolicy가 이 proxy만 받는지 본다.
 
