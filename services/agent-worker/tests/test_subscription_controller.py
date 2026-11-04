@@ -23,6 +23,23 @@ def denied(operation):
     return ClientError({"Error": {"Code": "AccessDeniedException"}}, operation)
 
 
+@pytest.mark.parametrize("result", ["allowed", "AccessDenied", "InvalidIdentityToken"])
+def test_direct_broker_probe_requires_a_real_denial(result):
+    class STS:
+        def assume_role_with_web_identity(self, **args):
+            assert args["WebIdentityToken"] == "synthetic" and args["RoleArn"] == "broker"
+            assert json.loads(args["Policy"])["Statement"] == [{"Effect": "Deny", "Action": "*", "Resource": "*"}]
+            if result != "allowed":
+                raise ClientError({"Error": {"Code": result}}, "AssumeRoleWithWebIdentity")
+            return {}
+
+    if result == "AccessDenied":
+        assert controller.direct_broker_denied(STS(), "broker", "synthetic")
+    else:
+        with pytest.raises(RuntimeError if result == "allowed" else ClientError):
+            controller.direct_broker_denied(STS(), "broker", "synthetic")
+
+
 def test_only_start_denial_proves_session_boundary():
     class SSM:
         def start_session(self, **kwargs):
@@ -126,7 +143,7 @@ def test_main_binds_ssm_to_current_request_and_rejects_previous_receipt(context,
     ids = iter(["a" * 32, "b" * 32])
     monkeypatch.setattr(uuid, "uuid4", lambda: SimpleNamespace(hex=next(ids)))
     monkeypatch.chdir(tmp_path)
-    for key, value in {"BRAVO_INSTANCE_ID": "synthetic", "BRAVO_RUNTIME_SOURCE_SHA": "a" * 40,
+    for key, value in {"BRAVO_BROKER_ROLE_ARN": "synthetic-broker", "BRAVO_INSTANCE_ID": "synthetic", "BRAVO_RUNTIME_SOURCE_SHA": "a" * 40,
                        "ACTIONS_ID_TOKEN_REQUEST_URL": "https://synthetic.invalid/token?x=1",
                        "ACTIONS_ID_TOKEN_REQUEST_TOKEN": "synthetic"}.items():
         monkeypatch.setenv(key, value)

@@ -42,6 +42,16 @@ def prove_denied(call):
     raise RuntimeError("permission boundary was not enforced")
 
 
+def direct_broker_denied(sts, role_arn, token):
+    # Use the same token for the subsequent VM call. Scope any unexpectedly
+    # issued probe session down to zero permissions.
+    return prove_denied(lambda: sts.assume_role_with_web_identity(
+        RoleArn=role_arn, RoleSessionName="BravoBoundaryProbe", WebIdentityToken=token,
+        DurationSeconds=900,
+        Policy=json.dumps({"Version": "2012-10-17", "Statement": [
+            {"Effect": "Deny", "Action": "*", "Resource": "*"}]})))
+
+
 def prove_session_denied(ssm, **arguments):
     try:
         created = ssm.start_session(**arguments)
@@ -98,6 +108,10 @@ def main():
             request = urllib.request.Request(url, headers={"Authorization": "Bearer " + os.environ["ACTIONS_ID_TOKEN_REQUEST_TOKEN"]})
             with urllib.request.urlopen(request, timeout=20) as response:
                 token = json.load(response)["value"]
+            if not results:
+                denied["direct_broker_role"] = direct_broker_denied(
+                    boto3.client("sts", region_name=region), os.environ["BRAVO_BROKER_ROLE_ARN"], token)
+                print("Direct broker role request from runner: AccessDenied", flush=True)
             body = json.dumps({"web_identity_token": token, "run_id": run_id}).encode()
             request = urllib.request.Request("http://127.0.0.1:18762/validation/fixture", data=body,
                                              headers={"Content-Type": "application/json"})
