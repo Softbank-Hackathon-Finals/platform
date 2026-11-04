@@ -71,6 +71,7 @@ def response_pair(context):
     receipt = {"run_id": bundle.run_id, "source_sha": bundle.source_sha,
                "proposal_digest": result["proposal_digest"], "attempt": 1,
                "verdict": "PASS", "effects_known": True, "evidence_digest": digest(evidence)}
+    result["input_kind"] = "synthetic_db_host_fixture"
     return {"result": result, "state": "PROPOSAL_READY", "active_after": True, "exit_code": 0,
             "runtime_source_sha": "a" * 40, "credential_rotated": False, "registration_reused": True}, {
                 "state": "AWAITING_APPROVAL", "receipt": receipt, "evidence": evidence}
@@ -118,7 +119,7 @@ def test_controller_rejects_tampered_evidence(context):
         controller.accept_verification(broker, verification)
 
 
-@pytest.mark.parametrize("replay", [False, True])
+@pytest.mark.parametrize("replay", [False, True, "unmarked"])
 def test_main_binds_ssm_to_current_request_and_rejects_previous_receipt(context, monkeypatch, tmp_path, replay):
     broker, verification = response_pair(context)
     calls, received, receipts = [], [], []
@@ -134,9 +135,12 @@ def test_main_binds_ssm_to_current_request_and_rejects_previous_receipt(context,
         if request.data is None:
             data = {"value": "synthetic"}
         else:
+            assert request.full_url.endswith("/validation/fixture")
             run_id = json.loads(request.data).get("run_id", "subscription-" + ("a" if not received else "b") * 32)
             data = copy.deepcopy(broker)
             result = data["result"]
+            if replay == "unmarked":
+                result.pop("input_kind")
             for entry in (result, result["input"], result["proposal"]):
                 entry["run_id"] = run_id
             result["input_digest"] = digest(result["input"])
@@ -172,6 +176,12 @@ def test_main_binds_ssm_to_current_request_and_rejects_previous_receipt(context,
     monkeypatch.setattr("socket.create_connection", lambda *args, **kwargs: io.BytesIO())
     monkeypatch.setattr(controller.subprocess, "Popen", lambda *args, **kwargs: SimpleNamespace(
         terminate=lambda: None, wait=lambda **kwargs: None))
+    if replay == "unmarked":
+        with pytest.raises(ValueError, match="identify the validation fixture"):
+            controller.main()
+        assert all(c["Parameters"]["operation"] != ["verify"] for c in calls)
+        assert calls[-1]["Parameters"] == {"operation": ["stop"]}
+        return
     if replay:
         with pytest.raises(RuntimeError, match="verification did not pass"):
             controller.main()
