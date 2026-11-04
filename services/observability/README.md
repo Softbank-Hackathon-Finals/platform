@@ -178,7 +178,7 @@ services/observability/testing/rotation.sh   # 인증서 교체: 14항목, 약 1
 
 시험의 Compose 프로젝트·k3s 컨테이너·API 이미지·포트는 실행별로 분리한다. k3s 정리는 이번 실행이 생성한 컨테이너 ID에만 적용한다.
 
-알림 단위 시험은 `promtool test rules deploy/platform/rules/alerts_test.yml`이다.
+알림 단위 시험은 `promtool test rules deploy/platform/rules/alerts_test.yml`이다. CI에서는 `tests/test_promtool.py`가 배포와 같은 Prometheus 이미지(digest)로 이 시험과 `testing/http_queries_test.yml`을 돌린다.
 
 보호 장치를 하나씩 빼 보는 변이 시험으로, 시험이 실제로 결함을 잡는지 확인했다(증빙 `mutations_caught`). 대상은 허용 목록, 환경 덮어쓰기, 생존 신호 선택, 디스크 큐, 알림 조건 4종이다.
 
@@ -190,7 +190,7 @@ services/observability/testing/rotation.sh   # 인증서 교체: 14항목, 약 1
 - **나가는 주소 좁히기:** Collector의 나가는 연결은 포트로만 제한한다. 환경별 플랫폼 주소와 출발지 VPC 대역을 ipBlock으로 더한다.
 - **앱 지표:** 데모 앱에 OTel 계측이 없다(T22). 조회 API의 HTTP 뷰는 계측이 들어오면 채워진다.
 - **PgBouncer 지표:** 출발지 PgBouncer는 별도 Deployment라 exporter가 필요하다(T6).
-- **CI:** `promtool`과 `testing/` 스크립트는 지금 CI에서 돌지 않는다(워크플로 변경 필요). pytest는 돈다.
+- **CI:** promtool 시험은 pytest(`tests/test_promtool.py`)로 돈다. `testing/`의 Compose · k3s · 인증서 교체 스크립트는 CI에서 돌지 않는다(특권 컨테이너, 수 분~10분).
 - **신뢰 레지스트리 제한(KSV-0125):** 클러스터 승인 정책 몫이다.
 - **T34와 하나로:** 목적지 Collector를 감사 로그 파이프라인과 합칠지는 #117 머지 뒤 정한다.
 - **Collector 버전을 올리면** `testing/rotation.sh`로 keep-alive 게이트 결함이 고쳐졌는지 확인하고 게이트 인자를 뺀다.
