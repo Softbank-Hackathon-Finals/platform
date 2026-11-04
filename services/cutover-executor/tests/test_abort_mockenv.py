@@ -93,14 +93,31 @@ def test_pause_deadline_exceeded(store, sides):
 
 
 def test_barrier_does_not_arrive(store, sides):
+    """barrier가 기다리는 시간 안에 오지 않으면(복제 지연) 쓰기 전 실패로 끝나고 출발지를 다시 연다.
+    원격 상태는 그대로 두고 실행기가 목적지 barrier를 보지 못하게 해서 지연을 만든다. 구독을 끄면
+    실행 범위 밖 변경이 되어 SAFE_HOLD다(test_subscription_stopped_outside_the_executor_holds)."""
+    src, dst = sides
+
+    def late_barrier(run):
+        run.dst.db.has_barrier = lambda barrier_id: False
+
+    execution = run_with(store, src, dst, {"before:compare": late_barrier}, barrier_timeout_s=0.5)
+    assert execution.status == Status.ABORT_PRE_WRITE, execution.result
+    assert failed_step(execution) == "compare" and "barrier" in execution.result["error"]
+    assert_source_is_writer_again(src, dst)
+
+
+def test_subscription_stopped_outside_the_executor_holds(store, sides):
+    """실행 도중 실행기가 아닌 누군가 정방향 구독을 끄면, 자기 변경이 아닌 것은 되돌리지 않고 SAFE_HOLD로 멈춘다
+    (#134 이후 복구 범위). 출발지는 펜싱된 채로 두고 목적지도 열지 않는다."""
     src, dst = sides
     ddb = DbControl(dst.db_control_dsn)
     stop_forward = lambda _run: ddb.set_subscription(dst.subscription, False, dst.subscription_owner)  # noqa: E731
     execution = run_with(store, src, dst, {"before:compare": stop_forward}, barrier_timeout_s=1.5)
-    assert execution.status == Status.ABORT_PRE_WRITE, execution.result
+    assert execution.status == Status.SAFE_HOLD, execution.result
     assert failed_step(execution) == "compare" and "barrier" in execution.result["error"]
-    assert "forward_subscription_enabled" in execution.result["restored"]
-    assert_source_is_writer_again(src, dst)
+    assert "subscription changed outside" in execution.result["abort_error"]
+    assert execution.result["restored"] == [] and execution.result["observed"]["writable"] == []
 
 
 def test_failure_after_subscription_change_restores_replication(store, sides):
