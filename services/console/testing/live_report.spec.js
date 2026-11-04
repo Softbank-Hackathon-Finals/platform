@@ -31,10 +31,23 @@ test("actual retained full report shows unknown controls and no cutover authorit
   expect(report.decision).toBe("BLOCK");
   expect(report.authorizes_cutover).toBe(false);
   expect(report.report_digest).toBe(process.env.BRAVO_TEST_GATE_SHA256);
-  expect(report.rows.filter((row) => row.decision === "PASS")).toHaveLength(3);
-  expect(
-    report.rows.filter((row) => row.source_verdict === "UNKNOWN"),
-  ).toHaveLength(17);
+  if (process.env.BRAVO_TEST_REPORT_KIND === "restore-partial") {
+    expect(report.rows.every((row) => row.decision === "BLOCK")).toBe(true);
+    const restore = report.rows.find((row) => row.test_id === "DR-01.1");
+    expect(restore.source_verdict).toBe("PASS");
+    expect(restore.target_verdict).toBe("UNKNOWN");
+    expect(restore.reason).toBe("TARGET_UNKNOWN");
+    expect(
+      report.rows.filter((row) => row.source_verdict === "UNKNOWN"),
+    ).toHaveLength(19);
+  } else {
+    expect(report.rows.filter((row) => row.decision === "PASS")).toHaveLength(
+      3,
+    );
+    expect(
+      report.rows.filter((row) => row.source_verdict === "UNKNOWN"),
+    ).toHaveLength(17);
+  }
   await expect(page.locator("#approve")).toBeDisabled();
   await expect(page.locator("#execute")).toBeDisabled();
   await expect(page.locator("#confirm")).toBeDisabled();
