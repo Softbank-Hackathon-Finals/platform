@@ -116,3 +116,12 @@ uv run python testing/e2e.py --demo-chat <폴더> --out <산출물 폴더>
 ```
 
 실제 `demo-chat`(수정 없음)과 실제 Postgres를 띄워 일부러 유실 · 중복 · 실패를 넣고 잡히는지 본다. 약 17분 걸린다. Docker가 필요하고, 로컬에 이미 받은 이미지만 쓴다(`public.ecr.aws/docker/library/postgres:16`, `nginx:alpine`). 없으면 받지 않고 멈춘다. 실제 Cloudflare가 아니다. `testing/mock-edge.conf`는 가중치 분배와 헤더만 흉내 낸 대역이다. 결과는 [증거 폴더](../../docs/evidence/t18-load-generator-2026-11-04/README.md).
+
+## 쓰기 잠금 실험
+
+```sh
+uv run python testing/lock_lab.py <calibrate|wire|ceiling|invariants|matrix> --variants <안별 demo-chat 폴더들의 상위 폴더> --out <산출물 폴더> --names <안...>
+uv run python testing/lock_lab_report.py <결과.jsonl>...   # 결과를 표로 바꾼다
+```
+
+demo-chat 수정본 여러 벌을 같은 조건으로 잰다. 왕복 수를 중계기(`lock_lab_tap.py`)로 세고, 처리량 한계, 불변식(커밋 순서, 전파 건너뛰기, 멱등, 없는 첨부, PgBouncer transaction 모드), 왕복 지연 × 목적지 비중 행렬을 잰다. 모의 지연이고, 컨테이너는 `lock-lab-` 접두사로 띄운 뒤 지운다. 표의 판정은 창별 판정(`judge`)을 모은 것이고, 부하가 끝난 뒤 시작한 창은 결과에 그 근거(`judge_after_load`)가 있을 때만 뺀다. 결과와 재현 순서는 [증거 폴더](../../docs/evidence/t18-write-lock-lab-2026-11-04/README.md).

@@ -1,0 +1,41 @@
+diff --git a/tests/test_store.py b/tests/test_store.py
+index f1903a3..6a1824c 100644
+--- a/tests/test_store.py
++++ b/tests/test_store.py
+@@ -11,7 +11,7 @@ import uuid
+ import pytest
+ from psycopg_pool import AsyncConnectionPool
+ 
+-from app.store import IdempotencyConflict, Store, UnknownAttachment
++from app.store import MESSAGE_WRITE_LOCK, IdempotencyConflict, Store, UnknownAttachment
+ 
+ DSN = os.environ.get("TEST_DATABASE_URL")
+ pytestmark = pytest.mark.skipif(not DSN, reason="TEST_DATABASE_URL not set")
+@@ -67,3 +67,27 @@ def test_concurrent_writes_are_visible_in_id_order():
+         assert sorted(seen) == sorted(m["id"] for m, _ in results)
+ 
+     run(check)
++
++
++def test_write_gets_its_id_after_taking_the_lock():
++    """잠금보다 id를 먼저 받으면 커밋 순서가 id 순서와 어긋나 전파가 메시지를 건너뛴다.
++
++    지연이 없으면 위 동시 쓰기 시험은 이 순서가 깨져도 대개 통과한다. 그래서 순서를 직접 만든다.
++    """
++
++    async def check(store):
++        store.tx_timeout = "5s"  # 잠금을 일부러 쥐고 있는 동안 쓰기가 타임아웃되지 않게 한다.
++        async with store.pool.connection() as holder:
++            await holder.execute("SELECT pg_advisory_xact_lock(%s)", (MESSAGE_WRITE_LOCK,))
++            waiting = asyncio.create_task(store.add_message(uuid.uuid4(), "w", "later", None))
++            await asyncio.sleep(0.05)
++            assert not waiting.done(), "잠금을 쥔 동안 쓰기가 끝났다"
++            cursor = await holder.execute(
++                "INSERT INTO messages (idempotency_key, author, body) VALUES (%s, 'w', 'first') RETURNING id",
++                (uuid.uuid4(),),
++            )
++            first = (await cursor.fetchone())[0]
++        later, _ = await waiting
++        assert later["id"] > first, "잠금을 잡기 전에 id를 받았다"
++
++    run(check)
