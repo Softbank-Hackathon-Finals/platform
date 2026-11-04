@@ -7,7 +7,6 @@ This tests transport and readiness, not application fencing or RPO 0 cutover.
 import json
 import os
 import secrets
-import subprocess
 import time
 from datetime import UTC, datetime, timedelta
 
@@ -21,20 +20,14 @@ from bravo_cutover.db_fingerprint import (
     sequence_state,
 )
 from bravo_cutover.remote.db import DbControl
+from fixture_process import OwnedDocker
+from fixture_process import run as tool
 from psycopg import sql
 from psycopg.conninfo import make_conninfo
 from test_t13_capture import IMAGE
 
 from bravo_gate.readiness import ReadinessPolicy, assess_readiness
 from bravo_gate.t13 import DatabaseRegistration, assemble_snapshot, collect_schema
-
-
-def tool(*args, env=None):
-    completed = subprocess.run(args, env=env, capture_output=True, text=True, timeout=90)
-    if completed.returncode:
-        # Do not print generated connection data or Docker environment on failure.
-        raise RuntimeError("local_tls_fixture_command_failed")
-    return completed.stdout.strip()
 
 
 def await_condition(predicate, seconds=30):
@@ -48,6 +41,7 @@ def await_condition(predicate, seconds=30):
 
 @pytest.fixture
 def tls_pair(tmp_path):
+    __tracebackhide__ = True
     endpoint = os.environ.get("DOCKER_HOST") or json.loads(tool("docker", "context", "inspect"))[0]["Endpoints"]["docker"]["Host"]
     if not endpoint.startswith("unix://"):
         pytest.fail("local_unix_docker_required", pytrace=False)
@@ -61,14 +55,13 @@ def tls_pair(tmp_path):
         (root / (side + ".crt")).chmod(0o644)
         (root / (side + ".key")).chmod(0o600)
     network = "t19-pair-" + secrets.token_hex(6)
-    network_id = tool("docker", "network", "create", network)
-    containers = []
     parameters = {}
-    try:
+    with OwnedDocker() as owned:
+        owned.network(network)
         for side in ("source", "target"):
             password = secrets.token_urlsafe(32)
             # Only this container's private key is mounted; peer CA is public.
-            cid = tool("docker", "run", "-d", "--network", network,
+            cid = owned.container( "-d", "--network", network,
                 "--network-alias", side, "--name", network + "-" + side,
                 "--memory", "384m", "--cpus", "1", "-p", "127.0.0.1::5432",
                 "--tmpfs", "/var/lib/postgresql:rw,size=268435456",
@@ -79,7 +72,6 @@ def tls_pair(tmp_path):
                 "--entrypoint", "sh", IMAGE, "-c",
                 "cp /certs/server.key /tmp/server.key && chown postgres /tmp/server.key && chmod 600 /tmp/server.key && exec docker-entrypoint.sh postgres -c wal_level=logical -c max_replication_slots=10 -c max_wal_senders=10 -c ssl=on -c ssl_cert_file=/certs/server.crt -c ssl_key_file=/tmp/server.key",
                 env=dict(os.environ, POSTGRES_PASSWORD=password))
-            containers.append(cid)
             inspected = json.loads(tool("docker", "inspect", cid))[0]
             assert inspected["HostConfig"]["Tmpfs"].get("/var/lib/postgresql") == "rw,size=268435456"
             assert not any(mount["Type"] == "volume" for mount in inspected["Mounts"])
@@ -112,21 +104,6 @@ def tls_pair(tmp_path):
                 conn.execute("GRANT SELECT ON ALL SEQUENCES IN SCHEMA public TO reader")
             parameters[side] = params
         yield parameters
-    finally:
-        failures = []
-        for cid in reversed(containers):
-            try:
-                # These exact IDs belong to this fixture only. Also remove any
-                # anonymous volumes if a future image adds another VOLUME path.
-                tool("docker", "rm", "-fv", cid)
-            except RuntimeError:
-                failures.append("container")
-        try:
-            tool("docker", "network", "rm", network_id)
-        except RuntimeError:
-            failures.append("network")
-        if failures:
-            raise RuntimeError("local_tls_pair_cleanup_failed")
 
 
 def test_two_tls_servers_replication_loss_and_sequence_readback(service, tls_pair, tmp_path):

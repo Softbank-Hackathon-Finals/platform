@@ -156,7 +156,7 @@ def run_worker(kind, location, origin, ledger, mode, reached):
                 raise AssertionError("test did not kill worker before dispatch")
             return super().submit(*args, **kwargs)
 
-    with PausableClient(origin) as client:
+    with PausableClient(origin, token="fixture-read", command_token="fixture-command") as client:
         cutover = service(store, client)
         if mode in ("before-send", "after-effect"):
             submit(cutover)
@@ -354,7 +354,7 @@ def test_committed_executor_still_requires_integrity_watch_and_retest(backend, t
     reply.set()
     with (
         remote_executor(ledger, threading.Event(), reply) as origin,
-        ExecutorClient(origin) as client,
+        ExecutorClient(origin, token="fixture-read", command_token="fixture-command") as client,
     ):
         cutover = service(backend.store, client)
         result = submit(cutover)

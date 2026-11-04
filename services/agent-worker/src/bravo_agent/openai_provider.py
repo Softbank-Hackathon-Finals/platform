@@ -128,6 +128,12 @@ class OpenAIProvider:
                         raise RuntimeError("model usage limit reached")
                     outputs = [item.model_dump(exclude_none=True) for item in response.output]
                     calls = [item for item in outputs if item["type"] == "function_call"]
+                    if self.subscription and index == 0:
+                        tools.record("provider", "OBSERVED", "FIRST_RESPONSE_SHAPE", {
+                            "function_call_count": len(calls),
+                            "bravo_namespace_matches": all(call.get("namespace") == "bravo" for call in calls)
+                            if calls else None,
+                        })
                     if len(calls) != 1:
                         raise RuntimeError("expected one allowed function call")
                     history.extend(outputs)

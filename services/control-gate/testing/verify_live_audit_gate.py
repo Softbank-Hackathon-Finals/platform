@@ -5,6 +5,7 @@ No team/cloud credentials. No operational approval or complete security PASS.
 """
 
 import argparse
+import hashlib
 import json
 import os
 import sys
@@ -19,13 +20,37 @@ from bravo_gate.models import GateContext, RunSnapshot
 from bravo_gate.service import GateService
 from bravo_gate.signatures import DOMAIN, AuthorityEnvelope, AuthorityKey, Ed25519Authority
 
+# Independently retained #216 source bytes. This qualification is tied to that
+# historical run, not a generic upload entry point or caller-supplied hash.
+RETAINED_SOURCE_SHA256 = "f426b3ee9fcf8833e5e0630c39761f7ac2e4d444fd93905880cd2f4ab3dc6a91"
+
+
+def verify_retained_source(raw: bytes) -> str:
+    digest = hashlib.sha256(raw).hexdigest()
+    if digest != RETAINED_SOURCE_SHA256:
+        raise ValueError("retained_source_digest_mismatch")
+    return digest
+
+
+def require(condition, reason):
+    if not condition:
+        raise ValueError(reason)
+
+
+def require_unexecuted_target(target):
+    results = target.get("results", [])
+    if len(results) != 20 or any(
+        r.get("verdict") != "UNKNOWN" or r.get("unknown_reason") != "NOT_RUN" for r in results
+    ):
+        raise ValueError("target_run_not_fully_unexecuted")
+
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--runner-checkout", type=Path)
     parser.add_argument("--source-run", type=Path)
     parser.add_argument("--target-run", type=Path)
-    parser.add_argument("--mode", choices=("audit-pair", "restore-partial"), default="audit-pair")
+    parser.add_argument("--mode", choices=("audit-pair", "restore-partial", "source-scan-partial"), default="audit-pair")
     parser.add_argument("--private-output", type=Path, required=True)
     args = parser.parse_args()
     os.umask(0o077)
@@ -39,7 +64,7 @@ def main():
         # Explicit operator-selected checkout, never a user upload or URL.
         from verify_live_audit_canaries import run
     elif not args.source_run or not args.target_run or args.runner_checkout:
-        parser.error("restore-partial requires only existing source-run and target-run")
+        parser.error("partial qualification requires only existing source-run and target-run")
 
     result = {
         "status": "INCOMPLETE",
@@ -49,26 +74,34 @@ def main():
     try:
         if args.mode == "audit-pair":
             checks = {side: run(root / side, side=side) for side in ("source", "target")}
-            assert all(
+            require(all(
                 check["status"] == "PASS" and check["owned_resources_removed"]
                 for check in checks.values()
-            )
+            ), "audit_qualification_incomplete")
             raw = {side: (root / side / "control-run.json").read_bytes() for side in checks}
         else:
             # Explicit local test inputs, not an operational upload/trust API.
             raw = {"source": args.source_run.read_bytes(), "target": args.target_run.read_bytes()}
+            if args.mode == "source-scan-partial":
+                result["source_run_sha256"] = verify_retained_source(raw["source"])
             source = json.loads(raw["source"])
             target = json.loads(raw["target"])
-            assert len(source["results"]) == len(target["results"]) == 20
-            assert {r["test_id"] for r in source["results"] if r["verdict"] == "PASS"} == {"DR-01.1"}
-            assert all(r["verdict"] == "UNKNOWN" for r in target["results"])
-            result["scope"] = "one actual local restore run and an explicitly unverified target; test authority"
+            require(len(source["results"]) == len(target["results"]) == 20, "unexpected_run_row_count")
+            source_test = "SEC-01.2" if args.mode == "source-scan-partial" else "DR-01.1"
+            require({r["test_id"] for r in source["results"] if r["verdict"] == "PASS"} == {source_test}, "unexpected_source_pass_set")
+            require(all(r["verdict"] == "UNKNOWN" for r in target["results"]), "target_run_not_unknown")
+            if args.mode == "source-scan-partial":
+                require_unexecuted_target(target)
+                result["scope"] = "retained AWS source SEC-01.2 run and an explicitly unexecuted target; local test authority"
+            else:
+                result["scope"] = "one actual local restore run and an explicitly unverified target; test authority"
         snapshots = {side: RunSnapshot(side + "-registered", data) for side, data in raw.items()}
         contract = T5Contract()
         ctx = GateContext(
             "local-trial-tenant",
             "demo-chat",
-            "local-audit-gate" if args.mode == "audit-pair" else "local-restore-partial-gate",
+            {"audit-pair": "local-audit-gate", "restore-partial": "local-restore-partial-gate",
+             "source-scan-partial": "local-source-scan-partial-gate"}[args.mode],
             fingerprint({"local_plan": str(root.name)}),
             "full",
             "1",
@@ -144,16 +177,16 @@ def main():
         reports[ctx.gate_id] = RunSnapshot(ctx.gate_id, canonical(report))
         sign("gate-result", reports[ctx.gate_id].fingerprint)
         rows = {row["test_id"]: row for row in report["rows"]}
-        assert len(rows) == 20
+        require(len(rows) == 20, "unexpected_gate_row_count")
         if args.mode == "audit-pair":
             audit_ids = {"AUD-01.1", "AUD-01.2", "AUD-01.3"}
-            assert {t for t, row in rows.items() if row["decision"] == "PASS"} == audit_ids
-            assert all(row["reason"] == "SOURCE_UNKNOWN" for t, row in rows.items() if t not in audit_ids)
+            require({t for t, row in rows.items() if row["decision"] == "PASS"} == audit_ids, "unexpected_audit_pass_set")
+            require(all(row["reason"] == "SOURCE_UNKNOWN" for t, row in rows.items() if t not in audit_ids), "unexpected_audit_unknown_reason")
         else:
-            assert all(row["decision"] == "BLOCK" for row in rows.values())
-            assert rows["DR-01.1"]["reason"] == "TARGET_UNKNOWN"
-            assert all(row["reason"] == "SOURCE_UNKNOWN" for t, row in rows.items() if t != "DR-01.1")
-        assert report["decision"] == "BLOCK"
+            require(all(row["decision"] == "BLOCK" for row in rows.values()), "partial_gate_has_nonblocking_row")
+            require(rows[source_test]["reason"] == "TARGET_UNKNOWN", "unexpected_target_unknown_reason")
+            require(all(row["reason"] == "SOURCE_UNKNOWN" for t, row in rows.items() if t != source_test), "unexpected_source_unknown_reason")
+        require(report["decision"] == "BLOCK", "unexpected_whole_gate_decision")
 
         def rejected(callback):
             try:
@@ -186,6 +219,7 @@ def main():
             full_profile_tests=20,
             actual_audit_controls_passed=3 if args.mode == "audit-pair" else 0,
             actual_source_restore_verified=args.mode == "restore-partial",
+            retained_source_scan_loaded=args.mode == "source-scan-partial",
             unexecuted_controls_blocked=17 if args.mode == "audit-pair" else 20,
             whole_gate_decision=report["decision"],
             missing_controls_refuse_prerequisite=legitimate_block,

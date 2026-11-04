@@ -12,6 +12,34 @@ broker 메모리에만 존재하며 인증 값은 GitHub Secrets나 파일로 �
 있다. broker는 팀 구독 Secret 한 개의 Get/Put/UpdateVersionStage만 허용한다.
 두 역할 모두 immutable repository ID, STS audience, 정확한 ref에 결속한다.
 검증 브랜치의 trust는 고정 만료시각을 갖고, 운영 경로는 보호된 develop이다.
+broker 역할의 AWS trust와 전용 STS endpoint 보안 그룹은 broker용 보조 사설 IPv4만
+허용한다. T7 운영자는 비공개 `platform-aws` 변수 `subscription_broker_ipv4`에 같은
+서브넷의 미사용 주소를 지정한다. T7이 기본 ENI에 보조 주소를 할당하고 인스턴스 태그에
+용도를 기록하면, T38은 그 주소가 실제로 할당된 보조 주소인지 확인한다.
+일반 호스트와 Canal Pod가 사용하는 노드 기본 주소는 AWS에서 거부된다.
+
+이 구성은 DHCP로 기본 주소 하나를 받는 T7 Ubuntu 노드에서 사용한다. 보조 주소는
+EC2 ENI에만 할당한다. guest 인터페이스, netplan 주소 목록, 보조 주소를 자동 등록하는
+도구에 넣으면 일반 프로세스도 그 주소에 bind할 수 있어 이 배치 조건을 위반한다.
+설치기는 guest에 이미 등록된 주소를 거부한다. AMI 또는 네트워크 관리자를 바꾸면
+새 호스트에서 이 조건부터 확인한다.
+
+broker guard는 endpoint TCP 443에 한해 전달 패킷과 일반 호스트 연결을 차단한다.
+broker slice의 연결만 허용하고 같은 nft 트랜잭션에서 출발 주소를 보조 IPv4로 바꾼다.
+커널 conntrack이 응답을 원래 소켓에 전달한다. 부팅 때 guard가 없거나 처음 설치에
+실패하면 주소 변환도 생기지 않으므로 AWS가 기본 주소에서 온 연결을 막는다.
+broker는 guard 시작 성공을 요구한다. RKE2는 독립적으로 시작한다.
+
+운영 순서는 T7의 보조 주소 할당, T38의 endpoint 보안 그룹·guard·역할 trust 적용,
+broker slice 연결 성공과 일반 Pod·호스트 연결 거부 대조 순이다. 시험 Pod에서는 별도의
+허용 목적지도 연결해야 한다. Terraform 재계획과 `nft list table inet bravo_broker_sts`로
+규칙을 다시 읽는다. 사설 DNS를 끈 단일 AZ endpoint이므로 다른 STS 사용자는 기존 DNS를 쓴다.
+스택 철거 시 먼저 실행을 닫고 broker trust와 endpoint를 제거한 뒤 호스트의 전용
+guard 서비스·스크립트·slice·`sts.conf` 및 `bravo_broker_sts` 테이블을 정리한다.
+마지막에 T7의 보조 주소를 해제한다.
+
+controller는 GitHub 러너에서 같은 토큰으로 broker 역할의 직접 발급이 거부되는지 한 번 확인한다.
+그 검사에서 발급을 잘못 허용해도 시험 세션에는 모든 API를 거부하는 정책이 적용된다.
 
 `SessionDocumentAccessCheck`를 강제하여 DocumentName을 생략한 기본 shell도 거부한다.
 워크플로는 임의 shell 명령, 기본 shell session, 임의 port session, Secret 목록 조회의
@@ -47,7 +75,10 @@ uv run --directory services/agent-worker python ../../operations/subscription/in
   --settings "$PRIVATE_METADATA_JSON" --instance-id "$DESIGNATED_INSTANCE_ID"
 ```
 
-4. SSM 설치 성공과 서비스 비활성을 확인한다. GitHub repository Secrets에는
+4. broker가 비활성인 작업 창에서 Terraform 계획을 적용한다. SSM association 성공과
+   서비스의 STS endpoint 설정을 확인한 후 새 broker를 시작한다. broker 역할 ARN은
+   `terraform output -raw broker_role_arn | gh secret set BRAVO_SUBSCRIPTION_BROKER_ROLE_ARN`
+   으로 대상 저장소에 등록한다. SSM 설치 성공과 서비스 비활성을 확인한다. GitHub repository Secrets에는
    `BRAVO_SUBSCRIPTION_CONTROLLER_ROLE_ARN`, `BRAVO_SUBSCRIPTION_INSTANCE_ID` 참조만 넣는다.
    Variables에는 `BRAVO_SUBSCRIPTION_SOURCE_SHA`와 명시적 실행 허용
    `BRAVO_SUBSCRIPTION_RUNTIME_ENABLED=true`를 설정한다.
@@ -85,3 +116,11 @@ PASS는 proposal/source/attempt/evidence digest가 일치하는 receipt로 승�
 사람의 변경 승인, T10 영속 저장, 승인 이미지 빌드·T31 배포를 대신하지 않는다.
 이 어댑터는 최초 제안(attempt 1)만 받으며 실패하면 RETRY_ALLOWED를 반환한다.
 최대 3회 규칙은 기존 Coordinator가 담당하지만 이 CLI는 자동 재시도를 실행하지 않는다.
+
+### 합성 실행과 제품 입력
+
+설치된 broker의 `POST /validation/fixture`는 고정 `examples/failure.json`, snapshot manifest, `examples/source`만 읽는다. 공식 `subscription-runtime` controller가 이 경로로 요청하며, 응답의 worker 결과와 VM에 보관한 `proposal.json`에는 `input_kind=synthetic_db_host_fixture`가 붙는다. 이 표기는 합성 DB_HOST 시험 결과의 출처다. controller는 이 값과 설치 소스 SHA, 실행 ID, 검증 영수증이 일치할 때만 합성 결과를 수락한다.
+
+일반 `POST /run`은 HTTP 503과 `NEEDS_HUMAN / PRODUCT_INPUT_UNAVAILABLE`를 반환한다. 호출자가 bundle·snapshot·입력 종류를 보내도 자격 조회와 모델 실행 전에 종료한다. T11의 `FailureBundle`·`SnapshotManifest`는 검증 형식을 제공하고 T15의 `T11BucketProposer`는 주입한 coordinator를 소비한다. 현재 보호된 생산자가 제품 계획의 run ID·소스 commit·snapshot을 이 VM에 전달하는 경로는 없다. 이 연결을 마련한 뒤 제품 검증을 인수한다.
+
+교체 전에는 workflow 실행을 비활성화하고 진행 중인 broker와 터널이 정리될 때까지 기다린다. 같은 검토 commit의 VM broker와 GitHub controller를 배치하고 `BRAVO_SUBSCRIPTION_SOURCE_SHA`를 맞춘 뒤 합성 시험을 다시 연다. 새 controller가 구 broker를 호출하면 합성 전용 경로가 없어 실패하고, 구 controller가 새 broker를 호출하면 `/run`에서 503을 받는다. 구 버전 응답처럼 출처 표기가 빠진 경우에도 새 controller는 SSM verify를 접수하지 않는다. 어느 경우에도 다른 경로로 재시도하지 않는다. 교체 실패 시 workflow를 닫은 상태에서 일치하는 새 쌍을 복구한다. 구 쌍을 복원해야 하면 구 `/run`이 다시 합성 입력을 처리하므로 제품 호출은 계속 닫아 둔다.

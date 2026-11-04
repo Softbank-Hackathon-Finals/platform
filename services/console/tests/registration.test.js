@@ -27,11 +27,17 @@ const response = (value) =>
 
 test("registration accepts only fixed fields and registered aliases", () => {
   assert.deepEqual(registrationInput("environment", input), input);
+  for (const role of ["source", "target"]) {
+    const onprem = { ...input, kind: "onprem", roles: [role] };
+    assert.deepEqual(registrationInput("environment", onprem), onprem);
+  }
   for (const body of [
     { ...input, token: "secret" },
     { ...input, connection_ref: "https://foreign.invalid" },
     { ...input, roles: ["target"] },
     { ...input, kind: "gcp" },
+    { ...input, kind: "onprem", roles: ["source", "target"] },
+    { ...input, kind: "onprem-source" },
   ])
     assert.throws(() => registrationInput("environment", body));
   const app = {

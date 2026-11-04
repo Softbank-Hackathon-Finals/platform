@@ -1,0 +1,50 @@
+{
+  "normal-original": {
+    "exit": 0,
+    "status": "PASS",
+    "aws_scope_claimed": true,
+    "gate_artifact_written": true
+  },
+  "normal-timeout": {
+    "exit": 1,
+    "status": "INCOMPLETE",
+    "aws_scope_claimed": false,
+    "gate_artifact_written": false
+  },
+  "normal-pass": {
+    "exit": 1,
+    "status": "INCOMPLETE",
+    "aws_scope_claimed": false,
+    "gate_artifact_written": false
+  },
+  "optimized-original": {
+    "exit": 0,
+    "status": "PASS",
+    "aws_scope_claimed": true,
+    "gate_artifact_written": true
+  },
+  "optimized-timeout": {
+    "exit": 1,
+    "status": "INCOMPLETE",
+    "aws_scope_claimed": false,
+    "gate_artifact_written": false
+  },
+  "optimized-pass": {
+    "exit": 1,
+    "status": "INCOMPLETE",
+    "aws_scope_claimed": false,
+    "gate_artifact_written": false
+  },
+  "unit_tests_passed": 15,
+  "source_revision": "91ba726f14e72c20a491ebc04c73dffc30c62303",
+  "source_files": [
+    {
+      "path": "services/control-gate/testing/verify_live_audit_gate.py",
+      "sha256": "80a6fb470416f0bff4d7e94ec1323054c47d3ba841902c570ecb871d19647694"
+    },
+    {
+      "path": "services/control-gate/tests/test_retained_source_qualification.py",
+      "sha256": "45d839f0acebcc4f4ff657295423e673a66eed70fb0e4fd55e0883a0cc374772"
+    }
+  ]
+}

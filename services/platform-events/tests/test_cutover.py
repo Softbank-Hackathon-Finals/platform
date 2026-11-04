@@ -46,7 +46,7 @@ class Fixture:
         # Test-only prerequisite seed. No runtime route or convenience method can do this.
         with backend.admin() as c:
             c.execute("UPDATE plans SET state='SHIFT' WHERE plan_id='plan-demo'")
-        self.client = ExecutorClient("https://executor.example.invalid", token="fixture-token",
+        self.client = ExecutorClient("https://executor.example.invalid", token="fixture-read", command_token="fixture-command",
                                      transport=httpx.MockTransport(self.handle))
 
     def authority(self, c, principal, plan, *, now, approved_by, approval_id):

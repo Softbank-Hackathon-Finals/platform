@@ -45,11 +45,16 @@ def manifests(image: str, *, migration: bool = False) -> dict:
             "secretKeyRef": {"name": "cutover-executor-state", "key": "dsn"}}},
         {"name": "EXECUTOR_CONFIG", "value": "/run/executor/sites.json"},
         {"name": "EXECUTOR_API_TOKEN_FILE", "value": "/run/executor/api-token"},
+        {"name": "EXECUTOR_COMMAND_TOKEN_FILE", "value": "/run/command/token"},
         {"name": "KUBECONFIG", "value": "/run/executor/kubeconfig"},
     ]
     pod["volumes"].append({"name": "credentials", "secret": {
         "secretName": "cutover-executor-runtime", "defaultMode": 0o440}})
     container["volumeMounts"].append({"name": "credentials", "mountPath": "/run/executor", "readOnly": True})
+    pod["volumes"].append({"name": "command", "secret": {
+        "secretName": "cutover-executor-command", "items": [{"key": "token", "path": "token"}],
+        "defaultMode": 0o440}})
+    container["volumeMounts"].append({"name": "command", "mountPath": "/run/command", "readOnly": True})
     container["ports"] = [{"name": "http", "containerPort": 8080}]
     container["readinessProbe"] = {"httpGet": {"path": "/healthz", "port": "http", "scheme": "HTTPS"},
                                    "initialDelaySeconds": 3, "periodSeconds": 5}

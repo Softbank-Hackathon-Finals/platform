@@ -249,6 +249,38 @@ test("report permission loss clears the view even when plan reads still succeed"
   await expect(page.locator("#approve")).toBeDisabled();
 });
 
+test("on-prem source selection sends one role and cannot promote a target alias", async ({
+  page,
+  context,
+}) => {
+  await context.addCookies([
+    {
+      name: "fixture-session",
+      value: "test-only",
+      url: "http://127.0.0.1:18121",
+    },
+  ]);
+  await page.goto("/console/");
+  await page.locator("#registration-panel summary").click();
+  const form = page.locator("#registration-environment-form");
+  await form.locator('[name="name"]').fill("On-prem source");
+  await form
+    .locator('[name="kind"]')
+    .selectOption({ label: "온프렘 · 출발지" });
+  await form.locator('[name="connection_ref"]').fill("target-reader");
+  const response = page.waitForResponse("**/v1/environments");
+  await form.locator("button").click();
+  const result = await response;
+  expect(result.request().postDataJSON()).toEqual({
+    name: "On-prem source",
+    kind: "onprem",
+    roles: ["source"],
+    connection_ref: "target-reader",
+  });
+  expect(result.status()).toBe(409);
+  await expect(page.locator("#registration-receipts li")).toHaveCount(0);
+});
+
 test("registration recovers lost response and connects the real T10 COLLECT plan", async ({
   page,
   context,
