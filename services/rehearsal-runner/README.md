@@ -102,11 +102,26 @@ uv run --frozen --no-default-groups --with pytest pytest -p no:cacheprovider ../
 
 `bucket_verifier.BucketVerifier`는 버킷 작업과 제안의 실행 ID·원본 revision·해시를 확인하고, 검증 대상 버킷과 시험한 네임스페이스 이름·UID를 주입된 검증 Job 경계에 전달한다. Job 구현은 실행 중 같은 UID를 강제하고 자체 시험 대상·자격을 마련해야 한다. 전달 형식은 프로세스 내부의 초안이며 T38 API 계약이 아니다. 반환값은 인증되지 않은 관측값으로만 취급하고 승인으로 승격하지 않는다. 현재 Job은 테스트 모의 구현만 있으며 실제 정책 적용·T38 검증은 제공하지 않는다.
 
+`bucket_proposal_source.BoundBucketProposalSource`는 T11 결과를 재조회해 실행 ID·원본 revision·제안 digest와 단일 정책 파일 경로를 대조한 뒤 수정 내용을 전달한다. 이 조회는 T38 인증이나 실제 정책 적용 권한이 아니다.
+
 `bucket_s3.bucket_readers`는 신뢰된 세션과 시험용 엔드포인트로 서명된 읽기와 서명 없는 읽기를 별도 클라이언트로 만든다. 로컬 HTTP 시험 서버로 요청 서명 여부와 관측을 확인하며, 실제 S3 정책 적용이나 검증 권한을 제공하지 않는다.
 
 ## 자격 주입 검증 연결 초안
 
 `credential_verifier.CredentialVerifier`는 실행·원본 revision·제안 digest와 격리 네임스페이스 UID를 주입된 검증 Job 경계에 결속한다. `credential_probe.observe_credential_delivery`는 Secret 존재 확인 전후로 앱 DB 연결과 다른 서비스 계정의 접근 여부를 관측하며, 오류나 모호한 응답은 `unknown`이다. Secret 값과 자격증명은 관측 결과나 요청에 담지 않는다. 이 접점은 프로세스 내부 초안이며 T38 API 계약이나 인증된 영수증이 아니다. 현재 실제 DB·OpenBao·ESO·Kubernetes 권한 검증 구현과 T11의 demo-chat 파일 접근은 연결되지 않았다.
+
+## 개인 RKE2 버킷 통합 시험
+
+`testing/rke2_bucket_flow.py`는 개인 시험 VM에서만 사용하는 통합 시험이다. T11 검증기에는 고정된 시험 제안을 주고, T15의 실제 격리 게이트와 별도 정책 적용·읽기 검증 Job을 실행한다. 재현에는 독립 시험용 SeaweedFS 네임스페이스·버킷·Secret 및 그에 대한 신뢰된 운영자 권한이 필요하다. 실서비스 자격이나 데이터를 사용하지 않는다. 결과는 테스트 관측값으로, 실제 모델 제안·T38 인증 영수증·T10 승인 공급자를 대체하지 않는다. 검증 Job의 인증 읽기는 시험용 관리자 자격을 쓰므로 앱 전용 최소 권한 증거도 아니다.
+
+시험 스크립트는 Ubuntu VM의 `/etc/rancher/rke2/rke2.yaml`과 `kubectl`을 사용하며 VM 호스트명이 `bravo-t15-rke2`인 경우에만 실행한다. `bravo_agent`, `boto3`, `rehearsal_runner`를 포함한 Python 환경을 준비한 뒤 VM 안에서 관리자 권한으로 실행한다. 보고서 경로는 기존 파일과 겹치지 않아야 한다.
+
+```bash
+python3 testing/rke2_bucket_fixture.py --report /개인경로/fixture.json
+python3 testing/rke2_bucket_flow.py --fixture-id <fixture.json의 fixture_id> --report /개인경로/flow.json
+```
+
+첫 명령은 임의 자격과 시험 버킷을 생성하고 네임스페이스 수신을 차단한다. 둘째 명령은 공개 대조 후 제한 정책을 복원하며 리허설 네임스페이스와 임시 접근 규칙은 UID 조건으로 정리한다. 시험용 SeaweedFS 네임스페이스와 버킷은 재실행을 위해 남는다. 중단·오류 때는 보고서와 잔여 자원을 먼저 확인한다.
 
 ## T10 승인 경계 교차 시험
 

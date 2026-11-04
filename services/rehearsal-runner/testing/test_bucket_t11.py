@@ -169,3 +169,21 @@ def test_t11_proposal_reaches_bucket_observation_with_same_identity(tmp_path):
     assert job.request.source_policy_sha256 == task.source_sha256
     assert job.request.namespace == Namespace("rehearsal-test", "uid-1")
     assert lifecycle.calls == [("create", "run-1"), ("cleanup", "uid-1")]
+
+
+def test_actual_t11_proposal_can_be_resolved_by_its_digest(tmp_path):
+    from rehearsal_runner.bucket_proposal_source import BoundBucketProposalSource
+    from rehearsal_runner.bucket_verifier import BucketVerifier
+
+    task = prepare_bucket_policy_task("run-1", SOURCE, "rehearsal-test", source_sha="1" * 40)
+    coordinator = make_coordinator(tmp_path, task)
+
+    class Job:
+        def verify(self, request):
+            return BoundBucketProposalSource(coordinator, TARGET_PATH).resolve(request)
+
+    outcome = run_once(task, T11BucketProposer(coordinator, FakeProvider(), SOURCE_PATH, TARGET_PATH),
+                       MockLifecycle(), MockIsolation(), BucketVerifier(task, Job()))
+    assert outcome.state == "RECEIPT_UNVERIFIED"
+    assert outcome.untrusted_receipt.replacement == TARGET
+    assert outcome.untrusted_receipt.proposal_digest == coordinator.result()["proposal_digest"]
