@@ -23,6 +23,8 @@ class BoardCommandsTest(unittest.TestCase):
         }}
         self.board = Mock()
         self.board.pr_states = {}
+        self.board.text_values = {name: {} for name in sync.TEXT_FIELDS}
+        self.board.items = {5: ("item-5", "Backlog")}
         self.board.status.return_value = "Backlog"
         for name, value in (("load_issues", self.issues), ("Board", self.board), ("parse", {"T1": self.task})):
             p = patch.object(sync, name, return_value=value)
@@ -212,7 +214,7 @@ class PRBoardTest(unittest.TestCase):
         self.assertIn('CI 미보고', sync.pr_summary(self.pr()))
 
     def test_dry_run_does_not_write_and_ignores_fork_or_mismatched_task(self):
-        board = Mock(id='project')
+        board = Mock(id='project', items={})
         prs = [self.pr(), self.pr(headRefName='feature/T1-other'), self.pr(headRepository={'nameWithOwner': 'fork/platform'})]
         issues = {'T29': {**self.issue(), 'number': 33, 'id': 'issue'}}
         fields = {'node': {'fields': {'nodes': []}}}
@@ -221,7 +223,7 @@ class PRBoardTest(unittest.TestCase):
              patch.object(sync, 'run') as run, contextlib.redirect_stdout(io.StringIO()):
             sync.sync_prs(True)
         board.set.assert_called_once_with(33, 'issue', 'In review', 'T29 #33', True)
-        self.assertEqual(gql.call_count, 1)
+        gql.assert_not_called()
         run.assert_not_called()
 
     def test_board_pages_include_later_issue_and_ignore_pr_cards(self):
@@ -235,7 +237,7 @@ class PRBoardTest(unittest.TestCase):
         self.assertEqual(gql.call_args.kwargs['after'], 'next')
 
     def test_legacy_pr51_reaches_existing_t5_card(self):
-        board = Mock(id='project')
+        board = Mock(id='project', items={})
         pr = self.pr(number=51, title='[T5] 6개 통제 시험 설계', headRefName='t5-control-contract')
         issues = {'T5': {**self.issue(), 'number': 9, 'id': 'issue-9'}}
         with patch.object(sync, 'load_issues', return_value=issues), patch.object(sync, 'Board', return_value=board), \
