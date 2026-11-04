@@ -196,3 +196,5 @@ PYTHONPATH="$T10_CHECKOUT/services/platform-events/src:../rehearsal-runner/src" 
 ```
 
 PR #237의 수신기는 기본적으로 네트워크 경로와 운영 원문 조회기가 설치되지 않으며, 이 시험은 실제 제품 검증이나 사람 승인을 뜻하지 않는다.
+
+재시도는 T10 수신 계약에 맞춰 이전 검증 ID의 hold 커밋을 확인한 다음에만 시작한다. `T10PreviousHold`에는 T10 관리 호스트가 승인한 hold 권한과 intake를 주입한다. 응답·권한·저장 확인이 불명확하면 다음 시도를 시작하지 않는다. T15 워크로드나 모델에 hold 권한을 부여하는 설정은 이 코드에 없다.

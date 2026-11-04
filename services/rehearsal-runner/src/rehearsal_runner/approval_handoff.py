@@ -121,3 +121,34 @@ def submit_candidate(submission: CandidateSubmission, *, candidate_type, intake,
         return IntakeResult("ACKNOWLEDGED", submission.verification_id, submission.attempt, receipt["revision"])
     except Exception:
         return unknown
+
+
+@dataclass(frozen=True)
+class T10PreviousHold:
+    """Host-provided authorized hold port used before a subsequent attempt.
+
+    The credential and authorization policy belong to T10's management host;
+    this object does not make the T15 workload a hold authority.
+    """
+
+    plan_id: str
+    run_id: str
+    decision_ref: str
+    intake: object
+    credential_supplier: object
+
+    def confirm(self, run_id: str, verification_id: str) -> bool:
+        if run_id != self.run_id or any(
+            not isinstance(value, str) or re.fullmatch(_IDENTIFIER, value) is None
+            for value in (self.plan_id, self.run_id, self.decision_ref, verification_id)
+        ):
+            return False
+        try:
+            receipt = self.intake.hold(self.credential_supplier(), self.plan_id, verification_id,
+                                       decision_ref=self.decision_ref)
+            return (isinstance(receipt, dict) and set(receipt) == {"verification_id", "revision"}
+                    and receipt["verification_id"] == verification_id
+                    and isinstance(receipt["revision"], str)
+                    and re.fullmatch(r"held-[a-f0-9]{64}", receipt["revision"]) is not None)
+        except Exception:
+            return False

@@ -114,3 +114,23 @@ def test_t15_submit_adapter_calls_real_t10_intake_and_hold_blocks_it(fixture):
     intake.hold("authorized-fixture", SPEC.plan_id, submission.verification_id, decision_ref="decision-1")
     held = submit_candidate(submission, candidate_type=Candidate, intake=intake, token_supplier=lambda: token)
     assert held.state == "UNKNOWN" and held.revision is None
+
+
+def test_t15_hold_adapter_confirms_real_t10_hold_before_retry(fixture):
+    from rehearsal_runner.approval_handoff import T10PreviousHold
+
+    intake, token, _, _ = fixture
+    candidate = submitted_candidate()
+    hold = T10PreviousHold(SPEC.plan_id, candidate.run_id, "decision-1", intake, lambda: "authorized-fixture")
+    assert hold.confirm(candidate.run_id, candidate.verification_id)
+    # T10 persists a hold even if the verification has not arrived yet.
+    with pytest.raises(EventError, match="verification_held"):
+        intake.receive(token, candidate)
+
+
+def test_unauthorized_t15_hold_cannot_be_confirmed(fixture):
+    from rehearsal_runner.approval_handoff import T10PreviousHold
+
+    intake, _, _, _ = fixture
+    hold = T10PreviousHold(SPEC.plan_id, "run-fixture", "decision-1", intake, lambda: "wrong-fixture")
+    assert not hold.confirm("run-fixture", "verification-fixture-1")

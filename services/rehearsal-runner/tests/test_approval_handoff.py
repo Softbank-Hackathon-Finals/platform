@@ -105,3 +105,34 @@ def test_unknown_or_unbound_acknowledgement_never_claims_success(receipt):
     result = submit_candidate(candidate, candidate_type=Candidate, intake=Intake(),
                               token_supplier=lambda: "fixture-token")
     assert result.state == "UNKNOWN" and result.revision is None
+
+
+def test_t10_hold_confirmation_is_bound_and_does_not_expose_credential():
+    from rehearsal_runner.approval_handoff import T10PreviousHold
+
+    class Intake:
+        def __init__(self):
+            self.calls = []
+        def hold(self, credential, plan_id, verification_id, *, decision_ref):
+            self.calls.append((plan_id, verification_id, decision_ref))
+            assert credential == "fixture-token"
+            return {"verification_id": verification_id, "revision": "held-" + "a" * 64}
+    intake = Intake()
+    hold = T10PreviousHold("plan-1", "run-1", "decision-1", intake, lambda: "fixture-token")
+    assert not hold.confirm("other-run", "verification-1")
+    assert intake.calls == []
+    assert hold.confirm("run-1", "verification-1")
+    assert intake.calls == [("plan-1", "verification-1", "decision-1")]
+    assert "fixture-token" not in repr(hold)
+
+
+@pytest.mark.parametrize("receipt", [None, {}, {"verification_id": "wrong", "revision": "held-" + "a" * 64},
+                                      {"verification_id": "verification-1", "revision": "not-confirmed"}])
+def test_t10_hold_unconfirmed_on_invalid_response(receipt):
+    from rehearsal_runner.approval_handoff import T10PreviousHold
+
+    class Intake:
+        def hold(self, *args, **kwargs):
+            return receipt
+    hold = T10PreviousHold("plan-1", "run-1", "decision-1", Intake(), lambda: "fixture-token")
+    assert not hold.confirm("run-1", "verification-1")

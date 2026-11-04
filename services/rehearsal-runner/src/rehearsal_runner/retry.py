@@ -36,6 +36,13 @@ class RetryDecision:
     attempt: int
     outcome: Literal["PASS", "RETRY_ALLOWED", "NEEDS_HUMAN"]
     feedback_ref: str | None = None
+    verification_id: str | None = None
+
+
+class PreviousVerificationHold(Protocol):
+    def confirm(self, run_id: str, verification_id: str) -> bool:
+        """Confirm an authorized T10 hold was durably committed for this verification."""
+        ...
 
 
 class AttemptFactory(Protocol):
@@ -58,7 +65,10 @@ class RetryResult:
     final_attempt: AttemptResult | None = field(default=None, repr=False, compare=False)
 
 
-def run_retries(task: object, factory: AttemptFactory, assessor: ReceiptAssessor) -> RetryResult:
+def run_retries(
+    task: object, factory: AttemptFactory, assessor: ReceiptAssessor, *,
+    hold: PreviousVerificationHold | None = None,
+) -> RetryResult:
     """Run at most three attempts; never treat a result as approval authority."""
     feedback_ref = None
     for attempt in range(1, 4):
@@ -93,5 +103,15 @@ def run_retries(task: object, factory: AttemptFactory, assessor: ReceiptAssessor
         if (not isinstance(decision.feedback_ref, str)
                 or re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}", decision.feedback_ref) is None):
             return RetryResult("NEEDS_HUMAN", "RETRY_FEEDBACK_UNAVAILABLE", attempt)
+        if (not isinstance(decision.verification_id, str)
+                or re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]{0,127}", decision.verification_id) is None
+                or hold is None):
+            return RetryResult("NEEDS_HUMAN", "PREVIOUS_HOLD_UNCONFIRMED", attempt)
+        try:
+            held = hold.confirm(proposal.run_id, decision.verification_id) is True
+        except Exception:
+            held = False
+        if not held:
+            return RetryResult("NEEDS_HUMAN", "PREVIOUS_HOLD_UNCONFIRMED", attempt)
         feedback_ref = decision.feedback_ref
     raise AssertionError("unreachable")
