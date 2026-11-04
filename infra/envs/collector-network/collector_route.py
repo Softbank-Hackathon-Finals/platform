@@ -82,7 +82,7 @@ def verify_quarantine(side, readback):
         raise ValueError("exactly one applied quarantine policy required")
 
 
-def routes(side, metrics_fqdn, readback):
+def routes(side, metrics_fqdn, readback, *, existing):
     """One ProxyGroup per side so the tailnet sees the Collector, not the node or another workload."""
     verify_quarantine(side, readback)
     name = group(side)
@@ -90,7 +90,7 @@ def routes(side, metrics_fqdn, readback):
         r"bravo-metrics\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.ts\.net", metrics_fqdn
     ):
         raise ValueError("verified metrics store's exact MagicDNS FQDN required")
-    return [
+    desired = [
         {"apiVersion": "tailscale.com/v1alpha1", "kind": "ProxyGroup",
          "metadata": {"name": name, "labels": {"component": side}},
          "spec": {"type": "egress", "replicas": 1, "tags": ["tag:" + name]}},
@@ -101,6 +101,50 @@ def routes(side, metrics_fqdn, readback):
         }, "spec": {"type": "ExternalName", "externalName": "placeholder",
                     "ports": [{"name": "otlp", "port": PORT, "protocol": "TCP"}]}},
     ]
+    if not isinstance(existing, dict) or set(existing) != {"group", "service", "children"}:
+        raise ValueError("fresh group/service/child readback required (explicit null when absent)")
+    current_group, current_service, children = existing["group"], existing["service"], existing["children"]
+    if (not isinstance(children, dict) or children.get("kind") not in ("List", "ServiceList")
+            or children.get("metadata", {}).get("continue") or not isinstance(children.get("items"), list)):
+        raise ValueError("complete child Service readback required")
+    pending = []
+    for current, wanted in zip((current_group, current_service), desired, strict=True):
+        if current is None:
+            pending.append(wanted)
+            continue
+        metadata, expected_meta = current.get("metadata", {}), wanted["metadata"]
+        if (current.get("kind") != wanted["kind"] or current.get("apiVersion") != wanted["apiVersion"]
+                or metadata.get("name") != expected_meta["name"]
+                or metadata.get("namespace") != expected_meta.get("namespace")
+                or not metadata.get("uid") or not metadata.get("resourceVersion")
+                or metadata.get("deletionTimestamp")
+                or any(metadata.get("labels", {}).get(k) != v for k, v in expected_meta["labels"].items())
+                or any(metadata.get("annotations", {}).get(k) != v for k, v in expected_meta.get("annotations", {}).items())):
+            raise ValueError("existing route identity/registration mismatch")
+    if current_group is not None and any(
+            current_group.get("spec", {}).get(k) != v for k, v in desired[0]["spec"].items()):
+        raise ValueError("existing ProxyGroup differs from requested identity")
+    if current_service is not None:
+        spec = current_service.get("spec", {})
+        ports = spec.get("ports", [])
+        if (current_group is None or spec.get("type") != "ExternalName" or len(ports) != 1
+                or any(ports[0].get(k) != v for k, v in desired[1]["spec"]["ports"][0].items())
+                or ports[0].get("targetPort") not in (None, PORT)):
+            raise ValueError("existing Service/group route differs")
+        actual_name = spec.get("externalName")
+        if actual_name != "placeholder":
+            _ports(side, children)
+            names = {f"{child['metadata']['name']}.{OPERATOR_NAMESPACE}.svc{suffix}"
+                     for child in children["items"] for suffix in ("", ".cluster.local")}
+            if actual_name not in names:
+                raise ValueError("operator externalName does not reference the observed child")
+        elif children["items"]:
+            _ports(side, children)
+    elif children["items"]:
+        raise ValueError("orphan child Service is not adopted")
+    # Existing objects are read/validated only. Never reapply operator-owned
+    # externalName, including when the initial create/response was lost.
+    return pending
 
 
 def _ports(side, observed_services):
@@ -134,6 +178,7 @@ def main(argv=None):
     parser.add_argument("stage", choices=["proxy-quarantine", "routes", "collector-egress", "proxy-ingress"])
     parser.add_argument("--side", required=True, choices=SIDES)
     parser.add_argument("--policy-readback", type=Path, help="fresh full tailscale-system NetworkPolicy list")
+    parser.add_argument("--route-readback", type=Path, help="fresh group/service/children JSON; explicit null for absent objects")
     parser.add_argument("--metrics-fqdn", help="independently verified bravo-metrics.<tailnet>.ts.net")
     parser.add_argument("--transport-port", type=int, action="append",
                         help="current proxy UDP listen port; repeat for a second address family")
@@ -141,10 +186,11 @@ def main(argv=None):
     if args.stage == "proxy-quarantine":
         result = proxy_quarantine(args.side)
     elif args.stage == "routes":
-        if args.metrics_fqdn is None or args.policy_readback is None:
-            parser.error("routes requires --metrics-fqdn and --policy-readback")
+        if args.metrics_fqdn is None or args.policy_readback is None or args.route_readback is None:
+            parser.error("routes requires --metrics-fqdn, --policy-readback and --route-readback")
         result = {"apiVersion": "v1", "kind": "List", "items": routes(
-            args.side, args.metrics_fqdn, json.loads(args.policy_readback.read_text()))}
+            args.side, args.metrics_fqdn, json.loads(args.policy_readback.read_text()),
+            existing=json.loads(args.route_readback.read_text()))}
     elif args.stage == "collector-egress":
         result = collector_egress(args.side, json.load(sys.stdin))
     else:

@@ -18,6 +18,7 @@ with patch.object(sys, "path", list(sys.path)):
     SPEC.loader.exec_module(render)
 FRAGMENT = json.loads((ROOT / "infra/envs/collector-network/tailnet-fragment.json").read_text())
 FQDN = "bravo-metrics.example-tailnet.ts.net"
+EMPTY_ROUTE = {"group": None, "service": None, "children": {"kind": "ServiceList", "items": []}}
 
 
 def observed(side="source", target_port=10421, uid="00000000-0000-4000-8000-0000000000aa"):
@@ -44,7 +45,7 @@ def quarantine_readback(side="source"):
 class Routes(unittest.TestCase):
     def test_each_side_gets_its_own_proxy_identity(self):
         for side in ("source", "target"):
-            group, service = render.routes(side, FQDN, quarantine_readback(side))
+            group, service = render.routes(side, FQDN, quarantine_readback(side), existing=EMPTY_ROUTE)
             self.assertEqual(group["spec"], {"type": "egress", "replicas": 1, "tags": [f"tag:bravo-{side}-collector"]})
             self.assertEqual(service["metadata"]["namespace"], "bravo-observability")
             self.assertEqual(service["metadata"]["annotations"], {
@@ -55,9 +56,9 @@ class Routes(unittest.TestCase):
         for bad in ("bravo-metrics.ts.net", "bravo-window-intake.example-tailnet.ts.net", FQDN + ".",
                     "bravo-metrics.example-tailnet.ts.net.evil", "BRAVO-metrics.example-tailnet.ts.net", None):
             with self.assertRaises(ValueError):
-                render.routes("source", bad, quarantine_readback())
+                render.routes("source", bad, quarantine_readback(), existing=EMPTY_ROUTE)
         with self.assertRaises(ValueError):
-            render.routes("platform", FQDN, quarantine_readback())
+            render.routes("platform", FQDN, quarantine_readback(), existing=EMPTY_ROUTE)
 
 
 class Policies(unittest.TestCase):
@@ -112,9 +113,11 @@ class Policies(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             readback = Path(tmp) / "policies.json"
             readback.write_text(json.dumps(quarantine_readback()))
+            state = Path(tmp) / "route.json"
+            state.write_text(json.dumps(EMPTY_ROUTE))
             with redirect_stdout(out):
                 render.main(["routes", "--side", "source", "--metrics-fqdn", FQDN,
-                             "--policy-readback", str(readback)])
+                             "--policy-readback", str(readback), "--route-readback", str(state)])
         self.assertEqual([i["kind"] for i in json.loads(out.getvalue())["items"]], ["ProxyGroup", "Service"])
         out = io.StringIO()
         with patch.object(sys, "stdin", io.StringIO(json.dumps(observed()))), redirect_stdout(out):
@@ -129,7 +132,7 @@ class Quarantine(unittest.TestCase):
         for readback in ({}, {"kind": "NetworkPolicyList", "items": []},
                          {"kind": "NetworkPolicyList", "items": [render.proxy_quarantine("source")]}):
             with self.assertRaises(ValueError):
-                render.routes("source", FQDN, readback)
+                render.routes("source", FQDN, readback, existing=EMPTY_ROUTE)
 
     def test_bootstrap_selects_same_proxy_as_final_policy(self):
         bootstrap = render.proxy_quarantine("target")
@@ -151,20 +154,63 @@ class Quarantine(unittest.TestCase):
             data = quarantine_readback()
             mutation(data)
             with self.assertRaises(ValueError):
-                render.routes("source", FQDN, data)
+                render.routes("source", FQDN, data, existing=EMPTY_ROUTE)
         with self.assertRaises(ValueError):
-            render.routes("target", FQDN, quarantine_readback("source"))
+            render.routes("target", FQDN, quarantine_readback("source"), existing=EMPTY_ROUTE)
 
     def test_apiserver_may_omit_empty_ingress(self):
         data = quarantine_readback()
         del data["items"][0]["spec"]["ingress"]
-        self.assertEqual(len(render.routes("source", FQDN, data)), 2)
+        self.assertEqual(len(render.routes("source", FQDN, data, existing=EMPTY_ROUTE)), 2)
 
     def test_other_groups_policy_does_not_block_route(self):
         data = quarantine_readback()
         other = render.proxy_ingress("target", observed("target"), transport_ports=[41641])
         data["items"].append(other)
-        self.assertEqual(len(render.routes("source", FQDN, data)), 2)
+        self.assertEqual(len(render.routes("source", FQDN, data, existing=EMPTY_ROUTE)), 2)
+
+
+class Resume(unittest.TestCase):
+    def state(self):
+        group, service = render.routes("source", FQDN, quarantine_readback(), existing=EMPTY_ROUTE)
+        for obj in (group, service):
+            obj["metadata"].update(uid="fixture-uid", resourceVersion="7")
+        service["spec"]["externalName"] = "ts-bravo-metrics-fixture.tailscale-system.svc.cluster.local"
+        return {"group": group, "service": service, "children": observed()}
+
+    def test_operator_update_and_lost_response_resume_are_noop(self):
+        state = self.state()
+        before = copy.deepcopy(state)
+        for _ in range(2):
+            self.assertEqual(render.routes("source", FQDN, quarantine_readback(), existing=state), [])
+        self.assertEqual(state, before)
+
+    def test_partial_create_only_outputs_missing_service(self):
+        state = self.state()
+        state.update(service=None, children={"kind": "ServiceList", "items": []})
+        pending = render.routes("source", FQDN, quarantine_readback(), existing=state)
+        self.assertEqual([obj["kind"] for obj in pending], ["Service"])
+        self.assertEqual(pending[0]["spec"]["externalName"], "placeholder")
+
+    def test_pending_operator_update_keeps_original_service_untouched(self):
+        state = self.state()
+        state["service"]["spec"]["externalName"] = "placeholder"
+        state["children"]["items"] = []
+        self.assertEqual(render.routes("source", FQDN, quarantine_readback(), existing=state), [])
+
+    def test_wrong_group_child_or_route_cannot_be_adopted(self):
+        for mutation in (
+            lambda d: d["service"]["spec"].update(externalName="evil.example"),
+            lambda d: d["service"]["metadata"]["annotations"].update({"tailscale.com/proxy-group": "other"}),
+            lambda d: d["group"]["spec"].update(tags=["tag:bravo-cutover-control"]),
+            lambda d: d.update(group=None),
+            lambda d: d["children"].update(metadata={"continue": "partial"}),
+            lambda d: d["children"]["items"][0]["metadata"]["labels"].update({"tailscale.com/proxy-group": "other"}),
+        ):
+            state = self.state()
+            mutation(state)
+            with self.assertRaises(ValueError):
+                render.routes("source", FQDN, quarantine_readback(), existing=state)
 
 
 class Fragment(unittest.TestCase):
