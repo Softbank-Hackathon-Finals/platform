@@ -1,0 +1,16 @@
+{
+  "scope": "actual local T35/T14/T19 result; fixture identity and plan registration",
+  "production_authentication": false,
+  "report_sha256": "7fca01f089707f22f03867931f5e7a2c50ef6568cf8e82ba61fd55d68d4c3e54",
+  "checks": {
+    "chromium": true,
+    "webkit": true,
+    "source_dr_pass_target_unknown": true,
+    "whole_gate_block": true,
+    "unknown_source_count": 19,
+    "disabled_change_buttons": true,
+    "mutation_requests": 0,
+    "revocation_clears_report": true
+  },
+  "audit_report_regression_browsers": 2
+}
