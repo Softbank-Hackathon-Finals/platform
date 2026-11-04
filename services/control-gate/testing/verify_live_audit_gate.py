@@ -5,6 +5,7 @@ No team/cloud credentials. No operational approval or complete security PASS.
 """
 
 import argparse
+import hashlib
 import json
 import os
 import sys
@@ -18,6 +19,17 @@ from bravo_gate.contract import GateError, T5Contract, canonical, fingerprint
 from bravo_gate.models import GateContext, RunSnapshot
 from bravo_gate.service import GateService
 from bravo_gate.signatures import DOMAIN, AuthorityEnvelope, AuthorityKey, Ed25519Authority
+
+# Independently retained #216 source bytes. This qualification is tied to that
+# historical run, not a generic upload entry point or caller-supplied hash.
+RETAINED_SOURCE_SHA256 = "f426b3ee9fcf8833e5e0630c39761f7ac2e4d444fd93905880cd2f4ab3dc6a91"
+
+
+def verify_retained_source(raw: bytes) -> str:
+    digest = hashlib.sha256(raw).hexdigest()
+    if digest != RETAINED_SOURCE_SHA256:
+        raise ValueError("retained_source_digest_mismatch")
+    return digest
 
 
 def main():
@@ -57,6 +69,8 @@ def main():
         else:
             # Explicit local test inputs, not an operational upload/trust API.
             raw = {"source": args.source_run.read_bytes(), "target": args.target_run.read_bytes()}
+            if args.mode == "source-scan-partial":
+                result["source_run_sha256"] = verify_retained_source(raw["source"])
             source = json.loads(raw["source"])
             target = json.loads(raw["target"])
             assert len(source["results"]) == len(target["results"]) == 20
