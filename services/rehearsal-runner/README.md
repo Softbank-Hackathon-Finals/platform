@@ -29,3 +29,13 @@ scripts/k3d-up.sh down
 ```bash
 uv sync && uvx ruff check . && uv run pytest
 ```
+
+## T15 격리 시험 연결
+
+이미 생성한 리허설 네임스페이스를 시험하려면 다음 명령을 사용한다.
+
+```bash
+uv run python -m rehearsal_runner.isolation_cli --namespace rehearsal-demo-1 --profile profiles/k3d.env --context k3d-bravo-rehearsal
+```
+
+통과 시 namespace UID와 시험 실행 ID를 출력한다. 시험 실패·확인 불가·UID 변경·시험용 자원 정리 미확인은 BLOCK이며 종료 코드 1이다. 정리는 최대 30초 기다린다. 이 결과는 검증 Job 실행이나 승인 권한이 아니다. T38 연결 시 Job과 네임스페이스 정리는 같은 UID에 결속하고, T10 실행 권한을 별도로 확인해야 한다.
