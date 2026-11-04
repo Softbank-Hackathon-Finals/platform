@@ -96,7 +96,8 @@ python3 testing/mockenv.py down
 되돌리기(failback)는 같은 9단계를 출발지 · 목적지를 뒤바꾼 요청으로 실행한다. 사이트마다 자기 쪽 구독(목적지가 받는 구독)을
 가지므로 사전 확인 · 원상 복구 · 재시작 판정이 방향과 상관없이 같다. lease와 epoch는 DB 쌍 단위라 되돌리기는 컷오버보다
 큰 epoch로 요청한다. 영수증의 `direction`은 설정의 `origin`으로 정한다: 원래 출발지를 떠나면 `cutover`, 돌아오면
-`failback`, 둘 다 아니면 원격 조작 없이 쓰기 전 실패다. 승인 · Edge 복귀 · 기록은 상태 머신(T10)이 지휘한다.
+`failback`, 둘 다 아니면 원격 조작 없이 쓰기 전 실패다. 등록 조회(`GET /v1/resources`)도 같은 `origin`을 source로 공개한다
+(환경 이름은 고정하지 않는다. `origin`을 모르는 기록 전용 서버는 503). 승인 · Edge 복귀 · 기록은 상태 머신(T10)이 지휘한다.
 
 사전 확인 끝에 출발지 `cutover.barrier`에 시험 행을 넣고 목적지에 `path_probe_timeout_s`(기본 10초, 쓰기 정지 밖) 안에
 보이는지 확인한다([ADR-0016](../../docs/adr/0016-failback-replication-path-check.md)). 컷오버 방향에도 똑같이 적용한다.

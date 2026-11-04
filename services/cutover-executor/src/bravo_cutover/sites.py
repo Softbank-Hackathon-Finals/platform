@@ -90,16 +90,17 @@ class Config(BaseModel):
             raise ValueError("the deployed executor requires one fixed pair of environments")
         if len({s.resource_id for s in self.sites.values()}) != 2:
             raise ValueError("deployment requires two distinct database resources")
-        return registry_from_sites(self.sites)
+        return registry_from_sites(self.sites, origin=self.origin)
 
 
 def load_config(path: str | Path) -> Config:
     return Config.model_validate(json.loads(Path(path).read_text()))
 
 
-def registry_from_sites(sites: dict[str, Site]):
-    """실행기 설정의 환경 목록으로 자원 등록을 만든다(설정 파일 하나로 실행기와 API가 같은 등록을 쓴다)."""
+def registry_from_sites(sites: dict[str, Site], origin: str | None = None):
+    """실행기 설정의 환경 목록으로 자원 등록을 만든다(설정 파일 하나로 실행기와 API가 같은 등록을 쓴다).
+    origin은 설정의 원래 출발지다. 등록 조회가 이 값을 source로 공개한다."""
     from bravo_cutover.resources import Registry, Resource
 
     return Registry([Resource(environment_id=s.environment_id, resource_id=s.resource_id,
-                              connection_ref=s.connection_ref) for s in sites.values()])
+                              connection_ref=s.connection_ref) for s in sites.values()], origin=origin)

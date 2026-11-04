@@ -45,7 +45,7 @@ def create_app(store: Store | None = None, runner: Runner | None = None,
         from bravo_cutover.sites import load_config, registry_from_sites
 
         config = load_config(os.environ["EXECUTOR_CONFIG"])
-        registry = registry or registry_from_sites(config.sites)
+        registry = registry or registry_from_sites(config.sites, origin=config.origin)
         runner = runner or ThreadRunner(Cutover(store, config), store)
     if registry is None and os.environ.get("EXECUTOR_RESOURCES"):
         registry = Registry.from_file(os.environ["EXECUTOR_RESOURCES"])
