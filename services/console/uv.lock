@@ -78,10 +78,25 @@ dev = [
 ]
 
 [[package]]
+name = "bravo-observability"
+version = "0.1.0"
+source = { git = "https://github.com/Softbank-Hackathon-Finals/platform.git?subdirectory=services%2Fobservability&rev=020c6c78bdc6133ab0ee15e2a990bb9527b3182f#020c6c78bdc6133ab0ee15e2a990bb9527b3182f" }
+
+[package.optional-dependencies]
+api = [
+    { name = "fastapi" },
+    { name = "httpx" },
+    { name = "jsonschema" },
+    { name = "rfc3339-validator" },
+    { name = "uvicorn" },
+]
+
+[[package]]
 name = "bravo-platform-events"
 version = "0.1.0"
 source = { directory = "../platform-events" }
 dependencies = [
+    { name = "bravo-observability", extra = ["api"] },
     { name = "fastapi" },
     { name = "httpx" },
     { name = "jsonschema" },
@@ -91,6 +106,7 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
+    { name = "bravo-observability", extras = ["api"], git = "https://github.com/Softbank-Hackathon-Finals/platform.git?subdirectory=services%2Fobservability&rev=020c6c78bdc6133ab0ee15e2a990bb9527b3182f" },
     { name = "fastapi", specifier = ">=0.115" },
     { name = "httpx", specifier = ">=0.27" },
     { name = "jsonschema", specifier = ">=4.23" },
