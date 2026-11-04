@@ -36,9 +36,23 @@ def queue_packets(mbit, delay_ms):
     return round(mbit * 1_000_000 / 8 * (delay_ms / 1000 + QUEUE_SECONDS) / MTU_BYTES)
 
 
-def shaping_script(interface, shaping):
+def require_interface(interface):
     if not re.fullmatch(r"[a-z0-9]{1,15}", interface):
         raise ValueError("unexpected interface name")
+    return interface
+
+
+def link_down_script(interface, loss_pct):
+    """Silent loss, not a closed port: neither side is told, which is how a real path failure looks."""
+    return f"tc qdisc replace dev {require_interface(interface)} root netem loss {loss_pct}%"
+
+
+def link_up_script(interface, shaping):
+    return shaping_script(interface, shaping) if shaping else f"tc qdisc del dev {require_interface(interface)} root"
+
+
+def shaping_script(interface, shaping):
+    require_interface(interface)
     delay_ms = shaping["rtt_ms"] // 2  # Applied once per direction, so the two sides add up to the RTT.
     rate = f"{shaping['mbit']}mbit"
     # Offload off so the queue limit counts real packets rather than 64 KB segments.
@@ -82,9 +96,10 @@ def machine_load():
 
 
 class Lab:
-    def __init__(self, shaping):
+    def __init__(self, shaping, parameters=None):
         prefix = f"t8-lag-{uuid.uuid4().hex[:8]}"
         self.shaping = shaping
+        self.parameters = {**DB_PARAMETERS, **(parameters or {})}
         self.prefix = prefix
         self.control_network, self.wan_network = f"{prefix}-ctl", f"{prefix}-wan"
         self.names = {"source": f"{prefix}-src", "target": f"{prefix}-dst"}
@@ -114,7 +129,7 @@ class Lab:
             docker("network", "rm", require_owned_name(network), check=False)
 
     def _start(self, side, name):
-        settings = [item for key, value in DB_PARAMETERS.items() for item in ("-c", f"{key}={value}")]
+        settings = [item for key, value in self.parameters.items() for item in ("-c", f"{key}={value}")]
         # Trust stays inside a throwaway container bound to loopback; no credential exists to leak.
         self.containers.append(require_owned_name(name))
         docker("run", "-d", "--name", name, "--network", self.control_network, *DB_LIMITS,
@@ -151,8 +166,27 @@ class Lab:
             self.containers.append(name)
         return docker(*args, SHAPER_IMAGE, *command)
 
-    def dsn(self, side):
-        return f"host=127.0.0.1 port={self.ports[side]} dbname=chat user=postgres"
+    def dsn(self, side, user="postgres", dbname="chat"):
+        return f"host=127.0.0.1 port={self.ports[side]} dbname={dbname} user={user}"
+
+    def _link(self, script_for):
+        """Both directions, through a sidecar kept running: a new container per change would blur the timing."""
+        for side in self.names:
+            name = f"{self.prefix}-{side[:3]}-link"
+            if name not in self.containers:
+                self._sidecar(side, "sleep", "86400", cap_add=True, detach=True, suffix="link")
+            docker("exec", name, "sh", "-c", script_for(self.wan[side]["interface"]))
+
+    def link_down(self, loss_pct=100):
+        self._link(lambda interface: link_down_script(interface, loss_pct))
+
+    def link_up(self):
+        self._link(lambda interface: link_up_script(interface, self.shaping))
+
+    def log_lines(self, side):
+        # The database logs to stderr, which docker() does not return.
+        done = subprocess.run(["docker", "logs", self.names[side]], capture_output=True, text=True, check=True)
+        return (done.stdout + done.stderr).splitlines()
 
     def tx_bytes(self, side):
         interface = self.wan[side]["interface"]
