@@ -24,6 +24,7 @@ python3 infra/envs/cutover-access/verify.py \
 `--identity-namespace`로 지정한다. 기본 SA는 각 namespace의 `bravo-executor`와
 `bravo-collector`이며 T7 배포가 먼저 있어야 한다. 검증자는 TokenRequest 가능한 운영자다.
 검증에 발급한 토큰을 파일로 저장하거나 커밋하지 않는다.
+본인 토큰 발급 거부는 workload namespace가 아니라 해당 ServiceAccount의 namespace에서 검사한다.
 
 목적지 앱이 아직 배포되지 않은 준비 단계에는 두 명령 모두 `--app-pod` 대신
 `--pooler-only`를 명시할 수 있다. 이 모드는 현재 풀러 하나에만 exec를 부여하며

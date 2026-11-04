@@ -56,14 +56,14 @@ def verify(kubeconfig, namespace, configmap, app_pods, pooler_pod, db_pod,
     for identity in ("bravo-executor", "bravo-collector"):
         config = token_config(kubeconfig, identity_namespace or namespace, identity)
 
-        def call(*args, token_config_json=config):
-            return run(["kubectl", "--kubeconfig", "/dev/stdin", "--namespace", namespace, *args], token_config_json)
+        def call(*args, token_config_json=config, target_namespace=namespace):
+            return run(["kubectl", "--kubeconfig", "/dev/stdin", "--namespace", target_namespace, *args], token_config_json)
 
-        def can(verb, resource, subresource=None):
+        def can(verb, resource, subresource=None, target_namespace=namespace):
             args = ("auth", "can-i", verb, resource)
             if subresource:
                 args += ("--subresource=" + subresource,)
-            result = call(*args)
+            result = call(*args, target_namespace=target_namespace)
             if result.returncode == 0 and result.stdout.strip() == "yes":
                 return True
             if result.returncode == 1 and result.stdout.strip() == "no":
@@ -85,7 +85,8 @@ def verify(kubeconfig, namespace, configmap, app_pods, pooler_pod, db_pod,
         checks[prefix + "_pod_create_denied"] = not can("create", "pods")
         checks[prefix + "_rbac_patch_denied"] = not can("patch", "roles.rbac.authorization.k8s.io")
         checks[prefix + "_token_issue_denied"] = not can(
-            "create", "serviceaccounts/" + identity, subresource="token")
+            "create", "serviceaccounts/" + identity, subresource="token",
+            target_namespace=identity_namespace or namespace)
         checks[prefix + "_other_config_patch_denied"] = not can("patch", "configmaps/cutover-unrelated")
         if identity == "bravo-executor":
             checks["executor_exact_config_get"] = call("get", "configmap", configmap, "-o", "name").returncode == 0

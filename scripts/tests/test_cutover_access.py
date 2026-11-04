@@ -94,6 +94,41 @@ class CutoverAccessTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 access.render(ns, "pooler-config", ["app-a"], "pooler-a")
 
+    def test_own_token_grant_is_checked_in_the_identity_namespace(self):
+        for token_holder in (None, "bravo-executor", "bravo-collector"):
+            with self.subTest(token_holder=token_holder):
+                token_queries = []
+
+                def call(args, payload=None, token_queries=token_queries, token_holder=token_holder):
+                    namespace = args[args.index("--namespace") + 1]
+                    verb = args[args.index("--namespace") + 2]
+                    if verb == "auth":
+                        if "--subresource=token" in args:
+                            token_queries.append((namespace, payload))
+                            allowed = namespace == "platform-access" and payload == token_holder
+                        else:
+                            allowed = ("configmaps/pooler-config" in args or "--subresource=exec" in args) and payload == "bravo-executor"
+                        return CompletedProcess(args, 0 if allowed else 1, "yes" if allowed else "no", "")
+                    if verb == "get" and args[-1] == "name" and ("pods" in args or payload == "bravo-executor"):
+                        return CompletedProcess(args, 0, "name", "")
+                    if verb == "exec" and "pooler" in args and payload == "bravo-executor":
+                        return CompletedProcess(args, 0, "writable", "")
+                    return CompletedProcess(args, 1, "", "Forbidden")
+
+                with patch.object(verify, "token_config", side_effect=lambda _k, _n, identity: identity), patch.object(
+                    verify, "run", side_effect=call
+                ):
+                    report = verify.verify(
+                        "private", "target-dev", "pooler-config", [], "pooler", "db", "pooler",
+                        identity_namespace="platform-access", check_app=False,
+                    )
+                self.assertEqual(report["passed"], token_holder is None)
+                self.assertEqual(token_queries, [
+                    ("platform-access", "bravo-executor"), ("platform-access", "bravo-collector"),
+                ])
+                for identity in ("executor", "collector"):
+                    self.assertEqual(report["checks"][identity + "_token_issue_denied"], "bravo-" + identity != token_holder)
+
     def test_replacement_does_not_inherit_exec(self):
         rules = access.render("source-dev", "pooler-config", ["app-old"], "pooler-old")["items"][0]["rules"]
         allowed = rules[1]["resourceNames"]
