@@ -1,0 +1,22 @@
+{
+  "image": "otel/opentelemetry-collector-contrib@sha256:340c9ca6a36617084c6661bdc4f0fe92b7cda5a805d61673ec8db375fddc522b",
+  "synthetic_input": true,
+  "cloud_resources_changed": false,
+  "mtls_forwarding": true,
+  "checkpoint_files_present": true,
+  "outage_and_sender_crash_recovery": true,
+  "collector_rejects_wrong_ca_and_recovers": true,
+  "receiver_rejects_unregistered_client_issuer": true,
+  "rename_rotation": true,
+  "redaction": true,
+  "exact_pod_uid_scope": true,
+  "collector_bound_origin": true,
+  "received_records": 11,
+  "status": "PASS",
+  "implementation_commit": "c15abba",
+  "source_sha256": {
+    "services/control-runner/src/bravo_controls/audit_forwarding.py": "613002082abd5e435a57fc9dc5465c975fcff6cb1ae9b2d567dbeb458e4e31f3",
+    "services/control-runner/tests/integration/verify_audit_collector.py": "abcc087b6b4dd05df2df3bb2fc93c74a6ff7ec15f6e5d11d51d3a04de29b047b"
+  },
+  "recorded_at": "2026-11-03T11:40:35.142198+00:00"
+}

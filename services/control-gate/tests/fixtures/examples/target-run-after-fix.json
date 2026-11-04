@@ -1,0 +1,69 @@
+{
+  "kind": "control_run",
+  "schema_version": "1",
+  "run_id": "run-tgt-0002",
+  "environment": {
+    "id": "env-onprem",
+    "role": "target",
+    "ref": "onprem:rke2/target"
+  },
+  "app": "demo-chat",
+  "started_at": "2026-11-04T11:30:00Z",
+  "finished_at": "2026-11-04T11:34:05Z",
+  "results": [
+    {
+      "test_id": "IAM-01.1",
+      "control_id": "IAM-01",
+      "method_version": "1",
+      "expected": "deny",
+      "observed": "deny",
+      "positive_control": "pass",
+      "verdict": "PASS",
+      "unknown_reason": null,
+      "evidence": {
+        "collected_at": "2026-11-04T11:30:00Z",
+        "expires_at": "2026-11-05T11:30:00Z",
+        "tool": "curl",
+        "command": "curl -s -o /dev/null -w '%{http_code}' http://<seaweedfs-s3>:8333/demo-chat-attachments/attachments/<id>",
+        "output_sha256": "sha256:9bd83629eba1bf3a48aa580945ebff81fb9099fa0ec512519894120eea6bc895",
+        "excerpt": "anonymous GET -> 403 AccessDenied; app credential GET -> 200"
+      }
+    },
+    {
+      "test_id": "SEC-01.1",
+      "control_id": "SEC-01",
+      "method_version": "1",
+      "expected": "deny",
+      "observed": "deny",
+      "positive_control": "pass",
+      "verdict": "PASS",
+      "unknown_reason": null,
+      "evidence": {
+        "collected_at": "2026-11-04T11:30:00Z",
+        "expires_at": "2026-11-05T11:30:00Z",
+        "tool": "bao",
+        "command": "bao kv get secret/demo-chat/db (token: other-app SA)",
+        "output_sha256": "sha256:9850993bdd8f04244db7b238547dd1290e276bd586ce2de2afdca6b0712d47de",
+        "excerpt": "other-app SA -> 403 permission denied; app SA -> 200 (value not recorded)"
+      }
+    },
+    {
+      "test_id": "AUD-01.1",
+      "control_id": "AUD-01",
+      "method_version": "1",
+      "expected": "present",
+      "observed": "present",
+      "positive_control": "not_applicable",
+      "verdict": "PASS",
+      "unknown_reason": null,
+      "evidence": {
+        "collected_at": "2026-11-04T11:30:00Z",
+        "expires_at": "2026-11-05T11:30:00Z",
+        "tool": "kubectl",
+        "command": "kubectl logs -n logging deploy/collector | grep audit-canary-7f3a",
+        "output_sha256": "sha256:c965a70a0ec999a84531b0eaf9cb54dc6de4c180811eef3d262dd22d2cf6a01c",
+        "excerpt": "LOG:  connection authorized: user=postgres database=chat application_name=audit-canary-7f3a"
+      }
+    }
+  ]
+}

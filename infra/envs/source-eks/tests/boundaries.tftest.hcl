@@ -36,6 +36,14 @@ run "private_encrypted_audited_cluster" {
     condition     = !contains(keys(aws_iam_role_policy_attachment.node), "AmazonEKS_CNI_Policy")
     error_message = "CNI permissions must remain on its own workload role."
   }
+  assert {
+    condition     = jsondecode(aws_eks_addon.cni.configuration_values).enableNetworkPolicy == "true"
+    error_message = "NetworkPolicy objects require the VPC CNI enforcement feature to be explicitly enabled."
+  }
+  assert {
+    condition     = aws_eks_addon.cni.resolve_conflicts_on_update == "PRESERVE" && aws_eks_addon.cni.addon_version == var.vpc_cni_version
+    error_message = "CNI updates must preserve managed-field conflicts and retain the reviewed version input."
+  }
 }
 run "session_arn_rejected" {
   command = plan
