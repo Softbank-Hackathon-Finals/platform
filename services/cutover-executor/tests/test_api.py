@@ -321,3 +321,38 @@ def test_requests_not_bound_to_registered_resources_are_rejected(client, runner,
     response = post(client, "k1", body(source=source, target=target))
     assert response.status_code == 422 and response.json()["detail"]["code"] == code
     assert runner.submitted == []
+
+
+@pytest.mark.parametrize("change", [
+    {"source": {"environment_id": "alias", "connection_ref": "secret/source"}},
+    {"target": {"environment_id": "third", "connection_ref": "secret/target"}},
+    {"source": {"environment_id": "env-aws", "connection_ref": "secret/target"}},
+    {"target": {"environment_id": "env-aws", "connection_ref": "secret/source"}},
+])
+def test_only_registered_database_pair_can_acquire_lease(client, store, runner, change):
+    response = post(client, "bad-pair", body(**change))
+    assert response.status_code == 422
+    assert runner.submitted == []
+    assert store.find("plan-demo", 1) == []
+    assert post(client, "good-pair", body()).status_code == 202
+
+
+def test_read_only_app_rejects_post_without_creating_execution(store, monkeypatch):
+    monkeypatch.delenv("EXECUTOR_CONFIG", raising=False)
+    client = TestClient(create_app(store))
+    response = post(client, "not-configured", body())
+    assert response.status_code == 503
+    assert response.json()["detail"]["code"] == "executor_not_configured"
+    assert store.find("plan-demo", 1) == []
+
+
+def test_authentication_guards_reads_and_writes(store, runner):
+    client = TestClient(create_app(store, runner, registry=REGISTRY, api_token="local-test-only"))
+    assert client.get("/healthz").status_code == 200
+    for headers in ({}, {"Authorization": "Bearer wrong"}):
+        assert client.get("/v1/cutovers?plan_id=plan-demo&epoch=1", headers=headers).status_code == 401
+        assert client.post("/v1/cutovers", json=body(), headers=headers).status_code == 401
+    assert runner.submitted == []
+    headers = {"Authorization": "Bearer local-test-only", "Idempotency-Key": "authorized"}
+    assert client.post("/v1/cutovers", json=body(), headers=headers).status_code == 202
+    assert client.get("/v1/cutovers?plan_id=plan-demo&epoch=1", headers=headers).status_code == 200

@@ -1,0 +1,27 @@
+{
+  "status": "PASS",
+  "http": {
+    "long_timestamp": 422,
+    "accepted": 201,
+    "duplicate": 409,
+    "wrong_token": 401,
+    "other_plan": 404,
+    "other_tag": "tcp_timeout",
+    "revoked": 403
+  },
+  "stored_readback": true,
+  "pod_restart_preserved_window": true,
+  "received_at_server_owned": true,
+  "synthetic_binding_revoked": true,
+  "actual_t18_ec2_tested": false,
+  "runtime_permission_denials": {
+    "ddl": true,
+    "window_update": true,
+    "journal_delete": true
+  },
+  "denied_peer_ready_and_tag_verified": true,
+  "document_sha256": "5d8806c83c680577453212f1299a766e8e28f046abe082b261579a06bc53d9f6",
+  "observed_start": "2026-11-04T04:04:14.247Z",
+  "observed_end": "2026-11-04T04:04:49.247Z",
+  "ssm_status": "Success"
+}

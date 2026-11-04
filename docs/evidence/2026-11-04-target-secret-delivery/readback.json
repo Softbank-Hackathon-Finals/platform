@@ -1,0 +1,213 @@
+{
+  "schema_version": 1,
+  "published_at": "2026-11-03T15:16:23.915685+00:00",
+  "scope": "Development target secret delivery and dedicated platform state DB policies; not full application or cutover completion",
+  "public_is_raw": false,
+  "private_originals": [
+    {
+      "artifact": "initialization-receipt.json",
+      "sha256": "ea8d91720a19087e7f5443942c2da149fbbe6d502408969722db0f6da25d5202"
+    },
+    {
+      "artifact": "migration-receipt.private.json",
+      "sha256": "a63114162a603e921722f6df1ee27d6afb1f3ce043f137ce43b528cf85760bc8"
+    },
+    {
+      "artifact": "delivery-verification.json",
+      "sha256": "080cff19dcaf0376c0cbf4d018f17eafe9e67fba7edcef635647eb3ae45017db"
+    },
+    {
+      "artifact": "refresh-propagation.json",
+      "sha256": "2b1e2330e6c5bf5a91748f5425de621f8ea385f379f0e195872b9794acc4a61d"
+    },
+    {
+      "artifact": "consumer-probe-cleanup.json",
+      "sha256": "9a2b261a9336f1ef6b2d7e7f26baa6653a61165eb4bacaceba36d312d3dff748"
+    },
+    {
+      "artifact": "nonroot-strict-tls-rollout.json",
+      "sha256": "5d00b1409cb6900efbf0b64f0cdc4a91787b7a3553501f234a1a62753084a553"
+    },
+    {
+      "artifact": "tls-strict-repair.json",
+      "sha256": "2afa17d72d5d1135de509d2242c10925879712b44740a98087bfcf54be9b2def"
+    },
+    {
+      "artifact": "openbao-build-nonroot-receipt.json",
+      "sha256": "ac7903eb263620856273d01859800cd99fb72ac3e7fcd2cb84003500d51d7376"
+    },
+    {
+      "artifact": "openbao-fixed-nonroot-scan.private.json",
+      "sha256": "0760d98283d963d3ebbb9ae2b4bb37f4af3fb6849274c4b65c7ec5edcab3062e"
+    },
+    {
+      "artifact": "eso-scan-v2.private.json",
+      "sha256": "690ecd111086783577f788f3c70f593f6e0210aa04516becfd751299fbb72a2c"
+    },
+    {
+      "artifact": "nonroot-config-scan.log",
+      "sha256": "78eb3917b5ff03e40f6c8137cd24324e2d99c3e81caaf10a434f837936c01f8e"
+    },
+    {
+      "artifact": "platform-network-readback.private.json",
+      "sha256": "544d0b0485e94d1006d7eb9aa8a883e8fa2ca3ff81dd59177ad15f093dbb1c44"
+    }
+  ],
+  "migration": {
+    "at": "2026-11-03T14:47:40.926250+00:00",
+    "source_mutations": 0,
+    "secret_value_files": 0,
+    "destination_db_version": 1,
+    "destination_object_version": 1,
+    "destination_admin_version": 1,
+    "eso_delivery_applied": true
+  },
+  "source_version_contract": "Exact VersionId plus AWSCURRENT; source secret identifier and version retained only in private original",
+  "consumer": {
+    "at": "2026-11-03T15:12:25.148895+00:00",
+    "checks": {
+      "https_health_before": true,
+      "unauthenticated_read_denied": true,
+      "wrong_service_account_denied": true,
+      "selected_sa_login": true,
+      "no_default_policy": true,
+      "authorized_read": true,
+      "memory_transfer_equal": true,
+      "projected_json_equal": true,
+      "projected_admin_equal": true,
+      "other_path_denied": true,
+      "credential_overwrite_denied": true,
+      "token_creation_denied": true,
+      "untrusted_ca_denied": true,
+      "wrong_hostname_denied": true,
+      "https_health_after": true,
+      "object_delivery_equal": true,
+      "target-eso-reader_secret_boundary_denied": true,
+      "target-openbao_secret_boundary_denied": true,
+      "external-secrets_secret_boundary_denied": true
+    },
+    "passed": true,
+    "probe_image": "ghcr.io/softbank-hackathon-finals/demo-chat@sha256:001adc35a9fc767566552fb55c3c19a67b7c5efc7231fb02dc28cdeace99d0d4",
+    "secret_value_output": false,
+    "app_lifespan_executed": false
+  },
+  "restart": {
+    "at": "2026-11-03T15:10:27.275518+00:00",
+    "image": "localhost/bravo-openbao:2.7.2-bravo.3-nonroot@sha256:c85ac2d5f89ac756c3e0b448377ce125b007e9563b03ceb31afafafa3df12bec",
+    "pvc_uid_unchanged": true,
+    "initialized_before_unseal": true,
+    "sealed_after_restart": true,
+    "same_initialization_recovered": true,
+    "all_three_kv_data_and_metadata_unchanged": true,
+    "ready": true,
+    "secret_values_output": false
+  },
+  "strict_tls": {
+    "at": "2026-11-03T15:06:03.269253+00:00",
+    "same_ca_key": true,
+    "same_leaf_key": true,
+    "ca_ski_aki": true,
+    "leaf_ski_aki_keyusage": true,
+    "local_openssl_x509_strict": true,
+    "ca_sha256": "6f5185f11ba0c58ad847d6f171c071187707260f8c55269b3a3dec7cc9785b44",
+    "leaf_sha256": "2c78bd04bb9e26defe25f658f55b9abcb3d07e8ae145341afe0f80ade69167db",
+    "private_key_files": 0
+  },
+  "refresh": {
+    "at": "2026-11-03T15:14:48.777220+00:00",
+    "unused_destination_admin_only": true,
+    "source_mutations": 0,
+    "cas_old_version": 1,
+    "cas_new_version": 2,
+    "kubernetes_secret_equal": true,
+    "secret_uid_unchanged": true,
+    "secret_resource_version_changed": true,
+    "projected_rotation_equal": true,
+    "elapsed_seconds": 22.23,
+    "operator_total_seconds": 54.65,
+    "app_cache_behavior_tested": false,
+    "secret_values_output": false
+  },
+  "cleanup": {
+    "at": "2026-11-03T15:14:57.907194+00:00",
+    "pod_and_policy_uid_preconditions": true,
+    "resources_deleted": 2
+  },
+  "images": {
+    "openbao": {
+      "source_commit": "9e0a0d3c3504a0a00b45e61355afac5e35c78379",
+      "patch_sha256": "15216d126ddc44cc9b585d37e4c33a01913cf68e4d3682a08f18755a0dbd42c5",
+      "toolchain": "go1.27.3",
+      "build_flags": [
+        "-p",
+        "3",
+        "-trimpath",
+        "-buildvcs=false",
+        "-tags",
+        "openbao",
+        "-ldflags",
+        "-s -w -X github.com/openbao/openbao/v2/internal/version.fullVersion=2.7.2 -X github.com/openbao/openbao/v2/internal/version.GitCommit=9e0a0d3c3504a0a00b45e61355afac5e35c78379+bravo-go-jose-4.1.6 -X github.com/openbao/openbao/v2/internal/version.CommitDate=2026-10-26T20:32:27+01:00 -X github.com/openbao/openbao/v2/internal/version.VersionMetadata=bravo.3"
+      ],
+      "binary_sha256": "b2f96895f1f83dda489f20ff1c4c6d333d76ef642ba497a4afbf7161424fafcf",
+      "image_digest": "sha256:c85ac2d5f89ac756c3e0b448377ce125b007e9563b03ceb31afafafa3df12bec",
+      "version_probe": "OpenBao v2.7.2+bravo.3 (9e0a0d3c3504a0a00b45e61355afac5e35c78379+bravo-go-jose-4.1.6), committed 2026-10-26T20:32:27+01:00",
+      "vulnerability_secret_scan_exit": 0,
+      "at": "2026-11-03T15:05:06.572465+00:00",
+      "image_packaging_revision": "bravo.3-nonroot",
+      "image_user": "100:1000",
+      "dockerfile_sha256": "f69a253c49a3fabe532d6fefdcfb4ada1242e46a2379a7eb8e7be50b4c9bca8e"
+    },
+    "openbao_scan": {
+      "fixable_high_critical_findings": 0,
+      "secret_findings": 0,
+      "coverage": [
+        {
+          "type": "alpine",
+          "class": "os-pkgs"
+        },
+        {
+          "type": "gobinary",
+          "class": "lang-pkgs"
+        }
+      ],
+      "report_sha256": "0760d98283d963d3ebbb9ae2b4bb37f4af3fb6849274c4b65c7ec5edcab3062e"
+    },
+    "eso_scan": {
+      "fixable_high_critical_findings": 0,
+      "secret_findings": 0,
+      "coverage": [
+        {
+          "type": "debian",
+          "class": "os-pkgs"
+        },
+        {
+          "type": "gobinary",
+          "class": "lang-pkgs"
+        }
+      ],
+      "report_sha256": "690ecd111086783577f788f3c70f593f6e0210aa04516becfd751299fbb72a2c"
+    },
+    "dockerfile_high_critical_misconfigurations": 0
+  },
+  "platform_state_network": {
+    "at": "2026-11-03T14:35:29.091676+00:00",
+    "new_policies": 2,
+    "existing_policy_specs_unchanged": true,
+    "namespace_pod_combined_selectors": true,
+    "sql_or_secret_mutations": 0,
+    "actual_network_probe_executed": false
+  },
+  "not_verified": [
+    "unchanged demo-chat full application startup",
+    "approved T15 translation or T31 image rollout",
+    "application 300-second credential-cache refresh",
+    "full T9 transit/security gate/HA/off-host backup/automatic unseal",
+    "full SQL cutover or traffic SHIFT",
+    "actual Executor Pod traffic through platform-state policies"
+  ],
+  "publication_code_sha256": {
+    "infra/envs/target-secrets/render.py": "1c94bac91047a4347b7b32111fc1b4a2771daa0daf944cc928bf4cd4ccaff3f8",
+    "infra/envs/target-secrets/image/Dockerfile": "f69a253c49a3fabe532d6fefdcfb4ada1242e46a2379a7eb8e7be50b4c9bca8e",
+    "infra/envs/executor-network/render.py": "92c483ac0b6df7c4cea6c6ddbcf26f9f5d8d03dbf532c588306014003b44a8e9"
+  }
+}

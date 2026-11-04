@@ -28,6 +28,26 @@ app_probe = module("source_app_probe", "infra/envs/source-workloads/app_probe.py
 
 
 class WorkloadTests(unittest.TestCase):
+    def test_pooler_config_is_seeded_into_writable_volume_without_rollout_overlap(self):
+        config, deploy, _ = render.pooler()
+        self.assertEqual(deploy["spec"]["replicas"], 1)
+        self.assertEqual(deploy["spec"]["strategy"], {"type": "Recreate"})
+        pod = deploy["spec"]["template"]["spec"]
+        volumes = {item["name"]: item for item in pod["volumes"]}
+        self.assertEqual(volumes["config"]["emptyDir"], {})
+        self.assertEqual(volumes["config-seed"]["configMap"]["name"], config["metadata"]["name"])
+        init = pod["initContainers"][0]
+        self.assertEqual(init["image"], pod["containers"][0]["image"])
+        self.assertEqual(init["volumeMounts"][0]["readOnly"], True)
+        self.assertIn("chmod 600", init["command"][-1])
+        mounts = {m["name"]: m for m in pod["containers"][0]["volumeMounts"]}
+        self.assertFalse(mounts["config"].get("readOnly", False))
+        self.assertNotIn("config-seed", mounts)
+        for volume in ("auth", "ca", "tls"):
+            self.assertTrue(mounts[volume]["readOnly"])
+        self.assertIn("server_login_retry = 2", config["data"]["pgbouncer.ini"])
+        self.assertIn("admin_users = cutover_control", config["data"]["pgbouncer.ini"])
+
     def probe_restore_case(self, restore_timeouts=0, accept_wrong_admin=False,
                            restore_error=None, restore_readback=None):
         state = {"blocked": True, "restore_attempts": 0}

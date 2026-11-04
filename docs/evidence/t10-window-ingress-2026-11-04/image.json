@@ -1,0 +1,120 @@
+{
+  "image": "bravo-window-intake:source-10217cc7bc32b5d7f62024141acc9ab6875d43f811db8b8def9b3755bfcdd213",
+  "image_id": "sha256:8204533e4e3a8d511e95954f069d60a77c02ac9fc469020e58d802fa658a113b",
+  "platform": "linux/amd64",
+  "archive_sha256": "b2eabbcbcdb1c1ada55bf2141d58ae16842c3d08de0f401528525b837c1a10ab",
+  "source_sha256": [
+    {
+      "path": "Dockerfile",
+      "sha256": "0a8df9fe5e142ec27a3a6dfaa0acebc298988d21420b41907ec4e17ae2133cab"
+    },
+    {
+      "path": "requirements.txt",
+      "sha256": "cd02d96e7bce8a48d52cab28555b433057ceeb1a606ea234f9643a6d4e71a562"
+    },
+    {
+      "path": "src/bravo_platform_events/__init__.py",
+      "sha256": "b8cac0fc14f60759a2637ed97e2d00ae463d1192b267d470afb8b06fd4b4e68b"
+    },
+    {
+      "path": "src/bravo_platform_events/api.py",
+      "sha256": "50216355cf835a07c48206600df60a668d52323de5b951a3b9a334a19132627e"
+    },
+    {
+      "path": "src/bravo_platform_events/contract.py",
+      "sha256": "121ca19facf8aa39ed727caf41267f090ee8b5c6289976171e74c761805508ce"
+    },
+    {
+      "path": "src/bravo_platform_events/cutover.py",
+      "sha256": "116f2e518d627e0bc50c25d91960983af9655c792a483424c79520508361ccf1"
+    },
+    {
+      "path": "src/bravo_platform_events/cutover_api.py",
+      "sha256": "30deed70ba779bfd419e24a9f59534a9eddec5ad74b1a71754c8306b8d260c32"
+    },
+    {
+      "path": "src/bravo_platform_events/executor.py",
+      "sha256": "9612975396242417129151b17a1b2cad526f36d08f0fade50df2d717a0b18b6f"
+    },
+    {
+      "path": "src/bravo_platform_events/operator_access.py",
+      "sha256": "1aa4a2dae4b2ef45669f15584a624b55242efff71e8615850798107fd378defa"
+    },
+    {
+      "path": "src/bravo_platform_events/operator_identity.py",
+      "sha256": "6563828a73dae011fdb0d766b5fc3357117d0258189f77f5ed4cd5b0071f3b97"
+    },
+    {
+      "path": "src/bravo_platform_events/plan_api.py",
+      "sha256": "cefe17ea5884eb3279a330ca475a8adfe5f356d92023653f71643eefd9942929"
+    },
+    {
+      "path": "src/bravo_platform_events/plans.py",
+      "sha256": "a965b3740e6d886125e03f1b8bd1ff028738c54b7accd1d5b86126f24e9d8fb7"
+    },
+    {
+      "path": "src/bravo_platform_events/postgres.py",
+      "sha256": "b2bdb915ccc7898d991d03a06d39fce391c76afeada2cfb3ac4981acbab32371"
+    },
+    {
+      "path": "src/bravo_platform_events/runtime_probe.py",
+      "sha256": "e8a326fb7205fe57c3e8b9c73a657321443bfb1e74c0d2356b277189095f528a"
+    },
+    {
+      "path": "src/bravo_platform_events/schemas/event.schema.json",
+      "sha256": "d72975b750439b449449e3150dcd59e038f972418c00fe93420644ea0c4290a4"
+    },
+    {
+      "path": "src/bravo_platform_events/schemas/plan-snapshot.schema.json",
+      "sha256": "9a34c68660d9772c885fbd1cf79d4a5c7ef6f21aeb5bb730912c0597b37c154d"
+    },
+    {
+      "path": "src/bravo_platform_events/store.py",
+      "sha256": "9d31d95f7d8d6e8dc3d350cfb3c00e0a0b2d3b9461699b69da98789884fb8550"
+    },
+    {
+      "path": "src/bravo_platform_events/window_api.py",
+      "sha256": "c0db9136979722f176d35400ee8889cf2bad436d1061b2dc4d9db891169478fc"
+    },
+    {
+      "path": "src/bravo_platform_events/window_server.py",
+      "sha256": "f9aefddea7555f8fe5dde4e0493cb7b0ed09626ae674db15b6ec1f04f07f703a"
+    },
+    {
+      "path": "src/bravo_platform_events/window_store.py",
+      "sha256": "2a6b68e1e70d1490283a243ccf1bdcc2be5f6c4f44376f93e322d35aa5036a0a"
+    },
+    {
+      "path": "upstream/bravo_observability/__init__.py",
+      "sha256": "5a6097549a02872d847445c66e65097ef9d4683b925a16dab4cc76d5d1b5645c"
+    },
+    {
+      "path": "upstream/bravo_observability/api.py",
+      "sha256": "e78c2b4f4c67952233f7023b9a85210466c43edff10363510ab3b2fdbaab36e2"
+    },
+    {
+      "path": "upstream/bravo_observability/contract.py",
+      "sha256": "6c9415d7442a4c91f3e4b84843bd785d9894a32f0167cba91fb1a2e8ac7344fa"
+    },
+    {
+      "path": "upstream/bravo_observability/intake.py",
+      "sha256": "d8a9762c2f69c695233677725df6d1bbbdca3fbe8b8cf3b1b7e6e87dde852ab4"
+    },
+    {
+      "path": "upstream/bravo_observability/intake_api.py",
+      "sha256": "0582109fca78548d0d2dfcc59d046d1c59a743b2f2ab1466cf49a5220bae62b7"
+    },
+    {
+      "path": "upstream/bravo_observability/sli.py",
+      "sha256": "df9bc99cd9e9da0339e0c067a686f39fcf3b327631795ee7ee52cdb59e29c62f"
+    },
+    {
+      "path": "upstream/bravo_observability/sli.schema.json",
+      "sha256": "846827b8a07de6516fa7ce6bdfb1896a52c07775823190d9e890469e69cb3ef6"
+    }
+  ],
+  "upstream_revision": "020c6c78bdc6133ab0ee15e2a990bb9527b3182f",
+  "runtime_import_smoke": "PASS",
+  "runtime_source_files_match": 18,
+  "runtime_config_digest": "sha256:5dafd63f42e470bfec417753bc3454263989c3a26e571189f46389ea270a3eab"
+}

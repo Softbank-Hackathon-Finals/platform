@@ -1,0 +1,49 @@
+{
+  "observed_at": "2026-11-03T08:24:55.450191+00:00",
+  "run_url": "https://github.com/Softbank-Hackathon-Finals/platform/actions/runs/41602534226",
+  "head_sha": "ca52cc7d129e8808fff9e32951d346763b1f1452",
+  "jobs": [
+    {
+      "name": "oidc-rke2",
+      "status": "completed",
+      "conclusion": "success",
+      "steps": [
+        {
+          "name": "Set up job",
+          "conclusion": "success"
+        },
+        {
+          "name": "Short-lived AWS session",
+          "conclusion": "success"
+        },
+        {
+          "name": "Fixed namespace deployment and denial checks",
+          "conclusion": "success"
+        },
+        {
+          "name": "Prove arbitrary shell document is denied",
+          "conclusion": "success"
+        },
+        {
+          "name": "Post Short-lived AWS session",
+          "conclusion": "success"
+        },
+        {
+          "name": "Complete job",
+          "conclusion": "success"
+        }
+      ]
+    }
+  ],
+  "bounded_deploy_receipts": [
+    {
+      "namespace_deploy": true,
+      "other_namespace_denied": true,
+      "rke2_ready": true,
+      "secret_denied": true
+    }
+  ],
+  "arbitrary_shell_denied": true,
+  "ghcr_publish_verified": false,
+  "human_login_verified": false
+}

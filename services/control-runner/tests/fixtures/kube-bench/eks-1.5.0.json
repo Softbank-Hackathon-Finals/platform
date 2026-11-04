@@ -1,0 +1,49 @@
+{
+  "Controls": [
+    {
+      "version": "eks-1.5.0",
+      "tests": [
+        {
+          "results": [
+            {
+              "test_number": "4.1.1",
+              "status": "WARN",
+              "type": "manual",
+              "reason": "Test marked as a manual test"
+            },
+            {
+              "test_number": "4.1.2",
+              "status": "WARN",
+              "type": "manual",
+              "reason": "Test marked as a manual test"
+            },
+            {
+              "test_number": "4.1.3",
+              "status": "WARN",
+              "type": "manual",
+              "reason": "Test marked as a manual test"
+            },
+            {
+              "test_number": "4.1.4",
+              "status": "WARN",
+              "type": "manual",
+              "reason": "Test marked as a manual test"
+            },
+            {
+              "test_number": "4.1.5",
+              "status": "WARN",
+              "type": "manual",
+              "reason": "Test marked as a manual test"
+            },
+            {
+              "test_number": "4.1.6",
+              "status": "WARN",
+              "type": "manual",
+              "reason": "Test marked as a manual test"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

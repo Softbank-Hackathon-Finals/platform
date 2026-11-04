@@ -63,6 +63,13 @@ class PlanStore(EventStore):
                     receipt_json TEXT NOT NULL,
                     PRIMARY KEY (plan_id, command_key)
                 );
+                CREATE TABLE IF NOT EXISTS sli_windows (
+                    plan_id TEXT NOT NULL REFERENCES plans(plan_id),
+                    start_us INTEGER NOT NULL, end_us INTEGER NOT NULL CHECK (end_us > start_us),
+                    document_json TEXT NOT NULL,
+                    PRIMARY KEY (plan_id, start_us)
+                );
+                CREATE INDEX IF NOT EXISTS sli_windows_latest ON sli_windows (plan_id, end_us DESC);
             """)
 
     def register_plan(self, spec: PlanSpec, *, run_id: str, occurred_at: str) -> None:

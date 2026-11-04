@@ -1,0 +1,15 @@
+{
+  "observed_at": "2026-11-03T08:23:20.431761+00:00",
+  "trust_action_web_identity_only": true,
+  "audience_sts_exact": true,
+  "subjects_exact_and_expected": true,
+  "subject_count": 2,
+  "attached_policy_count": 0,
+  "inline_actions": [
+    "ssm:GetCommandInvocation",
+    "ssm:SendCommand"
+  ],
+  "actual_oidc_assumption_verified": false,
+  "actual_actions_deploy_verified": false,
+  "trust_source_observed_at": "2026-11-03T08:18:20.325836+00:00"
+}

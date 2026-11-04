@@ -1,11 +1,12 @@
-"""Read-only T12 consumer. An observation never authorizes or completes a plan.
+"""T12 transport. Observations never authorize or complete a plan.
 
-The host supplies identity from its trusted plan/command record, not HTTP input.
-There is deliberately no POST, retry, lease release, or state transition here.
+ExecutorReader remains GET-only. ExecutorClient adds one POST for the host's
+durably claimed command. Neither retries commands or releases leases.
 """
 
 import json
 import math
+import ssl
 import time
 from dataclasses import dataclass
 from datetime import datetime
@@ -166,6 +167,7 @@ class ExecutorReader:
     def __init__(
         self, base_url: str, *, token: str | None = None, timeout_seconds: float = 5.0,
         transport: httpx.BaseTransport | None = None,
+        tls_context: ssl.SSLContext | None = None,
     ):
         try:
             url = urlsplit(base_url)
@@ -184,10 +186,13 @@ class ExecutorReader:
             raise ValueError("invalid_executor_timeout")
         if token is not None and (not isinstance(token, str) or not 1 <= len(token) <= 8192 or any(not 33 <= ord(c) <= 126 for c in token)):
             raise ValueError("invalid_executor_token")
+        if tls_context is not None and (not isinstance(tls_context, ssl.SSLContext)
+                or tls_context.verify_mode != ssl.CERT_REQUIRED or not tls_context.check_hostname):
+            raise ValueError("verified_tls_context_required")
         self._timeout = timeout_seconds
         self._client = httpx.Client(
             base_url=base_url.rstrip("/"), timeout=timeout_seconds, follow_redirects=False,
-            trust_env=False, transport=transport,
+            trust_env=False, transport=transport, verify=tls_context or True,
             headers={"Accept": "application/json", "Accept-Encoding": "identity",
                      **({"Authorization": f"Bearer {token}"} if token else {})},
         )
@@ -220,10 +225,15 @@ class ExecutorReader:
         if expected.execution_id is not None:
             path += f"/{expected.execution_id}"
             params = None
+        return self._request("GET", path, expected, params=params, previous=previous,
+                             list_response=expected.execution_id is None)
+
+    def _request(self, method, path, expected, *, params=None, body=None, headers=None,
+                 previous=None, list_response=False, accepted_statuses=(200,)):
         started = time.monotonic()
         try:
-            with self._client.stream("GET", path, params=params) as response:
-                if response.status_code != 200:
+            with self._client.stream(method, path, params=params, json=body, headers=headers) as response:
+                if response.status_code not in accepted_statuses:
                     return _unknown("http_status")
                 if response.headers.get("content-type", "").split(";", 1)[0].strip().lower() != "application/json":
                     return _unknown("invalid_response")
@@ -238,7 +248,7 @@ class ExecutorReader:
                     if len(body) > MAX_RESPONSE_BYTES:
                         return _unknown("response_too_large")
             value = json.loads(body, object_pairs_hook=_object)
-            if expected.execution_id is None:
+            if list_response:
                 if not isinstance(value, list):
                     return _unknown("invalid_response")
                 if len(value) != 1:
@@ -253,3 +263,22 @@ class ExecutorReader:
         except (ValueError, TypeError, KeyError, RecursionError, OverflowError):
             # Never return raw provider bodies, exception text, URLs, or credentials.
             return _unknown("invalid_response")
+
+
+class ExecutorClient(ExecutorReader):
+    """One POST only after the caller durably claims a verified CUTOVER command.
+
+    Every ambiguous response is UNKNOWN. This class never retries a POST; the
+    host resumes through the inherited read path and its saved plan/epoch.
+    """
+
+    def submit(self, expected: ExpectedExecution, command: dict, *, idempotency_key: str):
+        if not isinstance(expected, ExpectedExecution):
+            raise ValueError("trusted_execution_context_required")
+        validate_identifier(idempotency_key)
+        if (not isinstance(command, dict) or command.get("plan_id") != expected.plan_id
+                or type(command.get("epoch")) is not int or command["epoch"] != expected.epoch):
+            raise ValueError("command_context_mismatch")
+        return self._request("POST", "/v1/cutovers", expected, body=command,
+                             headers={"Idempotency-Key": idempotency_key},
+                             accepted_statuses=(200, 202))

@@ -1,0 +1,25 @@
+{
+  "initial_ci_run": 41771486839,
+  "initial_ci_failures": [
+    "control-gate stale path dependency lock",
+    "SQLite test fixture exposed partial JSON during non-atomic rotation"
+  ],
+  "product_runtime_unchanged": true,
+  "http_tests_after_atomic_rotation": 38,
+  "rotation_stress_repetitions_per_backend": 15,
+  "rotation_stress_total_passed": 30,
+  "gate_locked_sync": "PASS",
+  "gate_tests": 231,
+  "gate_scope_approval": "https://softbankhackathon2026.slack.com/archives/C0CDEFEB83U/p1793765699730399",
+  "gate_changes": [
+    "services/control-gate/uv.lock"
+  ],
+  "new_locked_packages": [
+    "bravo-observability at 020c6c78",
+    "click",
+    "uvicorn"
+  ],
+  "ci_workflow_changes": false,
+  "gate_decision_code_changes": false,
+  "lock_sha256": "0dbd541ea32c363e5707e8e48466e65fc5cc5023092b52e230d6ef7b9ebb715a"
+}

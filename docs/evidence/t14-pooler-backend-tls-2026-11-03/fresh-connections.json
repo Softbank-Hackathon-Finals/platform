@@ -1,0 +1,62 @@
+[
+  {
+    "mode": "verify-ca",
+    "observed": "disabled",
+    "unknown_reason": null,
+    "output_sha256": "sha256:ebd24d548962566004af947d2ca4f32b16ca360facd9344fa9a91ef5fdb5bb4f",
+    "evidence": {
+      "app": "demo-chat",
+      "binding_sha256": "sha256:de597d2b0b3e9e117175488e230fd89b13848e485b73c5e63d750407683a610a",
+      "collected_at": "2026-11-03T13:50:24.536311+00:00",
+      "environment": {
+        "id": "backend-tls-local",
+        "ref": "local:kind/owned",
+        "role": "rehearsal"
+      },
+      "facts": {
+        "binding_unchanged": true,
+        "fresh_backend": true,
+        "protocol": "TLSv1.3",
+        "runtime_mode": "verify-ca",
+        "upstream_ssl": true
+      },
+      "format_version": "1",
+      "method_version": "1",
+      "observed": "disabled",
+      "run_id": "backend-tls-verify-ca",
+      "started_at": "2026-11-03T13:50:22.685886+00:00",
+      "test_id": "ENC-01.5",
+      "unknown_reason": null
+    }
+  },
+  {
+    "mode": "verify-full",
+    "observed": "enabled",
+    "unknown_reason": null,
+    "output_sha256": "sha256:82c9418a64582e9d43b59a4d12b519ab03879bfb2649df900910375b66548a18",
+    "evidence": {
+      "app": "demo-chat",
+      "binding_sha256": "sha256:38a3251029f3bbd4643aea898c7b78dc29bba981f1cdca5ecb48b51d45b88721",
+      "collected_at": "2026-11-03T13:50:26.569358+00:00",
+      "environment": {
+        "id": "backend-tls-local",
+        "ref": "local:kind/owned",
+        "role": "rehearsal"
+      },
+      "facts": {
+        "binding_unchanged": true,
+        "fresh_backend": true,
+        "protocol": "TLSv1.3",
+        "runtime_mode": "verify-full",
+        "upstream_ssl": true
+      },
+      "format_version": "1",
+      "method_version": "1",
+      "observed": "enabled",
+      "run_id": "backend-tls-verify-full",
+      "started_at": "2026-11-03T13:50:24.717274+00:00",
+      "test_id": "ENC-01.5",
+      "unknown_reason": null
+    }
+  }
+]
