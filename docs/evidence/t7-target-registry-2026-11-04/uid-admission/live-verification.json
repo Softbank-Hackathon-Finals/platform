@@ -1,0 +1,39 @@
+{
+  "source_revision": "520fd3388a0d06e8a45ea2a41a1304ac312cba52",
+  "observed_at": "2026-11-04T05:13:23.698577+00:00",
+  "private_receipt_sha256": "d8d7b95cadc7762dee96b0469ca59f2bf0339840ec7ac02d9a417389cd6786dd",
+  "public_is_raw": false,
+  "status": "PASS",
+  "remote_exit_code": 0,
+  "pulls": [
+    {
+      "authenticated": true,
+      "runtime_digest": "sha256:001adc35a9fc767566552fb55c3c19a67b7c5efc7231fb02dc28cdeace99d0d4",
+      "pull_event": true,
+      "runtime_uid": 10001
+    },
+    {
+      "authenticated": false,
+      "unauthorized_observed": true
+    },
+    {
+      "authenticated": true,
+      "runtime_digest": "sha256:001adc35a9fc767566552fb55c3c19a67b7c5efc7231fb02dc28cdeace99d0d4",
+      "pull_event": true,
+      "runtime_uid": 10001
+    }
+  ],
+  "confirmed_create_uid_count": 5,
+  "credential_refresh_readback_verified": true,
+  "cleanup_verified": true,
+  "existing_pod_uids_preserved": true,
+  "independent_cleanup": {
+    "named_objects_remaining": 0,
+    "labelled_objects_remaining": 0,
+    "cleanup_verified": true,
+    "observed_at": "2026-11-04T05:17:46.648741+00:00"
+  },
+  "audit_mode": "None",
+  "automatic_renewal_verified": false,
+  "product_deployment_verified": false
+}

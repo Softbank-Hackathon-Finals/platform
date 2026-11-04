@@ -12,7 +12,7 @@ mirror of the GHCR image with the same immutable digest. The receiver returned
 | Credential refresh | Same Secret UID, resource-version update and data readback verified |
 | Second authenticated `Always` image pull | Expected digest, actual pull event and UID 10001 execution |
 | Existing application Pods | UIDs preserved |
-| New probe resources | One Secret, one NetworkPolicy and three Pods removed with UID-bound cleanup |
+| New probe resources | Deletion preconditions used the UIDs from the first readback of one Secret, one NetworkPolicy and three Pods |
 | Independent cleanup readback | Zero remaining, 2026-11-04 04:37:26 UTC |
 
 Both positive controls ran
@@ -38,6 +38,11 @@ The probe Secret was deleted; no standing consumer credential was installed.
   compared after the run. The subsequent issuer refactor only builds ARN
   components in one function, preserving the generated strings; the manifest
   continues to name the actual earlier execution source.
+- The original receiver obtained cleanup UIDs from a later GET and checked only
+  part of the admitted Pod spec. Its receipt cannot exclude a replacement
+  before that GET or a changed command that printed the expected UID.
+  The [follow-up verification](uid-admission/README.md) records the correction
+  separately. The original receipt and source manifest retain their bytes.
 - Target-specific local regression: 16 tests passed. The repository script
   suite at the execution source passed 476 tests with seven environment-dependent
   skips. CI on the submitted PR is a separate result.
