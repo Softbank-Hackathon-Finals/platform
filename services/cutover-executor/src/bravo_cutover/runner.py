@@ -83,6 +83,35 @@ class Run:
     recovery: dict[str, Any] = field(default_factory=lambda: {"version": 1, "baseline": None, "effects": []})
 
 
+def _not_matched(result: dict[str, Any], tables: list[str]) -> str | None:
+    """진행해도 되는 비교 결과면 None, 아니면 이유. 허용 목록이다: 전체 · 표별 데이터 · 스키마 판정이 모두
+    MATCH이고 설정한 표마다 지문이 하나씩 있을 때만 진행한다. 판정 값 · 칸 누락 · 형식 오류는 모두 쓰기 전 실패다.
+    결과 모양은 T13 계약 문서 「결과 모양」."""
+    verdict = result.get("verdict")
+    if verdict == "MISMATCH":
+        return "integrity comparison: MISMATCH"
+    if verdict != "MATCH":
+        return f"integrity comparison returned an unexpected verdict {verdict!r}"
+    if not isinstance(result.get("hash_rule"), str) or not result["hash_rule"]:
+        return "integrity comparison has no hash_rule"
+    if result.get("data_verdict") != "MATCH" or result.get("schema_verdict") != "MATCH":
+        return "integrity comparison: overall data or schema verdict is not MATCH"
+    entries = result.get("tables")
+    if not isinstance(entries, list) or not all(isinstance(t, dict) and isinstance(t.get("name"), str) for t in entries):
+        return "integrity comparison: tables is not a list of named results"
+    names = [t["name"] for t in entries]
+    if missing := sorted(set(tables) - set(names)):
+        return f"integrity comparison does not cover {missing}"
+    if len(names) != len(set(names)):
+        return "integrity comparison: duplicate table results"
+    for t in entries:
+        if t.get("match") is not True or t.get("data_verdict") != "MATCH" or t.get("schema_verdict") != "MATCH":
+            return f"integrity comparison: table {t['name']} is not MATCH"
+        if not isinstance(t.get("source"), dict) or not isinstance(t.get("target"), dict):
+            return f"integrity comparison: table {t['name']} has no fingerprints"
+    return None
+
+
 def _describe(error: Exception) -> str:
     return f"{type(error).__name__}: {error}"[:500]
 
@@ -506,9 +535,8 @@ class Cutover:
         if not isinstance(result, dict):
             raise StepFailed(f"integrity comparison returned {type(result).__name__}, not a result")
         tables = result.get("tables") if isinstance(result.get("tables"), list) else []
-        covered = {t.get("name") for t in tables if isinstance(t, dict)}
         verdict = result.get("verdict")
-        missing = sorted(set(self._settings.tables) - covered)
+        problem = _not_matched(result, self._settings.tables)
         run.receipt = {
             "receipt_id": str(uuid.uuid4()),
             "epoch": run.request.epoch,
@@ -528,7 +556,7 @@ class Cutover:
         }
         # 시퀀스는 비교가 MATCH일 때만 올린다(spec D2). 중단될 실행에서는 목적지에 아무것도 쓰지 않는다.
         sequence_error = None
-        if verdict == "MATCH" and not missing:
+        if problem is None:
             try:
                 for name, (table, column) in self._settings.sequences.items():
                     run.receipt["sequences"].append(
@@ -539,14 +567,8 @@ class Cutover:
         self._guard(run)
         if not self._store.record_receipt(run.execution_id, run.receipt):
             raise OwnershipLost(str(run.execution_id))
-        # 허용 목록: 명시적인 MATCH만 진행한다. 그 밖의 값(UNKNOWN · 오타 · 누락 · 잘못된 형식)과
-        # 비교 대상 테이블 누락은 모두 쓰기 전 실패다.
-        if missing:
-            raise StepFailed(f"integrity comparison does not cover {missing}")
-        if verdict == "MISMATCH":
-            raise StepFailed("integrity comparison: MISMATCH")
-        if verdict != "MATCH":
-            raise StepFailed(f"integrity comparison returned an unexpected verdict {verdict!r}")
+        if problem is not None:
+            raise StepFailed(problem)
         if sequence_error is not None:
             raise sequence_error
 

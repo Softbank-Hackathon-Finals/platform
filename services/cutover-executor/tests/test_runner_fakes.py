@@ -211,8 +211,20 @@ class FixedComparer:
         return self.result
 
 
-TABLES = [{"name": t, "rows_src": 5, "rows_dst": 5} for t in CONFIG.settings.tables]
+# T13 계약 「결과 모양」과 같은 칸. 지문 값은 실행기가 해석하지 않으므로 아무 값이나 된다.
+TABLES = [{"name": t, "rows_src": 5, "rows_dst": 5, "source": {"rows": 5}, "target": {"rows": 5},
+           "match": True, "data_verdict": "MATCH", "schema_verdict": "MATCH"} for t in CONFIG.settings.tables]
 MATCH = {"verdict": "MATCH", "data_verdict": "MATCH", "schema_verdict": "MATCH", "hash_rule": "v1", "tables": TABLES}
+
+
+def match_with(table: int | None = None, drop: tuple[str, ...] = (), **fields):
+    """MATCH 결과에서 한 곳만 바꾼다. table을 주면 그 표의 칸을, 아니면 전체 칸을 바꾸거나 뺀다."""
+    result = {**MATCH, "tables": [dict(t) for t in TABLES]}
+    target = result if table is None else result["tables"][table]
+    target.update(fields)
+    for key in drop:
+        target.pop(key)
+    return result
 
 
 class FakeCutover(Cutover):
@@ -436,8 +448,16 @@ def test_persist_requires_target_reachable_through_each_pool(store, world):
     {"verdict": "UNVERIFIED", "hash_rule": "none", "tables": TABLES},  # 지운 임시 비교의 판정
     {"verdict": "match", "hash_rule": "v1", "tables": TABLES},  # 오타(대소문자)
     {"hash_rule": "v1", "tables": TABLES},  # verdict 누락
-    {"verdict": "MATCH", "hash_rule": "v1", "tables": TABLES[:1]},  # 비교 대상 테이블 누락
-    {"verdict": "MATCH", "hash_rule": "v1", "tables": "all"},  # 잘못된 형식
+    match_with(tables=TABLES[:1]),  # 비교 대상 테이블 누락
+    match_with(tables="all"),  # 잘못된 형식
+    match_with(tables=[*TABLES, {**TABLES[0], "data_verdict": "MISMATCH"}]),  # 같은 표가 두 번, 하나는 MISMATCH
+    match_with(drop=("data_verdict",)),  # 전체 데이터 판정 누락
+    match_with(schema_verdict="UNKNOWN"),  # 전체는 MATCH인데 스키마 판정은 UNKNOWN
+    match_with(drop=("hash_rule",)),  # 규칙 누락
+    match_with(table=1, data_verdict="MISMATCH", match=False),  # 표별 판정은 MISMATCH, 전체만 MATCH
+    match_with(table=0, drop=("data_verdict", "schema_verdict", "match", "source", "target")),  # 이름만 있는 표
+    match_with(table=1, drop=("target",)),  # 지문 누락
+    match_with(table=0, match="true"),  # 형식 오류
     "MATCH",  # dict가 아님
 ])
 def test_only_explicit_match_opens_target(store, world, result):
