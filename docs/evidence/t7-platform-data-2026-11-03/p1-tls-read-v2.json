@@ -1,0 +1,71 @@
+{
+  "execution_started_at": "2026-11-03T12:06:07.666Z",
+  "execution_finished_at": "2026-11-03T12:06:07.666Z",
+  "ssm_status": "Success",
+  "response_code": 0,
+  "result": {
+    "job_succeeded": true,
+    "probe": {
+      "status": "PASS",
+      "server_version": "18.4 (Debian 18.4-1.pgdg13+1)",
+      "plaintext": {
+        "verdict": "PASS",
+        "observations": {
+          "tls_before": {
+            "outcome": "connected_tls",
+            "started_at_ms": 1793707493979,
+            "finished_at_ms": 1793707494000,
+            "duration_ms": 21
+          },
+          "plaintext": {
+            "outcome": "rejected_no_encryption",
+            "started_at_ms": 1793707494000,
+            "finished_at_ms": 1793707494005,
+            "duration_ms": 5
+          },
+          "tls_after": {
+            "outcome": "connected_tls",
+            "started_at_ms": 1793707494005,
+            "finished_at_ms": 1793707494022,
+            "duration_ms": 17
+          }
+        },
+        "duration_ms": 43,
+        "window_limit_ms": 60000,
+        "endpoint_sha256": "018b536d2a592e9089be5108c58bdc32ca96835b74bb245d440509e0423c940c"
+      },
+      "checks": {
+        "tls_verified": true,
+        "runtime_identity": true,
+        "not_superuser": true,
+        "concurrent_command_idempotency": true,
+        "store_reopen_preserves_state": true,
+        "state_event_watermark": true,
+        "events_contiguous": true,
+        "original_receipt_preserved": true,
+        "http_snapshot": true,
+        "http_sse_reconnect": true,
+        "http_no_identity_denied": true,
+        "http_other_tenant_denied": true,
+        "denied_ddl": true,
+        "denied_public_ddl": true,
+        "denied_schema_create": true,
+        "denied_temp_table": true,
+        "denied_tenant_rebind": true,
+        "denied_spec_rewrite": true,
+        "denied_event_rewrite": true,
+        "denied_event_delete": true,
+        "denied_receipt_delete": true,
+        "denied_schema_version": true,
+        "denied_migration_escalation": true,
+        "denied_role_grant": true,
+        "history_unchanged_after_denials": true,
+        "plaintext_denied": true
+      },
+      "check_count": 26,
+      "snapshot_sha256": "25240de43452f17f1f7e3888e80cbcf4d3c0569da3764858c6eda4928b3d7736",
+      "receipt_sha256": "0fa84de4396483a2249ac51095a7931e144ec366eee4890197f6661b37ed583d",
+      "scope": "synthetic_T10_storage_and_ASGI_only"
+    }
+  }
+}

@@ -143,8 +143,10 @@ resource "aws_eks_addon" "cni" {
   cluster_name                = aws_eks_cluster.source.name
   addon_name                  = "vpc-cni"
   addon_version               = var.vpc_cni_version
+  configuration_values        = jsonencode({ enableNetworkPolicy = "true" })
   service_account_role_arn    = aws_iam_role.cni.arn
   resolve_conflicts_on_create = "OVERWRITE"
+  resolve_conflicts_on_update = "PRESERVE"
   depends_on                  = [aws_iam_role_policy_attachment.cni]
 }
 resource "aws_launch_template" "node" {

@@ -89,6 +89,40 @@ class SyncWorkflowTest(unittest.TestCase):
             self.assertEqual((root / "invoked").read_text().splitlines(),
                              ["scripts/sync_tasks.py", "start", "T23", "--dry-run", "--moves-file", "moves.txt"])
 
+    def test_activity_has_a_scoped_task_and_rejects_invalid_intent_before_running(self):
+        block = re.search(
+            r"id: sync\n(?:(?!      - name:).)*?        run: \|\n"
+            r"(?P<body>(?:          [^\n]*(?:\n|$))+)", self.sync, re.DOTALL,
+        )
+        script = "\n".join(line[10:] for line in block["body"].splitlines())
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            executable = root / "python3"
+            executable.write_text("#!/bin/sh\nprintf '%s\\n' \"$@\" > invoked\n")
+            executable.chmod(0o700)
+            env = {**os.environ, "PATH": f"{root}:{os.defpath}", "COMMAND": "activity",
+                   "DRY": "--dry-run", "GITHUB_STEP_SUMMARY": str(root / "summary")}
+            for task, intent in (("", "active"), ("T30; touch injected", "active"),
+                                 ("T30", ""), ("T30", "active; touch injected"),
+                                 ("T30", "$(touch injected)"), ("T30", "--help")):
+                with self.subTest(task=task, intent=intent):
+                    result = subprocess.run(
+                        ["bash", "-e", "-o", "pipefail", "-c", script], cwd=root,
+                        env={**env, "TASK": task, "ACTIVITY": intent}, capture_output=True, timeout=10, check=False,
+                    )
+                    self.assertEqual(result.returncode, 2, result.stderr)
+                    self.assertFalse((root / "invoked").exists())
+                    self.assertFalse((root / "injected").exists())
+            for intent in ("active", "auto"):
+                result = subprocess.run(
+                    ["bash", "-e", "-o", "pipefail", "-c", script], cwd=root,
+                    env={**env, "TASK": "T30", "ACTIVITY": intent}, capture_output=True, timeout=10, check=False,
+                )
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual((root / "invoked").read_text().splitlines(),
+                                 ["scripts/sync_tasks.py", "activity", "T30", intent,
+                                  "--dry-run", "--moves-file", "moves.txt"])
+
 
 if __name__ == "__main__":
     unittest.main()

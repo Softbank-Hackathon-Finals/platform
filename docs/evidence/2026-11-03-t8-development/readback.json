@@ -1,0 +1,614 @@
+{
+  "schema_version": 1,
+  "generated_at": "2026-11-03T13:23:08.243234+00:00",
+  "artifact_kind": "bounded operator summary; not raw provider output",
+  "environment": "isolated x86_64 QEMU/TCG development VM paired with existing source EKS",
+  "scope_complete": [
+    "initial logical copy",
+    "synthetic bidirectional replication",
+    "disabled subscription and reconnect catchup",
+    "original row hash preservation",
+    "exact attachment bucket copy",
+    "source-backed target PgBouncer",
+    "bounded pooler-only executor/collector access"
+  ],
+  "not_verified": [
+    "destination business app startup (fixed image still requires AWS Secrets Manager)",
+    "full SQL write fencing or production cutover",
+    "restricted subscription owner/barrier/probe migration for T12",
+    "host-only credential retargeting",
+    "T9 OpenBao/ESO/TLS control completion",
+    "HA, backups or final demo hardware readiness",
+    "production replication p95 or stress/PMTU performance"
+  ],
+  "fixed_app": {
+    "source_commit": "ce5727eb3e3d2355077afdaadcb1a722aba9c7cd",
+    "oci_index": "sha256:001adc35a9fc767566552fb55c3c19a67b7c5efc7231fb02dc28cdeace99d0d4",
+    "amd64_child": "sha256:bd1cd57a1c3dda9bb2795696167e242fc3b79a80eefb40d068a4124bcc66f384",
+    "same_bytes_imported_without_registry_credentials": true
+  },
+  "versions": {
+    "rke2": "v1.35.9+rke2r1",
+    "postgresql": "18.4",
+    "cnpg_operator": "1.30.1",
+    "tailscale": "1.104.4",
+    "seaweedfs": "4.52",
+    "pgbouncer": "1.25.1"
+  },
+  "database_permissions": {
+    "checks": {
+      "scram_role_tls_connection": true,
+      "replicator_table_select": true,
+      "both_tables_all_write_privileges_absent": true,
+      "both_tables_column_write_privileges_absent": true,
+      "logical_replication_allowed": true,
+      "physical_replication_denied": true,
+      "replicator_write_denied": true,
+      "wrong_password_denied": true,
+      "plaintext_denied": true,
+      "wrong_tls_hostname_denied": true,
+      "application_login_closed": true
+    },
+    "pass": true,
+    "raw_output_suppressed": true
+  },
+  "cross_cluster_tls": [
+    {
+      "pass": true,
+      "checks": {
+        "tls_verify_full_and_role": true,
+        "table_reads": true,
+        "wrong_password_denied": true,
+        "plaintext_denied": true,
+        "wrong_hostname_denied": true,
+        "logical_replication_allowed": true,
+        "physical_replication_denied": true,
+        "table_write_privileges_absent": true,
+        "column_write_privileges_absent": true
+      },
+      "counts": [
+        2,
+        1
+      ],
+      "raw_suppressed": true,
+      "side": "target",
+      "route": "replication",
+      "started_at": "2026-11-03T11:45:11.500088+00:00",
+      "probe_sha256": "85c2f64086f4d035b6c7381ced7b4eaba71211f936712e0463de573b631c0c14",
+      "observed_at": "2026-11-03T11:45:32.841524+00:00"
+    },
+    {
+      "pass": true,
+      "checks": {
+        "tls_verify_full_and_role": true,
+        "table_reads": true,
+        "wrong_password_denied": true,
+        "plaintext_denied": true,
+        "wrong_hostname_denied": true,
+        "logical_replication_allowed": true,
+        "physical_replication_denied": true,
+        "table_write_privileges_absent": true,
+        "column_write_privileges_absent": true
+      },
+      "counts": [
+        0,
+        0
+      ],
+      "raw_suppressed": true,
+      "side": "source",
+      "route": "replication",
+      "started_at": "2026-11-03T11:45:43.595502+00:00",
+      "probe_sha256": "85c2f64086f4d035b6c7381ced7b4eaba71211f936712e0463de573b631c0c14",
+      "observed_at": "2026-11-03T11:45:53.308030+00:00"
+    },
+    {
+      "pass": true,
+      "checks": {
+        "tls_verify_full_and_role": true,
+        "table_reads": true,
+        "wrong_password_denied": true,
+        "plaintext_denied": true,
+        "wrong_hostname_denied": true
+      },
+      "counts": [
+        2,
+        1
+      ],
+      "raw_suppressed": true,
+      "side": "target",
+      "route": "pooler",
+      "started_at": "2026-11-03T11:46:05.763450+00:00",
+      "probe_sha256": "85c2f64086f4d035b6c7381ced7b4eaba71211f936712e0463de573b631c0c14",
+      "observed_at": "2026-11-03T11:46:24.177698+00:00"
+    }
+  ],
+  "image_packaging": {
+    "pass": true,
+    "uid": 10001,
+    "app_import": true,
+    "libpq_version": 180006,
+    "app_startup_verified": false
+  },
+  "initial_copy": {
+    "source_counts": {
+      "messages": 2,
+      "attachments": 1
+    },
+    "target_counts": {
+      "messages": 2,
+      "attachments": 1
+    },
+    "table_sha256": {
+      "messages": "47732d1f4e49524bd5103abb41a929b8e9196c16b77fd03b3455f7d2401758e9",
+      "attachments": "b5dd5abfc51b648ad5d69724b968fae1bcedce1a329b843fb4e3ff28918177c8"
+    },
+    "equal": true,
+    "all_tables_ready": true,
+    "wal_slots_valid": true,
+    "observed_at": "2026-11-03T11:56:47.053869+00:00"
+  },
+  "replication_canary": {
+    "checks": {
+      "bidirectional_equal_no_duplicate": true,
+      "disabled_forward_does_not_apply": true,
+      "reconnect_catchup": true,
+      "baseline_restored": true,
+      "business_fences_unchanged": true,
+      "healthy": true
+    },
+    "observations": [
+      {
+        "phase": "canary",
+        "direction": "source-to-target",
+        "observation_upper_bound_seconds": 9.122752916009631,
+        "sequence_floor": 4,
+        "observed_at": "2026-11-03T12:11:59.612435+00:00"
+      },
+      {
+        "phase": "canary",
+        "direction": "target-to-source",
+        "observation_upper_bound_seconds": 5.299269625014858,
+        "sequence_floor": 5,
+        "observed_at": "2026-11-03T12:12:23.425692+00:00"
+      },
+      {
+        "phase": "reconnect",
+        "observation_upper_bound_seconds": 7.366285625001183,
+        "observed_at": "2026-11-03T12:13:08.264894+00:00"
+      },
+      {
+        "phase": "restore",
+        "side": "source",
+        "success": true,
+        "attempts": 1,
+        "observed_at": "2026-11-03T12:13:46.903622+00:00"
+      },
+      {
+        "phase": "restore",
+        "side": "target",
+        "success": true,
+        "attempts": 1,
+        "observed_at": "2026-11-03T12:13:54.183296+00:00"
+      }
+    ],
+    "manual_restore_required": false,
+    "source_s3_writes": 0,
+    "business_write_flags_changed": false,
+    "started_at": "2026-11-03T12:11:33.569819+00:00",
+    "health": {
+      "source": {
+        "slots_valid": true,
+        "all_relations_ready": true,
+        "sync_error_count": 0,
+        "apply_error_count": 0
+      },
+      "target": {
+        "slots_valid": true,
+        "all_relations_ready": true,
+        "sync_error_count": 0,
+        "apply_error_count": 0
+      }
+    },
+    "synthetic_residue": {
+      "source": [
+        {
+          "index": 0,
+          "messages": 0,
+          "attachments": 0
+        },
+        {
+          "index": 1,
+          "messages": 0,
+          "attachments": 0
+        },
+        {
+          "index": 2,
+          "messages": 0,
+          "attachments": 0
+        }
+      ],
+      "target": [
+        {
+          "index": 0,
+          "messages": 0,
+          "attachments": 0
+        },
+        {
+          "index": 1,
+          "messages": 0,
+          "attachments": 0
+        },
+        {
+          "index": 2,
+          "messages": 0,
+          "attachments": 0
+        }
+      ]
+    },
+    "cleanup_pending": false,
+    "completed_at": "2026-11-03T12:14:07.840636+00:00",
+    "pass": true
+  },
+  "replication_binding": {
+    "public_source_commit": "b3af8f2379b950e84b48fae85235ec6cd4baab00",
+    "script_sha256": "a11756373d83c6442033d6f9801f23b72e40859a6d8bd691a94f6c0958e722a5",
+    "replication_module_sha256": "e10d75a063e248249f0f245223a8311749c46193769efdf70793e88bccaaceaf",
+    "started_at": "2026-11-03T12:11:33.559311+00:00"
+  },
+  "replication_constraints": {
+    "origin": "none",
+    "reverse_final_enabled": false,
+    "forward_final_enabled": true,
+    "subscription_owner": "CNPG instance controller / postgres; not delegated to executor",
+    "sequence_policy": "forward only; logical replication does not copy sequences",
+    "slot_wal_limit": "1GB at checkpoint; not an entire pg_wal disk quota",
+    "invalidated_slot_policy": "stop and explicit resync; never skip data",
+    "source_initial_replication_provenance": "fresh zero subscriptions, relations, origins and slots recorded before copy_data=true"
+  },
+  "object_store_signed_probe": {
+    "mode": "write",
+    "checks": {
+      "object_length_and_sha256": true,
+      "scoped_list": true,
+      "anonymous_get_denied": true,
+      "wrong_signature_denied": true,
+      "out_of_scope_bucket_denied": true,
+      "app_bucket_admin_denied": true
+    },
+    "pass": true,
+    "object_sha256": "eaf9fd2a1c21fa35fcaad5d1a8668d2ae358d6008b97369e1b54a0215019635d",
+    "app_startup_verified": false,
+    "raw_output_suppressed": true,
+    "observed_at": "2026-11-03T12:09:08.219231+00:00"
+  },
+  "object_store_restart_persistence": {
+    "mode": "read",
+    "checks": {
+      "object_length_and_sha256": true,
+      "scoped_list": true,
+      "anonymous_get_denied": true,
+      "wrong_signature_denied": true,
+      "out_of_scope_bucket_denied": true,
+      "app_bucket_admin_denied": true
+    },
+    "pass": true,
+    "object_sha256": "eaf9fd2a1c21fa35fcaad5d1a8668d2ae358d6008b97369e1b54a0215019635d",
+    "app_startup_verified": false,
+    "raw_output_suppressed": true,
+    "observed_at": "2026-11-03T12:14:15.453969+00:00"
+  },
+  "attachment_copy": {
+    "passed": true,
+    "source_count": 2,
+    "destination_count": 2,
+    "database_referenced_count": 1,
+    "operator_approved_extra_count": 1,
+    "copied": 2,
+    "reused": 0,
+    "bytes_verified": 119,
+    "key_content_inventory_sha256": "4f9e2f5bc03c4c3f2f997e3abd37045a4c51fcca13f6752d58998bdb18751875",
+    "content_sha256": [
+      "56afd21f0d70557f0bb9f663779c32860b417fee758a5b37d64f240f76ff31b9",
+      "fe993fe5f0a2c00858b2b84f7b8180b00bcb771f0c2071281aaf45503992b393"
+    ],
+    "source_write_calls": 0,
+    "observed_at": "2026-11-03T12:35:51.009874+00:00",
+    "fixed_synthetic_object_absent": true,
+    "source_business_write_blocked": true,
+    "source_object_mutations": 0,
+    "raw_keys_and_bytes_suppressed": true
+  },
+  "attachment_binding": {
+    "source_commit": "09f60a18c94e94fc43808fddf348da21191d0d91",
+    "sync_module_sha256": "728553d72e915dcb1df7e82d73fa564657529e62c34a7e1fe7a6148cd453381a",
+    "operator_sha256": "659e2c1041886a2748949230aaeef26ad7b66acedccdca513d5b0b8075d1997d",
+    "rpc_sha256": "091694616c634ccfded26f4f95b7b8530c466cf71b20f4d59a5f69a9c74b4589",
+    "rpc_bytes_frozen_before_calls": true,
+    "expected_bucket_owner_enforced": true,
+    "source_bucket_matches_existing_owner_metadata": true
+  },
+  "source_block_after_copy": {
+    "observed_at": "2026-11-03T12:38:50.223970+00:00",
+    "source_app_write_blocked": true,
+    "phase": "after_attachment_copy",
+    "mutations": 0
+  },
+  "pooler_path": {
+    "passed": true,
+    "checks": {
+      "client_verify_full_connection": true,
+      "source_backend_app_role_and_tls": true,
+      "original_rows_readable": true,
+      "source_application_insert_authorized": true,
+      "synthetic_write_rolled_back": true,
+      "verified_server_tls_config": true,
+      "reviewed_admin_retry_config": true,
+      "wrong_password_denied": true,
+      "wrong_tls_hostname_denied": true,
+      "positive_connection_after_negative_tests": true
+    },
+    "connect_seconds": 0.9845516139994288,
+    "rollback_write_seconds": 0.2253007700001035,
+    "timing_scope": "single emulated-development probe, not p95 or app SLO",
+    "business_write_flags_changed": false,
+    "app_startup_verified": false,
+    "observed_at": "2026-11-03T12:41:35.563941+00:00"
+  },
+  "pooler_binding": {
+    "source_commit": "19b31c827d2344d3c7a94690397025b55ccd8b7a",
+    "manifest_sha256": "c01d2b03b1a19ce0c569c35488fc7070ec03fd70dfc960de328f7ffedd6be7b2",
+    "started_at": "2026-11-03T12:40:00.152491+00:00",
+    "applied_at": "2026-11-03T12:40:03.228393+00:00"
+  },
+  "pooler_only_access": {
+    "observed_at": "2026-11-03T12:28:06.424333+00:00",
+    "checks": {
+      "executor_pods_list": true,
+      "executor_named_exec_get": true,
+      "executor_named_exec_create": true,
+      "executor_db_exec_denied": true,
+      "executor_secret_list_denied": true,
+      "executor_other_namespace_denied": true,
+      "executor_pod_create_denied": true,
+      "executor_rbac_patch_denied": true,
+      "executor_token_issue_denied": true,
+      "executor_other_config_patch_denied": true,
+      "executor_exact_config_get": true,
+      "executor_exact_config_patch_authorized": true,
+      "executor_config_directory_writable": true,
+      "collector_pods_list": true,
+      "collector_named_exec_get": true,
+      "collector_named_exec_create": true,
+      "collector_db_exec_denied": true,
+      "collector_secret_list_denied": true,
+      "collector_other_namespace_denied": true,
+      "collector_pod_create_denied": true,
+      "collector_rbac_patch_denied": true,
+      "collector_token_issue_denied": true,
+      "collector_other_config_patch_denied": true,
+      "collector_config_get_denied": true,
+      "collector_config_patch_denied": true,
+      "collector_pooler_exec_denied": true
+    },
+    "passed": true,
+    "app_block_read_requested": false,
+    "app_access_verified": false,
+    "cutover_ready": false,
+    "configmap_data_changed": false,
+    "business_writes_opened": false,
+    "secret_values_exported": false,
+    "scope": "Kubernetes access and local config filesystem; not network or cutover verification",
+    "pooler_uid_unchanged": true,
+    "config_data_unchanged": true
+  },
+  "access_binding": {
+    "t12_commit": "65797a1bcc60f71b51d2f7c2d5598914f95790ea",
+    "render_sha256": "1b4fbdf27bd65617045ba52a846a237abafc434b1615a0ad4dcc84d7e11c7b9f",
+    "verify_sha256": "dddc17508f6a2a0609ccb0fae1b789ae023ba98ea4dd1024599c8f0b21c4580f",
+    "manifest_sha256": "4c1d557c72350065d3b6760bea1f5a99c1a97541f28a0fdf6fcc7be57f33ddc6",
+    "config_sha256": "2269822ded8cb16fa6775fb7267d070a31882be97e6c1134afd2ccf5f44ab841",
+    "pooler_only": true,
+    "app_access_requested": false
+  },
+  "network_paths": {
+    "scope": "discovery pongs and actual interface MTU; SQL timing and PMTU stress are separate",
+    "started_at": "2026-11-03T12:24:48.274500+00:00",
+    "completed_at": "2026-11-03T12:27:05.618403+00:00",
+    "probe_source_sha256": "88dbe391f461128abd8aff1ff959c6538157f27a310c01a70c0932c62feae9ba",
+    "policy_changed": false,
+    "node_settings_changed": false,
+    "routes": [
+      {
+        "route": "source-to-target replication",
+        "observed_at": "2026-11-03T12:25:02.541879+00:00",
+        "pod_unchanged": true,
+        "pongs": 3,
+        "derp_pongs": 3,
+        "peer_relay_pongs": 0,
+        "kernel_tun_mtu": 1280,
+        "peer_current_address_present": false,
+        "peer_relay_region": "tok"
+      },
+      {
+        "route": "target-to-source replication",
+        "observed_at": "2026-11-03T12:25:58.443765+00:00",
+        "pod_unchanged": true,
+        "pongs": 3,
+        "derp_pongs": 3,
+        "peer_relay_pongs": 0,
+        "kernel_tun_mtu": 1280,
+        "peer_current_address_present": false,
+        "peer_relay_region": "tok"
+      },
+      {
+        "route": "target pooler to source database",
+        "observed_at": "2026-11-03T12:27:05.618027+00:00",
+        "pod_unchanged": true,
+        "pongs": 3,
+        "derp_pongs": 3,
+        "peer_relay_pongs": 0,
+        "kernel_tun_mtu": 1280,
+        "peer_current_address_present": false,
+        "peer_relay_region": "tok"
+      }
+    ]
+  },
+  "final_readback": {
+    "observed_at_start": "2026-11-03T13:16:37.294805+00:00",
+    "mutations": 0,
+    "checks": {
+      "source_cluster_identity": true,
+      "source_database_ready": true,
+      "source_subscription_state": true,
+      "source_slots_and_errors": true,
+      "demo-chat_ready": true,
+      "source-pgbouncer_ready": true,
+      "source_node_ready": true,
+      "target_cluster_identity": true,
+      "target_database_ready": true,
+      "target_subscription_state": true,
+      "target_slots_and_errors": true,
+      "target_managed_app_nologin": true,
+      "target-pgbouncer_ready": true,
+      "target-seaweedfs_ready": true,
+      "target_node_ready": true,
+      "original_row_hashes_preserved": true,
+      "source_app_write_blocked": true,
+      "/readyz": true,
+      "/api/health/db": true,
+      "pooler_uid_matches_grant": true
+    },
+    "database": {
+      "source": {
+        "app_login": true,
+        "enabled": false,
+        "slots_valid": true,
+        "apply_error_count": 0,
+        "sync_error_count": 0,
+        "messages_count": 2,
+        "messages_sha256": "47732d1f4e49524bd5103abb41a929b8e9196c16b77fd03b3455f7d2401758e9",
+        "attachments_count": 1,
+        "attachments_sha256": "b5dd5abfc51b648ad5d69724b968fae1bcedce1a329b843fb4e3ff28918177c8",
+        "observed_at": "2026-11-03T13:16:39.363552+00:00"
+      },
+      "target": {
+        "app_login": false,
+        "enabled": true,
+        "slots_valid": true,
+        "apply_error_count": 0,
+        "sync_error_count": 0,
+        "messages_count": 2,
+        "messages_sha256": "47732d1f4e49524bd5103abb41a929b8e9196c16b77fd03b3455f7d2401758e9",
+        "attachments_count": 1,
+        "attachments_sha256": "b5dd5abfc51b648ad5d69724b968fae1bcedce1a329b843fb4e3ff28918177c8",
+        "observed_at": "2026-11-03T13:17:02.687403+00:00"
+      }
+    },
+    "completed_at": "2026-11-03T13:17:14.780364+00:00",
+    "passed": true
+  },
+  "execution_failures_preserved": [
+    "Seaweed metadata used all four initial volume slots; actual collection readback justified max8 while preserving PVC and data; IAM unchanged.",
+    "Original OCI index alias was missing after import; verified descriptor alias added without changing bytes.",
+    "System Python lacked installed app packages; probes use the fixed image virtual environment.",
+    "First attachment RPC exceeded the bounded VM deadline; subsequent attempts preserved failure and used a longer bounded transport.",
+    "Unknown extra source object was refused until independently identified as the existing readiness canary and explicitly approved.",
+    "Pooler probe used an unsupported psycopg ConnectionInfo attribute, then an admin SCRAM verifier as a password; failures preceded/limited writes to rollback-only tests and were corrected.",
+    "App IRSA refused the control secret read; its policy stayed unchanged and the existing operator identity read the exact secret."
+  ],
+  "control_credential_binding": {
+    "recorded_at": "2026-11-03T12:41:47.871316+00:00",
+    "successful_operator_script": "copy_pooler_control_operator.py",
+    "operator_script_sha256": "c4436794b6130e449ec62810e27eebd44fb3069420f079088d04baac15f06c3f",
+    "receipt_sha256": "c4ce3ec9ce600f29f8aa7024567824216f551aa990c9b4a06ac6f060f3986aa6",
+    "source_hash_recorded_before_execution": false,
+    "binding_method": "Post-execution hash of the unchanged script created and run in one operator tool invocation; original success receipt preserved. The separate app-IRSA script failed before Secret creation."
+  },
+  "local_validation": {
+    "observed_at": "2026-11-03T13:22:20.289081+00:00",
+    "repository_unit_tests": 123,
+    "unit_test_log_sha256": "8b7cc6b40e576dc8b0eb93e172fa939f0dee53f2c44dd914ffa58a88bd7f6735",
+    "changed_python_ruff": "PASS",
+    "python_compile": "PASS",
+    "terraform_fmt": "PASS",
+    "secret_scan_and_remote_ci": "publication checks are reported separately for final PR head"
+  },
+  "source_receipts": [
+    {
+      "role": "replication-canary-readback",
+      "sha256": "b6314b9a1e6e8c7abae61bf4b3fd861b5ad06b5fcbae6cac17a0652fb17d396a"
+    },
+    {
+      "role": "replication-canary-execution",
+      "sha256": "b84bdb16facea007d1fdac596ec8c98062e1d37eb272be03a0a028059d440cfd"
+    },
+    {
+      "role": "forward-initial-equality",
+      "sha256": "93ca3648e12b0d464826727c33cb37665f4d62057ba51309805d86812c8f8f49"
+    },
+    {
+      "role": "attachment-copy-v4-readback",
+      "sha256": "da43d65bebe23224b46130ecfce5049f60937134af22265f7119f303de300d8c"
+    },
+    {
+      "role": "attachment-copy-v4-execution",
+      "sha256": "07dd8bd574585a6671c13ded70c987bf08ba746e73b28b62758587e4113e59a5"
+    },
+    {
+      "role": "target-pooler-probe-v5-readback",
+      "sha256": "056ba6d8ff44a31b695580ec10f671c4d6781c647a6cce268ee682010c249f5d"
+    },
+    {
+      "role": "target-pooler-probe-v5-execution",
+      "sha256": "a7191679062a392b13347c305898dc56cd4b3f5e68d51762b9264c1d5f195f8d"
+    },
+    {
+      "role": "target-cutover-access-readback",
+      "sha256": "4ed36c9e8316d006240b620e5718cd6a9d63d7007583393b2dd08f4ba16c3379"
+    },
+    {
+      "role": "target-cutover-access-execution",
+      "sha256": "b2c7547bcdb08695cf1bc4bea0a2eba923449411be32508430638804d4151af2"
+    },
+    {
+      "role": "final-runtime-readback",
+      "sha256": "4a16279dbaa8125d6a9daaf5ff345d9dc88dd14e165cc6f51fcade2708e64732"
+    },
+    {
+      "role": "network-path-observations",
+      "sha256": "28914f9ff39e666eb311e72b9ba15c3e992906be66b05d9c26674407819f1ce3"
+    },
+    {
+      "role": "publication-validation",
+      "sha256": "b963861aa65341d371828ff35fb80303be2802c44fa06759c0100d5cddb40e89"
+    },
+    {
+      "role": "probe-db-permissions-v3-readback",
+      "sha256": "a5eaf18795be5db3124d73d4a401ce91619ba11b6d9d2006c435489134c52294"
+    },
+    {
+      "role": "cross-tls-readback",
+      "sha256": "442d3c960c33cae08c998e1ee033a63df4af8d107b561d7439561af90d9acb58"
+    },
+    {
+      "role": "probe-image-venv-v2-readback",
+      "sha256": "aa9a8efd77f5c5a3ec8288724cb4ddca870c1ceef1f090de4579dd0bea8169e6"
+    },
+    {
+      "role": "probe-objects-write-capacity-v3-readback",
+      "sha256": "1ef6515b2b28365a02519d44982bd24c5aaaa9f3a4dfdb74ea16befb00fa4473"
+    },
+    {
+      "role": "probe-objects-read-persistence-v4-readback",
+      "sha256": "26e658bd9274419be7bd4487e43c36dbc4ced13137dec805ce7d098f32cbcaff"
+    },
+    {
+      "role": "source-app-after-copy-readback",
+      "sha256": "113e9dc79a3debbb578f922f273518540157925a9d731b2cf7d32870992bc6e5"
+    },
+    {
+      "role": "target-pooler-control-copy-provenance",
+      "sha256": "14abd59d0cf4a68408c81fdc2a26ca37c95ce5dd8b13c74a843cad51325df4f6"
+    }
+  ]
+}
