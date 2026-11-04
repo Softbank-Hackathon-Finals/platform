@@ -24,13 +24,16 @@ from bravo_console import ConsoleApp
 from bravo_console.observations import PlanObservations, T37Client
 
 
-async def browser_projection(app, cookie, phase, output):
+async def browser_projection(api, observations, cookie, phase, output):
     """The browser talks to the same real T21/T37 path; identity remains a fixture."""
     listener = socket.socket()
     listener.bind(("127.0.0.1", 0))
     origin = f"http://127.0.0.1:{listener.getsockname()[1]}"
-    # ConsoleApp validates the origin on writes, which this read-only trial never sends.
-    server = uvicorn.Server(uvicorn.Config(app, log_level="error", access_log=False))
+    # Bind the allowed Host to this actual port; never relax the host check for tests.
+    app = ConsoleApp(api, public_origin=origin, observations=observations)
+    server = uvicorn.Server(uvicorn.Config(
+        app, log_level="error", access_log=False, timeout_graceful_shutdown=2
+    ))
     serving = asyncio.create_task(server.serve(sockets=[listener]))
     process = None
     try:
@@ -53,6 +56,9 @@ async def browser_projection(app, cookie, phase, output):
         async with asyncio.timeout(70):
             stdout, stderr = await process.communicate()
         if process.returncode or len(stdout) + len(stderr) > 65536:
+            output.mkdir(mode=0o700, parents=True, exist_ok=True)
+            detail = (stdout + stderr)[:65536].decode("utf-8", errors="replace")
+            (output / "qualification-error.log").write_text(detail.replace(cookie, "<fixture-cookie>"))
             raise RuntimeError("live_observation_browser_check_failed")
         return {"projects": ["chromium", "webkit"], "status": "PASS"}
     finally:
@@ -136,7 +142,7 @@ async def qualify(config):
                 if config.get("browser_output"):
                     permission["allowed"] = True
                     browsers = await browser_projection(
-                        app, cookie, config["phase"], Path(config["browser_output"])
+                        api, observations, cookie, config["phase"], Path(config["browser_output"])
                     )
                     checks["actual_browser_projection"] = browsers["status"] == "PASS"
                 return {
@@ -152,6 +158,7 @@ async def qualify(config):
 
 
 if __name__ == "__main__":
+    os.umask(0o077)
     raw = sys.stdin.buffer.read(4097)
     if len(raw) > 4096:
         raise SystemExit("bounded_test_configuration_required")
