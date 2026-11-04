@@ -22,16 +22,24 @@ from bravo_gate.signatures import DOMAIN, AuthorityEnvelope, AuthorityKey, Ed255
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--runner-checkout", type=Path, required=True)
+    parser.add_argument("--runner-checkout", type=Path)
+    parser.add_argument("--source-run", type=Path)
+    parser.add_argument("--target-run", type=Path)
+    parser.add_argument("--mode", choices=("audit-pair", "restore-partial"), default="audit-pair")
     parser.add_argument("--private-output", type=Path, required=True)
     args = parser.parse_args()
     os.umask(0o077)
     root = args.private_output.resolve()
     root.mkdir(mode=0o700, parents=True, exist_ok=False)
-    runner = args.runner_checkout.resolve() / "services/control-runner"
-    sys.path[:0] = [str(runner / "src"), str(runner / "tests/integration")]
-    # Explicit operator-selected checkout, never a user upload or URL.
-    from verify_live_audit_canaries import run
+    if args.mode == "audit-pair":
+        if args.runner_checkout is None or args.source_run or args.target_run:
+            parser.error("audit-pair requires only runner-checkout")
+        runner = args.runner_checkout.resolve() / "services/control-runner"
+        sys.path[:0] = [str(runner / "src"), str(runner / "tests/integration")]
+        # Explicit operator-selected checkout, never a user upload or URL.
+        from verify_live_audit_canaries import run
+    elif not args.source_run or not args.target_run or args.runner_checkout:
+        parser.error("restore-partial requires only existing source-run and target-run")
 
     result = {
         "status": "INCOMPLETE",
@@ -39,20 +47,28 @@ def main():
         "cloud_resources_changed": False,
     }
     try:
-        checks = {side: run(root / side, side=side) for side in ("source", "target")}
-        assert all(
-            check["status"] == "PASS" and check["owned_resources_removed"]
-            for check in checks.values()
-        )
-        snapshots = {
-            side: RunSnapshot(side + "-registered", (root / side / "control-run.json").read_bytes())
-            for side in checks
-        }
+        if args.mode == "audit-pair":
+            checks = {side: run(root / side, side=side) for side in ("source", "target")}
+            assert all(
+                check["status"] == "PASS" and check["owned_resources_removed"]
+                for check in checks.values()
+            )
+            raw = {side: (root / side / "control-run.json").read_bytes() for side in checks}
+        else:
+            # Explicit local test inputs, not an operational upload/trust API.
+            raw = {"source": args.source_run.read_bytes(), "target": args.target_run.read_bytes()}
+            source = json.loads(raw["source"])
+            target = json.loads(raw["target"])
+            assert len(source["results"]) == len(target["results"]) == 20
+            assert {r["test_id"] for r in source["results"] if r["verdict"] == "PASS"} == {"DR-01.1"}
+            assert all(r["verdict"] == "UNKNOWN" for r in target["results"])
+            result["scope"] = "one actual local restore run and an explicitly unverified target; test authority"
+        snapshots = {side: RunSnapshot(side + "-registered", data) for side, data in raw.items()}
         contract = T5Contract()
         ctx = GateContext(
             "local-trial-tenant",
             "demo-chat",
-            "local-audit-gate",
+            "local-audit-gate" if args.mode == "audit-pair" else "local-restore-partial-gate",
             fingerprint({"local_plan": str(root.name)}),
             "full",
             "1",
@@ -128,12 +144,15 @@ def main():
         reports[ctx.gate_id] = RunSnapshot(ctx.gate_id, canonical(report))
         sign("gate-result", reports[ctx.gate_id].fingerprint)
         rows = {row["test_id"]: row for row in report["rows"]}
-        audit_ids = {"AUD-01.1", "AUD-01.2", "AUD-01.3"}
         assert len(rows) == 20
-        assert {t for t, row in rows.items() if row["decision"] == "PASS"} == audit_ids
-        assert all(
-            row["reason"] == "SOURCE_UNKNOWN" for t, row in rows.items() if t not in audit_ids
-        )
+        if args.mode == "audit-pair":
+            audit_ids = {"AUD-01.1", "AUD-01.2", "AUD-01.3"}
+            assert {t for t, row in rows.items() if row["decision"] == "PASS"} == audit_ids
+            assert all(row["reason"] == "SOURCE_UNKNOWN" for t, row in rows.items() if t not in audit_ids)
+        else:
+            assert all(row["decision"] == "BLOCK" for row in rows.values())
+            assert rows["DR-01.1"]["reason"] == "TARGET_UNKNOWN"
+            assert all(row["reason"] == "SOURCE_UNKNOWN" for t, row in rows.items() if t != "DR-01.1")
         assert report["decision"] == "BLOCK"
 
         def rejected(callback):
@@ -165,14 +184,15 @@ def main():
         result.update(
             status="PASS",
             full_profile_tests=20,
-            actual_audit_controls_passed=3,
-            unexecuted_controls_blocked=17,
+            actual_audit_controls_passed=3 if args.mode == "audit-pair" else 0,
+            actual_source_restore_verified=args.mode == "restore-partial",
+            unexecuted_controls_blocked=17 if args.mode == "audit-pair" else 20,
             whole_gate_decision=report["decision"],
             missing_controls_refuse_prerequisite=legitimate_block,
             fabricated_pass_rejected=forged_block,
             expired_authority_rejected=expired_block,
             revoked_authority_rejected=revoked_block,
-            both_owned_environments_removed=True,
+            both_owned_environments_removed=True if args.mode == "audit-pair" else None,
             production_authority=False,
             application_cutover_executed=False,
         )
