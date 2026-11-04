@@ -174,7 +174,7 @@ services/observability/testing/rotation.sh   # 인증서 교체: 14항목, 약 1
 - **실제 환경 배포:** 플랫폼 RKE2(T7), 출발지 EKS(T6), 목적지 RKE2(T30). 남은 것은 배포 경로, 클러스터 접근, 인증서 발급, 조회 API 이미지 게시다.
 - **영속성:** 디스크 큐 · 저장소 · 창 수신 저장이 emptyDir이다. 저장소 클래스가 정해지면 PVC로 바꾼다. 운영 창 수신은 T10 상태 DB에 저장한다(#181 · #186).
 - **판정 연결:** 저장한 창을 판정(T17)이 읽는 경로가 없다. `WindowStore`를 상태 DB(T10)에 구현하고 판정이 `latest(plan_id)`를 읽는 것을 제안한다.
-- **나가는 주소 좁히기:** Collector의 나가는 연결은 포트로만 제한한다. 환경별 플랫폼 주소와 출발지 VPC 대역을 ipBlock으로 더한다.
+- **나가는 경로 적용:** Collector의 다른 클러스터 송신은 [`infra/envs/collector-network`](../../infra/envs/collector-network/README.md)의 전용 egress ProxyGroup · 관찰 포트 정책 · ACL 조각으로 좁혔다. 실제 operator · tailnet에 적용하고 양성 · 음성 연결을 확인하는 일이 남았다(T7 · T30).
 - **앱 지표:** 데모 앱에 OTel 계측이 없다(T22). 조회 API의 HTTP 뷰는 계측이 들어오면 채워진다.
 - **PgBouncer 지표:** 출발지 PgBouncer는 별도 Deployment라 exporter가 필요하다(T6).
 - **CI:** `promtool`과 `testing/` 스크립트는 지금 CI에서 돌지 않는다(워크플로 변경 필요). pytest는 돈다.
