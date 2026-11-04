@@ -52,6 +52,7 @@ class SourceVerification:
     candidate: Candidate
     tenant_id: str
     plan_digest: str
+    plan_version: int
     expires_at: str
     verdict: str
     created_uid: str
@@ -67,7 +68,7 @@ def _latest(c, plan_id, run_id):
 
 
 def _plan(c, plan_id, tenant):
-    row = c.execute("SELECT tenant_id, spec_json, state FROM plans WHERE plan_id=?", (plan_id,)).fetchone()
+    row = c.execute("SELECT tenant_id, spec_json, state, version FROM plans WHERE plan_id=?", (plan_id,)).fetchone()
     if row is None or row["tenant_id"] != tenant:
         raise EventError("forbidden")
     return row
@@ -102,6 +103,8 @@ class ChangeIntake:
                 raise ValueError()
             original.candidate.validate()
             validate_identifier(original.created_uid)
+            if type(original.plan_version) is not int or original.plan_version < 1:
+                raise ValueError()
             _digest(original.plan_digest)
             expiry = _timestamp(original.expires_at)
         except Exception:
@@ -124,6 +127,8 @@ class ChangeIntake:
                     raise EventError("verification_conflict")
                 # Historical delivery acknowledgment, never an approval or reactivation.
                 return previous[1]
+            if original.plan_version != plan["version"]:
+                raise EventError("version_conflict")
             if plan["state"] != "REHEARSE" or expiry <= _timestamp(self.clock()):
                 raise EventError("candidate_unavailable")
             latest = _latest(c, p, r)
@@ -163,6 +168,8 @@ class ChangeIntake:
         if not head or _get(c, p, change_key("intake-hold", head["verification_id"])):
             raise EventError("authority_unavailable")
         record, _ = _get(c, p, change_key("intake-proof", head["verification_id"]))
+        if record["plan_version"] != plan["version"]:
+            raise EventError("authority_unavailable")
         candidate = record["candidate"]
         binding = {k: candidate[k] for k in ("plan_id", "target_environment_id", "diff_hash", "image_digest")}
         binding.update(plan_digest=record["plan_digest"], expires_at=record["expires_at"])

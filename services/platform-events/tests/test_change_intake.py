@@ -18,7 +18,7 @@ from bravo_platform_events.workload_identity import WorkloadSender
 PLAN = replace(SPEC, plan_id="plan-fixture")
 NORMAL = Candidate(PLAN.plan_id, "run-fixture", 1, "verification-fixture-1", "evidence-fixture-1",
                    "env-onprem", "rehearsal-fixture", "b" * 64, "sha256:" + "c" * 64, "sha256:" + "d" * 64)
-SOURCE = SourceVerification(NORMAL, PLAN.tenant_id, PLAN.plan_digest, EXPIRES, "PASS",
+SOURCE = SourceVerification(NORMAL, PLAN.tenant_id, PLAN.plan_digest, 1, EXPIRES, "PASS",
                             "fixture-uid-1", "fixture-uid-1", True)
 BINDING = dict(plan_id=PLAN.plan_id, plan_digest=PLAN.plan_digest, expires_at=EXPIRES,
                target_environment_id=NORMAL.target_environment_id, diff_hash=NORMAL.diff_hash,
@@ -185,3 +185,26 @@ def test_token_does_not_authorize_hold_or_unverified_source(f):
             f.deliver()
     with pytest.raises(EventError, match="authority_unavailable"):
         f.approve()
+
+
+def test_previous_plan_version_cannot_issue_fresh_approval_or_be_registered_late(f):
+    f.deliver()
+    old = f.approve()
+    # A different workflow cycle returns to REHEARSE with the same spec digest.
+    with f.backend.admin() as c:
+        c.execute("UPDATE plans SET version=3 WHERE plan_id='plan-fixture'")
+    with pytest.raises(EventError, match="authority_unavailable"):
+        f.service().approve(PRINCIPAL, PLAN.plan_id, run_id=NORMAL.run_id, binding=BINDING,
+                            expected_version=3, command_key="new-cycle")
+    with pytest.raises(EventError):
+        f.claim(old)
+    late = replace(NORMAL, verification_id="late-proof", attempt=2)
+    f.original = replace(SOURCE, candidate=late)
+    with pytest.raises(EventError, match="version_conflict"):
+        f.deliver(late)
+    # Evidence tied to the new version can still proceed.
+    f.original = replace(SOURCE, candidate=late, plan_version=3)
+    f.deliver(late)
+    approved = f.service().approve(PRINCIPAL, PLAN.plan_id, run_id=NORMAL.run_id, binding=BINDING,
+                                   expected_version=3, command_key="new-cycle")
+    assert approved["context"]["verification_id"] == "late-proof"
