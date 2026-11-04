@@ -72,3 +72,59 @@ def test_invalid_scopes_never_reach_api(tmp_path, monkeypatch, namespace, secret
 
 def test_missing_token_is_unknown(tmp_path):
     assert observe_secret_get("default", "app", token_path=tmp_path / "missing", ca_path=tmp_path / "missing") == "unknown"
+
+
+@pytest.mark.parametrize("http_status,expected", [(200, "yes"), (403, "no")])
+def test_scoped_request_uses_real_tls_and_service_account_token(tmp_path, monkeypatch, http_status, expected, capsys):
+    import shutil
+    import socket
+    import ssl
+    import subprocess
+    import threading
+    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+    openssl = shutil.which("openssl")
+    if not openssl:
+        pytest.skip("openssl is required to generate the local TLS fixture")
+    cert, key, token = tmp_path / "cert.pem", tmp_path / "key.pem", tmp_path / "token"
+    subprocess.run([openssl, "req", "-x509", "-newkey", "rsa:2048", "-nodes", "-days", "1",
+                    "-subj", "/CN=kubernetes.default.svc", "-addext", "subjectAltName=DNS:kubernetes.default.svc",
+                    "-keyout", str(key), "-out", str(cert)], check=True, capture_output=True)
+    token.write_text("fixture-token")
+    seen = []
+
+    class Handler(BaseHTTPRequestHandler):
+        def do_GET(self):
+            seen.append((self.path, self.headers.get("Authorization")))
+            self.send_response(http_status)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(b'{"data":{"test":"private-response-value"}}')
+
+        def log_message(self, *_):
+            pass
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    context.load_cert_chain(str(cert), str(key))
+    server.socket = context.wrap_socket(server.socket, server_side=True)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    original = socket.create_connection
+
+    def local_connection(address, *args, **kwargs):
+        if address == ("kubernetes.default.svc", 443):
+            address = ("127.0.0.1", server.server_port)
+        return original(address, *args, **kwargs)
+
+    monkeypatch.setattr(socket, "create_connection", local_connection)
+    thread.start()
+    try:
+        assert observe_secret_get("rehearsal-x", "app-credentials", token_path=token, ca_path=cert) == expected
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
+    assert seen == [("/api/v1/namespaces/rehearsal-x/secrets/app-credentials", "Bearer fixture-token")]
+    output = capsys.readouterr()
+    assert "private-response-value" not in output.out + output.err
+    assert "fixture-token" not in output.out + output.err

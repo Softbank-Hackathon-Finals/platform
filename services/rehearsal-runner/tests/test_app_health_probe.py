@@ -64,3 +64,40 @@ def test_invalid_scope_rejected_before_request(monkeypatch, namespace, service, 
     with pytest.raises(ValueError):
         observe_app_database(namespace, service, port)
     assert opener.requests == []
+
+
+def test_observer_uses_real_http_against_scoped_service_name(monkeypatch):
+    import socket
+    import threading
+    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+    class Handler(BaseHTTPRequestHandler):
+        def do_GET(self):
+            if self.path != "/api/health/db":
+                self.send_error(404)
+                return
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(b'{"ok":true}')
+
+        def log_message(self, *_):
+            pass
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    original = socket.getaddrinfo
+
+    def fixture_dns(host, *args, **kwargs):
+        if host == "candidate.rehearsal-x.svc.cluster.local":
+            host = "127.0.0.1"
+        return original(host, *args, **kwargs)
+
+    monkeypatch.setattr(socket, "getaddrinfo", fixture_dns)
+    thread.start()
+    try:
+        assert observe_app_database("rehearsal-x", "candidate", server.server_port) == "yes"
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
