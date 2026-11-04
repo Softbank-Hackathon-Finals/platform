@@ -25,6 +25,11 @@ QUEUE_SECONDS = 0.1
 MTU_BYTES = 1500
 
 
+def server_arguments(parameters):
+    """None leaves a setting out. A command-line value outranks ALTER SYSTEM, so a trial that changes one must omit it."""
+    return [item for key, value in parameters.items() if value is not None for item in ("-c", f"{key}={value}")]
+
+
 def require_owned_name(name):
     if not re.fullmatch(r"t8-lag-[a-z0-9-]+", name):
         raise ValueError("refusing to touch a resource outside the t8-lag- prefix")
@@ -129,7 +134,7 @@ class Lab:
             docker("network", "rm", require_owned_name(network), check=False)
 
     def _start(self, side, name):
-        settings = [item for key, value in self.parameters.items() for item in ("-c", f"{key}={value}")]
+        settings = server_arguments(self.parameters)
         # Trust stays inside a throwaway container bound to loopback; no credential exists to leak.
         self.containers.append(require_owned_name(name))
         docker("run", "-d", "--name", name, "--network", self.control_network, *DB_LIMITS,

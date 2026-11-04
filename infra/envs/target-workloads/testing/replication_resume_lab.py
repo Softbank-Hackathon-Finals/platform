@@ -67,6 +67,8 @@ SMALL_ROWS = {"messages": 1_900, "attachments": 100}
 # The incident: about 80 MiB between the source WAL and the slot's confirmed flush position.
 BACKLOG_BYTES = 80 * 1024 * 1024
 BACKLOG_BATCH_ROWS = 200
+# 80 MiB at about 2 KB per row. Fewer rows would mean the run did not measure a real catch-up.
+BACKLOG_MINIMUM_ROWS = 30_000
 BODY_REPEATS = 56
 TRIAL_OBSERVE_SECONDS = 45
 TRIAL_HOLD_SECONDS = 3
@@ -199,16 +201,23 @@ class Writer(threading.Thread):
         return self.acks
 
 
+def wal_position(source):
+    return source.execute("SELECT pg_current_wal_lsn() - '0/0'::pg_lsn").fetchone()[0]
+
+
 def pile_up(source, wanted_bytes):
-    """Many short transactions, as hours of ordinary writes would be, until the slot is that far behind."""
-    while True:
-        behind = slot_row(source)[3]
-        if behind >= wanted_bytes:
-            return behind
+    """Many short transactions, as hours of ordinary writes would be, until that much new WAL exists.
+
+    Counted from now, not from the slot. A vacuum of the seed can leave the slot 180 MB behind with almost
+    no rows in it, and a catch-up over that much WAL would then have nothing to send.
+    """
+    started = wal_position(source)
+    while wal_position(source) - started < wanted_bytes:
         source.execute("""
             INSERT INTO messages (idempotency_key, author, body)
             SELECT gen_random_uuid(), 'backlog', repeat(md5(g::text || clock_timestamp()::text), %s)
             FROM generate_series(1, %s) AS g""", (BODY_REPEATS, BACKLOG_BATCH_ROWS))
+    return slot_row(source)[3]
 
 
 def table_digest(connection, table):
@@ -287,7 +296,8 @@ def recover_run(condition, repetition):
             "barrier_went_both_ways": bool(applied["report"].get("barrier_probe", {}).get("passed")),
             "second_run_only_verified": verify_again["exit"] == 0 and verify_again["report"].get("would_run") is None,
             "no_acknowledged_row_lost": loss["acknowledged_rows_missing_on_target"] == 0 and loss["newest_row_arrived"],
-            "rows_written_while_stopped_arrived": 0 < loss["rows_written_while_stopped"] == loss["of_those_on_target"],
+            "backlog_held_real_rows": loss["rows_written_while_stopped"] >= BACKLOG_MINIMUM_ROWS,
+            "rows_written_while_stopped_arrived": loss["rows_written_while_stopped"] == loss["of_those_on_target"],
             "tables_identical": loss["messages_identical"] and loss["attachments_identical"],
             "no_probe_row_left": loss["barrier_rows_left"] == {"source": 0, "target": 0},
             "single_writer_kept": resting_state(source, target) == {
@@ -299,6 +309,18 @@ def recover_run(condition, repetition):
                 "dry_run_right_after_link_up": too_early, "dry_run": dry, "apply": applied, "second_run_default": verify_again,
                 "no_loss": loss, "machine": {"before": machine_before, "after": machine_load()},
                 "checks": checks, "passed": all(checks.values())}
+
+
+def hold_slot(lab, source):
+    docker("exec", "-d", lab.names["source"], "pg_recvlogical", "-U", "postgres", "-d", "chat", "-S", SUBSCRIPTION, "--start",
+           "-n", "-f", "/dev/null", "-o", "proto_version=4", "-o", "publication_names=source_chat")
+    if not wait_until(lambda: slot_row(source)[0], 15):
+        raise TimeoutError("test reader did not take the slot")
+
+
+def release_slot(source):
+    source.execute("SELECT pg_terminate_backend(active_pid) FROM pg_replication_slots WHERE slot_name = %s", (SUBSCRIPTION,))
+    wait_until(lambda: not slot_row(source)[0], 15)
 
 
 class Case:
@@ -353,16 +375,6 @@ def refusal_cases(lab, source, target, state_dsn):
     def ahead_undo():
         target.execute("DELETE FROM messages WHERE id = 2000000")
 
-    def slot_reader_on():
-        docker("exec", "-d", lab.names["source"], "pg_recvlogical", "-U", "postgres", "-d", "chat", "-S", SUBSCRIPTION, "--start",
-               "-n", "-f", "/dev/null", "-o", "proto_version=4", "-o", "publication_names=source_chat")
-        if not wait_until(lambda: slot_row(source)[0], 15):
-            raise TimeoutError("test reader did not take the slot")
-
-    def slot_reader_off():
-        source.execute("SELECT pg_terminate_backend(active_pid) FROM pg_replication_slots WHERE slot_name = %s", (SUBSCRIPTION,))
-        wait_until(lambda: not slot_row(source)[0], 15)
-
     wrong_port = "host=127.0.0.1 port=1 dbname=x user=x connect_timeout=1"
     chat_replicator_target = lab.dsn("target", "chat_replicator")
     return [
@@ -380,7 +392,7 @@ def refusal_cases(lab, source, target, state_dsn):
         Case("execution record has no such table", "executor_state_unconfirmed", executor=lab.dsn("target")),
         Case("control session on a database", "control_session_present", control_session, session_close),
         Case("no privilege to enable", "no_enable_privilege", target=chat_replicator_target),
-        Case("another reader holds the slot", "slot_in_use", slot_reader_on, slot_reader_off),
+        Case("another reader holds the slot", "slot_in_use", lambda: hold_slot(lab, source), lambda: release_slot(source)),
         Case("rows on the target the source lacks", "target_ahead_of_source", ahead_arrange, ahead_undo),
         Case("source and target swapped", "slot_missing", source=lab.dsn("target"), target=lab.dsn("source", "chat_replicator")),
         Case("both DSNs on one cluster", "source_and_target_are_one_cluster", source=lab.dsn("target")),
@@ -543,6 +555,42 @@ def run_paths():
         outcome["control_function_role"] = {
             "run": narrow, "passed": narrow["exit"] == 0 and narrow["report"]["enabled_by"] == "control_function"}
 
+        # Enabled by hand while another reader still holds the slot: it retries, it does not turn itself off.
+        stop_cleanly(source, target)
+        hold_slot(lab, source)
+        lines_before = len(lab.log_lines("target"))
+        errors_before = subscription_row(target)[2]
+        target.execute(f"ALTER SUBSCRIPTION {SUBSCRIPTION} ENABLE")
+        time.sleep(12)
+        enabled_during_hold, _, errors_during_hold, _ = subscription_row(target)
+        events = parse_log_events(lab.log_lines("target")[lines_before:])
+        release_slot(source)
+        took_over = wait_until(lambda: subscription_row(target)[1] and slot_row(source)[0], 20)
+        outcome["enabled_while_slot_held"] = {
+            "stayed_enabled": enabled_during_hold, "errors_added": errors_during_hold - errors_before, "target_log_events": events,
+            "took_the_slot_after_release": took_over,
+            "passed": enabled_during_hold and errors_during_hold == errors_before and took_over
+            and any(event["event"] == "slot_held_by_another_process" and event["sqlstate"] == "08P01" for event in events)}
+
+        # What disable_on_error=false gives up: a conflict no longer stops the subscription, it retries for ever.
+        stop_cleanly(source, target)
+        target.execute(f"ALTER SUBSCRIPTION {SUBSCRIPTION} SET (disable_on_error = false)")
+        row_id = source.execute(INSERT_MESSAGE, (uuid.uuid4(), "conflict")).fetchone()[0]
+        target.execute("INSERT INTO messages (id, idempotency_key, author, body) VALUES (%s, %s, 'conflict', 'x')", (row_id, uuid.uuid4()))
+        errors_before = subscription_row(target)[2]
+        target.execute(f"ALTER SUBSCRIPTION {SUBSCRIPTION} ENABLE")
+        time.sleep(16)
+        enabled_during_conflict, _, errors_during_conflict, _ = subscription_row(target)
+        noticed = run_tool(lab, "--settle", "2", "--timeout", "10")
+        target.execute("DELETE FROM messages WHERE id = %s AND body = 'x'", (row_id,))
+        healed_alone = wait_until(lambda: target.execute("SELECT count(*) FROM messages WHERE id = %s", (row_id,)).fetchone()[0] == 1, 20)
+        target.execute(f"ALTER SUBSCRIPTION {SUBSCRIPTION} SET (disable_on_error = true)")
+        outcome["conflict_with_disable_on_error_off"] = {
+            "stayed_enabled": enabled_during_conflict, "errors_added_in_16_s": errors_during_conflict - errors_before,
+            "command_exit": noticed["exit"], "command_reason": noticed["report"].get("post_check", {}).get("reason"),
+            "healed_after_removing_the_row": healed_alone,
+            "passed": enabled_during_conflict and errors_during_conflict > errors_before and noticed["exit"] == 1 and healed_alone}
+
         # An environment without the control function: the subscription owner's ALTER is the fallback.
         stop_cleanly(source, target)
         target.execute("DROP FUNCTION cutover.set_subscription(text, boolean)")
@@ -568,12 +616,20 @@ LOSSY = [(5, 5, True, 30, 30), (60, 60, True, 30, 30)]
 TRIALS = SWEEP + KNOBS + LONG + LOSSY
 
 
+def effective_timeouts(connection):
+    return connection.execute("""SELECT (SELECT setting::int / 1000 FROM pg_settings WHERE name = 'wal_receiver_timeout'),
+                                        (SELECT setting::int / 1000 FROM pg_settings WHERE name = 'wal_sender_timeout')""").fetchone()
+
+
 def apply_settings(source, target, receiver, sender, disable_on_error):
     stop_cleanly(source, target) if is_enabled(target) else wait_until(lambda: not slot_row(source)[0], 90)
     for connection in (source, target):
         connection.execute(f"ALTER SYSTEM SET wal_receiver_timeout = '{receiver}s'")
         connection.execute(f"ALTER SYSTEM SET wal_sender_timeout = '{sender}s'")
         connection.execute("SELECT pg_reload_conf()")
+        # Trust the server, not the statement: a higher-priority setting would ignore it without an error.
+        if not wait_until(lambda connection=connection: effective_timeouts(connection) == (receiver, sender), 10):
+            raise RuntimeError("timeout settings did not take effect")
     target.execute(f"ALTER SUBSCRIPTION {SUBSCRIPTION} SET (disable_on_error = {'true' if disable_on_error else 'false'})")
     target.execute(f"ALTER SUBSCRIPTION {SUBSCRIPTION} ENABLE")
     if not wait_until(lambda: slot_row(source)[0] and subscription_row(target)[1], 30):
@@ -621,6 +677,7 @@ def run_trial(lab, source, target, receiver, sender, disable_on_error, seconds, 
     writer.stop()
     enabled, worker_after, errors_after, _ = subscription_row(target)
     return {"receiver_s": receiver, "sender_s": sender, "disable_on_error": disable_on_error, "blip_s": seconds, "loss_pct": loss,
+            "effective_timeouts_s": {"source": list(effective_timeouts(source)), "target": list(effective_timeouts(target))},
             "repetition": repetition, "outcome": outcome, "disabled_after_s": disabled_after,
             "rows_flowing_after_link_up_s": flowing_after, "worker_replaced": worker_after != worker_before,
             "apply_errors_added": errors_after - errors_before,
@@ -668,7 +725,8 @@ def command_paths(args):
 def command_timeouts(args):
     results = load(args.out)
     entry = results.setdefault("timeouts", {"condition": args.condition, "trials": [], "load_samples": []})
-    with (Lab(CONDITIONS[args.condition], parameters=LOG_PARAMETERS) as lab,
+    settings = {**LOG_PARAMETERS, "wal_receiver_timeout": None, "wal_sender_timeout": None}
+    with (Lab(CONDITIONS[args.condition], parameters=settings) as lab,
           connect(lab.dsn("source")) as source, connect(lab.dsn("target")) as target):
         build_pair(lab, source, target, SMALL_ROWS)
         for setting in TRIALS[args.shard::args.shards]:

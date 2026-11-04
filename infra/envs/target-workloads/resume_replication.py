@@ -297,8 +297,9 @@ def refusals(state, *, probe=False):
         found.append("control_session_present")
     subscription = target and target["subscription"]
     slot = source and source["slot"]
-    # A slot still held while the subscription is off has another reader, usually a walsender that has
-    # not timed out yet. Enabling now fails with 55006, and disable_on_error switches it off again.
+    # A slot still held while the subscription is off has another reader, usually a walsender that has not
+    # timed out yet. Enabling would only retry every 5 s (08P01) until it lets go, and if it is not an old
+    # walsender, someone else is consuming this stream. Either way there is nothing to enable yet.
     if subscription and slot and not subscription["enabled"] and slot["active"]:
         found.append("slot_in_use")
     if state["source_rows"] and state["target_rows"]:

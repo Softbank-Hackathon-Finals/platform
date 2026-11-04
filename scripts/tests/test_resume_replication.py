@@ -852,6 +852,11 @@ class LabRuleTests(unittest.TestCase):
         self.assertEqual(lab.link_up_script("eth1", None), "tc qdisc del dev eth1 root")
         self.assertEqual(lab.link_up_script("eth1", {"mbit": 20, "rtt_ms": 30}), lab.shaping_script("eth1", {"mbit": 20, "rtt_ms": 30}))
 
+    def test_a_start_argument_can_be_left_out_so_that_alter_system_can_change_it(self):
+        # A command-line setting outranks ALTER SYSTEM. Fixing the timeouts there made a 60 s trial run at 5 s.
+        arguments = lab.server_arguments({"wal_level": "logical", "wal_receiver_timeout": None})
+        self.assertEqual(arguments, ["-c", "wal_level=logical"])
+
     def test_lab_parameters_add_to_the_defaults_without_changing_them(self):
         before = dict(lab.DB_PARAMETERS)
         chosen = lab.Lab(None, parameters={"wal_receiver_timeout": "60s"}).parameters

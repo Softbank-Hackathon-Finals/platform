@@ -270,3 +270,119 @@ T8_ATTACH_E2E=1 uv run --no-project --python 3.12 --with boto3==1.43.123 --with 
 psycopg만 있으면 되고 컨테이너는 필요 없으며, 위 명령에도 포함된다.
 
 `scripts/tests/attachment_mutation_check.py`는 임시 복사본에서 검사를 하나씩 빼고 시험이 실패하는지 확인한다.
+
+## 정방향 구독 재개 (재발 대비)
+
+`t8_source_to_target`가 연결 끊김으로 스스로 꺼졌을 때 쓰는 명령이다. 기존 슬롯을 그대로 두고 그 구독만 다시 켠 뒤,
+실제로 따라잡았는지 확인한다. 슬롯 · 역할 · 역방향 구독은 건드리지 않고 목적지에는 어떤 쓰기도 하지 않는다.
+
+로컬 컨테이너에서만 재현했다. 실제 TLS 경로와 실제 역할로는 아직 돌리지 않았다
+([증거와 판단](../../../docs/evidence/t8-replication-resume-2026-11-04/README.md)).
+
+### 절차
+
+값은 환경 변수로만 받고 출력하지 않는다. 표준 출력에 JSON 한 줄만 나오고, 성공은 종료 코드 0, 그 밖은 전부 1이다.
+
+1. 옵션 없이 돌린다. 어떤 쓰기도 하지 않는다. `refusals`가 비어 있어야 한다.
+2. 출력의 `preflight.source.system_identifier`와 `preflight.target.system_identifier`가 의도한 두 클러스터인지
+   대조한다. 명령은 어느 쪽이 맞는지 알 수 없으므로 이 대조는 사람이 한다.
+3. 대조한 값을 넘겨 `--apply`로 돌린다.
+
+```sh
+infra/envs/target-workloads/resume_replication.py
+infra/envs/target-workloads/resume_replication.py --apply --source-system-id <값> --target-system-id <값>
+```
+
+| 구독 상태 | 옵션 없음 | `--apply` |
+| --- | --- | --- |
+| 꺼짐 | 사전 확인만. `would_run`에 실행할 문장을 보여 준다 | 사전 확인 → ENABLE 1회 → 사후 확인 → barrier 왕복 → 사후 확인 |
+| 이미 켜짐 | 사전 확인 → 읽기 전용 사후 확인 | ENABLE 없이 사후 확인 → barrier 왕복 → 사후 확인 |
+
+이미 다른 사람이 켠 구독에 돌려도 다시 켜지 않는다. 쓰기를 전혀 원하지 않으면 옵션 없이 돌린다.
+
+### 접속 정보
+
+| 변수 | 쓰는 곳 | 필요한 권한 |
+| --- | --- | --- |
+| `T8_RESUME_SOURCE_DSN` | 출발지 읽기 | `chat_replicator`로 충분하다(`messages`, `attachments` SELECT) |
+| `T8_RESUME_TARGET_DSN` | 목적지 읽기와 ENABLE | 읽기는 `chat_replicator`로 충분하다. ENABLE은 `cutover.set_subscription` 실행 권한 또는 구독 소유 권한이 필요하다 |
+| `T8_RESUME_EXECUTOR_DSN` | 실행 기록 읽기 | `executor.executions` SELECT |
+| `T8_RESUME_SOURCE_PROBE_DSN` | `--apply`의 barrier 쓰기 | `cutover.barrier` INSERT · SELECT · DELETE |
+| `T8_RESUME_ALLOW_LOOPBACK_PLAINTEXT` | 로컬 시험 전용 | 값이 `1`이고 host와 hostaddr가 모두 loopback 주소일 때만 `verify-full`을 요구하지 않는다 |
+
+- 모든 DSN은 `verify-full`이어야 한다. 비밀번호가 나가기 전에 판단한다. 규칙은 첨부 복사와 같다.
+- `cutover_control`은 `cutover.barrier`에 DELETE가 없어 barrier 쓰기에 쓸 수 없다. 그 역할을 넓히지 않는다.
+  barrier 쓰기 권한을 가진 역할이 없으면 `--no-barrier-probe`로 건너뛰고 출력에 그 사실을 남긴다.
+- Executor가 없는 환경이면 `--executor-not-deployed`로 그 사실을 적는다. 출력에 남고, `cutover_control` 세션 검사는 계속된다.
+  이 진술로 실행 중인 Executor를 숨길 수 없도록, `T8_RESUME_EXECUTOR_DSN`이 있으면 그쪽 값을 따른다.
+
+ENABLE 권한이 없어 `no_enable_privilege`만 남았다면 권한을 넓히지 말고, 권한을 가진 사람이 `would_run`의 문장을
+실행한 뒤 옵션 없이 다시 돌려 확인한다. 이미 켜진 구독은 ENABLE 권한 없이 확인할 수 있다.
+
+### 거부 사유
+
+`refusals`에 하나라도 있으면 아무것도 바꾸지 않는다. 확인하지 못한 상태도 안전한 상태로 치지 않는다.
+
+| 사유 | 뜻 | 다음 행동 |
+| --- | --- | --- |
+| `slot_invalidated`, `slot_missing` | 슬롯에 이어 받을 WAL이 없거나 슬롯이 없다 | 재개로 고칠 수 없다. 초기 복사부터 다시 하는 절차를 사람이 정한다 |
+| `slot_at_risk` | 다음 체크포인트에 WAL을 잃을 수 있다 | 사람이 바로 판단한다 |
+| `slot_in_use` | 다른 프로세스가 슬롯을 쥐고 있다. 대개 아직 끊기지 않은 이전 walsender다 | `wal_sender_timeout`이 지난 뒤 다시 돌린다. 켜도 5초마다 재시도만 한다. 그 뒤에도 남아 있으면 누가 읽는지 찾는다 |
+| `reverse_active`, `reverse_slot_in_use` | 역방향이 돌고 있다 | 쓰기 방향이 정리될 때까지 멈춘다 |
+| `target_app_can_login`, `target_app_sessions` | 목적지 앱이 쓸 수 있거나 세션이 남아 있다 | 쓰기 DB가 둘일 수 있다. 원인을 먼저 찾는다 |
+| `source_app_cannot_login` | 출발지 앱이 막혀 있다 | 컷오버 중이거나 실패한 뒤다. 실행 기록을 본다 |
+| `executor_running`, `control_session_present` | 실행이 lease를 쥐고 있거나 제어 세션이 있다 | 끝나거나 사람이 풀 때까지 기다린다 |
+| `executor_state_unconfirmed` | 실행 기록을 읽지 못했다 | 접속을 고치거나, 없는 환경이면 `--executor-not-deployed`를 쓴다 |
+| `target_ahead_of_source` | 목적지에 출발지보다 많은 행이 있다 | 우회 쓰기를 의심한다. 사람이 대조한다 |
+| `source_unconfirmed`, `target_unconfirmed` | 읽지 못했다 | `errors`의 분류를 보고 접속을 고친다 |
+| `source_and_target_are_one_cluster`, `*_identity_mismatch`, `*_identity_not_pinned` | 두 DSN이 같은 클러스터이거나 의도한 클러스터가 아니거나 대조값이 없다 | DSN을 고친다 |
+| `no_enable_privilege` | ENABLE 권한이 없다 | 위 문단을 따른다 |
+| `barrier_not_published`, `barrier_not_subscribed`, `barrier_not_readable_on_target`, `barrier_probe_not_permitted` | `--apply`의 barrier 왕복을 할 수 없다 | 아래 barrier 절을 본다 |
+
+### 사후 확인
+
+`post_check.checks`의 모든 항목이 `--settle`(기본 15초) 동안 유지돼야 통과한다. `--timeout`(기본 900초) 안에 확인하지 못하면 실패다.
+
+| 항목 | 확인하는 것 |
+| --- | --- |
+| `subscription_enabled`, `worker_running` | 구독이 켜져 있고 적용 작업자가 있다 |
+| `publisher_connected` | 작업자가 실제로 출발지에 붙어 슬롯을 쥐었다. 작업자는 접속 전에도 보이므로 이 항목이 따로 필요하다 |
+| `lsn_advanced` | 슬롯의 확인 위치가 재개 전보다 앞으로 갔다 |
+| `backlog_cleared` | `confirmed_flush_lsn`과 `latest_end_lsn`이 모두 재개 직전 출발지 기준점(`positions.watermark`)을 지났다 |
+| `tables_ready`, `rows_arrived` | 복사 중인 테이블이 없고, 기준점 시점의 행이 목적지에 모두 있다 |
+| `errors_not_increased` | 적용 오류 · 동기화 오류 · 충돌 수가 재개 전보다 늘지 않았다 |
+| `single_writer_kept` | 출발지 앱 LOGIN, 목적지 앱 NOLOGIN, 역방향 OFF가 그대로다 |
+| `slot_valid` | 따라잡는 동안 슬롯이 무효가 되지 않았다 |
+
+구독이 다시 꺼지거나 오류가 늘면 기다리지 않고 바로 실패로 끝난다. 실패해도 구독을 끄거나 되돌리지 않는다.
+원인이 연결이었다면 연결이 돌아온 뒤 같은 명령을 다시 돌린다. 충돌이라면 다시 돌려도 또 꺼지므로 원인부터 찾는다.
+
+### barrier 왕복
+
+`--apply`는 사후 확인을 통과한 뒤 `cutover.barrier`에 시험 행 하나를 넣고, 목적지 도착을 기다렸다가 지우고, 삭제 도착까지 기다린다.
+`barrier_probe`에 걸린 시간이 남는다. 도착하지 않아도 출발지 행은 지운다. 목적지 행은 지우지 않고 보고만 한다.
+
+`cutover.barrier`는 기본 `schema.sql`의 publication에 없다. 환경마다 추가하고 구독을 `copy_data=false`로 갱신하는 단계다
+([T12 계약](../../../docs/contracts/T12-platform-integration.md)). 그래서 재개의 조건으로 삼지 않는다.
+
+- 옵션 없는 실행은 빠진 단계를 `barrier_gaps`로 알려 주고 통과할 수 있다. 업무 테이블 복제는 barrier 없이도 돈다.
+- `--apply`는 빠져 있으면 거부한다. 왕복을 건너뛰려면 `--no-barrier-probe`를 쓴다.
+- `barrier_gaps`가 남아 있으면 Executor의 5단계가 barrier를 기다리다 실패한다. 재개와 별개로 컷오버 전에 맞춘다.
+
+### 하지 못하는 것
+
+- 끊김 자체를 막지 않는다. 연결이 다시 끊기면 같은 이유로 또 꺼질 수 있다. 설정 판단은 증거 문서에 있다.
+- 사전 확인과 ENABLE 사이의 짧은 틈은 막지 못한다. 그 사이에 컷오버가 시작되면 Executor의 사전 점검이 구독 상태를 다시 본다.
+- 이 명령의 세션도 `system_roles` 밖의 역할이면 Executor가 우회 쓰기 후보로 본다. 컷오버 중에는 돌리지 않는다.
+
+### 시험
+
+```sh
+python3 -m unittest discover -s scripts/tests -p 'test_resume_replication.py'
+infra/envs/target-workloads/testing/replication_resume_lab.py recover --out recover.json
+infra/envs/target-workloads/testing/replication_resume_lab.py refusals --out refusals.json
+infra/envs/target-workloads/testing/replication_resume_lab.py paths --out paths.json
+infra/envs/target-workloads/testing/replication_resume_lab.py timeouts --out timeouts.json
+```
+
+아래 네 명령은 `t8-lag-` 컨테이너를 띄우고 지운다.
