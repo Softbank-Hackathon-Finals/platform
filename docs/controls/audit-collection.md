@@ -81,7 +81,7 @@ T7 EC2에는 적용하지 않았다. 이 파일만으로 로그가 노드 밖으
    3일쯤이다(로컬 VM 실측). 전송 재시도와 수집 중단 알림은 남아 있다.
 6. 목적지 검색 어댑터가 같은 `AuditBatch` 의미를 구현한 뒤 실측한다.
 
-목적지의 수집·검색 backend는 아직 선택하거나 배포하지 않았다.
+목적지 저장소는 [ADR-0016](../adr/0016-target-audit-store.md)에서 SeaweedFS Object Lock 버킷(OTLP JSON 객체, 쓰기 전용 · 검색 전용 identity, COMPLIANCE 보존)으로 제안했다(제안됨). 로컬 Docker에서 권한 분리 · 보존 잠금 · Collector `awss3` 전달을 실측했고, 실제 목적지 배포와 검색 어댑터는 남아 있다.
 
 ## 실제 완료 전 필수 시험
 
