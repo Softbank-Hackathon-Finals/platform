@@ -93,8 +93,8 @@ SET_BLOCK = ("import json,os,sys,urllib.request as u;"
 def run(*command, stdin=None, check=True):
     result = subprocess.run(command, input=stdin, capture_output=True, check=False)
     if check and result.returncode:
-        # stderr can quote a manifest, so report only the failing verb.
-        raise RuntimeError(f"failed: {command[:6]} rc={result.returncode}: "
+        # Only generated local values could appear in this tail, and only on a failed lab run.
+        raise RuntimeError(f"failed: {command[:8]} rc={result.returncode}: "
                            + result.stderr.decode(errors="replace")[-400:].replace("\n", " "))
     return result.stdout.decode(errors="replace")
 
@@ -289,17 +289,16 @@ def target_db_log_count(pattern):
 def scenario_closed(passwords, manifest):
     """Secret missing or malformed, or Secrets Manager unreachable: nothing may serve."""
     out = {}
-    apply(manifest)
+    for name, values in (("target-app-objects", {"access_key": secrets.token_urlsafe(12), "secret_key": secrets.token_urlsafe(24)}),
+                         ("target-app-admin", {"token": secrets.token_urlsafe(32)})):
+        replace_secret(NS, name, values)
     kubectl("-n", NS, "delete", "secret", "target-app-credentials", "--ignore-not-found")
-    kubectl("-n", NS, "delete", "pods", "-l", "app=demo-chat", "--wait=false")
+    apply(manifest)
     time.sleep(20)
     pod = live_pod()
     out["secret_missing"] = {"ready_endpoints": endpoints(), "pod_phase": pod["status"]["phase"],
                              "app_started": statuses(pod, "containerStatuses").get("app", {}).get("started", False)}
-    for name, values in (("target-app-objects", {"access_key": secrets.token_urlsafe(12), "secret_key": secrets.token_urlsafe(24)}),
-                         ("target-app-admin", {"token": secrets.token_urlsafe(32)}),
-                         ("target-app-credentials", {"credentials.json": "not-json"})):
-        replace_secret(NS, name, values)
+    replace_secret(NS, "target-app-credentials", {"credentials.json": "not-json"})
     kubectl("-n", NS, "delete", "pods", "-l", "app=demo-chat", "--wait=false")
 
     def sidecar_failed():
@@ -352,6 +351,7 @@ def switch_route(backend, db_host, passwords):
 
 def scenario_nologin(passwords, via):
     """Correct password, closed role: what the app and the Service report."""
+    db_log_before = target_db_log_count("not permitted to log in")
     switch_route("target", POOLER_DB_HOST if via == "pooler" else TARGET_DB_HOST, passwords)
     time.sleep(8)
     out = {"before": counts(), "ready_endpoints": endpoints(), "reads": client(READS)}
@@ -360,7 +360,7 @@ def scenario_nologin(passwords, via):
     out["post_after_unblock"] = client([("post", "POST", "/api/messages", message(KEY_A))])["post"]
     out["reblock_status"] = set_block(True)
     out["app_log_not_permitted_lines"] = app_log_count("not permitted to log in")
-    out["target_db_log_not_permitted_lines"] = target_db_log_count("not permitted to log in")
+    out["target_db_log_not_permitted_lines"] = target_db_log_count("not permitted to log in") - db_log_before
     out["after"] = counts()
     return out
 
@@ -412,6 +412,7 @@ def scenario_precutover(passwords):
     burst = client([(f"r{i}", "GET", "/api/info", None) for i in range(12)])
     out["requests_right_after_rollout"] = len(burst)
     out["failed_right_after_rollout"] = sum(1 for result in burst.values() if result.get("status") != 200)
+    out["unlabelled_right_after_rollout"] = sum(1 for result in burst.values() if result.get("x_bravo_env") != ["onprem"])
     out["after_restart"] = next((r["info"] for r in burst.values() if "info" in r), None)
     wait(lambda: len(app_pods()) == 1, "old Pod gone", 120)
     out["old_pod_gone_seconds_after_rollout"] = round(time.monotonic() - started, 1)
@@ -421,7 +422,10 @@ def scenario_precutover(passwords):
 def security_review():
     live = json.loads(kubectl("-n", NS, "get", "deployment", "demo-chat", "-o", "json"))["spec"]["template"]["spec"]
     labels = json.loads(kubectl("get", "namespace", NS, "-o", "json"))["metadata"]["labels"]
+    default_exec = kubectl("-n", NS, "exec", live_pod()["metadata"]["name"], "--", "python", "-c",
+                           "import os; print('ADMIN_TOKEN' in os.environ)").strip()
     return {"live_app_has_command": "command" in live["containers"][0],
+            "exec_without_container_reaches_app": default_exec == "True",
             "namespace_pod_security": labels["pod-security.kubernetes.io/enforce"]}
 
 
@@ -432,6 +436,7 @@ def evaluate(report):
     checks = {
         "restricted_namespace": report["security"]["namespace_pod_security"] == "restricted",
         "app_keeps_image_entrypoint": report["security"]["live_app_has_command"] is False,
+        "exec_without_container_reaches_app": report["security"]["exec_without_container_reaches_app"],
         "missing_secret_serves_nothing": closed["secret_missing"]["ready_endpoints"] == 0 and not closed["secret_missing"]["app_started"],
         "malformed_secret_stops_sidecar_before_app": closed["secret_malformed"]["ready_endpoints"] == 0
             and closed["secret_malformed"]["sidecar_restarts"] >= 1 and not closed["secret_malformed"]["app_started"],
@@ -476,6 +481,7 @@ def evaluate(report):
         "restart_returns_to_write_blocked": pre["after_restart"] == closed_info,
         "rollout_is_not_held_by_the_sidecar": pre["old_pod_gone_seconds_after_rollout"] < 20,
         "rollout_drops_no_request": pre["failed_right_after_rollout"] == 0,
+        "rollout_responses_stay_labelled": pre["unlabelled_right_after_rollout"] == 0,
     })
     return checks
 
@@ -492,7 +498,9 @@ def main():
     try:
         start_cluster()
         image, revision = import_image(args.demo_chat_src)
-        report.update(demo_chat_revision=revision, local_image_digest=image.split("@")[1])
+        pin = json.loads((WORKLOADS / "app-image.json").read_text())
+        report.update(demo_chat_revision=revision, local_image_digest=image.split("@")[1],
+                      pinned_source_tested=revision == pin["source_sha"])
         passwords = install_databases()
         install_pooler(passwords)
         start_client(image)

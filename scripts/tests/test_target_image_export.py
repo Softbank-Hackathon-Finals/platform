@@ -52,10 +52,11 @@ def archive(path, files):
 
 
 class TargetImageExportTests(unittest.TestCase):
-    def test_pins_the_published_image_that_has_the_environment_header(self):
-        self.assertEqual(export.SOURCE, "8d82a9241d3894737778a77d58349e1aee54eca1")
-        self.assertEqual(export.INDEX, "sha256:ca5ce1b24f1deb2e7346643860ff0bb151409c1acec503c105f56d9043a389b6")
-        self.assertEqual(export.AMD64, "sha256:f9f48872b57d7c94eb01c81622feca66e7fcdcaec304b5c879682777606ac24c")
+    def test_uses_the_single_image_pin(self):
+        path = SOURCE.parents[1] / "infra/envs/target-workloads/app-image.json"
+        pin = json.loads(path.read_text())
+        self.assertEqual((export.SOURCE, export.INDEX, export.AMD64),
+                         (pin["source_sha"], pin["index_digest"], pin["amd64_digest"]))
 
     def test_blob_count_is_not_pinned_only_the_graph_must_be_complete(self):
         files, index, amd64 = fixture()

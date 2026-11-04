@@ -18,14 +18,16 @@ A = "infra/envs/target-workloads/application.py"
 C = "infra/envs/target-workloads/secrets_manager_compat.py"
 # Only a test method counts. An import error measures nothing.
 RESULT_LINE = re.compile(r"^(?:FAIL|ERROR): test_\w+ \(test_target_application\.", re.MULTILINE)
-COPIED = ("infra/envs/target-workloads", "infra/envs/target-secrets", "scripts/tests/test_target_application.py")
+COPIED = ("infra/envs/target-workloads", "infra/envs/target-secrets", "scripts/tests/test_target_application.py",
+          "scripts/export_target_image.py", "docs/operations/target-image-handoff.md",
+          "docs/adr/0016-target-app-secrets-manager-compat.md")
 MUTATIONS = [
  (A, 'APP_ENV = "onprem"', 'APP_ENV = "aws"'),
  (A, '"WRITE_BLOCKED": "true"', '"WRITE_BLOCKED": "false"'),
  (A, 'f"target-pgbouncer.{NAMESPACE}.svc.cluster.local"', 'f"target-db-rw.{NAMESPACE}.svc.cluster.local"'),
  (A, '"PGSSLMODE": "verify-full"', '"PGSSLMODE": "require"'),
+ (A, """return f"{REPOSITORY}@{PIN['index_digest']}\"""", """return f"{REPOSITORY}@{PIN['amd64_digest']}\""""),
  (A, '"ATTACHMENT_UPLOAD_ENABLED": "false"', '"ATTACHMENT_UPLOAD_ENABLED": "true"'),
- (A, '"sha256:4562bbf761d761cafc89f9db9153eb74550eb23972ea4f9080e93681d9d90d1d"}', '"sha256:0000"}'),
  (A, 'f"http://127.0.0.1:{COMPAT_PORT}"', '"https://secretsmanager.ap-northeast-2.amazonaws.com"'),
  (A, '"AWS_EC2_METADATA_DISABLED": "true"', '"AWS_EC2_METADATA_DISABLED": "false"'),
  (A, 'secret_env("ADMIN_TOKEN", "target-app-admin", "token")', 'secret_env("ADMIN_TOKEN", "target-app-db", "password")'),
@@ -52,7 +54,7 @@ MUTATIONS = [
  (C, 'or self.headers.get("X-Amz-Target") != OPERATION', ''),
  (C, 'or request.get("SecretId") != secret_id', ''),
  (C, 'not isinstance(request, dict) or', ''),
- (C, 'if not 0 < length <= MAX_REQUEST_BYTES', 'if False'),
+ (C, 'not 0 < length <= MAX_REQUEST_BYTES', 'False'),
  (C, 'isinstance(value.get(key), str) and value[key]', 'key in value'),
  (C, 'not isinstance(value, dict) or not all(', 'not all('),
  (C, 'text = read_credentials(credentials_path)', 'text = cached'),
@@ -60,7 +62,21 @@ MUTATIONS = [
  (C, '        read_credentials(path)\n    except', '        pass\n    except'),
  (C, 'sys.exit("database credentials are unavailable or malformed")', 'raise'),
  (C, 'signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))', 'pass'),
- (A, '"startupProbe": {"httpGet": {"path": "/healthz", "port": 8080}, "periodSeconds": 5, "failureThreshold": 60},', ''),
+ (A, '"startupProbe": {"httpGet": {"path": "/healthz", "port": 8080}, "timeoutSeconds": 5,\n                         "periodSeconds": 5, "failureThreshold": 60},', ''),
+ (A, '"readinessProbe": {"httpGet": {"path": "/readyz", "port": 8080}, "timeoutSeconds": 5}', '"readinessProbe": {"httpGet": {"path": "/readyz", "port": 8080}}'),
+ (A, '"items": [{"key": "ca.crt", "path": "ca.crt"}]', '"optional": False'),
+ (A, '"command": [PYTHON, f"/compat/{COMPAT_SCRIPT}"]', '"command": ["sleep", "infinity"]'),
+ (A, 'PYTHON = "/app/.venv/bin/python"', 'PYTHON = "/usr/bin/python"'),
+ (A, '{"name": "compat", "mountPath": "/compat", "readOnly": True}', '{"name": "compat", "mountPath": "/other", "readOnly": True}'),
+ (A, '{"name": "compat", "configMap": {"name": COMPAT_CONFIG}}', '{"name": "compat", "configMap": {"name": "other"}}'),
+ (A, '"defaultMode": 0o440', '"defaultMode": 0o444'),
+ (A, '"fsGroup": 10001', '"fsGroup": 1000'),
+ (A, '"sha256:e3c8e9cf6defa8d5932c2f28b26362b12cd2101de7c67360166801f3fa933ada"}', '"sha256:0000"}'),
+ (C, 'if (self.path != "/" or not 0 < length', 'if (not 0 < length'),
+ (C, 'except (ValueError, RecursionError):', 'except ValueError:'),
+ (C, 'if self.close_connection:\n                self.send_header("Connection", "close")\n', ''),
+ (C, 'self.close_connection = True\n', ''),
+ (C, '        def log_message(self, *args):\n            pass\n\n', ''),
  (A, '"timeoutSeconds": 5, "periodSeconds": 2, "failureThreshold": 60', '"timeoutSeconds": 1, "periodSeconds": 1, "failureThreshold": 30'),
  (A, '["/bin/bash", "-c", f"exec 3<>/dev/tcp/127.0.0.1/{COMPAT_PORT}"]', '[PYTHON, "-c", "pass"]'),
 ]
@@ -76,11 +92,12 @@ def survives(path, old, new):
                 shutil.copytree(source, destination, ignore=shutil.ignore_patterns("__pycache__", "image"))
             else:
                 shutil.copy(source, destination)
-        target = copy / path
-        text = target.read_text()
-        if old not in text:
-            raise ValueError(f"mutation no longer applies: {old[:60]}")
-        target.write_text(text.replace(old, new, 1))
+        if path:
+            target = copy / path
+            text = target.read_text()
+            if old not in text:
+                raise ValueError(f"mutation no longer applies: {old[:60]}")
+            target.write_text(text.replace(old, new, 1))
         result = subprocess.run(
             [sys.executable, "-m", "unittest", "discover", "-s", str(copy / "scripts/tests"),
              "-p", "test_target_application.py"],
@@ -89,6 +106,10 @@ def survives(path, old, new):
 
 
 def main():
+    # A copy that already fails would count every mutation as caught.
+    if not survives(None, None, None):
+        print(json.dumps({"baseline": "unmutated copy fails; results would be meaningless"}))
+        return 2
     survived = [old[:70] for path, old, new in MUTATIONS if survives(path, old, new)]
     print(json.dumps({"mutations": len(MUTATIONS), "killed": len(MUTATIONS) - len(survived), "survived": survived}))
     return 1 if survived else 0

@@ -44,6 +44,8 @@ def make_server(secret_id, credentials_path, port=PORT):
             self.send_response(status)
             self.send_header("Content-Type", "application/x-amz-json-1.1")
             self.send_header("Content-Length", str(len(body)))
+            if self.close_connection:
+                self.send_header("Connection", "close")
             self.end_headers()
             self.wfile.write(body)
 
@@ -57,11 +59,12 @@ def make_server(secret_id, credentials_path, port=PORT):
                 length = int(self.headers.get("Content-Length", ""))
             except ValueError:
                 return self.refuse()
-            if not 0 < length <= MAX_REQUEST_BYTES or self.headers.get("X-Amz-Target") != OPERATION:
+            if (self.path != "/" or not 0 < length <= MAX_REQUEST_BYTES
+                    or self.headers.get("X-Amz-Target") != OPERATION):
                 return self.refuse()
             try:
                 request = json.loads(self.rfile.read(length))
-            except ValueError:
+            except (ValueError, RecursionError):
                 return self.refuse()
             if not isinstance(request, dict) or request.get("SecretId") != secret_id:
                 return self.refuse()

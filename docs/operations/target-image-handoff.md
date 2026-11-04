@@ -4,19 +4,23 @@ This procedure prepares the existing reviewed demo-chat image for an independent
 owned local amd64 development VM. It does not install a VM, change a cluster,
 issue credentials, or make the unchanged application AWS-independent.
 
-The fixed source is `8d82a9241d3894737778a77d58349e1aee54eca1`; the index is
-`sha256:ca5ce1b24f1deb2e7346643860ff0bb151409c1acec503c105f56d9043a389b6` and
-linux/amd64 child is
-`sha256:f9f48872b57d7c94eb01c81622feca66e7fcdcaec304b5c879682777606ac24c`, from
-[demo-chat run41803312129](https://github.com/Softbank-Hackathon-Finals/demo-chat/actions/runs/41803312129).
+The source, index and linux/amd64 child digests are in
+[`app-image.json`](../../infra/envs/target-workloads/app-image.json), the one place
+that names the image. Read the reference with:
+
+```sh
+APP_IMAGE=$(python3 infra/envs/target-workloads/application.py --print-image)
+```
+
 The earlier `ce5727e` image and its export evidence do not send `X-Bravo-Env`.
 No new application build or registry visibility change is part of this handoff.
 
-**Before exporting**, a person with Actions access runs demo-chat
-`transfer-private-image` on `main` with that source SHA and index digest, so ECR
-holds the same bytes. As of 2026-11-04 18:05 KST its last run was for `dc9bece`, so
-this image is not yet in ECR. The export tool has not yet run against this image;
-only its verifier code and unit tests changed for it.
+**Before exporting**, ECR must hold the same bytes. demo-chat
+`transfer-private-image` validates its inputs against the publication record on
+`main` under `docs/evidence/image-publication-2026-11-03/`, so the T22 owner first
+updates that record to the pinned publication, then a person with Actions access
+runs the workflow with the pinned source SHA and index digest. The export tool has
+not yet run against this image; only its verifier code and unit tests changed for it.
 
 ## Export without handing registry credentials to the VM
 
@@ -73,8 +77,8 @@ sudo /var/lib/rancher/rke2/bin/ctr \
 
 Check that the exact index reference exists in `k8s.io`, and the amd64 content
 is unpacked. Import can retain the OCI annotation's tag
-`ghcr.io/softbank-hackathon-finals/demo-chat:sha-8d82a9241d3894737778a77d58349e1aee54eca1`
-without creating the exact `ghcr.io/softbank-hackathon-finals/demo-chat@sha256:ca5ce1b24f1deb2e7346643860ff0bb151409c1acec503c105f56d9043a389b6`
+`ghcr.io/softbank-hackathon-finals/demo-chat:sha-<source>`
+without creating the exact `$APP_IMAGE`
 name, even with `--base-name` and `--digests`. A `Never` Pod using the absent
 name will fail although the index bytes are present.
 
@@ -87,7 +91,7 @@ original index digest** above, not the amd64 child digest. Set
 sudo /var/lib/rancher/rke2/bin/ctr \
   --address /run/k3s/containerd/containerd.sock --namespace k8s.io \
   images tag "$VERIFIED_IMPORTED_REFERENCE" \
-  ghcr.io/softbank-hackathon-finals/demo-chat@sha256:ca5ce1b24f1deb2e7346643860ff0bb151409c1acec503c105f56d9043a389b6
+  "$APP_IMAGE"
 ```
 
 Read the exact destination name and descriptor digest again before launching
@@ -110,7 +114,8 @@ containerd namespace, SSH keys or active workloads may be reused implicitly.
 
 ## Unchanged application configuration and the S2/T9 gap
 
-The actual fixed source is authoritative:
+These links are the `ce5727e` source that this analysis first read. The pinned image
+keeps the same startup call and adds the `ATTACHMENT_UPLOAD_ENABLED` setting below:
 [config.py](https://github.com/Softbank-Hackathon-Finals/demo-chat/blob/ce5727eb3e3d2355077afdaadcb1a722aba9c7cd/app/config.py),
 [main.py](https://github.com/Softbank-Hackathon-Finals/demo-chat/blob/ce5727eb3e3d2355077afdaadcb1a722aba9c7cd/app/main.py),
 [db_secret.py](https://github.com/Softbank-Hackathon-Finals/demo-chat/blob/ce5727eb3e3d2355077afdaadcb1a722aba9c7cd/app/db_secret.py),

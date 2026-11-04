@@ -22,15 +22,26 @@ DB_SECRET_ID = "bravo/target/precutover/database"
 COMPAT_SCRIPT = "secrets_manager_compat.py"
 COMPAT_CONFIG = NAME + "-secrets-manager-compat"
 PYTHON = "/app/.venv/bin/python"
+# The one place that names the image to deploy. A new publication changes that file alone.
+PIN = json.loads(Path(__file__).with_name("app-image.json").read_text())
+REPOSITORY = "ghcr.io/softbank-hackathon-finals/demo-chat"
 IMAGE = re.compile(r"(?:ghcr\.io/softbank-hackathon-finals/demo-chat"
                    r"|[0-9]{12}\.dkr\.ecr\.[a-z0-9-]+\.amazonaws\.com/bravo/demo-chat)"
                    r"@sha256:[0-9a-f]{64}")
-# Published before X-Bravo-Env (sources ce5727e, 1a57a54, 66e7419), so Edge measurement could not attribute them.
+# Index and amd64 digests published before X-Bravo-Env (sources ce5727e, 1a57a54, 66e7419).
+# Edge measurement could not attribute their responses, and they ignore ATTACHMENT_UPLOAD_ENABLED.
 WITHOUT_ENV_HEADER = {"sha256:001adc35a9fc767566552fb55c3c19a67b7c5efc7231fb02dc28cdeace99d0d4",
+                      "sha256:bd1cd57a1c3dda9bb2795696167e242fc3b79a80eefb40d068a4124bcc66f384",
                       "sha256:edad76a75a604ccb0199e3e0a1c6ba8b0b1e9e4822fbca7857b33bd75a59751c",
-                      "sha256:4562bbf761d761cafc89f9db9153eb74550eb23972ea4f9080e93681d9d90d1d"}
+                      "sha256:d5ab5fef0dc477db9327a29f745e1c1db1e5bb58e0e934b08788b2e3726f60e4",
+                      "sha256:4562bbf761d761cafc89f9db9153eb74550eb23972ea4f9080e93681d9d90d1d",
+                      "sha256:e3c8e9cf6defa8d5932c2f28b26362b12cd2101de7c67360166801f3fa933ada"}
 SECURITY = {"allowPrivilegeEscalation": False, "readOnlyRootFilesystem": True,
             "capabilities": {"drop": ["ALL"]}}
+
+
+def pinned_image():
+    return f"{REPOSITORY}@{PIN['index_digest']}"
 
 
 def secret_env(name, secret, key):
@@ -84,10 +95,13 @@ def application(image, pull_secret=None):
             secret_env("ADMIN_TOKEN", "target-app-admin", "token"),
         ],
         "ports": [{"containerPort": 8080}],
-        # The development VM emulates amd64. Liveness must not kill an app that is still importing.
-        "startupProbe": {"httpGet": {"path": "/healthz", "port": 8080}, "periodSeconds": 5, "failureThreshold": 60},
-        "readinessProbe": {"httpGet": {"path": "/readyz", "port": 8080}},
-        "livenessProbe": {"httpGet": {"path": "/healthz", "port": 8080}, "initialDelaySeconds": 10},
+        # The development VM emulates amd64. Liveness must not kill an app that is still importing,
+        # and a slow answer must not pull a Pod out of the Service or reset its write switch.
+        "startupProbe": {"httpGet": {"path": "/healthz", "port": 8080}, "timeoutSeconds": 5,
+                         "periodSeconds": 5, "failureThreshold": 60},
+        "readinessProbe": {"httpGet": {"path": "/readyz", "port": 8080}, "timeoutSeconds": 5},
+        "livenessProbe": {"httpGet": {"path": "/healthz", "port": 8080}, "timeoutSeconds": 5,
+                          "initialDelaySeconds": 10},
         # Keep answering until the Service has dropped this Pod; otherwise requests fail during a rollout.
         "lifecycle": {"preStop": {"sleep": {"seconds": 5}}},
         "securityContext": SECURITY,
@@ -135,9 +149,13 @@ def application(image, pull_secret=None):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--image", required=True)
+    parser.add_argument("--image", default=pinned_image(), help="default: the image in app-image.json")
     parser.add_argument("--pull-secret", help="only with an agreed registry credential; default is an imported image")
+    parser.add_argument("--print-image", action="store_true", help="print the pinned image reference and exit")
     args = parser.parse_args()
+    if args.print_image:
+        print(pinned_image())
+        return
     try:
         items = application(args.image, args.pull_secret)
     except ValueError as error:

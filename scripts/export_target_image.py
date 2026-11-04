@@ -12,9 +12,9 @@ import tarfile
 import tempfile
 import time
 
-SOURCE = "8d82a9241d3894737778a77d58349e1aee54eca1"
-INDEX = "sha256:ca5ce1b24f1deb2e7346643860ff0bb151409c1acec503c105f56d9043a389b6"
-AMD64 = "sha256:f9f48872b57d7c94eb01c81622feca66e7fcdcaec304b5c879682777606ac24c"
+# The one place that names the image to deploy. A new publication changes that file alone.
+PIN = json.loads((pathlib.Path(__file__).resolve().parents[1] / "infra/envs/target-workloads/app-image.json").read_text())
+SOURCE, INDEX, AMD64 = PIN["source_sha"], PIN["index_digest"], PIN["amd64_digest"]
 IMAGE = "ghcr.io/softbank-hackathon-finals/demo-chat"
 REGION = "ap-northeast-2"
 

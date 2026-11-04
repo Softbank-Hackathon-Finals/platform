@@ -31,12 +31,15 @@ T17 · T8 · T18의 Edge 경유 측정에는 `target-dev`의 앱과 Service가 �
 Pod에 `bravo.t30/not-exit-evidence` 표시를 남긴다. Exit Drill(T27), 인벤토리(T16), 게이트(T19),
 S2 시연의 결과로 세지 않는다. 특히 Exit Drill은 AWS를 막아도 이 구성에서 통과할 수 있으므로,
 이 표시가 있는 Pod의 결과는 "앱이 AWS에서 벗어났다"는 근거가 되지 못한다.
+**지금은 이 표시를 읽는 코드가 없다.** 이 문장과 PR 설명만 막고 있으니, Exit Drill이 표시를 보도록 고치는 일은 T27의 후속 작업이다.
 
 ## 결과
 
 - 측정에 필요한 앱과 Service를 AWS 자격 없이 올릴 수 있다.
 - 호환 컨테이너가 쓰는 파일 경로는 T15 제안 경로 `/run/bravo/database/credentials.json`과 같다.
   DB 자격 Secret은 이 컨테이너에만 마운트한다.
+- **남는 노출:** 응답기는 서명을 검사하지 않는다. Pod 밖에서 닿는 길은 port-forward뿐이고, `pods/portforward` 권한자는
+  `secrets get` 권한 없이 출발지 앱 비밀번호를 받을 수 있다. 저장소에 이 권한을 주는 역할은 없다.
 - **없앨 때:** 승인된 T31 이미지가 파일에서 직접 읽게 되면 이 컨테이너, ConfigMap, 앱의 endpoint 변수와
   `not-exit-evidence` 표시를 같은 변경에서 지운다.
 - 실제 시험 결과와 대역은 [증거](../evidence/t30-target-app-2026-11-04/README.md)에 적는다.

@@ -1,6 +1,8 @@
 """T30 target application render contract and its local Secrets Manager answer."""
+import contextlib
 import http.client
 import importlib.util
+import io
 import json
 import os
 import subprocess
@@ -28,6 +30,7 @@ def load(path, name):
     return module
 
 
+PIN = json.loads((WORKLOADS / "app-image.json").read_text())
 application = load(WORKLOADS / "application.py", "target_application")
 compat = load(WORKLOADS / "secrets_manager_compat.py", "secrets_manager_compat")
 target_secrets = load(ROOT / "infra/envs/target-secrets/render.py", "target_secrets_render")
@@ -154,6 +157,33 @@ class RenderContractTests(unittest.TestCase):
         self.assertTrue(by_name["database-credentials"]["readOnly"])
         self.assertEqual(env_refs(side), {})
 
+    def test_only_the_public_ca_certificate_reaches_the_app(self):
+        volumes = {v["name"]: v for v in pod_spec()["volumes"]}
+        self.assertEqual(volumes["ca"]["secret"], {"secretName": "target-db-ca",
+                                                   "items": [{"key": "ca.crt", "path": "ca.crt"}]})
+
+    def test_credential_file_is_group_readable_only_by_the_pod_user(self):
+        pod = pod_spec()
+        volumes = {v["name"]: v for v in pod["volumes"]}
+        self.assertEqual(volumes["database-credentials"]["secret"]["defaultMode"], 0o440)
+        self.assertEqual(pod["securityContext"]["fsGroup"], pod["securityContext"]["runAsUser"])
+
+    def test_sidecar_runs_the_mounted_script_from_the_rendered_config_map(self):
+        objects = rendered()
+        side = sidecar()
+        name = objects["ConfigMap"]["metadata"]["name"]
+        script = next(iter(objects["ConfigMap"]["data"]))
+        volumes = {v["name"]: v for v in pod_spec()["volumes"]}
+        self.assertEqual(volumes["compat"]["configMap"]["name"], name)
+        mount = next(m for m in side["volumeMounts"] if m["name"] == "compat")
+        self.assertEqual(side["command"], ["/app/.venv/bin/python", f"{mount['mountPath']}/{script}"])
+
+    def test_slow_responses_do_not_flap_the_pod_on_the_emulated_vm(self):
+        container = app_container()
+        for probe in ("readinessProbe", "livenessProbe", "startupProbe"):
+            with self.subTest(probe=probe):
+                self.assertGreaterEqual(container[probe]["timeoutSeconds"], 5)
+
     def test_app_keeps_image_entrypoint_and_sidecar_is_separate(self):
         container = app_container()
         self.assertNotIn("command", container)
@@ -221,16 +251,42 @@ class ImageContractTests(unittest.TestCase):
                 application.application(image)
 
     def test_rejects_every_published_image_that_lacks_the_environment_header(self):
-        # Publication receipts for sources ce5727e, 1a57a54 and 66e7419, all older than c1c74ab.
+        # Index and amd64 digests from the receipts for ce5727e, 1a57a54 and 66e7419, all older than c1c74ab.
         for digest in ("001adc35a9fc767566552fb55c3c19a67b7c5efc7231fb02dc28cdeace99d0d4",
+                       "bd1cd57a1c3dda9bb2795696167e242fc3b79a80eefb40d068a4124bcc66f384",
                        "edad76a75a604ccb0199e3e0a1c6ba8b0b1e9e4822fbca7857b33bd75a59751c",
-                       "4562bbf761d761cafc89f9db9153eb74550eb23972ea4f9080e93681d9d90d1d"):
+                       "d5ab5fef0dc477db9327a29f745e1c1db1e5bb58e0e934b08788b2e3726f60e4",
+                       "4562bbf761d761cafc89f9db9153eb74550eb23972ea4f9080e93681d9d90d1d",
+                       "e3c8e9cf6defa8d5932c2f28b26362b12cd2101de7c67360166801f3fa933ada"):
             with self.subTest(digest=digest), self.assertRaises(ValueError):
                 application.application("ghcr.io/softbank-hackathon-finals/demo-chat@sha256:" + digest)
 
-    def test_accepts_the_published_image_with_the_header(self):
-        image = "ghcr.io/softbank-hackathon-finals/demo-chat@sha256:ca5ce1b24f1deb2e7346643860ff0bb151409c1acec503c105f56d9043a389b6"
+    def test_pinned_image_has_the_expected_shape_and_is_accepted(self):
+        self.assertRegex(PIN["source_sha"], r"\A[0-9a-f]{40}\Z")
+        self.assertRegex(PIN["index_digest"], r"\Asha256:[0-9a-f]{64}\Z")
+        self.assertRegex(PIN["amd64_digest"], r"\Asha256:[0-9a-f]{64}\Z")
+        self.assertNotEqual(PIN["index_digest"], PIN["amd64_digest"])
+        image = application.pinned_image()
+        self.assertEqual(image, "ghcr.io/softbank-hackathon-finals/demo-chat@" + PIN["index_digest"])
         self.assertEqual(app_container(image=image)["image"], image)
+
+    def test_the_image_is_written_in_only_one_place(self):
+        # A new publication must change app-image.json alone. Evidence keeps what was actually measured.
+        for relative in ("infra/envs/target-workloads/application.py", "infra/envs/target-workloads/README.md",
+                         "scripts/export_target_image.py", "docs/operations/target-image-handoff.md",
+                         "docs/adr/0016-target-app-secrets-manager-compat.md"):
+            text = (ROOT / relative).read_text()
+            for value in (PIN["source_sha"], PIN["index_digest"], PIN["amd64_digest"]):
+                with self.subTest(file=relative, value=value[:15]):
+                    self.assertNotIn(value, text)
+
+    def test_cli_defaults_to_the_pinned_image_and_can_print_it(self):
+        script = str(WORKLOADS / "application.py")
+        printed = subprocess.run([sys.executable, script, "--print-image"], capture_output=True, text=True, check=True)
+        self.assertEqual(printed.stdout.strip(), application.pinned_image())
+        rendered_default = subprocess.run([sys.executable, script], capture_output=True, text=True, check=True)
+        deployment = next(i for i in json.loads(rendered_default.stdout)["items"] if i["kind"] == "Deployment")
+        self.assertEqual(deployment["spec"]["template"]["spec"]["containers"][0]["image"], application.pinned_image())
 
     def test_imported_image_must_not_fall_back_to_a_registry_pull(self):
         pod = pod_spec()
@@ -300,6 +356,38 @@ class CompatServerTests(unittest.TestCase):
                 status, body = self.call(request, target)
                 self.assertEqual(status, 400)
                 self.assertNotIn("canary-value", json.dumps(body))
+
+    def test_only_the_path_the_sdk_uses_is_answered(self):
+        connection = http.client.HTTPConnection("127.0.0.1", self.server.server_address[1], timeout=5)
+        self.addCleanup(connection.close)
+        connection.request("POST", "/any/other/path", json.dumps({"SecretId": self.SECRET_ID}).encode(),
+                           {"X-Amz-Target": compat.OPERATION})
+        response = connection.getresponse()
+        self.assertEqual(response.status, 400)
+        self.assertNotIn(b"canary-value", response.read())
+
+    def test_refusal_tells_the_client_the_connection_is_closing(self):
+        connection = http.client.HTTPConnection("127.0.0.1", self.server.server_address[1], timeout=5)
+        self.addCleanup(connection.close)
+        connection.request("POST", "/", b"not-json", {"X-Amz-Target": compat.OPERATION})
+        response = connection.getresponse()
+        response.read()
+        self.assertEqual(response.status, 400)
+        self.assertTrue(response.will_close)
+
+    def test_deeply_nested_request_is_refused_without_a_traceback(self):
+        errors = io.StringIO()
+        with contextlib.redirect_stderr(errors):
+            status, _ = self.call(b"[" * 60000)
+        self.assertEqual(status, 400)
+        self.assertEqual(errors.getvalue(), "")
+
+    def test_requests_are_not_logged(self):
+        errors = io.StringIO()
+        with contextlib.redirect_stderr(errors):
+            self.call({"SecretId": self.SECRET_ID})
+            self.call({"SecretId": "other"})
+        self.assertEqual(errors.getvalue(), "")
 
     def test_rereads_the_file_so_rotation_reaches_the_app(self):
         self.path.write_text('{"username": "chat_app", "password": "rotated"}')

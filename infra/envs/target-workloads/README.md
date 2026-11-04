@@ -43,7 +43,7 @@ T2의 기존 VM, AWS 플랫폼 RKE2의 상태 DB, 실제 온프렘 데모 머신
 앱 배포가 완성되지 않는다. T8의 실제 왕복 지연·재연결·단일 쓰기·해시 근거는
 실행 시점의 코드와 두 환경 신원에 결속해야 한다. 플랫폼 DB를 목적지 DB로 사용하지 않는다.
 
-앱 소스는 ce5727e부터 게시본 8d82a92까지 시작 시 AWS Secrets Manager SDK를 필수로 호출한다.
+앱 소스는 ce5727e부터 확인한 게시본 8d82a92까지 시작 시 AWS Secrets Manager SDK를 필수로 호출한다.
 OpenBao/ESO의 환경 변수만으로 같은 이미지가 AWS 없이 시작한다고 주장하지 않는다.
 OCI 원본 바이트 수입/패키징 확인과 실제 목적지 업무 기동을 구별하며, 앱 의존성 변경은
 T11/T15의 검증·승인 경계에 따라 처리한다. 개인키·AWS 자격을 이미지에 넣지 않는다.
@@ -126,15 +126,20 @@ T9의 OpenBao/ESO·TLS 통제나 목적지 앱 업무 기동 완료를 대신하
 
 ### 적용 전 조건
 
-1. **이미지.** `ghcr.io/softbank-hackathon-finals/demo-chat@sha256:ca5ce1b24f1deb2e7346643860ff0bb151409c1acec503c105f56d9043a389b6`을 쓴다.
-   소스는 `8d82a92`이고 [게시 실행](https://github.com/Softbank-Hackathon-Finals/demo-chat/actions/runs/41803312129)의 영수증에서 읽었다.
-   그 전 게시본 세 개는 `X-Bravo-Env`가 없어 렌더러가 거부한다.
-2. **VM에 넣기.** Actions 권한자가 demo-chat `transfer-private-image`를 이 소스 SHA와 digest로 먼저 돌린다.
-   그다음 [이미지 인수인계](../../../docs/operations/target-image-handoff.md) 순서로 묶음을 만들어 VM에 넣고 digest 별칭을 붙인다.
+1. **이미지.** 쓸 이미지는 [`app-image.json`](app-image.json) 한 곳에만 적는다. 렌더러와 `scripts/export_target_image.py`가 이 파일을 읽는다.
+   새로 게시하면 그 실행 아티팩트의 `image-receipt.json`(`source_sha`, `digest`)과 `registry-index.json`(amd64 `digest`)을 옮겨 적고 끝낸다.
+   `X-Bravo-Env`가 없는 이전 게시본 세 개는 렌더러가 거부한다.
+2. **VM에 넣기.** 순서가 정해져 있다. 앞 단계가 끝나야 다음 단계가 통과한다.
+   - T22 담당: demo-chat `main`의 `docs/evidence/image-publication-2026-11-03/`에 있는 `image-receipt.json`, `registry-index.json`, `scan-summary.json`을 이 게시본 값으로 올린다.
+     `transfer-private-image`가 이 영수증과 입력값을 대조하므로, 그전에는 `reviewed_publication_mismatch`로 멈춘다.
+   - Actions 권한자: `transfer-private-image`를 `app-image.json`의 소스 SHA와 digest로 돌린다.
+   - AWS 운영자 · VM 소유자: [이미지 인수인계](../../../docs/operations/target-image-handoff.md) 순서로 묶음을 만들어 VM에 넣고 digest 별칭을 붙인다.
+
    렌더 기본값은 `imagePullPolicy: Never`다. 레지스트리에서 받으려면 `--pull-secret <이름>`을 쓰지만,
    [T7 절차](../../../docs/operations/target-registry-access.md)의 Secret은 시험 뒤 지우는 것이라 상시 자격이 없다. 쓰려면 자격 위치와 갱신 담당을 T7 담당자와 먼저 정한다.
 3. **PgBouncer.** `pooler.py`의 `target-pgbouncer`가 출발지를 가리키는지 확인한다. 앱은 이 경로만 쓴다.
-4. **Secret.** 아래 세 개가 있어야 한다. 하나라도 없거나 형식이 틀리면 앱이 뜨지 않고 Service도 비어 있다.
+4. **Secret.** 아래 세 개가 있어야 한다. Secret이나 키가 없으면, 또는 `credentials.json` 형식이 틀리면 앱이 뜨지 않고 Service도 비어 있다.
+   값이 틀린 경우는 막지 못한다. 토큰이 비면 앱은 뜨고 쓰기 스위치만 404다.
 
 | Secret | 키 | 쓰임 |
 | --- | --- | --- |
@@ -153,6 +158,7 @@ kubectl -n target-dev get secret target-app-credentials target-app-objects targe
 T9를 나중에 적용할 때 ESO가 이 Secret을 넘겨받는지는 재지 않았다. 그때 T9 담당자가 확인한다.
 
 ```sh
+set -o pipefail  # 앞 명령이 실패했는데 빈 값으로 Secret이 만들어지는 것을 막는다.
 kubectl -n target-dev get secret target-pooler-source-app -o json | python3 -c '
 import base64, json, sys
 password = base64.b64decode(json.load(sys.stdin)["data"]["password"]).decode()
@@ -172,12 +178,19 @@ kubectl -n target-dev label secret target-app-credentials target-app-objects tar
 ### 적용과 확인
 
 ```sh
-APP_IMAGE=ghcr.io/softbank-hackathon-finals/demo-chat@sha256:ca5ce1b24f1deb2e7346643860ff0bb151409c1acec503c105f56d9043a389b6
-python3 application.py --image "$APP_IMAGE" > "$OUTPUT_DIR/application.json"
+python3 application.py > "$OUTPUT_DIR/application.json"
 kubectl apply --server-side --dry-run=server -f "$OUTPUT_DIR/application.json"
 kubectl apply --server-side -f "$OUTPUT_DIR/application.json"
 kubectl -n target-dev rollout status deployment/demo-chat
+```
+
+한 터미널에서 포트를 열고(전경에서 멈춰 있는다), 다른 터미널에서 확인한다.
+
+```sh
 kubectl -n target-dev port-forward service/demo-chat 18080:8080
+```
+
+```sh
 curl -si http://127.0.0.1:18080/api/info        # X-Bravo-Env: onprem, write_blocked: true
 curl -si http://127.0.0.1:18080/api/health/db   # 200이어야 DB 경로가 열린 것이다
 ```
@@ -189,16 +202,17 @@ Ready이고 Service에 잡힌다. Edge 헬스 체크가 `/readyz`나 `/healthz`�
 | --- | --- | --- | --- | --- | --- |
 | 목적지 `chat_app` NOLOGIN (직접, 풀러 경유 모두) | Ready, 엔드포인트 1 | 200 | 503 (2초) | 503 + `Retry-After: 2` (5초) | 차단 중 503 즉시, 해제해도 503 (5초). 행 없음 |
 | 풀러 → 출발지 | Ready, 엔드포인트 1 | 200 | 200 | 200 | 차단 중 503, 해제 뒤 201. 행은 출발지에만 |
-| Secret 없음 · 형식 오류 · Secrets Manager 응답 없음 | Ready 아님, 엔드포인트 0 | 연결 실패 | 연결 실패 | 연결 실패 | 연결 실패 |
+| `credentials.json` 없음 · 형식 오류 · Secrets Manager 응답 없음 | Ready 아님, 엔드포인트 0 | 요청이 앱까지 가지 않는다 | | | |
 
-모든 앱 응답에 `X-Bravo-Env: onprem`이 붙는다. 측정값과 대역은
+시험에서 판정한 앱 응답에는 모두 `X-Bravo-Env: onprem` 하나만 붙었다. 측정값과 대역은
 [증거](../../../docs/evidence/t30-target-app-2026-11-04/README.md)에 있다.
 
 **풀러가 시작된 뒤 첫 로그인은 맞는 비밀번호여야 한다.** PgBouncer 1.25.1은 프로세스가 뜬 뒤 첫 시도가 아니면
 SCRAM 키를 저장하지 않는다. 첫 시도가 틀리면 그 뒤에 맞는 비밀번호로 와도 서버 로그인이 실패하고 저절로 낫지 않는다.
 `/api/health/db`가 계속 503이고 풀러 로그에 `did not provide SCRAM keys`가 보이면 이 상태다. 앱 Secret을 고친 뒤
-`kubectl -n target-dev rollout restart deployment/target-pgbouncer`로 회복한다. 풀러를 재시작하기 전에는 옛 비밀번호를
-가진 클라이언트(이전 앱 Pod 등)를 먼저 멈춘다. 첫 로그인이 성공한 뒤의 틀린 시도는 영향이 없다.
+`kubectl -n target-dev rollout restart deployment/target-pgbouncer`로 회복한다(잰 방법). 풀러를 재시작하기 전에는 옛 비밀번호를
+가진 클라이언트(이전 앱 Pod 등)를 먼저 멈춘다. 첫 로그인이 성공한 뒤의 틀린 시도는 영향이 없다. `auth_file`이 바뀐 뒤의
+`RELOAD`도 소스상 이 상태를 풀지만 재지 않았다.
 
 ### 쓰기 스위치
 
