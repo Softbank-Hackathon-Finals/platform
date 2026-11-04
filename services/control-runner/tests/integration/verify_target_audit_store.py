@@ -18,6 +18,7 @@ import subprocess
 import sys
 import time
 from pathlib import Path
+from string import Template
 from uuid import uuid4
 
 SEAWEEDFS = "docker.io/chrislusf/seaweedfs:4.52@sha256:a54ba35b44895a449f5cdd415999062201b17b9835ec0ffc19ea605b72ffa3d1"
@@ -146,7 +147,7 @@ def probe(phase):
             Bucket=BUCKET, ObjectLockConfiguration={"ObjectLockEnabled": "Enabled",
                                                     "Rule": {"DefaultRetention": {"Mode": "COMPLIANCE", "Days": 1}}}))
         out["versioning"] = (attempt("admin.get_versioning", lambda: admin.get_bucket_versioning(Bucket=BUCKET)) or {}).get("Status")
-        scope = [f"arn:aws:s3:::{BUCKET}", f"arn:aws:s3:::{BUCKET}/*"]
+        scope = [Template(s).substitute(bucket=BUCKET) for s in ("arn:aws:s3:::${bucket}", "arn:aws:s3:::${bucket}/*")]
         policy = {"Version": "2012-10-17", "Statement": [
             {"Sid": "WriterCannotRemoveOrReconfigure", "Effect": "Deny", "Principal": {"AWS": WRITER}, "Resource": scope,
              "Action": ["s3:DeleteObject", "s3:DeleteObjectVersion", "s3:PutBucketVersioning", "s3:PutObjectRetention",
