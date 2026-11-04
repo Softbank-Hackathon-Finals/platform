@@ -77,6 +77,7 @@ function render() {
   if (!model) return;
   const now = Date.now(),
     eligible = model.eligible(now),
+    changeUsable = model.changeEligible(now) && !pending,
     usable =
       eligible &&
       (!pending ||
@@ -197,6 +198,12 @@ function render() {
   else if (b)
     details("binding", [
       ["승인 종류", model.request.data.approval_kind],
+      [
+        "리허설 실행",
+        model.request.data.approval_kind === "change"
+          ? model.request.run_id
+          : "해당 없음",
+      ],
       ["계획 digest", b.plan_digest ?? "없음"],
       ["목적 환경", b.target_environment_id ?? "없음"],
       ["이미지 digest", b.image_digest ?? "없음"],
@@ -215,8 +222,9 @@ function render() {
       ["기록 시각", model.gate.occurred_at],
     ]);
   else $("gate-detail").replaceChildren();
-  $("confirm").disabled = !usable;
-  if (!usable) $("confirm").checked = false;
+  $("confirm").disabled = !usable && !changeUsable;
+  if (!usable && !changeUsable) $("confirm").checked = false;
+  $("approve-change").disabled = !changeUsable || !$("confirm").checked;
   $("approve").disabled =
     !usable ||
     Boolean(pending) ||
@@ -471,7 +479,13 @@ async function perform() {
       signal: postController.signal,
     });
     if (g !== generation) return;
-    if (current.kind === "approve") {
+    if (current.kind === "approve-change") {
+      model.recordChangeApproval(result, current.body);
+      text(
+        "action-status",
+        `코드 변경 승인 기록 완료 · ${result.approval_id}. 배포·전환을 실행한 것은 아닙니다.`,
+      );
+    } else if (current.kind === "approve") {
       model.recordApproval(result, current.body);
       text(
         "action-status",
@@ -518,6 +532,19 @@ async function perform() {
     render();
   }
 }
+$("approve-change").onclick = async () => {
+  if (pending || !$("confirm").checked || !model?.changeEligible(Date.now()))
+    return;
+  pending = {
+    kind: "approve-change",
+    plan: model.plan,
+    path: `/v1/plans/${model.plan}/approvals`,
+    body: model.changeApprovalRequest(Date.now()),
+    key: crypto.randomUUID(),
+    running: false,
+  };
+  await perform();
+};
 $("approve").onclick = async () => {
   if (pending || !$("confirm").checked || !model?.eligible(Date.now())) return;
   pending = {
