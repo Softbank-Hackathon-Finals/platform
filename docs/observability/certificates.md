@@ -73,3 +73,29 @@ services/observability/deploy/certs/issue.sh check ./out/collector-onprem/tls.cr
 - leaf는 수명의 3분의 2(30일 인증서면 20일째)에 교체한다.
 - 지표 저장소는 클라이언트 인증서 만료를 지표로 내지 않는다. 그래서 만료 알림 대신, 교체 일정과 위 검사를 발급자가 돌린다.
 - 인증서가 만료되면 그 환경은 `BravoEnvUnobservable`로 드러난다(전송 거부 → 생존 신호 끊김).
+
+## 5. 앱 → Collector mTLS
+
+원격 앱은 `deploy/collector-app-mtls` 또는 `components/app-mtls`를 사용한다.
+기본 `collector`의 평문 OTLP 수신 구성은 기존 내부 시험과의 호환용이며,
+T22 앱은 loopback 이외의 평문 주소를 거부한다. NetworkPolicy만으로 구간 암호화를 대신하지 않는다.
+
+- `bravo-collector-app-tls` Secret: 서버 `tls.crt`·`tls.key`, 허용 앱 발급 CA `client-ca.crt`.
+- 서버 SAN에는 앱이 접속하는 Service DNS를 포함한다.
+- 앱에는 서버 CA와 앱 전용 클라이언트 인증서/키를 별도로 전달한다.
+  `BRAVO_METRICS_CA_FILE`, `BRAVO_METRICS_CLIENT_CERT`, `BRAVO_METRICS_CLIENT_KEY`를 사용한다.
+- 앱 수신 CA와 플랫폼 전송 CA를 분리한다. 플랫폼 Collector/조회 API 인증서를 앱에 배포하지 않는다.
+- HTTP·gRPC 모두 TLS 1.3 이상, 클라이언트 인증서 필수다. Secret이 없거나 잘못되면 시작하지 않는다.
+- DB 수집이 필요하면 환경 overlay의 `resources`를 `collector-db`, `components`를
+  `components/app-mtls`로 구성한다. DB scrape 권한과 앱 TLS는 별도 기능이다.
+
+이 구성은 발급 CA를 신뢰하는 mTLS다. 임의의 인증서 SAN을 앱별 권한으로 매핑하는
+인가 기능은 제공하지 않는다. 발급 권한·앱별 Secret 접근·기존 NetworkPolicy를 함께 제한한다.
+앱 계측값은 T36 판정 근거가 아니라 표시용이다.
+
+서버 인증서는 1분 reload, 클라이언트 CA는 파일 변경 감지를 사용한다.
+기존 TLS 연결을 즉시 종료한다는 보장은 없다. 긴급 신뢰 회수 시 Collector와 앱을
+재시작해 연결을 끊고, 거부 대조군과 정상 전송을 다시 확인한다.
+CA 자동 교체/폐기 전체 운영 절차는 별도 자격 시험 대상이다.
+
+필드 근거: [Collector v0.164.0 configtls ServerConfig](https://github.com/open-telemetry/opentelemetry-collector/blob/v0.164.0/config/configtls/generated_config.go).

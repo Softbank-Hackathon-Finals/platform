@@ -8,7 +8,9 @@ groups:
         # 최근 수신이 30초를 넘었거나(수집 간격 10초의 3배), 5분 조회 범위 안에 아예 없으면 확인 불가
         expr: |
           max by (bravo_env) (
-            (time() - max by (bravo_env) (timestamp(up{bravo_signal="collector-self"}))) > 30
+            (time() - max by (bravo_env) (timestamp(up{bravo_signal="collector-self"}) and (up{bravo_signal="collector-self"} == 1))) > 30
+            or (time() - max by (bravo_env) (timestamp(up{bravo_signal="collector-self"}) and (up{bravo_signal="collector-self"} == 1))) < 0
+            or max by (bravo_env) (up{bravo_signal="collector-self"}) != 1
             or absent(up{bravo_signal="collector-self", bravo_env="aws"})
             or absent(up{bravo_signal="collector-self", bravo_env="onprem"})
           )

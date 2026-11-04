@@ -62,9 +62,13 @@ T18 부하 생성기가 창 요약을 보내는 곳이다. 콘솔 조회 API와 
 - **허용 목록:** 앱 지표는 아래 속성만 남는다. 채팅 본문 · 헤더 · 토큰 · SQL 파라미터는 저장되지 않는다.
   - 리소스: `service.name` · `service.instance.id`
   - 데이터 포인트: `http.request.method` · `http.response.status_code` · `http.route`
-- **생존 신호:** Collector 자기 지표에만 신뢰 라벨 `bravo.signal=collector-self`를 붙인다. 30초 넘게 오지 않거나 아예 없으면 그 환경은 "확인 불가"이고 `BravoEnvUnobservable` 알림이 뜬다.
+- **생존 신호:** Collector 자기 지표에만 신뢰 라벨 `bravo.signal=collector-self`를 붙인다. 성공한 `up=1` 원 표본이 30초 넘게 오지 않거나, 없거나, 미래 시각이면 그 환경은 "확인 불가"이고 `BravoEnvUnobservable` 알림이 뜬다.
 - **DB 지표:** CNPG 인스턴스 Pod(`cnpg.io/podRole=instance`)의 `metrics` 포트를 15초마다 긁는다. 인스턴스 상태, 논리 복제 슬롯 지연 · 활성, WAL 보관 실패를 본다. 컷오버 조건의 복제 지연은 Executor가 DB에서 직접 읽는다(설계 8.6).
-- **조회 API:** 정해 둔 조회식만 실행한다. 환경 이름은 등록 목록과 정확히 같을 때만 식에 들어간다. 저장소 장애는 503, 값이 없으면 null이다(0이 아님).
+- **조회 API:** 정해 둔 조회식만 실행한다. 환경 이름은 등록 목록과 정확히 같을 때만 식에 들어간다. 저장소 장애·손상 응답·중복 단일 값은 503, 값이 없거나 NaN/Inf이면 null이다(0이 아님). 응답에는 `Cache-Control: no-store`를 넣는다.
+  - HTTP·DB 뷰도 성공한 Collector 생존 신호를 먼저 확인한다. 신호가 오래되거나 없으면 과거 수치를 숨기고 `UNOBSERVABLE`로 응답한다.
+  - DB 원 표본에도 30초 제한을 적용한다. Collector가 살아 있다는 이유만으로 오래된 DB 표본을 정상으로 표시하지 않는다.
+  - `last_received_seconds_ago`는 성공한 **Collector 원 표본의 나이**이며 DB 트랜잭션/업무 응답 시각이 아니다. HTTP `state=OK`는 지표 조회 가능을 뜻하며 앱 건강·컷오버 허가가 아니다.
+  - Prometheus JSON은 최대 2MiB·10,000행이다. 잘못된 숫자/구조를 응답에 반영하지 않으며 등록되지 않은 환경의 경보는 반환하지 않는다.
   - `GET /v1/observability/environments`: 환경별 OK · UNOBSERVABLE
   - `GET /v1/observability/alerts`: Bravo 알림과 런북
   - `GET /v1/observability/environments/{env}/http`: 요청률 · 오류율 · p95. OTel `http.server.request.duration` 기준
@@ -133,10 +137,12 @@ T18 부하 생성기가 창 요약을 보내는 곳이다. 콘솔 조회 API와 
 결과 · 소스 해시 · 이미지 digest: [증빙](../../docs/evidence/t37-observability-2026-11-04/README.md).
 
 ```sh
-services/observability/testing/run.sh        # compose: 17항목, 약 2분
-services/observability/testing/k8s.sh        # k3s + CNPG + 창 수신: 18항목, 약 5분 (helm 필요)
+services/observability/testing/run.sh        # compose: 19항목, 약 2분
+services/observability/testing/k8s.sh        # k3s + CNPG + 창 수신: 19항목, 약 5분 (helm 필요)
 services/observability/testing/rotation.sh   # 인증서 교체: 14항목, 약 1분 반
 ```
+
+시험의 Compose 프로젝트·k3s 컨테이너·API 이미지·포트는 실행별로 분리한다. k3s 정리는 이번 실행이 생성한 컨테이너 ID에만 적용한다.
 
 알림 단위 시험은 `promtool test rules deploy/platform/rules/alerts_test.yml`이다.
 

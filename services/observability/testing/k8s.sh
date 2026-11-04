@@ -16,7 +16,9 @@ CNPG_IMAGE=1.30.1@sha256:923c267ec29636db3bee20f993d0ec4973fa22998e1adad37da79e4
 PG_IMAGE=ghcr.io/cloudnative-pg/postgresql:18.4-system-trixie@sha256:42708a75345b7a48fdd9257b071830783a97fd228529196b6313187a7198e185
 K3S=rancher/k3s:v1.35.9-k3s1@sha256:ec9868c6a38d4e8c1869832fb5fd1eb8473c39794a0b44d2b952e7ba911951bc
 GEN=ghcr.io/open-telemetry/opentelemetry-collector-contrib/telemetrygen:v0.164.0@sha256:b536c7220c5ea587f04dff6c5e6eecb48e40b5b58ce70690b15734aae98d8321
-NAME=bravo-obs-k3s
+NAME="bravo-obs-k3s-$(openssl rand -hex 6)"
+API_IMAGE="docker.io/library/${NAME}-api:dev"
+CONTAINER_ID=""
 NS=bravo-observability
 CERT_DIR=$(mktemp -d)
 KUBECONFIG="$CERT_DIR/kubeconfig"
@@ -24,10 +26,10 @@ API_TOKEN=$(openssl rand -hex 24)
 WINDOW_TOKEN=$(openssl rand -hex 24)
 export CERT_DIR KUBECONFIG
 PF=""
-# set -e 아래에서 죽인 port-forward의 wait가 143을 돌려주면 정리가 멈추고 결과와 다른 종료 코드가 나간다. 실패를 무시하고 끝까지 정리한다
+# Port-forward termination must not abort cleanup; remove only the container ID this run created.
 cleanup() {
   if [ -n "$PF" ]; then kill "$PF" 2>/dev/null || true; wait "$PF" 2>/dev/null || true; fi
-  docker rm -f "$NAME" >/dev/null 2>&1 || true
+  if [ -n "$CONTAINER_ID" ]; then docker rm -f "$CONTAINER_ID" >/dev/null 2>&1 || true; fi
   rm -rf "$CERT_DIR"
 }
 trap cleanup EXIT
@@ -42,16 +44,15 @@ leaf collector-onprem bravo-ca "DNS:collector-onprem"
 leaf console-api bravo-ca "DNS:console-api"
 
 echo "== k3s 시작"
-docker rm -f "$NAME" >/dev/null 2>&1 || true
-docker run -d --privileged --name "$NAME" -p 127.0.0.1::6443 --tmpfs /run --tmpfs /var/run \
-  "$K3S" server --disable=traefik --disable=metrics-server --disable=servicelb --tls-san=127.0.0.1 >/dev/null
+CONTAINER_ID=$(docker run -d --privileged --name "$NAME" -p 127.0.0.1::6443 --tmpfs /run --tmpfs /var/run \
+  "$K3S" server --disable=traefik --disable=metrics-server --disable=servicelb --tls-san=127.0.0.1)
 for _ in $(seq 60); do docker exec "$NAME" test -f /etc/rancher/k3s/k3s.yaml 2>/dev/null && break; sleep 2; done
 docker exec "$NAME" cat /etc/rancher/k3s/k3s.yaml | sed "s#https://127.0.0.1:6443#https://$(docker port "$NAME" 6443)#" > "$KUBECONFIG"
 for _ in $(seq 60); do kubectl get nodes 2>/dev/null | grep -q " Ready" && break; sleep 2; done
 kubectl wait --for=condition=Ready node --all --timeout=120s >/dev/null
 # 조회 API 이미지를 로컬에서 빌드해 k3s에 넣는다(레지스트리를 쓰지 않음)
-docker build -q -t bravo-observability-api:dev -f ../Dockerfile ../../.. >/dev/null
-docker save bravo-observability-api:dev | docker exec -i "$NAME" ctr -n k8s.io images import - >/dev/null
+docker build -q -t "$API_IMAGE" -f ../Dockerfile ../../.. >/dev/null
+docker save "$API_IMAGE" | docker exec -i "$NAME" ctr -n k8s.io images import - >/dev/null
 
 echo "== CNPG (T6 출발지와 같은 버전)"
 kubectl create namespace cnpg-system >/dev/null
@@ -82,7 +83,7 @@ kubectl -n "$NS" create configmap bravo-window-intake --from-literal=plans=plan-
 kubectl -n "$NS" create configmap bravo-collector-env --from-literal=BRAVO_ENV=onprem \
   --from-literal=PLATFORM_OTLP_ENDPOINT="https://bravo-prometheus.$NS.svc:9090/api/v1/otlp" \
   --from-literal=BRAVO_DB_NAMESPACE=source-dev >/dev/null
-kubectl apply -k k8s-overlay >/dev/null
+kubectl kustomize k8s-overlay | sed "s#docker.io/library/bravo-observability-api:dev#$API_IMAGE#g" | kubectl apply -f - >/dev/null
 kubectl apply -k ../deploy/collector-db >/dev/null
 kubectl apply -k ../deploy/collector-db-access >/dev/null
 r=ok
@@ -92,9 +93,16 @@ kubectl -n "$NS" rollout status deploy/bravo-observability-api --timeout=240s >/
 kubectl -n "$NS" rollout status deploy/bravo-window-intake --timeout=240s >/dev/null || r=fail
 check $r "restricted 네임스페이스에서 지표 저장소 · Collector · 조회 API · 창 수신이 준비됨"
 
-kubectl -n "$NS" port-forward svc/bravo-prometheus 19090:9090 >/dev/null 2>&1 &
+kubectl -n "$NS" port-forward svc/bravo-prometheus :9090 >"$CERT_DIR/port-forward.log" 2>&1 &
 PF=$!
-PROM=https://127.0.0.1:19090
+for _ in $(seq 30); do
+  PORT=$(sed -n 's/^Forwarding from 127.0.0.1:\([0-9]*\) -> 9090$/\1/p' "$CERT_DIR/port-forward.log")
+  [ -z "$PORT" ] || break
+  kill -0 "$PF" 2>/dev/null || { echo "port-forward failed"; exit 1; }
+  sleep 1
+done
+[ -n "$PORT" ] || { echo "port-forward timed out"; exit 1; }
+PROM="https://127.0.0.1:$PORT"
 as() { curl -fsS --max-time 5 --cacert "$CERT_DIR/bravo-ca.crt" --cert "$CERT_DIR/console-api/tls.crt" --key "$CERT_DIR/console-api/tls.key" "$@"; }
 q() { as --get "$PROM/api/v1/query" --data-urlencode "query=$1"; }
 for _ in $(seq 30); do as "$PROM/-/ready" >/dev/null 2>&1 && break; sleep 1; done
@@ -218,7 +226,7 @@ if [ "${BRAVO_K8S_CAPACITY:-0}" = 1 ]; then
   echo "== 자원 실측: 평상(60초)"
   python3 stats.py "$NAME" 60 5 collector prometheus api intake
   echo "== 자원 실측: 부하(앱 지표 약 2000건/초 = 데모 예상의 약 10배, 창 10건/초 = 100배, 180초)"
-  kubectl -n loadgen run winload --image=docker.io/library/bravo-observability-api:dev --restart=Never \
+  kubectl -n loadgen run winload --image="$API_IMAGE" --restart=Never \
     --env=BRAVO_WINDOW_TOKEN="$WINDOW_TOKEN" --command -- python -c '
 import collections, datetime as d, os, time, httpx
 from bravo_observability import Record, build_window
@@ -226,13 +234,15 @@ recs = [Record("aws", 200, 100.0)] * 1800 + [Record("onprem", 200, 120.0)] * 200
 c = httpx.Client(base_url="http://bravo-window-intake.bravo-observability.svc:8080", headers={"Authorization": "Bearer " + os.environ["BRAVO_WINDOW_TOKEN"]})
 f = lambda t: t.isoformat().replace("+00:00", "Z")
 stop, results = time.time() + 180, collections.Counter()
+previous_end = d.datetime.now(d.UTC) - d.timedelta(seconds=1.1)
 while time.time() < stop:
     e = d.datetime.now(d.UTC) - d.timedelta(seconds=1)
-    w = build_window(recs, plan_id="plan-k8s", start=f(e - d.timedelta(seconds=10)), end=f(e), pools={"aws": "source", "onprem": "target"})
+    w = build_window(recs, plan_id="plan-k8s", start=f(previous_end), end=f(e), pools={"aws": "source", "onprem": "target"})
     try:
         results[c.post("/v1/observability/windows", json=w).status_code] += 1
     except httpx.HTTPError as err:
         results[type(err).__name__] += 1
+    previous_end = e
     time.sleep(0.1)
 print(dict(results))' >/dev/null
   kubectl -n app run load --image="$GEN" --restart=Never -- metrics \
@@ -246,6 +256,13 @@ print(dict(results))' >/dev/null
   echo "  저장소 시계열 수: $(q 'prometheus_tsdb_head_series' | python3 -c 'import json,sys;r=json.load(sys.stdin)["data"]["result"];print(r[0]["value"][1] if r else "자기 지표 미수집")')"
 fi
 
+# 미리 기동·검증한 같은 클라이언트로 전후를 비교한다. 새 Pod의 첫 접속 지연과
+# Collector 중단에 따른 API 상태 변화를 섞지 않는다. 실시간 가용성 시험은 별도다.
+kubectl -n console run observer --image=busybox:1.37.0@sha256:a7dbc319b1438115a207e11930dc4bb3e643dcb3ec0bdd694bb36cd8fad289ec --restart=Never -- sleep 600 >/dev/null
+kubectl -n console wait pod/observer --for=condition=Ready --timeout=60s >/dev/null
+observe_db() { kubectl -n console exec observer -- wget -q -T 5 -O - --header "Authorization: Bearer $API_TOKEN" "http://bravo-observability-api.$NS.svc:8080/v1/observability/environments/onprem/database"; }
+observe_db | python3 -c 'import json,sys;sys.exit(0 if json.load(sys.stdin)["state"]=="OK" else 1)'
+
 echo "== Collector 중지 → 알림"
 for _ in $(seq 60); do [ "$(count 'up{bravo_signal="collector-self", bravo_env="onprem"}')" -gt 0 ] && break; sleep 2; done
 kubectl -n "$NS" scale deploy/bravo-collector --replicas=0 >/dev/null
@@ -257,6 +274,10 @@ for _ in $(seq 60); do
 done
 case ",$firing," in *,onprem,*) r=ok;; *) r=fail;; esac
 check $r "Collector를 0개로 줄인 뒤 BravoEnvUnobservable이 onprem에 대해 firing (firing 환경: ${firing:-없음})"
+
+db=$(observe_db)
+echo "$db" | python3 -c 'import json,sys;d=json.load(sys.stdin);sys.exit(0 if d["state"]=="UNOBSERVABLE" and not d["instances"] and not d["replication_slots"] else 1)' && r=ok || r=fail
+check $r "기존 CNPG 정상 표본이 남아도 Collector 중단 뒤 DB 뷰는 확인 불가"
 
 echo
 echo "실패 ${fails}건"

@@ -12,7 +12,7 @@ cd "$(dirname "$0")"
 
 CANARY="bravo-canary-t37"
 STALE_AFTER=30
-P=(docker compose -p bravo-obs-test -f compose.yaml)
+P=(docker compose -p "bravo-obs-test-$$" -f compose.yaml)
 CERT_DIR=$(mktemp -d)
 API_TOKEN=$(openssl rand -hex 24)
 export CERT_DIR API_TOKEN
@@ -82,7 +82,7 @@ done
 [ "$hits" -eq 0 ] && r=ok || r=fail
 check $r "카나리 문자열이 지표 저장소 라벨 값에 0건 (실제: ${hits}개 라벨)"
 
-AGE='time() - max by (bravo_env) (timestamp(up{bravo_signal="collector-self"}))'
+AGE='time() - max by (bravo_env) (timestamp(up{bravo_signal="collector-self"}) and (up{bravo_signal="collector-self"} == 1))'
 age() { q "$AGE" | python3 -c 'import json,sys;r={x["metric"].get("bravo_env"):float(x["value"][1]) for x in json.load(sys.stdin)["data"]["result"]};print(r.get("onprem",""))'; }
 
 echo "== 수집 경로 생존 신호"
@@ -151,6 +151,13 @@ api /v1/observability/alerts >/dev/null
 api_alert=$(apij 'any(a["alertname"]=="BravoEnvUnobservable" and a["environment"]=="onprem" and a["state"]=="firing" and a["runbook"] for a in d["alerts"])')
 [ "$onprem_state" = UNOBSERVABLE ] && [ "$api_alert" = True ] && r=ok || r=fail
 check $r "조회 API에도 onprem 확인 불가와 런북이 붙은 알림이 보임 (상태 $onprem_state)"
+
+api /v1/observability/environments/onprem/http >/dev/null
+[ "$(apij 'd["state"] == "UNOBSERVABLE" and all(d[k] is None for k in ("requests_per_second", "error_ratio", "p95_seconds"))')" = True ] && r=ok || r=fail
+check $r "Collector 중단 후 HTTP 창의 과거 표본을 정상 수치로 표시하지 않음"
+api /v1/observability/environments/onprem/database >/dev/null
+[ "$(apij 'd["state"] == "UNOBSERVABLE" and d["instances"] == [] and d["replication_slots"] == []')" = True ] && r=ok || r=fail
+check $r "Collector 중단 후 DB는 없음·정상 대신 확인 불가"
 
 echo
 echo "실패 ${fails}건"
