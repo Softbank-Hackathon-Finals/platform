@@ -69,3 +69,14 @@ uv run --frozen --no-default-groups --with pytest pytest -p no:cacheprovider ../
 ```
 
 이 시험은 프로세스 메모리에서만 실행한다. T38의 실제 두 번째 이후 검증, 영수증 인증·증거 대조, T10의 실행 잠금과 시도 횟수 영속화 또는 재시작 복구는 증명하지 않는다.
+
+## 승인 결속 모의 시험
+
+T10 이벤트 스키마와 모의 수신기로 diff·이미지 digest가 현재 값과 다른 경우와 검증·정리 미확인 경우를 시험한다. 모의 수신기는 테스트 코드에만 있고 실제 승인 경로가 아니다. 이벤트 스키마 통과는 현재 값 일치나 실행 권한의 증명이 아니다.
+
+```bash
+cd ../platform-events
+uv run --frozen --no-default-groups --with pytest pytest -p no:cacheprovider ../rehearsal-runner/testing/test_approval_binding.py
+```
+
+T10 변경 승인 경로, diff 계산 방식, 검증한 제품 이미지와 승인 digest의 신뢰된 결속은 담당자와 확인이 필요하다. 이 모의 시험은 영수증 진위, 이미지 빌드·실행·정리 또는 실제 승인 전달을 증명하지 않는다.
