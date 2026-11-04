@@ -43,5 +43,6 @@
       "path": "services/control-gate/tests/test_retained_source_qualification.py",
       "sha256": "4c3b8aa2b97aa6a4981324558b33a0ae837d7e6db057d0fd7e648a2e0675afd7"
     }
-  ]
+  ],
+  "source_revision": "2b768576a33ef52a68ca64e302bbfd0c937a80d7"
 }
