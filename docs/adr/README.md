@@ -44,3 +44,15 @@
 T29의 기록 정리를 위해 이 시험을 새로 실행하거나, 자료가 생긴 뒤 모든 태스크의 종료를 기다리지는 않는다.
 측정 자료 안의 PR 상태·연결 상태는 **측정 당시 설명**이다. 현재 상태는 연결된 이슈·PR에서 확인한다.
 
+## 재현한 사례를 추가하거나 정정할 때
+
+같은 실패를 다시 조사할 때는 아래 조건으로 재현하고 결과를 대조한다. 사례는 검증한 환경에만 적용한다.
+
+| 재현 조건 | 관측한 결과와 범위 | 다시 확인할 근거 |
+|---|---|---|
+| **T10 · 승인 뒤 같은 검증 ID를 보류한다.** 보류(`hold`)와 반영 접수의 커밋 순서를 바꾼다. | 보류가 먼저면 새 접수를 거부했다. 접수가 먼저면 같은 요청은 저장한 `application_id`를 돌려줬다. 같은 계획이 새 버전으로 리허설에 돌아오면 옛 PASS로는 승인할 수 없었다. 시험용 서명과 SQLite·PostgreSQL에서 확인했다. | [수신 계약](../contracts/T10-change-approval.md), [두 커밋 순서와 옛 PASS 회귀 시험](https://github.com/Softbank-Hackathon-Finals/platform/blob/6fce3d54a9c825aaf66140d69211d11d7d5f807e/services/platform-events/tests/test_change_intake.py#L93), [실행 범위와 운영 연결 조건](https://github.com/Softbank-Hackathon-Finals/platform/pull/237) |
+| **T12 · DB 로그인 복구 중 실행기가 교대한다.** 이전 실행기가 보낸 출발지 `LOGIN`을 보류했다가 인계 뒤 전달한다. | 수정 전에는 뒤늦은 `LOGIN`으로 양쪽 DB가 쓰기를 받았다. 수정 뒤에는 정방향·복귀 모두 `SAFE_HOLD`와 두 DB의 lease를 유지했다. 격리 k3s에서 지연 명령 전달 뒤 두 DB에 동시 INSERT를 시도했을 때 원래 명령의 출발지만 커밋했다. | [인계 시 쓰기 규칙](0011-cutover-executor-execution-and-failure.md), [수정 전후 실험](https://github.com/Softbank-Hackathon-Finals/platform/pull/225), [두 lease 유지 회귀 시험](https://github.com/Softbank-Hackathon-Finals/platform/blob/b077554304af65ec40496a01402aec1645f8fa8a/services/cutover-executor/tests/test_runner_fakes.py#L339) |
+| **T20 · 컷오버 후 목적지에 쓰고 복귀한다.** DB 복귀가 끝난 뒤 Edge 확인만 같은 키로 재시도한다. | 격리 k3s에서 목적지에 쓴 메시지 5개를 복귀 후 출발지 DB에서 모두 읽었다. DB 복귀 명령은 1회였다. 53회 관측에서 동시 쓰기와 판독 불가는 각각 0건이었다. Edge에는 시험 대역을 썼다. 실제 두 환경의 복귀는 T25에서 측정한다. | [시험한 소스](https://github.com/Softbank-Hackathon-Finals/platform/commit/33c3d0e01d7d1230d7e503cff07fd89e677a3f15), [인수 기록](https://github.com/Softbank-Hackathon-Finals/platform/issues/30#issuecomment-6639280068), [실환경 시험 T25](https://github.com/Softbank-Hackathon-Finals/platform/issues/35) |
+
+해당 태스크 담당자는 재현 조건, 관측한 결과, 환경과 한계를 함께 확인할 수 있을 때 사례를 추가한다. 실행한 커밋과 공개용 시험 기록을 연결한다. 새 결과가 이전 설명을 바꾸면 같은 행에 정정 사유와 새 근거를 남기고 기존 원문 링크를 보존한다. 증빙 공개는 [공개 증빙 절차](../public-evidence-policy.md)를 따른다. 판정 규칙 자체가 바뀌면 해당 계약·ADR에서 별도로 검토한다.
+
