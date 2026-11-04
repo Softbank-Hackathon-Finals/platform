@@ -4,6 +4,7 @@ This gate does not authorize a verification Job or approval. The caller must bin
 its later operations and cleanup to the returned namespace UID.
 """
 
+import re
 import secrets
 import time
 from dataclasses import dataclass
@@ -29,7 +30,10 @@ class IsolationBlocked(RuntimeError):
 def _namespace_uid(kube: Kubectl, namespace: str) -> str:
     metadata = kube.get_json("namespace", namespace).get("metadata", {})
     uid = metadata.get("uid")
-    if not isinstance(uid, str) or not uid or metadata.get("deletionTimestamp"):
+    labels = metadata.get("labels", {})
+    if (not isinstance(uid, str) or not uid or metadata.get("deletionTimestamp")
+            or not isinstance(labels, dict)
+            or labels.get("app.kubernetes.io/part-of") != "bravo-rehearsal"):
         raise IsolationBlocked("namespace identity unavailable")
     return uid
 
@@ -46,6 +50,10 @@ def check_isolation(
     expected_uid: str | None = None, cleanup_timeout: float = 30
 ) -> IsolationPass:
     """Run T3 checks and return an identity only after confirmed fixture cleanup."""
+    if not isinstance(namespace, str) or not re.fullmatch(
+        r"rehearsal-[a-z0-9](?:[-a-z0-9]{0,51}[a-z0-9])?", namespace
+    ):
+        raise IsolationBlocked("namespace outside rehearsal scope")
     fx = Fixtures(namespace, secrets.token_hex(8), image)
     try:
         uid = _namespace_uid(kube, namespace)

@@ -16,7 +16,7 @@ class Kube:
         if self.fail:
             raise RuntimeError("unavailable")
         if args[0] == "namespace":
-            return {"metadata": {"uid": next(self.uids)}}
+            return {"metadata": {"uid": next(self.uids), "labels": {"app.kubernetes.io/part-of": "bravo-rehearsal"}}}
         return {"items": self.items}
 
     def run(self, *args, **kwargs):

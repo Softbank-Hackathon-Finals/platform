@@ -36,10 +36,19 @@ def _known_object(reader: ObjectReader, bucket: str, key: str, expected_sha256: 
     try:
         if result.status != 200 or result.body is None:
             return "unknown"
-        body = result.body.read(max_bytes + 1)
-        if not isinstance(body, bytes) or len(body) > max_bytes:
-            return "unknown"
-        return "matches" if hashlib.sha256(body).hexdigest() == expected_sha256 else "unknown"
+        digest = hashlib.sha256()
+        total = 0
+        while True:
+            remaining = max_bytes + 1 - total
+            chunk = result.body.read(remaining)
+            if not isinstance(chunk, bytes) or len(chunk) > remaining:
+                return "unknown"
+            if not chunk:
+                return "matches" if digest.hexdigest() == expected_sha256 else "unknown"
+            total += len(chunk)
+            if total > max_bytes:
+                return "unknown"
+            digest.update(chunk)
     finally:
         if result.body is not None:
             result.body.close()

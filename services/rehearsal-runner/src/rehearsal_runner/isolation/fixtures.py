@@ -5,19 +5,21 @@
 - victim: 정책이 없는 별도 네임스페이스의 Pod. 네임스페이스 밖 대상이자, "정책이 없으면 열리는가" 대조를 하는 곳
 """
 
-from dataclasses import dataclass
+import json
+from dataclasses import dataclass, field
 
-from .kube import Kubectl
+from .kube import Kubectl, ProbeError
 
 RUN_LABEL = "bravo.dev/isolation-run"
 ECHO_PORT = 8080
 
 
-@dataclass(frozen=True)
+@dataclass
 class Fixtures:
     namespace: str
     run_id: str
     image: str
+    victim_uid: str | None = field(default=None, init=False, repr=False)
 
     @property
     def probe(self) -> str:
@@ -89,20 +91,32 @@ class Fixtures:
                 },
             }
         )
-        kube.apply(
+        created = kube.create(
             {
                 "apiVersion": "v1",
                 "kind": "Namespace",
                 "metadata": {"name": self.victim_namespace, "labels": {RUN_LABEL: self.run_id}},
             }
         )
+        metadata = created.get("metadata", {})
+        uid = metadata.get("uid")
+        if (metadata.get("name") != self.victim_namespace or not isinstance(uid, str)
+                or not uid.strip()):
+            raise ProbeError("시험 namespace 생성 UID 확인 불가")
+        self.victim_uid = uid
         kube.apply(self.pod(self.victim, self.victim_namespace, "victim", serve))
 
     def cleanup(self, kube: Kubectl) -> None:
         """리허설 네임스페이스는 남기고 시험용 리소스만 지운다. 실패해도 다음 정리를 계속한다."""
         selector = f"{RUN_LABEL}={self.run_id}"
-        kube.run(
-            "-n", self.namespace, "delete", "pod,service", "-l", selector,
-            "--ignore-not-found", "--wait=false",
-        )
-        kube.run("delete", "namespace", self.victim_namespace, "--ignore-not-found", "--wait=false")
+        try:
+            kube.run(
+                "-n", self.namespace, "delete", "pod,service", "-l", selector,
+                "--ignore-not-found", "--wait=false",
+            )
+        finally:
+            if self.victim_uid is not None:
+                options = {"apiVersion": "v1", "kind": "DeleteOptions",
+                           "preconditions": {"uid": self.victim_uid}}
+                kube.run("delete", "--raw", f"/api/v1/namespaces/{self.victim_namespace}",
+                         "-f", "-", stdin=json.dumps(options))
