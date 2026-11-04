@@ -68,20 +68,24 @@ def wait_until(ready: Callable[[], bool], what: str, seconds: float = 60) -> Non
 class Stack:
     """Postgres · moto · 앱 둘 · Edge 대역을 띄우고 끝나면 지운다."""
 
-    def __init__(self, demo_chat: Path, out: Path):
+    def __init__(self, demo_chat: Path, out: Path, container_prefix: str = "bravo-t18", postgres_image: str = POSTGRES_IMAGE):
         self.demo = demo_chat
         self.out = out
         self.tag = uuid.uuid4().hex[:8]
+        self.container_prefix = container_prefix
+        self.postgres_image = postgres_image
         self.admin_password = secrets.token_urlsafe(16)
         self.app_password = secrets.token_urlsafe(16)
         self.admin_token = secrets.token_urlsafe(16)
         self.pg_port = free_port()
-        self.pg_name = f"bravo-t18-pg-{self.tag}"
+        self.app_db_port = self.pg_port  # 앱이 붙는 포트. 풀러를 앞에 둘 때 바꾼다
+        self.pg_name = f"{container_prefix}-pg-{self.tag}"
         self.source_port = free_port()
         self.target_port = free_port()
         self.processes: list[subprocess.Popen] = []
         self.containers: list[str] = []
         self.edges: dict[str, str] = {}
+        self.delay_proxy_ports: dict[float, int] = {}
 
     def __enter__(self):
         try:
@@ -129,7 +133,7 @@ class Stack:
             raise SystemExit("demo-chat의 쓰기 잠금 키가 lock_probe.py와 다르다")
 
     def _require_local_images(self) -> None:
-        for image in (POSTGRES_IMAGE, EDGE_IMAGE):
+        for image in (self.postgres_image, EDGE_IMAGE):
             found = subprocess.run(["docker", "image", "inspect", image], capture_output=True)
             if found.returncode != 0:
                 raise SystemExit(f"로컬에 이미지가 없다: {image}. 자격 증명을 건드리지 않고 멈춘다.")
@@ -138,7 +142,7 @@ class Stack:
         run_quiet(
             "docker", "run", "-d", "--rm", "--name", self.pg_name,
             "-e", "POSTGRES_DB=chat", "-e", f"POSTGRES_PASSWORD={self.admin_password}",
-            "-p", f"127.0.0.1:{self.pg_port}:5432", POSTGRES_IMAGE,
+            "-p", f"127.0.0.1:{self.pg_port}:5432", self.postgres_image,
             "postgres", "-c", "wal_level=logical", "-c", "max_connections=200",
         )  # fmt: skip
         self.containers.append(self.pg_name)
@@ -162,7 +166,7 @@ class Stack:
             **os.environ,
             "APP_ENV": app_env,
             "DB_HOST": "127.0.0.1",
-            "DB_PORT": str(self.pg_port),
+            "DB_PORT": str(self.app_db_port),
             "DB_NAME": "chat",
             "DB_SECRET_ID": "demo-chat/db",
             "S3_BUCKET": "demo-chat-attachments",
@@ -214,23 +218,29 @@ class Stack:
             url = f"http://127.0.0.1:{port}/api/health/db"
             wait_until(lambda u=url: httpx.get(u, trust_env=False).status_code == 200, f"앱 {name}")
 
-    def fault_proxy(self, target_port: int, *, rtt_ms: float = 0, drop_every: int = 0) -> int:
+    def fault_proxy(self, target_port: int, *, rtt_ms: float = 0, drop_every: int = 0, drop_chance: float = 0) -> int:
         port = free_port()
         self.processes.append(
             subprocess.Popen(
                 [sys.executable, str(HERE / "tcp_fault.py"), str(port), str(target_port),
-                 "--rtt-ms", str(rtt_ms), "--drop-every", str(drop_every)]
+                 "--rtt-ms", str(rtt_ms), "--drop-every", str(drop_every), "--drop-chance", str(drop_chance)]
             )  # fmt: skip
         )
         wait_until(lambda: socket.create_connection(("127.0.0.1", port), 1).close() is None, "결함 중계기")
         return port
 
+    def delayed_db_port(self, rtt_ms: float) -> int:
+        """왕복 지연을 지나 DB에 닿는 포트. 지연 앱이 여기에 붙는다."""
+        proxy_port = self.fault_proxy(self.pg_port, rtt_ms=rtt_ms)
+        self.delay_proxy_ports[rtt_ms] = proxy_port
+        return proxy_port
+
     def delayed_target_app(self, rtt_ms: float) -> int:
         """DB까지 왕복 지연이 있는 목적지 앱을 띄운다. 트래픽 전환 중 목적지 앱이 출발지 DB에 쓰는 경로의 대역이다."""
-        proxy_port = self.fault_proxy(self.pg_port, rtt_ms=rtt_ms)
+        db_port = self.delayed_db_port(rtt_ms)
         port = free_port()
         log = (self.out / f"app-delayed-{rtt_ms:g}.log").open("w")
-        env = {**self._app_env(TARGET_ENV), "DB_PORT": str(proxy_port)}
+        env = {**self._app_env(TARGET_ENV), "DB_PORT": str(db_port)}
         self.processes.append(
             subprocess.Popen(
                 [str(self.demo / ".venv/bin/uvicorn"), "app.main:create_app", "--factory",
@@ -247,7 +257,7 @@ class Stack:
         if name in self.edges:
             return self.edges[name]
         port = free_port()
-        container = f"bravo-t18-edge-{name}-{self.tag}"
+        container = f"{self.container_prefix}-edge-{name}-{self.tag}"
         conf = (HERE / "mock-edge.conf").read_text()
         for placeholder, value in (
             ("__SOURCE_PORT__", self.source_port),
@@ -787,6 +797,7 @@ def main() -> int:
     parser.add_argument("--out", type=Path, required=True)
     parser.add_argument("--duration", type=float, default=60, help="주 측정(direct, mock-edge)의 부하 시간")
     parser.add_argument("--only", nargs="*", choices=sorted(SCENARIOS), help="이 시나리오만 돌린다")
+    parser.add_argument("--container-prefix", default="bravo-t18", help="임시 컨테이너 이름의 앞부분")
     args = parser.parse_args()
     if shutil.which("docker") is None:
         raise SystemExit("docker가 필요하다")
@@ -794,7 +805,7 @@ def main() -> int:
     out = args.out.resolve()
     out.mkdir(parents=True, exist_ok=True)
 
-    with Stack(demo_chat, out) as stack:
+    with Stack(demo_chat, out, container_prefix=args.container_prefix) as stack:
         harness = Harness(stack, out, args.duration)
         for name in args.only or SCENARIOS:
             SCENARIOS[name](harness)

@@ -1,0 +1,28 @@
+{
+  "scope": "actual kind node filelog -> mTLS -> environment-local OTLP file receiver -> strict decode -> AUD search; not EKS/RKE2 deployment",
+  "status": "PASS",
+  "results": {
+    "AUD-01.1": "present",
+    "AUD-01.2": "present",
+    "AUD-01.3": "present"
+  },
+  "elapsed_seconds": 1.826,
+  "decoded_events": 9565,
+  "collector_image": "otel/opentelemetry-collector-contrib@sha256:340c9ca6a36617084c6661bdc4f0fe92b7cda5a805d61673ec8db375fddc522b",
+  "sql_redacted": true,
+  "source_pod_uid_unchanged": true,
+  "cloud_resources_changed": false,
+  "sender_queue": "emptyDir test fixture; Pod-recreation durability not claimed",
+  "node_audit_filename": "kind-specific basename override",
+  "raw_export_sha256": "606bde237a79f0a9acc563014dd037d9d85530e4a4452a0947368cd79a7e55fa",
+  "completed_at": "2026-11-03T13:21:31.291122+00:00",
+  "public_is_raw": false,
+  "original_sha256": "80a9587ee74b3a829a421a28a2ffcea19fe50e5cb45bf3afa1bf64d619959201",
+  "source_sha256": {
+    "services/control-runner/src/bravo_controls/audit_forwarding.py": "26ed052a900eca7e6280f0a3f8cdafaad385373a86c002f4661d9d55bd83eea6",
+    "services/control-runner/tests/integration/verify_audit_collector.py": "1fc24679f3bdb48eb37ec1d83a5595aba9ff9916a9fe34811d10b2afcf1770c8"
+  },
+  "decoder_sha256": "423af0bc79371e778567be79655e7e094496681ede3669263c43dfdc367c3213",
+  "decoder_pr": 124,
+  "private_qualification_harness_sha256": "32047452c2c4f8855bfa6092159edc2d6d188450d6008763478d2c0c70893bc0"
+}

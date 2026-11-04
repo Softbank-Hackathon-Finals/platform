@@ -1,0 +1,136 @@
+diff --git a/app/store.py b/app/store.py
+index 1059aa0..b4bf961 100644
+--- a/app/store.py
++++ b/app/store.py
+@@ -1,6 +1,7 @@
+ import uuid
++from contextlib import asynccontextmanager
+ 
+-from psycopg import errors
++from psycopg import errors, pq
+ from psycopg.rows import dict_row
+ from psycopg_pool import AsyncConnectionPool
+ 
+@@ -13,6 +14,23 @@ MESSAGE_COLUMNS = """
+ """
+ 
+ 
++# 메시지 쓰기 한 문장. 자동 커밋으로 보내면 잠금부터 커밋까지 서버 안에서 끝난다(왕복 1번).
++# INSERT가 write_lock의 행을 읽으므로 id를 받기 전에 반드시 잠금을 잡는다.
++# 문장 안에서 statement_timeout을 바꿔도 이 문장에는 듣지 않아 lock_timeout으로 대기를 묶는다.
++ADD_MESSAGE = f"""
++    WITH write_lock AS MATERIALIZED (
++        SELECT set_config('lock_timeout', %(timeout)s, true), pg_advisory_xact_lock(%(lock)s)
++    ), inserted AS (
++        INSERT INTO messages (idempotency_key, author, body, attachment_id)
++        SELECT %(key)s::uuid, %(author)s::text, %(body)s::text, %(attachment_id)s::uuid
++        FROM write_lock
++        ON CONFLICT (idempotency_key) DO NOTHING
++        RETURNING *
++    )
++    SELECT {MESSAGE_COLUMNS} FROM inserted m LEFT JOIN attachments a ON a.id = m.attachment_id
++"""
++
++
+ class IdempotencyConflict(Exception):
+     """같은 멱등 키로 다른 내용을 보냈다."""
+ 
+@@ -26,6 +44,18 @@ class Store:
+         self.pool = pool
+         self.tx_timeout = f"{tx_timeout_ms}ms"
+ 
++    @asynccontextmanager
++    async def _autocommit(self):
++        """BEGIN · COMMIT 왕복 없이 보내는 연결. 풀에 돌려줄 때 원래 설정으로 되돌린다."""
++        async with self.pool.connection() as conn:
++            await conn.set_autocommit(True)
++            try:
++                yield conn
++            finally:
++                # 끊긴 연결은 풀이 버린다. 여기서 또 예외를 내면 503이 500으로 바뀐다.
++                if conn.pgconn.transaction_status == pq.TransactionStatus.IDLE:
++                    await conn.set_autocommit(False)
++
+     async def ping(self) -> None:
+         async with self.pool.connection() as conn:
+             await conn.execute("SELECT 1")
+@@ -34,52 +64,44 @@ class Store:
+         self, key: uuid.UUID, author: str, body: str, attachment_id: uuid.UUID | None
+     ) -> tuple[dict, bool]:
+         """메시지를 저장하고 (메시지, 새로 저장했는지)를 돌려준다. 같은 멱등 키의 재전송은 기존 메시지를 돌려준다."""
+-        async with self.pool.connection() as conn, conn.cursor(row_factory=dict_row) as cur:
+-            # 트랜잭션 범위 설정이라 PgBouncer transaction 모드에서도 안전하다.
+-            await cur.execute(
+-                "SELECT set_config('statement_timeout', %s, true)", (self.tx_timeout,)
+-            )
+-            # 커밋 순서를 id 순서와 맞춘다. 전파가 "마지막 id 이후"를 조회하므로,
+-            # 늦게 커밋된 작은 id를 구독자가 건너뛰지 않게 한다.
+-            await cur.execute("SELECT pg_advisory_xact_lock(%s)", (MESSAGE_WRITE_LOCK,))
++        async with self._autocommit() as conn, conn.cursor(row_factory=dict_row) as cur:
+             try:
+                 await cur.execute(
+-                    """
+-                    INSERT INTO messages (idempotency_key, author, body, attachment_id)
+-                    VALUES (%s, %s, %s, %s)
+-                    ON CONFLICT (idempotency_key) DO NOTHING
+-                    RETURNING id
+-                    """,
+-                    (key, author, body, attachment_id),
++                    ADD_MESSAGE,
++                    {
++                        "timeout": self.tx_timeout,
++                        "lock": MESSAGE_WRITE_LOCK,
++                        "key": key,
++                        "author": author,
++                        "body": body,
++                        "attachment_id": attachment_id,
++                    },
+                 )
+             except errors.ForeignKeyViolation as e:
+                 raise UnknownAttachment from e
+-            inserted = await cur.fetchone()
+-            if inserted is None:
+-                await cur.execute(
+-                    "SELECT id, author, body, attachment_id FROM messages WHERE idempotency_key = %s",
+-                    (key,),
+-                )
+-                existing = await cur.fetchone()
+-                if (existing["author"], existing["body"], existing["attachment_id"]) != (
+-                    author,
+-                    body,
+-                    attachment_id,
+-                ):
+-                    raise IdempotencyConflict
+-                message_id = existing["id"]
+-            else:
+-                message_id = inserted["id"]
++            created = await cur.fetchone()
++            if created is not None:
++                return created, True
++            # 이미 있는 키다. 앞 쓰기가 커밋된 뒤이므로 새 문장에서 보인다. 잠금은 이미 풀렸다.
+             await cur.execute(
+                 f"SELECT {MESSAGE_COLUMNS} FROM messages m"
+-                " LEFT JOIN attachments a ON a.id = m.attachment_id WHERE m.id = %s",
+-                (message_id,),
++                " LEFT JOIN attachments a ON a.id = m.attachment_id"
++                " WHERE m.idempotency_key = %s",
++                (key,),
+             )
+-            return await cur.fetchone(), inserted is not None
++            existing = await cur.fetchone()
++            if (existing["author"], existing["body"], existing["attachment_id"]) != (
++                author,
++                body,
++                attachment_id,
++            ):
++                raise IdempotencyConflict
++            return existing, False
+ 
+     async def list_messages(self, after: int | None, limit: int) -> list[dict]:
+         """after 이후 메시지를 id 순으로 돌려준다. after가 없으면 최근 limit개."""
+-        async with self.pool.connection() as conn, conn.cursor(row_factory=dict_row) as cur:
++        # 읽기에 트랜잭션이 필요 없다. BEGIN · COMMIT 왕복을 없애 풀 연결을 그만큼 덜 쥔다.
++        async with self._autocommit() as conn, conn.cursor(row_factory=dict_row) as cur:
+             if after is None:
+                 await cur.execute(
+                     f"SELECT * FROM (SELECT {MESSAGE_COLUMNS} FROM messages m"
