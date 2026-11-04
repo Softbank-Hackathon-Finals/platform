@@ -26,3 +26,9 @@
 ## 재현
 
 `verify_live_audit_gate.py --mode source-scan-partial`에 원 source-run과 명시적 NOT_RUN target-run, 새 비공개 출력 폴더를 전달한다. 콘솔의 기존 `testing/live_report.config.js`에 생성 보고서 경로·정확한 해시·시험 계획 digest를 전달하고 `BRAVO_TEST_REPORT_KIND=source-scan-partial`로 실행한다. 생성된 시험 서명은 운영 권한으로 재사용하지 않는다.
+
+## 리뷰 후 출처 결속 보강 (21:40 KST)
+
+초기 재현 스크립트는 입력 형식과 판정만 확인하므로 다른 source-run도 보존된 AWS 원본으로 표시할 수 있었다. 전체 게이트는 BLOCK이었으나 출처 주장은 잘못될 수 있었다. 이제 #216에서 별도로 보존한 원본 바이트 SHA-256을 코드에 고정하고, 다른 입력은 서명·게이트 생성·AWS 원본 표시 전에 거부한다. 호출자가 예상 해시를 바꾸는 옵션은 없다. 이 모드는 해당 과거 실행에 한정되며 일반 운영 업로드 API가 아니다.
+
+실제 보존 원본은 통과했고 실행 ID·환경 참조·증거 해시 변조는 각각 비정상 종료, INCOMPLETE, AWS 출처 표시 없음, 게이트 산출물 없음으로 확인했다. 단위 5개와 수정된 경로의 Chromium·WebKit 각 3회가 통과했다. 이전 결과와 소스 매니페스트는 당시 실행 기록으로 보존하고 [추가 회귀 근거](source-binding-regression.json)를 별도로 남긴다.

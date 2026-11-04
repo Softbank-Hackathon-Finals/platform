@@ -1,0 +1,47 @@
+{
+  "original": {
+    "exit": 0,
+    "status": "PASS",
+    "retained_source_scan_loaded": true,
+    "aws_scope_claimed": true,
+    "gate_artifact_written": true
+  },
+  "run-id": {
+    "exit": 1,
+    "status": "INCOMPLETE",
+    "retained_source_scan_loaded": false,
+    "aws_scope_claimed": false,
+    "gate_artifact_written": false
+  },
+  "environment": {
+    "exit": 1,
+    "status": "INCOMPLETE",
+    "retained_source_scan_loaded": false,
+    "aws_scope_claimed": false,
+    "gate_artifact_written": false
+  },
+  "evidence": {
+    "exit": 1,
+    "status": "INCOMPLETE",
+    "retained_source_scan_loaded": false,
+    "aws_scope_claimed": false,
+    "gate_artifact_written": false
+  },
+  "browser": {
+    "chromium": 3,
+    "webkit": 3,
+    "passed": 6
+  },
+  "unit_tests_passed": 5,
+  "scope": "same retained AWS bytes, local authority, unexecuted target; no production approval",
+  "source_files": [
+    {
+      "path": "services/control-gate/testing/verify_live_audit_gate.py",
+      "sha256": "0625e5764690418f2b1a19b37e5592591aecdb65e6d68c19011f31ae1d559a99"
+    },
+    {
+      "path": "services/control-gate/tests/test_retained_source_qualification.py",
+      "sha256": "4c3b8aa2b97aa6a4981324558b33a0ae837d7e6db057d0fd7e648a2e0675afd7"
+    }
+  ]
+}
