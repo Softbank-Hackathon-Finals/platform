@@ -24,7 +24,7 @@
 
 | 항목 | 값 |
 |---|---|
-| 측정 코드 | 측정은 #158 브랜치의 `21085aa` 위에서 했다. 그 뒤 `dea9ced`(창 전송 Bearer 인증)로 rebase했고, #158이 머지된 뒤 develop `399f297`을 머지 커밋으로 합쳤다. `services/loadgen/testing`의 Git 트리 해시 `7b4c6c98a4a2dd78de9541f61b6b7d849bd8175a`는 rebase 뒤 값이고 머지로 바뀌지 않았다. develop이 `services/loadgen`을 바꾸지 않아 머지 뒤에는 다시 재지 않았다. 측정 뒤에 고친 도구는 결과를 읽는 코드(`lock_lab_report.py`, Edge 오류 집계)뿐이다. rebase 뒤에 안 3+읽기 설정 20ms · 50% 1칸을 다시 돌려 도구가 도는지 확인했다(P, 5xx 0, 쓰기 p95 27ms, 실패 · 유실 · 중복 0 · 0 · 0). `matrix-smoke-after-rebase.jsonl` |
+| 측정 코드 | 측정은 #158 브랜치의 `21085aa` 위에서 했다. 그 뒤 `dea9ced`(창 전송 Bearer 인증)로 rebase했고, #158이 머지된 뒤 develop `399f297`을 머지 커밋으로 합쳤다. develop이 `services/loadgen`을 바꾸지 않아 머지 뒤에는 다시 재지 않았다. 측정 뒤에 고친 도구는 결과를 읽는 코드(`lock_lab_report.py`, Edge 오류 집계)와 판정 근거를 남기는 `judge_after_load` 기록뿐이고, 측정값을 만드는 경로는 그대로다. `services/loadgen/testing`의 Git 트리 해시 `790ea9d15e91b79cd2787f150776c10eab64cb20`는 이 수정까지 반영한 값이다. rebase 뒤에 안 3+읽기 설정 20ms · 50% 1칸을 다시 돌려 도구가 도는지 확인했다(P, 5xx 0, 쓰기 p95 27ms, 실패 · 유실 · 중복 0 · 0 · 0). `matrix-smoke-after-rebase.jsonl` 판정 수정 뒤에 원본 설정 40ms · 50% 1칸을 돌려 근거가 기록되는지 확인했다(창 7개 중 부하 종료 뒤 창 4개, 판정 FAIL). 이 칸은 표에 넣지 않았다. `matrix-smoke-after-verdict-fix.jsonl` |
 | 대상 앱 | demo-chat main `dc9bece24898b752a77af1d1bbd440c11100e5f2`. `app/store.py`는 #158에서 쓴 `b71d4aa`와 같다. 안마다 `app/store.py`만 바꾼 복사본을 저장소 밖에서 썼다. 환경마다 uvicorn 프로세스 1개로 직접 실행(컨테이너 이미지 아님) |
 | DB | 행렬: `public.ecr.aws/docker/library/postgres@sha256:5db6dac2ef5dcff512f4f00a009c3c332b9f2f28f24277175bf3e4a3d02ef83a`(16). 불변식은 16과 18.4 `@sha256:a02db8cac496f15b094798a38254f14d6e00741f709360e5e00bb6668ea31636` 둘 다. 실제 DB는 18.4다 |
 | PgBouncer | `ghcr.io/cloudnative-pg/pgbouncer:1.25.1@sha256:e6ddfe22d845e603825e235dd8334b21ecd125abea2a2172478f556b8dee2bb8`. 설정은 `infra/envs/source-workloads/pgbouncer.ini`와 같은 값(transaction 모드, `default_pool_size=10`, `max_prepared_statements=0`). **측정 때는 목적지 설정이 저장소에 없어 같다고 가정했다.** develop을 합치며 들어온 `infra/envs/target-workloads/pgbouncer.ini`의 세 값도 같다 |
@@ -152,7 +152,7 @@
 
 ## 6. 행렬: 직접 경로(같은 조건, 2회)
 
-칸은 `판정<br>5xx<br>쓰기 p95`이고 회차를 모두 적는다. **5xx는 쓰기와 읽기를 더한 수다**(#158의 1,526건은 쓰기만). 부하가 끝난 뒤 재시도만 담긴 마지막 창의 UNKNOWN은 판정에서 뺐다. `matrix-direct.jsonl`.
+칸은 `판정<br>5xx<br>쓰기 p95`이고 회차를 모두 적는다. **5xx는 쓰기와 읽기를 더한 수다**(#158의 1,526건은 쓰기만). 부하 종료 뒤 창은 근거가 있을 때만 판정에서 뺀다(8절). `matrix-direct.jsonl`.
 
 | 설정 왕복 | 실제 왕복(부하 중) | 목적지 | 원본 | 안 1 | 안 2 | 안 3 | 안 2+읽기 | 안 3+읽기 |
 |---:|---:|---:|---|---|---|---|---|---|
@@ -199,7 +199,7 @@
 
 | 안 | 목적지 | 마지막 PASS(실제 왕복) | 처음 FAIL(실제 왕복) | 회차별 결과 |
 |---|---:|---:|---:|---|
-| 원본 | 10% | 30ms(32.1ms) | 35ms(37.0ms) | 0ms PP · 5ms PP · 20ms PP · 25ms P · 30ms PP · 35ms FF · 40ms FF |
+| 원본 | 10% | 30ms(32.1ms) | 35ms(37.0ms) | 0ms PP · 5ms PP · 20ms PP · 25ms U · 30ms PP · 35ms FF · 40ms FF |
 | 원본 | 50% | 10ms(11.1ms) | 12ms(13.4ms) | 0ms PP · 5ms PP · 8ms P · 10ms PP · 12ms FF · 15ms F · 20ms FF · 40ms FF |
 | 안 1 | 10% | 40ms(41.6ms) | 60ms(62.0ms) | 0ms PP · 5ms EPP · 20ms PP · 40ms PP · 60ms FF · 80ms F |
 | 안 1 | 50% | 15ms(16.3ms) | 20ms(21.4ms) | 0ms PP · 5ms PP · 8ms P · 10ms P · 12ms P · 15ms PP · 20ms FF · 40ms FF |
@@ -211,6 +211,8 @@
 | 안 2+읽기 | 50% | 80ms(81.8ms) | 100ms(102.5ms) | 0ms PP · 5ms PP · 20ms PP · 40ms PP · 60ms ESSPPP · 80ms SSP · 100ms SFF · 120ms F |
 | 안 3+읽기 | 10% | 200ms(203.0ms) | 300ms(302.7ms) | 0ms PP · 5ms PP · 20ms PP · 40ms PP · 150ms P · 200ms PP · 300ms FF · 400ms F |
 | 안 3+읽기 | 50% | 80ms(81.6ms) | 100ms(102.3ms) | 0ms PP · 5ms PP · 20ms PP · 40ms PP · 60ms PPPPP · 80ms SPP · 100ms FF · 120ms F · 150ms F |
+
+회차별 결과의 U는 UNKNOWN이다. **판정 집계를 고치면서 회차 하나의 판정이 PASS에서 UNKNOWN으로 바뀌었다.** 원본 설정 25ms · 목적지 10%의 1회다. 창 판정이 `PASS, PASS, PASS, UNKNOWN`이고, 이 회차에는 읽기 시간 초과 1건이 있다. 전에는 마지막 UNKNOWN을 무조건 빼서 PASS로 적었다. 지금은 부하가 끝난 뒤 시작한 창이라는 근거(`judge_after_load`)가 결과에 있을 때만 뺀다. 이 표의 결과 파일에는 그 근거가 없어 추정하지 않고 UNKNOWN으로 둔다. 다른 회차의 판정과 모든 안의 마지막 PASS · 처음 FAIL은 그대로이고, 측정값은 바꾸지 않았다.
 
 경계를 재기 전에 적어 둔 예측과 견주면 다음과 같다.
 
