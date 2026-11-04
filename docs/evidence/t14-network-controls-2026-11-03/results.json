@@ -1,0 +1,29 @@
+{
+  "test_scope": "Docker internal bridges; not AWS or Kubernetes policy qualification",
+  "image": "sha256:f77597b5433b134cc78d76b382937fec3faecd56e769458382a9a3c46f5d9136",
+  "firewall_fixture": true,
+  "iptables_version": "iptables v1.8.11 (nf_tables)",
+  "isolated_observed": "deny",
+  "isolated_reason": null,
+  "actual_syn_drop_is_denied_with_controls": true,
+  "isolated_path_never_reported_allow": true,
+  "isolated_transport_outcome": "timeout",
+  "opened_path_is_allow_not_pass": true,
+  "target_fault_kind": "allowed_path_rejected",
+  "unavailable_target_is_unknown": true,
+  "unhealthy_probe_control_is_unknown": true,
+  "timestamp": "2026-11-03T12:17:52.183901+00:00",
+  "module_sha256": "0074b376af8ac7b45a021666b19e6115eac097143c8e98f277f9a06ea0256476",
+  "evidence_count": 12,
+  "source_files": [
+    {
+      "path": "services/control-runner/src/bravo_controls/network_probes.py",
+      "sha256": "0074b376af8ac7b45a021666b19e6115eac097143c8e98f277f9a06ea0256476"
+    },
+    {
+      "path": "services/control-runner/tests/integration/verify_network_controls.py",
+      "sha256": "6fa30bbb29fde4dcc678541f4bc433fa4e4dc1647db4f6e86266af302ca4a4cd"
+    }
+  ],
+  "source_revision": "d65f30c86f2d3c5ac3f945a41071f0352cc033be"
+}
