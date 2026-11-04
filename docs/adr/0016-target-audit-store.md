@@ -92,6 +92,8 @@
 4. `receipt_id`는 키 + 버전 ID다. 생산자 출처(`AuditOrigin`)는 쓰기 identity의 등록에서 정하고, 객체 내용의 속성으로 정하지 않는다.
 5. 객체마다 `otlp_audit.decode_export`를 거쳐 기존 `AuditSearchProbe`가 판정한다.
 
+구현: `bravo_controls.audit_store.ObjectStoreAuditSearch`. 분 파티션은 UTC(전달기 `s3_partition_timezone: UTC`)이고, 쓰는 쪽 시계 차이를 위해 창 앞뒤로 1분을 더 읽는다. LastModified + 1초가 검색 시점(`through`)보다 늦은 객체는 다음 조회로 미룬다. 조회한 버전이 목록과 다르거나 COMPLIANCE 보존이 아니면 UNKNOWN이다.
+
 **지표 Collector와 나누는 이유**
 
 | 기준 | 지표 Collector (T37) | 감사 전달기 (T34) |
