@@ -23,7 +23,7 @@
 | T22 | WebSocket | 연결 및 `hello` 수신, 시험 연결만 1000으로 종료 | 1012 강제 종료·목적지 재연결은 미시험 |
 | T36 | 운영 창 수신기의 health / DB readiness | HTTP 200, `no-store` | 기존 T10 배포본 |
 | T36 | 미인증 창 POST | HTTP 401, `no-store` | 창·계획·생산자 등록 없음 |
-| T33 | 실제 Security Hub GetFindings 오류 | 기존 수집기가 FAILED, 화면 요약이 UNKNOWN, 커서 미전진 | AWS 서비스 미활성 상태. 정상 0건으로 처리하지 않음 |
+| T33 | 실제 Security Hub GetFindings 오류 | 기존 수집기가 FAILED, 화면 요약이 UNKNOWN, 커서 미전진 | 서울 리전 서비스 미활성 상태. 정상 0건으로 처리하지 않음 |
 
 S3 시험은 일반 `GetObject`이며 `VersionId` 요청 파라미터를 사용하지 않았다. `GetObjectVersion` 권한과 혼동하지 않기 위해 반환된 현재 버전만 대조했다. 객체 본문은 읽거나 저장하지 않고 응답 스트림을 닫았다. 정책·객체를 원자적으로 고정한 스냅샷 검증은 아니다.
 
@@ -49,6 +49,8 @@ T30 목적지 연결 정보 인계는 [기존 요청](https://github.com/Softban
 - [실제 AWS 수집 실패 처리](findings-unavailable.json)
 - [관측 수신기·지표 준비 상태](observability-readiness.json)
 - [실제 앱 읽기·WebSocket](app-readiness.json)
+
+AWS 탐지 조회는 서울 리전(`ap-northeast-2`)에 한정하며, 다른 리전의 서비스 활성 상태를 판단하지 않는다.
 
 원본 결과·실행 스크립트·Pod/ServiceAccount/Deployment 메타데이터는 운영자 비공개 검증 디렉터리에 보존했다. 공개 JSON에는 원본 SHA-256과 가린 결과만 담았다. 해시는 서명이나 제3자 검증을 의미하지 않는다. AWS 수집 실패 처리는 기존 `bravo_findings.collectors.run_once`와 `View`로 실행했으며 SDK 모의 응답을 사용하지 않았다. 그 밖의 점검은 운영자 스크립트로 실행했으므로 정식 T14 전체 수집 체인의 자격을 부여하지 않는다.
 

@@ -110,5 +110,7 @@
       "artifact": "findings-live-result.json",
       "sha256": "571b89d5bd834f2767c8d84f62689adf8a803e87dfd71c90b97653e6677269a7"
     }
-  ]
+  ],
+  "aws_region": "ap-northeast-2",
+  "other_regions_checked": false
 }
