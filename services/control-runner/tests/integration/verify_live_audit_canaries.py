@@ -23,8 +23,7 @@ import verify_audit_collector as forwarding
 
 from bravo_controls.audit_probes import AuditBatch, AuditSearchProbe, CanaryReceipt
 from bravo_controls.otlp_audit import AuditOrigin, decode_export
-from bravo_controls.runner import Environment, RunContext
-from bravo_controls.runner import TestSpec as Spec
+from bravo_controls.runner import Catalog, Environment, Runner
 
 K3S = "rancher/k3s:v1.35.9-k3s1@sha256:ec9868c6a38d4e8c1869832fb5fd1eb8473c39794a0b44d2b952e7ba911951bc"
 CNPG = "1.30.1@sha256:923c267ec29636db3bee20f993d0ec4973fa22998e1adad37da79e4d32b5bc07"
@@ -56,11 +55,19 @@ def until(predicate, *, seconds=180):
     raise RuntimeError("bounded_readiness_timeout")
 
 
-def run(root):
+def run(root, *, side="source"):
+    if side not in {"source", "target"}:
+        raise ValueError("source_or_target_required")
     global _ERROR_LOG
     _ERROR_LOG = root / "command-errors.log"
     os.umask(0o077)
     root.mkdir(mode=0o700, parents=True, exist_ok=False)
+    endpoint = (
+        os.environ.get("DOCKER_HOST")
+        or json.loads(command("docker", "context", "inspect"))[0]["Endpoints"]["docker"]["Host"]
+    )
+    if not endpoint.startswith("unix://"):
+        raise ValueError("local_unix_docker_required")
     for name in ("tls", "pods", "audit", "output", "checkpoints"):
         (root / name).mkdir()
     suffix = uuid4().hex[:12]
@@ -232,7 +239,7 @@ def run(root):
             "sha256:" + hashlib.sha256(json.dumps(identity, sort_keys=True).encode()).hexdigest()
         )
         origin = AuditOrigin(
-            "source", digest, identity["node_uid"], identity["pod_uid"], NS, "audit-db-1", True
+            side, digest, identity["node_uid"], identity["pod_uid"], NS, "audit-db-1", True
         )
         # Local disposable cluster only. Never alter a production administrator.
         superuser = json.loads(k("-n", NS, "get", "secret", "audit-db-superuser", "-o", "json"))
@@ -263,187 +270,198 @@ def run(root):
             }
         )
         actor = json.loads(k("auth", "whoami", "-o", "json"))["status"]["userInfo"]["username"]
-        context = RunContext(
-            "actual-local-audit", "chat", Environment("source", "source", "docker:owned-k3s")
-        )
-        receipts = {}
-        for test_id in ("AUD-01.1", "AUD-01.2", "AUD-01.3"):
-            marker = "bravo_audit_" + uuid4().hex
-            started = datetime.now(UTC)
-            if test_id == "AUD-01.1":
-                assert (
+
+        def collect(context):
+            receipts = {}
+            for test_id in ("AUD-01.1", "AUD-01.2", "AUD-01.3"):
+                marker = "bravo_audit_" + uuid4().hex
+                started = datetime.now(UTC)
+                if test_id == "AUD-01.1":
+                    assert (
+                        psql(
+                            "SELECT current_user || '|' || rolsuper::text FROM pg_roles WHERE rolname = current_user;",
+                            user="postgres",
+                            db="audit_db",
+                            marker=marker,
+                            password=admin_password,
+                        ).strip()
+                        == "postgres|true"
+                    )
+                    acknowledged = frozenset({"login"})
+                elif test_id == "AUD-01.2":
                     psql(
-                        "SELECT current_user || '|' || rolsuper::text FROM pg_roles WHERE rolname = current_user;",
-                        user="postgres",
+                        f"CREATE TABLE bravo_test.{marker}(id integer PRIMARY KEY); DROP TABLE bravo_test.{marker};",
+                        user="audit_role",
                         db="audit_db",
                         marker=marker,
-                        password=admin_password,
-                    ).strip()
-                    == "postgres|true"
+                        password=password,
+                    )
+                    acknowledged = frozenset({"create", "delete"})
+                else:
+                    binding = {
+                        "apiVersion": "rbac.authorization.k8s.io/v1",
+                        "kind": "RoleBinding",
+                        "metadata": {"name": marker, "namespace": NS},
+                        "roleRef": {
+                            "apiGroup": "rbac.authorization.k8s.io",
+                            "kind": "Role",
+                            "name": "audit-empty",
+                        },
+                        "subjects": [
+                            {"kind": "ServiceAccount", "name": "audit-canary", "namespace": NS}
+                        ],
+                    }
+                    k("create", "-f", "-", data=json.dumps(binding))
+                    k("-n", NS, "delete", "rolebinding", marker, "--wait=true", "--timeout=10s")
+                    acknowledged = frozenset({"create", "delete"})
+                receipts[test_id] = CanaryReceipt(
+                    context,
+                    test_id,
+                    marker,
+                    actor
+                    if test_id == "AUD-01.3"
+                    else ("postgres" if test_id == "AUD-01.1" else "audit_role"),
+                    "audit_db",
+                    NS,
+                    "bravo_test",
+                    started,
+                    datetime.now(UTC),
+                    started + timedelta(minutes=3),
+                    acknowledged,
                 )
-                acknowledged = frozenset({"login"})
-            elif test_id == "AUD-01.2":
-                psql(
-                    f"CREATE TABLE bravo_test.{marker}(id integer PRIMARY KEY); DROP TABLE bravo_test.{marker};",
-                    user="audit_role",
-                    db="audit_db",
-                    marker=marker,
-                    password=password,
+            (root / "canary-receipts.json").write_text(
+                json.dumps(
+                    {t: asdict(r) for t, r in receipts.items()},
+                    default=lambda v: sorted(v) if isinstance(v, frozenset) else v.isoformat(),
+                    indent=2,
                 )
-                acknowledged = frozenset({"create", "delete"})
-            else:
-                binding = {
-                    "apiVersion": "rbac.authorization.k8s.io/v1",
-                    "kind": "RoleBinding",
-                    "metadata": {"name": marker, "namespace": NS},
-                    "roleRef": {
-                        "apiGroup": "rbac.authorization.k8s.io",
-                        "kind": "Role",
-                        "name": "audit-empty",
-                    },
-                    "subjects": [
-                        {"kind": "ServiceAccount", "name": "audit-canary", "namespace": NS}
-                    ],
-                }
-                k("create", "-f", "-", data=json.dumps(binding))
-                k("-n", NS, "delete", "rolebinding", marker, "--wait=true", "--timeout=10s")
-                acknowledged = frozenset({"create", "delete"})
-            receipts[test_id] = CanaryReceipt(
-                context,
-                test_id,
-                marker,
-                actor
-                if test_id == "AUD-01.3"
-                else ("postgres" if test_id == "AUD-01.1" else "audit_role"),
-                "audit_db",
+            )
+            # Actual CRI and apiserver files are mounted from the owned cluster;
+            # no generated replacement audit messages enter the sender.
+            forwarding.certificates(root / "tls")
+            registration = forwarding.AuditForwardingRegistration(
+                side,
+                side,
+                digest,
                 NS,
-                "bravo_test",
-                started,
-                datetime.now(UTC),
-                started + timedelta(minutes=3),
-                acknowledged,
+                "audit-db-1",
+                origin.pod_uid,
+                origin.node_uid,
+                "https://audit-receiver:8443",
+                True,
             )
-        (root / "canary-receipts.json").write_text(
-            json.dumps(
-                {t: asdict(r) for t, r in receipts.items()},
-                default=lambda v: sorted(v) if isinstance(v, frozenset) else v.isoformat(),
-                indent=2,
-            )
-        )
-        # Actual CRI and apiserver files are mounted from the owned cluster;
-        # no generated replacement audit messages enter the sender.
-        forwarding.certificates(root / "tls")
-        registration = forwarding.AuditForwardingRegistration(
-            "source",
-            "source",
-            digest,
-            NS,
-            "audit-db-1",
-            origin.pod_uid,
-            origin.node_uid,
-            "https://audit-receiver:8443",
-            True,
-        )
-        (root / "sender.json").write_text(json.dumps(forwarding.collector_config(registration)))
-        config = {
-            "receivers": {
-                "otlp": {
-                    "protocols": {
-                        "http": {
-                            "endpoint": "0.0.0.0:8443",
-                            "tls": {
-                                "cert_file": "/tls/tls.crt",
-                                "key_file": "/tls/tls.key",
-                                "client_ca_file": "/tls/ca.crt",
-                                "min_version": "1.2",
-                            },
+            (root / "sender.json").write_text(json.dumps(forwarding.collector_config(registration)))
+            config = {
+                "receivers": {
+                    "otlp": {
+                        "protocols": {
+                            "http": {
+                                "endpoint": "0.0.0.0:8443",
+                                "tls": {
+                                    "cert_file": "/tls/tls.crt",
+                                    "key_file": "/tls/tls.key",
+                                    "client_ca_file": "/tls/ca.crt",
+                                    "min_version": "1.2",
+                                },
+                            }
                         }
                     }
-                }
-            },
-            "exporters": {
-                "file": {"path": "/output/logs.json", "append": True, "flush_interval": "100ms"}
-            },
-            "service": {"pipelines": {"logs": {"receivers": ["otlp"], "exporters": ["file"]}}},
-        }
-        (root / "receiver.json").write_text(json.dumps(config))
-        command("docker", "network", "create", "--internal", network)
-        created.append(("network", network))
-        common = [
-            "docker",
-            "run",
-            "-d",
-            "--network",
-            network,
-            "--read-only",
-            "--cap-drop=ALL",
-            "--security-opt=no-new-privileges",
-            "--user",
-            f"{os.getuid()}:{os.getgid()}",
-            "--memory",
-            "256m",
-            "--cpus",
-            "1",
-        ]
-        command(
-            *common,
-            "--name",
-            receiver,
-            "--network-alias",
-            "audit-receiver",
-            "-v",
-            f"{root}/receiver.json:/etc/config.json:ro",
-            "-v",
-            f"{root}/tls:/tls:ro",
-            "-v",
-            f"{root}/output:/output",
-            forwarding.IMAGE,
-            "--config=/etc/config.json",
-        )
-        created.append(("container", receiver))
-        command(
-            *common,
-            "--name",
-            sender,
-            "-v",
-            f"{root}/sender.json:/etc/config.json:ro",
-            "-v",
-            f"{root}/tls:/var/run/bravo-audit/tls:ro",
-            "-v",
-            f"{root}/checkpoints:/var/lib/bravo-audit/checkpoints",
-            "-v",
-            f"{root}/pods:/var/log/pods:ro",
-            "-v",
-            f"{root}/audit:/var/log/bravo-audit/kubernetes:ro",
-            forwarding.IMAGE,
-            "--config=/etc/config.json",
-        )
-        created.append(("container", sender))
-        exported = root / "output/logs.json"
-
-        def found():
-            if not exported.exists():
-                return False
-            raw = exported.read_text()
-            return all(r.marker in raw for r in receipts.values())
-
-        until(found, seconds=45)
-        command("docker", "stop", "-t", "3", sender)
-        command("docker", "stop", "-t", "3", receiver)
-        received = datetime.now(UTC)
-        raw = exported.read_bytes()
-        assert all(value.encode() not in raw for value in (password, admin_password))
-        events = tuple(
-            e
-            for i, line in enumerate(raw.splitlines())
-            for e in decode_export(
-                line, origin=origin, received_at=received, receipt_id=f"local-receipt-{i}"
+                },
+                "exporters": {
+                    "file": {"path": "/output/logs.json", "append": True, "flush_interval": "100ms"}
+                },
+                "service": {"pipelines": {"logs": {"receivers": ["otlp"], "exporters": ["file"]}}},
+            }
+            (root / "receiver.json").write_text(json.dumps(config))
+            command("docker", "network", "create", "--internal", network)
+            created.append(("network", network))
+            common = [
+                "docker",
+                "run",
+                "-d",
+                "--network",
+                network,
+                "--read-only",
+                "--cap-drop=ALL",
+                "--security-opt=no-new-privileges",
+                "--user",
+                f"{os.getuid()}:{os.getgid()}",
+                "--memory",
+                "256m",
+                "--cpus",
+                "1",
+            ]
+            command(
+                *common,
+                "--name",
+                receiver,
+                "--network-alias",
+                "audit-receiver",
+                "-v",
+                f"{root}/receiver.json:/etc/config.json:ro",
+                "-v",
+                f"{root}/tls:/tls:ro",
+                "-v",
+                f"{root}/output:/output",
+                forwarding.IMAGE,
+                "--config=/etc/config.json",
             )
-        )
-        results = {}
-        for test_id, receipt in receipts.items():
+            created.append(("container", receiver))
+            command(
+                *common,
+                "--name",
+                sender,
+                "-v",
+                f"{root}/sender.json:/etc/config.json:ro",
+                "-v",
+                f"{root}/tls:/var/run/bravo-audit/tls:ro",
+                "-v",
+                f"{root}/checkpoints:/var/lib/bravo-audit/checkpoints",
+                "-v",
+                f"{root}/pods:/var/log/pods:ro",
+                "-v",
+                f"{root}/audit:/var/log/bravo-audit/kubernetes:ro",
+                forwarding.IMAGE,
+                "--config=/etc/config.json",
+            )
+            created.append(("container", sender))
+            exported = root / "output/logs.json"
+
+            def found():
+                if not exported.exists():
+                    return False
+                raw = exported.read_text()
+                return all(r.marker in raw for r in receipts.values())
+
+            until(found, seconds=45)
+            command("docker", "stop", "-t", "3", sender)
+            command("docker", "stop", "-t", "3", receiver)
+            received = datetime.now(UTC)
+            raw = exported.read_bytes()
+            assert all(value.encode() not in raw for value in (password, admin_password))
+            events = tuple(
+                e
+                for i, line in enumerate(raw.splitlines())
+                for e in decode_export(
+                    line, origin=origin, received_at=received, receipt_id=f"local-receipt-{i}"
+                )
+            )
+            return receipts, events, received
+
+        captured = []
+        attempted = False
+
+        def audit_probe(context, spec):
+            nonlocal attempted
+            if not captured:
+                if attempted:
+                    raise RuntimeError("audit_collection_failed_no_automatic_retry")
+                attempted = True
+                captured.append(collect(context))
+            receipts, events, received = captured[0]
+            receipt = receipts[spec.test_id]
             probe = AuditSearchProbe(
-                receipt_provider=lambda c, s, r=receipt: r,
+                receipt_provider=lambda c, s: receipt,
                 search=lambda r, through: AuditBatch(
                     context,
                     r.marker,
@@ -451,26 +469,44 @@ def run(root):
                     origin.streams,
                     r.started_at,
                     through,
-                    received,
+                    datetime.now(UTC),
                     tuple(e for e in events if r.started_at <= e.timestamp <= through),
-                    True,
+                    True,  # Complete local retained file snapshot, not an ingestion SLO claim.
                 ),
                 source_binding=digest,
                 streams=origin.streams,
-                evidence_sink=lambda data, t=test_id: (root / (t + ".json")).write_bytes(data),
-                clock=lambda: received,
+                evidence_sink=lambda data: (root / (spec.test_id + ".json")).write_bytes(data),
             )
-            results[test_id] = probe(
-                context, Spec(test_id, "AUD-01", "1", "present", "not_applicable")
-            ).observed
+            return probe(context, spec)
+
+        controls = Path(__file__).resolve().parents[4] / "docs/controls"
+        catalog = Catalog(
+            json.loads((controls / "profiles.json").read_text()),
+            json.loads((controls / "control-result.schema.json").read_text()),
+        )
+        control_run = Runner(
+            catalog, {t: audit_probe for t in ("AUD-01.1", "AUD-01.2", "AUD-01.3")}
+        ).run(
+            profile_id="full",
+            profile_version="1",
+            app="demo-chat",
+            environment=Environment("local-" + side, side, "docker:" + cluster),
+        )
+        (root / "control-run.json").write_text(json.dumps(control_run, indent=2) + "\n")
+        rows = {row["test_id"]: row for row in control_run["results"]}
+        results = {t: rows[t]["observed"] for t in ("AUD-01.1", "AUD-01.2", "AUD-01.3")}
         result.update(
             results=results,
-            decoded_events=len(events),
-            credential_redacted=True,
-            administrator_login_confirmed=True,
-            collected_at=received.isoformat(),
+            decoded_events=len(captured[0][1]) if captured else 0,
+            credential_redacted=bool(captured),
+            administrator_login_confirmed=bool(captured),
+            collected_at=datetime.now(UTC).isoformat(),
+            control_run_rows=len(rows),
+            passed_controls=sum(row["verdict"] == "PASS" for row in rows.values()),
+            unknown_controls=sum(row["verdict"] == "UNKNOWN" for row in rows.values()),
         )
-        assert results == {t: "present" for t in receipts}, "actual_canary_search_failed"
+        assert results == {t: "present" for t in results}, "actual_canary_search_failed"
+        assert result["passed_controls"] == 3 and result["unknown_controls"] == 17
         result["status"] = "PASS"
     finally:
         cleanup = []
