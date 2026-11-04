@@ -222,9 +222,12 @@ check $r "라벨이 없는 네임스페이스(stranger)의 지표는 NetworkPoli
 # 같은 연결 시험을 허용 대조군(platform-client 라벨)과 함께 돌려, 거부가 DNS · 이미지 문제가 아니라 정책 때문임을 확인한다
 kubectl create namespace console >/dev/null
 kubectl label namespace console bravo.observability/platform-client=true >/dev/null
+# 새 Pod의 첫 연결은 NetworkPolicy 반영 전에 거부될 수 있다(k3s kube-router). Pod 안에서 연결될 때까지
+# 몇 번 다시 시도한다. 허용 쪽은 이 거부를 넘기고, 막혀야 할 쪽은 한 번이라도 뚫리면 Succeeded가 되어 잡힌다.
+NC_RETRY='for _ in 1 2 3 4 5 6 7 8; do nc -z -w 2 "$0" "$1" && exit 0; sleep 1; done; exit 1'
 probe() {
   kubectl -n "$1" run probe --image=busybox:1.37.0@sha256:a7dbc319b1438115a207e11930dc4bb3e643dcb3ec0bdd694bb36cd8fad289ec \
-    --restart=Never -- nc -z -w 5 "bravo-prometheus.$NS.svc" 9090 >/dev/null
+    --restart=Never -- sh -c "$NC_RETRY" "bravo-prometheus.$NS.svc" 9090 >/dev/null
   for _ in $(seq 30); do p=$(kubectl -n "$1" get pod probe -o jsonpath='{.status.phase}'); case $p in Succeeded|Failed) break;; esac; sleep 2; done
   echo "$p"
 }
@@ -242,7 +245,7 @@ kubectl create namespace tailscale-system >/dev/null
 tsproxy() { # Pod 이름, parent-resource
   kubectl -n tailscale-system run "$1" --image=busybox:1.37.0@sha256:a7dbc319b1438115a207e11930dc4bb3e643dcb3ec0bdd694bb36cd8fad289ec --restart=Never \
     --labels="tailscale.com/managed=true,tailscale.com/parent-resource-type=svc,tailscale.com/parent-resource=$2,tailscale.com/parent-resource-ns=$NS" \
-    -- nc -z -w 5 "bravo-prometheus-tailnet.$NS.svc" 9090 >/dev/null
+    -- sh -c "$NC_RETRY" "bravo-prometheus-tailnet.$NS.svc" 9090 >/dev/null
   for _ in $(seq 30); do p=$(kubectl -n tailscale-system get pod "$1" -o jsonpath='{.status.phase}'); case $p in Succeeded|Failed) break;; esac; sleep 2; done
   echo "$p"
 }
@@ -282,30 +285,54 @@ e=d.datetime.fromtimestamp(int(sys.argv[1]),d.UTC);f=lambda t:t.strftime("%Y-%m-
 p={"requests":0,"http_5xx":0,"integrity_conflict":0,"p95_ms":None}
 print(json.dumps({"kind":"sli_window","schema_version":"1","plan_id":"plan-k8s","source":"loadgen","window":{"start":f(e-d.timedelta(seconds=10)),"end":f(e)},"received_at":f(e),"pools":{"source":p,"target":p},"unattributed":{"timeout":0,"connect":0,"other":0}}))' "$1"
 }
-post() { # 네임스페이스 토큰 이름 본문 → Pod 결과(2xx면 Succeeded)
-  kubectl -n "$1" run "post-$3" --image=busybox:1.37.0@sha256:a7dbc319b1438115a207e11930dc4bb3e643dcb3ec0bdd694bb36cd8fad289ec \
-    --restart=Never -- wget -q -T 5 -O - --header "Authorization: Bearer $2" --header "Content-Type: application/json" \
-    --post-data "$4" "http://bravo-window-intake.$NS.svc:8080/v1/observability/windows" >/dev/null
-  for _ in $(seq 30); do p=$(kubectl -n "$1" get pod "post-$3" -o jsonpath='{.status.phase}'); case $p in Succeeded|Failed) break;; esac; sleep 2; done
-  echo "$p"
+# 허용될 쪽(loadgen)은 미리 띄운 Pod로 보내고 응답 코드를 직접 본다. 요청마다 새 Pod를 띄우면 첫 연결이
+# NetworkPolicy 반영 전에 거부될 수 있고(k3s kube-router), 그 거부가 409 · 401 기대 검사를 잘못 통과시킨다.
+# 거부 대상도 Ready인 Pod에서 별도 TCP 검사를 한다. HTTP 오류는 네트워크 차단 근거가 아니다.
+kubectl -n loadgen run win-sender --image=busybox:1.37.0@sha256:a7dbc319b1438115a207e11930dc4bb3e643dcb3ec0bdd694bb36cd8fad289ec --restart=Never -- sleep 900 >/dev/null
+kubectl -n loadgen wait pod/win-sender --for=condition=Ready --timeout=60s >/dev/null
+for _ in $(seq 30); do
+  kubectl -n loadgen exec win-sender -- wget -q -T 2 -O /dev/null "http://bravo-window-intake.$NS.svc:8080/healthz" >/dev/null 2>&1 && break
+  sleep 2
+done
+send() { # 토큰 본문 → "CODE nnn" 줄과 "BODY 응답" 줄
+  kubectl -n loadgen exec win-sender -- sh -c 'rm -f /tmp/body; wget -S -q -T 5 -O /tmp/body --header "Authorization: Bearer $1" \
+    --header "Content-Type: application/json" --post-data "$2" "$3" 2>&1; echo; echo "BODY $(cat /tmp/body 2>/dev/null)"' \
+    sh "$1" "$2" "http://bravo-window-intake.$NS.svc:8080/v1/observability/windows" 2>/dev/null \
+    | sed -n 's/.*HTTP\/1\.[01] \([0-9][0-9][0-9]\).*/CODE \1/p; /^BODY /p'
 }
+code() { sed -n 's/^CODE //p' | head -1; }
 t0=$(( $(date +%s) - 30 ))
 # Independent ten-second windows: a denied request must not consume the
 # following valid window. Overlap rejection is tested separately in Python.
 W1=$(win "$t0"); W2=$(win $((t0 + 10))); W3=$(win $((t0 + 20)))
-phase=$(post loadgen "$WINDOW_TOKEN" ok "$W1")
+first=$(send "$WINDOW_TOKEN" "$W1")
 # 생산자가 넣은 received_at(창 끝)은 버리고 플랫폼이 받은 시각으로 덮어써야 한다
-got=$(kubectl -n loadgen logs post-ok 2>/dev/null | W="$W1" python3 -c 'import json,os,sys;d=json.load(sys.stdin);print(d["plan_id"], d["received_at"] != json.loads(os.environ["W"])["received_at"])' 2>/dev/null || echo 없음)
-[ "$phase" = Succeeded ] && [ "$got" = "plan-k8s True" ] && control=ok || control=fail
-check $control "loadgen 네임스페이스에서 수신 토큰으로 창 저장(201), received_at은 플랫폼 시각 (pod: $phase)"
-[ "$control" = ok ] && [ "$(post loadgen "$WINDOW_TOKEN" dup "$W1")" = Failed ] && \
-  [ "$(post loadgen "$API_TOKEN" console-token "$W2")" = Failed ] && r=ok || r=fail
-check $r "같은 창은 한 번만(409), 콘솔 토큰으로는 보낼 수 없음(401)"
-# 막힌 뒤 같은 창을 loadgen이 보내 성공해야, 막힌 쪽이 저장하지 못했음이 확인된다
-[ "$control" = ok ] && [ "$(post stranger "$WINDOW_TOKEN" stranger "$W2")" = Failed ] && \
-  [ "$(post console "$WINDOW_TOKEN" console "$W3")" = Failed ] && \
-  [ "$(post loadgen "$WINDOW_TOKEN" after "$W3")" = Succeeded ] && r=ok || r=fail
-check $r "라벨이 없는 네임스페이스와 콘솔 네임스페이스는 올바른 토큰이 있어도 NetworkPolicy가 막음"
+got=$(printf '%s\n' "$first" | sed -n 's/^BODY //p' | W="$W1" python3 -c 'import json,os,sys;d=json.load(sys.stdin);print(d["plan_id"], d["received_at"] != json.loads(os.environ["W"])["received_at"])' 2>/dev/null || echo 없음)
+status=$(printf '%s\n' "$first" | code)
+[ "$status" = 201 ] && [ "$got" = "plan-k8s True" ] && control=ok || control=fail
+check $control "loadgen 네임스페이스에서 수신 토큰으로 창 저장(201), received_at은 플랫폼 시각 (응답: ${status:-없음})"
+dup=$(send "$WINDOW_TOKEN" "$W1" | code); console_token=$(send "$API_TOKEN" "$W2" | code)
+[ "$control" = ok ] && [ "$dup" = 409 ] && [ "$console_token" = 401 ] && r=ok || r=fail
+check $r "같은 창은 한 번만(409), 콘솔 토큰으로는 보낼 수 없음(401) (응답: ${dup:-없음}, ${console_token:-없음})"
+# 준비된 거부 대상 Pod에서 DNS/도구 오류와 연결 거부를 구별한다. 수신기가 401/503을
+# 반환하더라도 TCP 연결 한 번이면 실패다. 허용 송신자의 같은 endpoint 전후 대조가 필수다.
+for denied_ns in stranger console; do
+  kubectl -n "$denied_ns" run win-denied --image="$API_IMAGE" --restart=Never --command -- python -c 'import time; time.sleep(900)' >/dev/null
+  kubectl -n "$denied_ns" wait pod/win-denied --for=condition=Ready --timeout=60s >/dev/null
+done
+healthy_window() { kubectl -n loadgen exec win-sender -- wget -q -T 3 -O /dev/null "http://bravo-window-intake.$NS.svc:8080/healthz"; }
+denied_window() {
+  kubectl -n "$1" exec -i win-denied -- python - "bravo-window-intake.$NS.svc" 8080 < connection_probe.py
+}
+r=ok
+[ "$control" = ok ] && healthy_window || r=fail
+denied_window stranger || r=fail
+denied_window console || r=fail
+healthy_window || r=fail
+check $r "Ready Pod의 반복 TCP 검사: 라벨 없는 · 콘솔 namespace 차단 (DNS/실행 오류는 통과 불가)"
+# TCP 검사와 창 저장 여부는 별개의 사실이다.
+[ "$control" = ok ] && [ "$(send "$WINDOW_TOKEN" "$W3" | code)" = 201 ] && r=ok || r=fail
+check $r "거부 검사 후 허용 송신자의 새 창 저장 성공(201)"
 dns=$(kubectl -n kube-system get svc kube-dns -o jsonpath='{.spec.clusterIP}')
 reach() { kubectl -n "$NS" exec "deploy/$1" -- python -c "import socket;socket.create_connection(('$dns',53),3)" >/dev/null 2>&1; }
 reach bravo-observability-api && ! reach bravo-window-intake && r=ok || r=fail
