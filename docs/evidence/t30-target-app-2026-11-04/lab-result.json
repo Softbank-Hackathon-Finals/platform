@@ -12,10 +12,11 @@
   },
   "kubernetes": "mirror.gcr.io/rancher/k3s:v1.35.5-k3s1",
   "passed": true,
-  "platform_revision": "cbf881889305d7665912566c9d6aa23584ffaa92",
+  "platform_revision": "8118619b9f53c2d323ede1ad73844d9d78fc9997",
   "platform_tree_clean": true,
   "demo_chat_revision": "8d82a9241d3894737778a77d58349e1aee54eca1",
-  "local_image_digest": "sha256:c3ee149d045b8875e7c4ddc5bab609e623e219929362cf4d20331a271d5cff9e",
+  "local_image_digest": "sha256:abbd95347d102255935bf9a51b504b4971f88f34f6ea02060d257c6ec2364d57",
+  "pinned_source_tested": true,
   "restricted_server_dry_run": "accepted",
   "closed_when_unusable": {
     "secret_missing": {
@@ -38,6 +39,7 @@
   },
   "security": {
     "live_app_has_command": false,
+    "exec_without_container_reaches_app": true,
     "namespace_pod_security": "restricted"
   },
   "nologin_direct": {
@@ -109,7 +111,7 @@
         "onprem"
       ],
       "retry_after": "2",
-      "seconds": 5.02
+      "seconds": 5.01
     },
     "reblock_status": "200",
     "app_log_not_permitted_lines": 9,
@@ -171,7 +173,7 @@
           "onprem"
         ],
         "retry_after": "2",
-        "seconds": 5.02
+        "seconds": 5.0
       }
     },
     "post_while_blocked": {
@@ -180,7 +182,7 @@
         "onprem"
       ],
       "retry_after": "2",
-      "seconds": 0.01
+      "seconds": 0.02
     },
     "unblock_status": "200",
     "post_after_unblock": {
@@ -193,7 +195,7 @@
     },
     "reblock_status": "200",
     "app_log_not_permitted_lines": 9,
-    "target_db_log_not_permitted_lines": 20,
+    "target_db_log_not_permitted_lines": 9,
     "after": {
       "source_messages": 0,
       "target_messages": 0,
@@ -315,16 +317,19 @@
     },
     "requests_right_after_rollout": 12,
     "failed_right_after_rollout": 0,
+    "unlabelled_right_after_rollout": 0,
+    "open_switch_answers_right_after_rollout": 8,
+    "old_pod_gone_seconds_after_rollout": 6.8,
     "after_restart": {
       "env": "onprem",
       "write_blocked": true,
       "attachment_upload_enabled": false
-    },
-    "old_pod_gone_seconds_after_rollout": 7.2
+    }
   },
   "checks": {
     "restricted_namespace": true,
     "app_keeps_image_entrypoint": true,
+    "exec_without_container_reaches_app": true,
     "missing_secret_serves_nothing": true,
     "malformed_secret_stops_sidecar_before_app": true,
     "image_fails_without_secrets_manager": true,
@@ -354,6 +359,7 @@
     "every_response_labelled_onprem": true,
     "restart_returns_to_write_blocked": true,
     "rollout_is_not_held_by_the_sidecar": true,
-    "rollout_drops_no_request": true
+    "rollout_drops_no_request": true,
+    "rollout_responses_stay_labelled": true
   }
 }
