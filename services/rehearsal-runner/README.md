@@ -104,6 +104,10 @@ uv run --frozen --no-default-groups --with pytest pytest -p no:cacheprovider ../
 
 `bucket_s3.bucket_readers`는 신뢰된 세션과 시험용 엔드포인트로 서명된 읽기와 서명 없는 읽기를 별도 클라이언트로 만든다. 로컬 HTTP 시험 서버로 요청 서명 여부와 관측을 확인하며, 실제 S3 정책 적용이나 검증 권한을 제공하지 않는다.
 
+## 자격 주입 검증 연결 초안
+
+`credential_verifier.CredentialVerifier`는 실행·원본 revision·제안 digest와 격리 네임스페이스 UID를 주입된 검증 Job 경계에 결속한다. `credential_probe.observe_credential_delivery`는 Secret 존재 확인 전후로 앱 DB 연결과 다른 서비스 계정의 접근 여부를 관측하며, 오류나 모호한 응답은 `unknown`이다. Secret 값과 자격증명은 관측 결과나 요청에 담지 않는다. 이 접점은 프로세스 내부 초안이며 T38 API 계약이나 인증된 영수증이 아니다. 현재 실제 DB·OpenBao·ESO·Kubernetes 권한 검증 구현과 T11의 demo-chat 파일 접근은 연결되지 않았다.
+
 ## T10 승인 경계 교차 시험
 
 T15 실제 러너의 미인증 결과·격리 실패·정리 실패를 T10 실제 변경 승인 코드에 전달해 승인 거부를 확인한다. 모의 Job의 PASS는 인증된 제품 검증이나 승인 공급자가 아니다.
