@@ -153,7 +153,7 @@ T18 부하 생성기가 창 요약을 보내는 곳이다. 콘솔 조회 API와 
 
 ```sh
 services/observability/testing/run.sh        # compose: 20항목
-services/observability/testing/k8s.sh        # k3s + CNPG + 창 수신 + DB 출처 회귀: 20항목 (helm 필요)
+services/observability/testing/k8s.sh        # k3s + CNPG + 창 수신 + DB 출처 회귀 + PgBouncer: 26항목 (helm 필요)
 services/observability/testing/rotation.sh   # 인증서 교체: 14항목, 약 1분 반
 ```
 
