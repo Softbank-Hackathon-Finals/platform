@@ -7,7 +7,6 @@ This tests transport and readiness, not application fencing or RPO 0 cutover.
 import json
 import os
 import secrets
-import subprocess
 import time
 from datetime import UTC, datetime, timedelta
 
@@ -21,20 +20,13 @@ from bravo_cutover.db_fingerprint import (
     sequence_state,
 )
 from bravo_cutover.remote.db import DbControl
+from fixture_process import run as tool
 from psycopg import sql
 from psycopg.conninfo import make_conninfo
 from test_t13_capture import IMAGE
 
 from bravo_gate.readiness import ReadinessPolicy, assess_readiness
 from bravo_gate.t13 import DatabaseRegistration, assemble_snapshot, collect_schema
-
-
-def tool(*args, env=None):
-    completed = subprocess.run(args, env=env, capture_output=True, text=True, timeout=90)
-    if completed.returncode:
-        # Do not print generated connection data or Docker environment on failure.
-        raise RuntimeError("local_tls_fixture_command_failed")
-    return completed.stdout.strip()
 
 
 def await_condition(predicate, seconds=30):
