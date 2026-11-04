@@ -106,6 +106,23 @@ lifetime. Neither a six-hour cache expiry nor a twelve-hour token expiry was
 awaited: **expiry-and-renewal was not observed**. See bounded evidence under
 `docs/evidence/t7-private-registry-2026-11-03/` at repository root.
 
+The pull probe now reads the documented histogram series
+`kubelet_credential_provider_plugin_duration_count{plugin_name="ecr-credential-provider"}`.
+The earlier query incorrectly inserted `_seconds`, so its null counts remain
+historical missing observations. Missing, malformed or duplicate samples remain
+unknown; a zero sample is an observed zero. This counter records plugin execution,
+not a successful image pull or token expiry by itself.
+
+For a natural cache-renewal observation, record the counter, kubelet process start,
+node boot identity, provider/config hashes and observation time. After the existing
+six-hour cache interval, compare those identities before and after new `Always`
+pulls of the reviewed digest. Require a provider-call increase and successful
+pull/runtime checks with probe cleanup. A process restart, changed configuration,
+missing sample or counter reset makes that comparison inconclusive. Do not shorten
+the production cache interval or restart kubelet to manufacture expiry evidence.
+Six-hour cache refresh and twelve-hour ECR token expiry are distinct observations.
+See the [Kubernetes metric definition](https://kubernetes.io/docs/reference/instrumentation/metrics/#kubelet-credential-provider-plugin-duration).
+
 Provider sources: [official EKS installation](https://github.com/awslabs/amazon-eks-ami/blob/main/templates/al2023/provisioners/install-worker.sh),
 [upstream cache logic](https://github.com/kubernetes/cloud-provider-aws/blob/v1.35.0/cmd/ecr-credential-provider/main.go),
 [kubelet provider configuration](https://kubernetes.io/docs/tasks/administer-cluster/kubelet-credential-provider/).

@@ -1,6 +1,7 @@
 """Host-local, bounded kubelet pull test; private image config arrives on stdin."""
 
 import json
+import math
 import pathlib
 import re
 import subprocess
@@ -30,8 +31,16 @@ def load(args):
 
 def metric_calls(node):
     raw = call(["get", "--raw=/api/v1/nodes/" + node + "/proxy/metrics"])
-    values = re.findall(r'^kubelet_credential_provider_plugin_duration_seconds_count\{[^}]*plugin_name="ecr-credential-provider"[^}]*\}\s+([0-9.]+)', raw, re.MULTILINE)
-    return sum(float(value) for value in values) if values else None
+    values = re.findall(
+        r'^kubelet_credential_provider_plugin_duration_count\{plugin_name="ecr-credential-provider"\}'
+        r'[ \t]+([^\s]+)(?:[ \t]+[0-9]+)?[ \t]*$', raw, re.MULTILINE)
+    if len(values) != 1:
+        return None
+    try:
+        count = float(values[0])
+    except ValueError:
+        return None
+    return int(count) if math.isfinite(count) and count >= 0 and count.is_integer() else None
 
 
 def main():
