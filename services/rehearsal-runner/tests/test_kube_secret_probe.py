@@ -74,7 +74,7 @@ def test_missing_token_is_unknown(tmp_path):
     assert observe_secret_get("default", "app", token_path=tmp_path / "missing", ca_path=tmp_path / "missing") == "unknown"
 
 
-@pytest.mark.parametrize("http_status,expected", [(200, "yes"), (403, "no")])
+@pytest.mark.parametrize("http_status,expected", [(200, "yes"), (403, "no"), (302, "unknown")])
 def test_scoped_request_uses_real_tls_and_service_account_token(tmp_path, monkeypatch, http_status, expected, capsys):
     import shutil
     import socket
@@ -98,6 +98,8 @@ def test_scoped_request_uses_real_tls_and_service_account_token(tmp_path, monkey
             seen.append((self.path, self.headers.get("Authorization")))
             self.send_response(http_status)
             self.send_header("Content-Type", "application/json")
+            if http_status == 302:
+                self.send_header("Location", "https://attacker.invalid/collect")
             self.end_headers()
             self.wfile.write(b'{"data":{"test":"private-response-value"}}')
 
@@ -110,8 +112,10 @@ def test_scoped_request_uses_real_tls_and_service_account_token(tmp_path, monkey
     server.socket = context.wrap_socket(server.socket, server_side=True)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     original = socket.create_connection
+    destinations = []
 
     def local_connection(address, *args, **kwargs):
+        destinations.append(address)
         if address == ("kubernetes.default.svc", 443):
             address = ("127.0.0.1", server.server_port)
         return original(address, *args, **kwargs)
@@ -125,6 +129,7 @@ def test_scoped_request_uses_real_tls_and_service_account_token(tmp_path, monkey
         server.server_close()
         thread.join(timeout=5)
     assert seen == [("/api/v1/namespaces/rehearsal-x/secrets/app-credentials", "Bearer fixture-token")]
+    assert destinations == [("kubernetes.default.svc", 443)]
     output = capsys.readouterr()
     assert "private-response-value" not in output.out + output.err
     assert "fixture-token" not in output.out + output.err
