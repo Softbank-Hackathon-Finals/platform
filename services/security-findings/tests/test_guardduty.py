@@ -32,7 +32,16 @@ def finding(number=1):
         Id=f"{number:032x}",
         AccountId=ACCOUNT,
         Region=REGION,
-        Arn=f"arn:aws:guardduty:{REGION}:{ACCOUNT}:detector/{DETECTOR}/finding/{number:032x}",
+        Arn=":".join(
+            (
+                "arn",
+                "aws",
+                "guardduty",
+                REGION,
+                ACCOUNT,
+                f"detector/{DETECTOR}/finding/{number:032x}",
+            )
+        ),
         SchemaVersion="2.0",
     )
     raw["Service"]["DetectorId"] = DETECTOR
