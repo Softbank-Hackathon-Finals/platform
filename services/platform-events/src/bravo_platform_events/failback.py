@@ -256,10 +256,10 @@ class FailbackService:
             # The request and the decision share one approval ID and binding, in one transaction, so the
             # durable history (and SSE replay) links who decided which request.
             self.store._append_in_transaction(c, plan_id=plan_id, run_id=approval_id,
-                event_type="approval.requested", occurred_at=now, producer_key=failback_key("requested", approval_id),
+                event_type="approval.requested", occurred_at=now, state_owner=True, producer_key=failback_key("requested", approval_id),
                 data=dict(approval_id=approval_id, approval_kind="failback", binding=current.binding))
             self.store._append_in_transaction(c, plan_id=plan_id, run_id=approval_id,
-                event_type="approval.decided", occurred_at=now, producer_key=failback_key("approved", approval_id),
+                event_type="approval.decided", occurred_at=now, state_owner=True, producer_key=failback_key("approved", approval_id),
                 data=dict(approval_id=approval_id, approval_kind="failback", binding=current.binding,
                           actor_id=principal.subject_id, decision="approved"))
             return receipt
@@ -347,7 +347,7 @@ class FailbackService:
                     status=status, started_at=record["dispatch_claimed_at"]) | extra
         self.store._append_in_transaction(c, plan_id=plan_id, run_id=command_id,
             event_type="failback.recorded", occurred_at=now, producer_key=failback_key(status, command_id),
-            data=data)
+            data=data, state_owner=True)
 
     def _transition(self, c, plan_id, command_id, to_state, now):
         c.execute("UPDATE plans SET state=?,version=version+1,updated_at=? WHERE plan_id=?", (to_state, now, plan_id))

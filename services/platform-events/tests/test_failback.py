@@ -599,3 +599,34 @@ def test_plan_get_during_failback_matches_the_published_snapshot_schema(fixture,
     SNAPSHOT.validate(snapshot.json())
     events = f.backend.store.read_after(SPEC.plan_id, None)
     assert snapshot.json()["last_event_id"] == events[-1]["event_id"]  # same read point as the replay cursor
+
+
+FOREIGN_REQUEST = dict(approval_id="request-a", approval_kind="failback", binding=BINDING)
+
+
+@pytest.mark.parametrize("event_type,data", [
+    ("approval.requested", FOREIGN_REQUEST),
+    ("approval.decided", FOREIGN_REQUEST | dict(decision="approved", actor_id="someone")),
+    ("failback.recorded", dict(command_id="c1", approval_id="request-a", approved_by="someone", status="aborted",
+                               started_at=NOW, finished_at=NOW, execution_id=FAILBACK_EXECUTION)),
+])
+def test_only_the_failback_adapter_records_failback_approvals_and_progress(fixture, event_type, data):
+    """#222 review: no other producer can leave a visible failback request that a decision does not name."""
+    f = fixture
+    with pytest.raises(EventError, match="managed_failback_required"):
+        f.backend.store.append(plan_id=SPEC.plan_id, run_id="request-a", event_type=event_type, data=data,
+                               occurred_at=NOW, producer_key="other-producer")
+    approval = f.approve()
+    requested, decided = f.events("approval.requested"), f.events("approval.decided")
+    assert [e["data"]["approval_id"] for e in requested + decided] == [approval["approval_id"]] * 2
+
+
+def test_other_approval_kinds_keep_their_existing_producers(fixture):
+    from test_cutover import BINDING as CUTOVER_BINDING
+
+    f = fixture
+    event = f.backend.store.append(plan_id=SPEC.plan_id, run_id="cutover-request", event_type="approval.requested",
+                                   data=dict(approval_id="cutover-request", approval_kind="cutover",
+                                             binding=CUTOVER_BINDING),
+                                   occurred_at=NOW, producer_key="cutover-producer")
+    assert event["data"]["approval_kind"] == "cutover"

@@ -5,7 +5,7 @@
 ## 순서
 
 1. 계획이 `WATCH`이고 `FailbackAuthority`가 같은 계획 잠금 안에서 현재 조건을 검증해야 승인할 수 있다. 되돌릴 컷오버는 저장 기록에서 찾는다. 확정 DONE으로 관측된 컷오버 명령 하나와 그 실행에 결속된 일치 Integrity 체크포인트 하나가 있어야 하고, 없으면 `cutover_record_unavailable`이다.
-2. `POST /v1/plans/{id}/approvals`는 `approval_kind=failback`, 전용 `binding`, `expected_version`, `Idempotency-Key`를 받는다. binding의 계획 · 반대 방향 · 컷오버 실행 · epoch · 영수증이 현재 값과 다르면 `binding_mismatch`다. 승인 시 `approval.requested`와 `approval.decided`를 같은 승인 ID · binding으로 한 트랜잭션에 기록해 이력과 SSE 재생에서 요청과 결정을 잇는다.
+2. `POST /v1/plans/{id}/approvals`는 `approval_kind=failback`, 전용 `binding`, `expected_version`, `Idempotency-Key`를 받는다. binding의 계획 · 반대 방향 · 컷오버 실행 · epoch · 영수증이 현재 값과 다르면 `binding_mismatch`다. 승인 시 `approval.requested`와 `approval.decided`를 같은 승인 ID · binding으로 한 트랜잭션에 기록해 이력과 SSE 재생에서 요청과 결정을 잇는다. 관리되는 계획에서 `approval_kind=failback`의 요청 · 결정과 `failback.recorded`는 이 어댑터만 기록한다. 다른 생산자가 일반 append로 넣으면 `managed_failback_required`로 거부한다. 그래서 SSE에 보이는 되돌리기 요청은 항상 같은 ID의 결정과 짝을 이룬다. 이 승인 종류는 이번 계약에서 처음 생겨 이전에 저장된 요청은 없다. 다른 생산자가 요청을 먼저 띄우는 흐름이 필요해지면 그 요청 ID를 명시해 결정하는 경로를 따로 추가한다.
 3. `POST /v1/plans/{id}/failback`은 승인 ID와 새 `Idempotency-Key`만 받는다. 명령은 등록 DB 쌍의 정확한 반대 방향(출발지 = 계획의 목적지)이어야 한다. epoch는 이 계획이 쓴 모든 epoch(컷오버와 이전 되돌리기 포함)보다 커야 한다(`epoch_not_increasing`).
 4. 명령 · 승인 소비 · epoch 사용 · `WATCH → FAILBACK` 이벤트를 한 DB 트랜잭션에 저장한 뒤에만 Executor에 POST를 한 번 보낸다. 재시도 · 응답 유실 · 재시작은 GET만 한다. 전송 전에 종료되면 POST는 0번이고, 이후 GET이 UNKNOWN이면 SAFE_HOLD다.
 5. 관측 반영은 컷오버와 같다. 확정 DONE을 저장하기 전의 UNKNOWN · 원격 SAFE_HOLD는 SAFE_HOLD로 저장한다. 확정 DONE을 저장한 뒤의 GET 실패는 상태를 바꾸지 않는다.
