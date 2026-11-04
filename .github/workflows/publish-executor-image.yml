@@ -1,0 +1,96 @@
+name: publish-executor-image
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_sha:
+        description: Reviewed full platform commit already merged into develop
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: executor-image-publication
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    if: github.ref == 'refs/heads/develop'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      SOURCE_SHA: ${{ inputs.source_sha }}
+      AWS_REGION: ap-northeast-2
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Prepare only the reviewed Executor source
+        run: python3 scripts/executor_image.py prepare
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - name: Build one OCI artifact
+        id: build
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: ${{ runner.temp }}/executor-source
+          platforms: linux/amd64
+          outputs: type=oci,dest=${{ runner.temp }}/executor-layout,tar=false
+          provenance: mode=max
+          sbom: true
+          labels: |
+            org.opencontainers.image.source=https://github.com/Softbank-Hackathon-Finals/platform
+            org.opencontainers.image.revision=${{ env.SOURCE_SHA }}
+          tags: cutover-executor:sha-${{ env.SOURCE_SHA }}
+      - name: Scan before obtaining publisher credentials
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          scan-type: image
+          input: ${{ runner.temp }}/executor-layout
+          scanners: vuln,secret
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: '1'
+          format: json
+          output: ${{ runner.temp }}/executor-trivy.json
+          timeout: 10m
+      - name: Verify source, OCI bytes, package coverage and scan result
+        env:
+          BUILD_DIGEST: ${{ steps.build.outputs.digest }}
+        run: python3 scripts/executor_image.py verify
+      - name: Install the registry copy tool
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq skopeo
+      - name: Obtain a short-lived exact-repository publisher
+        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          role-to-assume: ${{ secrets.EXECUTOR_IMAGE_PUBLISH_ROLE_ARN }}
+          allowed-account-ids: ${{ secrets.EXECUTOR_IMAGE_ACCOUNT_ID }}
+          aws-region: ap-northeast-2
+          role-duration-seconds: 900
+          role-session-name: executor-image-${{ github.run_id }}
+          mask-aws-account-id: true
+      - uses: aws-actions/amazon-ecr-login@03f1aad4c6c7ffd436567f42f9384779290529bd # v2.1.7
+        with:
+          mask-password: 'true'
+      - name: Publish the scanned bytes and verify the destination
+        env:
+          BUILD_DIGEST: ${{ steps.build.outputs.digest }}
+          EXPECTED_ACCOUNT_ID: ${{ secrets.EXECUTOR_IMAGE_ACCOUNT_ID }}
+          EXECUTOR_ECR_REPOSITORY: ${{ secrets.EXECUTOR_IMAGE_REPOSITORY_URI }}
+        run: python3 scripts/executor_image.py publish
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: executor-image-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/executor-source-manifest.json
+            ${{ runner.temp }}/executor-scan-summary.json
+            ${{ runner.temp }}/executor-image-receipt.json
+          if-no-files-found: error
+          retention-days: 14
