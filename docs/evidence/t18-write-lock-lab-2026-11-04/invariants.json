@@ -1,0 +1,7652 @@
+{
+  "runs": [
+    {
+      "variant": "cte-autocommit",
+      "image": "pg16",
+      "path": "direct",
+      "seconds": 3.3,
+      "load_average": [
+        3.08,
+        3.42,
+        3.63
+      ],
+      "checks": [
+        {
+          "invariant": "idempotent",
+          "check": "새 쓰기는 생성, 같은 키 재전송은 기존 메시지",
+          "ok": true,
+          "actual": [
+            true,
+            false
+          ]
+        },
+        {
+          "invariant": "idempotent",
+          "check": "재전송이 같은 행을 돌려줌",
+          "ok": true,
+          "actual": true
+        },
+        {
+          "invariant": "idempotent",
+          "check": "응답 필드가 원본과 같음",
+          "ok": true,
+          "actual": [
+            "attachment_id",
+            "attachment_name",
+            "attachment_size",
+            "attachment_type",
+            "author",
+            "body",
+            "created_at",
+            "id"
+          ]
+        },
+        {
+          "invariant": "idempotent",
+          "check": "같은 키에 다른 내용이면 충돌",
+          "ok": true,
+          "actual": [
+            "conflict",
+            "conflict",
+            "conflict"
+          ]
+        },
+        {
+          "invariant": "idempotent",
+          "check": "동시 같은 키 20건: 생성 1, 행 1, id 1",
+          "ok": true,
+          "actual": [
+            1,
+            1,
+            1
+          ]
+        },
+        {
+          "invariant": "idempotent",
+          "check": "내용이 다른 동시 재전송: 생성 1, 충돌 5, 다른 예외 0",
+          "ok": true,
+          "actual": [
+            1,
+            5,
+            []
+          ]
+        },
+        {
+          "invariant": "attachment",
+          "check": "없는 첨부는 UnknownAttachment",
+          "ok": true,
+          "actual": "unknown_attachment"
+        },
+        {
+          "invariant": "attachment",
+          "check": "실패한 쓰기의 행이 남지 않음",
+          "ok": true,
+          "actual": 0
+        },
+        {
+          "invariant": "attachment",
+          "check": "실패 뒤 잠금이 남지 않음",
+          "ok": true,
+          "actual": 0
+        },
+        {
+          "invariant": "attachment",
+          "check": "같은 연결 · 같은 키로 다시 보내면 정상 저장",
+          "ok": true,
+          "actual": true
+        },
+        {
+          "invariant": "attachment",
+          "check": "있는 첨부는 이름 · 형식 · 크기가 응답에 실림",
+          "ok": true,
+          "actual": [
+            "a.png",
+            "image/png",
+            3
+          ]
+        },
+        {
+          "invariant": "attachment",
+          "check": "첨부 있는 메시지의 재전송도 같은 응답",
+          "ok": true,
+          "actual": "a.png"
+        },
+        {
+          "invariant": "timeout",
+          "check": "잠금 대기 초과는 OperationalError(앱이 503으로 바꾼다)",
+          "ok": true,
+          "actual": "LockNotAvailable"
+        },
+        {
+          "invariant": "timeout",
+          "check": "정해진 시간 안에 포기 (< 660ms)",
+          "ok": true,
+          "actual": 201.0
+        },
+        {
+          "invariant": "timeout",
+          "check": "잠금이 풀리면 같은 키로 저장",
+          "ok": true,
+          "actual": true
+        },
+        {
+          "invariant": "timeout",
+          "check": "같은 키 대기도 시간 안에 포기",
+          "ok": true,
+          "actual": [
+            "LockNotAvailable",
+            209.9
+          ]
+        },
+        {
+          "invariant": "session",
+          "check": "쓰기 뒤 statement_timeout · lock_timeout이 세션에 남지 않음",
+          "ok": true,
+          "actual": [
+            "0",
+            "0"
+          ]
+        },
+        {
+          "invariant": "session",
+          "check": "연결의 자동 커밋 설정이 원래대로 돌아옴",
+          "ok": true,
+          "actual": false
+        },
+        {
+          "invariant": "order",
+          "check": "쓰기가 모두 저장됨",
+          "ok": true,
+          "actual": {
+            "rows": 1500,
+            "timeouts_retried": 0
+          }
+        },
+        {
+          "invariant": "order",
+          "check": "논리 디코딩에 모든 행이 나옴",
+          "ok": true,
+          "actual": [
+            1500,
+            1500
+          ]
+        },
+        {
+          "invariant": "order",
+          "check": "커밋 순서와 id 순서 일치 (뒤집힘 0)",
+          "ok": true,
+          "actual": 0
+        },
+        {
+          "invariant": "skip",
+          "check": "4개 조회 모두 건너뛴 메시지 0",
+          "ok": true,
+          "actual": [
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "invariant": "skip",
+          "check": "4개 조회 모두 id 오름차순",
+          "ok": true,
+          "actual": true
+        },
+        {
+          "invariant": "connection-loss",
+          "check": "연결이 실제로 끊김",
+          "ok": true,
+          "actual": {
+            "OperationalError": 16
+          }
+        },
+        {
+          "invariant": "connection-loss",
+          "check": "커밋 뒤 응답 유실이 실제로 일어남 (재시도가 저장된 행을 돌려받음)",
+          "ok": true,
+          "actual": 14
+        },
+        {
+          "invariant": "connection-loss",
+          "check": "끊겨도 500이 될 예외 없음",
+          "ok": true,
+          "actual": {}
+        },
+        {
+          "invariant": "connection-loss",
+          "check": "재시도로 전부 확인",
+          "ok": true,
+          "actual": 120
+        },
+        {
+          "invariant": "connection-loss",
+          "check": "키마다 정확히 한 행",
+          "ok": true,
+          "actual": [
+            120,
+            120
+          ]
+        },
+        {
+          "invariant": "connection-loss",
+          "check": "끊긴 뒤 잠금이 남지 않음",
+          "ok": true,
+          "actual": 0
+        }
+      ],
+      "demo_chat_pytest": {
+        "returncode": 0,
+        "summary": "24 passed, 1 warning in 5.06s"
+      }
+    },
+    {
+      "variant": "cte-autocommit",
+      "image": "pg16",
+      "path": "pgbouncer",
+      "seconds": 9.8,
+      "load_average": [
+        2.96,
+        3.38,
+        3.61
+      ],
+      "checks": [
+        {
+          "invariant": "idempotent",
+          "check": "새 쓰기는 생성, 같은 키 재전송은 기존 메시지",
+          "ok": true,
+          "actual": [
+            true,
+            false
+          ]
+        },
+        {
+          "invariant": "idempotent",
+          "check": "재전송이 같은 행을 돌려줌",
+          "ok": true,
+          "actual": true
+        },
+        {
+          "invariant": "idempotent",
+          "check": "응답 필드가 원본과 같음",
+          "ok": true,
+          "actual": [
+            "attachment_id",
+            "attachment_name",
+            "attachment_size",
+            "attachment_type",
+            "author",
+            "body",
+            "created_at",
+            "id"
+          ]
+        },
+        {
+          "invariant": "idempotent",
+          "check": "같은 키에 다른 내용이면 충돌",
+          "ok": true,
+          "actual": [
+            "conflict",
+            "conflict",
+            "conflict"
+          ]
+        },
+        {
+          "invariant": "idempotent",
+          "check": "동시 같은 키 20건: 생성 1, 행 1, id 1",
+          "ok": true,
+          "actual": [
+            1,
+            1,
+            1
+          ]
+        },
+        {
+          "invariant": "idempotent",
+          "check": "내용이 다른 동시 재전송: 생성 1, 충돌 5, 다른 예외 0",
+          "ok": true,
+          "actual": [
+            1,
+            5,
+            []
+          ]
+        },
+        {
+          "invariant": "attachment",
+          "check": "없는 첨부는 UnknownAttachment",
+          "ok": true,
+          "actual": "unknown_attachment"
+        },
+        {
+          "invariant": "attachment",
+          "check": "실패한 쓰기의 행이 남지 않음",
+          "ok": true,
+          "actual": 0
+        },
+        {
+          "invariant": "attachment",
+          "check": "실패 뒤 잠금이 남지 않음",
+          "ok": true,
+          "actual": 0
+        },
+        {
+          "invariant": "attachment",
+          "check": "같은 연결 · 같은 키로 다시 보내면 정상 저장",
+          "ok": true,
+          "actual": true
+        },
+        {
+          "invariant": "attachment",
+          "check": "있는 첨부는 이름 · 형식 · 크기가 응답에 실림",
+          "ok": true,
+          "actual": [
+            "a.png",
+            "image/png",
+            3
+          ]
+        },
+        {
+          "invariant": "attachment",
+          "check": "첨부 있는 메시지의 재전송도 같은 응답",
+          "ok": true,
+          "actual": "a.png"
+        },
+        {
+          "invariant": "timeout",
+          "check": "잠금 대기 초과는 OperationalError(앱이 503으로 바꾼다)",
+          "ok": true,
+          "actual": "LockNotAvailable"
+        },
+        {
+          "invariant": "timeout",
+          "check": "정해진 시간 안에 포기 (< 660ms)",
+          "ok": true,
+          "actual": 203.6
+        },
+        {
+          "invariant": "timeout",
+          "check": "잠금이 풀리면 같은 키로 저장",
+          "ok": true,
+          "actual": true
+        },
+        {
+          "invariant": "timeout",
+          "check": "같은 키 대기도 시간 안에 포기",
+          "ok": true,
+          "actual": [
+            "LockNotAvailable",
+            202.6
+          ]
+        },
+        {
+          "invariant": "session",
+          "check": "쓰기 뒤 statement_timeout · lock_timeout이 세션에 남지 않음",
+          "ok": true,
+          "actual": [
+            "0",
+            "0"
+          ]
+        },
+        {
+          "invariant": "session",
+          "check": "연결의 자동 커밋 설정이 원래대로 돌아옴",
+          "ok": true,
+          "actual": false
+        },
+        {
+          "invariant": "order",
+          "check": "쓰기가 모두 저장됨",
+          "ok": true,
+          "actual": {
+            "rows": 1500,
+            "timeouts_retried": 0
+          }
+        },
+        {
+          "invariant": "order",
+          "check": "논리 디코딩에 모든 행이 나옴",
+          "ok": true,
+          "actual": [
+            1500,
+            1500
+          ]
+        },
+        {
+          "invariant": "order",
+          "check": "커밋 순서와 id 순서 일치 (뒤집힘 0)",
+          "ok": true,
+          "actual": 0
+        },
+        {
+          "invariant": "skip",
+          "check": "4개 조회 모두 건너뛴 메시지 0",
+          "ok": true,
+          "actual": [
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "invariant": "skip",
+          "check": "4개 조회 모두 id 오름차순",
+          "ok": true,
+          "actual": true
+        },
+        {
+          "invariant": "connection-loss",
+          "check": "연결이 실제로 끊김",
+          "ok": true,
+          "actual": {
+            "ProtocolViolation": 16
+          }
+        },
+        {
+          "invariant": "connection-loss",
+          "check": "커밋 뒤 응답 유실이 실제로 일어남 (재시도가 저장된 행을 돌려받음)",
+          "ok": true,
+          "actual": 13
+        },
+        {
+          "invariant": "connection-loss",
+          "check": "끊겨도 500이 될 예외 없음",
+          "ok": true,
+          "actual": {}
+        },
+        {
+          "invariant": "connection-loss",
+          "check": "재시도로 전부 확인",
+          "ok": true,
+          "actual": 120
+        },
+        {
+          "invariant": "connection-loss",
+          "check": "키마다 정확히 한 행",
+          "ok": true,
+          "actual": [
+            120,
+            120
+          ]
+        },
+        {
+          "invariant": "connection-loss",
+          "check": "끊긴 뒤 잠금이 남지 않음",
+          "ok": true,
+          "actual": 0
+        }
+      ]
+    },
+    {
+      "variant": "cte-autocommit",
+      "image": "pg18",
+      "path": "direct",
+      "seconds": 3.3,
+      "load_average": [
+        3.13,
+        3.4,
+        3.61
+      ],
+      "checks": [
+        {
+          "invariant": "idempotent",
+          "check": "새 쓰기는 생성, 같은 키 재전송은 기존 메시지",
+          "ok": true,
+          "actual": [
+            true,
+            false
+          ]
+        },
+        {
+          "invariant": "idempotent",
+          "check": "재전송이 같은 행을 돌려줌",
+          "ok": true,
+          "actual": true
+        },
+        {
+          "invariant": "idempotent",
+          "check": "응답 필드가 원본과 같음",
+          "ok": true,
+          "actual": [
+            "attachment_id",
+            "attachment_name",
+            "attachment_size",
+            "attachment_type",
+            "author",
+            "body",
+            "created_at",
+            "id"
+          ]
+        },
+        {
+          "invariant": "idempotent",
+          "check": "같은 키에 다른 내용이면 충돌",
+          "ok": true,
+          "actual": [
+            "conflict",
+            "conflict",
+            "conflict"
+          ]
+        },
+        {
+          "invariant": "idempotent",
+          "check": "동시 같은 키 20건: 생성 1, 행 1, id 1",
+          "ok": true,
+          "actual": [
+            1,
+            1,
+            1
+          ]
+        },
+        {
+          "invariant": "idempotent",
+          "check": "내용이 다른 동시 재전송: 생성 1, 충돌 5, 다른 예외 0",
+          "ok": true,
+          "actual": [
+            1,
+            5,
+            []
+          ]
+        },
+        {
+          "invariant": "attachment",
+          "check": "없는 첨부는 UnknownAttachment",
+          "ok": true,
+          "actual": "unknown_attachment"
+        },
+        {
+          "invariant": "attachment",
+          "check": "실패한 쓰기의 행이 남지 않음",
+          "ok": true,
+          "actual": 0
+        },
+        {
+          "invariant": "attachment",
+          "check": "실패 뒤 잠금이 남지 않음",
+          "ok": true,
+          "actual": 0
+        },
+        {
+          "invariant": "attachment",
+          "check": "같은 연결 · 같은 키로 다시 보내면 정상 저장",
+          "ok": true,
+          "actual": true
+        },
+        {
+          "invariant": "attachment",
+          "check": "있는 첨부는 이름 · 형식 · 크기가 응답에 실림",
+          "ok": true,
+          "actual": [
+            "a.png",
+            "image/png",
+            3
+          ]
+        },
+        {
+          "invariant": "attachment",
+          "check": "첨부 있는 메시지의 재전송도 같은 응답",
+          "ok": true,
+          "actual": "a.png"
+        },
+        {
+          "invariant": "timeout",
+          "check": "잠금 대기 초과는 OperationalError(앱이 503으로 바꾼다)",
+          "ok": true,
+          "actual": "LockNotAvailable"
+        },
+        {
+          "invariant": "timeout",
+          "check": "정해진 시간 안에 포기 (< 660ms)",
+          "ok": true,
+          "actual": 200.8
+        },
+        {
+          "invariant": "timeout",
+          "check": "잠금이 풀리면 같은 키로 저장",
+          "ok": true,
+          "actual": true
+        },
+        {
+          "invariant": "timeout",
+          "check": "같은 키 대기도 시간 안에 포기",
+          "ok": true,
+          "actual": [
+            "LockNotAvailable",
+            200.8
+          ]
+        },
+        {
+          "invariant": "session",
+          "check": "쓰기 뒤 statement_timeout · lock_timeout이 세션에 남지 않음",
+          "ok": true,
+          "actual": [
+            "0",
+            "0"
+          ]
+        },
+        {
+          "invariant": "session",
+          "check": "연결의 자동 커밋 설정이 원래대로 돌아옴",
+          "ok": true,
+          "actual": false
+        },
+        {
+          "invariant": "order",
+          "check": "쓰기가 모두 저장됨",
+          "ok": true,
+          "actual": {
+            "rows": 1500,
+            "timeouts_retried": 0
+          }
+        },
+        {
+          "invariant": "order",
+          "check": "논리 디코딩에 모든 행이 나옴",
+          "ok": true,
+          "actual": [
+            1500,
+            1500
+          ]
+        },
+        {
+          "invariant": "order",
+          "check": "커밋 순서와 id 순서 일치 (뒤집힘 0)",
+          "ok": true,
+          "actual": 0
+        },
+        {
+          "invariant": "skip",
+          "check": "4개 조회 모두 건너뛴 메시지 0",
+          "ok": true,
+          "actual": [
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "invariant": "skip",
+          "check": "4개 조회 모두 id 오름차순",
+          "ok": true,
+          "actual": true
+        },
+        {
+          "invariant": "connection-loss",
+          "check": "연결이 실제로 끊김",
+          "ok": true,
+          "actual": {
+            "OperationalError": 16
+          }
+        },
+        {
+          "invariant": "connection-loss",
+          "check": "커밋 뒤 응답 유실이 실제로 일어남 (재시도가 저장된 행을 돌려받음)",
+          "ok": true,
+          "actual": 13
+        },
+        {
+          "invariant": "connection-loss",
+          "check": "끊겨도 500이 될 예외 없음",
+          "ok": true,
+          "actual": {}
+        },
+        {
+          "invariant": "connection-loss",
+          "check": "재시도로 전부 확인",
+          "ok": true,
+          "actual": 120
+        },
+        {
+          "invariant": "connection-loss",
+          "check": "키마다 정확히 한 행",
+          "ok": true,
+          "actual": [
+            120,
+            120
+          ]
+        },
+        {
+          "invariant": "connection-loss",
+          "check": "끊긴 뒤 잠금이 남지 않음",
+          "ok": true,
+          "actual": 0
+        }
+      ],
+      "demo_chat_pytest": {
+        "returncode": 0,
+        "summary": "24 passed, 1 warning in 5.06s"
+      }
+    },
+    {
+      "variant": "cte-autocommit",
+      "image": "pg18",
+      "path": "pgbouncer",
+      "seconds": 9.8,
+      "load_average": [
+        4.09,
+        3.6,
+        3.68
+      ],
+      "checks": [
+        {
+          "invariant": "idempotent",
+          "check": "새 쓰기는 생성, 같은 키 재전송은 기존 메시지",
+          "ok": true,
+          "actual": [
+            true,
+            false
+          ]
+        },
+        {
+          "invariant": "idempotent",
+          "check": "재전송이 같은 행을 돌려줌",
+          "ok": true,
+          "actual": true
+        },
+        {
+          "invariant": "idempotent",
+          "check": "응답 필드가 원본과 같음",
+          "ok": true,
+          "actual": [
+            "attachment_id",
+            "attachment_name",
+            "attachment_size",
+            "attachment_type",
+            "author",
+            "body",
+            "created_at",
+            "id"
+          ]
+        },
+        {
+          "invariant": "idempotent",
+          "check": "같은 키에 다른 내용이면 충돌",
+          "ok": true,
+          "actual": [
+            "conflict",
+            "conflict",
+            "conflict"
+          ]
+        },
+        {
+          "invariant": "idempotent",
+          "check": "동시 같은 키 20건: 생성 1, 행 1, id 1",
+          "ok": true,
+          "actual": [
+            1,
+            1,
+            1
+          ]
+        },
+        {
+          "invariant": "idempotent",
+          "check": "내용이 다른 동시 재전송: 생성 1, 충돌 5, 다른 예외 0",
+          "ok": true,
+          "actual": [
+            1,
+            5,
+            []
+          ]
+        },
+        {
+          "invariant": "attachment",
+          "check": "없는 첨부는 UnknownAttachment",
+          "ok": true,
+          "actual": "unknown_attachment"
+        },
+        {
+          "invariant": "attachment",
+          "check": "실패한 쓰기의 행이 남지 않음",
+          "ok": true,
+          "actual": 0
+        },
+        {
+          "invariant": "attachment",
+          "check": "실패 뒤 잠금이 남지 않음",
+          "ok": true,
+          "actual": 0
+        },
+        {
+          "invariant": "attachment",
+          "check": "같은 연결 · 같은 키로 다시 보내면 정상 저장",
+          "ok": true,
+          "actual": true
+        },
+        {
+          "invariant": "attachment",
+          "check": "있는 첨부는 이름 · 형식 · 크기가 응답에 실림",
+          "ok": true,
+          "actual": [
+            "a.png",
+            "image/png",
+            3
+          ]
+        },
+        {
+          "invariant": "attachment",
+          "check": "첨부 있는 메시지의 재전송도 같은 응답",
+          "ok": true,
+          "actual": "a.png"
+        },
+        {
+          "invariant": "timeout",
+          "check": "잠금 대기 초과는 OperationalError(앱이 503으로 바꾼다)",
+          "ok": true,
+          "actual": "LockNotAvailable"
+        },
+        {
+          "invariant": "timeout",
+          "check": "정해진 시간 안에 포기 (< 660ms)",
+          "ok": true,
+          "actual": 201.2
+        },
+        {
+          "invariant": "timeout",
+          "check": "잠금이 풀리면 같은 키로 저장",
+          "ok": true,
+          "actual": true
+        },
+        {
+          "invariant": "timeout",
+          "check": "같은 키 대기도 시간 안에 포기",
+          "ok": true,
+          "actual": [
+            "LockNotAvailable",
+            201.2
+          ]
+        },
+        {
+          "invariant": "session",
+          "check": "쓰기 뒤 statement_timeout · lock_timeout이 세션에 남지 않음",
+          "ok": true,
+          "actual": [
+            "0",
+            "0"
+          ]
+        },
+        {
+          "invariant": "session",
+          "check": "연결의 자동 커밋 설정이 원래대로 돌아옴",
+          "ok": true,
+          "actual": false
+        },
+        {
+          "invariant": "order",
+          "check": "쓰기가 모두 저장됨",
+          "ok": true,
+          "actual": {
+            "rows": 1500,
+            "timeouts_retried": 0
+          }
+        },
+        {
+          "invariant": "order",
+          "check": "논리 디코딩에 모든 행이 나옴",
+          "ok": true,
+          "actual": [
+            1500,
+            1500
+          ]
+        },
+        {
+          "invariant": "order",
+          "check": "커밋 순서와 id 순서 일치 (뒤집힘 0)",
+          "ok": true,
+          "actual": 0
+        },
+        {
+          "invariant": "skip",
+          "check": "4개 조회 모두 건너뛴 메시지 0",
+          "ok": true,
+          "actual": [
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "invariant": "skip",
+          "check": "4개 조회 모두 id 오름차순",
+          "ok": true,
+          "actual": true
+        },
+        {
+          "invariant": "connection-loss",
+          "check": "연결이 실제로 끊김",
+          "ok": true,
+          "actual": {
+            "ProtocolViolation": 16
+          }
+        },
+        {
+          "invariant": "connection-loss",
+          "check": "커밋 뒤 응답 유실이 실제로 일어남 (재시도가 저장된 행을 돌려받음)",
+          "ok": true,
+          "actual": 13
+        },
+        {
+          "invariant": "connection-loss",
+          "check": "끊겨도 500이 될 예외 없음",
+          "ok": true,
+          "actual": {}
+        },
+        {
+          "invariant": "connection-loss",
+          "check": "재시도로 전부 확인",
+          "ok": true,
+          "actual": 120
+        },
+        {
+          "invariant": "connection-loss",
+          "check": "키마다 정확히 한 행",
+          "ok": true,
+          "actual": [
+            120,
+            120
+          ]
+        },
+        {
+          "invariant": "connection-loss",
+          "check": "끊긴 뒤 잠금이 남지 않음",
+          "ok": true,
+          "actual": 0
+        }
+      ]
+    },
+    {
+      "variant": "pipeline",
+      "image": "pg16",
+      "path": "direct",
+      "seconds": 3.3,
+      "load_average": [
+        4.88,
+        3.77,
+        3.74
+      ],
+      "checks": [
+        {
+          "invariant": "idempotent",
+          "check": "새 쓰기는 생성, 같은 키 재전송은 기존 메시지",
+          "ok": true,
+          "actual": [
+            true,
+            false
+          ]
+        },
+        {
+          "invariant": "idempotent",
+          "check": "재전송이 같은 행을 돌려줌",
+          "ok": true,
+          "actual": true
+        },
+        {
+          "invariant": "idempotent",
+          "check": "응답 필드가 원본과 같음",
+          "ok": true,
+          "actual": [
+            "attachment_id",
+            "attachment_name",
+            "attachment_size",
+            "attachment_type",
+            "author",
+            "body",
+            "created_at",
+            "id"
+          ]
+        },
+        {
+          "invariant": "idempotent",
+          "check": "같은 키에 다른 내용이면 충돌",
+          "ok": true,
+          "actual": [
+            "conflict",
+            "conflict",
+            "conflict"
+          ]
+        },
+        {
+          "invariant": "idempotent",
+          "check": "동시 같은 키 20건: 생성 1, 행 1, id 1",
+          "ok": true,
+          "actual": [
+            1,
+            1,
+            1
+          ]
+        },
+        {
+          "invariant": "idempotent",
+          "check": "내용이 다른 동시 재전송: 생성 1, 충돌 5, 다른 예외 0",
+          "ok": true,
+          "actual": [
+            1,
+            5,
+            []
+          ]
+        },
+        {
+          "invariant": "attachment",
+          "check": "없는 첨부는 UnknownAttachment",
+          "ok": true,
+          "actual": "unknown_attachment"
+        },
+        {
+          "invariant": "attachment",
+          "check": "실패한 쓰기의 행이 남지 않음",
+          "ok": true,
+          "actual": 0
+        },
+        {
+          "invariant": "attachment",
+          "check": "실패 뒤 잠금이 남지 않음",
+          "ok": true,
+          "actual": 0
+        },
+        {
+          "invariant": "attachment",
+          "check": "같은 연결 · 같은 키로 다시 보내면 정상 저장",
+          "ok": true,
+          "actual": true
+        },
+        {
+          "invariant": "attachment",
+          "check": "있는 첨부는 이름 · 형식 · 크기가 응답에 실림",
+          "ok": true,
+          "actual": [
+            "a.png",
+            "image/png",
+            3
+          ]
+        },
+        {
+          "invariant": "attachment",
+          "check": "첨부 있는 메시지의 재전송도 같은 응답",
+          "ok": true,
+          "actual": "a.png"
+        },
+        {
+          "invariant": "timeout",
+          "check": "잠금 대기 초과는 OperationalError(앱이 503으로 바꾼다)",
+          "ok": true,
+          "actual": "QueryCanceled"
+        },
+        {
+          "invariant": "timeout",
+          "check": "정해진 시간 안에 포기 (< 660ms)",
+          "ok": true,
+          "actual": 205.2
+        },
+        {
+          "invariant": "timeout",
+          "check": "잠금이 풀리면 같은 키로 저장",
+          "ok": true,
+          "actual": true
+        },
+        {
+          "invariant": "timeout",
+          "check": "같은 키 대기도 시간 안에 포기",
+          "ok": true,
+          "actual": [
+            "QueryCanceled",
+            201.1
+          ]
+        },
+        {
+          "invariant": "session",
+          "check": "쓰기 뒤 statement_timeout · lock_timeout이 세션에 남지 않음",
+          "ok": true,
+          "actual": [
+            "0",
+            "0"
+          ]
+        },
+        {
+          "invariant": "session",
+          "check": "연결의 자동 커밋 설정이 원래대로 돌아옴",
+          "ok": true,
+          "actual": false
+        },
+        {
+          "invariant": "order",
+          "check": "쓰기가 모두 저장됨",
+          "ok": true,
+          "actual": {
+            "rows": 1500,
+            "timeouts_retried": 0
+          }
+        },
+        {
+          "invariant": "order",
+          "check": "논리 디코딩에 모든 행이 나옴",
+          "ok": true,
+          "actual": [
+            1500,
+            1500
+          ]
+        },
+        {
+          "invariant": "order",
+          "check": "커밋 순서와 id 순서 일치 (뒤집힘 0)",
+          "ok": true,
+          "actual": 0
+        },
+        {
+          "invariant": "skip",
+          "check": "4개 조회 모두 건너뛴 메시지 0",
+          "ok": true,
+          "actual": [
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "invariant": "skip",
+          "check": "4개 조회 모두 id 오름차순",
+          "ok": true,
+          "actual": true
+        },
+        {
+          "invariant": "connection-loss",
+          "check": "연결이 실제로 끊김",
+          "ok": true,
+          "actual": {
+            "OperationalError": 16
+          }
+        },
+        {
+          "invariant": "connection-loss",
+          "check": "커밋 뒤 응답 유실이 실제로 일어남 (재시도가 저장된 행을 돌려받음)",
+          "ok": true,
+          "actual": 15
+        },
+        {
+          "invariant": "connection-loss",
+          "check": "끊겨도 500이 될 예외 없음",
+          "ok": true,
+          "actual": {}
+        },
+        {
+          "invariant": "connection-loss",
+          "check": "재시도로 전부 확인",
+          "ok": true,
+          "actual": 120
+        },
+        {
+          "invariant": "connection-loss",
+          "check": "키마다 정확히 한 행",
+          "ok": true,
+          "actual": [
+            120,
+            120
+          ]
+        },
+        {
+          "invariant": "connection-loss",
+          "check": "끊긴 뒤 잠금이 남지 않음",
+          "ok": true,
+          "actual": 0
+        }
+      ],
+      "demo_chat_pytest": {
+        "returncode": 0,
+        "summary": "24 passed, 1 warning in 5.31s"
+      }
+    },
+    {
+      "variant": "pipeline",
+      "image": "pg16",
+      "path": "pgbouncer",
+      "seconds": 9.8,
+      "load_average": [
+        4.62,
+        3.79,
+        3.75
+      ],
+      "checks": [
+        {
+          "invariant": "idempotent",
+          "check": "새 쓰기는 생성, 같은 키 재전송은 기존 메시지",
+          "ok": true,
+          "actual": [
+            true,
+            false
+          ]
+        },
+        {
+          "invariant": "idempotent",
+          "check": "재전송이 같은 행을 돌려줌",
+          "ok": true,
+          "actual": true
+        },
+        {
+          "invariant": "idempotent",
+          "check": "응답 필드가 원본과 같음",
+          "ok": true,
+          "actual": [
+            "attachment_id",
+            "attachment_name",
+            "attachment_size",
+            "attachment_type",
+            "author",
+            "body",
+            "created_at",
+            "id"
+          ]
+        },
+        {
+          "invariant": "idempotent",
+          "check": "같은 키에 다른 내용이면 충돌",
+          "ok": true,
+          "actual": [
+            "conflict",
+            "conflict",
+            "conflict"
+          ]
+        },
+        {
+          "invariant": "idempotent",
+          "check": "동시 같은 키 20건: 생성 1, 행 1, id 1",
+          "ok": true,
+          "actual": [
+            1,
+            1,
+            1
+          ]
+        },
+        {
+          "invariant": "idempotent",
+          "check": "내용이 다른 동시 재전송: 생성 1, 충돌 5, 다른 예외 0",
+          "ok": true,
+          "actual": [
+            1,
+            5,
+            []
+          ]
+        },
+        {
+          "invariant": "attachment",
+          "check": "없는 첨부는 UnknownAttachment",
+          "ok": true,
+          "actual": "unknown_attachment"
+        },
+        {
+          "invariant": "attachment",
+          "check": "실패한 쓰기의 행이 남지 않음",
+          "ok": true,
+          "actual": 0
+        },
+        {
+          "invariant": "attachment",
+          "check": "실패 뒤 잠금이 남지 않음",
+          "ok": true,
+          "actual": 0
+        },
+        {
+          "invariant": "attachment",
+          "check": "같은 연결 · 같은 키로 다시 보내면 정상 저장",
+          "ok": true,
+          "actual": true
+        },
+        {
+          "invariant": "attachment",
+          "check": "있는 첨부는 이름 · 형식 · 크기가 응답에 실림",
+          "ok": true,
+          "actual": [
+            "a.png",
+            "image/png",
+            3
+          ]
+        },
+        {
+          "invariant": "attachment",
+          "check": "첨부 있는 메시지의 재전송도 같은 응답",
+          "ok": true,
+          "actual": "a.png"
+        },
+        {
+          "invariant": "timeout",
+          "check": "잠금 대기 초과는 OperationalError(앱이 503으로 바꾼다)",
+          "ok": true,
+          "actual": "QueryCanceled"
+        },
+        {
+          "invariant": "timeout",
+          "check": "정해진 시간 안에 포기 (< 660ms)",
+          "ok": true,
+          "actual": 201.5
+        },
+        {
+          "invariant": "timeout",
+          "check": "잠금이 풀리면 같은 키로 저장",
+          "ok": true,
+          "actual": true
+        },
+        {
+          "invariant": "timeout",
+          "check": "같은 키 대기도 시간 안에 포기",
+          "ok": true,
+          "actual": [
+            "QueryCanceled",
+            201.3
+          ]
+        },
+        {
+          "invariant": "session",
+          "check": "쓰기 뒤 statement_timeout · lock_timeout이 세션에 남지 않음",
+          "ok": true,
+          "actual": [
+            "0",
+            "0"
+          ]
+        },
+        {
+          "invariant": "session",
+          "check": "연결의 자동 커밋 설정이 원래대로 돌아옴",
+          "ok": true,
+          "actual": false
+        },
+        {
+          "invariant": "order",
+          "check": "쓰기가 모두 저장됨",
+          "ok": true,
+          "actual": {
+            "rows": 1500,
+            "timeouts_retried": 0
+          }
+        },
+        {
+          "invariant": "order",
+          "check": "논리 디코딩에 모든 행이 나옴",
+          "ok": true,
+          "actual": [
+            1500,
+            1500
+          ]
+        },
+        {
+          "invariant": "order",
+          "check": "커밋 순서와 id 순서 일치 (뒤집힘 0)",
+          "ok": true,
+          "actual": 0
+        },
+        {
+          "invariant": "skip",
+          "check": "4개 조회 모두 건너뛴 메시지 0",
+          "ok": true,
+          "actual": [
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "invariant": "skip",
+          "check": "4개 조회 모두 id 오름차순",
+          "ok": true,
+          "actual": true
+        },
+        {
+          "invariant": "connection-loss",
+          "check": "연결이 실제로 끊김",
+          "ok": true,
+          "actual": {
+            "OperationalError": 16
+          }
+        },
+        {
+          "invariant": "connection-loss",
+          "check": "커밋 뒤 응답 유실이 실제로 일어남 (재시도가 저장된 행을 돌려받음)",
+          "ok": true,
+          "actual": 16
+        },
+        {
+          "invariant": "connection-loss",
+          "check": "끊겨도 500이 될 예외 없음",
+          "ok": true,
+          "actual": {}
+        },
+        {
+          "invariant": "connection-loss",
+          "check": "재시도로 전부 확인",
+          "ok": true,
+          "actual": 120
+        },
+        {
+          "invariant": "connection-loss",
+          "check": "키마다 정확히 한 행",
+          "ok": true,
+          "actual": [
+            120,
+            120
+          ]
+        },
+        {
+          "invariant": "connection-loss",
+          "check": "끊긴 뒤 잠금이 남지 않음",
+          "ok": true,
+          "actual": 0
+        }
+      ]
+    },
+    {
+      "variant": "pipeline",
+      "image": "pg18",
+      "path": "direct",
+      "seconds": 3.3,
+      "load_average": [
+        4.81,
+        3.84,
+        3.77
+      ],
+      "checks": [
+        {
+          "invariant": "idempotent",
+          "check": "새 쓰기는 생성, 같은 키 재전송은 기존 메시지",
+          "ok": true,
+          "actual": [
+            true,
+            false
+          ]
+        },
+        {
+          "invariant": "idempotent",
+          "check": "재전송이 같은 행을 돌려줌",
+          "ok": true,
+          "actual": true
+        },
+        {
+          "invariant": "idempotent",
+          "check": "응답 필드가 원본과 같음",
+          "ok": true,
+          "actual": [
+            "attachment_id",
+            "attachment_name",
+            "attachment_size",
+            "attachment_type",
+            "author",
+            "body",
+            "created_at",
+            "id"
+          ]
+        },
+        {
+          "invariant": "idempotent",
+          "check": "같은 키에 다른 내용이면 충돌",
+          "ok": true,
+          "actual": [
+            "conflict",
+            "conflict",
+            "conflict"
+          ]
+        },
+        {
+          "invariant": "idempotent",
+          "check": "동시 같은 키 20건: 생성 1, 행 1, id 1",
+          "ok": true,
+          "actual": [
+            1,
+            1,
+            1
+          ]
+        },
+        {
+          "invariant": "idempotent",
+          "check": "내용이 다른 동시 재전송: 생성 1, 충돌 5, 다른 예외 0",
+          "ok": true,
+          "actual": [
+            1,
+            5,
+            []
+          ]
+        },
+        {
+          "invariant": "attachment",
+          "check": "없는 첨부는 UnknownAttachment",
+          "ok": true,
+          "actual": "unknown_attachment"
+        },
+        {
+          "invariant": "attachment",
+          "check": "실패한 쓰기의 행이 남지 않음",
+          "ok": true,
+          "actual": 0
+        },
+        {
+          "invariant": "attachment",
+          "check": "실패 뒤 잠금이 남지 않음",
+          "ok": true,
+          "actual": 0
+        },
+        {
+          "invariant": "attachment",
+          "check": "같은 연결 · 같은 키로 다시 보내면 정상 저장",
+          "ok": true,
+          "actual": true
+        },
+        {
+          "invariant": "attachment",
+          "check": "있는 첨부는 이름 · 형식 · 크기가 응답에 실림",
+          "ok": true,
+          "actual": [
+            "a.png",
+            "image/png",
+            3
+          ]
+        },
+        {
+          "invariant": "attachment",
+          "check": "첨부 있는 메시지의 재전송도 같은 응답",
+          "ok": true,
+          "actual": "a.png"
+        },
+        {
+          "invariant": "timeout",
+          "check": "잠금 대기 초과는 OperationalError(앱이 503으로 바꾼다)",
+          "ok": true,
+          "actual": "QueryCanceled"
+        },
+        {
+          "invariant": "timeout",
+          "check": "정해진 시간 안에 포기 (< 660ms)",
+          "ok": true,
+          "actual": 204.2
+        },
+        {
+          "invariant": "timeout",
+          "check": "잠금이 풀리면 같은 키로 저장",
+          "ok": true,
+          "actual": true
+        },
+        {
+          "invariant": "timeout",
+          "check": "같은 키 대기도 시간 안에 포기",
+          "ok": true,
+          "actual": [
+            "QueryCanceled",
+            202.1
+          ]
+        },
+        {
+          "invariant": "session",
+          "check": "쓰기 뒤 statement_timeout · lock_timeout이 세션에 남지 않음",
+          "ok": true,
+          "actual": [
+            "0",
+            "0"
+          ]
+        },
+        {
+          "invariant": "session",
+          "check": "연결의 자동 커밋 설정이 원래대로 돌아옴",
+          "ok": true,
+          "actual": false
+        },
+        {
+          "invariant": "order",
+          "check": "쓰기가 모두 저장됨",
+          "ok": true,
+          "actual": {
+            "rows": 1500,
+            "timeouts_retried": 0
+          }
+        },
+        {
+          "invariant": "order",
+          "check": "논리 디코딩에 모든 행이 나옴",
+          "ok": true,
+          "actual": [
+            1500,
+            1500
+          ]
+        },
+        {
+          "invariant": "order",
+          "check": "커밋 순서와 id 순서 일치 (뒤집힘 0)",
+          "ok": true,
+          "actual": 0
+        },
+        {
+          "invariant": "skip",
+          "check": "4개 조회 모두 건너뛴 메시지 0",
+          "ok": true,
+          "actual": [
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "invariant": "skip",
+          "check": "4개 조회 모두 id 오름차순",
+          "ok": true,
+          "actual": true
+        },
+        {
+          "invariant": "connection-loss",
+          "check": "연결이 실제로 끊김",
+          "ok": true,
+          "actual": {
+            "OperationalError": 16
+          }
+        },
+        {
+          "invariant": "connection-loss",
+          "check": "커밋 뒤 응답 유실이 실제로 일어남 (재시도가 저장된 행을 돌려받음)",
+          "ok": true,
+          "actual": 16
+        },
+        {
+          "invariant": "connection-loss",
+          "check": "끊겨도 500이 될 예외 없음",
+          "ok": true,
+          "actual": {}
+        },
+        {
+          "invariant": "connection-loss",
+          "check": "재시도로 전부 확인",
+          "ok": true,
+          "actual": 120
+        },
+        {
+          "invariant": "connection-loss",
+          "check": "키마다 정확히 한 행",
+          "ok": true,
+          "actual": [
+            120,
+            120
+          ]
+        },
+        {
+          "invariant": "connection-loss",
+          "check": "끊긴 뒤 잠금이 남지 않음",
+          "ok": true,
+          "actual": 0
+        }
+      ],
+      "demo_chat_pytest": {
+        "returncode": 0,
+        "summary": "24 passed, 1 warning in 5.03s"
+      }
+    },
+    {
+      "variant": "pipeline",
+      "image": "pg18",
+      "path": "pgbouncer",
+      "seconds": 10.1,
+      "load_average": [
+        4.05,
+        3.72,
+        3.72
+      ],
+      "checks": [
+        {
+          "invariant": "idempotent",
+          "check": "새 쓰기는 생성, 같은 키 재전송은 기존 메시지",
+          "ok": true,
+          "actual": [
+            true,
+            false
+          ]
+        },
+        {
+          "invariant": "idempotent",
+          "check": "재전송이 같은 행을 돌려줌",
+          "ok": true,
+          "actual": true
+        },
+        {
+          "invariant": "idempotent",
+          "check": "응답 필드가 원본과 같음",
+          "ok": true,
+          "actual": [
+            "attachment_id",
+            "attachment_name",
+            "attachment_size",
+            "attachment_type",
+            "author",
+            "body",
+            "created_at",
+            "id"
+          ]
+        },
+        {
+          "invariant": "idempotent",
+          "check": "같은 키에 다른 내용이면 충돌",
+          "ok": true,
+          "actual": [
+            "conflict",
+            "conflict",
+            "conflict"
+          ]
+        },
+        {
+          "invariant": "idempotent",
+          "check": "동시 같은 키 20건: 생성 1, 행 1, id 1",
+          "ok": true,
+          "actual": [
+            1,
+            1,
+            1
+          ]
+        },
+        {
+          "invariant": "idempotent",
+          "check": "내용이 다른 동시 재전송: 생성 1, 충돌 5, 다른 예외 0",
+          "ok": true,
+          "actual": [
+            1,
+            5,
+            []
+          ]
+        },
+        {
+          "invariant": "attachment",
+          "check": "없는 첨부는 UnknownAttachment",
+          "ok": true,
+          "actual": "unknown_attachment"
+        },
+        {
+          "invariant": "attachment",
+          "check": "실패한 쓰기의 행이 남지 않음",
+          "ok": true,
+          "actual": 0
+        },
+        {
+          "invariant": "attachment",
+          "check": "실패 뒤 잠금이 남지 않음",
+          "ok": true,
+          "actual": 0
+        },
+        {
+          "invariant": "attachment",
+          "check": "같은 연결 · 같은 키로 다시 보내면 정상 저장",
+          "ok": true,
+          "actual": true
+        },
+        {
+          "invariant": "attachment",
+          "check": "있는 첨부는 이름 · 형식 · 크기가 응답에 실림",
+          "ok": true,
+          "actual": [
+            "a.png",
+            "image/png",
+            3
+          ]
+        },
+        {
+          "invariant": "attachment",
+          "check": "첨부 있는 메시지의 재전송도 같은 응답",
+          "ok": true,
+          "actual": "a.png"
+        },
+        {
+          "invariant": "timeout",
+          "check": "잠금 대기 초과는 OperationalError(앱이 503으로 바꾼다)",
+          "ok": true,
+          "actual": "QueryCanceled"
+        },
+        {
+          "invariant": "timeout",
+          "check": "정해진 시간 안에 포기 (< 660ms)",
+          "ok": true,
+          "actual": 202.1
+        },
+        {
+          "invariant": "timeout",
+          "check": "잠금이 풀리면 같은 키로 저장",
+          "ok": true,
+          "actual": true
+        },
+        {
+          "invariant": "timeout",
+          "check": "같은 키 대기도 시간 안에 포기",
+          "ok": true,
+          "actual": [
+            "QueryCanceled",
+            205.4
+          ]
+        },
+        {
+          "invariant": "session",
+          "check": "쓰기 뒤 statement_timeout · lock_timeout이 세션에 남지 않음",
+          "ok": true,
+          "actual": [
+            "0",
+            "0"
+          ]
+        },
+        {
+          "invariant": "session",
+          "check": "연결의 자동 커밋 설정이 원래대로 돌아옴",
+          "ok": true,
+          "actual": false
+        },
+        {
+          "invariant": "order",
+          "check": "쓰기가 모두 저장됨",
+          "ok": true,
+          "actual": {
+            "rows": 1500,
+            "timeouts_retried": 0
+          }
+        },
+        {
+          "invariant": "order",
+          "check": "논리 디코딩에 모든 행이 나옴",
+          "ok": true,
+          "actual": [
+            1500,
+            1500
+          ]
+        },
+        {
+          "invariant": "order",
+          "check": "커밋 순서와 id 순서 일치 (뒤집힘 0)",
+          "ok": true,
+          "actual": 0
+        },
+        {
+          "invariant": "skip",
+          "check": "4개 조회 모두 건너뛴 메시지 0",
+          "ok": true,
+          "actual": [
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "invariant": "skip",
+          "check": "4개 조회 모두 id 오름차순",
+          "ok": true,
+          "actual": true
+        },
+        {
+          "invariant": "connection-loss",
+          "check": "연결이 실제로 끊김",
+          "ok": true,
+          "actual": {
+            "OperationalError": 16
+          }
+        },
+        {
+          "invariant": "connection-loss",
+          "check": "커밋 뒤 응답 유실이 실제로 일어남 (재시도가 저장된 행을 돌려받음)",
+          "ok": true,
+          "actual": 16
+        },
+        {
+          "invariant": "connection-loss",
+          "check": "끊겨도 500이 될 예외 없음",
+          "ok": true,
+          "actual": {}
+        },
+        {
+          "invariant": "connection-loss",
+          "check": "재시도로 전부 확인",
+          "ok": true,
+          "actual": 120
+        },
+        {
+          "invariant": "connection-loss",
+          "check": "키마다 정확히 한 행",
+          "ok": true,
+          "actual": [
+            120,
+            120
+          ]
+        },
+        {
+          "invariant": "connection-loss",
+          "check": "끊긴 뒤 잠금이 남지 않음",
+          "ok": true,
+          "actual": 0
+        }
+      ]
+    },
+    {
+      "variant": "cte-autocommit-reads",
+      "image": "pg16",
+      "path": "direct",
+      "seconds": 3.3,
+      "load_average": [
+        4.13,
+        3.74,
+        3.73
+      ],
+      "checks": [
+        {
+          "invariant": "idempotent",
+          "check": "새 쓰기는 생성, 같은 키 재전송은 기존 메시지",
+          "ok": true,
+          "actual": [
+            true,
+            false
+          ]
+        },
+        {
+          "invariant": "idempotent",
+          "check": "재전송이 같은 행을 돌려줌",
+          "ok": true,
+          "actual": true
+        },
+        {
+          "invariant": "idempotent",
+          "check": "응답 필드가 원본과 같음",
+          "ok": true,
+          "actual": [
+            "attachment_id",
+            "attachment_name",
+            "attachment_size",
+            "attachment_type",
+            "author",
+            "body",
+            "created_at",
+            "id"
+          ]
+        },
+        {
+          "invariant": "idempotent",
+          "check": "같은 키에 다른 내용이면 충돌",
+          "ok": true,
+          "actual": [
+            "conflict",
+            "conflict",
+            "conflict"
+          ]
+        },
+        {
+          "invariant": "idempotent",
+          "check": "동시 같은 키 20건: 생성 1, 행 1, id 1",
+          "ok": true,
+          "actual": [
+            1,
+            1,
+            1
+          ]
+        },
+        {
+          "invariant": "idempotent",
+          "check": "내용이 다른 동시 재전송: 생성 1, 충돌 5, 다른 예외 0",
+          "ok": true,
+          "actual": [
+            1,
+            5,
+            []
+          ]
+        },
+        {
+          "invariant": "attachment",
+          "check": "없는 첨부는 UnknownAttachment",
+          "ok": true,
+          "actual": "unknown_attachment"
+        },
+        {
+          "invariant": "attachment",
+          "check": "실패한 쓰기의 행이 남지 않음",
+          "ok": true,
+          "actual": 0
+        },
+        {
+          "invariant": "attachment",
+          "check": "실패 뒤 잠금이 남지 않음",
+          "ok": true,
+          "actual": 0
+        },
+        {
+          "invariant": "attachment",
+          "check": "같은 연결 · 같은 키로 다시 보내면 정상 저장",
+          "ok": true,
+          "actual": true
+        },
+        {
+          "invariant": "attachment",
+          "check": "있는 첨부는 이름 · 형식 · 크기가 응답에 실림",
+          "ok": true,
+          "actual": [
+            "a.png",
+            "image/png",
+            3
+          ]
+        },
+        {
+          "invariant": "attachment",
+          "check": "첨부 있는 메시지의 재전송도 같은 응답",
+          "ok": true,
+          "actual": "a.png"
+        },
+        {
+          "invariant": "timeout",
+          "check": "잠금 대기 초과는 OperationalError(앱이 503으로 바꾼다)",
+          "ok": true,
+          "actual": "LockNotAvailable"
+        },
+        {
+          "invariant": "timeout",
+          "check": "정해진 시간 안에 포기 (< 660ms)",
+          "ok": true,
+          "actual": 202.5
+        },
+        {
+          "invariant": "timeout",
+          "check": "잠금이 풀리면 같은 키로 저장",
+          "ok": true,
+          "actual": true
+        },
+        {
+          "invariant": "timeout",
+          "check": "같은 키 대기도 시간 안에 포기",
+          "ok": true,
+          "actual": [
+            "LockNotAvailable",
+            202.5
+          ]
+        },
+        {
+          "invariant": "session",
+          "check": "쓰기 뒤 statement_timeout · lock_timeout이 세션에 남지 않음",
+          "ok": true,
+          "actual": [
+            "0",
+            "0"
+          ]
+        },
+        {
+          "invariant": "session",
+          "check": "연결의 자동 커밋 설정이 원래대로 돌아옴",
+          "ok": true,
+          "actual": false
+        },
+        {
+          "invariant": "order",
+          "check": "쓰기가 모두 저장됨",
+          "ok": true,
+          "actual": {
+            "rows": 1500,
+            "timeouts_retried": 0
+          }
+        },
+        {
+          "invariant": "order",
+          "check": "논리 디코딩에 모든 행이 나옴",
+          "ok": true,
+          "actual": [
+            1500,
+            1500
+          ]
+        },
+        {
+          "invariant": "order",
+          "check": "커밋 순서와 id 순서 일치 (뒤집힘 0)",
+          "ok": true,
+          "actual": 0
+        },
+        {
+          "invariant": "skip",
+          "check": "4개 조회 모두 건너뛴 메시지 0",
+          "ok": true,
+          "actual": [
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "invariant": "skip",
+          "check": "4개 조회 모두 id 오름차순",
+          "ok": true,
+          "actual": true
+        },
+        {
+          "invariant": "connection-loss",
+          "check": "연결이 실제로 끊김",
+          "ok": true,
+          "actual": {
+            "OperationalError": 16
+          }
+        },
+        {
+          "invariant": "connection-loss",
+          "check": "커밋 뒤 응답 유실이 실제로 일어남 (재시도가 저장된 행을 돌려받음)",
+          "ok": true,
+          "actual": 13
+        },
+        {
+          "invariant": "connection-loss",
+          "check": "끊겨도 500이 될 예외 없음",
+          "ok": true,
+          "actual": {}
+        },
+        {
+          "invariant": "connection-loss",
+          "check": "재시도로 전부 확인",
+          "ok": true,
+          "actual": 120
+        },
+        {
+          "invariant": "connection-loss",
+          "check": "키마다 정확히 한 행",
+          "ok": true,
+          "actual": [
+            120,
+            120
+          ]
+        },
+        {
+          "invariant": "connection-loss",
+          "check": "끊긴 뒤 잠금이 남지 않음",
+          "ok": true,
+          "actual": 0
+        }
+      ],
+      "demo_chat_pytest": {
+        "returncode": 0,
+        "summary": "24 passed, 1 warning in 5.31s"
+      }
+    },
+    {
+      "variant": "cte-autocommit-reads",
+      "image": "pg16",
+      "path": "pgbouncer",
+      "seconds": 9.8,
+      "load_average": [
+        3.64,
+        3.66,
+        3.7
+      ],
+      "checks": [
+        {
+          "invariant": "idempotent",
+          "check": "새 쓰기는 생성, 같은 키 재전송은 기존 메시지",
+          "ok": true,
+          "actual": [
+            true,
+            false
+          ]
+        },
+        {
+          "invariant": "idempotent",
+          "check": "재전송이 같은 행을 돌려줌",
+          "ok": true,
+          "actual": true
+        },
+        {
+          "invariant": "idempotent",
+          "check": "응답 필드가 원본과 같음",
+          "ok": true,
+          "actual": [
+            "attachment_id",
+            "attachment_name",
+            "attachment_size",
+            "attachment_type",
+            "author",
+            "body",
+            "created_at",
+            "id"
+          ]
+        },
+        {
+          "invariant": "idempotent",
+          "check": "같은 키에 다른 내용이면 충돌",
+          "ok": true,
+          "actual": [
+            "conflict",
+            "conflict",
+            "conflict"
+          ]
+        },
+        {
+          "invariant": "idempotent",
+          "check": "동시 같은 키 20건: 생성 1, 행 1, id 1",
+          "ok": true,
+          "actual": [
+            1,
+            1,
+            1
+          ]
+        },
+        {
+          "invariant": "idempotent",
+          "check": "내용이 다른 동시 재전송: 생성 1, 충돌 5, 다른 예외 0",
+          "ok": true,
+          "actual": [
+            1,
+            5,
+            []
+          ]
+        },
+        {
+          "invariant": "attachment",
+          "check": "없는 첨부는 UnknownAttachment",
+          "ok": true,
+          "actual": "unknown_attachment"
+        },
+        {
+          "invariant": "attachment",
+          "check": "실패한 쓰기의 행이 남지 않음",
+          "ok": true,
+          "actual": 0
+        },
+        {
+          "invariant": "attachment",
+          "check": "실패 뒤 잠금이 남지 않음",
+          "ok": true,
+          "actual": 0
+        },
+        {
+          "invariant": "attachment",
+          "check": "같은 연결 · 같은 키로 다시 보내면 정상 저장",
+          "ok": true,
+          "actual": true
+        },
+        {
+          "invariant": "attachment",
+          "check": "있는 첨부는 이름 · 형식 · 크기가 응답에 실림",
+          "ok": true,
+          "actual": [
+            "a.png",
+            "image/png",
+            3
+          ]
+        },
+        {
+          "invariant": "attachment",
+          "check": "첨부 있는 메시지의 재전송도 같은 응답",
+          "ok": true,
+          "actual": "a.png"
+        },
+        {
+          "invariant": "timeout",
+          "check": "잠금 대기 초과는 OperationalError(앱이 503으로 바꾼다)",
+          "ok": true,
+          "actual": "LockNotAvailable"
+        },
+        {
+          "invariant": "timeout",
+          "check": "정해진 시간 안에 포기 (< 660ms)",
+          "ok": true,
+          "actual": 202.0
+        },
+        {
+          "invariant": "timeout",
+          "check": "잠금이 풀리면 같은 키로 저장",
+          "ok": true,
+          "actual": true
+        },
+        {
+          "invariant": "timeout",
+          "check": "같은 키 대기도 시간 안에 포기",
+          "ok": true,
+          "actual": [
+            "LockNotAvailable",
+            207.1
+          ]
+        },
+        {
+          "invariant": "session",
+          "check": "쓰기 뒤 statement_timeout · lock_timeout이 세션에 남지 않음",
+          "ok": true,
+          "actual": [
+            "0",
+            "0"
+          ]
+        },
+        {
+          "invariant": "session",
+          "check": "연결의 자동 커밋 설정이 원래대로 돌아옴",
+          "ok": true,
+          "actual": false
+        },
+        {
+          "invariant": "order",
+          "check": "쓰기가 모두 저장됨",
+          "ok": true,
+          "actual": {
+            "rows": 1500,
+            "timeouts_retried": 0
+          }
+        },
+        {
+          "invariant": "order",
+          "check": "논리 디코딩에 모든 행이 나옴",
+          "ok": true,
+          "actual": [
+            1500,
+            1500
+          ]
+        },
+        {
+          "invariant": "order",
+          "check": "커밋 순서와 id 순서 일치 (뒤집힘 0)",
+          "ok": true,
+          "actual": 0
+        },
+        {
+          "invariant": "skip",
+          "check": "4개 조회 모두 건너뛴 메시지 0",
+          "ok": true,
+          "actual": [
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "invariant": "skip",
+          "check": "4개 조회 모두 id 오름차순",
+          "ok": true,
+          "actual": true
+        },
+        {
+          "invariant": "connection-loss",
+          "check": "연결이 실제로 끊김",
+          "ok": true,
+          "actual": {
+            "ProtocolViolation": 16
+          }
+        },
+        {
+          "invariant": "connection-loss",
+          "check": "커밋 뒤 응답 유실이 실제로 일어남 (재시도가 저장된 행을 돌려받음)",
+          "ok": true,
+          "actual": 13
+        },
+        {
+          "invariant": "connection-loss",
+          "check": "끊겨도 500이 될 예외 없음",
+          "ok": true,
+          "actual": {}
+        },
+        {
+          "invariant": "connection-loss",
+          "check": "재시도로 전부 확인",
+          "ok": true,
+          "actual": 120
+        },
+        {
+          "invariant": "connection-loss",
+          "check": "키마다 정확히 한 행",
+          "ok": true,
+          "actual": [
+            120,
+            120
+          ]
+        },
+        {
+          "invariant": "connection-loss",
+          "check": "끊긴 뒤 잠금이 남지 않음",
+          "ok": true,
+          "actual": 0
+        }
+      ]
+    },
+    {
+      "variant": "cte-autocommit-reads",
+      "image": "pg18",
+      "path": "direct",
+      "seconds": 3.3,
+      "load_average": [
+        3.39,
+        3.6,
+        3.68
+      ],
+      "checks": [
+        {
+          "invariant": "idempotent",
+          "check": "새 쓰기는 생성, 같은 키 재전송은 기존 메시지",
+          "ok": true,
+          "actual": [
+            true,
+            false
+          ]
+        },
+        {
+          "invariant": "idempotent",
+          "check": "재전송이 같은 행을 돌려줌",
+          "ok": true,
+          "actual": true
+        },
+        {
+          "invariant": "idempotent",
+          "check": "응답 필드가 원본과 같음",
+          "ok": true,
+          "actual": [
+            "attachment_id",
+            "attachment_name",
+            "attachment_size",
+            "attachment_type",
+            "author",
+            "body",
+            "created_at",
+            "id"
+          ]
+        },
+        {
+          "invariant": "idempotent",
+          "check": "같은 키에 다른 내용이면 충돌",
+          "ok": true,
+          "actual": [
+            "conflict",
+            "conflict",
+            "conflict"
+          ]
+        },
+        {
+          "invariant": "idempotent",
+          "check": "동시 같은 키 20건: 생성 1, 행 1, id 1",
+          "ok": true,
+          "actual": [
+            1,
+            1,
+            1
+          ]
+        },
+        {
+          "invariant": "idempotent",
+          "check": "내용이 다른 동시 재전송: 생성 1, 충돌 5, 다른 예외 0",
+          "ok": true,
+          "actual": [
+            1,
+            5,
+            []
+          ]
+        },
+        {
+          "invariant": "attachment",
+          "check": "없는 첨부는 UnknownAttachment",
+          "ok": true,
+          "actual": "unknown_attachment"
+        },
+        {
+          "invariant": "attachment",
+          "check": "실패한 쓰기의 행이 남지 않음",
+          "ok": true,
+          "actual": 0
+        },
+        {
+          "invariant": "attachment",
+          "check": "실패 뒤 잠금이 남지 않음",
+          "ok": true,
+          "actual": 0
+        },
+        {
+          "invariant": "attachment",
+          "check": "같은 연결 · 같은 키로 다시 보내면 정상 저장",
+          "ok": true,
+          "actual": true
+        },
+        {
+          "invariant": "attachment",
+          "check": "있는 첨부는 이름 · 형식 · 크기가 응답에 실림",
+          "ok": true,
+          "actual": [
+            "a.png",
+            "image/png",
+            3
+          ]
+        },
+        {
+          "invariant": "attachment",
+          "check": "첨부 있는 메시지의 재전송도 같은 응답",
+          "ok": true,
+          "actual": "a.png"
+        },
+        {
+          "invariant": "timeout",
+          "check": "잠금 대기 초과는 OperationalError(앱이 503으로 바꾼다)",
+          "ok": true,
+          "actual": "LockNotAvailable"
+        },
+        {
+          "invariant": "timeout",
+          "check": "정해진 시간 안에 포기 (< 660ms)",
+          "ok": true,
+          "actual": 201.3
+        },
+        {
+          "invariant": "timeout",
+          "check": "잠금이 풀리면 같은 키로 저장",
+          "ok": true,
+          "actual": true
+        },
+        {
+          "invariant": "timeout",
+          "check": "같은 키 대기도 시간 안에 포기",
+          "ok": true,
+          "actual": [
+            "LockNotAvailable",
+            202.0
+          ]
+        },
+        {
+          "invariant": "session",
+          "check": "쓰기 뒤 statement_timeout · lock_timeout이 세션에 남지 않음",
+          "ok": true,
+          "actual": [
+            "0",
+            "0"
+          ]
+        },
+        {
+          "invariant": "session",
+          "check": "연결의 자동 커밋 설정이 원래대로 돌아옴",
+          "ok": true,
+          "actual": false
+        },
+        {
+          "invariant": "order",
+          "check": "쓰기가 모두 저장됨",
+          "ok": true,
+          "actual": {
+            "rows": 1500,
+            "timeouts_retried": 0
+          }
+        },
+        {
+          "invariant": "order",
+          "check": "논리 디코딩에 모든 행이 나옴",
+          "ok": true,
+          "actual": [
+            1500,
+            1500
+          ]
+        },
+        {
+          "invariant": "order",
+          "check": "커밋 순서와 id 순서 일치 (뒤집힘 0)",
+          "ok": true,
+          "actual": 0
+        },
+        {
+          "invariant": "skip",
+          "check": "4개 조회 모두 건너뛴 메시지 0",
+          "ok": true,
+          "actual": [
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "invariant": "skip",
+          "check": "4개 조회 모두 id 오름차순",
+          "ok": true,
+          "actual": true
+        },
+        {
+          "invariant": "connection-loss",
+          "check": "연결이 실제로 끊김",
+          "ok": true,
+          "actual": {
+            "OperationalError": 16
+          }
+        },
+        {
+          "invariant": "connection-loss",
+          "check": "커밋 뒤 응답 유실이 실제로 일어남 (재시도가 저장된 행을 돌려받음)",
+          "ok": true,
+          "actual": 13
+        },
+        {
+          "invariant": "connection-loss",
+          "check": "끊겨도 500이 될 예외 없음",
+          "ok": true,
+          "actual": {}
+        },
+        {
+          "invariant": "connection-loss",
+          "check": "재시도로 전부 확인",
+          "ok": true,
+          "actual": 120
+        },
+        {
+          "invariant": "connection-loss",
+          "check": "키마다 정확히 한 행",
+          "ok": true,
+          "actual": [
+            120,
+            120
+          ]
+        },
+        {
+          "invariant": "connection-loss",
+          "check": "끊긴 뒤 잠금이 남지 않음",
+          "ok": true,
+          "actual": 0
+        }
+      ],
+      "demo_chat_pytest": {
+        "returncode": 0,
+        "summary": "24 passed, 1 warning in 5.05s"
+      }
+    },
+    {
+      "variant": "cte-autocommit-reads",
+      "image": "pg18",
+      "path": "pgbouncer",
+      "seconds": 9.8,
+      "load_average": [
+        3.09,
+        3.52,
+        3.65
+      ],
+      "checks": [
+        {
+          "invariant": "idempotent",
+          "check": "새 쓰기는 생성, 같은 키 재전송은 기존 메시지",
+          "ok": true,
+          "actual": [
+            true,
+            false
+          ]
+        },
+        {
+          "invariant": "idempotent",
+          "check": "재전송이 같은 행을 돌려줌",
+          "ok": true,
+          "actual": true
+        },
+        {
+          "invariant": "idempotent",
+          "check": "응답 필드가 원본과 같음",
+          "ok": true,
+          "actual": [
+            "attachment_id",
+            "attachment_name",
+            "attachment_size",
+            "attachment_type",
+            "author",
+            "body",
+            "created_at",
+            "id"
+          ]
+        },
+        {
+          "invariant": "idempotent",
+          "check": "같은 키에 다른 내용이면 충돌",
+          "ok": true,
+          "actual": [
+            "conflict",
+            "conflict",
+            "conflict"
+          ]
+        },
+        {
+          "invariant": "idempotent",
+          "check": "동시 같은 키 20건: 생성 1, 행 1, id 1",
+          "ok": true,
+          "actual": [
+            1,
+            1,
+            1
+          ]
+        },
+        {
+          "invariant": "idempotent",
+          "check": "내용이 다른 동시 재전송: 생성 1, 충돌 5, 다른 예외 0",
+          "ok": true,
+          "actual": [
+            1,
+            5,
+            []
+          ]
+        },
+        {
+          "invariant": "attachment",
+          "check": "없는 첨부는 UnknownAttachment",
+          "ok": true,
+          "actual": "unknown_attachment"
+        },
+        {
+          "invariant": "attachment",
+          "check": "실패한 쓰기의 행이 남지 않음",
+          "ok": true,
+          "actual": 0
+        },
+        {
+          "invariant": "attachment",
+          "check": "실패 뒤 잠금이 남지 않음",
+          "ok": true,
+          "actual": 0
+        },
+        {
+          "invariant": "attachment",
+          "check": "같은 연결 · 같은 키로 다시 보내면 정상 저장",
+          "ok": true,
+          "actual": true
+        },
+        {
+          "invariant": "attachment",
+          "check": "있는 첨부는 이름 · 형식 · 크기가 응답에 실림",
+          "ok": true,
+          "actual": [
+            "a.png",
+            "image/png",
+            3
+          ]
+        },
+        {
+          "invariant": "attachment",
+          "check": "첨부 있는 메시지의 재전송도 같은 응답",
+          "ok": true,
+          "actual": "a.png"
+        },
+        {
+          "invariant": "timeout",
+          "check": "잠금 대기 초과는 OperationalError(앱이 503으로 바꾼다)",
+          "ok": true,
+          "actual": "LockNotAvailable"
+        },
+        {
+          "invariant": "timeout",
+          "check": "정해진 시간 안에 포기 (< 660ms)",
+          "ok": true,
+          "actual": 204.7
+        },
+        {
+          "invariant": "timeout",
+          "check": "잠금이 풀리면 같은 키로 저장",
+          "ok": true,
+          "actual": true
+        },
+        {
+          "invariant": "timeout",
+          "check": "같은 키 대기도 시간 안에 포기",
+          "ok": true,
+          "actual": [
+            "LockNotAvailable",
+            203.2
+          ]
+        },
+        {
+          "invariant": "session",
+          "check": "쓰기 뒤 statement_timeout · lock_timeout이 세션에 남지 않음",
+          "ok": true,
+          "actual": [
+            "0",
+            "0"
+          ]
+        },
+        {
+          "invariant": "session",
+          "check": "연결의 자동 커밋 설정이 원래대로 돌아옴",
+          "ok": true,
+          "actual": false
+        },
+        {
+          "invariant": "order",
+          "check": "쓰기가 모두 저장됨",
+          "ok": true,
+          "actual": {
+            "rows": 1500,
+            "timeouts_retried": 0
+          }
+        },
+        {
+          "invariant": "order",
+          "check": "논리 디코딩에 모든 행이 나옴",
+          "ok": true,
+          "actual": [
+            1500,
+            1500
+          ]
+        },
+        {
+          "invariant": "order",
+          "check": "커밋 순서와 id 순서 일치 (뒤집힘 0)",
+          "ok": true,
+          "actual": 0
+        },
+        {
+          "invariant": "skip",
+          "check": "4개 조회 모두 건너뛴 메시지 0",
+          "ok": true,
+          "actual": [
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "invariant": "skip",
+          "check": "4개 조회 모두 id 오름차순",
+          "ok": true,
+          "actual": true
+        },
+        {
+          "invariant": "connection-loss",
+          "check": "연결이 실제로 끊김",
+          "ok": true,
+          "actual": {
+            "ProtocolViolation": 16
+          }
+        },
+        {
+          "invariant": "connection-loss",
+          "check": "커밋 뒤 응답 유실이 실제로 일어남 (재시도가 저장된 행을 돌려받음)",
+          "ok": true,
+          "actual": 13
+        },
+        {
+          "invariant": "connection-loss",
+          "check": "끊겨도 500이 될 예외 없음",
+          "ok": true,
+          "actual": {}
+        },
+        {
+          "invariant": "connection-loss",
+          "check": "재시도로 전부 확인",
+          "ok": true,
+          "actual": 120
+        },
+        {
+          "invariant": "connection-loss",
+          "check": "키마다 정확히 한 행",
+          "ok": true,
+          "actual": [
+            120,
+            120
+          ]
+        },
+        {
+          "invariant": "connection-loss",
+          "check": "끊긴 뒤 잠금이 남지 않음",
+          "ok": true,
+          "actual": 0
+        }
+      ]
+    },
+    {
+      "variant": "pipeline-reads",
+      "image": "pg16",
+      "path": "direct",
+      "seconds": 3.3,
+      "load_average": [
+        2.92,
+        3.48,
+        3.63
+      ],
+      "checks": [
+        {
+          "invariant": "idempotent",
+          "check": "새 쓰기는 생성, 같은 키 재전송은 기존 메시지",
+          "ok": true,
+          "actual": [
+            true,
+            false
+          ]
+        },
+        {
+          "invariant": "idempotent",
+          "check": "재전송이 같은 행을 돌려줌",
+          "ok": true,
+          "actual": true
+        },
+        {
+          "invariant": "idempotent",
+          "check": "응답 필드가 원본과 같음",
+          "ok": true,
+          "actual": [
+            "attachment_id",
+            "attachment_name",
+            "attachment_size",
+            "attachment_type",
+            "author",
+            "body",
+            "created_at",
+            "id"
+          ]
+        },
+        {
+          "invariant": "idempotent",
+          "check": "같은 키에 다른 내용이면 충돌",
+          "ok": true,
+          "actual": [
+            "conflict",
+            "conflict",
+            "conflict"
+          ]
+        },
+        {
+          "invariant": "idempotent",
+          "check": "동시 같은 키 20건: 생성 1, 행 1, id 1",
+          "ok": true,
+          "actual": [
+            1,
+            1,
+            1
+          ]
+        },
+        {
+          "invariant": "idempotent",
+          "check": "내용이 다른 동시 재전송: 생성 1, 충돌 5, 다른 예외 0",
+          "ok": true,
+          "actual": [
+            1,
+            5,
+            []
+          ]
+        },
+        {
+          "invariant": "attachment",
+          "check": "없는 첨부는 UnknownAttachment",
+          "ok": true,
+          "actual": "unknown_attachment"
+        },
+        {
+          "invariant": "attachment",
+          "check": "실패한 쓰기의 행이 남지 않음",
+          "ok": true,
+          "actual": 0
+        },
+        {
+          "invariant": "attachment",
+          "check": "실패 뒤 잠금이 남지 않음",
+          "ok": true,
+          "actual": 0
+        },
+        {
+          "invariant": "attachment",
+          "check": "같은 연결 · 같은 키로 다시 보내면 정상 저장",
+          "ok": true,
+          "actual": true
+        },
+        {
+          "invariant": "attachment",
+          "check": "있는 첨부는 이름 · 형식 · 크기가 응답에 실림",
+          "ok": true,
+          "actual": [
+            "a.png",
+            "image/png",
+            3
+          ]
+        },
+        {
+          "invariant": "attachment",
+          "check": "첨부 있는 메시지의 재전송도 같은 응답",
+          "ok": true,
+          "actual": "a.png"
+        },
+        {
+          "invariant": "timeout",
+          "check": "잠금 대기 초과는 OperationalError(앱이 503으로 바꾼다)",
+          "ok": true,
+          "actual": "QueryCanceled"
+        },
+        {
+          "invariant": "timeout",
+          "check": "정해진 시간 안에 포기 (< 660ms)",
+          "ok": true,
+          "actual": 203.3
+        },
+        {
+          "invariant": "timeout",
+          "check": "잠금이 풀리면 같은 키로 저장",
+          "ok": true,
+          "actual": true
+        },
+        {
+          "invariant": "timeout",
+          "check": "같은 키 대기도 시간 안에 포기",
+          "ok": true,
+          "actual": [
+            "QueryCanceled",
+            202.0
+          ]
+        },
+        {
+          "invariant": "session",
+          "check": "쓰기 뒤 statement_timeout · lock_timeout이 세션에 남지 않음",
+          "ok": true,
+          "actual": [
+            "0",
+            "0"
+          ]
+        },
+        {
+          "invariant": "session",
+          "check": "연결의 자동 커밋 설정이 원래대로 돌아옴",
+          "ok": true,
+          "actual": false
+        },
+        {
+          "invariant": "order",
+          "check": "쓰기가 모두 저장됨",
+          "ok": true,
+          "actual": {
+            "rows": 1500,
+            "timeouts_retried": 0
+          }
+        },
+        {
+          "invariant": "order",
+          "check": "논리 디코딩에 모든 행이 나옴",
+          "ok": true,
+          "actual": [
+            1500,
+            1500
+          ]
+        },
+        {
+          "invariant": "order",
+          "check": "커밋 순서와 id 순서 일치 (뒤집힘 0)",
+          "ok": true,
+          "actual": 0
+        },
+        {
+          "invariant": "skip",
+          "check": "4개 조회 모두 건너뛴 메시지 0",
+          "ok": true,
+          "actual": [
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "invariant": "skip",
+          "check": "4개 조회 모두 id 오름차순",
+          "ok": true,
+          "actual": true
+        },
+        {
+          "invariant": "connection-loss",
+          "check": "연결이 실제로 끊김",
+          "ok": true,
+          "actual": {
+            "OperationalError": 16
+          }
+        },
+        {
+          "invariant": "connection-loss",
+          "check": "커밋 뒤 응답 유실이 실제로 일어남 (재시도가 저장된 행을 돌려받음)",
+          "ok": true,
+          "actual": 15
+        },
+        {
+          "invariant": "connection-loss",
+          "check": "끊겨도 500이 될 예외 없음",
+          "ok": true,
+          "actual": {}
+        },
+        {
+          "invariant": "connection-loss",
+          "check": "재시도로 전부 확인",
+          "ok": true,
+          "actual": 120
+        },
+        {
+          "invariant": "connection-loss",
+          "check": "키마다 정확히 한 행",
+          "ok": true,
+          "actual": [
+            120,
+            120
+          ]
+        },
+        {
+          "invariant": "connection-loss",
+          "check": "끊긴 뒤 잠금이 남지 않음",
+          "ok": true,
+          "actual": 0
+        }
+      ],
+      "demo_chat_pytest": {
+        "returncode": 0,
+        "summary": "24 passed, 1 warning in 5.42s"
+      }
+    },
+    {
+      "variant": "pipeline-reads",
+      "image": "pg16",
+      "path": "pgbouncer",
+      "seconds": 10.1,
+      "load_average": [
+        2.99,
+        3.46,
+        3.62
+      ],
+      "checks": [
+        {
+          "invariant": "idempotent",
+          "check": "새 쓰기는 생성, 같은 키 재전송은 기존 메시지",
+          "ok": true,
+          "actual": [
+            true,
+            false
+          ]
+        },
+        {
+          "invariant": "idempotent",
+          "check": "재전송이 같은 행을 돌려줌",
+          "ok": true,
+          "actual": true
+        },
+        {
+          "invariant": "idempotent",
+          "check": "응답 필드가 원본과 같음",
+          "ok": true,
+          "actual": [
+            "attachment_id",
+            "attachment_name",
+            "attachment_size",
+            "attachment_type",
+            "author",
+            "body",
+            "created_at",
+            "id"
+          ]
+        },
+        {
+          "invariant": "idempotent",
+          "check": "같은 키에 다른 내용이면 충돌",
+          "ok": true,
+          "actual": [
+            "conflict",
+            "conflict",
+            "conflict"
+          ]
+        },
+        {
+          "invariant": "idempotent",
+          "check": "동시 같은 키 20건: 생성 1, 행 1, id 1",
+          "ok": true,
+          "actual": [
+            1,
+            1,
+            1
+          ]
+        },
+        {
+          "invariant": "idempotent",
+          "check": "내용이 다른 동시 재전송: 생성 1, 충돌 5, 다른 예외 0",
+          "ok": true,
+          "actual": [
+            1,
+            5,
+            []
+          ]
+        },
+        {
+          "invariant": "attachment",
+          "check": "없는 첨부는 UnknownAttachment",
+          "ok": true,
+          "actual": "unknown_attachment"
+        },
+        {
+          "invariant": "attachment",
+          "check": "실패한 쓰기의 행이 남지 않음",
+          "ok": true,
+          "actual": 0
+        },
+        {
+          "invariant": "attachment",
+          "check": "실패 뒤 잠금이 남지 않음",
+          "ok": true,
+          "actual": 0
+        },
+        {
+          "invariant": "attachment",
+          "check": "같은 연결 · 같은 키로 다시 보내면 정상 저장",
+          "ok": true,
+          "actual": true
+        },
+        {
+          "invariant": "attachment",
+          "check": "있는 첨부는 이름 · 형식 · 크기가 응답에 실림",
+          "ok": true,
+          "actual": [
+            "a.png",
+            "image/png",
+            3
+          ]
+        },
+        {
+          "invariant": "attachment",
+          "check": "첨부 있는 메시지의 재전송도 같은 응답",
+          "ok": true,
+          "actual": "a.png"
+        },
+        {
+          "invariant": "timeout",
+          "check": "잠금 대기 초과는 OperationalError(앱이 503으로 바꾼다)",
+          "ok": true,
+          "actual": "QueryCanceled"
+        },
+        {
+          "invariant": "timeout",
+          "check": "정해진 시간 안에 포기 (< 660ms)",
+          "ok": true,
+          "actual": 202.3
+        },
+        {
+          "invariant": "timeout",
+          "check": "잠금이 풀리면 같은 키로 저장",
+          "ok": true,
+          "actual": true
+        },
+        {
+          "invariant": "timeout",
+          "check": "같은 키 대기도 시간 안에 포기",
+          "ok": true,
+          "actual": [
+            "QueryCanceled",
+            201.5
+          ]
+        },
+        {
+          "invariant": "session",
+          "check": "쓰기 뒤 statement_timeout · lock_timeout이 세션에 남지 않음",
+          "ok": true,
+          "actual": [
+            "0",
+            "0"
+          ]
+        },
+        {
+          "invariant": "session",
+          "check": "연결의 자동 커밋 설정이 원래대로 돌아옴",
+          "ok": true,
+          "actual": false
+        },
+        {
+          "invariant": "order",
+          "check": "쓰기가 모두 저장됨",
+          "ok": true,
+          "actual": {
+            "rows": 1500,
+            "timeouts_retried": 0
+          }
+        },
+        {
+          "invariant": "order",
+          "check": "논리 디코딩에 모든 행이 나옴",
+          "ok": true,
+          "actual": [
+            1500,
+            1500
+          ]
+        },
+        {
+          "invariant": "order",
+          "check": "커밋 순서와 id 순서 일치 (뒤집힘 0)",
+          "ok": true,
+          "actual": 0
+        },
+        {
+          "invariant": "skip",
+          "check": "4개 조회 모두 건너뛴 메시지 0",
+          "ok": true,
+          "actual": [
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "invariant": "skip",
+          "check": "4개 조회 모두 id 오름차순",
+          "ok": true,
+          "actual": true
+        },
+        {
+          "invariant": "connection-loss",
+          "check": "연결이 실제로 끊김",
+          "ok": true,
+          "actual": {
+            "OperationalError": 16
+          }
+        },
+        {
+          "invariant": "connection-loss",
+          "check": "커밋 뒤 응답 유실이 실제로 일어남 (재시도가 저장된 행을 돌려받음)",
+          "ok": true,
+          "actual": 16
+        },
+        {
+          "invariant": "connection-loss",
+          "check": "끊겨도 500이 될 예외 없음",
+          "ok": true,
+          "actual": {}
+        },
+        {
+          "invariant": "connection-loss",
+          "check": "재시도로 전부 확인",
+          "ok": true,
+          "actual": 120
+        },
+        {
+          "invariant": "connection-loss",
+          "check": "키마다 정확히 한 행",
+          "ok": true,
+          "actual": [
+            120,
+            120
+          ]
+        },
+        {
+          "invariant": "connection-loss",
+          "check": "끊긴 뒤 잠금이 남지 않음",
+          "ok": true,
+          "actual": 0
+        }
+      ]
+    },
+    {
+      "variant": "pipeline-reads",
+      "image": "pg18",
+      "path": "direct",
+      "seconds": 3.4,
+      "load_average": [
+        2.75,
+        3.41,
+        3.6
+      ],
+      "checks": [
+        {
+          "invariant": "idempotent",
+          "check": "새 쓰기는 생성, 같은 키 재전송은 기존 메시지",
+          "ok": true,
+          "actual": [
+            true,
+            false
+          ]
+        },
+        {
+          "invariant": "idempotent",
+          "check": "재전송이 같은 행을 돌려줌",
+          "ok": true,
+          "actual": true
+        },
+        {
+          "invariant": "idempotent",
+          "check": "응답 필드가 원본과 같음",
+          "ok": true,
+          "actual": [
+            "attachment_id",
+            "attachment_name",
+            "attachment_size",
+            "attachment_type",
+            "author",
+            "body",
+            "created_at",
+            "id"
+          ]
+        },
+        {
+          "invariant": "idempotent",
+          "check": "같은 키에 다른 내용이면 충돌",
+          "ok": true,
+          "actual": [
+            "conflict",
+            "conflict",
+            "conflict"
+          ]
+        },
+        {
+          "invariant": "idempotent",
+          "check": "동시 같은 키 20건: 생성 1, 행 1, id 1",
+          "ok": true,
+          "actual": [
+            1,
+            1,
+            1
+          ]
+        },
+        {
+          "invariant": "idempotent",
+          "check": "내용이 다른 동시 재전송: 생성 1, 충돌 5, 다른 예외 0",
+          "ok": true,
+          "actual": [
+            1,
+            5,
+            []
+          ]
+        },
+        {
+          "invariant": "attachment",
+          "check": "없는 첨부는 UnknownAttachment",
+          "ok": true,
+          "actual": "unknown_attachment"
+        },
+        {
+          "invariant": "attachment",
+          "check": "실패한 쓰기의 행이 남지 않음",
+          "ok": true,
+          "actual": 0
+        },
+        {
+          "invariant": "attachment",
+          "check": "실패 뒤 잠금이 남지 않음",
+          "ok": true,
+          "actual": 0
+        },
+        {
+          "invariant": "attachment",
+          "check": "같은 연결 · 같은 키로 다시 보내면 정상 저장",
+          "ok": true,
+          "actual": true
+        },
+        {
+          "invariant": "attachment",
+          "check": "있는 첨부는 이름 · 형식 · 크기가 응답에 실림",
+          "ok": true,
+          "actual": [
+            "a.png",
+            "image/png",
+            3
+          ]
+        },
+        {
+          "invariant": "attachment",
+          "check": "첨부 있는 메시지의 재전송도 같은 응답",
+          "ok": true,
+          "actual": "a.png"
+        },
+        {
+          "invariant": "timeout",
+          "check": "잠금 대기 초과는 OperationalError(앱이 503으로 바꾼다)",
+          "ok": true,
+          "actual": "QueryCanceled"
+        },
+        {
+          "invariant": "timeout",
+          "check": "정해진 시간 안에 포기 (< 660ms)",
+          "ok": true,
+          "actual": 201.3
+        },
+        {
+          "invariant": "timeout",
+          "check": "잠금이 풀리면 같은 키로 저장",
+          "ok": true,
+          "actual": true
+        },
+        {
+          "invariant": "timeout",
+          "check": "같은 키 대기도 시간 안에 포기",
+          "ok": true,
+          "actual": [
+            "QueryCanceled",
+            202.3
+          ]
+        },
+        {
+          "invariant": "session",
+          "check": "쓰기 뒤 statement_timeout · lock_timeout이 세션에 남지 않음",
+          "ok": true,
+          "actual": [
+            "0",
+            "0"
+          ]
+        },
+        {
+          "invariant": "session",
+          "check": "연결의 자동 커밋 설정이 원래대로 돌아옴",
+          "ok": true,
+          "actual": false
+        },
+        {
+          "invariant": "order",
+          "check": "쓰기가 모두 저장됨",
+          "ok": true,
+          "actual": {
+            "rows": 1500,
+            "timeouts_retried": 0
+          }
+        },
+        {
+          "invariant": "order",
+          "check": "논리 디코딩에 모든 행이 나옴",
+          "ok": true,
+          "actual": [
+            1500,
+            1500
+          ]
+        },
+        {
+          "invariant": "order",
+          "check": "커밋 순서와 id 순서 일치 (뒤집힘 0)",
+          "ok": true,
+          "actual": 0
+        },
+        {
+          "invariant": "skip",
+          "check": "4개 조회 모두 건너뛴 메시지 0",
+          "ok": true,
+          "actual": [
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "invariant": "skip",
+          "check": "4개 조회 모두 id 오름차순",
+          "ok": true,
+          "actual": true
+        },
+        {
+          "invariant": "connection-loss",
+          "check": "연결이 실제로 끊김",
+          "ok": true,
+          "actual": {
+            "OperationalError": 16
+          }
+        },
+        {
+          "invariant": "connection-loss",
+          "check": "커밋 뒤 응답 유실이 실제로 일어남 (재시도가 저장된 행을 돌려받음)",
+          "ok": true,
+          "actual": 16
+        },
+        {
+          "invariant": "connection-loss",
+          "check": "끊겨도 500이 될 예외 없음",
+          "ok": true,
+          "actual": {}
+        },
+        {
+          "invariant": "connection-loss",
+          "check": "재시도로 전부 확인",
+          "ok": true,
+          "actual": 120
+        },
+        {
+          "invariant": "connection-loss",
+          "check": "키마다 정확히 한 행",
+          "ok": true,
+          "actual": [
+            120,
+            120
+          ]
+        },
+        {
+          "invariant": "connection-loss",
+          "check": "끊긴 뒤 잠금이 남지 않음",
+          "ok": true,
+          "actual": 0
+        }
+      ],
+      "demo_chat_pytest": {
+        "returncode": 0,
+        "summary": "24 passed, 1 warning in 5.02s"
+      }
+    },
+    {
+      "variant": "pipeline-reads",
+      "image": "pg18",
+      "path": "pgbouncer",
+      "seconds": 10.1,
+      "load_average": [
+        2.68,
+        3.35,
+        3.58
+      ],
+      "checks": [
+        {
+          "invariant": "idempotent",
+          "check": "새 쓰기는 생성, 같은 키 재전송은 기존 메시지",
+          "ok": true,
+          "actual": [
+            true,
+            false
+          ]
+        },
+        {
+          "invariant": "idempotent",
+          "check": "재전송이 같은 행을 돌려줌",
+          "ok": true,
+          "actual": true
+        },
+        {
+          "invariant": "idempotent",
+          "check": "응답 필드가 원본과 같음",
+          "ok": true,
+          "actual": [
+            "attachment_id",
+            "attachment_name",
+            "attachment_size",
+            "attachment_type",
+            "author",
+            "body",
+            "created_at",
+            "id"
+          ]
+        },
+        {
+          "invariant": "idempotent",
+          "check": "같은 키에 다른 내용이면 충돌",
+          "ok": true,
+          "actual": [
+            "conflict",
+            "conflict",
+            "conflict"
+          ]
+        },
+        {
+          "invariant": "idempotent",
+          "check": "동시 같은 키 20건: 생성 1, 행 1, id 1",
+          "ok": true,
+          "actual": [
+            1,
+            1,
+            1
+          ]
+        },
+        {
+          "invariant": "idempotent",
+          "check": "내용이 다른 동시 재전송: 생성 1, 충돌 5, 다른 예외 0",
+          "ok": true,
+          "actual": [
+            1,
+            5,
+            []
+          ]
+        },
+        {
+          "invariant": "attachment",
+          "check": "없는 첨부는 UnknownAttachment",
+          "ok": true,
+          "actual": "unknown_attachment"
+        },
+        {
+          "invariant": "attachment",
+          "check": "실패한 쓰기의 행이 남지 않음",
+          "ok": true,
+          "actual": 0
+        },
+        {
+          "invariant": "attachment",
+          "check": "실패 뒤 잠금이 남지 않음",
+          "ok": true,
+          "actual": 0
+        },
+        {
+          "invariant": "attachment",
+          "check": "같은 연결 · 같은 키로 다시 보내면 정상 저장",
+          "ok": true,
+          "actual": true
+        },
+        {
+          "invariant": "attachment",
+          "check": "있는 첨부는 이름 · 형식 · 크기가 응답에 실림",
+          "ok": true,
+          "actual": [
+            "a.png",
+            "image/png",
+            3
+          ]
+        },
+        {
+          "invariant": "attachment",
+          "check": "첨부 있는 메시지의 재전송도 같은 응답",
+          "ok": true,
+          "actual": "a.png"
+        },
+        {
+          "invariant": "timeout",
+          "check": "잠금 대기 초과는 OperationalError(앱이 503으로 바꾼다)",
+          "ok": true,
+          "actual": "QueryCanceled"
+        },
+        {
+          "invariant": "timeout",
+          "check": "정해진 시간 안에 포기 (< 660ms)",
+          "ok": true,
+          "actual": 202.3
+        },
+        {
+          "invariant": "timeout",
+          "check": "잠금이 풀리면 같은 키로 저장",
+          "ok": true,
+          "actual": true
+        },
+        {
+          "invariant": "timeout",
+          "check": "같은 키 대기도 시간 안에 포기",
+          "ok": true,
+          "actual": [
+            "QueryCanceled",
+            202.7
+          ]
+        },
+        {
+          "invariant": "session",
+          "check": "쓰기 뒤 statement_timeout · lock_timeout이 세션에 남지 않음",
+          "ok": true,
+          "actual": [
+            "0",
+            "0"
+          ]
+        },
+        {
+          "invariant": "session",
+          "check": "연결의 자동 커밋 설정이 원래대로 돌아옴",
+          "ok": true,
+          "actual": false
+        },
+        {
+          "invariant": "order",
+          "check": "쓰기가 모두 저장됨",
+          "ok": true,
+          "actual": {
+            "rows": 1500,
+            "timeouts_retried": 0
+          }
+        },
+        {
+          "invariant": "order",
+          "check": "논리 디코딩에 모든 행이 나옴",
+          "ok": true,
+          "actual": [
+            1500,
+            1500
+          ]
+        },
+        {
+          "invariant": "order",
+          "check": "커밋 순서와 id 순서 일치 (뒤집힘 0)",
+          "ok": true,
+          "actual": 0
+        },
+        {
+          "invariant": "skip",
+          "check": "4개 조회 모두 건너뛴 메시지 0",
+          "ok": true,
+          "actual": [
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "invariant": "skip",
+          "check": "4개 조회 모두 id 오름차순",
+          "ok": true,
+          "actual": true
+        },
+        {
+          "invariant": "connection-loss",
+          "check": "연결이 실제로 끊김",
+          "ok": true,
+          "actual": {
+            "OperationalError": 16
+          }
+        },
+        {
+          "invariant": "connection-loss",
+          "check": "커밋 뒤 응답 유실이 실제로 일어남 (재시도가 저장된 행을 돌려받음)",
+          "ok": true,
+          "actual": 16
+        },
+        {
+          "invariant": "connection-loss",
+          "check": "끊겨도 500이 될 예외 없음",
+          "ok": true,
+          "actual": {}
+        },
+        {
+          "invariant": "connection-loss",
+          "check": "재시도로 전부 확인",
+          "ok": true,
+          "actual": 120
+        },
+        {
+          "invariant": "connection-loss",
+          "check": "키마다 정확히 한 행",
+          "ok": true,
+          "actual": [
+            120,
+            120
+          ]
+        },
+        {
+          "invariant": "connection-loss",
+          "check": "끊긴 뒤 잠금이 남지 않음",
+          "ok": true,
+          "actual": 0
+        }
+      ]
+    },
+    {
+      "variant": "no-lock",
+      "image": "pg16",
+      "path": "direct",
+      "seconds": 9.5,
+      "load_average": [
+        2.98,
+        3.38,
+        3.59
+      ],
+      "checks": [
+        {
+          "invariant": "idempotent",
+          "check": "새 쓰기는 생성, 같은 키 재전송은 기존 메시지",
+          "ok": true,
+          "actual": [
+            true,
+            false
+          ]
+        },
+        {
+          "invariant": "idempotent",
+          "check": "재전송이 같은 행을 돌려줌",
+          "ok": true,
+          "actual": true
+        },
+        {
+          "invariant": "idempotent",
+          "check": "응답 필드가 원본과 같음",
+          "ok": true,
+          "actual": [
+            "attachment_id",
+            "attachment_name",
+            "attachment_size",
+            "attachment_type",
+            "author",
+            "body",
+            "created_at",
+            "id"
+          ]
+        },
+        {
+          "invariant": "idempotent",
+          "check": "같은 키에 다른 내용이면 충돌",
+          "ok": true,
+          "actual": [
+            "conflict",
+            "conflict",
+            "conflict"
+          ]
+        },
+        {
+          "invariant": "idempotent",
+          "check": "동시 같은 키 20건: 생성 1, 행 1, id 1",
+          "ok": true,
+          "actual": [
+            1,
+            1,
+            1
+          ]
+        },
+        {
+          "invariant": "idempotent",
+          "check": "내용이 다른 동시 재전송: 생성 1, 충돌 5, 다른 예외 0",
+          "ok": true,
+          "actual": [
+            1,
+            5,
+            []
+          ]
+        },
+        {
+          "invariant": "attachment",
+          "check": "없는 첨부는 UnknownAttachment",
+          "ok": true,
+          "actual": "unknown_attachment"
+        },
+        {
+          "invariant": "attachment",
+          "check": "실패한 쓰기의 행이 남지 않음",
+          "ok": true,
+          "actual": 0
+        },
+        {
+          "invariant": "attachment",
+          "check": "실패 뒤 잠금이 남지 않음",
+          "ok": true,
+          "actual": 0
+        },
+        {
+          "invariant": "attachment",
+          "check": "같은 연결 · 같은 키로 다시 보내면 정상 저장",
+          "ok": true,
+          "actual": true
+        },
+        {
+          "invariant": "attachment",
+          "check": "있는 첨부는 이름 · 형식 · 크기가 응답에 실림",
+          "ok": true,
+          "actual": [
+            "a.png",
+            "image/png",
+            3
+          ]
+        },
+        {
+          "invariant": "attachment",
+          "check": "첨부 있는 메시지의 재전송도 같은 응답",
+          "ok": true,
+          "actual": "a.png"
+        },
+        {
+          "invariant": "timeout",
+          "check": "잠금 대기 초과는 OperationalError(앱이 503으로 바꾼다)",
+          "ok": false,
+          "actual": "accepted"
+        },
+        {
+          "invariant": "timeout",
+          "check": "정해진 시간 안에 포기 (< 660ms)",
+          "ok": true,
+          "actual": 1.4
+        },
+        {
+          "invariant": "timeout",
+          "check": "잠금이 풀리면 같은 키로 저장",
+          "ok": false,
+          "actual": false
+        },
+        {
+          "invariant": "timeout",
+          "check": "같은 키 대기도 시간 안에 포기",
+          "ok": true,
+          "actual": [
+            "QueryCanceled",
+            202.2
+          ]
+        },
+        {
+          "invariant": "session",
+          "check": "쓰기 뒤 statement_timeout · lock_timeout이 세션에 남지 않음",
+          "ok": true,
+          "actual": [
+            "0",
+            "0"
+          ]
+        },
+        {
+          "invariant": "session",
+          "check": "연결의 자동 커밋 설정이 원래대로 돌아옴",
+          "ok": true,
+          "actual": false
+        },
+        {
+          "invariant": "order",
+          "check": "쓰기가 모두 저장됨",
+          "ok": true,
+          "actual": {
+            "rows": 1500,
+            "timeouts_retried": 0
+          }
+        },
+        {
+          "invariant": "order",
+          "check": "논리 디코딩에 모든 행이 나옴",
+          "ok": true,
+          "actual": [
+            1500,
+            1500
+          ]
+        },
+        {
+          "invariant": "order",
+          "check": "커밋 순서와 id 순서 일치 (뒤집힘 0)",
+          "ok": false,
+          "actual": 160
+        },
+        {
+          "invariant": "skip",
+          "check": "4개 조회 모두 건너뛴 메시지 0",
+          "ok": false,
+          "actual": [
+            63,
+            66,
+            59,
+            53
+          ]
+        },
+        {
+          "invariant": "skip",
+          "check": "4개 조회 모두 id 오름차순",
+          "ok": true,
+          "actual": true
+        },
+        {
+          "invariant": "connection-loss",
+          "check": "연결이 실제로 끊김",
+          "ok": true,
+          "actual": {
+            "OperationalError": 60
+          }
+        },
+        {
+          "invariant": "connection-loss",
+          "check": "커밋 뒤 응답 유실이 실제로 일어남 (재시도가 저장된 행을 돌려받음)",
+          "ok": true,
+          "actual": 10
+        },
+        {
+          "invariant": "connection-loss",
+          "check": "끊겨도 500이 될 예외 없음",
+          "ok": true,
+          "actual": {}
+        },
+        {
+          "invariant": "connection-loss",
+          "check": "재시도로 전부 확인",
+          "ok": true,
+          "actual": 120
+        },
+        {
+          "invariant": "connection-loss",
+          "check": "키마다 정확히 한 행",
+          "ok": true,
+          "actual": [
+            120,
+            120
+          ]
+        },
+        {
+          "invariant": "connection-loss",
+          "check": "끊긴 뒤 잠금이 남지 않음",
+          "ok": true,
+          "actual": 0
+        }
+      ],
+      "demo_chat_pytest": {
+        "returncode": 0,
+        "summary": "24 passed, 1 warning in 5.05s"
+      }
+    },
+    {
+      "variant": "no-lock",
+      "image": "pg16",
+      "path": "pgbouncer",
+      "seconds": 34.1,
+      "load_average": [
+        3.14,
+        3.4,
+        3.58
+      ],
+      "checks": [
+        {
+          "invariant": "idempotent",
+          "check": "새 쓰기는 생성, 같은 키 재전송은 기존 메시지",
+          "ok": true,
+          "actual": [
+            true,
+            false
+          ]
+        },
+        {
+          "invariant": "idempotent",
+          "check": "재전송이 같은 행을 돌려줌",
+          "ok": true,
+          "actual": true
+        },
+        {
+          "invariant": "idempotent",
+          "check": "응답 필드가 원본과 같음",
+          "ok": true,
+          "actual": [
+            "attachment_id",
+            "attachment_name",
+            "attachment_size",
+            "attachment_type",
+            "author",
+            "body",
+            "created_at",
+            "id"
+          ]
+        },
+        {
+          "invariant": "idempotent",
+          "check": "같은 키에 다른 내용이면 충돌",
+          "ok": true,
+          "actual": [
+            "conflict",
+            "conflict",
+            "conflict"
+          ]
+        },
+        {
+          "invariant": "idempotent",
+          "check": "동시 같은 키 20건: 생성 1, 행 1, id 1",
+          "ok": true,
+          "actual": [
+            1,
+            1,
+            1
+          ]
+        },
+        {
+          "invariant": "idempotent",
+          "check": "내용이 다른 동시 재전송: 생성 1, 충돌 5, 다른 예외 0",
+          "ok": true,
+          "actual": [
+            1,
+            5,
+            []
+          ]
+        },
+        {
+          "invariant": "attachment",
+          "check": "없는 첨부는 UnknownAttachment",
+          "ok": true,
+          "actual": "unknown_attachment"
+        },
+        {
+          "invariant": "attachment",
+          "check": "실패한 쓰기의 행이 남지 않음",
+          "ok": true,
+          "actual": 0
+        },
+        {
+          "invariant": "attachment",
+          "check": "실패 뒤 잠금이 남지 않음",
+          "ok": true,
+          "actual": 0
+        },
+        {
+          "invariant": "attachment",
+          "check": "같은 연결 · 같은 키로 다시 보내면 정상 저장",
+          "ok": true,
+          "actual": true
+        },
+        {
+          "invariant": "attachment",
+          "check": "있는 첨부는 이름 · 형식 · 크기가 응답에 실림",
+          "ok": true,
+          "actual": [
+            "a.png",
+            "image/png",
+            3
+          ]
+        },
+        {
+          "invariant": "attachment",
+          "check": "첨부 있는 메시지의 재전송도 같은 응답",
+          "ok": true,
+          "actual": "a.png"
+        },
+        {
+          "invariant": "timeout",
+          "check": "잠금 대기 초과는 OperationalError(앱이 503으로 바꾼다)",
+          "ok": false,
+          "actual": "accepted"
+        },
+        {
+          "invariant": "timeout",
+          "check": "정해진 시간 안에 포기 (< 660ms)",
+          "ok": true,
+          "actual": 2.2
+        },
+        {
+          "invariant": "timeout",
+          "check": "잠금이 풀리면 같은 키로 저장",
+          "ok": false,
+          "actual": false
+        },
+        {
+          "invariant": "timeout",
+          "check": "같은 키 대기도 시간 안에 포기",
+          "ok": true,
+          "actual": [
+            "QueryCanceled",
+            203.1
+          ]
+        },
+        {
+          "invariant": "session",
+          "check": "쓰기 뒤 statement_timeout · lock_timeout이 세션에 남지 않음",
+          "ok": true,
+          "actual": [
+            "0",
+            "0"
+          ]
+        },
+        {
+          "invariant": "session",
+          "check": "연결의 자동 커밋 설정이 원래대로 돌아옴",
+          "ok": true,
+          "actual": false
+        },
+        {
+          "invariant": "order",
+          "check": "쓰기가 모두 저장됨",
+          "ok": true,
+          "actual": {
+            "rows": 1500,
+            "timeouts_retried": 0
+          }
+        },
+        {
+          "invariant": "order",
+          "check": "논리 디코딩에 모든 행이 나옴",
+          "ok": true,
+          "actual": [
+            1500,
+            1500
+          ]
+        },
+        {
+          "invariant": "order",
+          "check": "커밋 순서와 id 순서 일치 (뒤집힘 0)",
+          "ok": false,
+          "actual": 176
+        },
+        {
+          "invariant": "skip",
+          "check": "4개 조회 모두 건너뛴 메시지 0",
+          "ok": false,
+          "actual": [
+            73,
+            63,
+            62,
+            69
+          ]
+        },
+        {
+          "invariant": "skip",
+          "check": "4개 조회 모두 id 오름차순",
+          "ok": true,
+          "actual": true
+        },
+        {
+          "invariant": "connection-loss",
+          "check": "연결이 실제로 끊김",
+          "ok": true,
+          "actual": {
+            "ProtocolViolation": 63
+          }
+        },
+        {
+          "invariant": "connection-loss",
+          "check": "커밋 뒤 응답 유실이 실제로 일어남 (재시도가 저장된 행을 돌려받음)",
+          "ok": true,
+          "actual": 8
+        },
+        {
+          "invariant": "connection-loss",
+          "check": "끊겨도 500이 될 예외 없음",
+          "ok": true,
+          "actual": {}
+        },
+        {
+          "invariant": "connection-loss",
+          "check": "재시도로 전부 확인",
+          "ok": true,
+          "actual": 120
+        },
+        {
+          "invariant": "connection-loss",
+          "check": "키마다 정확히 한 행",
+          "ok": true,
+          "actual": [
+            120,
+            120
+          ]
+        },
+        {
+          "invariant": "connection-loss",
+          "check": "끊긴 뒤 잠금이 남지 않음",
+          "ok": true,
+          "actual": 0
+        }
+      ]
+    },
+    {
+      "variant": "no-lock",
+      "image": "pg18",
+      "path": "direct",
+      "seconds": 9.1,
+      "load_average": [
+        3.5,
+        3.47,
+        3.6
+      ],
+      "checks": [
+        {
+          "invariant": "idempotent",
+          "check": "새 쓰기는 생성, 같은 키 재전송은 기존 메시지",
+          "ok": true,
+          "actual": [
+            true,
+            false
+          ]
+        },
+        {
+          "invariant": "idempotent",
+          "check": "재전송이 같은 행을 돌려줌",
+          "ok": true,
+          "actual": true
+        },
+        {
+          "invariant": "idempotent",
+          "check": "응답 필드가 원본과 같음",
+          "ok": true,
+          "actual": [
+            "attachment_id",
+            "attachment_name",
+            "attachment_size",
+            "attachment_type",
+            "author",
+            "body",
+            "created_at",
+            "id"
+          ]
+        },
+        {
+          "invariant": "idempotent",
+          "check": "같은 키에 다른 내용이면 충돌",
+          "ok": true,
+          "actual": [
+            "conflict",
+            "conflict",
+            "conflict"
+          ]
+        },
+        {
+          "invariant": "idempotent",
+          "check": "동시 같은 키 20건: 생성 1, 행 1, id 1",
+          "ok": true,
+          "actual": [
+            1,
+            1,
+            1
+          ]
+        },
+        {
+          "invariant": "idempotent",
+          "check": "내용이 다른 동시 재전송: 생성 1, 충돌 5, 다른 예외 0",
+          "ok": true,
+          "actual": [
+            1,
+            5,
+            []
+          ]
+        },
+        {
+          "invariant": "attachment",
+          "check": "없는 첨부는 UnknownAttachment",
+          "ok": true,
+          "actual": "unknown_attachment"
+        },
+        {
+          "invariant": "attachment",
+          "check": "실패한 쓰기의 행이 남지 않음",
+          "ok": true,
+          "actual": 0
+        },
+        {
+          "invariant": "attachment",
+          "check": "실패 뒤 잠금이 남지 않음",
+          "ok": true,
+          "actual": 0
+        },
+        {
+          "invariant": "attachment",
+          "check": "같은 연결 · 같은 키로 다시 보내면 정상 저장",
+          "ok": true,
+          "actual": true
+        },
+        {
+          "invariant": "attachment",
+          "check": "있는 첨부는 이름 · 형식 · 크기가 응답에 실림",
+          "ok": true,
+          "actual": [
+            "a.png",
+            "image/png",
+            3
+          ]
+        },
+        {
+          "invariant": "attachment",
+          "check": "첨부 있는 메시지의 재전송도 같은 응답",
+          "ok": true,
+          "actual": "a.png"
+        },
+        {
+          "invariant": "timeout",
+          "check": "잠금 대기 초과는 OperationalError(앱이 503으로 바꾼다)",
+          "ok": false,
+          "actual": "accepted"
+        },
+        {
+          "invariant": "timeout",
+          "check": "정해진 시간 안에 포기 (< 660ms)",
+          "ok": true,
+          "actual": 2.3
+        },
+        {
+          "invariant": "timeout",
+          "check": "잠금이 풀리면 같은 키로 저장",
+          "ok": false,
+          "actual": false
+        },
+        {
+          "invariant": "timeout",
+          "check": "같은 키 대기도 시간 안에 포기",
+          "ok": true,
+          "actual": [
+            "QueryCanceled",
+            202.8
+          ]
+        },
+        {
+          "invariant": "session",
+          "check": "쓰기 뒤 statement_timeout · lock_timeout이 세션에 남지 않음",
+          "ok": true,
+          "actual": [
+            "0",
+            "0"
+          ]
+        },
+        {
+          "invariant": "session",
+          "check": "연결의 자동 커밋 설정이 원래대로 돌아옴",
+          "ok": true,
+          "actual": false
+        },
+        {
+          "invariant": "order",
+          "check": "쓰기가 모두 저장됨",
+          "ok": true,
+          "actual": {
+            "rows": 1500,
+            "timeouts_retried": 0
+          }
+        },
+        {
+          "invariant": "order",
+          "check": "논리 디코딩에 모든 행이 나옴",
+          "ok": true,
+          "actual": [
+            1500,
+            1500
+          ]
+        },
+        {
+          "invariant": "order",
+          "check": "커밋 순서와 id 순서 일치 (뒤집힘 0)",
+          "ok": false,
+          "actual": 163
+        },
+        {
+          "invariant": "skip",
+          "check": "4개 조회 모두 건너뛴 메시지 0",
+          "ok": false,
+          "actual": [
+            61,
+            68,
+            61,
+            62
+          ]
+        },
+        {
+          "invariant": "skip",
+          "check": "4개 조회 모두 id 오름차순",
+          "ok": true,
+          "actual": true
+        },
+        {
+          "invariant": "connection-loss",
+          "check": "연결이 실제로 끊김",
+          "ok": true,
+          "actual": {
+            "OperationalError": 61
+          }
+        },
+        {
+          "invariant": "connection-loss",
+          "check": "커밋 뒤 응답 유실이 실제로 일어남 (재시도가 저장된 행을 돌려받음)",
+          "ok": true,
+          "actual": 7
+        },
+        {
+          "invariant": "connection-loss",
+          "check": "끊겨도 500이 될 예외 없음",
+          "ok": true,
+          "actual": {}
+        },
+        {
+          "invariant": "connection-loss",
+          "check": "재시도로 전부 확인",
+          "ok": true,
+          "actual": 120
+        },
+        {
+          "invariant": "connection-loss",
+          "check": "키마다 정확히 한 행",
+          "ok": true,
+          "actual": [
+            120,
+            120
+          ]
+        },
+        {
+          "invariant": "connection-loss",
+          "check": "끊긴 뒤 잠금이 남지 않음",
+          "ok": true,
+          "actual": 0
+        }
+      ],
+      "demo_chat_pytest": {
+        "returncode": 0,
+        "summary": "24 passed, 1 warning in 5.08s"
+      }
+    },
+    {
+      "variant": "no-lock",
+      "image": "pg18",
+      "path": "pgbouncer",
+      "seconds": 33.4,
+      "load_average": [
+        3.23,
+        3.39,
+        3.57
+      ],
+      "checks": [
+        {
+          "invariant": "idempotent",
+          "check": "새 쓰기는 생성, 같은 키 재전송은 기존 메시지",
+          "ok": true,
+          "actual": [
+            true,
+            false
+          ]
+        },
+        {
+          "invariant": "idempotent",
+          "check": "재전송이 같은 행을 돌려줌",
+          "ok": true,
+          "actual": true
+        },
+        {
+          "invariant": "idempotent",
+          "check": "응답 필드가 원본과 같음",
+          "ok": true,
+          "actual": [
+            "attachment_id",
+            "attachment_name",
+            "attachment_size",
+            "attachment_type",
+            "author",
+            "body",
+            "created_at",
+            "id"
+          ]
+        },
+        {
+          "invariant": "idempotent",
+          "check": "같은 키에 다른 내용이면 충돌",
+          "ok": true,
+          "actual": [
+            "conflict",
+            "conflict",
+            "conflict"
+          ]
+        },
+        {
+          "invariant": "idempotent",
+          "check": "동시 같은 키 20건: 생성 1, 행 1, id 1",
+          "ok": true,
+          "actual": [
+            1,
+            1,
+            1
+          ]
+        },
+        {
+          "invariant": "idempotent",
+          "check": "내용이 다른 동시 재전송: 생성 1, 충돌 5, 다른 예외 0",
+          "ok": true,
+          "actual": [
+            1,
+            5,
+            []
+          ]
+        },
+        {
+          "invariant": "attachment",
+          "check": "없는 첨부는 UnknownAttachment",
+          "ok": true,
+          "actual": "unknown_attachment"
+        },
+        {
+          "invariant": "attachment",
+          "check": "실패한 쓰기의 행이 남지 않음",
+          "ok": true,
+          "actual": 0
+        },
+        {
+          "invariant": "attachment",
+          "check": "실패 뒤 잠금이 남지 않음",
+          "ok": true,
+          "actual": 0
+        },
+        {
+          "invariant": "attachment",
+          "check": "같은 연결 · 같은 키로 다시 보내면 정상 저장",
+          "ok": true,
+          "actual": true
+        },
+        {
+          "invariant": "attachment",
+          "check": "있는 첨부는 이름 · 형식 · 크기가 응답에 실림",
+          "ok": true,
+          "actual": [
+            "a.png",
+            "image/png",
+            3
+          ]
+        },
+        {
+          "invariant": "attachment",
+          "check": "첨부 있는 메시지의 재전송도 같은 응답",
+          "ok": true,
+          "actual": "a.png"
+        },
+        {
+          "invariant": "timeout",
+          "check": "잠금 대기 초과는 OperationalError(앱이 503으로 바꾼다)",
+          "ok": false,
+          "actual": "accepted"
+        },
+        {
+          "invariant": "timeout",
+          "check": "정해진 시간 안에 포기 (< 660ms)",
+          "ok": true,
+          "actual": 1.9
+        },
+        {
+          "invariant": "timeout",
+          "check": "잠금이 풀리면 같은 키로 저장",
+          "ok": false,
+          "actual": false
+        },
+        {
+          "invariant": "timeout",
+          "check": "같은 키 대기도 시간 안에 포기",
+          "ok": true,
+          "actual": [
+            "QueryCanceled",
+            203.2
+          ]
+        },
+        {
+          "invariant": "session",
+          "check": "쓰기 뒤 statement_timeout · lock_timeout이 세션에 남지 않음",
+          "ok": true,
+          "actual": [
+            "0",
+            "0"
+          ]
+        },
+        {
+          "invariant": "session",
+          "check": "연결의 자동 커밋 설정이 원래대로 돌아옴",
+          "ok": true,
+          "actual": false
+        },
+        {
+          "invariant": "order",
+          "check": "쓰기가 모두 저장됨",
+          "ok": true,
+          "actual": {
+            "rows": 1500,
+            "timeouts_retried": 0
+          }
+        },
+        {
+          "invariant": "order",
+          "check": "논리 디코딩에 모든 행이 나옴",
+          "ok": true,
+          "actual": [
+            1500,
+            1500
+          ]
+        },
+        {
+          "invariant": "order",
+          "check": "커밋 순서와 id 순서 일치 (뒤집힘 0)",
+          "ok": false,
+          "actual": 159
+        },
+        {
+          "invariant": "skip",
+          "check": "4개 조회 모두 건너뛴 메시지 0",
+          "ok": false,
+          "actual": [
+            57,
+            58,
+            60,
+            61
+          ]
+        },
+        {
+          "invariant": "skip",
+          "check": "4개 조회 모두 id 오름차순",
+          "ok": true,
+          "actual": true
+        },
+        {
+          "invariant": "connection-loss",
+          "check": "연결이 실제로 끊김",
+          "ok": true,
+          "actual": {
+            "ProtocolViolation": 63
+          }
+        },
+        {
+          "invariant": "connection-loss",
+          "check": "커밋 뒤 응답 유실이 실제로 일어남 (재시도가 저장된 행을 돌려받음)",
+          "ok": true,
+          "actual": 8
+        },
+        {
+          "invariant": "connection-loss",
+          "check": "끊겨도 500이 될 예외 없음",
+          "ok": true,
+          "actual": {}
+        },
+        {
+          "invariant": "connection-loss",
+          "check": "재시도로 전부 확인",
+          "ok": true,
+          "actual": 120
+        },
+        {
+          "invariant": "connection-loss",
+          "check": "키마다 정확히 한 행",
+          "ok": true,
+          "actual": [
+            120,
+            120
+          ]
+        },
+        {
+          "invariant": "connection-loss",
+          "check": "끊긴 뒤 잠금이 남지 않음",
+          "ok": true,
+          "actual": 0
+        }
+      ]
+    },
+    {
+      "variant": "cte-late-lock",
+      "image": "pg16",
+      "path": "direct",
+      "seconds": 6.1,
+      "load_average": [
+        4.25,
+        3.61,
+        3.64
+      ],
+      "checks": [
+        {
+          "invariant": "idempotent",
+          "check": "새 쓰기는 생성, 같은 키 재전송은 기존 메시지",
+          "ok": true,
+          "actual": [
+            true,
+            false
+          ]
+        },
+        {
+          "invariant": "idempotent",
+          "check": "재전송이 같은 행을 돌려줌",
+          "ok": true,
+          "actual": true
+        },
+        {
+          "invariant": "idempotent",
+          "check": "응답 필드가 원본과 같음",
+          "ok": true,
+          "actual": [
+            "attachment_id",
+            "attachment_name",
+            "attachment_size",
+            "attachment_type",
+            "author",
+            "body",
+            "created_at",
+            "id"
+          ]
+        },
+        {
+          "invariant": "idempotent",
+          "check": "같은 키에 다른 내용이면 충돌",
+          "ok": true,
+          "actual": [
+            "conflict",
+            "conflict",
+            "conflict"
+          ]
+        },
+        {
+          "invariant": "idempotent",
+          "check": "동시 같은 키 20건: 생성 1, 행 1, id 1",
+          "ok": true,
+          "actual": [
+            1,
+            1,
+            1
+          ]
+        },
+        {
+          "invariant": "idempotent",
+          "check": "내용이 다른 동시 재전송: 생성 1, 충돌 5, 다른 예외 0",
+          "ok": true,
+          "actual": [
+            1,
+            5,
+            []
+          ]
+        },
+        {
+          "invariant": "attachment",
+          "check": "없는 첨부는 UnknownAttachment",
+          "ok": true,
+          "actual": "unknown_attachment"
+        },
+        {
+          "invariant": "attachment",
+          "check": "실패한 쓰기의 행이 남지 않음",
+          "ok": true,
+          "actual": 0
+        },
+        {
+          "invariant": "attachment",
+          "check": "실패 뒤 잠금이 남지 않음",
+          "ok": true,
+          "actual": 0
+        },
+        {
+          "invariant": "attachment",
+          "check": "같은 연결 · 같은 키로 다시 보내면 정상 저장",
+          "ok": true,
+          "actual": true
+        },
+        {
+          "invariant": "attachment",
+          "check": "있는 첨부는 이름 · 형식 · 크기가 응답에 실림",
+          "ok": true,
+          "actual": [
+            "a.png",
+            "image/png",
+            3
+          ]
+        },
+        {
+          "invariant": "attachment",
+          "check": "첨부 있는 메시지의 재전송도 같은 응답",
+          "ok": true,
+          "actual": "a.png"
+        },
+        {
+          "invariant": "timeout",
+          "check": "잠금 대기 초과는 OperationalError(앱이 503으로 바꾼다)",
+          "ok": true,
+          "actual": "LockNotAvailable"
+        },
+        {
+          "invariant": "timeout",
+          "check": "정해진 시간 안에 포기 (< 660ms)",
+          "ok": true,
+          "actual": 201.6
+        },
+        {
+          "invariant": "timeout",
+          "check": "잠금이 풀리면 같은 키로 저장",
+          "ok": true,
+          "actual": true
+        },
+        {
+          "invariant": "timeout",
+          "check": "같은 키 대기도 시간 안에 포기",
+          "ok": false,
+          "actual": [
+            "no_timeout_in_3s",
+            3010.5
+          ]
+        },
+        {
+          "invariant": "session",
+          "check": "쓰기 뒤 statement_timeout · lock_timeout이 세션에 남지 않음",
+          "ok": true,
+          "actual": [
+            "0",
+            "0"
+          ]
+        },
+        {
+          "invariant": "session",
+          "check": "연결의 자동 커밋 설정이 원래대로 돌아옴",
+          "ok": true,
+          "actual": false
+        },
+        {
+          "invariant": "order",
+          "check": "쓰기가 모두 저장됨",
+          "ok": true,
+          "actual": {
+            "rows": 1500,
+            "timeouts_retried": 0
+          }
+        },
+        {
+          "invariant": "order",
+          "check": "논리 디코딩에 모든 행이 나옴",
+          "ok": true,
+          "actual": [
+            1500,
+            1500
+          ]
+        },
+        {
+          "invariant": "order",
+          "check": "커밋 순서와 id 순서 일치 (뒤집힘 0)",
+          "ok": false,
+          "actual": 34
+        },
+        {
+          "invariant": "skip",
+          "check": "4개 조회 모두 건너뛴 메시지 0",
+          "ok": false,
+          "actual": [
+            7,
+            8,
+            5,
+            10
+          ]
+        },
+        {
+          "invariant": "skip",
+          "check": "4개 조회 모두 id 오름차순",
+          "ok": true,
+          "actual": true
+        },
+        {
+          "invariant": "connection-loss",
+          "check": "연결이 실제로 끊김",
+          "ok": true,
+          "actual": {
+            "OperationalError": 16
+          }
+        },
+        {
+          "invariant": "connection-loss",
+          "check": "커밋 뒤 응답 유실이 실제로 일어남 (재시도가 저장된 행을 돌려받음)",
+          "ok": true,
+          "actual": 13
+        },
+        {
+          "invariant": "connection-loss",
+          "check": "끊겨도 500이 될 예외 없음",
+          "ok": true,
+          "actual": {}
+        },
+        {
+          "invariant": "connection-loss",
+          "check": "재시도로 전부 확인",
+          "ok": true,
+          "actual": 120
+        },
+        {
+          "invariant": "connection-loss",
+          "check": "키마다 정확히 한 행",
+          "ok": true,
+          "actual": [
+            120,
+            120
+          ]
+        },
+        {
+          "invariant": "connection-loss",
+          "check": "끊긴 뒤 잠금이 남지 않음",
+          "ok": true,
+          "actual": 0
+        }
+      ],
+      "demo_chat_pytest": {
+        "returncode": 0,
+        "summary": "24 passed, 1 warning in 5.05s"
+      }
+    },
+    {
+      "variant": "cte-late-lock",
+      "image": "pg16",
+      "path": "pgbouncer",
+      "seconds": 12.5,
+      "load_average": [
+        5.11,
+        3.88,
+        3.74
+      ],
+      "checks": [
+        {
+          "invariant": "idempotent",
+          "check": "새 쓰기는 생성, 같은 키 재전송은 기존 메시지",
+          "ok": true,
+          "actual": [
+            true,
+            false
+          ]
+        },
+        {
+          "invariant": "idempotent",
+          "check": "재전송이 같은 행을 돌려줌",
+          "ok": true,
+          "actual": true
+        },
+        {
+          "invariant": "idempotent",
+          "check": "응답 필드가 원본과 같음",
+          "ok": true,
+          "actual": [
+            "attachment_id",
+            "attachment_name",
+            "attachment_size",
+            "attachment_type",
+            "author",
+            "body",
+            "created_at",
+            "id"
+          ]
+        },
+        {
+          "invariant": "idempotent",
+          "check": "같은 키에 다른 내용이면 충돌",
+          "ok": true,
+          "actual": [
+            "conflict",
+            "conflict",
+            "conflict"
+          ]
+        },
+        {
+          "invariant": "idempotent",
+          "check": "동시 같은 키 20건: 생성 1, 행 1, id 1",
+          "ok": true,
+          "actual": [
+            1,
+            1,
+            1
+          ]
+        },
+        {
+          "invariant": "idempotent",
+          "check": "내용이 다른 동시 재전송: 생성 1, 충돌 5, 다른 예외 0",
+          "ok": true,
+          "actual": [
+            1,
+            5,
+            []
+          ]
+        },
+        {
+          "invariant": "attachment",
+          "check": "없는 첨부는 UnknownAttachment",
+          "ok": true,
+          "actual": "unknown_attachment"
+        },
+        {
+          "invariant": "attachment",
+          "check": "실패한 쓰기의 행이 남지 않음",
+          "ok": true,
+          "actual": 0
+        },
+        {
+          "invariant": "attachment",
+          "check": "실패 뒤 잠금이 남지 않음",
+          "ok": true,
+          "actual": 0
+        },
+        {
+          "invariant": "attachment",
+          "check": "같은 연결 · 같은 키로 다시 보내면 정상 저장",
+          "ok": true,
+          "actual": true
+        },
+        {
+          "invariant": "attachment",
+          "check": "있는 첨부는 이름 · 형식 · 크기가 응답에 실림",
+          "ok": true,
+          "actual": [
+            "a.png",
+            "image/png",
+            3
+          ]
+        },
+        {
+          "invariant": "attachment",
+          "check": "첨부 있는 메시지의 재전송도 같은 응답",
+          "ok": true,
+          "actual": "a.png"
+        },
+        {
+          "invariant": "timeout",
+          "check": "잠금 대기 초과는 OperationalError(앱이 503으로 바꾼다)",
+          "ok": true,
+          "actual": "LockNotAvailable"
+        },
+        {
+          "invariant": "timeout",
+          "check": "정해진 시간 안에 포기 (< 660ms)",
+          "ok": true,
+          "actual": 202.0
+        },
+        {
+          "invariant": "timeout",
+          "check": "잠금이 풀리면 같은 키로 저장",
+          "ok": true,
+          "actual": true
+        },
+        {
+          "invariant": "timeout",
+          "check": "같은 키 대기도 시간 안에 포기",
+          "ok": false,
+          "actual": [
+            "no_timeout_in_3s",
+            3003.9
+          ]
+        },
+        {
+          "invariant": "session",
+          "check": "쓰기 뒤 statement_timeout · lock_timeout이 세션에 남지 않음",
+          "ok": true,
+          "actual": [
+            "0",
+            "0"
+          ]
+        },
+        {
+          "invariant": "session",
+          "check": "연결의 자동 커밋 설정이 원래대로 돌아옴",
+          "ok": true,
+          "actual": false
+        },
+        {
+          "invariant": "order",
+          "check": "쓰기가 모두 저장됨",
+          "ok": true,
+          "actual": {
+            "rows": 1500,
+            "timeouts_retried": 0
+          }
+        },
+        {
+          "invariant": "order",
+          "check": "논리 디코딩에 모든 행이 나옴",
+          "ok": true,
+          "actual": [
+            1500,
+            1500
+          ]
+        },
+        {
+          "invariant": "order",
+          "check": "커밋 순서와 id 순서 일치 (뒤집힘 0)",
+          "ok": false,
+          "actual": 24
+        },
+        {
+          "invariant": "skip",
+          "check": "4개 조회 모두 건너뛴 메시지 0",
+          "ok": false,
+          "actual": [
+            6,
+            2,
+            2,
+            5
+          ]
+        },
+        {
+          "invariant": "skip",
+          "check": "4개 조회 모두 id 오름차순",
+          "ok": true,
+          "actual": true
+        },
+        {
+          "invariant": "connection-loss",
+          "check": "연결이 실제로 끊김",
+          "ok": true,
+          "actual": {
+            "ProtocolViolation": 16
+          }
+        },
+        {
+          "invariant": "connection-loss",
+          "check": "커밋 뒤 응답 유실이 실제로 일어남 (재시도가 저장된 행을 돌려받음)",
+          "ok": true,
+          "actual": 13
+        },
+        {
+          "invariant": "connection-loss",
+          "check": "끊겨도 500이 될 예외 없음",
+          "ok": true,
+          "actual": {}
+        },
+        {
+          "invariant": "connection-loss",
+          "check": "재시도로 전부 확인",
+          "ok": true,
+          "actual": 120
+        },
+        {
+          "invariant": "connection-loss",
+          "check": "키마다 정확히 한 행",
+          "ok": true,
+          "actual": [
+            120,
+            120
+          ]
+        },
+        {
+          "invariant": "connection-loss",
+          "check": "끊긴 뒤 잠금이 남지 않음",
+          "ok": true,
+          "actual": 0
+        }
+      ]
+    },
+    {
+      "variant": "cte-late-lock",
+      "image": "pg18",
+      "path": "direct",
+      "seconds": 6.3,
+      "load_average": [
+        5.12,
+        3.92,
+        3.76
+      ],
+      "checks": [
+        {
+          "invariant": "idempotent",
+          "check": "새 쓰기는 생성, 같은 키 재전송은 기존 메시지",
+          "ok": true,
+          "actual": [
+            true,
+            false
+          ]
+        },
+        {
+          "invariant": "idempotent",
+          "check": "재전송이 같은 행을 돌려줌",
+          "ok": true,
+          "actual": true
+        },
+        {
+          "invariant": "idempotent",
+          "check": "응답 필드가 원본과 같음",
+          "ok": true,
+          "actual": [
+            "attachment_id",
+            "attachment_name",
+            "attachment_size",
+            "attachment_type",
+            "author",
+            "body",
+            "created_at",
+            "id"
+          ]
+        },
+        {
+          "invariant": "idempotent",
+          "check": "같은 키에 다른 내용이면 충돌",
+          "ok": true,
+          "actual": [
+            "conflict",
+            "conflict",
+            "conflict"
+          ]
+        },
+        {
+          "invariant": "idempotent",
+          "check": "동시 같은 키 20건: 생성 1, 행 1, id 1",
+          "ok": true,
+          "actual": [
+            1,
+            1,
+            1
+          ]
+        },
+        {
+          "invariant": "idempotent",
+          "check": "내용이 다른 동시 재전송: 생성 1, 충돌 5, 다른 예외 0",
+          "ok": true,
+          "actual": [
+            1,
+            5,
+            []
+          ]
+        },
+        {
+          "invariant": "attachment",
+          "check": "없는 첨부는 UnknownAttachment",
+          "ok": true,
+          "actual": "unknown_attachment"
+        },
+        {
+          "invariant": "attachment",
+          "check": "실패한 쓰기의 행이 남지 않음",
+          "ok": true,
+          "actual": 0
+        },
+        {
+          "invariant": "attachment",
+          "check": "실패 뒤 잠금이 남지 않음",
+          "ok": true,
+          "actual": 0
+        },
+        {
+          "invariant": "attachment",
+          "check": "같은 연결 · 같은 키로 다시 보내면 정상 저장",
+          "ok": true,
+          "actual": true
+        },
+        {
+          "invariant": "attachment",
+          "check": "있는 첨부는 이름 · 형식 · 크기가 응답에 실림",
+          "ok": true,
+          "actual": [
+            "a.png",
+            "image/png",
+            3
+          ]
+        },
+        {
+          "invariant": "attachment",
+          "check": "첨부 있는 메시지의 재전송도 같은 응답",
+          "ok": true,
+          "actual": "a.png"
+        },
+        {
+          "invariant": "timeout",
+          "check": "잠금 대기 초과는 OperationalError(앱이 503으로 바꾼다)",
+          "ok": true,
+          "actual": "LockNotAvailable"
+        },
+        {
+          "invariant": "timeout",
+          "check": "정해진 시간 안에 포기 (< 660ms)",
+          "ok": true,
+          "actual": 203.9
+        },
+        {
+          "invariant": "timeout",
+          "check": "잠금이 풀리면 같은 키로 저장",
+          "ok": true,
+          "actual": true
+        },
+        {
+          "invariant": "timeout",
+          "check": "같은 키 대기도 시간 안에 포기",
+          "ok": false,
+          "actual": [
+            "no_timeout_in_3s",
+            3005.7
+          ]
+        },
+        {
+          "invariant": "session",
+          "check": "쓰기 뒤 statement_timeout · lock_timeout이 세션에 남지 않음",
+          "ok": true,
+          "actual": [
+            "0",
+            "0"
+          ]
+        },
+        {
+          "invariant": "session",
+          "check": "연결의 자동 커밋 설정이 원래대로 돌아옴",
+          "ok": true,
+          "actual": false
+        },
+        {
+          "invariant": "order",
+          "check": "쓰기가 모두 저장됨",
+          "ok": true,
+          "actual": {
+            "rows": 1500,
+            "timeouts_retried": 0
+          }
+        },
+        {
+          "invariant": "order",
+          "check": "논리 디코딩에 모든 행이 나옴",
+          "ok": true,
+          "actual": [
+            1500,
+            1500
+          ]
+        },
+        {
+          "invariant": "order",
+          "check": "커밋 순서와 id 순서 일치 (뒤집힘 0)",
+          "ok": false,
+          "actual": 40
+        },
+        {
+          "invariant": "skip",
+          "check": "4개 조회 모두 건너뛴 메시지 0",
+          "ok": false,
+          "actual": [
+            10,
+            14,
+            9,
+            14
+          ]
+        },
+        {
+          "invariant": "skip",
+          "check": "4개 조회 모두 id 오름차순",
+          "ok": true,
+          "actual": true
+        },
+        {
+          "invariant": "connection-loss",
+          "check": "연결이 실제로 끊김",
+          "ok": true,
+          "actual": {
+            "OperationalError": 15
+          }
+        },
+        {
+          "invariant": "connection-loss",
+          "check": "커밋 뒤 응답 유실이 실제로 일어남 (재시도가 저장된 행을 돌려받음)",
+          "ok": true,
+          "actual": 13
+        },
+        {
+          "invariant": "connection-loss",
+          "check": "끊겨도 500이 될 예외 없음",
+          "ok": true,
+          "actual": {}
+        },
+        {
+          "invariant": "connection-loss",
+          "check": "재시도로 전부 확인",
+          "ok": true,
+          "actual": 120
+        },
+        {
+          "invariant": "connection-loss",
+          "check": "키마다 정확히 한 행",
+          "ok": true,
+          "actual": [
+            120,
+            120
+          ]
+        },
+        {
+          "invariant": "connection-loss",
+          "check": "끊긴 뒤 잠금이 남지 않음",
+          "ok": true,
+          "actual": 0
+        }
+      ],
+      "demo_chat_pytest": {
+        "returncode": 0,
+        "summary": "24 passed, 1 warning in 4.91s"
+      }
+    },
+    {
+      "variant": "cte-late-lock",
+      "image": "pg18",
+      "path": "pgbouncer",
+      "seconds": 12.5,
+      "load_average": [
+        4.09,
+        3.76,
+        3.7
+      ],
+      "checks": [
+        {
+          "invariant": "idempotent",
+          "check": "새 쓰기는 생성, 같은 키 재전송은 기존 메시지",
+          "ok": true,
+          "actual": [
+            true,
+            false
+          ]
+        },
+        {
+          "invariant": "idempotent",
+          "check": "재전송이 같은 행을 돌려줌",
+          "ok": true,
+          "actual": true
+        },
+        {
+          "invariant": "idempotent",
+          "check": "응답 필드가 원본과 같음",
+          "ok": true,
+          "actual": [
+            "attachment_id",
+            "attachment_name",
+            "attachment_size",
+            "attachment_type",
+            "author",
+            "body",
+            "created_at",
+            "id"
+          ]
+        },
+        {
+          "invariant": "idempotent",
+          "check": "같은 키에 다른 내용이면 충돌",
+          "ok": true,
+          "actual": [
+            "conflict",
+            "conflict",
+            "conflict"
+          ]
+        },
+        {
+          "invariant": "idempotent",
+          "check": "동시 같은 키 20건: 생성 1, 행 1, id 1",
+          "ok": true,
+          "actual": [
+            1,
+            1,
+            1
+          ]
+        },
+        {
+          "invariant": "idempotent",
+          "check": "내용이 다른 동시 재전송: 생성 1, 충돌 5, 다른 예외 0",
+          "ok": true,
+          "actual": [
+            1,
+            5,
+            []
+          ]
+        },
+        {
+          "invariant": "attachment",
+          "check": "없는 첨부는 UnknownAttachment",
+          "ok": true,
+          "actual": "unknown_attachment"
+        },
+        {
+          "invariant": "attachment",
+          "check": "실패한 쓰기의 행이 남지 않음",
+          "ok": true,
+          "actual": 0
+        },
+        {
+          "invariant": "attachment",
+          "check": "실패 뒤 잠금이 남지 않음",
+          "ok": true,
+          "actual": 0
+        },
+        {
+          "invariant": "attachment",
+          "check": "같은 연결 · 같은 키로 다시 보내면 정상 저장",
+          "ok": true,
+          "actual": true
+        },
+        {
+          "invariant": "attachment",
+          "check": "있는 첨부는 이름 · 형식 · 크기가 응답에 실림",
+          "ok": true,
+          "actual": [
+            "a.png",
+            "image/png",
+            3
+          ]
+        },
+        {
+          "invariant": "attachment",
+          "check": "첨부 있는 메시지의 재전송도 같은 응답",
+          "ok": true,
+          "actual": "a.png"
+        },
+        {
+          "invariant": "timeout",
+          "check": "잠금 대기 초과는 OperationalError(앱이 503으로 바꾼다)",
+          "ok": true,
+          "actual": "LockNotAvailable"
+        },
+        {
+          "invariant": "timeout",
+          "check": "정해진 시간 안에 포기 (< 660ms)",
+          "ok": true,
+          "actual": 202.0
+        },
+        {
+          "invariant": "timeout",
+          "check": "잠금이 풀리면 같은 키로 저장",
+          "ok": true,
+          "actual": true
+        },
+        {
+          "invariant": "timeout",
+          "check": "같은 키 대기도 시간 안에 포기",
+          "ok": false,
+          "actual": [
+            "no_timeout_in_3s",
+            3004.2
+          ]
+        },
+        {
+          "invariant": "session",
+          "check": "쓰기 뒤 statement_timeout · lock_timeout이 세션에 남지 않음",
+          "ok": true,
+          "actual": [
+            "0",
+            "0"
+          ]
+        },
+        {
+          "invariant": "session",
+          "check": "연결의 자동 커밋 설정이 원래대로 돌아옴",
+          "ok": true,
+          "actual": false
+        },
+        {
+          "invariant": "order",
+          "check": "쓰기가 모두 저장됨",
+          "ok": true,
+          "actual": {
+            "rows": 1500,
+            "timeouts_retried": 0
+          }
+        },
+        {
+          "invariant": "order",
+          "check": "논리 디코딩에 모든 행이 나옴",
+          "ok": true,
+          "actual": [
+            1500,
+            1500
+          ]
+        },
+        {
+          "invariant": "order",
+          "check": "커밋 순서와 id 순서 일치 (뒤집힘 0)",
+          "ok": false,
+          "actual": 30
+        },
+        {
+          "invariant": "skip",
+          "check": "4개 조회 모두 건너뛴 메시지 0",
+          "ok": false,
+          "actual": [
+            10,
+            5,
+            7,
+            10
+          ]
+        },
+        {
+          "invariant": "skip",
+          "check": "4개 조회 모두 id 오름차순",
+          "ok": true,
+          "actual": true
+        },
+        {
+          "invariant": "connection-loss",
+          "check": "연결이 실제로 끊김",
+          "ok": true,
+          "actual": {
+            "ProtocolViolation": 16
+          }
+        },
+        {
+          "invariant": "connection-loss",
+          "check": "커밋 뒤 응답 유실이 실제로 일어남 (재시도가 저장된 행을 돌려받음)",
+          "ok": true,
+          "actual": 13
+        },
+        {
+          "invariant": "connection-loss",
+          "check": "끊겨도 500이 될 예외 없음",
+          "ok": true,
+          "actual": {}
+        },
+        {
+          "invariant": "connection-loss",
+          "check": "재시도로 전부 확인",
+          "ok": true,
+          "actual": 120
+        },
+        {
+          "invariant": "connection-loss",
+          "check": "키마다 정확히 한 행",
+          "ok": true,
+          "actual": [
+            120,
+            120
+          ]
+        },
+        {
+          "invariant": "connection-loss",
+          "check": "끊긴 뒤 잠금이 남지 않음",
+          "ok": true,
+          "actual": 0
+        }
+      ]
+    },
+    {
+      "variant": "select-after-commit",
+      "image": "pg16",
+      "path": "direct",
+      "seconds": 39.5,
+      "load_average": [
+        3.82,
+        3.75,
+        3.7
+      ],
+      "checks": [
+        {
+          "invariant": "idempotent",
+          "check": "새 쓰기는 생성, 같은 키 재전송은 기존 메시지",
+          "ok": true,
+          "actual": [
+            true,
+            false
+          ]
+        },
+        {
+          "invariant": "idempotent",
+          "check": "재전송이 같은 행을 돌려줌",
+          "ok": true,
+          "actual": true
+        },
+        {
+          "invariant": "idempotent",
+          "check": "응답 필드가 원본과 같음",
+          "ok": true,
+          "actual": [
+            "attachment_id",
+            "attachment_name",
+            "attachment_size",
+            "attachment_type",
+            "author",
+            "body",
+            "created_at",
+            "id"
+          ]
+        },
+        {
+          "invariant": "idempotent",
+          "check": "같은 키에 다른 내용이면 충돌",
+          "ok": true,
+          "actual": [
+            "conflict",
+            "conflict",
+            "conflict"
+          ]
+        },
+        {
+          "invariant": "idempotent",
+          "check": "동시 같은 키 20건: 생성 1, 행 1, id 1",
+          "ok": true,
+          "actual": [
+            1,
+            1,
+            1
+          ]
+        },
+        {
+          "invariant": "idempotent",
+          "check": "내용이 다른 동시 재전송: 생성 1, 충돌 5, 다른 예외 0",
+          "ok": true,
+          "actual": [
+            1,
+            5,
+            []
+          ]
+        },
+        {
+          "invariant": "attachment",
+          "check": "없는 첨부는 UnknownAttachment",
+          "ok": true,
+          "actual": "unknown_attachment"
+        },
+        {
+          "invariant": "attachment",
+          "check": "실패한 쓰기의 행이 남지 않음",
+          "ok": true,
+          "actual": 0
+        },
+        {
+          "invariant": "attachment",
+          "check": "실패 뒤 잠금이 남지 않음",
+          "ok": true,
+          "actual": 0
+        },
+        {
+          "invariant": "attachment",
+          "check": "같은 연결 · 같은 키로 다시 보내면 정상 저장",
+          "ok": true,
+          "actual": true
+        },
+        {
+          "invariant": "attachment",
+          "check": "있는 첨부는 이름 · 형식 · 크기가 응답에 실림",
+          "ok": true,
+          "actual": [
+            "a.png",
+            "image/png",
+            3
+          ]
+        },
+        {
+          "invariant": "attachment",
+          "check": "첨부 있는 메시지의 재전송도 같은 응답",
+          "ok": true,
+          "actual": "a.png"
+        },
+        {
+          "invariant": "timeout",
+          "check": "잠금 대기 초과는 OperationalError(앱이 503으로 바꾼다)",
+          "ok": true,
+          "actual": "QueryCanceled"
+        },
+        {
+          "invariant": "timeout",
+          "check": "정해진 시간 안에 포기 (< 660ms)",
+          "ok": true,
+          "actual": 201.8
+        },
+        {
+          "invariant": "timeout",
+          "check": "잠금이 풀리면 같은 키로 저장",
+          "ok": true,
+          "actual": true
+        },
+        {
+          "invariant": "timeout",
+          "check": "같은 키 대기도 시간 안에 포기",
+          "ok": true,
+          "actual": [
+            "QueryCanceled",
+            201.9
+          ]
+        },
+        {
+          "invariant": "session",
+          "check": "쓰기 뒤 statement_timeout · lock_timeout이 세션에 남지 않음",
+          "ok": true,
+          "actual": [
+            "0",
+            "0"
+          ]
+        },
+        {
+          "invariant": "session",
+          "check": "연결의 자동 커밋 설정이 원래대로 돌아옴",
+          "ok": true,
+          "actual": false
+        },
+        {
+          "invariant": "order",
+          "check": "쓰기가 모두 저장됨",
+          "ok": true,
+          "actual": {
+            "rows": 1500,
+            "timeouts_retried": 4
+          }
+        },
+        {
+          "invariant": "order",
+          "check": "논리 디코딩에 모든 행이 나옴",
+          "ok": true,
+          "actual": [
+            1500,
+            1500
+          ]
+        },
+        {
+          "invariant": "order",
+          "check": "커밋 순서와 id 순서 일치 (뒤집힘 0)",
+          "ok": true,
+          "actual": 0
+        },
+        {
+          "invariant": "skip",
+          "check": "4개 조회 모두 건너뛴 메시지 0",
+          "ok": true,
+          "actual": [
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "invariant": "skip",
+          "check": "4개 조회 모두 id 오름차순",
+          "ok": true,
+          "actual": true
+        },
+        {
+          "invariant": "connection-loss",
+          "check": "연결이 실제로 끊김",
+          "ok": true,
+          "actual": {
+            "OperationalError": 125
+          }
+        },
+        {
+          "invariant": "connection-loss",
+          "check": "커밋 뒤 응답 유실이 실제로 일어남 (재시도가 저장된 행을 돌려받음)",
+          "ok": true,
+          "actual": 35
+        },
+        {
+          "invariant": "connection-loss",
+          "check": "끊겨도 500이 될 예외 없음",
+          "ok": true,
+          "actual": {}
+        },
+        {
+          "invariant": "connection-loss",
+          "check": "재시도로 전부 확인",
+          "ok": true,
+          "actual": 120
+        },
+        {
+          "invariant": "connection-loss",
+          "check": "키마다 정확히 한 행",
+          "ok": true,
+          "actual": [
+            120,
+            120
+          ]
+        },
+        {
+          "invariant": "connection-loss",
+          "check": "끊긴 뒤 잠금이 남지 않음",
+          "ok": true,
+          "actual": 0
+        }
+      ],
+      "demo_chat_pytest": {
+        "returncode": 0,
+        "summary": "24 passed, 1 warning in 5.34s"
+      }
+    },
+    {
+      "variant": "select-after-commit",
+      "image": "pg16",
+      "path": "pgbouncer",
+      "seconds": 89.2,
+      "load_average": [
+        3.16,
+        3.57,
+        3.63
+      ],
+      "checks": [
+        {
+          "invariant": "idempotent",
+          "check": "새 쓰기는 생성, 같은 키 재전송은 기존 메시지",
+          "ok": true,
+          "actual": [
+            true,
+            false
+          ]
+        },
+        {
+          "invariant": "idempotent",
+          "check": "재전송이 같은 행을 돌려줌",
+          "ok": true,
+          "actual": true
+        },
+        {
+          "invariant": "idempotent",
+          "check": "응답 필드가 원본과 같음",
+          "ok": true,
+          "actual": [
+            "attachment_id",
+            "attachment_name",
+            "attachment_size",
+            "attachment_type",
+            "author",
+            "body",
+            "created_at",
+            "id"
+          ]
+        },
+        {
+          "invariant": "idempotent",
+          "check": "같은 키에 다른 내용이면 충돌",
+          "ok": true,
+          "actual": [
+            "conflict",
+            "conflict",
+            "conflict"
+          ]
+        },
+        {
+          "invariant": "idempotent",
+          "check": "동시 같은 키 20건: 생성 1, 행 1, id 1",
+          "ok": true,
+          "actual": [
+            1,
+            1,
+            1
+          ]
+        },
+        {
+          "invariant": "idempotent",
+          "check": "내용이 다른 동시 재전송: 생성 1, 충돌 5, 다른 예외 0",
+          "ok": true,
+          "actual": [
+            1,
+            5,
+            []
+          ]
+        },
+        {
+          "invariant": "attachment",
+          "check": "없는 첨부는 UnknownAttachment",
+          "ok": true,
+          "actual": "unknown_attachment"
+        },
+        {
+          "invariant": "attachment",
+          "check": "실패한 쓰기의 행이 남지 않음",
+          "ok": true,
+          "actual": 0
+        },
+        {
+          "invariant": "attachment",
+          "check": "실패 뒤 잠금이 남지 않음",
+          "ok": true,
+          "actual": 0
+        },
+        {
+          "invariant": "attachment",
+          "check": "같은 연결 · 같은 키로 다시 보내면 정상 저장",
+          "ok": true,
+          "actual": true
+        },
+        {
+          "invariant": "attachment",
+          "check": "있는 첨부는 이름 · 형식 · 크기가 응답에 실림",
+          "ok": true,
+          "actual": [
+            "a.png",
+            "image/png",
+            3
+          ]
+        },
+        {
+          "invariant": "attachment",
+          "check": "첨부 있는 메시지의 재전송도 같은 응답",
+          "ok": true,
+          "actual": "a.png"
+        },
+        {
+          "invariant": "timeout",
+          "check": "잠금 대기 초과는 OperationalError(앱이 503으로 바꾼다)",
+          "ok": true,
+          "actual": "QueryCanceled"
+        },
+        {
+          "invariant": "timeout",
+          "check": "정해진 시간 안에 포기 (< 660ms)",
+          "ok": true,
+          "actual": 202.4
+        },
+        {
+          "invariant": "timeout",
+          "check": "잠금이 풀리면 같은 키로 저장",
+          "ok": true,
+          "actual": true
+        },
+        {
+          "invariant": "timeout",
+          "check": "같은 키 대기도 시간 안에 포기",
+          "ok": true,
+          "actual": [
+            "QueryCanceled",
+            204.4
+          ]
+        },
+        {
+          "invariant": "session",
+          "check": "쓰기 뒤 statement_timeout · lock_timeout이 세션에 남지 않음",
+          "ok": true,
+          "actual": [
+            "0",
+            "0"
+          ]
+        },
+        {
+          "invariant": "session",
+          "check": "연결의 자동 커밋 설정이 원래대로 돌아옴",
+          "ok": true,
+          "actual": false
+        },
+        {
+          "invariant": "order",
+          "check": "쓰기가 모두 저장됨",
+          "ok": true,
+          "actual": {
+            "rows": 1500,
+            "timeouts_retried": 5
+          }
+        },
+        {
+          "invariant": "order",
+          "check": "논리 디코딩에 모든 행이 나옴",
+          "ok": true,
+          "actual": [
+            1500,
+            1500
+          ]
+        },
+        {
+          "invariant": "order",
+          "check": "커밋 순서와 id 순서 일치 (뒤집힘 0)",
+          "ok": true,
+          "actual": 0
+        },
+        {
+          "invariant": "skip",
+          "check": "4개 조회 모두 건너뛴 메시지 0",
+          "ok": true,
+          "actual": [
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "invariant": "skip",
+          "check": "4개 조회 모두 id 오름차순",
+          "ok": true,
+          "actual": true
+        },
+        {
+          "invariant": "connection-loss",
+          "check": "연결이 실제로 끊김",
+          "ok": true,
+          "actual": {
+            "ProtocolViolation": 124
+          }
+        },
+        {
+          "invariant": "connection-loss",
+          "check": "커밋 뒤 응답 유실이 실제로 일어남 (재시도가 저장된 행을 돌려받음)",
+          "ok": true,
+          "actual": 30
+        },
+        {
+          "invariant": "connection-loss",
+          "check": "끊겨도 500이 될 예외 없음",
+          "ok": true,
+          "actual": {}
+        },
+        {
+          "invariant": "connection-loss",
+          "check": "재시도로 전부 확인",
+          "ok": true,
+          "actual": 120
+        },
+        {
+          "invariant": "connection-loss",
+          "check": "키마다 정확히 한 행",
+          "ok": true,
+          "actual": [
+            120,
+            120
+          ]
+        },
+        {
+          "invariant": "connection-loss",
+          "check": "끊긴 뒤 잠금이 남지 않음",
+          "ok": true,
+          "actual": 0
+        }
+      ]
+    },
+    {
+      "variant": "select-after-commit",
+      "image": "pg18",
+      "path": "direct",
+      "seconds": 40.4,
+      "load_average": [
+        4.16,
+        3.81,
+        3.72
+      ],
+      "checks": [
+        {
+          "invariant": "idempotent",
+          "check": "새 쓰기는 생성, 같은 키 재전송은 기존 메시지",
+          "ok": true,
+          "actual": [
+            true,
+            false
+          ]
+        },
+        {
+          "invariant": "idempotent",
+          "check": "재전송이 같은 행을 돌려줌",
+          "ok": true,
+          "actual": true
+        },
+        {
+          "invariant": "idempotent",
+          "check": "응답 필드가 원본과 같음",
+          "ok": true,
+          "actual": [
+            "attachment_id",
+            "attachment_name",
+            "attachment_size",
+            "attachment_type",
+            "author",
+            "body",
+            "created_at",
+            "id"
+          ]
+        },
+        {
+          "invariant": "idempotent",
+          "check": "같은 키에 다른 내용이면 충돌",
+          "ok": true,
+          "actual": [
+            "conflict",
+            "conflict",
+            "conflict"
+          ]
+        },
+        {
+          "invariant": "idempotent",
+          "check": "동시 같은 키 20건: 생성 1, 행 1, id 1",
+          "ok": true,
+          "actual": [
+            1,
+            1,
+            1
+          ]
+        },
+        {
+          "invariant": "idempotent",
+          "check": "내용이 다른 동시 재전송: 생성 1, 충돌 5, 다른 예외 0",
+          "ok": true,
+          "actual": [
+            1,
+            5,
+            []
+          ]
+        },
+        {
+          "invariant": "attachment",
+          "check": "없는 첨부는 UnknownAttachment",
+          "ok": true,
+          "actual": "unknown_attachment"
+        },
+        {
+          "invariant": "attachment",
+          "check": "실패한 쓰기의 행이 남지 않음",
+          "ok": true,
+          "actual": 0
+        },
+        {
+          "invariant": "attachment",
+          "check": "실패 뒤 잠금이 남지 않음",
+          "ok": true,
+          "actual": 0
+        },
+        {
+          "invariant": "attachment",
+          "check": "같은 연결 · 같은 키로 다시 보내면 정상 저장",
+          "ok": true,
+          "actual": true
+        },
+        {
+          "invariant": "attachment",
+          "check": "있는 첨부는 이름 · 형식 · 크기가 응답에 실림",
+          "ok": true,
+          "actual": [
+            "a.png",
+            "image/png",
+            3
+          ]
+        },
+        {
+          "invariant": "attachment",
+          "check": "첨부 있는 메시지의 재전송도 같은 응답",
+          "ok": true,
+          "actual": "a.png"
+        },
+        {
+          "invariant": "timeout",
+          "check": "잠금 대기 초과는 OperationalError(앱이 503으로 바꾼다)",
+          "ok": true,
+          "actual": "QueryCanceled"
+        },
+        {
+          "invariant": "timeout",
+          "check": "정해진 시간 안에 포기 (< 660ms)",
+          "ok": true,
+          "actual": 213.1
+        },
+        {
+          "invariant": "timeout",
+          "check": "잠금이 풀리면 같은 키로 저장",
+          "ok": true,
+          "actual": true
+        },
+        {
+          "invariant": "timeout",
+          "check": "같은 키 대기도 시간 안에 포기",
+          "ok": true,
+          "actual": [
+            "QueryCanceled",
+            204.8
+          ]
+        },
+        {
+          "invariant": "session",
+          "check": "쓰기 뒤 statement_timeout · lock_timeout이 세션에 남지 않음",
+          "ok": true,
+          "actual": [
+            "0",
+            "0"
+          ]
+        },
+        {
+          "invariant": "session",
+          "check": "연결의 자동 커밋 설정이 원래대로 돌아옴",
+          "ok": true,
+          "actual": false
+        },
+        {
+          "invariant": "order",
+          "check": "쓰기가 모두 저장됨",
+          "ok": true,
+          "actual": {
+            "rows": 1500,
+            "timeouts_retried": 5
+          }
+        },
+        {
+          "invariant": "order",
+          "check": "논리 디코딩에 모든 행이 나옴",
+          "ok": true,
+          "actual": [
+            1500,
+            1500
+          ]
+        },
+        {
+          "invariant": "order",
+          "check": "커밋 순서와 id 순서 일치 (뒤집힘 0)",
+          "ok": true,
+          "actual": 0
+        },
+        {
+          "invariant": "skip",
+          "check": "4개 조회 모두 건너뛴 메시지 0",
+          "ok": true,
+          "actual": [
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "invariant": "skip",
+          "check": "4개 조회 모두 id 오름차순",
+          "ok": true,
+          "actual": true
+        },
+        {
+          "invariant": "connection-loss",
+          "check": "연결이 실제로 끊김",
+          "ok": true,
+          "actual": {
+            "OperationalError": 122
+          }
+        },
+        {
+          "invariant": "connection-loss",
+          "check": "커밋 뒤 응답 유실이 실제로 일어남 (재시도가 저장된 행을 돌려받음)",
+          "ok": true,
+          "actual": 34
+        },
+        {
+          "invariant": "connection-loss",
+          "check": "끊겨도 500이 될 예외 없음",
+          "ok": true,
+          "actual": {}
+        },
+        {
+          "invariant": "connection-loss",
+          "check": "재시도로 전부 확인",
+          "ok": true,
+          "actual": 120
+        },
+        {
+          "invariant": "connection-loss",
+          "check": "키마다 정확히 한 행",
+          "ok": true,
+          "actual": [
+            120,
+            120
+          ]
+        },
+        {
+          "invariant": "connection-loss",
+          "check": "끊긴 뒤 잠금이 남지 않음",
+          "ok": true,
+          "actual": 0
+        }
+      ],
+      "demo_chat_pytest": {
+        "returncode": 0,
+        "summary": "24 passed, 1 warning in 5.08s"
+      }
+    },
+    {
+      "variant": "select-after-commit",
+      "image": "pg18",
+      "path": "pgbouncer",
+      "seconds": 91.2,
+      "load_average": [
+        4.18,
+        4.12,
+        3.86
+      ],
+      "checks": [
+        {
+          "invariant": "idempotent",
+          "check": "새 쓰기는 생성, 같은 키 재전송은 기존 메시지",
+          "ok": true,
+          "actual": [
+            true,
+            false
+          ]
+        },
+        {
+          "invariant": "idempotent",
+          "check": "재전송이 같은 행을 돌려줌",
+          "ok": true,
+          "actual": true
+        },
+        {
+          "invariant": "idempotent",
+          "check": "응답 필드가 원본과 같음",
+          "ok": true,
+          "actual": [
+            "attachment_id",
+            "attachment_name",
+            "attachment_size",
+            "attachment_type",
+            "author",
+            "body",
+            "created_at",
+            "id"
+          ]
+        },
+        {
+          "invariant": "idempotent",
+          "check": "같은 키에 다른 내용이면 충돌",
+          "ok": true,
+          "actual": [
+            "conflict",
+            "conflict",
+            "conflict"
+          ]
+        },
+        {
+          "invariant": "idempotent",
+          "check": "동시 같은 키 20건: 생성 1, 행 1, id 1",
+          "ok": true,
+          "actual": [
+            1,
+            1,
+            1
+          ]
+        },
+        {
+          "invariant": "idempotent",
+          "check": "내용이 다른 동시 재전송: 생성 1, 충돌 5, 다른 예외 0",
+          "ok": true,
+          "actual": [
+            1,
+            5,
+            []
+          ]
+        },
+        {
+          "invariant": "attachment",
+          "check": "없는 첨부는 UnknownAttachment",
+          "ok": true,
+          "actual": "unknown_attachment"
+        },
+        {
+          "invariant": "attachment",
+          "check": "실패한 쓰기의 행이 남지 않음",
+          "ok": true,
+          "actual": 0
+        },
+        {
+          "invariant": "attachment",
+          "check": "실패 뒤 잠금이 남지 않음",
+          "ok": true,
+          "actual": 0
+        },
+        {
+          "invariant": "attachment",
+          "check": "같은 연결 · 같은 키로 다시 보내면 정상 저장",
+          "ok": true,
+          "actual": true
+        },
+        {
+          "invariant": "attachment",
+          "check": "있는 첨부는 이름 · 형식 · 크기가 응답에 실림",
+          "ok": true,
+          "actual": [
+            "a.png",
+            "image/png",
+            3
+          ]
+        },
+        {
+          "invariant": "attachment",
+          "check": "첨부 있는 메시지의 재전송도 같은 응답",
+          "ok": true,
+          "actual": "a.png"
+        },
+        {
+          "invariant": "timeout",
+          "check": "잠금 대기 초과는 OperationalError(앱이 503으로 바꾼다)",
+          "ok": true,
+          "actual": "QueryCanceled"
+        },
+        {
+          "invariant": "timeout",
+          "check": "정해진 시간 안에 포기 (< 660ms)",
+          "ok": true,
+          "actual": 203.2
+        },
+        {
+          "invariant": "timeout",
+          "check": "잠금이 풀리면 같은 키로 저장",
+          "ok": true,
+          "actual": true
+        },
+        {
+          "invariant": "timeout",
+          "check": "같은 키 대기도 시간 안에 포기",
+          "ok": true,
+          "actual": [
+            "QueryCanceled",
+            204.8
+          ]
+        },
+        {
+          "invariant": "session",
+          "check": "쓰기 뒤 statement_timeout · lock_timeout이 세션에 남지 않음",
+          "ok": true,
+          "actual": [
+            "0",
+            "0"
+          ]
+        },
+        {
+          "invariant": "session",
+          "check": "연결의 자동 커밋 설정이 원래대로 돌아옴",
+          "ok": true,
+          "actual": false
+        },
+        {
+          "invariant": "order",
+          "check": "쓰기가 모두 저장됨",
+          "ok": true,
+          "actual": {
+            "rows": 1500,
+            "timeouts_retried": 5
+          }
+        },
+        {
+          "invariant": "order",
+          "check": "논리 디코딩에 모든 행이 나옴",
+          "ok": true,
+          "actual": [
+            1500,
+            1500
+          ]
+        },
+        {
+          "invariant": "order",
+          "check": "커밋 순서와 id 순서 일치 (뒤집힘 0)",
+          "ok": true,
+          "actual": 0
+        },
+        {
+          "invariant": "skip",
+          "check": "4개 조회 모두 건너뛴 메시지 0",
+          "ok": true,
+          "actual": [
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "invariant": "skip",
+          "check": "4개 조회 모두 id 오름차순",
+          "ok": true,
+          "actual": true
+        },
+        {
+          "invariant": "connection-loss",
+          "check": "연결이 실제로 끊김",
+          "ok": true,
+          "actual": {
+            "ProtocolViolation": 124
+          }
+        },
+        {
+          "invariant": "connection-loss",
+          "check": "커밋 뒤 응답 유실이 실제로 일어남 (재시도가 저장된 행을 돌려받음)",
+          "ok": true,
+          "actual": 30
+        },
+        {
+          "invariant": "connection-loss",
+          "check": "끊겨도 500이 될 예외 없음",
+          "ok": true,
+          "actual": {}
+        },
+        {
+          "invariant": "connection-loss",
+          "check": "재시도로 전부 확인",
+          "ok": true,
+          "actual": 120
+        },
+        {
+          "invariant": "connection-loss",
+          "check": "키마다 정확히 한 행",
+          "ok": true,
+          "actual": [
+            120,
+            120
+          ]
+        },
+        {
+          "invariant": "connection-loss",
+          "check": "끊긴 뒤 잠금이 남지 않음",
+          "ok": true,
+          "actual": 0
+        }
+      ]
+    },
+    {
+      "variant": "baseline",
+      "image": "pg16",
+      "path": "direct",
+      "seconds": 71.1,
+      "load_average": [
+        6.72,
+        4.93,
+        4.19
+      ],
+      "checks": [
+        {
+          "invariant": "idempotent",
+          "check": "새 쓰기는 생성, 같은 키 재전송은 기존 메시지",
+          "ok": true,
+          "actual": [
+            true,
+            false
+          ]
+        },
+        {
+          "invariant": "idempotent",
+          "check": "재전송이 같은 행을 돌려줌",
+          "ok": true,
+          "actual": true
+        },
+        {
+          "invariant": "idempotent",
+          "check": "응답 필드가 원본과 같음",
+          "ok": true,
+          "actual": [
+            "attachment_id",
+            "attachment_name",
+            "attachment_size",
+            "attachment_type",
+            "author",
+            "body",
+            "created_at",
+            "id"
+          ]
+        },
+        {
+          "invariant": "idempotent",
+          "check": "같은 키에 다른 내용이면 충돌",
+          "ok": true,
+          "actual": [
+            "conflict",
+            "conflict",
+            "conflict"
+          ]
+        },
+        {
+          "invariant": "idempotent",
+          "check": "동시 같은 키 20건: 생성 1, 행 1, id 1",
+          "ok": true,
+          "actual": [
+            1,
+            1,
+            1
+          ]
+        },
+        {
+          "invariant": "idempotent",
+          "check": "내용이 다른 동시 재전송: 생성 1, 충돌 5, 다른 예외 0",
+          "ok": true,
+          "actual": [
+            1,
+            5,
+            []
+          ]
+        },
+        {
+          "invariant": "attachment",
+          "check": "없는 첨부는 UnknownAttachment",
+          "ok": true,
+          "actual": "unknown_attachment"
+        },
+        {
+          "invariant": "attachment",
+          "check": "실패한 쓰기의 행이 남지 않음",
+          "ok": true,
+          "actual": 0
+        },
+        {
+          "invariant": "attachment",
+          "check": "실패 뒤 잠금이 남지 않음",
+          "ok": true,
+          "actual": 0
+        },
+        {
+          "invariant": "attachment",
+          "check": "같은 연결 · 같은 키로 다시 보내면 정상 저장",
+          "ok": true,
+          "actual": true
+        },
+        {
+          "invariant": "attachment",
+          "check": "있는 첨부는 이름 · 형식 · 크기가 응답에 실림",
+          "ok": true,
+          "actual": [
+            "a.png",
+            "image/png",
+            3
+          ]
+        },
+        {
+          "invariant": "attachment",
+          "check": "첨부 있는 메시지의 재전송도 같은 응답",
+          "ok": true,
+          "actual": "a.png"
+        },
+        {
+          "invariant": "timeout",
+          "check": "잠금 대기 초과는 OperationalError(앱이 503으로 바꾼다)",
+          "ok": true,
+          "actual": "QueryCanceled"
+        },
+        {
+          "invariant": "timeout",
+          "check": "정해진 시간 안에 포기 (< 660ms)",
+          "ok": true,
+          "actual": 212.8
+        },
+        {
+          "invariant": "timeout",
+          "check": "잠금이 풀리면 같은 키로 저장",
+          "ok": true,
+          "actual": true
+        },
+        {
+          "invariant": "timeout",
+          "check": "같은 키 대기도 시간 안에 포기",
+          "ok": true,
+          "actual": [
+            "QueryCanceled",
+            206.2
+          ]
+        },
+        {
+          "invariant": "session",
+          "check": "쓰기 뒤 statement_timeout · lock_timeout이 세션에 남지 않음",
+          "ok": true,
+          "actual": [
+            "0",
+            "0"
+          ]
+        },
+        {
+          "invariant": "session",
+          "check": "연결의 자동 커밋 설정이 원래대로 돌아옴",
+          "ok": true,
+          "actual": false
+        },
+        {
+          "invariant": "order",
+          "check": "쓰기가 모두 저장됨",
+          "ok": true,
+          "actual": {
+            "rows": 1500,
+            "timeouts_retried": 814
+          }
+        },
+        {
+          "invariant": "order",
+          "check": "논리 디코딩에 모든 행이 나옴",
+          "ok": true,
+          "actual": [
+            1500,
+            1500
+          ]
+        },
+        {
+          "invariant": "order",
+          "check": "커밋 순서와 id 순서 일치 (뒤집힘 0)",
+          "ok": true,
+          "actual": 0
+        },
+        {
+          "invariant": "skip",
+          "check": "4개 조회 모두 건너뛴 메시지 0",
+          "ok": true,
+          "actual": [
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "invariant": "skip",
+          "check": "4개 조회 모두 id 오름차순",
+          "ok": true,
+          "actual": true
+        },
+        {
+          "invariant": "connection-loss",
+          "check": "연결이 실제로 끊김",
+          "ok": true,
+          "actual": {
+            "OperationalError": 78
+          }
+        },
+        {
+          "invariant": "connection-loss",
+          "check": "커밋 뒤 응답 유실이 실제로 일어남 (재시도가 저장된 행을 돌려받음)",
+          "ok": true,
+          "actual": 15
+        },
+        {
+          "invariant": "connection-loss",
+          "check": "끊겨도 500이 될 예외 없음",
+          "ok": true,
+          "actual": {}
+        },
+        {
+          "invariant": "connection-loss",
+          "check": "재시도로 전부 확인",
+          "ok": true,
+          "actual": 120
+        },
+        {
+          "invariant": "connection-loss",
+          "check": "키마다 정확히 한 행",
+          "ok": true,
+          "actual": [
+            120,
+            120
+          ]
+        },
+        {
+          "invariant": "connection-loss",
+          "check": "끊긴 뒤 잠금이 남지 않음",
+          "ok": true,
+          "actual": 0
+        }
+      ],
+      "demo_chat_pytest": {
+        "returncode": 0,
+        "summary": "24 passed, 1 warning in 5.08s"
+      }
+    },
+    {
+      "variant": "baseline",
+      "image": "pg16",
+      "path": "pgbouncer",
+      "seconds": 98.3,
+      "load_average": [
+        4.4,
+        4.8,
+        4.23
+      ],
+      "checks": [
+        {
+          "invariant": "idempotent",
+          "check": "새 쓰기는 생성, 같은 키 재전송은 기존 메시지",
+          "ok": true,
+          "actual": [
+            true,
+            false
+          ]
+        },
+        {
+          "invariant": "idempotent",
+          "check": "재전송이 같은 행을 돌려줌",
+          "ok": true,
+          "actual": true
+        },
+        {
+          "invariant": "idempotent",
+          "check": "응답 필드가 원본과 같음",
+          "ok": true,
+          "actual": [
+            "attachment_id",
+            "attachment_name",
+            "attachment_size",
+            "attachment_type",
+            "author",
+            "body",
+            "created_at",
+            "id"
+          ]
+        },
+        {
+          "invariant": "idempotent",
+          "check": "같은 키에 다른 내용이면 충돌",
+          "ok": true,
+          "actual": [
+            "conflict",
+            "conflict",
+            "conflict"
+          ]
+        },
+        {
+          "invariant": "idempotent",
+          "check": "동시 같은 키 20건: 생성 1, 행 1, id 1",
+          "ok": true,
+          "actual": [
+            1,
+            1,
+            1
+          ]
+        },
+        {
+          "invariant": "idempotent",
+          "check": "내용이 다른 동시 재전송: 생성 1, 충돌 5, 다른 예외 0",
+          "ok": true,
+          "actual": [
+            1,
+            5,
+            []
+          ]
+        },
+        {
+          "invariant": "attachment",
+          "check": "없는 첨부는 UnknownAttachment",
+          "ok": true,
+          "actual": "unknown_attachment"
+        },
+        {
+          "invariant": "attachment",
+          "check": "실패한 쓰기의 행이 남지 않음",
+          "ok": true,
+          "actual": 0
+        },
+        {
+          "invariant": "attachment",
+          "check": "실패 뒤 잠금이 남지 않음",
+          "ok": true,
+          "actual": 0
+        },
+        {
+          "invariant": "attachment",
+          "check": "같은 연결 · 같은 키로 다시 보내면 정상 저장",
+          "ok": true,
+          "actual": true
+        },
+        {
+          "invariant": "attachment",
+          "check": "있는 첨부는 이름 · 형식 · 크기가 응답에 실림",
+          "ok": true,
+          "actual": [
+            "a.png",
+            "image/png",
+            3
+          ]
+        },
+        {
+          "invariant": "attachment",
+          "check": "첨부 있는 메시지의 재전송도 같은 응답",
+          "ok": true,
+          "actual": "a.png"
+        },
+        {
+          "invariant": "timeout",
+          "check": "잠금 대기 초과는 OperationalError(앱이 503으로 바꾼다)",
+          "ok": true,
+          "actual": "QueryCanceled"
+        },
+        {
+          "invariant": "timeout",
+          "check": "정해진 시간 안에 포기 (< 660ms)",
+          "ok": true,
+          "actual": 206.5
+        },
+        {
+          "invariant": "timeout",
+          "check": "잠금이 풀리면 같은 키로 저장",
+          "ok": true,
+          "actual": true
+        },
+        {
+          "invariant": "timeout",
+          "check": "같은 키 대기도 시간 안에 포기",
+          "ok": true,
+          "actual": [
+            "QueryCanceled",
+            207.0
+          ]
+        },
+        {
+          "invariant": "session",
+          "check": "쓰기 뒤 statement_timeout · lock_timeout이 세션에 남지 않음",
+          "ok": true,
+          "actual": [
+            "0",
+            "0"
+          ]
+        },
+        {
+          "invariant": "session",
+          "check": "연결의 자동 커밋 설정이 원래대로 돌아옴",
+          "ok": true,
+          "actual": false
+        },
+        {
+          "invariant": "order",
+          "check": "쓰기가 모두 저장됨",
+          "ok": true,
+          "actual": {
+            "rows": 1500,
+            "timeouts_retried": 775
+          }
+        },
+        {
+          "invariant": "order",
+          "check": "논리 디코딩에 모든 행이 나옴",
+          "ok": true,
+          "actual": [
+            1500,
+            1500
+          ]
+        },
+        {
+          "invariant": "order",
+          "check": "커밋 순서와 id 순서 일치 (뒤집힘 0)",
+          "ok": true,
+          "actual": 0
+        },
+        {
+          "invariant": "skip",
+          "check": "4개 조회 모두 건너뛴 메시지 0",
+          "ok": true,
+          "actual": [
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "invariant": "skip",
+          "check": "4개 조회 모두 id 오름차순",
+          "ok": true,
+          "actual": true
+        },
+        {
+          "invariant": "connection-loss",
+          "check": "연결이 실제로 끊김",
+          "ok": true,
+          "actual": {
+            "ProtocolViolation": 78
+          }
+        },
+        {
+          "invariant": "connection-loss",
+          "check": "커밋 뒤 응답 유실이 실제로 일어남 (재시도가 저장된 행을 돌려받음)",
+          "ok": true,
+          "actual": 13
+        },
+        {
+          "invariant": "connection-loss",
+          "check": "끊겨도 500이 될 예외 없음",
+          "ok": true,
+          "actual": {}
+        },
+        {
+          "invariant": "connection-loss",
+          "check": "재시도로 전부 확인",
+          "ok": true,
+          "actual": 120
+        },
+        {
+          "invariant": "connection-loss",
+          "check": "키마다 정확히 한 행",
+          "ok": true,
+          "actual": [
+            120,
+            120
+          ]
+        },
+        {
+          "invariant": "connection-loss",
+          "check": "끊긴 뒤 잠금이 남지 않음",
+          "ok": true,
+          "actual": 0
+        }
+      ]
+    },
+    {
+      "variant": "baseline",
+      "image": "pg18",
+      "path": "direct",
+      "seconds": 68.6,
+      "load_average": [
+        5.36,
+        5.08,
+        4.39
+      ],
+      "checks": [
+        {
+          "invariant": "idempotent",
+          "check": "새 쓰기는 생성, 같은 키 재전송은 기존 메시지",
+          "ok": true,
+          "actual": [
+            true,
+            false
+          ]
+        },
+        {
+          "invariant": "idempotent",
+          "check": "재전송이 같은 행을 돌려줌",
+          "ok": true,
+          "actual": true
+        },
+        {
+          "invariant": "idempotent",
+          "check": "응답 필드가 원본과 같음",
+          "ok": true,
+          "actual": [
+            "attachment_id",
+            "attachment_name",
+            "attachment_size",
+            "attachment_type",
+            "author",
+            "body",
+            "created_at",
+            "id"
+          ]
+        },
+        {
+          "invariant": "idempotent",
+          "check": "같은 키에 다른 내용이면 충돌",
+          "ok": true,
+          "actual": [
+            "conflict",
+            "conflict",
+            "conflict"
+          ]
+        },
+        {
+          "invariant": "idempotent",
+          "check": "동시 같은 키 20건: 생성 1, 행 1, id 1",
+          "ok": true,
+          "actual": [
+            1,
+            1,
+            1
+          ]
+        },
+        {
+          "invariant": "idempotent",
+          "check": "내용이 다른 동시 재전송: 생성 1, 충돌 5, 다른 예외 0",
+          "ok": true,
+          "actual": [
+            1,
+            5,
+            []
+          ]
+        },
+        {
+          "invariant": "attachment",
+          "check": "없는 첨부는 UnknownAttachment",
+          "ok": true,
+          "actual": "unknown_attachment"
+        },
+        {
+          "invariant": "attachment",
+          "check": "실패한 쓰기의 행이 남지 않음",
+          "ok": true,
+          "actual": 0
+        },
+        {
+          "invariant": "attachment",
+          "check": "실패 뒤 잠금이 남지 않음",
+          "ok": true,
+          "actual": 0
+        },
+        {
+          "invariant": "attachment",
+          "check": "같은 연결 · 같은 키로 다시 보내면 정상 저장",
+          "ok": true,
+          "actual": true
+        },
+        {
+          "invariant": "attachment",
+          "check": "있는 첨부는 이름 · 형식 · 크기가 응답에 실림",
+          "ok": true,
+          "actual": [
+            "a.png",
+            "image/png",
+            3
+          ]
+        },
+        {
+          "invariant": "attachment",
+          "check": "첨부 있는 메시지의 재전송도 같은 응답",
+          "ok": true,
+          "actual": "a.png"
+        },
+        {
+          "invariant": "timeout",
+          "check": "잠금 대기 초과는 OperationalError(앱이 503으로 바꾼다)",
+          "ok": true,
+          "actual": "QueryCanceled"
+        },
+        {
+          "invariant": "timeout",
+          "check": "정해진 시간 안에 포기 (< 660ms)",
+          "ok": true,
+          "actual": 206.1
+        },
+        {
+          "invariant": "timeout",
+          "check": "잠금이 풀리면 같은 키로 저장",
+          "ok": true,
+          "actual": true
+        },
+        {
+          "invariant": "timeout",
+          "check": "같은 키 대기도 시간 안에 포기",
+          "ok": true,
+          "actual": [
+            "QueryCanceled",
+            205.7
+          ]
+        },
+        {
+          "invariant": "session",
+          "check": "쓰기 뒤 statement_timeout · lock_timeout이 세션에 남지 않음",
+          "ok": true,
+          "actual": [
+            "0",
+            "0"
+          ]
+        },
+        {
+          "invariant": "session",
+          "check": "연결의 자동 커밋 설정이 원래대로 돌아옴",
+          "ok": true,
+          "actual": false
+        },
+        {
+          "invariant": "order",
+          "check": "쓰기가 모두 저장됨",
+          "ok": true,
+          "actual": {
+            "rows": 1500,
+            "timeouts_retried": 749
+          }
+        },
+        {
+          "invariant": "order",
+          "check": "논리 디코딩에 모든 행이 나옴",
+          "ok": true,
+          "actual": [
+            1500,
+            1500
+          ]
+        },
+        {
+          "invariant": "order",
+          "check": "커밋 순서와 id 순서 일치 (뒤집힘 0)",
+          "ok": true,
+          "actual": 0
+        },
+        {
+          "invariant": "skip",
+          "check": "4개 조회 모두 건너뛴 메시지 0",
+          "ok": true,
+          "actual": [
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "invariant": "skip",
+          "check": "4개 조회 모두 id 오름차순",
+          "ok": true,
+          "actual": true
+        },
+        {
+          "invariant": "connection-loss",
+          "check": "연결이 실제로 끊김",
+          "ok": true,
+          "actual": {
+            "OperationalError": 75
+          }
+        },
+        {
+          "invariant": "connection-loss",
+          "check": "커밋 뒤 응답 유실이 실제로 일어남 (재시도가 저장된 행을 돌려받음)",
+          "ok": true,
+          "actual": 14
+        },
+        {
+          "invariant": "connection-loss",
+          "check": "끊겨도 500이 될 예외 없음",
+          "ok": true,
+          "actual": {}
+        },
+        {
+          "invariant": "connection-loss",
+          "check": "재시도로 전부 확인",
+          "ok": true,
+          "actual": 120
+        },
+        {
+          "invariant": "connection-loss",
+          "check": "키마다 정확히 한 행",
+          "ok": true,
+          "actual": [
+            120,
+            120
+          ]
+        },
+        {
+          "invariant": "connection-loss",
+          "check": "끊긴 뒤 잠금이 남지 않음",
+          "ok": true,
+          "actual": 0
+        }
+      ],
+      "demo_chat_pytest": {
+        "returncode": 0,
+        "summary": "24 passed, 1 warning in 5.09s"
+      }
+    },
+    {
+      "variant": "baseline",
+      "image": "pg18",
+      "path": "pgbouncer",
+      "seconds": 98.0,
+      "load_average": [
+        4.29,
+        4.9,
+        4.4
+      ],
+      "checks": [
+        {
+          "invariant": "idempotent",
+          "check": "새 쓰기는 생성, 같은 키 재전송은 기존 메시지",
+          "ok": true,
+          "actual": [
+            true,
+            false
+          ]
+        },
+        {
+          "invariant": "idempotent",
+          "check": "재전송이 같은 행을 돌려줌",
+          "ok": true,
+          "actual": true
+        },
+        {
+          "invariant": "idempotent",
+          "check": "응답 필드가 원본과 같음",
+          "ok": true,
+          "actual": [
+            "attachment_id",
+            "attachment_name",
+            "attachment_size",
+            "attachment_type",
+            "author",
+            "body",
+            "created_at",
+            "id"
+          ]
+        },
+        {
+          "invariant": "idempotent",
+          "check": "같은 키에 다른 내용이면 충돌",
+          "ok": true,
+          "actual": [
+            "conflict",
+            "conflict",
+            "conflict"
+          ]
+        },
+        {
+          "invariant": "idempotent",
+          "check": "동시 같은 키 20건: 생성 1, 행 1, id 1",
+          "ok": true,
+          "actual": [
+            1,
+            1,
+            1
+          ]
+        },
+        {
+          "invariant": "idempotent",
+          "check": "내용이 다른 동시 재전송: 생성 1, 충돌 5, 다른 예외 0",
+          "ok": true,
+          "actual": [
+            1,
+            5,
+            []
+          ]
+        },
+        {
+          "invariant": "attachment",
+          "check": "없는 첨부는 UnknownAttachment",
+          "ok": true,
+          "actual": "unknown_attachment"
+        },
+        {
+          "invariant": "attachment",
+          "check": "실패한 쓰기의 행이 남지 않음",
+          "ok": true,
+          "actual": 0
+        },
+        {
+          "invariant": "attachment",
+          "check": "실패 뒤 잠금이 남지 않음",
+          "ok": true,
+          "actual": 0
+        },
+        {
+          "invariant": "attachment",
+          "check": "같은 연결 · 같은 키로 다시 보내면 정상 저장",
+          "ok": true,
+          "actual": true
+        },
+        {
+          "invariant": "attachment",
+          "check": "있는 첨부는 이름 · 형식 · 크기가 응답에 실림",
+          "ok": true,
+          "actual": [
+            "a.png",
+            "image/png",
+            3
+          ]
+        },
+        {
+          "invariant": "attachment",
+          "check": "첨부 있는 메시지의 재전송도 같은 응답",
+          "ok": true,
+          "actual": "a.png"
+        },
+        {
+          "invariant": "timeout",
+          "check": "잠금 대기 초과는 OperationalError(앱이 503으로 바꾼다)",
+          "ok": true,
+          "actual": "QueryCanceled"
+        },
+        {
+          "invariant": "timeout",
+          "check": "정해진 시간 안에 포기 (< 660ms)",
+          "ok": true,
+          "actual": 206.9
+        },
+        {
+          "invariant": "timeout",
+          "check": "잠금이 풀리면 같은 키로 저장",
+          "ok": true,
+          "actual": true
+        },
+        {
+          "invariant": "timeout",
+          "check": "같은 키 대기도 시간 안에 포기",
+          "ok": true,
+          "actual": [
+            "QueryCanceled",
+            204.2
+          ]
+        },
+        {
+          "invariant": "session",
+          "check": "쓰기 뒤 statement_timeout · lock_timeout이 세션에 남지 않음",
+          "ok": true,
+          "actual": [
+            "0",
+            "0"
+          ]
+        },
+        {
+          "invariant": "session",
+          "check": "연결의 자동 커밋 설정이 원래대로 돌아옴",
+          "ok": true,
+          "actual": false
+        },
+        {
+          "invariant": "order",
+          "check": "쓰기가 모두 저장됨",
+          "ok": true,
+          "actual": {
+            "rows": 1500,
+            "timeouts_retried": 700
+          }
+        },
+        {
+          "invariant": "order",
+          "check": "논리 디코딩에 모든 행이 나옴",
+          "ok": true,
+          "actual": [
+            1500,
+            1500
+          ]
+        },
+        {
+          "invariant": "order",
+          "check": "커밋 순서와 id 순서 일치 (뒤집힘 0)",
+          "ok": true,
+          "actual": 0
+        },
+        {
+          "invariant": "skip",
+          "check": "4개 조회 모두 건너뛴 메시지 0",
+          "ok": true,
+          "actual": [
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "invariant": "skip",
+          "check": "4개 조회 모두 id 오름차순",
+          "ok": true,
+          "actual": true
+        },
+        {
+          "invariant": "connection-loss",
+          "check": "연결이 실제로 끊김",
+          "ok": true,
+          "actual": {
+            "ProtocolViolation": 78
+          }
+        },
+        {
+          "invariant": "connection-loss",
+          "check": "커밋 뒤 응답 유실이 실제로 일어남 (재시도가 저장된 행을 돌려받음)",
+          "ok": true,
+          "actual": 13
+        },
+        {
+          "invariant": "connection-loss",
+          "check": "끊겨도 500이 될 예외 없음",
+          "ok": true,
+          "actual": {}
+        },
+        {
+          "invariant": "connection-loss",
+          "check": "재시도로 전부 확인",
+          "ok": true,
+          "actual": 120
+        },
+        {
+          "invariant": "connection-loss",
+          "check": "키마다 정확히 한 행",
+          "ok": true,
+          "actual": [
+            120,
+            120
+          ]
+        },
+        {
+          "invariant": "connection-loss",
+          "check": "끊긴 뒤 잠금이 남지 않음",
+          "ok": true,
+          "actual": 0
+        }
+      ]
+    }
+  ]
+}

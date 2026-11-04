@@ -1,0 +1,133 @@
+{
+  "old_implementation": "services/loadgen/src/bravo_loadgen/windows.py @ 3d0e3f4",
+  "reference": "services/observability bravo_observability.build_window @ ff7310d4677da216d1f526f18bacd9245d1effbd",
+  "synthetic_cases": 5000,
+  "synthetic_differences": 0,
+  "synthetic_seed": 18,
+  "measured_scenarios": 20,
+  "measured_windows": 58,
+  "measured_differences": 0,
+  "measured_note": "journal latencies are rounded to 3 decimals, so p95 is compared within 0.001 ms; counts must be exactly equal",
+  "detail": [
+    {
+      "scenario": "ack-loss",
+      "windows": 1,
+      "attempts": 359,
+      "differences": 0
+    },
+    {
+      "scenario": "all-failed",
+      "windows": 1,
+      "attempts": 220,
+      "differences": 0
+    },
+    {
+      "scenario": "db-pause",
+      "windows": 3,
+      "attempts": 6013,
+      "differences": 0
+    },
+    {
+      "scenario": "direct",
+      "windows": 6,
+      "attempts": 12000,
+      "differences": 0
+    },
+    {
+      "scenario": "edge-error",
+      "windows": 2,
+      "attempts": 4331,
+      "differences": 0
+    },
+    {
+      "scenario": "failed-but-stored",
+      "windows": 1,
+      "attempts": 220,
+      "differences": 0
+    },
+    {
+      "scenario": "generator-stall",
+      "windows": 3,
+      "attempts": 1200,
+      "differences": 0
+    },
+    {
+      "scenario": "low-sample",
+      "windows": 2,
+      "attempts": 125,
+      "differences": 0
+    },
+    {
+      "scenario": "mock-edge-10",
+      "windows": 6,
+      "attempts": 12000,
+      "differences": 0
+    },
+    {
+      "scenario": "rtt0-w10",
+      "windows": 3,
+      "attempts": 6000,
+      "differences": 0
+    },
+    {
+      "scenario": "rtt0-w50",
+      "windows": 3,
+      "attempts": 6000,
+      "differences": 0
+    },
+    {
+      "scenario": "rtt20-w10",
+      "windows": 3,
+      "attempts": 6000,
+      "differences": 0
+    },
+    {
+      "scenario": "rtt20-w50",
+      "windows": 4,
+      "attempts": 7338,
+      "differences": 0
+    },
+    {
+      "scenario": "rtt40-w10",
+      "windows": 3,
+      "attempts": 6098,
+      "differences": 0
+    },
+    {
+      "scenario": "rtt40-w50",
+      "windows": 6,
+      "attempts": 9179,
+      "differences": 0
+    },
+    {
+      "scenario": "rtt5-w10",
+      "windows": 3,
+      "attempts": 6000,
+      "differences": 0
+    },
+    {
+      "scenario": "rtt5-w50",
+      "windows": 3,
+      "attempts": 6000,
+      "differences": 0
+    },
+    {
+      "scenario": "sink-down",
+      "windows": 1,
+      "attempts": 240,
+      "differences": 0
+    },
+    {
+      "scenario": "tamper",
+      "windows": 1,
+      "attempts": 330,
+      "differences": 0
+    },
+    {
+      "scenario": "write-block",
+      "windows": 3,
+      "attempts": 6453,
+      "differences": 0
+    }
+  ]
+}

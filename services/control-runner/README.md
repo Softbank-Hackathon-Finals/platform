@@ -12,8 +12,11 @@ T5의 평가 프로필에 따라 관찰 결과를 `PASS / FAIL / UNKNOWN`으로 
 | gitleaks 결과 어댑터·실행기 | 소스와 렌더된 설정 양쪽 보고서, 고정 도구·설정·스냅샷 범위·종료코드 확인 | 합성 보고서와 실제 8.30.1 로컬 시험 입력 |
 | Prowler / kube-bench 결과 어댑터 | 고정한 점검 ID·대상 집합과 개별 결과 비교 | 합성 보고서; 실제 IAM 점검 매핑 미확정 |
 | AWS Secret 시험 | 앱 역할과 다른 역할로 같은 현재 Secret 읽기 시도 (`SEC-01.1`) | SDK 인터페이스 모의 시험 |
+| OpenBao Secret 시험 | 두 Kubernetes SA의 신원·같은 현재 Secret 읽기를 전후 확인 (`SEC-01.1`) | 합성 API 응답 + 실제 loopback TLS; 팀 OpenBao 연결 미검증 |
 | AWS 객체 시험 | 앱 읽기 성공 후 동일 객체의 익명 일반 GET (`IAM-01.1`) | SDK 인터페이스 모의 시험 |
 | 앱 → Pooler TLS 시험 | 정상 TLS, 다른 CA·hostname 거부, 평문 거부 (`ENC-01.1/2/3`) | 회귀 시험 및 로컬 kind의 실제 PgBouncer 접속 |
+
+OpenBao 등록·인증 경계와 T9/T19 인계 조건은 [OpenBao 접근 시험](docs/openbao-access.md)을 따른다.
 
 TLS 시험의 배치·자격증명 경계와 남은 팀 환경 검증은
 [PostgreSQL TLS 안내](docs/postgres-tls.md)를 따른다.
@@ -34,6 +37,11 @@ T14 이슈의 선행 조건을 만족하거나 완료 처리한 것으로 보지
    요청자가 기대값·필수 시험·스키마를 바꾸지 못하게 한다.
 3. 서버가 시험 ID별 신뢰된 수집기를 등록한다. `Runner`가 실행마다 새 ID를 만들고,
    이 ID·앱·환경·시험에 맞는 관찰만 수용한다.
+   백업처럼 선행 효과가 있는 시험은 서버가 먼저 등록·보존한 `RunContext`를
+   `registered_context`로 전달할 수 있다. 백업 영수증의 실행 ID를 사후에 바꾸지 않는다.
+   앱과 환경의 ID·role·ref가 다르면 수집 전에 거부하며, 이전 관찰의 시각은 허용하지 않는다.
+   이 인자는 외부 요청이나 AI 결과에서 받지 않는다. 등록·프로필/계획 결속·실행권의 단일 claim·
+   재시작 후 완료 결과 재사용은 호출 오케스트레이터의 책임이며 Runner가 대신 증명하지 않는다.
 4. 수집 시각이 실제 호출 시간창 안에 있는지 확인하고 최대 24시간의 증거 만료를 부여한다.
    T19는 평가 시점의 만료 여부를 다시 검사한다.
 5. 서버가 결과와 증거를 접근 통제된 변경 불가 저장소에 보존하고 T19에 참조를 전달한다.
@@ -146,6 +154,11 @@ AWS 사용 시 `uv sync --extra aws`로 설치한다. 서버가 각각의 역할
 클라이언트와 역할을 연결해야 한다. SDK wire/debug 로그를 금지하고, 사용자 코드가 없는
 시험 워커에서 실행한다. 실제 AWS 자격 시험은 수행하지 않았다.
 
+`QualifiedAwsProbe`는 이 신원 결속을 수행하는 선택적 호스트 연결부다. 등록된 역할의
+고유 `RoleId`와 STS 신원을 대조하고, 같은 임시 자격 증명으로 실제 통제 요청을 실행한 뒤
+신원 확인 근거와 probe 증거를 함께 보존한다. [연결 계약과 실환경 인수 항목](docs/aws-qualification.md)을
+따른다. Credential Provider·팀 로그인·최소 권한 발급은 호스트의 책임이다.
+
 ## 검증
 
 ```sh
@@ -162,3 +175,5 @@ uv build
 공식 출력 계약 출처는 `tool_reports.py`에 있으며, AWS 권한 차이는
 [GetObject API](https://docs.aws.amazon.com/AmazonS3/latest/API/API_GetObject.html),
 오류 규칙은 [Secrets Manager Common Errors](https://docs.aws.amazon.com/secretsmanager/latest/apireference/CommonErrors.html)를 따른다.
+
+T34의 환경 내부 OTel 수집 구성·중단 복구와 배포 전제는 [감사 전달 구성](docs/audit-forwarding.md)을 따른다. 설정 생성과 로컬 도구 실험은 양쪽 운영 환경의 감사 검색 완료가 아니다.

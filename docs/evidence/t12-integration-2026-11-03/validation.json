@@ -1,0 +1,106 @@
+{
+  "source_commit": "8a27c6f8956ade2c8364be529b2cfbf88c7b2231",
+  "scope": "Executor integration preparation; real cutover not executed",
+  "local_validation": {
+    "postgres_version": "18.4",
+    "passed": 146,
+    "skipped": 39,
+    "skip_reason": "k3d environment tests not run",
+    "ruff": "PASS",
+    "linux_amd64_image_build": "PASS",
+    "image_runtime_nonroot_readonly_import": "PASS",
+    "image_scan_fixable_high_critical_findings": 0,
+    "image_secret_findings": 0,
+    "postgres16_collation_passed": 13
+  },
+  "provider_observations": {
+    "database_control": {
+      "completed_at": "2026-11-03T14:16:06.691537+00:00",
+      "source_and_target_applied": true,
+      "source_login_preserved": true,
+      "target_nologin_preserved": true,
+      "runtime_direct_business_insert": false,
+      "runtime_direct_sequence_update": false
+    },
+    "executor_state": {
+      "completed_at": "2026-11-03T14:27:48.489684+00:00",
+      "checks": {
+        "schema_owner": true,
+        "runtime_insert": true,
+        "runtime_delete": false,
+        "runtime_create": false,
+        "runtime_t10_usage": false,
+        "executions": 0,
+        "t10_tables": 6
+      },
+      "https_hostname_verification": true,
+      "private_key_files_created": 0,
+      "runtime_started": false,
+      "strict_tls_hostname_verification": true
+    },
+    "replication_control": {
+      "completed_at": "2026-11-03T14:39:01.836764+00:00",
+      "barrier_delivery_and_cleanup": "PASS",
+      "business_rows_changed": false,
+      "forward_enabled": true,
+      "reverse_enabled": false,
+      "copy_data": false,
+      "reverse_temporarily_enabled_for_empty_table_registration": true
+    },
+    "credentials_and_trust": {
+      "completed_at": "2026-11-03T14:49:37Z",
+      "fixed_source_version_verified": true,
+      "source_scram_password_verified": true,
+      "target_credential_aligned": true,
+      "target_nologin_preserved": true,
+      "dedicated_public_ca_bundle": true
+    },
+    "pooler_rollout": {
+      "completed_at": "2026-11-03T14:57:54.805142+00:00",
+      "source_checks_passed": 10,
+      "target_checks_passed": 10,
+      "configmap_and_runtime_target_unchanged": true,
+      "rollback_writes_only": true,
+      "sequence_unchanged_claimed": false,
+      "probe_resources_deleted": 2,
+      "named_exec_rebound": true
+    },
+    "source_app": {
+      "completed_at": "2026-11-03T15:07:36.612580+00:00",
+      "source_commit": "1a57a5410a1d1a88d1884201407bcff8019e868d",
+      "image_digest": "sha256:edad76a75a604ccb0199e3e0a1c6ba8b0b1e9e4822fbca7857b33bd75a59751c",
+      "rollout_ready": true,
+      "startup_write_block_preserved": true,
+      "actual_websocket_clients_closed_1012": 2,
+      "checks": {
+        "startup_and_runtime_blocked": true,
+        "unauthorized_close_denied": true,
+        "both_connected_while_blocked": true,
+        "admin_close_ack": true,
+        "both_received_1012": true,
+        "repeat_close_zero": true,
+        "reconnect_hello": true,
+        "original_messages_readable": true,
+        "block_preserved": true
+      },
+      "business_writes": 0,
+      "named_exec_rebound": true
+    },
+    "collation": {
+      "observed_at": "2026-11-03T15:15:30Z",
+      "database_and_column_semantics_equal": true,
+      "provider": "libc",
+      "encoding": "UTF8",
+      "collate": "C",
+      "ctype": "C",
+      "scope": "operator read-only metadata; not platform-origin execution"
+    }
+  },
+  "not_verified": [
+    "Platform-origin remote Kubernetes/DB/PgBouncer paths",
+    "Registry publication and Executor deployment",
+    "T15/T31 approved destination application artifact",
+    "Canonical T19 gate, SHIFT100% and current S3 approval authority",
+    "Actual happy-path, ABORT_PRE_WRITE and SAFE_HOLD execution receipts"
+  ]
+}

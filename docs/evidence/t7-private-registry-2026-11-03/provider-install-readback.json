@@ -1,0 +1,14 @@
+{
+  "provider_installed": true,
+  "provider_binary_sha256": "9589cdea0d1ff3efd4d65d48eaed0b0ca6853f92334b3cd0f2d368b670e303b4",
+  "provider_authentication_from_host_role_verified": true,
+  "original_rke2_config_unchanged": true,
+  "rke2_service_restarted": true,
+  "node_count": 1,
+  "ready_node_count": 1,
+  "system_pod_count": 17,
+  "ready_system_pod_count": 17,
+  "long_lived_registry_credentials_written": false,
+  "kubernetes_pull_secret_created": false,
+  "cluster_image_pull_verified": false
+}

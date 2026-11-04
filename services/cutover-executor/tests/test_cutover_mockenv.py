@@ -10,6 +10,7 @@ from datetime import UTC, datetime, timedelta
 import pytest
 
 from bravo_cutover.contract import CutoverRequest, Status
+from bravo_cutover.db_fingerprint import HASH_RULE
 from bravo_cutover.remote.db import DbControl, WriteRefusal, try_app_write
 from bravo_cutover.remote.kube import Kube, WriteBlock
 from bravo_cutover.remote.pgbouncer import PgBouncerAdmin
@@ -67,7 +68,7 @@ def test_cutover_happy_path(store, config, sides):
     assert set(result["path_acks_ms"]) == {"entry:env-aws", "entry:env-onprem", "pool:env-aws", "pool:env-onprem"}
     assert result["write_pause_ms"] == max(result["path_acks_ms"].values())
     receipt = result["receipt"]
-    assert receipt["verdict"] == "UNVERIFIED"  # 기준 7a: 임시 비교는 MATCH를 내지 않는다
+    assert (receipt["verdict"], receipt["hash_rule"]) == ("MATCH", HASH_RULE)  # T13 DB 지문 비교
     assert all(t["rows_src"] == t["rows_dst"] for t in receipt["tables"])
     assert receipt["sequences"][0]["dst_set"] >= receipt["sequences"][0]["src_next"]
     assert execution.committed_at is not None
@@ -100,19 +101,6 @@ def test_write_pause_ends_at_the_last_path_ack(store, config, sides):
     # 경로는 동시에 열린다. 늦춘 경로만 2초 뒤에 ACK하고(시계 오차 여유 200ms), 그 ACK가 쓰기 정지의 끝이다.
     assert acks["entry:env-onprem"] - max(v for k, v in acks.items() if k != "entry:env-onprem") >= 1800
     assert result["write_pause_ms"] == acks["entry:env-onprem"] >= 2000
-
-
-def test_unverified_comparison_does_not_finish_outside_mock(store, sides):
-    """기준 7a: 임시 비교만 있고 모의 환경 설정이 아니면 DONE이 되지 않고 목적지를 열지 않는다."""
-    src, dst = sides
-    execution_id = start(store)
-    Cutover(store, mock_config(allow_unverified_compare=False)).run(execution_id)
-    execution = store.get(execution_id)
-    assert execution.status == Status.ABORT_PRE_WRITE
-    assert execution.committed_at is None
-    assert DbControl(dst.db_control_dsn).can_login(dst.app_role) is False
-    failed = [s for s in execution.steps if s["status"] == "failed"]
-    assert failed[-1]["step"] == "compare" and "not verified" in failed[-1]["detail"]
 
 
 def test_api_runs_cutover_in_background_and_reports_state(store, config, sides):

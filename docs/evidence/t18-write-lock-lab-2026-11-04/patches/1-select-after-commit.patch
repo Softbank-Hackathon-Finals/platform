@@ -1,0 +1,13 @@
+diff --git a/app/store.py b/app/store.py
+index 1059aa0..9b982f2 100644
+--- a/app/store.py
++++ b/app/store.py
+@@ -70,6 +70,8 @@ class Store:
+                 message_id = existing["id"]
+             else:
+                 message_id = inserted["id"]
++            # 응답 조회에 잠금이 필요 없으므로 커밋해 잠금을 먼저 놓는다.
++            await conn.commit()
+             await cur.execute(
+                 f"SELECT {MESSAGE_COLUMNS} FROM messages m"
+                 " LEFT JOIN attachments a ON a.id = m.attachment_id WHERE m.id = %s",
