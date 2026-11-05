@@ -121,6 +121,45 @@ PASS는 proposal/source/attempt/evidence digest가 일치하는 receipt로 승�
 
 설치된 broker의 `POST /validation/fixture`는 고정 `examples/failure.json`, snapshot manifest, `examples/source`만 읽는다. 공식 `subscription-runtime` controller가 이 경로로 요청하며, 응답의 worker 결과와 VM에 보관한 `proposal.json`에는 `input_kind=synthetic_db_host_fixture`가 붙는다. 이 표기는 합성 DB_HOST 시험 결과의 출처다. controller는 이 값과 설치 소스 SHA, 실행 ID, 검증 영수증이 일치할 때만 합성 결과를 수락한다.
 
-일반 `POST /run`은 HTTP 503과 `NEEDS_HUMAN / PRODUCT_INPUT_UNAVAILABLE`를 반환한다. 호출자가 bundle·snapshot·입력 종류를 보내도 자격 조회와 모델 실행 전에 종료한다. T11의 `FailureBundle`·`SnapshotManifest`는 검증 형식을 제공하고 T15의 `T11BucketProposer`는 주입한 coordinator를 소비한다. 현재 보호된 생산자가 제품 계획의 run ID·소스 commit·snapshot을 이 VM에 전달하는 경로는 없다. 이 연결을 마련한 뒤 제품 검증을 인수한다.
+기본 설치의 `POST /run`은 HTTP 503과 `NEEDS_HUMAN / PRODUCT_INPUT_UNAVAILABLE`를 반환한다. 호출자가 bundle·snapshot·입력 종류를 보내도 자격 조회와 모델 실행 전에 종료한다. 제품 경로는 아래 호스트 연결을 명시적으로 제공해야 열린다. 현재 CLI·installer·공식 workflow는 이 연결을 설치하지 않는다.
+
+### 제품 제안 호스트 연결
+
+`subscription_server.product_service(settings, inputs, journal_root)`와
+`serve(settings, product=service)`는 인증된 제품 입력 조회기를 주입하는 호스트 전용
+연결점이다. HTTP에는 `web_identity_token`, 불투명 `input_ref`, `input_digest` 세 필드만
+허용한다. 제품 bundle이나 파일을 직접 제출할 수 없다. 기존 STS trust로 토큰을 검증한
+뒤 STS가 돌려준 Provider·Audience·Subject의 digest를 조회기에 전달한다. 조회기가
+거부하면 구독 Secret과 모델을 호출하지 않는다. 기존 600초·최대 2요청 창을 유지한다.
+
+`ProductInputs.resolve(principal, input_ref)`의 호스트 구현은 호출자의 권한과 용도를
+확인하고, **현재 커밋된 T10 Admission**을 승인된 논리 task·FailureBundle·SnapshotManifest·
+파일에 결속해야 한다. `ProductInput.admission_digest`는 Admission 전체 필드에 기존
+`bravo_agent.contracts.digest`를 적용한 값이고, bundle.run_id는 rehearsal_id다.
+source_sha·attempt·tenant·plan/version·task_digest를 같은 정본에서 대조한다.
+이 권한 확인을 단순 JSON 생성으로 대체하지 않는다. 만료·미커밋·미등록 입력은 거부한다.
+요청의 input_digest는 파일을 포함한 전체 ProductInput의 canonical digest다.
+T38은 이를 다시 계산하고 기존 T11 Snapshot의 경로·내용·크기·hash 검사와 제안 정책을 적용한다.
+
+호스트의 `journal_root`는 소유자 전용 0700 영속 디렉터리다. SQLite FULL 동기화
+트랜잭션으로 run/attempt를 **모델 호출 전** 점유한다. 같은 입력·호출자·설치 SHA의
+재요청은 저장된 제안을 반환하며, 새 모델 호출을 하지 않는다. 입력 또는 설치 SHA가
+바뀌면 거부한다. 중단 후 점유만 남은 경우는 `PRODUCT_OUTCOME_UNKNOWN`, 모델·정책
+실패는 `PRODUCT_RUNTIME_UNCONFIRMED`로 멈춘다. journal 손실·복구 rollback을 새 실행
+허가로 사용하지 않는다. 운영자는 기록과 중단 시 남은 비공개 staging 디렉터리를 조사한
+뒤 별도로 인계해야 한다. journal은 broker만 쓸 수 있어야 하며 모델 프로세스와 입력
+생산자에게 이 경로의 쓰기 권한을 주지 않는다.
+
+성공 결과는 `input_kind=product`, `PROPOSAL_READY`, 제품 입력·Admission·snapshot·
+proposal digest와 설치 SHA를 포함한다. OIDC·AWS·구독 토큰과 임의 worker 진단 필드는
+저장하지 않는다. 기록의 digest는 손상 탐지용이며 외부 서명이 아니다. T15의
+`RecordedAttemptSender`·`AttemptStore`·`RecordedEvidence`가 검증 Job, PASS/FAIL,
+생성/삭제 UID, 정리 및 승인 근거를 소유한다. 이 제안 기록만으로 PASS나
+AWAITING_APPROVAL을 만들 수 없다. 현재 T11 CLI와 같은 최초 시도(attempt 1)만 실행하며
+2·3회차는 호출 전에 거부한다. T11 상태 복원 계약 없이 번호를 1로 바꾸어 재시도하지 않는다.
+
+실제 제품 실행 전에는 인증 입력 조회기의 배치·접근·수명, 영속 journal의 격리·보존,
+T15의 원격 제안 소비 어댑터를 인수해야 한다. 목적지 API/RBAC와 credential 전달도 해당
+담당의 별도 인수 대상이다. 로컬 가짜 provider 시험은 이 연결이나 실환경 인수를 증명하지 않는다.
 
 교체 전에는 workflow 실행을 비활성화하고 진행 중인 broker와 터널이 정리될 때까지 기다린다. 같은 검토 commit의 VM broker와 GitHub controller를 배치하고 `BRAVO_SUBSCRIPTION_SOURCE_SHA`를 맞춘 뒤 합성 시험을 다시 연다. 새 controller가 구 broker를 호출하면 합성 전용 경로가 없어 실패하고, 구 controller가 새 broker를 호출하면 `/run`에서 503을 받는다. 구 버전 응답처럼 출처 표기가 빠진 경우에도 새 controller는 SSM verify를 접수하지 않는다. 어느 경우에도 다른 경로로 재시도하지 않는다. 교체 실패 시 workflow를 닫은 상태에서 일치하는 새 쌍을 복구한다. 구 쌍을 복원해야 하면 구 `/run`이 다시 합성 입력을 처리하므로 제품 호출은 계속 닫아 둔다.

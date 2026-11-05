@@ -15,6 +15,12 @@ from botocore.config import Config
 
 from .contracts import FailureBundle, SnapshotManifest, digest
 from .subscription_admin import run_worker
+from .subscription_product import (
+    ProductAccess,
+    ProductService,
+    ProposalJournal,
+    invoke_product_worker,
+)
 from .subscription_store import SubscriptionStore
 from .verification import validate_result
 
@@ -73,7 +79,23 @@ def execute_fixture(settings, web_token, run_id):
             "expires_at_increased": after.get("expires_at", 0) > before.get("expires_at", 0)}
 
 
-def serve(settings):
+def product_service(settings, inputs, journal_root):
+    """Host-only opt-in. No CLI setting can substitute an unauthenticated reader."""
+    def authenticate(token):
+        config = Config(retries={"total_max_attempts": 1}, connect_timeout=10, read_timeout=20)
+        identity = boto3.client("sts", region_name=settings["region"], config=config).assume_role_with_web_identity(
+            RoleArn=settings["broker_role_arn"], RoleSessionName="bravo-subscription-vm",
+            WebIdentityToken=token, DurationSeconds=900)
+        subject = {key: identity[key] for key in ("Provider", "Audience", "SubjectFromWebIdentityToken")}
+        if not all(isinstance(value, str) and value for value in subject.values()):
+            raise ValueError("missing authenticated principal")
+        return ProductAccess(digest(subject), identity["Credentials"])
+
+    return ProductService(ProposalJournal(journal_root), authenticate, inputs,
+                          lambda *args: invoke_product_worker(settings, *args), settings["source_sha"])
+
+
+def serve(settings, *, product=None):
     completed = 0
 
     class Handler(BaseHTTPRequestHandler):
@@ -95,11 +117,11 @@ def serve(settings):
 
         def do_POST(self):
             nonlocal completed
-            if self.path == "/run":
-                # No protected product source supplies this broker with a snapshot yet.
+            if self.path == "/run" and product is None:
+                # A trusted host must explicitly install the authenticated reader.
                 self.respond(503, {"state": "NEEDS_HUMAN", "reason": "PRODUCT_INPUT_UNAVAILABLE"})
                 return
-            if self.path != "/validation/fixture":
+            if self.path not in {"/run", "/validation/fixture"}:
                 self.respond(404, {"state": "NEEDS_HUMAN", "reason": "UNKNOWN_ROUTE"})
                 return
             try:
@@ -107,11 +129,17 @@ def serve(settings):
                 if not 0 < size <= 32768:
                     raise ValueError("invalid length")
                 body = json.loads(self.rfile.read(size))
+                if self.path == "/run":
+                    completed += 1
+                    status, response = product.run(body)
+                    self.respond(status, response)
+                    return
                 if (not isinstance(body, dict) or set(body) != {"web_identity_token", "run_id"}
                         or not isinstance(body["web_identity_token"], str)):
                     raise ValueError("invalid fields")
             except (ValueError, RecursionError):
-                self.respond(400, {"state": "NEEDS_HUMAN", "reason": "INVALID_FIXTURE_REQUEST"})
+                reason = "INVALID_PRODUCT_REQUEST" if self.path == "/run" else "INVALID_FIXTURE_REQUEST"
+                self.respond(400, {"state": "NEEDS_HUMAN", "reason": reason})
                 return
             completed += 1
             try:
