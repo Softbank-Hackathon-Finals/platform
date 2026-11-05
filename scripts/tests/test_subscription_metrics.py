@@ -107,5 +107,38 @@ class CondenseTests(unittest.TestCase):
         self.assertEqual(metrics.condense([self.trial("no_recovery_seen")])[0]["neither"], 1)
 
 
+class EvidenceTests(unittest.TestCase):
+    """The claims the operations document makes, held against the recorded measurement."""
+
+    def setUp(self):
+        directory = ROOT / "docs/evidence/t8-replication-health-2026-11-06"
+        self.lab = json.loads((directory / "lab.json").read_text())
+        self.cnpg = json.loads((directory / "cnpg.json").read_text())
+
+    def test_a_cut_stops_the_default_and_the_forward_off_recovers(self):
+        for row in self.lab["summary"]:
+            if "cut" in row["failure"]:
+                self.assertEqual(row["stopped" if row["disable_on_error"] else "recovered"], row["runs"], row)
+
+    def test_a_conflict_is_retried_far_more_often_than_a_cut_fails(self):
+        rows = {(row["failure"], row["disable_on_error"]): row for row in self.lab["summary"]}
+        self.assertGreaterEqual(rows["conflict", False]["apply_errors_added"]["min"], 5)
+        for failure in ("cut_8s", "cut_20s", "cut_40s"):
+            self.assertLess(rows[failure, False]["apply_errors_added"]["max"], 5)
+
+    def test_the_reverse_was_never_touched(self):
+        trials = self.lab["link_trials"] + self.lab["idle_trials"] + self.lab["conflict_trials"]
+        self.assertEqual({(t["settings_after"]["reverse_enabled"], t["settings_after"]["reverse_disable_on_error"]) for t in trials}, {(False, True)})
+
+    def test_the_real_exporter_shows_the_stop_and_the_tool_names_each_cause(self):
+        stall, conflict = self.cnpg["stall_with_default"], self.cnpg["conflict_with_default"]
+        self.assertEqual((stall["exported"]["enabled"], stall["exported"]["apply_workers"]), (0.0, 0.0))
+        self.assertEqual(stall["incident"]["disables"][0]["cause"], "connection")
+        self.assertEqual(conflict["disables"][0]["cause"], "conflict")
+        self.assertTrue(conflict["row_value_in_raw_log"])
+        self.assertFalse(conflict["row_value_in_output"])
+        self.assertFalse(self.cnpg["incident_with_connections"]["credential_in_output"])
+
+
 if __name__ == "__main__":
     unittest.main()

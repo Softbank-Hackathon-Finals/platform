@@ -1,0 +1,219 @@
+{
+  "stand_ins": [
+    "one k3s node holds both clusters",
+    "frozen walsender instead of a broken link",
+    "source storage class is local-path"
+  ],
+  "k3s_image": "mirror.gcr.io/rancher/k3s:v1.35.5-k3s1",
+  "operator_manifest": "https://github.com/cloudnative-pg/cloudnative-pg/releases/download/v1.30.1/cnpg-1.30.1.yaml",
+  "settings": {
+    "wal_receiver_timeout": "5s",
+    "wal_sender_timeout": "5s",
+    "postgres": "18.4 (Debian 18.4-1.pgdg13+1)"
+  },
+  "subscription_owner": "postgres",
+  "before_monitoring": {
+    "metrics_present": false
+  },
+  "live_rollout": {
+    "metric_appeared_s": 3.2,
+    "pod_replaced": false,
+    "restarts_added": 0,
+    "worker_replaced": false
+  },
+  "exporter": {
+    "types": {
+      "cnpg_pg_subscription_apply_error_count": "counter",
+      "cnpg_pg_subscription_apply_workers": "gauge",
+      "cnpg_pg_subscription_enabled": "gauge"
+    },
+    "first_sample": {
+      "apply_error_count": 0.0,
+      "apply_workers": 1.0,
+      "enabled": 1.0
+    },
+    "sql": {
+      "enabled": true,
+      "disable_on_error": true,
+      "workers": 1,
+      "errors": 0,
+      "worker_pid": 317
+    },
+    "exporter_role": [
+      "cnpg_metrics_exporter",
+      "t",
+      "f"
+    ]
+  },
+  "stall_with_default": {
+    "sql": {
+      "enabled": false,
+      "disable_on_error": true,
+      "workers": 0,
+      "errors": 1,
+      "worker_pid": 0
+    },
+    "errors_added": 1,
+    "exported": {
+      "after_s": 19.3,
+      "apply_error_count": 1.0,
+      "apply_workers": 0.0,
+      "enabled": 0.0
+    },
+    "incident": {
+      "exit": 1,
+      "disables": [
+        {
+          "at": "2026-11-05 15:44:26.980 UTC",
+          "cause": "connection",
+          "event": "receiver_timeout",
+          "sqlstate": "08006"
+        }
+      ],
+      "counts": {
+        "receiver_timeout": 1
+      }
+    }
+  },
+  "log_record_fields": [
+    "backend_type",
+    "connection_from",
+    "error_severity",
+    "log_time",
+    "message",
+    "process_id",
+    "query_id",
+    "session_id",
+    "session_line_num",
+    "session_start_time",
+    "sql_state_code",
+    "transaction_id"
+  ],
+  "incident_with_connections": {
+    "exit": 0,
+    "state": {
+      "read": true,
+      "forward_enabled": false,
+      "apply_workers": 0,
+      "disable_on_error": true,
+      "target_apply_errors": 1,
+      "target_sync_errors": 0,
+      "target_conflicts": 0,
+      "source_observed_at": "2026-11-05T15:44:53.649595+00:00",
+      "source_slot_active": false,
+      "source_slot_wal_status": "reserved",
+      "source_slot_invalidated": false,
+      "gap_bytes": 17472,
+      "gap_mib": 0.0
+    },
+    "latest_cause": "connection",
+    "credential_in_output": false
+  },
+  "resumed": {
+    "row_arrived_s": 0.19,
+    "exported": {
+      "after_s": 28.5,
+      "apply_error_count": 1.0,
+      "apply_workers": 1.0,
+      "enabled": 1.0
+    }
+  },
+  "conflict_with_default": {
+    "errors_added": 1,
+    "exported": {
+      "after_s": 29.0,
+      "apply_error_count": 2.0,
+      "apply_workers": 0.0,
+      "enabled": 0.0
+    },
+    "disables": [
+      {
+        "at": "2026-11-05 15:45:23.676 UTC",
+        "cause": "conflict",
+        "event": "apply_conflict",
+        "sqlstate": "23505"
+      }
+    ],
+    "row_value_in_output": false,
+    "row_value_in_raw_log": true
+  },
+  "cr_patch_while_enabled": {
+    "applied_s": 0.3,
+    "generation": [
+      1,
+      2
+    ],
+    "applied": true,
+    "worker_replaced": false
+  },
+  "stall_with_off": {
+    "row_arrived_s": 5.01,
+    "errors_added": 1,
+    "sql": {
+      "enabled": true,
+      "disable_on_error": false,
+      "workers": 1,
+      "errors": 3,
+      "worker_pid": 1134
+    },
+    "exported": {
+      "after_s": 13.5,
+      "apply_error_count": 3.0,
+      "apply_workers": 1.0,
+      "enabled": 1.0
+    },
+    "incident": {
+      "disables": [],
+      "latest_error": {
+        "at": "2026-11-05 15:46:04.746 UTC",
+        "cause": "connection",
+        "event": "slot_held_by_another_process",
+        "sqlstate": "08P01"
+      },
+      "counts": {
+        "receiver_timeout": 1,
+        "slot_held_by_another_process": 2
+      }
+    }
+  },
+  "conflict_with_off": {
+    "seconds": 30,
+    "errors_added": 8,
+    "exported_enabled_lowest": 1.0,
+    "exported_errors_added": 7.0,
+    "disables": [],
+    "latest_error": {
+      "at": "2026-11-05 15:46:54.993 UTC",
+      "cause": "conflict",
+      "event": "apply_conflict",
+      "sqlstate": "23505"
+    },
+    "row_value_in_output": false,
+    "healed_after_removing_the_row_s": 3.9
+  },
+  "direct_alter_against_object": {
+    "direct_value_after_70_s": true,
+    "after_next_object_change": false
+  },
+  "cr_patch_while_disabled": {
+    "applied": false,
+    "message": "while patching subscription: ERROR: ALTER SUBSCRIPTION with refresh is not allowed for disabled subscriptions (SQLSTATE 55000)",
+    "value_changed": false,
+    "applied_after_enable_s": 30.1
+  },
+  "final": {
+    "sql": {
+      "enabled": true,
+      "disable_on_error": true,
+      "workers": 1,
+      "errors": 11,
+      "worker_pid": 1549
+    },
+    "exported": {
+      "apply_error_count": 11.0,
+      "apply_workers": 1.0,
+      "enabled": 1.0
+    },
+    "object_applied": true
+  }
+}
