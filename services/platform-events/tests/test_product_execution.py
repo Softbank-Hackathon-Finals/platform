@@ -24,7 +24,7 @@ RUNTIME = "c" * 40
 def result_for(intent, value):
     proposal = Proposal(run_id=value.bundle.run_id, source_sha=value.bundle.source_sha,
         rationale="Fixture proposal", risk="low", edits=[dict(path="policy.json",
-        before_sha256=value.manifest.files["policy.json"], replacement='{"Statement":[{"Effect":"Deny","Principal":"*","Action":"s3:GetObject","Resource":"arn:aws:s3:::fixture-bucket/*"}]}')])
+        before_sha256=value.manifest.files["policy.json"], replacement='{"Statement":[{"Effect":"Deny","Principal":"*","Action":"s3:GetObject","Resource":"arn:aws:s3:::example-bucket-123456789012/*"}]}')])
     bundle = value.bundle.model_dump(mode="json")
     result = dict(state="PROPOSAL_READY", input_kind="product", attempt=1, run_id=value.bundle.run_id,
         source_sha=value.bundle.source_sha, input=bundle, input_digest=digest(value.bundle),
