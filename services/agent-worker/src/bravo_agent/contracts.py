@@ -14,11 +14,19 @@ RunId = Annotated[str, Field(pattern=r"^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$")]
 SourceSha = Annotated[str, Field(pattern=r"^[a-f0-9]{40}$")]
 Digest = Annotated[str, Field(pattern=r"^[a-f0-9]{64}$")]
 
+# Content check for everything that crosses the model boundary. Since ``safe_path`` admits code
+# files whose *name* mentions a secret, this must catch the common literal shapes on its own:
+# prefixed names (``DB_PASSWORD = "…"``), quoted JSON keys (``{"password": "…"}``) and URL user
+# info (``postgresql://user:pw@host``). It must not fire on references such as
+# ``os.environ["DB_PASSWORD"]`` or ``secret["password"]`` — those are the code we want to read.
 SECRET = re.compile(
     r"(?:AKIA|ASIA)[A-Z0-9]{16}|sk-(?:ant-)?[A-Za-z0-9_-]{16,}"
     r"|-----BEGIN [A-Z ]*PRIVATE KEY-----"
-    r"|(?i:\b(?:password|api[_-]?key|access[_-]?token|secret[_-]?key)\b"
-    r"\s*[:=]\s*[\"']?[A-Za-z0-9+/=_-]{8,})"
+    r"|://[^/\s@\"']+:[^/\s@\"']*@"
+    r"|(?i:\b[\w.-]{0,40}?(?:password|passwd|pwd|api[_-]?key|access[_-]?key|secret[_-]?key"
+    r"|secret[_-]?access[_-]?key|auth[_-]?token|access[_-]?token|refresh[_-]?token|bearer)\b"
+    r"[\"']?\s*[:=]\s*(?:[\"'][^\"'\s]{8,}[\"']"
+    r"|(?=[A-Za-z0-9+/=_.\-]{8,}(?![\w.\[(]))[A-Za-z0-9+/=_.\-]*\d[A-Za-z0-9+/=_.\-]*(?![\w.\[(])))"
 )
 DESTRUCTIVE = re.compile(
     r"(?i:\brm\s+-[^\n]*r[^\n]*f|\brm\s+-[^\n]*f[^\n]*r|\b(?:DROP|TRUNCATE)\b"
@@ -178,7 +186,8 @@ class InventorySummary(Contract):
     schema_version: str = Field(pattern=r"^1\.[0-9]{1,3}$")
     app_id: str = Field(pattern=r"^[a-z0-9][a-z0-9-]{0,63}$")
     source_sha: SourceSha
-    digest: Digest
+    # T16 v1 emits ``sha256:<64 hex>`` (services/inventory schema ``Digest``); keep its canonical form.
+    digest: str = Field(pattern=r"^sha256:[0-9a-f]{64}$")
     items: list[InventoryItem] = Field(max_length=64)
 
     @classmethod

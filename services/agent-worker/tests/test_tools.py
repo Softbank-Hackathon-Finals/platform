@@ -1,6 +1,7 @@
 import hashlib
 import json
 import os
+from pathlib import Path
 
 import pytest
 from pydantic import ValidationError
@@ -171,7 +172,7 @@ def test_secret_named_source_still_refuses_literal_credentials(context):
 
 
 def _inventory_doc(source_sha="1" * 40):
-    return {"schema_version": "1.0", "app": {"id": "demo-chat", "source_sha": source_sha}, "digest": "c" * 64,
+    return {"schema_version": "1.0", "app": {"id": "demo-chat", "source_sha": source_sha}, "digest": "sha256:" + "c" * 64,
             "deploy": {"workloads": [{"env_sources": {"DB_PASSWORD": "secretKeyRef"}}]},
             "items": [
                 {"id": "item-001", "role": "secrets", "service": "secretsmanager", "found_in": "both", "grade": "code_change",
@@ -190,7 +191,7 @@ def test_inventory_describe_returns_only_the_model_facing_subset(context):
     bundle, snapshot, _, _ = context
     tools = Tools(bundle, snapshot, 1, inventory=InventorySummary.from_document(_inventory_doc()))
     result = tools.dispatch("mcp__bravo__inventory_describe", {"role": "secrets"})
-    assert [i["id"] for i in result["items"]] == ["item-001"] and result["inventory_digest"] == "c" * 64
+    assert [i["id"] for i in result["items"]] == ["item-001"] and result["inventory_digest"] == "sha256:" + "c" * 64
     dump = json.dumps(result)
     assert "snippet" not in dump and "deploy_refs" not in dump and "arn:aws" not in dump and "DB_PASSWORD" not in dump
     assert result["items"][0]["code_refs"] == [{"file": "app/db_secret.py", "line": 12, "kind": "sdk_call"}]
@@ -259,3 +260,71 @@ def test_destructive_proposal_records_category(context):
     with pytest.raises(PolicyDenied):
         tools.dispatch("mcp__bravo__plan_propose", proposal)
     assert tools.events[-1]["reason"] == "DESTRUCTIVE_ATTEMPT_BLOCKED" and tools.events[-1]["category"] == "db_drop"
+
+
+# ---- review follow-ups (#256): credential literals in newly readable sources, real T16 output
+
+
+FIXTURES = Path(__file__).parent / "fixtures"
+
+
+def _snapshot_with(context, name, content):
+    _, snapshot, _, _ = context
+    path = snapshot.root / name
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(content)
+    sha = hashlib.sha256(path.read_bytes()).hexdigest()
+    manifest = SnapshotManifest(source_sha="1" * 40, files={name: sha}, editable_paths=[name])
+    return Tools(context[0], type(snapshot)(snapshot.root, manifest), 1)
+
+
+@pytest.mark.parametrize("literal", [
+    'DB_PASSWORD = "{v}"\n',
+    'CONFIG = {{"password": "{v}"}}\n',
+    'DATABASE_URL = "postgresql://chat:{v}@chat-pooler-rw:5432/chat"\n',
+    "db_passwd: {v}\n",
+    "AWS_SECRET_ACCESS_KEY={v}\n",
+])
+def test_credential_literals_in_secret_named_sources_never_reach_the_model(context, literal):
+    value = "Synth3ticFixtureValue"
+    content = "import os\n" + literal.format(v=value) + 'HOST = os.environ["DB_HOST"]\n'
+    tools = _snapshot_with(context, "app/db_secret.py", content)
+    with pytest.raises(PolicyDenied):
+        tools.dispatch("mcp__bravo__repo_read", {"path": "app/db_secret.py"})
+    assert value not in json.dumps(tools.events) and tools.events[-1]["outcome"] == "DENIED"
+
+
+def test_demo_chat_db_secret_source_is_still_readable(context):
+    content = (FIXTURES / "demo_chat_db_secret.py.txt").read_text()
+    assert 'secret["password"]' in content  # references, not values
+    tools = _snapshot_with(context, "app/db_secret.py", content)
+    assert tools.dispatch("mcp__bravo__repo_read", {"path": "app/db_secret.py"})["content"] == content
+
+
+@pytest.mark.parametrize("line", [
+    'password = os.environ["DB_PASSWORD"]', 'password = os.getenv("DB_PASSWORD")',
+    'self.password = password', 'return secret["username"], secret["password"]',
+    'DB_SECRET_ID = "demo-chat/db"', 'api_key = settings.api_key',
+    'url = "postgresql://chat-pooler-rw:5432/chat"', 'endpoint_url=os.environ.get("S3_ENDPOINT_URL")',
+])
+def test_credential_references_without_values_are_readable(context, line):
+    tools = _snapshot_with(context, "app/db_secret.py", "import os\n" + line + "\n")
+    assert line in tools.dispatch("mcp__bravo__repo_read", {"path": "app/db_secret.py"})["content"]
+
+
+def test_inventory_summary_accepts_the_real_t16_producer_output(context):
+    # Generated with services/inventory (PR #144 head 961fcd2) `bravo-inventory scan` on its
+    # demo-chat fixture; only app.repo was replaced by a relative path.
+    doc = json.loads((FIXTURES / "t16-inventory-demo-chat.json").read_text(encoding="utf-8"))
+    assert doc["digest"].startswith("sha256:") and len(doc["digest"]) == 71
+    summary = InventorySummary.from_document(doc)
+    assert summary.digest == doc["digest"] and summary.app_id == "demo-chat"
+    assert {i.role: i.grade for i in summary.items} == {
+        "db": "config_swap", "iam": "adapter", "kms": "code_change", "object_store": "config_swap", "secrets": "code_change"}
+    secrets = next(i for i in summary.items if i.role == "secrets")
+    assert any(r.file == "app/db_secret.py" and r.kind == "sdk_call" for r in secrets.code_refs)
+    bundle, snapshot, _, _ = context
+    tools = Tools(bundle, snapshot, 1, inventory=summary)
+    result = tools.dispatch("mcp__bravo__inventory_describe", {"role": "secrets"})
+    dump = json.dumps(result)
+    assert "snippet" not in dump and "deploy_refs" not in dump and "env_sources" not in dump

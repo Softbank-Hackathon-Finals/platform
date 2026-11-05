@@ -154,12 +154,23 @@ class Tools:
     def allowed(self, tool: str) -> bool:
         return tool in TOOL_NAMES
 
-    def _deny(self, tool: str, args, reason: str) -> None:
+    def classify_denial(self, tool: str, args) -> tuple[str, dict]:
+        """One classification for every refusal path (dispatch and the Claude PreToolUse hook):
+        (reason, metadata). Only code-owned labels; the arguments themselves are never returned."""
         category = destructive_category(args)
         if category:
-            self.record(tool, "DENIED", "DESTRUCTIVE_ATTEMPT_BLOCKED", {"category": category})
-        else:
-            self.record(tool, "DENIED", reason)
+            return "DESTRUCTIVE_ATTEMPT_BLOCKED", {"category": category}
+        if tool in RESERVED_TOOLS:
+            return "TOOL_NOT_PROVIDED", {}
+        if tool == "mcp__bravo__inventory_describe" and self.inventory is None:
+            return "TOOL_NOT_ATTACHED", {}
+        if tool in TOOL_NAMES:
+            return "INVALID_INPUT_OR_POLICY", {}
+        return "TOOL_NOT_ALLOWED", {}
+
+    def _deny(self, tool: str, args) -> None:
+        reason, metadata = self.classify_denial(tool, args)
+        self.record(tool, "DENIED", reason, metadata)
         raise PolicyDenied("tool denied")
 
     def dispatch(self, tool: str, args: dict) -> dict:
@@ -167,10 +178,8 @@ class Tools:
         if self.calls > 64:
             self.record(tool, "DENIED", "TOOL_LIMIT")
             raise PolicyDenied("tool denied")
-        if not self.allowed(tool):
-            self._deny(tool, args, "TOOL_NOT_PROVIDED" if tool in RESERVED_TOOLS else "TOOL_NOT_ALLOWED")
-        if tool == "mcp__bravo__inventory_describe" and self.inventory is None:
-            self._deny(tool, args, "TOOL_NOT_ATTACHED")
+        if not self.allowed(tool) or (tool == "mcp__bravo__inventory_describe" and self.inventory is None):
+            self._deny(tool, args)
         category = None
         try:
             if not isinstance(args, dict):

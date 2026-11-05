@@ -23,7 +23,10 @@ async def guard(tools: Tools, data: dict, _tool_use_id, _context):
     name = data.get("tool_name", "")
     allowed = tools.allowed(name)
     if not allowed:
-        tools.record(name, "DENIED", "TOOL_NOT_ALLOWED")
+        # Same classification as Tools.dispatch so the ADR-0019 audit contract holds on this path
+        # too; tool_input is classified, never recorded.
+        reason, metadata = tools.classify_denial(name, data.get("tool_input"))
+        tools.record(name, "DENIED", reason, metadata)
     return {"hookSpecificOutput": {
         "hookEventName": "PreToolUse", "permissionDecision": "allow" if allowed else "deny",
         "permissionDecisionReason": "exact platform tool allowlist",
