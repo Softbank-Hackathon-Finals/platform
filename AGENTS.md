@@ -14,6 +14,10 @@
 
 이 순서는 `todo-task` 스킬에 정리돼 있다 (Claude Code `/todo-task`, Codex `$todo-task`).
 
+## Slack 메시지
+
+Slack 메시지를 작성하거나 전송할 때 [Slack 메시지 작성 기준](docs/slack-writing.md)을 읽고 따른다.
+
 ## 설계 · 결정
 
 - 설계 문서: `docs/design.html` (용어는 부록). 원본은 이 파일이다(노션은 링크만 둔다). 진행 상황은 적지 않는다.
