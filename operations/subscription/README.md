@@ -121,7 +121,7 @@ PASS는 proposal/source/attempt/evidence digest가 일치하는 receipt로 승�
 
 설치된 broker의 `POST /validation/fixture`는 고정 `examples/failure.json`, snapshot manifest, `examples/source`만 읽는다. 공식 `subscription-runtime` controller가 이 경로로 요청하며, 응답의 worker 결과와 VM에 보관한 `proposal.json`에는 `input_kind=synthetic_db_host_fixture`가 붙는다. 이 표기는 합성 DB_HOST 시험 결과의 출처다. controller는 이 값과 설치 소스 SHA, 실행 ID, 검증 영수증이 일치할 때만 합성 결과를 수락한다.
 
-기본 설치의 `POST /run`은 HTTP 503과 `NEEDS_HUMAN / PRODUCT_INPUT_UNAVAILABLE`를 반환한다. 호출자가 bundle·snapshot·입력 종류를 보내도 자격 조회와 모델 실행 전에 종료한다. 제품 경로는 아래 호스트 연결을 명시적으로 제공해야 열린다. 현재 CLI·installer·공식 workflow는 이 연결을 설치하지 않는다.
+기본 설치의 `POST /run`은 HTTP 503과 `NEEDS_HUMAN / PRODUCT_INPUT_UNAVAILABLE`를 반환한다. 호출자가 bundle·snapshot·입력 종류를 보내도 자격 조회와 모델 실행 전에 종료한다. 제품 경로는 아래 호스트 연결을 명시적으로 제공해야 열린다. 기본 installer·공식 합성 workflow는 이 연결을 설치하지 않는다. 아래의 제품 모드 opt-in과 실제 인증된 T10 조회 서비스가 필요하다.
 
 ### 제품 제안 호스트 연결
 
@@ -188,6 +188,44 @@ Admission/입력 digest, 실행/source/회차, 호출자·용도·만료를 다�
 이 함수는 터널 시작·토큰 발급·배포를 하지 않는다. 요청 토큰은 기존 GitHub OIDC 경로의 것이며
 T10 workload JWT로 대체할 수 없다. 요청 `input_digest`는 ProductInput 전체이고, 응답의
 `product_input_digest`가 그 값이다. 응답 `input_digest`/`task_digest`는 T11 FailureBundle이다.
+
+### 제품 전용 설치와 호출 수명
+
+`install.py --product-reader <metadata.json>`은 검토된 소스와 기존 설정 외에 정확히
+`origin`(사설 HTTPS origin)과 `ca_file`(이미 마운트한 공개 CA의 절대 경로)만 받는다.
+토큰·인증 키·업무 입력은 설정 필드가 아니다. 이 opt-in은 같은 hardening unit의 실행 모듈을
+`bravo_agent.subscription_product_server`로 선택한다. 기본 설치는 제품 경로를 열지 않는다.
+CA가 없거나 잘못되면 제품 host는 시작하지 않는다. 영속 `product-journal`은 설치기가
+초기화하지 않으며, 제품 host에서는 합성 `/validation/fixture`를 404로 닫는다.
+
+broker가 기존 STS에서 `/run` 토큰을 검증한 뒤에만 host의 요청별 `request_inputs(token)`을
+만든다. 같은 토큰은 그 요청의 메모리에서 `ProductInputHTTPReader`에만 전달된다.
+broker 프로세스가 운영자 설정 origin의 `POST /internal/v1/product-inputs/read`로
+`{principal,input_ref}`를 보내며, Authorization에는 그 원 토큰을 사용한다. 이 경로는
+T10의 별도 workload JWT 발급이나 VM 전달을 만들지 않는다. T10은 고정 GitHub issuer·
+서명·audience·정확한 subject·immutable repository ID를 검증하고, 등록된 STS
+Provider/Audience/Subject 조합과 본문 principal을 대조한 뒤 현재 plan/purpose 권한을 읽는다.
+서명 검증만으로 입력 권한을 부여하지 않는다. STS Provider는 실측값을 운영자가 등록한다.
+
+조회기는 지정 CA를 사용하고 proxy·redirect·재시도를 막는다. 응답 상한은 16 MiB다.
+64개 파일의 UTF-8 바이트 상한에 JSON escaping이 더해지는 경우도 이 범위에서 수용하고,
+등록본의 실제 schema·내용 상한은 별도로 검사한다. 토큰은 journal·ProductInput·worker에
+들어가지 않는다. 오류에는 고정 사유만 반환한다.
+
+`subscription_product_caller.ActionsProductToken()`은 실제 Actions 환경의 기존 OIDC
+endpoint에서 `sts.amazonaws.com` audience로 요청당 토큰을 받는 주입 함수다.
+`product_window(instance_id, reviewed_runtime_sha)`는 기존 controller 권한으로 고정
+SSM start/tunnel/stop만 사용하며 `call(body)`를 한 번 허용한다. 응답 유실 뒤 다시 호출하면
+거부한다. context를 닫으면 plugin·동일 SSM session·broker stop을 각각 처리하며,
+어느 정리든 확인되지 않으면 성공으로 반환하지 않는다. SSM session 응답은
+[고정 plugin 1.2.764.0의 환경 전달 계약](https://github.com/aws/session-manager-plugin/blob/1.2.764.0/src/sessionmanagerplugin/session/session.go#L156)을
+사용해 argv에 토큰을 넣지 않는다. Actions bearer 환경도 plugin에 전달하지 않는다.
+
+T10은 기존 durable dispatch를 점유한 뒤 이 call과 token supplier를 자신의 `request_for`에
+주입한다. 등록/Admission·T15 Job·현재 권한·사람 승인은 여전히 기존 담당 포트가 소유한다.
+Actions 밖의 상시 T10 host에서 이 supplier를 호출하면 실패한다. 이 경우 실제 Actions 실행과
+T10 단일 dispatch를 연결할 검토된 orchestration 경로를 먼저 인수해야 하며 토큰 파일 복사로
+대체하지 않는다. 이 모듈은 workflow를 생성하거나 기존 합성 controller를 제품 호출로 바꾸지 않는다.
 
 실제 제품 실행 전에는 인증 입력 조회기의 배치·접근·수명, 영속 journal의 격리·보존,
 T15의 원격 제안 소비 어댑터를 인수해야 한다. 목적지 API/RBAC와 credential 전달도 해당
