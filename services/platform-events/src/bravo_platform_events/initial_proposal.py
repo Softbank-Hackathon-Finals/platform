@@ -306,6 +306,9 @@ class InitialProposalExecution:
                 raise EventError("initial_recipient_unavailable") from None
             request = intent.model_dump(mode="json")
             if first:
+                # Key preparation is a host callback. It can outlive authority or
+                # source validity; do not commit a claim or submit from that read.
+                self.records._read(c, self.principal, plan_id, version, ref)
                 _put(c, plan_id, slot, request, {"state": "CLAIMED"})
             elif old[0] != request:
                 raise EventError("initial_execution_conflict")
