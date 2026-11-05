@@ -21,16 +21,10 @@ from .product_execution_contracts import (
     ExecutionIntent,
     validate_execution_receipt,
 )
+from .product_execution_contracts import ExecutionPending as ExecutionPending
+from .product_execution_contracts import ExecutionUnknown as ExecutionUnknown
 
 MAX_ARTIFACT = 2 * 1024 * 1024
-
-
-class ExecutionPending(RuntimeError):
-    pass
-
-
-class ExecutionUnknown(RuntimeError):
-    pass
 
 
 class OperatorGitHub:

@@ -13,6 +13,14 @@ WORKFLOW = 'subscription-product.yml'
 ARTIFACT = 'subscription-product-result'
 
 
+class ExecutionPending(RuntimeError):
+    """The same execution has not produced a confirmed result yet."""
+
+
+class ExecutionUnknown(RuntimeError):
+    """Do not dispatch again; only investigate/read the existing execution."""
+
+
 class ExecutionIntent(Contract):
     model_config = ConfigDict(revalidate_instances='always')
     request_id: str = Field(pattern=r'^[A-Za-z0-9][A-Za-z0-9_-]{0,79}$')
