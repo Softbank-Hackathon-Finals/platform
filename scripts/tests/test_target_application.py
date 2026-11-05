@@ -5,6 +5,7 @@ import importlib.util
 import io
 import json
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -16,8 +17,13 @@ from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[2]
 WORKLOADS = ROOT / "infra/envs/target-workloads"
-IMAGE = "ghcr.io/softbank-hackathon-finals/demo-chat@sha256:" + "a" * 64
-ECR_IMAGE = "123456789012.dkr.ecr.ap-northeast-2.amazonaws.com/bravo/demo-chat@sha256:" + "b" * 64
+PIN = json.loads((WORKLOADS / "app-image.json").read_text())
+GHCR = "ghcr.io/softbank-hackathon-finals/demo-chat"
+ECR = "123456789012.dkr.ecr.ap-northeast-2.amazonaws.com/bravo/demo-chat"
+IMAGE = f"{GHCR}@{PIN['index_digest']}"
+ECR_IMAGE = f"{ECR}@{PIN['index_digest']}"
+# The same source rebuilt locally gets another digest. It must not pass as the registered image.
+LOCAL_BUILD = "sha256:c3ee149d045b8875e7c4ddc5bab609e623e219929362cf4d20331a271d5cff9e"
 
 
 def load(path, name):
@@ -30,7 +36,6 @@ def load(path, name):
     return module
 
 
-PIN = json.loads((WORKLOADS / "app-image.json").read_text())
 application = load(WORKLOADS / "application.py", "target_application")
 compat = load(WORKLOADS / "secrets_manager_compat.py", "secrets_manager_compat")
 target_secrets = load(ROOT / "infra/envs/target-secrets/render.py", "target_secrets_render")
@@ -268,7 +273,35 @@ class ImageContractTests(unittest.TestCase):
                        "4562bbf761d761cafc89f9db9153eb74550eb23972ea4f9080e93681d9d90d1d",
                        "e3c8e9cf6defa8d5932c2f28b26362b12cd2101de7c67360166801f3fa933ada"):
             with self.subTest(digest=digest), self.assertRaises(ValueError):
-                application.application("ghcr.io/softbank-hackathon-finals/demo-chat@sha256:" + digest)
+                application.application(f"{GHCR}@sha256:{digest}")
+
+    def test_registered_digest_is_accepted_from_either_registry(self):
+        for repository in (GHCR, ECR):
+            with self.subTest(repository=repository):
+                image = f"{repository}@{PIN['index_digest']}"
+                self.assertEqual(app_container(image=image)["image"], image)
+
+    def test_unregistered_digest_is_refused_from_either_registry(self):
+        unregistered = (LOCAL_BUILD, "sha256:" + "a" * 64, PIN["amd64_digest"])
+        for repository in (GHCR, ECR):
+            for digest in unregistered:
+                with self.subTest(repository=repository, digest=digest[:15]), self.assertRaises(ValueError):
+                    application.application(f"{repository}@{digest}")
+
+    def test_cli_refuses_an_unregistered_digest_from_either_registry(self):
+        script = str(WORKLOADS / "application.py")
+        for repository in (GHCR, ECR):
+            with self.subTest(repository=repository):
+                result = subprocess.run([sys.executable, script, "--image", f"{repository}@{LOCAL_BUILD}"],
+                                        capture_output=True, text=True, check=False)
+                self.assertEqual(result.returncode, 2)
+                self.assertEqual(result.stdout, "")
+                self.assertNotIn(LOCAL_BUILD, result.stderr)
+
+    def test_general_render_path_has_no_switch_for_another_image(self):
+        script = str(WORKLOADS / "application.py")
+        usage = subprocess.run([sys.executable, script, "--help"], capture_output=True, text=True, check=True).stdout
+        self.assertEqual(sorted(set(re.findall(r"--[a-z-]+", usage))), ["--help", "--image", "--print-image", "--pull-secret"])
 
     def test_pinned_image_has_the_expected_shape_and_is_accepted(self):
         self.assertRegex(PIN["source_sha"], r"\A[0-9a-f]{40}\Z")

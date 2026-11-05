@@ -2,8 +2,9 @@
 """Run the rendered target app on a throwaway local k3s and record what it does.
 
 Real: the renderers' output, the demo-chat source, CNPG, PostgreSQL, PgBouncer and a
-restricted namespace. Stand-ins: see STAND_INS. Only t30-app-* Docker objects are
-touched. Generated credentials stay in memory and reach kubectl through stdin.
+restricted namespace. Stand-ins: see STAND_INS. Every run has its own names and removes only
+the container and image it created, after checking their ID and run label. Generated
+credentials stay in memory and reach kubectl through stdin.
 
     infra/envs/target-workloads/testing/app_lab.py --demo-chat-src <checkout> --output <file>
 """
@@ -17,11 +18,15 @@ import sys
 import tempfile
 import time
 import urllib.request
+import uuid
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[4]
 WORKLOADS = ROOT / "infra/envs/target-workloads"
-K3S = "t30-app-k3s"
+RUN_ID = uuid.uuid4().hex[:12]
+RUN_LABEL = "t30-app-run"
+K3S = f"t30-app-k3s-{RUN_ID}"
+OWNED = {}
 NODE = "t30-app-node"
 K3S_IMAGE = "mirror.gcr.io/rancher/k3s:v1.35.5-k3s1"
 LOCAL_IMAGE = "t30-app-lab/demo-chat"
@@ -141,25 +146,69 @@ def secret_value(namespace, name, key):
 
 
 def start_cluster():
-    run("docker", "rm", "-fv", K3S, check=False)
-    run("docker", "run", "-d", "--name", K3S, "--hostname", NODE, "--label", "t30-app=1", "--privileged",
+    OWNED["container"] = run(
+        "docker", "run", "-d", "--name", K3S, "--hostname", NODE, "--label", f"{RUN_LABEL}={RUN_ID}", "--privileged",
         "--tmpfs", "/run", "--tmpfs", "/var/run", K3S_IMAGE, "server",
-        "--disable", "traefik", "--disable", "servicelb", "--disable", "metrics-server")
+        "--disable", "traefik", "--disable", "servicelb", "--disable", "metrics-server").strip()
     wait(lambda: " Ready " in kubectl("get", "node", NODE, "--no-headers", check=False), "node Ready")
     run("docker", "exec", K3S, "sh", "-ec",
         "mkdir -p /var/lib/bravo-target-dev/postgres; chown 26:26 /var/lib/bravo-target-dev/postgres; "
         "chmod 700 /var/lib/bravo-target-dev/postgres")
 
 
+def local_image_tag(short_revision):
+    return f"{LOCAL_IMAGE}:{short_revision}-{RUN_ID}"
+
+
+def remove_owned():
+    """Remove what this run created, and only after its ID and run label still match at this moment."""
+    result = {"container": "none_created", "image": "none_created"}
+    container = OWNED.get("container")
+    if container:
+        seen = run("docker", "inspect", "--format", '{{.Id}} {{index .Config.Labels "' + RUN_LABEL + '"}}',
+                   container, check=False).split()
+        result["container"] = "not_owned_left_in_place"
+        if seen == [container, RUN_ID]:
+            run("docker", "rm", "-fv", container, check=False)
+            result["container"] = "removed"
+    image = OWNED.get("image")
+    if image:
+        label = run("docker", "image", "inspect", "--format", '{{index .Config.Labels "' + RUN_LABEL + '"}}',
+                    image, check=False).strip()
+        result["image"] = "not_owned_left_in_place"
+        if label == RUN_ID:
+            run("docker", "rmi", image, check=False)
+            result["image"] = "removed"
+    return result
+
+
+def inject_local_image(items, image):
+    """Test manifest only. The general render path refuses any digest but the registered one."""
+    items = json.loads(json.dumps(items))
+    for item in items:
+        if item["kind"] == "Deployment":
+            pod = item["spec"]["template"]["spec"]
+            for container in [*pod["containers"], *pod.get("initContainers", [])]:
+                container["image"] = image
+    return items
+
+
+def general_path_accepts(image):
+    result = subprocess.run([sys.executable, str(WORKLOADS / "application.py"), "--image", image],
+                            capture_output=True, check=False)
+    return result.returncode == 0
+
+
 def import_image(source):
     revision = run("git", "-C", str(source), "rev-parse", "HEAD").strip()
-    local = f"{LOCAL_IMAGE}:{revision[:7]}"
+    local = local_image_tag(revision[:7])
     # Same base digest from a public mirror, so an expired Docker Hub login cannot stop the build.
     dockerfile = (source / "Dockerfile").read_text().replace("FROM python:", "FROM mirror.gcr.io/library/python:")
     with tempfile.NamedTemporaryFile("w", suffix=".Dockerfile") as temporary:
         temporary.write(dockerfile)
         temporary.flush()
-        run("docker", "build", "-q", "-f", temporary.name, "-t", local, str(source))
+        run("docker", "build", "-q", "-f", temporary.name, "--label", f"{RUN_LABEL}={RUN_ID}", "-t", local, str(source))
+    OWNED["image"] = local
     archive = subprocess.run(["docker", "save", local], capture_output=True, check=True).stdout
     run("docker", "exec", "-i", K3S, "ctr", "-n", "k8s.io", "images", "import", "-", stdin=archive)
     listed = run("docker", "exec", K3S, "ctr", "-n", "k8s.io", "images", "ls", f"name==docker.io/{local}")
@@ -438,6 +487,7 @@ def evaluate(report):
                                    report["nologin_via_pooler"], report["precutover_via_pooler_to_source"])
     checks = {
         "restricted_namespace": report["security"]["namespace_pod_security"] == "restricted",
+        "general_render_path_refuses_local_build": report["general_path_refuses_local_build"],
         "app_keeps_image_entrypoint": report["security"]["live_app_has_command"] is False,
         "exec_without_container_reaches_app": report["security"]["exec_without_container_reaches_app"],
         "missing_secret_serves_nothing": closed["secret_missing"]["ready_endpoints"] == 0 and not closed["secret_missing"]["app_started"],
@@ -507,7 +557,8 @@ def main():
         passwords = install_databases()
         install_pooler(passwords)
         start_client(image)
-        manifest = render("application.py", "--image", image)
+        report["general_path_refuses_local_build"] = not general_path_accepts(image)
+        manifest = inject_local_image(render("application.py"), image)
         kubectl("apply", "--server-side", "--dry-run=server", "-f", "-",
                 stdin=json.dumps({"apiVersion": "v1", "kind": "List", "items": manifest}).encode())
         report["restricted_server_dry_run"] = "accepted"
@@ -520,11 +571,8 @@ def main():
         report["checks"] = evaluate(report)
         report["passed"] = all(report["checks"].values())
     finally:
+        report["cleanup"] = {"kept": dict(OWNED)} if args.keep else remove_owned()
         args.output.write_text(json.dumps(report, indent=2) + "\n")
-        if not args.keep:
-            run("docker", "rm", "-fv", K3S, check=False)
-            for line in run("docker", "images", "--format", "{{.Repository}}:{{.Tag}}", LOCAL_IMAGE, check=False).split():
-                run("docker", "rmi", line, check=False)
     sys.exit(0 if report["passed"] else 1)
 
 

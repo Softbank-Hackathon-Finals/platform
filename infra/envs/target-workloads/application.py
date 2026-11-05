@@ -28,14 +28,6 @@ REPOSITORY = "ghcr.io/softbank-hackathon-finals/demo-chat"
 IMAGE = re.compile(r"(?:ghcr\.io/softbank-hackathon-finals/demo-chat"
                    r"|[0-9]{12}\.dkr\.ecr\.[a-z0-9-]+\.amazonaws\.com/bravo/demo-chat)"
                    r"@sha256:[0-9a-f]{64}")
-# Index and amd64 digests published before X-Bravo-Env (sources ce5727e, 1a57a54, 66e7419).
-# Edge measurement could not attribute their responses, and they ignore ATTACHMENT_UPLOAD_ENABLED.
-WITHOUT_ENV_HEADER = {"sha256:001adc35a9fc767566552fb55c3c19a67b7c5efc7231fb02dc28cdeace99d0d4",
-                      "sha256:bd1cd57a1c3dda9bb2795696167e242fc3b79a80eefb40d068a4124bcc66f384",
-                      "sha256:edad76a75a604ccb0199e3e0a1c6ba8b0b1e9e4822fbca7857b33bd75a59751c",
-                      "sha256:d5ab5fef0dc477db9327a29f745e1c1db1e5bb58e0e934b08788b2e3726f60e4",
-                      "sha256:4562bbf761d761cafc89f9db9153eb74550eb23972ea4f9080e93681d9d90d1d",
-                      "sha256:e3c8e9cf6defa8d5932c2f28b26362b12cd2101de7c67360166801f3fa933ada"}
 SECURITY = {"allowPrivilegeEscalation": False, "readOnlyRootFilesystem": True,
             "capabilities": {"drop": ["ALL"]}}
 
@@ -51,8 +43,10 @@ def secret_env(name, secret, key):
 def application(image, pull_secret=None):
     if not isinstance(image, str) or not IMAGE.fullmatch(image):
         raise ValueError("demo-chat must use the exact registered repository pinned by digest")
-    if image.split("@")[1] in WITHOUT_ENV_HEADER:
-        raise ValueError("this image predates the X-Bravo-Env response header")
+    # This Pod receives database, object store and admin credentials, so only the registered bytes may run.
+    # A local build is another digest; testing/app_lab.py injects one into its own manifest, never through here.
+    if image.split("@")[1] != PIN["index_digest"]:
+        raise ValueError("demo-chat must use the digest registered in app-image.json")
     if pull_secret is not None and not re.fullmatch(r"[a-z0-9](?:[a-z0-9.-]{0,251}[a-z0-9])?", pull_secret):
         raise ValueError("a Kubernetes Secret name is required")
     # An imported image must not silently fall back to an unauthenticated registry request.

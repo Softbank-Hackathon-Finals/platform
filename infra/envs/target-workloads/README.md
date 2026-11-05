@@ -128,7 +128,7 @@ T9의 OpenBao/ESO·TLS 통제나 목적지 앱 업무 기동 완료를 대신하
 
 1. **이미지.** 쓸 이미지는 [`app-image.json`](app-image.json) 한 곳에만 적는다. 렌더러와 `scripts/export_target_image.py`가 이 파일을 읽는다.
    새로 게시하면 그 실행 아티팩트의 `image-receipt.json`(`source_sha`, `digest`)과 `registry-index.json`(amd64 `digest`)을 옮겨 적고 끝낸다.
-   `X-Bravo-Env`가 없는 이전 게시본 세 개는 렌더러가 거부한다.
+   렌더러는 이 파일의 index digest만 받는다. 다른 digest는 저장소가 GHCR이든 ECR이든 거부한다. DB · 객체 저장소 · 관리 토큰을 받는 Pod에서 다른 바이트가 돌지 못하게 하려는 것이다. ECR에서 받을 때만 `--image`로 저장소를 바꾼다.
 2. **VM에 넣기.** ECR에는 이미 있다. 이 게시본의 demo-chat 영수증(#19)과 `transfer-private-image`([실행 41815292046](https://github.com/Softbank-Hackathon-Finals/demo-chat/actions/runs/41815292046), 2026-11-04 19:36 KST)가 끝났고, 대상 바이트와 CI Pull까지 확인됐다.
    남은 일은 AWS 운영자 · VM 소유자가 [이미지 인수인계](../../../docs/operations/target-image-handoff.md) 순서로 묶음을 만들어 VM에 넣고 digest 별칭을 붙이는 것이다.
    게시본을 바꾸면 앞 두 단계를 다시 한다. T22 담당이 demo-chat `main`의 `docs/evidence/image-publication-2026-11-03/` 영수증을 올리고(그전에는 `reviewed_publication_mismatch`로 멈춘다), Actions 권한자가 전달을 돌린다.
@@ -229,7 +229,7 @@ print(u.urlopen(u.Request("http://127.0.0.1:8080/admin/write-block", json.dumps(
 
 ### 재현
 
-`testing/app_lab.py`가 실제 렌더 결과를 임시 k3s에 올려 위 표를 다시 잰다. `t30-app-*` Docker 자원만 쓴다.
+`testing/app_lab.py`가 실제 렌더 결과를 임시 k3s에 올려 위 표를 다시 잰다. 로컬 빌드는 이 시험의 매니페스트에만 넣고, 일반 렌더 경로에는 넣을 수 없다. 실행마다 고유 이름을 쓰고, 그 실행이 만든 컨테이너와 이미지만 ID와 라벨을 대조해 지운다.
 
 ```sh
 infra/envs/target-workloads/testing/app_lab.py --demo-chat-src <demo-chat 체크아웃> --output <결과 파일>
