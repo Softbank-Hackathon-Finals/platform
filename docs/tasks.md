@@ -273,7 +273,7 @@ Claude Code는 `/todo-task`, Codex는 `$todo-task`로 이 순서를 따르는 �
 - [x] OIDC 신뢰 정책
 - [x] 수집 역할과 제어 역할 분리
 - [x] GHCR 이미지 빌드 · push (digest), 양쪽 클러스터 pull 토큰
-- [ ] GitHub 레포 접근: 읽기(분석) · 브랜치 쓰기(T31). GitHub App 또는 범위를 좁힌 토큰
+- [ ] GitHub 레포 접근: 범위를 좁힌 reader로 수신 환경에서 지정 revision 인증 조회. T31은 검증 digest 승격으로 Git writer 미사용
 
 **완료 기준** Actions에서 OIDC로 플랫폼에 배포 1회 성공. 앱 이미지가 GHCR에 digest로 올라간다.
 
@@ -606,7 +606,7 @@ Claude Code는 `/todo-task`, Codex는 `$todo-task`로 이 순서를 따르는 �
 - [x] 버킷 정책 템플릿: 무인증 읽기가 거부되는지 검증 Job으로 확인
 - [x] 버킷 삭제 시도 차단 기록 (데모 장면)
 - [x] 끝나면 네임스페이스 삭제 확인
-- [ ] 코드 수정 템플릿: 앱이 OpenBao · ESO 주입으로 DB에 붙고, 다른 서비스 계정은 Secret을 읽지 못하는지 검증 Job으로 확인
+- [ ] 코드 수정 템플릿: 앱이 OpenBao에서 주입된 자격 파일(리허설은 init container 주입)로 DB에 붙고, 다른 서비스 계정은 그 OpenBao 경로와 자격 파일을 읽지 못하는지 검증 Job으로 확인
 - [x] 리허설 네임스페이스 생성 직후 T3 격리 시험, 실패하면 BLOCK
 - [ ] 목적지(RKE2)에서 T3 격리 시험 통과: T9 값으로 `profiles/onprem.env` 작성, CNI · PSA 확인, 시험 계정 권한(Pod 생성 · `rehearsal-exec` 가장), 결과로 ADR-0003 채택
 - [x] T38 결과에 따라 재시도: FAIL · RETRY_ALLOWED는 최대 3회, UNKNOWN · NEEDS_HUMAN은 사람에게
@@ -782,7 +782,7 @@ Claude Code는 `/todo-task`, Codex는 `$todo-task`로 이 순서를 따르는 �
 
 **어디에 필요** S2의 마지막 장면. 리허설을 통과한 변경이 승인 뒤 목적지에 들어간다.
 
-**만들 것** 승인된 diff를 브랜치에 커밋, GitHub Actions 빌드 → GHCR digest, 승인 digest와 대조 후 목적지 배포, 번역된 정책(SeaweedFS 버킷 정책 · OpenBao 정책 · RBAC) 적용, 반영 뒤 게이트 재대조 요청.
+**만들 것** T15가 검증한 이미지 digest와 diff를 받아 승인 결속과 대조한 뒤 같은 digest를 목적지에 배포한다(ADR-0021). 승인 뒤 Git 커밋·이미지 재빌드·Git writer 주입은 하지 않는다. 번역된 정책(SeaweedFS 버킷 정책 · OpenBao 정책 · RBAC) 적용과 반영 뒤 게이트 재대조 요청은 별도 승인 범위로 유지한다.
 
 - **우선순위** P0 · **영역** 에이전트 · 리허설 · **담당** 전동훈
 - **선행** `T7`, `T15`, `T30` (통합 시점: `T19`) · **후속** `T28` · **설계 문서** FR-7, 8.4

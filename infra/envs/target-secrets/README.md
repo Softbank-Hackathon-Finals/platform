@@ -138,6 +138,45 @@ unseal, off-host backup or a production availability claim. The initial leaf
 certificate is valid for 30 days and CA for 90 days; renew them before expiry.
 The OpenBao UI/injector/CSI/dev mode are disabled.
 
+## Rehearsal subtree for T15 (design 8.4)
+
+T15 applies an AI credential-migration candidate inside an isolated `rehearsal-<id>`
+namespace (label `app.kubernetes.io/part-of: bravo-rehearsal`). The candidate image reads the
+same `/run/bravo/database/credentials.json`, so the rehearsal needs synthetic credentials
+delivered the same way but from a path the application identity can never read.
+
+| Stage | Produces | Scope |
+| --- | --- | --- |
+| `rehearsal-policy --run-id <run>` | HCL for policy `rehearsal-app-reader-<run>`: read `secret/data/bravo/rehearsal/<run>/*` only | One policy per run. No other run's path, no `bravo/target/*`, no writes, no token creation |
+| `rehearsal-auth-role --namespace rehearsal-<id> --run-id <run>` | Body for `auth/kubernetes/role/rehearsal-app-reader-<run>` | ServiceAccount `rehearsal-eso-reader` in **exactly that namespace** (explicit binding, so OpenBao needs no `namespaces get` RBAC); this run's policy only; audience `openbao`; TTL 300/900 s |
+| `rehearsal-delivery --namespace rehearsal-<id> --run-id <run>` | ServiceAccount + SecretStore + ExternalSecret projecting `bravo/rehearsal/<run>/database` into Secret **`target-app-credentials`** (same name as `target-dev`) | One namespace per attempt; `deletionPolicy: Delete` so the Secret goes with the namespace |
+| `rehearsal-init-container --run-id <run>` | An init container that logs in with the reader token and writes `credentials.json` itself | Works while ESO stays scoped (below) |
+
+The T15 runner, with its own OpenBao identity, creates the run's policy and role, writes the
+synthetic values to `bravo/rehearsal/<run>/database` (key `credentials_json`) before the
+attempt, and deletes the role, policy and KV version afterwards; this renderer never carries
+a value. Run isolation to prove on the cluster: a token from run A's namespace reads A's path,
+and is refused on run B's path and on every `bravo/target/*` path.
+
+The init script fetches into a private temp file (`umask 077`), checks it is non-empty and
+has the expected shape, then replaces `credentials.json` with `mv -f`, which also succeeds
+over the 0400 file left by an earlier attempt on the same emptyDir. Token revocation runs from
+an `EXIT` trap on every path. A failed fetch exits non-zero and leaves no temp file, so a
+stale earlier file is never mistaken for a fresh success.
+
+**ESO scope.** The ESO release here is scoped to `target-dev` (`scopedNamespace`,
+`scopedRBAC`), so it does not reconcile ExternalSecrets in `rehearsal-*`. Two ways to serve
+them, in order of preference for the demo:
+
+1. Use `rehearsal-init-container` in the rehearsal Pod template (same path, same policy, no
+   ESO involvement). This keeps the production ESO permissions unchanged.
+2. Run a second ESO release with cluster-scoped RBAC limited by the `processClusterStore=false`
+   defaults and reconcile only namespaces carrying the rehearsal label. This widens ESO's
+   Secret-write permission to rehearsal namespaces and needs its own review.
+
+Neither has been exercised on the demo cluster yet; the T15 isolation test (#24 item 6) is the
+place to prove the chosen path.
+
 ## Modified OpenBao image
 
 The official 2.7.2 image contained fixable HIGH

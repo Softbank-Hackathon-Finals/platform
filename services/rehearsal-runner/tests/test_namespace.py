@@ -24,3 +24,15 @@ def test_missing_profile_value_fails_instead_of_rendering_blank():
 def test_rejects_invalid_namespace_names(name):
     with pytest.raises(ValueError):
         render(name, PROFILE)
+
+
+def test_onprem_profile_renders_target_pod_ports():
+    profile = read_env(TEMPLATES.parent / "profiles" / "onprem.env")
+    out = render("rehearsal-onprem-check", profile)
+    assert "${" not in out
+    assert "kubernetes.io/metadata.name: target-dev" in out
+    assert "app.kubernetes.io/name: target-seaweedfs" in out
+    assert "port: 8333" in out
+    assert "kubernetes.io/metadata.name: bravo-secrets" in out
+    assert "app.kubernetes.io/instance: target-openbao" in out
+    assert "port: 8200" in out

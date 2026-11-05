@@ -7,7 +7,7 @@ bypasses the snapshot policy or supplies credentials to the proposal provider.
 import asyncio
 from dataclasses import dataclass, field
 
-from .bucket_proposer import Coordinator, validate_coordinator_attempt
+from .bucket_proposer import Coordinator, attempt_tool_events, validate_coordinator_attempt
 from .runner import ProposalRef
 from .secret_task import CredentialMigrationTask, prepare_credential_migration
 
@@ -63,3 +63,8 @@ class T11CredentialProposer:
                 or "app/db_secret.py" not in paths or len(paths) != len(set(paths))):
             raise ValueError("proposal outside credential source scope")
         return ProposalRef(task.run_id, task.source_sha, result["proposal_digest"])
+
+    def tool_events(self) -> tuple[dict, ...]:
+        if getattr(self.provider, "tool_events_available", True) is not True:
+            raise ValueError("the model's tool events are kept by the remote runtime")
+        return attempt_tool_events(self.coordinator, self.attempt)

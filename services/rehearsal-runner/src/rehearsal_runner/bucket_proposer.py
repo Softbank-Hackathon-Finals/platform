@@ -51,6 +51,22 @@ def validate_coordinator_attempt(coordinator: Coordinator, *, run_id: str, sourc
         raise ValueError("retry feedback mismatch")
 
 
+def attempt_tool_events(coordinator: Coordinator, attempt: int) -> tuple[dict, ...]:
+    """Return T11's audit events for one attempt, complete and in their original order.
+
+    T11 records only reasons and categories, never raw commands or model
+    arguments. An incomplete or truncated audit is unavailable, not filtered.
+    """
+    records = [a for a in getattr(coordinator, "attempts", []) if a.get("attempt") == attempt]
+    if len(records) != 1 or records[0].get("audit_truncated") is not False:
+        raise ValueError("tool events unavailable")
+    events = tuple(dict(e) for e in coordinator.audit
+                   if e.get("attempt") == attempt and e.get("tool") != "independent_verifier")
+    if len(events) != records[0].get("audit_event_count"):
+        raise ValueError("tool events incomplete")
+    return events
+
+
 def bucket_summary(task: BucketPolicyTask, source_path: str, target_path: str) -> str:
     """Build the T11 FailureBundle summary from trusted task metadata."""
     return (
@@ -109,3 +125,8 @@ class T11BucketProposer:
             raise ValueError("proposal outside target policy")
         return ProposalRef(run_id=task.run_id, source_sha=task.source_sha,
                            proposal_digest=result["proposal_digest"])
+
+    def tool_events(self) -> tuple[dict, ...]:
+        if getattr(self.provider, "tool_events_available", True) is not True:
+            raise ValueError("the model's tool events are kept by the remote runtime")
+        return attempt_tool_events(self.coordinator, self.attempt)

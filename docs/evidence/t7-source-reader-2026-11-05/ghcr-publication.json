@@ -1,0 +1,17 @@
+{
+  "source_sha": "ce5727eb3e3d2355077afdaadcb1a722aba9c7cd",
+  "image": "ghcr.io/softbank-hackathon-finals/demo-chat",
+  "digest": "sha256:001adc35a9fc767566552fb55c3c19a67b7c5efc7231fb02dc28cdeace99d0d4",
+  "platform": "linux/amd64",
+  "scanned_before_publish": true,
+  "registry_pull_verified": true,
+  "runtime_user": "10001",
+  "attestation_manifest_present": true,
+  "runtime_packaging_probe_verified": true,
+  "cluster_pull_verified": false,
+  "anonymous_pull_verified": false,
+  "run_url": "https://github.com/Softbank-Hackathon-Finals/demo-chat/actions/runs/41606831578",
+  "artifact_id": 13216773578,
+  "artifact_file_sha256": "2d34d2536c7af35e0de9ad0ca957326fbb865fd22e27d2ac75d0ffb9b785d9ee",
+  "evidence_kind": "existing_actions_artifact_readback_no_rerun"
+}

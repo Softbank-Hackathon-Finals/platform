@@ -1,0 +1,39 @@
+{
+  "observed_at": "2026-11-05T07:25:55.019Z",
+  "pull_requests": [
+    {
+      "number": 184,
+      "url": "https://github.com/Softbank-Hackathon-Finals/platform/pull/184",
+      "merged": true,
+      "merge_commit_sha": "ac02d5aba3d3a63d1c2c6283bfa8f6b312bbe863",
+      "merged_at": "2026-11-04T04:39:39Z"
+    },
+    {
+      "number": 265,
+      "url": "https://github.com/Softbank-Hackathon-Finals/platform/pull/265",
+      "merged": true,
+      "merge_commit_sha": "35ce7f4462a1e9f3b512194a7bd4bfd7cd50c3a4",
+      "merged_at": "2026-11-05T04:57:14Z"
+    }
+  ],
+  "runs": [
+    {
+      "url": "https://github.com/Softbank-Hackathon-Finals/platform/actions/runs/41602534226",
+      "run_id": 41602534226,
+      "name": "runtime-smoke",
+      "conclusion": "success",
+      "status": "completed",
+      "head_sha": "ca52cc7d129e8808fff9e32951d346763b1f1452",
+      "created_at": "2026-11-03T08:20:22Z"
+    },
+    {
+      "url": "https://github.com/Softbank-Hackathon-Finals/demo-chat/actions/runs/41606831578",
+      "run_id": 41606831578,
+      "name": "publish-image",
+      "conclusion": "success",
+      "status": "completed",
+      "head_sha": "83283bcc8c709a4218dca188f6b658944f376396",
+      "created_at": "2026-11-03T08:54:54Z"
+    }
+  ]
+}
