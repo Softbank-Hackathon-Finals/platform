@@ -13,6 +13,7 @@ import json
 import os
 import re
 import signal
+import ssl
 import stat
 import sys
 import time
@@ -30,7 +31,7 @@ def _port(port):
         raise ValueError('explicit unprivileged loopback port required')
 
 
-def upload(port, intent, receipt):
+def upload(port, intent, receipt, *, ca_file):
     """Call only after verifying the existing SSO session and exact Pod UID.
 
     The receiver's expected hash/length must have been set through SSM, not from
@@ -47,8 +48,11 @@ def upload(port, intent, receipt):
     expected = {'accepted': True, 'request_id': intent.request_id,
                 'sha256': hashed, 'bytes': len(raw)}
     try:
-        with httpx.Client(trust_env=False, follow_redirects=False, timeout=30) as client:
-            with client.stream('PUT', f'http://127.0.0.1:{port}/receipt/{hashed}',
+        if not ca_file:
+            raise ValueError()
+        tls = ssl.create_default_context(cafile=ca_file)
+        with httpx.Client(trust_env=False, follow_redirects=False, timeout=30, verify=tls) as client:
+            with client.stream('PUT', f'https://127.0.0.1:{port}/receipt/{hashed}',
                                content=raw, headers={'Content-Type': 'application/json'}) as response:
                 if response.status_code != 201 or response.headers.get('content-encoding'):
                     raise ValueError()
@@ -65,7 +69,8 @@ def upload(port, intent, receipt):
         raise ExecutionUnknown('MAILBOX_DELIVERY_UNCONFIRMED_READ_SAME_RECEIPT') from None
 
 
-def receive(mailbox, *, port, expected_sha256, expected_bytes, seconds=60, ready=lambda _value: None):
+def receive(mailbox, *, port, expected_sha256, expected_bytes, tls_cert, tls_key,
+            seconds=60, ready=lambda _value: None):
     """Serve at most one request under a hard deadline (main thread, Unix).
 
     Only the operator chooses the expected digest, size and current intent. An
@@ -78,6 +83,11 @@ def receive(mailbox, *, port, expected_sha256, expected_bytes, seconds=60, ready
         raise ValueError('bounded receiver metadata required')
     intent = mailbox.claimed()
     accepted = None
+    if not tls_cert or not tls_key:
+        raise ValueError('reviewed T10 TLS mount required')
+    tls = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    tls.minimum_version = ssl.TLSVersion.TLSv1_2
+    tls.load_cert_chain(tls_cert, tls_key)
 
     class Handler(BaseHTTPRequestHandler):
         def log_message(self, *_args):
@@ -124,6 +134,7 @@ def receive(mailbox, *, port, expected_sha256, expected_bytes, seconds=60, ready
     try:
         signal.alarm(seconds)
         with Receiver(('127.0.0.1', port), Handler) as server:
+            server.socket = tls.wrap_socket(server.socket, server_side=True)
             server.timeout = seconds
             ready({'ready': True, 'pid': os.getpid(), 'port': port,
                    'request_id': intent.request_id, 'deadline_monotonic': time.monotonic() + seconds})
@@ -142,6 +153,9 @@ def main():
     parser.add_argument('--directory')
     parser.add_argument('--intent')
     parser.add_argument('--receipt')
+    parser.add_argument('--ca-file')
+    parser.add_argument('--tls-cert')
+    parser.add_argument('--tls-key')
     parser.add_argument('--port', type=int)
     parser.add_argument('--sha256')
     parser.add_argument('--bytes', type=int)
@@ -161,7 +175,7 @@ def main():
                         raise ValueError()
                 return decode(raw)
             result = upload(args.port, private_input(args.intent, MAX_INTENT),
-                            private_input(args.receipt, MAX_PLAINTEXT))
+                            private_input(args.receipt, MAX_PLAINTEXT), ca_file=args.ca_file)
             print(json.dumps(result), flush=True)
             return 0
         mailbox = FileProductExecution(args.directory)
@@ -181,6 +195,7 @@ def main():
         else:
             result = receive(mailbox, port=args.port, expected_sha256=args.sha256,
                              expected_bytes=args.bytes, seconds=args.seconds,
+                             tls_cert=args.tls_cert, tls_key=args.tls_key,
                              ready=lambda value: print(json.dumps(value), flush=True))
         print(json.dumps(result), flush=True)
     except Exception:

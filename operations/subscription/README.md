@@ -360,21 +360,26 @@ Pending, intent 자체가 없거나 결속이 다르면 Unknown이다. `read`는
    `product_execution_mailbox.encode(receipt)`의 canonical bytes 길이·SHA-256만
    SSM 명령에 전달해 같은 T10 Pod에서 수신기를 시작한다. 결과 본문·JWT·개인키는
    SSM 명령/argv/출력으로 전달하지 않는다. 최대 1 MiB·120초·PUT 한 건만 받는다.
-   수신기는 `127.0.0.1`에만 bind하며 ready metadata 뒤 종료 영수증만 출력한다.
+   수신기는 `127.0.0.1`에만 TLS로 bind하며 ready metadata 뒤 종료 영수증만 출력한다.
+   `$T10_TLS_CERT`/`$T10_TLS_KEY`는 T7 배치 담당이 인수한 기존 T10 서버 인증서 mount다.
+   인증서에는 `127.0.0.1` IP SAN이 있어야 하며, 평문 또는 검증 생략 모드는 없다.
 
    ```sh
    python -m bravo_agent.product_mailbox_transfer receive --directory "$MAILBOX_DIR" \
-     --port "$REMOTE_PORT" --sha256 "$RECEIPT_SHA256" --bytes "$RECEIPT_BYTES" --seconds 120
+     --port "$REMOTE_PORT" --sha256 "$RECEIPT_SHA256" --bytes "$RECEIPT_BYTES" --seconds 120 \
+     --tls-cert "$T10_TLS_CERT" --tls-key "$T10_TLS_KEY"
    ```
 
 4. 기존 창 담당이 그 Pod UID를 다시 확인하고 loopback port-forward와 기존 SSM
    포트 터널을 연다. 이 포트를 Service/Ingress/공개 주소로 노출하지 않는다.
    receiver의 기대 해시는 인증된 SSM 제어 경로에서 정하며 HTTP 입력이 바꾸지 못한다.
    operator upload는 환경 프록시·redirect를 사용하지 않고 loopback으로만 전송한다.
+   `$T10_PUBLIC_CA`는 같은 서버의 인수된 공개 CA다. TLS CA·주소 검증이 업로드보다
+   먼저 끝나야 하므로, 터널이 다른 로컬 listener로 바뀌어도 결과 본문은 전송되지 않는다.
 
    ```sh
    uv run --frozen python -m bravo_agent.product_mailbox_transfer upload \
-     --intent intent.json --receipt receipt.json --port "$LOCAL_PORT"
+     --intent intent.json --receipt receipt.json --port "$LOCAL_PORT" --ca-file "$T10_PUBLIC_CA"
    ```
 
 5. 같은 Pod/UID의 `receipt-status`에서 request_id·hash·size를 다시 읽는다. 출력에
