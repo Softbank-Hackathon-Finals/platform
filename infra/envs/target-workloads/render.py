@@ -14,6 +14,10 @@ NAMESPACE = "target-dev"
 POSTGRES_IMAGE = "ghcr.io/cloudnative-pg/postgresql:18.4-system-trixie@sha256:42708a75345b7a48fdd9257b071830783a97fd228529196b6313187a7198e185"
 LABELS = {"app.kubernetes.io/part-of": "bravo-target", "component": "target"}
 SUBSCRIPTION_METRICS = "target-subscription-metrics"
+# CNPG's default is 5 s. On the relayed tailnet path a few seconds of congestion ended the forward connection on
+# both ends at once (2026-11-06). Each cluster sends one direction and receives the other, so both carry both
+# values; source-workloads/render.py must say the same. Both settings take effect on reload, without a restart.
+REPLICATION_TIMEOUTS = {"wal_sender_timeout": "30s", "wal_receiver_timeout": "30s"}
 # CNPG's exporter turns each column into cnpg_pg_subscription_<column> and caches results for 30 seconds. It runs
 # as cnpg_metrics_exporter, which may read every pg_subscription column named here but not subconninfo. A worker
 # that is still connecting already counts in apply_workers, so 1 does not prove rows are flowing; the source
@@ -88,7 +92,7 @@ def database(node_name):
             "parameters": {"wal_level": "logical", "password_encryption": "scram-sha-256",
                            "log_connections": "on", "log_disconnections": "on",
                            "pgaudit.log": "ddl,role", "pgaudit.log_parameter": "off",
-                           "log_statement": "none"},
+                           "log_statement": "none", **REPLICATION_TIMEOUTS},
             "pg_hba": ["hostnossl all all all reject",
                        "hostssl chat chat_owner all scram-sha-256",
                        "hostssl chat chat_app all scram-sha-256",
