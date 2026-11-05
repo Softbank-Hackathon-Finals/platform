@@ -1,0 +1,41 @@
+{
+  "source_revision": "3afc1172374d820d84adb84079e4c3e84c9c7e18",
+  "source_files": [
+    {
+      "path": "docs/controls/control-result.schema.json",
+      "sha256": "f1273e751b31288c6d2ed927d888032474ce05f132dde7545bc12e2d9b38b654"
+    },
+    {
+      "path": "docs/controls/profiles.json",
+      "sha256": "4ba6e539b422985a43c20875ae00b21e1bd461daf4f8240b5b7b02debe0f2c90"
+    },
+    {
+      "path": "services/control-gate/src/bravo_gate/contract.py",
+      "sha256": "70dca503d33011d3bf4874d56a2b437a09698aeb4189ec5f5b6dc362c0e0f1f7"
+    },
+    {
+      "path": "services/control-gate/src/bravo_gate/models.py",
+      "sha256": "13a4b064f88f1c28f74fe28b2f275872a2cab721acd43010c659230742d4430a"
+    },
+    {
+      "path": "services/control-runner/src/bravo_controls/aws_identity.py",
+      "sha256": "7473ff32a1a7e43f86b0bd6b05e51aec59ff4e074755e2495a348b99701ba965"
+    },
+    {
+      "path": "services/control-runner/src/bravo_controls/aws_probes.py",
+      "sha256": "ee49a0169c697ba8521394d745bc32cb5c56cf16a08e042665090974462d8829"
+    },
+    {
+      "path": "services/control-runner/src/bravo_controls/aws_qualification.py",
+      "sha256": "3d584694a37bae4b2f014c4141be0b9aea7c0f12bd74503513dd5ee1c5928106"
+    },
+    {
+      "path": "services/control-runner/src/bravo_controls/runner.py",
+      "sha256": "0070c448d12aba94a35630243fce5223840250d99cecc876a021401e304d3ae1"
+    },
+    {
+      "path": "services/control-runner/src/bravo_controls/secret_encryption.py",
+      "sha256": "d31e1003d002d93b41fb0947d5cb70942827fa8f57507f35502814e3e29bf339"
+    }
+  ]
+}

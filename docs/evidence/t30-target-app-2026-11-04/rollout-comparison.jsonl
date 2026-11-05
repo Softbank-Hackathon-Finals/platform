@@ -1,0 +1,20 @@
+{"arm": "no_prestop", "n": 0, "requests": 12, "slow_or_failed": ["URLError", "URLError", "URLError", "URLError", "URLError"]}
+{"arm": "no_prestop", "n": 1, "requests": 12, "slow_or_failed": ["URLError", "URLError", "URLError", "URLError", "URLError"]}
+{"arm": "no_prestop", "n": 2, "requests": 12, "slow_or_failed": ["URLError", "URLError", "URLError", "URLError"]}
+{"arm": "no_prestop", "n": 3, "requests": 12, "slow_or_failed": ["URLError", "URLError", "URLError", "URLError", "URLError", "URLError"]}
+{"arm": "no_prestop", "n": 4, "requests": 12, "slow_or_failed": ["URLError", "URLError", "URLError"]}
+{"arm": "no_prestop", "n": 5, "requests": 12, "slow_or_failed": ["URLError", "URLError", "URLError", "URLError"]}
+{"arm": "no_prestop", "n": 6, "requests": 12, "slow_or_failed": ["URLError", "URLError", "URLError", "URLError", "URLError", "URLError"]}
+{"arm": "no_prestop", "n": 7, "requests": 12, "slow_or_failed": ["URLError", "URLError", "URLError", "URLError", "URLError"]}
+{"arm": "no_prestop", "n": 8, "requests": 12, "slow_or_failed": ["URLError", "URLError", "URLError", "URLError", "URLError", "URLError", "URLError", "URLError"]}
+{"arm": "no_prestop", "n": 9, "requests": 12, "slow_or_failed": ["URLError", "URLError", "URLError", "URLError", "URLError", "URLError", "URLError", "URLError"]}
+{"arm": "prestop_sleep_5", "n": 0, "requests": 12, "slow_or_failed": []}
+{"arm": "prestop_sleep_5", "n": 1, "requests": 12, "slow_or_failed": []}
+{"arm": "prestop_sleep_5", "n": 2, "requests": 12, "slow_or_failed": []}
+{"arm": "prestop_sleep_5", "n": 3, "requests": 12, "slow_or_failed": []}
+{"arm": "prestop_sleep_5", "n": 4, "requests": 12, "slow_or_failed": []}
+{"arm": "prestop_sleep_5", "n": 5, "requests": 12, "slow_or_failed": []}
+{"arm": "prestop_sleep_5", "n": 6, "requests": 12, "slow_or_failed": []}
+{"arm": "prestop_sleep_5", "n": 7, "requests": 12, "slow_or_failed": []}
+{"arm": "prestop_sleep_5", "n": 8, "requests": 12, "slow_or_failed": []}
+{"arm": "prestop_sleep_5", "n": 9, "requests": 12, "slow_or_failed": []}

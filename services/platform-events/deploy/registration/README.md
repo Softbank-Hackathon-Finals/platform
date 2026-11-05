@@ -28,7 +28,7 @@ Mount these inputs read-only for UID/GID 10001:
 | Mount | Owner-controlled input |
 |---|---|
 | `/credential`, `/ca` | Existing runtime DB credential and database CA; no migration credential |
-| `/registration/catalog.json` | Exact SSO verifier, actual environment references and accepted source release |
+| `/registration/catalog.json` | Exact SSO verifier, actual environment references, accepted source release and tenant-specific `evaluation_profiles` allowlist |
 | `/registration/grants.json` | Current registration-only subject/tenant grants |
 | Environment CA/token paths in the catalog | Dedicated collector credentials, separate from Executor and human admin credentials |
 | Release checkout path in the catalog | Approved repository, commit and app/IaC paths, including its Git object database |

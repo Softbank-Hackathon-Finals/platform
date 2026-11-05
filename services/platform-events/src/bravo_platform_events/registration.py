@@ -7,7 +7,7 @@ from datetime import UTC, datetime
 
 from .contract import validate_identifier
 from .operator_identity import OperatorPrincipal
-from .plans import PlanSpec, _canonical
+from .plans import PlanSpec, _canonical, validate_profile
 from .registration_probe import KubernetesProbe
 from .registration_sso import SsoRegistrationPrincipal
 from .store import EventError
@@ -19,7 +19,7 @@ def digest(value):
 
 class Registry:
     def __init__(self, store, *, environments, releases, can_register: Callable,
-                 probe=None, clock=None):
+                 probe=None, clock=None, evaluation_profiles=()):
         self.store = store
         # Keys are (tenant, opaque connection ref); values are provisioned by the owner.
         self.environments = dict(environments)
@@ -36,6 +36,18 @@ class Registry:
             if key in self.releases:
                 raise ValueError("ambiguous_workload_release")
             self.releases[key] = release
+        # Operator-installed policy, never a caller-selected catalog or app name.
+        profiles = set()
+        for row in evaluation_profiles:
+            if set(row) != {"tenant_id", "profile_id", "profile_version"}:
+                raise ValueError("invalid_evaluation_profile_policy")
+            validate_identifier(row["tenant_id"])
+            validate_profile(row["profile_id"], row["profile_version"])
+            key = (row["tenant_id"], row["profile_id"], row["profile_version"])
+            if key in profiles:
+                raise ValueError("duplicate_evaluation_profile")
+            profiles.add(key)
+        self.evaluation_profiles = frozenset(profiles)
         self.can_register = can_register
         self.probe = probe or KubernetesProbe()
         self.clock = clock or (lambda: datetime.now(UTC))
@@ -104,6 +116,9 @@ class Registry:
                                    repo_deploy_match=True, warnings=warnings), None
         if kind != "plan":
             raise ValueError("invalid_registration_kind")
+        profile = dict(profile_id=body.get("profile_id"), profile_version=body.get("profile_version"))
+        if (tenant, profile["profile_id"], profile["profile_version"]) not in self.evaluation_profiles:
+            raise EventError("evaluation_profile_unavailable")
         with self.store._transaction() as c:
             app = self._read(c, tenant, "workload", body["workload_id"])
             source = self._read(c, tenant, "environment", app["source_environment_id"])
@@ -117,13 +132,13 @@ class Registry:
         scope_hash = digest(scope)
         plan_hash = digest(dict(plan_id=object_id, tenant_id=tenant, workload_id=app["workload_id"],
                                 collection_scope_digest=scope_hash, target_environment_id=target["environment_id"],
-                                target_database_identity=target_obs["database_identity"]))
+                                target_database_identity=target_obs["database_identity"], **profile))
         spec = PlanSpec(object_id, tenant, app["workload_id"], source["environment_id"],
-                        target["environment_id"], plan_hash, scope_hash)
+                        target["environment_id"], plan_hash, scope_hash, **profile)
         receipt = dict(plan_id=object_id, workload_id=spec.workload_id,
                        source_environment_id=spec.source_environment_id, target_environment_id=spec.target_environment_id,
                        plan_digest=plan_hash, collection_scope_digest=scope_hash, state="COLLECT", version=1,
-                       warnings=sorted(set(warnings + target_obs["warnings"])))
+                       warnings=sorted(set(warnings + target_obs["warnings"])), **profile)
         return object_id, receipt, spec
 
     def register(self, actor, kind, body, key):

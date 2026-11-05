@@ -1,0 +1,110 @@
+{
+ "all_as_expected": true,
+ "compat_pod": {
+  "drill_verdict_on_map": "UNKNOWN",
+  "not_pass": [
+   {
+    "code": "NOT_EXIT_EVIDENCE",
+    "id": "eligibility:app",
+    "verdict": "UNKNOWN"
+   }
+  ],
+  "status": {
+   "kept": 2,
+   "not_blocked": 1,
+   "remains": 5,
+   "unknown": 1,
+   "unverified": 4
+  },
+  "verdict": "UNKNOWN"
+ },
+ "control_pod_accepted_by_restricted_psa": true,
+ "eligibility_code_present": true,
+ "full_drill": {
+  "app_restarts": [
+   {
+    "app": 1,
+    "others": 0
+   }
+  ],
+  "counts": {
+   "FAIL": 0,
+   "PASS": 25,
+   "UNKNOWN": 0
+  },
+  "not_pass": [],
+  "shell_vantages_measured": [
+   "db",
+   "pooler"
+  ],
+  "status": {
+   "blocked_app_ok": 4,
+   "kept": 2,
+   "not_blocked": 1,
+   "remains": 5,
+   "unknown": 1
+  },
+  "verdict": "PASS"
+ },
+ "k3s_image": "mirror.gcr.io/rancher/k3s:v1.35.5-k3s1",
+ "map_without_block": {
+  "drill_verdict": "NOT_RUN",
+  "status": {
+   "kept": 2,
+   "not_blocked": 1,
+   "remains": 5,
+   "unknown": 1,
+   "unverified": 4
+  }
+ },
+ "pooler_image": "ghcr.io/cloudnative-pg/pgbouncer:1.25.1@sha256:e6ddfe22d845e603825e235dd8334b21ecd125abea2a2172478f556b8dee2bb8",
+ "postgres_image": "mirror.gcr.io/library/postgres:18-alpine",
+ "python_image": "python:3.12-slim",
+ "real_pooler_image": {
+  "running_after_kill_pid_one": true,
+  "running_after_stop_container": false,
+  "running_at_start": true,
+  "shell_probe_states": [
+   "connected",
+   "refused",
+   "timeout",
+   "dns_failure",
+   "dns_failure"
+  ]
+ },
+ "real_postgres_read": {
+  "lsn_moved": true,
+  "no_subscriber": {
+   "lsn": null,
+   "state": "absent"
+  },
+  "read_only_session_refused_write": true,
+  "streaming": "streaming"
+ },
+ "rollback": {
+  "aws_state_after_rollback": "connected",
+  "objects_left": 0,
+  "stream_alive": true
+ },
+ "seconds": {
+  "compat_drill": 36.1,
+  "full_drill": 38.8,
+  "plan_and_map_without_block": 2.2,
+  "rollback": 8.7
+ },
+ "trial_merge": {
+  "branch_commit": "f032c5d3caaf2b7201d4e919859b3e5ff65824e1",
+  "note": "임시 작업 폴더에서 합쳐 돌렸고 저장소에 남기지 않았다",
+  "pr_210_head": "e528a3bfd3b58e306aed8be9e446214ffb3298d4"
+ },
+ "without_cutover_input": {
+  "not_pass": [
+   {
+    "code": "CUTOVER_NOT_CONFIRMED",
+    "id": "cutover:writer",
+    "verdict": "UNKNOWN"
+   }
+  ],
+  "verdict": "UNKNOWN"
+ }
+}

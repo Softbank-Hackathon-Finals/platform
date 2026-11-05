@@ -48,6 +48,7 @@ def _pods(plan: dict, suffix: str, started: datetime) -> dict:
             "container_started_at": started.isoformat(),
             "restarts": 0,
             "other_restarts": 0,
+            "exit_blockers": [],
         }]
         for name, item in plan["workloads"].items()
     }
@@ -612,6 +613,7 @@ def kube_pod(row: dict, plan: dict, statuses: list[dict], init_statuses=()) -> d
     return {
         "kind": "Pod",
         "metadata": {"name": row["name"], "uid": row["uid"], "namespace": plan["namespace"], "labels": row["labels"]},
+        "spec": {"containers": [{"name": "app"}]},
         "status": status,
     }
 

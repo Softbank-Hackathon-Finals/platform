@@ -1,7 +1,7 @@
 """Real T10 registration and plan storage through the console browser boundary."""
 
 import pytest
-from registration_fixture import SOURCE, TARGET, WORKLOAD, install
+from registration_fixture import PROFILE, SOURCE, TARGET, WORKLOAD, install
 from test_app import CHANGE, client, setup
 
 
@@ -25,18 +25,20 @@ def test_registration_flow_uses_real_registry_without_execution(registration):
         app = c.post("/v1/workloads", json=WORKLOAD, headers=CHANGE | {"Idempotency-Key": "app"})
         assert app.status_code == 201
         assert app.json()["repo_deploy_match"] is True
-        body = dict(workload_id=app.json()["workload_id"], target_environment_id="env-target")
+        body = dict(workload_id=app.json()["workload_id"], target_environment_id="env-target", **PROFILE)
         headers = CHANGE | {"Idempotency-Key": "plan"}
         created = c.post("/v1/plans", json=body, headers=headers)
         assert created.status_code == 201
         value = created.json()
         assert value["state"] == "COLLECT" and value["version"] == 1
+        assert {key: value[key] for key in PROFILE} == PROFILE
         # Response-loss recovery retains the original key and receipt, even if later probes fail.
         state["registration_probe_denied"] = True
         replay = c.post("/v1/plans", json=body, headers=headers)
         assert replay.status_code == 200 and replay.json() == value
         plan = c.get("/v1/plans/" + value["plan_id"])
         assert plan.status_code == 200 and plan.json()["state"] == "COLLECT"
+        assert {key: plan.json()[key] for key in PROFILE} == PROFILE
         assert len(store.read_after(value["plan_id"], None)) == 1
         assert state["submitted"] == 0
         assert (
