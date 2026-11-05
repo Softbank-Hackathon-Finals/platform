@@ -1,0 +1,24 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: bravo-observability-api
+  namespace: bravo-observability
+spec:
+  template:
+    spec:
+      containers:
+        - name: api
+          env:
+            - {name: BRAVO_API_SERVER_TLS_DIR, value: /etc/bravo-api-server-tls}
+            - {name: BRAVO_API_SERVER_NAME, value: bravo-observability-api.bravo-observability.svc}
+          readinessProbe:
+            httpGet: {scheme: HTTPS}
+          livenessProbe:
+            httpGet: {scheme: HTTPS}
+          volumeMounts:
+            - {name: server-tls, mountPath: /etc/bravo-api-server-tls, readOnly: true}
+      volumes:
+        - name: server-tls
+          secret:
+            secretName: bravo-observability-api-server-tls
+            defaultMode: 0440
