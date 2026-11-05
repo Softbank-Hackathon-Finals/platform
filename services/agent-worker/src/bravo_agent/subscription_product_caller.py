@@ -21,7 +21,7 @@ import httpx
 from botocore.config import Config
 
 from .subscription_product import stopped
-from .subscription_product_host import ProductTunnelCall
+from .subscription_product_host import ProductInputProbeCall, ProductTunnelCall
 
 
 @dataclass(frozen=True)
@@ -94,9 +94,22 @@ JWT, submit a T15 Job, or retry. T10 supplies request_for with ActionsProductTok
 only in a real Actions process. A host outside Actions needs an explicit reviewed
 orchestration path; copying its token to a file is not that path.
 """
+    with _window(instance_id, ProductTunnelCall(runtime_source_sha, transport=transport), ssm=ssm) as call:
+        yield call
+
+
+@contextmanager
+def product_probe_window(instance_id, runtime_source_sha, *, ssm=None, transport=None):
+    """One read-only authentication probe using the same fixed start/tunnel/stop."""
+    with _window(instance_id, ProductInputProbeCall(runtime_source_sha, transport=transport), ssm=ssm) as call:
+        yield call
+
+
+@contextmanager
+def _window(instance_id, transport_call, *, ssm=None):
     if not isinstance(instance_id, str) or re.fullmatch(r"i-[a-f0-9]{17}", instance_id) is None:
         raise ValueError("designated instance required")
-    call = ProductWindowCall(ProductTunnelCall(runtime_source_sha, transport=transport))
+    call = ProductWindowCall(transport_call)
     region = "ap-northeast-2"
     _assert_tunnel_port_free()
     if ssm is None:

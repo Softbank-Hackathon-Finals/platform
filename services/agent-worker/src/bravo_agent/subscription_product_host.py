@@ -135,3 +135,41 @@ class ProductTunnelCall:
             return 200, result
         except Exception:
             return 502, stopped("PRODUCT_CALL_UNCONFIRMED")
+
+
+@dataclass(frozen=True)
+class ProductInputProbeCall:
+    """Fixed auth/read-only route; its receipt cannot be a model or T15 result."""
+
+    runtime_source_sha: str
+    transport: httpx.BaseTransport | None = field(default=None, repr=False)
+
+    def __post_init__(self):
+        if not isinstance(self.runtime_source_sha, str) or re.fullmatch(r"[a-f0-9]{40}", self.runtime_source_sha) is None:
+            raise ValueError("exact runtime source required")
+
+    def __call__(self, body: dict) -> tuple[int, dict]:
+        try:
+            request = ProductRequest.model_validate(body)
+            with httpx.Client(transport=self.transport, trust_env=False, follow_redirects=False,
+                              timeout=httpx.Timeout(80, connect=5)) as client:
+                with client.stream("POST", "http://127.0.0.1:18762/input/probe", json=request.model_dump()) as response:
+                    if response.status_code != 200:
+                        return response.status_code, stopped("PRODUCT_PROBE_UNCONFIRMED")
+                    data = bytearray()
+                    for part in response.iter_bytes(chunk_size=1024):
+                        data.extend(part)
+                        if len(data) > 4096:
+                            raise ValueError("oversized probe response")
+            result = json.loads(data)
+            expected = {"state": "INPUT_AUTHENTICATED", "runtime_source_sha": self.runtime_source_sha,
+                        "product_input_digest": request.input_digest,
+                        "request_digest": digest({"input_ref": request.input_ref, "input_digest": request.input_digest})}
+            if (type(result) is not dict or set(result) != set(expected) | {"admission_digest", "principal_digest"}
+                    or any(result[key] != value for key, value in expected.items())
+                    or any(not isinstance(result[key], str) or re.fullmatch(r"[a-f0-9]{64}", result[key]) is None
+                           for key in ("admission_digest", "principal_digest"))):
+                raise ValueError("unbound probe receipt")
+            return 200, result
+        except Exception:
+            return 502, stopped("PRODUCT_PROBE_UNCONFIRMED")
