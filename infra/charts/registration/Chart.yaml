@@ -1,0 +1,7 @@
+apiVersion: v2
+name: registration
+description: T10 registration host managed by the platform GitOps controller
+type: application
+version: 0.1.0
+appVersion: "1"
+kubeVersion: ">=1.30.0-0"

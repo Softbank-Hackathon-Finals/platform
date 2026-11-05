@@ -35,6 +35,8 @@
 
 * 좋은 점: T15가 `app/db_secret.py`를 snapshot에 넣을 수 있다. 콘솔이 "안 만든 도구"와 "막힌 시도"를 구분한다. 모델이 T16 등급과 린트를 읽어 제안 품질을 올리되 판정 권한은 없다.
 * 나쁜 점: 이름 규칙 완화만큼 내용 검사(`safe_text`)에 의존한다. `safe_text`는 알려진 패턴만 본다. 파괴 범주 정규식도 알려진 명령만 본다. 둘 다 T15 독립 검증과 T3 격리의 대체가 아니다.
+* 연결(11/6): `bravo-agent analyze --inventory`와 `bravo-subscription run --inventory`가 T16 문서를 읽어 `InventorySummary`를 붙인다. `source_sha`가 다르거나 형식 · 크기가 맞지 않으면 다른 입력 오류처럼 `NEEDS_HUMAN`(종료 코드 2)이고, 붙인 실행의 결과에만 `inventory_digest`가 남는다. 현재 `bravo-inventory scan` 출력(demo-chat 시험 입력, `--source-sha` 지정)을 `Tools.dispatch`와 OpenAI 함수 루프(가짜 전송)로 통과시켰다.
+* T38 제품 경로 제안(미구현, T38 · T10 합의 필요): `ProductInput`에 선택 필드 `inventory`(T16 v1 문서 원본, 기본 `null`)를 두고 Admission digest가 이를 포함한다. `validate_product_input`은 `InventorySummary.from_document(inventory).source_sha == bundle.source_sha`를 검사하고, `invoke_product_worker`는 `inventory.json`(0400)을 쓰고 `SimpleNamespace(..., inventory=path)`로 넘긴다. `proposal_result`는 결과의 `inventory_digest`가 입력 문서의 `digest`와 같은지 확인한다. `ProductRequest`와 T11 입력(`FailureBundle`)은 바꾸지 않는다.
 * 미검증: 실제 모델이 `inventory.describe`를 호출한 실측, T15 코드 수정 템플릿과의 통합, `rehearsal.exec` 계약.
 
 ## 5. 실측 (Evidence)

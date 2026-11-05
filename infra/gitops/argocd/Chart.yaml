@@ -1,0 +1,9 @@
+apiVersion: v2
+name: platform-gitops
+description: Namespace-scoped Argo CD Core for platform workloads
+type: application
+version: 0.1.0
+dependencies:
+  - name: argo-cd
+    version: 10.14.0
+    repository: https://argoproj.github.io/argo-helm

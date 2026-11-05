@@ -4,6 +4,7 @@ T16 소스는 같은 저장소에 있다. 변이 시험은 이 서비스만 복�
 """
 
 import json
+import shutil
 import sys
 from pathlib import Path
 
@@ -31,11 +32,11 @@ def t16():
     sys.path.remove(str(T16 / "src"))
 
 
-def scan(cli, tmp_path: Path, repo: Path, *, exports: Path = FIXTURES / "exports/aws") -> Path:
+def scan(cli, tmp_path: Path, repo: Path, *, exports: Path | None = FIXTURES / "exports/aws") -> Path:
     output = tmp_path / "inventory.json"
     assert cli.main([
         "scan", "--app-id", "demo-chat", "--repo", str(repo), "--app-path", "app",
-        "--source-env", "aws-seoul", "--namespace", "chat", "--exports", str(exports),
+        "--source-env", "aws-seoul", "--namespace", "chat", *(["--exports", str(exports)] if exports else []),
         "--profile", str(PROFILES / "onprem-rke2.json"), "--profile", str(PROFILES / "onprem-minimal.json"),
         "--target-exports", f"onprem-demo={FIXTURES / 'exports/onprem'}", "--output", str(output),
     ]) == 0
@@ -98,6 +99,24 @@ def test_real_output_keeps_private_values_out_of_the_map_and_plan(real_inventory
     for output in (json.dumps(plan), json.dumps(result)):
         assert "arn:aws" not in output
         assert "000000000000" not in output
+
+
+@pytest.mark.parametrize("drop", [None, "serviceaccounts.json"], ids=["no-source-exports", "no-serviceaccounts"])
+def test_what_t16_could_not_trace_appears_on_the_map(t16, tmp_path, capsys, drop):
+    """실제 실행에서 출발지 EKS를 못 읽었을 때다. 지도만 읽어도 근거가 좁다는 것을 알아야 한다."""
+    exports = None
+    if drop:
+        exports = tmp_path / "exports"
+        shutil.copytree(FIXTURES / "exports/aws", exports)
+        (exports / drop).unlink()
+    inventory = scan(t16[1], tmp_path, FIXTURES / "demo-chat", exports=exports)
+    capsys.readouterr()
+    notes = json.loads(inventory.read_text(encoding="utf-8"))["deploy"]["notes"]
+    assert notes
+    _, result = run_map(inventory, tmp_path, capsys)
+    assert result["inventory_trace_notes"] == notes
+    _, text = run_map(inventory, tmp_path, capsys, output_format="markdown")
+    assert all(f"- {note}" in text for note in notes)
 
 
 def test_candidate_gaps_from_t16_appear_on_the_map(real_inventory, tmp_path, capsys):

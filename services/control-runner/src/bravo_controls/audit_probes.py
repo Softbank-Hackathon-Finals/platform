@@ -11,6 +11,7 @@ import re
 import time
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
+from urllib.parse import parse_qsl, urlsplit
 
 from .runner import Observation, RunContext, TestSpec
 
@@ -137,6 +138,28 @@ def _matched(event: dict, receipt: CanaryReceipt) -> str | None:
             or type(response.get("code")) is not int
             or not 200 <= response["code"] < 300
         ):
+            return None
+        # Kubernetes also records successful server dry-runs with HTTP 2xx.
+        # They are not evidence of a committed RBAC change. Successful effect
+        # receipts remain mandatory; Metadata-only logs cannot prove effects.
+        uri = event.get("requestURI")
+        # The existing privacy-filtered OTLP path removes URIs entirely and
+        # therefore still relies on the trusted executor's committed receipts.
+        # When raw provider logs include a URI, never ignore contradictory data.
+        if uri is not None:
+            if not isinstance(uri, str) or not 1 <= len(uri) <= 4096:
+                raise ValueError("audit request URI invalid")
+            request = urlsplit(uri)
+            path = f"/apis/rbac.authorization.k8s.io/v1/namespaces/{receipt.namespace}/rolebindings"
+            if verb == "delete":
+                path += "/" + receipt.marker
+            if request.scheme or request.netloc or request.fragment or request.path != path:
+                return None
+            query = parse_qsl(request.query, keep_blank_values=True, max_num_fields=32)
+            if any(key == "dryRun" for key, _ in query):
+                return None
+        body = event.get("requestObject")
+        if isinstance(body, dict) and body.get("dryRun"):
             return None
         audit_id = event.get("auditID")
         if not isinstance(audit_id, str) or not audit_id:

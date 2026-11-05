@@ -1,10 +1,12 @@
 import asyncio
 import copy
 import json
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 
+from bravo_agent.contracts import InventorySummary
 from bravo_agent.coordinator import Coordinator
 from bravo_agent.openai_provider import OpenAIProvider, function_tools
 from bravo_agent.runtime import isolated_environment
@@ -67,6 +69,32 @@ def test_openai_uses_two_strict_functions_and_collects_only_proposal(context, mo
     assert set(first_input) == {"task", "failure", "attempt", "snapshot"} and first_input["task"] == first_input["failure"]
     assert result["attempts"][0]["model_usage"]["total_tokens"] == 200
     assert "model-fixture" not in str(result)
+
+
+def test_openai_offers_inventory_describe_over_the_real_t16_output(context, monkeypatch):
+    # The real `bravo-inventory scan` output (see test_tools) reaches the model through the same
+    # function loop: offered only when attached, strict null role, subset only, digest recorded.
+    bundle, snapshot, proposal, _ = context
+    doc = json.loads((Path(__file__).parent / "fixtures/t16-inventory-demo-chat.json").read_text(encoding="utf-8"))
+    inventory = InventorySummary.from_document(doc)
+    calls, _ = install_client(monkeypatch, [
+        response("repo_read", {"path": "src/config.py"}), response("inventory_describe", {"role": None}),
+        response("inventory_describe", {"role": "secrets"}), response("plan_propose", proposal),
+    ])
+    result = asyncio.run(Coordinator(bundle, snapshot, inventory).propose(OpenAIProvider("fixture-model")))
+    assert result["state"] == "PROPOSAL_READY" and result["inventory_digest"] == doc["digest"]
+    described = [tool for tool in calls[0]["tools"] if tool["name"] == "inventory_describe"]
+    assert len(described) == 1 and described[0]["parameters"]["required"] == ["role"]
+    everything = json.loads(calls[2]["input"][-1]["output"])
+    assert [item["id"] for item in everything["items"]] == [item["id"] for item in doc["items"]]
+    secrets = json.loads(calls[3]["input"][-1]["output"])
+    assert [item["role"] for item in secrets["items"]] == ["secrets"]
+    assert {"file": "app/db_secret.py", "line": 15, "kind": "sdk_call"} in secrets["items"][0]["code_refs"]
+    model_view = json.dumps([call["input"] for call in calls])
+    assert "snippet" not in model_view and "deploy_refs" not in model_view and "env_sources" not in model_view
+    audited = [event for event in result["audit"] if event["tool"] == "inventory.describe"]
+    assert [event["outcome"] for event in audited] == ["ALLOWED", "ALLOWED"]
+    assert all(event["inventory_digest"] == doc["digest"] for event in audited)
 
 
 def test_strict_schema_has_no_implicit_optional_fields():

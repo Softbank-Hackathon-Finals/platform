@@ -52,7 +52,8 @@ class MetricsRenderTests(unittest.TestCase):
                                                      "resources", "postgresql", "bootstrap", "managed", "monitoring"})
         self.assertEqual(self.cluster["spec"]["postgresql"]["parameters"], {
             "wal_level": "logical", "password_encryption": "scram-sha-256", "log_connections": "on", "log_disconnections": "on",
-            "pgaudit.log": "ddl,role", "pgaudit.log_parameter": "off", "log_statement": "none"})
+            "pgaudit.log": "ddl,role", "pgaudit.log_parameter": "off", "log_statement": "none",
+            "wal_sender_timeout": "30s", "wal_receiver_timeout": "30s"})
 
 
 class ExporterPageTests(unittest.TestCase):

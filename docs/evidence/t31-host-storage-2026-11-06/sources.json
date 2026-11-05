@@ -1,0 +1,17 @@
+{
+  "source_revision": "b69402ec52d83136ad9066bb6a286f31990dea48",
+  "source_files": [
+    {
+      "path": "infra/envs/apply-host/probe.py",
+      "sha256": "23217e4af9f8ac1cd9a8d316f55fd424b3ba5bce0cd14d5159dc35ece9687684"
+    },
+    {
+      "path": "infra/envs/apply-host/render.py",
+      "sha256": "a99bd4c9ffb693a4feaf112e548e9e7c5e92f566a8fd2c3a2ae039e232975c9d"
+    },
+    {
+      "path": "services/platform-events/src/bravo_platform_events/application_host.py",
+      "sha256": "82b7d0386144c2d0576b7c0f4c46babfe527d93fb62d6931d34aa62318adbc56"
+    }
+  ]
+}

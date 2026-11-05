@@ -7,7 +7,7 @@ import os
 import tempfile
 from pathlib import Path
 
-from .contracts import FailureBundle, Proposal, SnapshotManifest
+from .contracts import FailureBundle, InventorySummary, Proposal, SnapshotManifest
 from .coordinator import Coordinator
 from .runtime import isolated_environment
 from .tools import Snapshot
@@ -39,6 +39,8 @@ def main() -> int:
     analyze = commands.add_parser("analyze", help="Propose once; no execution or verification")
     for argument in ("bundle", "manifest", "snapshot", "output"):
         analyze.add_argument("--" + argument, type=Path, required=True)
+    analyze.add_argument("--inventory", type=Path,
+                         help="Optional T16 inventory document of the same source_sha; enables inventory.describe")
     analyze.add_argument("--model", required=True, help="Explicit provider model ID")
     analyze.add_argument("--provider", choices=("chatgpt-plan", "openai", "claude"), default="chatgpt-plan")
     analyze.add_argument("--state-output", type=Path,
