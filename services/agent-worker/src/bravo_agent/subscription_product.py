@@ -152,6 +152,7 @@ class ProductService:
     inputs: ProductInputs = field(repr=False)
     invoke: Callable = field(repr=False)
     runtime_source_sha: str
+    request_inputs: Callable[[str], ProductInputs] | None = field(default=None, repr=False)
 
     def __post_init__(self):
         if re.fullmatch(r"[a-f0-9]{40}", self.runtime_source_sha) is None:
@@ -169,7 +170,10 @@ class ProductService:
         except Exception:
             return 403, stopped("PRODUCT_ACCESS_DENIED")
         try:
-            value = self.inputs.resolve(access.principal, request.input_ref)
+            # Trusted host factory is request-scoped and runs only after STS authentication.
+            # The token is never added to ProductInput, the worker access, or the journal.
+            inputs = self.inputs if self.request_inputs is None else self.request_inputs(request.web_identity_token)
+            value = inputs.resolve(access.principal, request.input_ref)
             # Revalidate/detach mutable dictionaries even when already typed.
             value = validate_product_input(value)
             if digest(value) != request.input_digest or value.attempt != 1:
