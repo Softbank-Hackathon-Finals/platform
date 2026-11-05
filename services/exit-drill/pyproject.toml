@@ -9,7 +9,11 @@ dependencies = []
 bravo-exit-drill = "bravo_exit_drill.cli:main"
 
 [dependency-groups]
-dev = ["pytest>=8,<10"]
+dev = [
+    "jsonschema>=4.23,<5",
+    "pytest>=8,<10",
+    "pyyaml>=6,<7",
+]
 
 [build-system]
 requires = ["hatchling>=1.25,<2"]
