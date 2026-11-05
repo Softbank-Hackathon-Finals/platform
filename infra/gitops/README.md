@@ -46,7 +46,9 @@ resources after Argo CD takes ownership. A publish receipt, Argo `Synced`, a
 Ready Pod, actual SSO success, and complete T43 acceptance are separate results.
 
 Local chart contract tests: `uv run infra/gitops/test_registration_chart.py`.
-Build the pinned Argo dependency first with `helm dependency build infra/gitops/argocd`.
+Register the official chart source with
+`helm repo add bravo-argo https://argoproj.github.io/argo-helm --force-update`,
+then build the pinned dependency with `helm dependency build infra/gitops/argocd`.
 Never commit the downloaded chart, rendered private values, credentials or a
 cluster kubeconfig.
 

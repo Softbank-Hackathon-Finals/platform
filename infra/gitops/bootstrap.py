@@ -96,6 +96,16 @@ def main():
         runtime_hash = hashlib.sha256(a.runtime_values.read_bytes()).hexdigest()
         values = ["--values", str(a.runtime_values)]
     chart = ROOT / "infra/gitops/argocd"
+    run(
+        [
+            "helm",
+            "repo",
+            "add",
+            "bravo-argo",
+            "https://argoproj.github.io/argo-helm",
+            "--force-update",
+        ]
+    )
     run(["helm", "dependency", "build", str(chart)])
     render = run(
         [

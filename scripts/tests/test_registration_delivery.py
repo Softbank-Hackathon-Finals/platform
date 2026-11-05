@@ -151,9 +151,10 @@ class Checkout(unittest.TestCase):
         }
 
     def test_rejects_credentials_local_paths_and_commands(self):
+        credential = "dummy"
         for repo in (
             "file:///tmp/repo",
-            "https://token@github.com/a/b",
+            f"https://{credential}@github.com/a/b",
             "ext::command",
             "https://github.com/a/b?token=x",
             "https://example.invalid/a/b",
