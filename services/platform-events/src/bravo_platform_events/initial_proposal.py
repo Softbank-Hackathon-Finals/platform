@@ -361,11 +361,10 @@ class InitialProposalExecution:
         source, task and published Change before consuming it.
         """
         with self.records.store._transaction() as c:
-            _, result = self._stored(c, plan_id, version, ref)
-            return result.model_dump(mode="json")
+            return self._stored_result(c, plan_id, version, ref, promoted=True)[2].model_dump(mode="json")
 
-    def _stored(self, c, plan_id, version, ref):
-        value = self.records._read(c, self.principal, plan_id, version, ref, promoted=True)
+    def _stored_result(self, c, plan_id, version, ref, *, promoted=False):
+        value = self.records._read(c, self.principal, plan_id, version, ref, promoted=promoted)
         saved = _get(c, plan_id, _slot(version) + ":execution:result")
         if not saved:
             raise EventError("initial_execution_not_complete")
@@ -379,7 +378,7 @@ class InitialProposalExecution:
             if (published.request_id, published.plan_digest, published.source_sha, published.proposal_digest) != (
                     intent.request_id, value.binding.plan_digest, value.binding.source_sha, result.proposal_digest):
                 raise EventError("initial_publication_unconfirmed")
-        return value, result
+        return value, intent, result
 
     def rehearsal_run_id(self, c, plan, task_id, task):
         """RehearsalService.first_run: current stored Proposal, after real publication.
@@ -396,7 +395,7 @@ class InitialProposalExecution:
         admitted = _get(c, plan_id, _slot(version))
         if admitted is None:
             raise EventError("initial_rehearsal_unavailable")
-        value, result = self._stored(c, plan_id, version, admitted[1])
+        value, _, result = self._stored_result(c, plan_id, version, admitted[1], promoted=True)
         if (value.binding.tenant_id != plan["tenant_id"] or value.binding.task_id != task_id
                 or (value.binding.source_sha, value.binding.task_digest) != (task.source_sha, task.task_digest)):
             raise EventError("initial_rehearsal_unavailable")
@@ -424,6 +423,14 @@ class InitialProposalExecution:
             return dict(state="PROPOSAL_READY", attempt=admission.attempt,
                 run_id=admission.rehearsal_id, source_sha=admission.source_sha,
                 proposal=result.proposal.model_dump(mode="json"), proposal_digest=result.proposal_digest)
+    def publication_inputs(self, plan_id, version, **ref):
+        """Read authorized, saved inputs for the operator's T7 evidence lookup.
+
+        No client, network or mutation. Only PROPOSE is accepted. The eventual
+        evidence_reader rechecks current authority after this lookup completes.
+        """
+        with self.records.store._transaction() as c:
+            return self._stored_result(c, plan_id, version, ref)
 
     def evidence_reader(self, *, publication):
         """WorkflowRecovery read port. Publication is a trusted read-only adapter.
