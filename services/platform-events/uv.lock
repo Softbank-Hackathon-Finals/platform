@@ -71,6 +71,36 @@ wheels = [
 ]
 
 [[package]]
+name = "bravo-control-gate"
+version = "0.1.0"
+source = { directory = "../control-gate" }
+dependencies = [
+    { name = "cryptography" },
+    { name = "jsonschema" },
+    { name = "rfc3339-validator" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "bravo-cutover", marker = "extra == 't13'", directory = "../cutover-executor" },
+    { name = "bravo-platform-events", marker = "extra == 't10'", directory = "." },
+    { name = "cryptography", specifier = ">=46,<51" },
+    { name = "jsonschema", specifier = ">=4.26,<5" },
+    { name = "rfc3339-validator", specifier = ">=0.1.4,<0.2" },
+]
+provides-extras = ["t10", "t13"]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "bravo-cutover", directory = "../cutover-executor" },
+    { name = "bravo-platform-events", directory = "." },
+    { name = "jsonpatch", specifier = ">=1.33,<2" },
+    { name = "psycopg", extras = ["binary"], specifier = ">=3.2,<4" },
+    { name = "pytest", specifier = ">=8,<10" },
+    { name = "ruff", specifier = ">=0.14,<0.18" },
+]
+
+[[package]]
 name = "bravo-observability"
 version = "0.1.0"
 source = { git = "https://github.com/Softbank-Hackathon-Finals/platform.git?subdirectory=services%2Fobservability&rev=020c6c78bdc6133ab0ee15e2a990bb9527b3182f#020c6c78bdc6133ab0ee15e2a990bb9527b3182f" }
@@ -104,6 +134,7 @@ postgres = [
 
 [package.dev-dependencies]
 dev = [
+    { name = "bravo-control-gate" },
     { name = "bravo-rehearsal-runner" },
     { name = "httpx" },
     { name = "psycopg", extra = ["binary"] },
@@ -128,6 +159,7 @@ provides-extras = ["postgres"]
 
 [package.metadata.requires-dev]
 dev = [
+    { name = "bravo-control-gate", directory = "../control-gate" },
     { name = "bravo-rehearsal-runner", directory = "../rehearsal-runner" },
     { name = "httpx", specifier = ">=0.27" },
     { name = "psycopg", extras = ["binary"], specifier = ">=3.2,<4" },

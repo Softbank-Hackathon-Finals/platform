@@ -1,0 +1,101 @@
+{
+  "public_is_raw": false,
+  "representation": "reviewed_projection; runtime identifiers omitted; measured booleans, counts, times and source hashes preserved",
+  "observed_at": "2026-11-05T09:42:51Z",
+  "source_revision": "97b1a916156772edcafa8c26a780568b8d135ab4",
+  "bundle_sha256": "8142caa481a3ca4f720c9648e62b8a2d2a00195e2d2c2aded84877a39aacb9bd",
+  "runtime": {
+    "target": "registered T7 AWS RKE2 platform DB",
+    "job_started_at": "2026-11-05T09:36:00Z",
+    "job_completed_at": "2026-11-05T09:36:16Z",
+    "job_succeeded": 1,
+    "container_image": "docker.io/library/python@sha256:e697c81897302a4c4333bade000d98038fbb21eb064f8ee1fd42d02ebcd9d337",
+    "container_exit_code": 0,
+    "container_restart_count": 0,
+    "probe": {
+      "check_count": 12,
+      "checks": {
+        "duplicate_is_idempotent": true,
+        "durable_revocation_denies_read": true,
+        "missing_target_blocks_binding": true,
+        "no_gate_context_or_report_created": true,
+        "original_verdicts_preserved": true,
+        "other_tenant_denied": true,
+        "plan_stays_collect": true,
+        "reconnect_original_hash": true,
+        "restricted_role": true,
+        "runtime_identity": true,
+        "same_ref_replacement_denied": true,
+        "tls_verified": true
+      },
+      "executor_calls": 0,
+      "operational_gate_accepted": false,
+      "real_target_result": false,
+      "retained_source_supplied": true,
+      "scope": "cluster_runtime_storage_with_missing_target",
+      "server_version": "18.4 (Debian 18.4-1.pgdg13+1)",
+      "source_digest": "3b3a8f99c3dd1e2b50356754c52fecc9a2a9a644a8e8a71cdcfb9e925db2d762",
+      "source_verdicts": {
+        "FAIL": 0,
+        "PASS": 3,
+        "UNKNOWN": 17
+      },
+      "state_schema_versions": [
+        2
+      ],
+      "status": "PASS"
+    }
+  },
+  "cleanup": {
+    "status": "CLEANED",
+    "resources_absent": 3,
+    "pods_absent": true,
+    "existing_platform_pods_unchanged": true
+  },
+  "retained_state": "one verification-only plan, original run and revoked grant history; append-only; not an operational registration",
+  "first_attempt": {
+    "result": "FAILED_BEFORE_DATABASE_ACCESS",
+    "cause": "runtime bundle omitted psycopg; module import failed",
+    "correction": "export platform-events postgres extra with locked hashes; import required modules before database access",
+    "cleanup": {
+      "status": "CLEANED",
+      "resources_absent": 3,
+      "pods_absent": true,
+      "existing_platform_pods_unchanged": true
+    }
+  },
+  "private_originals": [
+    {
+      "artifact": "t19-b-status-1-readback.json",
+      "sha256": "af55df68b77dc9bda9b4f95295e91fc9b54bc3b2e0d591bf96df0439cd020d27"
+    },
+    {
+      "artifact": "t19-b-cleanup-b-readback.json",
+      "sha256": "1768fde159c47278b9e1f53216ee1edaa9839c4f45609b983b09e90449767209"
+    },
+    {
+      "artifact": "t19-b-create-readback.json",
+      "sha256": "32640aaadc16bf21709a8698eaab7a1ad7a051640bef807d0f2ea30a29ac4006"
+    },
+    {
+      "artifact": "t19-diagnostic-readback.json",
+      "sha256": "262650cd7cb7e47964c72554aaa3e017f8c9cdf5af69d4c8ae12988074486ac1"
+    },
+    {
+      "artifact": "t19-cleanup-a-readback.json",
+      "sha256": "6e136c0798f7974b03b9f720ab3955f916eaa902409caec24a4ee573692d102a"
+    },
+    {
+      "artifact": "manifest.private.json",
+      "sha256": "1ab7b0b01302b656324047d8ceb40b7a148741180b5f253dda9d55595c6c610c"
+    },
+    {
+      "artifact": "bundle-source-map.json",
+      "sha256": "8efc46dc0249fe70bb24517f5f17f983a34d64f459927cb622ff4835b42e8cd4"
+    },
+    {
+      "artifact": "requirements.txt",
+      "sha256": "0f0fb44deeefef77b2915c8dc6275ea0b345bf9f113939d843bcefa3fb3631a3"
+    }
+  ]
+}
