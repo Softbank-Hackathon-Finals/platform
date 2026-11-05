@@ -11,8 +11,8 @@ from rehearsal_runner.credential_proposer import T11CredentialProposer, credenti
 from rehearsal_runner.credential_verifier import CredentialVerificationRequest
 from rehearsal_runner.integration_handoff import HandoffVerifier
 from rehearsal_runner.isolation_gate import IsolationPass
-from rehearsal_runner.retry import AttemptPorts, RetryDecision, run_retries
-from rehearsal_runner.runner import Namespace
+from rehearsal_runner.retry import AttemptPorts
+from rehearsal_runner.runner import Namespace, run_once
 from rehearsal_runner.secret_task import prepare_credential_migration
 
 
@@ -74,15 +74,14 @@ class Ports:
         self.cleaned = True
         return True
 
-    def assess(self, receipt, proposal, attempt):
-        assert self.cleaned
-        return RetryDecision(proposal.run_id, proposal.source_sha, proposal.proposal_digest, attempt, "PASS")
 
 
 def test_full_t15_flow_prepares_candidate_without_claiming_real_approval():
     task = prepare_credential_migration("run-1", "a" * 40)
     ports = Ports(task)
-    outcome = run_retries(task, ports, ports)
+    prepared = ports.prepare(1, None)
+    outcome = run_once(task, prepared.proposer, prepared.lifecycle, prepared.isolation, None,
+                       isolated_verifier=prepared.verifier)
     assert outcome.state == "RECEIPT_UNVERIFIED"
     candidate = prepare_candidate(ports.handoff, plan_id="plan-1", verification_id="verification-1",
                                   evidence_ref="evidence-1", cleanup_uid="uid-1", cleanup_confirmed=ports.cleaned)

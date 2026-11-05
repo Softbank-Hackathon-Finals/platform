@@ -102,6 +102,11 @@ def test_t10_commits_then_t15_host_submits_one_bound_attempt(environment):
                                    ("verify", 1), ("cleanup", "uid-1")]
     result = service.reconcile(principal, spec.plan_id, rehearsal_id=receipt["rehearsal_id"], attempt=1)
     assert result["status"] == "UNCONFIRMED"
+    with service.store._connection() as connection:
+        connection.execute("UPDATE plans SET state='GATE' WHERE plan_id=?", (spec.plan_id,))
+    with pytest.raises(EventError, match="rehearsal_not_allowed"):
+        service.start(principal, spec.plan_id, **(args | {"task_id": "another", "command_key": "third"}))
+    assert len(sender.calls) == 1
 
 
 def test_changed_catalog_after_commit_cannot_be_submitted(environment):
@@ -128,3 +133,42 @@ def test_host_does_not_treat_wrong_or_unconfirmed_evidence_as_observation(enviro
         host.observe(admission)
     evidence.result = original
     assert host.observe(admission) == original
+
+
+def test_changed_task_or_wrong_attempt_fails_before_any_effect():
+    task = replace(Catalog().source, run_id="run-1")
+    admitted = Admission("plan-1", "tenant-1", 1, "bucket", "run-1", 1, task.source_sha,
+                         logical_task_digest(task))
+    ports = Ports()
+    changed = prepare_bucket_policy_task("run-1", '{"Statement":[]}', "other-bucket", source_sha="a" * 40)
+    assert run_admitted_attempt(admitted, changed, ports).reason == "ADMISSION_MISMATCH"
+    assert run_admitted_attempt(replace(admitted, attempt=2), task, ports).reason == "FEEDBACK_MISMATCH"
+    assert ports.events == []
+
+
+def test_committed_second_attempt_is_not_restarted_as_first():
+    task = replace(Catalog().source, run_id="run-1")
+    admitted = Admission("plan-1", "tenant-1", 1, "bucket", "run-1", 2, task.source_sha,
+                         logical_task_digest(task))
+    ports = Ports()
+    result = run_admitted_attempt(admitted, task, ports, feedback_digest="d" * 64)
+    assert result.state == "RECEIPT_UNVERIFIED"
+    assert ("prepare", 2) in ports.events and ("verify", 2) in ports.events
+
+
+@pytest.mark.parametrize("mismatch", ["verifier", "lifecycle"])
+def test_wrong_port_attempt_fails_before_any_effect(mismatch):
+    task = replace(Catalog().source, run_id="run-1")
+    admitted = Admission("plan-1", "tenant-1", 1, "bucket", "run-1", 1, task.source_sha,
+                         logical_task_digest(task))
+    ports = Ports()
+
+    class BadFactory:
+        def prepare(self, attempt, feedback_ref):
+            from types import SimpleNamespace
+            bad = SimpleNamespace(attempt=2)
+            return AttemptPorts(ports, bad if mismatch == "lifecycle" else ports, ports,
+                                bad if mismatch == "verifier" else ports)
+
+    assert run_admitted_attempt(admitted, task, BadFactory()).reason == "ADMISSION_PORT_MISMATCH"
+    assert ports.events == []

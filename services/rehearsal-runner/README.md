@@ -172,7 +172,7 @@ PYTHONPATH=../rehearsal-runner/src uv run --frozen --no-default-groups --with py
 
 `T11CredentialProposer`는 demo-chat 세 소스 경로와 원본 revision을 기존 T11 snapshot·제안 검증에 전달한다. 실제 T11 경로 정책이 `app/db_secret.py`를 막는 동안에는 모델 호출 전에 중단한다. 이 어댑터는 정책을 우회하지 않는다.
 
-`retry.run_retries`는 시도별 T3 시험과 UID 조건 정리를 완료한 후 신뢰된 결과 판정 포트가 같은 실행·제안·시도의 재시도를 허용한 경우에만 다음 시도를 시작하며 최대 3회다. 결과 불명, 정리 미확인, 결과 불일치는 사람에게 넘긴다. 모든 의존성은 주입된 포트이며, 현재 영수증 인증기·T11 후속 시도 어댑터·T10 실행 잠금과 영속 복구는 설치되지 않았다. 메모리 시뮬레이션을 실서비스 승인 또는 안전한 재시작으로 취급하지 않는다.
+재시도 횟수와 이전 결과의 hold 확인은 T10이 담당한다. T15는 접수된 단일 시도만 실행하며 검증 결과 자체를 승인으로 취급하지 않는다.
 
 `credential_proposal_source.BoundCredentialProposalSource`는 제안의 실행·원본 revision·digest와 허용된 demo-chat 파일 및 원본 해시를 대조해 수정안을 검증 Job 경계에 전달한다. 수정 내용은 객체 표현에 출력하지 않는다. 이 조회만으로 수정안·이미지의 안전성이나 실제 실행을 증명하지 않는다.
 
@@ -214,11 +214,11 @@ PYTHONPATH=../rehearsal-runner/src uv run --frozen --no-default-groups --with py
 
 위 교차 시험은 실제 T10 접수·재조회 코드와 모의 Kubernetes API를 사용한다. 제출 응답 유실 후 중복 제출 없이 기존 Job UID를 발견하지만, 인증된 결과가 없으므로 `UNCONFIRMED`가 유지되고 다음 게이트가 차단됨을 확인한다.
 
-T10 관리 방식의 실행은 `admission.run_admitted_attempt`가 접수된 단일 시도만 실행한다. T10의 `Admission.rehearsal_id`·시도·원본 revision·작업 digest와 T15 작업 및 Job 시도를 대조하고, 불일치하면 namespace를 만들지 않는다. 논리 작업 digest는 실행 ID를 제외해 재시도 사이에 유지하며 버킷 원본·대상 또는 자격 이전 요구사항은 포함한다. T10이 각 시도를 계획 잠금에서 접수하고 이전 hold를 확인하며, T15가 직접 다음 시도를 접수하지 않는다. 호출 호스트는 접수 원문의 신뢰성, 원격 제출 중복 방지와 재시작 시 효과 재조회를 제공해야 한다. `run_retries` 모의 루프는 관리 방식의 운영 접수를 대체하지 않는다.
+T10 관리 방식의 실행은 `admission.run_admitted_attempt`가 접수된 단일 시도만 실행한다. T10의 `Admission.rehearsal_id`·시도·원본 revision·작업 digest와 T15 작업 및 Job 시도를 대조하고, 불일치하면 namespace를 만들지 않는다. 논리 작업 digest는 실행 ID를 제외해 재시도 사이에 유지하며 버킷 원본·대상 또는 자격 이전 요구사항은 포함한다. T10이 각 시도를 계획 잠금에서 접수하고 이전 hold를 확인하며, T15가 직접 다음 시도를 접수하지 않는다. 호출 호스트는 접수 원문의 신뢰성, 원격 제출 중복 방지와 재시작 시 효과 재조회를 제공해야 한다.
 
 ```bash
 cd ../platform-events
-PYTHONPATH=../rehearsal-runner/src uv run --frozen --no-default-groups --with pytest pytest -p no:cacheprovider ../rehearsal-runner/testing/test_t10_admission.py
+PYTHONPATH=../rehearsal-runner/src uv run --frozen --no-default-groups --with pytest pytest -p no:cacheprovider ../rehearsal-runner/testing/test_t10_rehearsal_host.py
 ```
 
 `rehearsal_host.T15RehearsalHost`는 T10 `RehearsalHost`의 `task`·`submit`·`observe`에 맞춘 어댑터다. 계획에 등록된 작업을 읽어 digest를 만들고, 접수 커밋 이후 동일 작업인지 다시 비교한 다음 T15 제출자에게 전달한다. 인증된 T38 원문과 같은 `Admission`·생성/삭제 UID·부재 확인이 없는 경우 T10 결과를 반환하지 않는다. 작업 저장소, 실행별 영속 중복 방지 제출자와 인증 원문 조회기는 별도 신뢰 호스트가 주입해야 하며 기본 설치는 없다.
