@@ -115,5 +115,6 @@ check $r "쓰기 자리에 관리자 키, 등록 버킷 모드: 버전 관리 ·
 out=$(verify keys.env)
 [ "$(echo "$out" | field 'd["status"]')" = UNKNOWN ] && [ "$(echo "$out" | field 'd["unverified"]')" = "['app', 'executor']" ] && r=ok || r=fail
 check $r "앱 · Executor 신원 없이: UNKNOWN, 미확인 $(echo "$out" | field 'd["unverified"]')"
+run keys.env python qualify_response_loss.py
 echo "실패 ${fails}건"
 exit $((fails > 0))
