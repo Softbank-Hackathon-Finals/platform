@@ -176,22 +176,28 @@ class ProductInputRecords:
         _identifier(principal, _PRINCIPAL)
         plan_id = self._locate(input_ref)
         with self.store._transaction(write=True, plan_id=plan_id) as c:
-            saved = _get(c, plan_id, "product-input:" + input_ref)
-            if saved is None or saved[1]["principal"] != principal:
-                raise EventError("product_input_unavailable")
-            record = saved[1]
-            admission = Admission(**record["admission"])
-            if admission.plan_id != plan_id:
-                raise EventError("product_input_unavailable")
-            plan, _ = self._current(c, admission)
-            self._permission(c, principal, plan, admission)
-            value = _validated(record["product_input"])
-            self._bound(value, admission)
-            if digest(value) != record["input_digest"]:
-                raise EventError("product_input_mismatch")
-            self._permission(c, principal, plan, admission)
-            self._usable(c, plan_id, input_ref, record)
-            return record
+            return self._read_locked(c, plan_id, principal, input_ref)
+
+    def _read_locked(self, c, plan_id, principal, input_ref):
+        """Same current checks for read and the host's durable execution intent."""
+        _identifier(principal, _PRINCIPAL)
+        _identifier(input_ref, _REF)
+        saved = _get(c, plan_id, "product-input:" + input_ref)
+        if saved is None or saved[1]["principal"] != principal:
+            raise EventError("product_input_unavailable")
+        record = saved[1]
+        admission = Admission(**record["admission"])
+        if admission.plan_id != plan_id:
+            raise EventError("product_input_unavailable")
+        plan, _ = self._current(c, admission)
+        self._permission(c, principal, plan, admission)
+        value = _validated(record["product_input"])
+        self._bound(value, admission)
+        if digest(value) != record["input_digest"]:
+            raise EventError("product_input_mismatch")
+        self._permission(c, principal, plan, admission)
+        self._usable(c, plan_id, input_ref, record)
+        return record
 
     def revoke(self, input_ref, *, administration_ref):
         """Trusted management port only; durable and idempotent, never dispatches."""
