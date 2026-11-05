@@ -43,6 +43,10 @@ T10은 기존 T11 Proposal 스키마, run/source, 허용 편집 경로와 원본
 `schema_valid`·`lint_passed`는 실제 boolean `true`여야 한다. 숫자 `1`을 성공으로 받지 않는다.
 실제 T11 검사 결과가 없는 adapter가 이 값을 만들어서는 안 된다.
 
+`CandidatePublication.source_sha`는 등록한 원본 SHA다. T7 원문의 `base_sha`에서 대응한다.
+T7 원문의 `source_sha`는 편집한 후보 head이므로 같은 Proposal의 편집 결과인지 별도로 확인한다.
+검증용 후보 발행 영수증을 실제 계획의 영수증으로 재사용하지 않는다.
+
 이는 T10 내부 계약 구현이며 운영 연결 완료가 아니다. T11 최초 입력 변환·검사 계약,
 T38 전용 intent/영수증 adapter, 실제 T16 Collection/Analysis, T7 발행 조회기,
 T15 저장 제안 소비는 각 담당의 정본으로 연결해야 한다. REHEARSE용 `FailureBundle`이나

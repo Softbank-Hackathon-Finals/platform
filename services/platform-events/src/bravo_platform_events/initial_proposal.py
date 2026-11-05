@@ -89,6 +89,9 @@ class CandidatePublication(Contract):
     The reader verifies repository/workflow/run/attempt/artifact provenance,
     scan success, exact proposal-to-diff mapping, and registry readback. The
     strings here bind that verified record; they do not establish its authority.
+    source_sha is the original registered source (T7 receipt.base_sha). T7's
+    receipt.source_sha is the edited candidate head and must be checked by the
+    reader against that exact proposal; it is not the original source field.
     """
 
     receipt_id: Identifier
