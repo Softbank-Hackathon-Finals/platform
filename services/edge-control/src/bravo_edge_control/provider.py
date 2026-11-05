@@ -47,9 +47,18 @@ class Binding:
             raise EdgeError("binding_or_steering_drift")
         if any(result.get(key) not in (None, [], {}) for key in (
             "rules", "pool_sets", "country_pools", "region_pools", "pop_pools",
-            "networks", "location_pools"
+            "location_pools"
         )):
             raise EdgeError("steering_override_present")
+        # networks selects the provider network, not a pool-routing override.
+        if result.get("networks") not in (None, [], ["cloudflare"]):
+            raise EdgeError("unsupported_provider_network")
+        adaptive = result.get("adaptive_routing")
+        if adaptive is not None and (
+            not isinstance(adaptive, dict) or set(adaptive) - {"failover_across_pools"}
+            or adaptive.get("failover_across_pools", False) is not False
+        ):
+            raise EdgeError("adaptive_pool_failover_enabled")
         random = result.get("random_steering")
         if (not isinstance(random, dict) or type(random.get("default_weight")) not in (int, float)
                 or random["default_weight"] != 0):

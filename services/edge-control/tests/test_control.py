@@ -254,6 +254,30 @@ def test_malformed_override_field_is_not_absence(setup, invalid):
     assert not upstream.patches
 
 
+def test_default_cloudflare_network_and_disabled_adaptive_routing_are_supported(setup):
+    upstream, _, control = setup
+    upstream.result["networks"] = ["cloudflare"]
+    upstream.result["adaptive_routing"] = {"failover_across_pools": False}
+    assert control.execute(command())["status"] == "CONFIRMED"
+
+
+@pytest.mark.parametrize("value", [True, 1, 0, "false", None])
+def test_cross_pool_adaptive_failover_is_not_weight_control(setup, value):
+    upstream, _, control = setup
+    upstream.result["adaptive_routing"] = {"failover_across_pools": value}
+    with pytest.raises(EdgeError, match="adaptive_pool_failover_enabled"):
+        control.execute(command())
+    assert not upstream.patches
+
+
+def test_unknown_provider_network_is_rejected(setup):
+    upstream, _, control = setup
+    upstream.result["networks"] = ["cloudflare", "jdcloud"]
+    with pytest.raises(EdgeError, match="unsupported_provider_network"):
+        control.execute(command())
+    assert not upstream.patches
+
+
 @pytest.mark.parametrize("status", [301, 307, 401, 429, 500])
 def test_http_errors_redacted_no_redirect_or_retry(status):
     requests = []
