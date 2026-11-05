@@ -55,7 +55,7 @@ Claude Code는 `/todo-task`, Codex는 `$todo-task`로 이 순서를 따르는 �
 - `T25` 반복 측정 · 장애 주입 · SAFE_HOLD 시험 (P1)
 - `T26` Harbor 평가: 결함 시나리오 반복 (역할 확정 후) (P1)
 
-**이상무** · 보안 통제 · 게이트, 플랫폼 API · 콘솔 · 데모 앱 (13개, P0 9개)
+**이상무** · 보안 통제 · 게이트, 플랫폼 API · 콘솔 · 데모 앱 (14개, P0 10개)
 - `T4` 데모 앱 v0: 채팅 스텁 (P0)
 - `T5` 6개 통제 시험 설계 (P0)
 - `T14` 통제 시험기와 통제 비교표 (P0)
@@ -69,6 +69,7 @@ Claude Code는 `/todo-task`, Codex는 `$todo-task`로 이 순서를 따르는 �
 - `T36` 판정용 관측 계약: 오류율 · p95 창 요약과 SHIFT · WATCH 판정 규칙 (P0)
 - `T37` 환경 횡단 지표 수집: OpenTelemetry Collector → 플랫폼 지표 저장소 (P1)
 - `T39` 로컬 DB 시험 실패의 비밀 비노출 진단 (P1)
+- `T40` develop Merge Queue와 승인 없는 CI 병합 (P0)
 
 **전동훈** · 보안 통제 · 게이트, 에이전트 · 리허설 (6개, P0 4개)
 - `T9` 목적지 보안 구성요소: OpenBao · ESO · SeaweedFS (P0)
@@ -100,9 +101,9 @@ Claude Code는 `/todo-task`, Codex는 `$todo-task`로 이 순서를 따르는 �
 **목표** develop은 사람 승인을 필수로 요구하지 않고 최신 기준선과 앞선 PR을 합친 결과의 CI로 병합한다. 알려진 결함은 큐에 넣지 않는다.
 
 **할 일**
-- [ ] merge_group SHA·검사 범위·필수 결과의 회귀 시험과 운영 규약 반영
-- [ ] 별도 시험 브랜치에서 실제 큐 병합과 실패 차단을 확인하고 develop 규칙 적용
-- [ ] 기존 PR의 충돌·실패·미해결 지적을 정리하고 main 불변·설정 readback·복구 절차 기록
+- [x] merge_group SHA·검사 범위·필수 결과의 회귀 시험과 운영 규약 반영
+- [x] 별도 시험 브랜치에서 실제 큐 병합과 실패 차단을 확인하고 develop 규칙 적용
+- [x] 기존 PR의 충돌·실패·미해결 지적을 정리하고 main 불변·설정 readback·복구 절차 기록
 
 **완료 기준** develop의 숫자 승인과 코드 오너 승인 요구가 모두 해제되고 Merge Queue가 필수다. secrets·infra·platform은 유지하며 실제 merge_group 검사 실패는 병합되지 않는다. main·운영 실행 승인·타 담당 범위 합의·Slack 봇 중단은 유지한다.
 
@@ -684,7 +685,7 @@ Claude Code는 `/todo-task`, Codex는 `$todo-task`로 이 순서를 따르는 �
 - [x] Actions OIDC → 지정 VM 실행 통로와 권한 밖 동작 거부 실측
 - [x] 토큰 갱신과 Secret 버전 교체
 - [x] 격리 검증 Job: 결과를 Job · Pod · 로그와 결속하고, 정리를 확인한 뒤에만 AWAITING_APPROVAL
-- [ ] controller · broker · 고정 SSM 전체 OIDC 경로 통합 재검증
+- [x] controller · broker · 고정 SSM 전체 OIDC 경로 통합 재검증
 
 **완료 기준** OIDC로 무인 실행한 제안이 격리 Job에서 검증되어 정상 제안은 AWAITING_APPROVAL, 음성 대조군은 FAIL · RETRY_ALLOWED로 끝나고, 권한 밖 동작은 거부되며 임시 네임스페이스가 남지 않는다.
 
