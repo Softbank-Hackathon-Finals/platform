@@ -79,15 +79,23 @@ class CredentialFixture:
     postgres_image: str
     probe_image: str
     openbao_ca_pem: str = field(repr=False)
-    app_port: int = 8000
+    # demo-chat (origin/main Dockerfile, app/config.py): port 8080, USER 10001. DB_SECRET_ID and S3_BUCKET
+    # are required by the original config; placeholders keep an unrelated KeyError from looking like a
+    # DB failure, and a candidate that still calls Secrets Manager fails because egress is closed.
+    app_port: int = 8080
+    app_user: int = 10001
     database: str = "chat"
     username: str = "rehearsal_app"
-    app_env: tuple[tuple[str, str], ...] = (("DB_HOST", DB_SERVICE), ("DB_PORT", "5432"), ("DB_NAME", "chat"))
+    app_env: tuple[tuple[str, str], ...] = (
+        ("APP_ENV", "rehearsal"), ("DB_HOST", DB_SERVICE), ("DB_PORT", "5432"), ("DB_NAME", "chat"),
+        ("DB_SECRET_ID", "unused-in-rehearsal"), ("S3_BUCKET", "unused-in-rehearsal"),
+        ("ATTACHMENT_UPLOAD_ENABLED", "false"))
 
     def __post_init__(self):
         if (any(_IMAGE.fullmatch(i or "") is None for i in (self.bao_image, self.postgres_image, self.probe_image))
                 or "BEGIN CERTIFICATE" not in self.openbao_ca_pem
                 or type(self.app_port) is not int or not 1 <= self.app_port <= 65535
+                or type(self.app_user) is not int or not 1 <= self.app_user <= 2**31 - 1
                 or re.fullmatch(r"[a-z_][a-z0-9_]{0,62}", self.database) is None
                 or re.fullmatch(r"[a-z_][a-z0-9_]{0,62}", self.username) is None):
             raise ValueError("invalid credential fixture")
@@ -254,11 +262,12 @@ class CredentialJob:
         app = _pod(meta, APP_NAME, READER_ACCOUNT, {
             "name": "run", "image": image, "ports": [{"containerPort": f.app_port}],
             "env": [{"name": k, "value": v} for k, v in f.app_env],
-            "volumeMounts": [{"name": "bravo-database", "mountPath": "/run/bravo/database", "readOnly": True}]},
-            [{"name": "bravo-database", "emptyDir": {"medium": "Memory"}},
+            "volumeMounts": [{"name": "bravo-database", "mountPath": "/run/bravo/database", "readOnly": True},
+                             {"name": "tmp", "mountPath": "/tmp"}]},
+            [{"name": "bravo-database", "emptyDir": {"medium": "Memory"}}, {"name": "tmp", "emptyDir": {}},
              {"name": "openbao-ca", "configMap": {"name": CA_CONFIGMAP}},
              {"name": "openbao-token", "projected": {"sources": [{"serviceAccountToken": {
-                 "audience": "openbao", "expirationSeconds": 600, "path": "token"}}]}}])
+                 "audience": "openbao", "expirationSeconds": 600, "path": "token"}}]}}], user=f.app_user)
         app["spec"]["initContainers"] = [init]
         self.kube.create(app)
         self.kube.create(_service(meta, APP_NAME, f.app_port))

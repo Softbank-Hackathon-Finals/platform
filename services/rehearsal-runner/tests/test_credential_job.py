@@ -155,7 +155,9 @@ def test_app_pod_uses_t9_init_container_and_the_three_volumes():
     assert app["serviceAccountName"] == "rehearsal-eso-reader" and app["automountServiceAccountToken"] is False
     assert [c["name"] for c in app["initContainers"]] == ["openbao-fetch"]
     assert not any(k.startswith("x-") for k in app["initContainers"][0])
-    assert {v["name"] for v in app["volumes"]} == {"bravo-database", "openbao-ca", "openbao-token"}
+    assert {v["name"] for v in app["volumes"]} == {"bravo-database", "openbao-ca", "openbao-token", "tmp"}
+    assert app["securityContext"]["runAsUser"] == 10001
+    assert app["containers"][0]["ports"] == [{"containerPort": 8080}]
     token = next(v for v in app["volumes"] if v["name"] == "openbao-token")
     assert token["projected"]["sources"][0]["serviceAccountToken"]["audience"] == "openbao"
     writer = kube.objects[("job", "t15-cred-rehearsal-plan1-1-write")]
