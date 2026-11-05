@@ -284,3 +284,43 @@ def test_existing_intent_never_prepares_a_replacement_key(setup, monkeypatch):
     monkeypatch.setattr(client, "recipient", no_new_key)
     assert port.read(f.admission, **ref)["state"] == "PROPOSAL_READY"
     assert len(client.keys) == len(client.submits) == len(client.reads) == 1
+
+
+def test_preparation_is_read_only_and_matches_the_later_committed_intent(setup, monkeypatch):
+    f, ref, client, port = setup
+    def commands():
+        with f.backend.store._transaction() as c:
+            return [dict(row) for row in c.execute("SELECT * FROM plan_commands ORDER BY command_key").fetchall()]
+    before = commands()
+    with monkeypatch.context() as patch:
+        for name in ("recipient", "submit", "read"):
+            patch.setattr(client, name, lambda _: pytest.fail("Preparation must not call the client"))
+        fields = port.preparation_fields(f.admission, **ref)
+        assert fields == port.preparation_fields(f.admission, **ref)
+        assert set(fields) == {"request_id", "input_ref", "input_digest", "admission_digest", "runtime_source_sha", "mode"}
+        assert commands() == before
+    assert port.execute(f.admission, **ref)["state"] == "PROPOSAL_READY"
+    assert client.submits[0].model_dump(exclude={"recipient_public_key"}) == fields
+
+
+def test_preparation_does_not_reserve_or_extend_authority(setup):
+    f, ref, client, port = setup
+    port.preparation_fields(f.admission, **ref)
+    f.allowed = False
+    with pytest.raises(EventError, match="product_input_unavailable"):
+        port.preparation_fields(f.admission, **ref)
+    with pytest.raises(EventError, match="product_input_unavailable"):
+        port.execute(f.admission, **ref)
+    assert not client.keys and not client.submits and not client.reads
+
+
+def test_claimed_attempt_cannot_prepare_a_new_mailbox_or_recipient(setup):
+    f, ref, client, port = setup
+    client.lose_response = True
+    with pytest.raises(EventError, match="product_execution_unconfirmed"):
+        port.execute(f.admission, **ref)
+    with pytest.raises(EventError, match="^product_execution_already_claimed$"):
+        port.preparation_fields(f.admission, **ref)
+    assert len(client.keys) == len(client.submits) == 1 and not client.reads
+    assert port.read(f.admission, **ref)["state"] == "PROPOSAL_READY"
+    assert len(client.submits) == len(client.reads) == 1
