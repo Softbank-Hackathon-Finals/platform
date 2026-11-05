@@ -8,6 +8,7 @@
 Disposable local containers only: nothing here can reach an actual database.
 
 recover   Cut the link under writes, let rows pile up, resume with the real command, prove nothing was lost.
+reverse   The same after a cutover: the target writes, the reverse turns itself off and --direction reverse resumes it.
 refusals  Every state the command must refuse, each undone again to show the refusal came from that state.
 paths     The ways a resume goes wrong after ENABLE, and the ways it is run a second time.
 timeouts  Which settings turn a lost link into a stopped subscription.
@@ -71,6 +72,8 @@ BACKLOG_BATCH_ROWS = 200
 # 80 MiB at about 2 KB per row. Fewer rows would mean the run did not measure a real catch-up.
 BACKLOG_MINIMUM_ROWS = 30_000
 BODY_REPEATS = 56
+# Smaller than the incident's: the reverse run measures that the backlog arrives, not how fast 80 MiB does.
+REVERSE_BACKLOG_BYTES = 16 * 1024 * 1024
 TRIAL_OBSERVE_SECONDS = 45
 TRIAL_HOLD_SECONDS = 3
 
@@ -124,7 +127,7 @@ def build_pair(lab, source, target, rows):
         state.execute(executor_schema())
 
 
-def run_tool(lab, *arguments, source=None, target=None, executor=None, probe=None, omit=()):
+def run_tool(lab, *arguments, source=None, target=None, executor=None, probe=None, target_probe=None, omit=()):
     """The real command as a separate process, the way an operator runs it. Each DSN carries a marker password."""
     def marked(dsn):
         return f"{dsn} password={MARKER}"
@@ -133,7 +136,8 @@ def run_tool(lab, *arguments, source=None, target=None, executor=None, probe=Non
                 "T8_RESUME_SOURCE_DSN": marked(source or lab.dsn("source", "chat_replicator")),
                 "T8_RESUME_TARGET_DSN": marked(target or lab.dsn("target")),
                 "T8_RESUME_EXECUTOR_DSN": marked(executor or lab.dsn("source", dbname="executor_state")),
-                "T8_RESUME_SOURCE_PROBE_DSN": marked(probe or lab.dsn("source", "t8_probe"))}
+                "T8_RESUME_SOURCE_PROBE_DSN": marked(probe or lab.dsn("source", "t8_probe")),
+                "T8_RESUME_TARGET_PROBE_DSN": marked(target_probe or lab.dsn("target", "t8_probe"))}
     environment = {key: value for key, value in os.environ.items() if not key.startswith(("T8_RESUME_", "PG"))}
     environment.update({key: value for key, value in settings.items() if key not in omit})
     began = time.monotonic()
@@ -244,9 +248,9 @@ class LostAnswerProxy:
 class Writer(threading.Thread):
     """50 writes per second until told to stop, the design's load. Keeps every acknowledged row id."""
 
-    def __init__(self, lab):
+    def __init__(self, lab, side="source"):
         super().__init__(daemon=True)
-        self.dsn = lab.dsn("source")
+        self.dsn = lab.dsn(side)
         self.halt = threading.Event()
         self.acks = []
 
@@ -264,11 +268,11 @@ def wal_position(source):
     return source.execute("SELECT pg_current_wal_lsn() - '0/0'::pg_lsn").fetchone()[0]
 
 
-def pile_up(source, wanted_bytes):
+def pile_up(source, wanted_bytes, slot=SUBSCRIPTION):
     """Many short transactions, as hours of ordinary writes would be, until that much new WAL exists.
 
     Counted from now, not from the slot. A vacuum of the seed can leave the slot 180 MB behind with almost
-    no rows in it, and a catch-up over that much WAL would then have nothing to send.
+    no rows in it, and a catch-up over that much WAL would then have nothing to send. source is the writer.
     """
     started = wal_position(source)
     while wal_position(source) - started < wanted_bytes:
@@ -276,7 +280,7 @@ def pile_up(source, wanted_bytes):
             INSERT INTO messages (idempotency_key, author, body)
             SELECT gen_random_uuid(), 'backlog', repeat(md5(g::text || clock_timestamp()::text), %s)
             FROM generate_series(1, %s) AS g""", (BODY_REPEATS, BACKLOG_BATCH_ROWS))
-    return slot_row(source)[3]
+    return slot_row(source, slot)[3]
 
 
 def barrier_counts(source, target):
@@ -375,6 +379,120 @@ def recover_run(condition, repetition):
                 "target_log_events": target_events, "signature_before_resume": signature, "backlog_bytes": backlog,
                 "dry_run_right_after_link_up": too_early, "dry_run": dry, "apply": applied, "second_run_default": verify_again,
                 "no_loss": loss, "machine": {"before": machine_before, "after": machine_load()},
+                "checks": checks, "passed": all(checks.values())}
+
+
+def reverse_row(source):
+    return source.execute("""
+        SELECT s.subenabled, e.apply_error_count, e.sync_error_count FROM pg_subscription AS s
+        JOIN pg_stat_subscription_stats AS e ON e.subid = s.oid WHERE s.subname = %s""", (REVERSE,)).fetchone()
+
+
+def cut_over(source, target):
+    """What a successful cutover leaves, in the Executor's order: source closed, forward stopped, target open, reverse on.
+
+    The Executor also carries the sequences over; setting the target's to its highest row is what that amounts to here.
+    """
+    newest = source.execute("SELECT max(id) FROM messages").fetchone()[0]
+    if not wait_until(lambda: (target.execute("SELECT max(id) FROM messages").fetchone()[0] or 0) >= newest, 60):
+        raise TimeoutError("forward did not catch up before the cutover")
+    source.execute("ALTER ROLE chat_app NOLOGIN")
+    stop_cleanly(source, target)
+    target.execute("SELECT setval(pg_get_serial_sequence('public.messages', 'id'), (SELECT max(id) FROM public.messages))")
+    target.execute("ALTER ROLE chat_app LOGIN")
+    source.execute(f"ALTER SUBSCRIPTION {REVERSE} ENABLE")
+    # The barrier tables joined the target's publication after the reverse was created, off.
+    source.execute(f"ALTER SUBSCRIPTION {REVERSE} REFRESH PUBLICATION WITH (copy_data = false)")
+    ready = """SELECT count(*) FROM pg_subscription_rel AS r JOIN pg_subscription AS s ON s.oid = r.srsubid
+               WHERE s.subname = %s AND r.srsubstate = 'r' AND r.srrelid = 'cutover.barrier'::regclass"""
+    if not wait_until(lambda: slot_row(target, REVERSE)[0] and source.execute(ready, (REVERSE,)).fetchone()[0] == 1, 60):
+        raise TimeoutError("reverse did not start")
+    # The probe role belongs to whichever database takes the writes, which is now the target.
+    target.execute("CREATE ROLE t8_probe LOGIN")
+    target.execute("GRANT USAGE ON SCHEMA cutover TO t8_probe")
+    target.execute("GRANT SELECT, INSERT, DELETE ON cutover.barrier TO t8_probe")
+
+
+def reverse_run(condition, repetition):
+    """recover_run's checks, after a cutover. The publisher is the target and the subscriber the source."""
+    reverse_dsns = {"source": None, "target": None}
+    with (Lab(CONDITIONS[condition], parameters=LOG_PARAMETERS) as lab,
+          connect(lab.dsn("source")) as source, connect(lab.dsn("target")) as target):
+        # The forward runs read the publisher as the replication role and change the subscriber as its owner.
+        reverse_dsns.update(source=lab.dsn("source"), target=lab.dsn("target", "chat_replicator"))
+        build_pair(lab, source, target, SMALL_ROWS)
+        before_cutover = run_tool(lab, "--direction", "reverse", **reverse_dsns)
+        cut_over(source, target)
+        forward_after_cutover = run_tool(lab)
+        writer = Writer(lab, side="target")
+        writer.start()
+        time.sleep(5)
+        machine_before = machine_load()
+        lines_before = len(lab.log_lines("source"))
+        cut = time.monotonic()
+        lab.link_down()
+        turned_off = wait_until(lambda: not reverse_row(source)[0], 30)
+        disabled_after = round(time.monotonic() - cut, 2)
+        if not turned_off:
+            raise RuntimeError("reverse did not turn itself off")
+        stopped_after_id = target.execute("SELECT max(id) FROM messages").fetchone()[0]
+        time.sleep(3)
+        lab.link_up()
+        source_events = parse_log_events(lab.log_lines("source")[lines_before:])
+        backlog = pile_up(target, REVERSE_BACKLOG_BYTES, REVERSE)
+        wait_until(lambda: not slot_row(target, REVERSE)[0], 30)
+        enabled_flag, apply_errors, sync_errors = reverse_row(source)
+        active, wal_status, invalidation, behind = slot_row(target, REVERSE)
+        signature = {"reverse_enabled": enabled_flag, "apply_error_count": apply_errors, "sync_error_count": sync_errors,
+                     "slot_active": active, "slot_wal_status": wal_status, "slot_invalidation_reason": invalidation,
+                     "behind_bytes": behind}
+        dry = run_tool(lab, "--direction", "reverse", **reverse_dsns)
+        still_off_after_dry_run = not reverse_row(source)[0]
+        stopped_until_id = target.execute("SELECT max(id) FROM messages").fetchone()[0]
+        applied = run_tool(lab, "--direction", "reverse", "--apply", *pins(dry["report"]), "--target-write-block", "off", **reverse_dsns)
+        verify_again = run_tool(lab, "--direction", "reverse", "--settle", "2", **reverse_dsns)
+        acks = writer.stop()
+        # verify_no_loss takes the publisher first; its "target" keys mean the subscriber, here the source.
+        found = verify_no_loss(target, source, acks, stopped_after_id=stopped_after_id, stopped_until_id=stopped_until_id)
+        left = found.pop("barrier_rows_left")
+        loss = {name.replace("on_target", "on_source"): value for name, value in found.items()}
+        loss["barrier_rows_left"] = {"target": left["source"], "source": left["target"]}
+        forward_off = not source.execute("SELECT active FROM pg_replication_slots WHERE slot_name = %s", (SUBSCRIPTION,)).fetchone()[0] \
+            and not target.execute("SELECT subenabled FROM pg_subscription WHERE subname = %s", (SUBSCRIPTION,)).fetchone()[0]
+        refusals_before, refusals_forward = (set(run["report"].get("refusals", [])) for run in (before_cutover, forward_after_cutover))
+        report = applied["report"]
+        checks = {
+            "refused_before_the_cutover": before_cutover["exit"] == 1
+            and {"forward_active", "target_app_cannot_login", "source_app_can_login"} <= refusals_before,
+            "forward_command_refused_after_the_cutover": forward_after_cutover["exit"] == 1
+            and {"source_app_cannot_login", "target_app_can_login", "reverse_active"} <= refusals_forward,
+            "disabled_by_the_cut": signature["apply_error_count"] >= 1 and not signature["reverse_enabled"]
+            and signature["slot_wal_status"] in ("reserved", "extended") and signature["slot_invalidation_reason"] is None
+            and bool(source_events) and source_events[0]["sqlstate"] == "08006",
+            "dry_run_changed_nothing": dry["exit"] == 0 and still_off_after_dry_run and dry["report"].get("direction") == "reverse",
+            "apply_passed": applied["exit"] == 0,
+            "enabled_by_this_run": report.get("enabled_by") in ("control_function", "alter_subscription"),
+            "marker_written_on_the_target": report.get("marker", {}).get("target_insert_commits") == 1,
+            "barrier_went_both_ways": bool(report.get("marker", {}).get("passed")) and report["marker"]["cleanup"] == "confirmed",
+            "applied_position_passed_the_marker": bool(report.get("post_check", {}).get("checks", {}).get("applied_fixed")),
+            "hashes_equal_at_the_end": all(table["sha256_equal"] for table in report.get("stages", {}).get("cleaned", {}).get("business_tables", {"none": {"sha256_equal": False}}).values()),
+            "second_run_only_verified": verify_again["exit"] == 0 and verify_again["report"].get("would_run") is None
+            and verify_again["report"]["continuity"]["enable_submissions"] == 0,
+            "no_acknowledged_row_lost": loss["acknowledged_rows"] > 0 and loss["acknowledged_rows_missing_on_source"] == 0
+            and loss["newest_row_arrived"],
+            "rows_written_while_stopped_arrived": loss["rows_written_while_stopped"] > 0
+            and loss["rows_written_while_stopped"] == loss["of_those_on_source"],
+            "tables_identical": loss["messages_identical"] and loss["attachments_identical"],
+            "no_probe_row_left": loss["barrier_rows_left"] == {"source": 0, "target": 0},
+            "single_writer_kept": forward_off and resting_state(source, target) == {
+                "target_app_login": True, "source_app_login": False, "reverse_enabled": True},
+            "no_credentials_in_output": not any(run["credentials_in_output"]
+                                                for run in (before_cutover, forward_after_cutover, dry, applied, verify_again)),
+        }
+        return {"condition": condition, "repetition": repetition, "disabled_after_link_cut_s": disabled_after,
+                "source_log_events": source_events, "signature_before_resume": signature, "backlog_bytes": backlog,
+                "before_cutover": before_cutover, "forward_after_cutover": forward_after_cutover, "dry_run": dry, "apply": applied,
+                "second_run_default": verify_again, "no_loss": loss, "machine": {"before": machine_before, "after": machine_load()},
                 "checks": checks, "passed": all(checks.values())}
 
 
@@ -823,6 +941,16 @@ def command_recover(args):
             print(json.dumps({"condition": condition, "repetition": repetition, "passed": run["passed"], "checks": run["checks"]}), flush=True)
 
 
+def command_reverse(args):
+    results = load(args.out)
+    runs = results.setdefault("reverse", {}).setdefault(args.condition, [])
+    for repetition in range(len(runs) + 1, args.reps + 1):
+        run = reverse_run(args.condition, repetition)
+        runs.append(run)
+        save(args.out, results)
+        print(json.dumps({"condition": args.condition, "repetition": repetition, "passed": run["passed"], "checks": run["checks"]}), flush=True)
+
+
 def command_refusals(args):
     results = load(args.out)
     results["refusals"] = run_refusals()
@@ -915,6 +1043,11 @@ def main():
     recover.add_argument("--conditions", nargs="+", choices=list(CONDITIONS), default=list(CONDITIONS))
     recover.add_argument("--reps", type=int, default=3)
     recover.set_defaults(run=command_recover)
+    reverse = commands.add_parser("reverse")
+    reverse.add_argument("--out", type=Path, required=True)
+    reverse.add_argument("--condition", choices=list(CONDITIONS), default="100mbit-rtt30")
+    reverse.add_argument("--reps", type=int, default=3)
+    reverse.set_defaults(run=command_reverse)
     refusals = commands.add_parser("refusals")
     refusals.add_argument("--out", type=Path, required=True)
     refusals.set_defaults(run=command_refusals)
