@@ -328,3 +328,12 @@ def test_inventory_summary_accepts_the_real_t16_producer_output(context):
     result = tools.dispatch("mcp__bravo__inventory_describe", {"role": "secrets"})
     dump = json.dumps(result)
     assert "snippet" not in dump and "deploy_refs" not in dump and "env_sources" not in dump
+
+
+def test_task_context_must_belong_to_the_same_run(context):
+    bundle, snapshot, _, _ = context
+    other = bundle.model_copy(update={"run_id": "run-2"})
+    with pytest.raises(ValueError):
+        Tools(bundle, snapshot, 1, task=other)
+    tools = Tools(bundle, snapshot, 2, task=bundle)
+    assert tools.model_input()["attempt"] == 2 and tools.model_input()["task"] == bundle.model_dump()

@@ -17,6 +17,7 @@ class Coordinator:
         if inventory is not None and inventory.source_sha != bundle.source_sha:
             raise ValueError("inventory revision mismatch")
         self.bundle, self.snapshot, self.inventory = bundle, snapshot, inventory
+        self.task = bundle  # kept across retries; ``bundle`` becomes the verifier's feedback
         self.attempt = 0
         self.state = "READY"
         self.proposal: Proposal | None = None
@@ -27,7 +28,7 @@ class Coordinator:
         if self.state not in {"READY", "RETRY_ALLOWED"} or self.attempt >= 3:
             raise ValueError("proposal not allowed in this state")
         self.attempt += 1
-        tools = Tools(self.bundle, self.snapshot, self.attempt, inventory=self.inventory)
+        tools = Tools(self.bundle, self.snapshot, self.attempt, inventory=self.inventory, task=self.task)
         self.proposal = None
         self.state = "ANALYZING"
         try:
@@ -43,7 +44,8 @@ class Coordinator:
         finally:
             self.audit.extend(tools.events)
             self.attempts.append({"attempt": self.attempt, "input": self.bundle.model_dump(),
-                                  "input_digest": digest(self.bundle), "state": self.state,
+                                  "input_digest": digest(self.bundle), "task_digest": digest(self.task),
+                                  "state": self.state,
                                   "model_usage": dict(tools.usage),
                                   "audit_event_count": tools.event_count,
                                   "audit_truncated": tools.event_count > len(tools.events),
@@ -82,6 +84,7 @@ class Coordinator:
         return {"run_id": self.bundle.run_id, "source_sha": self.bundle.source_sha,
                 "attempt": self.attempt, "state": self.state,
                 "input_digest": digest(self.bundle), "input": self.bundle.model_dump(),
+                "task_digest": digest(self.task), "task": self.task.model_dump(),
                 "snapshot_digest": digest(self.snapshot.manifest),
                 "proposal": self.proposal.model_dump() if self.proposal else None,
                 "proposal_digest": digest(self.proposal) if self.proposal else None,
