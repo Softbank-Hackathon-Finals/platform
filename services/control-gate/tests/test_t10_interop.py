@@ -1,5 +1,6 @@
 """Real T10 SQLite/PostgreSQL admission; synthetic probes and remote transport."""
 import importlib.util
+import json
 from dataclasses import replace
 from datetime import timedelta
 from pathlib import Path
@@ -43,7 +44,8 @@ def admission(request, tmp_path):
         store = PlanStore(tmp_path / "admission.db")
     ctx = state["context"]
     plan = PlanSpec("plan-demo", ctx.tenant_id, ctx.app, ctx.source_environment_id,
-                    ctx.target_environment_id, ctx.plan_digest, "b" * 64)
+                    ctx.target_environment_id, ctx.plan_digest, "b" * 64,
+                    profile_id=ctx.profile_id, profile_version=ctx.profile_version)
     store.register_plan(plan, run_id="fixture", occurred_at=state["now"].isoformat())
     with store._transaction(write=True, plan_id=plan.plan_id) as c:
         c.execute("UPDATE plans SET state='SHIFT' WHERE plan_id=?", (plan.plan_id,))
@@ -177,6 +179,26 @@ def test_gate_cannot_be_reused_for_different_plan_resources(admission, fault):
         f.current.binding["gate_id" if fault == "gate" else "context_digest"] = "other"
     else:
         f.current.command["source"]["connection_ref" if fault == "database" else "environment_id"] = "other"
+    with pytest.raises(EventError):
+        f.approve()
+    assert not f.requests
+
+
+@pytest.mark.parametrize("profile", ["legacy", "other-id", "other-version"])
+def test_plan_profile_must_be_the_bound_context_profile(admission, profile):
+    # The context and its binding stay valid; only the registered plan's profile differs.
+    f = admission
+    with f.store._transaction(write=True, plan_id=f.plan.plan_id) as c:
+        row = c.execute("SELECT spec_json FROM plans WHERE plan_id=?", (f.plan.plan_id,)).fetchone()
+        spec = json.loads(row["spec_json"])
+        if profile == "legacy":
+            spec.pop("profile_id", None)
+            spec.pop("profile_version", None)
+        elif profile == "other-id":
+            spec["profile_id"] = "full"
+        else:
+            spec["profile_version"] = "2"
+        c.execute("UPDATE plans SET spec_json=? WHERE plan_id=?", (json.dumps(spec), f.plan.plan_id))
     with pytest.raises(EventError):
         f.approve()
     assert not f.requests
