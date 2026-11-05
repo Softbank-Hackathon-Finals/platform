@@ -1,3 +1,4 @@
+{{- if .Values.registration.enabled }}
 apiVersion: argoproj.io/v1alpha1
 kind: AppProject
 metadata:
@@ -16,3 +17,4 @@ spec:
     - {group: "", kind: ServiceAccount}
   orphanedResources:
     warn: false
+{{- end }}

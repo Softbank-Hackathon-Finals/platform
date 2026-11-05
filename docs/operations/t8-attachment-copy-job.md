@@ -97,7 +97,7 @@
 | 게시 이미지의 기준 | 이 경로 |
 | --- | --- |
 | 검토된 커밋의 파일만 빌드 | `origin/develop`의 조상인 커밋에서 `git archive`로 추출한 5개 파일만 사용 |
-| `linux/amd64` OCI, provenance, SBOM | 같은 설정. `executor_image.verify_layout`이 blob 해시 · 소스 라벨 · 사용자 · 첨부 증명을 확인 |
+| `linux/amd64` OCI, provenance, SBOM | 같은 설정. 플랫폼만 목적지 노드에 맞춘다. Executor 게시와 같은 검증 함수(`image_delivery.oci.verify_layout`)가 그 플랫폼 하나와 blob 해시 · 소스 라벨 · 사용자 · 첨부 증명을 확인 |
 | Trivy 0.70.0, `vuln,secret`, HIGH · CRITICAL, 수정 가능한 것만 | 같은 설정. 탐지가 있으면 멈춘다. 예외 파일을 쓰지 않는다 |
 | 네트워크 없는 읽기 전용 실행 검사 | 같은 격리 옵션으로 import와 UID · pip 부재를 확인 |
 | 서명 | 저장소의 어느 이미지 경로에도 없어 여기도 없다 |
@@ -106,12 +106,14 @@ CI 러너가 아니라 운영자 머신에서 빌드한다는 점은 게시 이�
 
 **1. 운영자 머신:** 병합된 커밋을 고른다. 저장소 밖의 개인 디렉터리에 묶음과 영수증이 생긴다. Python 3.12와 containerd 이미지 저장소를 쓰는 Docker가 필요하고(`docker info`의 `driver-type`이 `io.containerd.snapshotter.v1`), AWS 자격은 쓰지 않는다.
 
+**목적지 노드가 arm64면 `--platform linux/arm64`를 붙인다.** 기본은 `linux/amd64`다. containerd는 노드 아키텍처의 이미지가 없는 묶음을 없는 이미지로 본다. 노드 아키텍처는 `kubectl get nodes -o jsonpath='{.items[*].status.nodeInfo.architecture}'`로 본다.
+
 ```sh
 git fetch origin develop
 uv run --no-project --python 3.12 python scripts/attachment_image.py --source "$(git rev-parse origin/develop)" \
   --output-dir "$PRIVATE_DIR/attachment-image"
-export ARCHIVE="$PRIVATE_DIR/attachment-image/attachment-copy-<커밋 앞 12자리>.tar"
-export RECEIPT="$PRIVATE_DIR/attachment-image/attachment-copy-<커밋 앞 12자리>.receipt.json"
+export ARCHIVE="$PRIVATE_DIR/attachment-image/attachment-copy-<커밋 앞 12자리>-<아키텍처>.tar"
+export RECEIPT="$PRIVATE_DIR/attachment-image/attachment-copy-<커밋 앞 12자리>-<아키텍처>.receipt.json"
 ```
 
 실패하면 `{"attachment_image": "NOT_VERIFIED", "error_code": ...}`만 나오고 묶음은 생기지 않는다.
@@ -124,7 +126,7 @@ export RECEIPT="$PRIVATE_DIR/attachment-image/attachment-copy-<커밋 앞 12자�
 | `image_build_failed` | 빌드 실패 | Docker의 이미지 저장소와 mirror 접근을 확인한다 |
 | `runtime_load_failed`, `runtime_probe_failed` | 묶음을 Docker에 올리지 못했거나, 이미지가 비루트로 모듈을 읽지 못한다 | Docker의 이미지 저장소와 Dockerfile을 확인한다 |
 | `invalid_local_state` | 파일이나 도구 상태가 예상과 다르다. 원문은 출력하지 않는다 | 디렉터리 권한과 Docker · git을 확인하고 다시 돌린다 |
-| `output_must_be_new` | 같은 커밋의 묶음이 이미 있다 | 다른 디렉터리를 쓴다. 덮어쓰지 않는다 |
+| `output_must_be_new` | 같은 커밋 · 같은 플랫폼의 묶음이 이미 있다 | 다른 디렉터리를 쓴다. 덮어쓰지 않는다 |
 
 **2. VM으로 옮긴다.** VM 소유자의 SSH 계약(호스트 키, 포트)으로 `$ARCHIVE`를 옮기고 [이미지 전달 절차](target-image-handoff.md)의 규칙을 따른다. 파일 이름은 그대로 둔다. 묶음에 자격은 없다. 아래 세 값을 영수증에서 읽어 VM 소유자에게 넘긴다.
 
@@ -136,7 +138,7 @@ python3 -c 'import json,sys; r=json.load(open(sys.argv[1])); print(r["archive_sh
 
 ```sh
 set -eu
-ARCHIVE_SHA256=<archive_sha256> DIGEST=<digest> SOURCE=<source_sha> ARCHIVE=attachment-copy-<커밋 앞 12자리>.tar
+ARCHIVE_SHA256=<archive_sha256> DIGEST=<digest> SOURCE=<source_sha> ARCHIVE=attachment-copy-<커밋 앞 12자리>-<아키텍처>.tar
 echo "$ARCHIVE_SHA256  $ARCHIVE" | sha256sum --check
 CTR="sudo /var/lib/rancher/rke2/bin/ctr --address /run/k3s/containerd/containerd.sock --namespace k8s.io"
 $CTR images import --all-platforms --digests --base-name localhost/bravo-attachment-copy "$ARCHIVE"

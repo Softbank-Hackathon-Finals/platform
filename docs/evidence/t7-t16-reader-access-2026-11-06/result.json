@@ -1,0 +1,169 @@
+{
+  "schema_version": 1,
+  "evidence_grade": "operator live access verification; not producer acceptance or inventory collection",
+  "started_at": "2026-11-05T20:20:18.540068+00:00",
+  "ended_at": "2026-11-05T20:20:29.645451+00:00",
+  "status": "PASS",
+  "mode": "verify",
+  "scan_started": false,
+  "registration_matches": false,
+  "producer_personal_acceptance": false,
+  "credentials_saved": false,
+  "credential_expires_at": "2026-11-05T20:35:19+00:00",
+  "inventory_revision": "26c9723bc38d36e97e2f4c093fbf670079212609",
+  "helper_source": {
+    "source_revision": "f62f410161f217bae71c6e804d648e19868a5264",
+    "source_files": [
+      {
+        "path": "docs/operations/inventory-reader-access.md",
+        "sha256": "0bb3dea49bb1613c751acc23bf30fe0f97829b004a4f26ab84b8270e62f6a32b"
+      },
+      {
+        "path": "scripts/inventory_reader.py",
+        "sha256": "923c4e28ae413b317c3f0f2a362285b0aa48047a74dd9830baa67e753d10d058"
+      },
+      {
+        "path": "scripts/tests/test_inventory_reader.py",
+        "sha256": "e1d207e75cc86aa841def7118b72c65a794b830d15ff2d1ca4f1e8ed1de66e14"
+      }
+    ]
+  },
+  "helper_binding": "The tested working-file bytes were committed afterward without change. This is not a claim that the commit existed at measurement time.",
+  "kubernetes_lists": [
+    {
+      "resource": "deployments.json",
+      "http": 200,
+      "items": 3
+    },
+    {
+      "resource": "serviceaccounts.json",
+      "http": 200,
+      "items": 7
+    },
+    {
+      "resource": "clusters.json",
+      "http": 200,
+      "items": 1
+    }
+  ],
+  "kubernetes_authorization_reviews": [
+    {
+      "resource": "secrets",
+      "verb": "get",
+      "scope": "source_namespace",
+      "allowed": false
+    },
+    {
+      "resource": "pods",
+      "verb": "create",
+      "scope": "source_namespace",
+      "allowed": false
+    },
+    {
+      "resource": "pods/exec",
+      "verb": "create",
+      "scope": "source_namespace",
+      "allowed": false
+    },
+    {
+      "resource": "deployments",
+      "verb": "patch",
+      "scope": "source_namespace",
+      "allowed": false
+    },
+    {
+      "resource": "clusters",
+      "verb": "patch",
+      "scope": "source_namespace",
+      "allowed": false
+    },
+    {
+      "resource": "deployments",
+      "verb": "list",
+      "scope": "other_namespace",
+      "allowed": false
+    }
+  ],
+  "unauthenticated_http": 401,
+  "aws_metadata": {
+    "iam_roles": 2,
+    "attached_managed_policies": 0,
+    "buckets": 1,
+    "secret_metadata": 2,
+    "kms_key_metadata": 1,
+    "api_actions": [
+      "iam:ListAttachedRolePolicies",
+      "iam:ListRolePolicies",
+      "iam:GetRolePolicy",
+      "s3:GetBucketPolicyStatus",
+      "s3:GetBucketLocation",
+      "secretsmanager:DescribeSecret",
+      "kms:DescribeKey"
+    ]
+  },
+  "actual_out_of_scope_aws_request": {
+    "action": "iam:ListRolePolicies",
+    "result": "AccessDenied"
+  },
+  "iam_policy_simulation": [
+    {
+      "action": "secretsmanager:GetSecretValue",
+      "decision": "explicitDeny",
+      "missing_context": []
+    },
+    {
+      "action": "kms:Decrypt",
+      "decision": "explicitDeny",
+      "missing_context": []
+    },
+    {
+      "action": "s3:GetObject",
+      "decision": "explicitDeny",
+      "missing_context": []
+    },
+    {
+      "action": "s3:PutObject",
+      "decision": "explicitDeny",
+      "missing_context": []
+    },
+    {
+      "action": "sts:AssumeRole",
+      "decision": "explicitDeny",
+      "missing_context": []
+    },
+    {
+      "action": "iam:AttachRolePolicy",
+      "decision": "explicitDeny",
+      "missing_context": []
+    },
+    {
+      "action": "ssm:GetParameter",
+      "decision": "explicitDeny",
+      "missing_context": []
+    }
+  ],
+  "transport_cleanup": {
+    "state": "CLOSED",
+    "provider_terminal_state": "Terminated",
+    "local_port_absent": true
+  },
+  "registration": {
+    "previous_source_sha": "66e7419f404f4ec4addc71014aabfcdd44f34688",
+    "current_source_sha_candidate": "8d82a9241d3894737778a77d58349e1aee54eca1",
+    "required_next_step": "Existing registration owner binds the current source/image to a valid new plan; official producer then uses their own SSO and performs the single scan."
+  },
+  "retained_attempts": [
+    {
+      "attempt": "verify-01",
+      "outcome": "credential-reference preflight refused before exports were persisted; exact authorized reference allowlist added"
+    },
+    {
+      "attempt": "verify-02",
+      "outcome": "three authenticated lists succeeded; image binding mismatch refused before exports were persisted; no scan"
+    },
+    {
+      "attempt": "verify-03",
+      "outcome": "access PASS with registration_matches false; no scan"
+    }
+  ]
+}

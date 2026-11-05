@@ -161,14 +161,12 @@ def build_images(directory):
 
 
 def build_copy_archive(directory):
-    """The operator's build command and packing. Only the platform differs, for this node's architecture."""
+    """The operator's build command and packing, for this node's architecture."""
     architecture = docker("version", "--format", "{{.Server.Arch}}").stdout.strip()
     source = run("git", "-C", str(REPO), "rev-parse", "HEAD").stdout.strip()
     layout, metadata = Path(directory, "copy-layout"), Path(directory, "copy-metadata.json")
     base = attachment_image.pinned_base((WORKLOADS / attachment_image.DOCKERFILE).read_text())
-    command = attachment_image.build_command(source, base, WORKLOADS, layout, metadata)
-    command[command.index("--platform") + 1] = "linux/" + architecture
-    run(*command, timeout=600)
+    run(*attachment_image.build_command(source, base, WORKLOADS, layout, metadata, "linux/" + architecture), timeout=600)
     digest = json.loads(metadata.read_text())["containerimage.digest"]
     archive = Path(directory, "copy-image.tar")
     attachment_image.pack(layout, archive)

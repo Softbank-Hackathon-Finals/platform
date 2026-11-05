@@ -96,6 +96,14 @@ class Controller:
                    (_json(receipt), receipt["revision"]))
         db.commit()
 
+    def latest_receipt(self) -> dict | None:
+        """Journal cursor for a trusted host; not a provider health/readback proof."""
+        with self._locked() as db:
+            row = db.execute(
+                "SELECT receipt FROM operations ORDER BY revision DESC LIMIT 1"
+            ).fetchone()
+            return json.loads(row[0]) if row else None
+
     def execute(self, command: Command) -> dict:
         with self._locked() as db:
             if self.authorize(command) is not True:
@@ -125,6 +133,9 @@ class Controller:
                     raise EdgeError("run_closed_or_rebound")
             if self.provider.read() != command.expected_weight:
                 raise EdgeError("current_weight_mismatch")
+            # Provider GET can outlive a short approval or SLI validity window.
+            if self.authorize(command) is not True:
+                raise EdgeError("current_authority_required")
             receipt = {"revision": revision + 1, **asdict(command),
                        "lb_ref": self.provider.binding.lb_id,
                        "request_at": self.clock(), "response_at": None,

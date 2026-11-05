@@ -118,6 +118,17 @@ class DeliveryBoundaryTests(unittest.TestCase):
         self.assertEqual(namespace["metadata"]["name"], "external-secrets")
         self.assertNotIn("namespace", namespace["metadata"])
         self.assertEqual(namespace["metadata"]["labels"]["pod-security.kubernetes.io/enforce"], "restricted")
+        bao_peers = cli("network", "--api-ip", "10.96.0.1", "--api-endpoint-ip", "192.168.50.10")["spec"]["ingress"]
+        self.assertEqual(len(bao_peers), 1)
+        self.assertEqual(bao_peers[0]["ports"], [{"protocol": "TCP", "port": 8200}])
+        self.assertEqual(bao_peers[0]["from"], [  # existing peers unchanged; writer peer is namespace AND label
+            {"namespaceSelector": {"matchLabels": {"kubernetes.io/metadata.name": "external-secrets"}},
+             "podSelector": {"matchLabels": {"app.kubernetes.io/name": "external-secrets"}}},
+            {"namespaceSelector": {"matchLabels": {"kubernetes.io/metadata.name": "target-dev"}},
+             "podSelector": {"matchLabels": {"bravo-secret-probe": "true"}}},
+            {"namespaceSelector": {"matchLabels": {"kubernetes.io/metadata.name": "bravo-rehearsal-control"}},
+             "podSelector": {"matchLabels": {"app.kubernetes.io/component": "rehearsal-openbao-writer"}}},
+        ])
         for stage, expected in (("network", "bravo-secrets"), ("eso-network", "external-secrets")):
             policy = cli(stage, "--api-ip", "10.96.0.1", "--api-endpoint-ip", "192.168.50.10")
             with self.subTest(stage=stage):

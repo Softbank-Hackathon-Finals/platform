@@ -16,7 +16,11 @@ T5의 평가 프로필에 따라 관찰 결과를 `PASS / FAIL / UNKNOWN`으로 
 | AWS 객체 시험 | 앱 읽기 성공 후 동일 객체의 익명 일반 GET (`IAM-01.1`) | SDK 인터페이스 모의 시험 |
 | AWS Secret 저장 암호화 | 현재 Secret 버전·기존 KMS 키·기본 alias를 읽기 전용으로 전후 대조 (`ENC-02.1`) | 실제 Botocore Stubber, [범위·자격 경계](docs/secret-encryption.md) |
 | 로그 비밀 노출 검사 | 등록된 카나리 실행·전체 로그·대조군 검사, CloudWatch 전체 페이지 조회 (`SEC-01.3`) | 모의 SDK + 실제 로컬 자식 프로세스; 운영 주입/복원·수집 연결 미구현 |
+| 외부 공개 TCP 포트 | 고정 Nmap 전체 포트 검사·전후 외부 진입점 대조 (`NET-01.1`) | 회귀 시험·실제 격리 loopback Nmap; 운영 외부 위치·양쪽 inventory 연결 미완료 |
 | 앱 → Pooler TLS 시험 | 정상 TLS, 다른 CA·hostname 거부, 평문 거부 (`ENC-01.1/2/3`) | 회귀 시험 및 로컬 kind의 실제 PgBouncer 접속 |
+| 논리 복제 TLS 시험 | 구독 설정과 등록 슬롯의 실제 sender TLS를 함께 확인 (`ENC-01.4`) | 회귀·로컬 PostgreSQL 자격 시험; 운영 T8 등록/조회 접점 미연결 |
+
+공개 포트의 검사 범위·모호한 결과 처리·운영 인수 조건은 [외부 포트 검사](docs/public-ports.md)를 따른다.
 
 OpenBao 등록·인증 경계와 T9/T19 인계 조건은 [OpenBao 접근 시험](docs/openbao-access.md)을 따른다.
 
@@ -24,6 +28,7 @@ OpenBao 등록·인증 경계와 T9/T19 인계 조건은 [OpenBao 접근 시험]
 
 TLS 시험의 배치·자격증명 경계와 남은 팀 환경 검증은
 [PostgreSQL TLS 안내](docs/postgres-tls.md)를 따른다.
+복제 연결은 [논리 복제 TLS 검사](docs/replication-tls.md)로 별도 확인한다.
 기존 앱 경계를 사용하는 별도 수집기의 제한과 호스트 인수 조건은
 [앱 프로세스 TLS 수집기](docs/app-process-tls.md)에 정리한다.
 
@@ -32,6 +37,7 @@ Prowler/kube-bench 실행과 실환경 매핑, 양쪽 환경 통제 비교는 �
 `full` 프로필의 결과 20행을 만드는 것과 20개 시험을 실제 수행하는 것은 다르다.
 미등록 수집기는 `UNKNOWN / NOT_RUN`이다. T19는 이를 차단해야 한다.
 T14 이슈의 선행 조건을 만족하거나 완료 처리한 것으로 보지 않는다.
+20개 시험의 코드·운영 연결 상태는 [하위 시험별 구현·인수 상태](docs/implementation-readiness.md)에 구분한다.
 
 ## 호출 경계
 
