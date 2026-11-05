@@ -44,7 +44,7 @@
    - **보호부터 읽는다.** 버전 관리가 Enabled이고 정책이 렌더링한 정책과 같아야 한다(SeaweedFS가 원소 하나짜리 목록을 문자열로 돌려줘도 같게 본다). 정책이 없으면 FAIL, 읽지 못하면 UNKNOWN이고 **어느 쪽이든 시험 객체를 쓰지 않는다.**
    - **등록 버킷에서는 보호를 바꿀 수 있는 호출을 하지 않는다.** 시험 객체 하나로 쓰기 신원의 넣기 · 읽기 · 목록, 복원 신원의 읽기 · 목록 · 넣기 거부, 그리고 쓰기 · 복원 · 앱 · Executor 모두의 삭제 · 버전 삭제 거부를 본다. 잘못된 키를 넣어도 버전 관리 · 정책은 그대로다.
    - 버전 관리 중지 · 정책 삭제 · 정책 변경 시도는 `--disposable`(폐기할 시험 버킷)에서만 하고, 끝난 뒤 보호가 그대로인지 다시 읽는다.
-   - 앱 · Executor는 필수다. 하나라도 빠지면 결과는 UNKNOWN이고 `unverified`에 남는다. `verified`는 실제로 거부를 확인한 신원이다.
+   - 앱 · Executor는 필수다. 하나라도 빠지면 결과는 UNKNOWN이고 `unverified`에 남는다. `verified`는 넘긴 라벨이 아니라 **실제 응답**으로 정한다: 그 신원의 모든 호출이 등록대로(쓰기 · 읽기는 허용, 삭제 · 보호 변경은 거부) 답한 경우만 들어간다. 보호를 읽지 못해 멈추면 비어 있고 네 신원 모두 `unverified`다.
    - 시험 객체(3바이트)는 정책 때문에 아무도 지울 수 없어 `<prefix>_t35-probe/` 아래 남고 이름이 출력된다. 소유자가 정리 절차에서 함께 치운다.
    - 결과 `PASS`(0) · `FAIL`(1) · `UNKNOWN`(2).
 3. **K8s:** `$R stores` → `kubectl apply --server-side --field-manager=t35-backup -f -`. 그다음 `$R archive-patch`를 `kubectl -n target-dev patch cluster target-db --type merge --patch-file ...`로 적용한다. 플러그인이 붙으며 인스턴스가 한 번 다시 시작된다(단일 인스턴스, 창을 잡는다).
@@ -55,7 +55,7 @@
 
 | 시험 | 결과 |
 |---|---|
-| [`qualify_local.sh`](qualify_local.sh) (SeaweedFS 4.52, S3 TLS, `-s3.iam=false`) | **5/5.** ① 렌더링한 정책 + 앱(다른 버킷 권한만) · Executor(이 버킷 Write를 준 합성 신원) + `--disposable`: PASS, Executor 삭제 · 정책 변경 거부. ② 삭제 거부 문을 뺀 정책: FAIL, 시험 객체를 쓰기 전에 멈춤. ③ 정책 없음: FAIL, 시험 객체 없음. ④ 쓰기 자리에 소유자 키(잘못된 자격), 등록 버킷 모드: 끝난 뒤 버전 관리 · 정책 그대로. ⑤ 앱 · Executor 없이: UNKNOWN, 미확인 app · executor |
+| [`qualify_local.sh`](qualify_local.sh) (SeaweedFS 4.52, S3 TLS, `-s3.iam=false`) | **5/5.** ① 렌더링한 정책 + 앱(다른 버킷 권한만) · Executor(이 버킷 Write를 준 합성 신원) + `--disposable`: PASS, Executor 삭제 · 정책 변경 거부. ② 삭제 거부 문을 뺀 정책: FAIL, 시험 객체를 쓰기 전에 멈춤. ③ 정책 없음: FAIL, 시험 객체 없음, 확인한 신원 없음. ④ 쓰기 자리에 소유자 키(잘못된 자격), 등록 버킷 모드: 끝난 뒤 버전 관리 · 정책 그대로. ⑤ 앱 · Executor 없이: UNKNOWN, 미확인 app · executor |
 | 같은 저장소에서 따로 잰 것 | `Principal "*"` Deny에서 쓰기 · Executor · 소유자 모두 객체 · 버전 삭제 403, 쓰기 넣기 성공, 버전 관리 중지 403. 정책 변경 · 삭제는 Admin 없는 신원 403. 소유자는 정책 내림 → 삭제 → 정책 복구 가능 |
 | k3s(CNPG 1.30.1 + Barman CRD 0.15.1) | stores 적용. `inheritedMetadata`만 먼저 패치하면 **재시작 없이 5초 안에** primary Pod에 `bravo-object-client=true`. archive-patch 적용 뒤 기존 필드 유지, Backup · 복원 Cluster server-side dry-run 통과 |
 | control-runner `pytest` | `cnpg_backup` Pod 라벨 입력 · 이 렌더러 시험 포함 통과 |

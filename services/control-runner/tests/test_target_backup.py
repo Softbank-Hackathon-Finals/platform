@@ -22,8 +22,6 @@ def load(name):
 
 
 render, verify = load("render"), load("verify")
-WRITER = "arn:aws:iam::000000000000:user/t35-backup-writer"
-READER = "arn:aws:iam::000000000000:user/t35-backup-reader"
 
 
 def test_identities_are_bucket_scoped_and_the_reader_cannot_write():
@@ -136,6 +134,20 @@ def test_app_and_executor_must_be_shown_refused():
     assert verify.status(out, ["app", "executor"], False) == "FAIL"
     out, _ = run_check([])
     assert verify.status(out, [], False) == "UNKNOWN"
+
+
+def test_scope_comes_from_answers_not_from_the_labels_given():
+    every = ["app", "executor", "reader", "writer"]
+    out, _ = run_check(["app", "executor"], disposable=True)
+    assert verify.scope(out, ["app", "executor"], True) == (every, [])
+    took_policy_down = dict(out, **{"executor.delete_policy": "ok"})
+    assert verify.scope(took_policy_down, ["app", "executor"], True)[1] == ["executor"]
+    out, _ = run_check([])
+    assert verify.scope(out, [], False) == (["reader", "writer"], ["app", "executor"])
+    out, _ = run_check(["app", "executor"], policy_error="NoSuchBucketPolicy")  # stopped before any probe
+    assert verify.scope(out, ["app", "executor"], False) == ([], every)
+    out, _ = run_check(["app", "executor"], deny_delete=False)
+    assert "executor" in verify.scope(out, ["app", "executor"], False)[1]
 
 
 def test_verify_status():

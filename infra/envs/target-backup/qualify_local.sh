@@ -3,7 +3,7 @@
 # 공개 포트 없음. 끝나면 컨테이너 · 이미지 · 키를 지운다.
 #  1. 렌더링한 정책 + 앱 · Executor(쓰기 권한을 준 합성 신원) + --disposable: PASS
 #  2. 삭제 거부 문을 뺀 정책: FAIL, 시험 객체를 쓰기 전에 멈춤(정책이 렌더링과 다름)
-#  3. 정책 없음: FAIL, 시험 객체를 쓰지 않음(보호를 읽지 못하면 변경성 시험에 들어가지 않는다)
+#  3. 정책 없음: FAIL, 시험 객체를 쓰지 않음(보호를 읽지 못하면 변경성 시험에 들어가지 않는다), 확인한 신원 없음
 #  4. 쓰기 키 자리에 관리자 키(잘못된 자격), 등록 버킷 모드: 끝난 뒤 버전 관리 · 정책 그대로
 #  5. 앱 · Executor 신원 없이: UNKNOWN, 미확인 목록에 app · executor
 set -euo pipefail
@@ -92,7 +92,7 @@ field() { python3 -c 'import json,sys; d=json.loads(sys.stdin.read()); print(eva
 run keys.env python -c "$admin" /w/policy.json
 out=$(verify keys.env --deny app --deny executor --disposable)
 [ "$(echo "$out" | field 'd["status"]')" = PASS ] && r=ok || r=fail
-check $r "렌더링한 정책, 앱 · Executor 포함, 폐기 버킷 모드: PASS (Executor 삭제 $(echo "$out" | field 'd.get("executor.delete_version")'), 정책 변경 $(echo "$out" | field 'd.get("executor.delete_policy")'))"
+check $r "렌더링한 정책, 앱 · Executor 포함, 폐기 버킷 모드: PASS (Executor 삭제 $(echo "$out" | field 'd.get("executor.delete_version")'), 정책 변경 $(echo "$out" | field 'd.get("executor.delete_policy")'), 확인 $(echo "$out" | field 'd["verified"]'))"
 
 run keys.env python -c "$admin" /w/weak.json
 out=$(verify keys.env --deny app --deny executor)
@@ -101,8 +101,9 @@ check $r "삭제 거부 문을 뺀 정책: FAIL, 시험 객체를 쓰기 전에 
 
 run keys.env python -c "$admin" none
 out=$(verify keys.env --deny app --deny executor)
-[ "$(echo "$out" | field 'd["status"]')" = FAIL ] && [ "$(echo "$out" | field '"writer.put" in d')" = False ] && r=ok || r=fail
-check $r "정책 없음: FAIL, 시험 객체를 쓰지 않음 (policy_matches $(echo "$out" | field 'd.get("policy_matches")'))"
+[ "$(echo "$out" | field 'd["status"]')" = FAIL ] && [ "$(echo "$out" | field '"writer.put" in d')" = False ] \
+  && [ "$(echo "$out" | field 'd["verified"]')" = "[]" ] && r=ok || r=fail
+check $r "정책 없음: FAIL, 시험 객체를 쓰지 않음, 확인한 신원 없음 (policy_matches $(echo "$out" | field 'd.get("policy_matches")'), 미확인 $(echo "$out" | field 'd["unverified"]'))"
 
 run keys.env python -c "$admin" /w/policy.json
 before=$(run keys.env python -c "$admin" state)

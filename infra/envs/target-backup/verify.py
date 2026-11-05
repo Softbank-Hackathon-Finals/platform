@@ -138,6 +138,16 @@ def status(out, deny_labels, disposable):
     return "PASS"
 
 
+def scope(out, deny_labels, disposable):
+    """Identities whose every answer was as registered, and the rest; a run that stopped early verified nobody."""
+    def calls(label):
+        names = [k for k in EXPECTED if k.startswith(label + ".")] + [f"{label}.{c}" for c in ("delete", "delete_version")]
+        return names + ([f"{label}.{c}" for c in PROTECTION_CHANGES] if disposable and label != "reader" else [])
+    shown = {label for label in ("writer", "reader", *deny_labels)
+             if all(out.get(name) == EXPECTED.get(name, "denied") for name in calls(label))}
+    return sorted(shown), sorted({"writer", "reader", *REQUIRED_DENY, *deny_labels} - shown)
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--endpoint", required=True, help="the SeaweedFS S3 address reachable from here")
@@ -151,8 +161,7 @@ def main(argv=None):
     if any(not label.isidentifier() or label in ("admin", "writer", "reader") for label in labels):
         parser.error("--deny takes labels such as app or executor")
     out = check(args.endpoint, labels, args.disposable, args.ca)
-    out["verified"] = sorted({"writer", "reader", *labels})
-    out["unverified"] = sorted(set(REQUIRED_DENY) - set(labels))
+    out["verified"], out["unverified"] = scope(out, labels, args.disposable)
     out["status"] = status(out, labels, args.disposable)
     json.dump(out, sys.stdout, indent=2)
     print()
