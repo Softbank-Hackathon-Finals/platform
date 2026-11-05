@@ -167,6 +167,28 @@ AWAITING_APPROVAL을 만들 수 없다. 현재 T11 CLI와 같은 최초 시도(a
 바꾸지 않는다. 원격 제안 소비자가 T11의 완전한 배열을 인수한 뒤 T15 서명 기록과
 T10 `data.tool_events`로 전달하는 접점을 연결해야 한다. 이 패치는 T24 수집을 구현하지 않는다.
 
+호스트는 `bravo_agent.product_contracts`의 `ProductInput`, `ProductRequest`,
+`validate_product_input`을 모델 런타임 import 없이 사용할 수 있다. 순수 입력 검사는
+source/manifest/files의 일치·내용 hash·크기·자격 문자열을 대조하며 권한을 부여하지 않는다.
+기존 `subscription_product` import도 같은 타입을 재export한다.
+
+`subscription_product_host.RegisteredProductInputs(read)`는 T10의 인증된 현재 조회 포트를
+broker의 `ProductInputs.resolve`로 연결한다. `read(principal, input_ref)`는
+`admission`(T10 8필드), `product_input`, `input_digest`, `principal`,
+`purpose="t38-product-proposal"`, `expires_at`(UTC RFC3339)을 반환한다. T10은 매번
+커밋된 Admission·현재 plan/tenant/version/catalog·회수 여부를 검사한다. T38은 전체
+Admission/입력 digest, 실행/source/회차, 호출자·용도·만료를 다시 대조한다. 저장된 사본이나
+서명만으로 현재 권한 조회를 대신하지 않으며 조회 URL/함수를 HTTP 요청에서 받지 않는다.
+
+`ProductTunnelCall(reviewed_runtime_sha)`는 T15의 `call(body) -> (status, response)` 포트다.
+이미 수립된 전용 SSM TLS 터널의 `http://127.0.0.1:18762/run`만 호출하며 임의 endpoint,
+환경 proxy, redirect, 자동 재시도를 허용하지 않는다. 응답 크기와 검토된 설치 SHA,
+제품/task digest를 확인한 제안만 반환한다. T15는 자신의 등록 입력과 Admission/snapshot을
+대조하고 기존 도구 계층으로 재검증한다. 응답 불명은 NEEDS_HUMAN이며 자동 새 호출을 하지 않는다.
+이 함수는 터널 시작·토큰 발급·배포를 하지 않는다. 요청 토큰은 기존 GitHub OIDC 경로의 것이며
+T10 workload JWT로 대체할 수 없다. 요청 `input_digest`는 ProductInput 전체이고, 응답의
+`product_input_digest`가 그 값이다. 응답 `input_digest`/`task_digest`는 T11 FailureBundle이다.
+
 실제 제품 실행 전에는 인증 입력 조회기의 배치·접근·수명, 영속 journal의 격리·보존,
 T15의 원격 제안 소비 어댑터를 인수해야 한다. 목적지 API/RBAC와 credential 전달도 해당
 담당의 별도 인수 대상이다. 로컬 가짜 provider 시험은 이 연결이나 실환경 인수를 증명하지 않는다.

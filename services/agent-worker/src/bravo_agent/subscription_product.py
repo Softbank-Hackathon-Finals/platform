@@ -16,35 +16,16 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from types import SimpleNamespace
-from typing import Annotated, Protocol
+from typing import Protocol
 
-from pydantic import Field
-
-from .contracts import Contract, Digest, FailureBundle, SnapshotManifest, digest, safe_text
+from .contracts import FailureBundle, digest
+from .product_contracts import ProductInput as ProductInput
+from .product_contracts import ProductRequest as ProductRequest
+from .product_contracts import validate_product_input
 from .subscription_admin import run_worker
 from .subscription_store import SubscriptionStore, private_directory
 from .tools import Snapshot, Tools
 from .verification import validate_result
-
-
-class ProductRequest(Contract):
-    input_ref: str = Field(pattern=r"^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$")
-    input_digest: Digest
-    web_identity_token: str = Field(min_length=1, max_length=16384, repr=False)
-
-
-class ProductInput(Contract):
-    """Resolved by the host from a committed T10 Admission and approved source.
-
-    admission_digest binds every Admission field; bundle.run_id must be its
-    rehearsal_id. The resolver owns this authority check and caller access.
-    """
-
-    admission_digest: Digest
-    attempt: int = Field(ge=1, le=3)
-    bundle: FailureBundle
-    manifest: SnapshotManifest
-    files: dict[str, Annotated[str, Field(max_length=32768)]] = Field(min_length=1, max_length=64, repr=False)
 
 
 @dataclass(frozen=True)
@@ -130,17 +111,11 @@ def stopped(reason):
 
 
 def stage_input(value: ProductInput, root: Path) -> Snapshot:
-    if value.bundle.source_sha != value.manifest.source_sha or set(value.files) != set(value.manifest.files):
-        raise ValueError("input source mismatch")
+    value = validate_product_input(value)
     snapshot_root = root / "source"
     snapshot_root.mkdir(mode=0o700)
     for name, content in value.files.items():
-        # Manifest validation already enforces safe_path, but inspect content
-        # before writing it so known credential literals never enter the journal.
-        safe_text(content)
         data = content.encode()
-        if len(data) > 32768:
-            raise ValueError("oversized source")
         path = snapshot_root / name
         path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
         with path.open("xb") as stream:
@@ -196,7 +171,7 @@ class ProductService:
         try:
             value = self.inputs.resolve(access.principal, request.input_ref)
             # Revalidate/detach mutable dictionaries even when already typed.
-            value = ProductInput.model_validate_json(value.model_dump_json())
+            value = validate_product_input(value)
             if digest(value) != request.input_digest or value.attempt != 1:
                 raise ValueError("unbound input or unsupported retry")
             expected = {"product_input_digest": request.input_digest,
