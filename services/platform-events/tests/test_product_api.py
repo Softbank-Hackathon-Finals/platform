@@ -130,3 +130,43 @@ def test_configured_tenant_and_token_after_read_are_checked(api, key, monkeypatc
     monkeypatch.setattr(GitHubProductCaller, "authenticate", expire_after_read)
     with pytest.raises(EventError, match="forbidden"):
         reader.read(token(key), caller.principal, ref["input_ref"])
+
+
+@pytest.mark.parametrize("port", ["grant", "catalog"])
+def test_postgres_query_timeout_is_unavailable_not_permission_denial(api, key, monkeypatch, port):
+    f, caller, _, _, reader, ref = api
+    if not f.backend.cluster:
+        pytest.skip("Actual PostgreSQL statement timeout")
+
+    def timed_out_query(c, *_):
+        c.execute("SET LOCAL statement_timeout = '1ms'")
+        c.execute("SELECT pg_sleep(0.1)")
+
+    if port == "grant":
+        monkeypatch.setattr(ProductInputAccess, "_current", staticmethod(timed_out_query))
+    else:
+        monkeypatch.setattr(reader.records.catalog, "for_plan", timed_out_query)
+    with TestClient(create_product_read_app(reader), base_url="https://host.invalid") as client:
+        response = client.post(PATH, json=dict(principal=caller.principal, input_ref=ref["input_ref"]),
+            headers={"Authorization": "Bearer " + token(key)})
+    assert response.status_code == 503
+    assert response.json() == {"detail": {"code": "product_read_unavailable"}}
+    assert response.headers["cache-control"] == "no-store"
+
+
+@pytest.mark.parametrize("port", ["grant", "catalog"])
+def test_storage_diagnostics_are_not_returned_to_authenticated_caller(api, key, monkeypatch, port):
+    _, caller, _, _, reader, ref = api
+
+    def unavailable(*_):
+        raise OSError("private storage diagnostic")
+
+    if port == "grant":
+        monkeypatch.setattr(ProductInputAccess, "_current", staticmethod(unavailable))
+    else:
+        monkeypatch.setattr(reader.records.catalog, "for_plan", unavailable)
+    with TestClient(create_product_read_app(reader), base_url="https://host.invalid") as client:
+        response = client.post(PATH, json=dict(principal=caller.principal, input_ref=ref["input_ref"]),
+            headers={"Authorization": "Bearer " + token(key)})
+    assert response.status_code == 503
+    assert response.json() == {"detail": {"code": "product_read_unavailable"}}
