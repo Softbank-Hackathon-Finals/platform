@@ -64,6 +64,16 @@ class Action(Protocol):
     def run(self, arguments: dict, deadline: float) -> Outcome: ...
 
 
+class Journal(Protocol):
+    def write(self, seq: int, phase: str, body: dict) -> None:
+        """Write the signed `before` or `after` record of one seq exactly once; raise on failure."""
+        ...
+
+
+class JournalUnavailable(RuntimeError):
+    pass
+
+
 @dataclass(frozen=True)
 class Space:
     name: str
@@ -94,7 +104,7 @@ class ExecSession:
     def __init__(self, run_id: str, attempt: int, space: Space, actions: dict[str, Action | None], *,
                  secrets: Callable[[], Iterable[str]], space_uid: Callable[[], str | None],
                  limits: Limits | None = None, clock: Callable[[], float] = time.monotonic,
-                 sleep: Callable[[float], None] = time.sleep):
+                 sleep: Callable[[float], None] = time.sleep, journal: Journal | None = None):
         self.run_id, self.attempt, self.space = run_id, attempt, space
         self._actions, self._secrets, self._space_uid = actions, secrets, space_uid
         self.limits, self._clock, self._sleep = limits or Limits(), clock, sleep
@@ -106,6 +116,9 @@ class ExecSession:
         self._effect_unknown = False
         self._entries: dict[str, _Entry] = {}
         self._events: list[dict] = []
+        self._journal = journal
+        self._journal_failed = False
+        self._seq_of: dict[str, int] = {}
 
     # -- state -------------------------------------------------------------------------------
     def close(self) -> None:
@@ -121,6 +134,11 @@ class ExecSession:
         with self._lock:
             return [dict(e) for e in self._events]
 
+    @property
+    def journal_failed(self) -> bool:
+        """A before/after record could not be written; the persisted exec record is incomplete."""
+        return self._journal_failed
+
     def _budget(self, now: float) -> dict:
         left = self.limits.total_seconds if self._first_call is None else \
             self.limits.total_seconds - (now - self._first_call)
@@ -133,18 +151,51 @@ class ExecSession:
                 "result_code": result_code, "reason": reason, "stage": stage, "status": status,
                 "output_tail": tail, "output_truncated": truncated, "budget": self._budget(self._clock())}
 
-    def _record(self, request_id: str, action: str, digest: str, result: dict) -> int | None:
-        """Append one exec event (caller holds the lock). Returns seq, or None when full."""
+    def _reserve(self, request_id: str, action: str, digest: str, keys: dict) -> int | None:
+        """Write the `before` record and return its seq (caller holds the lock); None when full.
+
+        Until `_complete` runs, the event reads as UNKNOWN: a crash between the two
+        leaves exactly that in the persisted journal (ADR-0026 4-2).
+        """
         if len(self._events) >= self.limits.records:
             self._closed = True
             return None
-        event = {"run_id": self.run_id, "attempt": self.attempt, "seq": len(self._events) + 1,
-                 "action": action, "request_id": request_id, "args_sha256": digest}
-        event |= {k: v for k, v in result.items() if v is not None}
-        self._events.append(event)
+        seq = len(self._events) + 1
+        before = {"run_id": self.run_id, "attempt": self.attempt, "seq": seq, "action": action,
+                  "request_id": request_id, "args_sha256": digest} | {k: v for k, v in keys.items() if v is not None}
+        if self._journal is not None:
+            try:
+                self._journal.write(seq, "before", before)
+            except Exception:
+                self._journal_failed = self._closed = True
+                raise JournalUnavailable() from None
+        self._events.append(before | {"result_code": "UNKNOWN", "reason": "EFFECT_UNKNOWN", "stage": "EXECUTE"})
         if len(self._events) >= self.limits.records:
             self._closed = True
-        return event["seq"]
+        return seq
+
+    def _complete(self, seq: int, result: dict) -> None:
+        """Write the `after` record (caller holds the lock)."""
+        after = {k: v for k, v in result.items() if v is not None}
+        event = self._events[seq - 1]
+        self._events[seq - 1] = {k: v for k, v in event.items() if k not in ("reason", "stage")} | after
+        if self._journal is not None:
+            try:
+                self._journal.write(seq, "after", after)
+            except Exception:
+                self._journal_failed = True
+
+    def _record(self, request_id: str, action: str, digest: str, result: dict) -> int | None:
+        """A refusal: before and after at once. Returns seq, or None when nothing could be recorded."""
+        keys = {k: v for k, v in result.items() if k not in ("result_code", "reason", "stage")}
+        outcome = {k: result[k] for k in ("result_code", "reason", "stage") if k in result}
+        try:
+            seq = self._reserve(request_id, action, digest, keys)
+        except JournalUnavailable:
+            return None
+        if seq is not None:
+            self._complete(seq, outcome)
+        return seq
 
     # -- request handling --------------------------------------------------------------------
     def handle(self, raw) -> dict:
@@ -225,6 +276,13 @@ class ExecSession:
         if not same_space:
             return self._refuse(request, rid, action, digest, "BLOCKED", "ADMIT", keys=keys)
         with self._lock:
+            try:
+                seq = self._reserve(rid, action, digest, keys)
+            except JournalUnavailable:
+                seq = None
+            if seq is None:  # nothing runs without its before record
+                return self._response(rid, action, "REJECTED", "UNAVAILABLE", "ADMIT")
+            self._seq_of[rid] = seq
             start = self._clock()
             if self._first_call is None:
                 self._first_call = start
@@ -232,7 +290,7 @@ class ExecSession:
             left = self.limits.total_seconds - (start - self._first_call)
         deadline = start + max(0.0, min(self.limits.action_seconds, left))
         result, status, output = self._execute(handler, action, request.arguments, deadline)
-        return self._finish(request, keys, result, status, output)
+        return self._finish(request, seq, result, status, output)
 
     def _execute(self, handler: Action, action: str, arguments: dict, deadline: float):
         tries = 0
@@ -268,19 +326,13 @@ class ExecSession:
             self._effect_unknown = True
         return {"result_code": "UNKNOWN", "reason": "EFFECT_UNKNOWN", "stage": "EXECUTE"}
 
-    def _finish(self, request: Request, keys: dict, result: dict, status, output: bytes) -> dict:
+    def _finish(self, request: Request, seq: int, result: dict, status, output: bytes) -> dict:
         screened = screen(output, self._secrets)
         if screened.withheld and result["result_code"] == "OK":
             result = result | {"reason": "OUTPUT_WITHHELD", "stage": "OUTPUT"}
         result = result | {"output_sha256": screened.sha256, "output_bytes": screened.size}
         with self._lock:
-            seq = self._record(request.request_id, request.action, request.args_sha256,
-                               keys | result)
-        if seq is None:
-            # The action ran but cannot be recorded: answer UNKNOWN so nothing relies on it.
-            with self._lock:
-                self._effect_unknown = self._effect_unknown or request.action == "apply"
-            return self._response(request.request_id, request.action, "UNKNOWN", "EFFECT_UNKNOWN", "EXECUTE")
+            self._complete(seq, result)
         ok = result["result_code"] == "OK"
         return self._response(request.request_id, request.action, result["result_code"],
                               result.get("reason"), result.get("stage"), status if ok else None,
@@ -289,12 +341,15 @@ class ExecSession:
                               False if screened.withheld else screened.truncated)
 
     def _fail_unexpected(self, request: Request) -> dict:
-        if request.action == "apply":
-            result = self._unknown()
-            with self._lock:
-                self._record(request.request_id, request.action, request.args_sha256, result)
-            return self._response(request.request_id, request.action, "UNKNOWN", "EFFECT_UNKNOWN", "EXECUTE")
-        return self._response(request.request_id, request.action, "REJECTED", "UNAVAILABLE", "ADMIT")
+        seq = self._seq_of.get(request.request_id)
+        if seq is None:
+            return self._response(request.request_id, request.action, "REJECTED", "UNAVAILABLE", "ADMIT")
+        result = self._unknown() if request.action == "apply" else \
+            {"result_code": "FAILED", "reason": "UNAVAILABLE", "stage": "EXECUTE"}
+        with self._lock:
+            self._complete(seq, result)
+        return self._response(request.request_id, request.action, result["result_code"], result["reason"],
+                              "EXECUTE")
 
 
 def _strings(value) -> str:
@@ -309,4 +364,4 @@ def _strings(value) -> str:
 
 
 __all__ = ["Action", "ActionDenied", "ActionError", "ActionFailed", "ActionTimeout", "ExecSession",
-           "Limits", "MalformedRequest", "NotSent", "Outcome", "Space", "Transient"]
+           "Journal", "JournalUnavailable", "Limits", "MalformedRequest", "NotSent", "Outcome", "Space", "Transient"]

@@ -109,6 +109,34 @@ class AttemptStore:
             raise RecordUnavailable("record names another attempt")
         return record
 
+    def write_exec(self, admission: object, seq: int, phase: str, body: dict) -> None:
+        """Write one rehearsal.exec before/after record of a claimed attempt, exactly once."""
+        if type(seq) is not int or not 1 <= seq <= 32 or phase not in ("before", "after"):
+            raise ValueError("invalid exec record identity")
+        directory = self._path(admission.rehearsal_id, admission.attempt)
+        claim = self._load(directory / "claim.json")
+        if claim is None or claim["admission"] != asdict(admission):
+            raise RecordUnavailable("attempt was not claimed")
+        (directory / "exec").mkdir(mode=0o700, exist_ok=True)
+        value = {"admission": asdict(admission), "seq": seq, "phase": phase, "body": body}
+        if not self._create(directory / "exec" / f"{seq:02d}.{phase}.json", self._signed(value)):
+            raise RecordUnavailable("exec record already written")
+
+    def read_exec(self, admission: object) -> dict[tuple[int, str], dict]:
+        """All signed exec records of the attempt by (seq, phase); raises on any doubt."""
+        directory = self._path(admission.rehearsal_id, admission.attempt) / "exec"
+        if not directory.exists():
+            return {}
+        found = {}
+        for path in sorted(directory.iterdir()):
+            match = re.fullmatch(r"([0-9]{2})\.(before|after)\.json", path.name)
+            value = self._load(path) if match else None
+            if (value is None or value["admission"] != asdict(admission)
+                    or value["seq"] != int(match.group(1)) or value["phase"] != match.group(2)):
+                raise RecordUnavailable("unexpected exec record")
+            found[(value["seq"], value["phase"])] = value["body"]
+        return found
+
     def claimed(self, rehearsal_id: str, attempt: int) -> bool:
         return self._load(self._path(rehearsal_id, attempt) / "claim.json") is not None
 
@@ -136,6 +164,8 @@ class _Trace:
     probe_run_id: str | None = None
     failure: str | None = None
     proposer: object | None = None
+    exec_journal: object | None = None  # exec_records.StoreJournal for this admission
+    exec_phase: object | None = None
 
 
 class _TracedLifecycle:
@@ -181,6 +211,9 @@ class _TracedFactory:
     def prepare(self, attempt: int, feedback_ref: str | None) -> AttemptPorts:
         ports = self.inner.prepare(attempt, feedback_ref)
         self.trace.proposer = ports.proposer
+        if ports.exec_phase is not None:
+            ports.exec_phase.journal = self.trace.exec_journal
+            self.trace.exec_phase = ports.exec_phase
         return AttemptPorts(ports.proposer, _TracedLifecycle(ports.lifecycle, self.trace, attempt),
                             ports.isolation, _TracedVerifier(ports.verifier, self.trace),
                             exec_phase=ports.exec_phase)
@@ -264,12 +297,16 @@ class RecordedAttemptSender:
         body = {"verdict": "NEEDS_HUMAN", "reason": "EXECUTION_UNAVAILABLE"}
         try:
             binding = self.planner.binding(admission)
-            trace = _Trace()
+            from .exec_records import StoreJournal, collect_exec_record
+
+            trace = _Trace(exec_journal=StoreJournal(self.store, admission))
             factory = _TracedFactory(self.planner.factory(admission, task), trace)
             result = run_admitted_attempt(admission, task, factory, feedback_digest=self._feedback(admission))
             body = judge_attempt(result, trace) | {"plan_digest": binding.plan_digest,
                                                    "target_environment_id": binding.target_environment_id}
             body |= collect_tool_events(trace.proposer, admission)
+            if trace.exec_phase is not None:  # without exec the record is unchanged (reads as OFF)
+                body |= collect_exec_record(self.store, admission, trace.exec_phase)
         except Exception:
             pass
         now = self.clock()
@@ -309,6 +346,17 @@ class RecordedEvidence:
         if record["admission"] != asdict(admission):
             raise RecordUnavailable("record names another admission")
         return [dict(e) for e in record["tool_events"]]
+
+    def exec_events(self, admission: object) -> dict:
+        """`exec_events_status` and, when COMPLETE, the signed T15 exec events for T10 `data.exec_events`."""
+        record = self.store.read(admission.rehearsal_id, admission.attempt)
+        if record is None:
+            return {"exec_events_status": "UNAVAILABLE"}
+        if record["admission"] != asdict(admission):
+            raise RecordUnavailable("record names another admission")
+        status = record.get("exec_events_status", "OFF")
+        return {"exec_events_status": status} | (
+            {"exec_events": [dict(e) for e in record["exec_events"]]} if status == "COMPLETE" else {})
 
     def _passed(self, plan_id: str, run_id: str, verification_id: str) -> dict:
         for attempt in (1, 2, 3):

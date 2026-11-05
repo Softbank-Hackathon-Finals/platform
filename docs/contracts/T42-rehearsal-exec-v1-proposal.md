@@ -109,7 +109,7 @@ T15 → broker → T11 → 모델로 같은 객체가 간다(스키마 `response
 - 공통 키: `run_id`, `attempt`, `seq`, `action`, `request_id`, `args_sha256`, `result_code`, `reason`, `stage`, `output_sha256`, `output_bytes`
 - apply: `proposal_digest` · inspect: `target_kind`, `target_name`, `lines` · probe: `service`, `port`, `method`, `path`, `probe_outcome`, `http_status`
 - 값은 문자열·정수·불리언만 쓴다. 해당 없는 키(성공의 `reason`, TCP의 `path`·`http_status`, 출력이 없을 때의 `output_*`)는 `null`로 두지 않고 뺀다. `collect_tool_events`와 같은 규칙이고, 목록 밖 키나 형식 오류가 하나라도 있으면 목록 전체가 `UNAVAILABLE`이다.
-- `exec_events_status`: `OFF`(그 작업 종류는 exec를 껐음), `COMPLETE`, `UNAVAILABLE`
+- `exec_events_status`: `OFF`(그 작업 종류는 exec를 껐음), `COMPLETE`, `UNAVAILABLE`. exec 단계 없이 돈 시도의 기록에는 이 키가 없으며 `OFF`로 읽는다(기존 기록 형식 유지).
 
 **T11 `tool_events`의 exec 호출 (T11 확인 필요)**
 - 기존 키 `run_id`, `attempt`, `tool`, `outcome`, `reason`을 유지하고, `tool`은 1절의 내부 이름을 쓴다.

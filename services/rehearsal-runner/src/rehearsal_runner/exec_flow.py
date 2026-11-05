@@ -51,6 +51,7 @@ class ExecTrace:
     removed: bool = False
     opened: bool = False
     effect_unknown: bool = False
+    journal_failed: bool = False
     events: list[dict] = field(default_factory=list)
 
 
@@ -58,6 +59,7 @@ class ExecPhase(Protocol):
     lifecycle: Lifecycle  # space A only; separate from the grading lifecycle
     isolation: IsolationGate
     traces: list[ExecTrace]
+    journal: object | None  # exec_session.Journal, attached by the attempt store per admission
 
     def open(self, run_id: str, attempt: int, namespace: Namespace) -> ExecSession:
         """Prepare the tool Pod and register a session for this attempt's space A."""
@@ -115,6 +117,7 @@ class ToolPodExecPhase:
     limits: Limits | None = None
     ready_seconds: int = 60
     traces: list[ExecTrace] = field(default_factory=list, repr=False)
+    journal: object | None = field(default=None, repr=False)  # set by the attempt store per admission
 
     def open(self, run_id: str, attempt: int, namespace: Namespace) -> ExecSession:
         space = Space(namespace.name, namespace.uid)
@@ -125,7 +128,8 @@ class ToolPodExecPhase:
         actions = {"inspect": Inspector(space, runner, self.log_container), "probe": Prober(space, runner),
                    "apply": self.applier(space) if self.applier else None}
         session = ExecSession(run_id, attempt, space, actions, secrets=lambda: self.secrets(namespace),
-                              space_uid=lambda: _live_uid(self.kubectl, space.name), limits=self.limits)
+                              space_uid=lambda: _live_uid(self.kubectl, space.name), limits=self.limits,
+                              journal=self.journal)
         self.registry.register(session)
         return session
 
@@ -192,6 +196,7 @@ def run_with_exec(task: object, proposer, phase: ExecPhase, lifecycle: Lifecycle
             except Exception:
                 pass
             trace.events, trace.effect_unknown = session.events(), session.effect_unknown
+            trace.journal_failed = session.journal_failed
         try:
             trace.removed = phase.lifecycle.cleanup(space) is True
         except Exception:
