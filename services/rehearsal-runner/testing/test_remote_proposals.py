@@ -100,3 +100,21 @@ def test_request_must_carry_the_digest_of_the_same_input(tmp_path):
     admission, task, source, _ = setup(tmp_path, body_digest="c" * 64)
     with pytest.raises(ValueError, match="not bound"):
         source.open(admission, task)
+
+
+@pytest.mark.parametrize("escape", ["../escaped.txt", "ABSOLUTE"])
+def test_files_outside_the_manifest_are_refused_before_any_write(tmp_path, escape):
+    staging = tmp_path / "staging"
+    staging.mkdir()
+    outside = tmp_path / "abs-escaped.txt"
+    name = str(outside) if escape == "ABSOLUTE" else escape
+    admission, task, source, call = setup(staging)
+    value = source.product_input(admission, task)
+    tampered = ProductInput.model_validate(value.model_dump() | {"files": value.files | {name: "x"}})
+    source = RemoteProposalSource(product_input=lambda _a, _t: tampered, call=call, staging=staging,
+                                  request_for=lambda _a, v: {"input_ref": "input-1", "input_digest": digest(v),
+                                                             "web_identity_token": "token"})
+    with pytest.raises(ValueError):
+        source.open(admission, task)
+    assert not outside.exists() and not (tmp_path / "escaped.txt").exists()
+    assert call.calls == []

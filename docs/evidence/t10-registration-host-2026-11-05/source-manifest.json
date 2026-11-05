@@ -1,0 +1,29 @@
+{
+  "source_revision": "be0390122bf7d5ec99778a6b82f2a3846dc9cbb4",
+  "source_files": [
+    {
+      "path": "services/platform-events/src/bravo_platform_events/postgres.py",
+      "sha256": "ad2c3906bcc619e74002a4d89f209158777cc46a200386ba0ef369d8837289bc"
+    },
+    {
+      "path": "services/platform-events/src/bravo_platform_events/registration.py",
+      "sha256": "675a2ed910c3cd4d418e0ef67e5bce6564566eb6c72e1458574fd8b66192e40d"
+    },
+    {
+      "path": "services/platform-events/src/bravo_platform_events/registration_probe.py",
+      "sha256": "35d3540c0848f88cd29541bfdb3718c585ff27f7ddddd6003bfc3def5056b7d4"
+    },
+    {
+      "path": "services/platform-events/src/bravo_platform_events/registration_server.py",
+      "sha256": "2ebad6b16936ae537814040532827b5c2207ab38ffbd54faa9eb996e3318f635"
+    },
+    {
+      "path": "services/platform-events/src/bravo_platform_events/registration_sso.py",
+      "sha256": "1bbaba5b79354baa04311a28b07212ae81481d40d9f888b8724d55e2d3efb233"
+    },
+    {
+      "path": "services/rehearsal-runner/src/rehearsal_runner/task_catalog.py",
+      "sha256": "35215c85c4e59fa6c0fd3a4b4dc1fc3990932e7ad408085f0acc6e0301a0be30"
+    }
+  ]
+}

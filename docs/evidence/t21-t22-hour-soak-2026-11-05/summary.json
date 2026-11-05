@@ -1,0 +1,391 @@
+{
+  "scope": "actual local app/PostgreSQL/OTel/T36 HTTP; Nginx Edge substitute; shared DB; moto AWS APIs; not cloud migration",
+  "status": "PASS",
+  "checks": {
+    "collector_requires_client_certificate": true,
+    "source_writes_reconciled": true,
+    "source_header_attribution": true,
+    "source_whole_run_http_clean": true,
+    "source_whole_run_windows_complete": true,
+    "source_whole_run_generator_healthy": true,
+    "target_writes_reconciled": true,
+    "target_header_attribution": true,
+    "target_whole_run_http_clean": true,
+    "target_whole_run_windows_complete": true,
+    "target_whole_run_generator_healthy": true,
+    "actual_http_histogram": true,
+    "no_metric_sensitive_labels": true,
+    "both_environments": true,
+    "window_http_received": true,
+    "bad_intake_token_rejected": true,
+    "replayed_window_rejected": true,
+    "final_display_window_zero_errors": true,
+    "console_collecting": true,
+    "websocket_switch_verified": true,
+    "collector_stop_not_zero": true,
+    "source_still_observed": true,
+    "console_target-stopped": true
+  },
+  "load_seconds_per_environment": 1800,
+  "t18_commit": "42c051a1d1e797a56efb190d01fc21fc157e5526",
+  "t36_commit": "42c051a1d1e797a56efb190d01fc21fc157e5526",
+  "t37_commit": "42c051a1d1e797a56efb190d01fc21fc157e5526",
+  "demo_commit": "9dd2ce3da59e53c4f351b8f37f1514021e0c7bbd",
+  "t21_commit": "a783e51900bbe9744dc1d71092d574a06c368c5d",
+  "websocket_switch": {
+    "checks": {
+      "source_header_single": true,
+      "source_hello": true,
+      "unauth_close_rejected": true,
+      "unfenced_close_rejected": true,
+      "write_blocked_retry_after": true,
+      "exact_process_close_count": true,
+      "received_1012": true,
+      "target_hello": true,
+      "target_header_single": true,
+      "idempotent_retry_same_id": true,
+      "cursor_no_old_or_duplicate": true,
+      "exactly_one_database_row": true
+    },
+    "scope": "actual local proxy/app switch; one shared PostgreSQL; not database cutover"
+  },
+  "owned_compose_removed": true,
+  "original_private_result_sha256": "sha256:4b2f34fda827b51657a87aa03bbd00ea021c3b3b2bcca6882045c3af53c896d5",
+  "source_manifest_revision": "02fd5a2fa4d59596c2fdf9c2814a040e55c3fdc8",
+  "source_manifest_sha256": "sha256:55a964d39db04a53da6cf1b6870bcba15348f7b7d83259eb7157724f5d8b4899",
+  "verified_source_file_counts": {
+    "platform": 82,
+    "console": 57,
+    "demo-chat": 25
+  },
+  "environment_labels_are_local_fixture_names": true,
+  "cloud_migration_verified": false,
+  "existing_40ms_qualification_failures_resolved": false,
+  "generator_and_apps_share_host_with_unrelated_short_regression_tests": true,
+  "exclusive_host_performance_qualification": false,
+  "reports": {
+    "source": {
+      "run_id": "t18-source-36445e",
+      "started_at": "2026-11-05T11:58:37.840235+00:00",
+      "measurement": {
+        "path": "local-direct",
+        "edge_measured": false
+      },
+      "verdict": "PASS",
+      "reasons": [],
+      "warnings": [
+        "NOT_EDGE_MEASURED"
+      ],
+      "sli_usable_for_judgement": false,
+      "load": {
+        "duration_s": 1800.0,
+        "target_write_rps": 50.0,
+        "target_read_rps": 150.0,
+        "achieved_write_rps": 50.0,
+        "achieved_read_rps": 150.0,
+        "attempt_timeout_s": 15,
+        "retry_budget_s": 60,
+        "scheduler_lag_ms": {
+          "p95": 1.752,
+          "max": 37.478
+        }
+      },
+      "requests": {
+        "write": {
+          "attempts": 90000,
+          "http_5xx": 0,
+          "http_4xx": 0,
+          "timeout": 0,
+          "connect": 0,
+          "p95_ms": 5.969
+        },
+        "read": {
+          "attempts": 270000,
+          "http_5xx": 0,
+          "http_4xx": 0,
+          "timeout": 0,
+          "connect": 0,
+          "p95_ms": 4.174
+        }
+      },
+      "http_error_rate": 0.0,
+      "contract_error_rate": 0.0,
+      "p95_ms": 5.38,
+      "env_header": {
+        "responses": 360000,
+        "responses_without_header": 0,
+        "registered_values": {
+          "aws": 360000
+        },
+        "unregistered_values": {}
+      },
+      "reconciliation": {
+        "verdict": "PASS",
+        "reasons": [],
+        "nfr2": {
+          "failed": 0,
+          "lost": 0,
+          "duplicated": 0
+        },
+        "counts": {
+          "confirmed": 90000,
+          "lost": 0,
+          "duplicated": 0,
+          "failed_not_stored": 0,
+          "failed_but_stored": 0,
+          "integrity_conflict": 0,
+          "content_mismatch": 0,
+          "logical_writes": 90000,
+          "attempts": 90000,
+          "retried": 0,
+          "idempotent_replays": 0,
+          "duplicate_extra_rows": 0,
+          "phantom_rows": 0
+        },
+        "max_attempts": 1,
+        "samples": {}
+      },
+      "write_gap": {
+        "max_ms": 106.597,
+        "from_s": 305.425858,
+        "to_s": 305.532455,
+        "position": "between",
+        "acks": 90000
+      },
+      "windows": {
+        "emitted": 180,
+        "requests_in_windows": 360000,
+        "tail_requests_not_in_a_window": 0,
+        "late_requests": 0,
+        "conserved": true,
+        "delivery_failed": 0,
+        "invalid": 0,
+        "continuity_problems": [],
+        "pools_total": {
+          "source": 360000,
+          "target": 0
+        },
+        "unattributed_total": {
+          "timeout": 0,
+          "connect": 0,
+          "other": 0
+        }
+      },
+      "original_windows_sha256": "sha256:98ec11ce994ec79d3a525f09d368b1188835d7a5be23868ee0e685c70e1952e1"
+    },
+    "target": {
+      "run_id": "t18-target-38d429",
+      "started_at": "2026-11-05T12:28:42.424280+00:00",
+      "measurement": {
+        "path": "local-direct",
+        "edge_measured": false
+      },
+      "verdict": "PASS",
+      "reasons": [],
+      "warnings": [
+        "NOT_EDGE_MEASURED"
+      ],
+      "sli_usable_for_judgement": false,
+      "load": {
+        "duration_s": 1800.0,
+        "target_write_rps": 50.0,
+        "target_read_rps": 150.0,
+        "achieved_write_rps": 50.0,
+        "achieved_read_rps": 150.0,
+        "attempt_timeout_s": 15,
+        "retry_budget_s": 60,
+        "scheduler_lag_ms": {
+          "p95": 1.708,
+          "max": 84.055
+        }
+      },
+      "requests": {
+        "write": {
+          "attempts": 90000,
+          "http_5xx": 0,
+          "http_4xx": 0,
+          "timeout": 0,
+          "connect": 0,
+          "p95_ms": 6.189
+        },
+        "read": {
+          "attempts": 270000,
+          "http_5xx": 0,
+          "http_4xx": 0,
+          "timeout": 0,
+          "connect": 0,
+          "p95_ms": 4.264
+        }
+      },
+      "http_error_rate": 0.0,
+      "contract_error_rate": 0.0,
+      "p95_ms": 5.471,
+      "env_header": {
+        "responses": 360000,
+        "responses_without_header": 0,
+        "registered_values": {
+          "onprem": 360000
+        },
+        "unregistered_values": {}
+      },
+      "reconciliation": {
+        "verdict": "PASS",
+        "reasons": [],
+        "nfr2": {
+          "failed": 0,
+          "lost": 0,
+          "duplicated": 0
+        },
+        "counts": {
+          "confirmed": 90000,
+          "lost": 0,
+          "duplicated": 0,
+          "failed_not_stored": 0,
+          "failed_but_stored": 0,
+          "integrity_conflict": 0,
+          "content_mismatch": 0,
+          "logical_writes": 90000,
+          "attempts": 90000,
+          "retried": 0,
+          "idempotent_replays": 0,
+          "duplicate_extra_rows": 0,
+          "phantom_rows": 0
+        },
+        "max_attempts": 1,
+        "samples": {}
+      },
+      "write_gap": {
+        "max_ms": 231.727,
+        "from_s": 809.329451,
+        "to_s": 809.561178,
+        "position": "between",
+        "acks": 90000
+      },
+      "windows": {
+        "emitted": 180,
+        "requests_in_windows": 360000,
+        "tail_requests_not_in_a_window": 0,
+        "late_requests": 0,
+        "conserved": true,
+        "delivery_failed": 0,
+        "invalid": 0,
+        "continuity_problems": [],
+        "pools_total": {
+          "source": 0,
+          "target": 360000
+        },
+        "unattributed_total": {
+          "timeout": 0,
+          "connect": 0,
+          "other": 0
+        }
+      },
+      "original_windows_sha256": "sha256:6e36ecf8957d9e1646632cfaac776c65ff0a3166e57fe962545cba8b08f78b01"
+    }
+  },
+  "console_collecting": {
+    "scope": "actual T37 HTTP and T21 projection; local fixture identity/plan; no execution authority",
+    "phase": "collecting",
+    "checks": {
+      "unauthenticated_query_denied": true,
+      "fixed_environment_pair": true,
+      "no_gate_authority": true,
+      "source_observed": true,
+      "target_observed": true,
+      "token_not_returned": true,
+      "separate_environment_permission_required": true,
+      "session_revoked_query_denied": true,
+      "actual_browser_projection": true
+    },
+    "status": "PASS",
+    "observations": {
+      "kind": "console-observation.v1",
+      "plan_id": "local-observation-validation",
+      "plan_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "queried_at": "2026-11-05T12:58:47.362395+00:00",
+      "for_gate_decisions": false,
+      "environments": [
+        {
+          "environment": "aws",
+          "state": "OK",
+          "queried_at": "2026-11-05T12:58:47+00:00",
+          "requests_per_second": 0.9994403134244823,
+          "error_ratio": 0.0,
+          "p95_seconds": 0.00475,
+          "environment_id": "registered-aws",
+          "side": "source"
+        },
+        {
+          "environment": "onprem",
+          "state": "OK",
+          "queried_at": "2026-11-05T12:58:47+00:00",
+          "requests_per_second": 200.01199112656633,
+          "error_ratio": 0.0,
+          "p95_seconds": 0.004775768535262206,
+          "environment_id": "registered-onprem",
+          "side": "target"
+        }
+      ]
+    },
+    "browsers": {
+      "projects": [
+        "chromium",
+        "webkit"
+      ],
+      "status": "PASS"
+    }
+  },
+  "console_after_collector_stop": {
+    "scope": "actual T37 HTTP and T21 projection; local fixture identity/plan; no execution authority",
+    "phase": "target-stopped",
+    "checks": {
+      "unauthenticated_query_denied": true,
+      "fixed_environment_pair": true,
+      "no_gate_authority": true,
+      "source_observed": true,
+      "target_stop_is_unknown": true,
+      "target_stop_has_no_invented_values": true,
+      "token_not_returned": true,
+      "separate_environment_permission_required": true,
+      "session_revoked_query_denied": true,
+      "actual_browser_projection": true
+    },
+    "status": "PASS",
+    "observations": {
+      "kind": "console-observation.v1",
+      "plan_id": "local-observation-validation",
+      "plan_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "queried_at": "2026-11-05T12:59:46.508961+00:00",
+      "for_gate_decisions": false,
+      "environments": [
+        {
+          "environment": "aws",
+          "state": "OK",
+          "queried_at": "2026-11-05T12:59:46+00:00",
+          "requests_per_second": 0.7191945021575834,
+          "error_ratio": 0.0,
+          "p95_seconds": 0.004885714285714286,
+          "environment_id": "registered-aws",
+          "side": "source"
+        },
+        {
+          "environment": "onprem",
+          "state": "UNOBSERVABLE",
+          "queried_at": null,
+          "requests_per_second": null,
+          "error_ratio": null,
+          "p95_seconds": null,
+          "environment_id": "registered-onprem",
+          "side": "target"
+        }
+      ]
+    },
+    "browsers": {
+      "projects": [
+        "chromium",
+        "webkit"
+      ],
+      "status": "PASS"
+    }
+  }
+}

@@ -1,0 +1,74 @@
+{
+  "scope": "actual AWS source app boundary; operator-qualified, not T10 operational registration",
+  "run_id": "7b823508-cf4f-47e2-ac5c-0b2ae1fbabf4",
+  "started_at": "2026-11-05T10:17:51.656983Z",
+  "finished_at": "2026-11-05T10:18:41.869280Z",
+  "pass_test_ids": [
+    "ENC-01.1",
+    "ENC-01.2",
+    "ENC-01.3",
+    "IAM-01.1"
+  ],
+  "unknown_test_ids": [
+    "SEC-01.1",
+    "SEC-01.2",
+    "SEC-01.3",
+    "SEC-01.4",
+    "ENC-02.1",
+    "ENC-01.5",
+    "ENC-01.4",
+    "AUD-01.1",
+    "AUD-01.2",
+    "AUD-01.3",
+    "NET-01.1",
+    "NET-01.2",
+    "NET-01.3",
+    "IAM-01.2",
+    "ISO-01.1",
+    "DR-01.1"
+  ],
+  "registration_readbacks": 12,
+  "retained_probe_count": 4,
+  "durable_host_ack": true,
+  "production_objects_created": 0,
+  "production_data_or_configuration_changed": false,
+  "target_executed": false,
+  "authorizes_cutover": false,
+  "backend_tls_separate_run": {
+    "verdict": "UNKNOWN",
+    "stage": "SHOW_CONFIG authentication",
+    "configuration_file_not_used_as_pass": true
+  },
+  "artifacts": [
+    {
+      "path": "control-run.json",
+      "sha256": "e4663eac582a601a6d864d9d147af113baa7719f363dec4d3aba54d6bd285463"
+    },
+    {
+      "path": "evidence-ENC-01.1.json",
+      "sha256": "d331c679674b0cbb927de03e73d0c4b00e760f47fe527de8f65703448c6cb9a8"
+    },
+    {
+      "path": "evidence-ENC-01.2.json",
+      "sha256": "58a5f0de25827cdfbeeb3aa9b9302dae2db7207bb080c3eaefe4b3d8631f4b3b"
+    },
+    {
+      "path": "evidence-ENC-01.3.json",
+      "sha256": "785ed75c7eb3156fe15f0d6f12ac2fa5284501f4972cdbb8159e1d18583c08b0"
+    },
+    {
+      "path": "evidence-IAM-01.1.json",
+      "sha256": "60f446213fed50f9185d6d4defdfb01a322432f7aaca889e55bc019264e3fead"
+    },
+    {
+      "path": "backend-control-run.json",
+      "sha256": "fd3fed33df9ddafed3131f0f48788c12525c6e4e06ef6d6985ea5f196fe2ad6a"
+    },
+    {
+      "path": "backend-evidence.json",
+      "sha256": "ae723c3a3df137355008df65294a301e404f1af903b362c8f22f0fe8b3d08ef8"
+    }
+  ],
+  "main_run_credentials_exported_from_app_or_persisted": false,
+  "backend_probe_credential_boundary": "trusted operator memory only; no credential values persisted or injected into application"
+}

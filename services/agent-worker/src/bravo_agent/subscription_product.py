@@ -158,7 +158,7 @@ class ProductService:
         if re.fullmatch(r"[a-f0-9]{40}", self.runtime_source_sha) is None:
             raise ValueError("exact runtime source required")
 
-    def run(self, body: dict):
+    def _prepare(self, body: dict):
         try:
             request = ProductRequest.model_validate(body)
         except ValueError:
@@ -178,6 +178,31 @@ class ProductService:
             value = validate_product_input(value)
             if digest(value) != request.input_digest or value.attempt != 1:
                 raise ValueError("unbound input or unsupported retry")
+            return 200, (request, access, value)
+        except Exception:
+            return 409, stopped("PRODUCT_INPUT_OR_RECORD_UNAVAILABLE")
+
+    def probe(self, body: dict):
+        """Authenticate and read current input without claiming or running a proposal."""
+        status, prepared = self._prepare(body)
+        if status != 200:
+            return status, prepared
+        request, access, value = prepared
+        return 200, {
+            "state": "INPUT_AUTHENTICATED",
+            "request_digest": digest({"input_ref": request.input_ref, "input_digest": request.input_digest}),
+            "product_input_digest": request.input_digest,
+            "admission_digest": value.admission_digest,
+            "runtime_source_sha": self.runtime_source_sha,
+            "principal_digest": access.principal,
+        }
+
+    def run(self, body: dict):
+        status, prepared = self._prepare(body)
+        if status != 200:
+            return status, prepared
+        request, access, value = prepared
+        try:
             expected = {"product_input_digest": request.input_digest,
                         "admission_digest": value.admission_digest,
                         "runtime_source_sha": self.runtime_source_sha}

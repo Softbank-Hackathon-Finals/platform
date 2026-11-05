@@ -214,7 +214,7 @@ footer { margin-top: 72px; padding-top: 16px; border-top: 1px solid var(--line);
   <h1>클라우드 출구전략 플랫폼 설계 문서</h1>
   <p class="lede">가동 중인 서비스를 AWS에서 온프레미스로 멈추지 않고 옮기고, 옮긴 환경이 원본과 같은 수준으로 안전하고 정확한지 검증 게이트로 확인한 뒤에만 전환한다.</p>
   <dl class="meta">
-    <dt>상태</dt><dd>초안 v0.6</dd>
+    <dt>상태</dt><dd>초안 v0.7</dd>
     <dt>통합 작성</dt><dd>배규태</dd>
     <dt>제품명</dt><dd>미정 (12장)</dd>
   </dl>
@@ -1890,8 +1890,8 @@ verdict         MATCH | MISMATCH</code></pre>
     <p><b>만들 것</b> 8단계 컷오버 순서, 펜싱, barrier, PgBouncer PAUSE/RELOAD/RESUME, 단계별 타이머, 실패 3분기, WebSocket 1012 종료 신호.</p>
     <p><b>목표</b> 쓰기를 수 초만 멈추고, 실패해도 쓰기 DB가 둘이 되지 않게 전환한다.</p>
     <p><b>세부 작업</b></p>
-    <ul class="checklist"><li>구현 언어: Python 3.12 (ADR-0006)</li><li>epoch · Idempotency-Key 처리</li><li>ABORT_PRE_WRITE · SAFE_HOLD 분기</li><li>진입점 쓰기 차단은 앱 쓰기 차단 스위치(T4)로 호출</li></ul>
-    <p><b>완료 기준</b> 부하 없이 컷오버 1회 성공, ABORT_PRE_WRITE · SAFE_HOLD 분기를 각 1회 시험.</p>
+    <ul class="checklist"><li>구현 언어: Python 3.12 (ADR-0006)</li><li>epoch · Idempotency-Key 처리</li><li>ABORT_PRE_WRITE · SAFE_HOLD 분기</li><li>진입점 쓰기 차단은 앱 쓰기 차단 스위치(T4)로 호출</li><li>출발지 WebSocket 1012 종료 (demo-chat 관리 API로 호출)</li><li>무결성 비교를 T13에 연결 (임시 비교 <code>UNVERIFIED</code> 제거)</li><li>Executor 이미지(Dockerfile) · 플랫폼 배포 매니페스트 생성기 (이미지 게시 · 플랫폼 배포는 T7)</li><li>k3d 모의 환경에서 컷오버 1회 · ABORT_PRE_WRITE · SAFE_HOLD 확인 (실제 환경 확인은 T25)</li></ul>
+    <p><b>완료 기준</b> k3d 모의 환경에서 부하 없이 컷오버 1회 성공, ABORT_PRE_WRITE · SAFE_HOLD 분기를 각 1회 시험. 실제 환경(T8 · T30) 확인은 T25에서 한다.</p>
     <p class="small"><b>선행</b> <a class="tlink" href="#t8">T8</a>, <a class="tlink" href="#t10">T10</a> (통합 시점: <a class="tlink" href="#t4">T4</a>) · <b>후속</b> <a class="tlink" href="#t20">T20</a>, <a class="tlink" href="#t25">T25</a>, <a class="tlink" href="#t27">T27</a> · <b>관련</b> FR-9, NFR-1, NFR-3</p>
   </div>
 </details>
@@ -1984,11 +1984,11 @@ verdict         MATCH | MISMATCH</code></pre>
   <summary><span class="st p0">P0</span> <b>T20</b> 되돌리기 (failback) <span class="small">· 담당 1 · 데이터 · 컷오버 · 배규태, 김태현</span></summary>
   <div class="task-body">
     <p><b>어디에 필요</b> S4, 데모 마지막 장면.</p>
-    <p><b>만들 것</b> 목적지 쓰기 차단 → 최종 barrier 출발지 도착 확인 · 비교 → 출발지 쓰기 재개 → Edge 복귀, 영수증.</p>
+    <p><b>만들 것</b> 목적지 쓰기 차단 → 최종 barrier 출발지 도착 확인 · 비교 → 출발지 쓰기 재개 → Edge 복귀, 영수증. Executor는 방향(failback)을 영수증에 표시하고, 쓰기를 막기 전에 복제 경로 왕복을 확인한다. 승인 · Edge 복귀 · 기록은 상태 머신(T10)의 FAILBACK 흐름이 지휘하고, Edge는 T17 전까지 모의 포트로 둔다.</p>
     <p><b>목표</b> 목적지에 쓴 데이터까지 들고 출발지로 돌아간다.</p>
     <p><b>세부 작업</b></p>
-    <ul class="checklist"><li>확인 불가 시 SAFE_HOLD</li><li>AWS–온프렘 단절 중 되돌리기 금지</li></ul>
-    <p><b>완료 기준</b> 컷오버 뒤 목적지에 쓴 메시지가 되돌리기 후 출발지에 모두 있다.</p>
+    <ul class="checklist"><li>확인 불가 시 SAFE_HOLD</li><li>AWS–온프렘 단절 중 되돌리기 금지</li><li>상태 머신 FAILBACK 흐름: 되돌리기 승인 · Edge 복귀 · 승인자 · 시각 · 복구 시간 기록 (T10 담당과 범위 합의)</li></ul>
+    <p><b>완료 기준</b> 모의 환경에서 컷오버 뒤 목적지에 쓴 메시지가 되돌리기 후 출발지에 모두 있고, 영수증(direction=failback) · 승인자 · 시각 · 복구 시간이 기록된다. 실제 환경의 첫 되돌리기는 T25.</p>
     <p class="small"><b>선행</b> <a class="tlink" href="#t12">T12</a>, <a class="tlink" href="#t13">T13</a>, <a class="tlink" href="#t17">T17</a> · <b>후속</b> <a class="tlink" href="#t25">T25</a>, <a class="tlink" href="#t28">T28</a> · <b>관련</b> FR-11</p>
   </div>
 </details>
@@ -2045,12 +2045,12 @@ verdict         MATCH | MISMATCH</code></pre>
   <summary><span class="st p1">P1</span> <b>T25</b> 반복 측정 · 장애 주입 · SAFE_HOLD 시험 <span class="small">· 담당 1 · 데이터 · 컷오버 · 배규태, 김태현</span></summary>
   <div class="task-body">
     <p><b>어디에 필요</b> NFR-1~3을 숫자로 증명.</p>
-    <p><b>만들 것</b> 부하 상태 컷오버 5회(원측정 · 중앙값 · 최댓값), 응답 유실 · 지연 명령 · Executor 재시작 주입.</p>
+    <p><b>만들 것</b> 부하 상태(쓰기 50 · 읽기 150 req/s) 컷오버 5회(원측정 · 중앙값 · 최댓값), 응답 유실 · 지연 명령 · Executor 재시작 주입.</p>
     <p><b>목표</b> 쓰기 정지와 안전 동작을 반복 측정으로 보인다.</p>
     <p><b>세부 작업</b></p>
-    <ul class="checklist"><li>5회 측정 리포트</li><li>장애별 결과(ABORT_PRE_WRITE / SAFE_HOLD) 기록</li></ul>
-    <p><b>완료 기준</b> 측정 리포트와 장애별 결과가 문서에 있다.</p>
-    <p class="small"><b>선행</b> <a class="tlink" href="#t12">T12</a>, <a class="tlink" href="#t18">T18</a>, <a class="tlink" href="#t20">T20</a> · <b>후속</b> 없음 · <b>관련</b> NFR-1~3</p>
+    <ul class="checklist"><li>실제 환경(T8 · T30)에서 부하 없이 첫 컷오버 1회 · 되돌리기 1회(복구 시간 기록) · ABORT_PRE_WRITE · SAFE_HOLD 확인 (T12 · T20에서 이동, Executor 배포는 T7)</li><li>5회 측정 리포트: 실제 환경에서 T18 부하를 건 채 컷오버 5회, 회차별 쓰기 정지 시간 원측정값 · 중앙값 · 최댓값, 단계별 소요(ms), T18 대조 리포트의 실패 · 유실 · 중복 건수 (NFR-1 · NFR-2, 5.3 제안값 판정)</li><li>장애별 기대 결과와 실제 결과 기록: 응답 유실(같은 호출을 반복하지 않고 실제 상태를 다시 읽음), 지연 명령(낮은 epoch 명령 거부), Executor 재시작(시점에 따라 ABORT_PRE_WRITE 또는 SAFE_HOLD, 8.6 실패 처리 표 · ADR-0011). 시간 초과만으로 쓰기가 자동 재개되지 않는지 확인 (NFR-3)</li><li>실제 Tailscale 경로를 끊은 상태에서 되돌리기가 거절되는지(ABORT_PRE_WRITE, <code>replication_path_unconfirmed</code>) 확인하고, 결과로 ADR-0016 채택 여부를 정한다</li></ul>
+    <p><b>완료 기준</b> 실제 환경의 첫 컷오버 · 되돌리기 결과, 부하 상태 5회 측정 리포트(원측정값 · 중앙값 · 최댓값, 실패 · 유실 · 중복 건수), 장애별 기대 결과와 실제 결과, Tailscale 단절 중 되돌리기 거절 결과가 공개 증빙 절차를 거쳐 <code>docs/evidence</code>에 있다. 목표(5초 이하 · 0건)를 넘긴 회차도 원측정값 그대로 싣는다.</p>
+    <p class="small"><b>선행</b> <a class="tlink" href="#t12">T12</a>, <a class="tlink" href="#t18">T18</a>, <a class="tlink" href="#t20">T20</a> (통합 시점: <a class="tlink" href="#t8">T8</a>, <a class="tlink" href="#t30">T30</a>) · <b>후속</b> 없음 · <b>관련</b> NFR-1~3, 5.3, 8.6</p>
   </div>
 </details>
 <details class="task" id="t28">
@@ -2160,7 +2160,7 @@ verdict         MATCH | MISMATCH</code></pre>
 </ul>
 
 <footer>
-  <p>클라우드 출구전략 플랫폼 설계 문서 · 초안 v0.6 · 2026-11-05 · final_team_bravo. 그림은 모두 파일 안에 SVG로 들어 있어 내려받아 열어도 그대로 보인다.</p>
+  <p>클라우드 출구전략 플랫폼 설계 문서 · 초안 v0.7 · 2026-11-05 · final_team_bravo. 그림은 모두 파일 안에 SVG로 들어 있어 내려받아 열어도 그대로 보인다.</p>
 </footer>
 </main>
 </div>
