@@ -70,7 +70,10 @@ def test_final_document_contains_no_injected_credentials(repo, exports, profiles
         f'c = boto3.client("s3", endpoint_url="https://u:{canary}@store.example.invalid/?token={canary}")\n'
         f'DATABASE_URL = "postgresql://chat:{canary}@db:5432/chat"\n'
         f'A = "https://store.example.invalid/?client_secret={canary}"\n'
-        f'B = "https://api.ap-northeast-2.amazonaws.com/x?%61ccess_token={canary}"\n', encoding="utf-8")
+        f'B = "https://api.ap-northeast-2.amazonaws.com/x?%61ccess_token={canary}"\n'
+        f'C = boto3.client("s3", endpoint_url="https://store.example.invalid/?client_secret=\'{canary}\'")\n'
+        f'D = boto3.client("s3", endpoint_url="https://store.example.invalid/#client_secret=){canary}")\n'
+        f'E=boto3.client("s3"); F="https://store.example.invalid/\\x3fclient_secret={canary}"\n', encoding="utf-8")
     (work / "compose.yaml").write_text((work / "compose.yaml").read_text(encoding="utf-8") + f"      S3_ENDPOINT_URL: http://ak:{canary}@minio:9000\n      AWS_SECRET_ACCESS_KEY: {canary}\n", encoding="utf-8")
     ex = tmp_path / "exports"
     shutil.copytree(exports, ex)

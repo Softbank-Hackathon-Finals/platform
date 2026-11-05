@@ -65,7 +65,7 @@ def test_literal_endpoints_with_user_info_are_reduced_to_host(tmp_path):
     assert pw not in dump and "AKIAFIXTURE" not in dump
     by = {(f.kind, f.detail.get("name", f.service)): f for f in findings}
     assert by[("sdk_call", "s3")].detail["endpoint_url"] == "http://minio.local:9000"
-    assert by[("sdk_call", "s3")].snippet.startswith("<masked")
+    assert by[("sdk_call", "s3")].snippet == "boto3.client('s3', endpoint_url='<masked>')"
     assert by[("endpoint_literal", "aws")].detail["value"] == "https://db.example.amazonaws.com"
     assert by[("config_env", "S3_ENDPOINT_URL")].detail["endpoint"] == "http://minio:9000"
     assert by[("config_env", "AWS_REGION")].detail["value"] == "ap-northeast-2"
@@ -88,9 +88,9 @@ def test_query_string_credentials_never_reach_snippet_or_detail(tmp_path):
     dump = json.dumps([f.as_dict() for f in findings])
     assert token not in dump
     sdk = [f for f in findings if f.kind == "sdk_call"][0]
-    assert sdk.snippet.startswith("<masked") and sdk.detail["endpoint_url"] == "https://store.example.invalid"
+    assert "<masked>" in sdk.snippet and sdk.detail["endpoint_url"] == "https://store.example.invalid"
     literals = [f for f in findings if f.kind == "endpoint_literal"]
-    assert all("<masked" in f.snippet or "<query-removed>" in f.snippet for f in literals)
+    assert all("<masked>" in f.snippet or "<query-removed>" in f.snippet for f in literals)
     plain = [f for f in literals if f.detail["value"] == "https://api.ap-northeast-2.amazonaws.com"][0]
     assert "verbose=1" not in plain.snippet and "?<query-removed>" in plain.snippet  # queries never reach the snippet
 
@@ -110,8 +110,8 @@ def test_escaped_string_literals_are_masked_by_their_decoded_value(tmp_path):
     dump = json.dumps([f.as_dict() for f in findings])
     assert token not in dump and "x2f" not in dump
     sdk = [f for f in findings if f.kind == "sdk_call"][0]
-    assert sdk.snippet.startswith("<masked") and sdk.detail["endpoint_url"] == "https://store.example.invalid"
-    assert all(f.snippet.startswith("<masked") for f in findings if f.kind == "endpoint_literal")
+    assert "<masked>" in sdk.snippet and sdk.detail["endpoint_url"] == "https://store.example.invalid"
+    assert all("<masked>" in f.snippet for f in findings if f.kind == "endpoint_literal")
 
 
 def test_any_url_query_or_fragment_is_removed_from_snippets_without_a_name_list(tmp_path):
@@ -133,3 +133,26 @@ def test_any_url_query_or_fragment_is_removed_from_snippets_without_a_name_list(
             assert "?" not in f.snippet.replace("?<query-removed>", "") and "#" not in f.snippet.replace("#<fragment-removed>", "")
     sdk = [f for f in findings if f.kind == "sdk_call"][0]
     assert sdk.detail["endpoint_url"] == "https://store.example.invalid" and "store.example.invalid/?<query-removed>" in sdk.snippet
+
+
+def test_snippet_is_the_inspected_node_with_whole_literals_redacted(tmp_path):
+    # Review (#144, 류지환 3차): quotes/parens inside a URL must not cut redaction short, and a
+    # finding's snippet must cover only its own node, not a second statement on the same line.
+    canary = "CANARY-R3-5f6d"
+    (tmp_path / "x.py").write_text(
+        "import boto3\n"
+        f'a = boto3.client("s3", endpoint_url="https://store.example.invalid/?client_secret=\'{canary}\'")\n'
+        f'b = boto3.client("s3", endpoint_url="https://store.example.invalid/?client_secret=){canary}")\n'
+        f'c = boto3.client("s3", endpoint_url="https://store.example.invalid/#client_secret=){canary}")\n'
+        f'd=boto3.client("s3"); U="https://store.example.invalid/\\x3fclient_secret={canary}"\n'
+        'e = boto3.client("s3", endpoint_url="https://store.example.invalid/v1")  # normal\n',
+        encoding="utf-8",
+    )
+    findings = scan_repo(tmp_path, ".")
+    dump = json.dumps([f.as_dict() for f in findings])
+    assert canary not in dump
+    calls = [f for f in findings if f.kind == "sdk_call"]
+    assert len(calls) == 5
+    assert calls[3].snippet == "boto3.client('s3')"  # only the inspected node, not the second statement
+    assert calls[4].snippet == "boto3.client('s3', endpoint_url='https://store.example.invalid/v1')"
+    assert all("store.example.invalid" in c.snippet for c in calls[:3])

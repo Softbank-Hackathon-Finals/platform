@@ -9,6 +9,7 @@ file, line and a masked snippet so a reviewer can verify it without the model.
 from __future__ import annotations
 
 import ast
+import copy
 import re
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
@@ -61,7 +62,7 @@ class Finding:
         return asdict(self)
 
 
-URL_RE = re.compile(r"[A-Za-z][A-Za-z0-9+.-]{1,15}://[^\s\"'<>)]+")
+URL_RE = re.compile(r"[A-Za-z][A-Za-z0-9+.-]{1,15}://[^\s<>]+")
 
 
 def _secret_like(text: str) -> bool:
@@ -86,23 +87,53 @@ def _url_data_parts(url: str) -> list[str]:
     return [x for x in pieces if x]
 
 
-def _redact_url(match: re.Match) -> str:
+def redact_url_text(url: str) -> str:
     """Keep only what the inventory needs from a URL: scheme, host, port and path. Query,
     fragment and user info are dropped wholesale; no name list decides what is sensitive."""
-    url = match.group(0)
+    trailing = ""
+    while url and url[-1] in "\"')],;":
+        trailing, url = url[-1] + trailing, url[:-1]
     try:
         parts = urlsplit(url)
     except ValueError:
-        return "<url-removed>"
+        return "<url-removed>" + trailing
     if not parts.hostname:
-        return "<url-removed>"
+        return "<url-removed>" + trailing
     port = f":{parts.port}" if parts.port else ""
     out = f"{parts.scheme}://{parts.hostname}{port}{parts.path}"
     if parts.query:
         out += "?<query-removed>"
     if parts.fragment:
         out += "#<fragment-removed>"
-    return out
+    return out + trailing
+
+
+def _redact_url(match: re.Match) -> str:
+    return redact_url_text(match.group(0))
+
+
+def _redact_literal(value: str) -> str:
+    """A *complete* string constant, redacted as one unit (never cut at quotes or parentheses)."""
+    if _secret_like(value):
+        return "<masked>"
+    if "://" in value:
+        return redact_url_text(value.strip())
+    return value if len(value) <= 80 else value[:77] + "..."
+
+
+def node_snippet(node: ast.AST) -> str:
+    """The finding's own node, re-rendered with every string constant redacted. The snippet
+    therefore covers exactly what was inspected (not the rest of the source line) and a string
+    is always handled whole, however it was escaped in the source."""
+    clone = copy.deepcopy(node)
+    for child in ast.walk(clone):
+        if isinstance(child, ast.Constant) and isinstance(child.value, str):
+            child.value = _redact_literal(child.value)
+    try:
+        text = ast.unparse(clone)
+    except Exception:  # noqa: BLE001 - unparse failure must not leak the raw line
+        return "<snippet unavailable>"
+    return text.replace("\n", " ")[:160]
 
 
 def _mask(text: str, *decoded: str) -> str:
@@ -183,9 +214,8 @@ class _PyVisitor(ast.NodeVisitor):
     def _new(self, kind: str, role: str, service: str, node: ast.AST, **detail: str) -> None:
         self.counter[0] += 1
         line = getattr(node, "lineno", 0)
-        snippet = self.lines[line - 1] if 0 < line <= len(self.lines) else ""
         self.findings.append(
-            Finding(f"dep-{self.counter[0]:04d}", kind, role, service, self.rel, line, _mask(snippet, *_decoded_strings(node)), detail)
+            Finding(f"dep-{self.counter[0]:04d}", kind, role, service, self.rel, line, node_snippet(node), detail)
         )
 
     def visit_Import(self, node: ast.Import) -> None:
