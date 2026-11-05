@@ -19,6 +19,19 @@ REAL_RUN = "../../scripts/real_run.py"
 
 # (파일, 찾을 글자, 바꿀 글자, 무엇을 뺐는가)
 MUTATIONS = [
+    ("observation.py", "if NOT_EXIT_EVIDENCE_ANNOTATION in annotations:", "if False:", "출구 제외 표지 읽기"),
+    ("observation.py", "if any(name.startswith(AWS_ENDPOINT_OVERRIDE) for name in names):", "if False:", "AWS 호출을 돌리는 설정 읽기"),
+    ("observation.py", "for container in [*containers, *sidecars]:", "for container in containers:", "사이드카의 설정 읽기"),
+    ("observation.py", 'if container.get("envFrom", []) != []:', "if False:", "envFrom이 있으면 읽지 못한 것으로 두기"),
+    ("observation.py", 'if container.get("envFrom", []) != []:', 'if "envFrom" in container:', "비어 있는 envFrom은 막지 않기"),
+    ("observation.py", "if not isinstance(annotations, dict) or not isinstance(spec, dict):\n        return None\n", "if not isinstance(annotations, dict) or not isinstance(spec, dict):\n        return []\n", "읽지 못한 Pod를 깨끗하다고 하지 않기"),
+    ("observation.py", 'if not isinstance(env, list) or not all(isinstance(e, dict) and isinstance(e.get("name"), str) for e in env):\n            return None\n', 'if not isinstance(env, list) or not all(isinstance(e, dict) and isinstance(e.get("name"), str) for e in env):\n            return []\n', "읽지 못한 환경 변수를 깨끗하다고 하지 않기"),
+    ("verdict.py", '*[_check_eligibility(name, before, after) for name, w in sorted(plan["workloads"].items()) if w["role"] == "app"],\n', "", "출구 시험 자격 판정"),
+    ("verdict.py", "if not was or not now:", "if False:", "Pod를 못 읽었을 때 자격 없음"),
+    ("verdict.py", "found = [p.get(\"exit_blockers\") for p in [*was, *now]]", "found = [p.get(\"exit_blockers\") for p in now]", "차단 전 Pod의 자격도 보기"),
+    ("verdict.py", "found = [p.get(\"exit_blockers\") for p in [*was, *now]]", "found = [p.get(\"exit_blockers\") for p in was]", "차단 뒤 Pod의 자격도 보기"),
+    ("verdict.py", 'if not all(isinstance(b, list) and all(isinstance(c, str) and c for c in b) for b in found):', "if False:", "자격 값이 읽히지 않으면 UNKNOWN"),
+    ("verdict.py", 'return Check(check_id, UNKNOWN, reasons[0]) if reasons else Check(check_id, PASS, "ELIGIBLE")', 'return Check(check_id, PASS, "ELIGIBLE")', "자격 없는 Pod를 통과시키지 않기"),
     ("policy.py", 'if "replication" in roles:', "if False:", "DB Pod를 고르는 선택자 거부"),
     ("policy.py", "if any(_same_path(route, keep) for keep in replication):", "if False:", "복제 경로에 건 차단 거부"),
     ("policy.py", 'if any(_also_allowed(route, allow) for allow in routes if allow.klass == "local"):', "if False:", "허용 목록에도 있는 차단 거부"),
@@ -136,7 +149,7 @@ MUTATIONS = [
     ("probe.py", "connect((host, port), timeout=timeout).close()", 'connect((host, port), timeout=timeout).sendall(b"x")', "데이터를 보내지 않기"),
     ("probe.py", "if len(targets) > MAX_TARGETS:", "if False:", "대상 개수 제한"),
     ("probe.py", 'except socket.gaierror:\n        return "dns_failure"', 'except socket.gaierror:\n        return "refused"', "이름 풀이 실패 구분"),
-    ("observation.py", "    return None\n\n\ndef _target_container", "    return False\n\n\ndef _target_container", "모르는 준비 상태를 모른다고 두기"),
+    ("observation.py", "    return None\n\n\ndef _exit_blockers", "    return False\n\n\ndef _exit_blockers", "모르는 준비 상태를 모른다고 두기"),
     ("observation.py", 'if status.get("phase") in _FINISHED or metadata.get("deletionTimestamp"):', "if False:", "끝난 Pod 빼기"),
     ("observation.py", '"host_network": (item.get("spec") or {}).get("hostNetwork") is True,', '"host_network": False,', "hostNetwork 기록"),
     ("cli.py", "return exit_code(report)", "return 0", "판정을 종료 코드로 알리기"),

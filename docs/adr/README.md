@@ -23,6 +23,7 @@
 | 6장 S4 · 8.2 · 8.7 되돌리기 상태 머신 흐름(승인 · 전용 binding · ABORT 뒤 상태 · Edge만 재시도 · 기록) | [0022 되돌리기 상태 머신 흐름](0022-failback-state-machine-flow.md) |
 | 8.6 무결성 지문 생산자·소비자 | [0013 지문 생산자](0013-integrity-fingerprint-producer.md) |
 | 7.2·8.8 이미지 전달 | [0011 비공개 이미지 전달](0011-private-image-delivery.md) |
+| 7.2 목적지 개발 앱의 Secrets Manager 호환 (측정용, 출구 증거 아님) | [0017 호환 컨테이너](0017-target-app-secrets-manager-compat.md) |
 | 5.2·7.3·8.2·8.7 판정용 관측·진단 지표 | [0010 관측 경계](0010-observability-boundary.md) |
 | 7.3 목적지 감사 로그 저장소(T34)·목적지 Collector 분리(T37) | [0016 목적지 감사 로그 저장소](0016-target-audit-store.md) |
 | 7.3·8.11 의존성 3등급 규칙과 에이전트 보완 범위(T16·T32) | [0018 의존성 등급 규칙](0018-dependency-grading-rules.md) |
