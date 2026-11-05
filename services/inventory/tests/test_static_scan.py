@@ -71,3 +71,25 @@ def test_literal_endpoints_with_user_info_are_reduced_to_host(tmp_path):
     assert by[("config_env", "AWS_REGION")].detail["value"] == "ap-northeast-2"
     assert "value" not in by[("config_env", "S3_BUCKET")].detail  # not identifier-like → name only
     assert by[("config_env", "S3_BUCKET")].snippet == "S3_BUCKET: <masked>"
+
+
+def test_query_string_credentials_never_reach_snippet_or_detail(tmp_path):
+    # Review P1 (#144): tokens in a URL query must be masked in the snippet too; detail is already host-only.
+    token = "FIXTURE-QUERY-TOKEN-5e1c"
+    (tmp_path / "x.py").write_text(
+        "import boto3\n"
+        f'c = boto3.client("s3", endpoint_url="https://store.example.invalid/?access_token={token}")\n'
+        f'URL = "https://example.execute-api.ap-northeast-2.amazonaws.com/private?access_token={token}"\n'
+        f'SIGNED = "https://bucket.s3.amazonaws.com/k?X-Amz-Signature={token}&X-Amz-Credential=AKIA"\n'
+        'PLAIN = "https://api.ap-northeast-2.amazonaws.com/health?verbose=1"\n',
+        encoding="utf-8",
+    )
+    findings = scan_repo(tmp_path, ".")
+    dump = json.dumps([f.as_dict() for f in findings])
+    assert token not in dump
+    sdk = [f for f in findings if f.kind == "sdk_call"][0]
+    assert sdk.snippet.startswith("<masked") and sdk.detail["endpoint_url"] == "https://store.example.invalid"
+    literals = [f for f in findings if f.kind == "endpoint_literal"]
+    assert all(f.snippet.startswith("<masked") for f in literals if "verbose" not in f.snippet)
+    plain = [f for f in literals if f.detail["value"] == "https://api.ap-northeast-2.amazonaws.com"][0]
+    assert "verbose=1" in plain.snippet  # a harmless query is a normal line, not masked

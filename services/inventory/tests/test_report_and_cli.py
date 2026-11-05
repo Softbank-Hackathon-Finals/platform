@@ -52,3 +52,30 @@ def test_cli_writes_once(repo, exports, profiles, tmp_path, capsys):
     assert "items=" in capsys.readouterr().out
     assert main(["scan", "--app-id", "demo-chat", "--repo", str(repo), "--app-path", "app", "--source-env", "aws-seoul",
                  "--namespace", "chat", "--profile", str(profiles[0]), "--output", str(out)]) == 2
+
+
+def test_final_document_contains_no_injected_credentials(repo, exports, profiles, tmp_path):
+    # End-to-end boundary: synthetic credentials placed in code, config and Deployment env must
+    # be absent from the whole inventory document, not just from individual findings.
+    import shutil
+
+    from bravo_inventory.deploy_trace import FileAdapter
+    from bravo_inventory.report import build_inventory
+
+    canary = "CANARY-9b7d2e-SECRET"
+    work = tmp_path / "repo"
+    shutil.copytree(repo, work)
+    (work / "app" / "leaky.py").write_text(
+        "import boto3\n"
+        f'c = boto3.client("s3", endpoint_url="https://u:{canary}@store.example.invalid/?token={canary}")\n'
+        f'DATABASE_URL = "postgresql://chat:{canary}@db:5432/chat"\n', encoding="utf-8")
+    (work / "compose.yaml").write_text((work / "compose.yaml").read_text(encoding="utf-8") + f"      S3_ENDPOINT_URL: http://ak:{canary}@minio:9000\n      AWS_SECRET_ACCESS_KEY: {canary}\n", encoding="utf-8")
+    ex = tmp_path / "exports"
+    shutil.copytree(exports, ex)
+    dep = json.loads((ex / "deployments.json").read_text(encoding="utf-8"))
+    dep["items"][0]["spec"]["template"]["spec"]["containers"][0]["env"].append({"name": "DATABASE_URL", "value": f"postgresql://chat:{canary}@chat-pooler-rw:5432/chat"})
+    (ex / "deployments.json").write_text(json.dumps(dep), encoding="utf-8")
+    doc = build_inventory(app_id="demo-chat", repo=work, app_path="app", source_env={"env_id": "aws-seoul", "kind": "aws"},
+                          adapter=FileAdapter(ex), profiles=profiles, source_sha="1" * 40)
+    assert canary not in json.dumps(doc, ensure_ascii=False)
+    assert any(w["endpoints"].get("DATABASE_URL") == "postgresql://chat-pooler-rw:5432" for w in doc["deploy"]["workloads"])

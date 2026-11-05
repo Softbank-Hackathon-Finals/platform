@@ -24,6 +24,13 @@ SECRET_LIKE_RE = re.compile(
 )
 SECRET_NAME_RE = re.compile(r"(?i)secret|password|passwd|token|_key$|access_key|private|credential|dsn|_url$|_uri$")
 USERINFO_RE = re.compile(r"://[^/\s@]+:[^/\s@]*@")
+# Credentials carried in a URL query (token, API key, signed URL). The snippet is what the
+# console and the model see, so any such line is replaced, not trimmed.
+QUERY_SECRET_RE = re.compile(
+    r"(?i)[?&](?:access[_-]?token|id[_-]?token|refresh[_-]?token|token|api[_-]?key|apikey|key|secret|"
+    r"password|passwd|pwd|sig|signature|x-amz-signature|x-amz-credential|x-amz-security-token|"
+    r"x-goog-signature|sv|se|sp|sas)=[^&\s\"']+"
+)
 # Values copied verbatim into the inventory must look like identifiers (bucket, secret id,
 # host). Anything else is replaced by a marker; the model and the console never need the raw value.
 SAFE_VALUE_RE = re.compile(r"^[a-z0-9][a-z0-9._/-]{0,62}$")
@@ -56,7 +63,7 @@ class Finding:
 
 def _mask(text: str) -> str:
     text = text.strip().replace("\n", " ")
-    if SECRET_LIKE_RE.search(text) or USERINFO_RE.search(text):
+    if SECRET_LIKE_RE.search(text) or USERINFO_RE.search(text) or QUERY_SECRET_RE.search(text):
         return "<masked: secret-like literal>"
     return text[:160]
 
