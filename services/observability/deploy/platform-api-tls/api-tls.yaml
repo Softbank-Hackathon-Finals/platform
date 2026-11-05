@@ -6,8 +6,20 @@ metadata:
 spec:
   template:
     spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: api
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
           env:
             - {name: BRAVO_API_SERVER_TLS_DIR, value: /etc/bravo-api-server-tls}
             - {name: BRAVO_API_SERVER_NAME, value: bravo-observability-api.bravo-observability.svc}
