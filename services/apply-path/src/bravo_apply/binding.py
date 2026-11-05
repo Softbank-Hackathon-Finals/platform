@@ -3,6 +3,11 @@
 The T10 claim receipt binds ``diff_hash`` · ``image_digest`` · ``target_environment_id`` ·
 ``expires_at`` to one ``application_id``. T31 recomputes the diff hash from the proposal it was
 handed, refuses anything that differs, and never widens the change beyond the approved files.
+
+A bucket-policy change (``change_kind="bucket_policy"``) keeps the current app ``image_digest`` and
+additionally binds ``policy_digest``: the sha256 of the exact approved policy file content (the
+single edit's ``replacement`` bytes, UTF-8, no normalisation). Without ``change_kind`` the change
+is an app image change, as before.
 """
 
 from __future__ import annotations
@@ -14,6 +19,9 @@ from datetime import UTC, datetime
 
 IDENTIFIER = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$")
 DIGEST = re.compile(r"^sha256:[0-9a-f]{64}$")
+APP_IMAGE, BUCKET_POLICY = "app_image", "bucket_policy"
+# The one policy file a T11 bucket proposal may edit (rehearsal_runner.bucket_planner).
+POLICY_PATH = "src/target-policy.json"
 
 
 class BindingError(ValueError):
@@ -49,6 +57,11 @@ def diff_hash(diff: bytes) -> str:
     return "sha256:" + hashlib.sha256(diff).hexdigest()
 
 
+def policy_digest(policy_text: str) -> str:
+    """Digest of the approved policy content exactly as approved (UTF-8 bytes, not re-serialised)."""
+    return "sha256:" + hashlib.sha256(policy_text.encode("utf-8")).hexdigest()
+
+
 def diff_paths(diff: bytes) -> list[str]:
     """Files a unified diff touches, from its ``+++ b/<path>`` headers."""
     return sorted({line[6:].rstrip("\r") for line in diff.decode("utf-8", errors="replace").splitlines() if line.startswith("+++ b/")})
@@ -59,12 +72,14 @@ def _rfc3339(value: str) -> datetime:
 
 
 def verify_claim(claim: dict, proposal: dict, *, target_environment_id: str, now: datetime,
-                 sources: dict[str, str] | None = None, diff: bytes | None = None) -> dict:
+                 sources: dict[str, str] | None = None, diff: bytes | None = None,
+                 policy_path: str = POLICY_PATH) -> dict:
     """Return the verified binding or raise ``BindingError`` with a code-owned reason.
 
     ``diff`` is the candidate bytes T15 handed off; ``sources`` are the snapshot contents of the
     approved files so the diff can be recomputed from the proposal. One of the two is required,
-    and when both are given they must agree."""
+    and when both are given they must agree. A bucket-policy change needs ``sources``: the policy
+    that is applied is the proposal's replacement, so the diff must be recomputed from it."""
     for key in ("application_id", "approval_id", "verification_id", "binding", "claimed_at"):
         if key not in claim:
             raise BindingError("CLAIM_INCOMPLETE")
@@ -77,6 +92,16 @@ def verify_claim(claim: dict, proposal: dict, *, target_environment_id: str, now
         raise BindingError("BINDING_INCOMPLETE")
     if not DIGEST.fullmatch(binding["diff_hash"]) or not DIGEST.fullmatch(binding["image_digest"]):
         raise BindingError("BINDING_DIGEST_FORMAT")
+    kind = binding.get("change_kind", APP_IMAGE)
+    if kind not in (APP_IMAGE, BUCKET_POLICY):
+        raise BindingError("CHANGE_KIND_UNKNOWN")
+    if kind == APP_IMAGE and binding.get("policy_digest") is not None:
+        raise BindingError("CHANGE_KIND_AMBIGUOUS")
+    if kind == BUCKET_POLICY:
+        if "policy_digest" not in binding:
+            raise BindingError("BINDING_INCOMPLETE")
+        if not isinstance(binding["policy_digest"], str) or not DIGEST.fullmatch(binding["policy_digest"]):
+            raise BindingError("BINDING_DIGEST_FORMAT")
     if binding["target_environment_id"] != target_environment_id:
         raise BindingError("TARGET_ENVIRONMENT_MISMATCH")
     if _rfc3339(binding["expires_at"]) <= now:
@@ -88,6 +113,8 @@ def verify_claim(claim: dict, proposal: dict, *, target_environment_id: str, now
         raise BindingError("PROPOSAL_RUN_MISMATCH")
     if sources is None and diff is None:
         raise BindingError("DIFF_SOURCE_REQUIRED")
+    if kind == BUCKET_POLICY and sources is None:
+        raise BindingError("POLICY_SOURCES_REQUIRED")
     if sources is not None:
         for e in edits:
             if e["path"] not in sources:
@@ -105,6 +132,13 @@ def verify_claim(claim: dict, proposal: dict, *, target_environment_id: str, now
     approved = sorted({e["path"] for e in edits})
     if diff_paths(diff) != approved:
         raise BindingError("DIFF_OUTSIDE_APPROVED_PATHS")
+    if kind == BUCKET_POLICY:
+        # One edit, to the one policy file the rehearsal verified, and exactly the approved bytes.
+        if approved != [policy_path] or not isinstance(edits[0].get("replacement"), str):
+            raise BindingError("POLICY_PATH_MISMATCH")
+        if policy_digest(edits[0]["replacement"]) != binding["policy_digest"]:
+            raise BindingError("POLICY_DIGEST_MISMATCH")
     return {"plan_id": binding["plan_id"], "diff_hash": binding["diff_hash"], "image_digest": binding["image_digest"],
             "target_environment_id": binding["target_environment_id"], "expires_at": binding["expires_at"],
-            "approved_paths": approved}
+            "approved_paths": approved, "change_kind": kind,
+            "policy_digest": binding["policy_digest"] if kind == BUCKET_POLICY else None}
