@@ -22,9 +22,11 @@ observability는 기존 고정 revision을 유지한다. registry 패키지는 �
 import한다. 이때 모델 runtime을 import하지 않았는지도 검사한다.
 
 출력은 `image.tar`와 `build.json`이다. 영수증은 소스 revision, 각 build 파일 해시,
-context 해시, 로컬 image ID, archive 해시와 import 결과를 담는다. image ID는
-로컬 이미지 식별자이며 registry manifest digest가 아니다. 수신자는 전달된
-archive와 image ID를 대조한 뒤 기존 인프라 담당의 절차로 import한다.
+context 해시, 로컬 image ID, archive 해시와 import 결과를 담는다. OCI archive의
+index·amd64 manifest·config를 해시와 크기로 다시 대조하고 platform manifest digest와
+UID/GID를 따로 기록한다. OCI `Descriptor`와 archive를 지원하는 Docker가 필요하다.
+로컬 image ID만 registry manifest digest라고 간주하지 않는다. 수신자는 전달된
+archive와 manifest를 대조한 뒤 기존 인프라 담당의 절차로 import한다.
 
 설정·공개 JWKS·catalog·현재 grant·TLS·DB mount는 이미지를 실행할 때 별도로
 인수한다. 빌드나 import 검사는 실제 HTTPS·운영 등록·현재 권한·모델 실행을

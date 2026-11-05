@@ -3,7 +3,9 @@
 import argparse
 import hashlib
 import json
+import re
 import subprocess
+import tarfile
 import tempfile
 import tomllib
 from pathlib import Path
@@ -71,6 +73,49 @@ def prepare_context(context, revision):
             for p in sorted(context.rglob("*")) if p.is_file()]
 
 
+def archive_identity(archive, descriptor, revision):
+    """Read bounded OCI metadata without extracting files or confusing config/index IDs."""
+    with tarfile.open(archive) as stream:
+        names = stream.getnames()
+        if len(names) != len(set(names)):
+            raise ValueError("duplicate_archive_member")
+
+        def read(name):
+            member = stream.getmember(name)
+            if not member.isfile() or member.size > 2 * 1024 * 1024:
+                raise ValueError("invalid_image_metadata")
+            return stream.extractfile(member).read()
+
+        def blob(item):
+            digest = item.get("digest", "")
+            if re.fullmatch(r"sha256:[a-f0-9]{64}", digest) is None:
+                raise ValueError("invalid_image_digest")
+            data = read("blobs/sha256/" + digest[7:])
+            if len(data) != item.get("size") or hashlib.sha256(data).hexdigest() != digest[7:]:
+                raise ValueError("image_metadata_digest_mismatch")
+            return json.loads(data)
+
+        roots = json.loads(read("index.json"))["manifests"]
+        if len(roots) != 1 or roots[0]["digest"] != descriptor["digest"]:
+            raise ValueError("image_archive_identity_mismatch")
+        document = blob(roots[0])
+        manifest = roots[0]
+        if "manifests" in document:
+            candidates = [m for m in document["manifests"]
+                          if m.get("platform") == {"architecture": "amd64", "os": "linux"}]
+            if len(candidates) != 1:
+                raise ValueError("single_amd64_image_required")
+            manifest = candidates[0]
+            document = blob(manifest)
+        config = blob(document["config"])
+        if ((config.get("architecture"), config.get("os"), config["config"].get("User"))
+                != ("amd64", "linux", "10001:10001")
+                or config["config"].get("Labels", {}).get("org.opencontainers.image.revision") != revision):
+            raise ValueError("image_configuration_mismatch")
+        return {"image_descriptor": descriptor, "platform_manifest_digest": manifest["digest"],
+                "config_digest": document["config"]["digest"], "uid_gid": "10001:10001"}
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", type=Path, required=True)
@@ -106,12 +151,13 @@ def main():
         output.mkdir(parents=True)
         archive = output / "image.tar"
         subprocess.run(["docker", "save", "--output", str(archive), tag], check=True)
+        identity = archive_identity(archive, image["Descriptor"], revision)
         with archive.open("rb") as stream:
             archive_digest = hashlib.file_digest(stream, "sha256").hexdigest()
         receipt = dict(source_revision=revision, image=tag, image_id=image["Id"], platform="linux/amd64",
             archive_sha256=archive_digest, context_sha256=context_digest, source_sha256=hashes,
             observability_revision=OBSERVABILITY_REVISION, runtime_imports="pass",
-            deployed=False, registry_push=False)
+            deployed=False, registry_push=False, **identity)
         (output / "build.json").write_text(json.dumps(receipt, indent=2) + "\n")
         print(json.dumps({k: receipt[k] for k in ("source_revision", "image_id", "archive_sha256")}))
 
