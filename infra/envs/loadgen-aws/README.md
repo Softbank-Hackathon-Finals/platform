@@ -74,15 +74,15 @@ cd platform/services/loadgen && uv sync
 read -rs LOADGEN_DB_DSN && export LOADGEN_DB_DSN          # DB 경로가 정해진 뒤
 read -rs LOADGEN_LOCK_DSN && export LOADGEN_LOCK_DSN      # DB 경로가 정해진 뒤
 read -rs BRAVO_WINDOW_TOKEN && export BRAVO_WINDOW_TOKEN  # 창 수신 주소가 정해진 뒤
-uv run bravo-loadgen run \
-  --base-url https://<Edge 주소> --measurement-path edge \
+uv run bravo-loadgen measure \
+  --base-url https://<Edge 주소> --measurement-path edge --generator loadgen-ec2 \
   --plan-id plan-demo --source-env aws --target-env onprem \
-  --duration 300 --out out/run1 \
+  --run-id <실행 ID> --duration 300 --out out/run1 \
   --db-dsn-env LOADGEN_DB_DSN --lock-dsn-env LOADGEN_LOCK_DSN \
   --window-url https://<플랫폼 수신 주소>
 ```
 
-DB 경로와 수신 주소가 정해지기 전에는 해당 줄과 옵션을 뺀다. 그때 리포트는 `NOT_RECONCILED`이고 종료 코드는 2다. 통과가 아니므로 나중에 `reconcile`로 대조한다. `--window-url`을 주고 `BRAVO_WINDOW_TOKEN`을 넣지 않으면 부하를 보내기 전에 종료 코드 2로 멈춘다. `--out` 폴더에 이전 결과가 있어도 멈추므로 실행마다 새 폴더를 쓴다.
+`measure`는 사전 점검을 통과해야 부하를 보내고, `--generator loadgen-ec2`는 이 호스트의 표시 파일(`/var/lib/bravo-loadgen-ready`)이 있어야 쓸 수 있다. Edge 가중치 변경과 함께 재는 순서는 [합동 측정 절차](../../../docs/operations/t18-joint-measure.md)에 있다. DB 경로와 수신 주소가 정해지기 전에는 해당 줄과 옵션을 뺀다. 그때 리포트는 `NOT_RECONCILED`이고 종료 코드는 2다. 통과가 아니므로 나중에 `reconcile`로 대조한다. `--window-url`을 주고 `BRAVO_WINDOW_TOKEN`을 넣지 않으면 부하를 보내기 전에 종료 코드 2로 멈춘다. `--out` 폴더에 이전 결과가 있어도 멈추므로 실행마다 새 폴더를 쓴다.
 
 **결과 가져오기.** 이 호스트에는 S3 권한도 들어오는 포트도 없으므로 SSM 포트 포워딩으로 받는다. 호스트에서 `python3 -m http.server 8080 --bind 127.0.0.1 --directory out/run1`을 띄우고 운영자 PC에서 아래를 실행한다.
 

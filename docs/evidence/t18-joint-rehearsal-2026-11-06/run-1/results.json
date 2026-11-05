@@ -1,0 +1,207 @@
+{
+  "environment": {
+    "kind": "local-measurement",
+    "edge": "not measured through Cloudflare; mock-edge scenarios use a local nginx stand-in",
+    "platform_commit": "8d6d8d18509912fe1020f7dd9206dc64dbed6274",
+    "platform_dirty": false,
+    "demo_chat_commit": "57d7ce4a4b9c85b3cc9d4d1edd2d0de86fbee034",
+    "postgres_image": [
+      "public.ecr.aws/docker/library/postgres@sha256:5db6dac2ef5dcff512f4f00a009c3c332b9f2f28f24277175bf3e4a3d02ef83a"
+    ],
+    "edge_image": [
+      "nginx@sha256:df221db836e1754089190208cee7eeda94f233197056426eda74a43ab1abeac2"
+    ],
+    "moto_version": "5.1.4",
+    "demo_chat_runtime": "native uvicorn single process per environment (not the container image)",
+    "python": "3.14.7",
+    "machine": {
+      "arch": "arm64",
+      "cpu": "Apple M5",
+      "logical_cores": 10,
+      "memory_gib": 32
+    }
+  },
+  "checks_total": 17,
+  "checks_failed": 0,
+  "load_average_1_5_15m_at_start": {
+    "joint-trial": [
+      4.31,
+      4.55,
+      4.27
+    ],
+    "joint-main": [
+      4.41,
+      4.56,
+      4.28
+    ]
+  },
+  "generator_resources": {
+    "joint-trial": {
+      "samples": 21,
+      "cpu_millicores": {
+        "avg": 24,
+        "max_1s": 31
+      },
+      "rss_mib": {
+        "avg": 57.2,
+        "max": 65.7,
+        "first_10_samples_avg": 60.2,
+        "last_10_samples_avg": 54.4
+      },
+      "rss_mib_whole_run_max": 65.7
+    },
+    "joint-main": {
+      "samples": 135,
+      "cpu_millicores": {
+        "avg": 364,
+        "max_1s": 769
+      },
+      "rss_mib": {
+        "avg": 52.7,
+        "max": 104.5,
+        "first_10_samples_avg": 60.6,
+        "last_10_samples_avg": 98.4
+      },
+      "rss_mib_whole_run_max": 130.4
+    }
+  },
+  "checks": [
+    {
+      "scenario": "joint-rehearsal",
+      "check": "틀린 토큰이면 사전 점검 실패, 종료 2",
+      "ok": true,
+      "actual": 2
+    },
+    {
+      "scenario": "joint-rehearsal",
+      "check": "환경 헤더가 계획과 다르면 사전 점검 실패, 종료 2",
+      "ok": true,
+      "actual": 2
+    },
+    {
+      "scenario": "joint-rehearsal",
+      "check": "대역을 edge로 적으면 CF-RAY가 없어 실패, 종료 2",
+      "ok": true,
+      "actual": 2
+    },
+    {
+      "scenario": "joint-rehearsal",
+      "check": "DB가 멈추면 /readyz가 200이어도 사전 점검 실패",
+      "ok": true,
+      "actual": 200
+    },
+    {
+      "scenario": "joint-rehearsal",
+      "check": "실패한 사전 점검은 창도 행도 남기지 않음",
+      "ok": true,
+      "actual": 0
+    },
+    {
+      "scenario": "joint-rehearsal",
+      "check": "정상이면 사전 점검 통과, 빈 문서로만 확인",
+      "ok": true,
+      "actual": 2
+    },
+    {
+      "scenario": "joint-rehearsal",
+      "check": "시험 실행: 대조 PASS, 창 전달 실패 0",
+      "ok": true,
+      "actual": 0
+    },
+    {
+      "scenario": "joint-rehearsal",
+      "check": "시험 실행의 창은 표본 부족으로 UNKNOWN",
+      "ok": true,
+      "actual": [
+        "UNKNOWN",
+        [
+          "INSUFFICIENT_SAMPLES"
+        ]
+      ]
+    },
+    {
+      "scenario": "joint-rehearsal",
+      "check": "본 측정: 대조 PASS, 실패 · 유실 · 중복 0",
+      "ok": true,
+      "actual": {
+        "failed": 0,
+        "lost": 0,
+        "duplicated": 0
+      }
+    },
+    {
+      "scenario": "joint-rehearsal",
+      "check": "본 측정: 창이 수신에 빠짐없이 도착",
+      "ok": true,
+      "actual": 17
+    },
+    {
+      "scenario": "joint-rehearsal",
+      "check": "노트북 · 대역 값이라 판정 입력으로 표시하지 않음",
+      "ok": true,
+      "actual": "local-mock-edge"
+    },
+    {
+      "scenario": "joint-rehearsal",
+      "check": "리포트에 부하 전 왕복 기준값이 남음",
+      "ok": true,
+      "actual": {
+        "samples": 5,
+        "p50": 2.555,
+        "max": 8.171
+      }
+    },
+    {
+      "scenario": "joint-rehearsal",
+      "check": "끝난 뒤 reconcile도 PASS, 표시 유지",
+      "ok": true,
+      "actual": "PASS"
+    },
+    {
+      "scenario": "joint-rehearsal",
+      "check": "창 파일이 스키마 · 연속성 통과",
+      "ok": true,
+      "actual": "창 15개, 스키마 위반 0개, 연속성 문제 0건"
+    },
+    {
+      "scenario": "joint-rehearsal",
+      "check": "가중치 4단계가 모두 창에서 확인됨",
+      "ok": true,
+      "actual": [
+        13.426367,
+        13.318864,
+        13.214227,
+        13.088939
+      ]
+    },
+    {
+      "scenario": "joint-rehearsal",
+      "check": "가중치가 있는 환경마다 p95가 남음",
+      "ok": true,
+      "actual": [
+        [
+          320.5118330079131,
+          344.97862501302734
+        ],
+        [
+          13.200415996834636,
+          13.982457981910557
+        ],
+        [
+          null,
+          259.7643749904819
+        ],
+        [
+          14426.97312499513,
+          null
+        ]
+      ]
+    },
+    {
+      "scenario": "joint-rehearsal",
+      "check": "다른 실행의 영수증은 거부, 종료 2",
+      "ok": true,
+      "actual": 2
+    }
+  ]
+}
