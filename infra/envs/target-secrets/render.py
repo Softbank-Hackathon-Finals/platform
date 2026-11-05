@@ -25,6 +25,10 @@ REHEARSAL_PREFIX = "bravo/rehearsal"
 REHEARSAL_NAMESPACE_RE = re.compile(r"^rehearsal-[a-z0-9](?:[-a-z0-9]{0,51}[a-z0-9])?$")
 REHEARSAL_LABEL = {"app.kubernetes.io/part-of": "bravo-rehearsal"}
 
+# Chart 0.30.6 defaults are timeout 3 s, period 5 s, failure 2; the TLS-verified
+# ``bao status`` exceeded 3 s on the target and Ready flapped.
+READINESS_TIMING = {"timeoutSeconds": 10, "periodSeconds": 10, "failureThreshold": 3}
+
 
 def obj(kind, name, spec=None, namespace=NAMESPACE, api="v1", **fields):
     result = {"apiVersion": api, "kind": kind,
@@ -89,6 +93,7 @@ def bao_values():
             # Chart 0.30.6 interpolates this value unquoted; emit an explicit empty class.
             "dataStorage": {"enabled": True, "size": "3Gi", "storageClass": '""'},
             "persistentVolumeClaimRetentionPolicy": {"whenDeleted": "Retain", "whenScaled": "Retain"},
+            "readinessProbe": {"enabled": True, **READINESS_TIMING},
             "resources": {"requests": {"cpu": "50m", "memory": "128Mi"},
                           "limits": {"cpu": "500m", "memory": "512Mi"}},
             "extraEnvironmentVars": {"BAO_CACERT": "/openbao/tls/ca.crt"},
@@ -147,7 +152,10 @@ def finalize_bao(objects):
     containers = pod["spec"]["containers"]
     if len(containers) != 1 or containers[0]["image"] != BAO_IMAGE:
         raise ValueError("unexpected OpenBao image")
-    containers[0]["readinessProbe"]["exec"]["command"] = ["bao", "status", "-format=json"]
+    probe = containers[0].get("readinessProbe") or {}
+    if any(probe.get(key) != value for key, value in READINESS_TIMING.items()) or "exec" not in probe:
+        raise ValueError("render the chart with bao-values: readiness probe timing differs")
+    probe["exec"]["command"] = ["bao", "status", "-format=json"]
     for service in (r for r in objects if r["kind"] == "Service"):
         if any(pod["metadata"]["labels"].get(k) != v
                for k, v in service["spec"]["selector"].items()):
