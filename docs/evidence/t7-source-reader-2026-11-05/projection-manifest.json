@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "public_is_raw": false,
+  "original_sha256": "dfad4f28dc8dd245db63d80440bcbcfd3c5c3261ea3b6624c0c478d646b011b7",
+  "public_sha256": "eeab2b9a9ecb2b3c6b2261aee2ed51868982d1d9dd6f85f10499a4b758c03309",
+  "projection": "Select reader result and execution checks; replace operational UIDs with SHA-256, omit resource names and registry identity, preserve times/results/revision/byte measurements. No credential values were collected.",
+  "post_projection_edits": [
+    {
+      "prior_public_sha256": "e1fc381626cc583d4045636a5fd13183f49ef76dccadd7b5f5e1bba4f0bc50b2",
+      "reason": "Rename the mounted Kubernetes object UID hash field to distinguish object identity from an API credential; hash value and all runtime observations unchanged."
+    }
+  ]
+}
