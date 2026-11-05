@@ -23,7 +23,7 @@ from .product_api import (
 from .product_inputs import ProductInputRecords
 from .runtime_probe import connection_checks
 from .window_server import runtime_connection
-from .workload_identity import WorkloadSender
+from .workload_identity import WorkloadKeySet, WorkloadSender
 
 _FIELDS = {"version", "tenant_id", "sts_provider", "github_public_jwks_file", "github_key_id",
            "catalog_root", "catalog_key_file"}
@@ -40,7 +40,8 @@ def _json(path, limit):
 def configured_reader(store, config_file):
     """Read reviewed mounts; never create grants, catalogs, keys or credentials."""
     config = _json(config_file, 16384)
-    if (type(config) is not dict or set(config) != _FIELDS or type(config["version"]) is not int
+    if (type(config) is not dict or set(config) not in (_FIELDS, _FIELDS - {"github_key_id"})
+            or type(config["version"]) is not int
             or config["version"] != 1):
         raise ValueError("invalid_product_configuration")
     paths = {name: Path(config[name]) for name in ("github_public_jwks_file", "catalog_root", "catalog_key_file")}
@@ -51,14 +52,20 @@ def configured_reader(store, config_file):
     if (type(keys) is not list or not 1 <= len(keys) <= 32
             or any(type(key) is not dict or set(key) & {"d", "p", "q", "dp", "dq", "qi", "oth"} for key in keys)):
         raise ValueError("product_public_keys_required")
-    selected = [key for key in keys if key.get("kid") == config["github_key_id"]]
-    if (not isinstance(config["github_key_id"], str) or not config["github_key_id"] or len(selected) != 1
-            or selected[0].get("kty") != "RSA" or selected[0].get("alg", "RS256") != "RS256"
-            or selected[0].get("use", "sig") != "sig"
-            or selected[0].get("key_ops", ["verify"]) != ["verify"]):
+    if "github_key_id" in config:
+        selected = [key for key in keys if key.get("kid") == config["github_key_id"]]
+        if not isinstance(config["github_key_id"], str) or not config["github_key_id"] or len(selected) != 1:
+            raise ValueError("product_public_key_required")
+    else:
+        selected = keys
+    if any(key.get("kty") != "RSA" or key.get("alg", "RS256") != "RS256"
+           or key.get("use", "sig") != "sig" or key.get("key_ops", ["verify"]) != ["verify"] for key in selected):
         raise ValueError("product_public_key_required")
-    sender = WorkloadSender(ISSUER, AUDIENCE, SUBJECT, RSAAlgorithm.from_jwk(json.dumps(selected[0])),
-                            config["tenant_id"])
+    public_keys = tuple((key.get("kid"), RSAAlgorithm.from_jwk(json.dumps(key))) for key in selected)
+    if "github_key_id" in config:
+        sender = WorkloadSender(ISSUER, AUDIENCE, SUBJECT, public_keys[0][1], config["tenant_id"])
+    else:
+        sender = WorkloadKeySet(ISSUER, AUDIENCE, SUBJECT, public_keys, config["tenant_id"])
     caller = GitHubProductCaller(sender, config["sts_provider"])
     with paths["catalog_key_file"].open("rb") as stream:
         catalog_key = stream.read(4097)

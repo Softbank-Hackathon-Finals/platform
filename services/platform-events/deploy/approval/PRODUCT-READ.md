@@ -27,7 +27,7 @@ DB는 기존 `platform-db-rw.platform-state.svc`의 verify-full 연결과
 | `tenant_id` | 현재 계획과 같은 실제 등록 tenant |
 | `sts_provider` | 기존 STS 성공 응답의 정확한 `Provider`. issuer URL로 추정하지 않음 |
 | `github_public_jwks_file` | 고정 GitHub issuer에서 TLS를 확인해 받은 공개 JWKS의 절대 경로 |
-| `github_key_id` | 검토한 JWKS에서 선택한 키 ID. 요청 토큰의 URL로 키를 가져오지 않음 |
+| `github_key_id` | 선택 필드. 생략하면 검토한 로컬 JWKS 전체에서 토큰의 `kid`로 선택. 지정하면 기존 단일 키 고정 |
 | `catalog_root` | T15 운영 `TaskCatalog`의 서명된 등록본 디렉터리. 읽기 전용 |
 | `catalog_key_file` | 해당 catalog 검증용 키의 절대 경로. T15 AttemptStore 서명 키와 별도 |
 
@@ -36,7 +36,10 @@ DB는 기존 `platform-db-rw.platform-state.svc`의 verify-full 연결과
 immutable 조직·저장소 ID를 포함한 **develop 전용** 값이다. repository/owner ID도
 대조한다. 선택한 RSA 공개 키로 기존 `WorkloadSender`의 서명·issuer·audience·subject·
 만료·최대 수명 검증을 적용한다. private JWK·중복 선택 키·다른 알고리즘은 시작 전에
-거부한다. 키 교체는 검토한 mount/config 교체이며 동적 URL 조회를 하지 않는다.
+거부한다. `github_key_id` 생략 시 모든 키의 RSA·RS256·서명 용도와 고유한 `kid`를
+시작 전에 검증한다. 토큰의 `kid`는 이 로컬 집합에서만 키를 선택하며, 없거나 모르는
+키 ID는 403이다. 토큰의 키·키 URL 헤더도 거부한다. 키 교체는 검토한 mount/config
+교체와 서비스 재시작이며 동적 URL 조회를 하지 않는다. 고정 키 방식도 계속 지원한다.
 
 STS의 `Provider`, `Audience`, `SubjectFromWebIdentityToken` 전체 digest가 요청의
 `principal`과 같아야 한다. JWT의 tenant·권한 주장은 사용하지 않는다. STS의 과거
