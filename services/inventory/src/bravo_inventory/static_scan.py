@@ -15,6 +15,8 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from urllib.parse import unquote, urlsplit
 
+import yaml
+
 from .catalog import OTHER_CLOUD_PREFIXES, role_for_service
 
 REGION_RE = re.compile(r"\b(?:ap|us|eu|sa|ca|af|me|il|mx)-(?:[a-z]+)-\d\b")
@@ -39,8 +41,16 @@ AWS_ENV_RE = re.compile(r"^(?:AWS_|S3_|DB_SECRET|KMS_|SECRETS?_|IRSA_|EKS_)")
 TF_RESOURCE_RE = re.compile(r'^\s*resource\s+"(aws_[a-z0-9_]+)"\s+"([A-Za-z0-9_-]+)"')
 ENV_LINE_RE = re.compile(r"^\s*(?:-\s*)?([A-Z][A-Z0-9_]{2,})\s*[:=]\s*(.*)$")
 
-SKIP_DIRS = {".git", ".venv", "node_modules", "__pycache__", "dist", "build", ".terraform", "tests", "test"}
+# `.github`: CI pipeline configuration is not the app's runtime configuration.
+SKIP_DIRS = {".git", ".github", ".venv", "node_modules", "__pycache__", "dist", "build", ".terraform", "tests", "test"}
 CONFIG_SUFFIXES = {".yaml", ".yml", ".env", ".example", ".toml", ".ini", ".cfg", ".json"}
+LOCK_FILES = {"uv.lock", "pnpm-lock.yaml"}
+COMPOSE_FILE_RE = re.compile(r"^(?:docker-)?compose(?:\.[\w-]+)?\.ya?ml$")
+# Local AWS emulators and the CLI containers that seed them: their env configures the emulator,
+# not the app (the app's own compose env stays in scope).
+EMULATOR_IMAGE_RE = re.compile(r"(?:^|/)(?:moto|motoserver|localstack|aws-cli)(?:[:@]|$)")
+# AWS_ENDPOINT_URL_<SERVICE> (botocore service-specific endpoint) → role of that service.
+SERVICE_ENDPOINT_ROLES = {"S3": "object_store", "SECRETS_MANAGER": "secrets", "KMS": "kms"}
 
 MAX_FILE_BYTES = 512 * 1024
 
@@ -188,6 +198,48 @@ def safe_value(name: str, value: str) -> str | None:
     return value if SAFE_VALUE_RE.fullmatch(value) else None
 
 
+def _is_environ(value: ast.AST) -> bool:
+    return (isinstance(value, ast.Attribute) and value.attr == "environ") or (
+        isinstance(value, ast.Name) and value.id in {"env", "environ"}
+    )
+
+
+def _config_role(name: str) -> str:
+    """Role of a configuration variable. ``AWS_SECRET_ACCESS_KEY`` is an IAM credential, not a
+    Secrets Manager entry; ``AWS_ENDPOINT_URL_<SERVICE>`` follows the service it points at."""
+    if name.startswith("AWS_ENDPOINT_URL_"):
+        return SERVICE_ENDPOINT_ROLES.get(name.removeprefix("AWS_ENDPOINT_URL_"), "iam")
+    if name.startswith("AWS_"):
+        return "iam"
+    if name.startswith("S3_"):
+        return "object_store"
+    if name.startswith("KMS_"):
+        return "kms"
+    return "secrets" if "SECRET" in name else "iam"
+
+
+def _emulator_lines(text: str) -> set[int]:
+    """1-based line numbers of compose services that run a local AWS emulator or its seed CLI."""
+    try:
+        node = yaml.compose(text, Loader=yaml.SafeLoader)
+    except yaml.YAMLError:
+        return set()
+    if not isinstance(node, yaml.MappingNode):
+        return set()
+    lines: set[int] = set()
+    for key, services in node.value:
+        if key.value != "services" or not isinstance(services, yaml.MappingNode):
+            continue
+        for _, svc in services.value:
+            if not isinstance(svc, yaml.MappingNode):
+                continue
+            image = next((v.value for k, v in svc.value if k.value == "image" and isinstance(v, yaml.ScalarNode)), "")
+            if EMULATOR_IMAGE_RE.search(str(image)):
+                end = svc.end_mark.line + (1 if svc.end_mark.column > 0 else 0)
+                lines.update(range(svc.start_mark.line + 1, end + 1))
+    return lines
+
+
 def _rel(root: Path, path: Path) -> str:
     return path.relative_to(root).as_posix()
 
@@ -254,18 +306,17 @@ class _PyVisitor(ast.NodeVisitor):
                     if kw.arg == "region_name" and isinstance(kw.value, ast.Constant):
                         detail["region_literal"] = str(kw.value.value)
                 self._new("sdk_call", role_for_service(service) if service else "unknown", service or "unknown", node, **detail)
-        if isinstance(func, ast.Attribute) and func.attr in {"get", "getenv"} or (
+        # Only environment receivers: ``os.environ.get`` / ``env.get`` / ``os.getenv`` / ``getenv``.
+        # A bare ``.get`` (``app.get('/healthz')`` route, ``dict.get``) is not an env reference.
+        if (isinstance(func, ast.Attribute) and func.attr == "get" and _is_environ(func.value)) or (
+            isinstance(func, ast.Attribute) and func.attr == "getenv") or (
             isinstance(func, ast.Name) and func.id == "getenv"
         ):
             self._env_ref(node, node.args[0] if node.args else None, "os.environ.get")
         self.generic_visit(node)
 
     def visit_Subscript(self, node: ast.Subscript) -> None:
-        value = node.value
-        is_env = (isinstance(value, ast.Attribute) and value.attr == "environ") or (
-            isinstance(value, ast.Name) and value.id in {"env", "environ"}
-        )
-        if is_env:
+        if _is_environ(node.value):
             self._env_ref(node, node.slice, "os.environ[]")
         self.generic_visit(node)
 
@@ -296,11 +347,24 @@ class _PyVisitor(ast.NodeVisitor):
             self._new("env_ref", role, "env", node, name=name, how=how)
 
 
+def python_files(root: Path, app_path: str = ".") -> list[Path]:
+    return _iter_files((root / app_path).resolve(), {".py"})
+
+
+def config_files(root: Path) -> list[Path]:
+    return [p for p in _iter_files(root, CONFIG_SUFFIXES | {".tf"}) if p.name not in LOCK_FILES]
+
+
+def scanned_files(root: Path, app_path: str = ".") -> list[Path]:
+    """Exactly the files the scanners read: Python under ``app_path``, configuration repo-wide."""
+    root = root.resolve()
+    return sorted(set(python_files(root, app_path)) | set(config_files(root)))
+
+
 def scan_python(root: Path, app_path: str = ".") -> list[Finding]:
     counter = [0]
     out: list[Finding] = []
-    base = (root / app_path).resolve()
-    for path in _iter_files(base, {".py"}):
+    for path in python_files(root, app_path):
         text = path.read_text(encoding="utf-8", errors="replace")
         try:
             tree = ast.parse(text, filename=str(path))
@@ -318,11 +382,13 @@ def scan_config(root: Path, start_index: int) -> list[Finding]:
     """Compose / Kubernetes YAML / env examples / Terraform. Values are masked, names kept."""
     counter = [start_index]
     out: list[Finding] = []
-    for path in _iter_files(root, CONFIG_SUFFIXES | {".tf"}):
+    for path in config_files(root):
         rel = _rel(root, path)
-        if path.name == "uv.lock" or path.name == "pnpm-lock.yaml":
-            continue
-        for lineno, line in enumerate(path.read_text(encoding="utf-8", errors="replace").splitlines(), 1):
+        text = path.read_text(encoding="utf-8", errors="replace")
+        skip = _emulator_lines(text) if COMPOSE_FILE_RE.match(path.name) else set()
+        for lineno, line in enumerate(text.splitlines(), 1):
+            if lineno in skip:
+                continue
             m = TF_RESOURCE_RE.match(line)
             if m:
                 counter[0] += 1
@@ -334,7 +400,7 @@ def scan_config(root: Path, start_index: int) -> list[Finding]:
             if m and AWS_ENV_RE.match(m.group(1)):
                 counter[0] += 1
                 name, value = m.group(1), m.group(2)
-                role = "object_store" if name.startswith("S3_") else "secrets" if "SECRET" in name else "iam"
+                role = _config_role(name)
                 detail = {"name": name}
                 secret_name = SECRET_NAME_RE.search(name) is not None
                 if ENDPOINT_RE.search(value):

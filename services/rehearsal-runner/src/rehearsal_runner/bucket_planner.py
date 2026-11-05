@@ -112,16 +112,19 @@ class _BucketFactory:
                             BucketVerifier(self.task, job, attempt))
 
 
-def _record_failed_attempt(coordinator, run_id, source_sha, attempt, feedback) -> None:
+BUCKET_RETRY_SUMMARY = ("Independent verifier rejected the previous policy. "
+                        "Keep authenticated reads working and deny anonymous reads.")
+
+
+def _record_failed_attempt(coordinator, run_id, source_sha, attempt, feedback,
+                           summary: str = BUCKET_RETRY_SUMMARY) -> None:
     """Give T11 the signed FAIL of the previous attempt so it allows one bounded retry."""
     from bravo_agent.contracts import VerificationReceipt
 
     if not isinstance(feedback, str) or re.fullmatch(r"[a-f0-9]{64}", feedback) is None:
         raise ValueError("retry feedback required")
     failure = coordinator.bundle.model_copy(update={
-        "evidence_digest": feedback, "failure_code": "TEMPLATE_TEST_FAILED",
-        "summary": "Independent verifier rejected the previous policy. "
-                   "Keep authenticated reads working and deny anonymous reads."})
+        "evidence_digest": feedback, "failure_code": "TEMPLATE_TEST_FAILED", "summary": summary})
     state = coordinator.verify(VerificationReceipt(
         run_id=run_id, source_sha=source_sha, proposal_digest=coordinator.result()["proposal_digest"],
         attempt=attempt, verdict="FAIL", effects_known=True, evidence_digest=feedback, failure=failure))

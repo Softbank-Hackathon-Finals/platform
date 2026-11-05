@@ -12,7 +12,7 @@
 | `deploy_trace.py` | 네임스페이스 → Deployment → ServiceAccount → IRSA 역할 → 정책 → S3 버킷 · Secrets Manager 항목 · KMS 키, CNPG 클러스터 추적. `FileAdapter`(`kubectl get -o json` 내보내기 + `aws.json`)와 `Boto3Adapter`(읽기 전용 API 허용 목록, 호출 기록) |
 | `catalog.py` | 7.3 대체 구현 카탈로그(역할 → 목적지 구현 · 기본 등급 · 검증 방법). 데이터이며 로직이 아니다 |
 | `grading.py` | 3등급 규칙. `config_swap` / `adapter` / `code_change` / `none` / `unknown` |
-| `reconcile.py` | 코드 ↔ 배포 대조: `both` · `code`(코드에만) · `deploy`(배포에만 → `migration_omission` 위험 표시) |
+| `reconcile.py` | 코드 ↔ 배포 대조: `both` · `code`(코드에만) · `deploy`(배포에만 → `migration_omission` 위험 표시). 권한은 있으나 워크로드 설정이 가리키지 않는 자원은 별도 `deploy` 항목 |
 | `capabilities.py` | 목적지 제공 기능: 프로필(등록값) + 내보내기에서 관측(CRD · 알려진 워크로드). 후보별 적합성(`fits` / `needs_work` / `blocked`) |
 | `report.py` · `cli.py` | 문서 조립 · 입력 digest · 스키마 검증 · 한 번만 쓰는 CLI |
 
@@ -31,7 +31,9 @@ uv run bravo-inventory scan \
   --output /private/path/inventory.json
 ```
 
-내보내기 디렉터리에는 `deployments.json` · `serviceaccounts.json` · `clusters.json`(`kubectl get … -o json`)과 `aws.json`(역할 → 정책 문, 버킷 · 시크릿 · 키 속성)을 둔다. `--aws-live`를 주면 `aws` extra의 boto3로 IAM 정책과 버킷 공개 여부를 실제로 읽는다. 허용 목록(`READ_ONLY_API`) 밖의 호출은 어댑터가 호출 전에 거부하고, 사용한 API 목록은 출력의 `inputs.api_calls`에 남는다. kubeconfig는 이 모듈에 주지 않는다(내보내기는 T7 수집 역할이 만든다).
+내보내기 디렉터리에는 `deployments.json` · `serviceaccounts.json` · `clusters.json`(`kubectl get … -o json`)과 `aws.json`(역할 → 정책 문, 버킷 · 시크릿 · 키 속성)을 둔다. Deployment가 쓰지 않는 IRSA 서비스 계정(ESO SecretStore 등)도 같은 네임스페이스의 배포 의존성으로 따라간다. `--aws-live`를 주면 `aws` extra의 boto3로 IAM 정책, 버킷 공개 여부 · 리전, 시크릿 회전 · 암호화 키, KMS 키 상태를 실제로 읽는다(`aws.json`은 같이 두지 않는다). 허용 목록(`READ_ONLY_API`) 밖의 호출은 어댑터가 호출 전에 거부하고, 사용한 API와 실제로 읽은 파일만 출력의 `inputs.api_calls`에 남는다. kubeconfig는 이 모듈에 주지 않는다(내보내기는 T7 수집 역할이 만든다). 목적지 내보내기에는 `deployments.json` · `statefulsets.json` · `crds.json`을 둔다(OpenBao처럼 StatefulSet으로 도는 기능도 관측).
+
+`app.repo`에는 `--repo-ref`(등록된 레포 참조, 기본값은 디렉터리 이름)를 쓰고 로컬 경로는 쓰지 않는다. `inputs.repo_digest`는 스캐너가 실제로 읽은 파일(`app_path`의 Python + 레포 전체 설정 파일)의 레포 상대 경로와 바이트 해시라서 체크아웃 위치와 무관하다.
 
 ## 3등급 규칙 (요약)
 
@@ -47,7 +49,8 @@ uv run bravo-inventory scan \
 
 ## 현재 범위와 남은 것
 
-- **실물**: Python 정적 탐지, 설정 파일 탐지, 파일 기반 배포 추적, 규칙 등급, 레포 · 배포 대조, 제공 기능 관측, 스키마 검증, CLI. demo-chat 사본과 합성 내보내기로 19개 시험.
-- **미검증**: `Boto3Adapter`의 실제 AWS 호출(T6 출발지와 T7 수집 역할이 준비되면 실측). GCP 어댑터 없음(P2).
+- **실물**: Python 정적 탐지, 설정 파일 탐지, 파일 기반 배포 추적, 규칙 등급, 레포 · 배포 대조, 제공 기능 관측, 스키마 검증, CLI. demo-chat 사본과 합성 내보내기로 시험(`uv run pytest`).
+- **사전 점검(공식 수집 아님)**: 2026-11-06 실제 출발지(`source-dev`)에 개인 SSO로 읽기 전용 실측을 돌려 결함을 찾고 고쳤다. 결과 요약은 [`docs/evidence/t16-real-shakedown-2026-11-06`](../../docs/evidence/t16-real-shakedown-2026-11-06/README.md).
+- **미검증**: T7 읽기 전용 수집 역할로 돌린 공식 수집(연결용 공식 결과는 이 역할로 다시 만든다). 버킷 정책이 없는 버킷의 `GetBucketPolicyStatus` 처리. GCP 어댑터 없음(P2).
 - **미구현**: 에이전트 분류 결과를 받아 `grade_by: "agent"`로 병합하는 입력 경로(T11 연결), `source_sha`를 신뢰된 수집기가 발급하는 결속(T10). 비용 추정(T32 P2).
 - 이 모듈은 신뢰된 서버 내부 라이브러리다. 레포 경로 · 내보내기 · 프로필은 호출 서버가 등록 정보로 고정하며, 요청자가 임의 경로를 넘기지 않게 한다.
