@@ -80,7 +80,10 @@ class Bundle:
             candidate_sha=head, pull_request=9)
         content = "VALUE = 1\n"
         before = hashlib.sha256(content.encode()).hexdigest()
-        self.value = InitialInput(binding=dict(plan_id="plan-one", tenant_id="tenant-one",
+        self.value = InitialInput(schema_version=2,
+            analysis=dict(inventory_digest="f" * 64, item_id="item-001", grade="code_change",
+                          rationale="Synthetic credential migration analysis"),
+            binding=dict(plan_id="plan-one", tenant_id="tenant-one",
             plan_digest="a" * 64, target_environment_id="target-one", plan_version=3,
             task_id="credential", task_digest="d" * 64, source_sha=base,
             collection_scope_digest="e" * 64, inventory_digest="f" * 64,

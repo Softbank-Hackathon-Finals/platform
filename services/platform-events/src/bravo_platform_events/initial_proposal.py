@@ -13,7 +13,7 @@ from uuid import uuid4
 
 from bravo_agent.contracts import Contract, Digest, Proposal, SnapshotManifest, digest, safe_text
 from bravo_agent.product_execution_contracts import ExecutionPending, ExecutionUnknown
-from pydantic import Field
+from pydantic import Field, field_validator
 from rehearsal_runner.admission import logical_task_digest
 
 from .cutover import _get, _put
@@ -45,7 +45,23 @@ class InitialBinding(Contract):
     purpose: Literal["t38-initial-proposal"] = PURPOSE
 
 
+class InitialAnalysis(Contract):
+    inventory_digest: Digest
+    item_id: str = Field(pattern=r"^item-[0-9]{3}$")
+    grade: Literal["code_change"]
+    rationale: str = Field(min_length=1, max_length=4096)
+
+    @field_validator("rationale")
+    @classmethod
+    def checked_rationale(cls, value):
+        if not value.strip():
+            raise ValueError("empty initial analysis")
+        return safe_text(value)
+
+
 class InitialSource(Contract):
+    schema_version: Literal[2]
+    analysis: InitialAnalysis
     manifest: SnapshotManifest
     files: dict[str, Annotated[str, Field(max_length=32768)]] = Field(min_length=1, max_length=64, repr=False)
 
@@ -166,7 +182,8 @@ class InitialProposalRecords:
                 analysis_receipt_id=proof["receipt_id"])
             self.authorize(c, principal, plan, binding, PURPOSE)
             source = _source(self.source(c, plan, task))
-            if source.manifest.source_sha != binding.source_sha:
+            if (source.manifest.source_sha != binding.source_sha
+                    or source.analysis.inventory_digest != binding.inventory_digest):
                 raise ValueError()
             self.authorize(c, principal, plan, binding, PURPOSE)
             value = InitialInput(**source.model_dump(), binding=binding,
@@ -354,8 +371,58 @@ class InitialProposalExecution:
         intent = InitialIntent(**saved[0])
         if self._fields(value, ref) != intent.model_dump(exclude={"recipient_public_key"}):
             raise EventError("initial_execution_conflict")
-        return value, intent, self._checked(intent, value, saved[1])
+        result = self._checked(intent, value, saved[1])
+        publication = _get(c, plan_id, _slot(version) + ":publication")
+        if publication:
+            published = _validated(CandidatePublication, publication[1])
+            if (published.request_id, published.plan_digest, published.source_sha, published.proposal_digest) != (
+                    intent.request_id, value.binding.plan_digest, value.binding.source_sha, result.proposal_digest):
+                raise EventError("initial_publication_unconfirmed")
+        return value, intent, result
 
+    def rehearsal_run_id(self, c, plan, task_id, task):
+        """RehearsalService.first_run: current stored Proposal, after real publication.
+
+        Called in the Admission transaction. No model/provider methods are used.
+        The ordinary T10 REHEARSE checks and commit-before-submit still apply.
+        """
+        return self._rehearsal_result(c, plan, task_id, task).proposal.run_id
+
+    def _rehearsal_result(self, c, plan, task_id, task):
+        version, plan_id = plan["version"] - 1, plan["plan_id"]
+        if plan["state"] != "REHEARSE":
+            raise EventError("initial_rehearsal_unavailable")
+        admitted = _get(c, plan_id, _slot(version))
+        if admitted is None:
+            raise EventError("initial_rehearsal_unavailable")
+        value, _, result = self._stored_result(c, plan_id, version, admitted[1], promoted=True)
+        if (value.binding.tenant_id != plan["tenant_id"] or value.binding.task_id != task_id
+                or (value.binding.source_sha, value.binding.task_digest) != (task.source_sha, task.task_digest)):
+            raise EventError("initial_rehearsal_unavailable")
+        return result
+
+    def rehearsal_result(self, admission):
+        """Existing T15 result view, only for this genuinely committed first Admission.
+
+        The initial input is never interpreted as an Admission. No provider/model
+        call occurs here; retry attempts must use their own proposal path.
+        """
+        from .rehearsal import Admission, RehearsalTask, admitted_attempt
+
+        if type(admission) is not Admission or type(admission.attempt) is not int or admission.attempt != 1:
+            raise EventError("initial_rehearsal_unavailable")
+        with self.records.store._transaction(write=True, plan_id=admission.plan_id) as c:
+            row = c.execute("SELECT * FROM plans WHERE plan_id=?", (admission.plan_id,)).fetchone()
+            if (row is None or (row["tenant_id"], row["version"]) != (admission.tenant_id, admission.plan_version)
+                    or admitted_attempt(c, admission.plan_id, admission.rehearsal_id, admission.attempt) != admission):
+                raise EventError("initial_rehearsal_unavailable")
+            result = self._rehearsal_result(c, dict(row), admission.task_id,
+                RehearsalTask(admission.source_sha, admission.task_digest))
+            if result.proposal.run_id != admission.rehearsal_id:
+                raise EventError("initial_rehearsal_unavailable")
+            return dict(state="PROPOSAL_READY", attempt=admission.attempt,
+                run_id=admission.rehearsal_id, source_sha=admission.source_sha,
+                proposal=result.proposal.model_dump(mode="json"), proposal_digest=result.proposal_digest)
     def publication_inputs(self, plan_id, version, **ref):
         """Read authorized, saved inputs for the operator's T7 evidence lookup.
 

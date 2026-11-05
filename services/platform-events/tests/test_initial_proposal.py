@@ -25,6 +25,7 @@ from bravo_platform_events.workflow import Evidence, WorkflowRecovery
 ACTOR = "a" * 64
 SOURCE = "b" * 40
 RUNTIME = "c" * 40
+SOURCE_PATH = "app/config.py"
 
 
 class Actions:
@@ -43,8 +44,8 @@ class Actions:
         value = self.records.read_input(ACTOR, SPEC.plan_id, 3,
             input_ref=intent.input_ref, input_digest=intent.input_digest)
         proposal = Proposal(run_id=value["run_id"], source_sha=SOURCE, risk="low",
-            rationale="Synthetic migration proposal", edits=[dict(path="app/config.py",
-                before_sha256=value["manifest"]["files"]["app/config.py"], replacement="VALUE = 2\n")])
+            rationale="Synthetic migration proposal", edits=[dict(path=SOURCE_PATH,
+                before_sha256=value["manifest"]["files"][SOURCE_PATH], replacement="VALUE = 2\n")])
         self.envelope = dict(authenticated_fixture=True, result=dict(request_id=intent.request_id,
             input_digest=intent.input_digest, runtime_source_sha=RUNTIME,
             execution_receipt_id="fixture-run-artifact", proposal=proposal.model_dump(mode="json"),
@@ -64,20 +65,23 @@ class Actions:
 
 
 class Fixture:
-    def __init__(self, backend, tmp_path):
+    def __init__(self, backend, tmp_path, *, source_value=None, analysis=ANALYSIS):
         self.backend, self.now = backend, NOW
         collect(backend.store)
         recovery = WorkflowRecovery(service(backend.store, None), read_evidence=lambda c, p, *args:
             Evidence(SPEC.plan_id, SPEC.plan_digest, SPEC.target_environment_id, p["version"],
-                     "analysis-fixture", ANALYSIS))
+                     "analysis-fixture", analysis))
         assert recovery.resume_once(PRINCIPAL, SPEC.plan_id) == "PROPOSE"
         self.catalog = TaskCatalog(tmp_path / "catalog", b"fixture-signing-material" * 2)
         self.catalog.register(plan_id=SPEC.plan_id, tenant_id=SPEC.tenant_id, plan_digest=SPEC.plan_digest,
                               task_id="credential", kind="credential-migration", source_sha=SOURCE)
         content = "VALUE = 1\n"
-        self.source_value = dict(manifest=dict(source_sha=SOURCE,
-            files={"app/config.py": hashlib.sha256(content.encode()).hexdigest()},
-            editable_paths=["app/config.py"]), files={"app/config.py": content})
+        self.source_value = source_value or dict(schema_version=2,
+            analysis=dict(inventory_digest=analysis.inventory_digest, item_id="item-001",
+                          grade="code_change", rationale="Synthetic credential migration analysis"),
+            manifest=dict(source_sha=SOURCE,
+            files={SOURCE_PATH: hashlib.sha256(content.encode()).hexdigest()},
+            editable_paths=[SOURCE_PATH]), files={SOURCE_PATH: content})
         self.access = ProductInputAccess(backend.store, clock=lambda: self.now, purpose=initial.PURPOSE)
         self.grant(True, 0)
         self.records = self.reopen()

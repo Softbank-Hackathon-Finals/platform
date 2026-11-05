@@ -19,6 +19,7 @@ bravo-observability = { git = "https://github.com/Softbank-Hackathon-Finals/plat
 bravo-rehearsal-runner = { path = "../rehearsal-runner" }
 bravo-agent-worker = { path = "../agent-worker" }
 bravo-control-gate = { path = "../control-gate" }
+bravo-inventory = { path = "../inventory" }
 
 [project.optional-dependencies]
 postgres = ["psycopg[binary]>=3.2,<4"]
@@ -27,7 +28,7 @@ sso-registration = ["boto3>=1.35,<2"]
 [dependency-groups]
 dev = ["httpx>=0.27", "pytest>=8", "ruff>=0.9", "psycopg[binary]>=3.2,<4", {include-group = "product-inputs"}, "bravo-control-gate==0.1.0"]
 trusted-host = ["bravo-rehearsal-runner"]
-product-inputs = ["bravo-agent-worker", {include-group = "trusted-host"}]
+product-inputs = ["bravo-agent-worker", "bravo-inventory", {include-group = "trusted-host"}]
 
 [build-system]
 requires = ["hatchling>=1.25"]
