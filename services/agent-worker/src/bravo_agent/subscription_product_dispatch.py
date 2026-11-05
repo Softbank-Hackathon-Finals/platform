@@ -75,6 +75,7 @@ class OperatorProductExecution:
     _parse_intent = staticmethod(ExecutionIntent.model_validate)
     _open_receipt = staticmethod(open_receipt)
     _validate_receipt = staticmethod(validate_execution_receipt)
+    workflow = WORKFLOW
 
     def __init__(self, state_dir, github=None):
         self.root = Path(state_dir)
@@ -157,9 +158,9 @@ class OperatorProductExecution:
             raise ExecutionUnknown('EXECUTION_RECIPIENT_CONFLICT')
         actor = self.github.get('user')
         head = self.github.get(f'repos/{REPOSITORY}/git/ref/heads/develop')
-        workflow = self.github.get(f'repos/{REPOSITORY}/actions/workflows/{WORKFLOW}')
+        workflow = self.github.get(f'repos/{REPOSITORY}/actions/workflows/{self.workflow}')
         if (head.get('object', {}).get('sha') != intent.runtime_source_sha
-                or workflow.get('path') != f'.github/workflows/{WORKFLOW}' or workflow.get('state') != 'active'
+                or workflow.get('path') != f'.github/workflows/{self.workflow}' or workflow.get('state') != 'active'
                 or type(workflow.get('id')) is not int or type(actor.get('id')) is not int):
             raise ExecutionUnknown('WORKFLOW_OR_SOURCE_NOT_READY')
         metadata = {'actor_id': actor['id'], 'workflow_id': workflow['id'],

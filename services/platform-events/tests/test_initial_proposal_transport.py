@@ -11,7 +11,6 @@ from bravo_agent.contracts import Proposal, digest
 from bravo_agent.product_execution_contracts import (
     ARTIFACT,
     REPOSITORY,
-    WORKFLOW,
     ExecutionIntent,
     ExecutionPending,
     ExecutionUnknown,
@@ -23,6 +22,9 @@ from test_cutover import SPEC
 from test_initial_proposal import ACTOR, RUNTIME, SOURCE, Fixture
 
 from bravo_platform_events.initial_proposal import InitialIntent
+from bravo_platform_events.initial_proposal_transport import (
+    INITIAL_WORKFLOW as WORKFLOW,
+)
 from bravo_platform_events.initial_proposal_transport import (
     FileInitialProposal,
     OperatorInitialProposal,

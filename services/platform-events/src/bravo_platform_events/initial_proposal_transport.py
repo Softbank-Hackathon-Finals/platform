@@ -16,6 +16,8 @@ from bravo_agent.subscription_product_seal import open_bound_receipt, seal_bound
 
 from .initial_proposal import InitialInput, InitialIntent, InitialResult
 
+INITIAL_WORKFLOW = "subscription-initial-proposal.yml"
+
 
 def _intent(value):
     # Preserve raw scalar types: model_dump may normalize an unchecked bool to 1.
@@ -74,6 +76,7 @@ class OperatorInitialProposal(OperatorProductExecution):
     """
 
     _parse_intent = staticmethod(_intent)
+    workflow = INITIAL_WORKFLOW
     _open_receipt = staticmethod(open_initial_receipt)
     _validate_receipt = staticmethod(validate_initial_receipt)
 

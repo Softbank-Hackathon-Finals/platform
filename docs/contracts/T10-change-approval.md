@@ -109,10 +109,28 @@ run/attempt·artifact digest 확인을 재사용한다. 응답 유실·재시작
 미확인되거나 T11의 실제 schema/lint 검사가 실패·누락되면 성공 결과를 반환하지 않는다.
 T10은 정규화 결과만 저장하며 저장 후 재조회는 어떤 client 호출도 하지 않는다.
 
-이 어댑터를 구현했다는 사실은 최초 제안 workflow·모델 입력·인증 조회 경로가 설치됐다는
-뜻이 아니다. 현재 리허설용 workflow에 최초 제안 intent를 보내서는 안 된다. T11 입력/검사와
-해당 purpose를 처리하는 검토된 생산자, 실제 Collection/Analysis와 현재 grant를 연결한 뒤에만
-최초 접수·실행을 열어야 한다. 기존 리허설 입력/Admission 검사는 유지한다.
+최초 제안은 별도 `subscription-initial-proposal.yml` workflow를 사용한다. 기존 리허설용
+`subscription-product.yml`에는 최초 intent를 보내지 않는다. 전용 reader는
+`/internal/v1/initial-proposal-inputs/read`에서 서명 OIDC의 workflow·source·run/attempt,
+현재 최초 purpose grant와 저장된 동일 execution claim을 확인한다. 등록만 된 입력이나
+다른 recipient·run은 모델 호출을 열지 않는다. HTTP 요청은 `principal`, `intent`,
+`github_run_id`이고 응답은 입력 전체 digest로 결속된 정본 InitialInput v2다.
+
+T38은 v2의 검증된 code_change analysis를 T11 FailureBundle로 변환한다. rationale은
+summary, inventory_digest는 evidence_digest다. bundle.stage=REHEARSE는 T11 형식
+호환이며 실제 T10 단계·목적은 PROPOSE/t38-initial-proposal이다. Admission digest를
+만들거나 바꿔 넣지 않는다. 기존 T11 schema·snapshot·allowed path·policy 검사를 통과한
+Proposal만 InitialResult로 정규화하며 실제 T15 검증을 이 결과로 대신하지 않는다.
+
+broker의 별도 영속 journal은 최초 run마다 한 번만 모델을 호출한다. 응답 유실·재시작·
+실패 후에는 같은 결과를 조회하며 새 provider run이 기존 claim을 반복 실행하지 못한다.
+모델 응답 뒤에도 현재 T10 권한을 다시 읽는다. workflow는 고정 SSM 창을 정리한 뒤에만
+결과를 암호화하고, 운영자는 GitHub 출처와 암호문 결속을 확인한 뒤 T10에 전달한다.
+
+호스트 설치는 `operations/subscription/install.py --product-reader ... --initial-proposal`로
+정확한 검토 소스를 선택한다. 이 옵션은 전용 broker를 설치하며 서비스를 자동 시작하거나
+실제 입력·권한을 만들지 않는다. 실제 Collection/Analysis, 현재 grant, reader TLS와 정확한
+설치 revision이 준비돼야 실행한다. 구현·로컬 시험은 운영 통합 완료와 구분한다.
 
 [T15 #191](https://github.com/Softbank-Hackathon-Finals/platform/pull/191)의
 `9b9681ab30eeae5ba72573d71784605f401d705a`를 대조했다. 그 러너의
