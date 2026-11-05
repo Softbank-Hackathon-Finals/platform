@@ -13,6 +13,25 @@ from pathlib import Path
 NAMESPACE = "target-dev"
 POSTGRES_IMAGE = "ghcr.io/cloudnative-pg/postgresql:18.4-system-trixie@sha256:42708a75345b7a48fdd9257b071830783a97fd228529196b6313187a7198e185"
 LABELS = {"app.kubernetes.io/part-of": "bravo-target", "component": "target"}
+SUBSCRIPTION_METRICS = "target-subscription-metrics"
+# CNPG's exporter turns each column into cnpg_pg_subscription_<column> and caches results for 30 seconds. It runs
+# as cnpg_metrics_exporter, which may read every pg_subscription column named here but not subconninfo. A worker
+# that is still connecting already counts in apply_workers, so 1 does not prove rows are flowing; the source
+# slot's lag answers that.
+SUBSCRIPTION_QUERIES = {"pg_subscription": {
+    "primary": True,
+    "query": ("SELECT s.subname, s.subenabled::int AS enabled, e.apply_error_count, "
+              "(SELECT count(*) FROM pg_catalog.pg_stat_subscription AS w "
+              "WHERE w.subid = s.oid AND w.worker_type = 'apply') AS apply_workers "
+              "FROM pg_catalog.pg_subscription AS s "
+              "JOIN pg_catalog.pg_stat_subscription_stats AS e ON e.subid = s.oid"),
+    "metrics": [
+        {"subname": {"usage": "LABEL", "description": "Subscription name"}},
+        {"enabled": {"usage": "GAUGE", "description": "1 if the subscription is enabled"}},
+        {"apply_error_count": {"usage": "COUNTER", "description": "Errors the apply worker hit, connection failures included"}},
+        {"apply_workers": {"usage": "GAUGE", "description": "Apply workers that exist, connected or not"}},
+    ],
+}}
 
 
 def resource(api, kind, name, *, spec=None, namespaced=True, **fields):
@@ -23,6 +42,13 @@ def resource(api, kind, name, *, spec=None, namespaced=True, **fields):
     if spec is not None:
         result["spec"] = spec
     return result
+
+
+def subscription_metrics():
+    # JSON is a subset of YAML, the format CNPG reads this key as. The label makes instances pick up changes.
+    config = resource("v1", "ConfigMap", SUBSCRIPTION_METRICS, data={"queries": json.dumps(SUBSCRIPTION_QUERIES, indent=2)})
+    config["metadata"]["labels"]["cnpg.io/reload"] = "true"
+    return config
 
 
 def database(node_name):
@@ -69,6 +95,7 @@ def database(node_name):
                        "hostssl chat chat_replicator all scram-sha-256",
                        "host all all all reject"],
         },
+        "monitoring": {"customQueriesConfigMap": [{"name": SUBSCRIPTION_METRICS, "key": "queries"}]},
         "bootstrap": {"initdb": {"database": "chat", "owner": "chat_owner"}},
         "managed": {"roles": [
             {"name": "chat_app", "ensure": "present", "login": False,
@@ -79,7 +106,7 @@ def database(node_name):
              "passwordSecret": {"name": "target-replication"}},
         ]},
     })
-    return [namespace, storage, volume, cluster]
+    return [namespace, storage, volume, subscription_metrics(), cluster]
 
 
 def migration():

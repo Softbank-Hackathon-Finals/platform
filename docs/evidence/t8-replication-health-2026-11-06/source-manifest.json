@@ -1,0 +1,33 @@
+{
+  "source_revision": "ba77476218b0c5e8590848d3c74bdf228bfe48b8",
+  "source_files": [
+    {
+      "path": "infra/envs/target-workloads/render.py",
+      "sha256": "22134f21962a24f7dba637924bf348564bfc15e5958af5a957d987b6a8f0c619"
+    },
+    {
+      "path": "infra/envs/target-workloads/replication.py",
+      "sha256": "332a12bab295cf25f0a2cd6d3ff1db4dceab5b84399d14a1a54951bd58d04b42"
+    },
+    {
+      "path": "infra/envs/target-workloads/replication_incident.py",
+      "sha256": "fb7debb778488019e109568656b595c971391c7722310ae8c73bd681e35bc94e"
+    },
+    {
+      "path": "infra/envs/target-workloads/testing/lag_lab.py",
+      "sha256": "e520bd80f43b6809b6a6866d53d8af65e9a215109937f26d16c0c72fee1b5b86"
+    },
+    {
+      "path": "infra/envs/target-workloads/testing/subscription_health_cnpg.py",
+      "sha256": "4dfb46768e66fff9b0b3a60985a23fa84c572e338e8708a834bfbd833cd84e18"
+    },
+    {
+      "path": "infra/envs/target-workloads/testing/subscription_health_lab.py",
+      "sha256": "64a8c7a4c1d67812a39d79859efe7a3c23cffc8f1e55ccd131e8326b3d96149d"
+    },
+    {
+      "path": "infra/envs/target-workloads/testing/subscription_metrics.py",
+      "sha256": "465d7688c22c7a196425c3919019f92e930bcc31e3ea66dc9f6da24f0847ec09"
+    }
+  ]
+}
