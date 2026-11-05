@@ -47,6 +47,16 @@ class TimeoutRenderTests(unittest.TestCase):
             with self.subTest(side=side):
                 self.assertEqual({key: parameters.get(key) for key in TIMEOUTS}, TIMEOUTS)
 
+    def test_each_direction_gets_30_seconds_on_both_of_its_ends(self):
+        # The reverse runs after cutover over the same relayed path, and a lapse there stops it for good,
+        # because it keeps disable_on_error on.
+        ends = {"forward": (("source", "wal_sender_timeout"), ("target", "wal_receiver_timeout")),
+                "reverse": (("target", "wal_sender_timeout"), ("source", "wal_receiver_timeout"))}
+        for direction, pair in ends.items():
+            for side, key in pair:
+                with self.subTest(direction=direction, side=side, key=key):
+                    self.assertEqual(self.parameters[side][key], "30s")
+
     def test_the_two_renders_cannot_drift_apart(self):
         self.assertEqual(source_render.REPLICATION_TIMEOUTS, target_render.REPLICATION_TIMEOUTS)
 
