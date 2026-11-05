@@ -45,4 +45,4 @@
 | T11 | `Tools.events` 항목(코드가 정한 열거값만) | 시도 종료 시 일괄 append |
 | T19 · T12 | 판정 · 실행 결과 요약 | 각 담당과 필드 합의 후 `source=gate` · `executor` |
 
-미결: T10 writer 위치, 보존 기간(데모 7일 제안), 플랫폼 계정 버킷 생성 담당.
+미결: T10 writer 위치. 결정(11/6): 보존 기간은 데모 1일(COMPLIANCE), 운영은 규제 기간. 플랫폼 계정 버킷은 T24 담당이 `infra/envs/platform-audit`으로 만든다.

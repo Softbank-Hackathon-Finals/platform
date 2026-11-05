@@ -86,3 +86,65 @@ def test_cli_rejects_a_batch_that_mixes_runs_even_without_filters(tmp_path, plat
     assert main(["append", "--source", "platform.events", "--input", str(events), "--sink", str(tmp_path / "store"),
                  "--receipts", str(tmp_path / "r.json")]) == 2
     assert not (tmp_path / "store").exists()
+
+
+
+def _write(tmp_path, events, name="events.jsonl"):
+    path = tmp_path / name
+    path.write_text("\n".join(json.dumps(e) for e in events), encoding="utf-8")
+    return str(path)
+
+
+class _ListingS3:
+    """Stands in for the list/get calls only; the live path was exercised against a real bucket
+    (docs/evidence/t24-audit-live-2026-11-06)."""
+
+    def __init__(self, objects):
+        self.objects = objects
+        self.prefixes = []
+
+    def get_paginator(self, name):
+        assert name == "list_objects_v2"
+        outer = self
+
+        class _Pages:
+            def paginate(self, Bucket, Prefix):
+                outer.prefixes.append(Prefix)
+                # Unordered on purpose: the loader must sort by key, i.e. by zero-padded sequence.
+                yield {"Contents": [{"Key": k} for k in reversed(list(outer.objects)) if k.startswith(Prefix)]}
+        return _Pages()
+
+    def get_object(self, Bucket, Key):
+        import io
+        return {"Body": io.BytesIO(json.dumps(self.objects[Key]).encode())}
+
+
+def test_s3_records_are_read_in_sequence_order_under_one_run_prefix(monkeypatch, tmp_path, platform_events, capsys):
+    import boto3
+
+    assert main(["append", "--source", "platform.events", "--input", _write(tmp_path, platform_events),
+                 "--sink", str(tmp_path / "store"), "--receipts", str(tmp_path / "r.json")]) == 0
+    run_dir = tmp_path / "store/audit/plan-demo/run-demo-1"
+    objects = {f"audit/plan-demo/run-demo-1/{p.name}": json.loads(p.read_text()) for p in sorted(run_dir.glob("*.json"))}
+    objects["audit/plan-demo/run-demo-10/00000001.json"] = {"not": "this run"}
+    fake = _ListingS3(objects)
+    monkeypatch.setattr(boto3, "client", lambda service: fake)
+    capsys.readouterr()
+    assert main(["verify", "s3://bucket/audit/plan-demo/run-demo-1"]) == 0
+    assert json.loads(capsys.readouterr().out)["records"] == 2
+    # The trailing slash keeps run-demo-10 out of run-demo-1.
+    assert fake.prefixes == ["audit/plan-demo/run-demo-1/"]
+
+
+def test_demo_retention_defaults_to_one_day(monkeypatch, tmp_path, platform_events):
+    import inspect
+
+    from bravo_audit import cli
+    from bravo_audit.sink import FileSink, ObjectLockSink
+
+    assert inspect.signature(ObjectLockSink.__init__).parameters["retention_days"].default == 1
+    seen = []
+    monkeypatch.setattr(cli, "_sink", lambda target, days: seen.append(days) or FileSink(tmp_path / "store"))
+    assert main(["append", "--source", "platform.events", "--input", _write(tmp_path, platform_events),
+                 "--sink", "s3://bucket/audit", "--receipts", str(tmp_path / "r.json")]) == 0
+    assert seen == [1]

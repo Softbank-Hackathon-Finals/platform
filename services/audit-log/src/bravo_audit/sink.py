@@ -61,7 +61,7 @@ class ObjectLockSink:
     existing key) and an explicit COMPLIANCE retention. A write counts only if the store returns a
     VersionId and, when readback is possible, reports the retention we asked for."""
 
-    def __init__(self, client: Any, bucket: str, *, retention_days: int = 7, prefix: str = "audit", now=None):
+    def __init__(self, client: Any, bucket: str, *, retention_days: int = 1, prefix: str = "audit", now=None):
         if retention_days < 1:
             raise ValueError("retention must be at least one day")
         self.client, self.bucket, self.prefix = client, bucket, prefix

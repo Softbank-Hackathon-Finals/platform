@@ -18,6 +18,25 @@ def _load_jsonl(path: Path) -> list[dict]:
     return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
 
 
+def _load_records(target: str) -> list[dict]:
+    """Stored records of one run: a local directory, a JSON Lines file, or s3://bucket/<prefix>/<plan>/<run>.
+    The S3 path only lists and reads (the T24 reader role); objects are taken in key order, which is
+    sequence order because keys are zero-padded."""
+    if target.startswith("s3://"):
+        import boto3
+
+        bucket, _, prefix = target[5:].partition("/")
+        client = boto3.client("s3")
+        keys = []
+        for page in client.get_paginator("list_objects_v2").paginate(Bucket=bucket, Prefix=prefix.rstrip("/") + "/"):
+            keys += [o["Key"] for o in page.get("Contents", []) if o["Key"].endswith(".json")]
+        return [json.loads(client.get_object(Bucket=bucket, Key=k)["Body"].read()) for k in sorted(keys)]
+    path = Path(target)
+    if path.is_dir():
+        return [json.loads(p.read_text(encoding="utf-8")) for p in sorted(path.glob("*.json"))]
+    return _load_jsonl(path)
+
+
 def _sink(target: str, retention_days: int):
     if target.startswith("s3://"):
         import boto3  # optional extra; the live path is only exercised with cloud access
@@ -52,7 +71,7 @@ def cmd_append(args) -> int:
         if args.plan and plan_id != args.plan or args.run and run_id != args.run:
             print("events do not belong to the requested plan/run", file=sys.stderr)
             return 2
-        existing = _load_jsonl(Path(args.resume_from)) if args.resume_from else []
+        existing = _load_records(args.resume_from) if args.resume_from else []
         ledger = RunLedger.resume(plan_id, run_id, existing)
     for _plan, _run, source, kind, origin_id, payload in mapped:
         try:
@@ -74,8 +93,7 @@ def cmd_append(args) -> int:
 
 
 def cmd_verify(args) -> int:
-    files = sorted(Path(args.directory).glob("*.json"))
-    records = [json.loads(p.read_text(encoding="utf-8")) for p in files]
+    records = _load_records(args.directory)
     ok, reason = verify_chain(records)
     print(json.dumps({"records": len(records), "ok": ok, "reason": reason, "chain_digest": chain_digest(records) if ok else None}))
     return 0 if ok else 1
@@ -100,11 +118,14 @@ def main(argv: list[str] | None = None) -> int:
     a.add_argument("--receipts", required=True)
     a.add_argument("--plan", default="")
     a.add_argument("--run", default="")
-    a.add_argument("--resume-from", default="", help="JSON Lines of already stored records of this run")
-    a.add_argument("--retention-days", type=int, default=7)
+    a.add_argument("--resume-from", default="",
+                   help="already stored records of this run: JSON Lines, a run directory or s3://bucket/<prefix>/<plan>/<run>")
+    # Demo default: one day, so the platform account can be torn down the day after. Production
+    # passes the regulated period explicitly.
+    a.add_argument("--retention-days", type=int, default=1)
     a.set_defaults(func=cmd_append)
-    v = sub.add_parser("verify", help="verify a stored run directory (audit/<plan>/<run>)")
-    v.add_argument("directory")
+    v = sub.add_parser("verify", help="verify a stored run: directory or s3://bucket/<prefix>/<plan>/<run>")
+    v.add_argument("directory", help="run directory, JSON Lines file or s3://bucket/<prefix>/<plan>/<run>")
     v.set_defaults(func=cmd_verify)
     p = sub.add_parser("probe-denial", help="attempt deletion/alteration of a retained object; expect denial")
     p.add_argument("--bucket", required=True)
