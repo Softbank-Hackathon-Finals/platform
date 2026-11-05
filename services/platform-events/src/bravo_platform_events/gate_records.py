@@ -32,7 +32,7 @@ def _get(c, plan_id, kind, ref):
 def _put(c, plan_id, kind, ref, value):
     old = _get(c, plan_id, kind, ref)
     if old is not None:
-        if old != value:
+        if canonical(old) != canonical(value):
             raise EventError("gate_record_conflict")
         return
     c.execute("INSERT INTO plan_commands VALUES (?,?,?,?)",
