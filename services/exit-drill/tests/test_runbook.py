@@ -29,7 +29,9 @@ pytestmark = pytest.mark.skipif(not RUNBOOK.exists(), reason="the runbook is not
 
 
 def commands() -> list[str]:
-    """코드 블록의 명령을 줄 이음까지 합쳐 한 줄씩 돌려준다."""
+    """코드 블록의 명령을 줄 이음까지 합쳐 한 줄씩 돌려준다. 시험 수집 때 불리므로 문서가 없으면 빈 목록이다."""
+    if not RUNBOOK.exists():
+        return []
     blocks = re.findall(r"```sh\n(.*?)```", RUNBOOK.read_text(encoding="utf-8"), re.S)
     return [line.strip() for block in blocks for line in block.replace("\\\n", " ").splitlines() if line.strip()]
 
