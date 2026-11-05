@@ -118,11 +118,12 @@ def serve(settings, *, product=None, fixture_enabled=True):
 
         def do_POST(self):
             nonlocal completed
-            if self.path == "/run" and product is None:
+            product_route = self.path in {"/run", "/input/probe"}
+            if product_route and product is None:
                 # A trusted host must explicitly install the authenticated reader.
                 self.respond(503, {"state": "NEEDS_HUMAN", "reason": "PRODUCT_INPUT_UNAVAILABLE"})
                 return
-            if (self.path not in {"/run", "/validation/fixture"}
+            if (self.path not in {"/run", "/input/probe", "/validation/fixture"}
                     or (self.path == "/validation/fixture" and not fixture_enabled)):
                 self.respond(404, {"state": "NEEDS_HUMAN", "reason": "UNKNOWN_ROUTE"})
                 return
@@ -131,16 +132,16 @@ def serve(settings, *, product=None, fixture_enabled=True):
                 if not 0 < size <= 32768:
                     raise ValueError("invalid length")
                 body = json.loads(self.rfile.read(size))
-                if self.path == "/run":
+                if product_route:
                     completed += 1
-                    status, response = product.run(body)
+                    status, response = product.probe(body) if self.path == "/input/probe" else product.run(body)
                     self.respond(status, response)
                     return
                 if (not isinstance(body, dict) or set(body) != {"web_identity_token", "run_id"}
                         or not isinstance(body["web_identity_token"], str)):
                     raise ValueError("invalid fields")
             except (ValueError, RecursionError):
-                reason = "INVALID_PRODUCT_REQUEST" if self.path == "/run" else "INVALID_FIXTURE_REQUEST"
+                reason = "INVALID_PRODUCT_REQUEST" if product_route else "INVALID_FIXTURE_REQUEST"
                 self.respond(400, {"state": "NEEDS_HUMAN", "reason": reason})
                 return
             completed += 1

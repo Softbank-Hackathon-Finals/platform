@@ -232,3 +232,18 @@ T15의 원격 제안 소비 어댑터를 인수해야 한다. 목적지 API/RBAC
 담당의 별도 인수 대상이다. 로컬 가짜 provider 시험은 이 연결이나 실환경 인수를 증명하지 않는다.
 
 교체 전에는 workflow 실행을 비활성화하고 진행 중인 broker와 터널이 정리될 때까지 기다린다. 같은 검토 commit의 VM broker와 GitHub controller를 배치하고 `BRAVO_SUBSCRIPTION_SOURCE_SHA`를 맞춘 뒤 합성 시험을 다시 연다. 새 controller가 구 broker를 호출하면 합성 전용 경로가 없어 실패하고, 구 controller가 새 broker를 호출하면 `/run`에서 503을 받는다. 구 버전 응답처럼 출처 표기가 빠진 경우에도 새 controller는 SSM verify를 접수하지 않는다. 어느 경우에도 다른 경로로 재시도하지 않는다. 교체 실패 시 workflow를 닫은 상태에서 일치하는 새 쌍을 복구한다. 구 쌍을 복원해야 하면 구 `/run`이 다시 합성 입력을 처리하므로 제품 호출은 계속 닫아 둔다.
+
+### 제품 입력 인증만 확인하기
+
+제품 host의 `POST /input/probe`는 `/run`과 같은 `ProductRequest`, STS 인증,
+현재 입력 조회·digest·소스 검증을 사용한다. 성공은 `INPUT_AUTHENTICATED`와
+요청/입력/Admission/주체 digest 및 설치 SHA만 반환한다. 모델 호출, 제안 claim,
+소스 staging, T15 dispatch/검증 또는 승인 대기는 수행하지 않는다. 매 요청마다
+현재 권한을 다시 읽으며 토큰·STS 자격·원문 입력은 응답에 포함하지 않는다.
+
+Actions의 인수 코드에서는 `product_probe_window`와 기존 메모리 OIDC supplier를
+사용할 수 있다. 이 창은 고정 SSM start/tunnel/stop과 한 요청 제한을 재사용한다.
+제품 host의 기존 두 요청/600초 한도를 소비하며, probe 성공 뒤 실제 실행은
+같은 Admission에 대한 T10의 별도 단일 dispatch 결정을 거쳐야 한다. probe 성공이
+운영 배포·모델 제안·T15 통합 완료를 뜻하지 않는다. 실제 입력·origin/CA·배치가
+준비되기 전 이 접점을 실행하지 않는다.
