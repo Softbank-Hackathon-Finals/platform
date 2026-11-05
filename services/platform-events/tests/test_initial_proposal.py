@@ -403,3 +403,22 @@ def test_failed_claim_commit_never_dispatches(fixture):
     assert not f.client.submits and not f.client.reads
     f.execute()
     assert len(f.client.submits) == 1
+
+
+@pytest.mark.parametrize("changed", ["expiry", "source"])
+def test_recipient_preparation_rechecks_current_input_before_claim(fixture, changed):
+    f = fixture
+    original = f.client.recipient
+    def prepare(request_id):
+        key = original(request_id)
+        if changed == "expiry":
+            f.now = EXPIRES
+        else:
+            f.source_value["files"]["app/config.py"] = "VALUE = 3\n"
+        return key
+    f.client.recipient = prepare
+    with pytest.raises(EventError):
+        f.execute()
+    assert not f.client.submits and not f.client.reads
+    with f.backend.store._transaction() as c:
+        assert _get(c, SPEC.plan_id, "initial-proposal:3:execution") is None
