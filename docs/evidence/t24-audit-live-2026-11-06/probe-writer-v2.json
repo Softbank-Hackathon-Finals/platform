@@ -1,0 +1,16 @@
+{
+  "bucket_ref": "redacted",
+  "key_suffix": "00000003.json",
+  "checks": {
+    "delete_current_denied": "DENIED",
+    "delete_version_denied": "DENIED",
+    "shorten_retention_denied": "DENIED",
+    "overwrite_precondition_failed": "PRECONDITION_FAILED",
+    "unconditional_write_denied": "DENIED",
+    "bucket_policy_change_denied": "DENIED",
+    "object_lock_config_change_denied": "DENIED"
+  },
+  "retention": "COMPLIANCE_ACTIVE",
+  "pass": true,
+  "raw_output_suppressed": true
+}
