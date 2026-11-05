@@ -11,6 +11,7 @@ from dataclasses import replace
 from datetime import UTC, datetime
 
 from .change import ChangeApprovalService, change_key
+from .change_intake_api import intake_router
 from .contract import validate_identifier
 from .cutover import CutoverService, _get, _key, _put, unavailable_authority
 from .cutover_api import create_cutover_app
@@ -186,10 +187,15 @@ class OperatorAccess:
 def create_operator_cutover_app(store, executor, *, verifier, bindings=None, registered_pair=None,
                                authority=unavailable_authority,
                                change_authority=None, failback_authority=None,
-                               read_integrity=unavailable_authority, edge=None, clock=None, rehearsal_host=None):
+                               read_integrity=unavailable_authority, edge=None, clock=None, rehearsal_host=None,
+                               change_intake=None):
     """Explicit host wiring. No IdP, grants or gate/SHIFT fixture is installed."""
     if (registered_pair is None) == (bindings is None):
         raise ValueError("exactly_one_binding_source_required")
+    if change_intake is not None:
+        if change_intake.store is not store or change_authority is not None:
+            raise ValueError("single_change_intake_required")
+        change_authority = change_intake.current
     if registered_pair is not None:
         bindings = executor.verified_bindings(registered_pair)
     access = OperatorAccess(store, clock=clock)
@@ -202,5 +208,8 @@ def create_operator_cutover_app(store, executor, *, verifier, bindings=None, reg
         edge=edge, check_access=access.check_read, check_execute=access.requires("execute_failback"), clock=clock)
     rehearsals = None if rehearsal_host is None else RehearsalService(
         store, host=rehearsal_host, check_start=access.requires("start_rehearsal"))
-    return create_cutover_app(service, resolve_principal=access.resolver(verifier), rehearsal_service=rehearsals,
-                              change_service=change_service, failback_service=failback_service)
+    app = create_cutover_app(service, resolve_principal=access.resolver(verifier), rehearsal_service=rehearsals,
+                             change_service=change_service, failback_service=failback_service)
+    if change_intake is not None:
+        app.include_router(intake_router(change_intake))
+    return app
