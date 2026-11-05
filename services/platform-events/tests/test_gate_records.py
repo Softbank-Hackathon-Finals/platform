@@ -57,7 +57,8 @@ def records(request, tmp_path, ready):
             return PlanStore(tmp_path / "records.db")
     store = reopen()
     plan = PlanSpec("plan-gate-records", ctx.tenant_id, ctx.app, ctx.source_environment_id,
-                    ctx.target_environment_id, ctx.plan_digest, "b" * 64)
+                    ctx.target_environment_id, ctx.plan_digest, "b" * 64,
+                    profile_id=ctx.profile_id, profile_version=ctx.profile_version)
     store.register_plan(plan, run_id="fixture", occurred_at=state["now"].isoformat())
     principal = Principal("operator", ctx.tenant_id)
     f = SimpleNamespace(store=store, reopen=reopen, state=state, data=data, doc=doc,
@@ -197,6 +198,51 @@ def test_old_binding_retry_does_not_restore_old_context(records):
         assert _load(f, c).context_id == "context-2"
     with pytest.raises(EventError, match="version_conflict"):
         f.records.bind(f.principal, f.plan.plan_id, "context-3", next_context, expected_revision=1)
+
+
+@pytest.mark.parametrize("change", [{"profile_id": "full"}, {"profile_version": "other"}])
+def test_context_cannot_replace_plan_profile(records, change):
+    f = records
+    f.stage("source"), f.stage("target")
+    assert any(getattr(f.state["context"], k) != v for k, v in change.items())
+    with pytest.raises(EventError, match="gate_context_scope_mismatch"):
+        f.records.bind(f.principal, f.plan.plan_id, "wrong-profile",
+                       replace(f.state["context"], **change), expected_revision=0)
+    with _view(f) as c, pytest.raises(EventError, match="gate_context_unavailable"):
+        _load(f, c)
+
+
+def test_generated_workload_id_is_independent_of_catalog_app(records):
+    f = records
+    workload = "workload-" + "e" * 32
+    plan = replace(f.plan, plan_id="generated-plan", workload_id=workload)
+    f.store.register_plan(plan, run_id="fixture", occurred_at=f.state["now"].isoformat())
+    records = GateRecords(f.store, authorize=lambda c, p, row, action: p == f.principal)
+    snapshots = {}
+    for side in ("source", "target"):
+        original = f.state["runs"][side]
+        with pytest.raises(EventError, match="gate_run_scope_mismatch"):
+            records.record_run(f.principal, plan.plan_id, side, original)
+        snapshots[side] = RunSnapshot(original.ref, canonical(original.document | {"app": workload}))
+        records.record_run(f.principal, plan.plan_id, side, snapshots[side])
+    ctx = replace(f.state["context"], app=workload,
+                  source_digest=snapshots["source"].fingerprint, target_digest=snapshots["target"].fingerprint)
+    assert records.bind(f.principal, plan.plan_id, "context", ctx, expected_revision=0)["revision"] == 1
+    with f.store._transaction(write=True, plan_id=plan.plan_id) as c:
+        row = dict(c.execute("SELECT * FROM plans WHERE plan_id=?", (plan.plan_id,)).fetchone())
+        assert records.view(c, f.principal, row).context.app == workload
+    # T19's independent evaluator/runner update is a separate owner's change.
+
+
+def test_legacy_plan_without_profile_cannot_bind(records):
+    f = records
+    legacy = replace(f.plan, plan_id="legacy-plan", profile_id=None, profile_version=None)
+    f.store.register_plan(legacy, run_id="fixture", occurred_at=f.state["now"].isoformat())
+    records = GateRecords(f.store, authorize=lambda c, p, row, action: p == f.principal)
+    for side in ("source", "target"):
+        records.record_run(f.principal, legacy.plan_id, side, f.state["runs"][side])
+    with pytest.raises(EventError, match="gate_context_scope_mismatch"):
+        records.bind(f.principal, legacy.plan_id, "legacy-context", f.state["context"], expected_revision=0)
 
 
 @pytest.mark.parametrize("fault", ["producer_revoked", "schema_mismatch"])

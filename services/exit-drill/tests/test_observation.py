@@ -40,7 +40,7 @@ def kube_pod(name, labels, *, ready="True", started="2026-11-07T03:00:00Z", cont
         status["startTime"] = started
     if ready is not None:
         status["conditions"] = [{"type": "Ready", "status": ready}]
-    return {"kind": "Pod", "metadata": metadata, "status": status}
+    return {"kind": "Pod", "metadata": metadata, "spec": {"containers": [{"name": "app"}]}, "status": status}
 
 
 def pods_doc(*items):
@@ -54,7 +54,7 @@ def test_pods_are_grouped_by_workload(plan):
     ), plan)
     assert got["app"] == [{
         "name": "a1", "uid": "uid-a1", "labels": {"app": "demo-chat"}, "ready": True,
-        "started_at": "2026-11-07T03:00:00Z", "host_network": False,
+        "started_at": "2026-11-07T03:00:00Z", "host_network": False, "exit_blockers": [],
         "container_name": "app", "container_id": "containerd://aaa", "previous_container_id": None,
         "container_started_at": "2026-11-07T03:00:01Z", "restarts": 0, "other_restarts": 0,
     }]

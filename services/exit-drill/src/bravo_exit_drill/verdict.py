@@ -61,6 +61,7 @@ def _judge(plan: dict, before: Any, after: Any) -> dict:
         _check_host_network(plan, after),
         _check_baseline_policy(plan, before),
         _check_applied_policy(plan, after),
+        *[_check_eligibility(name, before, after) for name, w in sorted(plan["workloads"].items()) if w["role"] == "app"],
     ]
     control = next((name for name, w in plan["workloads"].items() if w["role"] == "control"), None)
     for decision in plan["decisions"]:
@@ -175,6 +176,22 @@ def _check_host_network(plan: dict, after: dict) -> Check:
     if any(p.get("host_network") is not False for p in pods):
         return Check("scope:host-network", UNKNOWN, "HOST_NETWORK_UNKNOWN")
     return Check("scope:host-network", PASS, "NO_HOST_NETWORK")
+
+
+def _check_eligibility(workload: str, before: dict, after: dict) -> Check:
+    """AWS 호출이 다른 곳으로 돌려진 Pod는 AWS를 막아도 멀쩡해 보인다. 차단을 잰 것이 아니므로 통과시키지 않는다.
+
+    차단 전후의 Pod를 모두 본다. 값을 읽지 못했거나 Pod가 없으면 자격이 있다고 말할 수 없다.
+    """
+    check_id = f"eligibility:{workload}"
+    was, now = _pods(before, workload), _pods(after, workload)
+    if not was or not now:
+        return Check(check_id, UNKNOWN, "ELIGIBILITY_NOT_READ")
+    found = [p.get("exit_blockers") for p in [*was, *now]]
+    if not all(isinstance(b, list) and all(isinstance(c, str) and c for c in b) for b in found):
+        return Check(check_id, UNKNOWN, "ELIGIBILITY_NOT_READ")
+    reasons = sorted({c for b in found for c in b}, reverse=True)
+    return Check(check_id, UNKNOWN, reasons[0]) if reasons else Check(check_id, PASS, "ELIGIBLE")
 
 
 def _readback(observation: dict) -> tuple[list, list] | None:

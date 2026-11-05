@@ -60,6 +60,19 @@ T18 부하 생성기가 창 요약을 보내는 곳이다. 콘솔 조회 API와 
 
 적용 순서(실제 환경): Secret · ConfigMap을 만들고(아래 "배포 전에 만들 것"), 플랫폼은 `kubectl apply -k deploy/platform`을 적용한다. DB가 있는 클러스터는 `deploy/collector-db`(PgBouncer도 있으면 `deploy/collector-db-pgbouncer`)와 `deploy/collector-db-access`를, 없는 클러스터는 `deploy/collector`를 적용한다. 조회 API 이미지는 배포 파이프라인이 kustomize `images`로 레지스트리@digest를 넣는다. 넣지 않으면 pull이 실패한다.
 
+조회 API 이미지가 아직 준비되지 않았다면 `deploy/platform-store`로 지표 저장소를 먼저
+배포한다. 이 묶음에는 Prometheus와 기존 mTLS·NetworkPolicy·Service·ConfigMap만
+포함되며, 조회 API의 Deployment·ServiceAccount·Service·NetworkPolicy를 생성하지 않는다.
+`bravo-prometheus-tls`가 먼저 필요하다. 기존 조회 API를 삭제하거나 멈추는 명령은 아니며
+`--prune`을 사용하지 않는다. 이후 검증된 조회 API 이미지와 전용 Secret이 준비되면
+`deploy/platform`을 기반으로 한 운영 overlay를 적용한다.
+
+저장소 인수에서는 등록 클러스터·수신 Service UID를 먼저 대조하고, 서버 모의 적용 뒤
+Ready endpoint, 실제 mTLS 정상 조회, 미인증·허용되지 않은 인증서 이름·잘못된 서버 이름의
+거부를 확인한다. 로컬 port-forward 확인은 tailnet 경로 검증을 대신하지 않는다.
+이 단계만으로 양쪽 Collector 수집이나 T37 전체 완료를 기록하지 않는다.
+기존 `emptyDir`의 재시작 시 데이터 소실 한계도 그대로이며 영속 운영 배포로 간주하지 않는다.
+
 ### 동작
 
 - **환경 이름은 Collector가 붙인다.** 앱이 보낸 `bravo.env`는 허용 목록에서 지워지고, Collector의 `BRAVO_ENV`로 덮어쓴다.

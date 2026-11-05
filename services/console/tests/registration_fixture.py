@@ -10,6 +10,7 @@ from bravo_platform_events.registration_probe import EnvironmentRef, ProbeUnavai
 
 SOURCE = dict(name="source", kind="aws", roles=["source"], connection_ref="source-reader")
 TARGET = dict(name="target", kind="onprem", roles=["target"], connection_ref="target-reader")
+PROFILE = dict(profile_id="fixture-profile", profile_version="1.0")
 WORKLOAD = dict(
     name="chat",
     repo_url="https://example.invalid/chat",
@@ -85,6 +86,7 @@ def install(api, store, state, root):
         },
         releases=[release],
         can_register=lambda _actor: state["allowed"],
+        evaluation_profiles=[dict(tenant_id="tenant-demo", **PROFILE)],
         probe=Probe(),
     )
 
