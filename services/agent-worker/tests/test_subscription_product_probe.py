@@ -9,11 +9,13 @@ import pytest
 from test_subscription_product import setup as setup
 from test_subscription_product_runtime import INSTANCE, RUNTIME, SSM
 from test_subscription_product_runtime import window_ports as window_ports
+from tls_support import TEST_CA_PEM, identity
 
 from bravo_agent import subscription_product_caller as caller
 from bravo_agent import subscription_server as server
 from bravo_agent.contracts import digest
 from bravo_agent.subscription_product_host import ProductInputProbeCall
+from bravo_agent.subscription_product_tls import client_context
 
 
 def test_probe_never_claims_stages_or_invokes_and_does_not_consume_run(setup):
@@ -72,8 +74,9 @@ def test_probe_does_not_bypass_source_validation(setup):
     assert not (service.journal.root.parent / 'escaped').exists()
 
 
-def test_http_probe_route_is_bounded_and_does_not_reach_run_or_fixture(monkeypatch, setup):
+def test_http_probe_route_is_bounded_and_does_not_reach_run_or_fixture(monkeypatch, setup, tmp_path):
     service, _, body, counts = setup
+    tls, ca_pem = identity(tmp_path)
     ready = queue.Queue()
     def bind(address, handler):
         listener = HTTPServer((address[0], 0), handler)
@@ -83,11 +86,11 @@ def test_http_probe_route_is_bounded_and_does_not_reach_run_or_fixture(monkeypat
     monkeypatch.setattr(service, 'run', lambda *_: pytest.fail('probe cannot execute run'))
     monkeypatch.setattr(server, 'execute_fixture', lambda *_: pytest.fail('probe cannot execute fixture'))
     thread = threading.Thread(target=server.serve, args=({},), kwargs={
-        'product': service, 'fixture_enabled': False}, daemon=True)
+        'product': service, 'fixture_enabled': False, 'tls_context': tls}, daemon=True)
     thread.start()
     port = ready.get(timeout=5)
     def post(route, payload):
-        connection = http.client.HTTPConnection('127.0.0.1', port, timeout=5)
+        connection = http.client.HTTPSConnection('127.0.0.1', port, timeout=5, context=client_context(ca_pem))
         try:
             connection.request('POST', route, json.dumps(payload))
             response = connection.getresponse()
@@ -107,11 +110,11 @@ def test_fixed_probe_caller_no_proxy_and_digest_only_receipt(monkeypatch, setup)
     calls = []
     monkeypatch.setenv('HTTP_PROXY', 'http://127.0.0.1:1')
     def transport(request):
-        assert str(request.url) == 'http://127.0.0.1:18762/input/probe'
+        assert str(request.url) == 'https://127.0.0.1:18762/input/probe'
         calls.append(True)
         status, result = service.probe(json.loads(request.content))
         return httpx.Response(status, json=result)
-    call = ProductInputProbeCall(RUNTIME, httpx.MockTransport(transport))
+    call = ProductInputProbeCall(RUNTIME, TEST_CA_PEM, httpx.MockTransport(transport))
     assert call(body) == service.probe(body)
     assert calls == [True] and counts['invoke'] == 0
 
@@ -124,7 +127,7 @@ def test_fixed_probe_caller_no_proxy_and_digest_only_receipt(monkeypatch, setup)
 def test_probe_caller_rejects_unbound_or_non_probe_response(setup, change):
     service, _, body, _ = setup
     result = service.probe(body)[1] | change
-    call = ProductInputProbeCall(RUNTIME, httpx.MockTransport(lambda _: httpx.Response(200, json=result)))
+    call = ProductInputProbeCall(RUNTIME, TEST_CA_PEM, httpx.MockTransport(lambda _: httpx.Response(200, json=result)))
     status, failure = call(body)
     assert status == 502 and 'private' not in json.dumps(failure)
 
@@ -136,7 +139,7 @@ def test_probe_caller_does_not_retry_redirect_or_echo_errors(setup, status, cont
     def transport(_):
         calls.append(True)
         return httpx.Response(status, content=content, headers={'location': 'https://elsewhere.invalid'})
-    code, failure = ProductInputProbeCall(RUNTIME, httpx.MockTransport(transport))(body)
+    code, failure = ProductInputProbeCall(RUNTIME, TEST_CA_PEM, httpx.MockTransport(transport))(body)
     assert code != 200 and len(calls) == 1 and 'private' not in json.dumps(failure)
 
 
@@ -147,7 +150,7 @@ def test_single_probe_uses_existing_fixed_window_then_cleans_up(setup, window_po
         assert request.url.path == '/input/probe'
         status, result = service.probe(json.loads(request.content))
         return httpx.Response(status, json=result)
-    with caller.product_probe_window(INSTANCE, RUNTIME, ssm=ssm, transport=httpx.MockTransport(transport)) as probe:
+    with caller.product_probe_window(INSTANCE, RUNTIME, ca_pem=TEST_CA_PEM, ssm=ssm, transport=httpx.MockTransport(transport)) as probe:
         assert probe(body)[1]['state'] == 'INPUT_AUTHENTICATED'
         assert probe(body)[0] == 409
     assert probe(body)[0] == 409

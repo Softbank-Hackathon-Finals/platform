@@ -51,6 +51,7 @@ jobs:
     env:
       PRODUCT_INTENT: ${{ toJSON(inputs) }}
       PRODUCT_WORKFLOW_SHA: ${{ github.workflow_sha }}
+      PRODUCT_BROKER_CA_PEM: ${{ vars.BRAVO_SUBSCRIPTION_BROKER_CA_PEM }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:

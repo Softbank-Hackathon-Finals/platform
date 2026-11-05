@@ -96,7 +96,9 @@ def product_service(settings, inputs, journal_root, *, request_inputs=None):
                           request_inputs=request_inputs)
 
 
-def serve(settings, *, product=None, fixture_enabled=True):
+def serve(settings, *, product=None, fixture_enabled=True, tls_context=None):
+    if product is not None and tls_context is None:
+        raise ValueError("authenticated product TLS listener required")
     completed = 0
 
     class Handler(BaseHTTPRequestHandler):
@@ -153,6 +155,19 @@ def serve(settings, *, product=None, fixture_enabled=True):
             self.respond(200, response)
 
     with HTTPServer(("127.0.0.1", 18761), Handler) as server:
+        if tls_context is not None:
+            accept = server.get_request
+
+            def authenticated_request():
+                connection, address = accept()
+                connection.settimeout(5)
+                try:
+                    return tls_context.wrap_socket(connection, server_side=True), address
+                except Exception:
+                    connection.close()
+                    raise
+
+            server.get_request = authenticated_request
         server.timeout = 1
         deadline = time.monotonic() + 600
         while completed < 2 and time.monotonic() < deadline:

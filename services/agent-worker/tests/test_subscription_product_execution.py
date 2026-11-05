@@ -12,6 +12,7 @@ from pathlib import Path
 import pytest
 from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PrivateKey
 from test_subscription_product import setup as setup
+from tls_support import TEST_CA_PEM
 
 from bravo_agent.product_execution_contracts import (
     ARTIFACT,
@@ -42,12 +43,13 @@ def environment(intent):
             'GITHUB_EVENT_NAME': 'workflow_dispatch', 'GITHUB_RUN_ATTEMPT': '1', 'GITHUB_RUN_ID': '1234',
             'GITHUB_SHA': intent.runtime_source_sha, 'PRODUCT_WORKFLOW_SHA': intent.runtime_source_sha,
             'GITHUB_WORKFLOW_REF': f'{REPOSITORY}/.github/workflows/{WORKFLOW}@refs/heads/develop',
-            'BRAVO_INSTANCE_ID': 'i-' + 'a' * 17}
+            'BRAVO_INSTANCE_ID': 'i-' + 'a' * 17, 'PRODUCT_BROKER_CA_PEM': TEST_CA_PEM}
 
 
 def service_window(service, mode, seen, *, fail_cleanup=False):
     @contextmanager
-    def window(*_):
+    def window(*_, ca_pem):
+        assert ca_pem == TEST_CA_PEM
         seen.append('open')
         def call(body):
             seen.append('call')
