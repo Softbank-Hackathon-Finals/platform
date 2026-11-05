@@ -5,7 +5,11 @@ from __future__ import annotations
 from collections.abc import Callable
 from datetime import UTC, datetime
 
-from .record import GENESIS, AuditRecord, canonical, sha256
+from .record import GENESIS, AuditRecord, canonical, check_payload, sha256
+
+
+class OriginConflict(ValueError):
+    """The same upstream event identity arrived again with different content."""
 
 
 def utc_now() -> str:
@@ -18,15 +22,28 @@ class RunLedger:
         self.prev_sha256 = prev_sha256
         self.next_sequence = start_sequence
         self.records: list[AuditRecord] = []
+        # upstream identity → payload digest, including records stored before a resume
+        self.seen: dict[str, str] = {}
 
-    def append(self, source: str, kind: str, payload: dict) -> AuditRecord:
+    def append(self, source: str, kind: str, payload: dict, origin_id: str) -> tuple[AuditRecord | None, bool]:
+        """Append one upstream event. Returns (record, created).
+
+        At-least-once delivery (T10 contract) means the same ``origin_id`` may arrive again: an
+        identical replay is absorbed (``created=False``, no new record), a different payload under
+        the same identity is a conflict and is refused."""
+        digest = sha256(check_payload(payload))
+        if origin_id in self.seen:
+            if self.seen[origin_id] != digest:
+                raise OriginConflict("same upstream event id with different content")
+            return next((r for r in self.records if r.origin_id == origin_id), None), False
         record = AuditRecord.build(plan_id=self.plan_id, run_id=self.run_id, sequence=self.next_sequence,
-                                   recorded_at=self.now(), source=source, kind=kind, payload=payload,
-                                   prev_sha256=self.prev_sha256)
+                                   recorded_at=self.now(), source=source, kind=kind, origin_id=origin_id,
+                                   payload=payload, prev_sha256=self.prev_sha256)
         self.records.append(record)
+        self.seen[origin_id] = record.payload_sha256
         self.prev_sha256 = record.sha256
         self.next_sequence += 1
-        return record
+        return record, True
 
     @classmethod
     def resume(cls, plan_id: str, run_id: str, existing: list[dict], now: Callable[[], str] = utc_now) -> RunLedger:
@@ -37,8 +54,10 @@ class RunLedger:
         if existing and (existing[0]["plan_id"] != plan_id or existing[0]["run_id"] != run_id):
             raise ValueError("cannot resume another run's chain")
         last = existing[-1] if existing else None
-        return cls(plan_id, run_id, now, prev_sha256=last["sha256"] if last else GENESIS,
-                   start_sequence=(last["sequence"] + 1) if last else 1)
+        ledger = cls(plan_id, run_id, now, prev_sha256=last["sha256"] if last else GENESIS,
+                     start_sequence=(last["sequence"] + 1) if last else 1)
+        ledger.seen = {doc["origin_id"]: doc["payload_sha256"] for doc in existing}
+        return ledger
 
 
 def verify_chain(records: list[dict]) -> tuple[bool, str]:

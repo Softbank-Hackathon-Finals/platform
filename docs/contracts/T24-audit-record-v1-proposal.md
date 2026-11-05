@@ -13,6 +13,7 @@
 | `recorded_at` | writer가 기록한 UTC 시각(초). 순서 근거가 아니다 |
 | `source` | `platform.events` · `agent.tools` · `gate` · `executor` · `rehearsal` |
 | `kind` | T10은 `event_type`, T11은 사유 열거값(`DESTRUCTIVE_ATTEMPT_BLOCKED` 등) |
+| `origin_id` | 원 이벤트의 identity. T10은 `t10:<event_id>`, T11은 `t11:<run_id>:attempt<n>:<index>`. 같은 identity가 같은 내용으로 다시 오면 기록하지 않고 흡수하고, 다른 내용이면 충돌로 거부한다(T10 계약의 "T24는 이벤트 ID별 중복을 제거한다") |
 | `payload` | 원 이벤트의 내용. 16 KiB 이하, 비밀 패턴 금지(있으면 기록 거부) |
 | `payload_sha256` | `payload` 정규 JSON의 SHA-256 |
 | `prev_sha256` | 앞 기록의 `sha256`, 첫 기록은 64자리 0 |
@@ -23,7 +24,9 @@
 ## 저장과 영수증
 
 - 객체 키 `audit/<plan_id>/<run_id>/<sequence:08d>.json`, 한 키에 한 번만(`If-None-Match: *`).
-- 쓰기는 COMPLIANCE 보존을 명시하고 응답의 `VersionId`와 readback(`ObjectLockMode` · `RetainUntilDate`)으로 확인한다. 확인되지 않으면 "기록됨"으로 보고하지 않는다.
+- 쓰기는 COMPLIANCE 보존을 명시하고 응답의 `VersionId`와 readback(`ObjectLockMode` · `RetainUntilDate`)으로 확인한다. readback은 끌 수 없고, 확인되지 않으면 "기록됨"으로 보고하지 않는다.
+- 한 입력 묶음은 한 실행(plan, run)만 담는다. 섞여 있으면 아무것도 쓰지 않고 거부한다.
+- `payload`의 문자열 검사와 별도로 **구조 검사**를 한다. `password` · `secret` · `token` · `api_key` · `credential` 류 키 아래의 문자열 값은 출처 표식(`secretKeyRef` · `literal` · `<masked>` 등)만 허용한다. `secret_id` · `secret_arn` · `token_count`처럼 참조 · 수량을 뜻하는 이름은 제외한다.
 - 영수증: `key` · `sha256` · `version_id` · `retain_until` · `retention_mode`. 콘솔은 영수증과 `chain_digest`(마지막 `sha256`)를 실행 화면에 붙인다.
 
 ## 검증 규칙 (`verify_chain`)
@@ -32,7 +35,7 @@
 
 ## 삭제 시도 거부 readback
 
-`probe-denial`은 여섯 시도의 결과 코드(`DENIED` · `PRECONDITION_FAILED` · `ALLOWED` · `UNKNOWN:<code>`)와 보존 상태(`COMPLIANCE_ACTIVE` · `NOT_RETAINED` · `UNKNOWN`)만 기록한다. 버킷 이름 · 원문 오류는 넣지 않는다. 이 readback이 공개 증빙의 원본이다.
+`probe-denial`은 여섯 시도의 결과 코드(`DENIED` · `PRECONDITION_FAILED` · `ALLOWED` · `UNKNOWN:<code>`)와 보존 상태(`COMPLIANCE_ACTIVE` · `NOT_RETAINED` · `UNKNOWN`)만 기록한다. `DENIED`는 403 · `AccessDenied`뿐이다. 400 · 404 · 405 같은 잘못된 요청 · 미지원 응답은 보호의 증거가 아니므로 `UNKNOWN`이다. PASS는 여섯 시도가 전부 기대값이고 보존이 `COMPLIANCE_ACTIVE`로 확인됐을 때만이다. 버킷 이름 · 원문 오류는 넣지 않는다. 이 readback이 공개 증빙의 원본이다.
 
 ## 생산자별 연결
 

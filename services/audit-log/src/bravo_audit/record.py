@@ -28,8 +28,39 @@ SECRET_LIKE = re.compile(
 )
 
 
+# A dictionary key that names a credential. Its string value must be a *reference marker*
+# (where the value comes from), never the value itself. Names that only point at a secret
+# (``secret_id``, ``secret_arn``, ``token_count``) are not credentials.
+SENSITIVE_KEY = re.compile(
+    r"(?i)(?:^|[_.-])(?:password|passwd|pwd|secret|token|api[_-]?key|access[_-]?key|private[_-]?key|"
+    r"credential|credentials|authorization)(?:$|[_.-])"
+)
+REFERENCE_SUFFIXES = ("_id", "_name", "_ref", "_arn", "_path", "_file", "_source", "_sources", "_kind",
+                      "_mode", "_count", "_enabled", "_digest", "_sha256", "_hash", "_version", "_rotation")
+REFERENCE_MARKERS = frozenset({"", "literal", "secretKeyRef", "configMapKeyRef", "fieldRef",
+                               "resourceFieldRef", "unknown", "configurable", "redacted"})
+
+
 class UnsafePayload(ValueError):
     """Payload contains a credential-like string or exceeds the size bound."""
+
+
+def _sensitive_key(key: str) -> bool:
+    lowered = key.lower()
+    return bool(SENSITIVE_KEY.search(key)) and not lowered.endswith(REFERENCE_SUFFIXES)
+
+
+def _check_structure(value, path: str = "") -> None:
+    """Reject a credential value stored under a credential-named key, at any depth."""
+    if isinstance(value, dict):
+        for key, item in value.items():
+            key = str(key)
+            if _sensitive_key(key) and isinstance(item, str) and item not in REFERENCE_MARKERS and not item.startswith("<"):
+                raise UnsafePayload(f"credential value under key path {path + key!r} refused")
+            _check_structure(item, path + key + ".")
+    elif isinstance(value, list | tuple):
+        for item in value:
+            _check_structure(item, path)
 
 
 def canonical(value) -> bytes:
@@ -62,6 +93,7 @@ def check_payload(payload: dict) -> bytes:
     for text in _strings(payload):
         if "\x00" in text or SECRET_LIKE.search(text):
             raise UnsafePayload("payload contains a credential-like value")
+    _check_structure(payload)
     return data
 
 
@@ -75,6 +107,7 @@ class AuditRecord:
     recorded_at: str
     source: str
     kind: str
+    origin_id: str
     payload: dict
     payload_sha256: str
     prev_sha256: str
@@ -85,7 +118,7 @@ class AuditRecord:
 
     @staticmethod
     def build(*, plan_id: str, run_id: str, sequence: int, recorded_at: str, source: str, kind: str,
-              payload: dict, prev_sha256: str) -> AuditRecord:
+              origin_id: str, payload: dict, prev_sha256: str) -> AuditRecord:
         body = {
             "schema_version": "1.0",
             "record_id": f"{run_id}:{sequence}",
@@ -95,6 +128,7 @@ class AuditRecord:
             "recorded_at": recorded_at,
             "source": source,
             "kind": kind,
+            "origin_id": origin_id,
             "payload": payload,
             "payload_sha256": sha256(check_payload(payload)),
             "prev_sha256": prev_sha256,

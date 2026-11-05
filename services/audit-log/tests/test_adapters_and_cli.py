@@ -7,8 +7,8 @@ from bravo_audit.cli import main
 
 
 def test_platform_events_keep_type_as_kind(platform_events):
-    plan, run, source, kind, payload = from_platform_event(platform_events[1])
-    assert (plan, run, source, kind) == ("plan-demo", "run-demo-1", "platform.events", "gate.completed")
+    plan, run, source, kind, origin, payload = from_platform_event(platform_events[1])
+    assert (plan, run, source, kind, origin) == ("plan-demo", "run-demo-1", "platform.events", "gate.completed", "t10:plan-demo:2")
     assert payload["data"]["decision"] == "BLOCK" and "plan_id" not in payload
     platform_events[0]["event_id"] = "plan-demo:9"
     with pytest.raises(ValueError):
@@ -19,13 +19,13 @@ def test_platform_events_keep_type_as_kind(platform_events):
 
 
 def test_tool_events_expose_reason_as_kind_for_the_demo_scene(tool_events):
-    plan, run, source, kind, payload = from_agent_tool_event(tool_events[1], "plan-demo")
-    assert (source, kind) == ("agent.tools", "DESTRUCTIVE_ATTEMPT_BLOCKED")
+    plan, run, source, kind, origin, payload = from_agent_tool_event(tool_events[1], "plan-demo", 1)
+    assert (source, kind, origin) == ("agent.tools", "DESTRUCTIVE_ATTEMPT_BLOCKED", "t11:run-demo-1:attempt1:1")
     assert payload == {"attempt": 1, "tool": "rehearsal.exec", "outcome": "DENIED",
                        "reason": "DESTRUCTIVE_ATTEMPT_BLOCKED", "category": "bucket_delete"}
     tool_events[0]["outcome"] = "MAYBE"
     with pytest.raises(ValueError):
-        from_agent_tool_event(tool_events[0], "plan-demo")
+        from_agent_tool_event(tool_events[0], "plan-demo", 0)
 
 
 def test_cli_append_then_verify_round_trip(tmp_path, platform_events, tool_events, capsys):
@@ -49,10 +49,20 @@ def test_cli_append_then_verify_round_trip(tmp_path, platform_events, tool_event
     assert out["ok"] is True and out["records"] == 4
     receipts = json.loads((tmp_path / "r2.json").read_text(encoding="utf-8"))
     assert receipts["records"] == 2 and receipts["receipts"][0]["key"].endswith("00000003.json")
-    # a second append of the same sequence must not overwrite history
+    # redelivery of the same upstream events after a resume creates no new records
+    resume.write_text("\n".join(p.read_text(encoding="utf-8") for p in sorted(run_dir.glob("*.json"))), encoding="utf-8")
     assert main(["append", "--source", "agent.tools", "--plan", "plan-demo", "--input", str(tools),
                  "--sink", str(tmp_path / "store"), "--receipts", str(tmp_path / "r3.json"),
-                 "--resume-from", str(resume)]) == 3
+                 "--resume-from", str(resume)]) == 0
+    r3 = json.loads((tmp_path / "r3.json").read_text(encoding="utf-8"))
+    assert r3["records"] == 0 and r3["absorbed_redeliveries"] == 2 and len(list(run_dir.glob("*.json"))) == 4
+    # same upstream id with different content is a conflict, not a new record
+    changed = dict(platform_events[0])
+    changed["data"] = {"from": None, "to": "ANALYZE"}
+    events.write_text(json.dumps(changed), encoding="utf-8")
+    assert main(["append", "--source", "platform.events", "--input", str(events), "--sink", str(tmp_path / "store"),
+                 "--receipts", str(tmp_path / "r4.json"), "--resume-from", str(resume)]) == 3
+    assert len(list(run_dir.glob("*.json"))) == 4
 
 
 def test_cli_rejects_events_of_another_run(tmp_path, platform_events):
@@ -60,3 +70,17 @@ def test_cli_rejects_events_of_another_run(tmp_path, platform_events):
     events.write_text(json.dumps(platform_events[0]), encoding="utf-8")
     assert main(["append", "--source", "platform.events", "--run", "run-other", "--input", str(events),
                  "--sink", str(tmp_path / "store"), "--receipts", str(tmp_path / "r.json")]) == 2
+
+
+@pytest.mark.parametrize("mutate", ["run", "plan"])
+def test_cli_rejects_a_batch_that_mixes_runs_even_without_filters(tmp_path, platform_events, mutate):
+    other = dict(platform_events[1])
+    if mutate == "run":
+        other["run_id"] = "run-demo-2"
+    else:
+        other["plan_id"], other["event_id"] = "plan-other", "plan-other:2"
+    events = tmp_path / "events.jsonl"
+    events.write_text(json.dumps(platform_events[0]) + "\n" + json.dumps(other), encoding="utf-8")
+    assert main(["append", "--source", "platform.events", "--input", str(events), "--sink", str(tmp_path / "store"),
+                 "--receipts", str(tmp_path / "r.json")]) == 2
+    assert not (tmp_path / "store").exists()

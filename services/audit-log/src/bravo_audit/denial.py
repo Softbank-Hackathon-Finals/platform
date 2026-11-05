@@ -6,17 +6,18 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-DENIED_CODES = {"AccessDenied", "InvalidRequest", "ObjectLockConfigurationNotFoundError", "MethodNotAllowed"}
-
 
 def _outcome(operation) -> str:
+    """Only an authorisation refusal (403 / AccessDenied) counts as DENIED. A malformed request,
+    a missing object or an unsupported method (400 / 404 / 405) proves nothing about protection
+    and stays UNKNOWN so it can never be counted as evidence."""
     try:
         operation()
     except Exception as exc:  # noqa: BLE001 - boto ClientError or a fake; we only read its code
         response = getattr(exc, "response", None) or {}
         code = str(response.get("Error", {}).get("Code", type(exc).__name__))
         status = response.get("ResponseMetadata", {}).get("HTTPStatusCode")
-        if code in DENIED_CODES or status == 403:
+        if code == "AccessDenied" or status == 403:
             return "DENIED"
         if code == "PreconditionFailed" or status == 412:
             return "PRECONDITION_FAILED"
@@ -48,6 +49,8 @@ def probe_denial(client: Any, bucket: str, key: str, version_id: str, *, now=Non
         retention = "COMPLIANCE_ACTIVE" if got.get("Mode") == "COMPLIANCE" and until is not None and until > now() else "NOT_RETAINED"
     except Exception:  # noqa: BLE001 - a write-only identity may not read retention; that is UNKNOWN, not PASS
         retention = "UNKNOWN"
-    passed = all(checks[name] == expected[name] for name in checks) and retention != "NOT_RETAINED"
+    # PASS needs every attempt refused *and* a confirmed active COMPLIANCE retention. Unknown
+    # retention (unreadable, no lock configuration) is not evidence of protection.
+    passed = all(checks[name] == expected[name] for name in checks) and retention == "COMPLIANCE_ACTIVE"
     return {"bucket_ref": "redacted", "key_suffix": key.rsplit("/", 1)[-1], "checks": checks,
             "retention": retention, "pass": passed, "raw_output_suppressed": True}

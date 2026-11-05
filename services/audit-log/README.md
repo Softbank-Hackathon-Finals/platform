@@ -9,7 +9,7 @@
 | `record.py` | 기록 v1 스키마, 정규 직렬화, 비밀 패턴 거부, 해시 결속 검증 |
 | `ledger.py` | 실행별 체인(`RunLedger`), 체인 검증(`verify_chain`), 저장된 체인 이어쓰기(`resume`) |
 | `adapters.py` | T10 이벤트 → 기록, T11 도구 이벤트 → 기록. `kind`는 event_type 또는 도구 사유 |
-| `sink.py` | `FileSink`(로컬, 덮어쓰기 거부), `ObjectLockSink`(S3, `If-None-Match: *` + COMPLIANCE 보존, readback 확인) |
+| `sink.py` | `FileSink`(로컬, 덮어쓰기 거부), `ObjectLockSink`(S3, `If-None-Match: *` + COMPLIANCE 보존, readback 필수) |
 | `denial.py` | 삭제 · 버전 삭제 · 보존 단축 · 덮어쓰기 · 버킷 정책 · Lock 설정 변경 시도 → 전부 거부여야 PASS |
 | `cli.py` | `bravo-audit append / verify / probe-denial` |
 | `schemas/audit-record.schema.json` | 기록 v1 JSON Schema |
@@ -28,7 +28,9 @@
 
 - `sequence`는 실행별 1부터 연속이고 `prev_sha256`이 바로 앞 기록을 가리킨다. 순서를 바꾸거나 하나를 빼거나 내용을 고치면 `verify_chain`이 실패한다.
 - 객체 키는 `audit/<plan_id>/<run_id>/<sequence:08d>.json`. 같은 키에 두 번 쓰지 않는다(`If-None-Match: *`).
-- `payload`에 자격증명 패턴(AKIA… · `sk-…` · PEM · `user:password@` · `password=…`)이 있으면 기록 자체를 거부한다. 감사 로그는 콘솔과 검토자가 읽는 문서이므로 비밀이 들어가면 안 된다.
+- `payload`에 자격증명 패턴(AKIA… · `sk-…` · PEM · `user:password@` · `password=…`)이 있거나, `password` · `secret` · `token` · `api_key` · `credential` 류 키 아래에 출처 표식이 아닌 문자열 값이 있으면 기록 자체를 거부한다. 감사 로그는 콘솔과 검토자가 읽는 문서이므로 비밀이 들어가면 안 된다.
+- `origin_id`(T10 `event_id`, T11 `attempt+index`)로 재전송을 흡수한다. 같은 identity · 같은 내용은 기록하지 않고, 같은 identity · 다른 내용은 충돌로 거부한다. 재개(`--resume-from`) 뒤에도 같다.
+- 한 입력 묶음은 한 실행만 담는다. plan/run이 섞이면 쓰기 전에 거부한다.
 - 데모 8.4 장면 "버킷 삭제 시도 차단"은 `source=agent.tools, kind=DESTRUCTIVE_ATTEMPT_BLOCKED, payload.category=bucket_delete` 기록으로 찾는다.
 
 ## 삭제 시도 거부 (이슈 #28 "삭제 시도 거부 확인")
@@ -44,7 +46,7 @@
 | 버킷 정책 변경 | `AccessDenied` |
 | Object Lock 설정 변경 | `AccessDenied` |
 
-하나라도 `ALLOWED`면 `pass=false`다. 보존 상태를 읽지 못하면 `UNKNOWN`으로 두고 PASS로 바꾸지 않는다. 출력에 버킷 이름 · 원문 오류 메시지는 넣지 않는다.
+하나라도 `ALLOWED`면 `pass=false`다. `DENIED`는 403 · `AccessDenied`뿐이고 400 · 404 · 405는 `UNKNOWN`이다. 보존 상태가 `COMPLIANCE_ACTIVE`로 읽히지 않으면 `pass=false`다(읽지 못하면 `UNKNOWN`, 통과 아님). 출력에 버킷 이름 · 원문 오류 메시지는 넣지 않는다.
 
 ## 쓰기 identity 요구사항 (인프라 담당과 맞출 것)
 

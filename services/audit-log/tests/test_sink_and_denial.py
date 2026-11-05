@@ -17,9 +17,10 @@ class Denied(Exception):
 class LockedStore:
     """Behaves like a versioned Object Lock bucket seen by a write-only identity."""
 
-    def __init__(self, *, versioning=True, lock=True, allow_delete=False, allow_policy=False):
+    def __init__(self, *, versioning=True, lock=True, allow_delete=False, allow_policy=False, refusal=None):
         self.objects, self.calls = {}, []
         self.versioning, self.lock, self.allow_delete, self.allow_policy = versioning, lock, allow_delete, allow_policy
+        self.refusal = refusal or (lambda: Denied())  # how destructive requests are refused
 
     def put_object(self, **kw):
         self.calls.append(("put_object", kw))
@@ -39,18 +40,18 @@ class LockedStore:
         if self.allow_delete:
             self.objects.pop(kw["Key"], None)
             return {}
-        raise Denied()
+        raise self.refusal()
 
     def put_object_retention(self, **kw):
-        raise Denied("InvalidRequest", 400)
+        raise self.refusal()
 
     def put_bucket_policy(self, **kw):
         if self.allow_policy:
             return {}
-        raise Denied()
+        raise self.refusal()
 
     def put_object_lock_configuration(self, **kw):
-        raise Denied()
+        raise self.refusal()
 
     def get_object_retention(self, **kw):
         o = self.objects[kw["Key"]]
@@ -61,7 +62,7 @@ class LockedStore:
 
 def test_file_sink_never_overwrites(tmp_path, ledger):
     sink = FileSink(tmp_path)
-    r = ledger.append("gate", "gate.completed", {"decision": "PASS"})
+    r, _ = ledger.append("gate", "gate.completed", {"decision": "PASS"}, "t19:gate-1")
     receipt = sink.put(r)
     assert receipt.key == "audit/plan-demo/run-demo-1/00000001.json" and receipt.version_id == "file"
     assert (tmp_path / receipt.key).stat().st_mode & 0o777 == 0o600
@@ -72,7 +73,7 @@ def test_file_sink_never_overwrites(tmp_path, ledger):
 def test_object_lock_sink_requests_compliance_retention_and_no_overwrite(ledger):
     store = LockedStore()
     sink = ObjectLockSink(store, "bravo-audit", retention_days=7, now=lambda: NOW)
-    r = ledger.append("agent.tools", "DESTRUCTIVE_ATTEMPT_BLOCKED", {"category": "bucket_delete"})
+    r, _ = ledger.append("agent.tools", "DESTRUCTIVE_ATTEMPT_BLOCKED", {"category": "bucket_delete"}, "t11:run-demo-1:attempt1:0")
     receipt = sink.put(r)
     _, kw = store.calls[0]
     assert kw["IfNoneMatch"] == "*" and kw["ObjectLockMode"] == "COMPLIANCE"
@@ -86,14 +87,19 @@ def test_object_lock_sink_requests_compliance_retention_and_no_overwrite(ledger)
 @pytest.mark.parametrize("store", [LockedStore(versioning=False), LockedStore(lock=False)])
 def test_object_lock_sink_refuses_to_report_an_unretained_write(ledger, store):
     sink = ObjectLockSink(store, "bravo-audit", now=lambda: NOW)
-    r = ledger.append("gate", "gate.completed", {"decision": "PASS"})
+    r, _ = ledger.append("gate", "gate.completed", {"decision": "PASS"}, "t19:gate-1")
     with pytest.raises(UnverifiedWrite):
         sink.put(r)
 
 
+def test_readback_cannot_be_switched_off(ledger):
+    with pytest.raises(TypeError):
+        ObjectLockSink(LockedStore(), "bravo-audit", readback=False)  # review: no unverified receipts
+
+
 def test_denial_probe_passes_only_when_every_attempt_is_refused(ledger):
     store = LockedStore()
-    r = ledger.append("gate", "gate.completed", {"decision": "PASS"})
+    r, _ = ledger.append("gate", "gate.completed", {"decision": "PASS"}, "t19:gate-1")
     receipt = ObjectLockSink(store, "bravo-audit", now=lambda: NOW).put(r)
     result = probe_denial(store, "bravo-audit", receipt.key, receipt.version_id, now=lambda: NOW)
     assert result["pass"] is True and result["retention"] == "COMPLIANCE_ACTIVE"
@@ -109,7 +115,27 @@ def test_denial_probe_passes_only_when_every_attempt_is_refused(ledger):
 ])
 def test_denial_probe_fails_when_the_store_allows_tampering(ledger, kw, failing):
     store = LockedStore(**kw)
-    r = ledger.append("gate", "gate.completed", {"decision": "PASS"})
+    r, _ = ledger.append("gate", "gate.completed", {"decision": "PASS"}, "t19:gate-1")
     receipt = ObjectLockSink(store, "bravo-audit", now=lambda: NOW).put(r)
     result = probe_denial(store, "bravo-audit", receipt.key, receipt.version_id, now=lambda: NOW)
     assert result["pass"] is False and result["checks"][failing] == "ALLOWED"
+
+
+class RetentionUnreadable(LockedStore):
+    def get_object_retention(self, **kw):
+        raise Denied()  # write-only identity: cannot read retention
+
+
+@pytest.mark.parametrize("store, retention", [
+    (RetentionUnreadable(), "UNKNOWN"),
+    (LockedStore(refusal=lambda: Denied("InvalidRequest", 400)), "COMPLIANCE_ACTIVE"),
+    (LockedStore(refusal=lambda: Denied("MethodNotAllowed", 405)), "COMPLIANCE_ACTIVE"),
+])
+def test_denial_probe_never_passes_on_unknown_retention_or_malformed_refusals(ledger, store, retention):
+    # review (#257): UNKNOWN retention and 400/404/405 refusals are not evidence of protection.
+    r, _ = ledger.append("gate", "gate.completed", {"decision": "PASS"}, "t19:gate-1")
+    receipt = ObjectLockSink(store, "bravo-audit", now=lambda: NOW).put(r)
+    result = probe_denial(store, "bravo-audit", receipt.key, receipt.version_id, now=lambda: NOW)
+    assert result["pass"] is False and result["retention"] == retention
+    if retention == "COMPLIANCE_ACTIVE":
+        assert all(v.startswith("UNKNOWN:") for k, v in result["checks"].items() if k != "overwrite_precondition_failed")

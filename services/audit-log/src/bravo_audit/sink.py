@@ -61,14 +61,12 @@ class ObjectLockSink:
     existing key) and an explicit COMPLIANCE retention. A write counts only if the store returns a
     VersionId and, when readback is possible, reports the retention we asked for."""
 
-    def __init__(self, client: Any, bucket: str, *, retention_days: int = 7, prefix: str = "audit",
-                 now=None, readback: bool = True):
+    def __init__(self, client: Any, bucket: str, *, retention_days: int = 7, prefix: str = "audit", now=None):
         if retention_days < 1:
             raise ValueError("retention must be at least one day")
         self.client, self.bucket, self.prefix = client, bucket, prefix
         self.retention = timedelta(days=retention_days)
         self.now = now or (lambda: datetime.now(UTC))
-        self.readback = readback
 
     def put(self, record: AuditRecord) -> Receipt:
         key = object_key(record, self.prefix)
@@ -82,12 +80,12 @@ class ObjectLockSink:
         version_id = response.get("VersionId") if isinstance(response, dict) else None
         if not version_id or version_id == "null":
             raise UnverifiedWrite("store returned no version id; bucket versioning/Object Lock not active")
-        mode, until = "COMPLIANCE", retain_until.strftime("%Y-%m-%dT%H:%M:%SZ")
-        if self.readback:
-            head = self.client.head_object(Bucket=self.bucket, Key=key, VersionId=version_id)
-            mode = head.get("ObjectLockMode")
-            observed = head.get("ObjectLockRetainUntilDate")
-            if mode != "COMPLIANCE" or observed is None or observed < retain_until - timedelta(seconds=1):
-                raise UnverifiedWrite("readback did not confirm COMPLIANCE retention")
-            until = observed.strftime("%Y-%m-%dT%H:%M:%SZ") if hasattr(observed, "strftime") else str(observed)
+        # The receipt reports what the store confirmed, never what was requested. Readback is not
+        # optional: a receipt without it would be consumed as a confirmed COMPLIANCE retention.
+        head = self.client.head_object(Bucket=self.bucket, Key=key, VersionId=version_id)
+        mode = head.get("ObjectLockMode")
+        observed = head.get("ObjectLockRetainUntilDate")
+        if mode != "COMPLIANCE" or observed is None or observed < retain_until - timedelta(seconds=1):
+            raise UnverifiedWrite("readback did not confirm COMPLIANCE retention")
+        until = observed.strftime("%Y-%m-%dT%H:%M:%SZ") if hasattr(observed, "strftime") else str(observed)
         return Receipt(key, record.sha256, version_id, until, mode)

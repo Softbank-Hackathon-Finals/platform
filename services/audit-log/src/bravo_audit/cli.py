@@ -9,7 +9,7 @@ from pathlib import Path
 
 from .adapters import from_agent_tool_event, from_platform_event
 from .denial import probe_denial
-from .ledger import RunLedger, chain_digest, verify_chain
+from .ledger import OriginConflict, RunLedger, chain_digest, verify_chain
 from .record import UnsafePayload
 from .sink import FileSink, ObjectLockSink, UnverifiedWrite
 
@@ -29,31 +29,44 @@ def _sink(target: str, retention_days: int):
 
 def cmd_append(args) -> int:
     ledger = None
-    receipts = []
+    receipts, absorbed = [], 0
     sink = _sink(args.sink, args.retention_days)
-    for event in _load_jsonl(Path(args.input)):
+    # Every event is mapped and bound to one (plan, run) *before* anything is written: a batch
+    # that mixes runs is rejected whole, so a record can never be attributed to another run.
+    mapped = []
+    for index, event in enumerate(_load_jsonl(Path(args.input))):
         try:
             if args.source == "platform.events":
-                plan_id, run_id, source, kind, payload = from_platform_event(event)
+                mapped.append(from_platform_event(event))
             else:
-                plan_id, run_id, source, kind, payload = from_agent_tool_event(event, args.plan)
+                mapped.append(from_agent_tool_event(event, args.plan, index))
         except ValueError as exc:
-            print(f"rejected event: {exc}", file=sys.stderr)
+            print(f"rejected event {index}: {exc}", file=sys.stderr)
             return 2
+    identities = {(m[0], m[1]) for m in mapped}
+    if len(identities) > 1:
+        print("input mixes more than one plan/run; one ledger per run", file=sys.stderr)
+        return 2
+    if mapped:
+        plan_id, run_id = mapped[0][:2]
         if args.plan and plan_id != args.plan or args.run and run_id != args.run:
-            print("event does not belong to the requested plan/run", file=sys.stderr)
+            print("events do not belong to the requested plan/run", file=sys.stderr)
             return 2
-        if ledger is None:
-            existing = _load_jsonl(Path(args.resume_from)) if args.resume_from else []
-            ledger = RunLedger.resume(plan_id, run_id, existing)
+        existing = _load_jsonl(Path(args.resume_from)) if args.resume_from else []
+        ledger = RunLedger.resume(plan_id, run_id, existing)
+    for _plan, _run, source, kind, origin_id, payload in mapped:
         try:
-            record = ledger.append(source, kind, payload)
+            record, created = ledger.append(source, kind, payload, origin_id)
+            if not created:
+                absorbed += 1
+                continue
             receipts.append(sink.put(record).as_dict())
-        except (UnsafePayload, UnverifiedWrite, FileExistsError) as exc:
+        except (UnsafePayload, UnverifiedWrite, FileExistsError, OriginConflict) as exc:
             print(f"stopped before record {ledger.next_sequence}: {type(exc).__name__}", file=sys.stderr)
             return 3
     out = {"plan_id": ledger.plan_id if ledger else args.plan, "run_id": ledger.run_id if ledger else args.run,
-           "records": len(receipts), "chain_digest": chain_digest([r.as_dict() for r in ledger.records]) if ledger else None,
+           "records": len(receipts), "absorbed_redeliveries": absorbed,
+           "chain_digest": chain_digest([r.as_dict() for r in ledger.records]) if ledger else None,
            "receipts": receipts}
     Path(args.receipts).write_text(json.dumps(out, ensure_ascii=False, indent=2), encoding="utf-8")
     print(json.dumps({k: v for k, v in out.items() if k != "receipts"}, ensure_ascii=False))
