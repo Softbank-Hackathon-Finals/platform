@@ -148,3 +148,51 @@ def test_demo_retention_defaults_to_one_day(monkeypatch, tmp_path, platform_even
     assert main(["append", "--source", "platform.events", "--input", _write(tmp_path, platform_events),
                  "--sink", "s3://bucket/audit", "--receipts", str(tmp_path / "r.json")]) == 0
     assert seen == [1]
+
+
+def _forwarding_event(platform_events, tool_events, **data):
+    event = dict(platform_events[1], data=dict(platform_events[1]["data"], tool_events=tool_events, **data))
+    return event
+
+
+def test_forwarded_tool_events_keep_their_original_index(platform_events, tool_events):
+    from bravo_audit.adapters import expand_platform_event
+
+    rows = expand_platform_event(_forwarding_event(platform_events, tool_events))
+    assert [r[2] for r in rows] == ["platform.events", "agent.tools", "agent.tools"]
+    assert [r[4] for r in rows[1:]] == ["t11:run-demo-1:attempt1:0", "t11:run-demo-1:attempt1:1"]
+    assert rows[2][3] == "DESTRUCTIVE_ATTEMPT_BLOCKED"
+    # The platform record carries a count and digest, not a second copy of the array.
+    assert "tool_events" not in rows[0][5]["data"] and rows[0][5]["data"]["tool_events_count"] == 2
+    # Same origin ids as submitting the attempt's events directly, so either path dedupes the other.
+    assert [r[4] for r in rows[1:]] == [from_agent_tool_event(e, "plan-demo", i)[4] for i, e in enumerate(tool_events)]
+
+
+@pytest.mark.parametrize("change", [
+    lambda d: d.update(tool_events_status="UNAVAILABLE"),
+    lambda d: d.update(tool_events="not a list"),
+    lambda d: d["tool_events"][0].update(run_id="run-other"),
+])
+def test_partial_or_foreign_forwarded_events_are_rejected(platform_events, tool_events, change):
+    from bravo_audit.adapters import expand_platform_event
+
+    event = _forwarding_event(platform_events, [dict(e) for e in tool_events])
+    change(event["data"])
+    with pytest.raises(ValueError):
+        expand_platform_event(event)
+
+
+def test_cli_absorbs_tool_events_seen_both_directly_and_forwarded(tmp_path, platform_events, tool_events, capsys):
+    store = str(tmp_path / "store")
+    assert main(["append", "--source", "platform.events", "--input", _write(tmp_path, platform_events[:1]),
+                 "--sink", store, "--receipts", str(tmp_path / "r1.json")]) == 0
+    run = str(tmp_path / "store/audit/plan-demo/run-demo-1")
+    assert main(["append", "--source", "agent.tools", "--plan", "plan-demo", "--input", _write(tmp_path, tool_events, "t.jsonl"),
+                 "--sink", store, "--receipts", str(tmp_path / "r2.json"), "--resume-from", run]) == 0
+    forwarded = [_forwarding_event(platform_events, tool_events)]
+    capsys.readouterr()
+    assert main(["append", "--source", "platform.events", "--input", _write(tmp_path, forwarded, "f.jsonl"),
+                 "--sink", store, "--receipts", str(tmp_path / "r3.json"), "--resume-from", run]) == 0
+    out = json.loads(capsys.readouterr().out)
+    assert out["records"] == 1 and out["absorbed_redeliveries"] == 2
+    assert main(["verify", run]) == 0

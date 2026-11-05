@@ -7,7 +7,7 @@ import json
 import sys
 from pathlib import Path
 
-from .adapters import from_agent_tool_event, from_platform_event
+from .adapters import expand_platform_event, from_agent_tool_event
 from .denial import probe_denial
 from .ledger import OriginConflict, RunLedger, chain_digest, verify_chain
 from .record import UnsafePayload
@@ -56,7 +56,7 @@ def cmd_append(args) -> int:
     for index, event in enumerate(_load_jsonl(Path(args.input))):
         try:
             if args.source == "platform.events":
-                mapped.append(from_platform_event(event))
+                mapped.extend(expand_platform_event(event))
             else:
                 mapped.append(from_agent_tool_event(event, args.plan, index))
         except ValueError as exc:

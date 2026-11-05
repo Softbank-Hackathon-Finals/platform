@@ -52,5 +52,24 @@
     "shorten_compliance_retention": "AccessDenied (object protected by object lock)",
     "switch_to_governance": "AccessDenied (object protected by object lock)",
     "head_after": "COMPLIANCE, retain-until unchanged, SSE aws:kms"
+  },
+  "forwarded_tool_events": {
+    "run_id": "run-t24-fwd-11060204",
+    "input": "one T10 event (same PlanStore event, data.tool_events = the 3 T11 Tools events, tool_events_status COMPLETE)",
+    "append_forwarding_event": {
+      "records": 4,
+      "absorbed_redeliveries": 0,
+      "chain_digest": "9485a0f8ce2113717bf2f08d1f63f619d417284169f288098a39bdc8fc4fd1d3"
+    },
+    "same_tool_events_submitted_directly": {
+      "records": 0,
+      "absorbed_redeliveries": 3,
+      "chain_digest": "9485a0f8ce2113717bf2f08d1f63f619d417284169f288098a39bdc8fc4fd1d3"
+    },
+    "verify_as_reader": {
+      "records": 4,
+      "ok": true,
+      "chain_digest": "9485a0f8ce2113717bf2f08d1f63f619d417284169f288098a39bdc8fc4fd1d3"
+    }
   }
 }

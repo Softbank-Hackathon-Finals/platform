@@ -2,7 +2,7 @@
 
 설계 7.4 "감사 로그" 컴포넌트와 8.3 "전부 기록" 가드레일의 저장 부분이다. 새 이벤트를 만들지 않는다. T10 계획 이벤트(6종)와 T11 도구 계층 이벤트를 받아 **실행(run) 단위 해시 체인**으로 묶고, **S3 Object Lock(COMPLIANCE)** 버킷에 한 기록당 한 객체로 보존한다. 삭제 · 단축 · 덮어쓰기가 거부되는지는 같은 패키지의 탐침이 확인한다.
 
-**상태: 시험 60개 통과. 플랫폼 계정에 실제 Object Lock 버킷과 쓰기 · 검색 역할을 만들고([`infra/envs/platform-audit`](../../infra/envs/platform-audit/README.md)), 실제 T10 · T11 생산자 이벤트 기록 · 이어 쓰기 · 재전송 흡수 · 체인 검증 · 삭제 거부 탐침을 확인했다([실측 증빙](../../docs/evidence/t24-audit-live-2026-11-06/README.md)). T10 서비스와의 상시 연결은 아직 없다(아래 "남은 일").**
+**상태: 시험 65개 통과. 플랫폼 계정에 실제 Object Lock 버킷과 쓰기 · 검색 역할을 만들고([`infra/envs/platform-audit`](../../infra/envs/platform-audit/README.md)), 실제 T10 · T11 생산자 이벤트 기록 · 이어 쓰기 · 재전송 흡수 · 체인 검증 · 삭제 거부 탐침을 확인했다([실측 증빙](../../docs/evidence/t24-audit-live-2026-11-06/README.md)). T10 서비스와의 상시 연결은 아직 없다(아래 "남은 일").**
 
 | 파일 | 역할 |
 |---|---|
@@ -79,7 +79,8 @@ bravo-audit probe-denial --bucket <bucket> --key audit/plan-demo/run-demo-1/0000
 ## 남은 일 · 한계
 
 - **실측 완료(11/6)**: 실제 버킷 쓰기 · readback · 이어 쓰기 · 재전송 흡수 · 검색 역할 검증 · 삭제 거부 탐침. 입력은 T10 `PlanStore`와 T11 도구 계층이 실제로 만든 이벤트다([증빙](../../docs/evidence/t24-audit-live-2026-11-06/README.md)).
-- **미연결**: T10 서비스의 상시 기록 경로와 `data.tool_events` 배열 분해 어댑터. 지금은 CLI로 넣는다. 쓰기 역할의 신뢰 주체도 아직 운영자 SSO 역할뿐이라, T10 런타임 역할을 `writer_principal_arns`에 추가해야 한다.
+- `data.tool_events`: T10 이벤트에 실린 배열을 원래 순번 그대로 도구 기록으로 나눈다(`expand_platform_event`). 같은 시도를 T11에서 직접 보낸 경우와 `origin_id`가 같아 어느 경로로 와도 한 번만 기록된다. 상태가 `COMPLETE`가 아니거나 다른 실행의 이벤트가 섞이면 거부한다.
+- **미연결**: T10 서비스의 상시 기록 경로. 지금은 CLI로 넣는다. 쓰기 역할의 신뢰 주체도 아직 운영자 SSO 역할뿐이라, T10 런타임 역할을 `writer_principal_arns`에 추가해야 한다.
 - T10 서비스가 이벤트를 커밋할 때 이 라이브러리를 직접 호출할지, SSE를 구독하는 별도 writer로 둘지는 T10 담당과 정한다(현재는 CLI · 라이브러리만).
 - 콘솔(T21) 표시 형식은 `kind`와 `payload.category`를 그대로 쓰면 된다.
 - Object Lock은 S3 API 계층의 보호다. 계정 루트의 버킷 삭제, 보존 만료 뒤 삭제는 막지 않는다.

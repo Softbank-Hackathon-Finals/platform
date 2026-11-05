@@ -39,3 +39,34 @@ def from_agent_tool_event(event: dict, plan_id: str, index: int) -> tuple[str, s
     payload = {k: v for k, v in event.items() if k != "run_id"}
     origin = f"t11:{event['run_id']}:attempt{int(event['attempt'])}:{index}"
     return plan_id, event["run_id"], "agent.tools", str(event["reason"]), origin, payload
+
+
+def expand_platform_event(event: dict) -> list[tuple[str, str, str, str, str, dict]]:
+    """A T10 event plus the T11 tool events it forwards in ``data.tool_events``.
+
+    T15 signs one attempt's T11 events and T10 forwards the array unchanged (rehearsal-runner
+    ``collect_tool_events``). Each element keeps its *original* index in that array, so the
+    ``origin_id`` matches what a direct T11 submission of the same attempt would produce and a
+    redelivery through either path is absorbed. The platform record keeps only the count and a
+    digest of the array, not a second copy. An array whose status is not ``COMPLETE`` is not
+    split: a partial list must not look like the whole attempt."""
+    import hashlib
+    import json
+
+    head = from_platform_event(event)
+    data = event["data"]
+    if not isinstance(data, dict) or "tool_events" not in data:
+        return [head]
+    tools = data["tool_events"]
+    if not isinstance(tools, list) or data.get("tool_events_status", "COMPLETE") != "COMPLETE":
+        raise ValueError("tool_events must be a complete list")
+    plan_id, run_id, source, kind, origin, payload = head
+    digest = hashlib.sha256(json.dumps(tools, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+    summary = {k: v for k, v in data.items() if k != "tool_events"} | {
+        "tool_events_count": len(tools), "tool_events_sha256": digest}
+    out = [(plan_id, run_id, source, kind, origin, payload | {"data": summary})]
+    for index, tool in enumerate(tools):
+        if not isinstance(tool, dict) or tool.get("run_id") != run_id:
+            raise ValueError("forwarded tool event does not belong to this run")
+        out.append(from_agent_tool_event(tool, plan_id, index))
+    return out
