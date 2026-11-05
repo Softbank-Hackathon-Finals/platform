@@ -15,6 +15,7 @@
 | ③ 공간 안 접속 확인 | `rehearsal_exec_probe` / `mcp__bravo__rehearsal_exec_probe` | `rehearsal.exec.probe` | `probe` |
 
 - 세 도구는 T15가 그 실행에 exec를 켰고 로컬 채널이 열려 있을 때만 노출한다. 끈 작업 종류에서 호출되면 지금처럼 `TOOL_NOT_PROVIDED`로 거부한다.
+- **기본값은 꺼짐이다.** 러너 설정·제품 실행 입력·T11 모두 켜는 값이 없거나 읽을 수 없으면 끈 것으로 본다. 해피패스(시연 흐름) 검증이 끝날 때까지는 모든 작업 종류에서 끄고, 검증 뒤에 작업 종류별로 켠다. 끈 상태의 리허설은 exec 도입 전과 같은 순서·결과여야 하며, T42 변경마다 이를 시험으로 확인한다.
 - 예약 이름 `rehearsal.exec`·`rehearsal.run`·`rehearsal.result`는 계속 `TOOL_NOT_PROVIDED`다. OpenAI 경로도 같은 사유로 기록한다(T11 PR #344에서 수정 중).
 
 ## 2. 모델 인자
@@ -136,7 +137,7 @@ T15 → broker → T11 → 모델로 같은 객체가 간다(스키마 `response
 | 항목 | 누구 | 상태 |
 |---|---|---|
 | 이 형식으로 T11 검사·도구 노출·`tool_events` 키를 구현해도 되는지 | 전동훈(T11) | 확인됨([11/6 02:41](https://softbankhackathon2026.slack.com/archives/C0CDEFEB83U/p1793900490783729?thread_ts=1793899865.617069&cid=C0CDEFEB83U)). T11 구현은 데모 필수 작업 뒤 |
-| exec 사용 여부를 제품 실행 입력에 싣는 위치(T11이 도구 노출을 판단하는 근거) | 류지환(T38) | 미정 |
+| exec 사용 여부를 제품 실행 입력에 싣는 위치(T11이 도구 노출을 판단하는 근거). 제안: `ProductInput.exec_enabled`(불리언, 기본 `false`, 입력 digest에 포함) | 류지환(T38) | 미정 |
 | `data.exec_events`를 싣는 T10 이벤트 종류와 T24·T21 표시 | 류지환(T10), 이상무(T21), 전동훈(T24) | 미정 |
 | strict 모드에서 `pattern`·`minimum`·`["string","null"]`를 실제 모델 호출이 받는지 | 전동훈(T11) | 미확인. T11이 T38 경로로 한 번 호출해 결과를 남긴다. `plan_propose`의 `pattern`·`maxLength`는 실제 호출에서 쓰고 있다 |
 | 자격 이전 작업의 공간 A 비밀값을 러너가 아는지. 모르면 그 작업 종류는 `OFF` | 전동훈(T9) | 확인됨: 러너가 합성 값을 OpenBao 리허설 경로에 직접 쓰므로 안다. 그 작업 종류도 exec를 켤 수 있다([11/6 02:41](https://softbankhackathon2026.slack.com/archives/C0CDEFEB83U/p1793900490783729?thread_ts=1793899865.617069&cid=C0CDEFEB83U)) |
