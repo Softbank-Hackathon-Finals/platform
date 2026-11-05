@@ -63,7 +63,7 @@ def add_read(stubs, *, default=False, secret_change=None, key_change=None, alias
     stubs["secretsmanager"].add_response("describe_secret", secret, {"SecretId": SECRET.secret_arn})
     key = dict(Arn=KEY, KeyId=TARGET.key_id, AWSAccountId="123456789012", Enabled=True,
                KeyState="Enabled", KeySpec="SYMMETRIC_DEFAULT", KeyUsage="ENCRYPT_DECRYPT",
-               KeyManager="AWS" if default else "CUSTOMER")
+               KeyManager="AWS" if default else "CUSTOMER", Origin="AWS_KMS")
     key.update(key_change or {})
     stubs["kms"].add_response("describe_key", dict(KeyMetadata=key, ResponseMetadata={"HTTPStatusCode": 200}), {"KeyId": KEY})
     if default:
@@ -101,6 +101,7 @@ def test_metadata_only_binds_current_version_existing_key_and_rechecks(fixture, 
     {"key_change": {"AWSAccountId": "111122223333"}},
     {"key_change": {"KeyState": "Disabled", "Enabled": False}},
     {"key_change": {"KeyUsage": "SIGN_VERIFY"}},
+    {"key_change": {"Origin": "EXTERNAL"}},
     {"default": True, "aliases": {"Aliases": []}},
     {"default": True, "aliases": {"Aliases": [{"AliasName": "alias/aws/secretsmanager", "TargetKeyId": "different-key"}] }},
 ])

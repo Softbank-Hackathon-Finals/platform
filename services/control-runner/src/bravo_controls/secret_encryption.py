@@ -138,7 +138,8 @@ class SecretEncryptionProbe:
                 # Customer aliases and cross-region/account mapping need separate qualification.
                 raise ValueError("unsupported_secret_key_reference")
             if (key.get("Enabled") is not True or key.get("KeyState") != "Enabled"
-                    or key.get("KeyUsage") != "ENCRYPT_DECRYPT" or key.get("KeySpec") != "SYMMETRIC_DEFAULT"):
+                    or key.get("KeyUsage") != "ENCRYPT_DECRYPT" or key.get("KeySpec") != "SYMMETRIC_DEFAULT"
+                    or key.get("Origin") != "AWS_KMS" or key.get("CustomKeyStoreId")):
                 # Disabled/unavailable keys do not imply stored secrets are plaintext.
                 raise ValueError("usable_encryption_key_unconfirmed")
             return {"current_version_matched": True, "key_matched": True,
