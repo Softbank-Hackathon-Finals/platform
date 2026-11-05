@@ -67,13 +67,27 @@ class ProductExecution:
         """Commit intent first. Only the invocation creating it may dispatch once."""
         return self._run(admission, input_ref, input_digest, allow_claim=True)
 
+    def preparation_fields(self, admission, *, input_ref, input_digest):
+        """Read six pre-key fields without claiming or calling the client.
+
+        This is not admission to dispatch: execute() rechecks current authority
+        and commits the intent. Claimed attempts keep their existing recovery
+        path; this method never prepares a replacement key or mailbox for them.
+        """
+        _admission(admission)
+        with self.records.store._transaction() as c:
+            fields, _value = self._binding(c, admission, input_ref, input_digest)
+            if _get(c, admission.plan_id, _execution_slot(admission)) is not None:
+                raise EventError("product_execution_already_claimed")
+            return fields
+
     def read(self, admission, *, input_ref, input_digest):
         """Recover the same result; never create an intent or dispatch a workflow."""
         return self._run(admission, input_ref, input_digest, allow_claim=False)
 
     def _run(self, admission, input_ref, input_digest, *, allow_claim):
         _admission(admission)
-        slot = "product-execution:" + admission.rehearsal_id + ":1"
+        slot = _execution_slot(admission)
         with self.records.store._transaction(write=True, plan_id=admission.plan_id) as c:
             fields, value = self._binding(c, admission, input_ref, input_digest)
             old = _get(c, admission.plan_id, slot)
@@ -122,6 +136,10 @@ class ProductExecution:
             else:
                 _put(c, admission.plan_id, slot + ":result", request, envelope)
             return result
+
+
+def _execution_slot(admission):
+    return "product-execution:" + admission.rehearsal_id + ":1"
 
 
 class ActionsProductCall:

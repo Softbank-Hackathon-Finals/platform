@@ -21,6 +21,26 @@ T38의 `OperatorProductExecution`은 기존 운영자 `gh` 인증으로 워크�
 이 객체를 Kubernetes Pod에 넣고 운영자 자격을 복사하는 배포 방식은 제공하지
 않는다. 운영자 호스트의 경계와 기존 등록·배포 입력을 먼저 인수해야 한다.
 
+## 운영자 수신키와 파일 운반체 준비
+
+T10 호스트는 `preparation_fields(admission, input_ref=..., input_digest=...)`로
+정확한 여섯 필드를 읽는다: `request_id`, `input_ref`, `input_digest`, `admission_digest`,
+`runtime_source_sha`, `mode`. 실행과 같은 계산식·현재 입력·권한 검사를 사용한다.
+이 조회는 DB 의도 저장, 키 생성, `client` 호출 또는 원격 발행을 하지 않는다.
+
+운영자 호스트는 기존 `OperatorProductExecution.recipient(request_id)`의 공개키를
+붙여 7필드 `ExecutionIntent`를 준비한다. T38의 `FileProductExecution` 운반체는
+이 의도를 전용 디렉터리에 미리 설치하고 T10의 `client`로 주입한다. T10의
+`recipient` 호출은 계획 잠금 안이므로 준비된 로컬 공개키만 읽어야 한다. 실제
+intent의 저장과 최초 `submit`은 기존 `execute()`가 수행한다. 준비 후 권한이
+회수되거나 입력이 달라지면 실행은 다시 검사하고 거부한다.
+
+이미 의도가 저장된 시도는 `product_execution_already_claimed`로 준비 조회를 거부한다.
+기존 의도·공개키·운반체로 같은 결과를 복구하며 새 키나 다른 Pod로 교체하지 않는다.
+운영자 gh·복호 개인키는 운영자 호스트, DB 자격은 플랫폼 호스트에 유지한다.
+실제 운반체·Pod UID·전용 디렉터리·일회성 수신/정리 계약을 배포 담당이 인수해야
+사용할 수 있다. 이 읽기 포트만으로 운반체 배포나 실제 제품 E2E를 증명하지 않는다.
+
 재시작·동시 요청·응답 유실 뒤에는 `client.read(intent)`만 호출한다. 의도를
 커밋한 직후 발행 전에 프로세스가 사라진 경우도 다시 발행하지 않는다. 운영자는
 기존 의도와 실제 GitHub 실행을 대조한다. 결과가 불명이면 새 실행을 보내지 않는다.
