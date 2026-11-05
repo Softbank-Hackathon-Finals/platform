@@ -38,7 +38,8 @@ def scan_summary(report):
         raise Failure("scan_coverage_missing")
     types = {item.get("Type") for item in results}
     if not {"debian", "python-pkg"}.issubset(types):
-        raise Failure("image_package_coverage_missing")
+        # Preserve the established code consumed by the Executor/attachment tools.
+        raise Failure("executor_package_coverage_missing")
     if any(
         item.get(key) is not None and not isinstance(item[key], list)
         for item in results
