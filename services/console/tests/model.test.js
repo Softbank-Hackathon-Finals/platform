@@ -14,6 +14,43 @@ function ready() {
   m.connected = true;
   return m;
 }
+test("snapshot accepts complete profile or legacy absence and rejects partial or invalid pairs", () => {
+  const profiled = {
+    ...snap,
+    profile_id: "fixture-profile",
+    profile_version: "1.0",
+  };
+  assert.deepEqual(snapshot(snap, plan), snap);
+  assert.deepEqual(snapshot(profiled, plan), profiled);
+  for (const key of ["profile_id", "profile_version"]) {
+    const partial = { ...profiled };
+    delete partial[key];
+    assert.throws(() => snapshot(partial, plan));
+    for (const value of [null, 1, "", "../profile", "x".repeat(129)])
+      assert.throws(() => snapshot({ ...profiled, [key]: value }, plan));
+  }
+  assert.throws(() => snapshot({ ...profiled, unknown: true }, plan));
+});
+
+test("snapshot profile identity cannot change while rereading a plan", () => {
+  const profiled = {
+    ...snap,
+    profile_id: "fixture-profile",
+    profile_version: "1.0",
+  };
+  for (const value of [
+    { ...profiled, profile_id: "other" },
+    { ...profiled, profile_version: "2.0" },
+    snap,
+  ]) {
+    const m = new Model(plan);
+    m.observeSnapshot(profiled, now);
+    assert.throws(() => m.observeSnapshot(value, now), /plan_changed/);
+  }
+  const legacy = new Model(plan);
+  legacy.observeSnapshot(snap, now);
+  assert.throws(() => legacy.observeSnapshot(profiled, now), /plan_changed/);
+});
 test("matching snapshot/history/gate permits only a bound approval request", () => {
   const m = ready();
   assert.equal(m.eligible(now), true);

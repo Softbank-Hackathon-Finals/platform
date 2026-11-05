@@ -118,10 +118,12 @@ class Catalog:
                 raise ValueError("catalog test/control mismatch")
             _identifier(spec.method_version)
         for profile in document["profiles"]:
-            key = (profile["id"], profile["version"], profile["app"])
+            # The catalog's app names the profile's reference app. A run's app is the
+            # registered workload the caller supplies, so it never selects the profile.
+            key = (profile["id"], profile["version"])
             if key in profiles:
                 raise ValueError("duplicate evaluation profile")
-            for value in key:
+            for value in (*key, profile["app"]):
                 _identifier(value)
             ids = tuple(profile["required_test_ids"])
             if not ids or len(ids) != len(set(ids)) or not set(ids) <= self._tests.keys():
@@ -133,11 +135,11 @@ class Catalog:
         schema = {"$ref": f"#/$defs/{definition}", "$defs": self._schema["$defs"]}
         return Draft202012Validator(schema, format_checker=FormatChecker())
 
-    def profile(self, profile_id: str, version: str, app: str) -> tuple[TestSpec, ...]:
+    def profile(self, profile_id: str, version: str) -> tuple[TestSpec, ...]:
         try:
-            ids = self._profiles[(profile_id, version, app)]
+            ids = self._profiles[(profile_id, version)]
         except KeyError:
-            raise ValueError("unregistered evaluation profile or app") from None
+            raise ValueError("unregistered evaluation profile") from None
         return tuple(self._tests[test_id] for test_id in ids)
 
     def validate_run(self, run: dict) -> None:
@@ -184,7 +186,8 @@ class Runner:
         It permits a backup request and its fresh verification to share identity
         without rewriting any retained receipt. Observation freshness is unchanged.
         """
-        specs = self._catalog.profile(profile_id, profile_version, app)
+        _identifier(app)
+        specs = self._catalog.profile(profile_id, profile_version)
         if registered_context is None:
             context = RunContext(str(uuid4()), app, environment)
         else:

@@ -140,6 +140,8 @@ test("plan receipt is initial COLLECT and bound to selected app and destination"
   const body = {
     workload_id: "workload-one",
     target_environment_id: "env-target",
+    profile_id: "fixture-profile",
+    profile_version: "1.0",
   };
   const value = {
     ...body,
@@ -159,8 +161,77 @@ test("plan receipt is initial COLLECT and bound to selected app and destination"
     { workload_id: "other" },
     { target_environment_id: "other" },
     { plan_digest: "invalid" },
+    { profile_id: "other" },
+    { profile_version: "2.0" },
+    { profile_id: undefined },
+    { profile_version: undefined },
+    { profile_version: 1 },
   ])
     assert.throws(() =>
       registrationReceipt("plan", body, { ...value, ...change }),
     );
+});
+
+test("plan registration requires an explicit complete profile without defaults", () => {
+  const body = {
+    workload_id: "workload-one",
+    target_environment_id: "env-target",
+    profile_id: "fixture-profile",
+    profile_version: "1.0",
+  };
+  assert.deepEqual(registrationInput("plan", body), body);
+  for (const key of ["profile_id", "profile_version"]) {
+    const missing = { ...body };
+    delete missing[key];
+    assert.throws(() => registrationInput("plan", missing));
+    for (const value of [
+      "",
+      null,
+      1,
+      "../profile",
+      "contains spaces",
+      "x".repeat(129),
+    ])
+      assert.throws(() => registrationInput("plan", { ...body, [key]: value }));
+  }
+});
+
+test("plan response recovery keeps the explicitly chosen profile and request key", async () => {
+  const body = {
+    workload_id: "workload-one",
+    target_environment_id: "env-target",
+    profile_id: "fixture-profile",
+    profile_version: "1.0",
+  };
+  const attempt = new RegistrationAttempt("plan", body, "one-plan-key");
+  const calls = [];
+  const value = {
+    ...body,
+    plan_id: "plan-one",
+    source_environment_id: "env-source",
+    state: "COLLECT",
+    version: 1,
+    plan_digest: "a".repeat(64),
+    collection_scope_digest: "b".repeat(64),
+    warnings: [],
+    registered_at: receipt.registered_at,
+  };
+  body.profile_version = "2.0";
+  await assert.rejects(
+    attempt.send({
+      fetcher: async (path, options) => {
+        calls.push({ path, options });
+        throw new TypeError("lost response");
+      },
+    }),
+  );
+  const result = await attempt.send({
+    fetcher: async (path, options) => {
+      calls.push({ path, options });
+      return response(value);
+    },
+  });
+  assert.deepEqual(calls[0], calls[1]);
+  assert.equal(result.profile_version, "1.0");
+  assert.equal(result.profile_id, "fixture-profile");
 });

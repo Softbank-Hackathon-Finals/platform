@@ -1,0 +1,290 @@
+{
+ "all_as_expected": true,
+ "enforcer": "k3s default: Flannel with the embedded kube-router NetworkPolicy controller",
+ "k3s_image": "mirror.gcr.io/rancher/k3s:v1.35.5-k3s1",
+ "k3s_version": "k3s version v1.35.5+k3s1 (6a4781ad)",
+ "observation_t3_gate_with_t9_openbao_policy": {
+  "checks": 5,
+  "exit_code": 2,
+  "not_passed": [
+   "P4:FAIL"
+  ],
+  "p4": [
+   [
+    "seaweedfs",
+    "PASS"
+   ],
+   [
+    "openbao",
+    "FAIL"
+   ]
+  ]
+ },
+ "source_revision": "5c393480cce52dc6adfe1e20561771aa3aa708d0",
+ "standin_image": "python:3.12-slim",
+ "states": {
+  "any_namespace": {
+   "as_expected": true,
+   "open": [
+    "bare-probe:8333",
+    "bare-verifier:8333",
+    "full-probe:8333",
+    "full-verifier:8333",
+    "nolabel-probe:8333",
+    "nolabel-verifier:8333",
+    "other-verifier:8333",
+    "target-objectclient:8333",
+    "target-probe:8333",
+    "target-verifier:8333"
+   ],
+   "responses": {
+    "OPEN": 10,
+    "REFUSED": 20
+   },
+   "seconds": 9.2,
+   "unexpectedly_blocked": [],
+   "unexpectedly_open": []
+  },
+  "every_port": {
+   "as_expected": true,
+   "open": [
+    "bare-probe:8333",
+    "bare-probe:8334",
+    "bare-verifier:8333",
+    "bare-verifier:8334",
+    "full-probe:8333",
+    "full-verifier:8333",
+    "target-objectclient:8333"
+   ],
+   "responses": {
+    "OPEN": 7,
+    "REFUSED": 23
+   },
+   "seconds": 9.3,
+   "unexpectedly_blocked": [],
+   "unexpectedly_open": []
+  },
+  "namespace_only": {
+   "as_expected": true,
+   "open": [
+    "bare-echo:8333",
+    "bare-nolabel:8333",
+    "bare-objectclient:8333",
+    "bare-probe:8333",
+    "bare-verifier:8333",
+    "full-nolabel:8333",
+    "full-probe:8333",
+    "full-verifier:8333",
+    "target-objectclient:8333"
+   ],
+   "responses": {
+    "OPEN": 9,
+    "REFUSED": 21
+   },
+   "seconds": 10.2,
+   "unexpectedly_blocked": [],
+   "unexpectedly_open": []
+  },
+  "no_policy": {
+   "as_expected": true,
+   "open": [
+    "bare-echo:8333",
+    "bare-echo:8334",
+    "bare-nolabel:8333",
+    "bare-nolabel:8334",
+    "bare-objectclient:8333",
+    "bare-objectclient:8334",
+    "bare-probe:8333",
+    "bare-probe:8334",
+    "bare-verifier:8333",
+    "bare-verifier:8334",
+    "full-nolabel:8333",
+    "full-probe:8333",
+    "full-verifier:8333",
+    "nolabel-probe:8333",
+    "nolabel-probe:8334",
+    "nolabel-verifier:8333",
+    "nolabel-verifier:8334",
+    "other-verifier:8333",
+    "other-verifier:8334",
+    "target-nolabel:8333",
+    "target-nolabel:8334",
+    "target-objectclient:8333",
+    "target-objectclient:8334",
+    "target-probe:8333",
+    "target-probe:8334",
+    "target-verifier:8333",
+    "target-verifier:8334"
+   ],
+   "responses": {
+    "OPEN": 27,
+    "REFUSED": 3
+   },
+   "seconds": 7.8,
+   "unexpectedly_blocked": [],
+   "unexpectedly_open": []
+  },
+  "only_verifier": {
+   "as_expected": true,
+   "open": [
+    "bare-verifier:8333",
+    "full-verifier:8333",
+    "target-objectclient:8333"
+   ],
+   "responses": {
+    "OPEN": 3,
+    "REFUSED": 27
+   },
+   "seconds": 11.3,
+   "unexpectedly_blocked": [],
+   "unexpectedly_open": []
+  },
+  "rehearsal_policy_absent": {
+   "as_expected": true,
+   "open": [
+    "target-objectclient:8333"
+   ],
+   "responses": {
+    "OPEN": 1,
+    "REFUSED": 29
+   },
+   "seconds": 10.6,
+   "unexpectedly_blocked": [],
+   "unexpectedly_open": []
+  },
+  "rendered": {
+   "as_expected": true,
+   "open": [
+    "bare-probe:8333",
+    "bare-verifier:8333",
+    "full-probe:8333",
+    "full-verifier:8333",
+    "target-objectclient:8333"
+   ],
+   "responses": {
+    "OPEN": 5,
+    "REFUSED": 25
+   },
+   "seconds": 7.7,
+   "unexpectedly_blocked": [],
+   "unexpectedly_open": []
+  },
+  "restored": {
+   "as_expected": true,
+   "open": [
+    "bare-probe:8333",
+    "bare-verifier:8333",
+    "full-probe:8333",
+    "full-verifier:8333",
+    "target-objectclient:8333"
+   ],
+   "responses": {
+    "OPEN": 5,
+    "REFUSED": 25
+   },
+   "seconds": 9.0,
+   "unexpectedly_blocked": [],
+   "unexpectedly_open": []
+  },
+  "split_peer_into_or": {
+   "as_expected": true,
+   "open": [
+    "bare-echo:8333",
+    "bare-nolabel:8333",
+    "bare-objectclient:8333",
+    "bare-probe:8333",
+    "bare-verifier:8333",
+    "full-nolabel:8333",
+    "full-probe:8333",
+    "full-verifier:8333",
+    "target-objectclient:8333",
+    "target-probe:8333",
+    "target-verifier:8333"
+   ],
+   "responses": {
+    "OPEN": 11,
+    "REFUSED": 19
+   },
+   "seconds": 9.1,
+   "unexpectedly_blocked": [],
+   "unexpectedly_open": []
+  }
+ },
+ "t3_gate": {
+  "only_verifier": {
+   "checks": 5,
+   "exit_code": 2,
+   "not_passed": [
+    "P4:FAIL"
+   ],
+   "p4": [
+    [
+     "seaweedfs",
+     "FAIL"
+    ],
+    [
+     "openbao",
+     "PASS"
+    ]
+   ]
+  },
+  "rendered": [
+   {
+    "checks": 18,
+    "exit_code": 0,
+    "not_passed": [
+     "N12:INCONCLUSIVE",
+     "N3:INCONCLUSIVE"
+    ],
+    "p4": [
+     [
+      "seaweedfs",
+      "PASS"
+     ],
+     [
+      "openbao",
+      "PASS"
+     ]
+    ]
+   },
+   {
+    "checks": 18,
+    "exit_code": 0,
+    "not_passed": [
+     "N12:INCONCLUSIVE",
+     "N3:INCONCLUSIVE"
+    ],
+    "p4": [
+     [
+      "seaweedfs",
+      "PASS"
+     ],
+     [
+      "openbao",
+      "PASS"
+     ]
+    ]
+   },
+   {
+    "checks": 18,
+    "exit_code": 0,
+    "not_passed": [
+     "N12:INCONCLUSIVE",
+     "N3:INCONCLUSIVE"
+    ],
+    "p4": [
+     [
+      "seaweedfs",
+      "PASS"
+     ],
+     [
+      "openbao",
+      "PASS"
+     ]
+    ]
+   }
+  ]
+ },
+ "t3_image": "docker.io/library/busybox:1.36",
+ "worktree_clean": true
+}

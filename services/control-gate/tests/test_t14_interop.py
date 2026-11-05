@@ -15,7 +15,7 @@ def test_t14_producer_to_t19_block_fix_and_unknown(service, monkeypatch):
     app, state = service
     catalog = Catalog(app.contract.catalog, app.contract.schema)
     original = state["context"]
-    specs = catalog.profile(original.profile_id, original.profile_version, original.app)
+    specs = catalog.profile(original.profile_id, original.profile_version)
     def collect(context, spec):
         return Observation(context, spec.test_id, spec.method_version, spec.expected,
                            "pass" if spec.positive_control == "required" else "not_applicable",

@@ -60,7 +60,9 @@ class PlanControlReport:
             for p in CATALOG["profiles"]
             if (p["id"], p["version"]) == (report["profile"]["id"], report["profile"]["version"])
         ]
-        if len(profiles) != 1 or profiles[0]["app"] != report["app"]:
+        # The report app is the registered workload_id checked above; the catalog
+        # profile's app names only its reference app, so it is not compared here.
+        if len(profiles) != 1:
             raise ObservationError("unknown_control_profile")
         expected = profiles[0]["required_test_ids"]
         rows = report["rows"]
