@@ -263,3 +263,17 @@ python -m rehearsal_runner.task_catalog --root <catalog 경로> --key-file <비�
 `remote_proposals.RemoteProposalSource`는 T38 제품 경로(#280)의 응답을 planner의 `ProposalSource`로 넘긴다. 호스트가 같은 `ProductInput`, 요청 본문(`input_ref`·`input_digest`·토큰), 호출 함수(`ProductService.run` 또는 `POST /run`)를 넣는다. 응답의 실행 ID·회차(1)·input/snapshot digest·`admission_digest`·제품 입력 digest를 대조한 뒤 제안을 로컬 T11 Coordinator에 다시 넣어 정책을 재검증한다. 모델의 도구 이벤트는 원격에 있으므로 시도 기록의 `tool_events`는 `UNAVAILABLE`로 남는다. T38은 첫 시도만 지원하므로 2·3회차는 호출 전에 멈춘다. `bucket_product_bundle`은 T10 호스트가 `ProductInput.bundle`을 만들 때 쓰는 첫 시도 입력이다.
 
 `testing/rke2_rehearsal_flow.py`는 개인 RKE2 시험 VM 전용이다. `setup`은 시험용 SeaweedFS·OpenBao 대역·버킷을 만들고, `run`은 실제 T10 접수·수신·변경 승인(SQLite), T11 Coordinator, T3 격리, 검증 Job과 UID 정리를 연결한다. 제안은 스크립트로 고정하며 모델·팀 목적지·사람 승인을 대신하지 않는다.
+
+## rehearsal.exec 실행부 (T42)
+
+AI가 수정안을 내기 전에 리허설 공간 A에서 정해진 동작 3종으로 시험하는 도구의 T15 쪽 실행부다. 형식은 [호출 계약 v1](../../docs/contracts/T42-rehearsal-exec-v1-proposal.md)을 따른다. **기본값은 꺼짐**이며 해피패스 검증 전에는 어떤 작업 종류에서도 켜지 않는다. 지금은 러너 순서(공간 A·B 분리)에 연결하지 않았고, 아래 모듈과 시험만 있다.
+
+- `exec_session.ExecSession`: 시도 하나의 exec 세션. 브로커가 붙인 실행 ID·시도 번호를 확인하고(다른 시도는 기록 없이 `FOREIGN_ATTEMPT`), 공간 A UID를 서버 쪽에서 묶는다. 같은 요청 ID는 저장된 결과를 돌려주며, 결과를 모르는 apply 뒤에는 그 시도의 exec를 닫는다. 실행 5회·합계 90초·동작 15초(재시도 포함)·세션 180초·기록 32개 한도와 재시도(미전송 확인 오류, inspect·probe의 일시 실패만 2회)를 지킨다. 실행 기록은 메모리의 `events()`이고, 실행 전·후 영속 기록은 후속 커밋이다.
+- `exec_actions.Inspector`·`Prober`: 모든 API 호출은 그 공간의 `rehearsal-exec` 계정을 가장한다. probe는 토큰 없는 도구용 Pod(`tool_pod_manifest`, 이미지 digest 고정)에서 플랫폼 스크립트를 argv로만 실행한다. apply는 작업 종류별 적용기를 주입받으며, 아직 연결된 적용기는 없다(없으면 `BLOCKED`).
+- `exec_output.screen`: 러너가 공간 A에 넣은 값을 원문·base64(세 가지 정렬)·URL 인코딩으로 출력과 인자에서 찾는다. 찾거나 UTF-8이 아니거나 검사에 실패하면 출력을 돌려주지 않는다.
+
+```bash
+uv run pytest -q tests/test_exec_session.py tests/test_exec_actions.py tests/test_exec_output.py
+```
+
+시험은 응답·기록을 계약 스키마 파일로 검증한다. 가짜 kubectl과 로컬 소켓만 쓰며, 실제 클러스터의 가장 권한·도구용 Pod 기동·NetworkPolicy 아래 접속 확인은 아직 실측하지 않았다.
