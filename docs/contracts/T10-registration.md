@@ -36,6 +36,41 @@
 
 서비스 프로세스에 관리자 kubeconfig, 개인 로그인, Executor 제어 자격을 주지 않는다. 등록된 상태는 [기존 계획 조회와 SSE](T10-plan-snapshot-v1-proposal.md)에서 같은 plan ID로 읽는다. 운영 배포 전 T6·T30 담당이 endpoint·CA·CNPG UID·SA와 실제 대상 환경을 확인하고, T21이 운영자 신원 설정을 인계해야 한다.
 
+### 기존 AWS SSO를 쓰는 등록 전용 선택지
+
+등록 호스트만 `identity_mode: "aws_sso"`를 선택할 수 있다. `operator_verifier` 대신
+`sso_verifier`에 `region`, `audience`, `expected_account`, `expected_caller_arn`,
+`expected_sso_role_arn`, `expected_sso_role_id`, `tenant_id`를 설치한다. 두 검증기를
+동시에 설정하면 시작을 거부한다. 기본 JWT 방식과 T21·S2·S3 검증기는 바뀌지 않는다.
+
+운영자는 현재 SSO의 STS Account·Arn·UserId와 IAM GetRole의 Arn·RoleId를 확인한 뒤
+정확한 사용자 세션을 설정한다. 역할 전체나 요청의 tenant 값으로 자동 등록하지 않는다.
+별도 `grants.json`의 subject는 `registration_subject(account, role_id, caller_arn)`로
+구한다. 등록 전과 DB 잠금 뒤 현재 grant와 증명 만료를 다시 확인한다.
+
+클라이언트는 선택 의존성 `sso-registration`과
+`make_registration_token(profile_name=..., region=..., audience=...)`를 사용한다.
+명시한 프로필의 실제 credential provider가 `sso`일 때만 임시 자격으로 서명한다.
+환경 키·역할 체인·인스턴스 자격으로 대체하지 않는다. 반환값은 TLS 요청의 Bearer에만
+넣고 출력하거나 저장하지 않는다. 서버·Pod에는 개인 SSO 캐시나 AWS 자격을 설치하지 않는다.
+SDK 서명기의 DEBUG 로그가 켜져 있으면 자격을 읽기 전에 증명 생성을 거부한다.
+
+증명은 고정 regional STS `GetCallerIdentity`의 SigV4 서명 URL이다. 서명된
+`x-bravo-registration-id`에 호스트의 audience를 결속한다. 검증기는 호스트·메서드·
+Action·서명 범위·단일 쿼리 키를 제한하며, 리다이렉트·환경 프록시를 사용하지 않는다.
+서버가 서명 시각부터 **60초**를 직접 강제한다. STS의 `X-Amz-Expires` 처리에 의존하지
+않는다. 현재 STS 응답의 Account·Arn·UserId 전체가 설정된 사용자와 역할 ID에 맞아야 한다.
+검증 실패는 403, AWS 조회 불명은 세부 정보 없는 503이다.
+
+이 증명은 현재 AWS 임시 자격의 소유를 확인한다. 최초 SSO 로그인 시각이나 MFA 수행을
+증명하지 않는다. 반환 주체는 등록 전용 `SsoRegistrationPrincipal`이며 승인용
+`OperatorPrincipal`로 변환하지 않는다. 60초 동안의 같은 Bearer 재사용은 가능하지만,
+등록 쓰기는 기존 Idempotency-Key·현재 권한 검사로 제한한다. 운영자는 해당 SSO 역할의
+신뢰 정책이 다른 주체의 동일 세션 이름 가장을 허용하지 않는지도 확인해야 한다.
+
+근거: [AWS GetCallerIdentity](https://docs.aws.amazon.com/STS/latest/APIReference/API_GetCallerIdentity.html),
+[AWS IAM Authenticator의 서명된 서비스 식별자와 STS 검증](https://github.com/kubernetes-sigs/aws-iam-authenticator/blob/master/pkg/token/token.go).
+
 ## 저장소 변경과 복구
 
 SQLite는 기존 `PlanStore` 초기화로 준비한다. PostgreSQL은 migration 로그인으로 `services/platform-events/sql/0003_registrations.sql`을 적용한다. v2가 선행이고, 새 테이블에 runtime은 SELECT·INSERT만 가진다. 입력·시간·키·receipt는 append-only다.
