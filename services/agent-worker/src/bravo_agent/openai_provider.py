@@ -222,9 +222,7 @@ class OpenAIProvider:
         if (set(os.environ) - RUNTIME_KEYS or other_credentials & set(os.environ)
                 or not os.environ.get(credential)):
             raise RuntimeError("worker process environment must be explicitly isolated")
-        history = [{"role": "user", "content": json.dumps({
-            "failure": bundle.model_dump(), "snapshot": tools.snapshot.manifest.model_dump(),
-        }, sort_keys=True)}]
+        history = [{"role": "user", "content": json.dumps(tools.model_input(), sort_keys=True)}]
         definitions = function_tools(tools)
         needs_read = self.subscription
         tokens = 0

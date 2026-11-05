@@ -53,7 +53,12 @@ class Ports:
         self.attempt, self.verdict, self.events, self.block = attempt, verdict, events, block
 
     def propose(self, task):
+        self.run_id = task.run_id
         return ProposalRef(task.run_id, task.source_sha, str(self.attempt) * 64)
+
+    def tool_events(self):
+        return ({"run_id": self.run_id, "attempt": self.attempt, "tool": "rehearsal.exec",
+                 "outcome": "DENIED", "reason": "DESTRUCTIVE_ATTEMPT_BLOCKED", "category": "bucket_delete"},)
 
     def create(self, run_id):
         self.events.append(("create", run_id, self.attempt))
@@ -198,6 +203,23 @@ def test_undelivered_pass_is_not_confirmed(flow):
     receipt = start(flow)
     with pytest.raises(EventError, match="rehearsal_verification_unavailable"):
         reconcile(flow, receipt)
+
+
+def test_signed_record_carries_tool_events_for_t10(flow):
+    flow["planner"].verdicts = ["FAIL", "PASS"]
+    first = start(flow)
+    failed = reconcile(flow, first)
+    flow["intake"].hold("security", SPEC.plan_id, failed["verification_id"], decision_ref="retry-1")
+    second = start(flow, 2, "start-2")
+    for receipt in (first, second):
+        from bravo_platform_events.rehearsal import admitted_attempt
+
+        with flow["store"]._connection() as connection:
+            admission = admitted_attempt(connection, SPEC.plan_id, receipt["rehearsal_id"], receipt["attempt"])
+        events = flow["evidence"].tool_events(admission)
+        assert events == [{"run_id": receipt["rehearsal_id"], "attempt": receipt["attempt"],
+                           "tool": "rehearsal.exec", "outcome": "DENIED",
+                           "reason": "DESTRUCTIVE_ATTEMPT_BLOCKED", "category": "bucket_delete"}]
 
 
 def test_altered_record_is_not_reconciled(flow):

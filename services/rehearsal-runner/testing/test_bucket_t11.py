@@ -299,3 +299,47 @@ def test_t15_runner_resumes_real_t11_after_known_failure_with_same_attempt_bindi
                             ("cleanup", "uid-1"), ("prepare", 2, "e" * 64),
                             ("create", "uid-2"), ("job", 2, "uid-2"), ("cleanup", "uid-2")]
     assert coordinator.attempt == 2 and provider.calls == 2
+
+
+class CleanupAttemptProvider(FakeProvider):
+    """Scripted agent that tries to delete the bucket before proposing."""
+
+    async def propose(self, bundle, tools):
+        from bravo_agent.tools import PolicyDenied
+
+        with pytest.raises(PolicyDenied):
+            tools.dispatch("rehearsal.exec", {"command": "aws s3 rb s3://fixture-bucket --force"})
+        await super().propose(bundle, tools)
+
+
+def test_attempt_tool_events_carry_the_blocked_delete_in_order_without_arguments(tmp_path):
+    task = prepare_bucket_policy_task("run-1", SOURCE, "fixture-bucket", source_sha="a" * 40)
+    coordinator = make_coordinator(tmp_path, task)
+    proposer = T11BucketProposer(coordinator, CleanupAttemptProvider(), SOURCE_PATH, TARGET_PATH)
+    proposer.propose(task)
+    events = proposer.tool_events()
+    assert [(e["tool"], e["reason"]) for e in events] == [
+        ("rehearsal.exec", "DESTRUCTIVE_ATTEMPT_BLOCKED"), ("repo.read", "POLICY_ACCEPTED"),
+        ("repo.read", "POLICY_ACCEPTED"), ("plan.propose", "POLICY_ACCEPTED")]
+    assert events[0]["category"] == "bucket_delete"
+    assert all(e["run_id"] == "run-1" and e["attempt"] == 1 for e in events)
+    assert "fixture-bucket" not in repr(events)
+
+
+def test_attempt_tool_events_exclude_other_attempts_and_verifier_records(tmp_path):
+    from bravo_agent.contracts import VerificationReceipt
+
+    task = prepare_bucket_policy_task("run-1", SOURCE, "fixture-bucket", source_sha="a" * 40)
+    coordinator = make_coordinator(tmp_path, task)
+    first = T11BucketProposer(coordinator, CleanupAttemptProvider(), SOURCE_PATH, TARGET_PATH)
+    first.propose(task)
+    failure = coordinator.bundle.model_copy(update={"evidence_digest": "e" * 64})
+    coordinator.verify(VerificationReceipt(run_id=task.run_id, source_sha=task.source_sha,
+                                           proposal_digest=coordinator.result()["proposal_digest"], attempt=1,
+                                           verdict="FAIL", effects_known=True, evidence_digest="e" * 64,
+                                           failure=failure))
+    second = T11BucketProposer(coordinator, FakeProvider(), SOURCE_PATH, TARGET_PATH,
+                               attempt=2, feedback_digest="e" * 64)
+    second.propose(task)
+    assert len(first.tool_events()) == 4
+    assert [e["attempt"] for e in second.tool_events()] == [2, 2, 2]
