@@ -28,7 +28,7 @@ T41 [큐 등록 봇](merge-queue-bot.md)의 활성화 변수가 켜져 있으면
 | 삭제·강제 push·bypass | 기존 금지 유지, bypass 사용자 추가 없음 |
 | main | 기존 ruleset 유지 |
 
-CI는 `contents: read`만 사용하고 클라우드·모델 자격 증명을 주입하지 않는다. `merge_group` 이벤트의 base/head와 checkout의 일치를 검증한다. 그룹 전체 diff를 검사하며 앞선 PR의 변경을 생략하지 않는다. 실패한 scope나 실행돼야 할 job의 skip을 성공으로 해석하지 않는다. GitHub 자체 큐를 사용하며 별도 merge 봇·자기 승인·가짜 status를 만들지 않는다.
+CI는 `contents: read`만 사용하고 클라우드·모델 자격 증명을 주입하지 않는다. `merge_group` 이벤트의 base/head와 checkout의 일치를 검증한다. 검증된 병합 그룹에서 전체 프로젝트·인프라·저장소 도구 검사를 선택한다. 이전 그룹이 `base_sha`로 와도 앞선 PR의 변경을 생략하지 않는다. 실패한 scope나 실행돼야 할 job의 skip을 성공으로 해석하지 않는다. GitHub 자체 큐를 사용하며 별도 merge 봇·자기 승인·가짜 status를 만들지 않는다.
 
 ## 전환 순서와 확인
 

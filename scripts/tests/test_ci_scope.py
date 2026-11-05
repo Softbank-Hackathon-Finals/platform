@@ -65,11 +65,56 @@ class MergeGroupTest(unittest.TestCase):
                               cwd=self.root, env=env, capture_output=True, text=True, timeout=10, check=False)
 
     def test_group_checks_earlier_and_later_pr_together(self):
-        result = self.run_plan()
+        for base in (self.base, self.first):
+            with self.subTest(base=base):
+                result = self.run_plan(BASE=base)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                plan = json.loads((self.root / "ci-plan.json").read_text())
+                self.assertEqual([p["path"] for p in plan["projects"]], ["services/a", "services/b"])
+                self.assertTrue(plan["full"])
+                self.assertTrue(plan["infra"])
+                self.assertTrue(plan["scripts"])
+
+    def test_previous_group_base_still_runs_combination_failure(self):
+        self.git("checkout", "-qb", "candidate-a", self.base)
+        test = self.root / "services/a/test_combination.py"
+        test.write_text(textwrap.dedent("""\
+            import unittest
+            from pathlib import Path
+
+            class CombinationTest(unittest.TestCase):
+                def test_prior_service_accepts_later_change(self):
+                    self.assertFalse((Path(__file__).parents[2] / "scripts/later.txt").exists())
+            """))
+        candidate_a = self.commit()
+        command = [sys.executable, "-B", "-m", "unittest", "discover", "-s", "services/a",
+                   "-p", "test_combination.py"]
+        healthy = subprocess.run(command, cwd=self.root, capture_output=True, text=True,
+                                 timeout=10, check=False)
+        self.assertEqual(healthy.returncode, 0, healthy.stderr)
+
+        self.git("checkout", "-qb", "candidate-b", self.base)
+        (self.root / "scripts/later.txt").write_text("later queued change\n")
+        candidate_b = self.commit()
+        self.git("checkout", "-qb", "queue", self.base)
+        self.git("merge", "--no-ff", "-qm", "group A", candidate_a)
+        group_a = self.git("rev-parse", "HEAD")
+        self.git("merge", "--no-ff", "-qm", "group A+B", candidate_b)
+        group_ab = self.git("rev-parse", "HEAD")
+        result = self.run_plan(BASE=group_a, GROUP_HEAD=group_ab)
         self.assertEqual(result.returncode, 0, result.stderr)
         plan = json.loads((self.root / "ci-plan.json").read_text())
-        self.assertEqual([p["path"] for p in plan["projects"]], ["services/a", "services/b"])
-        self.assertFalse(plan["full"])
+        self.assertIn({"path": "services/a", "kind": "python"}, plan["projects"])
+        combined = subprocess.run(command, cwd=self.root, capture_output=True, text=True,
+                                  timeout=10, check=False)
+        self.assertEqual(combined.returncode, 1, combined.stderr)
+        self.assertIn("AssertionError", combined.stderr)
+        env = dict(os.environ, SCOPE_RESULT="success", PROJECT_RESULT="failure",
+                   PROJECTS=json.dumps(plan["projects"]))
+        aggregate = subprocess.run(
+            ["bash", "-e", "-o", "pipefail", "-c", workflow_shell("Require all selected projects to succeed")],
+            env=env, capture_output=True, timeout=10, check=False)
+        self.assertNotEqual(aggregate.returncode, 0)
 
     def test_malformed_missing_stale_and_unrelated_group_inputs_fail(self):
         # Build an existing, well-formed commit that is not an ancestor of the checkout.

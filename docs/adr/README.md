@@ -12,15 +12,18 @@
 | 8.1·8.3 모델 제공자와 S2 실패 분석 | [0007 모델 제공자와 S2 CI](0007-model-provider-and-s2-ci.md) |
 | 8.2·8.9 상태 저장·이벤트·계획 접근 | [0008 상태·이벤트 원자 저장](0008-plan-state-event-transaction.md), [0009 PostgreSQL 상태 저장](0009-postgres-state-adapter.md), [0012 데이터 접근 경계](0012-platform-data-access-boundary.md) |
 | 7.5·8.4 리허설 네트워크와 격리 | [0002 송신 허용 범위](0002-rehearsal-egress-allowlist.md), [0003 격리 구현과 시험](0003-rehearsal-namespace-isolation.md) |
+| FR-5 · 8.4 리허설 러너의 시도 실행 · 결과 기록 · 판정(T15) | [0023 리허설 러너 시도와 증거](0023-rehearsal-runner-attempt-evidence.md) |
 | 7.3·8.5 보안 결과 형식·인증 | [0001 탐지 결과 형식](0001-security-finding-format.md), [0005 T33 보안 경계](0005-t33-security-boundary.md) |
 | 8.6 Executor 구현·실행·실패·권한 | [0006 Python 선택](0006-cutover-executor-language.md), [0011 실행 기록과 실패 판정](0011-cutover-executor-execution-and-failure.md), [0013 워크로드 접근](0013-executor-workload-access.md) |
 | 6장 S4 · 8.6 되돌리기 전 복제 경로 확인 | [0016 되돌리기 전 복제 경로 확인](0016-failback-replication-path-check.md) |
+| 6장 S4 · 8.2 · 8.7 되돌리기 상태 머신 흐름(승인 · 전용 binding · ABORT 뒤 상태 · Edge만 재시도 · 기록) | [0022 되돌리기 상태 머신 흐름](0022-failback-state-machine-flow.md) |
 | 8.6 무결성 지문 생산자·소비자 | [0013 지문 생산자](0013-integrity-fingerprint-producer.md) |
 | 7.2·8.8 이미지 전달 | [0011 비공개 이미지 전달](0011-private-image-delivery.md) |
 | 5.2·7.3·8.2·8.7 판정용 관측·진단 지표 | [0010 관측 경계](0010-observability-boundary.md) |
 | 7.3 목적지 감사 로그 저장소(T34)·목적지 Collector 분리(T37) | [0016 목적지 감사 로그 저장소](0016-target-audit-store.md) |
 | 7.3·8.11 의존성 3등급 규칙과 에이전트 보완 범위(T16·T32) | [0018 의존성 등급 규칙](0018-dependency-grading-rules.md) |
 | 8.3·8.4 에이전트 도구 계층 경계(소스 경로 · 인벤토리 조회 · 정책 린트 · 파괴 시도 기록) | [0019 에이전트 도구 경계](0019-agent-tool-boundary.md) |
+| 7.1 6단계·FR-7 승인 반영(리허설 digest 승격 · diff 재해시 · SAFE_HOLD) | [0021 승인 반영 승격](0021-approved-change-promotion.md) |
 | 11·12장 브랜치·리뷰·CI 운영 규칙 | [0004 Gitflow](0004-gitflow-task-branches.md), [0005 병합 전 리뷰](0005-review-before-merge.md), [0014 비밀 이력 검사 범위](0014-secret-history-scope.md) |
 
 5.1·5.2의 요구사항은 위 설계 범위로 연결된다. 5.3의 수치는 아래 측정과 함께 읽고, 5.4의 배점·외부 출처는 설계 문서의 원문을 따른다.

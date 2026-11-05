@@ -299,3 +299,86 @@ def test_t15_runner_resumes_real_t11_after_known_failure_with_same_attempt_bindi
                             ("cleanup", "uid-1"), ("prepare", 2, "e" * 64),
                             ("create", "uid-2"), ("job", 2, "uid-2"), ("cleanup", "uid-2")]
     assert coordinator.attempt == 2 and provider.calls == 2
+
+
+class CleanupAttemptProvider(FakeProvider):
+    """Scripted agent that tries to delete the bucket before proposing."""
+
+    async def propose(self, bundle, tools):
+        from bravo_agent.tools import PolicyDenied
+
+        with pytest.raises(PolicyDenied):
+            tools.dispatch("rehearsal.exec", {"command": "aws s3 rb s3://fixture-bucket --force"})
+        await super().propose(bundle, tools)
+
+
+def test_attempt_tool_events_carry_the_blocked_delete_in_order_without_arguments(tmp_path):
+    task = prepare_bucket_policy_task("run-1", SOURCE, "fixture-bucket", source_sha="a" * 40)
+    coordinator = make_coordinator(tmp_path, task)
+    proposer = T11BucketProposer(coordinator, CleanupAttemptProvider(), SOURCE_PATH, TARGET_PATH)
+    proposer.propose(task)
+    events = proposer.tool_events()
+    assert [(e["tool"], e["reason"]) for e in events] == [
+        ("rehearsal.exec", "DESTRUCTIVE_ATTEMPT_BLOCKED"), ("repo.read", "POLICY_ACCEPTED"),
+        ("repo.read", "POLICY_ACCEPTED"), ("plan.propose", "POLICY_ACCEPTED")]
+    assert events[0]["category"] == "bucket_delete"
+    assert all(e["run_id"] == "run-1" and e["attempt"] == 1 for e in events)
+    assert "fixture-bucket" not in repr(events)
+
+
+def test_attempt_tool_events_exclude_other_attempts_and_verifier_records(tmp_path):
+    from bravo_agent.contracts import VerificationReceipt
+
+    task = prepare_bucket_policy_task("run-1", SOURCE, "fixture-bucket", source_sha="a" * 40)
+    coordinator = make_coordinator(tmp_path, task)
+    first = T11BucketProposer(coordinator, CleanupAttemptProvider(), SOURCE_PATH, TARGET_PATH)
+    first.propose(task)
+    failure = coordinator.bundle.model_copy(update={"evidence_digest": "e" * 64})
+    coordinator.verify(VerificationReceipt(run_id=task.run_id, source_sha=task.source_sha,
+                                           proposal_digest=coordinator.result()["proposal_digest"], attempt=1,
+                                           verdict="FAIL", effects_known=True, evidence_digest="e" * 64,
+                                           failure=failure))
+    second = T11BucketProposer(coordinator, FakeProvider(), SOURCE_PATH, TARGET_PATH,
+                               attempt=2, feedback_digest="e" * 64)
+    second.propose(task)
+    assert len(first.tool_events()) == 4
+    assert [e["attempt"] for e in second.tool_events()] == [2, 2, 2]
+
+
+def test_planner_resumes_t11_for_attempt_two_only_with_signed_failure(tmp_path):
+    import base64
+    from types import SimpleNamespace
+
+    from rehearsal_runner.attempt_store import PlanBinding
+    from rehearsal_runner.bucket_job import BucketFixture
+    from rehearsal_runner.bucket_planner import BucketPlanner, BucketTarget
+
+    task = prepare_bucket_policy_task("run-1", SOURCE, "fixture-bucket", source_sha="a" * 40)
+    coordinator = make_coordinator(tmp_path, task)
+
+    class Proposals:
+        def open(self, admission, bound_task):
+            return coordinator, FakeProvider()
+
+    class Kube:
+        def get(self, *args):
+            return {"data": {"access": base64.b64encode(b"a").decode(), "secret": base64.b64encode(b"s").decode()}}
+
+    profile = {f"{p}_{k}": v for p in ("SEAWEEDFS", "OPENBAO")
+               for k, v in (("NAMESPACE", "ns"), ("LABEL_KEY", "app"), ("LABEL_VALUE", "x"), ("PORT", "1"))}
+    planner = BucketPlanner(
+        profile=profile, target=BucketTarget(
+            BucketFixture("http://s:8333", "fixture-bucket", "canary", "a" * 64, "img@sha256:" + "b" * 64),
+            "ns", "cred"),
+        proposals=Proposals(), bindings=lambda _a: PlanBinding("c" * 64, "env"), kubectl=object(),
+        kube=Kube(), isolation_image="busybox:1.36", source_policy_path=SOURCE_PATH,
+        target_policy_path=TARGET_PATH)
+    factory = planner.factory(SimpleNamespace(), task)
+    factory.prepare(1, None).proposer.propose(task)
+    with pytest.raises(ValueError, match="feedback"):
+        factory.prepare(2, None)
+    assert coordinator.state == "PROPOSAL_READY"
+    second = factory.prepare(2, "e" * 64).proposer
+    assert coordinator.state == "RETRY_ALLOWED" and coordinator.bundle.evidence_digest == "e" * 64
+    second.propose(task)
+    assert coordinator.attempt == 2 and coordinator.state == "PROPOSAL_READY"

@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "T31 apply result v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "application_id", "approval_id", "verification_id", "plan_id", "outcome",
+               "reason", "change", "deployed_digest", "job_passed", "gate_recheck", "steps"],
+  "properties": {
+    "schema_version": {"const": "1.0"},
+    "application_id": {"$ref": "#/$defs/identifier"},
+    "approval_id": {"$ref": "#/$defs/identifier"},
+    "verification_id": {"$ref": "#/$defs/identifier"},
+    "plan_id": {"$ref": "#/$defs/identifier"},
+    "outcome": {"enum": ["APPLIED", "REFUSED", "SAFE_HOLD"]},
+    "reason": {"type": "string", "pattern": "^[A-Z][A-Z0-9_]{0,63}$"},
+    "change": {"type": "object", "additionalProperties": false, "required": ["diff_hash", "image_digest"],
+               "properties": {"diff_hash": {"$ref": "#/$defs/digest"}, "image_digest": {"$ref": "#/$defs/digest"}}},
+    "deployed_digest": {"anyOf": [{"$ref": "#/$defs/digest"}, {"type": "null"}]},
+    "job_passed": {"type": "boolean"},
+    "gate_recheck": {"anyOf": [{"type": "null"}, {"type": "object", "additionalProperties": false,
+                     "required": ["plan_id", "application_id", "image_digest", "tests"],
+                     "properties": {"plan_id": {"$ref": "#/$defs/identifier"}, "application_id": {"$ref": "#/$defs/identifier"},
+                                    "image_digest": {"$ref": "#/$defs/digest"},
+                                    "tests": {"type": "array", "items": {"type": "string", "pattern": "^[A-Z]{2,4}-[0-9]{2}\\.[0-9]{1,2}$"}, "minItems": 1}}}]},
+    "steps": {"type": "array", "items": {"type": "object", "additionalProperties": false,
+              "required": ["step", "status"], "properties": {"step": {"type": "string"}, "status": {"enum": ["ok", "refused", "failed", "skipped"]}, "detail": {"type": "string"}}}}
+  },
+  "$defs": {
+    "identifier": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$"},
+    "digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"}
+  }
+}

@@ -11,8 +11,10 @@ class TestProvider:
 
     def __init__(self, proposal):
         self.proposal = proposal
+        self.seen_inputs = []
 
     async def propose(self, bundle, tools):
+        self.seen_inputs.append(tools.model_input())
         tools.dispatch("mcp__bravo__repo_read", {"path": self.proposal["edits"][0]["path"]})
         tools.dispatch("mcp__bravo__plan_propose", self.proposal)
 
@@ -109,3 +111,20 @@ def test_audit_overflow_does_not_produce_an_approvable_proposal(context):
     assert result["state"] == "NEEDS_HUMAN"
     assert result["proposal"] is None
     assert result["attempts"][0]["audit_truncated"] is True
+
+
+def test_retries_keep_the_original_task_next_to_the_failure_feedback(context):
+    # 류지환 (11/5 12:38): on a retry the bundle becomes the verifier's feedback; the model must
+    # still receive the original objective and allowed files of the run.
+    bundle, snapshot, proposal, _ = context
+    coordinator = Coordinator(bundle, snapshot)
+    provider = TestProvider(proposal)
+    asyncio.run(coordinator.propose(provider))
+    coordinator.verify(receipt(coordinator, verdict="FAIL"))
+    asyncio.run(coordinator.propose(provider))
+    first, second = provider.seen_inputs
+    assert first["task"] == second["task"] == bundle.model_dump()
+    assert second["failure"]["summary"].startswith("Independent validator") and second["attempt"] == 2
+    result = coordinator.result()
+    assert result["task_digest"] == result["attempts"][0]["task_digest"] == result["attempts"][1]["task_digest"]
+    assert result["input"]["summary"].startswith("Independent validator") and result["task"] == bundle.model_dump()

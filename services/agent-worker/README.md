@@ -99,10 +99,10 @@ Action·Resource 배열의 모든 원소와 Principal 객체 안의 배열까지
 | 독립 결과 | 다음 상태 |
 |---|---|
 | 결속 일치, PASS, 효과 확인 | `AWAITING_APPROVAL` — 승인·반영은 별도 |
-| 결속 일치, FAIL, 효과 확인, 시도 1~2 | `RETRY_ALLOWED` — 새 실패 요약을 다음 시도에 전달 |
+| 결속 일치, FAIL, 효과 확인, 시도 1~2 | `RETRY_ALLOWED` — 새 실패 요약을 다음 시도에 전달. 모델 입력은 `task`(원 작업: 목적 · 수정 가능 파일) + `failure`(최신 검증 피드백) + `attempt` + `snapshot`이며 재시도에서도 `task`는 바뀌지 않는다(`Tools.model_input`) |
 | FAIL 3회, UNKNOWN, 효과 미확인, 결속 불일치 | `NEEDS_HUMAN` |
 
-실패 영수증에는 같은 run/revision/evidence에 결속된 새 `FailureBundle`이 필요하다. 각 시도의 정리된 입력·제안과 검증 영수증을 결과에 보존한다. 감사 이벤트에는 코드가 정한 도구명·사유·결과만 저장하고 거부된 원시 인자, provider 오류 문자열과 stderr는 저장하지 않는다.
+실패 영수증에는 같은 run/revision/evidence에 결속된 새 `FailureBundle`이 필요하다. Coordinator는 원 작업 번들을 `task`로 보존하고 결과 · 각 시도에 `task_digest`를 남긴다. 러너가 재시작하면 확인되지 않은 시도를 자동 재실행하지 않고 사람에게 넘긴다(시도 기록의 영속화는 T10). 각 시도의 정리된 입력·제안과 검증 영수증을 결과에 보존한다. 감사 이벤트에는 코드가 정한 도구명·사유·결과만 저장하고 거부된 원시 인자, provider 오류 문자열과 stderr는 저장하지 않는다.
 
 허용된 소스 읽기는 경로와 내용 해시를 남긴다. 감사 이벤트가 시도당 128개를 넘으면 초과 여부와 전체 건수를 표시하고 `NEEDS_HUMAN`으로 중단한다. 기록이 잘린 제안을 승인 대기로 넘기지 않는다.
 

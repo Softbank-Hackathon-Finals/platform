@@ -221,7 +221,7 @@ class AccessRule:
 
 def run(state: pathlib.Path, first: str):
     import jwt
-    from bravo_agent.contracts import FailureBundle, SnapshotManifest, VerificationReceipt
+    from bravo_agent.contracts import FailureBundle, SnapshotManifest
     from bravo_agent.coordinator import Coordinator
     from bravo_agent.tools import PolicyDenied, Snapshot
     from bravo_agent.verification import Kube
@@ -234,28 +234,15 @@ def run(state: pathlib.Path, first: str):
     from cryptography.hazmat.primitives.asymmetric import rsa
 
     from rehearsal_runner.approval_handoff import submit_candidate
-    from rehearsal_runner.attempt_store import (
-        AttemptStore,
-        PlanBinding,
-        RecordedAttemptSender,
-        RecordedEvidence,
-    )
-    from rehearsal_runner.bucket_job import BucketFixture, SeaweedBucketJob
-    from rehearsal_runner.bucket_proposal_source import BoundBucketProposalSource
-    from rehearsal_runner.bucket_proposer import T11BucketProposer, bucket_summary
+    from rehearsal_runner.attempt_store import AttemptStore, PlanBinding
+    from rehearsal_runner.bucket_job import BucketFixture
+    from rehearsal_runner.bucket_planner import BucketPlanner, BucketTarget, build_bucket_host
+    from rehearsal_runner.bucket_proposer import bucket_summary
     from rehearsal_runner.bucket_task import prepare_bucket_policy_task
-    from rehearsal_runner.bucket_verifier import BucketVerifier
     from rehearsal_runner.isolation.kube import Kubectl
-    from rehearsal_runner.isolation.profile import targets
-    from rehearsal_runner.namespace_lifecycle import NamespaceLifecycle
-    from rehearsal_runner.rehearsal_host import T15RehearsalHost
-    from rehearsal_runner.retry import AttemptPorts
-    from rehearsal_runner.runner import T3Gate
 
     require_vm()
     seaweed = get("pod", "seaweed", "-n", FIXTURE_NS)
-    auth = get("secret", "t15-s3-config", "-n", FIXTURE_NS)["data"]
-    credential = (base64.b64decode(auth["access"]).decode(), base64.b64decode(auth["secret"]).decode())
     fixture = BucketFixture(f"http://{seaweed['status']['podIP']}:8333", BUCKET, "canary",
                             hashlib.sha256(CANARY).hexdigest(), AWS_IMAGE)
     profile = {"SEAWEEDFS_NAMESPACE": FIXTURE_NS, "SEAWEEDFS_LABEL_KEY": "app",
@@ -282,12 +269,10 @@ def run(state: pathlib.Path, first: str):
     with store._connection() as connection:  # T10's state machine owns this transition in a deployment.
         connection.execute("UPDATE plans SET state='REHEARSE' WHERE plan_id=?", (spec.plan_id,))
     records = AttemptStore(work / "records", os.urandom(32))
-    kubectl_, admin = Kubectl(), Kube()
-    coordinators = {}
+    admin = Kube()
 
     class Provider:
-        def __init__(self, effect):
-            self.effect = effect
+        """Scripted proposals: attempt 1 uses `first`, later attempts the restricted policy."""
 
         async def propose(self, bundle, tools):
             # Scripted stand-in for the agent's cleanup attempt; T11 must refuse it.
@@ -299,42 +284,24 @@ def run(state: pathlib.Path, first: str):
                 "run_id": bundle.run_id, "source_sha": bundle.source_sha, "risk": "low",
                 "rationale": "Translate the S3 policy for the SeaweedFS test bucket",
                 "edits": [{"path": TARGET_PATH, "before_sha256": target["sha256"],
-                           "replacement": policy(self.effect)}]})
+                           "replacement": policy(first if tools.attempt == 1 else "restricted")}]})
 
-    class Planner:
-        def binding(self, admission):
-            return PlanBinding(spec.plan_digest, spec.target_environment_id)
+    class LocalProposals:
+        """Stand-in for the T11/T38 source: a local snapshot and the scripted provider."""
 
-        def factory(self, admission, bound_task):
-            class Factory:
-                def prepare(self, attempt, feedback):
-                    run_id = bound_task.run_id
-                    if attempt == 1:
-                        bundle = FailureBundle(run_id=run_id, source_sha=sha, failure_code="POLICY_TRANSLATION",
-                                               evidence_digest="0" * 64,
-                                               summary=bucket_summary(bound_task, SOURCE_PATH, TARGET_PATH))
-                        coordinators[run_id] = Coordinator(bundle, Snapshot(snapshot_root, manifest))
-                    coordinator = coordinators[run_id]
-                    if attempt > 1:
-                        failure = coordinator.bundle.model_copy(update={
-                            "evidence_digest": feedback, "failure_code": "TEMPLATE_TEST_FAILED",
-                            "summary": "Independent verifier: anonymous read was still allowed."})
-                        coordinator.verify(VerificationReceipt(
-                            run_id=run_id, source_sha=sha, proposal_digest=coordinator.result()["proposal_digest"],
-                            attempt=attempt - 1, verdict="FAIL", effects_known=True, evidence_digest=feedback,
-                            failure=failure))
-                    effect = first if attempt == 1 else "restricted"
-                    proposer = T11BucketProposer(coordinator, Provider(effect), SOURCE_PATH, TARGET_PATH,
-                                                 attempt=attempt, feedback_digest=feedback)
-                    lifecycle = AccessRule(NamespaceLifecycle(kubectl_, PatientCleaner(admin), profile, attempt))
-                    job = SeaweedBucketJob(admin, BoundBucketProposalSource(coordinator, TARGET_PATH),
-                                           coordinator.snapshot, fixture, lambda: credential,
-                                           source_policy_path=SOURCE_PATH, deadline_seconds=900)
-                    verifier = BucketVerifier(bound_task, job, attempt)
-                    gate = T3Gate(kubectl_, targets(profile), BUSYBOX, cleanup_timeout=300)
-                    return AttemptPorts(proposer, lifecycle, gate, verifier)
+        def open(self, admission, bound_task):
+            bundle = FailureBundle(run_id=bound_task.run_id, source_sha=sha, failure_code="POLICY_TRANSLATION",
+                                   evidence_digest="0" * 64,
+                                   summary=bucket_summary(bound_task, SOURCE_PATH, TARGET_PATH))
+            return Coordinator(bundle, Snapshot(snapshot_root, manifest)), Provider()
 
-            return Factory()
+    planner = BucketPlanner(
+        profile=profile, target=BucketTarget(fixture, FIXTURE_NS, "t15-s3-config"),
+        proposals=LocalProposals(), bindings=lambda _a: PlanBinding(spec.plan_digest, spec.target_environment_id),
+        kubectl=Kubectl(), kube=admin, isolation_image=BUSYBOX,
+        source_policy_path=SOURCE_PATH, target_policy_path=TARGET_PATH,
+        isolation_cleanup_seconds=300, job_deadline_seconds=900, cleaner=PatientCleaner(admin),
+        wrap_lifecycle=AccessRule)
 
     key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
     workload = WorkloadSender("https://issuer.invalid", "t10-local", "t15-runner", key.public_key(), spec.tenant_id)
@@ -344,14 +311,13 @@ def run(state: pathlib.Path, first: str):
         return jwt.encode({"iss": "https://issuer.invalid", "aud": "t10-local", "sub": "t15-runner",
                            "iat": now, "exp": now + 300}, key, algorithm="RS256")
 
-    evidence = RecordedEvidence(records)
+    deliveries, intake_box = [], []
+    host, evidence = build_bucket_host(Catalog(task), planner, records, deliver=lambda s: deliveries.append(
+        submit_candidate(s, candidate_type=Candidate, intake=intake_box[0], token_supplier=token).state))
     intake = ChangeIntake(store, sender=workload, read_original=evidence.read_original,
                           authorize_hold=lambda _c, who, *_: who == "local-security-fixture")
-    deliveries = []
-    sender = RecordedAttemptSender(records, Planner(), deliver=lambda s: deliveries.append(
-        submit_candidate(s, candidate_type=Candidate, intake=intake, token_supplier=token).state))
-    service = RehearsalService(store, host=T15RehearsalHost(Catalog(task), sender, evidence),
-                               check_start=lambda *_: None)
+    intake_box.append(intake)
+    service = RehearsalService(store, host=host, check_start=lambda *_: None)
     operator = Principal("local-operator", spec.tenant_id)
     status = None
     for attempt in (1, 2, 3):
@@ -360,7 +326,6 @@ def run(state: pathlib.Path, first: str):
                                 attempt=attempt, command_key=f"start-{attempt}")
         result = service.reconcile(operator, spec.plan_id, rehearsal_id=receipt["rehearsal_id"], attempt=attempt)
         record = records.read(receipt["rehearsal_id"], attempt) or {}
-        coordinator = coordinators.get(receipt["rehearsal_id"])
         report["attempts"].append({
             "attempt": attempt, "seconds": round(time.monotonic() - started), "t10_status": result["status"],
             "record_verdict": record.get("verdict"), "record_reason": record.get("reason"),
@@ -370,8 +335,8 @@ def run(state: pathlib.Path, first: str):
             "isolation_probe_run_id": record.get("isolation_probe_run_id"),
             "diff_hash": record.get("diff_hash"), "image_digest": record.get("image_digest"),
             "evidence": record.get("evidence"),
-            "t11_denials": [e for e in (coordinator.audit if coordinator else []) if e["outcome"] == "DENIED"
-                            and e["attempt"] == attempt]})
+            "tool_events_status": record.get("tool_events_status"),
+            "t11_denials": [e for e in record.get("tool_events", []) if e["outcome"] == "DENIED"]})
         status = result["status"]
         if status != "FAIL":
             break
