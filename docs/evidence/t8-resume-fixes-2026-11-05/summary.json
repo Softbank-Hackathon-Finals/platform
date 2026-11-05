@@ -1,0 +1,413 @@
+{
+  "source_revision": "6d5c2f52e12113a88f79ef5e9876f7ed4705a85a",
+  "source_files": [
+    {
+      "path": "infra/envs/target-workloads/resume_replication.py",
+      "sha256": "f661044355bae8f19d0f8b1345b979dd4356d40cfbd724fadb05b5ea00f00531"
+    },
+    {
+      "path": "infra/envs/target-workloads/testing/replication_resume_lab.py",
+      "sha256": "c5c85ed387d810bfd88438f9dd0831c64b250e5c3f2b7eef7221f4223642aa8d"
+    },
+    {
+      "path": "infra/envs/target-workloads/testing/test_resume_replication_wire.py",
+      "sha256": "cd8358d9daebf4332e8e28219ea58f137bba898d7d400940eca6c31452a242f2"
+    },
+    {
+      "path": "scripts/tests/test_resume_replication.py",
+      "sha256": "7460246014a990918343871e434fe0f371e08ddff635eeca3ca6b0240236bf74"
+    }
+  ],
+  "measured_date": "2026-11-05",
+  "baseline_pr": 207,
+  "baseline_revision": "9612f949f87eab336630c4a028a6e1fef3e37445",
+  "local_regressions": {
+    "postgres_image": "public.ecr.aws/docker/library/postgres:18.4@sha256:a02db8cac496f15b094798a38254f14d6e00741f709360e5e00bb6668ea31636",
+    "wire_tests_passed": 2,
+    "unit_tests_passed": 143,
+    "identity": {
+      "baseline_wrong_database_write": true,
+      "corrected_wrong_database_write_rejected": true,
+      "restricted_role": true,
+      "sslmode": "verify-full",
+      "legitimate_source_insert_delete_passed": true
+    },
+    "late_commit": {
+      "baseline_false_cleanup_reproduced": true,
+      "corrected_cleanup_before_commit": "pending",
+      "insert_commits_before_commit": null,
+      "late_commit_rows_source": 1,
+      "late_commit_rows_target": 1,
+      "serialized_cleanup_then_target_apply": "confirmed",
+      "rows_after_cleanup_source": 0,
+      "rows_after_cleanup_target": 0
+    },
+    "fixture_containers_remaining": 0,
+    "fixture_networks_remaining": 0,
+    "cleanup_apply_fence": "WAL insert position read after acknowledged DELETE COMMIT, not the pre-COMMIT position",
+    "recovery_cli": {
+      "condition": "unlimited local Docker; one run",
+      "passed": true,
+      "checks": {
+        "disabled_like_the_incident": true,
+        "dry_run_changed_nothing": true,
+        "apply_passed": true,
+        "enabled_by_this_run": true,
+        "barrier_went_both_ways": true,
+        "applied_position_passed_the_marker": true,
+        "hashes_equal_at_the_end": true,
+        "second_run_only_verified": true,
+        "no_acknowledged_row_lost": true,
+        "backlog_held_real_rows": true,
+        "rows_written_while_stopped_arrived": true,
+        "tables_identical": true,
+        "no_probe_row_left": true,
+        "single_writer_kept": true,
+        "no_credentials_in_output": true
+      },
+      "no_loss": {
+        "newest_row_arrived": true,
+        "acknowledged_rows": 2988,
+        "acknowledged_rows_missing_on_target": 0,
+        "rows_written_while_stopped": 41037,
+        "of_those_on_target": 41037,
+        "messages_identical": true,
+        "attachments_identical": true,
+        "barrier_rows_left": {
+          "source": 0,
+          "target": 0
+        }
+      },
+      "backlog_bytes": 86076288
+    },
+    "failure_paths": {
+      "resumed_by_hand_first": true,
+      "link_still_down": true,
+      "link_lost_during_catch_up": true,
+      "apply_conflict": true,
+      "delete_not_replicated": true,
+      "control_function_role": true,
+      "insert_answer_lost": true,
+      "cleanup_left_pending": true,
+      "enabled_while_slot_held": true,
+      "conflict_with_disable_on_error_off": true,
+      "owner_without_control_function": true,
+      "verify_with_replication_role": true
+    },
+    "repository_tests": {
+      "python": "3.12",
+      "run": 740,
+      "skipped": 7,
+      "failed": 0
+    }
+  },
+  "cloud_app_tls": {
+    "source_revision": "555956b56e4f22b49036e2a9ed0fcd3f7f97eb79",
+    "started_at": "2026-11-05T08:54:51.006747+00:00",
+    "ended_at": "2026-11-05T08:55:37.749032+00:00",
+    "collector_sha256": "sha256:b4c88b4552ebdf8ae7067f0f08358805910a02b63b13aff69b5b0047dfc45d82",
+    "results": [
+      {
+        "test_id": "SEC-01.1",
+        "verdict": "UNKNOWN",
+        "unknown_reason": "NOT_RUN"
+      },
+      {
+        "test_id": "SEC-01.2",
+        "verdict": "UNKNOWN",
+        "unknown_reason": "NOT_RUN"
+      },
+      {
+        "test_id": "SEC-01.3",
+        "verdict": "UNKNOWN",
+        "unknown_reason": "NOT_RUN"
+      },
+      {
+        "test_id": "SEC-01.4",
+        "verdict": "UNKNOWN",
+        "unknown_reason": "NOT_RUN"
+      },
+      {
+        "test_id": "ENC-02.1",
+        "verdict": "UNKNOWN",
+        "unknown_reason": "NOT_RUN"
+      },
+      {
+        "test_id": "ENC-01.1",
+        "verdict": "PASS",
+        "unknown_reason": null
+      },
+      {
+        "test_id": "ENC-01.5",
+        "verdict": "UNKNOWN",
+        "unknown_reason": "NOT_RUN"
+      },
+      {
+        "test_id": "ENC-01.2",
+        "verdict": "PASS",
+        "unknown_reason": null
+      },
+      {
+        "test_id": "ENC-01.3",
+        "verdict": "PASS",
+        "unknown_reason": null
+      },
+      {
+        "test_id": "ENC-01.4",
+        "verdict": "UNKNOWN",
+        "unknown_reason": "NOT_RUN"
+      },
+      {
+        "test_id": "AUD-01.1",
+        "verdict": "UNKNOWN",
+        "unknown_reason": "NOT_RUN"
+      },
+      {
+        "test_id": "AUD-01.2",
+        "verdict": "UNKNOWN",
+        "unknown_reason": "NOT_RUN"
+      },
+      {
+        "test_id": "AUD-01.3",
+        "verdict": "UNKNOWN",
+        "unknown_reason": "NOT_RUN"
+      },
+      {
+        "test_id": "NET-01.1",
+        "verdict": "UNKNOWN",
+        "unknown_reason": "NOT_RUN"
+      },
+      {
+        "test_id": "NET-01.2",
+        "verdict": "UNKNOWN",
+        "unknown_reason": "NOT_RUN"
+      },
+      {
+        "test_id": "NET-01.3",
+        "verdict": "UNKNOWN",
+        "unknown_reason": "NOT_RUN"
+      },
+      {
+        "test_id": "IAM-01.1",
+        "verdict": "UNKNOWN",
+        "unknown_reason": "NOT_RUN"
+      },
+      {
+        "test_id": "IAM-01.2",
+        "verdict": "UNKNOWN",
+        "unknown_reason": "NOT_RUN"
+      },
+      {
+        "test_id": "ISO-01.1",
+        "verdict": "UNKNOWN",
+        "unknown_reason": "NOT_RUN"
+      },
+      {
+        "test_id": "DR-01.1",
+        "verdict": "UNKNOWN",
+        "unknown_reason": "NOT_RUN"
+      }
+    ],
+    "actual_app_process": true,
+    "kubernetes_binding_readbacks": 8,
+    "binding_unchanged": true,
+    "query": "SELECT 1",
+    "negative_password_sent": false,
+    "temporary_code_removed": true,
+    "owned_tunnel_stopped": true,
+    "scope": "source app to pooler only; replication TLS and pooler backend TLS were not tested"
+  },
+  "local_app_tls": {
+    "normal": [
+      [
+        "ENC-01.1",
+        "PASS",
+        null
+      ],
+      [
+        "ENC-01.2",
+        "PASS",
+        null
+      ],
+      [
+        "ENC-01.3",
+        "PASS",
+        null
+      ]
+    ],
+    "lost_ack": [
+      [
+        "ENC-01.1",
+        "UNKNOWN",
+        "TOOL_ERROR"
+      ],
+      [
+        "ENC-01.2",
+        "UNKNOWN",
+        "TOOL_ERROR"
+      ],
+      [
+        "ENC-01.3",
+        "UNKNOWN",
+        "TOOL_ERROR"
+      ]
+    ],
+    "old_ack": [
+      [
+        "ENC-01.1",
+        "UNKNOWN",
+        "TOOL_ERROR"
+      ],
+      [
+        "ENC-01.2",
+        "UNKNOWN",
+        "TOOL_ERROR"
+      ],
+      [
+        "ENC-01.3",
+        "UNKNOWN",
+        "TOOL_ERROR"
+      ]
+    ],
+    "retry_fresh": [
+      [
+        "ENC-01.1",
+        "PASS",
+        null
+      ],
+      [
+        "ENC-01.2",
+        "PASS",
+        null
+      ],
+      [
+        "ENC-01.3",
+        "PASS",
+        null
+      ]
+    ],
+    "middle_end": [
+      [
+        "ENC-01.1",
+        "PASS",
+        null
+      ],
+      [
+        "ENC-01.2",
+        "PASS",
+        null
+      ],
+      [
+        "ENC-01.3",
+        "UNKNOWN",
+        "UNEXPECTED_RESPONSE"
+      ]
+    ],
+    "bogus_auth": [
+      [
+        "ENC-01.1",
+        "PASS",
+        null
+      ],
+      [
+        "ENC-01.2",
+        "PASS",
+        null
+      ],
+      [
+        "ENC-01.3",
+        "UNKNOWN",
+        "UNEXPECTED_RESPONSE"
+      ]
+    ],
+    "good_denial": [
+      [
+        "ENC-01.1",
+        "PASS",
+        null
+      ],
+      [
+        "ENC-01.2",
+        "PASS",
+        null
+      ],
+      [
+        "ENC-01.3",
+        "PASS",
+        null
+      ]
+    ],
+    "fixture": {
+      "pg": "18.4 docker digest pinned",
+      "pooler": "PgBouncer 1.25.1",
+      "readback": "registration fixture",
+      "retained_count": 18,
+      "secret_in_evidence": false
+    },
+    "owned_container_absent": true
+  },
+  "cloud_local_replication_recovery": {
+    "status": "NOT_RUN",
+    "reason": "Fresh execution window and T8 owner scope coordination remain pending. The 2026-11-04 recovery is historical, not a 2026-11-05 PASS.",
+    "settings_changed": false,
+    "enable_submissions": 0,
+    "marker_insert_submissions": 0
+  },
+  "private_artifacts": [
+    {
+      "artifact": "write-identity.json",
+      "sha256": "5a21822f56a64b883dfae5ec8d35f06a0f7377a28c1b0608a4129c12ffea3aa7",
+      "visibility": "private; sanitized findings recorded here"
+    },
+    {
+      "artifact": "write-identity-fixed.json",
+      "sha256": "b87832e9419bd45a3b4de9e57a83a4fc3e37b27610b26ec893e12965b0a21bfe",
+      "visibility": "private; sanitized findings recorded here"
+    },
+    {
+      "artifact": "late-commit.json",
+      "sha256": "a58f861d525ff71e0a5401aace8228749cd3da2197bfa1c43ec3601f3969485a",
+      "visibility": "private; sanitized findings recorded here"
+    },
+    {
+      "artifact": "late-commit-fixed-r2.json",
+      "sha256": "9a7f8c20b4e4d7afbbdf3e5707222778afb5f76f7c971e7772d6848b9fc84013",
+      "visibility": "private; sanitized findings recorded here"
+    },
+    {
+      "artifact": "tls-cloud-control-run.json",
+      "sha256": "3b3a8f99c3dd1e2b50356754c52fecc9a2a9a644a8e8a71cdcfb9e925db2d762",
+      "visibility": "private; sanitized findings recorded here"
+    },
+    {
+      "artifact": "tls-cloud-receipt.json",
+      "sha256": "0091a6979b4b054c7553a23508d8e1e261197a48abed328fa85316e9b10c0ce9",
+      "visibility": "private; sanitized findings recorded here"
+    },
+    {
+      "artifact": "tls-cloud-code.json",
+      "sha256": "89b11cb7706c83c69830fe9c28610d39153900f6d57dd0ed5abda2e4f1bcc4e5",
+      "visibility": "private; sanitized findings recorded here"
+    },
+    {
+      "artifact": "tls-local-result.json",
+      "sha256": "3b5f5cf1c6ef5d2323c69012db0eb2a7a27c1076c08a25d60830a092e04e6661",
+      "visibility": "private; sanitized findings recorded here"
+    },
+    {
+      "artifact": "resume-recover-postcommit.json",
+      "sha256": "130b5ef0485fbf41a66615ad8f7c81ea8df001d5347ccaf2eef9797550b48a8f",
+      "visibility": "private; sanitized findings recorded here"
+    },
+    {
+      "artifact": "resume-paths-postcommit.json",
+      "sha256": "527cdb3b328757b98a96c67fce6ba9e27ea9d42e6ee1ad181839cc5a9382fda5",
+      "visibility": "private; sanitized findings recorded here"
+    },
+    {
+      "artifact": "repository-tests-final.log",
+      "sha256": "fdfe6267bb2f9d6774aca56354200b7428274d23e4be84c3d95d1ea1d3ce4cd5",
+      "visibility": "private; sanitized findings recorded here"
+    }
+  ]
+}
