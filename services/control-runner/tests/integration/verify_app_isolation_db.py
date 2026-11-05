@@ -4,6 +4,7 @@ Build the companion qualification Dockerfile first. DB operations run inside
 that container so client endpoints are not translated by Docker Desktop NAT.
 """
 
+import io
 import json
 import os
 import re
@@ -11,6 +12,7 @@ import secrets
 import signal
 import subprocess
 import sys
+import tarfile
 import tempfile
 import time
 from dataclasses import replace
@@ -241,8 +243,7 @@ def main():
             service_dir = Path(__file__).resolve().parents[2]
             cid = command(
                 "docker",
-                "run",
-                "-d",
+                "create",
                 "--name",
                 name,
                 "--label",
@@ -253,26 +254,57 @@ def main():
                 "384m",
                 "--pids-limit",
                 "128",
-                "-p",
-                "127.0.0.1::5432",
+                "--network",
+                "none",
+                "--cap-drop",
+                "ALL",
+                "--security-opt",
+                "no-new-privileges",
                 "--env",
                 "POSTGRES_PASSWORD_FILE=/tmp/setup/admin-password",
                 "--env",
                 "POSTGRES_INITDB_ARGS=--auth-host=scram-sha-256 --auth-local=trust",
-                "--mount",
-                f"type=bind,src={mount},dst=/fixture,readonly",
                 "--mount",
                 f"type=bind,src={service_dir},dst=/work,readonly",
                 "--entrypoint",
                 "/bin/sh",
                 image,
                 "-c",
-                "mkdir -p /tmp/setup /tmp/logs && cp /fixture/* /tmp/setup/ && "
-                "chown -R postgres:postgres /tmp/setup /tmp/logs && chmod 600 /tmp/setup/* && "
                 "exec docker-entrypoint.sh postgres -c ssl=on -c ssl_cert_file=/tmp/setup/tls.crt "
                 "-c ssl_key_file=/tmp/setup/tls.key -c logging_collector=on -c log_destination=jsonlog "
                 "-c log_directory=/tmp/logs -c log_filename=postgres -c log_timezone=UTC",
             )
+            # Copy private fixtures before start, with the image's non-root identity.
+            # No host chmod/chown, root exec, credential arguments or published ports.
+            uid = int(
+                command(
+                    "docker", "run", "--rm", "--network", "none", "--entrypoint", "id", image, "-u"
+                )
+            )
+            gid = int(
+                command(
+                    "docker", "run", "--rm", "--network", "none", "--entrypoint", "id", image, "-g"
+                )
+            )
+            if uid == 0 or gid == 0:
+                raise RuntimeError("qualification image must be non-root")
+            archive = io.BytesIO()
+            with tarfile.open(fileobj=archive, mode="w") as tar:
+                for fixture in mount.iterdir():
+                    data = fixture.read_bytes()
+                    info = tarfile.TarInfo(fixture.name)
+                    info.size, info.uid, info.gid, info.mode = len(data), uid, gid, 0o600
+                    tar.addfile(info, io.BytesIO(data))
+            copied = subprocess.run(
+                ["docker", "cp", "-a", "-", cid + ":/tmp/setup"],
+                input=archive.getvalue(),
+                capture_output=True,
+                timeout=10,
+                check=False,
+            )
+            if copied.returncode:
+                raise RuntimeError("private fixture copy failed")
+            command("docker", "start", cid)
             deadline = time.monotonic() + 30
             while True:
                 ready = subprocess.run(

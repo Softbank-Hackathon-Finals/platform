@@ -90,6 +90,8 @@ PYTHONPATH=src python tests/integration/verify_app_isolation_db.py
 
 호스트에 Docker·openssl·이 서비스의 aws/postgres 의존성이 필요하다.
 시험은 고유 이름/소유권 라벨의 컨테이너와 임시 인증서를 만들고 finally에서 제거한다.
+DB와 시험 클라이언트는 비루트로 실행하며, 외부 네트워크·공개 포트·Linux capability를
+허용하지 않는다. 비밀 파일은 시작 전에 해당 UID 소유의 0600 파일로 복사한다.
 클라이언트는 해당 컨테이너 내부에서 실행해 Docker Desktop의 NAT를 피한다.
 DB 준비용 관리자 권한은 시험 하네스에만 있으며 제품 검사에는 전달하지 않는다.
 Docker 이미지 및 의존성은 로컬 자격 시험용으로, 운영 배포 승인을 의미하지 않는다.
