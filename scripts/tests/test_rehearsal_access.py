@@ -2,8 +2,8 @@
 
 import copy
 import importlib.util
-from pathlib import Path
 import unittest
+from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 SPEC = importlib.util.spec_from_file_location(
@@ -88,6 +88,92 @@ def permits(policy, namespace, labels, port):
 
 
 class AccessTests(unittest.TestCase):
+    def test_collector_route_does_not_change_existing_identities_or_shared_resources(
+        self,
+    ):
+        items = access.collector_platform("target-api.example.ts.net")
+        self.assertEqual(
+            [o["kind"] for o in items],
+            [
+                "NetworkPolicy",
+                "NetworkPolicy",
+                "ProxyGroup",
+                "ProxyGroupPolicy",
+                "Service",
+            ],
+        )
+        self.assertEqual(
+            items[0]["spec"]["podSelector"]["matchLabels"],
+            {
+                "app.kubernetes.io/name": "t10-registration",
+                "bravo.dev/target-api-client": "collector",
+            },
+        )
+        self.assertEqual(items[0]["metadata"]["namespace"], "platform-state")
+        self.assertEqual(
+            items[0]["spec"]["egress"][0]["ports"],
+            [{"protocol": "UDP", "port": 53}, {"protocol": "TCP", "port": 53}],
+        )
+        self.assertEqual(len(items[0]["spec"]["egress"]), 1)
+        self.assertEqual(items[2]["spec"]["tags"], ["tag:bravo-collector"])
+        self.assertEqual(items[3]["spec"], {"egress": ["bravo-collector-egress"]})
+        self.assertEqual(items[4]["metadata"]["name"], "collector-target-api")
+
+    def test_collector_only_named_caller_and_exact_observed_port_can_enter_proxy(self):
+        sample = observed()["items"][0]
+        sample["metadata"]["labels"].update(
+            {
+                "tailscale.com/parent-resource": "collector-target-api",
+                "tailscale.com/parent-resource-ns": "platform-state",
+                "tailscale.com/proxy-group": "bravo-collector-egress",
+            }
+        )
+        policies = access.collector_network({"items": [sample]})
+        labels = {
+            "app.kubernetes.io/name": "t10-registration",
+            "bravo.dev/target-api-client": "collector",
+        }
+        ingress = policies[1]
+        self.assertTrue(permits(ingress, "platform-state", labels, 10193))
+        for ns, pod, port in [
+            ("bravo-apply-control", labels, 10193),
+            ("bravo-rehearsal-control", labels, 10193),
+            ("platform-state", {"app.kubernetes.io/name": "t10-registration"}, 10193),
+            ("platform-state", {"bravo.dev/target-api-client": "collector"}, 10193),
+            ("platform-state", labels, 10194),
+            ("platform-state", labels, 9002),
+            ("platform-state", labels, 5432),
+        ]:
+            self.assertFalse(permits(ingress, ns, pod, port))
+        for mutate in [
+            lambda o: o["metadata"].update(uid=""),
+            lambda o: o["metadata"].update(resourceVersion=""),
+            lambda o: o["metadata"]["labels"].update(
+                {"tailscale.com/parent-resource": "target-api"}
+            ),
+            lambda o: o["spec"]["ports"][0].update(targetPort=9002),
+        ]:
+            invalid = copy.deepcopy(sample)
+            mutate(invalid)
+            with self.assertRaises(ValueError):
+                access.collector_network({"items": [invalid]})
+        for bad in [{"items": []}, {"items": [sample, sample]}]:
+            with self.assertRaises(ValueError):
+                access.collector_network(bad)
+        config = access.kubeconfig(
+            "collector", "target-api.example.ts.net", "/credentials/token"
+        )
+        self.assertEqual(
+            config["clusters"][0]["cluster"],
+            {
+                "server": "https://collector-target-api.platform-state.svc.cluster.local",
+                "tls-server-name": "target-api.example.ts.net",
+            },
+        )
+        self.assertEqual(
+            config["users"][0]["user"], {"tokenFile": "/credentials/token"}
+        )
+
     def test_bootstrap_is_closed_until_managed_service_ports_are_read(self):
         items = access.platform("target-api.example.ts.net", "scoped-operator-oauth")
         self.assertNotIn("Secret", [x["kind"] for x in items])

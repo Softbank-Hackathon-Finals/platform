@@ -65,3 +65,42 @@ T15 AI 실행 신원은 기존 [T3 템플릿](../../../services/rehearsal-runner
 5. 만든 Job/Pod/Secret/시험 namespace의 UID를 기록하고 동일 UID만 삭제한다. 부재를 다시 읽는다. 인계용 namespace를 유지하면 이름·UID·소유자·정리 책임을 명시한다.
 
 [11월 5일 실측](../../../docs/evidence/t7-target-api-access-2026-11-05/README.md)은 이 구조의 실제 AWS→등록 목적지 검증이다. 이 생성기의 포트 제한 출력 적용과 T3 전체 격리·T15 실제 모델 리허설·T31 앱 rollout·T25 컷오버는 별도로 판정한다. 성공한 전송만으로 그 단계까지 완료 처리하지 않는다.
+# T10 등록용 Collector API 경로
+
+`collector-platform`은 기존 `platform-state` 안의 등록 Pod에 별도 API 경로를 추가한다.
+T15/T31 경로와 자격은 재사용하지 않는다. 목적지의 기존 읽기 전용 Collector SA를
+사용하며, SA·토큰·등록 Pod 생성은 등록 담당이 맡는다. 이 렌더러는 이 자원을 만들지 않는다.
+
+- 호출 Pod label은 `app.kubernetes.io/name=t10-registration`과
+  `bravo.dev/target-api-client=collector` 둘 다 필요하다. 네트워크 label은 SA 인증을 대신하지 않는다.
+- 연결 주소는 `https://collector-target-api.platform-state.svc.cluster.local`이다.
+  TLS server name은 운영자가 확인한 목적지 API의 canonical MagicDNS 이름이다.
+  공인 CA 검증을 유지하고 기존 `tokenFile`로 목적지 Collector 토큰을 전달한다.
+- 별도 `bravo-collector-egress`와 `collector-access` ProxyGroupPolicy를 사용한다.
+  `collector-tailnet-fragment.json`을 **Bravo Clusters**의 현재 정책에 병합한다.
+  전체 정책을 fragment로 대체하지 않는다. Collector는 목적지 API TCP 443만 허용한다.
+- 공통 Tailnet·ProxyClass·operator와 기존 Namespace·DB 정책은 수정하지 않는다.
+  기존 DB 연결은 등록 담당의 `bravo.dev/db-client=runtime` label과 별도 DB 정책이 담당한다.
+  정책은 합산되므로 설치 전에 같은 Pod와 프록시를 선택하는 기존 정책을 확인한다.
+
+```sh
+python3 infra/envs/rehearsal-access/access.py collector-platform \
+  --api-hostname "$TARGET_API_HOSTNAME" > collector-bootstrap.json
+# 운영자는 namespace/cluster UID와 기존 정책을 확인하고 bootstrap을 순서대로 설치한다.
+# 처음에는 DNS와 operator health만 허용한다. Service의 실제 포트를 읽은 뒤 아래를 실행한다.
+kubectl -n tailscale-system get services -o json > observed-services.json
+python3 infra/envs/rehearsal-access/access.py collector-network \
+  < observed-services.json > collector-network.json
+python3 infra/envs/rehearsal-access/access.py kubeconfig --role collector \
+  --api-hostname "$TARGET_API_HOSTNAME" --token-file /credentials/token > collector-kubeconfig.json
+```
+
+`collector-network`는 Service UID·resourceVersion·전체 역할 label·443/TCP·실제 mapped
+targetPort를 검증한다. 적용 직전에 같은 UID/resourceVersion인지 다시 대조한다.
+프록시 Pod는 운영자가 새 정책을 적용하기 전까지 호출 트래픽을 받지 않는다.
+실측은 같은 등록 label의 정상 경로 TLS 확인과 label 누락/다른 역할 경로 거부를
+각각 수행한다. HTTP 401/403은 네트워크 거부가 아니다. Collector 신원의 허용/거부와
+실제 등록 API 성공은 토큰을 인수한 등록 담당의 별도 결과로 기록한다.
+
+이 경로는 Kubernetes API 조회용이다. `infra/envs/collector-network`의
+OTel Collector → 메트릭 수신 경로와는 별개다.
