@@ -164,6 +164,22 @@ def test_authenticated_but_inconsistent_receipt_is_rejected(bundle, change):
         bundle.prepare()
 
 
+@pytest.mark.parametrize("destination", ["ghcr", "ecr"])
+@pytest.mark.parametrize("field,value", [
+    ("digest", "sha256:" + "6" * 64), ("verified_blob_count", 16),
+])
+def test_one_publisher_receipt_cannot_disagree_with_the_other(bundle, destination, field, value):
+    identity = 202 if destination == "ghcr" else 203
+    with zipfile.ZipFile(io.BytesIO(bundle.provider.archives[identity])) as archive:
+        receipt = json.loads(archive.read(f"{destination}-candidate-receipt.json"))
+    receipt[field] = value
+    # Re-authenticate just this archive so only the cross-publisher check rejects it.
+    bundle.provider.archive(identity, f"candidate-{destination}-receipt-101-1",
+                            f"{destination}-candidate-receipt.json", receipt)
+    with pytest.raises(ValueError):
+        bundle.prepare()
+
+
 @pytest.mark.parametrize("field,value", [
     ("head_sha", "a" * 40), ("head_branch", "candidate"), ("event", "pull_request"),
     ("path", ".github/workflows/other.yml"), ("workflow_id", True),
@@ -191,6 +207,25 @@ def test_missing_or_truncated_jobs_never_prove_success(bundle):
     data["jobs"].pop()
     with pytest.raises(ValueError):
         bundle.prepare()
+
+
+def test_extra_unseen_jobs_cannot_prove_unique_success(bundle):
+    data = bundle.provider.responses[f"repos/{candidate.REPOSITORY}/actions/runs/101/attempts/1/jobs?per_page=100"]
+    data["total_count"] = len(data["jobs"]) + 1
+    with pytest.raises(ValueError):
+        bundle.prepare()
+
+
+def test_same_candidate_tree_without_base_ancestry_is_rejected(bundle):
+    b = bundle
+    tree = git(b.root, "rev-parse", b.selected.candidate_sha + "^{tree}")
+    unrelated = git(b.root, "commit-tree", tree, "-m", "independent candidate root")
+    b.selected = replace(b.selected, candidate_sha=unrelated)
+    b.receipt["source_sha"] = unrelated
+    b.reseal()
+    with pytest.raises(ValueError):
+        b.prepare()
+    assert b.provider.calls == []
 
 
 @pytest.mark.parametrize("mutation", ["extra_file", "different_replacement", "mode", "symlink"])
