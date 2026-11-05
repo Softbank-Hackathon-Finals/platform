@@ -5,6 +5,53 @@
 반영 직전에 같은 변경인지 다시 확인하는 T10 경계다.
 T15 검증·재시도, T19 판정, T31 배포를 이 모듈에서 실행하지 않는다.
 
+## 최초 PROPOSE 접수와 같은 제안의 소비
+
+[InitialProposalRecords·InitialProposalExecution](../../services/platform-events/src/bravo_platform_events/initial_proposal.py)는
+최초 제안의 T10 내부 접점이다. 기존 `plan_commands`와 계획 잠금을 사용한다.
+별도 HTTP 경로·실행기·상태 setter를 추가하지 않는다. [ADR-0028](../adr/0028-initial-proposal-records.md).
+
+1. `admit(principal, plan_id, tenant_id, task_id, expected_version, expires_at)`는 현재
+   `PROPOSE`와 직전의 정상 Analysis 체크포인트를 요구한다. 서명된 TaskCatalog와
+   등록 소스 조회기를 다시 읽는다. 같은 계획·버전에 입력 한 건을 저장한다.
+2. `ProductInputAccess(..., purpose="t38-initial-proposal")`의 현재 별도 grant를 요구한다.
+   기존 `t38-product-proposal` grant는 이 권한을 주지 않는다. 입력의 만료 연장,
+   다른 principal·task·source로 바꾸는 재접수는 거부한다.
+3. `preparation_fields`는 기록을 바꾸거나 client를 호출하지 않는다. `execute`는
+   요청을 먼저 commit하고 첫 호출만 `client.submit`을 호출한다. 이후 호출과 재시작은
+   같은 `request_id`를 `client.read`로 조회한다. 응답 유실·불명·접수 직후 중단에도 재전송하지 않는다.
+4. T38의 `client.validate(intent, input, envelope)`는 확인한 실행·산출물의 **로컬 검사**다.
+   provider 조회는 `submit/read` 또는 운영자 인수에서 끝내야 한다. T10은 현재 권한·만료·소스를
+   다시 확인하고 인증된 결과의 정규화 필드만 저장한다. 원격 원문·토큰·임의 metadata는 저장하지 않는다.
+5. `evidence_reader(publication=...)`는 저장된 제안과 실제 T7 발행 기록을 읽는다.
+   T7 조회기는 빌드·스캔·발행·registry readback, workflow/run/attempt/artifact 출처,
+   같은 제안에서 나온 정확한 diff를 확인한다. T10은 request·plan·source·proposal digest를 대조한다.
+   이 영수증이 있어야 기존 `WorkflowRecovery`가 `PROPOSE → REHEARSE`를 수행한다.
+6. `stored(plan_id, plan_version, input_ref, input_digest)`는 같은 Proposal을 읽는다.
+   client 호출은 없다. 즉시 다음 REHEARSE에서는 이 경로의 발행 영수증과 workflow 체크포인트가
+   정확히 같아야 한다. T15는 자신의 실제 Admission·task·source·Change와 이 값을 결속한 뒤 소비한다.
+
+입력과 전달 형식의 정본은 위 Python 모델이다. 입력은 `binding`, `run_id`, `manifest`, `files`다.
+binding은 계획·tenant·버전·task·source·collection scope·inventory·comparison·Analysis 영수증을 고정한다.
+`InitialIntent`에는 `request_id`, `plan_id`, **접수된 `plan_version`**, `input_ref`, `input_digest`,
+`binding_digest`, `runtime_source_sha`, `recipient_public_key`, `purpose`가 있다.
+읽는 쪽은 현재 최신 버전을 추측하지 않는다. `request_id`는 키 준비 전 필드와 principal을 결속한다.
+한 번 접수한 `recipient_public_key`도 바꿀 수 없다.
+
+`InitialResult`는 요청·입력·런타임 소스·실행 영수증·Proposal/digest·실제 schema/lint 결과를 담는다.
+T10은 기존 T11 Proposal 스키마, run/source, 허용 편집 경로와 원본 파일 hash를 다시 검사한다.
+`schema_valid`·`lint_passed`는 실제 boolean `true`여야 한다. 숫자 `1`을 성공으로 받지 않는다.
+실제 T11 검사 결과가 없는 adapter가 이 값을 만들어서는 안 된다.
+
+`CandidatePublication.source_sha`는 등록한 원본 SHA다. T7 원문의 `base_sha`에서 대응한다.
+T7 원문의 `source_sha`는 편집한 후보 head이므로 같은 Proposal의 편집 결과인지 별도로 확인한다.
+검증용 후보 발행 영수증을 실제 계획의 영수증으로 재사용하지 않는다.
+
+이는 T10 내부 계약 구현이며 운영 연결 완료가 아니다. T11 최초 입력 변환·검사 계약,
+T38 전용 intent/영수증 adapter, 실제 T16 Collection/Analysis, T7 발행 조회기,
+T15 저장 제안 소비는 각 담당의 정본으로 연결해야 한다. REHEARSE용 `FailureBundle`이나
+Admission을 최초 입력으로 꾸미지 않는다. 후보 이미지가 아직 없으면 PROPOSE에 남는다.
+
 ## 기존 생산자와의 관계
 
 [T15 #191](https://github.com/Softbank-Hackathon-Finals/platform/pull/191)의
