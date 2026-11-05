@@ -103,11 +103,17 @@ def test_one_host_uses_signed_original_for_http_rehearsal_and_approval(flow, sig
         for _ in range(100):
             response = client.post(f"/v1/plans/{SPEC.plan_id}/rehearsals/{receipt['rehearsal_id']}/attempts/1/reconcile",
                                    headers=headers)
+            if response.status_code == 409:
+                # Signed records may be unreadable while the worker writes.
+                # Only read the same attempt again; never start another one.
+                assert response.json()["detail"]["code"] == "rehearsal_verification_unavailable"
+                time.sleep(0.01)
+                continue
             assert response.status_code == 200, response.text
             if response.json()["status"] == "PASS":
                 break
             time.sleep(0.01)
-        assert response.json()["status"] == "PASS", response.text
+        assert response.status_code == 200 and response.json()["status"] == "PASS", response.text
         with flow["store"]._transaction() as c:
             plan = dict(c.execute("SELECT * FROM plans WHERE plan_id=?", (SPEC.plan_id,)).fetchone())
             current = host.intake.current(c, actor, plan, rehearsal_id=receipt["rehearsal_id"])
