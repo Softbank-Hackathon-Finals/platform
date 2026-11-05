@@ -1,13 +1,14 @@
 # [ADR-0026] rehearsal.exec 기록과 실패 처리: 동작·검사된 인자·결과 코드만 기록하고, 결과를 모르는 변경이 생기면 그 시도의 exec를 닫는다
 
-* **상태 (Status):** 제안됨(Proposed). T15 설계 루프와 독립 검토(2026-11-05)를 거쳐 확정했다. 재시도 횟수·간격과 시간 한도는 추정값이라 시연 목적지에서 실측한 뒤 조정하고 채택한다.
+* **상태 (Status):** 제안됨(Proposed). T15 설계 루프와 독립 검토(2026-11-05)를 거쳐 확정했다. 재시도 횟수·간격과 시간 한도는 추정값이라 시연 목적지에서 실측한 뒤 조정하고 채택한다. 2026-11-06 호출 계약 v1에 맞춰 T15 실행 기록의 전달 칸(`exec_events`)과 접속 확인 결과 키를 정했다.
 * **날짜 (Date):** 2026-11-05
-* **관련 (Related):** T15 #24, T11 #20, T10 #19, T21 #27, T24, T38 #150, 설계 문서 8.4 · 8.6 Executor 계약, [ADR-0019](0019-agent-tool-boundary.md), [ADR-0023](0023-rehearsal-runner-attempt-evidence.md), [ADR-0024](0024-rehearsal-exec-actions.md), [ADR-0025](0025-rehearsal-exec-spaces-and-order.md)
+* **관련 (Related):** T42, T15 #24, T11 #20, T10 #19, T21 #27, T24, T38 #150, 설계 문서 8.4 · 8.6 Executor 계약, [ADR-0019](0019-agent-tool-boundary.md), [ADR-0023](0023-rehearsal-runner-attempt-evidence.md), [ADR-0024](0024-rehearsal-exec-actions.md), [ADR-0025](0025-rehearsal-exec-spaces-and-order.md), [호출 계약 v1](../contracts/T42-rehearsal-exec-v1-proposal.md)
 
 ## 1. 배경 및 문제 상황 (Context and Problem Statement)
 
 * **상황:**
-  * `rehearsal.exec`의 동작 기록은 서명된 시도 기록 `tool_events` → T10 `data.tool_events` → 감사 로그(T24) → 콘솔(T21)로 전달된다. 감사 로그는 지울 수 없다.
+  * T11의 도구 호출 기록은 서명된 시도 기록 `tool_events` → T10 `data.tool_events` → 감사 로그(T24) → 콘솔(T21)로 전달된다. 감사 로그는 지울 수 없다.
+  * 실제 chatgpt-plan 경로에서는 모델이 다른 VM에서 돌아 T11 이벤트가 T15에 오지 않는다. 제품 응답은 `tool_events_status=UNAVAILABLE`이다(`services/agent-worker/src/bravo_agent/subscription_product.py`).
   * ADR-0019는 파괴적 시도를 원문 없이 범주(`category`)만 기록한다.
   * 동작 결과는 AI 응답으로 모델 공급자에게도 전달된다.
   * 지금 러너는 T11 이벤트를 시도가 끝날 때 proposer에서 한 번에 모은다(`services/rehearsal-runner/src/rehearsal_runner/attempt_store.py` `collect_tool_events`). 이벤트 값은 문자열·정수·불리언이면 그대로 서명한다.
@@ -143,16 +144,19 @@
 
   | 동작 | 기록 키 |
   |---|---|
-  | 공통 | `run_id`, `attempt`, `seq`, `action`, `result_code`, `reason`, `stage`, `output_sha256`, `output_bytes` |
+  | 공통 | `run_id`, `attempt`, `seq`, `action`, `request_id`, `args_sha256`, `result_code`, `reason`, `stage`, `output_sha256`, `output_bytes` |
   | ① 띄우기·고치기 | `proposal_digest` |
   | ② 상태·로그 보기 | `target_kind`, `target_name`, `lines` |
-  | ③ 접속 확인 | `service`, `port`, `method`, `path` |
+  | ③ 접속 확인 | `service`, `port`, `method`, `path`, `probe_outcome`(`CONNECTED`·`REFUSED`·`TIMED_OUT`·`DNS_FAILED`), `http_status` |
+
+  값은 문자열·정수·불리언만 쓰고, 해당 없는 키는 `null`로 두지 않고 뺀다. `probe_outcome`·`http_status`는 코드가 만든 값이라 비밀값이 섞이지 않고, 콘솔이 "무인증 접속 → 403 거부"를 보여 주는 근거다.
+* **전달 칸.** T15 실행 기록은 T11 이벤트와 섞지 않고 시도 기록의 `exec_events`(`exec_events_status`: `OFF`·`COMPLETE`·`UNAVAILABLE`)로 따로 서명한다. T10은 `data.exec_events`로 넘긴다. `tool_events`는 지금 규칙(T11 목록을 순서 그대로, 빼거나 더하지 않음)을 유지한다. 실제 chatgpt-plan 경로에서도 실행된 동작이 T10에 닿게 하기 위해서다. 두 목록은 `request_id`로 대조한다.
 
 * **AI에게 돌려주는 값.** 결과 코드, 사유 코드, 동작별 상태 필드, 그리고 출력 끝부분(최대 2KiB)이다. 출력은 다음 검사를 통과할 때만 돌려준다.
   * 공간 A에는 운영 비밀값을 넣지 않고, 러너가 만든 리허설 전용 값만 넣는다. 러너는 그 값을 알기 때문에 원문·base64·URL 인코딩 형태로 출력에서 찾는다.
   * 값이 발견되거나, 출력이 UTF-8이 아니거나, 검사가 실패하면 출력 전체를 돌려주지 않고 `OUTPUT_WITHHELD`만 돌려준다.
   * 러너가 값을 알 수 없는 비밀값(예: 외부에서 발급받는 자격)이 필요한 작업은, 검사 방법이 정해질 때까지 `rehearsal.exec`를 끈다(ADR-0025).
-* **사유 코드.** 고정된 열거값만 쓰고 자유 문장은 넣지 않는다: `BLOCKED`, `FOREIGN_ATTEMPT`, `TIMEOUT`, `NONZERO_EXIT`, `UNAVAILABLE`, `EFFECT_UNKNOWN`, `OUTPUT_WITHHELD`, `BUDGET_EXHAUSTED`. 같은 값이 AI 응답 → 시도 기록 → T10 `data.tool_events` → 감사 로그·콘솔까지 전달된다.
+* **사유 코드.** 고정된 열거값만 쓰고 자유 문장은 넣지 않는다: `BLOCKED`, `FOREIGN_ATTEMPT`, `TIMEOUT`, `NONZERO_EXIT`, `UNAVAILABLE`, `EFFECT_UNKNOWN`, `OUTPUT_WITHHELD`, `BUDGET_EXHAUSTED`. 같은 값이 AI 응답 → 시도 기록 `exec_events` → T10 `data.exec_events` → 감사 로그·콘솔까지 전달된다.
 * **시간과 횟수 (추정값, 실측 뒤 조정).**
   * 동작 하나의 한도 15초에 재시도(최대 2회, 간격 1초 → 3초)를 포함한다. 남은 시간이 다음 재시도에 모자라면 재시도하지 않는다.
   * 시도당 exec 호출은 5회다. 재시도는 횟수에 세지 않는다.
@@ -172,4 +176,4 @@
 
 * 좋은 점: 운영자와 AI가 같은 실패 사유를 본다. 감사 로그와 모델 공급자에게 리허설 비밀값이 가지 않는다. 재시작 뒤에도 실행된 동작을 복구한다.
 * 나쁜 점: 출력 원문은 감사 로그에서 볼 수 없다. 출력이 막히면 AI가 볼 수 있는 정보가 줄어든다. 사유 코드 목록을 T21·T24와 맞춰야 한다.
-* 남은 확인: 숫자는 시연 목적지 격리 시험 때 실측해 조정하고 이 ADR에 남긴다. 새 사유 코드의 표시는 T21(이상무)·T24(전동훈)와 맞춘다. 자격 이전 작업의 공간 A에 들어가는 값을 러너가 알 수 있는지는 T9와 확인한다.
+* 남은 확인: 숫자는 시연 목적지 격리 시험 때 실측해 조정하고 이 ADR에 남긴다. 새 사유 코드의 표시는 T21(이상무)·T24(전동훈)와 맞춘다. `data.exec_events`를 싣는 T10 이벤트 위치는 T10(류지환)과 맞춘다. 자격 이전 작업의 공간 A에 들어가는 값을 러너가 알 수 있는지는 T9와 확인한다.

@@ -13,6 +13,7 @@
 | 되돌리기 승인·접수·복귀 | [FAILBACK 승인·접수·복귀](T10-failback-v1-proposal.md), [ADR-0016](../adr/0016-failback-replication-path-check.md) | 운영팀 결정·호스트 권한 → T10 접수 → T12 반대 방향 실행 → T10 증거·Edge(T17) 확인 → T21 표시 |
 | S2 리허설·변경 승인 | [리허설 시작·재조회](T10-change-approval.md#리허설을-시작하고-재조회하기), [변경 승인과 반영 접수](T10-change-approval.md) | T15의 확인된 검증 결과 → T10 사람 승인·1회 접수 → T31 반영([ADR-0021](../adr/0021-approved-change-promotion.md), [apply-path](../../services/apply-path/README.md)) → T19 재대조. 미인증 응답은 승인 근거가 아님 |
 | 구독 실행 기반·제품 리허설 | [구독 실행 기반](../../operations/subscription/README.md), [T38 #150](https://github.com/Softbank-Hackathon-Finals/platform/issues/150), [T15 #24](https://github.com/Softbank-Hackathon-Finals/platform/issues/24) | T38 VM·OIDC·격리 Job 기반 → T15 제품 템플릿·최대 3회 재시도·diff/digest 승인 결속. 합성 DB_HOST 검증은 T15 제품 인수가 아님 |
+| AI 리허설 시험 도구 | [rehearsal.exec 호출 계약](T42-rehearsal-exec-v1-proposal.md), [ADR-0024](../adr/0024-rehearsal-exec-actions.md) · [0025](../adr/0025-rehearsal-exec-spaces-and-order.md) · [0026](../adr/0026-rehearsal-exec-records-and-failures.md) | T11 도구 노출·인자 검사 → T38 broker 통로 → T42 실행부·실행 기록 → T15 시도 기록 `exec_events` → T10 → T24·T21. 응답의 상태·출력은 채점 근거가 아님 |
 | 인프라 접근·자격 | [ADR-0012](../adr/0012-platform-data-access-boundary.md), [platform-data](../../infra/envs/platform-data/README.md) | T7/T30 설치·전달 → 각 런타임 소비. T14의 독립 검증을 대체하지 않음 |
 
 T19의 접근·데이터 준비 판정, T36의 SLI 판정, T12/T13의 최종 무결성은 서로 다른 질문에 답한다. T10은 이 결과와 현재 계획·승인·권한을 결속하며 새 판정기를 만들지 않는다. 관측용 OTel 수집(T37)은 ADR-0010대로 판정 입력과 구분한다.
