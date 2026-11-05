@@ -84,6 +84,21 @@ def test_safe_projection_and_both_authority_reads(fixture):
         assert r.headers["cache-control"] == "no-store"
 
 
+def test_report_for_generated_workload_id_is_rendered(tmp_path):
+    # T10 registers workloads under generated IDs; the catalog profile names its reference app.
+    workload = "workload-" + "0123456789abcdef" * 2
+    wrapped, *_ = setup(tmp_path / "reports.db", workload_id=workload)
+    state = {}
+    app = ConsoleApp(wrapped.api, public_origin=ORIGIN, controls=wire(wrapped.api, authority=state))
+    with TestClient(app, base_url=ORIGIN, cookies={"fixture-session": "test-only"}) as c:
+        r = c.get("/v1/plans/plan-demo/controls")
+        assert r.status_code == 200, r.text
+        example = json.loads((ROOT / "docs/controls/examples/gate-after-fix.json").read_text())
+        assert r.json()["profile"] == example["profile"]
+        state["change"] = lambda d: d | {"app": "demo-chat"}  # the catalog reference app is not this plan's app
+        assert c.get("/v1/plans/plan-demo/controls").status_code != 200
+
+
 @pytest.mark.parametrize(
     "change",
     ["app", "source", "target", "profile", "missing", "duplicate", "decision", "future", "control"],
