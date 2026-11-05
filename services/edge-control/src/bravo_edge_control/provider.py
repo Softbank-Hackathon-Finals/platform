@@ -45,10 +45,20 @@ class Binding:
             raise EdgeError("binding_or_steering_drift")
         if result.get("enabled") is not True or result.get("proxied") is not True:
             raise EdgeError("binding_or_steering_drift")
-        if any(result.get(key) for key in (
-            "rules", "country_pools", "region_pools", "pop_pools", "networks", "location_pools"
+        if any(result.get(key) not in (None, [], {}) for key in (
+            "rules", "pool_sets", "country_pools", "region_pools", "pop_pools",
+            "location_pools"
         )):
             raise EdgeError("steering_override_present")
+        # networks selects the provider network, not a pool-routing override.
+        if result.get("networks") not in (None, [], ["cloudflare"]):
+            raise EdgeError("unsupported_provider_network")
+        adaptive = result.get("adaptive_routing")
+        if adaptive is not None and (
+            not isinstance(adaptive, dict) or set(adaptive) - {"failover_across_pools"}
+            or adaptive.get("failover_across_pools", False) is not False
+        ):
+            raise EdgeError("adaptive_pool_failover_enabled")
         random = result.get("random_steering")
         if (not isinstance(random, dict) or type(random.get("default_weight")) not in (int, float)
                 or random["default_weight"] != 0):
@@ -57,8 +67,12 @@ class Binding:
         if not isinstance(weights, dict) or set(weights) != {self.source_pool, self.target_pool}:
             raise EdgeError("pool_set_mismatch")
         source, target = weights[self.source_pool], weights[self.target_pool]
-        if any(type(value) not in (int, float) or not math.isfinite(value) or value < 0
-               for value in (source, target)) or source + target <= 0:
+        try:
+            invalid = any(type(value) not in (int, float) or not math.isfinite(value) or value < 0
+                          for value in (source, target)) or source + target <= 0
+        except OverflowError:
+            raise EdgeError("invalid_pool_weights") from None
+        if invalid:
             raise EdgeError("invalid_pool_weights")
         share = 100 * target / (source + target)
         for allowed in (0, 10, 50, 100):
