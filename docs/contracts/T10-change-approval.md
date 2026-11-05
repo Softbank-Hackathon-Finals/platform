@@ -47,6 +47,44 @@ T10은 기존 T11 Proposal 스키마, run/source, 허용 편집 경로와 원본
 T7 원문의 `source_sha`는 편집한 후보 head이므로 같은 Proposal의 편집 결과인지 별도로 확인한다.
 검증용 후보 발행 영수증을 실제 계획의 영수증으로 재사용하지 않는다.
 
+### T7 발행 영수증을 읽는 운영자 연결
+
+[`candidate_publication`](../../services/platform-events/src/bravo_platform_events/candidate_publication.py)은
+기존 T7 `publish-candidate-image.yml`의 성공한 발행 기록을 읽는다. T10 호스트의
+`publication_inputs(plan_id, version, **ref)`가 현재 권한을 확인한 뒤 저장 입력·의도·결과를
+같은 트랜잭션에서 반환한다. 이 메서드는 모델·T38 client·네트워크를 호출하지 않는다.
+
+```python
+value, intent, result = execution.publication_inputs(plan_id, version, **ref)
+publication = prepare_publication(
+    value=value, intent=intent, result=result,
+    selection=reviewed_publication_selection, repository=operator_owned_demo_chat_clone,
+)
+read_evidence = execution.evidence_reader(publication=publication)
+```
+
+- `PublicationSelection`은 운영자가 검토한 workflow SHA/ID, 실행 번호, build·GHCR·ECR
+  각각의 시도/산출물 ID, 후보 SHA/PR을 고정한다. 모델이나 HTTP 요청에서 받지 않는다.
+  기존 `gh` 인증으로 GitHub GET만 수행하며 자격을 Pod·파일로 복사하지 않는다.
+- T10 요청 ID는 69자, T7 입력은 최대 64자다. T7 호출 담당은
+  `publication_request_id(intent)`의 **전체 SHA-256 64자리**를 발행 요청 ID로 쓴다.
+  T10 원본 ID·InitialIntent 형식은 유지한다. 조회기는 이 대응을 다시 계산한다.
+- GitHub의 정확한 workflow/main SHA·실행·시도·성공한 build/GHCR/ECR job을 확인한다.
+  각 산출물의 ID·실행·이름·만료·ZIP digest를 확인하고, 제한된 JSON 한 파일만 읽는다.
+  publisher 재시도는 원래 build 시도와 산출물 ID를 유지해야 한다.
+- 저장된 Proposal의 모든 변경을 등록 base→후보의 실제 Git 객체와 대조한다.
+  추가 변경·다른 내용·파일 모드 변경·심볼릭 링크를 거부하고, 계산한 원문 diff hash를
+  양쪽 발행 영수증과 대조한다. Git checkout이나 후보 코드 실행은 하지 않는다.
+- 검토한 T7 publisher가 기록한 scan 성공·같은 digest·registry 전체 바이트 readback을
+  인증된 영수증에서 확인한다. T10이 registry를 새로 pull하거나 현재 가용성을 확인하는
+  것은 아니다. 후보 프로세스의 packaging 출력은 self-report로 유지하며 T15/T31 성공으로
+  올리지 않는다. 검토한 publisher SHA를 고정하지 못하면 인수하지 않는다.
+
+조회 준비는 계획 잠금 **밖에서** 수행한다. 반환한 조회기는 저장 입력·의도·결과의
+동일성만 로컬에서 확인하며 GitHub/Git을 다시 호출하지 않는다. 실제 전이 직전에는 기존
+T10 `evidence_reader`가 현재 권한·만료·계획·source를 다시 읽는다. 입력 준비 후 grant가
+회수돼도 전이는 거부한다. 이 모듈은 발행 dispatch, grant 발급, 실제 계획 전이를 실행하지 않는다.
+
 이는 T10 내부 계약 구현이며 운영 연결 완료가 아니다. T11 최초 입력 변환·검사 계약,
 T38 전용 intent/영수증 adapter, 실제 T16 Collection/Analysis, T7 발행 조회기,
 T15 저장 제안 소비는 각 담당의 정본으로 연결해야 한다. REHEARSE용 `FailureBundle`이나
