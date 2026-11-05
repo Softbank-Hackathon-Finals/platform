@@ -64,6 +64,10 @@ standard library and performs no cluster or cloud API calls.
    `bao status -format=json` took longer than 3 s on the target and Ready
    flapped. `finalize-bao` refuses a StatefulSet with any other timing, so a
    render without `bao-values` fails instead of shipping the defaults.
+   The server requests 250m CPU with a 1-core limit (memory 128Mi/512Mi). At
+   the earlier 50m/500m the target's `bao status` median was 4.38 s; after the
+   increase it was 1.73 s with no memory pressure. `finalize-bao` refuses any
+   other resources block the same way.
 6. Render `eso-values`, establish its CRDs, then install its controllers. Create
    OpenBao (`network`) and ESO (`eso-network`) NetworkPolicies using both the
    actual API Service address and its endpoint address. The policy accommodates

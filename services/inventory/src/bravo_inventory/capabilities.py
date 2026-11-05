@@ -38,19 +38,22 @@ def load_profile(path: Path) -> dict[str, Any]:
 
 
 def observe(exports_dir: Path | None) -> dict[str, dict[str, str]]:
-    """Return {capability: {value, source}} observed from exports (deployments.json, crds.json)."""
+    """Return {capability: {value, source}} observed from exports (deployments.json,
+    statefulsets.json, crds.json). Stateful services such as OpenBao usually run as StatefulSets."""
     found: dict[str, dict[str, str]] = {}
     if not exports_dir:
         return found
-    dep = exports_dir / "deployments.json"
-    if dep.is_file():
+    for file, kind in (("deployments.json", "Deployment"), ("statefulsets.json", "StatefulSet")):
+        dep = exports_dir / file
+        if not dep.is_file():
+            continue
         doc = json.loads(dep.read_text(encoding="utf-8"))
         items = doc.get("items", [doc]) if isinstance(doc, dict) else doc
         for d in items:
             name = d.get("metadata", {}).get("name", "").lower()
             for key, (cap, value) in KNOWN_WORKLOADS.items():
-                if key in name:
-                    found[cap] = {"value": value, "source": f"observed: Deployment/{name}"}
+                if key in name and cap not in found:
+                    found[cap] = {"value": value, "source": f"observed: {kind}/{name}"}
     crds = exports_dir / "crds.json"
     if crds.is_file():
         doc = json.loads(crds.read_text(encoding="utf-8"))
@@ -79,7 +82,8 @@ def fit(items: list[dict], profile: dict[str, Any], caps: dict[str, dict[str, st
         need = CATALOG.get(env_kind, {}).get(it["role"], {}).get("impl", "")
         if need and it["role"] in {"object_store", "secrets", "db"}:
             cap_key = {"object_store": "s3_compatible", "secrets": "secret_store", "db": "postgres_operator"}[it["role"]]
-            if cap_key not in caps:
-                missing.append(f"{it['role']} 대체({need})를 뒷받침할 '{cap_key}' 기능이 등록되지 않음")
+            msg = f"{it['role']} 대체({need})를 뒷받침할 '{cap_key}' 기능이 등록되지 않음"
+            if cap_key not in caps and msg not in missing:  # one line per role, however many items it has
+                missing.append(msg)
     verdict = "blocked" if counts["none"] or missing else ("needs_work" if counts["code_change"] or counts["unknown"] else "fits")
     return {"env_id": profile["env_id"], "env_kind": env_kind, "verdict": verdict, "grade_counts": counts, "missing_capabilities": missing, "residual_dependencies": profile.get("residual_dependencies", [])}

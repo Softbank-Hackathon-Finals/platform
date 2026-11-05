@@ -9,7 +9,7 @@ import sys
 from pathlib import Path
 
 import pytest
-from helpers import inventory_doc, snapshot_doc
+from helpers import snapshot_doc
 
 from bravo_exit_drill.aws_endpoints import is_known_service
 from bravo_exit_drill.cli import main
@@ -68,7 +68,9 @@ def run_map(inventory: Path, tmp_path: Path, capsys, *, candidate="onprem-demo",
 
 def test_fixture_still_matches_what_t16_writes(real_inventory):
     """고정 입력은 T16 출력에서 값만 가린 것이다. 어긋나면 다시 만든다(tests/fixtures/README.md)."""
-    real, fixture = json.loads(real_inventory.read_text(encoding="utf-8")), inventory_doc()
+    fixture_path = Path(__file__).parent / "fixtures/inventory-t16-shakedown.json"
+    real = json.loads(real_inventory.read_text(encoding="utf-8"))
+    fixture = json.loads(fixture_path.read_text(encoding="utf-8"))
     assert sorted(real) == sorted(fixture)
     pick = lambda doc: [(i["id"], i["role"], i["service"], i["found_in"], i["grade"], i["grade_by"], i["agent_needed"], i["target"]) for i in doc["items"]]  # noqa: E731
     assert pick(real) == pick(fixture)
@@ -84,8 +86,12 @@ def test_real_output_reaches_a_map_without_a_drill(real_inventory, tmp_path, cap
     assert {i["id"] for i in items} <= set(got)
     assert result["drill_verdict"] == "NOT_RUN"
     assert "blocked_app_ok" not in result["summary"]["status"]
-    assert got["item-003"]["status"] == "unknown"  # 배포에만 있는 KMS. 에이전트 확인 전에는 지우지 않는다.
-    assert got["item-005"]["status"] == "unverified"
+    deploy_only = [i for i in items if i["found_in"] == "deploy"]
+    assert {i["role"] for i in deploy_only} == {"kms", "object_store"}
+    assert all(got[i["id"]]["status"] == "unknown" for i in deploy_only)
+    secrets = [i for i in items if i["role"] == "secrets" and i["found_in"] == "both"]
+    assert len(secrets) == 1
+    assert got[secrets[0]["id"]]["status"] == "unverified"
     assert got["residual:cloudflare (edge · tunnel)"]["status"] == "remains"
     assert got["residual:ghcr.io (image pull)"]["status"] == "remains"
     assert got["residual:tailscale (복제 · 제어 경로)"]["source"] == "drill-spec"

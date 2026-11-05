@@ -142,10 +142,13 @@ def require_rehearsals_complete(c, plan):
 
 
 class RehearsalService:
-    def __init__(self, store, *, host: RehearsalHost, check_start):
+    def __init__(self, store, *, host: RehearsalHost, check_start, first_run=None):
         if not callable(check_start) or not all(callable(getattr(host, op, None)) for op in ("task", "submit", "observe")):
             raise ValueError("rehearsal_host_required")
+        if first_run is not None and not callable(first_run):
+            raise ValueError("rehearsal_first_run_reader_required")
         self.store, self.host, self.check_start = store, host, check_start
+        self.first_run = first_run
 
     def start(self, principal, plan_id, *, task_id, expected_version, attempt, command_key):
         for value in (plan_id, task_id, command_key):
@@ -182,7 +185,23 @@ class RehearsalService:
                 if (admission.source_sha, admission.task_digest) != (task.source_sha, task.task_digest):
                     raise EventError("rehearsal_task_changed")
             else:
-                run = self._retry_run(c, plan, task_id, task, attempt) if attempt > 1 else uuid4().hex
+                if attempt > 1:
+                    run = self._retry_run(c, plan, task_id, task, attempt)
+                elif self.first_run is not None:
+                    # Trusted local read under this lock, never a request field.
+                    # Preserve the stored Proposal ID when creating its real Admission.
+                    run = self.first_run(c, plan, task_id, task)
+                    if not isinstance(run, str) or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]{0,63}", run):
+                        raise EventError("rehearsal_run_unavailable")
+                    if _get(c, plan_id, "rehearsal-run:" + run):
+                        raise EventError("rehearsal_run_conflict")
+                    current = authorized_plan(c, principal, plan_id, self.check_start)
+                    if current["version"] != expected_version or current["state"] != "REHEARSE":
+                        raise EventError("rehearsal_not_allowed")
+                else:
+                    if _get(c, plan_id, f"initial-proposal:{expected_version - 1}"):
+                        raise EventError("initial_rehearsal_reader_required")
+                    run = uuid4().hex
                 admission = Admission(plan_id, principal.tenant_id, expected_version, task_id, run, attempt,
                                       task.source_sha, task.task_digest)
                 _put(c, plan_id, slot, {}, asdict(admission))

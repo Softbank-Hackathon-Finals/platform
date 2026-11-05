@@ -342,6 +342,7 @@ dev = [
     { name = "bravo-agent-worker", directory = "../agent-worker" },
     { name = "bravo-apply-path", editable = "../apply-path" },
     { name = "bravo-control-gate", directory = "." },
+    { name = "bravo-inventory", directory = "../inventory" },
     { name = "bravo-rehearsal-runner", directory = "../rehearsal-runner" },
     { name = "httpx", specifier = ">=0.27" },
     { name = "psycopg", extras = ["binary"], specifier = ">=3.2,<4" },
@@ -350,6 +351,7 @@ dev = [
 ]
 product-inputs = [
     { name = "bravo-agent-worker", directory = "../agent-worker" },
+    { name = "bravo-inventory", directory = "../inventory" },
     { name = "bravo-rehearsal-runner", directory = "../rehearsal-runner" },
 ]
 trusted-host = [{ name = "bravo-rehearsal-runner", directory = "../rehearsal-runner" }]

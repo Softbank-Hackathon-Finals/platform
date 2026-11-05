@@ -6,7 +6,27 @@ from bravo_inventory.static_scan import scan_repo
 
 
 def _items(repo, exports, kind="onprem"):
-    return {i.role: i for i in reconcile(scan_repo(repo, "app"), FileAdapter(exports).trace("chat"), kind)}
+    # first item per role: the role's main item (deploy-only resources split out come after it)
+    out: dict = {}
+    for i in reconcile(scan_repo(repo, "app"), FileAdapter(exports).trace("chat"), kind):
+        out.setdefault(i.role, i)
+    return out
+
+
+def test_deploy_only_resource_inside_a_code_role_gets_its_own_item(repo, exports):
+    # Real shakedown 2026-11-06: a bucket/secret granted to the workload but referenced by no
+    # workload setting (fixture: legacy-audit bucket; real: ESO-synced control secret) was folded
+    # into the role's `both` item and never flagged as a migration omission.
+    items = reconcile(scan_repo(repo, "app"), FileAdapter(exports).trace("chat"), "onprem")
+    s3 = [i for i in items if i.role == "object_store"]
+    assert [i.found_in for i in s3] == ["both", "deploy"]
+    main, extra = s3
+    assert [r["name"] for r in main.deploy_refs] == ["demo-chat-attachments.example.invalid"]
+    assert [r["name"] for r in extra.deploy_refs] == ["chat-audit-archive.example.invalid"]
+    assert extra.risk == "migration_omission" and extra.agent_needed is True and extra.code_refs == []
+    assert extra.grade == "config_swap" and extra.grade_by == "rule"  # catalog default for the role
+    assert main.grade == "config_swap" and main.agent_needed is False
+    assert len({i.id for i in items}) == len(items)
 
 
 def test_demo_chat_grades_match_design_7_3(repo, exports):
