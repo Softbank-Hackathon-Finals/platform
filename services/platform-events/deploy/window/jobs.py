@@ -2,6 +2,7 @@
 
 import copy
 import hashlib
+import json
 from pathlib import Path
 
 from render import NS, render
@@ -12,9 +13,12 @@ from bravo_platform_events.window_server import runtime_connection
 try:
  with psycopg.connect(runtime_connection(), autocommit=True) as c:
   assert c.execute("SELECT current_user").fetchone()==('platform_migration',)
+  c.execute("SET lock_timeout = '5s'")
+  c.execute("SET statement_timeout = '60s'")
   c.execute(Path('/job/migration.sql').read_text(), prepare=False)
-  assert c.execute('SELECT version FROM bravo_platform.schema_version').fetchall()==[(2,)]
- print(json.dumps({'schema_version':2,'migration_committed':True}))
+  expected=json.loads(Path('/job/expected.json').read_text())['schema_version']
+  assert c.execute('SELECT version FROM bravo_platform.schema_version').fetchall()==[(expected,)]
+ print(json.dumps({'schema_version':expected,'migration_committed':True}))
 except Exception:
  print(json.dumps({'migration_committed':'UNKNOWN','error':'migration_unavailable'}));raise SystemExit(1) from None
 '''
@@ -42,13 +46,20 @@ except Exception:
 '''
 
 
-def job(image, phase):
+def job(image, phase, *, schema_version=2):
     if phase not in ("migrate", "enroll"):
         raise ValueError("unknown_phase")
+    if type(schema_version) is not int or schema_version not in (2, 3):
+        raise ValueError("unknown_storage_schema")
+    if phase == "enroll" and schema_version != 2:
+        raise ValueError("synthetic_enrollment_is_not_registration")
     data = {"run.py": MIGRATE if phase == "migrate" else ENROLL}
     if phase == "migrate":
-        data["migration.sql"] = (Path(__file__).resolve().parents[2] / "sql/0002_sli_windows.sql").read_text()
-    digest = hashlib.sha256(data["run.py"].encode()).hexdigest()[:12]
+        filename = {2: "0002_sli_windows.sql", 3: "0003_registrations.sql"}[schema_version]
+        data["migration.sql"] = (Path(__file__).resolve().parents[2] / "sql" / filename).read_text()
+        data["expected.json"] = '{"schema_version":' + str(schema_version) + '}'
+    # The immutable ConfigMap name covers the SQL as well as its runner.
+    digest = hashlib.sha256(json.dumps(data, sort_keys=True).encode()).hexdigest()[:12]
     name = f"t10-window-{phase}-{digest}-{image[-8:]}"
     template = copy.deepcopy(render(image)["items"][1]["spec"]["template"])
     # It has no Service or ingress identity, and no API token or cluster role.
