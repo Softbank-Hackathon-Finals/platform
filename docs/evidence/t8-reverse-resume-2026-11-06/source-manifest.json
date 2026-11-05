@@ -1,0 +1,41 @@
+{
+  "source_revision": "83cac243f359918bace72f34bc7dc78929d4fe8e",
+  "source_files": [
+    {
+      "path": "infra/envs/target-workloads/attachment_copy.py",
+      "sha256": "5f9da8ecc59b975fe9db4150c84b1b410deda696ff1abaaf0efc668729db72a7"
+    },
+    {
+      "path": "infra/envs/target-workloads/replication.py",
+      "sha256": "0c9577d2f08c183f577f673f31f30e8be98db0c7518c04bf54a3aad3fa9dca45"
+    },
+    {
+      "path": "infra/envs/target-workloads/resume_replication.py",
+      "sha256": "893a0c07ba03d94262cc99c5966f502e698f20c0dff1b8e412c7d72200573e72"
+    },
+    {
+      "path": "infra/envs/target-workloads/testing/lag_lab.py",
+      "sha256": "db105474d6d345c71a5d10b714e4bbcb05cb53301c52a70381ecc06cf4229e17"
+    },
+    {
+      "path": "infra/envs/target-workloads/testing/lag_metrics.py",
+      "sha256": "092f67c97c30541317cc6515f8b926a4298350e0893281e6354db66cd16658d6"
+    },
+    {
+      "path": "infra/envs/target-workloads/testing/lag_readonly.py",
+      "sha256": "482a1ea2e9a8041a2ff3ea990c3cb1f489c342b2e9416a9cfa8be5a89269f616"
+    },
+    {
+      "path": "infra/envs/target-workloads/testing/replication_lag.py",
+      "sha256": "2357cc84a101c29b1acbb1ca3d26175a6a0376fdf9b92c2b6cd396c4856aa728"
+    },
+    {
+      "path": "infra/envs/target-workloads/testing/replication_resume_lab.py",
+      "sha256": "21d041c945c2eedde0a5b8691228e8c3311d7355ffa5324699a2f3589195bd35"
+    },
+    {
+      "path": "services/cutover-executor/src/bravo_cutover/provision.py",
+      "sha256": "3bb91b8d2cdcd81319d5924e2e36559261bde82f2a3f73a7da77142897fea78e"
+    }
+  ]
+}
