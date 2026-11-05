@@ -7,7 +7,7 @@ deployment is not a prerequisite for environment registration.
 
 Run `deploy/product-read/build.py` from the clean, committed deployment checkout
 to build the locked Python dependencies and same-revision source base. Pass the
-verified local image tag from that build receipt as `BASE_IMAGE` to this
+verified local image tag suffix from that build receipt as `BASE_TAG` to this
 directory's Dockerfile. The registration image adds Git for the read-only
 approved checkout checks. Record the final image digest, source revision and
 archive digest; verify them before import. An image build does not register a

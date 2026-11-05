@@ -26,7 +26,8 @@ def main():
     base = json.loads(args.base_receipt.read_text())
     image = json.loads(subprocess.check_output(["docker", "image", "inspect", base["image"]]))[0]
     if (
-        base["source_revision"] != revision
+        not base["image"].startswith("bravo-product-read:")
+        or base["source_revision"] != revision
         or image["Id"] != base["image_id"]
         or image["Config"]["Labels"]["org.opencontainers.image.revision"] != revision
         or (image["Architecture"], image["Os"], image["Config"]["User"])
@@ -46,7 +47,7 @@ def main():
                 "linux/amd64",
                 "--pull=false",
                 "--build-arg",
-                "BASE_IMAGE=" + base["image"],
+                "BASE_TAG=" + base["image"].split(":", 1)[1],
                 "--tag",
                 tag,
                 "--label",
