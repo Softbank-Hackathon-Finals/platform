@@ -1,0 +1,21 @@
+{
+  "source_revision": "12d6b4f5ef9fc921bbbc5d40e484d2beb985ee81",
+  "source_files": [
+    {
+      "path": "infra/envs/target-secrets/render.py",
+      "sha256": "9d1e9e777e0c39cc623be074074c99f1b8157b05632e76c248b20098198ddf73"
+    },
+    {
+      "path": "infra/envs/target-secrets/testing/writer_acl_kind.py",
+      "sha256": "7e57bf975adb7835014171dcf3f3dd3b10229076290f449e592822e1f792eb05"
+    },
+    {
+      "path": "scripts/tests/test_rehearsal_resources.py",
+      "sha256": "da0e33342d94e33753bb54971ec303c8963767a5b46757fb5ea6bc38b77d5e7a"
+    },
+    {
+      "path": "scripts/tests/test_target_secrets.py",
+      "sha256": "e28d4893f3599ad37b4b0f9416f358245cb7b4c26c832122d18b07742578b8e2"
+    }
+  ]
+}
