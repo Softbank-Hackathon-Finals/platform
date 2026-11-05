@@ -266,14 +266,15 @@ python -m rehearsal_runner.task_catalog --root <catalog 경로> --key-file <비�
 
 ## rehearsal.exec 실행부 (T42)
 
-AI가 수정안을 내기 전에 리허설 공간 A에서 정해진 동작 3종으로 시험하는 도구의 T15 쪽 실행부다. 형식은 [호출 계약 v1](../../docs/contracts/T42-rehearsal-exec-v1-proposal.md)을 따른다. **기본값은 꺼짐**이며 해피패스 검증 전에는 어떤 작업 종류에서도 켜지 않는다. 지금은 러너 순서(공간 A·B 분리)에 연결하지 않았고, 아래 모듈과 시험만 있다.
+AI가 수정안을 내기 전에 리허설 공간 A에서 정해진 동작 3종으로 시험하는 도구의 T15 쪽 실행부다. 형식은 [호출 계약 v1](../../docs/contracts/T42-rehearsal-exec-v1-proposal.md)을 따른다. **기본값은 꺼짐**(`exec_flow.ExecConfig`의 켠 작업 종류가 비어 있음)이며 해피패스 검증 전에는 어떤 작업 종류에서도 켜지 않는다. 아직 어떤 planner도 exec 단계를 넣지 않으므로 지금 리허설 순서는 그대로다.
 
 - `exec_session.ExecSession`: 시도 하나의 exec 세션. 브로커가 붙인 실행 ID·시도 번호를 확인하고(다른 시도는 기록 없이 `FOREIGN_ATTEMPT`), 공간 A UID를 서버 쪽에서 묶는다. 같은 요청 ID는 저장된 결과를 돌려주며, 결과를 모르는 apply 뒤에는 그 시도의 exec를 닫는다. 실행 5회·합계 90초·동작 15초(재시도 포함)·세션 180초·기록 32개 한도와 재시도(미전송 확인 오류, inspect·probe의 일시 실패만 2회)를 지킨다. 실행 기록은 메모리의 `events()`이고, 실행 전·후 영속 기록은 후속 커밋이다.
 - `exec_actions.Inspector`·`Prober`: 모든 API 호출은 그 공간의 `rehearsal-exec` 계정을 가장한다. probe는 토큰 없는 도구용 Pod(`tool_pod_manifest`, 이미지 digest 고정)에서 플랫폼 스크립트를 argv로만 실행한다. apply는 작업 종류별 적용기를 주입받으며, 아직 연결된 적용기는 없다(없으면 `BLOCKED`).
+- `exec_flow.run_with_exec`: 시도 포트에 `exec_phase`가 있을 때만 쓰는 순서다. 공간 A 생성 → T3 격리 → 도구용 Pod·세션 → 모델 제안 → 세션 닫기 → 공간 A UID 삭제·부재 확인 → 기존 `run_once`(공간 B 생성·격리·검증·정리). 공간 A 부재가 확인되지 않으면 공간 B를 만들지 않고 `EXEC_SPACE_CLEANUP_UNCONFIRMED`로 사람에게 넘긴다. 도구용 Pod를 띄우지 못하면 exec 호출만 `UNAVAILABLE`로 거부하고 제안·채점은 이어 간다. `ExecRegistry`는 T15 경로가 받은 요청을 실행 ID·시도 번호로 열린 세션에 넘긴다. 공간 A 기록(`ExecTrace`)의 서명 저장은 후속 커밋이다.
 - `exec_output.screen`: 러너가 공간 A에 넣은 값을 원문·base64(세 가지 정렬)·URL 인코딩으로 출력과 인자에서 찾는다. 찾거나 UTF-8이 아니거나 검사에 실패하면 출력을 돌려주지 않는다.
 
 ```bash
-uv run pytest -q tests/test_exec_session.py tests/test_exec_actions.py tests/test_exec_output.py
+uv run pytest -q tests/test_exec_session.py tests/test_exec_actions.py tests/test_exec_output.py tests/test_exec_flow.py
 ```
 
 시험은 응답·기록을 계약 스키마 파일로 검증한다. 가짜 kubectl과 로컬 소켓만 쓰며, 실제 클러스터의 가장 권한·도구용 Pod 기동·NetworkPolicy 아래 접속 확인은 아직 실측하지 않았다.

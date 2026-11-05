@@ -182,7 +182,8 @@ class _TracedFactory:
         ports = self.inner.prepare(attempt, feedback_ref)
         self.trace.proposer = ports.proposer
         return AttemptPorts(ports.proposer, _TracedLifecycle(ports.lifecycle, self.trace, attempt),
-                            ports.isolation, _TracedVerifier(ports.verifier, self.trace))
+                            ports.isolation, _TracedVerifier(ports.verifier, self.trace),
+                            exec_phase=ports.exec_phase)
 
 
 def judge_attempt(result: AttemptResult, trace: _Trace) -> dict:
