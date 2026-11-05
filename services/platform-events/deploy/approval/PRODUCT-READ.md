@@ -18,6 +18,18 @@ DB는 기존 `platform-db-rw.platform-state.svc`의 verify-full 연결과
 
 ## 검토한 설정과 읽기 mount
 
+입력 생산 호스트는 등록한 task 종류에 맞는 `ProductInputRecords.source`를 연결한다.
+버킷은 기존 `BucketSnapshotSource`, `credential-migration`은
+`CredentialSnapshotSource`를 사용한다. 자격 이전 입력은 승인된 불변 snapshot의
+`app/db_secret.py`, `app/config.py`, `app/main.py`만 읽고 T15의 기존 task summary를
+사용한다. 편집 범위는 원 manifest가 허용한 파일 중 이 세 파일의 교집합이며,
+`app/db_secret.py` 편집 권한은 필수다. 초기 `evidence_digest`는 선택한 source
+manifest의 digest이고, 수집 완료나 검증 PASS를 뜻하지 않는다.
+
+이 source callback은 계획 상태·Admission·현재 권한을 만들지 않는다. 실제 수집·
+분석·최초 제안의 원본으로 계획이 `REHEARSE`에 진입한 뒤 기존 Admission과
+catalog/current grant 검사를 통과해야 제품 입력을 등록하고 조회할 수 있다.
+
 `reader.json`은 아래 필드만 허용한다. 값은 실제 원문을 인수한 배포 담당자가 넣는다.
 시작할 때 catalog·grant·tenant·계획·키를 만들지 않는다.
 
