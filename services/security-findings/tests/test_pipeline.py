@@ -118,6 +118,68 @@ def test_capabilities_show_missing_detection(rules):
     assert caps["env-onprem"]["runtime_threat"]["sources"] == ["falco"]
 
 
+@pytest.mark.parametrize("had_success", [False, True])
+def test_provider_disabled_detection_is_absent_without_changing_failure_contract(rules, had_success):
+    store = Store()
+    store.register_source("aws_guardduty", "env-aws")
+    if had_success:
+        store.record_success("aws_guardduty", "env-aws", T0 - 1)
+    store.record_failure("aws_guardduty", "env-aws", T0, "NOT_ENABLED")
+    view = View(store, rules)
+    caps = view.capabilities(T0)["environments"][0]["capabilities"]
+    for name in ["network_threat", "runtime_threat"]:
+        assert caps[name] == {"available": False, "sources": [], "states": {}}
+    [status] = view.statuses(T0)
+    assert status["state"] == "FAILED"
+    assert status["error_code"] == "NOT_ENABLED"
+    assert view.summary(T0)["environments"][0]["cells"]["THREAT"]["state"] == "UNKNOWN"
+
+
+def test_other_source_preserves_capability_and_reenabled_source_recovers(rules):
+    store = Store()
+    for source in ["aws_guardduty", "aws_security_hub"]:
+        store.register_source(source, "env-aws")
+    store.record_failure("aws_guardduty", "env-aws", T0, "NOT_ENABLED")
+    store.record_success("aws_security_hub", "env-aws", T0)
+    view = View(store, rules)
+    cell = view.capabilities(T0)["environments"][0]["capabilities"]["network_threat"]
+    assert cell == {
+        "available": True, "sources": ["aws_security_hub"],
+        "states": {"aws_security_hub": "OK"},
+    }
+    store.record_success("aws_guardduty", "env-aws", T0 + 1)
+    # A late old NOT_ENABLED result must not erase a newer success.
+    store.record_failure("aws_guardduty", "env-aws", T0, "NOT_ENABLED")
+    cell = view.capabilities(T0 + 1)["environments"][0]["capabilities"]["network_threat"]
+    assert cell["sources"] == ["aws_guardduty", "aws_security_hub"]
+    assert cell["states"] == {"aws_guardduty": "OK", "aws_security_hub": "OK"}
+
+
+@pytest.mark.parametrize("code", ["ACCESS_DENIED", "TIMEOUT", "SOURCE_UNHEALTHY"])
+def test_collection_failure_is_not_provider_disabled(rules, code):
+    store = Store()
+    store.register_source("aws_guardduty", "env-aws")
+    store.record_failure("aws_guardduty", "env-aws", T0, code)
+    cell = View(store, rules).capabilities(T0)["environments"][0]["capabilities"]["network_threat"]
+    assert cell == {
+        "available": True, "sources": ["aws_guardduty"],
+        "states": {"aws_guardduty": "FAILED"},
+    }
+
+
+def test_coverage_api_keeps_environment_scope_when_provider_disabled(env):
+    store, _, client = env
+    store.register_source("aws_guardduty", "env-onprem")
+    store.record_failure("aws_guardduty", "env-onprem", T0, "NOT_ENABLED")
+    store.register_source("aws_guardduty", "not-authorized")
+    store.record_success("aws_guardduty", "not-authorized", T0)
+    response = client.get("/v1/security/coverage", headers=READ_AUTH)
+    assert response.status_code == 200
+    [row] = response.json()["environments"]
+    assert row["environment_id"] == "env-onprem"
+    assert row["capabilities"]["network_threat"]["available"] is False
+
+
 # 저장 수명주기 -------------------------------------------------------------------
 
 
