@@ -82,7 +82,7 @@
 **역방향 `disable_on_error`는 `true`로 둔다. 시간 초과를 올려도 남는 위험은 이렇다.**
 
 - **30초를 넘는 정체나 실제 단절에는 여전히 꺼진다.** lab에서 30초는 20초 단절에도 연결이 끊겼다. 단절 뒤 TCP 재전송 간격이 벌어져 30초를 넘긴 것으로 본다(추정). 정방향은 다시 붙지만 역방향은 꺼진 채 남는다.
-- **꺼진 역방향은 사람이 켜야 한다.** `resume_replication.py`는 정방향만 다룬다. 켜기 전에 출발지에 업무 쓰기가 들어가지 않았는지 먼저 본다.
+- **꺼진 역방향은 사람이 켠다.** `resume_replication.py --direction reverse`가 정방향과 같은 규칙으로 확인하고 켠다([컷오버 뒤 역방향 재개](#컷오버-뒤-역방향-재개)). 출발지에 행이 더 많으면 켜지 않는다.
 - **역방향은 지표가 없다.** 출발지(T6)에 구독 지표를 넣지 않았고 T37 알람도 정방향만 제안했다. 컷오버 뒤 역방향이 꺼지면 되돌리기 직전 경로 확인에서야 알 수 있다.
 - **그래도 `true`인 이유.** 컷오버 뒤 역방향의 오류는 대개 출발지에 들어오면 안 되는 쓰기와의 충돌이다. 끝없이 재시도하면 그 쓰기를 숨기고, 멈춰야 사람이 본다.
 
@@ -143,6 +143,70 @@ kubectl -n source-dev exec source-db-1 -c postgres -- psql -X -q -At -d chat -c 
 저장소가 없는 VM이면 왼쪽만 원격으로 돌린다: `ssh <VM> "kubectl -n target-dev logs target-db-1 -c postgres --since=48h" | python3 infra/envs/target-workloads/replication_incident.py`. 시각은 로그 그대로 UTC다.
 
 `connection`은 그 시각에 연결이 끊겼다는 뜻까지만이다. 왜 끊겼는지(Tailscale 경로, 노드 재시작 등)는 이 명령이 말해 주지 못한다. Pod가 재시작했다면 `--previous`로 이전 컨테이너 로그도 읽는다. `conflict`면 다시 켜도 또 실패하므로 쓰기 경로부터 본다.
+
+## 컷오버 뒤 역방향 재개
+
+**컷오버 뒤 역방향(`t8_target_to_source`)이 꺼지면 `resume_replication.py --direction reverse`로 다시 켠다.** 정방향 재개와 같은 명령이고 같은 판정 규칙을 쓴다. 두 DB의 역할만 바뀐다. 컷오버 뒤에는 목적지가 쓰기를 받아 보내고, 출발지가 받는다. 되돌리기 전 복제 경로 확인(ADR-0016)과 T27 차단 시험의 기준선(`BASELINE_NOT_STREAMING`)이 역방향이 흐르기를 전제하므로, 그 전에 쓴다.
+
+실제 환경에서는 돌리지 않았다. 아래 숫자는 임시 컨테이너에서 잰 값이다([측정 기록](../evidence/t8-reverse-resume-2026-11-06/README.md)).
+
+### 켜기 전에 확인하는 것
+
+하나라도 어긋나면 아무것도 바꾸지 않고 `refusals`에 이유를 적는다. **어느 순간에도 쓰기를 받는 DB는 목적지 하나여야 한다.** 켠 뒤 따라잡는 동안에도 같은 조건을 계속 보고, 깨지면 시험 행을 넣기 전에 멈춘다.
+
+| 확인 | 어긋날 때의 이유 |
+| --- | --- |
+| 목적지 앱 역할이 LOGIN이다(쓰기 DB) | `target_app_cannot_login` |
+| 출발지 앱 역할이 NOLOGIN이고 세션이 없다 | `source_app_can_login`, `source_app_sessions` |
+| 정방향 구독이 꺼져 있고 워커가 없다. 출발지의 정방향 슬롯도 쉬고 있다 | `forward_active`, `forward_slot_in_use` |
+| 목적지의 역방향 슬롯이 있고, 논리 슬롯이며, WAL을 잃지 않았다(`reserved` · `extended`) | `slot_missing`, `slot_not_logical`, `slot_invalidated`, `slot_at_risk` |
+| 역방향이 꺼진 채 슬롯을 쥔 다른 프로세스가 없다 | `slot_in_use` |
+| 출발지에 목적지보다 많은 행이 없다(우회 쓰기) | `source_ahead_of_target` |
+| 실행 중인 컷오버 · 제어 세션이 없다 | `executor_running`, `executor_state_unconfirmed`, `control_session_present` |
+| 두 DB가 대조한 클러스터다 | `source_identity_mismatch`, `target_identity_mismatch`, `*_identity_not_pinned` |
+
+**시험 행은 목적지에만 넣고 지운다.** 쓰기용 DSN은 `T8_RESUME_TARGET_PROBE_DSN` 하나뿐이다. 정방향의 `T8_RESUME_SOURCE_PROBE_DSN`이 있어도 쓰지 않는다. 그 DSN이 가리키는 DB가 검증한 목적지가 아니면 켜기 전에 멈춘다. 이 역할은 목적지 `cutover.barrier`에 INSERT · SELECT · DELETE 권한이 있어야 한다. 실제 목적지에 그런 역할이 있는지는 확인하지 않았다. 없으면 `--no-barrier-probe`로 돌리고, 출력에 그 선택이 남는다.
+
+### 절차
+
+변수 이름은 정방향과 같고, 각각 진짜 DB를 가리킨다. `T8_RESUME_SOURCE_DSN`은 출발지(구독 쪽, 켜는 권한이 필요하다: 구독 소유자이거나 `cutover.set_subscription` 실행), `T8_RESUME_TARGET_DSN`은 목적지(발행 쪽, `chat_replicator`면 된다)다.
+
+1. 목적지 앱의 쓰기 차단 상태를 읽어 `--target-write-block on|off`로 넘긴다. 출력에 남기만 한다. 역방향에 `--source-write-block`을 주면 거부한다.
+2. 옵션 없이 돌린다. `refusals`가 비어 있어야 한다. 출력에 `"direction": "reverse"`가 있다.
+
+```bash
+infra/envs/target-workloads/resume_replication.py --direction reverse --target-write-block off
+```
+
+3. `preflight.source.system_identifier`와 `preflight.target.system_identifier`를 의도한 클러스터와 사람이 대조한다. 출력의 이름은 진짜 DB를 말한다. 예를 들어 `preflight.target.target_slot_active`는 목적지에 있는 역방향 슬롯이다.
+4. 대조한 값을 넘겨 `--apply`로 돌린다. 출발지에서 역방향을 한 번 켜고, 따라잡기 · 시험 행 왕복 · 유지 확인을 거친다.
+
+```bash
+infra/envs/target-workloads/resume_replication.py --direction reverse --apply --target-write-block off --source-system-id <값> --target-system-id <값>
+```
+
+시험 행 정리가 `pending`으로 끝나면 출력의 `marker.resume`을 그대로 돌린다. 그 안에 `--direction reverse`가 들어 있다.
+
+**이 명령이 하지 않는 것.** 정방향을 다시 켜지 않는다(되돌리기는 Executor가 한다). 앱 역할 · 슬롯 · 쓰기 차단을 바꾸지 않는다. 출발지에는 어떤 쓰기도 하지 않는다. 옵션 없이 돌리면 아무것도 바꾸지 않는다.
+
+### lab: 꺼짐 → 재개 → 따라잡기
+
+**3회 모두 17개 확인을 통과했다. 역방향이 끊김으로 꺼진 뒤 명령이 다시 켰고, 확인된 쓰기 중 잃은 행은 없었으며, 쓰기 DB는 내내 목적지 하나였다.**
+
+임시 PostgreSQL 18.4 두 대, 가정한 netem 100Mbps · RTT 30ms, 시간 초과 5초(빨리 끊기도록 11/6 이전 값), 목적지 쓰기 50건/초. 컷오버는 Executor 없이 lab이 같은 순서로 흉내 냈다: 출발지 NOLOGIN → 정방향 끔 → 목적지 시퀀스 맞춤 → 목적지 LOGIN → 역방향 켬.
+
+| 단계 | 결과 (3회) |
+| --- | --- |
+| 컷오버 전에 역방향 명령 | 거부: `forward_active`, `forward_slot_in_use`, `source_app_can_login`, `target_app_cannot_login` |
+| 컷오버 뒤에 정방향 명령 | 거부: `reverse_active`, `reverse_slot_in_use`, `source_app_cannot_login`, `target_app_can_login` |
+| 링크를 끊음 | 5.72~5.76초 뒤 역방향이 스스로 꺼짐(수신 시간 초과 08006, 적용 오류 1, 슬롯 `reserved`) |
+| 꺼진 동안 | 목적지에 약 8,380행이 더 쌓여 밀린 WAL이 약 17.1MiB |
+| 옵션 없이 | 거부 없음, 아무것도 바꾸지 않음 |
+| `--apply` | 출발지에서 역방향을 한 번 켬(제어 함수). 기준점 도착 2.06~3.08초, 시험 행 왕복 2.32~3.35초, 유지 확인 15초까지 전체 19~20초 |
+| 끝난 뒤 | 확인된 쓰기 1,969~2,008건 중 출발지에 없는 행 0, 두 표 해시 같음, 시험 행 남음 0, 목적지만 LOGIN · 정방향 꺼짐 |
+| 다시 돌림 | 다시 켜지 않고 확인만 함(`enable_submissions` 0) |
+
+명령의 출력에는 lab 비밀번호 표시가 한 번도 나오지 않았다.
 
 ## 방향별 `disable_on_error`
 
@@ -264,6 +328,7 @@ T37 파일이라 이 변경에 넣지 않았다. 규칙과 시험은 패치로 �
 - **실제 환경에 적용한 것은 없다.** AWS · VM · Tailscale 경로에서는 로그와 설정을 읽기만 했다. 30초의 실제 reload와 그 뒤의 동작은 적용 뒤 확인 절차로 본다.
 - **11/5 23:50 사고의 원인.** 그 시각의 로그가 남아 있지 않아 추정만 했다.
 - **실제 끊김과 정체의 모양.** netem 지연 · 손실과 walsender 정지는 대역이다. DERP 중계의 정체나 노드 재시작과 같다고 주장하지 않는다. 실제 정체가 몇 초였는지도 모른다.
+- **실제 환경의 역방향 재개.** 컷오버가 끝난 실제 두 DB에서 `--direction reverse`를 돌린 적이 없다. 목적지에 시험 행용 역할이 있는지, 출발지에서 역방향을 켤 권한이 어느 역할에 있는지도 확인하지 않았다. Executor의 되돌리기와 이어서 돌려 보지도 않았다(T20 · T25).
 - **역방향의 시간 초과.** lab은 정방향만 쟀다. 역방향은 같은 설정이 반대 방향에 걸린다는 PostgreSQL 동작에 기댄 판단이다.
 - **30초에서의 실제 단절 회복과 TCP keepalive.** 단절 회복은 lab의 20초 단절만 쟀다. keepalive · `tcp_user_timeout`은 바꾸지도 재지도 않았다.
 - **Collector → 저장소 → 알림의 실제 경로.** `promtool`은 합성 시계열이다. 저장소 이름 `cnpg_pg_subscription_apply_error_count_total`은 `cnpg_pg_stat_archiver_failed_count_total` 사례로 미뤄 본 것이다.
@@ -291,6 +356,14 @@ infra/envs/target-workloads/testing/subscription_health_lab.py --out lab.json
 
 ```bash
 infra/envs/target-workloads/testing/replication_timeout_lab.py --out timeout-lab.json
+```
+
+```bash
+python3 -m unittest discover -s scripts/tests -p 'test_resume_*.py'
+```
+
+```bash
+infra/envs/target-workloads/testing/replication_resume_lab.py reverse --out reverse-lab.json
 ```
 
 ```bash

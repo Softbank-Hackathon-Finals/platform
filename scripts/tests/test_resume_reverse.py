@@ -19,6 +19,7 @@ from test_resume_replication import (
     ENVIRON,
     FAST,
     PINS,
+    ROOT,
     SECRET,
     SOURCE_ID,
     TABLES,
@@ -287,12 +288,41 @@ class RelabelTests(unittest.TestCase):
             "preflight": {"target": {"target_slot_active": True, "database": "chat"}}, "barrier_gaps": ["barrier_not_published"]})
 
     def test_a_pending_cleanup_says_how_to_finish_it_in_the_same_direction(self):
-        report = resume.new_marker_report("00000000-0000-4000-8000-000000000001")
+        report = resume.new_marker_report("6f1c2a3b-4d5e-4f60-8a7b-9c0d1e2f3a4b")
         resume.remove_marker(lambda *_: resume.MarkerWrite("0/1", "0/2"), lambda: {"barrier_id": "x"}, lambda: None, report,
                              lambda condition: {"elapsed_s": 0} if condition() else None,
                              command="resume_replication.py --direction reverse")
         self.assertEqual(report["cleanup"], "pending")
         self.assertTrue(report["resume"].startswith("resume_replication.py --direction reverse --cleanup-marker "))
+
+
+class EvidenceTests(unittest.TestCase):
+    """The operations document's claims about the lab, read again from the recorded runs."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.runs = json.loads((ROOT / "docs/evidence/t8-reverse-resume-2026-11-06/lab.json").read_text())["reverse"]["100mbit-rtt30"]
+
+    def test_three_runs_passed_every_check(self):
+        self.assertEqual(len(self.runs), 3)
+        self.assertTrue(all(run["passed"] and all(run["checks"].values()) and len(run["checks"]) == 17 for run in self.runs))
+
+    def test_each_command_refused_the_direction_that_was_not_writing(self):
+        for run in self.runs:
+            self.assertEqual(sorted(run["before_cutover"]["report"]["refusals"]),
+                             ["forward_active", "forward_slot_in_use", "source_app_can_login", "target_app_cannot_login"])
+            self.assertEqual(sorted(run["forward_after_cutover"]["report"]["refusals"]),
+                             ["reverse_active", "reverse_slot_in_use", "source_app_cannot_login", "target_app_can_login"])
+
+    def test_the_reverse_turned_itself_off_and_came_back_without_loss(self):
+        for run in self.runs:
+            self.assertEqual(run["source_log_events"][0]["event"], "receiver_timeout")
+            self.assertEqual(run["apply"]["report"]["direction"], "reverse")
+            self.assertEqual(run["apply"]["report"]["continuity"]["enable_submissions"], 1)
+            self.assertEqual(run["no_loss"]["acknowledged_rows_missing_on_source"], 0)
+            self.assertEqual(run["second_run_default"]["report"]["continuity"]["enable_submissions"], 0)
+        self.assertEqual((min(run["disabled_after_link_cut_s"] for run in self.runs), max(run["disabled_after_link_cut_s"] for run in self.runs)),
+                         (5.72, 5.76))
 
 
 if __name__ == "__main__":
