@@ -1,8 +1,11 @@
 #!/usr/bin/env bash
 # render.py의 신원 · 버킷 정책을 실제 SeaweedFS 4.52(S3 TLS)에 넣고 verify.py로 잰다. 일회용 키 · 내부 네트워크 ·
 # 공개 포트 없음. 끝나면 컨테이너 · 이미지 · 키를 지운다.
-#  1. 렌더링한 정책: verify.py PASS(쓰기 신원은 넣기 · 읽기 · 목록만, 읽기 신원은 읽기 · 목록만, 삭제 · 보호 변경 거부)
-#  2. 삭제 거부 문을 뺀 정책: verify.py FAIL(쓰기 신원이 지울 수 있음을 잡는다)
+#  1. 렌더링한 정책 + 앱 · Executor(쓰기 권한을 준 합성 신원) + --disposable: PASS
+#  2. 삭제 거부 문을 뺀 정책: FAIL, 시험 객체를 쓰기 전에 멈춤(정책이 렌더링과 다름)
+#  3. 정책 없음: FAIL, 시험 객체를 쓰지 않음(보호를 읽지 못하면 변경성 시험에 들어가지 않는다)
+#  4. 쓰기 키 자리에 관리자 키(잘못된 자격), 등록 버킷 모드: 끝난 뒤 버전 관리 · 정책 그대로
+#  5. 앱 · Executor 신원 없이: UNKNOWN, 미확인 목록에 app · executor
 set -euo pipefail
 HERE=$(cd "$(dirname "$0")" && pwd)
 REPO=$(cd "$HERE/../../.." && pwd)
@@ -27,15 +30,21 @@ import json, secrets, sys
 w = sys.argv[1]
 ids = json.load(open(f"{w}/identities.json"))
 names = {"t35-backup-writer": "WRITER", "t35-backup-reader": "READER"}
-keys = {who: (secrets.token_hex(10).upper(), secrets.token_hex(20)) for who in ("ADMIN", "WRITER", "READER")}
+keys = {who: (secrets.token_hex(10).upper(), secrets.token_hex(20)) for who in ("ADMIN", "WRITER", "READER", "APP", "EXECUTOR")}
 cfg = [{"name": i["name"], "credentials": [{"accessKey": keys[names[i["name"]]][0], "secretKey": keys[names[i["name"]]][1]}],
         "actions": i["actions"]} for i in ids]
-cfg.append({"name": "admin", "credentials": [{"accessKey": keys["ADMIN"][0], "secretKey": keys["ADMIN"][1]}],
-            "actions": [f"{a}:bravo-backup" for a in ("Admin", "Read", "Write", "List")]})
+extra = {"admin": ("ADMIN", ["Admin:bravo-backup", "Read:bravo-backup", "Write:bravo-backup", "List:bravo-backup"]),
+         # like the attachment client: rights on its own bucket only
+         "app": ("APP", ["Read:demo-chat-attachments", "Write:demo-chat-attachments", "List:demo-chat-attachments"]),
+         # review case: an Executor that was given Write on the backup bucket
+         "executor": ("EXECUTOR", ["Write:bravo-backup", "List:bravo-backup"])}
+cfg += [{"name": n, "credentials": [{"accessKey": keys[w][0], "secretKey": keys[w][1]}], "actions": a} for n, (w, a) in extra.items()]
 json.dump({"identities": cfg}, open(f"{w}/s3.json", "w"))
 open(f"{w}/keys.env", "w").write("".join(f"T35_{who}_AK={k[0]}\nT35_{who}_SK={k[1]}\n" for who, k in keys.items()))
+# wrong credentials: the writer slot holds the owner's keys
+open(f"{w}/wrong.env", "w").write("".join(f"T35_{who}_AK={keys['ADMIN' if who == 'WRITER' else who][0]}\nT35_{who}_SK={keys['ADMIN' if who == 'WRITER' else who][1]}\n" for who in keys))
 weak = json.load(open(f"{w}/policy.json"))
-weak["Statement"] = [s for s in weak["Statement"] if s["Sid"] != "BackupIdentitiesCannotDelete"]
+weak["Statement"] = [s for s in weak["Statement"] if s["Sid"] != "NobodyDeletesBackups"]
 json.dump(weak, open(f"{w}/weak.json", "w"))
 PY
 chmod -R a+rX "$W"
@@ -44,29 +53,66 @@ docker run -d --platform linux/amd64 --name "$N-s3" --network "$N" --network-ali
   -v "$W/s3.json:/etc/s3.json:ro" -v "$W/tls.crt:/tls/tls.crt:ro" -v "$W/tls.key:/tls/tls.key:ro" "$SW" \
   server -dir=/data -s3 -s3.config=/etc/s3.json -s3.iam=false -s3.cert.file=/tls/tls.crt -s3.key.file=/tls/tls.key \
   -s3.port.iceberg=0 -s3.port.lance=0 >/dev/null
-run() { docker run --rm -i --network "$N" --env-file "$W/keys.env" -v "$W:/w:ro" "$N-cr" "$@"; }
-# 관리자(버킷 소유자)가 버킷 · 버전 관리 · 정책을 만든다. 정책 파일을 인자로 받는다.
-setup='import json, os, sys, time
+run() { local env=$1; shift; docker run --rm -i --network "$N" --env-file "$W/$env" -v "$W:/w:ro" "$N-cr" "$@"; }
+# 관리자(버킷 소유자)가 버킷 · 버전 관리를 만들고 정책을 넣거나(파일 인자) 내린다(none).
+admin='import json, os, sys, time
 import botocore.session
 from botocore.config import Config
-from botocore.exceptions import EndpointConnectionError
+from botocore.exceptions import ClientError, EndpointConnectionError
 c = botocore.session.get_session().create_client("s3", region_name="us-east-1", endpoint_url="https://seaweedfs:8333", verify="/w/ca.crt",
     aws_access_key_id=os.environ["T35_ADMIN_AK"], aws_secret_access_key=os.environ["T35_ADMIN_SK"], config=Config(s3={"addressing_style": "path"}))
+if sys.argv[1] == "state":
+    v = c.get_bucket_versioning(Bucket="bravo-backup").get("Status")
+    try:
+        p = json.loads(c.get_bucket_policy(Bucket="bravo-backup")["Policy"])
+    except ClientError:
+        p = None
+    print(json.dumps({"versioning": v, "policy_sids": sorted(s["Sid"] for s in p["Statement"]) if p else None}))
+    sys.exit()
 for _ in range(30):
     try:
-        c.head_bucket(Bucket="bravo-backup") if "--existing" in sys.argv else c.create_bucket(Bucket="bravo-backup"); break
+        c.head_bucket(Bucket="bravo-backup"); break
     except EndpointConnectionError:
         time.sleep(2)
+    except ClientError:
+        c.create_bucket(Bucket="bravo-backup"); break
+try:
+    c.delete_bucket_policy(Bucket="bravo-backup")  # the policy denies versioning changes to everyone, owner included
+except ClientError as e:
+    if e.response["Error"]["Code"] != "NoSuchBucketPolicy":
+        raise
 c.put_bucket_versioning(Bucket="bravo-backup", VersioningConfiguration={"Status": "Enabled"})
-c.put_bucket_policy(Bucket="bravo-backup", Policy=open(sys.argv[1]).read())'
+if sys.argv[1] != "none":
+    c.put_bucket_policy(Bucket="bravo-backup", Policy=open(sys.argv[1]).read())'
 fails=0
-expect() { # 이름 기대상태
-  local got; got=$(run python verify.py --endpoint https://seaweedfs:8333 --ca /w/ca.crt | python3 -c 'import json,sys; print(json.load(sys.stdin)["status"])') || true
-  if [ "$got" = "$2" ]; then echo "  ok   $1 (status $got)"; else echo "  FAIL $1 (status ${got:-없음}, 기대 $2)"; fails=$((fails + 1)); fi
-}
-run python -c "$setup" /w/policy.json
-expect "렌더링한 정책: 쓰기 · 읽기 신원 허용 · 거부가 의도대로" PASS
-run python -c "$setup" /w/weak.json --existing
-expect "삭제 거부 문을 뺀 정책은 잡힌다" FAIL
+check() { if [ "$1" = ok ]; then echo "  ok   $2"; else echo "  FAIL $2"; fails=$((fails + 1)); fi; }
+verify() { run "$1" python verify.py --endpoint https://seaweedfs:8333 --ca /w/ca.crt "${@:2}" || true; }
+field() { python3 -c 'import json,sys; d=json.loads(sys.stdin.read()); print(eval(sys.argv[1], {}, {"d": d}))' "$1"; }
+
+run keys.env python -c "$admin" /w/policy.json
+out=$(verify keys.env --deny app --deny executor --disposable)
+[ "$(echo "$out" | field 'd["status"]')" = PASS ] && r=ok || r=fail
+check $r "렌더링한 정책, 앱 · Executor 포함, 폐기 버킷 모드: PASS (Executor 삭제 $(echo "$out" | field 'd.get("executor.delete_version")'), 정책 변경 $(echo "$out" | field 'd.get("executor.delete_policy")'))"
+
+run keys.env python -c "$admin" /w/weak.json
+out=$(verify keys.env --deny app --deny executor)
+[ "$(echo "$out" | field 'd["status"]')" = FAIL ] && r=ok || r=fail
+check $r "삭제 거부 문을 뺀 정책: FAIL, 시험 객체를 쓰기 전에 멈춤 (policy_matches $(echo "$out" | field 'd.get("policy_matches")'), 시험 객체 $(echo "$out" | field '"writer.put" in d'))"
+
+run keys.env python -c "$admin" none
+out=$(verify keys.env --deny app --deny executor)
+[ "$(echo "$out" | field 'd["status"]')" = FAIL ] && [ "$(echo "$out" | field '"writer.put" in d')" = False ] && r=ok || r=fail
+check $r "정책 없음: FAIL, 시험 객체를 쓰지 않음 (policy_matches $(echo "$out" | field 'd.get("policy_matches")'))"
+
+run keys.env python -c "$admin" /w/policy.json
+before=$(run keys.env python -c "$admin" state)
+verify wrong.env --deny app --deny executor >/dev/null
+after=$(run keys.env python -c "$admin" state)
+[ "$before" = "$after" ] && [ "$(echo "$after" | field 'd["versioning"]')" = Enabled ] && r=ok || r=fail
+check $r "쓰기 자리에 관리자 키, 등록 버킷 모드: 버전 관리 · 정책 그대로 ($after)"
+
+out=$(verify keys.env)
+[ "$(echo "$out" | field 'd["status"]')" = UNKNOWN ] && [ "$(echo "$out" | field 'd["unverified"]')" = "['app', 'executor']" ] && r=ok || r=fail
+check $r "앱 · Executor 신원 없이: UNKNOWN, 미확인 $(echo "$out" | field 'd["unverified"]')"
 echo "실패 ${fails}건"
 exit $((fails > 0))
