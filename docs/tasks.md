@@ -264,7 +264,7 @@ Claude Code는 `/todo-task`, Codex는 `$todo-task`로 이 순서를 따르는 �
 **만들 것** VPC ②에 EC2 1대 + RKE2(T2와 같은 cloud-init), 플랫폼 DB, GitHub Actions OIDC 역할, 출발지 · 목적지 접근 역할(수집용 읽기 / Executor 제어용 분리), 앱 이미지 빌드 → GHCR push 워크플로.
 
 - **우선순위** P0 · **영역** 인프라 · CI · Edge · **담당** 류지환
-- **선행** `T1` · **후속** `T10`, `T11`, `T31`, `T38` (통합 시점: `T30`) · **설계 문서** 7.5, NFR-6
+- **선행** `T1` · **후속** `T10`, `T11`, `T31`, `T38`, `T43` (통합 시점: `T30`) · **설계 문서** 7.5, NFR-6
 
 **목표** 장기 키 없이 플랫폼을 배포하고, 수집과 제어 권한을 나눈다.
 
@@ -409,6 +409,27 @@ Claude Code는 `/todo-task`, Codex는 `$todo-task`로 이 순서를 따르는 �
 **완료 기준** 목적지 오류를 주입하면 SHIFT는 가중치 0, WATCH는 되돌리기 제안 알림이 나오고, 창 요약을 끊으면 UNKNOWN으로 진행이 멈춘다. 판정마다 입력 창과 기준 버전이 기록된다.
 
 ## 3단계
+
+### [T43] 플랫폼 GitOps 배포: Argo CD · Helm · GitFlow 승격
+
+**어디에 필요** 플랫폼 코드가 develop에 병합돼도 등록 서버가 이전 이미지·설정에 남는 운영 공백. 첫 적용 대상은 T10 등록 API다.
+
+**만들 것** 등록 API Helm chart와 환경별 값·스키마, 변경 서비스만 빌드·검사하는 이미지 발행 및 배포 설정 PR, 제한된 Argo CD Application·AppProject, 기존 자원 인수·승격·복구 절차. 플랫폼 자체 배포 범위이며 T31의 승인된 이전 대상 앱 배포와 분리한다.
+
+- **우선순위** P0 · **영역** 인프라 · CI · Edge · **담당** 류지환
+- **선행** `T7` (통합 시점: `T10`) · **후속** 없음 · **설계 문서** 7.5, 8.3, NFR-6, ADR-0028
+
+**목표** 사람이 이미지를 옮기거나 매번 kubectl로 반영하지 않아도 Git에 기록된 검증 digest·설정과 실제 등록 서버가 일치한다. GitFlow의 develop 통합, release/main 릴리스, hotfix 역반영을 유지한다.
+
+**할 일**
+- [ ] 등록 API Helm chart·환경별 values·values.schema.json: digest 필수, 기존 Secret 참조, 프로필 허용 정책, 요청·제한 자원량과 설정 변경 시 rollout
+- [ ] CI에서 변경 서비스만 빌드·스캔·동일 digest 발행하고, OIDC·기존 제한 인증으로 배포 설정 PR과 소스·이미지·설정 영수증 연결
+- [ ] Argo CD 설치를 코드화하고 허용 저장소·경로·namespace·리소스를 제한: 사람 SSO, 플랫폼 소유 자격, 공개 자격·운영 식별자와 임의 cluster-admin 배포 금지
+- [ ] 기존 등록 서버를 단일 배포 주체로 인수: UID·설정·이미지 대조, DB·PVC·기존 계획 보존, self-heal 및 안전한 prune 범위 검증
+- [ ] feature → develop 개발 반영과 release/hotfix → main 승격·develop 역반영, 검증 digest 재사용, Git revert 복구와 응답 불명 재조회 절차 검증
+- [ ] 로컬·실제 T7에서 새 revision 배포 → 실제 SSO 등록 API 정상·권한 거부 → drift 교정 → 이전 revision 복구를 검증하고 Argo revision·Pod imageID·설정 해시·API 결과·정리·추가 비용 기록
+
+**완료 기준** 등록 API의 코드·설정 변경 한 건이 보호 PR과 CI를 거쳐 Argo CD로 실제 배포되고, 배포 설정의 digest와 Pod imageID 및 프로필 설정이 일치한다. 실제 SSO의 정상·거부 경로, drift 교정과 Git 기반 복구가 통과하며 기존 등록·계획·DB·PVC는 유지된다. CI 성공이나 Argo Synced만으로 완료 처리하지 않는다. 다른 서비스 확대와 T31 제품 배포 전환은 별도 담당 합의로 진행한다.
 
 ### [T8] 복제 경로: 논리 복제 왕복 · 첨부 동기화
 
