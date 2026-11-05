@@ -11,7 +11,7 @@
   "env_kind": "aws",
   "namespace": "chat"
  },
- "generated_at": "2026-11-05T02:21:40Z",
+ "generated_at": "2026-11-05T18:21:41Z",
  "inputs": {
   "repo_digest": "sha256:e27978c6b73d95528f925bfc0ec8547689d21aa6e7b77a2c199cd801cd880fb6",
   "deploy_digest": "sha256:10a8f72b9b99bbedcaf3d57c2258e316d26469397bc55ee60d35656986fda49f",
@@ -38,7 +38,7 @@
      "kind": "env_ref",
      "file": "app/config.py",
      "line": 27,
-     "snippet": "db_host=env[\"DB_HOST\"],",
+     "snippet": "env['DB_HOST']",
      "detail": {
       "name": "DB_HOST",
       "how": "os.environ[]"
@@ -49,7 +49,7 @@
      "kind": "env_ref",
      "file": "app/config.py",
      "line": 28,
-     "snippet": "db_port=int(env.get(\"DB_PORT\", \"5432\")),",
+     "snippet": "env.get('DB_PORT', '5432')",
      "detail": {
       "name": "DB_PORT",
       "how": "os.environ.get"
@@ -60,7 +60,7 @@
      "kind": "env_ref",
      "file": "app/config.py",
      "line": 29,
-     "snippet": "db_name=env.get(\"DB_NAME\", \"chat\"),",
+     "snippet": "env.get('DB_NAME', 'chat')",
      "detail": {
       "name": "DB_NAME",
       "how": "os.environ.get"
@@ -71,7 +71,7 @@
      "kind": "env_ref",
      "file": "app/config.py",
      "line": 38,
-     "snippet": "db_wait_seconds=float(env.get(\"DB_WAIT_SECONDS\", \"5\")),",
+     "snippet": "env.get('DB_WAIT_SECONDS', '5')",
      "detail": {
       "name": "DB_WAIT_SECONDS",
       "how": "os.environ.get"
@@ -223,7 +223,7 @@
      "kind": "env_ref",
      "file": "app/config.py",
      "line": 31,
-     "snippet": "s3_bucket=env[\"S3_BUCKET\"],",
+     "snippet": "env['S3_BUCKET']",
      "detail": {
       "name": "S3_BUCKET",
       "how": "os.environ[]"
@@ -234,7 +234,7 @@
      "kind": "env_ref",
      "file": "app/config.py",
      "line": 32,
-     "snippet": "s3_endpoint_url=env.get(\"S3_ENDPOINT_URL\") or None,",
+     "snippet": "env.get('S3_ENDPOINT_URL')",
      "detail": {
       "name": "S3_ENDPOINT_URL",
       "how": "os.environ.get"
@@ -245,7 +245,7 @@
      "kind": "env_ref",
      "file": "app/config.py",
      "line": 33,
-     "snippet": "s3_force_path_style=env.get(\"S3_FORCE_PATH_STYLE\", \"false\") == \"true\",",
+     "snippet": "env.get('S3_FORCE_PATH_STYLE', 'false')",
      "detail": {
       "name": "S3_FORCE_PATH_STYLE",
       "how": "os.environ.get"
@@ -256,7 +256,7 @@
      "kind": "sdk_call",
      "file": "app/storage.py",
      "line": 10,
-     "snippet": "self.client = boto3.client(",
+     "snippet": "boto3.client('s3', endpoint_url=endpoint_url, config=Config(s3={'addressing_style': 'path' if force_path_style else 'auto'}))",
      "detail": {
       "factory": "boto3.client",
       "endpoint_url": "configurable"
@@ -361,7 +361,7 @@
      "kind": "env_ref",
      "file": "app/config.py",
      "line": 30,
-     "snippet": "db_secret_id=env[\"DB_SECRET_ID\"],",
+     "snippet": "env['DB_SECRET_ID']",
      "detail": {
       "name": "DB_SECRET_ID",
       "how": "os.environ[]"
@@ -372,7 +372,7 @@
      "kind": "sdk_call",
      "file": "app/db_secret.py",
      "line": 15,
-     "snippet": "client = boto3.client(\"secretsmanager\")",
+     "snippet": "boto3.client('secretsmanager')",
      "detail": {
       "factory": "boto3.client"
      }
@@ -600,19 +600,19 @@
     },
     "postgres_operator": {
      "value": "cnpg",
-     "source": "declared: profile"
+     "source": "observed: CRD/clusters.postgresql.cnpg.io"
     },
     "s3_compatible": {
      "value": "seaweedfs",
-     "source": "declared: profile"
+     "source": "observed: Deployment/seaweedfs-filer"
     },
     "secret_store": {
      "value": "openbao",
-     "source": "declared: profile"
+     "source": "observed: Deployment/openbao"
     },
     "secrets_injection": {
      "value": "eso",
-     "source": "declared: profile"
+     "source": "observed: CRD/externalsecrets.external-secrets.io"
     },
     "kms": {
      "value": "openbao-transit",
@@ -624,6 +624,35 @@
     },
     "cis_profile": {
      "value": "rke2-cis-1.23",
+     "source": "declared: profile"
+    }
+   }
+  },
+  {
+   "env_id": "onprem-minimal",
+   "env_kind": "onprem",
+   "verdict": "blocked",
+   "grade_counts": {
+    "config_swap": 2,
+    "adapter": 1,
+    "code_change": 2,
+    "none": 0,
+    "unknown": 0
+   },
+   "missing_capabilities": [
+    "object_store 대체(seaweedfs)를 뒷받침할 's3_compatible' 기능이 등록되지 않음",
+    "secrets 대체(openbao+eso)를 뒷받침할 'secret_store' 기능이 등록되지 않음"
+   ],
+   "residual_dependencies": [
+    "cloudflare (edge · tunnel)"
+   ],
+   "capabilities": {
+    "k8s": {
+     "value": "k3s",
+     "source": "declared: profile"
+    },
+    "postgres_operator": {
+     "value": "cnpg",
      "source": "declared: profile"
     }
    }
@@ -639,5 +668,5 @@
   "deploy_only": 1,
   "code_only": 0
  },
- "digest": "sha256:3a82376c7eb0ef9ac1bd77dd12a9dd0e00043d24ecbca2e1d2109a5d1eeb8739"
+ "digest": "sha256:6224112add71d8c64899b6279072424efa0913681000c510e1b50b65df9592db"
 }

@@ -313,8 +313,9 @@ def test_credential_references_without_values_are_readable(context, line):
 
 
 def test_inventory_summary_accepts_the_real_t16_producer_output(context):
-    # Generated with services/inventory (PR #144 head 961fcd2) `bravo-inventory scan` on its
-    # demo-chat fixture; only app.repo was replaced by a relative path.
+    # Generated with the current services/inventory (develop ef94a45) `bravo-inventory scan` on its
+    # demo-chat fixture, exports/aws, both profiles, onprem target exports and `--source-sha 1…1`;
+    # only app.repo (an absolute checkout path) was replaced by a relative path.
     doc = json.loads((FIXTURES / "t16-inventory-demo-chat.json").read_text(encoding="utf-8"))
     assert doc["digest"].startswith("sha256:") and len(doc["digest"]) == 71
     summary = InventorySummary.from_document(doc)
@@ -328,6 +329,12 @@ def test_inventory_summary_accepts_the_real_t16_producer_output(context):
     result = tools.dispatch("mcp__bravo__inventory_describe", {"role": "secrets"})
     dump = json.dumps(result)
     assert "snippet" not in dump and "deploy_refs" not in dump and "env_sources" not in dump
+    assert result["source_sha"] == doc["app"]["source_sha"] == bundle.source_sha
+    assert tools.events[-1] == {"run_id": "run-1", "attempt": 1, "tool": "inventory.describe", "outcome": "ALLOWED",
+                                "reason": "POLICY_ACCEPTED", "inventory_digest": doc["digest"], "items": 1, "role": "secrets"}
+    everything = tools.dispatch("mcp__bravo__inventory_describe", {"role": None})
+    assert [i["id"] for i in everything["items"]] == [i["id"] for i in doc["items"]]
+    assert [i["id"] for i in everything["items"] if i["agent_needed"]] == ["item-003"]
 
 
 def test_task_context_must_belong_to_the_same_run(context):

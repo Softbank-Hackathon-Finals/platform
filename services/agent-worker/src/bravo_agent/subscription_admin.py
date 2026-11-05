@@ -96,6 +96,9 @@ def run_worker(store, directory, args):
                        "--model", args.model]
             for name in ("bundle", "manifest", "snapshot", "output"):
                 command += ["--" + name, str(getattr(args, name).absolute())]
+            # Optional T16 input. Callers that build ``args`` themselves (T38 product bridge) omit it.
+            if getattr(args, "inventory", None) is not None:
+                command += ["--inventory", str(args.inventory.absolute())]
             environment = {"PATH": "/usr/bin:/bin", "LANG": "C.UTF-8", "HOME": temp,
                            "TMPDIR": temp, "ACCESS_TOKEN": token, "PYTHONDONTWRITEBYTECODE": "1"}
             # Inject only inference access. OS/metadata/egress isolation is a host obligation;
@@ -130,6 +133,7 @@ def main():
             command.add_argument("--model", required=True)
             for item in ("bundle", "manifest", "snapshot", "output"):
                 command.add_argument("--" + item, type=Path, required=True)
+            command.add_argument("--inventory", type=Path)
     args = parser.parse_args()
     try:
         if args.command == "policy":
