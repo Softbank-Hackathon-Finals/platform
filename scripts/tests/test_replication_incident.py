@@ -80,6 +80,13 @@ class CauseTests(unittest.TestCase):
         self.assertIsNone(report["latest_error"])
         self.assertEqual(report["disables"][0]["cause"], "unknown")
 
+    def test_an_ordinary_worker_shutdown_is_not_an_error(self):
+        # A pod restart or a planned stop logs this; it must not bury the failure being looked for.
+        stop = record("2026-11-05 14:52:00.000 UTC", "FATAL", "57P01", "terminating logical replication worker due to administrator command")
+        report = report_of(CONFLICT, stop)
+        self.assertEqual(report["latest_error"]["cause"], "conflict")
+        self.assertEqual(report["counts"], {"apply_conflict": 1})
+
     def test_repeated_errors_without_a_disable_are_counted_as_retrying(self):
         # With disable_on_error off a conflict never reaches the "disabled" line; only the count tells.
         report = report_of(CONFLICT, CONFLICT, CONFLICT)
@@ -130,15 +137,18 @@ TARGET_STATE = {"forward_enabled": False, "apply_workers": 0, "disable_on_error"
                 "target_sync_errors": 0, "target_conflicts": 0, "system_identifier": "7000000000000000002"}
 
 
+CONNECTIONS = {"T8_RESUME_SOURCE_DSN": "s", "T8_RESUME_TARGET_DSN": "t"}
+
+
 class StateTests(unittest.TestCase):
-    def run_main(self, lines, environ, read=None):
+    def run_main(self, lines, environ, *, source=lambda _: SOURCE_STATE, target=lambda _: TARGET_STATE):
         output = io.StringIO()
         with patch.object(sys, "stdin", io.StringIO("\n".join(lines))), patch.object(sys, "stdout", output):
-            code = incident.main(environ, read_status=read or (lambda *_: {"source": SOURCE_STATE, "target": TARGET_STATE}))
+            code = incident.main(environ, read_source=source, read_target=target)
         return code, json.loads(output.getvalue())
 
     def test_gap_and_counts_come_from_the_resume_commands_read(self):
-        code, report = self.run_main([TIMEOUT, DISABLED], {"T8_RESUME_SOURCE_DSN": "s", "T8_RESUME_TARGET_DSN": "t"})
+        code, report = self.run_main([TIMEOUT, DISABLED], CONNECTIONS)
         self.assertEqual(code, 0)
         state = report["state"]
         self.assertEqual(state["gap_bytes"], 100_663_296)
@@ -152,23 +162,37 @@ class StateTests(unittest.TestCase):
         self.assertEqual(report["latest_cause"], "connection")
         self.assertEqual(report["state"], {"read": False, "missing": ["T8_RESUME_SOURCE_DSN", "T8_RESUME_TARGET_DSN"]})
 
-    def test_a_failed_read_reports_only_the_class_name(self):
-        def fail(*_):
+    def test_an_unreachable_source_keeps_the_target_state(self):
+        # During a link failure the source is exactly what cannot be reached.
+        def fail(_):
             raise OSError(f"could not reach {ADDRESS}")
 
-        code, report = self.run_main([TIMEOUT, DISABLED], {"T8_RESUME_SOURCE_DSN": "s", "T8_RESUME_TARGET_DSN": "t"}, read=fail)
+        code, report = self.run_main([TIMEOUT, DISABLED], CONNECTIONS, source=fail)
         self.assertEqual(code, 1)
-        self.assertEqual(report["state"], {"read": False, "error": "OSError"})
+        state = report["state"]
+        self.assertFalse(state["read"])
+        self.assertEqual(state["errors"], {"source": "OSError"})
+        self.assertEqual((state["forward_enabled"], state["target_apply_errors"]), (False, 3))
+        self.assertIsNone(state["gap_bytes"])
         self.assertNotIn(ADDRESS, json.dumps(report))
 
+    def test_an_unreachable_target_keeps_the_gap(self):
+        def fail(_):
+            raise OSError(f"could not reach {ADDRESS}")
+
+        code, report = self.run_main([TIMEOUT, DISABLED], CONNECTIONS, target=fail)
+        self.assertEqual(code, 1)
+        self.assertEqual(report["state"]["errors"], {"target": "OSError"})
+        self.assertEqual(report["state"]["gap_bytes"], 100_663_296)
+        self.assertIsNone(report["state"]["forward_enabled"])
+
     def test_an_empty_log_exits_one_even_when_the_state_was_read(self):
-        code, _ = self.run_main([], {"T8_RESUME_SOURCE_DSN": "s", "T8_RESUME_TARGET_DSN": "t"})
+        code, _ = self.run_main([], CONNECTIONS)
         self.assertEqual(code, 1)
 
     def test_a_missing_slot_gives_no_gap_rather_than_a_crash(self):
         source = {**SOURCE_STATE, "source_slot_confirmed_flush_lsn": None}
-        code, report = self.run_main([TIMEOUT, DISABLED], {"T8_RESUME_SOURCE_DSN": "s", "T8_RESUME_TARGET_DSN": "t"},
-                                     read=lambda *_: {"source": source, "target": TARGET_STATE})
+        code, report = self.run_main([TIMEOUT, DISABLED], CONNECTIONS, source=lambda _: source)
         self.assertEqual(code, 0)
         self.assertIsNone(report["state"]["gap_bytes"])
 

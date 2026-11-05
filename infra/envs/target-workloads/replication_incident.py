@@ -25,6 +25,7 @@ SOURCE_DSN_ENV = "T8_RESUME_SOURCE_DSN"
 TARGET_DSN_ENV = "T8_RESUME_TARGET_DSN"
 DISABLED = "subscription_disabled"
 OTHER_ERROR = "other_worker_error"
+ADMIN_SHUTDOWN = "57P01"  # A pod restart or planned stop, which must not bury the failure being looked for.
 CONNECTION_EVENTS = {"receiver_timeout", "stream_lost", "publisher_connect_failed", "slot_held_by_another_process"}
 STATE_FIELDS = {"target": ("forward_enabled", "apply_workers", "disable_on_error", "target_apply_errors",
                            "target_sync_errors", "target_conflicts"),
@@ -43,7 +44,7 @@ def cause_of(event, sqlstate):
 
 def label_of(record):
     """A fixed label, or None for what is not a subscription worker's failure."""
-    if not record.get("backend_type", "").startswith("logical replication"):
+    if not record.get("backend_type", "").startswith("logical replication") or record.get("sql_state_code") == ADMIN_SHUTDOWN:
         return None
     message = record.get("message", "")
     label = next((name for text, name in LOG_EVENTS.items() if text in message), None)
@@ -87,31 +88,36 @@ def read_log(lines):
 
 
 def state_view(source, target):
-    flush, confirmed = source["source_wal_flush_lsn"], source["source_slot_confirmed_flush_lsn"]
-    gap = None if flush is None or confirmed is None else parse_lsn(flush) - parse_lsn(confirmed)
-    return {"read": True, **{name: target[name] for name in STATE_FIELDS["target"]},
-            **{name: source[name] for name in STATE_FIELDS["source"]},
+    """Whichever side could be read. Either may be None: in a link failure the source is what cannot be reached."""
+    flush = source and source["source_wal_flush_lsn"]
+    confirmed = source and source["source_slot_confirmed_flush_lsn"]
+    gap = parse_lsn(flush) - parse_lsn(confirmed) if flush and confirmed else None
+    return {**{name: target[name] if target else None for name in STATE_FIELDS["target"]},
+            **{name: source[name] if source else None for name in STATE_FIELDS["source"]},
             "gap_bytes": gap, "gap_mib": None if gap is None else round(gap / MIB, 1)}
 
 
-def read_state(environ, read_status):
+def read_state(environ, read_source, read_target):
     missing = [name for name in (SOURCE_DSN_ENV, TARGET_DSN_ENV) if not environ.get(name)]
     if missing:
         return {"read": False, "missing": missing}
     # Imported here so that the log part needs no driver and no connection.
-    from resume_replication import describe
-    from resume_replication import read_status as resume_read_status
+    import resume_replication as resume
 
-    try:
-        status = (read_status or resume_read_status)(environ[SOURCE_DSN_ENV], environ[TARGET_DSN_ENV])
-        return state_view(status["source"], status["target"])
-    except Exception as error:  # noqa: BLE001 - Driver messages can carry a host or DSN; only the class is reported.
-        return {"read": False, "error": describe(error)}
+    read_source = read_source or (lambda dsn: resume.read_one(dsn, "source_status", resume.NAMES))
+    read_target = read_target or resume.read_target
+    values, errors = {"source": None, "target": None}, {}
+    for side, read, dsn in (("target", read_target, environ[TARGET_DSN_ENV]), ("source", read_source, environ[SOURCE_DSN_ENV])):
+        try:
+            values[side] = read(dsn)
+        except Exception as error:  # noqa: BLE001 - Driver messages can carry a host or DSN; only the class is reported.
+            errors[side] = resume.describe(error)
+    return {"read": not errors, **({"errors": errors} if errors else {}), **state_view(values["source"], values["target"])}
 
 
-def main(environ, read_status=None):
+def main(environ, read_source=None, read_target=None):
     report = read_log(sys.stdin.read().splitlines())
-    report["state"] = read_state(environ, read_status)
+    report["state"] = read_state(environ, read_source, read_target)
     print(json.dumps(report, indent=2))
     return 0 if report["postgres_records"] and report["state"]["read"] else 1
 
