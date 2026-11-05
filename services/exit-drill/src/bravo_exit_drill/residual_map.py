@@ -52,6 +52,7 @@ def build_map(inventory: InventoryView, plan: dict, report: dict | None) -> dict
         "candidate": inventory.candidate,
         "candidate_verdict": inventory.candidate_verdict,
         "candidate_missing_capabilities": list(inventory.missing_capabilities),
+        "inventory_trace_notes": list(inventory.trace_notes),
         "inventory_digest": inventory.digest,
         "plan_digest": plan["digest"],
         "drill_verdict": verdict,
@@ -196,6 +197,16 @@ def render_markdown(result: dict) -> str:
         f"- 차단 계획: `{_cell(result['plan_digest'])}`",
         "",
     ]
+    if result["inventory_trace_notes"]:
+        # 못 읽은 입력이 있으면 아래 모든 항목의 근거가 그만큼 좁다. 그래서 맨 위에 둔다.
+        lines += [
+            f"## 인벤토리 추적 메모 ({len(result['inventory_trace_notes'])})",
+            "",
+            "T16이 배포를 따라가며 남긴 메모다. 읽지 못한 입력도 여기 나온다.",
+            "",
+            *[f"- {_cell(note)}" for note in result["inventory_trace_notes"]],
+            "",
+        ]
     if result["drill_not_pass"]:
         lines += [
             f"## 판정을 막은 항목 ({len(result['drill_not_pass'])})",

@@ -1,0 +1,14 @@
+2026-11-05T18:12:36Z a --kubeconfig <kc> -n target-dev get secret target-seaweedfs-auth -o json
+2026-11-05T18:12:36Z a --kubeconfig <kc> -n target-dev get deployment target-seaweedfs -o json
+2026-11-05T18:12:36Z a --kubeconfig <kc> -n target-dev replace -f - -o name
+2026-11-05T18:12:36Z a --kubeconfig <kc> -n target-dev patch deployment target-seaweedfs --type strategic -p {"spec": {"template": {"metadata": {"annotations": {"bravo.dev/s3-json-sha256": "96a86e478169f4260dd90f7b6b7446f1684457890e78874b55e33dfb6332d004", "bravo.dev/applied-by": "pol-a-0001"}}}}}
+2026-11-05T18:12:36Z a --kubeconfig <kc> -n target-dev rollout status deployment/target-seaweedfs --timeout=180s
+2026-11-05T18:14:46Z d2 --kubeconfig <kc> -n target-dev get secret target-seaweedfs-auth -o json
+2026-11-05T18:14:46Z d2 --kubeconfig <kc> -n target-dev get deployment target-seaweedfs -o json
+2026-11-05T18:14:46Z d2 --kubeconfig <kc> -n target-dev replace -f - -o name
+2026-11-05T18:14:46Z d2 --kubeconfig <kc> -n target-dev patch deployment target-seaweedfs --type strategic -p {"spec": {"template": {"metadata": {"annotations": {"bravo.dev/s3-json-sha256": "96a86e478169f4260dd90f7b6b7446f1684457890e78874b55e33dfb6332d004", "bravo.dev/applied-by": "pol-d-0004"}}}}}
+2026-11-05T18:14:46Z d2 --kubeconfig <kc> -n target-dev rollout status deployment/target-seaweedfs --timeout=180s
+2026-11-05T18:16:00Z e1 --kubeconfig <kc> -n target-dev get secret target-seaweedfs-auth -o json
+2026-11-05T18:16:00Z e1 --kubeconfig <kc> -n target-dev get deployment target-seaweedfs -o json
+2026-11-05T18:16:00Z e1 --kubeconfig <kc> -n target-dev replace -f - -o name
+2026-11-05T18:16:06Z e2 --kubeconfig <kc> -n target-dev get secret target-seaweedfs-auth -o json

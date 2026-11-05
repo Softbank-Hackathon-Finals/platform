@@ -15,14 +15,38 @@
 로컬 VM은 `brew install qemu` 뒤 아래 순서로 쓴다. VM이 켜져 있는 동안 메모리 8GB를 차지한다.
 
 ```sh
-export BRAVO_VM_ARCH=arm64         # x86_64 또는 amd64도 선택 가능
+export BRAVO_VM_ARCH=arm64         # Apple Silicon. 생략하면 실제 호스트 CPU를 선택
 ./local-vm.sh up                    # 새 VM 생성. cloud-init이 끝날 때까지 기다린다
 ./local-vm.sh run verify-node.sh    # 기준 확인. 어긋나면 종료 코드 1
 ./local-vm.sh run run-kube-bench.sh # CIS 점검. 결과는 VM의 /var/log/kube-bench.json
 ./local-vm.sh down                  # VM과 디스크 삭제. 내려받은 이미지는 남는다
 ```
 
-아키텍처를 생략하면 호스트 CPU를 사용한다. 같은 CPU는 macOS의 HVF, 다른 CPU는 QEMU TCG를 사용한다. TCG 설치는 느리므로 두 아키텍처를 검증할 때는 순서대로 실행해 호스트 자원 경쟁을 줄인다. Ubuntu `release-20261017` 이미지와 아키텍처별 SHA-256을 고정한다([공식 체크섬](https://cloud-images.ubuntu.com/releases/noble/release-20261017/SHA256SUMS)).
+아키텍처를 생략하면 호스트 CPU와 HVF 하드웨어 가속을 사용한다. **다른 CPU를 지정하면 이미지 다운로드·키/디스크 생성 전에 거부한다.** 앱 이미지가 amd64뿐이라는 이유로 ARM Mac에 x86 VM을 만들지 않는다. ARM64 이미지의 발행·검증을 먼저 완료한다. Ubuntu `release-20261017` 이미지와 아키텍처별 SHA-256을 고정한다([공식 체크섬](https://cloud-images.ubuntu.com/releases/noble/release-20261017/SHA256SUMS)).
+
+호환성 시험에서만 명시적으로 TCG를 허용한다. 다음 예외는 환경변수로 상속되지 않으며 목적과 사유가 `vm/execution.json`에 기록된다. 에뮬레이션과 호환성 시험은 성능 실측 입력으로 거부한다. Intel Mac에서 ARM64 게스트를 선택할 때도 같은 규칙이다.
+
+```sh
+BRAVO_VM_ARCH=x86_64 ./local-vm.sh up --purpose compatibility \
+  --allow-emulation --reason 'isolated x86 boot compatibility test'
+```
+
+일반 생성은 기존처럼 `up`, 실제 성능 측정용 생성은 `up --purpose performance`를 쓴다. 두 경로 모두 호스트와 같은 CPU만 허용하고 가속 실패 시 TCG로 재시도하지 않는다. 내부 `_prepare`도 기록을 다시 검사해 옛 호출 방식으로 우회하지 못한다. 실행 후 PID/시작 시각·QMP UUID/디스크와 실제 QEMU CPU 종류·`-accel` 값을 대조한다. 실패하면 상태를 보존하고 실행 성공으로 기록하지 않는다.
+
+부하·p95·복제 지연 등 성능을 비교하기 전에는 해당 VM의 `measurement` 출력을 실행 원장에 결속한다. 이 명령은 현재 프로세스를 다시 확인한다. 이전 VM에 `execution.json`이 없으면 UNKNOWN으로 거부하며, 실제 관측 없이 파일을 만들어 통과시키지 않는다. 기존 VM의 `ssh`/`down` 절차와 데이터는 그대로 보존한다.
+
+```sh
+./local-vm.sh measurement > /private/evidence/native-execution.json
+```
+
+이 결과는 실행 아키텍처에 대한 조건만 충족한다. 앱·DB·권한·관측 창 준비와 성능 기준 통과를 대신하지 않는다. 기능·복구 시험의 기존 승인은 따로 유지하며, 과거 TCG 시험의 기능 결과를 삭제하거나 성능 수치로 승격하지 않는다.
+
+배포할 앱을 이미 정했다면, 기존 검증·전달 경로의 OCI layout과 정확한 digest도 생성 전에 검사한다. index의 platform 표기만 믿지 않고 index → manifest → config의 해시와 실제 Linux 아키텍처를 대조한다. attestation의 `unknown/unknown`은 실행 이미지로 세지 않는다. 누락·변조·ARM64 부재 시 VM 생성이 중단된다. 전체 레이어·출처·취약점 검증은 기존 `scripts/export_target_image.py` 절차를 유지한다.
+
+```sh
+./local-vm.sh up --image-layout /private/reviewed-oci \
+  --image-digest sha256:<reviewed-index-digest>
+```
 
 | 게스트 | 기본 상태 경로 (`XDG_CACHE_HOME` 또는 `~/.cache` 아래) | SSH / Kubernetes API |
 |---|---|---|
@@ -35,7 +59,7 @@ export BRAVO_VM_ARCH=arm64         # x86_64 또는 amd64도 선택 가능
 export BRAVO_VM_ARCH=x86_64
 export BRAVO_VM_STATE=/tmp/bravo-x86-check
 export BRAVO_SSH_PORT=52223 BRAVO_API_PORT=56444
-./local-vm.sh up
+./local-vm.sh up --purpose compatibility --allow-emulation --reason 'isolated cross-architecture boot check'
 ./local-vm.sh run verify-node.sh
 ./local-vm.sh run run-kube-bench.sh
 ./local-vm.sh down
@@ -66,6 +90,7 @@ QEMU 실행 파일·명령행·열린 파일을 확인해 해당 VM의 종료를
 회귀 시험은 `python3 -m unittest discover -s scripts/tests -p test_local_vm.py -v`로
 실행한다. 로컬에 QEMU가 있으면 `BRAVO_TEST_QEMU=$(command -v qemu-system-aarch64)`를
 같이 지정해 게스트·네트워크 없는 작은 실제 QEMU의 신원 확인·종료·정리를 추가 검증한다.
+Apple Silicon에서는 32MiB의 정지된 ARM/HVF 프로세스로 실제 가속 모드 확인과 정리도 검증한다.
 Ubuntu 설치·RKE2 운영 검증과 구분한다. 프로토콜은 [QEMU QMP 명세](https://www.qemu.org/docs/master/interop/qmp-spec.html)를 따른다.
 
 Mac의 `kubectl`로 붙으려면 kubeconfig를 꺼낸다. 관리자 권한 파일이므로 커밋하거나 공유하지 않는다.

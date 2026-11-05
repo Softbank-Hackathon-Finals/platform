@@ -2,7 +2,7 @@
 
 복제와 풀러가 쓰는 tailnet 경로가 지금 어떻게 이어져 있는지, ACL이 설계대로 열고 막는지 읽어서 JSON으로 알려 주는 도구다. 설정을 바꾸지 않는다.
 
-**아직 실제 Tailscale에서 돌린 적이 없다.** 시험은 v1.104.4 소스로 확인한 출력 형식의 가짜 응답으로만 했다. [재지 못한 것](#재지-못한-것)을 먼저 본다.
+**실제 Tailscale에서 두 번 돌렸고, 두 번째에 세 경로 모두 `PASS`였다.** 결과는 [실제 실행](#실제-실행)에, 남은 빈틈은 [재지 못한 것](#재지-못한-것)에 있다. 판정 규칙의 시험은 v1.104.4 소스로 확인한 출력 형식의 가짜 응답으로 한다.
 
 ## 실행
 
@@ -13,6 +13,14 @@
 ```bash
 python3 infra/envs/target-workloads/tailnet_path_check.py --source-context <출발지-context> --target-context <목적지-context>
 ```
+
+kubeconfig가 클러스터마다 따로 있으면 `KUBECONFIG`에 콜론으로 이어 준다.
+
+```bash
+KUBECONFIG=<출발지-kubeconfig>:<목적지-kubeconfig> python3 infra/envs/target-workloads/tailnet_path_check.py --source-context <출발지-context> --target-context <목적지-context>
+```
+
+**출발지 EKS API는 사설 전용이라 운영자 컴퓨터에서 바로 닿지 않는다.** SSO로 로그인한 뒤, 사설 플랫폼 호스트를 거치는 SSM 원격 포트 포워딩으로 API에 붙는다. TLS는 EKS CA와 원래 API 서버 이름으로 검증하고, 검증을 끄지 않는다. [출발지 EKS 안내](../../infra/envs/source-eks/README.md)의 운영자 검증과 같은 방식이다. kubeconfig, 실제 endpoint, 호스트 ID는 저장소 밖 비공개 경로에 둔다.
 
 목적지 VM 안에서는 이렇게 한다.
 
@@ -129,8 +137,8 @@ Pod 안에서 실행하는 명령은 아래 다섯 가지뿐이고, 도구가 �
 - **거부는 `refused`가 아니라 `timeout`으로 보인다.** Tailscale은 ACL에 걸린 연결에 TCP 거절(RST)을 돌려주지 않는다. `refused`는 패킷이 ACL을 넘어갔다는 뜻이므로 통과로 세지 않는다.
 - **금지 대상은 태그와 이름으로 모두 찾는다.** 다시 등록한 노드는 `-1`이 붙은 이름을 받아도 같은 권한을 가진다. 해당하는 노드가 여럿이면 모두 재고 가장 나쁜 결과를 쓴다.
 - **목록에 없는 상대에게는 TCP를 시도하지 않는다.** tailnet 터널이 없어 Pod의 기본 경로로 나가므로 다른 것을 재게 된다. 목록에 없다는 사실(`no_tailnet_peer`)을 결과로 쓴다. 목록에 보이는 금지 대상은 TCP와 함께 Tailscale ping도 보내, 터널이 살아 있을 때만 `timeout`을 거부로 센다.
-- **포트 제한은 IPv4 주소로 잴 수 없어 IPv6 주소에서 비교한다.** DB 쪽 프록시는 IPv4 tailnet 주소로 온 패킷을 Service로 넘기고 Service는 5432만 연다. ACL이 22번을 열어 줘도 받는 쪽이 없어 차이가 나지 않는다. IPv6 주소는 넘기지 않으므로 두 포트 모두 듣는 곳이 없다. ACL이 허용한 5432는 프록시 커널이 `refused`로 답하고, 막힌 22번은 답이 없을 것이다. 그래서 5432가 답하고 22번이 조용하면 `PASS`, 22번이 `refused`나 연결이면 `FAIL`(`wrong_port_open`), 5432도 조용하면 비교가 안 되므로 `UNKNOWN`이다. PeerAPI 포트는 ACL과 상관없이 통과하므로(`net/tstun/wrap.go`) 이 비교에 쓰지 않는다.
-- **DF ping은 IPv4 다음에 IPv6를 시도한다.** DB 쪽 프록시는 자기 IPv4 tailnet 주소로 온 모든 패킷을 Service로 넘기고, Service 주소가 ping에 답하는지는 kube-proxy 방식에 따라 다르다. IPv6 주소는 넘기지 않으므로 프록시가 직접 답할 것으로 본다. 사용한 쪽이 `df_family`에 나온다.
+- **포트 제한은 IPv4 주소로 잴 수 없어 IPv6 주소에서 비교한다.** DB 쪽 프록시는 IPv4 tailnet 주소로 온 패킷을 Service로 넘기고 Service는 5432만 연다. ACL이 22번을 열어 줘도 받는 쪽이 없어 차이가 나지 않는다. IPv6 주소는 넘기지 않으므로 두 포트 모두 듣는 곳이 없다. ACL이 허용한 5432는 프록시 커널이 `refused`로 답하고, 막힌 22번은 답이 없다. 세 경로의 실제 실행에서도 그렇게 나왔다. 그래서 5432가 답하고 22번이 조용하면 `PASS`, 22번이 `refused`나 연결이면 `FAIL`(`wrong_port_open`), 5432도 조용하면 비교가 안 되므로 `UNKNOWN`이다. PeerAPI 포트는 ACL과 상관없이 통과하므로(`net/tstun/wrap.go`) 이 비교에 쓰지 않는다.
+- **DF ping은 IPv4 다음에 IPv6를 시도한다.** DB 쪽 프록시는 자기 IPv4 tailnet 주소로 온 모든 패킷을 Service로 넘기고, Service 주소가 ping에 답하는지는 kube-proxy 방식에 따라 다르다. IPv6 주소는 넘기지 않으므로 프록시가 직접 답한다. 실제 실행의 세 경로도 IPv6로 쟀다. 사용한 쪽이 `df_family`에 나온다.
 - **가장 큰 크기의 ping은 크기를 찾은 뒤 한 번 더 묻는다.** 경로가 자리 잡는 동안의 손실을 MTU 문제로 읽지 않기 위해서다.
 
 ## `reasons` 코드
@@ -170,16 +178,42 @@ Pod 안에서 실행하는 명령은 아래 다섯 가지뿐이고, 도구가 �
 
 `from_tag`, `to_tag`, 경로 이름은 저장소에 이미 공개된 이름이다. `derp_region`은 공용 DERP라면 `tok` 같은 공용 지역 코드이고, 자체 DERP를 쓰면 그 이름이 그대로 나온다. 그래도 공개 저장소에 올리기 전에는 [공개 증빙 절차](../public-evidence-policy.md)대로 원본을 비공개로 보존하고 `python3 scripts/public_evidence.py check`를 돌린다. `source_sha256`은 실행한 도구 파일의 해시다.
 
+## 실제 실행
+
+2026-11-06 KST에 두 번 돌렸다. 값 전체는 [증거](../evidence/t30-tailnet-path-2026-11-06/README.md)에 있다.
+
+| 실행 | 준 context | 전체 결과 |
+| --- | --- | --- |
+| 03:08 | 목적지만 | `UNKNOWN`. 출발지 경로가 `context_not_provided` |
+| 03:51 | 출발지와 목적지 | `PASS` |
+
+03:51 실행의 경로별 값이다.
+
+| 경로 | 판정 | 연결 방식 | Tailscale ping 왕복 (최소/평균/최대) | ICMP 왕복 | MTU / DF 최대 |
+| --- | --- | --- | --- | --- | --- |
+| `target-replication-to-source-db` | `PASS` | 중계 `tok` | 67 / 68.3 / 70 ms | 68.7 ms | 1280 / 1280 |
+| `target-pooler-to-source-db` | `PASS` | 중계 `tok` | 68 / 68.7 / 70 ms | 69.3 ms | 1280 / 1280 |
+| `source-replication-to-target-db` | `PASS` | 중계 `tok` | 70 / 77 / 82 ms | 106.2 ms | 1280 / 1280 |
+
+세 경로 모두 Tailscale ping 응답 3건이 전부 중계였고 직접 연결은 0건이다. 03:08 실행의 목적지 쪽 두 경로도 중계였다.
+
+ACL 시험은 세 경로 모두 같은 모양으로 나왔다. 허용된 상대의 5432는 연결됐고, 같은 상대 IPv6 주소의 5432는 `refused`, 22번은 `timeout`이었다. 금지 대상(목적지 쪽은 `bravo-target-db`, 출발지 쪽은 `bravo-source-db`)은 프록시 목록에 없었다(`no_tailnet_peer`).
+
+**소스로만 읽었던 것 중 양쪽 프록시에서 확인한 것.** 고정 이미지의 `ping`, `nc`, 소켓이 동작한다. 출력 문구가 도구의 형식 검사를 통과한다. Pod에서 IPv6 DF ping에 답이 온다. 포트 비교가 예상대로 나온다.
+
+**경로가 중계라는 것은 관측이고, 복제가 끊긴 원인이라는 뜻이 아니다.** 03:51 실행과 같은 시간대에 정방향 복제가 5초 시간 초과로 두 번 끊겼다. 이것은 T8에서 따로 다루고, tailnet 판정과는 별개다. 끊긴 시각의 경로 값은 재지 않았다. 원인을 가리려면 끊긴 시각의 값이나 부하를 건 측정이 더 필요하다.
+
 ## 재지 못한 것
 
-- **실제 Tailscale, 실제 클러스터, 실제 VM에서 한 번도 실행하지 않았다.** 실제 첫 실행 전까지 `PASS`를 포함한 모든 판정은 가짜 응답에 대한 것이다.
-- **고정 이미지 안의 명령을 확인하지 않았다.** `network.py`가 고정한 `tailscale/tailscale` 이미지에 iputils `ping`과 BusyBox `nc`가 있고, 소켓이 `/tmp/tailscaled.sock`이라는 것은 v1.104.4 소스로 읽었다. 이미지를 받아 돌려 보지는 않았다. 없으면 `UNKNOWN`으로 나온다.
-- **`nc`와 `ping` 문구.** `nc`는 Alpine 3.24의 BusyBox 1.37에서 직접 받은 문구이고, 이미지의 Alpine 3.22와 판이 다를 수 있다. `ping`은 iputils 20240905 소스에서 읽은 문구다. 다르면 `UNKNOWN`으로 나오고 통과로 세지 않는다.
-- **ACL 거부가 `timeout`으로 보이는 것과 IPv6 DF ping에 프록시가 답하는 것**은 소스를 읽은 결론이다. 받는 쪽은 거절 통지(TSMP)도 보내는데, 보낸 쪽 커널이 어떻게 반응하는지는 재지 않았다. 실제 Pod에 IPv6가 꺼져 있으면 `df_probe_no_reply`나 `df_probe_unread`로 남는다. 그 환경에서는 MTU와 포트 비교 때문에 경로가 `PASS`가 될 수 없고, MTU 값은 `interface_bytes`까지만 나온다.
+- **끊긴 시각의 경로 값.** 도구 값은 03:08과 03:51의 순간값이다. 도구는 실행한 순간의 값만 낸다.
+- **부하 상태.** 03:08 실행 직후 복제 경로 트래픽은 초당 100바이트 안팎이었다. 부하가 걸렸을 때 중계의 왕복 시간과 처리량은 재지 않았다.
+- **왜 중계인가.** 목적지 복제 프록시는 상대마다 바깥 포트가 달라지는 NAT 뒤에 있었다(`netcheck`의 `MappingVariesByDestIP=true`). 출발지 쪽 NAT는 재지 않았다.
+- **복제 자체의 상태.** 이 도구는 구독 상태를 읽지 않는다.
 - **`PASS`는 프록시에서 상대 노드까지만 뜻한다.** 앱이나 DB에서 자기 쪽 프록시까지의 구간과 프록시에서 DB까지의 구간, 그 구간의 MTU는 재지 않는다. 이 범위는 출력의 `not_measured`에도 적혀 있다.
-- **22번 말고 다른 포트 하나만 여는 규칙, IPv4 주소를 직접 지정해 연 규칙.** IPv6 주소의 22번만 비교하므로 보이지 않는다. 태그에 포트 전체를 여는 규칙은 잡는다. 제어 서버가 태그 규칙에 IPv6 주소도 넣는다는 전제이고, 아니면 `wrong_port_control_missing`으로 남는다.
-- **포트 비교 자체.** IPv6 주소에 5432는 `refused`, 막힌 포트는 무응답이라는 것은 소스를 읽은 결론이다. 실제 실행에서 이렇게 나오지 않으면 비교를 더 고치지 않고, 이 판정을 빼서 [tailnet 정책의 `tests`](https://tailscale.com/kb/1337/policy-syntax#tests)로 확인하는 쪽으로 넘긴다.
-- **`pods/exec` 권한.** `kubectl` 판에 따라 `create`나 `get`을 쓴다. 정확히 어느 쪽이 필요한지 실제 클러스터에서 확인하지 않아 둘 다 적었다. 모자라면 `kubernetes_forbidden`으로 나온다.
+- **중계 중인 경로의 밑바닥 MTU.** 중계 구간은 TCP로 전달되므로 DF ping은 `tailscale0`이 받는 크기가 중계를 거쳐 돌아오는지만 본다. 직접 연결로 바뀌면 다시 잰다.
+- **22번 말고 다른 포트 하나만 여는 규칙, IPv4 주소를 직접 지정해 연 규칙.** IPv6 주소의 22번만 비교하므로 보이지 않는다. 태그에 포트 전체를 여는 규칙은 잡는다. 제어 서버가 태그 규칙에 IPv6 주소도 넣는 것은 세 경로 모두 5432의 `refused`로 확인했다. 아닌 경로가 생기면 `wrong_port_control_missing`으로 남는다.
+- **포트 비교의 앞으로의 결과.** 이번 세 경로는 소스를 읽은 결론과 맞았다. 다른 실행에서 이렇게 나오지 않으면 비교를 더 고치지 않고, 이 판정을 빼서 [tailnet 정책의 `tests`](https://tailscale.com/kb/1337/policy-syntax#tests)로 확인하는 쪽으로 넘긴다.
+- **`pods/exec` 권한.** `kubectl` 판에 따라 `create`나 `get`을 쓴다. 최소 권한만 준 계정으로 돌려 보지 않아 정확히 어느 쪽이 필요한지 모른다. 그래서 둘 다 적었다. 모자라면 `kubernetes_forbidden`으로 나온다.
 - **이 세 경로 밖.** `bravo-source-pooler`, 컷오버 제어 풀러, Collector, 부하 생성기 경로는 재지 않는다.
 
 ## 시험

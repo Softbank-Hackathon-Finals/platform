@@ -1,0 +1,113 @@
+{
+  "measured_at_kst": "2026-11-06 01:57-02:05",
+  "account": "AWS_ACCOUNT_001",
+  "region": "ap-northeast-2",
+  "bucket": "RESOURCE_NAME_001",
+  "plan_id": "plan-t24-live",
+  "run_id": "run-t24-live-11060157",
+  "terraform": {
+    "apply_1": "13 added, 0 changed, 0 destroyed",
+    "apply_2_writer_list_prefix": "0 added, 1 changed, 0 destroyed",
+    "drift_after_apply": "none (plan -detailed-exitcode 0)"
+  },
+  "identities": {
+    "write": "assumed-role/<name>-writer",
+    "verify": "assumed-role/<name>-reader",
+    "probe": "assumed-role/<name>-writer",
+    "lock_check": "SSO development administrator (custodian)"
+  },
+  "inputs": {
+    "platform.events": "1 event from bravo_platform_events.plans.PlanStore.register_plan (state.changed → COLLECT)",
+    "agent.tools": "3 events from bravo_agent.tools.Tools.dispatch: repo.read ALLOWED, rehearsal.exec DENIED DESTRUCTIVE_ATTEMPT_BLOCKED(bucket_delete), unlisted DENIED TOOL_NOT_ALLOWED"
+  },
+  "steps": {
+    "append_platform_events": {
+      "records": 1,
+      "absorbed_redeliveries": 0,
+      "chain_digest": "fc0f95d20ecc8b1d37a68ab62928d191c7a9f365f1691fc0518e58a1c9dfb4d5"
+    },
+    "append_tool_events_resumed_from_s3": {
+      "records": 3,
+      "absorbed_redeliveries": 0,
+      "chain_digest": "36692a74011ee4e6605cd4ebe80d19d3f8ba2bdc7838ef0b091a756902cae5da"
+    },
+    "redeliver_same_tool_events": {
+      "records": 0,
+      "absorbed_redeliveries": 3,
+      "chain_digest": "36692a74011ee4e6605cd4ebe80d19d3f8ba2bdc7838ef0b091a756902cae5da"
+    }
+  },
+  "stored_retention": {
+    "retention_mode": "COMPLIANCE",
+    "retain_until": "2026-11-06T16:59:06Z"
+  },
+  "verify_as_reader": {
+    "records": 4,
+    "ok": true,
+    "reason": "ok",
+    "chain_digest": "36692a74011ee4e6605cd4ebe80d19d3f8ba2bdc7838ef0b091a756902cae5da"
+  },
+  "custodian_on_locked_version": {
+    "delete_version": "AccessDenied (object protected by object lock)",
+    "shorten_compliance_retention": "AccessDenied (object protected by object lock)",
+    "switch_to_governance": "AccessDenied (object protected by object lock)",
+    "head_after": "COMPLIANCE, retain-until unchanged, SSE aws:kms"
+  },
+  "forwarded_tool_events": {
+    "run_id": "run-t24-fwd-11060204",
+    "input": "one T10 event (same PlanStore event, data.tool_events = the 3 T11 Tools events, tool_events_status COMPLETE)",
+    "append_forwarding_event": {
+      "records": 4,
+      "absorbed_redeliveries": 0,
+      "chain_digest": "9485a0f8ce2113717bf2f08d1f63f619d417284169f288098a39bdc8fc4fd1d3"
+    },
+    "same_tool_events_submitted_directly": {
+      "records": 0,
+      "absorbed_redeliveries": 3,
+      "chain_digest": "9485a0f8ce2113717bf2f08d1f63f619d417284169f288098a39bdc8fc4fd1d3"
+    },
+    "verify_as_reader": {
+      "records": 4,
+      "ok": true,
+      "chain_digest": "9485a0f8ce2113717bf2f08d1f63f619d417284169f288098a39bdc8fc4fd1d3"
+    }
+  },
+  "review_257_p1_p2": {
+    "measured_at_kst": "2026-11-06 03:33-03:36",
+    "terraform": "0 added, 2 changed (bucket policy DenyUnconditionalWrites, writer ListBucketVersions), drift none",
+    "writer_unconditional_put_on_record_key": "AccessDenied (explicit deny in resource-based policy)",
+    "writer_conditional_put_on_record_key": "PreconditionFailed (412)",
+    "custodian_unconditional_put_on_record_key": "AccessDenied (explicit deny in resource-based policy)",
+    "record_key_versions_after_attempts": 1,
+    "verify_all_versions_as_reader": {
+      "run_1": "ok, 4 records, chain_digest unchanged",
+      "run_forwarded": "ok, 4 records, chain_digest unchanged"
+    },
+    "probe_v2_as_writer": {
+      "delete_current_denied": "DENIED",
+      "delete_version_denied": "DENIED",
+      "shorten_retention_denied": "DENIED",
+      "overwrite_precondition_failed": "PRECONDITION_FAILED",
+      "unconditional_write_denied": "DENIED",
+      "bucket_policy_change_denied": "DENIED",
+      "object_lock_config_change_denied": "DENIED",
+      "retention": "COMPLIANCE_ACTIVE",
+      "pass": true
+    },
+    "normal_writes_after_change": {
+      "run_id": "run-t24-v2-11060334",
+      "append_platform_events": {
+        "records": 1,
+        "absorbed_redeliveries": 0,
+        "chain_digest": "54b0236c1670b7e6a8f810b106925b330290f59ef8965824879888ad29804153"
+      },
+      "append_tool_events_resumed_with_versions": {
+        "records": 3,
+        "absorbed_redeliveries": 0,
+        "chain_digest": "58dfbef030607e7c4a29e6c82fd69e0b454ba9bbae719db57a3bee6c0651b675"
+      },
+      "verify": "ok, 4 records"
+    },
+    "stray_probe_objects": 0
+  }
+}

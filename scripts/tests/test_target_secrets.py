@@ -31,7 +31,9 @@ def chart_fixture():
             "volumeClaimTemplates": [{"metadata": {"name": "data"}, "spec": {"storageClassName": ""}}],
             "template": {"metadata": {"labels": labels.copy()}, "spec": {"containers": [{
                 "name": "openbao", "image": render.BAO_IMAGE,
-                "readinessProbe": {"exec": {"command": ["sh", "-ec", "bao status -tls-skip-verify"]}},
+                "readinessProbe": {"exec": {"command": ["sh", "-ec", "bao status -tls-skip-verify"]},
+                                   "failureThreshold": 3, "initialDelaySeconds": 5, "periodSeconds": 10,
+                                   "successThreshold": 1, "timeoutSeconds": 10},
             }]}},
         }},
         {"apiVersion": "v1", "kind": "Service", "metadata": metadata.copy(), "spec": {"selector": labels.copy()}},
@@ -47,6 +49,24 @@ class ChartBoundaryTests(unittest.TestCase):
         self.assertEqual(result, {"apiVersion": "v1", "kind": "List", "items": original})
         self.assertNotIn("tls-skip-verify", json.dumps(result))
         self.assertEqual(render.bao_values()["server"]["extraEnvironmentVars"]["BAO_CACERT"], "/openbao/tls/ca.crt")
+
+    def test_readiness_timing_is_rendered_and_enforced(self):
+        probe = render.bao_values()["server"]["readinessProbe"]
+        self.assertEqual(probe, {"enabled": True, "timeoutSeconds": 10, "periodSeconds": 10, "failureThreshold": 3})
+        result = cli("finalize-bao", objects=chart_fixture())
+        final = result["items"][0]["spec"]["template"]["spec"]["containers"][0]["readinessProbe"]
+        self.assertEqual((final["timeoutSeconds"], final["periodSeconds"], final["failureThreshold"]), (10, 10, 3))
+        self.assertEqual(final["exec"]["command"], ["bao", "status", "-format=json"])
+        # Chart 0.30.6 defaults (rendered without bao-values) and a missing probe are refused.
+        for change in ({"timeoutSeconds": 3, "periodSeconds": 5, "failureThreshold": 2}, {"timeoutSeconds": 3}, None):
+            objects = chart_fixture()
+            container = objects[0]["spec"]["template"]["spec"]["containers"][0]
+            if change is None:
+                del container["readinessProbe"]
+            else:
+                container["readinessProbe"].update(change)
+            with self.subTest(change=change), self.assertRaises(ValueError):
+                cli("finalize-bao", objects=objects)
 
     def test_rejects_chart_namespace_image_selector_and_volume_drift(self):
         def mutations(objects):
