@@ -45,8 +45,9 @@ class Binding:
             raise EdgeError("binding_or_steering_drift")
         if result.get("enabled") is not True or result.get("proxied") is not True:
             raise EdgeError("binding_or_steering_drift")
-        if any(result.get(key) for key in (
-            "rules", "country_pools", "region_pools", "pop_pools", "networks", "location_pools"
+        if any(result.get(key) not in (None, [], {}) for key in (
+            "rules", "pool_sets", "country_pools", "region_pools", "pop_pools",
+            "networks", "location_pools"
         )):
             raise EdgeError("steering_override_present")
         random = result.get("random_steering")
@@ -57,8 +58,12 @@ class Binding:
         if not isinstance(weights, dict) or set(weights) != {self.source_pool, self.target_pool}:
             raise EdgeError("pool_set_mismatch")
         source, target = weights[self.source_pool], weights[self.target_pool]
-        if any(type(value) not in (int, float) or not math.isfinite(value) or value < 0
-               for value in (source, target)) or source + target <= 0:
+        try:
+            invalid = any(type(value) not in (int, float) or not math.isfinite(value) or value < 0
+                          for value in (source, target)) or source + target <= 0
+        except OverflowError:
+            raise EdgeError("invalid_pool_weights") from None
+        if invalid:
             raise EdgeError("invalid_pool_weights")
         share = 100 * target / (source + target)
         for allowed in (0, 10, 50, 100):

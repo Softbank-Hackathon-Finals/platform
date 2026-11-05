@@ -50,7 +50,7 @@ Cloudflare PATCH에 원격 CAS나 이 라이브러리의 멱등 키 적용을 �
 
 ## 자원 조건과 기록
 
-실행 전 LB가 활성·proxied·random steering·session affinity none이고 출발지/목적지 두 pool과 출발지 fallback으로 결속됐는지 확인한다. 다른 routing rule이나 지역 override가 있으면 거부한다. 기존 비활성 자원은 실행 담당이 준비 조건과 작업창을 확인한 뒤 별도로 활성화한다. 어댑터는 그 설정을 변경하지 않는다.
+실행 전 LB가 활성·proxied·random steering·session affinity none이고 출발지/목적지 두 pool과 출발지 fallback으로 결속됐는지 확인한다. 다른 routing rule·`pool_sets`·지역 override가 있으면 거부한다. `pool_sets`는 이 PATCH에서 지워지지 않고 가중치와 다른 경로를 만들 수 있으므로 지원하지 않는다. 변경 전 조회·PATCH 응답·변경 후 조회에 같은 검사를 적용한다. 기존 비활성 자원은 실행 담당이 준비 조건과 작업창을 확인한 뒤 별도로 활성화한다. 어댑터는 그 설정을 변경하지 않는다.
 
 영수증에는 plan/run/operation/revision, LB 참조, `request_at`, `response_at`, `confirmed_at`, 최근 `readback_at`, `readback_weights`, 상태·고정 오류 코드가 남는다. provider 응답 본문이나 token은 저장하지 않는다. API token은 고정 HTTPS Cloudflare origin으로만 보내고 redirect·환경 proxy·자동 재시도를 사용하지 않는다. journal의 운영 식별자는 비공개 자료로 보관한다. 공개 증빙은 저장소의 공개 증빙 절차로 만든다.
 

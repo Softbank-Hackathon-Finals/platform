@@ -187,12 +187,71 @@ def test_identity_or_steering_drift_prevents_mutation(setup, field, value):
     assert not upstream.patches
 
 
-@pytest.mark.parametrize("value", [True, float("nan"), float("inf"), -1, "1"])
+@pytest.mark.parametrize("value", [True, float("nan"), float("inf"), -1, "1",
+                                   pytest.param(10 ** 1000, id="oversized-integer")])
 def test_ambiguous_weight_types_rejected(value):
     result = Provider().result
     result["random_steering"]["pool_weights"][BINDING.source_pool] = value
     with pytest.raises(EdgeError):
         BINDING.weight(result)
+
+
+def pool_sets():
+    return [{"name": "all-target", "match": {"default": True}, "overrides": {
+        "pools": [BINDING.target_pool], "fallback_pool": BINDING.target_pool,
+        "steering_policy": "off",
+    }}]
+
+
+@pytest.mark.parametrize("phase", ["before_patch", "ack", "readback"])
+def test_pool_sets_cannot_report_false_weight_confirmation(tmp_path, phase):
+    upstream = Provider()
+    if phase == "before_patch":
+        upstream.result["pool_sets"] = pool_sets()
+
+    def respond(request):
+        response = upstream(request)
+        inject = ((phase == "ack" and request.method == "PATCH") or
+                  (phase == "readback" and request.method == "GET" and upstream.patches))
+        if inject:
+            body = response.json()
+            body["result"]["pool_sets"] = pool_sets()
+            return httpx.Response(200, json=body)
+        return response
+
+    provider = Cloudflare(BINDING, lambda: "test-token", transport=httpx.MockTransport(respond))
+    try:
+        control = Controller(provider, tmp_path / "journal.db", authorize=lambda _: True)
+        if phase == "before_patch":
+            with pytest.raises(EdgeError, match="steering_override_present"):
+                control.execute(command())
+            assert not upstream.patches
+        else:
+            result = control.execute(command())
+            assert result["status"] == ("UNCERTAIN" if phase == "ack" else "AWAITING_READBACK")
+            assert result["confirmed_at"] is None
+            assert result["error"] == "steering_override_present"
+            assert len(upstream.patches) == 1
+    finally:
+        provider.close()
+
+
+def test_pool_set_added_before_failback_blocks_false_zero_confirmation(setup):
+    upstream, _, control = setup
+    control.execute(command())
+    upstream.result["pool_sets"] = pool_sets()
+    with pytest.raises(EdgeError, match="steering_override_present"):
+        control.execute(command(0, 1, 10, "restore", reason="FAILBACK"))
+    assert len(upstream.patches) == 1
+
+
+@pytest.mark.parametrize("invalid", [False, 0, "", "active"])
+def test_malformed_override_field_is_not_absence(setup, invalid):
+    upstream, _, control = setup
+    upstream.result["pool_sets"] = invalid
+    with pytest.raises(EdgeError, match="steering_override_present"):
+        control.execute(command())
+    assert not upstream.patches
 
 
 @pytest.mark.parametrize("status", [301, 307, 401, 429, 500])
