@@ -59,7 +59,8 @@ def job(image, phase, *, schema_version=2):
         data["migration.sql"] = (Path(__file__).resolve().parents[2] / "sql" / filename).read_text()
         data["expected.json"] = '{"schema_version":' + str(schema_version) + '}'
     # The immutable ConfigMap name covers the SQL as well as its runner.
-    digest = hashlib.sha256(json.dumps(data, sort_keys=True).encode()).hexdigest()[:12]
+    content = json.dumps(data, sort_keys=True) if phase == "migrate" else data["run.py"]
+    digest = hashlib.sha256(content.encode()).hexdigest()[:12]
     name = f"t10-window-{phase}-{digest}-{image[-8:]}"
     template = copy.deepcopy(render(image)["items"][1]["spec"]["template"])
     # It has no Service or ingress identity, and no API token or cluster role.

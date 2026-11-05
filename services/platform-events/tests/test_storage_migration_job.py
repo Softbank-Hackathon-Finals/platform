@@ -3,15 +3,18 @@ import importlib.util
 import json
 import sys
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
 DEPLOY = Path(__file__).resolve().parents[1] / 'deploy/window'
-sys.path.insert(0, str(DEPLOY))
 spec = importlib.util.spec_from_file_location('storage_jobs', DEPLOY / 'jobs.py')
 jobs = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(jobs)
-sys.path.remove(str(DEPLOY))
+render_spec = importlib.util.spec_from_file_location('window_render', DEPLOY / 'render.py')
+render = importlib.util.module_from_spec(render_spec)
+render_spec.loader.exec_module(render)
+with patch.dict(sys.modules, {'render': render}):
+    spec.loader.exec_module(jobs)
 IMAGE = 'bravo-window-intake:source-' + 'a' * 64
 
 
