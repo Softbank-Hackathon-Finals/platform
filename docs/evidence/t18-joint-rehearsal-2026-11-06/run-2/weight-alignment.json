@@ -1,0 +1,247 @@
+{
+  "kind": "t18_weight_alignment",
+  "run_id": "t18-joint-main-f5e2c8",
+  "plan_id": "plan-local",
+  "measurement": {
+    "path": "local-mock-edge",
+    "edge_measured": false,
+    "generator": "laptop"
+  },
+  "warnings": [
+    "NOT_EDGE_MEASURED",
+    "GENERATOR_LAGGING",
+    "HTTP_ERRORS"
+  ],
+  "sli_usable_for_judgement": false,
+  "profile": {
+    "id": "demo-shift",
+    "version": "1"
+  },
+  "complete": true,
+  "steps": [
+    {
+      "weight_target": 10,
+      "reason": "SHIFT",
+      "revision": 1,
+      "receipt_status": "CONFIRMED",
+      "request_at": "2026-11-05T15:45:27.051695+00:00",
+      "provider_confirmed_after_s": 0.08,
+      "observation": "OBSERVED",
+      "applied_by_window_end": "2026-11-05T15:45:40.373689Z",
+      "reflect_upper_bound_s": 13.322,
+      "windows": [
+        {
+          "start": "2026-11-05T15:45:30.373689Z",
+          "end": "2026-11-05T15:45:40.373689Z",
+          "reference_verdict": "PASS",
+          "reasons": [],
+          "target_share": 0.103,
+          "source": {
+            "requests": 1794,
+            "http_5xx": 0,
+            "p95_ms": 5.499582999618724
+          },
+          "target": {
+            "requests": 206,
+            "http_5xx": 0,
+            "p95_ms": 5.846541986102238
+          },
+          "unattributed": 0
+        },
+        {
+          "start": "2026-11-05T15:45:40.373689Z",
+          "end": "2026-11-05T15:45:50.373689Z",
+          "reference_verdict": "PASS",
+          "reasons": [],
+          "target_share": 0.09,
+          "source": {
+            "requests": 1819,
+            "http_5xx": 0,
+            "p95_ms": 4.860582994297147
+          },
+          "target": {
+            "requests": 181,
+            "http_5xx": 0,
+            "p95_ms": 4.7115829947870225
+          },
+          "unattributed": 0
+        }
+      ],
+      "source_p95_ms_max": 5.5,
+      "target_p95_ms_max": 5.847
+    },
+    {
+      "weight_target": 50,
+      "reason": "SHIFT",
+      "revision": 2,
+      "receipt_status": "CONFIRMED",
+      "request_at": "2026-11-05T15:45:57.134224+00:00",
+      "provider_confirmed_after_s": 0.071,
+      "observation": "OBSERVED",
+      "applied_by_window_end": "2026-11-05T15:46:10.373689Z",
+      "reflect_upper_bound_s": 13.239,
+      "windows": [
+        {
+          "start": "2026-11-05T15:46:00.373689Z",
+          "end": "2026-11-05T15:46:10.373689Z",
+          "reference_verdict": "PASS",
+          "reasons": [],
+          "target_share": 0.499,
+          "source": {
+            "requests": 1002,
+            "http_5xx": 0,
+            "p95_ms": 6.177417002618313
+          },
+          "target": {
+            "requests": 998,
+            "http_5xx": 0,
+            "p95_ms": 5.7200000155717134
+          },
+          "unattributed": 0
+        },
+        {
+          "start": "2026-11-05T15:46:10.373689Z",
+          "end": "2026-11-05T15:46:20.373689Z",
+          "reference_verdict": "PASS",
+          "reasons": [],
+          "target_share": 0.499,
+          "source": {
+            "requests": 1002,
+            "http_5xx": 0,
+            "p95_ms": 5.97862500580959
+          },
+          "target": {
+            "requests": 998,
+            "http_5xx": 0,
+            "p95_ms": 6.520000024465844
+          },
+          "unattributed": 0
+        }
+      ],
+      "source_p95_ms_max": 6.177,
+      "target_p95_ms_max": 6.52
+    },
+    {
+      "weight_target": 100,
+      "reason": "SHIFT",
+      "revision": 3,
+      "receipt_status": "CONFIRMED",
+      "request_at": "2026-11-05T15:46:27.209095+00:00",
+      "provider_confirmed_after_s": 0.089,
+      "observation": "OBSERVED",
+      "applied_by_window_end": "2026-11-05T15:46:40.373689Z",
+      "reflect_upper_bound_s": 13.165,
+      "windows": [
+        {
+          "start": "2026-11-05T15:46:30.373689Z",
+          "end": "2026-11-05T15:46:40.373689Z",
+          "reference_verdict": "PASS",
+          "reasons": [],
+          "target_share": 1.0,
+          "source": {
+            "requests": 0,
+            "http_5xx": 0,
+            "p95_ms": null
+          },
+          "target": {
+            "requests": 2000,
+            "http_5xx": 0,
+            "p95_ms": 11.61316700745374
+          },
+          "unattributed": 0
+        },
+        {
+          "start": "2026-11-05T15:46:40.373689Z",
+          "end": "2026-11-05T15:46:50.373689Z",
+          "reference_verdict": "PASS",
+          "reasons": [],
+          "target_share": 1.0,
+          "source": {
+            "requests": 0,
+            "http_5xx": 0,
+            "p95_ms": null
+          },
+          "target": {
+            "requests": 2000,
+            "http_5xx": 0,
+            "p95_ms": 6.193958019139245
+          },
+          "unattributed": 0
+        }
+      ],
+      "source_p95_ms_max": null,
+      "target_p95_ms_max": 11.613
+    },
+    {
+      "weight_target": 0,
+      "reason": "SHIFT",
+      "revision": 4,
+      "receipt_status": "CONFIRMED",
+      "request_at": "2026-11-05T15:46:57.298940+00:00",
+      "provider_confirmed_after_s": 0.081,
+      "observation": "OBSERVED",
+      "applied_by_window_end": "2026-11-05T15:47:10.373689Z",
+      "reflect_upper_bound_s": 13.075,
+      "windows": [
+        {
+          "start": "2026-11-05T15:47:00.373689Z",
+          "end": "2026-11-05T15:47:10.373689Z",
+          "reference_verdict": "PASS",
+          "reasons": [],
+          "target_share": 0.0,
+          "source": {
+            "requests": 2000,
+            "http_5xx": 0,
+            "p95_ms": 5.284249986289069
+          },
+          "target": {
+            "requests": 0,
+            "http_5xx": 0,
+            "p95_ms": null
+          },
+          "unattributed": 0
+        },
+        {
+          "start": "2026-11-05T15:47:10.373689Z",
+          "end": "2026-11-05T15:47:20.373689Z",
+          "reference_verdict": "PASS",
+          "reasons": [],
+          "target_share": 0.0,
+          "source": {
+            "requests": 1877,
+            "http_5xx": 0,
+            "p95_ms": 985.768124985043
+          },
+          "target": {
+            "requests": 0,
+            "http_5xx": 0,
+            "p95_ms": null
+          },
+          "unattributed": 0
+        },
+        {
+          "start": "2026-11-05T15:47:20.373689Z",
+          "end": "2026-11-05T15:47:30.373689Z",
+          "reference_verdict": "FAIL",
+          "reasons": [
+            "P95"
+          ],
+          "target_share": 0.0,
+          "source": {
+            "requests": 1046,
+            "http_5xx": 10,
+            "p95_ms": 4160.317624977324
+          },
+          "target": {
+            "requests": 0,
+            "http_5xx": 0,
+            "p95_ms": null
+          },
+          "unattributed": 0
+        }
+      ],
+      "source_p95_ms_max": 4160.318,
+      "target_p95_ms_max": null
+    }
+  ]
+}
