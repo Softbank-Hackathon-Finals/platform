@@ -12,10 +12,12 @@ from .product_execution_contracts import (
 )
 from .subscription_product import stopped
 from .subscription_product_caller import ActionsProductToken, product_probe_window, product_window
+from .subscription_product_seal import seal_receipt, validate_recipient
 
 
 def execute(intent, env, *, token_supplier=None, window=None):
     workflow_boundary(intent, env)  # Before token acquisition or any SSM operation.
+    validate_recipient(intent.recipient_public_key)
     receipt = receipt_binding(intent, env['GITHUB_RUN_ID']) | {
         'status': 502, 'cleanup_confirmed': False, 'result': stopped('PRODUCT_EXECUTION_UNCONFIRMED')}
     try:
@@ -41,12 +43,13 @@ def main(argv=None):
     try:
         intent = ExecutionIntent.model_validate_json(os.environ['PRODUCT_INTENT'])
         workflow_boundary(intent, os.environ)
+        validate_recipient(intent.recipient_public_key)
         if args.preflight:
             return 0
         receipt = execute(intent, os.environ)
         output = Path('product-result.json')
         with output.open('x') as stream:
-            json.dump(receipt, stream, allow_nan=False)
+            json.dump(seal_receipt(intent, os.environ['GITHUB_RUN_ID'], receipt), stream, allow_nan=False)
         output.chmod(0o600)
         validate_execution_receipt(intent, os.environ['GITHUB_RUN_ID'], receipt)
         return 0

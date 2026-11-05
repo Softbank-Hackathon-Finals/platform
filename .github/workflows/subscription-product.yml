@@ -28,6 +28,10 @@ on:
         required: true
         type: choice
         options: [probe, propose]
+      recipient_public_key:
+        description: Per-execution operator X25519 public key (64 hex); never a private key
+        required: true
+        type: string
 
 permissions:
   contents: read

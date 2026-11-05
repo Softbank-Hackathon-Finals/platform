@@ -28,6 +28,7 @@ class ExecutionIntent(Contract):
     input_digest: Digest
     admission_digest: Digest
     runtime_source_sha: str = Field(pattern=r'^[a-f0-9]{40}$')
+    recipient_public_key: str = Field(pattern=r'^[a-f0-9]{64}$')
     mode: Literal['probe', 'propose']
 
 
@@ -47,7 +48,8 @@ def receipt_binding(intent, run_id):
     return {'schema_version': 1, 'request_id': intent.request_id, 'mode': intent.mode,
             'input_ref_digest': digest(intent.input_ref), 'input_digest': intent.input_digest,
             'admission_digest': intent.admission_digest, 'runtime_source_sha': intent.runtime_source_sha,
-            'workflow_sha': intent.runtime_source_sha, 'github_run_id': str(run_id), 'github_run_attempt': 1}
+            'workflow_sha': intent.runtime_source_sha, 'github_run_id': str(run_id), 'github_run_attempt': 1,
+            'recipient_key_digest': digest(intent.recipient_public_key)}
 
 
 def validate_execution_receipt(intent, run_id, receipt):

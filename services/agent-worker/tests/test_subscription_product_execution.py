@@ -10,6 +10,7 @@ from contextlib import contextmanager
 from pathlib import Path
 
 import pytest
+from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PrivateKey
 from test_subscription_product import setup as setup
 
 from bravo_agent.product_execution_contracts import (
@@ -26,11 +27,13 @@ from bravo_agent.subscription_product_dispatch import (
     OperatorProductExecution,
 )
 from bravo_agent.subscription_product_execution import execute
+from bravo_agent.subscription_product_seal import seal_receipt
 
 
 def intent_for(body, mode='propose'):
     return ExecutionIntent(request_id='execution-1', input_ref=body['input_ref'], input_digest=body['input_digest'],
-                           admission_digest='a' * 64, runtime_source_sha='c' * 40, mode=mode)
+                           admission_digest='a' * 64, runtime_source_sha='c' * 40, mode=mode,
+                           recipient_public_key=X25519PrivateKey.from_private_bytes(b'1' * 32).public_key().public_bytes_raw().hex())
 
 
 def environment(intent):
@@ -116,7 +119,7 @@ class GitHub:
     def set_artifact(self, receipt, name='product-result.json'):
         output = io.BytesIO()
         with zipfile.ZipFile(output, 'w') as archive:
-            archive.writestr(name, json.dumps(receipt))
+            archive.writestr(name, json.dumps(seal_receipt(self.intent, 1234, receipt)))
         self.raw = output.getvalue()
         self.artifact = {'id': 88, 'name': ARTIFACT, 'expired': False, 'size_in_bytes': len(self.raw),
                          'workflow_run': {'id': 1234, 'head_sha': self.intent.runtime_source_sha},
@@ -152,10 +155,12 @@ class GitHub:
 @pytest.fixture
 def dispatch(setup, tmp_path):
     service, _, body, _ = setup
-    intent = intent_for(body)
+    client = OperatorProductExecution(tmp_path / 'state')
+    intent = intent_for(body).model_copy(update={'recipient_public_key': client.recipient('execution-1')})
     receipt = receipt_binding(intent, 1234) | {'status': 200, 'cleanup_confirmed': True, 'result': service.run(body)[1]}
     gh = GitHub(intent, receipt)
-    return OperatorProductExecution(tmp_path / 'state', gh), gh, intent, receipt
+    client.github = gh
+    return client, gh, intent, receipt
 
 
 def test_submit_restart_and_read_use_same_provider_run_only(dispatch):

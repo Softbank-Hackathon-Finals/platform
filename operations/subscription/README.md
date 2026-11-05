@@ -252,9 +252,15 @@ Actions의 인수 코드에서는 `product_probe_window`와 기존 메모리 OID
 
 `subscription-product.yml`은 기존 합성 검증 workflow와 분리된 명시적
 `workflow_dispatch`다. T10이 커밋한 같은 Admission/attempt 1의 불변
-`ExecutionIntent` 여섯 필드(`request_id`, `input_ref`, `input_digest`,
-`admission_digest`, `runtime_source_sha`, `mode`)만 받는다. mode는 인증만 하는
+`ExecutionIntent` 일곱 필드(`request_id`, `input_ref`, `input_digest`,
+`admission_digest`, `runtime_source_sha`, `mode`, `recipient_public_key`)만 받는다. mode는 인증만 하는
 `probe` 또는 제안 한 번인 `propose`이며 JWT·업무 원문·임의 주소는 받지 않는다.
+
+T10은 intent를 커밋하기 전에 운영자 `client.recipient(request_id)`가 반환한 실행별
+공개 수신키를 함께 결속한다. 복호키는 운영자의 같은 state-dir 안에 원자적으로
+0600으로 저장하며 GitHub/Pod에 전달하지 않는다. 동시 준비·재시작은 같은 키를
+재사용하고, 발행 뒤 키가 없어지면 UNKNOWN으로 멈추며 새 키/실행으로 복구하지 않는다.
+이 키는 결과 암호화 전용이며 AWS·GitHub 인증 자격이 아니다.
 
 T10의 실행 claim과 운영 입력을 준비한 **기존 운영자**가 자신의 `gh` 인증으로
 `OperatorProductExecution(state_dir).submit(intent)`를 한 번 호출한다. 재시작,
@@ -263,7 +269,10 @@ GitHub 자격을 설치하거나 새 background dispatcher를 만드는 경로�
 다른 호스트나 새 state directory로 실행 기록을 우회해서 다시 보내지 않는다.
 
 ```sh
-# intent.json에는 위 여섯 metadata 필드만 둔다. state-dir는 같은 영속 운영자 디렉터리다.
+# intent commit 전에 공개키만 준비한다. state-dir는 같은 영속 운영자 디렉터리다.
+uv run --frozen python -m bravo_agent.subscription_product_dispatch recipient \
+  --request-id execution-id --state-dir .private/product-executions
+# intent.json에는 위 일곱 metadata 필드만 둔다.
 uv run --frozen python -m bravo_agent.subscription_product_dispatch submit \
   --intent intent.json --state-dir .private/product-executions --output receipt.json
 # 결과가 아직 없거나 응답이 불명이면 같은 intent/state-dir를 조회한다.
@@ -282,12 +291,19 @@ ID·develop·workflow SHA·첫 실행만 허용하고, 기존 VM concurrency/고
 결과가 진행 중이면 `ExecutionPending`, 확정할 수 없으면 `ExecutionUnknown`이며
 CLI는 각각 4·5로 끝난다. 자동 재발행하지 않는다.
 
-결과는 같은 run의 `subscription-product-result` artifact 한 개에서만 읽는다.
+공개 저장소 artifact의 read access를 제품 원문 접근 권한으로 취급하지 않는다.
+Actions는 [X25519 + HKDF](https://cryptography.io/en/50.0.2/hazmat/primitives/asymmetric/x25519/)와
+AES-256-GCM으로 결과를 암호화하며, 새 ephemeral key/nonce와 같은 intent·수신키·run/attempt를
+AAD로 결속한다. 평문 결과를 runner 파일이나 로그에 쓰지 않는다. 같은 run의
+`subscription-product-result` artifact 한 개에서 암호문만 읽고 운영자 메모리에서 복호한다.
+송신자의 신뢰는 암호화만이 아니라 정확 GitHub run/workflow/SHA 출처 검증에 둔다.
 [GitHub artifact API](https://docs.github.com/en/rest/actions/artifacts)의 run/SHA와
 SHA-256을 대조하고, 제한된 ZIP의 `product-result.json`을 추출 없이 읽는다. 순수
 `product_execution_contracts.validate_execution_receipt`는 입력·Admission·설치·실행
 결속 및 정리 성공을 검사한다. T10은 소비 직전 현재 권한·plan/catalog/만료를 다시
 검사하고, 기존 T15 소비 경로로 전달해 실제 Job과 원본 영수증을 확인한다. 인증
 probe와 모델 제안의 실행 ID/결과를 섞지 않는다. CLI 출력·artifact에는 토큰·STS
-자격을 보존하지 않는다. artifact에는 검증된 제품 제안이 있으므로 운영 입력의
-기존 접근 범위로 취급하고 공개 문서나 로그에 복사하지 않는다.
+자격을 보존하지 않는다. 복호된 결과는 제품 제안이므로 운영 입력의 기존 접근 범위로 취급하고 공개 문서나
+로그에 복사하지 않는다. CLI의 명시적 결과 파일은 운영자 로컬 0600으로만 생성한다.
+실행 원장과 복호키는 원본 결과 인수·보존 정책에 맞춰 함께 관리하며, 키를 삭제하면
+남은 artifact로 복구할 수 없다는 점을 확인한 뒤 정리한다.

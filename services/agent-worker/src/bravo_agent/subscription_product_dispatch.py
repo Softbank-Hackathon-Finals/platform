@@ -8,10 +8,13 @@ import re
 import sqlite3
 import stat
 import subprocess
+import tempfile
 import zipfile
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from urllib.parse import urlencode
+
+from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PrivateKey
 
 from .contracts import digest
 from .product_execution_contracts import (
@@ -23,6 +26,7 @@ from .product_execution_contracts import (
 )
 from .product_execution_contracts import ExecutionPending as ExecutionPending
 from .product_execution_contracts import ExecutionUnknown as ExecutionUnknown
+from .subscription_product_seal import open_receipt
 
 MAX_ARTIFACT = 2 * 1024 * 1024
 
@@ -88,6 +92,48 @@ class OperatorProductExecution:
     def _db(self):
         return sqlite3.connect(self.path, timeout=15)
 
+    def _private_key(self, request_id, *, create=False):
+        if not isinstance(request_id, str) or re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_-]{0,79}', request_id) is None:
+            raise ValueError('invalid execution request ID')
+        path = self.root / ('recipient-' + request_id + '.key')
+        if create and not path.exists():
+            with self._db() as db:
+                sent = db.execute('SELECT 1 FROM executions WHERE request_id=?', (request_id,)).fetchone()
+            if sent:
+                raise ExecutionUnknown('EXECUTION_KEY_UNAVAILABLE')
+            # Publish a fully fsynced private key atomically; concurrent prepares use the winner.
+            fd, temporary = tempfile.mkstemp(prefix='.recipient-', dir=self.root)
+            try:
+                with os.fdopen(fd, 'wb') as stream:
+                    stream.write(X25519PrivateKey.generate().private_bytes_raw())
+                    stream.flush()
+                    os.fsync(stream.fileno())
+                try:
+                    os.link(temporary, path)
+                except FileExistsError:
+                    pass
+                directory = os.open(self.root, os.O_RDONLY)
+                try:
+                    os.fsync(directory)
+                finally:
+                    os.close(directory)
+            finally:
+                os.unlink(temporary)
+        try:
+            fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+            with os.fdopen(fd, 'rb') as stream:
+                mode = os.fstat(stream.fileno()).st_mode
+                if not stat.S_ISREG(mode) or mode & 0o077:
+                    raise ValueError('private key file required')
+                raw = stream.read(33)
+            return X25519PrivateKey.from_private_bytes(raw)
+        except Exception:
+            raise ExecutionUnknown('EXECUTION_KEY_UNAVAILABLE') from None
+
+    def recipient(self, request_id):
+        """Prepare a local decryption key once, returning only its public key to T10."""
+        return self._private_key(request_id, create=True).public_key().public_bytes_raw().hex()
+
     def _record(self, intent):
         with self._db() as db:
             row = db.execute('SELECT intent, metadata, run_id FROM executions WHERE request_id=?', (intent.request_id,)).fetchone()
@@ -103,6 +149,8 @@ class OperatorProductExecution:
             exists = db.execute('SELECT 1 FROM executions WHERE request_id=?', (intent.request_id,)).fetchone()
         if exists:
             return self.read(intent)
+        if self._private_key(intent.request_id).public_key().public_bytes_raw().hex() != intent.recipient_public_key:
+            raise ExecutionUnknown('EXECUTION_RECIPIENT_CONFLICT')
         actor = self.github.get('user')
         head = self.github.get(f'repos/{REPOSITORY}/git/ref/heads/develop')
         workflow = self.github.get(f'repos/{REPOSITORY}/actions/workflows/{WORKFLOW}')
@@ -157,6 +205,9 @@ class OperatorProductExecution:
     def read(self, intent):
         intent = ExecutionIntent.model_validate(intent)
         metadata, saved_id = self._record(intent)
+        private = self._private_key(intent.request_id)
+        if private.public_key().public_bytes_raw().hex() != intent.recipient_public_key:
+            raise ExecutionUnknown('EXECUTION_RECIPIENT_CONFLICT')
         run = self._find_run(intent, metadata)
         if saved_id is not None and str(run['id']) != saved_id:
             raise ExecutionUnknown('RUN_BINDING_CONFLICT')
@@ -199,7 +250,7 @@ class OperatorProductExecution:
                     payload = stream.read(MAX_ARTIFACT + 1)
                 if len(payload) > MAX_ARTIFACT:
                     raise ValueError('oversized receipt')
-            receipt = validate_execution_receipt(intent, run_id, json.loads(payload))
+            receipt = validate_execution_receipt(intent, run_id, open_receipt(intent, run_id, json.loads(payload), private))
         except Exception:
             raise ExecutionUnknown('ARTIFACT_RECEIPT_INVALID') from None
         return receipt
@@ -208,14 +259,20 @@ class OperatorProductExecution:
 def main(argv=None):
     import argparse
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('operation', choices=['submit', 'read'])
-    parser.add_argument('--intent', type=Path, required=True)
+    parser.add_argument('operation', choices=['recipient', 'submit', 'read'])
+    parser.add_argument('--intent', type=Path)
+    parser.add_argument('--request-id')
     parser.add_argument('--state-dir', type=Path, required=True)
-    parser.add_argument('--output', type=Path, required=True)
+    parser.add_argument('--output', type=Path)
     args = parser.parse_args(argv)
     try:
-        intent = ExecutionIntent.model_validate_json(args.intent.read_bytes())
         client = OperatorProductExecution(args.state_dir)
+        if args.operation == 'recipient':
+            print(json.dumps({'recipient_public_key': client.recipient(args.request_id)}))
+            return 0
+        if args.intent is None or args.output is None:
+            raise ValueError('intent and output required')
+        intent = ExecutionIntent.model_validate_json(args.intent.read_bytes())
         receipt = getattr(client, args.operation)(intent)
         # Existing output must be explicitly read/compared by the caller, never overwritten.
         fd = os.open(args.output, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
