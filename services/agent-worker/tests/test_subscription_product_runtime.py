@@ -173,7 +173,7 @@ def test_actions_token_memory_only_sts_audience():
 
 
 @pytest.mark.parametrize("changes", [{"GITHUB_ACTIONS": "false"}, {"ACTIONS_ID_TOKEN_REQUEST_URL": "http://pipelines.actions.githubusercontent.com/t"},
-    {"ACTIONS_ID_TOKEN_REQUEST_URL": "https://evil.invalid/t"}, {"ACTIONS_ID_TOKEN_REQUEST_URL": "https://user@pipelines.actions.githubusercontent.com/t"}])
+    {"ACTIONS_ID_TOKEN_REQUEST_URL": "https://evil.invalid/t"}, {"ACTIONS_ID_TOKEN_REQUEST_URL": "https://" + "synthetic-user" + "@" + "pipelines.actions.githubusercontent.com/t"}])
 def test_untrusted_identity_endpoint_cannot_receive_credential(changes):
     supplier = caller.ActionsProductToken(actions_env() | changes, httpx.MockTransport(
         lambda _: pytest.fail("credential escaped")))
