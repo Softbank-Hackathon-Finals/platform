@@ -67,9 +67,13 @@ class UnsafePayload(ValueError):
     """Payload contains a credential-like string or exceeds the size bound."""
 
 
+def _reference_key(key: str) -> bool:
+    """A name that only *points at* a secret (``secret_id``, ``password_ref``, ``token_count``)."""
+    return key.lower().endswith(REFERENCE_SUFFIXES)
+
+
 def _sensitive_key(key: str) -> bool:
-    lowered = key.lower()
-    return bool(SENSITIVE_KEY.search(key)) and not lowered.endswith(REFERENCE_SUFFIXES)
+    return bool(SENSITIVE_KEY.search(key)) and not _reference_key(key)
 
 
 def _is_marker(value: str) -> bool:
@@ -77,12 +81,16 @@ def _is_marker(value: str) -> bool:
 
 
 def _check_structure(value, sensitive: bool = False, path: str = "") -> None:
-    """Under a credential-named key, *every* string at any depth (lists and nested objects
-    included) must be a reference marker. The sensitive context is inherited downward."""
+    """Under a credential-named key, every string at any depth (lists and nested objects
+    included) must be a reference marker. The sensitive context is inherited downward, except
+    through a *reference-named* key: ``credentials: [{"secret_id": "demo/ref"}]`` and
+    ``password: {"password_ref": "…"}`` carry pointers, not values (contract: reference names
+    are exempt wherever they appear)."""
     if isinstance(value, dict):
         for key, item in value.items():
             key = str(key)
-            _check_structure(item, sensitive or _sensitive_key(key), path + key + ".")
+            child = False if _reference_key(key) else (sensitive or _sensitive_key(key))
+            _check_structure(item, child, path + key + ".")
     elif isinstance(value, list | tuple):
         for item in value:
             _check_structure(item, sensitive, path + "[]")

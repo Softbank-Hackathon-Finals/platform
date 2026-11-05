@@ -55,6 +55,8 @@ def test_any_change_after_the_fact_breaks_verification(ledger, tamper):
     {"items": [{"authorization": "Bearer synthetic"}]},
     # review round 2: lists under a sensitive key, and "<" prefixes that are not the exact marker
     {"credentials": ["synthetic-sensitive-value"]},
+    {"credentials": [{"secret_id": "demo/ref", "value": "synthetic-sensitive-value"}]},  # pointer next to a value: still refused
+    {"password": {"password_ref": {"inner_password": "synthetic-sensitive-value"}}},
     {"credentials": {"list": [{"inner": "synthetic-sensitive-value"}]}},
     {"password": "<synthetic-sensitive-value>"},
     {"password": "<masked but with extra text that is not the marker form!!>"},
@@ -71,6 +73,11 @@ def test_credential_like_payloads_are_refused_before_hashing(ledger, payload):
     {"token_count": 3, "password": None, "api_key_enabled": True},                       # non-values
     {"snippet": "DB_SECRET_ID: <masked>", "password_source": "openbao"},
     {"password": "<masked>", "api_key": "<masked: secret-like literal>", "token": "<redacted>"},
+    # review (#257, 류지환 3차): reference-named fields stay exempt inside sensitive containers
+    {"credentials": [{"secret_id": "demo/ref"}]},
+    {"credentials": [{"password_source": "openbao"}]},
+    {"password": {"password_ref": "demo/ref/password"}},
+    {"credentials": {"secret_arn": "arn:aws:secretsmanager:::x.example.invalid", "rotation_enabled": True}},
 ])
 def test_credential_references_without_values_are_recordable(ledger, payload):
     record, created = ledger.append("platform.events", "state.changed", payload, "t10:plan-demo:9")
