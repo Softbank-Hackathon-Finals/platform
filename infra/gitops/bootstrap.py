@@ -60,7 +60,7 @@ def main():
     helm = ["helm", "--kubeconfig", str(a.kubeconfig), "--namespace", NAMESPACE]
     releases = json.loads(
         run(
-            helm + ["list", "--all", "--filter", "^" + RELEASE + "$", "-o", "json"]
+            helm + ["list", "--filter", "^" + RELEASE + "$", "-o", "json"]
         ).stdout
     )
     if releases and releases[0]["status"] != "deployed":
