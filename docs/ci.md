@@ -46,6 +46,8 @@ trivy config --ignorefile .trivyignore.yaml --severity HIGH,CRITICAL --exit-code
 
 실제 GitHub 설정과 전환·복구 절차는 [Merge Queue 운영](merge-queue.md)을 따른다. 큐의 성공은 실제 클라우드 배포나 데이터 복구 성공을 뜻하지 않는다.
 
+T41의 [등록 봇](merge-queue-bot.md)은 CI 자체와 별도 workflow다. 기존 PROJECT_TOKEN을 신뢰된 workflow revision에서만 사용해 현재 PR을 조회하고 exact-head 큐 등록을 요청한다. PR 검사에는 이 토큰을 주입하지 않는다. `merge_group` 결과의 실제 통과 판정과 병합은 GitHub 기본 큐가 계속 맡는다.
+
 ## 보안·권한·절차
 
 ### PR 이력 검사와 저장소 전체 감사
