@@ -273,7 +273,7 @@ Claude Code는 `/todo-task`, Codex는 `$todo-task`로 이 순서를 따르는 �
 - [x] OIDC 신뢰 정책
 - [x] 수집 역할과 제어 역할 분리
 - [x] GHCR 이미지 빌드 · push (digest), 양쪽 클러스터 pull 토큰
-- [ ] GitHub 레포 접근: 읽기(분석) · 브랜치 쓰기(T31). GitHub App 또는 범위를 좁힌 토큰
+- [ ] GitHub 레포 접근: 범위를 좁힌 reader로 수신 환경에서 지정 revision 인증 조회. T31은 검증 digest 승격으로 Git writer 미사용
 
 **완료 기준** Actions에서 OIDC로 플랫폼에 배포 1회 성공. 앱 이미지가 GHCR에 digest로 올라간다.
 
@@ -782,7 +782,7 @@ Claude Code는 `/todo-task`, Codex는 `$todo-task`로 이 순서를 따르는 �
 
 **어디에 필요** S2의 마지막 장면. 리허설을 통과한 변경이 승인 뒤 목적지에 들어간다.
 
-**만들 것** 승인된 diff를 브랜치에 커밋, GitHub Actions 빌드 → GHCR digest, 승인 digest와 대조 후 목적지 배포, 번역된 정책(SeaweedFS 버킷 정책 · OpenBao 정책 · RBAC) 적용, 반영 뒤 게이트 재대조 요청.
+**만들 것** T15가 검증한 이미지 digest와 diff를 받아 승인 결속과 대조한 뒤 같은 digest를 목적지에 배포한다(ADR-0021). 승인 뒤 Git 커밋·이미지 재빌드·Git writer 주입은 하지 않는다. 번역된 정책(SeaweedFS 버킷 정책 · OpenBao 정책 · RBAC) 적용과 반영 뒤 게이트 재대조 요청은 별도 승인 범위로 유지한다.
 
 - **우선순위** P0 · **영역** 에이전트 · 리허설 · **담당** 전동훈
 - **선행** `T7`, `T15`, `T30` (통합 시점: `T19`) · **후속** `T28` · **설계 문서** FR-7, 8.4

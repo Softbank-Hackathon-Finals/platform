@@ -1,10 +1,9 @@
 import base64
 import hashlib
 import importlib.util
+import unittest
 from datetime import UTC, datetime
 from pathlib import Path
-
-import unittest
 
 spec = importlib.util.spec_from_file_location("reader", Path(__file__).parents[1] / "github_reader_probe.py")
 reader = importlib.util.module_from_spec(spec)
