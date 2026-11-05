@@ -1,5 +1,7 @@
 import asyncio
+import json
 
+import pytest
 from claude_agent_sdk import ResultMessage
 from claude_agent_sdk._internal.transport.subprocess_cli import SubprocessCLITransport
 
@@ -75,3 +77,18 @@ def test_sdk_result_requires_valid_proposal_and_success(context, tmp_path, monke
     monkeypatch.setattr(sdk, "ClaudeSDKClient", Client)
     asyncio.run(ClaudeProvider(tmp_path, "explicit-model").propose(bundle, tools))
     assert tools.proposal is not None
+
+
+@pytest.mark.parametrize("name, tool_input, reason, category", [
+    ("Bash", {"command": "aws s3 rb s3://synthetic-review-bucket --force"}, "DESTRUCTIVE_ATTEMPT_BLOCKED", "bucket_delete"),
+    ("Bash", {"command": "kubectl delete namespace rehearsal-1"}, "DESTRUCTIVE_ATTEMPT_BLOCKED", "namespace_delete"),
+    ("mcp__bravo__rehearsal_exec", {"command": "ls"}, "TOOL_NOT_PROVIDED", None),
+    ("WebFetch", {"url": "https://example.invalid"}, "TOOL_NOT_ALLOWED", None),
+])
+def test_pre_tool_use_hook_records_the_same_audit_classification_as_dispatch(context, name, tool_input, reason, category):
+    tools = context[3]
+    denied = asyncio.run(guard(tools, {"tool_name": name, "tool_input": tool_input}, None, None))
+    assert denied["hookSpecificOutput"]["permissionDecision"] == "deny"
+    event = tools.events[-1]
+    assert event["outcome"] == "DENIED" and event["reason"] == reason and event.get("category") == category
+    assert "synthetic-review-bucket" not in json.dumps(tools.events) and "rehearsal-1" not in json.dumps(tools.events)
