@@ -1,0 +1,167 @@
+{
+ "all_as_expected": true,
+ "compat_pod": {
+  "drill_verdict_on_map": "PASS",
+  "not_judged_without_pr_210": true,
+  "not_pass": [],
+  "status": {
+   "blocked_app_ok": 4,
+   "kept": 2,
+   "not_blocked": 1,
+   "remains": 5,
+   "unknown": 1
+  },
+  "verdict": "PASS"
+ },
+ "control_pod_accepted_by_restricted_psa": true,
+ "eligibility_code_present": false,
+ "full_drill": {
+  "app_restarts": [
+   {
+    "app": 1,
+    "others": 0
+   }
+  ],
+  "counts": {
+   "FAIL": 0,
+   "PASS": 23,
+   "UNKNOWN": 0
+  },
+  "not_pass": [],
+  "shell_vantages_measured": [
+   "db",
+   "pooler"
+  ],
+  "status": {
+   "blocked_app_ok": 4,
+   "kept": 2,
+   "not_blocked": 1,
+   "remains": 5,
+   "unknown": 1
+  },
+  "verdict": "PASS"
+ },
+ "k3s_image": "mirror.gcr.io/rancher/k3s:v1.35.5-k3s1",
+ "map_without_block": {
+  "drill_verdict": "NOT_RUN",
+  "status": {
+   "kept": 2,
+   "not_blocked": 1,
+   "remains": 5,
+   "unknown": 1,
+   "unverified": 4
+  }
+ },
+ "pooler_image": "ghcr.io/cloudnative-pg/pgbouncer:1.25.1@sha256:e6ddfe22d845e603825e235dd8334b21ecd125abea2a2172478f556b8dee2bb8",
+ "postgres_image": "mirror.gcr.io/library/postgres:18-alpine",
+ "python_image": "python:3.12-slim",
+ "real_pooler_image": {
+  "running_after_kill_pid_one": true,
+  "running_after_stop_container": false,
+  "running_at_start": true,
+  "shell_probe_states": [
+   "connected",
+   "refused",
+   "timeout",
+   "dns_failure",
+   "dns_failure"
+  ]
+ },
+ "real_postgres_read": {
+  "lsn_moved": true,
+  "no_subscriber": {
+   "lsn": null,
+   "state": "absent"
+  },
+  "read_only_session_refused_write": true,
+  "streaming": "streaming"
+ },
+ "rollback": {
+  "aws_state_after_rollback": "connected",
+  "objects_left": 0,
+  "stream_alive": true
+ },
+ "seconds": {
+  "compat_drill": 33.3,
+  "full_drill": 33.8,
+  "plan_and_map_without_block": 2.5,
+  "rollback": 6.1
+ },
+ "source_files": [
+  {
+   "path": "services/exit-drill/scripts/real_run.py",
+   "sha256": "4c9ae63e3b753cffba54d723d8001d59caa04fb8eeb1bd4f67de14ff2006492d"
+  },
+  {
+   "path": "services/exit-drill/src/bravo_exit_drill/__init__.py",
+   "sha256": "63dd3cfc651c1db6ef6aae4418e5d8c419d553b020039a0dac65e3ded5f69587"
+  },
+  {
+   "path": "services/exit-drill/src/bravo_exit_drill/aws_endpoints.py",
+   "sha256": "f702dc4dad0201e28cb692bffa73768ba25e9274547d90b75eddb6e9518381a8"
+  },
+  {
+   "path": "services/exit-drill/src/bravo_exit_drill/cli.py",
+   "sha256": "4a3f090926f44c3843865626af69687241e8569108523fa5ebdb5b34f3969b68"
+  },
+  {
+   "path": "services/exit-drill/src/bravo_exit_drill/cluster.py",
+   "sha256": "31ba1aec3b6a7d512e44baf32f84756d5297e8cb3a638fd765d82523e7b0ee97"
+  },
+  {
+   "path": "services/exit-drill/src/bravo_exit_drill/control_pod.py",
+   "sha256": "f1ac60cad34bceaba6d49c479cb29cbbf7a01c4733819682e29c438515f86aa4"
+  },
+  {
+   "path": "services/exit-drill/src/bravo_exit_drill/inventory_input.py",
+   "sha256": "e67e13d3926b0010f3c1fdb4eccb5110481973c204cea2f3ccd9c074cb92c269"
+  },
+  {
+   "path": "services/exit-drill/src/bravo_exit_drill/observation.py",
+   "sha256": "ed1ebf125083cf907b480ae052661e925253441072e17077c790cb0120c2a26f"
+  },
+  {
+   "path": "services/exit-drill/src/bravo_exit_drill/policy.py",
+   "sha256": "9afc1a832c222c2f8b0310845f2797cc31fa676411f45479611b19a9e6ce8637"
+  },
+  {
+   "path": "services/exit-drill/src/bravo_exit_drill/probe.py",
+   "sha256": "0d385fe1bff4a90ed25e466a3271b4d35ab2948e28879059cfa8499204ec838b"
+  },
+  {
+   "path": "services/exit-drill/src/bravo_exit_drill/residual_map.py",
+   "sha256": "b44373ea208fa7748127b95dd59bf6b260e1f103d756adb2a591840f5c9d8d1a"
+  },
+  {
+   "path": "services/exit-drill/src/bravo_exit_drill/spec.py",
+   "sha256": "5ad28287cc169bba7fb072fc3898ac88214aadd2d21426b1e52210143e43e703"
+  },
+  {
+   "path": "services/exit-drill/src/bravo_exit_drill/verdict.py",
+   "sha256": "d8e0641d1f84c061383a6a7ace06b6a4d85444318b6ee12548c92ed953a6288e"
+  },
+  {
+   "path": "services/exit-drill/tests/integration/standin.py",
+   "sha256": "81c5ef30606593c93c0acff7de99cf0410f0de9a5bda82a251c62bb93b5de29b"
+  },
+  {
+   "path": "services/exit-drill/tests/integration/verify_k3s.py",
+   "sha256": "a28b042a52097d5984699fafaa53423746963621fec379a71f66f373965fe812"
+  },
+  {
+   "path": "services/exit-drill/tests/integration/verify_real_run.py",
+   "sha256": "52cccd44e5f2713019761848259d078d1b412ca9fd15ec55c37c6176dfc2e126"
+  }
+ ],
+ "source_revision": "f032c5d3caaf2b7201d4e919859b3e5ff65824e1",
+ "without_cutover_input": {
+  "not_pass": [
+   {
+    "code": "CUTOVER_NOT_CONFIRMED",
+    "id": "cutover:writer",
+    "verdict": "UNKNOWN"
+   }
+  ],
+  "verdict": "UNKNOWN"
+ }
+}

@@ -24,6 +24,9 @@ export function fail(code) {
 export function identifier(v) {
   return typeof v === "string" && ID.test(v);
 }
+export function evaluationProfile(v) {
+  return typeof v === "string" && /^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$/.test(v);
+}
 const object = (v) => v !== null && typeof v === "object" && !Array.isArray(v);
 const date = (v) =>
   typeof v === "string" &&
@@ -149,13 +152,19 @@ export function failbackSummary(record) {
   }[v.status];
 }
 export function snapshot(v, plan) {
+  const hasProfile =
+    object(v) &&
+    (Object.hasOwn(v, "profile_id") || Object.hasOwn(v, "profile_version"));
   exact(
     v,
-    "schema_version plan_id workload_id source_environment_id target_environment_id plan_digest collection_scope_digest state version created_at updated_at last_event_id",
+    "schema_version plan_id workload_id source_environment_id target_environment_id plan_digest collection_scope_digest state version created_at updated_at last_event_id" +
+      (hasProfile ? " profile_id profile_version" : ""),
   );
   if (
     v.schema_version !== "1.0" ||
     v.plan_id !== plan ||
+    (hasProfile &&
+      ![v.profile_id, v.profile_version].every(evaluationProfile)) ||
     ![
       v.plan_id,
       v.workload_id,
@@ -278,6 +287,8 @@ export class Model {
         "workload_id",
         "source_environment_id",
         "target_environment_id",
+        "profile_id",
+        "profile_version",
       ])
         if (next[key] !== this.snapshot[key]) fail("plan_changed");
       if (next.version < this.snapshot.version) fail("snapshot_regressed");

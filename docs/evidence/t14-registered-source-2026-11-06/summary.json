@@ -1,0 +1,61 @@
+{
+  "kind": "t14-registered-source-readonly-summary.v1",
+  "source_revision": "3afc1172374d820d84adb84079e4c3e84c9c7e18",
+  "environment_role": "source",
+  "runtime": "actual-team-aws-source",
+  "results_are_separate_runs": true,
+  "runs": [
+    {
+      "test_id": "IAM-01.1",
+      "verdict": "PASS",
+      "collected_at": "2026-11-05T16:34:54.046694Z",
+      "result_counts": {
+        "UNKNOWN": 19,
+        "PASS": 1
+      },
+      "unexecuted_reason": "NOT_RUN",
+      "run_file_sha256": "5d898023febad0d14af63ab8ff8b0b64a3c303439d5e4a6691b0510dc3584b7c",
+      "collector_evidence_sha256": "fa2ad9bc7aa2cb55094a7d459c004968872329c8d6f45ae3b766774ca8dad439",
+      "scope_record_sha256": "14c844b1a83637fecaaca9ed31cf6065b4c352423dc94860bf06b50a3804135a",
+      "registered_workload_matches": true,
+      "registered_source_matches": true,
+      "t14_schema_valid": true,
+      "t19_schema_valid": true,
+      "snapshot_fingerprint": "5d898023febad0d14af63ab8ff8b0b64a3c303439d5e4a6691b0510dc3584b7c"
+    },
+    {
+      "test_id": "ENC-02.1",
+      "verdict": "PASS",
+      "collected_at": "2026-11-05T16:35:39.773367Z",
+      "result_counts": {
+        "UNKNOWN": 19,
+        "PASS": 1
+      },
+      "unexecuted_reason": "NOT_RUN",
+      "run_file_sha256": "9a9d12b4cec0a8ac98ae586f579a981c9bc99c7128ef9388ff35d7c852bda488",
+      "collector_evidence_sha256": "2cb2846d8b748b2b46a0051431cb2fb1089ececa2099402dc5fc57ede7cbd249",
+      "scope_record_sha256": "b1dbdf26e073b38bc830eadedacf053e3e94a5f43e080f4ac7d40af36f95b0f7",
+      "registered_workload_matches": true,
+      "registered_source_matches": true,
+      "t14_schema_valid": true,
+      "t19_schema_valid": true,
+      "snapshot_fingerprint": "9a9d12b4cec0a8ac98ae586f579a981c9bc99c7128ef9388ff35d7c852bda488"
+    }
+  ],
+  "operations": {
+    "database_connections": 0,
+    "secret_values_read_by_operator": 0,
+    "application_writes": 0,
+    "iam_or_network_changes": 0,
+    "own_ssm_session_terminated": true
+  },
+  "remaining": {
+    "target_collected": false,
+    "plan_profile_binding_verified": false,
+    "t10_persisted": false,
+    "full_control_pass": false,
+    "cutover_approved": false
+  },
+  "private_originals_retained": true,
+  "public_summary_is_raw": false
+}

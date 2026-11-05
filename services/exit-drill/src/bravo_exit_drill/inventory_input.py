@@ -71,6 +71,7 @@ class InventoryView:
     candidate_verdict: str
     dependencies: tuple[Dependency, ...]
     residuals: tuple[str, ...]
+    missing_capabilities: tuple[str, ...]
 
 
 def parse_inventory(doc: Any, *, candidate: str) -> InventoryView:
@@ -88,6 +89,7 @@ def parse_inventory(doc: Any, *, candidate: str) -> InventoryView:
             candidate_verdict=fit["verdict"],
             dependencies=tuple(_dependency(item, doc["source"]["env_kind"], fit["env_kind"]) for item in doc["items"]),
             residuals=tuple(fit["residual_dependencies"]),
+            missing_capabilities=tuple(fit["missing_capabilities"]),
         )
     except (KeyError, TypeError, AttributeError) as exc:
         raise ContractError(f"inventory field missing: {exc}") from exc

@@ -1,0 +1,601 @@
+{
+  "total": 99,
+  "caught": 99,
+  "missed": 0,
+  "results": [
+    {
+      "mutation": "유실을 세지 않음",
+      "file": "reconcile.py",
+      "test": "test_reconcile.py",
+      "caught": true
+    },
+    {
+      "mutation": "행 2개는 중복이 아님",
+      "file": "reconcile.py",
+      "test": "test_reconcile.py",
+      "caught": true
+    },
+    {
+      "mutation": "다른 키의 복사본을 찾지 않음",
+      "file": "reconcile.py",
+      "test": "test_reconcile.py",
+      "caught": true
+    },
+    {
+      "mutation": "유령 행을 세지 않음",
+      "file": "reconcile.py",
+      "test": "test_reconcile.py",
+      "caught": true
+    },
+    {
+      "mutation": "응답 없이 저장된 것을 확인됨으로 셈",
+      "file": "reconcile.py",
+      "test": "test_reconcile.py",
+      "caught": true
+    },
+    {
+      "mutation": "내용 불일치를 보지 않음",
+      "file": "reconcile.py",
+      "test": "test_reconcile.py",
+      "caught": true
+    },
+    {
+      "mutation": "판정 불가를 통과로 씀",
+      "file": "reconcile.py",
+      "test": "test_reconcile.py",
+      "caught": true
+    },
+    {
+      "mutation": "기록이 불완전해도 통과",
+      "file": "reconcile.py",
+      "test": "test_reconcile.py",
+      "caught": true
+    },
+    {
+      "mutation": "503도 쓰기 응답으로 셈",
+      "file": "reconcile.py",
+      "test": "test_reconcile.py",
+      "caught": true
+    },
+    {
+      "mutation": "끝까지 멈춘 공백을 놓침",
+      "file": "reconcile.py",
+      "test": "test_reconcile.py",
+      "caught": true
+    },
+    {
+      "mutation": "창 길이가 1초 어긋남",
+      "file": "windows.py",
+      "test": "test_windows.py",
+      "caught": true
+    },
+    {
+      "mutation": "끊긴 창을 보지 않음",
+      "file": "windows.py",
+      "test": "test_windows.py",
+      "caught": true
+    },
+    {
+      "mutation": "날짜 형식 검사를 끔",
+      "file": "schema.py",
+      "test": "test_windows.py",
+      "caught": true
+    },
+    {
+      "mutation": "창이 아닌 문서도 통과",
+      "file": "schema.py",
+      "test": "test_windows.py",
+      "caught": true
+    },
+    {
+      "mutation": "시간 초과 · 연결 실패를 응답처럼 넘김",
+      "file": "load.py",
+      "test": "test_load.py",
+      "caught": true
+    },
+    {
+      "mutation": "환경 헤더를 창에 넘기지 않음",
+      "file": "load.py",
+      "test": "test_load.py",
+      "caught": true
+    },
+    {
+      "mutation": "지연을 창에 넘기지 않음",
+      "file": "load.py",
+      "test": "test_load.py",
+      "caught": true
+    },
+    {
+      "mutation": "창 경계를 응답 시각이 아니라 고정 창으로 셈",
+      "file": "windows.py",
+      "test": "test_windows.py",
+      "caught": true
+    },
+    {
+      "mutation": "등록한 환경을 넘기지 않음",
+      "file": "windows.py",
+      "test": "test_windows.py",
+      "caught": true
+    },
+    {
+      "mutation": "리포트 백분위가 창과 다름",
+      "file": "stats.py",
+      "test": "test_stats.py",
+      "caught": true
+    },
+    {
+      "mutation": "응답을 기다려 다음 요청을 보냄",
+      "file": "load.py",
+      "test": "test_load.py",
+      "caught": true
+    },
+    {
+      "mutation": "Retry-After를 무시함",
+      "file": "load.py",
+      "test": "test_load.py",
+      "caught": true
+    },
+    {
+      "mutation": "409도 재시도함",
+      "file": "load.py",
+      "test": "test_load.py",
+      "caught": true
+    },
+    {
+      "mutation": "2xx면 저장 확인 없이 성공",
+      "file": "load.py",
+      "test": "test_load.py",
+      "caught": true
+    },
+    {
+      "mutation": "재시도 한도를 무시함",
+      "file": "load.py",
+      "test": "test_load.py",
+      "caught": true
+    },
+    {
+      "mutation": "마지막 창을 기다리지 않음",
+      "file": "load.py",
+      "test": "test_load.py",
+      "caught": true
+    },
+    {
+      "mutation": "끝나지 않은 창도 냄",
+      "file": "load.py",
+      "test": "test_load.py",
+      "caught": true
+    },
+    {
+      "mutation": "DB 없이도 통과",
+      "file": "report.py",
+      "test": "test_report.py",
+      "caught": true
+    },
+    {
+      "mutation": "로컬 측정을 Edge 측정으로 표시",
+      "file": "report.py",
+      "test": "test_report.py",
+      "caught": true
+    },
+    {
+      "mutation": "헤더 없는 응답을 계약 오류에서 뺌",
+      "file": "report.py",
+      "test": "test_report.py",
+      "caught": true
+    },
+    {
+      "mutation": "창 집계 누락을 보지 않음",
+      "file": "report.py",
+      "test": "test_report.py",
+      "caught": true
+    },
+    {
+      "mutation": "DB 오류에 연결 문자열을 노출",
+      "file": "cli.py",
+      "test": "test_cli.py",
+      "caught": true
+    },
+    {
+      "mutation": "표본 잠금을 놓지 않음",
+      "file": "lock_probe.py",
+      "test": "test_lock_probe.py",
+      "caught": true
+    },
+    {
+      "mutation": "대기를 잠금 전에만 잼",
+      "file": "lock_probe.py",
+      "test": "test_lock_probe.py",
+      "caught": true
+    },
+    {
+      "mutation": "끝까지 막힌 표본을 버림",
+      "file": "lock_probe.py",
+      "test": "test_lock_probe.py",
+      "caught": true
+    },
+    {
+      "mutation": "막힌 동안의 요청을 세지 않음",
+      "file": "lock_probe.py",
+      "test": "test_lock_probe.py",
+      "caught": true
+    },
+    {
+      "mutation": "멈춘 DB를 세지 않음",
+      "file": "lock_probe.py",
+      "test": "test_lock_probe.py",
+      "caught": true
+    },
+    {
+      "mutation": "잘못된 DSN 오류로 측정기가 죽음",
+      "file": "lock_probe.py",
+      "test": "test_lock_probe.py",
+      "caught": true
+    },
+    {
+      "mutation": "깨진 응답에 실행이 무너짐",
+      "file": "load.py",
+      "test": "test_load.py",
+      "caught": true
+    },
+    {
+      "mutation": "429를 재시도하지 않음",
+      "file": "load.py",
+      "test": "test_load.py",
+      "caught": true
+    },
+    {
+      "mutation": "남은 한도로 시간 초과를 줄이지 않음",
+      "file": "load.py",
+      "test": "test_load.py",
+      "caught": true
+    },
+    {
+      "mutation": "다른 키의 복사본만 있어도 저장으로 봄",
+      "file": "reconcile.py",
+      "test": "test_reconcile.py",
+      "caught": true
+    },
+    {
+      "mutation": "부하 뒤 응답을 공백에 넣음",
+      "file": "reconcile.py",
+      "test": "test_reconcile.py",
+      "caught": true
+    },
+    {
+      "mutation": "창 0개여도 판정에 쓸 수 있음",
+      "file": "report.py",
+      "test": "test_report.py",
+      "caught": true
+    },
+    {
+      "mutation": "창이 모자라도 판정에 쓸 수 있음",
+      "file": "report.py",
+      "test": "test_report.py",
+      "caught": true
+    },
+    {
+      "mutation": "밀린 속도를 명목 시간으로 나눔",
+      "file": "report.py",
+      "test": "test_report.py",
+      "caught": true
+    },
+    {
+      "mutation": "생성기 정지를 p95로만 봄",
+      "file": "report.py",
+      "test": "test_report.py",
+      "caught": true
+    },
+    {
+      "mutation": "이전 결과 폴더를 덮어씀",
+      "file": "cli.py",
+      "test": "test_cli.py",
+      "caught": true
+    },
+    {
+      "mutation": "스킴 없는 주소를 받아들임",
+      "file": "cli.py",
+      "test": "test_cli.py",
+      "caught": true
+    },
+    {
+      "mutation": "창 전송에 토큰을 붙이지 않음",
+      "file": "cli.py",
+      "test": "test_cli.py",
+      "caught": true
+    },
+    {
+      "mutation": "토큰 없이도 시작함",
+      "file": "cli.py",
+      "test": "test_cli.py",
+      "caught": true
+    },
+    {
+      "mutation": "토큰 형식을 보지 않음",
+      "file": "cli.py",
+      "test": "test_cli.py",
+      "caught": true
+    },
+    {
+      "mutation": "토큰 뒤의 줄바꿈을 통과시킴",
+      "file": "cli.py",
+      "test": "test_cli.py",
+      "caught": true
+    },
+    {
+      "mutation": "형식 오류에 토큰을 되풀이함",
+      "file": "cli.py",
+      "test": "test_cli.py",
+      "caught": true
+    },
+    {
+      "mutation": "토큰을 부하 대상에도 보냄",
+      "file": "cli.py",
+      "test": "test_cli.py",
+      "caught": true
+    },
+    {
+      "mutation": "리다이렉트를 따라가 토큰을 넘김",
+      "file": "cli.py",
+      "test": "test_cli.py",
+      "caught": true
+    },
+    {
+      "mutation": "리포트와 실행 상태 파일에 토큰을 남김",
+      "file": "cli.py",
+      "test": "test_cli.py::test_token_is_left_in_no_file_output_or_log",
+      "caught": true
+    },
+    {
+      "mutation": "창 파일에 토큰을 남김",
+      "file": "cli.py",
+      "test": "test_cli.py::test_token_is_left_in_no_file_output_or_log",
+      "caught": true
+    },
+    {
+      "mutation": "표준 오류에 토큰을 남김",
+      "file": "cli.py",
+      "test": "test_cli.py::test_token_is_left_in_no_file_output_or_log",
+      "caught": true
+    },
+    {
+      "mutation": "로그에 토큰을 남김",
+      "file": "cli.py",
+      "test": "test_cli.py::test_token_is_left_in_no_file_output_or_log",
+      "caught": true
+    },
+    {
+      "mutation": "창 주소의 자격 증명을 받아들임",
+      "file": "cli.py",
+      "test": "test_cli.py",
+      "caught": true
+    },
+    {
+      "mutation": "창 주소를 검사하지 않음",
+      "file": "cli.py",
+      "test": "test_cli.py",
+      "caught": true
+    },
+    {
+      "mutation": "예상 못 한 오류를 그대로 던짐",
+      "file": "cli.py",
+      "test": "test_cli.py",
+      "caught": true
+    },
+    {
+      "mutation": "멈춘 DB를 끝없이 기다림",
+      "file": "cli.py",
+      "test": "test_cli.py",
+      "caught": true
+    },
+    {
+      "mutation": "부하 끝난 뒤에도 부하 표본으로 셈",
+      "file": "cli.py",
+      "test": "test_cli.py",
+      "caught": true
+    },
+    {
+      "mutation": "/readyz로 정상을 판단함",
+      "file": "preflight.py",
+      "test": "test_preflight.py",
+      "caught": true
+    },
+    {
+      "mutation": "비정상 응답을 통과시킴",
+      "file": "preflight.py",
+      "test": "test_preflight.py",
+      "caught": true
+    },
+    {
+      "mutation": "200의 본문을 보지 않음",
+      "file": "preflight.py",
+      "test": "test_preflight.py",
+      "caught": true
+    },
+    {
+      "mutation": "사전 점검이 리다이렉트를 따라감",
+      "file": "preflight.py",
+      "test": "test_preflight.py",
+      "caught": true
+    },
+    {
+      "mutation": "등록되지 않은 환경 값을 통과시킴",
+      "file": "preflight.py",
+      "test": "test_preflight.py",
+      "caught": true
+    },
+    {
+      "mutation": "Edge를 지났는지 보지 않음",
+      "file": "preflight.py",
+      "test": "test_preflight.py",
+      "caught": true
+    },
+    {
+      "mutation": "실패가 있어도 사전 점검 통과",
+      "file": "preflight.py",
+      "test": "test_preflight.py",
+      "caught": true
+    },
+    {
+      "mutation": "시계를 보지 않음",
+      "file": "preflight.py",
+      "test": "test_preflight.py",
+      "caught": true
+    },
+    {
+      "mutation": "창 수신 대신 대상의 시계를 봄",
+      "file": "preflight.py",
+      "test": "test_preflight.py",
+      "caught": true
+    },
+    {
+      "mutation": "창 수신의 다른 거부 응답을 통과시킴",
+      "file": "preflight.py",
+      "test": "test_preflight.py",
+      "caught": true
+    },
+    {
+      "mutation": "빈 문서를 받아 줘도 경고하지 않음",
+      "file": "preflight.py",
+      "test": "test_preflight.py",
+      "caught": true
+    },
+    {
+      "mutation": "창 수신 점검에 토큰을 안 붙임",
+      "file": "preflight.py",
+      "test": "test_preflight.py",
+      "caught": true
+    },
+    {
+      "mutation": "창 수신 점검에 저장될 수 있는 문서를 보냄",
+      "file": "preflight.py",
+      "test": "test_preflight.py",
+      "caught": true
+    },
+    {
+      "mutation": "사전 점검 오류에 연결 문자열을 노출",
+      "file": "preflight.py",
+      "test": "test_preflight.py",
+      "caught": true
+    },
+    {
+      "mutation": "대조 DB를 사전 점검하지 않음",
+      "file": "preflight.py",
+      "test": "test_preflight.py",
+      "caught": true
+    },
+    {
+      "mutation": "사전 점검이 실패해도 부하를 보냄",
+      "file": "cli.py",
+      "test": "test_preflight.py",
+      "caught": true
+    },
+    {
+      "mutation": "노트북 창을 판정 경로로 보냄",
+      "file": "cli.py",
+      "test": "test_preflight.py",
+      "caught": true
+    },
+    {
+      "mutation": "EC2 표시 파일을 보지 않음",
+      "file": "cli.py",
+      "test": "test_preflight.py",
+      "caught": true
+    },
+    {
+      "mutation": "edge 경로에 실행 위치를 묻지 않음",
+      "file": "cli.py",
+      "test": "test_preflight.py",
+      "caught": true
+    },
+    {
+      "mutation": "실행 ID 없이 시작함",
+      "file": "cli.py",
+      "test": "test_preflight.py",
+      "caught": true
+    },
+    {
+      "mutation": "사전 점검 결과를 리포트에 넘기지 않음",
+      "file": "cli.py",
+      "test": "test_preflight.py",
+      "caught": true
+    },
+    {
+      "mutation": "노트북을 판정 입력으로 표시",
+      "file": "report.py",
+      "test": "test_report.py",
+      "caught": true
+    },
+    {
+      "mutation": "사전 점검 없이 판정 입력으로 표시",
+      "file": "report.py",
+      "test": "test_report.py",
+      "caught": true
+    },
+    {
+      "mutation": "다른 실행의 영수증을 받음",
+      "file": "align.py",
+      "test": "test_align.py",
+      "caught": true
+    },
+    {
+      "mutation": "확인 안 된 영수증을 반영으로 셈",
+      "file": "align.py",
+      "test": "test_align.py",
+      "caught": true
+    },
+    {
+      "mutation": "변경 전이 섞인 창을 넣음",
+      "file": "align.py",
+      "test": "test_align.py",
+      "caught": true
+    },
+    {
+      "mutation": "다음 변경이 섞인 창을 넣음",
+      "file": "align.py",
+      "test": "test_align.py",
+      "caught": true
+    },
+    {
+      "mutation": "표본이 적은 창을 반영 증거로 씀",
+      "file": "align.py",
+      "test": "test_align.py",
+      "caught": true
+    },
+    {
+      "mutation": "비율이 틀린 창을 반영 증거로 씀",
+      "file": "align.py",
+      "test": "test_align.py",
+      "caught": true
+    },
+    {
+      "mutation": "provider 확인 시각을 반영 시간으로 씀",
+      "file": "align.py",
+      "test": "test_align.py",
+      "caught": true
+    },
+    {
+      "mutation": "노트북 경고가 결과에서 빠짐",
+      "file": "align.py",
+      "test": "test_align.py",
+      "caught": true
+    },
+    {
+      "mutation": "운영 식별자가 결과에 남음",
+      "file": "align.py",
+      "test": "test_align.py",
+      "caught": true
+    },
+    {
+      "mutation": "연결 문자열을 되풀이함",
+      "file": "cli.py",
+      "test": "test_cli.py",
+      "caught": true
+    },
+    {
+      "mutation": "읽기 전용을 풀어 둠",
+      "file": "db.py",
+      "test": "test_db.py",
+      "caught": true
+    }
+  ]
+}

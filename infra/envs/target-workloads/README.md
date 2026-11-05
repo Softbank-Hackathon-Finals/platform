@@ -43,10 +43,11 @@ T2의 기존 VM, AWS 플랫폼 RKE2의 상태 DB, 실제 온프렘 데모 머신
 앱 배포가 완성되지 않는다. T8의 실제 왕복 지연·재연결·단일 쓰기·해시 근거는
 실행 시점의 코드와 두 환경 신원에 결속해야 한다. 플랫폼 DB를 목적지 DB로 사용하지 않는다.
 
-고정 앱 소스 ce5727e는 시작 시 AWS Secrets Manager SDK를 필수로 호출한다.
+앱 소스는 ce5727e부터 확인한 게시본 8d82a92까지 시작 시 AWS Secrets Manager SDK를 필수로 호출한다.
 OpenBao/ESO의 환경 변수만으로 같은 이미지가 AWS 없이 시작한다고 주장하지 않는다.
 OCI 원본 바이트 수입/패키징 확인과 실제 목적지 업무 기동을 구별하며, 앱 의존성 변경은
 T11/T15의 검증·승인 경계에 따라 처리한다. 개인키·AWS 자격을 이미지에 넣지 않는다.
+개발 측정용 앱 배포는 아래 [개발 측정용 앱](#개발-측정용-앱)을 따른다.
 
 ## 분리된 네트워크 경로
 
@@ -81,6 +82,7 @@ TCP 연결이고, SCRAM 역할·테이블 권한·TLS 서버 신원 검증은 �
 `verify-full`은 유지한다. 실제 Service UID/주소가 바뀌면 이전 결속을 재사용하지 않는다.
 실제 생성된 프록시의 Pod/포트가 확인되면 클러스터 안의 호출자도 해당 DB/풀러로
 제한하고, 허용 연결 및 잘못된 역할·CA·호스트·물리 복제 거절을 검증한다.
+실제 경로의 직접·중계 여부, MTU, ACL 허용·거부는 [읽기 전용 점검 도구](../../../docs/operations/t30-tailnet-path-check.md)로 확인한다.
 
 ## 개발용 첨부 저장소
 
@@ -103,7 +105,7 @@ volume 슬롯은 8개, 개별 volume 크기 한도는 128MB다. 기본 metadata 
 AWS SDK의 기본 인증 체인·session token을 재사용하지 않는다.
 
 클라이언트는 SigV4, path style, `us-east-1`, 명시적 로컬 자격과 정확한 서비스 주소를
-사용한다. NetworkPolicy는 같은 namespace의 `bravo-object-client=true` Pod만 허용한다.
+사용한다. 운영 경로의 NetworkPolicy는 같은 namespace의 `bravo-object-client=true` Pod만 허용한다.
 TCP readiness 이후 별도로 서명 put/get·SHA-256 대조, 익명/오서명/범위 밖 작업 및
 client의 버킷 생성 거절, 재시작 후 객체 보존을 확인한다. 이 개발용 HTTP 경로는
 T9의 OpenBao/ESO·TLS 통제나 목적지 앱 업무 기동 완료를 대신하지 않는다.
@@ -144,7 +146,29 @@ Secret을 바꾼 뒤 SeaweedFS가 설정을 다시 읽는지는 아직 실측하
 이 identity는 **그 버킷에만** Admin · Read · Write · List · Tagging를 갖고 운영 `demo-chat-attachments`에는
 어떤 action도 없다. 키는 `BRAVO_OBJECT_REHEARSAL_ACCESS_KEY` · `_SECRET_KEY`로 받는다. T15 검증 Job이 이 identity로
 버킷을 만들고 번역된 정책을 적용 · 관측한다. 운영 버킷과 분리된 상태를 시험으로 고정했다
-(`scripts/tests/test_rehearsal_resources.py`). 리허설 namespace에서 8333으로 닿는 NetworkPolicy는 T30 질문 6번이다.
+(`scripts/tests/test_rehearsal_resources.py`).
+
+리허설 Pod가 8333에 닿는 경로는 `objects.py`가 함께 렌더하는 수신 전용 정책 `target-object-rehearsal-clients`다.
+시험마다 넣고 지우지 않고 설치 구성에 둔다. 기존 `target-object-clients`는 그대로다. 이미 설치한 환경에는 렌더 결과에서
+이 객체 하나만 골라 적용하면 된다.
+T3 시험을 위해 시험 namespace 한 개의 probe Pod만 임시로 열고 UID로 회수하는 규칙을 따로 쓰더라도(저장소에 렌더러는 없다) 이 정책과는 별개다. 임시 규칙은 끝나면 사라지고 이 정책은 리허설 라벨 namespace 전체에 상시로 남으며, 임시 규칙이 이 이름만 쓰지 않으면 허용이 더해질 뿐 서로 덮어쓰지 않는다.
+
+| 받는 Pod | Pod 라벨 | 필요한 이유 |
+| --- | --- | --- |
+| T15 검증 Job | `role=bucket-verifier` | 시험 버킷에 정책을 적용하고 읽기를 관측한다 |
+| T3 격리 시험 Pod | `app.kubernetes.io/component=probe`, `bravo.dev/isolation-run` 있음 | P4 대조가 막히면 게이트가 종료 코드 2로 멈춰 Job까지 가지 못한다 |
+
+두 경우 모두 `app.kubernetes.io/part-of=bravo-rehearsal` 라벨이 붙은 namespace(T3 템플릿)에서 TCP 8333으로 올 때만
+받는다. NetworkPolicy는 namespace 이름 패턴을 쓰지 못하므로 `rehearsal-*`라는 이름만으로는 열리지 않는다. 같은
+namespace의 다른 Pod, 다른 namespace, 8333 외 포트는 계속 막힌다. T3·T15 쪽 라벨이 바뀌면
+`scripts/tests/test_rehearsal_object_access.py`가 실패한다.
+
+이 정책은 연결 경로만 좁힌다. `rehearsal-exec`는 자기 namespace의 Pod에 라벨을 직접 붙일 수 있으므로 버킷 권한의
+경계는 S3 identity다. `open-demo` 상태에서는 익명 `Read`가 운영 버킷에 열려 있어 이 경로로 닿은 Pod도 서명 없이 읽는다.
+k3s에서는 새 Pod의 첫 연결이 정책 반영 전이라 20회 모두 거부되고 2초 안에 열렸으므로, 클라이언트는 첫 연결 실패에
+대비해야 한다. 임시 k3s와 대역 서버, 실제 이미지로 잰 결과는 [증거](../../../docs/evidence/t30-rehearsal-object-access-2026-11-06/README.md)에
+있다. 실제 VM·RKE2에서는 아직 재지 않았다. T9 `target-openbao` 정책은 리허설 Pod를 받지 않으므로, 그
+정책을 적용한 k3s에서 T3 게이트는 OpenBao P4에서 멈췄다.
 
 ## 공식 계약
 
@@ -159,6 +183,133 @@ Secret을 바꾼 뒤 SeaweedFS가 설정을 다시 읽는지는 아직 실측하
 - [고정 버전 S3 작업 권한](https://github.com/seaweedfs/seaweedfs/blob/984eac6a790be89e2a11de175a7413e1e3e32dd3/weed/s3api/s3api_server.go)
 
 T2/T6/T8/T9/T30 전체 완료나 실제 데모 머신의 준비 완료는 이 문서만으로 판정하지 않는다.
+
+## 개발 측정용 앱
+
+`application.py`는 T17 · T8 · T18의 Edge 경유 측정에 쓸 `demo-chat` Deployment와 Service를 렌더한다.
+**이 구성은 출구 증거가 아니다.** 앱은 여전히 Secrets Manager SDK를 부르고, 같은 Pod의 호환 컨테이너가
+루프백에서 대신 응답한다. 이 Pod로 Exit Drill을 돌리면 판정은 `NOT_EXIT_EVIDENCE`로 UNKNOWN이다. 이유와 없앨 조건은 [ADR-0017](../../../docs/adr/0017-target-app-secrets-manager-compat.md)에 있다.
+
+| 항목 | 값 | 이유 |
+| --- | --- | --- |
+| Service | `demo-chat.target-dev.svc.cluster.local:8080` (ClusterIP) | Tunnel이 가리킬 주소. 다른 공개 경로는 만들지 않는다 |
+| `APP_ENV` | `onprem` | `X-Bravo-Env` 값. T18 `--target-env`, T37 `BRAVO_ENV`와 같다 |
+| `DB_HOST` | `target-pgbouncer` | 컷오버 전에는 출발지 DB로 간다. 목적지 DB에 직접 붙지 않는다 |
+| `WRITE_BLOCKED` | `true` | 항상 닫힌 채 시작한다. Pod가 다시 뜨면 다시 닫힌다 |
+| `ATTACHMENT_UPLOAD_ENABLED` | `false` | 컷오버 전 업로드는 403이다. 받으면 객체는 목적지에, 행은 출발지 DB에 들어가 어긋난다 |
+| probe | `/readyz`, `/healthz` | DB를 보지 않는다. DB 경로는 `/api/health/db`로 따로 본다 |
+
+### 적용 전 조건
+
+1. **이미지.** 쓸 이미지는 [`app-image.json`](app-image.json) 한 곳에만 적는다. 렌더러와 `scripts/export_target_image.py`가 이 파일을 읽는다.
+   새로 게시하면 그 실행 아티팩트의 `image-receipt.json`(`source_sha`, `digest`)과 `registry-index.json`(amd64 `digest`)을 옮겨 적고 끝낸다.
+   렌더러는 이 파일의 index digest만 받는다. 다른 digest는 저장소가 GHCR이든 ECR이든 거부한다. DB · 객체 저장소 · 관리 토큰을 받는 Pod에서 다른 바이트가 돌지 못하게 하려는 것이다. ECR에서 받을 때만 `--image`로 저장소를 바꾼다.
+2. **VM에 넣기.** ECR에는 이미 있다. 이 게시본의 demo-chat 영수증(#19)과 `transfer-private-image`([실행 41815292046](https://github.com/Softbank-Hackathon-Finals/demo-chat/actions/runs/41815292046), 2026-11-04 19:36 KST)가 끝났고, 대상 바이트와 CI Pull까지 확인됐다.
+   개발 VM에는 류지환 님 기록(#210)상 2026-11-04 23:05 KST에 묶음이 containerd에 등록됐고 23:07에 index와 amd64 manifest를 대조했다. 이 문서 쪽에서 직접 확인한 것은 아니다.
+   남은 일은 이 변경이 병합된 뒤 VM 담당이 digest를 대조하고 앱을 배포하는 것이다. 다른 VM이면 [이미지 인수인계](../../../docs/operations/target-image-handoff.md) 순서로 묶음을 만들어 넣고 digest 별칭을 붙인다.
+   게시본을 바꾸면 앞 두 단계를 다시 한다. T22 담당이 demo-chat `main`의 `docs/evidence/image-publication-2026-11-03/` 영수증을 올리고(그전에는 `reviewed_publication_mismatch`로 멈춘다), Actions 권한자가 전달을 돌린다.
+
+   렌더 기본값은 `imagePullPolicy: Never`다. 레지스트리에서 받으려면 `--pull-secret <이름>`을 쓰지만,
+   [T7 절차](../../../docs/operations/target-registry-access.md)의 Secret은 시험 뒤 지우는 것이라 상시 자격이 없다. 쓰려면 자격 위치와 갱신 담당을 T7 담당자와 먼저 정한다.
+3. **PgBouncer.** `pooler.py`의 `target-pgbouncer`가 출발지를 가리키는지 확인한다. 앱은 이 경로만 쓴다.
+4. **Secret.** 아래 세 개가 있어야 한다. Secret이나 키가 없으면, 또는 `credentials.json` 형식이 틀리면 앱이 뜨지 않고 Service도 비어 있다.
+   값이 틀린 경우는 막지 못한다. 토큰이 비면 앱은 뜨고 쓰기 스위치만 404다.
+
+| Secret | 키 | 쓰임 |
+| --- | --- | --- |
+| `target-app-credentials` | `credentials.json` (`username`, `password`) | 컷오버 전 출발지 앱 계정. 호환 컨테이너에만 마운트한다 |
+| `target-app-objects` | `access_key`, `secret_key` | SeaweedFS 서명. boto3 공용 자격이라 호환 컨테이너 호출에도 쓰이지만 AWS로 나가지 않는다 |
+| `target-app-admin` | `token` | 쓰기 차단 스위치 |
+
+T9의 `delivery`가 적용돼 있으면 이 이름으로 이미 있으므로 만들지 않는다. 먼저 확인한다.
+
+```sh
+kubectl -n target-dev get secret target-app-credentials target-app-objects target-app-admin
+```
+
+없을 때만 값을 메모리로 옮겨 만든다. 파일 · 인수 · 출력에 남기지 않고, `apply` 대신 `create`를 쓴다.
+목적지 역할의 `target-app-db`가 아니라 출발지 비밀번호를 쓴다. 풀러 뒤가 아직 출발지이기 때문이다.
+T9를 나중에 적용할 때 ESO가 이 Secret을 넘겨받는지는 재지 않았다. 그때 T9 담당자가 확인한다.
+
+```sh
+set -o pipefail  # 앞 명령이 실패했는데 빈 값으로 Secret이 만들어지는 것을 막는다.
+kubectl -n target-dev get secret target-pooler-source-app -o json | python3 -c '
+import base64, json, sys
+password = base64.b64decode(json.load(sys.stdin)["data"]["password"]).decode()
+json.dump({"username": "chat_app", "password": password}, sys.stdout)' \
+  | kubectl -n target-dev create secret generic target-app-credentials --from-file=credentials.json=/dev/stdin
+kubectl -n target-dev get secret target-object-client -o json | python3 -c '
+import json, sys
+data = json.load(sys.stdin)["data"]
+json.dump({"apiVersion": "v1", "kind": "Secret", "metadata": {"name": "target-app-objects", "namespace": "target-dev"},
+           "data": {"access_key": data["AWS_ACCESS_KEY_ID"], "secret_key": data["AWS_SECRET_ACCESS_KEY"]}}, sys.stdout)' \
+  | kubectl create -f -
+python3 -c 'import secrets, sys; sys.stdout.write(secrets.token_urlsafe(32))' \
+  | kubectl -n target-dev create secret generic target-app-admin --from-file=token=/dev/stdin
+kubectl -n target-dev label secret target-app-credentials target-app-objects target-app-admin component=target
+```
+
+### 적용과 확인
+
+```sh
+python3 application.py > "$OUTPUT_DIR/application.json"
+kubectl apply --server-side --dry-run=server -f "$OUTPUT_DIR/application.json"
+kubectl apply --server-side -f "$OUTPUT_DIR/application.json"
+kubectl -n target-dev rollout status deployment/demo-chat
+```
+
+한 터미널에서 포트를 열고(전경에서 멈춰 있는다), 다른 터미널에서 확인한다.
+
+```sh
+kubectl -n target-dev port-forward service/demo-chat 18080:8080
+```
+
+```sh
+curl -si http://127.0.0.1:18080/api/info        # X-Bravo-Env: onprem, write_blocked: true
+curl -si http://127.0.0.1:18080/api/health/db   # 200이어야 DB 경로가 열린 것이다
+```
+
+**`/api/health/db`가 200이 아니면 Edge에 넣지 않는다.** `/readyz`는 DB를 보지 않아서, 아래처럼 DB가 막혀도 Pod는
+Ready이고 Service에 잡힌다. Edge 헬스 체크가 `/readyz`나 `/healthz`면 이 상태를 정상으로 본다.
+
+| 상태 | Pod · Service | `/readyz` | `/api/health/db` | `GET /api/messages` | `POST /api/messages` |
+| --- | --- | --- | --- | --- | --- |
+| 목적지 `chat_app` NOLOGIN (직접, 풀러 경유 모두) | Ready, 엔드포인트 1 | 200 | 503 (2초) | 503 + `Retry-After: 2` (5초) | 차단 중 503 즉시, 해제해도 503 (5초). 행 없음 |
+| 풀러 → 출발지 | Ready, 엔드포인트 1 | 200 | 200 | 200 | 차단 중 503, 해제 뒤 201. 행은 출발지에만 |
+| `credentials.json` 없음 · 형식 오류 · Secrets Manager 응답 없음 | Ready 아님, 엔드포인트 0 | 요청이 앱까지 가지 않는다 | | | |
+
+시험에서 판정한 앱 응답에는 모두 `X-Bravo-Env: onprem` 하나만 붙었다. 측정값과 대역은
+[증거](../../../docs/evidence/t30-target-app-2026-11-04/README.md)에 있다.
+
+**풀러가 시작된 뒤 첫 로그인은 맞는 비밀번호여야 한다.** PgBouncer 1.25.1은 프로세스가 뜬 뒤 첫 시도가 아니면
+SCRAM 키를 저장하지 않는다. 첫 시도가 틀리면 그 뒤에 맞는 비밀번호로 와도 서버 로그인이 실패하고 저절로 낫지 않는다.
+`/api/health/db`가 계속 503이고 풀러 로그에 `did not provide SCRAM keys`가 보이면 이 상태다. 앱 Secret을 고친 뒤
+`kubectl -n target-dev rollout restart deployment/target-pgbouncer`로 회복한다(잰 방법). 풀러를 재시작하기 전에는 옛 비밀번호를
+가진 클라이언트(이전 앱 Pod 등)를 먼저 멈춘다. 첫 로그인이 성공한 뒤의 틀린 시도는 영향이 없다. `auth_file`이 바뀐 뒤의
+`RELOAD`도 소스상 이 상태를 풀지만 재지 않았다.
+
+### 쓰기 스위치
+
+목적지 앱 쓰기를 열어도 행은 풀러 뒤의 DB 하나에만 들어간다. 다만 `/api/health/db`와 풀러 대상을 확인하기 전에는
+열지 않는다. 측정 담당자가 정해 여는 것이고 자동으로 열지 않는다. 롤아웃이 끝난 뒤에 실행한다.
+재시작하면 다시 닫히므로 측정 중에는 앱을 재시작하지 않는다. 마지막 인수가 `false`면 열고 `true`면 닫는다.
+앱에는 종료 전 5초 대기(preStop)가 있다. 없으면 재시작 직후 요청 12개 중 3~8개가 연결에 실패했다(k3s 10회).
+그 5초 동안은 퇴장 중인 이전 Pod가 원래 스위치 상태로 응답할 수 있으니, 스위치를 다시 열기 전에 이전 Pod가 사라졌는지 본다.
+
+```sh
+kubectl -n target-dev exec deployment/demo-chat -c app -- python -c '
+import json, os, sys, urllib.request as u
+print(u.urlopen(u.Request("http://127.0.0.1:8080/admin/write-block", json.dumps({"blocked": sys.argv[1] == "true"}).encode(),
+    {"Authorization": "Bearer " + os.environ["ADMIN_TOKEN"], "Content-Type": "application/json"}, method="PUT"), timeout=10).read())' false
+```
+
+### 재현
+
+`testing/app_lab.py`가 실제 렌더 결과를 임시 k3s에 올려 위 표를 다시 잰다. 로컬 빌드는 이 시험의 매니페스트에만 넣고, 일반 렌더 경로에는 넣을 수 없다. 실행마다 고유 이름을 쓰고, 그 실행이 만든 컨테이너와 이미지만 ID와 라벨을 대조해 지운다.
+
+```sh
+infra/envs/target-workloads/testing/app_lab.py --demo-chat-src <demo-chat 체크아웃> --output <결과 파일>
+```
 
 ## Pre-cutover pooler and attachment copy
 
@@ -204,6 +355,7 @@ inventory, not a prefix wildcard or a reason to delete either side's objects.
 복사한다. 출발지에는 쓰지 않고 목적지의 기존 객체를 덮어쓰지 않으며, 다시 돌려도 안전하다.
 실제 S3 · 실제 SeaweedFS 배포 · Tailscale 경로에서는 아직 재지 않았다
 ([증거](../../../docs/evidence/t8-attachment-sync-2026-11-04/README.md)).
+대상 클러스터에서 Job으로 돌리는 방법과 결과 판정은 [첨부 복사 Job 안내](../../../docs/operations/t8-attachment-copy-job.md)에 있다.
 
 | 파일 | 역할 |
 | --- | --- |
@@ -249,7 +401,7 @@ DB 접속 판단은 비밀번호가 나가기 전에 끝난다. libpq의 우선�
 infra/envs/target-workloads/attachment_copy.py
 ```
 
-SeaweedFS는 `bravo-object-client=true` Pod만 받는다. 운영자 머신에서 돌릴 때는
+운영 경로의 SeaweedFS는 `bravo-object-client=true` Pod만 받는다. 운영자 머신에서 돌릴 때는
 `kubectl port-forward`로 연결하고 `ATTACHMENT_TARGET_ENDPOINT_URL`을 그 로컬 주소로 둔다.
 DB를 터널로 잇는다면 `PGHOST`에 인증서 이름, `PGHOSTADDR`에 로컬 주소를 넣어 `verify-full`을 유지한다.
 이 터널 경로는 아직 재지 않았다.
@@ -310,6 +462,8 @@ psycopg만 있으면 되고 컨테이너는 필요 없으며, 위 명령에도 �
 `scripts/tests/attachment_mutation_check.py`는 임시 복사본에서 검사를 하나씩 빼고 시험이 실패하는지 확인한다.
 
 ## 정방향 구독 재개 (재발 대비)
+
+꺼진 시각 · 오류 종류를 읽는 명령, 방향별 `disable_on_error`, 구독 상태 지표는 [T8 복제 상태](../../../docs/operations/t8-replication-health.md)에 있다.
 
 `t8_source_to_target`가 연결 끊김으로 스스로 꺼졌을 때 쓰는 명령이다. 기존 슬롯을 그대로 두고 그 구독만 다시 켠 뒤,
 실제로 따라잡았는지 확인한다. 슬롯 · 역할 · 역방향 구독 · 앱의 쓰기 차단은 건드리지 않고, 목적지에는 어떤 쓰기도 하지 않는다.

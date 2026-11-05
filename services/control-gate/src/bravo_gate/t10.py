@@ -71,6 +71,9 @@ class T10GateAuthority:
                 or principal.tenant_id != plan["tenant_id"] or ctx.tenant_id != plan["tenant_id"]
                 or spec["tenant_id"] != ctx.tenant_id or spec["plan_id"] != plan["plan_id"]
                 or spec["workload_id"] != ctx.app or spec["plan_digest"] != ctx.plan_digest
+                # T10 fixes the evaluation profile in the plan; a plan without one cannot bind.
+                or spec.get("profile_id") != ctx.profile_id
+                or spec.get("profile_version") != ctx.profile_version
                 or current.binding.get("plan_id") != plan["plan_id"]
                 or current.command.get("plan_id") != plan["plan_id"]
                 or current.binding.get("plan_digest") != ctx.plan_digest

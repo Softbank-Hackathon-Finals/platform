@@ -59,3 +59,17 @@ def test_fetch_opens_a_read_only_transaction(run_id, monkeypatch):
                         "SELECT gen_random_uuid(), %(author)s, %(marker)s WHERE %(keys)s::uuid[] IS NOT NULL")
     with pytest.raises(psycopg.errors.ReadOnlySqlTransaction):
         fetch_rows(DSN, run_id, [])
+
+
+def test_preflight_reads_both_database_paths(run_id):
+    from bravo_loadgen.preflight import check_database
+
+    assert check_database("대조 DB", DSN, "SELECT 1 FROM messages LIMIT 1").ok is True
+    assert check_database("잠금 DB", DSN, "SELECT 1").ok is True
+
+
+def test_preflight_finds_a_database_without_the_app_table(run_id):
+    from bravo_loadgen.preflight import check_database
+
+    result = check_database("대조 DB", DSN, "SELECT 1 FROM t18_no_such_table LIMIT 1")
+    assert result.ok is False and "UndefinedTable" in result.detail

@@ -1,0 +1,44 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: bravo-observability
+# 조회 API의 검증된 이미지가 준비되기 전, 기존 저장소만 먼저 인수한다.
+# TLS · NetworkPolicy · 이미지 digest · 보존 설정은 platform 정본을 그대로 사용한다.
+resources:
+  - ../platform
+patches:
+  - target:
+      kind: Deployment
+      name: bravo-observability-api
+    patch: |-
+      $patch: delete
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: bravo-observability-api
+  - target:
+      kind: ServiceAccount
+      name: bravo-observability-api
+    patch: |-
+      $patch: delete
+      apiVersion: v1
+      kind: ServiceAccount
+      metadata:
+        name: bravo-observability-api
+  - target:
+      kind: Service
+      name: bravo-observability-api
+    patch: |-
+      $patch: delete
+      apiVersion: v1
+      kind: Service
+      metadata:
+        name: bravo-observability-api
+  - target:
+      kind: NetworkPolicy
+      name: bravo-observability-api
+    patch: |-
+      $patch: delete
+      apiVersion: networking.k8s.io/v1
+      kind: NetworkPolicy
+      metadata:
+        name: bravo-observability-api

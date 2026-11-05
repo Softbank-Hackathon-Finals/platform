@@ -164,11 +164,13 @@ Prowler와 kube-bench는 점검 수가 공급자 · 버전마다 다르므로 �
 | `demo-gate` v1 | IAM-01.1, SEC-01.1, AUD-01.1 (5절 데모 질문) | 데모 게이트, `examples/` |
 | `full` v1 | 하위 시험 20개 전체 | 설계 문서 S1 · S3 인수 조건(6개 통제) |
 
+프로필은 `(id, version)`으로 고른다. 프로필의 `app`은 그 프로필을 정한 기준 앱 표시이고, 실행 결과나 게이트의 앱과 대조하지 않는다. 실행 결과의 `app`은 등록된 workload(T10 `workload_id`)이고, 플랫폼 경로에서 어떤 프로필을 쓸지는 T10 계획이 고정한다([#29 합의](https://github.com/Softbank-Hackathon-Finals/platform/issues/29#issuecomment-6661163853)).
+
 `tests`는 시험별 불변조건이다: 통제 ID, 시험 방법 버전, 기대값(2절 표의 "합격"), 허용 대조군 필수 여부(2절 표의 "허용 대조군"). 프로필이나 불변조건을 바꾸면 버전을 올린다.
 
 ### 게이트 검사 순서 (T19)
 
-1. **실행 묶음**: 양쪽 `ControlRun`의 `app`이 프로필의 `app`과 같다(`APP_MISMATCH`), 출발지는 `role: source` · 목적지는 `role: target`이다(`ENVIRONMENT_ROLE_MISMATCH`), 두 환경 ID가 다르다(`SAME_ENVIRONMENT`). 하나라도 어긋나면 `run_issues`에 넣고 게이트 전체를 BLOCK한다.
+1. **실행 묶음**: 양쪽 `ControlRun`의 `app`이 게이트 컨텍스트의 `app`(T10 등록 `workload_id`)과 같다(`APP_MISMATCH`), 출발지는 `role: source` · 목적지는 `role: target`이다(`ENVIRONMENT_ROLE_MISMATCH`), 두 환경 ID가 다르다(`SAME_ENVIRONMENT`). 하나라도 어긋나면 `run_issues`에 넣고 게이트 전체를 BLOCK한다.
 2. **시험마다** (`required_test_ids` 순서대로 한 행씩): 결과가 양쪽에 정확히 한 건 → 불변조건 → 방법 버전 → 증거 시각(`collected_at ≤ evaluated_at < expires_at`; 미래 수집 시각도 거부) → 아래 비교.
 3. **예외 승인**: 비교 결과가 `TARGET_FAIL`인 행만 예외 대상이다. 관찰하지 못한 것(UNKNOWN)과 위 1 · 2단계의 무결성 문제는 예외로 덮지 않는다.
 4. **전체 판정**: `run_issues`가 있거나 BLOCK 행이 하나라도 있으면 BLOCK. 이것은 스키마도 강제한다.

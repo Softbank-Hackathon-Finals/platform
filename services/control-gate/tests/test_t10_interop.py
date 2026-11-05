@@ -33,8 +33,13 @@ def cluster():
         pg.close()
 
 
+@pytest.fixture
+def plan_profile():
+    return "context"  # T10 registered the context's profile with the plan
+
+
 @pytest.fixture(params=["sqlite", "postgres"])
-def admission(request, tmp_path):
+def admission(request, tmp_path, plan_profile):
     gate, state, data, doc, update = request.getfixturevalue("ready")
     if request.param == "postgres":
         pg = request.getfixturevalue("cluster")
@@ -42,8 +47,15 @@ def admission(request, tmp_path):
     else:
         store = PlanStore(tmp_path / "admission.db")
     ctx = state["context"]
+    profile = dict(profile_id=ctx.profile_id, profile_version=ctx.profile_version)
+    if plan_profile == "legacy":
+        profile = {}
+    elif plan_profile == "other-id":
+        profile["profile_id"] = "full"
+    elif plan_profile == "other-version":
+        profile["profile_version"] = "2"
     plan = PlanSpec("plan-demo", ctx.tenant_id, ctx.app, ctx.source_environment_id,
-                    ctx.target_environment_id, ctx.plan_digest, "b" * 64)
+                    ctx.target_environment_id, ctx.plan_digest, "b" * 64, **profile)
     store.register_plan(plan, run_id="fixture", occurred_at=state["now"].isoformat())
     with store._transaction(write=True, plan_id=plan.plan_id) as c:
         c.execute("UPDATE plans SET state='SHIFT' WHERE plan_id=?", (plan.plan_id,))
@@ -180,6 +192,14 @@ def test_gate_cannot_be_reused_for_different_plan_resources(admission, fault):
     with pytest.raises(EventError):
         f.approve()
     assert not f.requests
+
+
+@pytest.mark.parametrize("plan_profile", ["legacy", "other-id", "other-version"])
+def test_plan_profile_must_be_the_bound_context_profile(admission, plan_profile):
+    # The context and its binding are valid; only the plan T10 registered carries another or no profile.
+    with pytest.raises(EventError):
+        admission.approve()
+    assert not admission.requests
 
 
 def test_slow_second_operational_check_cannot_extend_gate_proof(admission):

@@ -35,6 +35,43 @@ def entries(result: dict) -> dict:
     return {e["id"]: e for e in result["entries"]}
 
 
+def test_map_says_what_kept_the_drill_from_passing():
+    """판정만 UNKNOWN이라고 적으면 왜인지 다른 파일을 찾아야 한다. 호환 구성의 비자격도 여기서 보인다."""
+    plan, view = plan_and_view()
+    report = report_for(plan, "UNKNOWN")
+    report["checks"].append({"id": "eligibility:app", "verdict": "UNKNOWN", "code": "NOT_EXIT_EVIDENCE"})
+    result = build_map(view, plan, report)
+    assert result["drill_not_pass"] == [{"id": "eligibility:app", "verdict": "UNKNOWN", "code": "NOT_EXIT_EVIDENCE"}]
+    assert "blocked_app_ok" not in result["summary"]["status"]
+    text = render_markdown(result)
+    assert "판정을 막은 항목 (1)" in text
+    assert "eligibility:app" in text and "NOT_EXIT_EVIDENCE" in text
+
+
+def test_map_of_a_passed_drill_lists_nothing_blocking():
+    plan, view = plan_and_view()
+    result = build_map(view, plan, report_for(plan))
+    assert result["drill_not_pass"] == []
+    assert "판정을 막은 항목" not in render_markdown(result)
+
+
+def test_map_without_a_drill_lists_nothing_blocking():
+    plan, view = plan_and_view()
+    assert build_map(view, plan, None)["drill_not_pass"] == []
+
+
+def test_candidate_gaps_are_shown_only_when_there_are_some():
+    doc = inventory_doc()
+    doc["candidates"][0]["missing_capabilities"] = ["secret_store 없음"]
+    plan, view = plan_and_view(redigest(doc))
+    result = build_map(view, plan, None)
+    assert result["candidate_missing_capabilities"] == ["secret_store 없음"]
+    assert "secret_store 없음" in render_markdown(result)
+    clean_plan, clean_view = plan_and_view()
+    assert build_map(clean_view, clean_plan, None)["candidate_missing_capabilities"] == []
+    assert "목적지에 없는 기능" not in render_markdown(build_map(clean_view, clean_plan, None))
+
+
 def test_every_inventory_item_appears_with_its_grade():
     plan, view = plan_and_view()
     got = entries(build_map(view, plan, None))

@@ -71,6 +71,10 @@ run = runner.run(
 )
 ```
 
+프로필은 `(profile_id, profile_version)`으로 고른다. `app`은 프로필을 고르지 않고 결과의 `app`이 된다.
+T10 계획에서 돌릴 때는 등록된 `workload_id`(예: `workload-…`)를 넘긴다. 카탈로그 프로필의 `app`은
+그 프로필을 처음 정한 기준 앱 표시이고, 실행 앱과 대조하지 않는다.
+
 ## 판정과 오류 처리
 
 - 정상 관찰이 기대값과 같으면 PASS, 다르면 FAIL이다.

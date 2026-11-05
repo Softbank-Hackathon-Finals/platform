@@ -16,4 +16,4 @@ uv run bravo-inventory scan --app-id demo-chat --repo tests/fixtures/demo-chat -
 
 계정 번호 `000000000000`은 T16 시험 입력의 값 그대로다.
 
-T16 계약이 확정돼 출력이 바뀌면 이 파일을 같은 방법으로 다시 만든다.
+T16 계약이 확정돼 출력이 바뀌면 이 파일을 같은 방법으로 다시 만든다. `tests/test_real_t16.py`가 저장소의 T16 코드를 실제로 돌려 이 파일과 대조하므로, 어긋나면 그 시험이 실패한다.
