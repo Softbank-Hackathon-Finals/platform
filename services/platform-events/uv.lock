@@ -99,6 +99,7 @@ provides-extras = ["claude"]
 dev = [
     { name = "claude-agent-sdk", specifier = "==0.2.177" },
     { name = "pytest", specifier = ">=8,<10" },
+    { name = "pyyaml", specifier = ">=6,<7" },
     { name = "ruff", specifier = ">=0.14,<1" },
 ]
 
