@@ -1,6 +1,6 @@
 # One-shot attachment copy for the target cluster. Credentials arrive only at run time.
 # Build from this directory; the Job is rendered by attachment_job.py with the resulting digest.
-FROM python:3.12-slim-bookworm@sha256:e697c81897302a4c4333bade000d98038fbb21eb064f8ee1fd42d02ebcd9d337
+FROM python:3.12-slim-bookworm@sha256:da54eb86849fe19be7584d8b3f291fcf0c53c196760ab3d70dc6382f681ef9c0
 COPY attachment-copy.requirements.txt /tmp/requirements.txt
 RUN python -m pip install --no-cache-dir --require-hashes --only-binary=:all: -r /tmp/requirements.txt \
     && rm /tmp/requirements.txt \

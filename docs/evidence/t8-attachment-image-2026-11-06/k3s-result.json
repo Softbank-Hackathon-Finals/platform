@@ -1,0 +1,368 @@
+{
+  "schema_version": 1,
+  "artifact_kind": "disposable k3s run of the rendered attachment copy Job; no cloud resource was called",
+  "source_revision": "dbbe2dc5b9ebe0c9ef7743a67e26cf0151bddcde",
+  "source_files": [
+    {
+      "path": "infra/envs/target-workloads/attachment-copy.Dockerfile",
+      "sha256": "8a80fde9341c940433e001e0116dd9a24a6f97d8c9356fa820f5b7d0bd3e3916"
+    },
+    {
+      "path": "infra/envs/target-workloads/attachment-copy.requirements.txt",
+      "sha256": "f3874f5baea2e6374999b0fc873067ddbe40be515d6e45a7ab5e4f5d1795a234"
+    },
+    {
+      "path": "infra/envs/target-workloads/attachment_job.py",
+      "sha256": "6c85fee7631a4cc2de0a70e807fa48793dc8062d21ad9e17030d19578ada8c4c"
+    },
+    {
+      "path": "infra/envs/target-workloads/attachment_verdict.py",
+      "sha256": "89bfcdec6b4cc33795e3a98b334a43c778501abbbb8f0eb2cb9a0a30b07aced3"
+    },
+    {
+      "path": "scripts/attachment_image.py",
+      "sha256": "8a22e60901bc1224f166c54ca61fa1e27926006dce616f4f57e3b80e62539e50"
+    },
+    {
+      "path": "scripts/executor_image.py",
+      "sha256": "6345003fe514b8a302e5a3e59a0395d2f46bac0c9a8f2a200d7dbae1415945b2"
+    },
+    {
+      "path": "scripts/tests/attachment_image_check.py",
+      "sha256": "7e9df3bcc80c2f32571070af1a7e46ae541e079112167352da4ee220bf82ff28"
+    },
+    {
+      "path": "scripts/tests/attachment_job_k3s.py",
+      "sha256": "9230b0bcad1346ab97b92b3d99d53985b119e7a255a71f3adb9f2655c2c237e6"
+    },
+    {
+      "path": "scripts/tests/attachment_job_mutation_check.py",
+      "sha256": "06039ae2c7188416f66cb6c7b735666742e6aba928e63246e274ef772cd5355a"
+    }
+  ],
+  "stand_ins": {
+    "source_s3": "MinIO as s3.<region>.amazonaws.com through hostAliases and a test CA",
+    "sts_and_iam": "MinIO STS session policy: the rendered S3 allows and the bucket deny, without the KMS allow and the NotAction deny",
+    "egress_route": "selector-less Service to a PostgreSQL container",
+    "cluster": "k3s, not RKE2"
+  },
+  "images": {
+    "k3s": "mirror.gcr.io/rancher/k3s:v1.35.5-k3s1",
+    "k3s_digest": "sha256:2074403abe1bded11ef3dde09d457e13be8e0b64c218b1c4f8269b4565cfbc65",
+    "minio": "cgr.dev/chainguard/minio@sha256:3c60a2a8c4d33409a9bc7a623a7fcbfb4605adc3d89422d2f53b3f673a6e5597",
+    "database": "public.ecr.aws/docker/library/postgres:18.4",
+    "database_digest": "sha256:a02db8cac496f15b094798a38254f14d6e00741f709360e5e00bb6668ea31636",
+    "object_store": "docker.io/chrislusf/seaweedfs:4.52@sha256:a54ba35b44895a449f5cdd415999062201b17b9835ec0ffc19ea605b72ffa3d1",
+    "object_store_platform": "linux/amd64 emulated on arm64"
+  },
+  "python": "3.12.13",
+  "checks_total": 26,
+  "checks_passed": 26,
+  "checks_failed": [],
+  "checks": [
+    {
+      "name": "restricted_namespace_admits_the_rendered_pod",
+      "passed": true
+    },
+    {
+      "name": "restricted_namespace_is_enforcing_control",
+      "passed": true
+    },
+    {
+      "name": "session_reads_the_source_bucket",
+      "passed": true
+    },
+    {
+      "name": "session_cannot_write_or_delete_the_source",
+      "passed": true
+    },
+    {
+      "name": "session_cannot_read_another_bucket",
+      "passed": true
+    },
+    {
+      "name": "first_run_succeeds_and_copies_every_object",
+      "passed": true,
+      "exit_code": 0,
+      "verdict": "SUCCEEDED",
+      "reason": "receipt_passed",
+      "copied": 3,
+      "reused": 0,
+      "bytes_verified": 1030,
+      "failure": null,
+      "stage": null,
+      "error_category": null,
+      "s3_error_code": null
+    },
+    {
+      "name": "result_is_bound_to_the_run",
+      "passed": true
+    },
+    {
+      "name": "destination_bytes_match_independently_of_the_receipt",
+      "passed": true,
+      "destination_count": 3
+    },
+    {
+      "name": "source_objects_untouched",
+      "passed": true
+    },
+    {
+      "name": "rerun_reuses_every_object_with_the_same_inventory_hash",
+      "passed": true,
+      "copied": 0,
+      "reused": 3
+    },
+    {
+      "name": "unexplained_source_object_is_failed_and_writes_nothing",
+      "passed": true,
+      "exit_code": 1,
+      "verdict": "FAILED",
+      "reason": "source bucket and database attachment inventory differ"
+    },
+    {
+      "name": "explicitly_approved_object_is_copied_and_counted_separately",
+      "passed": true,
+      "exit_code": 0,
+      "verdict": "SUCCEEDED",
+      "extras": 1,
+      "database": 3,
+      "copied": 1
+    },
+    {
+      "name": "object_counts_are_equal_on_both_sides",
+      "passed": true,
+      "count": 4
+    },
+    {
+      "name": "pod_without_the_label_cannot_reach_the_object_store_control",
+      "passed": true,
+      "exit_code": 2,
+      "verdict": "UNKNOWN",
+      "reason": "pod_not_terminated"
+    },
+    {
+      "name": "crash_before_a_receipt_is_unknown_with_an_empty_log",
+      "passed": true,
+      "exit_code": 2,
+      "verdict": "UNKNOWN",
+      "reason": "receipt_unreadable",
+      "log_bytes": 0
+    },
+    {
+      "name": "long_lived_key_without_a_session_token_never_starts",
+      "passed": true
+    },
+    {
+      "name": "deadline_without_a_receipt_is_unknown_and_keeps_the_cause",
+      "passed": true,
+      "exit_code": 2,
+      "reason": "pod_count_not_one",
+      "job_failure_reason": "DeadlineExceeded"
+    },
+    {
+      "name": "success_is_not_counted_once_the_pod_is_gone",
+      "passed": true,
+      "exit_code": 2,
+      "reason": "pod_count_not_one"
+    },
+    {
+      "name": "a_job_that_does_not_exist_is_unknown",
+      "passed": true,
+      "exit_code": 2,
+      "reason": "job_unreadable"
+    },
+    {
+      "name": "another_image_digest_is_not_this_run",
+      "passed": true,
+      "exit_code": 2,
+      "reason": "job_not_as_rendered"
+    },
+    {
+      "name": "another_plan_cannot_use_this_result",
+      "passed": true,
+      "exit_code": 2,
+      "reason": "job_not_as_rendered"
+    },
+    {
+      "name": "job_connected_as_the_replication_role_over_tls",
+      "passed": true,
+      "connections": 5
+    },
+    {
+      "name": "replication_role_cannot_change_attachment_rows",
+      "passed": true
+    },
+    {
+      "name": "logs_and_verdicts_carry_no_secret_key_or_private_name",
+      "passed": true,
+      "leaked": [],
+      "scanned_bytes": 9660
+    },
+    {
+      "name": "rendered_manifest_carries_only_secret_names",
+      "passed": true,
+      "leaked": []
+    },
+    {
+      "name": "stored_job_holds_no_credential",
+      "passed": true
+    }
+  ],
+  "observations": {
+    "new_pod_reaching_the_object_store": [
+      {
+        "errors": [
+          "ConnectionRefusedError",
+          "ConnectionRefusedError"
+        ],
+        "seconds_until_open": 0.21
+      },
+      {
+        "errors": [
+          "ConnectionRefusedError",
+          "ConnectionRefusedError",
+          "ConnectionRefusedError"
+        ],
+        "seconds_until_open": 0.31
+      },
+      {
+        "errors": [
+          "ConnectionRefusedError",
+          "ConnectionRefusedError",
+          "ConnectionRefusedError"
+        ],
+        "seconds_until_open": 0.31
+      }
+    ],
+    "one_attempt_after_a_delay": [
+      {
+        "delay_seconds": 0,
+        "opened": false,
+        "error": "ConnectionRefusedError"
+      },
+      {
+        "delay_seconds": 0.5,
+        "opened": true
+      },
+      {
+        "delay_seconds": 1,
+        "opened": true
+      },
+      {
+        "delay_seconds": 2,
+        "opened": true
+      },
+      {
+        "delay_seconds": 4,
+        "opened": true
+      },
+      {
+        "delay_seconds": 8,
+        "opened": true
+      }
+    ],
+    "copy_destination_client_from_pod_start": [
+      {
+        "client_ready_seconds": 0.19,
+        "attempts": [
+          [
+            0.19,
+            "EndpointConnectionError"
+          ],
+          [
+            0.39,
+            "EndpointConnectionError"
+          ],
+          [
+            0.6,
+            "EndpointConnectionError"
+          ],
+          [
+            0.81,
+            "EndpointConnectionError"
+          ],
+          [
+            1.01,
+            "EndpointConnectionError"
+          ],
+          [
+            1.21,
+            "ok"
+          ]
+        ]
+      },
+      {
+        "client_ready_seconds": 0.14,
+        "attempts": [
+          [
+            0.14,
+            "EndpointConnectionError"
+          ],
+          [
+            0.36,
+            "ok"
+          ]
+        ]
+      },
+      {
+        "client_ready_seconds": 0.13,
+        "attempts": [
+          [
+            0.14,
+            "EndpointConnectionError"
+          ],
+          [
+            0.34,
+            "ok"
+          ]
+        ]
+      }
+    ],
+    "copy_without_the_wait": {
+      "exit_code": 1,
+      "verdict": "FAILED",
+      "error_category": "EndpointConnectionError"
+    },
+    "copy_image_import": {
+      "digest_name_created_by_import": false
+    }
+  },
+  "sample": {
+    "copied_run": {
+      "schema": "bravo.t8.attachment-copy-result/v1",
+      "run_id": "first",
+      "plan_id": "Plan_T8-job",
+      "epoch": 3,
+      "verdict": "SUCCEEDED",
+      "reason_code": "receipt_passed",
+      "image_digest": "sha256:caef72c506e1ff24f7b1cadbf8bfb83eb96e911ee6ae67c51c62a29062e5d24e",
+      "started_at": "2026-11-05T17:59:13Z",
+      "finished_at": "2026-11-05T17:59:19Z",
+      "job_failure_reason": null,
+      "container_exit_code": 0,
+      "receipt": {
+        "passed": true,
+        "source_count": 3,
+        "destination_count": 3,
+        "database_referenced_count": 3,
+        "operator_approved_extra_count": 0,
+        "copied": 3,
+        "reused": 0,
+        "bytes_verified": 1030,
+        "key_content_inventory_sha256": "0905da3973c14e68479de1125e367582ae16d8b67c32d50fd41a68abcfc995f3",
+        "content_sha256": [
+          "5891b5b522d5df086d0ff0b110fbd9d21bb4fc7163af34d08286a2e846f6be03",
+          "785b0751fc2c53dc14a4ce3d800e69ef9ce1009eb327ccf458afe09c242c26c9",
+          "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        ]
+      }
+    },
+    "rerun_counts": {
+      "copied": 0,
+      "reused": 3,
+      "source_count": 3
+    }
+  },
+  "seconds": 285
+}
