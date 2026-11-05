@@ -8,7 +8,7 @@ import {
   failbackSummary,
 } from "./model.js";
 import { request, stream } from "./transport.js";
-import { recoveryCommand, canResubmit } from "./recovery.js";
+import { recoveryCommand, canResubmit, canRepeatApproval } from "./recovery.js";
 import { mountRegistration } from "./registration.js";
 const $ = (id) => document.getElementById(id);
 let model,
@@ -77,12 +77,20 @@ function render() {
   if (!model) return;
   const now = Date.now(),
     eligible = model.eligible(now),
+    approvalRetry =
+      pending?.retryReady &&
+      !pending.running &&
+      canRepeatApproval(model, pending, now),
+    changeUsable =
+      (!pending && model.changeEligible(now)) ||
+      (pending?.kind === "approve-change" && approvalRetry),
     usable =
       eligible &&
       (!pending ||
         (pending.retryReady &&
           !pending.running &&
-          canResubmit(model, pending, now)));
+          (canResubmit(model, pending, now) ||
+            (pending.kind === "approve" && approvalRetry))));
   text(
     "connection",
     model.connected ? "서버 이벤트 연결됨" : "연결 끊김 · 실행 잠금",
@@ -197,6 +205,12 @@ function render() {
   else if (b)
     details("binding", [
       ["승인 종류", model.request.data.approval_kind],
+      [
+        "리허설 실행",
+        model.request.data.approval_kind === "change"
+          ? model.request.run_id
+          : "해당 없음",
+      ],
       ["계획 digest", b.plan_digest ?? "없음"],
       ["목적 환경", b.target_environment_id ?? "없음"],
       ["이미지 digest", b.image_digest ?? "없음"],
@@ -215,15 +229,19 @@ function render() {
       ["기록 시각", model.gate.occurred_at],
     ]);
   else $("gate-detail").replaceChildren();
-  $("confirm").disabled = !usable;
-  if (!usable) $("confirm").checked = false;
+  $("confirm").disabled = !usable && !changeUsable;
+  if (!usable && !changeUsable) $("confirm").checked = false;
+  $("approve-change").disabled = !changeUsable || !$("confirm").checked;
   $("approve").disabled =
     !usable ||
-    Boolean(pending) ||
+    (Boolean(pending) && !(pending.kind === "approve" && approvalRetry)) ||
     !$("confirm").checked ||
     Boolean(model.approval);
   $("execute").disabled =
-    !usable || (!pending && !model.approval) || !$("confirm").checked;
+    !usable ||
+    (pending && pending.kind !== "execute") ||
+    (!pending && !model.approval) ||
+    !$("confirm").checked;
   $("retry").hidden =
     !pending || pending.running || model.error === "forbidden";
   $("reconcile").hidden = !commandId || Boolean(pending);
@@ -471,7 +489,13 @@ async function perform() {
       signal: postController.signal,
     });
     if (g !== generation) return;
-    if (current.kind === "approve") {
+    if (current.kind === "approve-change") {
+      model.recordChangeApproval(result, current.body);
+      text(
+        "action-status",
+        `코드 변경 승인 기록 완료 · ${result.approval_id}. 배포·전환을 실행한 것은 아닙니다.`,
+      );
+    } else if (current.kind === "approve") {
       model.recordApproval(result, current.body);
       text(
         "action-status",
@@ -518,13 +542,47 @@ async function perform() {
     render();
   }
 }
+$("approve-change").onclick = async () => {
+  if (
+    !$("confirm").checked ||
+    (pending
+      ? pending.kind !== "approve-change" ||
+        !pending.retryReady ||
+        !canRepeatApproval(model, pending, Date.now())
+      : !model?.changeEligible(Date.now()))
+  )
+    return;
+  pending ??= {
+    kind: "approve-change",
+    plan: model.plan,
+    path: `/v1/plans/${model.plan}/approvals`,
+    body: model.changeApprovalRequest(Date.now()),
+    snapshot: structuredClone(model.snapshot),
+    cursor: model.cursor,
+    requestEventId: model.request.event_id,
+    key: crypto.randomUUID(),
+    running: false,
+  };
+  await perform();
+};
 $("approve").onclick = async () => {
-  if (pending || !$("confirm").checked || !model?.eligible(Date.now())) return;
-  pending = {
+  if (
+    !$("confirm").checked ||
+    (pending
+      ? pending.kind !== "approve" ||
+        !pending.retryReady ||
+        !canRepeatApproval(model, pending, Date.now())
+      : !model?.eligible(Date.now()))
+  )
+    return;
+  pending ??= {
     kind: "approve",
     plan: model.plan,
     path: `/v1/plans/${model.plan}/approvals`,
     body: model.approvalRequest(Date.now()),
+    snapshot: structuredClone(model.snapshot),
+    cursor: model.cursor,
+    requestEventId: model.request.event_id,
     key: crypto.randomUUID(),
     running: false,
   };
@@ -565,6 +623,33 @@ $("execute").onclick = async () => {
 };
 async function recoverPending() {
   if (!pending || pending.running || model.error === "forbidden") return;
+  if (["approve", "approve-change"].includes(pending.kind)) {
+    const current = pending;
+    current.running = true;
+    current.retryReady = false;
+    render();
+    try {
+      if (!(await connectPlan(current.plan, true)) || pending !== current)
+        return;
+      current.retryReady = canRepeatApproval(model, current, Date.now());
+      text(
+        "action-status",
+        current.retryReady
+          ? "승인 이력 조회를 마쳤습니다. 이번 요청의 접수 여부는 미확정입니다. 새 승인이 필요하면 대상을 다시 확인하고 별도 승인 버튼을 눌러야 같은 요청을 전송합니다. 결과 확인은 승인하지 않습니다."
+          : "승인 대상·버전·만료 또는 권한이 달라 재승인을 잠갔습니다. 이번 요청의 접수 여부는 미확정입니다.",
+      );
+    } catch (error) {
+      if (!revokeView(error))
+        text(
+          "action-status",
+          "승인 이력을 확인하지 못했습니다. 승인 요청을 다시 보내지 않았습니다.",
+        );
+    } finally {
+      current.running = false;
+      render();
+    }
+    return;
+  }
   if (pending.kind !== "execute") return perform();
   const current = pending;
   current.running = true;

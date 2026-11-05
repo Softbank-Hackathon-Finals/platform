@@ -14,7 +14,7 @@
 | 암호화 | 이 스택의 **전용 KMS 키**(회전 켬, 삭제 대기 30일). 앱 키를 쓰지 않는다 | 앱 역할이 앱 키로 백업을 풀 수 없게 한다 |
 | 보존 | 현재 객체는 자동으로 지우지 않는다. 이전 버전은 7일(`noncurrent_version_days`), 끝나지 않은 multipart는 1일 | 복원 근거가 사라지지 않게. 데모 뒤 정리는 관리자가 한다 |
 | 삭제 · 보호 변경 | **관리자 역할(`custodian_role_arns`, 정확한 SSO 역할 ARN)만.** 나머지는 버킷 정책으로 모두 거부: 객체 · 버전 삭제, 버킷 삭제, 정책 · 버전 관리 · 수명 주기 · 암호화 · 공개 차단 · 소유권 변경 | 앱 · Executor · 노드 역할을 하나하나 나열하지 않아도 거부된다. 적용하는 사람이 관리자 목록에 없으면 plan이 멈춘다(정책을 건 뒤 아무도 못 고치는 상황 방지) |
-| 삭제 거부 확인 대상 | 쓰기 SA, 복원 SA(복원 Cluster를 만든 뒤), 앱 `source-dev/demo-chat`, 그리고 `--also-deny`로 Executor 등 다른 SA | `verify.py --delete-probe`가 그 SA로 짧은 Pod를 띄워 **실제 AWS 주체가 등록 역할인지 확인한 뒤** 시험 객체 삭제를 시도한다 |
+| 삭제 거부 확인 대상 | 쓰기 SA, 복원 SA(복원 Cluster를 만든 뒤), 앱 `source-dev/demo-chat`, Executor(`--executor`, 필수), 그 밖의 SA(`--also-deny`) | `verify.py --delete-probe`가 그 SA로 짧은 Pod를 띄워 **실제 AWS 주체가 등록 역할인지 확인한 뒤** 시험 객체 삭제를 시도한다 |
 
 **관리자 후보:** 적용하는 T6 담당과 T35 담당의 SSO 역할. 사람마다 SSO 역할 ARN(경로 포함)을 그대로 넣는다.
 
@@ -41,11 +41,11 @@
    ```sh
    python3 infra/envs/source-backup/verify.py --registration "$PRIVATE_DIR/backup-registration.json" \
      --kubeconfig "$KUBECONFIG" --delete-probe --stage before-restore \
-     --app-role-arn "$APP_ROLE_ARN" --also-deny "<Executor namespace>/<SA>=<그 Pod가 쓰는 역할 ARN>"
+     --app-role-arn "$APP_ROLE_ARN" --executor "<Executor namespace>/<SA>=<그 Pod가 쓰는 역할 ARN>"
    ```
 
    - **설정 읽기:** 버전 관리, 전용 키, 공개 차단, 소유권, 역할 신뢰 · 권한. 버킷 정책은 스택의 세 Deny 문과 **정확히** 같아야 한다(두 종류의 삭제 · 보호 변경 Action, 버킷 · 객체 Resource, Principal `*`, 관리자 예외, TLS 거부). Action을 줄이거나 Resource를 바꾼 정책, Allow 문이 더해진 정책은 FAIL이다.
-   - **삭제 시험:** 각 Pod가 `sts get-caller-identity`로 쓴 역할이 등록 역할과 같고, 두 삭제가 각각 AccessDenied일 때만 그 신원을 확인한 것으로 센다. SA 미배치 · 조회 실패 · 자격 없음 · 역할 불일치 · Pod 생성 실패는 UNKNOWN이다. Executor처럼 IRSA가 없는 SA는 노드 역할로 나가므로 그 노드 역할 ARN을 적는다.
+   - **삭제 시험:** 각 Pod가 `sts get-caller-identity`로 쓴 역할이 등록 역할과 같고, 두 삭제가 각각 AccessDenied일 때만 그 신원을 확인한 것으로 센다. SA 미배치 · 조회 실패 · 자격 없음 · 역할 불일치 · Pod 생성 실패는 UNKNOWN이다. **쓰기 · 앱 · Executor는 필수다.** `--executor`가 없거나 그 Pod의 거부가 확인되지 않으면 PARTIAL · PASS가 아니라 UNKNOWN이다. Executor처럼 IRSA가 없는 SA는 노드 역할로 나가므로 그 노드 역할 ARN을 적는다. 그 밖의 신원은 `--also-deny`로 더한다.
    - **결과:** `PASS`(0), `FAIL`(1, 삭제됨 · 설정 다름), `UNKNOWN`(2), `PARTIAL`(3, `--stage before-restore`에서 복원 SA만 아직 없음). 복원 Cluster를 만든 뒤 `--stage final`로 다시 돌려 `PASS`를 받는다.
    - 시험 객체는 관리자가 마지막에 지운다. 실제 백업은 건드리지 않는다.
 5. **백업:** 표식 행 기록(기준 문서 "표식과 데이터 경계") 뒤, 이번 실행의 ID를 **한 번만** 정해 저장한다.

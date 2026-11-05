@@ -6,6 +6,7 @@ import json
 import os
 import re
 from collections import Counter
+from typing import get_args
 
 from openai import APIStatusError, AsyncOpenAI
 
@@ -13,7 +14,9 @@ from .contracts import FailureBundle, Proposal
 from .runtime import RUNTIME_KEYS
 from .tools import SYSTEM, PolicyDenied, Tools
 
-FUNCTIONS = {"repo_read": "mcp__bravo__repo_read", "plan_propose": "mcp__bravo__plan_propose"}
+FUNCTIONS = {"repo_read": "mcp__bravo__repo_read", "plan_propose": "mcp__bravo__plan_propose",
+             "inventory_describe": "mcp__bravo__inventory_describe", "policy_evaluate": "mcp__bravo__policy_evaluate"}
+BRAVO_KINDS = frozenset("bravo_" + name for name in FUNCTIONS)
 
 
 def strict_schema(schema: dict) -> dict:
@@ -34,8 +37,9 @@ def strict_schema(schema: dict) -> dict:
     return schema
 
 
-def function_tools() -> list[dict]:
-    return [
+def function_tools(tools: Tools | None = None) -> list[dict]:
+    """``inventory_describe`` is offered only when the control path attached a T16 summary."""
+    definitions = [
         {"type": "function", "name": "repo_read", "strict": True,
          "description": "Read an approved application snapshot file.",
          "parameters": {"type": "object", "properties": {"path": {"type": "string"}},
@@ -43,7 +47,18 @@ def function_tools() -> list[dict]:
         {"type": "function", "name": "plan_propose", "strict": True,
          "description": "Submit a bounded correction; does not apply or verify it.",
          "parameters": strict_schema(Proposal.model_json_schema())},
+        {"type": "function", "name": "policy_evaluate", "strict": True,
+         "description": "Lint a candidate policy or replacement text with the same checks plan_propose applies. No side effects.",
+         "parameters": {"type": "object", "properties": {"policy": {"type": "string"}},
+                        "required": ["policy"], "additionalProperties": False}},
     ]
+    if tools is not None and tools.inventory is not None:
+        definitions.append(
+            {"type": "function", "name": "inventory_describe", "strict": True,
+             "description": "Read the graded dependency inventory (T16). Optional role filter, null for all.",
+             "parameters": {"type": "object", "properties": {"role": {"type": ["string", "null"]}},
+                            "required": ["role"], "additionalProperties": False}})
+    return definitions
 
 
 def output_kind(item) -> str:
@@ -64,9 +79,11 @@ def output_kind(item) -> str:
 
 class FinalizedStreamCall:
     """Keep one matched function item for a completed response with an explicit empty output."""
-    def __init__(self):
+    def __init__(self, *, diagnose=False):
+        self.diagnose = diagnose
         self.response_id = self.added = self.index = self.done = self.final_args = None
         self.problem = None
+        self.rejected_event = None
 
     def observe(self, event):
         if self.problem:
@@ -80,7 +97,7 @@ class FinalizedStreamCall:
                 self.problem = "lifecycle_mismatch"
         elif event.type in ("response.output_item.added", "response.output_item.done"):
             item = getattr(event, "item", None)
-            if (not self.response_id or output_kind(item) not in ("bravo_repo_read", "bravo_plan_propose")
+            if (not self.response_id or output_kind(item) not in BRAVO_KINDS
                     or not isinstance(item.call_id, str) or not item.call_id
                     or type(event.output_index) is not int or event.output_index < 0):
                 self.problem = "unbound_item"
@@ -103,7 +120,32 @@ class FinalizedStreamCall:
             elif event.type == "response.function_call_arguments.done":
                 self.final_args = event.arguments
         elif event.type != "response.completed":
+            fields = (event.model_fields_set | (event.model_extra or {}).keys()) - {"type", "sequence_number"}
+            # A reply annotation carries no function output. It cannot complete a call or enter model history.
+            if (event.type == "response.metadata" and self.added is not None and self.done is None
+                    and fields == {"response_id", "metadata"} and isinstance(self.response_id, str)
+                    and event.response_id == self.response_id and isinstance(event.metadata, dict)):
+                return
             self.problem = "unrecognized_event"
+            if not self.diagnose:
+                return
+            # The SDK can construct a model even for an unknown wire discriminator.
+            # Only report SDK literals or fixed protocol labels, never provider-supplied names or values.
+            literals = get_args(type(event).model_fields["type"].annotation)
+            extensions = ("response.metadata", "codex.response.metadata", "codex.rate_limits",
+                          "responsesapi.websocket_timing", "ping", "keepalive")
+            known = {"response", "response_id", "item", "item_id", "output_index", "content_index",
+                     "part", "delta", "arguments", "headers", "metadata", "rate_limits", "safety_buffering"}
+            phase = "before_response"
+            if self.done is not None:
+                phase = "after_done"
+            elif self.added is not None:
+                phase = "after_added"
+            elif self.response_id is not None:
+                phase = "after_created"
+            self.rejected_event = {"kind": event.type if event.type in (*literals, *extensions) else "other",
+                                   "phase": phase, "fields": sorted(fields & known),
+                                   "other_fields": bool(fields - known)}
 
     def resolved(self, response):
         if (self.problem or not self.response_id or response.id != self.response_id
@@ -136,7 +178,7 @@ class OpenAIProvider:
         try:
             stream = await client.responses.create(**request, stream=True)
             size = 0
-            candidate = FinalizedStreamCall()
+            candidate = FinalizedStreamCall(diagnose=stream_shape is not None)
             async with stream:
                 async for event in stream:
                     size += len(event.model_dump_json().encode())
@@ -161,6 +203,8 @@ class OpenAIProvider:
                             item, reason = candidate.resolved(response)
                             if stream_shape is not None:
                                 stream_shape["stream_resolution"] = reason
+                                if candidate.rejected_event is not None:
+                                    stream_shape["rejected_event"] = candidate.rejected_event
                             if item is not None:
                                 response = response.model_copy(update={"output": [item]})
                         return response
@@ -178,10 +222,8 @@ class OpenAIProvider:
         if (set(os.environ) - RUNTIME_KEYS or other_credentials & set(os.environ)
                 or not os.environ.get(credential)):
             raise RuntimeError("worker process environment must be explicitly isolated")
-        history = [{"role": "user", "content": json.dumps({
-            "failure": bundle.model_dump(), "snapshot": tools.snapshot.manifest.model_dump(),
-        }, sort_keys=True)}]
-        definitions = function_tools()
+        history = [{"role": "user", "content": json.dumps(tools.model_input(), sort_keys=True)}]
+        definitions = function_tools(tools)
         needs_read = self.subscription
         tokens = 0
         async with asyncio.timeout(180):

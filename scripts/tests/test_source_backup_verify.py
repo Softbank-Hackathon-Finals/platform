@@ -1,9 +1,11 @@
 """T35 source backup verification: a policy that does not block deletion and a probe that did not run are never a pass."""
 import argparse
 import importlib.util
+import io
 import json
 import types
 import unittest
+from contextlib import redirect_stdout
 from pathlib import Path
 from string import Template
 from unittest.mock import patch
@@ -19,6 +21,7 @@ CUSTODIANS = ["arn:aws:iam::111122223333:role/aws-reserved/sso.amazonaws.com/ap-
 WRITER = "arn:aws:iam::111122223333:role/bravo-source-backup-writer"
 READER = "arn:aws:iam::111122223333:role/bravo-source-backup-reader"
 APP = "arn:aws:iam::111122223333:role/bravo-source-workloads-app"
+EXECUTOR = "arn:aws:iam::111122223333:role/bravo-platform-node"
 DENIED = "aws: [ERROR]: An error occurred (AccessDenied) when calling the DeleteObject operation: Access Denied"
 
 
@@ -131,7 +134,7 @@ REG = {"bucket": BUCKET, "region": "ap-northeast-2", "destination": f"s3://{BUCK
        "writer": {"namespace": "source-dev", "name": "source-db"}, "reader": {"namespace": "t35-restore-check", "name": "source-db-restore"},
        "writer_role_arn": WRITER, "reader_role_arn": READER}
 SUBJECTS = {"writer": ("source-dev", "source-db", WRITER), "reader": ("t35-restore-check", "source-db-restore", READER),
-            "app": ("app-ns", "demo-chat", APP)}
+            "app": ("app-ns", "demo-chat", APP), "executor": ("bravo-platform", "bravo-executor", EXECUTOR)}
 READBACK = {"versioning_enabled": True, "policy_matches_stack": True}
 
 
@@ -150,7 +153,7 @@ class Probe(unittest.TestCase):
 
     def test_partial_before_restore_and_pass_when_every_identity_was_denied(self):
         denied = {"source-dev": log(session("bravo-source-backup-writer")), "app-ns": log(session("bravo-source-workloads-app")),
-                  "t35-restore-check": log(session("bravo-source-backup-reader"))}
+                  "t35-restore-check": log(session("bravo-source-backup-reader")), "bravo-platform": log(session("bravo-platform-node"))}
         result = self.probe(logs=denied)
         self.assertEqual(verify.status(READBACK, result, "final"), "PASS")
         before = dict(result, reader="UNKNOWN_SA_NOT_FOUND")
@@ -160,7 +163,7 @@ class Probe(unittest.TestCase):
         self.assertEqual(verify.status(READBACK, mismatch, "final"), "UNKNOWN")
 
     def test_deletion_or_wrong_configuration_fails(self):
-        denied = {ns: log(session("x")) for ns in ("source-dev", "app-ns", "t35-restore-check")}
+        denied = {ns: log(session("x")) for ns in ("source-dev", "app-ns", "t35-restore-check", "bravo-platform")}
         result = self.probe(logs=denied, deleted=True)
         self.assertEqual(verify.status(READBACK, result, "final"), "FAIL")
         ok = {k: "DENIED" for k in SUBJECTS} | {"probe_version_intact": True, "no_delete_marker": True,
@@ -170,6 +173,31 @@ class Probe(unittest.TestCase):
         self.assertEqual(verify.status(READBACK, None, "final"), "UNKNOWN")
         self.assertEqual(verify.EXIT["PASS"], 0)
         self.assertNotEqual(verify.EXIT["PARTIAL"], 0)
+
+    def test_final_pass_needs_the_executor(self):
+        # Review reproduction: main() with only --app-role-arn returned PASS without ever probing an Executor
+        verified = {"writer": "DENIED", "reader": "DENIED", "app": "DENIED", "probe_version_intact": True,
+                    "no_delete_marker": True, "custodian_removed_probe": True}
+        calls = []
+
+        def fake_probe(aws, kube, reg, subjects):
+            calls.append(set(subjects))
+            return dict(verified, **({"executor": "DENIED"} if "executor" in subjects else {}))
+
+        args = ["--registration", "-", "--kubeconfig", "k", "--delete-probe", "--stage", "final", "--app-role-arn", APP]
+        for extra, expected in (([], 2), (["--executor", f"bravo-platform/bravo-executor={EXECUTOR}"], 0)):
+            with patch.object(verify, "readback", lambda aws, reg: dict(READBACK)), patch.object(verify, "probe", fake_probe), \
+                    patch.object(verify.sys, "stdin", io.StringIO(json.dumps(REG))), redirect_stdout(io.StringIO()) as out:
+                code = verify.main(args + extra)
+            self.assertEqual(code, expected, out.getvalue())
+            if not extra:  # the report names the missing identity instead of omitting it
+                self.assertEqual(json.loads(out.getvalue())["delete_probe"]["executor"], "UNKNOWN_NOT_REGISTERED")
+        self.assertNotIn("executor", calls[0])
+        self.assertIn("executor", calls[1])
+        self.assertEqual(verify.status(READBACK, dict(verified, executor="UNKNOWN_NOT_REGISTERED"), "before-restore"), "UNKNOWN")
+        # A result that simply lacks the Executor is not a pass either
+        self.assertEqual(verify.status(READBACK, verified, "final"), "UNKNOWN")
+        self.assertEqual(verify.status(READBACK, dict(verified, reader="UNKNOWN_SA_NOT_FOUND"), "before-restore"), "UNKNOWN")
 
     def test_extra_identity_needs_its_role(self):
         with self.assertRaises(argparse.ArgumentTypeError):

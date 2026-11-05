@@ -23,7 +23,10 @@ async def guard(tools: Tools, data: dict, _tool_use_id, _context):
     name = data.get("tool_name", "")
     allowed = tools.allowed(name)
     if not allowed:
-        tools.record(name, "DENIED", "TOOL_NOT_ALLOWED")
+        # Same classification as Tools.dispatch so the ADR-0019 audit contract holds on this path
+        # too; tool_input is classified, never recorded.
+        reason, metadata = tools.classify_denial(name, data.get("tool_input"))
+        tools.record(name, "DENIED", reason, metadata)
     return {"hookSpecificOutput": {
         "hookEventName": "PreToolUse", "permissionDecision": "allow" if allowed else "deny",
         "permissionDecisionReason": "exact platform tool allowlist",
@@ -49,12 +52,26 @@ def make_options(tools: Tools, runtime: Path, model: str) -> ClaudeAgentOptions:
     async def propose(args):
         return await call("mcp__bravo__plan_propose", args)
 
+    @tool("policy_evaluate", "Lint a candidate policy or replacement text; no side effects.",
+          {"type": "object", "properties": {"policy": {"type": "string"}},
+           "required": ["policy"], "additionalProperties": False})
+    async def evaluate(args):
+        return await call("mcp__bravo__policy_evaluate", args)
+
+    @tool("inventory_describe", "Read the graded dependency inventory (T16); optional role filter.",
+          {"type": "object", "properties": {"role": {"type": ["string", "null"]}},
+           "additionalProperties": False})
+    async def describe(args):
+        return await call("mcp__bravo__inventory_describe", args)
+
+    handlers = [read, propose, evaluate] + ([describe] if tools.inventory is not None else [])
+
     async def before(data, tool_use_id, context):
         return await guard(tools, data, tool_use_id, context)
 
     return ClaudeAgentOptions(
         tools=[], allowed_tools=list(TOOL_NAMES),
-        mcp_servers={"bravo": create_sdk_mcp_server(name="bravo", tools=[read, propose])},
+        mcp_servers={"bravo": create_sdk_mcp_server(name="bravo", tools=handlers)},
         strict_mcp_config=True, setting_sources=[], skills=[], plugins=[], agents={},
         permission_mode="dontAsk", system_prompt=SYSTEM,
         hooks={"PreToolUse": [HookMatcher(matcher=None, hooks=[before])]},
@@ -77,8 +94,7 @@ class ClaudeProvider:
                 or not os.environ.get("ANTHROPIC_API_KEY")):
             raise RuntimeError("worker process environment must be explicitly isolated")
         options = make_options(tools, self.runtime, self.model)
-        prompt = json.dumps({"failure": bundle.model_dump(),
-                             "snapshot": tools.snapshot.manifest.model_dump()}, sort_keys=True)
+        prompt = json.dumps(tools.model_input(), sort_keys=True)
         async with asyncio.timeout(180):
             async with ClaudeSDKClient(options=options) as client:
                 await client.query(prompt)

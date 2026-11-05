@@ -37,6 +37,10 @@ class CollectionProof:
     complete: bool
 
 
+def change_key(kind: str, value: str) -> str:
+    return f"change-{kind}-" + hashlib.sha256(value.encode()).hexdigest()
+
+
 def _canonical(value: dict) -> str:
     return json.dumps(value, sort_keys=True, separators=(",", ":"), allow_nan=False)
 

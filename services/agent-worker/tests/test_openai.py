@@ -60,9 +60,11 @@ def test_openai_uses_two_strict_functions_and_collects_only_proposal(context, mo
     assert options["max_retries"] == 0
     assert options["base_url"] == "https://api.openai.com/v1"
     assert all(call["store"] is False and call["parallel_tool_calls"] is False for call in calls)
-    assert {tool["name"] for tool in calls[0]["tools"]} == {"repo_read", "plan_propose"}
+    assert {tool["name"] for tool in calls[0]["tools"]} == {"repo_read", "plan_propose", "policy_evaluate"}  # inventory_describe only with a T16 summary
     assert all(tool["type"] == "function" and tool["strict"] for tool in calls[0]["tools"])
     assert calls[1]["input"][-1]["type"] == "function_call_output"
+    first_input = json.loads(calls[0]["input"][0]["content"])
+    assert set(first_input) == {"task", "failure", "attempt", "snapshot"} and first_input["task"] == first_input["failure"]
     assert result["attempts"][0]["model_usage"]["total_tokens"] == 200
     assert "model-fixture" not in str(result)
 

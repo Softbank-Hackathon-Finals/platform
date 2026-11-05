@@ -59,7 +59,7 @@
 4. 요청자 목록을 API로 재조회한다. 리뷰 요청은 승인과 다르며 전원 승인을 기다리지 않는다. 병합 조건·tasks.md 예외·봇 PR 처리는 [개발 규약](development.md#브랜치와-병합)과 실제 GitHub ruleset을 따른다. 다른 담당의 로직 변경은 [사전 범위 합의](development.md#담당-태스크를-넘는-변경)와 그 담당의 리뷰가 필요하다. 리뷰 후보 선정이나 코드 승인은 사전 합의를 대신하지 않는다.
 5. 선행·후속 이슈라는 이유만으로 모든 담당자를 추가하지 않는다. 반대로 R&R 밖의 협업·리뷰 제안을 막지도 않는다. 추가 요청에는 영향을 받는 계약이나 검토 이유를 적는다.
 
-`.github/CODEOWNERS`는 모든 파일의 오너를 팀원 전원으로 두어 PR마다 전원을 리뷰어로 자동 지정한다(2026-11-03 팀 합의: [제안](https://softbankhackathon2026.slack.com/archives/C0CDEFEB83U/p1793707496460339) · [공지](https://softbankhackathon2026.slack.com/archives/C0CDEFEB83U/p1793711623617629)). 리뷰는 위 기준의 파트 담당이 맡고 나머지는 알림만 받는다. `docs/tasks.md`는 오너가 없어, 그 파일만 바꾼 PR은 develop에서 승인 없이 필수 CI 통과로 머지된다. T번호 기반 자동 리뷰어 배정은 아직 구현하지 않았으며 이 문서에 따라 명시적으로 요청한다.
+`.github/CODEOWNERS`는 모든 파일의 오너를 팀원 전원으로 두어 PR마다 전원을 리뷰어로 자동 지정한다(2026-11-03 팀 합의: [제안](https://softbankhackathon2026.slack.com/archives/C0CDEFEB83U/p1793707496460339) · [공지](https://softbankhackathon2026.slack.com/archives/C0CDEFEB83U/p1793711623617629)). 리뷰는 위 기준의 파트 담당이 맡고 나머지는 알림만 받는다. T40 전환 후 develop은 경로에 관계없이 필수 승인을 요구하지 않으며 Merge Queue를 거친다. CODEOWNERS는 리뷰 알림 용도이고 main의 기존 승인 조건은 유지한다. T번호 기반 자동 리뷰어 배정은 아직 구현하지 않았으며 이 문서에 따라 명시적으로 요청한다.
 
 ## 5. T1~T38별 실행 담당과 리뷰 후보
 
