@@ -87,7 +87,7 @@ OpenBao 2.7.2(커밋 `9e0a0d3`)의 내장 Kubernetes 인증(`internal/builtin/cr
 
 ### 결과
 
-* 로컬 kind(`t9-aplan`)·upstream OpenBao 2.7.2 dev에서 155개 사례가 모두 기대대로였다([실측](../evidence/t9-openbao-writer-2026-11-06/README.md#a안-재실측)). 이전 상승 경로의 각 단계(정책 쓰기, 다른 정책 바인딩, 그 역할 로그인)는 모두 **거부**됐다. `rehearsal-aaa` reader는 자기 경로만 읽고 `rehearsal-bbb`·접두 형제·`bravo/target`은 거부됐다. 렌더된 init container가 `credentials.json`을 만들고 정리 Job이 역할과 값을 지웠다.
+* 로컬 kind(`t9-aplan`)·upstream OpenBao 2.7.2 dev에서 157개 사례가 모두 기대대로였다([실측](../evidence/t9-openbao-writer-2026-11-06/README.md#a안-재실측)). 이전 상승 경로의 각 단계(정책 쓰기, 다른 정책 바인딩, 그 역할 로그인)는 모두 **거부**됐다. `rehearsal-aaa` reader는 자기 경로만 읽고 `rehearsal-bbb`·접두 형제·`bravo/target`은 거부됐다. 렌더된 init container가 `credentials.json`을 만들고 정리 Job이 역할과 값을 지웠다.
 * **남는 위험:** 쓰기 토큰을 탈취하면 모든 rehearsal namespace의 합성 값을 읽고 바꾸고 지울 수 있고, `rehearsal-*`(`rehearsal-control*` 제외) 어디에든 reader 역할을 만들거나 다시 묶을 수 있다. 그래도 그 토큰은 자기 namespace 경로(쓰기 identity가 이미 읽을 수 있는 값)만 읽으므로 운영 값으로 가는 경로는 없다. 다른 namespace의 역할을 덮어쓰면 서비스 거부가 된다. reader 정책의 무결성은 운영자와 올바른 accessor에 달려 있다. 운영자 정책 쓰기 감사, 쓰기 토큰의 짧은 TTL·폐기, reader 토큰 발급 권한 최소화는 계속 유지한다.
 * **T15 계약 변경:** KV 경로 `bravo/rehearsal/<namespace>/database`(키 `credentials_json`, CAS 0), 역할 이름 `rehearsal-app-reader-<namespace>`, 역할 본문 `rehearsal-auth-role --namespace <namespace>` 출력(`token_policies: "rehearsal-app-reader"`). 준비 Job은 정책을 만들거나 지우지 않는다.
 * 목적지 RKE2·TLS·팀 이미지와 T15 실제 Job에서는 아직 적용·시험하지 않았다. rehearsal 시도 namespace의 reader 네트워크 peer는 여전히 렌더 결과에 없다(실측에서는 시험 전용 peer로 대신했다).
