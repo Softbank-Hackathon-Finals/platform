@@ -9,7 +9,11 @@ dependencies = ["jsonschema>=4.23,<5"]
 bravo-recommend = "bravo_recommend.cli:main"
 
 [dependency-groups]
-dev = ["pytest>=8,<10"]
+dev = ["pytest>=8,<10", "bravo-inventory"]
+
+[tool.uv.sources]
+# 시험 전용: 회귀 시험이 T16의 실제 `bravo-inventory scan` 출력을 입력으로 쓴다. 런타임 의존성이 아니다.
+bravo-inventory = { path = "../inventory" }
 
 [build-system]
 requires = ["hatchling>=1.25,<2"]

@@ -12,11 +12,54 @@ from openai import APIStatusError, AsyncOpenAI
 
 from .contracts import FailureBundle, Proposal
 from .runtime import RUNTIME_KEYS
-from .tools import SYSTEM, PolicyDenied, Tools
+from .tools import RESERVED_TOOLS, SYSTEM, PolicyDenied, Tools
 
 FUNCTIONS = {"repo_read": "mcp__bravo__repo_read", "plan_propose": "mcp__bravo__plan_propose",
              "inventory_describe": "mcp__bravo__inventory_describe", "policy_evaluate": "mcp__bravo__policy_evaluate"}
-BRAVO_KINDS = frozenset("bravo_" + name for name in FUNCTIONS)
+# Reserved (not yet provided) tools are never offered, but a model may still name them. Map the
+# function-name spellings a model can emit to the same canonical name the Claude hook sees, so the
+# denial is classified once (TOOL_NOT_PROVIDED / DESTRUCTIVE_ATTEMPT_BLOCKED) instead of "unlisted".
+RESERVED_FUNCTIONS = {
+    form: tool
+    for tool in RESERVED_TOOLS if tool.startswith("mcp__bravo__")
+    for base in [tool.removeprefix("mcp__bravo__")]
+    for form in (base, base.replace("_", ".", 1), "bravo." + base, "bravo." + base.replace("_", ".", 1), tool)
+}
+BRAVO_KINDS = frozenset("bravo_" + name for name in FUNCTIONS) | {"bravo_reserved"}
+
+
+def tool_name(name, namespace=None, *, subscription=False) -> str:
+    """Canonical policy name for a model function call. Offered tools only inside the bravo
+    namespace on the subscription path; reserved spellings anywhere; everything else "unlisted"."""
+    if not isinstance(name, str):
+        return "unlisted"
+    if name in FUNCTIONS and (not subscription or namespace == "bravo"):
+        return FUNCTIONS[name]
+    return RESERVED_FUNCTIONS.get(name, "unlisted")
+
+
+def call_arguments(raw):
+    """(parsed, value). Unparseable or oversized text is returned for classification only."""
+    if not isinstance(raw, str):
+        return False, raw
+    if len(raw) > 140000:
+        return False, raw[:140000]
+    try:
+        return True, json.loads(raw)
+    except ValueError:
+        return False, raw
+
+
+def deny_unprovided(tools: Tools, name: str, arguments) -> None:
+    """Record the shared denial for a call that will not run. ``name`` is never an offered tool
+    here, so dispatch only classifies; the arguments are inspected, never stored."""
+    if tools.allowed(name):
+        raise RuntimeError("refusal path reached an offered tool")
+    try:
+        tools.dispatch(name, arguments)
+    except PolicyDenied:
+        return
+    raise RuntimeError("refused call was not denied")
 
 
 def strict_schema(schema: dict) -> dict:
@@ -70,7 +113,8 @@ def output_kind(item) -> str:
         for name in FUNCTIONS:
             if getattr(item, "name", None) == name:
                 return "bravo_" + name
-        return "other_function"
+        # Bound like an offered call so it reaches dispatch and is denied and audited there.
+        return "bravo_reserved" if getattr(item, "name", None) in RESERVED_FUNCTIONS else "other_function"
     if kind == "message":
         content = getattr(item, "content", None)
         return "refusal" if isinstance(content, list) and any(getattr(p, "type", None) == "refusal" for p in content) else "message"
@@ -269,15 +313,21 @@ class OpenAIProvider:
                         raise RuntimeError("expected one allowed function call")
                     history.extend(outputs)
                     item = calls[0]
+                    name = tool_name(item.get("name"), item.get("namespace"), subscription=self.subscription)
+                    parsed, arguments = call_arguments(item.get("arguments"))
+                    stop = None
                     if self.subscription and item.get("namespace") != "bravo":
-                        raise RuntimeError("unexpected subscription tool namespace")
-                    if needs_read and item.get("name") != "repo_read":
-                        raise RuntimeError("subscription must read the snapshot before proposing")
-                    name = FUNCTIONS.get(item["name"], "unlisted")
+                        stop = "unexpected subscription tool namespace"
+                    elif needs_read and item.get("name") != "repo_read":
+                        stop = "subscription must read the snapshot before proposing"
+                    if stop:
+                        # The attempt still ends; a call to anything but an offered tool is audited first.
+                        if not tools.allowed(name):
+                            deny_unprovided(tools, name, arguments)
+                        raise RuntimeError(stop)
                     try:
-                        if len(item["arguments"]) > 140000:
-                            raise ValueError("arguments too large")
-                        arguments = json.loads(item["arguments"])
+                        if not parsed and tools.allowed(name):
+                            raise ValueError("invalid function arguments")
                         result = tools.dispatch(name, arguments)
                         needs_read = False
                     except (ValueError, PolicyDenied):

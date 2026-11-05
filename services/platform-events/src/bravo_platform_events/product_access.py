@@ -17,16 +17,17 @@ class ProductInputAccess:
     Empty/disabled grants revoke access. All writers share the plan lock.
     """
 
-    def __init__(self, store, *, clock):
-        if not callable(clock):
+    def __init__(self, store, *, clock, purpose=PURPOSE):
+        if not callable(clock) or purpose not in (PURPOSE, "t38-initial-proposal"):
             raise ValueError("product_clock_required")
         self.store, self.clock = store, clock
+        self.purpose = purpose
+        self.prefix = "product-grant" if purpose == PURPOSE else "initial-proposal-grant"
 
-    @staticmethod
-    def _current(c, plan_id, principal):
+    def _current(self, c, plan_id, principal):
         row = c.execute("SELECT receipt_json FROM plan_commands WHERE plan_id=? AND command_key LIKE ? "
                         "ORDER BY command_key DESC LIMIT 1",
-                        (plan_id, f"product-grant:{principal}:%")).fetchone()
+                        (plan_id, f"{self.prefix}:{principal}:%")).fetchone()
         return json.loads(row["receipt_json"]) if row else None
 
     def set_grant(self, plan_id, principal, *, tenant_id, enabled, valid_after, expires_at,
@@ -38,14 +39,14 @@ class ProductInputAccess:
                 or not 0 <= expected_revision < 10**12
                 or _timestamp(expires_at) <= _timestamp(valid_after)):
             raise ValueError("invalid_product_grant")
-        request = dict(principal=principal, tenant_id=tenant_id, purpose=PURPOSE, enabled=enabled,
+        request = dict(principal=principal, tenant_id=tenant_id, purpose=self.purpose, enabled=enabled,
             valid_after=valid_after, expires_at=expires_at, expected_revision=expected_revision,
             administration_ref=administration_ref)
         with self.store._transaction(write=True, plan_id=plan_id) as c:
             plan = c.execute("SELECT tenant_id FROM plans WHERE plan_id=?", (plan_id,)).fetchone()
             if plan is None or plan["tenant_id"] != tenant_id:
                 raise EventError("forbidden")
-            key = "product-grant-command:" + command_key
+            key = self.prefix + "-command:" + command_key
             old = _get(c, plan_id, key)
             if old:
                 if old[0] != request:
@@ -55,7 +56,7 @@ class ProductInputAccess:
             if (current["revision"] if current else 0) != expected_revision:
                 raise EventError("version_conflict")
             receipt = request | dict(revision=expected_revision + 1, recorded_at=self.clock())
-            _put(c, plan_id, f"product-grant:{principal}:{receipt['revision']:013}", request, receipt)
+            _put(c, plan_id, f"{self.prefix}:{principal}:{receipt['revision']:013}", request, receipt)
             _put(c, plan_id, key, request, receipt)
             return receipt
 
@@ -63,9 +64,9 @@ class ProductInputAccess:
         _identifier(principal, _PRINCIPAL)
         now = _timestamp(self.clock())
         grant = self._current(connection, plan["plan_id"], principal)
-        if (purpose != PURPOSE or admission.plan_id != plan["plan_id"]
+        if (purpose != self.purpose or admission.plan_id != plan["plan_id"]
                 or admission.tenant_id != plan["tenant_id"] or not grant or not grant["enabled"]
-                or grant["principal"] != principal or grant["purpose"] != PURPOSE
+                or grant["principal"] != principal or grant["purpose"] != self.purpose
                 or grant["tenant_id"] != plan["tenant_id"]
                 or not _timestamp(grant["valid_after"]) <= now < _timestamp(grant["expires_at"])):
             raise EventError("forbidden")

@@ -1,0 +1,37 @@
+{
+  "source_revision": "298ad9c3b23ffc2337cb754c2cb708d4be96c79d",
+  "source_files": [
+    {
+      "path": "services/observability/deploy/collector/resources.yaml",
+      "sha256": "4309e362a5f476a31b587bb573365424b2ed8e4bf2d857f24dfe5f7b448d5761"
+    },
+    {
+      "path": "services/observability/deploy/collector/collector.yaml",
+      "sha256": "ef6b597106c0e673c050795ff143300e5cb62a602a0272f87818a1d3ab7e4406"
+    },
+    {
+      "path": "services/observability/deploy/collector/kustomization.yaml",
+      "sha256": "080c2733dd094d2245fc619161a1b17ddd87250278782fa073627d283ce7384a"
+    },
+    {
+      "path": "services/observability/deploy/collector-app-mtls/kustomization.yaml",
+      "sha256": "6d0169016e7e5505f2ab1c3615515c67a308fd3d5c73ffadbf1502f87928f33b"
+    },
+    {
+      "path": "services/observability/deploy/components/app-mtls/kustomization.yaml",
+      "sha256": "fe5edcdbec7688833aa919f9537b2889eeecf9e99915865cab96f3fd1b9ae3d5"
+    },
+    {
+      "path": "services/observability/deploy/components/app-mtls/receiver-mtls.yaml",
+      "sha256": "f469dad72b036feb2f4c10f258c0dbb693666a12acbe036d1fa77b5876713427"
+    },
+    {
+      "path": "services/observability/deploy/certs/issue.sh",
+      "sha256": "3e3b4bf9c3ce77a97fb858a44df27597c0e0b05b872c64a8f5e665b8a0c4feec"
+    },
+    {
+      "path": "infra/envs/collector-network/README.md",
+      "sha256": "fd3bd17e39869aac5d2cf24052b68b5b3e7d83f3ab183549c6a648be2414864c"
+    }
+  ]
+}

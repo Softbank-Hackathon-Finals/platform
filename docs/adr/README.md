@@ -11,6 +11,7 @@
 | 1~4장 범위·타겟·원칙, 6장 시나리오, 7장 기반 구성, 8.7·8.8·8.10·8.11, 10장 데모 범위 | [0015 초기 설계의 범위와 기반 구성](0015-initial-design-decisions.md) |
 | 8.1·8.3 모델 제공자와 S2 실패 분석 | [0007 모델 제공자와 S2 CI](0007-model-provider-and-s2-ci.md) |
 | 8.2·8.9 상태 저장·이벤트·계획 접근 | [0008 상태·이벤트 원자 저장](0008-plan-state-event-transaction.md), [0009 PostgreSQL 상태 저장](0009-postgres-state-adapter.md), [0012 데이터 접근 경계](0012-platform-data-access-boundary.md) |
+| 8.2·8.3 최초 PROPOSE 접수·단일 실행·저장 결과·후보 발행 결속 | [0028 최초 제안 접수와 저장](0028-initial-proposal-records.md) |
 | 7.5·8.4 리허설 네트워크와 격리 | [0002 송신 허용 범위](0002-rehearsal-egress-allowlist.md), [0003 격리 구현과 시험](0003-rehearsal-namespace-isolation.md) |
 | FR-5 · 8.4 리허설 러너의 시도 실행 · 결과 기록 · 판정(T15) | [0023 리허설 러너 시도와 증거](0023-rehearsal-runner-attempt-evidence.md) |
 | 8.3 · 8.4 `rehearsal.exec` 동작 범위(정해진 동작 3종)와 실행 위치(API · 도구용 Pod)(T15) | [0024 rehearsal.exec 동작과 실행 위치](0024-rehearsal-exec-actions.md) |

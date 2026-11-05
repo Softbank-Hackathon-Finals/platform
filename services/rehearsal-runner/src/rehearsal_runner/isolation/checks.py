@@ -196,12 +196,27 @@ def _nodeport_service(fx: Fixtures) -> dict:
     }
 
 
+def _impersonation_gap(kube: Kubectl, fx: Fixtures) -> str | None:
+    """--as가 실제로 rehearsal-exec 신원으로 적용되는지. 인증 프록시가 가장 헤더를 버리면
+    호출한 사람의 권한으로 답이 나오므로, 그 답을 rehearsal-exec 증거로 쓰지 않는다."""
+    out = kube.run("auth", "whoami", "--as", _sa(fx), "-o", "jsonpath={.status.userInfo.username}")
+    if out.returncode != 0:
+        return f"가장 확인 실패: {out.stderr.strip()[:200]}"
+    if out.stdout.strip() != _sa(fx):
+        return f"가장이 적용되지 않음: 응답 신원 {out.stdout.strip()[:120]!r}"
+    return None
+
+
 def _secret_read_denied(kube: Kubectl, fx: Fixtures) -> Result:
     title = "rehearsal-exec로 다른 네임스페이스 Secret을 읽지 못한다"
+    if gap := _impersonation_gap(kube, fx):
+        return Result("N9", title, Kind.ISOLATION, Status.INCONCLUSIVE, gap)
     out = kube.run("get", "secrets", "-n", fx.victim_namespace, "--as", _sa(fx))
     if out.returncode == 0:
         return Result("N9", title, Kind.ISOLATION, Status.FAIL, "읽기 허용됨")
-    status = Status.PASS if "Forbidden" in out.stderr else Status.INCONCLUSIVE
+    # 거부 메시지가 rehearsal-exec 신원을 가리킬 때만 그 계정이 막힌 것이다
+    denied = "Forbidden" in out.stderr and f'User "{_sa(fx)}"' in out.stderr
+    status = Status.PASS if denied else Status.INCONCLUSIVE
     return Result("N9", title, Kind.ISOLATION, status, out.stderr.strip()[:300])
 
 
@@ -222,6 +237,8 @@ ESCALATION_PROBES = [
 
 def _no_escalation(kube: Kubectl, fx: Fixtures) -> Result:
     title = "rehearsal-exec로 권한을 키우거나 자기 네임스페이스 Secret도 읽지 못한다"
+    if gap := _impersonation_gap(kube, fx):
+        return Result("N10", title, Kind.ISOLATION, Status.INCONCLUSIVE, gap)
     allowed, unknown = [], []
     for verb, resource, namespaced in ESCALATION_PROBES:
         args = ["auth", "can-i", verb, resource, "--as", _sa(fx)]
