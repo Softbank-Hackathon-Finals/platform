@@ -1,4 +1,4 @@
-"""Cross-service check of the currently available T11 boundary, not rehearsal.exec."""
+"""Cross-service check of T11's destructive-attempt record (design 8.4 demo scene)."""
 
 import hashlib
 import json
@@ -26,8 +26,9 @@ def test_bucket_deletion_tool_request_is_denied_and_audited(tmp_path):
     raw_arguments = {"command": "aws s3 rb s3://private-bucket", "marker": "private-argument"}
     with pytest.raises(PolicyDenied):
         tools.dispatch("rehearsal.exec", raw_arguments)
-    assert tools.events == [{"run_id": "run-1", "attempt": 1, "tool": "unlisted",
-                             "outcome": "DENIED", "reason": "TOOL_NOT_ALLOWED"}]
+    assert tools.events == [{"run_id": "run-1", "attempt": 1, "tool": "rehearsal.exec",
+                             "outcome": "DENIED", "reason": "DESTRUCTIVE_ATTEMPT_BLOCKED",
+                             "category": "bucket_delete"}]
     assert "private-argument" not in json.dumps(tools.events)
     assert tools.proposal is None
 
@@ -41,5 +42,6 @@ def test_delete_bucket_in_proposal_is_denied_and_audited(tmp_path):
         tools.dispatch("mcp__bravo__plan_propose", proposal)
     assert tools.proposal is None
     assert tools.events[-1]["outcome"] == "DENIED"
-    assert tools.events[-1]["reason"] == "INVALID_INPUT_OR_POLICY"
+    assert tools.events[-1]["reason"] == "DESTRUCTIVE_ATTEMPT_BLOCKED"
+    assert tools.events[-1]["category"] == "bucket_delete"
     assert "private-bucket" not in json.dumps(tools.events)

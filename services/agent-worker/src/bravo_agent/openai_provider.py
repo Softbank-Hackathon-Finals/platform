@@ -14,7 +14,9 @@ from .contracts import FailureBundle, Proposal
 from .runtime import RUNTIME_KEYS
 from .tools import SYSTEM, PolicyDenied, Tools
 
-FUNCTIONS = {"repo_read": "mcp__bravo__repo_read", "plan_propose": "mcp__bravo__plan_propose"}
+FUNCTIONS = {"repo_read": "mcp__bravo__repo_read", "plan_propose": "mcp__bravo__plan_propose",
+             "inventory_describe": "mcp__bravo__inventory_describe", "policy_evaluate": "mcp__bravo__policy_evaluate"}
+BRAVO_KINDS = frozenset("bravo_" + name for name in FUNCTIONS)
 
 
 def strict_schema(schema: dict) -> dict:
@@ -35,8 +37,9 @@ def strict_schema(schema: dict) -> dict:
     return schema
 
 
-def function_tools() -> list[dict]:
-    return [
+def function_tools(tools: Tools | None = None) -> list[dict]:
+    """``inventory_describe`` is offered only when the control path attached a T16 summary."""
+    definitions = [
         {"type": "function", "name": "repo_read", "strict": True,
          "description": "Read an approved application snapshot file.",
          "parameters": {"type": "object", "properties": {"path": {"type": "string"}},
@@ -44,7 +47,18 @@ def function_tools() -> list[dict]:
         {"type": "function", "name": "plan_propose", "strict": True,
          "description": "Submit a bounded correction; does not apply or verify it.",
          "parameters": strict_schema(Proposal.model_json_schema())},
+        {"type": "function", "name": "policy_evaluate", "strict": True,
+         "description": "Lint a candidate policy or replacement text with the same checks plan_propose applies. No side effects.",
+         "parameters": {"type": "object", "properties": {"policy": {"type": "string"}},
+                        "required": ["policy"], "additionalProperties": False}},
     ]
+    if tools is not None and tools.inventory is not None:
+        definitions.append(
+            {"type": "function", "name": "inventory_describe", "strict": True,
+             "description": "Read the graded dependency inventory (T16). Optional role filter, null for all.",
+             "parameters": {"type": "object", "properties": {"role": {"type": ["string", "null"]}},
+                            "required": ["role"], "additionalProperties": False}})
+    return definitions
 
 
 def output_kind(item) -> str:
@@ -83,7 +97,7 @@ class FinalizedStreamCall:
                 self.problem = "lifecycle_mismatch"
         elif event.type in ("response.output_item.added", "response.output_item.done"):
             item = getattr(event, "item", None)
-            if (not self.response_id or output_kind(item) not in ("bravo_repo_read", "bravo_plan_propose")
+            if (not self.response_id or output_kind(item) not in BRAVO_KINDS
                     or not isinstance(item.call_id, str) or not item.call_id
                     or type(event.output_index) is not int or event.output_index < 0):
                 self.problem = "unbound_item"
@@ -211,7 +225,7 @@ class OpenAIProvider:
         history = [{"role": "user", "content": json.dumps({
             "failure": bundle.model_dump(), "snapshot": tools.snapshot.manifest.model_dump(),
         }, sort_keys=True)}]
-        definitions = function_tools()
+        definitions = function_tools(tools)
         needs_read = self.subscription
         tokens = 0
         async with asyncio.timeout(180):

@@ -2,7 +2,7 @@
 
 from typing import Protocol
 
-from .contracts import FailureBundle, Proposal, VerificationReceipt, digest
+from .contracts import FailureBundle, InventorySummary, Proposal, VerificationReceipt, digest
 from .tools import Snapshot, Tools
 
 
@@ -11,10 +11,12 @@ class Provider(Protocol):
 
 
 class Coordinator:
-    def __init__(self, bundle: FailureBundle, snapshot: Snapshot):
+    def __init__(self, bundle: FailureBundle, snapshot: Snapshot, inventory: InventorySummary | None = None):
         if bundle.source_sha != snapshot.manifest.source_sha:
             raise ValueError("source revision mismatch")
-        self.bundle, self.snapshot = bundle, snapshot
+        if inventory is not None and inventory.source_sha != bundle.source_sha:
+            raise ValueError("inventory revision mismatch")
+        self.bundle, self.snapshot, self.inventory = bundle, snapshot, inventory
         self.attempt = 0
         self.state = "READY"
         self.proposal: Proposal | None = None
@@ -25,7 +27,7 @@ class Coordinator:
         if self.state not in {"READY", "RETRY_ALLOWED"} or self.attempt >= 3:
             raise ValueError("proposal not allowed in this state")
         self.attempt += 1
-        tools = Tools(self.bundle, self.snapshot, self.attempt)
+        tools = Tools(self.bundle, self.snapshot, self.attempt, inventory=self.inventory)
         self.proposal = None
         self.state = "ANALYZING"
         try:

@@ -19,6 +19,7 @@
 | 7.2·8.8 이미지 전달 | [0011 비공개 이미지 전달](0011-private-image-delivery.md) |
 | 5.2·7.3·8.2·8.7 판정용 관측·진단 지표 | [0010 관측 경계](0010-observability-boundary.md) |
 | 7.3 목적지 감사 로그 저장소(T34)·목적지 Collector 분리(T37) | [0016 목적지 감사 로그 저장소](0016-target-audit-store.md) |
+| 8.3·8.4 에이전트 도구 계층 경계(소스 경로 · 인벤토리 조회 · 정책 린트 · 파괴 시도 기록) | [0019 에이전트 도구 경계](0019-agent-tool-boundary.md) |
 | 11·12장 브랜치·리뷰·CI 운영 규칙 | [0004 Gitflow](0004-gitflow-task-branches.md), [0005 병합 전 리뷰](0005-review-before-merge.md), [0014 비밀 이력 검사 범위](0014-secret-history-scope.md) |
 
 5.1·5.2의 요구사항은 위 설계 범위로 연결된다. 5.3의 수치는 아래 측정과 함께 읽고, 5.4의 배점·외부 출처는 설계 문서의 원문을 따른다.
