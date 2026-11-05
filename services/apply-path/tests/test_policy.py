@@ -1,6 +1,7 @@
 import base64
 import copy
 import hashlib
+import http.client
 import json
 import subprocess
 import urllib.error
@@ -201,6 +202,9 @@ def test_policy_binding_is_verified_and_returns_the_kind(policy_claim, policy_pr
     (lambda c, p, s: c["binding"].update(policy_digest="latest"), "BINDING_DIGEST_FORMAT"),
     (lambda c, p, s: c["binding"].update(change_kind="dns_record"), "CHANGE_KIND_UNKNOWN"),
     (lambda c, p, s: c["binding"].pop("change_kind"), "CHANGE_KIND_AMBIGUOUS"),
+    # T10 does not send change_kind yet: a policy edit without it must not fall into the image branch.
+    (lambda c, p, s: (c["binding"].pop("change_kind"), c["binding"].pop("policy_digest")), "CHANGE_KIND_REQUIRED"),
+    (lambda c, p, s: c["binding"].update(change_kind="app_image", policy_digest=None), "CHANGE_KIND_REQUIRED"),
     (lambda c, p, s: p["edits"][0].update(replacement=CLOSING.replace("Anonymous", "Anonymous ")), "DIFF_HASH_MISMATCH"),
 ])
 def test_policy_binding_deviations_are_refused(policy_claim, policy_proposal, policy_sources, mutate, code):
@@ -220,6 +224,29 @@ def test_policy_change_needs_sources_and_the_one_policy_file(policy_claim, polic
     policy_claim["binding"]["diff_hash"] = diff_hash(render_diff(sources, other["edits"]))
     with pytest.raises(BindingError, match="POLICY_PATH_MISMATCH"):
         verify_claim(policy_claim, other, target_environment_id="onprem-dev", now=NOW, sources=sources)
+
+
+def test_an_image_change_that_also_edits_the_policy_file_is_refused(policy_claim, policy_proposal, policy_sources):
+    proposal = copy.deepcopy(policy_proposal)
+    proposal["edits"].append({"path": "app/db_secret.py", "before_sha256": hashlib.sha256(b"x = 1\n").hexdigest(),
+                              "replacement": "x = 2\n"})
+    sources = dict(policy_sources, **{"app/db_secret.py": "x = 1\n"})
+    claim = copy.deepcopy(policy_claim)
+    claim["binding"].pop("change_kind"), claim["binding"].pop("policy_digest")
+    claim["binding"]["diff_hash"] = diff_hash(render_diff(sources, proposal["edits"]))
+    with pytest.raises(BindingError, match="CHANGE_KIND_REQUIRED"):
+        verify_claim(claim, proposal, target_environment_id="onprem-dev", now=NOW, sources=sources)
+
+
+def test_a_policy_edit_without_change_kind_is_refused_before_any_cluster_call(policy_claim, policy_proposal, claim, tmp_path):
+    policy_claim["binding"].pop("change_kind"), policy_claim["binding"].pop("policy_digest")
+    kube = FakeKube("ghcr.io/example/demo-chat@sha256:" + "0" * 64)
+    result = apply("pol-0009", dict(policy_claim, application_id="pol-0009"), policy_proposal, kube=kube,
+                   receipts_dir=tmp_path / "receipts", target_environment_id="onprem-dev", namespace="target-dev",
+                   deployment="demo-chat", container="app", repository="ghcr.io/example/demo-chat",
+                   policy_target=TARGET, sources={POLICY_FILE: SOURCE_PUBLIC}, now=NOW)
+    assert (result.outcome, result.reason) == ("REFUSED", "CHANGE_KIND_REQUIRED")
+    assert kube.patches == [] and kube.secret_writes == []
 
 
 # --- apply: the policy branch ------------------------------------------------------------------------------------------
@@ -435,6 +462,35 @@ def test_signed_get_sends_a_sigv4_header_and_maps_statuses():
 
     assert signed_get("http://h:1", BUCKET, "k", "A", "s", opener=denied) == {"authenticated_get": "DENIED"}
     assert signed_get("http://h:1", BUCKET, "k", "A", "s", opener=down) == {"authenticated_get": "UNKNOWN:URLError"}
+
+
+@pytest.mark.parametrize("error", [http.client.BadStatusLine("x"), http.client.IncompleteRead(b"")])
+def test_a_response_cut_short_while_restarting_is_unknown_and_retried(error):
+    def opener(request, timeout):
+        raise error
+
+    assert signed_get("http://127.0.0.1:18333", BUCKET, "t31/probe.txt", "AKEY", "s" * 40, opener=opener) == {
+        "authenticated_get": f"UNKNOWN:{type(error).__name__}"}
+
+
+def _unexpected_name(secret):
+    doc = json.loads(base64.b64decode(secret["data"]["s3.json"]))
+    doc["identities"][0]["name"] = ["client"]
+    secret["data"]["s3.json"] = base64.b64encode(json.dumps(doc).encode()).decode()
+
+
+@pytest.mark.parametrize("mutate, reason", [
+    (_unexpected_name, "TARGET_AUTH_UNRECOGNIZED"),
+    (lambda secret: secret.pop("metadata"), "TARGET_SECRET_UNRECOGNIZED"),
+])
+def test_an_unexpected_target_shape_before_any_change_is_refused(policy_claim, policy_proposal, tmp_path, mutate, reason):
+    kube = fake_kube()
+    mutate(kube.secrets["target-seaweedfs-auth"])
+    result = _apply(policy_claim, policy_proposal, tmp_path, kube)
+    assert (result.outcome, result.reason) == ("REFUSED", reason)
+    assert kube.secret_writes == [] and kube.restarts == []
+    record = json.dumps(get_result(policy_claim["application_id"], tmp_path / "receipts").as_dict())
+    assert all(value not in record for name, value in ENV.items() if "SECRET" in name)
 
 
 def test_kubectl_secret_replace_goes_through_stdin_not_argv(monkeypatch):

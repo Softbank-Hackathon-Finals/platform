@@ -23,6 +23,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import hmac
+import http.client
 import importlib.util
 import json
 import re
@@ -254,7 +255,8 @@ def signed_get(endpoint: str, bucket: str, key: str, access: str, secret: str, *
             response.read(1)
     except urllib.error.HTTPError as error:
         status = error.code
-    except (urllib.error.URLError, OSError, TimeoutError) as error:
+    except (urllib.error.URLError, OSError, TimeoutError, http.client.HTTPException) as error:
+        # A restarting store can cut a response short (BadStatusLine, IncompleteRead): retry it.
         return {"authenticated_get": f"UNKNOWN:{type(error).__name__}"}
     outcome = "ALLOWED" if status == 200 else "DENIED" if status in (401, 403) else f"UNKNOWN:{status}"
     return {"authenticated_get": outcome}
@@ -292,8 +294,10 @@ def apply_bucket_policy(kube: Kube, target: PolicyTarget, *, t9: ModuleType, ren
     policy = {"state": "closed", "renderer_sha256": renderer_sha256, "previous_s3_json_sha256": None,
               "applied_s3_json_sha256": None, "anonymous_get": None, "authenticated_get": None}
 
-    def refuse(code, exc=None):
-        return DeployMismatch(code, mutation_attempted=False, detail=brief(exc) if exc else "", policy=dict(policy))
+    def refuse(code, exc=None, *, type_only=False):
+        # type_only: the exception came from parsing credentials, so its text is not logged.
+        detail = (type(exc).__name__ if type_only else brief(exc)) if exc else ""
+        return DeployMismatch(code, mutation_attempted=False, detail=detail, policy=dict(policy))
 
     try:
         secret = kube.get_secret(target.namespace, target.secret)
@@ -302,14 +306,20 @@ def apply_bucket_policy(kube: Kube, target: PolicyTarget, *, t9: ModuleType, ren
     except Exception as exc:  # noqa: BLE001 - any read failure means "nothing was changed"
         raise refuse("CLUSTER_READ_FAILED", exc) from exc
     policy["previous_s3_json_sha256"] = hashlib.sha256(current).hexdigest()
+    # Nothing has been changed yet: an unexpected shape here is a refusal, not an unknown outcome.
     try:
         new, (access, secret_key) = render_closed(t9, current, target.bucket)
     except PolicyRefused as exc:
         raise refuse(exc.code) from exc
+    except Exception as exc:  # noqa: BLE001
+        raise refuse("TARGET_AUTH_UNRECOGNIZED", exc, type_only=True) from exc
     applied = hashlib.sha256(new).hexdigest()
-    replacement = json.loads(json.dumps(secret))
-    replacement["metadata"].pop("managedFields", None)
-    replacement["data"][target.secret_key] = base64.b64encode(new).decode("ascii")
+    try:
+        replacement = json.loads(json.dumps(secret))
+        replacement["metadata"].pop("managedFields", None)
+        replacement["data"][target.secret_key] = base64.b64encode(new).decode("ascii")
+    except Exception as exc:  # noqa: BLE001
+        raise refuse("TARGET_SECRET_UNRECOGNIZED", exc, type_only=True) from exc
 
     def hold(code, exc=None, **extra):
         return DeployMismatch(code, mutation_attempted=True, previous_image=workload_image,
@@ -331,7 +341,13 @@ def apply_bucket_policy(kube: Kube, target: PolicyTarget, *, t9: ModuleType, ren
         raise hold("ROLLOUT_STATUS_FAILED", exc) from exc
     if not complete:
         raise hold("ROLLOUT_NOT_COMPLETE")
-    anonymous_probe = anonymous_probe or (lambda: t9.probe(target.endpoint, target.bucket, target.probe_key))
+    def t9_anonymous_probe():
+        try:
+            return t9.probe(target.endpoint, target.bucket, target.probe_key)
+        except http.client.HTTPException as exc:  # cut-short response while restarting; T9 lets it through
+            return {"anonymous_get": f"UNKNOWN:{type(exc).__name__}"}
+
+    anonymous_probe = anonymous_probe or t9_anonymous_probe
     signed_probe = signed_probe or (lambda a, s: signed_get(target.endpoint, target.bucket, target.probe_key, a, s))
     timing = {"window": probe_window, "interval": probe_interval, "sleep": sleep, "monotonic": monotonic}
     try:

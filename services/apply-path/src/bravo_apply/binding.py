@@ -132,6 +132,10 @@ def verify_claim(claim: dict, proposal: dict, *, target_environment_id: str, now
     approved = sorted({e["path"] for e in edits})
     if diff_paths(diff) != approved:
         raise BindingError("DIFF_OUTSIDE_APPROVED_PATHS")
+    if kind == APP_IMAGE and policy_path in approved:
+        # The image branch cannot apply a policy: it would re-pin the current image, record
+        # APPLIED_AS_APPROVED and leave the bucket as it was. A policy edit must say so.
+        raise BindingError("CHANGE_KIND_REQUIRED")
     if kind == BUCKET_POLICY:
         # One edit, to the one policy file the rehearsal verified, and exactly the approved bytes.
         if approved != [policy_path] or not isinstance(edits[0].get("replacement"), str):

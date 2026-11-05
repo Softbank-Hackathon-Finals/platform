@@ -2,7 +2,7 @@
 
 설계 7.1의 6단계("사람 승인 → 반영")에서 **승인된 것과 배포되는 것이 같은 바이트인지**를 코드가 보장하는 부품이다(FR-7 승인 결속). 모델은 이 단계에 손대지 못한다. 상태 머신 · 승인 · 접수는 T10이, 리허설 검증은 T15가, 게이트 재대조는 T19가 맡고, T31은 그 사이를 digest로 묶는다. 변경 종류는 두 가지다: 앱 이미지 변경(Deployment 이미지 digest 고정)과 버킷 정책 변경(SeaweedFS `s3.json` Secret 교체, [아래](#버킷-정책-변경-분기)).
 
-**상태: 시험 91개 통과. 로컬 kind(Kubernetes v1.36.1)에서 `KubectlKube` 실제 경로 실측 — 이미지 분기([기록](../../docs/evidence/t31-apply-entry-2026-11-06/README.md)), 버킷 정책 분기([기록](../../docs/evidence/t31-policy-apply-2026-11-06/README.md)). RKE2 목적지와 T10 · T19 연결은 미실측. T10은 아직 `change_kind` · `policy_digest`를 보내지 않는다.**
+**상태: 시험 99개 통과. 로컬 kind(Kubernetes v1.36.1)에서 `KubectlKube` 실제 경로 실측 — 이미지 분기([기록](../../docs/evidence/t31-apply-entry-2026-11-06/README.md)), 버킷 정책 분기([기록](../../docs/evidence/t31-policy-apply-2026-11-06/README.md)). RKE2 목적지와 T10 · T19 연결은 미실측. T10은 아직 `change_kind` · `policy_digest`를 보내지 않는다.**
 
 | 파일 | 역할 |
 |---|---|
@@ -39,6 +39,8 @@ T10 claim_application 영수증 ─┐
 | `APPLICATION_ID_MISMATCH` | `apply`에 넘긴 id와 claim의 `application_id`가 다름 |
 | `CLUSTER_READ_FAILED` | patch 전 Deployment 읽기 실패(권한 거부·없음·컨테이너 없음·시간 초과). 클러스터는 바뀌지 않음 |
 | `CHANGE_KIND_UNKNOWN` · `CHANGE_KIND_AMBIGUOUS` | binding의 `change_kind`가 모르는 값 / 이미지 변경인데 `policy_digest`가 있음 |
+| `CHANGE_KIND_REQUIRED` | `change_kind`가 없거나 `app_image`인데 승인 diff에 정책 파일(`src/target-policy.json`)이 있음. 이미지 분기는 정책을 반영하지 못하고 지금 이미지만 다시 고정해 APPLIED로 기록하게 되므로, T10이 `change_kind`를 보내기 전까지 정책 제안은 반영되지 않고 거부된다 |
+| `TARGET_AUTH_UNRECOGNIZED` · `TARGET_SECRET_UNRECOGNIZED` | (정책) 변경 전에 읽은 `s3.json` · Secret 형태가 예상과 다름. 아무것도 바꾸기 전이라 REFUSED이고, 상세에는 예외 타입 이름만 남긴다 |
 | `IMAGE_TARGET_MISSING` · `POLICY_TARGET_MISSING` | 변경 종류에 맞는 반영 대상(`--deployment` · `--repository` / `--object-endpoint` 등)이 설정되지 않음 |
 
 patch를 보낸 뒤의 실패는 모두 `SAFE_HOLD`다: `PATCH_FAILED`(서버가 받았을 수 있음) · `ROLLOUT_STATUS_FAILED` · `ROLLOUT_NOT_COMPLETE` · `RUNNING_DIGEST_UNREADABLE` · `RUNNING_DIGEST_MISMATCH`. 이전 digest로 되돌리는 것은 사람이 본 뒤 한다(설계 8.2). 기록의 `previous_image`와 `observed_digests`가 그 판단 근거다.
@@ -73,7 +75,7 @@ T10은 첫 영속 접수에서만 `apply`를 부르고, 응답 손실·재시작
 
 | 위치 | 필드 | 값 |
 |---|---|---|
-| T15 → T10 `CurrentChange.binding`(후보) · `intake_binding()` · 승인 `binding` · 접수 영수증 `binding` | `change_kind` | `"bucket_policy"`. 없거나 `"app_image"`면 지금과 같은 이미지 변경. 다른 값은 T31이 `CHANGE_KIND_UNKNOWN`으로 거부 |
+| T15 → T10 `CurrentChange.binding`(후보) · `intake_binding()` · 승인 `binding` · 접수 영수증 `binding` | `change_kind` | `"bucket_policy"`. 없거나 `"app_image"`면 지금과 같은 이미지 변경. 다른 값은 T31이 `CHANGE_KIND_UNKNOWN`으로 거부. 없는데 정책 파일을 고치면 `CHANGE_KIND_REQUIRED`로 거부 |
 | 같음 | `policy_digest` | `"sha256:" + sha256(승인 제안서 edits[0].replacement를 UTF-8로 인코딩한 바이트)`. 다시 직렬화하지 않은 원문 그대로(`bravo_apply.binding.policy_digest`). 이미지 변경에는 넣지 않는다(넣으면 `CHANGE_KIND_AMBIGUOUS`) |
 | 같음 | `image_digest` | 정책 변경에서도 필수. 반영 시점의 현재 앱 이미지 digest(바꾸지 않음) |
 | `workflow.Change` | `change_kind` · `policy_digest` (선택, 기본 없음) | `asdict(change)`가 T31 `change`와 같아지도록. 이미지 변경은 지금처럼 두 필드만 |
