@@ -104,3 +104,38 @@ targetPort를 검증한다. 적용 직전에 같은 UID/resourceVersion인지 �
 
 이 경로는 Kubernetes API 조회용이다. `infra/envs/collector-network`의
 OTel Collector → 메트릭 수신 경로와는 별개다.
+
+## T15 자격 이전 시도의 namespace 권한 조립
+
+`scoped_lifecycle.py`의 `ScopedPlanner`는 기존 `CredentialPlanner`를 감싼다.
+호스트는 현재 T10 Admission과 실행 권한을 검증한 뒤 이 planner를 호출한다.
+같은 소스의 파일을 호스트 이미지에 포함해 일반 Python 모듈로 import한다.
+이 모듈은 HTTP 엔드포인트나 인증 기본값을 설치하지 않는다.
+
+```python
+planner = ScopedPlanner(credential_planner, provisioner=management_kubectl,
+                        cleaner=management_uid_cleaner)
+```
+
+`credential_planner`의 Job 클라이언트는 `t15-runner`의 단기 tokenFile을 읽는다.
+별도 관리 클라이언트는 기존 `NamespaceLifecycle`와 `T3Gate`에만 연결된다.
+T3가 만드는 비교용 namespace도 이 관리 경로를 사용한다. 관리 자격을 제안자,
+검증 Job, 후보 앱이나 AI 실행 계정에 전달하지 않는다.
+
+기존 lifecycle이 새 namespace와 정본 T3 템플릿을 만든 뒤 UID·run·attempt를
+확인하면, 관리 경로가 그 namespace에만 실행 Role/Binding을 만든다. 실행자는
+자격 이전 검증에 필요한 Pod·Job·Service·ConfigMap·Secret·ServiceAccount와
+로그를 사용한다. `rehearsal-intruder` 가장과 해당 namespace 한 개의 조회만
+추가되며, namespace 생성·삭제, RBAC 변경, `bind`·`escalate`, Pod exec는 없다.
+관리 namespace의 writer Job 권한은 기존 별도 Role을 사용한다.
+
+권한 원문을 재조회하고 namespace UID를 다시 대조한 뒤 기존 verifier를
+실행한다. 생성 실패·응답 불명·권한 또는 UID 변경이면 같은 요청을 재전송하지
+않고 원 UID cleaner로 정리하며 실행을 열지 않는다. 기존 lifecycle wrapper는
+조용히 버리지 않고 거부한다. 소유 namespace 삭제 후 ClusterRole/Binding도
+ownerReference로 수거되므로 운영 정리에서는 이 객체들의 부재까지 확인한다.
+GC를 즉시 권한 철회 보장으로 취급하지 않는다.
+
+이 조립의 로컬 시험은 실제 T15 lifecycle과 모의 API를 사용한다. 실제 namespace
+권한 검사, AWS 소비 Pod의 토큰 갱신·폐기, OpenBao writer, 후보 이미지와 실제
+T10 계획의 해피패스는 각각 별도 운영 근거가 필요하다.
