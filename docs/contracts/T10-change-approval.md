@@ -54,6 +54,28 @@ Admission을 최초 입력으로 꾸미지 않는다. 후보 이미지가 아직
 
 ## 기존 생산자와의 관계
 
+### 최초 제안의 T38 전송·결과 조회
+
+`initial_proposal_transport.FileInitialProposal`은 T10 호스트의 비공개 파일 전달 접점이다.
+입력·전달·결과 모델은 `initial_proposal.py`를 그대로 사용한다. `prepare`는 운영자가
+공개 수신 키와 고정 요청을 준비하며, T10의 영속 접수 뒤 `submit`이 해당 요청만 게시한다.
+호스트에는 GitHub 자격이나 별도 실행 루프를 추가하지 않는다.
+
+운영자용 `OperatorInitialProposal`은 기존 단일 dispatch 원장과 GitHub의 actor·workflow·
+run/attempt·artifact digest 확인을 재사용한다. 응답 유실·재시작에도 같은 실행을 조회한다.
+결과 암호문은 최초 제안 purpose·계획 버전·요청/입력·런타임 SHA·수신 키에 결속한다.
+운영자가 출처를 확인한 결과만 비공개 전달 경로의 `deliver`로 보낸다. 파일 형식 검증이나
+복호화 성공만으로 GitHub 출처가 입증되는 것은 아니다.
+
+`validate`는 전달된 불변 결과와 T10의 정본 입력만 로컬에서 대조한다. 종료 정리가
+미확인되거나 T11의 실제 schema/lint 검사가 실패·누락되면 성공 결과를 반환하지 않는다.
+T10은 정규화 결과만 저장하며 저장 후 재조회는 어떤 client 호출도 하지 않는다.
+
+이 어댑터를 구현했다는 사실은 최초 제안 workflow·모델 입력·인증 조회 경로가 설치됐다는
+뜻이 아니다. 현재 리허설용 workflow에 최초 제안 intent를 보내서는 안 된다. T11 입력/검사와
+해당 purpose를 처리하는 검토된 생산자, 실제 Collection/Analysis와 현재 grant를 연결한 뒤에만
+최초 접수·실행을 열어야 한다. 기존 리허설 입력/Admission 검사는 유지한다.
+
 [T15 #191](https://github.com/Softbank-Hackathon-Finals/platform/pull/191)의
 `9b9681ab30eeae5ba72573d71784605f401d705a`를 대조했다. 그 러너의
 `RECEIPT_UNVERIFIED`는 아직 인증하지 않은 검증 응답이다. 테스트의

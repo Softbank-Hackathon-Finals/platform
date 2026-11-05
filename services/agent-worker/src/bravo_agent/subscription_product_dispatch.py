@@ -72,6 +72,10 @@ class OperatorProductExecution:
     No scheduler, background dispatcher, retry, credentials, or model runs here.
     """
 
+    _parse_intent = staticmethod(ExecutionIntent.model_validate)
+    _open_receipt = staticmethod(open_receipt)
+    _validate_receipt = staticmethod(validate_execution_receipt)
+
     def __init__(self, state_dir, github=None):
         self.root = Path(state_dir)
         self.root.mkdir(mode=0o700, parents=True, exist_ok=True)
@@ -144,7 +148,7 @@ class OperatorProductExecution:
         return json.loads(row[1]), row[2]
 
     def submit(self, intent):
-        intent = ExecutionIntent.model_validate(intent)
+        intent = self._parse_intent(intent)
         with self._db() as db:
             exists = db.execute('SELECT 1 FROM executions WHERE request_id=?', (intent.request_id,)).fetchone()
         if exists:
@@ -203,7 +207,7 @@ class OperatorProductExecution:
         return matches[0]
 
     def read(self, intent):
-        intent = ExecutionIntent.model_validate(intent)
+        intent = self._parse_intent(intent)
         metadata, saved_id = self._record(intent)
         private = self._private_key(intent.request_id)
         if private.public_key().public_bytes_raw().hex() != intent.recipient_public_key:
@@ -250,7 +254,8 @@ class OperatorProductExecution:
                     payload = stream.read(MAX_ARTIFACT + 1)
                 if len(payload) > MAX_ARTIFACT:
                     raise ValueError('oversized receipt')
-            receipt = validate_execution_receipt(intent, run_id, open_receipt(intent, run_id, json.loads(payload), private))
+            receipt = self._validate_receipt(intent, run_id,
+                self._open_receipt(intent, run_id, json.loads(payload), private))
         except Exception:
             raise ExecutionUnknown('ARTIFACT_RECEIPT_INVALID') from None
         return receipt
