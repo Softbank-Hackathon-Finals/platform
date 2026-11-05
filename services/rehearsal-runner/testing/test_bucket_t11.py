@@ -343,3 +343,42 @@ def test_attempt_tool_events_exclude_other_attempts_and_verifier_records(tmp_pat
     second.propose(task)
     assert len(first.tool_events()) == 4
     assert [e["attempt"] for e in second.tool_events()] == [2, 2, 2]
+
+
+def test_planner_resumes_t11_for_attempt_two_only_with_signed_failure(tmp_path):
+    import base64
+    from types import SimpleNamespace
+
+    from rehearsal_runner.attempt_store import PlanBinding
+    from rehearsal_runner.bucket_job import BucketFixture
+    from rehearsal_runner.bucket_planner import BucketPlanner, BucketTarget
+
+    task = prepare_bucket_policy_task("run-1", SOURCE, "fixture-bucket", source_sha="a" * 40)
+    coordinator = make_coordinator(tmp_path, task)
+
+    class Proposals:
+        def open(self, admission, bound_task):
+            return coordinator, FakeProvider()
+
+    class Kube:
+        def get(self, *args):
+            return {"data": {"access": base64.b64encode(b"a").decode(), "secret": base64.b64encode(b"s").decode()}}
+
+    profile = {f"{p}_{k}": v for p in ("SEAWEEDFS", "OPENBAO")
+               for k, v in (("NAMESPACE", "ns"), ("LABEL_KEY", "app"), ("LABEL_VALUE", "x"), ("PORT", "1"))}
+    planner = BucketPlanner(
+        profile=profile, target=BucketTarget(
+            BucketFixture("http://s:8333", "fixture-bucket", "canary", "a" * 64, "img@sha256:" + "b" * 64),
+            "ns", "cred"),
+        proposals=Proposals(), bindings=lambda _a: PlanBinding("c" * 64, "env"), kubectl=object(),
+        kube=Kube(), isolation_image="busybox:1.36", source_policy_path=SOURCE_PATH,
+        target_policy_path=TARGET_PATH)
+    factory = planner.factory(SimpleNamespace(), task)
+    factory.prepare(1, None).proposer.propose(task)
+    with pytest.raises(ValueError, match="feedback"):
+        factory.prepare(2, None)
+    assert coordinator.state == "PROPOSAL_READY"
+    second = factory.prepare(2, "e" * 64).proposer
+    assert coordinator.state == "RETRY_ALLOWED" and coordinator.bundle.evidence_digest == "e" * 64
+    second.propose(task)
+    assert coordinator.attempt == 2 and coordinator.state == "PROPOSAL_READY"
