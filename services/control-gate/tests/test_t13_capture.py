@@ -32,7 +32,8 @@ def tls_postgres(tmp_path_factory):
     (root / "server.crt").chmod(0o644)
     password = secrets.token_urlsafe(32)
     with OwnedDocker() as owned:
-        cid = owned.container( "-d", "--rm", "--name", "t19-schema-" + secrets.token_hex(6),
+        # Keep exited containers until label/ID-checked cleanup; --rm races that readback.
+        cid = owned.container( "-d", "--name", "t19-schema-" + secrets.token_hex(6),
                   "-e", "POSTGRES_PASSWORD", "-v", str(root) + ":/certs:ro",
                   "-p", "127.0.0.1::5432", "--entrypoint", "sh", IMAGE, "-c",
                   "cp /certs/server.key /tmp/t19-server.key && chown postgres /tmp/t19-server.key && chmod 600 /tmp/t19-server.key && exec docker-entrypoint.sh postgres -c wal_level=logical -c max_replication_slots=10 -c max_wal_senders=10 -c ssl=on -c ssl_cert_file=/certs/server.crt -c ssl_key_file=/tmp/t19-server.key",
