@@ -229,7 +229,11 @@ def validate(p):
         raise ValueError("auth object required")
     mode = a.get("mode")
     if mode == "tailscale-proxy":
-        fields(a, ("mode",))
+        fields(a, ("mode",), ("proxyServiceAccount",))
+        if "proxyServiceAccount" in a:
+            proxy = fields(a["proxyServiceAccount"], ("name", "namespace"))
+            name(proxy["name"])
+            name(proxy["namespace"])
     elif mode == "client-certificate":
         fields(a, ("mode", "certificateFile", "keyFile"))
         absolute_path(a["certificateFile"])
@@ -322,8 +326,9 @@ def rbac(p):
             }
         )
 
-    def pair(kind, namespace, role_rules):
-        metadata = {"name": key, "labels": labels.copy()}
+    def pair(kind, namespace, role_rules, role_name=None, subjects=None):
+        role_name = role_name or key
+        metadata = {"name": role_name, "labels": labels.copy()}
         if namespace:
             metadata["namespace"] = namespace
         return [
@@ -337,8 +342,8 @@ def rbac(p):
                 "apiVersion": RBAC + "/v1",
                 "kind": kind + "Binding",
                 "metadata": metadata.copy(),
-                "subjects": subject,
-                "roleRef": {"apiGroup": RBAC, "kind": kind, "name": key},
+                "subjects": subject if subjects is None else subjects,
+                "roleRef": {"apiGroup": RBAC, "kind": kind, "name": role_name},
             },
         ]
 
@@ -411,6 +416,24 @@ def rbac(p):
             }
         ],
     )
+    if "proxyServiceAccount" in p["auth"]:
+        # Authenticated proxy requests require permission to impersonate the caller.
+        # Bind only the proxy SA, never the human or the test runner, to this grant.
+        proxy = p["auth"]["proxyServiceAccount"]
+        items += pair(
+            "ClusterRole",
+            None,
+            [
+                {
+                    "apiGroups": [""],
+                    "resources": ["users"],
+                    "resourceNames": [p["username"]],
+                    "verbs": ["impersonate"],
+                }
+            ],
+            role_name=key + "-proxy-user",
+            subjects=[{"kind": "ServiceAccount", **proxy}],
+        )
     return {"apiVersion": "v1", "kind": "List", "items": items}
 
 

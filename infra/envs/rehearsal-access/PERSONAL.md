@@ -8,13 +8,15 @@
 
 | auth.mode | 인증 입력 | 사용 환경 |
 |---|---|---|
-| `tailscale-proxy` | 추가 인증 정보 없음 | 개인 Tailscale 신원을 전달하는 인증 프록시 |
+| `tailscale-proxy` | 자격 값 없음; 선택 `proxyServiceAccount` | 개인 Tailscale 신원을 전달하는 인증 프록시 |
 | `client-certificate` | `certificateFile`, `keyFile`의 본인 장치 절대경로 | 직접 API 또는 TLS를 그대로 전달하는 터널 |
 | `exec` | 승인한 실행 파일의 절대경로 `command`, 배열 `args`, `interactiveMode` | OIDC, 클라우드 CLI 등 Kubernetes ExecCredential v1 제공 도구 |
 
 `cluster.trust`는 `{"mode":"system"}` 또는 `{"mode":"ca-file","caFile":"/absolute/server-ca.pem"}`이다. IPv4·IPv6·DNS, HTTPS 포트, 필요한 `tlsServerName`을 입력한다. Linux/WSL/macOS와 Windows 절대경로를 지원한다. 시스템 인증서를 쓰는 HTTPS 프록시에 Kubernetes 내부 CA를 대신 지정하지 않는다. `insecure-skip-tls-verify`, 인라인 토큰·개인 키, 임의 환경 변수는 받지 않는다. exec 설정은 수신 장치에서 프로그램을 실행하므로 전달 전 실행 파일과 인자를 검토한다. 생성기는 그 프로그램을 실행하지 않는다.
 
 CSR 발급이 필요한 환경은 [인증서 절차](../../../docs/rke2-personal-access.md)를 따른다. 그 문서의 사람용 관리자 권한 예시를 이 시험 역할에 합치지 않는다. 개인 키는 본인 장치에서만 만들고 보관한다.
+
+인증 프록시는 사용자에게 부여한 Role 외에, 그 사용자의 신원을 API에 전달하는 `impersonate users` 권한도 필요하다. `auth.proxyServiceAccount`에 실제 프록시의 `name`·`namespace`를 지정하면 별도 ClusterRole/Binding을 생성한다. 이 권한은 **해당 프록시 SA가 `username` 한 명을 대신하는 동작만** 허용하며 사람·시험 관리자에게 부여하지 않는다. 다른 사용자, 그룹, SA의 가장 권한은 추가하지 않는다. 기존 operator 역할을 수정하지 않으며 발급별 객체로 회수한다. 생략할 수 있는 경우는 같은 제한의 프록시 권한을 별도로 제공·확인한 환경이다. 인증서·exec 모드에서는 이 필드를 거부한다.
 
 ## 운영자 준비
 
@@ -29,7 +31,8 @@ python3 infra/envs/rehearsal-access/personal.py kubeconfig --profile private-pro
 1. 사전 합의한 시험 namespace를 준비하고 T3의 `restricted` Pod Security, quota, NetworkPolicy를 확인한다. 기존 namespace를 재사용하면 소유자와 실제 UID를 대조한다. 운영 자격·Secret을 넣지 않는다. Pod 생성 권한은 그 namespace의 SA·Secret을 사용할 수 있으므로 Secret get 거부만으로 분리했다고 주장하지 않는다.
 2. **명시한 운영자 kubeconfig**로 `kube-system`과 시험 namespace를 JSON으로 읽고 `verify`로 UID·종료 상태·PSA를 확인한다. 다른 context의 current-context에 의존하지 않는다.
 3. 생성한 권한의 리소스·동작·개인 신원을 검토한다. 같은 이름의 Role/Binding/SA가 있으면 덮어쓰지 말고 UID와 소유를 비교한다. `kubectl create --dry-run=server -f personal-rbac.json`을 통과한 신규 객체만 `create`한다. 일부 성공 또는 응답 유실 뒤에는 재전송 전에 객체를 읽어 실제 결과를 확인한다.
-4. 실제 RBAC의 허용·거부와 개인 로그인은 따로 기록한다. 운영자의 `--as` 검증은 개인 장치 로그인 증거가 아니다. 재생성된 namespace에 이 프로필을 적용하지 않는다.
+4. 인증 프록시 환경이면 실제 프록시 Deployment의 ServiceAccount와 설정을 대조한다. 그 SA가 `username`의 `users`를 impersonate할 수 있는지 SubjectAccessReview로 확인하고, 다른 사용자·그룹·SA에 대한 신규 허용이 없는지 확인한다. 사용자 본인의 RBAC 검사만으로 이 전달 경로를 검증했다고 판단하지 않는다.
+5. 실제 RBAC의 허용·거부와 개인 로그인은 따로 기록한다. 운영자의 `--as` 검증은 개인 장치 로그인 증거가 아니다. 재생성된 namespace에 이 프로필을 적용하지 않는다.
 
 ```sh
 python3 infra/envs/rehearsal-access/personal.py verify --profile private-profile.json \

@@ -88,6 +88,86 @@ def allows(objects, ns, verb, resource, name=None, group=""):
 
 
 class PersonalAccessTests(unittest.TestCase):
+    def test_proxy_can_forward_only_configured_human_identity(self):
+        for account, ns, username in [
+            ("api-proxy", "network-access", "member@example.test"),
+            ("other-operator", "other-tailnet", "other@example.test"),
+        ]:
+            with self.subTest(proxy=account):
+                p = profile()
+                p["username"] = username
+                p["auth"]["proxyServiceAccount"] = {"name": account, "namespace": ns}
+                objects = personal.rbac(p)["items"]
+                proxy = {"kind": "ServiceAccount", "name": account, "namespace": ns}
+                bindings = [
+                    o
+                    for o in objects
+                    if o["kind"].endswith("Binding") and proxy in o["subjects"]
+                ]
+                self.assertEqual(len(bindings), 1)
+                binding = bindings[0]
+                self.assertEqual(binding["subjects"], [proxy])
+                roles = [
+                    o
+                    for o in objects
+                    if o["kind"] == binding["roleRef"]["kind"]
+                    and o["metadata"]["name"] == binding["roleRef"]["name"]
+                ]
+                self.assertEqual(len(roles), 1)
+                self.assertTrue(allows(roles, None, "impersonate", "users", username))
+                for resource, target in [
+                    ("users", "stranger@example.test"),
+                    ("users", "system:admin"),
+                    ("groups", "system:masters"),
+                    ("serviceaccounts", "default"),
+                ]:
+                    self.assertFalse(
+                        allows(roles, None, "impersonate", resource, target)
+                    )
+                self.assertFalse(allows(roles, "sandbox-member", "create", "pods"))
+                human = {"kind": "User", "apiGroup": personal.RBAC, "name": username}
+                self.assertTrue(all(human not in o["subjects"] for o in bindings))
+                self.assertEqual(personal.kubeconfig(p)["users"][0]["user"], {})
+
+    def test_proxy_config_is_optional_and_restricted_to_proxy_mode(self):
+        p = profile()
+        self.assertFalse(
+            allows(
+                personal.rbac(p)["items"], None, "impersonate", "users", p["username"]
+            )
+        )
+        for proxy in [
+            {"name": "*", "namespace": "network-access"},
+            {"name": "api-proxy"},
+            {"name": "api-proxy", "namespace": "../other"},
+            {"name": "api-proxy", "namespace": "network-access", "groups": ["*"]},
+        ]:
+            p["auth"]["proxyServiceAccount"] = proxy
+            with self.subTest(proxy=proxy), self.assertRaises(ValueError):
+                personal.rbac(p)
+        for auth in [
+            {
+                "mode": "client-certificate",
+                "certificateFile": "/tmp/member.crt",
+                "keyFile": "/tmp/member.key",
+            },
+            {
+                "mode": "exec",
+                "command": "/bin/credential",
+                "args": [],
+                "interactiveMode": "Never",
+            },
+        ]:
+            p["auth"] = {
+                **auth,
+                "proxyServiceAccount": {
+                    "name": "api-proxy",
+                    "namespace": "network-access",
+                },
+            }
+            with self.subTest(mode=auth["mode"]), self.assertRaises(ValueError):
+                personal.rbac(p)
+
     def test_three_authentication_modes_and_two_os_path_formats(self):
         configurations = [
             ({"mode": "tailscale-proxy"}, {"mode": "system"}, {}),
