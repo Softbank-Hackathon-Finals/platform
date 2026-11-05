@@ -127,4 +127,6 @@ class T11BucketProposer:
                            proposal_digest=result["proposal_digest"])
 
     def tool_events(self) -> tuple[dict, ...]:
+        if getattr(self.provider, "tool_events_available", True) is not True:
+            raise ValueError("the model's tool events are kept by the remote runtime")
         return attempt_tool_events(self.coordinator, self.attempt)
