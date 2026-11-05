@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
-"""Local-only check of the T15 rehearsal writer against a real OpenBao and Kubernetes.
+"""Local-only check of the T15 rehearsal writer (ADR-0029 A안) against a real OpenBao and Kubernetes.
 
 Runs on a throwaway kind cluster (context ``kind-*`` only): an upstream OpenBao dev server
-stands in for ``target-openbao``, the *rendered* NetworkPolicy, writer policy and roles are
-applied unchanged, and real ServiceAccount tokens log in through Kubernetes TokenReview.
-Prints and writes only case names and outcomes; tokens and synthetic values never leave memory.
+stands in for ``target-openbao``, the *rendered* NetworkPolicy, operator reader policy, writer
+policy and roles are applied unchanged, and real ServiceAccount tokens log in through Kubernetes
+TokenReview. Prints and writes only case names and outcomes; tokens and synthetic values never
+leave memory.
 
 This is not the demo RKE2 target: dev mode is HTTP, in-memory and unsealed, and the image is
 upstream ``quay.io/openbao/openbao:2.7.2`` (same source commit as the team's patched build).
@@ -27,13 +28,16 @@ render = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(render)
 
 IMAGE = "quay.io/openbao/openbao@sha256:5046911075e137e154ce49ab051502f4ec7cf367d484ae4a4dce665d9b90561f"
-READER_NS = "rehearsal-0123456789abcdef01234567"  # runner-style rehearsal-<24 hex>
-OTHER_NS = "rehearsal-89abcdef0123456789abcdef"
-RUN, OTHER_RUN = "run-a", "run-b"
+NS_A, NS_B = "rehearsal-aaa", "rehearsal-bbb"
+NS_PREFIX = "rehearsal-aaab"  # KV-path prefix confusion only: "rehearsal-aaa/*" must not match it
+READER = render.READER_ACCOUNT
 RESTRICTED = {"allowPrivilegeEscalation": False, "runAsNonRoot": True, "capabilities": {"drop": ["ALL"]},
               "seccompProfile": {"type": "RuntimeDefault"}}
 POD_SECURITY = {"runAsNonRoot": True, "runAsUser": 100, "runAsGroup": 1000,
                 "seccompProfile": {"type": "RuntimeDefault"}}
+BAO_HTTP = "http://target-openbao.bravo-secrets.svc:8200"
+# Label of the test-only reader ingress peer (the rendered ``network`` policy has none; README).
+READER_POD_LABEL = {"bravo-test-rehearsal-reader": "true"}
 
 
 class Kube:
@@ -100,12 +104,23 @@ def probe_pod(name, namespace, labels):
     return {"apiVersion": "v1", "kind": "Pod", "metadata": {"name": name, "namespace": namespace, "labels": labels},
             "spec": {"restartPolicy": "Never", "automountServiceAccountToken": False, "securityContext": POD_SECURITY,
                      "containers": [{"name": "probe", "image": IMAGE, "command": ["bao", "status", "-format=json"],
-                                     "env": [{"name": "BAO_ADDR", "value": "http://target-openbao.bravo-secrets.svc:8200"},
+                                     "env": [{"name": "BAO_ADDR", "value": BAO_HTTP},
                                              {"name": "BAO_CLIENT_TIMEOUT", "value": "8s"}, {"name": "HOME", "value": "/tmp"}],
                                      "securityContext": RESTRICTED}]}}
 
 
-JOB_SCRIPT = r"""
+def test_only_reader_peer():
+    """Kind-only, additive NetworkPolicy so the reader Pod in ``rehearsal-aaa`` can reach the
+    stand-in. Not rendered by ``render.py``: the reader peer is still an open contract item."""
+    return {"apiVersion": "networking.k8s.io/v1", "kind": "NetworkPolicy",
+            "metadata": {"name": "kind-test-only-reader-peer", "namespace": render.NAMESPACE},
+            "spec": {"podSelector": {"matchLabels": {"app.kubernetes.io/name": "openbao"}}, "policyTypes": ["Ingress"],
+                     "ingress": [{"from": [{"namespaceSelector": {"matchLabels": {"kubernetes.io/metadata.name": NS_A}},
+                                            "podSelector": {"matchLabels": READER_POD_LABEL}}],
+                                  "ports": [{"protocol": "TCP", "port": 8200}]}]}}
+
+
+WRITER_PREPARE = r"""
 set -u
 export BAO_ADDR=http://target-openbao.bravo-secrets.svc:8200 BAO_CLIENT_TIMEOUT=10s HOME=/tmp
 r() { if "$@" >/dev/null 2>&1; then echo allow; else echo deny; fi; }
@@ -113,36 +128,82 @@ JWT=$(cat /var/run/secrets/openbao/token)
 TOKEN=$(bao write -field=token auth/kubernetes/login role=rehearsal-openbao-writer jwt="$JWT" 2>/dev/null) || TOKEN=''
 [ -n "$TOKEN" ] && echo "RESULT pod_login allow" || { echo "RESULT pod_login deny"; exit 1; }
 export BAO_TOKEN="$TOKEN"
-echo "RESULT pod_kv_put_rehearsal $(r bao kv put -mount=secret -cas=0 bravo/rehearsal/run-pod/database credentials_json=@/work/synthetic.json)"
-echo "RESULT pod_kv_get_rehearsal $(r bao kv get -mount=secret bravo/rehearsal/run-pod/database)"
+echo "RESULT pod_kv_put_namespace_path $(r bao kv put -mount=secret -cas=0 "$(cat /work/remote)" credentials_json=@/work/synthetic.json)"
+echo "RESULT pod_kv_get_namespace_path $(r bao kv get -mount=secret "$(cat /work/remote)")"
 echo "RESULT pod_kv_get_target $(r bao kv get -mount=secret bravo/target/precutover/database)"
-echo "RESULT pod_reader_policy_write $(r bao policy write rehearsal-app-reader-run-pod /work/reader.hcl)"
-echo "RESULT pod_reader_role_write $(r sh -c 'bao write auth/kubernetes/role/rehearsal-app-reader-run-pod - < /work/role.json')"
-echo "RESULT pod_reader_role_delete $(r bao delete auth/kubernetes/role/rehearsal-app-reader-run-pod)"
-echo "RESULT pod_reader_policy_delete $(r bao policy delete rehearsal-app-reader-run-pod)"
-echo "RESULT pod_kv_metadata_delete $(r bao kv metadata delete -mount=secret bravo/rehearsal/run-pod/database)"
+echo "RESULT pod_policy_write_operator_reader $(r bao policy write rehearsal-app-reader /work/evil.hcl)"
+echo "RESULT pod_policy_write_evil $(r bao policy write rehearsal-app-reader-evil /work/evil.hcl)"
+echo "RESULT pod_reader_role_write $(r sh -c 'bao write "auth/kubernetes/role/$(cat /work/role-name)" - < /work/role.json')"
 echo "RESULT pod_revoke_self $(r bao token revoke -self)"
 """
 
+WRITER_CLEANUP = r"""
+set -u
+export BAO_ADDR=http://target-openbao.bravo-secrets.svc:8200 BAO_CLIENT_TIMEOUT=10s HOME=/tmp
+r() { if "$@" >/dev/null 2>&1; then echo allow; else echo deny; fi; }
+JWT=$(cat /var/run/secrets/openbao/token)
+TOKEN=$(bao write -field=token auth/kubernetes/login role=rehearsal-openbao-writer jwt="$JWT" 2>/dev/null) || TOKEN=''
+[ -n "$TOKEN" ] && echo "RESULT pod_cleanup_login allow" || { echo "RESULT pod_cleanup_login deny"; exit 1; }
+export BAO_TOKEN="$TOKEN"
+echo "RESULT pod_reader_role_delete $(r bao delete "auth/kubernetes/role/$(cat /work/role-name)")"
+echo "RESULT pod_kv_metadata_delete $(r bao kv metadata delete -mount=secret "$(cat /work/remote)")"
+echo "RESULT pod_cleanup_revoke_self $(r bao token revoke -self)"
+"""
 
-def writer_job(reader_ns):
+
+def writer_job(name, script, namespace):
     work = {"synthetic.json": json.dumps({"username": "rehearsal", "password": "synthetic-" + secrets.token_hex(8)}),
-            "reader.hcl": render.rehearsal_policy("run-pod"),
-            "role.json": json.dumps(render.rehearsal_auth_role(reader_ns, "run-pod")),
-            "job.sh": JOB_SCRIPT}
-    config = {"apiVersion": "v1", "kind": "ConfigMap", "metadata": {"name": "writer-check", "namespace": render.WRITER_NAMESPACE},
+            "role.json": json.dumps(render.rehearsal_auth_role(namespace)),
+            "role-name": render.rehearsal_role_name(namespace),
+            "remote": render.rehearsal_remote_path(namespace),
+            "evil.hcl": 'path "secret/data/bravo/target/*" { capabilities = ["read"] }\n',
+            "job.sh": script}
+    config = {"apiVersion": "v1", "kind": "ConfigMap", "metadata": {"name": name, "namespace": render.WRITER_NAMESPACE},
               "data": work}
-    job = {"apiVersion": "batch/v1", "kind": "Job", "metadata": {"name": "writer-check", "namespace": render.WRITER_NAMESPACE},
+    job = {"apiVersion": "batch/v1", "kind": "Job", "metadata": {"name": name, "namespace": render.WRITER_NAMESPACE},
            "spec": {"backoffLimit": 0, "template": {"metadata": {"labels": dict(render.WRITER_POD_LABEL)}, "spec": {
                "restartPolicy": "Never", "serviceAccountName": render.WRITER_ACCOUNT, "automountServiceAccountToken": False,
                "securityContext": POD_SECURITY,
                "containers": [{"name": "writer", "image": IMAGE, "command": ["sh", "/work/job.sh"], "securityContext": RESTRICTED,
                                "volumeMounts": [{"name": "work", "mountPath": "/work", "readOnly": True},
                                                 {"name": "token", "mountPath": "/var/run/secrets/openbao", "readOnly": True}]}],
-               "volumes": [{"name": "work", "configMap": {"name": "writer-check"}},
+               "volumes": [{"name": "work", "configMap": {"name": name}},
                            {"name": "token", "projected": {"sources": [{"serviceAccountToken": {
                                "audience": "openbao", "expirationSeconds": 600, "path": "token"}}]}}]}}}}
     return lst(config, job)
+
+
+# Only these substitutions adapt the rendered init container to the HTTP dev stand-in; the
+# login role, KV path, temp-file/atomic-replace and revoke logic run exactly as rendered.
+INIT_SUBSTITUTIONS = [("https://target-openbao.bravo-secrets.svc:8200", BAO_HTTP), (" BAO_CACERT=/openbao/ca/ca.crt", "")]
+
+
+def reader_pod(name, namespace, labels):
+    init = render.rehearsal_fetch_init_container(namespace)
+    script = init["command"][2]
+    for old, new in INIT_SUBSTITUTIONS:
+        if old not in script:
+            raise SystemExit(f"rendered init script no longer contains {old!r}")
+        script = script.replace(old, new)
+    init = dict(init, image=IMAGE, command=["/bin/sh", "-c", script],
+                env=[{"name": "BAO_CLIENT_TIMEOUT", "value": "10s"}],
+                securityContext=dict(init["securityContext"], seccompProfile={"type": "RuntimeDefault"}),
+                volumeMounts=[m for m in init["volumeMounts"] if m["name"] != "openbao-ca"])
+    init.pop("x-bravo-remote-path")
+    check = ("f=/run/bravo/database/credentials.json; "
+             "if [ -s \"$f\" ] && grep -q '\"password\"' \"$f\"; then echo \"RESULT credentials_file ok mode=$(stat -c %a \"$f\")\"; "
+             "else echo 'RESULT credentials_file missing'; exit 1; fi; "
+             "echo \"RESULT tmp_files $(ls -A /run/bravo/database | grep -c '^.credentials.json.tmp' || true)\"")
+    return {"apiVersion": "v1", "kind": "Pod", "metadata": {"name": name, "namespace": namespace, "labels": labels},
+            "spec": {"restartPolicy": "Never", "serviceAccountName": READER, "automountServiceAccountToken": False,
+                     "securityContext": POD_SECURITY, "initContainers": [init],
+                     "containers": [{"name": "app", "image": IMAGE, "command": ["/bin/sh", "-c", check],
+                                     "securityContext": RESTRICTED,
+                                     "volumeMounts": [{"name": "bravo-database", "mountPath": "/run/bravo/database",
+                                                       "readOnly": True}]}],
+                     "volumes": [{"name": "bravo-database", "emptyDir": {"medium": "Memory"}},
+                                 {"name": "openbao-token", "projected": {"sources": [{"serviceAccountToken": {
+                                     "audience": "openbao", "expirationSeconds": 600, "path": "token"}}]}}]}}
 
 
 class NoRedirect(urllib.request.HTTPRedirectHandler):
@@ -205,6 +266,18 @@ def pod_exit(kube, namespace, name, seconds=90):
     raise SystemExit(f"pod {name} did not finish")
 
 
+def pod_phase(kube, namespace, name, seconds=120):
+    """Final phase of a ``restartPolicy: Never`` Pod plus the init container's exit code."""
+    deadline = time.time() + seconds
+    while time.time() < deadline:
+        state = json.loads(kube.run("get", "pod", name, "-n", namespace, "-o", "json").stdout).get("status", {})
+        if state.get("phase") in ("Succeeded", "Failed"):
+            init = (state.get("initContainerStatuses") or [{}])[0].get("state", {}).get("terminated", {})
+            return state["phase"], init.get("exitCode")
+        time.sleep(2)
+    raise SystemExit(f"pod {name} did not finish")
+
+
 def free_port():
     with socket.socket() as s:
         s.bind(("127.0.0.1", 0))
@@ -218,7 +291,7 @@ def main():
     args = parser.parse_args()
     kube = Kube(args.kubeconfig)
     guard(kube)
-    results = {"cases": [], "dry_run": {}, "network": {}}
+    results = {"design": "ADR-0029 A안", "cases": [], "dry_run": {}, "network": {}}
 
     def case(name, expected, actual, note=""):
         results["cases"].append({"name": name, "expected": expected, "actual": actual,
@@ -244,10 +317,12 @@ def main():
         results["dry_run"]["finalize-bao"] = kube.apply(json.loads(bao_rendered.read_text()), dry_run=True).splitlines()
     kube.apply(lst(*[i for i in foundation["items"] if i["kind"] in ("ClusterRole", "ClusterRoleBinding")]))
     kube.apply(render.rehearsal_writer_identity())
-    kube.apply(lst(ns(READER_NS, **render.REHEARSAL_LABEL), ns(OTHER_NS, **render.REHEARSAL_LABEL)))
-    for namespace in (READER_NS, OTHER_NS):
-        kube.apply({"apiVersion": "v1", "kind": "ServiceAccount",
-                    "metadata": {"name": "rehearsal-eso-reader", "namespace": namespace}})
+    kube.apply(lst(ns(NS_A, **render.REHEARSAL_LABEL), ns(NS_B, **render.REHEARSAL_LABEL), ns("target-dev"),
+                   ns(render.LEGACY_WRITER_NAMESPACE)))
+    for namespace in (NS_A, NS_B, render.WRITER_NAMESPACE, "target-dev"):  # the reader SA name in every namespace
+        kube.apply({"apiVersion": "v1", "kind": "ServiceAccount", "metadata": {"name": READER, "namespace": namespace}})
+    results["dry_run"]["rehearsal-delivery-a"] = kube.apply(
+        lst(*[i for i in render.rehearsal_delivery(NS_A)["items"] if i["kind"] == "ServiceAccount"]), dry_run=True).splitlines()
     root = secrets.token_urlsafe(24)
     kube.apply(bao_standin(root))
     kube.apply(render.network(api_ip, endpoint_ip))
@@ -265,21 +340,47 @@ def main():
             except OSError:
                 pass
             time.sleep(1)
-        # 2. Operator setup as on the target (README step 8), plus the writer pieces.
-        version = bao.call("GET", "sys/health")[1].get("version")
-        results["openbao_version"] = version
+        results["openbao_version"] = bao.call("GET", "sys/health")[1].get("version")
+
+        # 2. Operator install (README step 8 + rehearsal subtree): enable auth, read the mount
+        #    accessor, write the templated reader policy once, then the writer policy and role.
         for method, path, body in [
             ("POST", "sys/auth/kubernetes", {"type": "kubernetes"}),
             ("POST", "auth/kubernetes/config", {"kubernetes_host": "https://kubernetes.default.svc"}),
             ("POST", "secret/config", {"cas_required": True}),
-            ("PUT", "sys/policies/acl/rehearsal-openbao-writer", {"policy": render.rehearsal_writer_policy()}),
-            ("POST", "auth/kubernetes/role/rehearsal-openbao-writer", render.rehearsal_writer_auth_role()),
-            ("POST", "secret/data/bravo/target/precutover/database",
-             {"options": {"cas": 0}, "data": {"credentials_json": "synthetic-" + secrets.token_hex(8)}}),
         ]:
             status, body_out = bao.call(method, path, root, body)
             if status >= 300:
                 raise SystemExit(f"setup {path} failed: {status} {body_out.get('errors')}")
+        mount = bao.call("GET", "sys/auth/kubernetes", root)[1]
+        accessor = mount.get("accessor") or mount.get("data", {}).get("accessor")
+        listed = bao.call("GET", "sys/auth", root)[1]
+        listed_accessor = (listed.get("data") or listed).get("kubernetes/", {}).get("accessor")
+        case("operator_accessor_read_matches_auth_list", True, bool(accessor) and accessor == listed_accessor)
+        case("operator_accessor_format", True, bool(render.KUBERNETES_ACCESSOR_RE.fullmatch(accessor or "")))
+        # The README's operator command, run with the real CLI inside the server Pod.
+        cli = kube.run("exec", "-i", "-n", render.NAMESPACE, f"{render.RELEASE}-0", "--", "sh", "-s", stdin=(
+            'export BAO_ADDR=http://127.0.0.1:8200 BAO_TOKEN="$BAO_DEV_ROOT_TOKEN_ID"; cd /tmp; '
+            "bao read -field=accessor sys/auth/kubernetes\n"), check=False).stdout.strip()
+        case("operator_cli_read_field_accessor", True, cli == accessor)
+        reader_policy = render.rehearsal_reader_policy(accessor)
+        for method, path, body in [
+            ("PUT", f"sys/policies/acl/{render.READER_POLICY}", {"policy": reader_policy}),
+            ("PUT", "sys/policies/acl/rehearsal-openbao-writer", {"policy": render.rehearsal_writer_policy()}),
+            ("POST", "auth/kubernetes/role/rehearsal-openbao-writer", render.rehearsal_writer_auth_role()),
+            ("POST", "secret/data/bravo/target/precutover/database",
+             {"options": {"cas": 0}, "data": {"credentials_json": "synthetic-" + secrets.token_hex(8)}}),
+            # Fail-closed check only: the same template rendered with a wrong accessor, and a
+            # root-made role that attaches it. Removed before the Pod phase.
+            ("PUT", "sys/policies/acl/t9-check-wrong-accessor", {"policy": render.rehearsal_reader_policy("auth_kubernetes_00000000")}),
+            ("POST", "auth/kubernetes/role/t9-check-wrong-accessor",
+             dict(render.rehearsal_auth_role(NS_A), token_policies="t9-check-wrong-accessor")),
+        ]:
+            status, body_out = bao.call(method, path, root, body)
+            if status >= 300:
+                raise SystemExit(f"setup {path} failed: {status} {body_out.get('errors')}")
+        stored = bao.call("GET", f"sys/policies/acl/{render.READER_POLICY}", root)[1].get("data", {}).get("policy")
+        case("operator_reader_policy_stored_as_rendered", True, stored == reader_policy)
 
         # 3. Writer identity: only the exact SA, namespace and audience log in.
         writer = bao.login("rehearsal-openbao-writer", kube.token(render.WRITER_NAMESPACE, render.WRITER_ACCOUNT))
@@ -287,30 +388,37 @@ def main():
         case("writer_login_default_audience", "deny",
              "allow" if bao.login("rehearsal-openbao-writer", kube.token(render.WRITER_NAMESPACE, render.WRITER_ACCOUNT, None)) else "deny")
         case("writer_role_other_sa", "deny",
-             "allow" if bao.login("rehearsal-openbao-writer", kube.token(READER_NS, "rehearsal-eso-reader")) else "deny")
+             "allow" if bao.login("rehearsal-openbao-writer", kube.token(NS_A, READER)) else "deny")
+        case("writer_role_reader_sa_in_control", "deny",
+             "allow" if bao.login("rehearsal-openbao-writer", kube.token(render.WRITER_NAMESPACE, READER)) else "deny")
         if not writer:
             raise SystemExit("writer login failed; cannot continue")
         lookup = bao.call("GET", "auth/token/lookup-self", writer)[1].get("data", {})
         results["writer_token"] = {"policies": lookup.get("policies"), "ttl": lookup.get("ttl")}
         case("writer_token_policies_only_writer", ["rehearsal-openbao-writer"], lookup.get("policies"))
 
-        reader_role = render.rehearsal_auth_role(READER_NS, RUN)
         synthetic = {"credentials_json": json.dumps({"username": "rehearsal", "password": "synthetic-" + secrets.token_hex(8)})}
+        path_a, path_b, path_prefix = (f"secret/data/{render.rehearsal_remote_path(n)}" for n in (NS_A, NS_B, NS_PREFIX))
+        role_a, role_b = (f"auth/kubernetes/role/{render.rehearsal_role_name(n)}" for n in (NS_A, NS_B))
+        role_cross = "auth/kubernetes/role/rehearsal-app-reader-crossname"
         allowed = [
-            ("kv_put_rehearsal_run", "POST", f"secret/data/bravo/rehearsal/{RUN}/database", {"options": {"cas": 0}, "data": synthetic}),
-            ("kv_put_rehearsal_other_run", "POST", f"secret/data/bravo/rehearsal/{OTHER_RUN}/database", {"options": {"cas": 0}, "data": synthetic}),
-            ("kv_get_rehearsal", "GET", f"secret/data/bravo/rehearsal/{RUN}/database", None),
-            ("kv_metadata_update_rehearsal", "POST", f"secret/metadata/bravo/rehearsal/{RUN}/database", {"max_versions": 2}),
-            ("kv_metadata_get_rehearsal", "GET", f"secret/metadata/bravo/rehearsal/{RUN}/database", None),
-            ("reader_policy_write", "PUT", f"sys/policies/acl/rehearsal-app-reader-{RUN}", {"policy": render.rehearsal_policy(RUN)}),
-            ("reader_policy_write_other_run", "PUT", f"sys/policies/acl/rehearsal-app-reader-{OTHER_RUN}", {"policy": render.rehearsal_policy(OTHER_RUN)}),
-            ("reader_policy_read", "GET", f"sys/policies/acl/rehearsal-app-reader-{RUN}", None),
-            ("reader_role_write_rendered_body", "POST", f"auth/kubernetes/role/rehearsal-app-reader-{RUN}", reader_role),
+            ("kv_put_namespace_a", "POST", path_a, {"options": {"cas": 0}, "data": synthetic}),
+            ("kv_put_namespace_b", "POST", path_b, {"options": {"cas": 0}, "data": synthetic}),
+            ("kv_put_namespace_prefix_sibling", "POST", path_prefix, {"options": {"cas": 0}, "data": synthetic}),
+            ("kv_get_namespace_a", "GET", path_a, None),
+            ("kv_metadata_update_namespace_a", "POST", path_a.replace("/data/", "/metadata/", 1), {"max_versions": 2}),
+            ("kv_metadata_get_namespace_a", "GET", path_a.replace("/data/", "/metadata/", 1), None),
+            ("role_write_rendered_body_a", "POST", role_a, render.rehearsal_auth_role(NS_A)),
+            ("role_write_rendered_body_b", "POST", role_b, render.rehearsal_auth_role(NS_B)),
+            # The name does not decide the scope; the token's own namespace does (case in step 5).
+            ("role_write_other_name_same_constraints", "POST", role_cross, render.rehearsal_auth_role(NS_A)),
             ("token_lookup_self", "GET", "auth/token/lookup-self", None),
             ("token_renew_self", "POST", "auth/token/renew-self", {}),
         ]
         for name, method, path, body in allowed:
             case(name, "allow", outcome(bao.call(method, path, writer, body)[0]))
+
+        reader_role = render.rehearsal_auth_role(NS_A)
 
         def role(**changes):
             body = dict(reader_role)
@@ -321,52 +429,81 @@ def main():
                     body[key] = value
             return body
 
-        role_path = f"auth/kubernetes/role/rehearsal-app-reader-{RUN}"
+        evil_body = {"policy": 'path "secret/data/bravo/target/*" { capabilities = ["read"] }\n'}
         denied = [
+            # (1) No policy access at all, whatever the name.
+            ("policy_write_operator_reader", "PUT", f"sys/policies/acl/{render.READER_POLICY}", evil_body),
+            ("policy_read_operator_reader", "GET", f"sys/policies/acl/{render.READER_POLICY}", None),
+            ("policy_delete_operator_reader", "DELETE", f"sys/policies/acl/{render.READER_POLICY}", None),
+            ("policy_write_reader_prefixed", "PUT", f"sys/policies/acl/{render.rehearsal_role_name(NS_A)}", evil_body),
+            ("policy_write_default", "PUT", "sys/policies/acl/default", {"policy": 'path "*" { capabilities = ["sudo"] }'}),
+            ("policy_write_own_writer", "PUT", "sys/policies/acl/rehearsal-openbao-writer", {"policy": 'path "*" { capabilities = ["read"] }'}),
+            ("policy_write_target_reader", "PUT", "sys/policies/acl/target-app-reader", evil_body),
+            ("policy_write_legacy_endpoint", "PUT", "sys/policy/rehearsal-app-reader-legacy", evil_body),
+            ("policy_list_not_granted", "LIST", "sys/policies/acl", None),
+            ("policy_password_not_granted", "PUT", "sys/policies/password/rehearsal", {"policy": "length=8"}),
+            # Paths outside the agreed subtree.
             ("kv_put_target", "POST", "secret/data/bravo/target/precutover/database", {"options": {"cas": 1}, "data": synthetic}),
             ("kv_get_target", "GET", "secret/data/bravo/target/precutover/database", None),
             ("kv_metadata_get_target", "GET", "secret/metadata/bravo/target/precutover/database", None),
             ("kv_metadata_delete_target", "DELETE", "secret/metadata/bravo/target/precutover/database", None),
             ("kv_put_sibling_prefix", "POST", "secret/data/bravo/rehearsal-evil/database", {"options": {"cas": 0}, "data": synthetic}),
-            ("kv_destroy_rehearsal_not_granted", "POST", f"secret/destroy/bravo/rehearsal/{RUN}/database", {"versions": [1]}),
+            ("kv_destroy_rehearsal_not_granted", "POST", path_a.replace("/data/", "/destroy/", 1), {"versions": [1]}),
             ("kv_list_rehearsal_not_granted", "LIST", "secret/metadata/bravo/rehearsal/", None),
-            ("policy_write_default", "PUT", "sys/policies/acl/default", {"policy": 'path "*" { capabilities = ["sudo"] }'}),
-            ("policy_write_own_writer", "PUT", "sys/policies/acl/rehearsal-openbao-writer", {"policy": 'path "*" { capabilities = ["read"] }'}),
-            ("policy_write_target_reader", "PUT", "sys/policies/acl/target-app-reader", {"policy": 'path "*" { capabilities = ["read"] }'}),
-            ("policy_write_without_dash", "PUT", "sys/policies/acl/rehearsal-app-readerx", {"policy": 'path "*" { capabilities = ["read"] }'}),
-            ("policy_write_legacy_endpoint", "PUT", "sys/policy/rehearsal-app-reader-legacy", {"policy": 'path "*" { capabilities = ["read"] }'}),
-            ("policy_list_not_granted", "LIST", "sys/policies/acl", None),
             ("role_write_own_writer", "POST", "auth/kubernetes/role/rehearsal-openbao-writer", role()),
             ("role_write_target_reader", "POST", "auth/kubernetes/role/target-app-reader", role()),
-            ("role_read_blocked_by_required_parameters", "GET", role_path, None),
-            ("role_ns_target_dev", "POST", role_path, role(bound_service_account_namespaces="target-dev")),
-            ("role_ns_writer_namespace", "POST", role_path, role(bound_service_account_namespaces="rehearsal-control")),
-            ("role_ns_writer_namespace_trailing_space", "POST", role_path, role(bound_service_account_namespaces="rehearsal-control ")),
-            ("role_ns_comma_list", "POST", role_path, role(bound_service_account_namespaces=f"{READER_NS},target-dev")),
-            ("role_ns_glob_value", "POST", role_path, role(bound_service_account_namespaces="rehearsal-*")),
-            ("role_ns_star", "POST", role_path, role(bound_service_account_namespaces="*")),
-            ("role_ns_json_list", "POST", role_path, role(bound_service_account_namespaces=[READER_NS])),
-            ("role_ns_selector_param", "POST", role_path, role(bound_service_account_namespace_selector='{"matchLabels":{}}')),
-            ("role_sa_writer", "POST", role_path, role(bound_service_account_names=render.WRITER_ACCOUNT)),
-            ("role_sa_comma_list", "POST", role_path, role(bound_service_account_names="rehearsal-eso-reader,rehearsal-openbao-writer")),
-            ("role_sa_star", "POST", role_path, role(bound_service_account_names="*")),
-            ("role_missing_audience", "POST", role_path, role(audience=None)),
-            ("role_other_audience", "POST", role_path, role(audience="kubernetes")),
-            ("role_long_ttl", "POST", role_path, role(token_ttl="768h")),
-            ("role_long_max_ttl", "POST", role_path, role(token_max_ttl="768h")),
-            ("role_default_policy_on", "POST", role_path, role(token_no_default_policy=False)),
-            ("role_policy_default", "POST", role_path, role(token_policies="default")),
-            ("role_policy_writer", "POST", role_path, role(token_policies="rehearsal-openbao-writer")),
-            ("role_policy_comma_list", "POST", role_path, role(token_policies=f"rehearsal-app-reader-{RUN},default")),
-            ("role_deprecated_policies_param", "POST", role_path, role(policies="default")),
-            ("role_period_param", "POST", role_path, role(token_period="24h")),
-            ("role_cidr_param", "POST", role_path, role(token_bound_cidrs="0.0.0.0/0")),
+            ("role_write_wrong_accessor_check_role", "POST", "auth/kubernetes/role/t9-check-wrong-accessor", role()),
+            ("role_read_blocked_by_required_parameters", "GET", role_a, None),
+            # (1) token_policies is exactly the operator policy.
+            ("role_policy_evil_name", "POST", role_a, role(token_policies="rehearsal-app-reader-evil")),
+            ("role_policy_reader_prefixed_name", "POST", role_a, role(token_policies=render.rehearsal_role_name(NS_A))),
+            ("role_policy_glob_value", "POST", role_a, role(token_policies="rehearsal-app-reader*")),
+            ("role_policy_trailing_space", "POST", role_a, role(token_policies="rehearsal-app-reader ")),
+            ("role_policy_comma_list", "POST", role_a, role(token_policies="rehearsal-app-reader,default")),
+            ("role_policy_json_list", "POST", role_a, role(token_policies=["rehearsal-app-reader"])),
+            ("role_policy_default", "POST", role_a, role(token_policies="default")),
+            ("role_policy_writer", "POST", role_a, role(token_policies="rehearsal-openbao-writer")),
+            ("role_policy_target_reader", "POST", role_a, role(token_policies="target-app-reader")),
+            ("role_policy_missing", "POST", role_a, role(token_policies=None)),
+            ("role_deprecated_policies_param", "POST", role_a, role(policies="default")),
+            # (3) Namespace: rehearsal-* only, never the management namespace or the legacy
+            #     rehearsal-control*, no lists or globs.
+            ("role_ns_management_namespace", "POST", role_a, role(bound_service_account_namespaces=render.WRITER_NAMESPACE)),
+            ("role_ns_target_dev", "POST", role_a, role(bound_service_account_namespaces="target-dev")),
+            ("role_ns_bravo_secrets", "POST", role_a, role(bound_service_account_namespaces="bravo-secrets")),
+            ("role_ns_default", "POST", role_a, role(bound_service_account_namespaces="default")),
+            ("role_ns_kube_system", "POST", role_a, role(bound_service_account_namespaces="kube-system")),
+            ("role_ns_legacy_control", "POST", role_a, role(bound_service_account_namespaces="rehearsal-control")),
+            ("role_ns_legacy_control_suffix", "POST", role_a, role(bound_service_account_namespaces="rehearsal-control-x")),
+            ("role_ns_legacy_control_trailing_space", "POST", role_a, role(bound_service_account_namespaces="rehearsal-control ")),
+            ("role_ns_trailing_space", "POST", role_a, role(bound_service_account_namespaces=f"{NS_A} ")),
+            ("role_ns_comma_list", "POST", role_a, role(bound_service_account_namespaces=f"{NS_A},target-dev")),
+            ("role_ns_comma_two_rehearsal", "POST", role_a, role(bound_service_account_namespaces=f"{NS_A},{NS_B}")),
+            ("role_ns_glob_value", "POST", role_a, role(bound_service_account_namespaces="rehearsal-*")),
+            ("role_ns_star", "POST", role_a, role(bound_service_account_namespaces="*")),
+            ("role_ns_json_list", "POST", role_a, role(bound_service_account_namespaces=[NS_A])),
+            ("role_ns_selector_param", "POST", role_a, role(bound_service_account_namespace_selector='{"matchLabels":{}}')),
+            ("role_ns_missing", "POST", role_a, role(bound_service_account_namespaces=None)),
+            # Other fixed fields.
+            ("role_sa_writer", "POST", role_a, role(bound_service_account_names=render.WRITER_ACCOUNT)),
+            ("role_sa_comma_list", "POST", role_a, role(bound_service_account_names="rehearsal-eso-reader,rehearsal-openbao-writer")),
+            ("role_sa_star", "POST", role_a, role(bound_service_account_names="*")),
+            ("role_missing_audience", "POST", role_a, role(audience=None)),
+            ("role_other_audience", "POST", role_a, role(audience="kubernetes")),
+            ("role_long_ttl", "POST", role_a, role(token_ttl="768h")),
+            ("role_long_max_ttl", "POST", role_a, role(token_max_ttl="768h")),
+            ("role_default_policy_on", "POST", role_a, role(token_no_default_policy=False)),
+            ("role_period_param", "POST", role_a, role(token_period="24h")),
+            ("role_cidr_param", "POST", role_a, role(token_bound_cidrs="0.0.0.0/0")),
+            ("role_alias_name_source_param", "POST", role_a, role(alias_name_source="serviceaccount_name")),
             ("sys_auth_enable", "POST", "sys/auth/other", {"type": "kubernetes"}),
             ("sys_auth_read", "GET", "sys/auth", None),
+            ("sys_auth_kubernetes_read", "GET", "sys/auth/kubernetes", None),
             ("sys_mounts_enable", "POST", "sys/mounts/other", {"type": "kv"}),
             ("kubernetes_config_write", "POST", "auth/kubernetes/config", {"kubernetes_host": "https://example.invalid"}),
             ("token_create_child", "POST", "auth/token/create", {"policies": ["rehearsal-openbao-writer"]}),
             ("identity_entity_write", "POST", "identity/entity", {"name": "x"}),
+            ("identity_entity_alias_write", "POST", "identity/entity-alias", {"name": "x", "mount_accessor": accessor}),
         ]
         for name, method, path, body in denied:
             case(name, "deny", outcome(bao.call(method, path, writer, body)[0]))
@@ -378,68 +515,135 @@ def main():
         case("kv_get_traversal_redirect_target", "secret/data/bravo/target/precutover/database", cleaned)
         case("kv_get_traversal_followed", "deny", outcome(bao.call("GET", cleaned, writer)[0]))
 
-        # 4. The run's reader: exact namespace, this run's path only.
-        reader = bao.login(f"rehearsal-app-reader-{RUN}", kube.token(READER_NS, "rehearsal-eso-reader"))
-        case("reader_login_bound_namespace", "allow", "allow" if reader else "deny")
-        case("reader_login_other_rehearsal_namespace", "deny",
-             "allow" if bao.login(f"rehearsal-app-reader-{RUN}", kube.token(OTHER_NS, "rehearsal-eso-reader")) else "deny")
-        if reader:
-            case("reader_get_own_run", "allow", outcome(bao.call("GET", f"secret/data/bravo/rehearsal/{RUN}/database", reader)[0]))
-            case("reader_get_other_run", "deny", outcome(bao.call("GET", f"secret/data/bravo/rehearsal/{OTHER_RUN}/database", reader)[0]))
-            case("reader_get_target", "deny", outcome(bao.call("GET", "secret/data/bravo/target/precutover/database", reader)[0]))
-            case("reader_write_own_run", "deny", outcome(bao.call(
-                "POST", f"secret/data/bravo/rehearsal/{RUN}/database", reader, {"options": {"cas": 1}, "data": synthetic})[0]))
-
-        # 5. Escalation: a reader-named policy whose body grants bravo/target, bound by a role
-        #    that passes every parameter constraint. Recorded as observed, not assumed.
+        # 4. Previous escalation (16d8483 evidence), replayed: every step now fails.
         evil = "rehearsal-app-reader-evil"
-        evil_body = 'path "secret/data/bravo/target/*" { capabilities = ["read"] }\n'
-        case("escalation_policy_body_grants_target", "allow",
-             outcome(bao.call("PUT", f"sys/policies/acl/{evil}", writer, {"policy": evil_body})[0]),
-             "residual risk: the ACL cannot inspect the policy body")
+        case("escalation_policy_body_grants_target", "deny",
+             outcome(bao.call("PUT", f"sys/policies/acl/{evil}", writer, evil_body)[0]),
+             "A안: the writer has no sys/policies access")
+        case("escalation_bind_evil_policy_to_reader_sa", "deny", outcome(bao.call(
+            "POST", f"auth/kubernetes/role/{evil}", writer, role(bound_service_account_namespaces=NS_B, token_policies=evil))[0]),
+            "token_policies must be exactly rehearsal-app-reader")
         case("escalation_bind_evil_policy_to_writer_itself", "deny", outcome(bao.call(
             "POST", f"auth/kubernetes/role/{evil}", writer,
             role(bound_service_account_names=render.WRITER_ACCOUNT, bound_service_account_namespaces=render.WRITER_NAMESPACE,
                  token_policies=evil))[0]))
-        case("escalation_bind_evil_policy_to_reader_sa", "allow", outcome(bao.call(
-            "POST", f"auth/kubernetes/role/{evil}", writer, role(bound_service_account_namespaces=OTHER_NS, token_policies=evil))[0]),
-            "allowed by every parameter constraint")
-        holder = bao.login(evil, kube.token(OTHER_NS, "rehearsal-eso-reader"))
-        status = bao.call("GET", "secret/data/bravo/target/precutover/database", holder)[0] if holder else 403
-        case("escalation_reader_sa_token_reads_target", "allow", outcome(status),
-             "needs a token for rehearsal-eso-reader in a rehearsal-* namespace, which the writer SA alone cannot mint")
-        writer_self = bao.login(evil, kube.token(render.WRITER_NAMESPACE, render.WRITER_ACCOUNT))
-        case("escalation_writer_sa_logs_into_evil_role", "deny", "allow" if writer_self else "deny")
+        holder = bao.login(evil, kube.token(NS_B, READER))
+        case("escalation_reader_sa_login_evil_role", "deny", "allow" if holder else "deny")
+        root_view = bao.call("GET", f"sys/policies/acl/{evil}", root)[0]
+        case("escalation_evil_policy_absent", 404, root_view)
+
+        # 5. (2) Readers: login only in the bound namespace; read only their own namespace path.
+        reader_a = bao.login(render.rehearsal_role_name(NS_A), kube.token(NS_A, READER))
+        reader_b = bao.login(render.rehearsal_role_name(NS_B), kube.token(NS_B, READER))
+        case("reader_a_login_role_a", "allow", "allow" if reader_a else "deny")
+        case("reader_b_login_role_b", "allow", "allow" if reader_b else "deny")
+        case("reader_b_login_role_a", "deny", "allow" if bao.login(render.rehearsal_role_name(NS_A), kube.token(NS_B, READER)) else "deny")
+        case("reader_a_login_role_b", "deny", "allow" if bao.login(render.rehearsal_role_name(NS_B), kube.token(NS_A, READER)) else "deny")
+        case("reader_sa_in_control_login_role_a", "deny",
+             "allow" if bao.login(render.rehearsal_role_name(NS_A), kube.token(render.WRITER_NAMESPACE, READER)) else "deny")
+        case("reader_sa_in_target_dev_login_role_a", "deny",
+             "allow" if bao.login(render.rehearsal_role_name(NS_A), kube.token("target-dev", READER)) else "deny")
+        case("reader_a_default_audience", "deny",
+             "allow" if bao.login(render.rehearsal_role_name(NS_A), kube.token(NS_A, READER, None)) else "deny")
+        if reader_a:
+            info = bao.call("GET", "auth/token/lookup-self", reader_a)[1].get("data", {})
+            results["reader_token"] = {"policies": info.get("policies"), "ttl": info.get("ttl")}
+            case("reader_a_token_policies", [render.READER_POLICY], info.get("policies"))
+            case("reader_a_get_own_namespace", "allow", outcome(bao.call("GET", path_a, reader_a)[0]))
+            case("reader_a_get_namespace_b", "deny", outcome(bao.call("GET", path_b, reader_a)[0]))
+            case("reader_a_get_prefix_sibling_namespace", "deny", outcome(bao.call("GET", path_prefix, reader_a)[0]))
+            case("reader_a_get_target", "deny", outcome(bao.call("GET", "secret/data/bravo/target/precutover/database", reader_a)[0]))
+            case("reader_a_get_target_objects", "deny", outcome(bao.call("GET", "secret/data/bravo/target/objects", reader_a)[0]))
+            case("reader_a_get_subtree_root", "deny", outcome(bao.call("GET", "secret/data/bravo/rehearsal/database", reader_a)[0]))
+            case("reader_a_get_writer_namespace_path", "deny", outcome(bao.call(
+                "GET", f"secret/data/bravo/rehearsal/{render.WRITER_NAMESPACE}/database", reader_a)[0]))
+            case("reader_a_write_own_namespace", "deny", outcome(bao.call(
+                "POST", path_a, reader_a, {"options": {"cas": 2}, "data": synthetic})[0]))
+            case("reader_a_metadata_own_namespace", "deny", outcome(bao.call(
+                "GET", path_a.replace("/data/", "/metadata/", 1), reader_a)[0]))
+            case("reader_a_list_subtree", "deny", outcome(bao.call("LIST", "secret/metadata/bravo/rehearsal/", reader_a)[0]))
+            case("reader_a_policy_read", "deny", outcome(bao.call("GET", f"sys/policies/acl/{render.READER_POLICY}", reader_a)[0]))
+            case("reader_a_role_write", "deny", outcome(bao.call("POST", role_a, reader_a, reader_role)[0]))
+            case("reader_a_token_create", "deny", outcome(bao.call("POST", "auth/token/create", reader_a, {})[0]))
+        if reader_b:
+            case("reader_b_get_own_namespace", "allow", outcome(bao.call("GET", path_b, reader_b)[0]))
+            case("reader_b_get_namespace_a", "deny", outcome(bao.call("GET", path_a, reader_b)[0]))
+            case("reader_b_get_target", "deny", outcome(bao.call("GET", "secret/data/bravo/target/precutover/database", reader_b)[0]))
+        cross = bao.login("rehearsal-app-reader-crossname", kube.token(NS_A, READER))
+        case("crossname_role_login_a", "allow", "allow" if cross else "deny")
+        if cross:
+            case("crossname_role_reads_own_namespace_only", "allow", outcome(bao.call("GET", path_a, cross)[0]))
+            case("crossname_role_namespace_b", "deny", outcome(bao.call("GET", path_b, cross)[0]))
+        wrong = bao.login("t9-check-wrong-accessor", kube.token(NS_A, READER))
+        case("wrong_accessor_policy_login", "allow", "allow" if wrong else "deny", "root-made check role")
+        if wrong:
+            case("wrong_accessor_policy_fails_closed", "deny", outcome(bao.call("GET", path_a, wrong)[0]),
+                 "template does not resolve, rule skipped")
+        for token in (reader_a, reader_b, cross, wrong):
+            if token:
+                bao.call("POST", "auth/token/revoke-self", token, {})
+        for path in ("auth/kubernetes/role/t9-check-wrong-accessor", "sys/policies/acl/t9-check-wrong-accessor"):
+            bao.call("DELETE", path, root)
 
         # 6. Cleanup through the writer's own grants, then revoke.
         for name, method, path in [
-            ("cleanup_role_delete", "DELETE", role_path), ("cleanup_evil_role_delete", "DELETE", f"auth/kubernetes/role/{evil}"),
-            ("cleanup_policy_delete", "DELETE", f"sys/policies/acl/rehearsal-app-reader-{RUN}"),
-            ("cleanup_other_policy_delete", "DELETE", f"sys/policies/acl/rehearsal-app-reader-{OTHER_RUN}"),
-            ("cleanup_evil_policy_delete", "DELETE", f"sys/policies/acl/{evil}"),
-            ("cleanup_kv_data_delete", "DELETE", f"secret/data/bravo/rehearsal/{OTHER_RUN}/database"),
-            ("cleanup_kv_metadata_delete", "DELETE", f"secret/metadata/bravo/rehearsal/{RUN}/database"),
-            ("cleanup_kv_metadata_delete_other", "DELETE", f"secret/metadata/bravo/rehearsal/{OTHER_RUN}/database"),
+            ("cleanup_role_delete_a", "DELETE", role_a), ("cleanup_role_delete_b", "DELETE", role_b),
+            ("cleanup_role_delete_crossname", "DELETE", role_cross),
+            ("cleanup_kv_data_delete_b", "DELETE", path_b),
+            ("cleanup_kv_metadata_delete_a", "DELETE", path_a.replace("/data/", "/metadata/", 1)),
+            ("cleanup_kv_metadata_delete_b", "DELETE", path_b.replace("/data/", "/metadata/", 1)),
+            ("cleanup_kv_metadata_delete_prefix_sibling", "DELETE", path_prefix.replace("/data/", "/metadata/", 1)),
         ]:
             case(name, "allow", outcome(bao.call(method, path, writer)[0]))
         case("token_revoke_self", "allow", outcome(bao.call("POST", "auth/token/revoke-self", writer, {})[0]))
         case("revoked_token_unusable", "deny", outcome(bao.call("GET", "auth/token/lookup-self", writer)[0]))
 
-        # 7. Real network path: the labelled writer Job in rehearsal-control, then negatives.
-        kube.apply(writer_job(READER_NS))
-        kube.run("wait", "--for=condition=complete", "job/writer-check", "-n", render.WRITER_NAMESPACE, "--timeout=120s", check=False)
-        logs = kube.run("logs", "job/writer-check", "-n", render.WRITER_NAMESPACE, check=False).stdout
-        expected = {"pod_login": "allow", "pod_kv_put_rehearsal": "allow", "pod_kv_get_rehearsal": "allow",
-                    "pod_kv_get_target": "deny", "pod_reader_policy_write": "allow", "pod_reader_role_write": "allow",
-                    "pod_reader_role_delete": "allow", "pod_reader_policy_delete": "allow",
-                    "pod_kv_metadata_delete": "allow", "pod_revoke_self": "allow"}
+        # 7. (4) Happy path through Pods: labelled writer Job prepares namespace A, the rendered
+        #    init container in A fetches credentials.json, a second writer Job cleans up.
+        kube.apply(writer_job("writer-prepare", WRITER_PREPARE, NS_A))
+        kube.run("wait", "--for=condition=complete", "job/writer-prepare", "-n", render.WRITER_NAMESPACE, "--timeout=120s", check=False)
+        logs = kube.run("logs", "job/writer-prepare", "-n", render.WRITER_NAMESPACE, check=False).stdout
         seen = dict(line.split()[1:3] for line in logs.splitlines() if line.startswith("RESULT "))
-        for name, want in expected.items():
+        for name, want in {"pod_login": "allow", "pod_kv_put_namespace_path": "allow", "pod_kv_get_namespace_path": "allow",
+                           "pod_kv_get_target": "deny", "pod_policy_write_operator_reader": "deny",
+                           "pod_policy_write_evil": "deny", "pod_reader_role_write": "allow",
+                           "pod_revoke_self": "allow"}.items():
             case(name, want, seen.get(name, "missing"))
+
+        # Without a reader ingress peer the rendered NetworkPolicy blocks the init container.
+        kube.apply(reader_pod("reader-no-peer", NS_A, READER_POD_LABEL))
+        phase, init_code = pod_phase(kube, NS_A, "reader-no-peer")
+        results["network"]["reader_init_without_peer"] = {"phase": phase, "init_exit": init_code}
+        case("reader_init_blocked_without_reader_peer", "Failed", phase, "rendered network policy has no rehearsal reader peer")
+        kube.apply(test_only_reader_peer())
+        time.sleep(3)
+        kube.apply(reader_pod("reader-fetch", NS_A, READER_POD_LABEL))
+        phase, init_code = pod_phase(kube, NS_A, "reader-fetch")
+        results["network"]["reader_init_with_test_peer"] = {"phase": phase, "init_exit": init_code}
+        case("reader_init_fetch_succeeds", "Succeeded", phase, "test-only reader ingress peer")
+        app_logs = kube.run("logs", "reader-fetch", "-n", NS_A, "-c", "app", check=False).stdout
+        app = {line.split()[1]: line.split()[2:] for line in app_logs.splitlines() if line.startswith("RESULT ")}
+        case("reader_credentials_file_written", ["ok", "mode=400"], app.get("credentials_file", "missing"))
+        case("reader_no_temp_file_left", ["0"], app.get("tmp_files", "missing"))
+
+        kube.apply(writer_job("writer-cleanup", WRITER_CLEANUP, NS_A))
+        kube.run("wait", "--for=condition=complete", "job/writer-cleanup", "-n", render.WRITER_NAMESPACE, "--timeout=120s", check=False)
+        logs = kube.run("logs", "job/writer-cleanup", "-n", render.WRITER_NAMESPACE, check=False).stdout
+        seen = dict(line.split()[1:3] for line in logs.splitlines() if line.startswith("RESULT "))
+        for name in ("pod_cleanup_login", "pod_reader_role_delete", "pod_kv_metadata_delete", "pod_cleanup_revoke_self"):
+            case(name, "allow", seen.get(name, "missing"))
+        case("after_cleanup_role_absent", 404, bao.call("GET", role_a, root)[0])
+        case("after_cleanup_kv_absent", 404, bao.call("GET", path_a, root)[0])
+        case("after_cleanup_reader_login", "deny",
+             "allow" if bao.login(render.rehearsal_role_name(NS_A), kube.token(NS_A, READER)) else "deny")
+        case("after_cleanup_operator_policy_kept", 200, bao.call("GET", f"sys/policies/acl/{render.READER_POLICY}", root)[0])
+
+        # 8. Real network path for the writer label (unchanged rendered policy).
         for name, namespace, labels, want in [
             ("np_writer_label_in_control", render.WRITER_NAMESPACE, render.WRITER_POD_LABEL, 0),
             ("np_unlabelled_in_control", render.WRITER_NAMESPACE, {}, "blocked"),
-            ("np_writer_label_in_rehearsal_ns", READER_NS, render.WRITER_POD_LABEL, "blocked"),
+            ("np_writer_label_in_rehearsal_ns", NS_B, render.WRITER_POD_LABEL, "blocked"),
+            ("np_writer_label_in_legacy_control", render.LEGACY_WRITER_NAMESPACE, render.WRITER_POD_LABEL, "blocked"),
         ]:
             kube.apply(probe_pod(name.replace("_", "-"), namespace, labels))
             code = pod_exit(kube, namespace, name.replace("_", "-"))
@@ -448,6 +652,7 @@ def main():
             case(name, want, actual)
     finally:
         forward.terminate()
+    results["init_substitutions"] = [list(pair) for pair in INIT_SUBSTITUTIONS]
     results["summary"] = {"total": len(results["cases"]), "failed": [c["name"] for c in results["cases"] if not c["pass"]]}
     Path(args.output).write_text(json.dumps(results, indent=2) + "\n")
     print(json.dumps(results["summary"]))

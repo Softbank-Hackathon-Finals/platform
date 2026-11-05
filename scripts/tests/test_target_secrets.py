@@ -109,7 +109,7 @@ class DeliveryBoundaryTests(unittest.TestCase):
              "podSelector": {"matchLabels": {"app.kubernetes.io/name": "external-secrets"}}},
             {"namespaceSelector": {"matchLabels": {"kubernetes.io/metadata.name": "target-dev"}},
              "podSelector": {"matchLabels": {"bravo-secret-probe": "true"}}},
-            {"namespaceSelector": {"matchLabels": {"kubernetes.io/metadata.name": "rehearsal-control"}},
+            {"namespaceSelector": {"matchLabels": {"kubernetes.io/metadata.name": "bravo-rehearsal-control"}},
              "podSelector": {"matchLabels": {"app.kubernetes.io/component": "rehearsal-openbao-writer"}}},
         ])
         for stage, expected in (("network", "bravo-secrets"), ("eso-network", "external-secrets")):

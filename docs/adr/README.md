@@ -17,7 +17,7 @@
 | 8.3 · 8.4 `rehearsal.exec` 동작 범위(정해진 동작 3종)와 실행 위치(API · 도구용 Pod)(T15) | [0024 rehearsal.exec 동작과 실행 위치](0024-rehearsal-exec-actions.md) |
 | 8.4 `rehearsal.exec` AI 공간과 채점 공간 분리 · 러너 순서(T15) | [0025 rehearsal.exec 공간 분리와 순서](0025-rehearsal-exec-spaces-and-order.md) |
 | 8.4 · 8.6 `rehearsal.exec` 기록 범위와 실패 처리 · 사유 전달(T15) | [0026 rehearsal.exec 기록과 실패 처리](0026-rehearsal-exec-records-and-failures.md) |
-| 8.4 시험용 OpenBao 경로의 리허설 쓰기 identity와 잔여 위험(T9·T15) | [0027 리허설 OpenBao 쓰기 identity](0027-rehearsal-openbao-writer.md) |
+| 8.4 시험용 OpenBao 경로의 리허설 쓰기 identity와 잔여 위험(T9·T15) | [0029 리허설 OpenBao 쓰기 identity](0029-rehearsal-openbao-writer.md) |
 | 7.3·8.5 보안 결과 형식·인증 | [0001 탐지 결과 형식](0001-security-finding-format.md), [0005 T33 보안 경계](0005-t33-security-boundary.md) |
 | 8.5·8.9 등록 앱 식별자와 계획의 평가 프로필(T10·T14·T19) | [0027 계획과 평가 프로필 결속](0027-plan-evaluation-profile.md) |
 | 7.5·8.3 플랫폼 자체 서비스의 GitFlow·Helm·Argo CD 배포(T43, 제안) | [0028 플랫폼 GitOps 배포](0028-platform-gitops-delivery.md) |
