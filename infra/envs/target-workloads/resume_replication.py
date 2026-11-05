@@ -21,6 +21,7 @@ Connections come only from the environment. Output is one JSON document without 
 driver messages. Exit 0 means the checks passed; anything not confirmed exits 1.
 """
 import argparse
+import hashlib
 import json
 import os
 import sys
@@ -47,12 +48,13 @@ REVERSE = names("source")[2]
 PUBLICATION = subscription("target")["spec"]["publicationName"]
 APPLICATION_NAME = "t8_resume"
 # timezone: a row's text, and so its hash, must not depend on either server's default.
-READ_ONLY_OPTIONS = "-c default_transaction_read_only=on -c statement_timeout=120000 -c timezone=UTC"
-CONTROL_OPTIONS = "-c statement_timeout=10000 -c lock_timeout=5000"
+TRUSTED_SEARCH_PATH = "-c search_path=pg_catalog,pg_temp"
+READ_ONLY_OPTIONS = "-c default_transaction_read_only=on -c statement_timeout=120000 -c timezone=UTC " + TRUSTED_SEARCH_PATH
+CONTROL_OPTIONS = "-c statement_timeout=10000 -c lock_timeout=5000 " + TRUSTED_SEARCH_PATH
 # bravo_cutover.contract.LEASE_HOLDING: an execution in one of these still owns the databases.
 LEASE_HOLDING = ("PENDING", "RUNNING", "SAFE_HOLD")
 USABLE_WAL_STATUS = ("reserved", "extended")
-CURRENT_DATABASE = "(SELECT oid FROM pg_database WHERE datname = current_database())"
+CURRENT_DATABASE = "(SELECT oid FROM pg_database WHERE datname = pg_catalog.current_database())"
 # Catalog joins, not to_regclass: naming a schema the role has no USAGE on raises instead of returning NULL.
 BARRIER_TABLE = """(SELECT c.oid FROM pg_class AS c JOIN pg_namespace AS n ON n.oid = c.relnamespace
                     WHERE n.nspname = 'cutover' AND c.relname = 'barrier')"""
@@ -63,8 +65,8 @@ STATEMENTS = {
     "source_status": f"""
         SELECT json_build_object(
             'source_observed_at', now(),
-            'system_identifier', (SELECT system_identifier::text FROM pg_control_system()),
-            'database', current_database(), 'slot_database', s.database,
+            'system_identifier', (SELECT system_identifier::text FROM pg_catalog.pg_control_system()),
+            'database', pg_catalog.current_database(), 'slot_database', s.database,
             'in_recovery', pg_is_in_recovery(),
             'source_wal_flush_lsn', CASE WHEN pg_is_in_recovery() THEN NULL ELSE pg_current_wal_flush_lsn()::text END,
             'barrier_published', EXISTS (SELECT FROM pg_publication_tables WHERE pubname = %(publication)s
@@ -98,8 +100,8 @@ STATEMENTS = {
     "target_status": f"""
         SELECT json_build_object(
             'target_observed_at', now(),
-            'system_identifier', (SELECT system_identifier::text FROM pg_control_system()),
-            'database', current_database(),
+            'system_identifier', (SELECT system_identifier::text FROM pg_catalog.pg_control_system()),
+            'database', pg_catalog.current_database(),
             'in_recovery', pg_is_in_recovery(),
             'target_app_login', (SELECT rolcanlogin FROM pg_roles WHERE rolname = 'chat_app'),
             'app_sessions', (SELECT count(*) FROM pg_stat_activity
@@ -165,8 +167,8 @@ STATEMENTS = {
     # INSERT and SELECT. The DELETE's WHERE clause needs SELECT as well.
     "probe_status": f"""
         SELECT json_build_object(
-            'system_identifier', (SELECT system_identifier::text FROM pg_control_system()),
-            'database', current_database(), 'in_recovery', pg_is_in_recovery(),
+            'system_identifier', (SELECT system_identifier::text FROM pg_catalog.pg_control_system()),
+            'database', pg_catalog.current_database(), 'in_recovery', pg_is_in_recovery(),
             'allowed', coalesce(has_table_privilege(current_user, {BARRIER_TABLE}, 'INSERT')
                                 AND has_table_privilege(current_user, {BARRIER_TABLE}, 'DELETE')
                                 AND has_table_privilege(current_user, {BARRIER_TABLE}, 'SELECT')
@@ -180,7 +182,9 @@ PROBE_EPOCH = 0
 PROBE_INSERT = "INSERT INTO cutover.barrier (barrier_id, epoch) VALUES (%s, %s)"
 # The epoch keeps it off the Executor's rows, which always have one of 1 or more.
 PROBE_DELETE = "DELETE FROM cutover.barrier WHERE barrier_id = %s AND epoch = %s"
-PROBE_IDENTITY = "SELECT (SELECT system_identifier::text FROM pg_control_system()), current_database()"
+PROBE_IDENTITY = "SELECT (SELECT system_identifier::text FROM pg_catalog.pg_control_system()), pg_catalog.current_database()"
+MARKER_LOCK = "SELECT pg_catalog.pg_advisory_xact_lock(%s)"
+MARKER_PROTOCOL = "serialized-v1"
 ERROR_FIELDS = ("target_apply_errors", "target_sync_errors", "target_conflicts")
 STAGE_SOURCE_FIELDS = ("source_observed_at", "reverse_enabled", "source_slot_active", "source_slot_wal_status",
                        "source_slot_invalidated", "source_sender_state", "source_sender_tls", "source_slot_confirmed_flush_lsn")
@@ -248,8 +252,14 @@ def write_marker(dsn, statement, params, identity):
     with connect(dsn, options=CONTROL_OPTIONS) as connection:
         if connection.execute(PROBE_IDENTITY).fetchone() != (identity["system_identifier"], identity["database"]):
             raise ProbeTargetChanged
+        # The INSERT is submitted only after this lock is acknowledged. A later DELETE
+        # must acquire the same lock, so a lost COMMIT response cannot race cleanup.
+        # A collision only delays a different marker until lock_timeout; it cannot
+        # change which UUID/epoch the fixed statements affect.
+        key = int.from_bytes(hashlib.sha256(("bravo:t8:marker:v1:" + str(params[0])).encode()).digest()[:8], byteorder="big", signed=True)
+        connection.execute(MARKER_LOCK, (key,))
         connection.execute(statement, params)
-        return connection.execute("SELECT pg_current_wal_insert_lsn()::text").fetchone()[0]
+        return connection.execute("SELECT pg_catalog.pg_current_wal_insert_lsn()::text").fetchone()[0]
 
 
 def describe(error):
@@ -554,7 +564,7 @@ def wait_for(condition, *, elapsed, timeout, poll, sleep):
 
 def new_marker_report(barrier_id):
     """Submissions are what was sent. Commits are what is known: 1 from an answer or a read, None if neither came."""
-    return {"barrier_id": barrier_id, "passed": False, "insert_lsn_before_commit": None, "delete_lsn_before_commit": None,
+    return {"barrier_id": barrier_id, "protocol": MARKER_PROTOCOL, "passed": False, "insert_lsn_before_commit": None, "delete_lsn_before_commit": None,
             "same_row_on_both_sides_when_present": None, "source_insert_submissions": 0, "source_insert_commits": 0,
             "source_delete_submissions": 0, "source_delete_commits": 0, "barrier": None, "delete_arrived": None,
             "cleanup": "not_started"}
@@ -566,16 +576,16 @@ def note_error(report, error):
     report["sqlstate"] = getattr(error, "sqlstate", None)
 
 
-def remove_marker(write, read_target_row, read_source_row, report, wait):
+def remove_marker(write, read_target_row, read_source_row, report, wait, *, read_target_applied=None):
     """Take one row off the source and confirm by reading on both sides. An answer alone proves neither."""
     barrier_id = report["barrier_id"]
 
     def remove():
         row = read_source_row()
-        if report["source_insert_commits"] is None:
-            report["source_insert_commits"] = 0 if row is None else 1
-        if row is None:
-            return True
+        if report["source_insert_commits"] is None and row is not None:
+            report["source_insert_commits"] = 1
+        # Even a currently absent row can belong to an INSERT awaiting COMMIT.
+        # DELETE takes the transaction lock before examining or changing that row.
         report["source_delete_submissions"] += 1
         try:
             report["delete_lsn_before_commit"] = write(PROBE_DELETE, (barrier_id, PROBE_EPOCH))
@@ -586,19 +596,32 @@ def remove_marker(write, read_target_row, read_source_row, report, wait):
         return read_source_row() is None
 
     gone = wait(remove)
-    if gone and report["source_delete_submissions"]:
-        report["source_delete_commits"] = 1  # Its answer may have been lost, but the row was there and now is not.
-    report["delete_arrived"] = wait(lambda: read_target_row() is None) if gone else None
+
+    def target_gone():
+        if read_target_row() is not None:
+            return False
+        if report.get("barrier"):
+            return True  # This run already observed the INSERT on the target.
+        # Before INSERT was observed, target absence could simply mean that both
+        # INSERT and DELETE are still in transit. Require actual apply progress.
+        floor = parse_lsn(report["delete_lsn_before_commit"])
+        applied = parse_lsn(read_target_applied()) if read_target_applied else None
+        return floor is not None and applied is not None and applied >= floor
+
+    report["delete_arrived"] = wait(target_gone) if gone else None
     pending = [side for side, done in (("source", gone), ("target", report["delete_arrived"])) if not done]
     report["cleanup"] = "pending" if pending else "confirmed"
     if pending:
         report["pending_on"] = pending
         report["resume"] = (f"resume_replication.py --cleanup-marker {barrier_id} "
-                            "--source-system-id <source> --target-system-id <target>")
+                            f"--marker-protocol {MARKER_PROTOCOL} --source-system-id <source> --target-system-id <target>")
+    else:
+        report.pop("pending_on", None)
+        report.pop("resume", None)
 
 
 def barrier_probe(write, read_target_row, read_source_row, barrier_id, *, on_delivered, on_cleaned, elapsed, timeout, poll,
-                  sleep=time.sleep):
+                  sleep=time.sleep, read_target_applied=None):
     """One row through the whole path: a new write has to arrive, and its delete has to follow it.
 
     The insert is sent once. If its answer is lost the commit may still have happened, so only this run's id
@@ -625,7 +648,7 @@ def barrier_probe(write, read_target_row, read_source_row, barrier_id, *, on_del
                 on_delivered()
         except Exception as error:  # noqa: BLE001 - See note_error().
             note_error(report, error)
-    remove_marker(write, read_target_row, read_source_row, report, wait)
+    remove_marker(write, read_target_row, read_source_row, report, wait, read_target_applied=read_target_applied)
     if report["barrier"] and report["delete_arrived"]:
         try:
             on_cleaned()
@@ -722,6 +745,9 @@ class Run:
             report["refusals"] = ["invalid_barrier_id"]
         if report["refusals"]:
             return
+        if args.marker_protocol != MARKER_PROTOCOL:
+            report["refusals"] = ["marker_protocol_unconfirmed"]
+            return
         state = gather(self.source_dsn, self.target_dsn, None, True, self.probe_dsn)
         state.pop("executor")  # Not read here: removing a marker by its id touches nothing an execution uses.
         if "errors" in state:
@@ -747,11 +773,13 @@ class Run:
         report["stage"] = "cleanup"
         self.clock_start = time.monotonic()
         marker = report["marker"] = new_marker_report(barrier_id)
+        marker["source_insert_commits"] = None
 
         def wait(condition):
             return wait_for(condition, elapsed=self.elapsed, timeout=args.probe_timeout, poll=args.probe_poll, sleep=time.sleep)
 
-        remove_marker(self.writer(source), lambda: self.marker_rows(barrier_id, self.target_dsn), source_row, marker, wait)
+        remove_marker(self.writer(source), lambda: self.marker_rows(barrier_id, self.target_dsn), source_row, marker, wait,
+                      read_target_applied=lambda: read_target(self.target_dsn)["target_origin_remote_lsn"])
         report["passed"] = marker["passed"] = marker["cleanup"] == "confirmed"
 
     def send_marker(self, source):
@@ -761,7 +789,8 @@ class Run:
                                lambda: self.marker_rows(barrier_id, self.target_dsn),
                                lambda: self.marker_rows(barrier_id, self.source_dsn), barrier_id,
                                on_delivered=lambda: self.stage("delivered"), on_cleaned=lambda: self.stage("cleaned"),
-                               elapsed=self.elapsed, timeout=self.args.probe_timeout, poll=self.args.probe_poll)
+                               elapsed=self.elapsed, timeout=self.args.probe_timeout, poll=self.args.probe_poll,
+                               read_target_applied=lambda: read_target(self.target_dsn)["target_origin_remote_lsn"])
         report["marker"] = marker
         if marker.get("barrier"):
             self.firsts["barrier"] = {**marker["barrier"], "db_utc": report["stages"].get("delivered", {}).get("target_observed_at")}
@@ -886,6 +915,8 @@ def main(argv, environ):
                         help="enable the forward subscription if it is off, and send one barrier row through it")
     action.add_argument("--cleanup-marker", metavar="BARRIER_ID",
                         help="finish a cleanup a failed run reported as pending: remove only this test row from the source")
+    parser.add_argument("--marker-protocol", choices=[MARKER_PROTOCOL],
+                        help="required with --cleanup-marker: copy the protocol from the original marker report; legacy runs need manual settlement")
     parser.add_argument("--source-system-id", help="required to write: the source identifier printed by a dry run")
     parser.add_argument("--target-system-id", help="required to write: the target identifier printed by a dry run")
     parser.add_argument("--source-write-block", choices=["on", "off"], default="not_read",

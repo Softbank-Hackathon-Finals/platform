@@ -653,9 +653,9 @@ def run_paths():
         proxy.close()
         marker = stranded["report"].get("marker", {})
         left_behind = source.execute("SELECT count(*) FROM cutover.barrier WHERE barrier_id = %s", (marker.get("barrier_id"),)).fetchone()[0]
-        refused_other = run_tool(lab, "--cleanup-marker", str(other), *identity, "--probe-timeout", "3")
-        finished = run_tool(lab, "--cleanup-marker", marker.get("barrier_id"), *identity, "--probe-timeout", "20")
-        again = run_tool(lab, "--cleanup-marker", marker.get("barrier_id"), *identity, "--probe-timeout", "20")
+        refused_other = run_tool(lab, "--cleanup-marker", str(other), "--marker-protocol", "serialized-v1", *identity, "--probe-timeout", "3")
+        finished = run_tool(lab, "--cleanup-marker", marker.get("barrier_id"), "--marker-protocol", marker["protocol"], *identity, "--probe-timeout", "20")
+        again = run_tool(lab, "--cleanup-marker", marker.get("barrier_id"), "--marker-protocol", marker["protocol"], *identity, "--probe-timeout", "20")
         other_survived = source.execute("SELECT count(*) FROM cutover.barrier WHERE barrier_id = %s", (other,)).fetchone()[0] == 1
         source.execute("DELETE FROM cutover.barrier WHERE barrier_id = %s", (other,))
         wait_until(lambda: barrier_counts(source, target) == [0, 0], 20)

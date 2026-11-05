@@ -530,7 +530,8 @@ MARKER_ROW = {"barrier_id": "id-1", "epoch": 0, "created_at": "t"}
 
 
 class BarrierProbeTests(unittest.TestCase):
-    def probe(self, target_rows, *, refused=(), answers_lost=(), source_unreadable=False, timeout=3, on_delivered=None, on_cleaned=None):
+    def probe(self, target_rows, *, refused=(), answers_lost=(), source_unreadable=False, timeout=3, on_delivered=None, on_cleaned=None,
+              applied=None):
         """refused never reaches the database. answers_lost is applied there and then the client hears nothing."""
         clock = Clock()
         sequence = iter(target_rows)
@@ -563,7 +564,8 @@ class BarrierProbeTests(unittest.TestCase):
         report = resume.barrier_probe(write, read_target, read_source, "id-1",
                                       on_delivered=on_delivered or (lambda: stages.append("delivered")),
                                       on_cleaned=on_cleaned or (lambda: stages.append("cleaned")),
-                                      elapsed=clock, timeout=timeout, poll=1, sleep=clock.sleep)
+                                      elapsed=clock, timeout=timeout, poll=1, sleep=clock.sleep,
+                                      read_target_applied=(lambda: applied) if applied else None)
         self.source_row_left = source["row"]
         return report, [kind for kind, _ in writes], stages, writes
 
@@ -606,21 +608,22 @@ class BarrierProbeTests(unittest.TestCase):
         self.assertFalse(report["passed"])
         self.assertFalse(report["same_row_on_both_sides_when_present"])
 
-    def test_a_refused_insert_is_read_back_and_has_nothing_to_delete(self):
+    def test_an_absent_unconfirmed_insert_is_not_reported_as_uncommitted(self):
         class Denied(Exception):
             sqlstate = "42501"
 
         report, kinds, _, _ = self.probe([None], refused={"INSERT": Denied(f"password={SECRET}")})
         self.assertFalse(report["passed"])
-        self.assertEqual((report["source_insert_submissions"], report["source_insert_commits"]), (1, 0))
-        self.assertEqual(report["source_delete_submissions"], 0)
-        self.assertEqual(report["cleanup"], "confirmed")
-        self.assertEqual(kinds, ["INSERT"])
+        self.assertEqual((report["source_insert_submissions"], report["source_insert_commits"]), (1, None))
+        self.assertEqual(report["source_delete_submissions"], 1)
+        self.assertEqual(report["cleanup"], "pending")
+        self.assertEqual(report["pending_on"], ["target"])
+        self.assertEqual(kinds, ["INSERT", "DELETE"])
         self.assertEqual((report["error_category"], report["sqlstate"]), ("Denied", "42501"))
         self.assertNotIn(SECRET, json.dumps(report))
 
     def test_a_commit_whose_answer_was_lost_is_found_by_reading_and_removed(self):
-        report, kinds, stages, _ = self.probe([None], answers_lost=["INSERT"])
+        report, kinds, stages, _ = self.probe([None], answers_lost=["INSERT"], applied="0/1C000270")
         self.assertEqual((report["source_insert_submissions"], report["source_insert_commits"]), (1, 1))
         self.assertIsNone(report["insert_lsn_before_commit"])
         self.assertEqual(kinds, ["INSERT", "DELETE"])
@@ -629,6 +632,14 @@ class BarrierProbeTests(unittest.TestCase):
         self.assertEqual(report["error_category"], "OSError")
         self.assertFalse(report["passed"])
         self.assertEqual(stages, [])
+
+    def test_absent_target_before_apply_reaches_delete_is_still_pending(self):
+        for applied in (None, "0/1C000200"):
+            with self.subTest(applied=applied):
+                report, _, _, _ = self.probe([None], answers_lost=["INSERT"], applied=applied)
+                self.assertEqual(report["cleanup"], "pending")
+                self.assertEqual(report["pending_on"], ["target"])
+                self.assertIsNone(report["delete_arrived"])
 
     def test_the_insert_is_never_sent_twice(self):
         for case in ({"answers_lost": ["INSERT"]}, {"refused": ("INSERT",)}, {"answers_lost": ["INSERT"], "refused": ("DELETE",)},
@@ -713,7 +724,8 @@ class WriteMarkerTests(unittest.TestCase):
             position = resume.write_marker("dsn", resume.PROBE_INSERT, ("id", 0), self.IDENTITY)
         self.assertEqual(position, "0/1C0001B0")
         self.assertEqual(connection.statements[0], resume.PROBE_IDENTITY)
-        self.assertEqual(connection.statements[1], resume.PROBE_INSERT)
+        self.assertEqual(connection.statements[1], resume.MARKER_LOCK)
+        self.assertEqual(connection.statements[2], resume.PROBE_INSERT)
 
     def test_a_session_on_another_cluster_or_database_writes_nothing(self):
         for seen in ((TARGET_ID, "chat"), (SOURCE_ID, "other")):
@@ -1313,7 +1325,13 @@ class CleanupMarkerTests(unittest.TestCase):
         return code, json.loads(buffer.getvalue()), writes
 
     def command(self, *extra):
-        return ("--cleanup-marker", self.MARKER_ID, *PINS, "--probe-poll", "0", "--probe-timeout", "0", *extra)
+        return ("--cleanup-marker", self.MARKER_ID, "--marker-protocol", resume.MARKER_PROTOCOL, *PINS, "--probe-poll", "0", "--probe-timeout", "0", *extra)
+
+    def test_legacy_cleanup_without_serialization_receipt_is_refused(self):
+        code, report, writes = self.run_cleanup("--cleanup-marker", self.MARKER_ID, *PINS)
+        self.assertEqual(code, 1)
+        self.assertEqual(report["refusals"], ["marker_protocol_unconfirmed"])
+        self.assertEqual(writes, [])
 
     def test_it_removes_only_the_named_row_of_the_verified_source(self):
         code, report, writes = self.run_cleanup(*self.command())
@@ -1340,10 +1358,11 @@ class CleanupMarkerTests(unittest.TestCase):
         self.assertIn("source_wrong_database", report["refusals"])
         self.assertEqual(writes, [])
 
-    def test_a_row_that_is_already_gone_needs_no_write(self):
+    def test_an_absent_row_still_requires_serialized_cleanup(self):
         code, report, writes = self.run_cleanup(*self.command(), source_row=False)
         self.assertEqual(code, 0, report)
-        self.assertEqual(writes, [])
+        self.assertEqual([w[0] for w in writes], [resume.PROBE_DELETE])
+        self.assertIsNone(report["marker"]["source_insert_commits"])
 
     def test_a_row_of_another_execution_is_refused_and_kept(self):
         code, report, writes = self.run_cleanup(*self.command(), epoch=7)
@@ -1363,7 +1382,7 @@ class CleanupMarkerTests(unittest.TestCase):
         self.assertEqual(report["marker"]["cleanup"], "pending")
 
     def test_it_needs_the_identifiers_and_a_probe_on_the_verified_source(self):
-        code, report, writes = self.run_cleanup("--cleanup-marker", self.MARKER_ID)
+        code, report, writes = self.run_cleanup("--cleanup-marker", self.MARKER_ID, "--marker-protocol", resume.MARKER_PROTOCOL)
         self.assertEqual(code, 1)
         self.assertIn("source_identity_not_pinned", report["refusals"])
         self.assertEqual(writes, [])

@@ -432,22 +432,26 @@ ENABLE 권한이 없어 `no_enable_privilege`만 남았다면 권한을 넓히�
 `--apply`는 따라잡은 뒤 `cutover.barrier`에 `epoch` 0인 행 하나를 넣고, 목적지 도착을 기다렸다가 지우고, 삭제 도착까지 기다린다.
 INSERT는 한 번만 보낸다. 지우는 것은 이 실행의 UUID이면서 `epoch`가 0인 행뿐이고, 목적지 행은 지우지 않고 보고만 한다. 다른 실행의 행에는 손대지 않는다.
 
-제출과 확인을 나눠 적는다. `*_submissions`는 보낸 횟수이고, `*_commits`는 응답이나 출발지 재조회로 확인한 결과다. 커밋한 뒤 응답만 끊기면 재조회로 찾아 지운다. `source_insert_commits`가 `null`이면 재조회도 실패해 커밋 여부를 모른다는 뜻이다.
+제출과 확인을 나눠 적는다. `*_submissions`는 보낸 횟수이고, `*_commits`는 응답이나 출발지 재조회로 확인한 결과다. 커밋한 뒤 응답만 끊기면 재조회로 찾아 지운다. `source_insert_commits`가 `null`이면 커밋 여부를 모른다는 뜻이다. 응답 유실 직후 행이 보이지 않는 것만으로 0으로 바꾸지 않는다.
 
 `marker.cleanup`은 다음 둘 중 하나다.
 
 | 값 | 뜻 | 다음 행동 |
 | --- | --- | --- |
-| `confirmed` | 출발지와 목적지에서 행이 없음을 읽어 확인했다 | 없음. 왕복이 실패했다면 원인을 고쳐 `--apply`를 다시 돌린다. 새 UUID로 보낸다 |
+| `confirmed` | 같은 UUID의 INSERT가 끝난 뒤 삭제를 커밋하고, 목적지 삭제 반영과 양쪽 행 부재를 확인했다 | 없음. 왕복이 실패했다면 원인을 고쳐 `--apply`를 다시 돌린다. 새 UUID로 보낸다 |
 | `pending` | 없음을 확인하지 못했다. `pending_on`이 어느 쪽인지 알려 준다 | `marker.resume`의 명령을 대조값을 채워 돌린다 |
 
 ```sh
-infra/envs/target-workloads/resume_replication.py --cleanup-marker <barrier_id> --source-system-id <값> --target-system-id <값>
+infra/envs/target-workloads/resume_replication.py --cleanup-marker <barrier_id> --marker-protocol serialized-v1 --source-system-id <값> --target-system-id <값>
 ```
 
-`--cleanup-marker`는 ENABLE이나 INSERT를 하지 않고, 이미 지워졌으면 쓰기 없이 통과한다. 여러 번 돌려도 된다. `pending_on`이 `target`뿐이면 출발지 삭제는 끝난 것이다. 복제가 멈춰 있을 수 있으니 구독 상태를 먼저 본다. 목적지 행은 이 명령도 지우지 않는다.
+`--cleanup-marker`는 ENABLE이나 INSERT를 하지 않는다. 행이 보이지 않아도 같은 UUID의 트랜잭션 잠금을 얻은 뒤 DELETE를 커밋하므로, 앞선 INSERT의 늦은 COMMIT을 지나쳐 정리 완료로 보고하지 않는다. 여러 번 돌려도 된다. `pending_on`이 `target`뿐이면 출발지 삭제는 끝난 것이다. 복제가 멈춰 있을 수 있으니 구독 상태를 먼저 본다. 목적지 행은 이 명령도 지우지 않는다.
 
-응답이 끊긴 직후 재조회에 행이 없으면 커밋 0으로 적는다. 커밋이 그 뒤에 늦게 서버에 닿는 경우까지는 막지 못하므로, 응답 유실이 있었던 실행(`error_category`)은 같은 명령으로 한 번 더 확인할 수 있다.
+새 실행은 `marker.protocol=serialized-v1`을 기록한다. INSERT는 UUID에서 계산한 트랜잭션 advisory lock을 얻었다는 응답을 받은 뒤에만 제출하며, DELETE도 같은 잠금을 얻는다. 잠금 대기가 제한 시간을 넘으면 `cleanup=pending`으로 남는다. 목적지 INSERT를 관측하지 못한 실행은 행 부재에 더해 origin 적용 위치가 삭제 전 WAL 위치 이상인지 확인한다. origin을 읽을 권한이 없거나 적용이 멈췄으면 성공으로 바꾸지 않는다.
+
+정리 명령의 `--marker-protocol`은 원래 실행 기록에서 복사한다. 이 필드가 없는 이전 도구의 기록에는 잠금 보장이 없으므로 새 명령이 거부한다. 이전 실행에 이 값을 임의로 추가하지 말고, 원래 서버 세션의 종료와 커밋 상태를 운영자가 확인한 뒤 별도로 정리한다.
+
+읽기·쓰기 연결의 `search_path`는 `pg_catalog,pg_temp`로 고정하고, DB 이름과 클러스터 신원 함수는 `pg_catalog`를 명시한다. 따라서 `public.current_database()` 같은 함수나 DB 기본 `search_path`가 등록된 DB 신원을 대신할 수 없다.
 
 `cutover.barrier`는 기본 `schema.sql`의 publication에 없다. 환경마다 추가하고 구독을 `copy_data=false`로 갱신하는 단계다
 ([T12 계약](../../../docs/contracts/T12-platform-integration.md)). 그래서 재개의 조건으로 삼지 않고 사전 확인에서 읽는다.
@@ -464,7 +468,7 @@ infra/envs/target-workloads/resume_replication.py --cleanup-marker <barrier_id> 
 
 ### 시험
 
-아래 첫 명령은 의존성 없이 돈다. 나머지 네 명령은 `t8-lag-` 컨테이너를 띄우고 지운다.
+아래 첫 명령은 의존성 없이 돈다. 이어지는 네 명령은 `t8-lag-` 컨테이너를 띄우고 지운다.
 
 ```sh
 python3 -m unittest discover -s scripts/tests -p 'test_resume_replication.py'
@@ -473,3 +477,12 @@ infra/envs/target-workloads/testing/replication_resume_lab.py refusals --out ref
 infra/envs/target-workloads/testing/replication_resume_lab.py paths --out paths.json
 infra/envs/target-workloads/testing/replication_resume_lab.py timeouts --out timeouts.json
 ```
+
+두 결함의 TLS/실제 PostgreSQL 회귀 시험은 별도로 실행한다. Docker와 OpenSSL이 필요하며, 임의 비밀번호와 localhost 포트의 일회용 DB만 사용한다. 시험은 소유 라벨로 컨테이너·네트워크를 확인하고 정리한다.
+
+```sh
+T8_RESUME_WIRE=1 uv run --with pytest --with 'psycopg[binary]==3.3.6' \
+  pytest infra/envs/target-workloads/testing/test_resume_replication_wire.py -q
+```
+
+2026-11-05 수정 및 앱 TLS 시험 범위는 [후속 검증 기록](../../../docs/evidence/t8-resume-fixes-2026-11-05/README.md)에 있다.
