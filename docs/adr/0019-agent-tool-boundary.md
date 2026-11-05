@@ -40,3 +40,11 @@
 ## 5. 실측 (Evidence)
 
 로컬 `services/agent-worker` 시험 323개 통과(새 시험: 소스 경로 정책 9, inventory.describe 3, policy.evaluate 6, 파괴 시도 기록 5). 실제 모델 호출 실측은 아직 없다.
+
+## 6. 보완: 재시작 뒤 시도 이어 가기 (2026-11-06)
+
+* **배경:** coordinator의 시도 수·상태·제안·영수증이 프로세스 메모리에만 있어, 러너가 재시작하면 2~3번째 시도를 이어 갈 수 없었다. 새 프로세스가 시도 수를 0부터 세면 3회 상한이 무너진다.
+* **결정:** T11은 `Coordinator.export_state()`·`Coordinator.restore()`와 상태 전이마다 부르는 `checkpoint`를 제공한다. 저장은 T10/T15가 한다. 모델 호출 전에 `ANALYZING`을 먼저 저장(write-ahead)하고, 그 저장이 실패하면 모델을 부르지 않는다. `ANALYZING`으로 저장된 상태는 결과를 모르므로 `NEEDS_HUMAN`으로 복원하고 그 시도를 쓴 것으로 센다. 복원은 `state_digest`와 내용 규칙(시도 기록 수, 3회 상한, 상태와 기록·영수증의 일치, snapshot·inventory digest)을 모두 확인하고, 하나라도 어긋나면 이어 가지 않는다. 필드 목록은 [T11 README](../../services/agent-worker/README.md#재시작과-상태-보존).
+* **감사 사유 추가:** `RESTART_OUTCOME_UNKNOWN`, `STATE_CHECKPOINT_FAILED`(`tool=coordinator`, `outcome=STOPPED`).
+* **한계:** `state_digest`는 서명이 아니다. 위조 방지와 단일 실행(같은 `revision`에서 두 프로세스가 동시에 시작하는 것)은 T10 저장소의 접근 제어와 `revision` 비교 후 쓰기에 달려 있다. T10·T15 저장 연결과 실제 재시작 운영은 미검증이다.
+* **실측:** 로컬 시험 `tests/test_coordinator_state.py`(왕복, 변조 거부, ANALYZING→NEEDS_HUMAN, 재시작을 넘는 3회 상한, OpenAI 모의 전송으로 실패→재시도→통과, 별도 프로세스 재개, `bravo-agent analyze --state-output`). 실제 모델·T10 저장소 연결 실측은 없다.

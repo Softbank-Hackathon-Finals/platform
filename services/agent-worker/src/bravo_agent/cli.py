@@ -21,6 +21,17 @@ def bounded_json(path: Path, limit: int):
     return json.loads(data)
 
 
+def write_state(path: Path, state: dict) -> None:
+    """Replace the state file atomically; a crash leaves the previous complete state."""
+    temporary = path.with_name(path.name + ".tmp")
+    with temporary.open("x", encoding="utf-8") as stream:
+        json.dump(state, stream, sort_keys=True)
+        stream.write("\n")
+        stream.flush()
+        os.fsync(stream.fileno())
+    os.replace(temporary, path)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     commands = parser.add_subparsers(dest="command", required=True)
@@ -30,16 +41,24 @@ def main() -> int:
         analyze.add_argument("--" + argument, type=Path, required=True)
     analyze.add_argument("--model", required=True, help="Explicit provider model ID")
     analyze.add_argument("--provider", choices=("chatgpt-plan", "openai", "claude"), default="chatgpt-plan")
+    analyze.add_argument("--state-output", type=Path,
+                         help="New file for the write-ahead coordinator state (T10 persists it)")
     args = parser.parse_args()
     if args.command == "schema":
         print(json.dumps(Proposal.model_json_schema(), indent=2))
         return 0
     try:
-        if args.output.exists():
+        if args.output.exists() or (args.state_output is not None and args.state_output.exists()):
             raise ValueError("output already exists")
         bundle = FailureBundle.model_validate(bounded_json(args.bundle, 16384))
         manifest = SnapshotManifest.model_validate(bounded_json(args.manifest, 32768))
-        coordinator = Coordinator(bundle, Snapshot(args.snapshot.resolve(), manifest))
+        checkpoint = None
+        if args.state_output is not None:
+            state_output = args.state_output.resolve()
+
+            def checkpoint(state):
+                write_state(state_output, state)
+        coordinator = Coordinator(bundle, Snapshot(args.snapshot.resolve(), manifest), checkpoint=checkpoint)
         with tempfile.TemporaryDirectory(prefix="bravo-agent-") as directory:
             runtime = Path(directory)
             environment = isolated_environment(dict(os.environ), runtime, args.provider)
