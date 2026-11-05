@@ -1,0 +1,61 @@
+{
+  "source_revision": "d0ace7bc1e8ef49d1385a386cf80519ce7cd2e5e",
+  "source_files": [
+    {
+      "path": "infra/envs/target-workloads/resume_replication.py",
+      "sha256": "e822f0ea0462ade83f47bcf2c3b9b24a1846450e4cf7fdbd48c8db64246517b4"
+    },
+    {
+      "path": "infra/envs/target-workloads/testing/test_resume_replication_wire.py",
+      "sha256": "aa9e0125ae3cf5355457b34e08adaa8452a8c422f67c739fc55ada7be782d1c8"
+    },
+    {
+      "path": "scripts/tests/test_resume_replication.py",
+      "sha256": "952dae4faf8a91624b4eaed8ca1141ac4d4765269205dce3bede05c5da0edd6e"
+    }
+  ],
+  "review_url": "https://github.com/Softbank-Hackathon-Finals/platform/pull/292#pullrequestreview-5782902648",
+  "baseline_revision": "2a8ec83160d5deec59e0e22c98c6e783a3996a4f",
+  "baseline": {
+    "upper": "confirmed while original COMMIT still waiting; late row arrived on both sides",
+    "compact": "confirmed while original COMMIT still waiting; late row arrived on both sides",
+    "regression_expected_failures": 2
+  },
+  "corrected": {
+    "upper": "pending until original COMMIT ends; later serialized cleanup confirmed; rows zero on both sides",
+    "compact": "pending until original COMMIT ends; later serialized cleanup confirmed; rows zero on both sides",
+    "canonical_v1_key_compatible": true,
+    "restricted_scope": "disposable local PostgreSQL18.4 TLS/logical replication only",
+    "wire_tests": {
+      "passed": 4,
+      "failed": 0
+    },
+    "unit_tests": {
+      "passed": 145
+    },
+    "repository_tests": {
+      "run": 742,
+      "skipped": 7,
+      "failed": 0
+    },
+    "ruff": "PASS",
+    "cloud_or_shared_database_calls": 0
+  },
+  "artifacts": [
+    {
+      "artifact": "uuid-baseline.log",
+      "sha256": "dd19542ded5858f20f070a5c751aac2245bdf6aa8c21f0c8ca2989b58982d8c8",
+      "visibility": "private"
+    },
+    {
+      "artifact": "uuid-fixed-wire.log",
+      "sha256": "88021e8fe1d25965a249ed4342f7bc225dd333fc5223ace952d32f04d77f1aa5",
+      "visibility": "private"
+    },
+    {
+      "artifact": "uuid-repository-tests.log",
+      "sha256": "ba0bf46a0f8a98b871120d4aab914ed99a84f6ff996dada2fb09c25f0ad393b0",
+      "visibility": "private"
+    }
+  ]
+}
