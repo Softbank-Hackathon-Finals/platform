@@ -1,12 +1,54 @@
 import asyncio
 import copy
+import io
 import json
+import time
+import urllib.error
+import urllib.request
 
 import pytest
 
 from bravo_agent import verification
 from bravo_agent.contracts import Proposal
 from bravo_agent.coordinator import Coordinator
+
+
+@pytest.mark.parametrize("case,exit_code", [("good", 0), ("bad", 1), ("refused", None)])
+def test_verifier_observes_first_http_response_after_startup_refusal(case, exit_code, monkeypatch, capsys):
+    elapsed = 0.0
+    connections = []
+
+    def sleep(seconds):
+        nonlocal elapsed
+        elapsed += seconds
+
+    def open_url(url, timeout):
+        assert 0 < timeout <= 10
+        connections.append(url)
+        if len(connections) == 1 or case == "refused":
+            raise urllib.error.URLError(ConnectionRefusedError())
+        if case == "good" and url == "http://missing:8080/":
+            raise urllib.error.HTTPError(url, 503, "unavailable", {}, io.BytesIO(b'{"missing": true}'))
+        response = io.BytesIO(json.dumps({"value": "injected" if case == "good" else "localhost"}).encode())
+        response.status = 200
+        return response
+
+    monkeypatch.setattr(time, "monotonic", lambda: elapsed)
+    monkeypatch.setattr(time, "sleep", sleep)
+    monkeypatch.setattr(urllib.request, "urlopen", open_url)
+    for name, value in {"PRESENT_HOST": "present", "MISSING_HOST": "missing", "EXPECTED_VALUE": "injected"}.items():
+        monkeypatch.setenv(name, value)
+    if exit_code is None:
+        with pytest.raises(TimeoutError, match="candidate connection unavailable"):
+            exec(verification.VERIFIER, {})
+        assert elapsed == 10
+        assert capsys.readouterr().out == ""
+    else:
+        with pytest.raises(SystemExit) as stopped:
+            exec(verification.VERIFIER, {})
+        assert stopped.value.code == exit_code
+        assert connections == ["http://present:8080/", "http://present:8080/", "http://missing:8080/"]
+        assert json.loads(capsys.readouterr().out) == {"injected_value": case == "good", "missing_value_closed": case == "good"}
 
 
 def result_for(context):

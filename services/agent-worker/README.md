@@ -17,7 +17,18 @@
 | `subscription_admin.py` | 관리자 등록·상태·모델 목록·구독 워커 실행 |
 | `cli.py` | 플랫폼에서 한 번 실행하고 제안·감사 기록을 새 파일로 저장 |
 
-도구는 정본의 화이트리스트 중 `repo.read`, `plan.propose` 두 개만 연다. OpenAI 함수 이름은 `repo_read`, `plan_propose`이며 Claude MCP 이름은 `mcp__bravo__repo_read`, `mcp__bravo__plan_propose`다. 같은 정책 핸들러를 사용한다. 아직 제공하지 않는 `inventory.describe`, `rehearsal.exec`, `rehearsal.run/result`, `policy.evaluate`를 동작한다고 표시하지 않는다.
+도구는 정본의 화이트리스트 중 `repo.read`, `plan.propose`, `policy.evaluate`, `inventory.describe` 네 개를 연다. OpenAI 함수 이름은 `repo_read`, `plan_propose`, `policy_evaluate`, `inventory_describe`이며 Claude MCP 이름은 `mcp__bravo__` 접두사를 붙인 같은 이름이다. 모두 같은 정책 핸들러(`Tools.dispatch`)를 사용한다.
+
+| 도구 | 하는 일 | 경계 |
+|---|---|---|
+| `repo.read` | manifest에 있는 정확한 경로의 snapshot 파일 읽기 | 경로 정책 + 내용 해시 + 비밀 패턴 거부 |
+| `plan.propose` | 스키마에 맞는 제안서 1건 제출 | 파괴 명령 · wildcard 권한 · 비밀 패턴 거부, 수정 가능 경로만 |
+| `policy.evaluate` | 후보 정책 · 교체 텍스트를 `plan.propose`와 같은 검사로 미리 린트 | 부작용 없음. `PASS`는 "이 검사에서 거부되지 않음"이지 안전 증명이 아니다 |
+| `inventory.describe` | T16 인벤토리의 모델용 부분집합(항목 · 등급 · 코드 참조 위치) 읽기 | 제어 경로가 `InventorySummary`를 붙인 실행에서만 제공. snippet · 배포 속성 · 환경변수 값은 전달하지 않는다 |
+
+`rehearsal.exec`, `rehearsal.run/result`는 아직 제공하지 않는다. 호출하면 거부되며 감사 사유는 `TOOL_NOT_PROVIDED`로 일반 미허용(`TOOL_NOT_ALLOWED`)과 구분한다. 어떤 도구든 인자에 버킷 삭제 · 네임스페이스 삭제 · DROP/TRUNCATE · rm -rf · terraform destroy 패턴이 있으면 사유 `DESTRUCTIVE_ATTEMPT_BLOCKED`와 코드가 정한 `category`(`bucket_delete` 등)만 기록하고 원문은 기록하지 않는다. 이것이 설계 8.4 데모 장면("정리를 이유로 한 버킷 삭제 시도 차단")의 감사 기록이다.
+
+소스 경로 정책: 디렉터리 `secrets/` · `credentials/`, 키 파일(`.pem` · `.key` · `.p12` · `.tfstate`), 이름에 `credential` · `private_key`가 든 파일, 테스트 파일은 계속 거부한다. 이름에 `secret`이 든 **코드 파일**(`.py` · `.ts` · `.go` 등)은 읽을 수 있다. demo-chat의 `app/db_secret.py`가 Secrets Manager 직접 호출을 고쳐야 하는 바로 그 파일이기 때문이다. 내용은 여전히 `safe_text`를 거치므로 자격증명 리터럴이 들어 있으면 읽기가 거부된다(가리지 않고 거부한다: 가린 내용을 기준으로 제안하면 교체본과 원본 해시가 어긋난다).
 
 ## 실행
 
@@ -88,10 +99,10 @@ Action·Resource 배열의 모든 원소와 Principal 객체 안의 배열까지
 | 독립 결과 | 다음 상태 |
 |---|---|
 | 결속 일치, PASS, 효과 확인 | `AWAITING_APPROVAL` — 승인·반영은 별도 |
-| 결속 일치, FAIL, 효과 확인, 시도 1~2 | `RETRY_ALLOWED` — 새 실패 요약을 다음 시도에 전달 |
+| 결속 일치, FAIL, 효과 확인, 시도 1~2 | `RETRY_ALLOWED` — 새 실패 요약을 다음 시도에 전달. 모델 입력은 `task`(원 작업: 목적 · 수정 가능 파일) + `failure`(최신 검증 피드백) + `attempt` + `snapshot`이며 재시도에서도 `task`는 바뀌지 않는다(`Tools.model_input`) |
 | FAIL 3회, UNKNOWN, 효과 미확인, 결속 불일치 | `NEEDS_HUMAN` |
 
-실패 영수증에는 같은 run/revision/evidence에 결속된 새 `FailureBundle`이 필요하다. 각 시도의 정리된 입력·제안과 검증 영수증을 결과에 보존한다. 감사 이벤트에는 코드가 정한 도구명·사유·결과만 저장하고 거부된 원시 인자, provider 오류 문자열과 stderr는 저장하지 않는다.
+실패 영수증에는 같은 run/revision/evidence에 결속된 새 `FailureBundle`이 필요하다. Coordinator는 원 작업 번들을 `task`로 보존하고 결과 · 각 시도에 `task_digest`를 남긴다. 러너가 재시작하면 확인되지 않은 시도를 자동 재실행하지 않고 사람에게 넘긴다(시도 기록의 영속화는 T10). 각 시도의 정리된 입력·제안과 검증 영수증을 결과에 보존한다. 감사 이벤트에는 코드가 정한 도구명·사유·결과만 저장하고 거부된 원시 인자, provider 오류 문자열과 stderr는 저장하지 않는다.
 
 허용된 소스 읽기는 경로와 내용 해시를 남긴다. 감사 이벤트가 시도당 128개를 넘으면 초과 여부와 전체 건수를 표시하고 `NEEDS_HUMAN`으로 중단한다. 기록이 잘린 제안을 승인 대기로 넘기지 않는다.
 

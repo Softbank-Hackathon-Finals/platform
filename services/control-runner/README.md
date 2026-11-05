@@ -20,6 +20,8 @@ OpenBao 등록·인증 경계와 T9/T19 인계 조건은 [OpenBao 접근 시험]
 
 TLS 시험의 배치·자격증명 경계와 남은 팀 환경 검증은
 [PostgreSQL TLS 안내](docs/postgres-tls.md)를 따른다.
+기존 앱 경계를 사용하는 별도 수집기의 제한과 호스트 인수 조건은
+[앱 프로세스 TLS 수집기](docs/app-process-tls.md)에 정리한다.
 
 **T14 전체 완료가 아니다.** T6 출발지·T9 목적지와의 실제 연결, 나머지 하위 시험,
 Prowler/kube-bench 실행과 실환경 매핑, 양쪽 환경 통제 비교는 남아 있다.

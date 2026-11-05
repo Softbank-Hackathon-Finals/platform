@@ -32,6 +32,7 @@ class AttemptResult:
     state: Literal["BLOCK", "NEEDS_HUMAN", "RECEIPT_UNVERIFIED"]
     reason: str
     untrusted_receipt: object | None = field(default=None, repr=False, compare=False)
+    proposal: ProposalRef | None = field(default=None, repr=False, compare=False)
 
 
 class Proposer(Protocol):
@@ -59,10 +60,12 @@ class T3Gate:
     kube: Kubectl
     targets: list[Target]
     image: str
+    cleanup_timeout: float = 30
 
     def check(self, namespace: Namespace) -> IsolationPass:
         return check_isolation(
-            self.kube, namespace.name, self.targets, self.image, expected_uid=namespace.uid
+            self.kube, namespace.name, self.targets, self.image, expected_uid=namespace.uid,
+            cleanup_timeout=self.cleanup_timeout,
         )
 
 
@@ -73,6 +76,14 @@ class Verifier(Protocol):
         The adapter must enforce UID identity while executing, not just by name.
         Returned receipt still requires T38 authentication and evidence validation.
         """
+        ...
+
+
+class IsolatedVerifier(Protocol):
+    def verify_isolated(
+        self, proposal: ProposalRef, namespace: Namespace, isolation: IsolationPass
+    ) -> object:
+        """Use the exact T3 result; return an untrusted receipt."""
         ...
 
 
@@ -88,7 +99,8 @@ def _valid_proposal(proposal: object, run_id: str) -> bool:
 
 
 def run_once(
-    task: object, proposer: Proposer, lifecycle: Lifecycle, isolation: IsolationGate, verifier: Verifier
+    task: object, proposer: Proposer, lifecycle: Lifecycle, isolation: IsolationGate,
+    verifier: Verifier | None, *, isolated_verifier: IsolatedVerifier | None = None
 ) -> AttemptResult:
     """Execute one attempt through injected ports; never emit an approval state."""
     run_id = getattr(task, "run_id", None)
@@ -101,6 +113,8 @@ def run_once(
     if (not _valid_proposal(proposal, run_id)
             or getattr(task, "source_sha", None) != proposal.source_sha):
         return AttemptResult("BLOCK", "PROPOSAL_INVALID")
+    if (verifier is None) == (isolated_verifier is None):
+        return AttemptResult("BLOCK", "VERIFIER_CONFIGURATION_INVALID")
     # create() may have succeeded before an error: never retry it automatically.
     try:
         namespace = lifecycle.create(run_id)
@@ -118,12 +132,15 @@ def run_once(
                 or not isolated.probe_run_id.strip()):
             result = AttemptResult("BLOCK", "ISOLATION_IDENTITY_MISMATCH")
         else:
-            receipt = verifier.verify(proposal, namespace)
+            if isolated_verifier is not None:
+                receipt = isolated_verifier.verify_isolated(proposal, namespace, isolated)
+            else:
+                receipt = verifier.verify(proposal, namespace)
             if receipt is None:
                 result = AttemptResult("NEEDS_HUMAN", "RECEIPT_MISSING")
             else:
                 # Receipt/evidence authentication and approval binding are a later boundary.
-                result = AttemptResult("RECEIPT_UNVERIFIED", "RECEIPT_REQUIRES_VALIDATION", receipt)
+                result = AttemptResult("RECEIPT_UNVERIFIED", "RECEIPT_REQUIRES_VALIDATION", receipt, proposal)
     except IsolationBlocked:
         result = AttemptResult("BLOCK", "ISOLATION_BLOCKED")
     except Exception:

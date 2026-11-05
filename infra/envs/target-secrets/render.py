@@ -19,6 +19,11 @@ LABELS = {"component": "target", "app.kubernetes.io/part-of": "bravo-target-secr
 DB_PATH = "bravo/target/precutover/database"
 OBJECT_PATH = "bravo/target/objects"
 ADMIN_PATH = "bravo/target/application-admin"
+# T15 rehearsals read synthetic credentials from their own KV subtree; the application paths
+# above are never readable by a rehearsal identity (design 8.4 "시험용 OpenBao 경로").
+REHEARSAL_PREFIX = "bravo/rehearsal"
+REHEARSAL_NAMESPACE_RE = re.compile(r"^rehearsal-[a-z0-9](?:[-a-z0-9]{0,51}[a-z0-9])?$")
+REHEARSAL_LABEL = {"app.kubernetes.io/part-of": "bravo-rehearsal"}
 
 
 def obj(kind, name, spec=None, namespace=NAMESPACE, api="v1", **fields):
@@ -159,6 +164,102 @@ path "auth/token/revoke-self" { capabilities = ["update"] }
 '''
 
 
+RUN_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$")
+
+
+def _run_id(run_id):
+    if not isinstance(run_id, str) or not RUN_ID_RE.fullmatch(run_id):
+        raise ValueError("rehearsal run id required")
+    return run_id
+
+
+def _rehearsal_namespace(namespace):
+    if not isinstance(namespace, str) or not REHEARSAL_NAMESPACE_RE.fullmatch(namespace):
+        raise ValueError("rehearsal namespace name required")
+    return namespace
+
+
+def rehearsal_policy(run_id):
+    """OpenBao policy ``rehearsal-app-reader-<run>``: exactly this run's KV path. A rehearsal
+    token can read neither another run's path nor anything under ``bravo/target``."""
+    run_id = _run_id(run_id)
+    return f'path "secret/data/{REHEARSAL_PREFIX}/{run_id}/*" {{ capabilities = ["read"] }}' + '''
+path "auth/token/lookup-self" { capabilities = ["read"] }
+path "auth/token/renew-self" { capabilities = ["update"] }
+path "auth/token/revoke-self" { capabilities = ["update"] }
+'''
+
+
+def rehearsal_auth_role(namespace, run_id):
+    """Body for ``auth/kubernetes/role/rehearsal-app-reader-<run>``: the reader ServiceAccount in
+    exactly this rehearsal namespace, with this run's policy only. Explicit namespace binding
+    needs no ``namespaces get`` RBAC for OpenBao (a label selector would), and ties the token's
+    read scope to the run that owns the namespace."""
+    namespace, run_id = _rehearsal_namespace(namespace), _run_id(run_id)
+    return {"bound_service_account_names": ["rehearsal-eso-reader"],
+            "bound_service_account_namespaces": [namespace],
+            "audience": "openbao", "token_policies": [f"rehearsal-app-reader-{run_id}"],
+            "token_ttl": "300s", "token_max_ttl": "900s", "token_no_default_policy": True}
+
+
+def rehearsal_delivery(namespace, run_id):
+    """Objects for one rehearsal namespace: reader ServiceAccount, a SecretStore bound to this
+    run's role, and an ExternalSecret that projects the synthetic credentials under the *same*
+    Secret name the application manifests use, so the candidate image runs unchanged.
+    Note: the scoped ESO release reconciles ``target-dev`` only; see README."""
+    namespace, run_id = _rehearsal_namespace(namespace), _run_id(run_id)
+    remote = f"{REHEARSAL_PREFIX}/{run_id}/database"
+    account = obj("ServiceAccount", "rehearsal-eso-reader", namespace=namespace, automountServiceAccountToken=False)
+    store = obj("SecretStore", "rehearsal-openbao", namespace=namespace, api="external-secrets.io/v1", spec={"provider": {"vault": {
+        "server": "https://target-openbao.bravo-secrets.svc:8200", "path": "secret", "version": "v2",
+        "caProvider": {"type": "ConfigMap", "name": "target-openbao-ca", "key": "ca.crt"},
+        "auth": {"kubernetes": {"mountPath": "kubernetes", "role": f"rehearsal-app-reader-{run_id}",
+                                "serviceAccountRef": {"name": "rehearsal-eso-reader", "audiences": ["openbao"]}}}}}})
+    secret = obj("ExternalSecret", "target-app-credentials", namespace=namespace, api="external-secrets.io/v1", spec={
+        "refreshInterval": "30s", "secretStoreRef": {"kind": "SecretStore", "name": "rehearsal-openbao"},
+        "target": {"name": "target-app-credentials", "creationPolicy": "Owner", "deletionPolicy": "Delete"},
+        "data": [{"secretKey": "credentials.json", "remoteRef": {"key": remote, "property": "credentials_json"}}]})
+    for item in (account, store, secret):
+        item["metadata"]["labels"].update(REHEARSAL_LABEL)
+    return {"apiVersion": "v1", "kind": "List", "items": [account, store, secret]}
+
+
+def rehearsal_fetch_script(run_id):
+    """Shell for the init container. Fetch into a private temp file, check it, replace the
+    target atomically (``mv`` succeeds even over an earlier 0400 file, so a restart on the same
+    emptyDir completes), and always attempt token revocation on exit. A failed fetch leaves no
+    half-written file and exits non-zero, so a stale earlier file is never mistaken for success."""
+    run_id = _run_id(run_id)
+    return (
+        "set -eu; umask 077; "
+        "export BAO_ADDR=https://target-openbao.bravo-secrets.svc:8200 BAO_CACERT=/openbao/ca/ca.crt; "
+        "DIR=/run/bravo/database; OUT=$DIR/credentials.json; TMP=$DIR/.credentials.json.tmp.$$; TOKEN=''; "
+        "cleanup() { rc=$?; rm -f \"$TMP\"; "
+        "if [ -n \"$TOKEN\" ]; then BAO_TOKEN=\"$TOKEN\" bao token revoke -self >/dev/null 2>&1 || echo 'openbao-fetch: token revoke failed' >&2; fi; "
+        "exit $rc; }; trap cleanup EXIT; "
+        "JWT=$(cat /var/run/secrets/openbao/token); "
+        f"TOKEN=$(bao write -field=token auth/kubernetes/login role=rehearsal-app-reader-{run_id} jwt=\"$JWT\"); "
+        f"BAO_TOKEN=\"$TOKEN\" bao kv get -field=credentials_json -mount=secret {REHEARSAL_PREFIX}/{run_id}/database > \"$TMP\"; "
+        "[ -s \"$TMP\" ] || { echo 'openbao-fetch: empty credentials' >&2; exit 1; }; "
+        "grep -q '\"password\"' \"$TMP\" || { echo 'openbao-fetch: unexpected credentials shape' >&2; exit 1; }; "
+        "chmod 0400 \"$TMP\"; mv -f \"$TMP\" \"$OUT\""
+    )
+
+
+def rehearsal_fetch_init_container(run_id):
+    """Alternative to ESO for ``rehearsal-*`` while ESO stays scoped to ``target-dev``: an init
+    container that logs in with the reader ServiceAccount token and writes ``credentials.json``.
+    No secret value appears in this manifest."""
+    run_id = _run_id(run_id)
+    return {"name": "openbao-fetch", "image": BAO_IMAGE, "command": ["/bin/sh", "-c", rehearsal_fetch_script(run_id)],
+            "securityContext": {"allowPrivilegeEscalation": False, "readOnlyRootFilesystem": True,
+                                "runAsNonRoot": True, "capabilities": {"drop": ["ALL"]}},
+            "volumeMounts": [{"name": "bravo-database", "mountPath": "/run/bravo/database"},
+                             {"name": "openbao-ca", "mountPath": "/openbao/ca", "readOnly": True},
+                             {"name": "openbao-token", "mountPath": "/var/run/secrets/openbao", "readOnly": True}],
+            "x-bravo-remote-path": f"secret/data/{REHEARSAL_PREFIX}/{run_id}/database"}
+
+
 def delivery():
     account = obj("ServiceAccount", "target-eso-reader", namespace=APP_NAMESPACE,
                   automountServiceAccountToken=False)
@@ -228,13 +329,18 @@ def main(argv=None):
     parser.add_argument("stage", choices=[
         "foundation", "eso-namespace", "bao-values", "eso-values", "finalize-bao",
         "policy", "delivery", "network", "eso-network",
+        "rehearsal-policy", "rehearsal-auth-role", "rehearsal-delivery", "rehearsal-init-container",
     ])
     parser.add_argument("--node-name")
+    parser.add_argument("--namespace")
+    parser.add_argument("--run-id")
     parser.add_argument("--api-ip")
     parser.add_argument("--api-endpoint-ip")
     args = parser.parse_args(argv)
     if args.stage == "policy":
         print(policy())
+    elif args.stage == "rehearsal-policy":
+        print(rehearsal_policy(args.run_id))
     elif args.stage == "finalize-bao":
         # Only nonsecret, parsed Helm objects belong on this input. JSON makes
         # the renderer independent of an implicit YAML package installation.
@@ -248,7 +354,10 @@ def main(argv=None):
         value = {"foundation": lambda: foundation(args.node_name), "bao-values": bao_values,
                  "eso-namespace": eso_namespace, "eso-values": eso_values, "delivery": delivery,
                  "network": lambda: network(args.api_ip, args.api_endpoint_ip),
-                 "eso-network": lambda: eso_network(args.api_ip, args.api_endpoint_ip)}[args.stage]()
+                 "eso-network": lambda: eso_network(args.api_ip, args.api_endpoint_ip),
+                 "rehearsal-auth-role": lambda: rehearsal_auth_role(args.namespace, args.run_id),
+                 "rehearsal-delivery": lambda: rehearsal_delivery(args.namespace, args.run_id),
+                 "rehearsal-init-container": lambda: rehearsal_fetch_init_container(args.run_id)}[args.stage]()
         print(json.dumps(value, indent=2))
 
 

@@ -3,11 +3,14 @@
 import json
 from dataclasses import asdict, dataclass
 
+from .change import change_key
 from .contract import validate_identifier
-from .cutover import CutoverService, _get, _key, _put, unavailable_authority
+from .cutover import CutoverService, _get, _key, _put, latest_observation, unavailable_authority
 from .executor import _timestamp
+from .failback import FailbackService, active_failback, cutover_checkpoint, failback_key
 from .plan_api import Principal
 from .plans import _digest
+from .rehearsal import require_rehearsals_complete
 from .store import EventError
 
 
@@ -140,7 +143,8 @@ def _observed_run(c, service, plan_id, command_id):
     return None
 
 
-def _satisfied(result, spec, previous, run, now):
+def _satisfied(c, proof, spec, previous, run, now):
+    result = proof.result
     if isinstance(result, Analysis):
         _digest(result.inventory_digest)
         _digest(result.comparison_digest)
@@ -160,8 +164,20 @@ def _satisfied(result, spec, previous, run, now):
     if isinstance(result, Application):
         for value in (result.verification_id, result.approval_id, result.application_id):
             validate_identifier(value)
+        # T31 reports the remote effect. T10 owns the approval and its one-time
+        # claim. Read both under the lock that advances the plan.
+        approval = _get(c, proof.plan_id, change_key("approval", result.approval_id))
+        consumed = _get(c, proof.plan_id, change_key("consumed", result.approval_id))
+        if approval is None or consumed is None:
+            return False
+        claim = consumed[1]
         return (
-            asdict(result.change) == old.get("change")
+            approval[1]["plan_version"] == proof.version
+            and claim["application_id"] == result.application_id
+            and claim["verification_id"] == result.verification_id
+            and claim["binding"]["diff_hash"] == result.change.diff_hash
+            and claim["binding"]["image_digest"] == result.change.image_digest
+            and asdict(result.change) == old.get("change")
             and result.job_passed is True
             and result.deployed_digest == result.change.image_digest
         )
@@ -195,9 +211,11 @@ class WorkflowRecovery:
     Executor runs outside this lock. No client endpoint accepts Evidence.
     """
 
-    def __init__(self, cutover: CutoverService, *, read_evidence=unavailable_authority):
+    def __init__(self, cutover: CutoverService, *, read_evidence=unavailable_authority,
+                 failback: FailbackService | None = None):
         self.cutover = cutover
         self.read_evidence = read_evidence
+        self.failback = failback
 
     def _plan(self, c, principal, plan_id):
         # Use public host access policy on both sides of the out-of-lock GET.
@@ -221,12 +239,19 @@ class WorkflowRecovery:
         with service.store._transaction() as c:
             plan = self._plan(c, principal, plan_id)
             state, version = plan["state"], plan["version"]
-            if state not in STAGES:
+            if state == "FAILBACK":
+                failback_command = active_failback(c, plan_id, version)
+            elif state not in STAGES:
                 return state
             command_id = None
-            if state in ("CUTOVER", "WATCH"):
-                shift_version = version - (1 if state == "CUTOVER" else 2)
-                command_id = _command_for_version(c, plan_id, shift_version)
+            if state == "CUTOVER":
+                command_id = _command_for_version(c, plan_id, version - 1)
+            elif state == "WATCH":
+                # A failed (ABORT_PRE_WRITE) failback returns to WATCH at a later version, so the
+                # cutover run is found from stored records, not version arithmetic (T20 D3).
+                command_id = cutover_checkpoint(c, plan_id)[0]["command_id"]
+        if state == "FAILBACK":
+            return self._resume_failback(principal, plan_id, failback_command)
         if command_id is not None:
             service.reconcile(principal, plan_id, command_id)
 
@@ -234,11 +259,16 @@ class WorkflowRecovery:
             plan = self._plan(c, principal, plan_id)
             if (plan["state"], plan["version"]) != (state, version):
                 return plan["state"]
+            if state == "REHEARSE":
+                require_rehearsals_complete(c, plan)
             run = _observed_run(c, service, plan_id, command_id) if command_id else None
             if command_id and run is None:
                 return state
-            saved = _get(c, plan_id, _checkpoint(version - 1))
-            previous = saved[1] if saved else None
+            if state == "WATCH":
+                previous = cutover_checkpoint(c, plan_id)[1]
+            else:
+                saved = _get(c, plan_id, _checkpoint(version - 1))
+                previous = saved[1] if saved else None
             if state not in ("ANALYZE", "CUTOVER") and previous is None:
                 raise EventError("checkpoint_unavailable")
             # The reader can locate the correct artifacts using prior receipt and run.
@@ -255,7 +285,7 @@ class WorkflowRecovery:
                 raise EventError("workflow_evidence_unavailable")
             validate_identifier(proof.receipt_id)
             now = service.clock()
-            if not _satisfied(proof.result, spec, previous, run, now):
+            if not _satisfied(c, proof, spec, previous, run, now):
                 raise EventError("workflow_condition_unmet")
             _put(c, plan_id, _checkpoint(version), {}, asdict(proof))
             c.execute(
@@ -273,3 +303,18 @@ class WorkflowRecovery:
                 state_owner=True,
             )
             return target
+
+    def _resume_failback(self, principal, plan_id, command_id):
+        """GET only until a committed DONE is stored; afterwards only evidence and the Edge."""
+        if self.failback is None or command_id is None:
+            return "FAILBACK"
+        service = self.failback
+        with service.store._transaction() as c:
+            self._plan(c, principal, plan_id)
+            snapshot = latest_observation(c, plan_id, command_id, failback_key)["snapshot"]
+        if snapshot and snapshot["remote_status"] == "DONE" and snapshot["committed"] is True:
+            service.advance(principal, plan_id, command_id)
+        else:
+            service.reconcile(principal, plan_id, command_id)
+        with service.store._transaction() as c:
+            return self._plan(c, principal, plan_id)["state"]

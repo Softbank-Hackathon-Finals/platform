@@ -69,13 +69,16 @@ resource "aws_iam_instance_profile" "node" {
   role = aws_iam_role.node.name
 }
 resource "aws_instance" "node" {
-  tags          = { Name = var.name }
+  tags = merge({ Name = var.name }, var.subscription_broker_ipv4 == null ? {} : {
+    "bravo:subscription-sts-ipv4" = var.subscription_broker_ipv4
+  })
   ami           = var.ami_id
   instance_type = var.instance_type
   cpu_options {
     core_count       = data.aws_ec2_instance_type.node.default_cores
     threads_per_core = data.aws_ec2_instance_type.node.default_threads_per_core
   }
+  secondary_private_ips       = var.subscription_broker_ipv4 == null ? null : [var.subscription_broker_ipv4]
   subnet_id                   = var.private_subnet_id
   associate_public_ip_address = false
   vpc_security_group_ids      = [aws_security_group.node.id]

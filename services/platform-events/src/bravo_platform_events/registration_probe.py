@@ -30,6 +30,7 @@ class EnvironmentRef:
     ca_file: Path
     read_token: Callable[[], str] = field(repr=False)
     tls_name: str | None = None
+    catalog_role: str | None = field(default=None, kw_only=True)
 
     def __post_init__(self):
         url = urlsplit(self.endpoint)
@@ -38,13 +39,17 @@ class EnvironmentRef:
             raise ValueError("invalid_registration_endpoint")
         if self.kind not in ("aws", "onprem") or not self.database_uid:
             raise ValueError("invalid_environment_reference")
+        if self.catalog_role is not None:
+            allowed = ("source", "target") if self.kind == "onprem" else ("source",)
+            if self.catalog_role not in allowed:
+                raise ValueError("invalid_environment_role")
         for name in (self.namespace, self.database):
             if not re.fullmatch(r"[a-z0-9](?:[-a-z0-9]{0,61}[a-z0-9])?", name):
                 raise ValueError("invalid_resource_name")
 
     @property
     def role(self):
-        return {"aws": "source", "onprem": "target"}[self.kind]
+        return self.catalog_role or {"aws": "source", "onprem": "target"}[self.kind]
 
 
 @dataclass(frozen=True)

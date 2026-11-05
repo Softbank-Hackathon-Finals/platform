@@ -12,6 +12,34 @@ broker 메모리에만 존재하며 인증 값은 GitHub Secrets나 파일로 �
 있다. broker는 팀 구독 Secret 한 개의 Get/Put/UpdateVersionStage만 허용한다.
 두 역할 모두 immutable repository ID, STS audience, 정확한 ref에 결속한다.
 검증 브랜치의 trust는 고정 만료시각을 갖고, 운영 경로는 보호된 develop이다.
+broker 역할의 AWS trust와 전용 STS endpoint 보안 그룹은 broker용 보조 사설 IPv4만
+허용한다. T7 운영자는 비공개 `platform-aws` 변수 `subscription_broker_ipv4`에 같은
+서브넷의 미사용 주소를 지정한다. T7이 기본 ENI에 보조 주소를 할당하고 인스턴스 태그에
+용도를 기록하면, T38은 그 주소가 실제로 할당된 보조 주소인지 확인한다.
+일반 호스트와 Canal Pod가 사용하는 노드 기본 주소는 AWS에서 거부된다.
+
+이 구성은 DHCP로 기본 주소 하나를 받는 T7 Ubuntu 노드에서 사용한다. 보조 주소는
+EC2 ENI에만 할당한다. guest 인터페이스, netplan 주소 목록, 보조 주소를 자동 등록하는
+도구에 넣으면 일반 프로세스도 그 주소에 bind할 수 있어 이 배치 조건을 위반한다.
+설치기는 guest에 이미 등록된 주소를 거부한다. AMI 또는 네트워크 관리자를 바꾸면
+새 호스트에서 이 조건부터 확인한다.
+
+broker guard는 endpoint TCP 443에 한해 전달 패킷과 일반 호스트 연결을 차단한다.
+broker slice의 연결만 허용하고 같은 nft 트랜잭션에서 출발 주소를 보조 IPv4로 바꾼다.
+커널 conntrack이 응답을 원래 소켓에 전달한다. 부팅 때 guard가 없거나 처음 설치에
+실패하면 주소 변환도 생기지 않으므로 AWS가 기본 주소에서 온 연결을 막는다.
+broker는 guard 시작 성공을 요구한다. RKE2는 독립적으로 시작한다.
+
+운영 순서는 T7의 보조 주소 할당, T38의 endpoint 보안 그룹·guard·역할 trust 적용,
+broker slice 연결 성공과 일반 Pod·호스트 연결 거부 대조 순이다. 시험 Pod에서는 별도의
+허용 목적지도 연결해야 한다. Terraform 재계획과 `nft list table inet bravo_broker_sts`로
+규칙을 다시 읽는다. 사설 DNS를 끈 단일 AZ endpoint이므로 다른 STS 사용자는 기존 DNS를 쓴다.
+스택 철거 시 먼저 실행을 닫고 broker trust와 endpoint를 제거한 뒤 호스트의 전용
+guard 서비스·스크립트·slice·`sts.conf` 및 `bravo_broker_sts` 테이블을 정리한다.
+마지막에 T7의 보조 주소를 해제한다.
+
+controller는 GitHub 러너에서 같은 토큰으로 broker 역할의 직접 발급이 거부되는지 한 번 확인한다.
+그 검사에서 발급을 잘못 허용해도 시험 세션에는 모든 API를 거부하는 정책이 적용된다.
 
 `SessionDocumentAccessCheck`를 강제하여 DocumentName을 생략한 기본 shell도 거부한다.
 워크플로는 임의 shell 명령, 기본 shell session, 임의 port session, Secret 목록 조회의
@@ -47,7 +75,10 @@ uv run --directory services/agent-worker python ../../operations/subscription/in
   --settings "$PRIVATE_METADATA_JSON" --instance-id "$DESIGNATED_INSTANCE_ID"
 ```
 
-4. SSM 설치 성공과 서비스 비활성을 확인한다. GitHub repository Secrets에는
+4. broker가 비활성인 작업 창에서 Terraform 계획을 적용한다. SSM association 성공과
+   서비스의 STS endpoint 설정을 확인한 후 새 broker를 시작한다. broker 역할 ARN은
+   `terraform output -raw broker_role_arn | gh secret set BRAVO_SUBSCRIPTION_BROKER_ROLE_ARN`
+   으로 대상 저장소에 등록한다. SSM 설치 성공과 서비스 비활성을 확인한다. GitHub repository Secrets에는
    `BRAVO_SUBSCRIPTION_CONTROLLER_ROLE_ARN`, `BRAVO_SUBSCRIPTION_INSTANCE_ID` 참조만 넣는다.
    Variables에는 `BRAVO_SUBSCRIPTION_SOURCE_SHA`와 명시적 실행 허용
    `BRAVO_SUBSCRIPTION_RUNTIME_ENABLED=true`를 설정한다.
@@ -85,3 +116,119 @@ PASS는 proposal/source/attempt/evidence digest가 일치하는 receipt로 승�
 사람의 변경 승인, T10 영속 저장, 승인 이미지 빌드·T31 배포를 대신하지 않는다.
 이 어댑터는 최초 제안(attempt 1)만 받으며 실패하면 RETRY_ALLOWED를 반환한다.
 최대 3회 규칙은 기존 Coordinator가 담당하지만 이 CLI는 자동 재시도를 실행하지 않는다.
+
+### 합성 실행과 제품 입력
+
+설치된 broker의 `POST /validation/fixture`는 고정 `examples/failure.json`, snapshot manifest, `examples/source`만 읽는다. 공식 `subscription-runtime` controller가 이 경로로 요청하며, 응답의 worker 결과와 VM에 보관한 `proposal.json`에는 `input_kind=synthetic_db_host_fixture`가 붙는다. 이 표기는 합성 DB_HOST 시험 결과의 출처다. controller는 이 값과 설치 소스 SHA, 실행 ID, 검증 영수증이 일치할 때만 합성 결과를 수락한다.
+
+기본 설치의 `POST /run`은 HTTP 503과 `NEEDS_HUMAN / PRODUCT_INPUT_UNAVAILABLE`를 반환한다. 호출자가 bundle·snapshot·입력 종류를 보내도 자격 조회와 모델 실행 전에 종료한다. 제품 경로는 아래 호스트 연결을 명시적으로 제공해야 열린다. 기본 installer·공식 합성 workflow는 이 연결을 설치하지 않는다. 아래의 제품 모드 opt-in과 실제 인증된 T10 조회 서비스가 필요하다.
+
+### 제품 제안 호스트 연결
+
+`subscription_server.product_service(settings, inputs, journal_root)`와
+`serve(settings, product=service)`는 인증된 제품 입력 조회기를 주입하는 호스트 전용
+연결점이다. HTTP에는 `web_identity_token`, 불투명 `input_ref`, `input_digest` 세 필드만
+허용한다. 제품 bundle이나 파일을 직접 제출할 수 없다. 기존 STS trust로 토큰을 검증한
+뒤 STS가 돌려준 Provider·Audience·Subject의 digest를 조회기에 전달한다. 조회기가
+거부하면 구독 Secret과 모델을 호출하지 않는다. 기존 600초·최대 2요청 창을 유지한다.
+
+`ProductInputs.resolve(principal, input_ref)`의 호스트 구현은 호출자의 권한과 용도를
+확인하고, **현재 커밋된 T10 Admission**을 승인된 논리 task·FailureBundle·SnapshotManifest·
+파일에 결속해야 한다. `ProductInput.admission_digest`는 Admission 전체 필드에 기존
+`bravo_agent.contracts.digest`를 적용한 값이고, bundle.run_id는 rehearsal_id다.
+source_sha·attempt·tenant·plan/version·task_digest를 같은 정본에서 대조한다.
+이 권한 확인을 단순 JSON 생성으로 대체하지 않는다. 만료·미커밋·미등록 입력은 거부한다.
+요청의 input_digest는 파일을 포함한 전체 ProductInput의 canonical digest다.
+T38은 이를 다시 계산하고 기존 T11 Snapshot의 경로·내용·크기·hash 검사와 제안 정책을 적용한다.
+
+호스트의 `journal_root`는 소유자 전용 0700 영속 디렉터리다. SQLite FULL 동기화
+트랜잭션으로 run/attempt를 **모델 호출 전** 점유한다. 같은 입력·호출자·설치 SHA의
+재요청은 저장된 제안을 반환하며, 새 모델 호출을 하지 않는다. 입력 또는 설치 SHA가
+바뀌면 거부한다. 중단 후 점유만 남은 경우는 `PRODUCT_OUTCOME_UNKNOWN`, 모델·정책
+실패는 `PRODUCT_RUNTIME_UNCONFIRMED`로 멈춘다. journal 손실·복구 rollback을 새 실행
+허가로 사용하지 않는다. 운영자는 기록과 중단 시 남은 비공개 staging 디렉터리를 조사한
+뒤 별도로 인계해야 한다. journal은 broker만 쓸 수 있어야 하며 모델 프로세스와 입력
+생산자에게 이 경로의 쓰기 권한을 주지 않는다.
+
+성공 결과는 `input_kind=product`, `PROPOSAL_READY`, 제품 입력·Admission·snapshot·
+proposal digest와 설치 SHA를 포함한다. T11의 원 작업 `task`와 `task_digest`도 결속하며,
+최초 시도에서는 입력 bundle과 같아야 한다. 누락·불일치는 제안으로 수락하지 않는다.
+이 `task_digest`는 T11 원 작업 bundle의 해시이며, T15 논리 작업의 해시인
+T10 `Admission.task_digest`와 별도로 검증한다.
+OIDC·AWS·구독 토큰과 임의 worker 진단 필드는
+저장하지 않는다. 기록의 digest는 손상 탐지용이며 외부 서명이 아니다. T15의
+`RecordedAttemptSender`·`AttemptStore`·`RecordedEvidence`가 검증 Job, PASS/FAIL,
+생성/삭제 UID, 정리 및 승인 근거를 소유한다. 이 제안 기록만으로 PASS나
+AWAITING_APPROVAL을 만들 수 없다. 현재 T11 CLI와 같은 최초 시도(attempt 1)만 실행하며
+2·3회차는 호출 전에 거부한다. T11 상태 복원 계약 없이 번호를 1로 바꾸어 재시도하지 않는다.
+
+제품 제안 응답은 `tool_events_status=UNAVAILABLE`를 명시한다. 현재 반환 경로는 T11
+감사 배열 전체의 원문·순서·건수 결속을 전달하지 않는다. T15는 이를 빈 COMPLETE 배열로
+바꾸지 않는다. 원격 제안 소비자가 T11의 완전한 배열을 인수한 뒤 T15 서명 기록과
+T10 `data.tool_events`로 전달하는 접점을 연결해야 한다. 이 패치는 T24 수집을 구현하지 않는다.
+
+호스트는 `bravo_agent.product_contracts`의 `ProductInput`, `ProductRequest`,
+`validate_product_input`을 모델 런타임 import 없이 사용할 수 있다. 순수 입력 검사는
+source/manifest/files의 일치·내용 hash·크기·자격 문자열을 대조하며 권한을 부여하지 않는다.
+기존 `subscription_product` import도 같은 타입을 재export한다.
+
+`subscription_product_host.RegisteredProductInputs(read)`는 T10의 인증된 현재 조회 포트를
+broker의 `ProductInputs.resolve`로 연결한다. `read(principal, input_ref)`는
+`admission`(T10 8필드), `product_input`, `input_digest`, `principal`,
+`purpose="t38-product-proposal"`, `expires_at`(UTC RFC3339)을 반환한다. T10은 매번
+커밋된 Admission·현재 plan/tenant/version/catalog·회수 여부를 검사한다. T38은 전체
+Admission/입력 digest, 실행/source/회차, 호출자·용도·만료를 다시 대조한다. 저장된 사본이나
+서명만으로 현재 권한 조회를 대신하지 않으며 조회 URL/함수를 HTTP 요청에서 받지 않는다.
+
+`ProductTunnelCall(reviewed_runtime_sha)`는 T15의 `call(body) -> (status, response)` 포트다.
+이미 수립된 전용 SSM TLS 터널의 `http://127.0.0.1:18762/run`만 호출하며 임의 endpoint,
+환경 proxy, redirect, 자동 재시도를 허용하지 않는다. 응답 크기와 검토된 설치 SHA,
+제품/task digest를 확인한 제안만 반환한다. T15는 자신의 등록 입력과 Admission/snapshot을
+대조하고 기존 도구 계층으로 재검증한다. 응답 불명은 NEEDS_HUMAN이며 자동 새 호출을 하지 않는다.
+이 함수는 터널 시작·토큰 발급·배포를 하지 않는다. 요청 토큰은 기존 GitHub OIDC 경로의 것이며
+T10 workload JWT로 대체할 수 없다. 요청 `input_digest`는 ProductInput 전체이고, 응답의
+`product_input_digest`가 그 값이다. 응답 `input_digest`/`task_digest`는 T11 FailureBundle이다.
+
+### 제품 전용 설치와 호출 수명
+
+`install.py --product-reader <metadata.json>`은 검토된 소스와 기존 설정 외에 정확히
+`origin`(사설 HTTPS origin)과 `ca_file`(이미 마운트한 공개 CA의 절대 경로)만 받는다.
+토큰·인증 키·업무 입력은 설정 필드가 아니다. 이 opt-in은 같은 hardening unit의 실행 모듈을
+`bravo_agent.subscription_product_server`로 선택한다. 기본 설치는 제품 경로를 열지 않는다.
+CA가 없거나 잘못되면 제품 host는 시작하지 않는다. 영속 `product-journal`은 설치기가
+초기화하지 않으며, 제품 host에서는 합성 `/validation/fixture`를 404로 닫는다.
+
+broker가 기존 STS에서 `/run` 토큰을 검증한 뒤에만 host의 요청별 `request_inputs(token)`을
+만든다. 같은 토큰은 그 요청의 메모리에서 `ProductInputHTTPReader`에만 전달된다.
+broker 프로세스가 운영자 설정 origin의 `POST /internal/v1/product-inputs/read`로
+`{principal,input_ref}`를 보내며, Authorization에는 그 원 토큰을 사용한다. 이 경로는
+T10의 별도 workload JWT 발급이나 VM 전달을 만들지 않는다. T10은 고정 GitHub issuer·
+서명·audience·정확한 subject·immutable repository ID를 검증하고, 등록된 STS
+Provider/Audience/Subject 조합과 본문 principal을 대조한 뒤 현재 plan/purpose 권한을 읽는다.
+서명 검증만으로 입력 권한을 부여하지 않는다. STS Provider는 실측값을 운영자가 등록한다.
+
+조회기는 지정 CA를 사용하고 proxy·redirect·재시도를 막는다. 응답 상한은 16 MiB다.
+64개 파일의 UTF-8 바이트 상한에 JSON escaping이 더해지는 경우도 이 범위에서 수용하고,
+등록본의 실제 schema·내용 상한은 별도로 검사한다. 토큰은 journal·ProductInput·worker에
+들어가지 않는다. 오류에는 고정 사유만 반환한다.
+
+`subscription_product_caller.ActionsProductToken()`은 실제 Actions 환경의 기존 OIDC
+endpoint에서 `sts.amazonaws.com` audience로 요청당 토큰을 받는 주입 함수다.
+`product_window(instance_id, reviewed_runtime_sha)`는 기존 controller 권한으로 고정
+SSM start/tunnel/stop만 사용하며 `call(body)`를 한 번 허용한다. 응답 유실 뒤 다시 호출하면
+거부한다. context를 닫으면 plugin·동일 SSM session·broker stop을 각각 처리하며,
+어느 정리든 확인되지 않으면 성공으로 반환하지 않는다. SSM session 응답은
+[고정 plugin 1.2.764.0의 환경 전달 계약](https://github.com/aws/session-manager-plugin/blob/1.2.764.0/src/sessionmanagerplugin/session/session.go#L156)을
+사용해 argv에 토큰을 넣지 않는다. Actions bearer 환경도 plugin에 전달하지 않는다.
+
+T10은 기존 durable dispatch를 점유한 뒤 이 call과 token supplier를 자신의 `request_for`에
+주입한다. 등록/Admission·T15 Job·현재 권한·사람 승인은 여전히 기존 담당 포트가 소유한다.
+Actions 밖의 상시 T10 host에서 이 supplier를 호출하면 실패한다. 이 경우 실제 Actions 실행과
+T10 단일 dispatch를 연결할 검토된 orchestration 경로를 먼저 인수해야 하며 토큰 파일 복사로
+대체하지 않는다. 이 모듈은 workflow를 생성하거나 기존 합성 controller를 제품 호출로 바꾸지 않는다.
+
+실제 제품 실행 전에는 인증 입력 조회기의 배치·접근·수명, 영속 journal의 격리·보존,
+T15의 원격 제안 소비 어댑터를 인수해야 한다. 목적지 API/RBAC와 credential 전달도 해당
+담당의 별도 인수 대상이다. 로컬 가짜 provider 시험은 이 연결이나 실환경 인수를 증명하지 않는다.
+
+교체 전에는 workflow 실행을 비활성화하고 진행 중인 broker와 터널이 정리될 때까지 기다린다. 같은 검토 commit의 VM broker와 GitHub controller를 배치하고 `BRAVO_SUBSCRIPTION_SOURCE_SHA`를 맞춘 뒤 합성 시험을 다시 연다. 새 controller가 구 broker를 호출하면 합성 전용 경로가 없어 실패하고, 구 controller가 새 broker를 호출하면 `/run`에서 503을 받는다. 구 버전 응답처럼 출처 표기가 빠진 경우에도 새 controller는 SSM verify를 접수하지 않는다. 어느 경우에도 다른 경로로 재시도하지 않는다. 교체 실패 시 workflow를 닫은 상태에서 일치하는 새 쌍을 복구한다. 구 쌍을 복원해야 하면 구 `/run`이 다시 합성 입력을 처리하므로 제품 호출은 계속 닫아 둔다.

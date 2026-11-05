@@ -3,6 +3,8 @@ name: ci
 # Required gates always report. Scope chooses work inside them, never skips the workflow.
 on:
   pull_request:
+  merge_group:
+    types: [checks_requested]
   push:
     branches: [main, develop]
   schedule:
@@ -38,10 +40,24 @@ jobs:
       - name: Plan affected checks
         id: plan
         env:
-          BASE: ${{ github.event.pull_request.base.sha }}
+          BASE: ${{ github.event.merge_group.base_sha || github.event.pull_request.base.sha }}
           EVENT: ${{ github.event_name }}
+          GROUP_HEAD: ${{ github.event.merge_group.head_sha }}
+          GROUP_ACTION: ${{ github.event.action }}
         run: |
-          if [ "$EVENT" = pull_request ]; then
+          if [ "$EVENT" = merge_group ]; then
+            # A queue result must describe this exact checkout and the entire group.
+            if [[ "$GROUP_ACTION" != checks_requested || ! "$BASE" =~ ^[0-9a-f]{40}$ || ! "$GROUP_HEAD" =~ ^[0-9a-f]{40}$ ]]; then
+              echo '::error::Invalid merge group metadata'
+              exit 1
+            fi
+            if [[ "$(git rev-parse HEAD)" != "$GROUP_HEAD" ]] || ! git merge-base --is-ancestor "$BASE" "$GROUP_HEAD"; then
+              echo '::error::Merge group checkout/base mismatch'
+              exit 1
+            fi
+            # base_sha can be the previous queue group, so its diff omits earlier PRs.
+            python3 scripts/ci_scope.py --full > ci-plan.json
+          elif [ "$EVENT" = pull_request ]; then
             python3 scripts/ci_scope.py --base "$BASE" > ci-plan.json
           else
             python3 scripts/ci_scope.py --full > ci-plan.json
@@ -73,7 +89,7 @@ jobs:
         run: python3 -m unittest discover -s scripts/tests -p test_ci_secrets.py -v
       - name: 증빙 소스 해시 형식
         env:
-          EVIDENCE_BASE: ${{ github.event.pull_request.base.sha || github.event.before || github.sha }}
+          EVIDENCE_BASE: ${{ github.event.merge_group.base_sha || github.event.pull_request.base.sha || github.event.before || github.sha }}
         run: python3 scripts/evidence_sources.py check --base "$EVIDENCE_BASE"
       - name: 공개 파일 개인정보·운영 식별자 검사
         run: python3 scripts/public_evidence.py check

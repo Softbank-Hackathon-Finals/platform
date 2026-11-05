@@ -1,0 +1,15 @@
+{
+  "env_id": "onprem-demo",
+  "env_kind": "onprem",
+  "provides": {
+    "k8s": "rke2 (CIS profile)",
+    "postgres_operator": "cnpg",
+    "s3_compatible": "seaweedfs",
+    "secret_store": "openbao",
+    "secrets_injection": "eso",
+    "kms": "openbao-transit",
+    "audit": "rke2-audit+pgaudit",
+    "cis_profile": "rke2-cis-1.23"
+  },
+  "residual_dependencies": ["cloudflare (edge · tunnel)", "ghcr.io (image pull)"]
+}

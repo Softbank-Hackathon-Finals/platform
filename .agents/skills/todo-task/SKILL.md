@@ -58,8 +58,8 @@ description: 본선(Team Bravo) 팀 작업 진행. 프로젝트 보드(이슈)�
    `python3 scripts/sync_tasks.py tick T3 <할 일 순번>` (순번은 1부터, 이슈 본문의 할 일 순서). 아직 머지 전이면 사용자에게 머지 후 체크하라고 알린다.
 2. 그다음은 자동이다(`sync-tasks` 워크플로):
    - 체크가 생기면 보드 **In progress**, 전부 체크되면 이슈가 닫히고 **Done**
-   - `docs/tasks.md`의 체크박스 · 담당은 봇 PR이 머지된 뒤 갱신된다(승인 없이 필수 CI 통과 후 팀원이 머지 버튼으로 머지)
-   - 보드가 움직이면 Slack으로 알린다
+   - `docs/tasks.md`의 체크박스 · 담당은 봇 PR이 머지된 뒤 갱신된다(필수 CI 통과 후 팀원이 Merge Queue에 등록)
+   - Slack 봇은 회의 결정으로 중단 상태다. 재활성화하지 않고 이슈·보드를 직접 확인한다
 3. 담당을 바꿔야 하면 이슈 Assignees를 바꾼다(tasks.md가 따라간다).
 
 ## 하지 않는 것

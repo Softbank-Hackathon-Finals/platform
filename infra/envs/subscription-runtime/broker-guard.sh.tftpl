@@ -1,0 +1,80 @@
+set -eu
+# The node also runs Canal. A Pod may reach an interface endpoint through node SNAT.
+# Own a single table; never reload or flush the cluster's networking rules.
+unitdir=/etc/systemd/system
+dir="$unitdir/bravo-subscription.service.d"
+install -d -m 0755 "$dir" /usr/local/libexec
+stage=$(mktemp -d)
+trap 'rm -rf "$stage"' EXIT
+cat > "$stage/bravobroker.slice" <<'EOF'
+[Unit]
+Description=Processes permitted to use the subscription STS endpoint
+EOF
+cat > "$stage/bravo-sts-guard" <<'EOF'
+#!/bin/sh
+set -eu
+# EC2 assigns this address to the ENI for return delivery. Only conntrack
+# should translate it back to a local socket; a guest alias would permit bind().
+ip -j -4 address show | python3 -c 'import json,sys; sys.exit(any(a["local"] == "${broker_source_ip}" for link in json.load(sys.stdin) for a in link["addr_info"]))'
+rules=$(mktemp)
+trap 'rm -f "$rules"' EXIT
+if nft list table inet bravo_broker_sts >/dev/null 2>&1; then
+  echo 'delete table inet bravo_broker_sts' > "$rules"
+fi
+cat >> "$rules" <<'RULES'
+table inet bravo_broker_sts {
+  chain forward {
+    type filter hook forward priority 10; policy accept;
+    ip daddr ${endpoint_ip} tcp dport 443 counter drop
+  }
+  chain output {
+    type filter hook output priority 10; policy accept;
+    ip daddr ${endpoint_ip} tcp dport 443 socket cgroupv2 level 1 "bravobroker.slice" counter accept
+    ip daddr ${endpoint_ip} tcp dport 443 counter drop
+  }
+  chain postrouting {
+    type nat hook postrouting priority 90; policy accept;
+    ip daddr ${endpoint_ip} tcp dport 443 snat ip to ${broker_source_ip}
+  }
+}
+RULES
+nft -f "$rules"
+EOF
+cat > "$stage/bravo-sts-guard.service" <<'EOF'
+[Unit]
+Description=Restrict the broker STS endpoint before node address translation
+Requires=bravobroker.slice
+After=bravobroker.slice
+Before=rke2-server.service bravo-subscription.service
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/libexec/bravo-sts-guard
+ExecReload=/usr/local/libexec/bravo-sts-guard
+[Install]
+WantedBy=multi-user.target
+EOF
+cat > "$stage/sts.conf" <<'EOF'
+[Unit]
+Requires=bravo-sts-guard.service
+After=bravo-sts-guard.service
+[Service]
+Slice=bravobroker.slice
+Environment=AWS_ENDPOINT_URL_STS=https://${endpoint_dns}
+EOF
+put() {
+  if ! cmp -s "$1" "$2"; then
+    tmp=$(mktemp "$2.XXXXXXXX")
+    install -m "$3" "$1" "$tmp"
+    mv -f "$tmp" "$2"
+  fi
+}
+put "$stage/bravobroker.slice" "$unitdir/bravobroker.slice" 0644
+put "$stage/bravo-sts-guard" /usr/local/libexec/bravo-sts-guard 0755
+put "$stage/bravo-sts-guard.service" "$unitdir/bravo-sts-guard.service" 0644
+put "$stage/sts.conf" "$dir/sts.conf" 0644
+systemctl daemon-reload
+systemctl enable bravo-sts-guard.service
+systemctl reload-or-restart bravo-sts-guard.service
+systemctl show bravo-subscription.service -p Environment --value | tr ' ' '\n' | grep -Fxq 'AWS_ENDPOINT_URL_STS=https://${endpoint_dns}'
+test "$(systemctl show bravo-subscription.service -p Slice --value)" = bravobroker.slice

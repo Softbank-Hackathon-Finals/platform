@@ -3,7 +3,9 @@ name = "bravo-rehearsal-runner"
 version = "0.1.0"
 description = "리허설 러너 (T15). 지금은 리허설 네임스페이스 템플릿과 격리 시험(T3)만 있다"
 requires-python = ">=3.12"
-dependencies = []
+dependencies = [
+    "boto3>=1.35,<2",
+]
 
 [dependency-groups]
 dev = [

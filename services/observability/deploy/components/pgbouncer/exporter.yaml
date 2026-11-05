@@ -1,0 +1,131 @@
+# PgBouncer 통계 exporter(prometheus-community/pgbouncer_exporter). Collector만 긁고, PgBouncer 5432로만 나간다.
+# 연결 문자열 · CA는 Secret bravo-pgbouncer-stats(kustomization.yaml 주석). 통계 계정은 SHOW만 할 수 있다.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: bravo-pgbouncer-exporter
+  namespace: bravo-observability
+automountServiceAccountToken: false
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: bravo-pgbouncer-exporter
+  namespace: bravo-observability
+  labels:
+    app: bravo-pgbouncer-exporter
+    component: platform
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: bravo-pgbouncer-exporter
+  template:
+    metadata:
+      labels:
+        app: bravo-pgbouncer-exporter
+        component: platform
+    spec:
+      serviceAccountName: bravo-pgbouncer-exporter
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        # 이미지 사용자는 이름(nobody)이라 kubelet이 비루트를 확인하도록 숫자로 둔다
+        runAsUser: 65534
+        runAsGroup: 65534
+        fsGroup: 65534
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: exporter
+          # upstream master 빌드(revision b7f5aca, 2026-10-14, Go 1.27.2). 릴리스 v0.12.1은 Go 1.26.4라 trivy HIGH 27건이다.
+          # 이 빌드의 HIGH 2건은 이 구성에 해당하지 않는다: crypto/x509 시스템 루트 거부 목록(CVE-2026-111943, 비공개 CA만 씀),
+          # x/net http2(CVE-2026-78669, /metrics는 TLS 없는 HTTP/1.1이고 Collector만 닿음). 다음 릴리스에서 다시 본다
+          image: prometheuscommunity/pgbouncer-exporter:master@sha256:85fa027343bfb20107c37710804551b2f2b98b069994f1c3fc63fb67f8c43cc2
+          args: ["--web.listen-address=:9127", "--log.level=warn"]
+          env:
+            - name: PGBOUNCER_EXPORTER_CONNECTION_STRING
+              valueFrom:
+                secretKeyRef: {name: bravo-pgbouncer-stats, key: connection-string}
+          ports:
+            - {name: metrics, containerPort: 9127}
+          # /metrics는 긁을 때마다 PgBouncer에 SHOW를 보내므로 probe는 포트만 본다
+          readinessProbe:
+            tcpSocket: {port: metrics}
+          livenessProbe:
+            tcpSocket: {port: metrics}
+            initialDelaySeconds: 10
+          resources:
+            requests: {cpu: 10m, memory: 32Mi}
+            limits: {cpu: 100m, memory: 64Mi}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          volumeMounts:
+            - {name: stats, mountPath: /etc/bravo-pgbouncer, readOnly: true}
+      volumes:
+        - name: stats
+          secret:
+            secretName: bravo-pgbouncer-stats
+            items:
+              - {key: ca.crt, path: ca.crt}
+            defaultMode: 0440
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: bravo-pgbouncer-exporter
+  namespace: bravo-observability
+  labels:
+    component: platform
+spec:
+  selector:
+    app: bravo-pgbouncer-exporter
+  ports:
+    - {name: metrics, port: 9127, targetPort: metrics}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: bravo-pgbouncer-exporter
+  namespace: bravo-observability
+spec:
+  podSelector:
+    matchLabels:
+      app: bravo-pgbouncer-exporter
+  policyTypes: [Ingress, Egress]
+  ingress:
+    # 같은 네임스페이스의 Collector만. 지표에 DB · 사용자 이름이 담긴다
+    - from:
+        - podSelector:
+            matchLabels:
+              app: bravo-collector
+      ports:
+        - {port: 9127, protocol: TCP}
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - {port: 53, protocol: UDP}
+        - {port: 53, protocol: TCP}
+    # PgBouncer만: 출발지 source-dev/source-pgbouncer(T6), 목적지 target-dev/target-pgbouncer(T30).
+    # 한 클러스터에는 둘 중 하나만 있다. 이름이 바뀌면 이 목록을 함께 바꾼다
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: source-dev
+          podSelector:
+            matchLabels:
+              app: source-pgbouncer
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: target-dev
+          podSelector:
+            matchLabels:
+              app: target-pgbouncer
+      ports:
+        - {port: 5432, protocol: TCP}

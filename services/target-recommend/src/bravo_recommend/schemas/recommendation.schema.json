@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "T32 target recommendation v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "app_id", "inventory_digest", "ranked_by", "recommendation", "candidates", "excluded", "ai"],
+  "properties": {
+    "schema_version": {"const": "1.0"},
+    "app_id": {"type": "string", "pattern": "^[a-z0-9][a-z0-9-]{0,63}$"},
+    "inventory_digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+    "ranked_by": {"enum": ["rule", "rule+ai"]},
+    "recommendation": {"anyOf": [{"$ref": "#/$defs/env"}, {"type": "null"}]},
+    "candidates": {"type": "array", "items": {"$ref": "#/$defs/Candidate"}},
+    "excluded": {"type": "array", "items": {"$ref": "#/$defs/Excluded"}},
+    "ai": {"type": "object", "additionalProperties": false, "required": ["status", "reason"],
+           "properties": {"status": {"enum": ["not_requested", "accepted", "rejected"]}, "reason": {"type": "string", "pattern": "^[A-Z][A-Z0-9_]{0,63}$"},
+                          "model": {"type": "string", "maxLength": 128}}}
+  },
+  "$defs": {
+    "env": {"type": "string", "pattern": "^[a-z0-9][a-z0-9-]{0,63}$"},
+    "Candidate": {"type": "object", "additionalProperties": false,
+      "required": ["env_id", "env_kind", "verdict", "rule_rank", "ai_rank", "score", "grade_counts", "missing_capabilities", "residual_dependencies", "rule_reasons", "ai_reason"],
+      "properties": {
+        "env_id": {"$ref": "#/$defs/env"}, "env_kind": {"enum": ["aws", "gcp", "onprem"]},
+        "verdict": {"enum": ["fits", "needs_work"]},
+        "rule_rank": {"type": "integer", "minimum": 1}, "ai_rank": {"anyOf": [{"type": "integer", "minimum": 1}, {"type": "null"}]},
+        "score": {"type": "array", "items": {"type": "integer"}, "minItems": 4, "maxItems": 4},
+        "grade_counts": {"type": "object", "additionalProperties": {"type": "integer", "minimum": 0}},
+        "missing_capabilities": {"type": "array", "items": {"type": "string"}},
+        "residual_dependencies": {"type": "array", "items": {"type": "string"}},
+        "rule_reasons": {"type": "array", "items": {"type": "string", "maxLength": 200}},
+        "ai_reason": {"anyOf": [{"type": "string", "maxLength": 512}, {"type": "null"}]}
+      }},
+    "Excluded": {"type": "object", "additionalProperties": false, "required": ["env_id", "verdict", "reason", "missing_capabilities"],
+      "properties": {"env_id": {"$ref": "#/$defs/env"}, "verdict": {"const": "blocked"}, "reason": {"type": "string", "maxLength": 200},
+                     "missing_capabilities": {"type": "array", "items": {"type": "string"}}}}
+  }
+}

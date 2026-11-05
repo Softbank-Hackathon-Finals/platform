@@ -12,6 +12,7 @@
 - `window_store.py`: 검증된 생산자 권한과 창 저장을 같은 계획 트랜잭션에 묶는 호스트 포트. [연결·마이그레이션 절차](../../docs/contracts/T10-window-storage.md).
 - `plan_api.py`: 서버 principal/tenant 정책을 공유하는 계획 조회와 기존 SSE 경로. [계획 조회 제안](../../docs/contracts/T10-plan-snapshot-v1-proposal.md).
 - `executor.py`: T12 실행 상태의 읽기 전용 소비 어댑터. 응답 유실·식별자 불일치·조회 실패는 UNKNOWN으로 유지하고 원시 오류를 반환하지 않는다. [호출 경계와 후속 통합](../../docs/contracts/T10-cutover-submit-v1-proposal.md#실행-상태를-읽는-계약).
+- `change_intake_api.py`: 호스트가 명시적으로 연결하는 T15 후보 수신 경로와 HTTPS 송신 어댑터. 기존 workload 인증·독립 원문 대조를 사용하며 승인·hold·배포 권한을 주지 않는다. [운영 설정과 미연결 조건](../../docs/contracts/T10-change-approval.md#별도-t15-프로세스에서-후보를-전달할-때).
 - `api.py`: plan-scoped 읽기 전용 FastAPI 어댑터. 인증·인가 callback이 없으면 모든 요청을 거부한다.
 - `examples/events.json`: 5종 이벤트의 합성 fixture. 전체 상태 전이 또는 실제 이전의 증거가 아니다.
 

@@ -113,6 +113,35 @@ def test_backup_and_archive_fragment_exact_plugin():
     assert doc["spec"]["method"] == "plugin"
     patch = archive_patch(namespace="test", source_cluster="source-one", writer_store="writer")
     assert patch["spec"]["plugins"][0]["isWALArchiver"] is True
+    assert "serviceAccountTemplate" not in patch["spec"]
+
+
+def test_irsa_role_annotates_cluster_service_account_only():
+    writer = "arn:aws:iam::123456789012:role/source-backup-writer"
+    reader = "arn:aws:iam::123456789012:role/source-backup-reader"
+    patch = archive_patch(
+        namespace="test", source_cluster="source-one", writer_store="writer", iam_role_arn=writer
+    )
+    annotations = patch["spec"]["serviceAccountTemplate"]["metadata"]["annotations"]
+    assert annotations == {"eks.amazonaws.com/role-arn": writer}
+    restored = restore(iam_role_arn=reader)["spec"]
+    assert restored["serviceAccountTemplate"]["metadata"]["annotations"] == {
+        "eks.amazonaws.com/role-arn": reader
+    }
+    assert "serviceAccountTemplate" not in restore()["spec"]
+    for bad in (
+        "arn:aws:iam::123456789012:user/backup",
+        "arn:aws:iam::123456789012:role/*",
+        "arn:aws:iam::1234567890123:role/backup",
+        "arn:aws:iam::123456789012:role/backup\n",
+        123,
+    ):
+        with pytest.raises(ValueError):
+            archive_patch(
+                namespace="test", source_cluster="source-one", writer_store="w", iam_role_arn=bad
+            )
+        with pytest.raises(ValueError):
+            restore(iam_role_arn=bad)
 
 
 def test_delete_guard_exact_principals_prefix_and_versions():
@@ -130,3 +159,17 @@ def test_delete_guard_exact_principals_prefix_and_versions():
         s3_delete_guard(
             bucket="example-backup", prefix="app-a/", denied_role_arns=(roles[0], roles[0])
         )
+
+
+def test_pod_labels_reach_instance_and_recovery_pods_only_when_valid():
+    labels = {"bravo-object-client": "true"}
+    patch = archive_patch(namespace="test", source_cluster="source-one", writer_store="w", pod_labels=labels)
+    assert patch["spec"]["inheritedMetadata"] == {"labels": labels}
+    assert restore(pod_labels=labels)["spec"]["inheritedMetadata"] == {"labels": labels}
+    assert "inheritedMetadata" not in restore()["spec"]
+    for bad in ({}, {"Bad Key": "x"}, {"k": "bad value"}, {"k": 1}, "bravo-object-client=true",
+                {f"k{i}": "v" for i in range(9)}):
+        with pytest.raises(ValueError):
+            restore(pod_labels=bad)
+        with pytest.raises(ValueError):
+            archive_patch(namespace="test", source_cluster="source-one", writer_store="w", pod_labels=bad)

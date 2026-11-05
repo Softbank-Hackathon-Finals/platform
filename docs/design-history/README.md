@@ -27,7 +27,9 @@
 
 | 버전 | 기간 | 파일 | 무엇이 바뀌었나 | 관련 ADR |
 |---|---|---|---|---|
-| **v0.4 (현재 초안)** | 2026-11-03 ~ | [`docs/design.html`](../design.html) | 8.3 모델 제공자와 S2 CI 실패 분석: 관리자 구독(SIWC) 기반 OpenAI Responses 워커, 선택형 Claude 어댑터, 제안·검증·반영 경계 | [ADR-0007](../adr/0007-model-provider-and-s2-ci.md) |
+| **v0.6 (현재 초안)** | 2026-11-05 ~ | [`docs/design.html`](../design.html) | T7 저장소 접근을 분석 reader 수신 증빙으로 정합화. T31은 리허설 검증 digest 승격이며 승인 뒤 Git 커밋·재빌드와 writer 주입을 요구하지 않음. T31 정책·게이트 완료 기준은 유지 | [ADR-0021 §6](../adr/0021-approved-change-promotion.md#6-t7-저장소-접근-범위-정합화-2026-11-05) |
+| v0.5 | 2026-11-04 ~ 2026-11-05 | [`design-v0.5.html`](design-v0.5.html) | 6장 S4 되돌리기 예외 흐름과 8.6 컷오버 순서 1단계: 쓰기를 막기 전 시험 barrier 왕복으로 복제 경로를 확인하고(단절이면 변경 없이 거절), 쓰기를 막은 뒤 출발지가 따라잡지 못하면 SAFE_HOLD 대신 목적지를 원상 복구(ABORT_PRE_WRITE). 확인 불가는 기존대로 SAFE_HOLD | [ADR-0016](../adr/0016-failback-replication-path-check.md) |
+| v0.4 | 2026-11-03 ~ 2026-11-04 | [`design-v0.4.html`](design-v0.4.html) | 8.3 모델 제공자와 S2 CI 실패 분석: 관리자 구독(SIWC) 기반 OpenAI Responses 워커, 선택형 Claude 어댑터, 제안·검증·반영 경계 | [ADR-0007](../adr/0007-model-provider-and-s2-ci.md) |
 | v0.3 | 2026-11-03 | [`design-v0.3.html`](design-v0.3.html) | 8.9 계획 조회 제안: 상태 · 이벤트 원자 저장, snapshot watermark, SSE와 동일한 계획 접근 정책 | [ADR-0008](../adr/0008-plan-state-event-transaction.md) |
 | v0.2 | 2026-11-03 | [`design-v0.2.html`](design-v0.2.html) | 8.4 리허설 네임스페이스 격리 규칙: 송신 허용 범위에 시험용 SeaweedFS · OpenBao(지정 Pod · 포트)를 넣고, 서버 안 권한(T9)을 격리의 일부로 명시. 7.5 네트워크 경로 규칙 표에 허용 줄 추가 | [ADR-0002](../adr/0002-rehearsal-egress-allowlist.md) |
 | v0.1 | 2026-11-02 ~ 2026-11-03 | [`design-v0.1.html`](design-v0.1.html) · [태그](https://github.com/Softbank-Hackathon-Finals/platform/tree/design-v0.1) | 첫 버전 (11/2 회의 반영: 역할별 담당자, 이전 대상 추천 P1) |  |
@@ -39,3 +41,11 @@
 ### v0.4 보관 기준
 
 T10의 v0.3이 먼저 병합되어, 개발 정본 `develop`의 `2c43d59914efe9a59133ce285923faa185dcbfe5`에서 v0.3을 바이트 그대로 보관했다. 이미 보관된 v0.2는 변경하지 않았다. T11의 모델 제공자 제안은 v0.4로 구분하고 T10 계획 조회 계약은 유지한다. 보관 당시 bump 스크립트는 `origin/main`과 원격 태그 게시를 전제로 하므로 사본을 직접 보관했다. 이후 도구는 위의 로컬 준비 절차로 수정됐으며, 이 이력과 기존 보관본은 당시 기준을 유지한다.
+
+### v0.5 보관 기준
+
+개발 정본 `develop`의 `e20e338085085806c04002a8b7e6af8667996a19`에서 v0.4를 `scripts/design-bump.sh v0.5 --base <커밋>`으로 바이트 그대로 보관했다.
+
+### v0.6 보관 기준
+
+개발 정본 `develop`의 `59e93e1d92f449d4701c3aae31b7d16d4bc14a22`에서 v0.5를 `scripts/design-bump.sh v0.6 --base <커밋>`으로 바이트 그대로 보관했다. 사용자의 직접 해결·공식 기준 정합화 위임 범위에서 다음 버전을 선택했다.
