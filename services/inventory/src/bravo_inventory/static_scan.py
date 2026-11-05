@@ -61,11 +61,22 @@ class Finding:
         return asdict(self)
 
 
-def _mask(text: str) -> str:
+def _secret_like(text: str) -> bool:
+    return bool(SECRET_LIKE_RE.search(text) or USERINFO_RE.search(text) or QUERY_SECRET_RE.search(text))
+
+
+def _mask(text: str, *decoded: str) -> str:
+    """Return the source line for the inventory, or a marker if the line *or any decoded string
+    literal on it* looks like a credential. The decoded values matter: ``"https:\\x2f\\x2fu:pw@h"``
+    hides ``://`` from a regex over the raw line but not from the parsed constant."""
     text = text.strip().replace("\n", " ")
-    if SECRET_LIKE_RE.search(text) or USERINFO_RE.search(text) or QUERY_SECRET_RE.search(text):
+    if _secret_like(text) or any(_secret_like(d) for d in decoded):
         return "<masked: secret-like literal>"
     return text[:160]
+
+
+def _decoded_strings(node: ast.AST) -> list[str]:
+    return [c.value for c in ast.walk(node) if isinstance(c, ast.Constant) and isinstance(c.value, str)]
 
 
 def safe_endpoint(value: str) -> str:
@@ -126,7 +137,7 @@ class _PyVisitor(ast.NodeVisitor):
         line = getattr(node, "lineno", 0)
         snippet = self.lines[line - 1] if 0 < line <= len(self.lines) else ""
         self.findings.append(
-            Finding(f"dep-{self.counter[0]:04d}", kind, role, service, self.rel, line, _mask(snippet), detail)
+            Finding(f"dep-{self.counter[0]:04d}", kind, role, service, self.rel, line, _mask(snippet, *_decoded_strings(node)), detail)
         )
 
     def visit_Import(self, node: ast.Import) -> None:

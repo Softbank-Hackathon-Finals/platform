@@ -93,3 +93,22 @@ def test_query_string_credentials_never_reach_snippet_or_detail(tmp_path):
     assert all(f.snippet.startswith("<masked") for f in literals if "verbose" not in f.snippet)
     plain = [f for f in literals if f.detail["value"] == "https://api.ap-northeast-2.amazonaws.com"][0]
     assert "verbose=1" in plain.snippet  # a harmless query is a normal line, not masked
+
+
+def test_escaped_string_literals_are_masked_by_their_decoded_value(tmp_path):
+    # Review (#144, 류지환): the same URL written with Python escapes hides "://" and "?" from a
+    # regex over the raw line; the decoded constant must drive the decision.
+    token = "FIXTURE-ESC-TOKEN-71aa"
+    (tmp_path / "x.py").write_text(
+        "import boto3\n"
+        f'c = boto3.client("s3", endpoint_url="https:\\x2f\\x2fu:{token}\\x40store.example.invalid")\n'
+        f'URL = "https://api.ap-northeast-2.amazonaws.com/x\\x3faccess_token\\x3d{token}"\n'
+        f'DSN = "postgresql\\u003a//chat:{token}@db/chat"\n',
+        encoding="utf-8",
+    )
+    findings = scan_repo(tmp_path, ".")
+    dump = json.dumps([f.as_dict() for f in findings])
+    assert token not in dump and "x2f" not in dump
+    sdk = [f for f in findings if f.kind == "sdk_call"][0]
+    assert sdk.snippet.startswith("<masked") and sdk.detail["endpoint_url"] == "https://store.example.invalid"
+    assert all(f.snippet.startswith("<masked") for f in findings if f.kind == "endpoint_literal")
