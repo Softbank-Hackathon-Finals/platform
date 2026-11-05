@@ -95,6 +95,14 @@ def test_weight_never_reflected_is_not_observed(tmp_path):
     assert "NOT_APPLIED" in result["steps"][0]["windows"][0]["reasons"]
 
 
+def test_wrong_share_with_enough_samples_does_not_prove_the_weight(tmp_path):
+    """표본은 충분한데 아직 10%로 나뉘는 창은 50% 반영의 증거가 아니다."""
+    code, result = run_align(tmp_path, [window(1, 10)], [receipt(50, 5)])
+    assert code == 1
+    assert result["steps"][0]["observation"] == "NOT_OBSERVED"
+    assert result["steps"][0]["windows"][0]["reasons"] == ["NOT_APPLIED"]
+
+
 def test_low_sample_window_does_not_prove_the_weight(tmp_path):
     """짧은 시험 실행처럼 표본이 적으면 비율이 맞아 보여도 반영 증거로 쓰지 않는다."""
     code, result = run_align(tmp_path, [window(1, 10, total=200)], [receipt(10, 5)])

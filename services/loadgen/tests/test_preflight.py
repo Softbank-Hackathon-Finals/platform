@@ -142,6 +142,11 @@ def test_broken_database_fails_even_when_readyz_is_fine(target, tmp_path, capsys
     assert target.load_requests == 0
 
 
+def test_non_200_with_an_app_like_body_is_not_healthy(target, tmp_path):
+    target.health = (503, {"ok": True})
+    assert preflight(target, tmp_path / "out") == 2
+
+
 @pytest.mark.parametrize("body", [{"ok": False}, {"status": "ok"}, ["ok"]])
 def test_200_with_an_unexpected_body_is_not_healthy(target, tmp_path, body):
     """Edge의 안내 페이지처럼 200이지만 앱의 답이 아닌 경우를 막는다."""
