@@ -1,0 +1,35 @@
+{
+  "observed_at": "2026-11-05T16:58:34.508096+00:00",
+  "transport": "personal Kubernetes port-forward; not tailnet",
+  "cases": {
+    "authorized_query": {
+      "http_status": 200,
+      "tls_version": "TLSv1.3"
+    },
+    "ready": {
+      "http_status": 200,
+      "tls_version": "TLSv1.3"
+    },
+    "no_certificate": {
+      "tls_rejected": true
+    },
+    "unapproved_name": {
+      "tls_rejected": true
+    },
+    "wrong_server_name": {
+      "tls_rejected": true
+    }
+  },
+  "ready_replicas": 1,
+  "ingress_ready_endpoints": 1,
+  "same_service_uid": true,
+  "ca_certificate_sha256": "0c139c03766c2e417e5eb54f1f4eccab0a6b70200769a48737b1c165f01fa66e",
+  "evidence_grade": "actual-platform-store-only",
+  "raw_record_sha256": "5d590343c417ae4b00d8c70e460af3eb7115141d62025e26246f94095f7ca62e",
+  "tailnet_transport_verified": false,
+  "source_collector_verified": false,
+  "target_collector_verified": false,
+  "persistent_storage": false,
+  "console_query_api_deployed": false,
+  "task_complete": false
+}
