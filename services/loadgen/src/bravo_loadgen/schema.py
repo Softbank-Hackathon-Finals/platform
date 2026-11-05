@@ -6,6 +6,12 @@ from pathlib import Path
 from jsonschema import Draft202012Validator, FormatChecker
 
 SCHEMA_PATH = Path(__file__).resolve().parents[4] / "docs" / "observability" / "sli.schema.json"
+PROFILES_PATH = SCHEMA_PATH.with_name("threshold-profiles.json")
+
+
+def load_profile() -> dict:
+    """판정 기준 원본. 값을 여기에 베끼지 않는다."""
+    return json.loads(PROFILES_PATH.read_text(encoding="utf-8"))["profiles"][0]
 
 
 class SchemaViolation(ValueError):
