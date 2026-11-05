@@ -39,8 +39,9 @@ class NotReadOnly(RuntimeError):
 class ReadOnlySession:
     """Runs only named statements, each in its own READ ONLY transaction."""
 
-    def __init__(self, connection):
+    def __init__(self, connection, statements=None):
         self.connection = connection
+        self.statements = STATEMENTS if statements is None else statements
         connection.autocommit = False
         connection.read_only = True
         value = connection.execute(READ_ONLY_CHECK).fetchone()[0]
@@ -53,7 +54,7 @@ class ReadOnlySession:
         # BEGIN READ ONLY, the statement and ROLLBACK share one network round trip. Three separate
         # trips would make the sampling period, and so the resolution, three times coarser.
         with self.connection.pipeline():
-            cursor = self.connection.execute(STATEMENTS[name], params)
+            cursor = self.connection.execute(self.statements[name], params)
             self.connection.rollback()
         return cursor.fetchone()
 
