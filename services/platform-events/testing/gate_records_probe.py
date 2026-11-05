@@ -37,6 +37,9 @@ def verify(conninfo, probe_id):
         checks["restricted_role"] = c.execute("SELECT NOT rolsuper AND NOT rolcreatedb AND NOT rolcreaterole "
             "AND NOT rolreplication AND NOT rolbypassrls FROM pg_roles WHERE rolname=current_user").fetchone()[0]
         version = c.execute("SHOW server_version").fetchone()[0]
+        schema_version = c.execute("SELECT version FROM bravo_platform.schema_version").fetchall()
+    if not all(value is True for value in checks.values()):
+        return dict(status="FAIL", stage="runtime_preflight", checks=checks, plan_written=False)
     now = datetime.now(UTC)
     store = PostgresPlanStore(conninfo)
     plan = PlanSpec(probe_id, "verification-only", "gate-storage-probe", "probe-source",
@@ -117,6 +120,7 @@ def verify(conninfo, probe_id):
     checks["plan_stays_collect"] = store.snapshot(plan.plan_id)["state"] == "COLLECT"
     return dict(status="PASS" if all(v is True for v in checks.values()) else "FAIL",
                 checks=checks, check_count=len(checks), server_version=version,
+                state_schema_versions=[row[0] for row in schema_version],
                 retained_plan_id=probe_id, source_digest=snapshot.fingerprint,
                 scope="cluster_runtime_storage_with_synthetic_UNKNOWN_and_missing_target",
                 real_target_result=False, operational_gate_accepted=False, executor_calls=0)
