@@ -3,7 +3,7 @@
 import hashlib
 import json
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Literal
 
 
@@ -12,7 +12,7 @@ class BucketPolicyTask:
     run_id: str
     source_sha: str
     source_sha256: str
-    source_policy: str
+    source_policy: str = field(repr=False)
     target_bucket: str
     target_service: Literal["seaweedfs"] = "seaweedfs"
 

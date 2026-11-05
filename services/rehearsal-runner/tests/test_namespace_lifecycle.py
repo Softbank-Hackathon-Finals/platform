@@ -6,6 +6,7 @@ import pytest
 from rehearsal_runner.isolation.profile import read_env
 from rehearsal_runner.namespace import TEMPLATES
 from rehearsal_runner.namespace_lifecycle import LifecycleUnavailable, NamespaceLifecycle
+from rehearsal_runner.recovery_lookup import recovery_identity
 from rehearsal_runner.runner import Namespace
 
 PROFILE = read_env(TEMPLATES.parent / "profiles" / "k3d.env")
@@ -34,7 +35,11 @@ class FakeKube:
     def get_json(self, *args):
         self.gets += 1
         uid = "uid-2" if self.fault == "uid_changed" and self.gets == 2 else "uid-1"
-        return {"metadata": {"uid": uid}}
+        labels, annotations = recovery_identity("run-1", 1)
+        labels["app.kubernetes.io/part-of"] = "bravo-rehearsal"
+        if self.fault == "identity_changed":
+            annotations["bravo.platform/rehearsal-id"] = "another-run"
+        return {"metadata": {"uid": uid, "labels": labels, "annotations": annotations}}
 
 
 class Cleaner:
@@ -59,6 +64,8 @@ def test_create_uses_t3_templates_and_server_uid():
     assert result == Namespace(NAME, "uid-1")
     assert kube.calls[0][0] == ("create", "-f", "-", "-o", "json")
     assert "kind: Namespace" in kube.calls[0][1]
+    assert 'bravo.platform/rehearsal-id: "run-1"' in kube.calls[0][1]
+    assert 'bravo.platform/attempt: "1"' in kube.calls[0][1]
     assert kube.calls[1][0] == ("apply", "--server-side", "--field-manager=rehearsal-runner", "-f", "-")
     assert "kind: NetworkPolicy" in kube.calls[1][1]
     assert "kind: Namespace" not in kube.calls[1][1]
@@ -75,7 +82,7 @@ def test_unknown_creation_never_cleans_an_unverified_identity(fault):
     assert cleaner.calls == []
 
 
-@pytest.mark.parametrize("fault", ["install_failed", "uid_changed"])
+@pytest.mark.parametrize("fault", ["install_failed", "uid_changed", "identity_changed"])
 def test_setup_failure_delegates_cleanup_with_original_uid(fault):
     kube, cleaner = FakeKube(fault), Cleaner()
     with pytest.raises(LifecycleUnavailable):
