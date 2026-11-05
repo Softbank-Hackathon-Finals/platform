@@ -135,6 +135,7 @@ class _Trace:
     removed_uid: str | None = None
     probe_run_id: str | None = None
     failure: str | None = None
+    proposer: object | None = None
 
 
 class _TracedLifecycle:
@@ -179,6 +180,7 @@ class _TracedFactory:
 
     def prepare(self, attempt: int, feedback_ref: str | None) -> AttemptPorts:
         ports = self.inner.prepare(attempt, feedback_ref)
+        self.trace.proposer = ports.proposer
         return AttemptPorts(ports.proposer, _TracedLifecycle(ports.lifecycle, self.trace, attempt),
                             ports.isolation, _TracedVerifier(ports.verifier, self.trace))
 
@@ -201,6 +203,29 @@ def judge_attempt(result: AttemptResult, trace: _Trace) -> dict:
             "isolation_probe_run_id": trace.probe_run_id, "proposal_digest": evidence.proposal_digest,
             "diff_hash": evidence.diff_hash, "image_digest": evidence.image_digest,
             "diff": evidence.diff.decode("utf-8"), "evidence": evidence.public()}
+
+
+def collect_tool_events(proposer: object, admission: object) -> dict:
+    """Sign T11's events for this attempt unfiltered, or mark them unavailable.
+
+    T10 forwards the array as `data.tool_events` and T24 indexes it by position,
+    so the list is never trimmed or reordered; any doubt drops the whole list.
+    """
+    read = getattr(proposer, "tool_events", None)
+    try:
+        if not callable(read):
+            raise ValueError("no T11 events")
+        events = read()
+        if (not isinstance(events, tuple) or len(events) > 256
+                or any(not isinstance(e, dict) or e.get("run_id") != admission.rehearsal_id
+                       or e.get("attempt") != admission.attempt
+                       or any(not isinstance(k, str) or type(v) not in (str, int, bool)
+                              for k, v in e.items())
+                       for e in events)):
+            raise ValueError("unbound T11 events")
+    except Exception:
+        return {"tool_events_status": "UNAVAILABLE"}
+    return {"tool_events_status": "COMPLETE", "tool_events": [dict(e) for e in events]}
 
 
 @dataclass(frozen=True)
@@ -243,6 +268,7 @@ class RecordedAttemptSender:
             result = run_admitted_attempt(admission, task, factory, feedback_digest=self._feedback(admission))
             body = judge_attempt(result, trace) | {"plan_digest": binding.plan_digest,
                                                    "target_environment_id": binding.target_environment_id}
+            body |= collect_tool_events(trace.proposer, admission)
         except Exception:
             pass
         now = self.clock()
@@ -273,6 +299,15 @@ class RecordedEvidence:
         return Observation(admission, record["verification_id"], record["proposal_digest"],
                            record["namespace"], record["created_uid"], record["removed_uid"],
                            record["absence_confirmed"] is True, record["verdict"])
+
+    def tool_events(self, admission: object) -> list[dict] | None:
+        """Signed T11 events for T10's `data.tool_events`; None if unavailable."""
+        record = self.store.read(admission.rehearsal_id, admission.attempt)
+        if record is None or record.get("tool_events_status") != "COMPLETE":
+            return None
+        if record["admission"] != asdict(admission):
+            raise RecordUnavailable("record names another admission")
+        return [dict(e) for e in record["tool_events"]]
 
     def _passed(self, plan_id: str, run_id: str, verification_id: str) -> dict:
         for attempt in (1, 2, 3):

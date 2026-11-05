@@ -360,7 +360,6 @@ def run(state: pathlib.Path, first: str):
                                 attempt=attempt, command_key=f"start-{attempt}")
         result = service.reconcile(operator, spec.plan_id, rehearsal_id=receipt["rehearsal_id"], attempt=attempt)
         record = records.read(receipt["rehearsal_id"], attempt) or {}
-        coordinator = coordinators.get(receipt["rehearsal_id"])
         report["attempts"].append({
             "attempt": attempt, "seconds": round(time.monotonic() - started), "t10_status": result["status"],
             "record_verdict": record.get("verdict"), "record_reason": record.get("reason"),
@@ -370,8 +369,8 @@ def run(state: pathlib.Path, first: str):
             "isolation_probe_run_id": record.get("isolation_probe_run_id"),
             "diff_hash": record.get("diff_hash"), "image_digest": record.get("image_digest"),
             "evidence": record.get("evidence"),
-            "t11_denials": [e for e in (coordinator.audit if coordinator else []) if e["outcome"] == "DENIED"
-                            and e["attempt"] == attempt]})
+            "tool_events_status": record.get("tool_events_status"),
+            "t11_denials": [e for e in record.get("tool_events", []) if e["outcome"] == "DENIED"]})
         status = result["status"]
         if status != "FAIL":
             break
