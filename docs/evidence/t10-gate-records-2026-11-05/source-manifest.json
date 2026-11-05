@@ -1,0 +1,29 @@
+{
+  "source_revision": "97b1a916156772edcafa8c26a780568b8d135ab4",
+  "source_files": [
+    {
+      "path": "infra/envs/platform-data/probe_job.py",
+      "sha256": "25ad4c5173427677c281dd1c9d78c6572970c0da37cca31597c7a5cec6abddae"
+    },
+    {
+      "path": "services/platform-events/pyproject.toml",
+      "sha256": "6d4eb7089e22d741f299cc36c3acc4fe44689de0c2fdf245e0fe84dad8809496"
+    },
+    {
+      "path": "services/platform-events/src/bravo_platform_events/gate_records.py",
+      "sha256": "659ac566d626e76724666646bc0a22c6fc110fb1912a319338f19a41d9817f64"
+    },
+    {
+      "path": "services/platform-events/testing/gate_records_probe.py",
+      "sha256": "dab5a5e103fb82aa76e37a6c831495aa5111124cadfc7b0c216c83be208261b8"
+    },
+    {
+      "path": "services/platform-events/tests/test_gate_records.py",
+      "sha256": "88a89d34f24652aab68bb78c44c3a4e75e5ccd8d6922f40e79199f41c44f313a"
+    },
+    {
+      "path": "services/platform-events/uv.lock",
+      "sha256": "f5b14d5146cde1c9f19a8b9010ed2be47b1418454bdeaec0a64730531fb74764"
+    }
+  ]
+}
