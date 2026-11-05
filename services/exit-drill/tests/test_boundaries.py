@@ -67,6 +67,13 @@ def test_no_destructive_command_in_tool(path):
     assert not DESTRUCTIVE.search(path.read_text(encoding="utf-8"))
 
 
+def test_operator_script_has_no_llm_and_no_destructive_command():
+    """kubectl을 부르는 곳은 src 밖의 운영자 도구뿐이다. 그래도 판정 쪽 규칙은 같다."""
+    source = (ROOT / "scripts" / "real_run.py").read_text(encoding="utf-8")
+    assert not imported_modules(source) & LLM_MODULES
+    assert not DESTRUCTIVE.search(source)
+
+
 def test_lock_has_no_llm_dependency():
     lock = tomllib.loads((ROOT / "uv.lock").read_text(encoding="utf-8"))
     names = {package["name"] for package in lock["package"]}

@@ -15,6 +15,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 PACKAGE = "src/bravo_exit_drill"
+REAL_RUN = "../../scripts/real_run.py"
 
 # (파일, 찾을 글자, 바꿀 글자, 무엇을 뺐는가)
 MUTATIONS = [
@@ -139,11 +140,41 @@ MUTATIONS = [
     ("observation.py", 'if status.get("phase") in _FINISHED or metadata.get("deletionTimestamp"):', "if False:", "끝난 Pod 빼기"),
     ("observation.py", '"host_network": (item.get("spec") or {}).get("hostNetwork") is True,', '"host_network": False,', "hostNetwork 기록"),
     ("cli.py", "return exit_code(report)", "return 0", "판정을 종료 코드로 알리기"),
+    ("inventory_input.py", 'missing_capabilities=tuple(fit["missing_capabilities"]),', "missing_capabilities=(),", "목적지에 없는 기능 읽기"),
+    ("residual_map.py", '"candidate_missing_capabilities": list(inventory.missing_capabilities),', '"candidate_missing_capabilities": [],', "지도에 목적지에 없는 기능 표시"),
+    ("residual_map.py", '"drill_not_pass": _not_pass(report),', '"drill_not_pass": [],', "지도에 판정을 막은 항목 표시"),
+    ("residual_map.py", ' for c in report["checks"] if c["verdict"] != "PASS"]', ' for c in report["checks"]]', "통과 항목을 막은 항목으로 안 치기"),
+    ("control_pod.py", "if not isinstance(image, str) or not _PINNED_IMAGE.fullmatch(image):", "if False:", "대조군 이미지 digest 고정"),
+    ("control_pod.py", "if control is None:", "if False:", "대조군 없는 명세 거부"),
+    ("control_pod.py", '"automountServiceAccountToken": False,', '"automountServiceAccountToken": True,', "대조군에 계정 토큰을 주지 않기"),
+    ("control_pod.py", '"imagePullPolicy": "Never",', '"imagePullPolicy": "Always",', "이미 장비에 있는 이미지만 쓰기"),
+    ("control_pod.py", '"activeDeadlineSeconds": _LIFETIME_S,\n', "", "잊힌 대조군이 끝나게 하기"),
+    ("control_pod.py", '"allowPrivilegeEscalation": False,', '"allowPrivilegeEscalation": True,', "restricted 보안 설정"),
+    ("control_pod.py", '"runAsNonRoot": True, ', "", "restricted 사용자 설정"),
+    ("control_pod.py", ', "app.kubernetes.io/part-of": "bravo-exit-drill"}', "}", "정책과 함께 되돌릴 레이블"),
+    (REAL_RUN, 'STOP_CONTAINER = "kill -TERM 1; kill -TERM -1"', 'STOP_CONTAINER = "kill -TERM 1"', "sh가 1번인 컨테이너도 끝내기"),
+    (REAL_RUN, 'SHELL_VANTAGES = {"pooler", "db"}', 'SHELL_VANTAGES = {"db"}', "Python 없는 풀러를 bash로 재기"),
+    (REAL_RUN, "if not SAFE_NAME.fullmatch(application_name):", "if False:", "SQL에 넣기 전 이름 확인"),
+    (REAL_RUN, "control_last = measure(kube, plan, control)", "control_last = None", "대조군을 뒤에도 재기"),
+    (REAL_RUN, "policies_end = _policies(kube, plan)", "policies_end = policies_start", "측정 뒤 정책 다시 읽기"),
+    (REAL_RUN, 'return not pod["metadata"].get("deletionTimestamp") and any(', "return any(", "종료 중인 Pod를 재지 않기"),
+    (REAL_RUN, "any(c[\"type\"] == \"Ready\" and c[\"status\"] == \"True\" for c in conditions)", "bool(conditions)", "준비된 Pod만 재기"),
+    (REAL_RUN, 'key=lambda p: p["metadata"]["creationTimestamp"], reverse=True)', 'key=lambda p: p["metadata"]["creationTimestamp"])', "새 Pod부터 재기"),
+    (REAL_RUN, '{"state": "absent", "lsn": None}', '{"state": "streaming", "lsn": None}', "구독자 없음을 복제 중으로 안 치기"),
+    (REAL_RUN, '    if not pods:\n        return {"state": None, "lsn": None}\n', '    if not pods:\n        return {"state": "absent", "lsn": None}\n', "primary를 못 찾으면 모른다고 두기"),
+    (REAL_RUN, '"-c", "SET default_transaction_read_only=on", ', "", "복제 상태를 읽기 전용으로 읽기"),
+    (REAL_RUN, 'raise RestartNotObserved(f"{workload}: restart was not observed")', "break", "일어나지 않은 재시작을 기록하지 않기"),
+    (REAL_RUN, '"replaced_container_id": before["containerID"]}', '"replaced_container_id": _status_of(kube, plan, name, container)["containerID"]}', "죽이기 전 ID를 기록하기"),
+    (REAL_RUN, "124:*) state=timeout ;;", "124:*) state=refused ;;", "시간 초과 구분"),
+    (REAL_RUN, "*) state=error ;;", "*) state=refused ;;", "모르는 실패를 거부로 안 세기"),
+    (REAL_RUN, '*"Name or service not known"*|*"Temporary failure in name resolution"*|*"nodename nor servname"*) state=dns_failure ;;', '*"Name or service not known"*|*"Temporary failure in name resolution"*|*"nodename nor servname"*) state=refused ;;', "이름 풀이 실패를 거부로 안 세기"),
+    (REAL_RUN, "if len(rows) != len(targets) or any(len(row) != 2 for row in rows):", "if False:", "모양이 틀린 bash 결과 거부"),
+    (REAL_RUN, "return results if isinstance(results, list) else None", "return results", "모양이 틀린 접속 시험 결과 거부"),
 ]
 
 
 def fresh_copy(target: Path) -> None:
-    for name in ("src", "tests", "profiles"):
+    for name in ("src", "tests", "profiles", "scripts"):
         shutil.copytree(ROOT / name, target / name, ignore=shutil.ignore_patterns("__pycache__"))
     for name in ("pyproject.toml", "uv.lock"):
         shutil.copy(ROOT / name, target / name)
