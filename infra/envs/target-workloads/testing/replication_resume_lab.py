@@ -667,7 +667,8 @@ def run_paths():
             and "source" in marker.get("pending_on", []) and "--cleanup-marker" in marker.get("resume", "") and left_behind == 1
             and refused_other["report"].get("refusals") == ["not_a_marker_row"] and other_survived
             and finished["exit"] == 0 and finished["report"]["marker"]["cleanup"] == "confirmed"
-            and again["exit"] == 0 and again["report"]["marker"]["source_delete_submissions"] == 0}
+            and again["exit"] == 0 and again["report"]["marker"]["source_delete_submissions"] == 1
+            and again["report"]["marker"]["source_insert_commits"] is None}
 
         # Enabled by hand while another reader still holds the slot: it retries, it does not turn itself off.
         stop_cleanly(source, target)
