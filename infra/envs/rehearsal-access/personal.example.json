@@ -1,0 +1,178 @@
+{
+  "apiVersion": "bravo.dev/personal-access/v1",
+  "kind": "PersonalAccessProfile",
+  "name": "member-lab",
+  "cluster": {
+    "server": "https://cluster.example.test:443",
+    "uid": "abcdefff-abcd-4abc-8abc-abcdefabcdef",
+    "trust": {
+      "mode": "system"
+    }
+  },
+  "auth": {
+    "mode": "tailscale-proxy"
+  },
+  "username": "member@example.test",
+  "namespace": {
+    "name": "sandbox-member",
+    "uid": "bcdefaaa-bcde-4bcd-8bcd-bcdefabcdefa"
+  },
+  "permissions": {
+    "namespaceRules": [
+      {
+        "apiGroup": "",
+        "resources": [
+          "pods",
+          "services",
+          "configmaps",
+          "secrets",
+          "persistentvolumeclaims",
+          "serviceaccounts",
+          "resourcequotas",
+          "limitranges"
+        ],
+        "verbs": [
+          "get",
+          "list",
+          "watch",
+          "create",
+          "update",
+          "patch",
+          "delete"
+        ]
+      },
+      {
+        "apiGroup": "",
+        "resources": [
+          "events"
+        ],
+        "verbs": [
+          "get",
+          "list",
+          "watch"
+        ]
+      },
+      {
+        "apiGroup": "apps",
+        "resources": [
+          "deployments",
+          "statefulsets"
+        ],
+        "verbs": [
+          "get",
+          "list",
+          "watch",
+          "create",
+          "update",
+          "patch",
+          "delete"
+        ]
+      },
+      {
+        "apiGroup": "apps",
+        "resources": [
+          "replicasets"
+        ],
+        "verbs": [
+          "get",
+          "list",
+          "watch"
+        ]
+      },
+      {
+        "apiGroup": "batch",
+        "resources": [
+          "jobs"
+        ],
+        "verbs": [
+          "get",
+          "list",
+          "watch",
+          "create",
+          "delete"
+        ]
+      },
+      {
+        "apiGroup": "networking.k8s.io",
+        "resources": [
+          "networkpolicies"
+        ],
+        "verbs": [
+          "get",
+          "list",
+          "watch",
+          "create",
+          "update",
+          "patch",
+          "delete"
+        ]
+      },
+      {
+        "apiGroup": "rbac.authorization.k8s.io",
+        "resources": [
+          "roles",
+          "rolebindings"
+        ],
+        "verbs": [
+          "get",
+          "list",
+          "watch",
+          "create",
+          "update",
+          "patch",
+          "delete"
+        ]
+      }
+    ],
+    "podLogs": true,
+    "podExec": true,
+    "readOnlyNamespaces": [
+      {
+        "name": "target-app",
+        "rules": [
+          {
+            "apiGroup": "",
+            "resources": [
+              "pods"
+            ],
+            "verbs": [
+              "get",
+              "list",
+              "watch"
+            ]
+          },
+          {
+            "apiGroup": "networking.k8s.io",
+            "resources": [
+              "networkpolicies"
+            ],
+            "verbs": [
+              "get",
+              "list",
+              "watch"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "testRunner": {
+    "serviceAccount": "human-checker",
+    "impersonateServiceAccount": "rehearsal-exec",
+    "namespace": {
+      "name": "access-control",
+      "uid": "cdefabcd-abcd-4abc-8abc-abcdefabcdef"
+    },
+    "podName": "personal-checker",
+    "apiEndpoints": [
+      {
+        "ip": "192.0.2.10",
+        "port": 6443
+      },
+      {
+        "ip": "2001:db8::10",
+        "port": 443
+      }
+    ]
+  }
+}
