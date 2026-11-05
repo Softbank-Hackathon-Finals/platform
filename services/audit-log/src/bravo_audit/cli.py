@@ -66,7 +66,7 @@ def cmd_append(args) -> int:
             return 3
     out = {"plan_id": ledger.plan_id if ledger else args.plan, "run_id": ledger.run_id if ledger else args.run,
            "records": len(receipts), "absorbed_redeliveries": absorbed,
-           "chain_digest": chain_digest([r.as_dict() for r in ledger.records]) if ledger else None,
+           "chain_digest": ledger.chain_digest() if ledger else None,
            "receipts": receipts}
     Path(args.receipts).write_text(json.dumps(out, ensure_ascii=False, indent=2), encoding="utf-8")
     print(json.dumps({k: v for k, v in out.items() if k != "receipts"}, ensure_ascii=False))

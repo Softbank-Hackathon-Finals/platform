@@ -38,29 +38,9 @@ SENSITIVE_KEY = re.compile(
 REFERENCE_SUFFIXES = ("_id", "_name", "_ref", "_arn", "_path", "_file", "_source", "_sources", "_kind",
                       "_mode", "_count", "_enabled", "_digest", "_sha256", "_hash", "_version", "_rotation")
 REFERENCE_MARKERS = frozenset({"", "literal", "secretKeyRef", "configMapKeyRef", "fieldRef",
-                               "resourceFieldRef", "unknown", "configurable", "redacted"})
-
-
-class UnsafePayload(ValueError):
-    """Payload contains a credential-like string or exceeds the size bound."""
-
-
-def _sensitive_key(key: str) -> bool:
-    lowered = key.lower()
-    return bool(SENSITIVE_KEY.search(key)) and not lowered.endswith(REFERENCE_SUFFIXES)
-
-
-def _check_structure(value, path: str = "") -> None:
-    """Reject a credential value stored under a credential-named key, at any depth."""
-    if isinstance(value, dict):
-        for key, item in value.items():
-            key = str(key)
-            if _sensitive_key(key) and isinstance(item, str) and item not in REFERENCE_MARKERS and not item.startswith("<"):
-                raise UnsafePayload(f"credential value under key path {path + key!r} refused")
-            _check_structure(item, path + key + ".")
-    elif isinstance(value, list | tuple):
-        for item in value:
-            _check_structure(item, path)
+                               "resourceFieldRef", "unknown", "configurable", "redacted", "<redacted>"})
+# ``<masked>`` or ``<masked: short reason>`` from the T16 scanner; nothing else that merely starts with "<".
+MASK_MARKER = re.compile(r"^<masked(?:: [A-Za-z0-9 _-]{1,60})?>$")
 
 
 def canonical(value) -> bytes:
@@ -81,6 +61,33 @@ def _strings(value):
     elif isinstance(value, list | tuple):
         for v in value:
             yield from _strings(v)
+
+
+class UnsafePayload(ValueError):
+    """Payload contains a credential-like string or exceeds the size bound."""
+
+
+def _sensitive_key(key: str) -> bool:
+    lowered = key.lower()
+    return bool(SENSITIVE_KEY.search(key)) and not lowered.endswith(REFERENCE_SUFFIXES)
+
+
+def _is_marker(value: str) -> bool:
+    return value in REFERENCE_MARKERS or bool(MASK_MARKER.fullmatch(value))
+
+
+def _check_structure(value, sensitive: bool = False, path: str = "") -> None:
+    """Under a credential-named key, *every* string at any depth (lists and nested objects
+    included) must be a reference marker. The sensitive context is inherited downward."""
+    if isinstance(value, dict):
+        for key, item in value.items():
+            key = str(key)
+            _check_structure(item, sensitive or _sensitive_key(key), path + key + ".")
+    elif isinstance(value, list | tuple):
+        for item in value:
+            _check_structure(item, sensitive, path + "[]")
+    elif isinstance(value, str) and sensitive and not _is_marker(value):
+        raise UnsafePayload(f"credential value under key path {path.rstrip('.')!r} refused")
 
 
 def check_payload(payload: dict) -> bytes:

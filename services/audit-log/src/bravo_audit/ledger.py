@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import threading
 from collections.abc import Callable
 from datetime import UTC, datetime
 
@@ -24,6 +25,10 @@ class RunLedger:
         self.records: list[AuditRecord] = []
         # upstream identity → payload digest, including records stored before a resume
         self.seen: dict[str, str] = {}
+        self.stored_before_resume = start_sequence - 1
+        # One ledger may be fed from several threads (writer + redelivery). The identity check,
+        # the sequence assignment and the chain update must be one step.
+        self._lock = threading.Lock()
 
     def append(self, source: str, kind: str, payload: dict, origin_id: str) -> tuple[AuditRecord | None, bool]:
         """Append one upstream event. Returns (record, created).
@@ -32,18 +37,24 @@ class RunLedger:
         identical replay is absorbed (``created=False``, no new record), a different payload under
         the same identity is a conflict and is refused."""
         digest = sha256(check_payload(payload))
-        if origin_id in self.seen:
-            if self.seen[origin_id] != digest:
-                raise OriginConflict("same upstream event id with different content")
-            return next((r for r in self.records if r.origin_id == origin_id), None), False
-        record = AuditRecord.build(plan_id=self.plan_id, run_id=self.run_id, sequence=self.next_sequence,
-                                   recorded_at=self.now(), source=source, kind=kind, origin_id=origin_id,
-                                   payload=payload, prev_sha256=self.prev_sha256)
-        self.records.append(record)
-        self.seen[origin_id] = record.payload_sha256
-        self.prev_sha256 = record.sha256
-        self.next_sequence += 1
-        return record, True
+        with self._lock:
+            if origin_id in self.seen:
+                if self.seen[origin_id] != digest:
+                    raise OriginConflict("same upstream event id with different content")
+                return next((r for r in self.records if r.origin_id == origin_id), None), False
+            record = AuditRecord.build(plan_id=self.plan_id, run_id=self.run_id, sequence=self.next_sequence,
+                                       recorded_at=self.now(), source=source, kind=kind, origin_id=origin_id,
+                                       payload=payload, prev_sha256=self.prev_sha256)
+            self.records.append(record)
+            self.seen[origin_id] = record.payload_sha256
+            self.prev_sha256 = record.sha256
+            self.next_sequence += 1
+            return record, True
+
+    def chain_digest(self) -> str:
+        """Digest of the whole chain *as stored*: the last record's sha256 whether it was written
+        in this process or before a resume; the empty-chain value only for a run with no records."""
+        return self.prev_sha256 if self.next_sequence > 1 else chain_digest([])
 
     @classmethod
     def resume(cls, plan_id: str, run_id: str, existing: list[dict], now: Callable[[], str] = utc_now) -> RunLedger:

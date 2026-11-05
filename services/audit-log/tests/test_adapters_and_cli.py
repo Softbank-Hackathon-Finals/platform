@@ -56,6 +56,8 @@ def test_cli_append_then_verify_round_trip(tmp_path, platform_events, tool_event
                  "--resume-from", str(resume)]) == 0
     r3 = json.loads((tmp_path / "r3.json").read_text(encoding="utf-8"))
     assert r3["records"] == 0 and r3["absorbed_redeliveries"] == 2 and len(list(run_dir.glob("*.json"))) == 4
+    stored_last = json.loads(sorted(run_dir.glob("*.json"))[-1].read_text(encoding="utf-8"))["sha256"]
+    assert r3["chain_digest"] == stored_last  # review: a duplicate-only resume keeps the stored chain digest
     # same upstream id with different content is a conflict, not a new record
     changed = dict(platform_events[0])
     changed["data"] = {"from": None, "to": "ANALYZE"}

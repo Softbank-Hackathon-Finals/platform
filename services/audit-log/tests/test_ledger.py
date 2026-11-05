@@ -53,6 +53,11 @@ def test_any_change_after_the_fact_breaks_verification(ledger, tamper):
     {"credentials": {"nested": {"secret_key": "synthetic-sensitive-value"}}},
     {"DB_PASSWORD": "synthetic-sensitive-value"},
     {"items": [{"authorization": "Bearer synthetic"}]},
+    # review round 2: lists under a sensitive key, and "<" prefixes that are not the exact marker
+    {"credentials": ["synthetic-sensitive-value"]},
+    {"credentials": {"list": [{"inner": "synthetic-sensitive-value"}]}},
+    {"password": "<synthetic-sensitive-value>"},
+    {"password": "<masked but with extra text that is not the marker form!!>"},
 ])
 def test_credential_like_payloads_are_refused_before_hashing(ledger, payload):
     with pytest.raises(UnsafePayload):
@@ -65,6 +70,7 @@ def test_credential_like_payloads_are_refused_before_hashing(ledger, payload):
     {"secret_id": "demo-chat/db", "secret_arn": "arn:aws:secretsmanager:::x.example.invalid"},  # references
     {"token_count": 3, "password": None, "api_key_enabled": True},                       # non-values
     {"snippet": "DB_SECRET_ID: <masked>", "password_source": "openbao"},
+    {"password": "<masked>", "api_key": "<masked: secret-like literal>", "token": "<redacted>"},
 ])
 def test_credential_references_without_values_are_recordable(ledger, payload):
     record, created = ledger.append("platform.events", "state.changed", payload, "t10:plan-demo:9")
@@ -110,3 +116,29 @@ def test_validate_record_rejects_unknown_fields_and_sources(ledger):
     doc["source"] = "model"
     with pytest.raises(jsonschema.ValidationError):
         validate_record(doc)
+
+
+def test_concurrent_redelivery_of_one_origin_creates_one_record(fresh_ledger):
+    import threading
+
+    ledger = fresh_ledger()
+    results = []
+
+    def worker():
+        results.append(ledger.append("platform.events", "state.changed", {"to": "COLLECT"}, "t10:plan-demo:1"))
+
+    threads = [threading.Thread(target=worker) for _ in range(8)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    assert sum(1 for _, created in results if created) == 1 and len(ledger.records) == 1 and ledger.next_sequence == 2
+
+
+def test_chain_digest_survives_a_resume_that_only_absorbs_duplicates(ledger, fresh_ledger):
+    ledger.append("platform.events", "state.changed", {"to": "COLLECT"}, "t10:plan-demo:1")
+    stored = [r.as_dict() for r in ledger.records]
+    resumed = RunLedger.resume("plan-demo", "run-demo-1", stored, now=fresh_ledger().now)
+    assert resumed.append("platform.events", "state.changed", {"to": "COLLECT"}, "t10:plan-demo:1") == (None, False)
+    assert resumed.chain_digest() == stored[-1]["sha256"] == chain_digest(stored)
+    assert RunLedger("plan-demo", "run-demo-1").chain_digest() == chain_digest([])
