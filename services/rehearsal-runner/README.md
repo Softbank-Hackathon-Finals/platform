@@ -213,3 +213,10 @@ PYTHONPATH=../rehearsal-runner/src uv run --frozen --no-default-groups --with py
 ```
 
 위 교차 시험은 실제 T10 접수·재조회 코드와 모의 Kubernetes API를 사용한다. 제출 응답 유실 후 중복 제출 없이 기존 Job UID를 발견하지만, 인증된 결과가 없으므로 `UNCONFIRMED`가 유지되고 다음 게이트가 차단됨을 확인한다.
+
+T10 관리 방식의 실행은 `admission.run_admitted_attempt`가 접수된 단일 시도만 실행한다. T10의 `Admission.rehearsal_id`·시도·원본 revision·작업 digest와 T15 작업 및 Job 시도를 대조하고, 불일치하면 namespace를 만들지 않는다. 논리 작업 digest는 실행 ID를 제외해 재시도 사이에 유지하며 버킷 원본·대상 또는 자격 이전 요구사항은 포함한다. T10이 각 시도를 계획 잠금에서 접수하고 이전 hold를 확인하며, T15가 직접 다음 시도를 접수하지 않는다. 호출 호스트는 접수 원문의 신뢰성, 원격 제출 중복 방지와 재시작 시 효과 재조회를 제공해야 한다. `run_retries` 모의 루프는 관리 방식의 운영 접수를 대체하지 않는다.
+
+```bash
+cd ../platform-events
+PYTHONPATH=../rehearsal-runner/src uv run --frozen --no-default-groups --with pytest pytest -p no:cacheprovider ../rehearsal-runner/testing/test_t10_admission.py
+```
