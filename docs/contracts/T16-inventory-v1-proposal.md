@@ -7,9 +7,9 @@
 | 필드 | 의미 |
 |---|---|
 | `schema_version` | `1.0`. 인식하지 못하면 소비자는 적용을 멈춘다 |
-| `app` | 등록된 앱: `id`, `repo`, `app_path`, `source_sha`(신뢰된 수집기가 발급. 이 모듈은 값을 검증하지 않는다) |
+| `app` | 등록된 앱: `id`, `repo`(등록된 레포 참조. 로컬 체크아웃 경로를 쓰지 않는다), `app_path`, `source_sha`(신뢰된 수집기가 발급. 이 모듈은 값을 검증하지 않는다) |
 | `source` | 출발지 환경 `env_id` · `env_kind`(`aws` · `gcp` · `onprem`) · `namespace` |
-| `inputs` | `repo_digest`(앱 경로 파일 전체 해시), `deploy_digest`(배포 그래프 해시), `api_calls`(배포 추적에 쓴 파일 · API 목록) |
+| `inputs` | `repo_digest`(스캐너가 읽은 파일 전체: `app_path`의 Python + 레포 전체 설정 파일의 상대 경로 · 바이트 해시), `deploy_digest`(배포 그래프 해시), `api_calls`(배포 추적에 쓴 파일 · API 목록) |
 | `items[]` | 의존성 항목. 아래 표 |
 | `deploy` | 추적한 배포 그래프: 워크로드(이미지 · 서비스 계정 · 환경 변수 이름), 자원(종류 · 이름 · 경로 `via` · 허용 동작 · 속성), 메모 |
 | `candidates[]` | 후보 목적지별 적합성: `verdict`, `grade_counts`, `missing_capabilities`, `residual_dependencies`, `capabilities`(값마다 `declared` 또는 `observed` 출처) |
@@ -21,7 +21,7 @@
 | 필드 | 값 | 규칙 |
 |---|---|---|
 | `role` | `object_store` · `secrets` · `kms` · `iam` · `db` · `audit` · `runtime` · `messaging` · `function` · `ai` · `unknown` … | 7.3 대응표의 역할. SDK 서비스명은 `catalog.SERVICE_ROLE`로 매핑 |
-| `found_in` | `code` · `deploy` · `both` | `deploy`면 `risk = migration_omission` 필수(스키마가 강제) |
+| `found_in` | `code` · `deploy` · `both` | `deploy`면 `risk = migration_omission` 필수(스키마가 강제). 코드가 쓰는 역할이라도 워크로드 설정(env 이름)이 가리키지 않는 버킷 · 시크릿 · 키는 같은 `role`의 별도 `deploy` 항목이 된다 |
 | `grade` | `config_swap` · `adapter` · `code_change` · `none` · `unknown` | FR-2 3등급 + 대체 없음 + 미지 |
 | `grade_by` | `rule` · `agent` | `agent`면 `rationale` 10자 이상 필수. 규칙이 `none`으로 정한 항목은 에이전트가 바꾸지 못한다 |
 | `agent_needed` | bool | 규칙이 못 정했거나(미지 역할, 와일드카드 정책) 배포에만 있는 항목 |
@@ -39,4 +39,4 @@
 
 - 정적 탐지는 환경 변수로 조립되는 동적 엔드포인트와 리플렉션 호출을 놓칠 수 있다. 리허설 네임스페이스(T3 · T15)의 송신 차단 기록을 2차 증거로 합치는 것은 후속 제안이다.
 - `source_sha`와 레포 스냅샷의 결속은 T10 · T15의 신뢰된 수집기 몫이다. 이 문서의 `repo_digest`는 "무엇을 읽었는가"의 기록이지 커밋 증명이 아니다.
-- `Boto3Adapter`의 실제 AWS 호출은 T6 · T7 환경에서 실측하기 전까지 미검증이다. 허용 목록 밖 API는 호출 전에 거부된다.
+- `Boto3Adapter`의 실제 AWS 호출은 2026-11-06 개인 SSO 사전 점검에서만 실측했다([요약](../evidence/t16-real-shakedown-2026-11-06/README.md)). 연결용 공식 수집은 T7 읽기 전용 수집 역할로 다시 만든다. 허용 목록 밖 API는 호출 전에 거부된다.
