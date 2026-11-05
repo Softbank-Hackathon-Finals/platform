@@ -11,7 +11,7 @@ from rehearsal_runner.runner import Namespace
 SHA = "a" * 40
 PATH = "src/target-policy.json"
 PROPOSAL = {"run_id": "run-1", "source_sha": SHA,
-            "edits": [{"path": PATH, "replacement": '{"Statement": []}'}]}
+            "edits": [{"path": PATH, "before_sha256": "e" * 64, "replacement": '{"Statement": []}'}]}
 
 
 def proposal_digest(proposal):

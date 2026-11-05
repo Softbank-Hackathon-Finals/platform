@@ -64,6 +64,14 @@ def _lines(text: str) -> list[str]:
     return [part + "\n" for part in parts[:-1]] + ([parts[-1]] if parts[-1] else [])
 
 
+def file_diff(path: str, before: str, after: str) -> bytes:
+    """Return a Git-applicable UTF-8 unified diff for one file."""
+    chunks = []
+    for line in difflib.unified_diff(_lines(before), _lines(after), fromfile="a/" + path, tofile="b/" + path):
+        chunks.append(line if line.endswith("\n") else line + "\n\\ No newline at end of file\n")
+    return "".join(chunks).encode("utf-8")
+
+
 def prepare_candidate_change(snapshot: Snapshot, edits: tuple[ProposedEdit, ...]) -> CandidateChange:
     """Build an applicable UTF-8 diff from exactly the validated source bytes.
 
@@ -71,15 +79,8 @@ def prepare_candidate_change(snapshot: Snapshot, edits: tuple[ProposedEdit, ...]
     not establish that a built or running image contains these file contents.
     """
     checked = _checked_sources(snapshot, edits)
-    chunks = []
-    for source, candidate in sorted(checked, key=lambda item: item[1].path):
-        for line in difflib.unified_diff(_lines(source), _lines(candidate.content),
-                                         fromfile="a/" + candidate.path, tofile="b/" + candidate.path):
-            if line.endswith("\n"):
-                chunks.append(line)
-            else:
-                chunks.append(line + "\n\\ No newline at end of file\n")
-    diff = "".join(chunks).encode("utf-8")
+    diff = b"".join(file_diff(candidate.path, source, candidate.content)
+                    for source, candidate in sorted(checked, key=lambda item: item[1].path))
     if not diff:
         raise ValueError("candidate contains no changes")
     return CandidateChange(tuple(candidate for _, candidate in checked), diff,

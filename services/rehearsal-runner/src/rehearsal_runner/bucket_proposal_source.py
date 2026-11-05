@@ -6,6 +6,7 @@ proof of T38 verification. The source must be controlled by the caller.
 
 import hashlib
 import json
+import re
 from dataclasses import dataclass, field
 from typing import Protocol
 
@@ -22,6 +23,7 @@ class BucketProposal:
     source_policy_sha256: str
     target_bucket: str
     replacement: str = field(repr=False)
+    before_sha256: str = ""
 
 
 @dataclass(frozen=True)
@@ -53,7 +55,9 @@ class BoundBucketProposalSource:
         if (proposal.get("run_id") != request.run_id or proposal.get("source_sha") != request.source_sha
                 or not isinstance(edits, list) or len(edits) != 1 or not isinstance(edits[0], dict)
                 or edits[0].get("path") != self.target_policy_path
-                or not isinstance(edits[0].get("replacement"), str)):
+                or not isinstance(edits[0].get("replacement"), str)
+                or not isinstance(edits[0].get("before_sha256"), str)
+                or re.fullmatch(r"[a-f0-9]{64}", edits[0]["before_sha256"]) is None):
             raise ValueError("proposal outside target policy")
         return BucketProposal(request.proposal_digest, request.source_policy_sha256,
-                              request.target_bucket, edits[0]["replacement"])
+                              request.target_bucket, edits[0]["replacement"], edits[0]["before_sha256"])
