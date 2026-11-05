@@ -273,10 +273,21 @@ What remains, by design or outside the ACL's reach:
 The fixed-slot alternative (operator-made `rehearsal-app-reader-slot-<n>` policies) is no longer
 needed and was not built.
 
-**Network for readers.** The rendered OpenBao `network` policy has no ingress peer for
-`rehearsal-*` attempt namespaces, so the `rehearsal-init-container` path cannot reach OpenBao
-until a reader peer is agreed and added (verified: the init container times out). This change
-does not add one; the local check adds a test-only peer for the happy path.
+**Network for readers.** The OpenBao `network` policy admits TCP 8200 from namespaces labelled
+`app.kubernetes.io/part-of: bravo-rehearsal`. Both the candidate init container and the
+different-account rejection probe need this path: a network timeout cannot prove an OpenBao
+authorization denial. Only the trusted namespace manager sets this label. The control
+namespace remains outside this selector and still requires the writer Pod label above.
+Other OpenBao ports, existing ESO/probe peers and egress rules are unchanged.
+
+**Public CA for the runner.** The operator reads `target-dev/target-openbao-ca`, key `ca.crt`,
+and supplies the same public certificate as ConfigMap
+`bravo-rehearsal-control/target-openbao-ca`, also key `ca.crt`. Compare its SHA-256 with the
+source before use and after renewal. Export only this key to the runner's configured CA file;
+the credential planner uses it to create each attempt's CA ConfigMap. Do not copy TLS private
+keys or grant the runner access to `bravo-secrets`. AWS-hosted runners need the same public
+certificate mounted by their deployment operator; a destination ConfigMap is not an AWS
+mount. Keep hostname and CA verification enabled.
 
 **Namespace and SA ownership.** The T15 owner coordinates creating `bravo-rehearsal-control` with
 T30. `rehearsal-writer-identity` renders the namespace and SA for that conversation; do not
