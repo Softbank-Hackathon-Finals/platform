@@ -96,7 +96,9 @@ def product_service(settings, inputs, journal_root, *, request_inputs=None):
                           request_inputs=request_inputs)
 
 
-def serve(settings, *, product=None, fixture_enabled=True):
+def serve(settings, *, product=None, fixture_enabled=True, tls_context=None):
+    if product is not None and tls_context is None:
+        raise ValueError("authenticated product TLS listener required")
     completed = 0
 
     class Handler(BaseHTTPRequestHandler):
@@ -118,11 +120,12 @@ def serve(settings, *, product=None, fixture_enabled=True):
 
         def do_POST(self):
             nonlocal completed
-            if self.path == "/run" and product is None:
+            product_route = self.path in {"/run", "/input/probe"}
+            if product_route and product is None:
                 # A trusted host must explicitly install the authenticated reader.
                 self.respond(503, {"state": "NEEDS_HUMAN", "reason": "PRODUCT_INPUT_UNAVAILABLE"})
                 return
-            if (self.path not in {"/run", "/validation/fixture"}
+            if (self.path not in {"/run", "/input/probe", "/validation/fixture"}
                     or (self.path == "/validation/fixture" and not fixture_enabled)):
                 self.respond(404, {"state": "NEEDS_HUMAN", "reason": "UNKNOWN_ROUTE"})
                 return
@@ -131,16 +134,16 @@ def serve(settings, *, product=None, fixture_enabled=True):
                 if not 0 < size <= 32768:
                     raise ValueError("invalid length")
                 body = json.loads(self.rfile.read(size))
-                if self.path == "/run":
+                if product_route:
                     completed += 1
-                    status, response = product.run(body)
+                    status, response = product.probe(body) if self.path == "/input/probe" else product.run(body)
                     self.respond(status, response)
                     return
                 if (not isinstance(body, dict) or set(body) != {"web_identity_token", "run_id"}
                         or not isinstance(body["web_identity_token"], str)):
                     raise ValueError("invalid fields")
             except (ValueError, RecursionError):
-                reason = "INVALID_PRODUCT_REQUEST" if self.path == "/run" else "INVALID_FIXTURE_REQUEST"
+                reason = "INVALID_PRODUCT_REQUEST" if product_route else "INVALID_FIXTURE_REQUEST"
                 self.respond(400, {"state": "NEEDS_HUMAN", "reason": reason})
                 return
             completed += 1
@@ -152,6 +155,19 @@ def serve(settings, *, product=None, fixture_enabled=True):
             self.respond(200, response)
 
     with HTTPServer(("127.0.0.1", 18761), Handler) as server:
+        if tls_context is not None:
+            accept = server.get_request
+
+            def authenticated_request():
+                connection, address = accept()
+                connection.settimeout(5)
+                try:
+                    return tls_context.wrap_socket(connection, server_side=True), address
+                except Exception:
+                    connection.close()
+                    raise
+
+            server.get_request = authenticated_request
         server.timeout = 1
         deadline = time.monotonic() + 600
         while completed < 2 and time.monotonic() < deadline:

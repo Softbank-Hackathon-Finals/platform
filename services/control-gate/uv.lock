@@ -322,6 +322,7 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
+    { name = "boto3", marker = "extra == 'sso-registration'", specifier = ">=1.35,<2" },
     { name = "bravo-observability", extras = ["api"], git = "https://github.com/Softbank-Hackathon-Finals/platform.git?subdirectory=services%2Fobservability&rev=020c6c78bdc6133ab0ee15e2a990bb9527b3182f" },
     { name = "fastapi", specifier = ">=0.115" },
     { name = "httpx", specifier = ">=0.27" },
@@ -330,7 +331,7 @@ requires-dist = [
     { name = "pyjwt", extras = ["crypto"], specifier = ">=2.10.1,<3" },
     { name = "rfc3339-validator", specifier = ">=0.1.4" },
 ]
-provides-extras = ["postgres"]
+provides-extras = ["postgres", "sso-registration"]
 
 [package.metadata.requires-dev]
 dev = [

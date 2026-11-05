@@ -9,6 +9,7 @@ from .contract import validate_identifier
 from .operator_identity import OperatorPrincipal
 from .plans import PlanSpec, _canonical
 from .registration_probe import KubernetesProbe
+from .registration_sso import SsoRegistrationPrincipal
 from .store import EventError
 
 
@@ -40,7 +41,7 @@ class Registry:
         self.clock = clock or (lambda: datetime.now(UTC))
 
     def authorize(self, actor):
-        if (not isinstance(actor, OperatorPrincipal) or not actor.issued_at <= self.clock().timestamp() < actor.expires_at
+        if (not isinstance(actor, (OperatorPrincipal, SsoRegistrationPrincipal)) or not actor.issued_at <= self.clock().timestamp() < actor.expires_at
                 or self.can_register(actor) is not True):
             raise EventError("forbidden")
         validate_identifier(actor.subject_id)

@@ -60,7 +60,7 @@ def install_registration_routes(app, registry, *, verify_identity):
         if len(request.headers.getlist("Idempotency-Key")) != 1:
             raise HTTPException(422, detail={"code": "invalid_request"})
         try:
-            actor = verify_identity(request)
+            actor = await asyncio.to_thread(verify_identity, request)
             receipt, created = await asyncio.to_thread(registry.register, actor, kind, body.model_dump(), key)
         except EventError as e:
             status = {"forbidden": 403, "registration_reference_unavailable": 404}.get(e.code, 409)

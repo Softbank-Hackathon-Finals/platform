@@ -1,12 +1,13 @@
-"""Render isolated T15/T31 API routes and target apply RBAC. Never apply or mint credentials."""
+"""Render isolated workload API routes. Never apply or mint credentials."""
 
 import argparse
 import json
-from pathlib import PurePosixPath
 import re
 import sys
+from pathlib import PurePosixPath
 
 ROLES = ("rehearsal", "apply")
+COLLECTOR = "collector"
 SYSTEM = "tailscale-system"
 TAILNET = "bravo-clusters"
 PROXY_CLASS = "bravo-clusters-egress-v11044"
@@ -33,9 +34,23 @@ def hostname(value):
 
 
 def control(role):
+    if role == COLLECTOR:
+        return "platform-state"
     if role not in ROLES:
         raise ValueError("unknown role")
     return "bravo-" + role + "-control"
+
+
+def service(role):
+    control(role)
+    return "collector-target-api" if role == COLLECTOR else "target-api"
+
+
+def client_labels(role):
+    control(role)
+    if role == COLLECTOR:
+        return {"app.kubernetes.io/name": "t10-registration", CLIENT_LABEL: role}
+    return {CLIENT_LABEL: role}
 
 
 def group(role):
@@ -92,10 +107,10 @@ def client_policy(role, ports=None):
             }
         )
     return policy(
-        "target-api-client",
+        "collector-target-api-client" if role == COLLECTOR else "target-api-client",
         control(role),
         {
-            "podSelector": {"matchLabels": {CLIENT_LABEL: role}},
+            "podSelector": {"matchLabels": client_labels(role)},
             "policyTypes": ["Egress"],
             "egress": rules,
         },
@@ -112,7 +127,7 @@ def proxy_policy(role, ports=None):
     if ports is not None:
         rules.append(
             {
-                "from": [peer(control(role), {CLIENT_LABEL: role})],
+                "from": [peer(control(role), client_labels(role))],
                 "ports": [{"protocol": "TCP", "port": port} for port in ports],
             }
         )
@@ -237,7 +252,7 @@ def mapped_ports(observed, role):
         labels = md.get("labels", {})
         expected = {
             "tailscale.com/managed": "true",
-            "tailscale.com/parent-resource": "target-api",
+            "tailscale.com/parent-resource": service(role),
             "tailscale.com/parent-resource-ns": control(role),
             "tailscale.com/parent-resource-type": "svc",
             "tailscale.com/proxy-group": group(role),
@@ -283,6 +298,54 @@ def network(observed):
         for role in ROLES
         for obj in (client_policy(role, ports[role]), proxy_policy(role, ports[role]))
     ]
+
+
+def collector_platform(api_hostname):
+    """Add one route; preserve existing namespace, SA, DB rules and shared operator."""
+    hostname(api_hostname)
+    return [
+        client_policy(COLLECTOR),
+        proxy_policy(COLLECTOR),
+        {
+            "apiVersion": "tailscale.com/v1alpha1",
+            "kind": "ProxyGroup",
+            "metadata": meta(group(COLLECTOR)),
+            "spec": {
+                "type": "egress",
+                "replicas": 1,
+                "tailnet": TAILNET,
+                "proxyClass": PROXY_CLASS,
+                "tags": ["tag:bravo-collector"],
+            },
+        },
+        {
+            "apiVersion": "tailscale.com/v1alpha1",
+            "kind": "ProxyGroupPolicy",
+            "metadata": meta("collector-access", control(COLLECTOR)),
+            "spec": {"egress": [group(COLLECTOR)]},
+        },
+        {
+            "apiVersion": "v1",
+            "kind": "Service",
+            "metadata": {
+                **meta(service(COLLECTOR), control(COLLECTOR)),
+                "annotations": {
+                    "tailscale.com/tailnet-fqdn": api_hostname,
+                    "tailscale.com/proxy-group": group(COLLECTOR),
+                },
+            },
+            "spec": {
+                "type": "ExternalName",
+                "externalName": "placeholder",
+                "ports": [{"name": "https", "port": 443, "protocol": "TCP"}],
+            },
+        },
+    ]
+
+
+def collector_network(observed):
+    ports = mapped_ports(observed, COLLECTOR)
+    return [client_policy(COLLECTOR, ports), proxy_policy(COLLECTOR, ports)]
 
 
 def target_apply(namespace, deployment):
@@ -366,7 +429,9 @@ def kubeconfig(role, api_hostname, token_file):
             {
                 "name": "target",
                 "cluster": {
-                    "server": "https://target-api."
+                    "server": "https://"
+                    + service(role)
+                    + "."
                     + control(role)
                     + ".svc.cluster.local",
                     "tls-server-name": api_hostname,
@@ -387,11 +452,14 @@ def main(argv=None):
     p.add_argument("--api-hostname", required=True)
     p.add_argument("--credential-secret", required=True)
     sub.add_parser("network")
+    p = sub.add_parser("collector-platform")
+    p.add_argument("--api-hostname", required=True)
+    sub.add_parser("collector-network")
     p = sub.add_parser("target-apply")
     p.add_argument("--namespace", required=True)
     p.add_argument("--deployment", required=True)
     p = sub.add_parser("kubeconfig")
-    p.add_argument("--role", choices=ROLES, required=True)
+    p.add_argument("--role", choices=(*ROLES, COLLECTOR), required=True)
     p.add_argument("--api-hostname", required=True)
     p.add_argument("--token-file", required=True)
     args = parser.parse_args(argv)
@@ -399,6 +467,10 @@ def main(argv=None):
         result = platform(args.api_hostname, args.credential_secret)
     elif args.command == "network":
         result = network(json.load(sys.stdin))
+    elif args.command == "collector-platform":
+        result = collector_platform(args.api_hostname)
+    elif args.command == "collector-network":
+        result = collector_network(json.load(sys.stdin))
     elif args.command == "target-apply":
         result = target_apply(args.namespace, args.deployment)
     else:

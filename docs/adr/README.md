@@ -13,6 +13,9 @@
 | 8.2·8.9 상태 저장·이벤트·계획 접근 | [0008 상태·이벤트 원자 저장](0008-plan-state-event-transaction.md), [0009 PostgreSQL 상태 저장](0009-postgres-state-adapter.md), [0012 데이터 접근 경계](0012-platform-data-access-boundary.md) |
 | 7.5·8.4 리허설 네트워크와 격리 | [0002 송신 허용 범위](0002-rehearsal-egress-allowlist.md), [0003 격리 구현과 시험](0003-rehearsal-namespace-isolation.md) |
 | FR-5 · 8.4 리허설 러너의 시도 실행 · 결과 기록 · 판정(T15) | [0023 리허설 러너 시도와 증거](0023-rehearsal-runner-attempt-evidence.md) |
+| 8.3 · 8.4 `rehearsal.exec` 동작 범위(정해진 동작 3종)와 실행 위치(API · 도구용 Pod)(T15) | [0024 rehearsal.exec 동작과 실행 위치](0024-rehearsal-exec-actions.md) |
+| 8.4 `rehearsal.exec` AI 공간과 채점 공간 분리 · 러너 순서(T15) | [0025 rehearsal.exec 공간 분리와 순서](0025-rehearsal-exec-spaces-and-order.md) |
+| 8.4 · 8.6 `rehearsal.exec` 기록 범위와 실패 처리 · 사유 전달(T15) | [0026 rehearsal.exec 기록과 실패 처리](0026-rehearsal-exec-records-and-failures.md) |
 | 7.3·8.5 보안 결과 형식·인증 | [0001 탐지 결과 형식](0001-security-finding-format.md), [0005 T33 보안 경계](0005-t33-security-boundary.md) |
 | 8.6 Executor 구현·실행·실패·권한 | [0006 Python 선택](0006-cutover-executor-language.md), [0011 실행 기록과 실패 판정](0011-cutover-executor-execution-and-failure.md), [0013 워크로드 접근](0013-executor-workload-access.md) |
 | 6장 S4 · 8.6 되돌리기 전 복제 경로 확인 | [0016 되돌리기 전 복제 경로 확인](0016-failback-replication-path-check.md) |

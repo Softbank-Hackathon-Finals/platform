@@ -1,5 +1,6 @@
 """Operator-only host. Catalog, reader credentials and human grants are explicit mounts."""
 
+import argparse
 import json
 from pathlib import Path
 
@@ -10,6 +11,7 @@ from .postgres import PostgresPlanStore
 from .registration import Registry
 from .registration_api import create_registration_app
 from .registration_probe import EnvironmentRef, SourceRelease
+from .registration_sso import SsoRegistrationVerifier
 from .runtime_probe import connection_checks
 from .window_server import runtime_connection
 
@@ -28,7 +30,13 @@ def build_app(store, config_file, grants_file):
             raise ValueError("duplicate_connection_ref")
         environments[key] = env
     releases = [SourceRelease(**(row | {"checkout": Path(row["checkout"])})) for row in config["releases"]]
-    identity = OperatorTokenVerifier(**config["operator_verifier"])
+    mode = config.get("identity_mode", "operator_jwt")
+    if mode == "aws_sso" and "operator_verifier" not in config:
+        identity = SsoRegistrationVerifier(**config["sso_verifier"])
+    elif mode == "operator_jwt" and "sso_verifier" not in config:
+        identity = OperatorTokenVerifier(**config["operator_verifier"])
+    else:
+        raise ValueError("invalid_registration_identity_mode")
 
     def can_register(actor):
         # Grants are tenant-wide (no plan exists yet). Read the current projected
@@ -43,7 +51,13 @@ def build_app(store, config_file, grants_file):
     return create_registration_app(registry, verify_identity=identity)
 
 
-def main():
+def main(argv=None):
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--tls-cert", type=Path)
+    parser.add_argument("--tls-key", type=Path)
+    args = parser.parse_args(argv)
+    if bool(args.tls_cert) != bool(args.tls_key):
+        parser.error("provide both --tls-cert and --tls-key")
     try:
         connection = runtime_connection()
         connection_checks(connection)
@@ -54,7 +68,10 @@ def main():
         app = build_app(store, Path("/registration/catalog.json"), Path("/registration/grants.json"))
     except Exception:
         raise SystemExit("registration_startup_unavailable") from None
-    uvicorn.run(app, host="0.0.0.0", port=8080, access_log=False, proxy_headers=False,
+    tls = ({"ssl_certfile": str(args.tls_cert), "ssl_keyfile": str(args.tls_key)}
+           if args.tls_cert else {})
+    uvicorn.run(app, host="0.0.0.0", port=8443 if tls else 8080, workers=1,
+                **tls, access_log=False, proxy_headers=False,
                 server_header=False, limit_concurrency=16, timeout_keep_alive=5)
 
 

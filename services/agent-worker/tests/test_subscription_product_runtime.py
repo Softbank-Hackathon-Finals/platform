@@ -15,6 +15,7 @@ from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
 from cryptography.x509.oid import NameOID
 from test_subscription_product import setup as setup
+from tls_support import TEST_CA_PEM
 
 from bravo_agent import subscription_product_caller as caller
 from bravo_agent import subscription_product_reader as reader
@@ -141,6 +142,7 @@ def test_actual_tls_accepts_only_configured_ca(tmp_path, monkeypatch):
 
 def test_product_host_journal_and_fixture_disabled(monkeypatch, tmp_path):
     settings, seen = {"state_dir": str(tmp_path / "state")}, []
+    monkeypatch.setattr(host, "server_context", lambda: "tls-context")
     def service(received, inputs, journal, *, request_inputs):
         assert received == settings and inputs is None
         seen.append(journal)
@@ -152,7 +154,7 @@ def test_product_host_journal_and_fixture_disabled(monkeypatch, tmp_path):
     a.write_text(json.dumps(settings))
     b.write_text(json.dumps({"origin": "https://inputs.invalid", "ca_file": certifi.where()}))
     host.main(a, b)
-    assert seen == [tmp_path / "product-journal", {"product": "product", "fixture_enabled": False}]
+    assert seen == [tmp_path / "product-journal", {"product": "product", "fixture_enabled": False, "tls_context": "tls-context"}]
 
 
 def actions_env():
@@ -235,7 +237,7 @@ def window_ports(monkeypatch):
 def test_single_call_and_cleanup_after_response_loss(window_ports, monkeypatch):
     ssm, remote = SSM(), []
     monkeypatch.setattr(caller, "ProductTunnelCall", lambda *_, **__: lambda body: remote.append(body) or (502, {}))
-    with caller.product_window(INSTANCE, RUNTIME, ssm=ssm) as call:
+    with caller.product_window(INSTANCE, RUNTIME, ca_pem=TEST_CA_PEM, ssm=ssm) as call:
         assert call({})[0] == 502
         assert call({})[0] == 409
     assert call({})[0] == 409 and len(remote) == 1
@@ -245,7 +247,7 @@ def test_single_call_and_cleanup_after_response_loss(window_ports, monkeypatch):
 def test_cleanup_failure_still_stops_service(window_ports):
     ssm = SSM("terminate")
     with pytest.raises(RuntimeError, match="^product window cleanup unconfirmed$"):
-        with caller.product_window(INSTANCE, RUNTIME, ssm=ssm):
+        with caller.product_window(INSTANCE, RUNTIME, ca_pem=TEST_CA_PEM, ssm=ssm):
             pass
     assert ssm.calls[-2:] == ["terminate", "stop"]
 
@@ -253,7 +255,7 @@ def test_cleanup_failure_still_stops_service(window_ports):
 def test_lost_start_response_still_stops(window_ports):
     ssm = SSM("start")
     with pytest.raises(RuntimeError):
-        with caller.product_window(INSTANCE, RUNTIME, ssm=ssm):
+        with caller.product_window(INSTANCE, RUNTIME, ca_pem=TEST_CA_PEM, ssm=ssm):
             pytest.fail("window was not opened")
     assert ssm.calls == ["start", "stop"]
 
@@ -287,7 +289,7 @@ def test_plugin_token_never_in_argv_and_actions_token_not_inherited(window_ports
         seen.append(True)
         return process
     monkeypatch.setattr(caller.subprocess, "Popen", spawn)
-    with caller.product_window(INSTANCE, RUNTIME, ssm=SSM()):
+    with caller.product_window(INSTANCE, RUNTIME, ca_pem=TEST_CA_PEM, ssm=SSM()):
         pass
     assert seen == [True]
 
@@ -313,6 +315,8 @@ def test_missing_reader_ca_prevents_startup(monkeypatch, tmp_path):
 
 def test_occupied_tunnel_port_prevents_cloud_start(monkeypatch):
     class Occupied:
+        def setsockopt(self, *_):
+            pass
         def __enter__(self):
             return self
         def __exit__(self, *_):
@@ -322,6 +326,6 @@ def test_occupied_tunnel_port_prevents_cloud_start(monkeypatch):
     monkeypatch.setattr(caller.socket, "socket", Occupied)
     ssm = SSM()
     with pytest.raises(RuntimeError, match="product tunnel port already in use"):
-        with caller.product_window(INSTANCE, RUNTIME, ssm=ssm):
+        with caller.product_window(INSTANCE, RUNTIME, ca_pem=TEST_CA_PEM, ssm=ssm):
             pytest.fail("port preflight failed")
     assert not ssm.calls
