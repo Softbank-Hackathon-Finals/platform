@@ -36,6 +36,10 @@ ENV = {
     "bootstrap": ("BRAVO_OBJECT_BOOTSTRAP_ACCESS_KEY", "BRAVO_OBJECT_BOOTSTRAP_SECRET_KEY"),
     "client": ("BRAVO_OBJECT_CLIENT_ACCESS_KEY", "BRAVO_OBJECT_CLIENT_SECRET_KEY"),
 }
+# T15 bucket-policy rehearsals need a bucket of their own and an identity that may apply a
+# policy to *that* bucket only (design 8.4: rehearsal resources come from the install script).
+REHEARSAL_ENV = ("BRAVO_OBJECT_REHEARSAL_ACCESS_KEY", "BRAVO_OBJECT_REHEARSAL_SECRET_KEY")
+REHEARSAL_ACTIONS = ("Admin", "Read", "Write", "List", "Tagging")
 
 
 def _bucket(value: str) -> str:
@@ -44,24 +48,34 @@ def _bucket(value: str) -> str:
     return value
 
 
-def _credentials(environ) -> dict[str, dict[str, str]]:
-    out = {}
-    for name, (access_var, secret_var) in ENV.items():
-        access, secret = environ.get(access_var, ""), environ.get(secret_var, "")
-        if not ACCESS_KEY_RE.fullmatch(access) or len(secret) < 32 or any(c.isspace() for c in secret):
-            raise ValueError(f"{name} credentials missing or malformed in environment")
-        out[name] = {"accessKey": access, "secretKey": secret}
-    if out["bootstrap"]["accessKey"] == out["client"]["accessKey"]:
-        raise ValueError("bootstrap and client must be distinct identities")
+def _credential(environ, name: str, access_var: str, secret_var: str) -> dict[str, str]:
+    access, secret = environ.get(access_var, ""), environ.get(secret_var, "")
+    if not ACCESS_KEY_RE.fullmatch(access) or len(secret) < 32 or any(c.isspace() for c in secret):
+        raise ValueError(f"{name} credentials missing or malformed in environment")
+    return {"accessKey": access, "secretKey": secret}
+
+
+def _credentials(environ, *, rehearsal: bool = False) -> dict[str, dict[str, str]]:
+    out = {name: _credential(environ, name, *pair) for name, pair in ENV.items()}
+    if rehearsal:
+        out["rehearsal"] = _credential(environ, "rehearsal", *REHEARSAL_ENV)
+    if len({c["accessKey"] for c in out.values()}) != len(out):
+        raise ValueError("identities must use distinct access keys")
     return out
 
 
-def render(state: str, bucket: str, environ, *, acknowledge_open: bool = False, demo_run_id: str = "") -> dict:
-    """Return the ``s3.json`` document. ``open-demo`` needs both an acknowledgement and a run id."""
+def render(state: str, bucket: str, environ, *, acknowledge_open: bool = False, demo_run_id: str = "",
+           rehearsal_bucket: str | None = None) -> dict:
+    """Return the ``s3.json`` document. ``open-demo`` needs both an acknowledgement and a run id.
+    ``rehearsal_bucket`` adds the T15 identity that may administer exactly that other bucket."""
     if state not in STATES:
         raise ValueError("unknown exposure state")
     bucket = _bucket(bucket)
-    creds = _credentials(environ)
+    if rehearsal_bucket is not None:
+        rehearsal_bucket = _bucket(rehearsal_bucket)
+        if rehearsal_bucket == bucket:
+            raise ValueError("the rehearsal bucket must be separate from the application bucket")
+    creds = _credentials(environ, rehearsal=rehearsal_bucket is not None)
     identities = [
         {"name": "bootstrap", "credentials": [creds["bootstrap"]], "actions": [f"{a}:{bucket}" for a in BOOTSTRAP_ACTIONS]},
         {"name": "client", "credentials": [creds["client"]], "actions": [f"{a}:{bucket}" for a in CLIENT_ACTIONS]},
@@ -70,6 +84,11 @@ def render(state: str, bucket: str, environ, *, acknowledge_open: bool = False, 
         if not acknowledge_open or not re.fullmatch(r"[a-z0-9][a-z0-9-]{3,63}", demo_run_id or ""):
             raise ValueError("open-demo requires --acknowledge-anonymous-read and a demo run id")
         identities.append({"name": "anonymous", "actions": [f"{a}:{bucket}" for a in ANONYMOUS_ACTIONS]})
+    if rehearsal_bucket is not None:
+        # Admin on the rehearsal bucket lets the T15 verification Job create it and apply the
+        # translated bucket policy there. It carries no action on the application bucket.
+        identities.append({"name": "rehearsal-object-admin", "credentials": [creds["rehearsal"]],
+                           "actions": [f"{a}:{rehearsal_bucket}" for a in REHEARSAL_ACTIONS]})
     return {"identities": identities}
 
 
@@ -152,6 +171,7 @@ def main(argv=None) -> int:
     r.add_argument("--output", required=True, help="new file path (0600); refuses to overwrite")
     r.add_argument("--acknowledge-anonymous-read", action="store_true")
     r.add_argument("--demo-run-id", default="")
+    r.add_argument("--rehearsal-bucket", default="", help="also render the T15 rehearsal identity for this separate bucket")
     p = sub.add_parser("probe", help="unsigned GET to observe whether the bucket is open")
     p.add_argument("--endpoint", required=True)
     p.add_argument("--bucket", default="demo-chat-attachments")
@@ -161,7 +181,8 @@ def main(argv=None) -> int:
     q.add_argument("--bucket", default="demo-chat-attachments")
     args = parser.parse_args(argv)
     if args.command == "render":
-        doc = render(args.state, args.bucket, os.environ, acknowledge_open=args.acknowledge_anonymous_read, demo_run_id=args.demo_run_id)
+        doc = render(args.state, args.bucket, os.environ, acknowledge_open=args.acknowledge_anonymous_read,
+                     demo_run_id=args.demo_run_id, rehearsal_bucket=args.rehearsal_bucket or None)
         data = (json.dumps(doc, indent=2) + "\n").encode("utf-8")
         write_private(Path(args.output), data)
         print(json.dumps(summary(doc, args.state, args.bucket, data, args.demo_run_id)))

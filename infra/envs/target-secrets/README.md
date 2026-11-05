@@ -138,6 +138,37 @@ unseal, off-host backup or a production availability claim. The initial leaf
 certificate is valid for 30 days and CA for 90 days; renew them before expiry.
 The OpenBao UI/injector/CSI/dev mode are disabled.
 
+## Rehearsal subtree for T15 (design 8.4)
+
+T15 applies an AI credential-migration candidate inside an isolated `rehearsal-<id>`
+namespace (label `app.kubernetes.io/part-of: bravo-rehearsal`). The candidate image reads the
+same `/run/bravo/database/credentials.json`, so the rehearsal needs synthetic credentials
+delivered the same way but from a path the application identity can never read.
+
+| Stage | Produces | Scope |
+| --- | --- | --- |
+| `rehearsal-policy` | HCL for policy `rehearsal-app-reader`: read `secret/data/bravo/rehearsal/*` only | No `bravo/target/*`, no writes, no token creation |
+| `rehearsal-auth-role` | Body for `auth/kubernetes/role/rehearsal-app-reader` | ServiceAccount `rehearsal-eso-reader` in namespaces selected by the rehearsal label; audience `openbao`; TTL 300/900 s |
+| `rehearsal-delivery --namespace rehearsal-<id> --run-id <run>` | ServiceAccount + SecretStore + ExternalSecret projecting `bravo/rehearsal/<run>/database` into Secret **`target-app-credentials`** (same name as `target-dev`) | One namespace per attempt; `deletionPolicy: Delete` so the Secret goes with the namespace |
+| `rehearsal-init-container --run-id <run>` | An init container that logs in with the reader token and writes `credentials.json` itself | Works while ESO stays scoped (below) |
+
+The T15 runner writes the synthetic values to `bravo/rehearsal/<run>/database` (key
+`credentials_json`) with its own OpenBao identity before the attempt and deletes the version
+afterwards; this renderer never carries a value.
+
+**ESO scope.** The ESO release here is scoped to `target-dev` (`scopedNamespace`,
+`scopedRBAC`), so it does not reconcile ExternalSecrets in `rehearsal-*`. Two ways to serve
+them, in order of preference for the demo:
+
+1. Use `rehearsal-init-container` in the rehearsal Pod template (same path, same policy, no
+   ESO involvement). This keeps the production ESO permissions unchanged.
+2. Run a second ESO release with cluster-scoped RBAC limited by the `processClusterStore=false`
+   defaults and reconcile only namespaces carrying the rehearsal label. This widens ESO's
+   Secret-write permission to rehearsal namespaces and needs its own review.
+
+Neither has been exercised on the demo cluster yet; the T15 isolation test (#24 item 6) is the
+place to prove the chosen path.
+
 ## Modified OpenBao image
 
 The official 2.7.2 image contained fixable HIGH
