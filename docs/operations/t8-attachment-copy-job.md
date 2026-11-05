@@ -1,6 +1,6 @@
-# T8 첨부 복사 Job (컷오버 직전 1회)
+# T8 첨부 복사 Job (가중치 전환 전 1회)
 
-컷오버 직전에 첨부를 S3에서 SeaweedFS로 한 번 복사하고, 그 결과를 성공 · 실패 · 미확인으로 판정한다. 복사 로직은 기존 [`attachment_copy.py`](../../infra/envs/target-workloads/attachment_copy.py)를 그대로 쓰고 별도 서비스는 없다. 실제 AWS · 클러스터 · VM에는 아직 적용하지 않았다.
+업로드를 멈춘 뒤, Edge 가중치를 목적지로 옮기기 전에 첨부를 S3에서 SeaweedFS로 한 번 복사하고, 그 결과를 성공 · 실패 · 미확인으로 판정한다. 복사 로직은 기존 [`attachment_copy.py`](../../infra/envs/target-workloads/attachment_copy.py)를 그대로 쓰고 별도 서비스는 없다. 실제 AWS · 클러스터 · VM에는 아직 적용하지 않았다.
 
 | 파일 | 역할 |
 | --- | --- |
@@ -8,6 +8,13 @@
 | [`attachment_verdict.py`](../../infra/envs/target-workloads/attachment_verdict.py) | Job · Pod · 로그를 읽어 판정한다. `kubectl get`과 `logs`만 쓴다 |
 | [`attachment-copy.Dockerfile`](../../infra/envs/target-workloads/attachment-copy.Dockerfile) | 복사 모듈과 해시 고정 의존성을 담은 이미지. 자격은 넣지 않는다 |
 | [`attachment_image.py`](../../scripts/attachment_image.py) | 검토된 커밋으로 이미지를 빌드 · 검사하고 VM에 넘길 묶음과 영수증을 만든다 |
+
+## 언제 돌리나
+
+**업로드 중지 → 복사 → 판정 → 가중치 전환 → 컷오버** 순서다. 판정이 `SUCCEEDED`가 아니면 가중치를 옮기지 않는다.
+
+- **가중치 전환 전:** 목적지 앱은 첨부 객체를 SeaweedFS에서 읽는다([`application.py`](../../infra/envs/target-workloads/application.py)의 `S3_ENDPOINT_URL`). 행은 컷오버 전에도 출발지 DB에서 오므로, 복사가 끝나기 전에 목적지로 보낸 사용자는 첨부 목록은 보지만 파일은 열지 못한다.
+- **컷오버 시작 전에 Job이 끝나 있어야 한다:** Job은 첨부 목록을 읽는 동안 출발지 DB에 `chat_replicator`로 붙는다. Executor의 펜싱은 `system_roles` 밖의 세션을 우회 쓰기로 보고 실패한다(`runner.py`의 `_fence`, `remote/db.py`의 `other_sessions`). 기본 `system_roles`에는 `chat_replicator`가 없다(`sites.py`). `SUCCEEDED`와 `FAILED`는 컨테이너가 끝났다는 뜻이므로 연결도 닫혀 있다. `job_not_finished`면 끝날 때까지 기다린다.
 
 ## 실행 순서
 
@@ -145,7 +152,7 @@ $CTR images ls | grep "^localhost/bravo-attachment-copy@$DIGEST " | grep " $DIGE
 
 | 판정 | 종료 코드 | 조건 | 다음 행동 |
 | --- | --- | --- | --- |
-| `SUCCEEDED` | 0 | Job 완료, Pod 한 개, 고정 digest, 형식이 맞고 숫자가 맞는 성공 영수증이 모두 일치 | 컷오버 조건 하나를 충족 |
+| `SUCCEEDED` | 0 | Job 완료, Pod 한 개, 고정 digest, 형식이 맞고 숫자가 맞는 성공 영수증이 모두 일치 | 가중치 전환과 컷오버의 조건 하나를 충족 |
 | `FAILED` | 1 | Job 실패, 복사 코드가 허용 목록의 실패 사유를 남김 | [실패 사유 표](../../infra/envs/target-workloads/README.md#영수증과-실패)대로 고친 뒤 새 실행 ID로 재실행 |
 | `UNKNOWN` | 2 | 그 밖의 전부. 로그 없음, Pod 정리됨, 강제 종료, 형식 불일치, Job과 영수증의 불일치 | 성공으로 세지 않는다. `reason_code`를 보고 새 실행 ID로 재실행한다. 이미 복사한 객체는 `reused`로 넘어간다 |
 
@@ -223,7 +230,7 @@ A의 결과 파일에는 서명이 없어, T12는 운영자가 넘긴 값을 믿
 }
 ```
 
-컷오버 전에 T12가 볼 것:
+가중치를 옮기기 전과 컷오버 전에 볼 것. 가중치 전환은 T17 · T10 범위이므로 그 단계에서 누가 볼지는 담당과 정한다.
 
 1. `schema`가 위 값과 같다. 다르면 시작하지 않는다.
 2. `plan_id`와 `epoch`가 이번 컷오버 요청(`POST /v1/cutovers`)의 값과 같다. 다른 실행의 결과를 재사용하지 않는다. `execution_id`는 요청 뒤에 생기므로 복사 결과에 넣을 수 없다.
