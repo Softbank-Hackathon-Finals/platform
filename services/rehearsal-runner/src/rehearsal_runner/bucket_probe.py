@@ -5,7 +5,7 @@ module never creates or deletes buckets, applies policies, or grants approval.
 """
 
 import hashlib
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Protocol
 
 
@@ -17,7 +17,7 @@ class ObjectStream(Protocol):
 @dataclass(frozen=True)
 class ReadResult:
     status: int
-    body: ObjectStream | None = None
+    body: ObjectStream | None = field(default=None, repr=False)
 
 
 class ObjectReader(Protocol):

@@ -1,0 +1,60 @@
+name: merge-queue
+
+on:
+  pull_request_target:
+    branches: [develop]
+    types: [opened, reopened, synchronize, ready_for_review, converted_to_draft, labeled, unlabeled, edited]
+  workflow_run:
+    workflows: [ci, pr-review-signal]
+    types: [completed]
+  # Recover coalesced pending events; the revision-bound removal latch prevents retries.
+  schedule:
+    - cron: '8,18,28,38,48,58 * * * *'
+  workflow_dispatch:
+    inputs:
+      pull_request:
+        description: 'PR 번호. 비우면 현재 develop PR을 조회한다.'
+        type: string
+        default: ''
+      dry-run:
+        description: '등록·제외를 실행하지 않고 판정만 조회한다.'
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: merge-queue-registration
+  cancel-in-progress: false
+
+jobs:
+  register:
+    if: >-
+      github.repository == 'Softbank-Hackathon-Finals/platform' &&
+      (github.event_name == 'workflow_dispatch' || vars.MERGE_QUEUE_BOT_ENABLED == 'true')
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          # Only trusted workflow revision; never PR heads, forks or downloaded artifacts.
+          ref: ${{ github.workflow_sha }}
+          persist-credentials: false
+      - name: Register ready PRs in the native queue
+        env:
+          GH_TOKEN: ${{ secrets.PROJECT_TOKEN }}
+          GH_HOST: github.com
+          GH_PROMPT_DISABLED: '1'
+          BRAVO_AUTO_QUEUE_ENABLED: ${{ vars.MERGE_QUEUE_BOT_ENABLED }}
+          DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry-run && 'true' || 'false' }}
+        run: |
+          if [ -z "$GH_TOKEN" ]; then
+            echo '::error::Existing PROJECT_TOKEN is unavailable'
+            exit 1
+          fi
+          if [ "$DRY_RUN" = true ]; then
+            python3 scripts/merge_queue.py
+          else
+            python3 scripts/merge_queue.py --apply
+          fi
