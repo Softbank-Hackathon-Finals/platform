@@ -119,6 +119,7 @@ def archive_identity(archive, descriptor, revision):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--no-cache", action="store_true", help="Rebuild only this image if local build cache is unusable")
     args = parser.parse_args()
     output = args.output.resolve()
     if output.exists() or output.is_relative_to(ROOT):
@@ -131,9 +132,11 @@ def main():
         context = Path(directory)
         hashes = prepare_context(context, revision)
         context_digest = hashlib.sha256(json.dumps(hashes, sort_keys=True).encode()).hexdigest()
-        tag = "bravo-product-read:source-" + context_digest
+        tag = "bravo-product-read:" + revision[:12] + "-" + context_digest[:32]
         subprocess.run(["docker", "build", "--platform", "linux/amd64", "--tag", tag,
-            "--label", "org.opencontainers.image.revision=" + revision, str(context)], check=True)
+            "--label", "org.opencontainers.image.revision=" + revision,
+            *(["--no-cache"] if args.no_cache else []), str(context)], check=True)
+        image = json.loads(subprocess.check_output(["docker", "image", "inspect", tag]))[0]
         probe = ("import os,sys; from bravo_platform_events.product_read_server import load_app; "
             "from bravo_platform_events.product_access import ProductInputAccess; "
             "from bravo_agent.product_contracts import ProductInput; "
@@ -144,8 +147,7 @@ def main():
             "print('product_reader_imports_ok')")
         subprocess.run(["docker", "run", "--rm", "--platform", "linux/amd64", "--network", "none",
             "--read-only", "--cap-drop", "ALL", "--security-opt", "no-new-privileges",
-            "--entrypoint", "python", tag, "-c", probe], check=True)
-        image = json.loads(subprocess.check_output(["docker", "image", "inspect", tag]))[0]
+            "--entrypoint", "python", image["Id"], "-c", probe], check=True)
         if (image["Architecture"], image["Os"], image["Config"]["User"]) != ("amd64", "linux", "10001:10001"):
             raise ValueError("product_image_identity_mismatch")
         output.mkdir(parents=True)
