@@ -250,4 +250,6 @@ cd ../platform-events
 PYTHONPATH=../rehearsal-runner/src uv run --frozen --no-default-groups --with pytest pytest -p no:cacheprovider ../rehearsal-runner/testing/test_t10_recorded_flow.py
 ```
 
+`bucket_planner.BucketPlanner`는 시도마다 T11 제안·namespace 생성·T3 격리·검증 Job을 실제 클러스터 설정으로 조립한다. 호스트가 넣는 값은 목적지 프로필(`profiles/onprem.env`), 시험 버킷(`BucketTarget`: T9 시험 버킷과 러너가 읽을 자격 Secret 위치), 계획 결속 조회, T11/T38 제안 원천(`ProposalSource.open`: 검증된 스냅샷의 Coordinator와 모델 provider), 러너 클러스터 신원(`Kubectl`, T38 `Kube`)이다. 2·3회차는 이 프로세스가 연 Coordinator에 직전 FAIL의 서명된 증거 digest를 넣은 뒤에만 이어 간다. 재시작 뒤에는 효과 전에 멈추고 사람에게 넘긴다. `build_bucket_host`는 T10에 넣을 `T15RehearsalHost`와 `ChangeIntake.read_original`·`tool_events`에 쓸 `RecordedEvidence`를 함께 돌려준다.
+
 `testing/rke2_rehearsal_flow.py`는 개인 RKE2 시험 VM 전용이다. `setup`은 시험용 SeaweedFS·OpenBao 대역·버킷을 만들고, `run`은 실제 T10 접수·수신·변경 승인(SQLite), T11 Coordinator, T3 격리, 검증 Job과 UID 정리를 연결한다. 제안은 스크립트로 고정하며 모델·팀 목적지·사람 승인을 대신하지 않는다.

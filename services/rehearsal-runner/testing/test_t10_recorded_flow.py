@@ -23,10 +23,10 @@ from rehearsal_runner.approval_handoff import submit_candidate
 from rehearsal_runner.attempt_store import (
     AttemptStore,
     PlanBinding,
-    RecordedAttemptSender,
     RecordedEvidence,
 )
 from rehearsal_runner.bucket_job import BucketEvidence
+from rehearsal_runner.bucket_planner import build_bucket_host
 from rehearsal_runner.bucket_task import prepare_bucket_policy_task
 from rehearsal_runner.isolation_gate import IsolationBlocked, IsolationPass
 from rehearsal_runner.rehearsal_host import T15RehearsalHost
@@ -122,9 +122,10 @@ def flow(tmp_path):
         delivered.append(submit_candidate(submission, candidate_type=Candidate, intake=intake,
                                           token_supplier=lambda: token))
 
-    sender = RecordedAttemptSender(records, planner, deliver=deliver)
-    service = RehearsalService(store, host=T15RehearsalHost(Catalog(), sender, evidence),
-                               check_start=lambda *_: None)
+    host, built = build_bucket_host(Catalog(), planner, records, deliver=deliver)
+    assert built.store is records
+    sender = host.sender
+    service = RehearsalService(store, host=host, check_start=lambda *_: None)
     approvals = ChangeApprovalService(store, authority=intake.current)
     return dict(store=store, records=records, planner=planner, sender=sender, evidence=evidence,
                 service=service, token=token, intake=intake, approvals=approvals, path=tmp_path / "records",
