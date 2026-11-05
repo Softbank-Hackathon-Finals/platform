@@ -68,6 +68,23 @@ def test_context_vectors_match_gate_examples(contract):
         assert report["gate_id"] == context.gate_id
 
 
+def test_registered_workload_id_is_the_gate_app_not_the_profile_reference(contract, bundle):
+    # T10 registers workloads under generated IDs; the catalog profile names its reference app.
+    ctx, source, target, now = bundle
+    expected = evaluate(contract, ctx, source, target, now=now)
+    workload = "workload-" + "0123456789abcdef" * 2
+    source, target = dict(source, app=workload), dict(target, app=workload)
+    ctx = replace(ctx, app=workload, source_digest=fingerprint(source), target_digest=fingerprint(target))
+    report = evaluate(contract, ctx, source, target, now=now)
+    assert report["app"] == workload and report["run_issues"] == []
+    assert report["decision"] == expected["decision"] and report["rows"] == expected["rows"]
+    other = dict(target, app="workload-" + "f" * 32)
+    report = evaluate(contract, replace(ctx, target_digest=fingerprint(other)), source, other, now=now)
+    assert "APP_MISMATCH" in report["run_issues"] and report["decision"] != "PASS"
+    with pytest.raises(GateError, match="PROFILE_CONTEXT_MISMATCH"):
+        evaluate(contract, replace(ctx, catalog_digest="b" * 64), source, target, now=now)
+
+
 @pytest.mark.parametrize("case", CASES["gate_input"]["cases"], ids=lambda c: c["id"])
 def test_t19_contract_case(contract, bundle, case):
     ctx, source, target, now = bundle

@@ -103,7 +103,7 @@ volume 슬롯은 8개, 개별 volume 크기 한도는 128MB다. 기본 metadata 
 AWS SDK의 기본 인증 체인·session token을 재사용하지 않는다.
 
 클라이언트는 SigV4, path style, `us-east-1`, 명시적 로컬 자격과 정확한 서비스 주소를
-사용한다. NetworkPolicy는 같은 namespace의 `bravo-object-client=true` Pod만 허용한다.
+사용한다. 운영 경로의 NetworkPolicy는 같은 namespace의 `bravo-object-client=true` Pod만 허용한다.
 TCP readiness 이후 별도로 서명 put/get·SHA-256 대조, 익명/오서명/범위 밖 작업 및
 client의 버킷 생성 거절, 재시작 후 객체 보존을 확인한다. 이 개발용 HTTP 경로는
 T9의 OpenBao/ESO·TLS 통제나 목적지 앱 업무 기동 완료를 대신하지 않는다.
@@ -144,7 +144,29 @@ Secret을 바꾼 뒤 SeaweedFS가 설정을 다시 읽는지는 아직 실측하
 이 identity는 **그 버킷에만** Admin · Read · Write · List · Tagging를 갖고 운영 `demo-chat-attachments`에는
 어떤 action도 없다. 키는 `BRAVO_OBJECT_REHEARSAL_ACCESS_KEY` · `_SECRET_KEY`로 받는다. T15 검증 Job이 이 identity로
 버킷을 만들고 번역된 정책을 적용 · 관측한다. 운영 버킷과 분리된 상태를 시험으로 고정했다
-(`scripts/tests/test_rehearsal_resources.py`). 리허설 namespace에서 8333으로 닿는 NetworkPolicy는 T30 질문 6번이다.
+(`scripts/tests/test_rehearsal_resources.py`).
+
+리허설 Pod가 8333에 닿는 경로는 `objects.py`가 함께 렌더하는 수신 전용 정책 `target-object-rehearsal-clients`다.
+시험마다 넣고 지우지 않고 설치 구성에 둔다. 기존 `target-object-clients`는 그대로다. 이미 설치한 환경에는 렌더 결과에서
+이 객체 하나만 골라 적용하면 된다.
+T3 시험을 위해 시험 namespace 한 개의 probe Pod만 임시로 열고 UID로 회수하는 규칙을 따로 쓰더라도(저장소에 렌더러는 없다) 이 정책과는 별개다. 임시 규칙은 끝나면 사라지고 이 정책은 리허설 라벨 namespace 전체에 상시로 남으며, 임시 규칙이 이 이름만 쓰지 않으면 허용이 더해질 뿐 서로 덮어쓰지 않는다.
+
+| 받는 Pod | Pod 라벨 | 필요한 이유 |
+| --- | --- | --- |
+| T15 검증 Job | `role=bucket-verifier` | 시험 버킷에 정책을 적용하고 읽기를 관측한다 |
+| T3 격리 시험 Pod | `app.kubernetes.io/component=probe`, `bravo.dev/isolation-run` 있음 | P4 대조가 막히면 게이트가 종료 코드 2로 멈춰 Job까지 가지 못한다 |
+
+두 경우 모두 `app.kubernetes.io/part-of=bravo-rehearsal` 라벨이 붙은 namespace(T3 템플릿)에서 TCP 8333으로 올 때만
+받는다. NetworkPolicy는 namespace 이름 패턴을 쓰지 못하므로 `rehearsal-*`라는 이름만으로는 열리지 않는다. 같은
+namespace의 다른 Pod, 다른 namespace, 8333 외 포트는 계속 막힌다. T3·T15 쪽 라벨이 바뀌면
+`scripts/tests/test_rehearsal_object_access.py`가 실패한다.
+
+이 정책은 연결 경로만 좁힌다. `rehearsal-exec`는 자기 namespace의 Pod에 라벨을 직접 붙일 수 있으므로 버킷 권한의
+경계는 S3 identity다. `open-demo` 상태에서는 익명 `Read`가 운영 버킷에 열려 있어 이 경로로 닿은 Pod도 서명 없이 읽는다.
+k3s에서는 새 Pod의 첫 연결이 정책 반영 전이라 20회 모두 거부되고 2초 안에 열렸으므로, 클라이언트는 첫 연결 실패에
+대비해야 한다. 임시 k3s와 대역 서버, 실제 이미지로 잰 결과는 [증거](../../../docs/evidence/t30-rehearsal-object-access-2026-11-06/README.md)에
+있다. 실제 VM·RKE2에서는 아직 재지 않았다. T9 `target-openbao` 정책은 리허설 Pod를 받지 않으므로, 그
+정책을 적용한 k3s에서 T3 게이트는 OpenBao P4에서 멈췄다.
 
 ## 공식 계약
 
@@ -249,7 +271,7 @@ DB 접속 판단은 비밀번호가 나가기 전에 끝난다. libpq의 우선�
 infra/envs/target-workloads/attachment_copy.py
 ```
 
-SeaweedFS는 `bravo-object-client=true` Pod만 받는다. 운영자 머신에서 돌릴 때는
+운영 경로의 SeaweedFS는 `bravo-object-client=true` Pod만 받는다. 운영자 머신에서 돌릴 때는
 `kubectl port-forward`로 연결하고 `ATTACHMENT_TARGET_ENDPOINT_URL`을 그 로컬 주소로 둔다.
 DB를 터널로 잇는다면 `PGHOST`에 인증서 이름, `PGHOSTADDR`에 로컬 주소를 넣어 `verify-full`을 유지한다.
 이 터널 경로는 아직 재지 않았다.
