@@ -71,5 +71,43 @@
       "ok": true,
       "chain_digest": "9485a0f8ce2113717bf2f08d1f63f619d417284169f288098a39bdc8fc4fd1d3"
     }
+  },
+  "review_257_p1_p2": {
+    "measured_at_kst": "2026-11-06 03:33-03:36",
+    "terraform": "0 added, 2 changed (bucket policy DenyUnconditionalWrites, writer ListBucketVersions), drift none",
+    "writer_unconditional_put_on_record_key": "AccessDenied (explicit deny in resource-based policy)",
+    "writer_conditional_put_on_record_key": "PreconditionFailed (412)",
+    "custodian_unconditional_put_on_record_key": "AccessDenied (explicit deny in resource-based policy)",
+    "record_key_versions_after_attempts": 1,
+    "verify_all_versions_as_reader": {
+      "run_1": "ok, 4 records, chain_digest unchanged",
+      "run_forwarded": "ok, 4 records, chain_digest unchanged"
+    },
+    "probe_v2_as_writer": {
+      "delete_current_denied": "DENIED",
+      "delete_version_denied": "DENIED",
+      "shorten_retention_denied": "DENIED",
+      "overwrite_precondition_failed": "PRECONDITION_FAILED",
+      "unconditional_write_denied": "DENIED",
+      "bucket_policy_change_denied": "DENIED",
+      "object_lock_config_change_denied": "DENIED",
+      "retention": "COMPLIANCE_ACTIVE",
+      "pass": true
+    },
+    "normal_writes_after_change": {
+      "run_id": "run-t24-v2-11060334",
+      "append_platform_events": {
+        "records": 1,
+        "absorbed_redeliveries": 0,
+        "chain_digest": "54b0236c1670b7e6a8f810b106925b330290f59ef8965824879888ad29804153"
+      },
+      "append_tool_events_resumed_with_versions": {
+        "records": 3,
+        "absorbed_redeliveries": 0,
+        "chain_digest": "58dfbef030607e7c4a29e6c82fd69e0b454ba9bbae719db57a3bee6c0651b675"
+      },
+      "verify": "ok, 4 records"
+    },
+    "stray_probe_objects": 0
   }
 }
