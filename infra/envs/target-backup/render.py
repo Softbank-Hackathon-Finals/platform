@@ -23,29 +23,32 @@ WRITER_STORE, READER_STORE = "target-db-backup", "target-db-backup-read"
 CA_SECRET = "t35-backup-ca"
 # SeaweedFS accepts only Pods with this label (target-workloads objects.py NetworkPolicy).
 CLIENT = {"bravo-object-client": "true"}
-# SeaweedFS names every identity in this fixed account.
-PRINCIPAL = Template("arn:aws:iam::000000000000:user/${name}")
 DELETE = ["s3:DeleteObject", "s3:DeleteObjectVersion"]
-PROTECT = ["s3:DeleteBucket", "s3:DeleteBucketPolicy", "s3:PutBucketPolicy", "s3:PutBucketVersioning"]
+# Policy changes need the bucket Admin action, which only the SeaweedFS owner's identity has.
+PROTECT = ["s3:DeleteBucket", "s3:PutBucketVersioning"]
 
 
 def identities():
     """Actions to merge into the existing target-seaweedfs-auth s3.json. Keys are generated in memory by the owner.
 
-    SeaweedFS treats deletion as Write, so the writer's delete is taken away by the bucket policy.
+    SeaweedFS treats deletion as Write, so deletion is taken away by the bucket policy for every identity.
     """
     return [{"name": WRITER_ID, "actions": [f"{a}:{BUCKET}" for a in ("Read", "Write", "List")]},
             {"name": READER_ID, "actions": [f"{a}:{BUCKET}" for a in ("Read", "List")]}]
 
 
 def bucket_policy():
-    principals = [PRINCIPAL.substitute(name=n) for n in (WRITER_ID, READER_ID)]
+    """Nobody deletes, including the app, the Executor and the owner.
+
+    SeaweedFS 4.52 rejects an owner exception (Principal "*" with ArnNotEquals) as an invalid policy, so the
+    owner cleans up by taking this policy down, deleting and putting it back (only the owner may change policy).
+    """
     bucket = Template("arn:aws:s3:::${bucket}").substitute(bucket=BUCKET)
     return {"Version": "2012-10-17", "Statement": [
-        {"Sid": "BackupIdentitiesCannotDelete", "Effect": "Deny", "Principal": {"AWS": principals},
-         "Action": DELETE, "Resource": [bucket + "/*"]},
-        {"Sid": "BackupIdentitiesCannotUnprotect", "Effect": "Deny", "Principal": {"AWS": principals},
-         "Action": PROTECT, "Resource": [bucket]},
+        {"Sid": "NobodyDeletesBackups", "Effect": "Deny", "Principal": "*", "Action": DELETE,
+         "Resource": [bucket + "/*"]},
+        {"Sid": "NobodyUnprotectsBackups", "Effect": "Deny", "Principal": "*", "Action": PROTECT,
+         "Resource": [bucket]},
     ]}
 
 
