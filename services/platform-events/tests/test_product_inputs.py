@@ -192,3 +192,48 @@ def test_real_t38_resolver_consumes_registered_input_and_current_revocation(fixt
     f.records().revoke(ref["input_ref"], administration_ref="management-withdrawal")
     with pytest.raises(ValueError, match="^registered product input unavailable$"):
         resolver.resolve(PRINCIPAL, ref["input_ref"])
+
+
+def test_approved_bucket_snapshot_uses_t15_bundle_and_only_selected_files(fixture, tmp_path):
+    from bravo_agent.tools import Snapshot
+    from rehearsal_runner.remote_proposals import bucket_product_bundle
+
+    from bravo_platform_events.product_source import BucketSnapshotSource
+
+    f = fixture
+    files = {"source.json": TASK.source_policy, "target.json": TASK.source_policy, "unused.py": "pass\n"}
+    for name, content in files.items():
+        (tmp_path / name).write_text(content)
+    manifest = SnapshotManifest(source_sha=TASK.source_sha,
+        files={name: hashlib.sha256(content.encode()).hexdigest() for name, content in files.items()},
+        editable_paths=["target.json"])
+    f.source = BucketSnapshotSource(Snapshot(tmp_path, manifest), "source.json", "target.json")
+    value = f.value()
+    assert set(value.files) == {"source.json", "target.json"}
+    assert value.bundle == bucket_product_bundle(f.executing_task, "source.json", "target.json")
+    ref = f.register(value)
+    (tmp_path / "target.json").write_text("tampered")
+    # The saved bytes remain immutable, but a producer cannot admit changed source.
+    assert f.read(ref)["input_digest"] == digest(value)
+    with pytest.raises(EventError, match="product_source_unavailable"):
+        f.value()
+
+
+def test_snapshot_cannot_replace_registered_policy_or_expand_edit_scope(fixture, tmp_path):
+    from bravo_agent.tools import Snapshot
+
+    from bravo_platform_events.product_source import BucketSnapshotSource
+
+    f = fixture
+    files = {"source.json": '{"Statement":{}}', "target.json": TASK.source_policy}
+    for name, content in files.items():
+        (tmp_path / name).write_text(content)
+    manifest = SnapshotManifest(source_sha=TASK.source_sha,
+        files={name: hashlib.sha256(content.encode()).hexdigest() for name, content in files.items()},
+        editable_paths=["target.json"])
+    f.source = BucketSnapshotSource(Snapshot(tmp_path, manifest), "source.json", "target.json")
+    with pytest.raises(EventError, match="product_source_unavailable"):
+        f.value()
+    f.source = BucketSnapshotSource(Snapshot(tmp_path, manifest), "target.json", "source.json")
+    with pytest.raises(EventError, match="product_source_unavailable"):
+        f.value()

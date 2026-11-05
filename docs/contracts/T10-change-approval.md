@@ -228,6 +228,12 @@ namespace, 생성·삭제 UID 일치와 부재 확인이 필요하다. PASS에�
 `source(connection, plan, admission, task)`는 `bundle`, `manifest`, `files`만 반환한다.
 요청 본문·모델 출력·임의 로컬 경로를 원본으로 연결하지 않는다.
 
+버킷 작업에는 `BucketSnapshotSource`를 연결한다. 호스트가 인증한 T11 `Snapshot`과
+고정된 source/target 정책 경로를 받는다. catalog의 정책 원문과 source SHA를 대조하고,
+T11 읽기 검증을 거친 두 파일만 기존 T15 `bucket_product_bundle`로 전달한다.
+수정 범위는 승인된 target 정책 한 파일로 제한한다. snapshot 수집·등록·mount를
+자동으로 만들지 않으며, 다른 작업 종류에는 해당 담당의 승인된 source 포트가 필요하다.
+
 1. T15 소비 어댑터의 `product_input(admission, task)`는 커밋된 Admission 8필드,
    현재 `REHEARSE` 상태·버전·tenant와 catalog 논리 작업을 같은 계획 잠금에서 확인한다.
    T10이 Admission 전체 digest와 시도를 붙인다. 원본 파일은 T38 정본 검증을 통과해야 한다.
