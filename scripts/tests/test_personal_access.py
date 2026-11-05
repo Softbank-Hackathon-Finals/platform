@@ -23,6 +23,7 @@ def profile():
         "name": "member-lab",
         "cluster": {
             "server": "https://cluster.example.test:443",
+            "inClusterServer": "https://192.0.2.10:6443",
             "uid": "abcdefff-abcd-4abc-8abc-abcdefabcdef",
             "trust": {"mode": "system"},
         },
@@ -342,6 +343,15 @@ class PersonalAccessTests(unittest.TestCase):
         )
         spec = pod["spec"]
         self.assertEqual(spec["serviceAccountName"], "rehearsal-exec")
+        config = json.loads(
+            pod["metadata"]["annotations"]["bravo.dev/in-cluster-config"]
+        )
+        self.assertEqual(
+            config["clusters"][0]["cluster"]["server"], "https://192.0.2.10:6443"
+        )
+        self.assertIn("tokenFile", config["users"][0]["user"])
+        self.assertNotIn("token", config["users"][0]["user"])
+        self.assertEqual(spec["containers"][0]["env"][0]["name"], "KUBECONFIG")
         self.assertEqual(spec["activeDeadlineSeconds"], 1800)
         self.assertFalse(
             spec["containers"][0]["securityContext"]["allowPrivilegeEscalation"]

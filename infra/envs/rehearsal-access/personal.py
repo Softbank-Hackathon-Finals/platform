@@ -143,7 +143,9 @@ def validate(p):
     if p["apiVersion"] != VERSION or p["kind"] != "PersonalAccessProfile":
         raise ValueError("unsupported profile version or kind")
     name(p["name"])
-    c = fields(p["cluster"], ("server", "uid", "trust"), ("tlsServerName",))
+    c = fields(
+        p["cluster"], ("server", "uid", "trust"), ("tlsServerName", "inClusterServer")
+    )
     server = urlsplit(text(c["server"]))
     if (
         server.scheme != "https"
@@ -157,6 +159,20 @@ def validate(p):
     ):
         raise ValueError("HTTPS API origin without credentials/path/query required")
     host(server.hostname)
+    if "inClusterServer" in c:
+        internal = urlsplit(text(c["inClusterServer"]))
+        if (
+            internal.scheme != "https"
+            or not internal.hostname
+            or internal.username
+            or internal.password
+            or internal.path not in ("", "/")
+            or internal.query
+            or internal.fragment
+            or internal.port == 0
+        ):
+            raise ValueError("in-cluster HTTPS API origin required")
+        host(internal.hostname)
     uid(c["uid"])
     trust = fields(c["trust"], ("mode",), ("caFile",))
     if trust["mode"] == "system":
@@ -494,6 +510,8 @@ def network(p):
 
 def probe(p, image, service_account, pod_name):
     validate(p)
+    if "inClusterServer" not in p["cluster"]:
+        raise ValueError("probe requires verified cluster.inClusterServer")
     if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._:/-]+@sha256:[0-9a-f]{64}", image):
         raise ValueError("reviewed digest-pinned kubectl image required")
     name(service_account)
@@ -503,6 +521,32 @@ def probe(p, image, service_account, pod_name):
         if pod_name != p["testRunner"]["podName"]:
             raise ValueError("manager Pod name must match its restricted access Role")
         namespace_name = p["testRunner"]["namespace"]["name"]
+    mounted = "/var/run/secrets/kubernetes.io/serviceaccount/"
+    config = {
+        "apiVersion": "v1",
+        "kind": "Config",
+        "clusters": [
+            {
+                "name": "internal",
+                "cluster": {
+                    "server": p["cluster"]["inClusterServer"],
+                    "certificate-authority": mounted + "ca.crt",
+                },
+            }
+        ],
+        "users": [{"name": "pod", "user": {"tokenFile": mounted + "token"}}],
+        "contexts": [
+            {
+                "name": "internal",
+                "context": {
+                    "cluster": "internal",
+                    "user": "pod",
+                    "namespace": p["namespace"]["name"],
+                },
+            }
+        ],
+        "current-context": "internal",
+    }
     return {
         "apiVersion": "v1",
         "kind": "Pod",
@@ -510,6 +554,7 @@ def probe(p, image, service_account, pod_name):
             "name": pod_name,
             "namespace": namespace_name,
             "labels": {"bravo.dev/access-profile": p["name"]},
+            "annotations": {"bravo.dev/in-cluster-config": json.dumps(config)},
         },
         "spec": {
             "serviceAccountName": service_account,
@@ -524,6 +569,19 @@ def probe(p, image, service_account, pod_name):
                 "seccompProfile": {"type": "RuntimeDefault"},
             },
             "volumes": [
+                {
+                    "name": "kubeconfig",
+                    "downwardAPI": {
+                        "items": [
+                            {
+                                "path": "config",
+                                "fieldRef": {
+                                    "fieldPath": "metadata.annotations['bravo.dev/in-cluster-config']"
+                                },
+                            }
+                        ]
+                    },
+                },
                 {"name": "workspace", "emptyDir": {"sizeLimit": "128Mi"}},
                 {"name": "tmp", "emptyDir": {"sizeLimit": "128Mi"}},
             ],
@@ -533,7 +591,15 @@ def probe(p, image, service_account, pod_name):
                     "image": image,
                     "command": ["sleep", "1800"],
                     "workingDir": "/work",
+                    "env": [
+                        {"name": "KUBECONFIG", "value": "/etc/bravo-kubeconfig/config"}
+                    ],
                     "volumeMounts": [
+                        {
+                            "name": "kubeconfig",
+                            "mountPath": "/etc/bravo-kubeconfig",
+                            "readOnly": True,
+                        },
                         {"name": "workspace", "mountPath": "/work"},
                         {"name": "tmp", "mountPath": "/tmp"},
                     ],

@@ -71,6 +71,8 @@ python3 infra/envs/rehearsal-access/personal.py probe --profile private-profile.
   --image 'registry.example.test/kubectl@sha256:<검토한 실제 digest>' > checker.json
 ```
 
+`cluster.inClusterServer`에는 해당 클러스터 내부에서 TLS 검증 가능한 API 주소를 넣는다. Pod에는 projected SA 토큰·CA의 **파일 경로만** 참조하는 kubeconfig가 내려간다. 토큰 값은 manifest·명령행에 들어가지 않는다. kubectl이 기본 localhost:8080으로 접속하지 않도록 이 구성을 명시한다.
+
 Pod 출력은 30분 제한, non-root, 읽기 전용 root filesystem, seccomp, capabilities 제거를 적용한다. 실제 이미지의 CPU 아키텍처, `sleep`·`kubectl` 포함 여부를 확인한다. 실행 전에 Pod의 SA·이미지를 검토하고 고유 Pod 이름으로 생성한다. 필요하면 승인한 시험 도구가 든 이미지로 바꾼다. 생성기는 이미지를 빌드하거나 내려받지 않는다.
 
 `personal.py network --profile private-profile.json`은 관리 namespace의 default-deny와 시험 Pod만 선택하는 **실제 API Service/Endpoint IP·포트** egress를 생성한다. IPv4는 /32, IPv6는 /128로 제한한다. 이 관리 정책은 T3 시험 namespace의 정책과 별개다. 전체 namespace에 API 또는 인터넷을 열지 않는다. 이 Pod로 `kubectl auth whoami`와 `--as` 신원을 먼저 대조한 후 시험한다. 테스트 매니저에서 측정한 결과와 AI SA에서 측정한 결과를 분리한다. 전체 T3 스크립트·ADR 채택은 기존 담당자의 범위다.
