@@ -94,8 +94,7 @@ class ClaudeProvider:
                 or not os.environ.get("ANTHROPIC_API_KEY")):
             raise RuntimeError("worker process environment must be explicitly isolated")
         options = make_options(tools, self.runtime, self.model)
-        prompt = json.dumps({"failure": bundle.model_dump(),
-                             "snapshot": tools.snapshot.manifest.model_dump()}, sort_keys=True)
+        prompt = json.dumps(tools.model_input(), sort_keys=True)
         async with asyncio.timeout(180):
             async with ClaudeSDKClient(options=options) as client:
                 await client.query(prompt)
