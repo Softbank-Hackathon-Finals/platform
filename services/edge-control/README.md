@@ -93,6 +93,12 @@ ShiftHost는 실제 T10의 `workflow:<version>` SHIFT 승인 체크포인트와 
 운영자 인증·현재 grant/T19 authority와 실행 창의 설치는 여전히 운영 호스트에서 해야
 한다. 모듈 시험을 실제 10/50/100/0 또는 S1→S4 완료로 표시하지 않는다.
 
+저장소를 함께 설치할 때는 이 디렉터리에서 `uv sync --frozen --no-dev --extra t10-host`를
+사용한다. SQLite·PostgreSQL PlanStore를 포함하며 현재 권한 callback이나 서버 자격을
+설치하지 않는다. T10과 T17의 관측 패키지 소스 pin이 달라 기본 합성 설치가 실패하므로,
+이 호스트 환경은 기존 T17 pin 하나로 해석하도록 고정했다. 두 원본의 contract·intake·
+judge·schema·프로필은 동일함을 대조했다. T10 자체 프로젝트의 pin은 바꾸지 않는다.
+
 ```sh
 uv sync --frozen
 uv run ruff check .

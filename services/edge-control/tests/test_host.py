@@ -4,7 +4,6 @@ No live plan, approval, HTTP request, or Cloudflare resource is created here.
 """
 
 import json
-import sys
 from copy import deepcopy
 from dataclasses import asdict, replace
 from datetime import UTC, datetime, timedelta
@@ -13,14 +12,11 @@ from pathlib import Path
 import httpx
 import pytest
 from bravo_observability.sli import Record, build_window
+from bravo_platform_events.plans import PlanSpec, PlanStore
 from test_control import BINDING, Provider
 
-# Optional host integration: use the owning T10 implementation from this checkout.
-sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "platform-events/src"))
-from bravo_platform_events.plans import PlanSpec, PlanStore  # noqa: E402
-
-from bravo_edge_control.host import CurrentShift, ShiftHost  # noqa: E402
-from bravo_edge_control.provider import Cloudflare, EdgeError  # noqa: E402
+from bravo_edge_control.host import CurrentShift, ShiftHost
+from bravo_edge_control.provider import Cloudflare, EdgeError
 
 PLAN = "plan-host-fixture"
 SPEC = PlanSpec(PLAN, "tenant-test", "chat", "source", "target", "a" * 64, "b" * 64,
