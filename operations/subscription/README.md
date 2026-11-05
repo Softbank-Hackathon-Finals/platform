@@ -307,3 +307,91 @@ probe와 모델 제안의 실행 ID/결과를 섞지 않는다. CLI 출력·arti
 로그에 복사하지 않는다. CLI의 명시적 결과 파일은 운영자 로컬 0600으로만 생성한다.
 실행 원장과 복호키는 원본 결과 인수·보존 정책에 맞춰 함께 관리하며, 키를 삭제하면
 남은 artifact로 복구할 수 없다는 점을 확인한 뒤 정리한다.
+
+### 플랫폼 T10과 기존 운영자 호스트 사이의 한 번 전달
+
+T10 DB/Coordinator는 플랫폼의 기존 runtime 자격 mount와 같은 프로세스에 둔다.
+`gh` 로그인과 결과 복호 개인키는 기존 운영자 호스트에 남긴다.
+`bravo_agent.product_execution_mailbox.FileProductExecution`은 T10의
+`recipient/submit/read` client 포트를 전용 파일 인계로 연결한다. AWS/GitHub 인증,
+plan 승인, 새 스케줄러 또는 상시 네트워크 서버를 추가하지 않는다.
+
+배치 담당은 실제 T10 UID 소유 0700 디렉터리 한 곳을 같은 Admission/attempt 1에
+배정한다. 일반 API 요청·모델·SSM upload 본문으로 디렉터리나 Pod를 선택하지 않는다.
+공유 실행 창에서 기존 SSO의 계정/역할 ID, 플랫폼 instance, 대상 namespace/Pod UID,
+설치 SHA와 실제 프로세스 UID를 대조한 뒤 해당 경로만 인수한다. T10 담당의 읽기 전용
+준비 조회가 반환한 여섯 필드에 위 운영자 `recipient(request_id)` 공개키를 붙인다.
+새 request_id를 임의로 만들어 기존 durable intent를 우회하지 않는다.
+
+| 파일 | 누가 기록하는가 | 의미 |
+|---|---|---|
+| `prepared.json` | 인증된 운영자, T10 UID로 실행 | 전체 일곱 필드의 사전 준비. 실행 시작 아님 |
+| `intent.json` | T10 `submit`, DB intent 커밋 이후 | 같은 준비값을 불변 게시한 실행 요청 |
+| `receipt.json` | 인증된 운영자, T10 UID로 실행 | GitHub 출처·암호문·정리까지 확인한 동일 실행 결과 |
+
+모든 파일은 0600이며 원자적 게시 후 fsync한다. 같은 값은 다시 읽고 다른 값은
+덮어쓰지 않는다. 심볼릭 링크·FIFO·다른 UID·공개 파일·크기 초과·교체 디렉터리를 거부한다.
+`recipient`는 plan 잠금 안에서 로컬 준비 파일만 읽는다. `submit` 뒤 결과가 없으면
+Pending, intent 자체가 없거나 결속이 다르면 Unknown이다. `read`는 intent를 만들지
+않으며, 재시작·응답 유실을 새 dispatch로 복구하지 않는다. 결과 수신은 여전히 T10의
+현재 권한 재검사와 T15의 검증을 통과해야 한다.
+
+실행 창의 전달 순서는 다음과 같다. 아래 명령은 각 호스트의 검토된 agent-worker
+환경에서 실행한다. `$MAILBOX_DIR`는 배치 담당이 지정한 T10 전용 경로,
+`$REMOTE_PORT`/`$LOCAL_PORT`는 그 창에만 할당한 loopback 포트다.
+
+1. 기존 SSO/SSM으로 확인한 정확 Pod/UID에서 `prepare`를 실행한다. stdin에는 공개
+   metadata만 넣는다. T10 host에는 이 디렉터리의 `FileProductExecution`을 주입한다.
+
+   ```sh
+   python -m bravo_agent.product_mailbox_transfer prepare --directory "$MAILBOX_DIR" < intent.json
+   ```
+
+2. T10이 현재 권한 검사와 DB claim을 마치고 `submit`한 뒤, 같은 Pod/UID에서
+   `claimed`를 읽는다. 이 명령의 출력은 공개 intent 필드뿐이다. 준비 파일만 있고
+   게시된 intent가 없으면 중단한다. 받은 일곱 필드가 사전 준비 원문과 같을 때만
+   운영자 호스트의 기존 `subscription_product_dispatch submit/read`를 사용한다.
+
+   ```sh
+   python -m bravo_agent.product_mailbox_transfer claimed --directory "$MAILBOX_DIR"
+   ```
+
+3. provider 검증·복호가 끝난 receipt를 운영자 로컬 0600 파일로 보관한다.
+   `product_execution_mailbox.encode(receipt)`의 canonical bytes 길이·SHA-256만
+   SSM 명령에 전달해 같은 T10 Pod에서 수신기를 시작한다. 결과 본문·JWT·개인키는
+   SSM 명령/argv/출력으로 전달하지 않는다. 최대 1 MiB·120초·PUT 한 건만 받는다.
+   수신기는 `127.0.0.1`에만 TLS로 bind하며 ready metadata 뒤 종료 영수증만 출력한다.
+   `$T10_TLS_CERT`/`$T10_TLS_KEY`는 T7 배치 담당이 인수한 기존 T10 서버 인증서 mount다.
+   인증서에는 `127.0.0.1` IP SAN이 있어야 하며, 평문 또는 검증 생략 모드는 없다.
+
+   ```sh
+   python -m bravo_agent.product_mailbox_transfer receive --directory "$MAILBOX_DIR" \
+     --port "$REMOTE_PORT" --sha256 "$RECEIPT_SHA256" --bytes "$RECEIPT_BYTES" --seconds 120 \
+     --tls-cert "$T10_TLS_CERT" --tls-key "$T10_TLS_KEY"
+   ```
+
+4. 기존 창 담당이 그 Pod UID를 다시 확인하고 loopback port-forward와 기존 SSM
+   포트 터널을 연다. 이 포트를 Service/Ingress/공개 주소로 노출하지 않는다.
+   receiver의 기대 해시는 인증된 SSM 제어 경로에서 정하며 HTTP 입력이 바꾸지 못한다.
+   operator upload는 환경 프록시·redirect를 사용하지 않고 loopback으로만 전송한다.
+   `$T10_PUBLIC_CA`는 같은 서버의 인수된 공개 CA다. TLS CA·주소 검증이 업로드보다
+   먼저 끝나야 하므로, 터널이 다른 로컬 listener로 바뀌어도 결과 본문은 전송되지 않는다.
+
+   ```sh
+   uv run --frozen python -m bravo_agent.product_mailbox_transfer upload \
+     --intent intent.json --receipt receipt.json --port "$LOCAL_PORT" --ca-file "$T10_PUBLIC_CA"
+   ```
+
+5. 같은 Pod/UID의 `receipt-status`에서 request_id·hash·size를 다시 읽는다. 출력에
+   제품 원문은 없다. 업로드 응답이 유실돼도 같은 receipt 상태부터 읽고 workflow를
+   재발행하지 않는다. T10은 파일을 읽고 현재 권한을 재검사한다. 창 담당은 자신이
+   시작한 receiver PID/시작 신원, port-forward와 SSM session을 정리하고 listener
+   부재를 확인한다. 영속 intent/receipt는 결과 인수 전 임의로 삭제하지 않는다.
+
+   ```sh
+   python -m bravo_agent.product_mailbox_transfer receipt-status --directory "$MAILBOX_DIR"
+   ```
+
+이 코드는 전달 도구다. 실제 Pod/디렉터리 배치, SSO/SSM 창과 TLS, 운영 등록 입력,
+T15 token-free 소비 경로가 준비됐다는 증거는 아니다. 동일 DB/Coordinator/AttemptStore
+프로세스를 운영자 호스트로 옮기거나 기존 runtime 자격을 복사해 맞추지 않는다.
