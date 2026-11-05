@@ -1,5 +1,6 @@
-"""The stall lab's link rules and its summary: pure functions, no Docker or database."""
+"""The stall lab's link rules, its summary and the recorded run: no Docker or database."""
 import importlib
+import json
 import sys
 import unittest
 from pathlib import Path
@@ -71,6 +72,50 @@ class StallSummaryTests(unittest.TestCase):
     def test_no_run_reaching_the_target_gives_no_time_rather_than_zero(self):
         row = lag_metrics.summarize_stall_trials([trial(5, "stall_6s", outcome="disabled", flowing=None)])[0]
         self.assertEqual(row["rows_flowing_after_heal_s"], {"median": None, "max": None, "unreached": 1})
+
+
+EVIDENCE = ROOT / "docs/evidence/t8-replication-timeout-2026-11-06/lab.json"
+
+
+class EvidenceTests(unittest.TestCase):
+    """The operations document's claims, counted again from the raw trials rather than read from its table."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.results = json.loads(EVIDENCE.read_text())
+        cls.rows = {(row["timeout_s"], row["condition"]): row for row in lag_metrics.summarize_stall_trials(cls.results["trials"])}
+
+    def test_the_stored_summary_is_what_the_trials_give(self):
+        self.assertEqual(self.results["summary"], list(self.rows.values()))
+
+    def test_30_seconds_kept_every_stalled_connection(self):
+        stalls = [row for (timeout, condition), row in self.rows.items() if timeout == 30 and condition != "cut_20s"]
+        self.assertEqual(sum(row["runs"] for row in stalls), 15)
+        self.assertEqual(sum(row["connection_ended"] + row["disabled"] for row in stalls), 0)
+
+    def test_5_seconds_ended_connections_from_a_4_second_stall(self):
+        self.assertEqual(self.rows[(5, "stall_2s")]["connection_ended"], 0)
+        self.assertEqual(self.rows[(5, "stall_4s")]["connection_ended"], 2)
+        self.assertEqual(self.rows[(5, "idle_stall_4s")]["connection_ended"], 3)
+        self.assertEqual(self.rows[(5, "stall_6s")]["connection_ended"], 3)
+
+    def test_with_disable_on_error_on_the_stall_turned_the_subscription_off(self):
+        self.assertEqual(self.rows[(5, "stall_4s_disable_on_error")]["disabled"], 2)
+        self.assertEqual(self.rows[(30, "stall_4s_disable_on_error")]["disabled"], 0)
+
+    def test_a_real_cut_still_ends_both_and_30_seconds_heals_later(self):
+        five, thirty = self.rows[(5, "cut_20s")], self.rows[(30, "cut_20s")]
+        self.assertEqual((five["connection_ended"], thirty["connection_ended"]), (3, 3))
+        self.assertEqual((five["rows_flowing_after_heal_s"]["median"], thirty["rows_flowing_after_heal_s"]["median"]), (6.48, 11.89))
+
+    def test_nothing_was_lost_and_the_reverse_was_left_alone(self):
+        self.assertTrue(all(trial["rows_missing"] == 0 for trial in self.results["trials"]))
+        self.assertEqual({(t["settings_after"]["reverse_enabled"], t["settings_after"]["reverse_disable_on_error"]) for t in self.results["trials"]},
+                         {(False, True)})
+
+    def test_every_reload_kept_the_running_processes(self):
+        self.assertEqual(len(self.results["reloads"]), 6)
+        self.assertTrue(all(item["pids_kept"] and item["pending_restart"] == [0, 0] for item in self.results["reloads"]))
 
 
 if __name__ == "__main__":
