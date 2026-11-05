@@ -25,6 +25,7 @@ import sys
 import tempfile
 import time
 from contextlib import suppress
+from string import Template
 
 FIXTURE_NS, OPENBAO_NS = "t15-fixture-objects", "bravo-secrets"
 SEAWEED_IMAGE = ("docker.io/chrislusf/seaweedfs:4.52@sha256:"
@@ -61,7 +62,7 @@ def policy(effect):
     T11 rejects any translation that grants Allow to "*", so a wrong proposal
     that reaches the cluster must look like this one.
     """
-    resource = f"arn:aws:s3:::{BUCKET}/*"
+    resource = Template("arn:aws:s3:::${bucket}/*").substitute(bucket=BUCKET)
     if effect == "public":
         statement = {"Sid": "PublicRead", "Effect": "Allow", "Principal": "*", "Action": "s3:GetObject",
                      "Resource": resource}
