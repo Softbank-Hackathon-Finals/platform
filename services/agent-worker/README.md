@@ -56,7 +56,7 @@ uv run bravo-subscription run \
 
 ### T16 인벤토리 입력 (FR-4)
 
-`bravo-agent analyze`와 `bravo-subscription run`은 선택 인자 `--inventory /private/path/inventory.json`(T16 `bravo-inventory scan` 출력)을 받는다. 256 KiB까지만 읽고 `InventorySummary.from_document`로 모델용 부분집합만 남겨 `Coordinator`에 붙인다. 붙인 실행에서만 `inventory_describe`가 제공되고, 결과 파일에 `inventory_digest`(T16 문서의 `sha256:` digest)가 추가된다. 붙이지 않으면 이 키는 없고 기존 출력과 같다. 인벤토리의 `app.source_sha`가 실패 요약·manifest와 다르거나, 형식이 맞지 않거나, 크기를 넘으면 다른 입력 오류와 같이 결과 파일 없이 `NEEDS_HUMAN`·종료 코드 2로 끝난다. 그래서 T16 scan은 같은 `--source-sha`로 실행해야 한다.
+`bravo-agent analyze`와 `bravo-subscription run`은 선택 인자 `--inventory /private/path/inventory.json`(T16 `bravo-inventory scan` 출력)을 받는다. 256 KiB까지만 읽고 `InventorySummary.from_document`로 모델용 부분집합만 남겨 `Coordinator`에 붙인다. 붙인 실행에서만 `inventory_describe`가 제공되고, 결과 파일에 `inventory_digest`(T16 문서의 `sha256:` digest)가 추가된다. 이 digest는 문서에 적힌 값을 그대로 믿지 않고, T16 `report.py`와 같은 규칙(`generated_at`·`digest`를 뺀 문서의 정렬 JSON의 sha256)으로 다시 계산해 같을 때만 받는다. 그래서 내용을 바꾼 문서는 원래 digest를 달고 들어올 수 없다. 값의 타입도 바꾸지 않고 그대로 엄격 검증한다. 붙이지 않으면 이 키는 없고 기존 출력과 같다. 인벤토리의 `app.source_sha`가 실패 요약·manifest와 다르거나, digest가 내용과 맞지 않거나, 형식이 맞지 않거나, 크기를 넘으면 다른 입력 오류와 같이 결과 파일 없이 `NEEDS_HUMAN`·종료 코드 2로 끝난다. 그래서 T16 scan은 같은 `--source-sha`로 실행해야 한다.
 
 T10의 최초 제안 입력은 바꾸지 않는다(11/6 류지환 확인: `failure_code=CODE_CHANGE_REQUIRED`, `summary`=항목 `rationale`, `evidence_digest`=T16 문서 digest에서 `sha256:`를 뺀 값). T38 제품 경로(`ProductInput` · `invoke_product_worker`)는 인벤토리를 아직 전달하지 않는다. `run_worker`는 `args.inventory`가 없으면 기존 명령을 그대로 만든다. 제품 경로에 붙일 때의 제안 필드는 [ADR-0019 4절](../../docs/adr/0019-agent-tool-boundary.md#4-결과-consequences)에 적었고 T38·T10 담당 합의 전에는 구현하지 않는다.
 
