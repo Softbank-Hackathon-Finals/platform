@@ -5,9 +5,11 @@ import json
 import os
 import sys
 import tempfile
+import threading
 import unittest
 import urllib.error
 from contextlib import redirect_stdout
+from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from unittest.mock import patch
 
@@ -129,3 +131,53 @@ class PlanTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class _Handler(BaseHTTPRequestHandler):
+    """Loopback object store: distinguishes the exact encoded key, redirects one key to /login."""
+
+    def log_message(self, *args):
+        return
+
+    def do_GET(self):
+        routes = {
+            "/demo-chat-attachments/open.txt": (200, b"public"),
+            "/demo-chat-attachments/private%23part": (403, b"denied"),
+            "/demo-chat-attachments/private": (200, b"prefix-object"),
+            "/demo-chat-attachments/space%20key": (403, b"denied"),
+            "/login": (200, b"login page"),
+        }
+        if self.path == "/demo-chat-attachments/redirected.txt":
+            self.send_response(302)
+            self.send_header("Location", "/login")
+            self.end_headers()
+            return
+        status, body = routes.get(self.path, (404, b"missing"))
+        self.send_response(status)
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+
+class LoopbackProbeTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.server = HTTPServer(("127.0.0.1", 0), _Handler)
+        cls.thread = threading.Thread(target=cls.server.serve_forever, daemon=True)
+        cls.thread.start()
+        cls.endpoint = f"http://127.0.0.1:{cls.server.server_port}"
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.server.shutdown()
+
+    def test_redirect_is_unknown_not_open(self):
+        result = exposure.probe(self.endpoint, BUCKET, "redirected.txt")
+        self.assertEqual(result["state_observed"], "unknown")
+        self.assertTrue(result["anonymous_get"].startswith("UNKNOWN:REDIRECT_302"))
+
+    def test_reserved_characters_reach_the_server_as_the_same_key(self):
+        self.assertEqual(exposure.probe(self.endpoint, BUCKET, "private#part")["state_observed"], "closed")
+        self.assertEqual(exposure.probe(self.endpoint, BUCKET, "space key")["state_observed"], "closed")
+        self.assertEqual(exposure.probe(self.endpoint, BUCKET, "open.txt")["state_observed"], "open")
+        self.assertEqual(exposure.probe(self.endpoint, BUCKET, "missing.txt")["anonymous_get"], "UNKNOWN:404")

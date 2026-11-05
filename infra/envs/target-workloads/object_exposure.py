@@ -22,6 +22,7 @@ import os
 import re
 import sys
 import urllib.error
+import urllib.parse
 import urllib.request
 from pathlib import Path
 
@@ -90,14 +91,28 @@ def write_private(path: Path, data: bytes) -> None:
         os.close(fd)
 
 
-def probe(endpoint: str, bucket: str, key: str, *, opener=urllib.request.urlopen, timeout: float = 10.0) -> dict:
-    """Unsigned GET of one object. 200 → the bucket is open to anonymous readers."""
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    """A redirected response is some other resource's answer, never the selected object's."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        raise urllib.error.HTTPError(req.full_url, code, "redirect not followed", headers, fp)
+
+
+_DIRECT = urllib.request.build_opener(_NoRedirect())
+
+
+def probe(endpoint: str, bucket: str, key: str, *, opener=_DIRECT.open, timeout: float = 10.0) -> dict:
+    """Unsigned GET of exactly one object. 200 → open to anonymous readers, 401/403 → closed.
+    Redirects, other statuses and transport errors are UNKNOWN: they are not the object's answer."""
     bucket = _bucket(bucket)
     if not re.fullmatch(r"https?://[A-Za-z0-9.-]+(?::\d{1,5})?", endpoint):
         raise ValueError("endpoint must be scheme://host[:port] with no path")
-    if not key or key.startswith("/") or ".." in key.split("/") or len(key) > 512:
+    if not key or key.startswith("/") or ".." in key.split("/") or len(key) > 512 or any(ord(c) < 32 for c in key):
         raise ValueError("object key outside policy")
-    request = urllib.request.Request(f"{endpoint}/{bucket}/{key}", method="GET")
+    # Reserved characters in the key (#, ?, space, %) must reach the server as the same key.
+    url = f"{endpoint}/{bucket}/{urllib.parse.quote(key, safe='/')}"
+    request = urllib.request.Request(url, method="GET")
+    suffix = key.rsplit("/", 1)[-1]
     try:
         with opener(request, timeout=timeout) as response:
             status = getattr(response, "status", 200)
@@ -105,10 +120,12 @@ def probe(endpoint: str, bucket: str, key: str, *, opener=urllib.request.urlopen
     except urllib.error.HTTPError as error:
         status = error.code
     except (urllib.error.URLError, OSError, TimeoutError) as error:
-        return {"anonymous_get": f"UNKNOWN:{type(error).__name__}", "state_observed": "unknown", "key_suffix": key.rsplit("/", 1)[-1]}
+        return {"anonymous_get": f"UNKNOWN:{type(error).__name__}", "state_observed": "unknown", "key_suffix": suffix}
+    if 300 <= status < 400:
+        return {"anonymous_get": f"UNKNOWN:REDIRECT_{status}", "state_observed": "unknown", "key_suffix": suffix}
     outcome = "ALLOWED" if status == 200 else "DENIED" if status in (401, 403) else f"UNKNOWN:{status}"
     observed = {"ALLOWED": "open", "DENIED": "closed"}.get(outcome, "unknown")
-    return {"anonymous_get": outcome, "state_observed": observed, "key_suffix": key.rsplit("/", 1)[-1]}
+    return {"anonymous_get": outcome, "state_observed": observed, "key_suffix": suffix}
 
 
 def plan(state: str, bucket: str) -> dict:
