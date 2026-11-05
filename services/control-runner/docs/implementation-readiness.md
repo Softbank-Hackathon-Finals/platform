@@ -23,17 +23,18 @@
 | AUD-01.1 관리자 접속 검색 | `audit_probes.py`, T34 수집기 | 실제 CNPG 감사 원천→저장소 전달·최소 권한 검색 인수 필요 |
 | AUD-01.2 DDL 검색 | 같은 감사 수집기 | 승인된 앱 DB 시험 스키마와 실제 생성/삭제·중앙 검색 인수 필요 |
 | AUD-01.3 권한 변경 검색 | 같은 감사 수집기 | [#369](https://github.com/Softbank-Hackathon-Finals/platform/pull/369): 출발지 별도 시험 namespace 실제 EKS→CloudWatch 부분 검증. 앱 범위·목적지·최소 권한 경로는 별도 |
-| NET-01.1 외부 공개 포트 | 전용 T14 스캔 실행기 없음 | 등록 주소/포트 범위·외부 실행 주체·허용 기준선 및 대조군 필요 |
+| NET-01.1 외부 공개 포트 | [#388](https://github.com/Softbank-Hackathon-Finals/platform/pull/388)의 `public_ports.py` | 실제 격리 loopback Nmap 검증. 운영 양쪽 ingress/node inventory·외부 실행 주체·허용 기준선 및 대조군 인수 필요 |
 | NET-01.2 외부→DB 차단 | `network_probes.py` | 모의·로컬 네트워크 검증. 실제 외부/허용 주체·5432/6432·정책 readback 인수 필요 |
 | NET-01.3 다른 namespace→DB 차단 | 같은 네트워크 수집기 | 실제 거부 주체·DNS·허용 경로·정책 readback 인수 필요 |
 | IAM-01.1 익명 객체 읽기 | AWS 객체 수집기 | #298/#341 실제 출발지. 목적지 SeaweedFS 주소·자격·객체 버전 연결 별도 |
 | IAM-01.2 기준선 초과 권한 | `tool_reports.py`의 결과 정규화 | Prowler/kube-bench 실행·실제 점검 ID/역할/namespace 매핑 미확정. manual/WARN를 PASS로 바꾸지 않음 |
-| ISO-01.1 다른 앱의 객체·DB 접근 | 결합된 T14 시험기 없음 | 객체와 DB 모두 허용/거부 주체로 실제 시험해야 함. 익명 객체 시험이나 Secret 시험으로 대체하지 않음 |
+| ISO-01.1 다른 앱의 객체·DB 접근 | [#395](https://github.com/Softbank-Hackathon-Finals/platform/pull/395)의 `app_isolation.py`, `postgres_isolation.py` | SDK 모의 S3·실제 로컬 PG18.4 자격 시험. 운영 앱 쌍·객체/DB 등록·자격·감사 연결 인수 필요. SeaweedFS 및 NAT/Pooler 경유 미인수 |
 | DR-01.1 새 클러스터 복원 | `backup_restore.py`, `cnpg_*`, `postgres_restore.py` | 로컬 자격 경로 있음. T35 양쪽 실제 저장소·archive 준비·표식 경계·신규 복원·검증 인수 필요 |
 
 ## 실제 완료를 위해 남은 작업
 
-1. 코드가 없는 회전·외부 포트·앱 간 객체/DB 격리 시험을 구현하고 실제 도구 매핑을 확정한다.
+1. 코드가 없는 비밀 회전 시험을 구현하고 실제 Prowler/kube-bench 도구 매핑을 확정한다.
+   외부 포트·앱 간 객체/DB 격리는 위 구현 범위의 운영 실행 연결을 이어간다.
 2. 존재하는 검사기에 승인된 실행 주체·원천·결과 저장소를 연결한다. 운영 설정 변경이 필요한
    시험은 기존 담당의 변경 창과 맞추고 실패/응답 유실 시 복구·정리 근거도 보존한다.
 3. T10이 프로필을 고정한 새 운영 계획에 각 실제 실행 원문을 등록한다. T19는 동일 계획·앱·환경
