@@ -23,7 +23,7 @@ from .rehearsal import RehearsalService
 from .store import EventError
 
 PERMISSIONS = frozenset({"read", "approve_cutover", "execute_cutover", "approve_change", "apply_change",
-                         "approve_failback", "execute_failback", "start_rehearsal"})
+                         "approve_failback", "execute_failback", "start_rehearsal", "hold_rehearsal"})
 APPROVAL_KEYS = {"cutover": _key, "change": change_key, "failback": failback_key}
 
 
