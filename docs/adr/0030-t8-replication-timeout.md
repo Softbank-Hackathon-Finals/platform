@@ -55,4 +55,5 @@
 ## 4. 결과
 
 * 근거: [운영 문서](../operations/t8-replication-health.md#116-새벽-끊김-원인과-대응), [측정 기록](../evidence/t8-replication-timeout-2026-11-06/README.md).
+* 실제 정방향 객체의 `disable_on_error`는 11/6 04:16 KST에 `kubectl patch`로 `true`가 됐고, 누가 바꿨는지 확인하고 있다. 이 결정은 렌더 기본값이다. 실제 값을 어느 쪽으로 맞출지는 바꾼 사람과 정한다.
 * 재지 못한 것: 실제 경로에서의 정체 모양과 길이, 30초에서 실제 단절의 회복, 실제 클러스터 reload. 적용 뒤에는 운영 문서의 확인 절차로 이를 본다.
