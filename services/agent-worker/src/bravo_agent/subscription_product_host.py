@@ -13,20 +13,16 @@ from datetime import UTC, datetime
 
 import httpx
 
-from .contracts import FailureBundle, digest
+from .contracts import digest
 from .product_contracts import ProductInput, ProductRequest, validate_product_input
+from .proposal_contracts import validate_bound_product_response as validate_bound_product_response
 from .subscription_product import stopped
-from .verification import validate_result
 
 _DIGEST = re.compile(r"[a-f0-9]{64}")
 _REF = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]{0,127}")
 _ADMISSION_FIELDS = {"plan_id", "tenant_id", "plan_version", "task_id", "rehearsal_id",
                      "attempt", "source_sha", "task_digest"}
 _REGISTRATION_FIELDS = {"admission", "product_input", "input_digest", "principal", "purpose", "expires_at"}
-_RESPONSE_FIELDS = {"product_input_digest", "admission_digest", "runtime_source_sha", "state",
-                    "input_kind", "run_id", "source_sha", "attempt", "input", "input_digest",
-                    "task", "task_digest", "snapshot_digest", "proposal", "proposal_digest",
-                    "tool_events_status"}
 
 
 @dataclass(frozen=True)
@@ -81,23 +77,9 @@ class RegisteredProductInputs:
 
 
 def validate_product_response(result: dict, request: ProductRequest, runtime_source_sha: str) -> dict:
-    """Validate the broker's projection; T15 separately binds it to its input.
+    return validate_bound_product_response(result, request.input_digest, runtime_source_sha)
 
-    No verification verdict or model audit is reconstructed here. The runtime
-    SHA is the exact reviewed installation selected by trusted deployment code.
-    """
-    if type(result) is not dict or set(result) != _RESPONSE_FIELDS:
-        raise ValueError("invalid product response")
-    bundle, _ = validate_result(result)
-    task = FailureBundle.model_validate(result["task"])
-    if (result["input_kind"] != "product" or result["product_input_digest"] != request.input_digest
-            or result["runtime_source_sha"] != runtime_source_sha
-            or not isinstance(result["admission_digest"], str)
-            or _DIGEST.fullmatch(result["admission_digest"]) is None
-            or task != bundle or result["task_digest"] != digest(task)
-            or result["tool_events_status"] != "UNAVAILABLE"):
-        raise ValueError("unbound product response")
-    return result
+
 
 
 @dataclass(frozen=True)

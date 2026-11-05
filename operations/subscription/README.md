@@ -247,3 +247,47 @@ Actions의 인수 코드에서는 `product_probe_window`와 기존 메모리 OID
 같은 Admission에 대한 T10의 별도 단일 dispatch 결정을 거쳐야 한다. probe 성공이
 운영 배포·모델 제안·T15 통합 완료를 뜻하지 않는다. 실제 입력·origin/CA·배치가
 준비되기 전 이 접점을 실행하지 않는다.
+
+### 한 제품 실행을 시작하고 같은 결과 읽기
+
+`subscription-product.yml`은 기존 합성 검증 workflow와 분리된 명시적
+`workflow_dispatch`다. T10이 커밋한 같은 Admission/attempt 1의 불변
+`ExecutionIntent` 여섯 필드(`request_id`, `input_ref`, `input_digest`,
+`admission_digest`, `runtime_source_sha`, `mode`)만 받는다. mode는 인증만 하는
+`probe` 또는 제안 한 번인 `propose`이며 JWT·업무 원문·임의 주소는 받지 않는다.
+
+T10의 실행 claim과 운영 입력을 준비한 **기존 운영자**가 자신의 `gh` 인증으로
+`OperatorProductExecution(state_dir).submit(intent)`를 한 번 호출한다. 재시작,
+응답 유실 또는 같은 호출은 `read(intent)`와 같은 조회만 수행한다. T10 Pod에
+GitHub 자격을 설치하거나 새 background dispatcher를 만드는 경로가 아니다.
+다른 호스트나 새 state directory로 실행 기록을 우회해서 다시 보내지 않는다.
+
+```sh
+# intent.json에는 위 여섯 metadata 필드만 둔다. state-dir는 같은 영속 운영자 디렉터리다.
+uv run --frozen python -m bravo_agent.subscription_product_dispatch submit \
+  --intent intent.json --state-dir .private/product-executions --output receipt.json
+# 결과가 아직 없거나 응답이 불명이면 같은 intent/state-dir를 조회한다.
+uv run --frozen python -m bravo_agent.subscription_product_dispatch read \
+  --intent intent.json --state-dir .private/product-executions --output receipt.json
+```
+
+운영자는 publish 전에 지정 VM에 설치된 SHA와 현재 develop/workflow SHA가 같고,
+인증된 T10 read·현재 권한·목적지가 준비됐는지 확인한다. workflow는 정확 저장소
+ID·develop·workflow SHA·첫 실행만 허용하고, 기존 VM concurrency/고정 SSM 창에서
+한 요청 후 정리한다. workflow rerun은 자격 취득 전에 거부한다. `propose` 성공은
+모델 제안까지만 의미하며 T15 검증·승인 대기를 대신하지 않는다.
+
+발행기는 네트워크 요청 전에 intent와 발행 시각을 영속 기록한다. 같은 요청의
+복수 run, 다른 actor/workflow/SHA, 두 번째 run attempt, 실패·정리 불명은 UNKNOWN이다.
+결과가 진행 중이면 `ExecutionPending`, 확정할 수 없으면 `ExecutionUnknown`이며
+CLI는 각각 4·5로 끝난다. 자동 재발행하지 않는다.
+
+결과는 같은 run의 `subscription-product-result` artifact 한 개에서만 읽는다.
+[GitHub artifact API](https://docs.github.com/en/rest/actions/artifacts)의 run/SHA와
+SHA-256을 대조하고, 제한된 ZIP의 `product-result.json`을 추출 없이 읽는다. 순수
+`product_execution_contracts.validate_execution_receipt`는 입력·Admission·설치·실행
+결속 및 정리 성공을 검사한다. T10은 소비 직전 현재 권한·plan/catalog/만료를 다시
+검사하고, 기존 T15 소비 경로로 전달해 실제 Job과 원본 영수증을 확인한다. 인증
+probe와 모델 제안의 실행 ID/결과를 섞지 않는다. CLI 출력·artifact에는 토큰·STS
+자격을 보존하지 않는다. artifact에는 검증된 제품 제안이 있으므로 운영 입력의
+기존 접근 범위로 취급하고 공개 문서나 로그에 복사하지 않는다.

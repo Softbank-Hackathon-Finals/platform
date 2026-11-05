@@ -9,8 +9,9 @@ import time
 import uuid
 from pathlib import Path
 
-from .contracts import FailureBundle, Proposal, SnapshotManifest, VerificationReceipt, digest
+from .contracts import FailureBundle, SnapshotManifest, VerificationReceipt, digest
 from .coordinator import Coordinator
+from .proposal_contracts import validate_result as validate_result
 from .tools import Snapshot
 
 # Candidate and verifier run in different Pods; neither has a service-account token.
@@ -244,20 +245,6 @@ def verify_environment(kube, proposal, image):
                 evidence["namespace_deleted"] = False
     evidence["verifier_image"] = image
     return evidence
-
-
-def validate_result(result):
-    """Validate broker output once at each external boundary using the same contract."""
-    bundle = FailureBundle.model_validate(result["input"])
-    proposal = Proposal.model_validate(result["proposal"])
-    if (result.get("state") != "PROPOSAL_READY" or type(result.get("attempt")) is not int
-            or result["attempt"] != 1 or result.get("input_digest") != digest(bundle)
-            or result.get("proposal_digest") != digest(proposal)
-            or result.get("run_id") != bundle.run_id or proposal.run_id != bundle.run_id
-            or result.get("source_sha") != bundle.source_sha or proposal.source_sha != bundle.source_sha
-            or not re.fullmatch(r"[a-f0-9]{64}", result.get("snapshot_digest", ""))):
-        raise ValueError("unbound proposal result")
-    return bundle, proposal
 
 
 def integrate(bundle, manifest, snapshot_root, result, kube, image, *, run_id=None, proposal_digest=None):
