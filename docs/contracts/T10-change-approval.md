@@ -215,3 +215,38 @@ namespace, 생성·삭제 UID 일치와 부재 확인이 필요하다. PASS에�
 기존 버전의 상태 전이·수신·승인 프로세스는 새 접수 기록을 해석하지 않는다. 교체할 때는
 새 접수를 중지하고 기존 writer의 종료를 확인한다. 새 방식으로 시작한 계획은 해당 버전의
 승인·반영과 전이가 끝날 때까지 새 가드를 이해하는 writer가 맡아야 한다.
+
+### T38 제품 제안 입력 등록
+
+`ProductInputRecords`는 trusted host 내부 포트다. 기존 `plan_commands`에 입력을
+한 번 저장하며 새 HTTP 경로나 DB 스키마를 만들지 않는다. 설치 그룹은
+`uv sync --group product-inputs`다. 계약 검증은 T38의 모델 실행과 분리된
+`bravo_agent.product_contracts`를 사용한다.
+
+호스트는 현재 catalog, 승인된 불변 원본을 읽는 `source`, 현재 서비스 principal의
+등록·tenant·계획·purpose 권한을 검사하는 `authorize`를 필수로 제공한다.
+`source(connection, plan, admission, task)`는 `bundle`, `manifest`, `files`만 반환한다.
+요청 본문·모델 출력·임의 로컬 경로를 원본으로 연결하지 않는다.
+
+1. T15 소비 어댑터의 `product_input(admission, task)`는 커밋된 Admission 8필드,
+   현재 `REHEARSE` 상태·버전·tenant와 catalog 논리 작업을 같은 계획 잠금에서 확인한다.
+   T10이 Admission 전체 digest와 시도를 붙인다. 원본 파일은 T38 정본 검증을 통과해야 한다.
+2. 호스트의 `register(admission, value, principal=..., expires_at=...)`는 승인된
+   원본과 입력 전체 digest를 다시 대조한다. 첫 시도에 불투명 `input_ref`와
+   `input_digest`를 발급한다. 같은 Admission·입력·호출자·만료는 같은 참조를 받는다.
+   다른 내용이나 만료 연장은 거부한다. 참조 자체는 읽기 권한이 아니다.
+3. 인증된 broker 조회 포트 `read(principal, input_ref)`는 현재 계획·catalog·권한·
+   회수·만료를 다시 검사한다. 반환 필드는 `admission`, `product_input`, `input_digest`,
+   `principal`, `purpose`, `expires_at`의 6개다. `purpose`는 `t38-product-proposal`,
+   만료는 UTC다. `revoke`는 신뢰한 관리 경로에서만 호출하며 회수는 영속적이다.
+
+`principal`은 T38 STS가 검증한 issuer/audience/subject의 digest다. 사람의
+`OperatorPrincipal`이나 T10 workload JWT와 다르다. `register` 결과는 T15
+`request_for`의 참조/digest 부분이며, `web_identity_token`은 별도의 기존 GitHub
+OIDC 공급 경로에서 넣는다. 이 저장소에는 토큰을 넣지 않는다.
+
+이 포트는 첫 모델 제안만 다룬다. 시도 2·3은 등록 전에 거부한다. T15의 논리
+`Admission.task_digest`와 T11 `FailureBundle` digest는 서로 다른 계약이다.
+운영 source collector·서비스 principal 등록·인증된 broker 읽기 transport·OIDC
+공급을 실제로 연결하기 전에는 제품 실행 경로가 완성되지 않는다. 로컬 입력 등록과
+조회 성공은 모델 응답·검증 Job·사람 승인·T31 배포의 완료 근거가 아니다.
