@@ -78,7 +78,20 @@ with ExecutorReader("https://executor.example.invalid") as reader:
 
 합성 authority와 시험 전용 SHIFT seed는 tests에만 있다. SQLite와 실제 임시 PostgreSQL에서 승인 만료·폐기·현재 결속 변경, 타 tenant, 중복/동시 요청, 저장 실패, 커밋 후/응답 후 프로세스 유실, 재개 시 GET, 이벤트 중복 방지와 SAFE_HOLD 보존을 확인한다. 실제 loopback TCP 응답 유실과 전용 CA의 정상/미신뢰/잘못된 hostname도 시험한다.
 
-운영 인증, T19/SHIFT authority, 실제 TLS Executor, 원격 DB·앱·T13 영수증을 연결한 통합 시험은 남아 있다. 현재 계획 모델을 SQL로 SHIFT에 바꾸거나 합성 gate/승인을 운영에 넣어 그 조건을 통과시키지 않는다. T10 전체 이슈는 열어 둔다.
+운영 인증, T19/SHIFT authority, 실제 TLS Executor, 원격 DB·앱·T13 영수증을 연결한 통합 시험은 남아 있다. 현재 계획 모델을 SQL로 SHIFT에 바꾸거나 합성 gate/승인을 운영에 넣어 그 조건을 통과시키지 않는다. 운영 연결의 인수는 T10의 목업 기반 완료 기준과 별도로 확인한다.
+
+### T19 원문의 계획별 저장·조회
+
+`GateRecords`는 기존 계획 트랜잭션과 `plan_commands`에 양쪽 통제 원문,
+현재 컨텍스트, 보안·합산 판정 원문을 저장한다. 같은 원문 참조의 변경,
+다른 테넌트·계획·환경, 목적지 누락을 거부한다. 한쪽 결과만 먼저 저장하고
+재조회할 수 있지만 양쪽이 갖춰지기 전에는 게이트 컨텍스트를 연결하지 않는다.
+
+`T10GateAuthority.load_session`은 전달받은 연결로 `records.view()`를 만들고
+그 view의 `session()`에서 `PlanGateSession`을 받아 사용한다. 호스트는 T19의
+현재 생산자 인증·권한·T13 준비 공급자를 그대로 제공해야 한다. 저장 성공이나
+검증 전용 계획은 운영 환경 등록·판정·승인을 대신하지 않는다.
+[호스트 연결과 클러스터 검증 범위](../../services/platform-events/testing/GATE-RECORDS.md)
 
 ### 계획 ID로 재시작하기 (T10 할 일 4)
 
