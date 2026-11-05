@@ -12,6 +12,8 @@ exporters:
       s3_bucket: bravo-audit
       s3_prefix: audit/onprem
       s3_partition_format: '%Y/%m/%d/%H/%M'
+      # 검색 어댑터(audit_store.py)는 분 파티션을 UTC로 읽는다. 기본값(Local)에 맡기지 않는다
+      s3_partition_timezone: UTC
       endpoint: https://audit-store:8333
       s3_force_path_style: true
       unique_key_func_name: uuidv7
