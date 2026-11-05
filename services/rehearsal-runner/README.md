@@ -109,6 +109,8 @@ uv run --frozen --no-default-groups --with pytest pytest -p no:cacheprovider ../
 
 현재 T11 `safe_path`는 파일명에 `secret`이 포함된 `app/db_secret.py`를 거부한다. 해당 파일은 demo-chat이 Secrets Manager를 직접 호출하는 위치이므로, T15 작업 입력만으로는 현재 T11 스냅샷·제안에 포함할 수 없다. T11 담당자와 파일 내용·민감값 보호를 유지하는 허용 범위 및 제안서 연결을 합의해야 한다. T15가 별도 우회 읽기 경로를 만들지 않는다.
 
+2026-11-05 갱신: T11 `safe_path`가 이름에 `secret`이 든 **코드 파일**(`.py` 등)을 허용하도록 바뀌었다(`services/agent-worker/README.md` 소스 경로 정책, ADR-0019). `app/db_secret.py`는 snapshot manifest에 넣을 수 있고, 내용의 자격증명 리터럴은 읽기 시점에 계속 거부된다. 데이터 · 키 파일과 `secrets/` 디렉터리는 그대로 거부한다.
+
 
 ### 네임스페이스 생성과 UID 정리 접점
 
