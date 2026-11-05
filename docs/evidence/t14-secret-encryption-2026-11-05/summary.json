@@ -1,0 +1,33 @@
+{
+  "run_id": "8c42b802-eb20-4946-881d-37dcce14af1f",
+  "operational_registration": false,
+  "reader": "operator SSO temporary metadata session, not the application identity",
+  "results": {
+    "SEC-01.1": "UNKNOWN",
+    "SEC-01.2": "UNKNOWN",
+    "SEC-01.3": "UNKNOWN",
+    "SEC-01.4": "UNKNOWN",
+    "ENC-02.1": "PASS",
+    "ENC-01.1": "UNKNOWN",
+    "ENC-01.5": "UNKNOWN",
+    "ENC-01.2": "UNKNOWN",
+    "ENC-01.3": "UNKNOWN",
+    "ENC-01.4": "UNKNOWN",
+    "AUD-01.1": "UNKNOWN",
+    "AUD-01.2": "UNKNOWN",
+    "AUD-01.3": "UNKNOWN",
+    "NET-01.1": "UNKNOWN",
+    "NET-01.2": "UNKNOWN",
+    "NET-01.3": "UNKNOWN",
+    "IAM-01.1": "UNKNOWN",
+    "IAM-01.2": "UNKNOWN",
+    "ISO-01.1": "UNKNOWN",
+    "DR-01.1": "UNKNOWN"
+  },
+  "application_registration_readbacks": 2,
+  "secret_values_read": 0,
+  "mutating_kms_calls": 0,
+  "creates_aws_managed_key": false,
+  "authorizes_cutover": false,
+  "private_host_script_sha256": "sha256:3d847e0bc9ddc0fc7d475fd8368a593ae6727b1da9fca03b2427cce5175205ad"
+}
