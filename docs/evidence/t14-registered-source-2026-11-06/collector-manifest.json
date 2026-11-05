@@ -1,0 +1,23 @@
+{
+  "kind": "private-collector-byte-manifest.v1",
+  "scripts_committed": false,
+  "files": [
+    {
+      "label": "s3_run.py",
+      "sha256": "122e72ed0fbe487ccd187798553d2a4384f7000e2068b185023ad8cc8cecc7c4"
+    },
+    {
+      "label": "s3_remote.py",
+      "sha256": "84500fb57a63d9343ddddb628da314bbe9baabb4e414e0f914064f0a701b7d14"
+    },
+    {
+      "label": "encryption_run.py",
+      "sha256": "85074b36862bdfc2460e173aa80e559fda2012e514d01b6215672ed9c01e8ace"
+    },
+    {
+      "label": "prepare.py",
+      "sha256": "54f718a7d25021f7625c3f2eac4b734afda7dc7a77acefe9987670a243062101"
+    }
+  ],
+  "note": "Private scripts are separate from the committed source manifest; hashes do not establish trusted-producer authority."
+}

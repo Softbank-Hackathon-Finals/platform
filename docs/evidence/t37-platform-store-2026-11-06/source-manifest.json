@@ -1,0 +1,33 @@
+{
+  "source_revision": "9ae3d9e3a0778743832030b10a0a9dd21521a9b9",
+  "source_files": [
+    {
+      "path": "services/observability/deploy/certs/issue.sh",
+      "sha256": "3e3b4bf9c3ce77a97fb858a44df27597c0e0b05b872c64a8f5e665b8a0c4feec"
+    },
+    {
+      "path": "services/observability/deploy/platform-store/kustomization.yaml",
+      "sha256": "8c9b929d293ee6d4e7d24ffd3a52145e3ee62a2bac01f3a67769869afd58fa52"
+    },
+    {
+      "path": "services/observability/deploy/platform/kustomization.yaml",
+      "sha256": "1b28c135d2a74c7855b7f5bb48590ef6b08d12a543aa0754d4e20b7cff7707b5"
+    },
+    {
+      "path": "services/observability/deploy/platform/prometheus.yml",
+      "sha256": "bb9fd941f8c1482ab39c790804080bab50b4f97753f461bf8ff404a104c621e9"
+    },
+    {
+      "path": "services/observability/deploy/platform/resources.yaml",
+      "sha256": "2a09b3d1206b48a640c71ecc809002cf995858414e427a8a10e7464565c68670"
+    },
+    {
+      "path": "services/observability/deploy/platform/rules/alerts.yml",
+      "sha256": "248d318f64a4fd59e724446c1f6792cabf9d6ff4501bcc4ea65eea23aa29f94f"
+    },
+    {
+      "path": "services/observability/deploy/platform/web.yml",
+      "sha256": "3bcc31c36fcfbe5c9181d13415b74bc54bac7889780ecf7bf914b13537bd3e7b"
+    }
+  ]
+}

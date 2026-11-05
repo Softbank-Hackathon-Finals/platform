@@ -30,8 +30,14 @@ app = ConsoleApp(authenticated_t10_app, public_origin="https://console.example.i
 1. AWS 출발지와 온프렘 목적지를 서버에 등록된 `connection_ref` 별칭으로 등록한다.
    kubeconfig·클라우드 키·Secret 값·API URL을 입력하는 화면은 제공하지 않는다.
 2. 소스 저장소 HTTPS 주소, 앱/IaC 상대 경로, 출발 환경 ID와 namespace로 앱을 등록한다.
-3. 등록된 앱과 목적지 ID로 계획을 만들면 반환된 계획 ID로 조회·SSE를 연결한다.
+3. 등록된 앱·목적지 ID와 평가 프로필 ID·버전을 명시해서 계획을 만든다.
+   프로필 기본값은 없으며 서버의 tenant별 허용 목록에 있는 조합만 등록한다.
+   요청과 영수증의 두 프로필 값이 같아야 반환된 계획 ID로 조회·SSE를 연결한다.
    첫 상태는 `COLLECT`이며 등록은 통제 PASS·승인·실행을 의미하지 않는다.
+
+스냅샷의 프로필은 ID·버전 한 쌍으로 읽고, 같은 계획의 재조회나 승인·실행 재요청에서
+바뀌면 거부한다. 두 필드가 모두 없는 기존 계획은 조회할 수 있지만 프로필을 추정해
+채우지 않는다. 프로필이 필요한 새 계획은 기존 환경·앱 등록을 재사용해 별도로 등록한다.
 
 서버가 반환한 환경/앱/계획 결속을 확인한 뒤 영수증을 표시한다. 읽기 권한 경고는 그대로
 보여 주고, 읽기 검증 성공을 최소 권한 또는 운영 자격 충족으로 바꾸지 않는다.
@@ -177,3 +183,46 @@ WebKit에서 읽는다. 정상 수집 값, 목적지 Collector 중단 뒤 미확
 - 새 탭/재접속은 전체 이력을 다시 검사한다. 401/403이면 복귀 근거도 지우고 지연 응답을 차단한다.
 - 브라우저의 복귀 시나리오는 명시적 HTTP/SSE 계약 fixture다. 실제 DB·Edge 복귀, 운영 권한,
   서비스 무중단 검증을 뜻하지 않는다. 기존 실제 T10 코드/SQLite 회귀도 함께 실행한다.
+
+
+## T33 보안 탐지 요약 연결
+
+`PlanSecurity`는 기존 T33 `/v1/security/summary`의 환경별 수집 상태·미해결 탐지 건수를
+읽는다. T19의 보안 시험 결과나 전환 허가를 새로 판정하지 않는다. 환경 전체의 결과이므로
+호스트는 계획 읽기 권한에 더해 **계획의 두 환경 전체에 대한 보안 조회 권한**을 확인해야 한다.
+
+```python
+from bravo_console.security import PlanSecurity, T33Client
+
+client = T33Client("https://findings.example.invalid", server_secret, tls=verified_context)
+security = PlanSecurity(authenticated_t10_app, client,
+    environments={"registered-source": "source", "registered-target": "target"},
+    authorize=host_environment_security_permission)
+app = ConsoleApp(authenticated_t10_app,
+    public_origin="https://console.example.invalid", security=security)
+```
+
+- `authorize(scope, plan)`는 검증된 호스트 신원·정책에 따른 동기 콜백이며 명시적인 `True`만
+  허용한다. 계획 조회와 추가 권한을 외부 읽기 전후 재검사하고, 계획 digest·앱·환경 쌍이
+  바뀌면 버린다. 다른 tenant의 환경을 재사용하는 매핑이나 무조건 허용하는 콜백은 금지한다.
+- 호스트가 불변 등록 ID → T33 환경 ID의 일대일 매핑을 고정한다. 브라우저는 환경·URL·
+  쿼리를 선택하지 못한다. 서비스 토큰은 해당 환경의 **read 전용**이어야 하며 브라우저에
+  전달하지 않는다. 호스트 종료 시 `await client.aclose()`로 연결을 닫는다.
+- 고정 HTTPS 서버의 CA·호스트명을 검증한다. HTTP는 루프백 시험 전용이다. T37과 같은
+  제한된 JSON 전송기를 재사용하며 리다이렉트·압축·64 KiB 초과·중복 키·5초 초과를 거부한다.
+- 응답은 7개 범주와 정확히 해당 환경 하나여야 한다. 미래/10초 초과 응답, 누락·중복 환경,
+  잘못된 상태·수치는 `UNKNOWN`이다. 출처의 `OK`는 **수집 정상**이며 보안 PASS가 아니다.
+  `UNKNOWN`·`STALE`·`NONE`의 과거 건수는 공개하지 않고 `null`로 반환한다.
+- T21의 `/v1/plans/{id}/security`는 읽기 전용 `console-security.v1` 표시 응답이다.
+  `for_gate_decisions: false`이며 환경 ID·side·7개 cells(state/counts)만 투영한다.
+  탐지 원문·출처 cursor·자원 식별자·비밀·외부 URL은 반환하지 않는다. 사용자에게 보이는
+  요약과 T33/T19 정본 계약을 구분한다.
+- 화면은 현재 계획과 결속된 15초 이내 응답만 표시한다. 권한 회수·계획 전환·조회 실패 시
+  이전 건수를 제거한다. `NONE`은 탐지 출처 없음, `STALE`은 오래됨, `UNKNOWN`은 확인 불가이며
+  모두 0건과 구분한다. 정상 수집의 0건도 공격 부재 또는 전체 보호 수준 통과를 뜻하지 않는다.
+
+검증은 실제 T33 인증·SQLite 저장·View/API와 실제 T10 계획 인가를 로컬로 연결했다.
+관찰 값·자격·신원은 시험 fixture다. 서비스 토큰의 환경 제한·회수, 계획/환경 권한 회수,
+잘못된 응답 거부, 브라우저 표시 삭제를 확인했다. 실제 클라우드 탐지 활성화·운영 수집기,
+운영 T33 HTTPS 주소·read 자격·호스트 권한 연결은 별도 인수 대상이며, 이 변경만으로
+T33 전체 완료 또는 실제 위협 탐지 성공으로 기록하지 않는다.

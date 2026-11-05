@@ -59,6 +59,13 @@ uv run uvicorn bravo_findings.api:create_app --factory --host 127.0.0.1 --port 8
 - 온프렘 에이전트(`agent.collect`)는 클러스터 안에서 Kyverno PolicyReport를 읽고 Falco DaemonSet 준비 상태를 확인해 플랫폼으로 **바깥 방향으로만** 보낸다.
 - 저장소는 플랫폼 DB(T10)가 정해지기 전까지 SQLite다(`store.py`). 테이블은 PostgreSQL로 옮길 수 있게 단순하게 둔다.
 
+탐지 능력 표의 `available`은 등록된 기능의 제공 여부이며 정상 수집·위협 부재를
+뜻하지 않는다. 공급자 조회가 미설정/비활성을 확인해 `NOT_ENABLED`를 기록한 출처는
+그 기능의 제공 출처에서 제외한다. 같은 기능을 제공하는 다른 출처가 있으면 유지한다.
+권한 거부·시간 초과는 미설정으로 추측하지 않고 `states`의 `FAILED`로 구분한다.
+`/sources`의 오류 원인과 `/summary`의 `UNKNOWN` 계약은 유지하며, 이후 실제 수집이
+성공해야 해당 출처가 다시 포함된다. UI는 `available`만으로 정상 색상을 표시하면 안 된다.
+
 ### 실제 데이터 확인 전 상태
 
 | 출처 | 코드 · 테스트 | 실제 확인 |

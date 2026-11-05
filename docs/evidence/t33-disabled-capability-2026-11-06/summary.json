@@ -1,0 +1,24 @@
+{
+  "observed_at_ms": 1793898417139,
+  "provider": "AWS GuardDuty",
+  "region": "ap-northeast-2",
+  "provider_error_code": "NOT_ENABLED",
+  "source_state": "FAILED",
+  "network_threat": {
+    "available": false,
+    "sources": [],
+    "states": {}
+  },
+  "runtime_threat": {
+    "available": false,
+    "sources": [],
+    "states": {}
+  },
+  "threat_summary_state": "UNKNOWN",
+  "raw_record_sha256": "818cc1738d59cda1d66aef6288ee85bef0bd23c9759e5f77d80ef62b52f385b6",
+  "actual_provider_read": true,
+  "local_view_consumption": true,
+  "hosted_ui_verified": false,
+  "positive_finding_ingestion_verified": false,
+  "aws_mutation": false
+}

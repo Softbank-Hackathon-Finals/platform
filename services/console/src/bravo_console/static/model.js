@@ -24,6 +24,9 @@ export function fail(code) {
 export function identifier(v) {
   return typeof v === "string" && ID.test(v);
 }
+export function evaluationProfile(v) {
+  return typeof v === "string" && /^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$/.test(v);
+}
 const object = (v) => v !== null && typeof v === "object" && !Array.isArray(v);
 const date = (v) =>
   typeof v === "string" &&
@@ -149,13 +152,19 @@ export function failbackSummary(record) {
   }[v.status];
 }
 export function snapshot(v, plan) {
+  const hasProfile =
+    object(v) &&
+    (Object.hasOwn(v, "profile_id") || Object.hasOwn(v, "profile_version"));
   exact(
     v,
-    "schema_version plan_id workload_id source_environment_id target_environment_id plan_digest collection_scope_digest state version created_at updated_at last_event_id",
+    "schema_version plan_id workload_id source_environment_id target_environment_id plan_digest collection_scope_digest state version created_at updated_at last_event_id" +
+      (hasProfile ? " profile_id profile_version" : ""),
   );
   if (
     v.schema_version !== "1.0" ||
     v.plan_id !== plan ||
+    (hasProfile &&
+      ![v.profile_id, v.profile_version].every(evaluationProfile)) ||
     ![
       v.plan_id,
       v.workload_id,
@@ -278,6 +287,8 @@ export class Model {
         "workload_id",
         "source_environment_id",
         "target_environment_id",
+        "profile_id",
+        "profile_version",
       ])
         if (next[key] !== this.snapshot[key]) fail("plan_changed");
       if (next.version < this.snapshot.version) fail("snapshot_regressed");
@@ -609,4 +620,68 @@ export function controlReport(value, current, gate, now) {
   )
     fail("incomplete_control_report");
   return clone(value);
+}
+
+// T33 environment-wide collection states; never a T19 security verdict.
+export const SECURITY_CATEGORIES = Object.freeze({
+  IAM: "접근 권한",
+  ENCRYPTION: "암호화",
+  AUDIT: "감사 로그",
+  EXPOSURE: "외부 노출",
+  POLICY: "정책 위반",
+  THREAT: "위협 탐지",
+  VULNERABILITY: "취약점",
+});
+export function securitySummary(value, current, now) {
+  if (
+    !object(value) ||
+    !object(current) ||
+    value.kind !== "console-security.v1" ||
+    value.plan_id !== current.plan_id ||
+    value.plan_digest !== current.plan_digest ||
+    value.for_gate_decisions !== false ||
+    !date(value.queried_at) ||
+    now < Date.parse(value.queried_at) ||
+    now - Date.parse(value.queried_at) > 15000 ||
+    !Array.isArray(value.environments) ||
+    value.environments.length !== 2
+  )
+    fail("invalid_security_summary");
+  return ["source", "target"].map((side) => {
+    const found = value.environments.filter(
+      (row) =>
+        object(row) &&
+        row.side === side &&
+        row.environment_id === current[side + "_environment_id"],
+    );
+    if (found.length !== 1) fail("security_scope_mismatch");
+    const row = found[0];
+    exact(row.cells, Object.keys(SECURITY_CATEGORIES).join(" "));
+    const cells = {};
+    for (const category of Object.keys(SECURITY_CATEGORIES)) {
+      const cell = row.cells[category];
+      exact(cell, "state counts");
+      if (!["OK", "NONE", "STALE", "UNKNOWN"].includes(cell.state))
+        fail("invalid_security_state");
+      if (cell.state !== "OK") {
+        if (cell.counts !== null) fail("unverified_security_counts");
+        cells[category] = { state: cell.state, total: null };
+        continue;
+      }
+      if (
+        !object(cell.counts) ||
+        Object.entries(cell.counts).some(
+          ([k, v]) =>
+            !["0", "1", "2", "3", "4", "5", "6", "99"].includes(k) ||
+            !Number.isSafeInteger(v) ||
+            v < 0,
+        )
+      )
+        fail("invalid_security_counts");
+      const total = Object.values(cell.counts).reduce((a, b) => a + b, 0);
+      if (!Number.isSafeInteger(total)) fail("invalid_security_counts");
+      cells[category] = { state: "OK", total };
+    }
+    return { side, cells };
+  });
 }

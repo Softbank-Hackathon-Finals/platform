@@ -46,6 +46,11 @@ def _current(c, plan_id):
     return json.loads(row["receipt_json"]) if row else None
 
 
+def _profile_matches(spec, context):
+    return (spec.get("profile_id") == context.profile_id
+            and spec.get("profile_version") == context.profile_version)
+
+
 class GateRecords:
     """Trusted host port. No HTTP enrollment, new tables or separate plan lock.
 
@@ -102,7 +107,7 @@ class GateRecords:
         return snapshot
 
     def bind(self, principal, plan_id, context_id, context, *, expected_revision):
-        """Server-selected context/profile. Retrying an old binding never reactivates it."""
+        """Bind the registered profile. Retrying an old binding never reactivates it."""
         identity(context_id)
         if not isinstance(context, GateContext):
             raise ValueError("invalid_gate_context")
@@ -112,7 +117,8 @@ class GateRecords:
             plan = self._plan(c, principal, plan_id, "gate:bind")
             spec = json.loads(plan["spec_json"])
             if (context.tenant_id != plan["tenant_id"] or context.app != spec["workload_id"]
-                    or context.plan_digest != spec["plan_digest"]):
+                    or context.plan_digest != spec["plan_digest"]
+                    or not _profile_matches(spec, context)):
                 raise EventError("gate_context_scope_mismatch")
             for side in ("source", "target"):
                 record = _get(c, plan_id, "run", getattr(context, side + "_ref"))
@@ -180,6 +186,8 @@ class GateRecordView:
         self.binding = binding
         self.context_id = binding["context_id"]
         self.context = GateContext(**binding["context"])
+        if not _profile_matches(json.loads(plan["spec_json"]), self.context):
+            raise EventError("gate_context_scope_mismatch")
 
     def _check(self, actor, context):
         latest = self.records._plan(self.c, self.principal, self.plan["plan_id"], "gate:read")

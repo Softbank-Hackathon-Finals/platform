@@ -172,3 +172,68 @@ def test_real_openai_sdk_serializes_and_parses_without_network(context, monkeypa
     assert len(requests) == 1
     assert result["state"] == "PROPOSAL_READY"
     assert result["attempts"][0]["model_usage"]["total_tokens"] == 150
+
+
+def install_sdk(monkeypatch, items):
+    """The real ``AsyncOpenAI`` over a mock HTTP transport, so the provider's request building and
+    the SDK's response parsing both run. ``items`` are the function_call output items per turn."""
+    import httpx2
+    from openai import AsyncOpenAI, DefaultAsyncHttpxClient
+
+    from bravo_agent import openai_provider
+
+    requests = []
+
+    def handle(request):
+        requests.append(json.loads(request.content))
+        item = items[min(len(requests) - 1, len(items) - 1)]
+        return httpx2.Response(200, json={
+            "id": f"resp_{len(requests)}", "object": "response", "created_at": 1, "model": "fixture-model",
+            "status": "completed", "parallel_tool_calls": False, "tool_choice": "auto", "tools": [],
+            "output": [{"id": "fc_fixture", "type": "function_call", "status": "completed", "call_id": "call_fixture", **item}],
+            "usage": {"input_tokens": 100, "output_tokens": 50, "total_tokens": 150,
+                      "input_tokens_details": {"cached_tokens": 0}, "output_tokens_details": {"reasoning_tokens": 0}}})
+
+    def client(**kwargs):
+        return AsyncOpenAI(**kwargs, http_client=DefaultAsyncHttpxClient(transport=httpx2.MockTransport(handle)))
+    monkeypatch.setattr(openai_provider, "AsyncOpenAI", client)
+    monkeypatch.setattr(openai_provider.os, "environ", {"OPENAI_API_KEY": "model-fixture"})
+    return requests
+
+
+RESERVED_FORMS = [("rehearsal_exec", "rehearsal.exec"), ("bravo.rehearsal_exec", "rehearsal.exec"),
+                  ("mcp__bravo__rehearsal_exec", "rehearsal.exec"), ("rehearsal.exec", "rehearsal.exec"),
+                  ("rehearsal_run", "rehearsal.run"), ("bravo.rehearsal_run", "rehearsal.run"),
+                  ("rehearsal_result", "rehearsal.result"), ("bravo.rehearsal.result", "rehearsal.result")]
+
+
+@pytest.mark.parametrize("function_name,tool", RESERVED_FORMS)
+def test_openai_reserved_tool_call_is_audited_as_not_provided(context, monkeypatch, function_name, tool):
+    bundle, snapshot, proposal, _ = context
+    requests = install_sdk(monkeypatch, [
+        {"name": function_name, "arguments": json.dumps({"command": "private-arg-ls"})},
+        {"name": "plan_propose", "arguments": json.dumps(proposal)}])
+    result = asyncio.run(Coordinator(bundle, snapshot).propose(OpenAIProvider("fixture-model")))
+    assert result["state"] == "PROPOSAL_READY" and len(requests) == 2
+    assert result["audit"][0] == {"run_id": bundle.run_id, "attempt": 1, "tool": tool,
+                                  "outcome": "DENIED", "reason": "TOOL_NOT_PROVIDED"}
+    assert json.loads(requests[1]["input"][-1]["output"]) == {"error": "POLICY_DENIED"}
+    offered = {t["name"] for r in requests for t in r["tools"]}
+    assert offered == {"repo_read", "plan_propose", "policy_evaluate"}  # never exposed to the model
+    assert "private-arg" not in json.dumps(result)
+
+
+@pytest.mark.parametrize("arguments,category", [
+    (json.dumps({"command": "aws s3 rb s3://private-bucket --force"}), "bucket_delete"),
+    (json.dumps({"command": "kubectl delete namespace private-ns"}), "namespace_delete"),
+    ('{"command": "rm -rf /private-dir', "filesystem_rm"),  # not even valid JSON
+])
+def test_openai_destructive_reserved_call_is_categorised_without_raw_arguments(context, monkeypatch, arguments, category):
+    bundle, snapshot, proposal, _ = context
+    install_sdk(monkeypatch, [{"name": "rehearsal_exec", "arguments": arguments},
+                              {"name": "plan_propose", "arguments": json.dumps(proposal)}])
+    result = asyncio.run(Coordinator(bundle, snapshot).propose(OpenAIProvider("fixture-model")))
+    assert result["state"] == "PROPOSAL_READY"
+    assert result["audit"][0] == {"run_id": bundle.run_id, "attempt": 1, "tool": "rehearsal.exec", "outcome": "DENIED",
+                                  "reason": "DESTRUCTIVE_ATTEMPT_BLOCKED", "category": category}
+    assert "private-" not in json.dumps(result)

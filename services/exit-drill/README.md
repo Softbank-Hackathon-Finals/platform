@@ -84,6 +84,8 @@ AWS 경로는 명세에 적지 않는다. **인벤토리가 쓴다고 한 서비
 | 계획을 만든 뒤 명세에 없는 Pod가 뜸 | `POD_OUTSIDE_PLAN` | 어느 정책에도 안 걸리고 아무도 재지 않는다 |
 | LSN이 안 움직임 | `REPLICATION_IDLE` | 쓰기가 없으면 채널이 살아 있는지 모른다 |
 | 쓰기 대상이 목적지로 확인 안 됨 | `CUTOVER_NOT_CONFIRMED` | 컷오버 전이면 이 시험의 의미가 없다 |
+| 출구 시험 대상이 아닌 Pod | `NOT_EXIT_EVIDENCE` · `AWS_ENDPOINT_REDIRECTED` | 호출이 AWS로 가지 않으면 막아도 멀쩡해 보인다. 차단을 잰 것이 아니다 |
+| 그 여부를 읽지 못함 | `ELIGIBILITY_NOT_READ` | 읽지 못한 것을 자격 있다고 하지 않는다 |
 | 다른 계획의 관측 · 손댄 계획 | `PLAN_NOT_BOUND` · `PLAN_TAMPERED` | 이 시험의 증거가 아니다 |
 | 측정 중 정책이 바뀜 | `POLICY_CHANGED_DURING_OBSERVATION` | 무엇을 잰 것인지 모른다 |
 | 관측 값의 모양이 틀림 | `OBSERVATION_UNREADABLE` | 읽지 못한 증거로 판정하지 않는다 |
@@ -103,6 +105,13 @@ AWS 경로는 명세에 적지 않는다. **인벤토리가 쓴다고 한 서비
 판정은 두 번째가 있어야 `restart:*`를 통과시키고, 새 연결도 그 뒤에 맺은 것만 센다. 컨테이너 재시작은 정책 생성과 Pod 시작 양쪽에서 2초 이상 지난 뒤여야 한다. 그 전이면 아직 틈 안일 수 있어서다.
 
 **판정 대상은 명세가 앱 역할마다 적은 컨테이너(`workloads.*.container`) 하나다.** 이 이름은 계획 해시에 들어간다. 재시작 횟수 · 시작 시각 · 컨테이너 ID는 그 컨테이너의 값만 쓰고, 끝난 컨테이너의 ID(`lastState.terminated.containerID`)가 기록과 같고 지금 도는 ID와 달라야 통과한다. 빈 값이나 공백뿐인 ID는 없는 값으로 친다. 사이드카가 다시 뜬 것은 앱의 근거가 되지 않는다. 그렇다고 넘기지도 않아서, 앱은 통과 조건을 채워도 `OTHER_CONTAINER_RESTARTED`로 UNKNOWN이다.
+
+### 출구 시험 자격
+
+T30의 개발 측정용 앱은 같은 Pod의 호환 컨테이너가 Secrets Manager 호출에 응답한다([ADR-0017](../../docs/adr/0017-target-app-secrets-manager-compat.md)). AWS를 막아도 앱이 떠서 거짓 PASS가 나올 수 있다.
+그래서 수집기가 앱 역할 Pod마다 `bravo.t30/not-exit-evidence` 표지와 모든 컨테이너(재시작 가능한 사이드카 포함)의 `AWS_ENDPOINT_URL*` 환경 변수를 읽어 `exit_blockers`로 적는다.
+판정은 차단 전후의 Pod를 모두 보고, 하나라도 걸리면 `eligibility:*`가 UNKNOWN이다. 값을 읽지 못해도 UNKNOWN이다. 표지만 지워도 환경 변수가 남으면 통과하지 못한다.
+`envFrom`이 있는 Pod도 `ELIGIBILITY_NOT_READ`다. Pod만 봐서는 어떤 변수가 들어오는지 모르고, 참조한 ConfigMap · Secret을 새로 읽지 않는다. 쓰려면 환경 변수를 `env`에 직접 적는다. 볼륨으로 넣은 AWS 설정 파일은 보지 않는다.
 
 종료 코드: 0 PASS · 1 FAIL(또는 계획 거부) · 2 입력 오류 · 3 UNKNOWN.
 

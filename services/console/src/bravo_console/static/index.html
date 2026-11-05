@@ -140,9 +140,25 @@
                   maxlength="128"
                   autocomplete="off"
               /></label>
+              <label
+                >평가 프로필 ID<input
+                  id="registration-profile"
+                  name="profile_id"
+                  required
+                  maxlength="128"
+                  autocomplete="off"
+              /></label>
+              <label
+                >평가 프로필 버전<input
+                  id="registration-profile-version"
+                  name="profile_version"
+                  required
+                  maxlength="128"
+                  autocomplete="off"
+              /></label>
               <p class="muted">
-                등록 후 조사 단계부터 조회합니다. 트래픽이나 DB를 전환하지
-                않습니다.
+                서버에 등록된 평가 프로필과 버전을 입력하세요. 등록 후 조사
+                단계부터 조회합니다. 트래픽이나 DB를 전환하지 않습니다.
               </p>
               <button type="submit">계획 등록·연결</button>
             </form>
@@ -285,6 +301,37 @@
           기록된 보안 시험 결과입니다. 데이터 준비·운영 승인·실행 직전 재검증을
           포함한 전체 전환 허가를 뜻하지 않습니다. EXCEPTION은 동등성 통과와
           구분한 승인 예외입니다.
+        </p>
+      </section>
+      <section class="card">
+        <div class="section-title">
+          <h2>보안 탐지 수집 현황</h2>
+          <span id="security-status">보안 탐지 조회 미연결·만료</span>
+        </div>
+        <p class="muted">
+          출발지·목적지 환경 전체의 수집 결과입니다. 이 앱만의 결과나 이전
+          허가를 뜻하지 않습니다.
+        </p>
+        <div
+          class="table-scroll"
+          tabindex="0"
+          role="region"
+          aria-label="출발지와 목적지 보안 탐지 수집 현황"
+        >
+          <table class="control-table">
+            <thead>
+              <tr>
+                <th scope="col">범주</th>
+                <th scope="col">출발지</th>
+                <th scope="col">목적지</th>
+              </tr>
+            </thead>
+            <tbody id="security-rows"></tbody>
+          </table>
+        </div>
+        <p class="muted">
+          0건은 연결된 출처에서 수집한 미해결 탐지가 없다는 뜻입니다. 탐지 출처
+          없음·수집 실패·오래된 결과는 0건 또는 보안 통과로 표시하지 않습니다.
         </p>
       </section>
       <section class="card">

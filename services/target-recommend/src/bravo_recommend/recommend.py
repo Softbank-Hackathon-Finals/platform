@@ -18,6 +18,9 @@ import jsonschema
 
 SECRET_LIKE = re.compile(r"(?:AKIA|ASIA)[A-Z0-9]{16}|sk-(?:ant-)?[A-Za-z0-9_-]{16,}|://[^/\s@]+:[^/\s@]*@|-----BEGIN ")
 VERDICT_ORDER = {"fits": 0, "needs_work": 1}
+CAP_KEY = re.compile(r"[a-z][a-z0-9_]{0,63}")
+QUOTED_CAP_KEY = re.compile(r"'([a-z][a-z0-9_]{0,63})'")
+REASON_MAX = 200  # recommendation.schema.json excluded[].reason maxLength
 
 
 class AIRankingRejected(ValueError):
@@ -39,15 +42,49 @@ def score(candidate: dict) -> list[int]:
             int(counts.get("adapter", 0)) + len(candidate.get("residual_dependencies", []))]
 
 
+def capability_key(entry: str) -> str | None:
+    """The capability key named by one T16 ``missing_capabilities`` entry, if it names exactly one.
+
+    T16 writes a Korean sentence that quotes the key (``... '{cap_key}' 기능이 등록되지 않음``);
+    a bare key is accepted as well. Anything else stays only in the raw list.
+    """
+    if CAP_KEY.fullmatch(entry):
+        return entry
+    keys = set(QUOTED_CAP_KEY.findall(entry))
+    return keys.pop() if len(keys) == 1 else None
+
+
+def exclusion(candidate: dict) -> dict:
+    """Structured reason for a ``blocked`` candidate: codes and keys first, then a bounded summary.
+
+    T16's raw ``missing_capabilities`` sentences are kept unchanged for the console; the summary
+    is rebuilt from keys and counts and falls back to counts only, so it never cuts text.
+    """
+    missing = [str(m) for m in candidate.get("missing_capabilities", [])]
+    keys = sorted({k for k in map(capability_key, missing) if k})
+    unrecognised = sum(1 for m in missing if capability_key(m) is None)
+    none = int(candidate.get("grade_counts", {}).get("none", 0))
+    codes = (["MISSING_CAPABILITY"] if missing else []) + (["NO_REPLACEMENT"] if none else [])
+    parts = []
+    if missing:
+        named = ", ".join(keys + ([f"{unrecognised} unrecognised"] if unrecognised else []))
+        parts.append(f"missing capabilities: {named}")
+    if none:
+        parts.append(f"{none} dependency(ies) without replacement")
+    if missing and len("; ".join(parts)) > REASON_MAX:  # only the key list can grow; keep counts
+        parts[0] = f"{len(keys) + unrecognised} missing capability(ies), see missing_capability_keys"
+    reason = "; ".join(parts)
+    return {"env_id": candidate["env_id"], "verdict": "blocked", "reason_codes": codes or ["BLOCKED_BY_RULE"],
+            "reason": reason or "blocked by rule", "missing_capability_keys": keys, "no_replacement_count": none,
+            "missing_capabilities": missing}
+
+
 def rule_rank(candidates: list[dict]) -> tuple[list[dict], list[dict]]:
     """Split into (allowed ranked by rule, excluded). Deterministic: ties break on env_id."""
     excluded, allowed = [], []
     for c in candidates:
         if c["verdict"] == "blocked":
-            missing = list(c.get("missing_capabilities", []))
-            none = int(c.get("grade_counts", {}).get("none", 0))
-            reason = (f"missing capabilities: {', '.join(missing)}" if missing else "") + (f"; {none} dependency(ies) without replacement" if none else "")
-            excluded.append({"env_id": c["env_id"], "verdict": "blocked", "reason": reason.strip("; ") or "blocked by rule", "missing_capabilities": missing})
+            excluded.append(exclusion(c))
         elif c["verdict"] in VERDICT_ORDER:
             allowed.append(c)
         else:

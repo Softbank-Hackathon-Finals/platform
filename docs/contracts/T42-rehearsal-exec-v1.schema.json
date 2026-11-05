@@ -1,0 +1,244 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:bravo:t42:rehearsal-exec:1",
+  "title": "rehearsal.exec call contract v1 (proposal)",
+  "description": "Model arguments, channel request, response and signed exec record. Prose rules: T42-rehearsal-exec-v1-proposal.md.",
+  "$defs": {
+    "run_id": {"type": "string", "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$"},
+    "attempt": {"type": "integer", "minimum": 1, "maximum": 3},
+    "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "request_id": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{7,79}$"},
+    "k8s_name": {"type": "string", "pattern": "^[a-z0-9-]{1,63}$"},
+    "http_path": {"type": "string", "pattern": "^/[A-Za-z0-9._~!$&'()*+,;=:@%/?-]{0,255}$"},
+    "tool": {"type": "string", "enum": ["rehearsal.exec.apply", "rehearsal.exec.inspect", "rehearsal.exec.probe"]},
+    "action": {"type": "string", "enum": ["apply", "inspect", "probe"]},
+    "result_code": {"type": "string", "enum": ["OK", "REJECTED", "FAILED", "UNKNOWN"]},
+    "reason": {"type": "string", "enum": ["BLOCKED", "FOREIGN_ATTEMPT", "TIMEOUT", "NONZERO_EXIT", "UNAVAILABLE", "EFFECT_UNKNOWN", "OUTPUT_WITHHELD", "BUDGET_EXHAUSTED"]},
+    "stage": {"type": "string", "enum": ["ADMIT", "VALIDATE", "EXECUTE", "OUTPUT"]},
+    "probe_outcome": {"type": "string", "enum": ["CONNECTED", "REFUSED", "TIMED_OUT", "DNS_FAILED"]},
+
+    "inspect_args": {
+      "description": "Model-facing parameters of rehearsal_exec_inspect. Strict-mode compatible: every key required, null for not applicable.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["target_kind", "target_name", "lines"],
+      "properties": {
+        "target_kind": {"type": "string", "enum": ["pod", "deployment", "events", "logs"]},
+        "target_name": {"type": ["string", "null"], "pattern": "^[a-z0-9-]{1,63}$"},
+        "lines": {"type": ["integer", "null"], "minimum": 1, "maximum": 200}
+      }
+    },
+    "inspect_rules": {
+      "description": "Cross-field rules T11 and T15 both check; not sent to the model.",
+      "allOf": [
+        {"if": {"properties": {"target_kind": {"const": "events"}}},
+         "then": {"properties": {"lines": {"type": "null"}}},
+         "else": {"properties": {"target_name": {"type": "string"}}}},
+        {"if": {"properties": {"target_kind": {"const": "logs"}}},
+         "then": {"properties": {"lines": {"type": "integer"}}},
+         "else": {"properties": {"lines": {"type": "null"}}}}
+      ]
+    },
+    "probe_args": {
+      "description": "Model-facing parameters of rehearsal_exec_probe.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["service", "port", "method", "path"],
+      "properties": {
+        "service": {"type": "string", "pattern": "^[a-z0-9-]{1,63}$"},
+        "port": {"type": "integer", "minimum": 1, "maximum": 65535},
+        "method": {"type": "string", "enum": ["TCP", "HTTP_GET", "HTTP_HEAD"]},
+        "path": {"type": ["string", "null"], "pattern": "^/[A-Za-z0-9._~!$&'()*+,;=:@%/?-]{0,255}$"}
+      }
+    },
+    "probe_rules": {
+      "allOf": [
+        {"if": {"properties": {"method": {"const": "TCP"}}},
+         "then": {"properties": {"path": {"type": "null"}}},
+         "else": {"properties": {"path": {"type": "string"}}}}
+      ]
+    },
+
+    "local_request": {
+      "description": "T11 child process -> exec-only local channel. Carries no run, attempt or space identifiers.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "request_id", "args_sha256", "tool", "arguments"],
+      "properties": {
+        "schema_version": {"const": 1},
+        "request_id": {"$ref": "#/$defs/request_id"},
+        "args_sha256": {"$ref": "#/$defs/sha256"},
+        "tool": {"$ref": "#/$defs/tool"},
+        "arguments": {"type": "object"}
+      },
+      "allOf": [{"$ref": "#/$defs/arguments_by_tool"}]
+    },
+    "channel_request": {
+      "description": "What the T15 path receives: local_request plus run_id and attempt attached by the T38 broker from the execution it is serving.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "run_id", "attempt", "request_id", "args_sha256", "tool", "arguments"],
+      "properties": {
+        "schema_version": {"const": 1},
+        "run_id": {"$ref": "#/$defs/run_id"},
+        "attempt": {"$ref": "#/$defs/attempt"},
+        "request_id": {"$ref": "#/$defs/request_id"},
+        "args_sha256": {"$ref": "#/$defs/sha256"},
+        "tool": {"$ref": "#/$defs/tool"},
+        "arguments": {"type": "object"}
+      },
+      "allOf": [{"$ref": "#/$defs/arguments_by_tool"}]
+    },
+    "arguments_by_tool": {
+      "description": "apply arguments are validated with T11 Proposal (services/agent-worker contracts.Proposal), not copied here.",
+      "allOf": [
+        {"if": {"properties": {"tool": {"const": "rehearsal.exec.inspect"}}},
+         "then": {"properties": {"arguments": {"allOf": [{"$ref": "#/$defs/inspect_args"}, {"$ref": "#/$defs/inspect_rules"}]}}}},
+        {"if": {"properties": {"tool": {"const": "rehearsal.exec.probe"}}},
+         "then": {"properties": {"arguments": {"allOf": [{"$ref": "#/$defs/probe_args"}, {"$ref": "#/$defs/probe_rules"}]}}}}
+      ]
+    },
+
+    "apply_status": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "proposal_digest", "targets"],
+      "properties": {
+        "kind": {"const": "apply"},
+        "proposal_digest": {"$ref": "#/$defs/sha256"},
+        "targets": {
+          "type": "array", "maxItems": 8,
+          "items": {
+            "type": "object", "additionalProperties": false, "required": ["kind", "name"],
+            "properties": {"kind": {"type": "string", "enum": ["deployment", "pod", "service"]}, "name": {"$ref": "#/$defs/k8s_name"}}
+          }
+        }
+      }
+    },
+    "inspect_status": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "found", "phase", "ready", "replicas", "ready_replicas", "restarts", "events"],
+      "properties": {
+        "kind": {"const": "inspect"},
+        "found": {"type": "boolean"},
+        "phase": {"type": ["string", "null"], "enum": ["Pending", "Running", "Succeeded", "Failed", "Unknown", null]},
+        "ready": {"type": ["boolean", "null"]},
+        "replicas": {"type": ["integer", "null"], "minimum": 0},
+        "ready_replicas": {"type": ["integer", "null"], "minimum": 0},
+        "restarts": {"type": ["integer", "null"], "minimum": 0},
+        "events": {"type": ["integer", "null"], "minimum": 0}
+      }
+    },
+    "probe_status": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "probe_outcome", "http_status", "elapsed_ms"],
+      "properties": {
+        "kind": {"const": "probe"},
+        "probe_outcome": {"$ref": "#/$defs/probe_outcome"},
+        "http_status": {"type": ["integer", "null"], "minimum": 100, "maximum": 599},
+        "elapsed_ms": {"type": "integer", "minimum": 0, "maximum": 15000}
+      }
+    },
+
+    "response": {
+      "description": "T15 -> broker -> T11 -> model. T11 builds the same shape itself only when the channel fails.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "request_id", "action", "result_code", "reason", "stage", "status", "output_tail", "output_truncated", "budget"],
+      "properties": {
+        "schema_version": {"const": 1},
+        "request_id": {"$ref": "#/$defs/request_id"},
+        "action": {"$ref": "#/$defs/action"},
+        "result_code": {"$ref": "#/$defs/result_code"},
+        "reason": {"anyOf": [{"$ref": "#/$defs/reason"}, {"type": "null"}]},
+        "stage": {"anyOf": [{"$ref": "#/$defs/stage"}, {"type": "null"}]},
+        "status": {"anyOf": [{"$ref": "#/$defs/apply_status"}, {"$ref": "#/$defs/inspect_status"}, {"$ref": "#/$defs/probe_status"}, {"type": "null"}]},
+        "output_tail": {"type": ["string", "null"], "maxLength": 2048},
+        "output_truncated": {"type": "boolean"},
+        "budget": {
+          "type": "object", "additionalProperties": false, "required": ["calls_left", "seconds_left"],
+          "properties": {"calls_left": {"type": "integer", "minimum": 0, "maximum": 5}, "seconds_left": {"type": "integer", "minimum": 0, "maximum": 90}}
+        }
+      },
+      "allOf": [
+        {"if": {"properties": {"result_code": {"const": "OK"}}},
+         "then": {"properties": {"reason": {"enum": [null, "OUTPUT_WITHHELD"]}, "status": {"type": "object"}}}},
+        {"if": {"properties": {"result_code": {"const": "REJECTED"}}},
+         "then": {"properties": {"reason": {"enum": ["BLOCKED", "FOREIGN_ATTEMPT", "EFFECT_UNKNOWN", "BUDGET_EXHAUSTED", "UNAVAILABLE"]}, "status": {"type": "null"}, "output_tail": {"type": "null"}}}},
+        {"if": {"properties": {"result_code": {"const": "FAILED"}}},
+         "then": {"properties": {"reason": {"enum": ["TIMEOUT", "NONZERO_EXIT", "UNAVAILABLE"]}, "status": {"type": "null"}}}},
+        {"if": {"properties": {"result_code": {"const": "UNKNOWN"}}},
+         "then": {"properties": {"reason": {"const": "EFFECT_UNKNOWN"}, "status": {"type": "null"}, "output_tail": {"type": "null"}}}},
+        {"if": {"properties": {"reason": {"const": "OUTPUT_WITHHELD"}}},
+         "then": {"properties": {"output_tail": {"type": "null"}, "output_truncated": {"const": false}}}},
+        {"if": {"properties": {"reason": {"type": "null"}}},
+         "then": {"properties": {"stage": {"type": "null"}}},
+         "else": {"properties": {"stage": {"$ref": "#/$defs/stage"}}}},
+        {"if": {"properties": {"action": {"const": "apply"}, "status": {"type": "object"}}, "required": ["status"]},
+         "then": {"properties": {"status": {"$ref": "#/$defs/apply_status"}}}},
+        {"if": {"properties": {"action": {"const": "inspect"}, "status": {"type": "object"}}, "required": ["status"]},
+         "then": {"properties": {"status": {"$ref": "#/$defs/inspect_status"}}}},
+        {"if": {"properties": {"action": {"const": "probe"}, "status": {"type": "object"}}, "required": ["status"]},
+         "then": {"properties": {"status": {"$ref": "#/$defs/probe_status"}}}}
+      ]
+    },
+
+    "exec_event": {
+      "description": "One signed T15 record per seq in the attempt record's exec_events. Values are str/int/bool only; a key that does not apply is omitted, never null.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["run_id", "attempt", "seq", "action", "request_id", "args_sha256", "result_code"],
+      "properties": {
+        "run_id": {"$ref": "#/$defs/run_id"},
+        "attempt": {"$ref": "#/$defs/attempt"},
+        "seq": {"type": "integer", "minimum": 1, "maximum": 32},
+        "action": {"$ref": "#/$defs/action"},
+        "request_id": {"$ref": "#/$defs/request_id"},
+        "args_sha256": {"$ref": "#/$defs/sha256"},
+        "result_code": {"$ref": "#/$defs/result_code"},
+        "reason": {"$ref": "#/$defs/reason"},
+        "stage": {"$ref": "#/$defs/stage"},
+        "output_sha256": {"$ref": "#/$defs/sha256"},
+        "output_bytes": {"type": "integer", "minimum": 0, "maximum": 1048576},
+        "proposal_digest": {"$ref": "#/$defs/sha256"},
+        "target_kind": {"type": "string", "enum": ["pod", "deployment", "events", "logs"]},
+        "target_name": {"$ref": "#/$defs/k8s_name"},
+        "lines": {"type": "integer", "minimum": 1, "maximum": 200},
+        "service": {"$ref": "#/$defs/k8s_name"},
+        "port": {"type": "integer", "minimum": 1, "maximum": 65535},
+        "method": {"type": "string", "enum": ["TCP", "HTTP_GET", "HTTP_HEAD"]},
+        "path": {"$ref": "#/$defs/http_path"},
+        "probe_outcome": {"$ref": "#/$defs/probe_outcome"},
+        "http_status": {"type": "integer", "minimum": 100, "maximum": 599}
+      },
+      "dependentRequired": {"output_sha256": ["output_bytes"], "output_bytes": ["output_sha256"], "reason": ["stage"], "stage": ["reason"]},
+      "allOf": [
+        {"if": {"properties": {"action": {"const": "apply"}}},
+         "then": {"propertyNames": {"enum": ["run_id", "attempt", "seq", "action", "request_id", "args_sha256", "result_code", "reason", "stage", "output_sha256", "output_bytes", "proposal_digest"]}}},
+        {"if": {"properties": {"action": {"const": "inspect"}}},
+         "then": {"propertyNames": {"enum": ["run_id", "attempt", "seq", "action", "request_id", "args_sha256", "result_code", "reason", "stage", "output_sha256", "output_bytes", "target_kind", "target_name", "lines"]}}},
+        {"if": {"properties": {"action": {"const": "probe"}}},
+         "then": {"propertyNames": {"enum": ["run_id", "attempt", "seq", "action", "request_id", "args_sha256", "result_code", "reason", "stage", "output_sha256", "output_bytes", "service", "port", "method", "path", "probe_outcome", "http_status"]}}},
+        {"if": {"properties": {"result_code": {"const": "OK"}}},
+         "then": {"properties": {"reason": {"const": "OUTPUT_WITHHELD"}}},
+         "else": {"required": ["reason"]}}
+      ]
+    },
+    "exec_record": {
+      "description": "Keys added to the signed T15 attempt record. OFF: exec was disabled for this task kind.",
+      "type": "object",
+      "required": ["exec_events_status"],
+      "properties": {
+        "exec_events_status": {"type": "string", "enum": ["OFF", "COMPLETE", "UNAVAILABLE"]},
+        "exec_events": {"type": "array", "maxItems": 32, "items": {"$ref": "#/$defs/exec_event"}}
+      },
+      "allOf": [
+        {"if": {"properties": {"exec_events_status": {"const": "COMPLETE"}}},
+         "then": {"required": ["exec_events"]},
+         "else": {"not": {"required": ["exec_events"]}}}
+      ]
+    }
+  }
+}

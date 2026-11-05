@@ -14,8 +14,11 @@ T10 기본 HTTP 서비스는 이 선택 모듈을 자동으로 설치하거나 �
 1. `record_run(principal, plan_id, side, RunSnapshot)`으로 원문을 저장한다.
    한쪽만 먼저 도착해도 저장할 수 있다. 같은 참조·같은 내용은 멱등이고
    같은 참조의 다른 내용은 거부한다. 원문 정규화·해시는 T19 함수를 사용한다.
-2. 서버 정책이 선택한 `GateContext`를 `bind()`에 전달한다. 앱·계획 digest·
-   양쪽 환경과 원문 참조·해시를 대조한다. 목적지가 없으면 연결을 거부한다.
+2. 서버 정책이 선택한 `GateContext`를 `bind()`에 전달한다. 앱은 생성된
+   `workload_id`이며 카탈로그의 앱 표시 이름이 아니다. 계획에 고정한
+   `profile_id`·`profile_version`, 계획 digest, 양쪽 환경과 원문 참조·해시를
+   대조한다. 프로필이 없거나 다르면 연결과 저장 컨텍스트 조회를 거부한다.
+   목적지가 없으면 연결을 거부한다.
    `expected_revision`으로 이전 상태에 덮어쓰는 것을 막는다. 오래된 요청의
    재시도는 이전 영수증만 반환하고 이전 컨텍스트를 다시 활성화하지 않는다.
 3. `evaluate()`의 `service_factory(view)`는 기존 `CombinedGateService`를
