@@ -31,13 +31,14 @@ Claude Code는 `/todo-task`, Codex는 `$todo-task`로 이 순서를 따르는 �
 
 ## 역할 분담
 
-**류지환** · 인프라 · CI · Edge(주), 플랫폼 API · 콘솔 · 데모 앱(부) (6개, P0 6개)
+**류지환** · 인프라 · CI · Edge(주), 플랫폼 API · 콘솔 · 데모 앱(부) (7개, P0 7개)
 - `T1` AWS 기반: 권한 · VPC 2개 · 비용 태그 (P0)
 - `T6` 출발지: EKS + CNPG + PgBouncer + ESO (P0)
 - `T7` 플랫폼 클러스터 (EC2 + RKE2) + Actions OIDC (P0)
 - `T10` 상태 머신 + 플랫폼 API + 이벤트 스트림 (P0)
 - `T17` Edge: Cloudflare LB + Tunnel 가중치 전환 (P0)
 - `T38` 구독 런타임 실행 기반: Actions OIDC · 토큰 갱신 · 격리 검증 Job (P0)
+- `T43` 플랫폼 GitOps 배포: Argo CD · Helm · GitFlow 승격 (P0)
 
 **김태현** · 데이터 · 컷오버, 인프라 · CI · Edge (6개, P0 5개)
 - `T2` 온프렘 RKE2 (Ubuntu VM, CIS) + 공통 cloud-init (P0)
@@ -47,13 +48,14 @@ Claude Code는 `/todo-task`, Codex는 `$todo-task`로 이 순서를 따르는 �
 - `T27` Exit Drill (P1)
 - `T30` 목적지 워크로드: CNPG · PgBouncer · 앱 + Tailscale 연결 (P0)
 
-**배규태** · 데이터 · 컷오버, 에이전트 · 리허설 (6개, P0 4개)
+**배규태** · 데이터 · 컷오버, 에이전트 · 리허설 (7개, P0 4개)
 - `T12` Cutover Executor (P0)
 - `T3` 리허설 네임스페이스 격리 실측 (P0)
 - `T15` 리허설 러너: 작업 → 검증 Job → 승인 결속 (P0)
 - `T20` 되돌리기 (failback) (P0)
 - `T25` 반복 측정 · 장애 주입 · SAFE_HOLD 시험 (P1)
 - `T26` Harbor 평가: 결함 시나리오 반복 (역할 확정 후) (P1)
+- `T42` rehearsal.exec: AI가 리허설 공간에서 정해진 동작으로 시험 (P1)
 
 **이상무** · 보안 통제 · 게이트, 플랫폼 API · 콘솔 · 데모 앱 (15개, P0 11개)
 - `T4` 데모 앱 v0: 채팅 스텁 (P0)
