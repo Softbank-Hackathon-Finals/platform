@@ -29,6 +29,73 @@
           "public_is_raw": false
         }
       ]
+    },
+    {
+      "run": "20261105T182124141589Z",
+      "originals": "preserved privately outside repository",
+      "embedded_hashes": "unchanged; identify the original measured inputs",
+      "artifacts": [
+        {
+          "path": "docs/evidence/t31-policy-apply-2026-11-06/records/pol-a-0001.json",
+          "checkout_commit": "2222742072d9f3b6699c7a58b73b25f05e983073",
+          "original_sha256": "11260a09be1053aa261309a2f5361d8dbc22513858957b5591ec3968dd01aff2",
+          "public_sha256": "29687a7e9c9832d5576e2d2c80ae89890560aa0fc58bea600832fcbffc1a782d",
+          "redactions": {
+            "RESOURCE_NAME": 1
+          },
+          "public_is_raw": false
+        },
+        {
+          "path": "docs/evidence/t31-policy-apply-2026-11-06/records/pol-c-0002.json",
+          "checkout_commit": "2222742072d9f3b6699c7a58b73b25f05e983073",
+          "original_sha256": "5df3347db65f1e4c6f0731a92fdb4854fe883ba9b8197580bb268b82c9040652",
+          "public_sha256": "48f2bbf7557306d8ee24124e9d4d0921145a8293ae5ddb28b162e628a5ebbbd8",
+          "redactions": {
+            "RESOURCE_NAME": 1
+          },
+          "public_is_raw": false
+        },
+        {
+          "path": "docs/evidence/t31-policy-apply-2026-11-06/records/pol-d-0003.json",
+          "checkout_commit": "2222742072d9f3b6699c7a58b73b25f05e983073",
+          "original_sha256": "30ac967ba1e74c71deb1ae416afc40cafcc4c99bf7a30aa7e0ab75d40a8bc0b3",
+          "public_sha256": "5ba2439c876ccf3ace2eae41a49bbe8fc01bfaf5724ff09a6d4f7a7af604ed22",
+          "redactions": {
+            "RESOURCE_NAME": 1
+          },
+          "public_is_raw": false
+        },
+        {
+          "path": "docs/evidence/t31-policy-apply-2026-11-06/records/pol-d-0004.json",
+          "checkout_commit": "2222742072d9f3b6699c7a58b73b25f05e983073",
+          "original_sha256": "12ab0fd71675536c5dbfbcf65010b864d3be8fed50d4905162fb2e3a94ae228d",
+          "public_sha256": "15e2771c11bfe041b5e98e5abdee287b01428417bf24958a3f8fe1ff9168b476",
+          "redactions": {
+            "RESOURCE_NAME": 1
+          },
+          "public_is_raw": false
+        },
+        {
+          "path": "docs/evidence/t31-policy-apply-2026-11-06/records/pol-e-0005.json",
+          "checkout_commit": "2222742072d9f3b6699c7a58b73b25f05e983073",
+          "original_sha256": "acd1be191cd3853a3648c790b5e9fe854607581028fc2259b88d0018e80d0466",
+          "public_sha256": "862c77e84f43f1d06e1ea61a449333583688aaa5375b161225bc5a469aea853b",
+          "redactions": {
+            "RESOURCE_NAME": 1
+          },
+          "public_is_raw": false
+        },
+        {
+          "path": "docs/evidence/t31-policy-apply-2026-11-06/records/pol-e-0006.json",
+          "checkout_commit": "2222742072d9f3b6699c7a58b73b25f05e983073",
+          "original_sha256": "3e6ada9ad08a681ae9117a45a5be0788e43a7f382c6396208e2dbbfd2d58d114",
+          "public_sha256": "ae9b5827a8e11e83616b2cb1bb84fef82ce5dcf262b3250a051067cfd2f685bf",
+          "redactions": {
+            "RESOURCE_NAME": 1
+          },
+          "public_is_raw": false
+        }
+      ]
     }
   ]
 }

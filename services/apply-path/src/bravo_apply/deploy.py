@@ -26,13 +26,14 @@ class DeployMismatch(RuntimeError):
     so the caller can tell "nothing changed" (REFUSED) from "may have changed" (SAFE_HOLD)."""
 
     def __init__(self, code: str, *, mutation_attempted: bool, previous_image: str | None = None,
-                 observed: list[str] | None = None, detail: str = ""):
+                 observed: list[str] | None = None, detail: str = "", policy: dict | None = None):
         super().__init__(code)
         self.code = code
         self.mutation_attempted = mutation_attempted
         self.previous_image = previous_image
         self.observed = list(observed or [])
         self.detail = detail
+        self.policy = policy  # bucket-policy branch: what was read, written and observed (no secret values)
 
 
 class Kube(Protocol):
@@ -41,6 +42,10 @@ class Kube(Protocol):
     def patch_image(self, namespace: str, deployment: str, patch: dict) -> None: ...
     def rollout_status(self, namespace: str, deployment: str, timeout_seconds: int) -> bool: ...
     def running_digests(self, namespace: str, deployment: str, container: str) -> list[str]: ...
+    # bucket-policy branch (policy.py): one Secret replaced, one workload rolled
+    def get_secret(self, namespace: str, name: str) -> dict: ...
+    def replace_secret(self, namespace: str, secret: dict) -> None: ...
+    def restart_workload(self, namespace: str, deployment: str, annotations: dict[str, str]) -> None: ...
 
 
 def image_patch(repository: str, digest: str, container: str) -> dict:
@@ -111,10 +116,13 @@ class FakeKube:
     cluster = "fake"
 
     def __init__(self, image: str, *, rollout_result: bool = True, drift: str | None = None,
-                 fail: dict[str, BaseException] | None = None):
+                 fail: dict[str, BaseException] | None = None, secrets: dict[str, dict] | None = None):
         self.image, self.rollout_result, self.drift = image, rollout_result, drift
         self.fail = dict(fail or {})
         self.patches: list[dict] = []
+        self.secrets = {name: json.loads(json.dumps(obj)) for name, obj in (secrets or {}).items()}
+        self.secret_writes: list[dict] = []
+        self.restarts: list[dict] = []
 
     def _maybe_fail(self, name: str) -> None:
         if name in self.fail:
@@ -138,10 +146,28 @@ class FakeKube:
         digest = self.drift or self.image.split("@", 1)[-1]
         return [digest, digest]
 
+    def get_secret(self, namespace, name):
+        self._maybe_fail("get_secret")
+        if name not in self.secrets:
+            raise LookupError(f"secret {name!r} not found")
+        return json.loads(json.dumps(self.secrets[name]))
+
+    def replace_secret(self, namespace, secret):
+        self.secret_writes.append(secret)
+        self._maybe_fail("replace_secret")
+        self.secrets[secret["metadata"]["name"]] = json.loads(json.dumps(secret))
+
+    def restart_workload(self, namespace, deployment, annotations):
+        self.restarts.append(dict(annotations))
+        self._maybe_fail("restart_workload")
+
 
 class KubectlKube:
-    """Real adapter. ``kubeconfig`` must be the namespace-scoped apply identity (no cluster admin):
-    ``deployments`` get · watch · patch on the one Deployment and ``pods`` get · list."""
+    """Real adapter. ``kubeconfig`` must be the namespace-scoped apply identity (no cluster admin).
+
+    App image change: ``deployments`` get · watch · patch on the one app Deployment and ``pods``
+    get · list. Bucket-policy change (a separate identity): ``secrets`` get · update on the one
+    SeaweedFS auth Secret and ``deployments`` get · watch · patch on the one SeaweedFS workload."""
 
     cluster = "kubectl"
     CALL_SECONDS = 120
@@ -149,8 +175,8 @@ class KubectlKube:
     def __init__(self, kubeconfig: str):
         self.kubeconfig = kubeconfig
 
-    def _run(self, *args: str, timeout: int | None = None) -> str:
-        return subprocess.run(["kubectl", "--kubeconfig", self.kubeconfig, *args], check=True,
+    def _run(self, *args: str, timeout: int | None = None, stdin: str | None = None) -> str:
+        return subprocess.run(["kubectl", "--kubeconfig", self.kubeconfig, *args], check=True, input=stdin,
                               capture_output=True, text=True, timeout=timeout or self.CALL_SECONDS).stdout
 
     def _deployment(self, namespace: str, deployment: str) -> dict[str, Any]:
@@ -189,3 +215,15 @@ class KubectlKube:
                     image_id = status.get("imageID", "")
                     out.append(image_id.split("@", 1)[-1] if "@" in image_id else image_id)
         return out
+
+    def get_secret(self, namespace, name):
+        return json.loads(self._run("-n", namespace, "get", "secret", name, "-o", "json"))
+
+    def replace_secret(self, namespace, secret):
+        # The object goes through stdin, never argv or a file. It keeps the resourceVersion that was
+        # read, so a concurrent change makes the server refuse instead of being overwritten.
+        self._run("-n", namespace, "replace", "-f", "-", "-o", "name", stdin=json.dumps(secret))
+
+    def restart_workload(self, namespace, deployment, annotations):
+        patch = {"spec": {"template": {"metadata": {"annotations": annotations}}}}
+        self._run("-n", namespace, "patch", "deployment", deployment, "--type", "strategic", "-p", json.dumps(patch))

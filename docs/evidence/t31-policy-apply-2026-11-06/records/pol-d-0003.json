@@ -1,0 +1,50 @@
+{
+  "application_id": "pol-d-0003",
+  "approval_id": "approval-pol-d-0003",
+  "change": {
+    "change_kind": "bucket_policy",
+    "diff_hash": "sha256:714955f4270023189533416512615758f5f0bef3f3f727d5faa9a9e6f585befa",
+    "image_digest": "sha256:ee6521f290b2168b6e0935a181d4cff9be1ac3f505666ef0e3c98fae8199917a",
+    "policy_digest": "sha256:a448ffe6f65c58839deaafc43aead6f6d8a239c4a35a1467f8ea6e8afe3fa3bb"
+  },
+  "cluster": "kubectl",
+  "cluster_mutation_attempted": false,
+  "deadline_at": null,
+  "deployed_digest": null,
+  "finished_at": "2026-11-05T18:14:32.409317Z",
+  "gate_recheck": null,
+  "job_passed": false,
+  "observed_digests": [],
+  "outcome": "REFUSED",
+  "plan_id": "plan-kind",
+  "policy": null,
+  "previous_image": null,
+  "reason": "POLICY_GRANTS_ANONYMOUS_READ",
+  "schema_version": "1.2",
+  "started_at": "2026-11-05T18:14:32.409104Z",
+  "steps": [
+    {
+      "detail": "1 approved path(s)",
+      "status": "ok",
+      "step": "binding"
+    },
+    {
+      "detail": "POLICY_GRANTS_ANONYMOUS_READ",
+      "status": "refused",
+      "step": "policy_translate"
+    }
+  ],
+  "target": {
+    "bucket": "demo-chat-attachments",
+    "container": "seaweedfs",
+    "endpoint": "RESOURCE_NAME_001",
+    "kind": "bucket_policy",
+    "namespace": "target-dev",
+    "policy_bucket": "bravo-rehearsal-objects",
+    "probe_key": "t31/probe.txt",
+    "secret": "target-seaweedfs-auth",
+    "secret_key": "s3.json",
+    "workload": "target-seaweedfs"
+  },
+  "verification_id": "verify-pol-d-0003"
+}

@@ -93,3 +93,44 @@ T10은 첫 영속 접수(`newly_created=True`)에서만 `apply`를 1회 부르�
   SIGKILL의 UNKNOWN·재patch 없음, 권한 거부 두 가지를 확인했다
   ([기록](../evidence/t31-apply-entry-2026-11-06/README.md)). **RKE2 목적지가 아니다.** RKE2 · T10 연결 ·
   T19 재대조는 계속 미검증이다.
+
+## 8. 버킷 정책 변경 분기 (2026-11-06 개정)
+
+이슈 #33의 남은 항목 "정책 적용도 승인 diff 범위 안에서만"을 위 결정에 더한다. 앞 절의 기록은 바꾸지 않는다.
+근거: 사용자 결정과 11/5 15:05 T10 담당과 맞춘 방향 — 버킷 정책 변경은 현재 앱 `image_digest`를 그대로 두고,
+번역된 정책을 `policy_digest`로 따로 결속하며, 변경 종류로 앱 이미지 변경과 구분한다.
+
+* **상황:** T11 버킷 제안은 `src/target-policy.json` 한 파일을 S3 버킷 정책 JSON으로 고치고, T15는 그것을 리허설
+  버킷에 `put-bucket-policy`로 검증한다. 목적지 앱 버킷의 익명 노출은 T9가 렌더하는 SeaweedFS `s3.json`
+  identity(closed · open-demo)가 정한다. 반영 단계에서 두 형식을 잇는 부분과, 이미지 변경과 구분되는 결속이 없었다.
+* **고려한 옵션:**
+
+  | 결정 | 선택지 | 판단 |
+  |---|---|---|
+  | 결속 | A. 정책도 `image_digest` 자리에 / B. **`change_kind` + `policy_digest` 별도 (채택)** | A는 이미지 변경과 구분되지 않고 앱 digest 대조를 깨뜨린다 |
+  | `policy_digest` | A. 정규화 JSON 해시 / B. **승인된 replacement 원문 UTF-8 바이트의 sha256 (채택)** | A는 T10 · T15가 같은 정규화를 다시 구현해야 한다. B는 diff와 같은 원문을 쓴다 |
+  | 목적지 반영 | A. 앱 버킷에 `put-bucket-policy`(리허설과 같은 방식) / B. **T9 렌더러로 `s3.json` closed를 만들어 Secret 하나 교체 (채택)** | A는 T31에 객체 저장소 Admin 자격을 준다. B는 T9가 이미 운영 절차로 가진 경로이고 Kubernetes 권한 두 줄로 끝난다 |
+  | 형식 차이 | **작은 결정적 번역기(채택)**: 익명 GetObject Deny만 → `closed`, 그 밖은 거부 | 승인 정책이 익명 읽기를 허용하면 T31은 `open-demo`를 렌더하지 않고 REFUSED |
+  | 판정 | A. 렌더 결과로 판정 / B. **반영 뒤 익명 GET 거부 + 앱 자격 GET 성공 관찰 (채택)** | 설계 원칙 "동등성은 시험 결과로". kind에서 남은 버킷 정책이 `s3.json` closed를 무력화하는 경우를 실제로 잡았다 |
+  | 실패 | **SAFE_HOLD, 자동 롤백 없음 (기존과 같음)** | 이전 `s3.json`(open-demo)으로 되돌리는 것도 변경이다 |
+
+* **결정:** binding의 `change_kind`가 분기를 정한다(없으면 이미지 변경). `bucket_policy`면 (1) 원본 스냅샷으로
+  diff를 다시 그려 `diff_hash`를 대조하고, (2) 편집이 `src/target-policy.json` 하나이며 그 replacement의
+  `policy_digest`가 binding과 같은지 보고, (3) 번역 결과가 `closed`인지 확인한다. 여기까지는 STARTED 전 순수 검사다.
+  그 뒤 STARTED 기록 → Secret · Deployment 읽기 → 현재 자격 그대로 T9 `render("closed")`(현재 identity에서
+  anonymous만 빠진 결과가 아니면 거부) → Secret 교체(resourceVersion 유지) → 템플릿 주석 patch로 재시작 → rollout →
+  익명 · 앱 자격 GET 관찰. 이미지는 읽기만 하고 바꾸지 않는다. 멱등 · STARTED · REFUSED/SAFE_HOLD/UNKNOWN ·
+  `get_result` 규칙은 7절과 같다. 결과 스키마 1.2: `change`에 `change_kind` · `policy_digest`, `policy` 객체
+  (`s3.json` 해시 · 프로브 결과 · 렌더러 해시), 정책용 `target`, `gate_recheck.policy_digest`. 1.1 기록은 그대로
+  읽는다. 정책 APPLIED는 `deployed_digest=null`, T10용 `applied_policy_digest`, 재대조 요청은 IAM-01.1.
+* **결과:** 정책 반영 identity는 `target-dev`의 `secrets`(`target-seaweedfs-auth`) get · update와
+  `deployments`(`target-seaweedfs`) get · watch · patch만 필요하다. 이미지 identity와 분리하길 권한다(`get secret`이
+  객체 저장소 자격 읽기를 뜻함). T9 렌더러는 저장소 경로에서 읽으므로 저장소 밖 실행 환경에 싣는 방법이 필요하다.
+  T10은 `change_kind` · `policy_digest`를 binding에 싣고 `Application`에서 `applied_policy_digest`를 대조해야
+  한다(필드 목록은 apply-path README). 그 전까지 정책 분기 결과는 T10 계획을 진행시키지 않는다.
+* **실측:** 단위 시험 91개. 로컬 kind v0.32.0 · Kubernetes v1.36.1, T9와 같은 SeaweedFS 4.52 고정 이미지와
+  `objects.py` 렌더 결과(NetworkPolicy 제외)에서 실제 CLI로 APPLIED(익명 200→403, 앱 자격 GET 유지, 결과 `s3.json`이
+  T9 CLI closed 렌더와 바이트 동일), 재호출 kubectl 0회, 승인 뒤 정책 변경 REFUSED(Secret 불변), 익명 허용 정책
+  REFUSED, 남은 공개 버킷 정책 때문에 닫히지 않은 목적지 SAFE_HOLD, update 권한 없는 identity SAFE_HOLD와 Secret
+  권한 없는 identity REFUSED를 확인했다([기록](../evidence/t31-policy-apply-2026-11-06/README.md)). **RKE2 목적지가
+  아니다.** RKE2, T10 결속 연결, 실제 T11 · T15 산출물, T31 실행 위치의 네트워크 경로는 미검증이다.
