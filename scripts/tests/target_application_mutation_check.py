@@ -16,13 +16,21 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 A = "infra/envs/target-workloads/application.py"
 C = "infra/envs/target-workloads/secrets_manager_compat.py"
+L = "infra/envs/target-workloads/testing/app_lab.py"
 # Only a test method counts. An import error measures nothing.
-RESULT_LINE = re.compile(r"^(?:FAIL|ERROR): test_\w+ \(test_target_application\.", re.MULTILINE)
+RESULT_LINE = re.compile(r"^(?:FAIL|ERROR): test_\w+ \(test_target_app\w*\.", re.MULTILINE)
 COPIED = ("infra/envs/target-workloads", "infra/envs/target-secrets", "scripts/tests/test_target_application.py",
+          "scripts/tests/test_target_app_lab.py",
           "scripts/export_target_image.py", "docs/operations/target-image-handoff.md",
           "docs/adr/0017-target-app-secrets-manager-compat.md",
           "services/exit-drill/src/bravo_exit_drill/observation.py")
 MUTATIONS = [
+ (L, 'if seen == [container, RUN_ID]:', 'if True:'),
+ (L, 'if label == RUN_ID:', 'if True:'),
+ (L, 'K3S = f"t30-app-k3s-{RUN_ID}"', 'K3S = "t30-app-k3s"'),
+ (L, 'return f"{LOCAL_IMAGE}:{short_revision}-{RUN_ID}"', 'return f"{LOCAL_IMAGE}:{short_revision}"'),
+ (L, 'container["image"] = image', 'pass'),
+ (L, '"--label", f"{RUN_LABEL}={RUN_ID}", "--privileged"', '"--label", "t30-app=1", "--privileged"'),
  (A, 'APP_ENV = "onprem"', 'APP_ENV = "aws"'),
  (A, '"WRITE_BLOCKED": "true"', '"WRITE_BLOCKED": "false"'),
  (A, 'f"target-pgbouncer.{NAMESPACE}.svc.cluster.local"', 'f"target-db-rw.{NAMESPACE}.svc.cluster.local"'),
@@ -101,7 +109,7 @@ def survives(path, old, new):
             target.write_text(text.replace(old, new, 1))
         result = subprocess.run(
             [sys.executable, "-m", "unittest", "discover", "-s", str(copy / "scripts/tests"),
-             "-p", "test_target_application.py"],
+             "-p", "test_target_app*.py"],
             capture_output=True, text=True, cwd=copy, timeout=120, check=False)
         return not RESULT_LINE.search(result.stderr)
 

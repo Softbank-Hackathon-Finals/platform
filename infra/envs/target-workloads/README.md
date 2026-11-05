@@ -109,6 +109,20 @@ TCP readiness 이후 별도로 서명 put/get·SHA-256 대조, 익명/오서명/
 client의 버킷 생성 거절, 재시작 후 객체 보존을 확인한다. 이 개발용 HTTP 경로는
 T9의 OpenBao/ESO·TLS 통제나 목적지 앱 업무 기동 완료를 대신하지 않는다.
 
+## 공식 계약
+
+- [CNPG 1.30.1 논리 복제](https://github.com/cloudnative-pg/cloudnative-pg/blob/v1.30.1/docs/src/logical_replication.md)
+- [PostgreSQL 18 구독](https://www.postgresql.org/docs/18/sql-createsubscription.html)
+- [RKE2 요구 사항](https://docs.rke2.io/install/requirements)
+- [Tailscale operator 설치](https://tailscale.com/docs/kubernetes-operator/install-operator)
+- [태그 소유와 역할별 프록시](https://tailscale.com/docs/kubernetes-operator/reference/tags)
+- [명시적 egress ProxyGroup](https://tailscale.com/docs/kubernetes-operator/egress/access-tailnet-service)
+- [PgBouncer 서버 TLS 검증](https://www.pgbouncer.org/config)
+- [SeaweedFS 4.52](https://github.com/seaweedfs/seaweedfs/releases/tag/4.52)
+- [고정 버전 S3 작업 권한](https://github.com/seaweedfs/seaweedfs/blob/984eac6a790be89e2a11de175a7413e1e3e32dd3/weed/s3api/s3api_server.go)
+
+T2/T6/T8/T9/T30 전체 완료나 실제 데모 머신의 준비 완료는 이 문서만으로 판정하지 않는다.
+
 ## 개발 측정용 앱
 
 `application.py`는 T17 · T8 · T18의 Edge 경유 측정에 쓸 `demo-chat` Deployment와 Service를 렌더한다.
@@ -234,20 +248,6 @@ print(u.urlopen(u.Request("http://127.0.0.1:8080/admin/write-block", json.dumps(
 ```sh
 infra/envs/target-workloads/testing/app_lab.py --demo-chat-src <demo-chat 체크아웃> --output <결과 파일>
 ```
-
-## 공식 계약
-
-- [CNPG 1.30.1 논리 복제](https://github.com/cloudnative-pg/cloudnative-pg/blob/v1.30.1/docs/src/logical_replication.md)
-- [PostgreSQL 18 구독](https://www.postgresql.org/docs/18/sql-createsubscription.html)
-- [RKE2 요구 사항](https://docs.rke2.io/install/requirements)
-- [Tailscale operator 설치](https://tailscale.com/docs/kubernetes-operator/install-operator)
-- [태그 소유와 역할별 프록시](https://tailscale.com/docs/kubernetes-operator/reference/tags)
-- [명시적 egress ProxyGroup](https://tailscale.com/docs/kubernetes-operator/egress/access-tailnet-service)
-- [PgBouncer 서버 TLS 검증](https://www.pgbouncer.org/config)
-- [SeaweedFS 4.52](https://github.com/seaweedfs/seaweedfs/releases/tag/4.52)
-- [고정 버전 S3 작업 권한](https://github.com/seaweedfs/seaweedfs/blob/984eac6a790be89e2a11de175a7413e1e3e32dd3/weed/s3api/s3api_server.go)
-
-T2/T6/T8/T9/T30 전체 완료나 실제 데모 머신의 준비 완료는 이 문서만으로 판정하지 않는다.
 
 ## Pre-cutover pooler and attachment copy
 

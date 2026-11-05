@@ -1,8 +1,6 @@
 """The local lab must own what it removes: another run or a same-named container is not its to delete."""
 import importlib.util
 import json
-import sys
-import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
