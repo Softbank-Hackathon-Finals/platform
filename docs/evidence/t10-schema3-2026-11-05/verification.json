@@ -54,15 +54,50 @@
     "final_job_tests_passed": 8
   },
   "runtime_after": {
-    "image_rollout": "pending",
-    "schema_migration": "pending",
-    "actual_registrations": "pending",
+    "image_rollout": "passed",
+    "only_deployment_image_changed": true,
+    "schema_migration": "passed",
+    "schema_version": 3,
+    "migration_completed_at": "2026-11-05T11:18:44Z",
+    "post_migration_checks": {
+      "columns": true,
+      "constraints": true,
+      "database": true,
+      "empty_registrations": true,
+      "existing_privileges": true,
+      "registration_owner_migrator": true,
+      "roles": true,
+      "runtime_select_insert_only": true,
+      "schema_3": true,
+      "sequences": true,
+      "tables": true
+    },
+    "window_fresh_connection": true,
+    "window_ready_http": 200,
+    "window_restarts": [
+      0
+    ],
+    "window_source_sha256": {
+      "postgres": "ad2c3906bcc619e74002a4d89f209158777cc46a200386ba0ef369d8837289bc",
+      "window_server": "827d7309995d1dc8487d33d00dc5a5e455b1d457371b1feccd12ced857602e0a"
+    },
+    "registration_count": 0,
+    "actual_registrations": "pending_sso_adapter_and_accepted_runtime_catalog",
     "complete_product_e2e": false
   },
   "remaining": [
-    "compatible receiver deployment before migration",
-    "current human authentication and server-owned tenant grant",
+    "existing AWS SSO adapter and server-owned real tenant grant; direction accepted, implementation not yet accepted",
     "live environment and release verification",
     "same actual plan and source/target T19 raw evidence"
-  ]
+  ],
+  "cleanup": {
+    "uid_deleted_resources_absent": 3,
+    "job_pods_absent": true,
+    "existing_db_pod_unchanged": true,
+    "owned_listener_absent": true,
+    "owned_process_absent": true,
+    "owned_transfer_directory_absent": true,
+    "temporary_archive_removed": true,
+    "owned_ssm_tunnels_terminated": 4
+  }
 }
