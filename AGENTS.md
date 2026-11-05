@@ -56,3 +56,6 @@ PR마다 CI(`ci.yml`)가 `secrets` · `infra` · `platform`을 검사한다. CI 
 CI 실행 범위와 플랫폼 S2 실패 분석의 경계는 [CI 안내](docs/ci.md)를 따른다. 필수 결과는 항상 보고하며, 변경 범위가 불명확하면 전체 검사한다.
 
 여러 PR의 리뷰 확인·수정·해소는 [리뷰 플레이북](docs/review-playbook.md)과 `.agents/skills/pr-review/SKILL.md`를 따른다. `python3 scripts/review_packet.py <PR번호...> --output-dir <개인 출력 경로>`로 현재 SHA의 근거를 수집하고 판단 기록을 남긴다. 수집 성공이나 스레드 해소는 팀원 승인을 대신하지 않는다.
+# 로컬 VM 실행 아키텍처
+
+새 목적지 VM은 [정본 생성기](infra/envs/onprem/README.md)로 호스트와 같은 아키텍처·하드웨어 가속을 사용한다. `.collab` 등의 과거 실행 스크립트를 새 VM 생성기로 재사용하지 않는다. 이미지 아키텍처가 맞지 않으면 네이티브 이미지를 준비하고, 호환성 시험만 목적·사유를 지정해 에뮬레이션을 허용한다. 성능 실측 전에 `local-vm.sh measurement`의 현재 프로세스 검증을 실행 근거에 결속한다. 기존 VM의 실측·데이터를 보존하며 이 규칙만으로 재시작·이관·증설하지 않는다.

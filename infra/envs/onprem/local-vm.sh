@@ -101,6 +101,8 @@ wait_for_cloud_init() {
 }
 
 prepare() {
+  # Recheck the recorded explicit exception even for direct _prepare invocation.
+  ACCEL=$(python3 "$HERE/local_vm.py" prepare-profile "$STATE")
   fetch_image
   write_seed
   start_qemu "$1"
@@ -113,7 +115,11 @@ wait_ready() {
 }
 
 case "${1:-}" in
-  up|down) exec python3 "$HERE/local_vm.py" "$1" "$STATE" ;;
+  up|down|measurement)
+    action=$1
+    shift
+    exec python3 "$HERE/local_vm.py" "$action" "$STATE" "$@"
+    ;;
   _prepare) prepare "${2:?launch UUID required}" ;;
   _wait) wait_ready ;;
   run) "${SSH[@]}" sudo bash -s <"$2" ;;

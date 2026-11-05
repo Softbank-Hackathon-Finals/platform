@@ -7,7 +7,7 @@ import os
 import tempfile
 from pathlib import Path
 
-from .contracts import FailureBundle, Proposal, SnapshotManifest
+from .contracts import FailureBundle, InventorySummary, Proposal, SnapshotManifest
 from .coordinator import Coordinator
 from .runtime import isolated_environment
 from .tools import Snapshot
@@ -28,6 +28,8 @@ def main() -> int:
     analyze = commands.add_parser("analyze", help="Propose once; no execution or verification")
     for argument in ("bundle", "manifest", "snapshot", "output"):
         analyze.add_argument("--" + argument, type=Path, required=True)
+    analyze.add_argument("--inventory", type=Path,
+                         help="Optional T16 inventory document of the same source_sha; enables inventory.describe")
     analyze.add_argument("--model", required=True, help="Explicit provider model ID")
     analyze.add_argument("--provider", choices=("chatgpt-plan", "openai", "claude"), default="chatgpt-plan")
     args = parser.parse_args()
@@ -39,7 +41,10 @@ def main() -> int:
             raise ValueError("output already exists")
         bundle = FailureBundle.model_validate(bounded_json(args.bundle, 16384))
         manifest = SnapshotManifest.model_validate(bounded_json(args.manifest, 32768))
-        coordinator = Coordinator(bundle, Snapshot(args.snapshot.resolve(), manifest))
+        # Only the model-facing subset survives; a different revision is refused like any input error.
+        inventory = (InventorySummary.from_document(bounded_json(args.inventory, 262144))
+                     if args.inventory is not None else None)
+        coordinator = Coordinator(bundle, Snapshot(args.snapshot.resolve(), manifest), inventory)
         with tempfile.TemporaryDirectory(prefix="bravo-agent-") as directory:
             runtime = Path(directory)
             environment = isolated_environment(dict(os.environ), runtime, args.provider)

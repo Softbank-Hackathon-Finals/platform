@@ -1,0 +1,196 @@
+{
+  "check": "tailnet-path",
+  "schema_version": 1,
+  "observed_at": "2026-11-05T18:51:08Z",
+  "source_sha256": "346f2a27fc56f7620c64ca04fad9223f8e0f251ef15613d1756a72e239dfb04d",
+  "overall": "PASS",
+  "routes": [
+    {
+      "route": "target-replication-to-source-db",
+      "side": "target",
+      "from_tag": "tag:bravo-target-replication",
+      "to_tag": "tag:bravo-source-db",
+      "verdict": "PASS",
+      "reasons": [],
+      "path": {
+        "kind": "derp",
+        "derp_region": "tok",
+        "peer_online": true,
+        "pongs": {
+          "direct": 0,
+          "derp": 3,
+          "peer_relay": 0
+        },
+        "disco_rtt_ms": {
+          "samples": 3,
+          "min": 67.0,
+          "avg": 68.3,
+          "max": 70.0
+        },
+        "verdict": "PASS"
+      },
+      "mtu": {
+        "interface_bytes": 1280,
+        "df_max_packet_bytes": 1280,
+        "df_family": "ipv6",
+        "icmp_rtt_ms": 68.711,
+        "verdict": "PASS"
+      },
+      "acl": {
+        "allow": {
+          "target": "bravo-source-db:5432",
+          "observed": "connected",
+          "verdict": "PASS"
+        },
+        "deny": [
+          {
+            "probe": "wrong_port",
+            "target": "bravo-source-db:22",
+            "observed": "timeout",
+            "control_observed": "refused",
+            "verdict": "PASS"
+          },
+          {
+            "probe": "forbidden_peer",
+            "target": "bravo-target-db:5432",
+            "observed": "no_tailnet_peer",
+            "source_alive": true,
+            "destination_alive": true,
+            "verdict": "PASS"
+          }
+        ]
+      }
+    },
+    {
+      "route": "target-pooler-to-source-db",
+      "side": "target",
+      "from_tag": "tag:bravo-target-pooler",
+      "to_tag": "tag:bravo-source-db",
+      "verdict": "PASS",
+      "reasons": [],
+      "path": {
+        "kind": "derp",
+        "derp_region": "tok",
+        "peer_online": true,
+        "pongs": {
+          "direct": 0,
+          "derp": 3,
+          "peer_relay": 0
+        },
+        "disco_rtt_ms": {
+          "samples": 3,
+          "min": 68.0,
+          "avg": 68.7,
+          "max": 70.0
+        },
+        "verdict": "PASS"
+      },
+      "mtu": {
+        "interface_bytes": 1280,
+        "df_max_packet_bytes": 1280,
+        "df_family": "ipv6",
+        "icmp_rtt_ms": 69.255,
+        "verdict": "PASS"
+      },
+      "acl": {
+        "allow": {
+          "target": "bravo-source-db:5432",
+          "observed": "connected",
+          "verdict": "PASS"
+        },
+        "deny": [
+          {
+            "probe": "wrong_port",
+            "target": "bravo-source-db:22",
+            "observed": "timeout",
+            "control_observed": "refused",
+            "verdict": "PASS"
+          },
+          {
+            "probe": "forbidden_peer",
+            "target": "bravo-target-db:5432",
+            "observed": "no_tailnet_peer",
+            "source_alive": true,
+            "destination_alive": true,
+            "verdict": "PASS"
+          }
+        ]
+      }
+    },
+    {
+      "route": "source-replication-to-target-db",
+      "side": "source",
+      "from_tag": "tag:bravo-source-replication",
+      "to_tag": "tag:bravo-target-db",
+      "verdict": "PASS",
+      "reasons": [],
+      "path": {
+        "kind": "derp",
+        "derp_region": "tok",
+        "peer_online": true,
+        "pongs": {
+          "direct": 0,
+          "derp": 3,
+          "peer_relay": 0
+        },
+        "disco_rtt_ms": {
+          "samples": 3,
+          "min": 70.0,
+          "avg": 77.0,
+          "max": 82.0
+        },
+        "verdict": "PASS"
+      },
+      "mtu": {
+        "interface_bytes": 1280,
+        "df_max_packet_bytes": 1280,
+        "df_family": "ipv6",
+        "icmp_rtt_ms": 106.204,
+        "verdict": "PASS"
+      },
+      "acl": {
+        "allow": {
+          "target": "bravo-target-db:5432",
+          "observed": "connected",
+          "verdict": "PASS"
+        },
+        "deny": [
+          {
+            "probe": "wrong_port",
+            "target": "bravo-target-db:22",
+            "observed": "timeout",
+            "control_observed": "refused",
+            "verdict": "PASS"
+          },
+          {
+            "probe": "forbidden_peer",
+            "target": "bravo-source-db:5432",
+            "observed": "no_tailnet_peer",
+            "source_alive": true,
+            "destination_alive": true,
+            "verdict": "PASS"
+          }
+        ]
+      }
+    }
+  ],
+  "not_judged": {
+    "fields": [
+      "path.kind",
+      "path.derp_region",
+      "path.disco_rtt_ms",
+      "path.peer_online",
+      "mtu.icmp_rtt_ms",
+      "mtu.interface_bytes"
+    ],
+    "why": "no threshold in the design document or repository; reported as values only"
+  },
+  "not_measured": [
+    "a rule opening some other single port on the peer, or written for its IPv4 address only: only port 22 on its IPv6 address is compared with the allowed port",
+    "the hops from a workload to its egress proxy and from the ingress proxy to the database, including MTU"
+  ],
+  "scope": "one snapshot per route; discovery and ICMP round trips, not database latency, p95 or an SLO",
+  "raw_output_suppressed": true,
+  "policy_changed": false,
+  "node_settings_changed": false
+}

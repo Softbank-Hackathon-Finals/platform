@@ -1,0 +1,13 @@
+{
+  "source_revision": "2f4dd10d03c8dbaa435b3c0148f8b4a6a8aef4d3",
+  "source_files": [
+    {
+      "path": "infra/envs/target-workloads/network.py",
+      "sha256": "cb8ac1e5f9bd5e96793fc581bde63d8dd277dd986b325fd0a8773626caa97804"
+    },
+    {
+      "path": "infra/envs/target-workloads/tailnet_path_check.py",
+      "sha256": "346f2a27fc56f7620c64ca04fad9223f8e0f251ef15613d1756a72e239dfb04d"
+    }
+  ]
+}

@@ -11,6 +11,10 @@ What is real: k3s with Pod Security and NetworkPolicy enforced, the rendered Job
 SeaweedFS image and arguments, libpq verify-full against PostgreSQL with the repository schema and
 role, and the operator's Secret recipe from the operations guide.
 
+The copy image is the operator's OCI index and archive from attachment_image.py, imported with the guide's
+ctr arguments. It is built for this machine's architecture: containerd does not start a linux/amd64-only
+index on an arm64 node, and an emulated amd64 node has no seccomp, which the restricted Job requires.
+
 What stands in: MinIO answers as s3.<region>.amazonaws.com through hostAliases and a test CA mounted
 over the SDK's bundle, so the Job's environment stays as rendered and no test endpoint is set. MinIO's
 STS and session policy stand in for AWS STS and IAM. A selector-less Service stands in for the Tailscale
@@ -32,8 +36,10 @@ REPO = Path(__file__).resolve().parents[2]
 WORKLOADS = REPO / "infra/envs/target-workloads"
 GUIDE = REPO / "docs/operations/t8-attachment-copy-job.md"
 sys.path.insert(0, str(WORKLOADS))
+sys.path.insert(0, str(REPO / "scripts"))
 
 import attachment_containers
+import attachment_image
 import attachment_job
 import objects as object_store
 import render
@@ -152,6 +158,40 @@ def build_images(directory):
     broken = Path(directory, "broken.Dockerfile")
     broken.write_text(f"FROM {COPY_TAG}\nUSER 0:0\nRUN rm /app/sync_attachments.py\nUSER 10001:10001\n")
     docker("buildx", "build", "--load", "-t", BROKEN_TAG, "-f", str(broken), directory, timeout=300)
+
+
+def build_copy_archive(directory):
+    """The operator's build command and packing. Only the platform differs, for this node's architecture."""
+    architecture = docker("version", "--format", "{{.Server.Arch}}").stdout.strip()
+    source = run("git", "-C", str(REPO), "rev-parse", "HEAD").stdout.strip()
+    layout, metadata = Path(directory, "copy-layout"), Path(directory, "copy-metadata.json")
+    base = attachment_image.pinned_base((WORKLOADS / attachment_image.DOCKERFILE).read_text())
+    command = attachment_image.build_command(source, base, WORKLOADS, layout, metadata)
+    command[command.index("--platform") + 1] = "linux/" + architecture
+    run(*command, timeout=600)
+    digest = json.loads(metadata.read_text())["containerimage.digest"]
+    archive = Path(directory, "copy-image.tar")
+    attachment_image.pack(layout, archive)
+    return archive, digest, source
+
+
+def import_copy_archive(archive, digest, source):
+    """Follow the guide: import, then add the digest name only if import did not create it."""
+    def images():
+        return docker("exec", K3S_CONTAINER, "ctr", "-n", "k8s.io", "images", "ls").stdout
+
+    pinned = f"{attachment_image.IMAGE_NAME}@{digest}"
+    docker("cp", str(archive), K3S_CONTAINER + ":/tmp/attachment-copy.tar")
+    docker("exec", K3S_CONTAINER, "ctr", "-n", "k8s.io", *attachment_image.IMPORT_ARGUMENTS, "/tmp/attachment-copy.tar")
+    tag = f"{attachment_image.IMAGE_NAME}:sha-{source}"
+    listing = images()
+    tagged = next((line for line in listing.splitlines() if line.startswith(tag + " ")), "")
+    created = pinned in listing
+    if digest not in tagged:
+        raise RuntimeError("the imported name does not hold the built digest")
+    if not created:
+        docker("exec", K3S_CONTAINER, "ctr", "-n", "k8s.io", "images", "tag", tag, pinned)
+    return pinned, {"digest_name_created_by_import": created}
 
 
 def start_source(directory):
@@ -760,6 +800,7 @@ def main():
             issue_certificates(directory)
             docker("network", "create", "--subnet", SUBNET, guarded(NETWORK))
             build_images(directory)
+            copy_archive, copy_digest, copy_source = build_copy_archive(directory)
             fetch_object_store_image()
             source = start_source(directory)
             wait_for(lambda: source_client(source).list_buckets() is not None, 120, "stand-in S3")
@@ -775,9 +816,9 @@ def main():
             cluster.apply(namespace, storage)
             import_image(STORE_REFERENCE, "amd64")
             architecture = docker("image", "inspect", COPY_TAG, "--format", "{{.Architecture}}").stdout.strip()
-            import_image(COPY_TAG, architecture)
             import_image(BROKEN_TAG, architecture)
-            images = {"copy": pinned_reference(COPY_TAG), "broken": pinned_reference(BROKEN_TAG)}
+            copy_reference, import_observation = import_copy_archive(copy_archive, copy_digest, copy_source)
+            images = {"copy": copy_reference, "broken": pinned_reference(BROKEN_TAG)}
 
             client, bootstrap = deploy_object_store(cluster, node)
             in_cluster(cluster, images["copy"], "t8-job-bootstrap", "t8-job-bootstrap", "K", "S", BOOTSTRAP_SCRIPT)
@@ -828,7 +869,7 @@ def main():
                       "cluster": "k3s, not RKE2"},
         "images": image_records(), "python": sys.version.split()[0],
         "checks_total": len(checks), "checks_passed": len(checks) - len(failed), "checks_failed": failed,
-        "checks": checks, "observations": route_opening, "sample": sample,
+        "checks": checks, "observations": {**route_opening, "copy_image_import": import_observation}, "sample": sample,
         "seconds": round(time.time() - started),
     }, indent=2, ensure_ascii=False) + "\n")
     print(f"{len(checks) - len(failed)}/{len(checks)} checks passed in {round(time.time() - started)}s")
