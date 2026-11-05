@@ -12,7 +12,7 @@ import ast
 import re
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from urllib.parse import urlsplit
+from urllib.parse import unquote, urlsplit
 
 from .catalog import OTHER_CLOUD_PREFIXES, role_for_service
 
@@ -61,18 +61,62 @@ class Finding:
         return asdict(self)
 
 
+URL_RE = re.compile(r"[A-Za-z][A-Za-z0-9+.-]{1,15}://[^\s\"'<>)]+")
+
+
 def _secret_like(text: str) -> bool:
-    return bool(SECRET_LIKE_RE.search(text) or USERINFO_RE.search(text) or QUERY_SECRET_RE.search(text))
+    """Known credential shapes, checked on the text and on its percent-decoded form
+    (``%61ccess_token`` is ``access_token``)."""
+    for candidate in (text, unquote(text)):
+        if SECRET_LIKE_RE.search(candidate) or USERINFO_RE.search(candidate) or QUERY_SECRET_RE.search(candidate):
+            return True
+    return False
+
+
+def _url_data_parts(url: str) -> list[str]:
+    """The parts of a URL that never belong in an inventory: query, fragment, user info."""
+    try:
+        parts = urlsplit(url)
+    except ValueError:
+        return [url]
+    return [x for x in (parts.query, parts.fragment, parts.username, parts.password) if x]
+
+
+def _redact_url(match: re.Match) -> str:
+    """Keep only what the inventory needs from a URL: scheme, host, port and path. Query,
+    fragment and user info are dropped wholesale; no name list decides what is sensitive."""
+    url = match.group(0)
+    try:
+        parts = urlsplit(url)
+    except ValueError:
+        return "<url-removed>"
+    if not parts.hostname:
+        return "<url-removed>"
+    port = f":{parts.port}" if parts.port else ""
+    out = f"{parts.scheme}://{parts.hostname}{port}{parts.path}"
+    if parts.query:
+        out += "?<query-removed>"
+    if parts.fragment:
+        out += "#<fragment-removed>"
+    return out
 
 
 def _mask(text: str, *decoded: str) -> str:
-    """Return the source line for the inventory, or a marker if the line *or any decoded string
-    literal on it* looks like a credential. The decoded values matter: ``"https:\\x2f\\x2fu:pw@h"``
-    hides ``://`` from a regex over the raw line but not from the parsed constant."""
+    """Return the source line for the inventory with every URL reduced to scheme://host/path,
+    or a marker when the line *or any decoded string literal on it* looks like a credential.
+    The decoded values matter: ``"https:\\x2f\\x2fu:pw@h"`` hides ``://`` from a regex over
+    the raw line but not from the parsed constant."""
     text = text.strip().replace("\n", " ")
     if _secret_like(text) or any(_secret_like(d) for d in decoded):
         return "<masked: secret-like literal>"
-    return text[:160]
+    out = URL_RE.sub(_redact_url, text)
+    # Escaped literals ("\\x3f" for "?") hide a query from the in-place redaction. If any piece
+    # of a decoded URL's query/fragment/user info survives in the redacted line, replace it all.
+    for d in decoded:
+        for url in URL_RE.findall(d):
+            if any(len(part) >= 3 and part in out for part in _url_data_parts(url)):
+                return "<masked: url with data in escaped literal>"
+    return out[:160]
 
 
 def _decoded_strings(node: ast.AST) -> list[str]:

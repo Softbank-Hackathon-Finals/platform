@@ -90,9 +90,9 @@ def test_query_string_credentials_never_reach_snippet_or_detail(tmp_path):
     sdk = [f for f in findings if f.kind == "sdk_call"][0]
     assert sdk.snippet.startswith("<masked") and sdk.detail["endpoint_url"] == "https://store.example.invalid"
     literals = [f for f in findings if f.kind == "endpoint_literal"]
-    assert all(f.snippet.startswith("<masked") for f in literals if "verbose" not in f.snippet)
+    assert all("<masked" in f.snippet or "<query-removed>" in f.snippet for f in literals)
     plain = [f for f in literals if f.detail["value"] == "https://api.ap-northeast-2.amazonaws.com"][0]
-    assert "verbose=1" in plain.snippet  # a harmless query is a normal line, not masked
+    assert "verbose=1" not in plain.snippet and "?<query-removed>" in plain.snippet  # queries never reach the snippet
 
 
 def test_escaped_string_literals_are_masked_by_their_decoded_value(tmp_path):
@@ -112,3 +112,24 @@ def test_escaped_string_literals_are_masked_by_their_decoded_value(tmp_path):
     sdk = [f for f in findings if f.kind == "sdk_call"][0]
     assert sdk.snippet.startswith("<masked") and sdk.detail["endpoint_url"] == "https://store.example.invalid"
     assert all(f.snippet.startswith("<masked") for f in findings if f.kind == "endpoint_literal")
+
+
+def test_any_url_query_or_fragment_is_removed_from_snippets_without_a_name_list(tmp_path):
+    # Review (#144, 이상무 2차): credentials under unlisted or percent-encoded query names.
+    token = "FIXTURE-Q2-TOKEN-3c9e"
+    (tmp_path / "x.py").write_text(
+        "import boto3\n"
+        f'c = boto3.client("s3", endpoint_url="https://store.example.invalid/?client_secret={token}")\n'
+        f'URL = "https://api.ap-northeast-2.amazonaws.com/x?%61ccess_token={token}"\n'
+        f'FRAG = "https://api.ap-northeast-2.amazonaws.com/y#token={token}"\n'
+        f'ESC = "https://api.ap-northeast-2.amazonaws.com/z\\x3fcustom_param\\x3d{token}"\n',
+        encoding="utf-8",
+    )
+    findings = scan_repo(tmp_path, ".")
+    dump = json.dumps([f.as_dict() for f in findings])
+    assert token not in dump
+    for f in findings:
+        if f.kind in {"sdk_call", "endpoint_literal"}:
+            assert "?" not in f.snippet.replace("?<query-removed>", "") and "#" not in f.snippet.replace("#<fragment-removed>", "")
+    sdk = [f for f in findings if f.kind == "sdk_call"][0]
+    assert sdk.detail["endpoint_url"] == "https://store.example.invalid" and "store.example.invalid/?<query-removed>" in sdk.snippet
