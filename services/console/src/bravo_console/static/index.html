@@ -194,10 +194,11 @@
       </section>
       <div class="columns">
         <section class="card">
-          <h2>전환 승인</h2>
+          <h2>변경·전환 승인</h2>
           <p>
             계획·이미지·변경·게이트의 결속 값을 확인한 후 승인합니다. 승인은
-            즉시 전환을 실행하지 않습니다.
+            즉시 전환을 실행하지 않습니다. S2 변경 승인은 검증된 코드 변경에
+            대한 승인 기록이며, 배포 실행은 별도입니다.
           </p>
           <dl id="binding">
             <dt>승인 대상</dt>
@@ -208,6 +209,7 @@
             유효기간을 확인했습니다.</label
           >
           <div class="actions">
+            <button id="approve-change" disabled>코드 변경 승인 기록</button>
             <button id="approve" disabled>전환 승인 기록</button
             ><button id="execute" class="danger" disabled>
               승인된 전환 실행

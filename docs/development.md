@@ -27,16 +27,18 @@
 
 `develop`은 통합 기준이자 기본 브랜치이고 `main`은 검증·릴리스 기준이다. 일반 작업은 merge commit으로 합쳐 작업 묶음을 보존한다. release/hotfix를 main에 머지한 뒤 버전 태그와 develop 반영을 확인한다. 병합은 클라우드 배포 성공을 뜻하지 않는다.
 
-2026-11-04 확인한 적용 규칙은 다음과 같다. 실행 직전 GitHub의 현재 규칙을 다시 읽는다.
+회의에서 합의한 develop 승인 필수 해제와 이상무의 병합 자동화 담당을 기준으로 T40에서 전환한다. 회의 결정이 이전의 ‘위험 경로만 승인’ 제안보다 우선한다. 적용 여부와 검증 기록은 [Merge Queue 운영 절차](merge-queue.md)에서 확인하고 실행 직전 GitHub 규칙을 다시 읽는다.
 
-| 대상 | 숫자로 지정한 최소 승인 | 코드 오너 승인 | 필수 CI |
+| 대상 | 숫자로 지정한 최소 승인 | 코드 오너 승인 | 병합 경로 · 필수 CI |
 |---|---|---|---|
-| platform `develop` | 0 | 필수. 오너가 있는 파일을 바꾸면 적격한 팀원 승인 필요 | `secrets` · `infra` · `platform` |
-| platform `main` | 1 | 별도 필수 설정 없음 | `secrets` · `infra` · `platform` |
+| platform `develop` (T40 전환 후) | 0 | 요구하지 않음 | Merge Queue · `secrets` · `infra` · `platform` |
+| platform `main` | 1 | 기존 설정 유지 | 기존 PR 절차 · `secrets` · `infra` · `platform` |
 
-`.github/CODEOWNERS`는 `docs/tasks.md`를 제외한 경로에 팀원 전원을 지정한다. 따라서 develop의 숫자 0은 코드 PR의 승인 면제를 뜻하지 않는다. `docs/tasks.md`만 바꾼 PR은 오너가 없어 필수 CI 통과로 병합할 수 있다. 사람의 작업 계획 PR은 GitHub 기본 auto-merge를 예약할 수 있고, 봇 `[sync]` PR은 자동 예약 없이 팀원이 머지 버튼으로 반영한다. 근거: [실제 적용·검증 안내](https://softbankhackathon2026.slack.com/archives/C0CDEFEB83U/p1793714314857809).
+`.github/CODEOWNERS`의 팀원 목록은 리뷰 알림에 사용한다. develop의 병합 필수 승인으로 사용하지 않는다. `docs/tasks.md`만 바꾼 PR과 봇 `[sync]` PR도 큐의 검사를 거친다. 봇 PR은 자동 예약 없이 팀원이 큐에 넣는다. Slack 봇은 다시 켜지 않는다. 이슈·보드 상태를 확인하며 자동 상태 표시가 실제 작업과 다르면 담당자가 조정한다.
 
-리뷰는 [해당 파트의 주·부 담당](review-routing.md)이 맡고 전원 승인을 기다리지 않는다. 변경 요청을 해소하고 최종 head의 필수 CI·현재 승인 조건을 충족해야 한다. 새 커밋에 이전 승인을 그대로 적용하지 않는다. GitHub 기본 auto-merge는 이 조건을 집행하는 경로이며 별도 봇·자기 승인·리뷰 무효화로 보호 규칙을 우회하지 않는다. 검토 중인 타인의 브랜치를 강제로 다시 쓰지 않는다. 전환 전에 열린 PR의 기존 브랜치 이름은 보존할 수 있다.
+리뷰 요청과 파트별 검토는 유지하지만 develop의 전원 승인이나 특정 경로 승인을 별도 필수로 추가하지 않는다. 이미 확인한 결함은 수정하거나 큐에서 제외한다. 변경 요청을 강제로 해제하거나 실패 검사를 약하게 만들지 않는다. 다른 담당의 코드 변경은 앞 절의 범위 합의를 따른다. main 승인과 T10/T15/T31의 제품 실행 승인은 이 변경과 별개다.
+
+GitHub 기본 Merge Queue가 최신 develop과 앞선 PR을 합친 결과에 대해 필수 CI를 확인한다. 최종 PR head의 CI만으로 큐 검사를 대신하지 않는다. 검사 누락·실패·시간 초과·충돌은 병합 중단 사유다. 자기 승인, admin bypass, 보호 규칙을 잠깐 끄는 방식으로 처리하지 않는다.
 
 ```sh
 git fetch origin
@@ -45,7 +47,7 @@ git switch -c feature/T1-aws-foundation origin/develop
 git push -u origin feature/T1-aws-foundation
 gh pr create --base develop --title '[T1] 작업 설명' --body-file /path/to/pr.md
 # docs/review-routing.md에서 T번호의 주·부 참여자를 확인해 작성자 외 모두 요청.
-# 필수 CI · 대상 브랜치의 현재 승인 조건 · 변경 요청 해소를 확인한 뒤 병합:
+# 최신 head · 알려진 결함 · 필수 CI를 확인한 뒤 develop 큐에 등록 (main은 승인 조건도 확인):
 gh pr merge --auto --merge --match-head-commit <검증한-HEAD-SHA>
 ```
 

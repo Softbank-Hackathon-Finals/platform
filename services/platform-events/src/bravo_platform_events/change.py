@@ -5,7 +5,6 @@ must read the current verified T15 record under the same lock as revocations.
 An application claim is durable admission, not a deployment result.
 """
 
-import hashlib
 import json
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
@@ -16,7 +15,8 @@ from .contract import validate_event, validate_identifier
 from .cutover import _get, _key, _put, unavailable_authority
 from .executor import _timestamp
 from .plan_api import Principal, authorized_plan
-from .plans import _canonical
+from .plans import _canonical, change_key
+from .rehearsal import require_current_run
 from .store import EventError
 
 
@@ -41,8 +41,11 @@ class ChangeAuthority(Protocol):
                  rehearsal_id: str, now: str, approved_by: str | None, approval_id: str | None) -> CurrentChange: ...
 
 
-def change_key(kind: str, value: str) -> str:
-    return f"change-{kind}-" + hashlib.sha256(value.encode()).hexdigest()
+def intake_binding(record):
+    candidate = record["candidate"]
+    return {field: candidate[field] for field in ("plan_id", "target_environment_id", "diff_hash", "image_digest")} | {
+        "plan_digest": record["plan_digest"], "expires_at": record["expires_at"],
+    }
 
 
 class ChangeApprovalService:
@@ -78,6 +81,9 @@ class ChangeApprovalService:
         spec = json.loads(plan["spec_json"])
         if any(current.binding[k] != spec[k] for k in
                ("plan_id", "plan_digest", "target_environment_id")):
+            raise EventError("binding_mismatch")
+        managed = require_current_run(c, plan, rehearsal_id, current.verification_id)
+        if managed is not None and current.binding != intake_binding(managed):
             raise EventError("binding_mismatch")
         if expires_at <= _timestamp(self.clock()):
             raise EventError("approval_expired")

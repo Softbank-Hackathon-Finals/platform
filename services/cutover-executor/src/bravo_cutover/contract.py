@@ -8,7 +8,8 @@ from typing import Annotated
 
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field
 
-Identifier = Annotated[str, Field(pattern=r"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$")]
+IDENTIFIER_PATTERN = r"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$"
+Identifier = Annotated[str, Field(pattern=IDENTIFIER_PATTERN)]
 
 
 class Status(StrEnum):

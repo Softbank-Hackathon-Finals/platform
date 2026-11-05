@@ -186,6 +186,83 @@ def streamed_call(name, args):
     return [created, added, done, dict(final, sequence_number=3)]
 
 
+def with_call_metadata(events, **changes):
+    note = {"type": "response.metadata", "response_id": events[0]["response"]["id"],
+            "metadata": {"annotation": "private-provider-note"}, **changes}
+    events.insert(2, note)
+    for i, event in enumerate(events):
+        event["sequence_number"] = i
+    return events
+
+
+def test_bound_metadata_during_function_call_is_not_a_tool_output(context, monkeypatch):
+    bundle, snapshot, proposal, _ = context
+    read = with_call_metadata(streamed_call("repo_read", {"path": "src/config.py"}))
+    plan = with_call_metadata(streamed_call("plan_propose", proposal))
+    requests = install_stream(monkeypatch, [read, plan])
+    result = asyncio.run(Coordinator(bundle, snapshot).propose(OpenAIProvider("fixture-model", subscription=True)))
+    assert result["state"] == "PROPOSAL_READY" and len(requests) == 2
+    assert result["proposal"] == {"schema_version": 1, **proposal}
+    shape, = [e for e in result["audit"] if e["reason"] == "FIRST_RESPONSE_SHAPE"]
+    assert shape["stream_resolution"] == "matched_finalized_call" and shape["function_call_count"] == 1
+    assert sum(e["reason"] == "POLICY_ACCEPTED" for e in result["audit"]) == 2
+    assert "private-provider-note" not in json.dumps([requests, result])
+
+
+@pytest.mark.parametrize("variant", ["different_response", "missing_id", "extra_item", "extra_unknown",
+                                     "not_an_object", "before_added", "after_done", "no_done", "refusal", "incomplete"])
+def test_metadata_does_not_authorize_unbound_or_unfinished_calls(context, monkeypatch, variant):
+    bundle, snapshot, _, _ = context
+    events = with_call_metadata(streamed_call("repo_read", {"path": "src/config.py"}))
+    note = events[2]
+    if variant == "different_response":
+        note["response_id"] = "private-other-response"
+    elif variant == "missing_id":
+        del note["response_id"]
+    elif variant in ("extra_item", "extra_unknown"):
+        note["item" if variant == "extra_item" else "private-extra"] = {}
+    elif variant == "not_an_object":
+        note["metadata"] = "private-body"
+    elif variant in ("before_added", "after_done"):
+        events.pop(2)
+        events.insert(1 if variant == "before_added" else 3, note)
+    elif variant == "no_done":
+        del events[3]
+    elif variant == "refusal":
+        events.insert(3, {"type": "response.refusal.delta", "delta": "private-refusal"})
+    elif variant == "incomplete":
+        events[-1]["type"] = "response.incomplete"
+    for i, event in enumerate(events):
+        event["sequence_number"] = i
+    requests = install_stream(monkeypatch, [events])
+    result = asyncio.run(Coordinator(bundle, snapshot).propose(OpenAIProvider("fixture-model", subscription=True)))
+    assert result["state"] == "NEEDS_HUMAN" and result["proposal"] is None and len(requests) == 1
+    assert all(e["reason"] != "POLICY_ACCEPTED" for e in result["audit"])
+    assert "private-" not in json.dumps(result)
+
+
+@pytest.mark.parametrize(("kind", "position", "label", "phase", "extra", "fields"), [
+    ("response.metadata", 0, "response.metadata", "before_response", {"metadata": {"id": "private-value"}}, ["metadata"]),
+    ("codex.rate_limits", 1, "codex.rate_limits", "after_created", {"rate_limits": {"id": "private-value"}}, ["rate_limits"]),
+    ("response.refusal.delta", 2, "response.refusal.delta", "after_added", {"delta": "private-value"}, ["delta"]),
+    ("private-event", 3, "other", "after_done", {"private-field": "private-value"}, []),
+])
+def test_first_rejected_event_reports_protocol_shape_without_admitting_it(
+        context, monkeypatch, kind, position, label, phase, extra, fields):
+    bundle, snapshot, _proposal, _ = context
+    events = streamed_call("repo_read", {"path": "src/config.py"})
+    events.insert(position, {"type": kind, "sequence_number": 0, **extra})
+    for index, event in enumerate(events):
+        event["sequence_number"] = index
+    requests = install_stream(monkeypatch, [events])
+    result = asyncio.run(Coordinator(bundle, snapshot).propose(OpenAIProvider("fixture-model", subscription=True)))
+    shape, stop = result["audit"]
+    assert shape["rejected_event"] == {"kind": label, "phase": phase, "fields": fields, "other_fields": not fields}
+    assert shape["stream_resolution"] == "unrecognized_event" and shape["function_call_count"] == 0
+    assert result["state"] == "NEEDS_HUMAN" and result["proposal"] is None and len(requests) == 1
+    assert stop["reason"] == "MODEL_OR_POLICY_FAILURE" and "private-" not in json.dumps(result)
+
+
 def test_completed_streamed_call_with_empty_terminal_runs_under_normal_tool_policy(context, monkeypatch):
     bundle, snapshot, proposal, _ = context
     read = streamed_call("repo_read", {"path": "src/config.py"})

@@ -12,7 +12,7 @@ from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from bravo_cutover.contract import CutoverRequest, Endpoint
+from bravo_cutover.contract import IDENTIFIER_PATTERN, CutoverRequest, Endpoint
 from bravo_cutover.rejections import ConnectionRefMismatch, SameResource, UnknownEnvironment
 
 
@@ -34,7 +34,10 @@ class RegisteredPair(BaseModel):
 
 
 class Registry:
-    def __init__(self, resources: list[Resource]):
+    def __init__(self, resources: list[Resource], *, origin: str | None = None):
+        # 원래 출발지(설정의 origin). 등록 조회의 source와 영수증 direction이 같은 값을 쓴다(T20).
+        # 모르면(자원 파일만 읽는 기록 전용 서버) 등록 쌍을 공개하지 않는다.
+        self.origin = origin
         self._by_env: dict[str, Resource] = {}
         for r in resources:
             if r.environment_id in self._by_env:
@@ -48,10 +51,14 @@ class Registry:
         return cls([Resource(environment_id=env, **value) for env, value in raw.items()])
 
     def public_pair(self) -> RegisteredPair | None:
-        """Return the two registered deployment resources in their documented direction."""
-        if self._by_env.keys() != {"env-aws", "env-onprem"}:
+        """Return the two registered deployment resources: the configured origin is the source.
+        Environment names are not fixed, so a cloud-to-cloud pair is projected the same way."""
+        if self.origin is None or len(self._by_env) != 2 or self.origin not in self._by_env:
             return None
-        source, target = self._by_env["env-aws"], self._by_env["env-onprem"]
+        if not all(re.fullmatch(IDENTIFIER_PATTERN, env) for env in self._by_env):
+            return None
+        source = self._by_env[self.origin]
+        [target] = [r for env, r in self._by_env.items() if env != self.origin]
         # A URI or a key=value DSN in a public identifier is a configuration error.
         public_id = r"[A-Za-z0-9_.:-]+(?:/[A-Za-z0-9_.:-]+)*"
         if source.resource_id == target.resource_id or not all(

@@ -1,5 +1,35 @@
 // Client recovery is a display guard, never server execution authority.
-import { binding } from "./model.js";
+import { binding, changeBinding } from "./model.js";
+
+// A repeat POST is a new explicit approval action, never a result lookup.
+export function canRepeatApproval(model, pending, now) {
+  const change = pending.kind === "approve-change";
+  if (
+    (!change && pending.kind !== "approve") ||
+    model.plan !== pending.plan ||
+    model.cursor < pending.cursor ||
+    model.request?.event_id !== pending.requestEventId ||
+    !(change ? model.changeReady(now) : model.eligible(now))
+  )
+    return false;
+  for (const key of [
+    "plan_id",
+    "plan_digest",
+    "collection_scope_digest",
+    "workload_id",
+    "source_environment_id",
+    "target_environment_id",
+    "version",
+  ])
+    if (model.snapshot[key] !== pending.snapshot[key]) return false;
+  const current = {
+    approval_kind: change ? "change" : "cutover",
+    ...(change ? { run_id: model.request.run_id } : {}),
+    binding: (change ? changeBinding : binding)(model.request.data.binding),
+    expected_version: model.snapshot.version,
+  };
+  return JSON.stringify(current) === JSON.stringify(pending.body);
+}
 
 export function recoveryCommand(model, pending) {
   if (model.plan !== pending.plan || model.error || !model.snapshot)
