@@ -79,7 +79,7 @@ def execute_fixture(settings, web_token, run_id):
             "expires_at_increased": after.get("expires_at", 0) > before.get("expires_at", 0)}
 
 
-def product_service(settings, inputs, journal_root):
+def product_service(settings, inputs, journal_root, *, request_inputs=None):
     """Host-only opt-in. No CLI setting can substitute an unauthenticated reader."""
     def authenticate(token):
         config = Config(retries={"total_max_attempts": 1}, connect_timeout=10, read_timeout=20)
@@ -92,10 +92,11 @@ def product_service(settings, inputs, journal_root):
         return ProductAccess(digest(subject), identity["Credentials"])
 
     return ProductService(ProposalJournal(journal_root), authenticate, inputs,
-                          lambda *args: invoke_product_worker(settings, *args), settings["source_sha"])
+                          lambda *args: invoke_product_worker(settings, *args), settings["source_sha"],
+                          request_inputs=request_inputs)
 
 
-def serve(settings, *, product=None):
+def serve(settings, *, product=None, fixture_enabled=True):
     completed = 0
 
     class Handler(BaseHTTPRequestHandler):
@@ -121,7 +122,8 @@ def serve(settings, *, product=None):
                 # A trusted host must explicitly install the authenticated reader.
                 self.respond(503, {"state": "NEEDS_HUMAN", "reason": "PRODUCT_INPUT_UNAVAILABLE"})
                 return
-            if self.path not in {"/run", "/validation/fixture"}:
+            if (self.path not in {"/run", "/validation/fixture"}
+                    or (self.path == "/validation/fixture" and not fixture_enabled)):
                 self.respond(404, {"state": "NEEDS_HUMAN", "reason": "UNKNOWN_ROUTE"})
                 return
             try:
