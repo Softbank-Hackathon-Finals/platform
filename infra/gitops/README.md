@@ -55,8 +55,11 @@ cluster kubeconfig.
 Operator bootstrap is `python3 infra/gitops/bootstrap.py`. It requires the
 expected cluster UID, existing registration Deployment UID, full reviewed
 checkout revision and host-local kubeconfig path. Without `--apply` it validates
-and renders only. Use Helm 4.0.0. First install without `--runtime-values` leaves
-the Application disabled. After the publication-values PR merges, supply a
+and renders only. Use Helm 4.0.0. First install without `--runtime-values` creates
+the Argo components and CRDs, with both AppProject and Application disabled.
+Wait for that release to finish before enabling registration. This avoids
+requiring an Argo custom resource before its CRD exists on a fresh cluster.
+After the publication-values PR merges, supply a
 protected JSON file outside the checkout containing only
 `registration: {enabled: true, runtime: {configuration, secrets, hostAliases}}`.
 Image or source overrides are rejected. Read an existing non-deployed/pending

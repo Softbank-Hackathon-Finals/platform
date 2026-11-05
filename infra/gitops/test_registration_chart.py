@@ -148,6 +148,14 @@ class ArgoBoundary(unittest.TestCase):
         result = self.render({})
         self.assertEqual(result.returncode, 0, result.stderr)
         docs = list(yaml.safe_load_all(result.stdout))
+        # A fresh cluster cannot map custom resources until the first release
+        # has installed and established Argo's CRDs.
+        self.assertFalse(any(d["apiVersion"].startswith("argoproj.io/") for d in docs))
+        self.assertTrue(
+            {"applications.argoproj.io", "appprojects.argoproj.io"}.issubset(
+                {d["metadata"]["name"] for d in docs if d["kind"] == "CustomResourceDefinition"}
+            )
+        )
         self.assertFalse(
             any(
                 d["kind"] in ("ClusterRole", "ClusterRoleBinding", "Application")
@@ -175,9 +183,10 @@ class ArgoBoundary(unittest.TestCase):
             }
         )
         self.assertEqual(result.returncode, 0, result.stderr)
-        app = next(
-            d for d in yaml.safe_load_all(result.stdout) if d["kind"] == "Application"
-        )
+        docs = list(yaml.safe_load_all(result.stdout))
+        app = next(d for d in docs if d["kind"] == "Application")
+        project = next(d for d in docs if d["kind"] == "AppProject")
+        self.assertEqual(project["metadata"]["name"], app["spec"]["project"])
         self.assertEqual(app["spec"]["source"]["targetRevision"], "develop")
         self.assertFalse(app["spec"]["syncPolicy"]["automated"]["prune"])
         self.assertTrue(app["spec"]["syncPolicy"]["automated"]["selfHeal"])
