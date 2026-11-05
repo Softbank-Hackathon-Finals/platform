@@ -8,7 +8,6 @@ they are reported UNAVAILABLE rather than rebuilt from the local replay.
 T38 supports only the first attempt; later attempts stop before any effect.
 """
 
-import os
 import re
 import tempfile
 from collections.abc import Callable
@@ -76,7 +75,7 @@ class RemoteProposalSource:
     def open(self, admission: object, task: object) -> tuple[object, object]:
         from bravo_agent.contracts import digest
         from bravo_agent.coordinator import Coordinator
-        from bravo_agent.tools import Snapshot
+        from bravo_agent.subscription_product import stage_input
 
         value = self.product_input(admission, task)
         if (value.attempt != 1 or value.bundle.run_id != admission.rehearsal_id
@@ -88,11 +87,8 @@ class RemoteProposalSource:
                 or re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]{0,127}", str(body["input_ref"])) is None):
             raise ValueError("product request is not bound to the input")
         root = Path(tempfile.mkdtemp(prefix="t15-product-", dir=self.staging))
-        for name, content in value.files.items():
-            path = root / name
-            path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
-            fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o400)
-            with os.fdopen(fd, "w", encoding="utf-8") as stream:
-                stream.write(content)
-        coordinator = Coordinator(value.bundle, Snapshot(root, value.manifest))
+        # T38's own input contract: files must equal the manifest (safe paths only),
+        # contents are checked, and nothing is written before those checks pass.
+        snapshot = stage_input(value, root)
+        coordinator = Coordinator(value.bundle, snapshot)
         return coordinator, _RemoteProvider(self.call, body, value)
