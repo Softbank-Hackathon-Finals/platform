@@ -423,6 +423,7 @@ class InitialProposalExecution:
             return dict(state="PROPOSAL_READY", attempt=admission.attempt,
                 run_id=admission.rehearsal_id, source_sha=admission.source_sha,
                 proposal=result.proposal.model_dump(mode="json"), proposal_digest=result.proposal_digest)
+
     def publication_inputs(self, plan_id, version, **ref):
         """Read authorized, saved inputs for the operator's T7 evidence lookup.
 
