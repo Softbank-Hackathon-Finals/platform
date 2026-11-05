@@ -604,6 +604,8 @@ def remove_marker(write, read_target_row, read_source_row, report, wait, *, read
             report["delete_lsn_before_commit"] = written.before_commit
             report["delete_lsn_after_commit"] = written.after_commit
         except Exception as error:  # noqa: BLE001 - See note_error(). Removing by this id can safely repeat.
+            if report["source_delete_commits"] != 1:
+                report["source_delete_commits"] = None
             note_error(report, error)
             return False
         report["source_delete_commits"] = 1

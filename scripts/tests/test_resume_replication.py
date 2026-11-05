@@ -660,7 +660,7 @@ class BarrierProbeTests(unittest.TestCase):
     def test_a_delete_that_keeps_failing_leaves_the_cleanup_pending_on_the_source(self):
         report, kinds, _, _ = self.probe([None], answers_lost=["INSERT"], refused=("DELETE",))
         self.assertEqual(report["source_insert_commits"], 1)
-        self.assertEqual(report["source_delete_commits"], 0)
+        self.assertIsNone(report["source_delete_commits"])
         self.assertGreaterEqual(report["source_delete_submissions"], 1)
         self.assertEqual(report["cleanup"], "pending")
         self.assertIn("source", report["pending_on"])
