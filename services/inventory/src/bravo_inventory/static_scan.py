@@ -79,7 +79,11 @@ def _url_data_parts(url: str) -> list[str]:
         parts = urlsplit(url)
     except ValueError:
         return [url]
-    return [x for x in (parts.query, parts.fragment, parts.username, parts.password) if x]
+    pieces: list[str] = []
+    for component in (parts.query, parts.fragment):
+        pieces.extend(re.split(r"[&=;]", component or ""))
+    pieces.extend(x for x in (parts.username, parts.password) if x)
+    return [x for x in pieces if x]
 
 
 def _redact_url(match: re.Match) -> str:
