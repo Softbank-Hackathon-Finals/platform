@@ -129,3 +129,173 @@ def test_same_source_and_target_path_is_rejected_before_provider(tmp_path):
                       lifecycle, MockIsolation(), verifier)
     assert result.state == "NEEDS_HUMAN"
     assert provider.calls == 0 and lifecycle.calls == [] and verifier.calls == []
+
+
+def test_t11_proposal_reaches_bucket_observation_with_same_identity(tmp_path):
+    import io
+
+    from rehearsal_runner.bucket_probe import ReadResult, observe_bucket_reads
+    from rehearsal_runner.bucket_verifier import BucketVerifier
+
+    content = b"known fixture"
+
+    class Reader:
+        def __init__(self, status):
+            self.status = status
+
+        def get(self, bucket, key):
+            assert (bucket, key) == ("rehearsal-test", "canary")
+            return ReadResult(self.status, io.BytesIO(content) if self.status == 200 else None)
+
+    class Job:
+        def __init__(self):
+            self.request = None
+
+        def verify(self, request):
+            self.request = request
+            return observe_bucket_reads(
+                Reader(200), Reader(403), bucket=request.target_bucket, key="canary",
+                expected_sha256=hashlib.sha256(content).hexdigest(),
+            )
+
+    task = prepare_bucket_policy_task("run-1", SOURCE, "rehearsal-test", source_sha="1" * 40)
+    coordinator = make_coordinator(tmp_path, task)
+    job, lifecycle = Job(), MockLifecycle()
+    result = run_once(task, T11BucketProposer(coordinator, FakeProvider(), SOURCE_PATH, TARGET_PATH),
+                      lifecycle, MockIsolation(), BucketVerifier(task, job))
+    assert result.state == "RECEIPT_UNVERIFIED"
+    assert result.untrusted_receipt.anonymous == "denied"
+    assert job.request.proposal_digest == coordinator.result()["proposal_digest"]
+    assert job.request.source_policy_sha256 == task.source_sha256
+    assert job.request.namespace == Namespace("rehearsal-test", "uid-1")
+    assert lifecycle.calls == [("create", "run-1"), ("cleanup", "uid-1")]
+
+
+def test_actual_t11_proposal_can_be_resolved_by_its_digest(tmp_path):
+    from rehearsal_runner.bucket_proposal_source import BoundBucketProposalSource
+    from rehearsal_runner.bucket_verifier import BucketVerifier
+
+    task = prepare_bucket_policy_task("run-1", SOURCE, "rehearsal-test", source_sha="1" * 40)
+    coordinator = make_coordinator(tmp_path, task)
+
+    class Job:
+        def verify(self, request):
+            return BoundBucketProposalSource(coordinator, TARGET_PATH).resolve(request)
+
+    outcome = run_once(task, T11BucketProposer(coordinator, FakeProvider(), SOURCE_PATH, TARGET_PATH),
+                       MockLifecycle(), MockIsolation(), BucketVerifier(task, Job()))
+    assert outcome.state == "RECEIPT_UNVERIFIED"
+    assert outcome.untrusted_receipt.replacement == TARGET
+    assert outcome.untrusted_receipt.proposal_digest == coordinator.result()["proposal_digest"]
+
+
+def test_t11_bucket_adapter_resumes_second_and_third_attempt_with_verified_feedback(tmp_path):
+    import asyncio
+
+    from bravo_agent.contracts import VerificationReceipt
+
+    task = prepare_bucket_policy_task("run-1", SOURCE, "rehearsal-test", source_sha="1" * 40)
+    coordinator = make_coordinator(tmp_path, task)
+    provider = FakeProvider()
+    first = T11BucketProposer(coordinator, provider, SOURCE_PATH, TARGET_PATH).propose(task)
+    for attempt in (1, 2):
+        failure = coordinator.bundle.model_copy(update={
+            "summary": "Independent verifier reports a known failure", "evidence_digest": "e" * 64,
+        })
+        receipt = VerificationReceipt(run_id=task.run_id, source_sha=task.source_sha,
+                                      proposal_digest=first.proposal_digest, attempt=attempt,
+                                      verdict="FAIL", effects_known=True, evidence_digest="e" * 64,
+                                      failure=failure)
+        assert coordinator.verify(receipt) == "RETRY_ALLOWED"
+        proposer = T11BucketProposer(coordinator, provider, SOURCE_PATH, TARGET_PATH,
+                                     attempt=attempt + 1, feedback_digest="e" * 64)
+        first = proposer.propose(task)
+        assert coordinator.attempt == attempt + 1
+    assert provider.calls == 3
+    with pytest.raises(ValueError):
+        asyncio.run(coordinator.propose(provider))
+
+
+def test_t11_bucket_retry_rejects_mismatched_feedback_before_model_call(tmp_path):
+    from bravo_agent.contracts import VerificationReceipt
+
+    task = prepare_bucket_policy_task("run-1", SOURCE, "rehearsal-test", source_sha="1" * 40)
+    coordinator = make_coordinator(tmp_path, task)
+    provider = FakeProvider()
+    first = T11BucketProposer(coordinator, provider, SOURCE_PATH, TARGET_PATH).propose(task)
+    failure = coordinator.bundle.model_copy(update={"evidence_digest": "e" * 64})
+    receipt = VerificationReceipt(run_id=task.run_id, source_sha=task.source_sha,
+                                  proposal_digest=first.proposal_digest, attempt=1,
+                                  verdict="FAIL", effects_known=True, evidence_digest="e" * 64, failure=failure)
+    assert coordinator.verify(receipt) == "RETRY_ALLOWED"
+    with pytest.raises(ValueError, match="feedback mismatch"):
+        T11BucketProposer(coordinator, provider, SOURCE_PATH, TARGET_PATH,
+                          attempt=2, feedback_digest="f" * 64).propose(task)
+    assert provider.calls == 1
+
+
+def test_t15_runner_resumes_real_t11_after_known_failure_with_same_attempt_binding(tmp_path):
+    """T11 coordinator is real; verification receipts are fixtures."""
+    from bravo_agent.contracts import VerificationReceipt
+
+    from rehearsal_runner.bucket_proposal_source import BoundBucketProposalSource
+    from rehearsal_runner.bucket_verifier import BucketVerificationRequest
+    from rehearsal_runner.integration_handoff import HandoffVerifier
+    from rehearsal_runner.retry import AttemptPorts
+
+    task = prepare_bucket_policy_task("run-1", SOURCE, "rehearsal-test", source_sha="1" * 40)
+    coordinator = make_coordinator(tmp_path, task)
+    provider = FakeProvider()
+
+    class Ports:
+        def __init__(self):
+            self.events = []
+            self.index = 0
+
+        def prepare(self, attempt, feedback_ref):
+            self.events.append(("prepare", attempt, feedback_ref))
+            proposer = T11BucketProposer(coordinator, provider, SOURCE_PATH, TARGET_PATH,
+                                         attempt=attempt, feedback_digest=feedback_ref)
+            verifier = HandoffVerifier(self, attempt, b"fixture diff", "sha256:" + "c" * 64, "env-onprem")
+            return AttemptPorts(proposer, self, self, verifier)
+
+        def create(self, run_id):
+            self.index += 1
+            namespace = Namespace(f"rehearsal-{self.index}", f"uid-{self.index}")
+            self.events.append(("create", namespace.uid))
+            return namespace
+
+        def check(self, namespace):
+            return IsolationPass(namespace.name, namespace.uid, "probe-1")
+
+        def verify(self, handoff):
+            request = BucketVerificationRequest(task.run_id, task.source_sha, task.source_sha256,
+                                                handoff.proposal.proposal_digest, task.target_bucket,
+                                                handoff.namespace, handoff.attempt)
+            proposal = BoundBucketProposalSource(coordinator, TARGET_PATH).resolve(request)
+            assert proposal.proposal_digest == handoff.proposal.proposal_digest
+            verdict = "FAIL" if handoff.attempt == 1 else "PASS"
+            failure = (coordinator.bundle.model_copy(update={"evidence_digest": "e" * 64})
+                       if verdict == "FAIL" else None)
+            self.events.append(("job", handoff.attempt, handoff.namespace.uid))
+            return VerificationReceipt(run_id=task.run_id, source_sha=task.source_sha,
+                                       proposal_digest=handoff.proposal.proposal_digest, attempt=handoff.attempt,
+                                       verdict=verdict, effects_known=True, evidence_digest="e" * 64,
+                                       failure=failure)
+
+        def cleanup(self, namespace):
+            self.events.append(("cleanup", namespace.uid))
+            return True
+
+    ports = Ports()
+    for attempt, feedback in [(1, None), (2, "e" * 64)]:
+        prepared = ports.prepare(attempt, feedback)
+        result = run_once(task, prepared.proposer, prepared.lifecycle, prepared.isolation, None,
+                          isolated_verifier=prepared.verifier)
+        assert result.state == "RECEIPT_UNVERIFIED"
+        state = coordinator.verify(result.untrusted_receipt)
+        assert state == ("RETRY_ALLOWED" if attempt == 1 else "AWAITING_APPROVAL")
+    assert ports.events == [("prepare", 1, None), ("create", "uid-1"), ("job", 1, "uid-1"),
+                            ("cleanup", "uid-1"), ("prepare", 2, "e" * 64),
+                            ("create", "uid-2"), ("job", 2, "uid-2"), ("cleanup", "uid-2")]
+    assert coordinator.attempt == 2 and provider.calls == 2

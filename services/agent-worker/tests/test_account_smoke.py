@@ -101,7 +101,7 @@ def test_subscription_tools_share_existing_policy(context, tmp_path):
     assert [e["tool"] for e in result["audit"]] == ["repo.read", "plan.propose", "model"]
     thread = session.sent[0][1]
     assert thread["environments"] == [] and thread["ephemeral"]
-    assert {tool["name"] for tool in thread["dynamicTools"]} == {"repo_read", "plan_propose"}
+    assert {tool["name"] for tool in thread["dynamicTools"]} == {"repo_read", "plan_propose", "policy_evaluate"}
     assert not thread["allowProviderModelFallback"]
 
 

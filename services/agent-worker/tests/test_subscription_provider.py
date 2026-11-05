@@ -62,7 +62,7 @@ def test_real_sdk_subscription_stream_namespaces_tools_and_collects_proposal(con
     assert calls[0]["tool_choice"] == "required"
     assert [t["name"] for t in calls[0]["tools"][0]["tools"]] == ["repo_read"]
     assert calls[1]["tool_choice"] == "auto"
-    assert {t["name"] for t in calls[1]["tools"][0]["tools"]} == {"repo_read", "plan_propose"}
+    assert {t["name"] for t in calls[1]["tools"][0]["tools"]} == {"repo_read", "plan_propose", "policy_evaluate"}
     shapes = [event for event in result["audit"] if event["reason"] == "FIRST_RESPONSE_SHAPE"]
     assert len(shapes) == 1 and shapes[0]["function_call_count"] == 1 and shapes[0]["bravo_namespace_matches"] is True
     assert shapes[0]["stream_added"] == shapes[0]["stream_done"] == shapes[0]["terminal_items"] == {"bravo_repo_read": 1}
