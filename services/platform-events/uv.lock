@@ -142,7 +142,6 @@ dev = [
     { name = "ruff" },
 ]
 trusted-host = [
-    { name = "bravo-control-gate" },
     { name = "bravo-rehearsal-runner" },
 ]
 
@@ -167,10 +166,7 @@ dev = [
     { name = "pytest", specifier = ">=8" },
     { name = "ruff", specifier = ">=0.9" },
 ]
-trusted-host = [
-    { name = "bravo-control-gate", directory = "../control-gate" },
-    { name = "bravo-rehearsal-runner", directory = "../rehearsal-runner" },
-]
+trusted-host = [{ name = "bravo-rehearsal-runner", directory = "../rehearsal-runner" }]
 
 [[package]]
 name = "bravo-rehearsal-runner"
