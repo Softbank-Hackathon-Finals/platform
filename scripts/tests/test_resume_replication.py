@@ -559,7 +559,7 @@ class BarrierProbeTests(unittest.TestCase):
             if kind in answers_lost:
                 answers_lost.remove(kind)
                 raise OSError("server closed the connection")
-            return "0/1C0001B0" if kind == "INSERT" else "0/1C000268"
+            return resume.MarkerWrite("0/1C0001B0", "0/1C000200") if kind == "INSERT" else resume.MarkerWrite("0/1C000268", "0/1C000270")
 
         report = resume.barrier_probe(write, read_target, read_source, "id-1",
                                       on_delivered=on_delivered or (lambda: stages.append("delivered")),
@@ -634,7 +634,7 @@ class BarrierProbeTests(unittest.TestCase):
         self.assertEqual(stages, [])
 
     def test_absent_target_before_apply_reaches_delete_is_still_pending(self):
-        for applied in (None, "0/1C000200"):
+        for applied in (None, "0/1C000200", "0/1C000268", "0/1C00026F"):
             with self.subTest(applied=applied):
                 report, _, _, _ = self.probe([None], answers_lost=["INSERT"], applied=applied)
                 self.assertEqual(report["cleanup"], "pending")
@@ -709,6 +709,9 @@ class FakeWriteConnection:
     def __exit__(self, *_):
         return False
 
+    def commit(self):
+        self.statements.append("COMMIT")
+
     def execute(self, statement, params=None):
         self.statements.append(statement)
         value = self.identity if statement == resume.PROBE_IDENTITY else ("0/1C0001B0",)
@@ -722,10 +725,11 @@ class WriteMarkerTests(unittest.TestCase):
         connection = FakeWriteConnection((SOURCE_ID, "chat"))
         with patch.object(resume, "connect", return_value=connection):
             position = resume.write_marker("dsn", resume.PROBE_INSERT, ("id", 0), self.IDENTITY)
-        self.assertEqual(position, "0/1C0001B0")
+        self.assertEqual(position, resume.MarkerWrite("0/1C0001B0", "0/1C0001B0"))
         self.assertEqual(connection.statements[0], resume.PROBE_IDENTITY)
         self.assertEqual(connection.statements[1], resume.MARKER_LOCK)
         self.assertEqual(connection.statements[2], resume.PROBE_INSERT)
+        self.assertEqual(connection.statements[4:6], ["COMMIT", resume.PROBE_IDENTITY])
 
     def test_a_session_on_another_cluster_or_database_writes_nothing(self):
         for seen in ((TARGET_ID, "chat"), (SOURCE_ID, "other")):
@@ -786,7 +790,7 @@ class GatherTests(unittest.TestCase):
 class RunTests(unittest.TestCase):
     def run_tool(self, state, *arguments, environ=ENVIRON):
         def write(_dsn, statement, _params, _identity):
-            return "0/6000300" if statement.startswith("INSERT") else "0/6000400"
+            return resume.MarkerWrite("0/6000300", "0/6000301") if statement.startswith("INSERT") else resume.MarkerWrite("0/6000400", "0/6000401")
 
         with (patch.object(resume, "read_one", side_effect=fake_read(state)), patch.object(resume, "enable") as enable,
               patch.object(resume, "write_marker", side_effect=write) as marker):
@@ -844,7 +848,7 @@ class RunTests(unittest.TestCase):
         def write(_dsn, statement, _params, identity):
             self.written_to = identity
             events.append("insert" if statement.startswith("INSERT") else "delete")
-            return "0/6000180" if statement.startswith("INSERT") else "0/6000190"
+            return resume.MarkerWrite("0/6000180", "0/6000181") if statement.startswith("INSERT") else resume.MarkerWrite("0/6000190", "0/6000191")
 
         with (patch.object(resume, "read_one", side_effect=read), patch.object(resume, "enable", side_effect=enable),
               patch.object(resume, "write_marker", side_effect=write)):
@@ -959,7 +963,7 @@ class RunTests(unittest.TestCase):
 
         def write(_dsn, statement, _params, _identity):
             events.append("insert" if statement.startswith("INSERT") else "delete")
-            return "0/6000190"
+            return resume.MarkerWrite("0/6000190", "0/6000191")
 
         with (patch.object(resume, "read_one", side_effect=read), patch.object(resume, "enable", side_effect=enable),
               patch.object(resume, "write_marker", side_effect=write)):
@@ -1314,7 +1318,7 @@ class CleanupMarkerTests(unittest.TestCase):
             if not delete_works:
                 raise OSError("refused")
             rows["source"] = None
-            return "0/1"
+            return resume.MarkerWrite("0/1", "0/2")
 
         with (patch.object(resume, "read_one", side_effect=read), patch.object(resume, "enable") as enable,
               patch.object(resume, "write_marker", side_effect=write)):

@@ -28,6 +28,7 @@ import sys
 import time
 import uuid
 from pathlib import Path
+from typing import NamedTuple
 
 sys.path.insert(0, str(Path(__file__).resolve().with_name("testing")))
 
@@ -243,8 +244,13 @@ class ProbeTargetChanged(RuntimeError):
     pass
 
 
+class MarkerWrite(NamedTuple):
+    before_commit: str
+    after_commit: str
+
+
 def write_marker(dsn, statement, params, identity):
-    """One committed statement. Returns the WAL position just before the commit, as in the first resume.
+    """One committed statement, with positions before and after its acknowledged COMMIT.
 
     Checked in the session that writes, because the preflight's session has gone by then: the name in
     the DSN may lead elsewhere now, and verify-full proves only which server answered.
@@ -259,7 +265,12 @@ def write_marker(dsn, statement, params, identity):
         key = int.from_bytes(hashlib.sha256(("bravo:t8:marker:v1:" + str(params[0])).encode()).digest()[:8], byteorder="big", signed=True)
         connection.execute(MARKER_LOCK, (key,))
         connection.execute(statement, params)
-        return connection.execute("SELECT pg_catalog.pg_current_wal_insert_lsn()::text").fetchone()[0]
+        before = connection.execute("SELECT pg_catalog.pg_current_wal_insert_lsn()::text").fetchone()[0]
+        connection.commit()
+        if connection.execute(PROBE_IDENTITY).fetchone() != (identity["system_identifier"], identity["database"]):
+            raise ProbeTargetChanged
+        after = connection.execute("SELECT pg_catalog.pg_current_wal_insert_lsn()::text").fetchone()[0]
+        return MarkerWrite(before, after)
 
 
 def describe(error):
@@ -565,6 +576,7 @@ def wait_for(condition, *, elapsed, timeout, poll, sleep):
 def new_marker_report(barrier_id):
     """Submissions are what was sent. Commits are what is known: 1 from an answer or a read, None if neither came."""
     return {"barrier_id": barrier_id, "protocol": MARKER_PROTOCOL, "passed": False, "insert_lsn_before_commit": None, "delete_lsn_before_commit": None,
+            "delete_lsn_after_commit": None,
             "same_row_on_both_sides_when_present": None, "source_insert_submissions": 0, "source_insert_commits": 0,
             "source_delete_submissions": 0, "source_delete_commits": 0, "barrier": None, "delete_arrived": None,
             "cleanup": "not_started"}
@@ -588,7 +600,9 @@ def remove_marker(write, read_target_row, read_source_row, report, wait, *, read
         # DELETE takes the transaction lock before examining or changing that row.
         report["source_delete_submissions"] += 1
         try:
-            report["delete_lsn_before_commit"] = write(PROBE_DELETE, (barrier_id, PROBE_EPOCH))
+            written = write(PROBE_DELETE, (barrier_id, PROBE_EPOCH))
+            report["delete_lsn_before_commit"] = written.before_commit
+            report["delete_lsn_after_commit"] = written.after_commit
         except Exception as error:  # noqa: BLE001 - See note_error(). Removing by this id can safely repeat.
             note_error(report, error)
             return False
@@ -604,7 +618,9 @@ def remove_marker(write, read_target_row, read_source_row, report, wait, *, read
             return True  # This run already observed the INSERT on the target.
         # Before INSERT was observed, target absence could simply mean that both
         # INSERT and DELETE are still in transit. Require actual apply progress.
-        floor = parse_lsn(report["delete_lsn_before_commit"])
+        # A concurrent transaction could commit past the DELETE's pre-commit
+        # position before this DELETE commits. Only the post-COMMIT position is a fence.
+        floor = parse_lsn(report["delete_lsn_after_commit"])
         applied = parse_lsn(read_target_applied()) if read_target_applied else None
         return floor is not None and applied is not None and applied >= floor
 
@@ -635,7 +651,7 @@ def barrier_probe(write, read_target_row, read_source_row, barrier_id, *, on_del
 
     report["source_insert_submissions"] = 1
     try:
-        report["insert_lsn_before_commit"] = write(PROBE_INSERT, (barrier_id, PROBE_EPOCH))
+        report["insert_lsn_before_commit"] = write(PROBE_INSERT, (barrier_id, PROBE_EPOCH)).before_commit
         report["source_insert_commits"] = 1
     except Exception as error:  # noqa: BLE001 - See note_error().
         note_error(report, error)

@@ -447,7 +447,7 @@ infra/envs/target-workloads/resume_replication.py --cleanup-marker <barrier_id> 
 
 `--cleanup-marker`는 ENABLE이나 INSERT를 하지 않는다. 행이 보이지 않아도 같은 UUID의 트랜잭션 잠금을 얻은 뒤 DELETE를 커밋하므로, 앞선 INSERT의 늦은 COMMIT을 지나쳐 정리 완료로 보고하지 않는다. 여러 번 돌려도 된다. `pending_on`이 `target`뿐이면 출발지 삭제는 끝난 것이다. 복제가 멈춰 있을 수 있으니 구독 상태를 먼저 본다. 목적지 행은 이 명령도 지우지 않는다.
 
-새 실행은 `marker.protocol=serialized-v1`을 기록한다. INSERT는 UUID에서 계산한 트랜잭션 advisory lock을 얻었다는 응답을 받은 뒤에만 제출하며, DELETE도 같은 잠금을 얻는다. 잠금 대기가 제한 시간을 넘으면 `cleanup=pending`으로 남는다. 목적지 INSERT를 관측하지 못한 실행은 행 부재에 더해 origin 적용 위치가 삭제 전 WAL 위치 이상인지 확인한다. origin을 읽을 권한이 없거나 적용이 멈췄으면 성공으로 바꾸지 않는다.
+새 실행은 `marker.protocol=serialized-v1`을 기록한다. INSERT는 UUID에서 계산한 트랜잭션 advisory lock을 얻었다는 응답을 받은 뒤에만 제출하며, DELETE도 같은 잠금을 얻는다. 잠금 대기가 제한 시간을 넘으면 `cleanup=pending`으로 남는다. 목적지 INSERT를 관측하지 못한 실행은 행 부재에 더해 origin 적용 위치가 DELETE 커밋 응답 뒤 읽은 WAL 위치 이상인지 확인한다. origin을 읽을 권한이 없거나 적용이 멈췄으면 성공으로 바꾸지 않는다.
 
 정리 명령의 `--marker-protocol`은 원래 실행 기록에서 복사한다. 이 필드가 없는 이전 도구의 기록에는 잠금 보장이 없으므로 새 명령이 거부한다. 이전 실행에 이 값을 임의로 추가하지 말고, 원래 서버 세션의 종료와 커밋 상태를 운영자가 확인한 뒤 별도로 정리한다.
 
