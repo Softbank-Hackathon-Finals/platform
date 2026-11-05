@@ -1,0 +1,56 @@
+{
+  "measured_at_kst": "2026-11-06 01:57-02:05",
+  "account": "AWS_ACCOUNT_001",
+  "region": "ap-northeast-2",
+  "bucket": "RESOURCE_NAME_001",
+  "plan_id": "plan-t24-live",
+  "run_id": "run-t24-live-11060157",
+  "terraform": {
+    "apply_1": "13 added, 0 changed, 0 destroyed",
+    "apply_2_writer_list_prefix": "0 added, 1 changed, 0 destroyed",
+    "drift_after_apply": "none (plan -detailed-exitcode 0)"
+  },
+  "identities": {
+    "write": "assumed-role/<name>-writer",
+    "verify": "assumed-role/<name>-reader",
+    "probe": "assumed-role/<name>-writer",
+    "lock_check": "SSO development administrator (custodian)"
+  },
+  "inputs": {
+    "platform.events": "1 event from bravo_platform_events.plans.PlanStore.register_plan (state.changed → COLLECT)",
+    "agent.tools": "3 events from bravo_agent.tools.Tools.dispatch: repo.read ALLOWED, rehearsal.exec DENIED DESTRUCTIVE_ATTEMPT_BLOCKED(bucket_delete), unlisted DENIED TOOL_NOT_ALLOWED"
+  },
+  "steps": {
+    "append_platform_events": {
+      "records": 1,
+      "absorbed_redeliveries": 0,
+      "chain_digest": "fc0f95d20ecc8b1d37a68ab62928d191c7a9f365f1691fc0518e58a1c9dfb4d5"
+    },
+    "append_tool_events_resumed_from_s3": {
+      "records": 3,
+      "absorbed_redeliveries": 0,
+      "chain_digest": "36692a74011ee4e6605cd4ebe80d19d3f8ba2bdc7838ef0b091a756902cae5da"
+    },
+    "redeliver_same_tool_events": {
+      "records": 0,
+      "absorbed_redeliveries": 3,
+      "chain_digest": "36692a74011ee4e6605cd4ebe80d19d3f8ba2bdc7838ef0b091a756902cae5da"
+    }
+  },
+  "stored_retention": {
+    "retention_mode": "COMPLIANCE",
+    "retain_until": "2026-11-06T16:59:06Z"
+  },
+  "verify_as_reader": {
+    "records": 4,
+    "ok": true,
+    "reason": "ok",
+    "chain_digest": "36692a74011ee4e6605cd4ebe80d19d3f8ba2bdc7838ef0b091a756902cae5da"
+  },
+  "custodian_on_locked_version": {
+    "delete_version": "AccessDenied (object protected by object lock)",
+    "shorten_compliance_retention": "AccessDenied (object protected by object lock)",
+    "switch_to_governance": "AccessDenied (object protected by object lock)",
+    "head_after": "COMPLIANCE, retain-until unchanged, SSE aws:kms"
+  }
+}
