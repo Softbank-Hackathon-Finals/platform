@@ -1,6 +1,6 @@
 # T43 플랫폼 GitOps 인수
 
-첫 대상은 T10 등록 API다. [ADR-0028](../../adr/0028-platform-gitops-delivery.md),
+첫 대상은 T10 등록 API다. [ADR-0029](../../adr/0029-platform-gitops-delivery.md),
 [운영 절차](../../../infra/gitops/README.md), [T43 #355](https://github.com/Softbank-Hackathon-Finals/platform/issues/355)를 따른다.
 기존 T31 제품 앱 배포와 다른 작업이다.
 
