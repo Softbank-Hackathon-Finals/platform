@@ -204,6 +204,7 @@ inventory, not a prefix wildcard or a reason to delete either side's objects.
 복사한다. 출발지에는 쓰지 않고 목적지의 기존 객체를 덮어쓰지 않으며, 다시 돌려도 안전하다.
 실제 S3 · 실제 SeaweedFS 배포 · Tailscale 경로에서는 아직 재지 않았다
 ([증거](../../../docs/evidence/t8-attachment-sync-2026-11-04/README.md)).
+대상 클러스터에서 Job으로 돌리는 방법과 결과 판정은 [첨부 복사 Job 안내](../../../docs/operations/t8-attachment-copy-job.md)에 있다.
 
 | 파일 | 역할 |
 | --- | --- |
