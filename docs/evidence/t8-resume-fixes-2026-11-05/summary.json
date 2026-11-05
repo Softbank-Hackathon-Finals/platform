@@ -1,9 +1,9 @@
 {
-  "source_revision": "6d5c2f52e12113a88f79ef5e9876f7ed4705a85a",
+  "source_revision": "4a35e035fb58e855e54ffa1ae83cb32a68f54fcc",
   "source_files": [
     {
       "path": "infra/envs/target-workloads/resume_replication.py",
-      "sha256": "f661044355bae8f19d0f8b1345b979dd4356d40cfbd724fadb05b5ea00f00531"
+      "sha256": "f24bb22918cca7a1dbf78a0baaf5e9cbe54dc360042ca9646270e7f3eae068f6"
     },
     {
       "path": "infra/envs/target-workloads/testing/replication_resume_lab.py",
@@ -15,7 +15,7 @@
     },
     {
       "path": "scripts/tests/test_resume_replication.py",
-      "sha256": "7460246014a990918343871e434fe0f371e08ddff635eeca3ca6b0240236bf74"
+      "sha256": "6c5ba650ad1411014104130632b550bfe983b5dd2587f7c5d73d0a602580d5e3"
     }
   ],
   "measured_date": "2026-11-05",
@@ -78,7 +78,8 @@
           "target": 0
         }
       },
-      "backlog_bytes": 86076288
+      "backlog_bytes": 86076288,
+      "source_revision": "6d5c2f52e12113a88f79ef5e9876f7ed4705a85a"
     },
     "failure_paths": {
       "resumed_by_hand_first": true,
@@ -99,7 +100,9 @@
       "run": 740,
       "skipped": 7,
       "failed": 0
-    }
+    },
+    "failure_paths_revision": "6d5c2f52e12113a88f79ef5e9876f7ed4705a85a",
+    "final_reporting_change": "DELETE outcome also remains null when its response is lost; unit, TLS wire and repository tests rerun on final source."
   },
   "cloud_app_tls": {
     "source_revision": "555956b56e4f22b49036e2a9ed0fcd3f7f97eb79",
@@ -408,6 +411,11 @@
       "artifact": "repository-tests-final.log",
       "sha256": "fdfe6267bb2f9d6774aca56354200b7428274d23e4be84c3d95d1ea1d3ce4cd5",
       "visibility": "private; sanitized findings recorded here"
+    },
+    {
+      "artifact": "repository-tests-final-head.log",
+      "sha256": "a7550f0ac0c07f1b2fb21b43b5c6d476d7a417e8bc68d135866be4f841653795",
+      "visibility": "private; 740 tests,7 skipped,0 failures"
     }
   ]
 }
