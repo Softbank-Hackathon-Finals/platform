@@ -1,4 +1,4 @@
-"""T7 runtime DB -> T10 gate storage. Synthetic UNKNOWN input, no target run.
+"""T7 runtime DB -> T10 gate storage. Optional retained source, no target run.
 
 Run only as an owned, bounded cluster Job with the existing runtime DB/CA
 mounts. The unique verification-only plan remains as append-only test evidence;
@@ -26,7 +26,7 @@ from bravo_platform_events.postgres import PostgresPlanStore
 from bravo_platform_events.store import EventError
 
 
-def verify(conninfo, probe_id):
+def verify(conninfo, probe_id, source=None):
     if not re.fullmatch(r"t10-gate-probe-[a-z0-9-]{8,40}", probe_id):
         raise ValueError("invalid_probe_id")
     checks = {}
@@ -42,7 +42,16 @@ def verify(conninfo, probe_id):
         return dict(status="FAIL", stage="runtime_preflight", checks=checks, plan_written=False)
     now = datetime.now(UTC)
     store = PostgresPlanStore(conninfo)
-    plan = PlanSpec(probe_id, "verification-only", "gate-storage-probe", "probe-source",
+    if source is not None:
+        if not isinstance(source, RunSnapshot):
+            raise ValueError("invalid_source_snapshot")
+        T5Contract().validate(source.document, "control_run")
+        if source.document["environment"]["role"] != "source":
+            raise ValueError("source_role_required")
+    source_doc = source.document if source is not None else None
+    plan = PlanSpec(probe_id, "verification-only",
+                    source_doc["app"] if source_doc else "gate-storage-probe",
+                    source_doc["environment"]["id"] if source_doc else "probe-source",
                     "probe-target", "a" * 64, "b" * 64)
     store.register_plan(plan, run_id=probe_id, occurred_at=now.isoformat())
     principal = OperatorPrincipal("gate-probe-operator", plan.tenant_id, int(now.timestamp()),
@@ -72,7 +81,7 @@ def verify(conninfo, probe_id):
             dict(test_id="ENC-01.1", control_id="ENC-01", method_version="1", expected="allow",
                  observed=None, positive_control="not_applicable", verdict="UNKNOWN",
                  unknown_reason="NOT_RUN", evidence=None)])
-    snapshot = RunSnapshot(document["run_id"], canonical(document))
+    snapshot = source if source is not None else RunSnapshot(document["run_id"], canonical(document))
     first = records.record_run(principal, plan.plan_id, "source", snapshot)
     checks["duplicate_is_idempotent"] = first == records.record_run(principal, plan.plan_id, "source", snapshot)
     records.store = store = PostgresPlanStore(conninfo)
@@ -80,7 +89,7 @@ def verify(conninfo, probe_id):
         current = dict(c.execute("SELECT * FROM plans WHERE plan_id=?", (plan.plan_id,)).fetchone())
         stored = records.read_run(c, principal, current, snapshot.ref)
         checks["reconnect_original_hash"] = stored.fingerprint == snapshot.fingerprint
-        checks["unknown_preserved"] = stored.document["results"][0]["verdict"] == "UNKNOWN"
+        checks["original_verdicts_preserved"] = stored.document["results"] == snapshot.document["results"]
         try:
             records.read_run(c, replace(principal, tenant_id="other-tenant"), current, snapshot.ref)
         except EventError as error:
@@ -89,7 +98,7 @@ def verify(conninfo, probe_id):
             checks["other_tenant_denied"] = False
     ctx = GateContext(plan.tenant_id, plan.workload_id, "probe-gate", plan.plan_digest,
         "full", "1", T5Contract().catalog_digest, plan.source_environment_id,
-        "verification/source", plan.target_environment_id, "verification/target", snapshot.ref,
+        snapshot.document["environment"]["ref"], plan.target_environment_id, "verification/target", snapshot.ref,
         "missing-target", snapshot.fingerprint, "c" * 64)
     try:
         records.bind(principal, plan.plan_id, "probe-context", ctx, expected_revision=0)
@@ -122,7 +131,10 @@ def verify(conninfo, probe_id):
                 checks=checks, check_count=len(checks), server_version=version,
                 state_schema_versions=[row[0] for row in schema_version],
                 retained_plan_id=probe_id, source_digest=snapshot.fingerprint,
-                scope="cluster_runtime_storage_with_synthetic_UNKNOWN_and_missing_target",
+                scope="cluster_runtime_storage_with_missing_target",
+                retained_source_supplied=source is not None,
+                source_verdicts={verdict:sum(r["verdict"] == verdict for r in snapshot.document["results"])
+                                 for verdict in ("PASS", "FAIL", "UNKNOWN")},
                 real_target_result=False, operational_gate_accepted=False, executor_calls=0)
 
 
@@ -131,7 +143,12 @@ if __name__ == "__main__":
         conninfo = make_conninfo(host="platform-db-rw.platform-state.svc", port=5432, dbname="platform",
             user=Path("/credential/username").read_text(), password=Path("/credential/password").read_text(),
             sslmode="verify-full", sslrootcert="/ca/ca.crt", connect_timeout=5)
-        result = verify(conninfo, os.environ["BRAVO_PROBE_ID"])
+        source = None
+        if os.environ.get("BRAVO_PROBE_SOURCE_PATH"):
+            raw = Path(os.environ["BRAVO_PROBE_SOURCE_PATH"]).read_bytes()
+            from bravo_gate.contract import decode
+            source = RunSnapshot(decode(raw)["run_id"], raw)
+        result = verify(conninfo, os.environ["BRAVO_PROBE_ID"], source)
         print(json.dumps(result))
         raise SystemExit(0 if result["status"] == "PASS" else 1)
     except Exception as error:

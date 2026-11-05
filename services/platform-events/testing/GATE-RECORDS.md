@@ -44,8 +44,11 @@ T19 판정·생산자 신뢰 거부를 검사한다. 통제 시험 입력과 인
 사용하고, DB TLS·제한된 runtime 역할·영속 저장·재접속·권한 회수·목적지 누락을
 검사한다. 기존 업무 DB나 계획을 변경하지 않으며 Executor를 호출하지 않는다.
 
-이 probe는 `verification-only` 테넌트에 **UNKNOWN/NOT_RUN인 합성 출발지 입력만**
-저장한다. 목적지 실측을 만들어 채우지 않는다. 원문과 권한 회수 이력은 기존
+기본 입력은 **UNKNOWN/NOT_RUN인 합성 출발지**다. 생산자에게 원문과 hash를
+인수했다면 검토한 원문 파일을 `BRAVO_PROBE_SOURCE_PATH`에 읽기 전용으로
+마운트할 수 있다. 이 경우 입력을 수정하지 않고 그 판정·정규화 hash를 대조한다.
+두 경우 모두 `verification-only` 계획이며 실제 운영 환경 등록을 대신하지 않는다.
+목적지 실측을 만들어 채우지 않는다. 원문과 권한 회수 이력은 기존
 append-only 정책대로 남긴다. Job·ConfigMap·전용 NetworkPolicy는 실행자가
 생성 응답 UID로 정리하고 부재를 확인한다. 공유 Secret·권한·Deployment는 바꾸지 않는다.
 클러스터의 저장 경로 통과를 실제 양쪽 T14 결과, T19 전체 PASS, 사람 로그인이나
