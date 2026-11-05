@@ -20,6 +20,9 @@ class PlanSpec:
     target_environment_id: str
     plan_digest: str
     collection_scope_digest: str
+    # Absent only on legacy plans/trusted fixtures. Such plans cannot bind T19.
+    profile_id: str | None = None
+    profile_version: str | None = None
 
 
 @dataclass(frozen=True)
@@ -48,6 +51,12 @@ def _canonical(value: dict) -> str:
 def _digest(value: str) -> None:
     if not isinstance(value, str) or not re.fullmatch("[0-9a-f]{64}", value):
         raise ValueError("invalid_digest")
+
+
+def validate_profile(profile_id, profile_version):
+    for value in (profile_id, profile_version):
+        if not isinstance(value, str) or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,127}", value):
+            raise ValueError("invalid_evaluation_profile")
 
 
 class PlanStore(EventStore):
@@ -88,8 +97,16 @@ class PlanStore(EventStore):
 
     def _register_in_transaction(self, c, spec, *, run_id, occurred_at):
         values = asdict(spec)
+        if spec.profile_id is None and spec.profile_version is None:
+            # Preserve the original canonical bytes on legacy registration replay.
+            values.pop("profile_id")
+            values.pop("profile_version")
+        else:
+            validate_profile(spec.profile_id, spec.profile_version)
         for key, value in values.items():
-            if key.endswith("_digest"):
+            if key in {"profile_id", "profile_version"}:
+                continue
+            elif key.endswith("_digest"):
                 _digest(value)
             else:
                 validate_identifier(value)

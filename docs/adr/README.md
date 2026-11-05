@@ -17,6 +17,7 @@
 | 8.4 `rehearsal.exec` AI 공간과 채점 공간 분리 · 러너 순서(T15) | [0025 rehearsal.exec 공간 분리와 순서](0025-rehearsal-exec-spaces-and-order.md) |
 | 8.4 · 8.6 `rehearsal.exec` 기록 범위와 실패 처리 · 사유 전달(T15) | [0026 rehearsal.exec 기록과 실패 처리](0026-rehearsal-exec-records-and-failures.md) |
 | 7.3·8.5 보안 결과 형식·인증 | [0001 탐지 결과 형식](0001-security-finding-format.md), [0005 T33 보안 경계](0005-t33-security-boundary.md) |
+| 8.5·8.9 등록 앱 식별자와 계획의 평가 프로필(T10·T14·T19) | [0027 계획과 평가 프로필 결속](0027-plan-evaluation-profile.md) |
 | 8.6 Executor 구현·실행·실패·권한 | [0006 Python 선택](0006-cutover-executor-language.md), [0011 실행 기록과 실패 판정](0011-cutover-executor-execution-and-failure.md), [0013 워크로드 접근](0013-executor-workload-access.md) |
 | 6장 S4 · 8.6 되돌리기 전 복제 경로 확인 | [0016 되돌리기 전 복제 경로 확인](0016-failback-replication-path-check.md) |
 | 6장 S4 · 8.2 · 8.7 되돌리기 상태 머신 흐름(승인 · 전용 binding · ABORT 뒤 상태 · Edge만 재시도 · 기록) | [0022 되돌리기 상태 머신 흐름](0022-failback-state-machine-flow.md) |
