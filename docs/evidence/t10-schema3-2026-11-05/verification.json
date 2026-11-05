@@ -1,0 +1,68 @@
+{
+  "schema_version": 1,
+  "scope": "T10 storage schema 3 readiness; not operational registration or complete product E2E",
+  "runtime_before": {
+    "schema": 2,
+    "consumer_postgres_accepts": [
+      1,
+      2
+    ],
+    "window_startup_accepts": [
+      2
+    ],
+    "reader_checks_source_sha256": {
+      "postgres": "b2bdb915ccc7898d991d03a06d39fce391c76afeada2cfb3ac4981acbab32371",
+      "window_server": "f9aefddea7555f8fe5dde4e0493cb7b0ed09626ae674db15b6ec1f04f07f703a"
+    }
+  },
+  "backup_restore": {
+    "backup_sha256": "fbd86f7c93f176e3953615225185f2b3bab015d9f45491e01302b0bb4acc4077",
+    "snapshot_sha256": "5e02ccbbc09c62cbd98c69805c840b778e07b3e9c93cf1a9e3559241a34843a5",
+    "checks": {
+      "database": true,
+      "roles": true,
+      "columns": true,
+      "constraints": true,
+      "privileges": true,
+      "tables": true,
+      "sequences": true
+    },
+    "migration_probe": {
+      "schema_3": true,
+      "existing_rows_unchanged": true,
+      "new_table_empty": true,
+      "runtime_insert_select_only": true,
+      "repeat_rejected": true,
+      "migration_sha256": "a36a65b53928f2e332d625a41b4cc28425d8b0292210e12fc01e0cb7a61b32b2",
+      "role": "platform_migration"
+    },
+    "source_database_writes": 0,
+    "plaintext_files": 0,
+    "role_passwords_in_dump": false,
+    "isolated_container_absent": true
+  },
+  "image": {
+    "image": "bravo-window-intake:source-45a91c5598e54eb66e440bb474e8a2f467e89a4a89c4250e54603c915f567cad",
+    "image_id": "sha256:bdb18371899682ecac3a71b37ec0b68701d08f07a3efffc691d0eb96809a8755",
+    "archive_sha256": "aa787e1b450a9804a810ded93c15a9ddfee3f08314d8170e017f57ed3f048c9b",
+    "upstream_revision": "020c6c78bdc6133ab0ee15e2a990bb9527b3182f"
+  },
+  "local_validation": {
+    "platform_passed": 996,
+    "platform_skipped": 2,
+    "focused_passed": 116,
+    "final_job_tests_passed": 8
+  },
+  "runtime_after": {
+    "image_rollout": "pending",
+    "schema_migration": "pending",
+    "actual_registrations": "pending",
+    "complete_product_e2e": false
+  },
+  "remaining": [
+    "compatible receiver deployment before migration",
+    "current human authentication and server-owned tenant grant",
+    "live environment and release verification",
+    "same actual plan and source/target T19 raw evidence"
+  ]
+}
