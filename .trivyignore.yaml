@@ -1,5 +1,9 @@
 # Reviewed exceptions apply only to these files, never the whole repository.
 misconfigurations:
+  - id: AVD-KSV-0056
+    paths:
+      - infra/gitops/argocd/templates/registration-rbac.yaml
+    statement: T43 controller manages only the named t10-registration Service. Named update/delete RBAC plus fail-closed ValidatingAdmissionPolicy constrain create to that name and ClusterIP; no NodePort or LoadBalancer. Controller cannot modify the admission policy.
   - id: AVD-KSV-0053
     paths:
       - services/rehearsal-runner/templates/20-rbac.yaml

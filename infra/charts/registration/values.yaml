@@ -1,0 +1,22 @@
+image:
+  repository: ghcr.io/softbank-hackathon-finals/platform-registration
+  digest: ""
+sourceRevision: ""
+configuration:
+  existingConfigMap: t10-registration-config
+  sha256: ""
+secrets:
+  database: platform-runtime-db
+  databaseCA: platform-db-ca
+  collectors: t10-registration-collectors
+  tls: t10-registration-tls
+  registry: platform-ghcr-reader
+# Private operational inputs are supplied by the reviewed bootstrap, never a token.
+hostAliases: []
+resources:
+  requests:
+    cpu: 100m
+    memory: 192Mi
+  limits:
+    cpu: "1"
+    memory: 512Mi

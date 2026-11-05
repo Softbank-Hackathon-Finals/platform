@@ -17,7 +17,9 @@ CONDITIONS = {
     "100mbit-rtt30": {"mbit": 100, "rtt_ms": 30},
     "20mbit-rtt30": {"mbit": 20, "rtt_ms": 30},
 }
-# Same limits and timeouts as the actual CNPG clusters: render.py resources and CNPG 1.30.1 defaults.
+# render.py's resource limits. The timeouts are CNPG 1.30.1's 5 s default, the setting in place during the
+# 11/3 to 11/6 incidents, which the recovery labs reproduce on purpose. render.py now asks for 30 s
+# (REPLICATION_TIMEOUTS); a lab that measures that passes it in.
 DB_LIMITS = ("--cpus", "1", "--memory", "1g")
 DB_PARAMETERS = {"wal_level": "logical", "wal_sender_timeout": "5s", "wal_receiver_timeout": "5s",
                  "max_slot_wal_keep_size": "1GB"}
@@ -64,6 +66,25 @@ def shaping_script(interface, shaping):
     return (f"ethtool -K {interface} tso off gso off && "
             f"tc qdisc replace dev {interface} root netem delay {delay_ms}ms rate {rate} "
             f"limit {queue_packets(shaping['mbit'], delay_ms)}")
+
+
+STALL_QUEUE_PACKETS = 100_000
+
+
+def stall_script(interface, shaping, extra_delay_ms=0, loss_pct=0):
+    """Change the shaped link in place: extra one-way delay holds packets, loss drops them.
+
+    'change' keeps the packets already queued, so ending a stall releases them instead of flushing them.
+    The deep queue keeps a stall from turning into loss.
+    """
+    require_interface(interface)
+    if not shaping:
+        raise ValueError("a stall changes an existing netem rule; start the lab with shaping")
+    if type(extra_delay_ms) is not int or extra_delay_ms < 0 or type(loss_pct) is not int or not 0 <= loss_pct <= 100:
+        raise ValueError("whole milliseconds and a whole loss percentage required")
+    loss = f" loss {loss_pct}%" if loss_pct else ""
+    return (f"tc qdisc change dev {interface} root netem delay {shaping['rtt_ms'] // 2 + extra_delay_ms}ms "
+            f"rate {shaping['mbit']}mbit limit {STALL_QUEUE_PACKETS}{loss}")
 
 
 def minimum_transfer_ms(wire_bytes, mbit):
@@ -187,6 +208,10 @@ class Lab:
 
     def link_up(self):
         self._link(lambda interface: link_up_script(interface, self.shaping))
+
+    def reshape(self, extra_delay_ms=0, loss_pct=0):
+        """Stall, cut or restore the shaped link without replacing its rule; see stall_script."""
+        self._link(lambda interface: stall_script(interface, self.shaping, extra_delay_ms, loss_pct))
 
     def log_lines(self, side):
         # The database logs to stderr, which docker() does not return.

@@ -72,6 +72,27 @@ def test_candidate_gaps_are_shown_only_when_there_are_some():
     assert "목적지에 없는 기능" not in render_markdown(build_map(clean_view, clean_plan, None))
 
 
+def test_map_shows_what_the_inventory_could_not_trace():
+    """출발지 배포를 못 읽은 인벤토리로 만든 지도는 그 사실을 지도 안에서 말해야 한다."""
+    doc = inventory_doc()
+    doc["deploy"]["notes"] = ["배포 추적 없음: 어댑터 미지정", "줄 | 바꿈\n있음"]
+    plan, view = plan_and_view(redigest(doc))
+    result = build_map(view, plan, None)
+    assert result["inventory_trace_notes"] == ["배포 추적 없음: 어댑터 미지정", "줄 | 바꿈\n있음"]
+    markdown = render_markdown(result)
+    assert "## 인벤토리 추적 메모 (2)" in markdown
+    assert "- 배포 추적 없음: 어댑터 미지정" in markdown
+    assert "- 줄 \\| 바꿈 있음" in markdown
+    assert markdown.index("인벤토리 추적 메모") < markdown.index("## 남음")
+
+
+def test_map_without_trace_notes_has_no_trace_section():
+    plan, view = plan_and_view()
+    result = build_map(view, plan, None)
+    assert result["inventory_trace_notes"] == []
+    assert "인벤토리 추적 메모" not in render_markdown(result)
+
+
 def test_every_inventory_item_appears_with_its_grade():
     plan, view = plan_and_view()
     got = entries(build_map(view, plan, None))

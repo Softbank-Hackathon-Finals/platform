@@ -1,0 +1,40 @@
+{
+  "application_id": "pol-c-0002",
+  "approval_id": "approval-pol-c-0002",
+  "change": null,
+  "cluster": "kubectl",
+  "cluster_mutation_attempted": false,
+  "deadline_at": null,
+  "deployed_digest": null,
+  "finished_at": "2026-11-05T18:14:25.594849Z",
+  "gate_recheck": null,
+  "job_passed": false,
+  "observed_digests": [],
+  "outcome": "REFUSED",
+  "plan_id": "plan-kind",
+  "policy": null,
+  "previous_image": null,
+  "reason": "DIFF_HASH_MISMATCH",
+  "schema_version": "1.2",
+  "started_at": "2026-11-05T18:14:25.594672Z",
+  "steps": [
+    {
+      "detail": "DIFF_HASH_MISMATCH",
+      "status": "refused",
+      "step": "binding"
+    }
+  ],
+  "target": {
+    "bucket": "demo-chat-attachments",
+    "container": "seaweedfs",
+    "endpoint": "RESOURCE_NAME_001",
+    "kind": "bucket_policy",
+    "namespace": "target-dev",
+    "policy_bucket": "bravo-rehearsal-objects",
+    "probe_key": "t31/probe.txt",
+    "secret": "target-seaweedfs-auth",
+    "secret_key": "s3.json",
+    "workload": "target-seaweedfs"
+  },
+  "verification_id": "verify-pol-c-0002"
+}

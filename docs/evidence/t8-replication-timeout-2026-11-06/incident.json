@@ -1,0 +1,192 @@
+{
+ "read": "2026-11-06, read only: kubectl logs --since=12h of each CNPG instance and pg_settings in a READ ONLY transaction",
+ "kept": "UTC times, fixed event labels, SQLSTATE, walsender session length and setting values; no message text, address, role or row value",
+ "log_windows_utc": {
+  "target": [
+   "2026-11-05 16:48:26.645 UTC",
+   "2026-11-05 19:05:38.095 UTC"
+  ],
+  "source": [
+   "2026-11-05 14:46:46.043 UTC",
+   "2026-11-05 19:05:56.063 UTC"
+  ]
+ },
+ "forward_events": {
+  "target": [
+   {
+    "at": "2026-11-05 17:59:23.386 UTC",
+    "event": "worker_started",
+    "sqlstate": "00000"
+   },
+   {
+    "at": "2026-11-05 18:45:36.753 UTC",
+    "event": "receiver_timeout",
+    "sqlstate": "08006"
+   },
+   {
+    "at": "2026-11-05 18:45:36.808 UTC",
+    "event": "worker_started",
+    "sqlstate": "00000"
+   },
+   {
+    "at": "2026-11-05 18:49:41.873 UTC",
+    "event": "receiver_timeout",
+    "sqlstate": "08006"
+   },
+   {
+    "at": "2026-11-05 18:49:41.940 UTC",
+    "event": "worker_started",
+    "sqlstate": "00000"
+   }
+  ],
+  "source": [
+   {
+    "at": "2026-11-05 17:59:53.676 UTC",
+    "event": "walsender_session_ended",
+    "session_time": "0:00:01.020"
+   },
+   {
+    "at": "2026-11-05 18:45:36.786 UTC",
+    "event": "sender_timeout",
+    "sqlstate": "00000"
+   },
+   {
+    "at": "2026-11-05 18:45:36.787 UTC",
+    "event": "walsender_session_ended",
+    "session_time": "0:46:12.569"
+   },
+   {
+    "at": "2026-11-05 18:49:41.905 UTC",
+    "event": "sender_timeout",
+    "sqlstate": "00000"
+   },
+   {
+    "at": "2026-11-05 18:49:41.906 UTC",
+    "event": "walsender_session_ended",
+    "session_time": "0:03:53.695"
+   }
+  ]
+ },
+ "source_walsender_records_per_hour": {
+  "2026-11-05 17:00Z": 8,
+  "2026-11-05 18:00Z": 14
+ },
+ "settings": {
+  "target": {
+   "tcp_keepalives_count": {
+    "setting": "0",
+    "unit": null,
+    "context": "user",
+    "source": "default",
+    "pending_restart": false
+   },
+   "tcp_keepalives_idle": {
+    "setting": "0",
+    "unit": "s",
+    "context": "user",
+    "source": "default",
+    "pending_restart": false
+   },
+   "tcp_keepalives_interval": {
+    "setting": "0",
+    "unit": "s",
+    "context": "user",
+    "source": "default",
+    "pending_restart": false
+   },
+   "tcp_user_timeout": {
+    "setting": "0",
+    "unit": "ms",
+    "context": "user",
+    "source": "default",
+    "pending_restart": false
+   },
+   "wal_receiver_status_interval": {
+    "setting": "10",
+    "unit": "s",
+    "context": "sighup",
+    "source": "default",
+    "pending_restart": false
+   },
+   "wal_receiver_timeout": {
+    "setting": "5000",
+    "unit": "ms",
+    "context": "sighup",
+    "source": "configuration file",
+    "pending_restart": false
+   },
+   "wal_retrieve_retry_interval": {
+    "setting": "5000",
+    "unit": "ms",
+    "context": "sighup",
+    "source": "default",
+    "pending_restart": false
+   },
+   "wal_sender_timeout": {
+    "setting": "5000",
+    "unit": "ms",
+    "context": "user",
+    "source": "configuration file",
+    "pending_restart": false
+   }
+  },
+  "source": {
+   "tcp_keepalives_count": {
+    "setting": "0",
+    "unit": null,
+    "context": "user",
+    "source": "default",
+    "pending_restart": false
+   },
+   "tcp_keepalives_idle": {
+    "setting": "0",
+    "unit": "s",
+    "context": "user",
+    "source": "default",
+    "pending_restart": false
+   },
+   "tcp_keepalives_interval": {
+    "setting": "0",
+    "unit": "s",
+    "context": "user",
+    "source": "default",
+    "pending_restart": false
+   },
+   "tcp_user_timeout": {
+    "setting": "0",
+    "unit": "ms",
+    "context": "user",
+    "source": "default",
+    "pending_restart": false
+   },
+   "wal_receiver_status_interval": {
+    "setting": "10",
+    "unit": "s",
+    "context": "sighup",
+    "source": "default",
+    "pending_restart": false
+   },
+   "wal_receiver_timeout": {
+    "setting": "5000",
+    "unit": "ms",
+    "context": "sighup",
+    "source": "configuration file",
+    "pending_restart": false
+   },
+   "wal_retrieve_retry_interval": {
+    "setting": "5000",
+    "unit": "ms",
+    "context": "sighup",
+    "source": "default",
+    "pending_restart": false
+   },
+   "wal_sender_timeout": {
+    "setting": "5000",
+    "unit": "ms",
+    "context": "user",
+    "source": "configuration file",
+    "pending_restart": false
+   }
+  }
+ }
+}

@@ -59,6 +59,15 @@ standard library and performs no cluster or cloud API calls.
    validates the namespace, image, retained-volume selection and service
    selectors, and replaces the chart's default skip-verification readiness
    command with verified TLS. Do not apply the unprocessed Helm output.
+   `bao-values` also sets the readiness probe to timeout 10 s, period 10 s and
+   failure threshold 3 (chart 0.30.6 defaults: 3 s, 5 s, 2). The TLS-verified
+   `bao status -format=json` took longer than 3 s on the target and Ready
+   flapped. `finalize-bao` refuses a StatefulSet with any other timing, so a
+   render without `bao-values` fails instead of shipping the defaults.
+   The server requests 250m CPU with a 1-core limit (memory 128Mi/512Mi). At
+   the earlier 50m/500m the target's `bao status` median was 4.38 s; after the
+   increase it was 1.73 s with no memory pressure. `finalize-bao` refuses any
+   other resources block the same way.
 6. Render `eso-values`, establish its CRDs, then install its controllers. Create
    OpenBao (`network`) and ESO (`eso-network`) NetworkPolicies using both the
    actual API Service address and its endpoint address. The policy accommodates

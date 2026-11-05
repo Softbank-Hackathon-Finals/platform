@@ -1,0 +1,17 @@
+{
+  "source_revision": "5064e92e993c5ea3b7ac2dc49581efdb78b53fc5",
+  "source_files": [
+    {
+      "path": "services/control-runner/src/bravo_controls/audit_probes.py",
+      "sha256": "2bfa2032134b29f9eb2b73de17d70e10577cd4243e23d5955808d80082d6df99"
+    },
+    {
+      "path": "services/control-runner/src/bravo_controls/runner.py",
+      "sha256": "0070c448d12aba94a35630243fce5223840250d99cecc876a021401e304d3ae1"
+    },
+    {
+      "path": "services/control-runner/tests/test_audit_probes.py",
+      "sha256": "a38a29c042d2c239ef493fb0a464fbfe93f5eb9c506ffdda4c29717eabf80600"
+    }
+  ]
+}

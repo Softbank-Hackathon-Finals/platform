@@ -11,6 +11,11 @@ Entry points for T10 (contract "반영 접수와 재시작", ADR-0021 §7):
 Before the first cluster call a STARTED record (outcome ``UNKNOWN``) is created atomically and
 exclusively. It is replaced by the final outcome when the run finishes. If the process dies in
 between, the record stays ``UNKNOWN``: nobody patches again, a person compares the Deployment.
+
+The approved binding decides the branch (``change_kind``): an app image change patches the app
+Deployment to the rehearsal-verified digest; a bucket-policy change (``policy.py``) replaces the
+SeaweedFS ``s3.json`` Secret and rolls that workload, and never changes an image. Both branches
+share the record, the STARTED rule, REFUSED/SAFE_HOLD/UNKNOWN and ``get_result``.
 """
 
 from __future__ import annotations
@@ -27,18 +32,30 @@ from pathlib import Path
 
 import jsonschema
 
-from .binding import IDENTIFIER, BindingError, verify_claim
+from .binding import APP_IMAGE, BUCKET_POLICY, IDENTIFIER, POLICY_PATH, BindingError, verify_claim
 from .deploy import DeployMismatch, Kube, KubectlKube, apply_pinned_image
+from .policy import (
+    PROBE_WINDOW_SECONDS,
+    PolicyRefused,
+    PolicyTarget,
+    apply_bucket_policy,
+    load_t9,
+    translate_policy,
+)
 
-SCHEMA_VERSION = "1.1"
+SCHEMA_VERSION = "1.2"
 
 # Controls the gate must ask again after the application changed how it reaches secrets and
 # objects (docs/controls/README.md). The gate decides; T31 only requests the recheck.
 GATE_RECHECK_TESTS = ["SEC-01.1", "IAM-01.1", "ENC-01.1"]
+# A bucket-policy change only changes who may read attachment objects.
+POLICY_GATE_RECHECK_TESTS = ["IAM-01.1"]
 
 # A STARTED record older than this cannot still be running: rollout wait + 30 s, plus four
 # other kubectl calls of at most KubectlKube.CALL_SECONDS each, plus slack.
 _DEADLINE_SLACK = timedelta(seconds=30 + 4 * KubectlKube.CALL_SECONDS + 60)
+# The bucket-policy branch also waits for two probes (anonymous, signed) after the rollout.
+_POLICY_PROBE_SLACK = timedelta(seconds=2 * (PROBE_WINDOW_SECONDS + 15))
 
 
 class RecordUnreadable(RuntimeError):
@@ -55,7 +72,7 @@ class ApplyOutcome:
     plan_id: str
     outcome: str  # APPLIED | REFUSED | SAFE_HOLD | UNKNOWN (started, no final record)
     reason: str
-    change: dict | None  # None until the binding is verified
+    change: dict | None  # None until the binding is verified; bucket policy adds change_kind · policy_digest
     deployed_digest: str | None
     job_passed: bool
     gate_recheck: dict | None
@@ -68,6 +85,7 @@ class ApplyOutcome:
     deadline_at: str | None
     finished_at: str | None
     steps: list[dict] = field(default_factory=list)
+    policy: dict | None = None  # bucket-policy branch only: s3.json digests and probe answers; absent in 1.1
 
     def as_dict(self) -> dict:
         return asdict(self)
@@ -83,8 +101,13 @@ class ApplyOutcome:
         unless a unit test asks for it explicitly."""
         if self.outcome != "APPLIED" or (self.cluster == "fake" and not allow_fake):
             return None
-        return {"change": dict(self.change), "verification_id": self.verification_id, "approval_id": self.approval_id,
-                "application_id": self.application_id, "job_passed": self.job_passed, "deployed_digest": self.deployed_digest}
+        out = {"change": dict(self.change), "verification_id": self.verification_id, "approval_id": self.approval_id,
+               "application_id": self.application_id, "job_passed": self.job_passed, "deployed_digest": self.deployed_digest}
+        if self.change.get("change_kind") == BUCKET_POLICY:
+            # No image was deployed, so there is no deployed digest to report. T10 must compare
+            # applied_policy_digest with change.policy_digest instead (README "T10에 돌려주는 것").
+            out["applied_policy_digest"] = self.change["policy_digest"]
+        return out
 
     def failure_report(self) -> dict | None:
         """What T10 and a person need when the change is not applied: REFUSED, SAFE_HOLD or
@@ -96,6 +119,7 @@ class ApplyOutcome:
                 "change": None if self.change is None else dict(self.change), "cluster": self.cluster,
                 "cluster_mutation_attempted": self.cluster_mutation_attempted,
                 "previous_image": self.previous_image, "observed_digests": list(self.observed_digests),
+                "policy": None if self.policy is None else dict(self.policy),
                 "deadline_at": self.deadline_at, "finished_at": self.finished_at}
 
 
@@ -183,14 +207,19 @@ def _replace_record(directory: Path, result: ApplyOutcome) -> None:
 
 
 def apply(application_id: str, claim: dict, proposal: dict, *, kube: Kube, receipts_dir: Path,
-          target_environment_id: str, namespace: str, deployment: str, container: str, repository: str,
+          target_environment_id: str, namespace: str = "", deployment: str = "", container: str = "app",
+          repository: str = "", policy_target: PolicyTarget | None = None,
           sources: dict[str, str] | None = None, diff: bytes | None = None, now: datetime | None = None,
-          timeout_seconds: int = 300, clock: Callable[[], datetime] | None = None) -> ApplyOutcome:
+          timeout_seconds: int = 300, clock: Callable[[], datetime] | None = None,
+          policy_hooks: dict | None = None) -> ApplyOutcome:
     """Apply the approved change at most once per ``application_id`` and record the outcome.
 
     If anything is already recorded for the id, that record is returned as-is (same fields)
     and the cluster is not called. ``now`` is the time the approval binding is checked at;
-    ``clock`` stamps ``finished_at``."""
+    ``clock`` stamps ``finished_at``. The binding's ``change_kind`` selects the branch:
+    ``namespace``/``deployment``/``container``/``repository`` are the app image target,
+    ``policy_target`` the bucket-policy target. ``policy_hooks`` is a test seam passed to
+    ``apply_bucket_policy`` (probes, sleep, clock)."""
     receipts_dir = Path(receipts_dir)
     clock = clock or (lambda: datetime.now(UTC))
     existing = get_result(application_id, receipts_dir)  # also validates the id format
@@ -198,19 +227,21 @@ def apply(application_id: str, claim: dict, proposal: dict, *, kube: Kube, recei
         return existing
     now = now or clock()
     binding_in = claim.get("binding") if isinstance(claim.get("binding"), dict) else {}
+    policy_kind = binding_in.get("change_kind") == BUCKET_POLICY and policy_target is not None
     base = {"schema_version": SCHEMA_VERSION, "application_id": application_id,
             "approval_id": _ident(claim.get("approval_id")), "verification_id": _ident(claim.get("verification_id")),
             "plan_id": _ident(binding_in.get("plan_id")), "cluster": _cluster(kube),
-            "target": {"namespace": namespace, "deployment": deployment, "container": container, "repository": repository},
+            "target": policy_target.record() if policy_kind else
+            {"namespace": namespace, "deployment": deployment, "container": container, "repository": repository},
             "started_at": _iso(now)}
     steps: list[dict] = []
 
     def outcome(kind, reason, *, change, mutation, deployed=None, recheck=None, previous=None, observed=(),
-                deadline=None, finished=True):
+                deadline=None, finished=True, policy=None):
         return ApplyOutcome(**base, outcome=kind, reason=reason, change=change, deployed_digest=deployed,
                             job_passed=kind == "APPLIED", gate_recheck=recheck, cluster_mutation_attempted=mutation,
                             previous_image=previous, observed_digests=list(observed), deadline_at=deadline,
-                            finished_at=_iso(clock()) if finished else None, steps=list(steps))
+                            finished_at=_iso(clock()) if finished else None, steps=list(steps), policy=policy)
 
     def first_record(result):
         """Publish a record only if none exists; otherwise the earlier one wins."""
@@ -222,43 +253,80 @@ def apply(application_id: str, claim: dict, proposal: dict, *, kube: Kube, recei
     try:
         if claim.get("application_id") != application_id:
             raise BindingError("APPLICATION_ID_MISMATCH")
-        binding = verify_claim(claim, proposal, target_environment_id=target_environment_id, now=now, sources=sources, diff=diff)
+        binding = verify_claim(claim, proposal, target_environment_id=target_environment_id, now=now, sources=sources,
+                               diff=diff, policy_path=POLICY_PATH)
+        if binding["change_kind"] == BUCKET_POLICY and policy_target is None:
+            raise BindingError("POLICY_TARGET_MISSING")
+        if binding["change_kind"] == APP_IMAGE and not (namespace and deployment and container and repository):
+            raise BindingError("IMAGE_TARGET_MISSING")
     except BindingError as exc:
         steps.append({"step": "binding", "status": "refused", "detail": exc.code})
         return first_record(outcome("REFUSED", exc.code, change=None, mutation=False))
+    is_policy = binding["change_kind"] == BUCKET_POLICY
     change = {"diff_hash": binding["diff_hash"], "image_digest": binding["image_digest"]}
+    if is_policy:
+        change |= {"change_kind": BUCKET_POLICY, "policy_digest": binding["policy_digest"]}
     steps.append({"step": "binding", "status": "ok", "detail": f"{len(binding['approved_paths'])} approved path(s)"})
-    # 2. the image is the rehearsal-verified digest; nothing is built here
-    steps.append({"step": "image", "status": "ok", "detail": "promote rehearsal-verified digest, no rebuild"})
+    if is_policy:
+        # 1b. the approved policy as a T9 exposure state. Pure; refused before a STARTED record exists.
+        try:
+            state = translate_policy(proposal["edits"][0]["replacement"],
+                                     policy_bucket=policy_target.policy_bucket or policy_target.bucket)
+            t9, t9_sha = load_t9()
+        except PolicyRefused as exc:
+            steps.append({"step": "policy_translate", "status": "refused", "detail": exc.code})
+            return first_record(outcome("REFUSED", exc.code, change=change, mutation=False))
+        steps.append({"step": "policy_translate", "status": "ok", "detail": f"T9 state {state}"})
+        # 2. a bucket-policy change neither builds nor changes any image
+        steps.append({"step": "image", "status": "skipped", "detail": "bucket-policy change: app image unchanged"})
+    else:
+        # 2. the image is the rehearsal-verified digest; nothing is built here
+        steps.append({"step": "image", "status": "ok", "detail": "promote rehearsal-verified digest, no rebuild"})
     # 3. durable STARTED record before any cluster call; losing the race means someone else runs it
-    deadline = _iso(now + timedelta(seconds=timeout_seconds) + _DEADLINE_SLACK)
+    slack = _DEADLINE_SLACK + (_POLICY_PROBE_SLACK if is_policy else timedelta())
+    deadline = _iso(now + timedelta(seconds=timeout_seconds) + slack)
     started = outcome("UNKNOWN", "APPLY_STARTED_NOT_FINISHED", change=change, mutation=None, deadline=deadline, finished=False)
     if not _create_record(receipts_dir, started):
         return get_result(application_id, receipts_dir)
     steps.append({"step": "started", "status": "ok", "detail": "durable record before any cluster call"})
-    # 4. deploy pinned to the digest and confirm what is running
+    # 4. deploy pinned to the digest (or apply the policy) and confirm by observation
+    step = "policy_apply" if is_policy else "deploy"
     try:
-        deployed = apply_pinned_image(kube, namespace=namespace, deployment=deployment, container=container,
-                                      repository=repository, digest=binding["image_digest"], timeout_seconds=timeout_seconds)
+        if is_policy:
+            deployed = apply_bucket_policy(kube, policy_target, t9=t9, renderer_sha256=t9_sha, application_id=application_id,
+                                           timeout_seconds=timeout_seconds, **(policy_hooks or {}))
+        else:
+            deployed = apply_pinned_image(kube, namespace=namespace, deployment=deployment, container=container,
+                                          repository=repository, digest=binding["image_digest"], timeout_seconds=timeout_seconds)
     except DeployMismatch as exc:
         detail = exc.code + (f" ({exc.detail})" if exc.detail else "")
         if not exc.mutation_attempted:
-            steps.append({"step": "deploy", "status": "refused", "detail": detail})
-            final = outcome("REFUSED", exc.code, change=change, mutation=False, observed=exc.observed)
+            steps.append({"step": step, "status": "refused", "detail": detail})
+            final = outcome("REFUSED", exc.code, change=change, mutation=False, observed=exc.observed, policy=exc.policy)
         else:
-            steps.append({"step": "deploy", "status": "failed", "detail": detail})
-            # Nothing is rolled back automatically: the previous digest is restored only after a person looks (design 8.2).
+            steps.append({"step": step, "status": "failed", "detail": detail})
+            # Nothing is rolled back automatically: the previous digest or s3.json is restored only after a
+            # person looks (design 8.2).
             final = outcome("SAFE_HOLD", exc.code, change=change, mutation=True, previous=exc.previous_image,
-                            observed=exc.observed)
+                            observed=exc.observed, policy=exc.policy)
         _replace_record(receipts_dir, final)
         return final
-    steps.append({"step": "deploy", "status": "ok", "detail": f"{deployed['pods']} pod(s) on approved digest"})
+    if is_policy:
+        steps.append({"step": step, "status": "ok", "detail": "anonymous GET denied, app identity GET allowed"})
+        tests = POLICY_GATE_RECHECK_TESTS
+    else:
+        steps.append({"step": step, "status": "ok", "detail": f"{deployed['pods']} pod(s) on approved digest"})
+        tests = GATE_RECHECK_TESTS
     # 5. ask the gate to re-check the controls this change touches
     recheck = {"plan_id": binding["plan_id"], "application_id": application_id,
-               "image_digest": binding["image_digest"], "tests": list(GATE_RECHECK_TESTS)}
-    steps.append({"step": "gate_recheck", "status": "ok", "detail": ",".join(GATE_RECHECK_TESTS)})
-    final = outcome("APPLIED", "APPLIED_AS_APPROVED", change=change, mutation=True, deployed=deployed["deployed_digest"],
-                    recheck=recheck, previous=deployed["previous_image"], observed=deployed["observed"])
+               "image_digest": binding["image_digest"], "tests": list(tests)}
+    if is_policy:
+        recheck["policy_digest"] = binding["policy_digest"]
+    steps.append({"step": "gate_recheck", "status": "ok", "detail": ",".join(tests)})
+    final = outcome("APPLIED", "APPLIED_AS_APPROVED", change=change, mutation=True,
+                    deployed=None if is_policy else deployed["deployed_digest"], recheck=recheck,
+                    previous=deployed["previous_image"], observed=deployed.get("observed", ()),
+                    policy=deployed.get("policy"))
     _replace_record(receipts_dir, final)
     return final
 

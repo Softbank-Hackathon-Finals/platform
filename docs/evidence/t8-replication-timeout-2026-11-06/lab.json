@@ -1,0 +1,1814 @@
+{
+ "stand_ins": [
+  "plain PostgreSQL 18.4 containers instead of CNPG",
+  "netem 100 Mbps RTT 90 ms is assumed",
+  "a stall is extra one-way delay in both directions for 10 s; nothing is dropped",
+  "no TLS",
+  "no seed data"
+ ],
+ "machine": {
+  "before": {
+   "load_avg_1m": 2.73,
+   "other_running_containers": 1,
+   "other_containers_cpu_pct": 0.0
+  },
+  "after": {
+   "load_avg_1m": 2.19,
+   "other_running_containers": 1,
+   "other_containers_cpu_pct": 0.0
+  }
+ },
+ "reloads": [
+  {
+   "repetition": 0,
+   "timeout_s": 5,
+   "pids_kept": true,
+   "pending_restart": [
+    0,
+    0
+   ],
+   "effective": {
+    "source": [
+     5,
+     5
+    ],
+    "target": [
+     5,
+     5
+    ]
+   }
+  },
+  {
+   "repetition": 0,
+   "timeout_s": 30,
+   "pids_kept": true,
+   "pending_restart": [
+    0,
+    0
+   ],
+   "effective": {
+    "source": [
+     30,
+     30
+    ],
+    "target": [
+     30,
+     30
+    ]
+   }
+  },
+  {
+   "repetition": 1,
+   "timeout_s": 5,
+   "pids_kept": true,
+   "pending_restart": [
+    0,
+    0
+   ],
+   "effective": {
+    "source": [
+     5,
+     5
+    ],
+    "target": [
+     5,
+     5
+    ]
+   }
+  },
+  {
+   "repetition": 1,
+   "timeout_s": 30,
+   "pids_kept": true,
+   "pending_restart": [
+    0,
+    0
+   ],
+   "effective": {
+    "source": [
+     30,
+     30
+    ],
+    "target": [
+     30,
+     30
+    ]
+   }
+  },
+  {
+   "repetition": 2,
+   "timeout_s": 5,
+   "pids_kept": true,
+   "pending_restart": [
+    0,
+    0
+   ],
+   "effective": {
+    "source": [
+     5,
+     5
+    ],
+    "target": [
+     5,
+     5
+    ]
+   }
+  },
+  {
+   "repetition": 2,
+   "timeout_s": 30,
+   "pids_kept": true,
+   "pending_restart": [
+    0,
+    0
+   ],
+   "effective": {
+    "source": [
+     30,
+     30
+    ],
+    "target": [
+     30,
+     30
+    ]
+   }
+  }
+ ],
+ "trials": [
+  {
+   "timeout_s": 5,
+   "condition": "stall_2s",
+   "kind": "stall",
+   "amount": 2000,
+   "writes": true,
+   "disable_on_error": false,
+   "repetition": 0,
+   "outcome": "recovered",
+   "disabled_after_s": null,
+   "rows_flowing_after_heal_s": 2.33,
+   "connection_ended": false,
+   "apply_errors_added": 0,
+   "worker_gone_samples": 0,
+   "pids_replaced": {
+    "apply_worker": false,
+    "walsender": false
+   },
+   "rows_written": 1291,
+   "rows_missing": 0,
+   "target_log_events": [],
+   "source_log_events": [],
+   "settings_after": {
+    "forward_enabled": true,
+    "forward_disable_on_error": false,
+    "reverse_enabled": false,
+    "reverse_disable_on_error": true
+   },
+   "machine": {
+    "load_avg_1m": 4.45,
+    "other_running_containers": 1,
+    "other_containers_cpu_pct": 0.0
+   }
+  },
+  {
+   "timeout_s": 5,
+   "condition": "stall_4s",
+   "kind": "stall",
+   "amount": 4000,
+   "writes": true,
+   "disable_on_error": false,
+   "repetition": 0,
+   "outcome": "recovered",
+   "disabled_after_s": null,
+   "rows_flowing_after_heal_s": 3.62,
+   "connection_ended": false,
+   "apply_errors_added": 0,
+   "worker_gone_samples": 0,
+   "pids_replaced": {
+    "apply_worker": false,
+    "walsender": false
+   },
+   "rows_written": 1353,
+   "rows_missing": 0,
+   "target_log_events": [],
+   "source_log_events": [],
+   "settings_after": {
+    "forward_enabled": true,
+    "forward_disable_on_error": false,
+    "reverse_enabled": false,
+    "reverse_disable_on_error": true
+   },
+   "machine": {
+    "load_avg_1m": 3.86,
+    "other_running_containers": 1,
+    "other_containers_cpu_pct": 0.0
+   }
+  },
+  {
+   "timeout_s": 5,
+   "condition": "stall_6s",
+   "kind": "stall",
+   "amount": 6000,
+   "writes": true,
+   "disable_on_error": false,
+   "repetition": 0,
+   "outcome": "recovered",
+   "disabled_after_s": null,
+   "rows_flowing_after_heal_s": 6.46,
+   "connection_ended": true,
+   "apply_errors_added": 1,
+   "worker_gone_samples": 0,
+   "pids_replaced": {
+    "apply_worker": true,
+    "walsender": true
+   },
+   "rows_written": 1497,
+   "rows_missing": 0,
+   "target_log_events": [
+    {
+     "event": "receiver_timeout",
+     "sqlstate": "08006",
+     "after_first_ms": 0
+    }
+   ],
+   "source_log_events": [
+    {
+     "event": "sender_timeout",
+     "sqlstate": "00000",
+     "after_first_ms": 0
+    }
+   ],
+   "settings_after": {
+    "forward_enabled": true,
+    "forward_disable_on_error": false,
+    "reverse_enabled": false,
+    "reverse_disable_on_error": true
+   },
+   "machine": {
+    "load_avg_1m": 4.13,
+    "other_running_containers": 0,
+    "other_containers_cpu_pct": 0
+   }
+  },
+  {
+   "timeout_s": 5,
+   "condition": "idle_stall_4s",
+   "kind": "stall",
+   "amount": 4000,
+   "writes": false,
+   "disable_on_error": false,
+   "repetition": 0,
+   "outcome": "recovered",
+   "disabled_after_s": null,
+   "rows_flowing_after_heal_s": 4.16,
+   "connection_ended": true,
+   "apply_errors_added": 1,
+   "worker_gone_samples": 0,
+   "pids_replaced": {
+    "apply_worker": true,
+    "walsender": true
+   },
+   "rows_written": 0,
+   "rows_missing": 0,
+   "target_log_events": [
+    {
+     "event": "receiver_timeout",
+     "sqlstate": "08006",
+     "after_first_ms": 0
+    }
+   ],
+   "source_log_events": [
+    {
+     "event": "sender_timeout",
+     "sqlstate": "00000",
+     "after_first_ms": 0
+    }
+   ],
+   "settings_after": {
+    "forward_enabled": true,
+    "forward_disable_on_error": false,
+    "reverse_enabled": false,
+    "reverse_disable_on_error": true
+   },
+   "machine": {
+    "load_avg_1m": 4.19,
+    "other_running_containers": 1,
+    "other_containers_cpu_pct": 0.0
+   }
+  },
+  {
+   "timeout_s": 5,
+   "condition": "stall_4s_disable_on_error",
+   "kind": "stall",
+   "amount": 4000,
+   "writes": true,
+   "disable_on_error": true,
+   "repetition": 0,
+   "outcome": "disabled",
+   "disabled_after_s": 10.37,
+   "rows_flowing_after_heal_s": null,
+   "connection_ended": true,
+   "apply_errors_added": 1,
+   "worker_gone_samples": 1,
+   "pids_replaced": {
+    "apply_worker": true,
+    "walsender": true
+   },
+   "rows_written": 685,
+   "rows_missing": 0,
+   "target_log_events": [
+    {
+     "event": "receiver_timeout",
+     "sqlstate": "08006",
+     "after_first_ms": 0
+    },
+    {
+     "event": "subscription_disabled",
+     "sqlstate": "00000",
+     "after_first_ms": 1
+    }
+   ],
+   "source_log_events": [],
+   "settings_after": {
+    "forward_enabled": true,
+    "forward_disable_on_error": true,
+    "reverse_enabled": false,
+    "reverse_disable_on_error": true
+   },
+   "machine": {
+    "load_avg_1m": 4.1,
+    "other_running_containers": 1,
+    "other_containers_cpu_pct": 0.0
+   }
+  },
+  {
+   "timeout_s": 5,
+   "condition": "cut_20s",
+   "kind": "cut",
+   "amount": 20,
+   "writes": true,
+   "disable_on_error": false,
+   "repetition": 0,
+   "outcome": "recovered",
+   "disabled_after_s": null,
+   "rows_flowing_after_heal_s": 6.49,
+   "connection_ended": true,
+   "apply_errors_added": 1,
+   "worker_gone_samples": 0,
+   "pids_replaced": {
+    "apply_worker": true,
+    "walsender": true
+   },
+   "rows_written": 1993,
+   "rows_missing": 0,
+   "target_log_events": [
+    {
+     "event": "receiver_timeout",
+     "sqlstate": "08006",
+     "after_first_ms": 0
+    }
+   ],
+   "source_log_events": [
+    {
+     "event": "sender_timeout",
+     "sqlstate": "00000",
+     "after_first_ms": 0
+    }
+   ],
+   "settings_after": {
+    "forward_enabled": true,
+    "forward_disable_on_error": false,
+    "reverse_enabled": false,
+    "reverse_disable_on_error": true
+   },
+   "machine": {
+    "load_avg_1m": 3.38,
+    "other_running_containers": 1,
+    "other_containers_cpu_pct": 0.0
+   }
+  },
+  {
+   "timeout_s": 30,
+   "condition": "stall_2s",
+   "kind": "stall",
+   "amount": 2000,
+   "writes": true,
+   "disable_on_error": false,
+   "repetition": 0,
+   "outcome": "recovered",
+   "disabled_after_s": null,
+   "rows_flowing_after_heal_s": 1.81,
+   "connection_ended": false,
+   "apply_errors_added": 0,
+   "worker_gone_samples": 0,
+   "pids_replaced": {
+    "apply_worker": false,
+    "walsender": false
+   },
+   "rows_written": 1262,
+   "rows_missing": 0,
+   "target_log_events": [],
+   "source_log_events": [],
+   "settings_after": {
+    "forward_enabled": true,
+    "forward_disable_on_error": false,
+    "reverse_enabled": false,
+    "reverse_disable_on_error": true
+   },
+   "machine": {
+    "load_avg_1m": 3.27,
+    "other_running_containers": 1,
+    "other_containers_cpu_pct": 0.0
+   }
+  },
+  {
+   "timeout_s": 30,
+   "condition": "stall_4s",
+   "kind": "stall",
+   "amount": 4000,
+   "writes": true,
+   "disable_on_error": false,
+   "repetition": 0,
+   "outcome": "recovered",
+   "disabled_after_s": null,
+   "rows_flowing_after_heal_s": 3.88,
+   "connection_ended": false,
+   "apply_errors_added": 0,
+   "worker_gone_samples": 0,
+   "pids_replaced": {
+    "apply_worker": false,
+    "walsender": false
+   },
+   "rows_written": 1368,
+   "rows_missing": 0,
+   "target_log_events": [],
+   "source_log_events": [],
+   "settings_after": {
+    "forward_enabled": true,
+    "forward_disable_on_error": false,
+    "reverse_enabled": false,
+    "reverse_disable_on_error": true
+   },
+   "machine": {
+    "load_avg_1m": 2.49,
+    "other_running_containers": 1,
+    "other_containers_cpu_pct": 0.0
+   }
+  },
+  {
+   "timeout_s": 30,
+   "condition": "stall_6s",
+   "kind": "stall",
+   "amount": 6000,
+   "writes": true,
+   "disable_on_error": false,
+   "repetition": 0,
+   "outcome": "recovered",
+   "disabled_after_s": null,
+   "rows_flowing_after_heal_s": 5.43,
+   "connection_ended": false,
+   "apply_errors_added": 0,
+   "worker_gone_samples": 0,
+   "pids_replaced": {
+    "apply_worker": false,
+    "walsender": false
+   },
+   "rows_written": 1446,
+   "rows_missing": 0,
+   "target_log_events": [],
+   "source_log_events": [],
+   "settings_after": {
+    "forward_enabled": true,
+    "forward_disable_on_error": false,
+    "reverse_enabled": false,
+    "reverse_disable_on_error": true
+   },
+   "machine": {
+    "load_avg_1m": 2.24,
+    "other_running_containers": 1,
+    "other_containers_cpu_pct": 0.0
+   }
+  },
+  {
+   "timeout_s": 30,
+   "condition": "idle_stall_4s",
+   "kind": "stall",
+   "amount": 4000,
+   "writes": false,
+   "disable_on_error": false,
+   "repetition": 0,
+   "outcome": "recovered",
+   "disabled_after_s": null,
+   "rows_flowing_after_heal_s": 3.91,
+   "connection_ended": false,
+   "apply_errors_added": 0,
+   "worker_gone_samples": 0,
+   "pids_replaced": {
+    "apply_worker": false,
+    "walsender": false
+   },
+   "rows_written": 0,
+   "rows_missing": 0,
+   "target_log_events": [],
+   "source_log_events": [],
+   "settings_after": {
+    "forward_enabled": true,
+    "forward_disable_on_error": false,
+    "reverse_enabled": false,
+    "reverse_disable_on_error": true
+   },
+   "machine": {
+    "load_avg_1m": 2.44,
+    "other_running_containers": 1,
+    "other_containers_cpu_pct": 0.0
+   }
+  },
+  {
+   "timeout_s": 30,
+   "condition": "stall_4s_disable_on_error",
+   "kind": "stall",
+   "amount": 4000,
+   "writes": true,
+   "disable_on_error": true,
+   "repetition": 0,
+   "outcome": "recovered",
+   "disabled_after_s": null,
+   "rows_flowing_after_heal_s": 3.63,
+   "connection_ended": false,
+   "apply_errors_added": 0,
+   "worker_gone_samples": 0,
+   "pids_replaced": {
+    "apply_worker": false,
+    "walsender": false
+   },
+   "rows_written": 1356,
+   "rows_missing": 0,
+   "target_log_events": [],
+   "source_log_events": [],
+   "settings_after": {
+    "forward_enabled": true,
+    "forward_disable_on_error": true,
+    "reverse_enabled": false,
+    "reverse_disable_on_error": true
+   },
+   "machine": {
+    "load_avg_1m": 2.36,
+    "other_running_containers": 1,
+    "other_containers_cpu_pct": 0.0
+   }
+  },
+  {
+   "timeout_s": 30,
+   "condition": "cut_20s",
+   "kind": "cut",
+   "amount": 20,
+   "writes": true,
+   "disable_on_error": false,
+   "repetition": 0,
+   "outcome": "recovered",
+   "disabled_after_s": null,
+   "rows_flowing_after_heal_s": 11.88,
+   "connection_ended": true,
+   "apply_errors_added": 1,
+   "worker_gone_samples": 0,
+   "pids_replaced": {
+    "apply_worker": true,
+    "walsender": true
+   },
+   "rows_written": 2258,
+   "rows_missing": 0,
+   "target_log_events": [
+    {
+     "event": "receiver_timeout",
+     "sqlstate": "08006",
+     "after_first_ms": 0
+    }
+   ],
+   "source_log_events": [
+    {
+     "event": "sender_timeout",
+     "sqlstate": "00000",
+     "after_first_ms": 0
+    }
+   ],
+   "settings_after": {
+    "forward_enabled": true,
+    "forward_disable_on_error": false,
+    "reverse_enabled": false,
+    "reverse_disable_on_error": true
+   },
+   "machine": {
+    "load_avg_1m": 2.94,
+    "other_running_containers": 1,
+    "other_containers_cpu_pct": 0.0
+   }
+  },
+  {
+   "timeout_s": 5,
+   "condition": "stall_2s",
+   "kind": "stall",
+   "amount": 2000,
+   "writes": true,
+   "disable_on_error": false,
+   "repetition": 1,
+   "outcome": "recovered",
+   "disabled_after_s": null,
+   "rows_flowing_after_heal_s": 2.37,
+   "connection_ended": false,
+   "apply_errors_added": 0,
+   "worker_gone_samples": 0,
+   "pids_replaced": {
+    "apply_worker": false,
+    "walsender": false
+   },
+   "rows_written": 1292,
+   "rows_missing": 0,
+   "target_log_events": [],
+   "source_log_events": [],
+   "settings_after": {
+    "forward_enabled": true,
+    "forward_disable_on_error": false,
+    "reverse_enabled": false,
+    "reverse_disable_on_error": true
+   },
+   "machine": {
+    "load_avg_1m": 3.37,
+    "other_running_containers": 1,
+    "other_containers_cpu_pct": 0.0
+   }
+  },
+  {
+   "timeout_s": 5,
+   "condition": "stall_4s",
+   "kind": "stall",
+   "amount": 4000,
+   "writes": true,
+   "disable_on_error": false,
+   "repetition": 1,
+   "outcome": "recovered",
+   "disabled_after_s": null,
+   "rows_flowing_after_heal_s": 4.42,
+   "connection_ended": true,
+   "apply_errors_added": 1,
+   "worker_gone_samples": 0,
+   "pids_replaced": {
+    "apply_worker": true,
+    "walsender": true
+   },
+   "rows_written": 1395,
+   "rows_missing": 0,
+   "target_log_events": [
+    {
+     "event": "receiver_timeout",
+     "sqlstate": "08006",
+     "after_first_ms": 0
+    }
+   ],
+   "source_log_events": [],
+   "settings_after": {
+    "forward_enabled": true,
+    "forward_disable_on_error": false,
+    "reverse_enabled": false,
+    "reverse_disable_on_error": true
+   },
+   "machine": {
+    "load_avg_1m": 3.43,
+    "other_running_containers": 1,
+    "other_containers_cpu_pct": 0.0
+   }
+  },
+  {
+   "timeout_s": 5,
+   "condition": "stall_6s",
+   "kind": "stall",
+   "amount": 6000,
+   "writes": true,
+   "disable_on_error": false,
+   "repetition": 1,
+   "outcome": "recovered",
+   "disabled_after_s": null,
+   "rows_flowing_after_heal_s": 6.71,
+   "connection_ended": true,
+   "apply_errors_added": 1,
+   "worker_gone_samples": 0,
+   "pids_replaced": {
+    "apply_worker": true,
+    "walsender": true
+   },
+   "rows_written": 1508,
+   "rows_missing": 0,
+   "target_log_events": [
+    {
+     "event": "receiver_timeout",
+     "sqlstate": "08006",
+     "after_first_ms": 0
+    }
+   ],
+   "source_log_events": [
+    {
+     "event": "sender_timeout",
+     "sqlstate": "00000",
+     "after_first_ms": 0
+    }
+   ],
+   "settings_after": {
+    "forward_enabled": true,
+    "forward_disable_on_error": false,
+    "reverse_enabled": false,
+    "reverse_disable_on_error": true
+   },
+   "machine": {
+    "load_avg_1m": 3.33,
+    "other_running_containers": 1,
+    "other_containers_cpu_pct": 0.0
+   }
+  },
+  {
+   "timeout_s": 5,
+   "condition": "idle_stall_4s",
+   "kind": "stall",
+   "amount": 4000,
+   "writes": false,
+   "disable_on_error": false,
+   "repetition": 1,
+   "outcome": "recovered",
+   "disabled_after_s": null,
+   "rows_flowing_after_heal_s": 4.18,
+   "connection_ended": true,
+   "apply_errors_added": 1,
+   "worker_gone_samples": 0,
+   "pids_replaced": {
+    "apply_worker": true,
+    "walsender": true
+   },
+   "rows_written": 0,
+   "rows_missing": 0,
+   "target_log_events": [
+    {
+     "event": "receiver_timeout",
+     "sqlstate": "08006",
+     "after_first_ms": 0
+    }
+   ],
+   "source_log_events": [
+    {
+     "event": "sender_timeout",
+     "sqlstate": "00000",
+     "after_first_ms": 0
+    }
+   ],
+   "settings_after": {
+    "forward_enabled": true,
+    "forward_disable_on_error": false,
+    "reverse_enabled": false,
+    "reverse_disable_on_error": true
+   },
+   "machine": {
+    "load_avg_1m": 3.3,
+    "other_running_containers": 1,
+    "other_containers_cpu_pct": 0.0
+   }
+  },
+  {
+   "timeout_s": 5,
+   "condition": "stall_4s_disable_on_error",
+   "kind": "stall",
+   "amount": 4000,
+   "writes": true,
+   "disable_on_error": true,
+   "repetition": 1,
+   "outcome": "disabled",
+   "disabled_after_s": 10.57,
+   "rows_flowing_after_heal_s": null,
+   "connection_ended": true,
+   "apply_errors_added": 1,
+   "worker_gone_samples": 1,
+   "pids_replaced": {
+    "apply_worker": true,
+    "walsender": true
+   },
+   "rows_written": 695,
+   "rows_missing": 0,
+   "target_log_events": [
+    {
+     "event": "receiver_timeout",
+     "sqlstate": "08006",
+     "after_first_ms": 0
+    },
+    {
+     "event": "subscription_disabled",
+     "sqlstate": "00000",
+     "after_first_ms": 0
+    }
+   ],
+   "source_log_events": [],
+   "settings_after": {
+    "forward_enabled": true,
+    "forward_disable_on_error": true,
+    "reverse_enabled": false,
+    "reverse_disable_on_error": true
+   },
+   "machine": {
+    "load_avg_1m": 3.08,
+    "other_running_containers": 1,
+    "other_containers_cpu_pct": 0.0
+   }
+  },
+  {
+   "timeout_s": 5,
+   "condition": "cut_20s",
+   "kind": "cut",
+   "amount": 20,
+   "writes": true,
+   "disable_on_error": false,
+   "repetition": 1,
+   "outcome": "recovered",
+   "disabled_after_s": null,
+   "rows_flowing_after_heal_s": 6.21,
+   "connection_ended": true,
+   "apply_errors_added": 1,
+   "worker_gone_samples": 0,
+   "pids_replaced": {
+    "apply_worker": true,
+    "walsender": true
+   },
+   "rows_written": 1990,
+   "rows_missing": 0,
+   "target_log_events": [
+    {
+     "event": "receiver_timeout",
+     "sqlstate": "08006",
+     "after_first_ms": 0
+    }
+   ],
+   "source_log_events": [
+    {
+     "event": "sender_timeout",
+     "sqlstate": "00000",
+     "after_first_ms": 0
+    }
+   ],
+   "settings_after": {
+    "forward_enabled": true,
+    "forward_disable_on_error": false,
+    "reverse_enabled": false,
+    "reverse_disable_on_error": true
+   },
+   "machine": {
+    "load_avg_1m": 3.98,
+    "other_running_containers": 1,
+    "other_containers_cpu_pct": 0.0
+   }
+  },
+  {
+   "timeout_s": 30,
+   "condition": "stall_2s",
+   "kind": "stall",
+   "amount": 2000,
+   "writes": true,
+   "disable_on_error": false,
+   "repetition": 1,
+   "outcome": "recovered",
+   "disabled_after_s": null,
+   "rows_flowing_after_heal_s": 2.34,
+   "connection_ended": false,
+   "apply_errors_added": 0,
+   "worker_gone_samples": 0,
+   "pids_replaced": {
+    "apply_worker": false,
+    "walsender": false
+   },
+   "rows_written": 1296,
+   "rows_missing": 0,
+   "target_log_events": [],
+   "source_log_events": [],
+   "settings_after": {
+    "forward_enabled": true,
+    "forward_disable_on_error": false,
+    "reverse_enabled": false,
+    "reverse_disable_on_error": true
+   },
+   "machine": {
+    "load_avg_1m": 3.94,
+    "other_running_containers": 1,
+    "other_containers_cpu_pct": 0.0
+   }
+  },
+  {
+   "timeout_s": 30,
+   "condition": "stall_4s",
+   "kind": "stall",
+   "amount": 4000,
+   "writes": true,
+   "disable_on_error": false,
+   "repetition": 1,
+   "outcome": "recovered",
+   "disabled_after_s": null,
+   "rows_flowing_after_heal_s": 3.62,
+   "connection_ended": false,
+   "apply_errors_added": 0,
+   "worker_gone_samples": 0,
+   "pids_replaced": {
+    "apply_worker": false,
+    "walsender": false
+   },
+   "rows_written": 1346,
+   "rows_missing": 0,
+   "target_log_events": [],
+   "source_log_events": [],
+   "settings_after": {
+    "forward_enabled": true,
+    "forward_disable_on_error": false,
+    "reverse_enabled": false,
+    "reverse_disable_on_error": true
+   },
+   "machine": {
+    "load_avg_1m": 5.53,
+    "other_running_containers": 1,
+    "other_containers_cpu_pct": 0.0
+   }
+  },
+  {
+   "timeout_s": 30,
+   "condition": "stall_6s",
+   "kind": "stall",
+   "amount": 6000,
+   "writes": true,
+   "disable_on_error": false,
+   "repetition": 1,
+   "outcome": "recovered",
+   "disabled_after_s": null,
+   "rows_flowing_after_heal_s": 6.51,
+   "connection_ended": false,
+   "apply_errors_added": 0,
+   "worker_gone_samples": 0,
+   "pids_replaced": {
+    "apply_worker": false,
+    "walsender": false
+   },
+   "rows_written": 1502,
+   "rows_missing": 0,
+   "target_log_events": [],
+   "source_log_events": [],
+   "settings_after": {
+    "forward_enabled": true,
+    "forward_disable_on_error": false,
+    "reverse_enabled": false,
+    "reverse_disable_on_error": true
+   },
+   "machine": {
+    "load_avg_1m": 4.65,
+    "other_running_containers": 1,
+    "other_containers_cpu_pct": 0.0
+   }
+  },
+  {
+   "timeout_s": 30,
+   "condition": "idle_stall_4s",
+   "kind": "stall",
+   "amount": 4000,
+   "writes": false,
+   "disable_on_error": false,
+   "repetition": 1,
+   "outcome": "recovered",
+   "disabled_after_s": null,
+   "rows_flowing_after_heal_s": 1.05,
+   "connection_ended": false,
+   "apply_errors_added": 0,
+   "worker_gone_samples": 0,
+   "pids_replaced": {
+    "apply_worker": false,
+    "walsender": false
+   },
+   "rows_written": 0,
+   "rows_missing": 0,
+   "target_log_events": [],
+   "source_log_events": [],
+   "settings_after": {
+    "forward_enabled": true,
+    "forward_disable_on_error": false,
+    "reverse_enabled": false,
+    "reverse_disable_on_error": true
+   },
+   "machine": {
+    "load_avg_1m": 3.64,
+    "other_running_containers": 1,
+    "other_containers_cpu_pct": 0.0
+   }
+  },
+  {
+   "timeout_s": 30,
+   "condition": "stall_4s_disable_on_error",
+   "kind": "stall",
+   "amount": 4000,
+   "writes": true,
+   "disable_on_error": true,
+   "repetition": 1,
+   "outcome": "recovered",
+   "disabled_after_s": null,
+   "rows_flowing_after_heal_s": 3.63,
+   "connection_ended": false,
+   "apply_errors_added": 0,
+   "worker_gone_samples": 0,
+   "pids_replaced": {
+    "apply_worker": false,
+    "walsender": false
+   },
+   "rows_written": 1356,
+   "rows_missing": 0,
+   "target_log_events": [],
+   "source_log_events": [],
+   "settings_after": {
+    "forward_enabled": true,
+    "forward_disable_on_error": true,
+    "reverse_enabled": false,
+    "reverse_disable_on_error": true
+   },
+   "machine": {
+    "load_avg_1m": 3.03,
+    "other_running_containers": 1,
+    "other_containers_cpu_pct": 0.0
+   }
+  },
+  {
+   "timeout_s": 30,
+   "condition": "cut_20s",
+   "kind": "cut",
+   "amount": 20,
+   "writes": true,
+   "disable_on_error": false,
+   "repetition": 1,
+   "outcome": "recovered",
+   "disabled_after_s": null,
+   "rows_flowing_after_heal_s": 11.89,
+   "connection_ended": true,
+   "apply_errors_added": 1,
+   "worker_gone_samples": 0,
+   "pids_replaced": {
+    "apply_worker": true,
+    "walsender": true
+   },
+   "rows_written": 2264,
+   "rows_missing": 0,
+   "target_log_events": [
+    {
+     "event": "receiver_timeout",
+     "sqlstate": "08006",
+     "after_first_ms": 0
+    }
+   ],
+   "source_log_events": [
+    {
+     "event": "sender_timeout",
+     "sqlstate": "00000",
+     "after_first_ms": 0
+    }
+   ],
+   "settings_after": {
+    "forward_enabled": true,
+    "forward_disable_on_error": false,
+    "reverse_enabled": false,
+    "reverse_disable_on_error": true
+   },
+   "machine": {
+    "load_avg_1m": 2.38,
+    "other_running_containers": 1,
+    "other_containers_cpu_pct": 0.0
+   }
+  },
+  {
+   "timeout_s": 5,
+   "condition": "stall_2s",
+   "kind": "stall",
+   "amount": 2000,
+   "writes": true,
+   "disable_on_error": false,
+   "repetition": 2,
+   "outcome": "recovered",
+   "disabled_after_s": null,
+   "rows_flowing_after_heal_s": 2.33,
+   "connection_ended": false,
+   "apply_errors_added": 0,
+   "worker_gone_samples": 0,
+   "pids_replaced": {
+    "apply_worker": false,
+    "walsender": false
+   },
+   "rows_written": 1294,
+   "rows_missing": 0,
+   "target_log_events": [],
+   "source_log_events": [],
+   "settings_after": {
+    "forward_enabled": true,
+    "forward_disable_on_error": false,
+    "reverse_enabled": false,
+    "reverse_disable_on_error": true
+   },
+   "machine": {
+    "load_avg_1m": 2.26,
+    "other_running_containers": 1,
+    "other_containers_cpu_pct": 0.0
+   }
+  },
+  {
+   "timeout_s": 5,
+   "condition": "stall_4s",
+   "kind": "stall",
+   "amount": 4000,
+   "writes": true,
+   "disable_on_error": false,
+   "repetition": 2,
+   "outcome": "recovered",
+   "disabled_after_s": null,
+   "rows_flowing_after_heal_s": 4.13,
+   "connection_ended": true,
+   "apply_errors_added": 1,
+   "worker_gone_samples": 0,
+   "pids_replaced": {
+    "apply_worker": true,
+    "walsender": true
+   },
+   "rows_written": 1386,
+   "rows_missing": 0,
+   "target_log_events": [
+    {
+     "event": "receiver_timeout",
+     "sqlstate": "08006",
+     "after_first_ms": 0
+    }
+   ],
+   "source_log_events": [],
+   "settings_after": {
+    "forward_enabled": true,
+    "forward_disable_on_error": false,
+    "reverse_enabled": false,
+    "reverse_disable_on_error": true
+   },
+   "machine": {
+    "load_avg_1m": 2.1,
+    "other_running_containers": 1,
+    "other_containers_cpu_pct": 0.0
+   }
+  },
+  {
+   "timeout_s": 5,
+   "condition": "stall_6s",
+   "kind": "stall",
+   "amount": 6000,
+   "writes": true,
+   "disable_on_error": false,
+   "repetition": 2,
+   "outcome": "recovered",
+   "disabled_after_s": null,
+   "rows_flowing_after_heal_s": 6.47,
+   "connection_ended": true,
+   "apply_errors_added": 1,
+   "worker_gone_samples": 0,
+   "pids_replaced": {
+    "apply_worker": true,
+    "walsender": true
+   },
+   "rows_written": 1503,
+   "rows_missing": 0,
+   "target_log_events": [
+    {
+     "event": "receiver_timeout",
+     "sqlstate": "08006",
+     "after_first_ms": 0
+    }
+   ],
+   "source_log_events": [
+    {
+     "event": "sender_timeout",
+     "sqlstate": "00000",
+     "after_first_ms": 0
+    }
+   ],
+   "settings_after": {
+    "forward_enabled": true,
+    "forward_disable_on_error": false,
+    "reverse_enabled": false,
+    "reverse_disable_on_error": true
+   },
+   "machine": {
+    "load_avg_1m": 1.86,
+    "other_running_containers": 1,
+    "other_containers_cpu_pct": 0.0
+   }
+  },
+  {
+   "timeout_s": 5,
+   "condition": "idle_stall_4s",
+   "kind": "stall",
+   "amount": 4000,
+   "writes": false,
+   "disable_on_error": false,
+   "repetition": 2,
+   "outcome": "recovered",
+   "disabled_after_s": null,
+   "rows_flowing_after_heal_s": 4.01,
+   "connection_ended": true,
+   "apply_errors_added": 1,
+   "worker_gone_samples": 0,
+   "pids_replaced": {
+    "apply_worker": true,
+    "walsender": true
+   },
+   "rows_written": 0,
+   "rows_missing": 0,
+   "target_log_events": [
+    {
+     "event": "receiver_timeout",
+     "sqlstate": "08006",
+     "after_first_ms": 0
+    }
+   ],
+   "source_log_events": [
+    {
+     "event": "sender_timeout",
+     "sqlstate": "00000",
+     "after_first_ms": 0
+    }
+   ],
+   "settings_after": {
+    "forward_enabled": true,
+    "forward_disable_on_error": false,
+    "reverse_enabled": false,
+    "reverse_disable_on_error": true
+   },
+   "machine": {
+    "load_avg_1m": 2.47,
+    "other_running_containers": 1,
+    "other_containers_cpu_pct": 0.0
+   }
+  },
+  {
+   "timeout_s": 5,
+   "condition": "stall_4s_disable_on_error",
+   "kind": "stall",
+   "amount": 4000,
+   "writes": true,
+   "disable_on_error": true,
+   "repetition": 2,
+   "outcome": "recovered",
+   "disabled_after_s": null,
+   "rows_flowing_after_heal_s": 3.63,
+   "connection_ended": false,
+   "apply_errors_added": 0,
+   "worker_gone_samples": 0,
+   "pids_replaced": {
+    "apply_worker": false,
+    "walsender": false
+   },
+   "rows_written": 1355,
+   "rows_missing": 0,
+   "target_log_events": [],
+   "source_log_events": [],
+   "settings_after": {
+    "forward_enabled": true,
+    "forward_disable_on_error": true,
+    "reverse_enabled": false,
+    "reverse_disable_on_error": true
+   },
+   "machine": {
+    "load_avg_1m": 2.65,
+    "other_running_containers": 1,
+    "other_containers_cpu_pct": 0.0
+   }
+  },
+  {
+   "timeout_s": 5,
+   "condition": "cut_20s",
+   "kind": "cut",
+   "amount": 20,
+   "writes": true,
+   "disable_on_error": false,
+   "repetition": 2,
+   "outcome": "recovered",
+   "disabled_after_s": null,
+   "rows_flowing_after_heal_s": 6.48,
+   "connection_ended": true,
+   "apply_errors_added": 1,
+   "worker_gone_samples": 1,
+   "pids_replaced": {
+    "apply_worker": true,
+    "walsender": true
+   },
+   "rows_written": 1990,
+   "rows_missing": 0,
+   "target_log_events": [
+    {
+     "event": "receiver_timeout",
+     "sqlstate": "08006",
+     "after_first_ms": 0
+    }
+   ],
+   "source_log_events": [
+    {
+     "event": "sender_timeout",
+     "sqlstate": "00000",
+     "after_first_ms": 0
+    }
+   ],
+   "settings_after": {
+    "forward_enabled": true,
+    "forward_disable_on_error": false,
+    "reverse_enabled": false,
+    "reverse_disable_on_error": true
+   },
+   "machine": {
+    "load_avg_1m": 2.31,
+    "other_running_containers": 1,
+    "other_containers_cpu_pct": 0.0
+   }
+  },
+  {
+   "timeout_s": 30,
+   "condition": "stall_2s",
+   "kind": "stall",
+   "amount": 2000,
+   "writes": true,
+   "disable_on_error": false,
+   "repetition": 2,
+   "outcome": "recovered",
+   "disabled_after_s": null,
+   "rows_flowing_after_heal_s": 2.33,
+   "connection_ended": false,
+   "apply_errors_added": 0,
+   "worker_gone_samples": 0,
+   "pids_replaced": {
+    "apply_worker": false,
+    "walsender": false
+   },
+   "rows_written": 1290,
+   "rows_missing": 0,
+   "target_log_events": [],
+   "source_log_events": [],
+   "settings_after": {
+    "forward_enabled": true,
+    "forward_disable_on_error": false,
+    "reverse_enabled": false,
+    "reverse_disable_on_error": true
+   },
+   "machine": {
+    "load_avg_1m": 2.62,
+    "other_running_containers": 1,
+    "other_containers_cpu_pct": 0.0
+   }
+  },
+  {
+   "timeout_s": 30,
+   "condition": "stall_4s",
+   "kind": "stall",
+   "amount": 4000,
+   "writes": true,
+   "disable_on_error": false,
+   "repetition": 2,
+   "outcome": "recovered",
+   "disabled_after_s": null,
+   "rows_flowing_after_heal_s": 3.63,
+   "connection_ended": false,
+   "apply_errors_added": 0,
+   "worker_gone_samples": 0,
+   "pids_replaced": {
+    "apply_worker": false,
+    "walsender": false
+   },
+   "rows_written": 1356,
+   "rows_missing": 0,
+   "target_log_events": [],
+   "source_log_events": [],
+   "settings_after": {
+    "forward_enabled": true,
+    "forward_disable_on_error": false,
+    "reverse_enabled": false,
+    "reverse_disable_on_error": true
+   },
+   "machine": {
+    "load_avg_1m": 3.43,
+    "other_running_containers": 1,
+    "other_containers_cpu_pct": 0.0
+   }
+  },
+  {
+   "timeout_s": 30,
+   "condition": "stall_6s",
+   "kind": "stall",
+   "amount": 6000,
+   "writes": true,
+   "disable_on_error": false,
+   "repetition": 2,
+   "outcome": "recovered",
+   "disabled_after_s": null,
+   "rows_flowing_after_heal_s": 5.97,
+   "connection_ended": false,
+   "apply_errors_added": 0,
+   "worker_gone_samples": 0,
+   "pids_replaced": {
+    "apply_worker": false,
+    "walsender": false
+   },
+   "rows_written": 1471,
+   "rows_missing": 0,
+   "target_log_events": [],
+   "source_log_events": [],
+   "settings_after": {
+    "forward_enabled": true,
+    "forward_disable_on_error": false,
+    "reverse_enabled": false,
+    "reverse_disable_on_error": true
+   },
+   "machine": {
+    "load_avg_1m": 2.95,
+    "other_running_containers": 1,
+    "other_containers_cpu_pct": 0.0
+   }
+  },
+  {
+   "timeout_s": 30,
+   "condition": "idle_stall_4s",
+   "kind": "stall",
+   "amount": 4000,
+   "writes": false,
+   "disable_on_error": false,
+   "repetition": 2,
+   "outcome": "recovered",
+   "disabled_after_s": null,
+   "rows_flowing_after_heal_s": 4.16,
+   "connection_ended": false,
+   "apply_errors_added": 0,
+   "worker_gone_samples": 0,
+   "pids_replaced": {
+    "apply_worker": false,
+    "walsender": false
+   },
+   "rows_written": 0,
+   "rows_missing": 0,
+   "target_log_events": [],
+   "source_log_events": [],
+   "settings_after": {
+    "forward_enabled": true,
+    "forward_disable_on_error": false,
+    "reverse_enabled": false,
+    "reverse_disable_on_error": true
+   },
+   "machine": {
+    "load_avg_1m": 3.14,
+    "other_running_containers": 1,
+    "other_containers_cpu_pct": 0.0
+   }
+  },
+  {
+   "timeout_s": 30,
+   "condition": "stall_4s_disable_on_error",
+   "kind": "stall",
+   "amount": 4000,
+   "writes": true,
+   "disable_on_error": true,
+   "repetition": 2,
+   "outcome": "recovered",
+   "disabled_after_s": null,
+   "rows_flowing_after_heal_s": 3.36,
+   "connection_ended": false,
+   "apply_errors_added": 0,
+   "worker_gone_samples": 0,
+   "pids_replaced": {
+    "apply_worker": false,
+    "walsender": false
+   },
+   "rows_written": 1345,
+   "rows_missing": 0,
+   "target_log_events": [],
+   "source_log_events": [],
+   "settings_after": {
+    "forward_enabled": true,
+    "forward_disable_on_error": true,
+    "reverse_enabled": false,
+    "reverse_disable_on_error": true
+   },
+   "machine": {
+    "load_avg_1m": 2.79,
+    "other_running_containers": 1,
+    "other_containers_cpu_pct": 0.0
+   }
+  },
+  {
+   "timeout_s": 30,
+   "condition": "cut_20s",
+   "kind": "cut",
+   "amount": 20,
+   "writes": true,
+   "disable_on_error": false,
+   "repetition": 2,
+   "outcome": "recovered",
+   "disabled_after_s": null,
+   "rows_flowing_after_heal_s": 11.9,
+   "connection_ended": true,
+   "apply_errors_added": 1,
+   "worker_gone_samples": 0,
+   "pids_replaced": {
+    "apply_worker": true,
+    "walsender": true
+   },
+   "rows_written": 2262,
+   "rows_missing": 0,
+   "target_log_events": [
+    {
+     "event": "receiver_timeout",
+     "sqlstate": "08006",
+     "after_first_ms": 0
+    }
+   ],
+   "source_log_events": [
+    {
+     "event": "sender_timeout",
+     "sqlstate": "00000",
+     "after_first_ms": 0
+    }
+   ],
+   "settings_after": {
+    "forward_enabled": true,
+    "forward_disable_on_error": false,
+    "reverse_enabled": false,
+    "reverse_disable_on_error": true
+   },
+   "machine": {
+    "load_avg_1m": 2.19,
+    "other_running_containers": 1,
+    "other_containers_cpu_pct": 0.0
+   }
+  }
+ ],
+ "path": {
+  "rtt_ms": 110.935,
+  "throughput_mbit": 6.1,
+  "retransmits": 0
+ },
+ "postgres": "18.4 (Debian 18.4-1.pgdg13+1)",
+ "receiver_status_interval": "10s",
+ "summary": [
+  {
+   "timeout_s": 5,
+   "condition": "stall_2s",
+   "runs": 3,
+   "connection_ended": 0,
+   "disabled": 0,
+   "recovered": 3,
+   "apply_errors_added": {
+    "min": 0,
+    "max": 0
+   },
+   "timeout_events": {
+    "receiver_timeout": 0,
+    "sender_timeout": 0
+   },
+   "rows_flowing_after_heal_s": {
+    "median": 2.33,
+    "max": 2.37,
+    "unreached": 0
+   },
+   "rows_missing_max": 0
+  },
+  {
+   "timeout_s": 5,
+   "condition": "stall_4s",
+   "runs": 3,
+   "connection_ended": 2,
+   "disabled": 0,
+   "recovered": 3,
+   "apply_errors_added": {
+    "min": 0,
+    "max": 1
+   },
+   "timeout_events": {
+    "receiver_timeout": 2,
+    "sender_timeout": 0
+   },
+   "rows_flowing_after_heal_s": {
+    "median": 4.13,
+    "max": 4.42,
+    "unreached": 0
+   },
+   "rows_missing_max": 0
+  },
+  {
+   "timeout_s": 5,
+   "condition": "stall_6s",
+   "runs": 3,
+   "connection_ended": 3,
+   "disabled": 0,
+   "recovered": 3,
+   "apply_errors_added": {
+    "min": 1,
+    "max": 1
+   },
+   "timeout_events": {
+    "receiver_timeout": 3,
+    "sender_timeout": 3
+   },
+   "rows_flowing_after_heal_s": {
+    "median": 6.47,
+    "max": 6.71,
+    "unreached": 0
+   },
+   "rows_missing_max": 0
+  },
+  {
+   "timeout_s": 5,
+   "condition": "idle_stall_4s",
+   "runs": 3,
+   "connection_ended": 3,
+   "disabled": 0,
+   "recovered": 3,
+   "apply_errors_added": {
+    "min": 1,
+    "max": 1
+   },
+   "timeout_events": {
+    "receiver_timeout": 3,
+    "sender_timeout": 3
+   },
+   "rows_flowing_after_heal_s": {
+    "median": 4.16,
+    "max": 4.18,
+    "unreached": 0
+   },
+   "rows_missing_max": 0
+  },
+  {
+   "timeout_s": 5,
+   "condition": "stall_4s_disable_on_error",
+   "runs": 3,
+   "connection_ended": 2,
+   "disabled": 2,
+   "recovered": 1,
+   "apply_errors_added": {
+    "min": 0,
+    "max": 1
+   },
+   "timeout_events": {
+    "receiver_timeout": 2,
+    "sender_timeout": 0
+   },
+   "rows_flowing_after_heal_s": {
+    "median": 3.63,
+    "max": 3.63,
+    "unreached": 2
+   },
+   "rows_missing_max": 0
+  },
+  {
+   "timeout_s": 5,
+   "condition": "cut_20s",
+   "runs": 3,
+   "connection_ended": 3,
+   "disabled": 0,
+   "recovered": 3,
+   "apply_errors_added": {
+    "min": 1,
+    "max": 1
+   },
+   "timeout_events": {
+    "receiver_timeout": 3,
+    "sender_timeout": 3
+   },
+   "rows_flowing_after_heal_s": {
+    "median": 6.48,
+    "max": 6.49,
+    "unreached": 0
+   },
+   "rows_missing_max": 0
+  },
+  {
+   "timeout_s": 30,
+   "condition": "stall_2s",
+   "runs": 3,
+   "connection_ended": 0,
+   "disabled": 0,
+   "recovered": 3,
+   "apply_errors_added": {
+    "min": 0,
+    "max": 0
+   },
+   "timeout_events": {
+    "receiver_timeout": 0,
+    "sender_timeout": 0
+   },
+   "rows_flowing_after_heal_s": {
+    "median": 2.33,
+    "max": 2.34,
+    "unreached": 0
+   },
+   "rows_missing_max": 0
+  },
+  {
+   "timeout_s": 30,
+   "condition": "stall_4s",
+   "runs": 3,
+   "connection_ended": 0,
+   "disabled": 0,
+   "recovered": 3,
+   "apply_errors_added": {
+    "min": 0,
+    "max": 0
+   },
+   "timeout_events": {
+    "receiver_timeout": 0,
+    "sender_timeout": 0
+   },
+   "rows_flowing_after_heal_s": {
+    "median": 3.63,
+    "max": 3.88,
+    "unreached": 0
+   },
+   "rows_missing_max": 0
+  },
+  {
+   "timeout_s": 30,
+   "condition": "stall_6s",
+   "runs": 3,
+   "connection_ended": 0,
+   "disabled": 0,
+   "recovered": 3,
+   "apply_errors_added": {
+    "min": 0,
+    "max": 0
+   },
+   "timeout_events": {
+    "receiver_timeout": 0,
+    "sender_timeout": 0
+   },
+   "rows_flowing_after_heal_s": {
+    "median": 5.97,
+    "max": 6.51,
+    "unreached": 0
+   },
+   "rows_missing_max": 0
+  },
+  {
+   "timeout_s": 30,
+   "condition": "idle_stall_4s",
+   "runs": 3,
+   "connection_ended": 0,
+   "disabled": 0,
+   "recovered": 3,
+   "apply_errors_added": {
+    "min": 0,
+    "max": 0
+   },
+   "timeout_events": {
+    "receiver_timeout": 0,
+    "sender_timeout": 0
+   },
+   "rows_flowing_after_heal_s": {
+    "median": 3.91,
+    "max": 4.16,
+    "unreached": 0
+   },
+   "rows_missing_max": 0
+  },
+  {
+   "timeout_s": 30,
+   "condition": "stall_4s_disable_on_error",
+   "runs": 3,
+   "connection_ended": 0,
+   "disabled": 0,
+   "recovered": 3,
+   "apply_errors_added": {
+    "min": 0,
+    "max": 0
+   },
+   "timeout_events": {
+    "receiver_timeout": 0,
+    "sender_timeout": 0
+   },
+   "rows_flowing_after_heal_s": {
+    "median": 3.63,
+    "max": 3.63,
+    "unreached": 0
+   },
+   "rows_missing_max": 0
+  },
+  {
+   "timeout_s": 30,
+   "condition": "cut_20s",
+   "runs": 3,
+   "connection_ended": 3,
+   "disabled": 0,
+   "recovered": 3,
+   "apply_errors_added": {
+    "min": 1,
+    "max": 1
+   },
+   "timeout_events": {
+    "receiver_timeout": 3,
+    "sender_timeout": 3
+   },
+   "rows_flowing_after_heal_s": {
+    "median": 11.89,
+    "max": 11.9,
+    "unreached": 0
+   },
+   "rows_missing_max": 0
+  }
+ ]
+}

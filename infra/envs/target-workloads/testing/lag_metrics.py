@@ -179,6 +179,29 @@ def parse_log_events(lines):
     return events
 
 
+def summarize_stall_trials(trials):
+    """One row per timeout and condition, in the order first seen. A run that never caught up has no time."""
+    groups = {}
+    for trial in trials:
+        groups.setdefault((trial["timeout_s"], trial["condition"]), []).append(trial)
+    rows = []
+    for (timeout, condition), runs in groups.items():
+        flowing = [run["rows_flowing_after_heal_s"] for run in runs if run["rows_flowing_after_heal_s"] is not None]
+        errors = [run["apply_errors_added"] for run in runs]
+        events = [item["event"] for run in runs for item in run["target_log_events"] + run["source_log_events"]]
+        rows.append({"timeout_s": timeout, "condition": condition, "runs": len(runs),
+                     "connection_ended": sum(bool(run["connection_ended"]) for run in runs),
+                     "disabled": sum(run["outcome"] == "disabled" for run in runs),
+                     "recovered": sum(run["outcome"] == "recovered" for run in runs),
+                     "apply_errors_added": {"min": min(errors), "max": max(errors)},
+                     "timeout_events": {name: events.count(name) for name in ("receiver_timeout", "sender_timeout")},
+                     "rows_flowing_after_heal_s": {"median": statistics.median(flowing) if flowing else None,
+                                                   "max": max(flowing) if flowing else None,
+                                                   "unreached": len(runs) - len(flowing)},
+                     "rows_missing_max": max(run["rows_missing"] for run in runs)})
+    return rows
+
+
 def summarize_timeout_trials(trials):
     """One row per setting and link failure, in the order they first appear. Raw trials stay beside it."""
     groups = {}
