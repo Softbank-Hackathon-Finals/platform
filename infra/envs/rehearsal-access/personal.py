@@ -520,13 +520,23 @@ def probe(p, image, service_account, pod_name):
                 "runAsNonRoot": True,
                 "runAsUser": 65532,
                 "runAsGroup": 65532,
+                "fsGroup": 65532,
                 "seccompProfile": {"type": "RuntimeDefault"},
             },
+            "volumes": [
+                {"name": "workspace", "emptyDir": {"sizeLimit": "128Mi"}},
+                {"name": "tmp", "emptyDir": {"sizeLimit": "128Mi"}},
+            ],
             "containers": [
                 {
                     "name": "kubectl",
                     "image": image,
                     "command": ["sleep", "1800"],
+                    "workingDir": "/work",
+                    "volumeMounts": [
+                        {"name": "workspace", "mountPath": "/work"},
+                        {"name": "tmp", "mountPath": "/tmp"},
+                    ],
                     "resources": {
                         "requests": {"cpu": "10m", "memory": "32Mi"},
                         "limits": {"cpu": "100m", "memory": "128Mi"},
