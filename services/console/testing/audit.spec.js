@@ -26,6 +26,12 @@ for (const failure of [503, 403])
       "버킷 삭제 시도 차단 — 에이전트 도구 정책",
     );
     await expect(page.locator("#audit-rows")).toContainText("run-browser:1");
+    await page.setViewportSize({ width: 390, height: 844 });
+    expect(
+      await page.evaluate(
+        () => document.documentElement.scrollWidth <= innerWidth,
+      ),
+    ).toBe(true);
     const response = await page.request.get("/v1/plans/plan-audit/audit");
     const record = await response.json();
     expect(record.rows[0].reason).toBe("DESTRUCTIVE_ATTEMPT_BLOCKED");

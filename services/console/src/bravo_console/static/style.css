@@ -424,3 +424,9 @@ footer {
   cursor: pointer;
   font-weight: 700;
 }
+
+#audit-status,
+#audit-digest,
+#audit-rows {
+  overflow-wrap: anywhere;
+}
