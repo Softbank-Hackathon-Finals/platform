@@ -55,7 +55,8 @@ jobs:
               echo '::error::Merge group checkout/base mismatch'
               exit 1
             fi
-            python3 scripts/ci_scope.py --base "$BASE" --head "$GROUP_HEAD" > ci-plan.json
+            # base_sha can be the previous queue group, so its diff omits earlier PRs.
+            python3 scripts/ci_scope.py --full > ci-plan.json
           elif [ "$EVENT" = pull_request ]; then
             python3 scripts/ci_scope.py --base "$BASE" > ci-plan.json
           else
