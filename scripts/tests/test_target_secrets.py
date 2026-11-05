@@ -34,6 +34,8 @@ def chart_fixture():
                 "readinessProbe": {"exec": {"command": ["sh", "-ec", "bao status -tls-skip-verify"]},
                                    "failureThreshold": 3, "initialDelaySeconds": 5, "periodSeconds": 10,
                                    "successThreshold": 1, "timeoutSeconds": 10},
+                "resources": {"requests": {"cpu": "250m", "memory": "128Mi"},
+                              "limits": {"cpu": "1", "memory": "512Mi"}},
             }]}},
         }},
         {"apiVersion": "v1", "kind": "Service", "metadata": metadata.copy(), "spec": {"selector": labels.copy()}},
@@ -65,6 +67,21 @@ class ChartBoundaryTests(unittest.TestCase):
                 del container["readinessProbe"]
             else:
                 container["readinessProbe"].update(change)
+            with self.subTest(change=change), self.assertRaises(ValueError):
+                cli("finalize-bao", objects=objects)
+
+    def test_server_resources_are_rendered_and_enforced(self):
+        self.assertEqual(render.bao_values()["server"]["resources"],
+                         {"requests": {"cpu": "250m", "memory": "128Mi"}, "limits": {"cpu": "1", "memory": "512Mi"}})
+        # The earlier 50m/500m (Ready flapped on the target) and a missing block are refused.
+        for change in ({"requests": {"cpu": "50m", "memory": "128Mi"}, "limits": {"cpu": "500m", "memory": "512Mi"}},
+                       {"requests": {"cpu": "250m", "memory": "128Mi"}}, None):
+            objects = chart_fixture()
+            container = objects[0]["spec"]["template"]["spec"]["containers"][0]
+            if change is None:
+                del container["resources"]
+            else:
+                container["resources"] = change
             with self.subTest(change=change), self.assertRaises(ValueError):
                 cli("finalize-bao", objects=objects)
 
