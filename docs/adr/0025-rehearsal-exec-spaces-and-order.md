@@ -2,7 +2,7 @@
 
 * **상태 (Status):** 제안됨(Proposed). T15 설계 루프에서 확정했다. 구현 뒤 시연 목적지에서 한 회차 시간을 실측하고 채택한다.
 * **날짜 (Date):** 2026-11-05
-* **관련 (Related):** T15 #24, T10 #19, T3 #7, 설계 문서 8.4, [ADR-0023](0023-rehearsal-runner-attempt-evidence.md), [ADR-0024](0024-rehearsal-exec-actions.md), [ADR-0026](0026-rehearsal-exec-records-and-failures.md)
+* **관련 (Related):** T42, T15 #24, T10 #19, T3 #7, 설계 문서 8.4, [ADR-0023](0023-rehearsal-runner-attempt-evidence.md), [ADR-0024](0024-rehearsal-exec-actions.md), [ADR-0026](0026-rehearsal-exec-records-and-failures.md)
 
 ## 1. 배경 및 문제 상황 (Context and Problem Statement)
 
