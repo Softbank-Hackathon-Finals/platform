@@ -61,8 +61,8 @@ class ProductInputRecords:
     HTTP endpoint. The production transport must authenticate before read().
     """
 
-    def __init__(self, store, *, catalog, source, authorize, clock=None):
-        if (not callable(getattr(catalog, "for_plan", None)) or not callable(source)
+    def __init__(self, store, *, catalog, authorize, source=None, clock=None):
+        if (not callable(getattr(catalog, "for_plan", None)) or (source is not None and not callable(source))
                 or not callable(authorize)):
             raise ValueError("product_input_ports_required")
         self.store, self.catalog, self.source, self.authorize = store, catalog, source, authorize

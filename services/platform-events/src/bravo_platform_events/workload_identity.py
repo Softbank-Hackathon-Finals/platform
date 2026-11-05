@@ -27,6 +27,7 @@ class WorkloadSender:
         validate_identifier(self.tenant_id)
 
     def authenticate(self, token):
+        """Return verified claims for additional host checks, never a permission."""
         try:
             if not isinstance(token, str) or not 1 <= len(token) <= 16384:
                 raise ValueError()
@@ -39,3 +40,4 @@ class WorkloadSender:
                 raise ValueError()
         except (jwt.PyJWTError, TypeError, ValueError):
             raise EventError("forbidden") from None
+        return claims
