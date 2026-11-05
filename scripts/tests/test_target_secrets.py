@@ -128,6 +128,7 @@ class DeliveryBoundaryTests(unittest.TestCase):
              "podSelector": {"matchLabels": {"bravo-secret-probe": "true"}}},
             {"namespaceSelector": {"matchLabels": {"kubernetes.io/metadata.name": "bravo-rehearsal-control"}},
              "podSelector": {"matchLabels": {"app.kubernetes.io/component": "rehearsal-openbao-writer"}}},
+            {"namespaceSelector": {"matchLabels": {"app.kubernetes.io/part-of": "bravo-rehearsal"}}},
         ])
         for stage, expected in (("network", "bravo-secrets"), ("eso-network", "external-secrets")):
             policy = cli(stage, "--api-ip", "10.96.0.1", "--api-endpoint-ip", "192.168.50.10")

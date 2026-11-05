@@ -412,6 +412,9 @@ def network(api_ip, api_endpoint_ip):
             # T15 prep Job (rehearsal writer); the Pod template must carry WRITER_POD_LABEL.
             {"namespaceSelector": {"matchLabels": {"kubernetes.io/metadata.name": WRITER_NAMESPACE}},
              "podSelector": {"matchLabels": WRITER_POD_LABEL.copy()}},
+            # Both the candidate reader and the denied-identity control must reach TLS.
+            # Authentication, rather than a network timeout, determines the negative result.
+            {"namespaceSelector": {"matchLabels": {"app.kubernetes.io/part-of": "bravo-rehearsal"}}},
         ], "ports": [{"protocol": "TCP", "port": 8200}]}],
         "egress": [{"to": [{"ipBlock": {"cidr": str(address) + "/32"}}],
                     "ports": [{"protocol": "TCP", "port": port}]}
