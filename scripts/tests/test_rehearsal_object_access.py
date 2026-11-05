@@ -22,6 +22,7 @@ with patch.object(sys, "path", [*SEARCH, *sys.path]), patch.dict(sys.modules):
     import objects
     from rehearsal_runner.bucket_job import BucketFixture, SeaweedBucketJob
     from rehearsal_runner.isolation.fixtures import RUN_LABEL, Fixtures
+    from rehearsal_runner.isolation.profile import read_env
     target_namespace = objects.database("fixture-node")[0]
 
 spec = importlib.util.spec_from_file_location(
@@ -235,9 +236,7 @@ class RehearsalObjectAccessTests(unittest.TestCase):
             self.assertTrue(selects(peer["namespaceSelector"], REHEARSAL))
 
     def test_t3_onprem_egress_points_at_the_same_pod_and_port(self):
-        profile = dict(line.split("=", 1) for line in
-                       (ROOT / "services/rehearsal-runner/profiles/onprem.env").read_text().splitlines()
-                       if "=" in line and not line.startswith("#"))
+        profile = read_env(ROOT / "services/rehearsal-runner/profiles/onprem.env")
         self.assertEqual(profile["SEAWEEDFS_NAMESPACE"], "target-dev")
         self.assertEqual({profile["SEAWEEDFS_LABEL_KEY"]: profile["SEAWEEDFS_LABEL_VALUE"]}, objects.SELECTOR)
         policies, _ = rendered()
