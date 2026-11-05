@@ -18,5 +18,8 @@
   "private_host_script_sha256": "sha256:601b6d5f9da1d9a1ef083eb33c1c02e2e57d4e2054b4727e76611b0c21d92124",
   "operational_registration": false,
   "central_forwarding_qualified": false,
-  "authorizes_cutover": false
+  "authorizes_cutover": false,
+  "qualification": "SOURCE_LOG_DIAGNOSTIC_ONLY",
+  "gate_eligible": false,
+  "t5_aws_cloudwatch_search_path_verified": false
 }
