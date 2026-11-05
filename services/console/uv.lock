@@ -118,11 +118,13 @@ provides-extras = ["postgres"]
 
 [package.metadata.requires-dev]
 dev = [
+    { name = "bravo-rehearsal-runner", directory = "../rehearsal-runner" },
     { name = "httpx", specifier = ">=0.27" },
     { name = "psycopg", extras = ["binary"], specifier = ">=3.2,<4" },
     { name = "pytest", specifier = ">=8" },
     { name = "ruff", specifier = ">=0.9" },
 ]
+trusted-host = [{ name = "bravo-rehearsal-runner", directory = "../rehearsal-runner" }]
 
 [[package]]
 name = "certifi"

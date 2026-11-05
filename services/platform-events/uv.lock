@@ -101,9 +101,6 @@ dependencies = [
 postgres = [
     { name = "psycopg", extra = ["binary"] },
 ]
-trusted-host = [
-    { name = "bravo-rehearsal-runner" },
-]
 
 [package.dev-dependencies]
 dev = [
@@ -113,11 +110,13 @@ dev = [
     { name = "pytest" },
     { name = "ruff" },
 ]
+trusted-host = [
+    { name = "bravo-rehearsal-runner" },
+]
 
 [package.metadata]
 requires-dist = [
     { name = "bravo-observability", extras = ["api"], git = "https://github.com/Softbank-Hackathon-Finals/platform.git?subdirectory=services%2Fobservability&rev=020c6c78bdc6133ab0ee15e2a990bb9527b3182f" },
-    { name = "bravo-rehearsal-runner", marker = "extra == 'trusted-host'", directory = "../rehearsal-runner" },
     { name = "fastapi", specifier = ">=0.115" },
     { name = "httpx", specifier = ">=0.27" },
     { name = "jsonschema", specifier = ">=4.23" },
@@ -125,7 +124,7 @@ requires-dist = [
     { name = "pyjwt", extras = ["crypto"], specifier = ">=2.10.1,<3" },
     { name = "rfc3339-validator", specifier = ">=0.1.4" },
 ]
-provides-extras = ["postgres", "trusted-host"]
+provides-extras = ["postgres"]
 
 [package.metadata.requires-dev]
 dev = [
@@ -135,6 +134,7 @@ dev = [
     { name = "pytest", specifier = ">=8" },
     { name = "ruff", specifier = ">=0.9" },
 ]
+trusted-host = [{ name = "bravo-rehearsal-runner", directory = "../rehearsal-runner" }]
 
 [[package]]
 name = "bravo-rehearsal-runner"

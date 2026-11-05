@@ -20,10 +20,10 @@ bravo-rehearsal-runner = { path = "../rehearsal-runner" }
 
 [project.optional-dependencies]
 postgres = ["psycopg[binary]>=3.2,<4"]
-trusted-host = ["bravo-rehearsal-runner"]
 
 [dependency-groups]
-dev = ["httpx>=0.27", "pytest>=8", "ruff>=0.9", "psycopg[binary]>=3.2,<4", "bravo-rehearsal-runner"]
+dev = ["httpx>=0.27", "pytest>=8", "ruff>=0.9", "psycopg[binary]>=3.2,<4", {include-group = "trusted-host"}]
+trusted-host = ["bravo-rehearsal-runner"]
 
 [build-system]
 requires = ["hatchling>=1.25"]

@@ -7,7 +7,7 @@ T15 코드를 복제하지 않고 같은 저장소의 `bravo-rehearsal-runner` �
 ## 시작 입력
 
 ```sh
-uv sync --locked --extra postgres --extra trusted-host
+uv sync --locked --no-dev --extra postgres --group trusted-host
 python -m bravo_platform_events.approval_server \
   --config /approval/host.json \
   --ports reviewed_deployment:create_ports \
@@ -61,7 +61,8 @@ HTTP 입력이나 모델 출력으로 모듈을 선택하지 않는다. 이 함�
 `/credential/password`, `/ca/ca.crt` mount와 `platform-db-rw.platform-state.svc`를
 사용한다. schema version 3과 TLS 검증이 필요하다. 기존 window 수신기의
 Deployment·자격을 이 호스트로 전환하는 절차가 아니다.
-`trusted-host`는 승인 호스트 전용 extra다. 기존 window 이미지의 `postgres`
+`trusted-host`는 저장소에서 조립하는 승인 호스트 전용 dependency group이다.
+기존 window 이미지의 `postgres`
 전용 export에는 T15 로컬 패키지를 포함하지 않는다.
 
 | mount | 쓰기·보유 경계 |
