@@ -17,13 +17,17 @@ class Denied(Exception):
 class LockedStore:
     """Behaves like a versioned Object Lock bucket seen by a write-only identity."""
 
-    def __init__(self, *, versioning=True, lock=True, allow_delete=False, allow_policy=False, refusal=None):
+    def __init__(self, *, versioning=True, lock=True, allow_delete=False, allow_policy=False, refusal=None,
+                 enforce_conditional=True):
         self.objects, self.calls = {}, []
+        self.enforce_conditional = enforce_conditional  # bucket policy: Null s3:if-none-match -> Deny
         self.versioning, self.lock, self.allow_delete, self.allow_policy = versioning, lock, allow_delete, allow_policy
         self.refusal = refusal or (lambda: Denied())  # how destructive requests are refused
 
     def put_object(self, **kw):
         self.calls.append(("put_object", kw))
+        if kw.get("IfNoneMatch") != "*" and self.enforce_conditional:
+            raise Denied()
         if kw.get("IfNoneMatch") == "*" and kw["Key"] in self.objects:
             raise Denied("PreconditionFailed", 412)
         version = f"v{len(self.objects) + 1}" if self.versioning else "null"
@@ -107,11 +111,16 @@ def test_denial_probe_passes_only_when_every_attempt_is_refused(ledger):
     assert set(result["checks"].values()) == {"DENIED", "PRECONDITION_FAILED"}
     assert "bravo-audit" not in str(result)  # bucket name is not echoed
     assert receipt.key in store.objects  # probing did not remove the record
+    assert result["checks"]["unconditional_write_denied"] == "DENIED"
+    # the unconditional probe never targets a record key
+    assert all(kw["Key"] == receipt.key or not kw["Key"].endswith(".json")
+               for name, kw in store.calls if name == "put_object" and kw.get("IfNoneMatch") != "*")
 
 
 @pytest.mark.parametrize("kw, failing", [
     ({"allow_delete": True}, "delete_current_denied"),
     ({"allow_policy": True}, "bucket_policy_change_denied"),
+    ({"enforce_conditional": False}, "unconditional_write_denied"),
 ])
 def test_denial_probe_fails_when_the_store_allows_tampering(ledger, kw, failing):
     store = LockedStore(**kw)
@@ -138,4 +147,5 @@ def test_denial_probe_never_passes_on_unknown_retention_or_malformed_refusals(le
     result = probe_denial(store, "bravo-audit", receipt.key, receipt.version_id, now=lambda: NOW)
     assert result["pass"] is False and result["retention"] == retention
     if retention == "COMPLIANCE_ACTIVE":
-        assert all(v.startswith("UNKNOWN:") for k, v in result["checks"].items() if k != "overwrite_precondition_failed")
+        assert all(v.startswith("UNKNOWN:") for k, v in result["checks"].items()
+                   if k not in {"overwrite_precondition_failed", "unconditional_write_denied"})

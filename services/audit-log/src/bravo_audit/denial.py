@@ -37,6 +37,12 @@ def probe_denial(client: Any, bucket: str, key: str, version_id: str, *, now=Non
             Retention={"Mode": "COMPLIANCE", "RetainUntilDate": now() + timedelta(minutes=1)})),
         "overwrite_precondition_failed": _outcome(lambda: client.put_object(
             Bucket=bucket, Key=key, Body=b"{}", IfNoneMatch="*")),
+        # Review #257 P2: the 412 above only shows a *conditional* rewrite fails. A writer that
+        # omits the header must be refused by the bucket itself. Probed on a sibling key that is
+        # not a record (no ``.json``), so a misconfigured bucket gains a stray object, never a
+        # second version of a record.
+        "unconditional_write_denied": _outcome(lambda: client.put_object(
+            Bucket=bucket, Key=f"{key.rsplit('/', 1)[0]}/.probe-unconditional-write", Body=b"{}")),
         "bucket_policy_change_denied": _outcome(lambda: client.put_bucket_policy(Bucket=bucket, Policy="{}")),
         "object_lock_config_change_denied": _outcome(lambda: client.put_object_lock_configuration(
             Bucket=bucket, ObjectLockConfiguration={"ObjectLockEnabled": "Enabled"})),

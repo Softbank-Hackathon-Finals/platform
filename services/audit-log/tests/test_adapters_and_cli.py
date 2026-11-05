@@ -95,47 +95,94 @@ def _write(tmp_path, events, name="events.jsonl"):
     return str(path)
 
 
-class _ListingS3:
-    """Stands in for the list/get calls only; the live path was exercised against a real bucket
-    (docs/evidence/t24-audit-live-2026-11-06)."""
+class _VersionedS3:
+    """Stands in for list_object_versions/get_object only; the live path was exercised against a
+    real bucket (docs/evidence/t24-audit-live-2026-11-06). ``objects`` maps key -> list of
+    versions (oldest first); ``markers`` are keys with a delete marker."""
 
-    def __init__(self, objects):
-        self.objects = objects
+    def __init__(self, objects, markers=()):
+        self.objects = {k: (v if isinstance(v, list) else [v]) for k, v in objects.items()}
+        self.markers = set(markers)
         self.prefixes = []
 
     def get_paginator(self, name):
-        assert name == "list_objects_v2"
+        assert name == "list_object_versions"  # never the current-version-only listing
         outer = self
 
         class _Pages:
             def paginate(self, Bucket, Prefix):
                 outer.prefixes.append(Prefix)
                 # Unordered on purpose: the loader must sort by key, i.e. by zero-padded sequence.
-                yield {"Contents": [{"Key": k} for k in reversed(list(outer.objects)) if k.startswith(Prefix)]}
+                yield {"Versions": [{"Key": k, "VersionId": f"v{i}"} for k in reversed(list(outer.objects))
+                                    if k.startswith(Prefix) for i, _ in enumerate(outer.objects[k])],
+                       "DeleteMarkers": [{"Key": k, "VersionId": "dm"} for k in outer.markers if k.startswith(Prefix)]}
         return _Pages()
 
-    def get_object(self, Bucket, Key):
+    def get_object(self, Bucket, Key, VersionId):
         import io
-        return {"Body": io.BytesIO(json.dumps(self.objects[Key]).encode())}
+        return {"Body": io.BytesIO(json.dumps(self.objects[Key][int(VersionId[1:])]).encode())}
 
 
-def test_s3_records_are_read_in_sequence_order_under_one_run_prefix(monkeypatch, tmp_path, platform_events, capsys):
-    import sys
-    import types
-
+def _stored_run(tmp_path, platform_events):
     assert main(["append", "--source", "platform.events", "--input", _write(tmp_path, platform_events),
                  "--sink", str(tmp_path / "store"), "--receipts", str(tmp_path / "r.json")]) == 0
     run_dir = tmp_path / "store/audit/plan-demo/run-demo-1"
-    objects = {f"audit/plan-demo/run-demo-1/{p.name}": json.loads(p.read_text()) for p in sorted(run_dir.glob("*.json"))}
-    objects["audit/plan-demo/run-demo-10/00000001.json"] = {"not": "this run"}
-    fake = _ListingS3(objects)
+    return {f"audit/plan-demo/run-demo-1/{p.name}": json.loads(p.read_text()) for p in sorted(run_dir.glob("*.json"))}
+
+
+def _boto(monkeypatch, fake):
+    import sys
+    import types
     # boto3 is the optional "aws" extra; CI runs without it, so the module itself is stood in.
     monkeypatch.setitem(sys.modules, "boto3", types.SimpleNamespace(client=lambda service: fake))
+
+
+def test_s3_records_are_read_in_sequence_order_under_one_run_prefix(monkeypatch, tmp_path, platform_events, capsys):
+    objects = _stored_run(tmp_path, platform_events)
+    objects["audit/plan-demo/run-demo-10/00000001.json"] = {"not": "this run"}
+    fake = _VersionedS3(objects)
+    _boto(monkeypatch, fake)
     capsys.readouterr()
     assert main(["verify", "s3://bucket/audit/plan-demo/run-demo-1"]) == 0
     assert json.loads(capsys.readouterr().out)["records"] == 2
     # The trailing slash keeps run-demo-10 out of run-demo-1.
     assert fake.prefixes == ["audit/plan-demo/run-demo-1/"]
+
+
+def _rehashed_overwrite(objects):
+    """Review #257 P1 reproduction: rewrite record 2 with a consistent re-hashed chain as a new version."""
+    from bravo_audit.ledger import RunLedger
+
+    keys = sorted(objects)
+    first = objects[keys[0]]
+    forged = RunLedger.resume("plan-demo", "run-demo-1", [first])
+    record, _ = forged.append("platform.events", "gate.completed", {"decision": "PASS", "forged": True}, "t10:forged")
+    out = dict(objects)
+    out[keys[1]] = [objects[keys[1]], record.as_dict()]
+    return out
+
+
+def test_verify_and_resume_refuse_a_record_rewritten_as_a_new_version(monkeypatch, tmp_path, platform_events, capsys):
+    tampered = _rehashed_overwrite(_stored_run(tmp_path, platform_events))
+    _boto(monkeypatch, _VersionedS3(tampered))
+    capsys.readouterr()
+    assert main(["verify", "s3://bucket/audit/plan-demo/run-demo-1"]) == 1
+    out = json.loads(capsys.readouterr().out)
+    assert out["ok"] is False and out["reason"] == "overwritten:2"
+    tools = _write(tmp_path, [{"run_id": "run-demo-1", "attempt": 1, "tool": "repo.read", "outcome": "ALLOWED",
+                               "reason": "POLICY_ACCEPTED"}], "t.jsonl")
+    assert main(["append", "--source", "agent.tools", "--plan", "plan-demo", "--input", tools, "--sink",
+                 str(tmp_path / "store2"), "--receipts", str(tmp_path / "r2.json"),
+                 "--resume-from", "s3://bucket/audit/plan-demo/run-demo-1"]) == 3
+    assert not (tmp_path / "store2").exists()
+
+
+def test_verify_refuses_a_delete_marker(monkeypatch, tmp_path, platform_events, capsys):
+    objects = _stored_run(tmp_path, platform_events)
+    _boto(monkeypatch, _VersionedS3(objects, markers=[sorted(objects)[0]]))
+    capsys.readouterr()
+    assert main(["verify", "s3://bucket/audit/plan-demo/run-demo-1"]) == 1
+    assert json.loads(capsys.readouterr().out)["reason"] == "delete_marker:1"
 
 
 def test_demo_retention_defaults_to_one_day(monkeypatch, tmp_path, platform_events):

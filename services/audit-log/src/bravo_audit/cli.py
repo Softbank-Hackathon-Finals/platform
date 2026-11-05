@@ -18,6 +18,39 @@ def _load_jsonl(path: Path) -> list[dict]:
     return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
 
 
+class StoreTampered(Exception):
+    """The stored run is not a single, untouched version per record."""
+
+
+def _load_s3_run(client, bucket: str, prefix: str) -> list[dict]:
+    """Every version of every record under one run prefix (review #257 P1).
+
+    Reading only the current version would miss a record rewritten without ``If-None-Match``:
+    Object Lock keeps the old version but does not stop a new one, so a re-hashed chain would
+    verify. A key with more than one version, or a delete marker, is reported as tampering."""
+    versions: dict[str, list[str]] = {}
+    markers: set[str] = set()
+    for page in client.get_paginator("list_object_versions").paginate(Bucket=bucket, Prefix=prefix):
+        for v in page.get("Versions", []):
+            if v["Key"].endswith(".json"):
+                versions.setdefault(v["Key"], []).append(v["VersionId"])
+        for m in page.get("DeleteMarkers", []):
+            if m["Key"].endswith(".json"):
+                markers.add(m["Key"])
+
+    def seq(key: str) -> str:
+        name = key.rsplit("/", 1)[-1].removesuffix(".json")
+        return str(int(name)) if name.isdigit() else "?"
+
+    for key in sorted(set(versions) | markers):
+        if key in markers:
+            raise StoreTampered(f"delete_marker:{seq(key)}")
+        if len(versions[key]) > 1:
+            raise StoreTampered(f"overwritten:{seq(key)}")
+    return [json.loads(client.get_object(Bucket=bucket, Key=k, VersionId=versions[k][0])["Body"].read())
+            for k in sorted(versions)]
+
+
 def _load_records(target: str) -> list[dict]:
     """Stored records of one run: a local directory, a JSON Lines file, or s3://bucket/<prefix>/<plan>/<run>.
     The S3 path only lists and reads (the T24 reader role); objects are taken in key order, which is
@@ -26,11 +59,7 @@ def _load_records(target: str) -> list[dict]:
         import boto3
 
         bucket, _, prefix = target[5:].partition("/")
-        client = boto3.client("s3")
-        keys = []
-        for page in client.get_paginator("list_objects_v2").paginate(Bucket=bucket, Prefix=prefix.rstrip("/") + "/"):
-            keys += [o["Key"] for o in page.get("Contents", []) if o["Key"].endswith(".json")]
-        return [json.loads(client.get_object(Bucket=bucket, Key=k)["Body"].read()) for k in sorted(keys)]
+        return _load_s3_run(boto3.client("s3"), bucket, prefix.rstrip("/") + "/")
     path = Path(target)
     if path.is_dir():
         return [json.loads(p.read_text(encoding="utf-8")) for p in sorted(path.glob("*.json"))]
@@ -71,7 +100,11 @@ def cmd_append(args) -> int:
         if args.plan and plan_id != args.plan or args.run and run_id != args.run:
             print("events do not belong to the requested plan/run", file=sys.stderr)
             return 2
-        existing = _load_records(args.resume_from) if args.resume_from else []
+        try:
+            existing = _load_records(args.resume_from) if args.resume_from else []
+        except StoreTampered as exc:
+            print(f"stored chain is not trustworthy: {exc}", file=sys.stderr)
+            return 3
         ledger = RunLedger.resume(plan_id, run_id, existing)
     for _plan, _run, source, kind, origin_id, payload in mapped:
         try:
@@ -93,7 +126,11 @@ def cmd_append(args) -> int:
 
 
 def cmd_verify(args) -> int:
-    records = _load_records(args.directory)
+    try:
+        records = _load_records(args.directory)
+    except StoreTampered as exc:
+        print(json.dumps({"records": None, "ok": False, "reason": str(exc), "chain_digest": None}))
+        return 1
     ok, reason = verify_chain(records)
     print(json.dumps({"records": len(records), "ok": ok, "reason": reason, "chain_digest": chain_digest(records) if ok else None}))
     return 0 if ok else 1

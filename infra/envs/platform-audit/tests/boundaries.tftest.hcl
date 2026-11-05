@@ -56,6 +56,10 @@ run "policy_only_takes_rights_away" {
     error_message = "Governance bypass is refused to everyone, custodians included."
   }
   assert {
+    condition     = one([for s in jsondecode(aws_s3_bucket_policy.audit.policy).Statement : s.Condition.Null["s3:if-none-match"] if s.Sid == "DenyUnconditionalWrites"]) == "true" && one([for s in jsondecode(aws_s3_bucket_policy.audit.policy).Statement : s.Action if s.Sid == "DenyUnconditionalWrites"]) == "s3:PutObject"
+    error_message = "A write without If-None-Match is refused by the bucket, so no record gains a second version."
+  }
+  assert {
     condition     = one([for s in jsondecode(aws_s3_bucket_policy.audit.policy).Statement : s.Condition.Bool["aws:SecureTransport"] if s.Sid == "DenyInsecureTransport"]) == "false"
     error_message = "Plain HTTP is refused."
   }
@@ -66,12 +70,12 @@ run "writer_cannot_delete_list_or_reconfigure" {
   assert {
     condition = length(setintersection(
       toset(flatten([for s in jsondecode(aws_iam_role_policy.writer.policy).Statement : s.Action])),
-      toset(["s3:DeleteObject", "s3:DeleteObjectVersion", "s3:ListBucketVersions", "s3:PutBucketPolicy", "s3:PutBucketObjectLockConfiguration", "s3:BypassGovernanceRetention"])
+      toset(["s3:DeleteObject", "s3:DeleteObjectVersion", "s3:PutBucketPolicy", "s3:PutBucketObjectLockConfiguration", "s3:BypassGovernanceRetention"])
     )) == 0
     error_message = "The writer only puts, reads back and sets retention on new records."
   }
   assert {
-    condition     = one([for s in jsondecode(aws_iam_role_policy.writer.policy).Statement : s.Condition.StringLike["s3:prefix"] if s.Action == ["s3:ListBucket"]]) == ["audit/*"]
+    condition     = one([for s in jsondecode(aws_iam_role_policy.writer.policy).Statement : s.Condition.StringLike["s3:prefix"] if s.Action == ["s3:ListBucket", "s3:ListBucketVersions"]]) == ["audit/*"]
     error_message = "The writer lists only its own prefix, to resume a run's chain."
   }
   assert {

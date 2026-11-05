@@ -84,6 +84,11 @@ resource "aws_s3_bucket_policy" "audit" {
     Condition = local.not_custodian },
     { Sid = "DenyGovernanceBypass", Effect = "Deny", Principal = "*",
     Action = "s3:BypassGovernanceRetention", Resource = "${local.bucket_arn}/*" },
+    # Review #257 P1: Object Lock keeps an old version but does not stop a new one. Every write
+    # must carry If-None-Match, so a record key can never gain a second version.
+    { Sid    = "DenyUnconditionalWrites", Effect = "Deny", Principal = "*",
+      Action = "s3:PutObject", Resource = "${local.bucket_arn}/*",
+    Condition = { Null = { "s3:if-none-match" = "true" } } },
     { Sid = "DenyProtectionChangesExceptCustodians", Effect = "Deny", Principal = "*",
       Action = ["s3:DeleteBucket", "s3:DeleteBucketPolicy", "s3:PutBucketPolicy", "s3:PutBucketVersioning",
         "s3:PutBucketObjectLockConfiguration", "s3:PutLifecycleConfiguration", "s3:PutEncryptionConfiguration",
@@ -112,13 +117,14 @@ resource "aws_iam_role" "audit" {
   }] })
 }
 # The sink writes with If-None-Match and an explicit COMPLIANCE retain-until date, then reads the
-# version back to confirm the retention. Listing its own prefix lets a writer resume a run's chain
-# from what is actually stored. It never deletes or changes the bucket.
+# version back to confirm the retention. Listing its own prefix (all versions) lets a writer resume
+# a run's chain from what is actually stored and notice a rewritten record. It never deletes or
+# changes the bucket.
 resource "aws_iam_role_policy" "writer" {
   name = "t24-audit-write"
   role = aws_iam_role.audit["writer"].id
   policy = jsonencode({ Version = "2012-10-17", Statement = [
-    { Effect = "Allow", Action = ["s3:ListBucket"], Resource = local.bucket_arn,
+    { Effect = "Allow", Action = ["s3:ListBucket", "s3:ListBucketVersions"], Resource = local.bucket_arn,
     Condition = { StringLike = { "s3:prefix" = ["${var.prefix}*"] } } },
     { Effect = "Allow", Action = ["s3:PutObject", "s3:PutObjectRetention", "s3:GetObject", "s3:GetObjectVersion",
     "s3:GetObjectRetention"], Resource = local.objects },
