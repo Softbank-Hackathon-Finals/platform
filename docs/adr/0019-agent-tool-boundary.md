@@ -40,3 +40,14 @@
 ## 5. 실측 (Evidence)
 
 로컬 `services/agent-worker` 시험 323개 통과(새 시험: 소스 경로 정책 9, inventory.describe 3, policy.evaluate 6, 파괴 시도 기록 5). 실제 모델 호출 실측은 아직 없다.
+
+## 6. 보완: T42 rehearsal.exec 도구의 T11 쪽 (2026-11-06)
+
+* **배경:** 2절에서 미룬 `rehearsal.exec`를 T42가 동작별 도구 세 개와 [호출 계약 v1](../contracts/T42-rehearsal-exec-v1-proposal.md)로 정했고, T11 담당이 11/6 02:41에 형식을 확인했다(apply 인자는 `plan.propose`처럼 검사하되 제출 1회와 따로 센다, 남은 모델 실행 예산이 제출할 여유를 남기지 못하면 T11이 exec를 닫는다, strict 모드 수용은 실제 모델로 나중에 확인한다).
+* **결정:**
+  * 주입한 exec 채널이 켜져 있을 때만 `rehearsal.exec.apply`·`inspect`·`probe`를 노출한다. 아니면 `TOOL_NOT_PROVIDED`이며, 예약 이름 `rehearsal.exec`·`run`·`result`는 채널과 관계없이 그대로다.
+  * 인자는 계약 스키마와 필드 사이 규칙을 코드로 검사하고, exec 호출은 인자 어디에든 파괴 패턴이 있으면 거부한다(`plan.propose`는 실패한 제안서에서만 범주를 기록한다).
+  * T11은 채널 실패와 계약 밖 응답에 계약 5절의 응답을 직접 만들고, 결과 모름 뒤의 exec 호출은 보내지 않는다. 남은 모델 호출·시간이 예약분(`ExecReserve`, 기본 2턴·45초)보다 적으면 exec를 닫는다.
+  * 모델로 가는 출력은 T15 검사 뒤에도 T11 `safe_text`를 한 번 더 거친다.
+* **감사 사유 추가:** `EXEC_CLOSED`(T11이 채널로 보내지 않은 exec 호출: `exec_reason`이 `BUDGET_EXHAUSTED`·`UNAVAILABLE`·`EFFECT_UNKNOWN`). 보낸 호출은 `POLICY_ACCEPTED`에 `request_id`·`result_code`·`exec_reason`을 더한다. 인자 값은 기록하지 않는다.
+* **미검증:** 실제 채널(T38 broker → T15) 연결, T38이 exec 사용 여부를 싣는 제품 입력 위치, 실제 모델의 strict 스키마 수용과 도구 사용, T15 `exec_events`와 `request_id` 대조. 시험은 채널 테스트 더블, OpenAI SDK 모의 전송(API 키·구독 스트림), Claude SDK 훅·MCP 핸들러 직접 호출까지다.

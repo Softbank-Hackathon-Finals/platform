@@ -5,14 +5,23 @@ import copy
 import json
 import os
 import re
+import time
 from collections import Counter
 from typing import get_args
 
 from openai import APIStatusError, AsyncOpenAI
 
 from .contracts import FailureBundle, Proposal
+from .exec_tools import (
+    DESCRIPTIONS,
+    EXEC_ACTIONS,
+    EXEC_FUNCTIONS,
+    EXEC_TOOLS,
+    INSPECT_PARAMETERS,
+    PROBE_PARAMETERS,
+)
 from .runtime import RUNTIME_KEYS
-from .tools import RESERVED_TOOLS, SYSTEM, PolicyDenied, Tools
+from .tools import RESERVED_TOOLS, PolicyDenied, Tools
 
 FUNCTIONS = {"repo_read": "mcp__bravo__repo_read", "plan_propose": "mcp__bravo__plan_propose",
              "inventory_describe": "mcp__bravo__inventory_describe", "policy_evaluate": "mcp__bravo__policy_evaluate"}
@@ -25,7 +34,10 @@ RESERVED_FUNCTIONS = {
     for base in [tool.removeprefix("mcp__bravo__")]
     for form in (base, base.replace("_", ".", 1), "bravo." + base, "bravo." + base.replace("_", ".", 1), tool)
 }
-BRAVO_KINDS = frozenset("bravo_" + name for name in FUNCTIONS) | {"bravo_reserved"}
+# T42 exec tools: offered only with an enabled exec channel. None of these names is a reserved
+# spelling above, so ``rehearsal_exec`` and friends stay TOOL_NOT_PROVIDED either way.
+assert not EXEC_FUNCTIONS.keys() & RESERVED_FUNCTIONS.keys() and not EXEC_FUNCTIONS.keys() & FUNCTIONS.keys()
+BRAVO_KINDS = frozenset("bravo_" + name for name in FUNCTIONS | EXEC_FUNCTIONS) | {"bravo_reserved"}
 
 
 def tool_name(name, namespace=None, *, subscription=False) -> str:
@@ -35,6 +47,9 @@ def tool_name(name, namespace=None, *, subscription=False) -> str:
         return "unlisted"
     if name in FUNCTIONS and (not subscription or namespace == "bravo"):
         return FUNCTIONS[name]
+    if name in EXEC_FUNCTIONS and (not subscription or namespace == "bravo"):
+        # Canonical even when exec is off, so dispatch audits TOOL_NOT_PROVIDED.
+        return EXEC_FUNCTIONS[name]
     return RESERVED_FUNCTIONS.get(name, "unlisted")
 
 
@@ -101,7 +116,19 @@ def function_tools(tools: Tools | None = None) -> list[dict]:
              "description": "Read the graded dependency inventory (T16). Optional role filter, null for all.",
              "parameters": {"type": "object", "properties": {"role": {"type": ["string", "null"]}},
                             "required": ["role"], "additionalProperties": False}})
+    if tools is not None and tools.exec_open():
+        definitions.extend(exec_function_tools())
     return definitions
+
+
+def exec_function_tools() -> list[dict]:
+    """T42 v1 model-facing tools. Strict-mode acceptance of ``pattern``/``minimum``/nullable types
+    by a real model is not verified yet (contract 8)."""
+    parameters = {"apply": strict_schema(Proposal.model_json_schema()),
+                  "inspect": copy.deepcopy(INSPECT_PARAMETERS), "probe": copy.deepcopy(PROBE_PARAMETERS)}
+    return [{"type": "function", "name": function, "strict": True,
+             "description": DESCRIPTIONS[EXEC_ACTIONS[tool]], "parameters": parameters[EXEC_ACTIONS[tool]]}
+            for function, tool in EXEC_FUNCTIONS.items()]
 
 
 def output_kind(item) -> str:
@@ -110,7 +137,7 @@ def output_kind(item) -> str:
     if kind == "function_call":
         if getattr(item, "namespace", None) != "bravo":
             return "other_function"
-        for name in FUNCTIONS:
+        for name in FUNCTIONS | EXEC_FUNCTIONS:
             if getattr(item, "name", None) == name:
                 return "bravo_" + name
         # Bound like an offered call so it reaches dispatch and is denied and audited there.
@@ -267,21 +294,23 @@ class OpenAIProvider:
                 or not os.environ.get(credential)):
             raise RuntimeError("worker process environment must be explicitly isolated")
         history = [{"role": "user", "content": json.dumps(tools.model_input(), sort_keys=True)}]
-        definitions = function_tools(tools)
         needs_read = self.subscription
+        deadline = time.monotonic() + 180
         tokens = 0
         async with asyncio.timeout(180):
             async with AsyncOpenAI(api_key=os.environ[credential],
                                    base_url="https://api.openai.com/v1",
                                    max_retries=0, timeout=60) as client:
                 for index in range(8):
-                    offered = definitions
+                    # Calls left after this one; exec tools close while plan_propose still fits.
+                    tools.set_model_budget(7 - index, deadline)
+                    offered = function_tools(tools)
                     if needs_read:
-                        offered = [tool for tool in definitions if tool["name"] == "repo_read"]
+                        offered = [tool for tool in offered if tool["name"] == "repo_read"]
                     if self.subscription:
                         offered = [{"type": "namespace", "name": "bravo", "tools": offered,
                                     "description": "Approved snapshot reads and proposal submission only."}]
-                    request = {"model": self.model, "instructions": SYSTEM,
+                    request = {"model": self.model, "instructions": tools.system_prompt(),
                                "input": history, "tools": offered, "tool_choice": "required" if needs_read else "auto",
                                "parallel_tool_calls": False, "store": False,
                                "include": ["reasoning.encrypted_content"]}
@@ -326,7 +355,8 @@ class OpenAIProvider:
                             deny_unprovided(tools, name, arguments)
                         raise RuntimeError(stop)
                     try:
-                        if not parsed and tools.allowed(name):
+                        # Exec calls classify even unparseable text (destructive category) in dispatch.
+                        if not parsed and tools.allowed(name) and name not in EXEC_TOOLS:
                             raise ValueError("invalid function arguments")
                         result = tools.dispatch(name, arguments)
                         needs_read = False
