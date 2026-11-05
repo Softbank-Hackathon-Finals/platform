@@ -37,5 +37,8 @@
   "runner_source_revision": "cacb5ddcb7270f81bd1d216da6713bd7712c82d8",
   "actual_target_run": false,
   "authorizes_cutover": false,
-  "source_file_count": 14
+  "source_file_count": 14,
+  "qualification": "DEPLOYED_SOURCE_DIAGNOSTIC_ONLY",
+  "gate_eligible": false,
+  "registered_repository_scope_verified": false
 }
