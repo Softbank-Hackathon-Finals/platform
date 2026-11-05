@@ -193,7 +193,7 @@ def install_workloads(aws_hosts: list[str]) -> None:
         service("demo-chat", NS, {"app": "demo-chat"}, 8080),
         deployment("target-pgbouncer", NS, {"app": "target-pgbouncer"}, {"ROLE": "relay", "LISTEN_PORT": 5432, "UPSTREAM_HOST": f"target-db-rw.{NS}.svc", "UPSTREAM_PORT": 5432}, container="target-pgbouncer"),
         service("target-pgbouncer", NS, {"app": "target-pgbouncer"}, 5432),
-        deployment("target-db", NS, {"cnpg.io/cluster": "target-db", "cnpg.io/instanceRole": "primary"}, {"ROLE": "db"}, strategy="Recreate"),
+        deployment("target-db", NS, {"cnpg.io/cluster": "target-db", "cnpg.io/instanceRole": "primary"}, {"ROLE": "db"}, strategy="Recreate", container="postgres"),
         service("target-db-rw", NS, {"cnpg.io/cluster": "target-db", "cnpg.io/instanceRole": "primary"}, 5432),
         deployment("target-seaweedfs", NS, {"app.kubernetes.io/name": "target-seaweedfs"}, {"ROLE": "tcp", "PORTS": 8333}),
         service("seaweedfs", NS, {"app.kubernetes.io/name": "target-seaweedfs"}, 8333),
