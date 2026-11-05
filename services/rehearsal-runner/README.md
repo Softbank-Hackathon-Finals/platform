@@ -200,3 +200,16 @@ PR #237의 수신기는 기본적으로 네트워크 경로와 운영 원문 조
 재시도는 T10 수신 계약에 맞춰 이전 검증 ID의 hold 커밋을 확인한 다음에만 시작한다. `T10PreviousHold`에는 T10 관리 호스트가 승인한 hold 권한과 intake를 주입한다. 응답·권한·저장 확인이 불명확하면 다음 시도를 시작하지 않는다. T15 워크로드나 모델에 hold 권한을 부여하는 설정은 이 코드에 없다.
 
 두 제안 어댑터와 제안 조회 경계는 시도 번호를 일치시킨다. 재시도 digest 비교만으로 실패 증거의 출처가 인증되는 것은 아니며, 실제 T38 인증 결과와 T10 실행 권한·영속 복구 연결이 필요하다.
+
+## T10 재시작 복구 조회
+
+`NamespaceLifecycle`은 T10이 발급한 실행 ID와 시도 번호의 조회용 라벨·annotation을 새 네임스페이스에 설정하고 템플릿 적용 전후에 원 UID와 식별값을 확인한다. `recovery_lookup.find_live_namespace`와 `find_live_jobs`는 같은 실행·시도의 현재 namespace·Job 후보를 조회하며, Job 목록 조회 전후의 namespace UID도 대조한다. 중복·삭제 중·식별값 불일치는 조회 불명으로 처리한다.
+
+라벨은 검색 용도다. 조회 후보는 인증된 Job·Pod·이미지·로그 증거나 원 UID의 삭제·부재 증거가 아니다. namespace가 보이지 않는 것만으로 생성되지 않았거나 정리됐다고 판단하지 않는다. T38의 인증된 실행 원문과 보존 경로를 연결하기 전 T10 `Observation`으로 변환하지 않는다. T38 Job에도 동일 실행·시도 식별자를 붙이는 접점은 담당자와 협의 중이다.
+
+```bash
+cd ../platform-events
+PYTHONPATH=../rehearsal-runner/src uv run --frozen --no-default-groups --with pytest pytest -p no:cacheprovider ../rehearsal-runner/testing/test_t10_recovery_lookup.py
+```
+
+위 교차 시험은 실제 T10 접수·재조회 코드와 모의 Kubernetes API를 사용한다. 제출 응답 유실 후 중복 제출 없이 기존 Job UID를 발견하지만, 인증된 결과가 없으므로 `UNCONFIRMED`가 유지되고 다음 게이트가 차단됨을 확인한다.

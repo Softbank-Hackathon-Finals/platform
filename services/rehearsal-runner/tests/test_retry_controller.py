@@ -152,3 +152,17 @@ def test_stale_verifier_attempt_never_starts_namespace_or_job():
     assert result.reason == "ATTEMPT_PREPARATION_UNAVAILABLE"
     assert result.attempts == 0
     assert ports.events == []
+
+
+def test_stale_lifecycle_attempt_never_starts_namespace_or_job():
+    ports = Ports()
+    class StaleLifecycle:
+        attempt = 2
+    def stale(attempt, feedback_ref):
+        ports.attempts.append((attempt, feedback_ref))
+        ports.attempt = attempt
+        return AttemptPorts(ports, StaleLifecycle(), ports, ports)
+    ports.prepare = stale
+    result = execute(ports)
+    assert result.reason == "ATTEMPT_PREPARATION_UNAVAILABLE"
+    assert result.attempts == 0 and ports.events == []
