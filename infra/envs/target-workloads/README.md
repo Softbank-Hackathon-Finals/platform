@@ -108,6 +108,36 @@ TCP readiness 이후 별도로 서명 put/get·SHA-256 대조, 익명/오서명/
 client의 버킷 생성 거절, 재시작 후 객체 보존을 확인한다. 이 개발용 HTTP 경로는
 T9의 OpenBao/ESO·TLS 통제나 목적지 앱 업무 기동 완료를 대신하지 않는다.
 
+## 데모용 노출 상태: 열린 버킷에서 시작해 닫는다 (T9 #13)
+
+데모 10장 0:00 장면은 "게이트 1차에서 열린 첨부 저장소로 BLOCK"이다. 통제 IAM-01.1(인증 없이 첨부
+객체를 읽을 수 있는가)이 목적지 SeaweedFS에 익명 `GET`을 보내 403이어야 PASS다. `object_exposure.py`는
+`s3.json`의 두 상태를 렌더하고, 실제 상태를 익명 GET으로 관측하며, 운영자 순서를 출력한다. 클러스터에는
+닿지 않는다.
+
+| 상태 | identity | 용도 |
+|---|---|---|
+| `closed` | bootstrap(Admin/Read/Write/List/Tagging) · client(Read/Write/List/Tagging), 정확한 버킷만 | 위 "익명 identity 없음" 원칙 그대로. 컷오버 전 반드시 이 상태 |
+| `open-demo` | `closed` + `anonymous`에 **`Read:<버킷>` 하나만** | 데모 시작 상태. `--acknowledge-anonymous-read`와 `--demo-run-id` 없이는 렌더를 거부한다. Write · List · Tagging · Admin · 다른 버킷은 열지 않는다 |
+
+```sh
+export BRAVO_OBJECT_BOOTSTRAP_ACCESS_KEY=… BRAVO_OBJECT_BOOTSTRAP_SECRET_KEY=…   # 메모리에서만
+export BRAVO_OBJECT_CLIENT_ACCESS_KEY=…    BRAVO_OBJECT_CLIENT_SECRET_KEY=…
+python3 object_exposure.py plan --state open-demo            # 순서만 출력
+python3 object_exposure.py render --state open-demo --output /dev/shm/s3.json \
+  --acknowledge-anonymous-read --demo-run-id demo-2026-11-07  # 파일 0600, stdout에는 키 없음
+# Secret 교체 → rollout restart → 관측 → 게이트
+python3 object_exposure.py probe --endpoint http://seaweedfs.target-dev.svc.cluster.local:8333 \
+  --bucket demo-chat-attachments --key <기존 객체 키>          # state_observed=open 기대
+python3 object_exposure.py render --state closed --output /dev/shm/s3.closed.json   # 닫기
+```
+
+`probe`는 응답 코드만 분류한다(`ALLOWED`/`DENIED`/`UNKNOWN:<사유>`), 객체 내용은 보관하지 않는다.
+Secret을 바꾼 뒤 SeaweedFS가 설정을 다시 읽는지는 아직 실측하지 않았으므로 순서에 `rollout restart`를
+넣었다. 열린 상태의 증빙은 게이트 readback(IAM-01.1 BLOCK)이고, 이 스크립트의 관측은 리셋 확인용이다.
+시험: `scripts/tests/test_object_exposure.py`(렌더 상태 · 범위 · 승인 플래그 · 키 비노출 · 탐침 분류).
+실제 클러스터에서 열고 닫은 실측은 아직 없다.
+
 ## 공식 계약
 
 - [CNPG 1.30.1 논리 복제](https://github.com/cloudnative-pg/cloudnative-pg/blob/v1.30.1/docs/src/logical_replication.md)
