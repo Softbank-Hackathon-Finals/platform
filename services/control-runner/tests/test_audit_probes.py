@@ -79,6 +79,8 @@ def rbac(action):
         "apiVersion": "audit.k8s.io/v1",
         "stage": "ResponseComplete",
         "verb": action,
+        "requestURI": "/apis/rbac.authorization.k8s.io/v1/namespaces/source-dev/rolebindings"
+        + ("/" + MARKER if action == "delete" else ""),
         "user": {"username": "postgres"},
         "auditID": "request-" + action,
         "stageTimestamp": (START + timedelta(seconds=2)).isoformat(),
@@ -233,6 +235,42 @@ def test_missing_events_pending_then_absent_after_window():
 def test_create_without_delete_never_completes():
     assert run([ddl("create")], "AUD-01.2")[0].observed == "absent"
     assert run([rbac("create")], "AUD-01.3")[0].observed == "absent"
+
+
+@pytest.mark.parametrize("action", ["create", "delete"])
+@pytest.mark.parametrize("query", ["?dryRun=All", "?dryRun=", "?%64ryRun=All", "?fieldManager=kubectl&dryRun=All"])
+def test_server_dry_run_is_not_a_committed_rbac_effect(action, query):
+    documents = [rbac("create"), rbac("delete")]
+    next(d for d in documents if d["verb"] == action)["requestURI"] += query
+    assert run(documents, "AUD-01.3")[0].observed == "absent"
+
+
+def test_delete_options_dry_run_is_not_a_committed_effect():
+    document = rbac("delete")
+    document["requestObject"] = {"apiVersion": "v1", "kind": "DeleteOptions", "dryRun": ["All"]}
+    assert run([rbac("create"), document], "AUD-01.3")[0].observed == "absent"
+
+
+def test_real_create_and_delete_with_extra_dry_run_have_two_matching_events():
+    dry = rbac("create")
+    dry["requestURI"] += "?dryRun=All"
+    result, saved = run([dry, rbac("create"), rbac("delete")], "AUD-01.3")
+    assert result.observed == "present"
+    assert len(json.loads(saved[0])["matching_event_sha256"]) == 2
+
+
+def test_privacy_filtered_event_still_requires_committed_executor_receipt():
+    document = rbac("create")
+    document.pop("requestURI")
+    assert run([document, rbac("delete")], "AUD-01.3")[0].observed == "present"
+
+
+@pytest.mark.parametrize("uri", [False, "", "x" * 4097])
+def test_malformed_provider_uri_is_not_silently_ignored(uri):
+    document = rbac("create")
+    document["requestURI"] = uri
+    with pytest.raises(ValueError, match="request URI"):
+        run([document, rbac("delete")], "AUD-01.3")
 
 
 @pytest.mark.parametrize(

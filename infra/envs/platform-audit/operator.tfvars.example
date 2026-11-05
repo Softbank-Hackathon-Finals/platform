@@ -1,0 +1,4 @@
+account_id            = "123456789012"
+custodian_role_arns   = ["arn:aws:iam::123456789012:role/aws-reserved/sso.amazonaws.com/ap-northeast-2/AWSReservedSSO_BravoAdmin_0123456789abcdef"]
+writer_principal_arns = ["arn:aws:iam::123456789012:role/aws-reserved/sso.amazonaws.com/ap-northeast-2/AWSReservedSSO_BravoAdmin_0123456789abcdef"]
+reader_principal_arns = ["arn:aws:iam::123456789012:role/aws-reserved/sso.amazonaws.com/ap-northeast-2/AWSReservedSSO_BravoAdmin_0123456789abcdef"]
