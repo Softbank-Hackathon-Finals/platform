@@ -31,11 +31,14 @@ from .window_server import runtime_connection
 class RehearsalPorts:
     catalog: object
     planner: object
+    first_run: object = None
 
     def __post_init__(self):
         if any(not callable(getattr(port, method, None)) for port, method in (
                 (self.catalog, "for_plan"), (self.catalog, "for_admission"),
                 (self.planner, "binding"), (self.planner, "factory"))):
+            raise ValueError("actual_rehearsal_ports_required")
+        if self.first_run is not None and not callable(self.first_run):
             raise ValueError("actual_rehearsal_ports_required")
 
 
@@ -66,7 +69,8 @@ def build_host(store, *, ports, records, sender, verifier, grants, token_supplie
 
         intake = ChangeIntake(store, sender=sender, read_original=evidence.read_original,
                               authorize_hold=deny_hold, clock=clock)
-        service = RehearsalService(store, host=rehearsals, check_start=grants.require)
+        service = RehearsalService(store, host=rehearsals, check_start=grants.require,
+                                   first_run=ports.first_run)
         app = create_rehearsal_app(service, verifier=verifier, access=grants)
     except Exception:
         dispatcher.close()

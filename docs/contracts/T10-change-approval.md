@@ -29,10 +29,29 @@ T15 검증·재시도, T19 판정, T31 배포를 이 모듈에서 실행하지 �
    이 영수증이 있어야 기존 `WorkflowRecovery`가 `PROPOSE → REHEARSE`를 수행한다.
 6. `stored(plan_id, plan_version, input_ref, input_digest)`는 같은 Proposal을 읽는다.
    client 호출은 없다. 즉시 다음 REHEARSE에서는 이 경로의 발행 영수증과 workflow 체크포인트가
-   정확히 같아야 한다. T15는 자신의 실제 Admission·task·source·Change와 이 값을 결속한 뒤 소비한다.
+   정확히 같아야 한다. 발행 기록의 request·plan·source·proposal digest도 다시 대조한다.
+7. 최초 입력을 쓰는 호스트는 `RehearsalPorts.first_run=execution.rehearsal_run_id`를 설치한다.
+   실제 발행 후 정상 REHEARSE에서 첫 Admission을 commit할 때 저장된 Proposal의 run ID를 사용한다.
+   호스트에 이 조회기가 없으면 접수를 거부한다. 기존 Admission의 8개 필드와 commit 후 단일 제출은 유지한다.
+8. `StoredInitialProposalSource(execution, admission).result()`는 기존 T15 소비자용 조회 접점이다.
+   저장된 실제 Admission·현재 계획 버전·task·source·발행 Change·현재 최초 입력 grant를 대조한다.
+   첫 시도만 허용하며 `PROPOSAL_READY` 형식으로 같은 Proposal을 반환한다.
+   이 조회와 재접수는 모델을 다시 호출하지 않는다. 재시도 2·3에는 해당 시도의 별도 제안 경로가 필요하다.
 
-입력과 전달 형식의 정본은 위 Python 모델이다. 입력은 `binding`, `run_id`, `manifest`, `files`다.
+입력과 전달 형식의 정본은 위 Python 모델이다.
+입력 v2는 `schema_version=2`, `analysis`, `binding`, `run_id`, `manifest`, `files`다.
 binding은 계획·tenant·버전·task·source·collection scope·inventory·comparison·Analysis 영수증을 고정한다.
+`analysis`는 T16 원문의 `inventory_digest`(접두사를 제거한 64자리), `item_id`, `grade=code_change`,
+빈 문자열이 아닌 `rationale`(최대 4096자)을 담는다. 이 선택도 `input_digest`에 포함한다.
+[InitialSnapshotSource](../../services/platform-events/src/bravo_platform_events/initial_source.py)는
+기존 Snapshot으로 원본 파일을 읽고 T16 정본 validator로 원문을 검사한다.
+T16 계산 규칙으로 digest를 다시 계산하고 source SHA·중복 없는 항목 ID·선택 등급을 대조한다.
+T10은 그 digest가 현재 Analysis 체크포인트와 같은지 확인한다. 임의 HTTP 입력이나 모델 선택으로 바꾸지 않는다.
+T38이 이 값을 T11 최초 입력으로 변환한다. 기존 REHEARSE Admission digest와 섞지 않는다.
+
+v2 필드가 없는 이전 입력은 보존하고 거부한다. 기존 요청을 자동 승격하거나 digest를 다시 쓰지 않는다.
+이미 접수된 계획에 새 입력을 덮어쓸 수 없으므로 운영자는 새로 승인된 계획 범위에서 접수해야 한다.
+최초 입력 생산자와 소비자를 함께 배포하기 전에는 이 경로를 활성화하지 않는다.
 `InitialIntent`에는 `request_id`, `plan_id`, **접수된 `plan_version`**, `input_ref`, `input_digest`,
 `binding_digest`, `runtime_source_sha`, `recipient_public_key`, `purpose`가 있다.
 읽는 쪽은 현재 최신 버전을 추측하지 않는다. `request_id`는 키 준비 전 필드와 principal을 결속한다.
@@ -49,8 +68,9 @@ T7 원문의 `source_sha`는 편집한 후보 head이므로 같은 Proposal의 �
 
 이는 T10 내부 계약 구현이며 운영 연결 완료가 아니다. T11 최초 입력 변환·검사 계약,
 T38 전용 intent/영수증 adapter, 실제 T16 Collection/Analysis, T7 발행 조회기,
-T15 저장 제안 소비는 각 담당의 정본으로 연결해야 한다. REHEARSE용 `FailureBundle`이나
-Admission을 최초 입력으로 꾸미지 않는다. 후보 이미지가 아직 없으면 PROPOSE에 남는다.
+T15의 실제 planner·검증 Job·정리는 각 담당의 정본으로 연결해야 한다.
+최초 PROPOSE 입력을 실제 Admission으로 취급하지 않는다. 후보 이미지가 아직 없으면 PROPOSE에 남는다.
+저장 제안에는 도구 감사 기록이 없으므로 이 조회 성공만으로 감사 COMPLETE를 표시하지 않는다.
 
 ## 기존 생산자와의 관계
 
