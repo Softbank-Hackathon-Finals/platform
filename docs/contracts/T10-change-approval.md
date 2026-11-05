@@ -156,6 +156,12 @@ T15의 기존 `submit_candidate`에 `HttpChangeIntake`를 전달할 수 있다.
 원문 보존 경로와 읽기 mount, 별도 hold 권한은 배포 전에 확정해야 한다.
 이 접점의 로컬 HTTP/DB 시험은 실제 T15 planner·T31 실행 연결을 대신하지 않는다.
 
+배포 설정의 검증과 전용 projected token은
+[T15 발신 신원 설정](../../services/platform-events/deploy/intake/README.md)을 따른다.
+공개 키의 오프라인 검증과 Pod·SA 삭제의 즉시 철회는 구분한다.
+T15 HMAC 키를 별도 T10 Pod에 복제하지 않는다. 인증 원문 조회와 hold 관리
+주체를 실제로 연결하기 전에는 수신 경로를 열지 않는다.
+
 ## 리허설을 시작하고 재조회하기
 
 운영자 호스트에 서명 신원 검증기와 T15 어댑터(`rehearsal_host`)를 연결한다. 운영자는
