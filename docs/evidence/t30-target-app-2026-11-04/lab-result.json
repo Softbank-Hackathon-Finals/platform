@@ -12,11 +12,12 @@
   },
   "kubernetes": "mirror.gcr.io/rancher/k3s:v1.35.5-k3s1",
   "passed": true,
-  "platform_revision": "8118619b9f53c2d323ede1ad73844d9d78fc9997",
+  "platform_revision": "73215df99568d0cce8962bdbeb512d2f4c8df1aa",
   "platform_tree_clean": true,
   "demo_chat_revision": "8d82a9241d3894737778a77d58349e1aee54eca1",
-  "local_image_digest": "sha256:abbd95347d102255935bf9a51b504b4971f88f34f6ea02060d257c6ec2364d57",
+  "local_image_digest": "sha256:39a9ae8e1fe2f29df1c1417655de8b1a4aa55ccb64fa10ec5ff493f08de3d67f",
   "pinned_source_tested": true,
+  "general_path_refuses_local_build": true,
   "restricted_server_dry_run": "accepted",
   "closed_when_unusable": {
     "secret_missing": {
@@ -85,7 +86,7 @@
           "onprem"
         ],
         "retry_after": null,
-        "seconds": 2.0
+        "seconds": 2.01
       },
       "messages": {
         "status": 503,
@@ -93,7 +94,7 @@
           "onprem"
         ],
         "retry_after": "2",
-        "seconds": 5.0
+        "seconds": 5.01
       }
     },
     "post_while_blocked": {
@@ -165,7 +166,7 @@
           "onprem"
         ],
         "retry_after": null,
-        "seconds": 2.0
+        "seconds": 2.01
       },
       "messages": {
         "status": 503,
@@ -195,7 +196,7 @@
     },
     "reblock_status": "200",
     "app_log_not_permitted_lines": 9,
-    "target_db_log_not_permitted_lines": 9,
+    "target_db_log_not_permitted_lines": 10,
     "after": {
       "source_messages": 0,
       "target_messages": 0,
@@ -215,7 +216,7 @@
     }
   },
   "precutover_via_pooler_to_source": {
-    "db_path_open_seconds_after_ready": 0.2,
+    "db_path_open_seconds_after_ready": 0.3,
     "before": {
       "source_messages": 0,
       "target_messages": 0,
@@ -266,7 +267,7 @@
           "onprem"
         ],
         "retry_after": null,
-        "seconds": 0.0
+        "seconds": 0.01
       }
     },
     "upload_refused": {
@@ -275,7 +276,7 @@
         "onprem"
       ],
       "retry_after": null,
-      "seconds": 0.01
+      "seconds": 0.02
     },
     "post_while_blocked": {
       "status": 503,
@@ -283,7 +284,7 @@
         "onprem"
       ],
       "retry_after": "2",
-      "seconds": 0.01
+      "seconds": 0.02
     },
     "unblock_status": "200",
     "post_after_unblock": {
@@ -318,8 +319,8 @@
     "requests_right_after_rollout": 12,
     "failed_right_after_rollout": 0,
     "unlabelled_right_after_rollout": 0,
-    "open_switch_answers_right_after_rollout": 8,
-    "old_pod_gone_seconds_after_rollout": 6.8,
+    "open_switch_answers_right_after_rollout": 5,
+    "old_pod_gone_seconds_after_rollout": 8.5,
     "after_restart": {
       "env": "onprem",
       "write_blocked": true,
@@ -328,6 +329,7 @@
   },
   "checks": {
     "restricted_namespace": true,
+    "general_render_path_refuses_local_build": true,
     "app_keeps_image_entrypoint": true,
     "exec_without_container_reaches_app": true,
     "missing_secret_serves_nothing": true,
@@ -361,5 +363,9 @@
     "rollout_is_not_held_by_the_sidecar": true,
     "rollout_drops_no_request": true,
     "rollout_responses_stay_labelled": true
+  },
+  "cleanup": {
+    "container": "removed",
+    "image": "removed"
   }
 }

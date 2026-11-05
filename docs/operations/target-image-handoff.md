@@ -22,8 +22,14 @@ copied it on 2026-11-04 at 19:36 KST, with identical index and attestation blobs
 verified destination pull. It verified the pull from CI, not from a cluster. For a new pin,
 the T22 owner first updates that record under `docs/evidence/image-publication-2026-11-03/`,
 because the workflow validates its inputs against it, then a person with Actions access
-runs the workflow. The export tool has not yet run against this image; only its
-verifier code and unit tests changed for it.
+runs the workflow.
+
+**The development VM has it too.** Per the owner's record on #210, the bundle was
+delivered on 2026-11-04 at 22:36 KST and registered in the VM's containerd at 23:05,
+and the index and linux/amd64 manifest were compared again at 23:07. That is the
+owner's record; this document did not verify it directly. After this change merges,
+the VM owner compares the merged digest and deploys. The steps below remain for
+another VM or a new pin.
 
 ## Export without handing registry credentials to the VM
 

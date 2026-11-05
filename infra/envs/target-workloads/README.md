@@ -182,7 +182,8 @@ T2/T6/T8/T9/T30 전체 완료나 실제 데모 머신의 준비 완료는 이 �
    새로 게시하면 그 실행 아티팩트의 `image-receipt.json`(`source_sha`, `digest`)과 `registry-index.json`(amd64 `digest`)을 옮겨 적고 끝낸다.
    렌더러는 이 파일의 index digest만 받는다. 다른 digest는 저장소가 GHCR이든 ECR이든 거부한다. DB · 객체 저장소 · 관리 토큰을 받는 Pod에서 다른 바이트가 돌지 못하게 하려는 것이다. ECR에서 받을 때만 `--image`로 저장소를 바꾼다.
 2. **VM에 넣기.** ECR에는 이미 있다. 이 게시본의 demo-chat 영수증(#19)과 `transfer-private-image`([실행 41815292046](https://github.com/Softbank-Hackathon-Finals/demo-chat/actions/runs/41815292046), 2026-11-04 19:36 KST)가 끝났고, 대상 바이트와 CI Pull까지 확인됐다.
-   남은 일은 AWS 운영자 · VM 소유자가 [이미지 인수인계](../../../docs/operations/target-image-handoff.md) 순서로 묶음을 만들어 VM에 넣고 digest 별칭을 붙이는 것이다.
+   개발 VM에는 류지환 님 기록(#210)상 2026-11-04 23:05 KST에 묶음이 containerd에 등록됐고 23:07에 index와 amd64 manifest를 대조했다. 이 문서 쪽에서 직접 확인한 것은 아니다.
+   남은 일은 이 변경이 병합된 뒤 VM 담당이 digest를 대조하고 앱을 배포하는 것이다. 다른 VM이면 [이미지 인수인계](../../../docs/operations/target-image-handoff.md) 순서로 묶음을 만들어 넣고 digest 별칭을 붙인다.
    게시본을 바꾸면 앞 두 단계를 다시 한다. T22 담당이 demo-chat `main`의 `docs/evidence/image-publication-2026-11-03/` 영수증을 올리고(그전에는 `reviewed_publication_mismatch`로 멈춘다), Actions 권한자가 전달을 돌린다.
 
    렌더 기본값은 `imagePullPolicy: Never`다. 레지스트리에서 받으려면 `--pull-secret <이름>`을 쓰지만,

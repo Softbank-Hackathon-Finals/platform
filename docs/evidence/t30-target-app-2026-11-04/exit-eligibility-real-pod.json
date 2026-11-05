@@ -18,6 +18,12 @@
     "has_init_sidecar": true,
     "annotation_present": false
   },
+  "endpoint_moved_to_env_from": {
+    "pod_read": true,
+    "exit_blockers": null,
+    "has_init_sidecar": false,
+    "annotation_present": false
+  },
   "compat_setup_removed": {
     "pod_read": true,
     "exit_blockers": [],

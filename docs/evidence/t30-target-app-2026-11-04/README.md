@@ -1,11 +1,11 @@
 # T30 목적지 앱 로컬 실측 (2026-11-04)
 
-**렌더한 `demo-chat` Deployment와 Service는 임시 k3s의 restricted namespace에서 떴고, 코드 판정 34개를 모두 통과했다.**
+**렌더한 `demo-chat` Deployment와 Service는 임시 k3s의 restricted namespace에서 떴고, 코드 판정 35개를 모두 통과했다.**
 업무 쓰기 1건은 풀러 뒤 출발지 대역 DB에만 들어갔고 목적지 DB는 0행, 목적지 `chat_app`은 NOLOGIN 그대로였다.
 **실제 환경이 아니다.** RKE2, Tailscale, Edge, 게시된 이미지 바이트, 개발 VM의 QEMU에서는 재지 않았다.
 클라우드 자원과 실제 클러스터는 건드리지 않았다.
 
-숫자는 [`lab-result.json`](lab-result.json)에서 왔다. 측정 뒤 ADR 번호만 0016에서 0017로 바꿨고, 렌더 결과에서 달라진 것은 호환 스크립트 주석의 경로 한 줄이다. 소스는 플랫폼 `8118619`, demo-chat `8d82a92`(게시본과 같은 소스의 로컬 빌드)이다.
+숫자는 [`lab-result.json`](lab-result.json)에서 왔다. 소스는 플랫폼 `73215df`, demo-chat `8d82a92`(게시본과 같은 소스의 로컬 빌드)이다.
 
 ## 판단 세 가지
 
@@ -21,15 +21,15 @@
 
 **3. `X-Bravo-Env`: `APP_ENV=onprem`으로 목적지 값이 나온다.** 200, 403, 503, 쓰기 차단, 재시작 직후 응답까지 판정한 앱 응답에는 모두 `onprem` 하나만 붙었다.
 이 헤더는 `c1c74ab`부터 있고, 게시본 `8d82a92`([digest `ca5ce1b2`](https://github.com/Softbank-Hackathon-Finals/demo-chat/actions/runs/41803312129))에 들어 있다.
-그 전 게시본 세 개는 헤더가 없어 렌더러가 거부한다(index, amd64 digest 모두).
-이 게시본은 측정 뒤 ECR로 전달됐다([실행 41815292046](https://github.com/Softbank-Hackathon-Finals/demo-chat/actions/runs/41815292046)). 그 바이트를 이 시험에서 띄운 것은 아니다.
+렌더러는 `app-image.json`의 등록 digest만 받으므로 그 전 게시본은 물론 같은 소스의 로컬 빌드도 거부한다. 이 시험의 로컬 빌드는 시험 매니페스트에만 넣었다.
+이 게시본은 ECR로 전달됐고([실행 41815292046](https://github.com/Softbank-Hackathon-Finals/demo-chat/actions/runs/41815292046)), 류지환 님 기록(#210)상 11/4 23:05 KST에 개발 VM containerd에 등록됐다. 그 바이트를 이 시험에서 띄운 것은 아니다.
 
 ## 잰 것
 
 | 상태 | 엔드포인트 | `/readyz` | `/api/health/db` | `GET /api/messages` | `POST /api/messages` | 행 |
 | --- | ---: | ---: | --- | --- | --- | --- |
-| 목적지 NOLOGIN, 직접 | 1 | 200 | 503 (2.0초) | 503, `Retry-After: 2` (5.0초) | 차단 중 503 (0.01초), 해제 뒤 503 (5.01초) | 없음 |
-| 목적지 NOLOGIN, 풀러 경유 | 1 | 200 | 503 (2.0초) | 503, `Retry-After: 2` (5.0초) | 차단 중 503 (0.02초), 해제 뒤 503 (5.01초) | 없음 |
+| 목적지 NOLOGIN, 직접 | 1 | 200 | 503 (2.01초) | 503, `Retry-After: 2` (5.01초) | 차단 중 503 (0.01초), 해제 뒤 503 (5.01초) | 없음 |
+| 목적지 NOLOGIN, 풀러 경유 | 1 | 200 | 503 (2.01초) | 503, `Retry-After: 2` (5.0초) | 차단 중 503 (0.02초), 해제 뒤 503 (5.01초) | 없음 |
 | 풀러 → 출발지 대역 | 1 | 200 | 200 | 200 | 차단 중 503, 해제 뒤 201, 같은 키 재전송 200 | 출발지 +1, 목적지 0 |
 
 NOLOGIN에서 앱은 **Ready로 보인다.** `/readyz`가 DB를 보지 않기 때문이고, 컷오버 중 Pod가 빠지지 않게 하려는 demo-chat의 설계다.
@@ -44,12 +44,12 @@ NOLOGIN에서 앱은 **Ready로 보인다.** `/readyz`가 DB를 보지 않기 �
 
 컨테이너를 지정하지 않은 `kubectl exec`는 호환 컨테이너가 있어도 `app`으로 간다(T12 Executor 경로). Pod Security는 namespace가 `restricted`인 상태에서 Pod가 실제로 뜬 것이 근거다. 위반이 거부되는지 보는 대조 시험은 없다.
 
-단위 시험 46개, 변이 58개 모두 잡음(`scripts/tests/target_application_mutation_check.py`, 변이 없는 복사본이 먼저 통과해야 돈다). Exit Drill은 단위 시험 551개, 변이 132개 모두 잡음(`services/exit-drill/tests/integration/mutation_check.py`).
+단위 시험 59개, 변이 63개 모두 잡음(`scripts/tests/target_application_mutation_check.py`, 변이 없는 복사본이 먼저 통과해야 돈다). Exit Drill은 단위 시험 563개, 변이 134개 모두 잡음(`services/exit-drill/tests/integration/mutation_check.py`).
 실제 SDK 호출 시험은 demo-chat이 잠근 boto3 1.43.123으로 따로 돌렸다. CI에는 boto3가 없어 이 시험만 건너뛴다. 저장소 전체 시험은 로컬 Python 3.9에서 기존 오류 26건이 그대로 남고 새 오류는 없다.
 
 ## 시험에서 찾은 것
 
-전체 시험은 8번 돌렸고 3 · 5 · 6 · 8회차가 통과했다. 1~5회차는 `c1c74ab` 소스, 6~8회차는 게시본 소스다. `lab-result.json`은 리뷰 반영 뒤 깨끗한 커밋에서 돌린 8회차다.
+전체 시험은 9번 돌렸고 3 · 5 · 6 · 8 · 9회차가 통과했다. 1~5회차는 `c1c74ab` 소스, 6~9회차는 게시본 소스다. `lab-result.json`은 #210 리뷰 반영과 `develop` 병합 뒤 깨끗한 커밋에서 돌린 9회차다.
 4회차 로그, 기각한 가설의 수치는 결과 파일 없이 작업 중에 본 값이다.
 실패가 코드와 운영 규칙을 바꿨으므로 남긴다. 1회차는 판정 2개 실패로 시험 설계 문제와 호환 컨테이너 결함을 드러냈고, 2 · 4회차는 시간 초과였다.
 7회차는 판정 1개 실패로, 종료 전 대기 중인 이전 Pod의 응답(쓰기 열림)을 재시작 뒤 상태로 읽은 시험 결함이었다. 그 클러스터에서 새 Pod는 닫혀 있었다. 판정을 이전 Pod가 사라진 뒤로 옮겼다.
@@ -69,7 +69,7 @@ NOLOGIN에서 앱은 **Ready로 보인다.** `/readyz`가 DB를 보지 않기 �
 그렇게 바꾼 뒤 경로 전환을 8번 반복했더니 모두 0.2~0.3초에 DB 경로가 열렸다([`route-switch-repeat.jsonl`](route-switch-repeat.jsonl), 일회성 측정).
 
 **롤아웃 직후 요청 실패.** 재시작 직후 Service가 사라지는 Pod로 요청을 보낸다. 종료 전 대기(preStop)를 넣었다
-([`rollout-comparison.jsonl`](rollout-comparison.jsonl), 일회성 측정). 그 대신 대기 중에는 이전 Pod가 원래 스위치 상태로 응답한다. 쓰기를 연 뒤 재시작한 이번 시험에서 직후 응답 12개 중 8개가 그랬다. 이 쓰기도 풀러 뒤 DB 하나로 간다. 이전 Pod가 사라진 뒤에는 닫혀 있었다.
+([`rollout-comparison.jsonl`](rollout-comparison.jsonl), 일회성 측정). 그 대신 대기 중에는 이전 Pod가 원래 스위치 상태로 응답한다. 쓰기를 연 뒤 재시작한 이번 시험에서 직후 응답 12개 중 5개가 그랬다. 이 쓰기도 풀러 뒤 DB 하나로 간다. 이전 Pod가 사라진 뒤에는 닫혀 있었다.
 
 | | 재시작 | 직후 요청 | 실패 |
 | --- | ---: | ---: | ---: |
@@ -77,7 +77,7 @@ NOLOGIN에서 앱은 **Ready로 보인다.** `/readyz`가 DB를 보지 않기 �
 | preStop 5초 | 10 | 120 | 0 |
 
 **호환 컨테이너 결함 2건.** SIGTERM을 무시해 재시작마다 Pod가 유예 시간을 다 썼다(PID 1). Python으로 만든 시작 확인이
-CPU 제한 아래서 1초를 넘겼다. 둘 다 고쳤고 시험을 넣었다. 수정 뒤 이전 Pod는 롤아웃 후 6.8초 만에 사라졌다.
+CPU 제한 아래서 1초를 넘겼다. 둘 다 고쳤고 시험을 넣었다. 수정 뒤 이전 Pod는 롤아웃 후 8.5초 만에 사라졌다.
 
 **독립 리뷰.** critical은 없었고 비밀값 유출 경로도 찾지 못했다. major 1건은 Exit Drill이 표지를 읽지 않는 것이었고, #210 리뷰 요청으로 코드로 막았다(아래). 응답기의 경로 고정, 거절 시 `Connection: close`, 깊은 JSON의 traceback, amd64 digest 거부는 재현한 뒤 고쳤다.
 
@@ -90,9 +90,13 @@ CPU 제한 아래서 1초를 넘겼다. 둘 다 고쳤고 시험을 넣었다. �
 | --- | --- |
 | 렌더 그대로 | `NOT_EXIT_EVIDENCE`, `AWS_ENDPOINT_REDIRECTED` |
 | 표지만 제거 | `AWS_ENDPOINT_REDIRECTED` |
+| 표지와 변수를 지우고 endpoint를 `envFrom`으로 옮김 | 읽지 못함 (`ELIGIBILITY_NOT_READ`) |
 | 호환 구성을 모두 제거 | 없음 (자격 회복) |
 
-이 뒤로 Exit Drill의 전체 k3s 시나리오(`verify_k3s.py`)는 다시 돌리지 않았다. 단위 시험과 변이 시험만 돌렸다.
+`envFrom` 행은 #210의 P1이다. 류지환 님이 `979d9ab`에서 실제 목적지 RKE2로 이 우회의 PASS를 재현했다. 고친 뒤에는 로컬 k3s의 API Pod 객체로 확인했고 **RKE2에서는 다시 재지 않았다.**
+이 뒤로 Exit Drill의 전체 k3s 시나리오(`verify_k3s.py`)도 다시 돌리지 않았다. 단위 시험과 변이 시험만 돌렸다.
+
+**#210 리뷰의 다른 지적.** 일반 렌더 경로가 등록 digest와 다른 `--image`를 받던 것(P1)과 lab이 고정 이름 컨테이너를 소유 확인 없이 지우던 것(P2)을 고쳤다. 9회차 전에 옛 고정 이름의 센티널 컨테이너와 다른 실행의 이미지 태그를 만들어 두었고, 시험 뒤에도 둘 다 남아 있었다(결과 파일 없이 작업 중에 본 값). 그 실행이 만든 컨테이너와 이미지는 ID와 라벨을 대조해 지웠다(`lab-result.json`의 `cleanup`).
 
 **기각한 가설.** Secret을 바꾼 직후의 옛 값 마운트: 즉시 재시작 6회, 3초 뒤 재시작 4회 모두 최신 값이었다.
 DB 경로 지연: 느린 회차에도 앱↔풀러 TCP는 이미 `ESTABLISHED`였다. 진단 6회차 하나는 다음 실험과 겹쳐 무효로 처리했다.
@@ -114,7 +118,7 @@ DB 경로 지연: 느린 회차에도 앱↔풀러 TCP는 이미 `ESTABLISHED`�
 ## 재지 않은 것
 
 - 실제 Edge 경유, 실제 Tailscale 왕복, 부하. 지연 수치로 쓰지 않는다
-- 게시된 이미지의 Pull과 시작, `export_target_image.py`의 새 이미지 실행(비공개 ECR 자격 필요), amd64 QEMU에서의 시작 시간과 부하 중 응답. probe 제한을 넉넉히 두었지만 재지 않았다
+- 게시된 이미지로 띄운 Pod, 개발 VM 적용, amd64 QEMU에서의 시작 시간과 부하 중 응답. probe 제한을 넉넉히 두었지만 재지 않았다
 - `probes.py`의 패키징 시험은 아직 옛 digest를 쓴다. 옛 이미지가 VM에 없으면 `ErrImageNeverPull`이 난다
 - 첨부 다운로드. SeaweedFS 고정 이미지가 amd64 전용이라 올리지 않았다. 복사 전 목적지에서 받는 첨부는 실패할 수 있다
 - 자격 회전 중 앱 동작, T9를 나중에 적용할 때 ESO가 수동 Secret을 넘겨받는지

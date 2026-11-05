@@ -260,7 +260,7 @@ class ImageContractTests(unittest.TestCase):
                       "ghcr.io/other/demo-chat@sha256:" + "a" * 64,
                       "123456789012.dkr.ecr.ap-northeast-2.amazonaws.com/bravo/other@sha256:" + "a" * 64,
                       "evil.example/123456789012.dkr.ecr.ap-northeast-2.amazonaws.com/bravo/demo-chat@sha256:" + "a" * 64,
-                      IMAGE + "\n", None):
+                      IMAGE + "\n", IMAGE + "@extra", None):
             with self.subTest(image=image), self.assertRaises(ValueError):
                 application.application(image)
 
