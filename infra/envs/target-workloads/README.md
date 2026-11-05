@@ -138,6 +138,14 @@ Secret을 바꾼 뒤 SeaweedFS가 설정을 다시 읽는지는 아직 실측하
 시험: `scripts/tests/test_object_exposure.py`(렌더 상태 · 범위 · 승인 플래그 · 키 비노출 · 탐침 분류).
 실제 클러스터에서 열고 닫은 실측은 아직 없다.
 
+### 리허설 전용 시험 버킷 (T15 버킷 정책 작업)
+
+`render --rehearsal-bucket rehearsal-attachments`를 주면 `rehearsal-object-admin` identity가 추가된다.
+이 identity는 **그 버킷에만** Admin · Read · Write · List · Tagging를 갖고 운영 `demo-chat-attachments`에는
+어떤 action도 없다. 키는 `BRAVO_OBJECT_REHEARSAL_ACCESS_KEY` · `_SECRET_KEY`로 받는다. T15 검증 Job이 이 identity로
+버킷을 만들고 번역된 정책을 적용 · 관측한다. 운영 버킷과 분리된 상태를 시험으로 고정했다
+(`scripts/tests/test_rehearsal_resources.py`). 리허설 namespace에서 8333으로 닿는 NetworkPolicy는 T30 질문 6번이다.
+
 ## 공식 계약
 
 - [CNPG 1.30.1 논리 복제](https://github.com/cloudnative-pg/cloudnative-pg/blob/v1.30.1/docs/src/logical_replication.md)
