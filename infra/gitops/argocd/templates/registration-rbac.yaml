@@ -58,6 +58,19 @@ spec:
   validations:
     - expression: "request.namespace == 'platform-state' && (object != null ? object.metadata.name : oldObject.metadata.name) == 't10-registration'"
       message: This controller may write only the registration workload.
+    - expression: "object == null || request.resource.resource != 'services' || object.spec.type == 'ClusterIP'"
+      message: Registration must remain a private ClusterIP Service.
+    - expression: "object == null || request.resource.resource != 'serviceaccounts' || (has(object.automountServiceAccountToken) && object.automountServiceAccountToken == false)"
+      message: Registration must not automatically mount Kubernetes credentials.
+    - expression: >-
+        object == null || request.resource.resource != 'deployments' ||
+        (object.spec.template.spec.serviceAccountName == 't10-registration' &&
+        has(object.spec.template.spec.automountServiceAccountToken) && object.spec.template.spec.automountServiceAccountToken == false &&
+        (!has(object.spec.template.spec.hostNetwork) || object.spec.template.spec.hostNetwork == false) &&
+        (!has(object.spec.template.spec.hostPID) || object.spec.template.spec.hostPID == false) &&
+        (!has(object.spec.template.spec.hostIPC) || object.spec.template.spec.hostIPC == false) &&
+        object.spec.template.spec.volumes.all(v, !has(v.hostPath) && !has(v.projected)))
+      message: Registration cannot acquire host or Kubernetes API credentials.
 ---
 apiVersion: admissionregistration.k8s.io/v1
 kind: ValidatingAdmissionPolicyBinding

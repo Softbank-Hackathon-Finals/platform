@@ -1,3 +1,8 @@
+registration:
+  enabled: false
+  # Protected operator input: existing config/Secret references and host aliases only.
+  runtime: {}
+
 argo-cd:
   fullnameOverride: bravo-gitops
   createClusterRoles: false
@@ -7,6 +12,13 @@ argo-cd:
   global:
     image:
       tag: v3.6.1
+    securityContext:
+      runAsNonRoot: true
+      runAsUser: 999
+      runAsGroup: 999
+      fsGroup: 999
+      seccompProfile:
+        type: RuntimeDefault
   configs:
     cm:
       admin.enabled: false
@@ -37,6 +49,7 @@ argo-cd:
       requests: {cpu: 200m, memory: 512Mi}
       limits: {cpu: "1", memory: 1Gi}
   repoServer:
+    automountServiceAccountToken: false
     resources:
       requests: {cpu: 100m, memory: 256Mi}
       limits: {cpu: "1", memory: 768Mi}

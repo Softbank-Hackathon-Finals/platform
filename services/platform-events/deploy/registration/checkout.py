@@ -13,9 +13,13 @@ def approved_release(catalog):
         raise ValueError("one_approved_release_required")
     release = releases[0]
     repo, revision = release["repo_url"], release["revision"]
-    if (not isinstance(repo, str) or re.fullmatch(
-        r"https://github\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+(?:\.git)?", repo
-    ) is None or not isinstance(revision, str) or re.fullmatch(r"[a-f0-9]{40}", revision) is None):
+    if (
+        not isinstance(repo, str)
+        or re.fullmatch(r"https://github\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+(?:\.git)?", repo)
+        is None
+        or not isinstance(revision, str)
+        or re.fullmatch(r"[a-f0-9]{40}", revision) is None
+    ):
         raise ValueError("approved_https_revision_required")
     if release.get("checkout") != "/checkout/repo":
         raise ValueError("approved_checkout_path_required")
@@ -24,19 +28,49 @@ def approved_release(catalog):
 
 def fetch(catalog, destination=Path("/checkout/repo")):
     repo, revision = approved_release(catalog)
-    env = {"PATH": os.defpath, "HOME": "/nonexistent", "GIT_TERMINAL_PROMPT": "0",
-           "GIT_CONFIG_NOSYSTEM": "1", "GIT_CONFIG_GLOBAL": "/dev/null"}
+    env = {
+        "PATH": os.defpath,
+        "HOME": "/nonexistent",
+        "GIT_TERMINAL_PROMPT": "0",
+        "GIT_CONFIG_NOSYSTEM": "1",
+        "GIT_CONFIG_GLOBAL": "/dev/null",
+    }
 
     def git(*args, check=True):
         return subprocess.run(
-            ["git", "-c", "http.followRedirects=false", "-c", "protocol.file.allow=never",
-             "-c", "protocol.ext.allow=never", *args],
-            env=env, capture_output=True, text=True, timeout=60, check=check,
+            [
+                "git",
+                "-c",
+                "http.followRedirects=false",
+                "-c",
+                "protocol.file.allow=never",
+                "-c",
+                "protocol.ext.allow=never",
+                *args,
+            ],
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=60,
+            check=check,
         )
 
     if destination.exists():
         # Reuse only a checkout whose origin and fetched commit both match.
-        if git("-C", str(destination), "remote", "get-url", "origin").stdout.strip() != repo:
+        origin = git("-C", str(destination), "remote", "get-url", "origin", check=False)
+        if origin.returncode:
+            # init and remote-add are separate writes. Recover only our empty
+            # repository, never attach an unknown checkout to a new origin.
+            refs = git("-C", str(destination), "show-ref", check=False)
+            remotes = git("-C", str(destination), "remote")
+            if (
+                refs.returncode != 1
+                or remotes.stdout.strip()
+                or any(p.name != ".git" for p in destination.iterdir())
+            ):
+                raise ValueError("existing_checkout_mismatch")
+            git("-C", str(destination), "remote", "add", "origin", repo)
+        elif origin.stdout.strip() != repo:
             raise ValueError("existing_checkout_mismatch")
         current = git("-C", str(destination), "rev-parse", "--verify", "FETCH_HEAD", check=False)
         if current.returncode == 0:

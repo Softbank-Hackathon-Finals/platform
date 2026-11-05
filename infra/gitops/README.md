@@ -46,6 +46,25 @@ resources after Argo CD takes ownership. A publish receipt, Argo `Synced`, a
 Ready Pod, actual SSO success, and complete T43 acceptance are separate results.
 
 Local chart contract tests: `uv run infra/gitops/test_registration_chart.py`.
-Build the pinned Argo dependency with `helm dependency build infra/gitops/argocd`.
+Build the pinned Argo dependency first with `helm dependency build infra/gitops/argocd`.
 Never commit the downloaded chart, rendered private values, credentials or a
 cluster kubeconfig.
+
+Operator bootstrap is `python3 infra/gitops/bootstrap.py`. It requires the
+expected cluster UID, existing registration Deployment UID, full reviewed
+checkout revision and host-local kubeconfig path. Without `--apply` it validates
+and renders only. Use Helm 4.0.0. First install without `--runtime-values` leaves
+the Application disabled. After the publication-values PR merges, supply a
+protected JSON file outside the checkout containing only
+`registration: {enabled: true, runtime: {configuration, secrets, hostAliases}}`.
+Image or source overrides are rejected. Read an existing non-deployed/pending
+Helm release before recovery; do not blindly resubmit a timed-out installation.
+
+Runtime configuration has a separate authority: the versioned registration
+catalog/grants generator and the existing Secret issuers. Its input hash is
+recorded by bootstrap, and its ConfigMap content hash is recorded in the Pod.
+The Argo Application is managed by this bootstrap release; editing it directly
+is not a durable configuration change. Secret values never enter that release.
+Registry rotation replaces only `platform-ghcr-reader` through the protected
+operator transport, verifies an uncached pull, and then revokes the previous
+credential. Record the credential expiry without recording its value.
