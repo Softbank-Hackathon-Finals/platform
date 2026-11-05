@@ -255,6 +255,9 @@ def write_marker(dsn, statement, params, identity):
     Checked in the session that writes, because the preflight's session has gone by then: the name in
     the DSN may lead elsewhere now, and verify-full proves only which server answered.
     """
+    # PostgreSQL treats UUID aliases as the same row. Keep the existing canonical
+    # v1 lock key, and use that same representation for both locking and SQL.
+    params = (str(uuid.UUID(str(params[0]))), params[1])
     with connect(dsn, options=CONTROL_OPTIONS) as connection:
         if connection.execute(PROBE_IDENTITY).fetchone() != (identity["system_identifier"], identity["database"]):
             raise ProbeTargetChanged
@@ -758,7 +761,7 @@ class Run:
         required = [(SOURCE_DSN_ENV, self.source_dsn), (TARGET_DSN_ENV, self.target_dsn), (PROBE_DSN_ENV, self.probe_dsn)]
         report["refusals"] = [f"missing_{name}" for name, value in required if not value]
         try:
-            uuid.UUID(barrier_id)
+            barrier_id = str(uuid.UUID(barrier_id))
         except ValueError:
             report["refusals"] = ["invalid_barrier_id"]
         if report["refusals"]:

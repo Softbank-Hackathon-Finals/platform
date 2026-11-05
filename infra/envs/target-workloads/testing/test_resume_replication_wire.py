@@ -226,3 +226,79 @@ def test_late_commit_stays_pending_until_serialized_delete_and_target_apply(tmp_
             finally:
                 admin.execute("SELECT pg_advisory_unlock_all()")
                 proxy.close()
+
+
+@pytest.mark.parametrize("spelling", ["upper", "compact"])
+def test_uuid_alias_cleanup_waits_for_original_commit(tmp_path, spelling):
+    import psycopg
+    from psycopg import sql
+    from psycopg.conninfo import make_conninfo
+
+    with databases(tmp_path, 2) as (dsns, ports, password):
+        for dsn in dsns.values():
+            with psycopg.connect(dsn, autocommit=True) as admin:
+                admin.execute("CREATE SCHEMA cutover")
+                admin.execute("CREATE TABLE cutover.barrier (barrier_id uuid PRIMARY KEY, epoch bigint, created_at timestamptz DEFAULT now())")
+        with psycopg.connect(dsns["source"], autocommit=True) as admin:
+            admin.execute("CREATE PUBLICATION probe_pub FOR TABLE cutover.barrier")
+            identity = {"system_identifier": admin.execute("SELECT system_identifier::text FROM pg_catalog.pg_control_system()").fetchone()[0], "database": "postgres"}
+            with psycopg.connect(dsns["target"], autocommit=True) as target:
+                remote = make_conninfo(host="source", dbname="postgres", user="postgres", password=password,
+                                       sslmode="verify-full", sslrootcert="/certs/server.crt")
+                target.execute(sql.SQL("CREATE SUBSCRIPTION probe_sub CONNECTION {} PUBLICATION probe_pub").format(sql.Literal(remote)))
+                until(lambda: target.execute("SELECT EXISTS(SELECT FROM pg_subscription_rel WHERE srsubstate='r')").fetchone()[0])
+            marker = "2bfff017-b2b5-4e0c-a910-013b621cefef"
+            alias = marker.upper() if spelling == "upper" else marker.replace("-", "")
+            other = str(uuid.uuid4())
+            admin.execute("CREATE FUNCTION cutover.hold_commit() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN PERFORM pg_catalog.set_config('lock_timeout','0',true); PERFORM pg_advisory_xact_lock(5826); RETURN NEW; END $$")
+            admin.execute("CREATE CONSTRAINT TRIGGER hold_marker AFTER INSERT ON cutover.barrier DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION cutover.hold_commit()")
+            admin.execute("SELECT pg_advisory_lock(5826)")
+
+            def row(side, value=marker):
+                return resume.read_one(dsns[side], "barrier_row", {"barrier_id": value})
+
+            def write(stmt, params):
+                return resume.write_marker(dsns["source"], stmt, params, identity)
+
+            def applied():
+                # A different transaction can advance the origin while the original
+                # COMMIT is blocked. Origin progress cannot replace the marker lock.
+                admin.execute("INSERT INTO cutover.barrier (barrier_id,epoch) VALUES (%s,0) ON CONFLICT DO NOTHING", (other,))
+                until(lambda: row("target", other))
+                with psycopg.connect(dsns["target"], autocommit=True) as target:
+                    return target.execute("SELECT remote_lsn::text FROM pg_replication_origin_status").fetchone()[0]
+
+            def committing():
+                return admin.execute("SELECT EXISTS(SELECT FROM pg_stat_activity WHERE application_name='t8_resume' AND state='active' AND wait_event='advisory' AND query='COMMIT')").fetchone()[0]
+
+            proxy = LostAnswer(ports["source"])
+            try:
+                with concurrent.futures.ThreadPoolExecutor(1) as pool:
+                    future = pool.submit(resume.write_marker, make_conninfo(dsns["source"], port=proxy.port),
+                                         resume.PROBE_INSERT, (marker, 0), identity)
+                    until(committing, 3)
+                    proxy.drop.set()
+                    with pytest.raises(psycopg.OperationalError):
+                        future.result(3)
+                    report = resume.new_marker_report(alias)
+                    report["source_insert_commits"] = None
+                    resume.remove_marker(write, lambda: row("target"), lambda: row("source"), report,
+                                         lambda check: {"elapsed_s": 0} if check() else None,
+                                         read_target_applied=applied)
+                    before_unlock = report["cleanup"]
+                    assert committing()
+                    assert row("source") is None and row("target") is None
+                    admin.execute("SELECT pg_advisory_unlock(5826)")
+                    until(lambda: row("source") and row("target"), 3)
+                    proxy.close()
+                    # The same alias can finish cleanup once the original writer ends.
+                    resume.remove_marker(write, lambda: row("target"), lambda: row("source"), report,
+                                         lambda check: resume.wait_for(check, elapsed=time.monotonic, timeout=3, poll=.02, sleep=time.sleep),
+                                         read_target_applied=applied)
+                    assert report["cleanup"] == "confirmed"
+                    assert row("source") is None and row("target") is None
+                    assert before_unlock == "pending", "UUID alias bypassed the original writer's lock"
+            finally:
+                admin.execute("SELECT pg_advisory_unlock_all()")
+                proxy.close()
+                admin.execute("DELETE FROM cutover.barrier WHERE barrier_id IN (%s,%s)", (marker, other))

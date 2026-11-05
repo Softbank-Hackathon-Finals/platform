@@ -8,6 +8,7 @@ import re
 import sys
 import types
 import unittest
+import uuid
 from contextlib import redirect_stdout
 from pathlib import Path
 from unittest.mock import Mock, patch
@@ -702,6 +703,7 @@ class FakeWriteConnection:
     def __init__(self, identity):
         self.identity = identity
         self.statements = []
+        self.calls = []
 
     def __enter__(self):
         return self
@@ -714,6 +716,7 @@ class FakeWriteConnection:
 
     def execute(self, statement, params=None):
         self.statements.append(statement)
+        self.calls.append((statement, params))
         value = self.identity if statement == resume.PROBE_IDENTITY else ("0/1C0001B0",)
         return types.SimpleNamespace(fetchone=lambda: value)
 
@@ -721,10 +724,22 @@ class FakeWriteConnection:
 class WriteMarkerTests(unittest.TestCase):
     IDENTITY = types.MappingProxyType({"system_identifier": SOURCE_ID, "database": "chat"})
 
+    def test_uuid_aliases_share_the_existing_canonical_lock_and_sql_identity(self):
+        marker = "2bfff017-b2b5-4e0c-a910-013b621cefef"
+        for alias in (marker, marker.upper(), marker.replace("-", ""), "{" + marker.upper() + "}", uuid.UUID(marker)):
+            for statement in (resume.PROBE_INSERT, resume.PROBE_DELETE):
+                with self.subTest(alias=alias, statement=statement):
+                    connection = FakeWriteConnection((SOURCE_ID, "chat"))
+                    with patch.object(resume, "connect", return_value=connection):
+                        resume.write_marker("dsn", statement, (alias, 0), self.IDENTITY)
+                    # Existing serialized-v1 writers already hold this exact key.
+                    self.assertIn((resume.MARKER_LOCK, (6028828678936224534,)), connection.calls)
+                    self.assertIn((statement, (marker, 0)), connection.calls)
+
     def test_it_writes_only_after_the_same_session_shows_the_verified_source(self):
         connection = FakeWriteConnection((SOURCE_ID, "chat"))
         with patch.object(resume, "connect", return_value=connection):
-            position = resume.write_marker("dsn", resume.PROBE_INSERT, ("id", 0), self.IDENTITY)
+            position = resume.write_marker("dsn", resume.PROBE_INSERT, ("2bfff017-b2b5-4e0c-a910-013b621cefef", 0), self.IDENTITY)
         self.assertEqual(position, resume.MarkerWrite("0/1C0001B0", "0/1C0001B0"))
         self.assertEqual(connection.statements[0], resume.PROBE_IDENTITY)
         self.assertEqual(connection.statements[1], resume.MARKER_LOCK)
@@ -736,7 +751,7 @@ class WriteMarkerTests(unittest.TestCase):
             with self.subTest(seen=seen):
                 connection = FakeWriteConnection(seen)
                 with patch.object(resume, "connect", return_value=connection), self.assertRaises(resume.ProbeTargetChanged):
-                    resume.write_marker("dsn", resume.PROBE_INSERT, ("id", 0), self.IDENTITY)
+                    resume.write_marker("dsn", resume.PROBE_INSERT, ("2bfff017-b2b5-4e0c-a910-013b621cefef", 0), self.IDENTITY)
                 self.assertNotIn(resume.PROBE_INSERT, connection.statements)
 
 
@@ -1336,6 +1351,14 @@ class CleanupMarkerTests(unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertEqual(report["refusals"], ["marker_protocol_unconfirmed"])
         self.assertEqual(writes, [])
+
+    def test_cleanup_normalizes_uuid_for_report_and_write(self):
+        for alias in (self.MARKER_ID.upper(), self.MARKER_ID.replace("-", "")):
+            with self.subTest(alias=alias):
+                code, report, writes = self.run_cleanup(*self.command("--cleanup-marker", alias))
+                self.assertEqual(code, 0, report)
+                self.assertEqual(report["marker"]["barrier_id"], self.MARKER_ID)
+                self.assertEqual(writes[0][1], (self.MARKER_ID, resume.PROBE_EPOCH))
 
     def test_it_removes_only_the_named_row_of_the_verified_source(self):
         code, report, writes = self.run_cleanup(*self.command())
