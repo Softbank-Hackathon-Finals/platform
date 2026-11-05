@@ -1,0 +1,396 @@
+{
+  "evidence_kind": "runtime_summary",
+  "public_is_raw": false,
+  "date": "2026-11-05",
+  "transport": "AWS RKE2 Pods to registered destination RKE2 over dedicated Tailscale egress",
+  "authorization": [
+    {
+      "role": "rehearsal",
+      "observed_at": "2026-11-05T07:34:57.780432+00:00",
+      "status": "PASS",
+      "checks": [
+        {
+          "expected": 201,
+          "http_status": 201,
+          "name": "authenticated_identity",
+          "pass": true,
+          "identity_matches_expected": true
+        },
+        {
+          "expected": 401,
+          "http_status": 401,
+          "name": "invalid_token_rejected",
+          "pass": true
+        },
+        {
+          "expected": 403,
+          "http_status": 403,
+          "name": "same_namespace_secret_list_denied",
+          "pass": true
+        },
+        {
+          "expected": 403,
+          "http_status": 403,
+          "name": "cross_namespace_secret_list_denied",
+          "pass": true
+        },
+        {
+          "expected": 403,
+          "http_status": 403,
+          "name": "cross_namespace_pod_list_denied",
+          "pass": true
+        },
+        {
+          "expected": 403,
+          "http_status": 403,
+          "name": "impersonation_denied",
+          "pass": true
+        },
+        {
+          "allowed": false,
+          "expected": 201,
+          "expected_allowed": false,
+          "http_status": 201,
+          "name": "denied_create_namespaces",
+          "pass": true
+        },
+        {
+          "allowed": false,
+          "expected": 201,
+          "expected_allowed": false,
+          "http_status": 201,
+          "name": "denied_create_clusterroles",
+          "pass": true
+        },
+        {
+          "allowed": false,
+          "expected": 201,
+          "expected_allowed": false,
+          "http_status": 201,
+          "name": "denied_create_rolebindings",
+          "pass": true
+        },
+        {
+          "allowed": false,
+          "expected": 201,
+          "expected_allowed": false,
+          "http_status": 201,
+          "name": "denied_create_serviceaccounts/token",
+          "pass": true
+        },
+        {
+          "expected": 201,
+          "http_status": 201,
+          "name": "configmap_create",
+          "pass": true
+        },
+        {
+          "expected": 200,
+          "http_status": 200,
+          "name": "configmap_get",
+          "pass": true
+        },
+        {
+          "expected": 200,
+          "http_status": 200,
+          "name": "configmap_uid_delete",
+          "pass": true
+        },
+        {
+          "allowed": true,
+          "expected": 201,
+          "expected_allowed": true,
+          "http_status": 201,
+          "name": "allowed_create_pods",
+          "pass": true
+        },
+        {
+          "allowed": true,
+          "expected": 201,
+          "expected_allowed": true,
+          "http_status": 201,
+          "name": "allowed_create_pods/exec",
+          "pass": true
+        },
+        {
+          "allowed": true,
+          "expected": 201,
+          "expected_allowed": true,
+          "http_status": 201,
+          "name": "allowed_get_pods/log",
+          "pass": true
+        },
+        {
+          "expected": 403,
+          "http_status": 403,
+          "name": "target_app_patch_denied",
+          "pass": true
+        },
+        {
+          "expected": 403,
+          "http_status": 403,
+          "name": "privileged_pod_denied",
+          "pass": true,
+          "pod_security_reason": true
+        }
+      ]
+    },
+    {
+      "role": "apply",
+      "observed_at": "2026-11-05T07:34:08.808137+00:00",
+      "status": "PASS",
+      "checks": [
+        {
+          "expected": 201,
+          "http_status": 201,
+          "name": "authenticated_identity",
+          "pass": true,
+          "identity_matches_expected": true
+        },
+        {
+          "expected": 401,
+          "http_status": 401,
+          "name": "invalid_token_rejected",
+          "pass": true
+        },
+        {
+          "expected": 403,
+          "http_status": 403,
+          "name": "same_namespace_secret_list_denied",
+          "pass": true
+        },
+        {
+          "expected": 403,
+          "http_status": 403,
+          "name": "cross_namespace_secret_list_denied",
+          "pass": true
+        },
+        {
+          "expected": 403,
+          "http_status": 403,
+          "name": "cross_namespace_pod_list_denied",
+          "pass": true
+        },
+        {
+          "expected": 403,
+          "http_status": 403,
+          "name": "impersonation_denied",
+          "pass": true
+        },
+        {
+          "allowed": false,
+          "expected": 201,
+          "expected_allowed": false,
+          "http_status": 201,
+          "name": "denied_create_namespaces",
+          "pass": true
+        },
+        {
+          "allowed": false,
+          "expected": 201,
+          "expected_allowed": false,
+          "http_status": 201,
+          "name": "denied_create_clusterroles",
+          "pass": true
+        },
+        {
+          "allowed": false,
+          "expected": 201,
+          "expected_allowed": false,
+          "http_status": 201,
+          "name": "denied_create_rolebindings",
+          "pass": true
+        },
+        {
+          "allowed": false,
+          "expected": 201,
+          "expected_allowed": false,
+          "http_status": 201,
+          "name": "denied_create_serviceaccounts/token",
+          "pass": true
+        },
+        {
+          "expected": 200,
+          "http_status": 200,
+          "name": "fixture_deployment_get",
+          "pass": true,
+          "observed_uid_recorded_privately": true
+        },
+        {
+          "expected": 200,
+          "http_status": 200,
+          "name": "fixture_deployment_patch",
+          "pass": true,
+          "observed_uid_recorded_privately": true
+        },
+        {
+          "expected": 200,
+          "http_status": 200,
+          "name": "fixture_patch_readback",
+          "pass": true
+        },
+        {
+          "expected": 200,
+          "http_status": 200,
+          "name": "target_pods_list",
+          "pass": true
+        },
+        {
+          "expected": 403,
+          "http_status": 403,
+          "name": "other_deployment_patch_denied",
+          "pass": true
+        },
+        {
+          "allowed": true,
+          "expected": 201,
+          "expected_allowed": true,
+          "http_status": 201,
+          "name": "target_patch_deployments",
+          "pass": true
+        },
+        {
+          "allowed": true,
+          "expected": 201,
+          "expected_allowed": true,
+          "http_status": 201,
+          "name": "target_watch_deployments",
+          "pass": true
+        },
+        {
+          "allowed": false,
+          "expected": 201,
+          "expected_allowed": false,
+          "http_status": 201,
+          "name": "target_delete_deployments",
+          "pass": true
+        },
+        {
+          "allowed": false,
+          "expected": 201,
+          "expected_allowed": false,
+          "http_status": 201,
+          "name": "target_create_deployments",
+          "pass": true
+        },
+        {
+          "allowed": false,
+          "expected": 201,
+          "expected_allowed": false,
+          "http_status": 201,
+          "name": "target_create_pods/exec",
+          "pass": true
+        }
+      ]
+    }
+  ],
+  "network_boundary": [
+    {
+      "after": {
+        "http_status": 401,
+        "kind": "HTTP",
+        "tls_verified": true
+      },
+      "before": {
+        "http_status": 401,
+        "kind": "HTTP",
+        "tls_verified": true
+      },
+      "cross_role": [
+        {
+          "kind": "TIMEOUT"
+        },
+        {
+          "kind": "TIMEOUT"
+        },
+        {
+          "kind": "TIMEOUT"
+        }
+      ],
+      "observed_at": "2026-11-05T07:36:29.739237+00:00",
+      "role": "apply",
+      "status": "PASS"
+    },
+    {
+      "after": {
+        "http_status": 401,
+        "kind": "HTTP",
+        "tls_verified": true
+      },
+      "before": {
+        "http_status": 401,
+        "kind": "HTTP",
+        "tls_verified": true
+      },
+      "cross_role": [
+        {
+          "kind": "TIMEOUT"
+        },
+        {
+          "kind": "TIMEOUT"
+        },
+        {
+          "kind": "TIMEOUT"
+        }
+      ],
+      "observed_at": "2026-11-05T07:36:29.904787+00:00",
+      "role": "rehearsal",
+      "status": "PASS"
+    }
+  ],
+  "raw_receipts": [
+    {
+      "name": "authorization-rehearsal-read-readback.json",
+      "original_sha256": "e8d33dcb4e040d29fea85da311376aa2cb3ceacfe4674e88dfa76b7c9c8d3b54"
+    },
+    {
+      "name": "authorization-apply-read-readback.json",
+      "original_sha256": "2a0d6f5c570cfc78c0d504aca1a09c6e54464ed65e0af33606f62a3474ed729f"
+    },
+    {
+      "name": "network-boundary-read-readback.json",
+      "original_sha256": "2f17ee1a5ad6f0ab6e4608ba7a240779ab8f25cbf5930bde3c17f1545ac91111"
+    }
+  ],
+  "execution_sources": [
+    {
+      "name": "authorization_probe.py",
+      "sha256": "9e78582e5d5139ec247e3a14f5124457e49d9021fb59f9350bb5f4371a545130",
+      "source_state": "private uncommitted script retained"
+    },
+    {
+      "name": "authorization_probe_remote.py",
+      "sha256": "9ed0d842bb5f72ef38b066f60ffa63152aa90b84640dd8cf9893cd9880d4c209",
+      "source_state": "private uncommitted script retained"
+    },
+    {
+      "name": "network_boundary_probe.py",
+      "sha256": "147d5c5a799ccc4d4811b82aa595726f32dafbb7d775b28b17abbc8437fdbf74",
+      "source_state": "private uncommitted script retained"
+    },
+    {
+      "name": "network_boundary_remote.py",
+      "sha256": "88f39da4963a328719db82b3ada8f45260eab736f32f6b797c12faaabe34607c",
+      "source_state": "private uncommitted script retained"
+    }
+  ],
+  "limitations": [
+    "T3 full isolation suite not run",
+    "No actual app rollout or cutover",
+    "T15 trusted management identity and personal WSL access pending",
+    "Port-specific renderer network output not applied in this measurement"
+  ],
+  "cleanup": {
+    "aws_jobs_deleted": 8,
+    "aws_probe_secrets_deleted": 2,
+    "remaining_probe_pods": 0,
+    "target_fixture_namespace_absent": true,
+    "rehearsal_namespace_retained_for_handoff": true
+  },
+  "readiness_reconciliation": {
+    "traffic_was_successful_while_service_status_was_false": true,
+    "same_service_metadata_reconciled": true,
+    "ready_after": true,
+    "ready_at": "2026-11-05T07:41:02Z"
+  }
+}

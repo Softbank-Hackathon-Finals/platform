@@ -1,0 +1,41 @@
+{
+  "anonymous_identity_denied": true,
+  "authenticated_actor_id": 191002565,
+  "github_write_requests": 0,
+  "observed_at": "2026-11-05T07:31:16.892865+00:00",
+  "repository": "Softbank-Hackathon-Finals/demo-chat",
+  "repository_id": 1443045289,
+  "revision": "dc9bece24898b752a77af1d1bbd440c11100e5f2",
+  "role": "reader",
+  "run_id": "cffe034eec784748bd44de1ff853db4a",
+  "schema_version": 1,
+  "source_blob_sha": "d26bf6d1d8ea6c21b00e29f77b0d8da61324e1b1",
+  "source_bytes": 9348,
+  "source_path": "README.md",
+  "source_sha256": "2e196bcd7ce4b5ce4811ee1666d618accddf4adc8deff954aefa020b2fb8d2cb",
+  "status": "PASS",
+  "evidence_kind": "recipient_runtime_public_projection",
+  "public_is_raw": false,
+  "original_receipt_sha256": "dfad4f28dc8dd245db63d80440bcbcfd3c5c3261ea3b6624c0c478d646b011b7",
+  "execution": {
+    "started_at": "2026-11-05T07:31:13.996028+00:00",
+    "completed_at": "2026-11-05T07:31:30.217154+00:00",
+    "namespace_uid_sha256": "884380eafebc9d6cdeab7948a4da82d7d9b531a49171341335a58891de056452",
+    "job_uid_sha256": "cb202f42fce9bbd15031189234d2509b1f07a048d73acbea8434f00f510f6bb1",
+    "pod_uid_sha256": "2f2c1254cfcd34da0be7c39bc3fc7c37606e4d09fbb13a4828bd79f2dae7c3ca",
+    "mounted_object_uid_sha256": "5215877b914dc99281eec8d2f29c4d26ec769207f1880593af36c5dccd5ed945",
+    "image_digest": "sha256:a8514fcddfb2e3daf3f5e98f845cba379642d44a3331f9f298c95764eb503e76",
+    "probe_source_sha256": "d95aed94d6d729f89e4bc53da765b4f7b1333a362e15078f0caaf6b23a05a820",
+    "pod_phase": "Succeeded",
+    "admitted_single_reader": true,
+    "cleanup_verified": true,
+    "terminal_credential_echo": false,
+    "credentials_sent": true,
+    "audit_policy_level": "None"
+  },
+  "limits": [
+    "Dedicated platform source-reader acceptance, not a permanent worker or T11 end-to-end run.",
+    "No T31 Git writer consumer or Git write operation.",
+    "Operational UIDs are hashed; registry identity and resource names are omitted. Authorized reviewers need the private original to identify actual resources."
+  ]
+}

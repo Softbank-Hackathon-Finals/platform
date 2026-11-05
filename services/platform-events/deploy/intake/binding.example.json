@@ -1,0 +1,9 @@
+{
+  "version": 1,
+  "issuer": "https://cluster-issuer.invalid",
+  "audience": "bravo-t10-rehearsal-intake",
+  "namespace": "bravo-rehearsal-control",
+  "service_account": "rehearsal-host",
+  "tenant_id": "registered-tenant",
+  "key_id": "reviewed-cluster-public-key"
+}

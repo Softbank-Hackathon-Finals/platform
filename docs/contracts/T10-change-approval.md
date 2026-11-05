@@ -128,6 +128,40 @@ T31이 보고한 배포 결과로 `REHEARSE`에서 `GATE`로 넘어갈 때, T10�
 합성 예시의 `evidence_ref`는 제품 증거가 아니다. 이 변경으로 T15·T38 제품
 Job이나 T31 배포가 실행되지 않는다.
 
+### 별도 T15 프로세스에서 후보를 전달할 때
+
+호스트가 `create_operator_cutover_app(..., change_intake=intake)`를 지정하면
+`POST /internal/v1/rehearsal-candidates`를 연다. `intake`는 API와 같은 저장소를
+사용해야 한다. 이 설정은 S2 authority를 `intake.current`로 함께 연결한다.
+다른 `change_authority`와 동시에 지정할 수 없다. 기본 설정에는 이 경로가 없다.
+
+- 인증: T15 전용 `Authorization: Bearer <workload JWT>`. 사람이 승인하는
+  토큰·권한과 다르다. 수신기는 인증 뒤 원문을 읽고, 계획 잠금 뒤 만료를 다시 확인한다.
+- 본문: `Candidate`의 필드만 받는다. PASS·원문·UID 정리 증명·hold·tenant를
+  본문에 추가하면 거부한다. 원문은 호스트가 주입한 조회기에서 독립적으로 읽는다.
+- 성공: HTTP 200과 `{verification_id, attempt, revision}`만 반환한다.
+  같은 후보의 재전달도 같은 수신 확인이다. 사람 승인이나 배포 성공이 아니다.
+  이 경로에는 hold·apply·권한 부여 기능이 없다.
+
+T15의 기존 `submit_candidate`에 `HttpChangeIntake`를 전달할 수 있다.
+생산자의 `CandidateSubmission.t10_fields()`와 수신 `Candidate` 형식은 유지한다.
+클라이언트는 호스트가 고정한 HTTPS origin과 검증된 CA만 사용한다.
+환경 프록시·리다이렉트·자동 재전송을 사용하지 않는다. 토큰은 호출마다 공급한다.
+인증 실패·응답 유실·잘못된 수신 확인은 `IntakeDeliveryUnknown`이며,
+리허설을 다시 실행하거나 승인으로 올리지 않는다. 운영자가 필요하다고 판단하면
+같은 후보를 다시 전달할 수 있고, 수신기의 기존 불변 기록을 재사용한다.
+
+서버는 TLS를 직접 종료하거나 신뢰한 프록시의 scheme만 받아야 한다.
+임의 `X-Forwarded-Proto`는 인정하지 않는다. 실제 issuer·키 교체·audience·subject,
+원문 보존 경로와 읽기 mount, 별도 hold 권한은 배포 전에 확정해야 한다.
+이 접점의 로컬 HTTP/DB 시험은 실제 T15 planner·T31 실행 연결을 대신하지 않는다.
+
+배포 설정의 검증과 전용 projected token은
+[T15 발신 신원 설정](../../services/platform-events/deploy/intake/README.md)을 따른다.
+공개 키의 오프라인 검증과 Pod·SA 삭제의 즉시 철회는 구분한다.
+T15 HMAC 키를 별도 T10 Pod에 복제하지 않는다. 인증 원문 조회와 hold 관리
+주체를 실제로 연결하기 전에는 수신 경로를 열지 않는다.
+
 ## 리허설을 시작하고 재조회하기
 
 운영자 호스트에 서명 신원 검증기와 T15 어댑터(`rehearsal_host`)를 연결한다. 운영자는

@@ -32,3 +32,18 @@
 ## 5. 실측 (Evidence)
 
 로컬 `services/apply-path` 시험 23개(결속 거부 10종, diff 포맷 · 정렬, 패치 digest 고정, rollout · drift SAFE_HOLD, 멱등, CLI). 클러스터 실측은 없다.
+
+## 6. T7 저장소 접근 범위 정합화 (2026-11-05)
+
+현재 병합된 `bravo_apply.path.apply_approved_change`는 승인 결속을 검사하고
+`bravo_apply.deploy`를 통해 검증된 digest를 배포한다. Git 커밋·브랜치 생성이나
+GitHub 인증 입력은 없다. [담당자의 digest·diff 입력 설명](https://softbankhackathon2026.slack.com/archives/C0CDEFEB83U/p1793858043899199)과
+이 구현을 대조하고, 사용자의 직접 해결 위임에 따라 T7의 남은 접근 기준을
+분석용 reader의 수신 환경 인증 조회로 맞춘다. 이는 담당자가 Git writer 폐기에
+별도 동의했다고 기록하는 것이 아니다.
+
+T31에 Git writer를 주입하지 않으며, 기존 writer 발급·시험 이력은 보존한다.
+T7 reader는 신뢰된 수집 과정에서만 사용하고 T11 모델·생성 코드에 전달하지 않는다.
+향후 GitOps 커밋을 채택하면 소비 함수·승인 범위·보호된 주입 경로와 별도 수신
+증빙을 먼저 정의한다. 이번 정합화는 T31의 정책 적용·게이트 재대조 완료를 뜻하지
+않고, 위 ADR의 미검증 범위와 다른 태스크의 체크 상태도 바꾸지 않는다.

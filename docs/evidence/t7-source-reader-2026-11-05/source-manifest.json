@@ -1,0 +1,10 @@
+{
+  "source_revision": "d98aeb2b0c7507e8f0f4ccae111c8c498cdea079",
+  "source_files": [
+    {
+      "path": "scripts/github_reader_probe.py",
+      "sha256": "d95aed94d6d729f89e4bc53da765b4f7b1333a362e15078f0caaf6b23a05a820"
+    }
+  ],
+  "runtime_association": "The commit was created after the run; its probe bytes match the hash emitted by the recipient. The commit itself is not presented as a revision that existed at execution time."
+}
