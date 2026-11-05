@@ -16,6 +16,8 @@ IMAGE = re.compile(
     r"ghcr\.io/cloudnative-pg/postgresql(?:-standard)?:[0-9]{2}\.[0-9]+(?:-[a-z0-9.-]+)?@sha256:[0-9a-f]{64}\Z"
 )
 ROLE_ARN = re.compile(r"arn:aws:iam::[0-9]{12}:role/[A-Za-z0-9+=,.@_/-]{1,512}\Z")
+LABEL_KEY = re.compile(r"(?:[a-z0-9](?:[a-z0-9.-]{0,251}[a-z0-9])?/)?[A-Za-z0-9](?:[A-Za-z0-9._-]{0,61}[A-Za-z0-9])?\Z")
+LABEL_VALUE = re.compile(r"(?:[A-Za-z0-9](?:[A-Za-z0-9._-]{0,61}[A-Za-z0-9])?)?\Z")
 
 
 def _names(*values):
@@ -32,6 +34,23 @@ def _irsa(document, iam_role_arn):
     document["spec"]["serviceAccountTemplate"] = {
         "metadata": {"annotations": {"eks.amazonaws.com/role-arn": iam_role_arn}}
     }
+    return document
+
+
+def _pod_labels(document, pod_labels):
+    """Labels on every instance and recovery Pod (inheritedMetadata), e.g. an object store client label."""
+    if pod_labels is None:
+        return document
+    if (
+        not isinstance(pod_labels, dict)
+        or not 1 <= len(pod_labels) <= 8
+        or any(
+            not isinstance(k, str) or not LABEL_KEY.fullmatch(k) or not isinstance(v, str) or not LABEL_VALUE.fullmatch(v)
+            for k, v in pod_labels.items()
+        )
+    ):
+        raise ValueError("bounded Kubernetes pod labels required")
+    document["spec"]["inheritedMetadata"] = {"labels": dict(pod_labels)}
     return document
 
 
@@ -141,7 +160,7 @@ def backup_request(*, namespace, name, source_cluster):
     )
 
 
-def archive_patch(*, namespace, source_cluster, writer_store, iam_role_arn=None):
+def archive_patch(*, namespace, source_cluster, writer_store, iam_role_arn=None, pod_labels=None):
     """Reviewable fragment; owner must preserve other plugins when applying."""
     _names(writer_store)
     document = _object(
@@ -159,7 +178,7 @@ def archive_patch(*, namespace, source_cluster, writer_store, iam_role_arn=None)
             ]
         },
     )
-    return _irsa(document, iam_role_arn)
+    return _pod_labels(_irsa(document, iam_role_arn), pod_labels)
 
 
 def restore_cluster(
@@ -173,6 +192,7 @@ def restore_cluster(
     storage_class,
     storage_gib=1,
     iam_role_arn=None,
+    pod_labels=None,
 ):
     _names(source_cluster, reader_store, storage_class)
     if name == source_cluster:
@@ -219,7 +239,7 @@ def restore_cluster(
             },
         },
     )
-    return _irsa(document, iam_role_arn)
+    return _pod_labels(_irsa(document, iam_role_arn), pod_labels)
 
 
 def s3_delete_guard(*, bucket, prefix, denied_role_arns):
