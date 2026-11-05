@@ -28,6 +28,10 @@ REHEARSAL_LABEL = {"app.kubernetes.io/part-of": "bravo-rehearsal"}
 # Chart 0.30.6 defaults are timeout 3 s, period 5 s, failure 2; the TLS-verified
 # ``bao status`` exceeded 3 s on the target and Ready flapped.
 READINESS_TIMING = {"timeoutSeconds": 10, "periodSeconds": 10, "failureThreshold": 3}
+# At 50m/500m the target's ``bao status`` median was 4.38 s; at 250m/1 it was 1.73 s with no
+# memory pressure (11/6 03:35 recovery). Memory is unchanged.
+SERVER_RESOURCES = {"requests": {"cpu": "250m", "memory": "128Mi"},
+                    "limits": {"cpu": "1", "memory": "512Mi"}}
 
 
 def obj(kind, name, spec=None, namespace=NAMESPACE, api="v1", **fields):
@@ -94,8 +98,7 @@ def bao_values():
             "dataStorage": {"enabled": True, "size": "3Gi", "storageClass": '""'},
             "persistentVolumeClaimRetentionPolicy": {"whenDeleted": "Retain", "whenScaled": "Retain"},
             "readinessProbe": {"enabled": True, **READINESS_TIMING},
-            "resources": {"requests": {"cpu": "50m", "memory": "128Mi"},
-                          "limits": {"cpu": "500m", "memory": "512Mi"}},
+            "resources": SERVER_RESOURCES,
             "extraEnvironmentVars": {"BAO_CACERT": "/openbao/tls/ca.crt"},
             "volumes": [{"name": "tls", "secret": {"secretName": "target-openbao-tls", "defaultMode": 288}},
                         {"name": "private-tmp", "emptyDir": {}}],
@@ -155,6 +158,8 @@ def finalize_bao(objects):
     probe = containers[0].get("readinessProbe") or {}
     if any(probe.get(key) != value for key, value in READINESS_TIMING.items()) or "exec" not in probe:
         raise ValueError("render the chart with bao-values: readiness probe timing differs")
+    if containers[0].get("resources") != SERVER_RESOURCES:
+        raise ValueError("render the chart with bao-values: OpenBao CPU/memory differs")
     probe["exec"]["command"] = ["bao", "status", "-format=json"]
     for service in (r for r in objects if r["kind"] == "Service"):
         if any(pod["metadata"]["labels"].get(k) != v
