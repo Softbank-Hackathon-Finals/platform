@@ -147,14 +147,22 @@ delivered the same way but from a path the application identity can never read.
 
 | Stage | Produces | Scope |
 | --- | --- | --- |
-| `rehearsal-policy` | HCL for policy `rehearsal-app-reader`: read `secret/data/bravo/rehearsal/*` only | No `bravo/target/*`, no writes, no token creation |
-| `rehearsal-auth-role` | Body for `auth/kubernetes/role/rehearsal-app-reader` | ServiceAccount `rehearsal-eso-reader` in namespaces selected by the rehearsal label; audience `openbao`; TTL 300/900 s |
+| `rehearsal-policy --run-id <run>` | HCL for policy `rehearsal-app-reader-<run>`: read `secret/data/bravo/rehearsal/<run>/*` only | One policy per run. No other run's path, no `bravo/target/*`, no writes, no token creation |
+| `rehearsal-auth-role --namespace rehearsal-<id> --run-id <run>` | Body for `auth/kubernetes/role/rehearsal-app-reader-<run>` | ServiceAccount `rehearsal-eso-reader` in **exactly that namespace** (explicit binding, so OpenBao needs no `namespaces get` RBAC); this run's policy only; audience `openbao`; TTL 300/900 s |
 | `rehearsal-delivery --namespace rehearsal-<id> --run-id <run>` | ServiceAccount + SecretStore + ExternalSecret projecting `bravo/rehearsal/<run>/database` into Secret **`target-app-credentials`** (same name as `target-dev`) | One namespace per attempt; `deletionPolicy: Delete` so the Secret goes with the namespace |
 | `rehearsal-init-container --run-id <run>` | An init container that logs in with the reader token and writes `credentials.json` itself | Works while ESO stays scoped (below) |
 
-The T15 runner writes the synthetic values to `bravo/rehearsal/<run>/database` (key
-`credentials_json`) with its own OpenBao identity before the attempt and deletes the version
-afterwards; this renderer never carries a value.
+The T15 runner, with its own OpenBao identity, creates the run's policy and role, writes the
+synthetic values to `bravo/rehearsal/<run>/database` (key `credentials_json`) before the
+attempt, and deletes the role, policy and KV version afterwards; this renderer never carries
+a value. Run isolation to prove on the cluster: a token from run A's namespace reads A's path,
+and is refused on run B's path and on every `bravo/target/*` path.
+
+The init script fetches into a private temp file (`umask 077`), checks it is non-empty and
+has the expected shape, then replaces `credentials.json` with `mv -f`, which also succeeds
+over the 0400 file left by an earlier attempt on the same emptyDir. Token revocation runs from
+an `EXIT` trap on every path. A failed fetch exits non-zero and leaves no temp file, so a
+stale earlier file is never mistaken for a fresh success.
 
 **ESO scope.** The ESO release here is scoped to `target-dev` (`scopedNamespace`,
 `scopedRBAC`), so it does not reconcile ExternalSecrets in `rehearsal-*`. Two ways to serve
