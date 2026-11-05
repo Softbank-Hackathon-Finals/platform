@@ -43,7 +43,7 @@ def test_real_gate_decision_reaches_console_without_granting_execution(
     plan = store.snapshot("plan-demo")
     contract = T5Contract()
     catalog = Catalog(contract.catalog, contract.schema)
-    specs = catalog.profile("demo-gate", "1", "demo-chat")
+    specs = catalog.profile("demo-gate", "1")
     now = datetime.now(UTC) - timedelta(seconds=1)
     collected = now - timedelta(days=2) if mode == "expired" else now
 

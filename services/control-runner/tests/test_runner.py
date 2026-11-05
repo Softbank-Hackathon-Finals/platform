@@ -54,7 +54,7 @@ def execute(catalog, probes=None, profile="demo-gate", **kwargs):
 
 def test_full_profile_missing_collectors_emits_all_twenty_unknown(catalog):
     run = execute(catalog, profile="full")
-    specs = catalog.profile("full", "1", "demo-chat")
+    specs = catalog.profile("full", "1")
     assert len(run["results"]) == 20
     assert [row["test_id"] for row in run["results"]] == [spec.test_id for spec in specs]
     assert all(row["verdict"] == "UNKNOWN" for row in run["results"])
@@ -63,7 +63,7 @@ def test_full_profile_missing_collectors_emits_all_twenty_unknown(catalog):
 
 
 def test_fixture_observations_form_t5_run_without_gate_authority(catalog):
-    probes = {s.test_id: good for s in catalog.profile("full", "1", "demo-chat")}
+    probes = {s.test_id: good for s in catalog.profile("full", "1")}
     run = execute(catalog, probes, "full")
     assert all(r["verdict"] == "PASS" for r in run["results"])
     assert "decision" not in run
@@ -246,11 +246,18 @@ def test_catalog_snapshot_is_not_mutated_after_registration(documents):
     assert execute(catalog)["results"][0]["expected"] == "deny"
 
 
-@pytest.mark.parametrize("change", ["duplicate", "unknown-test", "wrong-control"])
+@pytest.mark.parametrize(
+    "change", ["duplicate", "same-id-other-app", "malformed-app", "unknown-test", "wrong-control"]
+)
 def test_invalid_catalog_rejected(documents, change):
     data, schema = deepcopy(documents)
     if change == "duplicate":
         data["profiles"].append(deepcopy(data["profiles"][0]))
+    elif change == "same-id-other-app":
+        # one (id, version) must mean one required test set whatever app it names
+        data["profiles"].append(dict(deepcopy(data["profiles"][0]), app="other-app", required_test_ids=["IAM-01.1"]))
+    elif change == "malformed-app":
+        data["profiles"][0]["app"] = "bad app"
     elif change == "unknown-test":
         data["profiles"][0]["required_test_ids"].append("SEC-01.99")
     else:
@@ -259,13 +266,32 @@ def test_invalid_catalog_rejected(documents, change):
         Catalog(data, schema)
 
 
-def test_wrong_profile_or_app_is_not_a_smaller_successful_run(catalog):
-    with pytest.raises(ValueError, match="unregistered"):
-        Runner(catalog, {}).run(
-            profile_id="demo-gate", profile_version="1", app="other", environment=ENV
-        )
+def test_wrong_profile_is_not_a_smaller_successful_run(catalog):
     with pytest.raises(ValueError, match="unregistered"):
         execute(catalog, profile="full-but-empty")
+    with pytest.raises(ValueError, match="unregistered"):
+        Runner(catalog, {}).run(
+            profile_id="full", profile_version="2", app="demo-chat", environment=ENV
+        )
+
+
+def test_registered_workload_is_the_run_app_and_does_not_select_the_profile(catalog):
+    # T10 registers workloads under generated IDs; the catalog names only its reference app.
+    workload = "workload-" + "0123456789abcdef" * 2
+    probes = {s.test_id: good for s in catalog.profile("full", "1")}
+    run = Runner(catalog, probes, clock=lambda: NOW).run(
+        profile_id="full", profile_version="1", app=workload, environment=ENV
+    )
+    assert run["app"] == workload
+    assert [r["test_id"] for r in run["results"]] == [s.test_id for s in catalog.profile("full", "1")]
+    assert all(r["verdict"] == "PASS" for r in run["results"])
+    assert len(execute(catalog, profile="full")["results"]) == len(run["results"])
+
+
+@pytest.mark.parametrize("app", ["", "bad app", "-leading", None])
+def test_malformed_run_app_rejected_before_probes(catalog, app):
+    with pytest.raises(ValueError, match="identifier"):
+        Runner(catalog, {}).run(profile_id="demo-gate", profile_version="1", app=app, environment=ENV)
 
 
 def test_registration_typo_rejected(catalog):
