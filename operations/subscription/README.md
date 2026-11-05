@@ -49,8 +49,9 @@ controller는 GitHub 러너에서 같은 토큰으로 broker 역할의 직접 �
 권한을 지원하지 않아 Resource `*`를 사용한다.
 [AWS 권한 명세](https://docs.aws.amazon.com/service-authorization/latest/reference/list_ssm.html).
 
-터널은 AWS Session Manager의 TLS 채널을 사용한다. 워커의 HTTP listener는 VM loopback에만
-바인딩하며 전달된 OIDC token을 STS에서 검증한다. broker의 지속시간은 최대 650초,
+터널은 AWS Session Manager의 TLS 채널을 사용한다. listener는 VM loopback에만
+바인딩하며 전달된 OIDC token을 STS에서 검증한다. 제품 경로는 아래의 별도 HTTPS 수신기
+인증도 요구한다. 기존 합성 fixture 경로는 제품 호출의 대체 경로가 아니다. broker의 지속시간은 최대 650초,
 요청 수는 2회다. GitHub concurrency와 VM credential lock이 중복 갱신을 제한한다.
 부팅 시 자동 시작이나 주기 실행은 설정하지 않는다.
 
@@ -180,8 +181,9 @@ broker의 `ProductInputs.resolve`로 연결한다. `read(principal, input_ref)`�
 Admission/입력 digest, 실행/source/회차, 호출자·용도·만료를 다시 대조한다. 저장된 사본이나
 서명만으로 현재 권한 조회를 대신하지 않으며 조회 URL/함수를 HTTP 요청에서 받지 않는다.
 
-`ProductTunnelCall(reviewed_runtime_sha)`는 T15의 `call(body) -> (status, response)` 포트다.
-이미 수립된 전용 SSM TLS 터널의 `http://127.0.0.1:18762/run`만 호출하며 임의 endpoint,
+`ProductTunnelCall(reviewed_runtime_sha, ca_pem)`는 T15의 `call(body) -> (status, response)` 포트다.
+전용 SSM 터널 안에서도 `https://127.0.0.1:18762/run` 수신기의 지정 CA·IP SAN을
+본문 전송 전에 검증한다. 포트 사전 확인이나 TCP 연결 성공은 인증이 아니다. 임의 endpoint,
 환경 proxy, redirect, 자동 재시도를 허용하지 않는다. 응답 크기와 검토된 설치 SHA,
 제품/task digest를 확인한 제안만 반환한다. T15는 자신의 등록 입력과 Admission/snapshot을
 대조하고 기존 도구 계층으로 재검증한다. 응답 불명은 NEEDS_HUMAN이며 자동 새 호출을 하지 않는다.
@@ -195,6 +197,20 @@ T10 workload JWT로 대체할 수 없다. 요청 `input_digest`는 ProductInput 
 `origin`(사설 HTTPS origin)과 `ca_file`(이미 마운트한 공개 CA의 절대 경로)만 받는다.
 토큰·인증 키·업무 입력은 설정 필드가 아니다. 이 opt-in은 같은 hardening unit의 실행 모듈을
 `bravo_agent.subscription_product_server`로 선택한다. 기본 설치는 제품 경로를 열지 않는다.
+T10 reader의 CA와 별도로 broker TLS 신원을 먼저 준비한다. 운영자가 지정 VM에
+`/etc/bravo-subscription/broker.crt`와 `broker.key`를 준비하며 인증서는 IP SAN
+`127.0.0.1`을 포함해야 한다. 키는 root 소유 0600이고 VM 밖으로 보내지 않는다.
+제품 설치기는 두 파일이 없으면 소스 설치 전에 중단한다. 제품 전용 systemd drop-in의
+`LoadCredential`이 DynamicUser의 비공개 credential mount에 인증서·키를 제공한다.
+제품 host는 이 TLS 신원이 없거나 키가 일치하지 않으면 journal 생성/리스너 시작 전에 멈춘다.
+
+검증된 공개 broker CA만 GitHub 저장소 변수 `BRAVO_SUBSCRIPTION_BROKER_CA_PEM`에
+등록한다. dispatch 입력이나 모델 결과에서 CA를 받지 않는다. 제품 workflow preflight는
+CA 누락·형식 오류를 OIDC/SSM 전에 거부한다. 호출자는 CA와 IP 이름 검증을 통과한 뒤에만
+`/run` 또는 `/input/probe`에 토큰 본문을 보낸다. 평문/다른 CA/다른 이름/만료 인증서에
+HTTP로 재시도하지 않는다. 이 등록·VM 설치·실제 TLS 인수는 코드 병합과 별도다.
+기존 합성 fixture 전용 설치/controller를 제품 실행의 대체 경로로 사용하지 않는다.
+
 CA가 없거나 잘못되면 제품 host는 시작하지 않는다. 영속 `product-journal`은 설치기가
 초기화하지 않으며, 제품 host에서는 합성 `/validation/fixture`를 404로 닫는다.
 
@@ -214,7 +230,7 @@ Provider/Audience/Subject 조합과 본문 principal을 대조한 뒤 현재 pla
 
 `subscription_product_caller.ActionsProductToken()`은 실제 Actions 환경의 기존 OIDC
 endpoint에서 `sts.amazonaws.com` audience로 요청당 토큰을 받는 주입 함수다.
-`product_window(instance_id, reviewed_runtime_sha)`는 기존 controller 권한으로 고정
+`product_window(instance_id, reviewed_runtime_sha, ca_pem=reviewed_broker_ca)`는 기존 controller 권한으로 고정
 SSM start/tunnel/stop만 사용하며 `call(body)`를 한 번 허용한다. 응답 유실 뒤 다시 호출하면
 거부한다. context를 닫으면 plugin·동일 SSM session·broker stop을 각각 처리하며,
 어느 정리든 확인되지 않으면 성공으로 반환하지 않는다. SSM session 응답은

@@ -27,9 +27,18 @@ def installation(sha, archive_digest, settings, *, product_reader=None):
         reader_encoded = base64.b64encode(json.dumps(product_reader).encode()).decode()
         product_setup = f"""printf '%s' '{reader_encoded}' | base64 -d > /etc/bravo-subscription/product-reader.json
 chmod 644 /etc/bravo-subscription/product-reader.json
+install -d -m 755 /etc/systemd/system/bravo-subscription.service.d
+cat > /etc/systemd/system/bravo-subscription.service.d/product-tls.conf <<'TLS'
+[Service]
+LoadCredential=broker.crt:/etc/bravo-subscription/broker.crt
+LoadCredential=broker.key:/etc/bravo-subscription/broker.key
+TLS
 sed -i 's/-m bravo_agent.subscription_server /-m bravo_agent.subscription_product_server /' /etc/systemd/system/bravo-subscription.service
 """
+    tls_preflight = ("test -r /etc/bravo-subscription/broker.crt\ntest -r /etc/bravo-subscription/broker.key\n"
+                     if product_reader is not None else "")
     return f'''set -eu
+{tls_preflight}
 test "$(systemctl is-active bravo-subscription.service || true)" != active
 ROOT=/opt/bravo-subscription
 install -d -m 755 "$ROOT" /etc/bravo-subscription

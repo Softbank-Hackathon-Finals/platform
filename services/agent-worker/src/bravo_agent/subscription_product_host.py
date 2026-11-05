@@ -17,6 +17,7 @@ from .contracts import digest
 from .product_contracts import ProductInput, ProductRequest, validate_product_input
 from .proposal_contracts import validate_bound_product_response as validate_bound_product_response
 from .subscription_product import stopped
+from .subscription_product_tls import client_context
 
 _DIGEST = re.compile(r"[a-f0-9]{64}")
 _REF = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]{0,127}")
@@ -93,18 +94,21 @@ class ProductTunnelCall:
     """
 
     runtime_source_sha: str
+    ca_pem: str = field(repr=False)
     transport: httpx.BaseTransport | None = field(default=None, repr=False)
 
     def __post_init__(self):
         if not isinstance(self.runtime_source_sha, str) or re.fullmatch(r"[a-f0-9]{40}", self.runtime_source_sha) is None:
             raise ValueError("exact runtime source required")
+        client_context(self.ca_pem)  # Fail before opening SSM or acquiring a token.
 
     def __call__(self, body: dict) -> tuple[int, dict]:
         try:
             request = ProductRequest.model_validate(body)
-            with httpx.Client(transport=self.transport, trust_env=False, follow_redirects=False,
+            with httpx.Client(transport=self.transport, verify=client_context(self.ca_pem),
+                              trust_env=False, follow_redirects=False,
                               timeout=httpx.Timeout(260, connect=5)) as client:
-                with client.stream("POST", "http://127.0.0.1:18762/run", json=request.model_dump()) as response:
+                with client.stream("POST", "https://127.0.0.1:18762/run", json=request.model_dump()) as response:
                     # The remaining status payload is deliberately not echoed.
                     if response.status_code != 200:
                         return response.status_code, stopped("PRODUCT_CALL_UNCONFIRMED")
@@ -124,18 +128,21 @@ class ProductInputProbeCall:
     """Fixed auth/read-only route; its receipt cannot be a model or T15 result."""
 
     runtime_source_sha: str
+    ca_pem: str = field(repr=False)
     transport: httpx.BaseTransport | None = field(default=None, repr=False)
 
     def __post_init__(self):
         if not isinstance(self.runtime_source_sha, str) or re.fullmatch(r"[a-f0-9]{40}", self.runtime_source_sha) is None:
             raise ValueError("exact runtime source required")
+        client_context(self.ca_pem)  # Fail before opening SSM or acquiring a token.
 
     def __call__(self, body: dict) -> tuple[int, dict]:
         try:
             request = ProductRequest.model_validate(body)
-            with httpx.Client(transport=self.transport, trust_env=False, follow_redirects=False,
+            with httpx.Client(transport=self.transport, verify=client_context(self.ca_pem),
+                              trust_env=False, follow_redirects=False,
                               timeout=httpx.Timeout(80, connect=5)) as client:
-                with client.stream("POST", "http://127.0.0.1:18762/input/probe", json=request.model_dump()) as response:
+                with client.stream("POST", "https://127.0.0.1:18762/input/probe", json=request.model_dump()) as response:
                     if response.status_code != 200:
                         return response.status_code, stopped("PRODUCT_PROBE_UNCONFIRMED")
                     data = bytearray()

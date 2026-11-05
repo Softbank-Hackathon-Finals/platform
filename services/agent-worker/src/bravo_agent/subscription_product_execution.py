@@ -13,6 +13,7 @@ from .product_execution_contracts import (
 from .subscription_product import stopped
 from .subscription_product_caller import ActionsProductToken, product_probe_window, product_window
 from .subscription_product_seal import seal_receipt, validate_recipient
+from .subscription_product_tls import client_context
 
 
 def execute(intent, env, *, token_supplier=None, window=None):
@@ -21,10 +22,12 @@ def execute(intent, env, *, token_supplier=None, window=None):
     receipt = receipt_binding(intent, env['GITHUB_RUN_ID']) | {
         'status': 502, 'cleanup_confirmed': False, 'result': stopped('PRODUCT_EXECUTION_UNCONFIRMED')}
     try:
+        ca_pem = env.get("PRODUCT_BROKER_CA_PEM", "")
+        client_context(ca_pem)  # Configuration failure precedes OIDC and SSM.
         token = (token_supplier or ActionsProductToken(env))()
         body = {'input_ref': intent.input_ref, 'input_digest': intent.input_digest, 'web_identity_token': token}
         factory = window or (product_probe_window if intent.mode == 'probe' else product_window)
-        with factory(env['BRAVO_INSTANCE_ID'], intent.runtime_source_sha) as call:
+        with factory(env['BRAVO_INSTANCE_ID'], intent.runtime_source_sha, ca_pem=ca_pem) as call:
             status, result = call(body)  # Exactly one request, including response loss.
         receipt['cleanup_confirmed'] = True
         candidate = receipt | {'status': status, 'result': result}
@@ -44,6 +47,7 @@ def main(argv=None):
         intent = ExecutionIntent.model_validate_json(os.environ['PRODUCT_INTENT'])
         workflow_boundary(intent, os.environ)
         validate_recipient(intent.recipient_public_key)
+        client_context(os.environ.get("PRODUCT_BROKER_CA_PEM", ""))
         if args.preflight:
             return 0
         receipt = execute(intent, os.environ)

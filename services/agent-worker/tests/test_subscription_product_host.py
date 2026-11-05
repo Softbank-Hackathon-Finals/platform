@@ -7,6 +7,7 @@ from datetime import UTC, datetime, timedelta
 
 import httpx
 import pytest
+from tls_support import TEST_CA_PEM
 
 from bravo_agent.contracts import digest
 from bravo_agent.coordinator import Coordinator
@@ -132,11 +133,11 @@ def test_fixed_tunnel_post_preserves_product_response(exchange):
     def serve(request):
         calls.append(request)
         assert request.method == "POST"
-        assert str(request.url) == "http://127.0.0.1:18762/run"
+        assert str(request.url) == "https://127.0.0.1:18762/run"
         assert json.loads(request.content) == body
         return httpx.Response(200, json=result)
 
-    call = ProductTunnelCall(RUNTIME, httpx.MockTransport(serve))
+    call = ProductTunnelCall(RUNTIME, TEST_CA_PEM, httpx.MockTransport(serve))
     assert call(body) == (200, result)
     assert len(calls) == 1
     assert result["input_digest"] != body["input_digest"]
@@ -154,7 +155,7 @@ def test_fixed_tunnel_post_preserves_product_response(exchange):
 def test_bad_projection_never_reaches_consumer(exchange, field, value):
     body, result = exchange
     result[field] = value
-    call = ProductTunnelCall(RUNTIME, httpx.MockTransport(lambda _: httpx.Response(200, json=result)))
+    call = ProductTunnelCall(RUNTIME, TEST_CA_PEM, httpx.MockTransport(lambda _: httpx.Response(200, json=result)))
     assert call(body) == (502, {"state": "NEEDS_HUMAN", "reason": "PRODUCT_CALL_UNCONFIRMED"})
 
 
@@ -175,7 +176,7 @@ def test_transport_failure_never_retries_redirects_or_discloses(exchange, failur
             return httpx.Response(200, content=b"x" * (1024 * 1024 + 1))
         return httpx.Response(200, text="private-token-value")
 
-    status, result = ProductTunnelCall(RUNTIME, httpx.MockTransport(serve))(body)
+    status, result = ProductTunnelCall(RUNTIME, TEST_CA_PEM, httpx.MockTransport(serve))(body)
     assert status != 200 and len(calls) == 1
     assert result == {"state": "NEEDS_HUMAN", "reason": "PRODUCT_CALL_UNCONFIRMED"}
 
@@ -185,7 +186,7 @@ def test_invalid_body_does_not_contact_tunnel(exchange):
     body = copy.deepcopy(body)
     body["source_files"] = {}
     calls = []
-    status, _ = ProductTunnelCall(RUNTIME, httpx.MockTransport(lambda req: calls.append(req)))(body)
+    status, _ = ProductTunnelCall(RUNTIME, TEST_CA_PEM, httpx.MockTransport(lambda req: calls.append(req)))(body)
     assert status == 502 and calls == []
 
 

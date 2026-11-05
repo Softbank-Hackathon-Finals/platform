@@ -76,17 +76,18 @@ class ProductWindowCall:
 
 
 def _assert_tunnel_port_free():
-    # Do not send a token into an already listening local process. The external
-    # execution-owner lock is still required after this preflight reservation.
+    # Collision check only: the reservation ends here. TLS must still authenticate
+    # the broker before sending any HTTP header or token body.
     try:
         with socket.socket() as probe:
+            probe.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             probe.bind(("127.0.0.1", 18762))
     except OSError:
         raise RuntimeError("product tunnel port already in use") from None
 
 
 @contextmanager
-def product_window(instance_id, runtime_source_sha, *, ssm=None, transport=None):
+def product_window(instance_id, runtime_source_sha, *, ca_pem, ssm=None, transport=None):
     """Use one already-authorized T10 dispatch inside a single fixed SSM window.
 
 This does not obtain controller credentials, register an input, mint a workload
@@ -94,14 +95,14 @@ JWT, submit a T15 Job, or retry. T10 supplies request_for with ActionsProductTok
 only in a real Actions process. A host outside Actions needs an explicit reviewed
 orchestration path; copying its token to a file is not that path.
 """
-    with _window(instance_id, ProductTunnelCall(runtime_source_sha, transport=transport), ssm=ssm) as call:
+    with _window(instance_id, ProductTunnelCall(runtime_source_sha, ca_pem, transport=transport), ssm=ssm) as call:
         yield call
 
 
 @contextmanager
-def product_probe_window(instance_id, runtime_source_sha, *, ssm=None, transport=None):
+def product_probe_window(instance_id, runtime_source_sha, *, ca_pem, ssm=None, transport=None):
     """One read-only authentication probe using the same fixed start/tunnel/stop."""
-    with _window(instance_id, ProductInputProbeCall(runtime_source_sha, transport=transport), ssm=ssm) as call:
+    with _window(instance_id, ProductInputProbeCall(runtime_source_sha, ca_pem, transport=transport), ssm=ssm) as call:
         yield call
 
 
