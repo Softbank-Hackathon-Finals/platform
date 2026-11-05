@@ -220,3 +220,10 @@ T10 관리 방식의 실행은 `admission.run_admitted_attempt`가 접수된 단
 cd ../platform-events
 PYTHONPATH=../rehearsal-runner/src uv run --frozen --no-default-groups --with pytest pytest -p no:cacheprovider ../rehearsal-runner/testing/test_t10_admission.py
 ```
+
+`rehearsal_host.T15RehearsalHost`는 T10 `RehearsalHost`의 `task`·`submit`·`observe`에 맞춘 어댑터다. 계획에 등록된 작업을 읽어 digest를 만들고, 접수 커밋 이후 동일 작업인지 다시 비교한 다음 T15 제출자에게 전달한다. 인증된 T38 원문과 같은 `Admission`·생성/삭제 UID·부재 확인이 없는 경우 T10 결과를 반환하지 않는다. 작업 저장소, 실행별 영속 중복 방지 제출자와 인증 원문 조회기는 별도 신뢰 호스트가 주입해야 하며 기본 설치는 없다.
+
+```bash
+cd ../platform-events
+PYTHONPATH=../rehearsal-runner/src uv run --frozen --no-default-groups --with pytest pytest -p no:cacheprovider ../rehearsal-runner/testing/test_t10_rehearsal_host.py
+```
