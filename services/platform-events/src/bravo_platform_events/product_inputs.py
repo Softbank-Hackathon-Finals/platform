@@ -13,6 +13,7 @@ from uuid import uuid4
 from bravo_agent.contracts import digest
 from bravo_agent.product_contracts import ProductInput, validate_product_input
 from rehearsal_runner.admission import logical_task_digest
+from rehearsal_runner.task_catalog import CatalogUnavailable
 
 from .contract import validate_identifier
 from .cutover import _get, _put
@@ -61,8 +62,8 @@ class ProductInputRecords:
     HTTP endpoint. The production transport must authenticate before read().
     """
 
-    def __init__(self, store, *, catalog, source, authorize, clock=None):
-        if (not callable(getattr(catalog, "for_plan", None)) or not callable(source)
+    def __init__(self, store, *, catalog, authorize, source=None, clock=None):
+        if (not callable(getattr(catalog, "for_plan", None)) or (source is not None and not callable(source))
                 or not callable(authorize)):
             raise ValueError("product_input_ports_required")
         self.store, self.catalog, self.source, self.authorize = store, catalog, source, authorize
@@ -81,7 +82,7 @@ class ProductInputRecords:
             if task.source_sha != admission.source_sha or logical_task_digest(task) != admission.task_digest:
                 raise ValueError("task_changed")
             task = replace(task, run_id=admission.rehearsal_id)
-        except Exception:
+        except (CatalogUnavailable, EventError, ValueError):
             raise EventError("product_source_unavailable") from None
         return plan, task
 
@@ -107,7 +108,7 @@ class ProductInputRecords:
     def _permission(self, c, principal, plan, admission):
         try:
             self.authorize(c, principal, plan, admission, PURPOSE)
-        except Exception:
+        except (EventError, ValueError):
             raise EventError("product_input_unavailable") from None
 
     def product_input(self, admission, task):

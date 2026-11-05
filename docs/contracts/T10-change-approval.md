@@ -256,3 +256,8 @@ OIDC 공급 경로에서 넣는다. 이 저장소에는 토큰을 넣지 않는�
 운영 source collector·서비스 principal 등록·인증된 broker 읽기 transport·OIDC
 공급을 실제로 연결하기 전에는 제품 실행 경로가 완성되지 않는다. 로컬 입력 등록과
 조회 성공은 모델 응답·검증 Job·사람 승인·T31 배포의 완료 근거가 아니다.
+
+현재 grant의 append-only 관리와 기존 Actions OIDC를 사용하는 사설 read HTTP는
+[제품 입력 조회 서비스](../../services/platform-events/deploy/approval/PRODUCT-READ.md)를 따른다.
+이 서비스는 사람 IdP 없이 schema 2/3에서 조회만 제공한다. 별도 승인 호스트의
+schema 3 요구·사람 승인·단독 실행 조건은 유지한다.
