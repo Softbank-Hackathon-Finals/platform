@@ -273,10 +273,18 @@ What remains, by design or outside the ACL's reach:
 The fixed-slot alternative (operator-made `rehearsal-app-reader-slot-<n>` policies) is no longer
 needed and was not built.
 
-**Network for readers.** The rendered OpenBao `network` policy has no ingress peer for
-`rehearsal-*` attempt namespaces, so the `rehearsal-init-container` path cannot reach OpenBao
-until a reader peer is agreed and added (verified: the init container times out). This change
-does not add one; the local check adds a test-only peer for the happy path.
+**Network for readers.** The rendered OpenBao `network` policy admits 8200/TCP from attempt
+namespaces (label `app.kubernetes.io/part-of: bravo-rehearsal`, which T15 sets at creation and the
+management namespace does not carry) only for the T15 Pods that need it, each as namespace *and*
+Pod label in one peer: the candidate app Pod (`app: rehearsal-app`, whose `rehearsal-init-container`
+fetches `credentials.json`) and the verifier Job Pods (`role: credential-verifier`, including the
+denial test). Like the SeaweedFS rehearsal peer this only narrows the path, because anything that
+can create a Pod in an attempt namespace can set those labels. Access is decided by OpenBao: each
+reader role binds one ServiceAccount in one namespace and the template policy reads only that
+namespace's path, so the denial test is refused by OpenBao, not by the network. The rehearsal side
+already allows the egress (T3 `allow-target-profile`, `profiles/onprem.env`).
+`scripts/tests/test_rehearsal_object_access.py` ties the T9 labels to T15 `credential_job.py`, the
+T3 namespace label and the T3 OpenBao egress, so a rename on either side fails there.
 
 **Namespace and SA ownership.** The T15 owner coordinates creating `bravo-rehearsal-control` with
 T30. `rehearsal-writer-identity` renders the namespace and SA for that conversation; do not
@@ -293,8 +301,9 @@ server as a `target-openbao` stand-in, performs the operator install above (real
 CLI), applies the rendered NetworkPolicy, policies and roles unchanged, logs in with real
 ServiceAccount tokens and records each allowed/denied case, the replayed escalation, the
 wrong-accessor case, and the Pod path: a labelled writer Job prepares namespace A, the rendered
-init container in A fetches `credentials.json` (only the HTTP address, CA variable and image are
-substituted for the dev stand-in, plus a test-only reader NetworkPolicy peer), and a second
+init container in A fetches `credentials.json` through the rendered network policy (only the HTTP
+address, CA variable and image are substituted for the dev stand-in; a Pod in A without a T15 label
+is blocked), and a second
 writer Job cleans up. It writes no token or value. It is not a substitute for the same checks on
 the demo RKE2 target with the TLS image.
 

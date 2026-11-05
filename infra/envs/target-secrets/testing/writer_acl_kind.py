@@ -36,8 +36,9 @@ RESTRICTED = {"allowPrivilegeEscalation": False, "runAsNonRoot": True, "capabili
 POD_SECURITY = {"runAsNonRoot": True, "runAsUser": 100, "runAsGroup": 1000,
                 "seccompProfile": {"type": "RuntimeDefault"}}
 BAO_HTTP = "http://target-openbao.bravo-secrets.svc:8200"
-# Label of the test-only reader ingress peer (the rendered ``network`` policy has none; README).
-READER_POD_LABEL = {"bravo-test-rehearsal-reader": "true"}
+# Reader Pod labels: one the rendered ``network`` policy admits in attempt namespaces, one it does not.
+READER_POD_LABEL = render.REHEARSAL_OPENBAO_CLIENTS[0]  # the T15 candidate Pod label the rendered policy admits
+UNLISTED_POD_LABEL = {"bravo-test-rehearsal-reader": "true"}
 
 
 class Kube:
@@ -107,17 +108,6 @@ def probe_pod(name, namespace, labels):
                                      "env": [{"name": "BAO_ADDR", "value": BAO_HTTP},
                                              {"name": "BAO_CLIENT_TIMEOUT", "value": "8s"}, {"name": "HOME", "value": "/tmp"}],
                                      "securityContext": RESTRICTED}]}}
-
-
-def test_only_reader_peer():
-    """Kind-only, additive NetworkPolicy so the reader Pod in ``rehearsal-aaa`` can reach the
-    stand-in. Not rendered by ``render.py``: the reader peer is still an open contract item."""
-    return {"apiVersion": "networking.k8s.io/v1", "kind": "NetworkPolicy",
-            "metadata": {"name": "kind-test-only-reader-peer", "namespace": render.NAMESPACE},
-            "spec": {"podSelector": {"matchLabels": {"app.kubernetes.io/name": "openbao"}}, "policyTypes": ["Ingress"],
-                     "ingress": [{"from": [{"namespaceSelector": {"matchLabels": {"kubernetes.io/metadata.name": NS_A}},
-                                            "podSelector": {"matchLabels": READER_POD_LABEL}}],
-                                  "ports": [{"protocol": "TCP", "port": 8200}]}]}}
 
 
 WRITER_PREPARE = r"""
@@ -610,17 +600,15 @@ def main():
                            "pod_revoke_self": "allow"}.items():
             case(name, want, seen.get(name, "missing"))
 
-        # Without a reader ingress peer the rendered NetworkPolicy blocks the init container.
-        kube.apply(reader_pod("reader-no-peer", NS_A, READER_POD_LABEL))
-        phase, init_code = pod_phase(kube, NS_A, "reader-no-peer")
-        results["network"]["reader_init_without_peer"] = {"phase": phase, "init_exit": init_code}
-        case("reader_init_blocked_without_reader_peer", "Failed", phase, "rendered network policy has no rehearsal reader peer")
-        kube.apply(test_only_reader_peer())
-        time.sleep(3)
+        # The rendered NetworkPolicy admits attempt namespaces only for the T15 Pod labels.
+        kube.apply(reader_pod("reader-unlisted", NS_A, UNLISTED_POD_LABEL))
+        phase, init_code = pod_phase(kube, NS_A, "reader-unlisted")
+        results["network"]["reader_init_unlisted_label"] = {"phase": phase, "init_exit": init_code}
+        case("reader_init_blocked_without_t15_label", "Failed", phase, "rendered policy admits only T15 Pod labels")
         kube.apply(reader_pod("reader-fetch", NS_A, READER_POD_LABEL))
         phase, init_code = pod_phase(kube, NS_A, "reader-fetch")
-        results["network"]["reader_init_with_test_peer"] = {"phase": phase, "init_exit": init_code}
-        case("reader_init_fetch_succeeds", "Succeeded", phase, "test-only reader ingress peer")
+        results["network"]["reader_init_rendered_peer"] = {"phase": phase, "init_exit": init_code}
+        case("reader_init_fetch_succeeds", "Succeeded", phase, "rendered rehearsal ingress peer")
         app_logs = kube.run("logs", "reader-fetch", "-n", NS_A, "-c", "app", check=False).stdout
         app = {line.split()[1]: line.split()[2:] for line in app_logs.splitlines() if line.startswith("RESULT ")}
         case("reader_credentials_file_written", ["ok", "mode=400"], app.get("credentials_file", "missing"))

@@ -34,6 +34,9 @@ WRITER_NAMESPACE = "bravo-rehearsal-control"
 LEGACY_WRITER_NAMESPACE = "rehearsal-control"
 WRITER_ACCOUNT = "rehearsal-openbao-writer"
 WRITER_POD_LABEL = {"app.kubernetes.io/component": "rehearsal-openbao-writer"}
+# T15 Pod labels in attempt namespaces (services/rehearsal-runner credential_job.py): the
+# candidate app Pod and every verifier Job Pod. scripts/tests/test_target_secrets.py ties them.
+REHEARSAL_OPENBAO_CLIENTS = ({"app": "rehearsal-app"}, {"role": "credential-verifier"})
 # ADR-0029 (A안, 2026-11-06): one operator-owned templated reader policy. The writer creates
 # per-namespace roles ``rehearsal-app-reader-<namespace>`` that can only attach this policy;
 # it has no ``sys/policies`` access at all, so no reader policy body is writer-controlled.
@@ -412,6 +415,14 @@ def network(api_ip, api_endpoint_ip):
             # T15 prep Job (rehearsal writer); the Pod template must carry WRITER_POD_LABEL.
             {"namespaceSelector": {"matchLabels": {"kubernetes.io/metadata.name": WRITER_NAMESPACE}},
              "podSelector": {"matchLabels": WRITER_POD_LABEL.copy()}},
+            # Attempt namespaces (T15 labels them at creation) AND the T15 Pods that need OpenBao:
+            # the candidate (its init container fetches credentials.json) and the verifier Jobs
+            # (including the denial test). Like the SeaweedFS rehearsal peer this only narrows the
+            # path: anything that can create a Pod there can set the label. What a Pod may read is
+            # decided by OpenBao (one SA per reader role, template policy reads only that
+            # namespace's path), so the denial test is refused by OpenBao, not by the network.
+            *({"namespaceSelector": {"matchLabels": REHEARSAL_LABEL.copy()}, "podSelector": {"matchLabels": label}}
+              for label in REHEARSAL_OPENBAO_CLIENTS),
         ], "ports": [{"protocol": "TCP", "port": 8200}]}],
         "egress": [{"to": [{"ipBlock": {"cidr": str(address) + "/32"}}],
                     "ports": [{"protocol": "TCP", "port": port}]}
