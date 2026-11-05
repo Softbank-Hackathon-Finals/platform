@@ -82,15 +82,18 @@ def _is_marker(value: str) -> bool:
 
 def _check_structure(value, sensitive: bool = False, path: str = "") -> None:
     """Under a credential-named key, every string at any depth (lists and nested objects
-    included) must be a reference marker. The sensitive context is inherited downward, except
-    through a *reference-named* key: ``credentials: [{"secret_id": "demo/ref"}]`` and
-    ``password: {"password_ref": "…"}`` carry pointers, not values (contract: reference names
-    are exempt wherever they appear)."""
+    included) must be a reference marker. The sensitive context is inherited downward.
+
+    A *reference-named* key (``secret_id``, ``password_ref``, ``…_source``) is exempt only for
+    a **string** value: that string is a pointer, not a secret. An object or list under a
+    reference-named key keeps the inherited context, so ``password: {password_ref: {value: …}}``
+    and ``credentials: {password_ref: […]}`` cannot smuggle a value past the check."""
     if isinstance(value, dict):
         for key, item in value.items():
             key = str(key)
-            child = False if _reference_key(key) else (sensitive or _sensitive_key(key))
-            _check_structure(item, child, path + key + ".")
+            if _reference_key(key) and isinstance(item, str):
+                continue  # a pointer string is never a credential value
+            _check_structure(item, sensitive or _sensitive_key(key), path + key + ".")
     elif isinstance(value, list | tuple):
         for item in value:
             _check_structure(item, sensitive, path + "[]")

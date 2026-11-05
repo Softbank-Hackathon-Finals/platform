@@ -26,7 +26,7 @@
 - 객체 키 `audit/<plan_id>/<run_id>/<sequence:08d>.json`, 한 키에 한 번만(`If-None-Match: *`).
 - 쓰기는 COMPLIANCE 보존을 명시하고 응답의 `VersionId`와 readback(`ObjectLockMode` · `RetainUntilDate`)으로 확인한다. readback은 끌 수 없고, 확인되지 않으면 "기록됨"으로 보고하지 않는다.
 - 한 입력 묶음은 한 실행(plan, run)만 담는다. 섞여 있으면 아무것도 쓰지 않고 거부한다.
-- `payload`의 문자열 검사와 별도로 **구조 검사**를 한다. `password` · `secret` · `token` · `api_key` · `credential` 류 키 아래의 문자열 값은 출처 표식(`secretKeyRef` · `literal` · `<masked>` 등)만 허용한다. `secret_id` · `secret_arn` · `token_count` · `password_ref`처럼 참조 · 수량을 뜻하는 이름은 **어느 깊이에 있든** 제외한다. 민감 키 아래의 참조 키는 그 하위를 민감 문맥에서 벗어나게 하고, 참조 키 옆에 놓인 비참조 문자열은 여전히 거부한다.
+- `payload`의 문자열 검사와 별도로 **구조 검사**를 한다. `password` · `secret` · `token` · `api_key` · `credential` 류 키 아래의 문자열 값은 출처 표식(`secretKeyRef` · `literal` · `<masked>` 등)만 허용한다. `secret_id` · `secret_arn` · `token_count` · `password_ref`처럼 참조 · 수량을 뜻하는 이름은 **어느 깊이에 있든** 제외한다. 참조 키의 예외는 **문자열 값 하나**에만 적용된다. 참조 키 아래에 객체 · 목록이 오면 상위의 민감 문맥을 그대로 물려받으므로 `password: {password_ref: {value: …}}` 같은 값은 거부되고, 참조 키 옆에 놓인 비참조 문자열도 여전히 거부한다.
 - 영수증: `key` · `sha256` · `version_id` · `retain_until` · `retention_mode`. 콘솔은 영수증과 `chain_digest`(마지막 `sha256`)를 실행 화면에 붙인다.
 
 ## 검증 규칙 (`verify_chain`)

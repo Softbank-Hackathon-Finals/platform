@@ -57,6 +57,11 @@ def test_any_change_after_the_fact_breaks_verification(ledger, tamper):
     {"credentials": ["synthetic-sensitive-value"]},
     {"credentials": [{"secret_id": "demo/ref", "value": "synthetic-sensitive-value"}]},  # pointer next to a value: still refused
     {"password": {"password_ref": {"inner_password": "synthetic-sensitive-value"}}},
+    # review (#257, 류지환 4차): a reference-named key exempts only a string, never a subtree
+    {"password": {"password_ref": {"value": "synthetic-sensitive-value"}}},
+    {"credentials": {"password_ref": ["synthetic-sensitive-value"]}},
+    {"credentials": {"context_name": {"token": "synthetic-sensitive-value"}}},
+    {"credentials": {"context_name": ["synthetic-sensitive-value"]}},
     {"credentials": {"list": [{"inner": "synthetic-sensitive-value"}]}},
     {"password": "<synthetic-sensitive-value>"},
     {"password": "<masked but with extra text that is not the marker form!!>"},
