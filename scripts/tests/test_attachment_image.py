@@ -38,6 +38,20 @@ def git(repo, *arguments):
     return subprocess.run(["git", "-C", str(repo), *arguments], check=True, capture_output=True, text=True).stdout.strip()
 
 
+def platform_layout(path, *, source, platform):
+    """The Executor fixture is linux/amd64. Rewrite only its index for another platform, as buildx would build it."""
+    digest, blobs, layer = layout(path, source=source)
+    index = json.loads((blobs / digest[7:]).read_text())
+    index["manifests"][0]["platform"]["architecture"] = platform.removeprefix("linux/")
+    value = json.dumps(index).encode()
+    (blobs / digest[7:]).unlink()
+    digest = "sha256:" + hashlib.sha256(value).hexdigest()
+    (blobs / digest[7:]).write_bytes(value)
+    descriptor = {"mediaType": "application/vnd.oci.image.index.v1+json", "digest": digest, "size": len(value)}
+    (path / "index.json").write_text(json.dumps({"schemaVersion": 2, "manifests": [descriptor]}))
+    return digest, blobs, layer
+
+
 def write_context(repo, *, dockerfile=DOCKERFILE):
     directory = repo / attachment_image.CONTEXT_DIRECTORY
     directory.mkdir(parents=True, exist_ok=True)
@@ -64,12 +78,14 @@ def repository(path, *, reviewed=True, dockerfile=DOCKERFILE):
 class FakeDocker:
     """Answers the docker commands with real files, recording every command."""
 
-    def __init__(self, source, *, report=None, fail=None, probe_output=b"attachment_runtime_probe=pass\n", tamper=False):
+    def __init__(self, source, *, report=None, fail=None, probe_output=b"attachment_runtime_probe=pass\n", tamper=False,
+                 produced=None):
         self.source = source
         self.report = CLEAN_REPORT if report is None else report
         self.fail = fail
         self.probe_output = probe_output
         self.tamper = tamper
+        self.produced = produced  # A builder that ignores --platform and makes this one instead.
         self.commands = []
 
     def phase_of(self, command):
@@ -95,7 +111,8 @@ class FakeDocker:
         if which == "image_build":
             output = command[command.index("--output") + 1]
             destination = Path(re.search(r"dest=([^,]+)", output).group(1))
-            digest, blobs, _ = layout(destination, source=self.source)
+            platform = self.produced or command[command.index("--platform") + 1]
+            digest, blobs, _ = platform_layout(destination, source=self.source, platform=platform)
             (destination / "oci-layout").write_text('{"imageLayoutVersion": "1.0.0"}')
             (destination / "ingest").mkdir()
             (destination / "ingest" / "partial").write_text("left by the builder")
@@ -182,8 +199,8 @@ class TheBarIsNotLowered(unittest.TestCase):
 
     WORKFLOW = (ROOT / ".github/workflows/publish-executor-image.yml").read_text()
 
-    def build(self):
-        return attachment_image.build_command(SOURCE, BASE, Path("/ctx"), Path("/layout"), Path("/meta.json"))
+    def build(self, platform="linux/amd64"):
+        return attachment_image.build_command(SOURCE, BASE, Path("/ctx"), Path("/layout"), Path("/meta.json"), platform)
 
     def scan(self):
         return attachment_image.scan_command(Path("/layout"), Path("/out"))
@@ -193,10 +210,14 @@ class TheBarIsNotLowered(unittest.TestCase):
                         "severity: HIGH,CRITICAL", "ignore-unfixed: true", "exit-code: '1'", "format: json"):
             self.assertIn(setting, self.WORKFLOW)
 
-    def test_build_makes_one_amd64_oci_index_with_provenance_and_sbom(self):
+    def test_build_makes_one_oci_index_for_the_chosen_platform_with_provenance_and_sbom(self):
+        for platform in ("linux/amd64", "linux/arm64"):
+            with self.subTest(platform=platform):
+                command = self.build(platform)
+                self.assertEqual(command[command.index("--platform") + 1], platform)
+                self.assertEqual(command.count("--platform"), 1)
         command = self.build()
         self.assertEqual(command[:3], ["docker", "buildx", "build"])
-        self.assertEqual(command[command.index("--platform") + 1], "linux/amd64")
         self.assertIn("--provenance=mode=max", command)
         self.assertRegex(" ".join(command), r"--sbom=generator=\S+@sha256:[0-9a-f]{64}")
         self.assertIn("type=oci,dest=/layout,tar=false", command)
@@ -242,11 +263,16 @@ class TheBarIsNotLowered(unittest.TestCase):
             with self.subTest(text=text), self.assertRaisesRegex(attachment_image.Failure, "base_image_not_pinned"):
                 attachment_image.pinned_base(text)
 
+    def test_probe_runs_the_chosen_platform(self):
+        for platform in ("linux/amd64", "linux/arm64"):
+            with self.subTest(platform=platform):
+                command = attachment_image.probe_command("localhost/x@sha256:" + "c" * 64, platform)
+                self.assertEqual(command[command.index("--platform") + 1], platform)
+
     def test_probe_runs_isolated_and_checks_the_copy_modules(self):
-        command = attachment_image.probe_command("localhost/x@sha256:" + "c" * 64)
+        command = attachment_image.probe_command("localhost/x@sha256:" + "c" * 64, "linux/amd64")
         joined = " ".join(command)
-        for setting in ("--network none", "--read-only", "--cap-drop ALL", "--security-opt no-new-privileges",
-                        "--platform linux/amd64", "--rm"):
+        for setting in ("--network none", "--read-only", "--cap-drop ALL", "--security-opt no-new-privileges", "--rm"):
             self.assertIn(setting, joined)
         self.assertNotIn("-e", command)
         for module in ("boto3", "psycopg", "attachment_copy", "attachment_stores", "sync_attachments"):
@@ -285,7 +311,7 @@ class Archive(Workspace):
         with tarfile.open(archive) as stored:
             names = stored.getnames()
         self.assertEqual(sorted(names), sorted(["oci-layout", "index.json", *(f"blobs/sha256/{p.name}" for p in blobs.iterdir())]))
-        self.assertEqual(attachment_image.verify_archive(archive, digest, SOURCE, self.root),
+        self.assertEqual(attachment_image.verify_archive(archive, digest, SOURCE, self.root, "linux/amd64"),
                          executor_image.verify_layout(path, digest, SOURCE))
 
     def test_packing_does_not_record_who_or_when(self):
@@ -316,7 +342,7 @@ class Archive(Workspace):
                 member.size = len(body)
                 output.addfile(member, io.BytesIO(body))
         with self.assertRaises(attachment_image.Failure):
-            attachment_image.verify_archive(tampered, digest, SOURCE, self.root)
+            attachment_image.verify_archive(tampered, digest, SOURCE, self.root, "linux/amd64")
 
     def test_unexpected_members_are_refused_without_being_extracted(self):
         path, digest, _ = self.built()
@@ -344,13 +370,42 @@ class Archive(Workspace):
                  "link": link, "duplicate": duplicate}
         for name, add in cases.items():
             with self.subTest(name), self.assertRaisesRegex(attachment_image.Failure, "unexpected_archive_member"):
-                attachment_image.verify_archive(self.rewrite(archive, add), digest, SOURCE, self.root)
+                attachment_image.verify_archive(self.rewrite(archive, add), digest, SOURCE, self.root, "linux/amd64")
         self.assertFalse((self.root / "escaped").exists())
 
     def test_archive_of_another_source_is_refused(self):
         path, digest, _ = self.built()
         with self.assertRaises(attachment_image.Failure):
-            attachment_image.verify_archive(self.pack(path), digest, "b" * 40, self.root)
+            attachment_image.verify_archive(self.pack(path), digest, "b" * 40, self.root, "linux/amd64")
+
+    def test_archive_of_another_platform_is_refused(self):
+        path, digest, _ = self.built()
+        with self.assertRaisesRegex(attachment_image.Failure, "runtime_platform_ambiguous"):
+            attachment_image.verify_archive(self.pack(path), digest, SOURCE, self.root, "linux/arm64")
+
+
+class OnePlatformIsVerified(unittest.TestCase):
+    """The shared verifier checks the platform it is asked for, and other callers keep linux/amd64."""
+
+    def test_supported_platforms(self):
+        self.assertEqual(attachment_image.PLATFORMS, ("linux/amd64", "linux/arm64"))
+
+    def test_each_platform_passes_only_as_itself(self):
+        for built in attachment_image.PLATFORMS:
+            for asked in attachment_image.PLATFORMS:
+                with self.subTest(built=built, asked=asked), tempfile.TemporaryDirectory() as directory:
+                    digest, _, _ = platform_layout(Path(directory), source=SOURCE, platform=built)
+                    if built == asked:
+                        self.assertTrue(attachment_image.verify_layout(Path(directory), digest, SOURCE, asked))
+                    else:
+                        with self.assertRaisesRegex(attachment_image.Failure, "runtime_platform_ambiguous"):
+                            attachment_image.verify_layout(Path(directory), digest, SOURCE, asked)
+
+    def test_other_callers_still_accept_only_amd64(self):
+        with tempfile.TemporaryDirectory() as directory:
+            digest, _, _ = platform_layout(Path(directory), source=SOURCE, platform="linux/arm64")
+            with self.assertRaisesRegex(executor_image.Failure, "runtime_platform_ambiguous"):
+                executor_image.verify_layout(Path(directory), digest, SOURCE)
 
 
 class WholePath(Workspace):
@@ -358,10 +413,10 @@ class WholePath(Workspace):
         super().setUp()
         self.head = repository(self.repo)
 
-    def build(self, docker=None):
+    def build(self, docker=None, platform="linux/amd64"):
         self.docker = docker or FakeDocker(self.head)
         with patch.object(attachment_image, "run", self.docker):
-            return attachment_image.build(self.repo, self.head, self.output)
+            return attachment_image.build(self.repo, self.head, self.output, platform)
 
     def outputs(self):
         return sorted(path.name for path in self.output.iterdir())
@@ -373,8 +428,8 @@ class WholePath(Workspace):
 
     def test_receipt_binds_source_digest_and_archive_bytes(self):
         receipt = self.build()
-        archive = self.output / f"attachment-copy-{self.head[:12]}.tar"
-        self.assertEqual(self.outputs(), sorted([archive.name, f"attachment-copy-{self.head[:12]}.receipt.json"]))
+        archive = self.output / f"attachment-copy-{self.head[:12]}-amd64.tar"
+        self.assertEqual(self.outputs(), sorted([archive.name, f"attachment-copy-{self.head[:12]}-amd64.receipt.json"]))
         self.assertEqual(receipt["source_sha"], self.head)
         self.assertEqual(receipt["archive_sha256"], hashlib.sha256(archive.read_bytes()).hexdigest())
         self.assertEqual(receipt["archive_bytes"], archive.stat().st_size)
@@ -384,6 +439,24 @@ class WholePath(Workspace):
         self.assertGreater(receipt["verified_blob_count"], 0)
         stored = json.loads(archive.with_name(archive.stem + ".receipt.json").read_text())
         self.assertEqual(stored, receipt)
+
+    def test_arm64_is_built_verified_probed_and_named_as_arm64(self):
+        receipt = self.build(platform="linux/arm64")
+        self.assertEqual(receipt["platform"], "linux/arm64")
+        self.assertEqual(self.outputs(), [f"attachment-copy-{self.head[:12]}-arm64.receipt.json",
+                                          f"attachment-copy-{self.head[:12]}-arm64.tar"])
+        platforms = {self.docker.phase_of(c): c[c.index("--platform") + 1] for c in self.docker.commands if "--platform" in c}
+        self.assertEqual(platforms, {"image_build": "linux/arm64", "runtime_probe": "linux/arm64"})
+
+    def test_builder_output_for_another_platform_leaves_no_archive(self):
+        with self.assertRaisesRegex(attachment_image.Failure, "runtime_platform_ambiguous"):
+            self.build(FakeDocker(self.head, produced="linux/amd64"), platform="linux/arm64")
+        self.assertEqual(self.outputs(), [])
+
+    def test_both_platforms_of_one_commit_can_share_a_directory(self):
+        self.build(platform="linux/amd64")
+        self.build(platform="linux/arm64")
+        self.assertEqual(len(self.outputs()), 4)
 
     def test_receipt_does_not_claim_what_happens_on_the_vm(self):
         receipt = self.build()
@@ -453,7 +526,7 @@ class WholePath(Workspace):
                 path.unlink()
 
     def test_existing_output_is_not_overwritten(self):
-        (self.output / f"attachment-copy-{self.head[:12]}.tar").write_text("earlier")
+        (self.output / f"attachment-copy-{self.head[:12]}-amd64.tar").write_text("earlier")
         docker = FakeDocker(self.head)
         with self.assertRaisesRegex(attachment_image.Failure, "output_must_be_new"):
             self.build(docker)
@@ -487,6 +560,10 @@ class OperatorGuide(unittest.TestCase):
 
     def test_guide_builds_with_this_script(self):
         self.assertIn("python scripts/attachment_image.py --source", self.GUIDE)
+
+    def test_guide_builds_for_an_arm64_target_and_names_files_by_architecture(self):
+        self.assertIn("--platform linux/arm64", self.GUIDE)
+        self.assertIn("attachment-copy-<커밋 앞 12자리>-<아키텍처>.tar", self.GUIDE)
 
     def test_guide_imports_with_the_measured_arguments(self):
         flat = re.sub(r"\\\n\s*", "", self.GUIDE)
@@ -538,6 +615,22 @@ class CommandLine(Workspace):
             code, output = self.run_main("--source", head, "--output-dir", str(self.output))
         self.assertEqual(code, 0)
         self.assertEqual(json.loads(output)["source_sha"], head)
+        self.assertEqual(json.loads(output)["platform"], "linux/amd64")
+
+    def test_arm64_is_chosen_on_the_command_line(self):
+        head = repository(self.repo)
+        with patch.object(attachment_image, "run", FakeDocker(head)), patch.object(attachment_image, "REPOSITORY_ROOT", self.repo):
+            code, output = self.run_main("--source", head, "--output-dir", str(self.output), "--platform", "linux/arm64")
+        self.assertEqual(code, 0)
+        self.assertEqual(json.loads(output)["platform"], "linux/arm64")
+
+    def test_other_platforms_are_refused_before_anything_runs(self):
+        docker = FakeDocker(SOURCE)
+        with patch.object(attachment_image, "run", docker), patch("sys.stderr", io.StringIO()), \
+                self.assertRaises(SystemExit) as caught:
+            self.run_main("--source", SOURCE, "--output-dir", str(self.output), "--platform", "linux/s390x")
+        self.assertEqual(caught.exception.code, 2)
+        self.assertEqual(docker.commands, [])
 
     def test_failure_prints_only_a_fixed_code_and_exits_nonzero(self):
         head = repository(self.repo)
