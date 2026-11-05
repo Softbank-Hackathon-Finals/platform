@@ -168,6 +168,16 @@ def test_uncommitted_admission_is_not_a_consumable_proposal(flow):
         flow.source(invented).result()
 
 
+def test_genuine_admission_from_other_run_cannot_consume_initial_proposal(flow):
+    flow.ready()
+    # Another trusted host path really commits an Admission, with valid source/task.
+    # Admission identity checks alone must not authorize a different Proposal run.
+    receipt = flow.start(service=flow.service(first_run=lambda *args: "other-admitted-run"))
+    assert receipt["rehearsal_id"] != flow.result["proposal"]["run_id"]
+    with pytest.raises(EventError, match="^initial_rehearsal_unavailable$"):
+        flow.source(flow.effects[0]).result()
+
+
 @pytest.mark.parametrize("change", [dict(plan_version=3), dict(tenant_id="foreign"),
     dict(task_id="foreign"), dict(rehearsal_id="foreign"), dict(attempt=2), dict(attempt=True),
     dict(source_sha="a" * 40), dict(task_digest="a" * 64)])
