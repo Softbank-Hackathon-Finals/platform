@@ -58,7 +58,7 @@ def _read_window(window: dict, receipt: dict, profile: dict) -> dict:
 
 def _p95_max(rows: list[dict], pool: str) -> float | None:
     values = [row[pool]["p95_ms"] for row in rows if row[pool]["p95_ms"] is not None]
-    return max(values) if values else None
+    return round(max(values), 3) if values else None
 
 
 def _step(receipt: dict, next_request: datetime | None, windows: list[dict], profile: dict) -> dict:
@@ -72,7 +72,7 @@ def _step(receipt: dict, next_request: datetime | None, windows: list[dict], pro
         "request_at": receipt["request_at"],
         # 설정이 저장됐다는 시각이다. 실제 분배 반영이 아니다.
         "provider_confirmed_after_s": (
-            (_ts(confirmed) - requested).total_seconds() if confirmed else None
+            round((_ts(confirmed) - requested).total_seconds(), 3) if confirmed else None
         ),
         "observation": "RECEIPT_NOT_CONFIRMED",
         "applied_by_window_end": None,
@@ -97,9 +97,9 @@ def _step(receipt: dict, next_request: datetime | None, windows: list[dict], pro
         if not NOT_EVIDENCE & set(row["reasons"]):
             step["observation"] = "OBSERVED"
             step["applied_by_window_end"] = row["end"]
-            step["reflect_upper_bound_s"] = (
-                datetime.fromisoformat(row["end"]) - requested
-            ).total_seconds()
+            step["reflect_upper_bound_s"] = round(
+                (datetime.fromisoformat(row["end"]) - requested).total_seconds(), 3
+            )
             break
     return step
 
