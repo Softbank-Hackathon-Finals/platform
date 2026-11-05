@@ -1,0 +1,31 @@
+[project]
+name = "bravo-apply-path"
+version = "0.1.0"
+description = "T31 승인 반영 경로: 승인 결속 검증 → digest 고정 배포 → 반영 결과 보고 → 게이트 재대조 요청"
+requires-python = ">=3.12"
+dependencies = ["jsonschema>=4.23,<5"]
+
+[project.scripts]
+bravo-apply = "bravo_apply.cli:main"
+
+[dependency-groups]
+dev = ["pytest>=8,<10"]
+
+[build-system]
+requires = ["hatchling>=1.25,<2"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/bravo_apply"]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP"]
+ignore = ["E501"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
