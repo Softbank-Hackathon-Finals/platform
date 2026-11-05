@@ -30,7 +30,7 @@ class ProductExecution:
 
     def __init__(self, records, client, *, principal, runtime_source_sha):
         if (type(records) is not ProductInputRecords
-                or any(not callable(getattr(client, name, None)) for name in ("submit", "read"))
+                or any(not callable(getattr(client, name, None)) for name in ("recipient", "submit", "read"))
                 or not isinstance(principal, str) or re.fullmatch(r"[a-f0-9]{64}", principal) is None
                 or not isinstance(runtime_source_sha, str)
                 or re.fullmatch(r"[a-f0-9]{40}", runtime_source_sha) is None):
@@ -44,9 +44,9 @@ class ProductExecution:
             raise EventError("product_execution_mismatch")
         request_id = "t10-" + digest(dict(admission=asdict(admission), input_ref=input_ref,
             input_digest=input_digest, principal=self.principal, runtime_source_sha=self.runtime_source_sha))
-        intent = ExecutionIntent(request_id=request_id, input_ref=input_ref, input_digest=input_digest,
+        fields = dict(request_id=request_id, input_ref=input_ref, input_digest=input_digest,
             admission_digest=digest(asdict(admission)), runtime_source_sha=self.runtime_source_sha, mode="propose")
-        return intent, _validated(record["product_input"])
+        return fields, _validated(record["product_input"])
 
     @staticmethod
     def _result(intent, value, envelope):
@@ -75,13 +75,21 @@ class ProductExecution:
         _admission(admission)
         slot = "product-execution:" + admission.rehearsal_id + ":1"
         with self.records.store._transaction(write=True, plan_id=admission.plan_id) as c:
-            intent, value = self._binding(c, admission, input_ref, input_digest)
-            request = intent.model_dump(mode="json") | {"principal": self.principal}
+            fields, value = self._binding(c, admission, input_ref, input_digest)
             old = _get(c, admission.plan_id, slot)
             first = old is None
+            if first and not allow_claim:
+                raise EventError("product_execution_not_started")
+            try:
+                # Only the first claim may prepare local key material. Replays keep
+                # the original public key even when the operator's key is missing.
+                recipient = (self.client.recipient(fields["request_id"]) if first
+                             else old[0]["recipient_public_key"])
+                intent = ExecutionIntent(**fields, recipient_public_key=recipient)
+            except Exception:
+                raise EventError("product_recipient_unavailable") from None
+            request = intent.model_dump(mode="json") | {"principal": self.principal}
             if first:
-                if not allow_claim:
-                    raise EventError("product_execution_not_started")
                 _put(c, admission.plan_id, slot, request, {"state": "CLAIMED", "intent": intent.model_dump(mode="json")})
             elif old[0] != request:
                 raise EventError("product_execution_conflict")
@@ -102,7 +110,8 @@ class ProductExecution:
             raise EventError("product_execution_unconfirmed") from None
         self._result(intent, value, envelope)
         with self.records.store._transaction(write=True, plan_id=admission.plan_id) as c:
-            current, value = self._binding(c, admission, input_ref, input_digest)
+            fields, value = self._binding(c, admission, input_ref, input_digest)
+            current = ExecutionIntent(**fields, recipient_public_key=intent.recipient_public_key)
             if current != intent:
                 raise EventError("product_execution_conflict")
             result = self._result(intent, value, envelope)

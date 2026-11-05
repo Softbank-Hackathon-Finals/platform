@@ -39,6 +39,11 @@ class Actions:
     def __init__(self, value):
         self.value, self.submits, self.reads = value, [], []
         self.envelope, self.lose_response, self.hook = None, False, lambda: None
+        self.keys = []
+
+    def recipient(self, request_id):
+        self.keys.append(request_id)
+        return "f" * 64
 
     def submit(self, intent):
         self.submits.append(intent)
@@ -70,6 +75,7 @@ def test_completed_receipt_survives_restart_without_new_dispatch(setup):
     assert restarted.read(f.admission, **ref) == result
     assert restarted.execute(f.admission, **ref) == result
     assert len(client.submits) == 1 and not client.reads
+    assert len(client.keys) == 1
     assert client.submits[0].mode == "propose"
     assert "token" not in str(client.submits[0].model_dump())
     f.allowed = False
@@ -87,6 +93,7 @@ def test_lost_dispatch_response_requeries_only_the_original_intent(setup):
     assert result["state"] == "PROPOSAL_READY"
     assert client.submits == client.reads
     assert len(client.submits) == 1
+    assert len(client.keys) == 1
 
 
 def test_concurrent_call_reads_the_effect_while_first_response_is_pending(setup):
@@ -169,7 +176,8 @@ def test_different_admission_is_rejected_before_any_action(setup, change):
 
 
 @pytest.mark.parametrize("change", [dict(cleanup_confirmed=False), dict(github_run_attempt=2),
-    dict(admission_digest="e" * 64), dict(runtime_source_sha="e" * 40), dict(status=503)])
+    dict(admission_digest="e" * 64), dict(runtime_source_sha="e" * 40),
+    dict(recipient_key_digest="e" * 64), dict(status=503)])
 def test_unbound_or_unclean_receipt_never_becomes_a_completed_result(setup, change):
     f, ref, client, port = setup
     client.hook = lambda: client.envelope.update(change)
@@ -253,3 +261,26 @@ def test_deadline_or_unknown_never_reissues_the_workflow(setup, monkeypatch, unk
         call(ref)
     assert len(client.submits) == 1
     assert len(client.reads) == (0 if unknown else 3)
+
+
+def test_missing_recipient_rejects_before_claim_or_dispatch(setup, monkeypatch):
+    f, ref, client, port = setup
+    monkeypatch.setattr(client, "recipient", lambda _: "invalid public key")
+    with pytest.raises(EventError, match="^product_recipient_unavailable$"):
+        port.execute(f.admission, **ref)
+    assert not client.submits and not client.reads
+    with f.backend.store._transaction() as c:
+        assert c.execute("SELECT count(*) AS n FROM plan_commands WHERE command_key LIKE ?",
+                         ("product-execution:%",)).fetchone()["n"] == 0
+
+
+def test_existing_intent_never_prepares_a_replacement_key(setup, monkeypatch):
+    f, ref, client, port = setup
+    client.lose_response = True
+    with pytest.raises(EventError, match="product_execution_unconfirmed"):
+        port.execute(f.admission, **ref)
+    def no_new_key(_):
+        pytest.fail("Existing execution must keep its original recipient")
+    monkeypatch.setattr(client, "recipient", no_new_key)
+    assert port.read(f.admission, **ref)["state"] == "PROPOSAL_READY"
+    assert len(client.keys) == len(client.submits) == len(client.reads) == 1

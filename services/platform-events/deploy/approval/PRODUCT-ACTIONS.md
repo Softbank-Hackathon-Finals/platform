@@ -12,6 +12,11 @@ catalog·grant·만료·회수를 확인하고, principal과 실행할 정확한
 결속한 의도를 먼저 커밋한다. 최초 의도를 만든 호출만 `client.submit(intent)`를
 한 번 호출한다. 같은 Admission의 참조·digest·runtime SHA를 교체하면 거부한다.
 
+최초 의도에는 운영자 클라이언트의 `recipient(request_id)`가 준비한 공개 수신키도
+고정한다. 이 준비는 외부 호출을 하지 않는다. 비공개 복호키는 운영자의 전용
+파일에만 남으며 T10 DB·Pod·workflow 입력에 전달하지 않는다. 재조회는 의도에 저장한
+공개키를 사용한다. 비공개 키를 잃어도 새 키나 새 실행으로 대체하지 않는다.
+
 T38의 `OperatorProductExecution`은 기존 운영자 `gh` 인증으로 워크플로를 발행한다.
 이 객체를 Kubernetes Pod에 넣고 운영자 자격을 복사하는 배포 방식은 제공하지
 않는다. 운영자 호스트의 경계와 기존 등록·배포 입력을 먼저 인수해야 한다.
@@ -23,7 +28,9 @@ T38의 `OperatorProductExecution`은 기존 운영자 `gh` 인증으로 워크�
 ## 결과 소비와 제한된 대기
 
 T38 클라이언트가 실제 GitHub run·actor·workflow·artifact를 대조한 envelope만
-반환한다. T10은 같은 요청·Admission·입력·runtime SHA·attempt 1·정리 완료를
+반환한다. 공개 저장소 artifact에는 수신키에 결속한 암호문만 저장하며 운영자
+클라이언트가 검증 후 복호한다. T10은 같은 요청·Admission·입력·runtime SHA·
+수신키·attempt 1·정리 완료를
 공유 검증기로 확인한다. 원래 bundle·snapshot도 대조하고, 결과를 저장하기 전에
 현재 권한을 다시 검사한다. 저장 응답이 유실돼도 같은 원격 결과만 재조회한다.
 
