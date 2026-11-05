@@ -264,3 +264,44 @@ def test_listing_must_say_it_ended():
                               {"Bucket": BUCKET, "Prefix": partition, "MaxKeys": 1000})
             with pytest.raises(ValueError, match="listing end|pagination"):
                 search(c)(receipt(), through)
+
+
+def test_retention_lapsing_while_the_search_reads_is_not_evidence():
+    # Review reproduction: retained when the headers arrived, lapsed while the body was read
+    through = START + timedelta(minutes=10)
+    lapse = through + timedelta(seconds=1)
+    now = [lapse - timedelta(seconds=1)]
+
+    class SlowBody(StreamingBody):
+        def read(self, *args, **kwargs):
+            now[0] = lapse + timedelta(seconds=1)
+            return super().read(*args, **kwargs)
+
+    c = client()
+    data = export((START + timedelta(seconds=2), login()))
+    with Stubber(c) as stub:
+        listing(stub, through, {MINUTE: [version(key(MINUTE), MODIFIED, len(data))]})
+        stub.add_response(
+            "get_object",
+            {"Body": SlowBody(io.BytesIO(data), len(data)), "VersionId": VERSION, "LastModified": MODIFIED,
+             "ObjectLockMode": "COMPLIANCE", "ObjectLockRetainUntilDate": lapse, "ContentLength": len(data),
+             "ResponseMetadata": {"HTTPStatusCode": 200}},
+            {"Bucket": BUCKET, "Key": key(MINUTE), "VersionId": VERSION},
+        )
+        adapter = ObjectStoreAuditSearch(c, bucket=BUCKET, prefix=PREFIX, region="us-east-1", origin=ORIGIN,
+                                         clock=lambda: now[0])
+        with pytest.raises(ValueError, match="retention missing or expired"):
+            adapter(receipt(), through)
+
+
+def test_batch_query_time_is_the_time_retention_was_checked():
+    through = START + timedelta(minutes=10)
+    fixed = through + timedelta(seconds=5)
+    c = client()
+    data = export((START + timedelta(seconds=2), login()))
+    with Stubber(c) as stub:
+        listing(stub, through, {MINUTE: [version(key(MINUTE), MODIFIED, len(data))]})
+        fetch(stub, key(MINUTE), data, MODIFIED)
+        batch = ObjectStoreAuditSearch(c, bucket=BUCKET, prefix=PREFIX, region="us-east-1", origin=ORIGIN,
+                                       clock=lambda: fixed)(receipt(), through)
+    assert batch.queried_at == fixed

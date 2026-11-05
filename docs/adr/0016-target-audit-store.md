@@ -92,7 +92,7 @@
 4. `receipt_id`는 키 + 버전 ID다. 생산자 출처(`AuditOrigin`)는 쓰기 identity의 등록에서 정하고, 객체 내용의 속성으로 정하지 않는다.
 5. 객체마다 `otlp_audit.decode_export`를 거쳐 기존 `AuditSearchProbe`가 판정한다.
 
-구현: `bravo_controls.audit_store.ObjectStoreAuditSearch`. 분 파티션은 UTC(전달기 `s3_partition_timezone: UTC`)이고, 쓰는 쪽 시계 차이를 위해 창 앞뒤로 1분을 더 읽는다. LastModified + 1초가 검색 시점(`through`)보다 늦은 객체는 다음 조회로 미룬다. 조회한 버전이 목록과 다르거나, COMPLIANCE 보존이 아니거나, 보존 기한(`ObjectLockRetainUntilDate`)이 없거나 지났으면 UNKNOWN이다(기한이 지나도 모드는 COMPLIANCE로 남고 관리자가 지울 수 있다). 목록은 `IsTruncated`가 명시적으로 false이고 다음 마커가 없을 때만 끝난 것으로 본다.
+구현: `bravo_controls.audit_store.ObjectStoreAuditSearch`. 분 파티션은 UTC(전달기 `s3_partition_timezone: UTC`)이고, 쓰는 쪽 시계 차이를 위해 창 앞뒤로 1분을 더 읽는다. LastModified + 1초가 검색 시점(`through`)보다 늦은 객체는 다음 조회로 미룬다. 조회한 버전이 목록과 다르거나, COMPLIANCE 보존이 아니거나, 보존 기한(`ObjectLockRetainUntilDate`)이 없거나, 읽은 버전들 중 가장 이른 기한이 결과를 확정하는 조회 시각(`queried_at`) 이전이면 UNKNOWN이다(기한이 지나도 모드는 COMPLIANCE로 남고 관리자가 지울 수 있다). 목록은 `IsTruncated`가 명시적으로 false이고 다음 마커가 없을 때만 끝난 것으로 본다.
 
 **지표 Collector와 나누는 이유**
 

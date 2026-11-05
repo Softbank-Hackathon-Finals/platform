@@ -147,6 +147,7 @@ class ObjectStoreAuditSearch:
                 if len(objects) > MAX_OBJECTS:
                     raise ValueError("audit store search exceeds object budget")
         events, size = [], 0
+        earliest_retention = None
         for key in sorted(objects):
             row = objects[key]
             received = _utc(row["LastModified"]) + timedelta(seconds=1)
@@ -161,9 +162,13 @@ class ObjectStoreAuditSearch:
                 or body.get("ContentLength") != row["Size"]
             ):
                 raise ValueError("audit store object differs from listing or is not retained")
-            # A lapsed COMPLIANCE retention still reports the mode; only a version retained now is evidence.
-            if not isinstance(retain_until, datetime) or _utc(retain_until) <= _utc(self.clock()):
+            # A lapsed COMPLIANCE retention still reports the mode; only a version retained when the
+            # result is fixed counts, so keep the earliest retention and compare it once at queried_at.
+            if not isinstance(retain_until, datetime):
                 raise ValueError("audit store object retention missing or expired")
+            retain_until = _utc(retain_until)
+            if earliest_retention is None or retain_until < earliest_retention:
+                earliest_retention = retain_until
             payload = body["Body"].read(MAX_PAYLOAD + 1)
             if len(payload) != row["Size"]:
                 raise ValueError("audit store object size mismatch")
@@ -175,6 +180,9 @@ class ObjectStoreAuditSearch:
                 if len(events) >= MAX_EVENTS or size > MAX_BYTES:
                     raise ValueError("audit response exceeds budget")
                 events.append(event)
+        queried_at = _utc(self.clock())
+        if earliest_retention is not None and earliest_retention <= queried_at:
+            raise ValueError("audit store object retention missing or expired")
         return AuditBatch(
             receipt.context,
             receipt.marker,
@@ -182,7 +190,7 @@ class ObjectStoreAuditSearch:
             self.streams,
             receipt.started_at,
             through,
-            _utc(self.clock()),
+            queried_at,
             tuple(events),
             True,
         )
