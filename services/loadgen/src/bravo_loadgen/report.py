@@ -11,6 +11,8 @@ GENERATOR_LAG_P95_WARN_MS = 100.0
 GENERATOR_LAG_MAX_WARN_MS = 1000.0
 # 판정 입력의 온전함과 상관없는 경고. 오류는 창에 이미 오류로 들어가 있고, 잠금 측정은 창과 별개다.
 NOT_ABOUT_THE_WINDOWS = {"HTTP_ERRORS", "LOCK_PROBE_NO_SAMPLES", "LOCK_PROBE_STALLED"}
+# 판정 입력은 전용 호스트에서 잰다. 노트북 값에는 회선과 노트북 상태가 섞인다.
+GENERATOR_FOR_JUDGEMENT = "loadgen-ec2"
 
 
 def build_report(
@@ -27,6 +29,9 @@ def build_report(
     measurement_path: str,
     target: str,
     journal_sha256: str,
+    # 둘 다 없던 예전 실행을 다시 대조할 수 있게 기본값을 둔다. 없으면 판정 입력으로 표시하지 않는다.
+    generator: str | None = None,
+    preflight: dict | None = None,
 ) -> dict:
     start = next(r for r in records if r["type"] == "run_start")
     attempts = [r for r in records if r["type"] == "attempt"]
@@ -44,6 +49,10 @@ def build_report(
     warnings = []
     if not edge_measured:
         warnings.append("NOT_EDGE_MEASURED")
+    if edge_measured and generator != GENERATOR_FOR_JUDGEMENT:
+        warnings.append("GENERATOR_NOT_EC2")
+    if edge_measured and preflight is None:
+        warnings.append("PREFLIGHT_SKIPPED")
     if env_header["responses_without_header"]:
         warnings.append("ENV_HEADER_MISSING")
     if env_header["unregistered_values"]:
@@ -83,12 +92,18 @@ def build_report(
         "plan_id": start["plan_id"],
         "started_at": start["start_wall"],
         "target": target,
-        "measurement": {"path": measurement_path, "edge_measured": edge_measured},
+        "measurement": {
+            "path": measurement_path,
+            "edge_measured": edge_measured,
+            "generator": generator,
+            "preflight": preflight,
+        },
         "journal_sha256": journal_sha256,
         "verdict": verdict,
         "reasons": reasons,
         "warnings": warnings,
-        # 판정 입력으로 쓸 수 있는 조건: Edge 경유이고, 환경을 모두 알 수 있고, 창이 온전하다.
+        # 판정 입력으로 쓸 수 있는 조건: 사전 점검을 통과한 전용 호스트의 Edge 경유 측정이고,
+        # 환경을 모두 알 수 있고, 창이 온전하다.
         "sli_usable_for_judgement": edge_measured and not set(warnings) - NOT_ABOUT_THE_WINDOWS,
         "load": load,
         "requests": {kind: _kind_summary(attempts, kind) for kind in ("write", "read")},
@@ -208,6 +223,13 @@ def render_markdown(report: dict) -> str:
     ]
     if not measurement["edge_measured"]:
         lines.append("- **Edge 경유 측정이 아니다.** 이 수치를 SHIFT · WATCH 판정 근거로 쓰지 않는다.")
+    if measurement["generator"]:
+        lines.append(f"- 실행 위치: `{measurement['generator']}`")
+    if measurement["generator"] == "laptop":
+        lines.append("- **노트북에서 잰 값이다. 회선 지연이 p95에 함께 들어가고, 노트북이 바쁘거나 잠들면 생성기 지연이 된다. 판정 근거로 쓰지 않는다.**")
+    rtt = measurement["preflight"]["health_rtt_ms"] if measurement["preflight"] else None
+    if rtt:
+        lines.append(f"- 부하 전 `/api/health/db` 왕복: p50 {rtt['p50']}ms, 최대 {rtt['max']}ms ({rtt['samples']}회, 회선 + 앱 + DB)")
     if rec:
         counts = rec["counts"]
         lines += [

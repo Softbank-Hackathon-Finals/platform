@@ -118,7 +118,10 @@ def test_first_subscription_response_shape_is_private_and_fails_closed(context, 
         })
     requests = install_stream(monkeypatch, [[terminal]])
     result = asyncio.run(Coordinator(bundle, snapshot).propose(OpenAIProvider("fixture-model", subscription=True)))
-    shape, stopped = result["audit"]
+    shape, *denied, stopped = result["audit"]
+    # A single out-of-namespace call is audited by the shared classifier before the attempt ends.
+    assert denied == ([{"run_id": bundle.run_id, "attempt": 1, "tool": "unlisted", "outcome": "DENIED",
+                        "reason": "TOOL_NOT_ALLOWED"}] if len(namespaces) == 1 else [])
     assert shape == {"run_id": bundle.run_id, "attempt": 1, "tool": "model", "outcome": "OBSERVED",
                      "reason": "FIRST_RESPONSE_SHAPE", "function_call_count": len(namespaces),
                      "bravo_namespace_matches": match, "stream_added": {}, "stream_done": {},
@@ -321,3 +324,54 @@ def test_unbound_or_denied_stream_output_cannot_submit(context, monkeypatch, cas
     assert result["state"] == "NEEDS_HUMAN" and result["proposal"] is None
     assert len(requests) == (2 if case == "bad_path" else 1)
     assert all(r["tool_choice"] == "required" for r in requests)
+
+
+def denials(result):
+    return [{k: v for k, v in e.items() if k not in ("run_id", "attempt")} for e in result["audit"] if e["outcome"] == "DENIED"]
+
+
+def offered_names(requests):
+    return {t["name"] for r in requests for t in r["tools"][0]["tools"]}
+
+
+@pytest.mark.parametrize("empty_terminal", [False, True])
+def test_reserved_call_in_bravo_namespace_is_audited_and_the_loop_continues(context, monkeypatch, empty_terminal):
+    bundle, snapshot, proposal, _ = context
+    reserved = (streamed_call if empty_terminal else lambda n, a: [completed(n, a)])(
+        "rehearsal_exec", {"command": "kubectl delete namespace private-ns"})
+    requests = install_stream(monkeypatch, [[completed("repo_read", {"path": "src/config.py"})], reserved,
+                                            [completed("plan_propose", proposal)]])
+    result = asyncio.run(Coordinator(bundle, snapshot).propose(OpenAIProvider("fixture-model", subscription=True)))
+    assert result["state"] == "PROPOSAL_READY" and len(requests) == 3
+    assert denials(result) == [{"tool": "rehearsal.exec", "outcome": "DENIED",
+                                "reason": "DESTRUCTIVE_ATTEMPT_BLOCKED", "category": "namespace_delete"}]
+    assert json.loads(requests[2]["input"][-1]["output"]) == {"error": "POLICY_DENIED"}
+    assert offered_names(requests) == {"repo_read", "plan_propose", "policy_evaluate"}
+    assert "private-" not in json.dumps(result)
+
+
+def test_reserved_call_before_the_required_read_is_audited_then_stops(context, monkeypatch):
+    bundle, snapshot, _, _ = context
+    requests = install_stream(monkeypatch, [[completed("rehearsal_run", {"job": "private-job"})]])
+    result = asyncio.run(Coordinator(bundle, snapshot).propose(OpenAIProvider("fixture-model", subscription=True)))
+    assert result["state"] == "NEEDS_HUMAN" and len(requests) == 1
+    assert denials(result) == [{"tool": "rehearsal.run", "outcome": "DENIED", "reason": "TOOL_NOT_PROVIDED"}]
+    assert result["audit"][-1]["reason"] == "MODEL_OR_POLICY_FAILURE"
+    assert "private-" not in json.dumps(result)
+
+
+@pytest.mark.parametrize("namespace,name,reason,tool", [
+    (None, "bravo.rehearsal_exec", "DESTRUCTIVE_ATTEMPT_BLOCKED", "rehearsal.exec"),
+    ("private-other", "rehearsal_exec", "DESTRUCTIVE_ATTEMPT_BLOCKED", "rehearsal.exec"),
+    ("private-other", "repo_read", "DESTRUCTIVE_ATTEMPT_BLOCKED", "unlisted"),  # an offered name outside bravo never runs
+])
+def test_call_outside_the_bravo_namespace_is_audited_and_still_ends_the_attempt(context, monkeypatch, namespace, name, reason, tool):
+    bundle, snapshot, proposal, _ = context
+    requests = install_stream(monkeypatch, [[completed("repo_read", {"path": "src/config.py"})],
+                                            [completed(name, {"command": "aws s3 rb s3://private-bucket"}, namespace=namespace)],
+                                            [completed("plan_propose", proposal)]])
+    result = asyncio.run(Coordinator(bundle, snapshot).propose(OpenAIProvider("fixture-model", subscription=True)))
+    assert result["state"] == "NEEDS_HUMAN" and result["proposal"] is None and len(requests) == 2
+    assert denials(result) == [{"tool": tool, "outcome": "DENIED", "reason": reason, "category": "bucket_delete"}]
+    assert [e["tool"] for e in result["audit"]].count("repo.read") == 1  # the outside "repo_read" was not dispatched
+    assert "private-" not in json.dumps(result)

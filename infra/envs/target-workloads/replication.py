@@ -65,7 +65,10 @@ def external_patch(side, hostaddr, cluster):
     ]
 
 
-def subscription(side):
+def subscription(side, disable_on_error=True):
+    """side is where the subscription lives: "target" is the forward direction, "source" the reverse."""
+    if type(disable_on_error) is not bool:
+        raise ValueError("explicit Boolean disable_on_error required")
     peer, external, name = names(side)
     return {
         "apiVersion": "postgresql.cnpg.io/v1", "kind": "Subscription",
@@ -79,7 +82,7 @@ def subscription(side):
                 "enabled": "true" if side == "target" else "false",
                 "copy_data": "true" if side == "target" else "false",
                 "create_slot": "true", "slot_name": name, "origin": "none",
-                "binary": "false", "streaming": "on", "disable_on_error": "true",
+                "binary": "false", "streaming": "on", "disable_on_error": "true" if disable_on_error else "false",
                 "password_required": "true", "run_as_owner": "false",
             },
         },
@@ -99,7 +102,9 @@ if __name__ == "__main__":
     parser.add_argument("stage", choices=["external-patch", "subscription"])
     parser.add_argument("--side", required=True, choices=["source", "target"])
     parser.add_argument("--hostaddr")
+    parser.add_argument("--disable-on-error", choices=["true", "false"], default="true",
+                        help="subscription stage: this direction only (--side target is forward, --side source is reverse)")
     args = parser.parse_args()
     result = (external_patch(args.side, args.hostaddr, json.load(sys.stdin))
-              if args.stage == "external-patch" else subscription(args.side))
+              if args.stage == "external-patch" else subscription(args.side, args.disable_on_error == "true"))
     print(json.dumps(result, indent=2))

@@ -4,17 +4,36 @@ This procedure prepares the existing reviewed demo-chat image for an independent
 owned local amd64 development VM. It does not install a VM, change a cluster,
 issue credentials, or make the unchanged application AWS-independent.
 
-The fixed source is `ce5727eb3e3d2355077afdaadcb1a722aba9c7cd`; the index is
-`sha256:001adc35a9fc767566552fb55c3c19a67b7c5efc7231fb02dc28cdeace99d0d4` and
-linux/amd64 child is
-`sha256:bd1cd57a1c3dda9bb2795696167e242fc3b79a80eefb40d068a4124bcc66f384`.
-They are the same bytes previously copied privately in
-[demo-chat run41610561593](https://github.com/Softbank-Hackathon-Finals/demo-chat/actions/runs/41610561593).
+The source, index and linux/amd64 child digests are in
+[`app-image.json`](../../infra/envs/target-workloads/app-image.json), the one place
+that names the image. Read the reference with:
+
+```sh
+APP_IMAGE=$(python3 infra/envs/target-workloads/application.py --print-image)
+```
+
+The earlier `ce5727e` image and its export evidence do not send `X-Bravo-Env`.
 No new application build or registry visibility change is part of this handoff.
+
+**ECR already holds the pinned image.** The publication record on demo-chat `main`
+was updated by demo-chat #19, and `transfer-private-image`
+[run 41815292046](https://github.com/Softbank-Hackathon-Finals/demo-chat/actions/runs/41815292046)
+copied it on 2026-11-04 at 19:36 KST, with identical index and attestation blobs and a
+verified destination pull. It verified the pull from CI, not from a cluster. For a new pin,
+the T22 owner first updates that record under `docs/evidence/image-publication-2026-11-03/`,
+because the workflow validates its inputs against it, then a person with Actions access
+runs the workflow.
+
+**The development VM has it too.** Per the owner's record on #210, the bundle was
+delivered on 2026-11-04 at 22:36 KST and registered in the VM's containerd at 23:05,
+and the index and linux/amd64 manifest were compared again at 23:07. That is the
+owner's record; this document did not verify it directly. After this change merges,
+the VM owner compares the merged digest and deploys. The steps below remain for
+another VM or a new pin.
 
 ## Export without handing registry credentials to the VM
 
-Use the existing AWS operator identity, `skopeo` and the official
+If `skopeo` is missing, install it first (`brew install skopeo`). Use the existing AWS operator identity, `skopeo` and the official
 `docker-credential-ecr-login` already installed on the operator machine:
 
 ```sh
@@ -22,6 +41,21 @@ python3 scripts/export_target_image.py \
   --contract "$PRIVATE_REGISTRY_CONTRACT" \
   --archive "$PRIVATE_IMAGE_ARCHIVE" \
   --receipt "$PRIVATE_EXPORT_RECEIPT"
+```
+
+Create the private contract outside the repository, from the pin and your own AWS account:
+
+```sh
+python3 - "$PRIVATE_REGISTRY_CONTRACT" "$(aws sts get-caller-identity --query Account --output text)" <<'PY'
+import json, pathlib, sys
+pin = json.loads(pathlib.Path("infra/envs/target-workloads/app-image.json").read_text())
+account = sys.argv[2]
+pathlib.Path(sys.argv[1]).write_text(json.dumps({
+    "account_id": account, "region": "ap-northeast-2",
+    "repository_url": f"{account}.dkr.ecr.ap-northeast-2.amazonaws.com/bravo/demo-chat",
+    "source_sha": pin["source_sha"], "digest": pin["index_digest"],
+    "status": "image_copied_and_ci_pull_verified"}))
+PY
 ```
 
 The private contract contains the expected AWS account, exact repository,
@@ -35,7 +69,7 @@ The user's Docker and AWS configuration are not changed.
 
 Skopeo copies **all** manifests with `--preserve-digests`. Before publishing a
 new archive, the tool verifies every blob hash and descriptor size, the complete
-15-blob reachable graph (including attestations), the exact index/amd64 manifest,
+reachable graph (including attestations), the exact index/amd64 manifest,
 and the image config's source revision, architecture and UID10001. Archive
 verification never extracts files and rejects extra/traversal/link entries.
 Graph verification, checksum and size use the same open file. The verifier
@@ -67,8 +101,8 @@ sudo /var/lib/rancher/rke2/bin/ctr \
 
 Check that the exact index reference exists in `k8s.io`, and the amd64 content
 is unpacked. Import can retain the OCI annotation's tag
-`ghcr.io/softbank-hackathon-finals/demo-chat:sha-ce5727eb3e3d2355077afdaadcb1a722aba9c7cd`
-without creating the exact `ghcr.io/softbank-hackathon-finals/demo-chat@sha256:001adc35a9fc767566552fb55c3c19a67b7c5efc7231fb02dc28cdeace99d0d4`
+`ghcr.io/softbank-hackathon-finals/demo-chat:sha-<source>`
+without creating the exact `$APP_IMAGE`
 name, even with `--base-name` and `--digests`. A `Never` Pod using the absent
 name will fail although the index bytes are present.
 
@@ -81,7 +115,7 @@ original index digest** above, not the amd64 child digest. Set
 sudo /var/lib/rancher/rke2/bin/ctr \
   --address /run/k3s/containerd/containerd.sock --namespace k8s.io \
   images tag "$VERIFIED_IMPORTED_REFERENCE" \
-  ghcr.io/softbank-hackathon-finals/demo-chat@sha256:001adc35a9fc767566552fb55c3c19a67b7c5efc7231fb02dc28cdeace99d0d4
+  "$APP_IMAGE"
 ```
 
 Read the exact destination name and descriptor digest again before launching
@@ -104,7 +138,8 @@ containerd namespace, SSH keys or active workloads may be reused implicitly.
 
 ## Unchanged application configuration and the S2/T9 gap
 
-The actual fixed source is authoritative:
+These links are the `ce5727e` source that this analysis first read. The pinned image
+keeps the same startup call and adds the `ATTACHMENT_UPLOAD_ENABLED` setting below:
 [config.py](https://github.com/Softbank-Hackathon-Finals/demo-chat/blob/ce5727eb3e3d2355077afdaadcb1a722aba9c7cd/app/config.py),
 [main.py](https://github.com/Softbank-Hackathon-Finals/demo-chat/blob/ce5727eb3e3d2355077afdaadcb1a722aba9c7cd/app/main.py),
 [db_secret.py](https://github.com/Softbank-Hackathon-Finals/demo-chat/blob/ce5727eb3e3d2355077afdaadcb1a722aba9c7cd/app/db_secret.py),
@@ -120,6 +155,7 @@ The actual fixed source is authoritative:
 | `S3_BUCKET`, `S3_ENDPOINT_URL`, `S3_FORCE_PATH_STYLE=true` | Support an S3-compatible endpoint, but require the T9-owned SeaweedFS service, bucket and signing identity. The existing code uses boto3's default credential chain; endpoint configuration alone does not provide authorization. |
 | Both AWS clients | Secrets Manager and S3 share the default credential chain. Setting SeaweedFS access-key environment variables would also affect the AWS Secrets Manager call. Do not copy an operator's AWS admin credentials into the target to conceal this dependency. |
 | `ADMIN_TOKEN` | Consumed from environment; T9/owner must provide its secret reference. No value is generated or transmitted here. |
+| `ATTACHMENT_UPLOAD_ENABLED=false` | Refuses uploads before cutover. An upload's object would otherwise stay in target storage while its row goes to the source DB through the pooler. |
 | `WRITE_BLOCKED=true` | Required initial target application state. Leave source/target write control to the cutover owner; do not independently open both environments. |
 
 The source AGENTS explicitly keeps the direct Secrets Manager dependency as
@@ -133,6 +169,11 @@ Until those dependencies are ready, a restricted packaging/import probe and
 separate DB replication checks are valid progress. They are not T30 application
 read/write completion, T9 completion, or a successful cutover. Temporary registry
 auth is kept on the operator side and cannot solve application Secret/S3 auth.
+
+For development Edge measurement only, [ADR-0017](../adr/0017-target-app-secrets-manager-compat.md)
+runs a loopback compatibility container beside the unchanged app. It does not change
+the rule above, and Exit Drill judges such a Pod UNKNOWN from the Pod itself. See
+[target-workloads](../../infra/envs/target-workloads/README.md#개발-측정용-앱).
 
 Official tool references:
 [ECR authentication](https://docs.aws.amazon.com/AmazonECR/latest/userguide/registry_auth.html),

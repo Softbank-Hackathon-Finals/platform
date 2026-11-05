@@ -390,12 +390,32 @@ test("registration recovers lost response and connects the real T10 COLLECT plan
     await workload.locator(`[name="${name}"]`).fill(value);
   await workload.locator("button").click();
   await expect(page.locator("#registration-workload")).not.toHaveValue("");
+  await expect(page.locator("#registration-profile")).toHaveValue("");
+  await expect(page.locator("#registration-profile-version")).toHaveValue("");
+  // Native required validation must prevent a request with an implicit profile.
+  let plans = 0;
+  page.on("request", (request) => {
+    if (
+      request.method() === "POST" &&
+      new URL(request.url()).pathname === "/v1/plans"
+    )
+      plans++;
+  });
+  await page.locator("#registration-plan-form button").click();
+  await expect(page.locator("#registration-receipts li")).toHaveCount(3);
+  expect(plans).toBe(0);
+  await page.locator("#registration-profile").fill("fixture-profile");
+  await page.locator("#registration-profile-version").fill("1.0");
   await page.locator("#registration-plan-form button").click();
   await expect(page.locator("#state")).toHaveText("조사");
   await expect(page.locator("#connection")).toHaveText("서버 이벤트 연결됨");
   await expect(page.locator("#approve")).toBeDisabled();
   await expect(page.locator("#execute")).toBeDisabled();
   await expect(page.locator("#registration-receipts li")).toHaveCount(4);
+  await expect(page.locator("#registration-receipts li").last()).toContainText(
+    "fixture-profile / 1.0",
+  );
+  expect(plans).toBe(1);
   await context.clearCookies();
   await expect(page.locator("#notice")).toHaveText(
     "접근 권한 또는 로그인 상태를 확인해 주세요.",

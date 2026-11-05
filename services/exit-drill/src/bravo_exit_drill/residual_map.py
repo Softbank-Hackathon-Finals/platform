@@ -51,9 +51,11 @@ def build_map(inventory: InventoryView, plan: dict, report: dict | None) -> dict
         "app": inventory.app_id,
         "candidate": inventory.candidate,
         "candidate_verdict": inventory.candidate_verdict,
+        "candidate_missing_capabilities": list(inventory.missing_capabilities),
         "inventory_digest": inventory.digest,
         "plan_digest": plan["digest"],
         "drill_verdict": verdict,
+        "drill_not_pass": _not_pass(report),
         "summary": {"status": _count(entries, "status"), "grade": _count(entries, "grade")},
         "entries": entries,
     }
@@ -66,6 +68,13 @@ def _read_report(report: dict | None) -> tuple[str, dict[str, str]]:
         return report["verdict"], {c["id"]: c["verdict"] for c in report["checks"]}
     except (KeyError, TypeError) as exc:
         raise MapError("report is malformed") from exc
+
+
+def _not_pass(report: dict | None) -> list[dict]:
+    """판정이 통과하지 못한 이유. 호환 구성의 비자격도 여기 나온다. 지도만 읽어도 왜인지 알게 한다."""
+    if report is None:
+        return []
+    return [{"id": c["id"], "verdict": c["verdict"], "code": c.get("code")} for c in report["checks"] if c["verdict"] != "PASS"]
 
 
 def _count(entries: list[dict], field: str) -> dict[str, int]:
@@ -182,10 +191,20 @@ def render_markdown(result: dict) -> str:
         "",
         f"- Exit Drill 판정: **{_cell(result['drill_verdict'])}**",
         f"- 후보 적합성(T16): {_cell(result['candidate_verdict'])}",
+        *[f"- 목적지에 없는 기능(T16): {_cell(gap)}" for gap in result["candidate_missing_capabilities"]],
         f"- 인벤토리: `{_cell(result['inventory_digest'])}`",
         f"- 차단 계획: `{_cell(result['plan_digest'])}`",
         "",
     ]
+    if result["drill_not_pass"]:
+        lines += [
+            f"## 판정을 막은 항목 ({len(result['drill_not_pass'])})",
+            "",
+            "| 항목 | 판정 | 코드 |",
+            "| --- | --- | --- |",
+            *[f"| {_cell(c['id'])} | {_cell(c['verdict'])} | {_cell(c['code'])} |" for c in result["drill_not_pass"]],
+            "",
+        ]
     for status, label in STATUS_LABELS.items():
         rows = [e for e in result["entries"] if e["status"] == status]
         if not rows:

@@ -6,7 +6,7 @@
 |---|---|---|
 | `/v1/environments` | `name`, `kind`(`aws` 또는 `onprem`), `roles`([`source`] 또는 [`target`]), `connection_ref` | 서버가 부여한 `environment_id`, 실제 collector 신원·읽기 확인, 권한 경고 |
 | `/v1/workloads` | `name`, `repo_url`, `app_path`, `iac_path`, `source_environment_id`, `namespace` | `workload_id`, 코드·실제 이미지 대조 결과, 수집 범위 |
-| `/v1/plans` | `workload_id`, `target_environment_id` | `plan_id`, 출발지·목적지, 계획·수집 범위 digest, 초기 상태 `COLLECT`와 버전 1 |
+| `/v1/plans` | `workload_id`, `target_environment_id`, `profile_id`, `profile_version` | `plan_id`, 출발지·목적지, 평가 프로필, 계획·수집 범위 digest, 초기 상태 `COLLECT`와 버전 1 |
 
 세 경로 모두 검증된 운영자 Bearer와 단일 `Idempotency-Key`가 필요하다. `connection_ref`는 운영자가 설치한 tenant별 별칭이다. 요청 본문으로 API 주소, CA, 자격, 클러스터 UID, registry digest 또는 tenant를 지정할 수 없다. 같은 tenant·종류·키·운영자·입력이면 최초 영수증을 돌려준다. 최초 생성은 201, 재조회는 200이다. 재조회 시각이 최초 접속 점검 시각을 갱신하지 않는다.
 
@@ -18,6 +18,33 @@
 4. **계획.** 앱의 현재 배포와 양쪽 환경을 다시 읽는다. 앱 등록 후 수집 범위가 바뀌면 새 시점의 앱 등록이 필요하다. 현재 앱·환경·수집 범위에서 digest를 만들고, 기존 계획 잠금 안에서 `PlanSpec`, 첫 상태 이벤트, 등록 영수증을 함께 저장한다. T16 수집·의존성 등급·코드 전용/배포 전용 분류와 T19 통제 비교는 이 시작 상태의 후속 소비자다. 실측 창은 별도의 [생산자 권한과 저장 경로](T10-window-storage.md)를 사용한다.
 
 등록 자료는 불변이다. 운영자가 환경을 교체할 때에는 같은 이름의 CNPG를 새 신원으로 오인하지 않도록 새 환경 ID와 연결 참조를 설치한다. 한 tenant의 등록을 다른 tenant의 앱이나 계획에서 사용할 수 없다. 외부 접속 검사는 DB 잠금 밖에서 수행한다. 관측 후 클러스터가 변할 수 있으므로 실제 수집과 실행은 각 단계에서 다시 확인해야 한다.
+
+### 계획의 평가 프로필과 앱 식별자
+
+통제 원문과 게이트의 `app`은 계획의 생성된 `workload_id`다. 앱 표시 이름이나
+카탈로그 프로필의 기준 앱 이름으로 바꾸지 않는다. 새 계획 요청에는 문자열
+`profile_id`와 `profile_version`이 모두 필요하다. 두 값은 영문·숫자로 시작하고
+영문·숫자·밑줄·점·하이픈을 포함한 128자 이하다. 호스트는 tenant별 허용 목록을
+확인한 뒤에만 환경을 조회한다. 허용 목록이 없거나 값이 다르면
+`evaluation_profile_unavailable`(409)로 거부한다. 누락·형식 오류는 422다.
+
+두 필드는 `PlanSpec` 최상위, 계획 digest 입력, 등록 영수증과 계획 조회에 함께
+저장된다. 같은 키의 다른 프로필은 `command_key_conflict`다. T10의
+`GateRecords.bind`와 저장 컨텍스트 조회는 이 프로필과 정확히 일치해야 한다.
+T19는 동일한 spec과 현재 카탈로그를 별도로 대조한다. 허용 목록은 등록 정책이며
+카탈로그의 존재·무결성이나 통제 시험 결과를 대신하지 않는다.
+
+프로필이 없는 기존 계획과 원문은 보존한다. 읽기는 가능하지만 새 게이트 결속은
+거부한다. 기존 계획 spec·digest를 수정하거나 기본 프로필을 추정하지 않는다.
+기존 환경·앱 등록이 여전히 유효하면, 같은 등록 ID와 명시한 프로필 및 **새 키**로
+새 계획을 만든다. 이 과정은 출발지 앱과 양쪽 환경을 다시 확인하며 새 plan ID와
+digest를 발급한다. 기존 키에 프로필을 추가해 요청하면 충돌한다. 변경 전 본문의
+HTTP 재요청도 새 필수 필드가 없어 422이므로, 과거 결과는 기존 계획 조회에서 읽는다.
+
+기존 등록 담당이 새 영수증을 인수한 뒤 새 계획을 참조하는 TaskCatalog·권한·수집
+증거·게이트 컨텍스트를 발급한다. 이전 plan ID·digest에 결속된 자료를 새 계획의
+증거로 재표기하지 않는다. 환경·앱을 중복 등록하거나 기존 감사 자료를 삭제할 필요는 없다.
+[식별자 결정과 담당 분담](https://github.com/Softbank-Hackathon-Finals/platform/issues/29#issuecomment-6661068881)
 
 ## 운영자 호스트 연결
 
@@ -32,6 +59,7 @@
 | `operator_verifier` | 기존 [운영자 신원 검증기](T10-operator-access-v1-proposal.md)의 issuer, audience, client_id, assurance, 실제 사람의 subject→tenant 매핑, 공개 JWK |
 | `environments[]` | `tenant_id, environment_id, connection_ref, kind, namespace, database, database_uid, endpoint, ca_file, token_file`. 검증된 포워딩 경로에만 `tls_name`을 지정한다. 전용 collector 자격은 회전 가능한 비공개 mount로 제공한다. |
 | `releases[]` | `tenant_id, environment_id, repo_url, checkout, app_path, iac_path, revision, label, container, image, runtime_digests, service_account, replicaset_uid`. `label`은 Pod의 `app` 값, `image`는 registry가 포함된 digest 참조, `runtime_digests`는 같은 빌드의 허용 digest다. |
+| `evaluation_profiles[]` | 운영자가 현재 T5 카탈로그와 정책을 확인한 허용 목록. 예: `[{"tenant_id":"tenant-example","profile_id":"full","profile_version":"1"}]`. 누락 시 새 계획 등록을 거부한다. 앱 이름으로 프로필을 선택하거나 기본값을 넣지 않는다. |
 | 별도 `/registration/grants.json` | `[{"tenant_id":"tenant-example","subject_id":"operator-example"}]` 형식. 실제 subject ID는 신원 검증기의 `operator_id(issuer, sub)`로 구한다. 서버는 등록 직전과 저장 잠금 획득 뒤 파일의 현재 권한과 토큰 만료를 확인한다. |
 
 서비스 프로세스에 관리자 kubeconfig, 개인 로그인, Executor 제어 자격을 주지 않는다. 등록된 상태는 [기존 계획 조회와 SSE](T10-plan-snapshot-v1-proposal.md)에서 같은 plan ID로 읽는다. 운영 배포 전 T6·T30 담당이 endpoint·CA·CNPG UID·SA와 실제 대상 환경을 확인하고, T21이 운영자 신원 설정을 인계해야 한다.

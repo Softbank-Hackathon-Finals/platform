@@ -1,4 +1,6 @@
 import hashlib
+import json
+import subprocess
 
 import pytest
 
@@ -10,7 +12,13 @@ from bravo_apply.binding import (
     render_diff,
     verify_claim,
 )
-from bravo_apply.deploy import DeployMismatch, FakeKube, apply_pinned_image, image_patch
+from bravo_apply.deploy import (
+    DeployMismatch,
+    FakeKube,
+    KubectlKube,
+    apply_pinned_image,
+    image_patch,
+)
 from tests.conftest import AFTER, BEFORE, IMAGE, NOW, REPO
 
 
@@ -87,5 +95,53 @@ def test_apply_confirms_running_digest(claim):
     (FakeKube(f"{REPO}@sha256:{'0' * 64}", drift="sha256:" + "f" * 64), "RUNNING_DIGEST_MISMATCH"),
 ])
 def test_apply_raises_when_the_cluster_does_not_run_the_approved_digest(kube, code):
-    with pytest.raises(DeployMismatch, match=code):
+    with pytest.raises(DeployMismatch, match=code) as info:
         apply_pinned_image(kube, namespace="target-dev", deployment="demo-chat", container="app", repository=REPO, digest=IMAGE)
+    assert info.value.mutation_attempted is True and info.value.previous_image == f"{REPO}@sha256:{'0' * 64}"
+
+
+def test_failure_before_the_patch_reports_no_mutation():
+    kube = FakeKube(f"{REPO}@sha256:{'0' * 64}", fail={"current_image": RuntimeError("forbidden")})
+    with pytest.raises(DeployMismatch) as info:
+        apply_pinned_image(kube, namespace="target-dev", deployment="demo-chat", container="app", repository=REPO, digest=IMAGE)
+    assert info.value.code == "CLUSTER_READ_FAILED" and info.value.mutation_attempted is False and kube.patches == []
+
+
+def _completed(stdout):
+    return subprocess.CompletedProcess([], 0, stdout=stdout, stderr="")
+
+
+def _pod(phase, image_id, deleting=False):
+    return {"metadata": {"deletionTimestamp": "2026-11-06T00:00:00Z"} if deleting else {},
+            "status": {"phase": phase, "containerStatuses": [{"name": "app", "imageID": image_id}]}}
+
+
+def test_kubectl_running_digests_skips_terminating_and_pending_pods(monkeypatch):
+    deployment = {"spec": {"selector": {"matchLabels": {"app": "demo-chat"}}}}
+    pods = {"items": [_pod("Running", f"docker.io/x@{IMAGE}"), _pod("Running", "docker.io/x@sha256:" + "0" * 64, deleting=True),
+                      _pod("Pending", "")]}
+    calls = []
+
+    def fake_run(cmd, **kw):
+        calls.append(cmd)
+        return _completed(json.dumps(deployment if "deployment" in cmd else pods))
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    assert KubectlKube("/k").running_digests("ns", "demo-chat", "app") == [IMAGE]
+    assert calls[1][-4:] == ["-l", "app=demo-chat", "-o", "json"]
+
+
+def test_kubectl_rollout_wait_outlasts_kubectl_timeout_and_missing_container_raises(monkeypatch):
+    seen = []
+
+    def fake_run(cmd, **kw):
+        seen.append((cmd, kw["timeout"]))
+        if "rollout" in cmd:
+            raise subprocess.CalledProcessError(1, cmd, stderr="timed out")
+        return _completed(json.dumps({"spec": {"template": {"spec": {"containers": [{"name": "other", "image": "x"}]}}}}))
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    kube = KubectlKube("/k")
+    assert kube.rollout_status("ns", "d", 400) is False and seen[-1][0][-1] == "--timeout=400s" and seen[-1][1] == 430
+    with pytest.raises(LookupError):
+        kube.current_image("ns", "d", "app")

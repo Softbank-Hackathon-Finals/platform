@@ -2,7 +2,7 @@
 
 * **상태 (Status):** 제안됨(Proposed). T15 설계 루프에서 확정했다. 구현과 T11 연결 뒤 시연 목적지에서 실측하고 채택한다.
 * **날짜 (Date):** 2026-11-05
-* **관련 (Related):** T15 #24, T11 #20, T38 #150, T3 #7, 설계 문서 8.3 도구 표 · 8.4, [ADR-0019](0019-agent-tool-boundary.md), [ADR-0025](0025-rehearsal-exec-spaces-and-order.md), [ADR-0026](0026-rehearsal-exec-records-and-failures.md)
+* **관련 (Related):** T42, T15 #24, T11 #20, T38 #150, T3 #7, 설계 문서 8.3 도구 표 · 8.4, [ADR-0019](0019-agent-tool-boundary.md), [ADR-0025](0025-rehearsal-exec-spaces-and-order.md), [ADR-0026](0026-rehearsal-exec-records-and-failures.md), [호출 계약 v1](../contracts/T42-rehearsal-exec-v1-proposal.md)
 
 ## 1. 배경 및 문제 상황 (Context and Problem Statement)
 
@@ -141,7 +141,7 @@ AI는 제출할 수정안과 같은 JSON Schema(예: 버킷 정책 JSON, 자격 
 **Cons**
 * 클러스터 범위 자원이라 T7과 합의·배포가 필요하고 데모 전 준비 시간이 늘어난다.
 
-동작 ②③의 인자는 러너가 정한 값만 받는다. namespace는 인자로 받지 않고 러너가 그 시도의 공간 A로 고정한다.
+동작 ②③의 인자는 러너가 정한 형식의 값만 받는다. 도구 이름·필드명·필수 여부·응답은 [호출 계약 v1](../contracts/T42-rehearsal-exec-v1-proposal.md)이 원본이다. namespace는 인자로 받지 않고 러너가 그 시도의 공간 A로 고정한다.
 
 | 동작 | 인자 |
 |---|---|
@@ -156,7 +156,7 @@ AI는 제출할 수정안과 같은 JSON Schema(예: 버킷 정책 JSON, 자격 
 * **1-4의 `rehearsal.run/result`는 향후 확장 옵션으로 남긴다.** 결과를 합격/불합격만 주는 방식이 정해진 뒤 검토한다.
 * **3-4는 보류한다.** 데모 뒤 T7과 클러스터 정책을 합의하면 추가한다.
 * **1-1(도구 미구현)과 1-2(자유 셸 + 차단 목록), 2-1·2-2(단일 실행 위치), 3-1·3-2는 현 단계에서 채택하지 않는다.**
-* **선행 조건: 모델 → T15 실행부 통로 계약.** 모델은 T38 지정 VM의 T11 프로세스 안에서 도구를 부른다(`services/agent-worker/src/bravo_agent/sdk.py`). T38 제품 실행 mailbox(`product_execution_mailbox.py`)는 실행 요청과 영수증만 넘기고, 실행 도중의 도구 호출은 중계하지 않는다. 다음을 T38·T11과 합의하기 전에는 실행부를 열지 않는다.
+* **선행 조건: 모델 → T15 실행부 통로 계약.** 모델은 T38 지정 VM의 T11 프로세스 안에서 도구를 부른다(`services/agent-worker/src/bravo_agent/sdk.py`). T38 제품 실행 mailbox(`product_execution_mailbox.py`)는 실행 요청과 영수증만 넘기고, 실행 도중의 도구 호출은 중계하지 않는다. 다음을 T38·T11과 합의하기 전에는 실행부를 열지 않는다. 통로는 2026-11-06 T38이 확정했다(T11 자식 프로세스 → 실행 전용 로컬 채널 → 기존 T38 broker → 고정 사설 TLS T15 경로). 메시지 형식은 호출 계약 v1에서 T11 확인을 받는다.
   * 통로와 인증 주체(누가 어떤 신원으로 러너를 부르는가)
   * 요청 결속: 실행 ID·시도 번호·공간 A UID. 다른 시도나 지워진 공간의 요청은 거부한다.
   * 요청 ID와 중복 요청 처리: 같은 요청 ID는 한 번만 실행하고 같은 결과를 돌려준다.
@@ -172,5 +172,5 @@ AI는 제출할 수정안과 같은 JSON Schema(예: 버킷 정책 JSON, 자격 
 
 * 좋은 점: AI가 목적지와 같은 공간에서 수정안을 먼저 시험해, 첫 제출이 통과할 가능성이 오른다.
 * 나쁜 점: 동작 목록과 인자가 고정이라 새 작업 유형이 생기면 동작과 제안서 스키마를 추가해야 한다. 설계 8.3 문구보다 좁아 설계 문서 갱신이 필요하다.
-* 남은 확인: 위 통로 계약(T38 류지환, T11 전동훈), 러너 신원에 `pods/exec`·`rehearsal-exec` 가장 권한(T7)
+* 남은 확인: 호출 계약 v1의 T11 확인(전동훈), 러너 신원에 `pods/exec`·`rehearsal-exec` 가장 권한(T7)
 * 공간 분리와 순서는 [ADR-0025](0025-rehearsal-exec-spaces-and-order.md), 기록과 실패 처리는 [ADR-0026](0026-rehearsal-exec-records-and-failures.md)에서 정한다.

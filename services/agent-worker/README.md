@@ -28,6 +28,8 @@
 
 `rehearsal.exec`, `rehearsal.run/result`는 아직 제공하지 않는다. 호출하면 거부되며 감사 사유는 `TOOL_NOT_PROVIDED`로 일반 미허용(`TOOL_NOT_ALLOWED`)과 구분한다. 어떤 도구든 인자에 버킷 삭제 · 네임스페이스 삭제 · DROP/TRUNCATE · rm -rf · terraform destroy 패턴이 있으면 사유 `DESTRUCTIVE_ATTEMPT_BLOCKED`와 코드가 정한 `category`(`bucket_delete` 등)만 기록하고 원문은 기록하지 않는다. 이것이 설계 8.4 데모 장면("정리를 이유로 한 버킷 삭제 시도 차단")의 감사 기록이다.
 
+OpenAI 경로(API 키 · 구독 · `account_smoke`)에서도 같은 분류를 쓴다. 예약 도구는 모델에 제공하지 않지만 모델이 `rehearsal_exec` · `rehearsal.exec` · `bravo.rehearsal_exec` · `bravo.rehearsal.exec` · `mcp__bravo__rehearsal_exec`(run/result도 같음) 중 하나로 호출하면 `mcp__bravo__rehearsal_*`로 정규화해 `Tools.dispatch`의 거부 분류를 거친다. 그 밖의 이름은 `unlisted`(`TOOL_NOT_ALLOWED`)다. JSON이 아닌 인자도 분류만 하고 저장하지 않는다. 구독 경로에서 `bravo` 네임스페이스 밖의 호출과 첫 읽기 전의 다른 호출은 기존대로 그 시도를 끝내며(NEEDS_HUMAN), 끝내기 전에 제공 도구가 아닌 호출의 거부를 같은 방식으로 기록한다. 네임스페이스 밖의 `repo_read` 같은 제공 도구 이름은 실행하지 않고 `unlisted`로 기록한다. 응답 종료 이벤트의 output이 비어 스트림 항목으로 복원하는 경우에는 `bravo` 네임스페이스 안의 예약 이름만 복원 대상이다.
+
 소스 경로 정책: 디렉터리 `secrets/` · `credentials/`, 키 파일(`.pem` · `.key` · `.p12` · `.tfstate`), 이름에 `credential` · `private_key`가 든 파일, 테스트 파일은 계속 거부한다. 이름에 `secret`이 든 **코드 파일**(`.py` · `.ts` · `.go` 등)은 읽을 수 있다. demo-chat의 `app/db_secret.py`가 Secrets Manager 직접 호출을 고쳐야 하는 바로 그 파일이기 때문이다. 내용은 여전히 `safe_text`를 거치므로 자격증명 리터럴이 들어 있으면 읽기가 거부된다(가리지 않고 거부한다: 가린 내용을 기준으로 제안하면 교체본과 원본 해시가 어긋난다).
 
 ## 실행

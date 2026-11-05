@@ -17,7 +17,7 @@ from pathlib import Path
 from .cli import bounded_json
 from .contracts import FailureBundle, SnapshotManifest
 from .coordinator import Coordinator
-from .openai_provider import FUNCTIONS, function_tools
+from .openai_provider import function_tools, tool_name
 from .tools import SYSTEM, PolicyDenied, Snapshot
 
 CODEX_VERSION = "codex-cli 0.157.0"
@@ -167,7 +167,7 @@ class AccountSmokeProvider:
                     if (method != "item/tool/call" or params.get("threadId") != thread_id
                             or params.get("turnId") != turn_id or params.get("namespace")):
                         raise RuntimeError("unapproved server request")
-                    name = FUNCTIONS.get(params.get("tool"), "unlisted")
+                    name = tool_name(params.get("tool"))
                     try:
                         result = tools.dispatch(name, params.get("arguments"))
                         success = True

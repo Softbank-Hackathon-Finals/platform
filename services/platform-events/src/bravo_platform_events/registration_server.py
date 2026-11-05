@@ -47,7 +47,8 @@ def build_app(store, config_file, grants_file):
         except (OSError, ValueError, KeyError, TypeError):
             return False
 
-    registry = Registry(store, environments=environments, releases=releases, can_register=can_register)
+    registry = Registry(store, environments=environments, releases=releases, can_register=can_register,
+                        evaluation_profiles=config.get("evaluation_profiles", ()))
     return create_registration_app(registry, verify_identity=identity)
 
 

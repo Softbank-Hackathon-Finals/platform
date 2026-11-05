@@ -43,6 +43,8 @@ for (const fault of [
   "missing-decision",
   "actor",
   "history-regressed",
+  "profile-id",
+  "profile-version",
 ]) {
   test(`resubmission stays locked: ${fault}`, () => {
     const { m, pending } = setup();
@@ -60,9 +62,25 @@ for (const fault of [
     if (fault === "missing-decision") m.events.pop();
     if (fault === "history-regressed") pending.cursor = m.cursor + 1;
     if (fault === "actor") m.events.at(-1).data.actor_id = "other-operator";
+    if (fault === "profile-id") pending.snapshot.profile_id = "other";
+    if (fault === "profile-version") pending.snapshot.profile_version = "2.0";
     assert.equal(Boolean(canResubmit(m, pending, at)), false);
   });
 }
+test("matching profile pair permits recovery but changing or removing either field denies it", () => {
+  const { m, pending } = setup();
+  const profile = { profile_id: "fixture-profile", profile_version: "1.0" };
+  Object.assign(m.snapshot, profile);
+  Object.assign(pending.snapshot, profile);
+  assert.equal(canResubmit(m, pending, now), true);
+  for (const key of Object.keys(profile)) {
+    pending.snapshot[key] = "other";
+    assert.equal(canResubmit(m, pending, now), false);
+    delete pending.snapshot[key];
+    assert.equal(canResubmit(m, pending, now), false);
+    pending.snapshot[key] = profile[key];
+  }
+});
 test("a committed dispatch event permits lookup, never new dispatch", () => {
   const { m, pending } = setup();
   m.accept({

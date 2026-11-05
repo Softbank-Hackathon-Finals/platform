@@ -14,6 +14,7 @@ from .store import EventError
 
 Identifier = Annotated[str, Field(pattern=r"^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$")]
 Name = Annotated[str, Field(min_length=1, max_length=128, pattern=r"^[^\x00-\x1f\x7f]+$")]
+Profile = Annotated[str, Field(pattern=r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$")]
 Key = Annotated[str, Header(pattern=r"^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$")]
 
 
@@ -40,6 +41,8 @@ class Workload(Input):
 class Plan(Input):
     workload_id: Identifier
     target_environment_id: Identifier
+    profile_id: Profile
+    profile_version: Profile
 
 
 def create_registration_app(registry, *, verify_identity):

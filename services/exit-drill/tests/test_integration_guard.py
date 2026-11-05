@@ -8,6 +8,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).parent / "integration"))
 
 import verify_k3s  # noqa: E402
+import verify_real_run  # noqa: E402
 
 
 @pytest.mark.parametrize("name", ["t27-k3s", "t27-aws", "t27-net"])
@@ -31,4 +32,9 @@ def test_docker_remove_refuses_before_running_anything(monkeypatch):
 
 def test_every_resource_name_is_ours():
     for name in (verify_k3s.K3S, verify_k3s.AWS, verify_k3s.SOURCE, verify_k3s.NETWORK):
+        assert name.startswith("t27-")
+
+
+def test_real_run_lab_resources_are_ours():
+    for name in (verify_real_run.POOLER_LAB, verify_real_run.POSTGRES_LAB, verify_real_run.PSA_NAMESPACE):
         assert name.startswith("t27-")

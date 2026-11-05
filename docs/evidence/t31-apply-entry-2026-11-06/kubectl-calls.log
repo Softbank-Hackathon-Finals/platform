@@ -1,0 +1,16 @@
+2026-11-05T17:01:26Z c3-new-id --kubeconfig <kc> -n t31-target get deployment demo-chat -o json
+2026-11-05T17:01:26Z c3-new-id --kubeconfig <kc> -n t31-target patch deployment demo-chat --type strategic -p {"spec": {"template": {"spec": {"containers": [{"name": "app", "image": "registry.k8s.io/pause@sha256:7031c1b283388d2c2e09b57badb803c05ebed362dc88d84b480cc47f72a21097"}]}}}}
+2026-11-05T17:01:26Z c3-new-id --kubeconfig <kc> -n t31-target rollout status deployment/demo-chat --timeout=120s
+2026-11-05T17:01:27Z c3-new-id --kubeconfig <kc> -n t31-target get deployment demo-chat -o json
+2026-11-05T17:01:27Z c3-new-id --kubeconfig <kc> -n t31-target get pods -l app=demo-chat -o json
+2026-11-05T17:01:34Z d-safe-hold --kubeconfig <kc> -n t31-target get deployment demo-chat -o json
+2026-11-05T17:01:34Z d-safe-hold --kubeconfig <kc> -n t31-target patch deployment demo-chat --type strategic -p {"spec": {"template": {"spec": {"containers": [{"name": "app", "image": "registry.k8s.io/pause@sha256:4f17b7f86647fddc927340914b38e3a4764b368bd0c5be835c6c0d8630dd8a58"}]}}}}
+2026-11-05T17:01:34Z d-safe-hold --kubeconfig <kc> -n t31-target rollout status deployment/demo-chat --timeout=20s
+2026-11-05T17:01:54Z d-safe-hold --kubeconfig <kc> -n t31-target get deployment demo-chat -o json
+2026-11-05T17:01:54Z d-safe-hold --kubeconfig <kc> -n t31-target get pods -l app=demo-chat -o json
+2026-11-05T17:02:20Z e-crash --kubeconfig <kc> -n t31-target get deployment demo-chat -o json
+2026-11-05T17:02:20Z e-crash --kubeconfig <kc> -n t31-target patch deployment demo-chat --type strategic -p {"spec": {"template": {"spec": {"containers": [{"name": "app", "image": "registry.k8s.io/pause@sha256:0ef5b526d733c054900eb002d2baafef18c7c29ea75a67b8260d236ec3ec7595"}]}}}}
+2026-11-05T17:02:20Z e-crash --kubeconfig <kc> -n t31-target rollout status deployment/demo-chat --timeout=120s
+2026-11-05T17:02:40Z f-read-forbidden --kubeconfig <kc> -n t31-target get deployment other-app -o json
+2026-11-05T17:02:40Z g-patch-forbidden --kubeconfig <kc> -n t31-target get deployment demo-chat -o json
+2026-11-05T17:02:40Z g-patch-forbidden --kubeconfig <kc> -n t31-target patch deployment demo-chat --type strategic -p {"spec": {"template": {"spec": {"containers": [{"name": "app", "image": "registry.k8s.io/pause@sha256:ee6521f290b2168b6e0935a181d4cff9be1ac3f505666ef0e3c98fae8199917a"}]}}}}
