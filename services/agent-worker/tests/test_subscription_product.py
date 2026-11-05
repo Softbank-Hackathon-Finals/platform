@@ -65,6 +65,9 @@ def test_proposal_bound_and_retrievable_after_restart_without_model(setup):
     assert result["product_input_digest"] == body["input_digest"]
     assert result["proposal_digest"] == digest(result["proposal"])
     assert result["runtime_source_sha"] == "c" * 40
+    assert result["task"] == result["input"]
+    assert result["task_digest"] == result["input_digest"]
+    assert result["tool_events_status"] == "UNAVAILABLE" and "tool_events" not in result
     assert "test-private" not in json.dumps(result)
     restarted = product.ProductService(product.ProposalJournal(service.journal.root), service.authenticate,
                                        service.inputs, service.invoke, service.runtime_source_sha)
@@ -171,7 +174,8 @@ def test_concurrent_call_cannot_take_claim(setup):
     assert counts["invoke"] == 1
 
 
-@pytest.mark.parametrize("fault", ["exception", "other_source", "bad_edit", "fixture"])
+@pytest.mark.parametrize("fault", ["exception", "other_source", "bad_edit", "fixture",
+                                  "task_missing", "task_changed", "task_digest"])
 def test_unconfirmed_worker_is_terminal_without_reexecution(setup, fault):
     service, _, body, counts = setup
     original = service.invoke
@@ -185,8 +189,15 @@ def test_unconfirmed_worker_is_terminal_without_reexecution(setup, fault):
         elif fault == "bad_edit":
             result["proposal"]["edits"][0]["path"] = "src/unapproved.py"
             result["proposal_digest"] = digest(result["proposal"])
-        else:
+        elif fault == "fixture":
             result["input_kind"] = "synthetic_db_host_fixture"
+        elif fault == "task_missing":
+            result.pop("task")
+        elif fault == "task_changed":
+            result["task"]["summary"] = "Different original objective"
+            result["task_digest"] = digest(result["task"])
+        else:
+            result["task_digest"] = "0" * 64
         return result
 
     service.invoke = invalid

@@ -154,7 +154,9 @@ def stage_input(value: ProductInput, root: Path) -> Snapshot:
 
 def proposal_result(result, value, snapshot, expected):
     bundle, proposal = validate_result(result)
+    task = FailureBundle.model_validate(result["task"])
     if (bundle != value.bundle or result["snapshot_digest"] != digest(value.manifest)
+            or task != value.bundle or result.get("task_digest") != digest(task)
             or ("input_kind" in result and result["input_kind"] != "product")):
         raise ValueError("worker returned a different input")
     Tools(bundle, snapshot, 1).dispatch("mcp__bravo__plan_propose", proposal.model_dump())
@@ -163,8 +165,9 @@ def proposal_result(result, value, snapshot, expected):
     return {**expected, "state": "PROPOSAL_READY", "input_kind": "product",
             "run_id": bundle.run_id, "source_sha": bundle.source_sha, "attempt": 1,
             "input": bundle.model_dump(), "input_digest": digest(bundle),
+            "task": task.model_dump(), "task_digest": digest(task),
             "snapshot_digest": digest(value.manifest), "proposal": proposal.model_dump(),
-            "proposal_digest": digest(proposal)}
+            "proposal_digest": digest(proposal), "tool_events_status": "UNAVAILABLE"}
 
 
 @dataclass

@@ -151,12 +151,21 @@ T38은 이를 다시 계산하고 기존 T11 Snapshot의 경로·내용·크기�
 생산자에게 이 경로의 쓰기 권한을 주지 않는다.
 
 성공 결과는 `input_kind=product`, `PROPOSAL_READY`, 제품 입력·Admission·snapshot·
-proposal digest와 설치 SHA를 포함한다. OIDC·AWS·구독 토큰과 임의 worker 진단 필드는
+proposal digest와 설치 SHA를 포함한다. T11의 원 작업 `task`와 `task_digest`도 결속하며,
+최초 시도에서는 입력 bundle과 같아야 한다. 누락·불일치는 제안으로 수락하지 않는다.
+이 `task_digest`는 T11 원 작업 bundle의 해시이며, T15 논리 작업의 해시인
+T10 `Admission.task_digest`와 별도로 검증한다.
+OIDC·AWS·구독 토큰과 임의 worker 진단 필드는
 저장하지 않는다. 기록의 digest는 손상 탐지용이며 외부 서명이 아니다. T15의
 `RecordedAttemptSender`·`AttemptStore`·`RecordedEvidence`가 검증 Job, PASS/FAIL,
 생성/삭제 UID, 정리 및 승인 근거를 소유한다. 이 제안 기록만으로 PASS나
 AWAITING_APPROVAL을 만들 수 없다. 현재 T11 CLI와 같은 최초 시도(attempt 1)만 실행하며
 2·3회차는 호출 전에 거부한다. T11 상태 복원 계약 없이 번호를 1로 바꾸어 재시도하지 않는다.
+
+제품 제안 응답은 `tool_events_status=UNAVAILABLE`를 명시한다. 현재 반환 경로는 T11
+감사 배열 전체의 원문·순서·건수 결속을 전달하지 않는다. T15는 이를 빈 COMPLETE 배열로
+바꾸지 않는다. 원격 제안 소비자가 T11의 완전한 배열을 인수한 뒤 T15 서명 기록과
+T10 `data.tool_events`로 전달하는 접점을 연결해야 한다. 이 패치는 T24 수집을 구현하지 않는다.
 
 실제 제품 실행 전에는 인증 입력 조회기의 배치·접근·수명, 영속 journal의 격리·보존,
 T15의 원격 제안 소비 어댑터를 인수해야 한다. 목적지 API/RBAC와 credential 전달도 해당
