@@ -120,7 +120,8 @@ class _ListingS3:
 
 
 def test_s3_records_are_read_in_sequence_order_under_one_run_prefix(monkeypatch, tmp_path, platform_events, capsys):
-    import boto3
+    import sys
+    import types
 
     assert main(["append", "--source", "platform.events", "--input", _write(tmp_path, platform_events),
                  "--sink", str(tmp_path / "store"), "--receipts", str(tmp_path / "r.json")]) == 0
@@ -128,7 +129,8 @@ def test_s3_records_are_read_in_sequence_order_under_one_run_prefix(monkeypatch,
     objects = {f"audit/plan-demo/run-demo-1/{p.name}": json.loads(p.read_text()) for p in sorted(run_dir.glob("*.json"))}
     objects["audit/plan-demo/run-demo-10/00000001.json"] = {"not": "this run"}
     fake = _ListingS3(objects)
-    monkeypatch.setattr(boto3, "client", lambda service: fake)
+    # boto3 is the optional "aws" extra; CI runs without it, so the module itself is stood in.
+    monkeypatch.setitem(sys.modules, "boto3", types.SimpleNamespace(client=lambda service: fake))
     capsys.readouterr()
     assert main(["verify", "s3://bucket/audit/plan-demo/run-demo-1"]) == 0
     assert json.loads(capsys.readouterr().out)["records"] == 2
