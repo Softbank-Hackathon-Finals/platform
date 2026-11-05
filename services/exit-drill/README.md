@@ -4,6 +4,8 @@
 
 **이 도구는 계획과 판정만 만든다.** 클러스터에 접속하지 않고, 정책을 적용 · 삭제하지 않으며, Pod를 재시작하지 않는다. 그 일은 운영자가 한다. 접속 시험(`probe.py`)만 네트워크에 닿고, 정해진 대상에 연결만 시도한다. LLM은 쓰지 않는다.
 
+실제 목적지에서 돌리는 순서는 [실행 안내](../../docs/operations/t27-exit-drill-real-run.md)에 있다. kubectl을 부르는 일은 패키지 밖의 운영자 도구 [`scripts/real_run.py`](scripts/real_run.py)로 모았다. 읽기와 접속 시험을 하고, 상태를 바꾸는 것은 컨테이너 재시작뿐이다. 정책 적용 · 되돌리기는 그 도구에도 없다.
+
 ```
 입력                          도구                     결과
 드릴 명세(profiles/) ─┐
@@ -27,6 +29,7 @@ T16 인벤토리 ─────────┼─→ render ──→ 계획(�
 | `observation.py` | 읽은 결과를 판정 입력으로 묶는다. 모르는 값은 모른다고 둔다 |
 | `verdict.py` | 차단 전후 관측으로 PASS · FAIL · UNKNOWN을 정한다 |
 | `residual_map.py` | 잔존 의존성 지도(JSON · Markdown) |
+| `control_pod.py` | 대조군 Pod 렌더. 계획을 만들기 전에 띄운다 |
 
 ## 차단 방식
 
@@ -95,7 +98,7 @@ AWS 경로는 명세에 적지 않는다. **인벤토리가 쓴다고 한 서비
 이 틈 때문에 시작할 때 AWS를 부르는 앱이 첫 측정에서 PASS로 나왔다. 그래서 두 단계로 재시작한다.
 
 1. **Pod 교체**(`rollout restart`): 정책을 건 뒤 Pod를 새로 만든다. 이미 맺은 연결을 모두 없앤다.
-2. **앱 컨테이너만 재시작**(`kubectl exec -c <컨테이너>`로 1번 프로세스에 SIGTERM): Pod와 IP가 그대로라 이미 정책에 묶여 있다. 앱은 차단된 채로 시작한다. 죽이기 전의 컨테이너 ID를 `--induced-restarts`로 넘긴다.
+2. **앱 컨테이너만 재시작**(`scripts/real_run.py restart`): Pod와 IP가 그대로라 이미 정책에 묶여 있다. 앱은 차단된 채로 시작한다. 죽이기 전의 컨테이너 ID를 기록으로 넘긴다. 신호는 그 컨테이너의 모든 프로세스에 보낸다. 풀러 이미지는 1번 프로세스가 `sh`이고 처리기가 없어 1번에만 보내면 무시된다(실제 이미지에서 쟀다).
 
 판정은 두 번째가 있어야 `restart:*`를 통과시키고, 새 연결도 그 뒤에 맺은 것만 센다. 컨테이너 재시작은 정책 생성과 Pod 시작 양쪽에서 2초 이상 지난 뒤여야 한다. 그 전이면 아직 틈 안일 수 있어서다.
 
@@ -121,15 +124,18 @@ AWS 경로는 명세에 적지 않는다. **인벤토리가 쓴다고 한 서비
 
 외부 서비스에는 T16 계약상 등급이 없다. 지어내지 않고 `not_graded`(등급 없음)로 둔다.
 
+드릴을 돌리지 않아도 지도는 나온다(`--report` 없이, 판정 `NOT_RUN`). 판정이 통과하지 못했으면 그 이유를 `drill_not_pass`에, T16이 후보에 없다고 한 기능을 `candidate_missing_capabilities`에 함께 적는다.
+
 ## 실행
 
 ```sh
 uv sync --locked && uvx ruff==0.17.3 check . && uv run --locked pytest -q
 ```
 
-실제 환경에서의 순서다. 컷오버(T12)가 끝나 쓰기가 목적지에 있어야 한다. 대조군 Pod(`bravo-exit-drill-control=true`)를 미리 띄운다.
+아래는 명령 하나하나의 입력과 출력이다. 실제로 돌릴 때는 [실행 안내](../../docs/operations/t27-exit-drill-real-run.md)를 따른다. 컷오버(T12)가 끝나 쓰기가 목적지에 있어야 차단 시험의 의미가 있다. 대조군 Pod(`bravo-exit-drill-control=true`)는 `control-pod`로 만들어 미리 띄운다.
 
 ```sh
+bravo-exit-drill control-pod --spec profiles/target-dev.json --image <digest로 고정한 이미지>
 bravo-exit-drill render --spec profiles/target-dev.json --inventory inventory.json \
   --candidate onprem-demo --snapshot snapshot.json > plan.json   # snapshot: kubectl get pods,networkpolicies -o json
 bravo-exit-drill manifests --plan plan.json > policies.json       # 운영자가 검토 후 적용
@@ -151,14 +157,15 @@ Docker로 실제 k3s를 띄워 생성된 정책을 적용하고 허용 · 거부
 
 ```sh
 uv run python tests/integration/verify_k3s.py --out <폴더>
+uv run python tests/integration/verify_real_run.py --out <폴더>   # 실행 안내의 순서를 그대로 돌린다
 uv run python tests/integration/mutation_check.py --out mutation-results.json
 ```
 
-결과와 재지 못한 것은 [증거 문서](../../docs/evidence/t27-exit-drill-2026-11-04/README.md)에 있다.
+결과와 재지 못한 것은 [증거 문서](../../docs/evidence/t27-exit-drill-2026-11-04/README.md)와 [실행 준비 증거](../../docs/evidence/t27-real-run-prep-2026-11-06/README.md)에 있다.
 
 ## 명세 값의 출처
 
-`profiles/target-dev.json`의 값은 지금 코드에서 읽었다. 실제 환경에서 맞지 않으면 `render`가 멈춘다.
+`profiles/target-dev.json`의 값은 지금 코드에서 읽었다. `tests/test_real_target.py`가 저장소 렌더러의 실제 출력과 대조한다. 실제 환경에서 맞지 않으면 `render`가 멈춘다.
 
 | 값 | 출처 | 상태 |
 |---|---|---|

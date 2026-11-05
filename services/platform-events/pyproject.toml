@@ -16,12 +16,18 @@ dependencies = [
 # T36 intake is proposed in #168, not yet on develop. Consume its immutable
 # source without copying the validator or merging another owner's branch.
 bravo-observability = { git = "https://github.com/Softbank-Hackathon-Finals/platform.git", rev = "020c6c78bdc6133ab0ee15e2a990bb9527b3182f", subdirectory = "services/observability" }
+bravo-rehearsal-runner = { path = "../rehearsal-runner" }
+bravo-agent-worker = { path = "../agent-worker" }
+bravo-control-gate = { path = "../control-gate" }
 
 [project.optional-dependencies]
 postgres = ["psycopg[binary]>=3.2,<4"]
+sso-registration = ["boto3>=1.35,<2"]
 
 [dependency-groups]
-dev = ["httpx>=0.27", "pytest>=8", "ruff>=0.9", "psycopg[binary]>=3.2,<4"]
+dev = ["httpx>=0.27", "pytest>=8", "ruff>=0.9", "psycopg[binary]>=3.2,<4", {include-group = "product-inputs"}, "bravo-control-gate==0.1.0"]
+trusted-host = ["bravo-rehearsal-runner"]
+product-inputs = ["bravo-agent-worker", {include-group = "trusted-host"}]
 
 [build-system]
 requires = ["hatchling>=1.25"]
@@ -40,3 +46,4 @@ ignore = ["E501"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+pythonpath = ["../rehearsal-runner/testing"]

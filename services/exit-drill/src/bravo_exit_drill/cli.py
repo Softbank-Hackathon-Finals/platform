@@ -11,6 +11,7 @@ from typing import Any
 
 from . import probe
 from .cluster import SnapshotError, parse_snapshot
+from .control_pod import ControlPodError, render_control_pod
 from .inventory_input import ContractError, parse_inventory
 from .observation import ObservationError, build_observation, probe_request
 from .policy import PlanRefused, build_plan, plan_is_intact
@@ -62,6 +63,11 @@ def _render(args) -> int:
     except PlanRefused as refused:
         _print({"refused": [{"code": v.code, "subject": v.subject} for v in refused.violations]})
         return 1
+    return 0
+
+
+def _control_pod(args) -> int:
+    _print(render_control_pod(parse_spec(_load(args.spec, "spec")), args.image))
     return 0
 
 
@@ -127,6 +133,11 @@ def _parser() -> argparse.ArgumentParser:
     render.add_argument("--snapshot", required=True, help="kubectl get pods,networkpolicies -o json")
     render.set_defaults(run=_render)
 
+    control_pod = commands.add_parser("control-pod", help="대조군 Pod를 출력한다. 계획을 만들기 전에 띄운다")
+    control_pod.add_argument("--spec", required=True)
+    control_pod.add_argument("--image", required=True, help="장비에 이미 있고 Python이 든 이미지. digest로 고정한다")
+    control_pod.set_defaults(run=_control_pod)
+
     manifests = commands.add_parser("manifests", help="계획의 NetworkPolicy를 List로 출력한다")
     manifests.add_argument("--plan", required=True)
     manifests.set_defaults(run=_manifests)
@@ -174,7 +185,7 @@ def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     try:
         return args.run(args)
-    except (_InputError, ContractError, SpecError, SnapshotError, ObservationError, MapError) as exc:
+    except (_InputError, ContractError, ControlPodError, SpecError, SnapshotError, ObservationError, MapError) as exc:
         print(f"bravo-exit-drill: {exc}", file=sys.stderr)
     except Exception:  # noqa: BLE001 - 예외로 죽으면 종료 코드 1이라 FAIL로 읽힌다. 내용은 찍지 않는다.
         print("bravo-exit-drill: 입력을 처리할 수 없다", file=sys.stderr)

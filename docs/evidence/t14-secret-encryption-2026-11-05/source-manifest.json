@@ -1,0 +1,29 @@
+{
+  "source_revision": "265d8170993ee4561c98b6e88fcf17d30395936a",
+  "source_files": [
+    {
+      "path": "docs/controls/control-result.schema.json",
+      "sha256": "f1273e751b31288c6d2ed927d888032474ce05f132dde7545bc12e2d9b38b654"
+    },
+    {
+      "path": "docs/controls/profiles.json",
+      "sha256": "4ba6e539b422985a43c20875ae00b21e1bd461daf4f8240b5b7b02debe0f2c90"
+    },
+    {
+      "path": "services/control-runner/src/bravo_controls/aws_identity.py",
+      "sha256": "7473ff32a1a7e43f86b0bd6b05e51aec59ff4e074755e2495a348b99701ba965"
+    },
+    {
+      "path": "services/control-runner/src/bravo_controls/aws_probes.py",
+      "sha256": "ee49a0169c697ba8521394d745bc32cb5c56cf16a08e042665090974462d8829"
+    },
+    {
+      "path": "services/control-runner/src/bravo_controls/runner.py",
+      "sha256": "29e09bca2a6d28991340a4e26ba42496f794cde4ecfc83558d13b5fbe0eff0bf"
+    },
+    {
+      "path": "services/control-runner/src/bravo_controls/secret_encryption.py",
+      "sha256": "2f8a20315509a293dfa9ebba5f2b5feb7d1e0728c10903f66c6512941738ed82"
+    }
+  ]
+}

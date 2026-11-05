@@ -24,6 +24,10 @@ The NAT subnet defaults to a previously unused /24 inside the platform VPC. Chec
 
 The AWS wrapper only prepares HTTPS package access and the isolated smoke namespace/RBAC. Operators use their authorized AWS SSM session. The RKE2 admin kubeconfig remains on the host and is not a shared team credential. Individual RKE2 authentication/expiration/revocation and team distribution are still pending. IMDSv2 hop limit 1 and a host-role secret-read denial are defense layers; they do not replace T3 pod isolation tests or its tool-layer authorization.
 
+For existing-host SSM session/document worker failures caused by exhausted inotify
+instances, use the [bounded maintenance procedure](maintenance/README.md). Keep this
+separate from cloud-init changes, agent restarts and application deployment.
+
 ## OIDC smoke boundary
 
 The live repository has immutable-ID OIDC subjects. Obtain the prefix with `gh api repos/Softbank-Hackathon-Finals/platform/actions/oidc/customization/sub`; use exact develop or this validation branch subject strings. Trust requires both exact `sub` and `aud=sts.amazonaws.com`. Forks, pull-request subjects and wildcard subjects are not accepted. The provider is an existing T1/account object, not recreated here. [GitHub AWS OIDC](https://docs.github.com/en/actions/how-tos/secure-your-work/security-harden-deployments/oidc-in-aws).

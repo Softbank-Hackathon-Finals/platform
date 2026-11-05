@@ -89,8 +89,10 @@ T31이 보고한 배포 결과로 `REHEARSE`에서 `GATE`로 넘어갈 때, T10�
 | 422 | 잘못된 요청 형식, 호스트가 연결하지 않은 승인 종류 |
 | 503 | 현재 검증 공급자를 확인할 수 없음 |
 
-실제 T15 영수증 공급과 T31 실행 연결 전까지 이 기능만으로 S2 완료나 T10 전체
-승인·재시작 완료를 체크하지 않는다. SQLite/PostgreSQL의 합성 시험과 운영 인수는 구분한다.
+[T10 작업 계획](../tasks.md)의 완료 기준은 목업 단계의 `COLLECT → DONE`과
+조건 미충족 전이 거부다. S2·S3 승인과 현재 계획·diff·digest·만료의 거부 시험을
+그 기준으로 대조한다. 실제 T15 영수증·T31 반영·운영 S3 연결은 별도 통합
+인수이며, 목업 통과를 실제 배포나 해피패스 완료로 표시하지 않는다.
 
 ## T15 수신과 같은 검증 ID의 hold
 
@@ -162,6 +164,12 @@ T15의 기존 `submit_candidate`에 `HttpChangeIntake`를 전달할 수 있다.
 T15 HMAC 키를 별도 T10 Pod에 복제하지 않는다. 인증 원문 조회와 hold 관리
 주체를 실제로 연결하기 전에는 수신 경로를 열지 않는다.
 
+같은 trusted host 구성은 [승인 호스트 실행](../../services/platform-events/deploy/approval/README.md)을
+따른다. 기존 `build_bucket_host`와 `RecordedEvidence`가 같은 기록 저장소를
+사용한다. 실행은 요청 밖의 단일 dispatch 작업자에서 진행하며 자동 재시도하지
+않는다. 취소·보안 hold는 별도 `hold_rehearsal` 사람 권한을 같은 계획 잠금에서
+확인한다. 권한은 기존 관리 경로에서만 등록하며 workload에 부여하지 않는다.
+
 ## 리허설을 시작하고 재조회하기
 
 운영자 호스트에 서명 신원 검증기와 T15 어댑터(`rehearsal_host`)를 연결한다. 운영자는
@@ -207,3 +215,49 @@ namespace, 생성·삭제 UID 일치와 부재 확인이 필요하다. PASS에�
 기존 버전의 상태 전이·수신·승인 프로세스는 새 접수 기록을 해석하지 않는다. 교체할 때는
 새 접수를 중지하고 기존 writer의 종료를 확인한다. 새 방식으로 시작한 계획은 해당 버전의
 승인·반영과 전이가 끝날 때까지 새 가드를 이해하는 writer가 맡아야 한다.
+
+### T38 제품 제안 입력 등록
+
+`ProductInputRecords`는 trusted host 내부 포트다. 기존 `plan_commands`에 입력을
+한 번 저장하며 새 HTTP 경로나 DB 스키마를 만들지 않는다. 설치 그룹은
+`uv sync --group product-inputs`다. 계약 검증은 T38의 모델 실행과 분리된
+`bravo_agent.product_contracts`를 사용한다.
+
+호스트는 현재 catalog, 승인된 불변 원본을 읽는 `source`, 현재 서비스 principal의
+등록·tenant·계획·purpose 권한을 검사하는 `authorize`를 필수로 제공한다.
+`source(connection, plan, admission, task)`는 `bundle`, `manifest`, `files`만 반환한다.
+요청 본문·모델 출력·임의 로컬 경로를 원본으로 연결하지 않는다.
+
+버킷 작업에는 `BucketSnapshotSource`를 연결한다. 호스트가 인증한 T11 `Snapshot`과
+고정된 source/target 정책 경로를 받는다. catalog의 정책 원문과 source SHA를 대조하고,
+T11 읽기 검증을 거친 두 파일만 기존 T15 `bucket_product_bundle`로 전달한다.
+수정 범위는 승인된 target 정책 한 파일로 제한한다. snapshot 수집·등록·mount를
+자동으로 만들지 않으며, 다른 작업 종류에는 해당 담당의 승인된 source 포트가 필요하다.
+
+1. T15 소비 어댑터의 `product_input(admission, task)`는 커밋된 Admission 8필드,
+   현재 `REHEARSE` 상태·버전·tenant와 catalog 논리 작업을 같은 계획 잠금에서 확인한다.
+   T10이 Admission 전체 digest와 시도를 붙인다. 원본 파일은 T38 정본 검증을 통과해야 한다.
+2. 호스트의 `register(admission, value, principal=..., expires_at=...)`는 승인된
+   원본과 입력 전체 digest를 다시 대조한다. 첫 시도에 불투명 `input_ref`와
+   `input_digest`를 발급한다. 같은 Admission·입력·호출자·만료는 같은 참조를 받는다.
+   다른 내용이나 만료 연장은 거부한다. 참조 자체는 읽기 권한이 아니다.
+3. 인증된 broker 조회 포트 `read(principal, input_ref)`는 현재 계획·catalog·권한·
+   회수·만료를 다시 검사한다. 반환 필드는 `admission`, `product_input`, `input_digest`,
+   `principal`, `purpose`, `expires_at`의 6개다. `purpose`는 `t38-product-proposal`,
+   만료는 UTC다. `revoke`는 신뢰한 관리 경로에서만 호출하며 회수는 영속적이다.
+
+`principal`은 T38 STS가 검증한 issuer/audience/subject의 digest다. 사람의
+`OperatorPrincipal`이나 T10 workload JWT와 다르다. `register` 결과는 T15
+`request_for`의 참조/digest 부분이며, `web_identity_token`은 별도의 기존 GitHub
+OIDC 공급 경로에서 넣는다. 이 저장소에는 토큰을 넣지 않는다.
+
+이 포트는 첫 모델 제안만 다룬다. 시도 2·3은 등록 전에 거부한다. T15의 논리
+`Admission.task_digest`와 T11 `FailureBundle` digest는 서로 다른 계약이다.
+운영 source collector·서비스 principal 등록·인증된 broker 읽기 transport·OIDC
+공급을 실제로 연결하기 전에는 제품 실행 경로가 완성되지 않는다. 로컬 입력 등록과
+조회 성공은 모델 응답·검증 Job·사람 승인·T31 배포의 완료 근거가 아니다.
+
+현재 grant의 append-only 관리와 기존 Actions OIDC를 사용하는 사설 read HTTP는
+[제품 입력 조회 서비스](../../services/platform-events/deploy/approval/PRODUCT-READ.md)를 따른다.
+이 서비스는 사람 IdP 없이 schema 2/3에서 조회만 제공한다. 별도 승인 호스트의
+schema 3 요구·사람 승인·단독 실행 조건은 유지한다.

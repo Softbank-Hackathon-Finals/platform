@@ -14,6 +14,7 @@ T5의 평가 프로필에 따라 관찰 결과를 `PASS / FAIL / UNKNOWN`으로 
 | AWS Secret 시험 | 앱 역할과 다른 역할로 같은 현재 Secret 읽기 시도 (`SEC-01.1`) | SDK 인터페이스 모의 시험 |
 | OpenBao Secret 시험 | 두 Kubernetes SA의 신원·같은 현재 Secret 읽기를 전후 확인 (`SEC-01.1`) | 합성 API 응답 + 실제 loopback TLS; 팀 OpenBao 연결 미검증 |
 | AWS 객체 시험 | 앱 읽기 성공 후 동일 객체의 익명 일반 GET (`IAM-01.1`) | SDK 인터페이스 모의 시험 |
+| AWS Secret 저장 암호화 | 현재 Secret 버전·기존 KMS 키·기본 alias를 읽기 전용으로 전후 대조 (`ENC-02.1`) | 실제 Botocore Stubber, [범위·자격 경계](docs/secret-encryption.md) |
 | 앱 → Pooler TLS 시험 | 정상 TLS, 다른 CA·hostname 거부, 평문 거부 (`ENC-01.1/2/3`) | 회귀 시험 및 로컬 kind의 실제 PgBouncer 접속 |
 
 OpenBao 등록·인증 경계와 T9/T19 인계 조건은 [OpenBao 접근 시험](docs/openbao-access.md)을 따른다.
@@ -69,6 +70,10 @@ run = runner.run(
     environment=Environment("source", "source", "aws:eks/source"),
 )
 ```
+
+프로필은 `(profile_id, profile_version)`으로 고른다. `app`은 프로필을 고르지 않고 결과의 `app`이 된다.
+T10 계획에서 돌릴 때는 등록된 `workload_id`(예: `workload-…`)를 넘긴다. 카탈로그 프로필의 `app`은
+그 프로필을 처음 정한 기준 앱 표시이고, 실행 앱과 대조하지 않는다.
 
 ## 판정과 오류 처리
 

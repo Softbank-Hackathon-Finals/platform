@@ -1,0 +1,155 @@
+{
+  "public_is_raw": false,
+  "evidence_type": "bounded_summary_of_actual_cloud_to_mac_recovery",
+  "source_revision": "dcdb1302129b2d920acfda249bddd4ea5e2ab41c",
+  "source_files": [
+    {
+      "path": "infra/envs/target-workloads/attachment_copy.py",
+      "sha256": "5f9da8ecc59b975fe9db4150c84b1b410deda696ff1abaaf0efc668729db72a7"
+    },
+    {
+      "path": "infra/envs/target-workloads/render.py",
+      "sha256": "4c1f4616f40a0340f47109adc09d313d012474a87f700fdb800fd7177211cf73"
+    },
+    {
+      "path": "infra/envs/target-workloads/replication.py",
+      "sha256": "e10d75a063e248249f0f245223a8311749c46193769efdf70793e88bccaaceaf"
+    },
+    {
+      "path": "infra/envs/target-workloads/resume_replication.py",
+      "sha256": "e822f0ea0462ade83f47bcf2c3b9b24a1846450e4cf7fdbd48c8db64246517b4"
+    },
+    {
+      "path": "infra/envs/target-workloads/sync_attachments.py",
+      "sha256": "728553d72e915dcb1df7e82d73fa564657529e62c34a7e1fe7a6148cd453381a"
+    },
+    {
+      "path": "infra/envs/target-workloads/testing/lag_metrics.py",
+      "sha256": "ae048431fcb862e4a68b79273f19663f6ff3b91ddffb28ced6a1d0842e3970c1"
+    },
+    {
+      "path": "infra/envs/target-workloads/testing/lag_readonly.py",
+      "sha256": "482a1ea2e9a8041a2ff3ea990c3cb1f489c342b2e9416a9cfa8be5a89269f616"
+    }
+  ],
+  "observations_utc": {
+    "immediately_before_enable": "2026-11-05T11:06:02.930743+00:00",
+    "cli_final": "2026-11-05T11:09:27.302085+00:00",
+    "operator_marker_insert": "2026-11-05T11:07:26.95767+00:00",
+    "operator_marker_delete": "2026-11-05T11:07:37.864356+00:00",
+    "final_marker_cleanup": "2026-11-05T11:07:48.562275+00:00",
+    "window_return": "2026-11-05T11:10:42.808142+00:00"
+  },
+  "cli": {
+    "actual_executor_pod": true,
+    "existing_mounted_verified_tls_connections": true,
+    "dry_run_passed": true,
+    "apply_passed": true,
+    "enable_submissions": 1,
+    "marker": "skipped_by_operator",
+    "reason": "existing cutover_control role lacks DELETE; no grant added",
+    "source_confirmed_gap_bytes": 0,
+    "catch_up_checks_s": 4.4,
+    "settle_required_s": 15,
+    "post_check_s": 21.7,
+    "final_readonly_passed": true,
+    "final_readonly_enable_submissions": 0,
+    "target_origin_readable_by_cli": false
+  },
+  "operator_marker": {
+    "actual_cli_probe": false,
+    "transport": "existing authenticated operator to primary Pod, peer PostgreSQL session",
+    "protocol": "serialized-v1",
+    "identity_checked_in_write_session": true,
+    "lock_key_uses_canonical_uuid": true,
+    "insert_commits": 1,
+    "delete_commits": 1,
+    "insert_post_commit_fence_reached": true,
+    "delete_post_commit_fence_reached": true,
+    "source_rows_final": 0,
+    "target_rows_final": 0,
+    "first_insert_observation_upper_bound_s": 7.6616,
+    "first_delete_observation_upper_bound_s": 7.5536,
+    "timing_limit": "includes operator transport and query time; not a one-way replication latency benchmark"
+  },
+  "final": {
+    "identity_continuity": true,
+    "business_hashes_equal": true,
+    "source_write_block_retained": true,
+    "target_nologin": true,
+    "reverse_off": true,
+    "forward_on": true,
+    "apply_workers": 1,
+    "tls_streaming": true,
+    "apply_errors_before_after": [
+      2,
+      2
+    ],
+    "platform_counts_unchanged_zero": true,
+    "timeout_and_disable_on_error_unchanged": true,
+    "cutover_executed": false
+  },
+  "business_rows": {
+    "messages": 2,
+    "attachments": 1
+  },
+  "unchanged_policy": {
+    "wal_sender_timeout_ms": 5000,
+    "wal_receiver_timeout_ms": 5000,
+    "disable_on_error": true
+  },
+  "cleanup": {
+    "temporary_cli_directories_removed": true,
+    "owned_tunnel_stopped": true,
+    "loopback_port_closed": true,
+    "remaining_owned_commands": 0
+  },
+  "limitations": [
+    "Zero initial WAL gap; this run does not benchmark backlog drain or design section5.3 data size limits.",
+    "CLI resume and read-only checks used actual verify-full connections; CLI marker path was not exercised on shared DBs.",
+    "Operator marker SQL is separate from CLI marker execution; local TLS regression tests remain the evidence for CLI late-COMMIT and UUID-alias failures.",
+    "No timeout/policy change, attachment object copy, reverse cutover or failback. Whole T8 remains incomplete."
+  ],
+  "private_receipts": [
+    {
+      "name": "cli-v5-apply-result.json",
+      "sha256": "b36ca04a32f29e8615dd4ef87abcd6b7fdefe504171eab1655e32ee88033a27c"
+    },
+    {
+      "name": "cli-v5-post-result.json",
+      "sha256": "6b6cbfb038b8c6f4faa25628c74321e68a5068fdd82cb51a3d8551bff4581ac2"
+    },
+    {
+      "name": "operator_marker.py",
+      "sha256": "7ccfff60f5538fbf3a6f6f276716465f09b2a6a6d12bd80f230d56a0974b7d0d"
+    },
+    {
+      "name": "marker-insert-receipt.json",
+      "sha256": "1f6fc25694883ec97a622bd5f803ccd8f76f38891a4323211ecf8a98d3f88394"
+    },
+    {
+      "name": "marker-delete-receipt.json",
+      "sha256": "2811e76b0a7f5fcbc5d3485215d68b9fe877a7f8a62e13c80ae3b6a7f268ed1f"
+    },
+    {
+      "name": "marker-delivered.json",
+      "sha256": "0bb2e51bff067602fc2e0eb3de7eeaab6bb03c566030853fb00067b275278118"
+    },
+    {
+      "name": "marker-cleaned.json",
+      "sha256": "ac420d55c3e3d22a47b47e914fc7ceb752f84d8515bd69c3cf7f77aff82f0475"
+    },
+    {
+      "name": "pair-final.private.json",
+      "sha256": "22519777669a6c7181cbff85d81a6bd57a621659269c665e1887740d23588486"
+    },
+    {
+      "name": "verification-final.json",
+      "sha256": "6aa6deebb5820b7a55490d991c551ca1f52764c885d5df07f274397f96aa3157"
+    },
+    {
+      "name": "window-release.json",
+      "sha256": "dab097b82090d07de7cf099bf31f3510c11cb7b1fc2e8700a4310a809905dca4"
+    }
+  ]
+}

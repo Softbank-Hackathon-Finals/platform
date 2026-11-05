@@ -81,6 +81,7 @@ TCP 연결이고, SCRAM 역할·테이블 권한·TLS 서버 신원 검증은 �
 `verify-full`은 유지한다. 실제 Service UID/주소가 바뀌면 이전 결속을 재사용하지 않는다.
 실제 생성된 프록시의 Pod/포트가 확인되면 클러스터 안의 호출자도 해당 DB/풀러로
 제한하고, 허용 연결 및 잘못된 역할·CA·호스트·물리 복제 거절을 검증한다.
+실제 경로의 직접·중계 여부, MTU, ACL 허용·거부는 [읽기 전용 점검 도구](../../../docs/operations/t30-tailnet-path-check.md)로 확인한다.
 
 ## 개발용 첨부 저장소
 
@@ -103,7 +104,7 @@ volume 슬롯은 8개, 개별 volume 크기 한도는 128MB다. 기본 metadata 
 AWS SDK의 기본 인증 체인·session token을 재사용하지 않는다.
 
 클라이언트는 SigV4, path style, `us-east-1`, 명시적 로컬 자격과 정확한 서비스 주소를
-사용한다. NetworkPolicy는 같은 namespace의 `bravo-object-client=true` Pod만 허용한다.
+사용한다. 운영 경로의 NetworkPolicy는 같은 namespace의 `bravo-object-client=true` Pod만 허용한다.
 TCP readiness 이후 별도로 서명 put/get·SHA-256 대조, 익명/오서명/범위 밖 작업 및
 client의 버킷 생성 거절, 재시작 후 객체 보존을 확인한다. 이 개발용 HTTP 경로는
 T9의 OpenBao/ESO·TLS 통제나 목적지 앱 업무 기동 완료를 대신하지 않는다.
@@ -144,7 +145,29 @@ Secret을 바꾼 뒤 SeaweedFS가 설정을 다시 읽는지는 아직 실측하
 이 identity는 **그 버킷에만** Admin · Read · Write · List · Tagging를 갖고 운영 `demo-chat-attachments`에는
 어떤 action도 없다. 키는 `BRAVO_OBJECT_REHEARSAL_ACCESS_KEY` · `_SECRET_KEY`로 받는다. T15 검증 Job이 이 identity로
 버킷을 만들고 번역된 정책을 적용 · 관측한다. 운영 버킷과 분리된 상태를 시험으로 고정했다
-(`scripts/tests/test_rehearsal_resources.py`). 리허설 namespace에서 8333으로 닿는 NetworkPolicy는 T30 질문 6번이다.
+(`scripts/tests/test_rehearsal_resources.py`).
+
+리허설 Pod가 8333에 닿는 경로는 `objects.py`가 함께 렌더하는 수신 전용 정책 `target-object-rehearsal-clients`다.
+시험마다 넣고 지우지 않고 설치 구성에 둔다. 기존 `target-object-clients`는 그대로다. 이미 설치한 환경에는 렌더 결과에서
+이 객체 하나만 골라 적용하면 된다.
+T3 시험을 위해 시험 namespace 한 개의 probe Pod만 임시로 열고 UID로 회수하는 규칙을 따로 쓰더라도(저장소에 렌더러는 없다) 이 정책과는 별개다. 임시 규칙은 끝나면 사라지고 이 정책은 리허설 라벨 namespace 전체에 상시로 남으며, 임시 규칙이 이 이름만 쓰지 않으면 허용이 더해질 뿐 서로 덮어쓰지 않는다.
+
+| 받는 Pod | Pod 라벨 | 필요한 이유 |
+| --- | --- | --- |
+| T15 검증 Job | `role=bucket-verifier` | 시험 버킷에 정책을 적용하고 읽기를 관측한다 |
+| T3 격리 시험 Pod | `app.kubernetes.io/component=probe`, `bravo.dev/isolation-run` 있음 | P4 대조가 막히면 게이트가 종료 코드 2로 멈춰 Job까지 가지 못한다 |
+
+두 경우 모두 `app.kubernetes.io/part-of=bravo-rehearsal` 라벨이 붙은 namespace(T3 템플릿)에서 TCP 8333으로 올 때만
+받는다. NetworkPolicy는 namespace 이름 패턴을 쓰지 못하므로 `rehearsal-*`라는 이름만으로는 열리지 않는다. 같은
+namespace의 다른 Pod, 다른 namespace, 8333 외 포트는 계속 막힌다. T3·T15 쪽 라벨이 바뀌면
+`scripts/tests/test_rehearsal_object_access.py`가 실패한다.
+
+이 정책은 연결 경로만 좁힌다. `rehearsal-exec`는 자기 namespace의 Pod에 라벨을 직접 붙일 수 있으므로 버킷 권한의
+경계는 S3 identity다. `open-demo` 상태에서는 익명 `Read`가 운영 버킷에 열려 있어 이 경로로 닿은 Pod도 서명 없이 읽는다.
+k3s에서는 새 Pod의 첫 연결이 정책 반영 전이라 20회 모두 거부되고 2초 안에 열렸으므로, 클라이언트는 첫 연결 실패에
+대비해야 한다. 임시 k3s와 대역 서버, 실제 이미지로 잰 결과는 [증거](../../../docs/evidence/t30-rehearsal-object-access-2026-11-06/README.md)에
+있다. 실제 VM·RKE2에서는 아직 재지 않았다. T9 `target-openbao` 정책은 리허설 Pod를 받지 않으므로, 그
+정책을 적용한 k3s에서 T3 게이트는 OpenBao P4에서 멈췄다.
 
 ## 공식 계약
 
@@ -249,7 +272,7 @@ DB 접속 판단은 비밀번호가 나가기 전에 끝난다. libpq의 우선�
 infra/envs/target-workloads/attachment_copy.py
 ```
 
-SeaweedFS는 `bravo-object-client=true` Pod만 받는다. 운영자 머신에서 돌릴 때는
+운영 경로의 SeaweedFS는 `bravo-object-client=true` Pod만 받는다. 운영자 머신에서 돌릴 때는
 `kubectl port-forward`로 연결하고 `ATTACHMENT_TARGET_ENDPOINT_URL`을 그 로컬 주소로 둔다.
 DB를 터널로 잇는다면 `PGHOST`에 인증서 이름, `PGHOSTADDR`에 로컬 주소를 넣어 `verify-full`을 유지한다.
 이 터널 경로는 아직 재지 않았다.
@@ -308,3 +331,185 @@ T8_ATTACH_E2E=1 uv run --no-project --python 3.12 --with boto3==1.43.123 --with 
 psycopg만 있으면 되고 컨테이너는 필요 없으며, 위 명령에도 포함된다.
 
 `scripts/tests/attachment_mutation_check.py`는 임시 복사본에서 검사를 하나씩 빼고 시험이 실패하는지 확인한다.
+
+## 정방향 구독 재개 (재발 대비)
+
+꺼진 시각 · 오류 종류를 읽는 명령, 방향별 `disable_on_error`, 구독 상태 지표는 [T8 복제 상태](../../../docs/operations/t8-replication-health.md)에 있다.
+
+`t8_source_to_target`가 연결 끊김으로 스스로 꺼졌을 때 쓰는 명령이다. 기존 슬롯을 그대로 두고 그 구독만 다시 켠 뒤,
+실제로 따라잡았는지 확인한다. 슬롯 · 역할 · 역방향 구독 · 앱의 쓰기 차단은 건드리지 않고, 목적지에는 어떤 쓰기도 하지 않는다.
+
+첫 실제 재개(11/4 16:26 KST)는 이 명령 없이 수행됐고 결과의 정본은 [#201](https://github.com/Softbank-Hackathon-Finals/platform/pull/201)이다.
+이 명령은 재발에 대비한 절차로, 로컬 컨테이너에서만 재현했고 실제 환경에서는 돌리지 않았다.
+출력은 #201과 같은 이름과 단위를 쓴다. 측정과 설정 판단은 [증거 문서](../../../docs/evidence/t8-replication-resume-2026-11-04/README.md)에 있다.
+
+### 절차
+
+값은 환경 변수로만 받고 출력하지 않는다. 표준 출력에 JSON 한 줄만 나오고, 성공은 종료 코드 0, 그 밖은 전부 1이다.
+
+1. 앱 Pod 안에서 `GET /admin/write-block`으로 출발지 앱의 쓰기 차단 상태를 읽는다. 이 명령은 DB만 보므로 이 값을 읽지도 바꾸지도 않는다.
+   재개는 어느 상태에서나 할 수 있으며, 읽은 값을 `--source-write-block on|off`로 넘기면 출력에 남는다.
+   차단은 LOGIN과 별개다. LOGIN은 명령이 직접 읽어 `source_app_cannot_login`으로 판단한다.
+2. 옵션 없이 돌린다. 어떤 쓰기도 하지 않는다. `refusals`가 비어 있어야 한다.
+3. 출력의 `preflight.source.system_identifier`와 `preflight.target.system_identifier`가 의도한 두 클러스터인지
+   대조한다. 명령은 어느 쪽이 맞는지 알 수 없으므로 이 대조는 사람이 한다.
+4. 대조한 값을 넘겨 `--apply`로 돌린다.
+
+```sh
+infra/envs/target-workloads/resume_replication.py --source-write-block on
+infra/envs/target-workloads/resume_replication.py --apply --source-write-block on --source-system-id <값> --target-system-id <값>
+```
+
+| 구독 상태 | 옵션 없음 | `--apply` |
+| --- | --- | --- |
+| 꺼짐 | 사전 확인만. `would_run`에 실행할 문장을 보여 준다 | 사전 확인 → ENABLE 1회 → 기준점까지 따라잡기 → 시험 행 왕복 → 유지 확인 |
+| 이미 켜짐 | 사전 확인 → 따라잡기 → 유지 확인. 쓰기 없음 | ENABLE 없이 따라잡기 → 시험 행 왕복 → 유지 확인 |
+
+시험 행 정리가 `pending`으로 끝났다면 `--cleanup-marker <barrier_id>`로 마저 끝낸다. 아래 시험 행 절을 본다.
+
+이미 다른 사람이 켠 구독에 돌려도 다시 켜지 않는다(`continuity.enable_submissions`가 0). 쓰기를 전혀 원하지 않으면 옵션 없이 돌린다.
+
+### 접속 정보
+
+| 변수 | 쓰는 곳 | 필요한 권한 |
+| --- | --- | --- |
+| `T8_RESUME_SOURCE_DSN` | 출발지 읽기 | `chat_replicator`로 충분하다. 슬롯과 업무 테이블, `cutover.barrier`를 읽는다 |
+| `T8_RESUME_TARGET_DSN` | 목적지 읽기와 ENABLE | 읽기는 `chat_replicator`로 충분하다. ENABLE은 `cutover.set_subscription` 실행 권한 또는 구독 소유 권한이 필요하다 |
+| `T8_RESUME_EXECUTOR_DSN` | 실행 기록 읽기 | `executor.executions`, `leases`, `resource_fences` SELECT |
+| `T8_RESUME_SOURCE_PROBE_DSN` | `--apply`와 `--cleanup-marker`의 시험 행 쓰기 | `cutover.barrier` INSERT · SELECT · DELETE. `T8_RESUME_SOURCE_DSN`과 같은 클러스터의 같은 DB여야 한다 |
+| `T8_RESUME_ALLOW_LOOPBACK_PLAINTEXT` | 로컬 시험 전용 | 값이 `1`이고 host와 hostaddr가 모두 loopback 주소일 때만 `verify-full`을 요구하지 않는다 |
+
+- 모든 DSN은 `verify-full`이어야 한다. 비밀번호가 나가기 전에 판단한다. 규칙은 첨부 복사와 같다.
+- `verify-full`은 어느 서버가 답했는지만 보장한다. 쓰기 DSN이 검증한 출발지인지는 따로 본다. 그 연결에서 `system_identifier`와 DB 이름을 읽어 출발지와 대조하고, 다르거나 읽지 못하면 ENABLE과 INSERT 전에 거부한다. 쓰는 세션에서도 쓰기 직전에 다시 대조한다.
+- `cutover_control`은 `cutover.barrier`에 DELETE가 없어 시험 행 쓰기에 쓸 수 없다. 그 역할을 넓히지 않는다.
+  그런 역할이 없으면 `--no-barrier-probe`로 건너뛰고 출력에 그 사실을 남긴다.
+- `target_origin_remote_lsn`은 `pg_read_all_stats`로도 읽을 수 없다(실측: `cutover_control`). 읽지 못하는 역할이면 값은 `null`이고,
+  시험 행 삭제가 도착한 것으로 적용을 확인한다(`continuity.applied_position`).
+- Executor가 없는 환경이면 `--executor-not-deployed`로 그 사실을 적는다. 출력에 남고, `cutover_control` 세션 검사는 계속된다.
+  이 진술로 실행 중인 Executor를 숨길 수 없도록, `T8_RESUME_EXECUTOR_DSN`이 있으면 그쪽 값을 따른다.
+
+ENABLE 권한이 없어 `no_enable_privilege`만 남았다면 권한을 넓히지 말고, 권한을 가진 사람이 `would_run`의 문장을
+실행한 뒤 옵션 없이 다시 돌려 확인한다. 이미 켜진 구독은 ENABLE 권한 없이 확인할 수 있다.
+
+### 거부 사유
+
+`refusals`에 하나라도 있으면 아무것도 바꾸지 않는다. 확인하지 못한 상태도 안전한 상태로 치지 않는다.
+
+| 사유 | 뜻 | 다음 행동 |
+| --- | --- | --- |
+| `slot_invalidated`, `slot_missing` | 슬롯에 이어 받을 WAL이 없거나 슬롯이 없다 | 재개로 고칠 수 없다. 초기 복사부터 다시 하는 절차를 사람이 정한다 |
+| `slot_at_risk` | 다음 체크포인트에 WAL을 잃을 수 있다 | 사람이 바로 판단한다 |
+| `slot_in_use` | 다른 프로세스가 슬롯을 쥐고 있다. 대개 아직 끊기지 않은 이전 walsender다 | `wal_sender_timeout`이 지난 뒤 다시 돌린다. 켜도 5초마다 재시도만 한다. 그 뒤에도 남아 있으면 누가 읽는지 찾는다 |
+| `reverse_active`, `reverse_slot_in_use` | 역방향이 돌고 있다 | 쓰기 방향이 정리될 때까지 멈춘다 |
+| `target_app_can_login`, `target_app_sessions` | 목적지 앱이 쓸 수 있거나 세션이 남아 있다 | 쓰기 DB가 둘일 수 있다. 원인을 먼저 찾는다 |
+| `source_app_cannot_login` | 출발지 앱 역할이 NOLOGIN이다 | 컷오버 중이거나 실패한 뒤다. 실행 기록을 본다 |
+| `executor_running`, `control_session_present` | 실행이 lease를 쥐고 있거나 제어 세션이 있다 | 끝나거나 사람이 풀 때까지 기다린다 |
+| `executor_state_unconfirmed` | 실행 기록을 읽지 못했다 | 접속을 고치거나, 없는 환경이면 `--executor-not-deployed`를 쓴다 |
+| `target_ahead_of_source` | 목적지에 출발지보다 많은 행이 있다 | 우회 쓰기를 의심한다. 사람이 대조한다 |
+| `source_unconfirmed`, `target_unconfirmed` | 읽지 못했다 | `errors`의 분류를 보고 접속을 고친다 |
+| `source_and_target_are_one_cluster`, `*_identity_mismatch`, `*_identity_not_pinned` | 두 DSN이 같은 클러스터이거나 의도한 클러스터가 아니거나 대조값이 없다 | DSN을 고친다 |
+| `no_enable_privilege` | ENABLE 권한이 없다 | 위 문단을 따른다 |
+| `barrier_not_published`, `barrier_not_subscribed`, `barrier_not_readable_on_*`, `barrier_probe_not_permitted` | `--apply`의 시험 행 왕복을 할 수 없다 | 아래 시험 행 절을 본다 |
+| `barrier_probe_wrong_database`, `barrier_probe_not_primary`, `barrier_probe_unconfirmed` | 쓰기 DSN이 검증한 출발지가 아니거나, 대기 서버이거나, 읽지 못했다 | `T8_RESUME_SOURCE_PROBE_DSN`을 고친다. 권한이 있어도 통과시키지 않는다 |
+| `source_wrong_database` | 읽기 DSN이 슬롯이 있는 DB가 아니다 | `T8_RESUME_SOURCE_DSN`의 DB를 고친다 |
+| `not_a_marker_row`, `invalid_barrier_id` | `--cleanup-marker`에 준 ID가 시험 행이 아니거나 UUID가 아니다 | 출력의 `marker.barrier_id`를 쓴다. 다른 실행의 행은 지우지 않는다 |
+
+### 출력과 #201의 대응
+
+같은 이름은 같은 뜻과 단위다. #201에 있으나 여기에 없는 값은 이 명령이 재지 못하거나 코드상 상수인 것이다
+(`slot_recreations`, `publication_refreshes`, `legacy_fences`, 비공개 영수증 해시).
+
+| 자리 | 항목 |
+| --- | --- |
+| `immediately_before_enable` | `source_wal_flush_lsn`, `source_slot_confirmed_flush_lsn`, `gap_bytes`, `gap_mib`, `slot_active`, `wal_status` |
+| `command_clock.first_observations` | `worker`, `received_fixed`, `applied_fixed`, `barrier`. 각각 `elapsed_s`, `previous_sample_s`, `db_utc`. 시계는 #201과 달리 이 명령을 돌리는 머신의 단조 시계다 |
+| `stages.before`, `delivered`, `cleaned` | `forward_enabled`, `reverse_enabled`, `apply_workers`, `source_slot_active`, `source_slot_wal_status`, `source_slot_invalidated`, `source_sender_state`, `source_sender_tls`, `source_slot_confirmed_flush_lsn`, `target_origin_remote_lsn`, `target_app_login`, `target_apply_errors`, `target_sync_errors`, `business_tables` |
+| `marker` | `insert_lsn_before_commit`, `delete_lsn_before_commit`, `same_row_on_both_sides_when_present`, `source_insert_commits`, `source_delete_commits`. 이 명령은 여기에 `source_insert_submissions`, `source_delete_submissions`, `cleanup`을 더한다 |
+| `continuity` | `same_subscription_oid_and_origin`, `enable_submissions`, `table_sync_states`, `source_wal_sender_timeout_ms`, `target_wal_receiver_timeout_ms`, `disable_on_error`, `platform_before_after` |
+
+`business_tables`의 해시는 첫 출발지 조회 시점까지의 행만 대상으로 한다. 출발지에 쓰기가 계속돼도 비교할 수 있게 하려는 것이며,
+해시 값 자체는 출력하지 않는다. 시험 행 없이 돌린 실행의 마지막 관측은 `stages.final`에 남는다.
+
+### 사후 확인
+
+`catch_up`이 먼저 통과해야 시험 행을 넣는다. `post_check`는 그 뒤에 모든 항목이 `--settle`(기본 15초) 동안 유지돼야 통과한다.
+각각 `--timeout`(기본 900초) 안에 확인하지 못하면 실패다.
+
+| 항목 | 확인하는 것 |
+| --- | --- |
+| `forward_enabled`, `apply_worker_running` | 구독이 켜져 있고 적용 작업자가 있다 |
+| `source_slot_active` | 작업자가 실제로 출발지에 붙어 슬롯을 쥐었다. 작업자는 접속 전에도 보이므로 이 항목이 따로 필요하다 |
+| `source_slot_valid` | 따라잡는 동안 슬롯이 무효가 되지 않았다 |
+| `confirmed_flush_advanced` | 슬롯의 확인 위치가 재개 전보다 앞으로 갔다 |
+| `received_fixed` | 목적지 워커의 수신 위치가 재개 직전 출발지 flush 위치(`positions.fixed`) 이상이다 |
+| `confirmed_fixed` | 슬롯의 `confirmed_flush_lsn`과 워커의 `latest_end_lsn`이 모두 그 위치를 지났다 |
+| `applied_fixed` | origin 적용 위치가 시험 행 삭제 커밋 전 위치를 지났다. 시험 행을 보내고 읽을 수 있을 때만 본다. origin은 커밋이 있어야 움직여서 WAL만으로는 판단할 수 없다 |
+| `tables_ready`, `rows_arrived` | 복사 중인 테이블이 없고, 첫 조회 시점의 행이 목적지에 모두 있다 |
+| `errors_not_increased` | 적용 오류 · 동기화 오류 · 충돌 수가 재개 전보다 늘지 않았다 |
+| `single_writer_kept` | 출발지 앱 LOGIN, 목적지 앱 NOLOGIN, 역방향 OFF가 그대로다 |
+
+구독이 다시 꺼지거나 오류가 늘면 기다리지 않고 바로 실패로 끝난다. 실패해도 구독을 끄거나 되돌리지 않는다.
+원인이 연결이었다면 연결이 돌아온 뒤 같은 명령을 다시 돌린다. 충돌이라면 다시 돌려도 또 꺼지므로 원인부터 찾는다.
+끝날 때 해시가 다르거나, 그 사이 실행이 lease를 쥐었거나, 구독 OID가 바뀌었어도 실패다.
+
+### 시험 행
+
+`--apply`는 따라잡은 뒤 `cutover.barrier`에 `epoch` 0인 행 하나를 넣고, 목적지 도착을 기다렸다가 지우고, 삭제 도착까지 기다린다.
+INSERT는 한 번만 보낸다. 지우는 것은 이 실행의 UUID이면서 `epoch`가 0인 행뿐이고, 목적지 행은 지우지 않고 보고만 한다. 다른 실행의 행에는 손대지 않는다.
+
+제출과 확인을 나눠 적는다. `*_submissions`는 보낸 횟수이고, `*_commits`는 응답이나 출발지 재조회로 확인한 결과다. 커밋한 뒤 응답만 끊기면 재조회로 찾아 지운다. `source_insert_commits`가 `null`이면 커밋 여부를 모른다는 뜻이다. 응답 유실 직후 행이 보이지 않는 것만으로 0으로 바꾸지 않는다.
+
+`marker.cleanup`은 다음 둘 중 하나다.
+
+| 값 | 뜻 | 다음 행동 |
+| --- | --- | --- |
+| `confirmed` | 같은 UUID의 INSERT가 끝난 뒤 삭제를 커밋하고, 목적지 삭제 반영과 양쪽 행 부재를 확인했다 | 없음. 왕복이 실패했다면 원인을 고쳐 `--apply`를 다시 돌린다. 새 UUID로 보낸다 |
+| `pending` | 없음을 확인하지 못했다. `pending_on`이 어느 쪽인지 알려 준다 | `marker.resume`의 명령을 대조값을 채워 돌린다 |
+
+```sh
+infra/envs/target-workloads/resume_replication.py --cleanup-marker <barrier_id> --marker-protocol serialized-v1 --source-system-id <값> --target-system-id <값>
+```
+
+`--cleanup-marker`는 ENABLE이나 INSERT를 하지 않는다. 행이 보이지 않아도 같은 UUID의 트랜잭션 잠금을 얻은 뒤 DELETE를 커밋하므로, 앞선 INSERT의 늦은 COMMIT을 지나쳐 정리 완료로 보고하지 않는다. 여러 번 돌려도 된다. `pending_on`이 `target`뿐이면 출발지 삭제는 끝난 것이다. 복제가 멈춰 있을 수 있으니 구독 상태를 먼저 본다. 목적지 행은 이 명령도 지우지 않는다.
+
+새 실행은 `marker.protocol=serialized-v1`을 기록한다. INSERT는 UUID에서 계산한 트랜잭션 advisory lock을 얻었다는 응답을 받은 뒤에만 제출하며, DELETE도 같은 잠금을 얻는다. 잠금 대기가 제한 시간을 넘으면 `cleanup=pending`으로 남는다. 목적지 INSERT를 관측하지 못한 실행은 행 부재에 더해 origin 적용 위치가 DELETE 커밋 응답 뒤 읽은 WAL 위치 이상인지 확인한다. origin을 읽을 권한이 없거나 적용이 멈췄으면 성공으로 바꾸지 않는다.
+
+UUID는 잠금 계산과 SQL 바인딩 전에 소문자·하이픈 포함 표준 문자열로 정규화한다. 정리 명령도 같은 표현을 기록하므로 대문자나 하이픈 생략 표기가 원래 INSERT의 잠금을 우회하지 못한다. 기존 표준 UUID의 `serialized-v1` 잠금 키는 바뀌지 않는다.
+
+정리 명령의 `--marker-protocol`은 원래 실행 기록에서 복사한다. 이 필드가 없는 이전 도구의 기록에는 잠금 보장이 없으므로 새 명령이 거부한다. 이전 실행에 이 값을 임의로 추가하지 말고, 원래 서버 세션의 종료와 커밋 상태를 운영자가 확인한 뒤 별도로 정리한다.
+
+읽기·쓰기 연결의 `search_path`는 `pg_catalog,pg_temp`로 고정하고, DB 이름과 클러스터 신원 함수는 `pg_catalog`를 명시한다. 따라서 `public.current_database()` 같은 함수나 DB 기본 `search_path`가 등록된 DB 신원을 대신할 수 없다.
+
+`cutover.barrier`는 기본 `schema.sql`의 publication에 없다. 환경마다 추가하고 구독을 `copy_data=false`로 갱신하는 단계다
+([T12 계약](../../../docs/contracts/T12-platform-integration.md)). 그래서 재개의 조건으로 삼지 않고 사전 확인에서 읽는다.
+
+- 옵션 없는 실행은 빠진 단계를 `barrier_gaps`로 알려 주고 통과할 수 있다. 업무 테이블 복제는 barrier 없이도 돈다.
+- `--apply`는 빠져 있으면 거부한다. 왕복을 건너뛰려면 `--no-barrier-probe`를 쓴다.
+- `barrier_gaps`가 남아 있으면 Executor의 5단계가 barrier를 기다리다 실패한다. 재개와 별개로 컷오버 전에 맞춘다.
+
+### 하지 못하는 것
+
+- 끊김 자체를 막지 않고 설정도 바꾸지 않는다. `disable_on_error`가 켜져 있는 동안 연결이 다시 끊기면 같은 이유로 또 꺼진다. 설정 판단(정방향은 끄는 방안 검토, 역방향은 검증 후 결정)은 증거 문서에 있다.
+- 사전 확인과 ENABLE 사이의 짧은 틈은 막지 못한다. 그 사이에 컷오버가 시작되면 Executor의 사전 점검이 구독 상태를 다시 본다.
+- 이 명령의 세션도 `system_roles` 밖의 역할이면 Executor가 우회 쓰기 후보로 본다. 컷오버 중에는 돌리지 않는다.
+
+### 시험
+
+아래 첫 명령은 의존성 없이 돈다. 이어지는 네 명령은 `t8-lag-` 컨테이너를 띄우고 지운다.
+
+```sh
+python3 -m unittest discover -s scripts/tests -p 'test_resume_replication.py'
+infra/envs/target-workloads/testing/replication_resume_lab.py recover --out recover.json
+infra/envs/target-workloads/testing/replication_resume_lab.py refusals --out refusals.json
+infra/envs/target-workloads/testing/replication_resume_lab.py paths --out paths.json
+infra/envs/target-workloads/testing/replication_resume_lab.py timeouts --out timeouts.json
+```
+
+두 결함의 TLS/실제 PostgreSQL 회귀 시험은 별도로 실행한다. Docker와 OpenSSL이 필요하며, 임의 비밀번호와 localhost 포트의 일회용 DB만 사용한다. 시험은 소유 라벨로 컨테이너·네트워크를 확인하고 정리한다.
+
+```sh
+T8_RESUME_WIRE=1 uv run --with pytest --with 'psycopg[binary]==3.3.6' \
+  pytest infra/envs/target-workloads/testing/test_resume_replication_wire.py -q
+```
+
+2026-11-05 수정 및 앱 TLS 시험 범위는 [후속 검증 기록](../../../docs/evidence/t8-resume-fixes-2026-11-05/README.md)에 있다.

@@ -39,6 +39,20 @@ uv run python deploy/window/build.py /private/operator-output/window-build
 
 `jobs.job(image, "enroll")`는 `t10-ingress-probe-*`의 합성 계획에만 쓸 수 있는 검증 도구다. 실제 T18 계획을 자동 생성하거나 권한을 주지 않는다. 운영용 연결을 완료하려면 실제 계획과 생산자 쪽 전달 경로의 인수가 별도로 필요하다.
 
+## 스키마 3 등록 테이블 인수
+
+`jobs.job(image, "migrate", schema_version=3)`은 저장소의 `0003_registrations.sql`을 별도 migration 로그인으로 한 번 실행한다. 기본값은 기존 v1→v2 작업이다. SQL과 실행기 전체의 해시로 immutable ConfigMap 이름을 정하므로 두 버전의 내용을 혼용하지 않는다. 잠금은 최대 5초, SQL은 최대 60초 기다리며, Job은 자동 재시도하지 않는다. 실패나 응답 유실 때는 현재 스키마·테이블·Job UID를 먼저 재조회한다.
+
+운영 전환 순서는 다음과 같다.
+
+1. 현재 DB 소비 프로세스를 조사한다. 특히 기존 창 수신 이미지의 `PostgresPlanStore`와 `window_server`가 v3를 허용하는지 실제 실행 파일의 해시로 확인한다. 저장소 코드만 확인해서는 배포된 소비자의 호환성을 증명할 수 없다.
+2. 현재 상태의 암호화 백업을 호스트 밖에 보존하고 네트워크가 차단된 PostgreSQL에 복원한다. 데이터·역할·권한·제약·시퀀스를 비교하고, 복원본에서 migration 로그인으로 2→3 전환과 중복 실행 거부를 시험한다. 역할 암호나 DB 접속값은 증빙에 포함하지 않는다.
+3. 검토된 v2/v3 호환 창 수신 이미지를 먼저 올린다. 기존 Deployment의 이미지 필드만 현재 UID·resourceVersion·이전 이미지에 결속해 갱신한다. 생산자 identity, Service, Secret, 네트워크 정책을 다시 만들지 않는다. Ready와 새 DB 연결을 확인한다.
+4. 같은 운영 창에서 원본 스키마가 여전히 2인지, 백업 이후 데이터 변화가 없는지 재조회한 뒤 migration Job을 만든다. 기존 데이터가 바뀌었으면 백업·복원 확인을 갱신한다. 별도 migration Secret과 CA만 mount하며 사람·생산자 토큰은 사용하지 않는다.
+5. 스키마 3, 빈 등록 테이블, 기존 행 보존, runtime의 SELECT/INSERT만 허용됨을 확인한다. 호환 수신 Pod에서 새 연결과 `/readyz`도 확인한다. 생성한 Job·ConfigMap은 UID를 확인해 정리한다.
+
+스키마 3 적용은 실제 환경·앱·계획 등록이나 운영 인수 완료를 뜻하지 않는다. 실제 등록은 [T10 등록 계약](../../../../docs/contracts/T10-registration.md)의 사람 인증·서버 소유 tenant 권한·실제 연결과 릴리스 대조를 거친다. `enroll`의 합성 계획을 운영 계획으로 승격하거나 서비스 OIDC를 사람 신원으로 사용하지 않는다.
+
 ## 토큰 교체와 회수
 
 receiver Secret `t10-window-producer-identity`는 `producer.json`에 `token_sha256`과 `ProducerIdentity`를 둔다. 원문은 별도 `t10-window-producer-token` Secret의 `token` 키에만 둔다. 수신 Pod에는 원문 Secret을 mount하지 않는다. `issue_credential.py`는 최대 8시간의 최초 발급만 하며 기존 Secret을 덮어쓰지 않는다.

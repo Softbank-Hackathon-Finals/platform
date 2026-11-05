@@ -1,0 +1,1 @@
+{"roles": {"arn:aws:iam::000000000000:role/chat-irsa": {"policies": [{"name": "ops-added", "statements": [{"Effect": "Allow", "Action": ["kms:Encrypt"], "Resource": "*"}]}]}}, "buckets": {}, "secrets": {}, "kms": {}}

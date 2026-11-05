@@ -23,6 +23,6 @@ T19의 접근·데이터 준비 판정, T36의 SLI 판정, T12/T13의 최종 무
 - [T19 PR #141](https://github.com/Softbank-Hackathon-Finals/platform/pull/141)은 게이트 기준 구현과 생산·소비 포트를 설명한다. 패키지에 고정한 T5 계약 사본은 provenance와 버전 검증을 가진 배포물이다. 파일이 둘 있다는 이유만으로 제거하지 않는다.
 - [T36 PR #137](https://github.com/Softbank-Hackathon-Finals/platform/pull/137)의 창 생성·수신·판정을 소비할 때 현재 계획·state·weight·관측 시작 시점의 결속도 확인한다. 공통 함수 호출만으로 입력의 진위를 증명하지 않는다.
 - [T10 PR #139](https://github.com/Softbank-Hackathon-Finals/platform/pull/139)은 호스트의 운영자 접근 경계다. T21의 실제 IdP 설정이나 T19 정본 저장소를 독립적으로 정하지 않는다.
-- 추가 설계의 전체 발견 경로는 [T29 PR #138](https://github.com/Softbank-Hackathon-Finals/platform/pull/138)의 `docs/additions/README.md` 제안과 연결한다. 이 계약 목차에서 추가 과제 목록을 다시 관리하지 않는다.
+- 추가 설계의 전체 발견 경로는 [추가 작업·설계 목차](../additions/README.md)다. 목록 안의 작성 시점 상태와 제안 ADR은 각 원문의 현재 상태·근거와 구분해 읽는다. 이 계약 목차에서 추가 과제 목록을 다시 관리하지 않는다.
 
 위 링크는 구현 검토 경로이며 채택·배포 완료 표가 아니다. 최신 head·리뷰·필수 CI는 PR, 실제 인수는 해당 증빙을 읽는다. 이전 실측 문서는 당시 커밋에 고정해 보존하고, 대체된 계약은 소비 링크를 옮긴 뒤 삭제한다.

@@ -276,12 +276,17 @@ def test_host_bridge_uses_sts_identity_and_existing_worker(monkeypatch, setup, c
     assert not list(service.journal.root.glob("product-*"))
 
 
-def test_configured_http_route_keeps_product_and_fixture_separate(monkeypatch, setup):
+def test_configured_http_route_keeps_product_and_fixture_separate(monkeypatch, setup, tmp_path):
     import http.client
     import queue
     from http.server import HTTPServer
 
+    from tls_support import identity
+
+    from bravo_agent.subscription_product_tls import client_context
+
     service, _, body, counts = setup
+    tls, ca_pem = identity(tmp_path)
     ready = queue.Queue()
 
     def bind(address, handler):
@@ -291,12 +296,14 @@ def test_configured_http_route_keeps_product_and_fixture_separate(monkeypatch, s
 
     monkeypatch.setattr(server, "HTTPServer", bind)
     monkeypatch.setattr(server, "execute_fixture", lambda *args: pytest.fail("product cannot execute fixture"))
-    thread = threading.Thread(target=server.serve, args=({},), kwargs={"product": service}, daemon=True)
+    thread = threading.Thread(target=server.serve, args=({},),
+                              kwargs={"product": service, "tls_context": tls}, daemon=True)
     thread.start()
     port = ready.get(timeout=5)
 
     def post(payload):
-        connection = http.client.HTTPConnection("127.0.0.1", port, timeout=5)
+        connection = http.client.HTTPSConnection("127.0.0.1", port, timeout=5,
+                                               context=client_context(ca_pem))
         try:
             connection.request("POST", "/run", json.dumps(payload))
             response = connection.getresponse()

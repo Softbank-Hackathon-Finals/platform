@@ -252,4 +252,14 @@ PYTHONPATH=../rehearsal-runner/src uv run --frozen --no-default-groups --with py
 
 `bucket_planner.BucketPlanner`는 시도마다 T11 제안·namespace 생성·T3 격리·검증 Job을 실제 클러스터 설정으로 조립한다. 호스트가 넣는 값은 목적지 프로필(`profiles/onprem.env`), 시험 버킷(`BucketTarget`: T9 시험 버킷과 러너가 읽을 자격 Secret 위치), 계획 결속 조회, T11/T38 제안 원천(`ProposalSource.open`: 검증된 스냅샷의 Coordinator와 모델 provider), 러너 클러스터 신원(`Kubectl`, T38 `Kube`)이다. 2·3회차는 이 프로세스가 연 Coordinator에 직전 FAIL의 서명된 증거 digest를 넣은 뒤에만 이어 간다. 재시작 뒤에는 효과 전에 멈추고 사람에게 넘긴다. `build_bucket_host`는 T10에 넣을 `T15RehearsalHost`와 `ChangeIntake.read_original`·`tool_events`에 쓸 `RecordedEvidence`를 함께 돌려준다.
 
+`task_catalog.TaskCatalog`는 T10 `RehearsalHost.task`에 쓰는 운영 catalog다. 운영자가 계획별 작업(버킷 정책: 원본 S3 정책·시험 버킷·원본 revision / 자격 이전: demo-chat revision)을 한 번만 등록하고, 등록은 호스트만 가진 키로 HMAC 서명한다. 계획 ID·tenant·plan digest에 묶여 있어 계획이 바뀌면 이전 등록을 쓰지 않는다. T16 인벤토리 출력이 병합되기 전에는 운영자가 수집한 원본 정책을 등록한다.
+
+```bash
+python -m rehearsal_runner.task_catalog --root <catalog 경로> --key-file <비공개 키 파일> \
+  --plan-id <plan> --tenant-id <tenant> --plan-digest <digest> --task-id bucket --source-sha <revision> \
+  --kind bucket-policy --source-policy-file <원본 정책 JSON> --target-bucket rehearsal-attachments
+```
+
+`remote_proposals.RemoteProposalSource`는 T38 제품 경로(#280)의 응답을 planner의 `ProposalSource`로 넘긴다. 호스트가 같은 `ProductInput`, 요청 본문(`input_ref`·`input_digest`·토큰), 호출 함수(`ProductService.run` 또는 `POST /run`)를 넣는다. 응답의 실행 ID·회차(1)·input/snapshot digest·`admission_digest`·제품 입력 digest를 대조한 뒤 제안을 로컬 T11 Coordinator에 다시 넣어 정책을 재검증한다. 모델의 도구 이벤트는 원격에 있으므로 시도 기록의 `tool_events`는 `UNAVAILABLE`로 남는다. T38은 첫 시도만 지원하므로 2·3회차는 호출 전에 멈춘다. `bucket_product_bundle`은 T10 호스트가 `ProductInput.bundle`을 만들 때 쓰는 첫 시도 입력이다.
+
 `testing/rke2_rehearsal_flow.py`는 개인 RKE2 시험 VM 전용이다. `setup`은 시험용 SeaweedFS·OpenBao 대역·버킷을 만들고, `run`은 실제 T10 접수·수신·변경 승인(SQLite), T11 Coordinator, T3 격리, 검증 Job과 UID 정리를 연결한다. 제안은 스크립트로 고정하며 모델·팀 목적지·사람 승인을 대신하지 않는다.
