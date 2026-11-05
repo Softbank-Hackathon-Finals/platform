@@ -1,5 +1,5 @@
 import { ApiError, request } from "./transport.js";
-import { identifier } from "./model.js";
+import { evaluationProfile, identifier } from "./model.js";
 
 const paths = {
   environment: "/v1/environments",
@@ -21,7 +21,12 @@ const fields = {
     "source_environment_id",
     "namespace",
   ],
-  plan: ["workload_id", "target_environment_id"],
+  plan: [
+    "workload_id",
+    "target_environment_id",
+    "profile_id",
+    "profile_version",
+  ],
 };
 const safeText = (value, max) =>
   typeof value === "string" &&
@@ -65,6 +70,11 @@ export function registrationInput(kind, input) {
   ])
     if (key in value && !identifier(value[key]))
       throw new ApiError("invalid_registration_input");
+  if (
+    kind === "plan" &&
+    ![value.profile_id, value.profile_version].every(evaluationProfile)
+  )
+    throw new ApiError("invalid_registration_input");
   if (
     kind === "environment" &&
     (!Array.isArray(value.roles) ||
@@ -148,13 +158,27 @@ export function registrationReceipt(kind, input, value) {
     !identifier(value.source_environment_id) ||
     value.workload_id !== input.workload_id ||
     value.target_environment_id !== input.target_environment_id ||
+    ![
+      input.profile_id,
+      input.profile_version,
+      value.profile_id,
+      value.profile_version,
+    ].every(evaluationProfile) ||
+    value.profile_id !== input.profile_id ||
+    value.profile_version !== input.profile_version ||
     value.state !== "COLLECT" ||
     value.version !== 1 ||
     !hash(value.plan_digest) ||
     !hash(value.collection_scope_digest)
   )
     throw new ApiError("invalid_registration_receipt");
-  return { ...result, id: value.plan_id, state: value.state };
+  return {
+    ...result,
+    id: value.plan_id,
+    state: value.state,
+    profile_id: value.profile_id,
+    profile_version: value.profile_version,
+  };
 }
 
 // One in-flight registration; payload and key survive ambiguous responses only in memory.
@@ -223,7 +247,7 @@ export function mountRegistration({ onPlan, onForbidden }) {
       if (activeEpoch !== epoch) return;
       attempt = null;
       const row = document.createElement("li");
-      row.textContent = `${receipt.kind === "environment" ? (receipt.role === "source" ? "출발 환경" : "목적 환경") : receipt.kind === "workload" ? "앱" : "계획"}: ${receipt.id} · 등록 ${receipt.registered_at}${receipt.warnings.length ? " · 권한 경고: " + receipt.warnings.join(", ") : ""}`;
+      row.textContent = `${receipt.kind === "environment" ? (receipt.role === "source" ? "출발 환경" : "목적 환경") : receipt.kind === "workload" ? "앱" : "계획"}: ${receipt.id} · 등록 ${receipt.registered_at}${receipt.kind === "plan" ? " · 평가 프로필 " + receipt.profile_id + " / " + receipt.profile_version : ""}${receipt.warnings.length ? " · 권한 경고: " + receipt.warnings.join(", ") : ""}`;
       output.append(row);
       while (output.children.length > 20) output.firstChild.remove();
       if (receipt.kind === "environment") {
