@@ -55,8 +55,10 @@ def pinned_control_image() -> str:
     return image
 
 
-def start_control(spec, image: str) -> None:
+def start_control(spec, image: str, hosts: list[str]) -> None:
     pod = render_control_pod(spec, image)
+    # 시험에서만 AWS 이름을 대역에 묶는다. 실제 대조군은 실제 AWS 주소에 닿아야 한다.
+    pod["spec"]["hostAliases"] = lab.aws_aliases(hosts)
     lab.apply(pod)
     lab.kubectl("-n", lab.NS, "wait", "--for=condition=Ready", f"pod/{pod['metadata']['name']}", "--timeout=60s", timeout=80)
 
@@ -208,7 +210,7 @@ def run_all(out: Path) -> int:
 
         # 1단계: 대조군 → 스냅샷 → 계획 → 차단 없는 지도
         started = time.monotonic()
-        start_control(spec, image)
+        start_control(spec, image, hosts)
         plan = build_plan(spec, inventory, parse_snapshot(lab.get_json("pods,networkpolicies"), namespace=lab.NS))
         lab.check_no_real_aws(plan, hosts)
         no_drill = stage_map(plan, inventory, None)
@@ -233,7 +235,7 @@ def run_all(out: Path) -> int:
         print("rollback:", results["rollback"], flush=True)
 
         # 3단계: 쓰기 대상을 확인하지 못한 입력. 지어내지 않으면 통과하지 않는다.
-        start_control(spec, image)
+        start_control(spec, image, hosts)
         _, _, unconfirmed = drill(plan, kube, cutover=None)
         results["without_cutover_input"] = {"verdict": unconfirmed["verdict"], "not_pass": stage_map(plan, inventory, unconfirmed)["drill_not_pass"]}
         print("no cutover input:", results["without_cutover_input"], flush=True)
@@ -241,7 +243,7 @@ def run_all(out: Path) -> int:
 
         # 4단계: 호환 구성. 비자격 판정은 PR #210에 있다. 없으면 재지 못한 것으로 남긴다.
         make_compatible()
-        start_control(spec, image)
+        start_control(spec, image, hosts)
         started = time.monotonic()
         _, _, compat = drill(plan, kube, cutover={"writer": "target", "note": "stand-in"})
         timed(results, "compat_drill", started)
