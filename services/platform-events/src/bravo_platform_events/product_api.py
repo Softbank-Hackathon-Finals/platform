@@ -12,7 +12,7 @@ from fastapi.responses import JSONResponse
 from .executor import _object
 from .product_inputs import ProductInputRecords
 from .store import EventError
-from .workload_identity import WorkloadSender
+from .workload_identity import WorkloadKeySet, WorkloadSender
 
 PATH = "/internal/v1/product-inputs/read"
 ISSUER = "https://token.actions.githubusercontent.com"
@@ -30,11 +30,11 @@ class GitHubProductCaller:
     The workload binding's tenant is registered host config, never a JWT claim.
     """
 
-    sender: WorkloadSender
+    sender: WorkloadSender | WorkloadKeySet
     sts_provider: str
 
     def __post_init__(self):
-        if (type(self.sender) is not WorkloadSender
+        if (type(self.sender) not in (WorkloadSender, WorkloadKeySet)
                 or (self.sender.issuer, self.sender.audience, self.sender.subject) != (ISSUER, AUDIENCE, SUBJECT)
                 or not isinstance(self.sts_provider, str)
                 or re.fullmatch(r"[A-Za-z0-9:/._-]{1,512}", self.sts_provider) is None):

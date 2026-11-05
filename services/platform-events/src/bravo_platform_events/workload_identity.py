@@ -41,3 +41,40 @@ class WorkloadSender:
         except (jwt.PyJWTError, TypeError, ValueError):
             raise EventError("forbidden") from None
         return claims
+
+
+@dataclass(frozen=True)
+class WorkloadKeySet:
+    """Select a key only from an immutable, host-provisioned public key set."""
+
+    issuer: str
+    audience: str
+    subject: str
+    public_keys: tuple[tuple[str, RSAPublicKey], ...]
+    tenant_id: str
+
+    def __post_init__(self):
+        if type(self.public_keys) is not tuple or not 1 <= len(self.public_keys) <= 32:
+            raise ValueError("invalid_workload_keys")
+        seen = set()
+        for item in self.public_keys:
+            if type(item) is not tuple or len(item) != 2:
+                raise ValueError("invalid_workload_keys")
+            kid, key = item
+            if not isinstance(kid, str) or not 1 <= len(kid) <= 256 or kid in seen:
+                raise ValueError("invalid_workload_keys")
+            seen.add(kid)
+            WorkloadSender(self.issuer, self.audience, self.subject, key, self.tenant_id)
+
+    def authenticate(self, token):
+        try:
+            if not isinstance(token, str) or not 1 <= len(token) <= 16384:
+                raise ValueError()
+            header = jwt.get_unverified_header(token)
+            if (header.get("alg") != "RS256" or not isinstance(header.get("kid"), str)
+                    or set(header) & {"jku", "jwk", "x5u", "x5c"}):
+                raise ValueError()
+            key = next(key for kid, key in self.public_keys if kid == header["kid"])
+        except (jwt.PyJWTError, TypeError, ValueError, StopIteration):
+            raise EventError("forbidden") from None
+        return WorkloadSender(self.issuer, self.audience, self.subject, key, self.tenant_id).authenticate(token)
