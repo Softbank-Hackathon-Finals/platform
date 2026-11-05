@@ -333,3 +333,92 @@ def test_probe_service_cannot_look_like_an_option(service):
     s = session(probe=action)
     r = checked(s, s.handle(request("probe", HTTP | {"service": service})))
     assert (r["reason"], r["stage"]) == ("BLOCKED", "VALIDATE") and action.calls == []
+
+
+# -- regressions from the pre-PR review --------------------------------------------------------
+
+def test_a_call_waiting_behind_an_unknown_apply_does_not_run():
+    import threading
+
+    started, release = threading.Event(), threading.Event()
+
+    class BlockingApply:
+        def validate(self, arguments):
+            return apply_validate(arguments)
+
+        def run(self, arguments, deadline):
+            started.set()
+            release.wait(5)
+            raise Transient()
+
+    inspect = Scripted(inspect_record, Outcome(INSPECT_STATUS))
+    s = session(apply=BlockingApply(), inspect=inspect)
+    results = {}
+    a = threading.Thread(target=lambda: results.setdefault("a", s.handle(request("apply", DRAFT))))
+    a.start()
+    assert started.wait(5)
+    b = threading.Thread(target=lambda: results.setdefault("b", s.handle(request("inspect", POD, "req-0002-race"))))
+    b.start()
+    release.set()
+    a.join(5)
+    b.join(5)
+    assert results["a"]["result_code"] == "UNKNOWN"
+    assert (results["b"]["result_code"], results["b"]["reason"]) == ("REJECTED", "EFFECT_UNKNOWN")
+    assert inspect.calls == []
+
+
+def test_concurrent_calls_never_exceed_the_call_limit():
+    import threading
+
+    action = Scripted(inspect_record, Outcome(INSPECT_STATUS))
+    s = session(inspect=action)
+    threads = [threading.Thread(target=s.handle, args=(request("inspect", POD, f"req-00{n:02d}-many"),))
+               for n in range(12)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(5)
+    assert len(action.calls) == 5
+    assert sum(e["result_code"] == "OK" for e in s.events()) == 5
+
+
+def fully_encoded(value: str) -> str:
+    return "".join(f"%{b:02X}" for b in value.encode())
+
+
+@pytest.mark.parametrize("encode", [fully_encoded, lambda v: fully_encoded(fully_encoded(v))])
+def test_any_percent_encoding_of_a_secret_is_found(encode):
+    probe = Scripted(probe_record, Outcome(PROBE_STATUS))
+    s = session(probe=probe)
+    r = s.handle(request("probe", HTTP | {"path": "/q?t=" + encode(PLANTED)}))
+    assert (r["reason"], r["stage"]) == ("BLOCKED", "VALIDATE") and probe.calls == []
+    s = session(inspect=Scripted(inspect_record, Outcome(INSPECT_STATUS, ("x=" + encode(PLANTED)).encode())))
+    assert s.handle(request("inspect", LOGS))["reason"] == "OUTPUT_WITHHELD"
+
+
+def test_unrecorded_after_answers_like_the_journal_and_stops_exec():
+    written = {}
+
+    class FailFirstAfter:
+        def write(self, seq, phase, body):
+            if (seq, phase) == (1, "after"):
+                raise OSError("disk full")
+            written[(seq, phase)] = body
+
+    action = Scripted(inspect_record, Outcome(INSPECT_STATUS, b"x"))
+    s = ExecSession("plan-1-a", 1, SPACE, {"inspect": action}, secrets=lambda: [PLANTED],
+                    space_uid=lambda: "uid-a", journal=FailFirstAfter(), sleep=lambda _: None)
+    first = checked(s, s.handle(request("inspect", POD)))
+    assert (first["result_code"], first["reason"]) == ("UNKNOWN", "EFFECT_UNKNOWN")
+    second = s.handle(request("inspect", POD, "req-0002-after"))
+    assert (second["result_code"], second["reason"]) == ("REJECTED", "UNAVAILABLE")
+    assert len(action.calls) == 1 and s.journal_failed
+    assert s.events()[0]["result_code"] == "UNKNOWN"  # same as the persisted before-only record
+
+
+def test_output_over_the_record_limit_is_withheld_without_size_keys():
+    big = b"x" * (1048576 + 1)
+    s = session(inspect=Scripted(inspect_record, Outcome(INSPECT_STATUS, big)))
+    r = checked(s, s.handle(request("inspect", LOGS)))
+    assert r["reason"] == "OUTPUT_WITHHELD"
+    assert "output_bytes" not in s.events()[0] and "output_sha256" not in s.events()[0]

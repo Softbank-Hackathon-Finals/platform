@@ -108,7 +108,8 @@ class ExecSession:
         self.run_id, self.attempt, self.space = run_id, attempt, space
         self._actions, self._secrets, self._space_uid = actions, secrets, space_uid
         self.limits, self._clock, self._sleep = limits or Limits(), clock, sleep
-        self._lock = threading.Lock()
+        self._lock = threading.Lock()  # state
+        self._run_lock = threading.Lock()  # one action at a time: checks, execution and records
         self._opened = clock()
         self._first_call: float | None = None
         self._calls = 0
@@ -174,16 +175,22 @@ class ExecSession:
             self._closed = True
         return seq
 
-    def _complete(self, seq: int, result: dict) -> None:
-        """Write the `after` record (caller holds the lock)."""
+    def _complete(self, seq: int, result: dict) -> bool:
+        """Write the `after` record (caller holds the lock).
+
+        If it cannot be written, the persisted journal says UNKNOWN for this seq;
+        the event stays UNKNOWN in memory too and the session closes.
+        """
         after = {k: v for k, v in result.items() if v is not None}
-        event = self._events[seq - 1]
-        self._events[seq - 1] = {k: v for k, v in event.items() if k not in ("reason", "stage")} | after
         if self._journal is not None:
             try:
                 self._journal.write(seq, "after", after)
             except Exception:
-                self._journal_failed = True
+                self._journal_failed = self._closed = True
+                return False
+        event = self._events[seq - 1]
+        self._events[seq - 1] = {k: v for k, v in event.items() if k not in ("reason", "stage")} | after
+        return True
 
     def _record(self, request_id: str, action: str, digest: str, result: dict) -> int | None:
         """A refusal: before and after at once. Returns seq, or None when nothing could be recorded."""
@@ -215,10 +222,11 @@ class ExecSession:
                 owner = False
         if not owner:
             return self._duplicate(request, entry)
-        try:
-            response = self._admit_and_run(request)
-        except Exception:
-            response = self._fail_unexpected(request)
+        with self._run_lock:
+            try:
+                response = self._admit_and_run(request)
+            except Exception:
+                response = self._fail_unexpected(request)
         entry.response = response
         entry.done.set()
         return response
@@ -332,7 +340,11 @@ class ExecSession:
             result = result | {"reason": "OUTPUT_WITHHELD", "stage": "OUTPUT"}
         result = result | {"output_sha256": screened.sha256, "output_bytes": screened.size}
         with self._lock:
-            self._complete(seq, result)
+            completed = self._complete(seq, result)
+            if not completed and request.action == "apply":
+                self._effect_unknown = True
+        if not completed:  # answer what the signed journal will say
+            return self._response(request.request_id, request.action, "UNKNOWN", "EFFECT_UNKNOWN", "EXECUTE")
         ok = result["result_code"] == "OK"
         return self._response(request.request_id, request.action, result["result_code"],
                               result.get("reason"), result.get("stage"), status if ok else None,

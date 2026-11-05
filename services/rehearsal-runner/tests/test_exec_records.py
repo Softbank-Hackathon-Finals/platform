@@ -140,3 +140,23 @@ def test_merge_rejects_values_outside_the_contract(change):
     records = {(1, "before"): before, (1, "after"): {"result_code": "OK"}} | change
     with pytest.raises(ValueError):
         merge_exec_events(records, Admission())
+
+
+@pytest.mark.parametrize("change", [
+    {"output_sha256": "e" * 64, "output_bytes": 1048577},
+    {"request_id": None},
+    {"args_sha256": None},
+    {"attempt": True},
+    {"target_name": "-A"},
+    {"output_sha256": "e" * 64},
+])
+def test_merge_applies_the_contract_field_rules(change):
+    before = {"run_id": "run-1", "attempt": 1, "seq": 1, "action": "inspect", "request_id": "req-0001-x",
+              "args_sha256": "0" * 64, "target_kind": "pod", "target_name": "chat"}
+    before = {k: v for k, v in (before | change).items() if v is not None}
+    after = {"result_code": "OK"}
+    for key in ("output_sha256", "output_bytes"):
+        if key in before:
+            after[key] = before.pop(key)
+    with pytest.raises(ValueError):
+        merge_exec_events({(1, "before"): before, (1, "after"): after}, Admission())

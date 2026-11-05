@@ -9,7 +9,9 @@ import base64
 import hashlib
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
-from urllib.parse import quote, quote_plus
+from urllib.parse import quote, quote_plus, unquote_plus
+
+from .exec_contract import MAX_OUTPUT_BYTES  # larger output is withheld and not recorded
 
 TAIL_BYTES = 2048
 
@@ -41,11 +43,23 @@ def secret_forms(value: str) -> set[str]:
     return {value, quote(value, safe=""), quote_plus(value)} | _base64_cores(data)
 
 
+def _decodings(text: str) -> list[str]:
+    """The text and its percent-decodings (any byte may be %XX-encoded, possibly twice)."""
+    found = [text]
+    for _ in range(3):
+        decoded = unquote_plus(found[-1], errors="replace")
+        if decoded == found[-1]:
+            break
+        found.append(decoded)
+    return found
+
+
 def contains_secret(text: str, secrets: Iterable[str]) -> bool:
+    candidates = _decodings(text)
     for value in secrets:
         if not isinstance(value, str):
             raise TypeError("secret must be text")
-        if value and any(form in text for form in secret_forms(value)):
+        if value and any(form in candidate for candidate in candidates for form in secret_forms(value)):
             return True
     return False
 
@@ -53,6 +67,8 @@ def contains_secret(text: str, secrets: Iterable[str]) -> bool:
 def screen(output: bytes, secrets: Callable[[], Iterable[str]]) -> Screened:
     if not output:
         return Screened(None, False, None, None, False)
+    if len(output) > MAX_OUTPUT_BYTES:
+        return Screened(None, False, None, None, True)
     digest, size = hashlib.sha256(output).hexdigest(), len(output)
     try:
         text = output.decode("utf-8")

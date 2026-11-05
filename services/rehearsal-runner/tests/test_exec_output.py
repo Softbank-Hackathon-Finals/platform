@@ -27,3 +27,9 @@ def test_screen_reports_digest_of_whole_output():
     result = screen(b"x" * 3000, lambda: [PLANTED])
     assert result.size == 3000 and result.truncated and len(result.tail) == 2048 and not result.withheld
     assert screen(b"", lambda: [PLANTED]).sha256 is None
+
+
+def test_percent_encoded_bytes_and_double_encoding():
+    encoded = "".join(f"%{b:02x}" for b in PLANTED.encode())
+    assert contains_secret("q=" + encoded, [PLANTED])
+    assert contains_secret("q=" + encoded.replace("%", "%25"), [PLANTED])

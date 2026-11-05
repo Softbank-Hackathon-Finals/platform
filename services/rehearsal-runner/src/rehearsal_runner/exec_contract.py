@@ -109,3 +109,48 @@ def probe_record(arguments: dict) -> dict:
             or (path is None) != (method == "TCP")):
         raise ValueError("invalid probe arguments")
     return {"service": service, "port": port, "method": method} | ({"path": path} if path is not None else {})
+
+
+_EVENT_COMMON = {"run_id", "attempt", "seq", "action", "request_id", "args_sha256", "result_code", "reason",
+                 "stage", "output_sha256", "output_bytes"}
+EVENT_KEYS = {"apply": _EVENT_COMMON | {"proposal_digest"},
+              "inspect": _EVENT_COMMON | {"target_kind", "target_name", "lines"},
+              "probe": _EVENT_COMMON | {"service", "port", "method", "path", "probe_outcome", "http_status"}}
+MAX_OUTPUT_BYTES = 1048576
+
+
+def _int_in(value, low: int, high: int) -> bool:
+    return _is_int(value) and low <= value <= high
+
+
+def _match(pattern: re.Pattern, value) -> bool:
+    return isinstance(value, str) and pattern.fullmatch(value) is not None
+
+
+def valid_exec_event(event) -> bool:
+    """Same rules as the schema's exec_event; values are never null."""
+    if not isinstance(event, dict):
+        return False
+    action, code, reason = event.get("action"), event.get("result_code"), event.get("reason")
+    if action not in EVENT_KEYS or not set(event) <= EVENT_KEYS[action]:
+        return False
+    checks = {
+        "run_id": lambda v: _match(_RUN_ID, v), "attempt": lambda v: _int_in(v, 1, 3),
+        "seq": lambda v: _int_in(v, 1, 32), "request_id": lambda v: _match(_REQUEST_ID, v),
+        "args_sha256": lambda v: _match(_SHA256, v), "result_code": lambda v: v in RESULT_CODES,
+        "reason": lambda v: v in REASONS, "stage": lambda v: v in STAGES,
+        "output_sha256": lambda v: _match(_SHA256, v), "output_bytes": lambda v: _int_in(v, 0, MAX_OUTPUT_BYTES),
+        "proposal_digest": lambda v: _match(_SHA256, v),
+        "target_kind": lambda v: v in ("pod", "deployment", "events", "logs"),
+        "target_name": _name, "lines": lambda v: _int_in(v, 1, 200), "service": _name,
+        "port": lambda v: _int_in(v, 1, 65535), "method": lambda v: v in ("TCP", "HTTP_GET", "HTTP_HEAD"),
+        "path": lambda v: _match(_HTTP_PATH, v), "probe_outcome": lambda v: v in PROBE_OUTCOMES,
+        "http_status": lambda v: _int_in(v, 100, 599),
+    }
+    if any(key not in event for key in ("run_id", "attempt", "seq", "request_id", "args_sha256", "result_code")):
+        return False
+    if any(type(v) not in (str, int, bool) or not checks[k](v) for k, v in event.items() if k != "action"):
+        return False
+    if ("reason" in event) != ("stage" in event) or ("output_sha256" in event) != ("output_bytes" in event):
+        return False
+    return (code == "OK") == (reason in (None, "OUTPUT_WITHHELD"))

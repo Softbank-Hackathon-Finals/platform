@@ -61,6 +61,8 @@
 - **한도(ADR-0026, 실측 뒤 조정):** 동작 한 번 15초(재시도 포함), 시도당 실행 5회, exec 합계 90초(첫 호출부터). `EXECUTE` 단계에 들어간 호출만 횟수에 세고, `ADMIT`·`VALIDATE`에서 거부된 호출과 재시도는 세지 않는다. 넘으면 `BUDGET_EXHAUSTED`다.
 - **재시도는 T15 안에서만 한다.** 미전송이 확인된 오류와 inspect·probe의 일시 실패만, 최대 2회, 간격 1초다. T11과 broker는 같은 `request_id` 재전송 외에는 재시도하지 않는다.
 - **기록 수 상한:** 시도당 기록 32개다. 32번째를 기록하면 세션을 닫는다.
+- **한 번에 하나:** 세션은 동작을 하나씩 실행한다. 동시에 온 요청은 앞 요청이 기록까지 끝난 뒤 상태(닫힘·결과 모름·한도)를 다시 확인하고 실행한다.
+- **기록 실패:** 실행 전 기록을 쓰지 못하면 실행하지 않는다(`REJECTED`·`UNAVAILABLE`). 실행 뒤 기록을 쓰지 못하면 저장된 기록과 같게 `UNKNOWN`·`EFFECT_UNKNOWN`으로 답하고 세션을 닫는다.
 
 ## 5. 응답
 
@@ -92,7 +94,7 @@ T15 → broker → T11 → 모델로 같은 객체가 간다(스키마 `response
   - apply: `proposal_digest`, inspect로 볼 수 있는 대상 `targets`(종류·이름, 러너 템플릿이 정한 값, 최대 8개)
   - inspect: `found`, `phase`, `ready`, `replicas`, `ready_replicas`, `restarts`, `events`(이벤트 수). 대상에 맞지 않는 값은 `null`. 대상이 없으면 `found=false`이며 실패가 아니다.
   - probe: `probe_outcome`(`CONNECTED`·`REFUSED`·`TIMED_OUT`·`DNS_FAILED`), `http_status`(TCP면 `null`), `elapsed_ms`. 접속 거부·시간 초과·403도 시험 결과이므로 `OK`다.
-- **출력:** apply는 실패 시 API 오류 본문, inspect는 이벤트·로그 본문, probe는 HTTP 응답 본문(HEAD·TCP는 없음)이다. 비밀값 검사는 자르기 전 전체 출력에 한다. 비밀값이 자르는 경계에 걸쳐 빠져나가지 않게 하기 위해서다. 막으면 `output_tail=null`, `output_truncated=false`다.
+- **출력:** apply는 실패 시 API 오류 본문, inspect는 이벤트·로그 본문, probe는 HTTP 응답 본문(HEAD·TCP는 없음)이다. 비밀값 검사는 자르기 전 전체 출력에 한다. 비밀값이 자르는 경계에 걸쳐 빠져나가지 않게 하기 위해서다. 퍼센트 인코딩은 바이트 단위·이중 인코딩까지 풀어서 검사한다(인자도 같다). 막으면 `output_tail=null`, `output_truncated=false`다. 1MiB를 넘는 출력은 돌려주지 않고 기록에 `output_*` 키를 남기지 않는다.
 - **T11이 직접 만드는 응답:** 통로 장애일 때만 같은 형식으로 만든다. 보내는 중이던 apply는 `UNKNOWN`·`EFFECT_UNKNOWN`, inspect·probe는 `FAILED`·`UNAVAILABLE`, 이후 호출은 `REJECTED`·`UNAVAILABLE`이다. T15 응답이 스키마에 맞지 않을 때도 같은 규칙을 따른다.
 - **T11의 제출 여유 확보:** 모델 1회 실행 한도(8턴·180초) 안에 제출할 턴이 남도록, T11은 남은 시간·턴을 보고 exec 도구를 먼저 닫을 수 있다. 닫은 뒤 들어온 호출은 T15로 보내지 않고 `REJECTED`·`BUDGET_EXHAUSTED`·`ADMIT`로 답한다.
 

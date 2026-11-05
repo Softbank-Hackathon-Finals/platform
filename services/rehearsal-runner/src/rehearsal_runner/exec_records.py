@@ -10,13 +10,9 @@ the same rule as `collect_tool_events`.
 
 from dataclasses import dataclass, field
 
-from .exec_contract import PROBE_OUTCOMES, REASONS, RESULT_CODES, STAGES
+from .exec_contract import EVENT_KEYS, valid_exec_event
 
-_COMMON = {"run_id", "attempt", "seq", "action", "request_id", "args_sha256", "result_code", "reason",
-           "stage", "output_sha256", "output_bytes"}
-KEYS = {"apply": _COMMON | {"proposal_digest"},
-        "inspect": _COMMON | {"target_kind", "target_name", "lines"},
-        "probe": _COMMON | {"service", "port", "method", "path", "probe_outcome", "http_status"}}
+KEYS = EVENT_KEYS
 UNKNOWN = {"result_code": "UNKNOWN", "reason": "EFFECT_UNKNOWN", "stage": "EXECUTE"}
 
 
@@ -32,20 +28,8 @@ class StoreJournal:
 
 
 def _valid(event: dict, admission: object) -> bool:
-    action, code, reason = event.get("action"), event.get("result_code"), event.get("reason")
-    if action not in KEYS or not set(event) <= KEYS[action]:
-        return False
-    if any(type(v) not in (str, int, bool) for v in event.values()):
-        return False
-    if event.get("run_id") != admission.rehearsal_id or event.get("attempt") != admission.attempt:
-        return False
-    if code not in RESULT_CODES or ("reason" in event) != ("stage" in event):
-        return False
-    if reason is not None and (reason not in REASONS or event["stage"] not in STAGES):
-        return False
-    if (code == "OK") != (reason in (None, "OUTPUT_WITHHELD")):
-        return False
-    return event.get("probe_outcome", "CONNECTED") in PROBE_OUTCOMES
+    return (valid_exec_event(event) and event["run_id"] == admission.rehearsal_id
+            and event["attempt"] == admission.attempt)
 
 
 def merge_exec_events(records: dict[tuple[int, str], dict], admission: object) -> list[dict]:
