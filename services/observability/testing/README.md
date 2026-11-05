@@ -61,4 +61,3 @@ mTLS 조회, 콘솔 어댑터의 HTTPS 읽기, 검증 healthcheck, 저장소 중
 빈 저장소의 환경은 `UNOBSERVABLE`이며 앱 건강이나 컷오버 허가를 의미하지 않는다.
 결과는 `qualification.json`, 정리는 `cleanup.json`에 기록한다. 이 스크립트가 만든
 컨테이너/네트워크/볼륨만 종료 시 제거한다. 실제 AWS·온프렘 인수와는 구분한다.
-

@@ -1,0 +1,49 @@
+{
+  "source_revision": "1d6fb65546187795d53e9bce95065fe9f31c2f79",
+  "source_files": [
+    {
+      "path": "services/observability/Dockerfile",
+      "sha256": "4ad80cfead336eb0dd5020671b1f1ea5b4314b06aba6459348de5f7650c250aa"
+    },
+    {
+      "path": "services/observability/Dockerfile.dockerignore",
+      "sha256": "4c0b3db0bb7ca8b3e2e60057e88c62ce8d41479d1d62d99d9847fa094d593777"
+    },
+    {
+      "path": "services/observability/uv.lock",
+      "sha256": "792097f610fc86f2de4e91e28f0ccee43ee508cfe50d5a5707339949ff6f05ad"
+    },
+    {
+      "path": "services/observability/src/bravo_observability/api.py",
+      "sha256": "0ec33b509a34750379439813fb8d0e7ae96bc67972ea10a5bd33e95fe5841f6c"
+    },
+    {
+      "path": "services/observability/src/bravo_observability/healthcheck.py",
+      "sha256": "c9e2a36ba3f66760a7b82070dda257d0ce47f1bb6eaac181ef2c287531bdc307"
+    },
+    {
+      "path": "services/observability/deploy/platform-api-tls/kustomization.yaml",
+      "sha256": "5137d196ba4d010b7b60ae8a22341d563833b2dc6b61f414d7fcbaa11e8b20b1"
+    },
+    {
+      "path": "services/observability/deploy/platform-api-tls/api-tls.yaml",
+      "sha256": "96ab157a72cb687024399b1caea102b87b0f21a01937e7629f2c308f473421a7"
+    },
+    {
+      "path": "services/observability/testing/query_api_tls.py",
+      "sha256": "25adad0e5c40c4036f374224e4d56ec7a4c1fdb7b3f8ae7f9567c11f599ff157"
+    },
+    {
+      "path": "services/observability/testing/query-api-tls.override.yaml",
+      "sha256": "45772890a23d628d36871dd81c94b831249000f8c078fc6494fcce7e342533ac"
+    },
+    {
+      "path": "services/observability/tests/test_api_server_tls.py",
+      "sha256": "c2bb9b4f843ebafba8516f97d2470ce025ff8b9abf08a9d4f0e786bd522be4c0"
+    },
+    {
+      "path": "services/console/src/bravo_console/observations.py",
+      "sha256": "04d562aa35ffb1627b5e27d9fb078397c4bbcc646ef0079dc9b463ddd3539125"
+    }
+  ]
+}
