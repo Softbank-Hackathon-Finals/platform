@@ -27,6 +27,7 @@ REQUIRED_DENY = ("app", "executor")
 EXPECTED = {
     "writer.put": "ok", "writer.get": "ok", "writer.list": "ok", "writer.delete": "denied", "writer.delete_version": "denied",
     "reader.get": "ok", "reader.list": "ok", "reader.put": "denied", "reader.delete": "denied",
+    "reader.delete_version": "denied",
 }
 PROTECTION_CHANGES = ("suspend_versioning", "delete_policy", "put_policy")
 
@@ -92,6 +93,11 @@ def check(endpoint, deny_labels, disposable=False, ca=None):
     version = None
     try:
         version = (attempt(out, "writer.put", lambda: writer.put_object(Bucket=BUCKET, Key=key, Body=b"t35")) or {}).get("VersionId")
+        if not isinstance(version, str) or not version:
+            # A successful write may have lost its response. Keep the key for read-only recovery,
+            # and stop rather than probing deletion with an invented version or writing again.
+            out["probe_intact"] = None
+            return out
         attempt(out, "writer.get", lambda: writer.get_object(Bucket=BUCKET, Key=key)["Body"].read())
         attempt(out, "writer.list", lambda: writer.list_objects_v2(Bucket=BUCKET, Prefix=PREFIX))
         attempt(out, "reader.get", lambda: reader.get_object(Bucket=BUCKET, Key=key)["Body"].read())
@@ -99,7 +105,7 @@ def check(endpoint, deny_labels, disposable=False, ca=None):
         attempt(out, "reader.put", lambda: reader.put_object(Bucket=BUCKET, Key=key + ".reader", Body=b"x"))
         for label, who in [("writer", writer), ("reader", reader), *deniers.items()]:
             attempt(out, f"{label}.delete_version", lambda who=who: who.delete_object(
-                Bucket=BUCKET, Key=key, VersionId=version or "missing"))
+                Bucket=BUCKET, Key=key, VersionId=version))
             attempt(out, f"{label}.delete", lambda who=who: who.delete_object(Bucket=BUCKET, Key=key))
         if disposable:
             for label, who in [("writer", writer), *deniers.items()]:
@@ -121,16 +127,19 @@ def status(out, deny_labels, disposable):
     """FAIL when protection is wrong or a forbidden call succeeded; PASS only when every identity was shown refused."""
     if out.get("versioning_enabled") is False or out.get("policy_matches") is False or out.get("probe_intact") is False:
         return "FAIL"
-    if out.get("versioning_enabled") is None or out.get("policy_matches") is None:
-        return "UNKNOWN"
     forbidden = [k for k, v in EXPECTED.items() if v == "denied"] + [f"{label}.{call}" for label in deny_labels
                                                                        for call in ("delete", "delete_version")]
     if disposable:
         forbidden += [f"{label}.{call}" for label in ("writer", *deny_labels) for call in PROTECTION_CHANGES]
-        if out.get("protection_after", {}) != {"versioning_enabled": True, "policy_matches": True}:
+        after = out.get("protection_after", {})
+        if after.get("versioning_enabled") is False or after.get("policy_matches") is False:
             return "FAIL"
     if any(out.get(name) == "ok" for name in forbidden):
         return "FAIL"
+    if out.get("versioning_enabled") is not True or out.get("policy_matches") is not True:
+        return "UNKNOWN"
+    if disposable and out.get("protection_after", {}) != {"versioning_enabled": True, "policy_matches": True}:
+        return "UNKNOWN"
     if (any(out.get(k) != v for k, v in EXPECTED.items()) or any(out.get(name) != "denied" for name in forbidden)
             or not out.get("probe_intact")
             or any(label not in deny_labels for label in REQUIRED_DENY)):

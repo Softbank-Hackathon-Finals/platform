@@ -12,7 +12,12 @@ import re
 import sys
 from string import Template
 
-from bravo_controls.cnpg_backup import archive_patch, backup_request, object_store, restore_cluster
+from bravo_controls.cnpg_backup import (
+    archive_patch,
+    backup_request,
+    object_store,
+    restore_cluster,
+)
 
 NAMESPACE, CLUSTER = "target-dev", "target-db"
 RESTORE_NAMESPACE, RESTORE = "t35-restore-check", "target-db-restore"

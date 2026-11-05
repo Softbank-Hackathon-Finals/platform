@@ -8,7 +8,8 @@ from pathlib import Path
 from string import Template
 from unittest.mock import patch
 
-from botocore.exceptions import ClientError
+import pytest
+from botocore.exceptions import ClientError, ReadTimeoutError
 
 HERE = Path(__file__).resolve().parents[3] / "infra/envs/target-backup"
 
@@ -163,3 +164,58 @@ def test_verify_status():
     changed = dict(good, protection_after={"versioning_enabled": False, "policy_matches": True},
                    **{f"{w}.{c}": "denied" for w in ("writer", *labels) for c in verify.PROTECTION_CHANGES})
     assert verify.status(changed, labels, True) == "FAIL"
+
+
+@pytest.mark.parametrize("disposable", [False, True])
+def test_reader_version_delete_lost_response_is_unknown(disposable):
+    calls = []
+
+    class LostReaderResponse(FakeS3):
+        def delete_object(self, **kwargs):
+            try:
+                return super().__getattr__("delete_object")(**kwargs)
+            except ClientError:
+                if "VersionId" in kwargs:
+                    raise ReadTimeoutError(endpoint_url="https://fixture.invalid") from None
+                raise
+
+    with patch.object(verify, "client", lambda endpoint, label, ca:
+                      LostReaderResponse(calls) if label == "reader" else FakeS3(calls)):
+        out = verify.check("https://fixture.invalid", ["app", "executor"], disposable)
+    assert out["reader.delete_version"] == "error:ReadTimeoutError"
+    assert out["probe_intact"] is True
+    assert verify.status(out, ["app", "executor"], disposable) == "UNKNOWN"
+    assert "reader" in verify.scope(out, ["app", "executor"], disposable)[1]
+
+
+@pytest.mark.parametrize("disposable", [False, True])
+def test_put_response_loss_stops_with_unknown_and_recoverable_object_key(disposable):
+    calls = []
+    stored = []
+
+    class LostPutResponse(FakeS3):
+        def put_object(self, **kwargs):
+            super().__getattr__("put_object")(**kwargs)
+            stored.append(kwargs["Key"])
+            raise ReadTimeoutError(endpoint_url="https://fixture.invalid")
+
+    with patch.object(verify, "client", lambda endpoint, label, ca:
+                      LostPutResponse(calls) if label == "writer" else FakeS3(calls)):
+        out = verify.check("https://fixture.invalid", ["app", "executor"], disposable)
+    assert stored == [out["probe_left"]]
+    assert out["writer.put"] == "error:ReadTimeoutError"
+    assert out["probe_intact"] is None
+    assert verify.status(out, ["app", "executor"], disposable) == "UNKNOWN"
+    assert calls == ["get_bucket_versioning", "get_bucket_policy", "put_object"]
+
+
+def test_unreadable_final_protection_is_unknown_but_observed_violation_is_fail():
+    labels = ["app", "executor"]
+    out, _ = run_check(labels, disposable=True)
+    out["protection_after"] = {"versioning_enabled": None, "policy_matches": None}
+    assert verify.status(out, labels, True) == "UNKNOWN"
+    out["protection_after"]["versioning_enabled"] = False
+    assert verify.status(out, labels, True) == "FAIL"
+    out["protection_after"]["versioning_enabled"] = None
+    out["reader.delete_version"] = "ok"
+    assert verify.status(out, labels, True) == "FAIL"
