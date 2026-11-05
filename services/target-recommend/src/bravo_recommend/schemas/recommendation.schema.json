@@ -31,8 +31,13 @@
         "rule_reasons": {"type": "array", "items": {"type": "string", "maxLength": 200}},
         "ai_reason": {"anyOf": [{"type": "string", "maxLength": 512}, {"type": "null"}]}
       }},
-    "Excluded": {"type": "object", "additionalProperties": false, "required": ["env_id", "verdict", "reason", "missing_capabilities"],
-      "properties": {"env_id": {"$ref": "#/$defs/env"}, "verdict": {"const": "blocked"}, "reason": {"type": "string", "maxLength": 200},
+    "Excluded": {"type": "object", "additionalProperties": false,
+      "required": ["env_id", "verdict", "reason_codes", "reason", "missing_capability_keys", "no_replacement_count", "missing_capabilities"],
+      "properties": {"env_id": {"$ref": "#/$defs/env"}, "verdict": {"const": "blocked"},
+                     "reason_codes": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"enum": ["MISSING_CAPABILITY", "NO_REPLACEMENT", "BLOCKED_BY_RULE"]}},
+                     "reason": {"type": "string", "minLength": 1, "maxLength": 200},
+                     "missing_capability_keys": {"type": "array", "uniqueItems": true, "items": {"type": "string", "pattern": "^[a-z][a-z0-9_]{0,63}$"}},
+                     "no_replacement_count": {"type": "integer", "minimum": 0},
                      "missing_capabilities": {"type": "array", "items": {"type": "string"}}}}
   }
 }
