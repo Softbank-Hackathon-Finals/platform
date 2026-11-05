@@ -1,0 +1,71 @@
+registration:
+  enabled: false
+  # Protected operator input: existing config/Secret references and host aliases only.
+  runtime: {}
+
+argo-cd:
+  fullnameOverride: bravo-gitops
+  createClusterRoles: false
+  crds:
+    install: true
+    keep: true
+  global:
+    image:
+      tag: v3.6.1
+    securityContext:
+      runAsNonRoot: true
+      runAsUser: 999
+      runAsGroup: 999
+      fsGroup: 999
+      seccompProfile:
+        type: RuntimeDefault
+  configs:
+    cm:
+      admin.enabled: false
+      exec.enabled: false
+      timeout.reconciliation: 60s
+      timeout.reconciliation.jitter: 15s
+      resource.respectRBAC: strict
+      application.resourceTrackingMethod: annotation
+      resource.inclusions: |
+        - apiGroups: [apps]
+          kinds: [Deployment, ReplicaSet]
+          clusters: ['*']
+        - apiGroups: ['']
+          kinds: [Pod, Service, ServiceAccount]
+          clusters: ['*']
+    clusterCredentials:
+      platform:
+        server: https://kubernetes.default.svc
+        namespaces: platform-state
+        clusterResources: false
+        config:
+          tlsClientConfig:
+            insecure: false
+  controller:
+    serviceAccount:
+      name: bravo-gitops-application-controller
+    resources:
+      requests: {cpu: 200m, memory: 512Mi}
+      limits: {cpu: "1", memory: 1Gi}
+  repoServer:
+    automountServiceAccountToken: false
+    resources:
+      requests: {cpu: 100m, memory: 256Mi}
+      limits: {cpu: "1", memory: 768Mi}
+  redis:
+    resources:
+      requests: {cpu: 50m, memory: 96Mi}
+      limits: {cpu: 250m, memory: 256Mi}
+  server:
+    enabled: false
+  dex:
+    enabled: false
+  applicationSet:
+    replicas: 0
+  redisSecretInit:
+    resources:
+      requests: {cpu: 50m, memory: 64Mi}
+      limits: {cpu: 200m, memory: 256Mi}
+  notifications:
+    enabled: false
