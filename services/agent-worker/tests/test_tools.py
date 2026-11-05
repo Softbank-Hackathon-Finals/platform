@@ -5,8 +5,8 @@ import os
 import pytest
 from pydantic import ValidationError
 
-from bravo_agent.contracts import FileEdit, Proposal, SnapshotManifest
-from bravo_agent.tools import PolicyDenied
+from bravo_agent.contracts import FileEdit, InventorySummary, Proposal, SnapshotManifest, safe_path
+from bravo_agent.tools import PolicyDenied, Tools
 
 
 def test_only_approved_snapshot_and_schema_proposal(context):
@@ -142,3 +142,120 @@ def test_duplicate_proposals_and_tool_flood_are_bounded(context):
     assert tools.event_count > len(tools.events)
     with pytest.raises(PolicyDenied):
         tools.dispatch("mcp__bravo__repo_read", {"path": "src/config.py"})
+
+
+# ---- T11 boundary: source path policy, inventory.describe, policy.evaluate, destructive audit
+
+
+@pytest.mark.parametrize("path", ["app/db_secret.py", "src/secret_store.ts", "pkg/secrets_client.go"])
+def test_code_files_named_after_secrets_are_readable_sources(path):
+    assert safe_path(path) == path
+
+
+@pytest.mark.parametrize("path", ["src/secret.json", "config/secret.yaml", "app/db_secret.pem",
+                                 "secrets/db.py", "app/credentials_helper.py", "app/private_key.py"])
+def test_secret_data_files_and_credential_names_stay_blocked(path):
+    with pytest.raises(ValueError):
+        safe_path(path)
+
+
+def test_secret_named_source_still_refuses_literal_credentials(context):
+    _, snapshot, _, _ = context
+    (snapshot.root / "src/db_secret.py").write_text('password = "hunter2hunter2"\n')
+    sha = hashlib.sha256((snapshot.root / "src/db_secret.py").read_bytes()).hexdigest()
+    manifest = SnapshotManifest(source_sha="1" * 40, files={"src/db_secret.py": sha}, editable_paths=["src/db_secret.py"])
+    tools = Tools(context[0], type(snapshot)(snapshot.root, manifest), 1)
+    with pytest.raises(PolicyDenied):
+        tools.dispatch("mcp__bravo__repo_read", {"path": "src/db_secret.py"})
+    assert "hunter2" not in json.dumps(tools.events)
+
+
+def _inventory_doc(source_sha="1" * 40):
+    return {"schema_version": "1.0", "app": {"id": "demo-chat", "source_sha": source_sha}, "digest": "c" * 64,
+            "deploy": {"workloads": [{"env_sources": {"DB_PASSWORD": "secretKeyRef"}}]},
+            "items": [
+                {"id": "item-001", "role": "secrets", "service": "secretsmanager", "found_in": "both", "grade": "code_change",
+                 "grade_by": "rule", "rationale": "OpenBao+ESO로 바꾸려면 SDK 직접 호출을 주입 방식으로 고쳐야 한다", "agent_needed": False,
+                 "risk": "", "code_refs": [{"id": "dep-0003", "kind": "sdk_call", "file": "app/db_secret.py", "line": 12,
+                                            "snippet": "<masked: secret-like literal>", "detail": {"factory": "boto3.client"}}],
+                 "deploy_refs": [{"kind": "secret", "name": "demo-chat/db", "attributes": {"arn": "arn:aws:secretsmanager:::x.example.invalid"}}],
+                 "target": {"env_kind": "onprem", "impl": "OpenBao + ESO", "verify": "다른 SA는 못 읽음"}},
+                {"id": "item-002", "role": "object_store", "service": "s3", "found_in": "both", "grade": "config_swap",
+                 "grade_by": "rule", "rationale": "endpoint_url이 설정에서 옴", "agent_needed": False, "risk": "",
+                 "code_refs": [{"kind": "env_ref", "file": ".env.example", "line": 3}], "target": {"impl": "SeaweedFS"}},
+            ]}
+
+
+def test_inventory_describe_returns_only_the_model_facing_subset(context):
+    bundle, snapshot, _, _ = context
+    tools = Tools(bundle, snapshot, 1, inventory=InventorySummary.from_document(_inventory_doc()))
+    result = tools.dispatch("mcp__bravo__inventory_describe", {"role": "secrets"})
+    assert [i["id"] for i in result["items"]] == ["item-001"] and result["inventory_digest"] == "c" * 64
+    dump = json.dumps(result)
+    assert "snippet" not in dump and "deploy_refs" not in dump and "arn:aws" not in dump and "DB_PASSWORD" not in dump
+    assert result["items"][0]["code_refs"] == [{"file": "app/db_secret.py", "line": 12, "kind": "sdk_call"}]
+    assert tools.events[-1]["reason"] == "POLICY_ACCEPTED" and tools.events[-1]["items"] == 1
+    everything = tools.dispatch("mcp__bravo__inventory_describe", {})
+    assert len(everything["items"]) == 2
+    with pytest.raises(PolicyDenied):
+        tools.dispatch("mcp__bravo__inventory_describe", {"role": "Secrets; DROP"})
+
+
+def test_inventory_describe_is_denied_until_a_summary_is_attached(context):
+    tools = context[3]
+    with pytest.raises(PolicyDenied):
+        tools.dispatch("mcp__bravo__inventory_describe", {})
+    assert tools.events[-1]["reason"] == "TOOL_NOT_ATTACHED"
+
+
+def test_inventory_must_match_the_run_revision(context):
+    bundle, snapshot, _, _ = context
+    with pytest.raises(ValueError):
+        Tools(bundle, snapshot, 1, inventory=InventorySummary.from_document(_inventory_doc("2" * 40)))
+
+
+@pytest.mark.parametrize("text, verdict, reason", [
+    ('{"Statement": [{"Effect": "Allow", "Action": "s3:GetObject", "Resource": "arn:aws:s3:::attachments.example.invalid/*"}]}', "PASS", "LINT_PASSED"),
+    ('{"Statement": [{"Effect": "Allow", "Action": "*", "Resource": "*"}]}', "FAIL", "WILDCARD_OR_COMPLEMENT_GRANT"),
+    ('{"Statement": [{"Action": "s3:GetObject"}]}', "FAIL", "MISSING_EFFECT"),
+    ('{"Statement": [', "FAIL", "AMBIGUOUS_POLICY_JSON"),
+    ("aws s3 rb s3://attachments --force", "FAIL", "DESTRUCTIVE_COMMAND"),
+    ("sk-" + "ant-" + "a" * 32, "FAIL", "UNSAFE_TEXT"),
+])
+def test_policy_evaluate_lints_without_side_effects(context, text, verdict, reason):
+    proposal, tools = context[2:]
+    result = tools.dispatch("mcp__bravo__policy_evaluate", {"policy": text})
+    assert (result["verdict"], result["reason"]) == (verdict, reason)
+    assert tools.proposal is None and text[:12] not in json.dumps(tools.events)
+    if reason == "DESTRUCTIVE_COMMAND":
+        assert tools.events[-1]["category"] == "bucket_delete"
+    assert tools.dispatch("mcp__bravo__plan_propose", proposal)["status"] == "PROPOSAL_RECEIVED"
+
+
+@pytest.mark.parametrize("tool, args, category", [
+    ("rehearsal.exec", {"command": "aws s3 rb s3://demo-chat-attachments --force"}, "bucket_delete"),
+    ("mcp__bravo__rehearsal_exec", {"command": "kubectl delete namespace rehearsal-1"}, "namespace_delete"),
+    ("Bash", {"command": "rm -rf /data"}, "filesystem_rm"),
+])
+def test_destructive_attempts_are_audited_by_category_not_text(context, tool, args, category):
+    tools = context[3]
+    with pytest.raises(PolicyDenied):
+        tools.dispatch(tool, args)
+    event = tools.events[-1]
+    assert event["outcome"] == "DENIED" and event["reason"] == "DESTRUCTIVE_ATTEMPT_BLOCKED"
+    assert event["category"] == category and args["command"] not in json.dumps(tools.events)
+
+
+def test_reserved_whitelist_tools_are_reported_as_not_provided(context):
+    tools = context[3]
+    with pytest.raises(PolicyDenied):
+        tools.dispatch("rehearsal.run", {"job": "verify"})
+    assert tools.events[-1]["reason"] == "TOOL_NOT_PROVIDED" and tools.events[-1]["tool"] == "rehearsal.run"
+
+
+def test_destructive_proposal_records_category(context):
+    proposal, tools = context[2:]
+    proposal["edits"][0]["replacement"] = "DROP TABLE messages;"
+    with pytest.raises(PolicyDenied):
+        tools.dispatch("mcp__bravo__plan_propose", proposal)
+    assert tools.events[-1]["reason"] == "DESTRUCTIVE_ATTEMPT_BLOCKED" and tools.events[-1]["category"] == "db_drop"

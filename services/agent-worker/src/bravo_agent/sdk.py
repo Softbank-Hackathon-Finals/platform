@@ -49,12 +49,26 @@ def make_options(tools: Tools, runtime: Path, model: str) -> ClaudeAgentOptions:
     async def propose(args):
         return await call("mcp__bravo__plan_propose", args)
 
+    @tool("policy_evaluate", "Lint a candidate policy or replacement text; no side effects.",
+          {"type": "object", "properties": {"policy": {"type": "string"}},
+           "required": ["policy"], "additionalProperties": False})
+    async def evaluate(args):
+        return await call("mcp__bravo__policy_evaluate", args)
+
+    @tool("inventory_describe", "Read the graded dependency inventory (T16); optional role filter.",
+          {"type": "object", "properties": {"role": {"type": ["string", "null"]}},
+           "additionalProperties": False})
+    async def describe(args):
+        return await call("mcp__bravo__inventory_describe", args)
+
+    handlers = [read, propose, evaluate] + ([describe] if tools.inventory is not None else [])
+
     async def before(data, tool_use_id, context):
         return await guard(tools, data, tool_use_id, context)
 
     return ClaudeAgentOptions(
         tools=[], allowed_tools=list(TOOL_NAMES),
-        mcp_servers={"bravo": create_sdk_mcp_server(name="bravo", tools=[read, propose])},
+        mcp_servers={"bravo": create_sdk_mcp_server(name="bravo", tools=handlers)},
         strict_mcp_config=True, setting_sources=[], skills=[], plugins=[], agents={},
         permission_mode="dontAsk", system_prompt=SYSTEM,
         hooks={"PreToolUse": [HookMatcher(matcher=None, hooks=[before])]},
