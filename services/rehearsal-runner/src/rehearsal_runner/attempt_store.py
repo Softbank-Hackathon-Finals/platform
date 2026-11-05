@@ -20,6 +20,7 @@ from typing import Protocol
 
 from .admission import run_admitted_attempt
 from .approval_handoff import CandidateSubmission
+from .bucket_job import VerificationUnknown
 from .retry import AttemptFactory, AttemptPorts
 from .runner import AttemptResult, Namespace
 
@@ -133,6 +134,7 @@ class _Trace:
     created: Namespace | None = None
     removed_uid: str | None = None
     probe_run_id: str | None = None
+    failure: str | None = None
 
 
 class _TracedLifecycle:
@@ -158,9 +160,16 @@ class _TracedVerifier:
 
     def verify_isolated(self, proposal, namespace, isolation):
         self.trace.probe_run_id = isolation.probe_run_id
-        if hasattr(self.inner, "verify_isolated"):
-            return self.inner.verify_isolated(proposal, namespace, isolation)
-        return self.inner.verify(proposal, namespace)
+        try:
+            if hasattr(self.inner, "verify_isolated"):
+                return self.inner.verify_isolated(proposal, namespace, isolation)
+            return self.inner.verify(proposal, namespace)
+        except VerificationUnknown as error:
+            self.trace.failure = str(error)  # fixed codes only, never response bodies
+            raise
+        except Exception as error:
+            self.trace.failure = type(error).__name__
+            raise
 
 
 @dataclass(frozen=True)
@@ -178,7 +187,8 @@ def judge_attempt(result: AttemptResult, trace: _Trace) -> dict:
     """Map one attempt to PASS/FAIL only when every identity is bound."""
     evidence = result.untrusted_receipt
     if result.state != "RECEIPT_UNVERIFIED" or not hasattr(evidence, "public"):
-        return {"verdict": "NEEDS_HUMAN", "reason": result.reason}
+        body = {"verdict": "NEEDS_HUMAN", "reason": result.reason}
+        return body | ({"detail": trace.failure} if trace.failure else {})
     created = trace.created
     if (created is None or trace.removed_uid != created.uid or trace.probe_run_id is None
             or result.proposal is None or evidence.namespace != created.name

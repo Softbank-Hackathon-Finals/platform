@@ -104,3 +104,10 @@ def test_unbound_evidence_needs_a_human(receipt, trace):
 def test_blocked_or_unknown_attempt_needs_a_human():
     body = judge_attempt(AttemptResult("BLOCK", "ISOLATION_BLOCKED"), traced())
     assert body == {"verdict": "NEEDS_HUMAN", "reason": "ISOLATION_BLOCKED"}
+
+
+def test_unknown_effects_keep_the_verifier_failure_code():
+    trace = traced()
+    trace.failure = "job_timeout"
+    body = judge_attempt(AttemptResult("NEEDS_HUMAN", "EFFECTS_UNKNOWN"), trace)
+    assert body == {"verdict": "NEEDS_HUMAN", "reason": "EFFECTS_UNKNOWN", "detail": "job_timeout"}

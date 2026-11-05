@@ -112,6 +112,7 @@ class SeaweedBucketJob:
     credential: Callable[[], tuple[str, str]] = field(repr=False)
     source_policy_path: str = "src/source-policy.json"
     poll_seconds: float = 2.0
+    deadline_seconds: int = 180
 
     def verify(self, request: BucketVerificationRequest) -> BucketEvidence:
         namespace = request.namespace
@@ -172,7 +173,7 @@ class SeaweedBucketJob:
                      "volumeMounts": [{"name": "tmp", "mountPath": "/tmp"},
                                       {"name": "policies", "mountPath": "/policies", "readOnly": True}]}
         return {"apiVersion": "batch/v1", "kind": "Job", "metadata": meta | {"name": name},
-                "spec": {"backoffLimit": 0, "activeDeadlineSeconds": 180, "template": {
+                "spec": {"backoffLimit": 0, "activeDeadlineSeconds": self.deadline_seconds, "template": {
                     "metadata": {"labels": {"role": "bucket-verifier"}},
                     "spec": {"restartPolicy": "Never", "automountServiceAccountToken": False,
                              "serviceAccountName": "default",
@@ -188,15 +189,18 @@ class SeaweedBucketJob:
         self._require_namespace(namespace)
         created = self.kube.create(self._job(namespace, name, policy, meta))
         uid = created["metadata"]["uid"]
-        for _ in range(100):
+        deadline = time.monotonic() + self.deadline_seconds + 30
+        while time.monotonic() < deadline:
             self._require_namespace(namespace)
             current = self.kube.get("job", name, namespace.name)
             if current["metadata"]["uid"] != uid:
                 raise VerificationUnknown("job_identity_changed")
-            status = current.get("status", {})
-            if status.get("failed"):
+            # `succeeded` can precede the Complete condition that observe_job_pod requires.
+            conditions = {c.get("type") for c in current.get("status", {}).get("conditions", [])
+                          if c.get("status") == "True"}
+            if "Failed" in conditions:
                 raise VerificationUnknown("job_failed")
-            if status.get("succeeded"):
+            if "Complete" in conditions:
                 break
             time.sleep(self.poll_seconds)
         else:

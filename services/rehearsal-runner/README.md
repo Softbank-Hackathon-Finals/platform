@@ -221,7 +221,7 @@ cd ../platform-events
 PYTHONPATH=../rehearsal-runner/src uv run --frozen --no-default-groups --with pytest pytest -p no:cacheprovider ../rehearsal-runner/testing/test_t10_rehearsal_host.py
 ```
 
-`rehearsal_host.T15RehearsalHost`는 T10 `RehearsalHost`의 `task`·`submit`·`observe`에 맞춘 어댑터다. 계획에 등록된 작업을 읽어 digest를 만들고, 접수 커밋 이후 동일 작업인지 다시 비교한 다음 T15 제출자에게 전달한다. 인증된 T38 원문과 같은 `Admission`·생성/삭제 UID·부재 확인이 없는 경우 T10 결과를 반환하지 않는다. 작업 저장소, 실행별 영속 중복 방지 제출자와 인증 원문 조회기는 별도 신뢰 호스트가 주입해야 하며 기본 설치는 없다.
+`rehearsal_host.T15RehearsalHost`는 T10 `RehearsalHost`의 `task`·`submit`·`observe`에 맞춘 어댑터다. 계획에 등록된 작업을 읽어 digest를 만들고, 접수 커밋 이후 동일 작업인지 다시 비교한 다음 T15 제출자에게 전달한다. 인증된 T38 원문과 같은 `Admission`·생성/삭제 UID·부재 확인이 없는 경우 T10 결과를 반환하지 않는다. 제출자와 결과 조회기는 아래 `attempt_store`를 주입한다. 작업 저장소와 운영 배치는 T10 운영 호스트가 정한다.
 
 ```bash
 cd ../platform-events
@@ -235,3 +235,16 @@ PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 .venv/bin/python -m pytest -q testing/test_cred
 ```
 
 이 시험은 컨테이너 빌드를 대신하지 않으며, 필요한 모듈만 설치된 격리 Python에서 명령이 실행되고 외부 `PYTHONPATH`를 무시하는지만 확인한다.
+
+## 시도 기록과 버킷 검증 Job
+
+`attempt_store.RecordedAttemptSender`는 T10이 커밋한 시도를 `claim.json`으로 한 번만 점유하고 실행한 뒤 결과를 `result.json`에 한 번만 쓴다. 기록은 러너 호스트만 가진 키로 HMAC 서명한다. 점유 뒤 결과가 없으면 T10에서 `UNCONFIRMED`로 남고 다시 실행하지 않는다. PASS 기록은 `deliver`로 T10 `ChangeIntake`에 한 번 전달한다. `RecordedEvidence`는 T10 `EvidenceReader`와 `ChangeIntake.read_original`을 같은 서명 기록에서 제공한다. 2·3회차는 직전 FAIL 기록의 증거 digest를 T11 재시도 근거로 받는다. 환경 원인의 실패는 `NEEDS_HUMAN`과 고정 원인 코드(`detail`)로 남는다.
+
+`bucket_job.SeaweedBucketJob`은 T3가 시험한 namespace에서 원본 정책(대조군)과 후보 정책을 차례로 적용하는 Job 두 개를 실행한다. Job은 토큰 없는 기본 계정으로 실행한다. 각 Job은 인증 읽기·무인증 읽기·인증 읽기를 관측하고, T38 `observe_job_pod`로 Job·Pod·컨테이너·imageID를 결속한다. 대조군에서 무인증 읽기 허용이 관측되지 않으면 판정하지 않는다. 후보가 무인증 읽기를 막고 인증 읽기를 유지하면 PASS, 정책 거부·무인증 허용·인증 읽기 손상은 FAIL이다. 시험 버킷·자격·수신 허용은 호스트가 제공한다.
+
+```bash
+cd ../platform-events
+PYTHONPATH=../rehearsal-runner/src uv run --frozen --no-default-groups --with pytest pytest -p no:cacheprovider ../rehearsal-runner/testing/test_t10_recorded_flow.py
+```
+
+`testing/rke2_rehearsal_flow.py`는 개인 RKE2 시험 VM 전용이다. `setup`은 시험용 SeaweedFS·OpenBao 대역·버킷을 만들고, `run`은 실제 T10 접수·수신·변경 승인(SQLite), T11 Coordinator, T3 격리, 검증 Job과 UID 정리를 연결한다. 제안은 스크립트로 고정하며 모델·팀 목적지·사람 승인을 대신하지 않는다.

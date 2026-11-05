@@ -37,9 +37,9 @@ SOURCE_PATH, TARGET_PATH = "src/source-policy.json", "src/target-policy.json"
 VM_NODE = "bravo-t15-rke2"
 
 
-def kubectl(*args, data=None, check=True):
+def kubectl(*args, data=None, check=True, timeout=120):
     proc = subprocess.run(["kubectl", *args], input=json.dumps(data) if data is not None else None,
-                          capture_output=True, text=True, timeout=120)
+                          capture_output=True, text=True, timeout=timeout)
     if check and proc.returncode:
         raise RuntimeError("kubectl_failed:" + args[0])
     return proc
@@ -56,11 +56,17 @@ def require_vm():
 
 
 def policy(effect):
-    """public: the S3 source; permissive: a translation that still allows anonymous reads."""
+    """public: the S3 source. overbroad: passes T11 but also denies signed reads.
+
+    T11 rejects any translation that grants Allow to "*", so a wrong proposal
+    that reaches the cluster must look like this one.
+    """
     resource = f"arn:aws:s3:::{BUCKET}/*"
-    if effect in ("public", "permissive"):
-        sid = "PublicRead" if effect == "public" else "TranslatedRead"
-        statement = {"Sid": sid, "Effect": "Allow", "Principal": "*", "Action": "s3:GetObject",
+    if effect == "public":
+        statement = {"Sid": "PublicRead", "Effect": "Allow", "Principal": "*", "Action": "s3:GetObject",
+                     "Resource": resource}
+    elif effect == "overbroad":
+        statement = {"Sid": "DenyAllRead", "Effect": "Deny", "Principal": "*", "Action": "s3:GetObject",
                      "Resource": resource}
     else:
         statement = {"Sid": "DenyAnonymousRead", "Effect": "Deny", "Principal": "*",
@@ -69,8 +75,18 @@ def policy(effect):
     return json.dumps({"Version": "2012-10-17", "Statement": [statement]}, sort_keys=True)
 
 
-def wait_ready(namespace, pod, seconds=600):
-    kubectl("-n", namespace, "wait", "--for=condition=Ready", "pod/" + pod, f"--timeout={seconds}s")
+def wait_ready(namespace, pod, seconds=900):
+    kubectl("-n", namespace, "wait", "--for=condition=Ready", "pod/" + pod, f"--timeout={seconds}s",
+            timeout=seconds + 30)
+
+
+def ensure(obj):
+    """Create once; a rerun of setup keeps existing fixture objects and their values."""
+    meta = obj["metadata"]
+    scope = ["-n", meta["namespace"]] if "namespace" in meta else []
+    if kubectl("get", obj["kind"].lower(), meta["name"], *scope, "--ignore-not-found", "-o", "name").stdout.strip():
+        return
+    kubectl("create", "-f", "-", data=obj)
 
 
 def setup(state: pathlib.Path):
@@ -81,22 +97,22 @@ def setup(state: pathlib.Path):
                     "seccompProfile": {"type": "RuntimeDefault"}}
     for name, labels in ((FIXTURE_NS, {"purpose": "t15-bucket-policy-test"}),
                          (OPENBAO_NS, {"purpose": "t15-openbao-standin"})):
-        kubectl("create", "-f", "-", data={"apiVersion": "v1", "kind": "Namespace", "metadata": {
+        ensure({"apiVersion": "v1", "kind": "Namespace", "metadata": {
             "name": name, "labels": labels | {"pod-security.kubernetes.io/enforce": "restricted"}}})
     access, secret = "T15" + secrets.token_hex(9).upper(), secrets.token_hex(24)
     config = {"identities": [{"name": "t15-test-admin", "credentials": [{"accessKey": access, "secretKey": secret}],
                               "actions": ["Admin", "Read", "Write", "List"]}]}
-    kubectl("create", "-f", "-", data={"apiVersion": "v1", "kind": "Secret", "type": "Opaque",
+    ensure({"apiVersion": "v1", "kind": "Secret", "type": "Opaque",
             "metadata": {"name": "t15-s3-config", "namespace": FIXTURE_NS},
             "data": {"s3.json": base64.b64encode(json.dumps(config).encode()).decode(),
                      "access": base64.b64encode(access.encode()).decode(),
                      "secret": base64.b64encode(secret.encode()).decode()}})
-    kubectl("create", "-f", "-", data={"apiVersion": "networking.k8s.io/v1", "kind": "NetworkPolicy",
+    ensure({"apiVersion": "networking.k8s.io/v1", "kind": "NetworkPolicy",
             "metadata": {"name": "deny-ingress", "namespace": FIXTURE_NS},
             "spec": {"podSelector": {}, "policyTypes": ["Ingress"], "ingress": [
                 {"from": [{"podSelector": {"matchLabels": {"role": "bootstrap"}}}],
                  "ports": [{"protocol": "TCP", "port": 8333}]}]}})
-    kubectl("create", "-f", "-", data={"apiVersion": "v1", "kind": "Pod", "metadata": {
+    ensure({"apiVersion": "v1", "kind": "Pod", "metadata": {
         "name": "seaweed", "namespace": FIXTURE_NS, "labels": {"app": "t15-bucket-policy-test"}},
         "spec": {"automountServiceAccountToken": False, "securityContext": pod_security,
                  "volumes": [{"name": "data", "emptyDir": {"sizeLimit": "1Gi"}},
@@ -105,14 +121,14 @@ def setup(state: pathlib.Path):
                  "containers": [{"name": "seaweed", "image": SEAWEED_IMAGE,
                                  "args": ["server", "-s3", "-dir=/data", "-ip=$(POD_IP)", "-ip.bind=0.0.0.0",
                                           "-s3.config=/etc/t15/s3.json", "-master.volumeSizeLimitMB=128",
-                                          "-volume.max=2"],
+                                          "-volume.max=10"],  # a new bucket collection grows several volumes
                                  "env": [{"name": "POD_IP", "valueFrom": {"fieldRef": {"fieldPath": "status.podIP"}}}],
                                  "ports": [{"containerPort": 8333}], "securityContext": security,
                                  "resources": {"limits": {"memory": "512Mi"}},
                                  "volumeMounts": [{"name": "data", "mountPath": "/data"},
                                                   {"name": "auth", "mountPath": "/etc/t15", "readOnly": True}],
                                  "readinessProbe": {"tcpSocket": {"port": 8333}, "periodSeconds": 5}}]}})
-    kubectl("create", "-f", "-", data={"apiVersion": "v1", "kind": "Pod", "metadata": {
+    ensure({"apiVersion": "v1", "kind": "Pod", "metadata": {
         "name": "openbao-standin", "namespace": OPENBAO_NS,
         "labels": {"app.kubernetes.io/instance": "target-openbao"}},
         "spec": {"automountServiceAccountToken": False, "securityContext": pod_security,
@@ -123,6 +139,7 @@ def setup(state: pathlib.Path):
     wait_ready(OPENBAO_NS, "openbao-standin")
     ip = get("pod", "seaweed", "-n", FIXTURE_NS)["status"]["podIP"]
     script = ("set -eu; printf 't15 local bucket policy test\\n' > /tmp/canary; "
+              'aws --endpoint-url "$E" s3api head-bucket --bucket "$B" 2>/dev/null || '
               'aws --endpoint-url "$E" s3api create-bucket --bucket "$B" >/dev/null; '
               'aws --endpoint-url "$E" s3api put-object --bucket "$B" --key canary --body /tmp/canary >/dev/null; '
               'echo ready')
@@ -131,7 +148,7 @@ def setup(state: pathlib.Path):
            {"name": "AWS_EC2_METADATA_DISABLED", "value": "true"}]
     env += [{"name": k, "valueFrom": {"secretKeyRef": {"name": "t15-s3-config", "key": v}}}
             for k, v in (("AWS_ACCESS_KEY_ID", "access"), ("AWS_SECRET_ACCESS_KEY", "secret"))]
-    kubectl("create", "-f", "-", data={"apiVersion": "batch/v1", "kind": "Job", "metadata": {
+    ensure({"apiVersion": "batch/v1", "kind": "Job", "metadata": {
         "name": "bootstrap", "namespace": FIXTURE_NS}, "spec": {"backoffLimit": 2, "template": {
             "metadata": {"labels": {"role": "bootstrap"}},
             "spec": {"restartPolicy": "Never", "automountServiceAccountToken": False,
@@ -140,9 +157,29 @@ def setup(state: pathlib.Path):
                      "containers": [{"name": "run", "image": AWS_IMAGE, "command": ["/bin/sh", "-c", script],
                                      "env": env, "securityContext": security | {"readOnlyRootFilesystem": True},
                                      "volumeMounts": [{"name": "tmp", "mountPath": "/tmp"}]}]}}}})
-    kubectl("-n", FIXTURE_NS, "wait", "--for=condition=complete", "job/bootstrap", "--timeout=600s")
+    kubectl("-n", FIXTURE_NS, "wait", "--for=condition=complete", "job/bootstrap", "--timeout=900s", timeout=930)
     state.mkdir(mode=0o700, parents=True, exist_ok=True)
     print(json.dumps({"fixture": "ready", "namespace": FIXTURE_NS, "bucket": BUCKET}))
+
+
+class PatientCleaner:
+    """Local VM only: keep confirming absence of the same UID past T38's 60 s window."""
+
+    def __init__(self, inner, seconds=600):
+        self.inner, self.seconds = inner, seconds
+
+    def cleanup(self, namespace, uid):
+        if self.inner.cleanup(namespace, uid):
+            return True
+        deadline = time.monotonic() + self.seconds
+        while time.monotonic() < deadline:
+            raw = kubectl("get", "namespace", namespace, "--ignore-not-found", "-o", "json").stdout
+            if not raw.strip():
+                return True
+            if json.loads(raw)["metadata"]["uid"] != uid:
+                return False
+            time.sleep(5)
+        return False
 
 
 class AccessRule:
@@ -225,7 +262,7 @@ def run(state: pathlib.Path, first: str):
                "OPENBAO_NAMESPACE": OPENBAO_NS, "OPENBAO_LABEL_KEY": "app.kubernetes.io/instance",
                "OPENBAO_LABEL_VALUE": "target-openbao", "OPENBAO_PORT": "8200"}
     stamp = time.strftime("%Y%m%dT%H%M%S")
-    report = {"environment": "local-rke2-qemu", "model_provider": "scripted_fixture",
+    report = {"environment": "local-rke2-qemu", "cleanup_wait_seconds": {"t3_fixtures": 300, "namespace": 660}, "job_deadline_seconds": 900, "model_provider": "scripted_fixture",
               "source_revision": "synthetic_fixture", "openbao": "standin", "first_proposal": first,
               "fixture_seaweedfs_image": SEAWEED_IMAGE, "attempts": []}
     sha = "1" * 40
@@ -288,12 +325,13 @@ def run(state: pathlib.Path, first: str):
                     effect = first if attempt == 1 else "restricted"
                     proposer = T11BucketProposer(coordinator, Provider(effect), SOURCE_PATH, TARGET_PATH,
                                                  attempt=attempt, feedback_digest=feedback)
-                    lifecycle = AccessRule(NamespaceLifecycle(kubectl_, admin, profile, attempt))
+                    lifecycle = AccessRule(NamespaceLifecycle(kubectl_, PatientCleaner(admin), profile, attempt))
                     job = SeaweedBucketJob(admin, BoundBucketProposalSource(coordinator, TARGET_PATH),
                                            coordinator.snapshot, fixture, lambda: credential,
-                                           source_policy_path=SOURCE_PATH)
+                                           source_policy_path=SOURCE_PATH, deadline_seconds=900)
                     verifier = BucketVerifier(bound_task, job, attempt)
-                    return AttemptPorts(proposer, lifecycle, T3Gate(kubectl_, targets(profile), BUSYBOX), verifier)
+                    gate = T3Gate(kubectl_, targets(profile), BUSYBOX, cleanup_timeout=300)
+                    return AttemptPorts(proposer, lifecycle, gate, verifier)
 
             return Factory()
 
@@ -325,6 +363,7 @@ def run(state: pathlib.Path, first: str):
         report["attempts"].append({
             "attempt": attempt, "seconds": round(time.monotonic() - started), "t10_status": result["status"],
             "record_verdict": record.get("verdict"), "record_reason": record.get("reason"),
+            "record_detail": record.get("detail"),
             "verification_id": record.get("verification_id"), "namespace": record.get("namespace"),
             "created_uid": record.get("created_uid"), "removed_uid": record.get("removed_uid"),
             "isolation_probe_run_id": record.get("isolation_probe_run_id"),
@@ -355,7 +394,7 @@ def run(state: pathlib.Path, first: str):
     with os.fdopen(fd, "w") as stream:
         json.dump(report, stream, indent=2, sort_keys=True)
     print(json.dumps({"success": report["success"], "status": status, "report": str(out),
-                      "attempts": [(a["attempt"], a["t10_status"], a["record_reason"], a["seconds"])
+                      "attempts": [(a["attempt"], a["t10_status"], a["record_reason"], a["record_detail"], a["seconds"])
                                    for a in report["attempts"]]}))
     return 0 if report["success"] else 1
 
@@ -377,7 +416,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("command", choices=["setup", "run"])
     parser.add_argument("--state", required=True, type=pathlib.Path, help="private output directory")
-    parser.add_argument("--first-proposal", choices=["restricted", "permissive"], default="permissive")
+    parser.add_argument("--first-proposal", choices=["restricted", "overbroad"], default="overbroad")
     args = parser.parse_args()
     os.umask(0o077)
     if args.command == "setup":

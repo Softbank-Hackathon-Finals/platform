@@ -60,10 +60,12 @@ class T3Gate:
     kube: Kubectl
     targets: list[Target]
     image: str
+    cleanup_timeout: float = 30
 
     def check(self, namespace: Namespace) -> IsolationPass:
         return check_isolation(
-            self.kube, namespace.name, self.targets, self.image, expected_uid=namespace.uid
+            self.kube, namespace.name, self.targets, self.image, expected_uid=namespace.uid,
+            cleanup_timeout=self.cleanup_timeout,
         )
 
 
