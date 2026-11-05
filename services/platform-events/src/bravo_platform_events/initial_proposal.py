@@ -344,14 +344,26 @@ class InitialProposalExecution:
         source, task and published Change before consuming it.
         """
         with self.records.store._transaction() as c:
-            value = self.records._read(c, self.principal, plan_id, version, ref, promoted=True)
-            saved = _get(c, plan_id, _slot(version) + ":execution:result")
-            if not saved:
-                raise EventError("initial_execution_not_complete")
-            intent = InitialIntent(**saved[0])
-            if self._fields(value, ref) != intent.model_dump(exclude={"recipient_public_key"}):
-                raise EventError("initial_execution_conflict")
-            return self._checked(intent, value, saved[1]).model_dump(mode="json")
+            return self._stored_result(c, plan_id, version, ref, promoted=True)[2].model_dump(mode="json")
+
+    def _stored_result(self, c, plan_id, version, ref, *, promoted=False):
+        value = self.records._read(c, self.principal, plan_id, version, ref, promoted=promoted)
+        saved = _get(c, plan_id, _slot(version) + ":execution:result")
+        if not saved:
+            raise EventError("initial_execution_not_complete")
+        intent = InitialIntent(**saved[0])
+        if self._fields(value, ref) != intent.model_dump(exclude={"recipient_public_key"}):
+            raise EventError("initial_execution_conflict")
+        return value, intent, self._checked(intent, value, saved[1])
+
+    def publication_inputs(self, plan_id, version, **ref):
+        """Read authorized, saved inputs for the operator's T7 evidence lookup.
+
+        No client, network or mutation. Only PROPOSE is accepted. The eventual
+        evidence_reader rechecks current authority after this lookup completes.
+        """
+        with self.records.store._transaction() as c:
+            return self._stored_result(c, plan_id, version, ref)
 
     def evidence_reader(self, *, publication):
         """WorkflowRecovery read port. Publication is a trusted read-only adapter.
