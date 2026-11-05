@@ -1,0 +1,54 @@
+{
+  "actual_cloudwatch_requery": true,
+  "collected_at": "2026-11-05T18:45:53.295455+00:00",
+  "earlier_first_visible_seconds": 24.61,
+  "found_actions": [
+    "create",
+    "delete"
+  ],
+  "matching_events": 2,
+  "observed": "present",
+  "output_sha256": "sha256:01a88960f0431a2c3c88282c7fae6af1e0b62fd0f6ffc9e48661fe437886338a",
+  "searched_events": 11,
+  "public_is_raw": false,
+  "scope": "source EKS isolated audit canary; not application namespace",
+  "source_revision": "5064e92e993c5ea3b7ac2dc49581efdb78b53fc5",
+  "source_application_unchanged": true,
+  "db_unchanged": true,
+  "own_resources_deleted": true,
+  "own_tunnel_closed": true,
+  "operational_gate_recorded": false,
+  "target_verified": false,
+  "readonly_search_role_qualified": false,
+  "unit_tests": {
+    "passed": 971,
+    "skipped": 5,
+    "subtests_passed": 58
+  },
+  "private_artifacts": [
+    {
+      "path": "qualify.py",
+      "sha256": "0e9e503cdc65c2a1f57b49ee73b01750383827d1b52688389355fc0e0fb5b268"
+    },
+    {
+      "path": "requery.py",
+      "sha256": "c665d1076d2d76e4b6b5246d305014b1220cabc5c0773a2f8998604a2eca2098"
+    },
+    {
+      "path": "canary-receipt.private.json",
+      "sha256": "e3a91746e17f4e403369d6744fc225f74bebd57db0ecc2a59203b8c20a197d27"
+    },
+    {
+      "path": "requery-batch.private.json",
+      "sha256": "2285cf63e9189ce045fce60c8a96207f3f9ccf83f2bb57b21cf43b1f79a52030"
+    },
+    {
+      "path": "requery-probe.private.json",
+      "sha256": "01a88960f0431a2c3c88282c7fae6af1e0b62fd0f6ffc9e48661fe437886338a"
+    },
+    {
+      "path": "cleanup-confirmed.json",
+      "sha256": "559773d993a59d91d14539dd775af1d8d9154d659ea17991a055c3c2f9193b3e"
+    }
+  ]
+}

@@ -334,8 +334,13 @@ requires-dist = [
 provides-extras = ["postgres", "sso-registration"]
 
 [package.metadata.requires-dev]
+application-host = [
+    { name = "bravo-apply-path", editable = "../apply-path" },
+    { name = "bravo-control-gate", directory = "." },
+]
 dev = [
     { name = "bravo-agent-worker", directory = "../agent-worker" },
+    { name = "bravo-apply-path", editable = "../apply-path" },
     { name = "bravo-control-gate", directory = "." },
     { name = "bravo-inventory", directory = "../inventory" },
     { name = "bravo-rehearsal-runner", directory = "../rehearsal-runner" },

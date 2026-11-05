@@ -1,0 +1,44 @@
+{{- if .Values.registration.enabled }}
+{{- range $key, $_ := .Values.registration.runtime }}
+{{- if not (has $key (list "configuration" "secrets" "hostAliases")) }}
+{{- fail "runtime input may contain only configuration, secrets and hostAliases" }}
+{{- end }}
+{{- end }}
+{{- if not .Values.registration.runtime.configuration }}
+{{- fail "protected registration configuration is required" }}
+{{- end }}
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: platform-registration
+  namespace: {{ .Release.Namespace }}
+spec:
+  project: platform-registration
+  source:
+    repoURL: https://github.com/Softbank-Hackathon-Finals/platform.git
+    targetRevision: develop
+    path: infra/charts/registration
+    helm:
+      releaseName: registration
+      valueFiles:
+        - ../../gitops/environments/development/registration-image.json
+      valuesObject:
+        {{- toYaml .Values.registration.runtime | nindent 8 }}
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: platform-state
+  syncPolicy:
+    automated:
+      enabled: true
+      prune: false
+      selfHeal: true
+      allowEmpty: false
+    syncOptions:
+      - FailOnSharedResource=true
+    retry:
+      limit: 3
+      backoff:
+        duration: 10s
+        factor: 2
+        maxDuration: 1m
+{{- end }}

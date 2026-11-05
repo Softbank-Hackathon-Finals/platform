@@ -50,7 +50,7 @@ cd services/exit-drill && uv sync --locked
 | 목적지 쓰기 | 2단계 측정 중 목적지 DB에 쓰기가 있어야 한다. 아래 4번 | `REPLICATION_IDLE`로 UNKNOWN |
 | 권한 | Pod 읽기 · 생성 · 삭제 · exec, Deployment 재시작, NetworkPolicy 적용 · 삭제 | 해당 단계에서 멈춘다 |
 
-T16 인벤토리는 이렇게 만든다. 자세한 내용은 [T16 안내](../../services/inventory/README.md)에 있다. `<>` 값은 실제 환경에서 읽어 넣는다. `onprem-demo`는 `profiles/onprem-rke2.json`의 `env_id`다.
+T16 인벤토리는 이렇게 만든다. 자세한 내용은 [T16 안내](../../services/inventory/README.md)에 있다. `<>` 값은 실제 환경에서 읽어 넣는다. `onprem-demo`는 `profiles/onprem-rke2.json`의 `env_id`다. demo-chat 체크아웃은 목적지 이미지를 만든 커밋(`infra/envs/target-workloads/app-image.json`의 `source_sha`)으로 맞춘다. demo-chat `main`의 끝이 아니다.
 
 ```sh
 # 목적지 내보내기. 출발지 내보내기(deployments · serviceaccounts · clusters · aws.json)는 T7 수집 역할이 만든다.
@@ -65,6 +65,8 @@ kubectl get crds -o json > "$OUTPUT_DIR/exports/target/crds.json"
   --target-exports "onprem-demo=$OUTPUT_DIR/exports/target" \
   --output "$OUTPUT_DIR/inventory.json")
 ```
+
+**출발지 내보내기 네 파일이 한 폴더에 다 있어야 한다.** T16은 Deployment → ServiceAccount의 IRSA 주석으로 IAM 역할을 찾고, 그 역할로 `aws.json`을 읽는다. ServiceAccount가 빠지면 `aws.json`을 읽지 않아 배포에만 있는 항목이 인벤토리에서 빠진다(2026-11-06 실제 입력에서는 KMS). 못 읽은 것은 `deploy.notes`에 남고 지도 맨 위 **인벤토리 추적 메모**에 나온다. 빠진 파일을 지어내 채우지 않는다.
 
 ## 1. 지도 뽑기
 
@@ -85,6 +87,8 @@ uv run bravo-exit-drill map --inventory "$OUTPUT_DIR/inventory.json" --candidate
 ```
 
 `render`가 거부하면 `plan.json`에 `refused`와 이유가 들어가고 종료 코드는 1이다. 고칠 곳을 찾을 뿐 값을 지어내지 않는다.
+
+2026-11-06 실제 `target-dev` 스냅샷을 읽기만 해 `render`에 넣었을 때(대조군을 띄우기 전) 거부는 `SELECTOR_MATCHES_NOTHING`(control) 하나였다. 검사는 위반을 모아 돌려주므로, 대조군만 띄우면 나머지 검사는 그때 상태로 통과한다는 뜻이다. 명세의 tailnet 프록시 레이블 셋(`bravo-target-pooler` · `bravo-target-replication` · `target-db-tailnet`)도 `tailscale-system`의 실제 Pod에 있었다.
 
 | 코드 | 뜻 | 할 일 |
 |---|---|---|
@@ -182,7 +186,7 @@ uv run bravo-exit-drill map --inventory "$OUTPUT_DIR/inventory.json" --candidate
 
 **PASS도 "AWS 경로가 막혔고 앱이 떠서 응답했다"까지만 말한다.** 첨부 읽기나 OpenBao 호출 같은 기능별 대체는 재지 않는다. `/ws`는 DB가 막혀도 연결을 받으므로, DB 경로는 `/api/health/db`로 읽는다.
 
-지도는 위에서부터 먼저 볼 것 순서다. 항목은 어떤 경우에도 빠지지 않는다.
+지도는 위에서부터 먼저 볼 것 순서다. 항목은 어떤 경우에도 빠지지 않는다. 맨 위 **인벤토리 추적 메모**는 T16이 배포를 따라가며 남긴 메모이고, 못 읽은 입력도 여기 나온다. 못 읽은 입력이 있으면 아래 항목의 근거가 그만큼 좁다.
 
 | 구역 | 뜻 |
 |---|---|
@@ -224,5 +228,4 @@ kubectl -n target-dev get networkpolicy,pod -l app.kubernetes.io/part-of=bravo-e
 - **실제 환경 전체.** RKE2 · Canal, 실제 demo-chat · PgBouncer · CNPG, 실제 Tailscale, 실제 AWS 경로. 강제 방식이 달라 새 Pod의 틈과 거부 모양이 다를 수 있다.
 - **CNPG 이미지 안의 `bash` · `timeout` · `getent`.** 풀러 이미지는 실제로 쟀다. CNPG 이미지는 받아 보지 않았다. 없으면 그 위치가 `NOT_OBSERVED`나 `UNEXPECTED_STATE`로 UNKNOWN이 되고 PASS로 새지는 않는다.
 - **실제 논리 복제의 `pg_stat_replication`.** 읽는 명령은 실제 PostgreSQL과 물리 복제 연결로 쟀다. 역방향 구독의 `application_name`은 `replication.py`의 값을 쓴다.
-- **역방향 프록시 레이블.** `target-db-tailnet`은 Service 이름에서 추정했다. 정책에는 쓰이지 않고, DB를 고르는 다른 정책이 있을 때 복제 경로를 해석하는 데만 쓰인다.
 - **실제 앱의 재시작.** demo-chat의 1번 프로세스는 uvicorn이라 SIGTERM으로 끝날 것으로 보지만 재지 않았다. 안 끝나면 `drill restart`가 멈추고 기록을 남기지 않는다.

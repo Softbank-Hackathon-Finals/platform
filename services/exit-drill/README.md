@@ -135,6 +135,8 @@ T30의 개발 측정용 앱은 같은 Pod의 호환 컨테이너가 Secrets Mana
 
 드릴을 돌리지 않아도 지도는 나온다(`--report` 없이, 판정 `NOT_RUN`). 판정이 통과하지 못했으면 그 이유를 `drill_not_pass`에, T16이 후보에 없다고 한 기능을 `candidate_missing_capabilities`에 함께 적는다.
 
+T16이 배포를 따라가며 남긴 메모(`deploy.notes`)는 `inventory_trace_notes`에 그대로 옮기고, Markdown 맨 위 **인벤토리 추적 메모**에 보인다. 출발지 내보내기를 못 읽었으면 여기에 나온다. 못 읽은 입력이 있으면 아래 항목의 근거가 그만큼 좁다. T16 스키마가 요구하는 필드라 없거나 글자 목록이 아니면 인벤토리를 받지 않는다.
+
 ## 실행
 
 ```sh

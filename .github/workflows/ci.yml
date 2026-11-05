@@ -122,6 +122,30 @@ jobs:
           while IFS= read -r -d '' file; do
             docker run --rm -i hadolint/hadolint:v2.12.0 hadolint --failure-threshold warning - < "$file"
           done < <(git ls-files -z ':(glob)**/Dockerfile' ':(glob)**/*.Dockerfile')
+      - name: Registration Helm contract
+        if: needs.scope.outputs.infra == 'true'
+        run: |
+          curl --fail --silent --show-error --location https://get.helm.sh/helm-v4.0.0-linux-amd64.tar.gz -o "$RUNNER_TEMP/helm.tgz"
+          curl --fail --silent --show-error --location https://get.helm.sh/helm-v4.0.0-linux-amd64.tar.gz.sha256sum -o "$RUNNER_TEMP/helm.sha256"
+          (cd "$RUNNER_TEMP" && sed 's/helm-v4.0.0-linux-amd64.tar.gz/helm.tgz/' helm.sha256 | sha256sum --check)
+          tar -xzf "$RUNNER_TEMP/helm.tgz" -C "$RUNNER_TEMP" linux-amd64/helm
+          export PATH="$RUNNER_TEMP/linux-amd64:$PATH"
+          python3 -m venv "$RUNNER_TEMP/helm-test"
+          "$RUNNER_TEMP/helm-test/bin/pip" install pyyaml==6.0.3
+          helm repo add bravo-argo https://argoproj.github.io/argo-helm --force-update
+          helm dependency build infra/gitops/argocd
+          "$RUNNER_TEMP/helm-test/bin/python" infra/gitops/test_registration_chart.py
+          mkdir "$RUNNER_TEMP/registration-rendered"
+          "$RUNNER_TEMP/helm-test/bin/python" infra/gitops/test_registration_chart.py --render > "$RUNNER_TEMP/registration-rendered/registration.yaml"
+          helm template bravo-gitops infra/gitops/argocd --namespace bravo-gitops --kube-version 1.35.9 > "$RUNNER_TEMP/registration-rendered/argocd.yaml"
+      - name: Rendered registration security
+        if: needs.scope.outputs.infra == 'true'
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          scan-type: config
+          scan-ref: ${{ runner.temp }}/registration-rendered/registration.yaml
+          severity: HIGH,CRITICAL
+          exit-code: "1"
       - name: Terraform directories
         id: tf
         if: needs.scope.outputs.infra == 'true'

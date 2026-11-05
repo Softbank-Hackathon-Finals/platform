@@ -290,18 +290,34 @@ SCRAM 키를 저장하지 않는다. 첫 시도가 틀리면 그 뒤에 맞는 �
 
 ### 쓰기 스위치
 
-목적지 앱 쓰기를 열어도 행은 풀러 뒤의 DB 하나에만 들어간다. 다만 `/api/health/db`와 풀러 대상을 확인하기 전에는
-열지 않는다. 측정 담당자가 정해 여는 것이고 자동으로 열지 않는다. 롤아웃이 끝난 뒤에 실행한다.
-재시작하면 다시 닫히므로 측정 중에는 앱을 재시작하지 않는다. 마지막 인수가 `false`면 열고 `true`면 닫는다.
-앱에는 종료 전 5초 대기(preStop)가 있다. 없으면 재시작 직후 요청 12개 중 3~8개가 연결에 실패했다(k3s 10회).
-그 5초 동안은 퇴장 중인 이전 Pod가 원래 스위치 상태로 응답할 수 있으니, 스위치를 다시 열기 전에 이전 Pod가 사라졌는지 본다.
+목적지 앱 쓰기를 열어도 행은 풀러 뒤의 DB 하나에만 들어간다. 측정 담당자가 정해 여는 것이고 자동으로 열지 않는다.
+앱은 닫힌 채 시작하고 재시작하면 다시 닫힌다. 그래서 T31 롤아웃이나 재시작 뒤에는 다시 연다. 컷오버 실행기의 사전 점검은 양쪽 앱의 쓰기 차단이 꺼져 있어야 통과한다.
+
+**해피패스 순서:** T31 롤아웃 → `write_switch.py open` → Edge 가중치 전환 → 컷오버.
 
 ```sh
-kubectl -n target-dev exec deployment/demo-chat -c app -- python -c '
-import json, os, sys, urllib.request as u
-print(u.urlopen(u.Request("http://127.0.0.1:8080/admin/write-block", json.dumps({"blocked": sys.argv[1] == "true"}).encode(),
-    {"Authorization": "Bearer " + os.environ["ADMIN_TOKEN"], "Content-Type": "application/json"}, method="PUT"), timeout=10).read())' false
+infra/envs/target-workloads/write_switch.py status   # 읽기만. 열 조건이 모두 맞으면 0
+infra/envs/target-workloads/write_switch.py open
+infra/envs/target-workloads/write_switch.py close
 ```
+
+목적지 클러스터는 `KUBECONFIG`나 `--kubeconfig`로 고른다. 표준 출력에 Pod별 결과가 담긴 JSON 한 줄이 나온다.
+토큰은 각 Pod의 `ADMIN_TOKEN`을 그 Pod 안에서만 쓰고 인수 · 출력 · 파일에 남기지 않는다. 컷오버 실행기와 같은 방식이다.
+
+`open`은 아래를 모두 확인하기 전에는 아무것도 바꾸지 않는다. 연 뒤 모든 Pod를 다시 읽고, 한 Pod라도 열린 채 끝나지 않으면 전부 다시 닫는다.
+
+| 확인 | 기준 | 틀리면 |
+| --- | --- | --- |
+| 롤아웃 | Deployment의 `observedGeneration`이 최신이고 replicas · updated · ready · available 수와 Pod 수가 같다 | 3 |
+| 퇴장 중인 Pod | 없어야 한다. preStop 5초 동안 이전 Pod가 옛 스위치 상태로 응답한다 | 3 |
+| 앱 Pod Ready | 모든 Pod | 3 |
+| DB 경로 | 각 Pod 안에서 `/api/health/db`가 200 | 1, 읽지 못하면 3 |
+| 풀러 대상 | 풀러 Pod의 `/etc/pgbouncer/pgbouncer.ini`와 ConfigMap의 `chat` host가 같고 출발지 DB다 | 목적지 DB면 1, 둘이 다르거나 모르는 host면 3 |
+| 목적지 앱 역할 | 목적지 primary에서 `chat_app`의 `rolcanlogin`이 false | true면 1, 읽지 못하면 3 |
+
+종료 코드는 0 통과, 1 확인한 상태가 틀림, 2 입력 오류, 3 확인하지 못함이다. `close`는 확인 없이 실행 중인 앱 Pod 모두에 닫기를 보낸다. 퇴장 중인 Pod도 포함한다.
+풀러는 설정 파일로 판단하므로 `RELOAD` 전의 변경은 구별하지 못한다. 최종 확인은 실행기의 관리 콘솔 조회(`SHOW DATABASES`)다.
+앱에는 종료 전 5초 대기(preStop)가 있다. 없으면 재시작 직후 요청 12개 중 3~8개가 연결에 실패했다(k3s 10회).
 
 ### 재현
 
@@ -463,7 +479,7 @@ psycopg만 있으면 되고 컨테이너는 필요 없으며, 위 명령에도 �
 
 ## 정방향 구독 재개 (재발 대비)
 
-꺼진 시각 · 오류 종류를 읽는 명령, 방향별 `disable_on_error`, 구독 상태 지표는 [T8 복제 상태](../../../docs/operations/t8-replication-health.md)에 있다.
+꺼진 시각 · 오류 종류를 읽는 명령, 방향별 `disable_on_error`, 복제 시간 초과 30초, 구독 상태 지표는 [T8 복제 상태](../../../docs/operations/t8-replication-health.md)에 있다.
 
 `t8_source_to_target`가 연결 끊김으로 스스로 꺼졌을 때 쓰는 명령이다. 기존 슬롯을 그대로 두고 그 구독만 다시 켠 뒤,
 실제로 따라잡았는지 확인한다. 슬롯 · 역할 · 역방향 구독 · 앱의 쓰기 차단은 건드리지 않고, 목적지에는 어떤 쓰기도 하지 않는다.
@@ -618,7 +634,7 @@ UUID는 잠금 계산과 SQL 바인딩 전에 소문자·하이픈 포함 표준
 
 ### 하지 못하는 것
 
-- 끊김 자체를 막지 않고 설정도 바꾸지 않는다. `disable_on_error`가 켜져 있는 동안 연결이 다시 끊기면 같은 이유로 또 꺼진다. 설정 판단(정방향은 끄는 방안 검토, 역방향은 검증 후 결정)은 증거 문서에 있다.
+- 끊김 자체를 막지 않고 설정도 바꾸지 않는다. `disable_on_error`가 켜져 있는 동안 연결이 다시 끊기면 같은 이유로 또 꺼진다. 렌더 기본값은 정방향 `false` · 역방향 `true`, 시간 초과 30초다. 근거와 떠 있는 클러스터에 적용하는 절차는 [T8 복제 상태](../../../docs/operations/t8-replication-health.md)에 있다.
 - 사전 확인과 ENABLE 사이의 짧은 틈은 막지 못한다. 그 사이에 컷오버가 시작되면 Executor의 사전 점검이 구독 상태를 다시 본다.
 - 이 명령의 세션도 `system_roles` 밖의 역할이면 Executor가 우회 쓰기 후보로 본다. 컷오버 중에는 돌리지 않는다.
 
