@@ -37,6 +37,11 @@ T15 검증·재시도, T19 판정, T31 배포를 이 모듈에서 실행하지 �
    저장된 실제 Admission·현재 계획 버전·task·source·발행 Change·현재 최초 입력 grant를 대조한다.
    첫 시도만 허용하며 `PROPOSAL_READY` 형식으로 같은 Proposal을 반환한다.
    이 조회와 재접수는 모델을 다시 호출하지 않는다. 재시도 2·3에는 해당 시도의 별도 제안 경로가 필요하다.
+9. `StoredInitialCredentialSource(execution, snapshot).open(admission, task)`는 T15 planner의
+   기존 coordinator/provider 포트에 저장 제안을 연결한다. 실제 첫 Admission과 같은 입력 원문의
+   manifest·파일을 확인하고, 기존 T11 coordinator가 같은 Proposal을 다시 검사한다.
+   모델이나 원격 생산자는 호출하지 않는다. T15가 결과를 읽을 때도 현재 권한·발행·원문과
+   같은 proposal digest를 확인한다. 로컬 재검사 기록은 원격 모델의 도구 감사로 승격하지 않는다.
 
 입력과 전달 형식의 정본은 위 Python 모델이다.
 입력 v2는 `schema_version=2`, `analysis`, `binding`, `run_id`, `manifest`, `files`다.
