@@ -14,6 +14,9 @@ NAMESPACE = "source-dev"
 POSTGRES_IMAGE = "ghcr.io/cloudnative-pg/postgresql:18.4-system-trixie@sha256:42708a75345b7a48fdd9257b071830783a97fd228529196b6313187a7198e185"
 POOLER_IMAGE = "ghcr.io/cloudnative-pg/pgbouncer:1.25.1@sha256:e6ddfe22d845e603825e235dd8334b21ecd125abea2a2172478f556b8dee2bb8"
 LABELS = {"app.kubernetes.io/part-of": "bravo-source", "component": "source"}
+# Same values as target-workloads/render.py; see the reason there. CNPG's 5 s default ended the forward
+# connection during a few seconds of congestion on the tailnet path.
+REPLICATION_TIMEOUTS = {"wal_sender_timeout": "30s", "wal_receiver_timeout": "30s"}
 
 
 def resource(api, kind, name, spec=None, **fields):
@@ -73,7 +76,7 @@ def database():
             "parameters": {"wal_level": "logical", "password_encryption": "scram-sha-256",
                            "log_connections": "on", "log_disconnections": "on",
                            "pgaudit.log": "ddl,role", "pgaudit.log_parameter": "off",
-                           "log_statement": "none"},
+                           "log_statement": "none", **REPLICATION_TIMEOUTS},
             "pg_hba": ["hostnossl all all all reject",
                        "hostssl chat chat_app all scram-sha-256",
                        "hostssl chat chat_replicator all scram-sha-256",
