@@ -1,0 +1,34 @@
+[project]
+name = "bravo-audit-log"
+version = "0.1.0"
+description = "T24 감사 로그: 실행 ID별 해시 체인 기록 + S3 Object Lock 보존 + 삭제 시도 거부 증빙"
+requires-python = ">=3.12"
+dependencies = ["jsonschema>=4.23,<5"]
+
+[project.optional-dependencies]
+aws = ["boto3>=1.35,<2"]
+
+[project.scripts]
+bravo-audit = "bravo_audit.cli:main"
+
+[dependency-groups]
+dev = ["pytest>=8,<10"]
+
+[build-system]
+requires = ["hatchling>=1.25,<2"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/bravo_audit"]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP"]
+ignore = ["E501"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
