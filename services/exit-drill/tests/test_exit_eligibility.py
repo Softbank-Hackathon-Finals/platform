@@ -111,6 +111,71 @@ def test_unreadable_pod_is_none_not_clean(plan, how):
     assert blockers(damage(kube_pod(), how), plan) is None
 
 
+# envFrom은 Pod만 봐서는 어떤 변수가 들어오는지 모른다. 참조한 값을 새로 읽지 않고, 모른다고 둔다.
+ENV_FROM_REFS = [
+    {"configMapRef": {"name": "endpoints"}},
+    {"secretRef": {"name": "endpoints"}},
+    {"configMapRef": {"name": "endpoints"}, "prefix": "AWS_"},
+]
+
+
+@pytest.mark.parametrize("reference", ENV_FROM_REFS)
+def test_env_from_on_a_main_container_cannot_be_read(plan, reference):
+    pod = kube_pod()
+    pod["spec"]["containers"][0]["envFrom"] = [reference]
+    assert blockers(pod, plan) is None
+
+
+@pytest.mark.parametrize("reference", ENV_FROM_REFS)
+def test_env_from_on_a_sidecar_cannot_be_read(plan, reference):
+    pod = kube_pod(init_env=["S3_ENDPOINT_URL"])
+    pod["spec"]["initContainers"][0]["envFrom"] = [reference]
+    assert blockers(pod, plan) is None
+
+
+def test_env_from_beside_a_second_container_cannot_be_read(plan):
+    pod = kube_pod()
+    pod["spec"]["containers"].append({"name": "collector", "envFrom": [{"secretRef": {"name": "x"}}]})
+    assert blockers(pod, plan) is None
+
+
+def test_malformed_env_from_cannot_be_read(plan):
+    pod = kube_pod()
+    pod["spec"]["containers"][0]["envFrom"] = "broken"
+    assert blockers(pod, plan) is None
+
+
+def test_empty_env_from_names_nothing_and_stays_eligible(plan):
+    pod = kube_pod()
+    pod["spec"]["containers"][0]["envFrom"] = []
+    assert blockers(pod, plan) == []
+
+
+def test_env_from_is_not_read_even_beside_a_marker(plan):
+    pod = kube_pod(annotations={ANNOTATION: "x"})
+    pod["spec"]["containers"][0]["envFrom"] = [{"configMapRef": {"name": "endpoints"}}]
+    assert blockers(pod, plan) is None
+
+
+def test_endpoint_moved_into_env_from_cannot_pass(plan):
+    """표지와 변수를 지우고 endpoint를 envFrom으로 옮긴 우회. 실제 RKE2에서 PASS가 재현됐던 입력이다(#210)."""
+    pod = kube_pod()
+    pod["spec"]["containers"][0]["envFrom"] = [{"configMapRef": {"name": "moved-endpoint"}}]
+    found = blockers(pod, plan)
+    report = judged(plan, before=found, after=found)
+    assert report["verdict"] == "UNKNOWN"
+    assert exit_code(report) == 3
+    assert code(report)["code"] == "ELIGIBILITY_NOT_READ"
+
+
+def test_removing_env_from_restores_eligibility(plan):
+    pod = kube_pod()
+    pod["spec"]["containers"][0]["envFrom"] = [{"configMapRef": {"name": "moved-endpoint"}}]
+    assert judged(plan, before=blockers(pod, plan), after=blockers(pod, plan))["verdict"] == "UNKNOWN"
+    del pod["spec"]["containers"][0]["envFrom"]
+    assert judged(plan, before=blockers(pod, plan), after=blockers(pod, plan))["verdict"] == "PASS"
+
+
 # --- 판정: 표지 있음 · 없음 · 읽기 실패 · 제거 뒤 회복
 
 

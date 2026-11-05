@@ -21,6 +21,8 @@ MUTATIONS = [
     ("observation.py", "if NOT_EXIT_EVIDENCE_ANNOTATION in annotations:", "if False:", "출구 제외 표지 읽기"),
     ("observation.py", "if any(name.startswith(AWS_ENDPOINT_OVERRIDE) for name in names):", "if False:", "AWS 호출을 돌리는 설정 읽기"),
     ("observation.py", "for container in [*containers, *sidecars]:", "for container in containers:", "사이드카의 설정 읽기"),
+    ("observation.py", 'if container.get("envFrom", []) != []:', "if False:", "envFrom이 있으면 읽지 못한 것으로 두기"),
+    ("observation.py", 'if container.get("envFrom", []) != []:', 'if "envFrom" in container:', "비어 있는 envFrom은 막지 않기"),
     ("observation.py", "if not isinstance(annotations, dict) or not isinstance(spec, dict):\n        return None\n", "if not isinstance(annotations, dict) or not isinstance(spec, dict):\n        return []\n", "읽지 못한 Pod를 깨끗하다고 하지 않기"),
     ("observation.py", 'if not isinstance(env, list) or not all(isinstance(e, dict) and isinstance(e.get("name"), str) for e in env):\n            return None\n', 'if not isinstance(env, list) or not all(isinstance(e, dict) and isinstance(e.get("name"), str) for e in env):\n            return []\n', "읽지 못한 환경 변수를 깨끗하다고 하지 않기"),
     ("verdict.py", '*[_check_eligibility(name, before, after) for name, w in sorted(plan["workloads"].items()) if w["role"] == "app"],\n', "", "출구 시험 자격 판정"),

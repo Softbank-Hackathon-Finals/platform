@@ -107,7 +107,8 @@ AWS 경로는 명세에 적지 않는다. **인벤토리가 쓴다고 한 서비
 
 T30의 개발 측정용 앱은 같은 Pod의 호환 컨테이너가 Secrets Manager 호출에 응답한다([ADR-0017](../../docs/adr/0017-target-app-secrets-manager-compat.md)). AWS를 막아도 앱이 떠서 거짓 PASS가 나올 수 있다.
 그래서 수집기가 앱 역할 Pod마다 `bravo.t30/not-exit-evidence` 표지와 모든 컨테이너(재시작 가능한 사이드카 포함)의 `AWS_ENDPOINT_URL*` 환경 변수를 읽어 `exit_blockers`로 적는다.
-판정은 차단 전후의 Pod를 모두 보고, 하나라도 걸리면 `eligibility:*`가 UNKNOWN이다. 값을 읽지 못해도 UNKNOWN이다. 표지만 지워도 환경 변수가 남으면 통과하지 못한다. `envFrom`으로 넣은 값은 읽지 못한다.
+판정은 차단 전후의 Pod를 모두 보고, 하나라도 걸리면 `eligibility:*`가 UNKNOWN이다. 값을 읽지 못해도 UNKNOWN이다. 표지만 지워도 환경 변수가 남으면 통과하지 못한다.
+`envFrom`이 있는 Pod도 `ELIGIBILITY_NOT_READ`다. Pod만 봐서는 어떤 변수가 들어오는지 모르고, 참조한 ConfigMap · Secret을 새로 읽지 않는다. 쓰려면 환경 변수를 `env`에 직접 적는다. 볼륨으로 넣은 AWS 설정 파일은 보지 않는다.
 
 종료 코드: 0 PASS · 1 FAIL(또는 계획 거부) · 2 입력 오류 · 3 UNKNOWN.
 

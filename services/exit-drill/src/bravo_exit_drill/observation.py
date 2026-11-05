@@ -66,7 +66,8 @@ def _exit_blockers(metadata: dict, spec: Any) -> list[str] | None:
     """이 Pod로 출구를 말할 수 없는 이유. 읽지 못하면 None이고, 판정기가 UNKNOWN으로 본다.
 
     표지만 보면 지우는 것으로 통과한다. AWS 호출을 돌리는 설정이 남아 있으면 차단을 잰 것이 아니므로
-    그것도 따로 본다. 재시작 가능한 사이드카는 init 컨테이너 목록에 있다. envFrom으로 넣은 값은 읽지 못한다.
+    그것도 따로 본다. 재시작 가능한 사이드카는 init 컨테이너 목록에 있다.
+    envFrom은 Pod만 봐서는 어떤 변수가 들어오는지 모른다. 참조한 ConfigMap · Secret을 새로 읽지 않고 모른다고 둔다.
     """
     annotations = metadata.get("annotations", {})
     if not isinstance(annotations, dict) or not isinstance(spec, dict):
@@ -78,6 +79,8 @@ def _exit_blockers(metadata: dict, spec: Any) -> list[str] | None:
     for container in [*containers, *sidecars]:
         env = container.get("env", []) if isinstance(container, dict) else None
         if not isinstance(env, list) or not all(isinstance(e, dict) and isinstance(e.get("name"), str) for e in env):
+            return None
+        if container.get("envFrom", []) != []:
             return None
         names.extend(e["name"] for e in env)
     blockers = []
