@@ -29,7 +29,14 @@ def certificates(tmp_path_factory):
     for args in (
         ("ca", str(root / "ca"), "3"),
         ("ca", str(root / "wrong-ca"), "3"),
-        ("leaf", str(root / "ca"), "api", "DNS:api,DNS:localhost,IP:127.0.0.1", str(root / "server"), "1"),
+        (
+            "leaf",
+            str(root / "ca"),
+            "api",
+            "DNS:api,DNS:localhost,IP:127.0.0.1",
+            str(root / "server"),
+            "1",
+        ),
     ):
         subprocess.run(["bash", str(script), *args], check=True, capture_output=True, timeout=10)
     return root
@@ -61,7 +68,9 @@ def live_server(certificates, monkeypatch):
 
 def test_tls_auth_and_missing_metrics(live_server, certificates):
     context = ssl.create_default_context(cafile=str(certificates / "ca/ca.crt"))
-    with httpx.Client(base_url=f"https://127.0.0.1:{live_server}", verify=context, trust_env=False) as client:
+    with httpx.Client(
+        base_url=f"https://127.0.0.1:{live_server}", verify=context, trust_env=False
+    ) as client:
         assert client.get("/healthz").status_code == 200
         route = "/v1/observability/environments"
         assert client.get(route).status_code == 401
@@ -80,7 +89,9 @@ def test_bad_tls_rejected_before_credentials(live_server, certificates, kind):
         ctx.maximum_version = ssl.TLSVersion.TLSv1_2
     with socket.create_connection(("127.0.0.1", live_server), timeout=3) as raw:
         with pytest.raises(ssl.SSLError):
-            ctx.wrap_socket(raw, server_hostname="untrusted.invalid" if kind == "wrong-name" else "localhost")
+            ctx.wrap_socket(
+                raw, server_hostname="untrusted.invalid" if kind == "wrong-name" else "localhost"
+            )
     # No HTTP bytes or Authorization header were sent before the failed handshake.
 
 

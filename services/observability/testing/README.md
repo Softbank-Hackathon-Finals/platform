@@ -39,3 +39,26 @@ CPU는 CRI 누적 CPU/표본 시각의 차분으로 계산한다. 교체·누락
 
 이 측정은 로컬 단일 노드 k3s의 자원 참고 자료다. 실제 출발지·목적지
 배포, T36의 외부 관측 판정이나 운영 용량 보장을 대신하지 않는다.
+# 조회 API의 원격 HTTPS 경로
+
+`query_api_tls.py`는 임시 CA와 별도 Docker Compose 프로젝트에서 실제 Prometheus,
+조회 API, 콘솔의 `T37Client`를 연결한다. 운영 인증서나 클라우드 자격은 필요 없다.
+테스트 API 토큰은 실행 중 생성하며 공개 결과에 저장하지 않는다.
+
+저장소 루트에서 이미지를 빌드한 뒤 observability 디렉터리에서 실행한다.
+
+```sh
+docker build --platform linux/amd64 -f services/observability/Dockerfile -t bravo-query-tls:test .
+docker image inspect bravo-query-tls:test --format '{{.Id}}'
+cd services/observability
+uv sync --locked
+# 위 이미지 ID 전체를 지정한다. 태그는 받지 않는다. output은 새 디렉터리여야 한다.
+uv run python testing/query_api_tls.py --image sha256:<local-image-id> --output /private/tmp/query-tls-result
+```
+
+검사 범위: HTTPS health, 토큰 누락/오류 거부, TLS 1.3, 평문 HTTP 거부, 실제 저장소
+mTLS 조회, 콘솔 어댑터의 HTTPS 읽기, 검증 healthcheck, 저장소 중단 시 503.
+빈 저장소의 환경은 `UNOBSERVABLE`이며 앱 건강이나 컷오버 허가를 의미하지 않는다.
+결과는 `qualification.json`, 정리는 `cleanup.json`에 기록한다. 이 스크립트가 만든
+컨테이너/네트워크/볼륨만 종료 시 제거한다. 실제 AWS·온프렘 인수와는 구분한다.
+
