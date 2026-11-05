@@ -275,7 +275,10 @@ dependencies = [
 requires-dist = [{ name = "boto3", specifier = ">=1.35,<2" }]
 
 [package.metadata.requires-dev]
-dev = [{ name = "pytest", specifier = ">=8" }]
+dev = [
+    { name = "jsonschema", specifier = ">=4.23" },
+    { name = "pytest", specifier = ">=8" },
+]
 
 [[package]]
 name = "certifi"
