@@ -54,13 +54,23 @@ def fixture(monkeypatch):
         clients[name].close()
 
 
-def add_read(stubs, *, default=False, secret_change=None, key_change=None, aliases=None):
+def add_read(stubs, *, default=False, secret_change=None, key_change=None, aliases=None, version_pages=None, version_calls=True):
     secret = dict(ARN=SECRET.secret_arn, VersionIdsToStages={SECRET.version_id: ["AWSCURRENT"]},
                   ResponseMetadata={"HTTPStatusCode": 200})
     if not default:
         secret["KmsKeyId"] = KEY
     secret.update(secret_change or {})
     stubs["secretsmanager"].add_response("describe_secret", secret, {"SecretId": SECRET.secret_arn})
+    if version_calls:
+        pages = version_pages if version_pages is not None else [dict(ARN=SECRET.secret_arn,
+            Versions=[dict(VersionId=SECRET.version_id, VersionStages=["AWSCURRENT"], KmsKeyIds=[KEY])],
+            ResponseMetadata={"HTTPStatusCode": 200})]
+        token = None
+        for page in pages:
+            stubs["secretsmanager"].add_response("list_secret_version_ids", page,
+                {"SecretId": SECRET.secret_arn, "MaxResults": 100, "IncludeDeprecated": True,
+                 **({"NextToken": token} if token else {})})
+            token = page.get("NextToken")
     key = dict(Arn=KEY, KeyId=TARGET.key_id, AWSAccountId="123456789012", Enabled=True,
                KeyState="Enabled", KeySpec="SYMMETRIC_DEFAULT", KeyUsage="ENCRYPT_DECRYPT",
                KeyManager="AWS" if default else "CUSTOMER", Origin="AWS_KMS")
@@ -188,3 +198,98 @@ def test_incomplete_alias_listing_cannot_confirm_default_key(fixture):
 def test_cross_account_key_registration_rejected():
     with pytest.raises(ValueError, match="same_region_account"):
         encryption.SecretEncryptionTarget(SECRET, KEY.replace("123456789012", "111122223333"))
+
+
+@pytest.mark.parametrize("default", [False, True])
+def test_setting_key_change_without_version_reencryption_is_unknown(fixture, monkeypatch, default):
+    probe, stubs, _, _, _ = fixture
+    add_read(stubs, default=default, version_calls=False)
+    add_read(stubs, default=default, version_calls=False)
+    original = encryption.verified_client
+    response = dict(ARN=SECRET.secret_arn, Versions=[dict(VersionId=SECRET.version_id,
+        VersionStages=["AWSCURRENT"], KmsKeyIds=[KEY.replace("11111111", "22222222", 1)])],
+        ResponseMetadata={"HTTPStatusCode": 200})
+    versions = Mock(return_value=response)
+
+    @contextmanager
+    def verified(*args, **kwargs):
+        with original(*args, **kwargs) as (client, identity):
+            if args[2] == "secretsmanager":
+                monkeypatch.setattr(client, "list_secret_version_ids", versions)
+            yield client, identity
+
+    monkeypatch.setattr(encryption, "verified_client", verified)
+    result = probe(CONTEXT, encryption.SPEC)
+    assert result.observed is None and result.unknown_reason == "UNEXPECTED_RESPONSE"
+    versions.assert_called_once()
+
+
+def version_page(*, keys=None, version=None, stages=None, **extra):
+    return dict(ARN=SECRET.secret_arn, Versions=[dict(
+        VersionId=version or SECRET.version_id,
+        VersionStages=["AWSCURRENT"] if stages is None else stages,
+        KmsKeyIds=[KEY] if keys is None else keys)],
+        ResponseMetadata={"HTTPStatusCode": 200}, **extra)
+
+
+def test_current_version_on_second_page_requires_complete_listing_twice(fixture):
+    probe, stubs, output, _, _ = fixture
+    pages = [dict(ARN=SECRET.secret_arn, Versions=[], NextToken="next",
+                  ResponseMetadata={"HTTPStatusCode": 200}), version_page()]
+    add_read(stubs, version_pages=pages)
+    add_read(stubs, version_pages=pages)
+    result = probe(CONTEXT, encryption.SPEC)
+    assert result.observed == "enabled"
+    assert json.loads(output[0])["facts"]["version_key_matched"] is True
+    assert result.tool_version == "2"
+    for stub in stubs.values():
+        stub.assert_no_pending_responses()
+
+
+@pytest.mark.parametrize("pages", [
+    [version_page(keys=[])],
+    [version_page(keys=[KEY, KEY.replace("11111111", "22222222", 1)])],
+    [version_page(version="b" * 32)],
+    [version_page(stages=["AWSPREVIOUS"])],
+    [version_page(NextToken="next"), version_page()],
+    [version_page(NextToken="next"), dict(ARN=SECRET.secret_arn, Versions=[],
+        NextToken="next", ResponseMetadata={"HTTPStatusCode": 200})],
+    [version_page(ARN_OVERRIDE=True)],
+])
+def test_missing_changed_duplicate_or_incomplete_version_binding_blocks(fixture, pages):
+    probe, stubs, output, _, _ = fixture
+    if pages[0].pop("ARN_OVERRIDE", False):
+        pages[0]["ARN"] = SECRET.secret_arn + "-other"
+    add_read(stubs, version_pages=pages)
+    result = probe(CONTEXT, encryption.SPEC)
+    assert result.observed is None and result.unknown_reason == "UNEXPECTED_RESPONSE"
+    assert json.loads(output[0])["facts"] == {}
+
+
+def test_version_metadata_denial_does_not_fall_back_to_configured_key(fixture):
+    probe, stubs, output, _, _ = fixture
+    add_read(stubs, version_calls=False)
+    stubs["secretsmanager"].add_client_error("list_secret_version_ids", "AccessDeniedException",
+        CANARY, http_status_code=400)
+    result = probe(CONTEXT, encryption.SPEC)
+    assert result.observed is None and result.unknown_reason == "OBSERVATION_DENIED"
+    assert CANARY not in output[0].decode()
+
+
+def test_version_encryption_changes_between_readbacks_blocks(fixture):
+    probe, stubs, output, _, _ = fixture
+    add_read(stubs)
+    add_read(stubs, version_pages=[version_page(keys=[])])
+    result = probe(CONTEXT, encryption.SPEC)
+    assert result.observed is None
+    assert json.loads(output[0])["facts"] == {}
+
+
+def test_version_listing_budget_does_not_accept_early_current_match(fixture):
+    probe, stubs, _, _, _ = fixture
+    pages = [version_page(NextToken="page-1")]
+    pages.extend(dict(ARN=SECRET.secret_arn, Versions=[], NextToken=f"page-{i}",
+        ResponseMetadata={"HTTPStatusCode": 200}) for i in range(2, 6))
+    add_read(stubs, version_pages=pages)
+    result = probe(CONTEXT, encryption.SPEC)
+    assert result.observed is None and result.unknown_reason == "UNEXPECTED_RESPONSE"

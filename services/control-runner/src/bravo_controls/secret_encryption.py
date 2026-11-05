@@ -90,6 +90,44 @@ class SecretEncryptionProbe:
                 raise ValueError("metadata_response_unconfirmed")
             return response
 
+        def version_binding(secret_client):
+            token, tokens, version_ids, current = None, set(), set(), []
+            for _ in range(5):
+                page = call(secret_client, "list_secret_version_ids",
+                            SecretId=target.secret.secret_arn, MaxResults=100, IncludeDeprecated=True,
+                            **({"NextToken": token} if token else {}))
+                rows = page.get("Versions")
+                if page.get("ARN") != target.secret.secret_arn or type(rows) is not list or len(rows) > 100:
+                    raise ValueError("version_listing_unconfirmed")
+                for row in rows:
+                    if type(row) is not dict:
+                        raise ValueError("invalid_version_metadata")
+                    version, stages = row.get("VersionId"), row.get("VersionStages", [])
+                    if (not isinstance(version, str) or re.fullmatch(r"[A-Za-z0-9-]{32,64}", version) is None
+                            or version in version_ids or type(stages) is not list
+                            or not all(type(stage) is str for stage in stages) or len(set(stages)) != len(stages)):
+                        raise ValueError("version_scope_or_pagination_changed")
+                    version_ids.add(version)
+                    if "AWSCURRENT" in stages:
+                        keys = row.get("KmsKeyIds")
+                        # This qualified path accepts one actual encryption key.
+                        # Old+new transitional key sets need a separately approved key set.
+                        if (version != target.secret.version_id or type(keys) is not list or len(keys) != 1
+                                or not isinstance(keys[0], str) or keys[0] not in {target.key_arn, target.key_id}):
+                            raise ValueError("current_version_encryption_key_unconfirmed")
+                        current.append(dict(version=version, stages=sorted(stages), key=target.key_arn))
+                token = page.get("NextToken")
+                if token is None:
+                    break
+                if not isinstance(token, str) or not 1 <= len(token) <= 4096 or token in tokens:
+                    raise ValueError("version_pagination_unconfirmed")
+                tokens.add(token)
+            else:
+                raise ValueError("version_listing_budget_exceeded")
+            if len(current) != 1:
+                raise ValueError("current_version_unconfirmed")
+            return digest(encoded(current[0]))
+
         def reading(secret_client, kms_client):
             value = call(secret_client, "describe_secret", SecretId=target.secret.secret_arn)
             if (value.get("ARN") != target.secret.secret_arn or "DeletedDate" in value
@@ -142,8 +180,10 @@ class SecretEncryptionProbe:
                     or key.get("Origin") != "AWS_KMS" or key.get("CustomKeyStoreId")):
                 # Disabled/unavailable keys do not imply stored secrets are plaintext.
                 raise ValueError("usable_encryption_key_unconfirmed")
+            binding = version_binding(secret_client)
             return {"current_version_matched": True, "key_matched": True,
-                    "default_aws_key": default, "key_enabled": True}
+                    "default_aws_key": default, "key_enabled": True,
+                    "version_key_matched": True, "version_binding_sha256": binding}
 
         try:
             credentials = self.credentials(context, "encryption-reader", self.role)
@@ -167,7 +207,7 @@ class SecretEncryptionProbe:
                       else "OBSERVATION_DENIED" if isinstance(code, str) and code in {"AccessDenied", "AccessDeniedException"}
                       else "UNEXPECTED_RESPONSE" if isinstance(error, ValueError) else "TOOL_ERROR")
             finished = utc(self.clock())
-        payload = encoded(dict(format_version="1", test_id=SPEC.test_id, method_version="1",
+        payload = encoded(dict(format_version="1", tool_version="2", test_id=SPEC.test_id, method_version="1",
                                run_id=context.run_id, app=context.app, environment=context.environment.ref,
                                started_at=started.isoformat(), collected_at=finished.isoformat(),
                                resource_binding_sha256=digest(encoded(dict(secret=target.secret.secret_arn,
@@ -175,4 +215,4 @@ class SecretEncryptionProbe:
                                identities=identities, observed=observed, unknown_reason=reason, facts=facts))
         self.sink(payload)
         return Observation(context, SPEC.test_id, "1", observed, "not_applicable", finished,
-                           "bravo-secret-encryption", "1", digest(payload), reason)
+                           "bravo-secret-encryption", "2", digest(payload), reason)

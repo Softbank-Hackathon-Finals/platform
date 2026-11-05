@@ -1,7 +1,12 @@
 # T14 실제 AWS Secret 저장 암호화 확인
 
+**자격 철회:** 아래 실행은 도구 버전 1의 진단 기록으로 보존한다. PR #306 리뷰에서
+설정 키와 현재 버전의 실제 암호화 키가 다를 수 있음이 확인됐다. 따라서 이 기록의
+PASS는 ENC-02.1 게이트 근거로 사용할 수 없다. 원문은 덮어쓰지 않으며, 버전 2의
+`ListSecretVersionIds.KmsKeyIds` 전후 확인을 포함한 별도 실행으로 재검증해야 한다.
+
 11월 5일 **20:18:48–20:19:01 KST**, 등록된 출발지 Secret의 현재 버전과 기존 KMS 키를
-새 `SecretEncryptionProbe`로 전후 조회했다. `ENC-02.1`은 PASS다.
+`SecretEncryptionProbe` 버전 1로 전후 조회했다. 당시 출력은 PASS였으나 위 이유로 자격을 철회한다.
 
 - 실행: `8c42b802-eb20-4946-881d-37dcce14af1f`
 - [원문](control-run.json), [증거](evidence.json), [요약](summary.json), [실행 소스](source-manifest.json)

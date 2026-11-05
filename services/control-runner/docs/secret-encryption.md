@@ -10,6 +10,11 @@
 
 - 실제 Secret ARN·AWSCURRENT 버전과 등록값이 일치한다.
 - 연결 키가 등록된 동일 계정·리전의 KMS key ARN/ID와 일치한다.
+- `ListSecretVersionIds`를 끝까지 읽고, 정확한 현재 버전의 `KmsKeyIds`가
+  등록한 키 하나와 일치하는지 전후 확인한다. 설정의 `KmsKeyId`만으로 통과시키지 않는다.
+  키 변경 시 기존 버전의 재암호화가 실패할 수 있으므로, 현재 버전의 키 목록 누락·다른 키·
+  여러 키·중복 버전·미완료 페이지·조회 거부는 UNKNOWN이다. 현재 버전이 뒤 페이지에 있어도
+  확인하며, 앞 페이지에서 찾았더라도 나머지 페이지를 생략하지 않는다.
 - 키는 `Enabled`, 대칭키, 암호화/복호화 용도다.
 - 기본 AWS 관리 키를 사용하는 경우, 이미 존재하는 `alias/aws/secretsmanager`와
   실제 TargetKeyId의 일치를 `ListAliases(KeyId=고정 키 ARN)`으로 확인한다.
@@ -22,7 +27,7 @@ UNKNOWN이다. 키가 비활성화됐다는 사실을 저장 데이터가 평문
 
 ## 읽기 전용 경계
 
-`DescribeSecret`·고정 key ARN의 `DescribeKey`·`ListAliases`만 호출한다.
+`DescribeSecret`·`ListSecretVersionIds`·고정 key ARN의 `DescribeKey`·`ListAliases`만 호출한다.
 Secret 값, KMS 키 재료, 정책·grant·회전·생성·삭제 API는 사용하지 않는다.
 **키가 없는 사전 정의 alias에 DescribeKey를 호출하면 AWS 관리 키가 생성될 수 있으므로**
 이 경로에서는 alias로 DescribeKey를 호출하지 않는다. 등록 작업도 기존 alias/키를 읽어야 한다.
@@ -42,6 +47,13 @@ I/O 기한을 사용한다. 목록은 최대 5페이지다. 호출 사이의 60�
   비밀 값을 제외한 메타데이터와 KmsKeyId. 기본 AWS 관리 키 사용 시 해당 필드는 생략된다.
 - [AWS DescribeKey](https://docs.aws.amazon.com/kms/latest/APIReference/API_DescribeKey.html):
   키 상태·용도·관리 주체, 사전 정의 alias의 키 생성 가능성과 메타데이터 조회의 한계.
+- [AWS SecretVersionsListEntry](https://docs.aws.amazon.com/secretsmanager/latest/apireference/API_SecretVersionsListEntry.html):
+  버전별 실제 암호화 키 `KmsKeyIds`.
+- [AWS UpdateSecret](https://docs.aws.amazon.com/secretsmanager/latest/apireference/API_UpdateSecret.html):
+  새 키의 암호화 권한이 없으면 기존 버전을 새 키로 재암호화하지 않는다.
+
+검사 도구 버전 2부터 위 버전별 키 결속을 확인한다. 버전 1의 설정 키 확인 결과는
+현재 버전의 실제 암호화 키를 증명하지 않으므로 게이트 근거로 재사용하지 않는다.
 
 단위 시험은 실제 Botocore의 Stubber이며 실계정 성공을 뜻하지 않는다. 실제 환경 실행은
 등록된 자원·신원과 증거 저장 경로를 별도로 확인해야 한다.
