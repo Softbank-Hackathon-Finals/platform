@@ -1,8 +1,16 @@
 # T8 정방향 복제 상태: 꺼짐 원인 확인 · 시간 초과 · 설정 분리 · 지표
 
-**구독이 꺼지면 아래 한 줄로 꺼진 시각과 오류 종류를 값 노출 없이 읽을 수 있다.** 복제 시간 초과는 양쪽 모두 30초로 렌더한다([11/6 새벽 끊김](#116-새벽-끊김-원인과-대응)). 정방향 `disable_on_error`는 역방향과 따로 렌더하며, 기본값은 정방향 `false` · 역방향 `true`다. **실제 정방향 객체는 11/6 04:16 KST에 `true`로 되돌려졌고, 누가 바꿨는지 확인하고 있다**([지금 상태](#지금-상태-116-0425-kst)). 목적지 구독 상태와 적용 오류 수는 CNPG 지표로 나온다. 실제 클러스터에는 이 문서의 어떤 변경도 적용하지 않았다.
+**11/6 05:53 KST, 렌더·Kubernetes 객체·DB를 정방향 `disable_on_error=false`, 역방향 `true`, 양쪽 송신·수신 timeout 모두 30초로 맞췄다.** ARM 이관 담당의 같은 실행에서 적용했고 DB Pod UID와 재시작 횟수가 그대로다. 양쪽 Collector의 실제 DB 지표 수신과 표본 시각 전진, 지표 누락 경보의 발생·해소를 확인했다. [적용 결과·검증 한계·복구 방법](../evidence/t8-runtime-policy-2026-11-06/README.md)을 기준으로 현재 상태를 판단한다.
 
-실제 로그와 설정은 읽기만 했다. 그 밖의 숫자는 임시 환경에서 잰 값이다([재지 못한 것](#재지-못한-것)). 원값은 [11/6 복제 상태 측정](../evidence/t8-replication-health-2026-11-06/README.md)과 [11/6 시간 초과 측정](../evidence/t8-replication-timeout-2026-11-06/README.md)에 있다.
+아래 사고 분석과 lab 표는 각각 당시 관측과 격리 실험이다. 원값은 [11/6 복제 상태 측정](../evidence/t8-replication-health-2026-11-06/README.md)과 [11/6 시간 초과 측정](../evidence/t8-replication-timeout-2026-11-06/README.md)에 있다. 실제 환경의 단절을 다시 일으키거나 컷오버를 실행한 결과로 읽지 않는다.
+
+## 11/6 운영 설정 정합화
+
+04:16의 변경 주체는 기존 T17 Edge 복구 실행이다. 과거 T36 인계의 `true 유지` 조건을 복원하면서 새 방향별 렌더 기준을 소비하지 않았다. [변경 의도·객체 전후 대조](https://github.com/Softbank-Hackathon-Finals/platform/pull/382#issuecomment-6667870473)로 확인했으며 태현님의 렌더 변경이 실제 값을 `true`로 만든 것은 아니다.
+
+사용자는 ARM 이관 담당의 같은 실행에서 실제 값을 렌더 기준에 맞추고 오류 감시를 확인한 뒤 병합하도록 직접 지시했다. 별도 회신 대기는 해제됐다. 적용 기준은 양단 송신·수신 30초, 정방향 `false`, 역방향 `true`다. 복제 재개·단일 writer 판단은 ARM 운영 실행에서 담당한다. 이 기록이 컷오버나 역방향 ENABLE을 추가로 승인하지 않는다.
+
+정방향 꺼짐·오류 증가·반복 오류·슬롯 비활성·지표 누락을 [배포 알람 규칙](../../services/observability/deploy/platform/rules/alerts.yml)에 추가했다. 정상·장애·복구·counter reset·앱 출처 사칭을 같은 Prometheus 이미지의 `promtool`로 시험한다. 실제 적용 결과와 한계는 [설정 정합 검증](../evidence/t8-runtime-policy-2026-11-06/README.md)에 따로 고정한다. 아래 04:25 상태와 격리 실험은 그 시점의 기록이다.
 
 ## 11/6 새벽 끊김: 원인과 대응
 
@@ -28,9 +36,9 @@
 
 **정방향 `disable_on_error`가 다시 `true`라, 다음 5초 시간 초과 한 번에 정방향이 스스로 꺼질 수 있다.**
 
-- 04:16:10 KST(19:16:10Z)에 목적지 `t8-source-to-target` Subscription의 `disable_on_error`가 `kubectl patch`로 `true`가 됐다. 객체의 managedFields에 `kubectl-patch`가 그 시각에 이 필드를 바꾼 기록이 있고, CNPG는 2초 뒤 반영했다. 누가 바꿨는지는 확인하고 있다.
+- 04:16:10 KST(19:16:10Z)에 목적지 `t8-source-to-target` Subscription의 `disable_on_error`가 `kubectl patch`로 `true`가 됐다. 객체의 managedFields에 `kubectl-patch`가 그 시각에 이 필드를 바꾼 기록이 있고, CNPG는 2초 뒤 반영했다. 당시에는 변경 주체를 확인 중이었으며, 이후 기존 T17 Edge 복구 실행으로 확인했다(위 운영 설정 정합화).
 - 04:25 읽기(총괄 세션): 구독 켜짐, `disable_on_error=true`, 적용 오류 5, 워커 있음. 행 수는 양쪽이 같고 슬롯은 활성이다. 18:49:41Z 뒤로 시간 초과는 없다.
-- 이 변경은 `disable_on_error`를 바꾸지 않는다. 렌더 기본값 `false`와 실제 값 중 어느 쪽으로 맞출지는 바꾼 사람과 정한다. 시간 초과 30초를 먼저 적용하면 위험이 준다. lab에서 30초는 `true`여도 4초 정체에 한 번도 꺼지지 않았다.
+- 04:25 조사 단계에서는 실제 값을 바꾸지 않았다. 이후 사용자 직접 지시로 ARM 담당이 감시 경로를 확인한 뒤 렌더 기본값 `false`로 맞췄다. 시간 초과 30초를 먼저 적용하면 위험이 준다. lab에서 30초는 `true`여도 4초 정체에 한 번도 꺼지지 않았다.
 
 **양쪽이 동시에 끊었고 직후 경로가 정상이었으므로, 경로가 끊긴 것이 아니라 몇 초 막힌 것으로 본다.** 패킷을 잡아 본 것은 아니어서 추정이다. 무엇이 막았는지(중계 서버, 노드 네트워크)는 모른다.
 
@@ -74,8 +82,8 @@
 | 무엇 | 어디 | 상태 |
 | --- | --- | --- |
 | 양쪽 Cluster 렌더에 `wal_sender_timeout` · `wal_receiver_timeout` 30초. 정방향(출발지 송신 · 목적지 수신)과 역방향(목적지 송신 · 출발지 수신) 네 값이 모두 30초다 | `target-workloads/render.py`, `source-workloads/render.py`의 `REPLICATION_TIMEOUTS`. 두 렌더가 같은지, 방향별 네 값이 30초인지 시험이 고정한다 | 이 변경 |
-| 정방향 `disable_on_error` 렌더 기본값 `false`, 역방향 `true` | `replication.py`. 렌더가 `true`면 렌더로 객체를 다시 적용할 때 정방향이 다시 켜진다. 실제 객체는 04:16에 `true`로 되돌려졌다(위 지금 상태) | 이 변경. 실제 값은 바꾼 사람과 정한다 |
-| 떠 있는 두 클러스터에 30초 적용 | 아래 절차 | 승인 대기. 실행하지 않았다 |
+| 정방향 `disable_on_error` 렌더 기본값 `false`, 역방향 `true` | `replication.py`. 렌더가 `true`면 렌더로 객체를 다시 적용할 때 정방향이 다시 켜진다. 실제 객체는 04:16에 `true`로 되돌려졌다(위 지금 상태) | #382 병합 및 05:53 실제 CR/DB 정합 확인 |
+| 떠 있는 두 클러스터에 30초 적용 | 아래 절차 | 사용자 직접 지시로 적용, 양단 CR/DB 30초 확인 |
 
 **역방향도 같은 경로를 쓴다.** 지금은 꺼져 있고(출발지 `t8_target_to_source` OFF, `disable_on_error=true`, 목적지 슬롯 비활성 `reserved`, 03:56 총괄 세션 확인) 컷오버 뒤에 켜진다. 5초 그대로면 같은 정체에 끊기고, `true`라서 스스로 꺼진다. 그러면 되돌리기 전 복제 경로 확인(ADR-0016)과 Executor의 원상 복구 확인(`runner.py`의 구독 상태 대조), T27 차단 시험의 기준선(`BASELINE_NOT_STREAMING`)이 막힌다. 그래서 시간 초과는 역방향 두 끝에도 같이 올린다.
 
@@ -83,7 +91,7 @@
 
 - **30초를 넘는 정체나 실제 단절에는 여전히 꺼진다.** lab에서 30초는 20초 단절에도 연결이 끊겼다. 단절 뒤 TCP 재전송 간격이 벌어져 30초를 넘긴 것으로 본다(추정). 정방향은 다시 붙지만 역방향은 꺼진 채 남는다.
 - **꺼진 역방향은 사람이 켜야 한다.** `resume_replication.py`는 정방향만 다룬다. 켜기 전에 출발지에 업무 쓰기가 들어가지 않았는지 먼저 본다.
-- **역방향은 지표가 없다.** 출발지(T6)에 구독 지표를 넣지 않았고 T37 알람도 정방향만 제안했다. 컷오버 뒤 역방향이 꺼지면 되돌리기 직전 경로 확인에서야 알 수 있다.
+- **역방향은 지표가 없다.** 출발지(T6)에 구독 지표를 넣지 않았고 T37 알람도 정방향만 감시한다. 컷오버 뒤 역방향이 꺼지면 되돌리기 직전 경로 확인에서야 알 수 있다.
 - **그래도 `true`인 이유.** 컷오버 뒤 역방향의 오류는 대개 출발지에 들어오면 안 되는 쓰기와의 충돌이다. 끝없이 재시도하면 그 쓰기를 숨기고, 멈춰야 사람이 본다.
 
 **30초로 잃는 것.** 경로가 정말로 끊기면 알아채는 데 최대 30초 걸린다. 끊긴 walsender가 그동안 슬롯을 쥐고 있으면 재개 명령은 `slot_in_use`로 멈춘다. 그때는 30초 뒤 다시 돌린다.
@@ -211,14 +219,26 @@ python3 -c 'import json, render; print(json.dumps(render.subscription_metrics())
 ```
 
 ```bash
-kubectl -n target-dev patch cluster target-db --type merge -p '{"spec":{"monitoring":{"customQueriesConfigMap":[{"name":"target-subscription-metrics","key":"queries"}]}}}'
+# 기존 customQueriesConfigMap 참조를 먼저 읽고 보존한다.
+kubectl -n target-dev get cluster target-db -o json > cluster-before.json
+python3 - <<'PYJSON' > metrics-patch.json
+import json
+obj = json.load(open("cluster-before.json"))
+refs = obj["spec"]["monitoring"].get("customQueriesConfigMap", [])
+ref = {"name": "target-subscription-metrics", "key": "queries"}
+print(json.dumps([
+    {"op": "test", "path": "/metadata/resourceVersion", "value": obj["metadata"]["resourceVersion"]},
+    {"op": "add", "path": "/spec/monitoring/customQueriesConfigMap", "value": refs if ref in refs else [*refs, ref]},
+]))
+PYJSON
+kubectl -n target-dev patch cluster target-db --type json --patch-file metrics-patch.json
 ```
 
-**수집 경로.** DB 지표 경로(`collector-db.yaml`)에는 이름 허용 목록이 없어(허용 목록은 앱 경로 전용) 새 지표를 막지 않는다. 다만 목적지 Collector에 `BRAVO_DB_NAMESPACE=target-dev`와 `collector-db-access`의 `target-dev` 적용이 필요하다. 저장소에서 `target-dev` DB Pod를 고르는 NetworkPolicy는 찾지 못했다. 실제 환경의 정책은 확인하지 못했다.
+**수집 경로.** DB 지표 경로(`collector-db.yaml`)에는 이름 허용 목록이 없어(허용 목록은 앱 경로 전용) 새 지표를 막지 않는다. 다만 목적지 Collector에 `BRAVO_DB_NAMESPACE=target-dev`와 `collector-db-access`의 `target-dev` 적용이 필요하다. 저장소에서 `target-dev` DB Pod를 고르는 NetworkPolicy는 찾지 못했다. 05:53 운영 적용에서는 양쪽 DB 수집과 실제 경로를 확인했다. source는 기존 앱 mTLS 인자를 보존하고 DB 수집을 추가했으며, source-dev Pod 조회 권한과 CNPG 9187·실제 API 주소만 허용했다. target 정책과 반례는 운영 검증 기록을 따른다.
 
-## 알람 (T37 담당과 합의 후 적용)
+## 알람
 
-T37 파일이라 이 변경에 넣지 않았다. 규칙과 시험은 패치로 준비했고 `promtool` 시험을 통과했다.
+04:25에는 제안이었고 이후 사용자 직접 지시로 배포 규칙과 시험에 반영했다. 실제 저장소의 규칙 hash·평가 상태·수집 시각은 위 운영 검증 기록을 기준으로 한다.
 
 | 알림 | 조건 | 왜 |
 | --- | --- | --- |
@@ -226,6 +246,8 @@ T37 파일이라 이 변경에 넣지 않았다. 규칙과 시험은 패치로 �
 | `BravoForwardSubscriptionError` | 오류 수 증가, 10분 창 | 끄면 이것이 첫 신호다. 끊김 한 번으로도 뜬다 |
 | `BravoForwardSubscriptionRetrying` | 오류 5건 이상, 5분 창 | 충돌의 끝없는 재시도. 끊김은 1건, 충돌은 30초에 7건이라 갈린다 |
 | `BravoForwardReplicationNotRecovering` | 정방향 슬롯 비활성, 2분 | 복구 지연. 측정한 회복은 모두 5.63초 이내였다 |
+| `BravoForwardSubscriptionUnobservable` | 상태 또는 오류 지표 부재·75초 초과가 1분 지속 | 조회 실패나 누락을 정상으로 보지 않는다 |
+| `BravoForwardSlotUnobservable` | source 정방향 슬롯 지표 부재·75초 초과가 1분 지속 | 목적지 워커만 살아 있는 것을 복제 정상으로 보지 않는다 |
 
 ## 실측
 
@@ -261,12 +283,12 @@ T37 파일이라 이 변경에 넣지 않았다. 규칙과 시험은 패치로 �
 
 ## 재지 못한 것
 
-- **실제 환경에 적용한 것은 없다.** AWS · VM · Tailscale 경로에서는 로그와 설정을 읽기만 했다. 30초의 실제 reload와 그 뒤의 동작은 적용 뒤 확인 절차로 본다.
+- **현재 운영 적용과 과거 lab은 별개다.** 05:53 실제 CR/DB 정합과 Pod 무재시작은 확인했다. 실제 환경에서 장애를 새로 주입하거나 복구 시간을 재측정하지 않았다.
 - **11/5 23:50 사고의 원인.** 그 시각의 로그가 남아 있지 않아 추정만 했다.
 - **실제 끊김과 정체의 모양.** netem 지연 · 손실과 walsender 정지는 대역이다. DERP 중계의 정체나 노드 재시작과 같다고 주장하지 않는다. 실제 정체가 몇 초였는지도 모른다.
 - **역방향의 시간 초과.** lab은 정방향만 쟀다. 역방향은 같은 설정이 반대 방향에 걸린다는 PostgreSQL 동작에 기댄 판단이다.
 - **30초에서의 실제 단절 회복과 TCP keepalive.** 단절 회복은 lab의 20초 단절만 쟀다. keepalive · `tcp_user_timeout`은 바꾸지도 재지도 않았다.
-- **Collector → 저장소 → 알림의 실제 경로.** `promtool`은 합성 시계열이다. 저장소 이름 `cnpg_pg_subscription_apply_error_count_total`은 `cnpg_pg_stat_archiver_failed_count_total` 사례로 미뤄 본 것이다.
+- **감시 검증 범위.** 실제 양쪽 Collector → mTLS → Prometheus 수신과 평가, 누락 경보 firing → inactive를 확인했다. `cnpg_pg_subscription_apply_error_count_total`도 실제 저장소에서 확인했다. 오류 증가·반복·reset 경보는 `promtool` 합성 시계열로 검증했으며 운영 DB에 오류를 주입하지 않았다. 외부 알림 발송은 이번 검증에 포함하지 않았다.
 - **끈 상태의 실제 단절 컷오버.** Executor와 함께 돌리지 않았다(T12). 역방향 끄기는 재지 않았다.
 - **오래 이어지는 재시도.** 슬롯이 `max_slot_wal_keep_size` 1GB에 닿는 경우, 40초를 넘는 끊김, 임계값 5건의 실제 오탐률.
 - **로그 범위 밖.** 로그가 회전했거나 Pod가 바뀌면 `unknown`이나 빈 결과가 나온다. 출발지 로그는 분류하지 않는다.

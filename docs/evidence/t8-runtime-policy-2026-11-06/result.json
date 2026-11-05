@@ -1,0 +1,267 @@
+{
+  "scope": "T8 runtime policy alignment and T37 monitoring; not full T8 or cutover completion",
+  "applied_at": "2026-11-05T20:53:45.937950+00:00",
+  "independent_read_started_at": "2026-11-05T20:56:52.479472+00:00",
+  "renderer_head": "6a343409e362843c208008394dbaf8b7e2e61a7d",
+  "renderer_cli_exit_codes": [
+    0,
+    0,
+    0,
+    0
+  ],
+  "sides": {
+    "target": {
+      "cr_timeouts": {
+        "wal_sender_timeout": "30s",
+        "wal_receiver_timeout": "30s"
+      },
+      "db_settings": [
+        {
+          "name": "wal_receiver_timeout",
+          "setting": "30000",
+          "unit": "ms",
+          "pending_restart": false
+        },
+        {
+          "name": "wal_sender_timeout",
+          "setting": "30000",
+          "unit": "ms",
+          "pending_restart": false
+        }
+      ],
+      "cr_disable_on_error": "false",
+      "db_subscriptions": [
+        {
+          "name": "t8_source_to_target",
+          "enabled": true,
+          "disable_on_error": false,
+          "errors": 0,
+          "workers": 1
+        }
+      ],
+      "cr_applied": true,
+      "generation": 6,
+      "observedGeneration": 6,
+      "db_pod_uid_unchanged_during_policy_change": true,
+      "db_restarts_unchanged": true
+    },
+    "source": {
+      "cr_timeouts": {
+        "wal_sender_timeout": "30s",
+        "wal_receiver_timeout": "30s"
+      },
+      "db_settings": [
+        {
+          "name": "wal_receiver_timeout",
+          "setting": "30000",
+          "unit": "ms",
+          "pending_restart": false
+        },
+        {
+          "name": "wal_sender_timeout",
+          "setting": "30000",
+          "unit": "ms",
+          "pending_restart": false
+        }
+      ],
+      "cr_disable_on_error": "true",
+      "db_subscriptions": [
+        {
+          "name": "t8_target_to_source",
+          "enabled": false,
+          "disable_on_error": true,
+          "errors": 0,
+          "workers": 0
+        }
+      ],
+      "cr_applied": true,
+      "generation": 1,
+      "observedGeneration": 1,
+      "db_pod_uid_unchanged_during_policy_change": true,
+      "db_restarts_unchanged": true
+    }
+  },
+  "monitoring_samples": [
+    {
+      "at": "2026-11-05T20:54:53.194455+00:00",
+      "db_up": {
+        "onprem": 1.0,
+        "aws": 1.0
+      },
+      "db_sample_timestamps": {
+        "onprem": 1793912099.021,
+        "aws": 1793912103.87
+      },
+      "source_forward_slot_active": 1.0,
+      "source_forward_slot_wal_bytes": 56.0,
+      "target_subscription": {
+        "cnpg_pg_subscription_apply_workers": 1.0,
+        "cnpg_pg_subscription_apply_error_count_total": 0.0,
+        "cnpg_pg_subscription_enabled": 1.0
+      },
+      "exporter_queue_max": 0.0
+    },
+    {
+      "at": "2026-11-05T20:56:00.909815+00:00",
+      "db_up": {
+        "onprem": 1.0,
+        "aws": 1.0
+      },
+      "db_sample_timestamps": {
+        "onprem": 1793912174.021,
+        "aws": 1793912163.87
+      },
+      "source_forward_slot_active": 1.0,
+      "source_forward_slot_wal_bytes": 56.0,
+      "target_subscription": {
+        "cnpg_pg_subscription_apply_workers": 1.0,
+        "cnpg_pg_subscription_apply_error_count_total": 0.0,
+        "cnpg_pg_subscription_enabled": 1.0
+      },
+      "exporter_queue_max": 0.0
+    }
+  ],
+  "alerts": {
+    "count": 17,
+    "all_health_ok": true,
+    "deployed_sha256": "aa84f36db8422e1b061f3539c9d865dcf7cd8c20540a2d497082b3de7382abee",
+    "prometheus_pod_unchanged": true,
+    "prometheus_restarts_before": [
+      0
+    ],
+    "prometheus_restarts_after": [
+      0
+    ],
+    "source_missing_metric_observed_firing": true,
+    "forward_after": [
+      {
+        "name": "BravoForwardSubscriptionOff",
+        "state": "inactive",
+        "health": "ok"
+      },
+      {
+        "name": "BravoForwardSubscriptionError",
+        "state": "inactive",
+        "health": "ok"
+      },
+      {
+        "name": "BravoForwardSubscriptionRetrying",
+        "state": "inactive",
+        "health": "ok"
+      },
+      {
+        "name": "BravoForwardReplicationNotRecovering",
+        "state": "inactive",
+        "health": "ok"
+      },
+      {
+        "name": "BravoForwardSubscriptionUnobservable",
+        "state": "inactive",
+        "health": "ok"
+      },
+      {
+        "name": "BravoForwardSlotUnobservable",
+        "state": "inactive",
+        "health": "ok"
+      }
+    ]
+  },
+  "network": {
+    "source_exact_child_service_host_exception": true,
+    "source_api_egress_bound_to_observed_service_and_endpoint_hosts": true,
+    "source_app_mtls_preserved": true,
+    "source_positive_mtls": "PASS",
+    "source_wrong_app_label_denied": true,
+    "target_positive_and_wrong_label_namespace_denied": true,
+    "tailnet_saved_readback_matches": true
+  },
+  "cleanup": {
+    "source_probe_pods_remaining": 0,
+    "source_temporary_policies_remaining": 0,
+    "owned_ssm_active_remaining": 0,
+    "target_probe_cleanup": "UID-verified probe deleted"
+  },
+  "validation": {
+    "observability_pytest_passed": 190,
+    "replication_unittest_passed": 48,
+    "collector_route_unittest_passed": 22,
+    "ruff": "PASS",
+    "production_error_injection": false,
+    "external_notification_delivery_tested": false,
+    "new_enable_or_marker": false,
+    "business_writes": 0
+  },
+  "target_certificate": {
+    "issuer_fingerprint_sha256": "8e7c3de22317adfffa2d19bd8035eea57a5c07b44bb816999d27184d5265238d",
+    "leaf_fingerprint_sha256": "7071d06cbd0d51870857e5edd15a9b0eda29e703d5da2c86346eaf2b3802e81e",
+    "permitted_dns": "collector-onprem",
+    "eku": "clientAuth",
+    "private_key_exported": false,
+    "leaf_expires_at": "2026-11-12T20:41:27Z",
+    "issuer_expires_at": "2026-11-19T20:36:50Z"
+  },
+  "private_receipt_sha256": {
+    "local-validation.json": "031260e1b0b268d67c8ee8930580b7c8e0e46e93d62b38b5f6ff281f29a0c1ec",
+    "source-monitoring-live.private.json": "1c5e0e0446c93d99265430443577fedac4572b5b18eead2ad937fd214f75f870",
+    "final-policy-independent.private.json": "267fe3c9bf22efa25ab4ac005d33903048f1c6bfc7722e05ce0d5558689ec078",
+    "source-probe-cleanup.json": "79424887b0c68c010ca92fa962a41c64e2b548ff3bfd394c7976c3aae20bc8ef",
+    "ssm-cleanup-final.json": "4385fac7dcff2cf148f2441f02e258fc493e096606127a7f779217e5cbe9391a",
+    "source-db-intent.private.json": "68c48297210800a01e3267cf5cd56f4da9e6618f24c81cc254ad27e49085ae90",
+    "source-db-receipt.private.json": "76462599e4ea6c03f7bf22ba949b532afb6fcbe24585315658a9a3a4a7ece49d",
+    "source-api-egress-receipt.private.json": "36c5658eb3f228d5c7249e5d7c166e4bf9b8a6633f00d41ff2b9d0b58fe198b4",
+    "source-proxy-recovery-receipt.private.json": "ee0a63632fc67d204c156c46c60803202ecd5383ce7d30eaa6489b1eb7e93c19",
+    "platform-rules-v2-reload.json": "9af69753a741d218732644e92efa65c68c1131b0c9cb4e8de3188b05fb253742",
+    "platform-client-trust-receipt.json": "5b2bbdaeccacc2dc381938eaddc382bb64347ac4e45149c82d3753fb18f0ba34",
+    "tailnet-receipt.json": "0bf3260c203485202a9ff87e43d253021468f2c9494de068fc441600d37ae932",
+    "target-leaf-receipt.json": "fd09556d2acd260fe365106182a286b7bd16887b3072a2d1fafeabea60832c35",
+    "t8-policy-final.json": "7caf3618a153720d4d310abf106f30eeecf20f6615f5c83e728c47f6514a50d8",
+    "both-monitoring-live.json": "3a2ef6c403a9cf68a839564eef0b29321234e3368b0241a8d7add92c78ae1481",
+    "target-monitoring-live-v2.json": "ba0a10c114e08cc9b49fbb5f3103f49c5a9e17096bd1fb14845452e77e2024a3",
+    "target-network-live-verification.json": "f304ec446ae1891aea146e43ee9226ce27bf8994a72dea5559fd8fdab98d8c96",
+    "final-render-validation.json": "d218f4b2ea27515ef771c4e9f785a99e515741731e4fd420541b384145a4b2c5"
+  },
+  "current_render_validation": {
+    "cli": [
+      {
+        "side": "source",
+        "stage": "database",
+        "timeouts": {
+          "wal_sender_timeout": "30s",
+          "wal_receiver_timeout": "30s"
+        },
+        "exit_code": 0
+      },
+      {
+        "side": "source",
+        "stage": "subscription",
+        "disable_on_error": "true",
+        "enabled": "false",
+        "exit_code": 0
+      },
+      {
+        "side": "target",
+        "stage": "database",
+        "timeouts": {
+          "wal_sender_timeout": "30s",
+          "wal_receiver_timeout": "30s"
+        },
+        "exit_code": 0
+      },
+      {
+        "side": "target",
+        "stage": "subscription",
+        "disable_on_error": "false",
+        "enabled": "true",
+        "exit_code": 0
+      }
+    ],
+    "source_network_cli_matches_applied_spec": true,
+    "code_sha256": {
+      "infra/envs/source-workloads/render.py": "34a372714a8be3caa0f0465fb92560ee32259e1913b746c7dd914e2dfabf0656",
+      "infra/envs/target-workloads/render.py": "1af698a9b253065971f5f87a4caddb17dbe7c388b1e3ebe330374258534d8328",
+      "infra/envs/target-workloads/replication.py": "0c9577d2f08c183f577f673f31f30e8be98db0c7518c04bf54a3aad3fa9dca45",
+      "infra/envs/collector-network/collector_route.py": "613fccd9b1eb5975e57561a12f9f356d30fa5adb772a3b93aad42cf9dfa5f9f1",
+      "services/observability/deploy/platform/rules/alerts.yml": "aa84f36db8422e1b061f3539c9d865dcf7cd8c20540a2d497082b3de7382abee"
+    }
+  }
+}
