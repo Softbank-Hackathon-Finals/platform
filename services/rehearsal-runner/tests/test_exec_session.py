@@ -127,6 +127,9 @@ def test_envelope_problems_block_at_admit(override, stage):
     {"target_kind": "logs", "target_name": "chat", "lines": None},
     {"target_kind": "logs", "target_name": "chat", "lines": 201},
     {"target_kind": "logs", "target_name": "chat", "lines": True},
+    {"target_kind": "pod", "target_name": "--all-namespaces", "lines": None},
+    {"target_kind": "pod", "target_name": "-A", "lines": None},
+    {"target_kind": "pod", "target_name": "chat-", "lines": None},
 ])
 def test_invalid_inspect_arguments_block_at_validate_without_argument_keys(arguments):
     action = Scripted(inspect_record, Outcome(INSPECT_STATUS))
@@ -322,3 +325,11 @@ def test_unreadable_request_is_a_channel_error():
                 request("inspect", POD, request_id="short")):
         with pytest.raises(MalformedRequest):
             s.handle(raw)
+
+
+@pytest.mark.parametrize("service", ["-x", "--help", "db-"])
+def test_probe_service_cannot_look_like_an_option(service):
+    action = Scripted(probe_record, Outcome(PROBE_STATUS))
+    s = session(probe=action)
+    r = checked(s, s.handle(request("probe", HTTP | {"service": service})))
+    assert (r["reason"], r["stage"]) == ("BLOCKED", "VALIDATE") and action.calls == []

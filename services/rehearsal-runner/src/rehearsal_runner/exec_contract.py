@@ -23,7 +23,8 @@ PROBE_OUTCOMES = ("CONNECTED", "REFUSED", "TIMED_OUT", "DNS_FAILED")
 _RUN_ID = re.compile(r"[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}")
 _REQUEST_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]{7,79}")
 _SHA256 = re.compile(r"[a-f0-9]{64}")
-_K8S_NAME = re.compile(r"[a-z0-9-]{1,63}")
+# DNS label: a leading "-" would otherwise reach kubectl as an option.
+_K8S_NAME = re.compile(r"[a-z0-9](?:[-a-z0-9]{0,61}[a-z0-9])?")
 _HTTP_PATH = re.compile(r"/[A-Za-z0-9._~!$&'()*+,;=:@%/?-]{0,255}")
 _REQUEST_KEYS = {"schema_version", "run_id", "attempt", "request_id", "args_sha256", "tool", "arguments"}
 

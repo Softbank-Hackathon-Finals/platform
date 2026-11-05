@@ -26,13 +26,14 @@
 |---|---|---|---|
 | apply | 제안서 전체 | T11 `Proposal` 스키마 그대로(`services/agent-worker/src/bravo_agent/contracts.py`) | `plan.propose`와 같은 검사(실행 문맥 일치, 수정 허용 경로, `before_sha256`, 파괴적 문자열). 이 문서에 사본을 두지 않는다 |
 | inspect | `target_kind` | `pod` · `deployment` · `events` · `logs` | |
-| | `target_name` | `^[a-z0-9-]{1,63}$` 또는 `null` | `events`만 `null` 허용(공간 A 전체 이벤트) |
+| | `target_name` | `^[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?$` 또는 `null` | `events`만 `null` 허용(공간 A 전체 이벤트) |
 | | `lines` | 1~200 또는 `null` | `logs`일 때만 정수, 나머지는 `null` |
-| probe | `service` | `^[a-z0-9-]{1,63}$` | T15가 `<service>.<공간 A namespace>.svc`로만 조립한다 |
+| probe | `service` | `^[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?$` | T15가 `<service>.<공간 A namespace>.svc`로만 조립한다 |
 | | `port` | 1~65535 | |
 | | `method` | `TCP` · `HTTP_GET` · `HTTP_HEAD` | |
 | | `path` | `/`로 시작, 256자 이하, 경로·질의 문자만 또는 `null` | `TCP`면 `null`, HTTP면 필수 |
 
+- 이름은 Kubernetes 이름 규칙(DNS 레이블)이라 하이픈으로 시작하거나 끝날 수 없다. 하이픈으로 시작하는 값이 kubectl 옵션으로 읽히지 않게 하기 위해서다.
 - 필드 사이 규칙(위 표의 오른쪽 열)은 모델에 보내는 스키마에 넣지 않는다. strict 모드가 조건식을 받지 않기 때문이다. T11과 T15가 스키마 파일의 `inspect_rules`·`probe_rules`로 둘 다 검사한다.
 - apply는 매번 스냅샷 원본에 대한 제안서 전체다. 두 번째 apply는 첫 초안 위에 덧붙이지 않고, 원본에 새 초안을 반영한 상태로 바꾼다. 러너는 공간 B 채점과 같은 적용 코드와 템플릿으로 반영한다(ADR-0024 3-3).
 - apply는 `plan.propose`와 검사만 같이 쓴다. `plan.propose`의 시도당 제출 1회 제한에는 세지 않으며, apply 횟수는 4절의 exec 한도로만 센다.
