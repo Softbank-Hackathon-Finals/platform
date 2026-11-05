@@ -227,3 +227,11 @@ PYTHONPATH=../rehearsal-runner/src uv run --frozen --no-default-groups --with py
 cd ../platform-events
 PYTHONPATH=../rehearsal-runner/src uv run --frozen --no-default-groups --with pytest pytest -p no:cacheprovider ../rehearsal-runner/testing/test_t10_rehearsal_host.py
 ```
+
+`Dockerfile.credential-probe`는 위 관측 명령만 포함하는 별도 검증자 이미지를 정의한다. 실제로 검증할 demo-chat 후보 이미지와 다른 이미지이며, 승인에 결속할 digest는 후보 이미지의 digest다. 고정된 기반 이미지·비루트 사용자·격리 Python 실행을 사용한다. 이미지 빌드·스캔·T38 Job 배포·서비스 계정·Kubernetes API 접근은 별도 검증이 필요하다.
+
+```bash
+PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 .venv/bin/python -m pytest -q testing/test_credential_probe_runtime.py
+```
+
+이 시험은 컨테이너 빌드를 대신하지 않으며, 필요한 모듈만 설치된 격리 Python에서 명령이 실행되고 외부 `PYTHONPATH`를 무시하는지만 확인한다.
