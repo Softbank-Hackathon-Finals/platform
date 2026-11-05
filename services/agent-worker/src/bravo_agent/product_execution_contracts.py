@@ -65,5 +65,3 @@ def validate_execution_receipt(intent, run_id, receipt):
     if result['admission_digest'] != intent.admission_digest:
         raise ValueError('different admission result')
     return receipt
-
-

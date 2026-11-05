@@ -43,4 +43,3 @@ def validate_bound_product_response(result: dict, input_digest: str, runtime_sou
             or result["tool_events_status"] != "UNAVAILABLE"):
         raise ValueError("unbound product response")
     return result
-
