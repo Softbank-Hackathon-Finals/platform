@@ -38,6 +38,10 @@ READINESS_TIMING = {"timeoutSeconds": 10, "periodSeconds": 10, "failureThreshold
 READER_ROLE_FIXED = {"bound_service_account_names": "rehearsal-eso-reader", "audience": "openbao",
                      "token_ttl": "300s", "token_max_ttl": "900s", "token_no_default_policy": True}
 
+# Chart 0.30.6 defaults are timeout 3 s, period 5 s, failure 2; the TLS-verified
+# ``bao status`` exceeded 3 s on the target and Ready flapped.
+READINESS_TIMING = {"timeoutSeconds": 10, "periodSeconds": 10, "failureThreshold": 3}
+
 
 def obj(kind, name, spec=None, namespace=NAMESPACE, api="v1", **fields):
     result = {"apiVersion": api, "kind": kind,

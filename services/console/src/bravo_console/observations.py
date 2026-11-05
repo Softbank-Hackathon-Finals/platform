@@ -22,7 +22,7 @@ class ObservationError(ValueError):
         self.code, self.status = code, status
 
 
-class T37Client:
+class FixedJsonClient:
     """Host-configured fixed origin/token; no browser-supplied URL or PromQL."""
 
     def __init__(self, origin: str, token: str, *, tls: ssl.SSLContext | None = None):
@@ -66,14 +66,14 @@ class T37Client:
             headers={"Authorization": "Bearer " + token, "Accept-Encoding": "identity"},
         )
 
-    async def http(self, environment):
-        if not ENV.fullmatch(environment):
-            raise ObservationError("invalid_observation_environment")
+    async def read_json(self, path, *, params=None):
+        if not isinstance(path, str) or not path.startswith("/v1/") or "?" in path or "#" in path:
+            raise ObservationError("invalid_upstream_path")
         try:
             async with (
                 asyncio.timeout(5),
                 self.client.stream(
-                    "GET", f"/v1/observability/environments/{environment}/http"
+                    "GET", path, params=params
                 ) as r,
             ):
                 r.raise_for_status()
@@ -94,6 +94,13 @@ class T37Client:
 
     async def aclose(self):
         await self.client.aclose()
+
+
+class T37Client(FixedJsonClient):
+    async def http(self, environment):
+        if not ENV.fullmatch(environment):
+            raise ObservationError("invalid_observation_environment")
+        return await self.read_json(f"/v1/observability/environments/{environment}/http")
 
 
 async def _plan(api, scope, plan_id):
