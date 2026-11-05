@@ -24,6 +24,19 @@ ADMIN_PATH = "bravo/target/application-admin"
 REHEARSAL_PREFIX = "bravo/rehearsal"
 REHEARSAL_NAMESPACE_RE = re.compile(r"^rehearsal-[a-z0-9](?:[-a-z0-9]{0,51}[a-z0-9])?$")
 REHEARSAL_LABEL = {"app.kubernetes.io/part-of": "bravo-rehearsal"}
+# The T15 prep Job that writes the run's synthetic values, reader policy and reader role
+# (agreed with the T15 owner on 2026-11-06). Its namespace matches ``rehearsal-*`` by name,
+# so it is excluded from every reader binding explicitly.
+WRITER_NAMESPACE = "rehearsal-control"
+WRITER_ACCOUNT = "rehearsal-openbao-writer"
+WRITER_POD_LABEL = {"app.kubernetes.io/component": "rehearsal-openbao-writer"}
+READER_PREFIX = "rehearsal-app-reader-"
+# Chart 0.30.6 defaults are timeout 3 s, period 5 s, failure 2; the TLS-verified
+# ``bao status`` exceeded 3 s on the target and Ready flapped.
+READINESS_TIMING = {"timeoutSeconds": 10, "periodSeconds": 10, "failureThreshold": 3}
+# Fixed fields of every reader role; the writer may set only these exact values.
+READER_ROLE_FIXED = {"bound_service_account_names": "rehearsal-eso-reader", "audience": "openbao",
+                     "token_ttl": "300s", "token_max_ttl": "900s", "token_no_default_policy": True}
 
 
 def obj(kind, name, spec=None, namespace=NAMESPACE, api="v1", **fields):
@@ -89,6 +102,7 @@ def bao_values():
             # Chart 0.30.6 interpolates this value unquoted; emit an explicit empty class.
             "dataStorage": {"enabled": True, "size": "3Gi", "storageClass": '""'},
             "persistentVolumeClaimRetentionPolicy": {"whenDeleted": "Retain", "whenScaled": "Retain"},
+            "readinessProbe": {"enabled": True, **READINESS_TIMING},
             "resources": {"requests": {"cpu": "50m", "memory": "128Mi"},
                           "limits": {"cpu": "500m", "memory": "512Mi"}},
             "extraEnvironmentVars": {"BAO_CACERT": "/openbao/tls/ca.crt"},
@@ -147,7 +161,10 @@ def finalize_bao(objects):
     containers = pod["spec"]["containers"]
     if len(containers) != 1 or containers[0]["image"] != BAO_IMAGE:
         raise ValueError("unexpected OpenBao image")
-    containers[0]["readinessProbe"]["exec"]["command"] = ["bao", "status", "-format=json"]
+    probe = containers[0].get("readinessProbe") or {}
+    if any(probe.get(key) != value for key, value in READINESS_TIMING.items()) or "exec" not in probe:
+        raise ValueError("render the chart with bao-values: readiness probe timing differs")
+    probe["exec"]["command"] = ["bao", "status", "-format=json"]
     for service in (r for r in objects if r["kind"] == "Service"):
         if any(pod["metadata"]["labels"].get(k) != v
                for k, v in service["spec"]["selector"].items()):
@@ -174,7 +191,8 @@ def _run_id(run_id):
 
 
 def _rehearsal_namespace(namespace):
-    if not isinstance(namespace, str) or not REHEARSAL_NAMESPACE_RE.fullmatch(namespace):
+    if (not isinstance(namespace, str) or not REHEARSAL_NAMESPACE_RE.fullmatch(namespace)
+            or namespace == WRITER_NAMESPACE):
         raise ValueError("rehearsal namespace name required")
     return namespace
 
@@ -194,12 +212,80 @@ def rehearsal_auth_role(namespace, run_id):
     """Body for ``auth/kubernetes/role/rehearsal-app-reader-<run>``: the reader ServiceAccount in
     exactly this rehearsal namespace, with this run's policy only. Explicit namespace binding
     needs no ``namespaces get`` RBAC for OpenBao (a label selector would), and ties the token's
-    read scope to the run that owns the namespace."""
+    read scope to the run that owns the namespace.
+
+    Every value is a scalar: OpenBao matches ``allowed_parameters`` only against strings and
+    exact JSON values, so the writer's policy (``rehearsal_writer_policy``) refuses list-valued
+    fields. Send this JSON on stdin (``bao write <path> -``) to keep the boolean type."""
     namespace, run_id = _rehearsal_namespace(namespace), _run_id(run_id)
-    return {"bound_service_account_names": ["rehearsal-eso-reader"],
-            "bound_service_account_namespaces": [namespace],
-            "audience": "openbao", "token_policies": [f"rehearsal-app-reader-{run_id}"],
-            "token_ttl": "300s", "token_max_ttl": "900s", "token_no_default_policy": True}
+    return {**READER_ROLE_FIXED, "bound_service_account_namespaces": namespace,
+            "token_policies": f"{READER_PREFIX}{run_id}"}
+
+
+def _hcl(value):
+    return json.dumps(value)  # JSON strings/lists/booleans are valid HCL literals
+
+
+def rehearsal_writer_policy():
+    """OpenBao policy ``rehearsal-openbao-writer`` for the T15 prep Job.
+
+    Allowed: the rehearsal KV subtree, reader policies and reader roles named
+    ``rehearsal-app-reader-*`` and its own token. Nothing under ``bravo/target``, no other
+    policy or role name, no ``sys/auth`` or mounts. OpenBao globs: a trailing ``*`` is a prefix
+    match (``rehearsal/*`` does not match ``rehearsal-x``), ``+`` is one path segment.
+
+    Reader roles are constrained by parameter: exact SA name, audience and TTLs, a
+    ``rehearsal-*`` namespace other than the writer's own, and a reader-prefixed policy.
+    Comma lists (one string expanding to several values), glob values and whitespace are denied
+    because OpenBao checks the raw string but the auth method splits, trims and globs it.
+    ``required_parameters`` also applies to reads in OpenBao 2.7.2, so the role path grants no
+    ``read`` (it would always be refused). The reader *policy body* cannot be constrained; see
+    README "Writer residual risk"."""
+    crud = _hcl(["create", "read", "update", "delete"])
+    allowed = {key: [value] for key, value in READER_ROLE_FIXED.items()}
+    allowed["bound_service_account_namespaces"] = ["rehearsal-*"]
+    allowed["token_policies"] = [READER_PREFIX + "*"]
+    unsafe = ["*,*", "***", "* *"]
+    denied = {"bound_service_account_namespaces": [WRITER_NAMESPACE + "*"] + unsafe,
+              "token_policies": unsafe}
+    role_rule = "\n".join(
+        [f'path "auth/kubernetes/role/{READER_PREFIX}*" {{',
+         f'  capabilities = {_hcl(["create", "update", "delete"])}',
+         f"  required_parameters = {_hcl(sorted(allowed))}",
+         "  allowed_parameters = {"]
+        + [f"    {_hcl(key)} = {_hcl(allowed[key])}" for key in sorted(allowed)]
+        + ["  }", "  denied_parameters = {"]
+        + [f"    {_hcl(key)} = {_hcl(denied[key])}" for key in sorted(denied)]
+        + ["  }", "}"])
+    return "\n".join([
+        f'path "secret/data/{REHEARSAL_PREFIX}/*" {{ capabilities = {crud} }}',
+        f'path "secret/metadata/{REHEARSAL_PREFIX}/*" {{ capabilities = {crud} }}',
+        f'path "sys/policies/acl/{READER_PREFIX}*" {{ capabilities = {crud} }}',
+        role_rule,
+        'path "auth/token/lookup-self" { capabilities = ["read"] }',
+        'path "auth/token/renew-self" { capabilities = ["update"] }',
+        'path "auth/token/revoke-self" { capabilities = ["update"] }',
+    ]) + "\n"
+
+
+def rehearsal_writer_auth_role():
+    """Body for ``auth/kubernetes/role/rehearsal-openbao-writer``: exactly the writer SA in
+    ``rehearsal-control``, audience ``openbao``, its policy only, short-lived tokens. The
+    writer's own role and policy names fall outside ``rehearsal-app-reader-*``, so the writer
+    cannot widen itself."""
+    return {**READER_ROLE_FIXED, "bound_service_account_names": WRITER_ACCOUNT,
+            "bound_service_account_namespaces": WRITER_NAMESPACE, "token_policies": WRITER_ACCOUNT}
+
+
+def rehearsal_writer_identity():
+    """Optional: the management namespace and writer ServiceAccount. The T15 owner coordinates
+    namespace creation with T30; apply this only if that is agreed. Deliberately *not* labelled
+    ``bravo-rehearsal`` so attempt cleanup and rehearsal selectors never pick it up."""
+    namespace = obj("Namespace", WRITER_NAMESPACE, namespace=None)
+    namespace["metadata"]["labels"]["pod-security.kubernetes.io/enforce"] = "restricted"
+    account = obj("ServiceAccount", WRITER_ACCOUNT, namespace=WRITER_NAMESPACE,
+                  automountServiceAccountToken=False)
+    return {"apiVersion": "v1", "kind": "List", "items": [namespace, account]}
 
 
 def rehearsal_delivery(namespace, run_id):
@@ -299,6 +385,9 @@ def network(api_ip, api_endpoint_ip):
              "podSelector": {"matchLabels": {"app.kubernetes.io/name": "external-secrets"}}},
             {"namespaceSelector": {"matchLabels": {"kubernetes.io/metadata.name": APP_NAMESPACE}},
              "podSelector": {"matchLabels": {"bravo-secret-probe": "true"}}},
+            # T15 prep Job (rehearsal writer); the Pod template must carry WRITER_POD_LABEL.
+            {"namespaceSelector": {"matchLabels": {"kubernetes.io/metadata.name": WRITER_NAMESPACE}},
+             "podSelector": {"matchLabels": WRITER_POD_LABEL.copy()}},
         ], "ports": [{"protocol": "TCP", "port": 8200}]}],
         "egress": [{"to": [{"ipBlock": {"cidr": str(address) + "/32"}}],
                     "ports": [{"protocol": "TCP", "port": port}]}
@@ -330,6 +419,7 @@ def main(argv=None):
         "foundation", "eso-namespace", "bao-values", "eso-values", "finalize-bao",
         "policy", "delivery", "network", "eso-network",
         "rehearsal-policy", "rehearsal-auth-role", "rehearsal-delivery", "rehearsal-init-container",
+        "rehearsal-writer-policy", "rehearsal-writer-auth-role", "rehearsal-writer-identity",
     ])
     parser.add_argument("--node-name")
     parser.add_argument("--namespace")
@@ -341,6 +431,8 @@ def main(argv=None):
         print(policy())
     elif args.stage == "rehearsal-policy":
         print(rehearsal_policy(args.run_id))
+    elif args.stage == "rehearsal-writer-policy":
+        print(rehearsal_writer_policy(), end="")
     elif args.stage == "finalize-bao":
         # Only nonsecret, parsed Helm objects belong on this input. JSON makes
         # the renderer independent of an implicit YAML package installation.
@@ -357,7 +449,9 @@ def main(argv=None):
                  "eso-network": lambda: eso_network(args.api_ip, args.api_endpoint_ip),
                  "rehearsal-auth-role": lambda: rehearsal_auth_role(args.namespace, args.run_id),
                  "rehearsal-delivery": lambda: rehearsal_delivery(args.namespace, args.run_id),
-                 "rehearsal-init-container": lambda: rehearsal_fetch_init_container(args.run_id)}[args.stage]()
+                 "rehearsal-init-container": lambda: rehearsal_fetch_init_container(args.run_id),
+                 "rehearsal-writer-auth-role": rehearsal_writer_auth_role,
+                 "rehearsal-writer-identity": rehearsal_writer_identity}[args.stage]()
         print(json.dumps(value, indent=2))
 
 
