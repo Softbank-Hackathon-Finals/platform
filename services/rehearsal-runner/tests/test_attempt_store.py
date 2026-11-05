@@ -3,7 +3,13 @@ from dataclasses import dataclass
 
 import pytest
 
-from rehearsal_runner.attempt_store import AttemptStore, RecordUnavailable, _Trace, judge_attempt
+from rehearsal_runner.attempt_store import (
+    AttemptStore,
+    RecordUnavailable,
+    _Trace,
+    collect_tool_events,
+    judge_attempt,
+)
 from rehearsal_runner.bucket_job import BucketEvidence
 from rehearsal_runner.runner import AttemptResult, Namespace, ProposalRef
 
@@ -111,3 +117,40 @@ def test_unknown_effects_keep_the_verifier_failure_code():
     trace.failure = "job_timeout"
     body = judge_attempt(AttemptResult("NEEDS_HUMAN", "EFFECTS_UNKNOWN"), trace)
     assert body == {"verdict": "NEEDS_HUMAN", "reason": "EFFECTS_UNKNOWN", "detail": "job_timeout"}
+
+
+class Proposer:
+    def __init__(self, events):
+        self.events = events
+
+    def tool_events(self):
+        if isinstance(self.events, Exception):
+            raise self.events
+        return self.events
+
+
+BLOCKED = {"run_id": "run-1", "attempt": 1, "tool": "rehearsal.exec", "outcome": "DENIED",
+           "reason": "DESTRUCTIVE_ATTEMPT_BLOCKED", "category": "bucket_delete"}
+
+
+def test_signs_t11_events_in_their_original_order():
+    read = BLOCKED | {"tool": "repo.read", "outcome": "ALLOWED", "reason": "POLICY_ACCEPTED"}
+    body = collect_tool_events(Proposer((BLOCKED, read)), Admission())
+    assert body == {"tool_events_status": "COMPLETE", "tool_events": [BLOCKED, read]}
+
+
+@pytest.mark.parametrize("events", [
+    (BLOCKED | {"run_id": "run-2"},),
+    (BLOCKED | {"attempt": 2},),
+    (BLOCKED | {"arguments": {"command": "x"}},),
+    [BLOCKED],
+    ValueError("tool events incomplete"),
+])
+def test_unbound_or_incomplete_events_are_dropped_whole(events):
+    body = collect_tool_events(Proposer((BLOCKED,) + events if isinstance(events, tuple) else events),
+                               Admission())
+    assert body == {"tool_events_status": "UNAVAILABLE"}
+
+
+def test_proposer_without_t11_events_is_unavailable():
+    assert collect_tool_events(object(), Admission()) == {"tool_events_status": "UNAVAILABLE"}

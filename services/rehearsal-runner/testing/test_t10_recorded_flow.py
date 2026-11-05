@@ -23,10 +23,10 @@ from rehearsal_runner.approval_handoff import submit_candidate
 from rehearsal_runner.attempt_store import (
     AttemptStore,
     PlanBinding,
-    RecordedAttemptSender,
     RecordedEvidence,
 )
 from rehearsal_runner.bucket_job import BucketEvidence
+from rehearsal_runner.bucket_planner import build_bucket_host
 from rehearsal_runner.bucket_task import prepare_bucket_policy_task
 from rehearsal_runner.isolation_gate import IsolationBlocked, IsolationPass
 from rehearsal_runner.rehearsal_host import T15RehearsalHost
@@ -53,7 +53,12 @@ class Ports:
         self.attempt, self.verdict, self.events, self.block = attempt, verdict, events, block
 
     def propose(self, task):
+        self.run_id = task.run_id
         return ProposalRef(task.run_id, task.source_sha, str(self.attempt) * 64)
+
+    def tool_events(self):
+        return ({"run_id": self.run_id, "attempt": self.attempt, "tool": "rehearsal.exec",
+                 "outcome": "DENIED", "reason": "DESTRUCTIVE_ATTEMPT_BLOCKED", "category": "bucket_delete"},)
 
     def create(self, run_id):
         self.events.append(("create", run_id, self.attempt))
@@ -117,9 +122,10 @@ def flow(tmp_path):
         delivered.append(submit_candidate(submission, candidate_type=Candidate, intake=intake,
                                           token_supplier=lambda: token))
 
-    sender = RecordedAttemptSender(records, planner, deliver=deliver)
-    service = RehearsalService(store, host=T15RehearsalHost(Catalog(), sender, evidence),
-                               check_start=lambda *_: None)
+    host, built = build_bucket_host(Catalog(), planner, records, deliver=deliver)
+    assert built.store is records
+    sender = host.sender
+    service = RehearsalService(store, host=host, check_start=lambda *_: None)
     approvals = ChangeApprovalService(store, authority=intake.current)
     return dict(store=store, records=records, planner=planner, sender=sender, evidence=evidence,
                 service=service, token=token, intake=intake, approvals=approvals, path=tmp_path / "records",
@@ -198,6 +204,23 @@ def test_undelivered_pass_is_not_confirmed(flow):
     receipt = start(flow)
     with pytest.raises(EventError, match="rehearsal_verification_unavailable"):
         reconcile(flow, receipt)
+
+
+def test_signed_record_carries_tool_events_for_t10(flow):
+    flow["planner"].verdicts = ["FAIL", "PASS"]
+    first = start(flow)
+    failed = reconcile(flow, first)
+    flow["intake"].hold("security", SPEC.plan_id, failed["verification_id"], decision_ref="retry-1")
+    second = start(flow, 2, "start-2")
+    for receipt in (first, second):
+        from bravo_platform_events.rehearsal import admitted_attempt
+
+        with flow["store"]._connection() as connection:
+            admission = admitted_attempt(connection, SPEC.plan_id, receipt["rehearsal_id"], receipt["attempt"])
+        events = flow["evidence"].tool_events(admission)
+        assert events == [{"run_id": receipt["rehearsal_id"], "attempt": receipt["attempt"],
+                           "tool": "rehearsal.exec", "outcome": "DENIED",
+                           "reason": "DESTRUCTIVE_ATTEMPT_BLOCKED", "category": "bucket_delete"}]
 
 
 def test_altered_record_is_not_reconciled(flow):

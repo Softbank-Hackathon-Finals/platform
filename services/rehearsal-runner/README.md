@@ -112,16 +112,17 @@ uv run --frozen --no-default-groups --with pytest pytest -p no:cacheprovider ../
 
 ## 개인 RKE2 버킷 통합 시험
 
-`testing/rke2_bucket_flow.py`는 개인 시험 VM에서만 사용하는 통합 시험이다. T11 검증기에는 고정된 시험 제안을 주고, T15의 실제 격리 게이트와 별도 정책 적용·읽기 검증 Job을 실행한다. 재현에는 독립 시험용 SeaweedFS 네임스페이스·버킷·Secret 및 그에 대한 신뢰된 운영자 권한이 필요하다. 실서비스 자격이나 데이터를 사용하지 않는다. 결과는 테스트 관측값으로, 실제 모델 제안·T38 인증 영수증·T10 승인 공급자를 대체하지 않는다. 검증 Job의 인증 읽기는 시험용 관리자 자격을 쓰므로 앱 전용 최소 권한 증거도 아니다.
-
-시험 스크립트는 Ubuntu VM의 `/etc/rancher/rke2/rke2.yaml`과 `kubectl`을 사용하며 VM 호스트명이 `bravo-t15-rke2`인 경우에만 실행한다. `bravo_agent`, `boto3`, `rehearsal_runner`를 포함한 Python 환경을 준비한 뒤 VM 안에서 관리자 권한으로 실행한다. 보고서 경로는 기존 파일과 겹치지 않아야 한다.
+`testing/rke2_rehearsal_flow.py`는 개인 시험 VM 전용 통합 시험이다(아래 "시도 기록과 버킷 검증 Job" 참고). `setup`은 시험용 SeaweedFS·OpenBao 대역·버킷을 만들고, `run`은 실제 T10·T11·T3·검증 Job·UID 정리를 연결해 1회차 FAIL → hold → 2회차 PASS → 승인 결속까지 실행한다. 노드 이름이 `bravo-t15-rke2`인 클러스터에서만 실행하며, 출력 디렉터리는 비공개 경로를 쓴다.
 
 ```bash
-python3 testing/rke2_bucket_fixture.py --report /개인경로/fixture.json
-python3 testing/rke2_bucket_flow.py --fixture-id <fixture.json의 fixture_id> --report /개인경로/flow.json
+cd ../platform-events
+KUBECONFIG=<VM kubeconfig> PYTHONPATH=../rehearsal-runner/src:../agent-worker/src \
+  uv run --frozen --no-default-groups --with pydantic python ../rehearsal-runner/testing/rke2_rehearsal_flow.py setup --state <비공개 경로>
+KUBECONFIG=<VM kubeconfig> PYTHONPATH=../rehearsal-runner/src:../agent-worker/src \
+  uv run --frozen --no-default-groups --with pydantic python ../rehearsal-runner/testing/rke2_rehearsal_flow.py run --state <비공개 경로>
 ```
 
-첫 명령은 임의 자격과 시험 버킷을 생성하고 네임스페이스 수신을 차단한다. 둘째 명령은 공개 대조 후 제한 정책을 복원하며 리허설 네임스페이스와 임시 접근 규칙은 UID 조건으로 정리한다. 시험용 SeaweedFS 네임스페이스와 버킷은 재실행을 위해 남는다. 중단·오류 때는 보고서와 잔여 자원을 먼저 확인한다.
+제안은 스크립트로 고정하고 시험 JWT 키·운영자 주체도 fixture다. 실제 모델 제안, 시연 목적지 실측, 사람 승인을 대신하지 않는다.
 
 ## T10 승인 경계 교차 시험
 
@@ -240,7 +241,7 @@ PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 .venv/bin/python -m pytest -q testing/test_cred
 
 ## 시도 기록과 버킷 검증 Job
 
-`attempt_store.RecordedAttemptSender`는 T10이 커밋한 시도를 `claim.json`으로 한 번만 점유하고 실행한 뒤 결과를 `result.json`에 한 번만 쓴다. 기록은 러너 호스트만 가진 키로 HMAC 서명한다. 점유 뒤 결과가 없으면 T10에서 `UNCONFIRMED`로 남고 다시 실행하지 않는다. PASS 기록은 `deliver`로 T10 `ChangeIntake`에 한 번 전달한다. `RecordedEvidence`는 T10 `EvidenceReader`와 `ChangeIntake.read_original`을 같은 서명 기록에서 제공한다. 2·3회차는 직전 FAIL 기록의 증거 digest를 T11 재시도 근거로 받는다. 환경 원인의 실패는 `NEEDS_HUMAN`과 고정 원인 코드(`detail`)로 남는다.
+`attempt_store.RecordedAttemptSender`는 T10이 커밋한 시도를 `claim.json`으로 한 번만 점유하고 실행한 뒤 결과를 `result.json`에 한 번만 쓴다. 기록은 러너 호스트만 가진 키로 HMAC 서명한다. 점유 뒤 결과가 없으면 T10에서 `UNCONFIRMED`로 남고 다시 실행하지 않는다. PASS 기록은 `deliver`로 T10 `ChangeIntake`에 한 번 전달한다. `RecordedEvidence`는 T10 `EvidenceReader`와 `ChangeIntake.read_original`을 같은 서명 기록에서 제공한다. 2·3회차는 직전 FAIL 기록의 증거 digest를 T11 재시도 근거로 받는다. 환경 원인의 실패는 `NEEDS_HUMAN`과 고정 원인 코드(`detail`)로 남는다. 시도마다 T11 도구 이벤트(버킷 삭제 차단 `DESTRUCTIVE_ATTEMPT_BLOCKED` 포함)를 원래 순서 그대로 `tool_events`에 넣어 함께 서명한다. 일부만 확인되면 목록 전체를 `UNAVAILABLE`로 둔다. T10은 `RecordedEvidence.tool_events`로 읽어 이벤트 `data.tool_events`로 넘기고, T24가 순서 번호로 중복 없이 저장한다.
 
 `bucket_job.SeaweedBucketJob`은 T3가 시험한 namespace에서 원본 정책(대조군)과 후보 정책을 차례로 적용하는 Job 두 개를 실행한다. Job은 토큰 없는 기본 계정으로 실행한다. 각 Job은 인증 읽기·무인증 읽기·인증 읽기를 관측하고, T38 `observe_job_pod`로 Job·Pod·컨테이너·imageID를 결속한다. 대조군에서 무인증 읽기 허용이 관측되지 않으면 판정하지 않는다. 후보가 무인증 읽기를 막고 인증 읽기를 유지하면 PASS, 정책 거부·무인증 허용·인증 읽기 손상은 FAIL이다. 시험 버킷·자격·수신 허용은 호스트가 제공한다.
 
@@ -248,5 +249,7 @@ PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 .venv/bin/python -m pytest -q testing/test_cred
 cd ../platform-events
 PYTHONPATH=../rehearsal-runner/src uv run --frozen --no-default-groups --with pytest pytest -p no:cacheprovider ../rehearsal-runner/testing/test_t10_recorded_flow.py
 ```
+
+`bucket_planner.BucketPlanner`는 시도마다 T11 제안·namespace 생성·T3 격리·검증 Job을 실제 클러스터 설정으로 조립한다. 호스트가 넣는 값은 목적지 프로필(`profiles/onprem.env`), 시험 버킷(`BucketTarget`: T9 시험 버킷과 러너가 읽을 자격 Secret 위치), 계획 결속 조회, T11/T38 제안 원천(`ProposalSource.open`: 검증된 스냅샷의 Coordinator와 모델 provider), 러너 클러스터 신원(`Kubectl`, T38 `Kube`)이다. 2·3회차는 이 프로세스가 연 Coordinator에 직전 FAIL의 서명된 증거 digest를 넣은 뒤에만 이어 간다. 재시작 뒤에는 효과 전에 멈추고 사람에게 넘긴다. `build_bucket_host`는 T10에 넣을 `T15RehearsalHost`와 `ChangeIntake.read_original`·`tool_events`에 쓸 `RecordedEvidence`를 함께 돌려준다.
 
 `testing/rke2_rehearsal_flow.py`는 개인 RKE2 시험 VM 전용이다. `setup`은 시험용 SeaweedFS·OpenBao 대역·버킷을 만들고, `run`은 실제 T10 접수·수신·변경 승인(SQLite), T11 Coordinator, T3 격리, 검증 Job과 UID 정리를 연결한다. 제안은 스크립트로 고정하며 모델·팀 목적지·사람 승인을 대신하지 않는다.

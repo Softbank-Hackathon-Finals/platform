@@ -159,3 +159,17 @@ def test_delete_guard_exact_principals_prefix_and_versions():
         s3_delete_guard(
             bucket="example-backup", prefix="app-a/", denied_role_arns=(roles[0], roles[0])
         )
+
+
+def test_pod_labels_reach_instance_and_recovery_pods_only_when_valid():
+    labels = {"bravo-object-client": "true"}
+    patch = archive_patch(namespace="test", source_cluster="source-one", writer_store="w", pod_labels=labels)
+    assert patch["spec"]["inheritedMetadata"] == {"labels": labels}
+    assert restore(pod_labels=labels)["spec"]["inheritedMetadata"] == {"labels": labels}
+    assert "inheritedMetadata" not in restore()["spec"]
+    for bad in ({}, {"Bad Key": "x"}, {"k": "bad value"}, {"k": 1}, "bravo-object-client=true",
+                {f"k{i}": "v" for i in range(9)}):
+        with pytest.raises(ValueError):
+            restore(pod_labels=bad)
+        with pytest.raises(ValueError):
+            archive_patch(namespace="test", source_cluster="source-one", writer_store="w", pod_labels=bad)

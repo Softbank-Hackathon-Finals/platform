@@ -68,6 +68,7 @@ def test_sdk_result_requires_valid_proposal_and_success(context, tmp_path, monke
 
         async def query(self, prompt):
             assert "DB_CONNECTION_FAILED" in prompt
+            assert set(json.loads(prompt)) == {"task", "failure", "attempt", "snapshot"}
             tools.dispatch("mcp__bravo__plan_propose", proposal)
 
         async def receive_response(self):
