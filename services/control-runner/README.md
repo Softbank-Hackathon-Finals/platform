@@ -16,7 +16,10 @@ T5의 평가 프로필에 따라 관찰 결과를 `PASS / FAIL / UNKNOWN`으로 
 | AWS 객체 시험 | 앱 읽기 성공 후 동일 객체의 익명 일반 GET (`IAM-01.1`) | SDK 인터페이스 모의 시험 |
 | AWS Secret 저장 암호화 | 현재 Secret 버전·기존 KMS 키·기본 alias를 읽기 전용으로 전후 대조 (`ENC-02.1`) | 실제 Botocore Stubber, [범위·자격 경계](docs/secret-encryption.md) |
 | 로그 비밀 노출 검사 | 등록된 카나리 실행·전체 로그·대조군 검사, CloudWatch 전체 페이지 조회 (`SEC-01.3`) | 모의 SDK + 실제 로컬 자식 프로세스; 운영 주입/복원·수집 연결 미구현 |
+| 앱 간 객체·DB 접근 | 서로 다른 두 앱의 전후 정상 접근 + 교차 접근 결합 (`ISO-01.1`) | SDK 모의 S3 + 실제 로컬 PostgreSQL; 운영 S3·양쪽 환경 미인수 |
 | 앱 → Pooler TLS 시험 | 정상 TLS, 다른 CA·hostname 거부, 평문 거부 (`ENC-01.1/2/3`) | 회귀 시험 및 로컬 kind의 실제 PgBouncer 접속 |
+
+앱 간 접근 범위·서버 감사 결속과 인수 조건은 [앱 간 격리 검사](docs/app-isolation.md)를 따른다.
 
 OpenBao 등록·인증 경계와 T9/T19 인계 조건은 [OpenBao 접근 시험](docs/openbao-access.md)을 따른다.
 
