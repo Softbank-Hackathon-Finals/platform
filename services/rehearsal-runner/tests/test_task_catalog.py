@@ -92,3 +92,19 @@ def test_operator_cli_registers_with_a_private_key_file(tmp_path, capsys):
     os.chmod(key_file, 0o644)
     with pytest.raises(SystemExit):
         main(args)
+
+
+def test_largest_allowed_policy_registers_and_reads_back(tmp_path):
+    catalog = TaskCatalog(tmp_path, KEY)
+    policy = '{"Statement":[]}' + "\n" * 32752
+    register(catalog, source_policy=policy)
+    assert catalog.for_plan(None, PLAN, "bucket").source_policy == policy
+
+
+def test_oversized_registration_is_refused_before_the_file_exists(tmp_path, monkeypatch):
+    from rehearsal_runner import task_catalog
+
+    monkeypatch.setattr(task_catalog, "MAX_REGISTRATION_BYTES", 256)
+    with pytest.raises(ValueError, match="too large"):
+        register(TaskCatalog(tmp_path, KEY))
+    assert not (tmp_path / "plan-1" / "bucket.json").exists()

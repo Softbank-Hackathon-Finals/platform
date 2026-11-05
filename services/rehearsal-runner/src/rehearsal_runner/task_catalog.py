@@ -22,6 +22,8 @@ from .secret_task import CredentialMigrationTask, prepare_credential_migration
 _ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]{0,127}")
 KINDS = ("bucket-policy", "credential-migration")
 PLACEHOLDER_RUN = "catalog"  # T15RehearsalHost replaces it with T10's rehearsal ID
+# A 32 KiB policy can grow up to sixfold when JSON-escaped; reads and writes share this bound.
+MAX_REGISTRATION_BYTES = 262144
 
 
 def _canonical(value: dict) -> bytes:
@@ -71,6 +73,9 @@ class TaskCatalog:
                   "kind": kind, "source_sha": source_sha}
         if kind == "bucket-policy":
             record |= {"source_policy": source_policy, "target_bucket": target_bucket}
+        envelope = _canonical({"record": record, "mac": self._mac(record)})
+        if len(envelope) > MAX_REGISTRATION_BYTES:
+            raise ValueError("registration too large")
         path = self._path(plan_id, task_id)
         path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
         try:
@@ -78,7 +83,7 @@ class TaskCatalog:
         except FileExistsError:
             raise CatalogUnavailable("task already registered") from None
         with os.fdopen(fd, "wb") as stream:
-            stream.write(_canonical({"record": record, "mac": self._mac(record)}))
+            stream.write(envelope)
             stream.flush()
             os.fsync(stream.fileno())
         return record
@@ -89,7 +94,9 @@ class TaskCatalog:
         except FileNotFoundError:
             raise CatalogUnavailable("task not registered") from None
         with os.fdopen(fd, "rb") as stream:
-            raw = stream.read(65537)
+            raw = stream.read(MAX_REGISTRATION_BYTES + 1)
+        if len(raw) > MAX_REGISTRATION_BYTES:
+            raise CatalogUnavailable("registration too large")
         try:
             outer = json.loads(raw)
             record = outer["record"]
