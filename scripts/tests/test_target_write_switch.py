@@ -476,7 +476,7 @@ class ContractTests(unittest.TestCase):
         self.assertEqual(switch.APP_SELECTOR, "app=" + app["Deployment"]["spec"]["selector"]["matchLabels"]["app"])
         self.assertEqual(app["Deployment"]["spec"]["template"]["spec"]["containers"][0]["name"], switch.APP_CONTAINER)
         pooler = rendered(str(WORKLOADS / "pooler.py"), "--egress-address", "10.0.0.10",
-                          "--egress-service-uid", "00000000-0000-4000-8000-000000000001")
+                          "--egress-service-uid", "0b7c2a5e-5f1d-4c3a-9e8b-1a2b3c4d5e6f")
         self.assertEqual(pooler["ConfigMap"]["metadata"]["name"], switch.POOLER_CONFIGMAP)
         self.assertEqual(switch.POOLER_SELECTOR, "app=" + pooler["Deployment"]["spec"]["selector"]["matchLabels"]["app"])
         container = pooler["Deployment"]["spec"]["template"]["spec"]["containers"][0]
