@@ -1,6 +1,6 @@
 # [T42] rehearsal.exec 호출 계약 v1 제안
 
-상태: **제안, T11 확인 전. 구현 없음.** 결정 근거는 [ADR-0024](../adr/0024-rehearsal-exec-actions.md)(동작·인자·실행 위치), [ADR-0025](../adr/0025-rehearsal-exec-spaces-and-order.md)(공간 분리·순서), [ADR-0026](../adr/0026-rehearsal-exec-records-and-failures.md)(기록·실패 처리)다. 기계 검사용 원본은 [`T42-rehearsal-exec-v1.schema.json`](T42-rehearsal-exec-v1.schema.json)이고, 이 문서는 스키마로 표현하지 못한 규칙을 적는다. 두 파일이 다르면 둘 다 고치기 전까지 구현하지 않는다.
+상태: **v1 형식 T11 확인됨([전동훈 11/6 02:41](https://softbankhackathon2026.slack.com/archives/C0CDEFEB83U/p1793900490783729?thread_ts=1793899865.617069&cid=C0CDEFEB83U)). 구현 없음.** 결정 근거는 [ADR-0024](../adr/0024-rehearsal-exec-actions.md)(동작·인자·실행 위치), [ADR-0025](../adr/0025-rehearsal-exec-spaces-and-order.md)(공간 분리·순서), [ADR-0026](../adr/0026-rehearsal-exec-records-and-failures.md)(기록·실패 처리)다. 기계 검사용 원본은 [`T42-rehearsal-exec-v1.schema.json`](T42-rehearsal-exec-v1.schema.json)이고, 이 문서는 스키마로 표현하지 못한 규칙을 적는다. 두 파일이 다르면 둘 다 고치기 전까지 구현하지 않는다.
 
 생산·소비: 모델 → T11(도구 노출·인자 검사·파괴적 요청 차단·감사) → 실행 전용 로컬 채널 → T38 broker → 고정 사설 TLS T15 경로 → T15 실행부(실행·실행 전후 기록·출력 비밀값 검사·정리) → 서명된 시도 기록 → T10 → T24 감사 로그·T21 콘솔. 통로와 신원은 T38이 정한다(Actions 신원은 broker에만 둔다). 이 문서는 통로 위의 메시지 형식만 정한다.
 
@@ -15,7 +15,7 @@
 | ③ 공간 안 접속 확인 | `rehearsal_exec_probe` / `mcp__bravo__rehearsal_exec_probe` | `rehearsal.exec.probe` | `probe` |
 
 - 세 도구는 T15가 그 실행에 exec를 켰고 로컬 채널이 열려 있을 때만 노출한다. 끈 작업 종류에서 호출되면 지금처럼 `TOOL_NOT_PROVIDED`로 거부한다.
-- 예약 이름 `rehearsal.exec`·`rehearsal.run`·`rehearsal.result`는 계속 `TOOL_NOT_PROVIDED`다. OpenAI 경로도 같은 사유로 기록해야 한다(지금은 `TOOL_NOT_ALLOWED`, T11 수정 범위).
+- 예약 이름 `rehearsal.exec`·`rehearsal.run`·`rehearsal.result`는 계속 `TOOL_NOT_PROVIDED`다. OpenAI 경로도 같은 사유로 기록한다(T11 PR #344에서 수정 중).
 
 ## 2. 모델 인자
 
@@ -34,6 +34,7 @@
 
 - 필드 사이 규칙(위 표의 오른쪽 열)은 모델에 보내는 스키마에 넣지 않는다. strict 모드가 조건식을 받지 않기 때문이다. T11과 T15가 스키마 파일의 `inspect_rules`·`probe_rules`로 둘 다 검사한다.
 - apply는 매번 스냅샷 원본에 대한 제안서 전체다. 두 번째 apply는 첫 초안 위에 덧붙이지 않고, 원본에 새 초안을 반영한 상태로 바꾼다. 러너는 공간 B 채점과 같은 적용 코드와 템플릿으로 반영한다(ADR-0024 3-3).
+- apply는 `plan.propose`와 검사만 같이 쓴다. `plan.propose`의 시도당 제출 1회 제한에는 세지 않으며, apply 횟수는 4절의 exec 한도로만 센다.
 - 인자에 러너가 넣은 리허설 비밀값이 원문·base64·URL 인코딩으로 들어 있으면 T15는 실행하지 않고(`BLOCKED`, `VALIDATE`), 기록에서 인자 키를 뺀다.
 
 ## 3. 서버가 붙이는 결속 값
@@ -91,6 +92,7 @@ T15 → broker → T11 → 모델로 같은 객체가 간다(스키마 `response
   - probe: `probe_outcome`(`CONNECTED`·`REFUSED`·`TIMED_OUT`·`DNS_FAILED`), `http_status`(TCP면 `null`), `elapsed_ms`. 접속 거부·시간 초과·403도 시험 결과이므로 `OK`다.
 - **출력:** apply는 실패 시 API 오류 본문, inspect는 이벤트·로그 본문, probe는 HTTP 응답 본문(HEAD·TCP는 없음)이다. 비밀값 검사는 자르기 전 전체 출력에 한다. 비밀값이 자르는 경계에 걸쳐 빠져나가지 않게 하기 위해서다. 막으면 `output_tail=null`, `output_truncated=false`다.
 - **T11이 직접 만드는 응답:** 통로 장애일 때만 같은 형식으로 만든다. 보내는 중이던 apply는 `UNKNOWN`·`EFFECT_UNKNOWN`, inspect·probe는 `FAILED`·`UNAVAILABLE`, 이후 호출은 `REJECTED`·`UNAVAILABLE`이다. T15 응답이 스키마에 맞지 않을 때도 같은 규칙을 따른다.
+- **T11의 제출 여유 확보:** 모델 1회 실행 한도(8턴·180초) 안에 제출할 턴이 남도록, T11은 남은 시간·턴을 보고 exec 도구를 먼저 닫을 수 있다. 닫은 뒤 들어온 호출은 T15로 보내지 않고 `REJECTED`·`BUDGET_EXHAUSTED`·`ADMIT`로 답한다.
 
 ## 6. 기록
 
@@ -133,11 +135,11 @@ T15 → broker → T11 → 모델로 같은 객체가 간다(스키마 `response
 
 | 항목 | 누구 | 상태 |
 |---|---|---|
-| 이 형식으로 T11 검사·도구 노출·`tool_events` 키를 구현해도 되는지 | 전동훈(T11) | 확인 요청 예정 |
+| 이 형식으로 T11 검사·도구 노출·`tool_events` 키를 구현해도 되는지 | 전동훈(T11) | 확인됨([11/6 02:41](https://softbankhackathon2026.slack.com/archives/C0CDEFEB83U/p1793900490783729?thread_ts=1793899865.617069&cid=C0CDEFEB83U)). T11 구현은 데모 필수 작업 뒤 |
 | exec 사용 여부를 제품 실행 입력에 싣는 위치(T11이 도구 노출을 판단하는 근거) | 류지환(T38) | 미정 |
 | `data.exec_events`를 싣는 T10 이벤트 종류와 T24·T21 표시 | 류지환(T10), 이상무(T21), 전동훈(T24) | 미정 |
-| strict 모드에서 `pattern`·`minimum`·`["string","null"]`를 실제 모델 호출이 받는지 | 전동훈(T11) | 미확인. `plan_propose`의 `pattern`·`maxLength`는 실제 호출에서 쓰고 있다 |
-| 자격 이전 작업의 공간 A 비밀값을 러너가 아는지. 모르면 그 작업 종류는 `OFF` | 전동훈(T9) | 미확인 |
+| strict 모드에서 `pattern`·`minimum`·`["string","null"]`를 실제 모델 호출이 받는지 | 전동훈(T11) | 미확인. T11이 T38 경로로 한 번 호출해 결과를 남긴다. `plan_propose`의 `pattern`·`maxLength`는 실제 호출에서 쓰고 있다 |
+| 자격 이전 작업의 공간 A 비밀값을 러너가 아는지. 모르면 그 작업 종류는 `OFF` | 전동훈(T9) | 확인됨: 러너가 합성 값을 OpenBao 리허설 경로에 직접 쓰므로 안다. 그 작업 종류도 exec를 켤 수 있다([11/6 02:41](https://softbankhackathon2026.slack.com/archives/C0CDEFEB83U/p1793900490783729?thread_ts=1793899865.617069&cid=C0CDEFEB83U)) |
 
 ## 보장하지 않는 것
 
