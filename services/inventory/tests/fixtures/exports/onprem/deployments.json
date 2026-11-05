@@ -1,0 +1,2 @@
+{"kind": "DeploymentList", "items": [{"metadata": {"name": "seaweedfs-filer", "namespace": "storage"}, "spec": {"template": {"spec": {"containers": [{"name": "filer", "image": "chrislusf/seaweedfs:3.80"}]}}}},
+ {"metadata": {"name": "openbao", "namespace": "secrets"}, "spec": {"template": {"spec": {"containers": [{"name": "openbao", "image": "openbao/openbao:2.1.0"}]}}}}]}

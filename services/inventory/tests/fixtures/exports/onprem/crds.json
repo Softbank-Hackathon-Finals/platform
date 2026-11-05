@@ -1,0 +1,1 @@
+{"kind": "CustomResourceDefinitionList", "items": [{"metadata": {"name": "clusters.postgresql.cnpg.io"}}, {"metadata": {"name": "externalsecrets.external-secrets.io"}}]}

@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/Softbank-Hackathon-Finals/platform/services/inventory/src/bravo_inventory/schemas/inventory.schema.json",
+  "title": "의존성 · 설정 인벤토리 출력 (T16 v1)",
+  "description": "T16이 만들고 T21 콘솔 · T11 에이전트(번역 입력, FR-4) · T32 추천이 읽는다. 판정은 규칙이 하고, agent_needed 항목만 에이전트가 분류한다.",
+  "type": "object",
+  "required": ["schema_version", "app", "source", "generated_at", "inputs", "items", "deploy", "candidates", "summary"],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {"const": "1.0"},
+    "app": {"type": "object", "required": ["id", "repo", "app_path"], "additionalProperties": false,
+      "properties": {"id": {"type": "string", "pattern": "^[a-z0-9][a-z0-9-]{0,63}$"}, "repo": {"type": "string"}, "app_path": {"type": "string"}, "source_sha": {"type": ["string", "null"], "pattern": "^[a-f0-9]{40}$"}}},
+    "source": {"type": "object", "required": ["env_id", "env_kind", "namespace"], "additionalProperties": false,
+      "properties": {"env_id": {"type": "string"}, "env_kind": {"enum": ["aws", "gcp", "onprem"]}, "namespace": {"type": "string"}}},
+    "generated_at": {"type": "string", "format": "date-time"},
+    "inputs": {"type": "object", "required": ["repo_digest", "deploy_digest", "api_calls"], "additionalProperties": false,
+      "properties": {"repo_digest": {"$ref": "#/$defs/Digest"}, "deploy_digest": {"$ref": "#/$defs/Digest"}, "api_calls": {"type": "array", "items": {"type": "string"}, "description": "배포 추적에 쓴 API · 파일 목록. 읽기 전용 목록 밖의 호출은 어댑터가 거부한다"}}},
+    "items": {"type": "array", "items": {"$ref": "#/$defs/Item"}},
+    "deploy": {"type": "object", "required": ["namespace", "workloads", "resources", "api_calls", "notes"]},
+    "candidates": {"type": "array", "items": {"$ref": "#/$defs/Fit"}},
+    "summary": {"type": "object", "required": ["grade_counts", "agent_needed", "deploy_only", "code_only"], "additionalProperties": false,
+      "properties": {"grade_counts": {"type": "object", "additionalProperties": {"type": "integer", "minimum": 0}}, "agent_needed": {"type": "integer"}, "deploy_only": {"type": "integer"}, "code_only": {"type": "integer"}}},
+    "digest": {"$ref": "#/$defs/Digest"}
+  },
+  "$defs": {
+    "Digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+    "Grade": {"enum": ["config_swap", "adapter", "code_change", "none", "unknown"]},
+    "Item": {"type": "object", "additionalProperties": false,
+      "required": ["id", "role", "service", "found_in", "grade", "grade_by", "rationale", "agent_needed", "code_refs", "deploy_refs", "target", "risk"],
+      "properties": {
+        "id": {"type": "string", "pattern": "^item-[0-9]{3}$"},
+        "role": {"type": "string"},
+        "service": {"type": "string"},
+        "found_in": {"enum": ["code", "deploy", "both"]},
+        "grade": {"$ref": "#/$defs/Grade"},
+        "grade_by": {"enum": ["rule", "agent"]},
+        "rationale": {"type": "string", "minLength": 1},
+        "agent_needed": {"type": "boolean"},
+        "code_refs": {"type": "array", "items": {"type": "object", "required": ["id", "kind", "file", "line", "snippet"]}},
+        "deploy_refs": {"type": "array", "items": {"type": "object", "required": ["kind", "name", "via"]}},
+        "target": {"type": "object"},
+        "risk": {"enum": ["", "migration_omission"]}
+      },
+      "allOf": [
+        {"if": {"properties": {"grade_by": {"const": "agent"}}}, "then": {"properties": {"rationale": {"minLength": 10}}}},
+        {"if": {"properties": {"found_in": {"const": "deploy"}}}, "then": {"properties": {"risk": {"const": "migration_omission"}}}}
+      ]},
+    "Fit": {"type": "object", "required": ["env_id", "env_kind", "verdict", "grade_counts", "missing_capabilities", "residual_dependencies", "capabilities"],
+      "properties": {"verdict": {"enum": ["fits", "needs_work", "blocked"]}}}
+  }
+}
