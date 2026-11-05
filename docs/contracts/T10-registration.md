@@ -53,7 +53,9 @@
 명시한 프로필의 실제 credential provider가 `sso`일 때만 임시 자격으로 서명한다.
 환경 키·역할 체인·인스턴스 자격으로 대체하지 않는다. 반환값은 TLS 요청의 Bearer에만
 넣고 출력하거나 저장하지 않는다. 서버·Pod에는 개인 SSO 캐시나 AWS 자격을 설치하지 않는다.
-SDK 서명기의 DEBUG 로그가 켜져 있으면 자격을 읽기 전에 증명 생성을 거부한다.
+`boto3`·`botocore`·`urllib3`와 개별 하위 로거의 DEBUG, HTTP wire 진단이 켜져 있으면
+자격을 읽거나 갱신하기 전에 증명 생성을 거부한다. 부모 로거만 조용하게 설정해서는
+하위 로거의 명시적 DEBUG 설정이 꺼지지 않는다. 호스트는 요청 중 로그 설정을 변경하지 않는다.
 
 증명은 고정 regional STS `GetCallerIdentity`의 SigV4 서명 URL이다. 서명된
 `x-bravo-registration-id`에 호스트의 audience를 결속한다. 검증기는 호스트·메서드·

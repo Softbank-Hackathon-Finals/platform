@@ -103,12 +103,24 @@ def test_verified_exact_sso_is_registration_only(proof, caplog):
     assert decoded(proof.token) not in caplog.text and "synthetic-session" not in caplog.text
 
 
-def test_client_refuses_debug_signer_before_reading_credentials(proof, monkeypatch, caplog):
-    caplog.set_level(logging.DEBUG, logger="botocore.auth")
+@pytest.mark.parametrize("logger_name", ["botocore", "botocore.auth", "botocore.endpoint", "botocore.parsers",
+    "botocore.credentials", "botocore.tokens", "botocore.future_child", "boto3", "urllib3.connectionpool"])
+def test_client_refuses_sdk_debug_before_reading_credentials(proof, monkeypatch, caplog, logger_name):
+    caplog.set_level(logging.WARNING, logger="botocore")
+    caplog.set_level(logging.WARNING, logger="botocore.auth")
+    caplog.set_level(logging.DEBUG, logger=logger_name)
     monkeypatch.setattr(boto3, "Session", lambda **_: pytest.fail("Must not read credentials"))
     with pytest.raises(RuntimeError, match="^registration_sso_proof_unavailable$"):
         make_registration_token(profile_name="explicit", region=CONFIG["region"], audience=CONFIG["audience"])
     assert "synthetic-session" not in caplog.text
+
+
+def test_wire_debug_is_rejected_before_credentials(proof, monkeypatch):
+    from http.client import HTTPConnection
+    monkeypatch.setattr(HTTPConnection, "debuglevel", 1)
+    monkeypatch.setattr(boto3, "Session", lambda **_: pytest.fail("Must not read credentials"))
+    with pytest.raises(RuntimeError, match="^registration_sso_proof_unavailable$"):
+        make_registration_token(profile_name="explicit", region=CONFIG["region"], audience=CONFIG["audience"])
 
 
 @pytest.mark.parametrize("permission", ["approve_change", "approve_cutover"])

@@ -169,20 +169,39 @@ def make_registration_token(*, profile_name, region, audience):
     endpoint = _endpoint(region, audience)
     if not isinstance(profile_name, str) or not profile_name.strip():
         raise ValueError("explicit_sso_profile_required")
-    # The SDK's DEBUG signer logs its canonical query, including the session
-    # token. Fail before reading SSO credentials if that diagnostic is enabled.
-    if logging.getLogger("botocore.auth").isEnabledFor(logging.DEBUG):
-        raise RuntimeError("registration_sso_proof_unavailable")
+    _require_quiet_sso_sdk()
     try:
-        credentials = Session(profile_name=profile_name, region_name=region).get_credentials()
+        session = Session(profile_name=profile_name, region_name=region)
+        _require_quiet_sso_sdk()
+        credentials = session.get_credentials()
         if credentials is None or credentials.method != "sso":
             raise ValueError()
+        _require_quiet_sso_sdk()
         frozen = credentials.get_frozen_credentials()
         if not frozen.token or not frozen.access_key.startswith("ASIA"):
             raise ValueError()
         request = AWSRequest(method="GET", url=endpoint + "?Action=GetCallerIdentity&Version=2011-06-15",
                              headers={AUDIENCE_HEADER: audience})
+        _require_quiet_sso_sdk()
         SigV4QueryAuth(frozen, "sts", region, expires=MAX_PROOF_SECONDS).add_auth(request)
         return PREFIX + base64.urlsafe_b64encode(request.url.encode()).decode().rstrip("=")
     except Exception:
         raise RuntimeError("registration_sso_proof_unavailable") from None
+
+
+def _require_quiet_sso_sdk():
+    # Refresh exposes more than the signer: parsers log role credentials and
+    # endpoint logs include the SSO bearer. A quiet parent does not override a
+    # child's explicit DEBUG level. Unknown descendants inherit a checked root.
+    # Do not mutate shared logging configuration in this request helper.
+    from http.client import HTTPConnection
+
+    from urllib3.connection import HTTPConnection as PoolHTTPConnection
+    from urllib3.connection import HTTPSConnection as PoolHTTPSConnection
+
+    roots = ("boto3", "botocore", "urllib3")
+    names = set(roots) | {name for name in tuple(logging.Logger.manager.loggerDict)
+                         if any(name.startswith(root + ".") for root in roots)}
+    if (any(logging.getLogger(name).isEnabledFor(logging.DEBUG) for name in names)
+            or any(connection.debuglevel for connection in (HTTPConnection, PoolHTTPConnection, PoolHTTPSConnection))):
+        raise RuntimeError("registration_sso_proof_unavailable")
