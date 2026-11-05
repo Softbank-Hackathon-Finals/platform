@@ -296,8 +296,8 @@ class Stack:
         self.edges[name] = url
         return url
 
-    def set_write_block(self, blocked: bool) -> None:
-        for url in (self.source_url, self.target_url):
+    def set_write_block(self, blocked: bool, urls: tuple[str, ...] | None = None) -> None:
+        for url in urls or (self.source_url, self.target_url):
             response = httpx.put(
                 f"{url}/admin/write-block",
                 json={"blocked": blocked},
@@ -914,6 +914,50 @@ def scenario_joint_rehearsal(h: Harness) -> None:
         h.check("joint-rehearsal", "다른 실행의 영수증은 거부, 종료 2", refused.returncode == 2 and "실행 ID" in refused.stderr, refused.returncode)
 
 
+def scenario_preflight_write_block(h: Harness) -> None:
+    """실제 demo-chat의 /api/info로 쓰기 차단 사전 점검을 본다. 부하는 보내지 않는다."""
+    print("== preflight-write-block: 목적지 쓰기 차단이 켜져 있으면 사전 점검이 막는지", flush=True)
+    s = h.stack
+    name = "write-block-preflight"
+    edge = s.edge(name, target_percent=100)
+    rows_before = s.admin_execute("SELECT count(*) FROM messages")[0][0]
+
+    def preflight() -> subprocess.CompletedProcess:
+        return subprocess.run(
+            [sys.executable, "-m", "bravo_loadgen.cli", "preflight", "--base-url", edge, "--plan-id", "plan-local",
+             "--source-env", SOURCE_ENV, "--target-env", TARGET_ENV, "--duration", "60",
+             "--measurement-path", "local-mock-edge", "--out", str(h.out / "write-block-preflight"),
+             "--run-id", "t18-write-block-preflight"],
+            env=h._env(), capture_output=True, text=True,
+        )  # fmt: skip
+
+    def line(result: subprocess.CompletedProcess) -> str:
+        return next((row.strip() for row in result.stdout.splitlines() if "쓰기 차단" in row), "")
+
+    result = preflight()
+    h.check("preflight-write-block", "가중치 100%, 양쪽 열림: 통과", result.returncode == 0 and f"{TARGET_ENV} 열림 5" in result.stdout, line(result))
+    s.set_write_block(True, (s.target_url,))
+    try:
+        result = preflight()
+        h.check("preflight-write-block", "가중치 100%, 목적지 닫힘: 실패하고 여는 명령을 알림, 종료 2",
+                result.returncode == 2 and f"{TARGET_ENV} 닫힘 5" in result.stdout and "write_switch.py open" in result.stdout,
+                line(result))  # fmt: skip
+        s.set_edge_weight(name, 0)
+        result = preflight()
+        h.check("preflight-write-block", "가중치 0%, 목적지 닫힘: 보이지 않아 확인 못 함, status를 알림",
+                result.returncode == 0 and f"{TARGET_ENV} 응답 없어 확인 못 함" in result.stdout and "write_switch.py status" in result.stdout,
+                line(result))  # fmt: skip
+        s.set_write_block(True, (s.source_url,))
+        result = preflight()
+        h.check("preflight-write-block", "가중치 0%, 출발지 닫힘: 실패, 목적지 명령은 알리지 않음, 종료 2",
+                result.returncode == 2 and f"{SOURCE_ENV} 닫힘 5" in result.stdout and "write_switch.py open" not in result.stdout,
+                line(result))  # fmt: skip
+    finally:
+        s.set_write_block(False)
+    rows_after = s.admin_execute("SELECT count(*) FROM messages")[0][0]
+    h.check("preflight-write-block", "사전 점검은 행을 남기지 않음", rows_after == rows_before, rows_after - rows_before)
+
+
 def _shift(moment: str, seconds: int) -> str:
     shifted = datetime.fromisoformat(moment) + timedelta(seconds=seconds)
     return shifted.isoformat().replace("+00:00", "Z")
@@ -933,6 +977,7 @@ SCENARIOS = {
     "soak": scenario_soak,
     "lock-rtt": scenario_lock_rtt,
     "joint-rehearsal": scenario_joint_rehearsal,
+    "preflight-write-block": scenario_preflight_write_block,
 }
 
 
