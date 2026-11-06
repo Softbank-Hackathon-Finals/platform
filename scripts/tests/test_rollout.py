@@ -5,6 +5,7 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[2]
 spec = importlib.util.spec_from_file_location("rollout", ROOT / "operations/rollout/run.py")
@@ -13,6 +14,17 @@ spec.loader.exec_module(rollout)
 
 
 class Rollout(unittest.TestCase):
+    def setUp(self):
+        # Patch only this module's names; never the shared time module other tests rely on.
+        for name in ("sh", "node", "pins"):
+            patcher = mock.patch.object(rollout, name, getattr(rollout, name))
+            patcher.start()
+            self.addCleanup(patcher.stop)
+        sleep = mock.patch.object(rollout, "time", mock.Mock(wraps=rollout.time, sleep=lambda _s: None,
+                                                                strftime=rollout.time.strftime, gmtime=rollout.time.gmtime))
+        sleep.start()
+        self.addCleanup(sleep.stop)
+
     def test_failed_pin_merge_restores_the_queue_variable(self):
         calls = []
 
@@ -25,7 +37,6 @@ class Rollout(unittest.TestCase):
             return ""
 
         rollout.sh, rollout.node = sh, lambda *_a, **_k: {"status": "PASS"}
-        rollout.time.sleep = lambda _s: None
         with tempfile.TemporaryDirectory() as d:
             values = Path(d) / "v.json"
             values.write_text(json.dumps({"registration": {}}))
@@ -36,7 +47,6 @@ class Rollout(unittest.TestCase):
 
     def _run(self, sh, node):
         rollout.sh, rollout.node = sh, node
-        rollout.time.sleep = lambda _s: None
         with tempfile.TemporaryDirectory() as d:
             values = Path(d) / "v.json"
             values.write_text(json.dumps({"registration": {}}))
