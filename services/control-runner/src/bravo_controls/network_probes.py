@@ -192,7 +192,6 @@ class _NetworkPortProbe:
             limit = min(limit, _utc(deadline))
         if started >= limit:
             raise TimeoutError("network test budget expired")
-        nonce = str(uuid4())
         rows = {}
 
         def policy():
@@ -214,6 +213,9 @@ class _NetworkPortProbe:
             before = _utc(self.clock())
             if not started <= before <= limit:
                 raise TimeoutError("network test window expired")
+            # A fresh nonce per attempt: with the method 2 clock offset, an earlier
+            # control's answer must not be accepted again for a later control.
+            nonce = str(uuid4())
             result = callback(agent, argument, nonce)
             now = _utc(self.clock())
             # Method 2 dates evidence by the coordinator's authenticated,

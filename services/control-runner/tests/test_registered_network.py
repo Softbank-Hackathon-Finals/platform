@@ -53,16 +53,24 @@ def make(
     sink=None,
     clock=lambda: NOW,
     agent_offset=timedelta(0),
+    replay=False,
 ):
     evidence, calls, registrations = [], [], []
     outcomes = outcomes or {}
+    first = {}
 
     def tcp(agent, endpoint, nonce):
         role = next((item.role for item in listeners if item.target.endpoint == endpoint), "health")
         negative = agent == TARGET.denied_agent and role != "health"
         calls.append((role, negative))
+        target_control = agent == TARGET.allowed_agent and role != "health"
+        if replay and target_control and endpoint in first:
+            return first[endpoint]  # the earlier target control delivered again
         outcome = outcomes.get((role, negative), "refused" if negative else "connected")
-        return Attempt(nonce, agent, endpoint_id(endpoint), outcome, 2, clock() + agent_offset)
+        result = Attempt(nonce, agent, endpoint_id(endpoint), outcome, 2, clock() + agent_offset)
+        if target_control:
+            first.setdefault(endpoint, result)
+        return result
 
     def dns(agent, name, nonce):
         return Attempt(nonce, agent, name, "resolved", 1, clock() + agent_offset)
@@ -281,6 +289,15 @@ def test_small_agent_offset_retained_but_coordinator_dates_evidence(offset):
 @pytest.mark.parametrize("offset", [-1001, 1001, 10000])
 def test_excessive_agent_offset_still_rejects(offset):
     probe, evidence, _, _ = make(agent_offset=timedelta(milliseconds=offset))
+    with pytest.raises(ValueError):
+        probe(CTX, SPEC)
+    assert evidence == []
+
+
+@pytest.mark.parametrize("offset", [0, 80])
+def test_earlier_positive_control_response_cannot_answer_a_later_control(offset):
+    # A service that stops after the first control must not pass by replaying that answer.
+    probe, evidence, _, _ = make(replay=True, agent_offset=timedelta(milliseconds=offset))
     with pytest.raises(ValueError):
         probe(CTX, SPEC)
     assert evidence == []
