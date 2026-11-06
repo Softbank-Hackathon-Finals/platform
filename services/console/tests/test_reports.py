@@ -89,6 +89,9 @@ def test_safe_projection_and_both_authority_reads(fixture):
         assert r.status_code == 200, r.text
         value = r.json()
         assert value["authorizes_cutover"] is False
+        snapshot = c.get("/v1/plans/plan-demo").json()
+        assert value["plan_version"] == snapshot["version"]
+        assert value["plan_state"] == snapshot["state"]
         assert value["decision"] == "PASS" and len(value["rows"]) == 3
         assert "PRIVATE" not in r.text and "question" not in r.text
         assert state["auth_calls"] == 2
