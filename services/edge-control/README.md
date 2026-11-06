@@ -90,8 +90,59 @@ ShiftHost는 실제 T10의 `workflow:<version>` SHIFT 승인 체크포인트와 
 별도로 현재 승인된 실행에 결속되며, 제안 프로필을 measured로 승격하지 않는다.
 
 이 모듈의 시험은 실제 T10 SQLite 저장소, 정본 T36 판정과 모의 Cloudflare를 사용한다.
-운영자 인증·현재 grant/T19 authority와 실행 창의 설치는 여전히 운영 호스트에서 해야
-한다. 모듈 시험을 실제 10/50/100/0 또는 S1→S4 완료로 표시하지 않는다.
+운영자 인증과 T19 원문을 읽는 배포 포트는 아래 런타임에 설치한다.
+모듈 시험을 실제 10/50/100/0 또는 S1→S4 완료로 표시하지 않는다.
+
+### 단일 실행 런타임
+
+`bravo_edge_control.run`은 운영 진입점이다. 기존 T10 DB 자격 mount와 영속
+journal을 사용하며 별도 HTTP 서버나 DB 상태 전이 경로를 만들지 않는다.
+배포가 검토한 `module:factory(store)`는 `RuntimePorts`를 반환한다.
+`principal()`은 매 호출 실제 인증을 검증한 `OperatorPrincipal`을 반환하고,
+`load_session(connection, principal, plan)`은 전달된 계획 트랜잭션의
+`GateRecords.view(...).session(...)`으로 현재 `PlanGateSession`을 읽는다.
+서명·권한·보류·예외 철회를 확인하는 기존 T19 서비스와 데이터 준비 원문을
+연결해야 하며, `True` callback이나 클라이언트가 만든 판정은 이 포트를 대체하지 않는다.
+
+`ShiftAuthority`는 현재 운영자 `execute_shift` 권한, 등록 승인자의
+`approve_shift` 권한, 기존 WorkflowRecovery의 SHIFT 승인 원본과 만료,
+같은 계획·게이트·T19 원문을 같은 잠금 안에서 다시 검사한다. 두 권한은
+기존 `OperatorAccess.set_permissions`의 신뢰된 관리 경로로만 부여한다.
+등록은 승인된 SHIFT 계획에 한정되며 상태 변경·새 승인 생성·기존 실행
+재전송을 하지 않는다. 실행 등록과 철회는 기존 `plan_commands`에 보존한다.
+정상 전환과 자동 복귀 시험은 서로 다른 명시적 run 등록으로 구분할 수 있다.
+기존 승인이 여전히 유효해야 하며, Controller는 이전 run의 확인된 0%와
+같은 영속 journal을 확인한 뒤에만 새 run의 10%를 허용한다. 새 등록은
+이전 기록을 덮어쓰거나 UNCERTAIN을 해제하지 않는다.
+
+설정 파일은 배포 담당이 선택한 `version: 1`, `plan_id`, `run_id`, `profile`
+(T36 정본 프로필), `lb_binding`(등록된 Binding), 절대경로 `journal`을 담는다.
+기본 provider는 절대경로 `token_file`을 매 HTTP 요청 다시 읽는다. 기존 인증을
+사용하는 별도 검토 provider가 필요하면 `RuntimePorts.provider`에 설치한다.
+이 provider도 같은 Binding과 `read/set_weight/close` 계약을 지키고 자동 재시도하지 않는다.
+설정·토큰·원장과 식별자가 담긴 실행 출력은 비공개로 보관한다.
+
+```sh
+# 기존 DB credential/CA mount와 검토된 deployment_ports 모듈을 갖춘 동일 호스트에서 실행한다.
+uv sync --frozen --no-dev --extra t10-host
+uv run --no-sync python -m bravo_edge_control.run --config /runtime/edge.json \
+  --ports deployment_ports:create_ports register
+uv run --no-sync python -m bravo_edge_control.run --config /runtime/edge.json \
+  --ports deployment_ports:create_ports sequence
+```
+
+`sequence`는 한 프로세스에서 10→50→100→0을 수행한다. 각 관측 주기마다
+정본 `observe()`를 실행하고 `ADVANCE_ALLOWED`일 때만 다음 단계로 진행한다.
+`SET_WEIGHT_0`이면 자동 복귀하고 종료한다. 단계별 명령 ID는 등록 run으로
+결정되므로 재시작은 같은 원장을 조회하며 새 PATCH를 만들지 않는다.
+복귀 전파를 아직 확인하지 못했거나 `UNCERTAIN`이면 `STOPPED`/exit 2이며
+자동 복구하지 않는다. 자동 복귀 실행은 `ABORTED`이고 정상 4단계 완료인
+`RESTORED`와 구별한다. 후속 실제 0% 분배 측정은 T18 원본으로 별도 확인한다.
+
+`watch`는 기존 단계의 관측·자동 복귀만 실행한다. 두 모드 모두 같은 journal의
+프로세스 잠금을 유지해 두 번째 런타임을 거부한다. SIGTERM/SIGINT는 다음 안전한
+경계에서 종료하며 종료 자체를 0% 복귀로 표시하지 않는다. 같은 LB의 모든
+실행자는 동일한 영속 journal/lock을 사용해야 한다.
 
 저장소를 함께 설치할 때는 이 디렉터리에서 `uv sync --frozen --no-dev --extra t10-host`를
 사용한다. SQLite·PostgreSQL PlanStore를 포함하며 현재 권한 callback이나 서버 자격을

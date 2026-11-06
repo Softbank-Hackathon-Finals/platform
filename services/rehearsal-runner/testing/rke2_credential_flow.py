@@ -216,8 +216,12 @@ def run(config: dict) -> int:
               "record": {k: record.get(k) for k in ("verdict", "reason", "detail", "verification_id", "namespace",
                                                      "created_uid", "removed_uid", "isolation_probe_run_id",
                                                      "diff_hash", "image_digest", "evidence")},
-              "leftover_namespaces": [n["metadata"]["name"] for n in leftovers
-                                      if n["metadata"]["name"].startswith("rehearsal-")]}
+              # Only this run's namespaces: its rehearsal namespace (run label) and T3 comparison namespace.
+              # Other rehearsal-* namespaces (e.g. a teammate's test space) are not this run's leftovers.
+              "leftover_namespaces": [n["metadata"]["name"] for n in leftovers if mine(n, receipt["rehearsal_id"], record)],
+              "other_rehearsal_namespaces": [n["metadata"]["name"] for n in leftovers
+                                             if n["metadata"]["name"].startswith("rehearsal-")
+                                             and not mine(n, receipt["rehearsal_id"], record)]}
     if result["status"] == "PASS":
         with store._connection() as connection:
             current = intake.current(connection, operator, {"plan_id": spec.plan_id, "version": 1},
@@ -235,6 +239,17 @@ def run(config: dict) -> int:
     print(json.dumps({"success": report["success"], "status": result["status"], "report": str(out),
                       "reason": record.get("reason"), "detail": record.get("detail"), "seconds": report["seconds"]}))
     return 0 if report["success"] else 1
+
+
+def mine(namespace: dict, rehearsal_id: str, record: dict) -> bool:
+    """Namespace created by this run: the attempt's run label, or its T3 comparison namespace."""
+    from rehearsal_runner.recovery_lookup import recovery_identity
+
+    labels = namespace["metadata"].get("labels", {})
+    own, _ = recovery_identity(rehearsal_id, 1)
+    probe = record.get("isolation_probe_run_id")
+    return (all(labels.get(k) == v for k, v in own.items())
+            or (probe is not None and namespace["metadata"]["name"] == f"isolation-victim-{probe}"))
 
 
 class Catalog:

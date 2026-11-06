@@ -1,0 +1,92 @@
+{
+  "environment": "actual single-node ARM64 RKE2 development target",
+  "identity": "operator own personal login through existing named-member wrapper",
+  "other_member_device_verified": false,
+  "production_ai_or_cutover_verified": false,
+  "trials": [
+    {
+      "trial": "isolation",
+      "execution": "FINISHED",
+      "verdict": "PASS",
+      "cleanup": "CLEAN",
+      "tracked_resources": 2,
+      "all_tracked_absent": true,
+      "report_sha256": "9e0b5b2500ea9d0fd75dbe0df12c8ea7cd4fadee9befb93b99594444348c5775",
+      "external_cleanup": null
+    },
+    {
+      "trial": "credential-initial",
+      "execution": "FINISHED",
+      "verdict": "UNCONFIRMED",
+      "cleanup": "CLEAN",
+      "tracked_resources": 9,
+      "all_tracked_absent": true,
+      "report_sha256": "23915a7c767c61c4215f7eb243fb6b5fa4e4de93ad100d6af2ed9029e243572e",
+      "external_cleanup": {
+        "login": "allow",
+        "role": "deleted",
+        "value": "deleted"
+      }
+    },
+    {
+      "trial": "credential-diagnostic",
+      "execution": "FINISHED",
+      "verdict": "UNCONFIRMED",
+      "cleanup": "CLEAN",
+      "tracked_resources": 9,
+      "all_tracked_absent": true,
+      "report_sha256": "39c23f45b1e604941ac3651a69a993178e56adfe58f5b8f362638dc5e99d8385",
+      "external_cleanup": {
+        "login": "allow",
+        "role": "deleted",
+        "value": "deleted"
+      }
+    },
+    {
+      "trial": "credential-with-failure-observer",
+      "execution": "FINISHED",
+      "verdict": "PASS",
+      "cleanup": "CLEAN",
+      "tracked_resources": 6,
+      "all_tracked_absent": true,
+      "report_sha256": "bf911d3cffccf6a75d5e598248de3e385c09352227badc011d8d8541b1237a56",
+      "external_cleanup": {
+        "login": "allow",
+        "role": "deleted",
+        "value": "deleted"
+      }
+    },
+    {
+      "trial": "credential-final",
+      "execution": "FINISHED",
+      "verdict": "PASS",
+      "cleanup": "CLEAN",
+      "tracked_resources": 6,
+      "all_tracked_absent": true,
+      "report_sha256": "d1ac02ea6e575af93c1408f5a12993f9588011ef2385ec2b847a7ef83eec77a0",
+      "external_cleanup": {
+        "login": "allow",
+        "role": "deleted",
+        "value": "deleted"
+      }
+    }
+  ],
+  "interruption": {
+    "method": "SIGKILL of this trial process group after two namespace UIDs persisted",
+    "same_run_fresh_auth_cleanup": "CLEAN",
+    "trial_verdict": "UNCONFIRMED",
+    "execution": "INTERRUPTED",
+    "replay": false
+  },
+  "local_tests": {
+    "focused": 12,
+    "repository_before_final_four_regressions": 1295,
+    "repository_skipped": 9
+  },
+  "limitations": [
+    "Two early credential trials were UNCONFIRMED; both cleaned. Detailed original probe failure was not retained, so no confirmed root cause is claimed.",
+    "Later diagnostic observation was read-only; final credential run used the ordinary CLI without it.",
+    "T15 raw report retained its global leftover success=false; own resources were absent.",
+    "This is scripted fixture verification, not a live AI proposal, product approval or teammate device acceptance."
+  ]
+}

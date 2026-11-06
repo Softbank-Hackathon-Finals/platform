@@ -113,6 +113,7 @@ def test_receipt_binding_refuses_other_run_attempt_or_admission(setup, key, valu
 class GitHub:
     def __init__(self, intent, receipt):
         self.intent, self.posts, self.lose_response = intent, [], False
+        self.response = {'http_status': 204, 'body': ''}
         self.run = {'id': 1234, 'event': 'workflow_dispatch', 'head_branch': 'develop', 'head_sha': intent.runtime_source_sha,
                     'run_attempt': 1, 'workflow_id': 42, 'actor': {'id': 7},
                     'head_repository': {'full_name': REPOSITORY}, 'display_title': 'product-' + intent.request_id,
@@ -150,6 +151,7 @@ class GitHub:
         self.posts.append(inputs)
         if self.lose_response:
             raise RuntimeError('private transport failure')
+        return getattr(self, 'response', None)
 
     def download(self, artifact_id):
         assert artifact_id == 88
@@ -191,7 +193,7 @@ def test_rejected_dispatch_keeps_private_http_evidence_and_cannot_resend(dispatc
     body = '{"message":"fixture provider validation rejection","status":"422"}'
     def call(args, **kwargs):
         calls.append(args)
-        assert json.loads(kwargs['input']) == {'ref': 'develop', 'inputs': intent.model_dump()}
+        assert json.loads(kwargs['input']) == {'ref': 'develop', 'inputs': intent.model_dump(), 'return_run_details': True}
         return subprocess.CompletedProcess(args, 1,
             ('HTTP/2.0 422 Unprocessable Entity\r\nX-Github-Request-Id: A:1:B:2\r\n'
              'Location: https://example.invalid/private-link\r\n\r\n' + body).encode(),
@@ -208,7 +210,7 @@ def test_rejected_dispatch_keeps_private_http_evidence_and_cannot_resend(dispatc
     assert response['body'] == body and run_id is None
     assert 'private authentication' not in json.dumps(metadata)
     assert 'private-link' not in json.dumps(metadata)
-    with pytest.raises(ExecutionPending, match='RUN_NOT_YET_OBSERVED'):
+    with pytest.raises(ExecutionUnknown, match='DISPATCH_REJECTED_NO_RUN'):
         OperatorProductExecution(client.root, gh).submit(intent)
     assert len(calls) == 1
 
@@ -219,6 +221,92 @@ def test_dispatch_records_success_response_without_assuming_workflow_success(mon
         args, 0, f'HTTP/2.0 {status} Response\r\nX-Github-Request-Id: ABC:123\r\n\r\n{body}'.encode(), b''))
     response = OperatorGitHub().dispatch(42, {})
     assert response['http_status'] == status and response['body'] == body
+
+
+def test_native_dispatch_receipt_survives_missing_list_entry_and_restart(dispatch):
+    client, gh, intent, expected = dispatch
+    gh.response = {'http_status': 200, 'body': json.dumps({'workflow_run_id': 1234})}
+    gh.runs = []
+    gh.run.update(status='in_progress', conclusion=None)
+    with pytest.raises(ExecutionPending, match='RUN_IN_PROGRESS'):
+        client.submit(intent)
+    assert client._record(intent)[1] == '1234'
+    gh.run.update(status='completed', conclusion='success')
+    restarted = OperatorProductExecution(client.root, gh)
+    assert restarted.submit(intent) == restarted.read(intent) == expected
+    assert len(gh.posts) == 1
+
+
+def test_previous_release_http_receipt_is_read_without_a_new_dispatch(dispatch):
+    client, gh, intent, expected = dispatch
+    gh.runs = []
+    with pytest.raises(ExecutionPending):
+        client.submit(intent)
+    # Previous releases recorded the response but did not bind its run ID.
+    metadata, run_id = client._record(intent)
+    assert run_id is None
+    metadata['dispatch_response'] = {'http_status': 200, 'body': '{"workflow_run_id":1234}'}
+    with client._db() as db:
+        db.execute('UPDATE executions SET metadata=? WHERE request_id=?', (json.dumps(metadata), intent.request_id))
+    assert OperatorProductExecution(client.root, gh).submit(intent) == expected
+    assert client._record(intent)[1] == '1234' and len(gh.posts) == 1
+
+
+@pytest.mark.parametrize('body', ['{}', 'not JSON', '[]', '{"workflow_run_id":true}',
+    '{"workflow_run_id":0}', '{"workflow_run_id":-1}', '{"workflow_run_id":"1234"}'])
+def test_invalid_dispatch_receipt_cannot_bind_a_run_or_resend(dispatch, body):
+    client, gh, intent, _ = dispatch
+    gh.response = {'http_status': 200, 'body': body}
+    gh.runs = []
+    for operation in (client.submit, OperatorProductExecution(client.root, gh).submit):
+        with pytest.raises(ExecutionUnknown, match='DISPATCH_RECEIPT_UNCONFIRMED_NO_RUN'):
+            operation(intent)
+    assert client._record(intent)[1] is None and len(gh.posts) == 1
+
+
+@pytest.mark.parametrize('key,value', [('actor', {'id': 99}), ('head_sha', 'd' * 40),
+    ('workflow_id', 99), ('run_attempt', 2), ('display_title', 'another-request')])
+def test_native_run_id_does_not_replace_provider_binding_checks(dispatch, key, value):
+    client, gh, intent, _ = dispatch
+    gh.response = {'http_status': 200, 'body': json.dumps({'workflow_run_id': 1234})}
+    gh.runs = []
+    gh.run[key] = value
+    with pytest.raises(ExecutionUnknown, match='RUN_BINDING_CONFLICT'):
+        client.submit(intent)
+    assert client._record(intent)[1] == '1234' and len(gh.posts) == 1
+
+
+def test_native_receipt_conflicting_with_discovered_run_remains_unknown(dispatch):
+    client, gh, intent, _ = dispatch
+    def dispatch_with_concurrent_read(workflow_id, inputs):
+        gh.posts.append(inputs)
+        assert client.read(intent)
+        return {'http_status': 200, 'body': json.dumps({'workflow_run_id': 9999})}
+    gh.dispatch = dispatch_with_concurrent_read
+    with pytest.raises(ExecutionUnknown, match='RUN_BINDING_CONFLICT'):
+        client.submit(intent)
+    assert client._record(intent)[1] == '1234'
+    with pytest.raises(ExecutionUnknown, match='RUN_BINDING_CONFLICT'):
+        OperatorProductExecution(client.root, gh).read(intent)
+    assert len(gh.posts) == 1
+
+
+def test_discovery_cannot_overwrite_run_bound_by_concurrent_dispatch_receipt(dispatch):
+    client, gh, intent, _ = dispatch
+    gh.runs = []
+    with pytest.raises(ExecutionPending):
+        client.submit(intent)
+    gh.runs = [gh.run]
+    find = client._find_run
+    def find_and_bind(*args):
+        run = find(*args)
+        with client._db() as db:
+            db.execute('UPDATE executions SET run_id=? WHERE request_id=?', ('9999', intent.request_id))
+        return run
+    client._find_run = find_and_bind
+    with pytest.raises(ExecutionUnknown, match='RUN_BINDING_CONFLICT'):
+        client.read(intent)
+    assert client._record(intent)[1] == '9999' and len(gh.posts) == 1
 
 
 @pytest.mark.parametrize('mode', ['timeout', 'malformed', 'oversized'])
@@ -250,6 +338,23 @@ def test_missing_run_is_pending_without_new_send(dispatch):
         with pytest.raises(ExecutionPending, match='RUN_NOT_YET_OBSERVED'):
             operation(intent)
     assert len(gh.posts) == 1
+
+
+@pytest.mark.parametrize('response', [None, {'http_status': None}, {'http_status': 503}])
+def test_no_acceptance_evidence_is_unknown_and_preserves_original_ledger(dispatch, response):
+    client, gh, intent, expected = dispatch
+    gh.response, gh.runs = response, []
+    with pytest.raises(ExecutionUnknown, match='DISPATCH_ACCEPTANCE_UNKNOWN_NO_RUN'):
+        client.submit(intent)
+    original = client.path.read_bytes()
+    for operation in (client.read, OperatorProductExecution(client.root, gh).submit):
+        with pytest.raises(ExecutionUnknown, match='DISPATCH_ACCEPTANCE_UNKNOWN_NO_RUN'):
+            operation(intent)
+        assert client.path.read_bytes() == original
+    assert len(gh.posts) == 1
+    # Later provider evidence may resolve the original run, without a new POST.
+    gh.runs = [gh.run]
+    assert client.read(intent) == expected and len(gh.posts) == 1
 
 
 def test_intent_conflict_and_unsubmitted_read_do_not_send(dispatch):

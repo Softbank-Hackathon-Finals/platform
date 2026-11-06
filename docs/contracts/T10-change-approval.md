@@ -13,11 +13,11 @@ T15 검증·재시도, T19 판정, T31 배포를 이 모듈에서 실행하지 �
 
 1. `admit(principal, plan_id, tenant_id, task_id, expected_version, expires_at)`는 현재
    `PROPOSE`와 직전의 정상 Analysis 체크포인트를 요구한다. 서명된 TaskCatalog와
-   등록 소스 조회기를 다시 읽는다. 같은 계획·버전에 입력 한 건을 저장한다.
+   등록 소스 조회기를 다시 읽는다. 실제 T11 입력으로 변환·검증할 수 있을 때만 같은 계획·버전에 입력 한 건을 저장한다.
 2. `ProductInputAccess(..., purpose="t38-initial-proposal")`의 현재 별도 grant를 요구한다.
    기존 `t38-product-proposal` grant는 이 권한을 주지 않는다. 입력의 만료 연장,
    다른 principal·task·source로 바꾸는 재접수는 거부한다.
-3. `preparation_fields`는 기록을 바꾸거나 client를 호출하지 않는다. `execute`는
+3. `preparation_fields`는 기록을 바꾸거나 client를 호출하지 않는다. 접수와 같은 입력 컴파일러를 사용하며, 이전 버전에서 접수한 입력도 실행 전에 검사한다. `execute`는
    요청을 먼저 commit하고 첫 호출만 `client.submit`을 호출한다. 이후 호출과 재시작은
    같은 `request_id`를 `client.read`로 조회한다. 응답 유실·불명·접수 직후 중단에도 재전송하지 않는다.
 4. T38의 `client.validate(intent, input, envelope)`는 확인한 실행·산출물의 **로컬 검사**다.
@@ -136,8 +136,12 @@ T10은 정규화 결과만 저장하며 저장 후 재조회는 어떤 client �
 다른 recipient·run은 모델 호출을 열지 않는다. HTTP 요청은 `principal`, `intent`,
 `github_run_id`이고 응답은 입력 전체 digest로 결속된 정본 InitialInput v2다.
 
-T38은 v2의 검증된 code_change analysis를 T11 FailureBundle로 변환한다. rationale은
-summary, inventory_digest는 evidence_digest다. bundle.stage=REHEARSE는 T11 형식
+T10 접수·실행 준비와 T38은 `initial_model_input.model_input` 하나로 v2의 검증된 code_change
+analysis를 T11 FailureBundle로 변환한다. 등록 작업의 목적지 설명과 rationale을 summary에
+그대로 합치며, inventory_digest는 evidence_digest다. 실제 FailureBundle 검증에 실패하면
+`initial_model_input_invalid`로 접수·첫 실행을 거부한다. 별도 길이 상수를 복제하거나 원문을
+잘라내지 않으며, 수신 키 준비·영속 실행 claim·dispatch 전에 끝난다. 이미 claim한 실행의
+원장과 동일 요청 재조회는 유지한다. bundle.stage=REHEARSE는 T11 형식
 호환이며 실제 T10 단계·목적은 PROPOSE/t38-initial-proposal이다. Admission digest를
 만들거나 바꿔 넣지 않는다. 기존 T11 schema·snapshot·allowed path·policy 검사를 통과한
 Proposal만 InitialResult로 정규화하며 실제 T15 검증을 이 결과로 대신하지 않는다.

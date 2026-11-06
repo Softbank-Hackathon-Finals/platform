@@ -14,6 +14,51 @@ NAMESPACE = "bravo-gitops"
 RELEASE = "bravo-gitops"
 
 
+def verify_reader(get, runtime, expected):
+    """Adopt only the observed Reader; its shared identity and data stay external."""
+    if set(runtime) != {"configuration", "secrets", "catalogClaim"}:
+        raise ValueError("reader_protected_references_required")
+    if set(expected) != {"deployment_uid", "service_uid", "service_account_uid",
+                         "config_uid", "catalog_uid", "secret_uids"}:
+        raise ValueError("reader_adoption_identity_required")
+    def observed(kind, name, uid):
+        value = get(kind, name, "platform-state")
+        if value["metadata"]["uid"] != uid:
+            raise ValueError("reader_adoption_identity_mismatch")
+        return value
+    deployment = observed("deployment", "t10-product-reader", expected["deployment_uid"])
+    service = observed("service", "t10-product-reader", expected["service_uid"])
+    observed("serviceaccount", "platform-runtime", expected["service_account_uid"])
+    config = observed("configmap", runtime["configuration"]["existingConfigMap"], expected["config_uid"])
+    observed("pvc", runtime["catalogClaim"], expected["catalog_uid"])
+    names = set(runtime["secrets"].values())
+    if names != set(expected["secret_uids"]):
+        raise ValueError("reader_secret_identities_required")
+    for name in names:
+        observed("secret", name, expected["secret_uids"][name])
+    digest = hashlib.sha256(json.dumps(config["data"], sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+    labels = {"app.kubernetes.io/name": "t10-product-reader", "component": "platform"}
+    pod = deployment["spec"]["template"]["spec"]
+    annotations = deployment["spec"]["template"]["metadata"]["annotations"]
+    tracking = deployment["metadata"].get("annotations", {}).get("argocd.argoproj.io/tracking-id", "")
+    if (digest != runtime["configuration"]["sha256"]
+            or annotations.get("bravo.dev/config-sha256") != digest
+            or deployment["spec"]["selector"]["matchLabels"] != labels
+            or service["spec"]["selector"] != labels
+            or service["spec"]["type"] != "ClusterIP"
+            or pod["serviceAccountName"] != "platform-runtime"
+            or pod.get("automountServiceAccountToken") is not False
+            or (tracking and not tracking.startswith("platform-product-reader:"))):
+        raise ValueError("reader_adoption_boundary_mismatch")
+    volumes = {v["name"]: v for v in pod["volumes"]}
+    if (volumes["config"]["configMap"]["name"] != runtime["configuration"]["existingConfigMap"]
+            or volumes["catalog"]["persistentVolumeClaim"] != {"claimName": runtime["catalogClaim"], "readOnly": True}
+            or any(volumes[name]["secret"]["secretName"] != runtime["secrets"][key]
+                   for name, key in (("credential", "database"), ("database-ca", "databaseCA"),
+                                     ("catalog-key", "catalogKey"), ("tls", "tls")))):
+        raise ValueError("reader_mount_change_requires_separate_review")
+
+
 def run(args, *, check=True):
     result = subprocess.run(
         args, capture_output=True, text=True, check=False, timeout=240
@@ -31,6 +76,7 @@ def main():
     p.add_argument("--kubeconfig", required=True, type=Path)
     p.add_argument("--kubectl", default="kubectl")
     p.add_argument("--runtime-values", type=Path)
+    p.add_argument("--reader-adoption", type=Path)
     p.add_argument("--apply", action="store_true")
     a = p.parse_args()
     if not re.fullmatch(r"[0-9a-f]{40}", a.revision):
@@ -72,7 +118,8 @@ def main():
             raise ValueError("runtime_input_must_remain_outside_checkout")
         value = json.loads(a.runtime_values.read_text())
         if (
-            set(value) != {"registration"}
+            not {"registration"}.issubset(value)
+            or not set(value).issubset({"registration", "productReader"})
             or set(value["registration"]) != {"enabled", "runtime"}
             or value["registration"]["enabled"] is not True
         ):
@@ -94,6 +141,16 @@ def main():
             "configmap", runtime["configuration"]["existingConfigMap"], "platform-state"
         )
         runtime_hash = hashlib.sha256(a.runtime_values.read_bytes()).hexdigest()
+        if "productReader" in value:
+            reader = value["productReader"]
+            if (set(reader) != {"enabled", "runtime"} or reader["enabled"] is not True
+                    or a.reader_adoption is None
+                    or a.reader_adoption.resolve().is_relative_to(ROOT)):
+                raise ValueError("protected_reader_adoption_required")
+            verify_reader(get, reader["runtime"], json.loads(a.reader_adoption.read_text()))
+            reader_image = json.loads((ROOT / "infra/gitops/environments/development/product-reader-image.json").read_text())
+            if not re.fullmatch(r"sha256:[0-9a-f]{64}", reader_image["image"]["digest"]):
+                raise ValueError("published_reader_image_required")
         values = ["--values", str(a.runtime_values)]
     chart = ROOT / "infra/gitops/argocd"
     run(

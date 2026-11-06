@@ -1,0 +1,100 @@
+"""Read an authenticated T19 report through T10's current plan transaction.
+
+Optional console[t10] host adapter. The host supplies verified request identity,
+current GateRecords grants and T19 report provenance. No enrollment, default
+identity/trust, SQL writes, approvals or execution are provided here.
+"""
+
+import asyncio
+import inspect
+import json
+from datetime import UTC, datetime
+
+from bravo_gate.contract import server_time
+from bravo_gate.service import accept
+from bravo_platform_events.gate_records import GateRecords
+from bravo_platform_events.plan_api import Principal, authorized_plan
+
+from .observations import ObservationError
+from .reports import RegisteredGateDocument
+
+
+class T10ControlReports:
+    def __init__(self, records, *, resolve_principal, authenticate_report, clock=None):
+        if (
+            not isinstance(records, GateRecords)
+            or not all(callable(c) for c in (resolve_principal, authenticate_report))
+            or inspect.iscoroutinefunction(resolve_principal)
+            or inspect.iscoroutinefunction(authenticate_report)
+            or (clock is not None and not callable(clock))
+        ):
+            raise ValueError("explicit_t10_report_authority_required")
+        self.records = records
+        self.resolve_principal = resolve_principal
+        self.authenticate_report = authenticate_report
+        source_clock = clock or (lambda: datetime.now(UTC))
+        self.clock = lambda: server_time(source_clock)
+
+    def _read(self, scope, snapshot):
+        principal = self.resolve_principal(scope)
+        if not isinstance(principal, Principal):
+            raise ObservationError("control_report_unverified")
+        plan_id = snapshot["plan_id"]
+        # write=True selects the existing per-plan advisory-lock protocol. This
+        # adapter executes SELECTs only. All grant/context writers must use the
+        # same lock, so revocation cannot race inside this read transaction.
+        with self.records.store._transaction(write=True, plan_id=plan_id) as c:
+            plan = authorized_plan(c, principal, plan_id, None)
+            view = self.records.view(c, principal, plan)
+            if self.records.store._snapshot(c, plan) != snapshot:
+                raise ObservationError("control_report_plan_changed")
+            report = view.report_provider(principal.subject_id, view.context)
+            if report is None or not 1 <= len(report.raw) <= 262144:
+                raise ObservationError("control_report_unavailable")
+            document = report.document
+            if (
+                report.ref != view.context.gate_id
+                or document.get("gate_id") != view.context.gate_id
+                or document.get("context_digest") != view.context.fingerprint
+            ):
+                raise ObservationError("control_report_unverified")
+            start = self.clock()
+            deadlines = []
+            # Reuse T19's exact provenance/expiry binding, including scoped
+            # VerifiedAuthority. A database row or hash alone is never authority.
+            accept(
+                self.authenticate_report,
+                principal.subject_id,
+                view.context,
+                report,
+                expected=(view.context.fingerprint, report.fingerprint, "gate-result"),
+                deadlines=deadlines,
+                clock=self.clock,
+            )
+            if view.report_provider(principal.subject_id, view.context) != report:
+                raise ObservationError("control_report_unverified")
+            end = self.clock()
+            if end < start or (deadlines and min(deadlines) <= end):
+                raise ObservationError("control_report_unverified")
+            return RegisteredGateDocument(
+                plan_id,
+                json.loads(plan["spec_json"])["plan_digest"],
+                report.raw,
+                view.gate_phase,
+                view.application_id,
+            )
+
+    async def load(self, scope, snapshot):
+        try:
+            return await asyncio.to_thread(self._read, scope, snapshot)
+        except Exception:
+            # Storage, issuer and resolver diagnostics may contain private data.
+            raise ObservationError("control_report_unavailable") from None
+
+    async def authenticate(self, scope, snapshot, candidate):
+        if not isinstance(candidate, RegisteredGateDocument):
+            return False
+        try:
+            return await asyncio.to_thread(self._read, scope, snapshot) == candidate
+        except Exception:
+            return False

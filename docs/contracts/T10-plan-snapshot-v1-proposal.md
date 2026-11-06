@@ -16,6 +16,11 @@
 게이트에는 결속할 수 없다. 한 필드만 있거나 기존 plan ID의 프로필을 바꾸면 거부한다.
 스냅샷 schema는 두 필드의 동시 존재 또는 동시 부재만 허용한다.
 
+반영 후 재대조가 필요한 새 계획은 `recheck_profile_id`·`recheck_profile_version`도
+함께 고정한다. 재대조 쌍은 최초 쌍이 있을 때만 허용한다. 기존 spec에 누락된 필드를
+`null`이나 기본값으로 추가하지 않아 원문과 digest를 보존한다.
+[재대조 단계·등록·소비 계약](T10-registration.md#반영-후-재대조-프로필)을 따른다.
+
 등록은 상태 `COLLECT`, 버전 1, `state.changed`(from null) 이벤트를 한 트랜잭션으로 만든다. `complete_collection`만 `COLLECT → ANALYZE`를 허용한다. proof의 계획/범위가 같고 완료이며 예상 버전이 현재와 같아야 한다. 상태 버전 증가, 기존 SSE 형식의 이벤트, 명령 영수증을 한 SQLite 쓰기 트랜잭션으로 저장한다. 중간 실패 시 셋 다 롤백한다. 관리되는 계획의 상태 이벤트는 일반 `EventStore.append`로 우회할 수 없다. 다른 이벤트 종류는 신뢰된 기존 생산자가 같은 로그에 기록할 수 있다.
 
 멱등 키는 `(plan_id, command_key)`다. proof 전체, `expected_version`, `run_id`, `occurred_at`이 같은 재시도는 최초 `{plan_id, state, version, event_id}` 영수증을 반환한다. 변경된 입력은 `command_key_conflict`다. 호출자는 최초 명령의 run/시각도 보존해야 한다. 이 내부 명령 키를 아직 구현하지 않은 HTTP `Idempotency-Key`나 T12 실행 키와 혼동하지 않는다. 새 키의 과거 버전은 `version_conflict`, 현재 버전으로 같은 전이를 다시 요구하면 `transition_not_allowed`다. 지원하는 임의 `to_state` API는 없다.

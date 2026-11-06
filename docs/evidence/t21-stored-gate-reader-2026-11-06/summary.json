@@ -1,0 +1,57 @@
+{
+  "kind": "t21-stored-gate-reader-validation.v1",
+  "source_revision": "2b51b365fb9b583dd35754fecfe8f85cc478caa3",
+  "python_tests_passed": 212,
+  "storage_backends": [
+    "SQLite",
+    "isolated-local-PostgreSQL-17.11"
+  ],
+  "gate_phases": [
+    "initial",
+    "post_apply"
+  ],
+  "fixture_identity_and_records": true,
+  "ed25519_verification_exercised": true,
+  "security_mutations": [
+    {
+      "mutation": "without-provenance",
+      "detected": true,
+      "mutant_source_sha256": "0a8fe5e4178604a972329e4cc7da169a07f9a3877e95007534257f20d09a449a"
+    },
+    {
+      "mutation": "without-current-binding",
+      "detected": true,
+      "mutant_source_sha256": "8fb0f7109a34b5aaeb0838fc8d2c0fbab413c9c2a8888af18b45763996f29d2e"
+    }
+  ],
+  "runtime_extra_install_without_dev": "PASS",
+  "locked_environment": "PASS",
+  "ruff": "PASS",
+  "adapter_report_enrollment": false,
+  "adapter_sql_writes": 0,
+  "adapter_executor_calls": 0,
+  "direct_api_adoption": {
+    "source_revision": "72641afca2c1485667fe1dd58503d86908c6610e",
+    "client": "kubectl-1.36.1-darwin-arm64",
+    "checks_passed": 20,
+    "execs_per_requested_protocol": 3,
+    "requested_protocol_settings": [
+      "WebSocket",
+      "SPDY"
+    ],
+    "negotiated_protocol_independently_observed": false,
+    "port_forward_created": false,
+    "created_kubernetes_resources": 0,
+    "database_calls": 0,
+    "credentials_persisted": false,
+    "t14_control_verdicts_created": false
+  },
+  "operational": {
+    "t10_actual_plan_intake_verified": false,
+    "t19_deployed_report_authority_verified": false,
+    "console_deployment_completed": false,
+    "authorizes_cutover": false
+  },
+  "private_logs_retained": true,
+  "public_summary_is_raw": false
+}

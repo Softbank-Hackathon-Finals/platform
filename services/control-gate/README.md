@@ -4,9 +4,19 @@
 
 **범위:** T19의 보안 전제조건. `CombinedGateService`는 T13 데이터 준비 관측과 보안 결과를 함께 검사한다. 선택적 T13 스키마 수집기를 포함하며 T14 환경 연결·T10 운영 공급자 연결은 별도다. 선택적 T10 어댑터는 실제 승인·실행 접수 코드와 SQLite/PostgreSQL에서 시험한다. `SecurityPrerequisite.authorizes_cutover`는 항상 `False`다. T19 이슈 전체의 완료나 실환경 동등성 검증 완료로 간주하지 않는다.
 
+`PlanGateSession`은 최초 평가(`initial`, application ID 없음)와 반영 후 평가
+(`post_apply`, 성공한 Application ID)를 구분한다. 반영 후 단계와 application ID는
+세션 fingerprint에 포함되며 최초 fingerprint는 유지한다. `T10GateAuthority`가 현재 승인 결속의 같은 값과
+대조한다. 최초 단계는 계획의 `profile_id/version`, 반영 후 단계는 별도로
+고정된 `recheck_profile_id/version`을 사용한다. 두 필드가 모두 없는 기존 binding은
+최초 단계에서만 허용한다. 부분 누락·반영 후 필드 누락·다른 단계·다른
+Application의 승인을 재사용하면 실행 전에 거부한다. T10 호스트의
+`GateRecords.cutover_authority` 조립은 저장된 결속을 자동 연결하며 현재
+운영 권한·원본 인증 공급자를 명시적으로 요구한다.
+
 ## 계약 출처
 
-`src/bravo_gate/contracts/`는 develop `626bca0`의 `docs/controls/` 계약을 고정한다. 스키마와 프로필은 기존 T5 고정본과 바이트 단위로 같고, 최신 서버 정본 소비 사례도 함께 가져왔다. 경로·커밋·해시는 `provenance.json`에 있다. 원본과 패키지 사본의 일치 여부를 시험한다. 계약 변경은 상호운용 시험과 해시 갱신을 함께 수행한다.
+`src/bravo_gate/contracts/`는 develop `626bca0`의 `docs/controls/` 계약을 고정한다. 스키마는 기존 T5 고정본과 바이트 단위로 같고, 최신 서버 정본 소비 사례도 함께 가져왔다. 프로필은 그 뒤 T31 반영 뒤 재대조용 `apply-recheck` v1을 더했고, 이에 따라 바뀐 카탈로그·context 해시를 계약 사례에 반영했다. 경로·커밋·해시는 `provenance.json`에 있다. 원본과 패키지 사본의 일치 여부를 시험한다. 계약 변경은 상호운용 시험과 해시 갱신을 함께 수행한다.
 
 원본 결과의 `RunSnapshot.fingerprint`는 UTF-8 JSON을 key 정렬·구분 공백 제거·원문 Unicode 유지로 직렬화한 SHA-256이다. 임의 RFC 8785 구현과 같다고 가정하지 않으며 T10은 제공된 함수를 사용한다. 네트워크 증거의 `output_sha256`은 별도로 원본 바이트 전체를 해시한다.
 
@@ -25,7 +35,7 @@
 | 소비 | 제출된 PASS/EXCEPTION을 그대로 승인하지 않고 현재 등록·원본·승인으로 다시 계산 |
 | 재검증 | 저장소/발행자 상태·신원·기한을 재조회. 검사 중 변경·기한 경과 시 전제조건 미발급 |
 
-`demo-gate`는 3개, `full`은 20개 시험을 요구한다. `full`에서 DR-01.1이 없으면 항상 BLOCK이며 예외로 무시할 수 없다. 운영 전환에서 어느 프로필을 요구하는지는 T10의 서버 정책이 선택한다. UI가 작은 프로필로 바꿔 통과시키는 API는 제공하지 않는다.
+`demo-gate`는 3개, `full`은 20개, `apply-recheck`(T31 반영 뒤 재대조)는 3개 시험을 요구한다. `full`에서 DR-01.1이 없으면 항상 BLOCK이며 예외로 무시할 수 없다. 운영 전환에서 어느 프로필을 요구하는지는 T10의 서버 정책이 선택한다. UI가 작은 프로필로 바꿔 통과시키는 API는 제공하지 않는다.
 
 ## T10/T14 연결
 

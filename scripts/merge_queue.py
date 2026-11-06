@@ -32,7 +32,7 @@ QUERY = """query($owner:String!,$name:String!,$number:Int!){
 """
 ENQUEUE = """mutation($id:ID!,$head:GitObjectID!){enqueuePullRequest(input:{
  pullRequestId:$id,expectedHeadOid:$head}){mergeQueueEntry{id}}}"""
-DEQUEUE = """mutation($id:ID!){dequeuePullRequest(input:{pullRequestId:$id}){clientMutationId}}"""
+DEQUEUE = """mutation($id:ID!){dequeuePullRequest(input:{id:$id}){clientMutationId}}"""
 DISABLE_AUTO = """mutation($id:ID!){disablePullRequestAutoMerge(input:{pullRequestId:$id}){clientMutationId}}"""
 
 

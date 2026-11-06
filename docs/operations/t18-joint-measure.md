@@ -122,9 +122,21 @@ EC2라면 3절의 `--window-url`과 DB 옵션을 같이 붙인다. 쓰기 300건
 
 **창이 표본 부족으로 UNKNOWN이고 `align`이 `NOT_OBSERVED`인 것은 정상이다.** 창마다 요청이 약 200건이라 판정 기준(1,000건)에 못 미친다. 시험 실행 값으로 반영 시간이나 p95를 말하지 않는다.
 
+### 본 측정 직전 예열
+
+시험 실행 뒤 본 측정을 시작하기 바로 전에, 읽기만 초당 50건으로 30초 보낸다. 쓰기와 창 전송은 하지 않고 결과도 판정에 쓰지 않는다.
+
+```bash
+uv run bravo-loadgen measure --base-url https://<Edge 주소> --measurement-path edge --generator <laptop 또는 loadgen-ec2> --plan-id <계획 ID> --source-env <출발지 값> --target-env <목적지 값> --run-id <실행 ID>-warm --duration 30 --write-rps 0 --read-rps 50 --out out/<실행 ID>-warm
+```
+
+DB 옵션이 없어 `NOT_RECONCILED`, 종료 코드 2로 끝나는 것이 정상이다. HTTP 오류와 시간 초과가 0인지만 본다. 있으면 본 측정을 시작하지 않고 한 번 더 예열한다.
+
+왜 넣었나. 2026-11-06 04:17 KST에 같은 Edge 경로로 예열 없이 처음 보낸 읽기 200건/초 · 60초 실행은 오류율이 66%였다(502 366건 · 시간 초과 7,550건, [T17 기록](../evidence/t17-edge-connectivity-2026-11-06/README.md)). 그 뒤 50건/초 → 200건/초 순서로 다시 재니 용량을 바꾸지 않고 오류가 0이었다. 같은 시각 출발지 앱과 터널은 CPU 한도에 거의 걸리지 않았고 앱 재시작도 없었다. 502 응답에는 앱 헤더가 없었다. 그래서 Edge 쪽 경로가 처음에 느렸던 것으로 보지만 **원인은 확정하지 못했다.** 예열은 이 차이를 줄이려는 운영 단계이고, 고쳤다는 근거는 아니다.
+
 ## 5. 본 측정과 가중치 변경
 
-**김태현.** 실행 ID를 전달한 뒤 시작한다. `--duration 600`은 아래 일정에 여유를 더한 값이다. 쓰기 30,000건이 실제 DB에 남는다. 이 절차에는 지우는 단계가 없다.
+**김태현.** 예열이 깨끗하면 실행 ID를 전달한 뒤 바로 시작한다. `--duration 600`은 아래 일정에 여유를 더한 값이다. 쓰기 30,000건이 실제 DB에 남는다. 이 절차에는 지우는 단계가 없다.
 
 ```bash
 uv run bravo-loadgen measure --base-url https://<Edge 주소> --measurement-path edge --generator loadgen-ec2 --plan-id <계획 ID> --source-env <출발지 값> --target-env <목적지 값> --run-id <실행 ID> --duration 600 --out out/<실행 ID> --window-url http://<수신 주소>:30981/v1/observability/windows --db-dsn-env LOADGEN_DB_DSN --lock-dsn-env LOADGEN_LOCK_DSN

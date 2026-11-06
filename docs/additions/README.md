@@ -25,7 +25,7 @@
 | 문서 | 내용 | 작업 |
 |---|---|---|
 | [`docs/controls/README.md`](../controls/README.md) | 6개 통제의 하위 시험 20개, 허용 대조군, UNKNOWN 조건, 게이트 판정 규칙과 검사 순서, 예외 승인의 유효성, 평가 프로필 | T5 |
-| [`docs/controls/control-result.schema.json`](../controls/control-result.schema.json) · [`profiles.json`](../controls/profiles.json) · [`evaluation-contexts.json`](../controls/evaluation-contexts.json) · [`contract-cases.json`](../controls/contract-cases.json) | 결과 · 게이트 문서 형식, 평가 프로필(`demo-gate` · `full`), 평가 입력 결속, 계약 시험 | T5 |
+| [`docs/controls/control-result.schema.json`](../controls/control-result.schema.json) · [`profiles.json`](../controls/profiles.json) · [`evaluation-contexts.json`](../controls/evaluation-contexts.json) · [`contract-cases.json`](../controls/contract-cases.json) | 결과 · 게이트 문서 형식, 평가 프로필(`demo-gate` · `full` · `apply-recheck`), 평가 입력 결속, 계약 시험 | T5 |
 | [`docs/controls/regulatory-mapping.md`](../controls/regulatory-mapping.md) | 6개 통제의 일본 · 한국 규제 원문 조항 대응과 그 한계 | T23 |
 | [`docs/controls/audit-collection.md`](../controls/audit-collection.md) | 감사 수집과 통제 시험기(T14) 연결, RKE2 감사 정책 | T34 |
 | [`docs/controls/backup-restore.md`](../controls/backup-restore.md) | 백업 성공이 아니라 새 클러스터 실제 복원으로 DR-01을 판정하는 조건 | T35 |

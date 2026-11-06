@@ -1,0 +1,15 @@
+# Replace the example tag and ProxyClass with audited settings for the human tailnet.
+# Keep the existing authenticated API proxy for personal token issuance.
+apiVersion: tailscale.com/v1alpha1
+kind: ProxyGroup
+metadata:
+  name: team-test-api
+spec:
+  type: kube-apiserver
+  replicas: 1
+  tags:
+    - tag:example-team-api
+  proxyClass: example-pinned-api-image
+  kubeAPIServer:
+    hostname: team-test-api
+    mode: noauth

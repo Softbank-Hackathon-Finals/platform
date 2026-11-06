@@ -13,7 +13,7 @@ from pathlib import Path
 
 from jsonschema import Draft202012Validator, FormatChecker
 
-from .observations import ObservationError, _plan
+from .observations import ID, ObservationError, _plan
 from .wire import object_document
 
 CONTRACTS = Path(__file__).parent / "contracts"
@@ -30,6 +30,8 @@ class RegisteredGateDocument:
     plan_id: str
     plan_digest: str
     document: bytes
+    gate_phase: str = "initial"
+    application_id: str | None = None
 
 
 class PlanControlReport:
@@ -50,7 +52,15 @@ class PlanControlReport:
             raise ObservationError("control_report_scope_mismatch")
         report = object_document(registered.document, max_bytes=262144)
         VALIDATOR.validate(report)
-        if (plan.get("profile_id"), plan.get("profile_version")) != (
+        if registered.gate_phase == "initial" and registered.application_id is None:
+            prefix = ""
+        elif (registered.gate_phase == "post_apply"
+              and isinstance(registered.application_id, str)
+              and ID.fullmatch(registered.application_id)):
+            prefix = "recheck_"
+        else:
+            raise ObservationError("control_report_scope_mismatch")
+        if (plan.get(prefix + "profile_id"), plan.get(prefix + "profile_version")) != (
             report["profile"]["id"], report["profile"]["version"]
         ):
             # Valid report signatures do not let a smaller evaluation scope
@@ -94,6 +104,8 @@ class PlanControlReport:
             "gate_id": report["gate_id"],
             "context_digest": report["context_digest"],
             "report_digest": hashlib.sha256(registered.document).hexdigest(),
+            "gate_phase": registered.gate_phase,
+            "application_id": registered.application_id,
             "profile": report["profile"],
             "decision": report["decision"],
             "evaluated_at": evaluated.isoformat(),

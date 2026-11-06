@@ -353,21 +353,54 @@ def test_security_hub_pages_and_advances_cursor_only_on_success(rules):
     findings = [raw("aws-guardduty-via-security-hub"), raw("aws-security-hub-control")]
     for f in findings:
         f.pop("_note")
+        f["AwsAccountId"] = "123456789012"
     with Stubber(client) as stub:
+        stub.add_response(
+            "describe_hub",
+            {
+                "HubArn": "arn:aws:securityhub:ap-northeast-1:123456789012:hub/default",
+                "SubscribedAt": "2026-11-01T00:00:00Z",
+            },
+        )
         stub.add_response("get_findings", {"Findings": [findings[0]], "NextToken": "p2"})
         stub.add_response("get_findings", {"Findings": [findings[1]]})
-        counts = run_once(ingestor, SecurityHubSource(client), "env-aws", clock)
+        stub.add_response(
+            "describe_hub",
+            {
+                "HubArn": "arn:aws:securityhub:ap-northeast-1:123456789012:hub/default",
+                "SubscribedAt": "2026-11-01T00:00:00Z",
+            },
+        )
+        counts = run_once(
+            ingestor,
+            SecurityHubSource(client, account_id="123456789012", region="ap-northeast-1"),
+            "env-aws",
+            clock,
+        )
         stub.assert_no_pending_responses()
     assert counts["created"] == 2
     assert store.source("aws_security_hub", "env-aws").cursor == str(T0)
 
     clock.now = T0 + 5 * MIN
+    findings[0]["UpdatedAt"] = "2026-11-04T10:02:00Z"
     with Stubber(client) as stub:
+        stub.add_response(
+            "describe_hub",
+            {
+                "HubArn": "arn:aws:securityhub:ap-northeast-1:123456789012:hub/default",
+                "SubscribedAt": "2026-11-01T00:00:00Z",
+            },
+        )
         stub.add_response("get_findings", {"Findings": [findings[0]], "NextToken": "p2"})
         stub.add_client_error(
             "get_findings", service_error_code="AccessDeniedException", http_status_code=403
         )
-        assert run_once(ingestor, SecurityHubSource(client), "env-aws", clock) == {"failed": 1}
+        assert run_once(
+            ingestor,
+            SecurityHubSource(client, account_id="123456789012", region="ap-northeast-1"),
+            "env-aws",
+            clock,
+        ) == {"failed": 1}
     row = store.source("aws_security_hub", "env-aws")
     assert (row.cursor, row.error_code, row.last_success_time) == (str(T0), "ACCESS_DENIED", T0)
     assert View(store, rules).statuses(clock())[0]["state"] == "FAILED"
@@ -377,18 +410,41 @@ def test_security_hub_request_uses_updated_at_window(rules):
     client = hub_client()
     with Stubber(client) as stub:
         stub.add_response(
+            "describe_hub",
+            {
+                "HubArn": "arn:aws:securityhub:ap-northeast-1:123456789012:hub/default",
+                "SubscribedAt": "2026-11-01T00:00:00Z",
+            },
+        )
+        stub.add_response(
             "get_findings",
             {"Findings": []},
             {
                 "Filters": {
+                    "AwsAccountId": [{"Comparison": "EQUALS", "Value": "123456789012"}],
+                    "Region": [{"Comparison": "EQUALS", "Value": "ap-northeast-1"}],
                     "UpdatedAt": [
                         {"Start": "2026-11-04T09:00:00.000Z", "End": "2026-11-04T10:00:00.000Z"}
-                    ]
+                    ],
                 },
                 "MaxResults": 100,
             },
         )
-        assert list(SecurityHubSource(client).fetch(T0 - 60 * MIN, T0)) == []
+        stub.add_response(
+            "describe_hub",
+            {
+                "HubArn": "arn:aws:securityhub:ap-northeast-1:123456789012:hub/default",
+                "SubscribedAt": "2026-11-01T00:00:00Z",
+            },
+        )
+        assert (
+            list(
+                SecurityHubSource(client, account_id="123456789012", region="ap-northeast-1").fetch(
+                    T0 - 60 * MIN, T0
+                )
+            )
+            == []
+        )
 
 
 class FakeResponse:

@@ -284,6 +284,15 @@ T10의 실행 claim과 운영 입력을 준비한 **기존 운영자**가 자신
 GitHub 자격을 설치하거나 새 background dispatcher를 만드는 경로가 아니다.
 다른 호스트나 새 state directory로 실행 기록을 우회해서 다시 보내지 않는다.
 
+발행기는 GitHub의 `return_run_details=true` 응답에서 확인한 양의 정수
+`workflow_run_id`를 같은 영속 원장에 저장한다. 목록에 아직 나타나지 않아도 이 ID의
+실행을 직접 읽으며, 응답 URL은 따라가지 않는다. actor·workflow·SHA·첫 attempt와
+암호화 산출물 검사는 그대로 적용한다. 목록에서 중복이나 다른 실행이 관측되거나
+검색이 불완전하면 UNKNOWN이며, 동시에 다른 ID가 결속돼도 원장을 덮어쓰지 않는다.
+기존 204·응답 유실·해석 불가 응답은 기존 읽기 전용 검색을 유지한다. 수신하지 못한
+과거 응답의 ID를 복원하거나 자동 재전송하는 기능은 아니다.
+([GitHub 공식 변경 안내](https://github.blog/changelog/2026-02-19-workflow-dispatch-api-now-returns-run-ids/))
+
 ```sh
 # intent commit 전에 공개키만 준비한다. state-dir는 같은 영속 운영자 디렉터리다.
 uv run --frozen python -m bravo_agent.subscription_product_dispatch recipient \
@@ -313,6 +322,15 @@ request ID와 제한된 크기의 응답 본문을 비공개로 보존한다. �
 붙이지 않는다. timeout·해석 불가·과대 응답은 `http_status=null`로 남으며, 과거
 원장에 응답이 없으면 이후 조회 결과로 그때의 HTTP 응답을 추정하지 않는다.
 명시적인 4xx를 보존했더라도 같은 intent의 재전송 권한은 생기지 않는다.
+
+실행 목록에 같은 요청이 없을 때 접수 상태도 구분한다. HTTP 204 수신 기록이
+있을 때만 `RUN_NOT_YET_OBSERVED`(PENDING)다. 원장에 응답이 없거나 전송/5xx가
+불명이면 `DISPATCH_ACCEPTANCE_UNKNOWN_NO_RUN`, 확정 4xx가 있으면
+`DISPATCH_REJECTED_NO_RUN`, 200의 실행 ID가 유효하지 않으면
+`DISPATCH_RECEIPT_UNCONFIRMED_NO_RUN`(모두 UNKNOWN)이다. 전송 직전에 기록한
+`dispatch_sent_at`만으로 GitHub 접수를 입증하지 않는다. 이후 같은 원 실행이
+확인되면 기존 결속·attempt·artifact 검증으로 소비하며 새 POST를 보내지 않는다.
+이 구분은 재시도·grant 갱신·새 계획·원장 삭제 권한을 추가하지 않는다.
 
 공개 저장소 artifact의 read access를 제품 원문 접근 권한으로 취급하지 않는다.
 Actions는 [X25519 + HKDF](https://cryptography.io/en/50.0.2/hazmat/primitives/asymmetric/x25519/)와

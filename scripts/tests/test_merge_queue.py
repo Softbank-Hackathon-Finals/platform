@@ -3,6 +3,7 @@ import copy
 import importlib
 import json
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -62,6 +63,26 @@ class Client:
 
 
 class RegistrationTest(unittest.TestCase):
+    def test_held_pr_dequeues_with_the_provider_input_contract(self):
+        class SchemaClient(Client):
+            def graphql(self, query, **variables):
+                if "dequeuePullRequest" in query:
+                    # GitHub DequeuePullRequestInput requires `id`; enqueue uses
+                    # a different input type. Model the provider rejecting an
+                    # unknown/missing field instead of accepting any mutation.
+                    fields = set(re.findall(r"(\w+)\s*:", query.split("input:{", 1)[1].split("}", 1)[0]))
+                    if "id" not in fields or fields - {"id", "clientMutationId"}:
+                        raise bot.QueueError("NATIVE_BLOCKED")
+                return super().graphql(query, **variables)
+
+        pr = ready_pr()
+        pr.update(isDraft=True, mergeQueueEntry={"id": "entry"},
+                  autoMergeRequest={"enabledAt": "fixture"})
+        client = SchemaClient(pr)
+        self.assertEqual(bot.reconcile(client, 42, apply=True)["result"], "HELD")
+        self.assertEqual(client.calls[0][1], {"id": pr["id"]})
+        self.assertEqual([query for query, _ in client.calls], [bot.DEQUEUE, bot.DISABLE_AUTO])
+
     def test_ready_pr_needs_no_human_approval_and_uses_server_head_cas(self):
         client = Client()
         client.initial["reviewRequests"] = ["all-team-members"]

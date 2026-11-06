@@ -18,6 +18,7 @@ from rehearsal_runner.admission import logical_task_digest
 
 from .cutover import _get, _put
 from .executor import _timestamp
+from .initial_model_input import model_input
 from .store import EventError
 from .workflow import Change, Evidence
 from .workflow import Proposal as WorkflowProposal
@@ -135,6 +136,13 @@ def _source(value):
     return value
 
 
+def _require_model_input(value):
+    try:
+        model_input(value)
+    except ValueError:
+        raise EventError("initial_model_input_invalid") from None
+
+
 def _slot(version):
     return f"initial-proposal:{version}"
 
@@ -198,6 +206,7 @@ class InitialProposalRecords:
         with self.store._transaction(write=True, plan_id=plan_id) as c:
             _plan, value = self._current(c, plan_id=plan_id, tenant_id=tenant_id, task_id=task_id,
                                         version=expected_version, principal=principal)
+            _require_model_input(value)
             if _timestamp(expires_at) <= _timestamp(self.clock()):
                 raise EventError("initial_proposal_expired")
             request = dict(principal=principal, expires_at=expires_at, input=value.model_dump(mode="json"))
@@ -271,6 +280,7 @@ class InitialProposalExecution:
             value = self.records._read(c, self.principal, plan_id, version, ref)
             if _get(c, plan_id, _slot(version) + ":execution"):
                 raise EventError("initial_execution_already_claimed")
+            _require_model_input(value)
             return self._fields(value, ref)
 
     def _result(self, intent, value, envelope):
@@ -315,6 +325,8 @@ class InitialProposalExecution:
             first = old is None
             if first and not claim:
                 raise EventError("initial_execution_not_started")
+            if first:
+                _require_model_input(value)
             fields = self._fields(value, ref)
             try:
                 key = self.client.recipient(fields["request_id"]) if first else old[0]["recipient_public_key"]
@@ -401,28 +413,78 @@ class InitialProposalExecution:
             raise EventError("initial_rehearsal_unavailable")
         return result
 
-    def rehearsal_result(self, admission):
-        """Existing T15 result view, only for this genuinely committed first Admission.
-
-        The initial input is never interpreted as an Admission. No provider/model
-        call occurs here; retry attempts must use their own proposal path.
-        """
+    def _admitted_initial(self, c, admission):
         from .rehearsal import Admission, RehearsalTask, admitted_attempt
 
         if type(admission) is not Admission or type(admission.attempt) is not int or admission.attempt != 1:
             raise EventError("initial_rehearsal_unavailable")
+        row = c.execute("SELECT * FROM plans WHERE plan_id=?", (admission.plan_id,)).fetchone()
+        if (row is None or (row["tenant_id"], row["version"]) != (admission.tenant_id, admission.plan_version)
+                or admitted_attempt(c, admission.plan_id, admission.rehearsal_id, admission.attempt) != admission):
+            raise EventError("initial_rehearsal_unavailable")
+        result = self._rehearsal_result(c, dict(row), admission.task_id,
+            RehearsalTask(admission.source_sha, admission.task_digest))
+        if result.proposal.run_id != admission.rehearsal_id:
+            raise EventError("initial_rehearsal_unavailable")
+        version = admission.plan_version - 1
+        saved = _get(c, admission.plan_id, _slot(version))
+        value, _, _ = self._stored_result(c, admission.plan_id, version, saved[1], promoted=True)
+        publication = _validated(CandidatePublication,
+            _get(c, admission.plan_id, _slot(version) + ":publication")[1])
+        return value, result, publication
+
+    def rehearsal_result(self, admission):
+        """Read the stored proposal for a genuinely committed first Admission."""
+        # Validate before using attributes to open the plan transaction.
+        from .product_inputs import _admission
+
+        _admission(admission)
         with self.records.store._transaction(write=True, plan_id=admission.plan_id) as c:
-            row = c.execute("SELECT * FROM plans WHERE plan_id=?", (admission.plan_id,)).fetchone()
-            if (row is None or (row["tenant_id"], row["version"]) != (admission.tenant_id, admission.plan_version)
-                    or admitted_attempt(c, admission.plan_id, admission.rehearsal_id, admission.attempt) != admission):
-                raise EventError("initial_rehearsal_unavailable")
-            result = self._rehearsal_result(c, dict(row), admission.task_id,
-                RehearsalTask(admission.source_sha, admission.task_digest))
-            if result.proposal.run_id != admission.rehearsal_id:
-                raise EventError("initial_rehearsal_unavailable")
+            _, result, _ = self._admitted_initial(c, admission)
             return dict(state="PROPOSAL_READY", attempt=admission.attempt,
                 run_id=admission.rehearsal_id, source_sha=admission.source_sha,
                 proposal=result.proposal.model_dump(mode="json"), proposal_digest=result.proposal_digest)
+
+    def rehearsal_input(self, admission, task):
+        """Existing T38 ProductInput, bound to the actual committed T15 Admission.
+
+        Use the immutable source that the model saw. No copied checkout, new
+        input grant, model request or invented Admission crosses this port.
+        """
+        from bravo_agent.product_contracts import ProductInput, validate_product_input
+
+        from .product_inputs import _admission
+
+        _admission(admission)
+        with self.records.store._transaction(write=True, plan_id=admission.plan_id) as c:
+            value, _, _ = self._admitted_initial(c, admission)
+            if (task.run_id, task.source_sha, logical_task_digest(task)) != (
+                    admission.rehearsal_id, admission.source_sha, admission.task_digest):
+                raise EventError("initial_rehearsal_unavailable")
+            prepared = model_input(value)
+            return validate_product_input(ProductInput(admission_digest=digest(asdict(admission)),
+                attempt=1, bundle=prepared.bundle, manifest=prepared.manifest, files=prepared.files))
+
+    def rehearsal_binding(self, admission):
+        from rehearsal_runner.attempt_store import PlanBinding
+
+        from .product_inputs import _admission
+
+        _admission(admission)
+        with self.records.store._transaction(write=True, plan_id=admission.plan_id) as c:
+            value, _, _ = self._admitted_initial(c, admission)
+            return PlanBinding(value.binding.plan_digest, value.binding.target_environment_id)
+
+    def rehearsal_image(self, admission, diff_hash):
+        """Read the published image only when T15 computes the same diff bytes."""
+        from .product_inputs import _admission
+
+        _admission(admission)
+        with self.records.store._transaction(write=True, plan_id=admission.plan_id) as c:
+            _, _, publication = self._admitted_initial(c, admission)
+            if publication.diff_hash != diff_hash:
+                raise EventError("initial_publication_conflict")
+            return publication.image_digest
 
     def publication_inputs(self, plan_id, version, **ref):
         """Read authorized, saved inputs for the operator's T7 evidence lookup.

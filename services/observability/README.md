@@ -109,6 +109,18 @@ Ready endpoint, 실제 mTLS 정상 조회, 미인증·허용되지 않은 인증
 
 ### 보안 경계
 
+- **원격 콘솔 → 조회 API:** `deploy/platform-api-tls`를 사용한다. 서버 전용
+  `bravo-observability-api-server-tls` Secret(`tls.crt`, `tls.key`, `ca.crt`)이 필요하다.
+  서버 SAN에는 `bravo-observability-api.bravo-observability.svc`와 실제 콘솔이 사용하는
+  DNS 이름을 넣는다. `BRAVO_API_SERVER_TLS_DIR`가 설정되면 TLS 1.3 이상만 받고,
+  인증서 누락·키 불일치는 리스너를 열기 전에 실패한다. Bearer 인가는 그대로 유지한다.
+  저장소 접속용 `console-api` 클라이언트 키와 서버 키를 분리한다.
+  콘솔의 `T37Client`에는 이 서버의 신뢰 CA를 넣은 검증 SSLContext와 HTTPS 주소를 전달한다.
+  기존 `deploy/platform`의 HTTP API는 내부 격리 시험 호환용이며 원격 콘솔에 직접 연결하지 않는다.
+  이미지 placeholder는 이 overlay에서도 검증된 registry@digest로 바꿔야 한다.
+  Kubernetes HTTPS readiness/liveness는 인증서 검증 시험을 대신하지 않는다.
+  컨테이너 healthcheck는 loopback에서 서버 이름·CA를 검증하며 토큰을 전송하지 않는다.
+  TLS 설정의 추가는 운영 이미지 발행·배포나 콘솔 host 연결 완료를 뜻하지 않는다.
 - **mTLS:** 지표 저장소는 쓰기 · 조회 모두 같은 CA가 발급하고 허용된 이름(`client_allowed_sans`)인 클라이언트 인증서만 받는다. TLS 1.3만 쓴다.
 - **전송마다 새 연결:** 인증서 교체와 신뢰 제거가 다음 전송(10초 이내)에 반영된다. Collector 0.164.0은 기능 게이트 결함 때문에 `--feature-gates=-pkg.confighttp.PrioritizeNewKeepalive`가 필요하다([인증서 3절](../../docs/observability/certificates.md)).
 - **남는 위험:** 인증서 이름은 환경 이름과 묶이지 않는다. 한 Collector 인증서가 유출되면 다른 환경 이름으로 서버 지표를 넣을 수 있다. 이 지표는 판정 입력이 아니다.
