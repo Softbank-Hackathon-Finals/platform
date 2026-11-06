@@ -35,6 +35,12 @@
 4. 이미지 고정 PR의 최신성 검사 완화(합의 1)는 롤아웃 뒤 별도 PR로 한다. 롤아웃 중에는 기존 검사 그대로다.
    Reader 이미지는 설정 v2와 같은 배포로 묶는다.
 
+### relay 접근 (sangmu1126 76ee08d)
+
+relay는 호스트 Pod의 DB 자격으로 T10에 쓴다. 그래서 platform-state의 `pods/exec` 보유자를 롤아웃 직전에 확인해 운영자
+한 명인지 기록한다. `kubectl get roles,clusterroles,rolebindings,clusterrolebindings -A -o json`에서
+platform-state에 `pods/exec`(또는 `*`) create를 주는 바인딩의 주체를 뽑아 실행 기록에 남긴다.
+
 ### 네트워크 (워크플로 호스트)
 
 platform-state는 기본 차단이다. DB는 기존 `bravo.dev/db-client=runtime` 정책으로 열린다. 호스트를 켜기 전에

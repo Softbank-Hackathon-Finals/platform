@@ -82,5 +82,19 @@ class WorkflowHostChart(unittest.TestCase):
         self.assertIn("serviceAccountName == 't10-workflow-host'", text)
 
 
+    def test_both_hosts_enabled_render_distinct_rbac(self):
+        # sangmu1126 15:02Z (4): the rehearsal and workflow host apps must not render the same RBAC.
+        import test_rehearsal_host_chart as rehearsal
+
+        values = {"workflowHost": {"enabled": True, "runtime": {"configuration": {"existingConfigMap": "c", "sha256": "s"}}},
+                  "rehearsalHost": {"enabled": True, "runtime": rehearsal.RUNTIME}}
+        result, docs = render(values, ROOT / "infra/gitops/argocd")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        rbac = [(d["kind"], d["metadata"]["name"]) for d in docs if d.get("kind") in ("Role", "RoleBinding")]
+        self.assertEqual(len(rbac), len(set(rbac)))
+        self.assertIn(("Role", "platform-gitops-workflow-host"), rbac)
+        self.assertIn(("Role", "platform-gitops-rehearsal-host"), rbac)
+
+
 if __name__ == "__main__":
     unittest.main()
