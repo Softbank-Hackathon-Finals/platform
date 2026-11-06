@@ -1,0 +1,181 @@
+{
+  "scope": "Actual dual-environment metrics store; local API caller; not hosted-console or gate qualification",
+  "public_is_raw": false,
+  "source_revision": "08616614b7287745ec2f7e9260afca924da6fd2e",
+  "source_files": [
+    {
+      "path": "services/observability/src/bravo_observability/api.py",
+      "sha256": "f0d6af2dc8bfa7a607375957c8bfd62596dbae03721603852ec6cc933dcc82ca"
+    }
+  ],
+  "samples": [
+    {
+      "environment": "aws",
+      "signal": "cnpg-scrape",
+      "up": 1,
+      "first_sample_epoch": 1793938038.87,
+      "second_sample_epoch": 1793938098.87,
+      "advance_seconds": 60.0
+    },
+    {
+      "environment": "aws",
+      "signal": "collector-self",
+      "up": 1,
+      "first_sample_epoch": 1793938041.877,
+      "second_sample_epoch": 1793938101.877,
+      "advance_seconds": 60.0
+    },
+    {
+      "environment": "onprem",
+      "signal": "cnpg-scrape",
+      "up": 1,
+      "first_sample_epoch": 1793938034.021,
+      "second_sample_epoch": 1793938094.021,
+      "advance_seconds": 60.0
+    },
+    {
+      "environment": "onprem",
+      "signal": "collector-self",
+      "up": 1,
+      "first_sample_epoch": 1793938043.743,
+      "second_sample_epoch": 1793938103.743,
+      "advance_seconds": 60.0
+    }
+  ],
+  "api_views": [
+    {
+      "environment": "aws",
+      "kind": "http",
+      "status": 200,
+      "state": "UNOBSERVABLE",
+      "last_received_seconds_ago": 9.1,
+      "requests_per_second": null,
+      "error_ratio": null,
+      "p95_seconds": null
+    },
+    {
+      "environment": "aws",
+      "kind": "database",
+      "status": 200,
+      "state": "OK",
+      "last_received_seconds_ago": 9.2,
+      "instance_count": 1
+    },
+    {
+      "environment": "aws",
+      "kind": "pgbouncer",
+      "status": 200,
+      "state": "UNOBSERVABLE",
+      "last_received_seconds_ago": 9.3,
+      "pooler_count": 0
+    },
+    {
+      "environment": "onprem",
+      "kind": "http",
+      "status": 200,
+      "state": "UNOBSERVABLE",
+      "last_received_seconds_ago": 7.6,
+      "requests_per_second": null,
+      "error_ratio": null,
+      "p95_seconds": null
+    },
+    {
+      "environment": "onprem",
+      "kind": "database",
+      "status": 200,
+      "state": "OK",
+      "last_received_seconds_ago": 7.7,
+      "instance_count": 1
+    },
+    {
+      "environment": "onprem",
+      "kind": "pgbouncer",
+      "status": 200,
+      "state": "UNOBSERVABLE",
+      "last_received_seconds_ago": 7.8,
+      "pooler_count": 0
+    }
+  ],
+  "tls_checks": {
+    "started_at": "2026-11-06T04:15:37.529554+00:00",
+    "samples": [
+      {
+        "case": "missing_client",
+        "before": {
+          "kind": "http",
+          "status_line": "HTTP/1.1 200 OK",
+          "tls": "TLSv1.3"
+        },
+        "negative": {
+          "kind": "tls_alert",
+          "reason": "TLSV13_ALERT_CERTIFICATE_REQUIRED"
+        },
+        "after": {
+          "kind": "http",
+          "status_line": "HTTP/1.1 200 OK",
+          "tls": "TLSv1.3"
+        },
+        "verified": true
+      },
+      {
+        "case": "untrusted_client",
+        "before": {
+          "kind": "http",
+          "status_line": "HTTP/1.1 200 OK",
+          "tls": "TLSv1.3"
+        },
+        "negative": {
+          "kind": "tls_alert",
+          "reason": "SSLV3_ALERT_BAD_CERTIFICATE"
+        },
+        "after": {
+          "kind": "http",
+          "status_line": "HTTP/1.1 200 OK",
+          "tls": "TLSv1.3"
+        },
+        "verified": true
+      },
+      {
+        "case": "wrong_hostname",
+        "before": {
+          "kind": "http",
+          "status_line": "HTTP/1.1 200 OK",
+          "tls": "TLSv1.3"
+        },
+        "negative": {
+          "kind": "certificate_verification",
+          "verify_code": 62
+        },
+        "after": {
+          "kind": "http",
+          "status_line": "HTTP/1.1 200 OK",
+          "tls": "TLSv1.3"
+        },
+        "verified": true
+      }
+    ],
+    "finished_at": "2026-11-06T04:15:38.553083+00:00"
+  },
+  "private_artifacts": [
+    {
+      "label": "query-1793938048164378000",
+      "sha256": "9a29751805f238cc45e596bb8f7b3f3e90f23ce3ddaa9db704041ae3a513de1e"
+    },
+    {
+      "label": "query-1793938108299043000",
+      "sha256": "326e951b0dff5e08ad67194590fae8dc70e24fd7de07cdccb1901751623a1435"
+    },
+    {
+      "label": "api-check",
+      "sha256": "563500122718f3d4afe07c3b64481a4a1bc6327d83eb13f9b3486aec15ec1de8"
+    },
+    {
+      "label": "tls-check",
+      "sha256": "3e0043dd20fe33d76755807ee019cffb36d7608ad7fefb35541003387ce07474"
+    }
+  ],
+  "store_pod_and_container_identity_unchanged": true,
+  "shared_configuration_modified": false,
+  "own_ssm_and_port_forward_closed": true,
+  "full_task_complete": false
+}
