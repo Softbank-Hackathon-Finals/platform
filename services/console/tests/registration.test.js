@@ -235,3 +235,42 @@ test("plan response recovery keeps the explicitly chosen profile and request key
   assert.equal(result.profile_version, "1.0");
   assert.equal(result.profile_id, "fixture-profile");
 });
+
+test("recheck profile stays in registration payload and receipt, or both fields remain absent", () => {
+  const body = {
+    workload_id: "workload-one",
+    target_environment_id: "env-target",
+    profile_id: "demo-gate",
+    profile_version: "1",
+    recheck_profile_id: "apply-recheck",
+    recheck_profile_version: "1",
+  };
+  const value = {
+    ...body,
+    plan_id: "plan-one",
+    source_environment_id: "env-source",
+    state: "COLLECT",
+    version: 1,
+    plan_digest: "a".repeat(64),
+    collection_scope_digest: "b".repeat(64),
+    warnings: [],
+    registered_at: receipt.registered_at,
+  };
+  assert.deepEqual(registrationInput("plan", body), body);
+  assert.equal(
+    registrationReceipt("plan", body, value).recheck_profile_id,
+    "apply-recheck",
+  );
+  const attempt = new RegistrationAttempt("plan", body, "stable-recheck-key");
+  assert.deepEqual(JSON.parse(attempt.body), body);
+  for (const key of ["recheck_profile_id", "recheck_profile_version"]) {
+    const partial = { ...body };
+    delete partial[key];
+    assert.throws(() => registrationInput("plan", partial));
+    for (const invalid of [undefined, "other", null, 1])
+      assert.throws(() =>
+        registrationReceipt("plan", body, { ...value, [key]: invalid }),
+      );
+    assert.throws(() => registrationReceipt("plan", partial, value));
+  }
+});
