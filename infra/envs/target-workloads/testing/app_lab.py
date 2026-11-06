@@ -256,12 +256,14 @@ def install_databases():
 
 def pooler_backend(backend, passwords):
     """Point the rendered pooler at source (pre-cutover) or target (the NOLOGIN case)."""
-    namespace, pod, ca, new, old = (
-        (SOURCE_NS, "source-db-1", "source-db-ca", SOURCE_HOST, TARGET_HOST) if backend == "source"
-        else (NS, "target-db-1", "target-db-ca", TARGET_HOST, SOURCE_HOST))
+    namespace, pod, new, old = (
+        (SOURCE_NS, "source-db-1", SOURCE_HOST, TARGET_HOST) if backend == "source"
+        else (NS, "target-db-1", TARGET_HOST, SOURCE_HOST))
     verifier = psql(namespace, pod, "select rolpassword from pg_authid where rolname='chat_app'")
     replace_secret(NS, "target-pgbouncer-auth", {"userlist.txt": f'"chat_app" "{verifier}"\n'})
-    replace_secret(NS, "t8-source-ca", {"ca.crt": secret_value(namespace, ca, "ca.crt")})
+    # The rendered pooler trusts the executor's bundle of both CAs, whichever backend it points at.
+    replace_secret(NS, "cutover-backend-ca", {"ca.crt": secret_value(SOURCE_NS, "source-db-ca", "ca.crt")
+                                              + secret_value(NS, "target-db-ca", "ca.crt")})
     config = json.loads(kubectl("-n", NS, "get", "configmap", "target-pgbouncer-config", "-o", "json", check=False) or "{}")
     if config:
         ini = config["data"]["pgbouncer.ini"].replace(old, new)

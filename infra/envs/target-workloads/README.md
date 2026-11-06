@@ -110,8 +110,12 @@ TCP 연결이고, SCRAM 역할·테이블 권한·TLS 서버 신원 검증은 �
 
 ## 개발용 첨부 저장소
 
-`objects.py --node-name ...`는 SeaweedFS 4.52의 고정 amd64 이미지로 단일 인스턴스를
-렌더한다. DB와 별개의 `/var/lib/bravo-target-dev/objects` 경로를 UID/GID 1000으로
+`objects.py --node-name ...`는 SeaweedFS 4.52 릴리스 index digest로 단일 인스턴스를
+렌더한다. index라서 각 노드는 자기 플랫폼의 이미지를 받는다(linux/amd64 `a54ba35b`, linux/arm64 `18a805c8`).
+예전에는 amd64 이미지 하나를 고정했고, 목적지가 arm64로 바뀐 2026-11-06에 실제 Deployment만 arm64 이미지로 바뀌었다.
+렌더를 그대로 다시 적용하면 amd64로 되돌아가 뜨지 못했으므로 index로 바꿨다. 실제 Pod가 arm64 이미지를
+직접 가리키는 동안에는 이 렌더를 적용하면 같은 바이트로 한 번 다시 뜬다(Recreate). 노드가 Docker Hub에서
+index 매니페스트를 받을 수 있어야 한다. DB와 별개의 `/var/lib/bravo-target-dev/objects` 경로를 UID/GID 1000으로
 준비하고 8Gi Retain PV를 사용한다. 표기 용량은 파일시스템 할당량이 아니므로 합성
 객체의 크기를 제한한다. 내부 master/filer/volume은 loopback에만 바인딩하고 S3만
 8333으로 제공한다. 설정 없는 익명 기동을 막기 위해 `target-seaweedfs-auth` Secret의
@@ -359,6 +363,25 @@ infra/envs/target-workloads/testing/app_lab.py --demo-chat-src <demo-chat 체크
 ```
 
 ## Pre-cutover pooler and attachment copy
+
+The pooler's backend CA volume names `cutover-backend-ca`: the cutover executor's
+bundle of the source and target public CAs (`prepare.pooler_trust_patch()` in
+`services/cutover-executor`), so the backend is verified before and after the
+host retarget. An earlier render named `t8-source-ca` (source CA only); a re-apply
+undid the executor's patch. On 2026-11-06 the live Secret, created by the executor
+setup on 2026-11-03, held exactly the `t8-source-ca` and `target-db-ca` certificates.
+It must exist before the pooler starts. Where it is missing, build it from those
+two public CAs only:
+
+```sh
+set -o pipefail  # a failed read must not leave a bundle with one CA
+SOURCE_CA=$(kubectl -n target-dev get secret t8-source-ca -o jsonpath='{.data.ca\.crt}' | base64 -d) &&
+TARGET_CA=$(kubectl -n target-dev get secret target-db-ca -o jsonpath='{.data.ca\.crt}' | base64 -d) &&
+test -n "$SOURCE_CA" && test -n "$TARGET_CA" &&
+printf '%s\n%s\n' "$SOURCE_CA" "$TARGET_CA" \
+  | kubectl -n target-dev create secret generic cutover-backend-ca --from-file=ca.crt=/dev/stdin &&
+kubectl -n target-dev label secret cutover-backend-ca component=target
+```
 
 `pooler.py` consumes the verified `source-for-pooler` egress Service IPv4 address
 and UID. It preserves the original source certificate hostname in `hostAliases`
