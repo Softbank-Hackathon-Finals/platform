@@ -1,0 +1,42 @@
+[
+  {
+    "component": "operator",
+    "repository": "ghcr.io/softbank-hackathon-finals/platform-openbao-operator",
+    "tag": "0.6.0-bravo.1",
+    "digest": "sha256:2d4f1ffeab0aad34a6247da38b2deaf1e754ce353e53591da84601a26bc813bd",
+    "visibility": "private",
+    "config_digest": "sha256:0be39dfaa2ed280cbab2619bcdbe95909de7002b4e82ed83ef6818a96ccad2a7",
+    "published": true,
+    "deployed": false
+  },
+  {
+    "component": "backup",
+    "repository": "ghcr.io/softbank-hackathon-finals/platform-openbao-backup",
+    "tag": "0.6.0-bravo.1",
+    "digest": "sha256:a0084a871178285b041353a6615063bfd238f901d57f4a08f5b38ed4a283478b",
+    "visibility": "private",
+    "config_digest": "sha256:eb7df831b16c02daa555c8e5f14b37d46523d7838b66c2174c59eb17497e182b",
+    "published": true,
+    "deployed": false
+  },
+  {
+    "component": "upgrade",
+    "repository": "ghcr.io/softbank-hackathon-finals/platform-openbao-upgrade",
+    "tag": "0.6.0-bravo.1",
+    "digest": "sha256:6a32c13c2f14c5cadf5e32c976ead3c63dc71df1b38a719c491b0c46aec00894",
+    "visibility": "private",
+    "config_digest": "sha256:92692c2d67c8b2dbd7e3078c6e08c409c7f6217611df097280d5c376f1fea3a2",
+    "published": true,
+    "deployed": false
+  },
+  {
+    "component": "server",
+    "repository": "ghcr.io/softbank-hackathon-finals/platform-openbao",
+    "tag": "2.7.2-bravo.3-nonroot",
+    "digest": "sha256:c85ac2d5f89ac756c3e0b448377ce125b007e9563b03ceb31afafafa3df12bec",
+    "visibility": "private",
+    "config_digest": "sha256:b6bd57ba535df2057862e67ea725dee03d5fa0d50fd561dbeff8d7d2a733c1c8",
+    "published": true,
+    "deployed": false
+  }
+]

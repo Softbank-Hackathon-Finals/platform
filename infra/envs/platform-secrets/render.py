@@ -13,7 +13,7 @@ MOUNT = "edge-t17"
 READER = "t17-edge-secret-reader"
 WRITER = "t17-edge-key-writer"
 AUDIENCE = "bravo-platform-edge-secrets"
-IMAGE = "docker.io/openbao/openbao@sha256:5046911075e137e154ce49ab051502f4ec7cf367d484ae4a4dce665d9b90561f"
+IMAGE = "ghcr.io/softbank-hackathon-finals/platform-openbao@sha256:c85ac2d5f89ac756c3e0b448377ce125b007e9563b03ceb31afafafa3df12bec"
 
 
 def obj(kind, name, spec=None, *, namespace=NAMESPACE, api="v1", **fields):
@@ -69,6 +69,7 @@ def cluster(api_endpoint):
         ]
     return obj("OpenBaoCluster", NAME, api="openbao.org/v1alpha1", spec={
         "version": "2.7.2", "image": IMAGE, "replicas": 1,
+        "imagePullSecrets": [{"name": "platform-ghcr-reader"}],
         # Single-node hackathon platform. Static unseal is not a Hardened profile.
         "profile": "Development", "controllerJWTMode": "Target",
         "deletionPolicy": "Retain", "reconcilePolicies": True,

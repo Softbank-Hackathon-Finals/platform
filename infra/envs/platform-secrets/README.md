@@ -10,6 +10,12 @@ ESO 동기화가 새 provider 토큰을 발급하거나 이전 토큰을 폐기�
 `OpenBaoCluster`가 서버·TLS·unseal·보존 저장소의 수명주기를 관리한다.
 OpenBao 공식 조직의 보관된 Secrets Operator와 별개인 커뮤니티 프로젝트다.
 API는 `v1alpha1`이며 업그레이드는 버전과 이미지 digest를 고정해 검증한다.
+Operator·backup·upgrade는 upstream 0.6.0에 go-jose 4.1.6 보안 수정만 적용한
+`0.6.0-bravo.1`, 서버는 기존 수정 `2.7.2-bravo.3-nonroot`를 사용한다.
+[발행 영수증](published-images.json)의 private GHCR digest는 스캔한 OCI 바이트와 같다.
+클러스터 pull은 기존 플랫폼 registry reader를 각 전용 namespace의 pull Secret으로
+네이티브 Kubernetes API 안에서 연결하며, 개인 발행용 GitHub 자격은 배포하지 않는다.
+
 Operator는 `platform-secrets` 한 namespace만 관리한다. 기존 목적지의
 `bravo-secrets/target-openbao`와 그 데이터·정책·키는 이 CR의 소유 범위에 없다.
 

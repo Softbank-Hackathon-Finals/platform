@@ -3,12 +3,14 @@
 fullnameOverride: platform-openbao-operator
 platform: kubernetes
 image:
-  repository: ghcr.io/kubebao/openbao-operator
-  digest: sha256:588d30069633672915ce8dd380be4d9c96a67284af686964d225977a44f95be6
+  repository: ghcr.io/softbank-hackathon-finals/platform-openbao-operator
+  digest: sha256:2d4f1ffeab0aad34a6247da38b2deaf1e754ce353e53591da84601a26bc813bd
+imagePullSecrets:
+  - name: platform-ghcr-reader
 helperImages:
   init: ghcr.io/kubebao/openbao-init@sha256:8033c6782e46b88cc179305914862b5e6dda04205d65a13cb045993308f75212
-  backup: ghcr.io/kubebao/openbao-backup@sha256:c22b6e2e9e265e35267c5e5a246fcd28faca70a57e065533c6a0bc638cfe47f8
-  upgrade: ghcr.io/kubebao/openbao-upgrade@sha256:ad1e187272f9ca0644ee4b8e52c6989ba0213c5338a7ccb092e4677bf9a158fd
+  backup: ghcr.io/softbank-hackathon-finals/platform-openbao-backup@sha256:a0084a871178285b041353a6615063bfd238f901d57f4a08f5b38ed4a283478b
+  upgrade: ghcr.io/softbank-hackathon-finals/platform-openbao-upgrade@sha256:6a32c13c2f14c5cadf5e32c976ead3c63dc71df1b38a719c491b0c46aec00894
 tenancy:
   mode: single
   targetNamespace: platform-secrets
