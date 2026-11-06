@@ -4,11 +4,12 @@ import hashlib
 
 import pytest
 from bravo_agent.contracts import digest
+from bravo_agent.product_execution_contracts import ExecutionPending
 from test_initial_proposal import ACTOR, EXPIRES, SOURCE, SOURCE_PATH, SPEC, Fixture
 from test_workflow_recovery import ANALYSIS
 
 from bravo_platform_events.cutover import _get, _put
-from bravo_platform_events.initial_proposal import InitialInput
+from bravo_platform_events.initial_proposal import InitialInput, InitialIntent
 from bravo_platform_events.initial_proposal_runtime import model_input
 from bravo_platform_events.store import EventError
 
@@ -45,8 +46,7 @@ def test_exact_boundary_preserves_original_and_executes_once(backend, tmp_path):
     assert len(f.client.submits) == 1
 
 
-@pytest.mark.parametrize("entrypoint", ["preparation_fields", "execute"])
-def test_legacy_admitted_invalid_input_never_prepares_key_or_claims(backend, tmp_path, entrypoint):
+def legacy_admission(backend, tmp_path):
     f = Fixture(backend, tmp_path, source_value=source("x" * 3791), admit=False)
     # Import the previous release's valid stored format; production rows remain immutable.
     with backend.store._transaction(write=True, plan_id=SPEC.plan_id) as c:
@@ -55,9 +55,34 @@ def test_legacy_admitted_invalid_input_never_prepares_key_or_claims(backend, tmp
         request = dict(principal=ACTOR, expires_at=EXPIRES, input=value.model_dump(mode="json"))
         f.ref = dict(input_ref="initial-legacy", input_digest=digest(value))
         _put(c, SPEC.plan_id, "initial-proposal:3", request, f.ref)
+    return f, value
+
+
+@pytest.mark.parametrize("entrypoint", ["preparation_fields", "execute"])
+def test_legacy_admitted_invalid_input_never_prepares_key_or_claims(backend, tmp_path, entrypoint):
+    f, _ = legacy_admission(backend, tmp_path)
     with pytest.raises(EventError, match="^initial_model_input_invalid$"):
         getattr(f.port, entrypoint)(SPEC.plan_id, 3, **f.ref)
     assert not f.client.keys and not f.client.submits and not f.client.reads
     with backend.store._transaction() as c:
         assert _get(c, SPEC.plan_id, "initial-proposal:3")[1] == f.ref
         assert _get(c, SPEC.plan_id, "initial-proposal:3:execution") is None
+
+
+def test_legacy_claimed_invalid_input_only_reads_same_request_after_restart(backend, tmp_path, monkeypatch):
+    f, value = legacy_admission(backend, tmp_path)
+    intent = InitialIntent(**f.port._fields(value, f.ref), recipient_public_key="d" * 64)
+    request = intent.model_dump(mode="json")
+    with backend.store._transaction(write=True, plan_id=SPEC.plan_id) as c:
+        _put(c, SPEC.plan_id, "initial-proposal:3:execution", request, {"state": "CLAIMED"})
+    def pending(same_intent):
+        f.client.reads.append(same_intent)
+        raise ExecutionPending("RUN_NOT_YET_OBSERVED")
+    monkeypatch.setattr(f.client, "read", pending)
+    for entrypoint in ("read", "execute"):
+        with pytest.raises(ExecutionPending, match="^initial_execution_pending$"):
+            getattr(f.execution(), entrypoint)(SPEC.plan_id, 3, **f.ref)
+    assert f.client.reads == [intent, intent] and not f.client.keys and not f.client.submits
+    with backend.store._transaction() as c:
+        assert _get(c, SPEC.plan_id, "initial-proposal:3:execution") == (request, {"state": "CLAIMED"})
+        assert _get(c, SPEC.plan_id, "initial-proposal:3:execution:result") is None
