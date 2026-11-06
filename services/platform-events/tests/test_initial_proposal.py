@@ -65,7 +65,7 @@ class Actions:
 
 
 class Fixture:
-    def __init__(self, backend, tmp_path, *, source_value=None, analysis=ANALYSIS):
+    def __init__(self, backend, tmp_path, *, source_value=None, analysis=ANALYSIS, admit=True):
         self.backend, self.now = backend, NOW
         collect(backend.store)
         recovery = WorkflowRecovery(service(backend.store, None), read_evidence=lambda c, p, *args:
@@ -85,7 +85,7 @@ class Fixture:
         self.access = ProductInputAccess(backend.store, clock=lambda: self.now, purpose=initial.PURPOSE)
         self.grant(True, 0)
         self.records = self.reopen()
-        self.ref = self.admit()
+        self.ref = self.admit() if admit else None
         self.client = Actions(self.records)
         self.port = self.execution()
         self.published = None

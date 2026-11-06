@@ -18,6 +18,7 @@ from rehearsal_runner.admission import logical_task_digest
 
 from .cutover import _get, _put
 from .executor import _timestamp
+from .initial_model_input import model_input
 from .store import EventError
 from .workflow import Change, Evidence
 from .workflow import Proposal as WorkflowProposal
@@ -135,6 +136,13 @@ def _source(value):
     return value
 
 
+def _require_model_input(value):
+    try:
+        model_input(value)
+    except ValueError:
+        raise EventError("initial_model_input_invalid") from None
+
+
 def _slot(version):
     return f"initial-proposal:{version}"
 
@@ -198,6 +206,7 @@ class InitialProposalRecords:
         with self.store._transaction(write=True, plan_id=plan_id) as c:
             _plan, value = self._current(c, plan_id=plan_id, tenant_id=tenant_id, task_id=task_id,
                                         version=expected_version, principal=principal)
+            _require_model_input(value)
             if _timestamp(expires_at) <= _timestamp(self.clock()):
                 raise EventError("initial_proposal_expired")
             request = dict(principal=principal, expires_at=expires_at, input=value.model_dump(mode="json"))
@@ -271,6 +280,7 @@ class InitialProposalExecution:
             value = self.records._read(c, self.principal, plan_id, version, ref)
             if _get(c, plan_id, _slot(version) + ":execution"):
                 raise EventError("initial_execution_already_claimed")
+            _require_model_input(value)
             return self._fields(value, ref)
 
     def _result(self, intent, value, envelope):
@@ -315,6 +325,8 @@ class InitialProposalExecution:
             first = old is None
             if first and not claim:
                 raise EventError("initial_execution_not_started")
+            if first:
+                _require_model_input(value)
             fields = self._fields(value, ref)
             try:
                 key = self.client.recipient(fields["request_id"]) if first else old[0]["recipient_public_key"]
