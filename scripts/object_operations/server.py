@@ -71,9 +71,9 @@ class Operations:
         if not isinstance(body, dict) or set(body) - {"action", "hold_seconds", "acknowledge_anonymous_read"}:
             raise HTTPError(400, "unknown_request_field")
         action, hold, acknowledge = body.get("action"), body.get("hold_seconds", 15), body.get("acknowledge_anonymous_read", False)
-        if action not in ("check", "cycle", "close") or type(hold) is not int or not 0 <= hold <= 60 or type(acknowledge) is not bool:
+        if action not in ("check", "cycle", "open", "close") or type(hold) is not int or not 0 <= hold <= 60 or type(acknowledge) is not bool:
             raise HTTPError(400, "invalid_operation")
-        if action == "cycle" and not acknowledge:
+        if action in ("cycle", "open") and not acknowledge:
             raise HTTPError(400, "anonymous_read_acknowledgement_required")
         fingerprint = hashlib.sha256(encode({"action": action, "hold_seconds": hold, "acknowledge_anonymous_read": acknowledge})).hexdigest()
         run_id = "objects-" + hashlib.sha256((owner + "/" + key).encode()).hexdigest()[:32]
@@ -95,6 +95,10 @@ class Operations:
                 raise HTTPError(410, "idempotency_window_expired")
             if value["phase"] in ACTIVE:
                 raise HTTPError(409, "another_operation_active")
+            if action == "cycle" and value.get("desired_state") == "open":
+                raise HTTPError(409, "open_work_mode_requires_explicit_close")
+            if action in ("open", "close"):
+                value["desired_state"] = "open" if action == "open" else "closed"
             value.pop("recovery", None)
             value.update(phase="PENDING", report={}, request={
                 "run_id": run_id, "owner": owner, "action": action, "hold_seconds": hold,
@@ -105,6 +109,16 @@ class Operations:
             })
             self.api.save(doc, value)
             return 202, {**receipt(value, run_id, owner), "replayed": False, "existing_request": False}
+
+    def status(self):
+        _, value = self.state()
+        result = value.get("report", {})
+        return {"desired_state": value.get("desired_state", "closed"),
+                "last_observed_state": result.get("final_state"),
+                "observed_at": result.get("finished_at"),
+                "security_state": result.get("security_state"),
+                "operation_in_progress": value["phase"] in ACTIVE,
+                "fresh_check": "POST runs with action=check; this GET does not probe storage"}
 
     def get(self, owner, run_id):
         _, value = self.state()
@@ -125,6 +139,8 @@ class Operations:
             if result["phase"] == "FINISHED":
                 return result
             value["request"]["cancel"] = True
+            if value["request"]["action"] == "open":
+                value["desired_state"] = "closed"
             self.api.save(doc, value)
             return receipt(value, run_id, owner)
 
@@ -158,6 +174,8 @@ class Handler(BaseHTTPRequestHandler):
         owner = self.operations.authenticate(authorization[7:])
         if self.command == "GET" and path == "/openapi.json":
             return self.send(200, json.loads(Path(__file__).with_name("openapi.json").read_text()))
+        if self.command == "GET" and path == BASE + "/status":
+            return self.send(200, self.operations.status())
         body = None
         if self.command == "POST":
             if self.headers.get("Transfer-Encoding") or self.headers.get("Content-Type", "").split(";", 1)[0] != "application/json":

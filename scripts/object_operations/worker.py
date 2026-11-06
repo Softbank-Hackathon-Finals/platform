@@ -156,13 +156,13 @@ def render_existing(document, state, run_id):
 def validate_request(request):
     if not re.fullmatch(r"objects-[a-f0-9]{32}", request.get("run_id", "")):
         raise Failure("invalid_run_id")
-    if request.get("action") not in ("cycle", "close", "check"):
+    if request.get("action") not in ("cycle", "open", "close", "check"):
         raise Failure("invalid_action")
     if not re.fullmatch(r"system:serviceaccount:bravo-team-access:member-0[1-5]", request.get("owner", "")):
         raise Failure("personal_member_required")
     if type(request.get("hold_seconds")) is not int or not 0 <= request["hold_seconds"] <= 60:
         raise Failure("invalid_hold")
-    if request["action"] == "cycle" and request.get("acknowledge_anonymous_read") is not True:
+    if request["action"] in ("cycle", "open") and request.get("acknowledge_anonymous_read") is not True:
         raise Failure("anonymous_read_acknowledgement_required")
     expiry = datetime.fromisoformat(request["expires_at"]).timestamp()
     if not time.time() < expiry <= time.time() + 600:
@@ -287,7 +287,7 @@ class Worker:
         _, _, auth = self.guard()
         _, self.credentials, state = render_existing(auth, "closed", self.request["run_id"])
         self.report["initial_state"] = state
-        if state != "closed":
+        if state != "closed" and not (self.request["action"] == "open" and state == "open-demo"):
             raise Failure("initial_state_not_closed")
         self.policy()
         self.app_client()
@@ -303,14 +303,15 @@ class Worker:
         self.persist("RUNNING")  # Persist intent before PUT, including response-loss recovery.
         if self.s3.call("PUT", BUCKET, self.key, body=BODY, credentials=self.credentials["client"])[0] != 200:
             raise Failure("probe_object_put_unconfirmed")
-        if not self.case("initial_anonymous_get", self.s3.call("GET", BUCKET, self.key)[0], 403):
+        if not self.case("initial_anonymous_get", self.s3.call("GET", BUCKET, self.key)[0], 200 if state == "open-demo" else 403):
             raise Failure("initial_runtime_not_closed")
 
     def opened(self):
         _, current = self.own()
         if current["request"].get("cancel"):
             raise Failure("cancelled_before_open")
-        self.transition("open-demo")
+        if self.report.get("initial_state") != "open-demo":
+            self.transition("open-demo")
         self.report["opened_at"] = now()
         self.probe("open")
         for label, method, bucket, key, query, body, expected in (
@@ -327,13 +328,40 @@ class Worker:
                 raise Failure("anonymous_boundary_mismatch")
         self.policy()
         self.persist("RUNNING")
-        end = time.monotonic() + self.request["hold_seconds"]
+        end = time.monotonic() + (self.request["hold_seconds"] if self.request["action"] == "cycle" else 0)
         while time.monotonic() < end:
             _, value = self.own()
             if value["request"].get("cancel"):
                 self.report["cancel_requested"] = True
                 break
             time.sleep(1)
+
+    def cleanup_objects(self):
+        if self.report.get("objects_owned"):
+            for key in self.keys:
+                self.own()
+                status = self.s3.call("DELETE", BUCKET, key, credentials=self.credentials["client"])[0]
+                if status not in (200, 204) or self.s3.call("HEAD", BUCKET, key, credentials=self.credentials["client"])[0] != 404:
+                    raise Failure("owned_object_cleanup_unconfirmed")
+
+    def keep_open(self):
+        _, current = self.own()
+        if current["request"].get("cancel"):
+            raise Failure("cancelled_before_open_completion")
+        _, _, auth = self.guard()
+        _, self.credentials, state = render_existing(auth, "open-demo", self.request["run_id"])
+        if state != "open-demo":
+            raise Failure("configured_state_changed_after_open")
+        self.app_client()
+        self.policy()
+        self.case("open_existing_attachment_anonymous_get", self.s3.call("GET", BUCKET, self.canary_key)[0], 200)
+        status, _, body = self.s3.call("GET", BUCKET, self.canary_key, credentials=self.credentials["client"])
+        self.case("open_existing_app_client_get", status, 200)
+        self.case("open_existing_app_bytes_unchanged", hashlib.sha256(body).hexdigest(), self.report["app_canary_sha256_before"])
+        if not all(case["pass"] for case in self.report["checks"]):
+            raise Failure("open_readback_failed")
+        self.cleanup_objects()
+        self.report.update(cleanup="CLEAN", final_state="open", security_state="PUBLIC_READ", automatically_closes=False)
 
     def close(self):
         previous = [case for case in self.report["checks"] if case["name"].startswith("closed_")]
@@ -352,12 +380,7 @@ class Worker:
         self.case("closed_existing_app_client_get", status, 200)
         if "app_canary_sha256_before" in self.report:
             self.case("closed_existing_app_bytes_unchanged", hashlib.sha256(body).hexdigest(), self.report["app_canary_sha256_before"])
-        if self.report.get("objects_owned"):
-            for key in self.keys:
-                self.own()
-                status = self.s3.call("DELETE", BUCKET, key, credentials=self.credentials["client"])[0]
-                if status not in (200, 204) or self.s3.call("HEAD", BUCKET, key, credentials=self.credentials["client"])[0] != 404:
-                    raise Failure("owned_object_cleanup_unconfirmed")
+        self.cleanup_objects()
         closed = [case for case in self.report["checks"] if case["name"].startswith("closed_")]
         if not all(case["pass"] for case in closed):
             raise Failure("closed_readback_failed")
@@ -365,7 +388,7 @@ class Worker:
         _, _, state = render_existing(auth, "closed", self.request["run_id"])
         if state != "closed":
             raise Failure("configured_state_changed_after_close")
-        self.report.update(cleanup="CLEAN", closed_at=now(), final_state="closed")
+        self.report.update(cleanup="CLEAN", closed_at=now(), final_state="closed", security_state="PRIVATE")
         if "cleanup_error" in self.report:
             self.report.setdefault("previous_cleanup_errors", []).append(self.report.pop("cleanup_error"))
 
@@ -403,23 +426,29 @@ class Worker:
                 validate_request(self.request)
                 if self.request.get("cancel"):
                     raise Failure("cancelled_before_start")
+                if self.request["action"] == "cycle" and value.get("desired_state") == "open":
+                    raise Failure("open_work_mode_requires_explicit_close")
                 close_required = self.request["action"] != "check"
                 if self.request["action"] == "check":
                     _, _, auth = self.guard()
                     _, self.credentials, state = render_existing(auth, "closed", self.request["run_id"])
                     self.app_client()
-                    self.case("configured_state", state, "closed")
+                    self.case("configured_state", state, state)
                     self.case("bucket_policy_absent", self.policy(), True)
                     self.canary_key = self.existing_canary()
                     status = self.s3.call("GET", BUCKET, self.canary_key, credentials=self.credentials["client"])[0]
                     self.case("existing_app_client_get", status, 200)
-                    self.case("anonymous_get", self.s3.call("GET", BUCKET, self.canary_key)[0], 403)
+                    self.case("anonymous_get", self.s3.call("GET", BUCKET, self.canary_key)[0], 200 if state == "open-demo" else 403)
+                    self.report.update(final_state="open" if state == "open-demo" else "closed", security_state="PUBLIC_READ" if state == "open-demo" else "PRIVATE")
                     self.report["cleanup"] = "NOT_APPLICABLE"
-                elif self.request["action"] == "cycle":
+                elif self.request["action"] in ("cycle", "open"):
                     self.baseline()
                     # Never open after the requested window expired during preparation.
                     validate_request(self.request)
                     self.opened()
+                    if self.request["action"] == "open":
+                        self.keep_open()
+                        close_required = False
         except Exception as error:  # noqa: BLE001 — never persist provider exception bodies.
             self.report["error"] = str(error) if isinstance(error, Failure) else type(error).__name__
         finally:

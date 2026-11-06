@@ -3,7 +3,7 @@
   "info": {
     "title": "Bravo Object Operations",
     "version": "1.0.0",
-    "description": "Personal-account requests for the existing T9 object exposure executor. No storage credentials accepted. Cycle opens briefly and closes; close never opens. Receipts retained for 64 runs. Caller supplied owner, target, images and commands are rejected."
+    "description": "Personal-account object operations. Explicit open preserves public-read work mode until explicit close; no anonymous write/list/delete. Cycle returns closed and is refused while persistent open mode is selected. PASS means requested behavior, not a security gate pass. No storage credentials accepted."
   },
   "servers": [
     {
@@ -414,6 +414,44 @@
           }
         }
       }
+    },
+    "/v1/object-exposure/status": {
+      "get": {
+        "operationId": "getObjectExposureState",
+        "description": "Desired state and timestamped last observation shared with named members. This is not a live storage probe; submit check to refresh.",
+        "responses": {
+          "200": {
+            "description": "State and observation timestamp",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "desired_state": {
+                      "type": "string"
+                    },
+                    "last_observed_state": {
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "observed_at": {
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "security_state": {
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "operation_in_progress": {
+                      "type": "boolean"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -443,6 +481,7 @@
             "enum": [
               "check",
               "cycle",
+              "open",
               "close"
             ]
           },
@@ -493,6 +532,22 @@
               "CLEAN",
               "UNCONFIRMED",
               "NOT_APPLICABLE"
+            ]
+          },
+          "final_state": {
+            "type": "string",
+            "enum": [
+              "open",
+              "closed",
+              "unknown"
+            ]
+          },
+          "security_state": {
+            "type": "string",
+            "enum": [
+              "PUBLIC_READ",
+              "PRIVATE",
+              "UNCONFIRMED"
             ]
           }
         }

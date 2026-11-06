@@ -70,6 +70,9 @@ def execute(args):
     if cluster_uid != settings["cluster_uid"]:
         raise Failure("cluster_uid_mismatch")
     api = Client(settings)
+    if args.command == "state":
+        print(json.dumps(api.call("GET", route="/v1/object-exposure/status"), ensure_ascii=False))
+        return 0
     if args.command in ("status", "cleanup"):
         if not args.run_id:
             entries = api.call("GET")["runs"]
@@ -97,7 +100,7 @@ def execute(args):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("command", choices=("install", "check", "cycle", "close", "status", "cleanup"))
+    parser.add_argument("command", choices=("install", "check", "cycle", "open", "close", "state", "status", "cleanup"))
     parser.add_argument("--access", type=Path, required=True)
     parser.add_argument("--cluster-uid")
     parser.add_argument("--run-id")

@@ -38,13 +38,13 @@ class Client:
     def run_id(owner, key):
         return "objects-" + hashlib.sha256((owner + "/" + key).encode()).hexdigest()[:32]
 
-    def call(self, method, suffix="", body=None, key=None):
+    def call(self, method, suffix="", body=None, key=None, route=None):
         headers = {"Authorization": "Bearer " + self.token,
                    "X-Bravo-Authorization": "Bearer " + self.token,
                    "Content-Type": "application/json"}
         if key:
             headers["Idempotency-Key"] = key
-        request = urllib.request.Request(self.origin + BASE + suffix, method=method,
+        request = urllib.request.Request(self.origin + (route or BASE + suffix), method=method,
                                          data=None if body is None else json.dumps(body).encode(), headers=headers)
         try:
             with self.opener.open(request, timeout=20) as response:

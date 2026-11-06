@@ -53,6 +53,9 @@ class Runner(worker.Worker):
     def opened(self):
         self.open_count += 1
 
+    def keep_open(self):
+        self.report.update(cleanup="CLEAN", final_state="open", automatically_closes=False)
+
     def close(self):
         self.close_count += 1
         self.report["cleanup"] = "CLEAN"
@@ -123,6 +126,23 @@ class OperationsTest(unittest.TestCase):
         runner = Runner(api)
         runner.run()
         self.assertEqual((runner.open_count, runner.close_count), (0, 0))
+
+    def test_successful_explicit_open_is_not_automatically_closed(self):
+        api = FakeAPI(action="open")
+        runner = Runner(api)
+        runner.run()
+        self.assertEqual((runner.open_count, runner.close_count), (1, 0))
+        self.assertEqual(api.value["report"]["final_state"], "open")
+        self.assertEqual(api.value["report"]["verdict"], "PASS")
+        self.assertEqual(api.value["report"]["cleanup"], "CLEAN")
+
+    def test_cycle_cannot_close_persistent_open_work_mode(self):
+        api = FakeAPI()
+        api.value["desired_state"] = "open"
+        runner = Runner(api)
+        runner.run()
+        self.assertEqual((runner.open_count, runner.close_count), (0, 0))
+        self.assertEqual(api.value["report"]["error"], "open_work_mode_requires_explicit_close")
 
     def test_open_error_closes_and_preserves_original_failure(self):
         api = FakeAPI()

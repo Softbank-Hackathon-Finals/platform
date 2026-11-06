@@ -113,6 +113,24 @@ class ApiTest(unittest.TestCase):
         self.assertEqual(self.api.value["request"]["run_id"], result["run_id"])
         self.assertEqual(self.api.value["history"], [])
 
+    def test_explicit_open_persists_desired_state_and_rejects_cycle_until_close(self):
+        _, opened = self.ops.submit(OWNER, self.key, {"action": "open", "acknowledge_anonymous_read": True})
+        self.assertEqual(self.api.value["desired_state"], "open")
+        self.api.value["phase"] = "FINISHED"
+        next_key = self.key[:-1] + "b"
+        self.assertError(409, lambda: self.ops.submit(OWNER, next_key, {"action": "cycle", "acknowledge_anonymous_read": True}))
+        self.ops.submit(OWNER, next_key, {"action": "close"})
+        self.assertEqual(self.api.value["desired_state"], "closed")
+        self.assertNotEqual(self.api.value["request"]["run_id"], opened["run_id"])
+
+    def test_state_is_timestamped_observation_not_an_unperformed_live_probe(self):
+        self.api.value.update(desired_state="open", phase="FINISHED", report={"final_state": "open", "security_state": "PUBLIC_READ", "finished_at": "observed-at"})
+        result = self.ops.status()
+        self.assertEqual(result["last_observed_state"], "open")
+        self.assertEqual(result["observed_at"], "observed-at")
+        self.assertEqual(result["security_state"], "PUBLIC_READ")
+        self.assertFalse(result["operation_in_progress"])
+
     def test_changed_cluster_refuses_even_reads(self):
         with patch.object(self.api, "call", return_value={"metadata": {"uid": "different"}}):
             self.assertError(503, lambda: self.ops.list(OWNER))
