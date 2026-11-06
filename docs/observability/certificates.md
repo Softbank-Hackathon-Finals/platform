@@ -98,6 +98,43 @@ T22 앱은 loopback 이외의 평문 주소를 거부한다. NetworkPolicy만으
 재시작해 연결을 끊고, 거부 대조군과 정상 전송을 다시 확인한다.
 CA 자동 교체/폐기 전체 운영 절차는 별도 자격 시험 대상이다.
 
+### 앱 인증서 발급 (출발지 demo-chat, #570의 전제)
+
+앱 쪽은 관측 CA와 **다른** 앱 CA 하나로 서버·클라이언트를 모두 발급한다. 앱은 이 CA로 Collector를 검증하고,
+Collector는 같은 CA를 `client-ca.crt`로 믿어 앱을 검증한다.
+
+| 인증서 | 이름(CN · SAN의 DNS) | Secret (네임스페이스) | 유효기간 |
+|---|---|---|---|
+| 앱 CA | `bravo-observability-ca-<날짜>-<무작위>` (관측 CA와 따로 만든다) | 아래 두 Secret의 `ca.crt` · `client-ca.crt` | 90일 |
+| Collector 앱 수신(서버) | `bravo-collector` + 앱이 부르는 Service DNS | `bravo-collector-app-tls` (`bravo-observability`) | 30일 |
+| 출발지 demo-chat(클라이언트) | `demo-chat-source` | `bravo-app-metrics-client` (`source-dev`) | 30일 |
+
+```sh
+I=services/observability/deploy/certs/issue.sh
+$I ca   ./app-ca 90                     # 관측 CA(./obs-ca)와 다른 디렉터리. CA 키는 밖으로 내보내지 않는다
+$I leaf ./app-ca bravo-collector \
+  "DNS:bravo-collector,DNS:bravo-collector.bravo-observability.svc,DNS:bravo-collector.bravo-observability.svc.cluster.local" \
+  ./out/collector-app
+$I leaf ./app-ca demo-chat-source DNS:demo-chat-source ./out/demo-chat-source
+
+# Collector (출발지 클러스터): 서버 인증서와, 앱을 믿을 CA
+kubectl -n bravo-observability create secret generic bravo-collector-app-tls \
+  --from-file=./out/collector-app/tls.crt --from-file=./out/collector-app/tls.key \
+  --from-file=client-ca.crt=./app-ca/ca.crt
+# 앱 (출발지 클러스터): Collector를 믿을 CA와 앱 전용 클라이언트 인증서
+kubectl -n source-dev create secret generic bravo-app-metrics-client \
+  --from-file=./out/demo-chat-source/ca.crt --from-file=./out/demo-chat-source/tls.crt \
+  --from-file=./out/demo-chat-source/tls.key
+```
+
+- **순서:** 두 Secret을 먼저 만들고 Collector에 `collector-app-mtls`(또는 `components/app-mtls`)를 적용한 뒤, 앱 렌더(#570)를 적용한다. Secret이 없으면 Collector와 앱 모두 시작하지 않는다.
+- **이름:** 앱 엔드포인트는 `https://bravo-collector.bravo-observability.svc:4318/v1/metrics`다. 서버 SAN에 이 이름이 없으면 앱이 연결을 거부한다.
+- **분리:** 앱 CA로 관측 경로(Collector → 지표 저장소) 인증서를 발급하지 않는다. 반대로 관측 CA 인증서를 앱에 주지 않는다.
+- **읽기 권한:** 앱 Secret은 0440(root 소유)으로 마운트된다. 지금 앱은 이미지의 기본 그룹(0)으로 읽는다. Pod에 `runAsGroup`을 넣거나 이미지 사용자를 바꾸면 `fsGroup`도 함께 지정한다(#570 리뷰).
+- **교체:** leaf 교체 · CA 교체는 3절 절차와 같다. 앱 CA 교체 중에는 `client-ca.crt`와 앱의 `ca.crt`에 옛 · 새 CA를 함께 넣는다.
+- **로컬 확인(2026-11-07, 플랫폼 · 실클러스터 아님):** 위 이름 · 확장값으로 발급한 인증서를 Collector 수신 설정과 같은 조건(TLS 1.3, 클라이언트 인증서 필수 · `client-ca.crt` 검증)의 서버에 붙여 보았다. 앱 인증서 + Service DNS · FQDN은 연결되고, 클라이언트 인증서 없음 · 관측 CA 등 다른 CA의 인증서 · 다른 서버 이름은 모두 거부됐다.
+- **Windows Git Bash:** `issue.sh`의 `-subj`(앞의 `/`)와 `-extfile <(...)`가 동작하지 않는다. Linux · macOS 셸에서 발급한다.
+
 ## 6. 원격 콘솔 → 조회 API TLS
 
 `services/observability/deploy/platform-api-tls`는 조회 API에 서버 TLS를 추가한다.
