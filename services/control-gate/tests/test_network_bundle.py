@@ -70,8 +70,21 @@ def make(bundle, method="1", test_id="NET-01.3"):
                 observed_at=stamp,
             )
             if method == "2":
+                offset = {
+                    "before_target": 21,
+                    "before_agent": 18,
+                    "before_dns": 15,
+                    "probe": 12,
+                    "after_target": 9,
+                    "after_agent": 6,
+                    "after_dns": 3,
+                }[label]
+                observed = now - timedelta(milliseconds=offset)
+                observations[label]["observed_at"] = observed.isoformat()
                 observations[label].update(
-                    coordinator_started_at=stamp, agent_observed_at=stamp, max_clock_offset_ms=1000
+                    coordinator_started_at=(observed - timedelta(milliseconds=2)).isoformat(),
+                    agent_observed_at=observed.isoformat(),
+                    max_clock_offset_ms=1000,
                 )
         docs.append(
             dict(
@@ -139,7 +152,9 @@ def verify(fixture):
 @pytest.mark.parametrize("test_id", ["NET-01.2", "NET-01.3"])
 def test_two_registered_paths_with_before_and_after_controls(bundle, method, test_id):
     fixture = make(bundle, method, test_id)
-    assert verify(fixture) == fixture[-1] + timedelta(seconds=60)
+    assert verify(fixture) == fixture[-1] + timedelta(seconds=60) - (
+        timedelta(milliseconds=23) if method == "2" else timedelta(0)
+    )
 
 
 @pytest.mark.parametrize(
@@ -434,3 +449,45 @@ def test_authority_expiry_during_last_readback_is_not_discarded(bundle):
     state["change"] = change
     with pytest.raises(GateError):
         verifier("actor", bundle[0], "target", "NET-01.3", row)
+
+
+def test_remote_timeout_must_fit_the_authenticated_coordinator_interval(bundle):
+    fixture = make(bundle, "2")
+    item = fixture[2][1]["observations"]["probe"]
+    item.update(outcome="timeout", elapsed_ms=3000)
+    # A 3-second timeout returned within a 3-millisecond request is not evidence.
+    with pytest.raises(GateError):
+        verify(fixture)
+
+
+@pytest.mark.parametrize(
+    "label",
+    ["before_target", "before_agent", "before_dns", "after_target", "after_agent", "after_dns"],
+)
+def test_controls_must_bracket_the_entire_probe_request(bundle, label):
+    fixture = make(bundle, "2")
+    observations = fixture[2][1]["observations"]
+    observations[label].update(
+        observations["probe"], outcome="resolved" if label.endswith("dns") else "connected"
+    )
+    with pytest.raises(GateError):
+        verify(fixture)
+
+
+def test_complete_three_second_timeout_with_bracketing_controls_is_accepted(bundle):
+    from bravo_gate.contract import time
+
+    fixture = make(bundle, "2")
+    for doc in fixture[2]:
+        observations = doc["observations"]
+        probe = observations["probe"]
+        probe.update(
+            outcome="timeout",
+            elapsed_ms=3000,
+            coordinator_started_at=(time(probe["observed_at"]) - timedelta(seconds=3)).isoformat(),
+        )
+        for label, item in observations.items():
+            if label.startswith("before"):
+                for key in ("observed_at", "agent_observed_at", "coordinator_started_at"):
+                    item[key] = (time(item[key]) - timedelta(seconds=3)).isoformat()
+    assert verify(fixture) > fixture[-1]

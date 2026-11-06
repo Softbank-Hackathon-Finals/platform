@@ -11,7 +11,7 @@ T14의 NET-01.2/01.3은 DB와 풀러를 모두 시험한다. 기존 T19 네트�
 3. 경로 등록 hash는 호스트가 확인한 리스너·시험 주체·정상 대조 경로·DNS와 결속해야 한다. 실제 Service/EndpointSlice/Ready Pod 및 정책 출처를 확인하지 않은 클라이언트 입력은 등록하지 않는다.
 4. `binding_provider`는 위 불변 등록을 반환한다. `artifact_provider`는 요청된 digest의 **원본 bytes**만 반환한다. 저장소 URI나 임의 파일 경로를 사용자 입력으로 받지 않는다.
 5. `authenticate_binding`과 `authenticate_artifact`는 tenant·계획·현재 권한 및 출처를 확인한다. 만료가 있으면 기존 `VerifiedAuthority`를 반환한다. 집계 및 개별 원문은 각각 16 KiB 이하이며 정확히 3개다.
-6. `CollectedNetworkProofAuthority`를 `GateService(network_verifier=...)`에 주입한다. 형식 누락·권한 회수·원문 변경·만료는 예외/미확인으로 처리한다. 과거 PASS로 대체하지 않는다.
+6. `CollectedNetworkProofAuthority`를 `GateService(network_verifier=...)`에 주입한다. 방법 2에서는 원격 실행 시간이 코디네이터 요청 구간을 넘거나, 정상 대조군이 시험 요청의 앞뒤에 위치하지 않으면 거부한다(정수 밀리초 반올림 1 ms 허용). 형식 누락·권한 회수·원문 변경·만료는 예외/미확인으로 처리한다. 과거 PASS로 대체하지 않는다.
 
 `verify_collected_bundle`은 구조·시간·digest만 확인하는 순수 함수다. 이 함수의 성공을 출처 인증이나 실행 권한으로 사용하면 안 된다. `VerifiedNetworkProof`도 JSON 요청에서 역직렬화해 믿는 형식이 아니라 서버 검증기의 내부 반환값이다.
 
@@ -33,7 +33,7 @@ T14의 NET-01.2/01.3은 DB와 풀러를 모두 시험한다. 기존 T19 네트�
 - 합성 원문으로 양쪽 역할·전후 대조군·DNS·최대 시간·digest·등록·권한 회수·run ID 불일치를 검사한다.
 - 실제 T14 `NetworkAccessProbe`와 `Runner`가 생성한 형식 1 원문을 실제 T19 `GateService`로 전달한다. 연결 응답과 서버 출처 인증은 시험용 모의 구현이다. full 20개 합성 결과의 PASS 뒤 풀러 자식 원문을 제거하면 BLOCK하고 기존 판정을 소비할 수 없다.
 - 방법 2 수집기 코드와 별도 로컬 연결 시험을 수행했다. 합성 정상 차단만 수용하고 DB 연결 허용·풀러 연결 허용·정상 대조군 실패는 모두 거부했다.
-- 2026-11-06 로컬 검증: PostgreSQL 17.11/TLS PostgreSQL 18.4와 Docker를 포함한 게이트 시험 **396개 통과**, 네트워크·생산자 연결 관련 **102개 통과**, Ruff·공개 증빙·출처·비밀 검사 통과. 운영 계획 등록·목적지 수집·T10 영속 원문 수신 완료를 뜻하지 않는다.
+- 2026-11-06 로컬 검증: PostgreSQL 17.11/TLS PostgreSQL 18.4와 Docker를 포함한 게이트 시험 **404개 통과**, 네트워크·생산자 연결 관련 **110개 통과**, Ruff·공개 증빙·출처·비밀 검사 통과. 운영 계획 등록·목적지 수집·T10 영속 원문 수신 완료를 뜻하지 않는다.
 
 ## 운영 인수에 남은 조건
 

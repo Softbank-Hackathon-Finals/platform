@@ -224,6 +224,11 @@ def _verify_collected_bundle(raw, children, *, registration, expected_digest, no
         observations = child["observations"]
         _require(type(observations) is dict and set(observations) == needed)
         probe_at = time(observations["probe"]["observed_at"])
+        probe_start = (
+            time(observations["probe"]["coordinator_started_at"])
+            if r.method_version == "2"
+            else probe_at
+        )
         for label, item in observations.items():
             keys = {"outcome", "elapsed_ms", "observed_at"}
             if r.method_version == "2":
@@ -252,8 +257,13 @@ def _verify_collected_bundle(raw, children, *, registration, expected_digest, no
                     type(item["max_clock_offset_ms"]) is int
                     and item["max_clock_offset_ms"] == 1000
                     and 0 <= (at - start).total_seconds() <= 5
+                    # A remote timeout cannot take longer than the parent request.
+                    # Allow one millisecond for integer elapsed_ms rounding.
+                    and item["elapsed_ms"] <= (at - start).total_seconds() * 1000 + 1
                     and 0 <= (now - start).total_seconds() <= 60
                     and start - timedelta(seconds=1) <= agent <= at + timedelta(seconds=1)
+                    and (not label.startswith("before") or at <= probe_start)
+                    and (not label.startswith("after") or start >= probe_at)
                 )
     _require(seen == set(children) and (max(dates) - min(dates)).total_seconds() <= 60)
     return min(dates) + timedelta(seconds=60)
