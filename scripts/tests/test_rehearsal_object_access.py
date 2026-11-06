@@ -20,6 +20,7 @@ SEARCH = [str(ROOT / "infra/envs/target-workloads"), str(ROOT / "services/rehear
 with patch.object(sys, "path", [*SEARCH, *sys.path]), patch.dict(sys.modules):
     sys.modules.pop("render", None)
     import objects
+    from rehearsal_runner import credential_job
     from rehearsal_runner.bucket_job import BucketFixture, SeaweedBucketJob
     from rehearsal_runner.isolation.fixtures import RUN_LABEL, Fixtures
     from rehearsal_runner.isolation.profile import read_env
@@ -248,6 +249,67 @@ class RehearsalObjectAccessTests(unittest.TestCase):
         self.assertEqual(items[3]["kind"], "Deployment")  # scripts/tests/attachment_containers.py
         self.assertEqual(items[4]["metadata"]["name"], "target-object-clients")
 
+
+
+def t15_credential_labels():
+    """Labels T15 puts on the candidate app Pod and on verifier Job Pods (credential_job.py)."""
+    app = credential_job._pod({"namespace": "rehearsal-run1", "labels": {}}, credential_job.APP_NAME,
+                              "sa", {"name": "run", "image": "x"}, [])["metadata"]["labels"]
+    source = Path(credential_job.__file__).read_text()
+    # The verifier Job template label is inline in CredentialJob._job.
+    assert '"metadata": {"labels": {"role": "credential-verifier", **(labels or {})}}' in source
+    return app, {"role": "credential-verifier"}
+
+
+CANDIDATE, CREDENTIAL_VERIFIER = t15_credential_labels()
+CONTROL = namespace(target_secrets.WRITER_NAMESPACE,
+                    target_secrets.rehearsal_writer_identity()["items"][0]["metadata"]["labels"])
+OPENBAO_SERVER = {"app.kubernetes.io/name": "openbao", "app.kubernetes.io/instance": target_secrets.RELEASE}
+OPENBAO_ALLOWED = {
+    "candidate init container in an attempt namespace": (REHEARSAL, CANDIDATE),
+    "T15 verifier / denial-test Job in an attempt namespace": (REHEARSAL, CREDENTIAL_VERIFIER),
+    # Namespace-wide on purpose (#402): OpenBao, not the network, decides what a Pod may read.
+    "unlabelled Pod in an attempt namespace": (REHEARSAL, {}),
+    "writer Job in the management namespace": (CONTROL, {**CREDENTIAL_VERIFIER, **target_secrets.WRITER_POD_LABEL}),
+}
+OPENBAO_DENIED = {
+    "candidate in a rehearsal-named namespace without the label": (UNLABELLED_REHEARSAL, CANDIDATE),
+    "verifier in a rehearsal-named namespace without the label": (UNLABELLED_REHEARSAL, CREDENTIAL_VERIFIER),
+    "candidate label in target-dev": (TARGET, CANDIDATE),
+    "verifier label in target-dev": (TARGET, CREDENTIAL_VERIFIER),
+    "verifier without the writer label in the management namespace": (CONTROL, CREDENTIAL_VERIFIER),
+    "candidate label in the management namespace": (CONTROL, CANDIDATE),
+    "verifier under another part-of value": (OTHER_PART_OF, CREDENTIAL_VERIFIER),
+    "T3 probe in the T3 victim namespace": (T3_VICTIM, PROBE),
+}
+
+
+class OpenBaoRehearsalIngressTests(unittest.TestCase):
+    """T9 OpenBao ingress for T15 attempt namespaces (#402), tied to T15 and T3."""
+
+    def policies(self):
+        return [target_secrets.network("10.96.0.1", "192.168.50.10")]
+
+    def test_attempt_namespaces_and_the_writer_reach_only_8200(self):
+        for name, (client_namespace, pod) in OPENBAO_ALLOWED.items():
+            with self.subTest(allowed=name):
+                self.assertTrue(admitted(self.policies(), client_namespace, pod, 8200, OPENBAO_SERVER))
+                self.assertFalse(admitted(self.policies(), client_namespace, pod, 8201, OPENBAO_SERVER))
+        for name, (client_namespace, pod) in OPENBAO_DENIED.items():
+            with self.subTest(denied=name):
+                self.assertFalse(admitted(self.policies(), client_namespace, pod, 8200, OPENBAO_SERVER))
+
+    def test_the_management_namespace_is_not_an_attempt_namespace(self):
+        self.assertNotEqual(CONTROL.get("app.kubernetes.io/part-of"), "bravo-rehearsal")
+
+    def test_t3_onprem_egress_points_at_the_same_openbao_pod_and_port(self):
+        profile = read_env(ROOT / "services/rehearsal-runner/profiles/onprem.env")
+        self.assertEqual(profile["OPENBAO_NAMESPACE"], target_secrets.NAMESPACE)
+        self.assertTrue(selects({"matchLabels": {profile["OPENBAO_LABEL_KEY"]: profile["OPENBAO_LABEL_VALUE"]}},
+                                OPENBAO_SERVER))
+        self.assertEqual(int(profile["OPENBAO_PORT"]), 8200)
+        self.assertEqual(t3_namespace_labels().get("app.kubernetes.io/part-of"),
+                         target_secrets.REHEARSAL_LABEL["app.kubernetes.io/part-of"])
 
 if __name__ == "__main__":
     unittest.main()

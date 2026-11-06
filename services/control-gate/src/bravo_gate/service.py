@@ -220,7 +220,7 @@ class GateService:
         ):
             raise GateError("GATE_AUTHORITY_CHANGED")
 
-    def _network(self, actor, ctx, deadlines):
+    def _network(self, actor, ctx, deadlines, runs):
         def check(side, test_id, row):
             from .network import VerifiedNetworkProof
 
@@ -236,6 +236,9 @@ class GateService:
                 or result.side != side
                 or result.test_id != test_id
                 or result.output_digest != row["evidence"]["output_sha256"]
+                or result.required_roles_verified != ("database", "pooler")
+                or side not in {"source", "target"}
+                or result.run_id != runs[0 if side == "source" else 1].document["run_id"]
                 or result.valid_until <= self.clock()
             ):
                 return False
@@ -250,7 +253,7 @@ class GateService:
         loaded = self._load(actor, context_id, approval_ids, action=action, deadlines=deadlines)
         ctx, runs, approvals = loaded
         at = self.clock()
-        network = self._network(actor, ctx, deadlines)
+        network = self._network(actor, ctx, deadlines, runs)
         report = evaluate(
             self.contract,
             ctx,
@@ -308,7 +311,7 @@ class GateService:
         ctx, runs, approvals = loaded
         candidate = decode(document)
         at = self.clock()
-        network = self._network(actor, ctx, deadlines)
+        network = self._network(actor, ctx, deadlines, runs)
         report = consume(
             self.contract,
             ctx,
