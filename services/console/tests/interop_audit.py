@@ -1,6 +1,7 @@
-"""Explicit integration command; requires real T24 and T11 on PYTHONPATH.
-No import skip and no fake ledger. Local FileSink is NOT production Object Lock.
-Run: python -m pytest tests/interop_audit.py -q
+"""Explicit integration command; requires real T11 (agent-worker) on PYTHONPATH.
+T24 is a console dev dependency; test_audit.py covers it in CI. This adds the real T11 policy
+denial. No import skip and no fake ledger. Local FileSink is NOT production Object Lock.
+Run: PYTHONPATH=../agent-worker/src python -m pytest tests/interop_audit.py -q
 """
 
 import hashlib
@@ -12,11 +13,12 @@ from bravo_agent.contracts import FailureBundle, SnapshotManifest
 from bravo_agent.tools import PolicyDenied, Snapshot, Tools
 from bravo_audit.adapters import from_agent_tool_event
 from bravo_audit.ledger import RunLedger, verify_chain
+from bravo_audit.registration import registration_from_receipt
 from bravo_audit.sink import FileSink
 from fastapi.testclient import TestClient
 from test_app import ORIGIN, setup
 
-from bravo_console.audit import RegisteredAuditSnapshot, t24_reader
+from bravo_console.audit import RegisteredAuditRun, t24_reader
 
 
 @pytest.mark.parametrize("mode", ["healthy", "tampered", "wrong_anchor", "replay"])
@@ -58,17 +60,12 @@ def test_actual_t11_t24_t21(tmp_path, mode):
         assert not created and len(ledger.records) == 1
     if mode == "tampered":
         records[0]["payload"]["tool"] = "unlisted"
+        (sink.root / receipt.key).write_text(json.dumps(records[0]))
     app, store, _, _ = setup(tmp_path / "plan.db")
-    registered = RegisteredAuditSnapshot(
-        plan,
-        store.snapshot(plan)["plan_digest"],
-        run,
-        1,
-        record.sha256,
-        json.dumps({"records": records}).encode(),
-    )
+    registration = registration_from_receipt(plan, run, receipt.as_dict(), "2026-11-07T00:00:00Z")
+    registered = RegisteredAuditRun(plan, store.snapshot(plan)["plan_digest"], registration)
     if mode == "wrong_anchor":
-        registered = replace(registered, chain_digest="f" * 64)
+        registered = replace(registered, registration=registration | {"chain_digest": "f" * 64})
 
     async def load(scope, snapshot):
         return registered
@@ -76,7 +73,7 @@ def test_actual_t11_t24_t21(tmp_path, mode):
     async def authenticate(scope, snapshot, supplied):
         return supplied is registered
 
-    app.audit = t24_reader(app.api, load=load, authenticate=authenticate)
+    app.audit = t24_reader(app.api, load=load, authenticate=authenticate, root=sink.root)
     with TestClient(app, base_url=ORIGIN, cookies={"fixture-session": "test-only"}) as c:
         result = c.get("/v1/plans/plan-demo/audit")
     if mode in ("tampered", "wrong_anchor"):

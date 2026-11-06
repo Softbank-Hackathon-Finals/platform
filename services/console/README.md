@@ -322,23 +322,28 @@ T33 전체 완료 또는 실제 위협 탐지 성공으로 기록하지 않는�
 새로운 차단 이벤트를 만들거나 승인·전환 권한을 부여하지 않는다.
 
 - 원문: [T11 도구 기록](../agent-worker/src/bravo_agent/tools.py),
-  [T24 PR #257 계약](https://github.com/Softbank-Hackathon-Finals/platform/pull/257).
-  생산자 스키마·기록 작성·체인 검증은 T24 소유다. 소비자에 복사하지 않는다.
+  [T24 감사 기록 계약](../../docs/contracts/T24-audit-record-v1-proposal.md).
+  생산자 스키마·기록 작성·버전 확인 읽기(`read_run`)·등록값 형식은 T24 소유다. 소비자에 복사하지 않는다.
 - T24의 `from_agent_tool_event`는 원래 `run_id`, `attempt`와 시도 내 **원래 이벤트 인덱스**로
   `origin_id`를 만든다. 필터링한 목록의 새 인덱스로 다시 번호를 붙이면 안 된다.
 - `source=agent.tools`, `kind=DESTRUCTIVE_ATTEMPT_BLOCKED`,
   `payload.outcome=DENIED`, `payload.category=bucket_delete`를 함께 확인한다.
   기록 ID·저장 시각·실행·시도·도구·사유만 허용 목록으로 전달한다.
   원문 명령, 모델 인자, 임의 payload, 저장소 키와 URL은 반환하지 않는다.
-- T10의 실제 계획 조회 권한을 **읽기 전후** 검사한다. 등록된 계획 digest·실행 ID·기록 수·
-  체인 끝 지문을 대조하고 실제 T24 `verify_chain`을 호출한다. 중복 origin도 거부한다.
+- 도구 이름은 목록이 아니라 T11 규칙(`[a-z][a-z0-9_.]{0,63}`, T24 `TOOL_NAME`)으로 검사한다.
+  새 T11 도구(`sandbox.exec` 등)는 콘솔 변경 없이 표시되고, 규칙 밖 이름은 그 행만 “도구 확인 불가”다.
+- T10의 실제 계획 조회 권한을 **읽기 전후** 검사한다. 계획은 실행 중 상태가 바뀌므로
+  전후에는 계획 ID·digest와 등록 인증만 다시 대조한다. 중복 origin도 거부한다.
 - 연결 없음·검증 실패·권한 회수는 503/403과 **확인 불가**다. “0건이므로 안전”으로
   바꾸지 않는다. 계획 전환·권한 회수·읽기 실패 시 화면의 이전 기록을 지운다.
-- 범위는 등록된 **한 실행의 비어 있지 않은 스냅샷**이다. 최대 512건·2MiB를 넘으면
-  거부하며 잘라서 성공하지 않는다. 전체 계획의 모든 실행·이벤트 수집 완료를 뜻하지 않는다.
-  T11의 `event_count`와 최대 128개 `events`의 차이는 생산자가 별도로 관리해야 한다.
+- 실행에 `agent.tools` 기록이 하나도 없으면 “버킷 삭제 차단 0건”이 아니라 **“도구 기록 확인 불가”**다.
+  T10 스키마 1.0은 아직 도구 이벤트를 전달하지 않으므로, 기록이 없다는 것이 시도가 없었다는 뜻이 아니다.
+- 범위는 등록값이 보증하는 **한 실행의 앞부분**이다(최대 100,000건). 등록 뒤에 추가된 기록은
+  `unregistered_records`로 세기만 하고 보여 주지 않는다. 차단 행은 최근 200건만 보내고 총수는
+  `rows_total`로 따로 낸다. 전체 계획의 모든 실행·이벤트 수집 완료를 뜻하지 않는다.
 - 체인 지문은 무결성 검사이지 신원 인증·위변조 불가능성·보존 기간의 증명이 아니다.
   이 화면은 `retention_verified=false`만 반환한다. 운영 Object Lock 여부를 추정하지 않는다.
+- 질의 문자열은 받지 않는다(400). 실행·저장 위치를 브라우저가 고를 수 없다.
 
 호스트 연결 지점은 다음과 같다. 기본값은 `audit=None`으로 비활성이다. T24 패키지가
 없으면 `t24_reader` 구성은 실패한다. 대체 검증기나 임시 메모리 기록으로 우회하지 않는다.
@@ -348,34 +353,37 @@ from bravo_console.audit import t24_reader
 
 reader = t24_reader(
     api,
-    load=host.load_registered_audit_snapshot,
+    load=host.load_audit_registration,          # -> RegisteredAuditRun
     authenticate=host.authorize_audit_registration,
+    client=s3_reader_client, bucket=audit_bucket,  # T24 reader 역할(list·get)만
 )
 app = ConsoleApp(api, public_origin=public_origin, audit=reader)
 ```
 
-`load`는 요청 본문·URL로 저장 경로를 받지 않고, 서버의 실행 등록부에서
-`RegisteredAuditSnapshot(plan_id, plan_digest, run_id, record_count, chain_digest, document)`를
-읽는다. `document`는 `{"records": [...]}` 형식이다. `authenticate`는 로그인한 주체의
-tenant·계획 접근권한과 **신뢰하는 서버 등록부의 실행→계획/digest 결속**, 등록 스냅샷의
-count·tail 지문을 확인해야 한다. 기록과 함께 전달된 자기 주장이나 `return True`만으로
-구현하면 안 된다. 저장소에서 읽은 기록으로 신뢰 기준 지문을 즉석 재계산하지 않는다.
-운영 보존 영수증의 version/retention 검증과 갱신된 실행 등록은 T24·호스트의 책임이다.
+- `load(scope, plan)`는 요청 본문·URL로 저장 경로를 받지 않고, 호스트의 등록 저장소에서
+  `RegisteredAuditRun(plan_id, plan_digest, registration, anchors)`를 읽는다. `registration`은
+  T24 `registration_from_receipt`가 **쓰기 영수증**으로 만든 등록값 v1이다. 버킷 목록으로 만들지 않는다.
+- 호스트는 등록값을 감사 writer가 바꿀 수 없는 곳에 **append-only**로 받는다. 새 등록값의
+  `record_count`가 줄면 받지 않고, 이전에 받은 등록값들을 `anchors`(`(record_count, chain_digest)`)로 넘긴다.
+  콘솔은 각 기준점의 순번 sha256이 지금 체인에서도 같은지 확인한다(덮어쓰기·재작성 거부).
+- 읽기는 T24 `read_run`이다. 기록 키의 다중 버전·삭제 표식, 체인, 등록값 기준점을 T24가 확인한다.
+  `root`(FileSink)는 버전이 없어 덮어쓰기를 잡지 못하므로 시험·데모 전용이다.
+- `authenticate`는 로그인한 주체의 tenant·계획 접근권한과 **신뢰하는 등록부의 실행→계획/digest 결속**을
+  확인해야 한다. 기록과 함께 전달된 자기 주장이나 `return True`만으로 구현하면 안 된다.
 
 #### 검증 상태와 인계
 
-2026-11-05, T24 `da26117529e10be7d9aa7b9e7ca0b0b52956a4c1`을 읽기 전용으로 참조해
-실제 T11 거부 → T24 adapter/ledger → FileSink 쓰기·재읽기 → T21 HTTP → Chromium/WebKit
-표시를 검증했다. 별도 실제 모델 호출·AWS 삭제 명령은 실행하지 않았다.
+2026-11-07, develop(#480·#547 머지 후)에서 실제 T24 writer·등록값·`read_local_run`으로 다시 확인했다.
 
-- 자동 CI: 콘솔의 권한/투영 부정 시험과 JavaScript 검증. 체인 검증기는 단위 시험에서 명시적인 test double이다.
-- 별도 상호운용 시험: 실제 T11/T24 모듈을 `PYTHONPATH`에 추가한 뒤
-  `python -m pytest tests/interop_audit.py -q`. 정상·변조·등록 지문 불일치·동일 이벤트 재전송을 확인한다.
+- 자동 CI(`tests/test_audit.py`): T24는 콘솔 개발 의존성(경로)이다. T11 형식 이벤트를 실제
+  `from_agent_tool_event`·`RunLedger`·`FileSink`로 쓰고, 영수증 등록값으로 읽는다.
+  `sandbox.exec` 왕복, 규칙 밖 도구, 도구 기록 없음, 실행 성장(기준점), 계획 상태 변화, 부정 18종을 시험한다.
+- 실제 T11 정책 거부 상호운용(명시 실행): `PYTHONPATH=../agent-worker/src python -m pytest tests/interop_audit.py -q`.
 - 실제 모듈 브라우저 시험: 같은 `PYTHONPATH`로
   `pnpm exec playwright test --config testing/audit.config.js`.
   시험 서버는 loopback 전용·임시 저장소·가짜 로그인 주체이며 운영 인증 구현이 아니다.
-- **운영 미완료:** T24 PR의 미해결 보안/재전송 검토, 시도 종료 시 영속 writer 호출,
-  서버 실행 등록부/호스트 연결, 실제 Object Lock 보존과 재시작·재전송 인수.
-  해당 항목이 끝나기 전 이 소비자 변경으로 T24 또는 T21 전체 완료를 체크하지 않는다.
+- **운영 미완료:** T10의 도구 이벤트 전달(스키마 1.0 이후), 호스트 등록 저장소(append-only)와 연결,
+  실제 S3 `read_run`·Object Lock 보존과 재시작·재전송 인수. 해당 항목이 끝나기 전 이 소비자 변경으로
+  T24 또는 T21 전체 완료를 체크하지 않는다.
 
 T24 모듈의 수정은 담당자 범위로 유지한다. 이 변경은 T21 소비자와 검증 코드만 포함한다.

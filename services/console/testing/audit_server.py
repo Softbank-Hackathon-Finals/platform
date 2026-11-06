@@ -1,7 +1,6 @@
 """Opt-in local T11→T24 FileSink→T21 browser qualification, never a host recipe."""
 
 import hashlib
-import json
 import tempfile
 from datetime import UTC, datetime
 from pathlib import Path
@@ -11,12 +10,13 @@ from bravo_agent.contracts import FailureBundle, SnapshotManifest
 from bravo_agent.tools import PolicyDenied, Snapshot, Tools
 from bravo_audit.adapters import from_agent_tool_event
 from bravo_audit.ledger import RunLedger
+from bravo_audit.registration import registration_from_receipt
 from bravo_audit.sink import FileSink
 from bravo_platform_events.plan_api import Principal, create_plan_app
 from bravo_platform_events.plans import PlanSpec, PlanStore
 
 from bravo_console import ConsoleApp
-from bravo_console.audit import RegisteredAuditSnapshot, t24_reader
+from bravo_console.audit import RegisteredAuditRun, t24_reader
 
 
 def main():
@@ -50,7 +50,6 @@ def main():
         assert created
         sink = FileSink(root / "records")
         receipt = sink.put(record)
-        stored = json.loads((sink.root / receipt.key).read_bytes())
         store = PlanStore(root / "plan.db")
         spec = PlanSpec(
             plan, "local-validation", "demo-chat", "env-source", "env-target", "a" * 64, "b" * 64
@@ -63,13 +62,8 @@ def main():
             return None
 
         api = create_plan_app(store, resolve_principal=principal)
-        registered = RegisteredAuditSnapshot(
-            plan,
-            spec.plan_digest,
-            run,
-            1,
-            record.sha256,
-            json.dumps({"records": [stored]}).encode(),
+        registered = RegisteredAuditRun(
+            plan, spec.plan_digest, registration_from_receipt(plan, run, receipt.as_dict())
         )
 
         async def load(scope, current):
@@ -81,7 +75,7 @@ def main():
         app = ConsoleApp(
             api,
             public_origin="http://127.0.0.1:18124",
-            audit=t24_reader(api, load=load, authenticate=authenticate),
+            audit=t24_reader(api, load=load, authenticate=authenticate, root=sink.root),
         )
         uvicorn.run(app, host="127.0.0.1", port=18124, log_level="warning")
 

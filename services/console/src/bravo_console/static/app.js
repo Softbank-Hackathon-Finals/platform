@@ -1,4 +1,4 @@
-import { agentAudit, renderAudit } from "./audit.js";
+import { agentAudit, auditSummary, renderAudit } from "./audit.js";
 import {
   Model,
   STATES,
@@ -211,7 +211,7 @@ function render() {
   text(
     "audit-status",
     auditFresh
-      ? `등록된 실행 ${audit.value.run_id} · 저장 기록 ${audit.value.record_count}건 · 버킷 삭제 차단 ${audit.value.rows.length}건`
+      ? auditSummary(audit.value)
       : "감사 기록 확인 불가 — 저장소 연결·권한·검증 상태를 확인하세요.",
   );
   text(
