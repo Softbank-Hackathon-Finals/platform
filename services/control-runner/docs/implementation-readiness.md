@@ -27,7 +27,7 @@
 | NET-01.2 외부→DB 차단 | `network_probes.py` | 모의·로컬 네트워크 검증. 실제 외부/허용 주체·5432/6432·정책 readback 인수 필요 |
 | NET-01.3 다른 namespace→DB 차단 | 같은 네트워크 수집기 | [실제 출발지 시험](../../../docs/evidence/t14-source-network-2026-11-06/README.md): DB5432는 다른 NS에서도 연결. 실제 풀러5432와 계약6432 차이로 전체 UNKNOWN. 방법/등록 정합과 목적지 인수 필요 |
 | IAM-01.1 익명 객체 읽기 | AWS 객체 수집기 | #298/#341 실제 출발지. 목적지 SeaweedFS 주소·자격·객체 버전 연결 별도 |
-| IAM-01.2 기준선 초과 권한 | `tool_reports.py`의 결과 정규화 | Prowler/kube-bench 실행·실제 점검 ID/역할/namespace 매핑 미확정. manual/WARN를 PASS로 바꾸지 않음 |
+| IAM-01.2 기준선 초과 권한 | `tool_reports.py` 정규화, `prowler_iam.py` 정책 원문·도구 진단 검증 | [실제 Prowler 자격 시험](../../../docs/evidence/t14-prowler-2026-11-06/README.md): 내부 오류 후 PASS 반환을 UNKNOWN으로 차단. 전체 매핑 미확정이며 kube-bench manual/WARN도 PASS로 바꾸지 않음 |
 | ISO-01.1 다른 앱의 객체·DB 접근 | 결합된 T14 시험기 없음 | 객체와 DB 모두 허용/거부 주체로 실제 시험해야 함. 익명 객체 시험이나 Secret 시험으로 대체하지 않음 |
 | DR-01.1 새 클러스터 복원 | `backup_restore.py`, `cnpg_*`, `postgres_restore.py` | 로컬 자격 경로 있음. T35 양쪽 실제 저장소·archive 준비·표식 경계·신규 복원·검증 인수 필요 |
 

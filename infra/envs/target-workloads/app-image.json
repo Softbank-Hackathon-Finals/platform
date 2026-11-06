@@ -9,7 +9,10 @@
     "source_sha": "8d82a9241d3894737778a77d58349e1aee54eca1",
     "recorded": "2026-11-06, read from the running target Deployment on the arm64 node",
     "source_check": "the 17 files under /app/app in the running image have the same sha256 as app/ at source_sha",
-    "build_commit": "not identified: one of demo-chat c9406cf..57d7ce4, which all ship the same app files",
-    "base_image": "not identified"
+    "build_commit": "none: app files from source_sha with a local arm64 Dockerfile, not the Dockerfile of a single demo-chat commit",
+    "dockerfile_sha256": "4a05782f61a20466ce07fe5eaf54bc33f097edfe8a228fae6422488f00e78da6",
+    "base_image": "python:3.13-slim@sha256:ae14d4ce8771606477a81446e7ef429edd6762305fc50c84507c1041fa8285d1",
+    "uv_image": "uv 0.13.6, arm64 digest sha256:af22a52f5eafef3d78e551599d405c02df61919d18028f0cea8eda93bc9986d0",
+    "built": "2026-11-06 04:47 KST, docker buildx --platform linux/arm64, OCI output; reported by the builder, not rebuilt here"
   }
 }

@@ -9,18 +9,15 @@ import json
 from dataclasses import dataclass, field
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from types import SimpleNamespace
 
 import httpx
-from bravo_agent.contracts import Contract, FailureBundle, digest
+from bravo_agent.contracts import Contract, digest
 from bravo_agent.subscription_product import ProductAccess, proposal_result, stopped
 from bravo_agent.subscription_product_reader import MAX_READ_BYTES, ProductReaderConfig
 from bravo_agent.tools import Snapshot, Tools
 from pydantic import Field
-from rehearsal_runner.admission import logical_task_digest
-from rehearsal_runner.credential_proposer import credential_summary
-from rehearsal_runner.secret_task import prepare_credential_migration
 
+from .initial_model_input import model_input as model_input
 from .initial_proposal import InitialIntent, InitialResult
 from .initial_proposal_api import PATH, InitialRead, bound_input
 
@@ -57,25 +54,6 @@ class InitialInputHTTPReader:
             return bound_input(request.intent, json.loads(raw))
         except Exception:
             raise ValueError("authenticated_initial_read_unavailable") from None
-
-
-def model_input(value):
-    if (value.schema_version != 2 or value.analysis.grade != "code_change"
-            or value.analysis.inventory_digest != value.binding.inventory_digest
-            or value.binding.stage != "PROPOSE" or value.binding.purpose != "t38-initial-proposal"
-            or value.manifest.source_sha != value.binding.source_sha):
-        raise ValueError("initial_model_input_conflict")
-    # The inventory explains why a change is needed; the registered task fixes
-    # the destination interface. Never ask the model to guess the injected path.
-    task = prepare_credential_migration(value.run_id, value.binding.source_sha)
-    if logical_task_digest(task) != value.binding.task_digest:
-        raise ValueError("initial_task_contract_unavailable")
-    bundle = FailureBundle(run_id=value.run_id, source_sha=value.binding.source_sha,
-        failure_code="CODE_CHANGE_REQUIRED",
-        summary=credential_summary(task) + "\nInventory finding: " + value.analysis.rationale,
-        evidence_digest=value.analysis.inventory_digest)
-    # No admission_digest is invented. Only T11's existing worker value shape is used.
-    return SimpleNamespace(bundle=bundle, manifest=value.manifest, files=value.files)
 
 
 def stage_initial(value, root):
