@@ -112,7 +112,9 @@ Action·Resource 배열의 모든 원소와 Principal 객체 안의 배열까지
 
 실패 영수증에는 같은 run/revision/evidence에 결속된 새 `FailureBundle`이 필요하다. Coordinator는 원 작업 번들을 `task`로 보존하고 결과 · 각 시도에 `task_digest`를 남긴다. 러너가 재시작하면 확인되지 않은 시도를 자동 재실행하지 않고 사람에게 넘긴다(아래 [재시작과 상태 보존](#재시작과-상태-보존), 저장은 T10). 각 시도의 정리된 입력·제안과 검증 영수증을 결과에 보존한다. 감사 이벤트에는 코드가 정한 도구명·사유·결과만 저장하고 거부된 원시 인자, provider 오류 문자열과 stderr는 저장하지 않는다.
 
-허용된 소스 읽기는 경로와 내용 해시를 남긴다. 감사 이벤트가 시도당 128개를 넘으면 초과 여부와 전체 건수를 표시하고 `NEEDS_HUMAN`으로 중단한다. 기록이 잘린 제안을 승인 대기로 넘기지 않는다.
+결속이 어긋난 영수증(다른 `proposal_digest`·`attempt`·`run_id`·`source_sha`, 실패 증거 digest 불일치)은 시도 기록에 넣지 않고 감사 이벤트의 `RECEIPT_MISMATCH` 사유만 남긴다.
+
+허용된 소스 읽기는 경로와 내용 해시를 남긴다. 감사 이벤트가 시도당 128개를 넘으면 초과 여부와 전체 건수를 표시하고 `NEEDS_HUMAN`으로 중단한다. 기록이 잘린 제안을 승인 대기로 넘기지 않는다. coordinator 자체의 중단 이벤트(`tool=coordinator`)도 그 시도의 `audit_event_count`에 더한다. 그래서 "그 시도의 `independent_verifier` 외 이벤트 수 = `audit_event_count`"라는 T15 `attempt_tool_events`의 검사가 중단 뒤에도 맞는다.
 
 ### 재시작과 상태 보존
 
@@ -120,9 +122,9 @@ coordinator는 프로세스 안의 객체지만 상태를 문서로 내보내고
 
 - `Coordinator(..., checkpoint=fn)`: 상태가 바뀔 때마다 `fn(export_state())`를 부른다. 모델 호출 **전**에 `ANALYZING` 상태를 먼저 넘긴다(write-ahead). 이 저장이 실패하면 모델을 부르지 않고 `NEEDS_HUMAN`(`STATE_CHECKPOINT_FAILED`)으로 멈춘다. 호출 뒤·영수증 처리 뒤 저장 실패도 같은 사유로 멈춘다.
 - `Coordinator.export_state() -> dict`: JSON으로 그대로 저장할 수 있는 문서. `state_digest`는 나머지 필드의 T11 `digest`(정렬 키·구분자 고정 JSON의 SHA-256)다.
-- `Coordinator.restore(state, snapshot, inventory=None, checkpoint=None)`: 필드 집합·`state_digest`·버전·run/revision 결속·snapshot·inventory digest·시도 기록 수·영수증의 시도 번호·상태와 기록의 일치를 확인한다. 하나라도 어긋나면 `StateRejected`이며 호출자는 새로 시작하지 않고 사람에게 넘긴다.
+- `Coordinator.restore(state, snapshot, inventory=None, checkpoint=None)`: 필드 집합·`state_digest`·버전·run/revision 결속·snapshot·inventory digest·시도 기록 수·상태와 기록의 일치를 확인한다. 저장된 영수증마다 `verify()`와 같은 규칙으로 판정을 다시 계산한다(`proposal_digest`·`attempt`·`source_sha`·효과 확인·실패 증거 digest). 앞선 시도는 모두 영수증이 있고 `RETRY_ALLOWED`로 끝나야 하며, 각 시도의 입력은 원 작업(1회째) 또는 직전 영수증의 `failure`와 같아야 하고, 기록된 상태·`bundle`도 다시 계산한 판정과 맞아야 한다. 하나라도 어긋나면 `StateRejected`이며 호출자는 새로 시작하지 않고 사람에게 넘긴다.
 - 복원 규칙: `ANALYZING`(모델 호출 중이라 결과 모름)은 `NEEDS_HUMAN`으로 바꾸고 그 시도를 쓴 것으로 센다(`RESTART_OUTCOME_UNKNOWN`). 다시 실행하지 않는다. 시도 수는 문서의 `attempt`를 이어 받으므로 재시작해도 합계 3회를 넘지 않고, 3회째의 `RETRY_ALLOWED` 문서는 거부한다. 복원한 `PROPOSAL_READY`의 `verify()`는 같은 `proposal_digest`·`attempt`·`run_id` 영수증만 받는다.
-- `bravo-agent analyze --state-output <새 파일>`은 같은 checkpoint를 임시 파일 + `os.replace`로 남긴다. 기존 파일이 있으면 시작하지 않는다.
+- `bravo-agent analyze --state-output <새 파일>`은 같은 checkpoint를 남긴다. 경로가 이미 있으면(끊어진 심볼릭 링크 포함) 시작하지 않는다. 같은 디렉터리의 고유한 임시 파일(`mkstemp`, 0600)에 쓰고 fsync한 뒤, 첫 저장은 `os.link`(그사이 이름이 생겼으면 실패), 이후 저장은 `os.replace`로 바꾸고 디렉터리도 fsync한다. 고정 이름 임시 파일이 없어 중단된 실행이 다음 실행을 막지 않는다.
 
 T10/T15가 저장할 필드(`schema_version` 1, `kind=bravo.t11.coordinator_state`):
 
@@ -137,7 +139,7 @@ T10/T15가 저장할 필드(`schema_version` 1, `kind=bravo.t11.coordinator_stat
 | `attempts`, `audit` | 시도별 정리된 입력·제안·영수증, 코드가 정한 감사 이벤트 |
 | `state_digest` | 위 필드 전체의 digest |
 
-`state_digest`는 손상·부분 수정 탐지이며 서명이 아니다. digest를 다시 계산해 넣은 문서는 내용 규칙(시도 수와 기록 수, 3회 상한, 상태와 기록 일치)으로만 막힌다. 위조 방지·단일 실행 권한·되돌리기 금지는 T10 저장소의 접근 제어와 `revision` 비교로 보장해야 한다. 문서에는 모델 자격·원시 인자·provider 오류 문자열이 없다(결과 파일과 같은 내용). T10 저장·T15 영수증의 인증된 전달과 실제 재시작 운영은 연결하지 않았다. CLI는 최초 제안 한 번만 수행하며 재시도 실행 경로는 T10 제어 경로가 `restore()`로 연다. T15의 실제 Job 실행, hidden-test 격리, 승인 소비와 T31 반영은 구현하지 않았다.
+`state_digest`는 손상·부분 수정 탐지이며 서명이 아니다. digest를 다시 계산해 넣은 문서는 내용 규칙(시도 수와 기록 수, 3회 상한, 영수증 재판정과 상태·입력 일치)으로만 막힌다. 내용 규칙으로 막을 수 없는 변조도 있다. 예를 들어 3회째 시도 기록과 그 감사 이벤트를 함께 지우고 `attempt`를 2로 낮춰 2회째 `RETRY_ALLOWED` 문서로 되돌리면, 그 문서는 정상 경로가 실제로 만든 문서와 같아 구별할 수 없다. 위조 방지·단일 실행 권한·되돌리기 금지는 T10 저장소의 접근 제어와 `revision` 비교로 보장해야 한다. 문서에는 모델 자격·원시 인자·provider 오류 문자열이 없다(결과 파일과 같은 내용). T10 저장·T15 영수증의 인증된 전달과 실제 재시작 운영은 연결하지 않았다. CLI는 최초 제안 한 번만 수행하며 재시도 실행 경로는 T10 제어 경로가 `restore()`로 연다. T15의 실제 Job 실행, hidden-test 격리, 승인 소비와 T31 반영은 구현하지 않았다.
 
 ## 플랫폼 배포 조건과 현재 증거
 
