@@ -149,13 +149,6 @@ class OperationsTest(unittest.TestCase):
         with self.assertRaisesRegex(worker.Failure, "execution_fenced"):
             runner.persist("RUNNING")
 
-    def test_status_is_bound_to_requested_run_and_retains_previous_receipt(self):
-        result = {"run_id": request()["run_id"], "verdict": "PASS"}
-        state = {"request": {"run_id": "another"}, "history": [result], "phase": "RUNNING"}
-        self.assertEqual(cli.report(state, result["run_id"]), {"phase": "FINISHED", **result})
-        with self.assertRaises(cli.Failure):
-            cli.report(state, "unknown")
-
     def test_public_policy_is_deleted_and_absence_is_read_back(self):
         runner = worker.Worker(FakeAPI(), "pod-uid")
         runner.request = request()

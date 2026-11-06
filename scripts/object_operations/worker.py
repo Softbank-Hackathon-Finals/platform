@@ -386,6 +386,9 @@ class Worker:
             "verdict": "UNCONFIRMED", "cleanup": "UNCONFIRMED", "checks": [],
             "executor_source_sha256": self.config.get("source_sha256"),
             "executor_pod_uid": self.pod_uid,
+            "requested_at": self.request.get("requested_at"),
+            "idempotency_key": self.request.get("idempotency_key"),
+            "request_fingerprint": self.request.get("request_fingerprint"),
         }
         if recovery:
             self.report.setdefault("recovery_executor_pod_uids", []).append(self.pod_uid)

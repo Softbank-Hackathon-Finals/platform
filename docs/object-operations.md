@@ -2,6 +2,57 @@
 
 개인 팀 접속으로 클러스터 안의 고정 작업을 요청한다. 기존 T9 `object_exposure.py`의 렌더·probe를 사용한다. 기존 키·계정 이름·버킷 권한을 보존하며, 열기에서는 첨부 버킷의 익명 읽기만 추가한다. 키나 Secret 파일을 로컬에 내려받거나 환경 변수로 전달하지 않는다.
 
+## HTTP API
+
+CLI는 같은 HTTP API를 호출한다. 별도 공유 API 키를 발급하지 않으며 기존 개인 접속 도구가 발급한 단기 토큰으로 인증한다. API 서버가 Kubernetes TokenReview로 검증한 주체를 실행 소유자로 기록한다. 요청 본문에 `owner`, 임의 명령, 이미지, Secret 값, 대상 주소를 넣으면 거부한다.
+
+[OpenAPI 3 명세](object-operations.openapi.json)의 기본 경로는 기존 `team-test.json`의 `direct_server` 뒤에 다음을 붙인다. 클러스터 안 서비스는 `bravo-object-operations.target-dev.svc.cluster.local:8080`이다. 외부에서는 기존 TLS 개인 API의 [Service proxy](https://kubernetes.io/docs/tasks/access-application-cluster/access-cluster-services/)를 경유하므로 새 인터넷 공개 포트나 포트포워딩이 필요하지 않다.
+
+```text
+/api/v1/namespaces/target-dev/services/http:bravo-object-operations:http/proxy
+```
+
+| 요청 | 동작 |
+|---|---|
+| `POST /v1/object-exposure/runs` | `check`, `cycle`, `close` 중 하나 접수 |
+| `GET /v1/object-exposure/runs` | 본인의 최근 실행·결과 목록 |
+| `GET /v1/object-exposure/runs/{run_id}` | 같은 실행의 상태·검사·시간·정리 결과 |
+| `POST /v1/object-exposure/runs/{run_id}/cancel` | `{}`로 취소 요청; 진행 중이면 같은 실행의 닫기로 진행 |
+| `GET /openapi.json` | 인증 후 API 명세 조회 |
+
+외부 요청은 `Authorization: Bearer <개인 단기 토큰>`과 `X-Bravo-Authorization: Bearer <같은 토큰>`을 보낸다. 앞쪽 API 인증과 뒤쪽 서비스의 독립 검증에 각각 사용한다. 토큰을 로그나 파일에 쓰거나 다른 사람에게 전달하지 않는다. 서비스는 호출자가 주장하는 사용자 이름 헤더를 신뢰하지 않는다. 인증이 없거나 만료되면 401, 팀 주체가 아니면 403, 남의 실행 조회·취소는 404다.
+
+접수에는 `Idempotency-Key: <현재 Unix 초>-<UUID hex 32자>`가 필요하다. 아래 Python 클라이언트의 `new_key()`로 만들 수 있다. 응답을 받지 못해도 **같은 키와 같은 본문**을 쓰면 기존 run을 반환한다. 같은 키에 다른 입력은 409다. 다른 실행이 진행 중일 때도 409이며, 새 키로 계속 재시도하지 않는다. 오래되어 결과 보관 범위를 벗어난 키는 410으로 거부해 다시 실행하지 않는다. `202`는 접수이며 성공 판정이 아니다.
+
+```json
+{
+  "action": "cycle",
+  "hold_seconds": 15,
+  "acknowledge_anonymous_read": true
+}
+```
+
+다른 Python 도구에서도 실행기를 복제하지 않고 [HTTP 클라이언트](../scripts/object_operations/client.py)를 사용한다. 기존 개인 인증 래퍼 안에서 실행하면 토큰은 메모리/프로세스 환경으로만 전달된다. 아래는 읽기 전용 예다.
+
+```python
+import json
+from pathlib import Path
+from object_operations.client import Client
+
+api = Client(json.loads(Path("team-test.json").read_text()))
+request_key = api.new_key()  # 재조회에 필요한 비밀값 없는 요청 키를 먼저 보존
+result = api.call("POST", body={"action": "check"}, key=request_key)
+print(result["run_id"])
+print(api.call("GET", "/" + result["run_id"]))
+```
+
+```sh
+PYTHONPATH=scripts uv run --python 3.12 python infra/envs/rehearsal-access/team_test.py \
+  --profile team-test.json -- python your_tool.py
+```
+
+API는 별도 SA로 실행하며 상태 ConfigMap get/patch, TokenReview create, 클러스터 UID 읽기만 허용한다. 저장소 Secret 읽기와 Deployment 변경은 고정 작업의 SA에만 있다. 운영자는 여전히 기존 개발 클러스터의 팀 권한을 사용한다. 이 API를 설치했다고 다른 기존 권한까지 축소했다고 주장하지 않는다.
+
 ## 실행과 결과
 
 다른 첨부 복사·검증과 겹치지 않는 작업 창에서 실행한다. 열기와 닫기 때 SeaweedFS를 각각 재시작하므로 첨부 접근이 잠시 중단된다. 일반 상태는 닫힘이다. `cycle`만 명시적 익명 읽기 확인을 받아 잠깐 열고 반드시 닫기·정리로 진행한다. 팀 배포물에서는 같은 명령을 `bash bravo objects ...`로 실행한다.

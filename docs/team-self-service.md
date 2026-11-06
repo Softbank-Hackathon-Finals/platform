@@ -25,7 +25,7 @@ uv run --python 3.12 python scripts/team_runtime.py cleanup --run-id team-실제
 
 ## 저장소 열기·닫기
 
-`objects check|cycle|status|cleanup|close`는 [저장소 운영 안내](object-operations.md)를 따른다. 클러스터 내부 작업이 기존 키를 소비하며, 개인 PC 연결과 무관하게 닫기와 정리를 이어간다. 별도 작업 창과 명시적 익명 읽기 확인이 필요하다. T3/T15의 로컬 원장·정리와 구분한다.
+`objects check|cycle|status|cleanup|close`는 [저장소 HTTP API](object-operations.md#http-api)를 호출한다. 다른 도구는 같은 API와 OpenAPI 명세를 사용할 수 있다. 클러스터 내부 작업이 기존 키를 소비하며, 개인 PC 연결과 무관하게 닫기와 정리를 이어간다. 별도 작업 창과 명시적 익명 읽기 확인이 필요하다. T3/T15의 로컬 원장·정리와 구분한다.
 
 ## 환경을 한 번 등록하는 사람의 책임
 

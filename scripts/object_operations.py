@@ -7,10 +7,9 @@ import re
 import subprocess
 import sys
 import time
-from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from uuid import uuid4
 
+from object_operations.client import APIError, Client
 from object_operations.install import NAME, NAMESPACE, ROOT, manifests
 
 
@@ -40,15 +39,6 @@ def save(doc, value):
     kubectl("patch", "configmap", NAME, "-n", NAMESPACE, "--type=json", "--patch", json.dumps(patch))
 
 
-def report(value, run_id):
-    if value.get("request", {}).get("run_id") == run_id:
-        return {"phase": value["phase"], **value.get("report", {}), "run_id": run_id}
-    for entry in reversed(value.get("history", [])):
-        if entry["run_id"] == run_id:
-            return {"phase": "FINISHED", **entry}
-    raise Failure("run_not_found_in_last_64_receipts")
-
-
 def execute(args):
     subject = json.loads(kubectl("auth", "whoami", "-o", "json"))["status"]["userInfo"]["username"]
     if not re.fullmatch(r"system:serviceaccount:bravo-team-access:member-0[1-5]", subject):
@@ -76,51 +66,32 @@ def execute(args):
         save(doc, value)
         print(json.dumps({"installed": True, "cluster_uid": cluster_uid, "credentials_distributed": False}))
         return 0
-    doc, value = state()
-    if value["config"]["cluster_uid"] != cluster_uid:
+    settings = json.loads(args.access.read_text())
+    if cluster_uid != settings["cluster_uid"]:
         raise Failure("cluster_uid_mismatch")
+    api = Client(settings)
     if args.command in ("status", "cleanup"):
         if not args.run_id:
-            candidates = [entry for entry in value.get("history", []) if entry.get("owner") == subject]
-            if value.get("request", {}).get("owner") == subject:
-                args.run_id = value["request"]["run_id"]
-            elif candidates:
-                args.run_id = candidates[-1]["run_id"]
-            else:
+            entries = api.call("GET")["runs"]
+            if not entries:
                 raise Failure("own_run_not_found")
-        result = report(value, args.run_id)
-        owner = value["request"]["owner"] if value["request"]["run_id"] == args.run_id else result["owner"]
-        if owner != subject:
-            raise Failure("run_owner_mismatch")
-        if args.command == "cleanup" and result["phase"] != "FINISHED":
-            value["request"]["cancel"] = True
-            save(doc, value)
-        elif args.command == "cleanup" and result.get("cleanup") != "CLEAN":
-            raise Failure("run_finished_without_clean_receipt_use_close")
+            args.run_id = entries[0]["run_id"]
+        result = api.call("POST", "/" + args.run_id + "/cancel", {}) if args.command == "cleanup" else api.call("GET", "/" + args.run_id)
     else:
-        if value["phase"] in ("PENDING", "RUNNING", "CLOSING", "RECOVERY_REQUIRED"):
-            raise Failure("another_operation_active_use_status_or_cleanup")
-        if args.command == "cycle" and not args.acknowledge_anonymous_read:
-            raise Failure("acknowledge_anonymous_read_required")
-        if not 0 <= args.hold_seconds <= 60:
-            raise Failure("hold_seconds_must_be_0_to_60")
-        args.run_id = "objects-" + uuid4().hex
-        value.pop("recovery", None)
-        value.update(phase="PENDING", report={}, request={
-            "run_id": args.run_id, "owner": subject, "action": args.command,
-            "hold_seconds": args.hold_seconds, "acknowledge_anonymous_read": args.acknowledge_anonymous_read,
-            "expires_at": (datetime.now(UTC) + timedelta(minutes=5)).isoformat(), "requested_at": datetime.now(UTC).isoformat(),
-        })
-        # Print the id before the single CAS; response loss is resolved by status, never replayed.
-        print(json.dumps({"run_id": args.run_id, "submission": "SENDING"}), flush=True)
-        save(doc, value)
-        result = report(value, args.run_id)
+        key = args.request_key or api.new_key()
+        args.run_id = api.run_id(subject, key)
+        print(json.dumps({"run_id": args.run_id, "request_key": key, "submission": "SENDING"}), flush=True)
+        result = api.call("POST", body={"action": args.command, "hold_seconds": args.hold_seconds,
+                                      "acknowledge_anonymous_read": args.acknowledge_anonymous_read}, key=key)
     deadline = time.monotonic() + args.wait_seconds
     while result["phase"] != "FINISHED" and time.monotonic() < deadline:
         time.sleep(3)
-        _, value = state()
-        result = report(value, args.run_id)
+        result = api.call("GET", "/" + args.run_id)
     print(json.dumps(result, ensure_ascii=False), flush=True)
+    if args.command == "status":
+        return 0
+    if args.command == "cleanup" and result["phase"] == "FINISHED":
+        return 0 if result.get("cleanup") in ("CLEAN", "NOT_APPLICABLE") else 1
     return 0 if result["phase"] != "FINISHED" or result.get("verdict") == "PASS" else 1
 
 
@@ -130,6 +101,7 @@ def main():
     parser.add_argument("--access", type=Path, required=True)
     parser.add_argument("--cluster-uid")
     parser.add_argument("--run-id")
+    parser.add_argument("--request-key", help="Reuse only for the exact same HTTP submission; printed before sending")
     parser.add_argument("--hold-seconds", type=int, default=15)
     parser.add_argument("--wait-seconds", type=int, default=0)
     parser.add_argument("--acknowledge-anonymous-read", action="store_true")
@@ -147,6 +119,6 @@ def main():
 if __name__ == "__main__":
     try:
         raise SystemExit(main())
-    except (Failure, OSError, ValueError, KeyError, subprocess.TimeoutExpired) as error:
-        print(json.dumps({"error": str(error) if isinstance(error, Failure) else type(error).__name__, "replayed": False}), file=sys.stderr)
+    except (Failure, APIError, OSError, ValueError, KeyError, subprocess.TimeoutExpired) as error:
+        print(json.dumps({"error": str(error) if isinstance(error, (Failure, APIError)) else type(error).__name__, "replayed": False}), file=sys.stderr)
         raise SystemExit(2) from None
