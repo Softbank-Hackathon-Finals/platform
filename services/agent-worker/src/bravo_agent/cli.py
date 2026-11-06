@@ -54,13 +54,17 @@ def main() -> int:
             raise ValueError("output already exists")
         bundle = FailureBundle.model_validate(bounded_json(args.bundle, 16384))
         manifest = SnapshotManifest.model_validate(bounded_json(args.manifest, 32768))
+        # Only the model-facing subset survives; a different revision is refused like any input error.
+        inventory = (InventorySummary.from_document(bounded_json(args.inventory, 262144))
+                     if args.inventory is not None else None)
         checkpoint = None
         if args.state_output is not None:
             state_output = args.state_output.resolve()
 
             def checkpoint(state):
                 write_state(state_output, state)
-        coordinator = Coordinator(bundle, Snapshot(args.snapshot.resolve(), manifest), checkpoint=checkpoint)
+        coordinator = Coordinator(bundle, Snapshot(args.snapshot.resolve(), manifest), inventory,
+                                  checkpoint=checkpoint)
         with tempfile.TemporaryDirectory(prefix="bravo-agent-") as directory:
             runtime = Path(directory)
             environment = isolated_environment(dict(os.environ), runtime, args.provider)
