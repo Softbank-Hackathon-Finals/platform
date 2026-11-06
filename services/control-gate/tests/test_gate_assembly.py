@@ -7,7 +7,7 @@ only ever sees public keys and signed envelopes.
 """
 
 from dataclasses import replace
-from datetime import timedelta
+from datetime import timedelta, timezone
 from types import SimpleNamespace
 
 import pytest
@@ -158,15 +158,26 @@ def test_readiness_is_bound_to_the_current_context_and_the_newest_is_served(gate
         assert gate_readiness.snapshot_provider(view, f.operator.subject_id, view.context, first) is None
 
 
-def test_one_readiness_component_observed_before_enrollment_cannot_be_vouched_for(gate):
+@pytest.mark.parametrize("offset", [0, 9])
+def test_one_readiness_component_observed_before_enrollment_cannot_be_vouched_for(gate, offset):
     f = gate
     f.enroll()
     f.collect()
-    early = (f.clock.at - timedelta(hours=4)).isoformat()  # before the keys were enrolled
+    # Before the keys were enrolled. In +09:00 the string sorts after the UTC ones (#572 review).
+    early = (f.clock.at - timedelta(hours=4)).astimezone(timezone(timedelta(hours=offset))).isoformat()
     f.update(dict(f.doc, replication=dict(f.doc["replication"], observed_at=early)))
     gate_readiness.record_readiness(f.records, f.operator, f.plan.plan_id, f.data["binding"], f.data["snapshot"])
     with pytest.raises(GateError):
         f.sign("readiness-snapshot", f.data["snapshot"].fingerprint)
+
+
+def test_a_readiness_record_without_a_valid_observation_time_is_refused(gate):
+    f = gate
+    f.enroll()
+    f.collect()
+    f.update(dict(f.doc, replication=dict(f.doc["replication"], observed_at="yesterday")))
+    with pytest.raises(EventError, match="gate_readiness_record_invalid"):
+        gate_readiness.record_readiness(f.records, f.operator, f.plan.plan_id, f.data["binding"], f.data["snapshot"])
 
 
 def test_consuming_the_report_needs_its_own_gate_consume_grant(gate):

@@ -9,7 +9,7 @@ signature check needs, under the same plan lock as the rest of the gate records.
 import json
 from dataclasses import asdict
 
-from bravo_gate.contract import canonical, fingerprint
+from bravo_gate.contract import GateError, canonical, fingerprint, time
 from bravo_gate.models import RunSnapshot
 from bravo_gate.readiness import ReadinessBinding, ReadinessPolicy
 
@@ -25,11 +25,17 @@ def _prefix(context_digest):
 
 
 def observed_at(snapshot_document):
-    """The earliest component observation: every component must be newer than key enrollment."""
+    """The earliest component observation, in UTC: every component must be newer than key enrollment.
+
+    Compared as instants, never as strings: components may carry different UTC offsets.
+    """
     doc = snapshot_document
-    times = [doc[side]["observed_at"] for side in ("source", "target", "replication")]
-    times += [row["observed_at"] for row in doc.get("sequences", [])]
-    return min(times)
+    try:
+        times = [doc[side]["observed_at"] for side in ("source", "target", "replication")]
+        times += [row["observed_at"] for row in doc.get("sequences", [])]
+        return min(map(time, times)).isoformat()
+    except (KeyError, TypeError, AttributeError, GateError):
+        raise EventError("gate_readiness_record_invalid") from None
 
 
 def record_readiness(records, principal, plan_id, binding, snapshot):
