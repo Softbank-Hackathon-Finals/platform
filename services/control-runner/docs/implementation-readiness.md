@@ -13,7 +13,7 @@ PR에만 있는 구현은 링크로 표시한다. 해당 PR의 최신 병합 상
 |---|---|---|
 | SEC-01.1 다른 역할의 Secret 읽기 | `aws_probes.py`, `aws_qualification.py`, `openbao.py` | 두 실제 시험 주체·동일 Secret 인수 필요. 앱 Secret의 메타데이터 확인은 이 시험을 대신하지 않음 |
 | SEC-01.2 소스·설정 비밀 탐지 | `secret_scan.py` | [#356](https://github.com/Softbank-Hackathon-Finals/platform/pull/356): 등록 revision 전체 소스·실행 설정 검사. 목적지 산출물은 별도 |
-| SEC-01.3 로그 비밀 노출 | `secret_logs.py`와 [#427 앱 카나리 실행기](https://github.com/Softbank-Hackathon-Finals/platform/pull/427) | 실제 로컬 demo-chat/PG에서 주입·호출·복원·정상/누출/로그 누락 검증. 운영 CloudWatch 전달 완료·배포 이미지·양쪽 로그 원천 인수 필요 |
+| SEC-01.3 로그 비밀 노출 | `secret_logs.py`와 [#427 앱 카나리 실행기](https://github.com/Softbank-Hackathon-Finals/platform/pull/427) | [고정 로컬 demo-chat/PG의 주입·복원](demo-log-canary.md), 정상·누출·로그 누락 검증. 운영 효과 실행부·CloudWatch 전달 완료·배포 이미지·양쪽 로그 원천 인수 필요 |
 | SEC-01.4 비밀 회전 후 회복 | `secret_rotation.py` 읽기 전용 판정·격리된 실제 앱/PG 시험 | [회전 시험](secret-rotation.md): 재시작·기존 연결·30초 초과 구분. 운영 Secret/CNPG/풀러 적용·실행권·복구 및 양쪽 접점은 별도 필요 |
 | ENC-02.1 Secret 저장 암호화 | `secret_encryption.py`, `target_secret_encryption.py` | #341 실제 AWS 메타데이터. [#425](https://github.com/Softbank-Hackathon-Finals/platform/pull/425) 실제 OpenBao 격리 시험과 AWS **플랫폼** RKE2 암호화 CLI 조회. 온프렘 목적지·전체 노드·저장 전달 결속 인수는 별도 |
 | ENC-01.1 앱→Pooler TLS | `postgres_tls.py`, `app_process_tls.py` | [#298](https://github.com/Softbank-Hackathon-Finals/platform/pull/298): 출발지 실제 앱 경로. 목적지 실행 필요 |
