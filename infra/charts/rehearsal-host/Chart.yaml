@@ -1,0 +1,7 @@
+apiVersion: v2
+name: rehearsal-host
+description: T15 credential rehearsal host (stored proposal -> scoped verification Job) on platform GitOps
+type: application
+version: 0.1.0
+appVersion: "1"
+kubeVersion: ">=1.30.0-0"

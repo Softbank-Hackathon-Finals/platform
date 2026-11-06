@@ -6,6 +6,10 @@ initialProposal:
   enabled: false
   # Public broker CA certificate only; the broker key never enters Git or values.
   brokerCaPem: ""
+rehearsalHost:
+  enabled: false
+  # Protected operator input: existing config/claim/Secret references only.
+  runtime: {}
 
 registration:
   enabled: false

@@ -62,6 +62,9 @@ spec:
         {{- if .Values.productReader.enabled }}
         || (request.resource.resource in ['deployments', 'services'] &&
         (object != null ? object.metadata.name : oldObject.metadata.name) == 't10-product-reader')
+        {{- end }}
+        {{- if .Values.rehearsalHost.enabled }}
+        || (object != null ? object.metadata.name : oldObject.metadata.name) == 't15-rehearsal-host'
         {{- end }})
       message: This controller may write only explicitly adopted platform workloads.
     - expression: "object == null || request.resource.resource != 'services' || object.spec.type == 'ClusterIP'"

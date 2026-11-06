@@ -147,10 +147,12 @@ jobs:
           "$RUNNER_TEMP/helm-test/bin/python" infra/envs/rehearsal-access/test_exec_guard.py
           # The same guard on a real API server (throwaway k3s in Docker, server dry-run + exec).
           "$RUNNER_TEMP/helm-test/bin/python" infra/envs/rehearsal-access/apiserver_exec_guard.py
+          "$RUNNER_TEMP/helm-test/bin/python" infra/gitops/test_rehearsal_host_chart.py
           "$RUNNER_TEMP/helm-test/bin/python" infra/gitops/test_bootstrap.py
           mkdir "$RUNNER_TEMP/registration-rendered"
           "$RUNNER_TEMP/helm-test/bin/python" infra/gitops/test_registration_chart.py --render > "$RUNNER_TEMP/registration-rendered/registration.yaml"
           "$RUNNER_TEMP/helm-test/bin/python" infra/gitops/test_product_reader_chart.py --render > "$RUNNER_TEMP/registration-rendered/product-reader.yaml"
+          "$RUNNER_TEMP/helm-test/bin/python" infra/gitops/test_rehearsal_host_chart.py --render > "$RUNNER_TEMP/registration-rendered/rehearsal-host.yaml"
           helm template bravo-gitops infra/gitops/argocd --namespace bravo-gitops --kube-version 1.35.9 > "$RUNNER_TEMP/registration-rendered/argocd.yaml"
       - name: Rendered registration security
         if: needs.scope.outputs.infra == 'true'
