@@ -11,6 +11,10 @@ template policy, writer auth role and 8200 ingress; `bravo-rehearsal-control` wi
 `rehearsal-openbao-writer`; the runner identity's RBAC; a candidate image built from exactly the
 proposal's diff (`diff` prints its hash).
 
+Optional `runner_kubeconfig` (the `t15-runner` short-lived token): Jobs and probes then run as the
+runner, and namespace/T3 provisioning stays on the KUBECONFIG management client through T7's
+`ScopedPlanner` (#398), the same split as the deployed host. Without it everything uses KUBECONFIG.
+
 Run from services/platform-events with KUBECONFIG whose current context is the target:
   PYTHONPATH=../rehearsal-runner/src:../agent-worker/src uv run --frozen \
     --no-default-groups --with pydantic --with pyjwt --with cryptography \
@@ -33,12 +37,15 @@ from rehearsal_runner.credential_proposer import SOURCE_PATHS
 CONFIG_KEYS = {"state", "cluster_uid", "source_dir", "source_sha", "proposal", "candidate_image",
                "bao_image", "postgres_image", "probe_image", "isolation_image", "openbao_ca_file",
                "t9_render", "profile"}
+OPTIONAL_KEYS = {"runner_kubeconfig"}
+RUNNER = "system:serviceaccount:bravo-rehearsal-control:t15-runner"
+SCOPED = pathlib.Path(__file__).resolve().parents[3] / "infra/envs/rehearsal-access/scoped_lifecycle.py"
 
 
 def load_config(path: pathlib.Path) -> dict:
     config = json.loads(path.read_text())
-    if set(config) != CONFIG_KEYS:
-        raise SystemExit(f"config keys must be exactly {sorted(CONFIG_KEYS)}")
+    if not CONFIG_KEYS <= set(config) <= CONFIG_KEYS | OPTIONAL_KEYS:
+        raise SystemExit(f"config keys must be {sorted(CONFIG_KEYS)} plus optional {sorted(OPTIONAL_KEYS)}")
     return config
 
 
@@ -57,6 +64,38 @@ def require_cluster(uid: str) -> None:
                          capture_output=True, text=True, timeout=30)
     if out.returncode or out.stdout.strip() != uid:
         raise SystemExit("current context is not the configured target cluster")
+
+
+def runner_clients(path: str):
+    """T38 Kube and isolation Kubectl that read the runner's own kubeconfig, after checking its identity."""
+    from bravo_agent.verification import Kube
+
+    from rehearsal_runner.isolation.kube import Kubectl
+
+    who = subprocess.run(["kubectl", "--kubeconfig", path, "auth", "whoami", "-o",
+                          "jsonpath={.status.userInfo.username}"], capture_output=True, text=True, timeout=30)
+    if who.returncode or who.stdout.strip() != RUNNER:
+        raise SystemExit("runner kubeconfig does not authenticate as t15-runner")
+
+    class RunnerKube(Kube):
+        def call(self, *args, data=None):
+            return super().call("--kubeconfig", path, *args, data=data)
+
+    class RunnerKubectl(Kubectl):
+        def run(self, *args, stdin=None, timeout=60):
+            return super().run("--kubeconfig", path, *args, stdin=stdin, timeout=timeout)
+
+    return RunnerKube(), RunnerKubectl()
+
+
+def scoped(planner, provisioner, cleaner):
+    """Wrap with T7's ScopedPlanner (#398), loaded from the repository like the host does."""
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location("t7_scoped_lifecycle", SCOPED)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module.ScopedPlanner(planner, provisioner=provisioner, cleaner=cleaner)
 
 
 def run(config: dict) -> int:
@@ -128,12 +167,17 @@ def run(config: dict) -> int:
     fixture = CredentialFixture(bao_image=config["bao_image"], postgres_image=config["postgres_image"],
                                 probe_image=config["probe_image"],
                                 openbao_ca_pem=pathlib.Path(config["openbao_ca_file"]).read_text())
-    admin = Kube()
+    admin, management = Kube(), Kubectl()
+    runner_path = config.get("runner_kubeconfig")
+    job_kube, job_kubectl = runner_clients(runner_path) if runner_path else (admin, management)
     planner = CredentialPlanner(
         profile=read_env(pathlib.Path(config["profile"])), proposals=LocalProposals(),
-        bindings=lambda _a: PlanBinding(spec.plan_digest, spec.target_environment_id), kubectl=Kubectl(),
-        kube=admin, isolation_image=config["isolation_image"], fixture=fixture,
-        delivery=load_t9_delivery(pathlib.Path(config["t9_render"])), candidate_image=candidate_image)
+        bindings=lambda _a: PlanBinding(spec.plan_digest, spec.target_environment_id), kubectl=job_kubectl,
+        kube=job_kube, isolation_image=config["isolation_image"], fixture=fixture,
+        delivery=load_t9_delivery(pathlib.Path(config["t9_render"])), candidate_image=candidate_image,
+        cleaner=admin)
+    if runner_path:
+        planner = scoped(planner, provisioner=management, cleaner=admin)
 
     key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
     workload = WorkloadSender("https://issuer.invalid", "t10-local", "t15-runner", key.public_key(), spec.tenant_id)
@@ -159,6 +203,7 @@ def run(config: dict) -> int:
     leftovers = json.loads(subprocess.run(["kubectl", "get", "namespaces", "-o", "json"], capture_output=True,
                                           text=True, timeout=30).stdout)["items"]
     report = {"environment": "operator-rke2", "model_provider": "scripted_fixture", "source_sha": sha,
+              "job_identity": RUNNER if runner_path else "operator-kubeconfig",
               "expected_diff_hash": expected, "seconds": round(time.monotonic() - started),
               "t10_status": result["status"], "rehearsal_id": receipt["rehearsal_id"], "deliveries": deliveries,
               "record": {k: record.get(k) for k in ("verdict", "reason", "detail", "verification_id", "namespace",
