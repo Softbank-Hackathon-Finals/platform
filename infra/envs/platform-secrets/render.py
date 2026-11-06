@@ -134,11 +134,13 @@ def cluster(api_endpoint):
     requests = [
         {"name": "platform-kv", "operation": "update", "path": "sys/mounts/" + MOUNT,
          "secretEngine": {"type": "kv", "options": {"version": "2"}}},
-        {"name": "platform-cas", "operation": "update", "path": MOUNT + "/config",
-         "data": {"cas_required": True, "max_versions": 5}},
     ]
     for (namespace, name), policy in policies().items():
         requests += _role(name, namespace, policy)
+    # ponytail: KV v2 answers "invalid request" while its post-mount upgrade runs,
+    # so the config write goes last; add a retry if self-init still races here.
+    requests.append({"name": "platform-cas", "operation": "update", "path": MOUNT + "/config",
+                     "data": {"cas_required": True, "max_versions": 5}})
     return obj("OpenBaoCluster", NAME, api="openbao.org/v1alpha1", spec={
         "version": "2.7.2", "image": IMAGE, "replicas": 1,
         "imagePullSecrets": [{"name": "platform-ghcr-reader"}],

@@ -9,6 +9,11 @@ def requests():
 
 
 class Boundary(unittest.TestCase):
+    def test_kv_config_runs_after_mount_upgrade_window(self):
+        names = [r["name"] for r in requests()]
+        self.assertEqual(names[0], "platform-kv")
+        self.assertEqual(names[-1], "platform-cas")
+
     def test_lifecycle_is_crd_owned_and_does_not_reinitialize_target(self):
         value = render.cluster("192.0.2.10")
         self.assertEqual(value["kind"], "OpenBaoCluster")
