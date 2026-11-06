@@ -234,6 +234,7 @@ def test_same_name_job_with_other_container_spec_never_delivers(operator, change
 
 @pytest.mark.parametrize("change", [
     lambda p: p.update(serviceAccountName="default", serviceAccount="default"),
+    lambda p: p.update(serviceAccount="default"),  # the legacy alias must not name another account
     lambda p: p.update(automountServiceAccountToken=True),
     lambda p: p.update(hostPID=True),
     lambda p: p.update(initContainers=[{"name": "x", "image": IMAGE}]),
@@ -262,7 +263,7 @@ def test_preempted_job_name_is_rejected_without_model_call(operator, change):
     if change:
         change(forged["spec"]["template"]["spec"]["containers"][0])
     name = forged["metadata"]["name"]
-    forged["metadata"]["creationTimestamp"] = "2026-01-01T00:00:00Z"
+    forged["metadata"]["creationTimestamp"] = "2026-01-01T00:00:00Z"  # well before the marker
     kube.jobs[name] = forged | {"status": {"succeeded": 1}}
     receipt = job.run({"PRODUCT_INTENT": json.dumps(intent.model_dump(mode="json")),
                        "PRODUCT_EXECUTION_ID": job.execution_id(intent.request_id),
@@ -311,3 +312,19 @@ def test_default_job_image_is_the_gitops_reader_pin():
     root = Path(__file__).resolve().parents[3]
     image = job.gitops_image(root / "infra/gitops/environments/development/product-reader-image.json")
     assert image.startswith("ghcr.io/softbank-hackathon-finals/platform-product-reader@sha256:")
+
+
+def test_operator_clock_ahead_of_the_api_server_within_skew_still_reads(operator, monkeypatch):
+    from datetime import UTC, datetime, timedelta
+
+    client, kube, intent, result, tmp_path = operator
+    with pytest.raises(ExecutionPending):
+        client.submit(intent)
+    complete(kube, intent, result, tmp_path)
+    name = job.job_name(intent.request_id)
+    ahead = datetime.now(UTC) - timedelta(seconds=45)  # API server 45 s behind the operator
+    kube.jobs[name]["metadata"]["creationTimestamp"] = ahead.strftime("%Y-%m-%dT%H:%M:%SZ")
+    assert client.read(intent)["status"] == 200
+    kube.jobs[name]["metadata"]["creationTimestamp"] = (ahead - timedelta(seconds=30)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    with pytest.raises(ExecutionUnknown):
+        client.read(intent)

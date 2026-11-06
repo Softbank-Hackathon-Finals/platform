@@ -11,7 +11,7 @@ import os
 import re
 import subprocess
 import sys
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from bravo_agent.contracts import digest
@@ -35,6 +35,7 @@ AUDIENCE = "bravo-subscription-broker"
 TOKEN = Path("/var/run/secrets/bravo-initial/token")
 BROKER = "https://127.0.0.1:18761/run"
 MAX_LOG = 2 * 1024 * 1024
+CLOCK_SKEW = timedelta(seconds=60)
 
 
 def execution_id(request_id):
@@ -115,10 +116,12 @@ def bound_job(job, intent, image, dispatch_sent_at):
     expected = job_manifest(intent, image)
     created = datetime.fromisoformat(job["metadata"]["creationTimestamp"].replace("Z", "+00:00"))
     sent = datetime.fromisoformat(dispatch_sent_at)
-    # creationTimestamp has one-second precision; a Job from before the ledger marker was not ours.
+    # A Job from before the ledger marker was not ours. The marker is the operator host's
+    # clock and creationTimestamp the API server's (1 s precision), so allow CLOCK_SKEW; the
+    # first create's AlreadyExists is the main preemption guard.
     return (job["metadata"].get("annotations", {}).get("bravo.dev/request-digest") == digest(intent.request_id)
             and job["spec"].get("backoffLimit") == 0
-            and created >= sent.replace(microsecond=0)
+            and created >= sent - CLOCK_SKEW
             and operator_spec(job["spec"]["template"]["spec"]) == expected["spec"]["template"]["spec"])
 
 
