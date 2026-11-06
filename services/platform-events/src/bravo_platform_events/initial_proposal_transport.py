@@ -64,6 +64,20 @@ def open_initial_receipt(intent, run_id, sealed, private):
     return open_bound_receipt(intent.recipient_public_key, initial_receipt_binding(intent, run_id), sealed, private)
 
 
+def _validated_result(intent, value, receipt):
+    """The delivered result for exactly this intent's input and the input's own run and source."""
+    raw = value.model_dump(mode="json") if isinstance(value, InitialInput) else value
+    value = InitialInput.model_validate_json(json.dumps(raw, allow_nan=False))
+    if ((value.binding.plan_id, value.binding.plan_version, digest(value), digest(value.binding)) !=
+            (intent.plan_id, intent.plan_version, intent.input_digest, intent.binding_digest)):
+        raise ExecutionUnknown("INITIAL_INPUT_CONFLICT")
+    result = receipt["result"]
+    proposal = InitialResult.model_validate_json(json.dumps(result)).proposal
+    if (proposal.run_id, proposal.source_sha) != (value.run_id, value.binding.source_sha):
+        raise ExecutionUnknown("INITIAL_PROPOSAL_CONFLICT")
+    return result
+
+
 class OperatorInitialProposal(OperatorLedger):
     """The operator ledger with T10's initial intent and receipt contract.
 
@@ -74,6 +88,13 @@ class OperatorInitialProposal(OperatorLedger):
     _parse_intent = staticmethod(_intent)
     _open_receipt = staticmethod(open_initial_receipt)
     _validate_receipt = staticmethod(validate_initial_receipt)
+
+    def validate(self, intent, value, envelope):
+        """T10 port: the envelope must be what read() opens from this carrier right now."""
+        intent = self._parse_intent(intent)
+        if self.read(intent) != envelope:
+            raise ExecutionUnknown("INITIAL_RECEIPT_CONFLICT")
+        return _validated_result(intent, value, envelope)
 
 
 class FileInitialProposal(FileProductExecution):
@@ -98,13 +119,4 @@ class FileInitialProposal(FileProductExecution):
         # Compare with the immutable operator delivery, not a caller's assertion.
         if self.read(intent) != envelope:
             raise ExecutionUnknown("INITIAL_RECEIPT_CONFLICT")
-        raw = value.model_dump(mode="json") if isinstance(value, InitialInput) else value
-        value = InitialInput.model_validate_json(json.dumps(raw, allow_nan=False))
-        if ((value.binding.plan_id, value.binding.plan_version, digest(value), digest(value.binding)) !=
-                (intent.plan_id, intent.plan_version, intent.input_digest, intent.binding_digest)):
-            raise ExecutionUnknown("INITIAL_INPUT_CONFLICT")
-        result = self._receipt(intent, envelope)["result"]
-        proposal = InitialResult.model_validate_json(json.dumps(result)).proposal
-        if (proposal.run_id, proposal.source_sha) != (value.run_id, value.binding.source_sha):
-            raise ExecutionUnknown("INITIAL_PROPOSAL_CONFLICT")
-        return result
+        return _validated_result(intent, value, self._receipt(intent, envelope))

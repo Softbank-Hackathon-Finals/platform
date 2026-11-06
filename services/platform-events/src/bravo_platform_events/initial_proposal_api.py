@@ -11,7 +11,7 @@ from pydantic import Field
 
 from .cutover import _get
 from .executor import _object
-from .initial_proposal import InitialInput, InitialIntent, InitialProposalRecords, _slot
+from .initial_proposal import InitialInput, InitialIntent, InitialProposalRecords, _execution_key
 from .product_api import MAX_RESPONSE_BYTES, KubernetesJobCaller
 from .store import EventError
 
@@ -61,7 +61,7 @@ class AuthenticatedInitialReader:
         with self.records.store._transaction() as c:
             value = self.records._read(c, request.principal, intent.plan_id, intent.plan_version,
                 {"input_ref": intent.input_ref, "input_digest": intent.input_digest})
-            claimed = _get(c, intent.plan_id, _slot(intent.plan_version) + ":execution")
+            claimed = _get(c, intent.plan_id, _execution_key(c, intent.plan_id, intent.plan_version))
             if not claimed or claimed != (intent.model_dump(mode="json"), {"state": "CLAIMED"}):
                 raise EventError("initial_execution_unavailable")
             raw = value.model_dump(mode="json")
