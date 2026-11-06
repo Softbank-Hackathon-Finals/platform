@@ -31,13 +31,14 @@
 |---|---|---|---|
 | apply | 제안서 전체 | T11 `Proposal` 스키마 그대로(`services/agent-worker/src/bravo_agent/contracts.py`) | `plan.propose`와 같은 검사(실행 문맥 일치, 수정 허용 경로, `before_sha256`, 파괴적 문자열). 이 문서에 사본을 두지 않는다 |
 | inspect | `target_kind` | `pod` · `deployment` · `events` · `logs` | |
-| | `target_name` | `^[a-z0-9-]{1,63}$` 또는 `null` | `events`만 `null` 허용(공간 A 전체 이벤트) |
+| | `target_name` | `^[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?$` 또는 `null` | `events`만 `null` 허용(공간 A 전체 이벤트) |
 | | `lines` | 1~200 또는 `null` | `logs`일 때만 정수, 나머지는 `null` |
-| probe | `service` | `^[a-z0-9-]{1,63}$` | T15가 `<service>.<공간 A namespace>.svc`로만 조립한다 |
+| probe | `service` | `^[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?$` | T15가 `<service>.<공간 A namespace>.svc`로만 조립한다 |
 | | `port` | 1~65535 | |
 | | `method` | `TCP` · `HTTP_GET` · `HTTP_HEAD` | |
 | | `path` | `/`로 시작, 256자 이하, 경로·질의 문자만 또는 `null` | `TCP`면 `null`, HTTP면 필수 |
 
+- 이름은 Kubernetes 이름 규칙(DNS 레이블)이라 하이픈으로 시작하거나 끝날 수 없다. 하이픈으로 시작하는 값이 kubectl 옵션으로 읽히지 않게 하기 위해서다.
 - 필드 사이 규칙(위 표의 오른쪽 열)은 모델에 보내는 스키마에 넣지 않는다. strict 모드가 조건식을 받지 않기 때문이다. T11과 T15가 스키마 파일의 `inspect_rules`·`probe_rules`로 둘 다 검사한다.
 - apply는 매번 스냅샷 원본에 대한 제안서 전체다. 두 번째 apply는 첫 초안 위에 덧붙이지 않고, 원본에 새 초안을 반영한 상태로 바꾼다. 러너는 공간 B 채점과 같은 적용 코드와 템플릿으로 반영한다(ADR-0024 3-3).
 - apply는 `plan.propose`와 검사만 같이 쓴다. `plan.propose`의 시도당 제출 1회 제한에는 세지 않으며, apply 횟수는 4절의 exec 한도로만 센다.
@@ -65,6 +66,8 @@
 - **한도(ADR-0026, 실측 뒤 조정):** 동작 한 번 15초(재시도 포함), 시도당 실행 5회, exec 합계 90초(첫 호출부터). `EXECUTE` 단계에 들어간 호출만 횟수에 세고, `ADMIT`·`VALIDATE`에서 거부된 호출과 재시도는 세지 않는다. 넘으면 `BUDGET_EXHAUSTED`다.
 - **재시도는 T15 안에서만 한다.** 미전송이 확인된 오류와 inspect·probe의 일시 실패만, 최대 2회, 간격 1초다. T11과 broker는 같은 `request_id` 재전송 외에는 재시도하지 않는다.
 - **기록 수 상한:** 시도당 기록 32개다. 32번째를 기록하면 세션을 닫는다.
+- **한 번에 하나:** 세션은 동작을 하나씩 실행한다. 동시에 온 요청은 앞 요청이 기록까지 끝난 뒤 상태(닫힘·결과 모름·한도)를 다시 확인하고 실행한다.
+- **기록 실패:** 실행 전 기록을 쓰지 못하면 실행하지 않는다(`REJECTED`·`UNAVAILABLE`). 실행 뒤 기록을 쓰지 못하면 저장된 기록과 같게 `UNKNOWN`·`EFFECT_UNKNOWN`으로 답하고 세션을 닫는다.
 
 ## 5. 응답
 
@@ -96,7 +99,7 @@ T15 → broker → T11 → 모델로 같은 객체가 간다(스키마 `response
   - apply: `proposal_digest`, inspect로 볼 수 있는 대상 `targets`(종류·이름, 러너 템플릿이 정한 값, 최대 8개)
   - inspect: `found`, `phase`, `ready`, `replicas`, `ready_replicas`, `restarts`, `events`(이벤트 수). 대상에 맞지 않는 값은 `null`. 대상이 없으면 `found=false`이며 실패가 아니다.
   - probe: `probe_outcome`(`CONNECTED`·`REFUSED`·`TIMED_OUT`·`DNS_FAILED`), `http_status`(TCP면 `null`), `elapsed_ms`. 접속 거부·시간 초과·403도 시험 결과이므로 `OK`다.
-- **출력:** apply는 실패 시 API 오류 본문, inspect는 이벤트·로그 본문, probe는 HTTP 응답 본문(HEAD·TCP는 없음)이다. 비밀값 검사는 자르기 전 전체 출력에 한다. 비밀값이 자르는 경계에 걸쳐 빠져나가지 않게 하기 위해서다. 막으면 `output_tail=null`, `output_truncated=false`다.
+- **출력:** apply는 실패 시 API 오류 본문, inspect는 이벤트·로그 본문, probe는 HTTP 응답 본문(HEAD·TCP는 없음)이다. 비밀값 검사는 자르기 전 전체 출력에 한다. 비밀값이 자르는 경계에 걸쳐 빠져나가지 않게 하기 위해서다. 퍼센트 인코딩은 바이트 단위·이중 인코딩까지 풀어서 검사한다(인자도 같다). 막으면 `output_tail=null`, `output_truncated=false`다. 1MiB를 넘는 출력은 돌려주지 않고 기록에 `output_*` 키를 남기지 않는다.
 - **T11이 직접 만드는 응답:** 통로 장애일 때만 같은 형식으로 만든다. 보내는 중이던 apply는 `UNKNOWN`·`EFFECT_UNKNOWN`, inspect·probe는 `FAILED`·`UNAVAILABLE`, 이후 호출은 `REJECTED`·`UNAVAILABLE`이다. T15 응답이 스키마에 맞지 않을 때도 같은 규칙을 따른다.
 - **T11의 제출 여유 확보:** 모델 1회 실행 한도(8턴·180초) 안에 제출할 턴이 남도록, T11은 남은 시간·턴을 보고 exec 도구를 먼저 닫을 수 있다. 닫은 뒤 들어온 호출은 T15로 보내지 않고 `REJECTED`·`BUDGET_EXHAUSTED`·`ADMIT`로 답한다.
 
@@ -114,7 +117,7 @@ T15 → broker → T11 → 모델로 같은 객체가 간다(스키마 `response
 - 공통 키: `run_id`, `attempt`, `seq`, `action`, `request_id`, `args_sha256`, `result_code`, `reason`, `stage`, `output_sha256`, `output_bytes`
 - apply: `proposal_digest` · inspect: `target_kind`, `target_name`, `lines` · probe: `service`, `port`, `method`, `path`, `probe_outcome`, `http_status`
 - 값은 문자열·정수·불리언만 쓴다. 해당 없는 키(성공의 `reason`, TCP의 `path`·`http_status`, 출력이 없을 때의 `output_*`)는 `null`로 두지 않고 뺀다. `collect_tool_events`와 같은 규칙이고, 목록 밖 키나 형식 오류가 하나라도 있으면 목록 전체가 `UNAVAILABLE`이다.
-- `exec_events_status`: `OFF`(그 작업 종류는 exec를 껐음), `COMPLETE`, `UNAVAILABLE`
+- `exec_events_status`: `OFF`(그 작업 종류는 exec를 껐음), `COMPLETE`, `UNAVAILABLE`. exec 단계 없이 돈 시도의 기록에는 이 키가 없으며 `OFF`로 읽는다(기존 기록 형식 유지).
 
 **T11 `tool_events`의 exec 호출 (T11 확인 필요)**
 - 기존 키 `run_id`, `attempt`, `tool`, `outcome`, `reason`을 유지하고, `tool`은 1절의 내부 이름을 쓴다.
