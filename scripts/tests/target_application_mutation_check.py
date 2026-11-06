@@ -51,6 +51,7 @@ MUTATIONS = [
  (A, '"name": "app", "image": image', '"name": "demo", "image": image'),
  (A, '"lifecycle": {"preStop": {"sleep": {"seconds": 5}}},', ''),
  (A, '"automountServiceAccountToken": False,', '"automountServiceAccountToken": True,'),
+ (A, '"serviceAccountName": NAME,', ''),
  (A, '"readOnlyRootFilesystem": True', '"readOnlyRootFilesystem": False'),
  (A, '"runAsNonRoot": True, "runAsUser": 10001', '"runAsNonRoot": False, "runAsUser": 10001'),
  (A, 'pull_policy = "IfNotPresent" if pull_secret else "Never"', 'pull_policy = "IfNotPresent"'),

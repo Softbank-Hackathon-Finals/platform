@@ -73,6 +73,7 @@
    done
    ```
 
+   Job은 `attachment-copy` 계정으로 돈다. 계정은 [`render.py accounts`](../../infra/envs/target-workloads/README.md#서비스-계정)가 한 번 만들고, 없으면 Pod가 만들어지지 않는다.
    Job은 10분 안에 끝나거나 시간 초과로 실패한다. 이 대기가 먼저 끝나거나 kubectl이 실패해도 다음 단계로 간다. 그때 판정은 `UNKNOWN`이다.
 
 7. **판정을 읽는다.** 종료 코드와 JSON이 결과다.

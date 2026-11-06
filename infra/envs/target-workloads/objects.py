@@ -38,6 +38,7 @@ def objects(node_name):
         "selector": {"matchLabels": SELECTOR},
         "template": {"metadata": {"labels": {**LABELS, **SELECTOR}}, "spec": {
             "automountServiceAccountToken": False,
+            "serviceAccountName": "target-seaweedfs",
             "securityContext": {"runAsNonRoot": True, "runAsUser": 1000,
                                 "runAsGroup": 1000, "fsGroup": 1000,
                                 "seccompProfile": {"type": "RuntimeDefault"}},

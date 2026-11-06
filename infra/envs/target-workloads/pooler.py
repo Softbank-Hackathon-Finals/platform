@@ -28,6 +28,7 @@ def pooler(egress_address, egress_service_uid):
         'pgbouncer.ini': Path(__file__).with_name('pgbouncer.ini').read_text()})
     pod = {
         'automountServiceAccountToken': False,
+        'serviceAccountName': name,
         'securityContext': {'runAsNonRoot': True, 'runAsUser': 998, 'runAsGroup': 996,
                             'fsGroup': 996, 'seccompProfile': {'type': 'RuntimeDefault'}},
         # libpq hostaddr is unavailable in PgBouncer database config. Keep the

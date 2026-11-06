@@ -812,6 +812,7 @@ def main():
             node = cluster.kubectl("get", "nodes", "-o", "jsonpath={.items[0].metadata.name}").stdout
             namespace, storage = render.database(node)[:2]
             cluster.apply(namespace, storage)
+            cluster.apply(*render.accounts())
             import_image(STORE_REFERENCE, "amd64")
             architecture = docker("image", "inspect", COPY_TAG, "--format", "{{.Architecture}}").stdout.strip()
             import_image(BROKEN_TAG, architecture)

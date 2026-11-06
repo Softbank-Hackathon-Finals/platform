@@ -148,6 +148,8 @@ def job(image, run_id, plan_id, epoch, egress_address, egress_service_uid, *, wi
             },
             "spec": {
                 "restartPolicy": "Never", "automountServiceAccountToken": False,
+                # Created once by render.py accounts; this Job is created per run and must not recreate it.
+                "serviceAccountName": "attachment-copy",
                 "securityContext": {"runAsNonRoot": True, "runAsUser": RUN_AS, "runAsGroup": RUN_AS,
                                     "seccompProfile": {"type": "RuntimeDefault"}},
                 "initContainers": [{
