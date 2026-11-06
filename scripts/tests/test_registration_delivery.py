@@ -1,5 +1,7 @@
 """Publication refusals and recovery decisions without network credentials."""
 
+import ast
+import fnmatch
 import importlib.util
 import json
 import os
@@ -31,6 +33,68 @@ ENV = {
     "GITHUB_WORKFLOW_SHA": SOURCE,
 }
 RECEIPT = {"source_revision": SOURCE, "image_digest": DIGEST, "image": delivery.IMAGE}
+
+
+class SourceCoverage(unittest.TestCase):
+    def test_every_current_package_is_detected_by_publication_and_supersession(self):
+        builder = ast.parse((ROOT / "services/platform-events/deploy/product-read/build.py").read_text())
+        assignments = {
+            node.targets[0].id: node.value
+            for node in builder.body
+            if isinstance(node, ast.Assign) and isinstance(node.targets[0], ast.Name)
+        }
+        packages = ast.literal_eval(assignments["PACKAGES"])
+        # Observability is deliberately copied from a fixed historical revision.
+        self.assertIn("OBSERVABILITY_REVISION", assignments)
+        paths = []
+        for service, package in packages.items():
+            if service != "observability":
+                paths.extend((f"services/{service}/src/{package}/module.py",
+                              f"services/{service}/pyproject.toml"))
+        paths.extend(("services/platform-events/uv.lock",
+                      "services/platform-events/deploy/registration/gitops.Dockerfile",
+                      "services/platform-events/deploy/product-read/build.py",
+                      "scripts/registration_delivery.py", "scripts/image_delivery/oci.py",
+                      ".github/workflows/publish-registration-image.yml"))
+        workflow = (ROOT / ".github/workflows/publish-registration-image.yml").read_text()
+        section = workflow.split("    paths:\n", 1)[1].split("  workflow_dispatch:", 1)[0]
+        globs = [line.strip()[2:] for line in section.splitlines() if line.strip().startswith("- ")]
+        for path in paths:
+            with self.subTest(path=path):
+                self.assertTrue(any(path == p or path.startswith(p + "/") for p in delivery.INPUTS),
+                                "build input missing from source freshness check")
+                self.assertTrue(any(fnmatch.fnmatchcase(path, pattern) for pattern in globs),
+                                "build input missing from publication trigger")
+
+    def test_inventory_change_supersedes_old_build_before_any_pr_write(self):
+        with tempfile.TemporaryDirectory() as directory:
+            def git(*args):
+                return subprocess.check_output(["git", "-C", directory, *args], text=True).strip()
+            git("init", "-q")
+            git("config", "user.name", "Fixture")
+            git("config", "user.email", "fixture@example.invalid")
+            source_file = Path(directory) / "services/inventory/src/bravo_inventory/scan.py"
+            source_file.parent.mkdir(parents=True)
+            source_file.write_text("version = 1\n")
+            git("add", ".")
+            git("commit", "-qm", "initial")
+            source = git("rev-parse", "HEAD")
+            source_file.write_text("version = 2\n")
+            git("commit", "-qam", "inventory changed")
+            git("update-ref", "refs/remotes/origin/develop", "HEAD")
+            called = []
+            def invoke(args, **kwargs):
+                called.append(args)
+                if args[:2] == ["git", "fetch"]:
+                    return subprocess.CompletedProcess(args, 0, "", "")
+                self.assertEqual(args[0], "git", "superseded build must not call GitHub")
+                return subprocess.run(["git", "-C", directory, *args[1:]],
+                                      capture_output=True, text=True, check=True)
+            receipt = RECEIPT | {"source_revision": source, "published": True,
+                                 "registry_visibility": "private", "deployed": False}
+            with patch.dict(os.environ, ENV), patch.object(delivery, "run", side_effect=invoke):
+                self.assertEqual(delivery.propose(receipt), {"action": "superseded", "deployed": False})
+            self.assertFalse(any(args[1] in {"switch", "push", "commit"} for args in called))
 
 
 class Publication(unittest.TestCase):

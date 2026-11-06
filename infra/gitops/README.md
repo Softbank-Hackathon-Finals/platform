@@ -39,6 +39,12 @@ a hotfix follows main and then develop. An older build must not overwrite a newe
 source revision. Rollback is a protected Git revert followed by actual API and
 data-preservation checks, not a rebuilt old tag.
 
+The publication trigger and its source-freshness check cover every package copied
+from the current checkout, including inventory, and the build/delivery recipes.
+Repository tests compare these paths with the build context package list so a
+new package cannot silently miss publication. Observability remains an explicit
+historical source pin; changing that pin or its build recipe triggers publication.
+
 Before first adoption, compare resource UIDs and the rendered Deployment with
 the live server. Keep automated pruning disabled until owned-resource deletion
 and recovery are verified. Do not run the old registration renderer against
