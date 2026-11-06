@@ -19,6 +19,7 @@ from datetime import UTC, datetime
 from types import SimpleNamespace
 
 from bravo_controls.aws_identity import RegisteredRole
+from bravo_controls.prowler_capability import probe_pinned_environment
 from bravo_controls.prowler_iam import (
     CHECKS,
     VERSION,
@@ -29,6 +30,18 @@ from bravo_controls.tool_reports import CheckMapping, ToolRun
 
 
 def worker(profile, registration_path, output):
+    # Tool-internal invalid patterns can yield PASS findings after swallowed
+    # exceptions. Reject that environment before reading policies/credentials.
+    capability = probe_pinned_environment()
+    (output / "capability.private.json").write_text(json.dumps(capability, indent=2) + "\n")
+    if capability["ready"] is not True:
+        (output / "summary.json").write_text(json.dumps({
+            "tool": "prowler", "version": VERSION,
+            "observed": None, "unknown_reason": "TOOL_ERROR",
+            "capability": capability, "aws_api_calls": 0,
+            "full_iam_01_2_qualified": False,
+        }, indent=2) + "\n")
+        return
     import boto3
     from botocore.config import Config
     from prowler.lib.outputs.finding import Finding

@@ -1,0 +1,21 @@
+{
+  "source_revision": "2d01aac7227744ec3fba24f303b2653413ab1422",
+  "source_files": [
+    {
+      "path": "services/control-runner/src/bravo_controls/prowler_capability.py",
+      "sha256": "ef979698dbc4bf46238d126e8de1dda9a43b7bc390973067eec5346204d9e204"
+    },
+    {
+      "path": "services/control-runner/src/bravo_controls/prowler_iam.py",
+      "sha256": "b083495bb49c1f23d768879d1c904e1a417819fbbac8826ad6bc7d3e73f442b9"
+    },
+    {
+      "path": "services/control-runner/tests/integration/qualify_prowler_iam.py",
+      "sha256": "8f1bc6cd4226d00c756fd7721abf5da72622f6e1564e162a7dd8ed671fdea309"
+    },
+    {
+      "path": "services/control-runner/tests/test_prowler_capability.py",
+      "sha256": "df1fb50ae583585d579c431b071e8b8be641aaf40d38cd9e9a19b6b72941baaa"
+    }
+  ]
+}
