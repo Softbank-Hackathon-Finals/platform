@@ -14,6 +14,24 @@ NAMESPACE = "bravo-gitops"
 RELEASE = "bravo-gitops"
 
 
+def verify_rehearsal_host(get, host):
+    """New T15 workload: every referenced input must already exist; nothing is adopted."""
+    if set(host) != {"enabled", "runtime"} or host["enabled"] is not True:
+        raise ValueError("protected_rehearsal_host_input_required")
+    runtime = host["runtime"]
+    if set(runtime) != {"configuration", "reader", "recordsClaim", "secrets"}:
+        raise ValueError("rehearsal_host_runtime_fields_required")
+    get("configmap", runtime["configuration"]["existingConfigMap"], "platform-state")
+    get("configmap", runtime["reader"]["existingConfigMap"], "platform-state")
+    for claim in (runtime["reader"]["catalogClaim"], runtime["recordsClaim"]):
+        get("pvc", claim, "platform-state")
+    for name in set(runtime["secrets"].values()):
+        get("secret", name, "platform-state")
+    image = json.loads((ROOT / "infra/gitops/environments/development/rehearsal-host-image.json").read_text())
+    if not re.fullmatch(r"sha256:[0-9a-f]{64}", image["image"]["digest"]):
+        raise ValueError("published_rehearsal_host_image_required")
+
+
 def verify_reader(get, runtime, expected):
     """Adopt only the observed Reader; its shared identity and data stay external."""
     if set(runtime) != {"configuration", "secrets", "catalogClaim"}:
@@ -109,8 +127,10 @@ def main():
             helm + ["list", "--filter", "^" + RELEASE + "$", "-o", "json"]
         ).stdout
     )
-    if releases and releases[0]["status"] != "deployed":
-        raise ValueError("existing_release_not_deployed; inspect before recovery")
+    # A failed upgrade leaves the previous revision serving; upgrading again is Helm's
+    # recovery. A pending-* release may still be running, so it still stops here.
+    if releases and releases[0]["status"] not in ("deployed", "failed"):
+        raise ValueError("existing_release_not_settled; inspect before recovery")
     values = []
     runtime_hash = None
     if a.runtime_values:
@@ -119,7 +139,7 @@ def main():
         value = json.loads(a.runtime_values.read_text())
         if (
             not {"registration"}.issubset(value)
-            or not set(value).issubset({"registration", "productReader"})
+            or not set(value).issubset({"registration", "productReader", "rehearsalHost"})
             or set(value["registration"]) != {"enabled", "runtime"}
             or value["registration"]["enabled"] is not True
         ):
@@ -151,6 +171,8 @@ def main():
             reader_image = json.loads((ROOT / "infra/gitops/environments/development/product-reader-image.json").read_text())
             if not re.fullmatch(r"sha256:[0-9a-f]{64}", reader_image["image"]["digest"]):
                 raise ValueError("published_reader_image_required")
+        if "rehearsalHost" in value:
+            verify_rehearsal_host(get, value["rehearsalHost"])
         values = ["--values", str(a.runtime_values)]
     chart = ROOT / "infra/gitops/argocd"
     run(
@@ -193,6 +215,10 @@ def main():
                 "--install",
                 RELEASE,
                 str(chart),
+                # Earlier releases left a client-side "helm" Update record next to Helm 4's
+                # server-side Apply on the same fields. This release is their only writer;
+                # Argo writes Application status only, so take the fields back.
+                "--force-conflicts",
                 "--create-namespace",
                 "--wait",
                 "--timeout",

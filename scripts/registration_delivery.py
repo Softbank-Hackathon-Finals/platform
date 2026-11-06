@@ -37,6 +37,8 @@ BUILD_INPUTS = (
     "services/rehearsal-runner/pyproject.toml",
     "services/inventory/src",
     "services/inventory/pyproject.toml",
+    "services/control-gate/src",
+    "services/control-gate/pyproject.toml",
 )
 INPUTS = (
     *BUILD_INPUTS,
@@ -50,6 +52,8 @@ INPUTS = (
 class Service:
     slug: str
     title: str
+    # Image sources beyond BUILD_INPUTS; a change there must also rebuild the image.
+    extra_inputs: tuple = ()
 
     @property
     def image(self):
@@ -69,13 +73,17 @@ class Service:
 
     @property
     def inputs(self):
-        return (*BUILD_INPUTS, "scripts/registration_delivery.py", "scripts/image_delivery",
+        return (*BUILD_INPUTS, *self.extra_inputs, "scripts/registration_delivery.py", "scripts/image_delivery",
                 ".github/workflows/publish-" + self.slug + "-image.yml")
 
 
 REGISTRATION = Service("registration", "등록 API")
 PRODUCT_READER = Service("product-reader", "Product Reader")
-SERVICES = {item.slug: item for item in (REGISTRATION, PRODUCT_READER)}
+# build.py --rehearsal-host adds the T3 templates, T7/T9 modules and the patched kubectl.
+REHEARSAL_HOST = Service("rehearsal-host", "리허설 호스트", (
+    "operations/kubectl", "services/rehearsal-runner/templates", "infra/envs/rehearsal-access",
+    "infra/envs/target-secrets"))
+SERVICES = {item.slug: item for item in (REGISTRATION, PRODUCT_READER, REHEARSAL_HOST)}
 
 
 def run(args, *, check=True):

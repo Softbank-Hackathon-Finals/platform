@@ -12,6 +12,7 @@ from datetime import UTC, datetime
 
 from bravo_gate.contract import server_time
 from bravo_gate.service import accept
+from bravo_gate.signatures import Ed25519Authority
 from bravo_platform_events.gate_records import GateRecords
 from bravo_platform_events.plan_api import Principal, authorized_plan
 
@@ -20,18 +21,22 @@ from .reports import RegisteredGateDocument
 
 
 class T10ControlReports:
-    def __init__(self, records, *, resolve_principal, authenticate_report, clock=None):
+    def __init__(self, records, *, resolve_principal, authenticate_report=None,
+                 authority_factory=None, clock=None):
         if (
             not isinstance(records, GateRecords)
-            or not all(callable(c) for c in (resolve_principal, authenticate_report))
+            or not callable(resolve_principal)
             or inspect.iscoroutinefunction(resolve_principal)
-            or inspect.iscoroutinefunction(authenticate_report)
+            or (authenticate_report is None) == (authority_factory is None)
+            or any(c is not None and (not callable(c) or inspect.iscoroutinefunction(c))
+                   for c in (authenticate_report, authority_factory))
             or (clock is not None and not callable(clock))
         ):
             raise ValueError("explicit_t10_report_authority_required")
         self.records = records
         self.resolve_principal = resolve_principal
         self.authenticate_report = authenticate_report
+        self.authority_factory = authority_factory
         source_clock = clock or (lambda: datetime.now(UTC))
         self.clock = lambda: server_time(source_clock)
 
@@ -60,10 +65,26 @@ class T10ControlReports:
                 raise ObservationError("control_report_unverified")
             start = self.clock()
             deadlines = []
+            authenticate = self.authenticate_report
+            if self.authority_factory is not None:
+                # Resolve issuer keys/envelopes inside this exact plan lock.
+                # A second DB transaction could deadlock or observe another
+                # registration revision. Never cache this connection-bound
+                # authority or treat its mere construction as verification.
+                authority = self.authority_factory(view)
+                if not isinstance(authority, Ed25519Authority):
+                    raise ObservationError("control_report_unverified")
+
+                def authenticate(actor, context, candidate):
+                    view._check(actor, context)
+                    proof = authority.verify(context, candidate.fingerprint, "gate-result")
+                    view._check(actor, context)
+                    return proof
+
             # Reuse T19's exact provenance/expiry binding, including scoped
             # VerifiedAuthority. A database row or hash alone is never authority.
             accept(
-                self.authenticate_report,
+                authenticate,
                 principal.subject_id,
                 view.context,
                 report,
@@ -82,6 +103,7 @@ class T10ControlReports:
                 report.raw,
                 view.gate_phase,
                 view.application_id,
+                min(deadlines) if deadlines else None,
             )
 
     async def load(self, scope, snapshot):

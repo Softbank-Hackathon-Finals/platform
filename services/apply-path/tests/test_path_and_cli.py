@@ -204,7 +204,7 @@ def files(claim, proposal, tmp_path):
     return common, run
 
 
-def test_cli_check(files, capsys):
+def test_cli_check(files, capsys, frozen_now):
     common, _ = files
     assert main(["check", *common]) == 0
     out = json.loads(capsys.readouterr().out)
@@ -223,7 +223,7 @@ def test_cli_run_requires_an_explicit_cluster_choice(files, capsys):
         main([*[a if a != "app-0001" else "../x" for a in run], "--kube", "fake"])
 
 
-def test_cli_fake_run_says_it_is_not_a_real_cluster_and_get_result_matches(files, tmp_path, capsys):
+def test_cli_fake_run_says_it_is_not_a_real_cluster_and_get_result_matches(files, tmp_path, capsys, frozen_now):
     _, run = files
     assert main([*run, "--kube", "fake"]) == 0
     captured = capsys.readouterr()

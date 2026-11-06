@@ -76,6 +76,9 @@ class RegistrationChart(unittest.TestCase):
                 for v in pod["volumes"]
             )
         )
+        # Same mount as deploy/registration/render.py, so gate-grants.json reaches the host.
+        registration = next(v for v in pod["volumes"] if v["name"] == "registration")
+        self.assertEqual(set(registration["configMap"]), {"name", "defaultMode"})
 
     def test_rejects_mutable_foreign_or_injected_inputs(self):
         bad = [({}, "platform-state"), (VALUES, "other-tenant")]

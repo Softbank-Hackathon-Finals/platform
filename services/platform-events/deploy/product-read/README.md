@@ -19,7 +19,10 @@ observability는 기존 고정 revision을 유지한다. registry 패키지는 �
 
 빌드 대상은 `linux/amd64`, 실행 사용자는 `10001:10001`, 포트는 TLS 8443이다.
 빌드 후 네트워크·쓰기·추가 capability 없이 실제 컨테이너에서 조회 모듈을
-import한다. 이때 모델 runtime을 import하지 않았는지도 검사한다.
+import한다. 최초 제안 모드가 지연 로드하는 API와 저장 원본 조회 모듈도 포함하며,
+모델 runtime·운영자 dispatch·mailbox·최초 제안 transport와 그 하위 모듈이
+로드되지 않았는지 검사한다. 조회 API와 운영자 transport의 workflow 이름은
+의존성이 없는 `initial_proposal_contracts`에서 공유한다.
 
 출력은 `image.tar`와 `build.json`이다. 영수증은 소스 revision, 각 build 파일 해시,
 context 해시, 로컬 image ID, archive 해시와 import 결과를 담는다. OCI archive의

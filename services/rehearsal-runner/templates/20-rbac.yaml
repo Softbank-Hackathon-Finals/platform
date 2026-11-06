@@ -1,5 +1,8 @@
 # rehearsal-exec 권한: 이 네임스페이스 안에서 앱 복사본을 띄우고 시험하는 데 필요한 것만.
-# 주지 않는 것: Secret 읽기, Role · RoleBinding 변경(스스로 권한 키우기), 클러스터 범위 권한(ClusterRole 없음).
+# 주지 않는 것: Secret verb, Role · RoleBinding 변경(스스로 권한 키우기), 클러스터 범위 권한(ClusterRole 없음).
+# Secret 읽기 차단의 실제 경계는 RBAC만이 아니다. pods·deployments·jobs create로 Secret을 마운트하거나
+# 앱 Pod에 exec할 수 있으므로, infra/envs/rehearsal-access/exec_guard.py의 승인 정책이 이 신원의
+# Secret volume·env 참조·토큰 마운트와 도구 Pod 밖 exec/attach/port-forward를 거부한다(T42 exec 전 설치).
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:

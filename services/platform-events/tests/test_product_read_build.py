@@ -2,6 +2,7 @@
 
 import importlib.util
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -10,6 +11,27 @@ spec = importlib.util.spec_from_file_location("product_read_build",
     Path(__file__).resolve().parents[1] / "deploy/product-read/build.py")
 build = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(build)
+
+
+def test_reader_image_probe_loads_initial_api_without_operator_modules():
+    result = subprocess.run([sys.executable, "-c", build.READER_IMPORT_PROBE],
+                            capture_output=True, text=True)
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == "product_reader_imports_ok"
+
+
+@pytest.mark.parametrize("module", [
+    "bravo_agent.product_ledger",
+    "bravo_agent.product_ledger.nested",
+    "bravo_agent.product_execution_mailbox",
+    "bravo_platform_events.initial_proposal_transport",
+])
+def test_reader_image_probe_rejects_operator_modules(module):
+    injected = f"import sys, types; sys.modules[{module!r}] = types.ModuleType({module!r}); "
+    result = subprocess.run([sys.executable, "-c", injected + build.READER_IMPORT_PROBE],
+                            capture_output=True, text=True)
+    assert result.returncode != 0
+    assert "AssertionError" in result.stderr and module in result.stderr
 
 
 @pytest.fixture

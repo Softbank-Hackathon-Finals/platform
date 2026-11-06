@@ -6,7 +6,7 @@ from pathlib import Path
 from bravo_agent.subscription_product import ProposalJournal, invoke_product_worker
 from bravo_agent.subscription_product_reader import ProductReaderConfig
 from bravo_agent.subscription_product_tls import server_context
-from bravo_agent.subscription_server import authenticate_product, serve
+from bravo_agent.subscription_server import authenticate_caller, serve
 
 from .initial_proposal_runtime import InitialInputHTTPReader, InitialProposalService
 
@@ -15,7 +15,7 @@ def build_service(settings, config):
     config.tls_context()
     return InitialProposalService(
         ProposalJournal(Path(settings["state_dir"]).parent / "initial-proposal-journal"),
-        lambda token: authenticate_product(settings, token),
+        lambda token: authenticate_caller(settings, token),
         lambda token: InitialInputHTTPReader(config, token),
         lambda *args: invoke_product_worker(settings, *args), settings["source_sha"])
 

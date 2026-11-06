@@ -1,0 +1,70 @@
+{
+  "kind": "t19-actual-dual-schema-qualification-summary.v1",
+  "qualification_only": true,
+  "operational_authority": false,
+  "schema_and_pk_equal": true,
+  "observation_scope": "app-db-host-path",
+  "independent_databases_verified": false,
+  "scope_correction": {
+    "reason": "collected over each application's DB_HOST; at a later check the target PgBouncer pointed at the source DB (pre-cutover configuration); the capture-time connection target was not independently verified",
+    "superseded_by": "docs/evidence/t19-direct-database-2026-11-06/README.md",
+    "captures_unchanged": true
+  },
+  "table_count_per_side": 2,
+  "data_rows_read": 0,
+  "business_writes": 0,
+  "sequence_changes": 0,
+  "replication_lag_observed": false,
+  "sequence_rehearsal_performed": false,
+  "operational_t19_complete": false,
+  "captures": {
+    "source": {
+      "observed_at": "2026-11-06T08:10:56.927711+00:00",
+      "expires_at": "2026-11-06T08:11:26.927711+00:00",
+      "tables": [
+        {
+          "name": "public.messages",
+          "primary_key": [
+            "id"
+          ],
+          "schema_hash": "04ecfc4767b1031be2b23c59a0118da2b066de9d3f619e61efaae061e07c2672"
+        },
+        {
+          "name": "public.attachments",
+          "primary_key": [
+            "id"
+          ],
+          "schema_hash": "af32aaa714ff9498587e5c4f7b5d5f6dfb2f38559b526f7c6540a69c84d7adf8"
+        }
+      ],
+      "errors": [],
+      "runtime_metadata_unchanged": true,
+      "credential_endpoint_kind": "aws-secrets-manager",
+      "capture_sha256": "546dea3a1d1fb1568ba7181d6cda7d412ebb9e36ffc182f942f254ba6c309023"
+    },
+    "target": {
+      "observed_at": "2026-11-06T08:11:45.877659+00:00",
+      "expires_at": "2026-11-06T08:12:15.877659+00:00",
+      "tables": [
+        {
+          "name": "public.messages",
+          "primary_key": [
+            "id"
+          ],
+          "schema_hash": "04ecfc4767b1031be2b23c59a0118da2b066de9d3f619e61efaae061e07c2672"
+        },
+        {
+          "name": "public.attachments",
+          "primary_key": [
+            "id"
+          ],
+          "schema_hash": "af32aaa714ff9498587e5c4f7b5d5f6dfb2f38559b526f7c6540a69c84d7adf8"
+        }
+      ],
+      "errors": [],
+      "runtime_metadata_unchanged": true,
+      "credential_endpoint_kind": "existing-loopback-compatibility",
+      "capture_sha256": "2ed61ebd12b9dbfecfa2cd8825ad85a1b656e1ab25c642f2d9a9b44c8e9a3879"
+    }
+  }
+}

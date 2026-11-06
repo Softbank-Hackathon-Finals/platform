@@ -116,13 +116,12 @@ spec:
             defaultMode: 0440
             items:
               - {key: ca.crt, path: ca.crt}
+        # The whole reviewed ConfigMap, as the canonical renderer mounts it: gate-grants.json
+        # (T5 gate:record/gate:read) is present only when the catalog enables gate_records.
         - name: registration
           configMap:
             name: {{ .Values.configuration.existingConfigMap }}
             defaultMode: 0444
-            items:
-              - {key: catalog.json, path: catalog.json}
-              - {key: grants.json, path: grants.json}
         - name: checkout-catalog
           configMap:
             name: {{ .Values.configuration.existingConfigMap }}

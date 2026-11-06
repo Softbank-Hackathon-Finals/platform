@@ -38,6 +38,7 @@ dev = [
 trusted-host = ["bravo-rehearsal-runner"]
 product-inputs = ["bravo-agent-worker", "bravo-inventory", {include-group = "trusted-host"}]
 application-host = ["bravo-apply-path", "bravo-control-gate==0.1.0"]
+gate-records = ["bravo-control-gate==0.1.0"]
 
 [build-system]
 requires = ["hatchling>=1.25"]

@@ -8,10 +8,6 @@ from pydantic import ConfigDict, Field
 from .contracts import Contract, Digest, digest
 from .proposal_contracts import validate_bound_product_response
 
-REPOSITORY = 'Softbank-Hackathon-Finals/platform'
-WORKFLOW = 'subscription-product.yml'
-ARTIFACT = 'subscription-product-result'
-
 
 class ExecutionPending(RuntimeError):
     """The same execution has not produced a confirmed result yet."""
@@ -30,18 +26,6 @@ class ExecutionIntent(Contract):
     runtime_source_sha: str = Field(pattern=r'^[a-f0-9]{40}$')
     recipient_public_key: str = Field(pattern=r'^[a-f0-9]{64}$')
     mode: Literal['probe', 'propose']
-
-
-def workflow_boundary(intent, env):
-    expected = {'GITHUB_ACTIONS': 'true', 'GITHUB_REPOSITORY': REPOSITORY,
-                'GITHUB_REPOSITORY_ID': '1443045223', 'GITHUB_REPOSITORY_OWNER_ID': '350259663',
-                'GITHUB_REF': 'refs/heads/develop', 'GITHUB_EVENT_NAME': 'workflow_dispatch',
-                'GITHUB_WORKFLOW_REF': f'{REPOSITORY}/.github/workflows/{WORKFLOW}@refs/heads/develop',
-                'GITHUB_SHA': intent.runtime_source_sha, 'PRODUCT_WORKFLOW_SHA': intent.runtime_source_sha,
-                'GITHUB_RUN_ATTEMPT': '1'}
-    if (any(env.get(k) != v for k, v in expected.items())
-            or re.fullmatch(r'[1-9][0-9]{0,19}', env.get('GITHUB_RUN_ID', '')) is None):
-        raise ValueError('product workflow identity mismatch')
 
 
 def receipt_binding(intent, run_id):

@@ -479,7 +479,7 @@ Claude Code는 `/todo-task`, Codex는 `$todo-task`로 이 순서를 따르는 �
 
 **어디에 필요** S1 분류와 S2 수정의 주체(8.3).
 
-**만들 것** 관리자 구독(SIWC) 기반 OpenAI Responses 워커와 선택형 Claude 어댑터(ADR-0007 제안), 도구 화이트리스트, 파괴적 명령 차단 목록, 제안서 JSON Schema, 실패 원인 추정 · 승인용 요약, 입출력 기록.
+**만들 것** 관리자 구독(SIWC) 기반 OpenAI Agents SDK 워커와 선택형 Claude 어댑터(ADR-0007 제안), 도구 화이트리스트, 파괴적 명령 차단 목록, 제안서 JSON Schema, 실패 원인 추정 · 승인용 요약, 입출력 기록.
 
 - **우선순위** P0 · **영역** 에이전트 · 리허설 · **담당** 전동훈
 - **선행** `T7` · **후속** `T15`, `T16`, `T32`, `T38` (통합 시점: `T42`) · **설계 문서** 8.3, NFR-4~5
@@ -629,7 +629,7 @@ Claude Code는 `/todo-task`, Codex는 `$todo-task`로 이 순서를 따르는 �
 - [x] 버킷 정책 템플릿: 무인증 읽기가 거부되는지 검증 Job으로 확인
 - [x] 버킷 삭제 시도 차단 기록 (데모 장면)
 - [x] 끝나면 네임스페이스 삭제 확인
-- [ ] 코드 수정 템플릿: 앱이 OpenBao에서 주입된 자격 파일(리허설은 init container 주입)로 DB에 붙고, 다른 서비스 계정은 그 OpenBao 경로와 자격 파일을 읽지 못하는지 검증 Job으로 확인
+- [x] 코드 수정 템플릿: 앱이 OpenBao에서 주입된 자격 파일(리허설은 init container 주입)로 DB에 붙고, 다른 서비스 계정은 그 OpenBao 경로와 자격 파일을 읽지 못하는지 검증 Job으로 확인
 - [x] 리허설 네임스페이스 생성 직후 T3 격리 시험, 실패하면 BLOCK
 - [x] 목적지(RKE2)에서 T3 격리 시험 통과: T9 값으로 `profiles/onprem.env` 작성, CNI · PSA 확인, 시험 계정 권한(Pod 생성 · `rehearsal-exec` 가장), 결과로 ADR-0003 채택
 - [x] T38 결과에 따라 재시도: FAIL · RETRY_ALLOWED는 최대 3회, UNKNOWN · NEEDS_HUMAN은 사람에게

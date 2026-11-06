@@ -1,0 +1,29 @@
+{
+  "source_revision": "fb1c98e8588fa18b1ce9ec8a1088a3d6cc5758bc",
+  "source_files": [
+    {
+      "path": "services/control-gate/src/bravo_gate/stored.py",
+      "sha256": "1ba08a2de565f66773385bb4455ae956774be70668b1c7065135b814950f3832"
+    },
+    {
+      "path": "services/control-gate/src/bravo_gate/service.py",
+      "sha256": "1bb806c7a9003c279c5d41b2ca6d0e4f7312dc7b8eca470795af0bc2202d8a92"
+    },
+    {
+      "path": "services/control-gate/src/bravo_gate/combined.py",
+      "sha256": "98c4d9082069ea1707475b5e0fb422516e66147d634b185a8343bfcda552fac9"
+    },
+    {
+      "path": "services/control-gate/src/bravo_gate/signatures.py",
+      "sha256": "d2128f1749da839c824c3cb819be2490b7fbb6de401b717f86b0ac34cd53f8c3"
+    },
+    {
+      "path": "services/control-gate/tests/test_stored_services.py",
+      "sha256": "ae26707931255452d97abe382433b49f07fdb7c5a8addd5cb565a6fd58da6deb"
+    },
+    {
+      "path": "services/platform-events/src/bravo_platform_events/gate_records.py",
+      "sha256": "e7b2aac633b9a1792947d7d3778a519e0233bb3655bf5e5810d363b090d923fc"
+    }
+  ]
+}

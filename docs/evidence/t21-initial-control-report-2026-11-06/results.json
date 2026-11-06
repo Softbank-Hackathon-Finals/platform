@@ -1,0 +1,38 @@
+{
+  "scope": "local console read projection; actual SQLite/PostgreSQL and browsers; synthetic principals/report provenance",
+  "regression_before_fix": "initial comparison without workflow gate event rejected by frontend",
+  "python_tests": 244,
+  "javascript_tests": 176,
+  "browser_tests": {
+    "chromium": 23,
+    "webkit": 23
+  },
+  "stores": [
+    "SQLite",
+    "PostgreSQL 17.11"
+  ],
+  "new_report_metadata": [
+    "plan_version",
+    "plan_state"
+  ],
+  "legacy_event_bound_reports": "supported",
+  "initial_without_gate": "exact snapshot + initial phase + pre-approval state only",
+  "invalidations": [
+    "revision",
+    "state",
+    "plan",
+    "environment pair",
+    "profile",
+    "conflicting gate event",
+    "stale read",
+    "permission revocation"
+  ],
+  "authorizes_cutover": false,
+  "production_store_acceptance": false,
+  "live_cutover": false,
+  "test_limitations": [
+    "synthetic identities, observations and issuer records",
+    "no deployment or operating approval changes",
+    "existing Starlette/httpx deprecation warning"
+  ]
+}

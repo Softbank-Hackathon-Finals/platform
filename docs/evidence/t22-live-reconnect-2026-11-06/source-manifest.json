@@ -1,0 +1,15 @@
+{
+  "deployment_metadata_unchanged": true,
+  "source_repository": "Softbank-Hackathon-Finals/demo-chat",
+  "source_revision": "7c11a91b4f738c7a7da9909beeddfa2faecb9782",
+  "source_files": [
+    {
+      "path": "app/static/chat.js",
+      "sha256": "dcb29551efb73afc1b86d1132d3b692905915963cee9b7104c63d665b3815e94"
+    },
+    {
+      "path": "app/static/transport.js",
+      "sha256": "bd1eadd0c930f0794589e1537f361249b5607e11cdeb743f276efd3116db4c76"
+    }
+  ]
+}

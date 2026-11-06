@@ -278,7 +278,10 @@ needed and was not built.
 different-account rejection probe need this path: a network timeout cannot prove an OpenBao
 authorization denial. Only the trusted namespace manager sets this label. The control
 namespace remains outside this selector and still requires the writer Pod label above.
-Other OpenBao ports, existing ESO/probe peers and egress rules are unchanged.
+Other OpenBao ports, existing ESO/probe peers and egress rules are unchanged. The rehearsal
+side already allows this egress (T3 `allow-target-profile`, `profiles/onprem.env`).
+`scripts/tests/test_rehearsal_object_access.py` ties the label to the T3 namespace template and
+the T3 OpenBao egress profile, and checks it against the T15 candidate and verifier Pod labels.
 
 **Public CA for the runner.** The operator reads `target-dev/target-openbao-ca`, key `ca.crt`,
 and supplies the same public certificate as ConfigMap
@@ -305,7 +308,8 @@ CLI), applies the rendered NetworkPolicy, policies and roles unchanged, logs in 
 ServiceAccount tokens and records each allowed/denied case, the replayed escalation, the
 wrong-accessor case, and the Pod path: a labelled writer Job prepares namespace A, the rendered
 init container in A fetches `credentials.json` (only the HTTP address, CA variable and image are
-substituted for the dev stand-in, plus a test-only reader NetworkPolicy peer), and a second
+substituted for the dev stand-in; it reaches OpenBao through the rendered policy alone), a TCP
+probe shows that a rehearsal-named namespace without the label stays blocked, and a second
 writer Job cleans up. It writes no token or value. It is not a substitute for the same checks on
 the demo RKE2 target with the TLS image.
 
@@ -352,7 +356,7 @@ git -C openbao-source apply /path/to/image/go-jose.patch
 ```
 
 Use the receipt's `build_flags` with `GOTOOLCHAIN=go1.27.3`, `CGO_ENABLED=0`,
-`GOOS=linux`, `GOARCH=amd64`. First run the patched dependency's tests on the
+`GOOS=linux`, `GOARCH=arm64`. First run the patched dependency's tests on the
 host. Copy the resulting binary as `bao` next to [Dockerfile](image/Dockerfile),
 build for linux/amd64 and export an OCI layout. Scan those exact bytes with
 Trivy's `vuln,secret`, `HIGH,CRITICAL`, `--ignore-unfixed`, `--exit-code 1` gate.

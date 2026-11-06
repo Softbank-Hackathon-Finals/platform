@@ -1,4 +1,4 @@
-"""Operator-configured HTTPS reader; request-scoped Actions OIDC stays in memory."""
+"""Operator-configured HTTPS reader; the request-scoped Job token stays in memory."""
 
 import json
 import re

@@ -1,16 +1,11 @@
-"""Real journals/mailboxes/encryption with synthetic GitHub and model results."""
+"""Real journals/mailboxes/encryption with a synthetic API server (platform Job carrier)."""
 
-import hashlib
-import io
 import json
-import zipfile
 from copy import deepcopy
 
 import pytest
 from bravo_agent.contracts import Proposal, digest
 from bravo_agent.product_execution_contracts import (
-    ARTIFACT,
-    REPOSITORY,
     ExecutionIntent,
     ExecutionPending,
     ExecutionUnknown,
@@ -20,14 +15,12 @@ from cryptography.exceptions import InvalidTag
 from pydantic import ValidationError
 from test_cutover import SPEC
 from test_initial_proposal import ACTOR, RUNTIME, SOURCE, Fixture
+from test_initial_proposal_job import IMAGE, Kubectl
 
+from bravo_platform_events import initial_proposal_job as job
 from bravo_platform_events.initial_proposal import InitialIntent
 from bravo_platform_events.initial_proposal_transport import (
-    INITIAL_WORKFLOW as WORKFLOW,
-)
-from bravo_platform_events.initial_proposal_transport import (
     FileInitialProposal,
-    OperatorInitialProposal,
     initial_receipt_binding,
     open_initial_receipt,
     seal_initial_receipt,
@@ -35,80 +28,62 @@ from bravo_platform_events.initial_proposal_transport import (
 from bravo_platform_events.store import EventError
 
 
-class GitHub:
-    """Synthetic provider, never invokes gh or a network client."""
+class Cluster(Kubectl):
+    """Synthetic API server: a created Job completes and logs the receipt sealed for it."""
 
     def __init__(self, intent, receipt):
-        self.intent, self.posts, self.lose_response = intent, [], False
-        self.run = dict(id=1234, event="workflow_dispatch", head_branch="develop", head_sha=RUNTIME,
-            run_attempt=1, workflow_id=42, actor={"id": 7}, head_repository={"full_name": REPOSITORY},
-            display_title="product-" + intent.request_id, status="completed", conclusion="success")
-        self.runs = [self.run]
+        super().__init__()
+        self.intent = intent
         self.artifact_for(receipt)
+
+    @property
+    def posts(self):
+        return self.creates
 
     def artifact_for(self, receipt):
         # Malformed receipts can be sealed by an untrusted producer; the reader must reject them.
-        sealed = seal_bound_receipt(self.intent.recipient_public_key,
-                                   initial_receipt_binding(self.intent, 1234), receipt)
-        output = io.BytesIO()
-        with zipfile.ZipFile(output, "w") as archive:
-            archive.writestr("product-result.json", json.dumps(sealed))
-        self.raw = output.getvalue()
-        self.artifact = dict(id=88, name=ARTIFACT, expired=False, size_in_bytes=len(self.raw),
-            workflow_run={"id": 1234, "head_sha": RUNTIME},
-            digest="sha256:" + hashlib.sha256(self.raw).hexdigest())
+        self.logs = json.dumps(seal_bound_receipt(self.intent.recipient_public_key,
+            initial_receipt_binding(self.intent, RUN(self.intent)), receipt)).encode()
 
-    def get(self, path):
-        if path == "user":
-            return {"id": 7}
-        if path.endswith("git/ref/heads/develop"):
-            return {"object": {"sha": RUNTIME}}
-        if path.endswith("/workflows/" + WORKFLOW):
-            return dict(id=42, path=".github/workflows/" + WORKFLOW, state="active")
-        if "/workflows/42/runs?" in path:
-            return {"workflow_runs": deepcopy(self.runs)}
-        if path.endswith("/runs/1234"):
-            return deepcopy(self.run)
-        if path.endswith("/runs/1234/artifacts?per_page=100"):
-            return {"total_count": 1, "artifacts": [deepcopy(self.artifact)]}
-        raise AssertionError(path)
+    def __call__(self, args, payload=None):
+        result = super().__call__(args, payload)
+        if args[0] == "create" and not self.lose_create:
+            self.jobs[json.loads(payload)["metadata"]["name"]]["status"] = {"succeeded": 1}
+        return result
 
-    def dispatch(self, workflow_id, inputs):
-        assert workflow_id == 42 and inputs == self.intent.model_dump()
-        self.posts.append(inputs)
-        if self.lose_response:
-            raise OSError("synthetic response loss")
-        return getattr(self, "response", None)
 
-    def download(self, artifact_id):
-        assert artifact_id == 88
-        return self.raw
+def RUN(intent):
+    return job.execution_id(intent.request_id)
+
+
+def operator_for(root, cluster):
+    return job.JobInitialProposal(root, image=IMAGE, source_revision=RUNTIME, kubectl=cluster)
 
 
 @pytest.fixture
 def setup(backend, tmp_path):
     f = Fixture(backend, tmp_path)
     fields = f.port.preparation_fields(SPEC.plan_id, 3, **f.ref)
-    operator = OperatorInitialProposal(tmp_path / "operator")
-    intent = InitialIntent(**fields, recipient_public_key=operator.recipient(fields["request_id"]))
+    ledger = operator_for(tmp_path / "operator", Kubectl())
+    intent = InitialIntent(**fields, recipient_public_key=ledger.recipient(fields["request_id"]))
     value = f.records.read_input(ACTOR, intent.plan_id, intent.plan_version,
                                 input_ref=intent.input_ref, input_digest=intent.input_digest)
     proposal = Proposal(run_id=value["run_id"], source_sha=SOURCE, risk="low",
         rationale="Synthetic initial proposal", edits=[dict(path="app/config.py",
             before_sha256=value["manifest"]["files"]["app/config.py"], replacement="VALUE = 2\n")])
     result = dict(request_id=intent.request_id, input_digest=intent.input_digest,
-        runtime_source_sha=RUNTIME, execution_receipt_id="github-1234-1", proposal=proposal.model_dump(),
+        runtime_source_sha=RUNTIME, execution_receipt_id=f"github-{RUN(intent)}-1", proposal=proposal.model_dump(),
         proposal_digest=digest(proposal), schema_valid=True, lint_passed=True)
-    receipt = initial_receipt_binding(intent, 1234) | dict(status=200, cleanup_confirmed=True, result=result)
+    receipt = initial_receipt_binding(intent, RUN(intent)) | dict(status=200, cleanup_confirmed=True, result=result)
     root = tmp_path / "mailbox"
     root.mkdir(mode=0o700)
     mailbox = FileInitialProposal(root)
     mailbox.prepare(intent)
     f.client, f.port = mailbox, None
     f.port = f.execution()
-    github = GitHub(intent, receipt)
-    operator.github = github
-    return f, mailbox, operator, github, intent, receipt, value
+    cluster = Cluster(intent, receipt)
+    operator = operator_for(tmp_path / "operator", cluster)
+    return f, mailbox, operator, cluster, intent, receipt, value
 
 
 def test_one_delivery_then_durable_result_has_no_client_calls(setup, monkeypatch):
@@ -136,55 +111,30 @@ def test_lost_dispatch_response_restarts_as_same_run_read(setup):
     f, mailbox, operator, gh, intent, receipt, _ = setup
     with pytest.raises(ExecutionPending):
         f.execute()
-    gh.lose_response = True
-    with pytest.raises(ExecutionUnknown, match="DISPATCH_RESPONSE_UNCONFIRMED"):
+    gh.lose_create = True
+    with pytest.raises(ExecutionUnknown, match="JOB_CREATE_UNCONFIRMED"):
         operator.submit(intent)
-    restarted = OperatorInitialProposal(operator.root, gh)
+    gh.lose_create = False
+    gh.jobs[job.job_name(intent.request_id)]["status"] = {"succeeded": 1}  # it was created after all
+    restarted = operator_for(operator.root, gh)
     mailbox.deliver(intent, restarted.submit(intent))
     assert f.execute() == receipt["result"] and len(gh.posts) == 1
 
 
-def test_native_run_receipt_delivers_initial_result_when_list_has_not_caught_up(setup):
-    f, mailbox, operator, gh, intent, receipt, _ = setup
-    with pytest.raises(ExecutionPending):
-        f.execute()
-    gh.response = {"http_status": 200, "body": json.dumps({"workflow_run_id": 1234})}
-    gh.runs = []
-    gh.run.update(status="in_progress", conclusion=None)
-    with pytest.raises(ExecutionPending, match="RUN_IN_PROGRESS"):
-        operator.submit(intent)
-    gh.run.update(status="completed", conclusion="success")
-    restarted = OperatorInitialProposal(operator.root, gh)
-    mailbox.deliver(intent, restarted.submit(intent))
-    assert f.execute() == receipt["result"] and len(gh.posts) == 1
 
 
-@pytest.mark.parametrize("key,value", [
-    ("actor", {"id": 8}), ("run_attempt", 2), ("head_sha", "d" * 40),
-    ("workflow_id", 43), ("head_repository", {"full_name": "another/repository"}),
-    ("display_title", "other-request"), ("conclusion", "failure"),
-])
-def test_other_provider_run_never_delivers_or_retries(setup, key, value):
-    f, mailbox, operator, gh, intent, _, _ = setup
-    with pytest.raises(ExecutionPending):
-        f.execute()
-    gh.run[key] = value
-    for _ in range(2):
-        with pytest.raises((ExecutionUnknown, ExecutionPending)):
-            operator.submit(intent)
-    assert len(gh.posts) == 1 and not (mailbox.root / "receipt.json").exists()
 
 
 @pytest.mark.parametrize("key,value", [
     ("plan_version", 4), ("purpose", "t38-product-proposal"), ("binding_digest", "e" * 64),
-    ("cleanup_confirmed", False), ("status", True), ("github_run_attempt", True),
+    ("cleanup_confirmed", False), ("status", True), ("github_run_attempt", True), ("github_run_id", "1234"),
 ])
 def test_authenticated_wrong_receipt_binding_is_rejected(setup, key, value):
     _, _, operator, gh, intent, receipt, _ = setup
     changed = deepcopy(receipt)
     changed[key] = value
     gh.artifact_for(changed)
-    with pytest.raises(ExecutionUnknown, match="ARTIFACT_RECEIPT_INVALID"):
+    with pytest.raises(ExecutionUnknown, match="JOB_RECEIPT_INVALID"):
         operator.submit(intent)
 
 
@@ -198,7 +148,7 @@ def test_failed_or_invented_model_checks_never_become_t10_result(setup, key, val
     changed = deepcopy(receipt)
     changed["result"][key] = value
     gh.artifact_for(changed)
-    with pytest.raises(ExecutionUnknown, match="ARTIFACT_RECEIPT_INVALID"):
+    with pytest.raises(ExecutionUnknown, match="JOB_RECEIPT_INVALID"):
         operator.submit(intent)
 
 
@@ -218,17 +168,17 @@ def test_local_validate_requires_operator_delivery_and_exact_input(setup):
 
 def test_receipt_ciphertext_is_bound_to_initial_purpose_and_plan_version(setup):
     _, _, operator, _, intent, receipt, _ = setup
-    sealed = seal_initial_receipt(intent, 1234, receipt)
+    sealed = seal_initial_receipt(intent, RUN(intent), receipt)
     private = operator._private_key(intent.request_id)
-    assert open_initial_receipt(intent, 1234, sealed, private) == receipt
+    assert open_initial_receipt(intent, RUN(intent), sealed, private) == receipt
     wrong = intent.model_copy(update={"plan_version": 4})
     with pytest.raises(InvalidTag):
-        open_initial_receipt(wrong, 1234, sealed, private)
+        open_initial_receipt(wrong, RUN(intent), sealed, private)
     legacy = ExecutionIntent(request_id=intent.request_id, input_ref=intent.input_ref,
         input_digest=intent.input_digest, admission_digest=intent.binding_digest,
         runtime_source_sha=RUNTIME, recipient_public_key=intent.recipient_public_key, mode="propose")
     with pytest.raises(InvalidTag):
-        open_initial_receipt(intent, 1234, seal_receipt(legacy, 1234, receipt), private)
+        open_initial_receipt(intent, RUN(intent), seal_receipt(legacy, RUN(intent), receipt), private)
 
 
 @pytest.mark.parametrize("change", [{"purpose": "t38-product-proposal"}, {"plan_version": True}])

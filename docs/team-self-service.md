@@ -23,6 +23,10 @@ uv run --python 3.12 python scripts/team_runtime.py cleanup --run-id team-실제
 
 최종 JSON의 `execution`, `verdict`, `cleanup`은 각각 실행 상태·기존 판정·이번 실행 정리 상태다. `run`은 `PASS`와 `CLEAN`이 모두 있어야 종료 코드 0이다. `cleanup`은 정리 성공을, `status`는 조회 성공을 종료 코드로 표시하며 원 시험 판정은 JSON에 보존한다. 중단 후 정리가 성공해도 중단된 시험을 PASS로 바꾸지 않는다. `receipt` 경로의 원장, `isolation.json` 또는 `t15-credential-flow-*.json` 원본 보고서를 읽으면 단계별 결과를 확인할 수 있다. 기존 T15 보고서의 전체 `rehearsal-*` 잔존 목록과 종료 코드는 보존하며, 남의 namespace는 이 도구의 정리 실패에 포함하지 않는다.
 
+## 저장소 열기·닫기
+
+`objects state|check|open|close|cycle|status|cleanup`는 [저장소 HTTP API](object-operations.md#http-api)를 호출한다. 다른 도구는 같은 API와 OpenAPI 명세를 사용할 수 있다. 클러스터 내부 작업이 기존 키를 소비한다. `open`은 개발용 익명 읽기를 유지하고 명시적 `close`로 닫는다. `cycle`의 닫기와 중단 복구는 개인 PC 연결과 무관하게 이어진다. 별도 작업 창과 명시적 익명 읽기 확인이 필요하다. T3/T15의 로컬 원장·정리와 구분한다.
+
 ## 환경을 한 번 등록하는 사람의 책임
 
 환경 관리자는 `bravo-team-access/bravo-self-service-runtime` ConfigMap의 `data.environment.json`을 등록한다. 사용자마다 경로를 채우거나 CA·소스 파일을 전달하지 않는다. [입력 검증 코드](../scripts/team_runtime/recipes.py)의 `bravo.team-runtime/v1` 명세는 다음을 포함한다.
@@ -58,6 +62,7 @@ Kubernetes create 전에 자원 종류·이름·namespace를 기록하고 실행
 | 시험용 소스·경로·이미지·CA 조립 | 환경 ConfigMap + T3/T15 | 대상 환경에서 자동 해석, diff·아키텍처·로컬 이미지 확인 |
 | 결과 파일 찾기·실패와 잔존 혼동 | 실행별 원장 + 원본 시험 보고서 | 같은 run ID로 조회, 실행·판정·정리 분리 |
 | 중단 후 관리자에게 정리 요청 | 실행 원장 + UID 조건 삭제 + 기존 Bao cleanup | 본인 재인증 후 같은 실행 정리 |
+| 저장소 키 수동 조립·열기/닫기·정책 정리 | T7 운영 연결 + T9 렌더/probe | `objects` 고정 작업, 서버 결과·중단 후 닫힘 복구 |
 | 제품 등록·이미지 발행·배포 | T43 GitOps 및 기존 publication 경로 | 기존 배포 소유자가 관리, 시험 도구가 Deployment 수정하지 않음 |
 | 실제 계획·AI·컷오버·승인 | T10/T15/T17 제품 호스트 및 콘솔 | 기존 단일 완료 담당이 연결, 고정 시험을 제품 완료로 집계하지 않음 |
 

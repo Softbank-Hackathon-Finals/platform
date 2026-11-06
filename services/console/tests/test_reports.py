@@ -89,10 +89,56 @@ def test_safe_projection_and_both_authority_reads(fixture):
         assert r.status_code == 200, r.text
         value = r.json()
         assert value["authorizes_cutover"] is False
+        snapshot = c.get("/v1/plans/plan-demo").json()
+        assert value["plan_version"] == snapshot["version"]
+        assert value["plan_state"] == snapshot["state"]
         assert value["decision"] == "PASS" and len(value["rows"]) == 3
         assert "PRIVATE" not in r.text and "question" not in r.text
         assert state["auth_calls"] == 2
         assert r.headers["cache-control"] == "no-store"
+
+
+@pytest.mark.parametrize("kind", ["none", "short", "long", "expired", "current", "naive", "text", "boolean"])
+def test_read_projection_checks_deadline_type_and_does_not_extend_it(fixture, kind):
+    app, state, *_ = fixture
+    now = datetime.now(UTC)
+    deadline = {
+        "none": None, "short": now + timedelta(seconds=2),
+        "long": now + timedelta(hours=1), "expired": now - timedelta(seconds=1),
+        "current": now, "naive": datetime.now(), "text": now.isoformat(), "boolean": True,
+    }[kind]
+    app.controls.clock = lambda: now
+    state["envelope"] = lambda value: replace(value, authority_expires_at=deadline)
+    with TestClient(app, base_url=ORIGIN, cookies={"fixture-session": "test-only"}) as client:
+        response = client.get("/v1/plans/plan-demo/controls")
+    if kind in {"none", "short", "long"}:
+        assert response.status_code == 200
+        expected = min(now + timedelta(seconds=15), deadline) if deadline else now + timedelta(seconds=15)
+        assert datetime.fromisoformat(response.json()["read_valid_until"]) == expected
+        assert response.json()["authorizes_cutover"] is False
+    else:
+        assert response.status_code == 503 and "rows" not in response.text
+
+
+@pytest.mark.parametrize("change", ["expired", "clock-regressed"])
+def test_final_read_check_rejects_expiry_or_clock_regression_after_projection(fixture, change):
+    app, state, *_ = fixture
+    now = datetime.now(UTC)
+    clock = {"now": now}
+    app.controls.clock = lambda: clock["now"]
+    state["envelope"] = lambda value: replace(value, authority_expires_at=now + timedelta(seconds=2))
+    original = app.controls.authenticate
+
+    async def finish(scope, plan, registered):
+        result = await original(scope, plan, registered)
+        if state["auth_calls"] == 2:
+            clock["now"] = now + timedelta(seconds=2) if change == "expired" else now - timedelta(microseconds=1)
+        return result
+
+    app.controls.authenticate = finish
+    with TestClient(app, base_url=ORIGIN, cookies={"fixture-session": "test-only"}) as client:
+        response = client.get("/v1/plans/plan-demo/controls")
+    assert response.status_code == 503 and "rows" not in response.text
 
 
 def test_report_for_generated_workload_id_is_rendered(tmp_path):
