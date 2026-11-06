@@ -54,7 +54,8 @@ class Driver(unittest.TestCase):
         self.assertEqual(reaches, sorted(reaches, key=hp.ORDER.index))
         humans = [s.id for s in hp.STEPS if s.kind == "human"]
         ids = [s.id for s in hp.STEPS]
-        self.assertEqual(humans, ["s2-candidate-import", "s2-change-approval", "s3-cutover-approval", "s3-load",
+        self.assertEqual(humans, ["s2-candidate-import", "s2-change-approval", "s3-shift-approval",
+                                  "s3-cutover-approval", "s3-load",
                                   "s3-attachment-copy", "s3-reverse-replication", "s4-alert-seen",
                                   "s4-failback-approval", "wrap-map"])
         self.assertLess(ids.index("s2-ai-collect"), ids.index("s2-candidate-import"))
@@ -82,7 +83,7 @@ class Driver(unittest.TestCase):
         self.assertEqual(self.confirm("s2-change-approval"), 0)
         self.state = "AWAIT_APPROVAL"
         code, line = self.run_driver()
-        self.assertEqual(line["step"], "s3-cutover-approval")
+        self.assertEqual(line["step"], "s3-shift-approval")
         self.assertIn("open_after_apply.py:-", self.calls)
 
     def test_unwired_steps_stop_closed(self):

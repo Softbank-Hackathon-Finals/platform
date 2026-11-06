@@ -13,6 +13,14 @@
 | 5 | `subscription-runtime` Terraform plan → apply (GitHub trust·controller 역할 제거, 노드 역할 trust) | plan 변경 목록이 위와 같음 |
 | 6 | 워크플로 호스트: `workflowHost.runtime`에 ports ConfigMap·Reader v2·state PVC·executor Secret·App Secret | 아래 ports 예시와 일치 |
 
+### 권한 (OperatorAccess)
+
+- 워크플로 호스트는 자기 주체(`workflow-host`)로 T31 반영을 접수한다. 이 주체에 `read`·`apply_change`를 계획별로
+  부여한다(`set_permissions`). 원래 승인자는 `approve_change`로 다시 확인되므로 승인과 반영은 분리된다.
+- AWAIT_APPROVAL → SHIFT는 사람의 SHIFT 승인(`approve_shift`)이 필요하다. 콘솔에 아직 버튼이 없으면 운영 API
+  `/v1/plans/{id}/approvals`(`approval_kind: shift`)로 한다. 실행기 `s3-shift-approval`.
+- Job 주체(`b3d65883…`)의 T10 initial grant를 둔 뒤 `run.py fence → admit → start → collect` 순서로 한다.
+
 ### TLS
 
 - DB: `sslmode=verify-full`, `/ca/ca.crt`(`platform-db-ca`). 호스트·Reader·relay 모두 같은 Secret.

@@ -65,7 +65,9 @@ STEPS = (
          ("python3", f"{WORKLOADS}/open_after_apply.py", "--application-id", "{application_id}",
           "--receipts", "{receipts}", "--kubeconfig", "{kubeconfig}")),
     Step("s2-gate-pass", "S2", "observe", "T19", "게이트 재대조 PASS", reach="AWAIT_APPROVAL"),
-    Step("s3-cutover-approval", "S3", "human", "승인자", "콘솔에서 SHIFT 승인 후 컷오버 승인"),
+    Step("s3-shift-approval", "S3", "human", "승인자",
+         "SHIFT 승인: POST /v1/plans/{plan}/approvals {approval_kind: shift, expected_version, expires_at}"),
+    Step("s3-cutover-approval", "S3", "human", "승인자", "콘솔에서 컷오버 승인(SHIFT 상태에서)"),
     # Owner-run live tools with per-run inputs (docs/operations/t28-demo-runbook.md); confirmed here.
     Step("s3-load", "S3", "human", "T18", "부하 예열 50 rps · 30초 → 본 측정 시작 (services/loadgen)"),
     Step("s3-attachment-copy", "S3", "human", "T8",

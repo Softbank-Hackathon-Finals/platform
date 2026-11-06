@@ -132,7 +132,8 @@ def test_rehearse_applies_the_approved_change_once_then_reads_it(host_case):  # 
     f.kube.cluster = "kubectl"
     with f.make() as host:
         stages = application_stages(host, None, receipts_dir=f.root, check_current=lambda *a: True,
-                                    load_gate=lambda *a: pytest.fail("no gate on REHEARSE"))
+                                    load_gate=lambda *a: pytest.fail("no gate on REHEARSE"),
+                                    host_subject="workflow-host")
         assert set(stages) == {"REHEARSE"}
         version = f.backend.store.snapshot(PLAN)["version"]
         reader = stages["REHEARSE"](PLAN, PRINCIPAL.tenant_id, version)
@@ -150,7 +151,8 @@ def test_rehearse_without_a_human_change_approval_holds(backend):
 
     f = Fixture(backend)
     with pytest.raises(ValueError):
-        application_stages(object(), None, receipts_dir="/", check_current=None, load_gate=None)
+        application_stages(object(), None, receipts_dir="/", check_current=None, load_gate=None,
+                           host_subject="workflow-host")
     from bravo_platform_events.workflow_stages import _approved_change
 
     assert _approved_change(f.backend.store, PLAN, f.backend.store.snapshot(PLAN)["version"]) is None
@@ -199,3 +201,44 @@ def test_entry_point_builds_one_host_from_deployment_ports(backend, tmp_path):
     assert host.sweep()[0].hold == "workflow_reader_unwired"  # PROPOSE not wired in these ports
     with pytest.raises(ValueError):
         build(backend.store, lambda store: {"cutover": service(store, None), "other": 1})
+
+
+def test_host_applies_as_its_own_operator_identity_not_the_approver():
+    from bravo_platform_events.operator_identity import OperatorPrincipal
+    from bravo_platform_events.workflow_stages import host_principal
+
+    p = host_principal("workflow-host", "tenant-demo", clock=lambda: 1000)
+    assert isinstance(p, OperatorPrincipal) and p.subject_id == "workflow-host"
+    assert (p.issued_at, p.expires_at, p.authenticated_at) == (1000, 1300, 1000)
+
+
+def test_operator_access_requires_host_apply_grant_and_approver_grant(backend):
+    """P1: OperatorAccess.change_authority accepts the host identity only with its own apply_change
+    grant, and still re-checks the human approver's approve_change grant."""
+    from test_cutover import EXPIRES
+
+    from bravo_platform_events.operator_access import OperatorAccess
+    from bravo_platform_events.operator_identity import OperatorPrincipal
+    from bravo_platform_events.workflow_stages import host_principal
+
+    collect(backend.store)
+    access = OperatorAccess(backend.store, clock=lambda: NOW)
+    now = int(datetime.fromisoformat(NOW).timestamp())
+    host = host_principal("workflow-host", PRINCIPAL.tenant_id, clock=lambda: now)
+    seen = []
+    current = access.change_authority(lambda *a, **k: seen.append(k) or pytest.fail("upstream reached"))
+
+    def call():
+        with backend.store._transaction() as c:
+            plan = dict(c.execute("SELECT * FROM plans WHERE plan_id=?", (PLAN,)).fetchone())
+            current(c, host, plan, now=NOW, approved_by="approver", approval_id="appr-1")
+
+    with pytest.raises(EventError, match="forbidden"):  # no host grant
+        call()
+    rev = 0
+    for subject, permissions in (("workflow-host", ["read", "apply_change"]),):
+        access.set_permissions(PLAN, OperatorPrincipal(subject, PRINCIPAL.tenant_id, now, now + 300, now, "s"),
+                               permissions=permissions, valid_after=NOW, expires_at=EXPIRES,
+                               expected_revision=rev, administration_ref="fixture-admin", command_key="grant-host")
+    with pytest.raises(EventError, match="forbidden"):  # the approver has no approve_change grant
+        call()

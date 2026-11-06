@@ -121,7 +121,8 @@ def create_ports(store, config_file="/workflow/ports.json"):
         readers["WATCH"] = watch_reader(observe=sli_observer(profile), retest=_factory(watch["retest"])(store))
     if "application" in config:
         # Owner-provided (T31/T19): returns {"REHEARSE": preparer, "GATE": preparer} built with
-        # workflow_stages.application_stages over this process's single ApplicationHost.
+        # workflow_stages.application_stages(..., host_subject="workflow-host") over this process's
+        # single ApplicationHost; that subject needs its own apply_change grant.
         stages = _factory(config["application"])(store)
         if not isinstance(stages, dict) or set(stages) - {"REHEARSE", "GATE"}:
             raise ValueError("workflow_application_ports_invalid")
