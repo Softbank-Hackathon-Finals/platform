@@ -1,0 +1,50 @@
+name: dependency-watch
+
+# A new HIGH/CRITICAL advisory against develop's lock files fails every PR's `project-checks` and every
+# merge-queue entry at once (#565: golang.org/x/net in operations/kubectl). Scan develop daily with the
+# same rule as ci.yml project-checks and keep one open issue, so the fix lands before PRs pile up.
+
+on:
+  schedule:
+    - cron: '17 21 * * *'  # 06:17 KST
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: develop
+      - name: Dependencies on develop (same rule as project-checks)
+        id: trivy
+        continue-on-error: true
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          scanners: vuln
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
+          trivyignores: .trivyignore.yaml
+      - name: One open issue while develop is affected
+        if: steps.trivy.outcome == 'failure'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          title='develop 의존성 취약점: PR·병합 큐 검사가 실패합니다'
+          body="develop 정기 스캔(project-checks와 같은 기준)이 HIGH/CRITICAL 취약점을 찾았습니다. 수정 버전으로 올리기 전에는 모든 PR의 project-checks와 병합 큐 항목이 실패합니다. 결과: $RUN_URL"
+          number=$(gh issue list --state open --search "in:title \"$title\"" --json number --jq '.[0].number')
+          if [ -n "$number" ]; then gh issue comment "$number" --body "$body"; else gh issue create --title "$title" --body "$body"; fi
+      - name: Fail the run when develop is affected
+        if: steps.trivy.outcome == 'failure'
+        run: exit 1
