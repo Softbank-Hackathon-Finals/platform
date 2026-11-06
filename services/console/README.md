@@ -127,9 +127,9 @@ app = ConsoleApp(authenticated_t10_app,
     public_origin="https://console.example.invalid", controls=reports)
 ```
 
-- 등록 문서는 `RegisteredGateDocument(plan_id, plan_digest, document, gate_phase="initial", application_id=None)`이며 보고서 원문은 최대 256 KiB다. 호스트의 `authenticate`는 비동기 함수이고 명시적인 `True`만 수용한다. 신뢰할 수 없는 클라이언트 필드나 단순 문자열 비교만으로 발급자를 인증하면 안 된다.
+- 등록 문서는 `RegisteredGateDocument(plan_id, plan_digest, document, gate_phase="initial", application_id=None, authority_expires_at=None)`이며 보고서 원문은 최대 256 KiB다. 호스트의 `authenticate`는 비동기 함수이고 명시적인 `True`만 수용한다. 신뢰할 수 없는 클라이언트 필드나 단순 문자열 비교만으로 발급자를 인증하면 안 된다.
 - T10 조회 권한·계획 snapshot과 보고서 권한을 조회 전후로 확인한다. 다른 앱·환경 쌍, 누락·중복 시험, 알 수 없는 프로필, 모순되는 전체 PASS, 중복 JSON 키·비유한 숫자·미래 판정은 표시하지 않는다. 저장소·검증 오류 원문은 공개 응답에 포함하지 않는다.
-- 브라우저는 현재 게이트 ID·context digest·계획 digest가 일치하고 조회가 15초 이내인 보고서를 표시한다. 새 조회 응답은 `plan_version`·`plan_state`도 현재 snapshot과 대조한다. 권한 회수·계획/버전/상태 변경 또는 조회 기한 경과 시 표를 제거한다. 이는 최근에 **조회한 과거 판정**이며 증거가 지금도 유효하다는 뜻은 아니다.
+- 브라우저는 현재 게이트 ID·context digest·계획 digest가 일치하고 서버의 `read_valid_until` 이전인 보고서를 표시한다. 새 조회 응답은 `plan_version`·`plan_state`도 현재 snapshot과 대조한다. 권한 회수·계획/버전/상태 변경 또는 조회 기한 경과 시 표를 제거한다. 이는 최근에 **조회한 과거 판정**이며 증거가 지금도 유효하다는 뜻은 아니다.
 - workflow의 게이트 이벤트가 아직 없는 초기 비교는 서버가 전후 인증한 같은 snapshot의 버전·상태가 있는 경우에만 표시한다. `initial`·Application ID 없음·COLLECT/ANALYZE/PROPOSE/REHEARSE/GATE에서만 허용하며 **초기 비교 (실행 허가 아님)**으로 구분한다. 기존 이벤트와 충돌하거나 반영 후 보고서인 경우 이 경로를 사용하지 않는다. 새 metadata가 없는 과거 응답은 기존 이벤트 일치를 계속 요구한다. 이 표는 `Model`의 승인·실행 조건에 사용하지 않는다.
 - 서버와 브라우저는 T10 계획에 고정된 `profile_id`·`profile_version`도 보고서와 대조한다. 전체 20개 시험 계획에 3개 데모 보고서를 붙이거나 버전이 다른 보고서를 표시하지 않는다. 프로필이 없는 기존 계획은 일반 조회를 유지하지만 통제 보고서는 표시하지 않으며, 보고서에서 프로필을 역으로 채우지 않는다.
 - `authorizes_cutover: false`를 고정한다. 예외 적용을 동등성 PASS로 바꾸지 않는다. 전체 컷오버 조건에는 별도의 데이터 준비·SHIFT·현재 권한·승인 검사가 필요하며 T10/T19가 담당한다.
@@ -289,3 +289,28 @@ app = ConsoleApp(authenticated_t10_app,
 T33 전체 완료 또는 실제 위협 탐지 성공으로 기록하지 않는다.
 
 재대조 보고서를 제공하는 호스트는 저장된 T10 GateRecords에서 `gate_phase="post_apply"`와 성공한 `application_id`를 읽어 `RegisteredGateDocument`에 전달하고 두 인증 호출에서 이를 검증한다. 프로필 이름으로 단계를 추측하지 않는다. 최초 보고서는 계획의 `profile_*`, 반영 후 보고서는 `recheck_profile_*`와 대조하며, 어느 보고서도 실행 권한을 발급하지 않는다. 등록 UI는 재대조 프로필 쌍을 선택적으로 전송하고 영수증·snapshot·승인 재시도에서 보존한다.
+
+
+### 통제 보고서의 표시 기한
+
+`T10ControlReports`는 `accept`가 확인한 `VerifiedAuthority`들의 가장 이른 기한을
+`RegisteredGateDocument.authority_expires_at`에 보존한다. 콜백 모드와 같은 트랜잭션의
+`authority_factory` 모드 모두 적용한다. 직접 호스트 어댑터가 이 필드를 제공한다면
+시간대가 있는 Python `datetime`이어야 한다. 알려진 기한이 없는 명시적 신뢰 콜백은
+기존 호스트 책임을 유지하며 표시 기한을 최대 15초로 제한한다.
+
+`PlanControlReport`는 현재 시각+15초와 알려진 기한 중 이른 값을 `read_valid_until`로
+전달한다. 이미 만료됐거나 잘못된 타입·시간대인 기한은 거부한다. 응답 직전에도 기한과
+시계 역행을 확인하며, 처리 지연으로 끝난 기한을 새 조회 시각으로 연장하지 않는다.
+
+브라우저는 수신 시각 대신 `queried_at`·`read_valid_until`을 대조한다. 누락/잘못된 기한,
+현재보다 미래인 조회, 15초를 넘는 표시 창과 만료된 응답은 표시하지 않는다. 같은 응답을
+다시 받아도 기한을 갱신하지 않는다. 활성 화면은 기존 1초 렌더링 주기에 따라 표를 비운다.
+서버와 정적 자산은 같은 패키지로 배포한다. 새 클라이언트가 이전 서버의 기한 없는 응답을
+받으면 해당 표를 미연결로 처리하며, 다른 승인/실행 계약을 완화하지 않는다.
+
+이는 **과거 판정을 현재 권한으로 읽은 표시의 기한**이다. T14 증거의 만료나 T19 승인
+기한을 늘리지 않고, 알려지지 않은 미래 권한 회수를 미리 감지하는 기능도 아니다.
+실제 승인·실행은 기존 T10 현재 권한·T19 검증을 계속 따른다.
+
+[실제 DB·두 브라우저·변이·Linux 검증](../../docs/evidence/t21-control-read-deadline-2026-11-06/README.md).

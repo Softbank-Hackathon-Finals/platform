@@ -103,6 +103,7 @@ class T10ControlReports:
                 report.raw,
                 view.gate_phase,
                 view.application_id,
+                min(deadlines) if deadlines else None,
             )
 
     async def load(self, scope, snapshot):
