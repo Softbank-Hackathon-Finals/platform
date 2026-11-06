@@ -9,6 +9,7 @@ from starlette.requests import Request
 from .app import ConsoleApp
 from .audit import t24_reader
 from .operation_reads import T10Operations
+from .workload import PlanWorkload
 from .workspace_data import AuditPanel, PlanWorkspace, RegisteredPanelSource, T37Details
 from .workspace_reports import FEATURES
 
@@ -39,6 +40,7 @@ def compose_console(
     network_client=None,
     authorize_network=None,
     network_registration=None,
+    workload=None,
 ):
     """`api` must be the native T10 app using these same service instances/store.
 
@@ -47,6 +49,8 @@ def compose_console(
     Initial dispatch additionally requires a positive check under the T10 lock.
     Omitted providers stay explicitly UNCONFIGURED and do not grant actions.
     """
+    if workload is not None and (type(workload) is not PlanWorkload or workload.api is not api):
+        raise ValueError("workload_provider_requires_same_t10_api")
     sources = {}
     for feature, loader in (registered_loaders or {}).items():
         if feature not in set(FEATURES) - {"audit", "monitoring"}:
@@ -90,4 +94,5 @@ def compose_console(
         security=security,
         workspace=workspace,
         network=network,
+        workload=workload,
     )
