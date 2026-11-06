@@ -32,6 +32,11 @@ def verify_rehearsal_host(get, host):
         raise ValueError("published_rehearsal_host_image_required")
 
 
+READER_COMMAND = ["python", "-m", "bravo_platform_events.product_read_server"]
+READER_ARGS = ["--config", "/product-read/reader.json", "--tls-cert", "/tls/tls.crt", "--tls-key", "/tls/tls.key",
+               "--initial-proposal"]
+
+
 def verify_reader(get, runtime, expected):
     """Adopt only the observed Reader; its shared identity and data stay external."""
     if set(runtime) != {"configuration", "secrets", "catalogClaim"}:
@@ -59,22 +64,37 @@ def verify_reader(get, runtime, expected):
     pod = deployment["spec"]["template"]["spec"]
     annotations = deployment["spec"]["template"]["metadata"]["annotations"]
     tracking = deployment["metadata"].get("annotations", {}).get("argocd.argoproj.io/tracking-id", "")
+    adopted = tracking.startswith("platform-product-reader:")
     if (digest != runtime["configuration"]["sha256"]
-            or annotations.get("bravo.dev/config-sha256") != digest
             or deployment["spec"]["selector"]["matchLabels"] != labels
             or service["spec"]["selector"] != labels
             or service["spec"]["type"] != "ClusterIP"
             or pod["serviceAccountName"] != "platform-runtime"
             or pod.get("automountServiceAccountToken") is not False
-            or (tracking and not tracking.startswith("platform-product-reader:"))):
+            or (tracking and not adopted)):
         raise ValueError("reader_adoption_boundary_mismatch")
     volumes = {v["name"]: v for v in pod["volumes"]}
+    if volumes["catalog"]["persistentVolumeClaim"].get("readOnly") is not True:
+        raise ValueError("reader_adoption_boundary_mismatch")
+    if adopted:
+        # After adoption Argo keeps the Deployment on the previous runtime values, so a
+        # reviewed new ConfigMap or TLS Secret cannot already be mounted. The identities,
+        # ownership, boundary and the new references' UIDs and content hash above suffice.
+        return
+    # First adoption: the live workload must already be what the chart renders.
+    if annotations.get("bravo.dev/config-sha256") != digest:
+        raise ValueError("reader_adoption_boundary_mismatch")
     if (volumes["config"]["configMap"]["name"] != runtime["configuration"]["existingConfigMap"]
             or volumes["catalog"]["persistentVolumeClaim"] != {"claimName": runtime["catalogClaim"], "readOnly": True}
             or any(volumes[name]["secret"]["secretName"] != runtime["secrets"][key]
                    for name, key in (("credential", "database"), ("database-ca", "databaseCA"),
                                      ("catalog-key", "catalogKey"), ("tls", "tls")))):
         raise ValueError("reader_mount_change_requires_separate_review")
+    containers = pod["containers"]
+    if (len(containers) != 1 or containers[0].get("command") != READER_COMMAND
+            or containers[0].get("args") != READER_ARGS
+            or [(p.get("name"), p.get("containerPort")) for p in containers[0].get("ports", [])] != [("https", 8443)]):
+        raise ValueError("reader_mode_mismatch")
 
 
 def run(args, *, check=True):
