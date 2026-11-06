@@ -23,6 +23,12 @@ checkout volume. It cannot read DB, TLS or collector Secrets. The application
 receives the checkout read-only. Both containers run as UID/GID 10001, drop all
 capabilities, and have no service-account token or writable root filesystem.
 
+`initialProposal` (off by default) adds the T10/T38 initial-proposal Job carrier:
+the `bravo-initial` namespace, a token-only ServiceAccount, the public broker CA and a
+Pod admission policy. Jobs are created per request by the operator from reviewed source
+and use the Reader image pinned here; hostNetwork is the single restricted-profile
+exception and the policy admits only that exact Pod shape.
+
 `argocd` pins the upstream Helm chart and runs the controller, repository server
 and Redis. There is no public API/UI, Dex or local admin account. ApplicationSet
 replicas are zero. Operators use their existing personal Kubernetes access with

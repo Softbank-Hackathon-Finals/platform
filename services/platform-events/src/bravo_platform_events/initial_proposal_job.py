@@ -47,6 +47,12 @@ def job_name(request_id):
     return JOB_PREFIX + execution_id(request_id)
 
 
+def gitops_image(path):
+    """The reviewed Reader image pin that Argo deploys; it already ships this module."""
+    pin = json.loads(Path(path).read_text())["image"]
+    return pin["repository"] + "@" + pin["digest"]
+
+
 def job_manifest(intent, image):
     if re.fullmatch(r"[a-z0-9./-]+@sha256:[a-f0-9]{64}", image) is None:
         raise ValueError("immutable job image required")
@@ -181,7 +187,9 @@ def main(argv=None):
     parser.add_argument("operation", choices=["run", "submit", "read"])
     parser.add_argument("--intent", type=Path)
     parser.add_argument("--state-dir", type=Path)
-    parser.add_argument("--image")
+    parser.add_argument("--image", help="Override; default is the GitOps-pinned Reader image")
+    parser.add_argument("--gitops-image", type=Path,
+                        default=Path("infra/gitops/environments/development/product-reader-image.json"))
     parser.add_argument("--context")
     parser.add_argument("--output", type=Path)
     args = parser.parse_args(argv)
@@ -196,9 +204,10 @@ def main(argv=None):
         print(json.dumps(sealed, allow_nan=False))
         return 0
     try:
-        if not (args.intent and args.state_dir and args.image and args.output):
-            raise ValueError("intent, state dir, image and output required")
-        client = JobInitialProposal(args.state_dir, image=args.image, kubectl=OperatorKubectl(args.context))
+        if not (args.intent and args.state_dir and args.output):
+            raise ValueError("intent, state dir and output required")
+        image = args.image or gitops_image(args.gitops_image)
+        client = JobInitialProposal(args.state_dir, image=image, kubectl=OperatorKubectl(args.context))
         receipt = getattr(client, args.operation)(InitialIntent.model_validate_json(args.intent.read_bytes()))
         fd = os.open(args.output, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
         with os.fdopen(fd, "w") as stream:

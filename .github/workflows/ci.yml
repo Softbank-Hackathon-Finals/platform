@@ -143,6 +143,7 @@ jobs:
           helm dependency build infra/gitops/argocd
           "$RUNNER_TEMP/helm-test/bin/python" infra/gitops/test_registration_chart.py
           "$RUNNER_TEMP/helm-test/bin/python" infra/gitops/test_product_reader_chart.py
+          "$RUNNER_TEMP/helm-test/bin/python" infra/gitops/test_initial_proposal_chart.py
           mkdir "$RUNNER_TEMP/registration-rendered"
           "$RUNNER_TEMP/helm-test/bin/python" infra/gitops/test_registration_chart.py --render > "$RUNNER_TEMP/registration-rendered/registration.yaml"
           "$RUNNER_TEMP/helm-test/bin/python" infra/gitops/test_product_reader_chart.py --render > "$RUNNER_TEMP/registration-rendered/product-reader.yaml"

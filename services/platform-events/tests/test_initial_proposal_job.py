@@ -213,3 +213,10 @@ def test_execution_id_is_stable_and_bound(operator):
         job.run(env, call=lambda _: pytest.fail("unbound call"), token_file=tmp_path / "missing")
     with pytest.raises(ValueError):
         job.job_manifest(intent, "ghcr.io/example/reader:latest")
+
+
+def test_default_job_image_is_the_gitops_reader_pin():
+    from pathlib import Path
+    root = Path(__file__).resolve().parents[3]
+    image = job.gitops_image(root / "infra/gitops/environments/development/product-reader-image.json")
+    assert image.startswith("ghcr.io/softbank-hackathon-finals/platform-product-reader@sha256:")

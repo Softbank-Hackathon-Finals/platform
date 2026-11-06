@@ -2,6 +2,11 @@ productReader:
   enabled: false
   runtime: {}
 
+initialProposal:
+  enabled: false
+  # Public broker CA certificate only; the broker key never enters Git or values.
+  brokerCaPem: ""
+
 registration:
   enabled: false
   # Protected operator input: existing config/Secret references and host aliases only.

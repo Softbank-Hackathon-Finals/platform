@@ -453,10 +453,13 @@ T15 token-free 소비 경로가 준비됐다는 증거는 아니다. 동일 DB/C
 - **한 번만 실행:** 운영자는 기존 원장에 전송 표식을 먼저 저장하고, 요청 ID에서 정한 고정 이름으로
   Job을 만든다(`backoffLimit: 0`). 응답을 잃어도 같은 이름의 재생성은 AlreadyExists이며, 다시
   실행하지 않고 같은 Job만 읽는다. 결과는 운영자 키로 봉인한 영수증 한 줄을 Job 로그에서 회수한다.
-- **설치:** `initial-job.yaml`, 공개 broker CA를 담은 ConfigMap `subscription-broker-ca`(`ca.pem`),
-  broker 설정의 `workload_identity`(issuer·audience·subject·`public_keys` kid→PEM),
-  Reader의 `--initial-job-config`(issuer·audience·subject·`jwks_file`)를 같은 클러스터
-  `/openid/v1/jwks` 조회 결과로 넣는다. 키 회전 때 두 설정을 같이 갱신한다.
+- **설치(IaC):** namespace `bravo-initial`·SA·공개 broker CA ConfigMap과 Pod 승인 정책은
+  `infra/gitops/argocd`의 `initialProposal`(기본 비활성)로 관리한다. 정책은 이 namespace에서
+  고정 SA·Reader 이미지·broker audience 토큰만 가진 Pod만 허용한다. Job 이미지는 GitOps가 배포하는
+  `environments/development/product-reader-image.json` 값을 그대로 쓴다. broker 설정의
+  `workload_identity`(issuer·audience·subject·`public_keys` kid→PEM)와 Reader의
+  `--initial-job-config`(issuer·audience·subject·`jwks_file`)는 같은 클러스터 `/openid/v1/jwks`
+  조회 결과로 넣고, 키 회전 때 같이 갱신한다.
 - **실행:** 운영자 SSO로 broker를 `bravo-subscription-service start`로 켠 뒤
-  `python -m bravo_platform_events.initial_proposal_job submit --intent … --state-dir … --image <reader image@sha256> --output …`,
+  `python -m bravo_platform_events.initial_proposal_job submit --intent … --state-dir … --output …`,
   완료까지 같은 명령의 `read`로 조회하고 broker를 `stop`한다.
