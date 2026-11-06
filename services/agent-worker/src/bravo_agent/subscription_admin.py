@@ -134,8 +134,6 @@ def _isolated_worker(provider, credential, args):
             command += ["--reasoning-effort", args.reasoning_effort]
         if getattr(args, "sandbox_image", None) is not None:
             command += ["--sandbox-image", args.sandbox_image]
-        if getattr(args, "exec_socket", None) is not None:
-            command += ["--exec-socket", str(args.exec_socket)]
         environment = {"PATH": "/usr/bin:/bin", "LANG": "C.UTF-8", "HOME": temp,
                        "TMPDIR": temp, "PYTHONDONTWRITEBYTECODE": "1", **credential,
                        **(getattr(args, "docker", None) or {})}

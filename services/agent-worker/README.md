@@ -7,7 +7,6 @@
 | 모듈 | 책임 |
 |---|---|
 | `contracts.py` | 실패 입력·소스 목록·제안서·독립 검증 영수증의 Pydantic 계약 |
-| `exec_tools.py` | T42 rehearsal.exec v1의 모델용 스키마·인자 검사·채널 봉투·응답 검사. 채널 구현 없음 |
 | `tools.py` | 정확한 소스 경로·내용 해시 확인, 제안 제출, 도구 차단·기록 |
 | `coordinator.py` | run/revision/proposal/attempt 결속, 최대 3회, UNKNOWN 중단. LLM import 없음 |
 | `openai_provider.py` | OpenAI Agents SDK `Runner`·함수 도구·구독 Responses 전송 어댑터. 기본 제공자 |
@@ -28,24 +27,11 @@
 | `policy.evaluate` | 후보 정책 · 교체 텍스트를 `plan.propose`와 같은 검사로 미리 린트 | 부작용 없음. `PASS`는 "이 검사에서 거부되지 않음"이지 안전 증명이 아니다 |
 | `inventory.describe` | T16 인벤토리의 모델용 부분집합(항목 · 등급 · 코드 참조 위치) 읽기 | 제어 경로가 `InventorySummary`를 붙인 실행에서만 제공(`--inventory`, 아래 실행 절). snippet · 배포 속성 · 환경변수 값은 전달하지 않는다 |
 
-`rehearsal.exec`, `rehearsal.run/result`는 아직 제공하지 않는다(T42 동작별 exec 도구 세 개는 아래 [rehearsal.exec 도구](#rehearsalexec-도구-t42-v1-t11-쪽)에서 exec를 켠 실행에만 연다. 기본값은 꺼짐). 호출하면 거부되며 감사 사유는 `TOOL_NOT_PROVIDED`로 일반 미허용(`TOOL_NOT_ALLOWED`)과 구분한다. 어떤 도구든 인자에 버킷 삭제 · 네임스페이스 삭제 · DROP/TRUNCATE · rm -rf · terraform destroy 패턴이 있으면 사유 `DESTRUCTIVE_ATTEMPT_BLOCKED`와 코드가 정한 `category`(`bucket_delete` 등)만 기록하고 원문은 기록하지 않는다. 이것이 설계 8.4 데모 장면("정리를 이유로 한 버킷 삭제 시도 차단")의 감사 기록이다.
+`rehearsal.exec`, `rehearsal.run/result`는 아직 제공하지 않는다. 호출하면 거부되며 감사 사유는 `TOOL_NOT_PROVIDED`로 일반 미허용(`TOOL_NOT_ALLOWED`)과 구분한다. 어떤 도구든 인자에 버킷 삭제 · 네임스페이스 삭제 · DROP/TRUNCATE · rm -rf · terraform destroy 패턴이 있으면 사유 `DESTRUCTIVE_ATTEMPT_BLOCKED`와 코드가 정한 `category`(`bucket_delete` 등)만 기록하고 원문은 기록하지 않는다. 이것이 설계 8.4 데모 장면("정리를 이유로 한 버킷 삭제 시도 차단")의 감사 기록이다.
 
 OpenAI 경로(API 키 · 구독 · `account_smoke`)에서도 같은 분류를 쓴다. 예약 도구는 모델에 제공하지 않지만 모델이 `rehearsal_exec` · `rehearsal.exec` · `bravo.rehearsal_exec` · `bravo.rehearsal.exec` · `mcp__bravo__rehearsal_exec`(run/result도 같음) 중 하나로 호출하면 `mcp__bravo__rehearsal_*`로 정규화해 `Tools.dispatch`의 거부 분류를 거친다. 그 밖의 이름은 `unlisted`(`TOOL_NOT_ALLOWED`)다. JSON이 아닌 인자도 분류만 하고 저장하지 않는다. 구독 경로에서 `bravo` 네임스페이스 밖의 호출과 첫 읽기 전의 다른 호출은 기존대로 그 시도를 끝내며(NEEDS_HUMAN), 끝내기 전에 제공 도구가 아닌 호출의 거부를 같은 방식으로 기록한다. 네임스페이스 밖의 `repo_read` 같은 제공 도구 이름은 실행하지 않고 `unlisted`로 기록한다. 응답 종료 이벤트의 output이 비어 스트림 항목으로 복원하는 경우에는 `bravo` 네임스페이스 안의 예약 이름만 복원 대상이다.
 
 소스 경로 정책: 디렉터리 `secrets/` · `credentials/`, 키 파일(`.pem` · `.key` · `.p12` · `.tfstate`), 이름에 `credential` · `private_key`가 든 파일, 테스트 파일은 계속 거부한다. 이름에 `secret`이 든 **코드 파일**(`.py` · `.ts` · `.go` 등)은 읽을 수 있다. demo-chat의 `app/db_secret.py`가 Secrets Manager 직접 호출을 고쳐야 하는 바로 그 파일이기 때문이다. 내용은 여전히 `safe_text`를 거치므로 자격증명 리터럴이 들어 있으면 읽기가 거부된다(가리지 않고 거부한다: 가린 내용을 기준으로 제안하면 교체본과 원본 해시가 어긋난다).
-
-## rehearsal.exec 도구 (T42 v1, T11 쪽)
-
-[호출 계약 v1](../../docs/contracts/T42-rehearsal-exec-v1-proposal.md)과 [스키마](../../docs/contracts/T42-rehearsal-exec-v1.schema.json)의 T11 몫을 구현했다. **실제 채널(T38 broker → T15)은 연결하지 않았고, 실제 모델이 strict 모드에서 이 스키마(`pattern`·`minimum`·`["string","null"]`)를 받는지도 확인하지 않았다.** 시험은 채널 테스트 더블과 모의 전송만 쓴다.
-
-- **노출 조건(기본값 꺼짐, 계약 1절):** `Coordinator(..., exec_enabled=True, exec_channel=ch)`처럼 그 실행이 exec를 켰다고 명시하고(`exec_enabled is True`. `1`·`"true"`·`None`·누락은 꺼짐), 주입한 채널의 `enabled`도 정확히 `True`일 때만 `rehearsal_exec_apply`·`rehearsal_exec_inspect`·`rehearsal_exec_probe`(MCP `mcp__bravo__rehearsal_exec_*`, 내부·감사 이름 `rehearsal.exec.apply` 등)를 연다. 둘 중 하나라도 아니면 지금처럼 `TOOL_NOT_PROVIDED`다. `exec_enabled`의 원천은 T38 `ProductInput.exec_enabled`(서버 소유, 입력 digest에 결속, 새 입력 버전에서만)이며 아직 구현 전이라, 지금 T11을 만드는 호출(`cli`·`verification`·`account_smoke`·러너)은 이 값을 넘기지 않아 모두 꺼짐이다. 예약 이름 `rehearsal_exec`·`rehearsal.exec` 등은 채널이 있어도 `TOOL_NOT_PROVIDED`이며 새 이름과 겹치지 않는다(시험으로 고정). 구독 경로에서는 `bravo` 네임스페이스 안의 호출만 실행한다.
-- **채널 인터페이스:** `ExecChannel.send(envelope) -> response dict`(동기). 실제 구현은 동작 한 번 15초 안에 스스로 끝나야 한다(이 호출은 이벤트 루프를 막는다). 채널의 `enabled`는 통로가 열려 있고 T15 exec 세션이 준비됐다는 뜻이며, 그것만으로는 exec를 열지 않는다.
-- **인자 검사:** inspect `target_name`·probe `service`는 Kubernetes 이름 규칙(DNS 레이블, 하이픈으로 시작·끝 불가)이라 `--all-namespaces` 같은 값은 거부한다. apply는 `plan.propose`와 같은 검사(`Tools.checked_proposal`)를 쓰지만 시도당 제출 1회에 세지 않는다. inspect·probe는 스키마의 `inspect_args`·`probe_args`와 필드 사이 규칙 `inspect_rules`·`probe_rules`를 코드에서 검사한다. 모델에 보내는 parameters는 스키마 파일 조각과 같고, 시험이 계약 파일을 읽어 일치와 SHA-256 고정(`CONTRACT_SHA256`)을 확인한다. exec 호출은 인자 어디에든 파괴 패턴이 있으면 거부한다(`plan.propose`보다 엄격).
-- **봉투:** `schema_version` 1, 호출마다 새 `request_id`(`t11-` + UUID), `args_sha256` = 보낸 `arguments`의 T11 `digest`. apply의 `arguments`는 정규화한 제안서(`Proposal.model_dump`)다. run·attempt·공간 값은 넣지 않는다.
-- **응답 검사:** 스키마의 `response` 규칙 + 같은 `request_id`·`action`, apply의 `status.proposal_digest` = `args_sha256`, `output_tail` 2 KiB(UTF-8 바이트). 통과한 출력도 T11의 `safe_text` 비밀 패턴에 걸리면 모델에 넘기지 않고 `OUTPUT_WITHHELD`로 바꾼다.
-- **T11이 만드는 응답(계약 5절):** 채널 예외나 계약 밖 응답이면 apply는 `UNKNOWN`·`EFFECT_UNKNOWN`·`EXECUTE`, inspect·probe는 `FAILED`·`UNAVAILABLE`·`EXECUTE`. 이후 exec 호출은 보내지 않고 `REJECTED`·`UNAVAILABLE`·`ADMIT`, 결과 모름 이후는 `REJECTED`·`EFFECT_UNKNOWN`·`ADMIT`. 채널이 도중에 꺼지면 `REJECTED`·`UNAVAILABLE`. T11이 만든 응답의 `budget`은 `{0, 0}`이다. `plan.propose` 제출은 계속 가능하다.
-- **제출 여유:** 공급자가 남은 모델 호출 수·마감 시각을 알리고(`Tools.set_model_budget`), 현재 호출 뒤 남은 호출이 `ExecReserve.turns`(기본 2) 미만이거나 남은 시간이 `ExecReserve.seconds`(기본 45초 = exec 15초 + 모델 한 턴) 미만이면 exec를 닫는다. OpenAI 경로는 그 턴부터 도구 목록에서 빼고, 닫힌 뒤의 호출은 `REJECTED`·`BUDGET_EXHAUSTED`·`ADMIT`로 답한다. Claude 경로는 턴을 알 수 없어 도구 호출마다 한 턴을 쓴 것으로 센다(보수적). 알리지 않은 예산은 닫힌 것으로 본다.
-- **감사:** 보낸 호출은 `outcome=ALLOWED`, `reason=POLICY_ACCEPTED`에 `request_id`·`result_code`·`exec_reason`(없으면 뺌). 보내지 않은 호출(위의 `ADMIT` 응답)은 `outcome=DENIED`, `reason=EXEC_CLOSED`에 같은 키. T11 거부는 기존 `INVALID_INPUT_OR_POLICY`·`DESTRUCTIVE_ATTEMPT_BLOCKED`(+`category`)·`TOOL_NOT_PROVIDED`. 인자 값은 저장하지 않으며 값은 문자열·정수·불리언뿐이다(`collect_tool_events` 조건).
 
 ## 실행
 

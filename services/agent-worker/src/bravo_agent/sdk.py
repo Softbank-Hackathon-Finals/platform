@@ -3,7 +3,6 @@
 import asyncio
 import json
 import os
-import time
 from pathlib import Path
 
 from claude_agent_sdk import (
@@ -16,10 +15,9 @@ from claude_agent_sdk import (
 )
 
 from .contracts import FailureBundle, Proposal
-from .exec_tools import DESCRIPTIONS, EXEC_TOOLS, INSPECT_PARAMETERS, PROBE_PARAMETERS
 from .runtime import RUNTIME_KEYS
 from .telemetry import agent_observation, tool_observation
-from .tools import TOOL_NAMES, PolicyDenied, Tools
+from .tools import SYSTEM, TOOL_NAMES, PolicyDenied, Tools
 
 
 async def guard(tools: Tools, data: dict, _tool_use_id, _context):
@@ -38,8 +36,6 @@ async def guard(tools: Tools, data: dict, _tool_use_id, _context):
 
 def make_options(tools: Tools, runtime: Path, model: str, effort: str | None = None) -> ClaudeAgentOptions:
     async def call(name: str, args: dict):
-        # The SDK does not report turns; count every tool call as one (conservative for exec).
-        tools.consume_model_turn()
         try:
             with tool_observation(name):
                 value = tools.dispatch(name, args)
@@ -70,33 +66,16 @@ def make_options(tools: Tools, runtime: Path, model: str, effort: str | None = N
     async def describe(args):
         return await call("mcp__bravo__inventory_describe", args)
 
-    @tool("rehearsal_exec_apply", DESCRIPTIONS["apply"], Proposal.model_json_schema())
-    async def exec_apply(args):
-        return await call("mcp__bravo__rehearsal_exec_apply", args)
-
-    @tool("rehearsal_exec_inspect", DESCRIPTIONS["inspect"], INSPECT_PARAMETERS)
-    async def exec_inspect(args):
-        return await call("mcp__bravo__rehearsal_exec_inspect", args)
-
-    @tool("rehearsal_exec_probe", DESCRIPTIONS["probe"], PROBE_PARAMETERS)
-    async def exec_probe(args):
-        return await call("mcp__bravo__rehearsal_exec_probe", args)
-
     handlers = [read, propose, evaluate] + ([describe] if tools.inventory is not None else [])
-    allowed = list(TOOL_NAMES)
-    if tools.exec_active:
-        # An exec channel is attached for this attempt; closing for budget happens per call.
-        handlers += [exec_apply, exec_inspect, exec_probe]
-        allowed += list(EXEC_TOOLS)
 
     async def before(data, tool_use_id, context):
         return await guard(tools, data, tool_use_id, context)
 
     return ClaudeAgentOptions(
-        tools=[], allowed_tools=allowed,
+        tools=[], allowed_tools=list(TOOL_NAMES),
         mcp_servers={"bravo": create_sdk_mcp_server(name="bravo", tools=handlers)},
         strict_mcp_config=True, setting_sources=[], skills=[], plugins=[], agents={},
-        permission_mode="dontAsk", system_prompt=tools.system_prompt(),
+        permission_mode="dontAsk", system_prompt=SYSTEM,
         hooks={"PreToolUse": [HookMatcher(matcher=None, hooks=[before])]},
         cwd=runtime, model=model, max_turns=8, max_budget_usd=0.5,
         **({"effort": effort} if effort is not None else {}),
@@ -119,7 +98,6 @@ class ClaudeProvider:
         if (set(os.environ) - RUNTIME_KEYS or "OPENAI_API_KEY" in os.environ
                 or not os.environ.get("ANTHROPIC_API_KEY")):
             raise RuntimeError("worker process environment must be explicitly isolated")
-        tools.set_model_budget(8, time.monotonic() + 180)
         options = make_options(tools, self.runtime, self.model, self.effort)
         prompt = json.dumps(tools.model_input(), sort_keys=True)
         with agent_observation(tools, "claude_agent_sdk", self.model):

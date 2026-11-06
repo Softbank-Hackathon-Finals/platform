@@ -36,8 +36,6 @@ def main() -> int:
                          help="Reasoning effort from the environment's model config; omitted = provider default")
     analyze.add_argument("--sandbox-image",
                          help="Agents SDK Docker sandbox image (digest-pinned) from the environment config")
-    analyze.add_argument("--exec-socket", type=Path,
-                         help="Broker-created T42 exec socket for this run; absent means exec stays off")
     args = parser.parse_args()
     if args.command == "schema":
         print(json.dumps(Proposal.model_json_schema(), indent=2))
@@ -50,13 +48,7 @@ def main() -> int:
         # Only the model-facing subset survives; a different revision is refused like any input error.
         inventory = (InventorySummary.from_document(bounded_json(args.inventory, 262144))
                      if args.inventory is not None else None)
-        exec_options = {}
-        if args.exec_socket is not None:
-            from .exec_relay import SocketExecChannel
-
-            # The broker opened this socket only for an input with exec_enabled exactly true.
-            exec_options = {"exec_channel": SocketExecChannel(args.exec_socket), "exec_enabled": True}
-        coordinator = Coordinator(bundle, Snapshot(args.snapshot.resolve(), manifest), inventory, **exec_options)
+        coordinator = Coordinator(bundle, Snapshot(args.snapshot.resolve(), manifest), inventory)
         with tempfile.TemporaryDirectory(prefix="bravo-agent-") as directory:
             runtime = Path(directory)
             environment = isolated_environment(dict(os.environ), runtime, args.provider)

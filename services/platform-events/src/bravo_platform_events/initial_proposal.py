@@ -445,7 +445,7 @@ class InitialProposalExecution:
                 run_id=admission.rehearsal_id, source_sha=admission.source_sha,
                 proposal=result.proposal.model_dump(mode="json"), proposal_digest=result.proposal_digest)
 
-    def rehearsal_input(self, admission, task, *, exec_enabled=False):
+    def rehearsal_input(self, admission, task):
         """Existing T38 ProductInput, bound to the actual committed T15 Admission.
 
         Use the immutable source that the model saw. No copied checkout, new
@@ -462,11 +462,8 @@ class InitialProposalExecution:
                     admission.rehearsal_id, admission.source_sha, admission.task_digest):
                 raise EventError("initial_rehearsal_unavailable")
             prepared = model_input(value)
-            # T42: the runner's per-kind exec setting (ExecConfig). Off stays absent so every
-            # existing input keeps its stored form and digest.
             return validate_product_input(ProductInput(admission_digest=digest(asdict(admission)),
-                attempt=1, bundle=prepared.bundle, manifest=prepared.manifest, files=prepared.files,
-                **({"exec_enabled": True} if exec_enabled is True else {})))
+                attempt=1, bundle=prepared.bundle, manifest=prepared.manifest, files=prepared.files))
 
     def rehearsal_binding(self, admission):
         from rehearsal_runner.attempt_store import PlanBinding

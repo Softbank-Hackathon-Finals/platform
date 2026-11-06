@@ -3,7 +3,6 @@
 from typing import Protocol
 
 from .contracts import FailureBundle, InventorySummary, Proposal, VerificationReceipt, digest
-from .exec_tools import ExecChannel, ExecReserve
 from .tools import Snapshot, Tools
 
 
@@ -12,9 +11,7 @@ class Provider(Protocol):
 
 
 class Coordinator:
-    def __init__(self, bundle: FailureBundle, snapshot: Snapshot, inventory: InventorySummary | None = None,
-                 *, exec_channel: ExecChannel | None = None, exec_reserve: ExecReserve | None = None,
-                 exec_enabled: bool = False):
+    def __init__(self, bundle: FailureBundle, snapshot: Snapshot, inventory: InventorySummary | None = None):
         if bundle.source_sha != snapshot.manifest.source_sha:
             raise ValueError("source revision mismatch")
         if inventory is not None and inventory.source_sha != bundle.source_sha:
@@ -26,18 +23,12 @@ class Coordinator:
         self.proposal: Proposal | None = None
         self.audit: list[dict] = []
         self.attempts: list[dict] = []
-        # T42: handed to every attempt's Tools; exec state (effect unknown, closed) is per attempt.
-        # Off by default; only the run's explicit ``exec_enabled is True`` plus a channel opens exec.
-        self.exec_channel, self.exec_reserve = exec_channel, exec_reserve
-        self.exec_enabled = exec_enabled is True
 
     async def propose(self, provider: Provider) -> dict:
         if self.state not in {"READY", "RETRY_ALLOWED"} or self.attempt >= 3:
             raise ValueError("proposal not allowed in this state")
         self.attempt += 1
-        tools = Tools(self.bundle, self.snapshot, self.attempt, inventory=self.inventory, task=self.task,
-                      exec_channel=self.exec_channel, exec_reserve=self.exec_reserve,
-                      exec_enabled=self.exec_enabled)
+        tools = Tools(self.bundle, self.snapshot, self.attempt, inventory=self.inventory, task=self.task)
         self.proposal = None
         self.state = "ANALYZING"
         try:
