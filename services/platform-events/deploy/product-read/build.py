@@ -14,8 +14,8 @@ from pathlib import Path
 SERVICE = Path(__file__).resolve().parents[2]
 ROOT = SERVICE.parents[1]
 OBSERVABILITY_REVISION = "020c6c78bdc6133ab0ee15e2a990bb9527b3182f"
-KUBECTL_VERSION = "v1.35.9"
-KUBECTL_SHA256 = "3cfeaf80be482b435b0aa214aff6e0b2c312ee23c0ff20810c75517b6004c6eb"
+KUBECTL_VERSION = "v1.35.10"
+KUBECTL_SHA256 = "c49a28f1f4efc4d475ed05f47f2ce8e563bf7bef69ed77fe1b924ea6d83b6327"
 PACKAGES = {
     "platform-events": "bravo_platform_events",
     "agent-worker": "bravo_agent",
