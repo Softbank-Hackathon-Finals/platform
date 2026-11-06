@@ -93,6 +93,10 @@ with ExecutorReader("https://executor.example.invalid") as reader:
 검증 전용 계획은 운영 환경 등록·판정·승인을 대신하지 않는다.
 [호스트 연결과 클러스터 검증 범위](../../services/platform-events/testing/GATE-RECORDS.md)
 
+반영 뒤에는 성공한 Application 체크포인트에 묶인 `post_apply` 세션과
+계획의 재대조 프로필 쌍을 사용한다. 최초 게이트 기록은 이를 대신할 수 없다.
+[필드·단계·재시도 계약](T10-registration.md#반영-후-재대조-프로필)
+
 ### 계획 ID로 재시작하기 (T10 할 일 4)
 
 호스트는 `WorkflowRecovery.resume_once(principal, plan_id)`로 한 단계씩 복구한다. 수집 종료는 기존 `complete_collection`, 최초 컷오버 접수는 기존 `CutoverService.submit`이 담당한다. 복구기는 Executor에 GET만 보낸다. [구현](../../services/platform-events/src/bravo_platform_events/workflow.py)

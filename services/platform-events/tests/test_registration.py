@@ -22,6 +22,7 @@ DST = dict(name="target", kind="onprem", roles=["target"], connection_ref="targe
 APP = dict(name="chat", repo_url="https://example.invalid/chat", app_path="app", iac_path="compose.yaml",
            source_environment_id="env-src", namespace="app-src")
 PROFILE = dict(profile_id="full", profile_version="1")
+RECHECK = dict(recheck_profile_id="apply-recheck", recheck_profile_version="1")
 
 
 class Probe:
@@ -160,6 +161,62 @@ def test_profile_policy_is_tenant_bound_and_missing_policy_denies_new_plans(regi
         f.probe.results.clear()
         assert f.post("plans", body, "key").json()["detail"]["code"] == "evaluation_profile_unavailable"
         assert f.probe.results == []
+
+
+def test_recheck_profile_is_immutable_tenant_allowed_and_digest_bound(registered):
+    from bravo_platform_events.registration import digest
+
+    f = registered
+    body = f.setup_workload() | RECHECK
+    f.probe.results.clear()
+    for other in ((), (("other-tenant", "apply-recheck", "1"),)):
+        f.registry.evaluation_profiles = frozenset(((TENANT, "full", "1"), *other))
+        assert f.post("plans", body, "recheck").json()["detail"]["code"] == "evaluation_profile_unavailable"
+        assert not f.probe.results
+    f.registry.evaluation_profiles |= {(TENANT, "apply-recheck", "1")}
+    result = f.post("plans", body, "recheck")
+    assert result.status_code == 201
+    receipt = result.json()
+    expected = dict(plan_id=receipt["plan_id"], tenant_id=TENANT, workload_id=body["workload_id"],
+                    collection_scope_digest=receipt["collection_scope_digest"],
+                    target_environment_id="env-dst", target_database_identity="dst-id", **PROFILE, **RECHECK)
+    assert receipt["plan_digest"] == digest(expected)
+    for field in RECHECK:
+        assert digest(expected | {field: "other"}) != receipt["plan_digest"]
+        assert f.post("plans", body | {field: "other"}, "recheck").status_code == 409
+        assert f.backend.reopen().snapshot(receipt["plan_id"])[field] == RECHECK[field]
+    f.registry.evaluation_profiles = frozenset()
+    f.probe.results.clear()
+    replay = f.post("plans", body, "recheck")
+    assert replay.status_code == 200 and replay.json() == receipt
+    assert not f.probe.results
+
+
+@pytest.mark.parametrize("fields", [
+    {"recheck_profile_id": "apply-recheck"}, {"recheck_profile_version": "1"},
+    {"recheck_profile_id": None, "recheck_profile_version": None},
+    {"recheck_profile_id": "apply-recheck", "recheck_profile_version": 1},
+    {"recheck_profile_id": "invalid value", "recheck_profile_version": "1"},
+])
+def test_recheck_pair_rejected_before_probe(registered, fields):
+    f = registered
+    body = f.setup_workload()
+    f.probe.results.clear()
+    assert f.post("plans", body | fields, "invalid-recheck").status_code == 422
+    assert not f.probe.results
+
+
+def test_old_profile_plan_replays_without_nulls_or_in_place_recheck_upgrade(registered):
+    f = registered
+    body = f.setup_workload()
+    receipt = f.post("plans", body, "legacy-profile").json()
+    with f.store._transaction() as c:
+        original = dict(c.execute("SELECT * FROM plans WHERE plan_id=?", (receipt["plan_id"],)).fetchone())
+    assert not set(RECHECK) & receipt.keys()
+    assert f.post("plans", body, "legacy-profile").json() == receipt
+    assert f.post("plans", body | RECHECK, "legacy-profile").status_code == 409
+    with f.store._transaction() as c:
+        assert dict(c.execute("SELECT * FROM plans WHERE plan_id=?", (receipt["plan_id"],)).fetchone()) == original
 
 
 def test_old_plan_replay_is_preserved_but_cannot_add_profile_in_place(registered):

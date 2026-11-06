@@ -11,7 +11,15 @@ from bravo_apply.path import GATE_RECHECK_TESTS, ApplyOutcome, _create_record
 from bravo_gate.contract import canonical
 from bravo_gate.models import RunSnapshot
 from bravo_gate.network import VerifiedNetworkProof
-from test_gate_records import bundle, contract, gate_pg, ready, records, service  # noqa: F401
+from test_gate_records import (  # noqa: F401
+    _applied_checkpoint,
+    bundle,
+    contract,
+    gate_pg,
+    ready,
+    records,
+    service,
+)
 
 from bravo_platform_events.application_host import ApplicationEvidence, GateRecheck
 from bravo_platform_events.cutover import _put
@@ -78,11 +86,14 @@ def stage(f, pg, *, full=False, complete=False):
     with fixture_admin(f, pg) as c:
         row = c.execute("SELECT spec_json FROM plans WHERE plan_id=?", (f.plan.plan_id,)).fetchone()
         spec = json.loads(row["spec_json"])
-        if full:
-            spec["profile_id"] = "full"
-        c.execute("UPDATE plans SET state='GATE',spec_json=? WHERE plan_id=?",
+        spec.update(recheck_profile_id="full" if full else spec["profile_id"],
+                    recheck_profile_version="1")
+        c.execute("UPDATE plans SET spec_json=? WHERE plan_id=?",
                   (json.dumps(spec), f.plan.plan_id))
-    f.stage("source"), f.stage("target"), f.bind()
+    _applied_checkpoint(f, application_id="application-fixture")
+    f.stage("source"), f.stage("target")
+    f.records.bind(f.principal, f.plan.plan_id, "context", f.state["context"],
+                   expected_revision=0, gate_phase="post_apply", application_id="application-fixture")
 
 
 def test_demo_profile_missing_requested_encryption_cannot_pass(records, gate_pg):  # noqa: F811

@@ -30,9 +30,54 @@
 
 두 필드는 `PlanSpec` 최상위, 계획 digest 입력, 등록 영수증과 계획 조회에 함께
 저장된다. 같은 키의 다른 프로필은 `command_key_conflict`다. T10의
-`GateRecords.bind`와 저장 컨텍스트 조회는 이 프로필과 정확히 일치해야 한다.
+`GateRecords.bind`와 저장 컨텍스트 조회는 게이트 단계에 고정된 프로필과 정확히 일치해야 한다.
 T19는 동일한 spec과 현재 카탈로그를 별도로 대조한다. 허용 목록은 등록 정책이며
 카탈로그의 존재·무결성이나 통제 시험 결과를 대신하지 않는다.
+
+### 반영 후 재대조 프로필
+
+T31 반영 뒤 재대조할 새 계획은 `recheck_profile_id`·`recheck_profile_version`도
+등록 요청에 함께 명시한다. 두 필드의 문자열 규칙은 최초 프로필과 같고,
+한 필드만 있거나 명시한 값이 `null`이면 422다. 두 필드를 생략한 기존 요청은
+기존 원문 그대로 재시도할 수 있지만 그 계획은 반영 후 게이트를 열 수 없다.
+재대조 프로필도 같은 tenant의 `evaluation_profiles` 허용 목록에 있어야 하며,
+환경 조회 전에 검사한다. 두 쌍 모두 spec·plan digest·등록 영수증·snapshot에 고정한다.
+
+최초 `demo-gate:1`, 재대조 `apply-recheck:1`을 쓰는 운영자는 허용 목록에 각각
+`{"tenant_id":"tenant-example","profile_id":"demo-gate","profile_version":"1"}`와
+`{"tenant_id":"tenant-example","profile_id":"apply-recheck","profile_version":"1"}`을
+등록한다. 카탈로그와 T19·T21 소비자가 지원하는 버전인지 먼저 확인해야 한다.
+`full:1`이나 최초 프로필로 자동 대체하지 않는다. 기존 계획을 수정하는 대신
+현재 앱·환경을 다시 확인해 새 키로 새 계획을 등록한다.
+
+`GateRecords.bind(..., gate_phase="post_apply", application_id=...)`는 성공한
+`WorkflowRecovery` Application 체크포인트와 같은 application ID일 때만
+재대조 쌍을 선택한다. 반영 접수 claim만으로는 충분하지 않다. 새 결속은 `GATE`
+상태에서 만들고, 같은 결속 재시도는 기존 원문을 반환하며 과거 revision을
+재활성화하지 않는다. 반영 기록이 생기면 최초 컨텍스트는 소비할 수 없다.
+초기 결속은 기존 저장 형식을 유지한다. `GateContext`의 원문과 fingerprint는 바꾸지 않는다.
+
+T10 view는 `PlanGateSession`에 `gate_phase`(`initial` 또는 `post_apply`)와
+`application_id`(최초는 `None`)를 전달한다. T19는 단계에 맞는 spec 필드와
+현재 권한·원문을 별도로 검증하고, T21은 snapshot의 선택 필드와 해당 단계의
+보고서 프로필을 소비한다. 단계와 application ID도 세션 fingerprint에 결속해야 한다.
+
+운영 호스트의 upstream cutover authority는 같은 트랜잭션의
+`view.cutover_binding(binding)`으로 `CurrentCutover.binding`을 만든다.
+이 함수는 계획·gate ID·context digest·목적지 일치 여부를 확인하고 저장된
+`gate_phase`·`application_id`를 넣는다. 이미 다른 단계나 application ID가
+들어 있는 binding은 고쳐 쓰지 않고 거부한다. T19 `_bind`는 세션과 이 binding의
+두 필드를 대조한다. 승인 요청·저장 이벤트·멱등 재요청에도 두 값이 남으므로
+최초 승인 본문을 반영 후 세션의 승인으로 재사용할 수 없다. 새 메타데이터가
+없는 과거 승인 이벤트의 원문은 그대로 읽을 수 있다.
+
+T10 `GateRecheck.evaluate`는 준비 콜백 호출 전에
+`records.recheck_profile(principal, plan_id, application_id)`로 저장된 쌍과
+Application 체크포인트를 확인한다. 기존 `prepare(principal, plan_id, outcome)`
+콜백도 이 쌍을 읽어 새 source·target 원문을 인증하고 위 `post_apply` 결속으로 저장한다.
+목적지 run과 SEC-01.1·IAM-01.1·ENC-01.1 증거는 반영 완료 시각 이후여야 한다.
+Pod·이미지·자격 공급원이 바뀐 앱은 T14 등록 경계를 새로 확인해야 하며,
+그 증거가 없으면 수집기/T19의 UNKNOWN을 PASS로 바꾸지 않는다.
 
 프로필이 없는 기존 계획과 원문은 보존한다. 읽기는 가능하지만 새 게이트 결속은
 거부한다. 기존 계획 spec·digest를 수정하거나 기본 프로필을 추정하지 않는다.

@@ -174,7 +174,7 @@ def test_application_evidence_binds_claim_and_current_authority(host_case):
             reader(c, plan, None, None)
 
 
-@pytest.mark.parametrize("fault", [None, "profile", "before", "missing", "stale_evidence"])
+@pytest.mark.parametrize("fault", [None, "profile", "before", "missing", "stale_evidence", "phase", "application"])
 def test_post_apply_recheck_needs_current_target_and_all_requested_controls(fault):
     from bravo_apply.path import GATE_RECHECK_TESTS
 
@@ -190,10 +190,12 @@ def test_post_apply_recheck_needs_current_target_and_all_requested_controls(faul
     elif fault == "stale_evidence":
         rows[0]["evidence"]["collected_at"] = "2026-11-06T00:59:00Z"
     view = SimpleNamespace(principal=PRINCIPAL,
+        gate_phase="initial" if fault == "phase" else "post_apply",
+        application_id="other" if fault == "application" else "applied-1",
         context=SimpleNamespace(profile_id="fixture", profile_version="1"),
         records=SimpleNamespace(contract=SimpleNamespace(profile=lambda *a: dict(required_test_ids=ids))),
         run_provider=lambda *a: SimpleNamespace(document=document))
-    outcome = SimpleNamespace(finished_at="2026-11-06T01:00:00Z")
+    outcome = SimpleNamespace(application_id="applied-1", finished_at="2026-11-06T01:00:00Z")
     if fault:
         with pytest.raises(EventError):
             _post_apply(view, outcome)

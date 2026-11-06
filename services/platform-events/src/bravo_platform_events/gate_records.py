@@ -46,9 +46,41 @@ def _current(c, plan_id):
     return json.loads(row["receipt_json"]) if row else None
 
 
-def _profile_matches(spec, context):
-    return (spec.get("profile_id") == context.profile_id
-            and spec.get("profile_version") == context.profile_version)
+def _application_checkpoint(c, plan):
+    """Read the successful workflow Application, not a pre-effect admission claim."""
+    spec = json.loads(plan["spec_json"])
+    found = []
+    for row in c.execute("SELECT receipt_json FROM plan_commands WHERE plan_id=? "
+                         "AND command_key LIKE ?", (plan["plan_id"], "workflow:%")).fetchall():
+        proof = json.loads(row["receipt_json"])
+        result = proof["result"]
+        if "application_id" not in result:
+            continue
+        if (proof["plan_id"] != plan["plan_id"] or proof["plan_digest"] != spec["plan_digest"]
+                or proof["target_environment_id"] != spec["target_environment_id"]
+                or not 0 < proof["version"] < plan["version"]
+                or result.get("job_passed") is not True
+                or result.get("deployed_digest") != result["change"]["image_digest"]):
+            raise EventError("application_checkpoint_mismatch")
+        found.append((proof["version"], result["application_id"]))
+    return max(found)[1] if found else None
+
+
+def _profile_matches(c, plan, context, gate_phase, application_id):
+    spec = json.loads(plan["spec_json"])
+    applied = _application_checkpoint(c, plan)
+    if gate_phase == "initial":
+        if application_id is not None or applied is not None:
+            return False
+        prefix = ""
+    elif gate_phase == "post_apply":
+        if application_id is None or application_id != applied:
+            return False
+        prefix = "recheck_"
+    else:
+        return False
+    return (spec.get(prefix + "profile_id") == context.profile_id
+            and spec.get(prefix + "profile_version") == context.profile_version)
 
 
 class GateRecords:
@@ -106,19 +138,39 @@ class GateRecords:
             raise EventError("gate_run_unavailable_or_changed")
         return snapshot
 
-    def bind(self, principal, plan_id, context_id, context, *, expected_revision):
+    def recheck_profile(self, principal, plan_id, application_id):
+        """Select the immutable post-apply profile before invoking collectors."""
+        identity(application_id)
+        with self.store._transaction() as c:
+            plan = self._plan(c, principal, plan_id, "gate:bind")
+            if plan["state"] != "GATE":
+                raise EventError("gate_stage_required")
+            if _application_checkpoint(c, plan) != application_id:
+                raise EventError("application_checkpoint_mismatch")
+            spec = json.loads(plan["spec_json"])
+            if not spec.get("recheck_profile_id") or not spec.get("recheck_profile_version"):
+                raise EventError("gate_recheck_profile_required")
+            return dict(profile_id=spec["recheck_profile_id"],
+                        profile_version=spec["recheck_profile_version"])
+
+    def bind(self, principal, plan_id, context_id, context, *, expected_revision,
+             gate_phase="initial", application_id=None):
         """Bind the registered profile. Retrying an old binding never reactivates it."""
         identity(context_id)
         if not isinstance(context, GateContext):
             raise ValueError("invalid_gate_context")
         if type(expected_revision) is not int or not 0 <= expected_revision < 10**12:
             raise ValueError("invalid_gate_revision")
+        if gate_phase not in {"initial", "post_apply"}:
+            raise ValueError("invalid_gate_phase")
+        if application_id is not None:
+            identity(application_id)
         with self.store._transaction(write=True, plan_id=plan_id) as c:
             plan = self._plan(c, principal, plan_id, "gate:bind")
             spec = json.loads(plan["spec_json"])
             if (context.tenant_id != plan["tenant_id"] or context.app != spec["workload_id"]
                     or context.plan_digest != spec["plan_digest"]
-                    or not _profile_matches(spec, context)):
+                    or not _profile_matches(c, plan, context, gate_phase, application_id)):
                 raise EventError("gate_context_scope_mismatch")
             for side in ("source", "target"):
                 record = _get(c, plan_id, "run", getattr(context, side + "_ref"))
@@ -131,12 +183,16 @@ class GateRecords:
                     raise EventError("gate_run_unavailable_or_changed")
             value = dict(context=asdict(context), expected_revision=expected_revision,
                          revision=expected_revision + 1, context_id=context_id)
+            if gate_phase == "post_apply":
+                value.update(gate_phase=gate_phase, application_id=application_id)
             old = _get(c, plan_id, "context", context_id)
             if old is not None:
                 if old != value:
                     raise EventError("gate_record_conflict")
                 return old
             current = _current(c, plan_id)
+            if gate_phase == "post_apply" and plan["state"] != "GATE":
+                raise EventError("gate_stage_required")
             if (current["revision"] if current else 0) != expected_revision:
                 raise EventError("version_conflict")
             _put(c, plan_id, "context", context_id, value)
@@ -186,7 +242,9 @@ class GateRecordView:
         self.binding = binding
         self.context_id = binding["context_id"]
         self.context = GateContext(**binding["context"])
-        if not _profile_matches(json.loads(plan["spec_json"]), self.context):
+        self.gate_phase = binding.get("gate_phase", "initial")
+        self.application_id = binding.get("application_id")
+        if not _profile_matches(connection, plan, self.context, self.gate_phase, self.application_id):
             raise EventError("gate_context_scope_mismatch")
 
     def _check(self, actor, context):
@@ -219,11 +277,29 @@ class GateRecordView:
         doc = _get(self.c, self.plan["plan_id"], "security-report", context.gate_id)
         return RunSnapshot(context.gate_id, canonical(doc)) if doc is not None else None
 
+    def cutover_binding(self, binding):
+        """Add the stored phase to the host's current human-approval binding.
+
+        The upstream T10 authority calls this before T19 checks current.binding.
+        Never relabel a binding that already identifies a different application.
+        """
+        self._check(self.principal.subject_id, self.context)
+        expected = dict(plan_id=self.plan["plan_id"], plan_digest=self.context.plan_digest,
+                        target_environment_id=self.context.target_environment_id,
+                        gate_id=self.context.gate_id, context_digest=self.context.fingerprint)
+        phase = dict(gate_phase=self.gate_phase, application_id=self.application_id)
+        if (any(binding.get(key) != value for key, value in expected.items())
+                or any(key in binding and binding[key] != value for key, value in phase.items())):
+            raise EventError("gate_context_scope_mismatch")
+        return dict(binding) | phase
+
     def session(self, service, readiness, *, approval_ids=()):
         self._check(self.principal.subject_id, self.context)
         doc = _get(self.c, self.plan["plan_id"], "combined-report", self.context.gate_id)
         if doc is None:
             raise EventError("gate_report_unavailable")
+        phase = {} if self.gate_phase == "initial" else dict(
+            gate_phase=self.gate_phase, application_id=self.application_id)
         return PlanGateSession(service, self.plan["plan_id"], self.context_id, self.context,
                                RunSnapshot(self.context.gate_id, canonical(doc)), readiness,
-                               approval_ids)
+                               approval_ids, **phase)
