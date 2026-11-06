@@ -73,7 +73,7 @@ class SourceCoverage(unittest.TestCase):
                     self.assertTrue(any(fnmatch.fnmatchcase(path, pattern) for pattern in globs),
                                     "build input missing from publication trigger")
 
-    def test_inventory_change_supersedes_old_build_before_any_pr_write(self):
+    def test_build_older_than_deployed_pin_is_superseded_before_any_pr_write(self):
         with tempfile.TemporaryDirectory() as directory:
             def git(*args):
                 return subprocess.check_output(["git", "-C", directory, *args], text=True).strip()
@@ -88,6 +88,12 @@ class SourceCoverage(unittest.TestCase):
             source = git("rev-parse", "HEAD")
             source_file.write_text("version = 2\n")
             git("commit", "-qam", "inventory changed")
+            # develop already pins an image built from the newer source.
+            values = Path(directory) / delivery.REGISTRATION.values
+            values.parent.mkdir(parents=True)
+            values.write_text(json.dumps({"sourceRevision": git("rev-parse", "HEAD")}))
+            git("add", ".")
+            git("commit", "-qm", "newer image pinned")
             git("update-ref", "refs/remotes/origin/develop", "HEAD")
             called = []
             def invoke(args, **kwargs):
@@ -96,7 +102,7 @@ class SourceCoverage(unittest.TestCase):
                     return subprocess.CompletedProcess(args, 0, "", "")
                 self.assertEqual(args[0], "git", "superseded build must not call GitHub")
                 return subprocess.run(["git", "-C", directory, *args[1:]],
-                                      capture_output=True, text=True, check=True)
+                                      capture_output=True, text=True, check=kwargs.get("check", True))
             receipt = RECEIPT | {"source_revision": source, "published": True,
                                  "registry_visibility": "private", "deployed": False}
             with patch.dict(os.environ, ENV), patch.object(delivery, "run", side_effect=invoke):
@@ -146,9 +152,9 @@ class PromotionSource(unittest.TestCase):
         def invoke(args, **kwargs):
             self.calls.append(args)
             self.assertEqual(args[0], "git")
-            self.assertIn(args[1], {"merge-base", "diff", "show"})
+            self.assertIn(args[1], {"merge-base", "diff", "show", "rev-list"})
             return subprocess.run(["git", "-C", str(self.root), *args[1:]],
-                                  capture_output=True, text=True, check=True)
+                                  capture_output=True, text=True, check=kwargs.get("check", True))
         with patch.object(delivery, "run", side_effect=invoke):
             return delivery.check_promotion(self.service)
 
@@ -175,7 +181,37 @@ class PromotionSource(unittest.TestCase):
         self.commit("later queue entry")
         # The immediate queue base already contains the promotion, but develop does not.
         self.assertEqual(self.git("diff", "--name-only", previous_group, "HEAD", "--", self.service.values), "")
-        with self.assertRaisesRegex(delivery.Failure, "promotion_source_superseded"):
+        # A lagging image is accepted (nothing older is deployed) and the lag is recorded.
+        result = self.check()
+        self.assertEqual((result["action"], result["unreleased_input_commits"]), ("forward_source_verified", 1))
+
+    def test_lagging_image_moves_forward_from_the_deployed_pin(self):
+        self.promote()
+        self.git("update-ref", "refs/remotes/origin/develop", "HEAD")
+        self.write("services/inventory/src/bravo_inventory/scan.py", "version = 2\n")
+        newer = self.commit("newer source")
+        self.write("services/inventory/src/bravo_inventory/scan.py", "version = 3\n")
+        self.commit("develop moves on before the image lands")
+        self.git("update-ref", "refs/remotes/origin/develop", "HEAD")
+        self.receipt = self.receipt | {"source_revision": newer, "image_digest": "sha256:" + "c" * 64}
+        self.promote()
+        result = self.check()
+        self.assertEqual((result["action"], result["deployed_source"], result["unreleased_input_commits"]),
+                         ("forward_source_verified", self.source, 1))
+
+    def test_older_proposal_merged_late_cannot_replace_newer_pin(self):
+        self.write("services/inventory/src/bravo_inventory/scan.py", "version = 2\n")
+        newer = self.commit("newer source")
+        older_receipt = self.receipt
+        self.receipt = self.receipt | {"source_revision": newer, "image_digest": "sha256:" + "c" * 64}
+        self.promote()
+        self.write("services/inventory/src/bravo_inventory/scan.py", "version = 3\n")
+        self.commit("develop moves on")
+        self.git("update-ref", "refs/remotes/origin/develop", "HEAD")
+        # The older proposal for the same service lands after the newer pin.
+        self.receipt = older_receipt
+        self.promote()
+        with self.assertRaisesRegex(delivery.Failure, "promotion_source_not_newer_than_deployed"):
             self.check()
 
     def test_publication_and_values_must_match(self):

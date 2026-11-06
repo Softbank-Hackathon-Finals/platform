@@ -258,6 +258,13 @@ def test_initial_installer_requires_reader_and_selects_exact_module():
     settings["region"] = "ap-northeast-2"
     with pytest.raises(ValueError):
         installer.installation(RUNTIME, "d" * 64, settings, model, initial_proposal=True)
+    from cryptography.hazmat.primitives import serialization
+    from cryptography.hazmat.primitives.asymmetric import rsa
+    public = rsa.generate_private_key(public_exponent=65537, key_size=2048).public_key().public_bytes(
+        serialization.Encoding.PEM, serialization.PublicFormat.SubjectPublicKeyInfo).decode()
+    settings["workload_identity"] = {"issuer": "https://kubernetes.default.svc.cluster.local",
+        "audience": "bravo-subscription-broker", "subject": "system:serviceaccount:bravo-initial:initial-proposal",
+        "public_keys": {"k1": public}}  # without it the initial broker would refuse every Job
     script = installer.installation(RUNTIME, "d" * 64, settings, model, initial_proposal=True,
         product_reader={"origin": "https://reader.invalid", "ca_file": "/etc/reader-ca.pem"})
     assert f"platform-{RUNTIME}/services/platform-events/.venv/bin/python -m bravo_platform_events.initial_proposal_server" in script

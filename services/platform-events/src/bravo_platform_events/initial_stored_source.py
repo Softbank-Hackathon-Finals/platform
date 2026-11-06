@@ -8,7 +8,7 @@ InitialProposalRecords still checks the current plan, catalog, grant and digest.
 from bravo_agent.contracts import digest
 
 from .cutover import _get
-from .initial_proposal import InitialInput, _slot, logical_task_digest
+from .initial_proposal import InitialInput, _admission_key, logical_task_digest
 from .store import EventError
 
 
@@ -18,7 +18,7 @@ def stored_initial_source(connection, plan, task):
     # REHEARSE consumes its immediately preceding PROPOSE input. The enclosing
     # records reader still verifies the publication/checkpoint and current grant.
     version = plan["version"] - (plan["state"] == "REHEARSE")
-    saved = _get(connection, plan["plan_id"], _slot(version))
+    saved = _get(connection, plan["plan_id"], _admission_key(connection, plan["plan_id"], version))
     try:
         if saved is None:
             raise ValueError()

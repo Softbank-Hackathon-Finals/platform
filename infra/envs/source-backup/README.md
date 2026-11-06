@@ -2,7 +2,13 @@
 
 출발지 `source-dev/source-db`의 Barman Cloud 백업을 받을 S3 버킷, 전용 KMS 키, 쓰기 · 복원 IRSA 역할 두 개를 만든다. `source-eks`(EKS · OIDC provider)와 `source-workloads`(DB · 앱)는 data로 읽기만 하고 고치지 않는다. 상태는 별도 backend key에 둔다.
 
-**아직 적용하지 않았다.** 실제 계정에서 plan · apply · 백업 · 복원을 돌린 적이 없다. 적용은 출발지 담당(T6)이 아래 순서로 한다. [T35 백업 · 복원 기준](../../../docs/controls/backup-restore.md)을 먼저 읽는다.
+**2026-11-06 실제 출발지에 1~4단계를 적용했다(T6).** [T35 백업 · 복원 기준](../../../docs/controls/backup-restore.md)을 먼저 읽는다.
+
+- 스택: plan 13 추가 · 0 변경 · 0 삭제를 그대로 적용했고, 적용 뒤 plan의 drift는 0이다.
+- 사전 조건: cert-manager v1.19.1과 Barman Cloud 플러그인 0.15.1을 공식 릴리스 manifest로 설치했다. ObjectStore CRD와 플러그인 인증서가 Ready다.
+- K8s: ObjectStore 두 개와 복원 namespace를 만들었다. role-patch 뒤 `source-db` SA에 쓰기 역할 주석이 붙은 것을 확인했고, 이어 archive-patch를 적용했다. DB Pod는 21:42:25–21:42:55 KST(약 30초) 동안 다시 시작됐다. Cluster `ContinuousArchiving=True`이며, WAL이 `t35/source-db/` 아래에 5분 간격으로 기록된다.
+- 확인(`--stage before-restore`): 설정 읽기 9개 항목 통과. 삭제 시험은 쓰기·앱 DENIED, 시험 객체 버전 보존, 관리자가 시험 객체 삭제. 복원 SA는 아직 없다. Executor는 `UNKNOWN_NO_CREDENTIALS`로 판정이 `UNKNOWN`이다. 출발지 노드는 IMDSv2 hop limit 1이라 IRSA가 없는 Pod가 노드 역할 자격을 받지 못한다. 즉 Executor는 AWS 신원 자체가 없다. 아래 4단계의 "노드 역할로 나간다"는 이 클러스터에는 맞지 않는다. 판정 규칙은 완화하지 않았다.
+- 5단계(표식 · 백업)부터는 T35 담당이 이어간다. 실제 백업 · 복원은 아직 실행하지 않았다.
 
 ## 등록 값 (T6 등록안 #57에 대한 답)
 

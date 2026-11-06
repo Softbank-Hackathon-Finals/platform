@@ -7,6 +7,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import os
+import uuid
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -48,11 +49,22 @@ class FileSink:
         path = self.root / key
         path.parent.mkdir(parents=True, exist_ok=True)
         data = canonical(record.as_dict())
-        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)  # never overwrite
+        # Write a hidden temporary file, then hard-link it into place: the link is atomic and fails
+        # if the key exists (never overwrite), so a crash mid-write cannot leave a torn record
+        # under a record key for a restarted follower to trip over.
+        tmp = path.with_name(f".{path.name}.{uuid.uuid4().hex}.tmp")
+        fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
         try:
-            os.write(fd, data)
+            try:
+                view = memoryview(data)
+                while view:
+                    view = view[os.write(fd, view):]
+                os.fsync(fd)
+            finally:
+                os.close(fd)
+            os.link(tmp, path)
         finally:
-            os.close(fd)
+            os.unlink(tmp)
         return Receipt(key, record.sha256, "file", None, None)
 
 

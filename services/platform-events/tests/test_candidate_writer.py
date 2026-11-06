@@ -8,7 +8,7 @@ import pytest
 from test_candidate_publication import Bundle, git, repository  # noqa: F401  (fixture)
 
 from bravo_platform_events import candidate_publication as candidate
-from bravo_platform_events.candidate_writer import RUN_NAME, CandidateWriter
+from bravo_platform_events.candidate_writer import RUN_NAME, WRITER_PERMISSIONS, CandidateWriter
 from bravo_platform_events.github_app import GitHubError
 from bravo_platform_events.store import EventError
 
@@ -20,6 +20,7 @@ class FakeApp:
     """GitHub stand-in whose Git Data API writes real objects into the `remote` repository."""
 
     repository = candidate.REPOSITORY
+    permissions = dict(WRITER_PERMISSIONS)
 
     def __init__(self, remote):
         self.remote, self.pulls, self.runs, self.dispatches = remote, [], [], []
@@ -79,8 +80,14 @@ def setup(repository, tmp_path):  # noqa: F811
     b = Bundle(repository)
     app = FakeApp(remote)
     clock = [1000.0]
-    writer = CandidateWriter(app, clone, workflow_sha=WORKFLOW_SHA, workflow_id=WORKFLOW_ID,
-                             clock=lambda: clock[0], remote=str(remote))
+    state = tmp_path / "writer-state" / "dispatches.json"
+    state.parent.mkdir()
+
+    def make():
+        return CandidateWriter(app, clone, workflow_sha=WORKFLOW_SHA, workflow_id=WORKFLOW_ID, state_file=state,
+                               clock=lambda: clock[0], remote=str(remote))
+    writer = make()
+    writer.make = make
     return b, app, writer, clock
 
 
@@ -111,13 +118,42 @@ def test_creates_one_pr_dispatches_once_then_selects_the_reviewed_run(setup):
     assert len(app.pulls) == 1 and len(app.dispatches) == 1
 
 
-def test_lost_dispatch_is_retried_after_the_grace_window(setup):
+def test_lost_dispatch_is_retried_once_after_the_grace_window_even_across_restarts(setup):
     b, app, writer, clock = setup
-    for _ in range(2):
-        with pytest.raises(EventError):
-            writer.selection(b.value, b.result, "8" * 64)
-        clock[0] += 301
+    rid = "8" * 64
+    with pytest.raises(EventError, match="pending"):
+        writer.selection(b.value, b.result, rid)
+    with pytest.raises(EventError, match="pending"):
+        writer.make().selection(b.value, b.result, rid)  # restarted host inside the grace window
+    assert len(app.dispatches) == 1
+    clock[0] += 301
+    with pytest.raises(EventError, match="pending"):
+        writer.make().selection(b.value, b.result, rid)
     assert len(app.dispatches) == 2
+    clock[0] += 301
+    with pytest.raises(EventError, match="candidate_dispatch_limit"):
+        writer.make().selection(b.value, b.result, rid)
+    assert len(app.dispatches) == 2
+
+
+def test_writer_needs_exactly_its_permissions_and_a_state_mount(setup, tmp_path):
+    b, app, writer, clock = setup
+    app.permissions = WRITER_PERMISSIONS | {"workflows": "write"}
+    with pytest.raises(ValueError, match="permissions"):
+        writer.make()
+    app.permissions = dict(WRITER_PERMISSIONS)
+    with pytest.raises(ValueError, match="state_mount"):
+        CandidateWriter(app, writer.git.repository, workflow_sha=WORKFLOW_SHA, workflow_id=WORKFLOW_ID,
+                        state_file=tmp_path / "missing" / "d.json")
+
+
+def test_proposal_for_a_file_absent_at_base_is_a_conflict(setup):
+    b, app, writer, clock = setup
+    edit = b.result.proposal.edits[0].model_copy(update={"path": "app/absent.py"})
+    proposal = b.result.proposal.model_copy(update={"edits": [edit]})
+    with pytest.raises(EventError, match="candidate_branch_conflict"):
+        writer.selection(b.value, b.result.model_copy(update={"proposal": proposal}), "4" * 64)
+    assert app.dispatches == []
 
 
 @pytest.mark.parametrize("change", [{"status": "in_progress"}, {"conclusion": "failure"}, {"run_attempt": 2}])

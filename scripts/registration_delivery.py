@@ -287,13 +287,25 @@ def is_ancestor(older, newer):
     return result.returncode == 0
 
 
+def recorded_source(revision, service):
+    """Source revision of the image pinned at `revision`, or None before the first pin."""
+    shown = run(["git", "show", revision + ":" + service.values], check=False)
+    if shown.returncode:
+        return None
+    return json.loads(shown.stdout).get("sourceRevision")
+
+
+def unreleased_inputs(source, revision, service):
+    """Commits after `source` that change this service's build inputs (recorded, not blocking)."""
+    return int(run(["git", "rev-list", "--count", source + ".." + revision, "--", *service.inputs]).stdout)
+
+
 def close_superseded(values, keep=None, service=REGISTRATION):
     """Close only older generated proposals after confirming their replacement."""
     source = values["sourceRevision"]
     run(["git", "fetch", "origin", "develop"])
-    if not is_ancestor(source, "origin/develop") or run(
-        ["git", "diff", "--name-only", source, "origin/develop", "--", *service.inputs]
-    ).stdout.strip():
+    # A verified image may lag develop (team decision 11/7); only older proposals are closed.
+    if not is_ancestor(source, "origin/develop"):
         return []
     if keep is not None:
         replacement = json.loads(github(f"pulls/{keep}").stdout)
@@ -332,11 +344,11 @@ def propose(receipt, service=REGISTRATION):
     source = values["sourceRevision"]
     run(["git", "fetch", "origin", "develop"])
     run(["git", "merge-base", "--is-ancestor", source, "origin/develop"])
-    # Build completion ordering cannot regress newer service code.
-    if run(
-        ["git", "diff", "--name-only", source, "origin/develop", "--", *service.inputs]
-    ).stdout.strip():
+    # Forward only (team decision 11/7): a build may lag develop, but never replaces a newer pin.
+    deployed = recorded_source("origin/develop", service)
+    if deployed and deployed != source and not is_ancestor(deployed, source):
         return {"action": "superseded", "deployed": False}
+    lag = unreleased_inputs(source, "origin/develop", service)
     # The workflow's shared concurrency group serializes publication/proposal runs.
     # Documentation-only newer sources can have identical inputs: do not regress them.
     for pr in open_proposals():
@@ -384,7 +396,8 @@ def propose(receipt, service=REGISTRATION):
     previous = run(["git", "show", source + ":" + service.values], check=False)
     previous_values = json.loads(previous.stdout) if previous.returncode == 0 else None
     current_values = json.loads(path.read_text()) if path.exists() else None
-    if current_values != previous_values:
+    forward = bool(deployed) and deployed != source and is_ancestor(deployed, source)
+    if current_values != previous_values and not forward:
         return {"action": "deployment_values_changed", "deployed": False}
     run(["git", "switch", "-c", branch])
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -428,6 +441,7 @@ def propose(receipt, service=REGISTRATION):
         + receipt["run_id"]
         + "\n"
         "- GHCR private readback, OCI/provenance/SBOM and image scan passed.\n"
+        "- Unreleased build-input commits on develop at proposal time: " + str(lag) + "\n"
     )
     body_file = Path(os.environ["RUNNER_TEMP"]) / (service.slug + "-proposal.md")
     body_file.write_text(body)
@@ -461,7 +475,7 @@ def propose(receipt, service=REGISTRATION):
         raise Failure("proposal_create_unknown_read_existing_pr_before_retry")
     closed = close_superseded(values, created[0]["number"], service)
     return {"action": "proposed", "url": created[0]["html_url"],
-            "closed_proposals": closed, "deployed": False}
+            "closed_proposals": closed, "unreleased_input_commits": lag, "deployed": False}
 
 
 def check_promotion(service=REGISTRATION):
@@ -478,9 +492,16 @@ def check_promotion(service=REGISTRATION):
         raise Failure("publication_values_mismatch")
     source = values["sourceRevision"]
     run(["git", "merge-base", "--is-ancestor", source, "HEAD"])
-    if run(["git", "diff", "--name-only", source, "HEAD", "--", *BUILD_INPUTS]).stdout.strip():
-        raise Failure("promotion_source_superseded")
-    return {"action": "current_source_verified", "source_revision": source, "deployed": False}
+    if not run(["git", "diff", "--name-only", source, "HEAD", "--", *BUILD_INPUTS]).stdout.strip():
+        # Includes a rollback that restores the source together with its verified image.
+        return {"action": "current_source_verified", "source_revision": source, "deployed": False}
+    # Team decision 11/7: a verified image may lag develop, but only moves forward from the
+    # pin already on develop. An older proposal merged late is refused.
+    deployed = recorded_source(base, service)
+    if deployed is not None and (deployed == source or not is_ancestor(deployed, source)):
+        raise Failure("promotion_source_not_newer_than_deployed")
+    return {"action": "forward_source_verified", "source_revision": source, "deployed_source": deployed,
+            "unreleased_input_commits": unreleased_inputs(source, "HEAD", service), "deployed": False}
 
 
 def main():

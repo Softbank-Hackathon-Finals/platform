@@ -14,6 +14,7 @@ Every port without a deployment value is absent, so its state holds (fail closed
 """
 
 import json
+import time
 from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
@@ -40,21 +41,42 @@ def _shift_key(kind, value):
 # --- REHEARSE / GATE -------------------------------------------------------------------------
 
 def _approved_change(store, plan_id, version):
-    """The one S2 change approval made for this plan version, if any."""
+    """The S2 change approval this plan version proceeds with.
+
+    An approval whose application was already claimed wins (a restart resumes it). Otherwise the
+    newest approval that an operator has not revoked; re-approval after a refusal is normal.
+    """
+    from .change import change_key as _ck
+
     with store._transaction() as c:
         rows = c.execute("SELECT receipt_json FROM plan_commands WHERE plan_id=? AND command_key LIKE ?",
                          (plan_id, "change-approval-%")).fetchall()
-    found = [json.loads(r["receipt_json"]) for r in rows]
-    found = [r for r in found if r.get("plan_version") == version and "approval_id" in r]
-    if len(found) > 1:
-        raise EventError("change_approval_ambiguous")
-    return found[0] if found else None
+        found = [json.loads(r["receipt_json"]) for r in rows]
+        found = [r for r in found if r.get("plan_version") == version and "approval_id" in r]
+        claimed = [r for r in found if _get(c, plan_id, _ck("consumed", r["approval_id"]))]
+        if claimed:
+            return claimed[0]
+        live = [r for r in found if not _get(c, plan_id, _ck("operator-revoked-approval", r["approval_id"]))]
+    return max(live, key=lambda r: r["approved_at"]) if live else None
+
+
+def host_principal(subject_id, tenant_id, *, lifetime=300, clock=time.time):
+    """The workflow host's own operator identity for applying an approved change.
+
+    It needs its own `apply_change` grant (set_permissions); the change's approver is still checked
+    as `approved_by` with `approve_change`, so approval and application stay separate people/actors.
+    """
+    from .operator_identity import OperatorPrincipal
+
+    now = int(clock())
+    return OperatorPrincipal(subject_id, tenant_id, now, now + lifetime, now, "workflow-host")
 
 
 def application_stages(host: ApplicationHost, recheck: GateRecheck | None, *, receipts_dir, check_current,
-                       load_gate):
+                       load_gate, host_subject):
     """Preparers for REHEARSE and (with a T19 recheck) GATE. `host` is this process's single instance."""
-    if not isinstance(host, ApplicationHost) or not (recheck is None or isinstance(recheck, GateRecheck)):
+    if (not isinstance(host, ApplicationHost) or not (recheck is None or isinstance(recheck, GateRecheck))
+            or not isinstance(host_subject, str) or not host_subject):
         raise ValueError("application_ports_required")
     store = host.changes.store
 
@@ -64,27 +86,28 @@ def application_stages(host: ApplicationHost, recheck: GateRecheck | None, *, re
                                    check_current=check_current, load_gate=load_gate,
                                    fallback=_unwired)
 
-    def rehearse(plan_id, tenant_id, version):
+    def applied(plan_id, tenant_id, version):
         approval = _approved_change(store, plan_id, version)
         if approval is None:
             raise EventError("change_approval_required")  # S2 approval is a human decision
-        principal = Principal(approval["actor_id"], tenant_id)
+        principal = host_principal(host_subject, tenant_id)
         outcome = host.start(principal, plan_id, approval_id=approval["approval_id"],
-                             command_key="workflow-apply-" + approval["approval_id"])
+                             command_key="workflow-apply-" + approval["approval_id"])  # replay is read-only
         if outcome is None:
             raise EventError("application_outcome_unobserved")  # claimed, never re-applied
-        return reader(principal, outcome)
+        return principal, outcome
+
+    def rehearse(plan_id, tenant_id, version):
+        return reader(*applied(plan_id, tenant_id, version))
 
     def gate(plan_id, tenant_id, version):
-        approval = _approved_change(store, plan_id, version - 1)
-        if approval is None:
-            raise EventError("change_approval_required")
-        principal = Principal(approval["actor_id"], tenant_id)
-        outcome = host.start(principal, plan_id, approval_id=approval["approval_id"],
-                             command_key="workflow-apply-" + approval["approval_id"])  # read-only replay
-        if outcome is None:
-            raise EventError("application_outcome_unobserved")
-        recheck.evaluate(principal, plan_id, outcome)
+        principal, outcome = applied(plan_id, tenant_id, version - 1)
+        try:
+            recheck.evaluate(principal, plan_id, outcome)
+        except EventError as error:
+            # Already evaluated in an earlier sweep: the reader below still requires the stored PASS.
+            if error.code != "gate_record_conflict":
+                raise
         return reader(principal, outcome)
 
     return {"REHEARSE": rehearse} | ({"GATE": gate} if recheck else {})
