@@ -45,7 +45,7 @@ cd services/exit-drill && uv sync --locked
 | 입력 | 어디서 | 없으면 |
 |---|---|---|
 | T16 인벤토리 | 아래 명령. 실제 demo-chat과 실제 내보내기로 만든다 | 시작하지 못한다 |
-| 대조군 이미지 | 장비에 이미 있고 Python이 든 이미지. 앱 이미지를 쓴다. `python3 ../../infra/envs/target-workloads/application.py --print-image` | `render`가 `SELECTOR_MATCHES_NOTHING`으로 멈춘다 |
+| 대조군 이미지 | 장비에 이미 있고 Python이 든 이미지. 노드 아키텍처(지금 arm64)의 앱 이미지를 쓴다. `python3 ../../infra/envs/target-workloads/application.py --arch arm64 --print-image` | `render`가 `SELECTOR_MATCHES_NOTHING`으로 멈춘다 |
 | 컷오버 확인 | T12 실행 기록의 상태가 `DONE`인지 사람이 본다. 2단계에서만 쓴다 | `CUTOVER_NOT_CONFIRMED`로 UNKNOWN |
 | 목적지 쓰기 | 2단계 측정 중 목적지 DB에 쓰기가 있어야 한다. 아래 4번 | `REPLICATION_IDLE`로 UNKNOWN |
 | 권한 | Pod 읽기 · 생성 · 삭제 · exec, Deployment 재시작, NetworkPolicy 적용 · 삭제 | 해당 단계에서 멈춘다 |
@@ -74,7 +74,7 @@ kubectl get crds -o json > "$OUTPUT_DIR/exports/target/crds.json"
 
 ```sh
 uv run bravo-exit-drill control-pod --spec profiles/target-dev.json \
-  --image "$(python3 ../../infra/envs/target-workloads/application.py --print-image)" > "$OUTPUT_DIR/control-pod.json"
+  --image "$(python3 ../../infra/envs/target-workloads/application.py --arch arm64 --print-image)" > "$OUTPUT_DIR/control-pod.json"
 kubectl apply --dry-run=server -f "$OUTPUT_DIR/control-pod.json"
 kubectl apply -f "$OUTPUT_DIR/control-pod.json"
 kubectl -n target-dev wait --for=condition=Ready pod/exit-drill-control --timeout=5m

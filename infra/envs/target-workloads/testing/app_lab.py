@@ -193,6 +193,11 @@ def inject_local_image(items, image):
     return items
 
 
+def node_architecture():
+    # The local build runs on this node, so the lab renders for its architecture, as operators do.
+    return kubectl("get", "node", NODE, "-o", "jsonpath={.status.nodeInfo.architecture}").strip()
+
+
 def general_path_accepts(image):
     result = subprocess.run([sys.executable, str(WORKLOADS / "application.py"), "--image", image],
                             capture_output=True, check=False)
@@ -558,7 +563,8 @@ def main():
         install_pooler(passwords)
         start_client(image)
         report["general_path_refuses_local_build"] = not general_path_accepts(image)
-        manifest = inject_local_image(render("application.py"), image)
+        report["node_architecture"] = node_architecture()
+        manifest = inject_local_image(render("application.py", "--arch", report["node_architecture"]), image)
         kubectl("apply", "--server-side", "--dry-run=server", "-f", "-",
                 stdin=json.dumps({"apiVersion": "v1", "kind": "List", "items": manifest}).encode())
         report["restricted_server_dry_run"] = "accepted"
