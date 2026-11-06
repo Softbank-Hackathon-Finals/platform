@@ -136,7 +136,7 @@ if __name__ == "__main__":
 
 
 class InitialArgs(unittest.TestCase):
-    """Jeonsubb 11/7: run.py arguments start with "--"; both spellings must reach it unchanged."""
+    """kth4778 11/7: run.py arguments start with "--"; both spellings must reach it unchanged."""
 
     def parsed(self, *extra):
         seen = {}

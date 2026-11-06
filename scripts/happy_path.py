@@ -263,7 +263,7 @@ def main(argv=None):
             m.add_argument("--status", choices=["done", "failed"], required=True)
     argv = list(sys.argv[1:] if argv is None else argv)
     # run.py arguments start with "--", which argparse would read as this runner's options
-    # (Jeonsubb 11/7): everything after a bare --initial-args is passed through untouched.
+    # (kth4778 11/7): everything after a bare --initial-args is passed through untouched.
     initial = None
     if "--initial-args" in argv:
         at = argv.index("--initial-args")
