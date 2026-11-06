@@ -10,8 +10,8 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
-WORKLOADS = Path(os.environ.get("T8_ATTACH_MODULE_DIR")
-                 or Path(__file__).resolve().parents[2] / "infra/envs/target-workloads")
+REPOSITORY = Path(__file__).resolve().parents[2]
+WORKLOADS = Path(os.environ.get("T8_ATTACH_MODULE_DIR") or REPOSITORY / "infra/envs/target-workloads")
 # Other environments also have a module called render; never let this test or them see the wrong one.
 with patch.object(sys, "path", [str(WORKLOADS), *sys.path]), patch.dict(sys.modules):
     for shadowed in ("render", "replication", "objects"):
@@ -298,8 +298,20 @@ class SourceSessionPolicy(unittest.TestCase):
         self.assertEqual(set(other_bucket["Action"]), {"s3:ListBucket", "s3:GetObject"})
         self.assertEqual(set(other_bucket["NotResource"]), {BUCKET_ARN, BUCKET_ARN + "/*"})
 
-    def test_fits_the_federation_policy_size_limit(self):
+    def test_fits_the_session_policy_size_limit(self):
+        # AssumeRole and GetFederationToken share the 2,048-character limit for an inline session policy.
         self.assertLess(len(json.dumps(self.policy(), separators=(",", ":"))), 2048)
+
+    def test_session_fits_the_role_chaining_limit(self):
+        # Assuming the reader role from an SSO session is role chaining, which AWS caps at one hour.
+        self.assertLessEqual(attachment_job.SOURCE_SESSION_SECONDS, 3600)
+
+    def test_reader_role_policy_is_the_same_document(self):
+        # infra/envs/attachment-copy-reader compares its role policy with this fixture for these inputs.
+        fixture = REPOSITORY / "infra/envs/attachment-copy-reader/tests/session-policy.json"
+        bucket = "arn:aws:s3:::example-attachments-111122223333"
+        key = "arn:aws:kms:ap-northeast-2:111122223333:key/0d9d7a52-7c1f-4f0a-9f0e-3a5b6c7d8e9f"
+        self.assertEqual(attachment_job.source_session_policy(bucket, key), json.loads(fixture.read_text()))
 
     def test_wildcards_and_other_shapes_are_refused(self):
         for bucket, key in (("arn:aws:s3:::*-123456789012", KMS_ARN), (BUCKET_ARN + "/*", KMS_ARN), ("bucket", KMS_ARN),
@@ -344,10 +356,18 @@ class Packaging(unittest.TestCase):
 class OperatorGuide(unittest.TestCase):
     """The k3s run executes this recipe. These checks catch a drift without needing a cluster."""
 
-    GUIDE = Path(__file__).resolve().parents[2] / "docs/operations/t8-attachment-copy-job.md"
+    GUIDE = REPOSITORY / "docs/operations/t8-attachment-copy-job.md"
 
-    def recipe(self):
-        return re.search(r"<!-- source-secret-recipe -->\s*```sh\n(.*?)```", self.GUIDE.read_text(), re.DOTALL).group(1)
+    def recipe(self, marker="source-secret-recipe"):
+        return re.search(rf"<!-- {marker} -->\s*```sh\n(.*?)```", self.GUIDE.read_text(), re.DOTALL).group(1)
+
+    def recipes(self):
+        """The default for SSO users, then the IAM user variant."""
+        return {"assume-role": self.recipe(), "federation": self.recipe("source-secret-recipe-iam-user")}
+
+    @staticmethod
+    def session_command(recipe):
+        return recipe[:recipe.index("| jq")].strip()
 
     def test_secret_recipe_writes_every_key_the_job_reads(self):
         read = {item["valueFrom"]["secretKeyRef"]["key"] for item in env_of().values()
@@ -355,9 +375,27 @@ class OperatorGuide(unittest.TestCase):
         self.assertEqual(set(re.findall(r'"([a-z_]+)=\\\(', self.recipe())), read)
         self.assertIn(f"secret generic {attachment_job.SOURCE_SECRET} ", self.recipe())
 
-    def test_session_length_in_the_guide_matches_the_job_contract(self):
-        requested = int(re.search(r"--duration-seconds (\d+)", self.recipe()).group(1))
-        self.assertEqual(requested, attachment_job.SOURCE_SESSION_SECONDS)
+    def test_default_session_assumes_the_reader_role(self):
+        command = self.session_command(self.recipe())
+        self.assertTrue(command.startswith('aws sts assume-role --role-arn "$SOURCE_READER_ROLE_ARN" '))
+        self.assertIn(f" --role-session-name {attachment_job.SOURCE_SESSION_NAME} ", command)
+
+    def test_iam_user_variant_requests_a_federation_token(self):
+        command = self.session_command(self.recipes()["federation"])
+        self.assertTrue(command.startswith(f"aws sts get-federation-token --name {attachment_job.SOURCE_SESSION_NAME} "))
+
+    def test_both_sessions_carry_the_job_session_length_and_policy(self):
+        for name, recipe in self.recipes().items():
+            with self.subTest(name):
+                command = self.session_command(recipe)
+                self.assertEqual(int(re.search(r"--duration-seconds (\d+)", command).group(1)),
+                                 attachment_job.SOURCE_SESSION_SECONDS)
+                self.assertIn(' --policy "$SESSION_POLICY" ', command)
+
+    def test_variants_differ_only_in_the_session_command(self):
+        # The k3s run executes the default pipeline; the IAM user variant must be the same pipeline.
+        tails = {recipe[recipe.index("| jq"):] for recipe in self.recipes().values()}
+        self.assertEqual(len(tails), 1)
 
 
 class CommandLine(unittest.TestCase):
