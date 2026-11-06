@@ -39,6 +39,15 @@
           <button type="button" data-view="timeline" aria-current="false">
             <span class="nav-icon" aria-hidden="true">◷</span>실행 타임라인
           </button>
+          <button type="button" data-view="analysis" aria-current="false">
+            <span class="nav-icon" aria-hidden="true">⌘</span>의존성·후보 비교
+          </button>
+          <button type="button" data-view="ai" aria-current="false">
+            <span class="nav-icon" aria-hidden="true">✧</span>AI·리허설
+          </button>
+          <button type="button" data-view="costs" aria-current="false">
+            <span class="nav-icon" aria-hidden="true">₩</span>비용·예산
+          </button>
         </nav>
         <div class="sidebar-help">
           <span class="help-symbol" aria-hidden="true">◇</span
@@ -455,7 +464,16 @@
                 ><strong id="target-http">미연결</strong>
               </div>
               <div class="metric">
-                <span>트래픽 가중치</span><strong>미연결</strong>
+                <span>출발 · 요청/초</span
+                ><strong id="source-rps">미확인</strong>
+              </div>
+              <div class="metric">
+                <span>목적 · 요청/초</span
+                ><strong id="target-rps">미확인</strong>
+              </div>
+              <div class="metric">
+                <span>트래픽 가중치</span
+                ><strong id="traffic-weight">미연결</strong>
               </div>
               <div class="metric">
                 <span>쓰기 정지 시간</span><strong id="pause">미확인</strong>
@@ -558,10 +576,223 @@
             <p id="failback-status">복귀 검증 기록 없음</p>
             <dl id="failback-detail"></dl>
             <p class="muted">
-              서버에 기록된 결과를 조회합니다. 복귀 승인·실행은 이 화면에서
-              제공하지 않습니다. DB 검증만으로 트래픽 복귀나 서비스 무중단을
+              서버에 기록된 결과를 조회합니다. 복귀 승인·실행은 운영 조작
+              패널에서 요청합니다. DB 검증만으로 트래픽 복귀나 서비스 무중단을
               판정하지 않습니다.
             </p>
+          </section>
+
+          <section
+            class="card operations-card"
+            data-views="migration ai"
+            aria-labelledby="operations-heading"
+          >
+            <p class="eyebrow">OPERATOR ACTIONS</p>
+            <h2 id="operations-heading">단계별 운영 조작</h2>
+            <p id="operation-context" class="muted">
+              현재 계획의 운영 연결을 기다립니다.
+            </p>
+            <div class="operation-grid">
+              <article>
+                <h3>트래픽 전환 시작</h3>
+                <p class="muted">
+                  AWAIT_APPROVAL에서 GATE 확인점을 승인합니다. 컷오버 승인과
+                  구분합니다.
+                </p>
+                <button id="op-shift" disabled>SHIFT 시작 승인</button>
+              </article>
+              <article>
+                <h3>출발지 복귀</h3>
+                <pre id="failback-binding-view">
+서버가 검증한 현재 복귀 대상을 기다립니다.</pre
+                >
+                <div class="actions">
+                  <button id="op-failback-approve" disabled>
+                    복귀 승인 기록</button
+                  ><button id="op-failback-submit" class="danger" disabled>
+                    승인된 복귀 실행
+                  </button>
+                </div>
+                <p id="failback-command" class="muted">
+                  아직 이 창에서 확인한 복귀 명령 없음
+                </p>
+                <div class="actions">
+                  <button id="op-failback-reconcile" class="secondary" disabled>
+                    복귀 실행 상태 조회</button
+                  ><button id="op-failback-edge" class="secondary" disabled>
+                    DB 재실행 없이 Edge 복구
+                  </button>
+                </div>
+              </article>
+              <article>
+                <h3>AI 제안</h3>
+                <p class="muted">
+                  등록된 런타임과 작업으로 Job을 요청합니다. 사용자 브라우저에
+                  운영 키를 전달하지 않습니다.
+                </p>
+                <div class="actions">
+                  <button id="op-initial-start" disabled>
+                    AI 제안 작업 시작</button
+                  ><button id="op-initial-collect" class="secondary" disabled>
+                    AI 실행 결과 수거
+                  </button>
+                </div>
+              </article>
+              <article>
+                <h3>리허설 실행·검증</h3>
+                <label for="rehearsal-task">서버에 등록된 작업</label
+                ><select
+                  id="rehearsal-task"
+                  aria-label="서버에 등록된 리허설 작업"
+                ></select
+                ><label for="rehearsal-attempt">시도</label
+                ><select id="rehearsal-attempt">
+                  <option value="1">1</option>
+                  <option value="2">2</option>
+                  <option value="3">3</option></select
+                ><button id="op-rehearsal-start" disabled>
+                  등록된 리허설 시작</button
+                ><label for="rehearsal-run-select">기존 실행 조회</label
+                ><select id="rehearsal-run-select"></select>
+                <p id="rehearsal-run" class="muted">
+                  아직 이 창에서 확인한 리허설 실행 없음
+                </p>
+                <button id="op-rehearsal-reconcile" class="secondary" disabled>
+                  리허설 결과 재조회
+                </button>
+              </article>
+            </div>
+            <label class="confirmation"
+              ><input type="checkbox" id="operations-confirm" disabled />현재
+              계획·단계·승인 대상과 영향 범위를 확인했습니다.</label
+            >
+            <p id="operation-status" role="status">
+              서버가 제공한 현재 연결·권한을 확인해야 조작할 수 있습니다.
+            </p>
+            <div class="actions">
+              <button id="operation-lookup" class="secondary" hidden>
+                같은 운영 요청 결과 확인</button
+              ><button id="operation-repeat" class="danger" hidden>
+                같은 운영 요청 다시 제출
+              </button>
+            </div>
+          </section>
+          <section
+            class="card feature-panel"
+            data-views="analysis topology"
+            aria-labelledby="panel-inventory-title"
+          >
+            <div class="section-title">
+              <h2 id="panel-inventory-title">의존성 분석</h2>
+              <span id="panel-inventory-status" role="status"
+                >현재 계획의 자료를 기다립니다.</span
+              >
+            </div>
+            <div id="panel-inventory-body"></div>
+          </section>
+          <section
+            class="card feature-panel"
+            data-views="analysis migration"
+            aria-labelledby="panel-recommendations-title"
+          >
+            <div class="section-title">
+              <h2 id="panel-recommendations-title">이전 후보 비교</h2>
+              <span id="panel-recommendations-status" role="status"
+                >현재 계획의 자료를 기다립니다.</span
+              >
+            </div>
+            <div id="panel-recommendations-body"></div>
+          </section>
+          <section
+            class="card feature-panel"
+            data-views="analysis topology"
+            aria-labelledby="panel-exit-title"
+          >
+            <div class="section-title">
+              <h2 id="panel-exit-title">잔존 의존성·탈출 리허설</h2>
+              <span id="panel-exit-status" role="status"
+                >현재 계획의 자료를 기다립니다.</span
+              >
+            </div>
+            <div id="panel-exit-body"></div>
+          </section>
+          <section
+            class="card feature-panel"
+            data-views="ai"
+            aria-labelledby="panel-ai-title"
+          >
+            <div class="section-title">
+              <h2 id="panel-ai-title">AI 제안·변경 검토</h2>
+              <span id="panel-ai-status" role="status"
+                >현재 계획의 자료를 기다립니다.</span
+              >
+            </div>
+            <div id="panel-ai-body"></div>
+          </section>
+          <section
+            class="card feature-panel"
+            data-views="ai"
+            aria-labelledby="panel-rehearsal-title"
+          >
+            <div class="section-title">
+              <h2 id="panel-rehearsal-title">리허설 실행 결과</h2>
+              <span id="panel-rehearsal-status" role="status"
+                >현재 계획의 자료를 기다립니다.</span
+              >
+            </div>
+            <div id="panel-rehearsal-body"></div>
+          </section>
+          <section
+            class="card feature-panel"
+            data-views="migration monitoring"
+            aria-labelledby="panel-traffic-title"
+          >
+            <div class="section-title">
+              <h2 id="panel-traffic-title">트래픽·쓰기 정지 실측</h2>
+              <span id="panel-traffic-status" role="status"
+                >현재 계획의 자료를 기다립니다.</span
+              >
+            </div>
+            <div id="panel-traffic-body"></div>
+          </section>
+          <section
+            class="card feature-panel"
+            data-views="monitoring"
+            aria-labelledby="panel-monitoring-title"
+          >
+            <div class="section-title">
+              <h2 id="panel-monitoring-title">환경별 상세 모니터링</h2>
+              <span id="panel-monitoring-status" role="status"
+                >현재 계획의 자료를 기다립니다.</span
+              >
+            </div>
+            <div id="panel-monitoring-body"></div>
+          </section>
+          <section
+            class="card feature-panel"
+            data-views="security timeline"
+            aria-labelledby="panel-audit-title"
+          >
+            <div class="section-title">
+              <h2 id="panel-audit-title">감사·도구 차단 기록</h2>
+              <span id="panel-audit-status" role="status"
+                >현재 계획의 자료를 기다립니다.</span
+              >
+            </div>
+            <div id="panel-audit-body"></div>
+          </section>
+          <section
+            class="card feature-panel"
+            data-views="costs"
+            aria-labelledby="panel-costs-title"
+          >
+            <div class="section-title">
+              <h2 id="panel-costs-title">비용·예산</h2>
+              <span id="panel-costs-status" role="status"
+                >현재 계획의 자료를 기다립니다.</span
+              >
+            </div>
+            <div id="panel-costs-body"></div>
           </section>
           <footer>
             인증·테넌트 권한·최종 게이트 판단·실행 제어는 서버에서 검사합니다.

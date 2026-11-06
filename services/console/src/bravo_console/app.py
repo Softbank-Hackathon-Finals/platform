@@ -11,6 +11,7 @@ from urllib.parse import urlsplit
 from starlette.responses import JSONResponse, Response
 
 from .observations import ObservationError
+from .wire import object_document
 
 ASSETS = {
     "/console/": ("index.html", "text/html"),
@@ -20,6 +21,8 @@ ASSETS = {
     "/console/recovery.js": ("recovery.js", "text/javascript"),
     "/console/registration.js": ("registration.js", "text/javascript"),
     "/console/workspace.js": ("workspace.js", "text/javascript"),
+    "/console/panels.js": ("panels.js", "text/javascript"),
+    "/console/operations.js": ("operations.js", "text/javascript"),
     "/console/style.css": ("style.css", "text/css"),
 }
 HEADERS = {
@@ -34,7 +37,16 @@ HEADERS = {
 
 
 class ConsoleApp:
-    def __init__(self, api, *, public_origin: str, observations=None, controls=None, security=None):
+    def __init__(
+        self,
+        api,
+        *,
+        public_origin: str,
+        observations=None,
+        controls=None,
+        security=None,
+        workspace=None,
+    ):
         parsed = urlsplit(public_origin)
         if (
             parsed.scheme not in ("https", "http")
@@ -54,6 +66,7 @@ class ConsoleApp:
         self.observations = observations
         self.controls = controls
         self.security = security
+        self.workspace = workspace
         self.assets = {
             path: ((Path(__file__).parent / "static" / name).read_bytes(), mime)
             for path, (name, mime) in ASSETS.items()
@@ -75,7 +88,14 @@ class ConsoleApp:
                 scope, receive, send
             )
 
-        for key in (b"host", b"origin", b"content-type", b"content-length", b"x-bravo-console"):
+        for key in (
+            b"host",
+            b"origin",
+            b"content-type",
+            b"content-length",
+            b"x-bravo-console",
+            b"idempotency-key",
+        ):
             if sum(k.lower() == key for k, _ in pairs) > 1:
                 return await reject(400, "ambiguous_headers")
         if headers.get(b"host", b"").decode("latin1") != self.host:
@@ -99,6 +119,28 @@ class ConsoleApp:
             return await reject(405, "method_not_allowed")
         if method not in ("GET", "POST"):
             return await reject(405, "method_not_allowed")
+        if match := re.fullmatch(
+            r"/v1/plans/([A-Za-z0-9][A-Za-z0-9_-]{0,127})/(workspace|operation-receipts/([A-Za-z0-9][A-Za-z0-9_-]{0,127}))",
+            path,
+        ):
+            if method != "GET":
+                return await reject(405, "method_not_allowed")
+            if scope.get("query_string"):
+                return await reject(400, "workspace_query_not_allowed")
+            if self.workspace is None:
+                return await reject(503, "workspace_unconfigured")
+            try:
+                if match[3] is None:
+                    value = await self.workspace.read(scope, match[1])
+                elif self.workspace.operations is not None:
+                    value = await self.workspace.operations.lookup(scope, match[1], match[3])
+                else:
+                    return await reject(503, "operations_unconfigured")
+            except ObservationError as error:
+                return await reject(error.status, error.code)
+            except Exception:
+                return await reject(503, "workspace_unavailable")
+            return await JSONResponse(value, headers=HEADERS)(scope, receive, send)
         if match := re.fullmatch(r"/v1/plans/([A-Za-z0-9][A-Za-z0-9_-]{0,127})/observations", path):
             if method != "GET":
                 return await reject(405, "method_not_allowed")
@@ -157,6 +199,30 @@ class ConsoleApp:
                 if not message.get("more_body", False):
                     break
             body = b"".join(chunks)
+            if match := re.fullmatch(
+                r"/v1/plans/([A-Za-z0-9][A-Za-z0-9_-]{0,127})/initial-proposal/(start|collect)",
+                path,
+            ):
+                if self.workspace is None or self.workspace.operations is None:
+                    return await reject(503, "operations_unconfigured")
+                try:
+                    input_document = object_document(body, max_bytes=4096)
+                    operation_key = headers.get(b"idempotency-key", b"").decode("ascii")
+                except (ValueError, UnicodeError):
+                    return await reject(400, "invalid_operation_input")
+                try:
+                    value = await self.workspace.operations.initial_action(
+                        scope,
+                        match[1],
+                        "initial-" + match[2],
+                        input_document,
+                        operation_key,
+                    )
+                except ObservationError as error:
+                    return await reject(error.status, error.code)
+                except Exception:
+                    return await reject(503, "operation_unavailable")
+                return await JSONResponse(value, headers=HEADERS)(scope, receive, send)
             original_receive = receive
             delivered = False
 

@@ -10,6 +10,8 @@ for (const name of [
   "recovery.js",
   "style.css",
   "workspace.js",
+  "panels.js",
+  "operations.js",
 ])
   assert.ok(readFileSync(new URL(name, root)).length);
 assert.ok(!/<script(?![^>]*src=)/.test(html));

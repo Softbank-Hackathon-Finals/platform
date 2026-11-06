@@ -1,6 +1,18 @@
 // Sova's workspace presentation, projected from T21's validated read model.
 // No API client, action eligibility, workflow state or persistent storage here.
 export const VIEWS = {
+  analysis: [
+    "의존성·후보 비교",
+    "등록된 분석과 추천, 출발지에 남은 의존성을 확인합니다.",
+  ],
+  ai: [
+    "AI·리허설",
+    "AI 제안 작업과 리허설 실행·독립 검증 결과를 구분해 확인합니다.",
+  ],
+  costs: [
+    "비용·예산",
+    "집계 범위·귀속 여부·환율 기준을 확인합니다. 미관측을 0원으로 표시하지 않습니다.",
+  ],
   overview: [
     "워크스페이스",
     "이전 계획과 현재 확인된 근거를 한곳에서 확인합니다.",
