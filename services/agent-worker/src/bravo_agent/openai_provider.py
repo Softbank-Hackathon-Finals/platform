@@ -1,4 +1,4 @@
-"""OpenAI Responses tool loop; every requested action goes through shared policy."""
+"""OpenAI Agents SDK runtime with the bounded SIWC Responses transport adapter."""
 
 import asyncio
 import copy
@@ -8,10 +8,15 @@ import re
 from collections import Counter
 from typing import get_args
 
+from agents import Agent, FunctionTool, Model, ModelResponse, RunConfig, Runner, tool_namespace
+from agents.agent import ToolsToFinalOutputResult
+from agents.tracing import generation_span
+from agents.usage import Usage
 from openai import APIStatusError, AsyncOpenAI
 
 from .contracts import FailureBundle, Proposal
 from .runtime import RUNTIME_KEYS
+from .telemetry import agent_observation
 from .tools import RESERVED_TOOLS, SYSTEM, PolicyDenied, Tools
 
 FUNCTIONS = {"repo_read": "mcp__bravo__repo_read", "plan_propose": "mcp__bravo__plan_propose",
@@ -291,72 +296,151 @@ class OpenAIProvider:
         if (set(os.environ) - RUNTIME_KEYS or other_credentials & set(os.environ)
                 or not os.environ.get(credential)):
             raise RuntimeError("worker process environment must be explicitly isolated")
-        history = [{"role": "user", "content": json.dumps(tools.model_input(), sort_keys=True)}]
-        definitions = function_tools(tools)
-        needs_read = self.subscription
-        tokens = 0
         async with asyncio.timeout(180):
             async with AsyncOpenAI(api_key=os.environ[credential],
                                    base_url="https://api.openai.com/v1",
                                    max_retries=0, timeout=60) as client:
-                for index in range(8):
-                    offered = definitions
-                    if needs_read:
-                        offered = [tool for tool in definitions if tool["name"] == "repo_read"]
-                    if self.subscription:
-                        offered = [{"type": "namespace", "name": "bravo", "tools": offered,
-                                    "description": "Approved snapshot reads and proposal submission only."}]
-                    request = {"model": self.model, "instructions": SYSTEM,
-                               "input": history, "tools": offered, "tool_choice": "required" if needs_read else "auto",
-                               "parallel_tool_calls": False, "store": False,
-                               "include": ["reasoning.encrypted_content"]}
-                    if not self.subscription:
-                        request["max_output_tokens"] = min(4096, 32000 - tokens)
-                    if tokens >= 32000 or len(json.dumps(request).encode()) > 131072:
-                        raise RuntimeError("model input or token budget reached")
-                    stream_shape = {"stream_added": Counter(), "stream_done": Counter()} if self.subscription and index == 0 else None
-                    response = await self.response(client, request, tools, stream_shape)
-                    if response.status != "completed" or response.usage is None:
-                        raise RuntimeError("incomplete model response or unknown usage")
-                    if type(response.usage.total_tokens) is not int or response.usage.total_tokens < 0:
-                        raise RuntimeError("invalid model usage")
-                    tokens += response.usage.total_tokens
-                    tools.usage = {"provider": "chatgpt_plan" if self.subscription else "openai", "model": self.model,
-                                   "requests": index + 1, "total_tokens": tokens}
-                    if tokens > 32000:
-                        raise RuntimeError("model usage limit reached")
-                    outputs = [item.model_dump(exclude_none=True) for item in (response.output or [])]
-                    calls = [item for item in outputs if item["type"] == "function_call"]
-                    if stream_shape is not None:
-                        tools.record("provider", "OBSERVED", "FIRST_RESPONSE_SHAPE", flat_shape(stream_shape, calls))
-                    if len(calls) != 1:
-                        raise RuntimeError("expected one allowed function call")
-                    history.extend(outputs)
-                    item = calls[0]
-                    name = tool_name(item.get("name"), item.get("namespace"), subscription=self.subscription)
-                    parsed, arguments = call_arguments(item.get("arguments"))
-                    stop = None
-                    if self.subscription and item.get("namespace") != "bravo":
-                        stop = "unexpected subscription tool namespace"
-                    elif needs_read and item.get("name") != "repo_read":
-                        stop = "subscription must read the snapshot before proposing"
-                    if stop:
-                        # The attempt still ends; a call to anything but an offered tool is audited first.
-                        if not tools.allowed(name):
-                            deny_unprovided(tools, name, arguments)
-                        raise RuntimeError(stop)
-                    try:
-                        if not parsed and tools.allowed(name):
-                            raise ValueError("invalid function arguments")
-                        result = tools.dispatch(name, arguments)
-                        needs_read = False
-                    except (ValueError, PolicyDenied):
-                        result = {"error": "POLICY_DENIED"}
-                        if name in FUNCTIONS.values():
-                            tools.record(name, "DENIED", "INVALID_FUNCTION_ARGUMENTS")
-                    if tools.proposal is not None:
-                        tools.record("provider", "COMPLETED", "PROPOSAL_COLLECTED")
-                        return
-                    history.append({"type": "function_call_output", "call_id": item["call_id"],
-                                    "output": json.dumps(result)})
-                raise RuntimeError("model call limit reached")
+                model = BoundedResponsesModel(self, client, tools)
+                with agent_observation(tools, "openai_agents", self.model) as observation:
+                    async def finish(_context, _results):
+                        return ToolsToFinalOutputResult(
+                            is_final_output=tools.proposal is not None, final_output="PROPOSAL_COLLECTED")
+
+                    agent = Agent(name="bravo-proposal", instructions=SYSTEM, model=model,
+                                  tools=model.sdk_tools(), tool_use_behavior=finish)
+                    await Runner.run(
+                        agent, [{"role": "user", "content": json.dumps(tools.model_input(), sort_keys=True)}],
+                        max_turns=8,
+                        run_config=RunConfig(
+                            workflow_name="bravo-proposal", trace_id=observation.sdk_trace_id,
+                            trace_include_sensitive_data=False,
+                            group_id=bundle.run_id,
+                            trace_metadata={"source_sha": bundle.source_sha, "attempt": tools.attempt},
+                        ),
+                    )
+                    if tools.proposal is None:
+                        raise RuntimeError("no schema-validated proposal")
+                    tools.record("provider", "COMPLETED", "PROPOSAL_COLLECTED")
+
+
+class BoundedResponsesModel(Model):
+    """One request per SDK turn, preserving subscription wire and policy contracts.
+
+    Runner owns history, turn limits, function invocation and termination. This adapter only
+    translates the SIWC namespace/stream protocol and validates a response before SDK dispatch.
+    The unadvertised denial handler cannot execute an action; it returns the existing refusal.
+    """
+
+    def __init__(self, provider, client, tools):
+        self.provider, self.client, self.policy = provider, client, tools
+        self.needs_read = provider.subscription
+        self.tokens = self.requests = 0
+        self.denied_calls = {}
+
+    def sdk_tools(self):
+        definitions = function_tools(self.policy)
+        result = []
+        for definition in definitions:
+            name = definition["name"]
+
+            async def invoke(_context, raw, name=name):
+                parsed, arguments = call_arguments(raw)
+                canonical = FUNCTIONS[name]
+                try:
+                    if not parsed:
+                        raise ValueError("invalid function arguments")
+                    result = self.policy.dispatch(canonical, arguments)
+                    self.needs_read = False
+                    return json.dumps(result)
+                except (ValueError, PolicyDenied):
+                    self.policy.record(canonical, "DENIED", "INVALID_FUNCTION_ARGUMENTS")
+                    return json.dumps({"error": "POLICY_DENIED"})
+
+            result.append(FunctionTool(name=name, description=definition["description"],
+                                       params_json_schema=definition["parameters"], on_invoke_tool=invoke))
+
+        async def denied(_context, _raw):
+            return json.dumps({"error": "POLICY_DENIED"})
+
+        result.append(FunctionTool(name="policy_denied", description="Internal refusal result.",
+                                   params_json_schema={"type": "object", "properties": {},
+                                                       "additionalProperties": False},
+                                   on_invoke_tool=denied))
+        if self.provider.subscription:
+            return tool_namespace(name="bravo", tools=result,
+                                  description="Approved snapshot reads and proposal submission only.")
+        return result
+
+    async def get_response(self, system_instructions, input, model_settings, tools, output_schema,
+                           handoffs, tracing, *, previous_response_id=None, conversation_id=None,
+                           prompt=None):
+        if previous_response_id or conversation_id or handoffs or output_schema or prompt:
+            raise RuntimeError("unsupported model continuation")
+        history = copy.deepcopy(input)
+        # Preserve the original wire function identity after the SDK's internal refusal handler.
+        for item in history:
+            if item.get("type") == "function_call" and item.get("call_id") in self.denied_calls:
+                original = self.denied_calls[item["call_id"]]
+                item.clear()
+                item.update(original)
+        definitions = function_tools(self.policy)
+        if self.needs_read:
+            definitions = [item for item in definitions if item["name"] == "repo_read"]
+        if self.provider.subscription:
+            definitions = [{"type": "namespace", "name": "bravo", "tools": definitions,
+                            "description": "Approved snapshot reads and proposal submission only."}]
+        request = {"model": self.provider.model, "instructions": system_instructions,
+                   "input": history, "tools": definitions,
+                   "tool_choice": "required" if self.needs_read else "auto",
+                   "parallel_tool_calls": False, "store": False,
+                   "include": ["reasoning.encrypted_content"]}
+        if not self.provider.subscription:
+            request["max_output_tokens"] = min(4096, 32000 - self.tokens)
+        if self.tokens >= 32000 or len(json.dumps(request).encode()) > 131072:
+            raise RuntimeError("model input or token budget reached")
+        shape = {"stream_added": Counter(), "stream_done": Counter()} if self.provider.subscription and not self.requests else None
+        with generation_span(model=self.provider.model, disabled=tracing.is_disabled()) as span:
+            response = await self.provider.response(self.client, request, self.policy, shape)
+            if response.status != "completed" or response.usage is None:
+                raise RuntimeError("incomplete model response or unknown usage")
+            total = response.usage.total_tokens
+            if type(total) is not int or total < 0:
+                raise RuntimeError("invalid model usage")
+            self.tokens += total
+            self.requests += 1
+            self.policy.usage = {"provider": "chatgpt_plan" if self.provider.subscription else "openai",
+                                 "model": self.provider.model, "requests": self.requests,
+                                 "total_tokens": self.tokens}
+            if self.tokens > 32000:
+                raise RuntimeError("model usage limit reached")
+            usage = Usage(requests=1, total_tokens=total,
+                          input_tokens=getattr(response.usage, "input_tokens", 0),
+                          output_tokens=getattr(response.usage, "output_tokens", 0))
+            span.span_data.usage = {"input_tokens": usage.input_tokens, "output_tokens": usage.output_tokens,
+                                    "total_tokens": total}
+            outputs = [item.model_dump(exclude_none=True) for item in response.output or []]
+            calls = [item for item in outputs if item["type"] == "function_call"]
+            if shape is not None:
+                self.policy.record("provider", "OBSERVED", "FIRST_RESPONSE_SHAPE", flat_shape(shape, calls))
+            if any(item.get("type") not in {"function_call", "reasoning", "message"} for item in outputs):
+                # No hosted or executable built-in tools are permitted on this proposal path.
+                raise RuntimeError("unexpected model output kind")
+            if len(calls) != 1:
+                raise RuntimeError("expected one allowed function call")
+            item = calls[0]
+            name = tool_name(item.get("name"), item.get("namespace"), subscription=self.provider.subscription)
+            _parsed, arguments = call_arguments(item.get("arguments"))
+            if (self.provider.subscription and item.get("namespace") != "bravo"
+                    or self.needs_read and item.get("name") != "repo_read"):
+                if not self.policy.allowed(name):
+                    deny_unprovided(self.policy, name, arguments)
+                raise RuntimeError("subscription tool ordering or namespace rejected")
+            if not self.policy.allowed(name):
+                deny_unprovided(self.policy, name, arguments)
+                self.denied_calls[item["call_id"]] = dict(item)
+                item.update(name="policy_denied", arguments="{}")
+            return ModelResponse(output=outputs, usage=usage, response_id=getattr(response, "id", None))
+
+    async def stream_response(self, *args, **kwargs):
+        raise RuntimeError("Runner must use bounded completed responses")
+        yield  # Implements Model's async iterator interface without exposing partial tool calls.
