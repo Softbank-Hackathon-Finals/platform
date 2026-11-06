@@ -189,3 +189,22 @@ def test_consuming_the_report_needs_its_own_gate_consume_grant(gate):
         view = f.records.view(c, viewer, plan)  # the viewer may read; only gate:consume is missing
         with pytest.raises(GateError):
             f.factory(view).require_prerequisites(viewer.subject_id, view.context_id, canonical(report))
+
+
+def test_load_gate_serves_the_same_assembly_and_refuses_without_readiness(gate):
+    f = gate
+    f.enroll()
+    load = gate_services.load_gate(f.records, f.access, clock=lambda: f.clock.at)
+    f.clock.at = f.state["now"]
+    for side in ("source", "target"):
+        f.records.record_run(f.operator, f.plan.plan_id, side, f.state["runs"][side])
+    f.records.bind(f.operator, f.plan.plan_id, "context", f.state["context"], expected_revision=0)
+    with f.store._transaction(plan_id=f.plan.plan_id) as c:
+        plan = dict(c.execute("SELECT * FROM plans WHERE plan_id=?", (f.plan.plan_id,)).fetchone())
+        with pytest.raises(EventError, match="gate_readiness_unavailable"):
+            load(f.records.view(c, f.operator, plan))
+    gate_readiness.record_readiness(f.records, f.operator, f.plan.plan_id, f.data["binding"], f.data["snapshot"])
+    with f.store._transaction(plan_id=f.plan.plan_id) as c:
+        plan = dict(c.execute("SELECT * FROM plans WHERE plan_id=?", (f.plan.plan_id,)).fetchone())
+        service, readiness = load(f.records.view(c, f.operator, plan))
+        assert readiness == f.data["binding"] and service.binding_provider is not None

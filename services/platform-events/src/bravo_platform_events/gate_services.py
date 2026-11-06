@@ -61,3 +61,17 @@ def service_factory(records, access, *, clock=server_clock):
         snapshot_provider=gate_readiness.snapshot_provider,
         clock=clock,
     )
+
+
+def load_gate(records, access, *, clock=server_clock):
+    """`load_gate(view)` for ApplicationEvidence and the cutover/SHIFT authorities:
+    (CombinedGateService, ReadinessBinding) from the same assembly; no readiness record → refused."""
+    factory = service_factory(records, access, clock=clock)
+
+    def load(view):
+        readiness = gate_readiness.binding_provider(view, view.principal.subject_id, view.context)
+        if readiness is None:
+            raise EventError("gate_readiness_unavailable")
+        return factory(view), readiness
+
+    return load
