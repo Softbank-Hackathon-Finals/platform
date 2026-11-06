@@ -15,8 +15,7 @@ from bravo_agent.subscription_product_dispatch import OperatorProductExecution
 from bravo_agent.subscription_product_seal import open_bound_receipt, seal_bound_receipt
 
 from .initial_proposal import InitialInput, InitialIntent, InitialResult
-
-INITIAL_WORKFLOW = "subscription-initial-proposal.yml"
+from .initial_proposal_contracts import INITIAL_WORKFLOW
 
 
 def _intent(value):

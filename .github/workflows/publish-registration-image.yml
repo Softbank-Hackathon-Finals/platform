@@ -11,6 +11,8 @@ on:
       - services/rehearsal-runner/pyproject.toml
       - services/inventory/src/**
       - services/inventory/pyproject.toml
+      - services/control-gate/src/**
+      - services/control-gate/pyproject.toml
       - scripts/registration_delivery.py
       - scripts/image_delivery/**
       - .github/workflows/publish-registration-image.yml
