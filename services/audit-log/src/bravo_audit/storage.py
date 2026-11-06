@@ -15,7 +15,12 @@ class StoreTampered(Exception):
 
 
 def _load_s3_run(client, bucket: str, prefix: str) -> list[dict]:
-    """Every version of every record under one run prefix (review #257 P1).
+    """Records of one run prefix in key order; see ``_s3_run_items``."""
+    return [doc for _key, doc in _s3_run_items(client, bucket, prefix)]
+
+
+def _s3_run_items(client, bucket: str, prefix: str) -> list[tuple[str, dict]]:
+    """(key, record) for every record under one run prefix, after checking every version (review #257 P1).
 
     Reading only the current version would miss a record rewritten without ``If-None-Match``:
     Object Lock keeps the old version but does not stop a new one, so a re-hashed chain would
@@ -39,7 +44,7 @@ def _load_s3_run(client, bucket: str, prefix: str) -> list[dict]:
             raise StoreTampered(f"delete_marker:{seq(key)}")
         if len(versions[key]) > 1:
             raise StoreTampered(f"overwritten:{seq(key)}")
-    return [json.loads(client.get_object(Bucket=bucket, Key=k, VersionId=versions[k][0])["Body"].read())
+    return [(k, json.loads(client.get_object(Bucket=bucket, Key=k, VersionId=versions[k][0])["Body"].read()))
             for k in sorted(versions)]
 
 
@@ -50,7 +55,11 @@ def split_s3(target: str) -> tuple[str, str]:
 
 
 def _local_run(path: Path) -> list[dict]:
-    return [json.loads(p.read_text(encoding="utf-8")) for p in sorted(path.glob("*.json"))]
+    return [doc for _name, doc in _local_run_items(path)]
+
+
+def _local_run_items(path: Path) -> list[tuple[str, dict]]:
+    return [(p.name, json.loads(p.read_text(encoding="utf-8"))) for p in sorted(path.glob("*.json"))]
 
 
 def load_plan_runs(target: str, plan_id: str, client=None) -> dict[str, list[dict]]:

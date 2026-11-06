@@ -45,6 +45,7 @@ from pathlib import Path
 from .adapters import PLATFORM_SCHEMA_VERSIONS, expand_platform_event
 from .ledger import OriginConflict, RunLedger, utc_now, verify_chain
 from .record import UnsafePayload
+from .registration import registration_from_receipt, write_registration
 from .storage import IDENTIFIER, StoreTampered, load_plan_runs
 
 EXIT_OK = 0
@@ -530,6 +531,24 @@ def cmd_follow(args) -> int:
                 handle.write(json.dumps(receipt, ensure_ascii=False) + "\n")
         return write
 
+    def registrations_writer(write_receipt):
+        """After each confirmed write, replace ``<dir>/<run_id>.json`` with the registration built
+        from that receipt (never from the store listing)."""
+        if not args.registration_dir:
+            return write_receipt
+        directory = Path(args.registration_dir)
+
+        def write(receipt: dict) -> None:
+            write_receipt(receipt)
+            run_id = receipt["key"].split("/")[-2]
+            try:
+                directory.mkdir(parents=True, exist_ok=True)
+                write_registration(directory / f"{run_id}.json",
+                                   registration_from_receipt(args.plan, run_id, receipt))
+            except (OSError, ValueError) as exc:
+                raise FollowStop(EXIT_WRITE, f"registration_not_written:{type(exc).__name__}") from exc
+        return write
+
     try:
         upstream = Upstream(args.base_url, args.plan,
                             token_file=Path(args.auth_token_file) if args.auth_token_file else None,
@@ -550,7 +569,7 @@ def cmd_follow(args) -> int:
     previous = signal.signal(signal.SIGTERM, stop)
     try:
         code, out = follow(upstream, load_runs=load_runs, sink=sink, once=args.once,
-                           on_receipt=receipts_writer(), max_backoff=args.max_backoff)
+                           on_receipt=registrations_writer(receipts_writer()), max_backoff=args.max_backoff)
     except KeyboardInterrupt:  # stopped while reading storage: nothing half written
         return EXIT_OK
     finally:
@@ -570,6 +589,8 @@ def add_parser(sub) -> None:
     f.add_argument("--auth-scheme", default="Bearer", help="prefix before the credential; empty for none")
     f.add_argument("--ca-file", default="", help="PEM bundle to verify the T10 server certificate")
     f.add_argument("--receipts", default="", help="append one JSON line per written record")
+    f.add_argument("--registration-dir", default="",
+                   help="keep <run_id>.json registrations (from write receipts) here, outside the audit writer's reach")
     f.add_argument("--retention-days", type=int, default=1)
     f.add_argument("--read-timeout", type=float, default=60.0)
     f.add_argument("--max-backoff", type=float, default=30.0)
