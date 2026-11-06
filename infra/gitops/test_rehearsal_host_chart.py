@@ -23,6 +23,7 @@ RUNTIME = {
     "reader": {"existingConfigMap": "reader-config", "catalogClaim": "existing-catalog"},
     "recordsClaim": "t15-records",
     "secrets": {"catalogKey": "existing-key", "host": "t15-host"},
+    "hostAliases": [{"ip": "43.202.75.96", "hostnames": ["sts.ap-northeast-2.amazonaws.com"]}],
 }
 VALUES = {"image": {"digest": "sha256:" + "a" * 64}, "sourceRevision": "b" * 40, **RUNTIME}
 WRITABLE = {"records", "staging", "tmp"}
@@ -47,6 +48,7 @@ class HostChart(unittest.TestCase):
         self.assertFalse(sa["automountServiceAccountToken"])
         dep = next(d for d in docs if d["kind"] == "Deployment")
         self.assertEqual((dep["spec"]["replicas"], dep["spec"]["strategy"]["type"]), (1, "Recreate"))
+        self.assertEqual(dep["spec"]["template"]["spec"]["hostAliases"], RUNTIME["hostAliases"])
         pod = dep["spec"]["template"]["spec"]
         self.assertEqual(pod["serviceAccountName"], "t15-rehearsal-host")
         self.assertFalse(pod["automountServiceAccountToken"])
@@ -114,6 +116,9 @@ class HostChart(unittest.TestCase):
                 pin = Path(directory) / "infra/gitops/environments/development/rehearsal-host-image.json"
                 pin.parent.mkdir(parents=True)
                 pin.write_text(json.dumps({"image": {"digest": digest}}))
+                network = Path(directory) / "infra/envs/rehearsal-access/rehearsal-host-network.yaml"
+                network.parent.mkdir(parents=True)
+                network.write_text((ROOT / "infra/envs/rehearsal-access/rehearsal-host-network.yaml").read_text())
                 seen.clear()
                 with patch.object(bootstrap, "ROOT", Path(directory)):
                     if rejected:
@@ -124,6 +129,13 @@ class HostChart(unittest.TestCase):
         self.assertCountEqual(seen, [("configmap", "host-config"), ("configmap", "reader-config"),
                                      ("pvc", "existing-catalog"), ("pvc", "t15-records"),
                                      ("secret", "existing-key"), ("secret", "t15-host")])
+        # #533 review: the STS name must be pinned to the one address the NetworkPolicy opens.
+        sts = "sts.ap-northeast-2.amazonaws.com"
+        for aliases in ([], [{"ip": "43.202.72.62", "hostnames": [sts]}],
+                        [{"ip": "43.202.75.96", "hostnames": ["other.example"]}],
+                        [{"ip": "43.202.75.96", "hostnames": [sts]}, {"ip": "43.202.72.62", "hostnames": [sts]}]):
+            with self.subTest(aliases=aliases), self.assertRaisesRegex(ValueError, "rehearsal_host_sts_pin_mismatch"):
+                verify_rehearsal_host(get, {"enabled": True, "runtime": RUNTIME | {"hostAliases": aliases}})
         for value in ({"enabled": False, "runtime": RUNTIME},
                       {"enabled": True, "runtime": RUNTIME | {"image": {}}},
                       {"enabled": True, "runtime": {k: v for k, v in RUNTIME.items() if k != "recordsClaim"}}):

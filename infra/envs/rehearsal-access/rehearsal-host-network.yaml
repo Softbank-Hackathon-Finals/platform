@@ -37,6 +37,9 @@ spec:
         - {port: 443, protocol: TCP}
     # Operator SSO proofs are checked against regional STS (sts.ap-northeast-2.amazonaws.com).
     # Same pinned address as t10-registration-trusted-egress; re-resolve when either changes.
+    # The host chart pins sts.ap-northeast-2.amazonaws.com to this address via hostAliases and
+    # bootstrap.py refuses a runtime whose pin differs. Keep the next line as the marker.
+    # STS pin
     - to:
         - ipBlock: {cidr: 43.202.75.96/32}
       ports:

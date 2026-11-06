@@ -28,7 +28,8 @@ CONTROLLER = "system:serviceaccount:bravo-gitops:bravo-gitops-application-contro
 HOST = {"image": {"digest": "sha256:" + "a" * 64}, "sourceRevision": "b" * 40,
         "configuration": {"existingConfigMap": "host-config", "sha256": "c" * 64},
         "reader": {"existingConfigMap": "reader-config", "catalogClaim": "existing-catalog"},
-        "recordsClaim": "t15-records", "secrets": {"catalogKey": "existing-key", "host": "t15-host"}}
+        "recordsClaim": "t15-records", "secrets": {"catalogKey": "existing-key", "host": "t15-host"},
+        "hostAliases": [{"ip": "43.202.75.96", "hostnames": ["sts.ap-northeast-2.amazonaws.com"]}]}
 
 
 def helm(*args):
@@ -84,7 +85,7 @@ class ControllerAdmission(unittest.TestCase):
             raise RuntimeError("kube-apiserver did not become ready")
         for ns in ("platform-state", "bravo-gitops"):
             cls.kube(["create", "namespace", ns], check=True)
-        runtime = {k: HOST[k] for k in ("configuration", "reader", "recordsClaim", "secrets")}
+        runtime = {k: HOST[k] for k in ("configuration", "reader", "recordsClaim", "secrets", "hostAliases")}
         reader = {"configuration": {"existingConfigMap": "reader-config", "sha256": "c" * 64},
                   "secrets": {"catalogKey": "existing-key", "tls": "existing-tls"}, "catalogClaim": "existing-catalog"}
         argo = helm("bravo-gitops", str(ROOT / "infra/gitops/argocd"), "--namespace", "bravo-gitops",
