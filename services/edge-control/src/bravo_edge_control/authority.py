@@ -73,6 +73,9 @@ class ShiftAuthority:
         # A separate record next to (never over) the GATE report, so both judgements stay auditable.
         _put(c, plan["plan_id"], _key("shift-gate-reevaluation", [self.run_id, fresh["evaluated_at"]]),
              {"run_id": self.run_id, "gate_report_ref": session.report.ref}, fresh)
+        from bravo_platform_events.gate_records import record_reevaluation
+
+        record_reevaluation(c, plan["plan_id"], ctx.gate_id, fresh)  # T19 consumes only the registered result
         verified = session.service.require_prerequisites(
             principal.subject_id, session.context_id, canonical(fresh), approval_ids=session.approval_ids)
         latest = self.load_session(c, principal, plan)

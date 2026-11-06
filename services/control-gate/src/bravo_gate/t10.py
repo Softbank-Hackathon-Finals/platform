@@ -144,6 +144,9 @@ class T10GateAuthority:
         key = "gate-cutover-reevaluation-" + fingerprint(fresh)
         if _get(connection, plan["plan_id"], key) is None:
             _put(connection, plan["plan_id"], key, {"gate_report_ref": session.report.ref}, fresh)
+        from bravo_platform_events.gate_records import record_reevaluation
+
+        record_reevaluation(connection, plan["plan_id"], session.context.gate_id, fresh)  # registered result
         proof = session.service.require_prerequisites(
             principal.subject_id, session.context_id, canonical(fresh), approval_ids=session.approval_ids)
         if (proof.context_digest != session.context.fingerprint

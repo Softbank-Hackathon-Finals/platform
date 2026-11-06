@@ -40,6 +40,26 @@ def _put(c, plan_id, kind, ref, value):
               (plan_id, _key(kind, ref), "{}", _canonical(value)))
 
 
+def _reevaluated(gate_id):
+    return "gate-reevaluated-" + hashlib.sha256(gate_id.encode()).hexdigest()[:32] + "-"
+
+
+def record_reevaluation(c, plan_id, gate_id, document):
+    """SHIFT/cutover re-evaluation, kept beside (never over) the GATE report (Jeonsubb #546, sangmu1126).
+
+    T19 compares the consumed security report with the registered server result as a whole
+    document, so a fresh evaluation is consumable only once it is the registered result:
+    report_provider serves the newest one recorded here for this gate.
+    """
+    if document.get("security", {}).get("gate_id") != gate_id:
+        raise EventError("gate_report_scope_mismatch")
+    key = _reevaluated(gate_id) + document["evaluated_at"] + "-" + hashlib.sha256(_canonical(document).encode()).hexdigest()[:16]
+    row = c.execute("SELECT receipt_json FROM plan_commands WHERE plan_id=? AND command_key=?",
+                    (plan_id, key)).fetchone()
+    if row is None:
+        c.execute("INSERT INTO plan_commands VALUES (?,?,?,?)", (plan_id, key, "{}", _canonical(document)))
+
+
 def _current(c, plan_id):
     row = c.execute("SELECT receipt_json FROM plan_commands WHERE plan_id=? "
                     "AND command_key LIKE ? ORDER BY command_key DESC LIMIT 1",
@@ -299,7 +319,12 @@ class GateRecordView:
 
     def report_provider(self, actor, context):
         self._check(actor, context)
-        doc = _get(self.c, self.plan["plan_id"], "security-report", context.gate_id)
+        # ISO evaluated_at keys sort in time order; the newest re-evaluation wins over the GATE report.
+        row = self.c.execute("SELECT receipt_json FROM plan_commands WHERE plan_id=? AND command_key LIKE ? "
+                             "ORDER BY command_key DESC LIMIT 1",
+                             (self.plan["plan_id"], _reevaluated(context.gate_id) + "%")).fetchone()
+        doc = (json.loads(row["receipt_json"])["security"] if row
+               else _get(self.c, self.plan["plan_id"], "security-report", context.gate_id))
         return RunSnapshot(context.gate_id, canonical(doc)) if doc is not None else None
 
     def cutover_binding(self, binding):

@@ -21,6 +21,8 @@ PACKAGES = {
     "inventory": "bravo_inventory",
     "control-gate": "bravo_gate",
     "observability": "bravo_observability",
+    # The workflow host (registration image) needs the T15/T31 diff hash and ApplicationHost (#546 review).
+    "apply-path": "bravo_apply",
 }
 
 # Include the lazy imports used by --initial-proposal, not just the entry point.

@@ -123,3 +123,22 @@ def test_composition_rechecks_current_permissions(flow):
     with pytest.raises(EventError):
         f.cutover.approve(f.principal, f.plan.plan_id, binding=binding,
                           expected_version=f.version, command_key="revoked")
+
+
+@pytest.mark.parametrize("seconds", [1, 25])
+def test_moving_clock_reevaluation_is_the_registered_result(flow, seconds):
+    """Jeonsubb #546: with a moving clock the fresh report's evaluated_at differs from the GATE
+    report, so T19 refused it as GATE_RESULT_MISMATCH even at once. The fresh report is now
+    recorded beside the GATE report and served as the registered result. (The fixture's data
+    readiness expires after 30 s, so the moving cases stay inside it.)"""
+    f = flow
+    f.state["now"] += timedelta(seconds=seconds)
+    binding = current_binding(f)
+    assert f.cutover.approve(f.principal, f.plan.plan_id, binding=binding, expected_version=f.version,
+                             command_key=f"moving-{seconds}")["approval_id"]
+    with f.store._transaction() as c:
+        gate = c.execute("SELECT count(*) AS n FROM plan_commands WHERE command_key LIKE 'gate-security-report-%'"
+                         ).fetchone()["n"]
+        fresh = c.execute("SELECT count(*) AS n FROM plan_commands WHERE command_key LIKE 'gate-reevaluated-%'"
+                          ).fetchone()["n"]
+    assert gate == 1 and fresh >= 1  # the GATE original is kept, never overwritten
