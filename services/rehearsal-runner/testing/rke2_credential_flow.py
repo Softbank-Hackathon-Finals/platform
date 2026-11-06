@@ -37,7 +37,10 @@ from rehearsal_runner.credential_proposer import SOURCE_PATHS
 CONFIG_KEYS = {"state", "cluster_uid", "source_dir", "source_sha", "proposal", "candidate_image",
                "bao_image", "postgres_image", "probe_image", "isolation_image", "openbao_ca_file",
                "t9_render", "profile"}
-OPTIONAL_KEYS = {"runner_kubeconfig"}
+OPTIONAL_KEYS = {"runner_kubeconfig", "probe_from_source"}
+# The modules Dockerfile.credential-probe installs; mounted read-only when no probe image exists.
+PROBE_MODULES = ("__init__.py", "credential_probe.py", "kube_secret_probe.py", "app_health_probe.py",
+                 "credential_job_probe.py")
 RUNNER = "system:serviceaccount:bravo-rehearsal-control:t15-runner"
 SCOPED = pathlib.Path(__file__).resolve().parents[3] / "infra/envs/rehearsal-access/scoped_lifecycle.py"
 
@@ -164,8 +167,11 @@ def run(config: dict) -> int:
         # Stand-in for the T7 publication reader: only the image built from this exact diff.
         return config["candidate_image"] if diff_hash == expected else ""
 
+    src = pathlib.Path(__file__).resolve().parents[1] / "src/rehearsal_runner"
+    probe_sources = (tuple((m, (src / m).read_text()) for m in PROBE_MODULES)
+                     if config.get("probe_from_source") is True else ())
     fixture = CredentialFixture(bao_image=config["bao_image"], postgres_image=config["postgres_image"],
-                                probe_image=config["probe_image"],
+                                probe_image=config["probe_image"], probe_sources=probe_sources,
                                 openbao_ca_pem=pathlib.Path(config["openbao_ca_file"]).read_text())
     admin, management = Kube(), Kubectl()
     runner_path = config.get("runner_kubeconfig")
@@ -204,6 +210,7 @@ def run(config: dict) -> int:
                                           text=True, timeout=30).stdout)["items"]
     report = {"environment": "operator-rke2", "model_provider": "scripted_fixture", "source_sha": sha,
               "job_identity": RUNNER if runner_path else "operator-kubeconfig",
+              "probe": "runner_sources_on_pinned_python" if probe_sources else "probe_image",
               "expected_diff_hash": expected, "seconds": round(time.monotonic() - started),
               "t10_status": result["status"], "rehearsal_id": receipt["rehearsal_id"], "deliveries": deliveries,
               "record": {k: record.get(k) for k in ("verdict", "reason", "detail", "verification_id", "namespace",
