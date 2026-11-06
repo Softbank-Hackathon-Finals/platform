@@ -1,0 +1,138 @@
+{
+  "phase": "FINISHED",
+  "action": "cycle",
+  "started_at": "2026-11-06T07:29:01.340666+00:00",
+  "finished_at": "2026-11-06T07:30:00.734132+00:00",
+  "opened_at": "2026-11-06T07:29:23.534008+00:00",
+  "closed_at": "2026-11-06T07:30:00.734125+00:00",
+  "verdict": "PASS",
+  "cleanup": "CLEAN",
+  "transitions": [
+    {
+      "ready_seconds": 22.089,
+      "state": "open-demo"
+    },
+    {
+      "ready_seconds": 22.091,
+      "state": "closed"
+    }
+  ],
+  "checks": [
+    {
+      "actual": 403,
+      "expected": 403,
+      "name": "initial_anonymous_get",
+      "pass": true
+    },
+    {
+      "actual": "open",
+      "expected": "open",
+      "name": "open_t9_probe",
+      "pass": true
+    },
+    {
+      "actual": 200,
+      "expected": 200,
+      "name": "open_anonymous_get",
+      "pass": true
+    },
+    {
+      "actual": 200,
+      "expected": 200,
+      "name": "open_anonymous_head",
+      "pass": true
+    },
+    {
+      "actual": 403,
+      "expected": 403,
+      "name": "open_anonymous_put",
+      "pass": true
+    },
+    {
+      "actual": 403,
+      "expected": 403,
+      "name": "open_anonymous_list",
+      "pass": true
+    },
+    {
+      "actual": 403,
+      "expected": 403,
+      "name": "open_anonymous_delete",
+      "pass": true
+    },
+    {
+      "actual": 403,
+      "expected": 403,
+      "name": "open_anonymous_other_bucket",
+      "pass": true
+    },
+    {
+      "actual": true,
+      "expected": true,
+      "name": "closed_bucket_policy_absent",
+      "pass": true
+    },
+    {
+      "actual": 403,
+      "expected": 403,
+      "name": "closed_anonymous_get",
+      "pass": true
+    },
+    {
+      "actual": "closed",
+      "expected": "closed",
+      "name": "closed_t9_probe",
+      "pass": true
+    },
+    {
+      "actual": 200,
+      "expected": 200,
+      "name": "closed_existing_app_client_get",
+      "pass": true
+    },
+    {
+      "actual": "same_sha256",
+      "expected": "same_sha256",
+      "name": "closed_existing_app_bytes_unchanged",
+      "pass": true
+    }
+  ],
+  "postcheck": {
+    "application_secret_matches_store_client": true,
+    "verdict": "PASS",
+    "checks": [
+      {
+        "actual": "closed",
+        "expected": "closed",
+        "name": "configured_state",
+        "pass": true
+      },
+      {
+        "actual": true,
+        "expected": true,
+        "name": "bucket_policy_absent",
+        "pass": true
+      },
+      {
+        "actual": 200,
+        "expected": 200,
+        "name": "existing_app_client_get",
+        "pass": true
+      },
+      {
+        "actual": 403,
+        "expected": 403,
+        "name": "anonymous_get",
+        "pass": true
+      }
+    ],
+    "observed_at": "2026-11-06T07:31:01.395504+00:00"
+  },
+  "scope": {
+    "actual_operator_accounts": 1,
+    "other_teammate_device_execution_verified": false,
+    "real_app_ui_verified": false,
+    "worker_crash_recovery": "unit-tested; not injected into shared live storage"
+  },
+  "source_binding": "Historical execution; exact executor source hash was not captured in this receipt. Not evidence for current HEAD."
+}

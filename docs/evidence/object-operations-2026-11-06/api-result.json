@@ -1,0 +1,99 @@
+{
+  "actual_private_http_api": true,
+  "actual_operator_accounts": 1,
+  "checks": [
+    {
+      "name": "same_key_same_run",
+      "actual": "same_run_id",
+      "expected": "same_run_id",
+      "pass": true
+    },
+    {
+      "name": "same_key_returns_existing",
+      "actual": true,
+      "expected": true,
+      "pass": true
+    },
+    {
+      "name": "same_key_changed_input",
+      "actual": 409,
+      "expected": 409,
+      "pass": true
+    },
+    {
+      "name": "caller_cannot_set_owner",
+      "actual": 400,
+      "expected": 400,
+      "pass": true
+    },
+    {
+      "name": "open_ack_required",
+      "actual": 400,
+      "expected": 400,
+      "pass": true
+    },
+    {
+      "name": "expired_key",
+      "actual": 410,
+      "expected": 410,
+      "pass": true
+    },
+    {
+      "name": "invalid_application_bearer",
+      "actual": 401,
+      "expected": 401,
+      "pass": true
+    },
+    {
+      "name": "missing_application_bearer",
+      "actual": 401,
+      "expected": 401,
+      "pass": true
+    },
+    {
+      "name": "same_run_retrievable",
+      "actual": "same_run_id",
+      "expected": "same_run_id",
+      "pass": true
+    },
+    {
+      "name": "original_cycle_receipt_still_readable",
+      "actual": "CLEAN",
+      "expected": "CLEAN",
+      "pass": true
+    },
+    {
+      "name": "new_request_while_active",
+      "actual": 409,
+      "expected": 409,
+      "pass": true
+    },
+    {
+      "name": "cancel_keeps_same_run",
+      "actual": "same_run_id",
+      "expected": "same_run_id",
+      "pass": true
+    },
+    {
+      "name": "cancel_readback",
+      "actual": true,
+      "expected": true,
+      "pass": true
+    },
+    {
+      "name": "repeat_cancel_readback",
+      "actual": true,
+      "expected": true,
+      "pass": true
+    },
+    {
+      "name": "cancel_does_not_restart_store",
+      "actual": "same_generation",
+      "expected": "same_generation",
+      "pass": true
+    }
+  ],
+  "pass": true,
+  "api_triggered_open_close_repeated": false,
+  "source_binding": "Historical execution; exact executor source hash was not captured in this receipt. Not evidence for current HEAD."
+}
