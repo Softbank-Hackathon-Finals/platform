@@ -6,6 +6,7 @@ import sys
 from pathlib import Path
 
 import pytest
+from fixture_process import observed_codes
 
 PLUGIN = '''
 import json
@@ -52,13 +53,25 @@ def pytest_configure(config):
         create = list(args[:2]) == ["docker", "run"]
         network = list(args[:3]) == ["docker", "network", "create"]
         if create and kind == "exit125":
+            Path(os.environ["FIXTURE_INJECTED_FILE"]).write_text("reached")
             return subprocess.CompletedProcess(args, 125, "", "Cannot connect to the Docker daemon")
         result = original(args, *a, **kw)
         if result.returncode == 0 and ((create and kind in {"container_reply", "container_exit_after_list"}) or (network and kind == "network_reply")):
+            Path(os.environ["FIXTURE_INJECTED_FILE"]).write_text("reached")
             raise UnicodeDecodeError("utf8", b"\\xff", 0, 1, "injected lost create response")
         return result
     subprocess.run = injected
 '''
+
+
+def failure_summary(reason, result, injected):
+    """Reason plus the nested exit code, whether the fault fired, and fixed fixture codes only.
+
+    Nested stdout/stderr, argv, environment and fixture credentials never enter the message.
+    """
+    codes = ",".join(observed_codes(result.stdout + result.stderr)) or "none"
+    return (f"{reason} nested_exit={int(result.returncode)} injected={'yes' if injected else 'no'} "
+            f"fixture_codes={codes}")
 
 
 @pytest.mark.parametrize("showlocals", [False, True])
@@ -73,9 +86,11 @@ def test_failed_pytest_redacts_secrets_and_cleans_lost_creates(tmp_path, showloc
     plugin = tmp_path / "fault_plugin.py"
     plugin.write_text(PLUGIN)
     owner_file = tmp_path / "owner"
+    injected_file = tmp_path / "fault-injected"
     env = dict(os.environ, PYTHONPATH=os.pathsep.join([str(tmp_path), str(Path(__file__).parent)]),
                FIXTURE_OWNER_FILE=str(owner_file), FIXTURE_FAULT=fault,
                FIXTURE_EXIT_FILE=str(tmp_path / "exit-observed"),
+               FIXTURE_INJECTED_FILE=str(injected_file),
                FIXTURE_PRIVATE_SENTINEL="private-fixture-" + os.urandom(16).hex())
     target = "tests/test_t13_capture.py::test_actual_tls_schema_match_then_mismatch_blocks" if fixture == "single" else (
         "tests/test_t13_two_servers.py::test_two_tls_servers_replication_loss_and_sequence_readback")
@@ -83,18 +98,23 @@ def test_failed_pytest_redacts_secrets_and_cleans_lost_creates(tmp_path, showloc
                              *(["--showlocals"] if showlocals else [])],
                             env=env, capture_output=True, text=True, timeout=120)
     output = result.stdout + result.stderr
+
+    def fail(reason):
+        __tracebackhide__ = True
+        pytest.fail(failure_summary(reason, result, injected_file.exists()), pytrace=False)
+
     if result.returncode != 1:
-        pytest.fail("nested_failure_not_observed", pytrace=False)
+        fail("nested_failure_not_observed")
     if env["FIXTURE_PRIVATE_SENTINEL"] in output:
-        pytest.fail("nested_failure_exposed_fixture_credential", pytrace=False)
+        fail("nested_failure_exposed_fixture_credential")
     code = "DAEMON_UNAVAILABLE" if fault == "exit125" else "OUTPUT_UNREADABLE"
     if code not in output:
-        pytest.fail("original_diagnostic_not_observed", pytrace=False)
+        fail("original_diagnostic_not_observed")
     if "CLEANUP_UNCONFIRMED" in output:
-        pytest.fail("nested_cleanup_unconfirmed", pytrace=False)
+        fail("nested_cleanup_unconfirmed")
     if fault == "container_exit_after_list":
         if not (tmp_path / "exit-observed").exists():
-            pytest.fail("fixture_exit_after_list_not_observed", pytrace=False)
+            fail("fixture_exit_after_list_not_observed")
     owner = owner_file.read_text()
     for kind in ("container", "network"):
         found = subprocess.run(["docker", kind, "ls", "--quiet", "--no-trunc",
@@ -102,6 +122,26 @@ def test_failed_pytest_redacts_secrets_and_cleans_lost_creates(tmp_path, showloc
                                 "--filter", "label=bravo.test-fixture=" + owner],
                                check=True, capture_output=True, text=True, timeout=30)
         assert found.stdout.strip() == ""
+
+
+@pytest.mark.parametrize("injected", [False, True])
+def test_failure_summary_keeps_exit_injection_and_fixed_codes_only(injected):
+    sentinel = "private-fixture-" + "ab" * 16
+    nested = subprocess.CompletedProcess(
+        ["pytest", "-e", "POSTGRES_PASSWORD=" + sentinel], 2,
+        "FAILED tests/x.py docker run -e POSTGRES_PASSWORD=" + sentinel + "\n",
+        "E fixture_process.FixtureCommandError: docker:OUTPUT_UNREADABLE\n"
+        "note: docker:CLEANUP_UNCONFIRMED stderr: Cannot connect " + sentinel + " docker:" + sentinel + "\n")
+    message = failure_summary("original_diagnostic_not_observed", nested, injected)
+    assert message == ("original_diagnostic_not_observed nested_exit=2 injected=" + ("yes" if injected else "no")
+                       + " fixture_codes=docker:CLEANUP_UNCONFIRMED,docker:OUTPUT_UNREADABLE")
+    assert sentinel not in message and "POSTGRES_PASSWORD" not in message and "Cannot connect" not in message
+
+
+def test_failure_summary_reports_absent_codes_explicitly():
+    nested = subprocess.CompletedProcess([], 0, "1 passed", "")
+    assert failure_summary("nested_failure_not_observed", nested, False) == (
+        "nested_failure_not_observed nested_exit=0 injected=no fixture_codes=none")
 
 
 def test_cleanup_refuses_changed_ownership():

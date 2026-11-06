@@ -9,6 +9,24 @@ class FixtureCommandError(RuntimeError):
     """A fixed code only: no argv, environment, stderr, or connection parameters."""
 
 
+# Every code a FixtureCommandError can carry. Failure summaries report only these.
+TOOLS = ("docker", "openssl", "fixture_tool")
+CODES = (
+    "DAEMON_UNAVAILABLE", "STORAGE_EXHAUSTED", "REGISTRY_RATE_LIMITED", "IMAGE_ACCESS_DENIED",
+    "PORT_CONFLICT", "IMAGE_UNAVAILABLE", "UNCLASSIFIED_FAILURE", "TIMEOUT", "OUTPUT_UNREADABLE",
+    "PROCESS_UNAVAILABLE", "CLEANUP_ID_UNCONFIRMED", "CLEANUP_OWNERSHIP_UNCONFIRMED",
+    "CLEANUP_REMAINS", "CLEANUP_UNCONFIRMED",
+)
+_REPORTABLE = re.compile(
+    r"(?<![A-Za-z0-9_])(?:" + "|".join(TOOLS) + r"):(?:" + "|".join(CODES)
+    + r")(?::exit=\d{1,3})?(?![A-Za-z0-9_])")
+
+
+def observed_codes(text):
+    """The fixed fixture codes found in text, sorted and unique. Nothing else is returned."""
+    return sorted({match.group(0) for match in _REPORTABLE.finditer(text or "")})
+
+
 def failure_code(stderr):
     text = (stderr or "").lower()
     for needles, code in (
