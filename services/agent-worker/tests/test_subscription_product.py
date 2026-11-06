@@ -77,14 +77,14 @@ def test_proposal_bound_and_retrievable_after_restart_without_model(setup):
     data = service.journal.path.read_bytes()
     assert b"test-identity" not in data and b"test-private" not in data
     assert service.journal.path.stat().st_mode & 0o077 == 0
-    # Whitebox: the private record keeps every attempt and tool event for this run.
+    # Trajectory: the private record keeps every attempt and tool event for this run.
     record = service.journal.audit(f"{result['run_id']}:1")
     assert record["state"] == "PROPOSAL_READY" and len(record["attempts"]) == 1
     assert any(e["tool"] == "plan.propose" and e["outcome"] == "ALLOWED" for e in record["audit"]), record
     assert "test-private" not in json.dumps(record)
 
 
-def test_no_proposal_leaves_without_its_whitebox_record(setup, monkeypatch):
+def test_no_proposal_leaves_without_its_trajectory_record(setup, monkeypatch):
     service, _, body, counts = setup
     monkeypatch.setattr(service.journal, "keep_audit", lambda *a: (_ for _ in ()).throw(OSError("disk")))
     assert service.run(body) == (200, {"state": "NEEDS_HUMAN", "reason": "PRODUCT_RUNTIME_UNCONFIRMED"})

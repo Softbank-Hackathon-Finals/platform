@@ -70,8 +70,8 @@ class ProposalJournal:
         with self.connect() as db:
             db.execute("CREATE TABLE IF NOT EXISTS proposals "
                        "(key TEXT PRIMARY KEY, binding TEXT NOT NULL, result TEXT, result_digest TEXT)")
-            # Whitebox record (design 8.3 "record everything"): the worker's whole result with
-            # every attempt's input, tool calls, denials and proposal. Private like the journal.
+            # Trajectory record (design 8.3 guardrail "record everything", Harbor plan 1): every
+            # attempt's state, tool calls and denials per run. Private like the journal.
             db.execute("CREATE TABLE IF NOT EXISTS audits "
                        "(key TEXT PRIMARY KEY, binding TEXT NOT NULL, record TEXT NOT NULL, record_digest TEXT NOT NULL)")
         fd = os.open(self.root, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
@@ -153,7 +153,7 @@ USAGE_KEYS = {"provider", "model", "requests", "total_tokens", "input_tokens", "
               "cache_read_input_tokens", "cache_creation_input_tokens"}
 
 
-def whitebox_record(result):
+def trajectory_record(result):
     """Code-owned audit fields only; raw diagnostics and provider fields never persist."""
     def scalars(item, keys):
         return {k: item[k] for k in sorted(keys) if type(item.get(k)) in (str, int, bool) and len(str(item[k])) <= 256}
@@ -263,8 +263,8 @@ class ProductService:
                     return 200, checked
                 try:
                     raw = self.invoke(access, value, root, snapshot)
-                    # No proposal leaves without its whitebox record.
-                    self.journal.keep_audit(key, binding, whitebox_record(raw))
+                    # No proposal leaves without its trajectory record.
+                    self.journal.keep_audit(key, binding, trajectory_record(raw))
                     response = proposal_result(raw, value, snapshot, expected)
                 except Exception:
                     response = stopped("PRODUCT_RUNTIME_UNCONFIRMED")

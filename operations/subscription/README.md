@@ -489,17 +489,44 @@ Job은 **운반자**일 뿐 모델을 부르지 않는다. 모델 호출은 brok
 워커)가 하고, Job은 봉인된 영수증만 남긴다. 제안서는 이후 T15 리허설 검증과 T10 사람 승인을
 거쳐야 T31이 반영한다.
 
-### 설계 가드레일(배규태 구현안·설계 8.3)과 이 경로의 대응
+### 배규태 구현안(도구 화이트리스트·샌드박스·가드레일)과 이 경로의 대응
 
-| 원칙 | 이 경로에서 지키는 방법 | 남은 한계 |
+근거: 배규태 「(참고용) 결정적 워크플로우 × 비결정적 판단 구현안」 4·5절, 「(참고용) Harbor 도입 관련」
+3절 방안 1, 설계 8.3·8.4. 원칙은 "에이전트는 제안서만 내고, 실행과 판정은 파이프라인이 한다"이다.
+
+**도구 화이트리스트.** 에이전트(Agent SDK)는 아래 이름만 호출할 수 있다. 목록에 없거나 아직 제공하지
+않는 도구는 호출 전에 거부하고 감사 사유만 남긴다(`TOOL_NOT_PROVIDED`·`DESTRUCTIVE_ATTEMPT_BLOCKED`).
+OpenAI 경로는 `Tools.allowed`/`deny_unprovided`, Claude 경로는 같은 판정을 `PreToolUse` 훅과
+`allowed_tools`로 적용한다.
+
+| 설계 8.3 도구 | 하는 일 | 이 경로 |
 |---|---|---|
-| 화이트박스: 전부 기록 | broker 원장의 `audits` 표에 실행 키마다 시도별 입력 digest·상태·모델 사용량·도구 호출·차단 사유를 남긴다. 기록을 못 쓰면 제안서를 내보내지 않는다(`PRODUCT_RUNTIME_UNCONFIRMED`). 원문 진단·제공자 필드는 저장하지 않는다. | 기록은 broker 호스트 비공개다. 영수증·T10 응답의 `tool_events_status`는 아직 `UNAVAILABLE`이며, 콘솔 표시는 ADR-0019 §7의 별도 계약 변경이 필요하다. |
-| 샌드박스 | Job Pod: 고정 이미지·SA, 쓰기 불가 루트, 권한 상승·Secret·포트 없음(승인 정책). 모델 워커: broker 자식 프로세스에 추론 자격 하나만 넘기고 임시 HOME에서 실행한다. 변경 적용은 T15 리허설 namespace에서만 한다. | 자식 프로세스 격리는 환경변수 허용 목록이다. OS 수준 샌드박스·송신 차단은 broker 호스트의 의무다. Harbor는 설계 8.4대로 **평가 전용**(T26 반복 채점)이며 런타임 경로에 넣지 않는다. |
-| 출력은 스키마로만 | 제안서는 `Proposal` 스키마와 스냅샷 `before_sha256` 대조를 통과해야 한다. Reader·운영자가 `schema_valid`·`lint_passed`를 다시 확인한다. | — |
-| 실행 권한 없음 | 도구는 `repo.read`·`plan.propose`·`policy.evaluate`·`inventory.describe` 네 개뿐이다. Job에는 AWS·모델 자격과 쓰기 RBAC가 없다. | `rehearsal.*`는 아직 `TOOL_NOT_PROVIDED`로 거부된다. |
-| 파괴적 명령 차단 | 도구 계층이 인자를 분류해 `DESTRUCTIVE_ATTEMPT_BLOCKED`와 범주만 기록한다(ADR-0019). | 알려진 패턴만 본다. |
-| 재시도 상한 | Coordinator는 시도 3회 상한, 넘으면 `NEEDS_HUMAN`. 최초 제안은 `backoffLimit: 0`의 Job 한 번이다. | — |
-| 판정·실행에 LLM 금지 | 이 경로의 판정(영수증·결속 검증)은 platform-events 코드가 하고 LLM 클라이언트를 import하지 않는다. | — |
+| `inventory.describe` | 수집된 설정·의존성(T16 등급) 조회 | 제공(인벤토리를 붙인 실행만) |
+| `repo.read` | 앱 스냅샷 파일 읽기 | 제공 |
+| `policy.evaluate` | 제안서 정책 린트, 부작용 없음 | 제공 |
+| `plan.propose` | 스키마 제안서 제출(적용 안 함) | 제공 |
+| `rehearsal.exec` | 리허설 namespace 안에서만 명령 | 미제공 — T42 #373(기본값 꺼짐), T38 `exec_enabled`·T15 통로 미구현 |
+| `rehearsal.run` / `result` | 검증 Job 실행 요청·결과 조회 | 미제공 — 같은 조건 |
+
+**샌드박스(Harbor 방안 1).** 런타임 샌드박스는 Harbor가 아니라 직접 띄운 격리 환경이고, Harbor의 설계
+방식 세 가지만 빌린다. Harbor 자체는 T26 평가(결함 시나리오 반복 채점)에만 쓴다.
+
+| Harbor에서 빌린 방식 | 이 경로 | 남은 한계 |
+|---|---|---|
+| 단계별 네트워크 정책: 에이전트는 LLM API만 접근, 운영망 차단 | Job Pod는 broker loopback만 부르고 자격·Secret·포트가 없다(승인 정책). 모델 워커는 broker 자식 프로세스에 추론 자격 하나만 받고 임시 HOME에서 돈다. | **모델 워커의 송신을 LLM API로 제한하는 규칙은 아직 없다.** broker nft guard는 STS endpoint만 다룬다. 환경변수 허용 목록은 OS 샌드박스가 아니다. |
+| 검증기 분리: 에이전트가 검사 로직을 못 건드림 | 영수증·결속 판정은 platform-events(운영자·Reader)가 하고, 제안서 효과 검증은 T15 독립 검증이 한다. 워커는 결과 파일만 넘긴다. | — |
+| 행동 기록(trajectory): 한 일 전부 기록 → 감사·재현 | broker 원장 `audits` 표에 실행 키마다 시도별 입력 digest·상태·모델 사용량·도구 호출·차단 사유를 남긴다. 기록을 못 쓰면 제안서를 내보내지 않는다. 원문 진단·제공자 필드는 저장하지 않는다. | broker 호스트 비공개 기록이다. 영수증·T10 응답의 `tool_events_status`는 `UNAVAILABLE`이며 콘솔 표시는 ADR-0019 §7 계약이 필요하다. |
+
+**가드레일(구현안 4절).**
+
+| 규칙 | 이 경로에서 지키는 방법 | 남은 한계 |
+|---|---|---|
+| 출력은 스키마로만 | `Proposal` JSON Schema와 스냅샷 `before_sha256` 대조. Reader·운영자가 `schema_valid`·`lint_passed`를 다시 확인한다. | — |
+| 실행 권한 없음 | 원본은 스냅샷 읽기만, 쓰기 도구 없음. Job에는 AWS·모델 자격과 쓰기 RBAC가 없고 운영 kubeconfig·DB 계정을 발급하지 않는다. | — |
+| 파괴적 명령 차단(도구 계층) | 인자를 분류해 `DESTRUCTIVE_ATTEMPT_BLOCKED`와 범주만 기록(ADR-0019). 프롬프트에 의존하지 않는다. | 알려진 패턴만 본다. |
+| 재시도 상한 | Coordinator 시도 3회 상한, 넘으면 `NEEDS_HUMAN`. 최초 제안은 `backoffLimit: 0` Job 한 번이다. | — |
+| 판정·실행에 LLM 금지 | 이 경로의 판정 모듈(platform-events)은 LLM 클라이언트를 import하지 않는다. | — |
+| 전부 기록 | 위 행동 기록과 같다. | 위와 같다. |
 
 ### 모델 제공자 선택
 
