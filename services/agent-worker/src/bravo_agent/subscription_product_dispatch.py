@@ -274,6 +274,7 @@ class OperatorProductExecution:
         acknowledged_id = _dispatch_run_id(metadata.get('dispatch_response'))
         if acknowledged_id is not None and saved_id is not None and acknowledged_id != saved_id:
             raise ExecutionUnknown('RUN_BINDING_CONFLICT')
+        saved_id = saved_id or acknowledged_id
         private = self._private_key(intent.request_id)
         if private.public_key().public_bytes_raw().hex() != intent.recipient_public_key:
             raise ExecutionUnknown('EXECUTION_RECIPIENT_CONFLICT')

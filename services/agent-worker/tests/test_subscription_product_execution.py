@@ -236,6 +236,21 @@ def test_native_dispatch_receipt_survives_missing_list_entry_and_restart(dispatc
     assert len(gh.posts) == 1
 
 
+def test_previous_release_http_receipt_is_read_without_a_new_dispatch(dispatch):
+    client, gh, intent, expected = dispatch
+    gh.runs = []
+    with pytest.raises(ExecutionPending):
+        client.submit(intent)
+    # Previous releases recorded the response but did not bind its run ID.
+    metadata, run_id = client._record(intent)
+    assert run_id is None
+    metadata['dispatch_response'] = {'http_status': 200, 'body': '{"workflow_run_id":1234}'}
+    with client._db() as db:
+        db.execute('UPDATE executions SET metadata=? WHERE request_id=?', (json.dumps(metadata), intent.request_id))
+    assert OperatorProductExecution(client.root, gh).submit(intent) == expected
+    assert client._record(intent)[1] == '1234' and len(gh.posts) == 1
+
+
 @pytest.mark.parametrize('body', ['{}', 'not JSON', '[]', '{"workflow_run_id":true}',
     '{"workflow_run_id":0}', '{"workflow_run_id":-1}', '{"workflow_run_id":"1234"}'])
 def test_invalid_dispatch_receipt_cannot_bind_a_run_or_resend(dispatch, body):
