@@ -41,3 +41,20 @@ def test_command_comes_from_the_applied_change_gate_and_shift_approval(flow):  #
 def test_policy_needs_both_registered_sites():
     with pytest.raises(ValueError):
         current_cutover({"only": "one"})
+
+
+def test_failback_reverses_the_committed_cutover_with_a_higher_epoch(backend):
+    from test_failback import BINDING, BINDINGS, COMMAND, NOW, SPEC, seed_completed_cutover
+
+    from bravo_platform_events.operator_ports import current_failback
+
+    backend.store.register_plan(SPEC, run_id="fixture", occurred_at=NOW)
+    seed_completed_cutover(backend)
+    with backend.store._transaction(write=True, plan_id=SPEC.plan_id) as c:
+        plan = dict(c.execute("SELECT * FROM plans WHERE plan_id=?", (SPEC.plan_id,)).fetchone())
+        first = current_failback(BINDINGS)(c, None, plan)
+        again = current_failback(BINDINGS)(c, None, plan)
+    assert first == again
+    assert {k: v for k, v in first.binding.items() if k != "expires_at"} == {k: v for k, v in BINDING.items() if k != "expires_at"}
+    assert first.command["epoch"] == 8 and first.command["source"] == COMMAND["source"]
+    assert first.command["target"] == COMMAND["target"] and first.command["deadline"] == first.binding["expires_at"]

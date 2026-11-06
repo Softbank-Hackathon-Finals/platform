@@ -8,7 +8,7 @@ files only (`/rehearsal/operator.json`):
                   "token_file": "/executor/read-token", "command_token_file": "/executor/command-token",
                   "registered_pair": {...}},
      "gate": "module:factory",              # T19: factory(store) -> (GateRecords, load_gate)
-     "failback": "module:factory",          # optional T20: factory(store) -> (authority, read_integrity)
+     "failback": true,                     # optional T20: current_failback + failback_integrity
      "write_pause_budget_ms": 30000}
 
 Cutover command policy (current_cutover):
@@ -79,6 +79,55 @@ def current_cutover(bindings, *, write_pause_budget_ms=30000):
     return current
 
 
+def current_failback(bindings, *, write_pause_budget_ms=30000, window_hours=2):
+    """T20 upstream: reverse the committed cutover (target -> source), from stored records only.
+
+    Binding: the cutover run and its matched integrity checkpoint (failback.cutover_record). Epoch: one
+    above every epoch the plan used. Expiry: the time the plan entered its current version (WATCH) plus
+    window_hours, so approval and submission at the same version compute the same context.
+    """
+    from datetime import datetime, timedelta
+
+    from .failback import CurrentFailback, cutover_record, used_epochs
+
+    if not isinstance(bindings, dict) or len(bindings) != 2:
+        raise ValueError("failback_policy_configuration_invalid")
+
+    def current(c, principal, plan, *, now=None, approved_by=None, approval_id=None, **_selection):
+        spec = json.loads(plan["spec_json"])
+        run = cutover_record(c, plan["plan_id"])
+        entered = datetime.fromisoformat(plan["updated_at"].replace("Z", "+00:00"))
+        expires = (entered + timedelta(hours=window_hours)).isoformat().replace("+00:00", "Z")
+        source, target = spec["target_environment_id"], spec["source_environment_id"]  # reversed
+        if {source, target} != set(bindings):
+            raise EventError("authority_unavailable")
+        binding = dict(plan_id=plan["plan_id"], plan_digest=spec["plan_digest"], source_environment_id=source,
+                       target_environment_id=target, cutover_execution_id=run["execution_id"],
+                       cutover_epoch=run["epoch"], integrity_receipt_id=run["integrity_receipt_id"],
+                       expires_at=expires)
+        command = dict(plan_id=plan["plan_id"], epoch=max(used_epochs(c, plan["plan_id"]), default=0) + 1,
+                       source=dict(environment_id=source, connection_ref=bindings[source]),
+                       target=dict(environment_id=target, connection_ref=bindings[target]),
+                       write_pause_budget_ms=write_pause_budget_ms, deadline=expires)
+        revision = "operations-" + hashlib.sha256(json.dumps([binding, command], sort_keys=True).encode()).hexdigest()[:32]
+        return CurrentFailback(binding, command, revision)
+
+    return current
+
+
+def failback_integrity(c, plan, *, command_id, epoch, execution_id):
+    """The Executor's own T13 comparison for the failback run (direction=failback receipt)."""
+    from .cutover import latest_observation
+    from .failback import FailbackIntegrity, failback_key
+
+    snapshot = latest_observation(c, plan["plan_id"], command_id, failback_key)["snapshot"] or {}
+    steps = {s["step"]: s["status"] for s in snapshot.get("steps", [])}
+    matched = (snapshot.get("remote_status") == "DONE" and snapshot.get("committed") is True
+               and snapshot.get("execution_id") == execution_id and snapshot.get("epoch") == epoch
+               and steps.get("compare") == "succeeded" and steps.get("commit") == "succeeded")
+    return FailbackIntegrity("integrity-" + execution_id, command_id, epoch, execution_id, matched)
+
+
 def create(store, config_file=CONFIG):
     import importlib
     import ssl
@@ -106,8 +155,9 @@ def create(store, config_file=CONFIG):
         upstream=current_cutover(bindings, write_pause_budget_ms=config.get("write_pause_budget_ms", 30000)),
         load_gate=load_gate)
     failback = {}
-    if "failback" in config:
-        module, name = config["failback"].split(":")
-        upstream, read_integrity = getattr(importlib.import_module(module), name)(store)
-        failback = {"failback_authority": upstream, "read_integrity": read_integrity}
+    if config.get("failback") is True:
+        # Traffic back to the origin stays with the Edge operator CLI (`restore`): no CDN credential here,
+        # so the service stops at edge_unavailable after the matched receipt until Edge confirms.
+        failback = {"failback_authority": current_failback(bindings, write_pause_budget_ms=config.get("write_pause_budget_ms", 30000)),
+                    "read_integrity": failback_integrity}
     return TrustedHostPorts(client, bindings, rehearsal.catalog, rehearsal.planner, authority, **failback)
