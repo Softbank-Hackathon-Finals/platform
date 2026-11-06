@@ -52,6 +52,13 @@ class StoredGateServices:
 
         def provenance(actor, context, subject, purpose):
             checked(actor, context)
+            # A platform re-evaluation (SHIFT/cutover only, same transaction) is its own provenance:
+            # its inputs already passed their signatures and T19 computed it here (sangmu1126 #565).
+            served = getattr(view, "reevaluation_authority", None)
+            proof = served(context, subject) if purpose == "gate-result" and callable(served) else None
+            if proof is not None:
+                checked(actor, context)
+                return proof
             proof = authority.verify(context, subject, purpose)
             checked(actor, context)
             return proof

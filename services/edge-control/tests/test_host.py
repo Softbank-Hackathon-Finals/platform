@@ -278,3 +278,21 @@ def test_authority_boolean_is_not_a_verified_context(fixture):
     with pytest.raises(EdgeError, match="current_shift_authority_required"):
         f.start()
     assert not f.upstream.requests
+
+
+def test_waiting_for_the_first_window_after_the_change_never_restores(fixture):
+    """sangmu1126 T36 #566: right after the weight change the newest window began before it, so the
+    verdict is UNKNOWN on healthy traffic. Counted per 10 s bucket it reached unknown_limit and set
+    the weight back to 0 (91% of 1,600 runs). That wait is not lost observation."""
+    f = fixture
+    f.window(0)  # the last window before the change
+    f.start()
+    for _ in range(3):
+        f.now += timedelta(seconds=10)
+        result = f.host.observe("authenticated-fixture", PLAN)
+        assert result["judgement"]["verdict"] == "UNKNOWN"
+        assert "WINDOW_BEFORE_CHANGE" in result["judgement"]["reasons"]
+        assert result["judgement"]["prior_unknown"] == 0 and result["rollback"] is None
+    f.window(10)  # the first window after the change
+    assert f.host.observe("authenticated-fixture", PLAN)["judgement"]["verdict"] == "PASS"
+    assert len(f.upstream.patches) == 1

@@ -11,7 +11,7 @@ from dataclasses import asdict, dataclass
 from datetime import datetime
 
 from bravo_observability.contract import validate
-from bravo_observability.sli import judge
+from bravo_observability.sli import judge, next_prior_unknown
 
 from .control import Command, Controller, _json, _now, sli_rollback
 from .provider import EdgeError
@@ -137,13 +137,10 @@ class ShiftHost:
         # observations may count once per policy window, using server time only.
         bucket = int(_time(now).timestamp()) // current.profile["window_seconds"]
         observation = _digest(dict(window=window, bucket=bucket))
-        prior = 0
-        if previous:
-            decision = previous["judgement"]
-            if previous["observation"] == observation:
-                prior = decision["prior_unknown"]
-            elif decision["verdict"] == "UNKNOWN":
-                prior = decision["prior_unknown"] + 1
+        # One T36 rule (#566): an UNKNOWN only because the newest window began before the weight change
+        # is the expected wait for the first window after it, so it does not count toward unknown_limit.
+        prior = next_prior_unknown(previous["judgement"] if previous else None,
+                                   same_observation=previous is not None and previous["observation"] == observation)
         decision = judge(current.profile, window, plan_id=plan_id, state="SHIFT",
             weight_target=stage["weight_target"], observe_from=stage["confirmed_at"],
             decided_at=now, prior_unknown=prior)

@@ -62,12 +62,14 @@ def test_producer_outage_is_logged_not_raised_and_holds_log_once(backend, tmp_pa
 
     driver.recovery.read_evidence = StageReaders({"ANALYZE": broken})
     caplog.set_level(logging.INFO, "bravo_platform_events.workflow_host")
-    assert driver.sweep() == []  # logged, not raised
+    # Logged, not raised, and never a silent stall: the plan stays put with a named hold.
+    assert [(s.after, s.hold) for s in driver.sweep()] == [("ANALYZE", "producer_refused:RuntimeError")]
     driver.recovery.read_evidence = StageReaders({stage: producers.read for stage in STAGES})
     driver.sweep()
     driver.sweep()
     steps = [json.loads(r.getMessage()) for r in caplog.records if r.getMessage().startswith("{")]
-    assert [(s["after"], s["hold"]) for s in steps] == [("REHEARSE", "workflow_evidence_unavailable")]
+    assert [(s["after"], s["hold"]) for s in steps] == [("ANALYZE", "producer_refused:RuntimeError"),
+                                                        ("REHEARSE", "workflow_evidence_unavailable")]
 
 
 def test_run_stops_on_event(backend, tmp_path):
@@ -77,3 +79,18 @@ def test_run_stops_on_event(backend, tmp_path):
     stop.set()
     driver.run(stop, interval=0.01)  # one sweep, then returns
     assert backend.store.snapshot(PLAN)["state"] == "REHEARSE"
+
+
+def test_a_non_event_refusal_is_a_named_hold_not_a_silent_stall(backend, monkeypatch):  # noqa: F811
+    """Jeonsubb #546 P2: a T19 GateError (expired/blocked report) left GATE with no step and no hold."""
+    from bravo_gate.contract import GateError
+
+    from bravo_platform_events.workflow_host import WorkflowHost
+
+    host = WorkflowHost.__new__(WorkflowHost)
+    host.subject, host._last = "workflow-host", {}
+    host.recovery = type("R", (), {"read_evidence": None,
+                                   "resume_once": lambda self, p, plan: (_ for _ in ()).throw(
+                                       GateError("COMBINED_GATE_EXPIRED"))})()
+    step = host.advance("plan-x", "tenant-demo", "GATE", 3)
+    assert (step.before, step.after, step.hold) == ("GATE", "GATE", "producer_refused:GateError:COMBINED_GATE_EXPIRED")

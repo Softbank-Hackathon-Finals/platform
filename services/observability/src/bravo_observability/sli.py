@@ -162,11 +162,16 @@ def _content(window: dict, weight_target: int, p: dict) -> tuple[set[str], set[s
     return fail, unknown
 
 
-def _action(verdict: str, state: State, prior_unknown: int, p: dict) -> str:
+def _action(verdict: str, state: State, prior_unknown: int, p: dict, reasons: set[str]) -> str:
     if state == "SHIFT":
         if verdict == "PASS":
             return "ADVANCE_ALLOWED"
-        if verdict == "FAIL" or prior_unknown + 1 >= p["unknown_limit"]:
+        if verdict == "FAIL":
+            return "SET_WEIGHT_0"
+        # Until the first window after the change arrives, the latest one started before it. That is
+        # expected, not lost observation, so it never ends the step by itself (J25). Once it ages it is
+        # also STALE and counts again (J26).
+        if reasons != {"WINDOW_BEFORE_CHANGE"} and prior_unknown + 1 >= p["unknown_limit"]:
             return "SET_WEIGHT_0"
         return "HOLD"
     return {"PASS": "NONE", "FAIL": "ALERT_FAILBACK_PROPOSAL"}.get(verdict, "ALERT_UNOBSERVABLE")
@@ -233,5 +238,23 @@ def judge(
         "window": window,
         "verdict": verdict,
         "reasons": sorted(fail | unknown),
-        "action": _action(verdict, state, prior_unknown, profile),
+        "action": _action(verdict, state, prior_unknown, profile, fail | unknown),
     }
+
+
+def next_prior_unknown(previous: dict | None, *, same_observation: bool) -> int:
+    """`prior_unknown` for the next judgement in the same `observe_from`, from the previous judgement.
+
+    Re-judging the same observation keeps the count. A new observation after an UNKNOWN adds one,
+    except an UNKNOWN only because the window started before the change (J25): that is the expected
+    wait for the first window after the change, not lost observation. PASS or FAIL resets to 0.
+    """
+    if previous is None:
+        return 0
+    if same_observation:
+        return previous["prior_unknown"]
+    if previous["verdict"] != "UNKNOWN":
+        return 0
+    if set(previous["reasons"]) == {"WINDOW_BEFORE_CHANGE"}:
+        return previous["prior_unknown"]
+    return previous["prior_unknown"] + 1

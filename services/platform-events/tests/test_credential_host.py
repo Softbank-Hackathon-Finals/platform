@@ -162,3 +162,11 @@ def test_connection_requires_same_verified_tls_route(cluster):
     kube = SimpleNamespace(call=lambda *a: json.dumps({"clusters": [{"cluster": cluster}]}))
     with pytest.raises(ValueError, match="connection_unconfirmed"):
         host._connection(kube)
+
+
+def test_probe_from_source_uses_this_images_runner_probes():
+    from bravo_platform_events.credential_host import PROBE_MODULES, _probe_sources
+
+    assert _probe_sources({}) == ()
+    sources = dict(_probe_sources({"probe_from_source": True}))
+    assert set(sources) == set(PROBE_MODULES) and "def " in sources["credential_job_probe.py"]

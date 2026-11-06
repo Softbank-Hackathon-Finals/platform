@@ -60,21 +60,22 @@ class ShiftAuthority:
                 or gate.get("gate_id") != ctx.gate_id
                 or gate.get("context_digest") != ctx.fingerprint):
             raise EdgeError("shift_gate_binding_mismatch")
-        # The stored GATE report is only valid for 60 s and AWAIT_APPROVAL can take hours (#532,
-        # sangmu1126 15:21Z): evaluate again with current records right before SHIFT and consume
-        # that report only if it is PASS and bound to the same context and readiness as the GATE
-        # report. Otherwise stop; no approval is revived or re-requested here.
-        stored = json.loads(session.report.raw)
-        fresh = session.service.evaluate(principal.subject_id, session.context_id,
-                                         approval_ids=session.approval_ids)
-        if (fresh.get("decision") != "PASS" or fresh.get("context_digest") != ctx.fingerprint
-                or fresh.get("readiness_binding_digest") != stored.get("readiness_binding_digest")):
-            raise EdgeError("shift_gate_reevaluation_blocked")
-        # A separate record next to (never over) the GATE report, so both judgements stay auditable.
-        _put(c, plan["plan_id"], _key("shift-gate-reevaluation", [self.run_id, fresh["evaluated_at"]]),
-             {"run_id": self.run_id, "gate_report_ref": session.report.ref}, fresh)
-        verified = session.service.require_prerequisites(
-            principal.subject_id, session.context_id, canonical(fresh), approval_ids=session.approval_ids)
+        # The stored GATE report is only valid for 60 s and AWAIT_APPROVAL can take hours (#532): evaluate
+        # again right before SHIFT. The fresh report is consumed only inside served_reevaluation (same
+        # context, policy and database pair, a snapshot not older than GATE's; sangmu1126 #565) as the
+        # registered result with platform provenance. Otherwise stop; no approval is revived here.
+        from bravo_platform_events.gate_records import served_reevaluation
+        from bravo_platform_events.store import EventError
+
+        try:
+            with served_reevaluation(c, plan["plan_id"], session, principal) as fresh:
+                # A separate record next to (never over) the GATE report, so both judgements stay auditable.
+                _put(c, plan["plan_id"], _key("shift-gate-reevaluation", [self.run_id, fresh["evaluated_at"]]),
+                     {"run_id": self.run_id, "gate_report_ref": session.report.ref}, fresh)
+                verified = session.service.require_prerequisites(
+                    principal.subject_id, session.context_id, canonical(fresh), approval_ids=session.approval_ids)
+        except EventError as error:
+            raise EdgeError("shift_gate_reevaluation_blocked") from error
         latest = self.load_session(c, principal, plan)
         if (not isinstance(latest, PlanGateSession)
                 or latest.fingerprint != session.fingerprint

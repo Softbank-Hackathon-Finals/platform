@@ -8,7 +8,9 @@ with an operator pin it only reads; without one, `writer` (CandidateWriter, GitH
 the do-not-merge candidate PR and dispatches the reviewed T7 workflow, which builds the image.
 """
 
+import base64
 import json
+import re
 from pathlib import Path
 
 from .candidate_publication import PublicationSelection, prepare_publication, publication_request_id
@@ -16,20 +18,49 @@ from .cutover import _get
 from .initial_proposal import InitialProposalExecution, _admission_key
 from .store import EventError
 
+_PIN_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,254}")
+
 
 def pinned_selections(directory):
-    """Protected mount: <publication_request_id>.json per reviewed T7 run. None when absent."""
+    """<publication_request_id>.json per reviewed T7 run; None when there is no pin for a run.
+
+    The pins live under a logical folder, but a ConfigMap mount cannot hold a folder tree. So a
+    pin is read from the real tree (<dir>/<id>.json) or from the flat mount of the parent
+    (<parent>/<dirname>__<id>.json, a ConfigMap key). A folder that is not mounted at all means
+    no pins. Only plain ids are looked up, so a request id can never leave the mount.
+    """
     root = Path(directory)
-    if not root.is_absolute() or not root.is_dir():
+    if not root.is_absolute() or root.name in ("", ".", ".."):
         raise ValueError("publication_selection_mount_required")
 
     def select(request_id):
-        path = root / f"{request_id}.json"
-        if not path.is_file():
+        if not isinstance(request_id, str) or _PIN_ID.fullmatch(request_id) is None or ".." in request_id:
             return None
-        return PublicationSelection(**json.loads(path.read_text()))
+        for path in (root / f"{request_id}.json", root.parent / f"{root.name}__{request_id}.json"):
+            if path.is_file():
+                return PublicationSelection(**json.loads(path.read_text()))
+        return None
 
     return select
+
+
+def apply_input_key(diff_hash):
+    return "workflow-apply-input-" + diff_hash.removeprefix("sha256:")
+
+
+def record_apply_input(store, plan_id, value, result):
+    """Keep the exact edits and T15/T31 diff bytes the change approval binds (diff_hash), so REHEARSE
+    hands T31 the same candidate later. Write-once; the same hash always means the same bytes."""
+    from bravo_apply.binding import diff_hash, render_diff
+
+    edits = [edit.model_dump(mode="json") for edit in result.proposal.edits]
+    diff = render_diff(dict(value.files), edits)
+    record = {"edits": edits, "diff_b64": base64.b64encode(diff).decode(), "diff_hash": diff_hash(diff)}
+    key = apply_input_key(record["diff_hash"])
+    with store._transaction(write=True, plan_id=plan_id) as c:
+        if c.execute("SELECT 1 FROM plan_commands WHERE plan_id=? AND command_key=?", (plan_id, key)).fetchone() is None:
+            c.execute("INSERT INTO plan_commands VALUES (?,?,?,?)", (plan_id, key, "{}", json.dumps(record, sort_keys=True)))
+    return record
 
 
 def propose_preparer(execution, *, select, repository, github=None, writer=None):
@@ -55,6 +86,7 @@ def propose_preparer(execution, *, select, repository, github=None, writer=None)
                                               selection=selection, repository=repository, github=github)
         except ValueError:
             raise EventError("initial_publication_unconfirmed") from None
+        record_apply_input(execution.records.store, plan_id, value, result)
         return execution.evidence_reader(publication=publication)
 
     return prepare

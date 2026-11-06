@@ -16,15 +16,16 @@ class StorageUnavailable(RuntimeError):
 class _Queries:
     """Execute only the internal store's fixed qmark SQL with bound parameters.
 
-    This is not a general SQL translator: these queries contain no literal '?',
-    percent escapes or dynamic identifiers. Values stay separate from SQL.
+    This is not a general SQL translator: these queries contain no literal '?' or dynamic
+    identifiers. A literal % (LIKE prefixes) is escaped so sqlite-style SQL means the same on
+    both stores. Values stay separate from SQL.
     """
 
     def __init__(self, connection):
         self.connection = connection
 
     def execute(self, query, parameters=()):
-        return self.connection.execute(query.replace("?", "%s"), parameters)
+        return self.connection.execute(query.replace("%", "%%").replace("?", "%s"), parameters)
 
 
 class PostgresPlanStore(PlanStore):
