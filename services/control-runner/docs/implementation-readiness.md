@@ -19,7 +19,7 @@
 | ENC-01.2 잘못된 CA/호스트 거부 | 같은 TLS 수집기 | #298 출발지 실제 거부·대조군. 목적지 실행 필요 |
 | ENC-01.3 평문 거부 | 같은 TLS 수집기 | #298 출발지 실제 거부·대조군. 목적지 실행 필요 |
 | ENC-01.4 복제 TLS | `replication_tls.py` | 고정 SQL 조회·슬롯/sender 결속 구현. T8의 실제 설정 적용 영수증·양쪽 읽기 접점 인수 필요 |
-| ENC-01.5 Pooler→DB TLS | `pooler_backend_tls.py` | SHOW CONFIG/DATABASES 조회 후 backend 연결 확인은 UNKNOWN. 승인된 앱 내부 조회·stats-read 접점 인수 필요 |
+| ENC-01.5 Pooler→DB TLS | `pooler_backend_tls.py` 고정 SQL 수집기 | [실제 PG/PgBouncer 격리 시험](pooler-backend-reader.md): verify-full/verify-ca/평문/재사용/잘못된 CA 구분. 운영 앱·stats-read 주체와 등록·저장 인수 필요 |
 | AUD-01.1 관리자 접속 검색 | `audit_probes.py`, T34 수집기 | 실제 CNPG 감사 원천→저장소 전달·최소 권한 검색 인수 필요 |
 | AUD-01.2 DDL 검색 | 같은 감사 수집기 | 승인된 앱 DB 시험 스키마와 실제 생성/삭제·중앙 검색 인수 필요 |
 | AUD-01.3 권한 변경 검색 | 같은 감사 수집기 | [#369](https://github.com/Softbank-Hackathon-Finals/platform/pull/369): 출발지 별도 시험 namespace 실제 EKS→CloudWatch 부분 검증. 앱 범위·목적지·최소 권한 경로는 별도 |
