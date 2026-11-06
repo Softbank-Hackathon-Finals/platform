@@ -72,6 +72,16 @@ def verify_workflow_host(get, host):
     config = get("configmap", runtime["configuration"]["existingConfigMap"], "platform-state")
     if not {"ports.json", "relay.json"} <= set(config.get("data", {})):
         raise ValueError("workflow_host_ports_and_relay_required")
+    # Same shape the relay enforces at run time (initial_proposal_relay.allowed), checked before turning
+    # the host on (sangmu1126 #546): the platform Job principal and the named legacy fence principals.
+    relay = json.loads(config["data"]["relay.json"])
+    principals = relay.get("fence_principals") if isinstance(relay, dict) else None
+    if (not isinstance(relay, dict) or set(relay) != {"job_principal", "fence_principals"}
+            or not re.fullmatch(r"[0-9a-f]{64}", str(relay["job_principal"]))
+            or type(principals) is not list or not 1 <= len(principals) <= 4
+            or any(not re.fullmatch(r"[0-9a-f]{64}", str(p)) for p in principals)
+            or relay["job_principal"] in principals):
+        raise ValueError("workflow_host_relay_principals_invalid")
     reader = get("configmap", runtime["reader"]["existingConfigMap"], "platform-state")
     if json.loads(reader.get("data", {}).get("reader.json", "{}")).get("version") != 2:
         raise ValueError("workflow_host_reader_v2_required")
