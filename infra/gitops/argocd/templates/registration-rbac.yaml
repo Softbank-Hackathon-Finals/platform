@@ -65,6 +65,10 @@ spec:
         {{- end }}
         {{- if .Values.rehearsalHost.enabled }}
         || (object != null ? object.metadata.name : oldObject.metadata.name) == 't15-rehearsal-host'
+        {{- end }}
+        {{- if .Values.workflowHost.enabled }}
+        || (request.resource.resource in ['deployments', 'serviceaccounts'] &&
+        (object != null ? object.metadata.name : oldObject.metadata.name) == 't10-workflow-host')
         {{- end }})
       message: This controller may write only explicitly adopted platform workloads.
     - expression: "object == null || request.resource.resource != 'services' || object.spec.type == 'ClusterIP'"
@@ -73,7 +77,9 @@ spec:
       message: Registration must not automatically mount Kubernetes credentials.
     - expression: >-
         object == null || request.resource.resource != 'deployments' ||
-        ((object.metadata.name == 't10-registration' ? object.spec.template.spec.serviceAccountName == 't10-registration' : object.spec.template.spec.serviceAccountName == 'platform-runtime') &&
+        ((object.metadata.name == 't10-registration' ? object.spec.template.spec.serviceAccountName == 't10-registration' :
+          object.metadata.name == 't10-workflow-host' ? object.spec.template.spec.serviceAccountName == 't10-workflow-host' :
+          object.spec.template.spec.serviceAccountName == 'platform-runtime') &&
         has(object.spec.template.spec.automountServiceAccountToken) && object.spec.template.spec.automountServiceAccountToken == false &&
         (!has(object.spec.template.spec.hostNetwork) || object.spec.template.spec.hostNetwork == false) &&
         (!has(object.spec.template.spec.hostPID) || object.spec.template.spec.hostPID == false) &&

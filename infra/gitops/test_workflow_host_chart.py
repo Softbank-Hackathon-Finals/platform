@@ -66,5 +66,21 @@ class WorkflowHostChart(unittest.TestCase):
         self.assertNotIn("platform-workflow-host", names)
 
 
+    def test_enabled_argo_app_owns_only_workflow_host_names(self):
+        values = {"workflowHost": {"enabled": True, "runtime": {"configuration": {"existingConfigMap": "c", "sha256": "s"}}}}
+        result, docs = render(values, ROOT / "infra/gitops/argocd")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        roles = [d for d in docs if d.get("kind") in ("Role", "RoleBinding")
+                 and "workflow" in d["metadata"]["name"]]
+        self.assertEqual({d["metadata"]["name"] for d in roles}, {"platform-gitops-workflow-host"})
+        names = {n for d in roles if d["kind"] == "Role" for r in d["rules"] for n in r["resourceNames"]}
+        self.assertEqual(names, {"t10-workflow-host"})
+        policy = next(d for d in docs if d.get("kind") == "ValidatingAdmissionPolicy"
+                      and d["metadata"]["name"] == "platform-gitops-registration-names")
+        text = json.dumps(policy)
+        self.assertIn("t10-workflow-host", text)
+        self.assertIn("serviceAccountName == 't10-workflow-host'", text)
+
+
 if __name__ == "__main__":
     unittest.main()

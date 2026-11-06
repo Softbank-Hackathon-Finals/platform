@@ -4,8 +4,8 @@
         start|collect|fence --plan-id P --version 3 --ref ref.json --principal <T10 grant principal> \
         --state-dir <operator ledger> --context <platform kubeconfig context> [--legacy-intent old.json]
 
-T10 work runs in the platform Pod through `--relay` (default: kubectl exec into the Product
-Reader, which already holds the database credentials); Job creation and receipt opening stay with
+T10 work runs in the platform through `--relay` (default: kubectl exec into the workflow host,
+which holds the database credentials and the relay's fixed principals); Job creation and receipt opening stay with
 this operator (personal kubeconfig, operator ledger). The runtime source and image come from the
 GitOps Reader pin, so the intent can only run the image built from its own source.
 
@@ -27,8 +27,9 @@ from bravo_agent.product_execution_contracts import ExecutionPending, ExecutionU
 from bravo_platform_events import initial_proposal_job as job
 from bravo_platform_events.initial_proposal import InitialIntent
 
-RELAY = ["kubectl", "--context", "{context}", "-n", "platform-state", "exec", "-i", "deploy/t10-product-reader",
-         "-c", "reader", "--", "python", "-m", "bravo_platform_events.initial_proposal_relay"]
+# The workflow host Pod holds the DB credentials and the relay's fixed principals (/workflow/relay.json).
+RELAY = ["kubectl", "--context", "{context}", "-n", "platform-state", "exec", "-i", "deploy/t10-workflow-host",
+         "-c", "host", "--", "python", "-m", "bravo_platform_events.initial_proposal_relay"]
 
 
 def relay_with(argv):

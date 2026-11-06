@@ -34,8 +34,8 @@ ORDER = ("COLLECT", "ANALYZE", "PROPOSE", "REHEARSE", "GATE", "AWAIT_APPROVAL", 
 STOP = {"SAFE_HOLD", "NEEDS_HUMAN"}
 WORKLOADS = "infra/envs/target-workloads"
 INITIAL = ("uv", "run", "--directory", "services/platform-events", "python", "../../operations/initial-proposal/run.py")
-PLAN_STATE = ("kubectl", "--context", "{context}", "-n", "platform-state", "exec", "-i", "deploy/t10-product-reader",
-              "-c", "reader", "--", "python", "-m", "bravo_platform_events.plan_state")
+PLAN_STATE = ("kubectl", "--context", "{context}", "-n", "platform-state", "exec", "-i", "deploy/t10-workflow-host",
+              "-c", "host", "--", "python", "-m", "bravo_platform_events.plan_state")
 
 
 @dataclass(frozen=True)

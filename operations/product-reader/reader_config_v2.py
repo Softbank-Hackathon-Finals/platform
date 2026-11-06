@@ -23,6 +23,11 @@ JWKS_PATH = "/product-read/cluster-jwks.json"
 KEPT = ("tenant_id", "catalog_root", "catalog_key_file")
 
 
+def config_sha256(data):
+    """Exactly infra/gitops/bootstrap.py's adoption check (compact separators), not a display hash."""
+    return hashlib.sha256(json.dumps(data, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+
+
 def render(v1, jwks, issuer):
     if type(v1) is not dict or v1.get("version") != 1 or any(k not in v1 for k in KEPT):
         raise ValueError("reader_config_v1_required")
@@ -37,7 +42,7 @@ def render(v1, jwks, issuer):
                                "jwks_file": JWKS_PATH}}
     data = {"reader.json": json.dumps(config, sort_keys=True, indent=1) + "\n",
             "cluster-jwks.json": json.dumps({"keys": keys}, sort_keys=True) + "\n"}
-    digest = hashlib.sha256(json.dumps(data, sort_keys=True).encode()).hexdigest()
+    digest = config_sha256(data)
     return {"apiVersion": "v1", "kind": "ConfigMap",
             "metadata": {"name": f"t10-product-reader-config-v2-{digest[:16]}", "namespace": NAMESPACE,
                          "labels": {"component": "platform", "app.kubernetes.io/name": "t10-product-reader"}},
@@ -60,6 +65,10 @@ def _check():
           "github_public_jwks_file": "/g", "sts_provider": {}}
     jwks = {"keys": [{"kty": "RSA", "kid": "a", "n": "x", "e": "AQAB"}]}
     cm, digest = render(v1, jwks, "https://kubernetes.default.svc.cluster.local")
+    from pathlib import Path
+    boot = Path(__file__).resolve().parents[2] / "infra/gitops/bootstrap.py"
+    assert "separators=(\",\", \":\")" in boot.read_text()  # same serialisation as the adoption check
+    assert digest == hashlib.sha256(json.dumps(cm["data"], sort_keys=True, separators=(",", ":")).encode()).hexdigest()
     cfg = json.loads(cm["data"]["reader.json"])
     assert cfg["version"] == 2 and "github_public_jwks_file" not in cfg and cfg["job_identity"]["subject"] == JOB_SUBJECT
     assert set(cfg) == {"version", "tenant_id", "catalog_root", "catalog_key_file", "job_identity"}  # Reader _FIELDS

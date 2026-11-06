@@ -1,4 +1,4 @@
-"""T10 half of the initial AI proposal, run inside the platform (Reader or workflow host Pod).
+"""T10 half of the initial AI proposal, run inside the workflow host Pod (never the Reader).
 
 The Job carrier and the recipient key stay with the operator (personal kubeconfig, operator ledger);
 the T10 database stays in the cluster. The operator script relays between them, one JSON request on
@@ -19,6 +19,7 @@ admit   after a fence, admit the same input for this principal (the platform Job
 
 import json
 import sys
+from pathlib import Path
 
 from bravo_agent.product_execution_contracts import ExecutionPending
 
@@ -26,6 +27,33 @@ from .initial_proposal import InitialProposalExecution
 from .store import EventError
 
 OPS = {"fields", "claim", "store", "fence", "admit"}
+RELAY_CONFIG = "/workflow/relay.json"  # host ConfigMap: who this relay may act as
+
+
+def allowed(config):
+    """{"job_principal": <digest>, "fence_principals": [<digest>, ...]} from the host's protected config.
+
+    Exec into the host Pod is still a privileged operator act, but it can no longer pick an arbitrary
+    T10 principal: model work is only for the platform Job identity, fences only for named legacy ones.
+    """
+    if (type(config) is not dict or set(config) != {"job_principal", "fence_principals"}
+            or not isinstance(config["job_principal"], str) or type(config["fence_principals"]) is not list):
+        raise ValueError("relay_configuration_invalid")
+    return config
+
+
+def _verified_fence(request):
+    """Recheck the operator's proof in the platform: the legacy workflow is gone and never ran it."""
+    from .initial_proposal_job import legacy_actions_runs
+
+    proof = request.get("proof")
+    evidence = proof.get("evidence") if isinstance(proof, dict) else None
+    if not isinstance(evidence, dict) or type(evidence.get("workflow_id")) is not int:
+        raise ValueError("fence_proof_invalid")
+    again = legacy_actions_runs(evidence["workflow_id"], proof["request_id"])
+    if again.get("workflow_on_develop") is not False or again.get("matching_runs") != 0:
+        raise ValueError("fence_proof_not_reproduced")
+    return proof
 
 
 class _Relay:
@@ -59,12 +87,17 @@ class _Relay:
         return _validated_result(intent, value, receipt)
 
     def fence_unreceived(self, intent):
-        return self.request["proof"]
+        return _verified_fence(self.request)
 
 
-def handle(records, request):
+def handle(records, request, config):
     if type(request) is not dict or request.get("op") not in OPS:
         raise ValueError("relay_request_invalid")
+    config = allowed(config)
+    if request["principal"] != (config["job_principal"] if request["op"] != "fence" else request["principal"]):
+        raise ValueError("relay_principal_not_allowed")
+    if request["op"] == "fence" and request["principal"] not in config["fence_principals"]:
+        raise ValueError("relay_principal_not_allowed")
     execution = InitialProposalExecution(records, _Relay(request), principal=request["principal"],
                                          runtime_source_sha=request["runtime_source_sha"])
     plan_id, version, ref = request["plan_id"], request["version"], request["ref"]
@@ -95,7 +128,8 @@ def main():
         request = json.loads(sys.stdin.read(1024 * 1024))
         store = PostgresPlanStore(runtime_connection())
         reader = configured_initial_reader(store, request.pop("reader_config", "/product-read/reader.json"))
-        print(json.dumps({"status": "PASS", **handle(reader.records, request)}, sort_keys=True))
+        config = json.loads(Path(RELAY_CONFIG).read_text())
+        print(json.dumps({"status": "PASS", **handle(reader.records, request, config)}, sort_keys=True))
     except EventError as error:
         print(json.dumps({"status": "HOLD", "code": error.code}))
         raise SystemExit(10) from None

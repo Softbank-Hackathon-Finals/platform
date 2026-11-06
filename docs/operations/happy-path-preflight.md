@@ -20,6 +20,9 @@
 - AWAIT_APPROVAL → SHIFT는 사람의 SHIFT 승인(`approve_shift`)이 필요하다. 콘솔에 아직 버튼이 없으면 운영 API
   `/v1/plans/{id}/approvals`(`approval_kind: shift`)로 한다. 실행기 `s3-shift-approval`.
 - Job 주체(`b3d65883…`)의 T10 initial grant를 둔 뒤 `run.py fence → admit → start → collect` 순서로 한다.
+- relay는 워크플로 호스트 Pod에서만 돈다. 호스트 ConfigMap의 `relay.json`에
+  `{"job_principal": "<b3d65883… 전체>", "fence_principals": ["<d26db92a… 전체>"]}`를 둔다. 모델 작업은 Job 주체만,
+  fence는 지정한 이전 주체만 가능하고, fence 증명은 Pod 안에서 공개 GitHub로 다시 확인한다.
 
 ### TLS
 

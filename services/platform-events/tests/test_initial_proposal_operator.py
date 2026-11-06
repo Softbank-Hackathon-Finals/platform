@@ -28,8 +28,9 @@ def args(f, tmp_path, command, **extra):
                            state_dir=str(tmp_path / "operator"), **extra)
 
 
-def relay_for(f):
-    return lambda request: {"status": "PASS", **handle(f.reopen(), json.loads(json.dumps(request)))}
+def relay_for(f, job_principal=ACTOR, fence=(ACTOR,)):
+    config = {"job_principal": job_principal, "fence_principals": list(fence)}
+    return lambda request: {"status": "PASS", **handle(f.reopen(), json.loads(json.dumps(request)), config)}
 
 
 def test_start_then_collect_stores_the_job_result_in_t10(backend, tmp_path):
@@ -85,7 +86,8 @@ def _hold_or_pass(f, request):
     from bravo_platform_events.store import EventError
 
     try:
-        return {"status": "PASS", **handle(f.reopen(), json.loads(json.dumps(request)))}
+        return {"status": "PASS", **handle(f.reopen(), json.loads(json.dumps(request)),
+                                           {"job_principal": ACTOR, "fence_principals": [ACTOR]})}
     except EventError as error:
         raise RuntimeError(f"t10_hold:{error.code}") from None
 
@@ -134,7 +136,7 @@ def test_actions_admission_fenced_then_job_principal_admitted_and_run(backend, t
     def job_run(command, **extra):
         a = args(f, tmp_path, command, **extra)
         a.principal, a.ref = JOB, str(new_ref)
-        return operator.run(a, relay=relay_for(f), client=client)
+        return operator.run(a, relay=relay_for(f, job_principal=JOB), client=client)
 
     with pytest.raises(Exception):  # noqa: B017 - no re-admission before the fence
         job_run("admit", tenant_id=SPEC.tenant_id, task_id="credential", expires_at=EXPIRES)
@@ -159,3 +161,18 @@ def test_actions_admission_fenced_then_job_principal_admitted_and_run(backend, t
         f.reopen().admit(other, plan_id=SPEC.plan_id, tenant_id=SPEC.tenant_id, task_id="credential",
                          expected_version=3, expires_at=EXPIRES)
     assert job_args
+
+
+def test_relay_acts_only_as_its_configured_principals_and_rechecks_the_fence(backend, tmp_path, monkeypatch):
+    f = Fixture(backend, tmp_path)
+    config = {"job_principal": "b" * 64, "fence_principals": [ACTOR]}
+    base = {"plan_id": SPEC.plan_id, "version": 3, "ref": f.ref, "runtime_source_sha": RUNTIME}
+    with pytest.raises(ValueError, match="relay_principal_not_allowed"):  # model work only for the Job
+        handle(f.reopen(), base | {"op": "fields", "principal": ACTOR}, config)
+    with pytest.raises(ValueError, match="relay_principal_not_allowed"):  # fence only for named legacy
+        handle(f.reopen(), base | {"op": "fence", "principal": "c" * 64, "proof": {}}, config)
+    monkeypatch.setattr(job, "legacy_actions_runs", lambda *a: {"workflow_on_develop": True, "matching_runs": 0})
+    from bravo_platform_events.initial_proposal_relay import _verified_fence
+
+    with pytest.raises(ValueError, match="not_reproduced"):  # the platform does not trust the operator's proof
+        _verified_fence({"proof": {"request_id": "t10p-x", "evidence": {"workflow_id": 4242}}})

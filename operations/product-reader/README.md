@@ -13,3 +13,6 @@
 
 2026-11-06 23:55 KST: v2 ConfigMap `t10-product-reader-config-v2-f08be14548cde543`을 만들었다
 (issuer `https://kubernetes.default.svc.cluster.local`, JWKS 키 1개). 운영 Reader는 여전히 v1이다.
+`productReader.runtime.configuration.sha256`에는 bootstrap 방식(`sort_keys`, `separators=(",", ":")`)으로
+계산한 **`6b3fb268d2dda965512b3282669073b722f91923c62bf620537c8a090874ab24`**를 넣는다(11-07 01:05 KST 운영
+ConfigMap에서 재계산). 이름의 `f08be145…`는 이전 표시용 해시로, 식별자일 뿐 검증 값이 아니다.
