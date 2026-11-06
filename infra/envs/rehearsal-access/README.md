@@ -265,6 +265,7 @@ RoleBinding 하나만으로는 `bravo-rehearsal-control`의 단일 러너 조건
 ValidatingAdmissionPolicy를 렌더링한다. 별도 웹훅이나 데몬은 설치하지 않는다.
 
 - 제품 신원은 목적지 `bravo-rehearsal-control/t15-runner` 하나다.
+- 같은 렌더 결과에 `t15-control-no-token-secrets` 정책이 함께 들어간다. 이 namespace에서는 누구도 `kubernetes.io/service-account-token` 유형 Secret을 만들거나 바꿀 수 없다. 그런 Secret에는 만료 없는 토큰이 채워져 600초 exec 토큰 상한과 Secret 삭제에 의한 회수를 벗어나기 때문이다(#12). 러너가 시도마다 만드는 일반 Secret은 그대로 허용된다.
 - 사람·개인 시험 관리자 예외는 설치자가 확인한 정확한 username 목록이다.
   기존 개인 시험 계정은 `bravo-team-access/member-NN`만 입력할 수 있다.
   그룹이나 일반 서비스 계정을 관리자 예외로 추가하지 않는다.
