@@ -4,13 +4,20 @@ T10 is not changed. This is an ordinary subscriber of ``GET /v1/plans/{plan_id}/
 
 * **Resume from storage.** Every connection (first start, restart after a crash, reconnect)
   re-reads what the sink actually holds for the plan, verifies every run's chain and sends the
-  last recorded T10 ``event_id`` as ``Last-Event-ID``. There is no local cursor file that could
-  disagree with the bucket. A tampered or inconsistent store stops the follower before it
-  connects or writes anything.
+  T10 ``event_id`` *before* the last recorded one as ``Last-Event-ID``. There is no local cursor
+  file that could disagree with the bucket. A tampered or inconsistent store stops the follower
+  before it connects or writes anything.
+* **Same history or stop.** The last recorded event is always redelivered and must be absorbed
+  (same run, same content). A T10 reset or restore whose new history is at least as long as
+  ours would otherwise continue after our cursor without a 409; it stops with
+  ``origin_conflict`` instead.
 * **Exactly once in the ledger.** Records are appended through ``RunLedger`` (``origin_id``
-  absorption) and written one object per record with no overwrite. If the last recorded event
-  was split into forwarded tool records (``data.tool_events``) the cursor is moved back by one
-  event, so a crash between those writes is completed by the redelivery and not left half done.
+  absorption) and written one object per record with no overwrite. An event split into
+  forwarded tool records (``data.tool_events``) and cut between those writes is completed by
+  the same redelivery and not left half done.
+* **``--once`` confirms its end.** T10 has no end-of-stream marker and ends a stream it cannot
+  continue (retention hole, store error, revoked access) like a finished one. ``--once``
+  reports success only for a connection that brought nothing new.
 * **No silent re-read.** ``409 resync_required`` and ``400 invalid_cursor`` mean T10 cannot
   continue from what is stored. Starting over from the beginning could fork the chain, so the
   follower stops with its own exit code and leaves the decision to an operator.
@@ -210,7 +217,6 @@ class PlanState:
     @classmethod
     def load(cls, plan_id: str, runs: dict[str, list[dict]], now: Callable[[], str] = utc_now) -> PlanState:
         t10: dict[int, str] = {}
-        last_head: dict | None = None
         ledgers = {}
         for run, records in runs.items():
             ok, reason = verify_chain(records)
@@ -228,14 +234,12 @@ class PlanState:
         if sorted(t10) != list(range(1, len(t10) + 1)):
             raise StoreTampered("platform_sequence_gap")
         last = len(t10)
-        if last:
-            run = t10[last]
-            last_head = next(d for d in runs[run] if _t10_sequence(plan_id, d) == last)
-        # A split event (head + forwarded tool records) is re-requested so that a crash between
-        # its writes is completed by the redelivery; whole records are absorbed.
-        expanded = bool(last_head) and isinstance(last_head["payload"].get("data"), dict) and \
-            "tool_events_count" in last_head["payload"]["data"]
-        cursor = last - 1 if expanded else last
+        # Always re-request the last stored event. T10 answers 409 only when the cursor row is
+        # missing, so after a reset or a restore from another backup a new history at least as
+        # long as ours would continue silently after it. The redelivery must be absorbed (same
+        # run, same content under the same origin_id) or apply() stops with origin_conflict.
+        # It also completes a split event (head + forwarded tool records) cut between writes.
+        cursor = max(last - 1, 0)
         return cls(plan_id, ledgers, t10, cursor, expected=cursor + 1, stored_last=last, now=now)
 
     def last_event_id(self) -> str | None:
@@ -457,7 +461,7 @@ def follow(upstream: Upstream, *, load_runs: Callable[[], dict[str, list[dict]]]
             _log(event="stopped", exit=EXIT_STORE, reason="stored_chain_untrusted")
             return summary(EXIT_STORE, f"stored_chain_untrusted:{type(exc).__name__}")
         if started_after is None:
-            started_after = state.cursor_sequence
+            started_after = state.stored_last
         conn = None
         try:
             connections += 1

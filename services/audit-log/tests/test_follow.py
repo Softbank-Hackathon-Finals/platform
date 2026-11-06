@@ -108,7 +108,8 @@ def test_catch_up_resume_and_redelivery_against_the_real_t10_api(tmp_path, serve
     assert out["records"] == 2 and out["last_t10_sequence"] == 5
     # --once confirms on a second connection whenever one brought new events (T10 has no end
     # marker, so a stream T10 cut looks the same as one that ended).
-    assert server.cursors == [None, f"{PLAN}:3", f"{PLAN}:3", f"{PLAN}:3", f"{PLAN}:5"]
+    # The last stored event is always asked for again and absorbed (same history check).
+    assert server.cursors == [None, f"{PLAN}:2", f"{PLAN}:2", f"{PLAN}:2", f"{PLAN}:4"]
     assert set(server.presented) == {f"Bearer {TOKEN}"}  # the configured header reached T10
     receipts = [json.loads(line) for line in (tmp_path / "r.jsonl").read_text().splitlines()]
     assert [r["t10_sequence"] for r in receipts] == [4, 5] and (tmp_path / "r.jsonl").stat().st_mode & 0o777 == 0o600
@@ -126,7 +127,7 @@ def test_events_of_several_runs_go_to_their_own_chains(tmp_path, server, t10_sto
     gate(t10_store, 2, run="run-follow-2")
     assert run_follow(server.base_url, tmp_path / "s", token_file, "--once") == 0
     out, _ = summary(capsys)
-    assert out["records"] == 1 and server.cursors[-2:] == [f"{PLAN}:3", f"{PLAN}:4"]
+    assert out["records"] == 1 and server.cursors[-2:] == [f"{PLAN}:2", f"{PLAN}:3"]
     assert len(stored(tmp_path / "s")["run-follow-2"]) == 2
 
 
@@ -181,7 +182,7 @@ def test_a_failed_write_stops_and_the_restart_completes_from_storage(tmp_path, s
     monkeypatch.setattr(FileSink, "put", real_put)
     assert run_follow(server.base_url, tmp_path / "s", token_file, "--once") == 0
     assert [r["origin_id"] for r in stored(tmp_path / "s")[RUN]] == [f"t10:{PLAN}:{k}" for k in range(1, 5)]
-    assert server.cursors[-2:] == [f"{PLAN}:2", f"{PLAN}:4"]
+    assert server.cursors[-2:] == [f"{PLAN}:1", f"{PLAN}:3"]
 
 
 @pytest.mark.parametrize("damage", ["edit", "remove_middle", "foreign_folder"])
@@ -232,14 +233,15 @@ def test_resync_required_stops_instead_of_rereading_from_the_start(tmp_path, ser
     gate(t10_store, 1)
     assert run_follow(server.base_url, sink, token_file, "--once") == 0
     gate(t10_store, 2)
-    # T10 lost the event the stored cursor points at (retention / restore from an older backup).
+    # T10 lost the last stored event, which the follower asks for again (retention / restore
+    # from an older backup).
     with sqlite3.connect(t10_store.path) as c:
         c.execute("DELETE FROM events WHERE plan_id=? AND sequence=2", (PLAN,))
     capsys.readouterr()
     assert run_follow(server.base_url, sink, token_file, "--once") == follow_mod.EXIT_RESYNC
     assert summary(capsys)[0]["reason"] == "resync_required"
     assert len(stored(sink)[RUN]) == 2  # nothing re-read, nothing forked
-    assert server.cursors[-1] == f"{PLAN}:2"
+    assert server.cursors[-1] == f"{PLAN}:1"
 
 
 def test_once_does_not_report_a_stream_cut_by_a_retention_hole_as_caught_up(tmp_path, server, t10_store,
@@ -268,6 +270,38 @@ def test_once_does_not_report_a_stream_cut_by_revoked_access_as_caught_up(tmp_pa
     out, _ = summary(capsys)
     assert out["reason"] == "forbidden" and 0 < out["records"] < 10
     assert len(stored(sink)[RUN]) == out["records"]
+
+
+@pytest.mark.parametrize("new_run", ["run-new", RUN])
+def test_a_replaced_t10_history_is_not_appended_after_the_old_cursor(tmp_path, server, t10_store, token_file,
+                                                                     capsys, new_run):
+    """T10 was reset or restored from another backup and the plan's new history is longer
+    than what is stored: T10 cannot tell (the cursor row exists), so the follower re-asks for
+    the last stored event and stops when it is not the same one (review #480 P2)."""
+    sink = tmp_path / "store"
+    gate(t10_store, 1)
+    gate(t10_store, 2)  # history A: 1..3
+    assert run_follow(server.base_url, sink, token_file, "--once") == 0
+    before = stored(sink)
+    replaced = plans.PlanStore(tmp_path / "t10-replaced.sqlite")
+    spec = plans.PlanSpec(PLAN, "tenant-demo", "workload-demo", "env-source", "env-target", "a" * 64, "b" * 64)
+    replaced.register_plan(spec, run_id=new_run, occurred_at=TIME)
+    for n in range(1, 6):
+        replaced.append(plan_id=PLAN, run_id=new_run, event_type="gate.completed", occurred_at=TIME,
+                        producer_key=f"gate-new-{n}",
+                        data={"gate_id": f"gate-new-{n}", "evidence_ref": f"evidence-new-{n}",
+                              "decision": "PASS", "context_digest": "5" * 64})  # new history: 1..6
+    capsys.readouterr()
+    with T10Server(replaced, TOKEN) as other:
+        assert run_follow(other.base_url, sink, token_file, "--once") == follow_mod.EXIT_REJECTED
+        assert other.cursors == [f"{PLAN}:2"]
+    out, _ = summary(capsys)
+    assert (out["reason"], out["records"]) == ("origin_conflict", 0)
+    assert stored(sink) == before
+    # The unchanged T10 still resumes: the redelivered event is absorbed and nothing is written.
+    assert run_follow(server.base_url, sink, token_file, "--once") == 0
+    out, _ = summary(capsys)
+    assert (out["records"], out["absorbed_redeliveries"]) == (0, 1) and stored(sink) == before
 
 
 def test_real_t10_does_not_accept_tool_events_yet(t10_store):
@@ -466,7 +500,7 @@ def test_continuous_mode_backs_off_on_an_unreadable_store_and_resumes(tmp_path, 
 def test_continuous_mode_reconnects_with_backoff_and_resumes_from_storage(tmp_path, stub, token_file):
     server = stub((503, "text/plain", b""),
                   (200, SSE, sse(t10_event(1), t10_event(2))),  # stream ends: reconnect
-                  (200, SSE, b": keep-alive\n\n" + sse(t10_event(3))[len("retry: 1000\n\n"):]),
+                  (200, SSE, b": keep-alive\n\n" + sse(t10_event(2), t10_event(3))[len("retry: 1000\n\n"):]),
                   (403, "application/json", b'{"detail":{"code":"forbidden"}}'))
     sink, delays = tmp_path / "s", []
     upstream = Upstream(server.base_url, PLAN, token_file=token_file, timeout=5)
@@ -474,13 +508,24 @@ def test_continuous_mode_reconnects_with_backoff_and_resumes_from_storage(tmp_pa
                                   sink=FileSink(sink), once=False, sleep=delays.append)
     assert (code, out["reason"], out["records"]) == (follow_mod.EXIT_ACCESS, "forbidden", 3)
     assert len(delays) == 3 and all(0 < d <= 30 for d in delays)
-    assert [r["headers"].get("Last-Event-ID") for r in server.requests] == [None, None, f"{PLAN}:2", f"{PLAN}:3"]
+    assert [r["headers"].get("Last-Event-ID") for r in server.requests] == [None, None, f"{PLAN}:1", f"{PLAN}:2"]
     assert all(r["path"] == f"/v1/plans/{PLAN}/events?follow=true" for r in server.requests)
     assert all(r["headers"]["Authorization"] == f"Bearer {TOKEN}" for r in server.requests)
 
 
+def test_once_without_the_re_requested_event_is_not_caught_up(tmp_path, stub, token_file, capsys):
+    server = stub((200, SSE, sse(t10_event(1), t10_event(2))), (200, SSE, sse(t10_event(2))),
+                  (200, SSE, b"retry: 1000\n\n"))  # ends before redelivering the last stored event
+    sink = tmp_path / "s"
+    assert run_follow(server.base_url, sink, token_file, "--once") == 0
+    capsys.readouterr()
+    assert run_follow(server.base_url, sink, token_file, "--once") == follow_mod.EXIT_UNAVAILABLE
+    assert summary(capsys)[0]["reason"] == "stream_ended_early"
+    assert server.requests[-1]["headers"]["Last-Event-ID"] == f"{PLAN}:1"
+
+
 def test_a_store_with_a_t10_gap_is_refused(tmp_path, stub, token_file):
-    server = stub((200, SSE, sse(t10_event(1), t10_event(2))), (200, SSE, b"retry: 1000\n\n"))
+    server = stub((200, SSE, sse(t10_event(1), t10_event(2))), (200, SSE, sse(t10_event(2))))
     sink = tmp_path / "s"
     assert run_follow(server.base_url, sink, token_file, "--once") == 0
     # A second run folder whose first record claims T10 seq 4: the plan's T10 sequence has a gap.
