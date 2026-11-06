@@ -218,6 +218,9 @@ dev = [
     { name = "pytest" },
     { name = "ruff" },
 ]
+gate-records = [
+    { name = "bravo-control-gate" },
+]
 product-inputs = [
     { name = "bravo-agent-worker" },
     { name = "bravo-inventory" },
@@ -256,6 +259,7 @@ dev = [
     { name = "pytest", specifier = ">=8" },
     { name = "ruff", specifier = ">=0.9" },
 ]
+gate-records = [{ name = "bravo-control-gate", directory = "../control-gate" }]
 product-inputs = [
     { name = "bravo-agent-worker", directory = "../agent-worker" },
     { name = "bravo-inventory", directory = "../inventory" },

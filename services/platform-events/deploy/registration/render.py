@@ -12,6 +12,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     for name in ("inputs", "catalog", "grants", "output"):
         parser.add_argument("--" + name, type=Path, required=True)
+    parser.add_argument("--gate-grants", type=Path)
     args = parser.parse_args()
     if args.output.exists():
         raise ValueError("new_output_required")
@@ -36,6 +37,12 @@ def main():
         "catalog.json": json.dumps(cfg, sort_keys=True),
         "grants.json": json.dumps(grants, sort_keys=True),
     }
+    if ("gate_records" in cfg) != bool(args.gate_grants):
+        raise ValueError("explicit_gate_record_grants_required")
+    if args.gate_grants:
+        if cfg["gate_records"] != {"grants_file": "/registration/gate-grants.json"}:
+            raise ValueError("fixed_gate_record_grant_mount_required")
+        data["gate-grants.json"] = json.dumps(json.loads(args.gate_grants.read_text()), sort_keys=True)
     config_digest = hashlib.sha256(json.dumps(data, sort_keys=True).encode()).hexdigest()
     name = "t10-registration-config-" + config_digest[:16]
     cm = {

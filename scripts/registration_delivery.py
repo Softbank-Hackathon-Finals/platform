@@ -32,6 +32,8 @@ BUILD_INPUTS = (
     "services/rehearsal-runner/pyproject.toml",
     "services/inventory/src",
     "services/inventory/pyproject.toml",
+    "services/control-gate/src",
+    "services/control-gate/pyproject.toml",
 )
 INPUTS = (
     *BUILD_INPUTS,

@@ -18,6 +18,7 @@ PACKAGES = {
     "agent-worker": "bravo_agent",
     "rehearsal-runner": "rehearsal_runner",
     "inventory": "bravo_inventory",
+    "control-gate": "bravo_gate",
     "observability": "bravo_observability",
 }
 
@@ -56,9 +57,9 @@ def prepare_context(context, revision):
         raise ValueError("observability_source_mismatch")
     requirements = context / "requirements.txt"
     subprocess.run(["uv", "export", "--locked", "--no-header", "--no-dev", "--extra", "postgres",
-        "--group", "product-inputs", "--no-emit-project", "--no-emit-package", "bravo-observability",
+        "--group", "product-inputs", "--group", "gate-records", "--no-emit-project", "--no-emit-package", "bravo-observability",
         "--no-emit-package", "bravo-agent-worker", "--no-emit-package", "bravo-rehearsal-runner",
-        "--no-emit-package", "bravo-inventory",
+        "--no-emit-package", "bravo-inventory", "--no-emit-package", "bravo-control-gate",
         "-o", str(requirements)], cwd=SERVICE, check=True, stdout=subprocess.DEVNULL)
     text = requirements.read_text()
     if any(line.strip().startswith(("-e ", "git+", "file:", "../", "/")) or " @ " in line
