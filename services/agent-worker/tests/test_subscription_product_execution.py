@@ -113,6 +113,7 @@ def test_receipt_binding_refuses_other_run_attempt_or_admission(setup, key, valu
 class GitHub:
     def __init__(self, intent, receipt):
         self.intent, self.posts, self.lose_response = intent, [], False
+        self.response = {'http_status': 204, 'body': ''}
         self.run = {'id': 1234, 'event': 'workflow_dispatch', 'head_branch': 'develop', 'head_sha': intent.runtime_source_sha,
                     'run_attempt': 1, 'workflow_id': 42, 'actor': {'id': 7},
                     'head_repository': {'full_name': REPOSITORY}, 'display_title': 'product-' + intent.request_id,
@@ -209,7 +210,7 @@ def test_rejected_dispatch_keeps_private_http_evidence_and_cannot_resend(dispatc
     assert response['body'] == body and run_id is None
     assert 'private authentication' not in json.dumps(metadata)
     assert 'private-link' not in json.dumps(metadata)
-    with pytest.raises(ExecutionPending, match='RUN_NOT_YET_OBSERVED'):
+    with pytest.raises(ExecutionUnknown, match='DISPATCH_REJECTED_NO_RUN'):
         OperatorProductExecution(client.root, gh).submit(intent)
     assert len(calls) == 1
 
@@ -258,7 +259,7 @@ def test_invalid_dispatch_receipt_cannot_bind_a_run_or_resend(dispatch, body):
     gh.response = {'http_status': 200, 'body': body}
     gh.runs = []
     for operation in (client.submit, OperatorProductExecution(client.root, gh).submit):
-        with pytest.raises(ExecutionPending, match='RUN_NOT_YET_OBSERVED'):
+        with pytest.raises(ExecutionUnknown, match='DISPATCH_RECEIPT_UNCONFIRMED_NO_RUN'):
             operation(intent)
     assert client._record(intent)[1] is None and len(gh.posts) == 1
 
@@ -337,6 +338,23 @@ def test_missing_run_is_pending_without_new_send(dispatch):
         with pytest.raises(ExecutionPending, match='RUN_NOT_YET_OBSERVED'):
             operation(intent)
     assert len(gh.posts) == 1
+
+
+@pytest.mark.parametrize('response', [None, {'http_status': None}, {'http_status': 503}])
+def test_no_acceptance_evidence_is_unknown_and_preserves_original_ledger(dispatch, response):
+    client, gh, intent, expected = dispatch
+    gh.response, gh.runs = response, []
+    with pytest.raises(ExecutionUnknown, match='DISPATCH_ACCEPTANCE_UNKNOWN_NO_RUN'):
+        client.submit(intent)
+    original = client.path.read_bytes()
+    for operation in (client.read, OperatorProductExecution(client.root, gh).submit):
+        with pytest.raises(ExecutionUnknown, match='DISPATCH_ACCEPTANCE_UNKNOWN_NO_RUN'):
+            operation(intent)
+        assert client.path.read_bytes() == original
+    assert len(gh.posts) == 1
+    # Later provider evidence may resolve the original run, without a new POST.
+    gh.runs = [gh.run]
+    assert client.read(intent) == expected and len(gh.posts) == 1
 
 
 def test_intent_conflict_and_unsubmitted_read_do_not_send(dispatch):
