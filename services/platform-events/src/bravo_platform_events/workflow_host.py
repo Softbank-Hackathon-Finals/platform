@@ -24,15 +24,26 @@ DRIVEN = (*STAGES, "FAILBACK")
 
 
 class StageReaders:
-    """`read_evidence` for WorkflowRecovery, by state. An unwired state holds (fail closed)."""
+    """`read_evidence` for WorkflowRecovery, by state. An unwired state holds (fail closed).
 
-    def __init__(self, readers):
-        if set(readers) - set(STAGES) or not all(map(callable, readers.values())):
+    A preparer runs network reads for one plan version outside the plan lock and returns
+    the reader for that version; the reader itself only checks locally under the lock.
+    """
+
+    def __init__(self, readers, *, preparers=None):
+        preparers = preparers or {}
+        if (set(readers) | set(preparers)) - set(STAGES) or set(readers) & set(preparers) or not all(
+                map(callable, (*readers.values(), *preparers.values()))):
             raise ValueError("unknown_or_invalid_stage_reader")
-        self.readers = dict(readers)
+        self.readers, self.preparers = dict(readers), dict(preparers)
+        self._prepared = {}
+
+    def prepare(self, plan_id, tenant_id, state, version):
+        if state in self.preparers:
+            self._prepared[(plan_id, version)] = self.preparers[state](plan_id, tenant_id, version)
 
     def __call__(self, c, plan, previous, run):
-        reader = self.readers.get(plan["state"])
+        reader = self._prepared.pop((plan["plan_id"], plan["version"]), None) or self.readers.get(plan["state"])
         if reader is None:
             raise EventError("workflow_reader_unwired")
         return reader(c, plan, previous, run)
@@ -57,29 +68,36 @@ class WorkflowHost:
     def active(self):
         marks = ",".join("?" * len(DRIVEN))
         with self.store._transaction() as c:
-            rows = c.execute(f"SELECT plan_id,tenant_id,state FROM plans WHERE state IN ({marks}) "
+            rows = c.execute(f"SELECT plan_id,tenant_id,state,version FROM plans WHERE state IN ({marks}) "
                              "ORDER BY plan_id", DRIVEN).fetchall()
-        return [(row["plan_id"], row["tenant_id"], row["state"]) for row in rows]
+        return [(row["plan_id"], row["tenant_id"], row["state"], row["version"]) for row in rows]
 
-    def advance(self, plan_id, tenant_id, state):
+    def _version(self, plan_id):
+        with self.store._transaction() as c:
+            return c.execute("SELECT version FROM plans WHERE plan_id=?", (plan_id,)).fetchone()["version"]
+
+    def advance(self, plan_id, tenant_id, state, version):
         """Step one plan until it stops moving. Each step is its own durable transition."""
         principal = Principal(HOST_SUBJECT, tenant_id)
+        readers = self.recovery.read_evidence
         start = state
         for _ in range(len(DRIVEN) + 1):  # ponytail: bound only; a cycle would be a workflow bug
             try:
+                if isinstance(readers, StageReaders):
+                    readers.prepare(plan_id, tenant_id, state, version)  # outside the plan lock
                 after = self.recovery.resume_once(principal, plan_id)
             except EventError as error:
                 return Step(plan_id, start, state, error.code)
             if after == state:
                 break
-            state = after
+            state, version = after, self._version(plan_id)
         return Step(plan_id, start, state)
 
     def sweep(self):
         steps = []
-        for plan_id, tenant_id, state in self.active():
+        for plan_id, tenant_id, state, version in self.active():
             try:
-                step = self.advance(plan_id, tenant_id, state)
+                step = self.advance(plan_id, tenant_id, state, version)
             except Exception:  # storage or producer outage: keep other plans moving
                 log.exception("workflow step failed", extra={"plan_id": plan_id})
                 continue
