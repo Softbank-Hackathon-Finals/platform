@@ -230,3 +230,41 @@ def test_failed_admission_commit_never_submits(flow):
         flow.start()
     assert not flow.effects
     assert flow.start()["rehearsal_id"] == flow.result["proposal"]["run_id"]
+
+
+def test_stored_inputs_and_publication_supply_the_real_admission_after_restart(flow, monkeypatch):
+    from bravo_agent.contracts import digest
+    from rehearsal_runner.stored_proposals import StoredProposalSource
+
+    flow.ready()
+    flow.start()
+    admission, = flow.effects
+    execution = flow.f.execution()
+    with flow.f.backend.store._transaction() as c:
+        plan = dict(c.execute("SELECT * FROM plans WHERE plan_id=?", (SPEC.plan_id,)).fetchone())
+        task = replace(flow.f.catalog.for_plan(c, plan, admission.task_id), run_id=admission.rehearsal_id)
+    for name in ("recipient", "submit", "read", "validate"):
+        monkeypatch.setattr(flow.f.client, name, lambda *args: pytest.fail("no provider calls in T15"))
+    value = execution.rehearsal_input(admission, task)
+    assert value.admission_digest == digest(asdict(admission))
+    assert value.files == flow.f.source_value["files"]
+    assert value.bundle.run_id == admission.rehearsal_id
+    assert execution.rehearsal_binding(admission).plan_digest == SPEC.plan_digest
+    assert execution.rehearsal_image(admission, flow.f.published["diff_hash"]) == flow.f.published["image_digest"]
+    source = StoredProposalSource(execution.rehearsal_input, execution.rehearsal_result)
+    coordinator, provider = source.open(admission, task)
+    assert coordinator.snapshot.read("app/db_secret.py") == flow.f.source_value["files"]["app/db_secret.py"]
+    assert provider.result["proposal_digest"] == flow.result["proposal_digest"]
+    assert len(flow.f.client.submits) == 1
+    with pytest.raises(EventError, match="publication_conflict"):
+        execution.rehearsal_image(admission, "sha256:" + "0" * 64)
+    with pytest.raises(EventError):
+        execution.rehearsal_input(admission, replace(task, source_sha="f" * 40))
+    # Revoke current authority after successful reads: cached proposal/image/source
+    # must never turn into permission for a new effect.
+    flow.f.grant(False, 1)
+    for call in (lambda: execution.rehearsal_input(admission, task),
+                 lambda: execution.rehearsal_binding(admission),
+                 lambda: execution.rehearsal_image(admission, flow.f.published["diff_hash"])):
+        with pytest.raises(EventError):
+            call()

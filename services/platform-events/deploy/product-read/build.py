@@ -8,11 +8,14 @@ import subprocess
 import tarfile
 import tempfile
 import tomllib
+import urllib.request
 from pathlib import Path
 
 SERVICE = Path(__file__).resolve().parents[2]
 ROOT = SERVICE.parents[1]
 OBSERVABILITY_REVISION = "020c6c78bdc6133ab0ee15e2a990bb9527b3182f"
+KUBECTL_VERSION = "v1.35.9"
+KUBECTL_SHA256 = "3cfeaf80be482b435b0aa214aff6e0b2c312ee23c0ff20810c75517b6004c6eb"
 PACKAGES = {
     "platform-events": "bravo_platform_events",
     "agent-worker": "bravo_agent",
@@ -46,7 +49,18 @@ def copy_committed_tree(revision, prefix, destination):
         raise ValueError("committed_source_missing")
 
 
-def prepare_context(context, revision):
+def add_rehearsal_context(context, revision):
+    for directory in ("rehearsal-access", "target-secrets"):
+        copy_committed_tree(revision, f"infra/envs/{directory}/", context / "infra" / directory)
+    url = f"https://dl.k8s.io/release/{KUBECTL_VERSION}/bin/linux/amd64/kubectl"
+    with urllib.request.urlopen(url, timeout=60) as response:
+        binary = response.read(128 * 1024 * 1024 + 1)
+    if len(binary) > 128 * 1024 * 1024 or hashlib.sha256(binary).hexdigest() != KUBECTL_SHA256:
+        raise ValueError("kubectl_release_digest_mismatch")
+    (context / "kubectl").write_bytes(binary)
+
+
+def prepare_context(context, revision, *, rehearsal_host=False):
     # Export only hashed registry dependencies. Repo packages come from Git blobs.
     project = tomllib.loads((SERVICE / "pyproject.toml").read_text())
     upstream = project["tool"]["uv"]["sources"]["bravo-observability"]
@@ -69,7 +83,10 @@ def prepare_context(context, revision):
         copy_committed_tree(source, f"services/{service}/src/{package}/", context / "src" / package)
     if not (context / "src/bravo_platform_events/product_read_server.py").is_file():
         raise ValueError("product_reader_missing")
-    recipe = "services/platform-events/deploy/product-read/Dockerfile"
+    if rehearsal_host:
+        add_rehearsal_context(context, revision)
+    recipe = ("services/platform-events/deploy/approval/Dockerfile" if rehearsal_host
+              else "services/platform-events/deploy/product-read/Dockerfile")
     (context / "Dockerfile").write_bytes(git("show", f"{revision}:{recipe}"))
     return [{"path": str(p.relative_to(context)), "sha256": hashlib.sha256(p.read_bytes()).hexdigest()}
             for p in sorted(context.rglob("*")) if p.is_file()]
@@ -122,6 +139,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--no-cache", action="store_true", help="Rebuild only this image if local build cache is unusable")
+    parser.add_argument("--rehearsal-host", action="store_true", help="Build the stored-proposal T15 host")
     args = parser.parse_args()
     output = args.output.resolve()
     if output.exists() or output.is_relative_to(ROOT):
@@ -132,9 +150,9 @@ def main():
     revision = git("rev-parse", "HEAD").decode().strip()
     with tempfile.TemporaryDirectory(prefix="bravo-product-read-") as directory:
         context = Path(directory)
-        hashes = prepare_context(context, revision)
+        hashes = prepare_context(context, revision, rehearsal_host=args.rehearsal_host)
         context_digest = hashlib.sha256(json.dumps(hashes, sort_keys=True).encode()).hexdigest()
-        tag = "bravo-product-read:" + revision[:12] + "-" + context_digest[:32]
+        tag = ("bravo-rehearsal-host:" if args.rehearsal_host else "bravo-product-read:") + revision[:12] + "-" + context_digest[:32]
         subprocess.run(["docker", "build", "--platform", "linux/amd64", "--tag", tag,
             "--label", "org.opencontainers.image.revision=" + revision,
             *(["--no-cache"] if args.no_cache else []), str(context)], check=True)
@@ -148,6 +166,12 @@ def main():
             "assert not any(n in sys.modules for n in "
             "('openai','bravo_agent.subscription_product','bravo_agent.subscription_admin')); "
             "print('product_reader_imports_ok')")
+        if args.rehearsal_host:
+            probe = ("import os,subprocess; from bravo_platform_events.credential_host import create_ports; "
+                     "from bravo_platform_events.rehearsal_server import load_host; "
+                     "assert os.getuid()==10001; "
+                     "subprocess.run(['kubectl','version','--client','-o','json'],check=True); "
+                     "print('rehearsal_host_imports_ok')")
         subprocess.run(["docker", "run", "--rm", "--platform", "linux/amd64", "--network", "none",
             "--read-only", "--cap-drop", "ALL", "--security-opt", "no-new-privileges",
             "--entrypoint", "python", image["Id"], "-c", probe], check=True)
