@@ -1,0 +1,126 @@
+{{- if not .Values.image.digest }}{{ fail "image.digest is required" }}{{- end }}
+{{- if not .Values.configuration.existingConfigMap }}{{ fail "configuration.existingConfigMap is required" }}{{- end }}
+{{- if not .Values.reader.existingConfigMap }}{{ fail "reader.existingConfigMap (v2) is required" }}{{- end }}
+{{- if not .Values.stateClaim }}{{ fail "stateClaim is required" }}{{- end }}
+{{- if not .Values.secrets.executor }}{{ fail "secrets.executor is required" }}{{- end }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: t10-workflow-host
+  labels:
+    app.kubernetes.io/name: t10-workflow-host
+    component: platform
+spec:
+  # One driver per plan store: the receipts/dispatch state and the ApplicationHost lock are single-writer.
+  replicas: 1
+  revisionHistoryLimit: 10
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: t10-workflow-host
+      component: platform
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: t10-workflow-host
+        component: platform
+        bravo.dev/db-client: runtime
+      annotations:
+        bravo.dev/reviewed-source: {{ .Values.sourceRevision | quote }}
+        bravo.dev/config-sha256: {{ .Values.configuration.sha256 | quote }}
+    spec:
+      serviceAccountName: t10-workflow-host
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 60
+      imagePullSecrets:
+        - name: {{ .Values.secrets.registry }}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: host
+          image: "{{ .Values.image.repository }}@{{ .Values.image.digest }}"
+          imagePullPolicy: Always
+          command: [python, -m, bravo_platform_events.workflow_host_server]
+          args: [--ports, "bravo_platform_events.workflow_ports:create_ports", --interval, {{ .Values.interval | quote }}]
+          env:
+            - {name: PYTHONDONTWRITEBYTECODE, value: "1"}
+            - {name: PYTHONUNBUFFERED, value: "1"}
+            - {name: HOME, value: /tmp}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            - {name: credential, mountPath: /credential, readOnly: true}
+            - {name: database-ca, mountPath: /ca, readOnly: true}
+            - {name: config, mountPath: /workflow, readOnly: true}
+            - {name: reader-config, mountPath: /product-read, readOnly: true}
+            - {name: catalog, mountPath: /catalog, readOnly: true}
+            - {name: catalog-key, mountPath: /catalog-key, readOnly: true}
+            - {name: executor, mountPath: /executor, readOnly: true}
+            {{- if .Values.secrets.githubApp }}
+            - {name: github-app, mountPath: /github-app, readOnly: true}
+            {{- end }}
+            - {name: state, mountPath: /workflow-state}
+            - {name: tmp, mountPath: /tmp}
+      volumes:
+        - name: credential
+          secret:
+            secretName: {{ .Values.secrets.database }}
+            defaultMode: 0440
+            items:
+              - {key: username, path: username}
+              - {key: password, path: password}
+        - name: database-ca
+          secret:
+            secretName: {{ .Values.secrets.databaseCA }}
+            defaultMode: 0440
+            items:
+              - {key: ca.crt, path: ca.crt}
+        - name: config
+          configMap:
+            name: {{ .Values.configuration.existingConfigMap }}
+            defaultMode: 0444
+        - name: reader-config
+          configMap:
+            name: {{ .Values.reader.existingConfigMap }}
+            defaultMode: 0444
+        - name: catalog
+          persistentVolumeClaim:
+            claimName: {{ .Values.reader.catalogClaim }}
+            readOnly: true
+        - name: catalog-key
+          secret:
+            secretName: {{ .Values.secrets.catalogKey }}
+            defaultMode: 0440
+            items:
+              - {key: key, path: key}
+        - name: executor
+          secret:
+            secretName: {{ .Values.secrets.executor }}
+            defaultMode: 0440
+            items:
+              - {key: ca.crt, path: ca.crt}
+              - {key: read-token, path: read-token}
+        {{- if .Values.secrets.githubApp }}
+        - name: github-app
+          secret:
+            secretName: {{ .Values.secrets.githubApp }}
+            defaultMode: 0440
+            items:
+              - {key: private-key.pem, path: private-key.pem}
+        {{- end }}
+        - name: state
+          persistentVolumeClaim:
+            claimName: {{ .Values.stateClaim }}
+        - name: tmp
+          emptyDir: {sizeLimit: 128Mi}

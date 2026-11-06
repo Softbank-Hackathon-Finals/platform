@@ -6,6 +6,11 @@ initialProposal:
   enabled: false
   # Public broker CA certificate only; the broker key never enters Git or values.
   brokerCaPem: ""
+workflowHost:
+  enabled: false
+  # Protected operator input: existing config/claim/Secret references only (ADR-0031).
+  runtime: {}
+
 rehearsalHost:
   enabled: false
   # Protected operator input: existing config/claim/Secret references only.
