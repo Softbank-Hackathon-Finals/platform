@@ -10,6 +10,8 @@ import pytest
 from bravo_agent.contracts import Proposal, digest
 from bravo_agent.subscription_product import ProductAccess, ProposalJournal
 from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PrivateKey
+from rehearsal_runner.admission import logical_task_digest
+from rehearsal_runner.secret_task import prepare_credential_migration
 
 from bravo_platform_events.initial_proposal import InitialInput, InitialIntent
 from bravo_platform_events.initial_proposal_execution import execute
@@ -31,7 +33,8 @@ PRINCIPAL = "a" * 64
 def runtime(tmp_path):
     content = "VALUE = 1\n"
     binding = dict(plan_id="plan-a", tenant_id="tenant-a", plan_digest="d" * 64,
-        target_environment_id="target-a", plan_version=3, task_id="task-a", task_digest="e" * 64,
+        target_environment_id="target-a", plan_version=3, task_id="task-a",
+        task_digest=logical_task_digest(prepare_credential_migration("proposal-a", "b" * 40)),
         source_sha="b" * 40, collection_scope_digest="f" * 64, inventory_digest="1" * 64,
         comparison_digest="2" * 64, analysis_receipt_id="analysis-a")
     value = InitialInput(schema_version=2, binding=binding, run_id="proposal-a",
@@ -71,7 +74,11 @@ def runtime(tmp_path):
 def test_v2_mapping_real_schema_lint_and_saved_same_result(runtime):
     service, request, value, counts = runtime
     bundle = model_input(value).bundle
-    assert bundle.failure_code == "CODE_CHANGE_REQUIRED" and bundle.summary == value.analysis.rationale
+    assert bundle.failure_code == "CODE_CHANGE_REQUIRED" and value.analysis.rationale in bundle.summary
+    target = prepare_credential_migration(value.run_id, value.binding.source_sha).as_model_input()
+    assert target["target_credential_file"] in bundle.summary
+    assert "preserving cache and authentication-failure refresh" in bundle.summary
+    assert "Fail closed" in bundle.summary and "never log credentials" in bundle.summary
     assert bundle.evidence_digest == value.binding.inventory_digest and bundle.stage == "REHEARSE"
     assert value.binding.stage == "PROPOSE"
     status, first = service.run(request.model_dump())
@@ -81,6 +88,16 @@ def test_v2_mapping_real_schema_lint_and_saved_same_result(runtime):
     assert counts == {"invoke": 1, "reads": 3}
     assert not list(service.journal.root.glob("initial-*"))
     assert request.web_identity_token not in service.journal.path.read_bytes().decode(errors="replace")
+
+
+def test_model_target_contract_must_match_the_registered_task_digest(runtime):
+    _, _, value, _ = runtime
+    original = value.model_dump_json()
+    model_input(value)
+    assert value.model_dump_json() == original  # The original inventory is unchanged.
+    wrong = value.model_copy(update={"binding": value.binding.model_copy(update={"task_digest": "0" * 64})})
+    with pytest.raises(ValueError, match="initial_task_contract_unavailable"):
+        model_input(wrong)
 
 
 @pytest.mark.parametrize("fault", ["schema", "policy", "source", "task", "snapshot", "after-model-authority"])
