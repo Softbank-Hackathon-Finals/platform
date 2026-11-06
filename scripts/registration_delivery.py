@@ -24,7 +24,7 @@ REPOSITORY = "Softbank-Hackathon-Finals/platform"
 IMAGE = "ghcr.io/softbank-hackathon-finals/platform-registration"
 PACKAGE = "softbank-hackathon-finals/platform-registration"
 VALUES = "infra/gitops/environments/development/registration-image.json"
-INPUTS = (
+BUILD_INPUTS = (
     "services/platform-events",
     "services/agent-worker/src",
     "services/agent-worker/pyproject.toml",
@@ -32,6 +32,9 @@ INPUTS = (
     "services/rehearsal-runner/pyproject.toml",
     "services/inventory/src",
     "services/inventory/pyproject.toml",
+)
+INPUTS = (
+    *BUILD_INPUTS,
     "scripts/registration_delivery.py",
     "scripts/image_delivery",
     ".github/workflows/publish-registration-image.yml",
@@ -323,7 +326,7 @@ def check_promotion():
         raise Failure("publication_values_mismatch")
     source = values["sourceRevision"]
     run(["git", "merge-base", "--is-ancestor", source, "HEAD"])
-    if run(["git", "diff", "--name-only", source, "HEAD", "--", *INPUTS]).stdout.strip():
+    if run(["git", "diff", "--name-only", source, "HEAD", "--", *BUILD_INPUTS]).stdout.strip():
         raise Failure("promotion_source_superseded")
     return {"action": "current_source_verified", "source_revision": source, "deployed": False}
 

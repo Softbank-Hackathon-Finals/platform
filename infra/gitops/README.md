@@ -51,6 +51,9 @@ waiting cannot promote an image that omits those source changes. Ordinary source
 PRs can still merge and trigger their next build. For a rollback, revert the
 source and its matching verified image together. This check uses the common
 develop ancestor, including promotions from earlier unmerged queue entries.
+Changes to delivery-only tooling trigger publication and supersede in-flight
+builds, but do not invalidate an already verified image with unchanged build
+inputs. A validator-only PR can therefore share a queue group with that image.
 
 Before first adoption, compare resource UIDs and the rendered Deployment with
 the live server. Keep automated pruning disabled until owned-resource deletion

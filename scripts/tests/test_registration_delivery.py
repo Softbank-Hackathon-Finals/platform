@@ -53,8 +53,12 @@ class SourceCoverage(unittest.TestCase):
                               f"services/{service}/pyproject.toml"))
         paths.extend(("services/platform-events/uv.lock",
                       "services/platform-events/deploy/registration/gitops.Dockerfile",
-                      "services/platform-events/deploy/product-read/build.py",
-                      "scripts/registration_delivery.py", "scripts/image_delivery/oci.py",
+                      "services/platform-events/deploy/product-read/build.py"))
+        for path in paths:
+            with self.subTest(build_input=path):
+                self.assertTrue(any(path == p or path.startswith(p + "/") for p in delivery.BUILD_INPUTS),
+                                "build input missing from promotion source check")
+        paths.extend(("scripts/registration_delivery.py", "scripts/image_delivery/oci.py",
                       ".github/workflows/publish-registration-image.yml"))
         workflow = (ROOT / ".github/workflows/publish-registration-image.yml").read_text()
         section = workflow.split("    paths:\n", 1)[1].split("  workflow_dispatch:", 1)[0]
@@ -153,6 +157,12 @@ class PromotionSource(unittest.TestCase):
         self.write("services/inventory/src/bravo_inventory/scan.py", "version = 2\n")
         self.commit("source changed")
         self.assertEqual(self.check()["action"], "no_promotion")
+
+    def test_delivery_validator_change_does_not_stale_unchanged_image_contents(self):
+        self.promote()
+        self.write("scripts/registration_delivery.py", "# updated delivery validator\n")
+        self.commit("later queue entry updates delivery validation")
+        self.assertEqual(self.check()["action"], "current_source_verified")
 
     def test_prior_unmerged_queue_promotion_is_checked_against_combined_source(self):
         previous_group = self.promote()
