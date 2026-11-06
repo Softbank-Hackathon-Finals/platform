@@ -162,6 +162,17 @@
         "ISO-01.1",
         "DR-01.1"
       ]
+    },
+    {
+      "id": "apply-recheck",
+      "version": "1",
+      "app": "demo-chat",
+      "description": "T31 반영 뒤 게이트 재대조 시험 3개 (services/apply-path GATE_RECHECK_TESTS와 같은 순서). 이미지·버킷 정책 반영 뒤 재대조가 이 프로필을 쓰고, 정책 반영의 재대조 시험 IAM-01.1을 포함한다. 첫 게이트는 demo-gate를 그대로 쓴다",
+      "required_test_ids": [
+        "SEC-01.1",
+        "IAM-01.1",
+        "ENC-01.1"
+      ]
     }
   ]
 }
