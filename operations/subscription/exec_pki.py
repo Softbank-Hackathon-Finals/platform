@@ -10,6 +10,7 @@ and delete the directory; nothing here is committed or logged.
 
 import argparse
 import datetime
+import ipaddress
 import json
 import os
 from pathlib import Path
@@ -52,8 +53,13 @@ def _leaf(common, ca_key, ca_cert, days, *, server_dns=None):
                .add_extension(x509.BasicConstraints(ca=False, path_length=None), critical=True)
                .add_extension(x509.ExtendedKeyUsage([usage]), critical=False))
     if server_dns:
-        builder = builder.add_extension(x509.SubjectAlternativeName([x509.DNSName(n) for n in server_dns]),
-                                        critical=False)
+        names = []
+        for name in server_dns:
+            try:
+                names.append(x509.IPAddress(ipaddress.ip_address(name)))
+            except ValueError:
+                names.append(x509.DNSName(name))
+        builder = builder.add_extension(x509.SubjectAlternativeName(names), critical=False)
     return key, builder.sign(ca_key, hashes.SHA256())
 
 
@@ -83,13 +89,47 @@ def issue(out: Path, runner_dns: list[str], days: int = 30) -> dict:
             "sha256": fingerprints}
 
 
+def issue_docker(out: Path, server_names: list[str], days: int = 30) -> dict:
+    """Agent sandbox session VM: dockerd server cert (IP/DNS SANs) and the broker's client cert.
+
+    Server files go to SSM SecureString (the VM reads them at boot); client files to the broker's
+    sandbox_docker DOCKER_CERT_PATH as ca.pem / cert.pem / key.pem (the Docker client layout).
+    """
+    if not server_names or not 1 <= days <= 90:
+        raise ValueError("server name and 1-90 day validity required")
+    out.mkdir(mode=0o700)
+    ca_key, ca = _ca("bravo-agent-sandbox-docker-ca", days)
+    server_key, server = _leaf(server_names[0], ca_key, ca, days, server_dns=server_names)
+    client_key, client = _leaf(BROKER_NAME, ca_key, ca, days)
+    files = {"ca.pem": ca, "server-cert.pem": server, "server-key.pem": server_key,
+             "cert.pem": client, "key.pem": client_key}
+    fingerprints = {}
+    for name, item in files.items():
+        if name.endswith("key.pem"):
+            data = item.private_bytes(serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8,
+                                      serialization.NoEncryption())
+        else:
+            data = item.public_bytes(serialization.Encoding.PEM)
+            fingerprints[name] = item.fingerprint(hashes.SHA256()).hex()
+        fd = os.open(out / name, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+        with os.fdopen(fd, "wb") as stream:
+            stream.write(data)
+    return {"expires_days": days, "server_names": server_names, "sha256": fingerprints}
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("out", type=Path)
-    parser.add_argument("--runner-dns", action="append", required=True)
+    parser.add_argument("--runner-dns", action="append")
+    parser.add_argument("--docker-server", action="append",
+                        help="issue the sandbox session VM Docker TLS set instead (IP or DNS)")
     parser.add_argument("--days", type=int, default=30)
     args = parser.parse_args(argv)
-    print(json.dumps(issue(args.out, args.runner_dns, args.days), indent=2))
+    if bool(args.runner_dns) == bool(args.docker_server):
+        parser.error("choose exactly one of --runner-dns or --docker-server")
+    summary = (issue_docker(args.out, args.docker_server, args.days) if args.docker_server
+               else issue(args.out, args.runner_dns, args.days))
+    print(json.dumps(summary, indent=2))
     return 0
 
 
