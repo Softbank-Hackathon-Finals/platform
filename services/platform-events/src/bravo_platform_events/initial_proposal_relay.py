@@ -28,6 +28,7 @@ from .store import EventError
 
 OPS = {"fields", "claim", "store", "fence", "admit"}
 RELAY_CONFIG = "/workflow/relay.json"  # host ConfigMap: who this relay may act as
+READER_CONFIG = "/product-read/reader.json"  # host's read-only Reader v2 mount
 
 
 def allowed(config):
@@ -127,7 +128,8 @@ def main():
     try:
         request = json.loads(sys.stdin.read(1024 * 1024))
         store = PostgresPlanStore(runtime_connection())
-        reader = configured_initial_reader(store, request.pop("reader_config", "/product-read/reader.json"))
+        request.pop("reader_config", None)  # never chosen by the caller: the host's own mounted Reader v2 config
+        reader = configured_initial_reader(store, READER_CONFIG)
         config = json.loads(Path(RELAY_CONFIG).read_text())
         print(json.dumps({"status": "PASS", **handle(reader.records, request, config)}, sort_keys=True))
     except EventError as error:

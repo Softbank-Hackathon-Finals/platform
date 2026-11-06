@@ -478,25 +478,9 @@ def check_promotion(service=REGISTRATION):
         raise Failure("publication_values_mismatch")
     source = values["sourceRevision"]
     run(["git", "merge-base", "--is-ancestor", source, "HEAD"])
-    if not run(["git", "diff", "--name-only", source, "HEAD", "--", *BUILD_INPUTS]).stdout.strip():
-        # Exactly current (or a deliberate source + image rollback together).
-        return {"action": "current_source_verified", "source_revision": source, "deployed": False}
-    # Team agreement (11-07, #546 thread): a verified image whose source is an earlier develop commit
-    # may merge instead of being superseded on every build-input change, but it must never move the
-    # deployment back, and the gap to develop is recorded with the promotion.
-    shown = run(["git", "show", "refs/remotes/origin/develop:" + service.values], check=False)
-    deployed = (json.loads(shown.stdout or "{}") if shown.returncode == 0 else {}).get("sourceRevision")
-    if deployed and (deployed == source or not is_ancestor(deployed, source)):
-        raise Failure("promotion_would_not_advance_deployment")
-    behind = run(["git", "log", "--format=%H", f"{source}..HEAD", "--", *BUILD_INPUTS]).stdout.split()
-    result = {"action": "earlier_source_verified", "source_revision": source, "deployed": False,
-              "deployed_source_revision": deployed, "unreflected_build_input_commits": len(behind)}
-    summary = os.environ.get("GITHUB_STEP_SUMMARY")
-    if summary:
-        with open(summary, "a") as stream:
-            stream.write(f"- {service.slug}: image source {source[:12]} is {len(behind)} build-input commit(s) "
-                         f"behind develop (replaces {str(deployed)[:12]})\n")
-    return result
+    if run(["git", "diff", "--name-only", source, "HEAD", "--", *BUILD_INPUTS]).stdout.strip():
+        raise Failure("promotion_source_superseded")
+    return {"action": "current_source_verified", "source_revision": source, "deployed": False}
 
 
 def main():

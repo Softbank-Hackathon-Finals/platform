@@ -32,8 +32,15 @@
 1. 시작을 해피패스 스레드에 알리고, 자동 큐 등록을 끈다: `gh variable set MERGE_QUEUE_BOT_ENABLED --body false`.
 2. 빌드 입력(`services/*`, `infra/charts/*`, 이미지 Dockerfile)을 바꾸는 PR은 큐에 넣지 않는다. 문서·증빙 PR은 그대로 진행한다.
 3. 끝나면 `MERGE_QUEUE_BOT_ENABLED`를 원래 값으로 되돌리고 종료를 알린다.
-4. 이미지 고정 PR은 합의 1에 따라 develop의 이전 커밋 소스도 병합할 수 있다. 단, 배포 중인 소스보다 새로워야 하고(되돌림 금지),
-   develop과의 빌드 입력 차이를 CI 요약에 남긴다(`registration_delivery.py check-promotion`). Reader 이미지는 설정 v2와 같은 배포로 묶는다.
+4. 이미지 고정 PR의 최신성 검사 완화(합의 1)는 롤아웃 뒤 별도 PR로 한다. 롤아웃 중에는 기존 검사 그대로다.
+   Reader 이미지는 설정 v2와 같은 배포로 묶는다.
+
+### 네트워크 (워크플로 호스트)
+
+platform-state는 기본 차단이다. DB는 기존 `bravo.dev/db-client=runtime` 정책으로 열린다. 호스트를 켜기 전에
+`infra/envs/workflow-host/network.py --github-meta meta.json`(공개 `https://api.github.com/meta`)의 정책 두 개를
+server dry-run 뒤 적용한다: 호스트 egress(DNS, Executor `bravo-platform/cutover-executor:8080`, GitHub 443 IPv4)와
+Executor ingress(호스트에서만).
 
 ### TLS
 
