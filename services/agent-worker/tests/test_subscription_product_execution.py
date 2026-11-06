@@ -23,8 +23,10 @@ from bravo_agent.product_execution_contracts import (
     validate_execution_receipt,
 )
 from bravo_agent.subscription_product_dispatch import (
+    DispatchUnconfirmed,
     ExecutionPending,
     ExecutionUnknown,
+    OperatorGitHub,
     OperatorProductExecution,
 )
 from bravo_agent.subscription_product_execution import execute
@@ -181,6 +183,57 @@ def test_lost_dispatch_response_remains_read_only_after_restart(dispatch):
         client.submit(intent)
     assert OperatorProductExecution(client.root, gh).submit(intent) == expected
     assert len(gh.posts) == 1
+
+
+def test_rejected_dispatch_keeps_private_http_evidence_and_cannot_resend(dispatch, monkeypatch):
+    client, gh, intent, _ = dispatch
+    calls = []
+    body = '{"message":"fixture provider validation rejection","status":"422"}'
+    def call(args, **kwargs):
+        calls.append(args)
+        assert json.loads(kwargs['input']) == {'ref': 'develop', 'inputs': intent.model_dump()}
+        return subprocess.CompletedProcess(args, 1,
+            ('HTTP/2.0 422 Unprocessable Entity\r\nX-Github-Request-Id: A:1:B:2\r\n'
+             'Location: https://example.invalid/private-link\r\n\r\n' + body).encode(),
+            b'private authentication diagnostic')
+    monkeypatch.setattr(subprocess, 'run', call)
+    gh.dispatch = OperatorGitHub().dispatch
+    gh.runs = []
+    with pytest.raises(ExecutionUnknown, match='DISPATCH_RESPONSE_UNCONFIRMED') as raised:
+        client.submit(intent)
+    assert 'validation rejection' not in str(raised.value)
+    metadata, run_id = client._record(intent)
+    response = metadata['dispatch_response']
+    assert response['http_status'] == 422 and response['github_request_id'] == 'A:1:B:2'
+    assert response['body'] == body and run_id is None
+    assert 'private authentication' not in json.dumps(metadata)
+    assert 'private-link' not in json.dumps(metadata)
+    with pytest.raises(ExecutionPending, match='RUN_NOT_YET_OBSERVED'):
+        OperatorProductExecution(client.root, gh).submit(intent)
+    assert len(calls) == 1
+
+
+@pytest.mark.parametrize('status,body', [(204, ''), (200, '{"workflow_run_id":1234}')])
+def test_dispatch_records_success_response_without_assuming_workflow_success(monkeypatch, status, body):
+    monkeypatch.setattr(subprocess, 'run', lambda args, **_kwargs: subprocess.CompletedProcess(
+        args, 0, f'HTTP/2.0 {status} Response\r\nX-Github-Request-Id: ABC:123\r\n\r\n{body}'.encode(), b''))
+    response = OperatorGitHub().dispatch(42, {})
+    assert response['http_status'] == status and response['body'] == body
+
+
+@pytest.mark.parametrize('mode', ['timeout', 'malformed', 'oversized'])
+def test_dispatch_without_trustworthy_http_response_remains_unknown(monkeypatch, mode):
+    def call(args, **_kwargs):
+        if mode == 'timeout':
+            raise subprocess.TimeoutExpired(args, 60, output=b'private partial response')
+        raw = b'x' * 65537 if mode == 'oversized' else b'private invalid response'
+        return subprocess.CompletedProcess(args, 1, raw, b'private stderr')
+    monkeypatch.setattr(subprocess, 'run', call)
+    with pytest.raises(DispatchUnconfirmed) as raised:
+        OperatorGitHub().dispatch(42, {})
+    response = raised.value.response
+    assert response['http_status'] is None and response['body'] is None
+    assert 'private' not in json.dumps(response)
 
 
 def test_concurrent_submit_sends_once(dispatch):
