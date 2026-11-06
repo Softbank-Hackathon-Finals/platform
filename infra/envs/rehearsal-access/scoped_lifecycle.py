@@ -12,16 +12,8 @@ RUNNER_NAMESPACE = "bravo-rehearsal-control"
 RUNNER = "t15-runner"
 
 
-EXEC_ACCOUNT = "rehearsal-exec"
-
-
-def attempt_grants(namespace, *, exec_enabled=False):
-    """Render grants owned by the already verified namespace UID.
-
-    With T42 exec on, the runner may also act as this namespace's own `rehearsal-exec`
-    account (templates/10-serviceaccount, 20-rbac) for inspect/probe. Nothing else is added:
-    the account's Role stays namespace-scoped without Secret reads or RBAC writes.
-    """
+def attempt_grants(namespace):
+    """Render grants owned by the already verified namespace UID."""
     if (re.fullmatch(r"rehearsal-[a-f0-9]{24}", namespace.name) is None
             or not isinstance(namespace.uid, str) or not namespace.uid.strip()):
         raise ValueError("verified rehearsal namespace required")
@@ -46,9 +38,6 @@ def attempt_grants(namespace, *, exec_enabled=False):
         {"apiGroups": [""], "resources": ["serviceaccounts"],
          "resourceNames": ["rehearsal-intruder"], "verbs": ["impersonate"]},
     ]
-    if exec_enabled is True:
-        rules.append({"apiGroups": [""], "resources": ["serviceaccounts"],
-                      "resourceNames": [EXEC_ACCOUNT], "verbs": ["impersonate"]})
     return {"apiVersion": "v1", "kind": "List", "items": [
         obj("Role", name, rules=rules),
         obj("RoleBinding", name, roleRef={"apiGroup": "rbac.authorization.k8s.io",
@@ -67,14 +56,13 @@ class ScopedLifecycle:
     """An existing NamespaceLifecycle using a trusted, separately configured client."""
 
     inner: object
-    exec_enabled: bool = False
 
     def create(self, run_id):
         namespace = self.inner.create(run_id)
         try:
             # Reuse T15's UID/run/attempt validator instead of inventing another identity.
             self.inner._require_uid(namespace, run_id)
-            grants = attempt_grants(namespace, exec_enabled=self.exec_enabled)
+            grants = attempt_grants(namespace)
             result = self.inner.kube.run("create", "-f", "-", stdin=json.dumps(grants))
             if result.returncode:
                 raise RuntimeError("attempt grants not confirmed")
@@ -98,7 +86,7 @@ class ScopedLifecycle:
         return self.inner.cleanup(namespace)
 
 
-def scope_attempt(ports, *, provisioner, cleaner, exec_enabled=False):
+def scope_attempt(ports, *, provisioner, cleaner):
     """Compose trusted lifecycle/T3 and scoped Job clients at the host boundary.
 
     Call on original factory output before any remote side effects. Provisioner
@@ -111,16 +99,8 @@ def scope_attempt(ports, *, provisioner, cleaner, exec_enabled=False):
     if not isinstance(ports.lifecycle, NamespaceLifecycle) or not isinstance(ports.isolation, T3Gate):
         raise TypeError("unwrapped NamespaceLifecycle and T3Gate required")
     lifecycle = replace(ports.lifecycle, kube=provisioner, cleaner=cleaner)
-    scoped = replace(ports, lifecycle=ScopedLifecycle(lifecycle),
-                     isolation=replace(ports.isolation, kube=provisioner))
-    phase = getattr(ports, "exec_phase", None)
-    if phase is not None:
-        # Space A gets the same scoped lifecycle; only it grants exec impersonation.
-        phase_lifecycle = replace(phase.lifecycle, kube=provisioner, cleaner=cleaner)
-        scoped = replace(scoped, exec_phase=replace(
-            phase, lifecycle=ScopedLifecycle(phase_lifecycle, exec_enabled=exec_enabled),
-            isolation=replace(phase.isolation, kube=provisioner)))
-    return scoped
+    return replace(ports, lifecycle=ScopedLifecycle(lifecycle),
+                   isolation=replace(ports.isolation, kube=provisioner))
 
 
 @dataclass(frozen=True)

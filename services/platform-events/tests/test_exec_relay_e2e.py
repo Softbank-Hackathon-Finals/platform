@@ -5,6 +5,8 @@ them from the product input it serves, and T15 routes by them to the open exec s
 """
 
 import hashlib
+import shutil
+import subprocess
 import time
 
 import pytest
@@ -34,23 +36,25 @@ class Inspect:
         return Outcome(STATUS)
 
 
-def _pki_module():
-    import importlib.util
-    from pathlib import Path
-    path = Path(__file__).resolve().parents[3] / "operations/subscription/exec_pki.py"
-    spec = importlib.util.spec_from_file_location("exec_pki", path)
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
+def openssl(*args, cwd):
+    subprocess.run(["openssl", *args], cwd=cwd, check=True, capture_output=True)
 
 
 @pytest.fixture(scope="module")
 def pki(tmp_path_factory):
-    # The operator's issuance script, not test-only openssl: the round trip proves its output.
-    d = tmp_path_factory.mktemp("pki") / "issued"
-    summary = _pki_module().issue(d, ["rehearsal-runner"], days=1)
-    assert set(summary["sha256"]) == {"broker-ca.crt", "runner-ca.crt", "broker.crt", "runner.crt"}
-    assert all((d / n).stat().st_mode & 0o077 == 0 for n in ("broker.key", "runner.key"))
+    if shutil.which("openssl") is None:
+        pytest.skip("openssl not installed")
+    d = tmp_path_factory.mktemp("pki")
+    for ca in ("server-ca", "broker-ca"):
+        openssl("req", "-x509", "-newkey", "rsa:2048", "-nodes", "-keyout", f"{ca}.key", "-out", f"{ca}.crt",
+                "-days", "1", "-subj", f"/CN={ca}", cwd=d)
+    for name, ca, cn, ext in (("server", "server-ca", "rehearsal-runner", "subjectAltName=DNS:rehearsal-runner\n"),
+                              ("broker", "broker-ca", "bravo-broker", "extendedKeyUsage=clientAuth\n")):
+        openssl("req", "-newkey", "rsa:2048", "-nodes", "-keyout", f"{name}.key", "-out", f"{name}.csr",
+                "-subj", f"/CN={cn}", cwd=d)
+        (d / f"{name}.ext").write_text(ext)
+        openssl("x509", "-req", "-in", f"{name}.csr", "-CA", f"{ca}.crt", "-CAkey", f"{ca}.key",
+                "-CAcreateserial", "-out", f"{name}.crt", "-days", "1", "-extfile", f"{name}.ext", cwd=d)
     return d
 
 
@@ -60,7 +64,7 @@ def t15(pki):
     registry = ExecRegistry()
     registry.register(ExecSession("run-1", 1, Space("rehearsal-a1", "uid-a"), {"inspect": inspect},
                                   secrets=lambda: [], space_uid=lambda: "uid-a"))
-    tls = server_tls_context(str(pki / "runner.crt"), str(pki / "runner.key"), str(pki / "broker-ca.crt"))
+    tls = server_tls_context(str(pki / "server.crt"), str(pki / "server.key"), str(pki / "broker-ca.crt"))
     server = ExecServer(registry, ("127.0.0.1", 0), tls, subject_common_name("bravo-broker"))
     server.start()
     yield server, inspect
@@ -81,7 +85,7 @@ def worker_tools(tmp_path, channel):
 
 
 def forwarder(server, pki):
-    return t15_forwarder(f"https://127.0.0.1:{server.address[1]}", str(pki / "runner-ca.crt"),
+    return t15_forwarder(f"https://127.0.0.1:{server.address[1]}", str(pki / "server-ca.crt"),
                          str(pki / "broker.crt"), str(pki / "broker.key"), "rehearsal-runner")
 
 
@@ -116,7 +120,7 @@ def test_relay_refuses_anything_but_a_local_request(t15, pki):
 
 def test_wrong_runner_name_is_a_channel_failure(t15, pki, tmp_path):
     server, inspect = t15
-    wrong = t15_forwarder(f"https://127.0.0.1:{server.address[1]}", str(pki / "runner-ca.crt"),
+    wrong = t15_forwarder(f"https://127.0.0.1:{server.address[1]}", str(pki / "server-ca.crt"),
                           str(pki / "broker.crt"), str(pki / "broker.key"), "other-runner")
     with ExecRelay(wrong, "run-1", 1) as relay:
         result = worker_tools(tmp_path, SocketExecChannel(relay.path)).dispatch(
