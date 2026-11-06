@@ -470,3 +470,42 @@ def test_the_first_state_write_never_replaces_an_existing_file(tmp_path):
     assert path.read_text() == "created by someone else" and temporaries(tmp_path) == []
     write_state(path, {"revision": 2}, replace=True)
     assert json.loads(path.read_text()) == {"revision": 2} and temporaries(tmp_path) == []
+
+
+def test_an_async_checkpoint_is_refused_before_the_model_runs(context, recwarn):
+    """Review #372 P3: an ``async def`` store only creates a coroutine, so nothing would be
+    written before the model call. It must stop the run instead."""
+    bundle, snapshot, proposal, _ = context
+
+    async def store(state):
+        raise OSError("never awaited")
+
+    CountingProvider.calls = 0
+    coordinator = Coordinator(bundle, snapshot, checkpoint=store)
+    asyncio.run(coordinator.propose(CountingProvider(proposal)))
+    assert CountingProvider.calls == 0
+    assert coordinator.state == "NEEDS_HUMAN"
+    assert coordinator.audit[-1]["reason"] == "STATE_CHECKPOINT_FAILED"
+    assert not [w for w in recwarn if issubclass(w.category, RuntimeWarning)]
+
+
+def test_state_size_is_measured_in_utf8_not_escapes(context, monkeypatch):
+    """Review #372 P3: characters outside the BMP are 12 bytes as ``\\uXXXX\\uXXXX`` but 4 in
+    UTF-8. A state from the normal path must restore under the UTF-8 bound."""
+    import bravo_agent.coordinator as module
+
+    bundle, snapshot, proposal, _ = context
+    big = json.loads(json.dumps(proposal))
+    big["edits"] = [big["edits"][0] | {"replacement": "\U0001F600" * 2000}]
+    coordinator = Coordinator(bundle, snapshot)
+    asyncio.run(coordinator.propose(TestProvider(big)))
+    coordinator.verify(receipt(coordinator, verdict="FAIL"))
+    state = stored(coordinator)
+    escaped = len(json.dumps(state).encode())
+    utf8 = len(json.dumps(state, ensure_ascii=False).encode())
+    assert escaped > utf8 + 10_000
+    monkeypatch.setattr(module, "MAX_STATE_BYTES", utf8 + 1)
+    Coordinator.restore(state, snapshot)
+    monkeypatch.setattr(module, "MAX_STATE_BYTES", utf8 - 1)
+    with pytest.raises(StateRejected):
+        Coordinator.restore(state, snapshot)

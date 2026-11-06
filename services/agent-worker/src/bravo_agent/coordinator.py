@@ -1,5 +1,6 @@
 """Deterministic retry/receipt rules; this module does not import an LLM client."""
 
+import inspect
 import json
 from collections.abc import Callable
 from typing import Protocol
@@ -23,7 +24,9 @@ ATTEMPT_FIELDS = frozenset({
     "attempt", "input", "input_digest", "task_digest", "state", "model_usage", "audit_event_count",
     "audit_truncated", "proposal", "proposal_digest",
 })
-# Bounds a stored document; three attempts of 128 events plus verifier/restart events fit easily.
+# Bounds a stored document, measured as UTF-8 (not ``\uXXXX`` escapes). Worst case on the normal
+# path is three proposals of four 32,768-character edits that JSON still escapes (6 bytes each),
+# about 2.4 MB, plus three attempts of 128 events and verifier/restart events.
 MAX_STATE_BYTES = 4 * 1024 * 1024
 MAX_AUDIT_EVENTS = 3 * 129 + 8
 
@@ -75,7 +78,13 @@ class Coordinator:
     def _transition(self) -> None:
         self.revision += 1
         if self.checkpoint is not None:
-            self.checkpoint(self.export_state())
+            result = self.checkpoint(self.export_state())
+            # An async store would only create a coroutine here and the model would run with
+            # nothing written. Refuse it so the transition stops as STATE_CHECKPOINT_FAILED.
+            if inspect.isawaitable(result):
+                if inspect.iscoroutine(result):
+                    result.close()
+                raise TypeError("checkpoint must store synchronously")
 
     async def propose(self, provider: Provider) -> dict:
         if self.state not in {"READY", "RETRY_ALLOWED"} or self.attempt >= MAX_ATTEMPTS:
@@ -221,7 +230,8 @@ def _checked(state, snapshot: Snapshot, inventory: InventorySummary | None) -> d
     if not isinstance(state, dict) or set(state) != STATE_FIELDS:
         raise StateRejected("unexpected state fields")
     text = json.dumps(state, allow_nan=False)
-    if len(text.encode()) > MAX_STATE_BYTES:
+    size = len(json.dumps(state, allow_nan=False, ensure_ascii=False).encode("utf-8", "surrogatepass"))
+    if size > MAX_STATE_BYTES:
         raise StateRejected("state too large")
     state = json.loads(text)  # detached copy: the restored coordinator never aliases caller data
     body = {key: value for key, value in state.items() if key != "state_digest"}
