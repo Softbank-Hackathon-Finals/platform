@@ -174,6 +174,7 @@ def main():
                      "print('rehearsal_host_imports_ok')")
         subprocess.run(["docker", "run", "--rm", "--platform", "linux/amd64", "--network", "none",
             "--read-only", "--cap-drop", "ALL", "--security-opt", "no-new-privileges",
+            *(["--tmpfs", "/tmp:rw,noexec,nosuid,size=64m,mode=1777"] if args.rehearsal_host else []),
             "--entrypoint", "python", image["Id"], "-c", probe], check=True)
         if (image["Architecture"], image["Os"], image["Config"]["User"]) != ("amd64", "linux", "10001:10001"):
             raise ValueError("product_image_identity_mismatch")
