@@ -343,6 +343,7 @@ class Worker:
         self.persist("CLOSING")
         self.transition("closed")
         self.policy(remove=True)
+        self.app_client()
         self.case("closed_bucket_policy_absent", True, True)
         self.case("closed_anonymous_get", self.s3.call("GET", BUCKET, self.key)[0], 403)
         self.probe("closed")
@@ -384,7 +385,10 @@ class Worker:
             "owner": self.request["owner"], "action": self.request["action"], "started_at": now(),
             "verdict": "UNCONFIRMED", "cleanup": "UNCONFIRMED", "checks": [],
             "executor_source_sha256": self.config.get("source_sha256"),
+            "executor_pod_uid": self.pod_uid,
         }
+        if recovery:
+            self.report.setdefault("recovery_executor_pod_uids", []).append(self.pod_uid)
         value.update(executor=self.pod_uid, phase="RUNNING", report=self.report)
         self.api.save(doc, value)  # A failed CAS cannot start another operation.
         close_required = recovery and self.request["action"] != "check"
