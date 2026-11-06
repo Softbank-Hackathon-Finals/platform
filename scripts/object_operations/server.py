@@ -115,6 +115,8 @@ class Operations:
     def status(self):
         _, value = self.state()
         result = value.get("report", {})
+        if not result.get("finished_at"):
+            result = next((item for item in reversed(value.get("history", [])) if item.get("final_state") and item.get("finished_at")), {})
         return {"desired_state": value.get("desired_state", "closed"),
                 "last_observed_state": result.get("final_state"),
                 "observed_at": result.get("finished_at"),

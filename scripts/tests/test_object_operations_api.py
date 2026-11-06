@@ -138,6 +138,13 @@ class ApiTest(unittest.TestCase):
         self.assertEqual(result["security_state"], "PUBLIC_READ")
         self.assertFalse(result["operation_in_progress"])
 
+    def test_status_retains_last_observation_while_another_request_is_pending(self):
+        self.api.value.update(desired_state="open", phase="PENDING", report={}, history=[{"final_state": "open", "security_state": "PUBLIC_READ", "finished_at": "prior-observation"}])
+        result = self.ops.status()
+        self.assertEqual(result["last_observed_state"], "open")
+        self.assertEqual(result["observed_at"], "prior-observation")
+        self.assertTrue(result["operation_in_progress"])
+
     def test_changed_cluster_refuses_even_reads(self):
         with patch.object(self.api, "call", return_value={"metadata": {"uid": "different"}}):
             self.assertError(503, lambda: self.ops.list(OWNER))
