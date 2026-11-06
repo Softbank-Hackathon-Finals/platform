@@ -28,6 +28,20 @@ T14의 NET-01.2/01.3은 DB와 풀러를 모두 시험한다. 기존 T19 네트�
 
 방법 2는 T14 [PR #436](https://github.com/Softbank-Hackathon-Finals/platform/pull/436)의 후보 계약이다. 기본 T5 카탈로그는 방법 1을 유지하므로 방법 2를 전달하면 기존 방법 불일치 차단이 유지된다. 운영 승인을 대신해 자동으로 카탈로그를 확장하지 않는다.
 
+### 소비자 시험 데이터의 이행
+
+서버 검증기를 모의 구현한 소비자 시험에서도 `VerifiedNetworkProof`는
+`required_roles_verified=("database", "pooler")`와 해당 side의 실제 `RunSnapshot.document["run_id"]`를
+반환해야 한다. 기본 빈 값은 기존 단일 경로 진단을 의미하며, 전체 NET 통과로 승격하지 않는다.
+운영 호스트가 검증 없이 이 두 필드만 채우는 것은 허용되지 않는다.
+
+T10의 기존 `test_application_gate.py` 합성 authority는 이 두 필드가 없어 SQLite/PostgreSQL
+두 시험에서 BLOCK되었다. T19 게이트 CI 통과와 별개로 이 소비자 CI는 실패 상태다.
+별도 복사본에서 두 필드만 보완한 해당 파일 16개 시험은 로컬 실제 PostgreSQL과 SQLite에서
+통과했다. T10 담당의 범위 합의 후 소비자 fixture를 연결해야 하며, 이 문서 변경은 T10 파일을
+수정하거나 필수 CI를 우회하지 않는다.
+[인계 기록](https://github.com/Softbank-Hackathon-Finals/platform/issues/29#issuecomment-6677547855).
+
 ## 검증
 
 - 합성 원문으로 양쪽 역할·전후 대조군·DNS·최대 시간·digest·등록·권한 회수·run ID 불일치를 검사한다.
