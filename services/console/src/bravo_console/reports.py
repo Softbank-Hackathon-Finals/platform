@@ -50,6 +50,12 @@ class PlanControlReport:
             raise ObservationError("control_report_scope_mismatch")
         report = object_document(registered.document, max_bytes=262144)
         VALIDATOR.validate(report)
+        if (plan.get("profile_id"), plan.get("profile_version")) != (
+            report["profile"]["id"], report["profile"]["version"]
+        ):
+            # Valid report signatures do not let a smaller evaluation scope
+            # substitute for the immutable plan's scope. Legacy plans are unbound.
+            raise ObservationError("control_report_profile_mismatch")
         if report["app"] != plan["workload_id"] or any(
             report[side + "_environment_id"] != plan[side + "_environment_id"]
             for side in ("source", "target")

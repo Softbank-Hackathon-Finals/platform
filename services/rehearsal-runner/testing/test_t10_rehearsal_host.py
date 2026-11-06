@@ -172,3 +172,47 @@ def test_wrong_port_attempt_fails_before_any_effect(mismatch):
 
     assert run_admitted_attempt(admitted, task, BadFactory()).reason == "ADMISSION_PORT_MISMATCH"
     assert ports.events == []
+
+
+class ExecPhase:
+    """Space A for rehearsal.exec; separate from the grading lifecycle."""
+
+    def __init__(self, events):
+        self.events, self.traces = events, []
+        self.lifecycle, self.isolation = self, self
+
+    def create(self, run_id):
+        self.events.append(("create-exec", run_id))
+        return Namespace("rehearsal-ai-space", "uid-a")
+
+    def check(self, namespace):
+        self.events.append(("isolate-exec", namespace.uid))
+        return IsolationPass(namespace.name, namespace.uid, "probe-a")
+
+    def open(self, run_id, attempt, namespace):
+        raise RuntimeError("no tool Pod in this test")
+
+    def close(self, session):
+        pass
+
+    def cleanup(self, namespace):
+        self.events.append(("cleanup-exec", namespace.uid))
+        return True
+
+
+class ExecPorts(Ports):
+    def prepare(self, attempt, feedback_ref):
+        self.attempt = attempt
+        self.events.append(("prepare", attempt))
+        return AttemptPorts(self, self, self, self, exec_phase=ExecPhase(self.events))
+
+
+def test_exec_phase_runs_space_a_before_the_unchanged_grading_flow(environment):
+    spec, _, sender, _, _, service = environment
+    sender.ports = ExecPorts()
+    receipt = service.start(Principal("operator", spec.tenant_id), spec.plan_id, task_id="bucket",
+                            expected_version=1, attempt=1, command_key="first")
+    run = receipt["rehearsal_id"]
+    assert sender.ports.events == [("prepare", 1), ("create-exec", run), ("isolate-exec", "uid-a"),
+                                   ("cleanup-exec", "uid-a"), ("create", run), ("verify", 1),
+                                   ("cleanup", "uid-1")]

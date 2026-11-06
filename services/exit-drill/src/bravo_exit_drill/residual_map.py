@@ -162,11 +162,10 @@ def _channel_entry(decision: dict, results: dict[str, str]) -> dict:
 
 def _workload_entry(name: str, workload: dict) -> dict:
     """정책을 걸지 않은 구성요소. 이것을 거쳐 AWS에 닿는 의존은 이 시험으로 잡지 못한다."""
-    selector = ", ".join(f"{k}={v}" for k, v in sorted(workload["selector"].items()))
     return _entry(
         id=f"workload:{name}",
         category="unblocked_workload",
-        name=f"{name} ({selector})",
+        name=_selector_label(name, workload),
         status="not_blocked",
         source="drill-plan",
     )
@@ -176,10 +175,22 @@ def _residual_entries(inventory: InventoryView, plan: dict) -> list[dict]:
     """T16 계약의 잔존 의존성은 등급이 없는 글자다. 등급을 지어내지 않고 '등급 없음'으로 둔다."""
     sources = {name: "drill-spec" for name in plan["declared_residuals"]}
     sources.update({name: "inventory" for name in inventory.residuals})
+    # 목적지에서 그 서비스에 기대는 구성요소(Cloudflare Tunnel connector 등). 막지 않으므로 남음 그대로다.
+    edges: dict[str, list[str]] = {}
+    for name, workload in sorted(plan["workloads"].items()):
+        if workload["role"] == "edge":
+            edges.setdefault(workload["residual"], []).append(_selector_label(name, workload))
     return [
-        _entry(id=f"residual:{name}", category="external_service", name=name, status="remains", source=source)
+        _entry(
+            id=f"residual:{name}", category="external_service", name=name, status="remains", source=source,
+            target_impl=", ".join(edges.get(name, [])),
+        )
         for name, source in sorted(sources.items())
     ]
+
+
+def _selector_label(name: str, workload: dict) -> str:
+    return f"{name} ({', '.join(f'{k}={v}' for k, v in sorted(workload['selector'].items()))})"
 
 
 def _cell(value: object) -> str:

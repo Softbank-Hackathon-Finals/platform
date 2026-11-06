@@ -60,7 +60,7 @@ def scan_summary(report):
     }
 
 
-def verify_layout(layout, digest, source, *, repository):
+def verify_layout(layout, digest, source, *, repository, architecture="amd64"):
     digest_value(digest)
     source_sha(source)
     blobs = layout / "blobs/sha256"
@@ -136,7 +136,7 @@ def verify_layout(layout, digest, source, *, repository):
     runtime = [
         m
         for m in index["manifests"]
-        if m.get("platform") == {"architecture": "amd64", "os": "linux"}
+        if m.get("platform") == {"architecture": architecture, "os": "linux"}
     ]
     if len(runtime) != 1:
         raise Failure("runtime_platform_ambiguous")

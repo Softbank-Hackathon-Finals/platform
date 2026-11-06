@@ -307,6 +307,13 @@ ID·develop·workflow SHA·첫 실행만 허용하고, 기존 VM concurrency/고
 결과가 진행 중이면 `ExecutionPending`, 확정할 수 없으면 `ExecutionUnknown`이며
 CLI는 각각 4·5로 끝난다. 자동 재발행하지 않는다.
 
+운영자 원장의 `metadata.dispatch_response`는 수신한 dispatch HTTP 상태, GitHub
+request ID와 제한된 크기의 응답 본문을 비공개로 보존한다. 인증 진단이 포함될 수
+있는 stderr와 나머지 HTTP 헤더는 저장하지 않는다. 응답 본문을 공개 로그·PR에
+붙이지 않는다. timeout·해석 불가·과대 응답은 `http_status=null`로 남으며, 과거
+원장에 응답이 없으면 이후 조회 결과로 그때의 HTTP 응답을 추정하지 않는다.
+명시적인 4xx를 보존했더라도 같은 intent의 재전송 권한은 생기지 않는다.
+
 공개 저장소 artifact의 read access를 제품 원문 접근 권한으로 취급하지 않는다.
 Actions는 [X25519 + HKDF](https://cryptography.io/en/50.0.2/hazmat/primitives/asymmetric/x25519/)와
 AES-256-GCM으로 결과를 암호화하며, 새 ephemeral key/nonce와 같은 intent·수신키·run/attempt를

@@ -12,7 +12,7 @@ uv run --project services/platform-events python \
 ```
 
 빌더는 변경 없는 커밋과 잠긴 `product-inputs`·`postgres` 의존성을 사용한다. Git의
-일반 blob으로 등록된 네 Python 패키지만 복사하고, symlink·서브모듈을 거부한다.
+일반 blob으로 등록된 다섯 Python 패키지만 복사하고, symlink·서브모듈을 거부한다.
 무시된 설정·로컬 수정·키·DB 자격·전체 checkout은 build context에 넣지 않는다.
 observability는 기존 고정 revision을 유지한다. registry 패키지는 버전과 해시를
 검사하고, Python base도 기존 검토 이미지 digest에 고정한다.
@@ -31,3 +31,10 @@ archive와 manifest를 대조한 뒤 기존 인프라 담당의 절차로 import
 설정·공개 JWKS·catalog·현재 grant·TLS·DB mount는 이미지를 실행할 때 별도로
 인수한다. 빌드나 import 검사는 실제 HTTPS·운영 등록·현재 권한·모델 실행을
 증명하지 않는다. 실행 입력이 없으면 서비스를 시작하지 않는다.
+
+최초 PROPOSE 입력을 조회할 때는 같은 실행 명령에 `--initial-proposal`을 추가한다.
+이 모드는 `/internal/v1/initial-proposal-inputs/read`만 열고, 신뢰된 호스트가 이미
+접수한 불변 입력을 기존 DB에서 읽는다. 원본 checkout·수집 자격을 조회 Pod에
+복사하지 않는다. 현재 계획·catalog·별도 `t38-initial-proposal` grant·저장된
+실행 claim과 GitHub OIDC의 workflow/source/run/attempt가 일치해야 한다.
+입력이 없으면 거부하며 새 입력·grant·모델 실행을 만들지 않는다.

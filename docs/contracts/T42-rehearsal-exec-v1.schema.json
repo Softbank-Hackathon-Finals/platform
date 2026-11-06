@@ -8,7 +8,7 @@
     "attempt": {"type": "integer", "minimum": 1, "maximum": 3},
     "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
     "request_id": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{7,79}$"},
-    "k8s_name": {"type": "string", "pattern": "^[a-z0-9-]{1,63}$"},
+    "k8s_name": {"type": "string", "pattern": "^[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?$"},
     "http_path": {"type": "string", "pattern": "^/[A-Za-z0-9._~!$&'()*+,;=:@%/?-]{0,255}$"},
     "tool": {"type": "string", "enum": ["rehearsal.exec.apply", "rehearsal.exec.inspect", "rehearsal.exec.probe"]},
     "action": {"type": "string", "enum": ["apply", "inspect", "probe"]},
@@ -24,7 +24,7 @@
       "required": ["target_kind", "target_name", "lines"],
       "properties": {
         "target_kind": {"type": "string", "enum": ["pod", "deployment", "events", "logs"]},
-        "target_name": {"type": ["string", "null"], "pattern": "^[a-z0-9-]{1,63}$"},
+        "target_name": {"type": ["string", "null"], "pattern": "^[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?$"},
         "lines": {"type": ["integer", "null"], "minimum": 1, "maximum": 200}
       }
     },
@@ -45,7 +45,7 @@
       "additionalProperties": false,
       "required": ["service", "port", "method", "path"],
       "properties": {
-        "service": {"type": "string", "pattern": "^[a-z0-9-]{1,63}$"},
+        "service": {"type": "string", "pattern": "^[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?$"},
         "port": {"type": "integer", "minimum": 1, "maximum": 65535},
         "method": {"type": "string", "enum": ["TCP", "HTTP_GET", "HTTP_HEAD"]},
         "path": {"type": ["string", "null"], "pattern": "^/[A-Za-z0-9._~!$&'()*+,;=:@%/?-]{0,255}$"}

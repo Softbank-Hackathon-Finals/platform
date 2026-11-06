@@ -247,3 +247,243 @@ tests:
             exp_annotations:
               summary: "onprem/target-pgbouncer chat 풀에서 클라이언트가 2분 넘게 서버 연결을 기다린다(PAUSE 아님)"
               runbook: docs/observability/runbooks.md#bravopgbouncerclientswaiting
+
+  # T8: stop, retry, counter reset, missing data, recovery and forged source.
+  - interval: 30s
+    input_series:
+    - series: cnpg_pg_subscription_enabled{bravo_signal="cnpg-scrape",bravo_env="onprem",cnpg_cluster="target-db",subname="t8_source_to_target"}
+      values: 1 0 0 0 0 0 0
+    - series: cnpg_pg_subscription_apply_error_count_total{bravo_signal="cnpg-scrape",bravo_env="onprem",cnpg_cluster="target-db",subname="t8_source_to_target"}
+      values: 5x6
+    alert_rule_test:
+    - eval_time: 120s
+      alertname: BravoForwardSubscriptionOff
+      exp_alerts: []
+    - eval_time: 150s
+      alertname: BravoForwardSubscriptionOff
+      exp_alerts:
+      - exp_labels:
+          bravo_env: onprem
+          cnpg_cluster: target-db
+          subname: t8_source_to_target
+          severity: page
+        exp_annotations:
+          summary: 정방향 구독이 2분 넘게 꺼져 있다
+          runbook: docs/observability/runbooks.md#bravoforwardsubscriptionoff
+    - eval_time: 150s
+      alertname: BravoForwardSubscriptionError
+      exp_alerts: []
+    - eval_time: 150s
+      alertname: BravoForwardSubscriptionUnobservable
+      exp_alerts: []
+  - interval: 30s
+    input_series:
+    - series: cnpg_pg_subscription_enabled{bravo_signal="cnpg-scrape",bravo_env="onprem",cnpg_cluster="target-db",subname="t8_source_to_target"}
+      values: 1x24
+    - series: cnpg_pg_subscription_apply_error_count_total{bravo_signal="cnpg-scrape",bravo_env="onprem",cnpg_cluster="target-db",subname="t8_source_to_target"}
+      values: 0 0 1 2 3 4 5 6 6x24
+    alert_rule_test:
+    - eval_time: 30s
+      alertname: BravoForwardSubscriptionError
+      exp_alerts: []
+    - eval_time: 60s
+      alertname: BravoForwardSubscriptionError
+      exp_alerts:
+      - exp_labels:
+          bravo_env: onprem
+          cnpg_cluster: target-db
+          subname: t8_source_to_target
+          severity: ticket
+        exp_annotations: &id001
+          summary: 정방향 구독 적용 오류가 증가했다 (최근 10분)
+          runbook: docs/observability/runbooks.md#bravoforwardsubscriptionerror
+    - eval_time: 60s
+      alertname: BravoForwardSubscriptionRetrying
+      exp_alerts: []
+    - eval_time: 180s
+      alertname: BravoForwardSubscriptionRetrying
+      exp_alerts:
+      - exp_labels:
+          bravo_env: onprem
+          cnpg_cluster: target-db
+          subname: t8_source_to_target
+          severity: page
+        exp_annotations:
+          summary: 정방향 구독 오류가 5분 안에 5건 이상 발생했다
+          runbook: docs/observability/runbooks.md#bravoforwardsubscriptionretrying
+    - eval_time: 14m
+      alertname: BravoForwardSubscriptionError
+      exp_alerts: []
+  - interval: 30s
+    input_series:
+    - series: cnpg_pg_subscription_enabled{bravo_signal="cnpg-scrape",bravo_env="onprem",cnpg_cluster="target-db",subname="t8_source_to_target"}
+      values: 1x8
+    - series: cnpg_pg_subscription_apply_error_count_total{bravo_signal="cnpg-scrape",bravo_env="onprem",cnpg_cluster="target-db",subname="t8_source_to_target"}
+      values: 9 9 0 0 0 1 1 1 1
+    alert_rule_test:
+    - eval_time: 120s
+      alertname: BravoForwardSubscriptionError
+      exp_alerts: []
+    - eval_time: 150s
+      alertname: BravoForwardSubscriptionError
+      exp_alerts:
+      - exp_labels:
+          bravo_env: onprem
+          cnpg_cluster: target-db
+          subname: t8_source_to_target
+          severity: ticket
+        exp_annotations: *id001
+    - eval_time: 150s
+      alertname: BravoForwardSubscriptionRetrying
+      exp_alerts: []
+  - interval: 30s
+    input_series:
+    - series: cnpg_pg_subscription_enabled{bravo_env="onprem",cnpg_cluster="target-db",subname="t8_source_to_target"}
+      values: '0x8'
+    - series: cnpg_pg_subscription_apply_error_count_total{bravo_env="onprem",cnpg_cluster="target-db",subname="t8_source_to_target"}
+      values: 0+10x8
+    - series: cnpg_pg_subscription_enabled{bravo_signal="cnpg-scrape",bravo_env="onprem",cnpg_cluster="target-db",subname="t8_target_to_source"}
+      values: '0x8'
+    - series: cnpg_pg_subscription_apply_error_count_total{bravo_signal="cnpg-scrape",bravo_env="onprem",cnpg_cluster="target-db",subname="t8_target_to_source"}
+      values: 0+10x8
+    alert_rule_test:
+    - eval_time: 180s
+      alertname: BravoForwardSubscriptionOff
+      exp_alerts: []
+    - eval_time: 180s
+      alertname: BravoForwardSubscriptionError
+      exp_alerts: []
+    - eval_time: 180s
+      alertname: BravoForwardSubscriptionRetrying
+      exp_alerts: []
+    - eval_time: 60s
+      alertname: BravoForwardSubscriptionUnobservable
+      exp_alerts:
+      - exp_labels:
+          bravo_env: onprem
+          cnpg_cluster: target-db
+          subname: t8_source_to_target
+          severity: page
+        exp_annotations: &id002
+          summary: 정방향 구독 상태 또는 오류 지표를 확인할 수 없다
+          runbook: docs/observability/runbooks.md#bravoforwardsubscriptionunobservable
+  - interval: 30s
+    input_series:
+    - series: cnpg_pg_subscription_enabled{bravo_signal="cnpg-scrape",bravo_env="onprem",cnpg_cluster="target-db",subname="t8_source_to_target"}
+      values: 1x8
+    alert_rule_test:
+    - eval_time: 30s
+      alertname: BravoForwardSubscriptionUnobservable
+      exp_alerts: []
+    - eval_time: 60s
+      alertname: BravoForwardSubscriptionUnobservable
+      exp_alerts:
+      - exp_labels:
+          bravo_env: onprem
+          cnpg_cluster: target-db
+          subname: t8_source_to_target
+          severity: page
+        exp_annotations: *id002
+  - interval: 30s
+    input_series:
+    - series: cnpg_pg_subscription_enabled{bravo_signal="cnpg-scrape",bravo_env="onprem",cnpg_cluster="target-db",subname="t8_source_to_target"}
+      values: 1x4
+    - series: cnpg_pg_subscription_apply_error_count_total{bravo_signal="cnpg-scrape",bravo_env="onprem",cnpg_cluster="target-db",subname="t8_source_to_target"}
+      values: '0x4'
+    alert_rule_test:
+    - eval_time: 180s
+      alertname: BravoForwardSubscriptionUnobservable
+      exp_alerts: []
+    - eval_time: 270s
+      alertname: BravoForwardSubscriptionUnobservable
+      exp_alerts:
+      - exp_labels:
+          bravo_env: onprem
+          cnpg_cluster: target-db
+          subname: t8_source_to_target
+          severity: page
+        exp_annotations: *id002
+    - eval_time: 480s
+      alertname: BravoForwardSubscriptionUnobservable
+      exp_alerts:
+      - exp_labels:
+          bravo_env: onprem
+          cnpg_cluster: target-db
+          subname: t8_source_to_target
+          severity: page
+        exp_annotations: *id002
+  - interval: 30s
+    input_series:
+    - series: cnpg_pg_subscription_enabled{bravo_signal="cnpg-scrape",bravo_env="onprem",cnpg_cluster="target-db",subname="t8_source_to_target"}
+      values: _ _ _ _ _ 1 1 1
+    - series: cnpg_pg_subscription_apply_error_count_total{bravo_signal="cnpg-scrape",bravo_env="onprem",cnpg_cluster="target-db",subname="t8_source_to_target"}
+      values: _ _ _ _ _ 0 0 0
+    alert_rule_test:
+    - eval_time: 90s
+      alertname: BravoForwardSubscriptionUnobservable
+      exp_alerts:
+      - exp_labels:
+          bravo_env: onprem
+          cnpg_cluster: target-db
+          subname: t8_source_to_target
+          severity: page
+        exp_annotations: *id002
+    - eval_time: 150s
+      alertname: BravoForwardSubscriptionUnobservable
+      exp_alerts: []
+  - interval: 30s
+    input_series:
+    - series: cnpg_pg_replication_slots_active{bravo_signal="cnpg-scrape",bravo_env="aws",cnpg_cluster="source-db",slot_name="t8_source_to_target",slot_type="logical"}
+      values: 1 0 0 0 0 0 1
+    - series: cnpg_pg_replication_slots_active{bravo_signal="cnpg-scrape",bravo_env="aws",cnpg_cluster="source-db",slot_name="t8_target_to_source",slot_type="logical"}
+      values: '0x8'
+    - series: cnpg_pg_replication_slots_active{bravo_env="aws",cnpg_cluster="source-db",slot_name="t8_source_to_target",slot_type="logical"}
+      values: 1x8
+    alert_rule_test:
+    - eval_time: 120s
+      alertname: BravoForwardReplicationNotRecovering
+      exp_alerts: []
+    - eval_time: 150s
+      alertname: BravoForwardReplicationNotRecovering
+      exp_alerts:
+      - exp_labels:
+          bravo_env: aws
+          cnpg_cluster: source-db
+          slot_name: t8_source_to_target
+          severity: page
+        exp_annotations:
+          summary: 정방향 복제 슬롯이 2분 넘게 비활성이다
+          runbook: docs/observability/runbooks.md#bravoforwardreplicationnotrecovering
+    - eval_time: 180s
+      alertname: BravoForwardReplicationNotRecovering
+      exp_alerts: []
+
+  - interval: 30s
+    input_series:
+    - series: cnpg_pg_replication_slots_active{bravo_signal="cnpg-scrape",bravo_env="aws",cnpg_cluster="source-db",slot_name="t8_source_to_target",slot_type="logical"}
+      values: _ _ _ _ 1 1 1 1 1
+    - series: cnpg_pg_replication_slots_active{bravo_env="aws",cnpg_cluster="source-db",slot_name="t8_source_to_target",slot_type="logical"}
+      values: 1x16
+    alert_rule_test:
+    - eval_time: 30s
+      alertname: BravoForwardSlotUnobservable
+      exp_alerts: []
+    - eval_time: 60s
+      alertname: BravoForwardSlotUnobservable
+      exp_alerts:
+      - &id001
+        exp_labels:
+          bravo_env: aws
+          cnpg_cluster: source-db
+          slot_name: t8_source_to_target
+          severity: page
+        exp_annotations:
+          summary: 출발지 정방향 슬롯 지표를 확인할 수 없다
+          runbook: docs/observability/runbooks.md#bravoforwardslotunobservable
+    - eval_time: 120s
+      alertname: BravoForwardSlotUnobservable
+      exp_alerts: []
+    - eval_time: 390s
+      alertname: BravoForwardSlotUnobservable
+      exp_alerts:
+      - *id001

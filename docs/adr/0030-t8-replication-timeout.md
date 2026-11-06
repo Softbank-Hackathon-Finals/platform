@@ -1,6 +1,6 @@
 # ADR-0030: 정방향 복제 시간 초과 30초와 방향별 disable_on_error 기본값
 
-* **상태 (Status):** 채택됨(Accepted). 렌더에 반영했고, 떠 있는 두 클러스터 적용은 별도 승인이다
+* **상태 (Status):** 채택됨(Accepted). #382 렌더 병합 후 사용자 직접 지시로 ARM 이관 실행에서 실제 CR/DB 정합을 확인했다(11/6 05:53 KST)
 * **날짜 (Date):** 2026-11-06
 * **관련 (Related):** T8 #18. [11/4 판단](../evidence/t8-replication-resume-2026-11-04/README.md)의 "5초 유지"를 바꾼다
 
@@ -49,11 +49,11 @@
 
 **이유**
 * 실제로 본 실패가 짧은 정체였고, 그 실패를 lab에서 5초는 냈고 30초는 내지 않았다.
-* 정방향은 사람이 없는 시간에도 스스로 회복해야 한다. 충돌의 끝없는 재시도는 적용 오류 수 지표와 T37 알람 제안(`BravoForwardSubscriptionRetrying`)으로 잡는다. Executor는 `disable_on_error`를 읽지 않고, 지연 한도와 경로 왕복 시험으로 멈춘다(코드를 읽은 판단이며 이 조합으로 돌려 보지는 않았다).
+* 정방향은 사람이 없는 시간에도 스스로 회복해야 한다. 충돌의 끝없는 재시도는 적용 오류 수 지표와 T37 배포 알람(`BravoForwardSubscriptionRetrying`)으로 잡는다. Executor는 `disable_on_error`를 읽지 않고, 지연 한도와 경로 왕복 시험으로 멈춘다(코드를 읽은 판단이며 이 조합으로 돌려 보지는 않았다).
 * 역방향은 컷오버 뒤에만 돈다. 그때 오류는 출발지가 받으면 안 되는 쓰기라, 멈춰서 사람이 보게 한다.
 
 ## 4. 결과
 
 * 근거: [운영 문서](../operations/t8-replication-health.md#116-새벽-끊김-원인과-대응), [측정 기록](../evidence/t8-replication-timeout-2026-11-06/README.md).
-* 실제 정방향 객체의 `disable_on_error`는 11/6 04:16 KST에 `kubectl patch`로 `true`가 됐고, 누가 바꿨는지 확인하고 있다. 이 결정은 렌더 기본값이다. 실제 값을 어느 쪽으로 맞출지는 바꾼 사람과 정한다.
-* 재지 못한 것: 실제 경로에서의 정체 모양과 길이, 30초에서 실제 단절의 회복, 실제 클러스터 reload. 적용 뒤에는 운영 문서의 확인 절차로 이를 본다.
+* 04:16 KST의 `true` 변경은 기존 T17 Edge 복구 실행이 과거 T36의 `true 유지` 조건을 복원한 것이다. 태현님의 렌더 변경이 원인이 아니다. 사용자 직접 지시로 같은 ARM 운영 실행에서 양쪽 감시 수신을 확인한 뒤 05:53 KST에 정방향 `false`로 맞췄다. 역방향 OFF/`true`, 양단 timeout 30초와 DB Pod 무재시작을 확인했다. [실제 적용·복구 근거](../evidence/t8-runtime-policy-2026-11-06/README.md).
+* 실제 양단 CR/DB 값과 `pending_restart=false`, Collector 표본 전진, Prometheus 17개 규칙 health=ok 및 지표 누락 경보 해소를 확인했다. 재지 못한 것: 실제 정체 모양과 길이, 30초에서 새 실제 단절의 회복, 오류 증가 경보의 운영 DB 오류 주입, 외부 알림 발송, Executor 컷오버. 합성 시험을 이 결과로 대신하지 않는다.

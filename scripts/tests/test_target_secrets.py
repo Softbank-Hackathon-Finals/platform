@@ -128,14 +128,8 @@ class DeliveryBoundaryTests(unittest.TestCase):
              "podSelector": {"matchLabels": {"bravo-secret-probe": "true"}}},
             {"namespaceSelector": {"matchLabels": {"kubernetes.io/metadata.name": "bravo-rehearsal-control"}},
              "podSelector": {"matchLabels": {"app.kubernetes.io/component": "rehearsal-openbao-writer"}}},
-            # attempt namespace label AND the T15 candidate / verifier Pod label, in one peer each
-            {"namespaceSelector": {"matchLabels": {"app.kubernetes.io/part-of": "bravo-rehearsal"}},
-             "podSelector": {"matchLabels": {"app": "rehearsal-app"}}},
-            {"namespaceSelector": {"matchLabels": {"app.kubernetes.io/part-of": "bravo-rehearsal"}},
-             "podSelector": {"matchLabels": {"role": "credential-verifier"}}},
+            {"namespaceSelector": {"matchLabels": {"app.kubernetes.io/part-of": "bravo-rehearsal"}}},
         ])
-        writer_namespace = render.rehearsal_writer_identity()["items"][0]
-        self.assertNotEqual(writer_namespace["metadata"]["labels"].get("app.kubernetes.io/part-of"), "bravo-rehearsal")
         for stage, expected in (("network", "bravo-secrets"), ("eso-network", "external-secrets")):
             policy = cli(stage, "--api-ip", "10.96.0.1", "--api-endpoint-ip", "192.168.50.10")
             with self.subTest(stage=stage):

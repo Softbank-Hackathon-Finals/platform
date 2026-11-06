@@ -1,0 +1,198 @@
+{
+  "measured_at_kst": "2026-11-06T10:28:28+09:00/10:28:57+09:00",
+  "path": "source EKS CNPG -> Tailscale DERP relay (tok) -> target VM CNPG (arm64)",
+  "method": "20 rows inserted into cutover.barrier on the source, 1.5 s apart; after each, pg_stat_replication of the forward walsender read on the source (single clock). Rows deleted afterwards on the source.",
+  "settings": {
+    "wal_sender_timeout": "30s",
+    "wal_receiver_timeout": "30s",
+    "disable_on_error_forward": false
+  },
+  "summary": {
+    "write_lag_ms": {
+      "min": 65.273,
+      "p50": 67.696,
+      "p95": 70.899,
+      "max": 71.447
+    },
+    "flush_lag_ms": {
+      "min": 265.738,
+      "p50": 268.006,
+      "p95": 270.0,
+      "max": 271.259
+    },
+    "replay_lag_ms": {
+      "min": 65.273,
+      "p50": 67.696,
+      "p95": 70.899,
+      "max": 71.447
+    },
+    "gap_bytes_max": 0
+  },
+  "arrived_on_target": 20,
+  "after_cleanup": {
+    "source": 0,
+    "target": 0
+  },
+  "samples": [
+    {
+      "i": 1,
+      "utc": "01:28:28.496",
+      "write_lag_ms": 66.56,
+      "flush_lag_ms": 267.064,
+      "replay_lag_ms": 66.56,
+      "gap_bytes": 0
+    },
+    {
+      "i": 2,
+      "utc": "01:28:30.001",
+      "write_lag_ms": 70.082,
+      "flush_lag_ms": 270.0,
+      "replay_lag_ms": 70.082,
+      "gap_bytes": 0
+    },
+    {
+      "i": 3,
+      "utc": "01:28:31.504",
+      "write_lag_ms": 70.317,
+      "flush_lag_ms": 269.431,
+      "replay_lag_ms": 70.317,
+      "gap_bytes": 0
+    },
+    {
+      "i": 4,
+      "utc": "01:28:33.009",
+      "write_lag_ms": 68.323,
+      "flush_lag_ms": 268.571,
+      "replay_lag_ms": 68.323,
+      "gap_bytes": 0
+    },
+    {
+      "i": 5,
+      "utc": "01:28:34.514",
+      "write_lag_ms": 67.489,
+      "flush_lag_ms": 268.503,
+      "replay_lag_ms": 67.489,
+      "gap_bytes": 0
+    },
+    {
+      "i": 6,
+      "utc": "01:28:36.019",
+      "write_lag_ms": 66.097,
+      "flush_lag_ms": 267.683,
+      "replay_lag_ms": 66.097,
+      "gap_bytes": 0
+    },
+    {
+      "i": 7,
+      "utc": "01:28:37.524",
+      "write_lag_ms": 69.095,
+      "flush_lag_ms": 269.213,
+      "replay_lag_ms": 69.095,
+      "gap_bytes": 0
+    },
+    {
+      "i": 8,
+      "utc": "01:28:39.027",
+      "write_lag_ms": 66.477,
+      "flush_lag_ms": 266.738,
+      "replay_lag_ms": 66.477,
+      "gap_bytes": 0
+    },
+    {
+      "i": 9,
+      "utc": "01:28:40.531",
+      "write_lag_ms": 67.613,
+      "flush_lag_ms": 267.547,
+      "replay_lag_ms": 67.613,
+      "gap_bytes": 0
+    },
+    {
+      "i": 10,
+      "utc": "01:28:42.035",
+      "write_lag_ms": 68.524,
+      "flush_lag_ms": 268.697,
+      "replay_lag_ms": 68.524,
+      "gap_bytes": 0
+    },
+    {
+      "i": 11,
+      "utc": "01:28:43.539",
+      "write_lag_ms": 70.899,
+      "flush_lag_ms": 269.129,
+      "replay_lag_ms": 70.899,
+      "gap_bytes": 0
+    },
+    {
+      "i": 12,
+      "utc": "01:28:45.044",
+      "write_lag_ms": 65.273,
+      "flush_lag_ms": 265.738,
+      "replay_lag_ms": 65.273,
+      "gap_bytes": 0
+    },
+    {
+      "i": 13,
+      "utc": "01:28:46.547",
+      "write_lag_ms": 68.041,
+      "flush_lag_ms": 267.528,
+      "replay_lag_ms": 68.041,
+      "gap_bytes": 0
+    },
+    {
+      "i": 14,
+      "utc": "01:28:48.051",
+      "write_lag_ms": 66.669,
+      "flush_lag_ms": 266.6,
+      "replay_lag_ms": 66.669,
+      "gap_bytes": 0
+    },
+    {
+      "i": 15,
+      "utc": "01:28:49.554",
+      "write_lag_ms": 67.457,
+      "flush_lag_ms": 267.32,
+      "replay_lag_ms": 67.457,
+      "gap_bytes": 0
+    },
+    {
+      "i": 16,
+      "utc": "01:28:51.059",
+      "write_lag_ms": 66.19,
+      "flush_lag_ms": 267.787,
+      "replay_lag_ms": 66.19,
+      "gap_bytes": 0
+    },
+    {
+      "i": 17,
+      "utc": "01:28:52.563",
+      "write_lag_ms": 71.447,
+      "flush_lag_ms": 271.259,
+      "replay_lag_ms": 71.447,
+      "gap_bytes": 0
+    },
+    {
+      "i": 18,
+      "utc": "01:28:54.067",
+      "write_lag_ms": 66.074,
+      "flush_lag_ms": 268.226,
+      "replay_lag_ms": 66.074,
+      "gap_bytes": 0
+    },
+    {
+      "i": 19,
+      "utc": "01:28:55.571",
+      "write_lag_ms": 67.778,
+      "flush_lag_ms": 267.364,
+      "replay_lag_ms": 67.778,
+      "gap_bytes": 0
+    },
+    {
+      "i": 20,
+      "utc": "01:28:57.075",
+      "write_lag_ms": 68.959,
+      "flush_lag_ms": 268.672,
+      "replay_lag_ms": 68.959,
+      "gap_bytes": 0
+    }
+  ]
+}

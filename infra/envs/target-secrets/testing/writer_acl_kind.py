@@ -36,9 +36,10 @@ RESTRICTED = {"allowPrivilegeEscalation": False, "runAsNonRoot": True, "capabili
 POD_SECURITY = {"runAsNonRoot": True, "runAsUser": 100, "runAsGroup": 1000,
                 "seccompProfile": {"type": "RuntimeDefault"}}
 BAO_HTTP = "http://target-openbao.bravo-secrets.svc:8200"
-# Reader Pod labels: one the rendered ``network`` policy admits in attempt namespaces, one it does not.
-READER_POD_LABEL = render.REHEARSAL_OPENBAO_CLIENTS[0]  # the T15 candidate Pod label the rendered policy admits
-UNLISTED_POD_LABEL = {"bravo-test-rehearsal-reader": "true"}
+# Any Pod label: the rendered ``network`` policy admits every Pod in a labelled attempt namespace.
+READER_POD_LABEL = {"bravo-test-rehearsal-reader": "true"}
+# Named like an attempt namespace but without the T15 label; the policy must not admit it.
+NS_UNLABELLED = "rehearsal-unlabelled"
 
 
 class Kube:
@@ -308,7 +309,7 @@ def main():
     kube.apply(lst(*[i for i in foundation["items"] if i["kind"] in ("ClusterRole", "ClusterRoleBinding")]))
     kube.apply(render.rehearsal_writer_identity())
     kube.apply(lst(ns(NS_A, **render.REHEARSAL_LABEL), ns(NS_B, **render.REHEARSAL_LABEL), ns("target-dev"),
-                   ns(render.LEGACY_WRITER_NAMESPACE)))
+                   ns(render.LEGACY_WRITER_NAMESPACE), ns(NS_UNLABELLED)))
     for namespace in (NS_A, NS_B, render.WRITER_NAMESPACE, "target-dev"):  # the reader SA name in every namespace
         kube.apply({"apiVersion": "v1", "kind": "ServiceAccount", "metadata": {"name": READER, "namespace": namespace}})
     results["dry_run"]["rehearsal-delivery-a"] = kube.apply(
@@ -600,15 +601,11 @@ def main():
                            "pod_revoke_self": "allow"}.items():
             case(name, want, seen.get(name, "missing"))
 
-        # The rendered NetworkPolicy admits attempt namespaces only for the T15 Pod labels.
-        kube.apply(reader_pod("reader-unlisted", NS_A, UNLISTED_POD_LABEL))
-        phase, init_code = pod_phase(kube, NS_A, "reader-unlisted")
-        results["network"]["reader_init_unlisted_label"] = {"phase": phase, "init_exit": init_code}
-        case("reader_init_blocked_without_t15_label", "Failed", phase, "rendered policy admits only T15 Pod labels")
+        # The rendered NetworkPolicy admits the labelled attempt namespace; no test-only peer.
         kube.apply(reader_pod("reader-fetch", NS_A, READER_POD_LABEL))
         phase, init_code = pod_phase(kube, NS_A, "reader-fetch")
         results["network"]["reader_init_rendered_peer"] = {"phase": phase, "init_exit": init_code}
-        case("reader_init_fetch_succeeds", "Succeeded", phase, "rendered rehearsal ingress peer")
+        case("reader_init_fetch_succeeds", "Succeeded", phase, "rendered attempt-namespace ingress peer")
         app_logs = kube.run("logs", "reader-fetch", "-n", NS_A, "-c", "app", check=False).stdout
         app = {line.split()[1]: line.split()[2:] for line in app_logs.splitlines() if line.startswith("RESULT ")}
         case("reader_credentials_file_written", ["ok", "mode=400"], app.get("credentials_file", "missing"))
@@ -626,11 +623,14 @@ def main():
              "allow" if bao.login(render.rehearsal_role_name(NS_A), kube.token(NS_A, READER)) else "deny")
         case("after_cleanup_operator_policy_kept", 200, bao.call("GET", f"sys/policies/acl/{render.READER_POLICY}", root)[0])
 
-        # 8. Real network path for the writer label (unchanged rendered policy).
+        # 8. Real network path (unchanged rendered policy): the writer label only in the management
+        #    namespace; any Pod in a labelled attempt namespace (OpenBao, not the network, decides
+        #    what it may read); nothing from a rehearsal-named namespace without the label.
         for name, namespace, labels, want in [
             ("np_writer_label_in_control", render.WRITER_NAMESPACE, render.WRITER_POD_LABEL, 0),
             ("np_unlabelled_in_control", render.WRITER_NAMESPACE, {}, "blocked"),
-            ("np_writer_label_in_rehearsal_ns", NS_B, render.WRITER_POD_LABEL, "blocked"),
+            ("np_any_pod_in_attempt_ns", NS_B, {}, 0),
+            ("np_unlabelled_rehearsal_named_ns", NS_UNLABELLED, {}, "blocked"),
             ("np_writer_label_in_legacy_control", render.LEGACY_WRITER_NAMESPACE, render.WRITER_POD_LABEL, "blocked"),
         ]:
             kube.apply(probe_pod(name.replace("_", "-"), namespace, labels))

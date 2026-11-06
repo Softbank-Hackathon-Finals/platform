@@ -52,7 +52,9 @@ def wire(api, *, authority=None):
 
 @pytest.fixture
 def fixture(tmp_path):
-    wrapped, store, auth, _ = setup(tmp_path / "reports.db", workload_id="demo-chat")
+    wrapped, store, auth, _ = setup(
+        tmp_path / "reports.db", workload_id="demo-chat", profile=("demo-gate", "1")
+    )
     state = {}
     reader = wire(wrapped.api, authority=state)
     return ConsoleApp(wrapped.api, public_origin=ORIGIN, controls=reader), state, auth, store
@@ -87,7 +89,7 @@ def test_safe_projection_and_both_authority_reads(fixture):
 def test_report_for_generated_workload_id_is_rendered(tmp_path):
     # T10 registers workloads under generated IDs; the catalog profile names its reference app.
     workload = "workload-" + "0123456789abcdef" * 2
-    wrapped, *_ = setup(tmp_path / "reports.db", workload_id=workload)
+    wrapped, *_ = setup(tmp_path / "reports.db", workload_id=workload, profile=("demo-gate", "1"))
     state = {}
     app = ConsoleApp(wrapped.api, public_origin=ORIGIN, controls=wire(wrapped.api, authority=state))
     with TestClient(app, base_url=ORIGIN, cookies={"fixture-session": "test-only"}) as c:
@@ -97,6 +99,19 @@ def test_report_for_generated_workload_id_is_rendered(tmp_path):
         assert r.json()["profile"] == example["profile"]
         state["change"] = lambda d: d | {"app": "demo-chat"}  # the catalog reference app is not this plan's app
         assert c.get("/v1/plans/plan-demo/controls").status_code != 200
+
+
+@pytest.mark.parametrize("profile", [("full", "1"), ("demo-gate", "2"), None])
+def test_plan_profile_cannot_be_replaced_by_valid_smaller_report(tmp_path, profile):
+    wrapped, *_ = setup(tmp_path / "profile.db", workload_id="demo-chat", profile=profile)
+    app = ConsoleApp(wrapped.api, public_origin=ORIGIN, controls=wire(wrapped.api))
+    with TestClient(app, base_url=ORIGIN, cookies={"fixture-session": "test-only"}) as client:
+        # The issuer and plan digest match, and all three demo tests pass. That
+        # still cannot satisfy a full/version-different/unbound plan's display.
+        response = client.get("/v1/plans/plan-demo/controls")
+        assert response.status_code == 503
+        assert "rows" not in response.json()
+        assert response.json()["detail"]["code"] == "control_report_profile_mismatch"
 
 
 @pytest.mark.parametrize(

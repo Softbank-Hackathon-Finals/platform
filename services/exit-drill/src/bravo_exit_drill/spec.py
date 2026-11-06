@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from typing import Any
 
 SPEC_VERSION = "exit-drill-spec/v1"
-ROLES = {"app", "replication", "infrastructure", "control"}
+ROLES = {"app", "replication", "infrastructure", "control", "edge"}
 CLASSES = {"local", "source_access", "replication"}
 PROTOCOLS = {"TCP", "UDP"}
 PROBE_KINDS = {"tcp", "dns"}
@@ -28,6 +28,8 @@ class Workload:
     aws_client: bool = False
     # 재시작을 판정할 컨테이너. 사이드카 재시작을 앱 재시작으로 읽지 않으려고 앱 역할에 꼭 적는다.
     container: str | None = None
+    # edge 역할(밖에서 들어오는 트래픽을 앱으로 넘기는 Pod)이 기대는 잔존 의존성. 지도에서 그 항목에 잇는다.
+    residual: str | None = None
 
 
 @dataclass(frozen=True)
@@ -106,15 +108,19 @@ def _workloads(doc: Any) -> dict[str, Workload]:
         raise SpecError("workloads must be an object")
     result = {}
     for name, item in doc.items():
-        _require_keys(item, f"workload {name}", {"selector", "role"}, {"aws_client", "container"})
+        _require_keys(item, f"workload {name}", {"selector", "role"}, {"aws_client", "container", "residual"})
         if item["role"] not in ROLES:
             raise SpecError(f"workload {name}: unknown role")
         if item.get("aws_client", False) not in (True, False):
             raise SpecError(f"workload {name}: aws_client must be boolean")
         if item["role"] != "app" and "container" in item:
             raise SpecError(f"workload {name}: container applies to app role only")
+        if item["role"] != "edge" and "residual" in item:
+            raise SpecError(f"workload {name}: residual applies to edge role only")
         container = _text(item.get("container"), f"workload {name} container") if item["role"] == "app" else None
-        result[name] = Workload(name, _labels(item["selector"], f"workload {name} selector"), item["role"], item.get("aws_client", False), container)
+        residual = _text(item.get("residual"), f"workload {name} residual") if item["role"] == "edge" else None
+        selector = _labels(item["selector"], f"workload {name} selector")
+        result[name] = Workload(name, selector, item["role"], item.get("aws_client", False), container, residual)
     return result
 
 

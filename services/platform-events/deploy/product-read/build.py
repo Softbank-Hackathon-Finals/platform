@@ -17,6 +17,7 @@ PACKAGES = {
     "platform-events": "bravo_platform_events",
     "agent-worker": "bravo_agent",
     "rehearsal-runner": "rehearsal_runner",
+    "inventory": "bravo_inventory",
     "observability": "bravo_observability",
 }
 
@@ -57,6 +58,7 @@ def prepare_context(context, revision):
     subprocess.run(["uv", "export", "--locked", "--no-header", "--no-dev", "--extra", "postgres",
         "--group", "product-inputs", "--no-emit-project", "--no-emit-package", "bravo-observability",
         "--no-emit-package", "bravo-agent-worker", "--no-emit-package", "bravo-rehearsal-runner",
+        "--no-emit-package", "bravo-inventory",
         "-o", str(requirements)], cwd=SERVICE, check=True, stdout=subprocess.DEVNULL)
     text = requirements.read_text()
     if any(line.strip().startswith(("-e ", "git+", "file:", "../", "/")) or " @ " in line
@@ -137,7 +139,8 @@ def main():
             "--label", "org.opencontainers.image.revision=" + revision,
             *(["--no-cache"] if args.no_cache else []), str(context)], check=True)
         image = json.loads(subprocess.check_output(["docker", "image", "inspect", tag]))[0]
-        probe = ("import os,sys; from bravo_platform_events.product_read_server import load_app; "
+        probe = ("import os,sys; from bravo_platform_events.product_read_server import load_app, load_initial_app; "
+            "from bravo_platform_events.initial_stored_source import stored_initial_source; "
             "from bravo_platform_events.product_access import ProductInputAccess; "
             "from bravo_agent.product_contracts import ProductInput; "
             "from rehearsal_runner.task_catalog import TaskCatalog; "

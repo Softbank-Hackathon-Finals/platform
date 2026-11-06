@@ -18,6 +18,9 @@ from bravo_loadgen.load import ENV_HEADER
 HEALTH_PATH = "/api/health/db"
 HEALTH_SAMPLES = 5
 HEALTH_TIMEOUT_S = 5
+# demo-chat은 Pod마다 자기 쓰기 차단 상태를 여기에 적는다.
+INFO_PATH = "/api/info"
+TARGET_WRITE_SWITCH = "infra/envs/target-workloads/write_switch.py"
 DB_CONNECT_TIMEOUT_S = 5
 EDGE_HEADER = "CF-RAY"  # Cloudflare를 지난 응답에 붙는다
 # 창 문서 검사에서 거부되는 빈 문서. 수신부는 토큰 → 계획 연결 → 문서 순서로 보므로 저장 없이 앞의 둘이 확인된다.
@@ -93,6 +96,53 @@ def _check_edge(responses: list[httpx.Response]) -> Check:
     return Check("Edge 경유", False, f"{EDGE_HEADER}가 없다. Edge를 지난 응답이 아니다")
 
 
+def _write_blocked(response: httpx.Response) -> bool | None:
+    """읽을 수 없으면 None이다. 열렸다고 짐작하지 않는다."""
+    if response.status_code != 200:
+        return None
+    try:
+        body = response.json()
+    except ValueError:
+        return None
+    value = body.get("write_blocked") if isinstance(body, dict) else None
+    return value if isinstance(value, bool) else None
+
+
+def _describe_write_state(env: str, states: list[bool | None]) -> str:
+    if not states:
+        return f"{env} 응답 없어 확인 못 함"
+    counts = Counter(states)
+    labels = ((False, "열림"), (True, "닫힘"), (None, "확인 못 함"))
+    return f"{env} " + ", ".join(f"{label} {counts[state]}" for state, label in labels if counts[state])
+
+
+def _check_write_block(client: httpx.Client, env_pools: dict[str, str], write_rps: float) -> Check:
+    """쓰기 차단은 Pod마다 따로이고 앱이 다시 뜨면 켜진다. 켜진 환경으로 간 쓰기는 전부 503이다."""
+    name = "쓰기 차단"
+    if write_rps == 0:
+        return Check(name, True, "쓰기 부하가 없어 보지 않았다")
+    states: dict[str, list[bool | None]] = {env: [] for env in env_pools}
+    for _ in range(HEALTH_SAMPLES):
+        try:
+            response = client.get(INFO_PATH, timeout=HEALTH_TIMEOUT_S)
+        except httpx.HTTPError as error:
+            return Check(name, True, f"{INFO_PATH} 접속 실패: {type(error).__name__}. 확인 못 함")
+        env = response.headers.get(ENV_HEADER)
+        if env in states:  # 등록되지 않은 값은 환경 헤더 항목이 잡는다
+            states[env].append(_write_blocked(response))
+    detail = " · ".join(_describe_write_state(env, found) for env, found in states.items())
+    closed = {env_pools[env] for env, found in states.items() if True in found}
+    target_seen = any(found for env, found in states.items() if env_pools[env] == "target")
+    if "target" in closed:
+        return Check(name, False, f"{detail}. 목적지는 {TARGET_WRITE_SWITCH} open으로 연다")
+    if closed:
+        return Check(name, False, f"{detail}. 출발지 담당에게 쓰기 차단을 풀어 달라고 한다")
+    if not target_seen:
+        # 가중치 0이면 Edge가 목적지로 보내지 않는다. 목적지 Pod 전부는 스위치 도구가 본다.
+        return Check(name, True, f"{detail}. 목적지는 {TARGET_WRITE_SWITCH} status로 본다")
+    return Check(name, True, detail)
+
+
 def _check_clock(response: httpx.Response | None, max_skew_s: int) -> Check:
     """시계가 어긋나면 창이 CLOCK_SKEW로 전부 UNKNOWN이 되고 반영 시간도 틀어진다."""
     value = response.headers.get("Date") if response is not None else None
@@ -153,6 +203,7 @@ def run_checks(
     env_pools: dict[str, str],
     measurement_path: str,
     max_clock_skew_s: int,
+    write_rps: float,
     window_url: str | None = None,
     window_token: str | None = None,
     window_timeout_s: float = 2,
@@ -170,6 +221,7 @@ def run_checks(
         checks.append(_check_env_header(values, env_pools))
         if measurement_path == "edge":
             checks.append(_check_edge(responses))
+        checks.append(_check_write_block(client, env_pools, write_rps))
         clock_source = responses[-1] if responses else None
         if window_url:
             answer, check = _probe_window_receiver(client, window_url, window_token, window_timeout_s)

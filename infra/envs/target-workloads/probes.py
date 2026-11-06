@@ -65,6 +65,7 @@ def probe(stage, run_suffix="", pooler_ip=None):
         "backoffLimit": 0, "activeDeadlineSeconds": 600,
         "template": {"metadata": {"labels": labels}, "spec": {
             "restartPolicy": "Never", "automountServiceAccountToken": False,
+            "serviceAccountName": "target-probe",
             "securityContext": {"runAsNonRoot": True, "runAsUser": uid, "runAsGroup": uid,
                                 "fsGroup": uid, "seccompProfile": {"type": "RuntimeDefault"}},
             "containers": [{"name": "probe", "image": POSTGRES_IMAGE if stage == "db" else APP_IMAGE,

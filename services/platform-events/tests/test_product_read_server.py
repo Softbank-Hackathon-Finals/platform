@@ -172,3 +172,22 @@ def test_duplicate_key_id_refuses_keyset_startup(tmp_path, key):
     jwks.write_text(json.dumps({"keys": [public, public]}))
     with pytest.raises(ValueError, match="invalid_workload_keys"):
         product_read_server.configured_reader(object(), path)
+
+
+def test_initial_service_exposes_only_claimed_initial_reads_and_uses_separate_grant(pg_backend, tmp_path, key):
+    from bravo_platform_events.initial_proposal_api import PATH as INITIAL_PATH
+
+    path, _, _ = config_files(tmp_path, key)
+    with pg_backend.cluster.connect(pg_backend.database, "fixture_migration") as c:
+        c.execute((Path(__file__).parents[1] / "sql/0002_sli_windows.sql").read_text())
+    with pg_backend.store._transaction() as c:
+        before = c.execute("SELECT count(*) AS n FROM plan_commands").fetchone()["n"]
+    reader = product_read_server.configured_initial_reader(pg_backend.store, path)
+    assert reader.records.authorize.__self__.purpose == "t38-initial-proposal"
+    app = product_read_server.load_initial_app(pg_backend.store, lambda store: reader)
+    with TestClient(app, base_url="https://host.invalid") as client:
+        assert client.post(INITIAL_PATH, json={}).status_code == 403
+        assert client.post(PATH, json={}).status_code == 404
+        assert client.post("/v1/plans", json={}).status_code == 404
+    with pg_backend.store._transaction() as c:
+        assert c.execute("SELECT count(*) AS n FROM plan_commands").fetchone()["n"] == before

@@ -244,6 +244,7 @@ def _run_preflight(args: argparse.Namespace, prepared: _Prepared) -> dict:
         env_pools=prepared.config.env_pools,
         measurement_path=args.measurement_path,
         max_clock_skew_s=load_profile()["max_clock_skew_seconds"],
+        write_rps=prepared.config.write_rps,
         window_url=args.window_url,
         window_token=prepared.window_token,
         window_timeout_s=WINDOW_POST_TIMEOUT_S,

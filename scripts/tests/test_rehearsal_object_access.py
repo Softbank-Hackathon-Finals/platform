@@ -268,11 +268,11 @@ OPENBAO_SERVER = {"app.kubernetes.io/name": "openbao", "app.kubernetes.io/instan
 OPENBAO_ALLOWED = {
     "candidate init container in an attempt namespace": (REHEARSAL, CANDIDATE),
     "T15 verifier / denial-test Job in an attempt namespace": (REHEARSAL, CREDENTIAL_VERIFIER),
+    # Namespace-wide on purpose (#402): OpenBao, not the network, decides what a Pod may read.
+    "unlabelled Pod in an attempt namespace": (REHEARSAL, {}),
     "writer Job in the management namespace": (CONTROL, {**CREDENTIAL_VERIFIER, **target_secrets.WRITER_POD_LABEL}),
 }
 OPENBAO_DENIED = {
-    "unlabelled Pod in an attempt namespace": (REHEARSAL, {}),
-    "T3 probe in an attempt namespace": (REHEARSAL, PROBE),
     "candidate in a rehearsal-named namespace without the label": (UNLABELLED_REHEARSAL, CANDIDATE),
     "verifier in a rehearsal-named namespace without the label": (UNLABELLED_REHEARSAL, CREDENTIAL_VERIFIER),
     "candidate label in target-dev": (TARGET, CANDIDATE),
@@ -280,16 +280,17 @@ OPENBAO_DENIED = {
     "verifier without the writer label in the management namespace": (CONTROL, CREDENTIAL_VERIFIER),
     "candidate label in the management namespace": (CONTROL, CANDIDATE),
     "verifier under another part-of value": (OTHER_PART_OF, CREDENTIAL_VERIFIER),
+    "T3 probe in the T3 victim namespace": (T3_VICTIM, PROBE),
 }
 
 
 class OpenBaoRehearsalIngressTests(unittest.TestCase):
-    """T9 OpenBao ingress for T15 attempt namespaces (#348 follow-up, 2026-11-06)."""
+    """T9 OpenBao ingress for T15 attempt namespaces (#402), tied to T15 and T3."""
 
     def policies(self):
         return [target_secrets.network("10.96.0.1", "192.168.50.10")]
 
-    def test_only_the_t15_pods_in_attempt_namespaces_reach_8200(self):
+    def test_attempt_namespaces_and_the_writer_reach_only_8200(self):
         for name, (client_namespace, pod) in OPENBAO_ALLOWED.items():
             with self.subTest(allowed=name):
                 self.assertTrue(admitted(self.policies(), client_namespace, pod, 8200, OPENBAO_SERVER))
@@ -300,8 +301,6 @@ class OpenBaoRehearsalIngressTests(unittest.TestCase):
 
     def test_the_management_namespace_is_not_an_attempt_namespace(self):
         self.assertNotEqual(CONTROL.get("app.kubernetes.io/part-of"), "bravo-rehearsal")
-        # T9's Pod labels are exactly what T15 stamps; a T15 rename fails here, not on the target.
-        self.assertEqual(list(target_secrets.REHEARSAL_OPENBAO_CLIENTS), [CANDIDATE, CREDENTIAL_VERIFIER])
 
     def test_t3_onprem_egress_points_at_the_same_openbao_pod_and_port(self):
         profile = read_env(ROOT / "services/rehearsal-runner/profiles/onprem.env")

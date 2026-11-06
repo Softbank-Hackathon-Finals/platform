@@ -223,6 +223,8 @@ class RenderContractTests(unittest.TestCase):
         self.assertEqual(values["S3_FORCE_PATH_STYLE"], "true")
         self.assertNotIn("amazonaws.com", json.dumps(values))
         self.assertFalse(pod_spec()["automountServiceAccountToken"])
+        # Its own tokenless account from render.py accounts, not the namespace default (CIS 5.1.5, 5.1.6).
+        self.assertEqual(pod_spec()["serviceAccountName"], "demo-chat")
 
     def test_object_store_policy_label_is_present(self):
         labels = rendered()["Deployment"]["spec"]["template"]["metadata"]["labels"]
@@ -301,7 +303,8 @@ class ImageContractTests(unittest.TestCase):
     def test_general_render_path_has_no_switch_for_another_image(self):
         script = str(WORKLOADS / "application.py")
         usage = subprocess.run([sys.executable, script, "--help"], capture_output=True, text=True, check=True).stdout
-        self.assertEqual(sorted(set(re.findall(r"--[a-z-]+", usage))), ["--help", "--image", "--print-image", "--pull-secret"])
+        self.assertEqual(sorted(set(re.findall(r"--[a-z-]+", usage))),
+                         ["--arch", "--help", "--image", "--print-image", "--pull-secret"])
 
     def test_pinned_image_has_the_expected_shape_and_is_accepted(self):
         self.assertRegex(PIN["source_sha"], r"\A[0-9a-f]{40}\Z")
@@ -318,7 +321,8 @@ class ImageContractTests(unittest.TestCase):
                          "scripts/export_target_image.py", "docs/operations/target-image-handoff.md",
                          "docs/adr/0017-target-app-secrets-manager-compat.md"):
             text = (ROOT / relative).read_text()
-            for value in (PIN["source_sha"], PIN["index_digest"], PIN["amd64_digest"]):
+            for value in (PIN["source_sha"], PIN["index_digest"], PIN["amd64_digest"],
+                          PIN["arm64"]["image"].split("@")[1]):
                 with self.subTest(file=relative, value=value[:15]):
                     self.assertNotIn(value, text)
 
@@ -354,6 +358,92 @@ class ImageContractTests(unittest.TestCase):
         self.assertEqual(bad.returncode, 2)
         self.assertEqual(bad.stdout, "")
         self.assertNotIn("bad-canary", bad.stderr)
+
+
+class ArchitectureTests(unittest.TestCase):
+    """The target node changed from amd64 to arm64 on 2026-11-06; each node gets only its own image."""
+
+    ARM64 = PIN["arm64"]["image"]
+
+    def test_each_architecture_renders_its_registered_image_on_its_own_nodes(self):
+        for arch, image in (("amd64", IMAGE), ("arm64", self.ARM64)):
+            with self.subTest(arch=arch):
+                self.assertEqual(application.pinned_image(arch), image)
+                pod = pod_spec(image=image, arch=arch)
+                self.assertEqual(pod["nodeSelector"], {"kubernetes.io/arch": arch})
+                for container in [*pod["containers"], *pod["initContainers"]]:
+                    self.assertEqual(container["image"], image)
+                    self.assertEqual(container["imagePullPolicy"], "Never")
+
+    def test_default_is_the_amd64_publication(self):
+        self.assertEqual(application.pinned_image(), IMAGE)
+        self.assertEqual(pod_spec()["nodeSelector"], {"kubernetes.io/arch": "amd64"})
+        self.assertEqual(pod_spec(image=ECR_IMAGE)["nodeSelector"], {"kubernetes.io/arch": "amd64"})
+
+    def test_an_architecture_without_a_registered_image_is_refused(self):
+        # uname names (x86_64, aarch64) are not Kubernetes architecture names.
+        for arch in ("riscv64", "s390x", "x86_64", "aarch64", "ARM64", "", None):
+            with self.subTest(arch=arch):
+                with self.assertRaises(ValueError):
+                    application.pinned_image(arch)
+                with self.assertRaises(ValueError):
+                    application.application(IMAGE, arch=arch)
+
+    def test_a_removed_or_malformed_arm64_entry_is_refused(self):
+        for entry in (None, {}, {"image": "ghcr.io/softbank-hackathon-finals/demo-chat@" + PIN["index_digest"]},
+                      {"image": "localhost/bravo-demo-chat:latest"}, {"image": self.ARM64 + "x"},
+                      "localhost/bravo-demo-chat"):
+            pin = {k: v for k, v in PIN.items() if k != "arm64"}
+            if entry is not None:
+                pin["arm64"] = entry
+            with self.subTest(entry=entry), patch.dict(application.PIN, pin, clear=True):
+                with self.assertRaises(ValueError):
+                    application.pinned_image("arm64")
+                with self.assertRaises(ValueError):
+                    application.application(self.ARM64, arch="arm64")
+
+    def test_an_image_registered_for_another_architecture_is_refused(self):
+        arm64_digest = self.ARM64.split("@")[1]
+        for image, arch in ((IMAGE, "arm64"), (ECR_IMAGE, "arm64"), (self.ARM64, "amd64"),
+                            (f"{GHCR}@{arm64_digest}", "arm64"), (f"{GHCR}@{arm64_digest}", "amd64"),
+                            ("localhost/bravo-demo-chat@" + PIN["index_digest"], "arm64"),
+                            ("localhost/bravo-demo-chat@sha256:" + "a" * 64, "arm64"), (self.ARM64 + "\n", "arm64")):
+            with self.subTest(image=image[:40], arch=arch), self.assertRaises(ValueError):
+                application.application(image, arch=arch)
+
+    def test_the_arm64_image_exists_only_on_the_node(self):
+        # It was imported into the node's containerd; a pull would go to whatever answers at "localhost".
+        with self.assertRaises(ValueError):
+            application.application(self.ARM64, pull_secret="target-app-registry", arch="arm64")
+
+    def test_arm64_entry_records_how_it_was_checked(self):
+        entry = PIN["arm64"]
+        self.assertRegex(entry["image"], r"\Alocalhost/bravo-demo-chat@sha256:[0-9a-f]{64}\Z")
+        self.assertRegex(entry["source_sha"], r"\A[0-9a-f]{40}\Z")
+        for key in ("recorded", "source_check", "build_commit", "base_image"):
+            with self.subTest(key=key):
+                self.assertIsInstance(entry[key], str)
+                self.assertTrue(entry[key])
+
+    def test_cli_selects_the_image_by_architecture(self):
+        script = str(WORKLOADS / "application.py")
+        printed = subprocess.run([sys.executable, script, "--arch", "arm64", "--print-image"],
+                                 capture_output=True, text=True, check=True)
+        self.assertEqual(printed.stdout.strip(), self.ARM64)
+        out = subprocess.run([sys.executable, script, "--arch", "arm64"], capture_output=True, text=True, check=True)
+        pod = next(i for i in json.loads(out.stdout)["items"] if i["kind"] == "Deployment")["spec"]["template"]["spec"]
+        self.assertEqual(pod["containers"][0]["image"], self.ARM64)
+        self.assertEqual(pod["nodeSelector"], {"kubernetes.io/arch": "arm64"})
+
+    def test_cli_refuses_an_unknown_architecture_or_a_mismatched_image(self):
+        script = str(WORKLOADS / "application.py")
+        for args in (["--arch", "riscv64"], ["--arch", "aarch64"], ["--arch", "arm64", "--image", IMAGE],
+                     ["--arch", "amd64", "--image", self.ARM64], ["--arch", "riscv64", "--print-image"],
+                     ["--image", ""], ["--arch", "arm64", "--image", ""]):
+            with self.subTest(args=args):
+                result = subprocess.run([sys.executable, script, *args], capture_output=True, text=True, check=False)
+                self.assertEqual(result.returncode, 2)
+                self.assertEqual(result.stdout, "")
 
 
 class CompatServerTests(unittest.TestCase):

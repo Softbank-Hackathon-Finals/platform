@@ -16,6 +16,11 @@ TOKEN = "t18-test-window-token"
 DSN_SECRET = "dsn-secret-value"
 
 
+def info_body(write_blocked):
+    """demo-chat `/api/info`의 본문 모양. 쓰기 차단 상태는 Pod마다 따로다."""
+    return {"env": "aws", "write_blocked": write_blocked, "attachment_upload_enabled": True}
+
+
 class _Handler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
 
@@ -25,12 +30,12 @@ class _Handler(BaseHTTPRequestHandler):
     def date_time_string(self, timestamp=None):
         return self.server.date or super().date_time_string(timestamp)
 
-    def _send(self, status, body, extra=()):
+    def _send(self, status, body, extra=(), env_headers=None):
         payload = json.dumps(body).encode()
         self.send_response(status)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(payload)))
-        for value in self.server.env_headers:
+        for value in self.server.env_headers if env_headers is None else env_headers:
             self.send_header("X-Bravo-Env", value)
         for name, value in (*self.server.extra_headers, *extra):
             self.send_header(name, value)
@@ -48,6 +53,12 @@ class _Handler(BaseHTTPRequestHandler):
             self.server.health_calls += 1
             time.sleep(self.server.health_delay)
             return self._send(*self.server.health)
+        if self.path == "/api/info":
+            # Edge가 요청마다 환경 · Pod를 고르는 것처럼 정한 답을 돌아가며 준다.
+            env, status, body = self.server.info[self.server.info_calls % len(self.server.info)]
+            self.server.info_calls += 1
+            time.sleep(self.server.info_delay)
+            return self._send(status, body, env_headers=None if env is None else [env])
         self.server.load_requests += 1
         return self._send(200, [])
 
@@ -73,6 +84,9 @@ def _start_server():
     httpd.date = None
     httpd.health_delay = 0
     httpd.health_calls = 0
+    httpd.info = [(None, 200, info_body(False))]
+    httpd.info_calls = 0
+    httpd.info_delay = 0
     httpd.window_delay = 0
     httpd.window_probe = (422, {"detail": "invalid_window"})
     httpd.window_posts = []
@@ -188,6 +202,76 @@ def test_seen_env_values_are_shown_so_a_wrong_starting_weight_is_visible(target,
     target.env_headers = ["onprem"]
     assert preflight(target, tmp_path / "out") == 0
     assert "onprem 5" in capsys.readouterr().out
+
+
+def test_open_writes_pass_and_the_token_is_not_sent(target, tmp_path, capsys):
+    assert preflight(target, tmp_path / "out") == 0
+    assert target.info_calls == 5
+    assert "aws 열림 5" in capsys.readouterr().out
+    assert set(target.auth_on_get) == {None}
+
+
+def test_closed_target_writes_fail_and_name_the_open_command(target, tmp_path, capsys):
+    """목적지 앱은 닫힌 채 뜨고 재시작하면 다시 닫힌다. 그대로 재면 목적지로 간 쓰기가 전부 503이다."""
+    target.info = [("aws", 200, info_body(False)), ("onprem", 200, info_body(True))]
+    assert preflight(target, tmp_path / "out") == 2
+    out = capsys.readouterr().out
+    assert "onprem 닫힘 2" in out and "write_switch.py open" in out
+    assert target.load_requests == 0
+
+
+def test_closed_source_writes_fail_without_the_target_command(target, tmp_path, capsys):
+    target.info = [("aws", 200, info_body(True))]
+    assert preflight(target, tmp_path / "out") == 2
+    out = capsys.readouterr().out
+    assert "aws 닫힘 5" in out and "write_switch.py open" not in out
+
+
+def test_one_closed_pod_among_open_ones_fails(target, tmp_path, capsys):
+    """스위치는 Pod마다 따로라 한 Pod만 다시 떠도 그 Pod로 간 쓰기는 503이다."""
+    target.info = [("onprem", 200, info_body(False))] * 4 + [("onprem", 200, info_body(True))]
+    assert preflight(target, tmp_path / "out") == 2
+    assert "onprem 열림 4, 닫힘 1" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize(
+    "answer",
+    [
+        (200, {"env": "aws"}),
+        (200, info_body("false")),
+        (404, {"detail": "Not Found"}),
+        (503, info_body(False)),
+        (200, ["aws"]),
+    ],
+    ids=["필드 없음", "문자열 값", "404", "본문이 열림인 503", "목록"],
+)
+def test_unreadable_write_state_is_unconfirmed_not_failed(target, tmp_path, capsys, answer):
+    target.info = [("aws", *answer)]
+    assert preflight(target, tmp_path / "out") == 0
+    assert "aws 확인 못 함 5" in capsys.readouterr().out
+
+
+def test_target_unseen_at_weight_zero_is_unconfirmed_and_points_to_status(target, tmp_path, capsys):
+    """가중치 0이면 Edge가 목적지로 보내지 않아 목적지 스위치를 이 경로로는 볼 수 없다."""
+    assert preflight(target, tmp_path / "out") == 0
+    out = capsys.readouterr().out
+    assert "onprem 응답 없어 확인 못 함" in out and "write_switch.py status" in out
+
+
+def test_info_timeout_is_unconfirmed_and_shows_only_the_kind(target, tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr("bravo_loadgen.preflight.HEALTH_TIMEOUT_S", 0.1)
+    target.info_delay = 0.5
+    assert preflight(target, tmp_path / "out") == 0
+    assert "/api/info 접속 실패: ReadTimeout" in capsys.readouterr().out
+
+
+def test_no_write_load_does_not_look_at_the_switch(target, tmp_path, capsys):
+    target.info = [("onprem", 200, info_body(True))]
+    arguments = command("preflight", target.url, tmp_path / "out")
+    arguments[arguments.index("--write-rps") + 1] = "0"
+    assert main(arguments) == 0
+    assert target.info_calls == 0
+    assert "쓰기 부하가 없어" in capsys.readouterr().out
 
 
 def test_edge_path_needs_a_generator_declaration(target, tmp_path, capsys):
@@ -343,6 +427,7 @@ def test_measure_runs_the_load_and_keeps_the_preflight_with_the_report(target, t
     saved = json.loads((out / "preflight.json").read_text())
     report = json.loads((out / "report.json").read_text())
     assert saved["passed"] is True and saved["env_values"] == {"aws": 5}
+    assert "쓰기 차단" in [check["name"] for check in saved["checks"]]
     assert report["run_id"] == "t18-joint"
     assert report["measurement"]["generator"] == "laptop"
     assert report["measurement"]["preflight"]["health_rtt_ms"]["samples"] == 5

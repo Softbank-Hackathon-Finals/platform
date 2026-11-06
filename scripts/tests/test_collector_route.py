@@ -75,6 +75,28 @@ class Policies(unittest.TestCase):
         self.assertEqual(peer["podSelector"]["matchLabels"]["tailscale.com/parent-resource-type"], "proxygroup")
         self.assertEqual(sorted(p["port"] for p in rule["ports"]), [9090, 10421])
 
+    def test_pre_dnat_exception_is_exact_child_ip_and_only_business_port(self):
+        for ip, prefix in (("172.20.1.2", 32), ("fd00::10", 128)):
+            services = observed()
+            services["items"][0]["spec"]["clusterIP"] = ip
+            result = render.collector_egress("source", services, service_ip_egress=True)
+            self.assertEqual(result["spec"]["egress"][1], {
+                "to": [{"ipBlock": {"cidr": f"{ip}/{prefix}"}}],
+                "ports": [{"protocol": "TCP", "port": 9090}],
+            })
+            self.assertEqual(len(result["spec"]["egress"]), 2)
+        with self.assertRaises(ValueError):
+            render.collector_egress("target", services, service_ip_egress=True)
+
+    def test_pre_dnat_exception_rejects_missing_or_non_host_addresses(self):
+        for ip in (None, "None", "", "172.20.0.0/16", "0.0.0.0", "127.0.0.1", "224.0.0.1", "::"):
+            services = observed()
+            services["items"][0]["spec"]["clusterIP"] = ip
+            with self.subTest(ip=ip), self.assertRaises(ValueError):
+                render.collector_egress("source", services, service_ip_egress=True)
+        with self.assertRaises(ValueError):
+            render.collector_egress("source", observed(), service_ip_egress="true")
+
     def test_other_side_or_changed_mapping_is_refused(self):
         with self.assertRaises(ValueError):
             render.collector_egress("target", observed("source"))

@@ -566,6 +566,8 @@ export function controlReport(value, current, gate, now) {
     !date(value.evaluated_at) ||
     Date.parse(value.evaluated_at) > now ||
     !object(value.profile) ||
+    value.profile.id !== current.profile_id ||
+    value.profile.version !== current.profile_version ||
     !["demo-gate", "full"].includes(value.profile.id) ||
     value.profile.version !== "1" ||
     !["PASS", "BLOCK", "EXCEPTION"].includes(value.decision) ||

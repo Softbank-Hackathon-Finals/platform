@@ -273,18 +273,24 @@ What remains, by design or outside the ACL's reach:
 The fixed-slot alternative (operator-made `rehearsal-app-reader-slot-<n>` policies) is no longer
 needed and was not built.
 
-**Network for readers.** The rendered OpenBao `network` policy admits 8200/TCP from attempt
-namespaces (label `app.kubernetes.io/part-of: bravo-rehearsal`, which T15 sets at creation and the
-management namespace does not carry) only for the T15 Pods that need it, each as namespace *and*
-Pod label in one peer: the candidate app Pod (`app: rehearsal-app`, whose `rehearsal-init-container`
-fetches `credentials.json`) and the verifier Job Pods (`role: credential-verifier`, including the
-denial test). Like the SeaweedFS rehearsal peer this only narrows the path, because anything that
-can create a Pod in an attempt namespace can set those labels. Access is decided by OpenBao: each
-reader role binds one ServiceAccount in one namespace and the template policy reads only that
-namespace's path, so the denial test is refused by OpenBao, not by the network. The rehearsal side
-already allows the egress (T3 `allow-target-profile`, `profiles/onprem.env`).
-`scripts/tests/test_rehearsal_object_access.py` ties the T9 labels to T15 `credential_job.py`, the
-T3 namespace label and the T3 OpenBao egress, so a rename on either side fails there.
+**Network for readers.** The OpenBao `network` policy admits TCP 8200 from namespaces labelled
+`app.kubernetes.io/part-of: bravo-rehearsal`. Both the candidate init container and the
+different-account rejection probe need this path: a network timeout cannot prove an OpenBao
+authorization denial. Only the trusted namespace manager sets this label. The control
+namespace remains outside this selector and still requires the writer Pod label above.
+Other OpenBao ports, existing ESO/probe peers and egress rules are unchanged. The rehearsal
+side already allows this egress (T3 `allow-target-profile`, `profiles/onprem.env`).
+`scripts/tests/test_rehearsal_object_access.py` ties the label to the T3 namespace template and
+the T3 OpenBao egress profile, and checks it against the T15 candidate and verifier Pod labels.
+
+**Public CA for the runner.** The operator reads `target-dev/target-openbao-ca`, key `ca.crt`,
+and supplies the same public certificate as ConfigMap
+`bravo-rehearsal-control/target-openbao-ca`, also key `ca.crt`. Compare its SHA-256 with the
+source before use and after renewal. Export only this key to the runner's configured CA file;
+the credential planner uses it to create each attempt's CA ConfigMap. Do not copy TLS private
+keys or grant the runner access to `bravo-secrets`. AWS-hosted runners need the same public
+certificate mounted by their deployment operator; a destination ConfigMap is not an AWS
+mount. Keep hostname and CA verification enabled.
 
 **Namespace and SA ownership.** The T15 owner coordinates creating `bravo-rehearsal-control` with
 T30. `rehearsal-writer-identity` renders the namespace and SA for that conversation; do not
@@ -301,9 +307,9 @@ server as a `target-openbao` stand-in, performs the operator install above (real
 CLI), applies the rendered NetworkPolicy, policies and roles unchanged, logs in with real
 ServiceAccount tokens and records each allowed/denied case, the replayed escalation, the
 wrong-accessor case, and the Pod path: a labelled writer Job prepares namespace A, the rendered
-init container in A fetches `credentials.json` through the rendered network policy (only the HTTP
-address, CA variable and image are substituted for the dev stand-in; a Pod in A without a T15 label
-is blocked), and a second
+init container in A fetches `credentials.json` (only the HTTP address, CA variable and image are
+substituted for the dev stand-in; it reaches OpenBao through the rendered policy alone), a TCP
+probe shows that a rehearsal-named namespace without the label stays blocked, and a second
 writer Job cleans up. It writes no token or value. It is not a substitute for the same checks on
 the demo RKE2 target with the TLS image.
 

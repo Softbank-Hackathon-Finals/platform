@@ -13,19 +13,19 @@
 | SEC-01.1 다른 역할의 Secret 읽기 | `aws_probes.py`, `aws_qualification.py`, `openbao.py` | 두 실제 시험 주체·동일 Secret 인수 필요. 앱 Secret의 메타데이터 확인은 이 시험을 대신하지 않음 |
 | SEC-01.2 소스·설정 비밀 탐지 | `secret_scan.py` | [#356](https://github.com/Softbank-Hackathon-Finals/platform/pull/356): 등록 revision 전체 소스·실행 설정 검사. 목적지 산출물은 별도 |
 | SEC-01.3 로그 비밀 노출 | [#381](https://github.com/Softbank-Hackathon-Finals/platform/pull/381)의 `secret_logs.py` | 검사·CloudWatch 조회 구현. 승인된 주입·호출·복원 실행부와 전달 완료/양쪽 로그 원천 연결 미구현 |
-| SEC-01.4 비밀 회전 후 회복 | 전용 T14 실행기 없음 | 회전→기존 앱 연결 종료→새 연결·쓰기→회복/정리 실행 경로 필요. 앱 자체의 재인증 구현만으로 완료 아님 |
-| ENC-02.1 Secret 저장 암호화 | `secret_encryption.py` | [#341](https://github.com/Softbank-Hackathon-Finals/platform/pull/341): 실제 AWS Secret/KMS 메타데이터. RKE2 암호화·OpenBao seal 어댑터 필요 |
+| SEC-01.4 비밀 회전 후 회복 | `secret_rotation.py` 읽기 전용 판정·격리된 실제 앱/PG 시험 | [회전 시험](secret-rotation.md): 재시작·기존 연결·30초 초과 구분. 운영 Secret/CNPG/풀러 적용·실행권·복구 및 양쪽 접점은 별도 필요 |
+| ENC-02.1 Secret 저장 암호화 | `secret_encryption.py`, `target_secret_encryption.py` | #341 실제 AWS 메타데이터. [목적지 상태 수집기](target-secret-encryption.md)와 실제 OpenBao 격리 시험 구현. RKE2 CLI·전체 노드·운영 전달/저장 결속 인수는 별도 |
 | ENC-01.1 앱→Pooler TLS | `postgres_tls.py`, `app_process_tls.py` | [#298](https://github.com/Softbank-Hackathon-Finals/platform/pull/298): 출발지 실제 앱 경로. 목적지 실행 필요 |
 | ENC-01.2 잘못된 CA/호스트 거부 | 같은 TLS 수집기 | #298 출발지 실제 거부·대조군. 목적지 실행 필요 |
 | ENC-01.3 평문 거부 | 같은 TLS 수집기 | #298 출발지 실제 거부·대조군. 목적지 실행 필요 |
 | ENC-01.4 복제 TLS | `replication_tls.py` | 고정 SQL 조회·슬롯/sender 결속 구현. T8의 실제 설정 적용 영수증·양쪽 읽기 접점 인수 필요 |
-| ENC-01.5 Pooler→DB TLS | `pooler_backend_tls.py` | SHOW CONFIG/DATABASES 조회 후 backend 연결 확인은 UNKNOWN. 승인된 앱 내부 조회·stats-read 접점 인수 필요 |
+| ENC-01.5 Pooler→DB TLS | `pooler_backend_tls.py` 고정 SQL 수집기 | [실제 PG/PgBouncer 격리 시험](pooler-backend-reader.md): verify-full/verify-ca/평문/재사용/잘못된 CA 구분. 운영 앱·stats-read 주체와 등록·저장 인수 필요 |
 | AUD-01.1 관리자 접속 검색 | `audit_probes.py`, T34 수집기 | 실제 CNPG 감사 원천→저장소 전달·최소 권한 검색 인수 필요 |
 | AUD-01.2 DDL 검색 | 같은 감사 수집기 | 승인된 앱 DB 시험 스키마와 실제 생성/삭제·중앙 검색 인수 필요 |
 | AUD-01.3 권한 변경 검색 | 같은 감사 수집기 | [#369](https://github.com/Softbank-Hackathon-Finals/platform/pull/369): 출발지 별도 시험 namespace 실제 EKS→CloudWatch 부분 검증. 앱 범위·목적지·최소 권한 경로는 별도 |
-| NET-01.1 외부 공개 포트 | 전용 T14 스캔 실행기 없음 | 등록 주소/포트 범위·외부 실행 주체·허용 기준선 및 대조군 필요 |
+| NET-01.1 외부 공개 포트 | `public_ports.py` Nmap 스캔·판정 | 등록 주소/포트 범위·실제 외부 실행 주체·허용 기준선 및 대조군 인수 필요 |
 | NET-01.2 외부→DB 차단 | `network_probes.py` | 모의·로컬 네트워크 검증. 실제 외부/허용 주체·5432/6432·정책 readback 인수 필요 |
-| NET-01.3 다른 namespace→DB 차단 | 같은 네트워크 수집기 | 실제 거부 주체·DNS·허용 경로·정책 readback 인수 필요 |
+| NET-01.3 다른 namespace→DB 차단 | 같은 네트워크 수집기 | [실제 출발지 시험](../../../docs/evidence/t14-source-network-2026-11-06/README.md): DB5432는 다른 NS에서도 연결. 실제 풀러5432와 계약6432 차이로 전체 UNKNOWN. 방법/등록 정합과 목적지 인수 필요 |
 | IAM-01.1 익명 객체 읽기 | AWS 객체 수집기 | #298/#341 실제 출발지. 목적지 SeaweedFS 주소·자격·객체 버전 연결 별도 |
 | IAM-01.2 기준선 초과 권한 | `tool_reports.py`의 결과 정규화 | Prowler/kube-bench 실행·실제 점검 ID/역할/namespace 매핑 미확정. manual/WARN를 PASS로 바꾸지 않음 |
 | ISO-01.1 다른 앱의 객체·DB 접근 | 결합된 T14 시험기 없음 | 객체와 DB 모두 허용/거부 주체로 실제 시험해야 함. 익명 객체 시험이나 Secret 시험으로 대체하지 않음 |
@@ -33,7 +33,8 @@
 
 ## 실제 완료를 위해 남은 작업
 
-1. 코드가 없는 회전·외부 포트·앱 간 객체/DB 격리 시험을 구현하고 실제 도구 매핑을 확정한다.
+1. 회전·외부 포트의 검사와 운영 실행 연결을 완료하고, 앱 간 객체/DB 격리 변경을 인수한다.
+   실제 Prowler/kube-bench 점검 ID·역할·namespace 매핑도 확정해야 한다.
 2. 존재하는 검사기에 승인된 실행 주체·원천·결과 저장소를 연결한다. 운영 설정 변경이 필요한
    시험은 기존 담당의 변경 창과 맞추고 실패/응답 유실 시 복구·정리 근거도 보존한다.
 3. T10이 프로필을 고정한 새 운영 계획에 각 실제 실행 원문을 등록한다. T19는 동일 계획·앱·환경

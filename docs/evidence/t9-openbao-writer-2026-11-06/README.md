@@ -1,11 +1,7 @@
 # T9 OpenBao 준비 상태와 리허설 쓰기 identity 로컬 실측
 
-이 폴더에는 측정이 세 번 있다.
+이 폴더에는 측정이 두 번 있다.
 
-- **리허설 시도 namespace 수신 규칙 실측** (2026-11-06 05:53 KST, 커밋 `4a4a96a`): OpenBao
-  `network` 정책에 T15 Pod용 수신 항목을 넣은 뒤, 시험 전용 수신 규칙 없이 같은 점검을 돌린 측정.
-  [readback-ingress](readback-ingress.json), [source-manifest-ingress](source-manifest-ingress.json).
-  아래 첫 절.
 - **A안 재실측** (2026-11-06 03:47 KST, 커밋 `12d6b4f`): 쓰기 identity에서 정책 쓰기 권한을 없애고
   운영자 소유 namespace 템플릿 정책 하나로 바꾼 뒤의 측정. [readback-aplan](readback-aplan.json),
   [source-manifest-aplan](source-manifest-aplan.json). 아래 첫 절.
@@ -15,23 +11,6 @@
 두 측정 모두 **로컬 kind 클러스터와 upstream OpenBao 2.7.2 dev 서버**에서 했다. 데모 목적지(RKE2,
 TLS, 팀 패치 이미지)가 아니다. readback은 비공개 원본 결과·실행 로그의 해시와 사례별 결과만 담는다.
 토큰·합성 값·mount accessor 값은 기록하지 않았다.
-
-## 리허설 시도 namespace 수신 규칙 실측
-
-A안 재실측과 같은 환경(kind v0.32.0, Kubernetes v1.36.1, kindnet NetworkPolicy, upstream OpenBao
-2.7.2 dev 서버, 클러스터 이름만 `t9-ingress`)에서 커밋 `4a4a96a`의 렌더러와 점검 스크립트로 쟀다.
-**157개 사례 모두 기대대로**였다. A안 재실측과 달라진 점은 수신 규칙 하나다.
-
-| 사례 | 기대 | 결과 | 의미 |
-| --- | --- | --- | --- |
-| `reader_init_blocked_without_t15_label` | Failed | Failed (init 종료 2) | 시도 namespace 안이라도 T15 라벨이 없는 Pod는 8200에 닿지 못한다 |
-| `reader_init_fetch_succeeds` | Succeeded | Succeeded (init 종료 0) | 렌더된 규칙만으로(시험 전용 규칙 없음) `app: rehearsal-app` Pod의 init container가 `credentials.json`을 받는다 |
-| `reader_credentials_file_written` · `reader_no_temp_file_left` | ok, 0400 · 0 | 같음 | 받은 파일의 권한과 임시 파일 정리 |
-| `np_writer_label_in_rehearsal_ns` | blocked | blocked | 쓰기 Job 라벨을 붙여도 시도 namespace에서는 막힌다 |
-
-`role: credential-verifier` 항목(검증 Job·거부 시험)은 kind 점검에서 따로 띄우지 않았고, 같은 규칙
-모양을 `scripts/tests/test_rehearsal_object_access.py`의 허용·거부 표로 확인했다. 데모 목적지(RKE2)
-적용과 실제 T15 Job 실행은 아직이다.
 
 ## A안 재실측
 
