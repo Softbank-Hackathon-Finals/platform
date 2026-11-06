@@ -5,6 +5,7 @@ import argparse
 import fcntl
 import json
 import os
+import shlex
 import shutil
 import signal
 import subprocess
@@ -36,13 +37,19 @@ def activate(root):
     os.environ["BRAVO_RUN_ROOT"] = str(root)
     directory = root / "bin"
     directory.mkdir(exist_ok=True)
-    shim = directory / "kubectl"
-    shim.write_text(
-        "#!"
-        + sys.executable
-        + "\nimport sys\nsys.path.insert(0, "
+    bridge = directory / "kubectl_bridge.py"
+    bridge.write_text(
+        "import sys\nsys.path.insert(0, "
         + repr(str(REPO / "scripts"))
         + ")\nfrom team_runtime.journal import shim\nraise SystemExit(shim(sys.argv[1:]))\n"
+    )
+    shim = directory / "kubectl"
+    shim.write_text(
+        "#!/bin/sh\nexec "
+        + shlex.quote(sys.executable)
+        + " "
+        + shlex.quote(str(bridge))
+        + ' "$@"\n'
     )
     shim.chmod(0o700)
     os.environ["PATH"] = str(directory) + os.pathsep + os.environ["PATH"]
