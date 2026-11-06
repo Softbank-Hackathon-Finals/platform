@@ -253,11 +253,12 @@ def test_initial_installer_requires_reader_and_selects_exact_module():
     spec = importlib.util.spec_from_file_location("initial_installer", path)
     installer = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(installer)
-    settings = {k: "synthetic" for k in ("secret_arn", "runtime_host_id", "broker_role_arn", "model")}
+    settings = {k: "synthetic" for k in ("secret_arn", "runtime_host_id", "broker_role_arn")}
+    model = {"provider": "chatgpt-plan", "model": "synthetic-model", "reasoning_effort": "medium"}
     settings["region"] = "ap-northeast-2"
     with pytest.raises(ValueError):
-        installer.installation(RUNTIME, "d" * 64, settings, initial_proposal=True)
-    script = installer.installation(RUNTIME, "d" * 64, settings, initial_proposal=True,
+        installer.installation(RUNTIME, "d" * 64, settings, model, initial_proposal=True)
+    script = installer.installation(RUNTIME, "d" * 64, settings, model, initial_proposal=True,
         product_reader={"origin": "https://reader.invalid", "ca_file": "/etc/reader-ca.pem"})
     assert f"platform-{RUNTIME}/services/platform-events/.venv/bin/python -m bravo_platform_events.initial_proposal_server" in script
     assert "--frozen --no-dev --group product-inputs" in script

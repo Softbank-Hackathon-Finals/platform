@@ -200,15 +200,37 @@ def test_install_product_opt_in_is_metadata_only():
     spec = importlib.util.spec_from_file_location("product_installer", path)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
-    settings = {k: "synthetic" for k in ("secret_arn", "runtime_host_id", "broker_role_arn", "model")}
+    settings = {k: "synthetic" for k in ("secret_arn", "runtime_host_id", "broker_role_arn")}
+    model = {"provider": "chatgpt-plan", "model": "synthetic-model", "reasoning_effort": "medium"}
     settings["region"] = "ap-northeast-2"
-    assert "subscription_product_server" not in module.installation(RUNTIME, "d" * 64, settings)
-    product = module.installation(RUNTIME, "d" * 64, settings, product_reader={
+    assert "subscription_product_server" not in module.installation(RUNTIME, "d" * 64, settings, model)
+    product = module.installation(RUNTIME, "d" * 64, settings, model, product_reader={
         "origin": "https://inputs.invalid", "ca_file": "/etc/bravo-subscription/reader-ca.pem"})
     assert "subscription_product_server" in product and "product-journal" not in product
     with pytest.raises(TypeError):
-        module.installation(RUNTIME, "d" * 64, settings, product_reader={
+        module.installation(RUNTIME, "d" * 64, settings, model, product_reader={
             "origin": "https://inputs.invalid", "ca_file": "/ca.pem", "token": "private"})
+
+
+def test_install_takes_the_model_from_the_environment_config_only():
+    import base64
+    import json as _json
+    path = Path(__file__).resolve().parents[3] / "operations/subscription/install.py"
+    spec = importlib.util.spec_from_file_location("model_installer", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    settings = {"secret_arn": "s", "runtime_host_id": "h", "broker_role_arn": "r", "region": "ap-northeast-2"}
+    development = _json.loads((path.parents[2] / "infra/gitops/environments/development/agent-model.json").read_text())
+    script = module.installation(RUNTIME, "d" * 64, settings, development)
+    encoded = next(part for part in script.split("'") if part.startswith("eyJ"))
+    installed = _json.loads(base64.b64decode(encoded))
+    assert {k: installed[k] for k in development} == development
+    with pytest.raises(ValueError):  # the model never rides in the metadata settings
+        module.installation(RUNTIME, "d" * 64, settings | {"model": "x"}, development)
+    for bad in ({"model": "m"}, development | {"provider": "other"}, development | {"reasoning_effort": "Medium!"},
+                development | {"api_key": "sk-x"}):
+        with pytest.raises(ValueError):
+            module.installation(RUNTIME, "d" * 64, settings, bad)
 
 
 

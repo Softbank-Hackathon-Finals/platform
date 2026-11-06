@@ -130,10 +130,15 @@ def _isolated_worker(provider, credential, args):
         # Optional T16 input. Callers that build ``args`` themselves (T38 product bridge) omit it.
         if getattr(args, "inventory", None) is not None:
             command += ["--inventory", str(args.inventory.absolute())]
+        if getattr(args, "reasoning_effort", None) is not None:
+            command += ["--reasoning-effort", args.reasoning_effort]
+        if getattr(args, "sandbox_image", None) is not None:
+            command += ["--sandbox-image", args.sandbox_image]
         if getattr(args, "exec_socket", None) is not None:
             command += ["--exec-socket", str(args.exec_socket)]
         environment = {"PATH": "/usr/bin:/bin", "LANG": "C.UTF-8", "HOME": temp,
-                       "TMPDIR": temp, "PYTHONDONTWRITEBYTECODE": "1", **credential}
+                       "TMPDIR": temp, "PYTHONDONTWRITEBYTECODE": "1", **credential,
+                       **(getattr(args, "docker", None) or {})}
         # Inject only inference access. OS/metadata/egress isolation is a host obligation;
         # an environment allowlist alone is not an operating-system sandbox.
         process = subprocess.run(command, cwd=temp, env=environment, capture_output=True,

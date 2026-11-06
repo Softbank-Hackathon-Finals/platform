@@ -443,14 +443,14 @@ OpenAI 경로는 `Tools.allowed`/`deny_unprovided`, Claude 경로는 같은 판�
 | `rehearsal.exec` | 리허설 namespace 안에서만 명령 | 미제공 — T42 #373(기본값 꺼짐), T38 `exec_enabled`·T15 통로 미구현 |
 | `rehearsal.run` / `result` | 검증 Job 실행 요청·결과 조회 | 미제공 — 같은 조건 |
 
-**샌드박스(Harbor 방안 1).** 런타임 샌드박스는 Harbor가 아니라 직접 띄운 격리 환경이고, Harbor의 설계
-방식 세 가지만 빌린다. Harbor 자체는 T26 평가(결함 시나리오 반복 채점)에만 쓴다.
+**샌드박스(Agents SDK + Harbor).** 런타임 샌드박스는 Agents SDK `SandboxAgent`의 Docker 샌드박스다
+(아래 "Agents SDK 샌드박스"). Harbor는 같은 이미지·검증 스크립트로 반복 평가(T26)에 쓴다.
 
-| Harbor에서 빌린 방식 | 이 경로 | 남은 한계 |
+| 경계 | 이 경로 | 남은 한계 |
 |---|---|---|
-| 단계별 네트워크 정책: 에이전트는 LLM API만 접근, 운영망 차단 | Job Pod는 broker loopback만 부르고 자격·Secret·포트가 없다(승인 정책). 모델 워커는 broker 자식 프로세스에 추론 자격 하나만 받고 임시 HOME에서 돈다. | **모델 워커의 송신을 LLM API로 제한하는 규칙은 아직 없다.** broker nft guard는 STS endpoint만 다룬다. 환경변수 허용 목록은 OS 샌드박스가 아니다. |
-| 검증기 분리: 에이전트가 검사 로직을 못 건드림 | 영수증·결속 판정은 platform-events(운영자·Reader)가 하고, 제안서 효과 검증은 T15 독립 검증이 한다. 워커는 결과 파일만 넘긴다. | — |
-| 행동 기록(trajectory): 한 일 전부 기록 → 감사·재현 | broker 원장 `audits` 표에 실행 키마다 시도별 입력 digest·상태·모델 사용량·도구 호출·차단 사유를 남긴다. 기록을 못 쓰면 제안서를 내보내지 않는다. 원문 진단·제공자 필드는 저장하지 않는다. | broker 호스트 비공개 기록이다. 영수증·T10 응답의 `tool_events_status`는 `UNAVAILABLE`이며 콘솔 표시는 ADR-0019 §7 계약이 필요하다. |
+| 네트워크: 에이전트의 실행은 망에 닿지 않음 | 셸·파일 수정은 `network_mode="none"` 컨테이너 안에서만 실행된다. Job Pod는 broker loopback만 부르고 자격·Secret·포트가 없다. | 모델 루프(broker 자식 프로세스)의 송신은 LLM API로 제한하는 규칙이 아직 없다. |
+| 검증기 분리: 에이전트가 검사 로직을 못 건드림 | 컨테이너 수정은 밖으로 복사되지 않는다. 제안서는 platform-events·T15 독립 검증이 판정한다. | — |
+| 행동 기록: 한 일 전부 기록 | `RunHooks`가 샌드박스 호출을 `sandbox.exec`로, 정책이 차단을 `DESTRUCTIVE_ATTEMPT_BLOCKED`로 남기고 broker 원장 `audits`에 보존한다. 기록을 못 쓰면 제안서를 내보내지 않는다. | 영수증의 `tool_events_status`는 `UNAVAILABLE`(ADR-0019 §7). |
 
 **가드레일(구현안 4절).**
 
@@ -462,6 +462,28 @@ OpenAI 경로는 `Tools.allowed`/`deny_unprovided`, Claude 경로는 같은 판�
 | 재시도 상한 | Coordinator 시도 3회 상한, 넘으면 `NEEDS_HUMAN`. 최초 제안은 `backoffLimit: 0` Job 한 번이다. | — |
 | 판정·실행에 LLM 금지 | 이 경로의 판정 모듈(platform-events)은 LLM 클라이언트를 import하지 않는다. | — |
 | 전부 기록 | 위 행동 기록과 같다. | 위와 같다. |
+
+### 모델 선택 (설정 파일)
+
+모델은 코드가 아니라 환경 설정으로 고른다. 설치 때 `install.py --model-config <파일>`이 broker
+설정에 합친다. metadata 설정(`--settings`)에는 모델을 넣지 않는다.
+
+- `infra/gitops/environments/development/agent-model.json`: 리허설(해피패스) 값.
+  `{"provider": "chatgpt-plan", "model": "gpt-6.1-sol", "reasoning_effort": "medium"}`
+- `reasoning_effort`가 없으면 제공자 기본값이다. 값은 형식만 검사하고, 허용 등급은 제공자 계약을 따른다.
+- 다른 환경이나 사용자 선택은 같은 형식의 파일을 따로 두고 설치한다.
+
+### Agents SDK 샌드박스
+
+`agent-model.json`에 `sandbox_image`(digest 고정)를 두면 OpenAI 경로가 Agents SDK
+`SandboxAgent`로 실행된다. 모델 루프와 키는 broker 쪽에 있고, 셸과 파일 수정은 세션 VM의
+Docker 컨테이너(`network_mode="none"`) 안에서만 일어난다. 컨테이너에는 승인된 스냅샷 사본만
+넣는다(`Manifest`). 밖으로 나오는 것은 `plan_propose` 제안서뿐이고, 기존 정책·T15·승인을
+그대로 거친다. 도구는 `Shell` capability(`exec_command`) 하나뿐이다. 파괴 명령은 SDK
+`tool_input_guardrail`이 `DESTRUCTIVE_ATTEMPT_BLOCKED`로 막고, 모든 샌드박스 호출은 `RunHooks`가
+행동 기록(`sandbox.exec`)으로 남긴다. broker 설정 `sandbox_docker`
+(`DOCKER_HOST`·`DOCKER_TLS_VERIFY`·`DOCKER_CERT_PATH`)가 세션 VM의 Docker 엔드포인트다.
+Harbor는 같은 이미지·검증 스크립트로 반복 평가(T26)에만 쓴다.
 
 ### 모델 제공자 선택
 

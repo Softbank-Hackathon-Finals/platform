@@ -288,6 +288,17 @@ def subscription_store(settings, access):
     return SubscriptionStore(settings["secret_arn"], settings["runtime_host_id"], client=client)
 
 
+def sandbox_docker(settings):
+    """Session VM Docker endpoint for the sandbox, from broker settings (DOCKER_* only)."""
+    docker = settings.get("sandbox_docker")
+    if docker is None:
+        return None
+    if (type(docker) is not dict or not set(docker) <= {"DOCKER_HOST", "DOCKER_TLS_VERIFY", "DOCKER_CERT_PATH"}
+            or not str(docker.get("DOCKER_HOST", "")).startswith(("tcp://", "ssh://", "unix://"))):
+        raise ValueError("invalid sandbox Docker endpoint")
+    return {key: str(value) for key, value in docker.items()}
+
+
 def invoke_product_worker(settings, access, value, root, snapshot):
     """Use existing isolated T11 CLI. This bridge only supports first proposals."""
     provider = settings.get("provider", "chatgpt-plan")
@@ -299,8 +310,13 @@ def invoke_product_worker(settings, access, value, root, snapshot):
             stream.write(model.model_dump_json())
         path.chmod(0o400)
     output = root / "result.json"
+    from .runtime import effort
+
+    # Model and effort come from the installed environment model config (install.py).
     args = SimpleNamespace(model=settings["model"], bundle=root / "bundle.json",
-                           manifest=root / "manifest.json", snapshot=snapshot.root, output=output)
+                           manifest=root / "manifest.json", snapshot=snapshot.root, output=output,
+                           reasoning_effort=effort(settings.get("reasoning_effort")),
+                           sandbox_image=settings.get("sandbox_image"), docker=sandbox_docker(settings))
     with contextlib.ExitStack() as stack:
         if value.exec_enabled is True and settings.get("exec"):
             # T42: exec only for an input that carries exec_enabled exactly true AND an installed

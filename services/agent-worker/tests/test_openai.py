@@ -268,3 +268,21 @@ def test_openai_destructive_reserved_call_is_categorised_without_raw_arguments(c
     assert result["audit"][0] == {"run_id": bundle.run_id, "attempt": 1, "tool": "rehearsal.exec", "outcome": "DENIED",
                                   "reason": "DESTRUCTIVE_ATTEMPT_BLOCKED", "category": category}
     assert "private-" not in json.dumps(result)
+
+
+@pytest.mark.parametrize("effort", [None, "medium"])
+def test_reasoning_effort_from_config_reaches_the_request(context, monkeypatch, effort):
+    bundle, snapshot, proposal, _ = context
+    calls, _ = install_client(monkeypatch, [response("repo_read", {"path": "src/config.py"}),
+                                            response("plan_propose", proposal)])
+    provider = OpenAIProvider("fixture-model", reasoning_effort=effort)
+    assert asyncio.run(Coordinator(bundle, snapshot).propose(provider))["state"] == "PROPOSAL_READY"
+    if effort is None:
+        assert all("reasoning" not in call for call in calls)  # provider default
+    else:
+        assert all(call["reasoning"] == {"effort": effort} for call in calls)
+
+
+def test_malformed_reasoning_effort_is_refused():
+    with pytest.raises(ValueError):
+        OpenAIProvider("fixture-model", reasoning_effort="medium; rm -rf")
