@@ -8,7 +8,7 @@ import sys
 
 BAO_CHART_VERSION = "0.30.6"
 BAO_CHART_SHA256 = "76e90c2315a4922b4b0c6c63fd8a00b9f4bdf0cffda160664f8ea5762d59911c"
-BAO_IMAGE = "localhost/bravo-openbao:2.7.2-bravo.3-nonroot@sha256:c85ac2d5f89ac756c3e0b448377ce125b007e9563b03ceb31afafafa3df12bec"
+BAO_IMAGE = "localhost/bravo-openbao:2.7.2-bravo.3-nonroot-arm64@sha256:b09c3934e2420aef5d43cf754381b82104c22f3a2a7248ff46b843d12154ce75"
 ESO_VERSION = "2.14.0"
 ESO_CHART_SHA256 = "0a6d9e91b1ff50adfdbf24b50b582babfa7c5b7df42b21974ca4b3fb88ee5e34"
 ESO_TAG = "v2.14.0@sha256:10608eb53e636e744903d5f3657a4d9c44e28d9d9c181b73e07bc7dd2e6884dc"

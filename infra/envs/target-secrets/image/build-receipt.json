@@ -12,12 +12,14 @@
     "-ldflags",
     "-s -w -X github.com/openbao/openbao/v2/internal/version.fullVersion=2.7.2 -X github.com/openbao/openbao/v2/internal/version.GitCommit=9e0a0d3c3504a0a00b45e61355afac5e35c78379+bravo-go-jose-4.1.6 -X github.com/openbao/openbao/v2/internal/version.CommitDate=2026-10-26T20:32:27+01:00 -X github.com/openbao/openbao/v2/internal/version.VersionMetadata=bravo.3"
   ],
-  "binary_sha256": "b2f96895f1f83dda489f20ff1c4c6d333d76ef642ba497a4afbf7161424fafcf",
-  "image_digest": "sha256:c85ac2d5f89ac756c3e0b448377ce125b007e9563b03ceb31afafafa3df12bec",
+  "binary_sha256": "93570f23931a2f4dfa77e3cdd45184afa6732be1bab4cf2d590dfd76e4c5948a",
+  "image_digest": "sha256:b09c3934e2420aef5d43cf754381b82104c22f3a2a7248ff46b843d12154ce75",
   "version_probe": "OpenBao v2.7.2+bravo.3 (9e0a0d3c3504a0a00b45e61355afac5e35c78379+bravo-go-jose-4.1.6), committed 2026-10-26T20:32:27+01:00",
   "vulnerability_secret_scan_exit": 0,
-  "at": "2026-11-03T15:05:06.572465+00:00",
+  "at": "2026-11-05T19:46:36.547998+00:00",
   "image_packaging_revision": "bravo.3-nonroot",
   "image_user": "100:1000",
-  "dockerfile_sha256": "f69a253c49a3fabe532d6fefdcfb4ada1242e46a2379a7eb8e7be50b4c9bca8e"
+  "dockerfile_sha256": "71b355efda942506344047cd4a3d14ae13f53cb539ec0e49cb892b79e021ff7d",
+  "arch": "linux/arm64",
+  "image_tag": "localhost/bravo-openbao:2.7.2-bravo.3-nonroot-arm64"
 }
