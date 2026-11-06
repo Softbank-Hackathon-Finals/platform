@@ -35,7 +35,7 @@ def test_operator_proof_is_an_operator_principal_and_other_audiences_are_not(pro
                                      audience=OPERATOR_SSO_AUDIENCE)
     actor = verifier.verify(token)
     assert isinstance(actor, OperatorPrincipal) and actor.tenant_id == CONFIG["tenant_id"]
-    assert verifier.identity.subject_id == actor.subject_id
+    assert verifier.identities[0].subject_id == actor.subject_id
     # A registration-audience proof fails at STS (signature over the audience header), as
     # test_registration_sso.test_wrong_signed_audience_or_modified_signature_is_denied covers.
 
@@ -43,3 +43,15 @@ def test_operator_proof_is_an_operator_principal_and_other_audiences_are_not(pro
 def test_only_the_operator_audience_is_accepted(proof):  # noqa: F811
     with pytest.raises(ValueError):
         _verifier(proof.clock, audience=CONFIG["audience"])
+
+
+def test_each_pinned_person_is_a_distinct_operator(proof):  # noqa: F811
+
+    other = dict(CONFIG, expected_caller_arn=CONFIG["expected_caller_arn"].rsplit("/", 1)[0] + "/second-human")
+    first = SsoRegistrationVerifier(**(CONFIG | {"audience": OPERATOR_SSO_AUDIENCE}), transport=httpx.MockTransport(_sts))
+    second = SsoRegistrationVerifier(**(other | {"audience": OPERATOR_SSO_AUDIENCE}), transport=httpx.MockTransport(_sts))
+    assert first.subject_id != second.subject_id
+    OperatorSsoVerifier([first, second])  # two people, two subjects
+    with pytest.raises(ValueError, match="operator_sso_identity_required"):
+        OperatorSsoVerifier([first, first])  # the same person twice is not two operators
+

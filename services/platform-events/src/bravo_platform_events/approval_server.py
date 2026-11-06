@@ -32,12 +32,14 @@ def load_host(store, config_file, create_ports):
         raise ValueError("approval_host_mounts_required")
     sender = sender_from_config(config["workload_binding"], json.loads(paths["public_jwks_file"].read_text()))
     operator = config["operator_verifier"]
-    if isinstance(operator, dict) and "expected_sso_role_arn" in operator:
+    people = operator if isinstance(operator, list) else [operator]
+    if people and all(isinstance(o, dict) and "expected_sso_role_arn" in o for o in people):
         # AWS IAM Identity Center proof (same as registration), signed for the operator audience.
         from .operator_identity import OPERATOR_SSO_AUDIENCE, OperatorSsoVerifier
         from .registration_sso import SsoRegistrationVerifier
 
-        verifier = OperatorSsoVerifier(SsoRegistrationVerifier(**(operator | {"audience": OPERATOR_SSO_AUDIENCE})))
+        verifier = OperatorSsoVerifier([SsoRegistrationVerifier(**(o | {"audience": OPERATOR_SSO_AUDIENCE}))
+                                        for o in people])
     else:
         verifier = OperatorTokenVerifier(**operator)
     with paths["record_key_file"].open("rb") as stream:

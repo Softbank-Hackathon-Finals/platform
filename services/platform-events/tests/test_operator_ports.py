@@ -29,7 +29,7 @@ def test_command_comes_from_the_applied_change_gate_and_shift_approval(flow):  #
             current(c, f.principal, plan)
         shift = {"expires_at": (f.state["now"].replace(microsecond=0)).isoformat().replace("+00:00", "Z")}
         c.execute("INSERT INTO plan_commands VALUES (?,?,?,?)",
-                  (plan["plan_id"], f"shift-approval-{max(plan['version'] - 1, 1)}", "{}", json.dumps(shift)))
+                  (plan["plan_id"], f"shift-approval-{plan['version'] - 1}", "{}", json.dumps(shift)))
         first, again = current(c, f.principal, plan), current(c, f.principal, plan)
     assert first == again  # approval and submission compare the whole context
     assert first.binding["diff_hash"] == claim["binding"]["diff_hash"]

@@ -134,7 +134,10 @@ def rollout(a, record):
     values = json.loads(Path(a.runtime_values).read_text())
     adoption = json.loads(Path(a.reader_adoption).read_text()) if a.reader_adoption else None
     if a.apply:
-        previous = sh(["gh", "variable", "get", QUEUE_VARIABLE, "-R", REPO], check=False) or "true"
+        # Unknown previous value: refuse to start rather than guess and later restore "true".
+        previous = sh(["gh", "variable", "get", QUEUE_VARIABLE, "-R", REPO])
+        if previous not in ("true", "false"):
+            raise Failure("merge_queue_variable_unreadable")
         record["queue_variable_before"] = previous
         step("pause_merges", lambda: sh(["gh", "variable", "set", QUEUE_VARIABLE, "-R", REPO, "--body", "false"]) or "false")
         try:
@@ -149,10 +152,11 @@ def rollout(a, record):
             for _ in range(a.ready_wait // 15):
                 time.sleep(15)
                 rows = node(a.instance_id, {"op": "readback", "cluster_uid": a.cluster_uid})["workloads"]
-                checks = {name: bool(row) and row["ready"] >= 1 and row["image"].endswith(expected[service])
+                # A missing workload is a failed check, not a skipped one.
+                checks = {name: bool(row := rows.get(name)) and row["ready"] >= 1 and row["image"].endswith(expected[service])
                           for name, service in (("t10-product-reader", "product-reader"),
                                                 ("t10-registration", "registration"),
-                                                ("t10-workflow-host", "registration")) if (row := rows.get(name)) is not None}
+                                                ("t10-workflow-host", "registration"))}
                 if checks and all(checks.values()):
                     break
             record["steps"].append({"step": "readback", "result": rows, "checks": checks})

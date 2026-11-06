@@ -118,3 +118,28 @@ python3 scripts/happy_path.py run --plan-id <plan> --record run.jsonl --profile 
 
 plan 상태는 워크플로 호스트 Pod(`deploy/t10-workflow-host`, 컨테이너 `host`)의 `bravo_platform_events.plan_state`로 읽는다(읽기 전용). T18·T8·T27·이미지 이관은 담당이
 실행한 뒤 `confirm`으로 기록한다.
+
+## 5. 운영자 승인 API (리허설 호스트 Pod)
+
+변경·SHIFT·컷오버·되돌리기 승인과 T15 리허설은 한 Pod(`platform-state/t15-rehearsal-host`, `approval_server` + `operator_ports`)에서 실행한다.
+
+- 들어오는 경로: Service는 ClusterIP 8443뿐이다. 공개 ingress는 없다. 승인자는 자기 SSO로 SSM 터널을 연 뒤 `kubectl -n platform-state port-forward svc/t15-rehearsal-host 8443:8443`로 접속한다. 요청마다 운영자 audience(`bravo-platform-operator`)로 서명한 AWS SSO 증명을 Bearer로 보낸다.
+- 운영자 신원: `operator_verifier`에 사람별 고정 신원 목록을 둔다. 승인자와 실행자는 다른 사람이어야 한다. `authenticated_at`은 증명 발급 시각이며, SSO(MFA) 로그인 시각보다 늦을 수 있다.
+- SHIFT CLI: 같은 Pod에서 `kubectl exec ... python -m bravo_edge_control.run`으로 실행하고, journal은 `/records/edge/journal.db` 하나를 쓴다. FailbackEdge도 같은 journal을 쓴다.
+
+### 알려진 위험: 실행 권한이 한 Pod에 모임 (해피패스 한정)
+
+이 Pod에는 다음이 함께 있다. 리허설 경로 하나가 뚫리면 컷오버 제출과 트래픽 전환까지 닿는다.
+
+- 후보 코드를 리허설 namespace에 반영하는 경로와 exec relay
+- DB 자격, catalog 키
+- Executor command-token(컷오버 제출)
+- Cloudflare 토큰(트래픽 가중치)
+
+해피패스 동안 지킬 것:
+
+1. Cloudflare 토큰은 그 LB 하나의 pool 가중치 변경만 가능한 범위로 발급한다. 데모 직후 폐기한다.
+2. command-token은 E2E 직전에 발급하고, E2E가 끝나면 Secret을 지우고 Executor 쪽 토큰을 교체한다.
+3. egress는 DNS, tailnet 프록시, Executor 8080, STS 고정 주소, Cloudflare API 대역 443만 연다(`infra/envs/rehearsal-access/rehearsal-host-network.yaml`).
+
+해피패스 뒤: 승인 API와 Edge 실행을 같은 이미지의 별도 Deployment·SA·NetworkPolicy로 분리한다. command-token과 Cloudflare 토큰은 그 Pod에만 둔다. 리허설 호스트에는 남기지 않는다.

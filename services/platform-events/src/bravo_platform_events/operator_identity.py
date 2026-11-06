@@ -128,12 +128,18 @@ class OperatorSsoVerifier(OperatorTokenVerifier):
     def __init__(self, identity):  # noqa: D107 - no OIDC issuer: the AWS proof is the credential
         from .registration_sso import SsoRegistrationVerifier
 
-        if type(identity) is not SsoRegistrationVerifier or identity.audience != OPERATOR_SSO_AUDIENCE:
+        # One pinned identity per person, so approvers and executors stay distinct subjects.
+        identities = list(identity) if isinstance(identity, (list, tuple)) else [identity]
+        if (not identities or any(type(i) is not SsoRegistrationVerifier or i.audience != OPERATOR_SSO_AUDIENCE
+                                  for i in identities)
+                or len({i.subject_id for i in identities}) != len(identities)):
             raise ValueError("operator_sso_identity_required")
-        self.identity = identity
+        self.identities = identities
+        # Note: authenticated_at is the proof's issue time, which can be later than the SSO (MFA) login.
 
     def verify(self, token):
-        actor = self.identity.verify(token)
+        # ponytail: one STS check per pinned person (a handful); match once if the team list grows.
+        actor = next((a for a in (i.verify(token) for i in self.identities) if a is not None), None)
         if actor is None:
             return None
         return OperatorPrincipal(actor.subject_id, actor.tenant_id, actor.issued_at, actor.expires_at,

@@ -43,6 +43,13 @@ spec:
             matchLabels: {app.kubernetes.io/name: cutover-executor}
       ports:
         - {port: 8080, protocol: TCP}
+    # T17 FailbackEdge and the in-Pod SHIFT CLI call api.cloudflare.com (resolved 2026-11-07 into
+    # 104.19.192.0/22). Only the two published Cloudflare ranges that serve the API, port 443.
+    - to:
+        - ipBlock: {cidr: 104.16.0.0/13}
+        - ipBlock: {cidr: 172.64.0.0/13}
+      ports:
+        - {port: 443, protocol: TCP}
     # Operator SSO proofs are checked against regional STS (sts.ap-northeast-2.amazonaws.com).
     # Same pinned address as t10-registration-trusted-egress; re-resolve when either changes.
     # The host chart pins sts.ap-northeast-2.amazonaws.com to this address via hostAliases and

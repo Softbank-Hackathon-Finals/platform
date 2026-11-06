@@ -34,12 +34,13 @@ CONFIG = "/rehearsal/operator.json"
 
 
 def _shift_approval(c, plan):
-    for version in range(plan["version"], 0, -1):
-        row = c.execute("SELECT receipt_json FROM plan_commands WHERE plan_id=? AND command_key=?",
-                        (plan["plan_id"], f"shift-approval-{version}")).fetchone()
-        if row is not None:
-            return json.loads(row["receipt_json"])
-    return None
+    """The approval that moved this plan into its current SHIFT (recorded one version earlier).
+
+    Only that version: after a rollback and a new SHIFT, an older attempt's approval never counts.
+    """
+    row = c.execute("SELECT receipt_json FROM plan_commands WHERE plan_id=? AND command_key=?",
+                    (plan["plan_id"], f"shift-approval-{plan['version'] - 1}")).fetchone()
+    return json.loads(row["receipt_json"]) if row is not None else None
 
 
 def current_cutover(bindings, *, write_pause_budget_ms=30000):

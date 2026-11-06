@@ -34,6 +34,39 @@ class Rollout(unittest.TestCase):
         sets = [c[-1] for c in calls if c[:3] == ["gh", "variable", "set"]]
         self.assertEqual((code, sets), (1, ["false", "true"]))
 
+    def _run(self, sh, node):
+        rollout.sh, rollout.node = sh, node
+        rollout.time.sleep = lambda _s: None
+        with tempfile.TemporaryDirectory() as d:
+            values = Path(d) / "v.json"
+            values.write_text(json.dumps({"registration": {}}))
+            return rollout.main(["--instance-id", "i-0123456789abcdef0", "--cluster-uid", "0" * 8 + "-" + "0" * 27,
+                                 "--runtime-values", str(values), "--apply", "--ready-wait", "15"])
+
+    def test_unreadable_queue_variable_stops_before_pausing(self):
+        calls = []
+
+        def sh(args, *, check=True):
+            calls.append(args)
+            if args[:3] == ["gh", "variable", "get"]:
+                raise rollout.Failure("gh:auth")
+            return ""
+
+        self.assertEqual(self._run(sh, lambda *_a, **_k: {"status": "PASS"}), 1)
+        self.assertFalse([c for c in calls if c[:3] == ["gh", "variable", "set"]])
+
+    def test_a_missing_workload_fails_the_readback(self):
+        rollout.pins = lambda _r: {"product-reader": "a", "registration": "b"}
+        ready = {"ready": 1, "image": "x@b"}
+
+        def node(_i, packet):
+            if packet["op"] == "readback":
+                return {"workloads": {"t10-registration": ready, "t10-workflow-host": ready}}
+            return {"status": "PASS"}
+
+        sh = lambda args, *, check=True: "true" if args[:3] == ["gh", "variable", "get"] else "sha"  # noqa: E731
+        self.assertEqual(self._run(sh, node), 1)
+
     def test_exact_identities_are_required(self):
         with self.assertRaises(SystemExit):
             rollout.main(["--instance-id", "i-1", "--cluster-uid", "x", "--runtime-values", "/v"])
