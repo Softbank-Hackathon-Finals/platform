@@ -207,6 +207,24 @@ GC를 즉시 권한 철회 보장으로 취급하지 않는다.
 권한 검사, AWS 소비 Pod의 토큰 갱신·폐기, OpenBao writer, 후보 이미지와 실제
 T10 계획의 해피패스는 각각 별도 운영 근거가 필요하다.
 
+## 리허설 공간의 `rehearsal-exec` Secret 차단 (T42)
+
+`rehearsal-exec` Role에는 Secret verb가 없지만 Pod·Deployment·Job 생성으로 Secret을 마운트하거나
+앱 Pod에 exec하면 읽을 수 있다. T42 exec가 켜지면 이 신원이 AI 도구 호출을 대신하므로,
+`exec_guard.py`의 승인 정책 두 개로 경계를 실제로 맞춘다. 대상은
+`app.kubernetes.io/part-of: bravo-rehearsal` namespace에서 그 namespace의 `rehearsal-exec`가 보낸
+요청뿐이다. 러너와 다른 신원은 바뀌지 않는다.
+
+- 워크로드: Secret volume, projected Secret, `secretKeyRef`·`secretRef` env, 명시적 토큰 마운트 거부
+- `pods/exec`: 도구 Pod(`rehearsal-exec-tool`)만 허용. attach·port-forward는 거부
+
+```sh
+python3 infra/envs/rehearsal-access/exec_guard.py > /private/exec-guard.json
+```
+
+`control_guard.py`와 같은 순서로 설치한다(정책 생성 → `status.typeChecking` 확인 → Deny binding).
+`test_exec_guard.py`가 정책의 CEL을 허용·거부 사례로 평가한다. 실제 API server dry-run은 설치 때 확인한다.
+
 ## 관리 namespace의 단일 제품 실행자
 
 RoleBinding 하나만으로는 `bravo-rehearsal-control`의 단일 러너 조건을 보장하지
