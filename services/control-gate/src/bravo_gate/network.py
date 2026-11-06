@@ -137,6 +137,9 @@ class VerifiedNetworkProof:
     test_id: str
     output_digest: str
     valid_until: datetime
+    # A single path proof is useful diagnostics but cannot cover the T5 test.
+    required_roles_verified: tuple[str, ...] = ()
+    run_id: str | None = None
 
 
 class NetworkProofAuthority:
