@@ -22,6 +22,21 @@ PACKAGES = {
     "observability": "bravo_observability",
 }
 
+# Include the lazy imports used by --initial-proposal, not just the entry point.
+READER_IMPORT_PROBE = (
+    "import sys; from bravo_platform_events.product_read_server import load_app, load_initial_app; "
+    "from bravo_platform_events.initial_proposal_api import AuthenticatedInitialReader, create_initial_read_app; "
+    "from bravo_platform_events.initial_stored_source import stored_initial_source; "
+    "from bravo_platform_events.product_access import ProductInputAccess; "
+    "from bravo_agent.product_contracts import ProductInput; "
+    "from rehearsal_runner.task_catalog import TaskCatalog; "
+    "forbidden = [n for n in sys.modules if n.startswith(('openai', "
+    "'bravo_agent.subscription_product', 'bravo_agent.subscription_admin', "
+    "'bravo_agent.product_execution_mailbox', 'bravo_platform_events.initial_proposal_transport'))]; "
+    "assert not forbidden, forbidden; "
+    "print('product_reader_imports_ok')"
+)
+
 
 def git(*args):
     return subprocess.check_output(["git", "-C", str(ROOT), *args])
@@ -163,15 +178,7 @@ def main():
             "--label", "org.opencontainers.image.revision=" + revision,
             *(["--no-cache"] if args.no_cache else []), str(context)], check=True)
         image = json.loads(subprocess.check_output(["docker", "image", "inspect", tag]))[0]
-        probe = ("import os,sys; from bravo_platform_events.product_read_server import load_app, load_initial_app; "
-            "from bravo_platform_events.initial_stored_source import stored_initial_source; "
-            "from bravo_platform_events.product_access import ProductInputAccess; "
-            "from bravo_agent.product_contracts import ProductInput; "
-            "from rehearsal_runner.task_catalog import TaskCatalog; "
-            "assert os.getuid()==10001; "
-            "assert not any(n.startswith(('openai','bravo_agent.subscription_product',"
-            "'bravo_agent.subscription_admin')) for n in sys.modules); "
-            "print('product_reader_imports_ok')")
+        probe = "import os; assert os.getuid()==10001; " + READER_IMPORT_PROBE
         if args.rehearsal_host:
             probe = ("import os,sys,subprocess; from bravo_platform_events.credential_host import create_ports; "
                      "from bravo_platform_events.rehearsal_server import load_host; "

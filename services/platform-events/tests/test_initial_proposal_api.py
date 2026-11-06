@@ -17,7 +17,7 @@ from bravo_platform_events.initial_proposal_api import (
     InitialRead,
     create_initial_read_app,
 )
-from bravo_platform_events.initial_proposal_transport import INITIAL_WORKFLOW
+from bravo_platform_events.initial_proposal_contracts import INITIAL_WORKFLOW
 from bravo_platform_events.product_api import AUDIENCE, ISSUER, SUBJECT, GitHubProductCaller
 from bravo_platform_events.workload_identity import WorkloadSender
 

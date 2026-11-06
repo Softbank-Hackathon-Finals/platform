@@ -13,7 +13,7 @@ from pydantic import Field
 from .cutover import _get
 from .executor import _object
 from .initial_proposal import InitialInput, InitialIntent, InitialProposalRecords, _slot
-from .initial_proposal_transport import INITIAL_WORKFLOW
+from .initial_proposal_contracts import INITIAL_WORKFLOW
 from .product_api import MAX_RESPONSE_BYTES, GitHubProductCaller
 from .store import EventError
 
