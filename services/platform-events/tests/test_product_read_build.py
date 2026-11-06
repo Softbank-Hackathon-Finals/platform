@@ -21,8 +21,8 @@ def test_reader_image_probe_loads_initial_api_without_operator_modules():
 
 
 @pytest.mark.parametrize("module", [
-    "bravo_agent.subscription_product_dispatch",
-    "bravo_agent.subscription_product_dispatch.nested",
+    "bravo_agent.product_ledger",
+    "bravo_agent.product_ledger.nested",
     "bravo_agent.product_execution_mailbox",
     "bravo_platform_events.initial_proposal_transport",
 ])

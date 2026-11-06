@@ -77,6 +77,18 @@ def test_proposal_bound_and_retrievable_after_restart_without_model(setup):
     data = service.journal.path.read_bytes()
     assert b"test-identity" not in data and b"test-private" not in data
     assert service.journal.path.stat().st_mode & 0o077 == 0
+    # Trajectory: the private record keeps every attempt and tool event for this run.
+    record = service.journal.audit(f"{result['run_id']}:1")
+    assert record["state"] == "PROPOSAL_READY" and len(record["attempts"]) == 1
+    assert any(e["tool"] == "plan.propose" and e["outcome"] == "ALLOWED" for e in record["audit"]), record
+    assert "test-private" not in json.dumps(record)
+
+
+def test_no_proposal_leaves_without_its_trajectory_record(setup, monkeypatch):
+    service, _, body, counts = setup
+    monkeypatch.setattr(service.journal, "keep_audit", lambda *a: (_ for _ in ()).throw(OSError("disk")))
+    assert service.run(body) == (200, {"state": "NEEDS_HUMAN", "reason": "PRODUCT_RUNTIME_UNCONFIRMED"})
+    assert counts["invoke"] == 1
 
 
 @pytest.mark.parametrize("change", [
@@ -228,21 +240,21 @@ def test_journal_rejects_symlink(tmp_path):
     assert other.read_text() == "unchanged"
 
 
-def test_host_bridge_uses_sts_identity_and_existing_worker(monkeypatch, setup, context):
+def test_host_bridge_uses_job_identity_and_existing_worker(monkeypatch, setup, context):
     service, inputs, body, _ = setup
     _, _, proposal, _ = context
     calls = []
     credentials = {"AccessKeyId": "test-access", "SecretAccessKey": "test-private", "SessionToken": "test-session"}
 
-    class STS:
-        def assume_role_with_web_identity(self, **kwargs):
-            calls.append(kwargs)
-            return {"Credentials": credentials, "Provider": "test-issuer", "Audience": "test-audience",
-                    "SubjectFromWebIdentityToken": "test-subject"}
+    def workload(settings, token):
+        # The pinned Job identity (signature checks are in test_subscription_workload_auth).
+        calls.append({"web_identity_token": token})
+        return product.ProductAccess(digest({"Provider": "test-issuer", "Audience": "test-audience",
+                                             "SubjectFromWebIdentityToken": "test-subject"}), credentials)
 
     def client(name, **kwargs):
         calls.append({"service": name, **kwargs})
-        return STS() if name == "sts" else object()
+        return object()
 
     def worker(store, state, args):
         bundle = FailureBundle.model_validate_json(args.bundle.read_text())
@@ -262,18 +274,31 @@ def test_host_bridge_uses_sts_identity_and_existing_worker(monkeypatch, setup, c
                                         "SubjectFromWebIdentityToken": "test-subject"})
             return inputs.current
 
+    monkeypatch.setattr(server, "authenticate_workload", workload)
     monkeypatch.setattr(server.boto3, "client", client)
     monkeypatch.setattr(product, "SubscriptionStore", lambda *args, **kwargs: object())
     monkeypatch.setattr(product, "run_worker", worker)
     settings = {"region": "test-region", "broker_role_arn": "test-role", "secret_arn": "test-secret",
                 "runtime_host_id": "test-host", "state_dir": str(service.journal.root / "state"),
-                "model": "test-model", "source_sha": "c" * 40}
+                "model": "test-model", "source_sha": "c" * 40, "workload_identity": {}}
     bridge = server.product_service(settings, Inputs(), service.journal.root)
+    body = body | {"web_identity_token": "header.payload.signature"}
     assert bridge.run(body)[1]["state"] == "PROPOSAL_READY"
-    assert calls[1]["WebIdentityToken"] == body["web_identity_token"]
-    assert calls[2]["service"] == "secretsmanager"
-    assert calls[2]["aws_session_token"] == credentials["SessionToken"]
+    assert calls[0]["web_identity_token"] == body["web_identity_token"]
+    assert calls[1]["service"] == "secretsmanager"
+    assert calls[1]["aws_session_token"] == credentials["SessionToken"]
     assert not list(service.journal.root.glob("product-*"))
+
+    # Explicit Claude selection reads only the API key file; the subscription secret is untouched.
+    claude_calls = []
+    monkeypatch.setattr(product, "SubscriptionStore", lambda *a, **k: pytest.fail("subscription secret read"))
+    monkeypatch.setattr(product, "run_claude_worker",
+                        lambda key_file, directory, args: claude_calls.append(key_file) or worker(None, directory, args))
+    claude = server.product_service(settings | {"provider": "claude", "anthropic_key_file": "/run/bravo/key"},
+                                    Inputs(), service.journal.root / "claude")
+    assert claude.run(body)[1]["state"] == "PROPOSAL_READY" and claude_calls == ["/run/bravo/key"]
+    with pytest.raises(ValueError):
+        product.invoke_product_worker(settings | {"provider": "openai"}, None, None, None, None)
 
 
 def test_configured_http_route_keeps_product_and_fixture_separate(monkeypatch, setup, tmp_path):
@@ -317,3 +342,47 @@ def test_configured_http_route_keeps_product_and_fixture_separate(monkeypatch, s
     thread.join(5)
     assert not thread.is_alive()
     assert counts["invoke"] == 1
+
+
+@pytest.mark.parametrize("exec_enabled,configured,opened", [
+    (True, True, True), (None, True, False), (True, False, False)])
+def test_exec_relay_opens_only_for_an_exec_input_and_an_installed_t15_path(
+        setup, monkeypatch, tmp_path, exec_enabled, configured, opened):
+    from types import SimpleNamespace
+
+    from bravo_agent import exec_relay
+
+    service, inputs, _, _ = setup
+    value = inputs.current.model_copy(update={"exec_enabled": exec_enabled})
+    relays, seen = [], []
+
+    class Relay:
+        def __init__(self, forward, run_id, attempt):
+            relays.append((forward, run_id, attempt))
+            self.path = tmp_path / "exec.sock"
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_):
+            pass
+
+    monkeypatch.setattr(exec_relay, "ExecRelay", Relay)
+    monkeypatch.setattr(exec_relay, "t15_forwarder", lambda **kw: ("forward", kw["url"]))
+
+    def worker(key_file, directory, args):
+        seen.append(getattr(args, "exec_socket", None))
+        args.output.write_text("{}")
+        return 0
+    monkeypatch.setattr(product, "run_claude_worker", worker)
+    settings = {"provider": "claude", "anthropic_key_file": "k", "state_dir": str(tmp_path / "s"), "model": "m",
+                **({"exec": {"url": "https://t15:8443", "ca_file": "c", "cert_file": "b", "key_file": "k",
+                             "server_name": "rehearsal-runner"}} if configured else {})}
+    root = tmp_path / "root"
+    root.mkdir()
+    product.invoke_product_worker(settings, None, value, root, SimpleNamespace(root=tmp_path))
+    if opened:
+        assert relays == [(("forward", "https://t15:8443"), value.bundle.run_id, value.attempt)]
+        assert seen == [tmp_path / "exec.sock"]
+    else:
+        assert relays == [] and seen == [None]

@@ -27,6 +27,9 @@ class ProductInput(Contract):
     bundle: FailureBundle
     manifest: SnapshotManifest
     files: dict[str, Annotated[str, Field(max_length=32768)]] = Field(min_length=1, max_length=64, repr=False)
+    # T42: exec tools only for an input that says exactly true. Absent (None) keeps the stored
+    # form and digest of every existing input; it is never serialized.
+    exec_enabled: bool | None = Field(default=None, exclude_if=lambda value: value is None)
 
 
 def validate_product_input(value: ProductInput | dict) -> ProductInput:

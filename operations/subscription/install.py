@@ -10,11 +10,29 @@ import boto3
 from bravo_agent.subscription_product_reader import ProductReaderConfig
 
 
-def installation(sha, archive_digest, settings, *, product_reader=None, initial_proposal=False):
+MODEL_FIELDS = {"provider", "model", "reasoning_effort", "sandbox_image"}
+
+
+def model_config(value):
+    """The environment's selectable model (e.g. infra/gitops/environments/<env>/agent-model.json)."""
+    if (type(value) is not dict or not {"provider", "model"} <= set(value) <= MODEL_FIELDS
+            or value["provider"] not in {"chatgpt-plan", "claude"}
+            or not re.fullmatch(r"[A-Za-z0-9_.:-]{1,128}", str(value["model"]))
+            or ("reasoning_effort" in value and not re.fullmatch(r"[a-z]{1,16}", str(value["reasoning_effort"])))
+            or ("sandbox_image" in value
+                and not re.fullmatch(r"[a-z0-9./_-]+(:[A-Za-z0-9._-]+)?@sha256:[a-f0-9]{64}", str(value["sandbox_image"])))):
+        raise ValueError("invalid model configuration")
+    return value
+
+
+def installation(sha, archive_digest, settings, model, *, product_reader=None, initial_proposal=False):
     if not re.fullmatch("[a-f0-9]{40}", sha) or not re.fullmatch("[a-f0-9]{64}", archive_digest):
         raise ValueError("immutable source and archive digest required")
-    if set(settings) != {"secret_arn", "runtime_host_id", "broker_role_arn", "model", "region"}:
-        raise ValueError("metadata-only settings required; never include tokens")
+    required = {"secret_arn", "runtime_host_id", "broker_role_arn", "region"}
+    # Optional: the sandbox session VM's Docker endpoint (DOCKER_* names only, no secret values).
+    if not required <= set(settings) <= required | {"sandbox_docker"}:
+        raise ValueError("metadata-only settings required; never include tokens or the model")
+    settings = {**settings, **model_config(model)}
     if settings["region"] != "ap-northeast-2":
         raise ValueError("unsupported region")
     if type(initial_proposal) is not bool or (initial_proposal and product_reader is None):
@@ -73,6 +91,8 @@ def main():
     parser.add_argument("--source-sha", required=True)
     parser.add_argument("--archive-sha256", required=True)
     parser.add_argument("--settings", type=Path, required=True)
+    parser.add_argument("--model-config", type=Path, required=True,
+                        help="environment model choice, e.g. infra/gitops/environments/development/agent-model.json")
     parser.add_argument("--instance-id", required=True)
     parser.add_argument("--product-reader", type=Path, help="reviewed HTTPS origin and mounted CA metadata; no token")
     parser.add_argument("--initial-proposal", action="store_true", help="select the separate initial-purpose broker")
@@ -80,6 +100,7 @@ def main():
     if not re.fullmatch("i-[a-f0-9]{17}", args.instance_id):
         raise ValueError("exact instance required")
     script = installation(args.source_sha, args.archive_sha256, json.loads(args.settings.read_text()),
+                          json.loads(args.model_config.read_text()),
                           product_reader=json.loads(args.product_reader.read_text()) if args.product_reader else None,
                           initial_proposal=args.initial_proposal)
     result = boto3.client("ssm", region_name="ap-northeast-2").send_command(

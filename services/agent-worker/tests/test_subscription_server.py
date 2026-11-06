@@ -12,7 +12,7 @@ from bravo_agent.contracts import FailureBundle
 from bravo_agent.coordinator import Coordinator
 
 
-def test_broker_uses_web_identity_in_memory_and_reports_rotation(monkeypatch, tmp_path, context):
+def test_fixture_runtime_smoke_uses_job_identity_and_reports_rotation(monkeypatch, tmp_path, context):
     bundle, snapshot, proposal, _ = context
     examples = tmp_path / "examples"
     examples.mkdir()
@@ -21,14 +21,13 @@ def test_broker_uses_web_identity_in_memory_and_reports_rotation(monkeypatch, tm
     calls = []
     credentials = {"AccessKeyId": "test-access", "SecretAccessKey": "test-private", "SessionToken": "test-session"}
 
-    class STS:
-        def assume_role_with_web_identity(self, **kwargs):
-            calls.append(kwargs)
-            return {"Credentials": credentials}
+    def workload(settings, token):
+        calls.append({"web_identity_token": token})
+        return server.ProductAccess("p" * 64, credentials)
 
     def client(name, **kwargs):
         calls.append({"service": name, **kwargs})
-        return STS() if name == "sts" else object()
+        return object()
 
     class Store:
         def __init__(self, *args, **kwargs):
@@ -52,6 +51,7 @@ def test_broker_uses_web_identity_in_memory_and_reports_rotation(monkeypatch, tm
         args.output.write_text(json.dumps(result))
         return 0
 
+    monkeypatch.setattr(server, "authenticate_workload", workload)
     monkeypatch.setattr(server.boto3, "client", client)
     monkeypatch.setattr(server, "SubscriptionStore", Store)
     monkeypatch.setattr(server, "run_worker", worker)
@@ -61,9 +61,8 @@ def test_broker_uses_web_identity_in_memory_and_reports_rotation(monkeypatch, tm
                              "model": "test-model", "source_sha": "a" * 40}
     run_id = "subscription-" + "a" * 32
     result = server.execute_fixture(settings, "test-web-identity", run_id)
-    assert calls[1] == {"RoleArn": "test-role", "RoleSessionName": "bravo-subscription-vm",
-                        "WebIdentityToken": "test-web-identity", "DurationSeconds": 900}
-    assert calls[2]["aws_session_token"] == credentials["SessionToken"]
+    assert calls[0] == {"web_identity_token": "test-web-identity"}
+    assert calls[1]["aws_session_token"] == credentials["SessionToken"]
     assert all(result[name] for name in ("credential_rotated", "access_rotated", "refresh_rotated",
                                         "registration_reused", "subject_reused", "expires_at_increased"))
     assert "test-web-identity" not in json.dumps(result)
@@ -82,11 +81,11 @@ def test_broker_uses_web_identity_in_memory_and_reports_rotation(monkeypatch, tm
 
 
 def test_rejected_identity_never_reads_secret_or_starts_model(monkeypatch):
-    class STS:
-        def assume_role_with_web_identity(self, **kwargs):
-            raise ValueError("identity denied")
+    def workload(settings, token):
+        raise ValueError("identity denied")
 
-    monkeypatch.setattr(server.boto3, "client", lambda name, **kwargs: STS())
+    monkeypatch.setattr(server, "authenticate_workload", workload)
+    monkeypatch.setattr(server.boto3, "client", lambda *a, **k: pytest.fail("no AWS call"))
     monkeypatch.setattr(server, "run_worker", lambda *args: pytest.fail("must not start model"))
     with pytest.raises(ValueError, match="identity denied"):
         server.execute_fixture({"region": "ap-northeast-2", "broker_role_arn": "test-role"}, "invalid",

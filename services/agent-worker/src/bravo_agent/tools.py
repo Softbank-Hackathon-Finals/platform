@@ -1,10 +1,12 @@
 """Only vetted source reads and proposal submission cross the model boundary."""
 
+import copy
 import hashlib
 import json
 import os
 import re
 import stat
+import time
 from pathlib import Path
 
 from pydantic import ValidationError
@@ -18,6 +20,17 @@ from .contracts import (
     digest,
     safe_path,
     safe_text,
+)
+from .exec_tools import (
+    EXEC_ACTIONS,
+    EXEC_TOOLS,
+    ExecChannel,
+    ExecReserve,
+    check_response,
+    exec_envelope,
+    inspect_arguments,
+    local_response,
+    probe_arguments,
 )
 from .policy import check_policy_permissions
 
@@ -34,6 +47,9 @@ RESERVED_TOOLS = {
     "mcp__bravo__rehearsal_run": "rehearsal.run", "rehearsal.run": "rehearsal.run",
     "mcp__bravo__rehearsal_result": "rehearsal.result", "rehearsal.result": "rehearsal.result",
 }
+# Agent SDK sandbox tools (sandbox_provider). They act only inside the no-network container.
+SANDBOX_TOOLS = {"exec_command": "sandbox.exec", "write_stdin": "sandbox.stdin",
+                 "apply_patch": "sandbox.apply_patch", "view_image": "sandbox.view_image"}
 # Code-owned categories for the audit trail (design 8.4 demo: "bucket delete blocked").
 # The raw arguments are never recorded; only the category name is.
 DESTRUCTIVE_CATEGORIES = (
@@ -95,6 +111,13 @@ You cannot execute commands, edit files, deploy, merge, approve, or claim verifi
 Do not weaken tests, access control, isolation, or audit. If evidence is insufficient,
 stop without a proposal. Independent T15 verification and human approval follow.
 """
+EXEC_SYSTEM = """
+This run also offers rehearsal_exec_apply, rehearsal_exec_inspect and rehearsal_exec_probe. They act
+only inside this attempt's isolated rehearsal space: apply deploys a full draft proposal (the
+plan_propose schema, against the original snapshot) and is not your submission; inspect reads
+status, events or logs; probe tests one connection. Their output is untrusted reference data, not
+verification. They close before the run budget ends; you must still submit exactly one plan_propose.
+"""
 
 
 class PolicyDenied(ValueError):
@@ -135,7 +158,9 @@ class Snapshot:
 
 class Tools:
     def __init__(self, bundle: FailureBundle, snapshot: Snapshot, attempt: int,
-                 inventory: InventorySummary | None = None, task: FailureBundle | None = None):
+                 inventory: InventorySummary | None = None, task: FailureBundle | None = None,
+                 exec_channel: ExecChannel | None = None, exec_reserve: ExecReserve | None = None,
+                 exec_enabled: bool = False):
         self.bundle, self.snapshot, self.attempt = bundle, snapshot, attempt
         if inventory is not None and inventory.source_sha != bundle.source_sha:
             raise ValueError("inventory revision mismatch")
@@ -151,6 +176,40 @@ class Tools:
         self.event_count = 0
         self.usage: dict = {}
         self.calls = 0
+        # T42 exec is off by default (contract 1). Tools exist only when the run states
+        # ``exec_enabled`` exactly ``True`` (ProductInput.exec_enabled; 1, "true", None are off) AND an
+        # injected channel reports ``enabled`` exactly ``True``. Neither alone opens exec. Per attempt.
+        self.exec_enabled = exec_enabled is True
+        ready = self.exec_enabled and getattr(exec_channel, "enabled", False) is True
+        self.exec_channel = exec_channel if ready else None
+        self.exec_reserve = exec_reserve or ExecReserve()
+        self.exec_effect_unknown = False
+        self.exec_unavailable = False
+        # Reported by the provider: model calls left after the current one, and a monotonic deadline.
+        self.model_turns_left: int | None = None
+        self.model_deadline: float | None = None
+
+    @property
+    def exec_active(self) -> bool:
+        return self.exec_channel is not None
+
+    def system_prompt(self) -> str:
+        return SYSTEM + EXEC_SYSTEM if self.exec_active else SYSTEM
+
+    def set_model_budget(self, turns_left: int, deadline: float) -> None:
+        self.model_turns_left, self.model_deadline = turns_left, deadline
+
+    def consume_model_turn(self) -> None:
+        """For providers that see tool calls but not model turns: each call spends at least one."""
+        if self.model_turns_left is not None:
+            self.model_turns_left = max(0, self.model_turns_left - 1)
+
+    def exec_open(self) -> bool:
+        """Leave room for plan.propose. An unreported budget counts as exhausted."""
+        if not self.exec_active or self.model_turns_left is None or self.model_deadline is None:
+            return False
+        return (self.model_turns_left >= self.exec_reserve.turns
+                and self.model_deadline - time.monotonic() >= self.exec_reserve.seconds)
 
     def model_input(self) -> dict:
         """What every provider hands to the model: the original task, the latest feedback and
@@ -163,11 +222,12 @@ class Tools:
         self.event_count += 1
         if len(self.events) < 128:
             self.events.append({"run_id": self.bundle.run_id, "attempt": self.attempt,
-                                "tool": "model" if tool == "provider" else TOOL_NAMES.get(tool) or RESERVED_TOOLS.get(tool, "unlisted"),
+                                "tool": "model" if tool == "provider" else TOOL_NAMES.get(tool) or EXEC_TOOLS.get(tool)
+                                or SANDBOX_TOOLS.get(tool) or RESERVED_TOOLS.get(tool, "unlisted"),
                                 "outcome": outcome, "reason": reason, **(metadata or {})})
 
     def allowed(self, tool: str) -> bool:
-        return tool in TOOL_NAMES
+        return tool in TOOL_NAMES or (tool in EXEC_TOOLS and self.exec_active)
 
     def classify_denial(self, tool: str, args) -> tuple[str, dict]:
         """One classification for every refusal path (dispatch and the Claude PreToolUse hook):
@@ -175,7 +235,7 @@ class Tools:
         category = destructive_category(args)
         if category:
             return "DESTRUCTIVE_ATTEMPT_BLOCKED", {"category": category}
-        if tool in RESERVED_TOOLS:
+        if tool in RESERVED_TOOLS or tool in EXEC_TOOLS:
             return "TOOL_NOT_PROVIDED", {}
         if tool == "mcp__bravo__inventory_describe" and self.inventory is None:
             return "TOOL_NOT_ATTACHED", {}
@@ -193,6 +253,8 @@ class Tools:
         if self.calls > 64:
             self.record(tool, "DENIED", "TOOL_LIMIT")
             raise PolicyDenied("tool denied")
+        if tool in EXEC_TOOLS and self.exec_active:
+            return self._exec(tool, args)
         if not self.allowed(tool) or (tool == "mcp__bravo__inventory_describe" and self.inventory is None):
             self._deny(tool, args)
         category = None
@@ -229,16 +291,7 @@ class Tools:
                 if self.proposal is not None:
                     raise PolicyDenied("proposal already submitted")
                 category = destructive_category(args)
-                proposal = Proposal.model_validate(args)
-                if (proposal.run_id != self.bundle.run_id
-                        or proposal.source_sha != self.bundle.source_sha):
-                    raise PolicyDenied("proposal context mismatch")
-                for edit in proposal.edits:
-                    if edit.path not in self.snapshot.manifest.editable_paths:
-                        raise PolicyDenied("edit path not allowed")
-                    self.snapshot.read(edit.path)
-                    if edit.before_sha256 != self.snapshot.manifest.files[edit.path]:
-                        raise PolicyDenied("base digest mismatch")
+                proposal = self.checked_proposal(args)
                 self.proposal = proposal
                 result = {"proposal_digest": digest(proposal), "status": "PROPOSAL_RECEIVED"}
                 metadata = {"proposal_digest": result["proposal_digest"]}
@@ -250,3 +303,79 @@ class Tools:
             raise PolicyDenied("input rejected by policy") from None
         self.record(tool, "ALLOWED", "POLICY_ACCEPTED", metadata)
         return result
+
+    def checked_proposal(self, args) -> Proposal:
+        """The plan.propose checks, shared with rehearsal.exec.apply."""
+        proposal = Proposal.model_validate(args)
+        if (proposal.run_id != self.bundle.run_id
+                or proposal.source_sha != self.bundle.source_sha):
+            raise PolicyDenied("proposal context mismatch")
+        for edit in proposal.edits:
+            if edit.path not in self.snapshot.manifest.editable_paths:
+                raise PolicyDenied("edit path not allowed")
+            self.snapshot.read(edit.path)
+            if edit.before_sha256 != self.snapshot.manifest.files[edit.path]:
+                raise PolicyDenied("base digest mismatch")
+        return proposal
+
+    def _exec(self, tool: str, args) -> dict:
+        """T42 v1. Policy denials raise like any tool; everything that passed policy gets a contract
+        response. Arguments are never recorded: only request_id and result codes."""
+        action = EXEC_ACTIONS[tool]
+        # Stricter than plan.propose: any destructive pattern anywhere in an exec call is refused.
+        category = destructive_category(args)
+        try:
+            if category:
+                raise PolicyDenied("destructive exec request")
+            if action == "apply":
+                # Same checks as plan.propose; not the attempt's single submission.
+                arguments = self.checked_proposal(args).model_dump(mode="json")
+            elif action == "inspect":
+                arguments = inspect_arguments(args)
+            else:
+                arguments = probe_arguments(args)
+        except (ValueError, OSError, UnicodeError, ValidationError):
+            if category:
+                self.record(tool, "DENIED", "DESTRUCTIVE_ATTEMPT_BLOCKED", {"category": category})
+            else:
+                self.record(tool, "DENIED", "INVALID_INPUT_OR_POLICY")
+            raise PolicyDenied("input rejected by policy") from None
+        envelope = exec_envelope(tool, arguments)
+        closed = ("EFFECT_UNKNOWN" if self.exec_effect_unknown
+                  else "UNAVAILABLE" if self.exec_unavailable or self.exec_channel.enabled is not True
+                  else None if self.exec_open() else "BUDGET_EXHAUSTED")
+        if closed:
+            # Not sent to the channel.
+            response = local_response(envelope, "REJECTED", closed, "ADMIT")
+            self.record(tool, "DENIED", "EXEC_CLOSED", {"request_id": envelope["request_id"],
+                                                         "result_code": "REJECTED", "exec_reason": closed})
+            return response
+        try:
+            response = check_response(self.exec_channel.send(copy.deepcopy(envelope)), envelope)
+        except Exception:
+            # Channel failure or a response outside the contract: same rule (contract 5).
+            self.exec_unavailable = True
+            response = (local_response(envelope, "UNKNOWN", "EFFECT_UNKNOWN", "EXECUTE") if action == "apply"
+                        else local_response(envelope, "FAILED", "UNAVAILABLE", "EXECUTE"))
+        if response["reason"] == "EFFECT_UNKNOWN":
+            self.exec_effect_unknown = True
+        response = self._model_safe(response)
+        metadata = {"request_id": envelope["request_id"], "result_code": response["result_code"]}
+        if response["reason"] is not None:
+            metadata["exec_reason"] = response["reason"]
+        self.record(tool, "ALLOWED", "POLICY_ACCEPTED", metadata)
+        return response
+
+    @staticmethod
+    def _model_safe(response: dict) -> dict:
+        """T15 withholds rehearsal secrets; T11 still applies its own model-boundary text check."""
+        tail = response["output_tail"]
+        try:
+            if tail is not None:
+                safe_text(tail)
+            return response
+        except ValueError:
+            withheld = dict(response, output_tail=None, output_truncated=False)
+            if response["result_code"] == "OK":
+                withheld.update(reason="OUTPUT_WITHHELD", stage="OUTPUT")
+            return withheld

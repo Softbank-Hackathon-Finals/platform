@@ -19,7 +19,6 @@ from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
 from cryptography.x509.oid import NameOID
 from test_subscription_product import setup as setup
-from test_subscription_product_execution import dispatch as dispatch
 
 from bravo_agent.product_execution_contracts import ExecutionPending, ExecutionUnknown
 from bravo_agent.product_execution_mailbox import FileProductExecution, encode
