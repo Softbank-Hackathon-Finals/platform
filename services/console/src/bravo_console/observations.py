@@ -72,9 +72,7 @@ class FixedJsonClient:
         try:
             async with (
                 asyncio.timeout(5),
-                self.client.stream(
-                    "GET", path, params=params
-                ) as r,
+                self.client.stream("GET", path, params=params) as r,
             ):
                 r.raise_for_status()
                 if (
@@ -145,6 +143,51 @@ async def _plan(api, scope, plan_id):
         raise ObservationError("plan_unavailable") from None
 
 
+def http_observation_row(body, environment, *, now):
+    empty = dict(
+        environment=environment,
+        state="UNOBSERVABLE",
+        queried_at=None,
+        requests_per_second=None,
+        error_ratio=None,
+        p95_seconds=None,
+    )
+    try:
+        if (
+            type(body) is not dict
+            or body.get("environment") != environment
+            or body.get("window") != "1m"
+        ):
+            return empty
+        at = datetime.fromisoformat(body["queried_at"].replace("Z", "+00:00"))
+        age = body.get("last_received_seconds_ago")
+        if (
+            at.utcoffset() is None
+            or not 0 <= (now - at).total_seconds() <= 10
+            or body.get("state") != "OK"
+            or type(age) not in (int, float)
+            or not math.isfinite(age)
+            or not 0 <= age <= 30
+        ):
+            return empty
+        values = {k: body.get(k) for k in ("requests_per_second", "error_ratio", "p95_seconds")}
+        for key, value in values.items():
+            if value is not None and (
+                type(value) not in (int, float)
+                or not math.isfinite(value)
+                or value < 0
+                or (key == "error_ratio" and value > 1)
+            ):
+                return empty
+        if values["requests_per_second"] is None:
+            return empty
+        if values["requests_per_second"] == 0:
+            values["error_ratio"] = values["p95_seconds"] = None
+        return empty | values | {"state": "OK", "queried_at": at.isoformat()}
+    except (KeyError, TypeError, ValueError, OverflowError):
+        return empty
+
+
 class PlanObservations:
     def __init__(
         self,
@@ -172,48 +215,7 @@ class PlanObservations:
             raise ObservationError("forbidden", 403)
 
     def _row(self, body, environment, *, now):
-        empty = dict(
-            environment=environment,
-            state="UNOBSERVABLE",
-            queried_at=None,
-            requests_per_second=None,
-            error_ratio=None,
-            p95_seconds=None,
-        )
-        try:
-            if (
-                type(body) is not dict
-                or body.get("environment") != environment
-                or body.get("window") != "1m"
-            ):
-                return empty
-            at = datetime.fromisoformat(body["queried_at"].replace("Z", "+00:00"))
-            age = body.get("last_received_seconds_ago")
-            if (
-                at.utcoffset() is None
-                or not 0 <= (now - at).total_seconds() <= 10
-                or body.get("state") != "OK"
-                or type(age) not in (int, float)
-                or not math.isfinite(age)
-                or not 0 <= age <= 30
-            ):
-                return empty
-            values = {k: body.get(k) for k in ("requests_per_second", "error_ratio", "p95_seconds")}
-            for key, value in values.items():
-                if value is not None and (
-                    type(value) not in (int, float)
-                    or not math.isfinite(value)
-                    or value < 0
-                    or (key == "error_ratio" and value > 1)
-                ):
-                    return empty
-            if values["requests_per_second"] is None:
-                return empty
-            if values["requests_per_second"] == 0:
-                values["error_ratio"] = values["p95_seconds"] = None
-            return empty | values | {"state": "OK", "queried_at": at.isoformat()}
-        except (KeyError, TypeError, ValueError, OverflowError):
-            return empty
+        return http_observation_row(body, environment, now=now)
 
     async def read(self, scope, plan_id):
         plan = await _plan(self.api, scope, plan_id)
