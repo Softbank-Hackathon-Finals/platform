@@ -29,30 +29,31 @@ def now():
     return datetime.now(UTC).isoformat()
 
 
-def activate(root):
-    executable = shutil.which("kubectl")
+def activate(root, *, write=True):
+    """Point this process at the run's kubectl shim. Only the lock holder writes the shim
+    files (atomically), so a concurrent `status` never rewrites a running execution's bin/."""
+    executable = shutil.which("kubectl", path=os.environ.get("BRAVO_ORIGINAL_PATH", os.environ["PATH"]))
     if not executable:
         raise Failure("kubectl_missing")
+    os.environ.setdefault("BRAVO_ORIGINAL_PATH", os.environ["PATH"])
     os.environ["BRAVO_REAL_KUBECTL"] = executable
     os.environ["BRAVO_RUN_ROOT"] = str(root)
     directory = root / "bin"
-    directory.mkdir(exist_ok=True)
-    bridge = directory / "kubectl_bridge.py"
-    bridge.write_text(
-        "import sys\nsys.path.insert(0, "
-        + repr(str(REPO / "scripts"))
-        + ")\nfrom team_runtime.journal import shim\nraise SystemExit(shim(sys.argv[1:]))\n"
-    )
-    shim = directory / "kubectl"
-    shim.write_text(
-        "#!/bin/sh\nexec "
-        + shlex.quote(sys.executable)
-        + " "
-        + shlex.quote(str(bridge))
-        + ' "$@"\n'
-    )
-    shim.chmod(0o700)
-    os.environ["PATH"] = str(directory) + os.pathsep + os.environ["PATH"]
+    if write:
+        directory.mkdir(exist_ok=True)
+        bridge = directory / "kubectl_bridge.py"
+        _replace(bridge, "import sys\nsys.path.insert(0, " + repr(str(REPO / "scripts"))
+                 + ")\nfrom team_runtime.journal import shim\nraise SystemExit(shim(sys.argv[1:]))\n", 0o600)
+        _replace(directory / "kubectl", "#!/bin/sh\nexec " + shlex.quote(sys.executable) + " "
+                 + shlex.quote(str(bridge)) + ' "$@"\n', 0o700)
+    os.environ["PATH"] = str(directory) + os.pathsep + os.environ["BRAVO_ORIGINAL_PATH"]
+
+
+def _replace(path, text, mode):
+    temporary = path.with_name("." + path.name + ".tmp")
+    temporary.write_text(text)
+    temporary.chmod(mode)
+    os.replace(temporary, path)
 
 
 def identity():
@@ -126,7 +127,7 @@ def execute(args):
             json.dumps({"run_id": root.name, "receipt": str(root / "journal.json")}),
             flush=True,
         )
-    activate(root)
+    activate(root, write=False)
     with (root / "execution.lock").open("a") as lease:
         try:
             fcntl.flock(lease, fcntl.LOCK_EX | fcntl.LOCK_NB)
@@ -136,6 +137,7 @@ def execute(args):
                 print(json.dumps(summary(root)), flush=True)
                 return 0
             raise Failure("run_still_active") from None
+        activate(root)  # lock holder only (#466 review)
         if args.command != "run":
             with locked(root) as value:
                 if value["execution"] in ("STARTING", "RUNNING"):
