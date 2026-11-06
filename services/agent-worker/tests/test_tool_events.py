@@ -60,7 +60,7 @@ def install_sdk(monkeypatch, items):
             "id": f"resp_{len(requests)}", "object": "response", "created_at": 1, "model": "fixture-model",
             "status": "completed", "parallel_tool_calls": False, "tool_choice": "auto", "tools": [],
             "output": [{"id": "fc_fixture", "type": "function_call", "status": "completed",
-                        "call_id": "call_fixture", **item}],
+                        "call_id": f"call_fixture_{len(requests)}", **item}],
             "usage": {"input_tokens": 100, "output_tokens": 50, "total_tokens": 150,
                       "input_tokens_details": {"cached_tokens": 0},
                       "output_tokens_details": {"reasoning_tokens": 0}}})

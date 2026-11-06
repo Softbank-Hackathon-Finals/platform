@@ -47,6 +47,7 @@ class Coordinator:
                                   "input_digest": digest(self.bundle), "task_digest": digest(self.task),
                                   "state": self.state,
                                   "model_usage": dict(tools.usage),
+                                  **({"observability": tools.observability} if hasattr(tools, "observability") else {}),
                                   "audit_event_count": tools.event_count,
                                   "audit_truncated": tools.event_count > len(tools.events),
                                   "proposal": self.proposal.model_dump() if self.proposal else None,

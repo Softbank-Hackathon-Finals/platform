@@ -348,6 +348,16 @@ SCRAM 키를 저장하지 않는다. 첫 시도가 틀리면 그 뒤에 맞는 �
 
 **해피패스 순서:** T31 롤아웃 → `write_switch.py open` → Edge 가중치 전환 → 컷오버.
 
+해피패스 실행자는 T31 직후 `open_after_apply.py`로 이 두 단계를 잇는다. 이 스크립트는 기록된 T31 결과를
+`bravo-apply get-result`로 읽는다(클러스터 호출 없음). 그 결과가 이 목적지 `target-dev/demo-chat`의 실제
+`APPLIED` 롤아웃일 때만 진행한다. `status`가 확인 못 함(3)인 동안 기다린 뒤 `open`을 한 번 실행한다. 판정과
+실패 시 전체 닫기는 `write_switch.py`가 한다. 결과는 T31 영수증 옆 `<application_id>.write-switch.json`에
+한 번만 남는다. 다시 실행하면 그 기록만 보여 준다. 다시 열려면 사람이 `write_switch.py open`을 실행한다.
+
+```sh
+infra/envs/target-workloads/open_after_apply.py --application-id <T31 id> --receipts <T31 receipts> --kubeconfig <target>
+```
+
 ```sh
 infra/envs/target-workloads/write_switch.py status   # 읽기만. 열 조건이 모두 맞으면 0
 infra/envs/target-workloads/write_switch.py open

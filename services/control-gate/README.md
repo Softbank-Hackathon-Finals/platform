@@ -70,15 +70,19 @@ security = service.require_security(actor, context_id, serialized_report,
 
 ## 네트워크 드롭과 장애
 
-NET-01.2/01.3의 PASS에는 `NetworkProofAuthority`가 필요하다. 증거 `output_sha256`에 연결한 구조화된 원본을 등록된 저장소에서 읽으며, URI를 임의로 가져오거나 `excerpt`를 정규식으로 해석하지 않는다.
+NET-01.2/01.3의 PASS에는 `CollectedNetworkProofAuthority`가 필요하다. T14 집계 원문 한 개와 DB·풀러 개별 원문 두 개를 등록된 저장소에서 읽는다. URI를 임의로 가져오거나 `excerpt`를 정규식으로 해석하지 않는다.
 
-- 서버의 `NetworkBinding`이 목적지·시험 주체·허용 주체·허용 서비스·DNS·정책 설정 hash·접속 제한시간을 고정한다.
-- 연결 거부 또는 설정한 제한시간까지의 timeout을 확인한다.
-- 같은 DB/포트에 대한 허용 주체의 성공, 같은 시험 주체의 허용 경로 성공, NET-01.3의 DNS 성공을 같은 60초 창에서 확인한다.
-- 대조군 실패·다른 대상·다른 주체·오래된 증거·설정 hash 불일치·원본 변조는 통과시키지 않는다.
-- 확인한 근거와 등록의 기한을 보안 전제조건 기한에도 반영한다.
+- 서버의 `NetworkRunRegistration`이 계획 context, 양쪽 중 어느 환경인지, 앱, 실제 run ID, 시험·방법 버전, DB·풀러의 등록 hash·정책 hash와 기한을 고정한다. 두 경로의 등록은 서로 달라야 한다.
+- 집계와 개별 원문 모두 SHA-256·서버 출처를 검증하고, 모든 경로가 같은 run·앱·환경·시험에 속하는지 확인한다. 검증 마지막에 등록·원문을 다시 읽고 재인증한다.
+- 각 경로의 연결 거부 또는 3초 이상 timeout, 시험 전후 정상 연결·시험 주체의 정상 경로, NET-01.3의 전후 DNS 성공을 60초 창에서 함께 확인한다. 하나라도 누락·중복·변조·실패하면 전체 시험의 PASS 근거로 사용할 수 없다.
+- `GateService`는 검증된 두 역할과 현재 로드한 원본 run ID까지 대조한다. 예전 단일 경로 `NetworkProofAuthority`는 진단용으로 남지만 전체 NET 시험의 통과 근거로는 사용할 수 없다. 기존 호스트는 두 경로 수집·등록·원문 조회를 연결해야 한다.
+- 검증·등록·출처 권한의 만료 중 가장 빠른 시각을 보안 전제조건 기한에 반영한다.
 
-이것은 선정한 도달성 시험을 해석하는 계약이다. 타임아웃의 모든 원인을 완벽하게 규명하거나 네트워크 전체의 안전을 보장하지 않는다. T14가 구조화된 근거와 인증된 등록을 제공하지 않으면 이 시험은 미검증으로 BLOCK된다.
+형식 1은 기존 DB 5432·풀러 6432 계약이다. 형식 2는 인증된 등록에 있는 역할별 리스너와 코디네이터 요청/응답 시간 구간을 검증한다. 원격 시계 차이는 최대 1초, 응답은 최대 5초이며 전체 60초 제한은 유지한다. **형식 2를 파싱하는 것과 T5 평가 프로필에 방법 2를 승인하는 것은 별개다.** 이 변경은 기본 카탈로그·기존 계획·T10 등록을 바꾸지 않는다.
+
+이것은 선정한 도달성 시험을 해석하는 계약이다. 대조군이 성공한 timeout도 정책 드롭의 직접 증명으로 표시하지 않는다. T14의 인증된 등록이나 원문이 없으면 미검증으로 BLOCK한다. 실제 호스트의 실행 주체·정책·Service/EndpointSlice/Pod UID 등록 확인은 호스트 책임이며, 클라이언트가 보낸 hash 문자열만으로 인증하지 않는다.
+
+연결 계약과 검증 한계는 [T14 네트워크 원문 인수](docs/network-bundle.md)를 참고한다.
 
 ## 상태·저장·실행 책임
 
@@ -148,6 +152,53 @@ uv run pytest -q
 
 
 ## T10 승인·실행 접수 어댑터
+
+### 저장된 원문으로 운영 서비스를 구성하기
+
+`bravo_gate.stored.StoredGateServices`는 기존 `GateRecords.evaluate`의
+`service_factory`와 `GateRecords.cutover_authority`에서 사용하는 연결 어댑터다.
+서명·권한·예외·데이터 준비 공급자를 명시적으로 받아, 같은 계획 트랜잭션의
+`GateRecordView`에 기존 `GateService`와 `CombinedGateService`를 연결한다.
+
+```python
+from bravo_gate.stored import StoredGateServices
+
+factory = StoredGateServices(
+    authority_provider=load_registered_ed25519_authority,
+    authorize=check_current_gate_permission,
+    approval_provider=read_current_exception,
+    binding_provider=read_registered_readiness_binding,
+    snapshot_provider=read_registered_readiness_snapshot,
+    clock=server_clock,
+    network_verifier=verify_registered_network_proofs,
+)
+# principal은 이미 호스트에서 인증된 신원이다. 본문에서 만들지 않는다.
+report = records.evaluate(principal, plan_id, service_factory=factory)
+```
+
+각 호스트 공급자는 `view`를 첫 인자로 받는다. 나머지 인자는 기존 서비스와 같다.
+공급자는 `view.c`의 현재 계획 트랜잭션과 인증된 `view.principal`을 사용해야 한다.
+반환한 서비스·view를 캐시에 넣거나 트랜잭션 밖에서 재사용하지 않는다.
+
+| 공급자 | 반환·검사 책임 |
+| --- | --- |
+| `authority_provider(view)` | 실제 등록된 issuer의 `Ed25519Authority`. key/envelope 조회도 같은 트랜잭션에서 현재 폐기·권한·기한을 확인 |
+| `authorize(view, actor, context, action)` | 현재 작업 권한. 유효기간이 있으면 `VerifiedAuthority`를 그대로 반환. 기한 없는 현재 서버 정책만 정확한 `True` 허용 |
+| `approval_provider(view, actor, context, approval_id)` | 서버에 저장된 예외. 요청 본문·승인자 문자열에서 생성하지 않음 |
+| `binding_provider(view, actor, context)` | 실제 T13 정책·양쪽 DB·snapshot에 결속된 `ReadinessBinding` |
+| `snapshot_provider(view, actor, context, binding)` | 인증된 T13 관측 원문 `RunSnapshot`. 누락을 복제 지연 0이나 성공 값으로 보충하지 않음 |
+| `network_verifier(view, actor, context, side, test_id, row)` | 기존 검증기의 현재 `VerifiedNetworkProof`. 생략하면 네트워크 PASS를 인증할 수 없음 |
+
+호스트가 등록한 서명은 context·양쪽 run·예외·readiness binding/snapshot·보고서를
+각각 다른 purpose와 정확한 digest에 결속한다. 어댑터는 서명하지 않는다.
+평가 출력의 서명·발급은 신뢰된 호스트가 자기 평가 결과를 저장한 뒤 맡아야 한다.
+브라우저가 제출한 보고서를 서명하거나, 수집기 자격을 확인하지 않은 원문을
+단순히 저장됐다는 이유로 인증하면 안 된다.
+
+T10 원문 수신의 `gate:record/read` 권한은 이 평가 권한·서명 발급 권한이 아니다.
+운영 적용 전 실제 issuer 등록·키 보관/회전·현재 평가 권한·T13 기록·기한과
+T21의 보고서 출처 조회를 같은 계획으로 인수해야 한다.
+로컬 검증 범위와 남은 접점은 [검증 기록](../../docs/evidence/t19-stored-services-2026-11-06/README.md)에 있다.
 
 `bravo_gate.t10.T10GateAuthority`는 T10 `CutoverService.authority`에 연결한다.
 기존 운영 권한·SHIFT·보안 보류·실행 epoch 검사 공급자 `upstream`을 필수로 받아

@@ -4,6 +4,8 @@ import {
   identifier,
   observation,
   controlReport,
+  controlReportFresh,
+  controlReportMatches,
   CONTROL_TESTS,
   failbackSummary,
   securitySummary,
@@ -161,13 +163,12 @@ function render() {
   $("security-rows").replaceChildren(...securityRows);
   const reportFresh =
     controls &&
-    now - controls.at < 15000 &&
-    controls.report.gate_id === model.gate?.data.gate_id &&
-    controls.report.context_digest === model.gate?.data.context_digest;
+    controlReportFresh(controls.report, now) &&
+    controlReportMatches(controls.report, model.snapshot, model.gate);
   text(
     "control-status",
     reportFresh
-      ? `${controls.report.profile.id} · 기록된 보안 판정 ${controls.report.decision}`
+      ? `${controls.report.profile.id} · ${model.gate ? "기록된 보안 판정" : "초기 비교 (실행 허가 아님)"} ${controls.report.decision}`
       : "검증된 보고서 미연결",
   );
   text(

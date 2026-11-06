@@ -125,7 +125,9 @@ def test_authenticated_post_apply_report_is_consumed_and_revocation_blocks(recor
         # Synthetic network authority; no runtime network success is claimed.
         selected.security.network_verifier = lambda actor, ctx, side, test, row: VerifiedNetworkProof(
             ctx.fingerprint, side, test, row["evidence"]["output_sha256"],
-            f.state["now"] + timedelta(seconds=30))
+            f.state["now"] + timedelta(seconds=30),
+            required_roles_verified=("database", "pooler"),
+            run_id=f.state["runs"][side].document["run_id"])
         return selected
     result = outcome(f.plan.plan_id)
     assert GateRecheck(f.records, prepare=lambda *a: None, service_factory=factory).evaluate(
