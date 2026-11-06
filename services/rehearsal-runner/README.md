@@ -272,11 +272,12 @@ AI가 수정안을 내기 전에 리허설 공간 A에서 정해진 동작 3종�
 - `exec_actions.Inspector`·`Prober`: 모든 API 호출은 그 공간의 `rehearsal-exec` 계정을 가장한다. probe는 토큰 없는 도구용 Pod(`tool_pod_manifest`, 이미지 digest 고정)에서 플랫폼 스크립트를 argv로만 실행한다. apply는 작업 종류별 적용기를 주입받으며, 아직 연결된 적용기는 없다(없으면 `BLOCKED`).
 - `exec_flow.run_with_exec`: 시도 포트에 `exec_phase`가 있을 때만 쓰는 순서다. 공간 A 생성 → T3 격리 → 도구용 Pod·세션 → 모델 제안 → 세션 닫기 → 공간 A UID 삭제·부재 확인 → 기존 `run_once`(공간 B 생성·격리·검증·정리). 공간 A 부재가 확인되지 않으면 공간 B를 만들지 않고 `EXEC_SPACE_CLEANUP_UNCONFIRMED`로 사람에게 넘긴다. 도구용 Pod를 띄우지 못하면 exec 호출만 `UNAVAILABLE`로 거부하고 제안·채점은 이어 간다. `ExecRegistry`는 T15 경로가 받은 요청을 실행 ID·시도 번호로 열린 세션에 넘긴다. 
 - `exec_records`: `AttemptStore.write_exec`가 시도 폴더 `exec/`에 동작별 `before`·`after`를 쓰기 1회 서명 기록으로 남긴다. 시도가 끝나면 `collect_exec_record`가 순서대로 합쳐 시도 기록의 `exec_events_status`·`exec_events`와 공간 A 이름·UID·부재 확인(`exec_space`)을 붙인다. `after`가 없는 동작은 재시작 뒤에도 `UNKNOWN`·`EFFECT_UNKNOWN`으로 확정하고 다시 실행하지 않는다. 목록 밖 키·`null`·서명 불일치·빈 순번이 하나라도 있으면 목록 전체가 `UNAVAILABLE`이다. exec 단계 없이 돈 시도의 기록에는 exec 키가 없고 `RecordedEvidence.exec_events`는 `OFF`로 읽는다. T10이 이 값을 `data.exec_events`로 넘기는 연결은 T10(류지환) 쪽 일이다.
+- `exec_server.ExecServer`: broker가 부르는 고정 사설 TLS 경로(`POST /v1/rehearsal-exec`)다. 클라이언트 인증서를 broker 전용 CA로 확인하고 정해진 이름만 받아 `ExecRegistry`로 넘긴다. 요청 본문은 로그에 남기지 않는다. 인증 방식과 주소는 T38(류지환) 확인 전이다.
 - `exec_output.screen`: 러너가 공간 A에 넣은 값을 원문·base64(세 가지 정렬)·URL 인코딩으로 출력과 인자에서 찾는다. 찾거나 UTF-8이 아니거나 검사에 실패하면 출력을 돌려주지 않는다.
 
 ```bash
 uv run pytest -q tests/test_exec_session.py tests/test_exec_actions.py tests/test_exec_output.py \
-  tests/test_exec_flow.py tests/test_exec_records.py
+  tests/test_exec_flow.py tests/test_exec_records.py tests/test_exec_server.py
 cd ../platform-events  # 실제 T10 Admission으로 서명된 시도 기록까지
 PYTHONPATH=../rehearsal-runner/src:../rehearsal-runner/tests uv run --frozen --no-default-groups --with pytest \
   --with jsonschema pytest -p no:cacheprovider ../rehearsal-runner/testing/test_exec_record_flow.py

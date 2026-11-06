@@ -59,6 +59,14 @@
 - **결과 모름:** apply 요청이 실행부에 넘어간 뒤 결과를 모르면 다시 실행하지 않는다. 그 호출은 `UNKNOWN`·`EFFECT_UNKNOWN`이고, 그 시도의 남은 exec 호출은 `REJECTED`·`EFFECT_UNKNOWN`이다. 제출과 공간 B 채점은 진행한다(ADR-0026 3-3).
 - 결속이 맞지 않는 요청(`FOREIGN_ATTEMPT`)은 다른 시도의 기록에 넣지 않는다. 응답만 돌려주고, T15 서버 로그에는 사유 코드만 남긴다.
 
+### T15 경로 (T38 확인 전)
+
+broker가 T15를 부르는 형식이다. 러너 쪽 구현은 `services/rehearsal-runner/src/rehearsal_runner/exec_server.py`다.
+
+- `POST /v1/rehearsal-exec`, `Content-Type: application/json`, 본문은 `channel_request`(최대 256KiB, 중복 키 거부)
+- 응답: `200` 계약 응답 · `400` 읽을 수 없는 요청 · `403` 호출자 거부 · `413` 너무 큼 · `503` T15가 답하지 못함. `400`·`503`과 연결 실패는 T11이 5절의 통로 장애 규칙으로 처리한다.
+- 신원(제안): TLS 1.2 이상 상호 인증. 러너는 broker 전용 CA가 발급한 클라이언트 인증서만 받고, 인증서 이름(CN)이 정해진 broker 이름 하나와 같을 때만 처리한다. 시스템 기본 CA는 쓰지 않는다.
+
 ## 4. T15 exec 세션
 
 - **열림:** 공간 A의 T3 격리 시험이 PASS이고 도구용 Pod가 준비된 뒤, 시도마다 하나 연다. 세션은 `run_id`·`attempt`·공간 A UID를 가진다.
