@@ -64,6 +64,7 @@ class ConsoleApp:
         security=None,
         workspace=None,
         network=None,
+        workload=None,
     ):
         parsed = urlsplit(public_origin)
         if (
@@ -86,6 +87,7 @@ class ConsoleApp:
         self.security = security
         self.workspace = workspace
         self.network = network
+        self.workload = workload
         self.assets = {
             path: ((Path(__file__).parent / "static" / name).read_bytes(), mime)
             for path, (name, mime) in ASSETS.items()
@@ -168,6 +170,22 @@ class ConsoleApp:
             return await reject(405, "method_not_allowed")
         if method not in ("GET", "POST"):
             return await reject(405, "method_not_allowed")
+        if match := re.fullmatch(
+            r"/v1/plans/([A-Za-z0-9][A-Za-z0-9_-]{0,127})/workload", path
+        ):
+            if method != "GET":
+                return await reject(405, "method_not_allowed")
+            if scope.get("query_string"):
+                return await reject(400, "workload_query_not_allowed")
+            if self.workload is None:
+                return await reject(503, "workload_unconfigured")
+            try:
+                value = await self.workload.read(scope, match[1])
+            except ObservationError as error:
+                return await reject(error.status, error.code)
+            except Exception:
+                return await reject(503, "workload_unavailable")
+            return await JSONResponse(value, headers=HEADERS)(scope, receive, send)
         if match := re.fullmatch(
             r"/v1/plans/([A-Za-z0-9][A-Za-z0-9_-]{0,127})/network-status", path
         ):
