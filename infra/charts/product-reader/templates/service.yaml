@@ -1,0 +1,17 @@
+{{- if ne .Release.Namespace "platform-state" }}{{ fail "platform-state namespace required" }}{{- end }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: t10-product-reader
+  labels:
+    app.kubernetes.io/name: t10-product-reader
+    component: platform
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: t10-product-reader
+    component: platform
+  ports:
+    - name: https
+      port: 8443
+      targetPort: https

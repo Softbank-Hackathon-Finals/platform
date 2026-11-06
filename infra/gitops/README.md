@@ -89,3 +89,37 @@ is not a durable configuration change. Secret values never enter that release.
 Registry rotation replaces only `platform-ghcr-reader` through the protected
 operator transport, verifies an uncached pull, and then revokes the previous
 credential. Record the credential expiry without recording its value.
+
+## Product Reader 인수
+
+`publish-product-reader-image.yml`은 Reader의 전체 빌드 입력이 develop에 바뀔 때
+기존 공통 발행기 `registration_delivery.py --service product-reader`를 사용한다.
+등록 API와 동일한 OCI·SBOM·provenance·scan identity·비공개 GHCR readback 검사와
+응답 불명 처리, 소스 최신성 검사, 보호 배포 PR 절차를 재사용한다.
+`product-reader-image.json`과 `product-reader-publication.json`은 성공한 발행이
+만드는 별도 배포 PR에만 추가된다. 가짜 digest나 초기 완료 영수증을 넣지 않는다.
+
+Reader는 `infra/charts/product-reader`와 `platform-product-reader` Application /
+AppProject로 관리한다. 기존 `t10-product-reader` Deployment·Service만 인수한다.
+공유 `platform-runtime` SA, DB, PVC, catalog, 기존 Secret·ConfigMap·NetworkPolicy는
+생성·갱신·삭제하지 않는다. 모든 입력 mount와 catalog PVC는 읽기 전용이고
+초기 prune=false, selfHeal=true다. 공통 controller의 admission allowlist에는
+정확히 등록 API와 인수한 Reader 두 이름만 허용하며 Reader는 SA 쓰기 권한이 없다.
+
+기존 bootstrap 런타임 값의 `registration`을 보존하고 `productReader`를 추가한다.
+Reader runtime에는 기존 `configuration`(ConfigMap 이름·canonical data SHA256),
+`secrets`(database/databaseCA/catalogKey/tls/registry 이름), `catalogClaim`만 둔다.
+이미지·명령·namespace·SA를 런타임 입력으로 덮어쓸 수 없다. 값과 인수 파일은
+저장소 밖에서 보호하며 토큰·Secret 내용을 복제하지 않는다.
+
+`bootstrap.py --reader-adoption <보호된 JSON>`은 기존 bootstrap 인자에 추가한다.
+인수 JSON에는 `deployment_uid`, `service_uid`, `service_account_uid`, `config_uid`,
+`catalog_uid`, `secret_uids`(참조 Secret 이름→UID)만 기록한다. 실제 UID, selector,
+TLS/catalog/DB mount 참조, canonical 설정 hash와 기존 소유를 대조한 뒤 적용한다.
+기존 수동 Reader 렌더러는 인수 뒤 같은 자원을 다시 적용하지 않는다.
+
+배포 완료는 소스·발행 run/attempt·scan·digest·배포 PR·Argo revision/Synced/Healthy와
+실제 Pod imageID/config hash/Ready, 현재 권한 거부·정상 조회, 원 기록 보존을 함께
+확인한다. 이전 입력의 권한이 만료됐으면 정상 조회 검증은 미완료로 남긴다.
+이 인수가 새 계획·grant·모델 호출을 허가하지 않는다. rollback도 동일 서비스의
+검증된 publication과 관련 소스를 함께 되돌리는 보호 PR로 수행한다.

@@ -1,4 +1,4 @@
-"""Prepare the registration build context from a clean, committed source tree."""
+"""Prepare a platform service build context from a clean, committed source tree."""
 
 import argparse
 import hashlib
@@ -11,7 +11,7 @@ HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[3]
 
 
-def prepare(output):
+def prepare(output, service="registration"):
     if output.exists() or output.resolve().is_relative_to(ROOT):
         raise ValueError("new_external_context_required")
     if subprocess.check_output(["git", "-C", str(ROOT), "status", "--porcelain"]):
@@ -24,7 +24,10 @@ def prepare(output):
     spec.loader.exec_module(base)
     output.mkdir(parents=True)
     base.prepare_context(output, revision)
-    for source, target in (("gitops.Dockerfile", "Dockerfile"), ("checkout.py", "registration-checkout.py")):
+    if service not in {"registration", "product-reader"}:
+        raise ValueError("unknown_platform_service")
+    extras = (("gitops.Dockerfile", "Dockerfile"), ("checkout.py", "registration-checkout.py")) if service == "registration" else ()
+    for source, target in extras:
         relative = str((HERE / source).relative_to(ROOT))
         (output / target).write_bytes(base.git("show", f"{revision}:{relative}"))
     files = [{"path": str(p.relative_to(output)), "sha256": hashlib.sha256(p.read_bytes()).hexdigest()}
@@ -38,10 +41,11 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--receipt", type=Path, required=True)
+    parser.add_argument("--service", choices=("registration", "product-reader"), default="registration")
     args = parser.parse_args()
     if args.receipt.exists():
         raise ValueError("new_receipt_required")
-    receipt = prepare(args.output)
+    receipt = prepare(args.output, args.service)
     args.receipt.write_text(json.dumps(receipt, sort_keys=True, indent=2) + "\n")
     print(json.dumps({key: receipt[key] for key in ("source_revision", "context_sha256")}))
 
