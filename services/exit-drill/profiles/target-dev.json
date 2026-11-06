@@ -7,7 +7,8 @@
     "pooler": {"selector": {"app": "target-pgbouncer"}, "role": "app", "container": "target-pgbouncer"},
     "db": {"selector": {"cnpg.io/cluster": "target-db"}, "role": "replication"},
     "objects": {"selector": {"app.kubernetes.io/name": "target-seaweedfs"}, "role": "infrastructure"},
-    "control": {"selector": {"bravo-exit-drill-control": "true"}, "role": "control"}
+    "control": {"selector": {"bravo-exit-drill-control": "true"}, "role": "control"},
+    "edge": {"selector": {"app": "bravo-edge-tunnel"}, "role": "edge", "residual": "cloudflare (edge · tunnel)"}
   },
   "routes": [
     {

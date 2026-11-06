@@ -90,6 +90,8 @@ uv run bravo-exit-drill map --inventory "$OUTPUT_DIR/inventory.json" --candidate
 
 2026-11-06 실제 `target-dev` 스냅샷을 읽기만 해 `render`에 넣었을 때(대조군을 띄우기 전) 거부는 `SELECTOR_MATCHES_NOTHING`(control) 하나였다. 검사는 위반을 모아 돌려주므로, 대조군만 띄우면 나머지 검사는 그때 상태로 통과한다는 뜻이다. 명세의 tailnet 프록시 레이블 셋(`bravo-target-pooler` · `bravo-target-replication` · `target-db-tailnet`)도 `tailscale-system`의 실제 Pod에 있었다.
 
+**Edge 터널(`bravo-edge-tunnel`, T17의 `cloudflared`)은 명세의 `edge` 역할이다.** 같은 날 04:01에 올라와 10시대 실제 실행이 `UNCLASSIFIED_POD`로 거부됐고, 이제 차단 정책이 고르지 않는 "들어오는 경로"로 분류돼 지도의 cloudflare 항목에 이어 보인다.
+
 | 코드 | 뜻 | 할 일 |
 |---|---|---|
 | `SELECTOR_MATCHES_NOTHING` | 그 Pod가 안 떠 있다 | 앱 · 풀러 · DB · SeaweedFS 배포와 레이블을 확인한다 |

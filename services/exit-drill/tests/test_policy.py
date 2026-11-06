@@ -15,7 +15,7 @@ from helpers import (
     spec_doc,
 )
 
-from bravo_exit_drill.cluster import parse_snapshot
+from bravo_exit_drill.cluster import parse_snapshot, selector_matches
 from bravo_exit_drill.inventory_input import parse_inventory
 from bravo_exit_drill.policy import PlanRefused, build_plan, plan_is_intact
 from bravo_exit_drill.spec import SpecError, parse_spec
@@ -500,6 +500,48 @@ def test_control_selected_by_policy_is_refused():
     assert "CONTROL_SELECTED" in refused_codes(spec=spec)
 
 
+def edge_tunnel_pod() -> dict:
+    # infra/envs/edge-tunnels/render.py가 만드는 cloudflared Pod의 레이블이다.
+    labels = {"app": "bravo-edge-tunnel", "component": "edge", "app.kubernetes.io/part-of": "bravo"}
+    return pod("bravo-edge-tunnel-1", labels, containers=["cloudflared"])
+
+
+def test_edge_tunnel_is_classified_and_never_selected():
+    """Cloudflare에서 들어오는 트래픽을 앱으로 넘기는 Pod다. 정책이 고르면 공개 경로가 끊긴다."""
+    tunnel = edge_tunnel_pod()
+    plan = plan_for(snapshot=snapshot_doc(pods=[*healthy_pods(), tunnel]))
+    assert plan["workloads"]["edge"]["role"] == "edge"
+    assert not any(selector_matches(m["spec"]["podSelector"], tunnel["metadata"]["labels"]) for m in plan["manifests"])
+
+
+def test_edge_selected_by_policy_is_refused():
+    """앱 선택자가 터널까지 고르면 차단이 들어오는 길을 끊는다."""
+    spec = spec_doc()
+    spec["workloads"]["edge"]["selector"] = {"app": "demo-chat"}
+    assert "EDGE_SELECTED" in refused_codes(spec=spec)
+
+
+def test_edge_tunnel_that_is_down_does_not_stop_the_drill():
+    """터널은 시험 대상이 아니다. 새 연결 시험은 터널을 거치지 않고 Service로 바로 간다."""
+    assert not any(p["metadata"]["labels"].get("app") == "bravo-edge-tunnel" for p in healthy_pods())
+    assert plan_for()["manifests"]
+
+
+def test_edge_must_name_a_listed_residual():
+    """지도에서 이을 항목이다. 없는 이름을 적으면 아무 데도 이어지지 않은 채 지나간다."""
+    spec = spec_doc()
+    spec["workloads"]["edge"]["residual"] = "akamai (edge)"
+    with pytest.raises(PlanRefused) as caught:
+        plan_for(spec=spec)
+    assert [(v.code, v.subject) for v in caught.value.violations] == [("UNKNOWN_RESIDUAL", "edge")]
+
+
+def test_edge_may_name_a_residual_the_spec_declares():
+    spec = spec_doc()
+    spec["workloads"]["edge"]["residual"] = spec["declared_residuals"][0]
+    assert plan_for(spec=spec)["workloads"]["edge"]["residual"] == spec["declared_residuals"][0]
+
+
 def test_missing_control_is_refused():
     spec = spec_doc()
     del spec["workloads"]["control"]
@@ -611,6 +653,9 @@ def test_plan_binds_inventory_and_snapshot():
         lambda s: s["workloads"]["pooler"].update(container=""),
         lambda s: s["workloads"]["app"].update(container=["app"]),
         lambda s: s["workloads"]["db"].update(container="postgres"),
+        lambda s: s["workloads"]["edge"].pop("residual"),
+        lambda s: s["workloads"]["edge"].update(residual=""),
+        lambda s: s["workloads"]["app"].update(residual="cloudflare (edge · tunnel)"),
     ],
 )
 def test_malformed_spec_stops(mutate):
