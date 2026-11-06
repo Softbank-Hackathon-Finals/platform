@@ -64,6 +64,10 @@ security = service.require_security(actor, context_id, serialized_report,
 
 `Ed25519Authority`는 계획 context·문서 hash·발급 목적을 기존 서버 공개키 원장과 대조하는 구체 서명 검증기다. 키 폐기·교체·역할 불일치를 재검증한다. 평가기에 서명 개인 키를 제공하지 않는다. 입력 JSON의 `evidence.signature` 필드만으로 인증하지 않는다. 서명은 발급 출처를 확인하며, 실제 시험이 제대로 실행됐다는 사실은 T14 수집기 자격으로 검증해야 한다.
 
+선택적 `PlanAuthorityKeys`는 기존 T10 계획 잠금/명령 원장에 공개키 등록·폐기를 보존한다.
+별도 현재 관리 권한과 정확한 생산자·단일 용도를 요구하며, 설치만으로 운영 권한이나
+발급자가 등록되지 않는다. [연결 조건과 검증 범위](docs/key-records.md)를 따른다.
+
 서명 검증기는 `VerifiedAuthority(context_digest, subject_digest, purpose, valid_until)`을 반환한다. `valid_until`은 키와 서명의 만료 중 빠른 시각이며 최종 전제조건도 이를 넘지 않는다. 목적은 `context`, `run-source`, `run-target`, `exception`이다. 권한 판정의 기한이 있으면 `subject_digest=permission_subject(actor, context_digest, action)`, `purpose=permission:<권한명>`으로 반환한다. 예를 들어 `permission:gate:consume`이다. `permission_subject`는 `kind=gate-permission.v1`, 인증된 actor, context digest, action을 정규화하여 해시하므로 다른 사용자의 권한 증명을 재사용할 수 없다. actor는 요청 본문이 아니라 인증 계층에서 가져온다. 네트워크 출처는 `network-binding`(등록 내용 hash), `network-artifact`(원본 바이트 hash)를 쓴다. 만료 있는 서명·세션·권한의 결과를 `True`로 변환해 기한을 버리는 어댑터는 이 계약에 맞지 않는다. `True`는 별도의 만료가 없는 서버 정책을 매번 직접 검사한 어댑터에만 사용한다. 예외를 던지지 않고 반환만 하는 기존 검증 함수는 명시적 반환 계약으로 바꿔야 한다.
 
 예외 승인 생성은 T10에서 승인자 권한·분리 승인·감사 기록을 확인한 후 수행한다. T19는 그 기록을 읽기만 한다. 임의 JSON 승인 배열이나 사용자 문자열을 DB 승인으로 전환하지 않는다. 소비 문서의 예외는 서버 기록과 완전히 일치해야 한다. 승인 폐기 또는 계획/원본 변경 뒤 예전 PASS 문서를 재사용할 수 없다. 예외가 없는 PASS 문서도 `context_digest`를 대조한다. 계획·gate·재측정 결과가 바뀌면 새 context와 예외 재승인이 필요하다. 같은 고정 입력을 재조회하는 것은 허용한다. 결속값이 빠진 이전 초안을 자동 보충하지 않는다.

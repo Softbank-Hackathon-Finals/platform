@@ -1,0 +1,248 @@
+{
+  "kind": "t22-live-readonly-reconnect-qualification.v1",
+  "started_at": "2026-11-06T13:01:34.234Z",
+  "finished_at": "2026-11-06T13:01:54.192Z",
+  "scope": "actual apps, passive socket constructor instrumentation; own client transport close only; no server fault or cutover",
+  "operational_cutover_qualified": false,
+  "source_independence_qualified": false,
+  "source_and_target_deployment_metadata_unchanged": true,
+  "browser_message_bodies_persisted": false,
+  "server_admin_calls": 0,
+  "business_writes": 0,
+  "results": [
+    {
+      "engine": "chromium",
+      "side": "source",
+      "size": "desktop",
+      "transport": "actual application via private local port-forward",
+      "reconnect": true,
+      "cursor_non_regressing": true,
+      "existing_messages_retained": true,
+      "duplicate_rendered_ids": 0,
+      "own_client_close_code": 4000,
+      "server_admin_calls": 0,
+      "write_requests": 0,
+      "ws_application_frames": 0,
+      "retained_message_count": 2,
+      "message_bodies_persisted": false,
+      "attachment_reads_blocked": 0,
+      "page_errors": 0,
+      "overflow": false,
+      "assets": [
+        {
+          "path": "/chat.js",
+          "sha256": "dcb29551efb73afc1b86d1132d3b692905915963cee9b7104c63d665b3815e94"
+        },
+        {
+          "path": "/transport.js",
+          "sha256": "bd1eadd0c930f0794589e1537f361249b5607e11cdeb743f276efd3116db4c76"
+        }
+      ]
+    },
+    {
+      "engine": "chromium",
+      "side": "source",
+      "size": "mobile",
+      "transport": "actual application via private local port-forward",
+      "reconnect": true,
+      "cursor_non_regressing": true,
+      "existing_messages_retained": true,
+      "duplicate_rendered_ids": 0,
+      "own_client_close_code": 4000,
+      "server_admin_calls": 0,
+      "write_requests": 0,
+      "ws_application_frames": 0,
+      "retained_message_count": 2,
+      "message_bodies_persisted": false,
+      "attachment_reads_blocked": 0,
+      "page_errors": 0,
+      "overflow": false,
+      "assets": [
+        {
+          "path": "/chat.js",
+          "sha256": "dcb29551efb73afc1b86d1132d3b692905915963cee9b7104c63d665b3815e94"
+        },
+        {
+          "path": "/transport.js",
+          "sha256": "bd1eadd0c930f0794589e1537f361249b5607e11cdeb743f276efd3116db4c76"
+        }
+      ]
+    },
+    {
+      "engine": "chromium",
+      "side": "target",
+      "size": "desktop",
+      "transport": "actual application via private local port-forward",
+      "reconnect": true,
+      "cursor_non_regressing": true,
+      "existing_messages_retained": true,
+      "duplicate_rendered_ids": 0,
+      "own_client_close_code": 4000,
+      "server_admin_calls": 0,
+      "write_requests": 0,
+      "ws_application_frames": 0,
+      "retained_message_count": 2,
+      "message_bodies_persisted": false,
+      "attachment_reads_blocked": 0,
+      "page_errors": 0,
+      "overflow": false,
+      "assets": [
+        {
+          "path": "/chat.js",
+          "sha256": "dcb29551efb73afc1b86d1132d3b692905915963cee9b7104c63d665b3815e94"
+        },
+        {
+          "path": "/transport.js",
+          "sha256": "bd1eadd0c930f0794589e1537f361249b5607e11cdeb743f276efd3116db4c76"
+        }
+      ]
+    },
+    {
+      "engine": "chromium",
+      "side": "target",
+      "size": "mobile",
+      "transport": "actual application via private local port-forward",
+      "reconnect": true,
+      "cursor_non_regressing": true,
+      "existing_messages_retained": true,
+      "duplicate_rendered_ids": 0,
+      "own_client_close_code": 4000,
+      "server_admin_calls": 0,
+      "write_requests": 0,
+      "ws_application_frames": 0,
+      "retained_message_count": 2,
+      "message_bodies_persisted": false,
+      "attachment_reads_blocked": 0,
+      "page_errors": 0,
+      "overflow": false,
+      "assets": [
+        {
+          "path": "/chat.js",
+          "sha256": "dcb29551efb73afc1b86d1132d3b692905915963cee9b7104c63d665b3815e94"
+        },
+        {
+          "path": "/transport.js",
+          "sha256": "bd1eadd0c930f0794589e1537f361249b5607e11cdeb743f276efd3116db4c76"
+        }
+      ]
+    },
+    {
+      "engine": "webkit",
+      "side": "source",
+      "size": "desktop",
+      "transport": "actual application via private local port-forward",
+      "reconnect": true,
+      "cursor_non_regressing": true,
+      "existing_messages_retained": true,
+      "duplicate_rendered_ids": 0,
+      "own_client_close_code": 4000,
+      "server_admin_calls": 0,
+      "write_requests": 0,
+      "ws_application_frames": 0,
+      "retained_message_count": 2,
+      "message_bodies_persisted": false,
+      "attachment_reads_blocked": 0,
+      "page_errors": 0,
+      "overflow": false,
+      "assets": [
+        {
+          "path": "/chat.js",
+          "sha256": "dcb29551efb73afc1b86d1132d3b692905915963cee9b7104c63d665b3815e94"
+        },
+        {
+          "path": "/transport.js",
+          "sha256": "bd1eadd0c930f0794589e1537f361249b5607e11cdeb743f276efd3116db4c76"
+        }
+      ]
+    },
+    {
+      "engine": "webkit",
+      "side": "source",
+      "size": "mobile",
+      "transport": "actual application via private local port-forward",
+      "reconnect": true,
+      "cursor_non_regressing": true,
+      "existing_messages_retained": true,
+      "duplicate_rendered_ids": 0,
+      "own_client_close_code": 4000,
+      "server_admin_calls": 0,
+      "write_requests": 0,
+      "ws_application_frames": 0,
+      "retained_message_count": 2,
+      "message_bodies_persisted": false,
+      "attachment_reads_blocked": 0,
+      "page_errors": 0,
+      "overflow": false,
+      "assets": [
+        {
+          "path": "/chat.js",
+          "sha256": "dcb29551efb73afc1b86d1132d3b692905915963cee9b7104c63d665b3815e94"
+        },
+        {
+          "path": "/transport.js",
+          "sha256": "bd1eadd0c930f0794589e1537f361249b5607e11cdeb743f276efd3116db4c76"
+        }
+      ]
+    },
+    {
+      "engine": "webkit",
+      "side": "target",
+      "size": "desktop",
+      "transport": "actual application via private local port-forward",
+      "reconnect": true,
+      "cursor_non_regressing": true,
+      "existing_messages_retained": true,
+      "duplicate_rendered_ids": 0,
+      "own_client_close_code": 4000,
+      "server_admin_calls": 0,
+      "write_requests": 0,
+      "ws_application_frames": 0,
+      "retained_message_count": 2,
+      "message_bodies_persisted": false,
+      "attachment_reads_blocked": 0,
+      "page_errors": 0,
+      "overflow": false,
+      "assets": [
+        {
+          "path": "/chat.js",
+          "sha256": "dcb29551efb73afc1b86d1132d3b692905915963cee9b7104c63d665b3815e94"
+        },
+        {
+          "path": "/transport.js",
+          "sha256": "bd1eadd0c930f0794589e1537f361249b5607e11cdeb743f276efd3116db4c76"
+        }
+      ]
+    },
+    {
+      "engine": "webkit",
+      "side": "target",
+      "size": "mobile",
+      "transport": "actual application via private local port-forward",
+      "reconnect": true,
+      "cursor_non_regressing": true,
+      "existing_messages_retained": true,
+      "duplicate_rendered_ids": 0,
+      "own_client_close_code": 4000,
+      "server_admin_calls": 0,
+      "write_requests": 0,
+      "ws_application_frames": 0,
+      "retained_message_count": 2,
+      "message_bodies_persisted": false,
+      "attachment_reads_blocked": 0,
+      "page_errors": 0,
+      "overflow": false,
+      "assets": [
+        {
+          "path": "/chat.js",
+          "sha256": "dcb29551efb73afc1b86d1132d3b692905915963cee9b7104c63d665b3815e94"
+        },
+        {
+          "path": "/transport.js",
+          "sha256": "bd1eadd0c930f0794589e1537f361249b5607e11cdeb743f276efd3116db4c76"
+        }
+      ]
+    }
+  ],
+  "private_raw_sha256": "57c06eca29ab5d84126c23b979f3f1f1979f43abeb20ee3897501ec5c0caf7c9",
+  "qualification_script_sha256": "ba29564e6ad02fce128eb21d918caae3e9af48b11a8e239c96cc9165fd790a6d"
+}

@@ -1,0 +1,14 @@
+{
+  "source_repository": "Softbank-Hackathon-Finals/platform",
+  "source_revision": "93e8bea8030dc77741a8aefdc7ff90a1376e6f3d",
+  "source_files": [
+    {
+      "path": "services/control-gate/src/bravo_gate/key_records.py",
+      "sha256": "9f5b1e84d59e5d3de96683a8007d84afa82ac694536fa2a47abd649e3e7ad379"
+    },
+    {
+      "path": "services/control-gate/tests/test_key_records.py",
+      "sha256": "237b85edbaecf3a219717c8f8b8582c512da53caf54c3e1e70c6ca00a9f40c1f"
+    }
+  ]
+}
