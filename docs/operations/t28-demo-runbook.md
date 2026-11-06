@@ -1,0 +1,56 @@
+# T28 데모 각본 · 시작 상태 · 대체 장면
+
+설계 문서 10장의 270초 각본을 실행 명령과 담당에 연결한다. 이 문서는 실행 절차다. 리허설 결과는 매 회차 `docs/evidence/t28-…`에 따로 남긴다.
+
+## 시작 전: 목적지 시작 상태
+
+```sh
+infra/envs/target-workloads/demo_reset.py check --kubeconfig <target> \
+  --object-endpoint <target SeaweedFS> --probe-key <첨부 객체 key>
+```
+
+| 항목 | 시작 상태 | `apply`가 되돌리는가 |
+| --- | --- | --- |
+| 데모 장애 | 기록 없음, pooler replicas = ready | 예 (`demo_fault.py clear`) |
+| 목적지 앱 쓰기 | `write_switch.py status` 통과, `closed` | 예 (`write_switch.py close`) |
+| 첨부 버킷 | `open-demo` (S1 BLOCK용) | 아니오. 운영자가 `object_exposure.py plan --state open-demo`대로 연다 |
+| Edge 가중치 | 목적지 0% | 아니오. T17 담당 도구로 확인한다 |
+
+결과 `checked_items_ready`는 확인한 항목만 준비됐다는 뜻이다. 확인하지 않은 항목(`not_checked`)은 통과로 보지 않는다. 출발지 DB 쓰기 주체, 복제 방향, 플랫폼 계획 상태는 이 도구 범위 밖이다. 컷오버 뒤 원래 상태로 돌리려면 FAILBACK을 끝까지 실행하고 T13 실행기 결과로 확인한다.
+
+## 장면과 명령
+
+| 시각 | 장면 | 실행 | 담당 |
+| --- | --- | --- | --- |
+| 0:00 | S1 사전 기록 · 3등급 목록 · 통제 비교표, 게이트 1차 BLOCK(열린 첨부 버킷) | 콘솔(T21)에서 현재 계획 조회. 게이트 판정(T19) | 상무 |
+| 0:40 | S2 에이전트 제안 → 리허설 차단 기록 → 검증 → 승인 → 목적지 반영 → 재대조 PASS | T10 최초 제안(Job 경로) → T15 리허설 → 사람 승인 → T31 `bravo-apply run` → `open_after_apply.py` | 지환 · 규태 · 동훈 |
+| 1:30 | S3 부하를 건 채 가중치 10 → 50 → 100% | T18 부하(예열 50 rps · 30초 → 본 측정), T17 가중치 전환 | 태현 · Edge 담당 |
+| 2:10 | S3 컷오버: 쓰기 정지 시간, 무결성 영수증, 채팅 기록 유지 | 업로드 중지 → T8 첨부 복사(판정 `SUCCEEDED`) → T13 컷오버 실행기 | 태현 |
+| 3:00 | S4 목적지 장애 → 알림 → 데이터째 되돌리기 | `demo_fault.py inject` → WATCH 판정 확인 → **`demo_fault.py clear`** → 되돌리기 승인 → FAILBACK → 역방향 복제 도착 확인 | 지환 · 태현 |
+| 3:50 | 마무리: 감사 기록, 비용, 잔존 의존성 지도 | T24 감사 조회, 비용 조회, T27 지도 | 지환 |
+
+**S4 순서를 지킨다.** 컷오버 실행기는 FAILBACK 중에 pooler를 다시 설정한다. 장애를 걸어 둔 채 되돌리기를 승인하지 않는다. `demo_fault.py inject`는 pooler를 0으로 줄이기 전에 원래 replicas와 Deployment UID를 `--record` 파일에 남긴다. `clear`는 같은 UID에만 그 수를 되돌린다. 복제는 pooler를 거치지 않고 DB끼리 연결하므로 장애 중에도 이어진다.
+
+## 중간 통합 점검
+
+| 점검 | 통과 기준 |
+| --- | --- |
+| 1차 S1~S2 | 같은 plan에서 게이트 BLOCK 기록, 실제 AI 제안 결과, T15 리허설 결과, 승인 대기가 콘솔에 보인다 |
+| 2차 S3~S4 | 같은 실행에서 가중치 단계별 T18 창, 컷오버 영수증, 장애 주입 뒤 WATCH 판정, FAILBACK 결과와 역방향 복제 도착이 남는다 |
+
+## 대체 장면 (라이브 실패 시)
+
+라이브가 실패하면 아래 기존 기록을 보여 준다. **표시 문구는 원문의 결론을 그대로 쓴다.** 로컬 시험을 실측처럼 말하지 않는다.
+
+| 장면 | 기록 | 원문이 밝힌 범위 |
+| --- | --- | --- |
+| S1 열린 버킷 | [t9-open-bucket-2026-11-06](../evidence/t9-open-bucket-2026-11-06/README.md) | 로컬 kind 클러스터. 데모 목적지가 아님 |
+| S2 반영 | [t31-apply-entry-2026-11-06](../evidence/t31-apply-entry-2026-11-06/README.md), [t31-policy-apply-2026-11-06](../evidence/t31-policy-apply-2026-11-06/README.md) | 원문 확인 후 표시 |
+| S3 가중치 | [t18-joint-rehearsal-2026-11-06](../evidence/t18-joint-rehearsal-2026-11-06/README.md) | 로컬 대역. 실제 Edge 요청 0건 |
+| S3 무결성 | [t13-real-fingerprint-2026-11-06](../evidence/t13-real-fingerprint-2026-11-06/README.md) | 실제 출발지·목적지 DB에서 `MATCH` |
+| S3 첨부 | [t8-attachment-copy-real-2026-11-06](../evidence/t8-attachment-copy-real-2026-11-06/README.md) | 실제 경로에서 `SUCCEEDED` |
+| S4 역방향 복제 | [t8-reverse-resume-2026-11-06](../evidence/t8-reverse-resume-2026-11-06/README.md) | 컷오버는 lab이 흉내 냄 |
+| 마무리 지도 | [t27-real-map-2026-11-06](../evidence/t27-real-map-2026-11-06/README.md) | 실제 `target-dev`. 차단 판정은 `NOT_RUN` |
+| 마무리 감사 | [t24-audit-live-2026-11-06](../evidence/t24-audit-live-2026-11-06/README.md) | 원문 확인 후 표시 |
+
+해피패스를 실제로 실행한 뒤에는 그 실행의 기록으로 이 표를 바꾼다.
