@@ -1,0 +1,97 @@
+{
+  "source_revision": "a610bbfb60d3a633597d75dc6e070addd3c3b559",
+  "source_files": [
+    {
+      "path": "services/control-gate/src/bravo_gate/__init__.py",
+      "sha256": "f73553ffba9fe831041a1f2642d69811a46506a7bd554c8bf891c50f5bbea283"
+    },
+    {
+      "path": "services/control-gate/src/bravo_gate/contract.py",
+      "sha256": "b3d5eb10260f054789fd190025aea9a588cbbd7f81ec7f1aa5e76b2479bca4b1"
+    },
+    {
+      "path": "services/control-gate/src/bravo_gate/models.py",
+      "sha256": "13a4b064f88f1c28f74fe28b2f275872a2cab721acd43010c659230742d4430a"
+    },
+    {
+      "path": "services/control-gate/src/bravo_gate/readiness.py",
+      "sha256": "1df6f34b96caca2dba459697f47fca9287793572f4ea63d5843abe2676f9c803"
+    },
+    {
+      "path": "services/control-gate/src/bravo_gate/t13.py",
+      "sha256": "40a0992e2187d51a5dfd50cb8127217daa596871d868ba45f2e1e9b7a0895971"
+    },
+    {
+      "path": "services/cutover-executor/src/bravo_cutover/__init__.py",
+      "sha256": "2d0034012bdb8d827a3d75bebd4d95fdf13154b6a4734261ec18e65e23b1f866"
+    },
+    {
+      "path": "services/cutover-executor/src/bravo_cutover/remote/__init__.py",
+      "sha256": "bac4ba0c821ade4ef37bf977f78a9acb03d1975508b3cbc70a7adde7e934fdf9"
+    },
+    {
+      "path": "services/cutover-executor/src/bravo_cutover/db_fingerprint.py",
+      "sha256": "4f6f27a769f0d8340d5dbb293208179d6ce2e6fc506f7bda2adeb4373f9c9fdd"
+    }
+  ],
+  "bundle_sha256": "3cd61f67d15546650960db8b022e5b654e7d383e5d0cfd0c364bb31d37f03784",
+  "bundle_bytes": 857614,
+  "extracted_bytes": 2975343,
+  "private_scripts": [
+    {
+      "module_name": "capture.py",
+      "sha256": "590010fd1e31971fcd43c86f4047731b582a128dceedd53d756f1581dd3d8189"
+    },
+    {
+      "module_name": "host.py",
+      "sha256": "8a36073ad974c9cc48b040ffbdc99de1a5bf06136882d5f97800cabb2068e591"
+    }
+  ],
+  "dependency_wheels": [
+    {
+      "package": "psycopg",
+      "version": "3.3.7",
+      "sha256": "d592e88a077e01ff57f22d59f16e828b92f2b2d9f439b6679d582b48d74cf306"
+    },
+    {
+      "package": "attrs",
+      "version": "26.1.0",
+      "sha256": "c647aa4a12dfbad9333ca4e71fe62ddc36f4e63b2d260a37a8b83d2f043ac309"
+    },
+    {
+      "package": "jsonschema",
+      "version": "4.26.0",
+      "sha256": "d489f15263b8d200f8387e64b4c3a75f06629559fb73deb8fdfb525f2dab50ce"
+    },
+    {
+      "package": "jsonschema-specifications",
+      "version": "2025.9.1",
+      "sha256": "98802fee3a11ee76ecaca44429fda8a41bff98b00a0f2838151b113f210cc6fe"
+    },
+    {
+      "package": "referencing",
+      "version": "0.37.0",
+      "sha256": "381329a9f99628c9069361716891d34ad94af76e461dcb0335825aecc7692231"
+    },
+    {
+      "package": "rpds-py",
+      "version": "2026.9.1",
+      "sha256": "457866b85daf5034296666168b84a69e0b2e89dc4f1af102b46f6448a60b9063"
+    },
+    {
+      "package": "rfc3339-validator",
+      "version": "0.1.4",
+      "sha256": "24f6ec1eda14ef823da9e36ec7113124b39c04d50a4d3d3a3c2859577e7791fa"
+    },
+    {
+      "package": "six",
+      "version": "1.17.0",
+      "sha256": "4721f391ed90541fddacab5acf947aa0d3dc7d27b2e1e8eda2be8970586c3274"
+    },
+    {
+      "package": "typing-extensions",
+      "version": "4.16.0",
+      "sha256": "481caa481374e813c1b176ada14e97f1f67a4539ce9cfeb3f350d78d6370c2e8"
+    }
+  ]
+}
