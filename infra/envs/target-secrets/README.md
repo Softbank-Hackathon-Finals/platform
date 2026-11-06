@@ -356,7 +356,7 @@ git -C openbao-source apply /path/to/image/go-jose.patch
 ```
 
 Use the receipt's `build_flags` with `GOTOOLCHAIN=go1.27.3`, `CGO_ENABLED=0`,
-`GOOS=linux`, `GOARCH=amd64`. First run the patched dependency's tests on the
+`GOOS=linux`, `GOARCH=arm64`. First run the patched dependency's tests on the
 host. Copy the resulting binary as `bao` next to [Dockerfile](image/Dockerfile),
 build for linux/amd64 and export an OCI layout. Scan those exact bytes with
 Trivy's `vuln,secret`, `HIGH,CRITICAL`, `--ignore-unfixed`, `--exit-code 1` gate.
