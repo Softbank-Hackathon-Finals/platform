@@ -212,7 +212,7 @@ class GateRecords:
                     or doc["environment"]["id"] != spec[side + "_environment_id"]):
                 raise EventError("gate_run_scope_mismatch")
             _put(c, plan_id, "run", snapshot.ref,
-                 dict(side=side, document=doc, digest=snapshot.fingerprint))
+                 dict(side=side, document=doc, digest=snapshot.fingerprint, ref=snapshot.ref))
         return dict(ref=snapshot.ref, digest=snapshot.fingerprint)
 
     def read_run(self, connection, principal, plan, ref):
