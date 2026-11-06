@@ -5,9 +5,10 @@ COPY requirements.txt /app/requirements.txt
 RUN pip install --disable-pip-version-check --no-cache-dir --require-hashes --only-binary=:all: -r requirements.txt
 COPY src /usr/local/lib/python3.12/site-packages
 COPY infra /app/infra
+COPY templates /usr/local/lib/python3.12/templates
 COPY kubectl /usr/local/bin/kubectl
 RUN chmod 0755 /usr/local/bin/kubectl && find /app/infra -name "*.py" -exec chmod 0755 {} +
-RUN chmod -R a+rX /app /usr/local/lib/python3.12/site-packages/bravo_platform_events /usr/local/lib/python3.12/site-packages/bravo_agent /usr/local/lib/python3.12/site-packages/rehearsal_runner /usr/local/lib/python3.12/site-packages/bravo_observability
+RUN chmod -R a+rX /app /usr/local/lib/python3.12/templates /usr/local/lib/python3.12/site-packages/bravo_platform_events /usr/local/lib/python3.12/site-packages/bravo_agent /usr/local/lib/python3.12/site-packages/rehearsal_runner /usr/local/lib/python3.12/site-packages/bravo_observability
 USER 10001:10001
 EXPOSE 8443
 ENTRYPOINT ["python", "-m", "bravo_platform_events.rehearsal_server"]

@@ -60,6 +60,9 @@ def test_build_rejects_missing_package(repository, tmp_path):
 def test_rehearsal_image_rejects_changed_official_binary(repository, tmp_path, monkeypatch):
     import io
 
+    templates = repository / "services/rehearsal-runner/templates"
+    templates.mkdir(parents=True)
+    (templates / "00-namespace.yaml").write_text("# committed fixture\n")
     for name in ("rehearsal-access", "target-secrets"):
         path = repository / "infra/envs" / name
         path.mkdir(parents=True)

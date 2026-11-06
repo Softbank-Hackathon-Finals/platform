@@ -50,6 +50,7 @@ def copy_committed_tree(revision, prefix, destination):
 
 
 def add_rehearsal_context(context, revision):
+    copy_committed_tree(revision, "services/rehearsal-runner/templates/", context / "templates")
     for directory in ("rehearsal-access", "target-secrets"):
         copy_committed_tree(revision, f"infra/envs/{directory}/", context / "infra" / directory)
     url = f"https://dl.k8s.io/release/{KUBECTL_VERSION}/bin/linux/amd64/kubectl"
@@ -170,6 +171,10 @@ def main():
             probe = ("import os,subprocess; from bravo_platform_events.credential_host import create_ports; "
                      "from bravo_platform_events.rehearsal_server import load_host; "
                      "assert os.getuid()==10001; "
+                     "from rehearsal_runner.namespace import render; "
+                     "profile={n+'_'+k:v for n in ('OPENBAO','SEAWEEDFS') for k,v in "
+                     "(('NAMESPACE','fixture'),('LABEL_KEY','app'),('LABEL_VALUE','fixture'),('PORT','8200'))}; "
+                     "assert 'ResourceQuota' in render('rehearsal-build',profile); "
                      "subprocess.run(['kubectl','version','--client','-o','json'],check=True); "
                      "print('rehearsal_host_imports_ok')")
         subprocess.run(["docker", "run", "--rm", "--platform", "linux/amd64", "--network", "none",
