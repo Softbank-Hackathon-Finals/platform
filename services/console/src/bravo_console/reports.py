@@ -8,7 +8,7 @@ import asyncio
 import hashlib
 import json
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from jsonschema import Draft202012Validator, FormatChecker
@@ -32,6 +32,7 @@ class RegisteredGateDocument:
     document: bytes
     gate_phase: str = "initial"
     application_id: str | None = None
+    authority_expires_at: datetime | None = None
 
 
 class PlanControlReport:
@@ -97,8 +98,15 @@ class PlanControlReport:
             raise ObservationError("inconsistent_control_report")
         evaluated = datetime.fromisoformat(report["evaluated_at"].replace("Z", "+00:00"))
         now = self.clock()
-        if evaluated.utcoffset() is None or now.utcoffset() is None or evaluated > now:
+        if (type(now) is not datetime or evaluated.utcoffset() is None
+                or now.utcoffset() is None or evaluated > now):
             raise ObservationError("invalid_control_report_time")
+        read_until = now + timedelta(seconds=15)
+        deadline = registered.authority_expires_at
+        if deadline is not None:
+            if type(deadline) is not datetime or deadline.utcoffset() is None or deadline <= now:
+                raise ObservationError("control_report_unverified")
+            read_until = min(read_until, deadline)
         return {
             "kind": "console-control-report.v1",
             "plan_id": plan["plan_id"],
@@ -119,6 +127,9 @@ class PlanControlReport:
             "decision": report["decision"],
             "evaluated_at": evaluated.isoformat(),
             "queried_at": now.isoformat(),
+            # Display freshness is bounded by the authenticated read proof.
+            # This does not extend T19 evidence or grant execution authority.
+            "read_valid_until": read_until.isoformat(),
             "authorizes_cutover": False,
             "run_issues": report["run_issues"],
             # No arbitrary question/excerpt/URL, raw evidence or approver identity.
@@ -159,6 +170,11 @@ class PlanControlReport:
                 await asyncio.wait_for(self.authenticate(scope, dict(after), registered), timeout=3)
                 is not True
             ):
+                raise ObservationError("control_report_unverified")
+            finished = self.clock()
+            if (type(finished) is not datetime or finished.utcoffset() is None
+                    or not datetime.fromisoformat(result["queried_at"])
+                    <= finished < datetime.fromisoformat(result["read_valid_until"])):
                 raise ObservationError("control_report_unverified")
             return result
         except ObservationError:
