@@ -27,7 +27,7 @@ from agents.sandbox.capabilities import Shell
 from agents.sandbox.entries import File
 
 from .contracts import FailureBundle
-from .tools import PolicyDenied, Tools, destructive_category
+from .tools import SYSTEM, PolicyDenied, Tools, destructive_category
 
 IMAGE = re.compile(r"[a-z0-9./_-]+(:[A-Za-z0-9._-]+)?@sha256:[a-f0-9]{64}")
 SANDBOX_SYSTEM = """
@@ -131,7 +131,7 @@ class SandboxProvider:
             return ToolsToFinalOutputResult(is_final_output=tools.proposal is not None,
                                             final_output="PROPOSAL_COLLECTED")
 
-        agent = SandboxAgent(name="bravo-sandbox-proposal", instructions=tools.system_prompt() + SANDBOX_SYSTEM,
+        agent = SandboxAgent(name="bravo-sandbox-proposal", instructions=SYSTEM + SANDBOX_SYSTEM,
                              model=self.model, tool_use_behavior=finish,
                              tools=self.platform if self.platform is not None else platform_tools(tools),
                              default_manifest=manifest_for(tools),

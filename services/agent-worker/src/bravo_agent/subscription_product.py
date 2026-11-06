@@ -317,16 +317,7 @@ def invoke_product_worker(settings, access, value, root, snapshot):
                            manifest=root / "manifest.json", snapshot=snapshot.root, output=output,
                            reasoning_effort=effort(settings.get("reasoning_effort")),
                            sandbox_image=settings.get("sandbox_image"), docker=sandbox_docker(settings))
-    with contextlib.ExitStack() as stack:
-        if value.exec_enabled is True and settings.get("exec"):
-            # T42: exec only for an input that carries exec_enabled exactly true AND an installed
-            # T15 path. run_id/attempt come from this input, never from the worker.
-            from .exec_relay import ExecRelay, t15_forwarder
-
-            relay = stack.enter_context(ExecRelay(t15_forwarder(**settings["exec"]), value.bundle.run_id,
-                                                  value.attempt))
-            args.exec_socket = relay.path
-        code = _run_provider(settings, access, provider, args)
+    code = _run_provider(settings, access, provider, args)
     if code != 0:
         raise ValueError("worker outcome unconfirmed")
     with output.open("rb") as stream:

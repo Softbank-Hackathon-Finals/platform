@@ -5,7 +5,6 @@ import copy
 import json
 import os
 import re
-import time
 from collections import Counter
 from typing import get_args
 
@@ -16,17 +15,9 @@ from agents.usage import Usage
 from openai import APIStatusError, AsyncOpenAI
 
 from .contracts import FailureBundle, Proposal
-from .exec_tools import (
-    DESCRIPTIONS,
-    EXEC_ACTIONS,
-    EXEC_FUNCTIONS,
-    EXEC_TOOLS,
-    INSPECT_PARAMETERS,
-    PROBE_PARAMETERS,
-)
 from .runtime import RUNTIME_KEYS
 from .telemetry import agent_observation
-from .tools import RESERVED_TOOLS, SANDBOX_TOOLS, PolicyDenied, Tools
+from .tools import RESERVED_TOOLS, SANDBOX_TOOLS, SYSTEM, PolicyDenied, Tools
 
 FUNCTIONS = {"repo_read": "mcp__bravo__repo_read", "plan_propose": "mcp__bravo__plan_propose",
              "inventory_describe": "mcp__bravo__inventory_describe", "policy_evaluate": "mcp__bravo__policy_evaluate"}
@@ -39,10 +30,7 @@ RESERVED_FUNCTIONS = {
     for base in [tool.removeprefix("mcp__bravo__")]
     for form in (base, base.replace("_", ".", 1), "bravo." + base, "bravo." + base.replace("_", ".", 1), tool)
 }
-# T42 exec tools: offered only with an enabled exec channel. None of these names is a reserved
-# spelling above, so ``rehearsal_exec`` and friends stay TOOL_NOT_PROVIDED either way.
-assert not EXEC_FUNCTIONS.keys() & RESERVED_FUNCTIONS.keys() and not EXEC_FUNCTIONS.keys() & FUNCTIONS.keys()
-BRAVO_KINDS = frozenset("bravo_" + name for name in FUNCTIONS | EXEC_FUNCTIONS) | {"bravo_reserved"}
+BRAVO_KINDS = frozenset("bravo_" + name for name in FUNCTIONS) | {"bravo_reserved"}
 
 
 def tool_name(name, namespace=None, *, subscription=False) -> str:
@@ -52,9 +40,6 @@ def tool_name(name, namespace=None, *, subscription=False) -> str:
         return "unlisted"
     if name in FUNCTIONS and (not subscription or namespace == "bravo"):
         return FUNCTIONS[name]
-    if name in EXEC_FUNCTIONS and (not subscription or namespace == "bravo"):
-        # Canonical even when exec is off, so dispatch audits TOOL_NOT_PROVIDED.
-        return EXEC_FUNCTIONS[name]
     return RESERVED_FUNCTIONS.get(name, "unlisted")
 
 
@@ -121,19 +106,7 @@ def function_tools(tools: Tools | None = None) -> list[dict]:
              "description": "Read the graded dependency inventory (T16). Optional role filter, null for all.",
              "parameters": {"type": "object", "properties": {"role": {"type": ["string", "null"]}},
                             "required": ["role"], "additionalProperties": False}})
-    if tools is not None and tools.exec_open():
-        definitions.extend(exec_function_tools())
     return definitions
-
-
-def exec_function_tools() -> list[dict]:
-    """T42 v1 model-facing tools. Strict-mode acceptance of ``pattern``/``minimum``/nullable types
-    by a real model is not verified yet (contract 8)."""
-    parameters = {"apply": strict_schema(Proposal.model_json_schema()),
-                  "inspect": copy.deepcopy(INSPECT_PARAMETERS), "probe": copy.deepcopy(PROBE_PARAMETERS)}
-    return [{"type": "function", "name": function, "strict": True,
-             "description": DESCRIPTIONS[EXEC_ACTIONS[tool]], "parameters": parameters[EXEC_ACTIONS[tool]]}
-            for function, tool in EXEC_FUNCTIONS.items()]
 
 
 def output_kind(item) -> str:
@@ -142,7 +115,7 @@ def output_kind(item) -> str:
     if kind == "function_call":
         if getattr(item, "namespace", None) != "bravo":
             return "other_function"
-        for name in FUNCTIONS | EXEC_FUNCTIONS:
+        for name in FUNCTIONS:
             if getattr(item, "name", None) == name:
                 return "bravo_" + name
         # Bound like an offered call so it reaches dispatch and is denied and audited there.
@@ -328,12 +301,11 @@ class OpenAIProvider:
         if (set(os.environ) - RUNTIME_KEYS or other_credentials & set(os.environ)
                 or not os.environ.get(credential)):
             raise RuntimeError("worker process environment must be explicitly isolated")
-        deadline = time.monotonic() + 180
         async with asyncio.timeout(180):
             async with AsyncOpenAI(api_key=os.environ[credential],
                                    base_url="https://api.openai.com/v1",
                                    max_retries=0, timeout=60) as client:
-                model = BoundedResponsesModel(self, client, tools, deadline)
+                model = BoundedResponsesModel(self, client, tools)
                 if self.sandbox_image is not None:
                     from .sandbox_provider import SandboxProvider
 
@@ -348,7 +320,7 @@ class OpenAIProvider:
                         return ToolsToFinalOutputResult(
                             is_final_output=tools.proposal is not None, final_output="PROPOSAL_COLLECTED")
 
-                    agent = Agent(name="bravo-proposal", instructions=tools.system_prompt(), model=model,
+                    agent = Agent(name="bravo-proposal", instructions=SYSTEM, model=model,
                                   tools=model.sdk_tools(), tool_use_behavior=finish)
                     await Runner.run(
                         agent, [{"role": "user", "content": json.dumps(tools.model_input(), sort_keys=True)}],
@@ -373,29 +345,23 @@ class BoundedResponsesModel(Model):
     The unadvertised denial handler cannot execute an action; it returns the existing refusal.
     """
 
-    def __init__(self, provider, client, tools, deadline=None):
+    def __init__(self, provider, client, tools):
         self.provider, self.client, self.policy = provider, client, tools
-        self.deadline = deadline if deadline is not None else time.monotonic() + 180
         self.needs_read = provider.subscription
         self.tokens = self.requests = 0
         self.denied_calls = {}
 
     def sdk_tools(self):
-        # Built once per run: every handler the run may need. Which ones the model is offered
-        # in a turn (exec closes near the budget) is decided per request in get_response.
         definitions = function_tools(self.policy)
-        if self.policy.exec_active and not any(d["name"] in EXEC_FUNCTIONS for d in definitions):
-            definitions += exec_function_tools()
         result = []
         for definition in definitions:
             name = definition["name"]
 
             async def invoke(_context, raw, name=name):
                 parsed, arguments = call_arguments(raw)
-                canonical = FUNCTIONS.get(name) or EXEC_FUNCTIONS[name]
+                canonical = FUNCTIONS[name]
                 try:
-                    # Exec calls classify even unparseable text (destructive category) in dispatch.
-                    if not parsed and canonical not in EXEC_TOOLS:
+                    if not parsed:
                         raise ValueError("invalid function arguments")
                     result = self.policy.dispatch(canonical, arguments)
                     self.needs_read = False
@@ -431,8 +397,6 @@ class BoundedResponsesModel(Model):
                 original = self.denied_calls[item["call_id"]]
                 item.clear()
                 item.update(original)
-        # Calls left after this one; exec tools close while plan_propose still fits (T42).
-        self.policy.set_model_budget(7 - self.requests, self.deadline)
         definitions = function_tools(self.policy)
         # Agents SDK sandbox capability tools (exec_command, apply_patch, ...) act only inside
         # the no-network container; offer exactly the ones this run attached.
