@@ -27,10 +27,6 @@ mock_provider "aws" {
 }
 
 variables {
-  oidc_provider_arn       = "arn:aws:iam::111122223333:oidc-provider/token.actions.githubusercontent.com"
-  production_subject      = "repo:Softbank-Hackathon-Finals@350259663/platform@1443045223:ref:refs/heads/develop"
-  validation_subject      = "repo:Softbank-Hackathon-Finals@350259663/platform@1443045223:ref:refs/heads/feature/T15-subscription-integration"
-  validation_expires_at   = "2026-11-03T23:00:00Z"
   instance_arn            = "arn:aws:ec2:ap-northeast-2:111122223333:instance/i-0123456789abcdef0"
   subscription_secret_arn = "arn:aws:secretsmanager:ap-northeast-2:111122223333:secret:bravo-platform/agent-subscription/example-ABC123"
 }
@@ -53,24 +49,18 @@ run "credential_and_session_boundaries" {
   assert {
     condition = length([for grant in jsondecode(aws_iam_role.broker.assume_role_policy).Statement : grant
       if grant.Action == "sts:AssumeRole" && grant.Principal.AWS == "arn:aws:iam::111122223333:role/bravo-platform-node"
-    ]) == 1 && length(jsondecode(aws_iam_role.broker.assume_role_policy).Statement) == 3
-    error_message = "Keep both GitHub grants and add only the node-role grant for the platform Job path."
+    ]) == 1 && length(jsondecode(aws_iam_role.broker.assume_role_policy).Statement) == 1
+    error_message = "The broker trusts only the node role (platform Job path); no GitHub Actions grant."
   }
   assert {
-    condition = alltrue([for grant in jsondecode(aws_iam_role.controller.assume_role_policy).Statement :
-      !contains(keys(grant.Condition.StringEquals), "aws:SourceVpce")
-      ]) && !aws_vpc_endpoint.broker_sts.private_dns_enabled && strcontains(
+    condition = !aws_vpc_endpoint.broker_sts.private_dns_enabled && strcontains(
       aws_ssm_association.broker_sts.parameters["commands"], "AWS_ENDPOINT_URL_STS=https://vpce-0123456789abcdef0-abc123.sts."
     )
-    error_message = "Keep the hosted controller on public STS and configure private STS only for the broker."
+    error_message = "Configure private STS only for the broker."
   }
   assert {
     condition     = jsondecode(aws_iam_role_policy.broker.policy).Statement[0].Resource == var.subscription_secret_arn && length(jsondecode(aws_iam_role_policy.broker.policy).Statement[0].Action) == 3
     error_message = "The VM broker only reads and rotates its exact subscription Secret."
-  }
-  assert {
-    condition     = one([for statement in jsondecode(aws_iam_role_policy.controller.policy).Statement : statement if statement.Action == "ssm:StartSession"]).Condition.BoolIfExists["ssm:SessionDocumentAccessCheck"] == "true"
-    error_message = "Omitting DocumentName must not grant a default shell session."
   }
   assert {
     condition     = jsondecode(aws_ssm_document.tunnel.content).properties.portNumber == "18761" && jsondecode(aws_ssm_document.tunnel.content).sessionType == "Port"
@@ -85,11 +75,6 @@ run "wildcard_secret_rejected" {
   command = plan
   variables { subscription_secret_arn = "arn:aws:secretsmanager:ap-northeast-2:111122223333:secret:*" }
   expect_failures = [var.subscription_secret_arn]
-}
-run "wildcard_subject_rejected" {
-  command = plan
-  variables { production_subject = "repo:Softbank-Hackathon-Finals/platform:*" }
-  expect_failures = [var.production_subject]
 }
 run "other_instance_region_rejected" {
   command = plan

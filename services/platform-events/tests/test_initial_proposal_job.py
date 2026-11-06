@@ -132,6 +132,8 @@ class Kubectl:
             if self.lose_create:
                 return 1, b"", b"Unable to connect to the server"
             return 0, b"job.batch/" + name.encode(), b""
+        if args[:2] == ["get", "jobs"]:  # the one-execution-at-a-time slot check
+            return 0, json.dumps({"items": list(self.jobs.values())}).encode(), b""
         if args[:2] == ["get", "job"]:
             return (0, json.dumps(self.jobs[args[2]]).encode(), b"") if args[2] in self.jobs else (1, b"", b"NotFound")
         if args[0] == "logs":
@@ -144,7 +146,7 @@ def operator(backend, tmp_path):
     f = Fixture(backend, tmp_path)
     fields = f.port.preparation_fields(SPEC.plan_id, 3, **f.ref)
     kube = Kubectl()
-    client = job.JobInitialProposal(tmp_path / "operator", image=IMAGE, kubectl=kube)
+    client = job.JobInitialProposal(tmp_path / "operator", image=IMAGE, source_revision=RUNTIME, kubectl=kube)
     intent = InitialIntent(**fields, recipient_public_key=client.recipient(fields["request_id"]))
     value = f.records.read_input(ACTOR, intent.plan_id, intent.plan_version,
                                 input_ref=intent.input_ref, input_digest=intent.input_digest)
@@ -310,8 +312,31 @@ def test_execution_id_is_stable_and_bound(operator):
 def test_default_job_image_is_the_gitops_reader_pin():
     from pathlib import Path
     root = Path(__file__).resolve().parents[3]
-    image = job.gitops_image(root / "infra/gitops/environments/development/product-reader-image.json")
+    image, revision = job.gitops_image(root / "infra/gitops/environments/development/product-reader-image.json")
     assert image.startswith("ghcr.io/softbank-hackathon-finals/platform-product-reader@sha256:")
+    assert len(revision) == 40
+
+
+def test_image_from_another_source_revision_is_never_run(operator):
+    client, kube, intent, _, _ = operator
+    other = job.JobInitialProposal(client.root, image=IMAGE, source_revision="d" * 40, kubectl=kube)
+    with pytest.raises(ExecutionUnknown, match="JOB_IMAGE_SOURCE_MISMATCH"):
+        other.submit(intent)
+    assert kube.creates == []
+
+
+def test_one_execution_at_a_time_records_nothing_while_busy(operator):
+    client, kube, intent, _, _ = operator
+    kube.jobs["bravo-initial-9"] = {"metadata": {"name": "bravo-initial-9"}, "status": {"active": 1}}
+    with pytest.raises(ExecutionPending, match="JOB_SLOT_BUSY"):
+        client.submit(intent)
+    assert kube.creates == []
+    with pytest.raises(ExecutionUnknown, match="EXECUTION_NOT_SUBMITTED"):
+        client.read(intent)  # no ledger row: a later submit is a first send
+    kube.jobs["bravo-initial-9"]["status"] = {"succeeded": 1}
+    with pytest.raises(ExecutionPending):
+        client.submit(intent)
+    assert len(kube.creates) == 1
 
 
 def test_operator_clock_ahead_of_the_api_server_within_skew_still_reads(operator, monkeypatch):
@@ -328,3 +353,15 @@ def test_operator_clock_ahead_of_the_api_server_within_skew_still_reads(operator
     kube.jobs[name]["metadata"]["creationTimestamp"] = (ahead - timedelta(seconds=30)).strftime("%Y-%m-%dT%H:%M:%SZ")
     with pytest.raises(ExecutionUnknown):
         client.read(intent)
+
+
+def test_job_reader_refuses_plain_http_duplicate_fields_and_oversized_body(api, monkeypatch):
+    reader, request, key, claims = api
+    monkeypatch.setattr(reader.records, "_read", lambda *a, **k: pytest.fail("invalid read"))
+    headers = {"Authorization": "Bearer " + jwt.encode(claims, key, algorithm="RS256"),
+               "Content-Type": "application/json"}
+    with TestClient(create_initial_read_app(reader), base_url="http://reader.invalid") as client:
+        assert client.post(PATH, json=request.model_dump(), headers=headers).status_code == 403
+    with TestClient(create_initial_read_app(reader), base_url="https://reader.invalid") as client:
+        assert client.post(PATH, content='{"principal":"a","principal":"b"}', headers=headers).status_code == 422
+        assert client.post(PATH, content="x" * 16385, headers=headers).status_code == 413

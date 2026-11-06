@@ -2,7 +2,6 @@
 
 import hashlib
 import json
-from contextlib import contextmanager
 from dataclasses import replace
 from pathlib import Path
 
@@ -14,15 +13,10 @@ from rehearsal_runner.admission import logical_task_digest
 from rehearsal_runner.secret_task import prepare_credential_migration
 
 from bravo_platform_events.initial_proposal import InitialInput, InitialIntent
-from bravo_platform_events.initial_proposal_execution import execute
 from bravo_platform_events.initial_proposal_runtime import (
     InitialBrokerRequest,
     InitialProposalService,
     model_input,
-)
-from bravo_platform_events.initial_proposal_transport import (
-    INITIAL_WORKFLOW,
-    validate_initial_receipt,
 )
 
 RUNTIME = "c" * 40
@@ -196,64 +190,12 @@ def test_legacy_input_is_not_silently_upgraded(runtime, field):
         InitialInput.model_validate(raw)
 
 
-def environment(intent):
-    # Public synthetic CA from the existing TLS socket test fixtures.
-    import importlib.util
-    path = Path(__file__).parents[2] / "agent-worker/tests/tls_support.py"
-    spec = importlib.util.spec_from_file_location("initial_tls_support", path)
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return dict(GITHUB_ACTIONS="true", GITHUB_REPOSITORY="Softbank-Hackathon-Finals/platform",
-        GITHUB_REPOSITORY_ID="1443045223", GITHUB_REPOSITORY_OWNER_ID="350259663",
-        GITHUB_REF="refs/heads/develop", GITHUB_EVENT_NAME="workflow_dispatch", GITHUB_RUN_ATTEMPT="1",
-        GITHUB_RUN_ID="1234", GITHUB_SHA=RUNTIME, PRODUCT_WORKFLOW_SHA=RUNTIME,
-        GITHUB_WORKFLOW_REF=f"Softbank-Hackathon-Finals/platform/.github/workflows/{INITIAL_WORKFLOW}@refs/heads/develop",
-        BRAVO_INSTANCE_ID="i-" + "a" * 17, PRODUCT_BROKER_CA_PEM=module.TEST_CA_PEM)
 
 
-def test_actions_one_request_cleanup_then_receipt(runtime):
-    service, request, _, counts = runtime
-    seen = []
-
-    @contextmanager
-    def window(*args, **kwargs):
-        seen.append("open")
-        try:
-            yield service.run
-        finally:
-            seen.append("closed")
-
-    receipt = execute(request.intent, environment(request.intent),
-                      token_supplier=lambda: request.web_identity_token, window=window)
-    assert validate_initial_receipt(request.intent, "1234", receipt) == receipt
-    assert seen == ["open", "closed"] and counts["invoke"] == 1
-    assert request.web_identity_token not in json.dumps(receipt)
 
 
-@pytest.mark.parametrize("change", [{"GITHUB_WORKFLOW_REF": "subscription-product.yml"},
-    {"GITHUB_RUN_ATTEMPT": "2"}, {"PRODUCT_WORKFLOW_SHA": "f" * 40}, {"GITHUB_REF": "refs/heads/main"}])
-def test_wrong_workflow_before_token_or_window(runtime, change):
-    request = runtime[1]
-    with pytest.raises(ValueError):
-        execute(request.intent, environment(request.intent) | change,
-                token_supplier=lambda: pytest.fail("unexpected token"),
-                window=lambda *a, **k: pytest.fail("unexpected window"))
 
 
-def test_cleanup_failure_discards_valid_proposal(runtime):
-    service, request, _, _ = runtime
-
-    @contextmanager
-    def window(*args, **kwargs):
-        try:
-            yield service.run
-        finally:
-            raise OSError("private cleanup detail")
-
-    receipt = execute(request.intent, environment(request.intent),
-                      token_supplier=lambda: request.web_identity_token, window=window)
-    assert receipt["cleanup_confirmed"] is False and "proposal" not in receipt["result"]
-    assert "private cleanup detail" not in json.dumps(receipt)
 
 
 @pytest.mark.parametrize("fault", ["none", "plain", "wrong_ca", "wrong_name", "expired"])
@@ -262,7 +204,7 @@ def test_actual_initial_broker_tls_before_any_body(runtime, tmp_path, fault):
     import threading
     from http.server import BaseHTTPRequestHandler, HTTPServer
 
-    from bravo_platform_events.initial_proposal_execution import InitialTunnelCall
+    from bravo_platform_events.initial_proposal_job import InitialTunnelCall
 
     path = Path(__file__).parents[2] / "agent-worker/tests/tls_support.py"
     spec = importlib.util.spec_from_file_location("initial_socket_tls", path)
@@ -293,7 +235,7 @@ def test_actual_initial_broker_tls_before_any_body(runtime, tmp_path, fault):
         thread = threading.Thread(target=server.serve_forever, daemon=True)
         thread.start()
         try:
-            status, result = InitialTunnelCall(ca)(request.model_dump())
+            status, result = InitialTunnelCall(ca, url="https://127.0.0.1:18762/run")(request.model_dump())
         finally:
             server.shutdown()
             thread.join(5)

@@ -25,7 +25,7 @@ PACKAGES = {
 
 # Include the lazy imports used by --initial-proposal, not just the entry point.
 READER_IMPORT_PROBE = (
-    "import sys; from bravo_platform_events.product_read_server import load_app, load_initial_app; "
+    "import sys; from bravo_platform_events.product_read_server import load_initial_app; "
     "from bravo_platform_events.initial_proposal_api import AuthenticatedInitialReader, create_initial_read_app; "
     "from bravo_platform_events.initial_stored_source import stored_initial_source; "
     "from bravo_platform_events.product_access import ProductInputAccess; "
@@ -33,7 +33,8 @@ READER_IMPORT_PROBE = (
     "from rehearsal_runner.task_catalog import TaskCatalog; "
     "forbidden = [n for n in sys.modules if n.startswith(('openai', "
     "'bravo_agent.subscription_product', 'bravo_agent.subscription_admin', "
-    "'bravo_agent.product_execution_mailbox', 'bravo_platform_events.initial_proposal_transport'))]; "
+    "'bravo_agent.product_execution_mailbox', 'bravo_agent.product_ledger', "
+    "'bravo_platform_events.initial_proposal_transport'))]; "
     "assert not forbidden, forbidden; "
     "print('product_reader_imports_ok')"
 )

@@ -11,16 +11,18 @@ import os
 import re
 import subprocess
 import sys
+from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
+import httpx
 from bravo_agent.contracts import digest
 from bravo_agent.product_execution_contracts import ExecutionPending, ExecutionUnknown
 from bravo_agent.subscription_product import stopped
 from bravo_agent.subscription_product_seal import seal_bound_receipt, validate_recipient
+from bravo_agent.subscription_product_tls import client_context
 
-from .initial_proposal import InitialIntent
-from .initial_proposal_execution import InitialTunnelCall
+from .initial_proposal import InitialIntent, InitialResult
 from .initial_proposal_runtime import InitialBrokerRequest
 from .initial_proposal_transport import (
     OperatorInitialProposal,
@@ -38,6 +40,37 @@ MAX_LOG = 2 * 1024 * 1024
 CLOCK_SKEW = timedelta(seconds=60)
 
 
+@dataclass(frozen=True)
+class InitialTunnelCall:
+    """The Job's one call to the node-loopback broker, verified with the broker's public CA."""
+
+    ca_pem: str = field(repr=False)
+    transport: object = field(default=None, repr=False)
+    url: str = BROKER
+
+    def __post_init__(self):
+        client_context(self.ca_pem)
+
+    def __call__(self, body):
+        try:
+            request = InitialBrokerRequest.model_validate(body)
+            with httpx.Client(verify=client_context(self.ca_pem), transport=self.transport,
+                              trust_env=False, follow_redirects=False,
+                              timeout=httpx.Timeout(260, connect=5)) as client:
+                with client.stream("POST", self.url, json=request.model_dump()) as response:
+                    if response.status_code != 200:
+                        return response.status_code, stopped("INITIAL_CALL_UNCONFIRMED")
+                    raw = bytearray()
+                    for part in response.iter_bytes(chunk_size=65536):
+                        raw.extend(part)
+                        if len(raw) > 1024 * 1024:
+                            raise ValueError()
+            result = InitialResult.model_validate_json(bytes(raw))
+            return 200, result.model_dump(mode="json")
+        except Exception:
+            return 502, stopped("INITIAL_CALL_UNCONFIRMED")
+
+
 def execution_id(request_id):
     """Numeric, stable per logical request; kept in the existing github_run_id fields."""
     # ponytail: wire fields keep their Actions names; rename with the next contract version.
@@ -49,14 +82,23 @@ def job_name(request_id):
 
 
 def gitops_image(path):
-    """The reviewed Reader image pin that Argo deploys; it already ships this module."""
-    pin = json.loads(Path(path).read_text())["image"]
-    return pin["repository"] + "@" + pin["digest"]
+    """The reviewed Reader image pin that Argo deploys, and the source revision it was built from.
+
+    Replaces the Actions check `workflow_sha == runtime_source_sha`: the Job runs only an image
+    whose recorded build revision is the intent's runtime source (OCI image.revision label).
+    """
+    pin = json.loads(Path(path).read_text())
+    image, revision = pin["image"], pin["sourceRevision"]
+    if re.fullmatch(r"[a-f0-9]{40}", revision) is None:
+        raise ValueError("exact image source revision required")
+    return image["repository"] + "@" + image["digest"], revision
 
 
 def job_manifest(intent, image):
     if re.fullmatch(r"[a-z0-9./-]+@sha256:[a-f0-9]{64}", image) is None:
         raise ValueError("immutable job image required")
+    # The image's build revision was matched to this by the operator before create.
+    source = {"bravo.dev/runtime-source-sha": intent.runtime_source_sha}
     run_id = execution_id(intent.request_id)
     env = [{"name": "PRODUCT_INTENT", "value": json.dumps(intent.model_dump(mode="json"), sort_keys=True)},
            {"name": "PRODUCT_EXECUTION_ID", "value": run_id},
@@ -65,7 +107,7 @@ def job_manifest(intent, image):
     return {"apiVersion": "batch/v1", "kind": "Job",
         "metadata": {"name": job_name(intent.request_id), "namespace": NAMESPACE,
                      "labels": {"app.kubernetes.io/name": "bravo-initial-proposal"},
-                     "annotations": {"bravo.dev/request-digest": digest(intent.request_id)}},
+                     "annotations": {"bravo.dev/request-digest": digest(intent.request_id)} | source},
         "spec": {"backoffLimit": 0, "activeDeadlineSeconds": 600, "ttlSecondsAfterFinished": 86400,
             "template": {"metadata": {"labels": {"app.kubernetes.io/name": "bravo-initial-proposal"}},
                 "spec": {"restartPolicy": "Never", "serviceAccountName": SERVICE_ACCOUNT,
@@ -119,7 +161,9 @@ def bound_job(job, intent, image, dispatch_sent_at):
     # A Job from before the ledger marker was not ours. The marker is the operator host's
     # clock and creationTimestamp the API server's (1 s precision), so allow CLOCK_SKEW; the
     # first create's AlreadyExists is the main preemption guard.
-    return (job["metadata"].get("annotations", {}).get("bravo.dev/request-digest") == digest(intent.request_id)
+    annotations = job["metadata"].get("annotations", {})
+    return (annotations.get("bravo.dev/request-digest") == digest(intent.request_id)
+            and annotations.get("bravo.dev/runtime-source-sha") == intent.runtime_source_sha
             and job["spec"].get("backoffLimit") == 0
             and created >= sent - CLOCK_SKEW
             and operator_spec(job["spec"]["template"]["spec"]) == expected["spec"]["template"]["spec"])
@@ -163,10 +207,22 @@ class OperatorKubectl:
 class JobInitialProposal(OperatorInitialProposal):
     """Same ledger, recipient key and receipt checks as Actions; Kubernetes as the carrier."""
 
-    def __init__(self, state_dir, *, image, kubectl=None):
-        super().__init__(state_dir, github=object())  # Never reaches GitHub on this path.
-        self.image = image
+    def __init__(self, state_dir, *, image, source_revision, kubectl=None):
+        super().__init__(state_dir)
+        if re.fullmatch(r"[a-f0-9]{40}", source_revision) is None:
+            raise ValueError("exact image source revision required")
+        self.image, self.source_revision = image, source_revision
         self.kubectl = kubectl or OperatorKubectl()
+
+    def _slot_busy(self):
+        """One execution at a time (the Actions `concurrency` group this replaces)."""
+        code, out, _ = self.kubectl(["get", "jobs", "-l", "app.kubernetes.io/name=bravo-initial-proposal",
+                                     "-o", "json"])
+        if code:
+            raise ExecutionUnknown("JOB_SLOT_UNCONFIRMED")
+        jobs = json.loads(out).get("items", [])
+        return any(not job.get("status", {}).get("succeeded") and not job.get("status", {}).get("failed")
+                   for job in jobs)
 
     def submit(self, intent):
         intent = self._parse_intent(intent)
@@ -177,6 +233,11 @@ class JobInitialProposal(OperatorInitialProposal):
             return self.read(intent)
         if self._private_key(intent.request_id).public_key().public_bytes_raw().hex() != intent.recipient_public_key:
             raise ExecutionUnknown("EXECUTION_RECIPIENT_CONFLICT")
+        if self.source_revision != intent.runtime_source_sha:
+            # The pinned image was not built from the intent's runtime source: never run it.
+            raise ExecutionUnknown("JOB_IMAGE_SOURCE_MISMATCH")
+        if self._slot_busy():
+            raise ExecutionPending("JOB_SLOT_BUSY")  # nothing recorded; submit again later
         metadata = {"carrier": "platform-job", "job": manifest["metadata"]["name"], "namespace": NAMESPACE,
                     "image": self.image, "dispatch_sent_at": datetime.now(UTC).isoformat()}
         run_id = execution_id(intent.request_id)
@@ -232,7 +293,6 @@ def main(argv=None):
     parser.add_argument("operation", choices=["run", "submit", "read"])
     parser.add_argument("--intent", type=Path)
     parser.add_argument("--state-dir", type=Path)
-    parser.add_argument("--image", help="Override; default is the GitOps-pinned Reader image")
     parser.add_argument("--gitops-image", type=Path,
                         default=Path("infra/gitops/environments/development/product-reader-image.json"))
     parser.add_argument("--context")
@@ -251,8 +311,9 @@ def main(argv=None):
     try:
         if not (args.intent and args.state_dir and args.output):
             raise ValueError("intent, state dir and output required")
-        image = args.image or gitops_image(args.gitops_image)
-        client = JobInitialProposal(args.state_dir, image=image, kubectl=OperatorKubectl(args.context))
+        image, revision = gitops_image(args.gitops_image)
+        client = JobInitialProposal(args.state_dir, image=image, source_revision=revision,
+                                    kubectl=OperatorKubectl(args.context))
         receipt = getattr(client, args.operation)(InitialIntent.model_validate_json(args.intent.read_bytes()))
         fd = os.open(args.output, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
         with os.fdopen(fd, "w") as stream:

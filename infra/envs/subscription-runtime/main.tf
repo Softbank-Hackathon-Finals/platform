@@ -11,34 +11,6 @@ provider "aws" {
   default_tags { tags = { project = "bravo-platform", component = "platform" } }
 }
 
-variable "oidc_provider_arn" {
-  type = string
-  validation {
-    condition     = can(regex("^arn:aws:iam::[0-9]{12}:oidc-provider/token.actions.githubusercontent.com$", var.oidc_provider_arn))
-    error_message = "Use the exact GitHub OIDC provider."
-  }
-}
-variable "production_subject" {
-  type = string
-  validation {
-    condition     = var.production_subject == "repo:Softbank-Hackathon-Finals@350259663/platform@1443045223:ref:refs/heads/develop"
-    error_message = "Use the immutable team repository subject on develop."
-  }
-}
-variable "validation_subject" {
-  type = string
-  validation {
-    condition     = var.validation_subject == "repo:Softbank-Hackathon-Finals@350259663/platform@1443045223:ref:refs/heads/feature/T15-subscription-integration"
-    error_message = "Only the explicit integration branch can rehearse before merge."
-  }
-}
-variable "validation_expires_at" {
-  type = string
-  validation {
-    condition     = can(formatdate("YYYY-MM-DD", var.validation_expires_at))
-    error_message = "A fixed RFC3339 expiry is required."
-  }
-}
 variable "instance_arn" {
   type = string
   validation {
@@ -56,21 +28,6 @@ variable "subscription_secret_arn" {
 
 locals {
   broker_name = "bravo-subscription-oidc-broker"
-  github_trust = [
-    { Effect = "Allow", Action = "sts:AssumeRoleWithWebIdentity", Principal = { Federated = var.oidc_provider_arn },
-      Condition = { StringEquals = { "token.actions.githubusercontent.com:aud" = "sts.amazonaws.com",
-    "token.actions.githubusercontent.com:sub" = var.production_subject } } },
-    { Effect = "Allow", Action = "sts:AssumeRoleWithWebIdentity", Principal = { Federated = var.oidc_provider_arn },
-      Condition = { StringEquals = { "token.actions.githubusercontent.com:aud" = "sts.amazonaws.com",
-        "token.actions.githubusercontent.com:sub" = var.validation_subject },
-        DateLessThan = { "aws:CurrentTime" = var.validation_expires_at }
-    } }
-  ]
-}
-
-resource "aws_iam_role" "controller" {
-  name               = "bravo-subscription-controller"
-  assume_role_policy = jsonencode({ Version = "2012-10-17", Statement = local.github_trust })
 }
 
 # The platform Job path: the broker verifies the Job's pinned Kubernetes token itself,
@@ -83,8 +40,9 @@ data "aws_iam_instance_profile" "broker_node" {
 resource "aws_iam_role" "broker" {
   name = local.broker_name
   assume_role_policy = jsonencode({ Version = "2012-10-17", Statement = [
-    for grant in concat(local.github_trust, [{ Effect = "Allow", Action = "sts:AssumeRole",
-    Principal = { AWS = data.aws_iam_instance_profile.broker_node.role_arn }, Condition = { StringEquals = {} } }]) :
+    # The only grant: the GitHub Actions trust is removed with the Actions AI path.
+    for grant in [{ Effect = "Allow", Action = "sts:AssumeRole",
+    Principal = { AWS = data.aws_iam_instance_profile.broker_node.role_arn }, Condition = { StringEquals = {} } }] :
     merge(grant, { Condition = merge(grant.Condition, {
       StringEquals = merge(grant.Condition.StringEquals, { "aws:SourceVpce" = aws_vpc_endpoint.broker_sts.id })
       IpAddress    = { "aws:VpcSourceIp" = "${local.broker_source_ip}/32" }
@@ -146,17 +104,4 @@ resource "aws_ssm_document" "tunnel" {
 
 data "aws_caller_identity" "current" {}
 
-resource "aws_iam_role_policy" "controller" {
-  name = "fixed-broker-service-and-tunnel"
-  role = aws_iam_role.controller.id
-  policy = jsonencode({ Version = "2012-10-17", Statement = [
-    { Effect = "Allow", Action = "ssm:SendCommand", Resource = [var.instance_arn, aws_ssm_document.service.arn] },
-    { Effect = "Allow", Action = "ssm:GetCommandInvocation", Resource = "*" },
-    { Effect = "Allow", Action = "ssm:StartSession", Resource = [var.instance_arn, aws_ssm_document.tunnel.arn],
-    Condition = { BoolIfExists = { "ssm:SessionDocumentAccessCheck" = "true" } } },
-    { Effect = "Allow", Action = "ssm:TerminateSession", Resource = "arn:aws:ssm:ap-northeast-2:${data.aws_caller_identity.current.account_id}:session/BravoSubscription-*" }
-  ] })
-}
-
-output "controller_role_arn" { value = aws_iam_role.controller.arn }
 output "broker_role_arn" { value = aws_iam_role.broker.arn }

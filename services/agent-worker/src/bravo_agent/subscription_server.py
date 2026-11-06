@@ -1,4 +1,4 @@
-"""Bounded VM broker. Only a GitHub OIDC or pinned platform Job token reaches it."""
+"""Bounded VM broker. Only a pinned platform Job token reaches it."""
 
 import contextlib
 import io
@@ -28,13 +28,15 @@ from .verification import validate_result
 
 
 def execute_fixture(settings, web_token, run_id):
+    """Runtime smoke on the synthetic fixture (ported from the Actions runtime workflow).
+
+    Authenticated as the platform Job; the broker then uses the node-role path for its
+    own Secrets Manager read. The result reports rotation and non-root checks only.
+    """
     if not isinstance(run_id, str) or not re.fullmatch(r"subscription-[a-f0-9]{32}", run_id):
         raise ValueError("invalid execution id")
     config = Config(retries={"total_max_attempts": 1}, connect_timeout=10, read_timeout=20)
-    # Web identity is validated by STS against the exact repository/ref trust policy.
-    credentials = boto3.client("sts", region_name=settings["region"], config=config).assume_role_with_web_identity(
-        RoleArn=settings["broker_role_arn"], RoleSessionName="bravo-subscription-vm",
-        WebIdentityToken=web_token, DurationSeconds=900)["Credentials"]
+    credentials = authenticate_workload(settings, web_token).credentials
     root = Path(settings["worker"])
     runs = Path(settings["state_dir"]).parent / "runs"
     runs.mkdir(mode=0o700, exist_ok=True)
@@ -81,18 +83,6 @@ def execute_fixture(settings, web_token, run_id):
             "expires_at_increased": after.get("expires_at", 0) > before.get("expires_at", 0)}
 
 
-def authenticate_product(settings, token):
-    """STS validates the existing broker trust before either product input is read."""
-    config = Config(retries={"total_max_attempts": 1}, connect_timeout=10, read_timeout=20)
-    identity = boto3.client("sts", region_name=settings["region"], config=config).assume_role_with_web_identity(
-        RoleArn=settings["broker_role_arn"], RoleSessionName="bravo-subscription-vm",
-        WebIdentityToken=token, DurationSeconds=900)
-    subject = {key: identity[key] for key in ("Provider", "Audience", "SubjectFromWebIdentityToken")}
-    if not all(isinstance(value, str) and value for value in subject.values()):
-        raise ValueError("missing authenticated principal")
-    return ProductAccess(digest(subject), identity["Credentials"])
-
-
 def _workload_key(settings, token):
     workload = settings["workload_identity"]
     header = jwt.get_unverified_header(token)
@@ -129,14 +119,10 @@ def authenticate_workload(settings, token):
 
 
 def authenticate_caller(settings, token):
-    """Existing Actions callers keep STS; an installed workload binding adds the Job path."""
-    if "workload_identity" in settings and token.count(".") == 2:
-        try:
-            if jwt.decode(token, options={"verify_signature": False}).get("iss") == settings["workload_identity"]["issuer"]:
-                return authenticate_workload(settings, token)
-        except jwt.PyJWTError:
-            raise ValueError("invalid workload token") from None
-    return authenticate_product(settings, token)
+    """Only the pinned platform Job identity reaches the broker (the Actions OIDC path is removed)."""
+    if "workload_identity" not in settings or not isinstance(token, str) or token.count(".") != 2:
+        raise ValueError("platform job identity required")
+    return authenticate_workload(settings, token)
 
 
 def product_service(settings, inputs, journal_root, *, request_inputs=None):

@@ -1,17 +1,26 @@
 # 구독 워커 무인 실행
 
-관리자가 한 번 연결한 Bravo 구독을 지정 VM에서 재사용한다. 실행 요청은 GitHub
-Actions OIDC로 인증하고, VM이 자체적으로 access/refresh token을 갱신한다.
-모델 프로세스에는 inference access token만 전달한다. AWS 자격과 refresh token은
-broker 메모리에만 존재하며 인증 값은 GitHub Secrets나 파일로 복사하지 않는다.
+관리자가 한 번 연결한 Bravo 구독을 지정 VM에서 재사용한다. 실행 요청은 **플랫폼 RKE2의
+Job 한 개**가 보내고, broker는 설치 때 고정한 클러스터 공개키로 그 Job의 projected token을
+검증한다. VM이 자체적으로 access/refresh token을 갱신한다. 모델 프로세스에는 inference
+access token만 전달한다. AWS 자격과 refresh token은 broker 메모리에만 존재한다.
+
+> **2026-11-06 GitHub Actions AI 경로 제거.** `subscription-initial-proposal.yml`·
+> `subscription-product.yml`·`subscription-runtime.yml`, Actions 실행부·dispatch·caller,
+> broker와 Reader의 GitHub OIDC 신뢰, Terraform controller 역할을 지웠다. Actions가 맡던
+> 역할은 다음처럼 옮겼다: 신원 → Job projected token과 Pod 이름 결속, 소스 고정
+> (`workflow_sha == runtime_source_sha`) → Reader 이미지 pin의 `sourceRevision` 대조,
+> 동시 실행 1개(`concurrency`) → 진행 중 Job이 있으면 원장 기록 전 `JOB_SLOT_BUSY`,
+> 시간 제한 → `activeDeadlineSeconds`, 1회 실행 → `backoffLimit: 0`과 고정 이름,
+> 결과 산출물 → 운영자 키로 봉인한 Job 로그 한 줄, 런타임 검증 → broker
+> `/validation/fixture`(Job 신원). 아래 절의 Actions 설명 중 남은 부분은 이력이다.
 
 ## 권한과 실행
 
-`infra/envs/subscription-runtime`은 기존 T7 노드 역할을 바꾸지 않고 전용 역할 두 개를
-만든다. controller는 지정 인스턴스의 고정 SSM 문서를 호출하고 고정 포트 터널을 열 수
-있다. broker는 팀 구독 Secret 한 개의 Get/Put/UpdateVersionStage만 허용한다.
-두 역할 모두 immutable repository ID, STS audience, 정확한 ref에 결속한다.
-검증 브랜치의 trust는 고정 만료시각을 갖고, 운영 경로는 보호된 develop이다.
+`infra/envs/subscription-runtime`은 기존 T7 노드 역할을 바꾸지 않고 broker 전용 역할
+하나를 만든다. broker는 팀 구독 Secret 한 개의 Get/Put/UpdateVersionStage만 허용하고,
+trust는 노드 역할 한 건(broker 전용 endpoint·보조 주소 조건)뿐이다. broker 시작·정지는
+운영자가 자기 SSO로 고정 SSM 문서를 호출한다.
 broker 역할의 AWS trust와 전용 STS endpoint 보안 그룹은 broker용 보조 사설 IPv4만
 허용한다. T7 운영자는 비공개 `platform-aws` 변수 `subscription_broker_ipv4`에 같은
 서브넷의 미사용 주소를 지정한다. T7이 기본 ENI에 보조 주소를 할당하고 인스턴스 태그에
@@ -228,14 +237,8 @@ Provider/Audience/Subject 조합과 본문 principal을 대조한 뒤 현재 pla
 등록본의 실제 schema·내용 상한은 별도로 검사한다. 토큰은 journal·ProductInput·worker에
 들어가지 않는다. 오류에는 고정 사유만 반환한다.
 
-`subscription_product_caller.ActionsProductToken()`은 실제 Actions 환경의 기존 OIDC
-endpoint에서 `sts.amazonaws.com` audience로 요청당 토큰을 받는 주입 함수다.
-`product_window(instance_id, reviewed_runtime_sha, ca_pem=reviewed_broker_ca)`는 기존 controller 권한으로 고정
-SSM start/tunnel/stop만 사용하며 `call(body)`를 한 번 허용한다. 응답 유실 뒤 다시 호출하면
-거부한다. context를 닫으면 plugin·동일 SSM session·broker stop을 각각 처리하며,
-어느 정리든 확인되지 않으면 성공으로 반환하지 않는다. SSM session 응답은
-[고정 plugin 1.2.764.0의 환경 전달 계약](https://github.com/aws/session-manager-plugin/blob/1.2.764.0/src/sessionmanagerplugin/session/session.go#L156)을
-사용해 argv에 토큰을 넣지 않는다. Actions bearer 환경도 plugin에 전달하지 않는다.
+Actions 신원·SSM 창으로 broker를 부르던 caller는 제거했다. 요청은 플랫폼 Job이
+node loopback broker로 한 번 보낸다(아래 "플랫폼 Job으로 최초 제안 실행").
 
 T10은 기존 durable dispatch를 점유한 뒤 이 call과 token supplier를 자신의 `request_for`에
 주입한다. 등록/Admission·T15 Job·현재 권한·사람 승인은 여전히 기존 담당 포트가 소유한다.
@@ -266,88 +269,20 @@ Actions의 인수 코드에서는 `product_probe_window`와 기존 메모리 OID
 
 ### 한 제품 실행을 시작하고 같은 결과 읽기
 
-`subscription-product.yml`은 기존 합성 검증 workflow와 분리된 명시적
-`workflow_dispatch`다. T10이 커밋한 같은 Admission/attempt 1의 불변
-`ExecutionIntent` 일곱 필드(`request_id`, `input_ref`, `input_digest`,
-`admission_digest`, `runtime_source_sha`, `mode`, `recipient_public_key`)만 받는다. mode는 인증만 하는
-`probe` 또는 제안 한 번인 `propose`이며 JWT·업무 원문·임의 주소는 받지 않는다.
-
-T10은 intent를 커밋하기 전에 운영자 `client.recipient(request_id)`가 반환한 실행별
-공개 수신키를 함께 결속한다. 복호키는 운영자의 같은 state-dir 안에 원자적으로
-0600으로 저장하며 GitHub/Pod에 전달하지 않는다. 동시 준비·재시작은 같은 키를
-재사용하고, 발행 뒤 키가 없어지면 UNKNOWN으로 멈추며 새 키/실행으로 복구하지 않는다.
-이 키는 결과 암호화 전용이며 AWS·GitHub 인증 자격이 아니다.
-
-T10의 실행 claim과 운영 입력을 준비한 **기존 운영자**가 자신의 `gh` 인증으로
-`OperatorProductExecution(state_dir).submit(intent)`를 한 번 호출한다. 재시작,
-응답 유실 또는 같은 호출은 `read(intent)`와 같은 조회만 수행한다. T10 Pod에
-GitHub 자격을 설치하거나 새 background dispatcher를 만드는 경로가 아니다.
-다른 호스트나 새 state directory로 실행 기록을 우회해서 다시 보내지 않는다.
-
-발행기는 GitHub의 `return_run_details=true` 응답에서 확인한 양의 정수
-`workflow_run_id`를 같은 영속 원장에 저장한다. 목록에 아직 나타나지 않아도 이 ID의
-실행을 직접 읽으며, 응답 URL은 따라가지 않는다. actor·workflow·SHA·첫 attempt와
-암호화 산출물 검사는 그대로 적용한다. 목록에서 중복이나 다른 실행이 관측되거나
-검색이 불완전하면 UNKNOWN이며, 동시에 다른 ID가 결속돼도 원장을 덮어쓰지 않는다.
-기존 204·응답 유실·해석 불가 응답은 기존 읽기 전용 검색을 유지한다. 수신하지 못한
-과거 응답의 ID를 복원하거나 자동 재전송하는 기능은 아니다.
-([GitHub 공식 변경 안내](https://github.blog/changelog/2026-02-19-workflow-dispatch-api-now-returns-run-ids/))
+Actions `subscription-product.yml`과 운영자 dispatch(`subscription_product_dispatch`)는
+제거했다. 실행별 공개 수신키와 원장은 `bravo_agent.product_ledger.OperatorLedger`로
+남겼고, 최초 제안은 플랫폼 Job으로 실행한다. T10은 intent를 커밋하기 전에 운영자의
+`recipient(request_id)`가 반환한 공개키를 결속하며, 복호키는 운영자 state-dir에 0600으로만
+둔다. 리허설 시점의 제품(재)제안을 Job으로 실행하는 운반자는 아직 없다. 운영 러너는
+저장된 최초 제안을 쓴다(`StoredProposalSource`).
 
 ```sh
-# intent commit 전에 공개키만 준비한다. state-dir는 같은 영속 운영자 디렉터리다.
-uv run --frozen python -m bravo_agent.subscription_product_dispatch recipient \
-  --request-id execution-id --state-dir .private/product-executions
-# intent.json에는 위 일곱 metadata 필드만 둔다.
-uv run --frozen python -m bravo_agent.subscription_product_dispatch submit \
-  --intent intent.json --state-dir .private/product-executions --output receipt.json
-# 결과가 아직 없거나 응답이 불명이면 같은 intent/state-dir를 조회한다.
-uv run --frozen python -m bravo_agent.subscription_product_dispatch read \
-  --intent intent.json --state-dir .private/product-executions --output receipt.json
+python -m bravo_platform_events.initial_proposal_job submit \
+  --intent intent.json --state-dir .private/initial-executions --output receipt.json
+# 결과가 아직 없거나 응답이 불명이면 같은 intent/state-dir를 조회한다. 다시 만들지 않는다.
+python -m bravo_platform_events.initial_proposal_job read \
+  --intent intent.json --state-dir .private/initial-executions --output receipt.json
 ```
-
-운영자는 publish 전에 지정 VM에 설치된 SHA와 현재 develop/workflow SHA가 같고,
-인증된 T10 read·현재 권한·목적지가 준비됐는지 확인한다. workflow는 정확 저장소
-ID·develop·workflow SHA·첫 실행만 허용하고, 기존 VM concurrency/고정 SSM 창에서
-한 요청 후 정리한다. workflow rerun은 자격 취득 전에 거부한다. `propose` 성공은
-모델 제안까지만 의미하며 T15 검증·승인 대기를 대신하지 않는다.
-
-발행기는 네트워크 요청 전에 intent와 발행 시각을 영속 기록한다. 같은 요청의
-복수 run, 다른 actor/workflow/SHA, 두 번째 run attempt, 실패·정리 불명은 UNKNOWN이다.
-결과가 진행 중이면 `ExecutionPending`, 확정할 수 없으면 `ExecutionUnknown`이며
-CLI는 각각 4·5로 끝난다. 자동 재발행하지 않는다.
-
-운영자 원장의 `metadata.dispatch_response`는 수신한 dispatch HTTP 상태, GitHub
-request ID와 제한된 크기의 응답 본문을 비공개로 보존한다. 인증 진단이 포함될 수
-있는 stderr와 나머지 HTTP 헤더는 저장하지 않는다. 응답 본문을 공개 로그·PR에
-붙이지 않는다. timeout·해석 불가·과대 응답은 `http_status=null`로 남으며, 과거
-원장에 응답이 없으면 이후 조회 결과로 그때의 HTTP 응답을 추정하지 않는다.
-명시적인 4xx를 보존했더라도 같은 intent의 재전송 권한은 생기지 않는다.
-
-실행 목록에 같은 요청이 없을 때 접수 상태도 구분한다. HTTP 204 수신 기록이
-있을 때만 `RUN_NOT_YET_OBSERVED`(PENDING)다. 원장에 응답이 없거나 전송/5xx가
-불명이면 `DISPATCH_ACCEPTANCE_UNKNOWN_NO_RUN`, 확정 4xx가 있으면
-`DISPATCH_REJECTED_NO_RUN`, 200의 실행 ID가 유효하지 않으면
-`DISPATCH_RECEIPT_UNCONFIRMED_NO_RUN`(모두 UNKNOWN)이다. 전송 직전에 기록한
-`dispatch_sent_at`만으로 GitHub 접수를 입증하지 않는다. 이후 같은 원 실행이
-확인되면 기존 결속·attempt·artifact 검증으로 소비하며 새 POST를 보내지 않는다.
-이 구분은 재시도·grant 갱신·새 계획·원장 삭제 권한을 추가하지 않는다.
-
-공개 저장소 artifact의 read access를 제품 원문 접근 권한으로 취급하지 않는다.
-Actions는 [X25519 + HKDF](https://cryptography.io/en/50.0.2/hazmat/primitives/asymmetric/x25519/)와
-AES-256-GCM으로 결과를 암호화하며, 새 ephemeral key/nonce와 같은 intent·수신키·run/attempt를
-AAD로 결속한다. 평문 결과를 runner 파일이나 로그에 쓰지 않는다. 같은 run의
-`subscription-product-result` artifact 한 개에서 암호문만 읽고 운영자 메모리에서 복호한다.
-송신자의 신뢰는 암호화만이 아니라 정확 GitHub run/workflow/SHA 출처 검증에 둔다.
-[GitHub artifact API](https://docs.github.com/en/rest/actions/artifacts)의 run/SHA와
-SHA-256을 대조하고, 제한된 ZIP의 `product-result.json`을 추출 없이 읽는다. 순수
-`product_execution_contracts.validate_execution_receipt`는 입력·Admission·설치·실행
-결속 및 정리 성공을 검사한다. T10은 소비 직전 현재 권한·plan/catalog/만료를 다시
-검사하고, 기존 T15 소비 경로로 전달해 실제 Job과 원본 영수증을 확인한다. 인증
-probe와 모델 제안의 실행 ID/결과를 섞지 않는다. CLI 출력·artifact에는 토큰·STS
-자격을 보존하지 않는다. 복호된 결과는 제품 제안이므로 운영 입력의 기존 접근 범위로 취급하고 공개 문서나
-로그에 복사하지 않는다. CLI의 명시적 결과 파일은 운영자 로컬 0600으로만 생성한다.
-실행 원장과 복호키는 원본 결과 인수·보존 정책에 맞춰 함께 관리하며, 키를 삭제하면
-남은 artifact로 복구할 수 없다는 점을 확인한 뒤 정리한다.
 
 ### 플랫폼 T10과 기존 운영자 호스트 사이의 한 번 전달
 
@@ -391,7 +326,7 @@ Pending, intent 자체가 없거나 결속이 다르면 Unknown이다. `read`는
 2. T10이 현재 권한 검사와 DB claim을 마치고 `submit`한 뒤, 같은 Pod/UID에서
    `claimed`를 읽는다. 이 명령의 출력은 공개 intent 필드뿐이다. 준비 파일만 있고
    게시된 intent가 없으면 중단한다. 받은 일곱 필드가 사전 준비 원문과 같을 때만
-   운영자 호스트의 기존 `subscription_product_dispatch submit/read`를 사용한다.
+   운영자 호스트의 `initial_proposal_job submit/read`를 사용한다.
 
    ```sh
    python -m bravo_agent.product_mailbox_transfer claimed --directory "$MAILBOX_DIR"
@@ -457,9 +392,9 @@ T15 token-free 소비 경로가 준비됐다는 증거는 아니다. 동일 DB/C
   `infra/gitops/argocd`의 `initialProposal`(기본 비활성)로 관리한다. 정책은 이 namespace에서
   고정 SA·Reader 이미지·broker audience 토큰만 가진 Pod만 허용한다. Job 이미지는 GitOps가 배포하는
   `environments/development/product-reader-image.json` 값을 그대로 쓴다. broker 설정의
-  `workload_identity`(issuer·audience·subject·`public_keys` kid→PEM)와 Reader의
-  `--initial-job-config`(issuer·audience·subject·`jwks_file`)는 같은 클러스터 `/openid/v1/jwks`
-  조회 결과로 넣고, 키 회전 때 같이 갱신한다.
+  `workload_identity`(issuer·audience·subject·`public_keys` kid→PEM)와 Reader 설정 v2의
+  `job_identity`(issuer·audience·subject·`jwks_file`)는 같은 클러스터 `/openid/v1/jwks`
+  조회 결과로 넣고, 키 회전 때 같이 갱신한다. Reader 설정 v1(GitHub 필드)은 거부된다.
 - **실행:** 운영자 SSO로 broker를 `bravo-subscription-service start`로 켠 뒤
   `python -m bravo_platform_events.initial_proposal_job submit --intent … --state-dir … --output …`,
   완료까지 같은 명령의 `read`로 조회하고 broker를 `stop`한다.

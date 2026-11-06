@@ -240,21 +240,21 @@ def test_journal_rejects_symlink(tmp_path):
     assert other.read_text() == "unchanged"
 
 
-def test_host_bridge_uses_sts_identity_and_existing_worker(monkeypatch, setup, context):
+def test_host_bridge_uses_job_identity_and_existing_worker(monkeypatch, setup, context):
     service, inputs, body, _ = setup
     _, _, proposal, _ = context
     calls = []
     credentials = {"AccessKeyId": "test-access", "SecretAccessKey": "test-private", "SessionToken": "test-session"}
 
-    class STS:
-        def assume_role_with_web_identity(self, **kwargs):
-            calls.append(kwargs)
-            return {"Credentials": credentials, "Provider": "test-issuer", "Audience": "test-audience",
-                    "SubjectFromWebIdentityToken": "test-subject"}
+    def workload(settings, token):
+        # The pinned Job identity (signature checks are in test_subscription_workload_auth).
+        calls.append({"web_identity_token": token})
+        return product.ProductAccess(digest({"Provider": "test-issuer", "Audience": "test-audience",
+                                             "SubjectFromWebIdentityToken": "test-subject"}), credentials)
 
     def client(name, **kwargs):
         calls.append({"service": name, **kwargs})
-        return STS() if name == "sts" else object()
+        return object()
 
     def worker(store, state, args):
         bundle = FailureBundle.model_validate_json(args.bundle.read_text())
@@ -274,17 +274,19 @@ def test_host_bridge_uses_sts_identity_and_existing_worker(monkeypatch, setup, c
                                         "SubjectFromWebIdentityToken": "test-subject"})
             return inputs.current
 
+    monkeypatch.setattr(server, "authenticate_workload", workload)
     monkeypatch.setattr(server.boto3, "client", client)
     monkeypatch.setattr(product, "SubscriptionStore", lambda *args, **kwargs: object())
     monkeypatch.setattr(product, "run_worker", worker)
     settings = {"region": "test-region", "broker_role_arn": "test-role", "secret_arn": "test-secret",
                 "runtime_host_id": "test-host", "state_dir": str(service.journal.root / "state"),
-                "model": "test-model", "source_sha": "c" * 40}
+                "model": "test-model", "source_sha": "c" * 40, "workload_identity": {}}
     bridge = server.product_service(settings, Inputs(), service.journal.root)
+    body = body | {"web_identity_token": "header.payload.signature"}
     assert bridge.run(body)[1]["state"] == "PROPOSAL_READY"
-    assert calls[1]["WebIdentityToken"] == body["web_identity_token"]
-    assert calls[2]["service"] == "secretsmanager"
-    assert calls[2]["aws_session_token"] == credentials["SessionToken"]
+    assert calls[0]["web_identity_token"] == body["web_identity_token"]
+    assert calls[1]["service"] == "secretsmanager"
+    assert calls[1]["aws_session_token"] == credentials["SessionToken"]
     assert not list(service.journal.root.glob("product-*"))
 
     # Explicit Claude selection reads only the API key file; the subscription secret is untouched.

@@ -5,7 +5,6 @@ import json
 from dataclasses import dataclass
 
 from bravo_agent.contracts import Contract, digest
-from bravo_agent.product_execution_contracts import REPOSITORY
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from pydantic import Field
@@ -13,8 +12,7 @@ from pydantic import Field
 from .cutover import _get
 from .executor import _object
 from .initial_proposal import InitialInput, InitialIntent, InitialProposalRecords, _slot
-from .initial_proposal_contracts import INITIAL_WORKFLOW
-from .product_api import MAX_RESPONSE_BYTES, GitHubProductCaller, KubernetesJobCaller
+from .product_api import MAX_RESPONSE_BYTES, KubernetesJobCaller
 from .store import EventError
 
 PATH = "/internal/v1/initial-proposal-inputs/read"
@@ -39,26 +37,17 @@ def bound_input(intent, raw):
 @dataclass(frozen=True)
 class AuthenticatedInitialReader:
     records: InitialProposalRecords
-    caller: GitHubProductCaller
+    caller: KubernetesJobCaller
 
     def __post_init__(self):
         if (type(self.records) is not InitialProposalRecords
-                or type(self.caller) not in (GitHubProductCaller, KubernetesJobCaller)):
+                or type(self.caller) is not KubernetesJobCaller):
             raise ValueError("initial_reader_required")
 
     def authenticate(self, token, request):
-        if type(self.caller) is KubernetesJobCaller:
-            claims = self.caller.authenticate(token, request.principal)
-            if self.caller.execution_id(claims) != request.github_run_id:
-                raise EventError("forbidden")
-            return
-        self.caller.authenticate(token, request.principal)
-        claims = self.caller.sender.authenticate(token)
-        expected = {"run_id": request.github_run_id, "run_attempt": "1",
-            "workflow_ref": f"{REPOSITORY}/.github/workflows/{INITIAL_WORKFLOW}@refs/heads/develop",
-            "workflow_sha": request.intent.runtime_source_sha, "sha": request.intent.runtime_source_sha,
-            "event_name": "workflow_dispatch", "ref": "refs/heads/develop"}
-        if any(claims.get(key) != value for key, value in expected.items()):
+        # The bound Pod name carries the operator's execution ID (replaces Actions run_id claims).
+        claims = self.caller.authenticate(token, request.principal)
+        if self.caller.execution_id(claims) != request.github_run_id:
             raise EventError("forbidden")
 
     def read(self, token, request):

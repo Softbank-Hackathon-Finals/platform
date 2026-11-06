@@ -77,8 +77,13 @@ def test_key_location_headers_are_refused_even_with_a_pinned_kid(sts, header):
     assert sts == []
 
 
-def test_actions_tokens_keep_the_existing_sts_path(sts):
-    github = token(iss="https://token.actions.githubusercontent.com")
-    server.authenticate_caller(SETTINGS, github)
-    server.authenticate_caller({k: v for k, v in SETTINGS.items() if k != "workload_identity"}, token())
-    assert [name for name, _ in sts] == ["web_identity", "web_identity"]
+@pytest.mark.parametrize("bad", [
+    lambda: token(iss="https://token.actions.githubusercontent.com"),  # the removed Actions path
+    lambda: "not-a-jwt",
+])
+def test_only_the_pinned_job_identity_reaches_the_broker(sts, bad):
+    with pytest.raises((ValueError, jwt.PyJWTError)):
+        server.authenticate_caller(SETTINGS, bad())
+    with pytest.raises(ValueError):
+        server.authenticate_caller({k: v for k, v in SETTINGS.items() if k != "workload_identity"}, token())
+    assert sts == []

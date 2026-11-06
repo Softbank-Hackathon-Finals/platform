@@ -129,8 +129,8 @@ run/attempt·artifact digest 확인을 재사용한다. 응답 유실·재시작
 미확인되거나 T11의 실제 schema/lint 검사가 실패·누락되면 성공 결과를 반환하지 않는다.
 T10은 정규화 결과만 저장하며 저장 후 재조회는 어떤 client 호출도 하지 않는다.
 
-최초 제안은 별도 `subscription-initial-proposal.yml` workflow를 사용한다. 기존 리허설용
-`subscription-product.yml`에는 최초 intent를 보내지 않는다. 전용 reader는
+최초 제안은 플랫폼 RKE2 Job으로 실행한다(2026-11-06 Actions 경로 제거, #503).
+Job 신원과 실행 ID는 projected token의 bound Pod 이름으로 결속한다. 전용 reader는
 `/internal/v1/initial-proposal-inputs/read`에서 서명 OIDC의 workflow·source·run/attempt,
 현재 최초 purpose grant와 저장된 동일 execution claim을 확인한다. 등록만 된 입력이나
 다른 recipient·run은 모델 호출을 열지 않는다. HTTP 요청은 `principal`, `intent`,
