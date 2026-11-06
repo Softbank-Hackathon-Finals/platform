@@ -34,7 +34,7 @@ if __name__ == "__main__":
         # Fixtures exist only in this local test entry point, never ConsoleApp.
         apps = {}
         # No workflow gate event is seeded for this case. The report is a
-        # synthetic authenticated BLOCK; real T10 registration starts at v0.
+        # synthetic authenticated BLOCK; real T10 registration starts at v1.
         initial_store = PlanStore(Path(root) / "initial-controls.db")
         initial_store.register_plan(
             PlanSpec("plan-initial-controls", "tenant-demo", "demo-chat", "env-source",

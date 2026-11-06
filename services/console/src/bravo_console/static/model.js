@@ -582,7 +582,7 @@ export function controlReportMatches(value, current, gate) {
   if (
     hasSnapshot &&
     (!Number.isSafeInteger(value.plan_version) ||
-      value.plan_version < 0 ||
+      value.plan_version < 1 ||
       value.plan_version !== current.version ||
       !STATES.includes(value.plan_state) ||
       value.plan_state !== current.state)
@@ -599,6 +599,16 @@ export function controlReportMatches(value, current, gate) {
     value.application_id === null &&
     ["COLLECT", "ANALYZE", "PROPOSE", "REHEARSE", "GATE"].includes(current.state)
   );
+}
+
+// Known read-authority expiry must survive the server-to-browser boundary.
+// A fresh HTTP arrival cannot extend it; this is never execution authority.
+export function controlReportFresh(value, now) {
+  if (!object(value) || !Number.isFinite(now) ||
+      !date(value.queried_at) || !date(value.read_valid_until)) return false;
+  const queried = Date.parse(value.queried_at);
+  const until = Date.parse(value.read_valid_until);
+  return queried <= now && now < until && until <= queried + 15000;
 }
 
 // A bound historical read model, never a new execution/approval authority.
@@ -618,9 +628,7 @@ export function controlReport(value, current, gate, now) {
     !DIGEST.test(value.context_digest) ||
     !controlReportMatches(value, current, gate) ||
     !/^[0-9a-f]{64}$/.test(value.report_digest) ||
-    !date(value.queried_at) ||
-    now < Date.parse(value.queried_at) ||
-    now - Date.parse(value.queried_at) > 15000 ||
+    !controlReportFresh(value, now) ||
     !date(value.evaluated_at) ||
     Date.parse(value.evaluated_at) > now ||
     !object(value.profile) ||

@@ -4,6 +4,7 @@ import {
   identifier,
   observation,
   controlReport,
+  controlReportFresh,
   controlReportMatches,
   CONTROL_TESTS,
   failbackSummary,
@@ -162,8 +163,7 @@ function render() {
   $("security-rows").replaceChildren(...securityRows);
   const reportFresh =
     controls &&
-    now >= Date.parse(controls.report.queried_at) &&
-    now - Date.parse(controls.report.queried_at) < 15000 &&
+    controlReportFresh(controls.report, now) &&
     controlReportMatches(controls.report, model.snapshot, model.gate);
   text(
     "control-status",

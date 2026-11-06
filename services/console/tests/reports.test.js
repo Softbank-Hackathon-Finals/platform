@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   controlReport,
+  controlReportFresh,
   controlReportMatches,
 } from "../src/bravo_console/static/model.js";
 import { snap as base, now } from "./fixtures.js";
@@ -23,6 +24,7 @@ function report() {
     decision: "PASS",
     evaluated_at: new Date(now - 1000).toISOString(),
     queried_at: new Date(now).toISOString(),
+    read_valid_until: new Date(now + 15000).toISOString(),
     authorizes_cutover: false,
     run_issues: [],
     rows: ["IAM-01.1", "SEC-01.1", "AUD-01.1"].map((test_id) => ({
@@ -41,6 +43,34 @@ test("bound security report remains a historical projection, not permission", ()
   const result = controlReport(report(), snap, gate, now);
   assert.equal(result.authorizes_cutover, false);
   assert.equal(result.rows.length, 3);
+});
+
+test("a known short read lease ends before the generic freshness window", () => {
+  const value = { ...report(), read_valid_until: new Date(now + 1000).toISOString() };
+  assert.equal(controlReportFresh(value, now + 999), true);
+  assert.deepEqual(controlReport(value, snap, gate, now + 999), value);
+  assert.equal(controlReportFresh(value, now + 1000), false);
+  assert.throws(() => controlReport(value, snap, gate, now + 1000));
+  assert.equal(controlReportFresh(value, now + 15000), false);
+});
+
+for (const change of [
+  { read_valid_until: undefined }, { read_valid_until: null },
+  { read_valid_until: true }, { read_valid_until: "not-a-date" },
+  { read_valid_until: new Date(now).toISOString() },
+  { read_valid_until: new Date(now - 1).toISOString() },
+  { read_valid_until: new Date(now + 15001).toISOString() },
+  { queried_at: new Date(now + 1).toISOString() },
+])
+  test(`unusable report read lease is hidden: ${JSON.stringify(change)}`, () => {
+    const value = { ...report(), ...change };
+    assert.equal(controlReportFresh(value, now), false);
+    assert.throws(() => controlReport(value, snap, gate, now));
+  });
+
+test("invalid browser time cannot keep a report visible", () => {
+  for (const time of [NaN, Infinity, -Infinity, true, String(now)])
+    assert.equal(controlReportFresh(report(), time), false);
 });
 for (const current of [
   { ...snap, profile_id: "full" },
@@ -137,6 +167,7 @@ for (const change of [
   { plan_version: undefined },
   { plan_state: undefined },
   { plan_version: true },
+  { plan_version: 0 },
   { plan_version: -1 },
   { plan_version: "3" },
   { plan_version: 2 },
@@ -183,8 +214,8 @@ test("cached initial comparison disappears when current scope changes", () => {
     assert.equal(controlReportMatches(value, { ...current, ...change }, null), false);
 });
 
-test("a newly registered version-zero plan can display an initial comparison", () => {
-  const current = { ...snap, state: "COLLECT", version: 0 };
-  const value = { ...report(), plan_version: 0, plan_state: "COLLECT" };
+test("a newly registered version-one plan can display an initial comparison", () => {
+  const current = { ...snap, state: "COLLECT", version: 1 };
+  const value = { ...report(), plan_version: 1, plan_state: "COLLECT" };
   assert.deepEqual(controlReport(value, current, null, now), value);
 });

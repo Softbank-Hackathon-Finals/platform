@@ -1,0 +1,61 @@
+"""Bootstrap Helm calls: settled-release guard and server-side apply ownership."""
+import json
+import sys
+import unittest
+from pathlib import Path
+from types import SimpleNamespace
+from unittest import mock
+
+import bootstrap
+
+REVISION = "a" * 40
+
+
+def fake(status):
+    calls = []
+
+    def run(args, *, check=True):
+        calls.append(args)
+        out = ""
+        if args[-2:] == ["rev-parse", "HEAD"]:
+            out = REVISION
+        elif "version" in args:
+            out = "v4.0.0"
+        elif "get" in args:
+            out = json.dumps({"metadata": {"uid": "cluster" if "namespace" in args else "deploy"}})
+        elif "list" in args:
+            out = json.dumps([{"status": status}])
+        elif "status" in args and "-o" in args:
+            out = json.dumps({"info": {"status": "deployed"}, "version": 5})
+        return SimpleNamespace(stdout=out, returncode=0)
+    return run, calls
+
+
+def main(status):
+    run, calls = fake(status)
+    argv = ["bootstrap.py", "--cluster-uid", "cluster", "--deployment-uid", "deploy",
+            "--revision", REVISION, "--kubeconfig", "/k", "--apply"]
+    with mock.patch.object(bootstrap, "run", run), mock.patch.object(sys, "argv", argv), \
+            mock.patch("builtins.print"):
+        bootstrap.main()
+    return calls
+
+
+class BootstrapHelm(unittest.TestCase):
+    def test_upgrade_takes_back_its_own_fields(self):
+        upgrade = next(c for c in main("deployed") if "upgrade" in c)
+        self.assertIn("--force-conflicts", upgrade)
+        self.assertNotIn("--force", upgrade)
+
+    def test_failed_release_is_recovered_by_upgrade(self):
+        self.assertTrue(any("upgrade" in c for c in main("failed")))
+
+    def test_pending_release_is_never_touched(self):
+        for status in ("pending-upgrade", "pending-install", "pending-rollback", "uninstalling"):
+            with self.assertRaises(ValueError):
+                main(status)
+
+
+if __name__ == "__main__":
+    sys.path.insert(0, str(Path(__file__).parent))
+    unittest.main()
