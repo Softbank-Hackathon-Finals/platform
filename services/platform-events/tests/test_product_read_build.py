@@ -55,22 +55,3 @@ def test_build_rejects_missing_package(repository, tmp_path):
     revision = commit(repository)
     with pytest.raises(ValueError, match="committed_source_missing"):
         build.copy_committed_tree(revision, "src/package/", tmp_path / "context")
-
-
-def test_rehearsal_image_rejects_changed_official_binary(repository, tmp_path, monkeypatch):
-    import io
-
-    templates = repository / "services/rehearsal-runner/templates"
-    templates.mkdir(parents=True)
-    (templates / "00-namespace.yaml").write_text("# committed fixture\n")
-    for name in ("rehearsal-access", "target-secrets"):
-        path = repository / "infra/envs" / name
-        path.mkdir(parents=True)
-        (path / "module.py").write_text("# committed fixture\n")
-    revision = commit(repository)
-    monkeypatch.setattr(build.urllib.request, "urlopen", lambda *a, **kw: io.BytesIO(b"changed binary"))
-    context = tmp_path / "context"
-    context.mkdir()
-    with pytest.raises(ValueError, match="kubectl_release_digest_mismatch"):
-        build.add_rehearsal_context(context, revision)
-    assert not (context / "kubectl").exists()

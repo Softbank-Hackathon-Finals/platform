@@ -3,19 +3,17 @@
 import argparse
 import hashlib
 import json
+import os
 import re
 import subprocess
 import tarfile
 import tempfile
 import tomllib
-import urllib.request
 from pathlib import Path
 
 SERVICE = Path(__file__).resolve().parents[2]
 ROOT = SERVICE.parents[1]
 OBSERVABILITY_REVISION = "020c6c78bdc6133ab0ee15e2a990bb9527b3182f"
-KUBECTL_VERSION = "v1.35.10"
-KUBECTL_SHA256 = "c49a28f1f4efc4d475ed05f47f2ce8e563bf7bef69ed77fe1b924ea6d83b6327"
 PACKAGES = {
     "platform-events": "bravo_platform_events",
     "agent-worker": "bravo_agent",
@@ -53,12 +51,19 @@ def add_rehearsal_context(context, revision):
     copy_committed_tree(revision, "services/rehearsal-runner/templates/", context / "templates")
     for directory in ("rehearsal-access", "target-secrets"):
         copy_committed_tree(revision, f"infra/envs/{directory}/", context / "infra" / directory)
-    url = f"https://dl.k8s.io/release/{KUBECTL_VERSION}/bin/linux/amd64/kubectl"
-    with urllib.request.urlopen(url, timeout=60) as response:
-        binary = response.read(128 * 1024 * 1024 + 1)
-    if len(binary) > 128 * 1024 * 1024 or hashlib.sha256(binary).hexdigest() != KUBECTL_SHA256:
-        raise ValueError("kubectl_release_digest_mismatch")
-    (context / "kubectl").write_bytes(binary)
+    # Keep the upstream command unchanged; compile its locked, patched module
+    # graph with a fixed toolchain instead of shipping vulnerable release deps.
+    with tempfile.TemporaryDirectory(prefix="bravo-kubectl-") as directory:
+        source = Path(directory)
+        copy_committed_tree(revision, "operations/kubectl/", source)
+        env = os.environ | {"GOOS": "linux", "GOARCH": "amd64", "CGO_ENABLED": "0",
+                            "GOTOOLCHAIN": "go1.26.10"}
+        flags = "-s -w -buildid= " + " ".join(
+            f"-X {package}.gitVersion=v1.35.10-bravo.1 -X {package}.gitTreeState=modified"
+            for package in ("k8s.io/component-base/version", "k8s.io/client-go/pkg/version"))
+        subprocess.run(["go", "build", "-mod=readonly", "-trimpath", "-buildvcs=false",
+                        "-ldflags", flags, "-o", str(context / "kubectl"), "."],
+                       cwd=source, env=env, check=True)
 
 
 def prepare_context(context, revision, *, rehearsal_host=False):
