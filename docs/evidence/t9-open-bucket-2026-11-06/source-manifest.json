@@ -1,0 +1,25 @@
+{
+  "source_revision": "a4cd3d0050bf3f3e33ffee50211850f309ec8b5a",
+  "source_files": [
+    {
+      "path": "infra/envs/target-workloads/object_exposure.py",
+      "sha256": "e60bd48a7aa08779b421ea62a6176006465be8cd826bc90aef38fef1adb697c2"
+    },
+    {
+      "path": "infra/envs/target-workloads/objects.py",
+      "sha256": "77c5e38a15cbdcea406463529bb60c5feebfa7c6040a184fbba63abf9f1c17a5"
+    },
+    {
+      "path": "infra/envs/target-workloads/render.py",
+      "sha256": "0fbc6920d7548ea040b70365ab81d8361af7d116dc6507dd36c8424d02cedd37"
+    },
+    {
+      "path": "infra/envs/target-workloads/testing/open_bucket_kind.py",
+      "sha256": "80cce34f51aa3394f426941a5ee214f5b24b492f036d70f1ce1941535e3f4745"
+    },
+    {
+      "path": "scripts/tests/test_object_exposure.py",
+      "sha256": "0dcf532b748284b23fd140ed3a8c886936d2b051497204c8025ce125f5a81403"
+    }
+  ]
+}

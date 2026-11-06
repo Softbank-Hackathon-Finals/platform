@@ -6,7 +6,7 @@ requires-python = ">=3.12"
 dependencies = ["httpx>=0.27,<1", "bravo-observability[api]"]
 
 [project.optional-dependencies]
-t10-host = ["bravo-platform-events[postgres]"]
+t10-host = ["bravo-platform-events[postgres]", "bravo-control-gate"]
 
 [tool.uv]
 # The host installs one T36 implementation. T10's older source has identical
@@ -16,9 +16,10 @@ override-dependencies = ["bravo-observability[api] @ git+https://github.com/Soft
 [tool.uv.sources]
 bravo-observability = { git = "https://github.com/Softbank-Hackathon-Finals/platform.git", rev = "555956b56e4f22b49036e2a9ed0fcd3f7f97eb79", subdirectory = "services/observability" }
 bravo-platform-events = { path = "../platform-events" }
+bravo-control-gate = { path = "../control-gate" }
 
 [dependency-groups]
-dev = ["pytest>=8", "ruff>=0.9", "bravo-platform-events"]
+dev = ["pytest>=8", "ruff>=0.9", "bravo-platform-events[postgres]", "bravo-control-gate"]
 
 [build-system]
 requires = ["hatchling>=1.25"]

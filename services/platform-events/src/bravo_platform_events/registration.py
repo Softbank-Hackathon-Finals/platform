@@ -119,6 +119,11 @@ class Registry:
         profile = dict(profile_id=body.get("profile_id"), profile_version=body.get("profile_version"))
         if (tenant, profile["profile_id"], profile["profile_version"]) not in self.evaluation_profiles:
             raise EventError("evaluation_profile_unavailable")
+        if "recheck_profile_id" in body or "recheck_profile_version" in body:
+            recheck = (body.get("recheck_profile_id"), body.get("recheck_profile_version"))
+            if (tenant, *recheck) not in self.evaluation_profiles:
+                raise EventError("evaluation_profile_unavailable")
+            profile.update(recheck_profile_id=recheck[0], recheck_profile_version=recheck[1])
         with self.store._transaction() as c:
             app = self._read(c, tenant, "workload", body["workload_id"])
             source = self._read(c, tenant, "environment", app["source_environment_id"])
