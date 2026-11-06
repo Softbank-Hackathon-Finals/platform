@@ -205,6 +205,15 @@ class ProposalLifecycle(unittest.TestCase):
         self.assertEqual(self.propose()["closed_proposals"], [])
         self.assertTrue(all(self.prs[n]["state"] == "open" for n in (10, 11, 12, 13)))
 
+    def test_lagging_build_is_still_proposed_with_its_lag_recorded(self):
+        self.write("services/inventory/src/scan.py", "version = 3\n")
+        self.commit("develop changes a build input after the build started")
+        self.git("push", "-q", "origin", "develop")
+        result = self.propose()
+        self.assertEqual((result["action"], result["unreleased_input_commits"]), ("proposed", 1))
+        self.assertIn("Unreleased build-input commits on develop at proposal time: 1",
+                      (Path(self.temp.name) / (self.service.slug + "-proposal.md")).read_text())
+
     def test_late_build_cannot_replace_newer_proposal_with_identical_inputs(self):
         self.write("docs/new.md", "docs only")
         newer = self.commit("newer source, identical build inputs")
