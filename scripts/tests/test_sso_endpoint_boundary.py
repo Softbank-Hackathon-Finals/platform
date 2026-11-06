@@ -104,7 +104,10 @@ class SSOEndpointBoundaryTests(unittest.TestCase):
                             [AWS, *command, '--profile', 'operator', '--region', 'ap-northeast-2',
                              '--no-sign-request', '--no-cli-pager', '--output', 'json',
                              '--cli-connect-timeout', '2', '--cli-read-timeout', '2'],
-                            env=env, capture_output=True, text=True, timeout=10, check=False,
+                            # One attempt is enough to observe the block; CLI retries
+                            # of 2s timeouts could exceed the subprocess bound on CI.
+                            env=env | {'AWS_MAX_ATTEMPTS': '1', 'AWS_RETRY_MODE': 'standard'},
+                            capture_output=True, text=True, timeout=30, check=False,
                         )
                         self.assertNotEqual(result.returncode, 0, 'Synthetic endpoint must not satisfy the AWS call')
                         self.assertEqual(server.endpoint_requests, previous_requests)
