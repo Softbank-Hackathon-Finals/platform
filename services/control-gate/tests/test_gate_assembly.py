@@ -208,3 +208,10 @@ def test_load_gate_serves_the_same_assembly_and_refuses_without_readiness(gate):
         plan = dict(c.execute("SELECT * FROM plans WHERE plan_id=?", (f.plan.plan_id,)).fetchone())
         service, readiness = load(f.records.view(c, f.operator, plan))
         assert readiness == f.data["binding"] and service.binding_provider is not None
+
+
+def test_create_is_the_operator_host_gate_factory(gate):
+    from bravo_platform_events.gate_records import GateRecords
+
+    records, load = gate_services.create(gate.store)
+    assert type(records) is GateRecords and callable(load)

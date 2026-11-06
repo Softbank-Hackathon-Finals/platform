@@ -75,3 +75,13 @@ def load_gate(records, access, *, clock=server_clock):
         return factory(view), readiness
 
     return load
+
+
+def create(store, *, clock=server_clock):
+    """`"gate": "bravo_platform_events.gate_services:create"` for the operator approval host
+    (operator_ports): factory(store) -> (GateRecords, load_gate), both on the plan's operator grants."""
+    from .operator_access import OperatorAccess
+
+    access = OperatorAccess(store)
+    records = gate_records(store, access)
+    return records, load_gate(records, access, clock=clock)
