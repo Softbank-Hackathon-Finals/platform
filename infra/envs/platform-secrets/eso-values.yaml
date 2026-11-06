@@ -1,0 +1,13 @@
+# Official external-secrets chart 2.14.0, same version as the target stack.
+scopedNamespace: platform-state
+scopedRBAC: true
+installCRDs: true
+processClusterExternalSecret: false
+processClusterStore: false
+processClusterPushSecret: false
+processPushSecret: false
+image:
+  tag: v2.14.0@sha256:10608eb53e636e744903d5f3657a4d9c44e28d9d9c181b73e07bc7dd2e6884dc
+resources:
+  requests: {cpu: 50m, memory: 96Mi}
+  limits: {cpu: 250m, memory: 256Mi}
