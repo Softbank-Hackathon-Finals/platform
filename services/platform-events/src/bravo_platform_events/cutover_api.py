@@ -31,6 +31,14 @@ class ChangeInput(BaseModel):
     expected_version: StrictInt = Field(ge=1)
 
 
+class ShiftApprovalInput(BaseModel):
+    """AWAIT_APPROVAL: approve the stored GATE checkpoint for SHIFT (workflow_stages)."""
+    model_config = ConfigDict(extra="forbid")
+    approval_kind: Literal["shift"]
+    expected_version: StrictInt = Field(ge=1)
+    expires_at: str = Field(max_length=40)
+
+
 class FailbackApprovalInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
     approval_kind: Literal["failback"]
@@ -54,8 +62,9 @@ def create_cutover_app(service: CutoverService, *,
                        resolve_principal: PrincipalResolver = unauthenticated,
                        change_service: ChangeApprovalService | None = None,
                        failback_service: FailbackService | None = None,
+                       shift_service=None,
                        rehearsal_service: RehearsalService | None = None):
-    for other in (change_service, failback_service, rehearsal_service):
+    for other in (change_service, failback_service, rehearsal_service, shift_service):
         if other is not None and other.store is not service.store:
             raise ValueError("shared_plan_store_required")
     app = create_plan_app(service.store, resolve_principal=resolve_principal)
@@ -96,16 +105,20 @@ def create_cutover_app(service: CutoverService, *,
             return JSONResponse(receipt, headers={"Cache-Control": "no-store"})
 
     @app.post("/v1/plans/{plan_id}/approvals")
-    async def approve(plan_id: str, body: ApprovalInput | ChangeInput | FailbackApprovalInput, request: Request,
+    async def approve(plan_id: str, body: ApprovalInput | ChangeInput | FailbackApprovalInput | ShiftApprovalInput,
+                      request: Request,
                       idempotency_key: str = Header(max_length=128)):
         actor = principal(request)
-        approval_service = {"change": change_service, "failback": failback_service}.get(body.approval_kind, service)
+        approval_service = {"change": change_service, "failback": failback_service,
+                            "shift": shift_service}.get(body.approval_kind, service)
         if approval_service is None:
             raise HTTPException(422, detail={"code": "unsupported_approval_kind"})
         receipt = await asyncio.to_thread(approval_service.approve, actor, plan_id,
                                          **body.model_dump(exclude={"approval_kind"}), command_key=idempotency_key)
         # Configuration/connection refs and internal authorization revisions stay private.
         fields = ("approval_id", "approval_kind", "binding", "actor_id", "approved_at")
+        if isinstance(body, ShiftApprovalInput):
+            fields = ("approval_id", "approval_kind", "actor_id", "approved_at", "expires_at")
         if isinstance(body, ChangeInput):
             fields += ("run_id",)
         return JSONResponse({k: receipt[k] for k in fields},

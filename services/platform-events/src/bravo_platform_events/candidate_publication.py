@@ -79,12 +79,16 @@ class PublicationSelection:
 
 
 class CandidateGitHub:
-    """Read-only GitHub transport using the operator's existing gh login."""
+    """Read-only GitHub transport: the operator's gh login, or the host's GitHub App token."""
 
-    @staticmethod
-    def _get(path, limit):
+    def __init__(self, app=None):
+        self.app = app
+
+    def _get(self, path, limit):
         _require(path.startswith(f"repos/{REPOSITORY}/actions/"))
         try:
+            if self.app is not None:
+                return self.app.call("GET", path, limit=limit)
             result = subprocess.run(["gh", "api", "--method", "GET", path],
                                     capture_output=True, timeout=60, check=False)
             _require(result.returncode == 0 and len(result.stdout) <= limit)
