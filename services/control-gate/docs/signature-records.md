@@ -71,13 +71,24 @@ GATE 보고서를 확인한 뒤 자기 기기에서 서명하고, 플랫폼에�
 **순서:** `operations/gate/run.py`
 
 1. `keys --dir <0700 비공개 경로>`: 용도별 키를 만든다.
-2. `enroll`: 수집보다 **먼저** 공개키를 등록한다. 등록 전에 시작한 수집은 서명할 수 없다.
-3. T14 원문 기록과 컨텍스트 결속을 하고, `readiness --binding … --snapshot …`으로 T13 기록을 남긴다.
-4. `subjects`로 서명할 지문을 확인하고, `sign --confirm-context <지문>`으로 게시한다.
-5. 평가 뒤 `subjects`에 나온 `gate-result`에도 같은 방식으로 서명한다.
+2. `enroll`: 수집보다 **먼저** 공개키를 등록한다. 등록 전에 시작한 수집은 서명할 수 없다. 처음 정한 유효기간을
+   `--dir`에 남기므로 일부만 등록된 뒤 다시 실행해도 충돌하지 않는다. 키 유효기간은 48시간 이하다.
+3. T14 실행 기록은 기존 수집 경로(`gate_record_host`)로 남긴다. 반영 뒤 컨텍스트 결속은 워크플로 호스트의
+   `post_apply_prepare`(#565)가 한다. relay에는 이 단계의 도구가 없다. T13 기록은 `readiness --binding … --snapshot …`.
+4. `subjects`로 서명할 지문과 이미 게시된 용도를 확인하고, 출력의 `confirm`을 `sign --confirm <값>`에 넘긴다.
+   기본 `sign`은 보여 준 것 중 아직 게시되지 않은 용도만 서명한다. 확인 뒤에 T13 기록이나 GATE 판정이 새로
+   생기면 `confirm`이 달라져 `sign`이 거부한다. 다시 `subjects`로 확인한다.
+5. gate-result 서명은 해피패스에 필요하지 않다. 워크플로 GATE reader는 SHIFT·컷오버처럼 같은 트랜잭션의 플랫폼
+   재평가(`served_reevaluation`)를 소비한다. 입력 5종(context, run 2종, readiness 2종)의 서명은 그대로 필요하다.
 
-relay(`gate_relay`)는 워크플로 호스트 안에서 돈다. 누가 행동하는지는 호스트 설정 `/workflow/gate-relay.json`에
-고정되고, 요청이 고를 수 없다. 각 주체는 OperatorAccess에서 해당 gate 권한을 따로 받아야 한다.
+**readiness 기록의 신뢰 근거:** relay는 호출자가 보낸 T13 binding·snapshot을 그대로 저장한다. 신뢰 근거는
+운영자의 readiness-binding·readiness-snapshot 서명뿐이다. GATE 평가부터 SHIFT 사이에 readiness를 새로
+기록하면 가장 새 기록이 쓰이므로, 그 기록에 다시 서명하기 전까지 소비가 거부된다
+(`COMBINED_GATE_CONTEXT_MISMATCH` 등).
+
+**relay 권한:** relay(`gate_relay`)는 워크플로 호스트 안에서 돈다. 누가 행동하는지는 호스트 설정
+`/workflow/gate-relay.json`에 고정되고, 요청이 고를 수 없다. 세 주체는 OperatorAccess 권한과 기록의 주체를 나눌
+뿐, exec 가진 사람을 나누지 않는다. **t10-workflow-host의 `pods/exec` 권한은 게이트 전권**(admin·issuer·operator)이다.
 
 ## 운영 인수에서 남은 것
 

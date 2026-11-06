@@ -3,7 +3,8 @@
 One JSON request on stdin, one JSON answer on stdout (operations/gate/run.py sends it through
 `kubectl exec`):
 
-    subjects   the exact digests to sign for the plan's current gate context (read only)
+    subjects   the exact digests to sign for the plan's current gate context, which purposes are already
+               published, and `confirm`: the fingerprint of everything shown, which `sign` must repeat (read only)
     enroll     a public key for one purpose, for the configured issuer subject (gate:manage-provenance)
     readiness  a T13 binding and its snapshot for the current context (gate:record)
     publish    an envelope the operator signed on their own machine (gate:publish-provenance)
@@ -13,7 +14,11 @@ Who acts is fixed by the host config /workflow/gate-relay.json, never by the req
     {"tenant_id": "...", "admin": "<subject>", "issuer": "<subject>", "operator": "<subject>"}
 
 Each subject needs its own OperatorAccess grant for those actions. No private key reaches the platform.
-Exec into the host is still a privileged operator act, but it cannot pick another subject.
+Whoever may `pods/exec` into t10-workflow-host acts as all three subjects: that permission is the whole
+gate authority. The three subjects separate grants and records, not the people holding exec.
+
+`readiness` stores the T13 binding and snapshot exactly as sent. Only the operator's readiness-binding and
+readiness-snapshot signatures make them trusted; an unsigned newer record blocks the gate until signed.
 """
 
 import json
@@ -21,7 +26,7 @@ import re
 import sys
 from pathlib import Path
 
-from bravo_gate.contract import GateError, canonical
+from bravo_gate.contract import GateError, canonical, fingerprint
 from bravo_gate.models import RunSnapshot
 from bravo_gate.signatures import AuthorityEnvelope, AuthorityKey
 
@@ -48,7 +53,7 @@ def _principal(subject, tenant, clock, *, lifetime=300):
     return OperatorPrincipal(subject, tenant, now, now + lifetime, now, "gate-relay")
 
 
-def subjects(records, principal, plan_id):
+def subjects(records, principal, plan_id, provenance):
     """Digests of the current context, both T14 runs, the newest T13 record and the stored report."""
     with records.store._transaction(plan_id=plan_id) as c:
         plan = records._plan(c, principal, plan_id, "gate:read")
@@ -67,6 +72,11 @@ def subjects(records, principal, plan_id):
             out["readiness-snapshot"] = binding.snapshot_digest
         if report is not None:
             out["gate-result"] = report.fingerprint
+        out["confirm"] = fingerprint(out)  # sign repeats this: nothing it did not show gets signed
+        purposes = [p for p in ("context", "run-source", "run-target", "readiness-binding", "readiness-snapshot",
+                                "gate-result") if p in out]
+        out["published"] = [p for p in purposes if provenance._load_envelope(
+            view, ctx.fingerprint if p == "context" else out[p], p) is not None]
         return out
 
 
@@ -77,7 +87,7 @@ def handle(records, request, config, *, clock=gate_services.server_clock):
     tenant, plan_id, op = config["tenant_id"], request["plan_id"], request["op"]
     provenance = gate_services.provenance(records, clock=clock)
     if op == "subjects":
-        return {"subjects": subjects(records, _principal(config["operator"], tenant, clock), plan_id)}
+        return {"subjects": subjects(records, _principal(config["operator"], tenant, clock), plan_id, provenance)}
     if op == "enroll":
         key = AuthorityKey(request["public_key_hex"], (tenant,), (request["purpose"],),
                            request["valid_from"], request["valid_until"], False)

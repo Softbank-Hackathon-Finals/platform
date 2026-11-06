@@ -3,14 +3,18 @@
     uv run --directory services/control-gate python ../../operations/gate/run.py <command> --context <kube context> ...
 
 keys       create any missing per-purpose Ed25519 keys in --dir (0700 dir, 0600 files) and print public keys
-subjects   print the digests to sign for the plan's current gate context (read only)
-enroll     enroll each purpose's public key for the configured issuer subject
+subjects   print the digests to sign for the plan's current gate context, what is already published and
+           `confirm`, the fingerprint of everything printed (read only)
+enroll     enroll each purpose's public key for the configured issuer subject; a retry for the same plan
+           reuses the validity window saved in --dir, so a partly done enrollment can be run again
 readiness  record a T13 binding and snapshot (JSON files from the T13 capture) for the current context
-sign       sign and publish envelopes for the current subjects; refuses unless --confirm-context matches
+sign       sign and publish what `subjects` shows and is not yet published; refuses unless --confirm matches
 
 T19 decision (11-07): one operator issuer with one key per purpose. The workflow host only verifies.
-Sign only what you reviewed: run `subjects` first and pass its context digest as --confirm-context.
-Exit: 0 done, 10 hold (a T19/T10 refusal: read the code), 1 failed.
+Sign only what you reviewed: run `subjects` first and pass its `confirm` as --confirm. Anything recorded
+since (a new T13 capture, a GATE result) changes it, and `sign` refuses until you look again.
+gate-result is optional on the happy path: the workflow GATE reader consumes a platform re-evaluation.
+Exit: 0 done, 10 hold (a T19/T10 refusal: read the code), 1 failed (relay, kubectl or input), 2 usage.
 """
 
 import argparse
@@ -24,7 +28,7 @@ from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
-from bravo_gate.contract import canonical
+from bravo_gate.contract import canonical, fingerprint
 from bravo_gate.signatures import DOMAIN, AuthorityEnvelope
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
@@ -32,6 +36,11 @@ PURPOSES = ("context", "run-source", "run-target", "readiness-binding", "readine
 RELAY = ["kubectl", "--context", "{context}", "-n", "platform-state", "exec", "-i", "deploy/t10-workflow-host",
          "-c", "host", "--", "python", "-m", "bravo_platform_events.gate_relay"]
 MAX_TTL = timedelta(hours=24)
+MAX_KEY_HOURS = 48
+
+
+class RelayFailed(Exception):
+    """The relay did not answer PASS or HOLD (kubectl, timeout, crash): exit 1, never a hold."""
 
 
 def _private_dir(path):
@@ -72,11 +81,32 @@ def issuer_id(purpose):
     return "operator-" + purpose
 
 
-def enroll_request(plan_id, purpose, key, now, valid_hours):
+def enroll_request(plan_id, purpose, key, now, valid_hours, *, window=None):
+    if not 0 < valid_hours <= MAX_KEY_HOURS:
+        raise ValueError("key_validity_out_of_range")
+    valid_from, valid_until = window or ((now - timedelta(seconds=1)).isoformat(),
+                                         (now + timedelta(hours=valid_hours)).isoformat())
     return {"op": "enroll", "plan_id": plan_id, "purpose": purpose, "issuer_id": issuer_id(purpose),
             "key_id": key_id(key), "public_key_hex": public_hex(key),
-            "valid_from": (now - timedelta(seconds=1)).isoformat(),
-            "valid_until": (now + timedelta(hours=valid_hours)).isoformat()}
+            "valid_from": valid_from, "valid_until": valid_until}
+
+
+def enroll_requests(directory, plan_id, keys, purposes, now, valid_hours):
+    """One request per purpose. The first run saves each validity window in --dir; a retry for the same plan
+    sends the identical request, which the server returns as already enrolled instead of a conflict."""
+    path = _private_dir(directory) / f"enroll-{hashlib.sha256(plan_id.encode()).hexdigest()[:16]}.json"
+    saved = json.loads(path.read_text()) if path.exists() else {}
+    requests = []
+    for purpose in purposes:
+        if purpose not in keys:
+            raise ValueError(f"key_missing:{purpose}")
+        request = enroll_request(plan_id, purpose, keys[purpose], now, valid_hours, window=saved.get(purpose))
+        saved[purpose] = [request["valid_from"], request["valid_until"]]
+        requests.append(request)
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w") as out:
+        json.dump(saved, out)
+    return requests
 
 
 def envelope(key, purpose, context_digest, subject_digest, now, ttl):
@@ -90,13 +120,22 @@ def envelope(key, purpose, context_digest, subject_digest, now, ttl):
                                              "subject_digest", "issued_at", "expires_at", "signature_hex")}
 
 
-def sign_requests(plan_id, subjects, keys, purposes, confirm_context, now, ttl):
-    """Publish requests for the requested purposes present in `subjects`; refuses another context."""
+def sign_requests(plan_id, subjects, keys, purposes, confirm, now, ttl):
+    """Publish requests for what `subjects` shows and is not yet published (or the given purposes).
+
+    Refuses unless `confirm` is the fingerprint of everything `subjects` showed: a T13 record or a GATE
+    result added after the review changes it.
+    """
+    shown = {k: v for k, v in subjects.items() if k not in ("confirm", "published")}
+    if confirm != fingerprint(shown):
+        raise ValueError("subjects_not_confirmed")  # sign only what you reviewed
     context = subjects["context"]["digest"]
-    if confirm_context != context:
-        raise ValueError("context_not_confirmed")  # sign only the context you reviewed
+    if purposes is None:
+        purposes = [p for p in PURPOSES if p == "context" or p in subjects]
     requests = []
     for purpose in purposes:
+        if purpose in subjects.get("published", ()):
+            continue  # already published for this subject: a retry, not a new signature
         subject = context if purpose == "context" else subjects.get(purpose)
         if subject is None:
             raise ValueError(f"subject_missing:{purpose}")
@@ -109,12 +148,22 @@ def sign_requests(plan_id, subjects, keys, purposes, confirm_context, now, ttl):
 
 def relay_with(argv):
     def call(request):
-        result = subprocess.run(argv, input=json.dumps(request), capture_output=True, text=True, timeout=120,
-                                check=False)
-        answer = json.loads((result.stdout.strip().splitlines() or ["{}"])[-1])
-        if answer.get("status") != "PASS":
-            raise RuntimeError(f"{answer.get('status', 'FAIL').lower()}:{answer.get('code') or answer.get('reason')}")
-        return answer
+        try:
+            result = subprocess.run(argv, input=json.dumps(request), capture_output=True, text=True, timeout=120,
+                                    check=False)
+        except subprocess.TimeoutExpired:
+            raise RelayFailed("relay_timeout") from None
+        lines = result.stdout.strip().splitlines()
+        try:
+            answer = json.loads(lines[-1]) if lines else {}
+        except ValueError:
+            answer = {}
+        if answer.get("status") == "PASS":
+            return answer
+        if answer.get("status") == "HOLD":
+            raise RuntimeError(f"hold:{answer.get('code')}")
+        # kubectl or the relay failed: its own last line (local terminal only), never a hold
+        raise RelayFailed(answer.get("reason") or (result.stderr.strip().splitlines() or ["no_output"])[-1][:200])
     return call
 
 
@@ -129,14 +178,14 @@ def run(args, *, relay, now):
                       "binding": json.loads(Path(args.binding).read_text()),
                       "snapshot": json.loads(Path(args.snapshot).read_text())})
     keys = load_keys(args.dir)
-    purposes = args.purposes.split(",") if args.purposes else list(PURPOSES)
+    purposes = args.purposes.split(",") if args.purposes else None
     if args.command == "enroll":
-        return {"enrolled": [relay(enroll_request(args.plan_id, p, keys[p], now, args.valid_hours))["enrolled"]
-                             for p in purposes]}
+        requests = enroll_requests(args.dir, args.plan_id, keys, purposes or list(PURPOSES), now, args.valid_hours)
+        return {"enrolled": [relay(r)["enrolled"] for r in requests]}
     subjects = relay({"op": "subjects", "plan_id": args.plan_id})["subjects"]
-    requests = sign_requests(args.plan_id, subjects, keys, purposes, args.confirm_context, now,
+    requests = sign_requests(args.plan_id, subjects, keys, purposes, args.confirm, now,
                              timedelta(minutes=args.ttl_minutes))
-    return {"published": [relay(r)["published"] for r in requests]}
+    return {"published": [relay(r)["published"] for r in requests], "already": subjects.get("published", [])}
 
 
 def main(argv=None):
@@ -146,13 +195,19 @@ def main(argv=None):
     p.add_argument("--context", help="kubectl context of the platform cluster")
     p.add_argument("--dir", help="private key directory (0700)")
     p.add_argument("--purposes", help=f"comma list, default all: {','.join(PURPOSES)}")
-    p.add_argument("--valid-hours", type=int, default=24)
+    p.add_argument("--valid-hours", type=int, default=24, help=f"key validity, at most {MAX_KEY_HOURS}")
     p.add_argument("--ttl-minutes", type=int, default=360)
-    p.add_argument("--confirm-context", help="the context digest printed by `subjects`")
+    p.add_argument("--confirm", help="the `confirm` value printed by `subjects`")
     p.add_argument("--binding")
     p.add_argument("--snapshot")
     p.add_argument("--relay", nargs="+", help="argv reaching bravo_platform_events.gate_relay")
     args = p.parse_args(argv)
+    if args.command != "keys" and not (args.plan_id and (args.context or args.relay)):
+        p.error("--plan-id and --context (or --relay) are required")
+    if args.command in ("keys", "enroll", "sign") and not args.dir:
+        p.error("--dir is required")
+    if args.command == "sign" and not args.confirm:
+        p.error("--confirm is required: run `subjects` and review it first")
     relay = relay_with([part.format(context=args.context) for part in (args.relay or RELAY)])
     try:
         print(json.dumps({"status": "DONE", **run(args, relay=relay, now=datetime.now(UTC))}, indent=2))
@@ -160,7 +215,7 @@ def main(argv=None):
     except RuntimeError as error:
         print(json.dumps({"status": "HOLD", "reason": str(error)[:200]}))
         return 10
-    except (ValueError, KeyError, OSError) as error:
+    except (RelayFailed, ValueError, KeyError, OSError) as error:
         print(json.dumps({"status": "FAILED", "reason": f"{type(error).__name__}:{str(error)[:160]}"}))
         return 1
 
