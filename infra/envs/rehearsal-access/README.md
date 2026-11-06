@@ -176,4 +176,3 @@ binding의 UID를 조건으로 삭제한다. API 거부 검증은 후보 앱 실
 정책이 적용돼도 AWS 호스트 배포와 토큰 공급·갱신은 별도 연결이다.
 
 [Kubernetes ValidatingAdmissionPolicy](https://kubernetes.io/docs/reference/access-authn-authz/validating-admission-policy/)
-
