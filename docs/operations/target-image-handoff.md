@@ -147,12 +147,14 @@ already imported into its containerd. `app-image.json` records it under `arm64`,
 and `application.py --arch arm64` renders it with
 `nodeSelector: kubernetes.io/arch: arm64` and `imagePullPolicy: Never`.
 
-Its source was checked by file content, not by a build record: the 17 files under
-`/app/app` in the running image have the same SHA-256 as `app/` at the entry's
-`source_sha`. The exact build commit (one of demo-chat `c9406cf`..`57d7ce4`, which
-all ship the same app files) and the base image are not identified. To repeat the
-check with read access only, from the platform checkout and with a demo-chat
-checkout in `$DEMO_CHAT`:
+Its source was checked by file content: the 17 files under `/app/app` in the
+running image have the same SHA-256 as `app/` at the entry's `source_sha`. The
+builder's record adds how it was built: those app files with a local Dockerfile
+adjusted for arm64, so there is no single demo-chat build commit. The entry keeps
+that Dockerfile's SHA-256, the Python and uv base digests and the build time
+instead. This record was not reproduced by a rebuild. To repeat the file check
+with read access only, from the platform checkout and with a demo-chat checkout in
+`$DEMO_CHAT`:
 
 ```sh
 kubectl -n target-dev exec deployment/demo-chat -c app -- python -c '

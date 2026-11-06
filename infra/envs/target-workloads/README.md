@@ -236,8 +236,8 @@ T2/T6/T8/T9/T30 전체 완료나 실제 데모 머신의 준비 완료는 이 �
    **노드 아키텍처.** 목적지 노드는 2026-11-06 05:20 KST쯤 x86에서 arm64로 바뀌었다. GHCR 게시본은 amd64뿐이라 arm64 노드에서는 뜨지 않는다.
    그래서 arm64 노드에는 노드 containerd에 이미 들어 있는 로컬 빌드를 쓰고, `app-image.json`의 `arm64` 항목에 적었다. 렌더는 `--arch`로 고른다(기본 `amd64`).
    맞는 항목이 없거나 이미지가 그 아키텍처 항목과 다르면 렌더를 거부한다. Pod에는 `nodeSelector: kubernetes.io/arch`가 붙어 다른 아키텍처 노드에는 뜨지 않는다. arm64 이미지는 노드에만 있으므로 `--pull-secret`도 받지 않는다.
-   arm64 항목의 출처는 빌드 기록이 아니라 파일 대조로 확인했다. 실행 중인 이미지의 `/app/app` 파일 17개 sha256이 `source_sha`의 `app/`과 같다.
-   정확한 빌드 커밋(demo-chat `c9406cf`~`57d7ce4` 중 하나, 앱 파일은 모두 같다)과 베이스 이미지는 특정하지 못했다. 대조 방법은 [이미지 인수인계](../../../docs/operations/target-image-handoff.md#arm64-target-node)에 있다.
+   arm64 항목의 출처는 파일 대조로 확인했다. 실행 중인 이미지의 `/app/app` 파일 17개 sha256이 `source_sha`의 `app/`과 같다.
+   빌드한 사람의 기록으로는 이 앱 파일에 arm64용으로 고친 로컬 Dockerfile을 붙여 빌드했다. demo-chat 한 커밋의 Dockerfile이 아니어서 빌드 커밋 대신 Dockerfile sha256과 베이스 이미지 digest를 적었다. 이 기록은 다시 빌드해 확인하지 않았다. 대조 방법은 [이미지 인수인계](../../../docs/operations/target-image-handoff.md#arm64-target-node)에 있다.
 2. **VM에 넣기.** ECR에는 이미 있다. 이 게시본의 demo-chat 영수증(#19)과 `transfer-private-image`([실행 41815292046](https://github.com/Softbank-Hackathon-Finals/demo-chat/actions/runs/41815292046), 2026-11-04 19:36 KST)가 끝났고, 대상 바이트와 CI Pull까지 확인됐다.
    개발 VM에는 류지환 님 기록(#210)상 2026-11-04 23:05 KST에 묶음이 containerd에 등록됐고 23:07에 index와 amd64 manifest를 대조했다. 이 문서 쪽에서 직접 확인한 것은 아니다.
    남은 일은 이 변경이 병합된 뒤 VM 담당이 digest를 대조하고 앱을 배포하는 것이다. 다른 VM이면 [이미지 인수인계](../../../docs/operations/target-image-handoff.md) 순서로 묶음을 만들어 넣고 digest 별칭을 붙인다.
