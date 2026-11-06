@@ -59,7 +59,9 @@ python3 infra/envs/rehearsal-access/access.py kubeconfig \
 
 1. 기존 역할별 egress의 태그 신원이 **auth** API 프록시에서 인증된다.
    `credential_install.render()`는 등록된 ServiceAccount 한 개의 토큰 발급과
-   해당 신원·빈 회수용 Secret·cluster UID 조회만 허용한다. Job·Pod 실행 권한은
+   해당 신원·빈 회수용 Secret·cluster UID 조회만 허용한다. 출력은 admission 정책·binding을
+   발급 RoleBinding보다 먼저 배치한다. 운영자는 정책의 typeChecking과 binding을 확인한 뒤
+   나머지 객체를 설치한다. Job·Pod 실행 권한은
    이 발급 신원에 주지 않는다. admission은 정확한 audience, 600초 수명과
    지정 Secret의 UID 결속을 강제한다.
 2. kubeconfig의 `exec`가 `credentials.py exec /config/registration.json`을 호출한다.

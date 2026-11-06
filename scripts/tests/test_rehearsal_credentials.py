@@ -157,11 +157,14 @@ class CredentialsTests(unittest.TestCase):
         self.assertEqual({v for rule in role["rules"] for v in rule["verbs"]}, {"get", "create"})
         self.assertEqual({res for rule in role["rules"] for res in rule["resources"]},
                          {"serviceaccounts/token", "serviceaccounts", "secrets"})
-        self.assertEqual(next(o for o in objects if o["kind"] == "Secret")["immutable"], True)
-        self.assertNotIn("data", objects[0])
+        anchor = next(o for o in objects if o["kind"] == "Secret")
+        self.assertTrue(anchor["immutable"])
+        self.assertNotIn("data", anchor)
 
     def test_issuer_policy_requires_short_lifetime_audience_and_revocation_binding(self):
         objects = installation.render(registration())["items"]
+        self.assertEqual([o["kind"] for o in objects[:2]],
+                         ["ValidatingAdmissionPolicy", "ValidatingAdmissionPolicyBinding"])
         policy = next(o for o in objects if o["kind"] == "ValidatingAdmissionPolicy")
         expression = policy["spec"]["validations"][0]["expression"]
         for part in ("audiences", "expirationSeconds", "boundObjectRef.kind", "boundObjectRef.name", "boundObjectRef.uid"):

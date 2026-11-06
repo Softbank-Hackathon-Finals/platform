@@ -121,15 +121,8 @@ def render(registration):
         f"object.spec.boundObjectRef.name == {q(name)} && "
         "has(object.spec.boundObjectRef.uid) && size(object.spec.boundObjectRef.uid) > 0"
     )
+    # Install the denial boundary before exposing any issuer binding.
     return {"apiVersion": "v1", "kind": "List", "items": [
-        obj("Secret", namespaced=True, type="Opaque", immutable=True),
-        obj("Role", namespaced=True, rules=rules),
-        obj("RoleBinding", namespaced=True, subjects=subjects,
-            roleRef={"apiGroup": "rbac.authorization.k8s.io", "kind": "Role", "name": name}),
-        obj("ClusterRole", rules=[{"apiGroups": [""], "resources": ["namespaces"],
-                                  "resourceNames": ["kube-system"], "verbs": ["get"]}]),
-        obj("ClusterRoleBinding", subjects=subjects,
-            roleRef={"apiGroup": "rbac.authorization.k8s.io", "kind": "ClusterRole", "name": name}),
         obj("ValidatingAdmissionPolicy", spec={
             "failurePolicy": "Fail",
             "matchConstraints": {"resourceRules": [{"apiGroups": [""], "apiVersions": ["v1"],
@@ -140,6 +133,14 @@ def render(registration):
             "validations": [{"expression": expression,
                              "message": "registered short-lived revocable token required"}]}),
         obj("ValidatingAdmissionPolicyBinding", spec={"policyName": name, "validationActions": ["Deny"]}),
+        obj("Secret", namespaced=True, type="Opaque", immutable=True),
+        obj("Role", namespaced=True, rules=rules),
+        obj("RoleBinding", namespaced=True, subjects=subjects,
+            roleRef={"apiGroup": "rbac.authorization.k8s.io", "kind": "Role", "name": name}),
+        obj("ClusterRole", rules=[{"apiGroups": [""], "resources": ["namespaces"],
+                                  "resourceNames": ["kube-system"], "verbs": ["get"]}]),
+        obj("ClusterRoleBinding", subjects=subjects,
+            roleRef={"apiGroup": "rbac.authorization.k8s.io", "kind": "ClusterRole", "name": name}),
     ]}
 
 
