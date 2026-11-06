@@ -31,6 +31,14 @@ from .subscription_product_seal import open_receipt
 MAX_ARTIFACT = 2 * 1024 * 1024
 
 
+class DispatchUnconfirmed(ExecutionUnknown):
+    """A bounded provider response for the private ledger, never console output."""
+
+    def __init__(self, response):
+        super().__init__('GITHUB_DISPATCH_UNCONFIRMED')
+        self.response = response
+
+
 class OperatorGitHub:
     """Uses the operator's existing gh login; never installs credentials in a Pod."""
 
@@ -50,8 +58,35 @@ class OperatorGitHub:
             raise ExecutionUnknown('GITHUB_RESPONSE_UNCONFIRMED') from None
 
     def dispatch(self, workflow_id, inputs):
-        self._call(['--method', 'POST', f'repos/{REPOSITORY}/actions/workflows/{workflow_id}/dispatches', '--input', '-'],
-                   json.dumps({'ref': 'develop', 'inputs': inputs}).encode())
+        # Retain HTTP rejection evidence before the generic at-most-once boundary.
+        # stderr can contain authentication diagnostics; it never enters the ledger.
+        payload = json.dumps({'ref': 'develop', 'inputs': inputs}).encode()
+        response = {'observed_at': datetime.now(UTC).isoformat(), 'http_status': None,
+                    'github_request_id': None, 'body': None, 'transport': 'unconfirmed'}
+        try:
+            result = subprocess.run(['gh', 'api', '--include', '--method', 'POST',
+                f'repos/{REPOSITORY}/actions/workflows/{workflow_id}/dispatches', '--input', '-'],
+                input=payload, capture_output=True, timeout=60, check=False)
+        except Exception:
+            raise DispatchUnconfirmed(response) from None
+        if len(result.stdout) <= 65536:
+            raw = result.stdout.decode('utf-8', errors='replace').replace('\r\n', '\n')
+            headers, separator, body = raw.partition('\n\n')
+            lines = headers.splitlines()
+            match = re.fullmatch(r'HTTP/[0-9.]+ ([0-9]{3})(?: .*)?', lines[0]) if lines else None
+            if match and separator:
+                response['http_status'] = int(match[1])
+                for header in lines[1:]:
+                    key, _, value = header.partition(':')
+                    if key.lower() == 'x-github-request-id' and re.fullmatch(r'[A-Za-z0-9:-]{1,128}', value.strip()):
+                        response['github_request_id'] = value.strip()
+                # POST has only opaque execution metadata, never JWTs or source.
+                # Preserve its error body privately; do not serialize other headers.
+                response['body'] = body
+                response['transport'] = 'http_response'
+        if result.returncode or response['http_status'] not in (200, 204):
+            raise DispatchUnconfirmed(response)
+        return response
 
     def download(self, artifact_id):
         data = self._call(['--method', 'GET', f'repos/{REPOSITORY}/actions/artifacts/{artifact_id}/zip'])
@@ -71,6 +106,11 @@ class OperatorProductExecution:
     Repeating submit, losing its HTTP response, or restarting never sends again.
     No scheduler, background dispatcher, retry, credentials, or model runs here.
     """
+
+    _parse_intent = staticmethod(ExecutionIntent.model_validate)
+    _open_receipt = staticmethod(open_receipt)
+    _validate_receipt = staticmethod(validate_execution_receipt)
+    workflow = WORKFLOW
 
     def __init__(self, state_dir, github=None):
         self.root = Path(state_dir)
@@ -144,7 +184,7 @@ class OperatorProductExecution:
         return json.loads(row[1]), row[2]
 
     def submit(self, intent):
-        intent = ExecutionIntent.model_validate(intent)
+        intent = self._parse_intent(intent)
         with self._db() as db:
             exists = db.execute('SELECT 1 FROM executions WHERE request_id=?', (intent.request_id,)).fetchone()
         if exists:
@@ -153,9 +193,9 @@ class OperatorProductExecution:
             raise ExecutionUnknown('EXECUTION_RECIPIENT_CONFLICT')
         actor = self.github.get('user')
         head = self.github.get(f'repos/{REPOSITORY}/git/ref/heads/develop')
-        workflow = self.github.get(f'repos/{REPOSITORY}/actions/workflows/{WORKFLOW}')
+        workflow = self.github.get(f'repos/{REPOSITORY}/actions/workflows/{self.workflow}')
         if (head.get('object', {}).get('sha') != intent.runtime_source_sha
-                or workflow.get('path') != f'.github/workflows/{WORKFLOW}' or workflow.get('state') != 'active'
+                or workflow.get('path') != f'.github/workflows/{self.workflow}' or workflow.get('state') != 'active'
                 or type(workflow.get('id')) is not int or type(actor.get('id')) is not int):
             raise ExecutionUnknown('WORKFLOW_OR_SOURCE_NOT_READY')
         metadata = {'actor_id': actor['id'], 'workflow_id': workflow['id'],
@@ -167,10 +207,22 @@ class OperatorProductExecution:
         if fresh:
             # This committed marker deliberately survives a lost response or process crash.
             try:
-                self.github.dispatch(workflow['id'], intent.model_dump())
+                response = self.github.dispatch(workflow['id'], intent.model_dump())
+            except DispatchUnconfirmed as error:
+                self._save_dispatch_response(intent.request_id, metadata, error.response)
+                raise ExecutionUnknown('DISPATCH_RESPONSE_UNCONFIRMED_READ_SAME_EXECUTION') from None
             except Exception:
                 raise ExecutionUnknown('DISPATCH_RESPONSE_UNCONFIRMED_READ_SAME_EXECUTION') from None
+            else:
+                if response is not None:
+                    self._save_dispatch_response(intent.request_id, metadata, response)
         return self.read(intent)
+
+    def _save_dispatch_response(self, request_id, metadata, response):
+        # This is evidence, not permission to dispatch again even on a known 4xx.
+        with self._db() as db:
+            db.execute('UPDATE executions SET metadata=? WHERE request_id=?',
+                       (json.dumps(metadata | {'dispatch_response': response}), request_id))
 
     def _check_run(self, intent, metadata, run):
         if (run.get('event') != 'workflow_dispatch' or run.get('head_branch') != 'develop'
@@ -203,7 +255,7 @@ class OperatorProductExecution:
         return matches[0]
 
     def read(self, intent):
-        intent = ExecutionIntent.model_validate(intent)
+        intent = self._parse_intent(intent)
         metadata, saved_id = self._record(intent)
         private = self._private_key(intent.request_id)
         if private.public_key().public_bytes_raw().hex() != intent.recipient_public_key:
@@ -250,7 +302,8 @@ class OperatorProductExecution:
                     payload = stream.read(MAX_ARTIFACT + 1)
                 if len(payload) > MAX_ARTIFACT:
                     raise ValueError('oversized receipt')
-            receipt = validate_execution_receipt(intent, run_id, open_receipt(intent, run_id, json.loads(payload), private))
+            receipt = self._validate_receipt(intent, run_id,
+                self._open_receipt(intent, run_id, json.loads(payload), private))
         except Exception:
             raise ExecutionUnknown('ARTIFACT_RECEIPT_INVALID') from None
         return receipt

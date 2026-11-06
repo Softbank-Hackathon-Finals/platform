@@ -54,7 +54,7 @@ def sdk(monkeypatch):
         stub.deactivate()
 
 
-@pytest.mark.parametrize('service', ['secretsmanager', 'kms'])
+@pytest.mark.parametrize('service', ['secretsmanager', 'kms', 'logs'])
 def test_actual_sdk_uses_same_explicit_temporary_snapshot(sdk, service):
     with verified_client(ROLE, CREDS, service, 'ap-northeast-2', clock=lambda: NOW) as (client, proof):
         assert client.meta.endpoint_url == f'https://{service}.ap-northeast-2.amazonaws.com'
@@ -75,12 +75,13 @@ def test_actual_sdk_uses_same_explicit_temporary_snapshot(sdk, service):
         assert frozen.token == CREDS.session_token
 
 
-@pytest.mark.parametrize('service', ['secretsmanager', 'kms'])
+@pytest.mark.parametrize('service', ['secretsmanager', 'kms', 'logs'])
 def test_endpoint_and_ca_environment_overrides_ignored(sdk, monkeypatch, service):
     monkeypatch.setenv('AWS_ENDPOINT_URL', 'http://127.0.0.1:1')
     monkeypatch.setenv('AWS_ENDPOINT_URL_STS', 'http://127.0.0.1:2')
     monkeypatch.setenv('AWS_ENDPOINT_URL_SECRETS_MANAGER', 'http://127.0.0.1:3')
     monkeypatch.setenv('AWS_ENDPOINT_URL_KMS', 'http://127.0.0.1:3')
+    monkeypatch.setenv('AWS_ENDPOINT_URL_CLOUDWATCH_LOGS', 'http://127.0.0.1:3')
     monkeypatch.setenv('AWS_CA_BUNDLE', '/nonexistent/untrusted-ca.pem')
     monkeypatch.setenv('HTTPS_PROXY', 'http://127.0.0.1:4')
     monkeypatch.setenv('AWS_ACCESS_KEY_ID', 'ambient-must-not-be-used')

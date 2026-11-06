@@ -23,7 +23,7 @@ uv run bravo-loadgen measure \
   --window-url https://<플랫폼 수신 주소>
 ```
 
-`measure`는 사전 점검을 통과해야 부하를 보낸다. 점검만 하려면 인자를 그대로 두고 `preflight`를 쓴다. 대상의 `/api/health/db`, `X-Bravo-Env`, Edge 경유(`CF-RAY`), 창 수신 주소 · 토큰 · 계획 연결, 시계, DB를 본다. 점검 없이 보내는 `run`도 있지만, `edge` 경로면 `PREFLIGHT_SKIPPED`가 떠 판정 입력으로 쓸 수 없다. Edge 가중치 변경과 함께 재는 순서는 [합동 측정 절차](../../docs/operations/t18-joint-measure.md)에 있다.
+`measure`는 사전 점검을 통과해야 부하를 보낸다. 점검만 하려면 인자를 그대로 두고 `preflight`를 쓴다. 대상의 `/api/health/db`, `X-Bravo-Env`, Edge 경유(`CF-RAY`), 환경별 쓰기 차단(`/api/info`의 `write_blocked`), 창 수신 주소 · 토큰 · 계획 연결, 시계, DB를 본다. 점검 없이 보내는 `run`도 있지만, `edge` 경로면 `PREFLIGHT_SKIPPED`가 떠 판정 입력으로 쓸 수 없다. Edge 가중치 변경과 함께 재는 순서는 [합동 측정 절차](../../docs/operations/t18-joint-measure.md)에 있다.
 
 `read -rs`는 입력을 화면과 셸 기록에 남기지 않고 받는다. `bash`에서 **한 줄씩** 실행하고, 줄마다 값을 붙여 넣은 뒤 Enter를 누른다. 여러 줄을 한꺼번에 붙여 넣으면 다음 명령이 값으로 들어가고, 밀린 값이 명령으로 실행돼 화면과 셸 기록에 남는다. `sh`(dash)에는 `-s`가 없어 실패한다.
 

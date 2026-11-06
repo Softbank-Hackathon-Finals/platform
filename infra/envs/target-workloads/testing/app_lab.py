@@ -193,6 +193,11 @@ def inject_local_image(items, image):
     return items
 
 
+def node_architecture():
+    # The local build runs on this node, so the lab renders for its architecture, as operators do.
+    return kubectl("get", "node", NODE, "-o", "jsonpath={.status.nodeInfo.architecture}").strip()
+
+
 def general_path_accepts(image):
     result = subprocess.run([sys.executable, str(WORKLOADS / "application.py"), "--image", image],
                             capture_output=True, check=False)
@@ -226,6 +231,7 @@ def install_databases():
 
     target = render("render.py", "database", "--node-name", NODE)
     apply([item for item in target if item["kind"] == "Namespace"])
+    apply(render("render.py", "accounts"))
     source = json.loads(run(sys.executable, str(ROOT / "infra/envs/source-workloads/render.py"), "database"))["items"]
     for item in source:
         if item["kind"] == "Cluster":
@@ -250,12 +256,14 @@ def install_databases():
 
 def pooler_backend(backend, passwords):
     """Point the rendered pooler at source (pre-cutover) or target (the NOLOGIN case)."""
-    namespace, pod, ca, new, old = (
-        (SOURCE_NS, "source-db-1", "source-db-ca", SOURCE_HOST, TARGET_HOST) if backend == "source"
-        else (NS, "target-db-1", "target-db-ca", TARGET_HOST, SOURCE_HOST))
+    namespace, pod, new, old = (
+        (SOURCE_NS, "source-db-1", SOURCE_HOST, TARGET_HOST) if backend == "source"
+        else (NS, "target-db-1", TARGET_HOST, SOURCE_HOST))
     verifier = psql(namespace, pod, "select rolpassword from pg_authid where rolname='chat_app'")
     replace_secret(NS, "target-pgbouncer-auth", {"userlist.txt": f'"chat_app" "{verifier}"\n'})
-    replace_secret(NS, "t8-source-ca", {"ca.crt": secret_value(namespace, ca, "ca.crt")})
+    # The rendered pooler trusts the executor's bundle of both CAs, whichever backend it points at.
+    replace_secret(NS, "cutover-backend-ca", {"ca.crt": secret_value(SOURCE_NS, "source-db-ca", "ca.crt")
+                                              + secret_value(NS, "target-db-ca", "ca.crt")})
     config = json.loads(kubectl("-n", NS, "get", "configmap", "target-pgbouncer-config", "-o", "json", check=False) or "{}")
     if config:
         ini = config["data"]["pgbouncer.ini"].replace(old, new)
@@ -558,7 +566,8 @@ def main():
         install_pooler(passwords)
         start_client(image)
         report["general_path_refuses_local_build"] = not general_path_accepts(image)
-        manifest = inject_local_image(render("application.py"), image)
+        report["node_architecture"] = node_architecture()
+        manifest = inject_local_image(render("application.py", "--arch", report["node_architecture"]), image)
         kubectl("apply", "--server-side", "--dry-run=server", "-f", "-",
                 stdin=json.dumps({"apiVersion": "v1", "kind": "List", "items": manifest}).encode())
         report["restricted_server_dry_run"] = "accepted"

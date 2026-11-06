@@ -115,3 +115,66 @@ groups:
         annotations:
           summary: "{{ $labels.bravo_env }}/{{ $labels.pooler }} {{ $labels.database }} 풀에서 클라이언트가 2분 넘게 서버 연결을 기다린다(PAUSE 아님)"
           runbook: docs/observability/runbooks.md#bravopgbouncerclientswaiting
+
+  # T8 정방향 운영 감시. 의도적으로 OFF인 역방향은 대상이 아니다.
+  # 컷오버 뒤 정방향 OFF는 계획된 경보일 수 있으므로 런북에서 실행 상태와 대조한다.
+  - name: bravo-forward-replication
+    rules:
+      - alert: BravoForwardSubscriptionOff
+        expr: max by (bravo_env, cnpg_cluster, subname) (cnpg_pg_subscription_enabled{bravo_signal="cnpg-scrape", bravo_env="onprem", cnpg_cluster="target-db", subname="t8_source_to_target"}) == 0
+        for: 2m
+        labels:
+          severity: page
+        annotations:
+          summary: "정방향 구독이 2분 넘게 꺼져 있다"
+          runbook: docs/observability/runbooks.md#bravoforwardsubscriptionoff
+      - alert: BravoForwardSubscriptionError
+        expr: max by (bravo_env, cnpg_cluster, subname) (increase(cnpg_pg_subscription_apply_error_count_total{bravo_signal="cnpg-scrape", bravo_env="onprem", cnpg_cluster="target-db", subname="t8_source_to_target"}[10m])) > 0
+        labels:
+          severity: ticket
+        annotations:
+          summary: "정방향 구독 적용 오류가 증가했다 (최근 10분)"
+          runbook: docs/observability/runbooks.md#bravoforwardsubscriptionerror
+      - alert: BravoForwardSubscriptionRetrying
+        expr: max by (bravo_env, cnpg_cluster, subname) (increase(cnpg_pg_subscription_apply_error_count_total{bravo_signal="cnpg-scrape", bravo_env="onprem", cnpg_cluster="target-db", subname="t8_source_to_target"}[5m])) >= 5
+        labels:
+          severity: page
+        annotations:
+          summary: "정방향 구독 오류가 5분 안에 5건 이상 발생했다"
+          runbook: docs/observability/runbooks.md#bravoforwardsubscriptionretrying
+      - alert: BravoForwardReplicationNotRecovering
+        expr: max by (bravo_env, cnpg_cluster, slot_name) (cnpg_pg_replication_slots_active{bravo_signal="cnpg-scrape", bravo_env="aws", cnpg_cluster="source-db", slot_name="t8_source_to_target", slot_type="logical"}) == 0
+        for: 2m
+        labels:
+          severity: page
+        annotations:
+          summary: "정방향 복제 슬롯이 2분 넘게 비활성이다"
+          runbook: docs/observability/runbooks.md#bravoforwardreplicationnotrecovering
+      - alert: BravoForwardSubscriptionUnobservable
+        # Exporter TTL 30s + scrape 15s + batch 지연을 넘겨 75s로 판정한다.
+        # DB 자체는 살아 있어도 사용자 쿼리가 빠지면 enabled/error 한쪽 부재를 알린다.
+        expr: |
+          max by (bravo_env, cnpg_cluster, subname) (
+            (time() - timestamp(cnpg_pg_subscription_enabled{bravo_signal="cnpg-scrape", bravo_env="onprem", cnpg_cluster="target-db", subname="t8_source_to_target"})) > 75
+            or (time() - timestamp(cnpg_pg_subscription_apply_error_count_total{bravo_signal="cnpg-scrape", bravo_env="onprem", cnpg_cluster="target-db", subname="t8_source_to_target"})) > 75
+            or absent(cnpg_pg_subscription_enabled{bravo_signal="cnpg-scrape", bravo_env="onprem", cnpg_cluster="target-db", subname="t8_source_to_target"})
+            or absent(cnpg_pg_subscription_apply_error_count_total{bravo_signal="cnpg-scrape", bravo_env="onprem", cnpg_cluster="target-db", subname="t8_source_to_target"})
+          )
+        for: 1m
+        labels:
+          severity: page
+        annotations:
+          summary: "정방향 구독 상태 또는 오류 지표를 확인할 수 없다"
+          runbook: docs/observability/runbooks.md#bravoforwardsubscriptionunobservable
+      - alert: BravoForwardSlotUnobservable
+        expr: |
+          max by (bravo_env, cnpg_cluster, slot_name) (
+            (time() - timestamp(cnpg_pg_replication_slots_active{bravo_signal="cnpg-scrape", bravo_env="aws", cnpg_cluster="source-db", slot_name="t8_source_to_target", slot_type="logical"})) > 75
+            or absent(cnpg_pg_replication_slots_active{bravo_signal="cnpg-scrape", bravo_env="aws", cnpg_cluster="source-db", slot_name="t8_source_to_target", slot_type="logical"})
+          )
+        for: 1m
+        labels:
+          severity: page
+        annotations:
+          summary: "출발지 정방향 슬롯 지표를 확인할 수 없다"
+          runbook: docs/observability/runbooks.md#bravoforwardslotunobservable

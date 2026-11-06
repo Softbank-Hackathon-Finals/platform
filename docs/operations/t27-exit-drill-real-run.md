@@ -2,7 +2,7 @@
 
 **앱이 `target-dev`에 배포되면 잔존 의존성 지도부터 뽑고, 컷오버 뒤에 차단 시험으로 넘어간다.** 차단은 앱과 풀러 Pod의 송신만 좁히고 DB Pod를 고르지 않으므로 복제 채널을 끊지 않는다. 지금 앱은 호환 구성([ADR-0017](../adr/0017-target-app-secrets-manager-compat.md))이라 **PASS가 나오지 않는 것이 맞다.**
 
-이 순서는 임시 k3s에서 그대로 돌려 봤다([증거](../evidence/t27-real-run-prep-2026-11-06/README.md)). 실제 RKE2 · demo-chat · CNPG · Tailscale · AWS에서는 아직 돌리지 않았다.
+이 순서는 임시 k3s에서 그대로 돌려 봤다([증거](../evidence/t27-real-run-prep-2026-11-06/README.md)). **1단계는 2026-11-06 실제 `target-dev`에서 돌렸다**([증거](../evidence/t27-real-map-2026-11-06/README.md)). 2단계는 아직이다.
 
 | 단계 | 언제 | 바꾸는 것 | 나오는 것 | 시간 |
 |---|---|---|---|---|
@@ -45,12 +45,12 @@ cd services/exit-drill && uv sync --locked
 | 입력 | 어디서 | 없으면 |
 |---|---|---|
 | T16 인벤토리 | 아래 명령. 실제 demo-chat과 실제 내보내기로 만든다 | 시작하지 못한다 |
-| 대조군 이미지 | 장비에 이미 있고 Python이 든 이미지. 앱 이미지를 쓴다. `python3 ../../infra/envs/target-workloads/application.py --print-image` | `render`가 `SELECTOR_MATCHES_NOTHING`으로 멈춘다 |
+| 대조군 이미지 | 장비에 이미 있고 Python이 든 이미지. 노드 아키텍처(지금 arm64)의 앱 이미지를 쓴다. `python3 ../../infra/envs/target-workloads/application.py --arch arm64 --print-image` | `render`가 `SELECTOR_MATCHES_NOTHING`으로 멈춘다 |
 | 컷오버 확인 | T12 실행 기록의 상태가 `DONE`인지 사람이 본다. 2단계에서만 쓴다 | `CUTOVER_NOT_CONFIRMED`로 UNKNOWN |
 | 목적지 쓰기 | 2단계 측정 중 목적지 DB에 쓰기가 있어야 한다. 아래 4번 | `REPLICATION_IDLE`로 UNKNOWN |
 | 권한 | Pod 읽기 · 생성 · 삭제 · exec, Deployment 재시작, NetworkPolicy 적용 · 삭제 | 해당 단계에서 멈춘다 |
 
-T16 인벤토리는 이렇게 만든다. 자세한 내용은 [T16 안내](../../services/inventory/README.md)에 있다. `<>` 값은 실제 환경에서 읽어 넣는다. `onprem-demo`는 `profiles/onprem-rke2.json`의 `env_id`다.
+T16 인벤토리는 이렇게 만든다. 자세한 내용은 [T16 안내](../../services/inventory/README.md)에 있다. `<>` 값은 실제 환경에서 읽어 넣는다. `onprem-demo`는 `profiles/onprem-rke2.json`의 `env_id`다. demo-chat 체크아웃은 목적지 이미지를 만든 커밋(`infra/envs/target-workloads/app-image.json`의 `source_sha`)으로 맞춘다. demo-chat `main`의 끝이 아니다.
 
 ```sh
 # 목적지 내보내기. 출발지 내보내기(deployments · serviceaccounts · clusters · aws.json)는 T7 수집 역할이 만든다.
@@ -66,13 +66,15 @@ kubectl get crds -o json > "$OUTPUT_DIR/exports/target/crds.json"
   --output "$OUTPUT_DIR/inventory.json")
 ```
 
+**출발지 내보내기 네 파일이 한 폴더에 다 있어야 한다.** T16은 Deployment → ServiceAccount의 IRSA 주석으로 IAM 역할을 찾고, 그 역할로 `aws.json`을 읽는다. ServiceAccount가 빠지면 `aws.json`을 읽지 않아 배포에만 있는 항목이 인벤토리에서 빠진다(2026-11-06 실제 입력에서는 KMS). 못 읽은 것은 `deploy.notes`에 남고 지도 맨 위 **인벤토리 추적 메모**에 나온다. 빠진 파일을 지어내 채우지 않는다.
+
 ## 1. 지도 뽑기
 
 **차단 없이 끝난다.** 대조군 Pod를 띄워 계획을 만들고 지도를 낸다. 대조군은 비밀과 계정이 없고 잠만 자며 4시간 뒤 스스로 끝난다.
 
 ```sh
 uv run bravo-exit-drill control-pod --spec profiles/target-dev.json \
-  --image "$(python3 ../../infra/envs/target-workloads/application.py --print-image)" > "$OUTPUT_DIR/control-pod.json"
+  --image "$(python3 ../../infra/envs/target-workloads/application.py --arch arm64 --print-image)" > "$OUTPUT_DIR/control-pod.json"
 kubectl apply --dry-run=server -f "$OUTPUT_DIR/control-pod.json"
 kubectl apply -f "$OUTPUT_DIR/control-pod.json"
 kubectl -n target-dev wait --for=condition=Ready pod/exit-drill-control --timeout=5m
@@ -85,6 +87,12 @@ uv run bravo-exit-drill map --inventory "$OUTPUT_DIR/inventory.json" --candidate
 ```
 
 `render`가 거부하면 `plan.json`에 `refused`와 이유가 들어가고 종료 코드는 1이다. 고칠 곳을 찾을 뿐 값을 지어내지 않는다.
+
+2026-11-06 실제 `target-dev` 스냅샷을 읽기만 해 `render`에 넣었을 때(대조군을 띄우기 전) 거부는 `SELECTOR_MATCHES_NOTHING`(control) 하나였다. 검사는 위반을 모아 돌려주므로, 대조군만 띄우면 나머지 검사는 그때 상태로 통과한다는 뜻이다. 명세의 tailnet 프록시 레이블 셋(`bravo-target-pooler` · `bravo-target-replication` · `target-db-tailnet`)도 `tailscale-system`의 실제 Pod에 있었다.
+
+**Edge 터널(`bravo-edge-tunnel`, T17의 `cloudflared`)은 명세의 `edge` 역할이다.** 같은 날 04:01에 올라와 10시대 실제 실행이 `UNCLASSIFIED_POD`로 거부됐고, 이제 차단 정책이 고르지 않는 "들어오는 경로"로 분류돼 지도의 cloudflare 항목에 이어 보인다. 11:10 실행은 거부 없이 계획과 지도를 냈다.
+
+**인벤토리는 실행하는 날의 T16으로 다시 만든다.** 11:10 실행은 T16 결함 수정(`65b28b5`) 전에 만든 인벤토리를 썼다. 같은 입력을 최신 T16으로 다시 만들면 배포에만 있는 비밀 항목 하나가 지도의 불명에 더해진다.
 
 | 코드 | 뜻 | 할 일 |
 |---|---|---|
@@ -182,7 +190,7 @@ uv run bravo-exit-drill map --inventory "$OUTPUT_DIR/inventory.json" --candidate
 
 **PASS도 "AWS 경로가 막혔고 앱이 떠서 응답했다"까지만 말한다.** 첨부 읽기나 OpenBao 호출 같은 기능별 대체는 재지 않는다. `/ws`는 DB가 막혀도 연결을 받으므로, DB 경로는 `/api/health/db`로 읽는다.
 
-지도는 위에서부터 먼저 볼 것 순서다. 항목은 어떤 경우에도 빠지지 않는다.
+지도는 위에서부터 먼저 볼 것 순서다. 항목은 어떤 경우에도 빠지지 않는다. 맨 위 **인벤토리 추적 메모**는 T16이 배포를 따라가며 남긴 메모이고, 못 읽은 입력도 여기 나온다. 못 읽은 입력이 있으면 아래 항목의 근거가 그만큼 좁다.
 
 | 구역 | 뜻 |
 |---|---|
@@ -209,11 +217,11 @@ kubectl -n target-dev get networkpolicy,pod -l app.kubernetes.io/part-of=bravo-e
 
 ## 시간 예상
 
-**위 표의 시간은 실측이 아니라 추정이다.** 재 본 값은 임시 k3s(대역 앱)뿐이고, 개발 VM은 amd64 에뮬레이션이라 앱 시작이 훨씬 느리다. 앱의 startupProbe는 최대 5분을 기다리고, 이 시간이 대부분을 차지한다.
+**1단계 말고는 위 표의 시간이 실측이 아니라 추정이다.** 차단 시험은 임시 k3s(대역 앱)에서만 쟀다. 앱의 startupProbe는 최대 5분을 기다리고, 이 시간이 대부분을 차지한다.
 
-| 구간 | 임시 k3s 실측 | 실제 환경에서 늘어나는 곳 |
+| 구간 | 임시 k3s 실측 | 실제 환경 |
 |---|---|---|
-| 대조군 → 계획 → 지도 | 2.5초 | 대조군 이미지 시작. T16 인벤토리를 새로 만들면 그 시간이 더 든다 |
+| 대조군 → 계획 → 지도 | 2.5초 | **실측 11초**(2026-11-06 `target-dev`, 대조군 지우기와 상태 비교까지). T16 인벤토리를 새로 만들면 그 시간이 더 든다 |
 | 차단 전 측정 → 재시작 두 번 → 차단 뒤 측정 | 약 34초 | 앱 시작 두 번(Pod 교체 · 컨테이너 재시작) |
 | 되돌리기 | 약 6초 | 없음 |
 
@@ -221,8 +229,8 @@ kubectl -n target-dev get networkpolicy,pod -l app.kubernetes.io/part-of=bravo-e
 
 ## 아직 재지 못한 것
 
-- **실제 환경 전체.** RKE2 · Canal, 실제 demo-chat · PgBouncer · CNPG, 실제 Tailscale, 실제 AWS 경로. 강제 방식이 달라 새 Pod의 틈과 거부 모양이 다를 수 있다.
+- **실제 환경의 차단(2단계).** 1단계는 실제 `target-dev`의 demo-chat · PgBouncer · CNPG · SeaweedFS · Edge 터널을 두고 돌았다. 하지만 정책을 적용하지 않았으므로 RKE2 · Canal의 강제 방식, 실제 Tailscale · AWS 경로가 막히는 모양은 아직 재지 않았다. 새 Pod의 틈과 거부 모양이 k3s와 다를 수 있다.
+- **최신 T16 인벤토리로 돌린 1단계.** 11:10 실행의 인벤토리는 T16 결함 수정 전 것이다. 같은 스냅샷에 최신 T16 인벤토리를 넣어 다시 계산한 지도는 [증거](../evidence/t27-real-map-2026-11-06/README.md)에 있고, 클러스터에서 다시 돌리지는 않았다.
 - **CNPG 이미지 안의 `bash` · `timeout` · `getent`.** 풀러 이미지는 실제로 쟀다. CNPG 이미지는 받아 보지 않았다. 없으면 그 위치가 `NOT_OBSERVED`나 `UNEXPECTED_STATE`로 UNKNOWN이 되고 PASS로 새지는 않는다.
 - **실제 논리 복제의 `pg_stat_replication`.** 읽는 명령은 실제 PostgreSQL과 물리 복제 연결로 쟀다. 역방향 구독의 `application_name`은 `replication.py`의 값을 쓴다.
-- **역방향 프록시 레이블.** `target-db-tailnet`은 Service 이름에서 추정했다. 정책에는 쓰이지 않고, DB를 고르는 다른 정책이 있을 때 복제 경로를 해석하는 데만 쓰인다.
 - **실제 앱의 재시작.** demo-chat의 1번 프로세스는 uvicorn이라 SIGTERM으로 끝날 것으로 보지만 재지 않았다. 안 끝나면 `drill restart`가 멈추고 기록을 남기지 않는다.

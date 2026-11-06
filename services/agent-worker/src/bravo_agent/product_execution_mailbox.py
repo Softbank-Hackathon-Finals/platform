@@ -55,6 +55,8 @@ class FileProductExecution:
     Neither method authorizes an Admission; T10 rechecks it before and after use.
     """
 
+    _parse_intent = staticmethod(ExecutionIntent.model_validate)
+
     def __init__(self, root):
         self.root = Path(root)
         with self._directory() as fd:
@@ -115,12 +117,12 @@ class FileProductExecution:
 
     def prepare(self, intent):
         """Operator-only: install public metadata; does not publish work to run."""
-        intent = ExecutionIntent.model_validate(intent)
+        intent = self._parse_intent(intent)
         validate_recipient(intent.recipient_public_key)
         self._publish('prepared.json', intent.model_dump(), MAX_INTENT)
 
     def prepared(self):
-        return ExecutionIntent.model_validate(self._read('prepared.json', MAX_INTENT))
+        return self._parse_intent(self._read('prepared.json', MAX_INTENT))
 
     def recipient(self, request_id):
         """Local read only; safe inside the T10 plan lock, no key generation."""
@@ -130,7 +132,7 @@ class FileProductExecution:
         return prepared.recipient_public_key
 
     def _bound(self, intent):
-        intent = ExecutionIntent.model_validate(intent)
+        intent = self._parse_intent(intent)
         if intent != self.prepared():
             raise ExecutionUnknown('MAILBOX_INTENT_CONFLICT')
         return intent

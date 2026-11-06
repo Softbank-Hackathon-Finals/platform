@@ -87,18 +87,48 @@ def load_app(store, create_reader):
     return create_product_read_app(reader)
 
 
+def configured_initial_reader(store, config_file):
+    from .initial_proposal import InitialProposalRecords
+    from .initial_proposal_api import AuthenticatedInitialReader
+    from .initial_stored_source import stored_initial_source
+
+    base = configured_reader(store, config_file)
+    def clock():
+        return datetime.now(UTC).isoformat()
+    access = ProductInputAccess(store, clock=clock, purpose="t38-initial-proposal")
+    records = InitialProposalRecords(store, catalog=base.records.catalog,
+        source=stored_initial_source, authorize=access.require, clock=clock)
+    return AuthenticatedInitialReader(records, base.caller)
+
+
+def load_initial_app(store, create_reader):
+    from .initial_proposal_api import AuthenticatedInitialReader, create_initial_read_app
+
+    with store._transaction() as c:
+        if c.execute("SELECT version FROM schema_version").fetchall() not in ([{"version": 2}], [{"version": 3}]):
+            raise ValueError("product_read_schema_required")
+    reader = create_reader(store)
+    if type(reader) is not AuthenticatedInitialReader or reader.records.store is not store:
+        raise ValueError("same_store_initial_reader_required")
+    return create_initial_read_app(reader)
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--config", required=True)
     parser.add_argument("--tls-cert", required=True)
     parser.add_argument("--tls-key", required=True)
+    parser.add_argument("--initial-proposal", action="store_true",
+                        help="Read already admitted initial inputs with their separate purpose grant")
     args = parser.parse_args(argv)
     try:
         if not all(Path(p).is_file() for p in (args.config, args.tls_cert, args.tls_key)):
             raise ValueError()
         connection = runtime_connection()
         connection_checks(connection)
-        app = load_app(PostgresPlanStore(connection), lambda store: configured_reader(store, args.config))
+        loader, configure = ((load_initial_app, configured_initial_reader) if args.initial_proposal
+                             else (load_app, configured_reader))
+        app = loader(PostgresPlanStore(connection), lambda store: configure(store, args.config))
     except Exception:
         raise SystemExit("product_read_startup_unavailable") from None
     uvicorn.run(app, host="0.0.0.0", port=8443, workers=1,

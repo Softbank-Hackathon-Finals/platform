@@ -87,7 +87,7 @@ def validate_identity(role, response):
 
 
 def _client(session, service, region, credentials=None):
-    if service not in {"sts", "secretsmanager", "s3", "kms"}:
+    if service not in {"sts", "secretsmanager", "s3", "kms", "logs"}:
         raise IdentityUnavailable("AWS_SERVICE_NOT_QUALIFIED")
     kwargs = ({"aws_access_key_id": credentials.access_key_id,
                "aws_secret_access_key": credentials.secret_access_key,
@@ -125,7 +125,7 @@ GetCallerIdentity verifies identity, not effective authorization or non-revocati
 The actual positive/negative service requests establish the access observation.
 """
     if (not isinstance(role, RegisteredRole) or not isinstance(credentials, TemporaryCredentials)
-            or service not in {"s3", "secretsmanager", "kms"}
+            or service not in {"s3", "secretsmanager", "kms", "logs"}
             or not isinstance(region, str) or not _REGION.fullmatch(region)):
         raise IdentityUnavailable("AWS_CLIENT_BINDING_INVALID")
     before = _utc(clock())

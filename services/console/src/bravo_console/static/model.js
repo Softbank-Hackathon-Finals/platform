@@ -566,6 +566,8 @@ export function controlReport(value, current, gate, now) {
     !date(value.evaluated_at) ||
     Date.parse(value.evaluated_at) > now ||
     !object(value.profile) ||
+    value.profile.id !== current.profile_id ||
+    value.profile.version !== current.profile_version ||
     !["demo-gate", "full"].includes(value.profile.id) ||
     value.profile.version !== "1" ||
     !["PASS", "BLOCK", "EXCEPTION"].includes(value.decision) ||
@@ -620,4 +622,68 @@ export function controlReport(value, current, gate, now) {
   )
     fail("incomplete_control_report");
   return clone(value);
+}
+
+// T33 environment-wide collection states; never a T19 security verdict.
+export const SECURITY_CATEGORIES = Object.freeze({
+  IAM: "접근 권한",
+  ENCRYPTION: "암호화",
+  AUDIT: "감사 로그",
+  EXPOSURE: "외부 노출",
+  POLICY: "정책 위반",
+  THREAT: "위협 탐지",
+  VULNERABILITY: "취약점",
+});
+export function securitySummary(value, current, now) {
+  if (
+    !object(value) ||
+    !object(current) ||
+    value.kind !== "console-security.v1" ||
+    value.plan_id !== current.plan_id ||
+    value.plan_digest !== current.plan_digest ||
+    value.for_gate_decisions !== false ||
+    !date(value.queried_at) ||
+    now < Date.parse(value.queried_at) ||
+    now - Date.parse(value.queried_at) > 15000 ||
+    !Array.isArray(value.environments) ||
+    value.environments.length !== 2
+  )
+    fail("invalid_security_summary");
+  return ["source", "target"].map((side) => {
+    const found = value.environments.filter(
+      (row) =>
+        object(row) &&
+        row.side === side &&
+        row.environment_id === current[side + "_environment_id"],
+    );
+    if (found.length !== 1) fail("security_scope_mismatch");
+    const row = found[0];
+    exact(row.cells, Object.keys(SECURITY_CATEGORIES).join(" "));
+    const cells = {};
+    for (const category of Object.keys(SECURITY_CATEGORIES)) {
+      const cell = row.cells[category];
+      exact(cell, "state counts");
+      if (!["OK", "NONE", "STALE", "UNKNOWN"].includes(cell.state))
+        fail("invalid_security_state");
+      if (cell.state !== "OK") {
+        if (cell.counts !== null) fail("unverified_security_counts");
+        cells[category] = { state: cell.state, total: null };
+        continue;
+      }
+      if (
+        !object(cell.counts) ||
+        Object.entries(cell.counts).some(
+          ([k, v]) =>
+            !["0", "1", "2", "3", "4", "5", "6", "99"].includes(k) ||
+            !Number.isSafeInteger(v) ||
+            v < 0,
+        )
+      )
+        fail("invalid_security_counts");
+      const total = Object.values(cell.counts).reduce((a, b) => a + b, 0);
+      if (!Number.isSafeInteger(total)) fail("invalid_security_counts");
+      cells[category] = { state: "OK", total };
+    }
+    return { side, cells };
+  });
 }

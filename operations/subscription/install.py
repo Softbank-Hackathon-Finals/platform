@@ -7,17 +7,18 @@ import re
 from pathlib import Path
 
 import boto3
-
 from bravo_agent.subscription_product_reader import ProductReaderConfig
 
 
-def installation(sha, archive_digest, settings, *, product_reader=None):
+def installation(sha, archive_digest, settings, *, product_reader=None, initial_proposal=False):
     if not re.fullmatch("[a-f0-9]{40}", sha) or not re.fullmatch("[a-f0-9]{64}", archive_digest):
         raise ValueError("immutable source and archive digest required")
     if set(settings) != {"secret_arn", "runtime_host_id", "broker_role_arn", "model", "region"}:
         raise ValueError("metadata-only settings required; never include tokens")
     if settings["region"] != "ap-northeast-2":
         raise ValueError("unsupported region")
+    if type(initial_proposal) is not bool or (initial_proposal and product_reader is None):
+        raise ValueError("initial proposal requires an authenticated reader")
     settings = {**settings, "source_sha": sha, "worker": "/opt/bravo-subscription/worker",
                 "state_dir": "/var/lib/bravo-t11-subscription/state"}
     encoded = base64.b64encode(json.dumps(settings).encode()).decode()
@@ -35,6 +36,12 @@ LoadCredential=broker.key:/etc/bravo-subscription/broker.key
 TLS
 sed -i 's/-m bravo_agent.subscription_server /-m bravo_agent.subscription_product_server /' /etc/systemd/system/bravo-subscription.service
 """
+    if initial_proposal:
+        product_setup += f"""cd "$ROOT/platform-{sha}/services/platform-events"
+UV_CACHE_DIR="$ROOT/cache" "$ROOT/uv-x86_64-unknown-linux-gnu/uv" sync --frozen --no-dev --group product-inputs --python /usr/bin/python3
+sed -i 's@/opt/bravo-subscription/worker/.venv/bin/python -m bravo_agent.subscription_product_server@/opt/bravo-subscription/platform-{sha}/services/platform-events/.venv/bin/python -m bravo_platform_events.initial_proposal_server@' /etc/systemd/system/bravo-subscription.service
+chmod -R a-w "$ROOT/platform-{sha}"
+"""
     tls_preflight = ("test -r /etc/bravo-subscription/broker.crt\ntest -r /etc/bravo-subscription/broker.key\n"
                      if product_reader is not None else "")
     return f'''set -eu
@@ -50,12 +57,12 @@ echo '6aa4576c31f791c0b9d4739e256d07358d45e7535695287fec03cf6839e25512  /opt/bra
 tar -xzf "$ROOT/uv.tar.gz" -C "$ROOT"
 cd "$ROOT/platform-{sha}/services/agent-worker"
 UV_CACHE_DIR="$ROOT/cache" "$ROOT/uv-x86_64-unknown-linux-gnu/uv" sync --frozen --python /usr/bin/python3
-chmod -R a-w "$ROOT/platform-{sha}"
 ln -sfn "$ROOT/platform-{sha}/services/agent-worker" "$ROOT/worker"
 printf '%s' '{encoded}' | base64 -d > /etc/bravo-subscription/settings.json
 chmod 644 /etc/bravo-subscription/settings.json
 cp "$ROOT/platform-{sha}/operations/subscription/bravo-subscription.service" /etc/systemd/system/bravo-subscription.service
-{product_setup}systemctl daemon-reload
+{product_setup}chmod -R a-w "$ROOT/platform-{sha}"
+systemctl daemon-reload
 systemd-analyze verify /etc/systemd/system/bravo-subscription.service
 echo '{{"installed":true,"enabled_at_boot":false,"source_sha":"{sha}"}}'
 '''
@@ -68,11 +75,13 @@ def main():
     parser.add_argument("--settings", type=Path, required=True)
     parser.add_argument("--instance-id", required=True)
     parser.add_argument("--product-reader", type=Path, help="reviewed HTTPS origin and mounted CA metadata; no token")
+    parser.add_argument("--initial-proposal", action="store_true", help="select the separate initial-purpose broker")
     args = parser.parse_args()
     if not re.fullmatch("i-[a-f0-9]{17}", args.instance_id):
         raise ValueError("exact instance required")
     script = installation(args.source_sha, args.archive_sha256, json.loads(args.settings.read_text()),
-                          product_reader=json.loads(args.product_reader.read_text()) if args.product_reader else None)
+                          product_reader=json.loads(args.product_reader.read_text()) if args.product_reader else None,
+                          initial_proposal=args.initial_proposal)
     result = boto3.client("ssm", region_name="ap-northeast-2").send_command(
         InstanceIds=[args.instance_id], DocumentName="AWS-RunShellScript",
         Parameters={"commands": [script], "executionTimeout": ["300"]},

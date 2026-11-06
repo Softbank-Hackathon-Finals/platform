@@ -1,0 +1,28 @@
+{
+  "ready": true,
+  "image": "otel/opentelemetry-collector-contrib:0.164.0@sha256:340c9ca6a36617084c6661bdc4f0fe92b7cda5a805d61673ec8db375fddc522b",
+  "tests": {
+    "no_client_certificate_rejected": true,
+    "plaintext_rejected": true,
+    "tls12_rejected": true,
+    "verified_mtls_empty_otlp": true,
+    "wrong_server_name_rejected": true
+  },
+  "proxy_quarantine_preserved": true,
+  "platform_delivery_verified": false,
+  "app_reconfigured": false,
+  "db_scrape_enabled": false,
+  "qualification": "actual-source-eks-partial",
+  "transport": "personal-kubernetes-port-forward",
+  "created_resources": 9,
+  "config_sha256": "1df64a96e5b7670277304e844ce1bced7bb91746d90f4c0f80397a274bfc3624",
+  "source_revision": "298ad9c3b23ffc2337cb754c2cb708d4be96c79d",
+  "actual_tailnet_allow_deny_tested": false,
+  "negative_test_method": "tls-http-request-not-metric-injection",
+  "data_sent": "empty resourceMetrics; no application data",
+  "collector_queue": "emptyDir; not lossless across Pod replacement",
+  "app_ingress_ca_separate_from_platform_ca": true,
+  "ca_private_keys_deployed": false,
+  "temporary_forward_closed": true,
+  "own_ssm_terminated": true
+}

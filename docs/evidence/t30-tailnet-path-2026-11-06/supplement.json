@@ -1,0 +1,147 @@
+{
+  "check": "tailnet-path-supplement",
+  "schema_version": 1,
+  "not_a_verdict": true,
+  "why": "values read outside tailnet_path_check.py after its run, kept to explain path state; no threshold applies",
+  "kept_fields_only": true,
+  "raw_saved": false,
+  "status_kind_meaning": "direct if CurAddr is set, peer_relay if PeerRelay is set, derp if only Relay is set. An idle peer has no CurAddr and also shows derp, so status_kind is a path reading only while the peer is active",
+  "age_fields": "seconds before the read; null means no handshake is recorded",
+  "status_reads": [
+    {
+      "started_at": "2026-11-05T18:10:56Z",
+      "command": "tailscale status --json",
+      "proxies": [
+        {
+          "self_tag": "tag:bravo-target-replication",
+          "version": "1.104.4",
+          "backend_state": "Running",
+          "home_derp": "tok",
+          "health": [],
+          "peers_total": 1,
+          "peers": [
+            {
+              "tag": "tag:bravo-source-db",
+              "online": true,
+              "active": true,
+              "status_kind": "derp",
+              "relay": "tok",
+              "handshake_age_s": 85,
+              "last_write_age_s": 0,
+              "tx_bytes": 92048,
+              "rx_bytes": 106824
+            }
+          ]
+        },
+        {
+          "self_tag": "tag:bravo-target-pooler",
+          "version": "1.104.4",
+          "backend_state": "Running",
+          "home_derp": "tok",
+          "health": [],
+          "peers_total": 1,
+          "peers": [
+            {
+              "tag": "tag:bravo-source-db",
+              "online": true,
+              "active": false,
+              "status_kind": "derp",
+              "relay": "tok",
+              "handshake_age_s": 159,
+              "last_write_age_s": 98,
+              "tx_bytes": 5980,
+              "rx_bytes": 4972
+            }
+          ]
+        },
+        {
+          "self_tag": "tag:bravo-target-db",
+          "version": "1.104.4",
+          "backend_state": "Running",
+          "home_derp": "tok",
+          "health": [],
+          "peers_total": 3,
+          "peers": [
+            {
+              "tag": "tag:bravo-source-replication",
+              "online": true,
+              "active": false,
+              "status_kind": "derp",
+              "relay": "tok",
+              "handshake_age_s": null,
+              "last_write_age_s": 185539,
+              "tx_bytes": 0,
+              "rx_bytes": 0
+            },
+            {
+              "tag": "tag:bravo-source-pooler",
+              "online": true,
+              "active": false,
+              "status_kind": "derp",
+              "relay": "tok",
+              "handshake_age_s": null,
+              "last_write_age_s": 180281,
+              "tx_bytes": 0,
+              "rx_bytes": 0
+            },
+            {
+              "tag": "tag:bravo-cutover-control",
+              "online": true,
+              "active": false,
+              "status_kind": "derp",
+              "relay": "tok",
+              "handshake_age_s": null,
+              "last_write_age_s": 4489,
+              "tx_bytes": 0,
+              "rx_bytes": 0
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "started_at": "2026-11-05T18:12:02Z",
+      "command": "tailscale status --json",
+      "proxies": [
+        {
+          "self_tag": "tag:bravo-target-replication",
+          "version": "1.104.4",
+          "backend_state": "Running",
+          "home_derp": "tok",
+          "health": [],
+          "peers_total": 1,
+          "peers": [
+            {
+              "tag": "tag:bravo-source-db",
+              "online": true,
+              "active": true,
+              "status_kind": "derp",
+              "relay": "tok",
+              "handshake_age_s": 29,
+              "last_write_age_s": 1,
+              "tx_bytes": 96548,
+              "rx_bytes": 113012
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "netcheck": {
+    "started_after": "2026-11-05T18:12:02Z",
+    "command": "tailscale netcheck --format=json",
+    "proxy_tag": "tag:bravo-target-replication",
+    "UDP": true,
+    "IPv4": true,
+    "IPv6": false,
+    "IPv4CanSend": true,
+    "MappingVariesByDestIP": true,
+    "HairPinning": null,
+    "UPnP": false,
+    "PMP": false,
+    "PCP": false,
+    "PreferredDERP": 7,
+    "CaptivePortal": false,
+    "nearest_three_region_latency_ms": [43.7, 80.8, 102.3]
+  }
+}

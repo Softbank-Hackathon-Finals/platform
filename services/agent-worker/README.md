@@ -25,7 +25,7 @@
 | `repo.read` | manifest에 있는 정확한 경로의 snapshot 파일 읽기 | 경로 정책 + 내용 해시 + 비밀 패턴 거부 |
 | `plan.propose` | 스키마에 맞는 제안서 1건 제출 | 파괴 명령 · wildcard 권한 · 비밀 패턴 거부, 수정 가능 경로만 |
 | `policy.evaluate` | 후보 정책 · 교체 텍스트를 `plan.propose`와 같은 검사로 미리 린트 | 부작용 없음. `PASS`는 "이 검사에서 거부되지 않음"이지 안전 증명이 아니다 |
-| `inventory.describe` | T16 인벤토리의 모델용 부분집합(항목 · 등급 · 코드 참조 위치) 읽기 | 제어 경로가 `InventorySummary`를 붙인 실행에서만 제공. snippet · 배포 속성 · 환경변수 값은 전달하지 않는다 |
+| `inventory.describe` | T16 인벤토리의 모델용 부분집합(항목 · 등급 · 코드 참조 위치) 읽기 | 제어 경로가 `InventorySummary`를 붙인 실행에서만 제공(`--inventory`, 아래 실행 절). snippet · 배포 속성 · 환경변수 값은 전달하지 않는다 |
 
 `rehearsal.exec`, `rehearsal.run/result`는 아직 제공하지 않는다(T42 동작별 exec 도구 세 개는 아래 [rehearsal.exec 도구](#rehearsalexec-도구-t42-v1-t11-쪽)에서 채널을 주입한 실행에만 연다). 호출하면 거부되며 감사 사유는 `TOOL_NOT_PROVIDED`로 일반 미허용(`TOOL_NOT_ALLOWED`)과 구분한다. 어떤 도구든 인자에 버킷 삭제 · 네임스페이스 삭제 · DROP/TRUNCATE · rm -rf · terraform destroy 패턴이 있으면 사유 `DESTRUCTIVE_ATTEMPT_BLOCKED`와 코드가 정한 `category`(`bucket_delete` 등)만 기록하고 원문은 기록하지 않는다. 이것이 설계 8.4 데모 장면("정리를 이유로 한 버킷 삭제 시도 차단")의 감사 기록이다.
 
@@ -67,6 +67,12 @@ uv run bravo-subscription run \
   --snapshot /private/path/read-only-app-snapshot \
   --model "$MODEL_ID" --output /private/path/new-proposal.json
 ```
+
+### T16 인벤토리 입력 (FR-4)
+
+`bravo-agent analyze`와 `bravo-subscription run`은 선택 인자 `--inventory /private/path/inventory.json`(T16 `bravo-inventory scan` 출력)을 받는다. 256 KiB까지만 읽고 `InventorySummary.from_document`로 모델용 부분집합만 남겨 `Coordinator`에 붙인다. 붙인 실행에서만 `inventory_describe`가 제공되고, 결과 파일에 `inventory_digest`(T16 문서의 `sha256:` digest)가 추가된다. 이 digest는 문서에 적힌 값을 그대로 믿지 않고, T16 `report.py`와 같은 규칙(`generated_at`·`digest`를 뺀 문서의 정렬 JSON의 sha256)으로 다시 계산해 같을 때만 받는다. 그래서 내용을 바꾼 문서는 원래 digest를 달고 들어올 수 없다. 값의 타입도 바꾸지 않고 그대로 엄격 검증한다. 붙이지 않으면 이 키는 없고 기존 출력과 같다. 인벤토리의 `app.source_sha`가 실패 요약·manifest와 다르거나, digest가 내용과 맞지 않거나, 형식이 맞지 않거나, 크기를 넘으면 다른 입력 오류와 같이 결과 파일 없이 `NEEDS_HUMAN`·종료 코드 2로 끝난다. 그래서 T16 scan은 같은 `--source-sha`로 실행해야 한다.
+
+T10의 최초 제안 입력은 바꾸지 않는다(11/6 류지환 확인: `failure_code=CODE_CHANGE_REQUIRED`, `summary`=항목 `rationale`, `evidence_digest`=T16 문서 digest에서 `sha256:`를 뺀 값). T38 제품 경로(`ProductInput` · `invoke_product_worker`)는 인벤토리를 아직 전달하지 않는다. `run_worker`는 `args.inventory`가 없으면 기존 명령을 그대로 만든다. 제품 경로에 붙일 때의 제안 필드는 [ADR-0019 4절](../../docs/adr/0019-agent-tool-boundary.md#4-결과-consequences)에 적었고 T38·T10 담당 합의 전에는 구현하지 않는다.
 
 관리자 등록·최소 AWS 권한·갱신·회수 절차는 [구독 연결 운영 가이드](subscription.md)를 따른다. 기본 `bravo-agent analyze`도 `chatgpt-plan`을 선택하며 호출 프로세스의 `ACCESS_TOKEN`을 요구한다. 별도 API 청구를 운영자가 명시적으로 선택할 때만 `--provider openai`와 `OPENAI_API_KEY`를 쓴다. 이 PR의 구독 실행은 API 키를 사용하지 않는다.
 

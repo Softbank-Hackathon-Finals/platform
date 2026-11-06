@@ -20,7 +20,12 @@ bravo-subscription = "bravo_agent.subscription_admin:main"
 claude = ["claude-agent-sdk==0.2.177"]
 
 [dependency-groups]
-dev = ["pytest>=8,<10", "ruff>=0.14,<1", "claude-agent-sdk==0.2.177"]
+dev = [
+    "pytest>=8,<10",
+    "ruff>=0.14,<1",
+    "claude-agent-sdk==0.2.177",
+    "pyyaml>=6,<7",
+]
 
 [build-system]
 requires = ["hatchling>=1.25"]

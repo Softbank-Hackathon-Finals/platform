@@ -17,10 +17,12 @@
 | 8.3 · 8.4 `rehearsal.exec` 동작 범위(정해진 동작 3종)와 실행 위치(API · 도구용 Pod)(T15) | [0024 rehearsal.exec 동작과 실행 위치](0024-rehearsal-exec-actions.md) |
 | 8.4 `rehearsal.exec` AI 공간과 채점 공간 분리 · 러너 순서(T15) | [0025 rehearsal.exec 공간 분리와 순서](0025-rehearsal-exec-spaces-and-order.md) |
 | 8.4 · 8.6 `rehearsal.exec` 기록 범위와 실패 처리 · 사유 전달(T15) | [0026 rehearsal.exec 기록과 실패 처리](0026-rehearsal-exec-records-and-failures.md) |
+| 8.4 시험용 OpenBao 경로의 리허설 쓰기 identity와 잔여 위험(T9·T15) | [0029 리허설 OpenBao 쓰기 identity](0029-rehearsal-openbao-writer.md) |
 | 7.3·8.5 보안 결과 형식·인증 | [0001 탐지 결과 형식](0001-security-finding-format.md), [0005 T33 보안 경계](0005-t33-security-boundary.md) |
 | 8.5·8.9 등록 앱 식별자와 계획의 평가 프로필(T10·T14·T19) | [0027 계획과 평가 프로필 결속](0027-plan-evaluation-profile.md) |
-| 7.5·8.3 플랫폼 자체 서비스의 GitFlow·Helm·Argo CD 배포(T43, 제안) | [0028 플랫폼 GitOps 배포](0028-platform-gitops-delivery.md) |
+| 7.5·8.3 플랫폼 자체 서비스의 GitFlow·Helm·Argo CD 배포(T43) | [0029 플랫폼 GitOps 배포](0029-platform-gitops-delivery.md) |
 | 8.6 Executor 구현·실행·실패·권한 | [0006 Python 선택](0006-cutover-executor-language.md), [0011 실행 기록과 실패 판정](0011-cutover-executor-execution-and-failure.md), [0013 워크로드 접근](0013-executor-workload-access.md) |
+| 8.6 정방향 복제 시간 초과와 방향별 `disable_on_error`(T8) | [0030 복제 시간 초과 30초](0030-t8-replication-timeout.md) |
 | 6장 S4 · 8.6 되돌리기 전 복제 경로 확인 | [0016 되돌리기 전 복제 경로 확인](0016-failback-replication-path-check.md) |
 | 6장 S4 · 8.2 · 8.7 되돌리기 상태 머신 흐름(승인 · 전용 binding · ABORT 뒤 상태 · Edge만 재시도 · 기록) | [0022 되돌리기 상태 머신 흐름](0022-failback-state-machine-flow.md) |
 | 8.6 무결성 지문 생산자·소비자 | [0013 지문 생산자](0013-integrity-fingerprint-producer.md) |
@@ -29,6 +31,7 @@
 | 5.2·7.3·8.2·8.7 판정용 관측·진단 지표 | [0010 관측 경계](0010-observability-boundary.md) |
 | 7.3 목적지 감사 로그 저장소(T34)·목적지 Collector 분리(T37) | [0016 목적지 감사 로그 저장소](0016-target-audit-store.md) |
 | 7.3·8.11 의존성 3등급 규칙과 에이전트 보완 범위(T16·T32) | [0018 의존성 등급 규칙](0018-dependency-grading-rules.md) |
+| 7.4·8.3·8.4 플랫폼 감사 로그(실행별 체인 · Object Lock · 삭제 거부 증빙) | [0020 플랫폼 감사 로그](0020-platform-audit-ledger.md) |
 | 8.3·8.4 에이전트 도구 계층 경계(소스 경로 · 인벤토리 조회 · 정책 린트 · 파괴 시도 기록) | [0019 에이전트 도구 경계](0019-agent-tool-boundary.md) |
 | 7.1 6단계·FR-7 승인 반영(리허설 digest 승격 · diff 재해시 · SAFE_HOLD) | [0021 승인 반영 승격](0021-approved-change-promotion.md) |
 | 11·12장 브랜치·리뷰·CI 운영 규칙 | [0004 Gitflow](0004-gitflow-task-branches.md), [0005 병합 전 리뷰](0005-review-before-merge.md), [0014 비밀 이력 검사 범위](0014-secret-history-scope.md) |

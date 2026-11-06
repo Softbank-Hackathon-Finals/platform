@@ -314,6 +314,11 @@ def test_broker_child_receives_only_access_token_and_fixed_inputs(tmp_path, monk
     assert options["timeout"] == 210 and options["capture_output"]
     output = capsys.readouterr().out
     assert "PROPOSAL_READY" in output and "private-" not in output and "fixture" not in output
+    assert "--inventory" not in command  # T38 bridges build ``args`` without an inventory
+    args.inventory = tmp_path / "inventory.json"
+    assert subscription_admin.run_worker(store, directory, args) == 0
+    command = calls[1][0]
+    assert command[command.index("--inventory") + 1] == str(args.inventory.absolute())
 
 
 def test_model_catalog_uses_subscription_access_and_filters_hidden_models():

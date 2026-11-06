@@ -192,16 +192,29 @@ class InventorySummary(Contract):
 
     @classmethod
     def from_document(cls, doc: dict) -> "InventorySummary":
-        """Select the model-facing subset of a T16 document; everything else is dropped."""
+        """Select the model-facing subset of a T16 document; everything else is dropped.
+
+        The digest is recomputed with T16's rule (services/inventory ``report.py``:
+        canonical JSON of the document without ``generated_at`` and ``digest``), so a
+        changed document cannot keep the digest of the one it replaced."""
+        if not isinstance(doc, dict) or not isinstance(doc.get("app"), dict) or not isinstance(doc.get("items"), list):
+            raise ValueError("invalid inventory document")
+        body = {k: v for k, v in doc.items() if k not in ("generated_at", "digest")}
+        canonical = json.dumps(body, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False)
+        if doc.get("digest") != "sha256:" + hashlib.sha256(canonical.encode()).hexdigest():
+            raise ValueError("inventory digest mismatch")
         items = []
-        for item in doc.get("items", []):
-            refs = [{"file": r.get("file", ""), "line": int(r.get("line", 0)), "kind": r.get("kind", "")}
+        for item in doc["items"]:
+            if not isinstance(item, dict) or not isinstance(item.get("code_refs", []), list):
+                raise ValueError("invalid inventory item")
+            # No coercion: strict validation must see the document's own types.
+            refs = [{"file": r.get("file"), "line": r.get("line"), "kind": r.get("kind")} if isinstance(r, dict) else r
                     for r in item.get("code_refs", [])]
             items.append({key: item.get(key) for key in ("id", "role", "service", "found_in", "grade", "grade_by",
                                                           "rationale", "agent_needed", "risk")}
-                         | {"code_refs": refs, "target": dict(item.get("target", {}))})
-        return cls.model_validate({"schema_version": doc.get("schema_version"), "app_id": doc.get("app", {}).get("id"),
-                                   "source_sha": doc.get("app", {}).get("source_sha"), "digest": doc.get("digest"),
+                         | {"code_refs": refs, "target": item.get("target", {})})
+        return cls.model_validate({"schema_version": doc.get("schema_version"), "app_id": doc["app"].get("id"),
+                                   "source_sha": doc["app"].get("source_sha"), "digest": doc["digest"],
                                    "items": items})
 
 

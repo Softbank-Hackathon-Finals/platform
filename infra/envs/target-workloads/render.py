@@ -14,6 +14,10 @@ NAMESPACE = "target-dev"
 POSTGRES_IMAGE = "ghcr.io/cloudnative-pg/postgresql:18.4-system-trixie@sha256:42708a75345b7a48fdd9257b071830783a97fd228529196b6313187a7198e185"
 LABELS = {"app.kubernetes.io/part-of": "bravo-target", "component": "target"}
 SUBSCRIPTION_METRICS = "target-subscription-metrics"
+# CNPG's default is 5 s. On the relayed tailnet path a few seconds of congestion ended the forward connection on
+# both ends at once (2026-11-06). Each cluster sends one direction and receives the other, so both carry both
+# values; source-workloads/render.py must say the same. Both settings take effect on reload, without a restart.
+REPLICATION_TIMEOUTS = {"wal_sender_timeout": "30s", "wal_receiver_timeout": "30s"}
 # CNPG's exporter turns each column into cnpg_pg_subscription_<column> and caches results for 30 seconds. It runs
 # as cnpg_metrics_exporter, which may read every pg_subscription column named here but not subconninfo. A worker
 # that is still connecting already counts in apply_workers, so 1 does not prove rows are flowing; the source
@@ -32,6 +36,13 @@ SUBSCRIPTION_QUERIES = {"pg_subscription": {
         {"apply_workers": {"usage": "GAUGE", "description": "Apply workers that exist, connected or not"}},
     ],
 }}
+
+
+# One account per T30 workload, each without a role or a token: none of these Pods calls the Kubernetes API.
+# kube-bench (CIS 5.1.5, 5.1.6) counts a Pod on the namespace's default account, or on an account that leaves
+# the token unset, as a finding even when the Pod turns the token off itself.
+ACCOUNTS = ("demo-chat", "target-pgbouncer", "target-seaweedfs", "target-chat-schema", "target-probe",
+            "attachment-copy")
 
 
 def resource(api, kind, name, *, spec=None, namespaced=True, **fields):
@@ -88,7 +99,7 @@ def database(node_name):
             "parameters": {"wal_level": "logical", "password_encryption": "scram-sha-256",
                            "log_connections": "on", "log_disconnections": "on",
                            "pgaudit.log": "ddl,role", "pgaudit.log_parameter": "off",
-                           "log_statement": "none"},
+                           "log_statement": "none", **REPLICATION_TIMEOUTS},
             "pg_hba": ["hostnossl all all all reject",
                        "hostssl chat chat_owner all scram-sha-256",
                        "hostssl chat chat_app all scram-sha-256",
@@ -109,6 +120,12 @@ def database(node_name):
     return [namespace, storage, volume, subscription_metrics(), cluster]
 
 
+def accounts():
+    """Apply after the namespace and before any workload: a Pod whose account is missing is never created."""
+    return [resource("v1", "ServiceAccount", name, automountServiceAccountToken=False)
+            for name in ("default", *ACCOUNTS)]
+
+
 def migration():
     """Explicit new-database migration, separate from the T30 empty bootstrap."""
     config = resource("v1", "ConfigMap", "target-chat-schema-v1", data={
@@ -118,6 +135,7 @@ def migration():
         "backoffLimit": 0, "activeDeadlineSeconds": 300,
         "template": {"metadata": {"labels": LABELS.copy()}, "spec": {
             "restartPolicy": "Never", "automountServiceAccountToken": False,
+            "serviceAccountName": "target-chat-schema",
             "securityContext": {"runAsNonRoot": True, "runAsUser": 26, "runAsGroup": 26,
                                 "fsGroup": 26, "seccompProfile": {"type": "RuntimeDefault"}},
             "containers": [{"name": "migration", "image": POSTGRES_IMAGE,
@@ -149,10 +167,10 @@ def migration():
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("stage", choices=["database", "migration"])
+    parser.add_argument("stage", choices=["database", "accounts", "migration"])
     parser.add_argument("--node-name")
     args = parser.parse_args()
-    objects = database(args.node_name) if args.stage == "database" else migration()
+    objects = {"database": lambda: database(args.node_name), "accounts": accounts, "migration": migration}[args.stage]()
     print(json.dumps({"apiVersion": "v1", "kind": "List", "items": objects}, indent=2))
 
 

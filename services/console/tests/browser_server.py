@@ -9,14 +9,24 @@ from registration_fixture import install
 from test_app import setup
 from test_change_app import setup_change
 from test_reports import wire
+from test_security import Samples
+
+from bravo_console.security import PlanSecurity
 
 if __name__ == "__main__":
     with tempfile.TemporaryDirectory(prefix="t21-browser-") as root:
         app, store, state, _ = setup(
-            Path(root) / "state.db", origin="http://127.0.0.1:18121", workload_id="demo-chat"
+            Path(root) / "state.db", origin="http://127.0.0.1:18121", workload_id="demo-chat",
+            profile=("demo-gate", "1"),
         )
         install(app.api, store, state, Path(root))
         app.controls = wire(app.api)
+        # Synthetic findings, real T10 auth/plan binding and ConsoleApp route.
+        app.security = PlanSecurity(
+            app.api, Samples(),
+            environments={"env-source": "source", "env-target": "target"},
+            authorize=lambda *_: state["allowed"],
+        )
         # Separate durable stores/real T10 APIs for the two response-loss cases.
         # Fixtures exist only in this local test entry point, never ConsoleApp.
         apps = {}

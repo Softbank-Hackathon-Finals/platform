@@ -66,5 +66,10 @@ def run_admitted_attempt(admission: object, task: object, factory: AttemptFactor
             return AttemptResult("BLOCK", "ADMISSION_PORT_MISMATCH")
     except Exception:
         return AttemptResult("NEEDS_HUMAN", "ADMISSION_CHECK_UNAVAILABLE")
+    if ports.exec_phase is not None:
+        from .exec_flow import run_with_exec
+
+        return run_with_exec(task, ports.proposer, ports.exec_phase, ports.lifecycle, ports.isolation,
+                             ports.verifier, admission.attempt)
     return run_once(task, ports.proposer, ports.lifecycle, ports.isolation, None,
                     isolated_verifier=ports.verifier)

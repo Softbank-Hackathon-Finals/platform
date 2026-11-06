@@ -14,7 +14,7 @@ import jsonschema
 from .capabilities import fit, load_profile, observe, resolve
 from .deploy_trace import DeployAdapter, DeployGraph
 from .reconcile import reconcile
-from .static_scan import scan_repo
+from .static_scan import scan_repo, scanned_files
 
 SCHEMA = json.loads(resources.files("bravo_inventory").joinpath("schemas/inventory.schema.json").read_text(encoding="utf-8"))
 
@@ -24,13 +24,14 @@ def _digest(data: Any) -> str:
 
 
 def repo_digest(root: Path, app_path: str) -> str:
+    """Hash of exactly the files the scanners read (Python under ``app_path`` and configuration
+    repo-wide), keyed by repo-relative path so the value does not depend on the checkout location."""
+    root = Path(root).resolve()
     h = hashlib.sha256()
-    base = (root / app_path).resolve()
-    for p in sorted(base.rglob("*")):
-        rel = p.relative_to(root).as_posix()
-        if p.is_file() and not p.is_symlink() and not any(part in {".git", ".venv", "node_modules", "__pycache__"} for part in p.relative_to(root).parts):
-            h.update(rel.encode())
-            h.update(p.read_bytes())
+    for p in scanned_files(root, app_path):
+        rel = p.relative_to(root).as_posix().encode()
+        data = p.read_bytes()
+        h.update(len(rel).to_bytes(8, "big") + rel + len(data).to_bytes(8, "big") + data)
     return "sha256:" + h.hexdigest()
 
 
@@ -47,6 +48,7 @@ def build_inventory(
     adapter: DeployAdapter | None,
     profiles: list[Path],
     exports: dict[str, Path] | None = None,
+    repo_ref: str | None = None,
     source_sha: str | None = None,
     now: datetime | None = None,
 ) -> dict:
@@ -74,7 +76,8 @@ def build_inventory(
     deploy = graph.as_dict() if graph else {"namespace": source_env["namespace"], "workloads": [], "resources": [], "api_calls": [], "notes": ["배포 추적 없음: 어댑터 미지정"]}
     doc = {
         "schema_version": "1.0",
-        "app": {"id": app_id, "repo": str(repo), "app_path": app_path, "source_sha": source_sha},
+        # Registered repo reference, never the local checkout path (home directory, checkout-dependent digest).
+        "app": {"id": app_id, "repo": repo_ref or repo.name, "app_path": app_path, "source_sha": source_sha},
         "source": dict(source_env),
         "generated_at": (now or datetime.now(UTC)).isoformat(timespec="seconds").replace("+00:00", "Z"),
         "inputs": {"repo_digest": repo_digest(repo, app_path), "deploy_digest": _digest(deploy), "api_calls": deploy["api_calls"]},

@@ -79,19 +79,21 @@ def execute_fixture(settings, web_token, run_id):
             "expires_at_increased": after.get("expires_at", 0) > before.get("expires_at", 0)}
 
 
+def authenticate_product(settings, token):
+    """STS validates the existing broker trust before either product input is read."""
+    config = Config(retries={"total_max_attempts": 1}, connect_timeout=10, read_timeout=20)
+    identity = boto3.client("sts", region_name=settings["region"], config=config).assume_role_with_web_identity(
+        RoleArn=settings["broker_role_arn"], RoleSessionName="bravo-subscription-vm",
+        WebIdentityToken=token, DurationSeconds=900)
+    subject = {key: identity[key] for key in ("Provider", "Audience", "SubjectFromWebIdentityToken")}
+    if not all(isinstance(value, str) and value for value in subject.values()):
+        raise ValueError("missing authenticated principal")
+    return ProductAccess(digest(subject), identity["Credentials"])
+
+
 def product_service(settings, inputs, journal_root, *, request_inputs=None):
     """Host-only opt-in. No CLI setting can substitute an unauthenticated reader."""
-    def authenticate(token):
-        config = Config(retries={"total_max_attempts": 1}, connect_timeout=10, read_timeout=20)
-        identity = boto3.client("sts", region_name=settings["region"], config=config).assume_role_with_web_identity(
-            RoleArn=settings["broker_role_arn"], RoleSessionName="bravo-subscription-vm",
-            WebIdentityToken=token, DurationSeconds=900)
-        subject = {key: identity[key] for key in ("Provider", "Audience", "SubjectFromWebIdentityToken")}
-        if not all(isinstance(value, str) and value for value in subject.values()):
-            raise ValueError("missing authenticated principal")
-        return ProductAccess(digest(subject), identity["Credentials"])
-
-    return ProductService(ProposalJournal(journal_root), authenticate, inputs,
+    return ProductService(ProposalJournal(journal_root), lambda token: authenticate_product(settings, token), inputs,
                           lambda *args: invoke_product_worker(settings, *args), settings["source_sha"],
                           request_inputs=request_inputs)
 

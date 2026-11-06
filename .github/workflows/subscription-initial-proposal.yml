@@ -1,0 +1,97 @@
+name: subscription-initial-proposal
+run-name: product-${{ inputs.request_id }}
+on:
+  workflow_dispatch:
+    inputs:
+      request_id:
+        description: Opaque durable T10 execution intent ID
+        required: true
+        type: string
+      input_ref:
+        description: Registered immutable product input reference
+        required: true
+        type: string
+      input_digest:
+        description: SHA256 of the registered product input
+        required: true
+        type: string
+      plan_id:
+        description: Current initial PROPOSE plan
+        required: true
+        type: string
+      plan_version:
+        description: Current initial PROPOSE version
+        required: true
+        type: number
+      binding_digest:
+        description: Digest of the canonical InitialBinding
+        required: true
+        type: string
+      purpose:
+        description: Explicit initial proposal purpose
+        required: true
+        type: choice
+        options: [t38-initial-proposal]
+      runtime_source_sha:
+        description: Exact reviewed and installed develop commit, also this workflow revision
+        required: true
+        type: string
+      recipient_public_key:
+        description: Per-execution operator X25519 public key (64 hex); never a private key
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: bravo-subscription-vm
+  cancel-in-progress: false
+
+jobs:
+  product:
+    if: github.ref == 'refs/heads/develop' && github.event_name == 'workflow_dispatch' && vars.BRAVO_SUBSCRIPTION_RUNTIME_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      PRODUCT_INTENT: ${{ toJSON(inputs) }}
+      PRODUCT_WORKFLOW_SHA: ${{ github.workflow_sha }}
+      PRODUCT_BROKER_CA_PEM: ${{ vars.BRAVO_SUBSCRIPTION_BROKER_CA_PEM }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.workflow_sha }}
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          version: 0.10.2
+      - name: Validate the exact single execution before credentials
+        working-directory: services/platform-events
+        run: uv run --frozen --no-dev --group product-inputs python -m bravo_platform_events.initial_proposal_execution --preflight
+      - name: Install the pinned AWS tunnel client
+        run: |
+          curl --fail --silent --show-error --location https://s3.amazonaws.com/session-manager-downloads/plugin/1.2.764.0/ubuntu_64bit/session-manager-plugin.deb -o /tmp/session-manager-plugin.deb
+          echo 'beed4c95c42afd29756d9ecea59c3fcbf937b2c35b9ef84d12b93ac6e74726ba  /tmp/session-manager-plugin.deb' | sha256sum -c -
+          sudo dpkg -i /tmp/session-manager-plugin.deb
+      - uses: aws-actions/configure-aws-credentials@cabfdba3510de1431bac9dba27511d97497fc100 # v5
+        with:
+          role-to-assume: ${{ secrets.BRAVO_SUBSCRIPTION_CONTROLLER_ROLE_ARN }}
+          role-session-name: BravoProduct
+          aws-region: ap-northeast-2
+          role-duration-seconds: 900
+          mask-aws-account-id: true
+      - name: Make one product request and close its fixed SSM window
+        working-directory: services/platform-events
+        env:
+          BRAVO_INSTANCE_ID: ${{ secrets.BRAVO_SUBSCRIPTION_INSTANCE_ID }}
+        run: uv run --frozen --no-dev --group product-inputs python -m bravo_platform_events.initial_proposal_execution
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: subscription-product-result
+          path: services/platform-events/product-result.json
+          retention-days: 7
+          if-no-files-found: ignore

@@ -1,9 +1,9 @@
 """Remove each safety property from a temporary copy and require the Job and verdict tests to fail.
 
 Proves those tests measure the properties instead of merely passing. The repository files are
-never edited, and only the standard library is needed.
+never edited, and only the standard library is needed. The image script requires Python 3.12.
 
-    python3 scripts/tests/attachment_job_mutation_check.py OUTPUT.json
+    uv run --no-project --python 3.12 python scripts/tests/attachment_job_mutation_check.py OUTPUT.json
 """
 import json
 import os
@@ -16,9 +16,11 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 WORKLOADS = HERE.parents[1] / "infra/envs/target-workloads"
+SCRIPTS = HERE.parent
 JOB, VERDICT, DOCKERFILE = "attachment_job.py", "attachment_verdict.py", "attachment-copy.Dockerfile"
+IMAGE = "attachment_image.py"
 # Only a test method counts. A crash at import or in setup measures nothing.
-RESULT_LINE = re.compile(r"^(?:FAIL|ERROR): (test_\w+) \(test_attachment_(?:job|verdict)\.", re.MULTILINE)
+RESULT_LINE = re.compile(r"^(?:FAIL|ERROR): (test_\w+) \(test_attachment_(?:job|verdict|image)\.", re.MULTILINE)
 
 MUTATIONS = [
     ("one_attempt", JOB, '"backoffLimit": 0', '"backoffLimit": 1'),
@@ -28,6 +30,7 @@ MUTATIONS = [
     ("cleanup_time_present", JOB, '"ttlSecondsAfterFinished": CLEANUP_SECONDS', '"suspend": False'),
     ("no_restart", JOB, '"restartPolicy": "Never"', '"restartPolicy": "OnFailure"'),
     ("no_service_account_token", JOB, '"automountServiceAccountToken": False', '"automountServiceAccountToken": True'),
+    ("own_service_account", JOB, '"serviceAccountName": "attachment-copy",', ""),
     ("non_root", JOB, '"runAsNonRoot": True', '"runAsNonRoot": False'),
     ("seccomp_profile", JOB, '"seccompProfile": {"type": "RuntimeDefault"}', '"fsGroup": 10001'),
     ("no_privilege_escalation", JOB, '"allowPrivilegeEscalation": False', '"allowPrivilegeEscalation": True'),
@@ -71,6 +74,8 @@ MUTATIONS = [
     ("extras_off_by_default", JOB, "if with_approved_extras:", "if True:"),
     ("extras_mount_read_only", JOB, '"mountPath": extras_directory, "readOnly": True', '"mountPath": extras_directory'),
     ("session_outlives_deadline", JOB, "SOURCE_SESSION_SECONDS = 1800", "SOURCE_SESSION_SECONDS = 300"),
+    ("session_within_role_chaining", JOB, "SOURCE_SESSION_SECONDS = 1800", "SOURCE_SESSION_SECONDS = 7200"),
+    ("session_name_matches_guide", JOB, 'SOURCE_SESSION_NAME = "t8-attachment-copy"', 'SOURCE_SESSION_NAME = "t8-copy"'),
     ("target_address", JOB, 'TARGET_HOST = f"seaweedfs.', 'TARGET_HOST = f"other.'),
     ("memory_above_peak", JOB, '"memory": "256Mi"', '"memory": "64Mi"'),
     ("policy_read_only", JOB, '"Action": "s3:GetObject", "Resource": objects', '"Action": "s3:*", "Resource": objects'),
@@ -83,11 +88,61 @@ MUTATIONS = [
     ("policy_bucket_arn_exact", JOB, r'r"arn:aws:s3:::[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]"', r'r".*"'),
     ("policy_key_arn_exact", JOB, r':key/[0-9a-f-]{36}"', r':[a-z]+/[0-9a-f-]{36}"'),
 
-    ("image_pinned_base", DOCKERFILE, "@sha256:e697c81897302a4c4333bade000d98038fbb21eb064f8ee1fd42d02ebcd9d337", ""),
+    ("image_pinned_base", DOCKERFILE, "@sha256:da54eb86849fe19be7584d8b3f291fcf0c53c196760ab3d70dc6382f681ef9c0", ""),
     ("image_runs_non_root", DOCKERFILE, "USER 10001:10001\n", ""),
     ("image_hash_locked", DOCKERFILE, " --require-hashes", ""),
     ("image_app_searchable", DOCKERFILE, "WORKDIR /app\n", ""),
     ("image_has_copy_modules", DOCKERFILE, " attachment_stores.py", ""),
+
+    ("image_source_must_be_reviewed", IMAGE,
+     '    run(["git", "-C", str(repo), "merge-base", "--is-ancestor", source, "origin/develop"], "source_not_reviewed")\n', ""),
+    ("image_source_name_checked", IMAGE, "    executor_image.source_sha(source)\n    run([", "    run(["),
+    ("image_context_inventory_exact", IMAGE, "if sorted(m.name for m in stored.getmembers() if m.isfile()) != sorted(CONTEXT_FILES):", "if False:"),
+    ("image_base_pinned", IMAGE, r'@sha256:[0-9a-f]{64}", bases[0])', r'.*", bases[0])'),
+    ("image_single_base", IMAGE, "len(bases) != 1 or ", "not bases or "),
+    ("image_single_platform", IMAGE, '"--platform", platform, "--provenance=mode=max"', '"--provenance=mode=max"'),
+    ("build_follows_platform", IMAGE, '"--platform", platform, "--provenance', '"--platform", "linux/amd64", "--provenance'),
+    ("image_provenance", IMAGE, '"--provenance=mode=max",', '"--provenance=mode=min",'),
+    ("image_sbom", IMAGE, 'f"--sbom=generator={SBOM_GENERATOR}",', '"--sbom=false",'),
+    ("image_named_for_attestation", IMAGE, '"-t", f"{IMAGE_NAME}:sha-{source}",', ""),
+    ("image_revision_label", IMAGE, '"--label", f"org.opencontainers.image.revision={source}",', ""),
+    ("image_oci_output", IMAGE, "tar=false", "tar=true"),
+    ("image_mirror_keeps_digest", IMAGE, "docker-image://mirror.gcr.io/library/{base}", "docker-image://mirror.gcr.io/library/python:latest"),
+    ("scan_vulnerabilities_and_secrets", IMAGE, '"--scanners", "vuln,secret"', '"--scanners", "vuln"'),
+    ("scan_severity", IMAGE, '"--severity", "HIGH,CRITICAL"', '"--severity", "CRITICAL"'),
+    ("scan_stops_on_findings", IMAGE, '"--exit-code", "1"', '"--exit-code", "0"'),
+    ("scan_read_only", IMAGE, "{layout}:/layout:ro", "{layout}:/layout"),
+    ("scan_image_pinned", IMAGE, ":0.70.0@sha256:be1190afcb28352bfddc4ddeb71470835d16462af68d310f9f4bca710961a41e", ":0.70.0"),
+    ("scan_ran", IMAGE, '        run(scan_command(layout, scan), "image_scan")\n', ""),
+    ("scan_report_checked", IMAGE, 'summary = executor_image.scan_summary(json.loads((scan / "trivy.json").read_text()))', "summary = {}"),
+    ("layout_verified", IMAGE, "inventory = verify_layout(layout, digest, source, platform)", "inventory = None"),
+    ("verify_follows_platform", IMAGE, 'architecture=platform.removeprefix("linux/")', 'architecture="amd64"'),
+    ("archive_verified", IMAGE, "if verify_archive(staged, digest, source, work, platform) != inventory:", "if False:"),
+    ("archive_names_checked", IMAGE, "not all(ARCHIVE_MEMBER.fullmatch(name) for name in names)", "False"),
+    ("archive_links_refused", IMAGE, "not all(member.isfile() for member in stored.getmembers())", "False"),
+    ("archive_duplicates_refused", IMAGE, "len(names) != len(set(names))", "False"),
+    ("archive_extraction_filtered", IMAGE, 'stored.extractall(temporary, filter="data")\n        return verify_layout(Path(temporary), digest, source, platform)',
+     'stored.extractall(temporary, filter="data")\n        return {}'),
+    ("archive_owner_cleared", IMAGE, "member.mode = 0o644", "member.mode = 0o600"),
+    ("probe_ran", IMAGE, "        runtime_probe(staged, digest, source, platform)\n", ""),
+    ("probe_follows_platform", IMAGE, '"--platform", platform, "--network"', '"--platform", "linux/amd64", "--network"'),
+    ("probe_result_checked", IMAGE, 'if b"attachment_runtime_probe=pass" not in output:', "if False:"),
+    ("probe_has_no_network", IMAGE, '"--network", "none", ', ""),
+    ("probe_read_only", IMAGE, '"--read-only",', ""),
+    ("probe_no_capabilities", IMAGE, '"--cap-drop", "ALL", ', ""),
+    ("probe_image_removed", IMAGE, "        remove_loaded_image(tag)\n", "        pass\n"),
+    ("output_not_overwritten", IMAGE, "if archive.exists() or receipt_path.exists():", "if False:"),
+    ("failure_drops_tool_output", IMAGE, 'raise Failure(phase + "_failed")', 'raise Failure(result.stdout.decode())'),
+    ("unexpected_error_text_dropped", IMAGE, '"error_code": "invalid_local_state"', '"error_code": "invalid_local_state", "detail": str(sys.exc_info()[1])'),
+    ("python_version_checked", IMAGE, "if PYTHON < (3, 12):", "if False:"),
+    ("private_umask", IMAGE, "        os.umask(0o077)\n", ""),
+    ("receipt_binds_archive", IMAGE, '"archive_sha256": checksum', '"archive_sha256": "0"'),
+    ("receipt_names_platform", IMAGE, '"platform": platform,', '"platform": "linux/amd64",'),
+    ("archive_named_for_architecture", IMAGE, "-{platform.removeprefix('linux/')}\"", '\"'),
+    ("platform_default_amd64", IMAGE, 'default="linux/amd64"', 'default="linux/arm64"'),
+    ("platform_choices_closed", IMAGE, "choices=PLATFORMS, ", ""),
+    ("receipt_makes_no_vm_claim", IMAGE, '"target_import_verified": False', '"target_import_verified": True'),
+    ("import_keeps_attestations", IMAGE, '"--all-platforms", ', ""),
 
     ("job_identity_checked", VERDICT, "if not _job_is_as_rendered(job, run_id, plan_id, epoch, image):", "if False:"),
     ("job_uid_required", VERDICT, '_matching(KUBERNETES_UID, _dig(job, "metadata", "uid")) is not None', "True"),
@@ -169,9 +224,10 @@ MUTATIONS = [
 
 
 def run_tests(directory):
-    environment = {**os.environ, "T8_ATTACH_MODULE_DIR": str(directory), "PYTHONDONTWRITEBYTECODE": "1"}
+    environment = {**os.environ, "T8_ATTACH_MODULE_DIR": str(directory), "T8_ATTACH_SCRIPTS_DIR": str(directory),
+                   "PYTHONDONTWRITEBYTECODE": "1"}
     return subprocess.run([sys.executable, "-m", "unittest", "discover", "-s", str(HERE),
-                           "-p", "test_attachment_[jv]*.py"], capture_output=True, text=True, timeout=300,
+                           "-p", "test_attachment_[jvi]*.py"], capture_output=True, text=True, timeout=300,
                           env=environment, check=False)
 
 
@@ -181,6 +237,8 @@ def main():
     with tempfile.TemporaryDirectory(prefix="t8-job-mutation-") as temporary:
         directory = Path(temporary, "workloads")
         shutil.copytree(WORKLOADS, directory, ignore=shutil.ignore_patterns("testing", "__pycache__"))
+        for name in (IMAGE, "executor_image.py"):
+            shutil.copy(SCRIPTS / name, directory / name)
         baseline = run_tests(directory)
         if baseline.returncode:
             print(baseline.stderr[-2000:], file=sys.stderr)

@@ -60,6 +60,45 @@ provider network는 기본 Cloudflare만 지원한다. `adaptive_routing.failove
 
 ## 검증과 남은 통합
 
+### T10 저장소와 단계 진행 호스트
+
+`bravo_edge_control.host.ShiftHost`는 기존 T10 `PlanStore` 또는
+`PostgresPlanStore`의 계획 잠금을 사용한다. 별도 상태 머신이나 HTTP 서버를
+만들지 않는다. `start`는 10%, `advance`는 현재 10%에서 50%, 50%에서 100%로만
+진행한다. `restore`는 0%로 복귀한다. 매 관측 창마다 `observe`를 호출하면 저장된
+T18 창으로 T36의 정본 `judge`를 실행하고, `SET_WEIGHT_0`일 때 기존 Controller로
+복귀 명령을 보낸다. 수신기가 창을 저장했다는 사실만으로 이 호출이 실행되지는
+않으므로 운영 호스트가 같은 계획의 관측 주기에 연결해야 한다.
+
+호스트의 필수 `authority(connection, principal, plan)`는 같은 transaction에서
+실제 운영자 권한·승인 철회·현재 T19 원문과 보류 상태를 확인한 뒤 `CurrentShift`를
+반환한다. 값은 승인 ID, 실제 실행 ID, 권한·게이트 revision, 서버가 선택한 T36
+프로필, 등록된 LB binding이다. 기본 정책이나 클라이언트 입력을 이 객체로 바꾸는
+경로는 없다. `True`만 반환하는 callback은 거부한다. 호출자가 이 객체를 만들었다는
+사실도 현재 권한을 입증하지 않으므로 운영 원문을 읽는 구현을 반드시 연결해야 한다.
+
+ShiftHost는 실제 T10의 `workflow:<version>` SHIFT 승인 체크포인트와 계획 digest,
+목적지, 승인 ID·유효기간을 대조한다. 준비한 명령을 `plan_commands`에 먼저 commit한
+뒤 같은 계획 잠금에서 권한을 다시 확인하고 실행한다. provider GET 동안 만료된
+승인이나 관측 창도 PATCH 직전에 다시 검사한다. 현재 단계의 확인 영수증과 유효한
+`ADVANCE_ALLOWED`가 없으면 다음 가중치를 요청하지 않는다. 원격 효과 후 T10 기록이
+실패하면 같은 명령으로 기존 Controller journal을 재조회하며 PATCH를 재전송하지 않는다.
+
+판정 원문과 요청·조회 영수증은 기존 `plan_commands`에 보존한다. 같은 관측을 빠르게
+반복 조회해 UNKNOWN 수를 늘리지 않는다. 관측이 계속 없거나 오래된 경우에는 서버
+시간의 프로필 창당 한 번씩 UNKNOWN을 누적한다. 이 프로필은 계획의 T5 보안 프로필과
+별도로 현재 승인된 실행에 결속되며, 제안 프로필을 measured로 승격하지 않는다.
+
+이 모듈의 시험은 실제 T10 SQLite 저장소, 정본 T36 판정과 모의 Cloudflare를 사용한다.
+운영자 인증·현재 grant/T19 authority와 실행 창의 설치는 여전히 운영 호스트에서 해야
+한다. 모듈 시험을 실제 10/50/100/0 또는 S1→S4 완료로 표시하지 않는다.
+
+저장소를 함께 설치할 때는 이 디렉터리에서 `uv sync --frozen --no-dev --extra t10-host`를
+사용한다. SQLite·PostgreSQL PlanStore를 포함하며 현재 권한 callback이나 서버 자격을
+설치하지 않는다. T10과 T17의 관측 패키지 소스 pin이 달라 기본 합성 설치가 실패하므로,
+이 호스트 환경은 기존 T17 pin 하나로 해석하도록 고정했다. 두 원본의 contract·intake·
+judge·schema·프로필은 동일함을 대조했다. T10 자체 프로젝트의 pin은 바꾸지 않는다.
+
 ```sh
 uv sync --frozen
 uv run ruff check .

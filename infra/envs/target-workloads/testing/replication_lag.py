@@ -62,7 +62,8 @@ TARGET_SCHEMA = "infra/envs/target-workloads/schema.sql"
 TARGET_SCHEMA_REF = "origin/feature/T8-replication-runtime"
 SUBSCRIPTION = "t8_source_to_target"
 # Same parameters as the #131 forward subscription (replication.py), except TLS and password,
-# which this disposable pair does not have.
+# which this disposable pair does not have. disable_on_error stays true as it was then: the recovery
+# labs reproduce a subscription that turned itself off. replication.py now renders the forward as false.
 SUBSCRIPTION_OPTIONS = ("enabled=true, copy_data=true, create_slot=true, "
                         f"slot_name='{SUBSCRIPTION}', origin=none, binary=false, streaming=on, "
                         "disable_on_error=true, run_as_owner=false")

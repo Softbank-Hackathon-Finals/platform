@@ -11,6 +11,10 @@ What is real: k3s with Pod Security and NetworkPolicy enforced, the rendered Job
 SeaweedFS image and arguments, libpq verify-full against PostgreSQL with the repository schema and
 role, and the operator's Secret recipe from the operations guide.
 
+The copy image is the operator's OCI index and archive from attachment_image.py, imported with the guide's
+ctr arguments. It is built for this machine's architecture: containerd does not start a linux/amd64-only
+index on an arm64 node, and an emulated amd64 node has no seccomp, which the restricted Job requires.
+
 What stands in: MinIO answers as s3.<region>.amazonaws.com through hostAliases and a test CA mounted
 over the SDK's bundle, so the Job's environment stays as rendered and no test endpoint is set. MinIO's
 STS and session policy stand in for AWS STS and IAM. A selector-less Service stands in for the Tailscale
@@ -32,8 +36,10 @@ REPO = Path(__file__).resolve().parents[2]
 WORKLOADS = REPO / "infra/envs/target-workloads"
 GUIDE = REPO / "docs/operations/t8-attachment-copy-job.md"
 sys.path.insert(0, str(WORKLOADS))
+sys.path.insert(0, str(REPO / "scripts"))
 
 import attachment_containers
+import attachment_image
 import attachment_job
 import objects as object_store
 import render
@@ -154,6 +160,38 @@ def build_images(directory):
     docker("buildx", "build", "--load", "-t", BROKEN_TAG, "-f", str(broken), directory, timeout=300)
 
 
+def build_copy_archive(directory):
+    """The operator's build command and packing, for this node's architecture."""
+    architecture = docker("version", "--format", "{{.Server.Arch}}").stdout.strip()
+    source = run("git", "-C", str(REPO), "rev-parse", "HEAD").stdout.strip()
+    layout, metadata = Path(directory, "copy-layout"), Path(directory, "copy-metadata.json")
+    base = attachment_image.pinned_base((WORKLOADS / attachment_image.DOCKERFILE).read_text())
+    run(*attachment_image.build_command(source, base, WORKLOADS, layout, metadata, "linux/" + architecture), timeout=600)
+    digest = json.loads(metadata.read_text())["containerimage.digest"]
+    archive = Path(directory, "copy-image.tar")
+    attachment_image.pack(layout, archive)
+    return archive, digest, source
+
+
+def import_copy_archive(archive, digest, source):
+    """Follow the guide: import, then add the digest name only if import did not create it."""
+    def images():
+        return docker("exec", K3S_CONTAINER, "ctr", "-n", "k8s.io", "images", "ls").stdout
+
+    pinned = f"{attachment_image.IMAGE_NAME}@{digest}"
+    docker("cp", str(archive), K3S_CONTAINER + ":/tmp/attachment-copy.tar")
+    docker("exec", K3S_CONTAINER, "ctr", "-n", "k8s.io", *attachment_image.IMPORT_ARGUMENTS, "/tmp/attachment-copy.tar")
+    tag = f"{attachment_image.IMAGE_NAME}:sha-{source}"
+    listing = images()
+    tagged = next((line for line in listing.splitlines() if line.startswith(tag + " ")), "")
+    created = pinned in listing
+    if digest not in tagged:
+        raise RuntimeError("the imported name does not hold the built digest")
+    if not created:
+        docker("exec", K3S_CONTAINER, "ctr", "-n", "k8s.io", "images", "tag", tag, pinned)
+    return pinned, {"digest_name_created_by_import": created}
+
+
 def start_source(directory):
     """MinIO on port 443 as the real S3 host name, so the SDK resolves the endpoint itself."""
     root = (secrets.token_hex(10), secrets.token_hex(20))
@@ -192,13 +230,13 @@ def source_state(source):
 
 
 def source_session(source):
-    """Same response shape as `aws sts get-federation-token`, narrowed by a session policy."""
+    """Same response shape as `aws sts assume-role` in the guide, narrowed by a session policy."""
     # Only the rendered S3 statements with an Action: MinIO does not model the KMS allow, and the
     # NotAction deny names that KMS action. So this does not evaluate the deny of other actions.
     policy = attachment_job.source_session_policy(SOURCE_BUCKET_ARN, SOURCE_KMS_KEY_ARN)
     policy["Statement"] = [s for s in policy["Statement"] if "s3:" in json.dumps(s.get("Action", ""))]
     response = source_client(source, service="sts").assume_role(
-        RoleArn="arn:minio:iam:::role/t8-job", RoleSessionName="t8-attachment-copy",
+        RoleArn="arn:minio:iam:::role/t8-job", RoleSessionName=attachment_job.SOURCE_SESSION_NAME,
         DurationSeconds=attachment_job.SOURCE_SESSION_SECONDS, Policy=json.dumps(policy))
     return response["Credentials"]
 
@@ -760,6 +798,7 @@ def main():
             issue_certificates(directory)
             docker("network", "create", "--subnet", SUBNET, guarded(NETWORK))
             build_images(directory)
+            copy_archive, copy_digest, copy_source = build_copy_archive(directory)
             fetch_object_store_image()
             source = start_source(directory)
             wait_for(lambda: source_client(source).list_buckets() is not None, 120, "stand-in S3")
@@ -773,11 +812,12 @@ def main():
             node = cluster.kubectl("get", "nodes", "-o", "jsonpath={.items[0].metadata.name}").stdout
             namespace, storage = render.database(node)[:2]
             cluster.apply(namespace, storage)
+            cluster.apply(*render.accounts())
             import_image(STORE_REFERENCE, "amd64")
             architecture = docker("image", "inspect", COPY_TAG, "--format", "{{.Architecture}}").stdout.strip()
-            import_image(COPY_TAG, architecture)
             import_image(BROKEN_TAG, architecture)
-            images = {"copy": pinned_reference(COPY_TAG), "broken": pinned_reference(BROKEN_TAG)}
+            copy_reference, import_observation = import_copy_archive(copy_archive, copy_digest, copy_source)
+            images = {"copy": copy_reference, "broken": pinned_reference(BROKEN_TAG)}
 
             client, bootstrap = deploy_object_store(cluster, node)
             in_cluster(cluster, images["copy"], "t8-job-bootstrap", "t8-job-bootstrap", "K", "S", BOOTSTRAP_SCRIPT)
@@ -828,7 +868,7 @@ def main():
                       "cluster": "k3s, not RKE2"},
         "images": image_records(), "python": sys.version.split()[0],
         "checks_total": len(checks), "checks_passed": len(checks) - len(failed), "checks_failed": failed,
-        "checks": checks, "observations": route_opening, "sample": sample,
+        "checks": checks, "observations": {**route_opening, "copy_image_import": import_observation}, "sample": sample,
         "seconds": round(time.time() - started),
     }, indent=2, ensure_ascii=False) + "\n")
     print(f"{len(checks) - len(failed)}/{len(checks)} checks passed in {round(time.time() - started)}s")

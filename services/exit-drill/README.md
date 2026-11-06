@@ -43,6 +43,8 @@ T16 인벤토리 ─────────┼─→ render ──→ 계획(�
 
 AWS 경로는 명세에 적지 않는다. **인벤토리가 쓴다고 한 서비스마다 자동으로 차단 시험 대상이 된다.** 같은 입력이면 같은 계획이 나오고, 경로 순서를 바꿔도 해시가 같다. 재시작으로 Pod UID가 바뀌어도 같은 계획이다.
 
+**밖에서 들어오는 경로(`edge` 역할)는 정책으로 고르지 않는다.** Cloudflare Tunnel connector(`cloudflared`)처럼 공개 트래픽을 앱 Service로 넘기는 Pod다. 송신을 좁히면 공개 경로가 끊긴다. 명세에 그 Pod가 기대는 잔존 의존성(`residual`)을 적으면 지도의 그 항목 "목적지 구현" 칸에 나온다. 시험 대상이 아니라서 터널이 내려가 있어도 드릴은 돈다.
+
 ## 만들지 않고 실패하는 경우
 
 복제를 끊거나 AWS 경로를 남기는 입력은 `render`가 거부한다(종료 코드 1). 위반을 한 번에 모두 알린다.
@@ -60,6 +62,8 @@ AWS 경로는 명세에 적지 않는다. **인벤토리가 쓴다고 한 서비
 | `LOCAL_ROUTE_LEAVES_CLUSTER` | 내부 경로라면서 외부 주소나 tailnet 프록시를 가리킨다 |
 | `SELECTOR_MATCHES_NOTHING` | 오타 난 선택자의 정책은 조용히 아무것도 막지 않는다 |
 | `CONTROL_SELECTED` · `NO_CONTROL` | 대조군이 차단되거나 없으면 대상이 살아 있는지 잴 수 없다 |
+| `EDGE_SELECTED` | 앱 선택자가 터널(`edge`) Pod까지 고른다. 차단하면 공개 경로가 끊긴다 |
+| `UNKNOWN_RESIDUAL` | `edge`가 잇는 잔존 의존성이 인벤토리에도 명세의 `declared_residuals`에도 없다 |
 | `CONTAINER_NOT_IN_POD` | 명세의 앱 컨테이너 이름이 Pod에 없다. 드릴을 다 돌린 뒤 판정 불가가 되기 전에 멈춘다 |
 | `OWNER_ROLE_MISMATCH` · `UNKNOWN_WORKLOAD` · `DUPLICATE_ROUTE` · `POLICY_NAME_CONFLICT` · `NO_REPLICATION_ROUTE` · `NO_SOURCE_ROUTE` · `NO_AWS_CLIENT` · `EMPTY_SELECTOR` | 명세 자체의 모순 |
 
@@ -135,6 +139,8 @@ T30의 개발 측정용 앱은 같은 Pod의 호환 컨테이너가 Secrets Mana
 
 드릴을 돌리지 않아도 지도는 나온다(`--report` 없이, 판정 `NOT_RUN`). 판정이 통과하지 못했으면 그 이유를 `drill_not_pass`에, T16이 후보에 없다고 한 기능을 `candidate_missing_capabilities`에 함께 적는다.
 
+T16이 배포를 따라가며 남긴 메모(`deploy.notes`)는 `inventory_trace_notes`에 그대로 옮기고, Markdown 맨 위 **인벤토리 추적 메모**에 보인다. 출발지 내보내기를 못 읽었으면 여기에 나온다. 못 읽은 입력이 있으면 아래 항목의 근거가 그만큼 좁다. T16 스키마가 요구하는 필드라 없거나 글자 목록이 아니면 인벤토리를 받지 않는다.
+
 ## 실행
 
 ```sh
@@ -170,7 +176,7 @@ uv run python tests/integration/verify_real_run.py --out <폴더>   # 실행 안
 uv run python tests/integration/mutation_check.py --out mutation-results.json
 ```
 
-결과와 재지 못한 것은 [증거 문서](../../docs/evidence/t27-exit-drill-2026-11-04/README.md)와 [실행 준비 증거](../../docs/evidence/t27-real-run-prep-2026-11-06/README.md)에 있다.
+결과와 재지 못한 것은 [증거 문서](../../docs/evidence/t27-exit-drill-2026-11-04/README.md)와 [실행 준비 증거](../../docs/evidence/t27-real-run-prep-2026-11-06/README.md)에 있다. 실제 `target-dev`의 1단계 결과는 [실제 지도 증거](../../docs/evidence/t27-real-map-2026-11-06/README.md)에 있다.
 
 ## 명세 값의 출처
 
@@ -183,6 +189,7 @@ uv run python tests/integration/mutation_check.py --out mutation-results.json
 | 풀러 `app=target-pgbouncer`, 컨테이너 `target-pgbouncer`, Pod 포트 5432 | T30 `pooler.py` | PR #131 |
 | DB `cnpg.io/cluster=target-db` | T30 `render.py` | PR #131 |
 | 객체 저장소 `target-seaweedfs`, 8333 | T30 `objects.py` | PR #131 |
+| Edge 터널 `app=bravo-edge-tunnel` → 잔존 `cloudflare (edge · tunnel)` | T17 `infra/envs/edge-tunnels/render.py` | PR #383. 2026-11-06 실제 Pod 레이블과 같음 |
 | 프록시 `bravo-target-pooler` · `bravo-target-replication` | T8 `network.py` | PR #131 |
-| 역방향 프록시 레이블 `target-db-tailnet` | Tailscale operator 규칙에서 추정 | **실제 레이블 미확인** |
+| 역방향 프록시 레이블 `target-db-tailnet` | Tailscale operator 규칙에서 추정 | 2026-11-06 `tailscale-system`의 실제 Pod에 있음 |
 | 외부 잔존 3건(Tailscale · GitHub · 모델 공급자) | 설계 부록 용어집 | T16 프로필에 없어 명세에 적음 |
