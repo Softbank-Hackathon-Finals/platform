@@ -45,6 +45,21 @@ def test_schema_and_published_examples():
         assert json.loads(wire.splitlines()[2].removeprefix("data: ")) == event
 
 
+@pytest.mark.parametrize("phase,application_id", [("initial", None), ("post_apply", "application-1")])
+def test_cutover_phase_and_application_are_a_strict_pair(phase, application_id):
+    event = deepcopy(EXAMPLES[2])
+    event["data"]["binding"].update(gate_phase=phase, application_id=application_id)
+    validate_event(event)
+    for field in ("gate_phase", "application_id"):
+        partial = deepcopy(event)
+        partial["data"]["binding"].pop(field)
+        with pytest.raises(ValidationError):
+            validate_event(partial)
+    event["data"]["binding"]["application_id"] = "unexpected" if phase == "initial" else None
+    with pytest.raises(ValidationError):
+        validate_event(event)
+
+
 @pytest.mark.parametrize(
     "mutation",
     [

@@ -69,7 +69,12 @@ for (const fault of [
 }
 test("matching profile pair permits recovery but changing or removing either field denies it", () => {
   const { m, pending } = setup();
-  const profile = { profile_id: "fixture-profile", profile_version: "1.0" };
+  const profile = {
+    profile_id: "fixture-profile",
+    profile_version: "1.0",
+    recheck_profile_id: "apply-recheck",
+    recheck_profile_version: "1",
+  };
   Object.assign(m.snapshot, profile);
   Object.assign(pending.snapshot, profile);
   assert.equal(canResubmit(m, pending, now), true);
