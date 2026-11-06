@@ -146,9 +146,9 @@ class PromotionSource(unittest.TestCase):
         def invoke(args, **kwargs):
             self.calls.append(args)
             self.assertEqual(args[0], "git")
-            self.assertIn(args[1], {"merge-base", "diff", "show"})
+            self.assertIn(args[1], {"merge-base", "diff", "show", "log"})
             return subprocess.run(["git", "-C", str(self.root), *args[1:]],
-                                  capture_output=True, text=True, check=True)
+                                  capture_output=True, text=True, check=kwargs.get("check", True))
         with patch.object(delivery, "run", side_effect=invoke):
             return delivery.check_promotion(self.service)
 
@@ -175,7 +175,22 @@ class PromotionSource(unittest.TestCase):
         self.commit("later queue entry")
         # The immediate queue base already contains the promotion, but develop does not.
         self.assertEqual(self.git("diff", "--name-only", previous_group, "HEAD", "--", self.service.values), "")
-        with self.assertRaisesRegex(delivery.Failure, "promotion_source_superseded"):
+        # Agreed relaxation: an earlier verified source may merge, with the gap recorded.
+        result = self.check()
+        self.assertEqual((result["action"], result["unreflected_build_input_commits"]), ("earlier_source_verified", 1))
+
+    def test_an_older_pin_never_moves_the_deployment_back(self):
+        old_source = self.source
+        self.write("services/inventory/src/bravo_inventory/scan.py", "version = 2\n")
+        newer = self.commit("newer source")
+        self.receipt = self.receipt | {"source_revision": newer, "image_digest": "sha256:" + "c" * 64}
+        deployed = self.promote()
+        self.git("update-ref", "refs/remotes/origin/develop", deployed)  # the newer image is deployed
+        self.write("services/inventory/src/bravo_inventory/scan.py", "version = 3\n")
+        self.commit("develop moves on")
+        self.receipt = self.receipt | {"source_revision": old_source, "image_digest": "sha256:" + "d" * 64}
+        self.promote()  # a stale pin PR merged late
+        with self.assertRaisesRegex(delivery.Failure, "promotion_would_not_advance_deployment"):
             self.check()
 
     def test_publication_and_values_must_match(self):

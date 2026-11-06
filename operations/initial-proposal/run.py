@@ -14,7 +14,8 @@ collect  read the Job receipt -> T10 rechecks and stores it -> prints the values
 fence    prove the Actions-era request was never received, fence it here and in T10 (#543); uses
          --legacy-intent and --legacy-principal/--legacy-ref of the fenced admission
 admit    after the fence, admit the same input for --principal (the Job identity); writes --ref
-Exit: 0 done, 10 pending/hold (read again later, never resubmit), 1 failed.
+Exit: 0 done, 10 pending (the Job is still running: run the same command again later; it never
+resubmits), 3 hold (T10 or the carrier stopped it: a person reads the reason), 1 failed.
 """
 
 import argparse
@@ -126,8 +127,9 @@ def main(argv=None):
         print(json.dumps({"status": "PENDING", "reason": str(pending)}))
         return 10
     except (ExecutionUnknown, RuntimeError, ValueError) as error:
-        print(json.dumps({"status": "HOLD" if "hold" in str(error) else "FAILED", "reason": str(error)[:200]}))
-        return 10 if "hold" in str(error) else 1
+        hold = isinstance(error, ExecutionUnknown) or "hold" in str(error)
+        print(json.dumps({"status": "HOLD" if hold else "FAILED", "reason": str(error)[:200]}))
+        return 3 if hold else 1
 
 
 if __name__ == "__main__":

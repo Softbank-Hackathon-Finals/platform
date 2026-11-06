@@ -176,7 +176,8 @@ def run_step(step, args, read_state, run, sleep, clock):
         output = json.loads(last[0])
     except ValueError:
         output = {"stdout_tail": last[0][:300]}
-    code = {0: DONE, 3: UNKNOWN}.get(result.returncode, FAILED)
+    # 10 = still running (e.g. the AI proposal Job): wait and run the same idempotent step again later.
+    code = {0: DONE, 3: UNKNOWN, 10: WAITING}.get(result.returncode, FAILED)
     return code, {"exit_code": result.returncode, "output": output}
 
 

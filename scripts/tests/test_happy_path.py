@@ -116,5 +116,20 @@ class Driver(unittest.TestCase):
         self.assertEqual(self.run_driver(("plan_id", "plan-2"))[0], 2)
 
 
+    def test_running_job_waits_and_hold_stops_for_a_person(self):
+        self.state = "PROPOSE"
+        self.codes["initial:start"] = 10
+        code, line = self.run_driver()
+        self.assertEqual((code, line["step"], line["result"]), (10, "s2-ai-start", "waiting"))  # not failed
+        self.codes["initial:start"] = 0
+        self.codes["initial:collect"] = 10
+        code, line = self.run_driver()
+        self.assertEqual((code, line["step"]), (10, "s2-ai-collect"))
+        self.assertEqual(self.calls.count("initial:start"), 2)  # rerun of the idempotent step only
+        self.codes["initial:collect"] = 3
+        code, line = self.run_driver()
+        self.assertEqual((code, line["step"]), (3, "s2-ai-collect"))  # hold: a person resolves it
+
+
 if __name__ == "__main__":
     unittest.main()
