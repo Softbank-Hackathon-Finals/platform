@@ -162,6 +162,23 @@ def test_kill_mid_stream_then_restart_has_no_duplicates_and_no_gaps(tmp_path, se
     assert main(["verify", str(sink / "audit" / PLAN / RUN)]) == 0
 
 
+def test_registration_dir_tracks_the_last_receipt_of_each_run(tmp_path, server, t10_store, token_file, capsys):
+    """Review #270: the host's anchor comes from the follower's write receipts."""
+    from bravo_audit import read_local_run
+
+    sink, regs = tmp_path / "store", tmp_path / "registrations"
+    gate(t10_store, 1)
+    execution(t10_store, 1, run="run-follow-2")
+    assert run_follow(server.base_url, sink, token_file, "--once", "--registration-dir", str(regs)) == 0
+    out, _ = summary(capsys)
+    registrations = {p.stem: json.loads(p.read_text()) for p in sorted(regs.glob("*.json"))}
+    assert {run: (r["record_count"], r["chain_digest"]) for run, r in registrations.items()} == {
+        RUN: (2, out["runs"][RUN]), "run-follow-2": (1, out["runs"]["run-follow-2"])}
+    assert all(p.stat().st_mode & 0o777 == 0o600 for p in regs.glob("*.json"))
+    for run, registration in registrations.items():
+        assert read_local_run(sink, PLAN, run, registration=registration).record_count == registration["record_count"]
+
+
 def test_a_failed_write_stops_and_the_restart_completes_from_storage(tmp_path, server, t10_store, token_file,
                                                                      monkeypatch, capsys):
     for n in range(1, 4):

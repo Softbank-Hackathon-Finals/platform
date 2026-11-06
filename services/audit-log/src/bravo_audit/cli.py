@@ -11,9 +11,16 @@ from pathlib import Path
 from .adapters import expand_platform_event, from_agent_tool_event
 from .denial import probe_denial
 from .ledger import OriginConflict, RunLedger, chain_digest, verify_chain
+from .reader import RunRefused, verify_records
 from .record import UnsafePayload
+from .registration import (
+    InvalidRegistration,
+    load_registration,
+    registration_from_receipt,
+    write_registration,
+)
 from .sink import FileSink, ObjectLockSink, UnverifiedWrite
-from .storage import StoreTampered, _load_s3_run, split_s3
+from .storage import StoreTampered, _local_run_items, _s3_run_items, split_s3
 
 
 def _load_jsonl(path: Path) -> list[dict]:
@@ -24,15 +31,21 @@ def _load_records(target: str) -> list[dict]:
     """Stored records of one run: a local directory, a JSON Lines file, or s3://bucket/<prefix>/<plan>/<run>.
     The S3 path only lists and reads (the T24 reader role); objects are taken in key order, which is
     sequence order because keys are zero-padded."""
+    return [doc for _name, doc in _load_items(target)]
+
+
+def _load_items(target: str) -> list[tuple[str | None, dict]]:
+    """(record file name, record) pairs; the name is None for JSON Lines input (no key to bind)."""
     if target.startswith("s3://"):
         import boto3
 
         bucket, _, prefix = target[5:].partition("/")
-        return _load_s3_run(boto3.client("s3"), bucket, prefix.rstrip("/") + "/")
+        return [(key.rsplit("/", 1)[-1], doc)
+                for key, doc in _s3_run_items(boto3.client("s3"), bucket, prefix.rstrip("/") + "/")]
     path = Path(target)
     if path.is_dir():
-        return [json.loads(p.read_text(encoding="utf-8")) for p in sorted(path.glob("*.json"))]
-    return _load_jsonl(path)
+        return list(_local_run_items(path))
+    return [(None, doc) for doc in _load_jsonl(path)]
 
 
 def _sink(target: str, retention_days: int):
@@ -85,10 +98,15 @@ def cmd_append(args) -> int:
         except (UnsafePayload, UnverifiedWrite, FileExistsError, OriginConflict) as exc:
             print(f"stopped before record {ledger.next_sequence}: {type(exc).__name__}", file=sys.stderr)
             return 3
+    # The registration comes from the last confirmed write receipt, not from listing the store.
+    # Nothing written in this call → no new registration (the host keeps the one it has).
+    registration = registration_from_receipt(ledger.plan_id, ledger.run_id, receipts[-1]) if receipts else None
+    if registration and args.registration_out:
+        write_registration(Path(args.registration_out), registration)
     out = {"plan_id": ledger.plan_id if ledger else args.plan, "run_id": ledger.run_id if ledger else args.run,
            "records": len(receipts), "absorbed_redeliveries": absorbed,
            "chain_digest": ledger.chain_digest() if ledger else None,
-           "receipts": receipts}
+           "registration": registration, "receipts": receipts}
     Path(args.receipts).write_text(json.dumps(out, ensure_ascii=False, indent=2), encoding="utf-8")
     print(json.dumps({k: v for k, v in out.items() if k != "receipts"}, ensure_ascii=False))
     return 0
@@ -96,10 +114,25 @@ def cmd_append(args) -> int:
 
 def cmd_verify(args) -> int:
     try:
-        records = _load_records(args.directory)
+        items = _load_items(args.directory)
     except StoreTampered as exc:
         print(json.dumps({"records": None, "ok": False, "reason": str(exc), "chain_digest": None}))
         return 1
+    if args.registration:
+        try:
+            registration = load_registration(Path(args.registration))
+        except InvalidRegistration:
+            print(json.dumps({"records": None, "ok": False, "reason": "registration_invalid", "chain_digest": None}))
+            return 1
+        try:
+            run = verify_records(registration["plan_id"], registration["run_id"], items, registration)
+        except RunRefused as exc:
+            print(json.dumps({"records": None, "ok": False, "reason": str(exc), "chain_digest": None}))
+            return 1
+        print(json.dumps({"records": run.record_count, "ok": True, "reason": "ok", "chain_digest": run.chain_digest,
+                          "registered": True, "unregistered_records": run.unregistered_records}))
+        return 0
+    records = [doc for _name, doc in items]
     ok, reason = verify_chain(records)
     print(json.dumps({"records": len(records), "ok": ok, "reason": reason, "chain_digest": chain_digest(records) if ok else None}))
     return 0 if ok else 1
@@ -129,9 +162,12 @@ def main(argv: list[str] | None = None) -> int:
     # Demo default: one day, so the platform account can be torn down the day after. Production
     # passes the regulated period explicitly.
     a.add_argument("--retention-days", type=int, default=1)
+    a.add_argument("--registration-out", default="",
+                   help="write the run registration (from the last write receipt) here; keep it outside the audit writer's reach")
     a.set_defaults(func=cmd_append)
     v = sub.add_parser("verify", help="verify a stored run: directory or s3://bucket/<prefix>/<plan>/<run>")
     v.add_argument("directory", help="run directory, JSON Lines file or s3://bucket/<prefix>/<plan>/<run>")
+    v.add_argument("--registration", default="", help="registration file the stored chain must contain")
     v.set_defaults(func=cmd_verify)
     p = sub.add_parser("probe-denial", help="attempt deletion/alteration of a retained object; expect denial")
     p.add_argument("--bucket", required=True)
