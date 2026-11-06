@@ -24,6 +24,9 @@ def collect_securityhub(store, session, *, account_id, region, environment_id, c
     if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]{0,127}", environment_id):
         raise ValueError("invalid_environment_id")
     if store.source(source, environment_id) is None:
+        # Refuse before registering: a mistaken call must not block the selected source.
+        if store.source("aws_guardduty", environment_id) is not None:
+            return Counter(failed=1)
         store.register_source(source, environment_id)
     if not store.source(source, environment_id).enabled:
         return Counter(disabled=1)
