@@ -15,9 +15,12 @@ from .provider import Binding, EdgeError
 
 
 class ShiftAuthority:
-    def __init__(self, store, *, load_session, clock):
+    def __init__(self, store, *, run_id, load_session, clock):
         if not callable(load_session) or not callable(clock):
             raise ValueError("current_gate_session_required")
+        if not isinstance(run_id, str) or not 1 <= len(run_id) <= 256:
+            raise ValueError("invalid_shift_registration")
+        self.run_id = run_id
         self.store, self.load_session, self.clock = store, load_session, clock
         self.access = OperatorAccess(store, clock=clock)
 
@@ -77,6 +80,8 @@ class ShiftAuthority:
         """
         if not isinstance(binding, Binding) or not isinstance(run_id, str) or not 1 <= len(run_id) <= 256:
             raise ValueError("invalid_shift_registration")
+        if run_id != self.run_id:
+            raise EdgeError("registered_run_mismatch")
         from bravo_observability.sli import judge
 
         judge(profile, None, plan_id=plan_id, state="SHIFT", weight_target=0,
@@ -96,7 +101,7 @@ class ShiftAuthority:
                 profile=profile, lb_binding=asdict(binding))
             self.access.require(c, principal, plan, "approve_shift")
             self._checkpoint(c, plan)
-            key = _key("registered-run", proof["result"]["approval_id"])
+            key = _key("registered-run", [proof["result"]["approval_id"], run_id])
             _put(c, plan_id, key, {}, value)
             return value
 
@@ -107,7 +112,7 @@ class ShiftAuthority:
             if row is None:
                 raise EdgeError("current_shift_required")
             self.access.require(c, principal, dict(row), "approve_shift")
-            if _get(c, plan_id, _key("registered-run", approval_id)) is None:
+            if _get(c, plan_id, _key("registered-run", [approval_id, self.run_id])) is None:
                 raise EdgeError("shift_registration_required")
             _put(c, plan_id, _key("revoked-run", approval_id), {}, dict(revoked=True))
 
@@ -115,7 +120,7 @@ class ShiftAuthority:
         grant = self.access.require(c, principal, plan, "execute_shift")
         proof = self._checkpoint(c, plan)
         approval_id = proof["result"]["approval_id"]
-        registered = _get(c, plan["plan_id"], _key("registered-run", approval_id))
+        registered = _get(c, plan["plan_id"], _key("registered-run", [approval_id, self.run_id]))
         if registered is None or _get(c, plan["plan_id"], _key("revoked-run", approval_id)):
             raise EdgeError("shift_registration_unavailable")
         value = registered[1]

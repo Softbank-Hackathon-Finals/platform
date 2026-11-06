@@ -110,6 +110,10 @@ journal을 사용하며 별도 HTTP 서버나 DB 상태 전이 경로를 만들�
 기존 `OperatorAccess.set_permissions`의 신뢰된 관리 경로로만 부여한다.
 등록은 승인된 SHIFT 계획에 한정되며 상태 변경·새 승인 생성·기존 실행
 재전송을 하지 않는다. 실행 등록과 철회는 기존 `plan_commands`에 보존한다.
+정상 전환과 자동 복귀 시험은 서로 다른 명시적 run 등록으로 구분할 수 있다.
+기존 승인이 여전히 유효해야 하며, Controller는 이전 run의 확인된 0%와
+같은 영속 journal을 확인한 뒤에만 새 run의 10%를 허용한다. 새 등록은
+이전 기록을 덮어쓰거나 UNCERTAIN을 해제하지 않는다.
 
 설정 파일은 배포 담당이 선택한 `version: 1`, `plan_id`, `run_id`, `profile`
 (T36 정본 프로필), `lb_binding`(등록된 Binding), 절대경로 `journal`을 담는다.

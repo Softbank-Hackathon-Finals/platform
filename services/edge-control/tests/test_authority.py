@@ -84,7 +84,8 @@ def bound(ready, tmp_path, request):
         assert c.execute("SELECT state FROM plans WHERE plan_id=?", (p["plan_id"],)).fetchone()["state"] == "SHIFT"
         return PlanGateSession(gate, plan.plan_id, "context", state["context"], report, data["binding"])
 
-    authority = ShiftAuthority(store, load_session=session, clock=lambda: state["now"].isoformat())
+    authority = ShiftAuthority(store, run_id="run-registered", load_session=session,
+                               clock=lambda: state["now"].isoformat())
     grant = authority.access.set_permissions(plan.plan_id, actor,
         permissions=["read", "approve_shift", "execute_shift"], valid_after=state["now"].isoformat(),
         expires_at=(state["now"] + timedelta(minutes=4)).isoformat(), expected_revision=0,
@@ -113,8 +114,21 @@ def test_register_binds_existing_workflow_and_consumes_real_t19(bound):
     assert current.approval_id == "approved-fixture"
     assert current.run_id == "run-registered"
     assert f.store.snapshot(f.plan.plan_id)["state"] == "SHIFT"
-    with pytest.raises(EdgeError, match="record_conflict"):
+    with pytest.raises(EdgeError, match="registered_run_mismatch"):
         f.register(run_id="replacement-run")
+
+
+def test_separately_registered_run_preserves_original_under_same_current_approval(bound):
+    f = bound
+    f.register()
+    original = f.current()
+    other = ShiftAuthority(f.store, run_id="run-next", load_session=f.authority.load_session,
+                           clock=f.authority.clock)
+    other.register(f.actor, f.plan.plan_id, run_id="run-next", profile=PROFILE, binding=BINDING)
+    assert f.current() == original
+    with f.store._transaction(write=True, plan_id=f.plan.plan_id) as c:
+        plan = dict(c.execute("SELECT * FROM plans WHERE plan_id=?", (f.plan.plan_id,)).fetchone())
+        assert other(c, f.actor, plan).run_id == "run-next"
 
 
 @pytest.mark.parametrize("fault", ["gate_permission", "gate_authentication", "data_authentication", "gate_expired", "operator_revoked", "operator_regranted", "approval_revoked", "plan_state"])

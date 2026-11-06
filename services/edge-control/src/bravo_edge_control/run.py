@@ -37,7 +37,7 @@ def load_runtime(store, config_file, create_ports, *, clock=_now):
         provider = Cloudflare(binding, token=lambda: token_file.read_text())
     if provider.binding != binding:
         raise ValueError("registered_provider_binding_required")
-    authority = ShiftAuthority(store, load_session=ports.load_session, clock=clock)
+    authority = ShiftAuthority(store, run_id=config["run_id"], load_session=ports.load_session, clock=clock)
     host = ShiftHost(store, provider, journal, authority=authority, clock=clock)
     return ShiftRuntime(host, principal=ports.principal, plan_id=config["plan_id"],
                         run_id=config["run_id"]), authority, config
