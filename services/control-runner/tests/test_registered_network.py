@@ -45,7 +45,15 @@ SPEC = Spec("NET-01.3", "NET-01", "2", "deny", "required")
 ROOT = Path(__file__).resolve().parents[3]
 
 
-def make(*, listeners=LISTENERS, mutate=None, outcomes=None, sink=None, clock=lambda: NOW):
+def make(
+    *,
+    listeners=LISTENERS,
+    mutate=None,
+    outcomes=None,
+    sink=None,
+    clock=lambda: NOW,
+    agent_offset=timedelta(0),
+):
     evidence, calls, registrations = [], [], []
     outcomes = outcomes or {}
 
@@ -54,10 +62,10 @@ def make(*, listeners=LISTENERS, mutate=None, outcomes=None, sink=None, clock=la
         negative = agent == TARGET.denied_agent and role != "health"
         calls.append((role, negative))
         outcome = outcomes.get((role, negative), "refused" if negative else "connected")
-        return Attempt(nonce, agent, endpoint_id(endpoint), outcome, 2, clock())
+        return Attempt(nonce, agent, endpoint_id(endpoint), outcome, 2, clock() + agent_offset)
 
     def dns(agent, name, nonce):
-        return Attempt(nonce, agent, name, "resolved", 1, clock())
+        return Attempt(nonce, agent, name, "resolved", 1, clock() + agent_offset)
 
     def registration(context):
         row = ListenerSnapshot(context, probe.binding_sha256, clock())
@@ -226,3 +234,53 @@ def test_candidate_catalog_does_not_rewrite_existing_full_profile():
     row = next(r for r in run["results"] if r["test_id"] == SPEC.test_id)
     assert row["verdict"] == "PASS" and row["method_version"] == "2"
     assert sum(r["verdict"] == "UNKNOWN" for r in run["results"]) == 19
+
+
+def test_namespace_and_external_methods_are_not_interchangeable():
+    listeners = tuple(
+        replace(item, target=replace(item.target, dns_name=None)) for item in LISTENERS
+    )
+    probe, _, calls, _ = make(listeners=listeners)
+    with pytest.raises(ValueError):
+        probe(CTX, SPEC)
+    assert not calls
+    result = probe(CTX, replace(SPEC, test_id="NET-01.2"))
+    assert result.observed == "deny" and result.method_version == "2"
+
+
+def test_old_runner_rejects_candidate_method_observation():
+    schema = json.loads((ROOT / "docs/controls/control-result.schema.json").read_text())
+    catalog = Catalog(json.loads((ROOT / "docs/controls/profiles.json").read_text()), schema)
+    probe, _, _, _ = make()
+    observation = probe(CTX, SPEC)
+    run = Runner(catalog, {SPEC.test_id: lambda *_: observation}, clock=lambda: NOW).run(
+        profile_id="full",
+        profile_version="1",
+        app=CTX.app,
+        environment=CTX.environment,
+        registered_context=CTX,
+    )
+    row = next(r for r in run["results"] if r["test_id"] == SPEC.test_id)
+    assert row["verdict"] == "UNKNOWN"
+
+
+@pytest.mark.parametrize("offset", [-1000, -400, 400, 1000])
+def test_small_agent_offset_retained_but_coordinator_dates_evidence(offset):
+    probe, evidence, _, _ = make(agent_offset=timedelta(milliseconds=offset))
+    result = probe(CTX, SPEC)
+    assert result.observed == "deny" and result.collected_at == NOW
+    for raw in evidence[:2]:
+        for row in json.loads(raw)["observations"].values():
+            assert datetime.fromisoformat(row["observed_at"]) == NOW
+            assert datetime.fromisoformat(row["agent_observed_at"]) == NOW + timedelta(
+                milliseconds=offset
+            )
+            assert row["max_clock_offset_ms"] == 1000
+
+
+@pytest.mark.parametrize("offset", [-1001, 1001, 10000])
+def test_excessive_agent_offset_still_rejects(offset):
+    probe, evidence, _, _ = make(agent_offset=timedelta(milliseconds=offset))
+    with pytest.raises(ValueError):
+        probe(CTX, SPEC)
+    assert evidence == []

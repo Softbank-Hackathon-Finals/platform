@@ -216,6 +216,11 @@ class _NetworkPortProbe:
                 raise TimeoutError("network test window expired")
             result = callback(agent, argument, nonce)
             now = _utc(self.clock())
+            # Method 2 dates evidence by the coordinator's authenticated,
+            # nonce-bound request/response interval. The agent wall clock is
+            # retained separately and may differ by at most one second. This
+            # is not a cache grace period or a substitute for channel identity.
+            skew = timedelta(seconds=1 if self.method_version == "2" else 0)
             if (
                 not isinstance(result, Attempt)
                 or result.nonce != nonce
@@ -224,7 +229,8 @@ class _NetworkPortProbe:
                 or result.outcome not in outcomes
                 or type(result.elapsed_ms) is not int
                 or not 0 <= result.elapsed_ms <= 5000
-                or not before <= _utc(result.observed_at) <= now
+                or not before - skew <= _utc(result.observed_at) <= now + skew
+                or now < before
                 or now > limit
                 or now - before > timedelta(seconds=5)
             ):
@@ -232,8 +238,18 @@ class _NetworkPortProbe:
             rows[label] = {
                 "outcome": result.outcome,
                 "elapsed_ms": result.elapsed_ms,
-                "observed_at": result.observed_at.isoformat(),
+                "observed_at": (
+                    now if self.method_version == "2" else result.observed_at
+                ).isoformat(),
             }
+            if self.method_version == "2":
+                rows[label].update(
+                    {
+                        "coordinator_started_at": before.isoformat(),
+                        "agent_observed_at": result.observed_at.isoformat(),
+                        "max_clock_offset_ms": 1000,
+                    }
+                )
             return result.outcome
 
         def controls(prefix):
@@ -288,10 +304,7 @@ class _NetworkPortProbe:
             positive = controls("after")
         after_policy = policy()
         finished = _utc(self.clock())
-        if (
-            not started <= finished <= limit
-            or before_policy != after_policy
-        ):
+        if not started <= finished <= limit or before_policy != after_policy:
             raise ValueError("policy changed or test window invalid")
         reason = None
         observed = None
