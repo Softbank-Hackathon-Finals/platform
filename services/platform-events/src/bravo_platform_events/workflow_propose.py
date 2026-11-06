@@ -3,7 +3,9 @@
 Out of the plan lock: read the saved input/intent/result (current grant rechecked),
 take the operator-pinned PublicationSelection for that request and authenticate the
 existing T7 run with GitHub GETs. The returned reader only checks locally; the
-existing evidence_reader rechecks authority under the lock. No dispatch, no build.
+existing evidence_reader rechecks authority under the lock. The host never builds or approves:
+with an operator pin it only reads; without one, `writer` (CandidateWriter, GitHub App) creates
+the do-not-merge candidate PR and dispatches the reviewed T7 workflow, which builds the image.
 """
 
 import json

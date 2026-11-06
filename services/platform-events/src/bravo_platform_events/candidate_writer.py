@@ -10,8 +10,10 @@ its PR rules. Nothing here approves, merges, rebuilds after approval or runs can
 """
 
 import json
+import os
 import subprocess
 import time
+from pathlib import Path
 
 from .candidate_publication import REPOSITORY, WORKFLOW, CandidateGit, PublicationSelection
 from .store import EventError
@@ -19,16 +21,35 @@ from .store import EventError
 BRANCH = "bravo-candidate/{}"
 RUN_NAME = "candidate {}"
 DISPATCH_GRACE = 300  # seconds a dispatch may take to appear in the runs list
+MAX_DISPATCHES = 2  # per request id, across restarts; then an operator pins the selection
+# Exactly what the writer may hold; a wider or narrower installation token is refused (github_app).
+WRITER_PERMISSIONS = {"contents": "write", "pull_requests": "write", "actions": "write"}
 
 
 class CandidateWriter:
-    def __init__(self, app, repository, *, workflow_sha, workflow_id, clock=time.time,
+    def __init__(self, app, repository, *, workflow_sha, workflow_id, state_file, clock=time.time,
                  remote=f"https://github.com/{REPOSITORY}.git"):
         if app.repository != REPOSITORY:
             raise ValueError("candidate_app_repository_mismatch")
+        if app.permissions != WRITER_PERMISSIONS:
+            raise ValueError("candidate_writer_permissions_mismatch")
         self.app, self.git, self.remote = app, CandidateGit(repository), remote
         self.workflow_sha, self.workflow_id, self.clock = workflow_sha, workflow_id, clock
-        self._dispatched = {}
+        self.state_file = Path(state_file)  # dispatch times survive restarts (no second POST in the grace)
+        if not self.state_file.is_absolute() or not self.state_file.parent.is_dir():
+            raise ValueError("candidate_writer_state_mount_required")
+
+    def _dispatches(self, request_id):
+        if not self.state_file.exists():
+            return []
+        return json.loads(self.state_file.read_text()).get(request_id, [])
+
+    def _record_dispatch(self, request_id):
+        data = json.loads(self.state_file.read_text()) if self.state_file.exists() else {}
+        data.setdefault(request_id, []).append(self.clock())
+        tmp = self.state_file.with_suffix(".tmp")
+        tmp.write_text(json.dumps(data, sort_keys=True))
+        os.replace(tmp, self.state_file)  # written before the POST: a lost response never re-dispatches early
 
     def _json(self, method, path, body=None):
         return json.loads(self.app.call(method, f"repos/{REPOSITORY}/{path}", body) or b"null")
@@ -53,6 +74,8 @@ class CandidateWriter:
         modes = {}
         for edit in result.proposal.edits:
             row = self.git._git("ls-tree", "-z", base, "--", edit.path).split(b"\0")[0]
+            if not row:
+                raise EventError("candidate_branch_conflict")  # the Proposal edits a file absent at base
             modes[edit.path] = row.split()[0].decode()
         tree = self._json("GET", f"git/commits/{base}")["tree"]["sha"]
         new_tree = self._json("POST", "git/trees", {"base_tree": tree, "tree": [
@@ -97,12 +120,15 @@ class CandidateWriter:
         pull, head, diff = self.ensure_pull_request(value, result, request_id)
         runs = self._runs(request_id)
         if not runs:
-            if self.clock() - self._dispatched.get(request_id, 0) > DISPATCH_GRACE:
+            sent = self._dispatches(request_id)
+            if len(sent) >= MAX_DISPATCHES and self.clock() - sent[-1] > DISPATCH_GRACE:
+                raise EventError("candidate_dispatch_limit")  # an operator pins the T7 run instead
+            if not sent or self.clock() - sent[-1] > DISPATCH_GRACE:
+                self._record_dispatch(request_id)
                 self.app.call("POST", f"repos/{REPOSITORY}/actions/workflows/{self.workflow_id}/dispatches",
                               {"ref": "main", "inputs": {"candidate_pr": str(pull),
                                "base_sha": value.binding.source_sha, "source_sha": head,
                                "diff_sha256": diff, "request_id": request_id}})
-                self._dispatched[request_id] = self.clock()
             raise EventError("candidate_publication_pending")
         # ponytail: duplicates (a dispatch lost in the grace window) are equal evidence; take the first.
         run = runs[0]
