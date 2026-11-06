@@ -9,6 +9,7 @@ from pathlib import Path
 
 NAMESPACE = "bravo-rehearsal-control"
 NAME = "t15-control-creators"
+TOKEN_SECRETS = "t15-control-no-token-secrets"
 RUNNER = f"system:serviceaccount:{NAMESPACE}:t15-runner"
 JOB_CONTROLLER = "system:serviceaccount:kube-system:job-controller"
 GARBAGE_COLLECTOR = "system:serviceaccount:kube-system:generic-garbage-collector"
@@ -68,7 +69,34 @@ def render(operators):
         "metadata": {"name": NAME},
         "spec": {"policyName": NAME, "validationActions": ["Deny"]},
     }
-    return {"apiVersion": "v1", "kind": "List", "items": [policy, binding]}
+    # #12 review: a Secret of type service-account-token is filled with a non-expiring token,
+    # outside the 600 s exec-token bound and Secret-deletion revocation. The runner needs other
+    # Secrets (per-attempt writer inputs), so only this type is refused, for every creator.
+    token_policy = {
+        "apiVersion": "admissionregistration.k8s.io/v1",
+        "kind": "ValidatingAdmissionPolicy",
+        "metadata": {"name": TOKEN_SECRETS},
+        "spec": {
+            "failurePolicy": "Fail",
+            "matchConstraints": {
+                "namespaceSelector": {"matchLabels": {"kubernetes.io/metadata.name": NAMESPACE}},
+                "resourceRules": [{"apiGroups": [""], "apiVersions": ["v1"], "operations": ["CREATE", "UPDATE"],
+                                   "resources": ["secrets"], "scope": "Namespaced"}],
+            },
+            "validations": [{
+                "expression": "!has(object.type) || object.type != 'kubernetes.io/service-account-token'",
+                "message": "non-expiring service-account token Secrets are not allowed in the T15 control namespace",
+                "reason": "Forbidden",
+            }],
+        },
+    }
+    token_binding = {
+        "apiVersion": "admissionregistration.k8s.io/v1",
+        "kind": "ValidatingAdmissionPolicyBinding",
+        "metadata": {"name": TOKEN_SECRETS},
+        "spec": {"policyName": TOKEN_SECRETS, "validationActions": ["Deny"]},
+    }
+    return {"apiVersion": "v1", "kind": "List", "items": [policy, binding, token_policy, token_binding]}
 
 
 def main():
