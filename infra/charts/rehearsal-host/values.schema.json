@@ -87,7 +87,8 @@
         "databaseCA",
         "catalogKey",
         "host",
-        "registry"
+        "registry",
+        "executor"
       ],
       "properties": {
         "database": {
@@ -103,6 +104,9 @@
           "$ref": "#/definitions/name"
         },
         "registry": {
+          "$ref": "#/definitions/name"
+        },
+        "executor": {
           "$ref": "#/definitions/name"
         }
       }

@@ -22,7 +22,7 @@ RUNTIME = {
     "configuration": {"existingConfigMap": "host-config", "sha256": "c" * 64},
     "reader": {"existingConfigMap": "reader-config", "catalogClaim": "existing-catalog"},
     "recordsClaim": "t15-records",
-    "secrets": {"catalogKey": "existing-key", "host": "t15-host"},
+    "secrets": {"catalogKey": "existing-key", "host": "t15-host", "executor": "t15-executor"},
     "hostAliases": [{"ip": "43.202.75.96", "hostnames": ["sts.ap-northeast-2.amazonaws.com"]}],
 }
 VALUES = {"image": {"digest": "sha256:" + "a" * 64}, "sourceRevision": "b" * 40, **RUNTIME}
@@ -55,7 +55,9 @@ class HostChart(unittest.TestCase):
         labels = dep["spec"]["template"]["metadata"]["labels"]
         self.assertEqual((labels["bravo.dev/db-client"], labels["bravo.dev/target-api-client"]), ("runtime", "rehearsal"))
         c, = pod["containers"]
-        self.assertIn("bravo_platform_events.credential_host:create_ports", c["args"])
+        # The host serves the operator approval API; operator_ports wraps the T15 credential_host ports.
+        self.assertEqual(c["command"], ["python", "-m", "bravo_platform_events.approval_server"])
+        self.assertIn("bravo_platform_events.operator_ports:create", c["args"])
         self.assertTrue(c["securityContext"]["readOnlyRootFilesystem"])
         for mount in c["volumeMounts"]:
             self.assertEqual(mount.get("readOnly", False), mount["name"] not in WRITABLE, mount["name"])
@@ -128,7 +130,7 @@ class HostChart(unittest.TestCase):
                         verify_rehearsal_host(get, {"enabled": True, "runtime": deepcopy(RUNTIME)})
         self.assertCountEqual(seen, [("configmap", "host-config"), ("configmap", "reader-config"),
                                      ("pvc", "existing-catalog"), ("pvc", "t15-records"),
-                                     ("secret", "existing-key"), ("secret", "t15-host")])
+                                     ("secret", "existing-key"), ("secret", "t15-host"), ("secret", "t15-executor")])
         # #533 review: the STS name must be pinned to the one address the NetworkPolicy opens.
         sts = "sts.ap-northeast-2.amazonaws.com"
         for aliases in ([], [{"ip": "43.202.72.62", "hostnames": [sts]}],
