@@ -75,7 +75,7 @@ def build_plan(spec: DrillSpec, inventory: InventoryView, snapshot: Snapshot) ->
         "namespace": spec.namespace,
         "candidate": inventory.candidate,
         "inventory_digest": inventory.digest,
-        "workloads": {w.name: {"selector": w.selector, "role": w.role, "container": w.container} for w in sorted(spec.workloads.values(), key=lambda w: w.name)},
+        "workloads": {w.name: _workload(w) for w in sorted(spec.workloads.values(), key=lambda w: w.name)},
         "decisions": [_decision(r) for r in routes],
         "manifests": manifests,
         "new_connection_checks": sorted(spec.new_connection_checks, key=lambda c: c["id"]),
@@ -86,6 +86,14 @@ def build_plan(spec: DrillSpec, inventory: InventoryView, snapshot: Snapshot) ->
     for manifest in core["manifests"]:
         manifest["metadata"]["annotations"] = {DIGEST_ANNOTATION: digest}
     return {"schema_version": PLAN_VERSION, **core, "digest": digest, "snapshot_digest": snapshot.digest}
+
+
+def _workload(workload: Workload) -> dict:
+    item = {"selector": workload.selector, "role": workload.role, "container": workload.container}
+    if workload.role == "edge":
+        # edge가 없는 명세의 계획은 전과 같은 모양 · 같은 해시로 둔다.
+        item["residual"] = workload.residual
+    return item
 
 
 def compute_digest(plan: dict) -> str:
@@ -211,6 +219,8 @@ def _check_workloads(spec: DrillSpec, inventory: InventoryView) -> list[Violatio
     needs_client = any(d.aws_services for d in inventory.dependencies)
     if needs_client and not any(w.aws_client for w in spec.workloads.values()):
         found.append(Violation("NO_AWS_CLIENT", "workloads"))
+    listed = {*inventory.residuals, *spec.declared_residuals}
+    found.extend(Violation("UNKNOWN_RESIDUAL", w.name) for w in _by_role(spec, "edge") if w.residual not in listed)
     return found
 
 
@@ -279,7 +289,8 @@ def _also_allowed(block: Route, allow: Route) -> bool:
 def _check_pods(spec: DrillSpec, snapshot: Snapshot) -> list[Violation]:
     found: list[Violation] = []
     for workload in spec.workloads.values():
-        if workload.role == "infrastructure" or not workload.selector:
+        # 터널(edge)은 시험 대상이 아니다. 내려가 있어도 새 연결 시험은 Service로 바로 간다.
+        if workload.role in ("infrastructure", "edge") or not workload.selector:
             continue
         if not any(selector_matches({"matchLabels": workload.selector}, p.labels) for p in snapshot.pods):
             found.append(Violation("SELECTOR_MATCHES_NOTHING", workload.name))
@@ -295,6 +306,9 @@ def _check_pods(spec: DrillSpec, snapshot: Snapshot) -> list[Violation]:
                 found.append(Violation("REPLICATION_OWNER_SELECTED", pod.name))
             if "control" in roles:
                 found.append(Violation("CONTROL_SELECTED", pod.name))
+            if "edge" in roles:
+                # 송신을 좁히면 터널이 Cloudflare와 앱 어느 쪽에도 못 닿아 공개 경로가 끊긴다.
+                found.append(Violation("EDGE_SELECTED", pod.name))
             if pod.host_network:
                 found.append(Violation("HOST_NETWORK_POD", pod.name))
     return found

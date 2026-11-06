@@ -15,7 +15,7 @@ from test_verdict import good_evidence
 
 from bravo_exit_drill import verdict as verdict_module
 from bravo_exit_drill.cli import main
-from bravo_exit_drill.cluster import parse_snapshot, selector_matches
+from bravo_exit_drill.cluster import parse_snapshot, path_open, selector_matches
 from bravo_exit_drill.control_pod import render_control_pod
 from bravo_exit_drill.inventory_input import parse_inventory
 from bravo_exit_drill.observation import normalize_pods
@@ -26,6 +26,7 @@ from bravo_exit_drill.verdict import exit_code, judge
 
 WORKLOADS = Path(__file__).resolve().parents[3] / "infra/envs/target-workloads"
 APP_RENDERER = WORKLOADS / "application.py"
+EDGE_RENDERER = WORKLOADS.parent / "edge-tunnels" / "render.py"
 IMAGE = "ghcr.io/softbank-hackathon-finals/demo-chat@sha256:" + "a" * 64
 NAMESPACE = "target-dev"
 
@@ -72,6 +73,16 @@ def app_pod() -> dict:
     return {"kind": "Pod", "metadata": metadata, "spec": {"containers": [{"name": "app"}]}, "status": {"phase": "Running"}}
 
 
+def edge_deployment() -> dict:
+    """T17의 Cloudflare Tunnel connector. 렌더러가 목록이 아니라 Deployment 하나를 낸다."""
+    done = subprocess.run([sys.executable, str(EDGE_RENDERER), NAMESPACE], capture_output=True, text=True, check=True)
+    return json.loads(done.stdout)
+
+
+def edge_pod() -> dict:
+    return deployment_pod([edge_deployment()], "bravo-edge-tunnel")
+
+
 def rendered_snapshot() -> dict:
     objects = render("objects.py", "--node-name", "node")
     control = render_control_pod(parse_spec(spec_doc()), IMAGE)
@@ -79,7 +90,10 @@ def rendered_snapshot() -> dict:
     policies = [i for i in [*objects, *pooler_items()] if i["kind"] == "NetworkPolicy"]
     for policy in policies:
         policy["metadata"]["namespace"] = NAMESPACE
-    pods = [app_pod(), deployment_pod(pooler_items(), "target-pgbouncer"), deployment_pod(objects, "target-seaweedfs"), cnpg_pod(), control]
+    pods = [
+        app_pod(), deployment_pod(pooler_items(), "target-pgbouncer"), deployment_pod(objects, "target-seaweedfs"),
+        cnpg_pod(), edge_pod(), control,
+    ]
     return {"kind": "List", "items": [*pods, *policies]}
 
 
@@ -106,6 +120,23 @@ def test_policies_never_select_the_database_or_the_proxies():
     for manifest in real_plan()["manifests"]:
         assert not selector_matches(manifest["spec"]["podSelector"], db_labels)
         assert manifest["spec"]["policyTypes"] == ["Egress"]
+
+
+def test_edge_selector_is_the_rendered_deployment_selector():
+    """명세가 터널을 고르는 레이블이 Deployment가 자기 Pod를 고르는 레이블과 같다."""
+    assert spec_doc()["workloads"]["edge"]["selector"] == edge_deployment()["spec"]["selector"]["matchLabels"]
+
+
+def test_policies_never_select_the_edge_tunnel_and_keep_its_way_to_the_app():
+    """막으면 Cloudflare에서 오는 트래픽이 앱까지 못 온다. 기존 정책과 차단 정책을 함께 놓고 잰다."""
+    plan = real_plan()
+    tunnel, app = edge_pod()["metadata"]["labels"], app_pod()["metadata"]["labels"]
+    policies = [*parse_snapshot(rendered_snapshot(), namespace=NAMESPACE).policies, *plan["manifests"]]
+    for manifest in plan["manifests"]:
+        assert not selector_matches(manifest["spec"]["podSelector"], tunnel)
+    # 터널은 demo-chat:8080으로 넘긴다(infra/envs/edge-tunnels). 보내는 쪽과 받는 쪽을 모두 본다.
+    assert path_open(policies, tunnel, NAMESPACE, NAMESPACE, app, "egress", [("TCP", 8080)])
+    assert path_open(policies, app, NAMESPACE, NAMESPACE, tunnel, "ingress", [("TCP", 8080)])
 
 
 def service_ports() -> dict[str, set[int]]:
