@@ -28,6 +28,7 @@ test("workspace navigation and resource selection issue no change requests", asy
   await expect(page.locator("#view-title")).toHaveText("워크로드 지도");
   await expect(page.locator(".topology-card")).toBeVisible();
   await expect(page.locator(".approval-card")).toBeHidden();
+  await page.locator(".registered-map-context summary").click();
   await page.locator('[data-map-node="target"]').click();
   await expect(page.locator("#inspector-id")).toHaveText("env-target");
   await expect(
@@ -53,6 +54,7 @@ test("permission loss clears the new map and selected resource inspector", async
   context,
 }) => {
   await connect(page, context);
+  await page.locator(".registered-map-context summary").click();
   await page.locator('[data-map-node="target"]').click();
   await expect(page.locator("#inspector-id")).toHaveText("env-target");
   await context.clearCookies();

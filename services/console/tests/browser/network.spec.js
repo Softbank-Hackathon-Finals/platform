@@ -47,6 +47,7 @@ test("network features stay in the original Sova shell without a new page or POS
   expect(await page.locator("#network-pane-resources img").count()).toBe(0);
   expect(await page.evaluate(() => window.__networkAttack)).toBeUndefined();
   await page.locator('[data-view="overview"]').click();
+  await page.locator(".registered-map-context summary").click();
   await expect(page.locator("#map-source")).toBeVisible();
   await expect(page.locator("#connect-form")).toBeVisible();
   expect(posts).toEqual([]);

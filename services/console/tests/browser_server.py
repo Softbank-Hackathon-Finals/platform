@@ -1,6 +1,7 @@
 """Test-only local T10 fixture. Never mount this module in a deployed service."""
 
 import tempfile
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import uvicorn
@@ -15,6 +16,7 @@ from test_network import install as install_network
 from test_network import snapshot as network_snapshot
 from test_reports import wire
 from test_security import Samples
+from test_workload import install as install_workload
 
 from bravo_console import ConsoleApp
 from bravo_console.security import PlanSecurity
@@ -28,6 +30,21 @@ if __name__ == "__main__":
             profile=("demo-gate", "1"),
         )
         install(app.api, store, state, Path(root))
+        install_workload(app, state, clock=lambda: datetime.now(UTC))
+
+        def fresh_workload(doc):
+            now = datetime.now(UTC)
+            doc.update(
+                observed_at=now.isoformat(),
+                expires_at=(now + timedelta(seconds=30)).isoformat(),
+                revision=int(now.timestamp() * 1000),
+            )
+            for item in doc["evidence"]:
+                item.update(observed_at=doc["observed_at"], expires_at=doc["expires_at"])
+            for item in doc["events"]:
+                item["occurred_at"] = doc["observed_at"]
+
+        state["change_workload"] = fresh_workload
         install_network(app, state)
         state["network_document"] = network_snapshot()
         state["network_document"]["sources"][0]["data"]["resources"][0]["name"] = (

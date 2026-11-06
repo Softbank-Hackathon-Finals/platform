@@ -25,6 +25,11 @@ ASSETS = {
     "/console/operations.js": ("operations.js", "text/javascript"),
     "/console/network-workspace.js": ("network-workspace.js", "text/javascript"),
     "/console/network-workspace.css": ("network-workspace.css", "text/css"),
+    "/console/workload-layout.js": ("workload-layout.js", "text/javascript"),
+    "/console/workload-model.js": ("workload-model.js", "text/javascript"),
+    "/console/workload-scenario.js": ("workload-scenario.js", "text/javascript"),
+    "/console/workload-view.js": ("workload-view.js", "text/javascript"),
+    "/console/workload.css": ("workload.css", "text/css"),
     "/console/style.css": ("style.css", "text/css"),
 }
 NETWORK_ROOT = Path(__file__).parent / "static/network"

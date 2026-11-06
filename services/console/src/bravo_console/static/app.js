@@ -18,6 +18,7 @@ import { mountWorkspace } from "./workspace.js";
 import { mountPanels } from "./panels.js";
 import { mountOperations } from "./operations.js";
 import { mountNetworkWorkspace } from "./network-workspace.js";
+import { mountWorkload } from "./workload-view.js";
 const workspace = mountWorkspace();
 const $ = (id) => document.getElementById(id);
 let model,
@@ -35,6 +36,11 @@ let pending = null,
   refreshTimer;
 let extensionBusy = false;
 const networkWorkspace = mountNetworkWorkspace({ getModel: () => model });
+const workload = mountWorkload({
+  getModel: () => model,
+  getControls: () => controls,
+  onForbidden: revokeView,
+});
 const panels = mountPanels({
   getModel: () => model,
   onForbidden: revokeView,
@@ -107,6 +113,7 @@ function details(id, values) {
 function render() {
   if (!model) return;
   networkWorkspace.render();
+  workload.render();
   const now = Date.now(),
     eligible = !extensionBusy && model.eligible(now),
     approvalRetry =
@@ -389,6 +396,7 @@ function revokeView(error) {
   model = new Model(model?.plan ?? "unconnected");
   model.error = "forbidden";
   panels.clear();
+  workload.clear();
   operations.revoke();
   networkWorkspace.clear();
   observed = null;
@@ -555,6 +563,7 @@ async function connectPlan(plan, recovery = false) {
   clearInterval(refreshTimer);
   model = new Model(plan);
   panels.clear();
+  workload.clear();
   observed = null;
   controls = null;
   security = null;
@@ -884,6 +893,7 @@ window.addEventListener("beforeunload", (e) => {
 });
 window.addEventListener("pagehide", () => {
   networkWorkspace.clear();
+  workload.clear();
   stopped = true;
   generation++;
   clearInterval(refreshTimer);

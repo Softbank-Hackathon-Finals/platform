@@ -6,6 +6,7 @@
     <title>Sova · 이전 운영 콘솔</title>
     <link rel="stylesheet" href="/console/style.css" />
     <link rel="stylesheet" href="/console/network-workspace.css" />
+    <link rel="stylesheet" href="/console/workload.css" />
     <script type="module" src="/console/app.js"></script>
   </head>
   <body>
@@ -304,102 +305,112 @@
                 >연결 대기·조회 만료</span
               >
             </div>
-            <p class="muted">
-              등록된 이전 경로입니다. 점선은 계획상 관계이며 실제 트래픽·DB
-              복제·격리 상태를 뜻하지 않습니다.
-            </p>
-            <div class="map-layout">
-              <div
-                class="map-canvas"
-                aria-label="등록된 출발 환경, 앱, 목적 환경"
-              >
-                <div class="map-lanes">
-                  <span>SOURCE ENVIRONMENT</span><span>TARGET ENVIRONMENT</span>
-                </div>
-                <div class="map-nodes">
-                  <button
-                    type="button"
-                    id="map-source"
-                    class="workload-node"
-                    data-map-node="source"
-                    aria-pressed="true"
-                  >
-                    <span class="node-top"
-                      ><span class="node-icon" aria-hidden="true">▤</span
-                      ><span class="node-kind">SOURCE</span></span
-                    ><strong id="map-source-id">등록된 환경 없음</strong
-                    ><small>계획의 출발 환경</small
-                    ><span class="node-status" id="map-source-state"
-                      >실행 상태 미확인</span
-                    >
-                  </button>
-                  <span
-                    class="map-edge"
-                    aria-label="계획상 관계, 실제 연결 미검증"
-                    ><span>등록 관계</span></span
-                  >
-                  <button
-                    type="button"
-                    class="workload-node app-node"
-                    data-map-node="workload"
-                    aria-pressed="false"
-                  >
-                    <span class="node-top"
-                      ><span class="node-icon" aria-hidden="true">◇</span
-                      ><span class="node-kind">WORKLOAD</span></span
-                    ><strong id="map-workload-id">등록된 앱 없음</strong
-                    ><small>이전 대상으로 등록된 앱</small
-                    ><span class="node-status">실행 위치 미판정</span>
-                  </button>
-                  <span
-                    class="map-edge"
-                    aria-label="계획상 관계, 실제 연결 미검증"
-                    ><span>계획 경로</span></span
-                  >
-                  <button
-                    type="button"
-                    id="map-target"
-                    class="workload-node"
-                    data-map-node="target"
-                    aria-pressed="false"
-                  >
-                    <span class="node-top"
-                      ><span class="node-icon" aria-hidden="true">▤</span
-                      ><span class="node-kind">TARGET</span></span
-                    ><strong id="map-target-id">등록된 환경 없음</strong
-                    ><small>계획의 목적 환경</small
-                    ><span class="node-status" id="map-target-state"
-                      >실행 상태 미확인</span
-                    >
-                  </button>
-                </div>
-                <div class="map-legend">
-                  <span><i class="legend-dot unknown"></i>실행 상태 미확인</span
-                  ><span><i class="legend-dot observed"></i>HTTP 관측 수신</span
-                  ><span>점선 · 계획상 관계</span>
-                </div>
-              </div>
-              <aside class="node-inspector" aria-label="선택한 구성 요소 상세">
-                <p class="eyebrow">RESOURCE DETAILS</p>
-                <h3 id="inspector-title">출발 환경</h3>
-                <p id="inspector-id" class="resource-id">등록된 환경 없음</p>
-                <span id="inspector-state" class="status-pill"
-                  >실행 상태 미확인</span
+            <div id="response-workspace"></div>
+            <details class="registered-map-context">
+              <summary>등록된 이전 경로 보기</summary>
+              <p class="muted">
+                등록된 이전 경로입니다. 점선은 계획상 관계이며 실제 트래픽·DB
+                복제·격리 상태를 뜻하지 않습니다.
+              </p>
+              <div class="map-layout">
+                <div
+                  class="map-canvas"
+                  aria-label="등록된 출발 환경, 앱, 목적 환경"
                 >
-                <p id="inspector-detail">
-                  현재 계획에 연결된 최신 HTTP 관측이 없습니다.
-                </p>
-                <div class="inspector-divider"></div>
-                <b>워크로드 대응</b>
-                <p class="muted">
-                  격리·장애 주입 실행 API는 이 콘솔에 연결되지 않았습니다.
-                </p>
-                <div class="inspector-actions">
-                  <button type="button" disabled>격리 실행</button
-                  ><button type="button" disabled>장애 주입</button>
+                  <div class="map-lanes">
+                    <span>SOURCE ENVIRONMENT</span
+                    ><span>TARGET ENVIRONMENT</span>
+                  </div>
+                  <div class="map-nodes">
+                    <button
+                      type="button"
+                      id="map-source"
+                      class="workload-node"
+                      data-map-node="source"
+                      aria-pressed="true"
+                    >
+                      <span class="node-top"
+                        ><span class="node-icon" aria-hidden="true">▤</span
+                        ><span class="node-kind">SOURCE</span></span
+                      ><strong id="map-source-id">등록된 환경 없음</strong
+                      ><small>계획의 출발 환경</small
+                      ><span class="node-status" id="map-source-state"
+                        >실행 상태 미확인</span
+                      >
+                    </button>
+                    <span
+                      class="map-edge"
+                      aria-label="계획상 관계, 실제 연결 미검증"
+                      ><span>등록 관계</span></span
+                    >
+                    <button
+                      type="button"
+                      class="workload-node app-node"
+                      data-map-node="workload"
+                      aria-pressed="false"
+                    >
+                      <span class="node-top"
+                        ><span class="node-icon" aria-hidden="true">◇</span
+                        ><span class="node-kind">WORKLOAD</span></span
+                      ><strong id="map-workload-id">등록된 앱 없음</strong
+                      ><small>이전 대상으로 등록된 앱</small
+                      ><span class="node-status">실행 위치 미판정</span>
+                    </button>
+                    <span
+                      class="map-edge"
+                      aria-label="계획상 관계, 실제 연결 미검증"
+                      ><span>계획 경로</span></span
+                    >
+                    <button
+                      type="button"
+                      id="map-target"
+                      class="workload-node"
+                      data-map-node="target"
+                      aria-pressed="false"
+                    >
+                      <span class="node-top"
+                        ><span class="node-icon" aria-hidden="true">▤</span
+                        ><span class="node-kind">TARGET</span></span
+                      ><strong id="map-target-id">등록된 환경 없음</strong
+                      ><small>계획의 목적 환경</small
+                      ><span class="node-status" id="map-target-state"
+                        >실행 상태 미확인</span
+                      >
+                    </button>
+                  </div>
+                  <div class="map-legend">
+                    <span
+                      ><i class="legend-dot unknown"></i>실행 상태 미확인</span
+                    ><span
+                      ><i class="legend-dot observed"></i>HTTP 관측 수신</span
+                    ><span>점선 · 계획상 관계</span>
+                  </div>
                 </div>
-              </aside>
-            </div>
+                <aside
+                  class="node-inspector"
+                  aria-label="선택한 구성 요소 상세"
+                >
+                  <p class="eyebrow">RESOURCE DETAILS</p>
+                  <h3 id="inspector-title">출발 환경</h3>
+                  <p id="inspector-id" class="resource-id">등록된 환경 없음</p>
+                  <span id="inspector-state" class="status-pill"
+                    >실행 상태 미확인</span
+                  >
+                  <p id="inspector-detail">
+                    현재 계획에 연결된 최신 HTTP 관측이 없습니다.
+                  </p>
+                  <div class="inspector-divider"></div>
+                  <b>워크로드 대응</b>
+                  <p class="muted">
+                    격리·장애 주입 실행 API는 이 콘솔에 연결되지 않았습니다.
+                  </p>
+                  <div class="inspector-actions">
+                    <button type="button" disabled>격리 실행</button
+                    ><button type="button" disabled>장애 주입</button>
+                  </div>
+                </aside>
+              </div>
+            </details>
           </section>
           <section
             id="network-workspace"
