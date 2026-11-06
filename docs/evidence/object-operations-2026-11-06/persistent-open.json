@@ -83,5 +83,7 @@
       "pass": true
     }
   ],
-  "actual_http_api_submission": true
+  "actual_http_api_submission": true,
+  "executor_source_sha256": "382b6b88d1e43f5bea012311cb13db473e4884071c773a1f37574fca72e63b60",
+  "source_scope": "17:00 KST persistent open; historical worker before recovery/audience revision"
 }

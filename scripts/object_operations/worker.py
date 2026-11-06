@@ -29,6 +29,7 @@ BODY = b"Bravo object operations disposable probe\n"
 CORE = f"/api/v1/namespaces/{NAMESPACE}"
 APPS = f"/apis/apps/v1/namespaces/{NAMESPACE}/deployments/{DEPLOYMENT}"
 ACTIVE = {"PENDING", "RUNNING", "CLOSING", "RECOVERY_REQUIRED"}
+RECOVERY_HISTORY_LIMIT = 8
 
 
 class Failure(Exception):
@@ -182,6 +183,9 @@ class Worker:
         return doc, value
 
     def persist(self, phase):
+        for name in ("transitions", "previous_closure_checks", "recovery_executor_pod_uids", "previous_cleanup_errors"):
+            if name in self.report:
+                self.report[name] = self.report[name][-RECOVERY_HISTORY_LIMIT:]
         doc, value = self.own()
         value.update(phase=phase, report=self.report, updated_at=now())
         if getattr(self, "canary_key", None):
@@ -211,6 +215,9 @@ class Worker:
         start = time.monotonic()
         secret, deployment, auth = self.guard()
         rendered, self.credentials, _ = render_existing(auth, state, self.request["run_id"])
+        # Record possible effects before the first write, including response loss.
+        self.report["effects_started"] = True
+        self.persist("CLOSING" if state == "closed" else "RUNNING")
         self.own()  # Read target RV before fencing; recovery invalidates stale target writes.
         secret_annotations = secret["metadata"].get("annotations", {})
         secret_annotations["bravo.io/object-operation-executor"] = self.pod_uid
@@ -300,6 +307,7 @@ class Worker:
             if self.s3.call("HEAD", BUCKET, key, credentials=self.credentials["client"])[0] != 404:
                 raise Failure("disposable_key_already_present_or_unavailable")
         self.report["objects_owned"] = True
+        self.report["effects_started"] = True
         self.persist("RUNNING")  # Persist intent before PUT, including response-loss recovery.
         if self.s3.call("PUT", BUCKET, self.key, body=BODY, credentials=self.credentials["client"])[0] != 200:
             raise Failure("probe_object_put_unconfirmed")
@@ -371,16 +379,9 @@ class Worker:
         self.persist("CLOSING")
         self.transition("closed")
         self.policy(remove=True)
-        self.app_client()
         self.case("closed_bucket_policy_absent", True, True)
         self.case("closed_anonymous_get", self.s3.call("GET", BUCKET, self.key)[0], 403)
         self.probe("closed")
-        self.canary_key = getattr(self, "canary_key", None) or self.existing_canary()
-        status, _, body = self.s3.call("GET", BUCKET, self.canary_key, credentials=self.credentials["client"])
-        self.case("closed_existing_app_client_get", status, 200)
-        if "app_canary_sha256_before" in self.report:
-            self.case("closed_existing_app_bytes_unchanged", hashlib.sha256(body).hexdigest(), self.report["app_canary_sha256_before"])
-        self.cleanup_objects()
         closed = [case for case in self.report["checks"] if case["name"].startswith("closed_")]
         if not all(case["pass"] for case in closed):
             raise Failure("closed_readback_failed")
@@ -388,7 +389,25 @@ class Worker:
         _, _, state = render_existing(auth, "closed", self.request["run_id"])
         if state != "closed":
             raise Failure("configured_state_changed_after_close")
-        self.report.update(cleanup="CLEAN", closed_at=now(), final_state="closed", security_state="PRIVATE")
+        # App drift or a missing attachment cannot undo a verified closure. Preserve
+        # the app failure, clean our own objects, and release the operation slot.
+        self.report.update(closed_at=now(), final_state="closed", security_state="PRIVATE")
+        try:
+            self.app_client()
+            self.canary_key = getattr(self, "canary_key", None) or self.existing_canary()
+            status, _, body = self.s3.call("GET", BUCKET, self.canary_key, credentials=self.credentials["client"])
+            self.case("closed_existing_app_client_get", status, 200)
+            if "app_canary_sha256_before" in self.report:
+                self.case("closed_existing_app_bytes_unchanged", hashlib.sha256(body).hexdigest(), self.report["app_canary_sha256_before"])
+            if not all(case["pass"] for case in self.report["checks"] if case["name"].startswith("closed_existing_app_")):
+                raise Failure("application_readback_failed")
+            self.report["application_readback"] = "VERIFIED"
+        except Exception as error:  # noqa: BLE001 — provider responses are never persisted.
+            self.report["application_readback"] = "UNCONFIRMED"
+            self.report["application_error"] = str(error) if isinstance(error, Failure) else type(error).__name__
+            self.report.setdefault("error", self.report["application_error"])
+        self.cleanup_objects()
+        self.report["cleanup"] = "CLEAN"
         if "cleanup_error" in self.report:
             self.report.setdefault("previous_cleanup_errors", []).append(self.report.pop("cleanup_error"))
 
@@ -407,6 +426,7 @@ class Worker:
             "schema": "bravo.object-operation/v1", "run_id": self.request["run_id"],
             "owner": self.request["owner"], "action": self.request["action"], "started_at": now(),
             "verdict": "UNCONFIRMED", "cleanup": "UNCONFIRMED", "checks": [],
+            "effects_started": False,
             "executor_source_sha256": self.config.get("source_sha256"),
             "executor_pod_uid": self.pod_uid,
             "requested_at": self.request.get("requested_at"),
@@ -417,18 +437,24 @@ class Worker:
             self.report.setdefault("recovery_executor_pod_uids", []).append(self.pod_uid)
         value.update(executor=self.pod_uid, phase="RUNNING", report=self.report)
         self.api.save(doc, value)  # A failed CAS cannot start another operation.
-        close_required = recovery and self.request["action"] != "check"
+        # Older in-flight receipts have no marker and require conservative closure.
+        close_required = recovery and self.request["action"] != "check" and self.report.get("effects_started", True)
         try:
             if recovery:
                 self.report["interrupted_operation_not_replayed"] = True
-                self.report["error"] = "interrupted"
+                self.report.setdefault("error", "interrupted")
             else:
                 validate_request(self.request)
                 if self.request.get("cancel"):
                     raise Failure("cancelled_before_start")
                 if self.request["action"] == "cycle" and value.get("desired_state") == "open":
                     raise Failure("open_work_mode_requires_explicit_close")
-                close_required = self.request["action"] != "check"
+                if self.request["action"] == "close":
+                    # Reject unknown layouts/UID changes before any mutation. A
+                    # terminal refusal must not trap the whole service in recovery.
+                    _, _, auth = self.guard()
+                    render_existing(auth, "closed", self.request["run_id"])
+                    close_required = True
                 if self.request["action"] == "check":
                     _, _, auth = self.guard()
                     _, self.credentials, state = render_existing(auth, "closed", self.request["run_id"])
@@ -443,6 +469,7 @@ class Worker:
                     self.report["cleanup"] = "NOT_APPLICABLE"
                 elif self.request["action"] in ("cycle", "open"):
                     self.baseline()
+                    close_required = True
                     # Never open after the requested window expired during preparation.
                     validate_request(self.request)
                     self.opened()
@@ -452,18 +479,30 @@ class Worker:
         except Exception as error:  # noqa: BLE001 — never persist provider exception bodies.
             self.report["error"] = str(error) if isinstance(error, Failure) else type(error).__name__
         finally:
+            if self.report.get("effects_started") and self.report.get("cleanup") != "CLEAN":
+                close_required = True
             if close_required:
                 try:
                     self.close()
                 except Exception as error:  # noqa: BLE001 — the next scheduled worker retries only closure.
                     self.report["cleanup_error"] = str(error) if isinstance(error, Failure) else type(error).__name__
-                    self.persist("RECOVERY_REQUIRED")
-                    return
+                    if self.report.get("effects_started", True):
+                        if self.report.get("error") or any(not c["pass"] for c in self.report["checks"]):
+                            self.report["verdict"] = "FAIL"
+                        self.persist("RECOVERY_REQUIRED")
+                        return
+                    self.report.setdefault("error", self.report["cleanup_error"])
+                    self.report["cleanup"] = "NOT_APPLICABLE"
             if not close_required and self.report["cleanup"] == "UNCONFIRMED":
                 self.report["cleanup"] = "NOT_APPLICABLE"
             self.report["finished_at"] = now()
-            self.report["verdict"] = "PASS" if not self.report.get("error") and all(c["pass"] for c in self.report["checks"]) else "UNCONFIRMED" if recovery else "FAIL"
+            failed = any(not c["pass"] for c in self.report["checks"]) or self.report.get("error") not in (None, "interrupted")
+            self.report["verdict"] = "FAIL" if failed else "UNCONFIRMED" if recovery else "PASS"
             doc, value = self.own()
+            if not self.report.get("effects_started") and self.report.get("error"):
+                value["desired_state"] = self.request.get("previous_desired_state", value.get("desired_state", "closed"))
+            elif self.report.get("final_state") in ("open", "closed"):
+                value["desired_state"] = self.report["final_state"]
             value.update(phase="FINISHED", report=self.report, updated_at=now())
             value["history"] = (value.get("history", []) + [self.report])[-64:]
             self.api.save(doc, value)

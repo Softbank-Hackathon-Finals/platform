@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Request a fixed object-store cycle with personal auth; never fetch storage credentials."""
+"""Request fixed object operations with personal auth; storage keys stay in the worker."""
 import argparse
 import json
 import os
@@ -47,7 +47,8 @@ def execute(args):
     if args.command == "install":
         if cluster_uid != args.cluster_uid:
             raise Failure("cluster_uid_mismatch")
-        # Bootstrap reads only metadata in its output, never requests s3.json or renders a local Secret.
+        # kubectl receives the Secret response in memory; only its UID is emitted.
+        # This installer-only read is never exported as a Secret file or run input.
         secret_uid = kubectl("get", "secret", "target-seaweedfs-auth", "-n", NAMESPACE, "-o", "jsonpath={.metadata.uid}")
         deployment_uid = kubectl("get", "deploy", "target-seaweedfs", "-n", NAMESPACE, "-o", "jsonpath={.metadata.uid}")
         objects, initial = manifests(cluster_uid, secret_uid, deployment_uid)
@@ -92,10 +93,12 @@ def execute(args):
         result = api.call("GET", "/" + args.run_id)
     print(json.dumps(result, ensure_ascii=False), flush=True)
     if args.command == "status":
-        return 0
+        return 3 if args.wait_seconds and result["phase"] != "FINISHED" else 0
+    if result["phase"] != "FINISHED":
+        return 3 if args.wait_seconds or result["phase"] == "RECOVERY_REQUIRED" else 0
     if args.command == "cleanup" and result["phase"] == "FINISHED":
         return 0 if result.get("cleanup") in ("CLEAN", "NOT_APPLICABLE") else 1
-    return 0 if result["phase"] != "FINISHED" or result.get("verdict") == "PASS" else 1
+    return 0 if result.get("verdict") == "PASS" and result.get("cleanup") in ("CLEAN", "NOT_APPLICABLE") else 1
 
 
 def main():

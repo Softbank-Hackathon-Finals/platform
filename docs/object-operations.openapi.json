@@ -465,7 +465,7 @@
         "type": "apiKey",
         "in": "header",
         "name": "X-Bravo-Authorization",
-        "description": "Bearer followed by the same short-lived token. The service verifies it using TokenReview instead of trusting caller-supplied identity headers."
+        "description": "Bearer token issued for the same personal member service account with audience bravo-object-operations. A default kube-apiserver audience token is rejected."
       }
     },
     "schemas": {

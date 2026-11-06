@@ -133,5 +133,6 @@
     "other_teammate_device_execution_verified": false,
     "real_app_ui_verified": false,
     "worker_crash_recovery": "unit-tested; not injected into shared live storage"
-  }
+  },
+  "source_binding": "Historical execution; exact executor source hash was not captured in this receipt. Not evidence for current HEAD."
 }

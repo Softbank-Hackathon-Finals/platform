@@ -94,5 +94,6 @@
     }
   ],
   "pass": true,
-  "api_triggered_open_close_repeated": false
+  "api_triggered_open_close_repeated": false,
+  "source_binding": "Historical execution; exact executor source hash was not captured in this receipt. Not evidence for current HEAD."
 }

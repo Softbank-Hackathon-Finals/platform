@@ -1,5 +1,8 @@
 """HTTP authentication, ownership and lost-response idempotency contracts."""
 import copy
+import io
+import json
+import subprocess
 import sys
 import time
 import unittest
@@ -8,7 +11,7 @@ from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path[:0] = [str(ROOT / "scripts"), str(ROOT / "infra/envs/target-workloads")]
-from object_operations import server
+from object_operations import client, server
 from object_operations.worker import Failure
 
 OWNER = "system:serviceaccount:bravo-team-access:member-01"
@@ -54,6 +57,36 @@ class ApiTest(unittest.TestCase):
             self.assertError(401, lambda: self.ops.authenticate("dummy"))
         self.api.user = "system:serviceaccount:target-dev:foreign"
         self.assertError(403, lambda: self.ops.authenticate("dummy"))
+
+    def test_apiserver_audience_is_not_a_service_credential(self):
+        with patch.object(self.api, "call", return_value={"status": {"authenticated": True, "audiences": ["https://kubernetes.default.svc.cluster.local"], "user": {"username": OWNER}}}):
+            self.assertError(401, lambda: self.ops.authenticate("dummy"))
+
+    def test_service_client_mints_only_current_members_separate_audience(self):
+        responses = [subprocess.CompletedProcess([], 0, json.dumps({"status": {"userInfo": {"username": OWNER}}})),
+                     subprocess.CompletedProcess([], 0, "service-only-token\n")]
+        with patch.object(client.subprocess, "run", side_effect=responses) as invoke:
+            self.assertEqual(client.service_token(), "service-only-token")
+        command = invoke.call_args_list[1].args[0]
+        self.assertEqual(command[3], "member-01")
+        self.assertIn("--audience=bravo-object-operations", command)
+        self.assertIn("--duration=10m", command)
+
+    def test_service_token_provider_error_never_emits_provider_output(self):
+        with patch.object(client.subprocess, "run", side_effect=subprocess.CalledProcessError(1, [], output="private-fixture")), \
+                self.assertRaises(client.APIError) as caught:
+            client.service_token()
+        self.assertEqual(str(caught.exception), "service_token_unavailable")
+
+    def test_client_uses_distinct_proxy_and_service_bearers(self):
+        with patch.dict(client.os.environ, {"BRAVO_TEAM_DIRECT_TOKEN": "proxy-only-token"}), \
+                patch.object(client, "service_token", return_value="service-only-token"):
+            api = client.Client({"direct_server": "https://fixture.example.test"})
+        with patch.object(api.opener, "open", return_value=io.BytesIO(b'{"runs":[]}')) as invoke:
+            api.call("GET")
+        headers = {key.lower(): value for key, value in invoke.call_args.args[0].header_items()}
+        self.assertEqual(headers["authorization"], "Bearer proxy-only-token")
+        self.assertEqual(headers["x-bravo-authorization"], "Bearer service-only-token")
 
     def test_missing_or_invalid_token_is_not_anonymous_access(self):
         self.assertError(401, lambda: self.ops.authenticate(""))

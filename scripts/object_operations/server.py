@@ -15,7 +15,7 @@ else:
     from worker import ACTIVE, API, Failure, encode
 
 BASE = "/v1/object-exposure"
-AUDIENCE = "https://kubernetes.default.svc.cluster.local"
+AUDIENCE = "bravo-object-operations"
 
 
 class HTTPError(Exception):

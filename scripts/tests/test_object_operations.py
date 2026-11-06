@@ -1,4 +1,5 @@
 """Failure and ownership behavior of fixed keyless object operations."""
+import base64
 import copy
 import importlib.util
 import json
@@ -48,7 +49,7 @@ class Runner(worker.Worker):
         self.close_count = 0
 
     def baseline(self):
-        pass
+        self.report["effects_started"] = True
 
     def opened(self):
         self.open_count += 1
@@ -161,6 +162,53 @@ class OperationsTest(unittest.TestCase):
         self.assertEqual(api.value["phase"], "RECOVERY_REQUIRED")
         self.assertEqual(api.value["report"]["cleanup"], "UNCONFIRMED")
 
+    def test_recovery_preserves_original_failure_after_closure_succeeds(self):
+        api = FakeAPI()
+        runner = Runner(api)
+        with patch.object(runner, "opened", side_effect=worker.Failure("anonymous_boundary_mismatch")), \
+                patch.object(runner, "close", side_effect=worker.Failure("kubernetes_unavailable")):
+            runner.run()
+        Runner(api).run()
+        self.assertEqual(api.value["phase"], "FINISHED")
+        self.assertEqual(api.value["report"]["error"], "anonymous_boundary_mismatch")
+        self.assertEqual(api.value["report"]["verdict"], "FAIL")
+        self.assertEqual(api.value["report"]["cleanup"], "CLEAN")
+
+    def test_repeated_recovery_keeps_bounded_receipt(self):
+        api = FakeAPI("RECOVERY_REQUIRED")
+        api.value["report"]["effects_started"] = True
+        for index in range(100):
+            runner = Runner(api)
+            runner.pod_uid = str(index).zfill(36)
+            def failed_close(runner=runner):
+                runner.report.setdefault("transitions", []).append({"state": "closed", "ready_seconds": 22})
+                runner.report.setdefault("previous_closure_checks", []).append([{"name": "closed_anonymous_get", "pass": False}])
+                raise worker.Failure("kubernetes_unavailable")
+            with patch.object(runner, "close", side_effect=failed_close):
+                runner.run()
+        self.assertEqual(api.value["phase"], "RECOVERY_REQUIRED")
+        self.assertLess(len(json.dumps(api.value)), 6000)
+        self.assertEqual(len(api.value["report"]["recovery_executor_pod_uids"]), 8)
+
+    def test_waited_incomplete_result_is_not_success_exit(self):
+        import tempfile
+        from types import SimpleNamespace
+        with tempfile.TemporaryDirectory() as folder:
+            profile = Path(folder) / "profile.json"
+            profile.write_text('{"cluster_uid":"cluster"}')
+            for command in ("open", "cleanup", "status"):
+                args = SimpleNamespace(command=command, run_id="objects-" + "b" * 32,
+                                       access=profile, wait_seconds=1, request_key=None,
+                                       hold_seconds=0, acknowledge_anonymous_read=True)
+                for phase in ("PENDING", "RECOVERY_REQUIRED"):
+                    with self.subTest(command=command, phase=phase), \
+                            patch.object(cli, "kubectl", side_effect=[json.dumps({"status":{"userInfo":{"username":request()["owner"]}}}), "cluster"]), \
+                            patch.object(cli, "Client") as client, patch.object(cli.time, "monotonic", side_effect=[0, 2]):
+                        client.return_value.call.return_value = {"phase": phase}
+                        client.return_value.run_id.return_value = args.run_id
+                        client.return_value.new_key.return_value = "fixture-key"
+                        self.assertEqual(cli.execute(args), 3)
+
     def test_stale_executor_cannot_write_after_recovery_takes_over(self):
         api = FakeAPI()
         runner = Runner(api)
@@ -203,6 +251,125 @@ class OperationsTest(unittest.TestCase):
         self.assertEqual(cron["spec"]["concurrencyPolicy"], "Forbid")
         self.assertEqual(cron["spec"]["jobTemplate"]["spec"]["backoffLimit"], 0)
         self.assertEqual(json.loads(initial["data"]["state.json"])["phase"], "IDLE")
+
+
+class StoreAPI(FakeAPI):
+    """In-memory Kubernetes/S3 boundary; the production Worker runs unchanged."""
+    def __init__(self, action="cycle"):
+        super().__init__(action=action)
+        self.value["config"] = {"cluster_uid": "cluster", "secret_uid": "secret", "deployment_uid": "deployment"}
+        self.auth = OperationsTest().document()
+        self.app_pair = self.auth["identities"][1]["credentials"][0].copy()
+        self.generation = 1
+        self.mutations = []
+
+    def call(self, method, path, body=None, patch=False):
+        if method == "PATCH":
+            self.mutations.append(path)
+            if path.endswith(worker.SECRET):
+                self.auth = json.loads(base64.b64decode(next(item["value"] for item in body if item["path"] == "/data/s3.json")))
+            else:
+                self.generation += 1
+        if path.endswith("kube-system"):
+            return {"metadata": {"uid": "cluster"}}
+        if path.endswith("target-app-objects"):
+            return {"data": {name: base64.b64encode(self.app_pair[key].encode()).decode() for name, key in (("access_key", "accessKey"), ("secret_key", "secretKey"))}}
+        if path.endswith(worker.SECRET):
+            return {"metadata": {"uid": "secret", "resourceVersion": "1"}, "data": {"s3.json": base64.b64encode(json.dumps(self.auth).encode()).decode()}}
+        if path == worker.APPS:
+            return {"metadata": {"uid": "deployment", "resourceVersion": "1", "generation": self.generation},
+                    "spec": {"replicas": 1, "template": {"metadata": {}, "spec": {"containers": [{"image": "fixture"}]}}},
+                    "status": {"observedGeneration": self.generation, "updatedReplicas": 1, "readyReplicas": 1, "replicas": 1}}
+        raise AssertionError(path)
+
+
+class StoreS3:
+    def __init__(self, api):
+        self.api = api
+        self.objects = {"original.txt": b"original attachment"}
+        self.puts = 0
+        self.delete_canary_during_open = False
+
+    def call(self, method, bucket, key="", *, query=(), body=b"", credentials=None):
+        if query == [("policy", "")]:
+            return 404, "NoSuchBucketPolicy", b""
+        opened = any(item["name"] == "anonymous" for item in self.api.auth["identities"])
+        if credentials is None:
+            if bucket == worker.OTHER_BUCKET and self.delete_canary_during_open:
+                self.objects.pop("original.txt", None)
+            if not opened or bucket != worker.BUCKET or method not in ("GET", "HEAD") or not key:
+                return 403, None, b""
+        if method == "GET" and not key:
+            data = "<ListBucketResult>" + "".join(f"<Contents><Key>{k}</Key><Size>{len(v)}</Size></Contents>" for k, v in self.objects.items()) + "</ListBucketResult>"
+            return 200, None, data.encode()
+        if method in ("GET", "HEAD"):
+            return (200, None, self.objects[key]) if key in self.objects else (404, None, b"")
+        if method == "PUT":
+            self.puts += 1
+            self.objects[key] = body
+            return 200, None, b""
+        if method == "DELETE":
+            self.objects.pop(key, None)
+            return 204, None, b""
+        raise AssertionError(method)
+
+
+class WorkerBoundaryTest(unittest.TestCase):
+    def run_worker(self, api, store):
+        runner = worker.Worker(api, "executor")
+        runner.s3 = store
+        # The renderer and entire Worker run; only the T9 HTTP probe is an I/O fake.
+        def probe(state):
+            actual = "open" if any(i["name"] == "anonymous" for i in api.auth["identities"]) else "closed"
+            return runner.case(state + "_t9_probe", actual, state)
+        with patch.object(runner, "probe", side_effect=probe):
+            runner.run()
+        return api.value["report"]
+
+    def test_empty_bucket_close_finishes_with_app_failure_and_clean_objects(self):
+        api = StoreAPI("close")
+        store = StoreS3(api)
+        store.objects.clear()
+        report = self.run_worker(api, store)
+        self.assertEqual(api.value["phase"], "FINISHED")
+        self.assertEqual((report["verdict"], report["cleanup"], report["final_state"]), ("FAIL", "CLEAN", "closed"))
+        self.assertEqual(report["application_error"], "existing_app_canary_unavailable")
+
+    def test_unknown_identity_cycle_refuses_without_any_effect_or_recovery_lock(self):
+        api = StoreAPI()
+        api.auth["identities"].append({"name": "backup-writer", "actions": []})
+        store = StoreS3(api)
+        report = self.run_worker(api, store)
+        self.assertEqual(api.value["phase"], "FINISHED")
+        self.assertEqual(report["error"], "unsupported_identity_layout")
+        self.assertEqual((api.mutations, store.puts), ([], 0))
+
+    def test_app_secret_mismatch_cycle_refuses_without_restart(self):
+        api = StoreAPI()
+        api.app_pair["accessKey"] = "different"
+        store = StoreS3(api)
+        report = self.run_worker(api, store)
+        self.assertEqual(api.value["phase"], "FINISHED")
+        self.assertEqual(report["error"], "application_secret_does_not_match_client_identity")
+        self.assertEqual((api.mutations, store.puts), ([], 0))
+
+    def test_deleted_app_canary_does_not_prevent_closure_and_owned_cleanup(self):
+        api = StoreAPI()
+        store = StoreS3(api)
+        store.delete_canary_during_open = True
+        report = self.run_worker(api, store)
+        self.assertEqual(api.value["phase"], "FINISHED")
+        self.assertEqual((report["verdict"], report["cleanup"], report["final_state"]), ("FAIL", "CLEAN", "closed"))
+        self.assertFalse(store.objects)
+        self.assertEqual(report["application_error"], "application_readback_failed")
+
+    def test_real_worker_open_keeps_original_and_deletes_only_own_objects(self):
+        api = StoreAPI("open")
+        store = StoreS3(api)
+        report = self.run_worker(api, store)
+        self.assertEqual((report["verdict"], report["cleanup"], report["final_state"]), ("PASS", "CLEAN", "open"))
+        self.assertEqual(store.objects, {"original.txt": b"original attachment"})
+        self.assertEqual(sum(path == worker.APPS for path in api.mutations), 1)
 
 
 if __name__ == "__main__":

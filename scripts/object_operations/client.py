@@ -2,6 +2,8 @@
 import hashlib
 import json
 import os
+import re
+import subprocess
 import time
 import urllib.error
 import urllib.request
@@ -9,6 +11,25 @@ from uuid import uuid4
 
 PROXY = "/api/v1/namespaces/target-dev/services/http:bravo-object-operations:http/proxy"
 BASE = "/v1/object-exposure/runs"
+AUDIENCE = "bravo-object-operations"
+
+
+def service_token():
+    """Mint a separate audience token with the caller's existing personal context."""
+    try:
+        identity = subprocess.run(["kubectl", "auth", "whoami", "-o", "json"],
+                                  capture_output=True, text=True, timeout=20, check=True)
+        subject = json.loads(identity.stdout)["status"]["userInfo"]["username"]
+        if not re.fullmatch(r"system:serviceaccount:bravo-team-access:member-0[1-5]", subject):
+            raise APIError(403, {"error": "personal_member_required"})
+        token = subprocess.run(["kubectl", "create", "token", subject.rsplit(":", 1)[1],
+                                "--namespace=bravo-team-access", "--audience=" + AUDIENCE, "--duration=10m"],
+                               capture_output=True, text=True, timeout=20, check=True).stdout.strip()
+        if not token:
+            raise ValueError("empty token")
+        return token
+    except (OSError, ValueError, KeyError, subprocess.SubprocessError):
+        raise APIError(401, {"error": "service_token_unavailable"}) from None
 
 
 class APIError(Exception):
@@ -28,6 +49,7 @@ class Client:
         self.token = os.environ.get("BRAVO_TEAM_DIRECT_TOKEN")
         if not self.token:
             raise APIError(401, {"error": "personal_wrapper_required"})
+        self.service_token = service_token()
         self.opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), NoRedirect())
 
     @staticmethod
@@ -40,7 +62,7 @@ class Client:
 
     def call(self, method, suffix="", body=None, key=None, route=None):
         headers = {"Authorization": "Bearer " + self.token,
-                   "X-Bravo-Authorization": "Bearer " + self.token,
+                   "X-Bravo-Authorization": "Bearer " + self.service_token,
                    "Content-Type": "application/json"}
         if key:
             headers["Idempotency-Key"] = key

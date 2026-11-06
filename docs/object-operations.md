@@ -21,7 +21,7 @@ CLI는 같은 HTTP API를 호출한다. 별도 공유 API 키를 발급하지 �
 | `POST /v1/object-exposure/runs/{run_id}/cancel` | `{}`로 취소 요청; 진행 중이면 같은 실행의 닫기로 진행 |
 | `GET /openapi.json` | 인증 후 API 명세 조회 |
 
-외부 요청은 `Authorization: Bearer <개인 단기 토큰>`과 `X-Bravo-Authorization: Bearer <같은 토큰>`을 보낸다. 앞쪽 API 인증과 뒤쪽 서비스의 독립 검증에 각각 사용한다. 토큰을 로그나 파일에 쓰거나 다른 사람에게 전달하지 않는다. 서비스는 호출자가 주장하는 사용자 이름 헤더를 신뢰하지 않는다. 인증이 없거나 만료되면 401, 팀 주체가 아니면 403, 남의 실행 조회·취소는 404다.
+외부 요청의 `Authorization`에는 기존 개인 kube-apiserver 토큰을 쓰고, `X-Bravo-Authorization`에는 **같은 본인 SA에서 audience `bravo-object-operations`로 발급한 별도의 10분 토큰**을 쓴다. Python 클라이언트가 현재 개인 kubectl 신원을 확인하고 `kubectl create token <본인 member SA> --namespace=bravo-team-access --audience=bravo-object-operations --duration=10m`으로 메모리에서 준비한다. 서비스 토큰은 kube-apiserver 인증에 사용할 수 없고, 기본 apiserver 토큰은 서비스가 거부한다. 토큰을 로그나 파일에 쓰거나 다른 사람에게 전달하지 않는다. 서비스는 호출자가 주장하는 사용자 이름 헤더를 신뢰하지 않는다. 인증이 없거나 만료되면 401, 팀 주체가 아니면 403, 남의 실행 조회·취소는 404다.
 
 접수에는 `Idempotency-Key: <현재 Unix 초>-<UUID hex 32자>`가 필요하다. 아래 Python 클라이언트의 `new_key()`로 만들 수 있다. 응답을 받지 못해도 **같은 키와 같은 본문**을 쓰면 기존 run을 반환한다. 같은 키에 다른 입력은 409다. 다른 실행이 진행 중일 때도 409이며, 새 키로 계속 재시도하지 않는다. 오래되어 결과 보관 범위를 벗어난 키는 410으로 거부해 다시 실행하지 않는다. `202`는 접수이며 성공 판정이 아니다.
 
@@ -91,6 +91,17 @@ uv run --python 3.12 python scripts/team_runtime.py objects close --access team-
 
 ## 중단 복구와 범위
 
+종료 코드는 JSON의 판정과 함께 사용한다. `status` 기본 호출의 0은 조회 성공이며 시험 PASS를 뜻하지 않는다.
+
+| 코드 | 의미 |
+|---|---|
+| 0 | 접수만 요청한 경우 접수 성공. 기다린 실행은 FINISHED/PASS 및 CLEAN 또는 NOT_APPLICABLE. 완료된 cleanup은 자기 객체 정리 완료. |
+| 1 | 완료됐지만 실행 실패 또는 정리 미확인 |
+| 2 | 인증·입력·API 호출 실패. 응답 불명은 출력된 같은 ID로 조회 |
+| 3 | 기다렸지만 미완료, 또는 RECOVERY_REQUIRED. 새 실행을 제출하지 않고 같은 ID로 조회·정리 |
+
+첫 변경 전에 계약·앱 자격·기존 첨부 검증이 실패하면 Secret·Deployment를 바꾸지 않고 FINISHED/FAIL로 끝낸다. 닫힘 자체와 앱 읽기 검증도 분리한다. 닫힘과 자기 객체 삭제는 확인됐지만 버킷이 비었거나 앱 자격/첨부가 달라졌다면 FINISHED/FAIL, cleanup=CLEAN, final_state=closed와 application_error를 남긴다. 이 결과는 앱 정상의 증거가 아니며 다음 요청을 막지 않는다. 복구 뒤에도 최초 오류와 FAIL 판정을 보존한다. 복구 이력 배열은 최근 8개로 제한한다.
+
 고정된 CronJob은 한 번에 하나의 작업만 수행한다. 개인 PC 연결이나 개인 단기 자격이 만료돼도 클러스터 내부의 기존 작업이 계속된다. 성공한 지속 open은 작업 완료 뒤 그대로 유지한다. 완료 전에 작업 프로세스가 중단되면 다음 주기는 불명확한 실행을 다시 열지 않고 닫기만 복구하며 원 작업을 PASS로 만들지 않는다. Kubernetes가 멈추거나 API·스토리지가 계속 응답하지 않으면 닫힘을 보장할 수 없다. 이때는 `RECOVERY_REQUIRED`와 `UNCONFIRMED`를 유지하고 같은 실행의 닫기를 재시도한다. 처리 중 새 시험은 거부한다. 임의 새 run으로 실패 이력을 지우지 않는다.
 
 닫기는 닫힌 Secret 적용, Deployment Ready 확인, 첨부 버킷 정책의 부재 확인/기존 정책 제거, 익명 GET 403, 기존 첨부의 정상 인증 읽기와 바이트 대조, 이번 실행의 객체 삭제·부재 확인 순서다. 시험 객체는 예측 불가능한 run ID의 전용 경로에만 만든다. 기존 첨부, 다른 버킷 객체, PVC와 namespace는 삭제하지 않는다.
@@ -101,7 +112,7 @@ uv run --python 3.12 python scripts/team_runtime.py objects close --access team-
 
 `state`/HTTP 상태 GET은 마지막 관측 시각을 함께 반환하며 실시간 S3 검사라고 표시하지 않는다. `check`를 요청하면 현재 configured state와 실제 익명/인증 접근의 일치를 다시 확인한다.
 
-환경 담당이 설치를 한 번 수행한다. 기존 개인 접속과 해당 개발 클러스터의 운영 권한을 사용하며 새로운 사람용 저장소 키를 발급하지 않는다. 실행 SA는 이름이 고정된 상태 ConfigMap, 저장소 Secret, Deployment에만 get/patch와 클러스터 UID 읽기 권한을 가진다. 앱의 객체 자격 Secret은 읽기만 허용하고 같은 클라이언트인지 메모리에서 대조한다. 이 구성은 기존 팀 개발 클러스터의 관리자 권한을 축소하는 IAM 전환은 아니다.
+환경 담당이 설치를 한 번 수행한다. 기존 개인 접속과 해당 개발 클러스터의 운영 권한을 사용하며 새로운 사람용 저장소 키를 발급하지 않는다. 설치자의 kubectl은 UID 결속을 위해 Secret 응답 전체를 메모리로 받되 UID만 출력하며 로컬 Secret 파일을 만들지 않는다. 일반 실행·조회는 이 설치 경로를 사용하지 않는다. 실행 SA는 이름이 고정된 상태 ConfigMap, 저장소 Secret, Deployment에만 get/patch와 클러스터 UID 읽기 권한을 가진다. 앱의 객체 자격 Secret은 읽기만 허용하고 같은 클라이언트인지 메모리에서 대조한다. 이 구성은 기존 팀 개발 클러스터의 관리자 권한을 축소하는 IAM 전환은 아니다.
 
 ```sh
 uv run --python 3.12 python scripts/object_operations.py install \
