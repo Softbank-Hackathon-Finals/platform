@@ -1,4 +1,12 @@
-# T19: 실제 출발지·온프렘 DB의 스키마·PK 수집
+# T19: 양쪽 앱 경로에서 도달한 DB의 스키마·PK 조회
+
+> **범위 정정:** 이 기록은 독립된 출발지·목적지 두 DB의 스키마 일치 증거가 아니다.
+> 수집기는 양쪽 **앱의 `DB_HOST`**를 사용했다. 목적지의 앱 경로는 목적지 PgBouncer를
+> 거친다. 수집 뒤인 20:44 KST에 확인했을 때 이 풀러는 컷오버 전 구성대로 **출발지 DB**를
+> 가리켰고, 수집 당시의 연결 대상은 독립적으로 확인하지 않았다. 따라서 두 결과가 서로
+> 다른 DB를 읽었다고 볼 근거가 없으며, 일치는 동등성의 근거가 아니다. 정정과 목적지 CNPG 직접 수집은
+> [t19-direct-database-2026-11-06](../t19-direct-database-2026-11-06/README.md)(#512)에 있다.
+> 아래 원문·관측 시각·해시는 바꾸지 않고 보존한다.
 
 2026-11-06 KST에 실제 EKS 출발지와 온프렘 목적지의 기존 앱 연결에서
 `bravo_gate.t13.collect_schema`를 실행했다. 이 함수가 사용하는 T13
@@ -6,8 +14,8 @@
 
 | 확인 범위 | 결과 |
 | --- | --- |
-| public.messages | 양쪽 스키마 hash·PK 일치 |
-| public.attachments | 양쪽 스키마 hash·PK 일치 |
+| public.messages | 두 앱 경로의 스키마 hash·PK 같음 (같은 DB일 수 있음, 위 정정) |
+| public.attachments | 두 앱 경로의 스키마 hash·PK 같음 (같은 DB일 수 있음, 위 정정) |
 | 수집기 오류 | 양쪽 없음 |
 | 연결 | 인증서·호스트명을 검증하는 verify-full TLS, autocommit, 시작 전 idle |
 | DB 역할 | 기대 DB·session/current role 일치, superuser/BYPASSRLS 없음 |
@@ -21,6 +29,7 @@ T13이 테이블 카탈로그·PK를 읽고 재조회해 수집 중 변경을 �
 
 출발지는 등록 앱의 image·ServiceAccount·ReplicaSet 결속도 대조했다.
 목적지는 공식 개인 단기 토큰과 직접 API로 현재 대상 클러스터·DB UID를 대조했다.
+다만 앱 연결이 그 CNPG에 도달하는지는 확인하지 않았다(위 정정).
 목적지의 기존 loopback Secrets Manager 호환 경로를 사용했으며, OpenBao 전환이
 완료됐거나 두 자격 저장 방식이 같은 보안 수준이라고 주장하지 않는다.
 

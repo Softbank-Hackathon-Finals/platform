@@ -3,6 +3,13 @@
   "qualification_only": true,
   "operational_authority": false,
   "schema_and_pk_equal": true,
+  "observation_scope": "app-db-host-path",
+  "independent_databases_verified": false,
+  "scope_correction": {
+    "reason": "collected over each application's DB_HOST; at a later check the target PgBouncer pointed at the source DB (pre-cutover configuration); the capture-time connection target was not independently verified",
+    "superseded_by": "docs/evidence/t19-direct-database-2026-11-06/README.md",
+    "captures_unchanged": true
+  },
   "table_count_per_side": 2,
   "data_rows_read": 0,
   "business_writes": 0,
