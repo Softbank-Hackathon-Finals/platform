@@ -1,7 +1,7 @@
 {{- if .Values.rehearsalHost.enabled }}
 {{- range $key, $_ := .Values.rehearsalHost.runtime }}
-{{- if not (has $key (list "configuration" "reader" "recordsClaim" "secrets")) }}
-{{- fail "runtime input may contain only configuration, reader, recordsClaim and secrets" }}
+{{- if not (has $key (list "configuration" "reader" "recordsClaim" "secrets" "hostAliases")) }}
+{{- fail "runtime input may contain only configuration, reader, recordsClaim, secrets and hostAliases" }}
 {{- end }}
 {{- end }}
 {{- if not .Values.rehearsalHost.runtime.configuration }}
