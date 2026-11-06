@@ -35,7 +35,7 @@ from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from .adapters import expand_platform_event
+from .adapters import PLATFORM_SCHEMA_VERSIONS, expand_platform_event
 from .ledger import OriginConflict, RunLedger, utc_now, verify_chain
 from .record import UnsafePayload
 from .storage import IDENTIFIER, StoreTampered, load_plan_runs
@@ -167,6 +167,9 @@ def decode_event(sse: SseEvent, plan_id: str) -> dict:
         raise FollowStop(EXIT_REJECTED, "event_of_another_plan")
     if event.get("event_id") != sse.id or event.get("event_type") != sse.event:
         raise FollowStop(EXIT_REJECTED, "sse_header_mismatch")
+    # T10 contract: a consumer stops on a schema version it does not know instead of guessing.
+    if event.get("schema_version") not in PLATFORM_SCHEMA_VERSIONS:
+        raise FollowStop(EXIT_REJECTED, "unsupported_schema_version")
     return event
 
 

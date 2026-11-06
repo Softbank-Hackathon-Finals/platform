@@ -377,6 +377,8 @@ def test_tool_events_are_split_end_to_end_and_a_crash_mid_split_is_completed(tmp
      follow_mod.EXIT_REJECTED, "sse_header_mismatch"),
     ((200, SSE, b"id: x\nevent: y\nfoo: bar\ndata: {}\n\n"), follow_mod.EXIT_REJECTED, "sse_unknown_field"),
     ((200, SSE, sse(t10_event(1, data={"note": "password=hunter2hunter2"}))), follow_mod.EXIT_REJECTED, "unsafe_payload"),
+    ((200, SSE, sse(t10_event(1) | {"schema_version": "9.9", "data": {"gate_id": "g1", "decision": "MAYBE"}})),
+     follow_mod.EXIT_REJECTED, "unsupported_schema_version"),
 ])
 def test_upstream_errors_map_to_distinct_exit_codes(tmp_path, stub, token_file, capsys, response, code, reason):
     server = stub(response)
@@ -385,6 +387,8 @@ def test_upstream_errors_map_to_distinct_exit_codes(tmp_path, stub, token_file, 
     assert out["reason"] == reason and "<script>" not in captured.err and "hunter2" not in captured.err + captured.out
     if reason == "sequence_out_of_order":
         assert len(stored(tmp_path / "s")[RUN]) == 1
+    elif reason == "unsupported_schema_version":
+        assert stored(tmp_path / "s") == {}  # nothing recorded under a version T24 does not know
     elif reason == "redirect_refused":
         assert len(server.requests) == 1
 
