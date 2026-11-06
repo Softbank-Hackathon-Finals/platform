@@ -147,6 +147,19 @@ def _slot(version):
     return f"initial-proposal:{version}"
 
 
+MAX_FENCES = 2
+
+
+def _execution_key(c, plan_id, version):
+    """The live execution slot. Each operator fence of a provably unreceived claim opens the
+    next one; the fenced claim and its fence stay in the append-only journal."""
+    base = _slot(version) + ":execution"
+    n = 1
+    while n <= MAX_FENCES and _get(c, plan_id, f"{base}:fence:{n}"):
+        n += 1
+    return base if n == 1 else f"{base}:{n}"
+
+
 class InitialProposalRecords:
     """One initial input/result per PROPOSE version. No state setter or executor.
 
@@ -278,7 +291,7 @@ class InitialProposalExecution:
     def preparation_fields(self, plan_id, version, **ref):
         with self.records.store._transaction() as c:
             value = self.records._read(c, self.principal, plan_id, version, ref)
-            if _get(c, plan_id, _slot(version) + ":execution"):
+            if _get(c, plan_id, _execution_key(c, plan_id, version)):
                 raise EventError("initial_execution_already_claimed")
             _require_model_input(value)
             return self._fields(value, ref)
@@ -314,12 +327,47 @@ class InitialProposalExecution:
     def execute(self, plan_id, version, **ref):
         return self._run(plan_id, version, ref, claim=True)
 
+    def fence_unreceived(self, plan_id, version, **ref):
+        """Close a claim whose carrier provably never received it, so execute() can claim once more.
+
+        The removed Actions path rejected the 10:08 request (HTTP 422, no run) and its intent is
+        bound to a runtime source the Job carrier cannot run. The client proves non-receipt and
+        fences its own ledger first; T10 records the proof. Unknown, running or finished
+        executions are never fenced.
+        """
+        with self.records.store._transaction() as c:
+            self.records._read(c, self.principal, plan_id, version, ref)
+            key = _execution_key(c, plan_id, version)
+            old = _get(c, plan_id, key)
+            if old is None:
+                raise EventError("initial_execution_not_started")
+            if _get(c, plan_id, key + ":result"):
+                raise EventError("initial_execution_complete")
+            fences = int(key.rsplit(":", 1)[1]) if key[-1].isdigit() else 1
+            if fences > MAX_FENCES:
+                raise EventError("initial_fence_limit")
+        intent = InitialIntent(**old[0])
+        try:
+            proof = self.client.fence_unreceived(intent)
+            if (type(proof) is not dict or proof.get("kind") != "initial-unreceived-fence-v1"
+                    or proof.get("request_id") != intent.request_id):
+                raise ValueError()
+        except Exception:
+            raise EventError("initial_fence_unconfirmed") from None
+        with self.records.store._transaction(write=True, plan_id=plan_id) as c:
+            self.records._read(c, self.principal, plan_id, version, ref)
+            if _execution_key(c, plan_id, version) != key or _get(c, plan_id, key + ":result"):
+                raise EventError("initial_execution_conflict")
+            base = _slot(version) + ":execution"
+            _put(c, plan_id, f"{base}:fence:{fences}", old[0], proof)
+        return proof
+
     def read(self, plan_id, version, **ref):
         return self._run(plan_id, version, ref, claim=False)
 
     def _run(self, plan_id, version, ref, *, claim):
-        slot = _slot(version) + ":execution"
         with self.records.store._transaction(write=True, plan_id=plan_id) as c:
+            slot = _execution_key(c, plan_id, version)
             value = self.records._read(c, self.principal, plan_id, version, ref)
             old = _get(c, plan_id, slot)
             first = old is None
@@ -377,7 +425,7 @@ class InitialProposalExecution:
 
     def _stored_result(self, c, plan_id, version, ref, *, promoted=False):
         value = self.records._read(c, self.principal, plan_id, version, ref, promoted=promoted)
-        saved = _get(c, plan_id, _slot(version) + ":execution:result")
+        saved = _get(c, plan_id, _execution_key(c, plan_id, version) + ":result")
         if not saved:
             raise EventError("initial_execution_not_complete")
         intent = InitialIntent(**saved[0])
@@ -510,7 +558,7 @@ class InitialProposalExecution:
             if not admitted:
                 raise EventError("initial_execution_not_complete")
             value = self.records._read(c, self.principal, plan_id, version, admitted[1])
-            saved = _get(c, plan_id, _slot(version) + ":execution:result")
+            saved = _get(c, plan_id, _execution_key(c, plan_id, version) + ":result")
             if not saved:
                 raise EventError("initial_execution_not_complete")
             intent = InitialIntent(**saved[0])

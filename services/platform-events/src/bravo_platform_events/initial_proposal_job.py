@@ -11,6 +11,8 @@ import os
 import re
 import subprocess
 import sys
+import urllib.error
+import urllib.request
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -169,6 +171,38 @@ def bound_job(job, intent, image, dispatch_sent_at):
             and operator_spec(job["spec"]["template"]["spec"]) == expected["spec"]["template"]["spec"])
 
 
+PLATFORM_REPOSITORY = "Softbank-Hackathon-Finals/platform"
+LEGACY_WORKFLOW = ".github/workflows/subscription-initial-proposal.yml"
+
+
+def legacy_actions_runs(workflow_id, request_id, *, get=None):
+    """Public-repository reads only (no credential): is the legacy workflow gone, did it ever run this?"""
+    def fetch(path):
+        request = urllib.request.Request(f"https://api.github.com/repos/{PLATFORM_REPOSITORY}/{path}",
+                                         headers={"Accept": "application/vnd.github+json"})
+        try:
+            with urllib.request.urlopen(request, timeout=30) as response:
+                return response.status, json.loads(response.read(4 * 1024 * 1024))
+        except urllib.error.HTTPError as error:
+            return error.code, None
+
+    get = get or fetch
+    status, _ = get(f"contents/{LEGACY_WORKFLOW}?ref=develop")
+    if status not in (200, 404):
+        raise ExecutionUnknown("LEGACY_WORKFLOW_UNOBSERVED")
+    matching, page = 0, 1
+    while True:
+        code, body = get(f"actions/workflows/{workflow_id}/runs?per_page=100&page={page}")
+        if code != 200 or not isinstance(body, dict):
+            raise ExecutionUnknown("LEGACY_RUNS_UNOBSERVED")
+        runs = body.get("workflow_runs", [])
+        matching += sum(request_id in (run.get("display_title") or "") for run in runs)
+        if len(runs) < 100:
+            break
+        page += 1
+    return {"workflow_on_develop": status == 200, "matching_runs": matching, "workflow_id": workflow_id}
+
+
 def run(env=os.environ, *, call=None, token_file=TOKEN):
     intent = InitialIntent.model_validate_json(env["PRODUCT_INTENT"])
     run_id = env["PRODUCT_EXECUTION_ID"]
@@ -254,6 +288,43 @@ class JobInitialProposal(OperatorInitialProposal):
             if code:
                 raise ExecutionUnknown("JOB_CREATE_UNCONFIRMED_READ_SAME_EXECUTION")
         return self.read(intent)
+
+    def fence_unreceived(self, intent, *, runs=None):
+        """Prove the removed Actions carrier never received this request and fence it here.
+
+        Required: a legacy Actions row (workflow_id, no carrier, no run id), no 2xx dispatch
+        response, the legacy workflow gone from develop, and no run of it naming the request.
+        The fence is a new row; the legacy row stays, and submit/read for this request id keep
+        refusing it (carrier conflict). Idempotent.
+        """
+        intent = self._parse_intent(intent)
+        with self._db() as db:
+            db.execute("CREATE TABLE IF NOT EXISTS legacy_fences (request_id TEXT PRIMARY KEY, "
+                       "legacy_metadata TEXT NOT NULL, proof TEXT NOT NULL)")
+            done = db.execute("SELECT proof FROM legacy_fences WHERE request_id=?",
+                              (intent.request_id,)).fetchone()
+            row = db.execute("SELECT metadata, run_id FROM executions WHERE request_id=?",
+                             (intent.request_id,)).fetchone()
+        if done:
+            return json.loads(done[0])
+        if row is None:
+            raise ExecutionUnknown("LEGACY_RECORD_MISSING")
+        legacy, run_id = json.loads(row[0]), row[1]
+        status = (legacy.get("dispatch_response") or {}).get("http_status")
+        if ("carrier" in legacy or type(legacy.get("workflow_id")) is not int or run_id is not None
+                or (status is not None and not 400 <= status < 500)):
+            raise ExecutionUnknown("LEGACY_DISPATCH_NOT_PROVABLY_UNRECEIVED")
+        evidence = (runs or legacy_actions_runs)(legacy["workflow_id"], intent.request_id)
+        if evidence.get("workflow_on_develop") is not False or evidence.get("matching_runs") != 0:
+            raise ExecutionUnknown("LEGACY_DISPATCH_NOT_PROVABLY_UNRECEIVED")
+        proof = {"kind": "initial-unreceived-fence-v1", "request_id": intent.request_id,
+                 "legacy_digest": digest(legacy), "dispatch_http_status": status, "evidence": evidence}
+        with self._db() as db:
+            db.execute("BEGIN IMMEDIATE")
+            db.execute("INSERT OR IGNORE INTO legacy_fences VALUES (?,?,?)",
+                       (intent.request_id, json.dumps(legacy, sort_keys=True), json.dumps(proof, sort_keys=True)))
+            saved = db.execute("SELECT proof FROM legacy_fences WHERE request_id=?", (intent.request_id,)).fetchone()
+        return json.loads(saved[0])
 
     def read(self, intent):
         intent = self._parse_intent(intent)
