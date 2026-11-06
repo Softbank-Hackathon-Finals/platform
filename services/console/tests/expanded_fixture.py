@@ -399,7 +399,7 @@ def setup_expanded(path, *, origin=ORIGIN, plan_id="plan-expanded", phase="AWAIT
                 "alerts": [
                     {
                         "environment": "source",
-                        "alertname": "BravoFixture",
+                        "alertname": "SovaFixture",
                         "severity": "warning",
                         "state": "firing",
                     }

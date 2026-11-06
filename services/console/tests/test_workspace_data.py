@@ -35,7 +35,7 @@ def test_all_nine_panels_use_owner_documents_and_keep_unknown_costs_unknown(tmp_
     assert "aws s3 rb" not in response.text
     monitoring = value["features"]["monitoring"]["tables"]
     assert any("23" in row for table in monitoring for row in table["rows"])
-    assert any("BravoFixture" in row for table in monitoring for row in table["rows"])
+    assert any("SovaFixture" in row for table in monitoring for row in table["rows"])
 
 
 @pytest.mark.parametrize(

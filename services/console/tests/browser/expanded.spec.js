@@ -59,7 +59,7 @@ test("all added panels show owner documents, including costs, T24 and DB metrics
     "DESTRUCTIVE_ATTEMPT_BLOCKED",
   );
   await expect(page.locator("#panel-monitoring-body")).toContainText(
-    "BravoFixture",
+    "SovaFixture",
   );
   expect(await stats(page, "plan-workspace-console")).toEqual({
     initial: 0,
