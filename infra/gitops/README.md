@@ -70,14 +70,25 @@ new package cannot silently miss publication. Observability remains an explicit
 historical source pin; changing that pin or its build recipe triggers publication.
 
 Required infrastructure CI also checks each deployment-values change against the
-source in the PR or combined merge group. A proposal that became stale while
-waiting cannot promote an image that omits those source changes. Ordinary source
-PRs can still merge and trigger their next build. For a rollback, revert the
-source and its matching verified image together. This check uses the common
-develop ancestor, including promotions from earlier unmerged queue entries.
-Changes to delivery-only tooling trigger publication and supersede in-flight
-builds, but do not invalidate an already verified image with unchanged build
-inputs. A validator-only PR can therefore share a queue group with that image.
+source in the PR or combined merge group (team decision 11/7, forward only):
+
+- An image whose build inputs match the merged source passes as current. A
+  rollback that reverts the source and its matching verified image together
+  passes the same way.
+- An image that lags develop (inputs changed while it waited) still passes, but
+  only when its source is newer than the pin already on develop. An older
+  proposal merged late is refused with `promotion_source_not_newer_than_deployed`.
+- The number of build-input commits the image does not contain is recorded as
+  `unreleased_input_commits` in the CI result and in the proposal body.
+
+Publication keeps running on every build-input change. A newer proposal closes
+older ones for the same service; a build older than the develop pin or an open
+proposal is dropped as superseded. The check uses the common develop ancestor,
+including promotions from earlier unmerged queue entries. Changes to
+delivery-only tooling trigger publication, but do not invalidate an already
+verified image. A validator-only PR can therefore share a queue group with that image.
+The Reader image that needs configuration v2 is still promoted only together with
+that configuration change, independent of this rule.
 
 Before first adoption, compare resource UIDs and the rendered Deployment with
 the live server. Keep automated pruning disabled until owned-resource deletion
