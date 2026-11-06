@@ -53,7 +53,7 @@ run "credential_and_session_boundaries" {
     error_message = "The broker trusts only the node role (platform Job path); no GitHub Actions grant."
   }
   assert {
-    condition = [for s in jsondecode(aws_vpc_endpoint.broker_sts.policy).Statement : s.Action] == ["sts:AssumeRole"]
+    condition     = [for s in jsondecode(aws_vpc_endpoint.broker_sts.policy).Statement : s.Action] == ["sts:AssumeRole"]
     error_message = "The broker endpoint must allow the same AssumeRole the broker trust grants."
   }
   assert {
