@@ -14,13 +14,30 @@ NAMESPACE = "bravo-gitops"
 RELEASE = "bravo-gitops"
 
 
+STS_HOST = "sts.ap-northeast-2.amazonaws.com"
+
+
+def pinned_sts_address():
+    """The single STS address the rehearsal host NetworkPolicy opens."""
+    text = (ROOT / "infra/envs/rehearsal-access/rehearsal-host-network.yaml").read_text()
+    pins = re.findall(r"# STS pin\n\s*- to:\n\s*- ipBlock: \{cidr: ([0-9.]+)/32\}", text)
+    if len(pins) != 1:
+        raise ValueError("rehearsal_host_sts_pin_unreadable")
+    return pins[0]
+
+
 def verify_rehearsal_host(get, host):
     """New T15 workload: every referenced input must already exist; nothing is adopted."""
     if set(host) != {"enabled", "runtime"} or host["enabled"] is not True:
         raise ValueError("protected_rehearsal_host_input_required")
     runtime = host["runtime"]
-    if set(runtime) != {"configuration", "reader", "recordsClaim", "secrets"}:
+    if set(runtime) != {"configuration", "reader", "recordsClaim", "secrets", "hostAliases"}:
         raise ValueError("rehearsal_host_runtime_fields_required")
+    # The host resolves STS by name, but its NetworkPolicy opens one pinned address. Without
+    # the same pin in hostAliases every SSO proof is dropped (#533 review).
+    sts = [a for a in runtime["hostAliases"] if STS_HOST in a.get("hostnames", [])]
+    if len(sts) != 1 or sts[0].get("ip") != pinned_sts_address():
+        raise ValueError("rehearsal_host_sts_pin_mismatch")
     get("configmap", runtime["configuration"]["existingConfigMap"], "platform-state")
     get("configmap", runtime["reader"]["existingConfigMap"], "platform-state")
     for claim in (runtime["reader"]["catalogClaim"], runtime["recordsClaim"]):
@@ -30,6 +47,11 @@ def verify_rehearsal_host(get, host):
     image = json.loads((ROOT / "infra/gitops/environments/development/rehearsal-host-image.json").read_text())
     if not re.fullmatch(r"sha256:[0-9a-f]{64}", image["image"]["digest"]):
         raise ValueError("published_rehearsal_host_image_required")
+
+
+READER_COMMAND = ["python", "-m", "bravo_platform_events.product_read_server"]
+READER_ARGS = ["--config", "/product-read/reader.json", "--tls-cert", "/tls/tls.crt", "--tls-key", "/tls/tls.key",
+               "--initial-proposal"]
 
 
 def verify_reader(get, runtime, expected):
@@ -59,22 +81,37 @@ def verify_reader(get, runtime, expected):
     pod = deployment["spec"]["template"]["spec"]
     annotations = deployment["spec"]["template"]["metadata"]["annotations"]
     tracking = deployment["metadata"].get("annotations", {}).get("argocd.argoproj.io/tracking-id", "")
+    adopted = tracking.startswith("platform-product-reader:")
     if (digest != runtime["configuration"]["sha256"]
-            or annotations.get("bravo.dev/config-sha256") != digest
             or deployment["spec"]["selector"]["matchLabels"] != labels
             or service["spec"]["selector"] != labels
             or service["spec"]["type"] != "ClusterIP"
             or pod["serviceAccountName"] != "platform-runtime"
             or pod.get("automountServiceAccountToken") is not False
-            or (tracking and not tracking.startswith("platform-product-reader:"))):
+            or (tracking and not adopted)):
         raise ValueError("reader_adoption_boundary_mismatch")
     volumes = {v["name"]: v for v in pod["volumes"]}
+    if volumes["catalog"]["persistentVolumeClaim"].get("readOnly") is not True:
+        raise ValueError("reader_adoption_boundary_mismatch")
+    if adopted:
+        # After adoption Argo keeps the Deployment on the previous runtime values, so a
+        # reviewed new ConfigMap or TLS Secret cannot already be mounted. The identities,
+        # ownership, boundary and the new references' UIDs and content hash above suffice.
+        return
+    # First adoption: the live workload must already be what the chart renders.
+    if annotations.get("bravo.dev/config-sha256") != digest:
+        raise ValueError("reader_adoption_boundary_mismatch")
     if (volumes["config"]["configMap"]["name"] != runtime["configuration"]["existingConfigMap"]
             or volumes["catalog"]["persistentVolumeClaim"] != {"claimName": runtime["catalogClaim"], "readOnly": True}
             or any(volumes[name]["secret"]["secretName"] != runtime["secrets"][key]
                    for name, key in (("credential", "database"), ("database-ca", "databaseCA"),
                                      ("catalog-key", "catalogKey"), ("tls", "tls")))):
         raise ValueError("reader_mount_change_requires_separate_review")
+    containers = pod["containers"]
+    if (len(containers) != 1 or containers[0].get("command") != READER_COMMAND
+            or containers[0].get("args") != READER_ARGS
+            or [(p.get("name"), p.get("containerPort")) for p in containers[0].get("ports", [])] != [("https", 8443)]):
+        raise ValueError("reader_mode_mismatch")
 
 
 def run(args, *, check=True):

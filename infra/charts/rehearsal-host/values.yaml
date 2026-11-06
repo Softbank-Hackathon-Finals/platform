@@ -11,6 +11,8 @@ reader:
   existingConfigMap: ""
   catalogClaim: ""
 recordsClaim: ""
+# STS is reachable only at the address pinned in rehearsal-access/rehearsal-host-network.yaml.
+hostAliases: []
 secrets:
   database: platform-runtime-db
   databaseCA: platform-db-ca

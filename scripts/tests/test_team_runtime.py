@@ -240,3 +240,73 @@ class RuntimeTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ReviewFixes(RuntimeTest):
+    """#466 review: bounded recovery attempts, capped node image lists, lock-holder shim writes."""
+
+    def test_confirmed_failed_attempts_move_to_new_names_up_to_the_limit(self):
+        seen = []
+
+        def attempt(work):
+            seen.append(work)
+            if len(seen) < 3:
+                raise recovery.Retry("recovery_input_missing")
+            return recovery.DELETED
+
+        self.assertEqual(recovery.bounded_recovery(self.root, "t15-cred-ns-recover", attempt), recovery.DELETED)
+        self.assertEqual(seen, ["t15-cred-ns-recover", "t15-cred-ns-recover-r2", "t15-cred-ns-recover-r3"])
+        self.assertEqual(json.loads((self.root / "journal.json").read_text())["recovery_attempt"], 3)
+
+    def test_attempts_are_bounded_and_resume_from_the_journal(self):
+        def failing(work):
+            raise recovery.Retry("recovery_job_failed")
+
+        with self.assertRaisesRegex(journal.Failure, "recovery_attempts_exhausted_recovery_job_failed"):
+            recovery.bounded_recovery(self.root, "base", failing)
+        seen = []
+        recovery.bounded_recovery(self.root, "base", lambda work: seen.append(work) or recovery.DELETED)
+        self.assertEqual(seen, ["base-r3"])  # restart resumes the recorded attempt, never attempt 1
+
+    def test_pending_attempt_is_never_replaced(self):
+        def pending(work):
+            raise journal.Failure("recovery_job_pending_inspect_same_run")
+
+        with self.assertRaisesRegex(journal.Failure, "pending"):
+            recovery.bounded_recovery(self.root, "base", pending)
+        self.assertNotIn("recovery_attempt", json.loads((self.root / "journal.json").read_text()))
+
+    def test_capped_node_image_list_is_unconfirmed_not_missing(self):
+        from team_runtime import recipes
+
+        def node(images):
+            return {"spec": {}, "status": {"nodeInfo": {"architecture": "arm64"},
+                                           "images": [{"names": [f"big/{i}"]} for i in range(images)]}}
+
+        config = {"cluster_uid": "u", "architecture": "arm64", "images": {"isolation_image": "localhost/probe@sha256:x"}}
+        for images, reason in ((recipes.NODE_STATUS_MAX_IMAGES, "unconfirmed_list_capped"), (3, "local_image_missing")):
+            replies = iter([{"metadata": {"uid": "u"}}, {"items": [node(images)]}])
+
+            def kubectl(_args, *_a, replies=replies, **_k):
+                return subprocess.CompletedProcess([], 0, json.dumps(next(replies)), "")
+            with self.subTest(images=images), patch.object(recipes, "kubectl", kubectl), \
+                    self.assertRaisesRegex(journal.Failure, reason):
+                recipes.preflight(config, False)
+
+    def test_status_under_contention_never_rewrites_the_shim(self):
+        import importlib.util
+
+        spec = importlib.util.spec_from_file_location(
+            "team_runtime_cli", Path(__file__).resolve().parents[1] / "team_runtime.py")
+        runtime = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(runtime)
+        (self.root / "bin").mkdir()
+        (self.root / "bin" / "kubectl").write_text("running execution shim")
+        with patch.object(runtime.shutil, "which", return_value="/usr/bin/kubectl"), \
+                patch.dict(os.environ, {"PATH": "/usr/bin"}, clear=False):
+            os.environ.pop("BRAVO_ORIGINAL_PATH", None)
+            runtime.activate(self.root, write=False)
+            self.assertEqual((self.root / "bin" / "kubectl").read_text(), "running execution shim")
+            runtime.activate(self.root)
+            self.assertIn("exec", (self.root / "bin" / "kubectl").read_text())
+            self.assertFalse(list((self.root / "bin").glob(".*.tmp")))

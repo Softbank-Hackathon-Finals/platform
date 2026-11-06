@@ -38,6 +38,11 @@ spec:
         fsGroup: 10001
         seccompProfile:
           type: RuntimeDefault
+      # The host resolves STS by name; NetworkPolicy opens only the pinned address.
+      {{- with .Values.hostAliases }}
+      hostAliases:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       containers:
         - name: host
           image: "{{ .Values.image.repository }}@{{ .Values.image.digest }}"

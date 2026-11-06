@@ -78,13 +78,25 @@ spec:
     - expression: >-
         object == null || request.resource.resource != 'deployments' ||
         ((object.metadata.name == 't10-registration' ? object.spec.template.spec.serviceAccountName == 't10-registration' :
-          object.metadata.name == 't10-workflow-host' ? object.spec.template.spec.serviceAccountName == 't10-workflow-host' :
-          object.spec.template.spec.serviceAccountName == 'platform-runtime') &&
+        {{- if .Values.rehearsalHost.enabled }}
+        object.metadata.name == 't15-rehearsal-host' ? object.spec.template.spec.serviceAccountName == 't15-rehearsal-host' :
+        {{- end }}
+        {{- if .Values.workflowHost.enabled }}
+        object.metadata.name == 't10-workflow-host' ? object.spec.template.spec.serviceAccountName == 't10-workflow-host' :
+        {{- end }}
+        object.spec.template.spec.serviceAccountName == 'platform-runtime') &&
         has(object.spec.template.spec.automountServiceAccountToken) && object.spec.template.spec.automountServiceAccountToken == false &&
         (!has(object.spec.template.spec.hostNetwork) || object.spec.template.spec.hostNetwork == false) &&
         (!has(object.spec.template.spec.hostPID) || object.spec.template.spec.hostPID == false) &&
         (!has(object.spec.template.spec.hostIPC) || object.spec.template.spec.hostIPC == false) &&
-        object.spec.template.spec.volumes.all(v, !has(v.hostPath) && !has(v.projected)))
+        object.spec.template.spec.volumes.all(v, !has(v.hostPath) && (!has(v.projected)
+        {{- if .Values.rehearsalHost.enabled }}
+        || (object.metadata.name == 't15-rehearsal-host' && v.name == 'intake-token' &&
+        size(v.projected.sources) == 1 && has(v.projected.sources[0].serviceAccountToken) &&
+        'bravo-t10-rehearsal-intake' == v.projected.sources[0].serviceAccountToken.audience &&
+        has(v.projected.sources[0].serviceAccountToken.expirationSeconds) &&
+        v.projected.sources[0].serviceAccountToken.expirationSeconds <= 600)
+        {{- end }})))
       message: Registration cannot acquire host or Kubernetes API credentials.
 ---
 apiVersion: admissionregistration.k8s.io/v1

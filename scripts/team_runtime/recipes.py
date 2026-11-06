@@ -106,20 +106,27 @@ def preflight(config, credentials):
     keys = IMAGES if credentials else ("isolation_image",)
     # Local image imports are installation state. Check all eligible nodes before a trial.
     # Remote pinned images are checked by an actual Pod pull and execution, not cached metadata.
+    # node.status.images lists at most nodeStatusMaxImages (kubelet default 50), largest
+    # first, so a small localhost image can be absent from a full list while present on disk.
+    # A full list therefore stops as "unconfirmed", never as a confirmed "missing" (#466 review).
     for key in keys:
         image = config["images"][key]
-        if image.startswith("localhost/") and any(
-            not any(
-                image in row.get("names", []) for row in n["status"].get("images", [])
-            )
-            for n in eligible
-        ):
-            raise Failure("environment_local_image_missing:" + key)
+        if not image.startswith("localhost/"):
+            continue
+        for n in eligible:
+            listed = n["status"].get("images", [])
+            if not any(image in row.get("names", []) for row in listed):
+                if len(listed) >= NODE_STATUS_MAX_IMAGES:
+                    raise Failure("environment_local_image_unconfirmed_list_capped:" + key)
+                raise Failure("environment_local_image_missing:" + key)
     return {
         "cluster_matches": True,
         "architecture": config["architecture"],
         "eligible_nodes": len(eligible),
     }
+
+
+NODE_STATUS_MAX_IMAGES = 50  # kubelet default; a full list may omit small images
 
 
 def write_delivery(root, config):

@@ -25,6 +25,21 @@ class ControlGuardTests(unittest.TestCase):
             "ValidatingAdmissionPolicy", "ValidatingAdmissionPolicyBinding"})
         self.assertEqual(result["items"][1]["spec"]["validationActions"], ["Deny"])
 
+    def test_service_account_token_secrets_are_denied_for_every_creator(self):
+        items = guard.render(["operator@example.invalid"])["items"]
+        policy = next(x for x in items if x["metadata"]["name"] == guard.TOKEN_SECRETS
+                      and x["kind"] == "ValidatingAdmissionPolicy")
+        binding = next(x for x in items if x["metadata"]["name"] == guard.TOKEN_SECRETS
+                       and x["kind"] == "ValidatingAdmissionPolicyBinding")
+        rule = policy["spec"]["matchConstraints"]["resourceRules"][0]
+        self.assertEqual((rule["resources"], rule["operations"]), (["secrets"], ["CREATE", "UPDATE"]))
+        self.assertEqual(policy["spec"]["matchConstraints"]["namespaceSelector"]["matchLabels"],
+                         {"kubernetes.io/metadata.name": guard.NAMESPACE})
+        expression = policy["spec"]["validations"][0]["expression"]
+        self.assertIn("kubernetes.io/service-account-token", expression)
+        self.assertNotIn("userInfo", expression)  # no operator or runner exception
+        self.assertEqual(binding["spec"]["validationActions"], ["Deny"])
+
 
 if __name__ == "__main__":
     unittest.main()
