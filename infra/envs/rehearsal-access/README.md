@@ -139,3 +139,41 @@ GC를 즉시 권한 철회 보장으로 취급하지 않는다.
 이 조립의 로컬 시험은 실제 T15 lifecycle과 모의 API를 사용한다. 실제 namespace
 권한 검사, AWS 소비 Pod의 토큰 갱신·폐기, OpenBao writer, 후보 이미지와 실제
 T10 계획의 해피패스는 각각 별도 운영 근거가 필요하다.
+
+## 관리 namespace의 단일 제품 실행자
+
+RoleBinding 하나만으로는 `bravo-rehearsal-control`의 단일 러너 조건을 보장하지
+못한다. CNPG 등 공용 컨트롤러의 ClusterRole 권한도 합산되기 때문이다.
+`control_guard.py`는 이 namespace의 Pod·Job CREATE/UPDATE에만
+ValidatingAdmissionPolicy를 렌더링한다. 별도 웹훅이나 데몬은 설치하지 않는다.
+
+- 제품 신원은 목적지 `bravo-rehearsal-control/t15-runner` 하나다.
+- 사람·개인 시험 관리자 예외는 설치자가 확인한 정확한 username 목록이다.
+  기존 개인 시험 계정은 `bravo-team-access/member-NN`만 입력할 수 있다.
+  그룹이나 일반 서비스 계정을 관리자 예외로 추가하지 않는다.
+- Kubernetes의 `kube-system/job-controller`에는 Job을 소유자로 둔 Pod만
+  허용한다. 러너가 Job을 제출한 뒤 정상 Pod를 만드는 제어 경로다.
+  다른 컨트롤러의 Pod·Job 생성은 기존 ClusterRole이 있어도 이 namespace에서 거부한다.
+- 이 정책은 RBAC 권한을 부여하지 않는다. 러너의 관리 namespace 권한은
+  Job 생성과 Pod 조회·로그이며, Pod 직접 생성은 추가하지 않는다.
+  namespace/T3는 기존 `ScopedPlanner` 관리 클라이언트의 책임이다.
+
+```sh
+# JSON 배열에는 확인된 운영자 username만 넣는다. 실제 목록은 비공개로 관리한다.
+python3 infra/envs/rehearsal-access/control_guard.py \
+  --operators /private/approved-operators.json > /private/control-guard.json
+```
+
+설치 전 현재 cluster/namespace UID와 기존 정책을 확인한다. 먼저 정책만 생성하고
+`status.observedGeneration`과 `status.typeChecking.expressionWarnings`를 확인한 뒤
+Deny binding을 생성한다. 같은 이름의 기존 객체를 덮어쓰지 않는다.
+실제 API의 server dry-run으로 러너·운영자·Job 소유 Pod 허용과 공용 컨트롤러
+거부, 다른 namespace의 기존 권한 유지를 검증한다. 실패하면 이번에 만든 정책과
+binding의 UID를 조건으로 삭제한다. API 거부 검증은 후보 앱 실행 성공이 아니다.
+
+클러스터 관리자는 정책 자체를 바꿀 수 있다. 이는 합의된 사람 관리자 예외의
+위험이며, 이 정책으로 관리자 탈취까지 차단했다고 주장하지 않는다.
+정책이 적용돼도 AWS 호스트 배포와 토큰 공급·갱신은 별도 연결이다.
+
+[Kubernetes ValidatingAdmissionPolicy](https://kubernetes.io/docs/reference/access-authn-authz/validating-admission-policy/)
+
