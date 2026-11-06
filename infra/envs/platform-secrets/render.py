@@ -100,8 +100,10 @@ def policies(catalog=CREDENTIALS):
     rules = {}
     for entry in catalog:
         data, metadata = f"{MOUNT}/data/{entry.key}", f"{MOUNT}/metadata/{entry.key}"
-        rules.setdefault((CONSUMER_NAMESPACE, entry.reader), []).append(
-            f'path "{data}" {{ capabilities = ["read"] }}')
+        rules.setdefault((CONSUMER_NAMESPACE, entry.reader), []).extend([
+            f'path "{data}" {{ capabilities = ["read"] }}',
+            # ESO validates a SecretStore with lookup-self; roles carry no default policy.
+            'path "auth/token/lookup-self" { capabilities = ["read"] }'])
         rules.setdefault((entry.writer_namespace, entry.writer), []).extend([
             f'path "{data}" {{ capabilities = ["create", "update"] }}',
             f'path "{metadata}" {{ capabilities = ["read"] }}'])

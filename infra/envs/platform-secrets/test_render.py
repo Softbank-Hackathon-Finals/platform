@@ -4,11 +4,20 @@ import unittest
 import render
 
 
+LOOKUP_SELF = 'path "auth/token/lookup-self" { capabilities = ["read"] }'
+
+
 def requests():
     return render.cluster("192.0.2.10")["spec"]["selfInit"]["requests"]
 
 
 class Boundary(unittest.TestCase):
+    def test_only_readers_may_look_up_their_own_token(self):
+        lookup = LOOKUP_SELF
+        readers = {e.reader for e in render.CREDENTIALS}
+        for (namespace, name), policy in render.policies().items():
+            self.assertEqual(lookup in policy, namespace == "platform-state" and name in readers, name)
+
     def test_kv_config_runs_after_mount_upgrade_window(self):
         names = [r["name"] for r in requests()]
         self.assertEqual(names[0], "platform-kv")
@@ -33,6 +42,7 @@ class Boundary(unittest.TestCase):
         policies = [r["policy"]["policy"] for r in requests() if "policy" in r]
         self.assertEqual(len(policies), len(render.policies()))
         for policy in policies:
+            policy = policy.replace(LOOKUP_SELF, "")
             self.assertNotIn("*", policy)
             self.assertNotIn("sudo", policy)
             self.assertNotIn("sys/", policy)
@@ -42,10 +52,10 @@ class Boundary(unittest.TestCase):
     def test_consumers_read_only_their_own_entries(self):
         rules = render.policies()
         runner = rules[("platform-state", "ai-proposal-runner")]
-        self.assertEqual(runner, 'path "platform/data/ai/model-access" { capabilities = ["read"] }')
+        self.assertEqual(runner, 'path "platform/data/ai/model-access" { capabilities = ["read"] }\n' + LOOKUP_SELF)
         self.assertNotIn("model-refresh", runner)
         edge = rules[("platform-state", "t17-edge-secret-reader")]
-        self.assertEqual(edge, 'path "platform/data/edge/cloudflare-lb" { capabilities = ["read"] }')
+        self.assertEqual(edge, 'path "platform/data/edge/cloudflare-lb" { capabilities = ["read"] }\n' + LOOKUP_SELF)
 
     def test_writers_cannot_read_values_they_write(self):
         rules = render.policies()
