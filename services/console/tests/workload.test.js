@@ -122,6 +122,10 @@ test("old revisions never overwrite current, conflicting same revision becomes u
   conflict.source_label = "changed";
   assert.equal(projection.accept(conflict, plan, now), false);
   assert.equal(projection.view(true, now).fresh, false);
+  assert.equal(projection.accept(document(6), plan, now), false);
+  assert.equal(projection.view(true, now).fresh, false);
+  projection.clear();
+  assert.equal(projection.accept(document(6), plan, now), true);
 });
 test("changed stream requires an explicit resynchronization", () => {
   const projection = new WorkloadProjection();
@@ -130,8 +134,32 @@ test("changed stream requires an explicit resynchronization", () => {
   next.stream_id = "restarted-source";
   assert.equal(projection.accept(next, plan, now), false);
   assert.equal(projection.view(true, now).fresh, false);
+  assert.equal(projection.accept(document(7), plan, now), false);
+  assert.equal(projection.view(true, now).fresh, false);
   projection.clear();
   assert.equal(projection.accept(next, plan, now), true);
+});
+test("observation regression stays unconfirmed until resynchronization", () => {
+  const projection = new WorkloadProjection();
+  projection.accept(document(1), plan, now);
+  const regressed = document(2);
+  regressed.observed_at = new Date(now - 1000).toISOString();
+  regressed.evidence.forEach((e) => (e.observed_at = regressed.observed_at));
+  regressed.events.forEach((e) => (e.occurred_at = regressed.observed_at));
+  assert.equal(projection.accept(regressed, plan, now), false);
+  assert.equal(projection.error, "observation_regressed");
+  assert.equal(projection.accept(document(3), plan, now), false);
+  assert.equal(projection.view(true, now).fresh, false);
+  projection.clear();
+  assert.equal(projection.accept(document(3), plan, now), true);
+});
+test("a transport failure does not latch a producer-history conflict", () => {
+  const projection = new WorkloadProjection();
+  projection.accept(document(1), plan, now);
+  projection.error = "workload_unavailable";
+  assert.equal(projection.view(true, now).fresh, false);
+  assert.equal(projection.accept(document(2), plan, now), true);
+  assert.equal(projection.view(true, now).fresh, true);
 });
 test("individual evidence expiry removes its claim before the envelope expires", () => {
   const doc = document();

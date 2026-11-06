@@ -331,6 +331,7 @@ export class WorkloadProjection {
     this.document = null;
     this.fingerprint = null;
     this.error = null;
+    this.resyncRequired = false;
   }
   accept(value, plan, now = Date.now()) {
     const next = workloadDocument(value, plan, now);
@@ -340,8 +341,12 @@ export class WorkloadProjection {
       old.plan_id === next.plan_id &&
       old.plan_digest === next.plan_digest &&
       old.plan_version === next.plan_version;
+    // Ambiguous producer history is not a transient transport failure. A later
+    // response from either side must not silently restore current-state claims.
+    if (samePlan && this.resyncRequired) return false;
     if (samePlan && old.stream_id !== next.stream_id) {
       this.error = "stream_changed";
+      this.resyncRequired = true;
       return false;
     }
     if (samePlan && next.revision < old.revision) return false;
@@ -349,6 +354,7 @@ export class WorkloadProjection {
     if (samePlan && next.revision === old.revision) {
       if (this.fingerprint !== fingerprint) {
         this.error = "conflicting_revision";
+        this.resyncRequired = true;
         return false;
       }
       return true;
@@ -358,16 +364,18 @@ export class WorkloadProjection {
       Date.parse(next.observed_at) < Date.parse(old.observed_at)
     ) {
       this.error = "observation_regressed";
+      this.resyncRequired = true;
       return false;
     }
     this.document = next;
     this.fingerprint = fingerprint;
     this.error = null;
+    this.resyncRequired = false;
     return true;
   }
   view(connected, now) {
     return projectedWorkload(this.document, {
-      connected: connected && !this.error,
+      connected: connected && !this.error && !this.resyncRequired,
       now,
     });
   }
