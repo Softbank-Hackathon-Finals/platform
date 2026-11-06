@@ -169,13 +169,15 @@ def main():
             "from bravo_agent.product_contracts import ProductInput; "
             "from rehearsal_runner.task_catalog import TaskCatalog; "
             "assert os.getuid()==10001; "
-            "assert not any(n in sys.modules for n in "
-            "('openai','bravo_agent.subscription_product','bravo_agent.subscription_admin')); "
+            "assert not any(n.startswith(('openai','bravo_agent.subscription_product',"
+            "'bravo_agent.subscription_admin')) for n in sys.modules); "
             "print('product_reader_imports_ok')")
         if args.rehearsal_host:
-            probe = ("import os,subprocess; from bravo_platform_events.credential_host import create_ports; "
+            probe = ("import os,sys,subprocess; from bravo_platform_events.credential_host import create_ports; "
                      "from bravo_platform_events.rehearsal_server import load_host; "
                      "assert os.getuid()==10001; "
+                     "assert not any(n.startswith(('openai','bravo_agent.subscription_product',"
+                     "'bravo_agent.subscription_admin')) for n in sys.modules); "
                      "from rehearsal_runner.namespace import render; "
                      "profile={n+'_'+k:v for n in ('OPENBAO','SEAWEEDFS') for k,v in "
                      "(('NAMESPACE','fixture'),('LABEL_KEY','app'),('LABEL_VALUE','fixture'),('PORT','8200'))}; "

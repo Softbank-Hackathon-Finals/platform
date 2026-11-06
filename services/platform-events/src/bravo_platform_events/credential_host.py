@@ -25,6 +25,7 @@ from .product_read_server import configured_initial_reader
 from .rehearsal_server import RehearsalPorts, _json
 
 RUNNER = "system:serviceaccount:bravo-rehearsal-control:t15-runner"
+IMAGE_MODULE_ROOT = Path("/app/infra")
 _FIELDS = {"manager_subject", "reader_config", "runtime_source_sha", "target_environment_id", "cluster_uid",
            "manager_kubeconfig", "runner_kubeconfig", "profile_file", "isolation_image",
            "t9_renderer", "scoped_lifecycle_module", "fixture", "candidate_repository", "staging"}
@@ -130,6 +131,10 @@ def create_ports(store, config_file="/rehearsal/ports.json"):
             or not paths["staging"].is_dir()
             or paths["manager_kubeconfig"].resolve() == paths["runner_kubeconfig"].resolve()):
         raise ValueError("credential_host_mounts_required")
+    modules = {"t9_renderer": IMAGE_MODULE_ROOT / "target-secrets/render.py",
+               "scoped_lifecycle_module": IMAGE_MODULE_ROOT / "rehearsal-access/scoped_lifecycle.py"}
+    if any(paths[name].resolve() != expected for name, expected in modules.items()):
+        raise ValueError("credential_host_image_modules_required")
     fixture_config = config["fixture"]
     if type(fixture_config) is not dict or set(fixture_config) != {
             "bao_image", "postgres_image", "probe_image", "openbao_ca_file"}:

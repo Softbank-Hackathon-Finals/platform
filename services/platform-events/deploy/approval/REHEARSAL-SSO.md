@@ -117,7 +117,7 @@ workflow checkpoint를 다시 검사한다. 이 호스트에는 모델 제출 �
 | `manager_kubeconfig`, `runner_kubeconfig` | T7가 공급하는 갱신 가능한 별도 kubeconfig. 같은 TLS 경로·클러스터 구성 필수 |
 | `profile_file` | 기존 T3 목적지 `.env` 프로필 |
 | `isolation_image` | digest로 고정한 T3 검증 이미지 |
-| `t9_renderer`, `scoped_lifecycle_module` | 같은 검토 소스의 T9 렌더러·T7 ScopedPlanner 모듈 |
+| `t9_renderer`, `scoped_lifecycle_module` | 이미지의 `/app/infra/target-secrets/render.py`, `/app/infra/rehearsal-access/scoped_lifecycle.py`만 허용. 다른 mount·symlink의 외부 모듈 거부 |
 | `fixture` | `bao_image`, `postgres_image`, `probe_image`, `openbao_ca_file`. 기존 CredentialFixture 입력 |
 | `candidate_repository` | 검증된 발행 이미지를 읽는 저장소. digest는 같은 계획의 발행 영수증에서만 읽음 |
 | `staging` | 호스트 전용 임시 소스 디렉터리 |

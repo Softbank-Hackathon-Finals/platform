@@ -21,6 +21,7 @@ def configured(flow, tmp_path, monkeypatch):
         plan = dict(c.execute("SELECT * FROM plans WHERE plan_id=?", (admission.plan_id,)).fetchone())
         task = replace(flow.f.catalog.for_plan(c, plan, admission.task_id), run_id=admission.rehearsal_id)
     root = Path(__file__).resolve().parents[3]
+    monkeypatch.setattr(host, "IMAGE_MODULE_ROOT", root / "infra/envs")
     config = dict(reader_config=str(tmp_path / "reader.json"), runtime_source_sha=RUNTIME,
         target_environment_id="env-onprem", cluster_uid="synthetic-cluster",
         manager_subject="system:serviceaccount:bravo-rehearsal-control:fixture-manager",
@@ -103,6 +104,52 @@ def test_stored_host_has_no_provider_capability():
     for name in ("recipient", "submit", "read", "validate"):
         with pytest.raises(RuntimeError, match="cannot_dispatch"):
             getattr(client, name)(object())
+
+
+@pytest.mark.parametrize("name", ["t9_renderer", "scoped_lifecycle_module"])
+@pytest.mark.parametrize("symlink", [False, True])
+def test_unreviewed_module_is_never_loaded(configured, tmp_path, name, symlink):
+    flow, path, config, *_ = configured
+    unreviewed = tmp_path / "unreviewed.py"
+    unreviewed.write_text("raise AssertionError('unreviewed_module_executed')\n")
+    selected = tmp_path / "module.py"
+    if symlink:
+        selected.symlink_to(unreviewed)
+    else:
+        selected.write_bytes(unreviewed.read_bytes())
+    config[name] = str(selected)
+    path.write_text(json.dumps(config))
+    with pytest.raises(ValueError, match="image_modules_required"):
+        host.create_ports(flow.f.backend.store, path)
+
+
+def test_runner_cannot_select_another_cluster(configured, monkeypatch):
+    flow, path, *_ = configured
+    original = host._clients
+    def clients(config, identity):
+        kube, kubectl = original(config, identity)
+        if identity == host.RUNNER:
+            kube.call = lambda *a: json.dumps({"clusters": [{"cluster": {
+                "server": "https://another-target.invalid"}}]})
+        return kube, kubectl
+    monkeypatch.setattr(host, "_clients", clients)
+    with pytest.raises(ValueError, match="clients_target_mismatch"):
+        host.create_ports(flow.f.backend.store, path)
+
+
+@pytest.mark.parametrize("username", [host.RUNNER, "system:serviceaccount:other:runner", None])
+def test_client_checks_actual_identity(monkeypatch, username):
+    calls = []
+    def call(self, *args, data=None):
+        calls.append((self.path, args))
+        return json.dumps({"status": {"userInfo": {"username": username}}})
+    monkeypatch.setattr(host.ConfiguredKube, "call", call)
+    if username == host.RUNNER:
+        host._clients("/fixture/runner.json", host.RUNNER)
+    else:
+        with pytest.raises(ValueError, match="identity_unconfirmed"):
+            host._clients("/fixture/runner.json", host.RUNNER)
+    assert calls == [("/fixture/runner.json", ("auth", "whoami", "-o", "json"))]
 
 
 @pytest.mark.parametrize("cluster", [
