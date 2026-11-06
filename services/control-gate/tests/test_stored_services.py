@@ -223,3 +223,25 @@ def test_missing_host_provider_is_not_silently_accepted(provider):
     values[provider] = None
     with pytest.raises(GateError, match="EXPLICIT_SERVER_AUTHORITY_REQUIRED"):
         StoredGateServices(**values)
+
+
+def test_platform_reevaluation_is_its_own_provenance_only_inside_the_shift_check(stored):
+    """sangmu1126 #565 ②: with the real Ed25519 authority, a fresh report has no signed gate-result.
+    Inside served_reevaluation (same transaction, SHIFT/cutover only) the server record is its
+    provenance; the same document consumed outside it is still refused."""
+    from bravo_platform_events.gate_records import served_reevaluation
+
+    f = stored
+    f.prepare()
+    f.evaluate()
+    with f.store._transaction(write=True, plan_id=f.plan.plan_id) as c:
+        plan = dict(c.execute("SELECT * FROM plans WHERE plan_id=?", (f.plan.plan_id,)).fetchone())
+        view = f.records.view(c, f.principal, plan)
+        service = f.factory(view)
+        binding = service.binding_provider(f.principal.subject_id, view.context)
+        session = view.session(service, binding)
+        with served_reevaluation(c, plan["plan_id"], session, f.principal) as fresh:
+            proof = service.require_prerequisites(f.principal.subject_id, view.context_id, canonical(fresh))
+            assert proof.context_digest == view.context.fingerprint
+        with pytest.raises(GateError):
+            service.require_prerequisites(f.principal.subject_id, view.context_id, canonical(fresh))

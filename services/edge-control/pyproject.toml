@@ -11,10 +11,10 @@ t10-host = ["bravo-platform-events[postgres]", "bravo-control-gate"]
 [tool.uv]
 # The host installs one T36 implementation. T10's older source has identical
 # contract/intake/judge code; keep the T17 source pin for the combined environment.
-override-dependencies = ["bravo-observability[api] @ git+https://github.com/Softbank-Hackathon-Finals/platform.git@555956b56e4f22b49036e2a9ed0fcd3f7f97eb79#subdirectory=services/observability"]
+override-dependencies = ["bravo-observability[api] @ git+https://github.com/Softbank-Hackathon-Finals/platform.git@24b3cf516fdbdaac7dd346718eaac3c42f5e1d63#subdirectory=services/observability"]
 
 [tool.uv.sources]
-bravo-observability = { git = "https://github.com/Softbank-Hackathon-Finals/platform.git", rev = "555956b56e4f22b49036e2a9ed0fcd3f7f97eb79", subdirectory = "services/observability" }
+bravo-observability = { git = "https://github.com/Softbank-Hackathon-Finals/platform.git", rev = "24b3cf516fdbdaac7dd346718eaac3c42f5e1d63", subdirectory = "services/observability" }
 bravo-platform-events = { path = "../platform-events" }
 bravo-control-gate = { path = "../control-gate" }
 

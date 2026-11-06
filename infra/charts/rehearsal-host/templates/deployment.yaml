@@ -47,8 +47,10 @@ spec:
         - name: host
           image: "{{ .Values.image.repository }}@{{ .Values.image.digest }}"
           imagePullPolicy: Always
-          command: [python, -m, bravo_platform_events.rehearsal_server]
-          args: [--config, /rehearsal/host.json, --ports, "bravo_platform_events.credential_host:create_ports",
+          # The operator approval API (change, SHIFT, cutover approvals) and T15 rehearsal in one host:
+          # operator_ports builds the Executor client, T19 cutover authority and the T15 rehearsal ports.
+          command: [python, -m, bravo_platform_events.approval_server]
+          args: [--config, /rehearsal/host.json, --ports, "bravo_platform_events.operator_ports:create",
                  --tls-cert, /tls/tls.crt, --tls-key, /tls/tls.key]
           env:
             - name: PYTHONDONTWRITEBYTECODE
@@ -82,6 +84,10 @@ spec:
             - {name: catalog, mountPath: /catalog, readOnly: true}
             - {name: catalog-key, mountPath: /catalog-key, readOnly: true}
             - {name: tls, mountPath: /tls, readOnly: true}
+            - {name: executor, mountPath: /executor, readOnly: true}
+            {{- if .Values.secrets.edge }}
+            - {name: edge, mountPath: /edge, readOnly: true}
+            {{- end }}
             - {name: record-key, mountPath: /record-key, readOnly: true}
             - {name: intake-token, mountPath: /var/run/secrets/t10-intake, readOnly: true}
             - {name: records, mountPath: /records}
@@ -108,6 +114,7 @@ spec:
             items:
               - {key: host.json, path: host.json}
               - {key: ports.json, path: ports.json}
+              - {key: operator.json, path: operator.json}
               - {key: grants.json, path: grants.json}
               - {key: workload-jwks.json, path: workload-jwks.json}
               - {key: profile.env, path: profile.env}
@@ -137,6 +144,23 @@ spec:
             items:
               - {key: tls_crt, path: tls.crt}
               - {key: tls_key, path: tls.key}
+        - name: executor
+          secret:
+            secretName: {{ .Values.secrets.executor }}
+            defaultMode: 0440
+            items:
+              - {key: ca.crt, path: ca.crt}
+              - {key: read-token, path: read-token}
+              - {key: command-token, path: command-token}
+        {{- if .Values.secrets.edge }}
+        # T17 Cloudflare token for FailbackEdge and the in-Pod SHIFT CLI (one LB journal under /records).
+        - name: edge
+          secret:
+            secretName: {{ .Values.secrets.edge }}
+            defaultMode: 0440
+            items:
+              - {key: token, path: token}
+        {{- end }}
         - name: record-key
           secret:
             secretName: {{ .Values.secrets.host }}

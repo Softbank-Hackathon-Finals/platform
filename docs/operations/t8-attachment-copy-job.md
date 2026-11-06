@@ -19,9 +19,25 @@
 
 ## 실행 순서
 
+**S0, 해피패스 시작 직전: 출발지 쓰기를 연다(T8 담당).** 출발지는 이사 전까지 평소처럼 운영돼야 하지만, 새 출발지 Pod는 쓰기가 막힌 채 뜬다. `open-writes`는 목적지 쓰기 스위치가 `closed`이고 목적지 앱 계정이 로그인할 수 없을 때만 출발지를 연다(`write_switch.py status`). 그래서 업무 쓰기를 받는 DB는 언제나 하나다. 한 Pod라도 열리지 않으면 모든 Pod를 다시 닫는다. 컷오버 때의 쓰기 멈춤은 Executor가 컷오버 명령 안에서 한다(`write_pause_budget_ms`). 그 밖에는 손으로 닫지 않는다.
+
+```sh
+python3 infra/envs/target-workloads/source_uploads.py open-writes --kubeconfig "$SOURCE_KUBECONFIG" \
+  --target-kubeconfig "$TARGET_KUBECONFIG" --record "$PRIVATE_DIR/source-uploads.jsonl"
+```
+
+
 `$PRIVATE_DIR`은 저장소 밖 개인 디렉터리다. 값은 커밋하지 않는다.
 
-1. **업로드를 멈춘다.** 이 Job은 시작 뒤에 들어온 업로드를 알 수 없다.
+1. **업로드를 멈춘다.** 이 Job은 시작 뒤에 들어온 업로드를 알 수 없다. 출발지 앱(demo-chat `8d82a92`)은 `ATTACHMENT_UPLOAD_ENABLED`를 시작할 때만 읽으므로 값을 바꾸면 Pod가 다시 뜬다. 새 Pod는 `WRITE_BLOCKED=true`로 시작하므로([source-workloads](../../infra/envs/source-workloads/README.md)), 환경변수만 바꾸면 채팅 쓰기까지 막힌다. [`source_uploads.py`](../../infra/envs/target-workloads/source_uploads.py)는 바꾸기 전 쓰기 스위치를 읽고, rollout이 끝나면 그 값으로 되돌린다. 막혀 있던 출발지는 열지 않는다. 쓰기 스위치는 Pod 안에서 그 Pod의 `ADMIN_TOKEN`으로 부르므로 토큰이 밖으로 나오지 않는다.
+
+   ```sh
+   W=infra/envs/target-workloads
+   python3 "$W/source_uploads.py" status --kubeconfig "$SOURCE_KUBECONFIG"                       # 읽기만 한다
+   python3 "$W/source_uploads.py" stop --kubeconfig "$SOURCE_KUBECONFIG" --record "$PRIVATE_DIR/source-uploads.jsonl"
+   ```
+
+   종료 코드 0이면 `after`가 `{"attachment_upload_enabled": false, "write_blocked": <바꾸기 전 값>}`이다. 기록 한 줄에 요청 · rollout 완료 · 쓰기 복원 시각과 바뀌기 전후 Pod 이름이 남는다. 1이면 새 Pod가 여전히 업로드를 받거나 쓰기 스위치가 원래 값으로 돌아오지 않은 것이다. 쓰기가 막힌 채 남았다는 뜻일 수 있으니 바로 알린다. 3이면 상태를 확인하지 못한 것이고, Pod끼리 값이 다르면 아무것도 바꾸지 않는다. 컷오버가 끝날 때까지 되돌리지 않고, 실패해서 출발지로 돌아올 때만 `restore`로 다시 켠다. 바꾸는 동안 이전 Pod가 내려가고 쓰기가 다시 열리기까지 몇 초는 쓰기가 막힌다.
 2. **이번 컷오버와 묶을 값을 정한다.** `PLAN_ID`와 `EPOCH`는 컷오버 요청에 넣을 값과 같아야 한다. `RUN_ID`는 복사 시도마다 새 값이다. 소문자 · 숫자 · 하이픈, 47자 이하이고, 같은 이름의 Job은 다시 만들 수 없다.
 
    ```sh

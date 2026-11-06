@@ -20,6 +20,10 @@ HOST = {"app.kubernetes.io/name": "t10-workflow-host", "component": "platform"}
 EXECUTOR = {"app.kubernetes.io/name": "cutover-executor"}
 
 
+APPLY_PROXY = {"tailscale.com/managed": "true", "tailscale.com/parent-resource": "bravo-apply-egress",
+               "tailscale.com/parent-resource-type": "proxygroup"}
+
+
 def _ns(name):
     return {"matchLabels": {"kubernetes.io/metadata.name": name}}
 
@@ -42,14 +46,22 @@ def render(meta):
                   {"to": [{"namespaceSelector": _ns("bravo-platform"), "podSelector": {"matchLabels": EXECUTOR}}],
                    "ports": [{"port": 8080, "protocol": "TCP"}]},
                   {"to": [{"ipBlock": {"cidr": r}} for r in github_ranges(meta)],
-                   "ports": [{"port": 443, "protocol": "TCP"}]}]}}
+                   "ports": [{"port": 443, "protocol": "TCP"}]},
+                  # T31 apply (REHEARSE): the target API only through the T7 apply egress proxies, the same
+                  # peer and (mapped) ports as bravo-apply-control/target-api-client.
+                  {"to": [{"namespaceSelector": _ns("tailscale-system"), "podSelector": {"matchLabels": APPLY_PROXY}}]}]}}
     ingress = {"apiVersion": "networking.k8s.io/v1", "kind": "NetworkPolicy",
                "metadata": {"name": "cutover-executor-from-workflow-host", "namespace": "bravo-platform",
                             "labels": labels},
                "spec": {"podSelector": {"matchLabels": EXECUTOR}, "policyTypes": ["Ingress"], "ingress": [
                    {"from": [{"namespaceSelector": _ns("platform-state"), "podSelector": {"matchLabels": HOST}}],
                     "ports": [{"port": 8080, "protocol": "TCP"}]}]}}
-    return {"apiVersion": "v1", "kind": "List", "items": [egress, ingress]}
+    proxy = {"apiVersion": "networking.k8s.io/v1", "kind": "NetworkPolicy",
+             "metadata": {"name": "apply-proxy-ingress-workflow-host", "namespace": "tailscale-system",
+                          "labels": labels},
+             "spec": {"podSelector": {"matchLabels": APPLY_PROXY}, "policyTypes": ["Ingress"], "ingress": [
+                 {"from": [{"namespaceSelector": _ns("platform-state"), "podSelector": {"matchLabels": HOST}}]}]}}
+    return {"apiVersion": "v1", "kind": "List", "items": [egress, ingress, proxy]}
 
 
 def _check():
@@ -59,6 +71,9 @@ def _check():
     assert egress[1]["ports"] == [{"port": 8080, "protocol": "TCP"}]
     assert all(peer.get("namespaceSelector") for rule in egress[:2] for peer in rule["to"])  # never a bare podSelector
     assert out["items"][1]["spec"]["ingress"][0]["from"][0]["podSelector"]["matchLabels"] == HOST
+    apply_peer = egress[3]["to"][0]  # T31 apply only via the apply egress proxies, which admit only the host
+    assert apply_peer["podSelector"]["matchLabels"] == APPLY_PROXY and apply_peer["namespaceSelector"]
+    assert out["items"][2]["spec"]["ingress"][0]["from"][0]["podSelector"]["matchLabels"] == HOST
     try:
         render({})
         raise AssertionError("empty meta accepted")

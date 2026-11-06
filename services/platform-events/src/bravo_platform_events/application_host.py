@@ -170,6 +170,12 @@ class GateRecheck:
         return self.records.evaluate(principal, plan_id, service_factory=checked_factory)
 
 
+def _canonical_report(value):
+    from bravo_gate.contract import canonical
+
+    return canonical(value)
+
+
 class ApplicationEvidence:
     """Read-only WorkflowRecovery port for one server-selected application.
 
@@ -220,8 +226,14 @@ class ApplicationEvidence:
             _post_apply(view, outcome)
             service, readiness = self.load_gate(view)
             session = view.session(service, readiness)
-            proof = service.require_prerequisites(self.principal.subject_id,
-                session.context_id, session.report.raw, approval_ids=session.approval_ids)
+            # The stored GATE report is valid for 60 s and its gate-result signature comes from an
+            # operator machine, so a later sweep re-evaluates under the same scope rule as SHIFT and
+            # cutover (served_reevaluation): same context, policy, DB pair, snapshot not older.
+            from .gate_records import served_reevaluation
+
+            with served_reevaluation(c, plan["plan_id"], session, self.principal) as fresh:
+                proof = service.require_prerequisites(self.principal.subject_id,
+                    session.context_id, _canonical_report(fresh), approval_ids=session.approval_ids)
             if (proof.context_digest != view.context.fingerprint
                     or proof.readiness_binding_digest != readiness.fingerprint):
                 raise EventError("gate_report_scope_mismatch")

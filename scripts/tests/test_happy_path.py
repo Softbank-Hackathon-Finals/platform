@@ -133,3 +133,28 @@ class Driver(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class InitialArgs(unittest.TestCase):
+    """kth4778 11/7: run.py arguments start with "--"; both spellings must reach it unchanged."""
+
+    def parsed(self, *extra):
+        seen = {}
+        original = hp.cmd_run
+        hp.cmd_run = lambda args: seen.setdefault("args", args) and 0
+        try:
+            hp.main(["run", "--plan-id", "p", "--record", "/r.jsonl", "--profile", "mock", *extra])
+        finally:
+            hp.cmd_run = original
+        return seen["args"].initial_args
+
+    def test_spaced_and_joined_forms_pass_through(self):
+        self.assertEqual(self.parsed("--initial-args", "--from", "initial.json"), ["--from", "initial.json"])
+        self.assertEqual(self.parsed("--initial-args=--from=initial.json"), ["--from=initial.json"])
+        self.assertEqual(self.parsed("--initial-args", "--from", "i.json", "--legacy-intent", "x.json"),
+                         ["--from", "i.json", "--legacy-intent", "x.json"])
+
+    def test_empty_initial_args_is_refused(self):
+        with self.assertRaises(SystemExit):
+            self.parsed("--initial-args")
+

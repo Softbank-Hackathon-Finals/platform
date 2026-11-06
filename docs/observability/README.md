@@ -70,9 +70,13 @@
 |---|---|---|
 | PASS | `ADVANCE_ALLOWED` 다음 단계 가능 | `NONE` |
 | FAIL | `SET_WEIGHT_0` 즉시 가중치 0 | `ALERT_FAILBACK_PROPOSAL` 알림과 되돌리기 제안. 되돌리기 실행은 사람 승인 뒤(S4 2단계) |
-| UNKNOWN | `HOLD` 다음 단계로 가지 않음. 연속 `unknown_limit`회째면 `SET_WEIGHT_0` | `ALERT_UNOBSERVABLE` 알림만. 자동 조치 없음 |
+| UNKNOWN | `HOLD` 다음 단계로 가지 않음. 연속 `unknown_limit`회째면 `SET_WEIGHT_0`. 단, 사유가 `WINDOW_BEFORE_CHANGE` 하나뿐이면 `HOLD`(J25) | `ALERT_UNOBSERVABLE` 알림만. 자동 조치 없음 |
 
 연속 UNKNOWN 수(`prior_unknown`)는 같은 `observe_from` 안에서만 센다. PASS나 FAIL이 나오거나 가중치를 바꿔 `observe_from`이 바뀌면 0부터 다시 센다. 앞 단계의 UNKNOWN이 다음 단계로 넘어오지 않는다. 판정은 창 하나마다(`window_seconds`마다) 한 번 한다.
+
+**변경 직후의 기다림은 세지 않는다.** 가중치를 바꾼 뒤 첫 창이 끝나고 도착할 때까지(창 길이 + 전송 지연, 약 10~20초) 가장 최근 창은 변경 전에 시작한 창이다. 이것은 관측이 끊긴 것이 아니라 정해진 기다림이다. 그래서 사유가 `WINDOW_BEFORE_CHANGE` 하나뿐인 UNKNOWN은 연속 수에 더하지 않고, 그 자체로 `SET_WEIGHT_0`이 되지도 않는다. 변경 뒤 창이 끝내 오지 않으면 그 창이 오래되어 `STALE`이 함께 붙고, 그때부터 다시 센다(J26). 호출자는 `bravo_observability.next_prior_unknown(직전 판정, same_observation=...)`으로 다음 `prior_unknown`을 구한다. 같은 관측을 다시 판정하면 수를 유지한다.
+
+이 규칙이 없으면 정상 트래픽에서도 단계가 스스로 끝난다. edge-control 호스트 방식(1초마다 최신 창 판정, 서버 시각 10초 구간마다 한 번 셈)으로 확인 시각·창 위상·전송 지연(0.5~3초)을 바꿔 가며 1,600가지를 돌리면, 이전 규칙은 `unknown_limit` 3에서 91%가 오류 없이 `SET_WEIGHT_0`이 됐다. 이 규칙에서는 Edge 반영이 확인보다 5초 늦어도 모두 PASS(11~23초)였고, 변경 뒤 창이 끊기거나 가중치가 반영되지 않으면 모두 43초 안에 `SET_WEIGHT_0`이었다(`tests/test_unknown_streak.py`).
 
 SHIFT에서 가중치 0이 자동인 이유: 이 구간에는 두 환경 앱이 모두 출발지 DB에 쓴다(8.6 "전환 전 쓰기 경로"). 가중치 0은 쓰기를 받는 DB를 바꾸지 않으므로 항상 안전한 방향이다. 실패한 환경이 출발지여도 조치는 같다(FR-8). 어느 환경이 원인인지는 판정 기록의 창에서 읽는다. WATCH는 컷오버 뒤라 되돌리기가 데이터 경로를 바꾸므로 자동으로 하지 않는다.
 
