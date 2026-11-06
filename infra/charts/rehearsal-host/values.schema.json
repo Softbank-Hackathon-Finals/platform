@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["image", "sourceRevision", "configuration", "reader", "recordsClaim", "secrets", "resources"],
+  "definitions": {
+    "name": {"type": "string", "pattern": "^[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?$"},
+    "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"}
+  },
+  "properties": {
+    "image": {"type": "object", "additionalProperties": false, "required": ["repository", "digest"], "properties": {
+      "repository": {"const": "ghcr.io/softbank-hackathon-finals/platform-rehearsal-host"},
+      "digest": {"type": "string", "pattern": "^sha256:[a-f0-9]{64}$"}}},
+    "sourceRevision": {"type": "string", "pattern": "^[a-f0-9]{40}$"},
+    "configuration": {"type": "object", "additionalProperties": false, "required": ["existingConfigMap", "sha256"], "properties": {
+      "existingConfigMap": {"$ref": "#/definitions/name"}, "sha256": {"$ref": "#/definitions/sha256"}}},
+    "reader": {"type": "object", "additionalProperties": false, "required": ["existingConfigMap", "catalogClaim"], "properties": {
+      "existingConfigMap": {"$ref": "#/definitions/name"}, "catalogClaim": {"$ref": "#/definitions/name"}}},
+    "recordsClaim": {"$ref": "#/definitions/name"},
+    "secrets": {"type": "object", "additionalProperties": false,
+      "required": ["database", "databaseCA", "catalogKey", "host", "registry"], "properties": {
+        "database": {"$ref": "#/definitions/name"}, "databaseCA": {"$ref": "#/definitions/name"},
+        "catalogKey": {"$ref": "#/definitions/name"}, "host": {"$ref": "#/definitions/name"},
+        "registry": {"$ref": "#/definitions/name"}}},
+    "resources": {"type": "object"}
+  }
+}

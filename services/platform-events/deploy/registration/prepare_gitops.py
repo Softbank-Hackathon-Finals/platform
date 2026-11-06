@@ -22,10 +22,10 @@ def prepare(output, service="registration"):
     spec = importlib.util.spec_from_file_location("registration_base", HERE.parent / "product-read/build.py")
     base = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(base)
-    output.mkdir(parents=True)
-    base.prepare_context(output, revision)
-    if service not in {"registration", "product-reader"}:
+    if service not in {"registration", "product-reader", "rehearsal-host"}:
         raise ValueError("unknown_platform_service")
+    output.mkdir(parents=True)
+    base.prepare_context(output, revision, rehearsal_host=service == "rehearsal-host")
     extras = (("gitops.Dockerfile", "Dockerfile"), ("checkout.py", "registration-checkout.py")) if service == "registration" else ()
     for source, target in extras:
         relative = str((HERE / source).relative_to(ROOT))
@@ -41,7 +41,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--receipt", type=Path, required=True)
-    parser.add_argument("--service", choices=("registration", "product-reader"), default="registration")
+    parser.add_argument("--service", choices=("registration", "product-reader", "rehearsal-host"), default="registration")
     args = parser.parse_args()
     if args.receipt.exists():
         raise ValueError("new_receipt_required")
