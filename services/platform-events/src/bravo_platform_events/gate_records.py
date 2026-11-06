@@ -47,16 +47,18 @@ _SERVED = ContextVar("bravo_gate_reevaluation", default=None)
 
 
 def _readiness_scope(service, actor, context):
-    """What a re-evaluation must keep from GATE, and when its readiness snapshot was observed."""
+    """What a re-evaluation must keep from GATE, and when each readiness component was observed."""
     binding = service.binding_provider(actor, context)
     snapshot = service.snapshot_provider(actor, context, binding)
+    # The same binding check as CombinedGateService._load: judge the snapshot that was evaluated.
+    if snapshot.ref != binding.snapshot_ref or snapshot.fingerprint != binding.snapshot_digest:
+        raise EventError("gate_reevaluation_scope_changed")
     doc = snapshot.document
-    seen = [doc[side]["observed_at"] for side in ("source", "target", "replication")]
-    seen += [row["observed_at"] for row in doc.get("sequences", [])]
+    observed = {side: doc[side]["observed_at"] for side in ("source", "target", "replication")}
+    observed |= {"sequence:" + row["table"] + "." + row["column"]: row["observed_at"] for row in doc.get("sequences", [])}
     return {"binding": binding.fingerprint, "policy": binding.policy.fingerprint,
             "source_database_ref": binding.source_database_ref, "target_database_ref": binding.target_database_ref,
-            "snapshot_ref": binding.snapshot_ref, "snapshot_digest": binding.snapshot_digest,
-            "observed_at": max(seen, key=time)}
+            "snapshot_ref": binding.snapshot_ref, "snapshot_digest": binding.snapshot_digest, "observed": observed}
 
 
 @contextmanager
@@ -84,7 +86,10 @@ def served_reevaluation(c, plan_id, session, principal):
     if (any(now[key] != gate[key] for key in ("policy", "source_database_ref", "target_database_ref"))
             or fresh.get("readiness_binding_digest") != now["binding"]):
         raise EventError("gate_reevaluation_scope_changed")
-    if time(now["observed_at"]) < time(gate["observed_at"]):
+    # Every component (source, target, replication, each sequence) must be at least as new as at
+    # GATE; one component moving back is an older observation (sangmu1126 #565 P2).
+    if (set(now["observed"]) != set(gate["observed"])
+            or any(time(now["observed"][key]) < time(gate["observed"][key]) for key in gate["observed"])):
         raise EventError("gate_reevaluation_snapshot_older")
     record = {"kind": "platform-reevaluation.v1", "gate_report_ref": ctx.gate_id,
               "inputs": {"context": ctx.fingerprint, "runs": [ctx.source_digest, ctx.target_digest],

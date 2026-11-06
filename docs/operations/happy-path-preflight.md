@@ -7,7 +7,7 @@
 | 순서 | 할 일 | 확인 |
 |---|---|---|
 | 1 | `./workon target-check t10-db --route platform-rke2-ssm` | VERIFIED, 클러스터 UID 일치 |
-| 2 | Reader 이미지 고정값 갱신과 **설정 v2 전환을 같은 rollout으로** (`operations/product-reader/README.md`) | Reader Ready, 이미지 digest, 설정 sha256 |
+| 2 | Reader 이미지 고정값과 설정 v2 (순서 무관: Reader는 v1에서도 뜨고 최초 경로만 닫는다. `operations/rollout/run.py`) | Reader Ready, 이미지 digest, 설정 sha256 |
 | 3 | Argo `initialProposal` 활성(namespace `bravo-initial`·SA·broker CA·승인 정책) | 승인 정책 dry-run 거부/허용 |
 | 4 | broker 재설치: `install.py --model-config infra/gitops/environments/development/agent-model.json` + `sandbox_docker` | `bravo-subscription-service` 비활성 상태에서 교체, 설치 소스 SHA |
 | 5 | `subscription-runtime` Terraform plan → apply (GitHub trust·controller 역할 제거, 노드 역할 trust) | plan 변경 목록이 위와 같음 |
@@ -34,7 +34,7 @@
 2. 빌드 입력(`services/*`, `infra/charts/*`, 이미지 Dockerfile)을 바꾸는 PR은 큐에 넣지 않는다. 문서·증빙 PR은 그대로 진행한다.
 3. 끝나면 `MERGE_QUEUE_BOT_ENABLED`를 원래 값으로 되돌리고 종료를 알린다.
 4. 이미지 고정 PR의 최신성 검사 완화(합의 1)는 롤아웃 뒤 별도 PR로 한다. 롤아웃 중에는 기존 검사 그대로다.
-   Reader 이미지는 설정 v2와 같은 배포로 묶는다.
+   Reader는 v1·v2 설정을 모두 읽으므로 이미지와 설정 v2의 반영 순서는 무관하다.
 
 ### relay 접근 (sangmu1126 76ee08d)
 

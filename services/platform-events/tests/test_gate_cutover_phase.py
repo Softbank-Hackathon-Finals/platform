@@ -127,11 +127,13 @@ def test_composition_rechecks_current_permissions(flow):
                           expected_version=f.version, command_key="revoked")
 
 
-def _readiness_at(f, at, **refs):
+def _readiness_at(f, at, *, target_at=None, **refs):
     """The fixture readiness snapshot observed at `at` (valid 30 s), optionally for another DB pair."""
     doc = json.loads(json.dumps(f.doc))
     for part in [doc["source"], doc["target"], doc["replication"], *doc["sequences"]]:
         part["observed_at"], part["expires_at"] = at.isoformat(), (at + timedelta(seconds=30)).isoformat()
+    if target_at is not None:
+        doc["target"]["observed_at"] = target_at.isoformat()
     for side, ref in refs.items():
         doc[side]["database_ref"] = ref
     f.update(doc)
@@ -142,7 +144,8 @@ def _count(f, prefix):
         return c.execute("SELECT count(*) AS n FROM plan_commands WHERE command_key LIKE ?", (prefix + "%",)).fetchone()["n"]
 
 
-@pytest.mark.parametrize("case", ["at-once", "61s-same-snapshot", "61s-new-snapshot", "older-snapshot", "other-db-pair"])
+@pytest.mark.parametrize("case", ["at-once", "61s-same-snapshot", "61s-new-snapshot", "older-snapshot",
+                                  "one-component-older", "other-db-pair"])
 def test_shift_reevaluation_scope_with_a_moving_clock(flow, case):
     """Jeonsubb #546 / sangmu1126 #565: with a moving clock the fresh report differs from the GATE
     report. It is consumed (only inside the SHIFT/cutover check) when it is PASS for the same
@@ -156,6 +159,9 @@ def test_shift_reevaluation_scope_with_a_moving_clock(flow, case):
     elif case == "older-snapshot":
         _readiness_at(f, gate_at - timedelta(seconds=5))
         f.state["now"] = gate_at + timedelta(seconds=1)
+    elif case == "one-component-older":  # sangmu1126 #565 P2: only the target moves back
+        f.state["now"] = gate_at + timedelta(seconds=1)
+        _readiness_at(f, f.state["now"], target_at=gate_at - timedelta(seconds=5))
     elif case == "other-db-pair":
         _readiness_at(f, f.state["now"], source="other-db-source")
     if case in ("at-once", "61s-new-snapshot"):
