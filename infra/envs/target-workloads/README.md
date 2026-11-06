@@ -163,10 +163,28 @@ python3 object_exposure.py render --state closed --output /dev/shm/s3.closed.jso
 ```
 
 `probe`는 응답 코드만 분류한다(`ALLOWED`/`DENIED`/`UNKNOWN:<사유>`), 객체 내용은 보관하지 않는다.
-Secret을 바꾼 뒤 SeaweedFS가 설정을 다시 읽는지는 아직 실측하지 않았으므로 순서에 `rollout restart`를
-넣었다. 열린 상태의 증빙은 게이트 readback(IAM-01.1 BLOCK)이고, 이 스크립트의 관측은 리셋 확인용이다.
+열린 상태의 증빙은 게이트 readback(IAM-01.1 BLOCK)이고, 이 스크립트의 관측은 리셋 확인용이다.
 시험: `scripts/tests/test_object_exposure.py`(렌더 상태 · 범위 · 승인 플래그 · 키 비노출 · 탐침 분류).
-실제 클러스터에서 열고 닫은 실측은 아직 없다.
+
+**로컬 kind 실측(2026-11-06, [증거](../../../docs/evidence/t9-open-bucket-2026-11-06/README.md)).** 렌더 그대로의
+SeaweedFS 4.52에서 Secret만 바꾸면 kubelet이 마운트 파일을 56–83초 뒤에 바꿨지만, 그 뒤 90초 넘게 익명 GET 결과는
+바뀌지 않았다. **`rollout restart`가 필요하다.** 재시작하면 `rollout status` 약 36초, 상태가 바뀌기까지 약 38초였다
+(열기 · 닫기 모두). `Recreate`라 그동안 S3 응답을 기대할 수 없다. open-demo의 익명은 첨부 객체 GET · HEAD만 됐고 PUT · LIST ·
+DELETE · 버킷 정책 쓰기 · 버킷 생성 · ListBuckets · 다른 버킷 GET은 403이었다. client는 두 상태 모두 정상이었다.
+`probe`의 분류는 매번 실제 상태와 맞았다. 4.52는 SIGHUP에도 `s3.json`을 다시 읽었지만(`pods/exec` 필요) 운영 순서는
+재시작으로 둔다.
+
+**버킷 정책이 남아 있으면 닫히지 않는다.** `s3.json`이 closed여도 첨부 버킷에 `Allow` `Principal "*"` `s3:GetObject`
+정책이 있으면 익명 GET이 200이고, 재시작해도 그대로다(정책은 filer에 저장). 설치 직후에는 정책이 없었다. 닫기 · 데모
+리셋 순서:
+
+1. closed `s3.json`으로 Secret 교체 → `rollout restart` → `rollout status`
+2. bootstrap 자격으로 첨부 버킷 `GET ?policy` → 404 `NoSuchBucketPolicy`인지 확인. 정책이 있으면 bootstrap으로
+   `DELETE ?policy`(client는 지우지 못한다). 삭제는 재시작 없이 바로 반영됐다
+3. `probe` → `state_observed=closed`. `open`이면 2를 다시 본다
+
+이 측정은 데모 목적지 RKE2가 아니다. 목적지에서 열고 닫는 실측은 아직 없다. 재현:
+`testing/open_bucket_kind.py --print-kind-config`로 kind를 만들고 `--kubeconfig … --output <비공개 경로>`로 실행한다.
 
 ### 리허설 전용 시험 버킷 (T15 버킷 정책 작업)
 
