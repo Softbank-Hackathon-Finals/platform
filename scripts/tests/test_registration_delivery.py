@@ -210,6 +210,10 @@ class ReaderPromotionSource(PromotionSource):
     service = delivery.PRODUCT_READER
 
 
+class RehearsalHostPromotionSource(PromotionSource):
+    service = delivery.REHEARSAL_HOST
+
+
 class Publication(unittest.TestCase):
     def test_rejects_untrusted_event_or_branch(self):
         for key, value in (

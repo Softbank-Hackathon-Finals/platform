@@ -2,7 +2,7 @@
   "scope": "local console read projection; actual SQLite/PostgreSQL and browsers; synthetic principals/report provenance",
   "regression_before_fix": "initial comparison without workflow gate event rejected by frontend",
   "python_tests": 244,
-  "javascript_tests": 175,
+  "javascript_tests": 176,
   "browser_tests": {
     "chromium": 23,
     "webkit": 23

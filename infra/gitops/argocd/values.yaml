@@ -2,6 +2,11 @@ productReader:
   enabled: false
   runtime: {}
 
+rehearsalHost:
+  enabled: false
+  # Protected operator input: existing config/claim/Secret references only.
+  runtime: {}
+
 registration:
   enabled: false
   # Protected operator input: existing config/Secret references and host aliases only.

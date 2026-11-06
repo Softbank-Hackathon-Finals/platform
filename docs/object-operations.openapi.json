@@ -1,0 +1,557 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "Bravo Object Operations",
+    "version": "1.0.0",
+    "description": "Personal-account object operations. Explicit open preserves public-read work mode until explicit close; no anonymous write/list/delete. Cycle returns closed and is refused while persistent open mode is selected. PASS means requested behavior, not a security gate pass. No storage credentials accepted."
+  },
+  "servers": [
+    {
+      "url": "/api/v1/namespaces/target-dev/services/http:bravo-object-operations:http/proxy"
+    }
+  ],
+  "security": [
+    {
+      "personalBearer": [],
+      "forwardedBearer": []
+    }
+  ],
+  "paths": {
+    "/v1/object-exposure/runs": {
+      "post": {
+        "operationId": "submitObjectOperation",
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "description": "Unix epoch seconds + hyphen + UUID hex. Reuse exactly for the same request. New keys must be within five minutes; an expired evicted key cannot execute again.",
+            "schema": {
+              "type": "string",
+              "pattern": "^[0-9]{10}-[a-f0-9]{32}$"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Request"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Existing request or result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Receipt"
+                }
+              }
+            }
+          },
+          "202": {
+            "description": "Accepted; not yet a successful test",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Receipt"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid input",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Invalid or expired bearer",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Principal not a named team member",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Unknown run or a run owned by someone else",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Active operation, changed input for same key, or state conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "410": {
+            "description": "Old key with no retained receipt; never executed again",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Backend unavailable; inspect same run before resubmission",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "operationId": "listOwnObjectOperations",
+        "responses": {
+          "200": {
+            "description": "Newest first, only authenticated caller; at most 64 retained records",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "runs": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/Receipt"
+                      }
+                    },
+                    "retention": {
+                      "type": "integer"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Invalid or expired bearer",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Backend unavailable; inspect same run before resubmission",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/object-exposure/runs/{run_id}": {
+      "get": {
+        "operationId": "getObjectOperation",
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^objects-[a-f0-9]{32}$"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Existing request or result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Receipt"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Invalid or expired bearer",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Unknown run or a run owned by someone else",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Backend unavailable; inspect same run before resubmission",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/object-exposure/runs/{run_id}/cancel": {
+      "post": {
+        "operationId": "cancelObjectOperation",
+        "description": "Cancel pending open or request closure of the same in-flight run. Does not submit a second run. Finished receipts remain unchanged.",
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^objects-[a-f0-9]{32}$"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Accepted; not yet a successful test",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Receipt"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid input",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Invalid or expired bearer",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Unknown run or a run owned by someone else",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Active operation, changed input for same key, or state conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Backend unavailable; inspect same run before resubmission",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/object-exposure/status": {
+      "get": {
+        "operationId": "getObjectExposureState",
+        "description": "Desired state and timestamped last observation shared with named members. This is not a live storage probe; submit check to refresh.",
+        "responses": {
+          "200": {
+            "description": "State and observation timestamp",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "desired_state": {
+                      "type": "string"
+                    },
+                    "last_observed_state": {
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "observed_at": {
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "security_state": {
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "operation_in_progress": {
+                      "type": "boolean"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "personalBearer": {
+        "type": "http",
+        "scheme": "bearer",
+        "description": "Existing personal member short-lived Kubernetes API token; no shared API key."
+      },
+      "forwardedBearer": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "X-Bravo-Authorization",
+        "description": "Bearer token issued for the same personal member service account with audience bravo-object-operations. A default kube-apiserver audience token is rejected."
+      }
+    },
+    "schemas": {
+      "Request": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "action"
+        ],
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": [
+              "check",
+              "cycle",
+              "open",
+              "close"
+            ]
+          },
+          "hold_seconds": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 60,
+            "default": 15
+          },
+          "acknowledge_anonymous_read": {
+            "type": "boolean",
+            "default": false
+          }
+        }
+      },
+      "Receipt": {
+        "type": "object",
+        "required": [
+          "run_id",
+          "phase"
+        ],
+        "properties": {
+          "run_id": {
+            "type": "string",
+            "pattern": "^objects-[a-f0-9]{32}$"
+          },
+          "phase": {
+            "type": "string",
+            "enum": [
+              "PENDING",
+              "RUNNING",
+              "CLOSING",
+              "RECOVERY_REQUIRED",
+              "FINISHED"
+            ]
+          },
+          "verdict": {
+            "type": "string",
+            "enum": [
+              "PASS",
+              "FAIL",
+              "UNCONFIRMED"
+            ]
+          },
+          "cleanup": {
+            "type": "string",
+            "enum": [
+              "CLEAN",
+              "UNCONFIRMED",
+              "NOT_APPLICABLE"
+            ]
+          },
+          "final_state": {
+            "type": "string",
+            "enum": [
+              "open",
+              "closed",
+              "unknown"
+            ]
+          },
+          "security_state": {
+            "type": "string",
+            "enum": [
+              "PUBLIC_READ",
+              "PRIVATE",
+              "UNCONFIRMED"
+            ]
+          }
+        }
+      }
+    }
+  }
+}
