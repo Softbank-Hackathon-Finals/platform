@@ -325,3 +325,13 @@ def invoke_product_worker(settings, access, value, root, snapshot):
     if len(raw) > 1048576:
         raise ValueError("oversized worker result")
     return json.loads(raw)
+
+
+def _run_provider(settings, access, provider, args):
+    with contextlib.redirect_stdout(io.StringIO()):
+        if provider == "claude":
+            # Explicit adapter selection, no automatic provider switch (ADR-0007).
+            code = run_claude_worker(settings["anthropic_key_file"], Path(settings["state_dir"]), args)
+        else:
+            code = run_worker(subscription_store(settings, access), Path(settings["state_dir"]), args)
+    return code
