@@ -66,10 +66,8 @@ def copy_committed_tree(revision, prefix, destination):
         raise ValueError("committed_source_missing")
 
 
-def add_rehearsal_context(context, revision):
-    copy_committed_tree(revision, "services/rehearsal-runner/templates/", context / "templates")
-    for directory in ("rehearsal-access", "target-secrets"):
-        copy_committed_tree(revision, f"infra/envs/{directory}/", context / "infra" / directory)
+def build_kubectl(context, revision):
+    """The patched, pinned kubectl (T15 rehearsal; T31 apply from the workflow host)."""
     # Keep the upstream command unchanged; compile its locked, patched module
     # graph with a fixed toolchain instead of shipping vulnerable release deps.
     with tempfile.TemporaryDirectory(prefix="bravo-kubectl-") as directory:
@@ -83,6 +81,13 @@ def add_rehearsal_context(context, revision):
         subprocess.run(["go", "build", "-mod=readonly", "-trimpath", "-buildvcs=false",
                         "-ldflags", flags, "-o", str(context / "kubectl"), "."],
                        cwd=source, env=env, check=True)
+
+
+def add_rehearsal_context(context, revision):
+    copy_committed_tree(revision, "services/rehearsal-runner/templates/", context / "templates")
+    for directory in ("rehearsal-access", "target-secrets"):
+        copy_committed_tree(revision, f"infra/envs/{directory}/", context / "infra" / directory)
+    build_kubectl(context, revision)
 
 
 def prepare_context(context, revision, *, rehearsal_host=False):

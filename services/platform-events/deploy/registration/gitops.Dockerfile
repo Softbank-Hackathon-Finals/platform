@@ -3,8 +3,8 @@ ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
 WORKDIR /app
 RUN apt-get update && apt-get install --no-install-recommends -y git=1:2.47.3-0+deb13u1 \
     && rm -rf /var/lib/apt/lists/*
-# T31 apply from the workflow host (REHEARSE): KubectlKube needs kubectl. Pinned and checksummed.
-ADD --checksum=sha256:c49a28f1f4efc4d475ed05f47f2ce8e563bf7bef69ed77fe1b924ea6d83b6327 https://dl.k8s.io/release/v1.35.10/bin/linux/amd64/kubectl /usr/local/bin/kubectl
+# T31 apply from the workflow host (REHEARSE): the same patched, pinned kubectl as the rehearsal host.
+COPY kubectl /usr/local/bin/kubectl
 RUN chmod 0755 /usr/local/bin/kubectl
 COPY requirements.txt /app/requirements.txt
 RUN pip install --disable-pip-version-check --no-cache-dir --require-hashes --only-binary=:all: -r requirements.txt
