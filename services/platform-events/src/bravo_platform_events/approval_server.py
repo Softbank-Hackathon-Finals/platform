@@ -31,7 +31,17 @@ def load_host(store, config_file, create_ports):
     if any(not path.is_absolute() for path in paths.values()) or not paths["records_root"].is_dir():
         raise ValueError("approval_host_mounts_required")
     sender = sender_from_config(config["workload_binding"], json.loads(paths["public_jwks_file"].read_text()))
-    verifier = OperatorTokenVerifier(**config["operator_verifier"])
+    operator = config["operator_verifier"]
+    people = operator if isinstance(operator, list) else [operator]
+    if people and all(isinstance(o, dict) and "expected_sso_role_arn" in o for o in people):
+        # AWS IAM Identity Center proof (same as registration), signed for the operator audience.
+        from .operator_identity import OPERATOR_SSO_AUDIENCE, OperatorSsoVerifier
+        from .registration_sso import SsoRegistrationVerifier
+
+        verifier = OperatorSsoVerifier([SsoRegistrationVerifier(**(o | {"audience": OPERATOR_SSO_AUDIENCE}))
+                                        for o in people])
+    else:
+        verifier = OperatorTokenVerifier(**operator)
     with paths["record_key_file"].open("rb") as stream:
         key = stream.read(4097)
     if not 32 <= len(key) <= 4096:
@@ -62,8 +72,10 @@ def main(argv=None):
             if c.execute("SELECT version FROM schema_version").fetchall() != [{"version": 3}]:
                 raise ValueError()
         host = load_host(store, args.config, create_ports)
-    except Exception:
-        raise SystemExit("approval_startup_unavailable") from None
+    except Exception as error:
+        from .startup import reason
+
+        raise SystemExit("approval_startup_unavailable:" + reason(error)) from None
     uvicorn.run(host.app, host="0.0.0.0", port=8443, workers=1,
         ssl_certfile=args.tls_cert, ssl_keyfile=args.tls_key, access_log=False,
         proxy_headers=False, server_header=False, limit_concurrency=16, timeout_keep_alive=5)
