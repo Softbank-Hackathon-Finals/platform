@@ -90,6 +90,21 @@ def test_other_pod_namespace_account_or_audience_is_forbidden(api, change, monke
     assert post(api, claims).status_code == 403
 
 
+def test_job_token_cannot_read_under_another_principal(api, monkeypatch):
+    reader, request, key, claims = api
+    monkeypatch.setattr(reader.records, "_read", lambda *a, **k: pytest.fail("read under another principal"))
+    # Another principal (e.g. the GitHub caller's) with an intent consistently re-derived for it,
+    # so only the token-to-principal binding can refuse it.
+    principal = "e" * 64
+    fields = request.intent.model_dump(exclude={"request_id", "recipient_public_key"})
+    intent = request.intent.model_copy(update={"request_id": "t10p-" + digest(fields | {"principal": principal})})
+    other = request.model_copy(update={"principal": principal, "intent": intent})
+    token = jwt.encode(claims, key, algorithm="RS256")
+    with TestClient(create_initial_read_app(reader), base_url="https://reader.invalid") as client:
+        response = client.post(PATH, json=other.model_dump(), headers={"Authorization": "Bearer " + token})
+    assert response.status_code == 403
+
+
 class Kubectl:
     """Synthetic API server; never runs kubectl."""
 
@@ -103,7 +118,17 @@ class Kubectl:
             name = manifest["metadata"]["name"]
             if name in self.jobs:
                 return 1, b"", b'Error from server (AlreadyExists): jobs.batch "x" already exists'
-            self.jobs[name] = manifest | {"status": {}}
+            created = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+            stored = json.loads(payload)
+            self.jobs[name] = stored | {"status": {}, "metadata": stored["metadata"] | {
+                "creationTimestamp": created, "uid": "job-uid"}}
+            # What the API server adds on its own; the operator check must tolerate it.
+            pod = self.jobs[name]["spec"]["template"]["spec"]
+            pod.update(schedulerName="default-scheduler", terminationGracePeriodSeconds=30,
+                       serviceAccount=pod["serviceAccountName"])
+            pod["containers"][0].update(imagePullPolicy="IfNotPresent", terminationMessagePolicy="File",
+                                        terminationMessagePath="/dev/termination-log")
+            pod["volumes"][0]["projected"]["defaultMode"] = 420
             if self.lose_create:
                 return 1, b"", b"Unable to connect to the server"
             return 0, b"job.batch/" + name.encode(), b""
@@ -189,6 +214,72 @@ def test_replaced_or_failed_job_never_delivers(operator, change):
     change(kube.jobs[job.job_name(intent.request_id)])
     with pytest.raises(ExecutionUnknown):
         client.read(intent)
+
+
+@pytest.mark.parametrize("change", [
+    lambda c: c.update(command=["python", "-c", "print('forged')"]),
+    lambda c: c.update(env=[{**e, "value": "{}"} if e["name"] == "PRODUCT_INTENT" else e for e in c["env"]]),
+    lambda c: c.update(securityContext={**c["securityContext"], "privileged": True}),
+    lambda c: c["volumeMounts"].append({"name": "host", "mountPath": "/host"}),
+])
+def test_same_name_job_with_other_container_spec_never_delivers(operator, change):
+    client, kube, intent, result, tmp_path = operator
+    with pytest.raises(ExecutionPending):
+        client.submit(intent)
+    complete(kube, intent, result, tmp_path)
+    change(kube.jobs[job.job_name(intent.request_id)]["spec"]["template"]["spec"]["containers"][0])
+    with pytest.raises(ExecutionUnknown):
+        client.read(intent)
+
+
+@pytest.mark.parametrize("change", [
+    lambda p: p.update(serviceAccountName="default", serviceAccount="default"),
+    lambda p: p.update(automountServiceAccountToken=True),
+    lambda p: p.update(hostPID=True),
+    lambda p: p.update(initContainers=[{"name": "x", "image": IMAGE}]),
+    lambda p: p["volumes"].append({"name": "host", "hostPath": {"path": "/"}}),
+    lambda p: p["volumes"][0]["projected"]["sources"][0]["serviceAccountToken"].update(audience="sts.amazonaws.com"),
+    lambda p: p["volumes"][0]["projected"]["sources"][0]["serviceAccountToken"].update(expirationSeconds=86400),
+])
+def test_same_name_job_with_other_pod_spec_never_delivers(operator, change):
+    client, kube, intent, result, tmp_path = operator
+    with pytest.raises(ExecutionPending):
+        client.submit(intent)
+    complete(kube, intent, result, tmp_path)
+    change(kube.jobs[job.job_name(intent.request_id)]["spec"]["template"]["spec"])
+    with pytest.raises(ExecutionUnknown):
+        client.read(intent)
+
+
+@pytest.mark.parametrize("change", [
+    lambda c: c.update(command=["python", "-c", "print('forged')"]),
+    lambda c: c.update(env=[{**e, "value": "{}"} if e["name"] == "PRODUCT_INTENT" else e for e in c["env"]]),
+    None,  # Identical spec, but created before the operator's ledger marker.
+])
+def test_preempted_job_name_is_rejected_without_model_call(operator, change):
+    client, kube, intent, result, tmp_path = operator
+    forged = job.job_manifest(intent, IMAGE)
+    if change:
+        change(forged["spec"]["template"]["spec"]["containers"][0])
+    name = forged["metadata"]["name"]
+    forged["metadata"]["creationTimestamp"] = "2026-01-01T00:00:00Z"
+    kube.jobs[name] = forged | {"status": {"succeeded": 1}}
+    receipt = job.run({"PRODUCT_INTENT": json.dumps(intent.model_dump(mode="json")),
+                       "PRODUCT_EXECUTION_ID": job.execution_id(intent.request_id),
+                       "PRODUCT_BROKER_CA_PEM": "unused"},
+                      call=lambda _: (200, result), token_file=_token(tmp_path))[1]
+    kube.logs = json.dumps(receipt).encode()  # A hand-sealed receipt; the seal needs only the public key.
+    with pytest.raises(ExecutionUnknown, match="JOB_NAME_PREEMPTED"):
+        client.submit(intent)
+    with pytest.raises(ExecutionUnknown, match="JOB_BINDING_CONFLICT"):
+        client.read(intent)
+    assert len(kube.creates) == 1
+
+
+def _token(tmp_path):
+    token = tmp_path / "forged-token"
+    token.write_text("header.payload.signature\n")
+    return token
 
 
 def test_broker_rejection_is_sealed_evidence_not_a_result(operator):

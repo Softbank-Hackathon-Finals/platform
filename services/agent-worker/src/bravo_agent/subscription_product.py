@@ -22,7 +22,7 @@ from .contracts import FailureBundle, digest
 from .product_contracts import ProductInput as ProductInput
 from .product_contracts import ProductRequest as ProductRequest
 from .product_contracts import validate_product_input
-from .subscription_admin import run_worker
+from .subscription_admin import run_claude_worker, run_worker
 from .subscription_store import SubscriptionStore, private_directory
 from .tools import Snapshot, Tools
 from .verification import validate_result
@@ -70,6 +70,10 @@ class ProposalJournal:
         with self.connect() as db:
             db.execute("CREATE TABLE IF NOT EXISTS proposals "
                        "(key TEXT PRIMARY KEY, binding TEXT NOT NULL, result TEXT, result_digest TEXT)")
+            # Whitebox record (design 8.3 "record everything"): the worker's whole result with
+            # every attempt's input, tool calls, denials and proposal. Private like the journal.
+            db.execute("CREATE TABLE IF NOT EXISTS audits "
+                       "(key TEXT PRIMARY KEY, binding TEXT NOT NULL, record TEXT NOT NULL, record_digest TEXT NOT NULL)")
         fd = os.open(self.root, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
         try:
             os.fsync(fd)
@@ -96,6 +100,21 @@ class ProposalJournal:
             if result is not None and digest(result) != row[2]:
                 raise ValueError("journal result changed")
             return False, result
+
+    def keep_audit(self, key: str, binding: str, record: dict):
+        text = json.dumps(record, allow_nan=False, sort_keys=True)
+        with self.connect() as db:
+            db.execute("INSERT INTO audits VALUES (?,?,?,?)", (key, binding, text, digest(record)))
+
+    def audit(self, key: str):
+        with self.connect() as db:
+            row = db.execute("SELECT record,record_digest FROM audits WHERE key=?", (key,)).fetchone()
+        if row is None:
+            return None
+        record = json.loads(row[0])
+        if digest(record) != row[1]:
+            raise ValueError("audit record changed")
+        return record
 
     def finish(self, key: str, binding: str, result: dict):
         with self.connect() as db:
@@ -125,6 +144,27 @@ def stage_input(value: ProductInput, root: Path) -> Snapshot:
     for name in value.manifest.files:
         snapshot.read(name)
     return snapshot
+
+
+AUDIT_KEYS = {"run_id", "attempt", "tool", "outcome", "reason", "category", "evidence_digest"}
+ATTEMPT_KEYS = {"attempt", "state", "input_digest", "task_digest", "proposal_digest",
+                "audit_event_count", "audit_truncated"}
+USAGE_KEYS = {"provider", "model", "requests", "total_tokens", "input_tokens", "output_tokens",
+              "cache_read_input_tokens", "cache_creation_input_tokens"}
+
+
+def whitebox_record(result):
+    """Code-owned audit fields only; raw diagnostics and provider fields never persist."""
+    def scalars(item, keys):
+        return {k: item[k] for k in sorted(keys) if type(item.get(k)) in (str, int, bool) and len(str(item[k])) <= 256}
+
+    attempts, audit = result["attempts"], result["audit"]
+    if type(attempts) is not list or type(audit) is not list or len(attempts) > 3 or len(audit) > 512:
+        raise ValueError("unbounded audit")
+    return {"run_id": result["run_id"], "state": result["state"],
+            "attempts": [scalars(a, ATTEMPT_KEYS) | {"model_usage": scalars(a.get("model_usage") or {}, USAGE_KEYS)}
+                         for a in attempts],
+            "audit": [scalars(event, AUDIT_KEYS) for event in audit]}
 
 
 def proposal_result(result, value, snapshot, expected):
@@ -223,6 +263,8 @@ class ProductService:
                     return 200, checked
                 try:
                     raw = self.invoke(access, value, root, snapshot)
+                    # No proposal leaves without its whitebox record.
+                    self.journal.keep_audit(key, binding, whitebox_record(raw))
                     response = proposal_result(raw, value, snapshot, expected)
                 except Exception:
                     response = stopped("PRODUCT_RUNTIME_UNCONFIRMED")
@@ -233,8 +275,7 @@ class ProductService:
             return 409, stopped("PRODUCT_INPUT_OR_RECORD_UNAVAILABLE")
 
 
-def invoke_product_worker(settings, access, value, root, snapshot):
-    """Use existing isolated T11 CLI. This bridge only supports first proposals."""
+def subscription_store(settings, access):
     import boto3
     from botocore.config import Config
 
@@ -244,7 +285,14 @@ def invoke_product_worker(settings, access, value, root, snapshot):
                          aws_access_key_id=credentials["AccessKeyId"],
                          aws_secret_access_key=credentials["SecretAccessKey"],
                          aws_session_token=credentials["SessionToken"])
-    store = SubscriptionStore(settings["secret_arn"], settings["runtime_host_id"], client=client)
+    return SubscriptionStore(settings["secret_arn"], settings["runtime_host_id"], client=client)
+
+
+def invoke_product_worker(settings, access, value, root, snapshot):
+    """Use existing isolated T11 CLI. This bridge only supports first proposals."""
+    provider = settings.get("provider", "chatgpt-plan")
+    if provider not in {"chatgpt-plan", "claude"}:
+        raise ValueError("unsupported broker provider")
     for name, model in (("bundle.json", value.bundle), ("manifest.json", value.manifest)):
         path = root / name
         with path.open("x") as stream:
@@ -254,7 +302,11 @@ def invoke_product_worker(settings, access, value, root, snapshot):
     args = SimpleNamespace(model=settings["model"], bundle=root / "bundle.json",
                            manifest=root / "manifest.json", snapshot=snapshot.root, output=output)
     with contextlib.redirect_stdout(io.StringIO()):
-        code = run_worker(store, Path(settings["state_dir"]), args)
+        if provider == "claude":
+            # Explicit adapter selection, no automatic provider switch (ADR-0007).
+            code = run_claude_worker(settings["anthropic_key_file"], Path(settings["state_dir"]), args)
+        else:
+            code = run_worker(subscription_store(settings, access), Path(settings["state_dir"]), args)
     if code != 0:
         raise ValueError("worker outcome unconfirmed")
     with output.open("rb") as stream:

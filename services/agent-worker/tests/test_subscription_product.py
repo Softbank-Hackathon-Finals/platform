@@ -77,6 +77,18 @@ def test_proposal_bound_and_retrievable_after_restart_without_model(setup):
     data = service.journal.path.read_bytes()
     assert b"test-identity" not in data and b"test-private" not in data
     assert service.journal.path.stat().st_mode & 0o077 == 0
+    # Whitebox: the private record keeps every attempt and tool event for this run.
+    record = service.journal.audit(f"{result['run_id']}:1")
+    assert record["state"] == "PROPOSAL_READY" and len(record["attempts"]) == 1
+    assert any(e["tool"] == "plan.propose" and e["outcome"] == "ALLOWED" for e in record["audit"]), record
+    assert "test-private" not in json.dumps(record)
+
+
+def test_no_proposal_leaves_without_its_whitebox_record(setup, monkeypatch):
+    service, _, body, counts = setup
+    monkeypatch.setattr(service.journal, "keep_audit", lambda *a: (_ for _ in ()).throw(OSError("disk")))
+    assert service.run(body) == (200, {"state": "NEEDS_HUMAN", "reason": "PRODUCT_RUNTIME_UNCONFIRMED"})
+    assert counts["invoke"] == 1
 
 
 @pytest.mark.parametrize("change", [
@@ -274,6 +286,17 @@ def test_host_bridge_uses_sts_identity_and_existing_worker(monkeypatch, setup, c
     assert calls[2]["service"] == "secretsmanager"
     assert calls[2]["aws_session_token"] == credentials["SessionToken"]
     assert not list(service.journal.root.glob("product-*"))
+
+    # Explicit Claude selection reads only the API key file; the subscription secret is untouched.
+    claude_calls = []
+    monkeypatch.setattr(product, "SubscriptionStore", lambda *a, **k: pytest.fail("subscription secret read"))
+    monkeypatch.setattr(product, "run_claude_worker",
+                        lambda key_file, directory, args: claude_calls.append(key_file) or worker(None, directory, args))
+    claude = server.product_service(settings | {"provider": "claude", "anthropic_key_file": "/run/bravo/key"},
+                                    Inputs(), service.journal.root / "claude")
+    assert claude.run(body)[1]["state"] == "PROPOSAL_READY" and claude_calls == ["/run/bravo/key"]
+    with pytest.raises(ValueError):
+        product.invoke_product_worker(settings | {"provider": "openai"}, None, None, None, None)
 
 
 def test_configured_http_route_keeps_product_and_fixture_separate(monkeypatch, setup, tmp_path):

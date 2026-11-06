@@ -463,3 +463,53 @@ T15 token-free 소비 경로가 준비됐다는 증거는 아니다. 동일 DB/C
 - **실행:** 운영자 SSO로 broker를 `bravo-subscription-service start`로 켠 뒤
   `python -m bravo_platform_events.initial_proposal_job submit --intent … --state-dir … --output …`,
   완료까지 같은 명령의 `read`로 조회하고 broker를 `stop`한다.
+- **신뢰 경계:** namespace는 hostNetwork 때문에 `enforce: privileged`다. 그래서 이 namespace에
+  Pod·Job을 만들 수 있는 주체가 곧 이 경로의 신뢰 경계다. 쓰기 권한은 운영자 개인 kubeconfig에만
+  있고, Argo 컨트롤러·AI 워커·CI에는 RoleBinding을 두지 않는다. 승인 정책은 privileged·hostPath·
+  hostPID/IPC·initContainers·Secret 참조를 거부한다.
+- **선점 방지:** 봉인은 intent의 공개키만 있으면 누구나 할 수 있으므로 영수증 모양은 출처가
+  아니다. 운영자는 첫 create가 AlreadyExists면 `JOB_NAME_PREEMPTED`로 멈춘다. `read`는 관측한
+  Job의 Pod spec이 운영자가 만들 manifest와 서버 기본값을 빼고 정확히 같은지(command·args·env·
+  volumeMounts·SA·automount·hostNetwork·volume audience/expiration 포함), `creationTimestamp`가
+  원장의 `dispatch_sent_at`(초 단위) 이후인지 확인한 뒤에만 로그를 연다.
+- **토큰 회수:** broker는 JWKS로 오프라인 검증하므로 Pod가 끝나거나 삭제돼도 토큰은 `exp`까지
+  (최대 600초) 유효하다. Pod 종료 뒤 회수는 확인하지 않는다. 노드 loopback과 nft guard가 경계다.
+
+### 이 경로에서 AI의 역할
+
+AI는 **최초 변경 제안서 한 건을 쓰는 작성자**다. 실행·판정·배포는 하지 않는다(설계 8.1·8.3).
+
+| 하는 일 | 하지 않는 일 |
+|---|---|
+| T16 등급·스냅샷을 읽고 JSON Schema 제안서(`plan.propose`)를 낸다 | 파일 적용·명령 실행·merge·배포·컷오버 |
+| 정책 린트(`policy.evaluate`)로 미리 확인한다 | 게이트 판정, 승인, 재시도 결정 |
+| 실패 원인 추정·승인자용 요약 문장 | 운영 kubeconfig·DB·AWS 자격 사용 |
+
+Job은 **운반자**일 뿐 모델을 부르지 않는다. 모델 호출은 broker의 격리된 자식 프로세스(T11
+워커)가 하고, Job은 봉인된 영수증만 남긴다. 제안서는 이후 T15 리허설 검증과 T10 사람 승인을
+거쳐야 T31이 반영한다.
+
+### 설계 가드레일(배규태 구현안·설계 8.3)과 이 경로의 대응
+
+| 원칙 | 이 경로에서 지키는 방법 | 남은 한계 |
+|---|---|---|
+| 화이트박스: 전부 기록 | broker 원장의 `audits` 표에 실행 키마다 시도별 입력 digest·상태·모델 사용량·도구 호출·차단 사유를 남긴다. 기록을 못 쓰면 제안서를 내보내지 않는다(`PRODUCT_RUNTIME_UNCONFIRMED`). 원문 진단·제공자 필드는 저장하지 않는다. | 기록은 broker 호스트 비공개다. 영수증·T10 응답의 `tool_events_status`는 아직 `UNAVAILABLE`이며, 콘솔 표시는 ADR-0019 §7의 별도 계약 변경이 필요하다. |
+| 샌드박스 | Job Pod: 고정 이미지·SA, 쓰기 불가 루트, 권한 상승·Secret·포트 없음(승인 정책). 모델 워커: broker 자식 프로세스에 추론 자격 하나만 넘기고 임시 HOME에서 실행한다. 변경 적용은 T15 리허설 namespace에서만 한다. | 자식 프로세스 격리는 환경변수 허용 목록이다. OS 수준 샌드박스·송신 차단은 broker 호스트의 의무다. Harbor는 설계 8.4대로 **평가 전용**(T26 반복 채점)이며 런타임 경로에 넣지 않는다. |
+| 출력은 스키마로만 | 제안서는 `Proposal` 스키마와 스냅샷 `before_sha256` 대조를 통과해야 한다. Reader·운영자가 `schema_valid`·`lint_passed`를 다시 확인한다. | — |
+| 실행 권한 없음 | 도구는 `repo.read`·`plan.propose`·`policy.evaluate`·`inventory.describe` 네 개뿐이다. Job에는 AWS·모델 자격과 쓰기 RBAC가 없다. | `rehearsal.*`는 아직 `TOOL_NOT_PROVIDED`로 거부된다. |
+| 파괴적 명령 차단 | 도구 계층이 인자를 분류해 `DESTRUCTIVE_ATTEMPT_BLOCKED`와 범주만 기록한다(ADR-0019). | 알려진 패턴만 본다. |
+| 재시도 상한 | Coordinator는 시도 3회 상한, 넘으면 `NEEDS_HUMAN`. 최초 제안은 `backoffLimit: 0`의 Job 한 번이다. | — |
+| 판정·실행에 LLM 금지 | 이 경로의 판정(영수증·결속 검증)은 platform-events 코드가 하고 LLM 클라이언트를 import하지 않는다. | — |
+
+### 모델 제공자 선택
+
+broker 설정의 `provider`로 명시적으로 고른다. 자동 전환은 없다(ADR-0007).
+
+- `chatgpt-plan`(기본): 관리자가 연결한 ChatGPT 구독(SIWC)으로 OpenAI Agents SDK를 쓴다.
+  해피패스는 이 경로를 쓴다.
+- `claude`: Claude Agent SDK 어댑터(`bravo_agent.sdk`)를 **Anthropic API 키**로 쓴다.
+  `anthropic_key_file`에 broker 사용자 소유·`0600` 파일 경로를 넣는다. 값은 플랫폼 OpenBao에서
+  공급하며 저장소·로그·명령행에 남기지 않는다. broker 설치에 `bravo-agent-worker[claude]`가
+  필요하다. claude.ai 구독 로그인은 쓰지 않는다. Anthropic은 사전 승인 없이 제3자 제품(Agent SDK로
+  만든 에이전트 포함)에 claude.ai 로그인·사용량 한도를 제공하는 것을 허용하지 않는다
+  ([Agent SDK 개요](https://code.claude.com/docs/en/agent-sdk/overview)).

@@ -3,6 +3,8 @@
 import argparse
 import json
 import os
+import re
+import stat
 import subprocess
 import sys
 import tempfile
@@ -91,23 +93,52 @@ def run_worker(store, directory, args):
         token = store.access_token(oauth)
         if args.model not in oauth.models(token):
             raise AuthFailure("MODEL_NOT_AVAILABLE_FOR_ADMIN_ACCOUNT")
-        with tempfile.TemporaryDirectory(prefix="bravo-subscription-") as temp:
-            command = [sys.executable, "-m", "bravo_agent.cli", "analyze", "--provider", "chatgpt-plan",
-                       "--model", args.model]
-            for name in ("bundle", "manifest", "snapshot", "output"):
-                command += ["--" + name, str(getattr(args, name).absolute())]
-            # Optional T16 input. Callers that build ``args`` themselves (T38 product bridge) omit it.
-            if getattr(args, "inventory", None) is not None:
-                command += ["--inventory", str(args.inventory.absolute())]
-            environment = {"PATH": "/usr/bin:/bin", "LANG": "C.UTF-8", "HOME": temp,
-                           "TMPDIR": temp, "ACCESS_TOKEN": token, "PYTHONDONTWRITEBYTECODE": "1"}
-            # Inject only inference access. OS/metadata/egress isolation is a host obligation;
-            # an environment allowlist alone is not an operating-system sandbox.
-            process = subprocess.run(command, cwd=temp, env=environment, capture_output=True,
-                                     timeout=210, text=True)
-            state = "PROPOSAL_READY" if process.returncode == 0 else "NEEDS_HUMAN"
-            print(json.dumps({"state": state, "provider": "chatgpt_plan"}))
-            return 0 if process.returncode == 0 else 2
+        return _isolated_worker("chatgpt-plan", {"ACCESS_TOKEN": token}, args)
+
+
+def api_key(path: Path) -> str:
+    """Anthropic API key file materialized for the broker user only (from platform OpenBao)."""
+    fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+    try:
+        info = os.fstat(fd)
+        if info.st_uid != os.getuid() or info.st_mode & 0o077 or not stat.S_ISREG(info.st_mode):
+            raise AuthFailure("API_KEY_FILE_NOT_PRIVATE")
+        key = os.read(fd, 4097).decode().strip()
+    finally:
+        os.close(fd)
+    if re.fullmatch(r"sk-ant-[A-Za-z0-9_-]{20,4000}", key) is None:
+        raise AuthFailure("API_KEY_INVALID")
+    return key
+
+
+def run_claude_worker(key_file, directory, args):
+    """Same isolated T11 worker with the Claude Agent SDK adapter and an API key.
+
+    A claude.ai subscription login is not used here: Anthropic does not allow third-party
+    products, including Agent SDK agents, to offer claude.ai login or rate limits.
+    """
+    with broker_lock(directory):
+        return _isolated_worker("claude", {"ANTHROPIC_API_KEY": api_key(Path(key_file))}, args)
+
+
+def _isolated_worker(provider, credential, args):
+    with tempfile.TemporaryDirectory(prefix="bravo-subscription-") as temp:
+        command = [sys.executable, "-m", "bravo_agent.cli", "analyze", "--provider", provider,
+                   "--model", args.model]
+        for name in ("bundle", "manifest", "snapshot", "output"):
+            command += ["--" + name, str(getattr(args, name).absolute())]
+        # Optional T16 input. Callers that build ``args`` themselves (T38 product bridge) omit it.
+        if getattr(args, "inventory", None) is not None:
+            command += ["--inventory", str(args.inventory.absolute())]
+        environment = {"PATH": "/usr/bin:/bin", "LANG": "C.UTF-8", "HOME": temp,
+                       "TMPDIR": temp, "PYTHONDONTWRITEBYTECODE": "1", **credential}
+        # Inject only inference access. OS/metadata/egress isolation is a host obligation;
+        # an environment allowlist alone is not an operating-system sandbox.
+        process = subprocess.run(command, cwd=temp, env=environment, capture_output=True,
+                                 timeout=210, text=True)
+        state = "PROPOSAL_READY" if process.returncode == 0 else "NEEDS_HUMAN"
+        print(json.dumps({"state": state, "provider": provider.replace("-", "_")}))
+        return 0 if process.returncode == 0 else 2
 
 
 def main():

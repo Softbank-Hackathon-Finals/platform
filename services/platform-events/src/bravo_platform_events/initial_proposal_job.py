@@ -85,6 +85,43 @@ def job_manifest(intent, image):
                         "audience": AUDIENCE, "expirationSeconds": 600, "path": TOKEN.name}}]}}]}}}}
 
 
+# Fields the API server fills when the operator leaves them out. Everything else in the
+# observed Pod template must equal what the operator would have created.
+POD_DEFAULTS = {"schedulerName", "terminationGracePeriodSeconds"}
+CONTAINER_DEFAULTS = {"terminationMessagePath", "terminationMessagePolicy", "imagePullPolicy"}
+
+
+def operator_spec(pod):
+    """Observed Pod template spec without server defaults, for exact comparison."""
+    pod = json.loads(json.dumps(pod))
+    if pod.pop("serviceAccount", pod.get("serviceAccountName")) != pod.get("serviceAccountName"):
+        raise ValueError("service account alias differs")
+    for key in POD_DEFAULTS:
+        pod.pop(key, None)
+    for container in pod.get("containers", []):
+        for key in CONTAINER_DEFAULTS:
+            container.pop(key, None)
+    for volume in pod.get("volumes", []):
+        volume.get("projected", {}).pop("defaultMode", None)
+    return pod
+
+
+def bound_job(job, intent, image, dispatch_sent_at):
+    """The observed Job is the one the operator created, not a same-name preemption.
+
+    Shape is not provenance: the receipt seal needs only the public key in the intent, so
+    a Job that anyone else created under this name must be rejected before its log is read.
+    """
+    expected = job_manifest(intent, image)
+    created = datetime.fromisoformat(job["metadata"]["creationTimestamp"].replace("Z", "+00:00"))
+    sent = datetime.fromisoformat(dispatch_sent_at)
+    # creationTimestamp has one-second precision; a Job from before the ledger marker was not ours.
+    return (job["metadata"].get("annotations", {}).get("bravo.dev/request-digest") == digest(intent.request_id)
+            and job["spec"].get("backoffLimit") == 0
+            and created >= sent.replace(microsecond=0)
+            and operator_spec(job["spec"]["template"]["spec"]) == expected["spec"]["template"]["spec"])
+
+
 def run(env=os.environ, *, call=None, token_file=TOKEN):
     intent = InitialIntent.model_validate_json(env["PRODUCT_INTENT"])
     run_id = env["PRODUCT_EXECUTION_ID"]
@@ -147,7 +184,10 @@ class JobInitialProposal(OperatorInitialProposal):
         if fresh:
             # The committed row survives a lost response; the fixed name makes create idempotent.
             code, _, err = self.kubectl(["create", "-f", "-", "-o", "name"], json.dumps(manifest).encode())
-            if code and b"AlreadyExists" not in err:
+            if code and b"AlreadyExists" in err:
+                # Our first create found the name taken: someone else made that Job.
+                raise ExecutionUnknown("JOB_NAME_PREEMPTED")
+            if code:
                 raise ExecutionUnknown("JOB_CREATE_UNCONFIRMED_READ_SAME_EXECUTION")
         return self.read(intent)
 
@@ -162,11 +202,13 @@ class JobInitialProposal(OperatorInitialProposal):
         code, out, _ = self.kubectl(["get", "job", metadata["job"], "-o", "json"])
         if code:
             raise ExecutionUnknown("JOB_NOT_OBSERVED")
-        job = json.loads(out)
-        if (job["metadata"].get("annotations", {}).get("bravo.dev/request-digest") != digest(intent.request_id)
-                or job["spec"]["template"]["spec"]["containers"][0]["image"] != metadata["image"]
-                or job["spec"].get("backoffLimit") != 0):
+        try:
+            bound = bound_job(json.loads(out), intent, metadata["image"], metadata["dispatch_sent_at"])
+        except Exception:
+            bound = False
+        if not bound:
             raise ExecutionUnknown("JOB_BINDING_CONFLICT")
+        job = json.loads(out)
         status = job.get("status", {})
         if not status.get("succeeded") and not status.get("failed"):
             raise ExecutionPending("JOB_IN_PROGRESS")

@@ -321,6 +321,52 @@ def test_broker_child_receives_only_access_token_and_fixed_inputs(tmp_path, monk
     assert command[command.index("--inventory") + 1] == str(args.inventory.absolute())
 
 
+KEY = "sk-ant-api03-" + "x" * 40  # Synthetic; not a credential.
+
+
+def test_claude_child_receives_only_the_api_key(tmp_path, monkeypatch, capsys):
+    from types import SimpleNamespace
+
+    from bravo_agent import subscription_admin
+
+    key_file = tmp_path / "anthropic-key"
+    key_file.write_text(KEY + "\n")
+    key_file.chmod(0o600)
+    monkeypatch.setenv("OPENAI_API_KEY", "never-fallback-fixture")
+    monkeypatch.setenv("AWS_SECRET_ACCESS_KEY", "cloud-fixture")
+    calls = []
+
+    def run(command, **options):
+        calls.append((command, options))
+        return SimpleNamespace(returncode=0, stdout="private-provider-detail", stderr="private-error")
+    monkeypatch.setattr(subscription_admin.subprocess, "run", run)
+    args = SimpleNamespace(model="claude-opus-5-5", **{k: tmp_path / k for k in
+        ("bundle", "manifest", "snapshot", "output")})
+    assert subscription_admin.run_claude_worker(key_file, tmp_path / "broker", args) == 0
+    command, options = calls[0]
+    assert command[1:6] == ["-m", "bravo_agent.cli", "analyze", "--provider", "claude"]
+    assert options["env"]["ANTHROPIC_API_KEY"] == KEY
+    assert set(options["env"]) == {"PATH", "LANG", "HOME", "TMPDIR", "ANTHROPIC_API_KEY", "PYTHONDONTWRITEBYTECODE"}
+    output = capsys.readouterr().out
+    assert '"provider": "claude"' in output and KEY not in output and "private-" not in output
+
+
+@pytest.mark.parametrize("mode,content", [(0o644, KEY), (0o600, "not-a-key"), (0o600, "")])
+def test_claude_key_file_must_be_private_and_well_formed(tmp_path, monkeypatch, mode, content):
+    from types import SimpleNamespace
+
+    from bravo_agent import subscription_admin
+
+    key_file = tmp_path / "anthropic-key"
+    key_file.write_text(content)
+    key_file.chmod(mode)
+    monkeypatch.setattr(subscription_admin.subprocess, "run", lambda *a, **k: pytest.fail("model started"))
+    args = SimpleNamespace(model="claude-opus-5-5", **{k: tmp_path / k for k in
+        ("bundle", "manifest", "snapshot", "output")})
+    with pytest.raises(AuthFailure):
+        subscription_admin.run_claude_worker(key_file, tmp_path / "broker", args)
+
+
 def test_model_catalog_uses_subscription_access_and_filters_hidden_models():
     def handle(request):
         assert str(request.url) == RESOURCE + "/models"

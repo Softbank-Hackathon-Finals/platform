@@ -63,6 +63,20 @@ def test_unpinned_or_other_job_identity_never_reaches_sts(sts, bad):
     assert sts == []
 
 
+@pytest.mark.parametrize("header", [
+    {"jku": "https://attacker.invalid/jwks"}, {"jwk": {"kty": "RSA", "n": "AQAB", "e": "AQAB"}},
+    {"x5u": "https://attacker.invalid/cert"}, {"x5c": ["MIIB"]},
+])
+def test_key_location_headers_are_refused_even_with_a_pinned_kid(sts, header):
+    now = int(time.time())
+    claims = {"iss": WORKLOAD["issuer"], "aud": WORKLOAD["audience"], "sub": WORKLOAD["subject"],
+              "iat": now, "exp": now + 600}
+    signed = jwt.encode(claims, KEY, algorithm="RS256", headers={"kid": "k1", **header})
+    with pytest.raises(ValueError):
+        server.authenticate_caller(SETTINGS, signed)
+    assert sts == []
+
+
 def test_actions_tokens_keep_the_existing_sts_path(sts):
     github = token(iss="https://token.actions.githubusercontent.com")
     server.authenticate_caller(SETTINGS, github)
