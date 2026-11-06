@@ -215,15 +215,23 @@ T10 계획의 해피패스는 각각 별도 운영 근거가 필요하다.
 `app.kubernetes.io/part-of: bravo-rehearsal` namespace에서 그 namespace의 `rehearsal-exec`가 보낸
 요청뿐이다. 러너와 다른 신원은 바뀌지 않는다.
 
-- 워크로드: Secret volume, projected Secret, `secretKeyRef`·`secretRef` env, 명시적 토큰 마운트 거부
-- `pods/exec`: 도구 Pod(`rehearsal-exec-tool`)만 허용. attach·port-forward는 거부
+- 워크로드 volume은 허용 목록(configMap·emptyDir·PVC·downwardAPI, configMap·downwardAPI만 담은
+  projected)만 쓴다. Secret·projected Secret·projected `serviceAccountToken`·CSI·ephemeral은 거부한다.
+- `secretKeyRef`·`secretRef` env 거부
+- `serviceAccountName`은 `default` 또는 `rehearsal-exec`로, `automountServiceAccountToken: false`는
+  반드시 명시한다. 생략하면 SA 기본값으로 토큰이 들어가므로 거부한다.
+- 도구 Pod 이름(`rehearsal-exec-tool`)의 생성·삭제는 runner만 한다. exec는 이 이름의 Pod에만 허용하고
+  attach·port-forward는 거부한다.
+- AI의 apply가 쓰는 작업 종류별 `deploy`는 runner 신원으로 실행한다(앱 Pod에는 자격 Secret이 필요하다).
 
 ```sh
 python3 infra/envs/rehearsal-access/exec_guard.py > /private/exec-guard.json
 ```
 
 `control_guard.py`와 같은 순서로 설치한다(정책 생성 → `status.typeChecking` 확인 → Deny binding).
-`test_exec_guard.py`가 정책의 CEL을 허용·거부 사례로 평가한다. 실제 API server dry-run은 설치 때 확인한다.
+`test_exec_guard.py`가 정책의 CEL을 허용·거부 사례로 평가하고, `apiserver_exec_guard.py`가 T3 템플릿과 이 정책을
+일회용 k3s에 설치해 `rehearsal-exec`로 server dry-run·exec를 보낸다. 거부는 이 정책이 낸 것만 인정한다(PSA·RBAC·충돌 제외).
+둘 다 CI에서 돈다.
 
 ## 관리 namespace의 단일 제품 실행자
 

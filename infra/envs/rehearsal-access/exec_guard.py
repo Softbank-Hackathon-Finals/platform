@@ -13,6 +13,7 @@ import json
 
 NAME = "rehearsal-exec-no-secrets"
 EXEC_NAME = "rehearsal-exec-tool-only"
+TOOL_NAME = "rehearsal-exec-tool-runner-owned"
 TOOL_POD = "rehearsal-exec-tool"  # rehearsal_runner.exec_actions.TOOL_POD
 SELECTOR = {"matchLabels": {"app.kubernetes.io/part-of": "bravo-rehearsal"}}  # templates/00-namespace.yaml
 ACTOR = "request.userInfo.username == 'system:serviceaccount:' + request.namespace + ':rehearsal-exec'"
@@ -48,18 +49,43 @@ def render():
                     "variables.spec.containers + variables.spec.initContainers : variables.spec.containers"},
             ],
             "validations": [
-                # Ternaries, not `!has(x) || x...`: each field is read only where it exists.
-                {"expression": "has(variables.spec.volumes) ? variables.spec.volumes.all(v, !has(v.secret) && "
-                               "(has(v.projected) ? v.projected.sources.all(s, !has(s.secret)) : true)) : true",
-                 "message": "rehearsal-exec may not mount a Secret", "reason": "Forbidden"},
+                # Allow-list, not deny-list: a new volume kind (CSI inline, ephemeral, ...) is refused.
+                {"expression": "has(variables.spec.volumes) ? variables.spec.volumes.all(v, "
+                               "has(v.configMap) || has(v.emptyDir) || has(v.persistentVolumeClaim) || "
+                               "has(v.downwardAPI) || (has(v.projected) ? v.projected.sources.all(s, "
+                               "has(s.configMap) || has(s.downwardAPI)) : false)) : true",
+                 "message": "rehearsal-exec may use only configMap, emptyDir, PVC and downwardAPI volumes",
+                 "reason": "Forbidden"},
                 {"expression": "variables.containers.all(c, "
                                "(has(c.env) ? c.env.all(e, has(e.valueFrom) ? !has(e.valueFrom.secretKeyRef) : true) "
                                ": true) && (has(c.envFrom) ? c.envFrom.all(f, !has(f.secretRef)) : true))",
                  "message": "rehearsal-exec may not read a Secret into the environment", "reason": "Forbidden"},
-                {"expression": "has(variables.spec.automountServiceAccountToken) ? "
-                               "variables.spec.automountServiceAccountToken == false : true",
-                 "message": "rehearsal-exec may not mount an API token", "reason": "Forbidden"},
+                # Explicit, never defaulted: an omitted field inherits the account's automount.
+                {"expression": "has(variables.spec.serviceAccountName) && "
+                               "variables.spec.serviceAccountName in ['default', 'rehearsal-exec'] && "
+                               "has(variables.spec.automountServiceAccountToken) && "
+                               "variables.spec.automountServiceAccountToken == false",
+                 "message": "rehearsal-exec workloads name default/rehearsal-exec and set "
+                            "automountServiceAccountToken: false", "reason": "Forbidden"},
+                {"expression": f"request.resource.resource != 'pods' || !has(object.metadata.name) || "
+                               f"object.metadata.name != {json.dumps(TOOL_POD)}",
+                 "message": "only the runner creates the tool Pod", "reason": "Forbidden"},
             ],
+        },
+    }
+    tool_pod = {
+        "apiVersion": "admissionregistration.k8s.io/v1",
+        "kind": "ValidatingAdmissionPolicy",
+        "metadata": {"name": TOOL_NAME},
+        "spec": {
+            "failurePolicy": "Fail",
+            "matchConstraints": {"namespaceSelector": SELECTOR, "resourceRules": [
+                {"apiGroups": [""], "apiVersions": ["v1"], "operations": ["DELETE"],
+                 "resources": ["pods"], "scope": "Namespaced"}]},
+            "matchConditions": [{"name": "exec-identity", "expression": ACTOR}],
+            # Exec is judged by name, so the name must stay the runner's: no delete-and-recreate.
+            "validations": [{"expression": f"request.name != {json.dumps(TOOL_POD)}",
+                             "message": "only the runner removes the tool Pod", "reason": "Forbidden"}],
         },
     }
     exec_only = {
@@ -79,7 +105,7 @@ def render():
         },
     }
     return {"apiVersion": "v1", "kind": "List",
-            "items": [workloads, _binding(NAME), exec_only, _binding(EXEC_NAME)]}
+            "items": [workloads, _binding(NAME), tool_pod, _binding(TOOL_NAME), exec_only, _binding(EXEC_NAME)]}
 
 
 if __name__ == "__main__":

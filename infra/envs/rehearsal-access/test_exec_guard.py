@@ -43,12 +43,16 @@ def request(user="rehearsal-exec", resource="pods", **extra):
             "resource": {"group": "", "resource": resource}} | extra
 
 
-def pod(**spec):
-    return {"kind": "Pod", "spec": {"containers": [{"name": "app", "image": "x"}]} | spec}
+SAFE = {"serviceAccountName": "default", "automountServiceAccountToken": False}
+
+
+def pod(name="app", safe=True, **spec):
+    base = {"containers": [{"name": "app", "image": "x"}]} | (SAFE if safe else {})
+    return {"kind": "Pod", "metadata": {"name": name}, "spec": base | spec}
 
 
 def deployment(**spec):
-    return {"kind": "Deployment", "spec": {"template": pod(**spec)}}
+    return {"kind": "Deployment", "metadata": {"name": "app"}, "spec": {"template": pod(**spec)}}
 
 
 SECRET_VOLUME = {"volumes": [{"name": "s", "secret": {"secretName": "app"}}]}
@@ -57,20 +61,39 @@ ENV_REF = {"containers": [{"name": "app", "image": "x",
                            "env": [{"name": "P", "valueFrom": {"secretKeyRef": {"name": "app", "key": "p"}}}]}]}
 ENV_FROM = {"containers": [{"name": "app", "image": "x", "envFrom": [{"secretRef": {"name": "app"}}]}]}
 INIT_ENV = {"initContainers": ENV_REF["containers"]}
+TOKEN = {"volumes": [{"name": "t", "projected": {"sources": [{"serviceAccountToken": {"path": "t"}}]}}]}
+CSI = {"volumes": [{"name": "c", "csi": {"driver": "secrets-store.csi.k8s.io"}}]}
+EPHEMERAL = {"volumes": [{"name": "e", "ephemeral": {"volumeClaimTemplate": {"spec": {}}}}]}
 
 
 class ExecGuard(unittest.TestCase):
     def test_exec_identity_cannot_reach_a_secret_through_a_workload(self):
-        for spec in (SECRET_VOLUME, PROJECTED, ENV_REF, ENV_FROM, INIT_ENV, {"automountServiceAccountToken": True}):
+        for spec in (SECRET_VOLUME, PROJECTED, ENV_REF, ENV_FROM, INIT_ENV, TOKEN, CSI, EPHEMERAL,
+                     {"automountServiceAccountToken": True}):
             with self.subTest(spec=spec):
                 self.assertFalse(admitted(guard.NAME, request(), pod(**spec)))
                 self.assertFalse(admitted(guard.NAME, request(resource="deployments"), deployment(**spec)))
 
     def test_exec_identity_keeps_plain_workloads_and_configmaps(self):
-        plain = {"volumes": [{"name": "c", "configMap": {"name": "cfg"}}, {"name": "e", "emptyDir": {}}],
-                 "automountServiceAccountToken": False}
+        plain = {"volumes": [{"name": "c", "configMap": {"name": "cfg"}}, {"name": "e", "emptyDir": {}},
+                             {"name": "d", "projected": {"sources": [{"configMap": {"name": "cfg"}}]}}]}
         self.assertTrue(admitted(guard.NAME, request(), pod(**plain)))
         self.assertTrue(admitted(guard.NAME, request(resource="deployments"), deployment()))
+        self.assertTrue(admitted(guard.NAME, request(), pod(serviceAccountName="rehearsal-exec")))
+
+    def test_token_must_be_explicitly_off_and_account_fixed(self):
+        # The cases reproduced on a real API server in review (kind v1.36.1).
+        self.assertFalse(admitted(guard.NAME, request(), pod(safe=False)))  # both fields omitted
+        self.assertFalse(admitted(guard.NAME, request(), pod(safe=False, serviceAccountName="other",
+                                                             automountServiceAccountToken=False)))
+        self.assertFalse(admitted(guard.NAME, request(), pod(safe=False, serviceAccountName="default")))
+        self.assertFalse(admitted(guard.NAME, request(), pod(serviceAccountName="other", **TOKEN)))
+
+    def test_exec_identity_cannot_replace_the_tool_pod(self):
+        self.assertFalse(admitted(guard.NAME, request(), pod(name="rehearsal-exec-tool")))
+        self.assertFalse(admitted(guard.TOOL_NAME, request(name="rehearsal-exec-tool", operation="DELETE")))
+        self.assertTrue(admitted(guard.TOOL_NAME, request(name="demo-chat-7f9c", operation="DELETE")))
+        self.assertTrue(admitted(guard.TOOL_NAME, request(user="t15-runner", name="rehearsal-exec-tool")))
 
     def test_runner_and_other_identities_are_not_constrained(self):
         for user in ("t15-runner", "default"):

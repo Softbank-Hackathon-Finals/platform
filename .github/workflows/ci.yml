@@ -145,6 +145,8 @@ jobs:
           "$RUNNER_TEMP/helm-test/bin/python" infra/gitops/test_product_reader_chart.py
           "$RUNNER_TEMP/helm-test/bin/python" infra/gitops/test_initial_proposal_chart.py
           "$RUNNER_TEMP/helm-test/bin/python" infra/envs/rehearsal-access/test_exec_guard.py
+          # The same guard on a real API server (throwaway k3s in Docker, server dry-run + exec).
+          "$RUNNER_TEMP/helm-test/bin/python" infra/envs/rehearsal-access/apiserver_exec_guard.py
           mkdir "$RUNNER_TEMP/registration-rendered"
           "$RUNNER_TEMP/helm-test/bin/python" infra/gitops/test_registration_chart.py --render > "$RUNNER_TEMP/registration-rendered/registration.yaml"
           "$RUNNER_TEMP/helm-test/bin/python" infra/gitops/test_product_reader_chart.py --render > "$RUNNER_TEMP/registration-rendered/product-reader.yaml"
