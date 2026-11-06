@@ -11,6 +11,7 @@ NAMESPACE = "bravo-rehearsal-control"
 NAME = "t15-control-creators"
 RUNNER = f"system:serviceaccount:{NAMESPACE}:t15-runner"
 JOB_CONTROLLER = "system:serviceaccount:kube-system:job-controller"
+GARBAGE_COLLECTOR = "system:serviceaccount:kube-system:generic-garbage-collector"
 
 
 def render(operators):
@@ -30,6 +31,8 @@ def render(operators):
     allowed = json.dumps(operators + [RUNNER])
     expression = (
         f"request.userInfo.username in {allowed} || "
+        f"(request.userInfo.username in {json.dumps([JOB_CONTROLLER, GARBAGE_COLLECTOR])} && "
+        "request.operation == 'UPDATE' && object.spec == oldObject.spec) || "
         f"(request.userInfo.username == {json.dumps(JOB_CONTROLLER)} && "
         "request.resource.group == '' && request.resource.resource == 'pods' && "
         "has(object.metadata.ownerReferences) && "

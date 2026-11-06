@@ -154,6 +154,8 @@ ValidatingAdmissionPolicy를 렌더링한다. 별도 웹훅이나 데몬은 설�
 - Kubernetes의 `kube-system/job-controller`에는 Job을 소유자로 둔 Pod만
   허용한다. 러너가 Job을 제출한 뒤 정상 Pod를 만드는 제어 경로다.
   다른 컨트롤러의 Pod·Job 생성은 기존 ClusterRole이 있어도 이 namespace에서 거부한다.
+- Job controller와 garbage collector의 UPDATE는 실행 사양이 원본과 같을 때만
+  허용한다. 이는 정상 finalizer 정리를 유지하며, 새 Job 생성이나 사양 변경은 열지 않는다.
 - 이 정책은 RBAC 권한을 부여하지 않는다. 러너의 관리 namespace 권한은
   Job 생성과 Pod 조회·로그이며, Pod 직접 생성은 추가하지 않는다.
   namespace/T3는 기존 `ScopedPlanner` 관리 클라이언트의 책임이다.
