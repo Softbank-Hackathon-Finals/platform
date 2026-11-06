@@ -4,8 +4,9 @@
 The Job runs attachment_copy.py once in the target namespace. Credentials and private
 identifiers stay Secret references, so the manifest reveals neither. The database route is
 the existing replication contract. The operator verifies the egress Service, creates the
-source Secret from a short session and starts the Job. See
-docs/operations/t8-attachment-copy-job.md.
+source Secret from a short session and starts the Job. The session comes from assuming the
+infra/envs/attachment-copy-reader role (SSO users, the default) or from a federation token (IAM
+users); both carry the same session policy. See docs/operations/t8-attachment-copy-job.md.
 """
 import argparse
 import json
@@ -36,6 +37,8 @@ TARGET_BUCKET = "demo-chat-attachments"
 DEADLINE_SECONDS = 600
 # The session must outlive the Job, or a slow copy would fail on expired credentials instead of the deadline.
 SOURCE_SESSION_SECONDS = 1800
+# Both session commands in the guide use this name, so CloudTrail shows one name for the copy.
+SOURCE_SESSION_NAME = "t8-attachment-copy"
 # Long enough to read the receipt after an unattended run. Rerunning is safe if it is gone.
 CLEANUP_SECONDS = 86400
 
@@ -175,7 +178,10 @@ def job(image, run_id, plan_id, epoch, egress_address, egress_service_uid, *, wi
 
 
 def source_session_policy(bucket_arn, kms_key_arn):
-    """Session policy for STS: the session keeps only list, read and S3-mediated decrypt."""
+    """Session policy for AssumeRole or GetFederationToken: only list, read and S3-mediated decrypt.
+
+    The reader role's own policy is the same document (infra/envs/attachment-copy-reader).
+    """
     if not isinstance(bucket_arn, str) or not re.fullmatch(r"arn:aws:s3:::[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]", bucket_arn):
         raise ValueError("exact S3 bucket ARN required")
     key = re.fullmatch(r"arn:aws:kms:([a-z0-9-]+):[0-9]{12}:key/[0-9a-f-]{36}", kms_key_arn) if isinstance(

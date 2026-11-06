@@ -8,6 +8,7 @@
 | [`attachment_verdict.py`](../../infra/envs/target-workloads/attachment_verdict.py) | Job · Pod · 로그를 읽어 판정한다. `kubectl get`과 `logs`만 쓴다 |
 | [`attachment-copy.Dockerfile`](../../infra/envs/target-workloads/attachment-copy.Dockerfile) | 복사 모듈과 해시 고정 의존성을 담은 이미지. 자격은 넣지 않는다 |
 | [`attachment_image.py`](../../scripts/attachment_image.py) | 검토된 커밋으로 이미지를 빌드 · 검사하고 VM에 넘길 묶음과 영수증을 만든다 |
+| [`attachment-copy-reader`](../../infra/envs/attachment-copy-reader/README.md) | SSO 사용자가 S3 세션을 받는 읽기 역할. 별도 state의 Terraform 스택 |
 
 ## 언제 돌리나
 
@@ -47,7 +48,23 @@
      --bucket-arn "$SOURCE_BUCKET_ARN" --kms-key-arn "$SOURCE_KMS_KEY_ARN")"
    ```
 
+   **기본은 읽기 역할을 맡는 것이다(SSO 사용자).** [`attachment-copy-reader`](../../infra/envs/attachment-copy-reader/README.md) 스택의 역할을 맡는다. `SOURCE_READER_ROLE_ARN`은 그 스택의 비공개 출력(`terraform output -raw reader_role_arn`)이다. 세션 권한은 역할 정책과 세션 정책의 교집합이다. SSO 세션에서 역할을 맡으면 AWS가 세션을 1시간으로 제한하므로 30분은 그 안에 든다.
+
    <!-- source-secret-recipe -->
+   ```sh
+   aws sts assume-role --role-arn "$SOURCE_READER_ROLE_ARN" --role-session-name t8-attachment-copy \
+     --duration-seconds 1800 --policy "$SESSION_POLICY" --output json \
+     | jq -r --arg bucket "$SOURCE_BUCKET" --arg region "$SOURCE_REGION" --arg owner "$SOURCE_BUCKET_OWNER" '
+         "bucket=\($bucket)", "region=\($region)", "bucket_owner=\($owner)",
+         "aws_access_key_id=\(.Credentials.AccessKeyId)",
+         "aws_secret_access_key=\(.Credentials.SecretAccessKey)",
+         "aws_session_token=\(.Credentials.SessionToken)"' \
+     | kubectl -n target-dev create secret generic attachment-copy-source --from-env-file=/dev/stdin
+   ```
+
+   **IAM 사용자는 페더레이션 세션을 쓸 수 있다.** 첫 명령만 다르고 응답 형식(`.Credentials`)이 같아 나머지는 그대로다. SSO 세션으로 이 명령을 부르면 `AccessDenied: Cannot call GetFederationToken with session credentials`로 거부된다.
+
+   <!-- source-secret-recipe-iam-user -->
    ```sh
    aws sts get-federation-token --name t8-attachment-copy --duration-seconds 1800 \
      --policy "$SESSION_POLICY" --output json \
@@ -176,13 +193,13 @@ $CTR images ls | grep "^localhost/bravo-attachment-copy@$DIGEST " | grep " $DIGE
 
 | 대상 | 필요한 것 | 주체와 전달 | 상태 |
 | --- | --- | --- | --- |
-| 출발지 S3 | 버킷 `s3:ListBucket`, 객체 `s3:GetObject`, S3 경유 `kms:Decrypt`. 그 밖은 명시적으로 거부 | 단기 세션, Secret `attachment-copy-source`의 6개 키 | **새 Secret.** IAM 변경 없음. 세션 권한은 운영자 권한과 세션 정책의 교집합이므로 운영자에게 이 권한이 있어야 한다(미확인) |
+| 출발지 S3 | 버킷 `s3:ListBucket`, 객체 `s3:GetObject`, S3 경유 `kms:Decrypt`. 그 밖은 명시적으로 거부 | 단기 세션, Secret `attachment-copy-source`의 6개 키. SSO 사용자는 읽기 역할을 맡고, IAM 사용자는 페더레이션 세션을 받는다 | **새 Secret, 새 IAM 역할 하나**(`attachment-copy-reader`, 미적용). 세션 권한은 맡은 역할 또는 IAM 사용자의 권한과 세션 정책의 교집합이다. IAM 사용자 경로는 그 사용자에게 이 권한이 있어야 한다(미확인) |
 | 목적지 SeaweedFS | 정확한 버킷의 Read · Write · List. 버킷 생성은 못 한다 | `client` identity, Secret `target-object-client` | 기존 |
 | 출발지 DB | `public.attachments` SELECT. 코드가 읽기 전용 트랜잭션을 건다 | `chat_replicator`, Secret `t8-source-replication`, CA `t8-source-ca` | 기존. 역할이 `messages` SELECT와 복제 권한도 가져 필요보다 넓다 |
 | 네트워크 | Pod 라벨 `bravo-object-client=true`, tailnet `bravo-target-replication` → `bravo-source-db` TCP 5432, 대상 → S3 HTTPS | 렌더 결과 · 기존 ACL · 대상 VM의 인터넷 경로 | 라벨은 렌더됨. S3 HTTPS 경로는 미확인 |
 | 쿠버네티스 | Pod에는 토큰을 주지 않는다. 운영자는 `target-dev`의 secrets create/delete, jobs create/get, pods get/list, pods/log get | 운영자 개인 계정 | 기존 관리자 접근 |
 
-**새 IAM 코드를 추가하지 않았다.** [`target_registry_credential.py`](../../scripts/target_registry_credential.py)와 같은 방식(운영자 IAM 사용자의 페더레이션 세션 + 세션 정책)이면 AWS에 남는 자원이 없고, 장기 키도 만들지 않으며, T6 state도 바꾸지 않는다. 운영자가 SSO 역할뿐이라면 `GetFederationToken`을 쓸 수 없다. 그때는 [`source-backup`](../../infra/envs/source-backup/README.md)처럼 별도 state에 읽기 역할 하나를 추가할 수 있고, 그 역할을 맡는 명령만 위 첫 줄에서 바뀐다.
+**SSO 사용자용 읽기 역할은 별도 state에 둔다.** SSO 세션으로는 `GetFederationToken`을 쓸 수 없어서, [`attachment-copy-reader`](../../infra/envs/attachment-copy-reader/README.md)가 출발지 첨부 버킷만 읽는 역할 하나를 만든다. 신뢰는 `BravoDevelopmentAdministrator` 권한 집합의 역할 하나뿐이고, 역할 정책은 위 세션 정책과 같은 문서다. T6 state(`source-workloads`)는 바꾸지 않는다. IAM 사용자는 [`target_registry_credential.py`](../../scripts/target_registry_credential.py)와 같은 페더레이션 세션을 그대로 쓸 수 있다. 두 경로 모두 장기 키를 만들지 않는다.
 
 세션 토큰 키는 필수다. 장기 키만 넣으면 컨테이너가 시작하지 않는다(`CreateContainerConfigError`). 이 Pod 전용 egress NetworkPolicy는 렌더하지 않았다. 프록시의 Pod · 포트를 확인한 뒤에만 쓸 수 있고, S3는 FQDN으로 좁힐 수 없다.
 
@@ -246,7 +263,7 @@ A의 결과 파일에는 서명이 없어, T12는 운영자가 넘긴 값을 믿
 
 임시 k3s에서 렌더한 Job을 실제로 돌린 결과는 [증거](../evidence/t8-attachment-job-2026-11-06/README.md)에 있다. 아래 네 가지는 재지 못했다.
 
-- **실제 AWS:** IAM · KMS 복호화 · `GetFederationToken` · 세션 정책 평가 · `ExpectedBucketOwner` 거부. 대역은 MinIO다.
+- **실제 AWS:** 읽기 역할 적용 · SSO 세션에서의 `AssumeRole` · `GetFederationToken` · IAM과 세션 정책 평가 · KMS 복호화 · `ExpectedBucketOwner` 거부. 읽기 역할은 모의 provider로만 시험했고, Job 실행의 대역은 MinIO다.
 - **실제 경로:** RKE2와 Canal의 NetworkPolicy, Tailscale egress, 대상 VM에서 S3로 나가는 HTTPS, 이 경로에서 걸리는 시간. 10분 제한은 추정값이다.
 - **실제 이미지 실행:** amd64 바이트는 격리 실행 검사와 가져오기까지만 쟀다. amd64 노드에서 Job으로 돌린 적이 없다. Job 실행은 같은 명령으로 만든 arm64 이미지로 쟀다 ([이미지 증거](../evidence/t8-attachment-image-2026-11-06/README.md)).
 - **T12 연결:** 결과 JSON을 읽는 코드는 없다. 위 형식은 제안이다.
@@ -256,6 +273,8 @@ A의 결과 파일에는 서명이 없어, T12는 운영자가 넘긴 값을 믿
 ```sh
 uv run --no-project --python 3.12 python -m unittest discover -s scripts/tests -p 'test_attachment_[jvi]*.py'
 uv run --no-project --python 3.12 python scripts/tests/attachment_job_mutation_check.py "$PRIVATE_DIR/mutations.json"
+terraform -chdir=infra/envs/attachment-copy-reader init -backend=false -input=false -lockfile=readonly
+terraform -chdir=infra/envs/attachment-copy-reader test -no-color
 ```
 
 임시 k3s 실행은 수동이고, 만드는 자원은 모두 `t8-job-`로 시작하며 끝나면 지운다.

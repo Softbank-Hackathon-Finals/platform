@@ -230,13 +230,13 @@ def source_state(source):
 
 
 def source_session(source):
-    """Same response shape as `aws sts get-federation-token`, narrowed by a session policy."""
+    """Same response shape as `aws sts assume-role` in the guide, narrowed by a session policy."""
     # Only the rendered S3 statements with an Action: MinIO does not model the KMS allow, and the
     # NotAction deny names that KMS action. So this does not evaluate the deny of other actions.
     policy = attachment_job.source_session_policy(SOURCE_BUCKET_ARN, SOURCE_KMS_KEY_ARN)
     policy["Statement"] = [s for s in policy["Statement"] if "s3:" in json.dumps(s.get("Action", ""))]
     response = source_client(source, service="sts").assume_role(
-        RoleArn="arn:minio:iam:::role/t8-job", RoleSessionName="t8-attachment-copy",
+        RoleArn="arn:minio:iam:::role/t8-job", RoleSessionName=attachment_job.SOURCE_SESSION_NAME,
         DurationSeconds=attachment_job.SOURCE_SESSION_SECONDS, Policy=json.dumps(policy))
     return response["Credentials"]
 

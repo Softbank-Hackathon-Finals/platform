@@ -74,6 +74,8 @@ MUTATIONS = [
     ("extras_off_by_default", JOB, "if with_approved_extras:", "if True:"),
     ("extras_mount_read_only", JOB, '"mountPath": extras_directory, "readOnly": True', '"mountPath": extras_directory'),
     ("session_outlives_deadline", JOB, "SOURCE_SESSION_SECONDS = 1800", "SOURCE_SESSION_SECONDS = 300"),
+    ("session_within_role_chaining", JOB, "SOURCE_SESSION_SECONDS = 1800", "SOURCE_SESSION_SECONDS = 7200"),
+    ("session_name_matches_guide", JOB, 'SOURCE_SESSION_NAME = "t8-attachment-copy"', 'SOURCE_SESSION_NAME = "t8-copy"'),
     ("target_address", JOB, 'TARGET_HOST = f"seaweedfs.', 'TARGET_HOST = f"other.'),
     ("memory_above_peak", JOB, '"memory": "256Mi"', '"memory": "64Mi"'),
     ("policy_read_only", JOB, '"Action": "s3:GetObject", "Resource": objects', '"Action": "s3:*", "Resource": objects'),
