@@ -1,0 +1,5 @@
+apiVersion: v2
+name: workflow-host
+description: T10 workflow host (ADR-0031) — the one process that advances plans
+type: application
+version: 0.1.0

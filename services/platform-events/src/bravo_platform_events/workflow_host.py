@@ -13,7 +13,6 @@ import logging
 import threading
 from dataclasses import dataclass
 
-from .plan_api import Principal
 from .store import EventError
 from .workflow import STAGES, WorkflowRecovery
 
@@ -58,10 +57,10 @@ class Step:
 
 
 class WorkflowHost:
-    def __init__(self, recovery: WorkflowRecovery):
+    def __init__(self, recovery: WorkflowRecovery, *, subject=HOST_SUBJECT):
         if not isinstance(recovery, WorkflowRecovery):
             raise ValueError("workflow_recovery_required")
-        self.recovery = recovery
+        self.recovery, self.subject = recovery, subject
         self.store = recovery.cutover.store
         self._last = {}
 
@@ -78,7 +77,11 @@ class WorkflowHost:
 
     def advance(self, plan_id, tenant_id, state, version):
         """Step one plan until it stops moving. Each step is its own durable transition."""
-        principal = Principal(HOST_SUBJECT, tenant_id)
+        # An operator identity so the deployment's OperatorAccess.check_read applies; it needs only
+        # `read` on the plan (approvals and SHIFT stay with people).
+        from .workflow_stages import host_principal
+
+        principal = host_principal(self.subject, tenant_id)
         readers = self.recovery.read_evidence
         start = state
         for _ in range(len(DRIVEN) + 1):  # ponytail: bound only; a cycle would be a workflow bug

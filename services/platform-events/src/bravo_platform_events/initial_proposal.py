@@ -150,6 +150,21 @@ def _slot(version):
 MAX_FENCES = 2
 
 
+def _admission_key(c, plan_id, version):
+    """The live admission. After an operator fence of an unreceived claim, the input may be admitted
+    once more for the carrier's own principal (e.g. Actions -> platform Job); history stays."""
+    base = _slot(version)
+    n = 0
+    while n < MAX_FENCES and _get(c, plan_id, f"{base}:readmit:{n + 1}"):
+        n += 1
+    return base if n == 0 else f"{base}:readmit:{n}"
+
+
+def _fences(c, plan_id, version):
+    base = _slot(version) + ":execution"
+    return sum(1 for n in range(1, MAX_FENCES + 1) if _get(c, plan_id, f"{base}:fence:{n}"))
+
+
 def _execution_key(c, plan_id, version):
     """The live execution slot. Each operator fence of a provably unreceived claim opens the
     next one; the fenced claim and its fence stay in the append-only journal."""
@@ -223,18 +238,22 @@ class InitialProposalRecords:
             if _timestamp(expires_at) <= _timestamp(self.clock()):
                 raise EventError("initial_proposal_expired")
             request = dict(principal=principal, expires_at=expires_at, input=value.model_dump(mode="json"))
-            slot = _slot(expected_version)
+            slot = _admission_key(c, plan_id, expected_version)
             old = _get(c, plan_id, slot)
             if old:
-                if old[0] != request:
+                if old[0] == request:
+                    return old[1]
+                readmits = 0 if slot == _slot(expected_version) else int(slot.rsplit(":", 1)[1])
+                # Only a fenced (provably unreceived) claim frees the input for another admission.
+                if old[0]["principal"] == principal or _fences(c, plan_id, expected_version) <= readmits:
                     raise EventError("initial_proposal_conflict")
-                return old[1]
+                slot = f"{_slot(expected_version)}:readmit:{readmits + 1}"
             ref = dict(input_ref="initial-" + uuid4().hex, input_digest=digest(value))
             _put(c, plan_id, slot, request, ref)
             return ref
 
     def _read(self, c, principal, plan_id, version, ref, *, promoted=False):
-        old = _get(c, plan_id, _slot(version))
+        old = _get(c, plan_id, _admission_key(c, plan_id, version))
         if not old or old[1] != ref or old[0]["principal"] != principal:
             raise EventError("initial_proposal_unavailable")
         saved = old[0]
@@ -452,7 +471,7 @@ class InitialProposalExecution:
         version, plan_id = plan["version"] - 1, plan["plan_id"]
         if plan["state"] != "REHEARSE":
             raise EventError("initial_rehearsal_unavailable")
-        admitted = _get(c, plan_id, _slot(version))
+        admitted = _get(c, plan_id, _admission_key(c, plan_id, version))
         if admitted is None:
             raise EventError("initial_rehearsal_unavailable")
         value, _, result = self._stored_result(c, plan_id, version, admitted[1], promoted=True)
@@ -475,7 +494,7 @@ class InitialProposalExecution:
         if result.proposal.run_id != admission.rehearsal_id:
             raise EventError("initial_rehearsal_unavailable")
         version = admission.plan_version - 1
-        saved = _get(c, admission.plan_id, _slot(version))
+        saved = _get(c, admission.plan_id, _admission_key(c, admission.plan_id, version))
         value, _, _ = self._stored_result(c, admission.plan_id, version, saved[1], promoted=True)
         publication = _validated(CandidatePublication,
             _get(c, admission.plan_id, _slot(version) + ":publication")[1])
@@ -554,7 +573,7 @@ class InitialProposalExecution:
 
         def read(c, plan, previous, run):
             version, plan_id = plan["version"], plan["plan_id"]
-            admitted = _get(c, plan_id, _slot(version))
+            admitted = _get(c, plan_id, _admission_key(c, plan_id, version))
             if not admitted:
                 raise EventError("initial_execution_not_complete")
             value = self.records._read(c, self.principal, plan_id, version, admitted[1])

@@ -33,6 +33,9 @@ ORDER = ("COLLECT", "ANALYZE", "PROPOSE", "REHEARSE", "GATE", "AWAIT_APPROVAL", 
          "WATCH", "FAILBACK", "DONE_ROLLED_BACK")
 STOP = {"SAFE_HOLD", "NEEDS_HUMAN"}
 WORKLOADS = "infra/envs/target-workloads"
+INITIAL = ("uv", "run", "--directory", "services/platform-events", "python", "../../operations/initial-proposal/run.py")
+PLAN_STATE = ("kubectl", "--context", "{context}", "-n", "platform-state", "exec", "-i", "deploy/t10-workflow-host",
+              "-c", "host", "--", "python", "-m", "bravo_platform_events.plan_state")
 
 
 @dataclass(frozen=True)
@@ -51,18 +54,27 @@ STEPS = (
          ("python3", f"{WORKLOADS}/demo_reset.py", "check", "--kubeconfig", "{kubeconfig}",
           "--fault-record", "{fault_record}")),
     Step("s1-analyzed", "S1", "observe", "T10", "수집·분석 완료, 게이트 1차 BLOCK 기록", reach="PROPOSE"),
-    Step("s2-proposed", "S2", "observe", "T10/T38", "AI 제안 저장, 리허설 진입", reach="REHEARSE"),
+    Step("s2-ai-start", "S2", "operator", "T10/T38", "AI 제안 Job 시작(T10 접수 → Job 1회)", INITIAL + ("start",)),
+    Step("s2-ai-collect", "S2", "operator", "T10/T38", "AI 제안 영수증 → T10 저장, T15에 runtime·digest 전달",
+         INITIAL + ("collect",)),
+    Step("s2-candidate-import", "S2", "human", "T22/T31",
+         "후보 이미지를 목적지 containerd에 같은 digest로 넣기(export_target_image.py → import → digest 대조)"),
+    Step("s2-proposed", "S2", "observe", "T10/T38", "후보 발행 확인, 리허설 진입", reach="REHEARSE"),
     Step("s2-change-approval", "S2", "human", "승인자", "콘솔에서 diff·digest 결속 변경 승인"),
     Step("s2-open-writes", "S2", "operator", "T30", "T31 APPLIED 뒤 목적지 쓰기 열기",
          ("python3", f"{WORKLOADS}/open_after_apply.py", "--application-id", "{application_id}",
           "--receipts", "{receipts}", "--kubeconfig", "{kubeconfig}")),
     Step("s2-gate-pass", "S2", "observe", "T19", "게이트 재대조 PASS", reach="AWAIT_APPROVAL"),
-    Step("s3-cutover-approval", "S3", "human", "승인자", "콘솔에서 컷오버 승인"),
-    Step("s3-load", "S3", "operator", "T18", "부하 예열 → 본 측정 시작"),
-    Step("s3-attachment-copy", "S3", "operator", "T8", "업로드 중지 → 첨부 복사 → SUCCEEDED"),
+    Step("s3-shift-approval", "S3", "human", "승인자",
+         "SHIFT 승인: POST /v1/plans/{plan}/approvals {approval_kind: shift, expected_version, expires_at}"),
+    Step("s3-cutover-approval", "S3", "human", "승인자", "콘솔에서 컷오버 승인(SHIFT 상태에서)"),
+    # Owner-run live tools with per-run inputs (docs/operations/t28-demo-runbook.md); confirmed here.
+    Step("s3-load", "S3", "human", "T18", "부하 예열 50 rps · 30초 → 본 측정 시작 (services/loadgen)"),
+    Step("s3-attachment-copy", "S3", "human", "T8",
+         "업로드 중지 → 첨부 복사 Job(attachment_job.py job) → 판정 SUCCEEDED"),
     Step("s3-shifted", "S3", "observe", "T17", "가중치 10 → 50 → 100%", reach="CUTOVER"),
     Step("s3-cutover-done", "S3", "observe", "T13", "컷오버 영수증, 무결성 일치", reach="WATCH"),
-    Step("s3-reverse-replication", "S3", "operator", "T8", "역방향 복제 도착 확인"),
+    Step("s3-reverse-replication", "S3", "human", "T8", "역방향 복제 도착 확인(resume_replication.py --direction reverse)"),
     Step("s4-fault-inject", "S4", "operator", "T28", "목적지 장애 주입",
          ("python3", f"{WORKLOADS}/demo_fault.py", "inject", "--record", "{fault_record}",
           "--kubeconfig", "{kubeconfig}")),
@@ -72,7 +84,7 @@ STEPS = (
           "--kubeconfig", "{kubeconfig}")),
     Step("s4-failback-approval", "S4", "human", "승인자", "콘솔에서 되돌리기 승인"),
     Step("s4-rolled-back", "S4", "observe", "T20", "출발지 복귀, 데이터째 되돌리기", reach="DONE_ROLLED_BACK"),
-    Step("wrap-map", "S5", "operator", "T27", "잔존 의존성 지도"),
+    Step("wrap-map", "S5", "human", "T27", "잔존 의존성 지도(bravo_exit_drill render/verdict)"),
 )
 
 
@@ -151,6 +163,10 @@ def run_step(step, args, read_state, run, sleep, clock):
     values = {"kubeconfig": args.kubeconfig or "", "fault_record": args.fault_record,
               "application_id": args.application_id or "", "receipts": args.receipts or ""}
     argv = [part.format(**values) for part in step.command]
+    if step.command[:len(INITIAL)] == INITIAL:
+        if not getattr(args, "initial_args", None):
+            return UNKNOWN, {"reason": "initial_args_unwired", "owner": step.owner}
+        argv += list(args.initial_args)
     try:
         result = run(argv, cwd=ROOT, capture_output=True, text=True, timeout=args.step_timeout, check=False)
     except Exception:  # noqa: BLE001 - a lost result is unknown, never retried
@@ -160,7 +176,8 @@ def run_step(step, args, read_state, run, sleep, clock):
         output = json.loads(last[0])
     except ValueError:
         output = {"stdout_tail": last[0][:300]}
-    code = {0: DONE, 3: UNKNOWN}.get(result.returncode, FAILED)
+    # 10 = still running (e.g. the AI proposal Job): wait and run the same idempotent step again later.
+    code = {0: DONE, 3: UNKNOWN, 10: WAITING}.get(result.returncode, FAILED)
     return code, {"exit_code": result.returncode, "output": output}
 
 
@@ -173,7 +190,10 @@ def cmd_run(args, *, run=subprocess.run, sleep=time.sleep, clock=time.monotonic,
     elif head["plan_id"] != args.plan_id:
         print(json.dumps({"result": "input_error", "reason": "record belongs to another plan"}))
         return 2
-    read_state = read_state or plan_state_from(args.plan_state_command)
+    command = args.plan_state_command or (
+        [part.format(context=args.platform_context) for part in PLAN_STATE] if getattr(args, "platform_context", None)
+        else None)
+    read_state = read_state or plan_state_from(command)
     for step in STEPS:
         seen = outcomes.get(step.id, {})
         if seen.get("status") in ("done", "human_confirmed"):
@@ -223,6 +243,8 @@ def main(argv=None):
     r.add_argument("--profile", choices=["real", "local", "mock"], required=True)
     r.add_argument("--plan-state-command", nargs="+", help="read-only command printing {\"state\": ...}")
     r.add_argument("--kubeconfig")
+    r.add_argument("--platform-context", help="kubectl context of the platform cluster (default plan reader)")
+    r.add_argument("--initial-args", nargs="+", help="operations/initial-proposal/run.py arguments after the command")
     r.add_argument("--application-id")
     r.add_argument("--receipts")
     r.add_argument("--fault-record", default="demo-fault.json")

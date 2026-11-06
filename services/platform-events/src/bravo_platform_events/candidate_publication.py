@@ -217,6 +217,20 @@ def _receipt(receipt, selected, value, intent, diff_hash, destination, attempt):
     _require(isinstance(receipt.get("digest"), str) and re.fullmatch(r"sha256:[a-f0-9]{64}", receipt["digest"]))
 
 
+def workflow_diff_hash(value, result):
+    """The diff hash the workflow carries (Change.diff_hash): the same bytes T15 builds and T31 applies.
+
+    T7 receipts are checked against git's `diff --binary --full-index` hash above (that is what the
+    publisher hashed); T15/T31 bind difflib file diffs (bravo_apply.binding.render_diff). Carrying the
+    git hash forward made REHEARSE unmatchable (workflow_condition_unmet). Both describe the same
+    verified edits; the workflow uses the T15/T31 form.
+    """
+    from bravo_apply.binding import diff_hash, render_diff
+
+    edits = [edit.model_dump(mode="json") for edit in result.proposal.edits]
+    return diff_hash(render_diff(dict(value.files), edits))
+
+
 def prepare_publication(*, value: InitialInput, intent: InitialIntent, result: InitialResult,
                         selection: PublicationSelection, repository, github=None):
     """Authenticate an existing T7 run. Returned reader performs only local checks.
@@ -254,7 +268,8 @@ def prepare_publication(*, value: InitialInput, intent: InitialIntent, result: I
     record = CandidatePublication(receipt_id="t7-" + digest(dict(selection=vars(selection),
         artifacts=[build_hash, ghcr_hash, ecr_hash], bound=bound)), request_id=intent.request_id,
         plan_digest=value.binding.plan_digest, source_sha=value.binding.source_sha,
-        proposal_digest=result.proposal_digest, diff_hash="sha256:" + diff_hash, image_digest=ecr["digest"])
+        proposal_digest=result.proposal_digest, diff_hash=workflow_diff_hash(value, result),
+        image_digest=ecr["digest"])
     frozen = record.model_dump_json()
 
     def read(_connection, current_value, current_intent, current_result):
