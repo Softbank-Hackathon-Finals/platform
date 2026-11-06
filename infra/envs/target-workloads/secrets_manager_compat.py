@@ -86,10 +86,11 @@ def main():
     except (OSError, ValueError):
         # Stop here so the app never starts on an unusable Secret. The message stays generic.
         sys.exit("database credentials are unavailable or malformed")
-    # As process 1 this has no default SIGTERM action, and would hold every rollout for the grace period.
-    signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))
     make_server(secret_id, path, int(os.environ.get("BRAVO_COMPAT_PORT", PORT))).serve_forever()
 
 
 if __name__ == "__main__":
+    # First, before any file read: as process 1 there is no default SIGTERM action (a rollout would wait
+    # the whole grace period), and a SIGTERM that arrives during startup must still end the process cleanly.
+    signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))
     main()
