@@ -71,7 +71,10 @@ def test_fence_then_start_runs_one_new_request(backend, tmp_path, monkeypatch):
     legacy.write_text(sqlite3.connect(client.path).execute("SELECT intent FROM executions").fetchone()[0])
     with pytest.raises(RuntimeError, match="hold"):  # the legacy claim blocks a new start
         operator.run(args(f, tmp_path, "start"), relay=lambda r: _hold_or_pass(f, r), client=client)
-    out = operator.run(args(f, tmp_path, "fence", legacy_intent=str(legacy)), relay=relay_for(f), client=client)
+    legacy_ref = tmp_path / "legacy-ref.json"
+    legacy_ref.write_text(json.dumps(f.ref))
+    out = operator.run(args(f, tmp_path, "fence", legacy_intent=str(legacy), legacy_principal=ACTOR,
+                            legacy_ref=str(legacy_ref)), relay=relay_for(f), client=client)
     assert out["fenced"]
     with pytest.raises(ExecutionPending):
         operator.run(args(f, tmp_path, "start"), relay=relay_for(f), client=client)
@@ -102,3 +105,57 @@ def test_plan_state_reads_without_writing(backend):
 
     collect(backend.store)
     assert read(backend.store, SPEC.plan_id) == {"plan_id": SPEC.plan_id, "state": "ANALYZE", "version": 2}
+
+
+JOB = "b" * 64  # stands for the platform Job principal digest (b3d65883... live)
+
+
+def test_actions_admission_fenced_then_job_principal_admitted_and_run(backend, tmp_path, monkeypatch):
+    """The live shape: admission and claim under the Actions principal, response lost; the Job
+    carrier needs its own principal, so the fence also frees the input for one re-admission."""
+    import sqlite3
+
+    from test_initial_proposal import EXPIRES, NOW
+
+    f = Fixture(backend, tmp_path)
+    kube = Kubectl()
+    client = job.JobInitialProposal(tmp_path / "operator", image=IMAGE, source_revision=RUNTIME, kubectl=kube)
+    f.client = LegacyActions(client)
+    with pytest.raises(Exception):  # noqa: B017
+        f.execution(runtime_source_sha=LEGACY_RUNTIME).execute(SPEC.plan_id, 3, **f.ref)
+    monkeypatch.setattr(job, "legacy_actions_runs", lambda *a: dict(NEVER_RAN))
+    legacy = tmp_path / "legacy.json"
+    legacy.write_text(sqlite3.connect(client.path).execute("SELECT intent FROM executions").fetchone()[0])
+    legacy_ref = tmp_path / "legacy-ref.json"
+    legacy_ref.write_text(json.dumps(f.ref))
+    new_ref = tmp_path / "job-ref.json"
+    job_args = dict(principal=JOB, ref=str(new_ref))
+
+    def job_run(command, **extra):
+        a = args(f, tmp_path, command, **extra)
+        a.principal, a.ref = JOB, str(new_ref)
+        return operator.run(a, relay=relay_for(f), client=client)
+
+    with pytest.raises(Exception):  # noqa: B017 - no re-admission before the fence
+        job_run("admit", tenant_id=SPEC.tenant_id, task_id="credential", expires_at=EXPIRES)
+    job_run("fence", legacy_intent=str(legacy), legacy_principal=ACTOR, legacy_ref=str(legacy_ref))
+    with pytest.raises(Exception):  # noqa: B017 - the Job principal has no T10 grant yet
+        job_run("admit", tenant_id=SPEC.tenant_id, task_id="credential", expires_at=EXPIRES)
+    f.access.set_grant(SPEC.plan_id, JOB, tenant_id=SPEC.tenant_id, enabled=True, valid_after=NOW,
+                       expires_at=EXPIRES, expected_revision=0, administration_ref="fixture-management",
+                       command_key="grant-job")
+    first = job_run("admit", tenant_id=SPEC.tenant_id, task_id="credential", expires_at=EXPIRES)["ref"]
+    assert job_run("admit", tenant_id=SPEC.tenant_id, task_id="credential", expires_at=EXPIRES)["ref"] == first
+    with pytest.raises(ExecutionPending):
+        job_run("start")
+    assert len(kube.creates) == 1
+    other = "c" * 64
+    f.access.set_grant(SPEC.plan_id, other, tenant_id=SPEC.tenant_id, enabled=True, valid_after=NOW,
+                       expires_at=EXPIRES, expected_revision=0, administration_ref="fixture-management",
+                       command_key="grant-other")
+    from bravo_platform_events.store import EventError
+
+    with pytest.raises(EventError, match="initial_proposal_conflict"):  # a third principal needs another fence
+        f.reopen().admit(other, plan_id=SPEC.plan_id, tenant_id=SPEC.tenant_id, task_id="credential",
+                         expected_version=3, expires_at=EXPIRES)
+    assert job_args

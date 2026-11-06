@@ -13,7 +13,7 @@ from pathlib import Path
 
 from .candidate_publication import PublicationSelection, prepare_publication, publication_request_id
 from .cutover import _get
-from .initial_proposal import InitialProposalExecution, _slot
+from .initial_proposal import InitialProposalExecution, _admission_key
 from .store import EventError
 
 
@@ -40,7 +40,7 @@ def propose_preparer(execution, *, select, repository, github=None, writer=None)
 
     def prepare(plan_id, _tenant_id, version):
         with execution.records.store._transaction() as c:
-            admitted = _get(c, plan_id, _slot(version))
+            admitted = _get(c, plan_id, _admission_key(c, plan_id, version))
         if not admitted:
             raise EventError("initial_execution_not_complete")
         value, intent, result = execution.publication_inputs(plan_id, version, **admitted[1])

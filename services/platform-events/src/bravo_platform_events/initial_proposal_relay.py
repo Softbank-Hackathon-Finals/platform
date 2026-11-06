@@ -11,7 +11,10 @@ fields  preparation fields only (no claim).
 claim   commit the CLAIMED marker with the operator's recipient public key; nothing is sent here.
 store   T10 rechecks the operator-opened, already authenticated result (schema, lint, run, source,
         editable paths, base digests) and stores it once.
-fence   record the operator ledger's unreceived-fence proof (see InitialProposalExecution).
+fence   record the operator ledger's unreceived-fence proof (see InitialProposalExecution), with the
+        principal and ref of the fenced admission.
+admit   after a fence, admit the same input for this principal (the platform Job identity); needs
+        that principal's current T10 initial grant, which an administrator sets separately.
 """
 
 import json
@@ -22,7 +25,7 @@ from bravo_agent.product_execution_contracts import ExecutionPending
 from .initial_proposal import InitialProposalExecution
 from .store import EventError
 
-OPS = {"fields", "claim", "store", "fence"}
+OPS = {"fields", "claim", "store", "fence", "admit"}
 
 
 class _Relay:
@@ -66,6 +69,10 @@ def handle(records, request):
                                          runtime_source_sha=request["runtime_source_sha"])
     plan_id, version, ref = request["plan_id"], request["version"], request["ref"]
     op = request["op"]
+    if op == "admit":
+        return {"ref": records.admit(request["principal"], plan_id=plan_id, tenant_id=request["tenant_id"],
+                                     task_id=request["task_id"], expected_version=version,
+                                     expires_at=request["expires_at"])}
     if op == "fields":
         return {"fields": execution.preparation_fields(plan_id, version, **ref)}
     if op == "claim":

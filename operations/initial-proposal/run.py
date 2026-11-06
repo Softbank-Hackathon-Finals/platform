@@ -11,7 +11,9 @@ GitOps Reader pin, so the intent can only run the image built from its own sourc
 
 start    fields -> recipient key -> T10 claim -> one Job (pending until it finishes)
 collect  read the Job receipt -> T10 rechecks and stores it -> prints the values T15 needs
-fence    prove the Actions-era request was never received, fence it here and in T10 (#543)
+fence    prove the Actions-era request was never received, fence it here and in T10 (#543); uses
+         --legacy-intent and --legacy-principal/--legacy-ref of the fenced admission
+admit    after the fence, admit the same input for --principal (the Job identity); writes --ref
 Exit: 0 done, 10 pending/hold (read again later, never resubmit), 1 failed.
 """
 
@@ -46,12 +48,20 @@ def intent_path(state_dir, plan_id, version):
 
 
 def run(args, *, relay, client):
-    base = {"plan_id": args.plan_id, "version": args.version, "ref": json.loads(Path(args.ref).read_text()),
+    ref = json.loads(Path(args.ref).read_text()) if Path(args.ref).exists() else {}
+    base = {"plan_id": args.plan_id, "version": args.version, "ref": ref,
             "principal": args.principal, "runtime_source_sha": client.source_revision}
     if args.command == "fence":
         legacy = InitialIntent.model_validate_json(Path(args.legacy_intent).read_text())
         proof = client.fence_unreceived(legacy)
-        return {"fenced": relay(base | {"op": "fence", "proof": proof})["proof"]["request_id"]}
+        old = base | {"principal": args.legacy_principal, "ref": json.loads(Path(args.legacy_ref).read_text()),
+                      "runtime_source_sha": legacy.runtime_source_sha}
+        return {"fenced": relay(old | {"op": "fence", "proof": proof})["proof"]["request_id"]}
+    if args.command == "admit":
+        ref = relay(base | {"op": "admit", "tenant_id": args.tenant_id, "task_id": args.task_id,
+                            "expires_at": args.expires_at})["ref"]
+        Path(args.ref).write_text(json.dumps(ref))
+        return {"ref": ref}
     path = intent_path(args.state_dir, args.plan_id, args.version)
     if args.command == "start":
         if path.exists():  # already claimed by this operator: never recompute, only read
@@ -87,7 +97,7 @@ def expand(argv):
 def main(argv=None):
     argv = expand(argv)
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument("command", choices=["start", "collect", "fence"])
+    p.add_argument("command", choices=["start", "collect", "fence", "admit"])
     p.add_argument("--plan-id", required=True)
     p.add_argument("--version", type=int, required=True)
     p.add_argument("--ref", required=True, help="JSON file: {input_ref, input_digest} of the admitted input")
@@ -97,6 +107,11 @@ def main(argv=None):
     p.add_argument("--gitops-image", type=Path, default=Path(__file__).resolve().parents[2]
                    / "infra/gitops/environments/development/product-reader-image.json")
     p.add_argument("--legacy-intent")
+    p.add_argument("--legacy-principal")
+    p.add_argument("--legacy-ref")
+    p.add_argument("--tenant-id")
+    p.add_argument("--task-id")
+    p.add_argument("--expires-at")
     p.add_argument("--relay", nargs="+", help="argv reaching initial_proposal_relay in the platform")
     args = p.parse_args(argv)
     image, revision = job.gitops_image(args.gitops_image)
