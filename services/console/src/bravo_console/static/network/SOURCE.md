@@ -8,6 +8,13 @@ the original and adapted SHA-256 for each imported asset. Original diagram JPEG 
 and authorship are preserved. They describe dated team designs, not Sova execution results.
 Panzoom 4.6.2 and its MIT license are retained in `vendor/`.
 
+The product renders these capabilities through Sova-owned `network-workspace.js`
+and `network-workspace.css` inside the existing console shell. The original site's
+HTML, global styles, navigation and application bootstrap are not mounted in the
+product UI. Shared reference data, sequence/diagnostic helpers and Panzoom are reused.
+The old atlas page URL redirects to the native Sova network view; diagram asset URLs
+remain unchanged. Local language controls affect network material only.
+
 Reproduce the UI import from the console directory:
 
 ```sh
