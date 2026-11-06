@@ -14,6 +14,8 @@ import {
 import { request, stream } from "./transport.js";
 import { recoveryCommand, canResubmit, canRepeatApproval } from "./recovery.js";
 import { mountRegistration } from "./registration.js";
+import { mountWorkspace } from "./workspace.js";
+const workspace = mountWorkspace();
 const $ = (id) => document.getElementById(id);
 let model,
   generation = 0,
@@ -317,6 +319,13 @@ function render() {
       return li;
     });
   $("history").replaceChildren(...history);
+  workspace.render({
+    snapshot: model.snapshot,
+    observed,
+    connected: model.connected,
+    snapshotAt: model.snapshotAt,
+    now,
+  });
 }
 function revokeView(error) {
   if (![401, 403].includes(error.status)) return false;

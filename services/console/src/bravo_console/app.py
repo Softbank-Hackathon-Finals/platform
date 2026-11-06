@@ -19,6 +19,7 @@ ASSETS = {
     "/console/transport.js": ("transport.js", "text/javascript"),
     "/console/recovery.js": ("recovery.js", "text/javascript"),
     "/console/registration.js": ("registration.js", "text/javascript"),
+    "/console/workspace.js": ("workspace.js", "text/javascript"),
     "/console/style.css": ("style.css", "text/css"),
 }
 HEADERS = {
