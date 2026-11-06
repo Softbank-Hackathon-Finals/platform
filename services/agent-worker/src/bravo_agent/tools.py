@@ -156,7 +156,8 @@ class Snapshot:
 class Tools:
     def __init__(self, bundle: FailureBundle, snapshot: Snapshot, attempt: int,
                  inventory: InventorySummary | None = None, task: FailureBundle | None = None,
-                 exec_channel: ExecChannel | None = None, exec_reserve: ExecReserve | None = None):
+                 exec_channel: ExecChannel | None = None, exec_reserve: ExecReserve | None = None,
+                 exec_enabled: bool = False):
         self.bundle, self.snapshot, self.attempt = bundle, snapshot, attempt
         if inventory is not None and inventory.source_sha != bundle.source_sha:
             raise ValueError("inventory revision mismatch")
@@ -172,8 +173,12 @@ class Tools:
         self.event_count = 0
         self.usage: dict = {}
         self.calls = 0
-        # T42 exec tools exist only for an injected, enabled channel. State is per attempt.
-        self.exec_channel = exec_channel if getattr(exec_channel, "enabled", False) is True else None
+        # T42 exec is off by default (contract 1). Tools exist only when the run states
+        # ``exec_enabled`` exactly ``True`` (ProductInput.exec_enabled; 1, "true", None are off) AND an
+        # injected channel reports ``enabled`` exactly ``True``. Neither alone opens exec. Per attempt.
+        self.exec_enabled = exec_enabled is True
+        ready = self.exec_enabled and getattr(exec_channel, "enabled", False) is True
+        self.exec_channel = exec_channel if ready else None
         self.exec_reserve = exec_reserve or ExecReserve()
         self.exec_effect_unknown = False
         self.exec_unavailable = False

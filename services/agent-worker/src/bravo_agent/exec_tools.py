@@ -13,7 +13,7 @@ from typing import Protocol
 from .contracts import digest
 
 EXEC_SCHEMA_VERSION = 1
-CONTRACT_SHA256 = "b1528f38721c91368a5f09042e10bcb0260213f4a52c923c1dda2cd06b428e0b"
+CONTRACT_SHA256 = "13d8873d57057faf8e0df7448c12fa7cfd0aaeada87af03db138dfae7dc50e06"
 
 # Claude MCP name -> T11 internal name (also the audit ``tool`` and the envelope ``tool``).
 EXEC_TOOLS = {
@@ -35,7 +35,8 @@ PROBE_METHODS = ("TCP", "HTTP_GET", "HTTP_HEAD")
 POD_PHASES = ("Pending", "Running", "Succeeded", "Failed", "Unknown")
 TARGET_KINDS = ("deployment", "pod", "service")
 
-K8S_NAME = r"^[a-z0-9-]{1,63}$"
+# Kubernetes DNS label: no leading/trailing hyphen, so a name is never read as a kubectl option.
+K8S_NAME = r"^[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?$"
 HTTP_PATH = r"^/[A-Za-z0-9._~!$&'()*+,;=:@%/?-]{0,255}$"
 REQUEST_ID = r"^[A-Za-z0-9][A-Za-z0-9_-]{7,79}$"
 SHA256 = r"^[a-f0-9]{64}$"
@@ -78,8 +79,9 @@ DESCRIPTIONS = {
 
 
 class ExecChannel(Protocol):
-    """Exec-only local channel (T38 broker -> T15). ``enabled`` must be exactly ``True`` for T11
-    to expose the tools; ``send`` returns the contract ``response`` object or raises."""
+    """Exec-only local channel (T38 broker -> T15). ``enabled`` (channel open, T15 session ready)
+    must be exactly ``True``, in addition to the run's ``exec_enabled is True``, for T11 to expose
+    the tools; ``send`` returns the contract ``response`` object or raises."""
 
     enabled: bool
 

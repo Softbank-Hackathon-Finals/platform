@@ -77,7 +77,7 @@ class FakeChannel:
 
 def open_tools(context, channel, **kwargs):
     bundle, snapshot, _, _ = context
-    tools = Tools(bundle, snapshot, 1, exec_channel=channel, **kwargs)
+    tools = Tools(bundle, snapshot, 1, exec_channel=channel, exec_enabled=True, **kwargs)
     tools.set_model_budget(7, time.monotonic() + 180)
     return tools
 
@@ -129,6 +129,17 @@ def test_new_tool_names_do_not_collide_with_reserved_spellings():
     {"target_kind": "pod", "target_name": "Web", "lines": None},
     {"target_kind": "pod", "target_name": "a" * 64, "lines": None},
     {"target_kind": "pod", "target_name": "", "lines": None},
+    # Kubernetes name rule (DNS label): no leading or trailing hyphen, so no kubectl option.
+    {"target_kind": "pod", "target_name": "a", "lines": None},
+    {"target_kind": "pod", "target_name": "0", "lines": None},
+    {"target_kind": "pod", "target_name": "a" * 63, "lines": None},
+    {"target_kind": "pod", "target_name": "a--b", "lines": None},
+    {"target_kind": "pod", "target_name": "-", "lines": None},
+    {"target_kind": "pod", "target_name": "--all-namespaces", "lines": None},
+    {"target_kind": "events", "target_name": "-A", "lines": None},
+    {"target_kind": "logs", "target_name": "-web", "lines": 5},
+    {"target_kind": "deployment", "target_name": "web-", "lines": None},
+    {"target_kind": "pod", "target_name": "a" * 62 + "-", "lines": None},
     {"target_kind": "service", "target_name": "web", "lines": None},
     {"target_kind": "pod", "target_name": "web"},
     {"target_kind": "pod", "target_name": "web", "lines": None, "namespace": "other"},
@@ -157,6 +168,14 @@ def test_inspect_validation_matches_the_contract_schema(args):
     {"service": "web", "port": 80, "method": "HTTP_GET", "path": "health"},
     {"service": "web", "port": 80, "method": "HTTP_GET", "path": "/a b"},
     {"service": "web.other.svc", "port": 80, "method": "TCP", "path": None},
+    {"service": "a", "port": 80, "method": "TCP", "path": None},
+    {"service": "a" * 63, "port": 80, "method": "TCP", "path": None},
+    {"service": "a" * 64, "port": 80, "method": "TCP", "path": None},
+    {"service": "my-svc-1", "port": 80, "method": "TCP", "path": None},
+    {"service": "--all-namespaces", "port": 80, "method": "TCP", "path": None},
+    {"service": "-web", "port": 80, "method": "HTTP_GET", "path": "/"},
+    {"service": "web-", "port": 80, "method": "TCP", "path": None},
+    {"service": "-", "port": 80, "method": "TCP", "path": None},
     {"service": "web", "port": 80, "method": "TCP"},
     {"service": "web", "port": 80, "method": "TCP", "path": None, "host": "example.com"},
 ])
@@ -174,11 +193,29 @@ def test_probe_validation_matches_the_contract_schema(args):
     # ``$`` does not admit a trailing newline (ECMA-262 semantics, which the contract pattern means).
     (inspect_arguments, {"target_kind": "logs", "target_name": "web", "lines": 5.0}),
     (inspect_arguments, {"target_kind": "pod", "target_name": "web\n", "lines": None}),
+    (probe_arguments, {"service": "web\n", "port": 80, "method": "TCP", "path": None}),
     (probe_arguments, {"service": "web", "port": 80.0, "method": "TCP", "path": None}),
 ])
 def test_known_stricter_cases(validate, args):
     with pytest.raises(ValueError):
         validate(args)
+
+
+@pytest.mark.parametrize("name", ["--all-namespaces", "-A", "-n", "-web", "web-", "-"])
+def test_option_shaped_names_are_rejected_by_t11_and_the_contract(context, name):
+    inspect = {"target_kind": "pod", "target_name": name, "lines": None}
+    probe = {"service": name, "port": 80, "method": "TCP", "path": None}
+    assert not INSPECT.is_valid(inspect) and not PROBE.is_valid(probe)
+    for validate, args in ((inspect_arguments, inspect), (probe_arguments, probe)):
+        with pytest.raises(ValueError):
+            validate(args)
+    channel = FakeChannel()
+    tools = open_tools(context, channel)
+    for tool, args in (("mcp__bravo__rehearsal_exec_inspect", inspect), ("mcp__bravo__rehearsal_exec_probe", probe)):
+        with pytest.raises(PolicyDenied):
+            tools.dispatch(tool, args)
+        assert tools.events[-1]["reason"] == "INVALID_INPUT_OR_POLICY"
+    assert not channel.sent
 
 
 def response_cases():
@@ -219,6 +256,8 @@ def response_cases():
         (probe, ok_response(probe, status=ok_response(probe)["status"] | {"elapsed_ms": 15001})),
         (apply, ok_response(apply, status=ok_response(apply)["status"] | {"targets": [{"kind": "pod", "name": "a"}] * 9})),
         (apply, ok_response(apply, status=ok_response(apply)["status"] | {"targets": [{"kind": "secret", "name": "a"}]})),
+        (apply, ok_response(apply, status=ok_response(apply)["status"] | {"targets": [{"kind": "pod", "name": "-web"}]})),
+        (apply, ok_response(apply, status=ok_response(apply)["status"] | {"targets": [{"kind": "pod", "name": "web-"}]})),
         (inspect, ok_response(inspect, status=ok_response(inspect)["status"] | {"phase": "Evicted"})),
         (inspect, ok_response(inspect, output_tail="a" * 2049)),
         (inspect, ok_response(inspect, output_truncated="no")),
@@ -263,10 +302,51 @@ def test_t11_generated_responses_are_contract_responses(code, reason, stage):
 
 # --- Tools: exposure, validation, channel failures ------------------------------------------------
 
+NOT_TRUE = [{}, {"exec_enabled": False}, {"exec_enabled": None}, {"exec_enabled": 1},
+            {"exec_enabled": "true"}, {"exec_enabled": "True"}, {"exec_enabled": [True]}]
+
+
+@pytest.mark.parametrize("enabled", NOT_TRUE + [{"exec_enabled": True}])
+@pytest.mark.parametrize("channel", [None, False, "yes", True])
+def test_exec_opens_only_with_exec_enabled_true_and_an_enabled_channel(context, enabled, channel):
+    bundle, snapshot, _, _ = context
+    channel = None if channel is None else FakeChannel(enabled=channel)
+    tools = Tools(bundle, snapshot, 1, exec_channel=channel, **enabled)
+    tools.set_model_budget(7, time.monotonic() + 180)
+    opened = enabled.get("exec_enabled") is True and channel is not None and channel.enabled is True
+    assert tools.exec_active is opened and tools.allowed("mcp__bravo__rehearsal_exec_probe") is opened
+    names = {t["name"] for t in function_tools(tools)}
+    assert (set(EXEC_FUNCTIONS) <= names) is opened and (not set(EXEC_FUNCTIONS) & names) is not opened
+    if opened:
+        assert tools.dispatch("mcp__bravo__rehearsal_exec_probe", PROBE_OK)["result_code"] == "OK"
+        return
+    for name, args in (("mcp__bravo__rehearsal_exec_probe", PROBE_OK), ("mcp__bravo__rehearsal_exec_inspect", INSPECT_OK)):
+        with pytest.raises(PolicyDenied):
+            tools.dispatch(name, args)
+        assert tools.events[-1] == {"run_id": "run-1", "attempt": 1, "tool": EXEC_TOOLS[name],
+                                    "outcome": "DENIED", "reason": "TOOL_NOT_PROVIDED"}
+    assert channel is None or not channel.sent
+    assert tools.system_prompt() == exec_tools_system(False)
+
+
+@pytest.mark.parametrize("enabled", NOT_TRUE)
+def test_coordinator_with_a_channel_but_exec_not_enabled_keeps_todays_behaviour(context, monkeypatch, enabled):
+    bundle, snapshot, proposal, _ = context
+    channel = FakeChannel()
+    requests = install_sdk(monkeypatch, [call("rehearsal_exec_probe", PROBE_OK), call("plan_propose", proposal)])
+    coordinator = Coordinator(bundle, snapshot, exec_channel=channel, **enabled)
+    result = asyncio.run(coordinator.propose(OpenAIProvider("fixture-model")))
+    assert result["state"] == "PROPOSAL_READY" and not channel.sent
+    assert result["audit"][0] == {"run_id": "run-1", "attempt": 1, "tool": "rehearsal.exec.probe",
+                                  "outcome": "DENIED", "reason": "TOOL_NOT_PROVIDED"}
+    assert {t["name"] for r in requests for t in r["tools"]} == {"repo_read", "plan_propose", "policy_evaluate"}
+    assert "rehearsal_exec" not in requests[0]["instructions"]
+
+
 def test_without_an_enabled_channel_exec_names_stay_not_provided(context):
     bundle, snapshot, _, _ = context
     for channel in (None, FakeChannel(enabled=False), FakeChannel(enabled="yes")):
-        tools = Tools(bundle, snapshot, 1, exec_channel=channel)
+        tools = Tools(bundle, snapshot, 1, exec_channel=channel, exec_enabled=True)
         tools.set_model_budget(7, time.monotonic() + 180)
         assert not tools.exec_active and not tools.allowed("mcp__bravo__rehearsal_exec_probe")
         assert {t["name"] for t in function_tools(tools)} == {"repo_read", "plan_propose", "policy_evaluate"}
@@ -441,7 +521,7 @@ def test_secret_shaped_output_is_withheld_from_the_model(context):
 def test_budget_guard_keeps_room_for_plan_propose(context, turns_left, seconds, reserve, open_):
     bundle, snapshot, _, _ = context
     channel = FakeChannel()
-    tools = Tools(bundle, snapshot, 1, exec_channel=channel, exec_reserve=reserve)
+    tools = Tools(bundle, snapshot, 1, exec_channel=channel, exec_reserve=reserve, exec_enabled=True)
     if turns_left is not None:
         tools.set_model_budget(turns_left, time.monotonic() + seconds)
     assert tools.exec_open() is open_
@@ -465,7 +545,7 @@ def test_openai_path_runs_exec_then_submits_once(context, monkeypatch):
     requests = install_sdk(monkeypatch, [
         call("rehearsal_exec_apply", proposal), call("rehearsal_exec_inspect", INSPECT_OK),
         call("rehearsal_exec_probe", PROBE_OK), call("plan_propose", proposal)])
-    result = asyncio.run(Coordinator(bundle, snapshot, exec_channel=channel).propose(OpenAIProvider("fixture-model")))
+    result = asyncio.run(Coordinator(bundle, snapshot, exec_channel=channel, exec_enabled=True).propose(OpenAIProvider("fixture-model")))
     assert result["state"] == "PROPOSAL_READY" and len(requests) == 4
     offered = {tool["name"]: tool for tool in requests[0]["tools"]}
     assert set(offered) == {"repo_read", "plan_propose", "policy_evaluate", *EXEC_FUNCTIONS}
@@ -503,7 +583,7 @@ def test_openai_reserved_names_stay_not_provided_with_a_channel(context, monkeyp
     bundle, snapshot, proposal, _ = context
     channel = FakeChannel()
     install_sdk(monkeypatch, [call(name, {"command": "ls"}), call("plan_propose", proposal)])
-    result = asyncio.run(Coordinator(bundle, snapshot, exec_channel=channel).propose(OpenAIProvider("fixture-model")))
+    result = asyncio.run(Coordinator(bundle, snapshot, exec_channel=channel, exec_enabled=True).propose(OpenAIProvider("fixture-model")))
     assert result["audit"][0]["reason"] == "TOOL_NOT_PROVIDED" and not channel.sent
 
 
@@ -512,7 +592,7 @@ def test_openai_path_closes_exec_when_only_the_submission_turns_remain(context, 
     channel = FakeChannel()
     requests = install_sdk(monkeypatch, [call("rehearsal_exec_inspect", INSPECT_OK),
                                          call("rehearsal_exec_inspect", INSPECT_OK), call("plan_propose", proposal)])
-    coordinator = Coordinator(bundle, snapshot, exec_channel=channel, exec_reserve=ExecReserve(turns=7))
+    coordinator = Coordinator(bundle, snapshot, exec_channel=channel, exec_reserve=ExecReserve(turns=7), exec_enabled=True)
     result = asyncio.run(coordinator.propose(OpenAIProvider("fixture-model")))
     assert result["state"] == "PROPOSAL_READY"
     names = [{t["name"] for t in r["tools"]} for r in requests]
@@ -527,7 +607,7 @@ def test_openai_path_classifies_unparseable_exec_arguments(context, monkeypatch)
     channel = FakeChannel()
     install_sdk(monkeypatch, [call("rehearsal_exec_probe", '{"service": "aws s3 rb s3://private-b'),
                               call("plan_propose", proposal)])
-    result = asyncio.run(Coordinator(bundle, snapshot, exec_channel=channel).propose(OpenAIProvider("fixture-model")))
+    result = asyncio.run(Coordinator(bundle, snapshot, exec_channel=channel, exec_enabled=True).propose(OpenAIProvider("fixture-model")))
     assert result["audit"][0] == {"run_id": "run-1", "attempt": 1, "tool": "rehearsal.exec.probe", "outcome": "DENIED",
                                   "reason": "DESTRUCTIVE_ATTEMPT_BLOCKED", "category": "bucket_delete"}
     assert not channel.sent and "private-b" not in json.dumps(result)
@@ -557,6 +637,12 @@ def test_claude_path_exposes_exec_only_with_a_channel(context, tmp_path, monkeyp
     off = Tools(bundle, snapshot, 1)
     options = make_options(off, tmp_path, "explicit-model")
     assert not set(EXEC_TOOLS) & set(options.allowed_tools) and not set(EXEC_FUNCTIONS) & set(handlers)
+    # A channel without the run's exec_enabled=True is still off (contract 1, default off).
+    for half in (Tools(bundle, snapshot, 1, exec_channel=FakeChannel()),
+                 Tools(bundle, snapshot, 1, exec_channel=FakeChannel(), exec_enabled="true")):
+        options = make_options(half, tmp_path, "explicit-model")
+        assert not set(EXEC_TOOLS) & set(options.allowed_tools) and not set(EXEC_FUNCTIONS) & set(handlers)
+        assert "rehearsal_exec" not in options.system_prompt
     denied = asyncio.run(guard(off, {"tool_name": "mcp__bravo__rehearsal_exec_apply", "tool_input": {}}, None, None))
     assert denied["hookSpecificOutput"]["permissionDecision"] == "deny"
     assert off.events[-1]["reason"] == "TOOL_NOT_PROVIDED" and off.events[-1]["tool"] == "rehearsal.exec.apply"
@@ -605,7 +691,8 @@ def test_claude_provider_runs_exec_through_hook_and_mcp_handler(context, tmp_pat
 
     monkeypatch.setattr(sdk, "ClaudeSDKClient", Client)
     # Six of eight turns reserved: after two calls the third exec call is closed for the budget.
-    coordinator = Coordinator(bundle, snapshot, exec_channel=channel, exec_reserve=ExecReserve(turns=6))
+    coordinator = Coordinator(bundle, snapshot, exec_channel=channel, exec_reserve=ExecReserve(turns=6),
+                              exec_enabled=True)
     result = asyncio.run(coordinator.propose(sdk.ClaudeProvider(tmp_path, "explicit-model")))
     assert result["state"] == "PROPOSAL_READY"
     assert [r.get("result_code") for r in seen[:3]] == ["OK", "OK", "REJECTED"]
@@ -622,7 +709,7 @@ def test_subscription_stream_path_namespaces_exec_tools(context, monkeypatch):
     requests = install_stream(monkeypatch, [[completed("repo_read", {"path": "src/config.py"})],
                                             [completed("rehearsal_exec_probe", PROBE_OK)],
                                             [completed("rehearsal_exec_inspect", INSPECT_OK, namespace="other")]])
-    result = asyncio.run(Coordinator(bundle, snapshot, exec_channel=channel).propose(
+    result = asyncio.run(Coordinator(bundle, snapshot, exec_channel=channel, exec_enabled=True).propose(
         OpenAIProvider("fixture-model", subscription=True)))
     # The first call is read-only; exec tools are then offered inside the bravo namespace only.
     assert [t["name"] for t in requests[0]["tools"][0]["tools"]] == ["repo_read"]
