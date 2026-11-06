@@ -48,6 +48,7 @@ EXIT_RESYNC = 5  # 409 resync_required / 400 invalid_cursor: T10 cannot continue
 EXIT_REJECTED = 6  # malformed stream, out-of-order event, or content the ledger refuses
 EXIT_UNAVAILABLE = 7  # --once only: T10 unreachable or the stream broke; rerun resumes
 EXIT_WRITE = 8  # the sink refused or did not confirm a write; rerun resumes from storage
+EXIT_STORE_UNREADABLE = 9  # --once only: storage could not be listed/read (permission, network)
 
 MAX_LINE_BYTES = 64 * 1024  # T10 caps one event at 32 KiB of canonical input
 MAX_EVENT_BYTES = 64 * 1024
@@ -68,6 +69,14 @@ class FollowStop(Exception):
 
 class Transient(Exception):
     """The connection failed or ended; storage is intact and a new connection may resume."""
+
+    def __init__(self, reason: str):
+        super().__init__(reason)
+        self.reason = reason
+
+
+class StoreUnreadable(Exception):
+    """Storage could not be listed or read; nothing was judged, written or requested."""
 
     def __init__(self, reason: str):
         super().__init__(reason)
@@ -386,6 +395,23 @@ def _readline(response) -> Callable[[int], bytes]:
     return read
 
 
+def _read_store(load_runs: Callable[[], dict[str, list[dict]]]) -> dict[str, list[dict]]:
+    """What the sink holds. Tampering and broken chains keep their own path; any other failure
+    (S3 permission, throttling, network, local I/O) is reported by exception class only, since
+    the message may name the bucket, key or path."""
+    try:
+        return load_runs()
+    except (StoreTampered, ValueError):
+        raise
+    except Exception as exc:  # noqa: BLE001 - botocore and OS errors share no base class
+        raise StoreUnreadable(f"store_unreadable:{type(exc).__name__}") from None
+
+
+def _backoff(attempt: int, max_backoff: float) -> float:
+    delay = min(max_backoff, 2.0 ** min(attempt, 16))
+    return delay / 2 + random.uniform(0, delay / 2)
+
+
 def _log(**fields) -> None:
     print(json.dumps({"follow": fields.pop("event")} | fields, ensure_ascii=False), file=sys.stderr, flush=True)
 
@@ -412,7 +438,16 @@ def follow(upstream: Upstream, *, load_runs: Callable[[], dict[str, list[dict]]]
 
     while True:
         try:
-            state = PlanState.load(upstream.plan_id, load_runs(), now)
+            state = PlanState.load(upstream.plan_id, _read_store(load_runs), now)
+        except StoreUnreadable as exc:  # no resume point, so T10 is not read either
+            if once:
+                _log(event="stopped", exit=EXIT_STORE_UNREADABLE, reason=exc.reason)
+                return summary(EXIT_STORE_UNREADABLE, exc.reason)
+            delay = _backoff(attempt, max_backoff)
+            attempt += 1
+            _log(event="reconnect", reason=exc.reason, delay_s=round(delay, 2))
+            sleep(delay)
+            continue
         except StoreTampered as exc:
             _log(event="stopped", exit=EXIT_STORE, reason=f"stored_chain_untrusted:{exc}")
             return summary(EXIT_STORE, f"stored_chain_untrusted:{exc}")
@@ -442,8 +477,7 @@ def follow(upstream: Upstream, *, load_runs: Callable[[], dict[str, list[dict]]]
                 return summary(EXIT_UNAVAILABLE, exc.reason)
             if max_connections is not None and connections >= max_connections:
                 return summary(EXIT_UNAVAILABLE, exc.reason)
-            delay = min(max_backoff, 2.0 ** min(attempt, 16))
-            delay = delay / 2 + random.uniform(0, delay / 2)
+            delay = _backoff(attempt, max_backoff)
             attempt += 1
             _log(event="reconnect", reason=exc.reason, delay_s=round(delay, 2))
             sleep(delay)

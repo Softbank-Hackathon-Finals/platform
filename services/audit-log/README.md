@@ -44,6 +44,7 @@ bravo-audit follow --base-url https://<t10> --plan <plan_id> --sink s3://<bucket
 | 6 | 스트림 형식 위반, 모르는 `schema_version`(1.0만 받음), 순번 건너뜀, 어댑터 거부, 같은 `origin_id`의 다른 내용, 비밀 패턴이 든 이벤트 | 생산자를 조사한다 |
 | 7 | `--once`에서 T10에 연결하지 못했거나 스트림이 끊김(상시 모드는 백오프 후 다시 연결) | 이어 받는다 |
 | 8 | 저장소가 쓰기를 거부하거나 확인하지 않음(다른 follower가 먼저 씀 포함) | 저장소에서 이어 받는다 |
+| 9 | `--once`에서 저장소를 목록 · 읽기 하지 못함(S3 권한 · 네트워크 · 로컬 I/O). 사유에는 예외 이름만 남기고 T10에 연결하지 않음(상시 모드는 백오프 후 다시 읽음) | 이어 받는다. 계속되면 저장소 권한을 확인한다 |
 
 시험(`tests/test_follow.py`)은 실제 T10 `create_app`과 `PlanStore`(`../platform-events/src`, 변경 없음)를 uvicorn으로 띄워 돌린다. 첫 따라잡기, 재시작 뒤 이어 받기, 상시 구독 중 SIGKILL 뒤 재시작, 쓰기 실패 뒤 재시작, 변조 저장소 거부(T10에 연결도 안 함), 403 · 404 · 409, 인증 헤더 전달을 실제 T10으로 확인한다. T10 스키마 1.0은 `data`에 `tool_events`를 받지 않으므로(시험으로 고정), `tool_events` 분해와 그 도중 중단, `400 invalid_cursor`, 형식 위반은 같은 형식을 내는 표준 라이브러리 SSE 서버로 확인한다. 실측 스크립트는 `testing/follow_live.py`.
 

@@ -393,6 +393,46 @@ def test_upstream_errors_map_to_distinct_exit_codes(tmp_path, stub, token_file, 
         assert len(server.requests) == 1
 
 
+class ClientError(Exception):
+    """Stands in for botocore's ClientError (AccessDenied, throttling) without importing it."""
+
+
+@pytest.mark.parametrize("error", [OSError("/private/path/of/the/store is gone"),
+                                   ClientError("AccessDenied for arn:aws:iam::000000000000:role/x")])
+def test_an_unreadable_store_maps_to_its_own_exit_code_in_once_mode(tmp_path, stub, token_file, capsys, error):
+    server = stub((200, SSE, sse(t10_event(1))))
+
+    def load_runs():
+        raise error
+
+    upstream = Upstream(server.base_url, PLAN, token_file=token_file, timeout=5)
+    code, out = follow_mod.follow(upstream, load_runs=load_runs, sink=FileSink(tmp_path / "s"), once=True)
+    assert (code, out["reason"]) == (follow_mod.EXIT_STORE_UNREADABLE, f"store_unreadable:{type(error).__name__}")
+    err = capsys.readouterr().err
+    assert "/private/path" not in err and "000000000000" not in err and "AccessDenied" not in err
+    assert server.requests == []  # T10 is not read without a resume point from storage
+
+
+def test_continuous_mode_backs_off_on_an_unreadable_store_and_resumes(tmp_path, stub, token_file, capsys):
+    server = stub((200, SSE, sse(t10_event(1), t10_event(2))),
+                  (403, "application/json", b'{"detail":{"code":"forbidden"}}'))
+    sink, delays, calls = tmp_path / "s", [], []
+
+    def flaky_load_runs():
+        calls.append(1)
+        if len(calls) in (1, 2, 4):
+            raise ClientError("SlowDown")
+        return follow_mod.load_plan_runs(str(sink), PLAN)
+
+    upstream = Upstream(server.base_url, PLAN, token_file=token_file, timeout=5)
+    code, out = follow_mod.follow(upstream, load_runs=flaky_load_runs, sink=FileSink(sink), once=False,
+                                  sleep=delays.append)
+    assert (code, out["reason"], out["records"]) == (follow_mod.EXIT_ACCESS, "forbidden", 2)
+    assert len(delays) == 4 and all(0 < d <= 30 for d in delays)  # 3 store errors + 1 stream end
+    assert "store_unreadable:ClientError" in capsys.readouterr().err
+    assert len(server.requests) == 2
+
+
 def test_continuous_mode_reconnects_with_backoff_and_resumes_from_storage(tmp_path, stub, token_file):
     server = stub((503, "text/plain", b""),
                   (200, SSE, sse(t10_event(1), t10_event(2))),  # stream ends: reconnect
