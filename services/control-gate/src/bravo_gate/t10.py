@@ -129,23 +129,24 @@ class T10GateAuthority:
         started = session.service.security.clock()
         if time(now) > started:
             raise GateError("CLOCK_REGRESSION")
-        # Same rule as SHIFT (#532, sangmu1126 15:21Z): the GATE report is valid for 60 s and the
-        # cutover approval comes much later, so evaluate again with current records and consume that
-        # report only if PASS and bound to the GATE report's context and readiness; else stop.
-        fresh = session.service.evaluate(principal.subject_id, session.context_id,
-                                         approval_ids=session.approval_ids)
-        stored = decode(session.report.raw)
-        if (fresh.get("decision") != "PASS" or fresh.get("context_digest") != session.context.fingerprint
-                or fresh.get("readiness_binding_digest") != stored.get("readiness_binding_digest")):
-            raise GateError("PLAN_GATE_REEVALUATION_BLOCKED")
+        # Same rule as SHIFT (#532; scope sangmu1126 #565): the GATE report is valid for 60 s and the
+        # cutover approval comes much later, so evaluate again with current records. The fresh report
+        # is consumed only inside served_reevaluation (same context, policy and database pair, a
+        # snapshot not older than GATE's), as the registered result with platform provenance.
         from bravo_platform_events.cutover import _get, _put
+        from bravo_platform_events.gate_records import served_reevaluation
+        from bravo_platform_events.store import EventError
 
-        # Kept beside (never over) the GATE report; the approval revision stays bound to the session.
-        key = "gate-cutover-reevaluation-" + fingerprint(fresh)
-        if _get(connection, plan["plan_id"], key) is None:
-            _put(connection, plan["plan_id"], key, {"gate_report_ref": session.report.ref}, fresh)
-        proof = session.service.require_prerequisites(
-            principal.subject_id, session.context_id, canonical(fresh), approval_ids=session.approval_ids)
+        try:
+            with served_reevaluation(connection, plan["plan_id"], session, principal) as fresh:
+                # Kept beside (never over) the GATE report; the approval revision stays bound to the session.
+                key = "gate-cutover-reevaluation-" + fingerprint(fresh)
+                if _get(connection, plan["plan_id"], key) is None:
+                    _put(connection, plan["plan_id"], key, {"gate_report_ref": session.report.ref}, fresh)
+                proof = session.service.require_prerequisites(
+                    principal.subject_id, session.context_id, canonical(fresh), approval_ids=session.approval_ids)
+        except EventError:
+            raise GateError("PLAN_GATE_REEVALUATION_BLOCKED") from None
         if (proof.context_digest != session.context.fingerprint
                 or proof.readiness_binding_digest != session.readiness.fingerprint):
             raise GateError("PLAN_GATE_SCOPE_MISMATCH")

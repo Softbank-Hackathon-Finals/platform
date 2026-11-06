@@ -139,8 +139,10 @@ def main(argv=None):
             if c.execute("SELECT version FROM schema_version").fetchall() != [{"version": 3}]:
                 raise ValueError()
         host = load_host(store, args.config, create_ports)
-    except Exception:
-        raise SystemExit("rehearsal_startup_unavailable") from None
+    except Exception as error:
+        from .startup import reason
+
+        raise SystemExit("rehearsal_startup_unavailable:" + reason(error)) from None
     uvicorn.run(host.app, host="0.0.0.0", port=8443, workers=1,
         ssl_certfile=args.tls_cert, ssl_keyfile=args.tls_key, access_log=False,
         proxy_headers=False, server_header=False, limit_concurrency=16, timeout_keep_alive=5)

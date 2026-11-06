@@ -77,7 +77,7 @@ def test_bad_mounts_and_identity_stop_before_port_factory(flow, config, fault, t
 def test_bad_startup_is_private_and_does_not_access_database(tmp_path, monkeypatch, capsys):
     monkeypatch.setattr(rehearsal_server, "runtime_connection", lambda: pytest.fail("unexpected DB access"))
     for factory in ("reviewed_module:create", "x:PRIVATE_SENTINEL/../bad"):
-        with pytest.raises(SystemExit, match="^rehearsal_startup_unavailable$"):
+        with pytest.raises(SystemExit, match=r"^rehearsal_startup_unavailable:[A-Za-z]+(:[A-Za-z0-9_.]+)?$"):
             rehearsal_server.main(["--config", str(tmp_path / "missing"), "--ports", factory,
                 "--tls-cert", str(tmp_path / "missing"), "--tls-key", str(tmp_path / "missing")])
     output = capsys.readouterr()

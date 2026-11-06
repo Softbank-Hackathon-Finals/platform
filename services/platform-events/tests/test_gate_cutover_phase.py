@@ -4,10 +4,12 @@ Probe evidence and upstream operational permission are synthetic. No cluster
 cutover is performed or inferred from these transaction-level integration tests.
 """
 
+import json
 from dataclasses import replace
 from datetime import timedelta
 
 import pytest
+from bravo_gate.contract import GateError
 from test_gate_records import (  # noqa: F401 - shared real-store / synthetic-probe fixtures
     _applied_checkpoint,
     bundle,
@@ -123,3 +125,69 @@ def test_composition_rechecks_current_permissions(flow):
     with pytest.raises(EventError):
         f.cutover.approve(f.principal, f.plan.plan_id, binding=binding,
                           expected_version=f.version, command_key="revoked")
+
+
+def _readiness_at(f, at, *, target_at=None, **refs):
+    """The fixture readiness snapshot observed at `at` (valid 30 s), optionally for another DB pair."""
+    doc = json.loads(json.dumps(f.doc))
+    for part in [doc["source"], doc["target"], doc["replication"], *doc["sequences"]]:
+        part["observed_at"], part["expires_at"] = at.isoformat(), (at + timedelta(seconds=30)).isoformat()
+    if target_at is not None:
+        doc["target"]["observed_at"] = target_at.isoformat()
+    for side, ref in refs.items():
+        doc[side]["database_ref"] = ref
+    f.update(doc)
+
+
+def _count(f, prefix):
+    with f.store._transaction() as c:
+        return c.execute("SELECT count(*) AS n FROM plan_commands WHERE command_key LIKE ?", (prefix + "%",)).fetchone()["n"]
+
+
+@pytest.mark.parametrize("case", ["at-once", "61s-same-snapshot", "61s-new-snapshot", "older-snapshot",
+                                  "one-component-older", "other-db-pair"])
+def test_shift_reevaluation_scope_with_a_moving_clock(flow, case):
+    """Jeonsubb #546 / sangmu1126 #565: with a moving clock the fresh report differs from the GATE
+    report. It is consumed (only inside the SHIFT/cutover check) when it is PASS for the same
+    context, policy and database pair, with a snapshot that is fresh and not older than GATE's."""
+    f = flow
+    gate_at = f.state["now"]
+    if case != "at-once":
+        f.state["now"] = gate_at + timedelta(seconds=61)
+    if case == "61s-new-snapshot":
+        _readiness_at(f, f.state["now"])
+    elif case == "older-snapshot":
+        _readiness_at(f, gate_at - timedelta(seconds=5))
+        f.state["now"] = gate_at + timedelta(seconds=1)
+    elif case == "one-component-older":  # sangmu1126 #565 P2: only the target moves back
+        f.state["now"] = gate_at + timedelta(seconds=1)
+        _readiness_at(f, f.state["now"], target_at=gate_at - timedelta(seconds=5))
+    elif case == "other-db-pair":
+        _readiness_at(f, f.state["now"], source="other-db-source")
+    if case in ("at-once", "61s-new-snapshot"):
+        binding = current_binding(f)
+        assert f.cutover.approve(f.principal, f.plan.plan_id, binding=binding, expected_version=f.version,
+                                 command_key="moving-" + case)["approval_id"]
+        assert _count(f, "gate-reevaluated-") >= 1
+    else:
+        with pytest.raises((EventError, GateError)):
+            current_binding(f)
+        assert _count(f, "gate-reevaluated-") == 0
+    assert _count(f, "gate-security-report-") == 1  # the signed GATE original is kept
+
+
+def test_outside_the_shift_check_every_reader_sees_the_gate_report(flow):
+    """sangmu1126 #565 P1: a recorded re-evaluation never replaces the GATE report for other
+    consumers (console projection); it is served only inside served_reevaluation."""
+    f = flow
+    f.state["now"] += timedelta(seconds=1)
+    current_binding(f)
+    assert _count(f, "gate-reevaluated-") >= 1
+    with f.store._transaction(write=True, plan_id=f.plan.plan_id) as c:
+        plan = dict(c.execute("SELECT * FROM plans WHERE plan_id=?", (f.plan.plan_id,)).fetchone())
+        view = f.records.view(c, f.principal, plan)
+        served = view.report_provider(f.principal.subject_id, view.context)
+        stored = c.execute("SELECT receipt_json FROM plan_commands WHERE command_key LIKE ?",
+                           ("gate-security-report-%",)).fetchone()["receipt_json"]
+        assert served.document == json.loads(stored)
+        assert view.reevaluation_authority(view.context, served.fingerprint) is None

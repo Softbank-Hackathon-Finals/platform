@@ -28,7 +28,7 @@ CONTROLLER = "system:serviceaccount:bravo-gitops:bravo-gitops-application-contro
 HOST = {"image": {"digest": "sha256:" + "a" * 64}, "sourceRevision": "b" * 40,
         "configuration": {"existingConfigMap": "host-config", "sha256": "c" * 64},
         "reader": {"existingConfigMap": "reader-config", "catalogClaim": "existing-catalog"},
-        "recordsClaim": "t15-records", "secrets": {"catalogKey": "existing-key", "host": "t15-host"},
+        "recordsClaim": "t15-records", "secrets": {"catalogKey": "existing-key", "host": "t15-host", "executor": "t15-executor"},
         "hostAliases": [{"ip": "43.202.75.96", "hostnames": ["sts.ap-northeast-2.amazonaws.com"]}]}
 
 

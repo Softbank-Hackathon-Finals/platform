@@ -70,6 +70,9 @@ spec:
             {{- if .Values.secrets.githubApp }}
             - {name: github-app, mountPath: /github-app, readOnly: true}
             {{- end }}
+            {{- if .Values.secrets.applyKubeconfig }}
+            - {name: apply-kubeconfig, mountPath: /t31, readOnly: true}
+            {{- end }}
             - {name: state, mountPath: /workflow-state}
             - {name: tmp, mountPath: /tmp}
       volumes:
@@ -118,6 +121,14 @@ spec:
             defaultMode: 0440
             items:
               - {key: private-key.pem, path: private-key.pem}
+        {{- end }}
+        {{- if .Values.secrets.applyKubeconfig }}
+        - name: apply-kubeconfig
+          secret:
+            secretName: {{ .Values.secrets.applyKubeconfig }}
+            defaultMode: 0440
+            items:
+              - {key: kubeconfig, path: kubeconfig}
         {{- end }}
         - name: state
           persistentVolumeClaim:

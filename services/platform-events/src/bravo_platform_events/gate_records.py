@@ -7,11 +7,14 @@ permission, expiry and readiness providers at evaluation and consumption.
 
 import hashlib
 import json
+from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import asdict, replace
+from datetime import timedelta
 
 from bravo_gate.combined import CombinedGateService
-from bravo_gate.contract import T5Contract, canonical
-from bravo_gate.models import GateContext, RunSnapshot, identity
+from bravo_gate.contract import T5Contract, canonical, time
+from bravo_gate.models import GateContext, RunSnapshot, VerifiedAuthority, identity
 from bravo_gate.t10 import PlanGateSession, T10GateAuthority
 
 from .cutover import CurrentCutover
@@ -38,6 +41,69 @@ def _put(c, plan_id, kind, ref, value):
         return
     c.execute("INSERT INTO plan_commands VALUES (?,?,?,?)",
               (plan_id, _key(kind, ref), "{}", _canonical(value)))
+
+
+_SERVED = ContextVar("bravo_gate_reevaluation", default=None)
+
+
+def _readiness_scope(service, actor, context):
+    """What a re-evaluation must keep from GATE, and when each readiness component was observed."""
+    binding = service.binding_provider(actor, context)
+    snapshot = service.snapshot_provider(actor, context, binding)
+    # The same binding check as CombinedGateService._load: judge the snapshot that was evaluated.
+    if snapshot.ref != binding.snapshot_ref or snapshot.fingerprint != binding.snapshot_digest:
+        raise EventError("gate_reevaluation_scope_changed")
+    doc = snapshot.document
+    observed = {side: doc[side]["observed_at"] for side in ("source", "target", "replication")}
+    observed |= {"sequence:" + row["table"] + "." + row["column"]: row["observed_at"] for row in doc.get("sequences", [])}
+    return {"binding": binding.fingerprint, "policy": binding.policy.fingerprint,
+            "source_database_ref": binding.source_database_ref, "target_database_ref": binding.target_database_ref,
+            "snapshot_ref": binding.snapshot_ref, "snapshot_digest": binding.snapshot_digest, "observed": observed}
+
+
+@contextmanager
+def served_reevaluation(c, plan_id, session, principal):
+    """SHIFT/cutover re-evaluation under the caller's plan lock (sangmu1126 #565 ①②).
+
+    Passes only if the fresh combined report is PASS for the same context, the readiness binding
+    keeps GATE's policy and database pair, and its snapshot is not older than GATE's (snapshot
+    ref/digest may change and are recorded). Inside the block, and only for this transaction, the
+    fresh security report is the registered result with platform provenance; everything else keeps
+    seeing the signed GATE report.
+    """
+    ctx = session.context
+    fresh = session.service.evaluate(principal.subject_id, session.context_id, approval_ids=session.approval_ids)
+    if fresh.get("decision") != "PASS" or fresh.get("context_digest") != ctx.fingerprint:
+        raise EventError("gate_reevaluation_blocked")
+    now = _readiness_scope(session.service, principal.subject_id, ctx)
+    gate = _get(c, plan_id, "readiness-scope", ctx.gate_id)
+    if gate is None:
+        # GATE recorded without its scope (earlier GATE or another composition): the GATE report's
+        # binding digest still decides. The same binding means the same policy, DB pair and snapshot.
+        if session.report.document.get("readiness_binding_digest") != now["binding"]:
+            raise EventError("gate_readiness_scope_unavailable")
+        gate = now
+    if (any(now[key] != gate[key] for key in ("policy", "source_database_ref", "target_database_ref"))
+            or fresh.get("readiness_binding_digest") != now["binding"]):
+        raise EventError("gate_reevaluation_scope_changed")
+    # Every component (source, target, replication, each sequence) must be at least as new as at
+    # GATE; one component moving back is an older observation (sangmu1126 #565 P2).
+    if (set(now["observed"]) != set(gate["observed"])
+            or any(time(now["observed"][key]) < time(gate["observed"][key]) for key in gate["observed"])):
+        raise EventError("gate_reevaluation_snapshot_older")
+    record = {"kind": "platform-reevaluation.v1", "gate_report_ref": ctx.gate_id,
+              "inputs": {"context": ctx.fingerprint, "runs": [ctx.source_digest, ctx.target_digest],
+                         "exceptions": list(session.approval_ids), "binding": now["binding"]},
+              "snapshot": {"ref": now["snapshot_ref"], "digest": now["snapshot_digest"]}, "report": fresh}
+    key = ("gate-reevaluated-" + hashlib.sha256(ctx.gate_id.encode()).hexdigest()[:32] + "-"
+           + fresh["evaluated_at"] + "-" + hashlib.sha256(_canonical(record).encode()).hexdigest()[:16])
+    if c.execute("SELECT 1 FROM plan_commands WHERE plan_id=? AND command_key=?", (plan_id, key)).fetchone() is None:
+        c.execute("INSERT INTO plan_commands VALUES (?,?,?,?)", (plan_id, key, "{}", _canonical(record)))
+    token = _SERVED.set((c, plan_id, ctx.gate_id, fresh))
+    try:
+        yield fresh
+    finally:
+        _SERVED.reset(token)
 
 
 def _current(c, plan_id):
@@ -146,7 +212,7 @@ class GateRecords:
                     or doc["environment"]["id"] != spec[side + "_environment_id"]):
                 raise EventError("gate_run_scope_mismatch")
             _put(c, plan_id, "run", snapshot.ref,
-                 dict(side=side, document=doc, digest=snapshot.fingerprint))
+                 dict(side=side, document=doc, digest=snapshot.fingerprint, ref=snapshot.ref))
         return dict(ref=snapshot.ref, digest=snapshot.fingerprint)
 
     def read_run(self, connection, principal, plan, ref):
@@ -254,8 +320,12 @@ class GateRecords:
             if (document["context_digest"] != view.context.fingerprint
                     or document["security"]["gate_id"] != view.context.gate_id):
                 raise EventError("gate_report_scope_mismatch")
+            scope = _readiness_scope(service, principal.subject_id, view.context)
+            if scope["binding"] != document["readiness_binding_digest"]:
+                raise EventError("gate_report_scope_mismatch")
             _put(c, plan_id, "security-report", view.context.gate_id, document["security"])
             _put(c, plan_id, "combined-report", view.context.gate_id, document)
+            _put(c, plan_id, "readiness-scope", view.context.gate_id, scope)
             return document
 
 
@@ -299,8 +369,27 @@ class GateRecordView:
 
     def report_provider(self, actor, context):
         self._check(actor, context)
-        doc = _get(self.c, self.plan["plan_id"], "security-report", context.gate_id)
+        served = self._served(context)
+        doc = (served["security"] if served is not None
+               else _get(self.c, self.plan["plan_id"], "security-report", context.gate_id))
         return RunSnapshot(context.gate_id, canonical(doc)) if doc is not None else None
+
+    def _served(self, context):
+        """The platform re-evaluation, only inside served_reevaluation for this transaction."""
+        value = _SERVED.get()
+        if value is None or value[0] is not self.c or value[1:3] != (self.plan["plan_id"], context.gate_id):
+            return None
+        return value[3]
+
+    def reevaluation_authority(self, context, subject):
+        """Provenance of a platform re-evaluation (sangmu1126 #565 ②): the server record computed in
+        this transaction from inputs that each passed their own signature checks. Never exported as a
+        signed gate-result; outside served_reevaluation this returns None."""
+        served = self._served(context)
+        if served is None or RunSnapshot(context.gate_id, canonical(served["security"])).fingerprint != subject:
+            return None
+        return VerifiedAuthority(context.fingerprint, subject, "gate-result",
+                                 time(served["evaluated_at"]) + timedelta(seconds=60))
 
     def cutover_binding(self, binding):
         """Add the stored phase to the host's current human-approval binding.

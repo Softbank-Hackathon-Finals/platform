@@ -190,6 +190,15 @@ def integrity_reader(c, plan, previous, run):
     return _evidence(plan, "integrity-" + run.execution_id, Integrity(run, matched))
 
 
+def pending_retest(_store):
+    """WATCH `retest` port until T14 ships a post-cutover control retest: always UNKNOWN.
+
+    ponytail: WATCH records the T36 verdict but never reaches DONE on SLI alone; a FAIL still leads
+    to the operator's FAILBACK. Replace with the T14 factory when it exists.
+    """
+    return lambda c, plan, run: "UNKNOWN"
+
+
 def watch_reader(*, observe, retest):
     """observe(c, plan, run) and retest(c, plan, run) return PASS/FAIL/UNKNOWN from T36 and T19."""
     if not callable(observe) or not callable(retest):
