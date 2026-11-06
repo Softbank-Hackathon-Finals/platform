@@ -34,5 +34,7 @@ if __name__ == "__main__":
         if len(sys.argv) != 2:
             raise ValueError()
         main(sys.argv[1], "/etc/bravo-subscription/product-reader.json")
-    except Exception:
-        raise SystemExit("initial host startup unavailable") from None
+    except Exception as error:
+        from .startup import reason
+
+        raise SystemExit("initial host startup unavailable:" + reason(error)) from None

@@ -77,7 +77,7 @@ def test_old_schema_rejected_before_reader_construction(pg_backend):
 
 def test_missing_tls_refuses_before_database_and_does_not_print_inputs(tmp_path, monkeypatch, capsys):
     monkeypatch.setattr(product_read_server, "runtime_connection", lambda: pytest.fail("unexpected credential read"))
-    with pytest.raises(SystemExit, match="^product_read_startup_unavailable$"):
+    with pytest.raises(SystemExit, match=r"^product_read_startup_unavailable:[A-Za-z]+(:[A-Za-z0-9_.]+)?$"):
         product_read_server.main(["--config", str(tmp_path / "PRIVATE_SENTINEL"), "--initial-proposal",
                                   "--tls-cert", "/missing/cert", "--tls-key", "/missing/key"])
     assert "PRIVATE_SENTINEL" not in capsys.readouterr().out

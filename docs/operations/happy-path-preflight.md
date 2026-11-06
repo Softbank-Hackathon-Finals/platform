@@ -72,6 +72,10 @@ Executor ingress(호스트에서만).
 ```
 
 - `workflow_sha`는 demo-chat #25(run-name) 병합 뒤 main(`3a1a9135…`)으로 고정한다. T7 워크플로가 바뀌면 다시 검토해 갱신한다.
+- 고정 선택(`selections_dir`)은 폴더가 없어도 된다. ConfigMap 마운트는 하위 폴더를 만들 수 없으므로, 같은 ConfigMap에
+  `selections__<request_id>.json` 키로 두면 `/workflow/selections/<request_id>.json`과 같게 읽는다.
+- 서버가 시작하지 못하면 종료 메시지에 원인 코드(예외 이름·빠진 모듈·식별자 코드)가 붙는다. 이미지 빌드는
+  진입점의 import 폐포(`scripts/image_import_closure.py`)가 빠진 모듈 없이 닫혀야 통과한다.
 - `runtime_source_sha`는 Reader 이미지 고정값(`product-reader-image.json`)의 `sourceRevision`이다. `run.py`가 같은
   값으로 접수하고 `collect`도 같은 값을 출력한다(저장 결과와 접수 의도가 결속). 그래서 Reader 고정값이 바뀌면 다시 맞춘다.
 - App 권한은 contents·pull_requests·actions 쓰기 + metadata 읽기, 설치는 demo-chat만.

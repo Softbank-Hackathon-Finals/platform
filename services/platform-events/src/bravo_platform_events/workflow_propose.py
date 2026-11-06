@@ -9,6 +9,7 @@ the do-not-merge candidate PR and dispatches the reviewed T7 workflow, which bui
 """
 
 import json
+import re
 from pathlib import Path
 
 from .candidate_publication import PublicationSelection, prepare_publication, publication_request_id
@@ -16,18 +17,28 @@ from .cutover import _get
 from .initial_proposal import InitialProposalExecution, _admission_key
 from .store import EventError
 
+_PIN_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,254}")
+
 
 def pinned_selections(directory):
-    """Protected mount: <publication_request_id>.json per reviewed T7 run. None when absent."""
+    """<publication_request_id>.json per reviewed T7 run; None when there is no pin for a run.
+
+    The pins live under a logical folder, but a ConfigMap mount cannot hold a folder tree. So a
+    pin is read from the real tree (<dir>/<id>.json) or from the flat mount of the parent
+    (<parent>/<dirname>__<id>.json, a ConfigMap key). A folder that is not mounted at all means
+    no pins. Only plain ids are looked up, so a request id can never leave the mount.
+    """
     root = Path(directory)
-    if not root.is_absolute() or not root.is_dir():
+    if not root.is_absolute() or root.name in ("", ".", ".."):
         raise ValueError("publication_selection_mount_required")
 
     def select(request_id):
-        path = root / f"{request_id}.json"
-        if not path.is_file():
+        if not isinstance(request_id, str) or _PIN_ID.fullmatch(request_id) is None or ".." in request_id:
             return None
-        return PublicationSelection(**json.loads(path.read_text()))
+        for path in (root / f"{request_id}.json", root.parent / f"{root.name}__{request_id}.json"):
+            if path.is_file():
+                return PublicationSelection(**json.loads(path.read_text()))
+        return None
 
     return select
 

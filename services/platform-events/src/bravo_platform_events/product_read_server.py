@@ -101,8 +101,10 @@ def main(argv=None):
         connection_checks(connection)
         app = load_initial_app(PostgresPlanStore(connection),
                                lambda store: configured_initial_reader(store, args.config))
-    except Exception:
-        raise SystemExit("product_read_startup_unavailable") from None
+    except Exception as error:
+        from .startup import reason
+
+        raise SystemExit("product_read_startup_unavailable:" + reason(error)) from None
     uvicorn.run(app, host="0.0.0.0", port=8443, workers=1,
         ssl_certfile=args.tls_cert, ssl_keyfile=args.tls_key, access_log=False,
         proxy_headers=False, server_header=False, limit_concurrency=16, timeout_keep_alive=5)

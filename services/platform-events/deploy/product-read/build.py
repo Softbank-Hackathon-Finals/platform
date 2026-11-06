@@ -113,6 +113,9 @@ def prepare_context(context, revision, *, rehearsal_host=False):
     recipe = ("services/platform-events/deploy/approval/Dockerfile" if rehearsal_host
               else "services/platform-events/deploy/product-read/Dockerfile")
     (context / "Dockerfile").write_bytes(git("show", f"{revision}:{recipe}"))
+    # Every image fails its build when an entry point (lazy imports included) needs a module the
+    # context did not copy, instead of a Pod that starts and dies (#546 workflow host, bravo_apply).
+    (context / "image-import-closure.py").write_bytes(git("show", f"{revision}:scripts/image_import_closure.py"))
     return [{"path": str(p.relative_to(context)), "sha256": hashlib.sha256(p.read_bytes()).hexdigest()}
             for p in sorted(context.rglob("*")) if p.is_file()]
 
