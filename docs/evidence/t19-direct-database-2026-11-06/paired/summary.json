@@ -1,0 +1,85 @@
+{
+  "kind": "t19-paired-direct-schema-qualification.v1",
+  "qualification_only": true,
+  "operational_authority": false,
+  "same_context_digest": "ad9f7a4ecc6a73ecce1a53280220d24a7f82db2dcc8917704137793f0f201b53",
+  "same_policy_digest": "5d08e3f5e4db6149dfb7b16022ece7596ffa26c5abbcf8b79b25c3c21124fe0f",
+  "distinct_database_identities": true,
+  "schema_and_pk_equal": true,
+  "schema_rule": "db-sql-v1:fixed-session-text;columns-by-name;jsonb-array;utf8;sha256-of-row-sha256;pk-order-collate-c",
+  "observation_windows_overlap": true,
+  "overlap_seconds": 18.028712,
+  "live_gate_evaluated": false,
+  "data_rows_read": 0,
+  "business_writes": 0,
+  "sequence_changes": 0,
+  "replication_lag_observed": false,
+  "sequence_rehearsal_performed": false,
+  "operational_t19_complete": false,
+  "captures": {
+    "source": {
+      "observed_at": "2026-11-06T12:40:43.878220+00:00",
+      "expires_at": "2026-11-06T12:41:13.878220+00:00",
+      "tables": [
+        {
+          "name": "public.messages",
+          "primary_key": [
+            "id"
+          ],
+          "schema_hash": "04ecfc4767b1031be2b23c59a0118da2b066de9d3f619e61efaae061e07c2672"
+        },
+        {
+          "name": "public.attachments",
+          "primary_key": [
+            "id"
+          ],
+          "schema_hash": "af32aaa714ff9498587e5c4f7b5d5f6dfb2f38559b526f7c6540a69c84d7adf8"
+        }
+      ],
+      "errors": [],
+      "direct_database_identity_verified": true,
+      "raw_sha256": "8f59a0239575d1b9e4faa49f46687c978fe1447082ffc2a7fc92359bb4ac7dfd",
+      "cleanup_at": "2026-11-06T12:41:00.591167+00:00",
+      "resources_confirmed_absent": 3,
+      "runtime": {
+        "implementation": "python",
+        "libpq": 180004,
+        "machine": "x86_64",
+        "psycopg": "3.3.7",
+        "python": "3.13.5"
+      }
+    },
+    "target": {
+      "observed_at": "2026-11-06T12:40:31.906932+00:00",
+      "expires_at": "2026-11-06T12:41:01.906932+00:00",
+      "tables": [
+        {
+          "name": "public.messages",
+          "primary_key": [
+            "id"
+          ],
+          "schema_hash": "04ecfc4767b1031be2b23c59a0118da2b066de9d3f619e61efaae061e07c2672"
+        },
+        {
+          "name": "public.attachments",
+          "primary_key": [
+            "id"
+          ],
+          "schema_hash": "af32aaa714ff9498587e5c4f7b5d5f6dfb2f38559b526f7c6540a69c84d7adf8"
+        }
+      ],
+      "errors": [],
+      "direct_database_identity_verified": true,
+      "raw_sha256": "249ccf28ccac72497bfc8ff4d048c7368563eff4451101a266ef16ba447c6a11",
+      "cleanup_at": "2026-11-06T12:40:40.922777+00:00",
+      "resources_confirmed_absent": 3,
+      "runtime": {
+        "implementation": "python",
+        "libpq": 180004,
+        "machine": "aarch64",
+        "psycopg": "3.3.7",
+        "python": "3.13.5"
+      }
+    }
+  }
+}
