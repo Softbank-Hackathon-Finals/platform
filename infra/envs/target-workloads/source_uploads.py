@@ -1,5 +1,13 @@
 #!/usr/bin/env python3
-"""Stop (or restore) attachment uploads on the source demo-chat app, keeping its write switch.
+"""Source demo-chat switches for the happy path: open writes at S0, stop uploads before the T8 copy.
+
+`open-writes` (S0, T8 owner): the source must run normally until the move, but a new source Pod
+starts with WRITE_BLOCKED=true. It opens every source Pod only when the target write switch reads
+`closed` and the target app role cannot log in (write_switch.py status), so at most one DB takes
+business writes. A Pod that does not end open closes every Pod again. Closing for the cutover is the
+Executor's job (write_pause_budget_ms); this tool never closes writes on its own.
+
+`stop` / `restore`:
 
 Happy-path step s3-attachment-copy begins with "업로드 중지": the copy Job cannot see uploads that
 arrive after it starts. The source image (demo-chat 8d82a92) reads ATTACHMENT_UPLOAD_ENABLED only
@@ -9,8 +17,8 @@ reads the write switch first, changes the env, waits for the rollout and then pu
 to the value it read: open stays open, blocked stays blocked. It never opens a blocked source.
 
 The switch is called inside each Pod with that Pod's own ADMIN_TOKEN, as write_switch.py does. The
-token never appears in arguments, output or files. `stop` and `restore` append one JSON line to
---record (times and Pod names for the run log) and print the same line.
+token never appears in arguments, output or files. Every action but `status` appends one JSON line
+to --record (times and Pod names for the run log) and prints the same line.
 Exit codes: 0 done, 1 a state was wrong, 2 input error, 3 a state could not be confirmed.
 """
 import argparse
@@ -19,6 +27,8 @@ import subprocess
 import sys
 from datetime import UTC, datetime
 from pathlib import Path
+
+HERE = Path(__file__).resolve().parent
 
 PASSED, FAILED, INPUT_ERROR, UNKNOWN = 0, 1, 2, 3
 NAMESPACE, DEPLOYMENT, SELECTOR, CONTAINER = "source-dev", "demo-chat", "app=demo-chat", "app"
@@ -155,14 +165,58 @@ def change(kubectl, enabled, result):
                      f"(before blocked={before['write_blocked']}, now blocked={after['write_blocked']})")
 
 
-def main(argv=None, kubectl=None):
+def target_status_with(python=sys.executable):
+    """write_switch.py status on the target, as the dict it prints. Read-only."""
+    def read(kubeconfig):
+        command = [python, str(HERE / "write_switch.py"), "status", "--kubeconfig", kubeconfig]
+        try:
+            result = subprocess.run(command, capture_output=True, text=True, timeout=120, check=False)
+            return json.loads(result.stdout.strip().splitlines()[-1])
+        except (OSError, subprocess.TimeoutExpired, ValueError, IndexError):
+            raise Unknown("target write switch could not be read") from None
+    return read
+
+
+def open_writes(kubectl, target_status, target_kubeconfig, result):
+    """Open every source Pod, only while the target cannot take writes. Fills `result`."""
+    result["requested_at"] = now()
+    target = target_status(target_kubeconfig)
+    result["target_state"] = target.get("state")
+    if target.get("state") != "closed" or target.get("checks", {}).get("target_app_role") != "nologin":
+        raise Failed(f"target is not closed (state={target.get('state')}, "
+                     f"app role={target.get('checks', {}).get('target_app_role')}); source stays as it is")
+    pods, states = read_state(kubectl)
+    before = agreed(states)
+    result.update(before=before, pods_before=pods)
+    if not before["write_blocked"]:
+        result.update(unchanged=True, after=before, writes_opened_at=None)
+        return
+    refused = [name for name in pods if in_pod(kubectl, name, "open").get("status") != 200]
+    if refused:
+        for name in pods:
+            in_pod(kubectl, name, "close")
+        raise Failed(f"{', '.join(refused)} refused to open; every source Pod was closed again")
+    result["writes_opened_at"] = now()
+    _, states = read_state(kubectl)
+    result["after"] = agreed(states)
+    if result["after"]["write_blocked"]:
+        for name in pods:
+            in_pod(kubectl, name, "close")
+        raise Failed("source did not read back open; every source Pod was closed again")
+
+
+def main(argv=None, kubectl=None, target_status=None):
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("action", choices=["status", "stop", "restore"])
+    parser.add_argument("action", choices=["status", "open-writes", "stop", "restore"])
     parser.add_argument("--kubeconfig", help="source EKS kubeconfig")
-    parser.add_argument("--record", type=Path, help="append-only run record (required for stop/restore)")
+    parser.add_argument("--target-kubeconfig", help="target RKE2 kubeconfig (required for open-writes)")
+    parser.add_argument("--record", type=Path, help="append-only run record (required except for status)")
     args = parser.parse_args(argv)
     if args.action != "status" and not args.record:
-        print(json.dumps({"error": "--record is required for stop and restore"}))
+        print(json.dumps({"error": "--record is required for open-writes, stop and restore"}))
+        return INPUT_ERROR
+    if args.action == "open-writes" and not args.target_kubeconfig:
+        print(json.dumps({"error": "--target-kubeconfig is required for open-writes"}))
         return INPUT_ERROR
     kubectl = kubectl or kubectl_with(args.kubeconfig)
     result = {"action": args.action}
@@ -171,6 +225,8 @@ def main(argv=None, kubectl=None):
         if args.action == "status":
             _, states = read_state(kubectl)
             result["pods"] = states
+        elif args.action == "open-writes":
+            open_writes(kubectl, target_status or target_status_with(), args.target_kubeconfig, result)
         else:
             change(kubectl, args.action == "restore", result)
     except Failed as error:
