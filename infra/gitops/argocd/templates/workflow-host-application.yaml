@@ -1,7 +1,7 @@
 {{- if .Values.workflowHost.enabled }}
 {{- range $key, $_ := .Values.workflowHost.runtime }}
-{{- if not (has $key (list "configuration" "reader" "stateClaim" "secrets" "interval")) }}
-{{- fail "runtime input may contain only configuration, reader, stateClaim, secrets and interval" }}
+{{- if not (has $key (list "configuration" "reader" "stateClaim" "secrets" "interval" "application")) }}
+{{- fail "runtime input may contain only configuration, reader, stateClaim, secrets, interval and application" }}
 {{- end }}
 {{- end }}
 {{- if not .Values.workflowHost.runtime.configuration }}

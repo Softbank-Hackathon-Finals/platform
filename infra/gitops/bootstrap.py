@@ -57,7 +57,7 @@ def verify_initial_proposal(value):
         raise ValueError("initial_proposal_public_ca_required")
 
 
-WORKFLOW_KEYS = {"configuration", "reader", "stateClaim", "secrets", "interval"}
+WORKFLOW_KEYS = {"configuration", "reader", "stateClaim", "secrets", "interval", "application"}
 
 
 def verify_workflow_host(get, host):
@@ -89,6 +89,16 @@ def verify_workflow_host(get, host):
         get("pvc", claim, "platform-state")
     for name in {v for v in runtime["secrets"].values() if v}:
         get("secret", name, "platform-state")
+    # T31 apply (optional): apply.json beside ports.json and the receipt PVC must exist. The target
+    # kubeconfig Secret is mounted optional; until it exists REHEARSE holds by name.
+    application = runtime.get("application")
+    if application is not None:
+        if (type(application) is not dict or set(application) != {"targetKubeconfigSecret", "receiptsClaim"}
+                or not all(isinstance(v, str) and v for v in application.values())):
+            raise ValueError("workflow_host_application_fields_required")
+        if "apply.json" not in config.get("data", {}):
+            raise ValueError("workflow_host_apply_config_required")
+        get("pvc", application["receiptsClaim"], "platform-state")
     image = json.loads((ROOT / "infra/gitops/environments/development/registration-image.json").read_text())
     if not re.fullmatch(r"sha256:[0-9a-f]{64}", image["image"]["digest"]):
         raise ValueError("published_registration_image_required")

@@ -11,6 +11,7 @@
 | `policy.py` | 버킷 정책 분기: 승인 정책 → T9 노출 상태 번역, T9 렌더러로 `s3.json` closed 생성, Secret 교체 · 워크로드 재시작 · 익명/서명 GET 관찰 |
 | `path.py` | `apply(application_id, …)` · `get_result(application_id, receipts_dir)`. 결속 → (정책 번역) → STARTED 기록 → 배포 또는 정책 반영 → 게이트 재대조 요청. 결과는 스키마 검증, application_id당 기록 하나 |
 | `cli.py` | `bravo-apply check / run / get-result / diff-hash` |
+| `workflow_factory.py` | T10 워크플로 호스트의 `application` factory. 마운트된 목적지 kubeconfig · 영수증 PVC로 `ApplicationHost`를 만들고, 없으면 이름 붙은 hold([아래](#워크플로-호스트에서-실행-workflow_factorypy)) |
 | `schemas/apply-result.schema.json` | 결과·기록 v1.2 (결과별 · 변경 종류별 필드 조건 포함). v1.1 기록도 그대로 읽는다 |
 
 ## 경로
@@ -162,10 +163,32 @@ bravo-apply run --application-id <id> --claim claim.json --proposal proposal.jso
 - 적용은 strategic merge patch로 컨테이너 이미지 하나만 바꾼다. GitOps · Helm은 본선 뒤 확장안.
 - 버킷 정책 변경은 앱 이미지를 그대로 두고 `policy_digest`로 따로 결속한다. 목적지 반영은 T9 렌더러가 만든 `s3.json` closed로 Secret 하나를 교체하는 것뿐이며, 판정은 반영 뒤 익명 · 앱 자격 GET 관찰이다(ADR-0021 8절).
 
+## 워크플로 호스트에서 실행 (`workflow_factory.py`)
+
+T10 워크플로 호스트(`infra/charts/workflow-host`)의 `ports.json`에 `"application": "bravo_apply.workflow_factory:application"`을 넣으면 이 함수가 REHEARSE · GATE 준비 함수를 만든다. 설정은 같은 ConfigMap의 `/workflow/apply.json`(파일 경로만, 비밀 값 없음)이다.
+
+| 키 | 값 |
+|---|---|
+| `kubeconfig_file` | `/var/run/secrets/bravo-t31-target/kubeconfig`. 차트 `application.targetKubeconfigSecret`의 `kubeconfig` 키. 목적지 네임스페이스 한정 반영 identity만 |
+| `receipts_dir` | `/var/lib/bravo/t31/applications`. 차트 `application.receiptsClaim` PVC(platform-state, `apply-host/render.py --namespace platform-state`) |
+| `target` | `environment_id` · `namespace` · `deployment` · `container` · `repository`(태그 · digest 없이) |
+| `host_subject` | 호스트의 운영자 identity(`apply_change` 권한을 따로 받는다) |
+| `trusted_ports` | `module:factory(store)` — T10/T15/T19 담당이 검토한 배포 코드. `candidate`(접수 → 승인 제안서 · diff 바이트), `check_current`, 선택 `current_change`(기본 `ChangeIntake.current`), 선택 `gate`(`records` · `prepare` · `service_factory` · `load_gate`, 없으면 GATE는 `workflow_reader_unwired`) |
+
+반영 대상 · 클러스터 자격 · 영수증 볼륨은 이 파일에서만 오고 `trusted_ports`가 바꿀 수 없다. 실패는 닫힌 쪽이다.
+
+| 상황 | 결과 |
+|---|---|
+| kubeconfig 없음 · 읽기 실패 · 빈 파일 · current-context 없음 · https 아님 · `insecure-skip-tls-verify` · 사용자 자격 없음 · 컨텍스트 네임스페이스가 `target.namespace`와 다름 | REHEARSE hold `t31_target_kubeconfig_unavailable`. `KubectlKube`를 만들지 않는다. 다음 sweep마다 다시 확인하므로 Secret이 나중에 생기면 재시작 없이 진행 |
+| kubectl 없음 / 영수증 PVC 마운트 없음 / 다른 프로세스가 영수증 잠금 보유 | `t31_kubectl_unavailable` / `t31_receipts_mount_unavailable` / `t31_application_host_locked` |
+| `apply.json` 없음 · 형식 오류, `trusted_ports` 오류 | 기동 실패(`workflow_host_startup_unavailable:ValueError:t31_…`) |
+
+Pod 자신의 Kubernetes identity로 넘어가지 않는다: 차트는 SA 토큰을 마운트하지 않고(`automountServiceAccountToken: false`), `KubectlKube`는 kubectl 실행 환경에서 `KUBERNETES_SERVICE_HOST/PORT` · `KUBECONFIG`를 지운다(빈 kubeconfig에서 client-go가 in-cluster 설정을 쓰는 경로 차단). kubectl은 registration 이미지에 리허설 호스트와 같은 고정 빌드(`operations/kubectl`, `v1.35.10-bravo.1`)로 들어가고 이미지 빌드가 버전을 확인한다. 목적지 API egress는 `infra/envs/apply-host/network.py`(DNS + Tailscale 프록시 443 또는 등록 CIDR 하나)다.
+
 ## 남은 일 · 한계
 
 - 실제 RKE2 목적지에서 `KubectlKube` 적용 · rollout · digest 확인 실측(T30의 demo-chat Deployment #210 병합 뒤). 로컬 kind 실측만 있다.
-- T10 연결: 호출 규칙(1회 `apply`, 이후 `get_result`)은 합의했고 이 패키지가 두 진입점을 제공한다. T10 쪽 호출 코드와 영수증 디렉터리의 영속 배치(볼륨 · 실행 위치)는 남았다.
+- T10 연결: 호출 규칙(1회 `apply`, 이후 `get_result`)은 합의했고 이 패키지가 두 진입점과 워크플로 호스트 factory를 제공한다. 남은 것: `trusted_ports`의 실제 구현(T15 후보 · T19 재대조), 목적지 반영 identity 발급과 그 kubeconfig Secret · 영수증 PVC 생성, NetworkPolicy 적용(배포 담당).
 - UNKNOWN의 자동 재조정(live Deployment 읽기 대조)은 하지 않는다. 사람이 본다.
 - 게이트 재대조는 요청 객체만 만든다. T19 호출 경로는 제어 평면이 연결한다.
 - T24 기록: 결과 `steps`를 `source=executor`가 아닌 별도 source로 둘지 T24 계약에서 정한다.

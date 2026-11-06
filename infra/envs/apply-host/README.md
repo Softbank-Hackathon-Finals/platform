@@ -28,6 +28,19 @@ APPLIED를 소비하면 GATE로 이동한다. 이때 `GateRecheck.evaluate`를 �
 요청된 세 통제의 목록은 PASS가 아니다. 대상 run 시작·각 증거 수집 시각이 반영 완료보다
 이전이면 거부한다. 기존 유효한 재대조는 `prepare`가 application_id로 재사용한다.
 
+## 워크플로 호스트에서 실행
+
+T10 워크플로 호스트(`platform-state/t10-workflow-host`)가 반영을 직접 할 때는 PVC가 그 Pod와 같은
+namespace에 있어야 한다. `render.py --node <노드> --namespace platform-state`로 만들고 차트
+`application.receiptsClaim`에 이름을 넣는다. 목적지 kubeconfig Secret(`kubeconfig` 키)은
+`application.targetKubeconfigSecret`이다. 둘 다 비어 있으면(기본) Pod는 이전과 같다. factory와 설정은
+[apply-path README](../../../services/apply-path/README.md#워크플로-호스트에서-실행-workflow_factorypy).
+
+`network.py --tailscale-proxy <ProxyGroup>`(또는 `--target-cidr <CIDR> --target-port <포트>`)는
+`bravo.dev/target-api-client=apply` 라벨이 붙은 호스트 Pod에만 DNS와 목적지 API를 연다. Tailscale
+경로면 `tailscale-system` 프록시의 수신 허용도 함께 만든다. GitOps는 NetworkPolicy를 관리하지 않으므로
+운영자가 다른 T7 tailnet 정책과 함께 적용한다.
+
 `probe.py`는 서로 다른 Pod에서 보존된 합성 marker와 파일 잠금만 확인한다.
 대상 자격·승인·반영·T19 PASS는 만들지 않는다. 실제 실행에는 위 신뢰된 입력과
 새 T15 검증/S2 승인이 필요하다. 이 저장소 검사는 운영 반영 완료 증명이 아니다.

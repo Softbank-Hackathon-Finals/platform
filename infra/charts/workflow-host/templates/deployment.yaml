@@ -3,6 +3,9 @@
 {{- if not .Values.reader.existingConfigMap }}{{ fail "reader.existingConfigMap (v2) is required" }}{{- end }}
 {{- if not .Values.stateClaim }}{{ fail "stateClaim is required" }}{{- end }}
 {{- if not .Values.secrets.executor }}{{ fail "secrets.executor is required" }}{{- end }}
+{{- $apply := .Values.application | default dict }}
+{{- if and (not $apply.targetKubeconfigSecret) $apply.receiptsClaim }}{{ fail "application.targetKubeconfigSecret and application.receiptsClaim are set together" }}{{- end }}
+{{- if and $apply.targetKubeconfigSecret (not $apply.receiptsClaim) }}{{ fail "application.targetKubeconfigSecret and application.receiptsClaim are set together" }}{{- end }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -26,6 +29,10 @@ spec:
         app.kubernetes.io/name: t10-workflow-host
         component: platform
         bravo.dev/db-client: runtime
+        {{- if $apply.targetKubeconfigSecret }}
+        # Selects the T31 target API egress (infra/envs/apply-host/network.py).
+        bravo.dev/target-api-client: apply
+        {{- end }}
       annotations:
         bravo.dev/reviewed-source: {{ .Values.sourceRevision | quote }}
         bravo.dev/config-sha256: {{ .Values.configuration.sha256 | quote }}
@@ -71,6 +78,10 @@ spec:
             - {name: github-app, mountPath: /github-app, readOnly: true}
             {{- end }}
             - {name: state, mountPath: /workflow-state}
+            {{- if $apply.targetKubeconfigSecret }}
+            - {name: target-kubeconfig, mountPath: /var/run/secrets/bravo-t31-target, readOnly: true}
+            - {name: t31-receipts, mountPath: /var/lib/bravo/t31}
+            {{- end }}
             - {name: tmp, mountPath: /tmp}
       volumes:
         - name: credential
@@ -122,5 +133,17 @@ spec:
         - name: state
           persistentVolumeClaim:
             claimName: {{ .Values.stateClaim }}
+        {{- if $apply.targetKubeconfigSecret }}
+        - name: target-kubeconfig
+          secret:
+            secretName: {{ $apply.targetKubeconfigSecret }}
+            optional: true
+            defaultMode: 0440
+            items:
+              - {key: kubeconfig, path: kubeconfig}
+        - name: t31-receipts
+          persistentVolumeClaim:
+            claimName: {{ $apply.receiptsClaim }}
+        {{- end }}
         - name: tmp
           emptyDir: {sizeLimit: 128Mi}

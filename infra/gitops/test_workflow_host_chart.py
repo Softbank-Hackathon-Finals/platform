@@ -59,6 +59,32 @@ class WorkflowHostChart(unittest.TestCase):
         pod = next(d for d in docs if d["kind"] == "Deployment")["spec"]["template"]["spec"]
         self.assertNotIn("github-app", {v["name"] for v in pod["volumes"]})
 
+    def test_t31_apply_mounts_are_off_by_default_and_added_only_together(self):
+        base = render(VALUES)[1]
+        explicit = render(VALUES | {"application": {"targetKubeconfigSecret": "", "receiptsClaim": ""}})[1]
+        self.assertEqual(base, explicit)
+        pod = next(d for d in base if d["kind"] == "Deployment")["spec"]["template"]
+        self.assertNotIn("bravo.dev/target-api-client", pod["metadata"]["labels"])
+        self.assertFalse({"target-kubeconfig", "t31-receipts"} & {v["name"] for v in pod["spec"]["volumes"]})
+        on = VALUES | {"application": {"targetKubeconfigSecret": "t31-target", "receiptsClaim": "t31-records"}}
+        result, docs = render(on)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        template = next(d for d in docs if d["kind"] == "Deployment")["spec"]["template"]
+        pod = template["spec"]
+        self.assertEqual(template["metadata"]["labels"]["bravo.dev/target-api-client"], "apply")
+        self.assertIs(pod["automountServiceAccountToken"], False)  # never the host's own API identity
+        volumes = {v["name"]: v for v in pod["volumes"]}
+        secret = volumes["target-kubeconfig"]["secret"]
+        self.assertEqual((secret["secretName"], secret["optional"], secret["items"]),
+                         ("t31-target", True, [{"key": "kubeconfig", "path": "kubeconfig"}]))
+        self.assertEqual(volumes["t31-receipts"]["persistentVolumeClaim"]["claimName"], "t31-records")
+        mounts = {m["name"]: m for m in pod["containers"][0]["volumeMounts"]}
+        self.assertEqual(mounts["target-kubeconfig"]["mountPath"], "/var/run/secrets/bravo-t31-target")
+        self.assertTrue(mounts["target-kubeconfig"]["readOnly"])
+        self.assertEqual(mounts["t31-receipts"]["mountPath"], "/var/lib/bravo/t31")
+        for half in ({"targetKubeconfigSecret": "t31-target"}, {"receiptsClaim": "t31-records"}):
+            self.assertNotEqual(render(VALUES | {"application": half})[0].returncode, 0, half)
+
     def test_argo_application_is_disabled_by_default(self):
         result, docs = render({}, ROOT / "infra/gitops/argocd")
         self.assertEqual(result.returncode, 0, result.stderr)
@@ -124,6 +150,31 @@ class WorkflowHostChart(unittest.TestCase):
             bootstrap.verify_workflow_host(get, host)
         with self.assertRaisesRegex(ValueError, "fields"):
             bootstrap.verify_workflow_host(get, {"enabled": True, "runtime": {"configuration": {}}})
+
+    def test_bootstrap_t31_application_needs_apply_config_and_receipt_claim(self):
+        import bootstrap
+
+        relay = json.dumps({"job_principal": "b" * 64, "fence_principals": ["d" * 64]})
+        config = {"ports.json": "{}", "relay.json": relay, "apply.json": "{}"}
+        seen = []
+
+        def get(kind, name, namespace):
+            seen.append((kind, name))
+            data = {"workflow-config": config, "reader-config-v2": {"reader.json": json.dumps({"version": 2})}}
+            return {"metadata": {"name": name}, "data": data.get(name, {})}
+
+        runtime = {k: VALUES[k] for k in ("configuration", "reader", "stateClaim", "secrets")}
+        application = {"targetKubeconfigSecret": "t31-target", "receiptsClaim": "t31-records"}
+        bootstrap.verify_workflow_host(get, {"enabled": True, "runtime": runtime | {"application": application}})
+        self.assertIn(("pvc", "t31-records"), seen)
+        self.assertNotIn(("secret", "t31-target"), seen)  # optional mount: a missing Secret is a named hold
+        for bad in ({"targetKubeconfigSecret": "t31-target"}, {"targetKubeconfigSecret": "", "receiptsClaim": "r"},
+                    {"targetKubeconfigSecret": "t", "receiptsClaim": "r", "kubeconfig": "inline"}):
+            with self.assertRaisesRegex(ValueError, "application_fields"):
+                bootstrap.verify_workflow_host(get, {"enabled": True, "runtime": runtime | {"application": bad}})
+        del config["apply.json"]
+        with self.assertRaisesRegex(ValueError, "apply_config"):
+            bootstrap.verify_workflow_host(get, {"enabled": True, "runtime": runtime | {"application": application}})
 
     def test_bootstrap_initial_proposal_takes_only_a_public_ca(self):
         import bootstrap

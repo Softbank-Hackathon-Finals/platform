@@ -22,6 +22,17 @@ secrets:
   # private-key.pem of the bravo-platform-host GitHub App (optional: empty = operator pins only).
   githubApp: ""
   registry: platform-ghcr-reader
+# T31 apply from this host (ports.json "application": "bravo_apply.workflow_factory:application",
+# configured by apply.json in the same ConfigMap). Off by default: nothing is mounted and the Pod is
+# unchanged. Set both together. Without a usable kubeconfig REHEARSE holds by name
+# (t31_target_kubeconfig_unavailable); the host never uses its own (absent) API token.
+application:
+  # Secret with key `kubeconfig`: only the namespace-scoped apply identity on the target cluster.
+  # Mounted optional, so a missing Secret is a named hold, not a Pod that cannot start.
+  targetKubeconfigSecret: ""
+  # PVC in this namespace for the T31 receipts (Retain; apply-host/render.py). Mounted at
+  # /var/lib/bravo/t31; apply.json receipts_dir=/var/lib/bravo/t31/applications.
+  receiptsClaim: ""
 interval: 15
 resources:
   requests: {cpu: 50m, memory: 192Mi}
