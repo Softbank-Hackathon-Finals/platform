@@ -16,7 +16,7 @@ from bravo_gate.contract import GateError
 from bravo_gate.readiness import ReadinessPolicy, assess_readiness
 from bravo_gate.t13 import DatabaseRegistration, assemble_snapshot, collect_schema
 
-IMAGE = "public.ecr.aws/docker/library/postgres:18.4@sha256:a02db8cac496f15b094798a38254f14d6e00741f709360e5e00bb6668ea31636"
+IMAGE = "ghcr.io/softbank-hackathon-finals/ci-mirror/postgres:18.4@sha256:a02db8cac496f15b094798a38254f14d6e00741f709360e5e00bb6668ea31636"
 
 
 @pytest.fixture(scope="module")
