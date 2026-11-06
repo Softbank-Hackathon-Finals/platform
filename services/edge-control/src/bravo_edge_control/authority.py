@@ -7,6 +7,7 @@ approved workflow checkpoint; it cannot create a SHIFT state or approval.
 import json
 from dataclasses import asdict
 
+from bravo_gate.contract import canonical
 from bravo_gate.t10 import PlanGateSession
 from bravo_platform_events.operator_access import OperatorAccess
 
@@ -59,9 +60,21 @@ class ShiftAuthority:
                 or gate.get("gate_id") != ctx.gate_id
                 or gate.get("context_digest") != ctx.fingerprint):
             raise EdgeError("shift_gate_binding_mismatch")
+        # The stored GATE report is only valid for 60 s and AWAIT_APPROVAL can take hours (#532,
+        # sangmu1126 15:21Z): evaluate again with current records right before SHIFT and consume
+        # that report only if it is PASS and bound to the same context and readiness as the GATE
+        # report. Otherwise stop; no approval is revived or re-requested here.
+        stored = json.loads(session.report.raw)
+        fresh = session.service.evaluate(principal.subject_id, session.context_id,
+                                         approval_ids=session.approval_ids)
+        if (fresh.get("decision") != "PASS" or fresh.get("context_digest") != ctx.fingerprint
+                or fresh.get("readiness_binding_digest") != stored.get("readiness_binding_digest")):
+            raise EdgeError("shift_gate_reevaluation_blocked")
+        # A separate record next to (never over) the GATE report, so both judgements stay auditable.
+        _put(c, plan["plan_id"], _key("shift-gate-reevaluation", [self.run_id, fresh["evaluated_at"]]),
+             {"run_id": self.run_id, "gate_report_ref": session.report.ref}, fresh)
         verified = session.service.require_prerequisites(
-            principal.subject_id, session.context_id, session.report.raw,
-            approval_ids=session.approval_ids)
+            principal.subject_id, session.context_id, canonical(fresh), approval_ids=session.approval_ids)
         latest = self.load_session(c, principal, plan)
         if (not isinstance(latest, PlanGateSession)
                 or latest.fingerprint != session.fingerprint
