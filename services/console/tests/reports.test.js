@@ -1,6 +1,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { controlReport } from "../src/bravo_console/static/model.js";
+import {
+  controlReport,
+  controlReportMatches,
+} from "../src/bravo_console/static/model.js";
 import { snap as base, now } from "./fixtures.js";
 const snap = { ...base, profile_id: "demo-gate", profile_version: "1" };
 const gate = { data: { gate_id: "gate-one", context_digest: "e".repeat(64) } };
@@ -109,4 +112,79 @@ test("post-apply report uses the registered recheck profile and exact required t
       controlReport({ ...value, ...change }, current, gate, now),
     );
   assert.throws(() => controlReport(value, snap, gate, now));
+});
+
+test("authenticated initial comparison is visible before a workflow gate event", () => {
+  const current = { ...snap, state: "PROPOSE", version: 3 };
+  const value = {
+    ...report(),
+    plan_version: current.version,
+    plan_state: current.state,
+    decision: "BLOCK",
+  };
+  Object.assign(value.rows[0], {
+    target_verdict: "UNKNOWN",
+    decision: "BLOCK",
+    reason: "TARGET_UNKNOWN",
+  });
+  const visible = controlReport(value, current, null, now);
+  assert.equal(visible.decision, "BLOCK");
+  assert.equal(visible.authorizes_cutover, false);
+  assert.equal(visible.rows[0].target_verdict, "UNKNOWN");
+});
+
+for (const change of [
+  { plan_version: undefined },
+  { plan_state: undefined },
+  { plan_version: true },
+  { plan_version: -1 },
+  { plan_version: "3" },
+  { plan_version: 2 },
+  { plan_version: 4 },
+  { plan_state: "GATE" },
+  { plan_state: "UNKNOWN" },
+  { gate_phase: "post_apply", application_id: "applied-one" },
+  { application_id: "applied-one" },
+  { gate_id: "../gate" },
+  { context_digest: "not-a-digest" },
+  { authorizes_cutover: true },
+])
+  test(`initial comparison rejects invalid snapshot or phase: ${JSON.stringify(change)}`, () => {
+    const current = { ...snap, state: "PROPOSE", version: 3 };
+    const value = { ...report(), plan_version: 3, plan_state: "PROPOSE", ...change };
+    assert.throws(() => controlReport(value, current, null, now));
+  });
+
+test("an event-bound report cannot ignore its supplied snapshot revision", () => {
+  const value = { ...report(), plan_version: snap.version, plan_state: snap.state };
+  assert.deepEqual(controlReport(value, snap, gate, now), value);
+  assert.throws(() => controlReport({ ...value, plan_version: 2 }, snap, gate, now));
+  assert.throws(() => controlReport({ ...value, plan_state: "PROPOSE" }, snap, gate, now));
+});
+
+test("initial read model never replaces a conflicting event or a later workflow state", () => {
+  const current = { ...snap, state: "PROPOSE", version: 3 };
+  const value = { ...report(), plan_version: 3, plan_state: "PROPOSE" };
+  assert.throws(() => controlReport(value, current, { data: { ...gate.data, gate_id: "other" } }, now));
+  for (const state of ["AWAIT_APPROVAL", "SHIFT", "CUTOVER", "WATCH", "FAILBACK", "SAFE_HOLD", "NEEDS_HUMAN", "DONE", "DONE_ROLLED_BACK"])
+    assert.throws(() => controlReport({ ...value, plan_state: state }, { ...current, state }, null, now));
+  assert.throws(() => controlReport(report(), current, null, now));
+});
+
+test("cached initial comparison disappears when current scope changes", () => {
+  const current = { ...snap, state: "PROPOSE", version: 3 };
+  const value = { ...report(), plan_version: 3, plan_state: "PROPOSE" };
+  assert.equal(controlReportMatches(value, current, null), true);
+  for (const change of [
+    { plan_id: "other-plan" }, { plan_digest: "f".repeat(64) },
+    { source_environment_id: "other-source" }, { target_environment_id: "other-target" },
+    { profile_id: "full" }, { profile_version: "2" }, { version: 4 }, { state: "REHEARSE" },
+  ])
+    assert.equal(controlReportMatches(value, { ...current, ...change }, null), false);
+});
+
+test("a newly registered version-zero plan can display an initial comparison", () => {
+  const current = { ...snap, state: "COLLECT", version: 0 };
+  const value = { ...report(), plan_version: 0, plan_state: "COLLECT" };
+  assert.deepEqual(controlReport(value, current, null, now), value);
 });

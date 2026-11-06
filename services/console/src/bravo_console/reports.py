@@ -46,6 +46,10 @@ class PlanControlReport:
             not isinstance(registered, RegisteredGateDocument)
             or registered.plan_id != plan["plan_id"]
             or registered.plan_digest != plan["plan_digest"]
+            or type(plan.get("version")) is not int
+            or not 0 <= plan["version"] < 10**12
+            or not isinstance(plan.get("state"), str)
+            or not plan["state"]
             or type(registered.document) is not bytes
             or not 1 <= len(registered.document) <= 262144
         ):
@@ -99,6 +103,11 @@ class PlanControlReport:
             "kind": "console-control-report.v1",
             "plan_id": plan["plan_id"],
             "plan_digest": plan["plan_digest"],
+            # Bind this read projection to the snapshot authenticated before
+            # and after the read. Initial comparisons can exist before a
+            # workflow gate event; this metadata is never execution authority.
+            "plan_version": plan["version"],
+            "plan_state": plan["state"],
             "source_environment_id": plan["source_environment_id"],
             "target_environment_id": plan["target_environment_id"],
             "gate_id": report["gate_id"],

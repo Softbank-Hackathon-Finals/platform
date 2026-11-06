@@ -160,6 +160,9 @@ def test_same_stored_report_reaches_console_without_writes(stored):
         response = client.get(f"/v1/plans/{f.plan.plan_id}/controls")
         assert response.status_code == 200, response.text
         data = response.json()
+        snapshot = client.get(f"/v1/plans/{f.plan.plan_id}").json()
+        assert data["plan_version"] == snapshot["version"]
+        assert data["plan_state"] == snapshot["state"]
         assert data["gate_id"] == f.context.gate_id and data["decision"] == f.doc["decision"]
         assert data["gate_phase"] == f.phase and data["application_id"] == f.application_id
         assert data["authorizes_cutover"] is False
