@@ -105,9 +105,13 @@ from bravo_console.observations import PlanObservations, T37Client
 client = T37Client("https://observability.example.invalid", server_secret, tls=verified_context)
 views = PlanObservations(authenticated_t10_app, client,
     environments={"registered-source": "source", "registered-target": "target"},
-    authorize=host_environment_observation_permission)
+    authorize=host_environment_observation_permission,
+    # PgBouncer를 실제로 운영하는 등록 환경만 적는다. 없는 환경은 "해당 없음"으로 표시한다.
+    pooled_environments={"target"})
 app = ConsoleApp(authenticated_t10_app, public_origin="https://console.example.invalid", observations=views)
 ```
+
+`pooled_environments`에 적은 환경은 T37 `/pgbouncer` 조회도 함께 읽어 커넥션 풀 상태를 표시한다. `PAUSED`는 컷오버 중의 정상 상태라 **쓰기 일시 정지**(대기 연결 수 포함)로 보여 주고, 실행·판정 조건으로 쓰지 않는다(Executor는 PgBouncer에서 직접 읽는다). 서버는 상태 라벨을 그대로 믿지 않고 행에서 다시 계산하며, 라벨과 행이 다르거나 신선도(조회 10초·수신 30초)를 벗어나거나 값이 불완전하면 `UNOBSERVABLE`로 내린다. 풀 조회가 실패해도 HTTP 관측 값은 숨기지 않는다. HTTP 행의 `last_received_seconds_ago`는 화면에 "n초 전 수신"으로 표시한다.
 
 호스트 종료 시 `await client.aclose()`를 호출한다. 등록된 계획의 두 환경만 조회하고 임의 URL/PromQL/환경 선택은 받지 않는다. T37 토큰은 브라우저로 전달하지 않는다. 외부 HTTP 조회 전체 기한은 5초(개별 I/O 3초), 응답은 64 KiB로 제한한다. 압축 응답·중복 JSON 키·비UTF-8·비유한 숫자·과도한 중첩을 거부하며, 본문이 조금씩 계속 도착해도 전체 기한을 연장하지 않는다. 이 제한은 T37·T10·보고서의 권한 검증을 대신하지 않는다. 또한 scope 변경/권한 회수/응답 환경 불일치/미래·오래된 관측/NaN은 값을 노출하거나 정상으로 대신하지 않는다. 오류율·p95는 표시용이며 `for_gate_decisions: false`다. T36의 부하 창과 판정 기록은 별도 계약으로 유지한다.
 

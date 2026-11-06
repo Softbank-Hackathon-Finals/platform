@@ -63,6 +63,16 @@ const registration = mountRegistration({
 function text(id, value) {
   $(id).textContent = value;
 }
+// Display only: PAUSED is the expected cutover state, not a failure or a command.
+function poolerText(p) {
+  if (p.state === "NOT_CONFIGURED") return "해당 없음";
+  if (p.state === "UNOBSERVABLE") return "미확인";
+  const age = ` · ${Math.round(p.received)}초 전 수신`;
+  if (p.state === "DOWN") return "중단" + age;
+  if (p.state === "PAUSED")
+    return `쓰기 일시 정지${p.waiting === null ? "" : ` · 대기 ${p.waiting}`}${age}`;
+  return "정상" + age;
+}
 function notice(value, warning = false) {
   text("notice", value);
   $("notice").classList.toggle("warning", warning);
@@ -120,9 +130,10 @@ function render() {
     text(
       side + "-http",
       fresh && row?.state === "OK"
-        ? `${row.error_ratio === null ? "미확인" : (row.error_ratio * 100).toFixed(2) + "%"} / ${row.p95_seconds === null ? "미확인" : (row.p95_seconds * 1000).toFixed(0) + " ms"}`
+        ? `${row.error_ratio === null ? "미확인" : (row.error_ratio * 100).toFixed(2) + "%"} / ${row.p95_seconds === null ? "미확인" : (row.p95_seconds * 1000).toFixed(0) + " ms"}${row.received === null ? "" : ` · ${Math.round(row.received)}초 전 수신`}`
         : "미확인",
     );
+    text(side + "-pooler", fresh && row ? poolerText(row.pooler) : "미확인");
   }
   const securityFresh =
     security &&
