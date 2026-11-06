@@ -162,6 +162,14 @@ jobs:
           scan-ref: ${{ runner.temp }}/registration-rendered/registration.yaml
           severity: HIGH,CRITICAL
           exit-code: "1"
+      - name: Rendered product reader security
+        if: needs.scope.outputs.infra == 'true'
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          scan-type: config
+          scan-ref: ${{ runner.temp }}/registration-rendered/product-reader.yaml
+          severity: HIGH,CRITICAL
+          exit-code: "1"
       - name: Terraform directories
         id: tf
         if: needs.scope.outputs.infra == 'true'

@@ -142,6 +142,55 @@ class ReaderAdoption(unittest.TestCase):
                     dep["metadata"]["annotations"] = {"argocd.argoproj.io/tracking-id": "another-app:apps/Deployment:platform-state/t10-product-reader"}
                 with self.assertRaises(ValueError):
                     verify_reader(get, runtime, expected)
+        # First adoption also requires the chart's API mode, not only its mounts (#459 P3).
+        for fault in ["args", "command", "port"]:
+            with self.subTest(fault=fault):
+                current = deepcopy(objects)
+                c = current[("deployment", "t10-product-reader")]["spec"]["template"]["spec"]["containers"][0]
+                if fault == "args":
+                    c["args"] = [a for a in c["args"] if a != "--initial-proposal"]
+                elif fault == "command":
+                    c["command"] = ["python", "-m", "other"]
+                else:
+                    c["ports"][0]["containerPort"] = 9443
+                with self.assertRaisesRegex(ValueError, "reader_mode_mismatch"):
+                    verify_reader(get, runtime, expected)
+        # After adoption, a reviewed new TLS Secret or ConfigMap passes even though Argo still
+        # mounts the previous ones; identity, ownership and boundary are still enforced (#459 P2).
+        adopted = deepcopy(objects)
+        adopted[("deployment", "t10-product-reader")]["metadata"]["annotations"] = {
+            "argocd.argoproj.io/tracking-id": "platform-product-reader:apps/Deployment:platform-state/t10-product-reader"}
+        new_runtime = deepcopy(runtime)
+        new_runtime["secrets"]["tls"] = "reader-tls-renewed"
+        new_runtime["configuration"]["existingConfigMap"] = "reader-config-2"
+        new_data = {"reader.json": "{\"v\": 2}", "github-jwks.json": "{}"}
+        new_runtime["configuration"]["sha256"] = hashlib.sha256(
+            json.dumps(new_data, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+        adopted[("secret", "reader-tls-renewed")] = {"metadata": {"name": "reader-tls-renewed", "uid": "fixture-new-tls"}}
+        adopted[("configmap", "reader-config-2")] = {"metadata": {"name": "reader-config-2", "uid": "fixture-new-config"},
+                                                     "data": new_data}
+        new_expected = deepcopy(expected)
+        new_expected["config_uid"] = "fixture-new-config"
+        new_expected["secret_uids"] = {name: ("fixture-new-tls" if name == "reader-tls-renewed"
+                                              else expected["secret_uids"][name]) for name in new_runtime["secrets"].values()}
+        current = adopted
+        verify_reader(get, new_runtime, new_expected)
+        for fault in ["new-content", "new-uid", "service-uid", "selector", "catalog-write"]:
+            with self.subTest(adopted_fault=fault):
+                current = deepcopy(adopted)
+                dep = current[("deployment", "t10-product-reader")]
+                if fault == "new-content":
+                    current[("configmap", "reader-config-2")]["data"]["reader.json"] = "changed"
+                elif fault == "new-uid":
+                    current[("secret", "reader-tls-renewed")]["metadata"]["uid"] = "replaced"
+                elif fault == "service-uid":
+                    current[("service", "t10-product-reader")]["metadata"]["uid"] = "replaced-service"
+                elif fault == "selector":
+                    dep["spec"]["selector"]["matchLabels"]["component"] = "other"
+                else:
+                    next(v for v in dep["spec"]["template"]["spec"]["volumes"] if v["name"] == "catalog")["persistentVolumeClaim"]["readOnly"] = False
+                with self.assertRaises(ValueError):
+                    verify_reader(get, new_runtime, new_expected)
 
 
 if __name__ == "__main__":
