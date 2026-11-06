@@ -323,6 +323,15 @@ request ID와 제한된 크기의 응답 본문을 비공개로 보존한다. �
 원장에 응답이 없으면 이후 조회 결과로 그때의 HTTP 응답을 추정하지 않는다.
 명시적인 4xx를 보존했더라도 같은 intent의 재전송 권한은 생기지 않는다.
 
+실행 목록에 같은 요청이 없을 때 접수 상태도 구분한다. HTTP 204 수신 기록이
+있을 때만 `RUN_NOT_YET_OBSERVED`(PENDING)다. 원장에 응답이 없거나 전송/5xx가
+불명이면 `DISPATCH_ACCEPTANCE_UNKNOWN_NO_RUN`, 확정 4xx가 있으면
+`DISPATCH_REJECTED_NO_RUN`, 200의 실행 ID가 유효하지 않으면
+`DISPATCH_RECEIPT_UNCONFIRMED_NO_RUN`(모두 UNKNOWN)이다. 전송 직전에 기록한
+`dispatch_sent_at`만으로 GitHub 접수를 입증하지 않는다. 이후 같은 원 실행이
+확인되면 기존 결속·attempt·artifact 검증으로 소비하며 새 POST를 보내지 않는다.
+이 구분은 재시도·grant 갱신·새 계획·원장 삭제 권한을 추가하지 않는다.
+
 공개 저장소 artifact의 read access를 제품 원문 접근 권한으로 취급하지 않는다.
 Actions는 [X25519 + HKDF](https://cryptography.io/en/50.0.2/hazmat/primitives/asymmetric/x25519/)와
 AES-256-GCM으로 결과를 암호화하며, 새 ephemeral key/nonce와 같은 intent·수신키·run/attempt를
