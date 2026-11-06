@@ -13,6 +13,11 @@ on:
       - services/inventory/pyproject.toml
       - services/control-gate/src/**
       - services/control-gate/pyproject.toml
+      - services/apply-path/src/**
+      - services/apply-path/pyproject.toml
+      - services/edge-control/src/**
+      - services/edge-control/pyproject.toml
+      - scripts/image_import_closure.py
       - scripts/registration_delivery.py
       - scripts/image_delivery/**
       - .github/workflows/publish-product-reader-image.yml

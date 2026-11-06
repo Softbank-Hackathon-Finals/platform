@@ -86,3 +86,26 @@ def test_without_a_pin_the_app_writer_supplies_the_selection(backend, repository
     b, f, _pins, host = setup(backend, repository, tmp_path, monkeypatch, writer=Writer)
     [step] = host.sweep()
     assert step.after == "REHEARSE" and asked == [candidate.publication_request_id(b.intent)]
+
+
+def test_pins_resolve_from_a_folder_tree_or_a_flat_configmap_mount(tmp_path):
+    """A ConfigMap mount cannot hold sub-folders: <dir>__<id>.json in the parent is the same pin;
+    an unmounted folder means no pins; an id never leaves the mount."""
+    selection = {"run_id": 1, "head_sha": "a" * 40}
+    flat = tmp_path / "workflow"
+    flat.mkdir()
+    (flat / "selections__t10p-abc.json").write_text(json.dumps(selection))
+    seen = []
+    import bravo_platform_events.workflow_propose as wp
+    original = wp.PublicationSelection
+    wp.PublicationSelection = lambda **kw: seen.append(kw) or kw
+    try:
+        assert pinned_selections(flat / "selections")("t10p-abc") == selection
+        (flat / "selections").mkdir()
+        (flat / "selections" / "t10p-abc.json").write_text(json.dumps(selection | {"run_id": 2}))
+        assert pinned_selections(flat / "selections")("t10p-abc")["run_id"] == 2  # the real tree wins
+        assert pinned_selections(tmp_path / "not-mounted")("t10p-abc") is None
+        for bad in ("../workflow/selections__t10p-abc", "a/b", "", None):
+            assert pinned_selections(flat / "selections")(bad) is None
+    finally:
+        wp.PublicationSelection = original

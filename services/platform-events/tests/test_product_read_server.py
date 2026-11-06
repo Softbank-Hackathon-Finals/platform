@@ -77,7 +77,7 @@ def test_old_schema_rejected_before_reader_construction(pg_backend):
 
 def test_missing_tls_refuses_before_database_and_does_not_print_inputs(tmp_path, monkeypatch, capsys):
     monkeypatch.setattr(product_read_server, "runtime_connection", lambda: pytest.fail("unexpected credential read"))
-    with pytest.raises(SystemExit, match="^product_read_startup_unavailable$"):
+    with pytest.raises(SystemExit, match=r"^product_read_startup_unavailable:[A-Za-z]+(:[A-Za-z0-9_.]+)?$"):
         product_read_server.main(["--config", str(tmp_path / "PRIVATE_SENTINEL"), "--initial-proposal",
                                   "--tls-cert", "/missing/cert", "--tls-key", "/missing/key"])
     assert "PRIVATE_SENTINEL" not in capsys.readouterr().out
@@ -99,3 +99,20 @@ def test_service_exposes_only_initial_reads(pg_backend, tmp_path, key):
         assert client.post("/v1/plans", json={}).status_code == 404
     with pg_backend.store._transaction() as c:
         assert c.execute("SELECT count(*) AS n FROM plan_commands").fetchone()["n"] == before
+
+
+def test_v1_config_starts_with_the_initial_route_closed_and_v2_still_serves(tmp_path):
+    """Rollout order: a new image on the old (v1) config must not crash; the route stays closed."""
+    from fastapi.testclient import TestClient
+
+    from bravo_platform_events.initial_proposal_api import PATH
+
+    v1 = {"version": 1, "tenant_id": "t", "sts_provider": "https://sts", "github_public_jwks_file": "/j",
+          "catalog_root": "/c", "catalog_key_file": "/k"}
+    path = tmp_path / "reader.json"
+    path.write_text(json.dumps(v1))
+    response = TestClient(product_read_server.configured_app(object(), str(path))).post(PATH, json={})
+    assert response.status_code == 403 and response.json()["detail"]["code"] == "initial_route_closed_config_v1"
+    path.write_text(json.dumps(v1 | {"extra": 1}))
+    with pytest.raises(ValueError):
+        product_read_server.configured_app(object(), str(path))

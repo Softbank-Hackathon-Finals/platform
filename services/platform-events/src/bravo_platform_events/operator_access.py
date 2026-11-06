@@ -25,6 +25,11 @@ from .store import EventError
 PERMISSIONS = frozenset({"read", "approve_cutover", "execute_cutover", "approve_change", "apply_change",
                          "approve_failback", "execute_failback", "start_rehearsal", "hold_rehearsal",
                          "approve_shift", "execute_shift"})
+# T19 gate actions (gate_services): recording, binding and evaluating evidence, consuming a report for
+# SHIFT/cutover, and publishing or managing signature records. Granted per plan like the others.
+GATE_PERMISSIONS = frozenset({"gate:record", "gate:read", "gate:bind", "gate:evaluate", "gate:consume",
+                              "gate:use-exception", "gate:publish-provenance", "gate:manage-provenance"})
+PERMISSIONS = PERMISSIONS | GATE_PERMISSIONS
 APPROVAL_KEYS = {"cutover": _key, "change": change_key, "failback": failback_key}
 
 

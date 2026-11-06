@@ -98,7 +98,7 @@ def _propose(store, config):
         writer = CandidateWriter(GitHubApp(app["app_id"], key, repository, WRITER_PERMISSIONS), clone,
                                  workflow_sha=app["workflow_sha"], workflow_id=app["workflow_id"],
                                  state_file=app["state_file"])
-    return propose_preparer(execution, select=pinned_selections(_path(config["selections_dir"], directory=True)),
+    return propose_preparer(execution, select=pinned_selections(config["selections_dir"]),
                             repository=clone, github=github, writer=writer)
 
 

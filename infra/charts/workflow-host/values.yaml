@@ -21,6 +21,8 @@ secrets:
   executor: ""
   # private-key.pem of the bravo-platform-host GitHub App (optional: empty = operator pins only).
   githubApp: ""
+  # kubeconfig of the target apply-deployer (T31 REHEARSE; short-lived token; optional: empty = no apply).
+  applyKubeconfig: ""
   registry: platform-ghcr-reader
 interval: 15
 resources:
