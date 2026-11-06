@@ -265,10 +265,10 @@ def test_real_pr_372_stop_and_restart_events(context, monkeypatch):
         attempt_tool_events(restored, 1)
 
 
-def test_subscription_first_response_diagnostic_makes_the_attempt_unavailable(context, monkeypatch):
-    # Known gap, kept visible: the chatgpt-plan path (the one T38 runs) records FIRST_RESPONSE_SHAPE
-    # with nested counters, which is outside the str/int/bool contract T15 also enforces. The whole
-    # attempt is refused instead of dropping that event. Flattening that diagnostic is a follow-up.
+def test_subscription_first_response_diagnostic_keeps_the_attempt_available(context, monkeypatch):
+    # The chatgpt-plan path (the one T38 runs) records FIRST_RESPONSE_SHAPE. Its fields are scalar
+    # (str/int/bool), so the attempt's events pass the contract T15 also enforces and the console
+    # can show them with a real model.
     from test_subscription_provider import completed, install_stream
 
     bundle, snapshot, proposal, _ = context
@@ -278,9 +278,12 @@ def test_subscription_first_response_diagnostic_makes_the_attempt_unavailable(co
     result = asyncio.run(coordinator.propose(OpenAIProvider("fixture-model", subscription=True)))
     assert result["state"] == "PROPOSAL_READY"
     shape, = [e for e in result["audit"] if e["reason"] == "FIRST_RESPONSE_SHAPE"]
-    assert isinstance(shape["terminal_items"], dict)
-    assert len(t15_attempt_tool_events(coordinator, 1)) == result["attempts"][0]["audit_event_count"]
-    assert tool_events_projection(coordinator, 1) == {"tool_events_status": "UNAVAILABLE"}
+    assert all(type(v) in (str, int, bool) for v in shape.values())
+    assert shape["terminal_items"] == "bravo_repo_read=1"
+    events = t15_attempt_tool_events(coordinator, 1)
+    assert len(events) == result["attempts"][0]["audit_event_count"]
+    projected = tool_events_projection(coordinator, 1)
+    assert projected["tool_events_status"] == "COMPLETE" and projected["tool_events"] == list(events)
 
 
 def test_projection_carries_the_whole_list_or_nothing(blocked_run):
