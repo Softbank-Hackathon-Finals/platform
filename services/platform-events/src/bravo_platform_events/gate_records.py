@@ -7,13 +7,14 @@ permission, expiry and readiness providers at evaluation and consumption.
 
 import hashlib
 import json
-from dataclasses import asdict
+from dataclasses import asdict, replace
 
 from bravo_gate.combined import CombinedGateService
 from bravo_gate.contract import T5Contract, canonical
 from bravo_gate.models import GateContext, RunSnapshot, identity
-from bravo_gate.t10 import PlanGateSession
+from bravo_gate.t10 import PlanGateSession, T10GateAuthority
 
+from .cutover import CurrentCutover
 from .plan_api import authorized_plan
 from .plans import _canonical
 from .store import EventError
@@ -103,6 +104,30 @@ class GateRecords:
         if self.authorize(c, principal, plan, action) is not True:
             raise EventError("forbidden")
         return plan
+
+    def cutover_authority(self, *, upstream, load_gate):
+        """Compose stored phase metadata and T19 checks under the existing plan lock.
+
+        The host still supplies current operational authority and authenticated
+        gate/readiness providers. Neither persisted bytes nor this adapter grant
+        permission, manufacture a passing gate, or execute a cutover.
+        """
+        if not callable(upstream) or not callable(load_gate):
+            raise ValueError("gate_cutover_providers_required")
+
+        def current(connection, principal, plan, **kwargs):
+            value = upstream(connection, principal, plan, **kwargs)
+            if not isinstance(value, CurrentCutover):
+                raise EventError("authority_unavailable")
+            view = self.view(connection, principal, plan)
+            return replace(value, binding=view.cutover_binding(value.binding))
+
+        def session(connection, principal, plan):
+            view = self.view(connection, principal, plan)
+            service, readiness = load_gate(view)
+            return view.session(service, readiness)
+
+        return T10GateAuthority(upstream=current, load_session=session)
 
     def record_run(self, principal, plan_id, side, snapshot):
         """Stage an authenticated producer's original, including UNKNOWN results.

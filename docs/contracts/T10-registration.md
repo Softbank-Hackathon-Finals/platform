@@ -60,14 +60,17 @@ T31 반영 뒤 재대조할 새 계획은 `recheck_profile_id`·`recheck_profile
 T10 view는 `PlanGateSession`에 `gate_phase`(`initial` 또는 `post_apply`)와
 `application_id`(최초는 `None`)를 전달한다. T19는 단계에 맞는 spec 필드와
 현재 권한·원문을 별도로 검증하고, T21은 snapshot의 선택 필드와 해당 단계의
-보고서 프로필을 소비한다. 단계와 application ID도 세션 fingerprint에 결속해야 한다.
+보고서 프로필을 소비한다. 단계와 application ID도 세션 fingerprint에 결속한다.
 
-운영 호스트의 upstream cutover authority는 같은 트랜잭션의
+운영 호스트는 `records.cutover_authority(upstream=..., load_gate=...)`를 기존
+CutoverService의 authority로 전달한다. `upstream`은 현재 운영 권한·SHIFT
+조건을 검증한 CurrentCutover를 반환하고, `load_gate(view)`는 현재 인증된
+T19 service와 readiness를 반환한다. 조립 함수가 같은 트랜잭션의
 `view.cutover_binding(binding)`으로 `CurrentCutover.binding`을 만든다.
 이 함수는 계획·gate ID·context digest·목적지 일치 여부를 확인하고 저장된
 `gate_phase`·`application_id`를 넣는다. 이미 다른 단계나 application ID가
 들어 있는 binding은 고쳐 쓰지 않고 거부한다. T19 `_bind`는 세션과 이 binding의
-두 필드를 대조한다. 승인 요청·저장 이벤트·멱등 재요청에도 두 값이 남으므로
+두 필드를 대조하며 누락된 현재 결속을 추정하지 않는다. 승인 요청·저장 이벤트·멱등 재요청에도 두 값이 남으므로
 최초 승인 본문을 반영 후 세션의 승인으로 재사용할 수 없다. 새 메타데이터가
 없는 과거 승인 이벤트의 원문은 그대로 읽을 수 있다.
 

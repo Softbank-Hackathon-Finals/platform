@@ -38,8 +38,13 @@ def plan_profile():
     return "context"  # T10 registered the context's profile with the plan
 
 
+@pytest.fixture
+def gate_phase():
+    return "initial"
+
+
 @pytest.fixture(params=["sqlite", "postgres"])
-def admission(request, tmp_path, plan_profile):
+def admission(request, tmp_path, plan_profile, gate_phase):
     gate, state, data, doc, update = request.getfixturevalue("ready")
     if request.param == "postgres":
         pg = request.getfixturevalue("cluster")
@@ -54,8 +59,16 @@ def admission(request, tmp_path, plan_profile):
         profile["profile_id"] = "full"
     elif plan_profile == "other-version":
         profile["profile_version"] = "2"
+    recheck = dict(recheck_profile_id=ctx.profile_id, recheck_profile_version=ctx.profile_version) if profile else {}
+    if plan_profile == "recheck-missing":
+        recheck = {}
+    elif plan_profile == "recheck-other-id":
+        recheck["recheck_profile_id"] = "full"
+    elif plan_profile == "recheck-other-version":
+        recheck["recheck_profile_version"] = "2"
     plan = PlanSpec("plan-demo", ctx.tenant_id, ctx.app, ctx.source_environment_id,
-                    ctx.target_environment_id, ctx.plan_digest, "b" * 64, **profile)
+                    ctx.target_environment_id, ctx.plan_digest, "b" * 64, **profile,
+                    **recheck)
     store.register_plan(plan, run_id="fixture", occurred_at=state["now"].isoformat())
     with store._transaction(write=True, plan_id=plan.plan_id) as c:
         c.execute("UPDATE plans SET state='SHIFT' WHERE plan_id=?", (plan.plan_id,))
@@ -64,7 +77,8 @@ def admission(request, tmp_path, plan_profile):
     expires = (state["now"] + timedelta(minutes=10)).isoformat()
     binding = dict(plan_id=plan.plan_id, plan_digest=ctx.plan_digest, diff_hash="sha256:" + "c" * 64,
                    image_digest="sha256:" + "d" * 64, target_environment_id=ctx.target_environment_id,
-                   gate_id=ctx.gate_id, context_digest=ctx.fingerprint, expires_at=expires)
+                   gate_id=ctx.gate_id, context_digest=ctx.fingerprint, expires_at=expires,
+                   gate_phase=gate_phase, application_id="applied-1" if gate_phase == "post_apply" else None)
     command = dict(plan_id=plan.plan_id, epoch=7, write_pause_budget_ms=30000, deadline=expires)
     for side in ("source", "target"):
         env = getattr(ctx, side + "_environment_id")
@@ -72,7 +86,8 @@ def admission(request, tmp_path, plan_profile):
     f = SimpleNamespace(gate=gate, state=state, data=data, doc=doc, update=update, store=store,
                         plan=plan, principal=Principal("operator", ctx.tenant_id), requests=[],
                         current=CurrentCutover(binding, command, "operations-v1"),
-                        upstream_allowed=True, hook=lambda: None, calls=0, connections=[], report_revision=0)
+                        upstream_allowed=True, hook=lambda: None, calls=0, connections=[], report_revision=0,
+                        gate_phase=gate_phase, application_id=binding["application_id"])
 
     def publish():
         report = gate.evaluate("operator", "context")
@@ -99,8 +114,10 @@ def admission(request, tmp_path, plan_profile):
                         (p["plan_id"], "fixture-gate-%")).fetchone()
         if row is None:
             return None
-        return PlanGateSession(gate, p["plan_id"], "context", state["context"],
-                               RunSnapshot(state["context"].gate_id, row["receipt_json"].encode()), data["binding"])
+        f.last_session = PlanGateSession(gate, p["plan_id"], "context", state["context"],
+            RunSnapshot(state["context"].gate_id, row["receipt_json"].encode()), data["binding"],
+            gate_phase=f.gate_phase, application_id=f.application_id)
+        return f.last_session
     f.loader = load
     f.adapter = T10GateAuthority(upstream=upstream, load_session=lambda *args: f.loader(*args))
 
@@ -130,6 +147,81 @@ def test_approved_dispatch_and_response_loss_retries_only_read(admission):
     assert f.store.snapshot(f.plan.plan_id)["state"] == "SAFE_HOLD"
     f.submit(approved)
     assert [method for method, _ in f.requests] == ["POST", "GET"]
+
+
+@pytest.mark.parametrize("gate_phase", ["initial", "post_apply"])
+def test_phase_bound_approval_dispatches_once(admission, gate_phase):
+    f = admission
+    approved = f.approve()
+    assert approved["binding"]["gate_phase"] == gate_phase
+    assert approved["binding"]["application_id"] == f.application_id
+    f.submit(approved)
+    f.submit(approved)
+    assert [method for method, _ in f.requests] == ["POST", "GET"]
+
+
+@pytest.mark.parametrize("gate_phase", ["initial", "post_apply"])
+def test_approval_cannot_cross_phase_in_either_direction(admission, gate_phase):
+    f = admission
+    approved = f.approve()
+    f.gate_phase = "post_apply" if gate_phase == "initial" else "initial"
+    f.application_id = "applied-1" if f.gate_phase == "post_apply" else None
+    f.current = replace(f.current, binding=f.current.binding | {
+        "gate_phase": f.gate_phase, "application_id": f.application_id})
+    with pytest.raises(EventError):
+        f.submit(approved)
+    assert f.requests == []
+    assert f.store.snapshot(f.plan.plan_id)["state"] == "SHIFT"
+
+
+@pytest.mark.parametrize("gate_phase", ["post_apply"])
+def test_approval_cannot_be_reused_for_another_application(admission, gate_phase):
+    f = admission
+    approved = f.approve()
+    f.application_id = "applied-2"
+    f.current = replace(f.current, binding=f.current.binding | {"application_id": f.application_id})
+    with pytest.raises(EventError):
+        f.submit(approved)
+    assert not f.requests
+
+
+@pytest.mark.parametrize("fault", ["phase-missing", "application-missing", "phase-mismatch", "application-mismatch"])
+def test_missing_or_mismatched_binding_phase_refuses_before_approval(admission, fault):
+    f = admission
+    if fault.endswith("missing"):
+        f.current.binding.pop("gate_phase" if fault == "phase-missing" else "application_id")
+    else:
+        f.current.binding["gate_phase" if fault == "phase-mismatch" else "application_id"] = (
+            "post_apply" if fault == "phase-mismatch" else "applied-1")
+    with pytest.raises(EventError):
+        f.approve()
+    assert not f.requests and len(f.store.read_after(f.plan.plan_id, None)) == 1
+
+
+def test_session_fingerprint_binds_phase_and_application(admission):
+    f = admission
+    f.approve()
+    initial = f.last_session
+    after = replace(initial, gate_phase="post_apply", application_id="applied-1")
+    another = replace(after, application_id="applied-2")
+    assert len({initial.fingerprint, after.fingerprint, another.fingerprint}) == 3
+    for phase, app in (("initial", "applied-1"), ("post_apply", None), ("unknown", None), ([], None)):
+        with pytest.raises(GateError, match="INVALID_PLAN_GATE_SESSION"):
+            replace(initial, gate_phase=phase, application_id=app)
+
+
+@pytest.mark.parametrize("gate_phase", ["post_apply"])
+@pytest.mark.parametrize("plan_profile", ["other-id"])
+def test_post_apply_selects_recheck_profile_instead_of_initial(admission, gate_phase, plan_profile):
+    assert admission.approve()["binding"]["gate_phase"] == "post_apply"
+
+
+@pytest.mark.parametrize("gate_phase", ["post_apply"])
+@pytest.mark.parametrize("plan_profile", ["recheck-missing", "recheck-other-id", "recheck-other-version"])
+def test_post_apply_requires_its_registered_recheck_profile(admission, gate_phase, plan_profile):
+    with pytest.raises(EventError):
+        admission.approve()
+    assert not admission.requests
 
 
 @pytest.mark.parametrize("fault", ["missing", "data-block", "security-revoked", "expired", "operational-denial"])

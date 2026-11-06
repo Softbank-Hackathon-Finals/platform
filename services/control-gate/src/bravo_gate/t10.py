@@ -23,6 +23,8 @@ class PlanGateSession:
     report: RunSnapshot
     readiness: ReadinessBinding
     approval_ids: tuple[str, ...] = ()
+    gate_phase: str = "initial"
+    application_id: str | None = None
 
     def __post_init__(self):
         identity(self.plan_id)
@@ -37,6 +39,12 @@ class PlanGateSession:
                 or any(type(v) is not str for v in self.approval_ids)
                 or len(set(self.approval_ids)) != len(self.approval_ids)):
             raise GateError("INVALID_PLAN_GATE_SESSION")
+        if (type(self.gate_phase) is not str or self.gate_phase not in {"initial", "post_apply"}
+                or (self.gate_phase == "initial" and self.application_id is not None)
+                or (self.gate_phase == "post_apply" and self.application_id is None)):
+            raise GateError("INVALID_PLAN_GATE_SESSION")
+        if self.application_id is not None:
+            identity(self.application_id)
         for value in self.approval_ids:
             identity(value)
 
@@ -44,7 +52,8 @@ class PlanGateSession:
     def fingerprint(self):
         return fingerprint(dict(plan_id=self.plan_id, context_id=self.context_id, context=self.context.fingerprint,
                                 report_ref=self.report.ref, report=self.report.fingerprint,
-                                readiness=self.readiness.fingerprint, approval_ids=self.approval_ids))
+                                readiness=self.readiness.fingerprint, approval_ids=self.approval_ids,
+                                gate_phase=self.gate_phase, application_id=self.application_id))
 
 
 class T10GateAuthority:
@@ -67,13 +76,17 @@ class T10GateAuthority:
             raise GateError("SERVER_PLAN_GATE_SESSION_REQUIRED")
         ctx = session.context
         spec = decode(plan["spec_json"].encode())
+        prefix = "recheck_" if session.gate_phase == "post_apply" else ""
         if (session.plan_id != plan["plan_id"]
                 or principal.tenant_id != plan["tenant_id"] or ctx.tenant_id != plan["tenant_id"]
                 or spec["tenant_id"] != ctx.tenant_id or spec["plan_id"] != plan["plan_id"]
                 or spec["workload_id"] != ctx.app or spec["plan_digest"] != ctx.plan_digest
                 # T10 fixes the evaluation profile in the plan; a plan without one cannot bind.
-                or spec.get("profile_id") != ctx.profile_id
-                or spec.get("profile_version") != ctx.profile_version
+                or spec.get(prefix + "profile_id") != ctx.profile_id
+                or spec.get(prefix + "profile_version") != ctx.profile_version
+                or current.binding.get("gate_phase") != session.gate_phase
+                or "application_id" not in current.binding
+                or current.binding["application_id"] != session.application_id
                 or current.binding.get("plan_id") != plan["plan_id"]
                 or current.command.get("plan_id") != plan["plan_id"]
                 or current.binding.get("plan_digest") != ctx.plan_digest
