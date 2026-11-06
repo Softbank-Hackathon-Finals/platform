@@ -19,7 +19,7 @@ ROLE = RegisteredRole("arn:aws:iam::123456789012:role/app", "AROA" + "A" * 17)
 DOCUMENT = {
     "Version": "2012-10-17",
     "Statement": [
-        {"Effect": "Allow", "Action": "s3:GetObject", "Resource": "arn:aws:s3:::fixture/*"}
+        {"Effect": "Allow", "Action": "s3:GetObject", "Resource": "arn:aws:s3:::objects.example.invalid/*"}
     ],
 }
 TRUST = {
