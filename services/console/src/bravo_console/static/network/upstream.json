@@ -1,0 +1,90 @@
+{
+  "repository": "https://github.com/Softbank-Hackathon-Finals/b-cluster",
+  "revision": "dd02ed055606c0be3e756de7a61ffb80e6e913a6",
+  "files": {
+    "index.html": {
+      "upstream_sha256": "ac54b11d2ecd02f716385bad7ff8c37f7bf3a901a00c0a9939da6ffb8de64689",
+      "adapted_sha256": "72113bea4b91df24acd7b31ea61063746b2d26ff9e94bf5d0aa0aec80791c94b"
+    },
+    "app.js": {
+      "upstream_sha256": "82cda15ba62d395520d7e3253dede1758c77df6885592ac8c540bd47c902e96d",
+      "adapted_sha256": "82cda15ba62d395520d7e3253dede1758c77df6885592ac8c540bd47c902e96d"
+    },
+    "data.js": {
+      "upstream_sha256": "0bca425a28d9b1a23a76e7e274c43d100d7609d1218e9bbb20319b44ff54f362",
+      "adapted_sha256": "d172582be2a1e21ea789c44eb8237167535f0bba882a488653e7216bb211ec43"
+    },
+    "live.js": {
+      "upstream_sha256": "a03e6be3f205ac035dfb4da63fce1fd104be1fcb15b91d9cda3f0ca81d3cd55a",
+      "adapted_sha256": "9e545a2bb18d4be60525c926ef82e7fe39de8544aed1658d698646b07a6b3acc"
+    },
+    "map-controls.js": {
+      "upstream_sha256": "76f80437cfc3c6b767d85223a5539926b1f8fa08183952b99409717fee36c2c6",
+      "adapted_sha256": "76f80437cfc3c6b767d85223a5539926b1f8fa08183952b99409717fee36c2c6"
+    },
+    "sequence.js": {
+      "upstream_sha256": "22ee98cd68c8d3499143c94ffd219fb04e93eddecb984eb60f042fba5bce449a",
+      "adapted_sha256": "22ee98cd68c8d3499143c94ffd219fb04e93eddecb984eb60f042fba5bce449a"
+    },
+    "diagnostics.js": {
+      "upstream_sha256": "c81bf7967cd6e07ff4e6ef09cb9530a4cc45b38b9f861c1780005af48e38ede8",
+      "adapted_sha256": "c81bf7967cd6e07ff4e6ef09cb9530a4cc45b38b9f861c1780005af48e38ede8"
+    },
+    "i18n.js": {
+      "upstream_sha256": "d9f46c10e6dd698658cefa442d43b6d7bbcd1587949c109533fc666a2db21774",
+      "adapted_sha256": "60e434b95f8bdeb521f1581501e3313c4800ea0c11e81ca8a45327e9c288b1d3"
+    },
+    "locales.js": {
+      "upstream_sha256": "fe23cd48d9bf3499cd7d4a0ebc06ede32e2bc7b16ecac3743a3b51df0f462ad4",
+      "adapted_sha256": "fe23cd48d9bf3499cd7d4a0ebc06ede32e2bc7b16ecac3743a3b51df0f462ad4"
+    },
+    "architecture.js": {
+      "upstream_sha256": "c214e755c18ac832a7edd39de0f79b7f31e148f43f529ff677fe1cd0b89af407",
+      "adapted_sha256": "5a09c93fef8cb70963c5c11710915ba31f95898de51c3a6a91a1554f43ee299b"
+    },
+    "style.css": {
+      "upstream_sha256": "4c3aa8b783559db3ea33f2a8391752389a7132c1994bb58b7017357baadbe5fa",
+      "adapted_sha256": "d5781aea58d65c822358e90ed9be53f242a8824b35634108abdf8399c2fcef32"
+    },
+    "architecture.css": {
+      "upstream_sha256": "cc7402312fa632107514d2b8d18f0c00e84f87cb08cb1831eea3b1cf1a9a9008",
+      "adapted_sha256": "cc7402312fa632107514d2b8d18f0c00e84f87cb08cb1831eea3b1cf1a9a9008"
+    },
+    "workspace.css": {
+      "upstream_sha256": "969e974e0c90ac2eae33a86b88993a26516ce8aa0eb2766e7f5d58a469f752af",
+      "adapted_sha256": "969e974e0c90ac2eae33a86b88993a26516ce8aa0eb2766e7f5d58a469f752af"
+    },
+    "sequence.css": {
+      "upstream_sha256": "15cda1421a8ccfc5d32c5dccd1fff5a9981b0a91e02f0b8dae70f256b5c51609",
+      "adapted_sha256": "15cda1421a8ccfc5d32c5dccd1fff5a9981b0a91e02f0b8dae70f256b5c51609"
+    },
+    "diagnostics.css": {
+      "upstream_sha256": "6678104edb56f1c4aa13d184921ec364c4685b69efd3b6373597ef3bf28a181e",
+      "adapted_sha256": "6678104edb56f1c4aa13d184921ec364c4685b69efd3b6373597ef3bf28a181e"
+    },
+    "locale.css": {
+      "upstream_sha256": "832c23a780ee57787876d76713d79f351075b9b078cb8db515d7df2d772c36e2",
+      "adapted_sha256": "832c23a780ee57787876d76713d79f351075b9b078cb8db515d7df2d772c36e2"
+    },
+    "architecture-original.jpg": {
+      "upstream_sha256": "9def6daba5e5c45ecb940f19d3699f8ddffc16a451625fe82611d7768fcf2995",
+      "adapted_sha256": "9def6daba5e5c45ecb940f19d3699f8ddffc16a451625fe82611d7768fcf2995"
+    },
+    "migration-original.jpg": {
+      "upstream_sha256": "821ef60a676ece57729e854a9761c2a3376c76630fdfc0ba5b7326e99489e5e8",
+      "adapted_sha256": "821ef60a676ece57729e854a9761c2a3376c76630fdfc0ba5b7326e99489e5e8"
+    },
+    "vendor/panzoom-4.6.2.es.js": {
+      "upstream_sha256": "3fb2efbf08b085fc0e7b0ba7f2900142f76a762d62b6e8e37ccb7af0f5d2fe78",
+      "adapted_sha256": "3fb2efbf08b085fc0e7b0ba7f2900142f76a762d62b6e8e37ccb7af0f5d2fe78"
+    },
+    "vendor/README.md": {
+      "upstream_sha256": "493053ba44d69f7eaf62e09caba1fa9dffb7e27979de226b0b090c7cbbac67ee",
+      "adapted_sha256": "493053ba44d69f7eaf62e09caba1fa9dffb7e27979de226b0b090c7cbbac67ee"
+    },
+    "vendor/PANZOOM-LICENSE.txt": {
+      "upstream_sha256": "db74524b3ab3853bcfc7300dade1f5e0176e59ed3c0cff43848a2c300091a22c",
+      "adapted_sha256": "db74524b3ab3853bcfc7300dade1f5e0176e59ed3c0cff43848a2c300091a22c"
+    }
+  }
+}
