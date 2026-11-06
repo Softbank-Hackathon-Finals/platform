@@ -1,0 +1,3066 @@
+{
+ "reverse": {
+  "100mbit-rtt30": [
+   {
+    "condition": "100mbit-rtt30",
+    "repetition": 1,
+    "disabled_after_link_cut_s": 5.76,
+    "source_log_events": [
+     {
+      "event": "receiver_timeout",
+      "sqlstate": "08006",
+      "after_first_ms": 0
+     },
+     {
+      "event": "subscription_disabled",
+      "sqlstate": "00000",
+      "after_first_ms": 1
+     }
+    ],
+    "signature_before_resume": {
+     "reverse_enabled": false,
+     "apply_error_count": 1,
+     "sync_error_count": 0,
+     "slot_active": false,
+     "slot_wal_status": "reserved",
+     "slot_invalidation_reason": null,
+     "behind_bytes": 17883232
+    },
+    "backlog_bytes": 17883232,
+    "before_cutover": {
+     "exit": 1,
+     "seconds": 0.16,
+     "credentials_in_output": false,
+     "report": {
+      "mode": "dry-run",
+      "direction": "reverse",
+      "passed": false,
+      "stage": "preflight",
+      "refusals": [
+       "target_app_cannot_login",
+       "forward_active",
+       "source_app_can_login",
+       "forward_slot_in_use"
+      ],
+      "preflight": {
+       "source": {
+        "source_observed_at": "2026-11-05T20:06:15.266833+00:00",
+        "system_identifier": "7704781222605611052",
+        "database": "chat",
+        "in_recovery": false,
+        "source_app_login": true,
+        "app_sessions": 0,
+        "control_sessions": 0,
+        "source_wal_receiver_timeout_ms": 5000,
+        "forward_slot_active": true,
+        "barrier_readable": true,
+        "origin_readable": true,
+        "subscription_exists": true,
+        "subscription_oid": "16434",
+        "reverse_enabled": false,
+        "disable_on_error": true,
+        "table_sync_states": {
+         "public.attachments": "r",
+         "public.messages": "r"
+        },
+        "apply_workers": 0,
+        "worker_pid": null,
+        "received_lsn": null,
+        "latest_end_lsn": null,
+        "source_apply_errors": 0,
+        "source_sync_errors": 0,
+        "source_conflicts": 0,
+        "can_alter": true,
+        "can_call_control": true,
+        "source_origin_remote_lsn": null
+       },
+       "source_rows": {
+        "messages": 1900,
+        "messages_max_id": 1900,
+        "attachments": 100
+       },
+       "target": {
+        "target_observed_at": "2026-11-05T20:06:15.28446+00:00",
+        "system_identifier": "7704781224090456108",
+        "database": "chat",
+        "slot_database": "chat",
+        "in_recovery": false,
+        "target_wal_flush_lsn": "0/1FC94C8",
+        "barrier_published": true,
+        "barrier_readable": true,
+        "target_app_login": false,
+        "control_sessions": 0,
+        "target_wal_sender_timeout_ms": 5000,
+        "max_slot_wal_keep_size": "1GB",
+        "slot_exists": true,
+        "slot_type": "logical",
+        "target_slot_active": false,
+        "target_slot_wal_status": "reserved",
+        "target_slot_invalidated": false,
+        "invalidation_reason": null,
+        "safe_wal_size": 1073965880,
+        "target_slot_confirmed_flush_lsn": "0/1FA0080",
+        "target_sender_state": null,
+        "target_sender_tls": null,
+        "forward_enabled": true,
+        "forward_workers": 1
+       },
+       "target_rows": {
+        "messages": 1900,
+        "messages_max_id": 1900,
+        "attachments": 100,
+        "attachments_max_created_at": "2026-11-05T20:06:12.699584+00:00"
+       },
+       "executor": {
+        "state": "idle",
+        "holding": 0,
+        "executions": 0,
+        "leases": 0,
+        "retarget_fences": 0
+       }
+      }
+     }
+    },
+    "forward_after_cutover": {
+     "exit": 1,
+     "seconds": 0.13,
+     "credentials_in_output": false,
+     "report": {
+      "mode": "dry-run",
+      "passed": false,
+      "stage": "preflight",
+      "refusals": [
+       "source_app_cannot_login",
+       "reverse_active",
+       "target_app_can_login",
+       "reverse_slot_in_use"
+      ],
+      "preflight": {
+       "target": {
+        "target_observed_at": "2026-11-05T20:06:15.870265+00:00",
+        "system_identifier": "7704781224090456108",
+        "database": "chat",
+        "in_recovery": false,
+        "target_app_login": true,
+        "app_sessions": 0,
+        "control_sessions": 0,
+        "target_wal_receiver_timeout_ms": 5000,
+        "reverse_slot_active": true,
+        "barrier_readable": true,
+        "origin_readable": true,
+        "subscription_exists": true,
+        "subscription_oid": "16426",
+        "forward_enabled": false,
+        "disable_on_error": true,
+        "table_sync_states": {
+         "public.attachments": "r",
+         "public.messages": "r",
+         "cutover.barrier": "r",
+         "cutover.probe": "r"
+        },
+        "apply_workers": 0,
+        "worker_pid": null,
+        "received_lsn": null,
+        "latest_end_lsn": null,
+        "target_apply_errors": 0,
+        "target_sync_errors": 0,
+        "target_conflicts": 0,
+        "can_alter": true,
+        "can_call_control": true,
+        "target_origin_remote_lsn": "0/0"
+       },
+       "target_rows": {
+        "messages": 1900,
+        "messages_max_id": 1900,
+        "attachments": 100
+       },
+       "source": {
+        "source_observed_at": "2026-11-05T20:06:15.892623+00:00",
+        "system_identifier": "7704781222605611052",
+        "database": "chat",
+        "slot_database": "chat",
+        "in_recovery": false,
+        "source_wal_flush_lsn": "0/2503390",
+        "barrier_published": true,
+        "barrier_readable": true,
+        "source_app_login": false,
+        "control_sessions": 0,
+        "source_wal_sender_timeout_ms": 5000,
+        "max_slot_wal_keep_size": "1GB",
+        "slot_exists": true,
+        "slot_type": "logical",
+        "source_slot_active": false,
+        "source_slot_wal_status": "reserved",
+        "source_slot_invalidated": false,
+        "invalidation_reason": null,
+        "safe_wal_size": 1085262960,
+        "source_slot_confirmed_flush_lsn": "0/24FBEA8",
+        "source_sender_state": null,
+        "source_sender_tls": null,
+        "reverse_enabled": true,
+        "reverse_workers": 1
+       },
+       "source_rows": {
+        "messages": 1900,
+        "messages_max_id": 1900,
+        "attachments": 100,
+        "attachments_max_created_at": "2026-11-05T20:06:12.699584+00:00"
+       },
+       "executor": {
+        "state": "idle",
+        "holding": 0,
+        "executions": 0,
+        "leases": 0,
+        "resource_fences": 0
+       }
+      }
+     }
+    },
+    "dry_run": {
+     "exit": 0,
+     "seconds": 0.31,
+     "credentials_in_output": false,
+     "report": {
+      "mode": "dry-run",
+      "direction": "reverse",
+      "passed": true,
+      "stage": "preflight",
+      "refusals": [],
+      "preflight": {
+       "source": {
+        "source_observed_at": "2026-11-05T20:06:32.309918+00:00",
+        "system_identifier": "7704781222605611052",
+        "database": "chat",
+        "in_recovery": false,
+        "source_app_login": false,
+        "app_sessions": 0,
+        "control_sessions": 0,
+        "source_wal_receiver_timeout_ms": 5000,
+        "forward_slot_active": false,
+        "barrier_readable": true,
+        "origin_readable": true,
+        "subscription_exists": true,
+        "subscription_oid": "16434",
+        "reverse_enabled": false,
+        "disable_on_error": true,
+        "table_sync_states": {
+         "public.attachments": "r",
+         "public.messages": "r",
+         "cutover.barrier": "r",
+         "cutover.probe": "r"
+        },
+        "apply_workers": 0,
+        "worker_pid": null,
+        "received_lsn": null,
+        "latest_end_lsn": null,
+        "source_apply_errors": 1,
+        "source_sync_errors": 0,
+        "source_conflicts": 0,
+        "can_alter": true,
+        "can_call_control": true,
+        "source_origin_remote_lsn": "0/2087290"
+       },
+       "source_rows": {
+        "messages": 2269,
+        "messages_max_id": 2269,
+        "attachments": 100
+       },
+       "target": {
+        "target_observed_at": "2026-11-05T20:06:32.322992+00:00",
+        "system_identifier": "7704781224090456108",
+        "database": "chat",
+        "slot_database": "chat",
+        "in_recovery": false,
+        "target_wal_flush_lsn": "0/3197BD0",
+        "barrier_published": true,
+        "barrier_readable": true,
+        "target_app_login": true,
+        "control_sessions": 0,
+        "target_wal_sender_timeout_ms": 5000,
+        "max_slot_wal_keep_size": "1GB",
+        "slot_exists": true,
+        "slot_type": "logical",
+        "target_slot_active": false,
+        "target_slot_wal_status": "reserved",
+        "target_slot_invalidated": false,
+        "invalidation_reason": null,
+        "safe_wal_size": 1055294512,
+        "target_slot_confirmed_flush_lsn": "0/2082890",
+        "target_sender_state": null,
+        "target_sender_tls": null,
+        "forward_enabled": false,
+        "forward_workers": 0
+       },
+       "target_rows": {
+        "messages": 10921,
+        "messages_max_id": 10921,
+        "attachments": 100,
+        "attachments_max_created_at": "2026-11-05T20:06:12.699584+00:00"
+       },
+       "executor": {
+        "state": "idle",
+        "holding": 0,
+        "executions": 0,
+        "leases": 0,
+        "retarget_fences": 0
+       }
+      },
+      "barrier_gaps": [],
+      "stages": {
+       "before": {
+        "target_observed_at": "2026-11-05T20:06:32.208494+00:00",
+        "forward_enabled": false,
+        "target_slot_active": false,
+        "target_slot_wal_status": "reserved",
+        "target_slot_invalidated": false,
+        "target_sender_state": null,
+        "target_sender_tls": null,
+        "target_slot_confirmed_flush_lsn": "0/2082890",
+        "source_observed_at": "2026-11-05T20:06:32.184107+00:00",
+        "reverse_enabled": false,
+        "apply_workers": 0,
+        "source_origin_remote_lsn": "0/2087290",
+        "source_app_login": false,
+        "source_apply_errors": 1,
+        "source_sync_errors": 0,
+        "business_tables": {
+         "messages": {
+          "target_rows": 10913,
+          "source_rows": 2269,
+          "sha256_equal": false,
+          "target_sha256_unchanged": true
+         },
+         "attachments": {
+          "target_rows": 100,
+          "source_rows": 100,
+          "sha256_equal": true,
+          "target_sha256_unchanged": true
+         }
+        }
+       }
+      },
+      "immediately_before_enable": {
+       "observed_at": "2026-11-05T20:06:32.322992+00:00",
+       "target_wal_flush_lsn": "0/3197BD0",
+       "target_slot_confirmed_flush_lsn": "0/2082890",
+       "gap_bytes": 17912640,
+       "gap_mib": 17.1,
+       "slot_active": false,
+       "wal_status": "reserved"
+      },
+      "continuity": {
+       "enable_submissions": 0,
+       "target_write_block_before": "not_read",
+       "target_wal_sender_timeout_ms": 5000,
+       "source_wal_receiver_timeout_ms": 5000,
+       "disable_on_error": true
+      },
+      "would_run": "SELECT cutover.set_subscription('t8_target_to_source', true)",
+      "marker": {
+       "state": "not_run_without_apply"
+      }
+     }
+    },
+    "apply": {
+     "exit": 0,
+     "seconds": 19.0,
+     "credentials_in_output": false,
+     "report": {
+      "mode": "apply",
+      "direction": "reverse",
+      "passed": true,
+      "stage": "continuity",
+      "refusals": [],
+      "preflight": {
+       "source": {
+        "source_observed_at": "2026-11-05T20:06:32.560858+00:00",
+        "system_identifier": "7704781222605611052",
+        "database": "chat",
+        "in_recovery": false,
+        "source_app_login": false,
+        "app_sessions": 0,
+        "control_sessions": 0,
+        "source_wal_receiver_timeout_ms": 5000,
+        "forward_slot_active": false,
+        "barrier_readable": true,
+        "origin_readable": true,
+        "subscription_exists": true,
+        "subscription_oid": "16434",
+        "reverse_enabled": false,
+        "disable_on_error": true,
+        "table_sync_states": {
+         "public.attachments": "r",
+         "public.messages": "r",
+         "cutover.barrier": "r",
+         "cutover.probe": "r"
+        },
+        "apply_workers": 0,
+        "worker_pid": null,
+        "received_lsn": null,
+        "latest_end_lsn": null,
+        "source_apply_errors": 1,
+        "source_sync_errors": 0,
+        "source_conflicts": 0,
+        "can_alter": true,
+        "can_call_control": true,
+        "source_origin_remote_lsn": "0/2087290"
+       },
+       "source_rows": {
+        "messages": 2269,
+        "messages_max_id": 2269,
+        "attachments": 100
+       },
+       "target": {
+        "target_observed_at": "2026-11-05T20:06:32.573898+00:00",
+        "system_identifier": "7704781224090456108",
+        "database": "chat",
+        "slot_database": "chat",
+        "in_recovery": false,
+        "target_wal_flush_lsn": "0/319E638",
+        "barrier_published": true,
+        "barrier_readable": true,
+        "target_app_login": true,
+        "control_sessions": 0,
+        "target_wal_sender_timeout_ms": 5000,
+        "max_slot_wal_keep_size": "1GB",
+        "slot_exists": true,
+        "slot_type": "logical",
+        "target_slot_active": false,
+        "target_slot_wal_status": "reserved",
+        "target_slot_invalidated": false,
+        "invalidation_reason": null,
+        "safe_wal_size": 1055267272,
+        "target_slot_confirmed_flush_lsn": "0/2082890",
+        "target_sender_state": null,
+        "target_sender_tls": null,
+        "forward_enabled": false,
+        "forward_workers": 0
+       },
+       "target_rows": {
+        "messages": 10933,
+        "messages_max_id": 10933,
+        "attachments": 100,
+        "attachments_max_created_at": "2026-11-05T20:06:12.699584+00:00"
+       },
+       "executor": {
+        "state": "idle",
+        "holding": 0,
+        "executions": 0,
+        "leases": 0,
+        "retarget_fences": 0
+       },
+       "probe": {
+        "system_identifier": "7704781224090456108",
+        "database": "chat",
+        "in_recovery": false,
+        "allowed": true
+       }
+      },
+      "barrier_gaps": [],
+      "stages": {
+       "before": {
+        "target_observed_at": "2026-11-05T20:06:32.467678+00:00",
+        "forward_enabled": false,
+        "target_slot_active": false,
+        "target_slot_wal_status": "reserved",
+        "target_slot_invalidated": false,
+        "target_sender_state": null,
+        "target_sender_tls": null,
+        "target_slot_confirmed_flush_lsn": "0/2082890",
+        "source_observed_at": "2026-11-05T20:06:32.45806+00:00",
+        "reverse_enabled": false,
+        "apply_workers": 0,
+        "source_origin_remote_lsn": "0/2087290",
+        "source_app_login": false,
+        "source_apply_errors": 1,
+        "source_sync_errors": 0,
+        "business_tables": {
+         "messages": {
+          "target_rows": 10927,
+          "source_rows": 2269,
+          "sha256_equal": false,
+          "target_sha256_unchanged": true
+         },
+         "attachments": {
+          "target_rows": 100,
+          "source_rows": 100,
+          "sha256_equal": true,
+          "target_sha256_unchanged": true
+         }
+        }
+       },
+       "delivered": {
+        "target_observed_at": "2026-11-05T20:06:34.950322+00:00",
+        "forward_enabled": false,
+        "target_slot_active": true,
+        "target_slot_wal_status": "reserved",
+        "target_slot_invalidated": false,
+        "target_sender_state": null,
+        "target_sender_tls": false,
+        "target_slot_confirmed_flush_lsn": "0/31D80B0",
+        "source_observed_at": "2026-11-05T20:06:34.937497+00:00",
+        "reverse_enabled": true,
+        "apply_workers": 1,
+        "source_origin_remote_lsn": "0/31DB1B8",
+        "source_app_login": false,
+        "source_apply_errors": 1,
+        "source_sync_errors": 0,
+        "business_tables": {
+         "messages": {
+          "target_rows": 10927,
+          "source_rows": 10927,
+          "sha256_equal": true,
+          "target_sha256_unchanged": true
+         },
+         "attachments": {
+          "target_rows": 100,
+          "source_rows": 100,
+          "sha256_equal": true,
+          "target_sha256_unchanged": true
+         }
+        }
+       },
+       "cleaned": {
+        "target_observed_at": "2026-11-05T20:06:35.347772+00:00",
+        "forward_enabled": false,
+        "target_slot_active": true,
+        "target_slot_wal_status": "reserved",
+        "target_slot_invalidated": false,
+        "target_sender_state": null,
+        "target_sender_tls": false,
+        "target_slot_confirmed_flush_lsn": "0/31E3D40",
+        "source_observed_at": "2026-11-05T20:06:35.328878+00:00",
+        "reverse_enabled": true,
+        "apply_workers": 1,
+        "source_origin_remote_lsn": "0/31E4DA8",
+        "source_app_login": false,
+        "source_apply_errors": 1,
+        "source_sync_errors": 0,
+        "business_tables": {
+         "messages": {
+          "target_rows": 10927,
+          "source_rows": 10927,
+          "sha256_equal": true,
+          "target_sha256_unchanged": true
+         },
+         "attachments": {
+          "target_rows": 100,
+          "source_rows": 100,
+          "sha256_equal": true,
+          "target_sha256_unchanged": true
+         }
+        }
+       }
+      },
+      "immediately_before_enable": {
+       "observed_at": "2026-11-05T20:06:32.573898+00:00",
+       "target_wal_flush_lsn": "0/319E638",
+       "target_slot_confirmed_flush_lsn": "0/2082890",
+       "gap_bytes": 17939880,
+       "gap_mib": 17.1,
+       "slot_active": false,
+       "wal_status": "reserved"
+      },
+      "continuity": {
+       "enable_submissions": 1,
+       "target_write_block_before": "off",
+       "target_wal_sender_timeout_ms": 5000,
+       "source_wal_receiver_timeout_ms": 5000,
+       "disable_on_error": true,
+       "applied_position": "read_from_origin",
+       "same_subscription_oid_and_origin": true,
+       "table_sync_states": {
+        "public.attachments": "r",
+        "public.messages": "r",
+        "cutover.barrier": "r",
+        "cutover.probe": "r"
+       },
+       "platform_before_after": {
+        "executions": [
+         0,
+         0
+        ],
+        "leases": [
+         0,
+         0
+        ],
+        "retarget_fences": [
+         0,
+         0
+        ]
+       },
+       "business_tables_match": true
+      },
+      "enabled_by": "control_function",
+      "command_clock": {
+       "start": "this command's monotonic clock, immediately before ENABLE (or before the first read, if the subscription was already on)",
+       "enable_command_return_s": 0.0029,
+       "first_observations": {
+        "worker": {
+         "elapsed_s": 0.0029,
+         "previous_sample_s": null,
+         "db_utc": "2026-11-05T20:06:32.59506+00:00"
+        },
+        "received_fixed": {
+         "elapsed_s": 2.0574,
+         "previous_sample_s": 1.0209,
+         "db_utc": "2026-11-05T20:06:34.653499+00:00"
+        },
+        "applied_fixed": {
+         "elapsed_s": 2.0574,
+         "previous_sample_s": 1.0209,
+         "db_utc": "2026-11-05T20:06:34.653499+00:00"
+        },
+        "barrier": {
+         "elapsed_s": 2.3182,
+         "previous_sample_s": 2.1043,
+         "db_utc": "2026-11-05T20:06:34.937497+00:00"
+        }
+       }
+      },
+      "catch_up": {
+       "passed": true,
+       "reason": "confirmed",
+       "checks": {
+        "reverse_enabled": true,
+        "target_slot_valid": true,
+        "apply_worker_running": true,
+        "target_slot_active": true,
+        "confirmed_flush_advanced": true,
+        "received_fixed": true,
+        "confirmed_fixed": true,
+        "tables_ready": true,
+        "rows_arrived": true,
+        "errors_not_increased": true,
+        "single_writer_kept": true
+       },
+       "seconds": 2.1,
+       "confirmed_fixed_seconds": 2.1,
+       "positions": {
+        "fixed": "0/319E638",
+        "target_slot_confirmed_flush_lsn": "0/31CE3A8",
+        "latest_end_lsn": "0/31D3D90",
+        "source_origin_remote_lsn": "0/31D3D90"
+       },
+       "read_errors": {},
+       "worker_pids_seen": 1,
+       "last_sample_s": 2.0574
+      },
+      "marker": {
+       "barrier_id": "34324f4d-0c05-429d-b09c-bd9624590a67",
+       "protocol": "serialized-v1",
+       "passed": true,
+       "insert_lsn_before_commit": "0/31D4EF8",
+       "delete_lsn_before_commit": "0/31DFBA0",
+       "delete_lsn_after_commit": "0/31DFBD0",
+       "same_row_on_both_sides_when_present": true,
+       "target_insert_submissions": 1,
+       "target_insert_commits": 1,
+       "target_delete_submissions": 1,
+       "target_delete_commits": 1,
+       "barrier": {
+        "elapsed_s": 2.3182,
+        "previous_sample_s": 2.1043
+       },
+       "delete_arrived": {
+        "elapsed_s": 2.7274,
+        "previous_sample_s": 2.5195
+       },
+       "cleanup": "confirmed"
+      },
+      "post_check": {
+       "passed": true,
+       "reason": "confirmed",
+       "checks": {
+        "reverse_enabled": true,
+        "target_slot_valid": true,
+        "apply_worker_running": true,
+        "target_slot_active": true,
+        "confirmed_flush_advanced": true,
+        "received_fixed": true,
+        "confirmed_fixed": true,
+        "tables_ready": true,
+        "rows_arrived": true,
+        "errors_not_increased": true,
+        "single_writer_kept": true,
+        "applied_fixed": true
+       },
+       "seconds": 15.6,
+       "confirmed_fixed_seconds": 0.0,
+       "positions": {
+        "fixed": "0/319E638",
+        "target_slot_confirmed_flush_lsn": "0/337A3F0",
+        "latest_end_lsn": "0/337DB00",
+        "source_origin_remote_lsn": "0/337E340"
+       },
+       "read_errors": {},
+       "worker_pids_seen": 1,
+       "last_sample_s": 18.5143
+      }
+     }
+    },
+    "second_run_default": {
+     "exit": 0,
+     "seconds": 3.93,
+     "credentials_in_output": false,
+     "report": {
+      "mode": "dry-run",
+      "direction": "reverse",
+      "passed": true,
+      "stage": "continuity",
+      "refusals": [],
+      "preflight": {
+       "source": {
+        "source_observed_at": "2026-11-05T20:06:51.653535+00:00",
+        "system_identifier": "7704781222605611052",
+        "database": "chat",
+        "in_recovery": false,
+        "source_app_login": false,
+        "app_sessions": 0,
+        "control_sessions": 0,
+        "source_wal_receiver_timeout_ms": 5000,
+        "forward_slot_active": false,
+        "barrier_readable": true,
+        "origin_readable": true,
+        "subscription_exists": true,
+        "subscription_oid": "16434",
+        "reverse_enabled": true,
+        "disable_on_error": true,
+        "table_sync_states": {
+         "public.attachments": "r",
+         "public.messages": "r",
+         "cutover.barrier": "r",
+         "cutover.probe": "r"
+        },
+        "apply_workers": 1,
+        "worker_pid": 126,
+        "received_lsn": "0/338B848",
+        "latest_end_lsn": "0/338B848",
+        "source_apply_errors": 1,
+        "source_sync_errors": 0,
+        "source_conflicts": 0,
+        "can_alter": true,
+        "can_call_control": true,
+        "source_origin_remote_lsn": "0/338C088"
+       },
+       "source_rows": {
+        "messages": 11887,
+        "messages_max_id": 11887,
+        "attachments": 100
+       },
+       "target": {
+        "target_observed_at": "2026-11-05T20:06:51.673176+00:00",
+        "system_identifier": "7704781224090456108",
+        "database": "chat",
+        "slot_database": "chat",
+        "in_recovery": false,
+        "target_wal_flush_lsn": "0/338C8B0",
+        "barrier_published": true,
+        "barrier_readable": true,
+        "target_app_login": true,
+        "control_sessions": 0,
+        "target_wal_sender_timeout_ms": 5000,
+        "max_slot_wal_keep_size": "1GB",
+        "slot_exists": true,
+        "slot_type": "logical",
+        "target_slot_active": true,
+        "target_slot_wal_status": "reserved",
+        "target_slot_invalidated": false,
+        "invalidation_reason": null,
+        "safe_wal_size": 1086797648,
+        "target_slot_confirmed_flush_lsn": "0/3386688",
+        "target_sender_state": null,
+        "target_sender_tls": false,
+        "forward_enabled": false,
+        "forward_workers": 0
+       },
+       "target_rows": {
+        "messages": 11888,
+        "messages_max_id": 11888,
+        "attachments": 100,
+        "attachments_max_created_at": "2026-11-05T20:06:12.699584+00:00"
+       },
+       "executor": {
+        "state": "idle",
+        "holding": 0,
+        "executions": 0,
+        "leases": 0,
+        "retarget_fences": 0
+       }
+      },
+      "barrier_gaps": [],
+      "stages": {
+       "before": {
+        "target_observed_at": "2026-11-05T20:06:51.496288+00:00",
+        "forward_enabled": false,
+        "target_slot_active": true,
+        "target_slot_wal_status": "reserved",
+        "target_slot_invalidated": false,
+        "target_sender_state": null,
+        "target_sender_tls": false,
+        "target_slot_confirmed_flush_lsn": "0/3386688",
+        "source_observed_at": "2026-11-05T20:06:51.487605+00:00",
+        "reverse_enabled": true,
+        "apply_workers": 1,
+        "source_origin_remote_lsn": "0/33876D8",
+        "source_app_login": false,
+        "source_apply_errors": 1,
+        "source_sync_errors": 0,
+        "business_tables": {
+         "messages": {
+          "target_rows": 11878,
+          "source_rows": 11878,
+          "sha256_equal": true,
+          "target_sha256_unchanged": true
+         },
+         "attachments": {
+          "target_rows": 100,
+          "source_rows": 100,
+          "sha256_equal": true,
+          "target_sha256_unchanged": true
+         }
+        }
+       },
+       "final": {
+        "target_observed_at": "2026-11-05T20:06:54.908159+00:00",
+        "forward_enabled": false,
+        "target_slot_active": true,
+        "target_slot_wal_status": "reserved",
+        "target_slot_invalidated": false,
+        "target_sender_state": null,
+        "target_sender_tls": false,
+        "target_slot_confirmed_flush_lsn": "0/33D8D90",
+        "source_observed_at": "2026-11-05T20:06:54.893334+00:00",
+        "reverse_enabled": true,
+        "apply_workers": 1,
+        "source_origin_remote_lsn": "0/33DEFB8",
+        "source_app_login": false,
+        "source_apply_errors": 1,
+        "source_sync_errors": 0,
+        "business_tables": {
+         "messages": {
+          "target_rows": 11878,
+          "source_rows": 11878,
+          "sha256_equal": true,
+          "target_sha256_unchanged": true
+         },
+         "attachments": {
+          "target_rows": 100,
+          "source_rows": 100,
+          "sha256_equal": true,
+          "target_sha256_unchanged": true
+         }
+        }
+       }
+      },
+      "immediately_before_enable": {
+       "observed_at": "2026-11-05T20:06:51.673176+00:00",
+       "target_wal_flush_lsn": "0/338C8B0",
+       "target_slot_confirmed_flush_lsn": "0/3386688",
+       "gap_bytes": 25128,
+       "gap_mib": 0.0,
+       "slot_active": true,
+       "wal_status": "reserved"
+      },
+      "continuity": {
+       "enable_submissions": 0,
+       "target_write_block_before": "not_read",
+       "target_wal_sender_timeout_ms": 5000,
+       "source_wal_receiver_timeout_ms": 5000,
+       "disable_on_error": true,
+       "same_subscription_oid_and_origin": true,
+       "table_sync_states": {
+        "public.attachments": "r",
+        "public.messages": "r",
+        "cutover.barrier": "r",
+        "cutover.probe": "r"
+       },
+       "platform_before_after": {
+        "executions": [
+         0,
+         0
+        ],
+        "leases": [
+         0,
+         0
+        ],
+        "retarget_fences": [
+         0,
+         0
+        ]
+       },
+       "business_tables_match": true
+      },
+      "would_run": null,
+      "marker": {
+       "state": "not_run_without_apply"
+      },
+      "enabled_by": null,
+      "command_clock": {
+       "start": "this command's monotonic clock, immediately before ENABLE (or before the first read, if the subscription was already on)",
+       "enable_command_return_s": null,
+       "first_observations": {
+        "worker": {
+         "elapsed_s": 0.0,
+         "previous_sample_s": null,
+         "db_utc": "2026-11-05T20:06:51.702803+00:00"
+        },
+        "received_fixed": {
+         "elapsed_s": 0.0,
+         "previous_sample_s": null,
+         "db_utc": "2026-11-05T20:06:51.702803+00:00"
+        },
+        "applied_fixed": {
+         "elapsed_s": 0.0,
+         "previous_sample_s": null,
+         "db_utc": "2026-11-05T20:06:51.702803+00:00"
+        }
+       }
+      },
+      "catch_up": {
+       "passed": true,
+       "reason": "confirmed",
+       "checks": {
+        "reverse_enabled": true,
+        "target_slot_valid": true,
+        "apply_worker_running": true,
+        "target_slot_active": true,
+        "confirmed_flush_advanced": true,
+        "received_fixed": true,
+        "confirmed_fixed": true,
+        "tables_ready": true,
+        "rows_arrived": true,
+        "errors_not_increased": true,
+        "single_writer_kept": true
+       },
+       "seconds": 1.1,
+       "confirmed_fixed_seconds": 1.1,
+       "positions": {
+        "fixed": "0/338C8B0",
+        "target_slot_confirmed_flush_lsn": "0/33A5A48",
+        "latest_end_lsn": "0/33A7B00",
+        "source_origin_remote_lsn": "0/33A8340"
+       },
+       "read_errors": {},
+       "worker_pids_seen": 1,
+       "last_sample_s": 1.0343
+      },
+      "post_check": {
+       "passed": true,
+       "reason": "confirmed",
+       "checks": {
+        "reverse_enabled": true,
+        "target_slot_valid": true,
+        "apply_worker_running": true,
+        "target_slot_active": true,
+        "confirmed_flush_advanced": true,
+        "received_fixed": true,
+        "confirmed_fixed": true,
+        "tables_ready": true,
+        "rows_arrived": true,
+        "errors_not_increased": true,
+        "single_writer_kept": true
+       },
+       "seconds": 2.1,
+       "confirmed_fixed_seconds": 0.0,
+       "positions": {
+        "fixed": "0/338C8B0",
+        "target_slot_confirmed_flush_lsn": "0/33D8D90",
+        "latest_end_lsn": "0/33DDF50",
+        "source_origin_remote_lsn": "0/33DDF50"
+       },
+       "read_errors": {},
+       "worker_pids_seen": 1,
+       "last_sample_s": 3.1556
+      }
+     }
+    },
+    "no_loss": {
+     "newest_row_arrived": true,
+     "acknowledged_rows": 1969,
+     "acknowledged_rows_missing_on_source": 0,
+     "rows_written_while_stopped": 8379,
+     "of_those_on_source": 8379,
+     "messages_identical": true,
+     "attachments_identical": true,
+     "barrier_rows_left": {
+      "target": 0,
+      "source": 0
+     }
+    },
+    "machine": {
+     "before": {
+      "load_avg_1m": 2.91,
+      "other_running_containers": 2,
+      "other_containers_cpu_pct": 0.0
+     },
+     "after": {
+      "load_avg_1m": 3.23,
+      "other_running_containers": 1,
+      "other_containers_cpu_pct": 0.0
+     }
+    },
+    "checks": {
+     "refused_before_the_cutover": true,
+     "forward_command_refused_after_the_cutover": true,
+     "disabled_by_the_cut": true,
+     "dry_run_changed_nothing": true,
+     "apply_passed": true,
+     "enabled_by_this_run": true,
+     "marker_written_on_the_target": true,
+     "barrier_went_both_ways": true,
+     "applied_position_passed_the_marker": true,
+     "hashes_equal_at_the_end": true,
+     "second_run_only_verified": true,
+     "no_acknowledged_row_lost": true,
+     "rows_written_while_stopped_arrived": true,
+     "tables_identical": true,
+     "no_probe_row_left": true,
+     "single_writer_kept": true,
+     "no_credentials_in_output": true
+    },
+    "passed": true
+   },
+   {
+    "condition": "100mbit-rtt30",
+    "repetition": 2,
+    "disabled_after_link_cut_s": 5.73,
+    "source_log_events": [
+     {
+      "event": "receiver_timeout",
+      "sqlstate": "08006",
+      "after_first_ms": 0
+     },
+     {
+      "event": "subscription_disabled",
+      "sqlstate": "00000",
+      "after_first_ms": 1
+     }
+    ],
+    "signature_before_resume": {
+     "reverse_enabled": false,
+     "apply_error_count": 1,
+     "sync_error_count": 0,
+     "slot_active": false,
+     "slot_wal_status": "reserved",
+     "slot_invalidation_reason": null,
+     "behind_bytes": 17861432
+    },
+    "backlog_bytes": 17861432,
+    "before_cutover": {
+     "exit": 1,
+     "seconds": 0.13,
+     "credentials_in_output": false,
+     "report": {
+      "mode": "dry-run",
+      "direction": "reverse",
+      "passed": false,
+      "stage": "preflight",
+      "refusals": [
+       "target_app_cannot_login",
+       "forward_active",
+       "source_app_can_login",
+       "forward_slot_in_use"
+      ],
+      "preflight": {
+       "source": {
+        "source_observed_at": "2026-11-05T20:07:23.590287+00:00",
+        "system_identifier": "7704781514390605866",
+        "database": "chat",
+        "in_recovery": false,
+        "source_app_login": true,
+        "app_sessions": 0,
+        "control_sessions": 0,
+        "source_wal_receiver_timeout_ms": 5000,
+        "forward_slot_active": true,
+        "barrier_readable": true,
+        "origin_readable": true,
+        "subscription_exists": true,
+        "subscription_oid": "16434",
+        "reverse_enabled": false,
+        "disable_on_error": true,
+        "table_sync_states": {
+         "public.attachments": "r",
+         "public.messages": "r"
+        },
+        "apply_workers": 0,
+        "worker_pid": null,
+        "received_lsn": null,
+        "latest_end_lsn": null,
+        "source_apply_errors": 0,
+        "source_sync_errors": 0,
+        "source_conflicts": 0,
+        "can_alter": true,
+        "can_call_control": true,
+        "source_origin_remote_lsn": null
+       },
+       "source_rows": {
+        "messages": 1900,
+        "messages_max_id": 1900,
+        "attachments": 100
+       },
+       "target": {
+        "target_observed_at": "2026-11-05T20:07:23.607825+00:00",
+        "system_identifier": "7704781515840213036",
+        "database": "chat",
+        "slot_database": "chat",
+        "in_recovery": false,
+        "target_wal_flush_lsn": "0/1FC94E0",
+        "barrier_published": true,
+        "barrier_readable": true,
+        "target_app_login": false,
+        "control_sessions": 0,
+        "target_wal_sender_timeout_ms": 5000,
+        "max_slot_wal_keep_size": "1GB",
+        "slot_exists": true,
+        "slot_type": "logical",
+        "target_slot_active": false,
+        "target_slot_wal_status": "reserved",
+        "target_slot_invalidated": false,
+        "invalidation_reason": null,
+        "safe_wal_size": 1073965856,
+        "target_slot_confirmed_flush_lsn": "0/1FA0098",
+        "target_sender_state": null,
+        "target_sender_tls": null,
+        "forward_enabled": true,
+        "forward_workers": 1
+       },
+       "target_rows": {
+        "messages": 1900,
+        "messages_max_id": 1900,
+        "attachments": 100,
+        "attachments_max_created_at": "2026-11-05T20:07:20.605178+00:00"
+       },
+       "executor": {
+        "state": "idle",
+        "holding": 0,
+        "executions": 0,
+        "leases": 0,
+        "retarget_fences": 0
+       }
+      }
+     }
+    },
+    "forward_after_cutover": {
+     "exit": 1,
+     "seconds": 0.16,
+     "credentials_in_output": false,
+     "report": {
+      "mode": "dry-run",
+      "passed": false,
+      "stage": "preflight",
+      "refusals": [
+       "source_app_cannot_login",
+       "reverse_active",
+       "target_app_can_login",
+       "reverse_slot_in_use"
+      ],
+      "preflight": {
+       "target": {
+        "target_observed_at": "2026-11-05T20:07:24.23264+00:00",
+        "system_identifier": "7704781515840213036",
+        "database": "chat",
+        "in_recovery": false,
+        "target_app_login": true,
+        "app_sessions": 0,
+        "control_sessions": 0,
+        "target_wal_receiver_timeout_ms": 5000,
+        "reverse_slot_active": true,
+        "barrier_readable": true,
+        "origin_readable": true,
+        "subscription_exists": true,
+        "subscription_oid": "16426",
+        "forward_enabled": false,
+        "disable_on_error": true,
+        "table_sync_states": {
+         "public.attachments": "r",
+         "public.messages": "r",
+         "cutover.barrier": "r",
+         "cutover.probe": "r"
+        },
+        "apply_workers": 0,
+        "worker_pid": null,
+        "received_lsn": null,
+        "latest_end_lsn": null,
+        "target_apply_errors": 0,
+        "target_sync_errors": 0,
+        "target_conflicts": 0,
+        "can_alter": true,
+        "can_call_control": true,
+        "target_origin_remote_lsn": "0/0"
+       },
+       "target_rows": {
+        "messages": 1900,
+        "messages_max_id": 1900,
+        "attachments": 100
+       },
+       "source": {
+        "source_observed_at": "2026-11-05T20:07:24.252235+00:00",
+        "system_identifier": "7704781514390605866",
+        "database": "chat",
+        "slot_database": "chat",
+        "in_recovery": false,
+        "source_wal_flush_lsn": "0/2506F28",
+        "barrier_published": true,
+        "barrier_readable": true,
+        "source_app_login": false,
+        "control_sessions": 0,
+        "source_wal_sender_timeout_ms": 5000,
+        "max_slot_wal_keep_size": "1GB",
+        "slot_exists": true,
+        "slot_type": "logical",
+        "source_slot_active": false,
+        "source_slot_wal_status": "reserved",
+        "source_slot_invalidated": false,
+        "invalidation_reason": null,
+        "safe_wal_size": 1085247704,
+        "source_slot_confirmed_flush_lsn": "0/24FFA40",
+        "source_sender_state": null,
+        "source_sender_tls": null,
+        "reverse_enabled": true,
+        "reverse_workers": 1
+       },
+       "source_rows": {
+        "messages": 1900,
+        "messages_max_id": 1900,
+        "attachments": 100,
+        "attachments_max_created_at": "2026-11-05T20:07:20.605178+00:00"
+       },
+       "executor": {
+        "state": "idle",
+        "holding": 0,
+        "executions": 0,
+        "leases": 0,
+        "resource_fences": 0
+       }
+      }
+     }
+    },
+    "dry_run": {
+     "exit": 0,
+     "seconds": 0.29,
+     "credentials_in_output": false,
+     "report": {
+      "mode": "dry-run",
+      "direction": "reverse",
+      "passed": true,
+      "stage": "preflight",
+      "refusals": [],
+      "preflight": {
+       "source": {
+        "source_observed_at": "2026-11-05T20:07:40.576567+00:00",
+        "system_identifier": "7704781514390605866",
+        "database": "chat",
+        "in_recovery": false,
+        "source_app_login": false,
+        "app_sessions": 0,
+        "control_sessions": 0,
+        "source_wal_receiver_timeout_ms": 5000,
+        "forward_slot_active": false,
+        "barrier_readable": true,
+        "origin_readable": true,
+        "subscription_exists": true,
+        "subscription_oid": "16434",
+        "reverse_enabled": false,
+        "disable_on_error": true,
+        "table_sync_states": {
+         "public.attachments": "r",
+         "public.messages": "r",
+         "cutover.barrier": "r",
+         "cutover.probe": "r"
+        },
+        "apply_workers": 0,
+        "worker_pid": null,
+        "received_lsn": null,
+        "latest_end_lsn": null,
+        "source_apply_errors": 1,
+        "source_sync_errors": 0,
+        "source_conflicts": 0,
+        "can_alter": true,
+        "can_call_control": true,
+        "source_origin_remote_lsn": "0/2087608"
+       },
+       "source_rows": {
+        "messages": 2269,
+        "messages_max_id": 2269,
+        "attachments": 100
+       },
+       "target": {
+        "target_observed_at": "2026-11-05T20:07:40.591649+00:00",
+        "system_identifier": "7704781515840213036",
+        "database": "chat",
+        "slot_database": "chat",
+        "in_recovery": false,
+        "target_wal_flush_lsn": "0/3192210",
+        "barrier_published": true,
+        "barrier_readable": true,
+        "target_app_login": true,
+        "control_sessions": 0,
+        "target_wal_sender_timeout_ms": 5000,
+        "max_slot_wal_keep_size": "1GB",
+        "slot_exists": true,
+        "slot_type": "logical",
+        "target_slot_active": false,
+        "target_slot_wal_status": "reserved",
+        "target_slot_invalidated": false,
+        "invalidation_reason": null,
+        "safe_wal_size": 1055317488,
+        "target_slot_confirmed_flush_lsn": "0/2082C08",
+        "target_sender_state": null,
+        "target_sender_tls": null,
+        "forward_enabled": false,
+        "forward_workers": 0
+       },
+       "target_rows": {
+        "messages": 10916,
+        "messages_max_id": 10916,
+        "attachments": 100,
+        "attachments_max_created_at": "2026-11-05T20:07:20.605178+00:00"
+       },
+       "executor": {
+        "state": "idle",
+        "holding": 0,
+        "executions": 0,
+        "leases": 0,
+        "retarget_fences": 0
+       }
+      },
+      "barrier_gaps": [],
+      "stages": {
+       "before": {
+        "target_observed_at": "2026-11-05T20:07:40.477453+00:00",
+        "forward_enabled": false,
+        "target_slot_active": false,
+        "target_slot_wal_status": "reserved",
+        "target_slot_invalidated": false,
+        "target_sender_state": null,
+        "target_sender_tls": null,
+        "target_slot_confirmed_flush_lsn": "0/2082C08",
+        "source_observed_at": "2026-11-05T20:07:40.466449+00:00",
+        "reverse_enabled": false,
+        "apply_workers": 0,
+        "source_origin_remote_lsn": "0/2087608",
+        "source_app_login": false,
+        "source_apply_errors": 1,
+        "source_sync_errors": 0,
+        "business_tables": {
+         "messages": {
+          "target_rows": 10909,
+          "source_rows": 2269,
+          "sha256_equal": false,
+          "target_sha256_unchanged": true
+         },
+         "attachments": {
+          "target_rows": 100,
+          "source_rows": 100,
+          "sha256_equal": true,
+          "target_sha256_unchanged": true
+         }
+        }
+       }
+      },
+      "immediately_before_enable": {
+       "observed_at": "2026-11-05T20:07:40.591649+00:00",
+       "target_wal_flush_lsn": "0/3192210",
+       "target_slot_confirmed_flush_lsn": "0/2082C08",
+       "gap_bytes": 17888776,
+       "gap_mib": 17.1,
+       "slot_active": false,
+       "wal_status": "reserved"
+      },
+      "continuity": {
+       "enable_submissions": 0,
+       "target_write_block_before": "not_read",
+       "target_wal_sender_timeout_ms": 5000,
+       "source_wal_receiver_timeout_ms": 5000,
+       "disable_on_error": true
+      },
+      "would_run": "SELECT cutover.set_subscription('t8_target_to_source', true)",
+      "marker": {
+       "state": "not_run_without_apply"
+      }
+     }
+    },
+    "apply": {
+     "exit": 0,
+     "seconds": 19.88,
+     "credentials_in_output": false,
+     "report": {
+      "mode": "apply",
+      "direction": "reverse",
+      "passed": true,
+      "stage": "continuity",
+      "refusals": [],
+      "preflight": {
+       "source": {
+        "source_observed_at": "2026-11-05T20:07:40.841057+00:00",
+        "system_identifier": "7704781514390605866",
+        "database": "chat",
+        "in_recovery": false,
+        "source_app_login": false,
+        "app_sessions": 0,
+        "control_sessions": 0,
+        "source_wal_receiver_timeout_ms": 5000,
+        "forward_slot_active": false,
+        "barrier_readable": true,
+        "origin_readable": true,
+        "subscription_exists": true,
+        "subscription_oid": "16434",
+        "reverse_enabled": false,
+        "disable_on_error": true,
+        "table_sync_states": {
+         "public.attachments": "r",
+         "public.messages": "r",
+         "cutover.barrier": "r",
+         "cutover.probe": "r"
+        },
+        "apply_workers": 0,
+        "worker_pid": null,
+        "received_lsn": null,
+        "latest_end_lsn": null,
+        "source_apply_errors": 1,
+        "source_sync_errors": 0,
+        "source_conflicts": 0,
+        "can_alter": true,
+        "can_call_control": true,
+        "source_origin_remote_lsn": "0/2087608"
+       },
+       "source_rows": {
+        "messages": 2269,
+        "messages_max_id": 2269,
+        "attachments": 100
+       },
+       "target": {
+        "target_observed_at": "2026-11-05T20:07:40.854437+00:00",
+        "system_identifier": "7704781515840213036",
+        "database": "chat",
+        "slot_database": "chat",
+        "in_recovery": false,
+        "target_wal_flush_lsn": "0/3198C60",
+        "barrier_published": true,
+        "barrier_readable": true,
+        "target_app_login": true,
+        "control_sessions": 0,
+        "target_wal_sender_timeout_ms": 5000,
+        "max_slot_wal_keep_size": "1GB",
+        "slot_exists": true,
+        "slot_type": "logical",
+        "target_slot_active": false,
+        "target_slot_wal_status": "reserved",
+        "target_slot_invalidated": false,
+        "invalidation_reason": null,
+        "safe_wal_size": 1055290272,
+        "target_slot_confirmed_flush_lsn": "0/2082C08",
+        "target_sender_state": null,
+        "target_sender_tls": null,
+        "forward_enabled": false,
+        "forward_workers": 0
+       },
+       "target_rows": {
+        "messages": 10929,
+        "messages_max_id": 10929,
+        "attachments": 100,
+        "attachments_max_created_at": "2026-11-05T20:07:20.605178+00:00"
+       },
+       "executor": {
+        "state": "idle",
+        "holding": 0,
+        "executions": 0,
+        "leases": 0,
+        "retarget_fences": 0
+       },
+       "probe": {
+        "system_identifier": "7704781515840213036",
+        "database": "chat",
+        "in_recovery": false,
+        "allowed": true
+       }
+      },
+      "barrier_gaps": [],
+      "stages": {
+       "before": {
+        "target_observed_at": "2026-11-05T20:07:40.743054+00:00",
+        "forward_enabled": false,
+        "target_slot_active": false,
+        "target_slot_wal_status": "reserved",
+        "target_slot_invalidated": false,
+        "target_sender_state": null,
+        "target_sender_tls": null,
+        "target_slot_confirmed_flush_lsn": "0/2082C08",
+        "source_observed_at": "2026-11-05T20:07:40.733043+00:00",
+        "reverse_enabled": false,
+        "apply_workers": 0,
+        "source_origin_remote_lsn": "0/2087608",
+        "source_app_login": false,
+        "source_apply_errors": 1,
+        "source_sync_errors": 0,
+        "business_tables": {
+         "messages": {
+          "target_rows": 10922,
+          "source_rows": 2269,
+          "sha256_equal": false,
+          "target_sha256_unchanged": true
+         },
+         "attachments": {
+          "target_rows": 100,
+          "source_rows": 100,
+          "sha256_equal": true,
+          "target_sha256_unchanged": true
+         }
+        }
+       },
+       "delivered": {
+        "target_observed_at": "2026-11-05T20:07:44.236966+00:00",
+        "forward_enabled": false,
+        "target_slot_active": true,
+        "target_slot_wal_status": "reserved",
+        "target_slot_invalidated": false,
+        "target_sender_state": null,
+        "target_sender_tls": false,
+        "target_slot_confirmed_flush_lsn": "0/31F01C0",
+        "source_observed_at": "2026-11-05T20:07:44.220991+00:00",
+        "reverse_enabled": true,
+        "apply_workers": 1,
+        "source_origin_remote_lsn": "0/31F2AA0",
+        "source_app_login": false,
+        "source_apply_errors": 1,
+        "source_sync_errors": 0,
+        "business_tables": {
+         "messages": {
+          "target_rows": 10922,
+          "source_rows": 10922,
+          "sha256_equal": true,
+          "target_sha256_unchanged": true
+         },
+         "attachments": {
+          "target_rows": 100,
+          "source_rows": 100,
+          "sha256_equal": true,
+          "target_sha256_unchanged": true
+         }
+        }
+       },
+       "cleaned": {
+        "target_observed_at": "2026-11-05T20:07:44.6297+00:00",
+        "forward_enabled": false,
+        "target_slot_active": true,
+        "target_slot_wal_status": "reserved",
+        "target_slot_invalidated": false,
+        "target_sender_state": null,
+        "target_sender_tls": false,
+        "target_slot_confirmed_flush_lsn": "0/31F9E00",
+        "source_observed_at": "2026-11-05T20:07:44.619325+00:00",
+        "reverse_enabled": true,
+        "apply_workers": 1,
+        "source_origin_remote_lsn": "0/31FCF20",
+        "source_app_login": false,
+        "source_apply_errors": 1,
+        "source_sync_errors": 0,
+        "business_tables": {
+         "messages": {
+          "target_rows": 10922,
+          "source_rows": 10922,
+          "sha256_equal": true,
+          "target_sha256_unchanged": true
+         },
+         "attachments": {
+          "target_rows": 100,
+          "source_rows": 100,
+          "sha256_equal": true,
+          "target_sha256_unchanged": true
+         }
+        }
+       }
+      },
+      "immediately_before_enable": {
+       "observed_at": "2026-11-05T20:07:40.854437+00:00",
+       "target_wal_flush_lsn": "0/3198C60",
+       "target_slot_confirmed_flush_lsn": "0/2082C08",
+       "gap_bytes": 17915992,
+       "gap_mib": 17.1,
+       "slot_active": false,
+       "wal_status": "reserved"
+      },
+      "continuity": {
+       "enable_submissions": 1,
+       "target_write_block_before": "off",
+       "target_wal_sender_timeout_ms": 5000,
+       "source_wal_receiver_timeout_ms": 5000,
+       "disable_on_error": true,
+       "applied_position": "read_from_origin",
+       "same_subscription_oid_and_origin": true,
+       "table_sync_states": {
+        "public.attachments": "r",
+        "public.messages": "r",
+        "cutover.barrier": "r",
+        "cutover.probe": "r"
+       },
+       "platform_before_after": {
+        "executions": [
+         0,
+         0
+        ],
+        "leases": [
+         0,
+         0
+        ],
+        "retarget_fences": [
+         0,
+         0
+        ]
+       },
+       "business_tables_match": true
+      },
+      "enabled_by": "control_function",
+      "command_clock": {
+       "start": "this command's monotonic clock, immediately before ENABLE (or before the first read, if the subscription was already on)",
+       "enable_command_return_s": 0.0034,
+       "first_observations": {
+        "worker": {
+         "elapsed_s": 0.0034,
+         "previous_sample_s": null,
+         "db_utc": "2026-11-05T20:07:40.877951+00:00"
+        },
+        "received_fixed": {
+         "elapsed_s": 3.0803,
+         "previous_sample_s": 2.0496,
+         "db_utc": "2026-11-05T20:07:43.957249+00:00"
+        },
+        "applied_fixed": {
+         "elapsed_s": 3.0803,
+         "previous_sample_s": 2.0496,
+         "db_utc": "2026-11-05T20:07:43.957249+00:00"
+        },
+        "barrier": {
+         "elapsed_s": 3.3343,
+         "previous_sample_s": 3.1208,
+         "db_utc": "2026-11-05T20:07:44.220991+00:00"
+        }
+       }
+      },
+      "catch_up": {
+       "passed": true,
+       "reason": "confirmed",
+       "checks": {
+        "reverse_enabled": true,
+        "target_slot_valid": true,
+        "apply_worker_running": true,
+        "target_slot_active": true,
+        "confirmed_flush_advanced": true,
+        "received_fixed": true,
+        "confirmed_fixed": true,
+        "tables_ready": true,
+        "rows_arrived": true,
+        "errors_not_increased": true,
+        "single_writer_kept": true
+       },
+       "seconds": 3.1,
+       "confirmed_fixed_seconds": 3.1,
+       "positions": {
+        "fixed": "0/3198C60",
+        "target_slot_confirmed_flush_lsn": "0/31E64B8",
+        "latest_end_lsn": "0/31EBF08",
+        "source_origin_remote_lsn": "0/31EBF08"
+       },
+       "read_errors": {},
+       "worker_pids_seen": 1,
+       "last_sample_s": 3.0803
+      },
+      "marker": {
+       "barrier_id": "93ae63ca-ab4a-4ef6-9b1b-44dca0305610",
+       "protocol": "serialized-v1",
+       "passed": true,
+       "insert_lsn_before_commit": "0/31ED070",
+       "delete_lsn_before_commit": "0/31F7488",
+       "delete_lsn_after_commit": "0/31F74B8",
+       "same_row_on_both_sides_when_present": true,
+       "target_insert_submissions": 1,
+       "target_insert_commits": 1,
+       "target_delete_submissions": 1,
+       "target_delete_commits": 1,
+       "barrier": {
+        "elapsed_s": 3.3343,
+        "previous_sample_s": 3.1208
+       },
+       "delete_arrived": {
+        "elapsed_s": 3.7404,
+        "previous_sample_s": 3.5298
+       },
+       "cleanup": "confirmed"
+      },
+      "post_check": {
+       "passed": true,
+       "reason": "confirmed",
+       "checks": {
+        "reverse_enabled": true,
+        "target_slot_valid": true,
+        "apply_worker_running": true,
+        "target_slot_active": true,
+        "confirmed_flush_advanced": true,
+        "received_fixed": true,
+        "confirmed_fixed": true,
+        "tables_ready": true,
+        "rows_arrived": true,
+        "errors_not_increased": true,
+        "single_writer_kept": true,
+        "applied_fixed": true
+       },
+       "seconds": 15.5,
+       "confirmed_fixed_seconds": 0.0,
+       "positions": {
+        "fixed": "0/3198C60",
+        "target_slot_confirmed_flush_lsn": "0/338E7A8",
+        "latest_end_lsn": "0/33939D0",
+        "source_origin_remote_lsn": "0/3394210"
+       },
+       "read_errors": {},
+       "worker_pids_seen": 1,
+       "last_sample_s": 19.4172
+      }
+     }
+    },
+    "second_run_default": {
+     "exit": 0,
+     "seconds": 3.92,
+     "credentials_in_output": false,
+     "report": {
+      "mode": "dry-run",
+      "direction": "reverse",
+      "passed": true,
+      "stage": "continuity",
+      "refusals": [],
+      "preflight": {
+       "source": {
+        "source_observed_at": "2026-11-05T20:08:00.805934+00:00",
+        "system_identifier": "7704781514390605866",
+        "database": "chat",
+        "in_recovery": false,
+        "source_app_login": false,
+        "app_sessions": 0,
+        "control_sessions": 0,
+        "source_wal_receiver_timeout_ms": 5000,
+        "forward_slot_active": false,
+        "barrier_readable": true,
+        "origin_readable": true,
+        "subscription_exists": true,
+        "subscription_oid": "16434",
+        "reverse_enabled": true,
+        "disable_on_error": true,
+        "table_sync_states": {
+         "public.attachments": "r",
+         "public.messages": "r",
+         "cutover.barrier": "r",
+         "cutover.probe": "r"
+        },
+        "apply_workers": 1,
+        "worker_pid": 124,
+        "received_lsn": "0/33A0E88",
+        "latest_end_lsn": "0/33A0E88",
+        "source_apply_errors": 1,
+        "source_sync_errors": 0,
+        "source_conflicts": 0,
+        "can_alter": true,
+        "can_call_control": true,
+        "source_origin_remote_lsn": "0/33A0E88"
+       },
+       "source_rows": {
+        "messages": 11926,
+        "messages_max_id": 11926,
+        "attachments": 100
+       },
+       "target": {
+        "target_observed_at": "2026-11-05T20:08:00.820519+00:00",
+        "system_identifier": "7704781515840213036",
+        "database": "chat",
+        "slot_database": "chat",
+        "in_recovery": false,
+        "target_wal_flush_lsn": "0/33A16B0",
+        "barrier_published": true,
+        "barrier_readable": true,
+        "target_app_login": true,
+        "control_sessions": 0,
+        "target_wal_sender_timeout_ms": 5000,
+        "max_slot_wal_keep_size": "1GB",
+        "slot_exists": true,
+        "slot_type": "logical",
+        "target_slot_active": true,
+        "target_slot_wal_status": "reserved",
+        "target_slot_invalidated": false,
+        "invalidation_reason": null,
+        "safe_wal_size": 1086712144,
+        "target_slot_confirmed_flush_lsn": "0/339E5A8",
+        "target_sender_state": null,
+        "target_sender_tls": false,
+        "forward_enabled": false,
+        "forward_workers": 0
+       },
+       "target_rows": {
+        "messages": 11928,
+        "messages_max_id": 11928,
+        "attachments": 100,
+        "attachments_max_created_at": "2026-11-05T20:07:20.605178+00:00"
+       },
+       "executor": {
+        "state": "idle",
+        "holding": 0,
+        "executions": 0,
+        "leases": 0,
+        "retarget_fences": 0
+       }
+      },
+      "barrier_gaps": [],
+      "stages": {
+       "before": {
+        "target_observed_at": "2026-11-05T20:08:00.642874+00:00",
+        "forward_enabled": false,
+        "target_slot_active": true,
+        "target_slot_wal_status": "reserved",
+        "target_slot_invalidated": false,
+        "target_sender_state": null,
+        "target_sender_tls": false,
+        "target_slot_confirmed_flush_lsn": "0/3398380",
+        "source_observed_at": "2026-11-05T20:08:00.63175+00:00",
+        "reverse_enabled": true,
+        "apply_workers": 1,
+        "source_origin_remote_lsn": "0/339C4F0",
+        "source_app_login": false,
+        "source_apply_errors": 1,
+        "source_sync_errors": 0,
+        "business_tables": {
+         "messages": {
+          "target_rows": 11917,
+          "source_rows": 11917,
+          "sha256_equal": true,
+          "target_sha256_unchanged": true
+         },
+         "attachments": {
+          "target_rows": 100,
+          "source_rows": 100,
+          "sha256_equal": true,
+          "target_sha256_unchanged": true
+         }
+        }
+       },
+       "final": {
+        "target_observed_at": "2026-11-05T20:08:03.996703+00:00",
+        "forward_enabled": false,
+        "target_slot_active": true,
+        "target_slot_wal_status": "reserved",
+        "target_slot_invalidated": false,
+        "target_sender_state": null,
+        "target_sender_tls": false,
+        "target_slot_confirmed_flush_lsn": "0/33F0CB0",
+        "source_observed_at": "2026-11-05T20:08:03.986589+00:00",
+        "reverse_enabled": true,
+        "apply_workers": 1,
+        "source_origin_remote_lsn": "0/33F2540",
+        "source_app_login": false,
+        "source_apply_errors": 1,
+        "source_sync_errors": 0,
+        "business_tables": {
+         "messages": {
+          "target_rows": 11917,
+          "source_rows": 11917,
+          "sha256_equal": true,
+          "target_sha256_unchanged": true
+         },
+         "attachments": {
+          "target_rows": 100,
+          "source_rows": 100,
+          "sha256_equal": true,
+          "target_sha256_unchanged": true
+         }
+        }
+       }
+      },
+      "immediately_before_enable": {
+       "observed_at": "2026-11-05T20:08:00.820519+00:00",
+       "target_wal_flush_lsn": "0/33A16B0",
+       "target_slot_confirmed_flush_lsn": "0/339E5A8",
+       "gap_bytes": 12552,
+       "gap_mib": 0.0,
+       "slot_active": true,
+       "wal_status": "reserved"
+      },
+      "continuity": {
+       "enable_submissions": 0,
+       "target_write_block_before": "not_read",
+       "target_wal_sender_timeout_ms": 5000,
+       "source_wal_receiver_timeout_ms": 5000,
+       "disable_on_error": true,
+       "same_subscription_oid_and_origin": true,
+       "table_sync_states": {
+        "public.attachments": "r",
+        "public.messages": "r",
+        "cutover.barrier": "r",
+        "cutover.probe": "r"
+       },
+       "platform_before_after": {
+        "executions": [
+         0,
+         0
+        ],
+        "leases": [
+         0,
+         0
+        ],
+        "retarget_fences": [
+         0,
+         0
+        ]
+       },
+       "business_tables_match": true
+      },
+      "would_run": null,
+      "marker": {
+       "state": "not_run_without_apply"
+      },
+      "enabled_by": null,
+      "command_clock": {
+       "start": "this command's monotonic clock, immediately before ENABLE (or before the first read, if the subscription was already on)",
+       "enable_command_return_s": null,
+       "first_observations": {
+        "worker": {
+         "elapsed_s": 0.0,
+         "previous_sample_s": null,
+         "db_utc": "2026-11-05T20:08:00.83725+00:00"
+        },
+        "received_fixed": {
+         "elapsed_s": 0.0,
+         "previous_sample_s": null,
+         "db_utc": "2026-11-05T20:08:00.83725+00:00"
+        },
+        "applied_fixed": {
+         "elapsed_s": 0.0,
+         "previous_sample_s": null,
+         "db_utc": "2026-11-05T20:08:00.83725+00:00"
+        }
+       }
+      },
+      "catch_up": {
+       "passed": true,
+       "reason": "confirmed",
+       "checks": {
+        "reverse_enabled": true,
+        "target_slot_valid": true,
+        "apply_worker_running": true,
+        "target_slot_active": true,
+        "confirmed_flush_advanced": true,
+        "received_fixed": true,
+        "confirmed_fixed": true,
+        "tables_ready": true,
+        "rows_arrived": true,
+        "errors_not_increased": true,
+        "single_writer_kept": true
+       },
+       "seconds": 1.1,
+       "confirmed_fixed_seconds": 1.1,
+       "positions": {
+        "fixed": "0/33A16B0",
+        "target_slot_confirmed_flush_lsn": "0/33B7F68",
+        "latest_end_lsn": "0/33BC0F0",
+        "source_origin_remote_lsn": "0/33BC0F0"
+       },
+       "read_errors": {},
+       "worker_pids_seen": 1,
+       "last_sample_s": 1.0245
+      },
+      "post_check": {
+       "passed": true,
+       "reason": "confirmed",
+       "checks": {
+        "reverse_enabled": true,
+        "target_slot_valid": true,
+        "apply_worker_running": true,
+        "target_slot_active": true,
+        "confirmed_flush_advanced": true,
+        "received_fixed": true,
+        "confirmed_fixed": true,
+        "tables_ready": true,
+        "rows_arrived": true,
+        "errors_not_increased": true,
+        "single_writer_kept": true
+       },
+       "seconds": 2.1,
+       "confirmed_fixed_seconds": 0.0,
+       "positions": {
+        "fixed": "0/33A16B0",
+        "target_slot_confirmed_flush_lsn": "0/33EB2B0",
+        "latest_end_lsn": "0/33F1D00",
+        "source_origin_remote_lsn": "0/33F1D00"
+       },
+       "read_errors": {},
+       "worker_pids_seen": 1,
+       "last_sample_s": 3.13
+      }
+     }
+    },
+    "no_loss": {
+     "newest_row_arrived": true,
+     "acknowledged_rows": 2008,
+     "acknowledged_rows_missing_on_source": 0,
+     "rows_written_while_stopped": 8376,
+     "of_those_on_source": 8376,
+     "messages_identical": true,
+     "attachments_identical": true,
+     "barrier_rows_left": {
+      "target": 0,
+      "source": 0
+     }
+    },
+    "machine": {
+     "before": {
+      "load_avg_1m": 3.68,
+      "other_running_containers": 2,
+      "other_containers_cpu_pct": 0.0
+     },
+     "after": {
+      "load_avg_1m": 3.3,
+      "other_running_containers": 2,
+      "other_containers_cpu_pct": 0.0
+     }
+    },
+    "checks": {
+     "refused_before_the_cutover": true,
+     "forward_command_refused_after_the_cutover": true,
+     "disabled_by_the_cut": true,
+     "dry_run_changed_nothing": true,
+     "apply_passed": true,
+     "enabled_by_this_run": true,
+     "marker_written_on_the_target": true,
+     "barrier_went_both_ways": true,
+     "applied_position_passed_the_marker": true,
+     "hashes_equal_at_the_end": true,
+     "second_run_only_verified": true,
+     "no_acknowledged_row_lost": true,
+     "rows_written_while_stopped_arrived": true,
+     "tables_identical": true,
+     "no_probe_row_left": true,
+     "single_writer_kept": true,
+     "no_credentials_in_output": true
+    },
+    "passed": true
+   },
+   {
+    "condition": "100mbit-rtt30",
+    "repetition": 3,
+    "disabled_after_link_cut_s": 5.72,
+    "source_log_events": [
+     {
+      "event": "receiver_timeout",
+      "sqlstate": "08006",
+      "after_first_ms": 0
+     },
+     {
+      "event": "subscription_disabled",
+      "sqlstate": "00000",
+      "after_first_ms": 1
+     }
+    ],
+    "signature_before_resume": {
+     "reverse_enabled": false,
+     "apply_error_count": 1,
+     "sync_error_count": 0,
+     "slot_active": false,
+     "slot_wal_status": "reserved",
+     "slot_invalidation_reason": null,
+     "behind_bytes": 17881000
+    },
+    "backlog_bytes": 17881000,
+    "before_cutover": {
+     "exit": 1,
+     "seconds": 0.18,
+     "credentials_in_output": false,
+     "report": {
+      "mode": "dry-run",
+      "direction": "reverse",
+      "passed": false,
+      "stage": "preflight",
+      "refusals": [
+       "target_app_cannot_login",
+       "forward_active",
+       "source_app_can_login",
+       "forward_slot_in_use"
+      ],
+      "preflight": {
+       "source": {
+        "source_observed_at": "2026-11-05T20:08:11.686444+00:00",
+        "system_identifier": "7704781724173443116",
+        "database": "chat",
+        "in_recovery": false,
+        "source_app_login": true,
+        "app_sessions": 0,
+        "control_sessions": 0,
+        "source_wal_receiver_timeout_ms": 5000,
+        "forward_slot_active": true,
+        "barrier_readable": true,
+        "origin_readable": true,
+        "subscription_exists": true,
+        "subscription_oid": "16434",
+        "reverse_enabled": false,
+        "disable_on_error": true,
+        "table_sync_states": {
+         "public.attachments": "r",
+         "public.messages": "r"
+        },
+        "apply_workers": 0,
+        "worker_pid": null,
+        "received_lsn": null,
+        "latest_end_lsn": null,
+        "source_apply_errors": 0,
+        "source_sync_errors": 0,
+        "source_conflicts": 0,
+        "can_alter": true,
+        "can_call_control": true,
+        "source_origin_remote_lsn": null
+       },
+       "source_rows": {
+        "messages": 1900,
+        "messages_max_id": 1900,
+        "attachments": 100
+       },
+       "target": {
+        "target_observed_at": "2026-11-05T20:08:11.705611+00:00",
+        "system_identifier": "7704781725432434731",
+        "database": "chat",
+        "slot_database": "chat",
+        "in_recovery": false,
+        "target_wal_flush_lsn": "0/1FC94A8",
+        "barrier_published": true,
+        "barrier_readable": true,
+        "target_app_login": false,
+        "control_sessions": 0,
+        "target_wal_sender_timeout_ms": 5000,
+        "max_slot_wal_keep_size": "1GB",
+        "slot_exists": true,
+        "slot_type": "logical",
+        "target_slot_active": false,
+        "target_slot_wal_status": "reserved",
+        "target_slot_invalidated": false,
+        "invalidation_reason": null,
+        "safe_wal_size": 1073965912,
+        "target_slot_confirmed_flush_lsn": "0/1FA0060",
+        "target_sender_state": null,
+        "target_sender_tls": null,
+        "forward_enabled": true,
+        "forward_workers": 1
+       },
+       "target_rows": {
+        "messages": 1900,
+        "messages_max_id": 1900,
+        "attachments": 100,
+        "attachments_max_created_at": "2026-11-05T20:08:09.378683+00:00"
+       },
+       "executor": {
+        "state": "idle",
+        "holding": 0,
+        "executions": 0,
+        "leases": 0,
+        "retarget_fences": 0
+       }
+      }
+     }
+    },
+    "forward_after_cutover": {
+     "exit": 1,
+     "seconds": 0.16,
+     "credentials_in_output": false,
+     "report": {
+      "mode": "dry-run",
+      "passed": false,
+      "stage": "preflight",
+      "refusals": [
+       "source_app_cannot_login",
+       "reverse_active",
+       "target_app_can_login",
+       "reverse_slot_in_use"
+      ],
+      "preflight": {
+       "target": {
+        "target_observed_at": "2026-11-05T20:08:12.312994+00:00",
+        "system_identifier": "7704781725432434731",
+        "database": "chat",
+        "in_recovery": false,
+        "target_app_login": true,
+        "app_sessions": 0,
+        "control_sessions": 0,
+        "target_wal_receiver_timeout_ms": 5000,
+        "reverse_slot_active": true,
+        "barrier_readable": true,
+        "origin_readable": true,
+        "subscription_exists": true,
+        "subscription_oid": "16426",
+        "forward_enabled": false,
+        "disable_on_error": true,
+        "table_sync_states": {
+         "public.attachments": "r",
+         "public.messages": "r",
+         "cutover.barrier": "r",
+         "cutover.probe": "r"
+        },
+        "apply_workers": 0,
+        "worker_pid": null,
+        "received_lsn": null,
+        "latest_end_lsn": null,
+        "target_apply_errors": 0,
+        "target_sync_errors": 0,
+        "target_conflicts": 0,
+        "can_alter": true,
+        "can_call_control": true,
+        "target_origin_remote_lsn": "0/0"
+       },
+       "target_rows": {
+        "messages": 1900,
+        "messages_max_id": 1900,
+        "attachments": 100
+       },
+       "source": {
+        "source_observed_at": "2026-11-05T20:08:12.339023+00:00",
+        "system_identifier": "7704781724173443116",
+        "database": "chat",
+        "slot_database": "chat",
+        "in_recovery": false,
+        "source_wal_flush_lsn": "0/2501330",
+        "barrier_published": true,
+        "barrier_readable": true,
+        "source_app_login": false,
+        "control_sessions": 0,
+        "source_wal_sender_timeout_ms": 5000,
+        "max_slot_wal_keep_size": "1GB",
+        "slot_exists": true,
+        "slot_type": "logical",
+        "source_slot_active": false,
+        "source_slot_wal_status": "reserved",
+        "source_slot_invalidated": false,
+        "invalidation_reason": null,
+        "safe_wal_size": 1085271248,
+        "source_slot_confirmed_flush_lsn": "0/24F9E48",
+        "source_sender_state": null,
+        "source_sender_tls": null,
+        "reverse_enabled": true,
+        "reverse_workers": 1
+       },
+       "source_rows": {
+        "messages": 1900,
+        "messages_max_id": 1900,
+        "attachments": 100,
+        "attachments_max_created_at": "2026-11-05T20:08:09.378683+00:00"
+       },
+       "executor": {
+        "state": "idle",
+        "holding": 0,
+        "executions": 0,
+        "leases": 0,
+        "resource_fences": 0
+       }
+      }
+     }
+    },
+    "dry_run": {
+     "exit": 0,
+     "seconds": 0.29,
+     "credentials_in_output": false,
+     "report": {
+      "mode": "dry-run",
+      "direction": "reverse",
+      "passed": true,
+      "stage": "preflight",
+      "refusals": [],
+      "preflight": {
+       "source": {
+        "source_observed_at": "2026-11-05T20:08:28.565249+00:00",
+        "system_identifier": "7704781724173443116",
+        "database": "chat",
+        "in_recovery": false,
+        "source_app_login": false,
+        "app_sessions": 0,
+        "control_sessions": 0,
+        "source_wal_receiver_timeout_ms": 5000,
+        "forward_slot_active": false,
+        "barrier_readable": true,
+        "origin_readable": true,
+        "subscription_exists": true,
+        "subscription_oid": "16434",
+        "reverse_enabled": false,
+        "disable_on_error": true,
+        "table_sync_states": {
+         "public.attachments": "r",
+         "public.messages": "r",
+         "cutover.barrier": "r",
+         "cutover.probe": "r"
+        },
+        "apply_workers": 0,
+        "worker_pid": null,
+        "received_lsn": null,
+        "latest_end_lsn": null,
+        "source_apply_errors": 1,
+        "source_sync_errors": 0,
+        "source_conflicts": 0,
+        "can_alter": true,
+        "can_call_control": true,
+        "source_origin_remote_lsn": "0/20851B8"
+       },
+       "source_rows": {
+        "messages": 2265,
+        "messages_max_id": 2265,
+        "attachments": 100
+       },
+       "target": {
+        "target_observed_at": "2026-11-05T20:08:28.579076+00:00",
+        "system_identifier": "7704781725432434731",
+        "database": "chat",
+        "slot_database": "chat",
+        "in_recovery": false,
+        "target_wal_flush_lsn": "0/31931A0",
+        "barrier_published": true,
+        "barrier_readable": true,
+        "target_app_login": true,
+        "control_sessions": 0,
+        "target_wal_sender_timeout_ms": 5000,
+        "max_slot_wal_keep_size": "1GB",
+        "slot_exists": true,
+        "slot_type": "logical",
+        "target_slot_active": false,
+        "target_slot_wal_status": "reserved",
+        "target_slot_invalidated": false,
+        "invalidation_reason": null,
+        "safe_wal_size": 1055313504,
+        "target_slot_confirmed_flush_lsn": "0/207E700",
+        "target_sender_state": null,
+        "target_sender_tls": null,
+        "forward_enabled": false,
+        "forward_workers": 0
+       },
+       "target_rows": {
+        "messages": 10911,
+        "messages_max_id": 10911,
+        "attachments": 100,
+        "attachments_max_created_at": "2026-11-05T20:08:09.378683+00:00"
+       },
+       "executor": {
+        "state": "idle",
+        "holding": 0,
+        "executions": 0,
+        "leases": 0,
+        "retarget_fences": 0
+       }
+      },
+      "barrier_gaps": [],
+      "stages": {
+       "before": {
+        "target_observed_at": "2026-11-05T20:08:28.466942+00:00",
+        "forward_enabled": false,
+        "target_slot_active": false,
+        "target_slot_wal_status": "reserved",
+        "target_slot_invalidated": false,
+        "target_sender_state": null,
+        "target_sender_tls": null,
+        "target_slot_confirmed_flush_lsn": "0/207E700",
+        "source_observed_at": "2026-11-05T20:08:28.457726+00:00",
+        "reverse_enabled": false,
+        "apply_workers": 0,
+        "source_origin_remote_lsn": "0/20851B8",
+        "source_app_login": false,
+        "source_apply_errors": 1,
+        "source_sync_errors": 0,
+        "business_tables": {
+         "messages": {
+          "target_rows": 10904,
+          "source_rows": 2265,
+          "sha256_equal": false,
+          "target_sha256_unchanged": true
+         },
+         "attachments": {
+          "target_rows": 100,
+          "source_rows": 100,
+          "sha256_equal": true,
+          "target_sha256_unchanged": true
+         }
+        }
+       }
+      },
+      "immediately_before_enable": {
+       "observed_at": "2026-11-05T20:08:28.579076+00:00",
+       "target_wal_flush_lsn": "0/31931A0",
+       "target_slot_confirmed_flush_lsn": "0/207E700",
+       "gap_bytes": 17910432,
+       "gap_mib": 17.1,
+       "slot_active": false,
+       "wal_status": "reserved"
+      },
+      "continuity": {
+       "enable_submissions": 0,
+       "target_write_block_before": "not_read",
+       "target_wal_sender_timeout_ms": 5000,
+       "source_wal_receiver_timeout_ms": 5000,
+       "disable_on_error": true
+      },
+      "would_run": "SELECT cutover.set_subscription('t8_target_to_source', true)",
+      "marker": {
+       "state": "not_run_without_apply"
+      }
+     }
+    },
+    "apply": {
+     "exit": 0,
+     "seconds": 20.0,
+     "credentials_in_output": false,
+     "report": {
+      "mode": "apply",
+      "direction": "reverse",
+      "passed": true,
+      "stage": "continuity",
+      "refusals": [],
+      "preflight": {
+       "source": {
+        "source_observed_at": "2026-11-05T20:08:28.829671+00:00",
+        "system_identifier": "7704781724173443116",
+        "database": "chat",
+        "in_recovery": false,
+        "source_app_login": false,
+        "app_sessions": 0,
+        "control_sessions": 0,
+        "source_wal_receiver_timeout_ms": 5000,
+        "forward_slot_active": false,
+        "barrier_readable": true,
+        "origin_readable": true,
+        "subscription_exists": true,
+        "subscription_oid": "16434",
+        "reverse_enabled": false,
+        "disable_on_error": true,
+        "table_sync_states": {
+         "public.attachments": "r",
+         "public.messages": "r",
+         "cutover.barrier": "r",
+         "cutover.probe": "r"
+        },
+        "apply_workers": 0,
+        "worker_pid": null,
+        "received_lsn": null,
+        "latest_end_lsn": null,
+        "source_apply_errors": 1,
+        "source_sync_errors": 0,
+        "source_conflicts": 0,
+        "can_alter": true,
+        "can_call_control": true,
+        "source_origin_remote_lsn": "0/20851B8"
+       },
+       "source_rows": {
+        "messages": 2265,
+        "messages_max_id": 2265,
+        "attachments": 100
+       },
+       "target": {
+        "target_observed_at": "2026-11-05T20:08:28.843703+00:00",
+        "system_identifier": "7704781725432434731",
+        "database": "chat",
+        "slot_database": "chat",
+        "in_recovery": false,
+        "target_wal_flush_lsn": "0/3199BF0",
+        "barrier_published": true,
+        "barrier_readable": true,
+        "target_app_login": true,
+        "control_sessions": 0,
+        "target_wal_sender_timeout_ms": 5000,
+        "max_slot_wal_keep_size": "1GB",
+        "slot_exists": true,
+        "slot_type": "logical",
+        "target_slot_active": false,
+        "target_slot_wal_status": "reserved",
+        "target_slot_invalidated": false,
+        "invalidation_reason": null,
+        "safe_wal_size": 1055286288,
+        "target_slot_confirmed_flush_lsn": "0/207E700",
+        "target_sender_state": null,
+        "target_sender_tls": null,
+        "forward_enabled": false,
+        "forward_workers": 0
+       },
+       "target_rows": {
+        "messages": 10924,
+        "messages_max_id": 10924,
+        "attachments": 100,
+        "attachments_max_created_at": "2026-11-05T20:08:09.378683+00:00"
+       },
+       "executor": {
+        "state": "idle",
+        "holding": 0,
+        "executions": 0,
+        "leases": 0,
+        "retarget_fences": 0
+       },
+       "probe": {
+        "system_identifier": "7704781725432434731",
+        "database": "chat",
+        "in_recovery": false,
+        "allowed": true
+       }
+      },
+      "barrier_gaps": [],
+      "stages": {
+       "before": {
+        "target_observed_at": "2026-11-05T20:08:28.730369+00:00",
+        "forward_enabled": false,
+        "target_slot_active": false,
+        "target_slot_wal_status": "reserved",
+        "target_slot_invalidated": false,
+        "target_sender_state": null,
+        "target_sender_tls": null,
+        "target_slot_confirmed_flush_lsn": "0/207E700",
+        "source_observed_at": "2026-11-05T20:08:28.720836+00:00",
+        "reverse_enabled": false,
+        "apply_workers": 0,
+        "source_origin_remote_lsn": "0/20851B8",
+        "source_app_login": false,
+        "source_apply_errors": 1,
+        "source_sync_errors": 0,
+        "business_tables": {
+         "messages": {
+          "target_rows": 10917,
+          "source_rows": 2265,
+          "sha256_equal": false,
+          "target_sha256_unchanged": true
+         },
+         "attachments": {
+          "target_rows": 100,
+          "source_rows": 100,
+          "sha256_equal": true,
+          "target_sha256_unchanged": true
+         }
+        }
+       },
+       "delivered": {
+        "target_observed_at": "2026-11-05T20:08:32.261749+00:00",
+        "forward_enabled": false,
+        "target_slot_active": true,
+        "target_slot_wal_status": "reserved",
+        "target_slot_invalidated": false,
+        "target_sender_state": null,
+        "target_sender_tls": false,
+        "target_slot_confirmed_flush_lsn": "0/31EBF70",
+        "source_observed_at": "2026-11-05T20:08:32.246369+00:00",
+        "reverse_enabled": true,
+        "apply_workers": 1,
+        "source_origin_remote_lsn": "0/31F1148",
+        "source_app_login": false,
+        "source_apply_errors": 1,
+        "source_sync_errors": 0,
+        "business_tables": {
+         "messages": {
+          "target_rows": 10917,
+          "source_rows": 10917,
+          "sha256_equal": true,
+          "target_sha256_unchanged": true
+         },
+         "attachments": {
+          "target_rows": 100,
+          "source_rows": 100,
+          "sha256_equal": true,
+          "target_sha256_unchanged": true
+         }
+        }
+       },
+       "cleaned": {
+        "target_observed_at": "2026-11-05T20:08:32.665738+00:00",
+        "forward_enabled": false,
+        "target_slot_active": true,
+        "target_slot_wal_status": "reserved",
+        "target_slot_invalidated": false,
+        "target_sender_state": null,
+        "target_sender_tls": false,
+        "target_slot_confirmed_flush_lsn": "0/31F7C18",
+        "source_observed_at": "2026-11-05T20:08:32.653105+00:00",
+        "reverse_enabled": true,
+        "apply_workers": 1,
+        "source_origin_remote_lsn": "0/31FB5C8",
+        "source_app_login": false,
+        "source_apply_errors": 1,
+        "source_sync_errors": 0,
+        "business_tables": {
+         "messages": {
+          "target_rows": 10917,
+          "source_rows": 10917,
+          "sha256_equal": true,
+          "target_sha256_unchanged": true
+         },
+         "attachments": {
+          "target_rows": 100,
+          "source_rows": 100,
+          "sha256_equal": true,
+          "target_sha256_unchanged": true
+         }
+        }
+       }
+      },
+      "immediately_before_enable": {
+       "observed_at": "2026-11-05T20:08:28.843703+00:00",
+       "target_wal_flush_lsn": "0/3199BF0",
+       "target_slot_confirmed_flush_lsn": "0/207E700",
+       "gap_bytes": 17937648,
+       "gap_mib": 17.1,
+       "slot_active": false,
+       "wal_status": "reserved"
+      },
+      "continuity": {
+       "enable_submissions": 1,
+       "target_write_block_before": "off",
+       "target_wal_sender_timeout_ms": 5000,
+       "source_wal_receiver_timeout_ms": 5000,
+       "disable_on_error": true,
+       "applied_position": "read_from_origin",
+       "same_subscription_oid_and_origin": true,
+       "table_sync_states": {
+        "public.attachments": "r",
+        "public.messages": "r",
+        "cutover.barrier": "r",
+        "cutover.probe": "r"
+       },
+       "platform_before_after": {
+        "executions": [
+         0,
+         0
+        ],
+        "leases": [
+         0,
+         0
+        ],
+        "retarget_fences": [
+         0,
+         0
+        ]
+       },
+       "business_tables_match": true
+      },
+      "enabled_by": "control_function",
+      "command_clock": {
+       "start": "this command's monotonic clock, immediately before ENABLE (or before the first read, if the subscription was already on)",
+       "enable_command_return_s": 0.0031,
+       "first_observations": {
+        "worker": {
+         "elapsed_s": 0.0031,
+         "previous_sample_s": null,
+         "db_utc": "2026-11-05T20:08:28.870981+00:00"
+        },
+        "received_fixed": {
+         "elapsed_s": 2.0578,
+         "previous_sample_s": 1.0283,
+         "db_utc": "2026-11-05T20:08:30.926924+00:00"
+        },
+        "applied_fixed": {
+         "elapsed_s": 2.0578,
+         "previous_sample_s": 1.0283,
+         "db_utc": "2026-11-05T20:08:30.926924+00:00"
+        },
+        "barrier": {
+         "elapsed_s": 3.3526,
+         "previous_sample_s": 3.1431,
+         "db_utc": "2026-11-05T20:08:32.246369+00:00"
+        }
+       }
+      },
+      "catch_up": {
+       "passed": true,
+       "reason": "confirmed",
+       "checks": {
+        "reverse_enabled": true,
+        "target_slot_valid": true,
+        "apply_worker_running": true,
+        "target_slot_active": true,
+        "confirmed_flush_advanced": true,
+        "received_fixed": true,
+        "confirmed_fixed": true,
+        "tables_ready": true,
+        "rows_arrived": true,
+        "errors_not_increased": true,
+        "single_writer_kept": true
+       },
+       "seconds": 3.1,
+       "confirmed_fixed_seconds": 3.1,
+       "positions": {
+        "fixed": "0/3199BF0",
+        "target_slot_confirmed_flush_lsn": "0/31E7CD0",
+        "latest_end_lsn": "0/31E9560",
+        "source_origin_remote_lsn": "0/31E9D88"
+       },
+       "read_errors": {},
+       "worker_pids_seen": 1,
+       "last_sample_s": 3.089
+      },
+      "marker": {
+       "barrier_id": "58630d7e-71f3-4d80-9e07-a810a9695884",
+       "protocol": "serialized-v1",
+       "passed": true,
+       "insert_lsn_before_commit": "0/31EAEF0",
+       "delete_lsn_before_commit": "0/31F5B30",
+       "delete_lsn_after_commit": "0/31F5B60",
+       "same_row_on_both_sides_when_present": true,
+       "target_insert_submissions": 1,
+       "target_insert_commits": 1,
+       "target_delete_submissions": 1,
+       "target_delete_commits": 1,
+       "barrier": {
+        "elapsed_s": 3.3526,
+        "previous_sample_s": 3.1431
+       },
+       "delete_arrived": {
+        "elapsed_s": 3.7777,
+        "previous_sample_s": 3.5636
+       },
+       "cleanup": "confirmed"
+      },
+      "post_check": {
+       "passed": true,
+       "reason": "confirmed",
+       "checks": {
+        "reverse_enabled": true,
+        "target_slot_valid": true,
+        "apply_worker_running": true,
+        "target_slot_active": true,
+        "confirmed_flush_advanced": true,
+        "received_fixed": true,
+        "confirmed_fixed": true,
+        "tables_ready": true,
+        "rows_arrived": true,
+        "errors_not_increased": true,
+        "single_writer_kept": true,
+        "applied_fixed": true
+       },
+       "seconds": 15.6,
+       "confirmed_fixed_seconds": 0.0,
+       "positions": {
+        "fixed": "0/3199BF0",
+        "target_slot_confirmed_flush_lsn": "0/3390178",
+        "latest_end_lsn": "0/3392AC0",
+        "source_origin_remote_lsn": "0/3392AC0"
+       },
+       "read_errors": {},
+       "worker_pids_seen": 1,
+       "last_sample_s": 19.5092
+      }
+     }
+    },
+    "second_run_default": {
+     "exit": 0,
+     "seconds": 3.89,
+     "credentials_in_output": false,
+     "report": {
+      "mode": "dry-run",
+      "direction": "reverse",
+      "passed": true,
+      "stage": "continuity",
+      "refusals": [],
+      "preflight": {
+       "source": {
+        "source_observed_at": "2026-11-05T20:08:48.913912+00:00",
+        "system_identifier": "7704781724173443116",
+        "database": "chat",
+        "in_recovery": false,
+        "source_app_login": false,
+        "app_sessions": 0,
+        "control_sessions": 0,
+        "source_wal_receiver_timeout_ms": 5000,
+        "forward_slot_active": false,
+        "barrier_readable": true,
+        "origin_readable": true,
+        "subscription_exists": true,
+        "subscription_oid": "16434",
+        "reverse_enabled": true,
+        "disable_on_error": true,
+        "table_sync_states": {
+         "public.attachments": "r",
+         "public.messages": "r",
+         "cutover.barrier": "r",
+         "cutover.probe": "r"
+        },
+        "apply_workers": 1,
+        "worker_pid": 126,
+        "received_lsn": "0/33A07A0",
+        "latest_end_lsn": "0/33A07A0",
+        "source_apply_errors": 1,
+        "source_sync_errors": 0,
+        "source_conflicts": 0,
+        "can_alter": true,
+        "can_call_control": true,
+        "source_origin_remote_lsn": "0/33A07A0"
+       },
+       "source_rows": {
+        "messages": 11927,
+        "messages_max_id": 11927,
+        "attachments": 100
+       },
+       "target": {
+        "target_observed_at": "2026-11-05T20:08:48.927658+00:00",
+        "system_identifier": "7704781725432434731",
+        "database": "chat",
+        "slot_database": "chat",
+        "in_recovery": false,
+        "target_wal_flush_lsn": "0/33A0FC8",
+        "barrier_published": true,
+        "barrier_readable": true,
+        "target_app_login": true,
+        "control_sessions": 0,
+        "target_wal_sender_timeout_ms": 5000,
+        "max_slot_wal_keep_size": "1GB",
+        "slot_exists": true,
+        "slot_type": "logical",
+        "target_slot_active": true,
+        "target_slot_wal_status": "reserved",
+        "target_slot_invalidated": false,
+        "invalidation_reason": null,
+        "safe_wal_size": 1086713912,
+        "target_slot_confirmed_flush_lsn": "0/3399D38",
+        "target_sender_state": null,
+        "target_sender_tls": false,
+        "forward_enabled": false,
+        "forward_workers": 0
+       },
+       "target_rows": {
+        "messages": 11928,
+        "messages_max_id": 11928,
+        "attachments": 100,
+        "attachments_max_created_at": "2026-11-05T20:08:09.378683+00:00"
+       },
+       "executor": {
+        "state": "idle",
+        "holding": 0,
+        "executions": 0,
+        "leases": 0,
+        "retarget_fences": 0
+       }
+      },
+      "barrier_gaps": [],
+      "stages": {
+       "before": {
+        "target_observed_at": "2026-11-05T20:08:48.75161+00:00",
+        "forward_enabled": false,
+        "target_slot_active": true,
+        "target_slot_wal_status": "reserved",
+        "target_slot_invalidated": false,
+        "target_sender_state": null,
+        "target_sender_tls": false,
+        "target_slot_confirmed_flush_lsn": "0/3395BC8",
+        "source_observed_at": "2026-11-05T20:08:48.742009+00:00",
+        "reverse_enabled": true,
+        "apply_workers": 1,
+        "source_origin_remote_lsn": "0/339BDF0",
+        "source_app_login": false,
+        "source_apply_errors": 1,
+        "source_sync_errors": 0,
+        "business_tables": {
+         "messages": {
+          "target_rows": 11918,
+          "source_rows": 11918,
+          "sha256_equal": true,
+          "target_sha256_unchanged": true
+         },
+         "attachments": {
+          "target_rows": 100,
+          "source_rows": 100,
+          "sha256_equal": true,
+          "target_sha256_unchanged": true
+         }
+        }
+       },
+       "final": {
+        "target_observed_at": "2026-11-05T20:08:52.134369+00:00",
+        "forward_enabled": false,
+        "target_slot_active": true,
+        "target_slot_wal_status": "reserved",
+        "target_slot_invalidated": false,
+        "target_sender_state": null,
+        "target_sender_tls": false,
+        "target_slot_confirmed_flush_lsn": "0/33EEB18",
+        "source_observed_at": "2026-11-05T20:08:52.120896+00:00",
+        "reverse_enabled": true,
+        "apply_workers": 1,
+        "source_origin_remote_lsn": "0/33F34B0",
+        "source_app_login": false,
+        "source_apply_errors": 1,
+        "source_sync_errors": 0,
+        "business_tables": {
+         "messages": {
+          "target_rows": 11918,
+          "source_rows": 11918,
+          "sha256_equal": true,
+          "target_sha256_unchanged": true
+         },
+         "attachments": {
+          "target_rows": 100,
+          "source_rows": 100,
+          "sha256_equal": true,
+          "target_sha256_unchanged": true
+         }
+        }
+       }
+      },
+      "immediately_before_enable": {
+       "observed_at": "2026-11-05T20:08:48.927658+00:00",
+       "target_wal_flush_lsn": "0/33A0FC8",
+       "target_slot_confirmed_flush_lsn": "0/3399D38",
+       "gap_bytes": 29328,
+       "gap_mib": 0.0,
+       "slot_active": true,
+       "wal_status": "reserved"
+      },
+      "continuity": {
+       "enable_submissions": 0,
+       "target_write_block_before": "not_read",
+       "target_wal_sender_timeout_ms": 5000,
+       "source_wal_receiver_timeout_ms": 5000,
+       "disable_on_error": true,
+       "same_subscription_oid_and_origin": true,
+       "table_sync_states": {
+        "public.attachments": "r",
+        "public.messages": "r",
+        "cutover.barrier": "r",
+        "cutover.probe": "r"
+       },
+       "platform_before_after": {
+        "executions": [
+         0,
+         0
+        ],
+        "leases": [
+         0,
+         0
+        ],
+        "retarget_fences": [
+         0,
+         0
+        ]
+       },
+       "business_tables_match": true
+      },
+      "would_run": null,
+      "marker": {
+       "state": "not_run_without_apply"
+      },
+      "enabled_by": null,
+      "command_clock": {
+       "start": "this command's monotonic clock, immediately before ENABLE (or before the first read, if the subscription was already on)",
+       "enable_command_return_s": null,
+       "first_observations": {
+        "worker": {
+         "elapsed_s": 0.0,
+         "previous_sample_s": null,
+         "db_utc": "2026-11-05T20:08:48.942442+00:00"
+        },
+        "received_fixed": {
+         "elapsed_s": 0.0,
+         "previous_sample_s": null,
+         "db_utc": "2026-11-05T20:08:48.942442+00:00"
+        },
+        "applied_fixed": {
+         "elapsed_s": 0.0,
+         "previous_sample_s": null,
+         "db_utc": "2026-11-05T20:08:48.942442+00:00"
+        }
+       }
+      },
+      "catch_up": {
+       "passed": true,
+       "reason": "confirmed",
+       "checks": {
+        "reverse_enabled": true,
+        "target_slot_valid": true,
+        "apply_worker_running": true,
+        "target_slot_active": true,
+        "confirmed_flush_advanced": true,
+        "received_fixed": true,
+        "confirmed_fixed": true,
+        "tables_ready": true,
+        "rows_arrived": true,
+        "errors_not_increased": true,
+        "single_writer_kept": true
+       },
+       "seconds": 1.1,
+       "confirmed_fixed_seconds": 1.1,
+       "positions": {
+        "fixed": "0/33A0FC8",
+        "target_slot_confirmed_flush_lsn": "0/33B9938",
+        "latest_end_lsn": "0/33BB1C8",
+        "source_origin_remote_lsn": "0/33BB9F0"
+       },
+       "read_errors": {},
+       "worker_pids_seen": 1,
+       "last_sample_s": 1.0158
+      },
+      "post_check": {
+       "passed": true,
+       "reason": "confirmed",
+       "checks": {
+        "reverse_enabled": true,
+        "target_slot_valid": true,
+        "apply_worker_running": true,
+        "target_slot_active": true,
+        "confirmed_flush_advanced": true,
+        "received_fixed": true,
+        "confirmed_fixed": true,
+        "tables_ready": true,
+        "rows_arrived": true,
+        "errors_not_increased": true,
+        "single_writer_kept": true
+       },
+       "seconds": 2.1,
+       "confirmed_fixed_seconds": 0.0,
+       "positions": {
+        "fixed": "0/33A0FC8",
+        "target_slot_confirmed_flush_lsn": "0/33EEB18",
+        "latest_end_lsn": "0/33F2460",
+        "source_origin_remote_lsn": "0/33F2C88"
+       },
+       "read_errors": {},
+       "worker_pids_seen": 1,
+       "last_sample_s": 3.1405
+      }
+     }
+    },
+    "no_loss": {
+     "newest_row_arrived": true,
+     "acknowledged_rows": 2007,
+     "acknowledged_rows_missing_on_source": 0,
+     "rows_written_while_stopped": 8376,
+     "of_those_on_source": 8376,
+     "messages_identical": true,
+     "attachments_identical": true,
+     "barrier_rows_left": {
+      "target": 0,
+      "source": 0
+     }
+    },
+    "machine": {
+     "before": {
+      "load_avg_1m": 3.62,
+      "other_running_containers": 2,
+      "other_containers_cpu_pct": 0.0
+     },
+     "after": {
+      "load_avg_1m": 2.77,
+      "other_running_containers": 2,
+      "other_containers_cpu_pct": 0.0
+     }
+    },
+    "checks": {
+     "refused_before_the_cutover": true,
+     "forward_command_refused_after_the_cutover": true,
+     "disabled_by_the_cut": true,
+     "dry_run_changed_nothing": true,
+     "apply_passed": true,
+     "enabled_by_this_run": true,
+     "marker_written_on_the_target": true,
+     "barrier_went_both_ways": true,
+     "applied_position_passed_the_marker": true,
+     "hashes_equal_at_the_end": true,
+     "second_run_only_verified": true,
+     "no_acknowledged_row_lost": true,
+     "rows_written_while_stopped_arrived": true,
+     "tables_identical": true,
+     "no_probe_row_left": true,
+     "single_writer_kept": true,
+     "no_credentials_in_output": true
+    },
+    "passed": true
+   }
+  ]
+ }
+}

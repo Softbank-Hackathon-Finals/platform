@@ -22,9 +22,56 @@ def _build(repo, exports, profiles):
 def test_document_validates_and_summarises(repo, exports, profiles):
     doc = _build(repo, exports, profiles)
     validate_inventory(doc)
-    assert doc["summary"]["deploy_only"] == 1  # kms
+    assert doc["summary"]["deploy_only"] == 2  # kms + the legacy-audit bucket no setting refers to
     assert doc["summary"]["grade_counts"]["code_change"] >= 1
     assert doc["inputs"]["api_calls"] == sorted(doc["inputs"]["api_calls"])
+
+
+def test_repo_digest_covers_every_scanned_file_not_only_app_path(repo, tmp_path):
+    # Real shakedown 2026-11-06: compose.yaml (repo root) is scanned for config but was outside
+    # repo_digest, so a config change left the "what was read" digest unchanged.
+    import shutil
+
+    from bravo_inventory.report import repo_digest
+
+    work = tmp_path / "repo"
+    shutil.copytree(repo, work)
+    before = repo_digest(work, "app")
+    (work / "compose.yaml").write_text((work / "compose.yaml").read_text(encoding="utf-8") + "# changed\n", encoding="utf-8")
+    assert repo_digest(work, "app") != before
+
+
+def test_document_does_not_depend_on_checkout_location(repo, exports, profiles, tmp_path):
+    # Real shakedown: app.repo held the absolute checkout path (a home directory), so the document
+    # digest differed per checkout and the path leaked into a document the console and model read.
+    import shutil
+
+    a, b = tmp_path / "a" / "demo-chat", tmp_path / "b" / "demo-chat"
+    shutil.copytree(repo, a)
+    shutil.copytree(repo, b)
+    da, db = _build(a, exports, profiles), _build(b, exports, profiles)
+    assert da["digest"] == db["digest"] and da["inputs"]["repo_digest"] == db["inputs"]["repo_digest"]
+    assert da["app"]["repo"] == "demo-chat" and str(tmp_path) not in json.dumps(da, ensure_ascii=False)
+    ref = build_inventory(app_id="demo-chat", repo=a, repo_ref="Softbank-Hackathon-Finals/demo-chat", app_path="app",
+                          source_env={"env_id": "aws-seoul", "env_kind": "aws", "namespace": "chat"}, adapter=None, profiles=profiles)
+    assert ref["app"]["repo"] == "Softbank-Hackathon-Finals/demo-chat"
+
+
+def test_missing_capability_is_listed_once_per_role(repo, exports, profiles):
+    # Real shakedown: a role with a split-out deploy-only item listed the same missing capability twice.
+    doc = _build(repo, exports, profiles)
+    minimal = {c["env_id"]: c for c in doc["candidates"]}["onprem-minimal"]
+    assert sum(1 for i in doc["items"] if i["role"] == "object_store") == 2
+    assert len(minimal["missing_capabilities"]) == len(set(minimal["missing_capabilities"]))
+
+
+def test_statefulset_workloads_are_observed_as_capabilities(tmp_path):
+    # Real shakedown: the target runs OpenBao as a StatefulSet; only Deployments were read, so
+    # secret_store stayed "declared" although it was observable.
+    from bravo_inventory.capabilities import observe
+
+    (tmp_path / "statefulsets.json").write_text(json.dumps({"kind": "StatefulSetList", "items": [{"metadata": {"name": "target-openbao", "namespace": "bravo-secrets"}}]}), encoding="utf-8")
+    assert observe(tmp_path)["secret_store"] == {"value": "openbao", "source": "observed: StatefulSet/target-openbao"}
 
 
 def test_candidates_fit_uses_capabilities(repo, exports, profiles):

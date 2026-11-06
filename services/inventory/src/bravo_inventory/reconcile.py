@@ -10,6 +10,7 @@ from .grading import Item, _env_names, grade_role
 from .static_scan import Finding
 
 ROLE_KINDS = {"object_store": "s3_bucket", "secrets": "secret", "kms": "kms_key", "iam": "iam_role", "db": "cnpg_cluster", "registry": "image"}
+SPLIT_KINDS = frozenset({"s3_bucket", "secret", "kms_key"})  # named by a workload setting, or deploy-only
 
 
 def _code_refs(findings: list[Finding]) -> list[dict]:
@@ -40,6 +41,11 @@ def reconcile(findings: list[Finding], graph: DeployGraph | None, env_kind: str)
         n += 1
         code = by_role.get(role, [])
         deploy = deploy_by_role.get(role, [])
+        # The code reaches a role's resource through a workload setting. A granted bucket/secret/key
+        # that no setting names is not covered by the code evidence: it gets its own deploy-only
+        # item instead of hiding inside the role's `both` item.
+        unreferenced = [r for r in deploy if code and r.kind in SPLIT_KINDS and "referenced_by_env" not in r.attributes]
+        deploy = [r for r in deploy if r not in unreferenced]
         found_in = "both" if code and deploy else "code" if code else "deploy"
         grade, rationale, agent_needed = grade_role(role, code, env_names, env_kind)
         entry = target_entry(env_kind, role) or {}
@@ -61,6 +67,16 @@ def reconcile(findings: list[Finding], graph: DeployGraph | None, env_kind: str)
             item.rationale += " 정책에 와일드카드 자원이 있어 어떤 자원을 쓰는지 확정할 수 없다 → 에이전트 분류 필요"
             item.agent_needed = True
         items.append(item)
+        if unreferenced:
+            n += 1
+            items.append(Item(
+                id=f"item-{n:03d}", role=role, service=role, found_in="deploy",
+                grade=entry.get("grade", "unknown") if entry else "unknown", grade_by="rule",
+                rationale="배포에만 있음: 권한은 있으나 워크로드 설정이 이 자원을 가리키지 않는다(SecretStore 주입 · 운영 추가 권한 · 다른 설정 경로). 이전에서 빠뜨리기 쉬운 항목. 사용 여부를 에이전트가 확인한다. 카탈로그 기본 등급 적용",
+                agent_needed=True, code_refs=[], deploy_refs=_deploy_refs(unreferenced),
+                target={"env_kind": env_kind, "impl": entry.get("impl", ""), "verify": entry.get("verify", "")},
+                risk="migration_omission",
+            ))
 
     # Unmapped evidence stays visible: other-cloud imports and unknown SDK services are never dropped.
     for f in findings:

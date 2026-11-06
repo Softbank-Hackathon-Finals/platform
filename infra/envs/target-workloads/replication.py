@@ -65,8 +65,19 @@ def external_patch(side, hostaddr, cluster):
     ]
 
 
-def subscription(side):
+# The forward retries a dropped connection by itself instead of waiting for someone to re-enable it. Errors
+# still count in apply_error_count, which is where a conflict shows. The reverse only runs after cutover, when
+# any error means the source took a write it must not have, so it still stops on the first one.
+DEFAULT_DISABLE_ON_ERROR = {"target": False, "source": True}
+
+
+def subscription(side, disable_on_error=None):
+    """side is where the subscription lives: "target" is the forward direction, "source" the reverse."""
     peer, external, name = names(side)
+    if disable_on_error is None:
+        disable_on_error = DEFAULT_DISABLE_ON_ERROR[side]
+    if type(disable_on_error) is not bool:
+        raise ValueError("explicit Boolean disable_on_error required")
     return {
         "apiVersion": "postgresql.cnpg.io/v1", "kind": "Subscription",
         "metadata": {"name": name.replace("_", "-"), "namespace": f"{side}-dev",
@@ -79,7 +90,7 @@ def subscription(side):
                 "enabled": "true" if side == "target" else "false",
                 "copy_data": "true" if side == "target" else "false",
                 "create_slot": "true", "slot_name": name, "origin": "none",
-                "binary": "false", "streaming": "on", "disable_on_error": "true",
+                "binary": "false", "streaming": "on", "disable_on_error": "true" if disable_on_error else "false",
                 "password_required": "true", "run_as_owner": "false",
             },
         },
@@ -99,7 +110,11 @@ if __name__ == "__main__":
     parser.add_argument("stage", choices=["external-patch", "subscription"])
     parser.add_argument("--side", required=True, choices=["source", "target"])
     parser.add_argument("--hostaddr")
+    parser.add_argument("--disable-on-error", choices=["true", "false"],
+                        help="subscription stage: this direction only (--side target is forward, --side source is reverse); "
+                             "left out, the forward renders false and the reverse true")
     args = parser.parse_args()
+    choice = None if args.disable_on_error is None else args.disable_on_error == "true"
     result = (external_patch(args.side, args.hostaddr, json.load(sys.stdin))
-              if args.stage == "external-patch" else subscription(args.side))
+              if args.stage == "external-patch" else subscription(args.side, choice))
     print(json.dumps(result, indent=2))

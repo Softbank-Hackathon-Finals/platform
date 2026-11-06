@@ -1,0 +1,133 @@
+{
+  "evidence_grade": "actual_cluster_registration_and_catalog",
+  "public_is_raw": false,
+  "registration_source_revision": "be0390122bf7d5ec99778a6b82f2a3846dc9cbb4",
+  "base_registration_merge": "7020d334d7eaa39620a9570b6fc5b1d326b7b7cc",
+  "observed_at": "2026-11-05T13:37:46.019042+00:00",
+  "http_checks": [
+    {
+      "case": "missing",
+      "status": 403,
+      "code": "forbidden"
+    },
+    {
+      "case": "invalid",
+      "status": 403,
+      "code": "forbidden"
+    },
+    {
+      "case": "wrong_audience",
+      "status": 403,
+      "code": "forbidden"
+    },
+    {
+      "case": "source",
+      "status": 201,
+      "code": null
+    },
+    {
+      "case": "target",
+      "status": 201,
+      "code": null
+    },
+    {
+      "case": "app",
+      "status": 201,
+      "code": null
+    },
+    {
+      "case": "plan",
+      "status": 201,
+      "code": null
+    },
+    {
+      "case": "plan_replay",
+      "status": 200,
+      "code": null
+    },
+    {
+      "case": "expired",
+      "status": 403
+    }
+  ],
+  "database_receipts_match": 4,
+  "catalog": {
+    "status": "PASS",
+    "task_id": "credential-migration",
+    "source_sha": "66e7419f404f4ec4addc71014aabfcdd44f34688",
+    "task_digest": "789b4abd0ec76ca39c31bd3b1c564c909f21546691041b27834c436d895afaff",
+    "negative": {
+      "duplicate_write_denied": true,
+      "wrong_digest": true,
+      "wrong_key": true,
+      "wrong_tenant": true
+    },
+    "state": "COLLECT",
+    "version": 1,
+    "signed_records": 1,
+    "key_exposed": false,
+    "executor_calls": 0,
+    "product_read_admission_created": false
+  },
+  "collector_access": {
+    "source": {
+      "read_access": "verified",
+      "warnings": [
+        "write_scope_unknown"
+      ],
+      "write_checks": {
+        "create_pods": "denied",
+        "patch_registered_cnpg": "denied"
+      }
+    },
+    "target": {
+      "read_access": "verified",
+      "warnings": [],
+      "write_checks": {
+        "create_pods": "denied",
+        "patch_registered_cnpg": "denied"
+      }
+    }
+  },
+  "cleanup": {
+    "catalog_storage_and_key_retained": true,
+    "owned_configmap_absent": true,
+    "owned_job_absent": true,
+    "owned_pod_absent": true,
+    "registration_retained": true,
+    "state": "PASS"
+  },
+  "remaining": {
+    "authentic_registered_t14_runs_received": false,
+    "target_application_observed": false,
+    "t19_context_created": false,
+    "t19_report_created": false,
+    "whole_product_e2e_complete": false
+  },
+  "private_originals": [
+    {
+      "artifact": "actual-registration.private.json",
+      "sha256": "e7ed7fe8ad9395ecdafc1033dcd201c42be718b04418823882e1f7b6b94f0083"
+    },
+    {
+      "artifact": "t10-reg-e2e-catalog-result-a-readback.json",
+      "sha256": "66c858b04be2cd170352b4e7183e6eb68739bf77847b9ff17d623c0dc5bc583c"
+    },
+    {
+      "artifact": "t10-reg-e2e-catalog-cleanup-a-readback.json",
+      "sha256": "b15398422122cbc2ff40af54a012290be7c2f25842d2fd1991a339f1e589334f"
+    },
+    {
+      "artifact": "t10-reg-e2e-forward-close-b-readback.json",
+      "sha256": "22d5dc21af8eeb42f54fe0d5bcb7a2dc66c8e022dfbcc5e9b70fcdfa87f33737"
+    },
+    {
+      "artifact": "t10-reg-e2e-forward-close-c-readback.json",
+      "sha256": "22d5dc21af8eeb42f54fe0d5bcb7a2dc66c8e022dfbcc5e9b70fcdfa87f33737"
+    },
+    {
+      "artifact": "registration-tunnel-c.private.json",
+      "sha256": "c4663dbc0fadc9749af91bc43146e23d1fae9d979f99c634b0b1827160c6a52b"
+    }
+  ]
+}

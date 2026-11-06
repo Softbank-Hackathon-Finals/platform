@@ -1,0 +1,218 @@
+{
+  "scope": "Actual EKS source; opt-in candidate method 2, not default T5/T19 acceptance",
+  "run_id": "f2cbd7c6-5ed6-405d-8452-6177b87c2e77",
+  "started_at": "2026-11-06T04:30:49.702516Z",
+  "finished_at": "2026-11-06T04:30:54.101324Z",
+  "profile_id": "full",
+  "profile_version": "2",
+  "verdict_counts": {
+    "PASS": 0,
+    "FAIL": 1,
+    "UNKNOWN": 19
+  },
+  "control_run_sha256": "cfa5f5b06d731b775251d4a0806dbe495ce417f2d5cf0d6fa7ab4a69c932eb1a",
+  "host_source_sha256": "b4dfa06a317589cd8718f9e63e6cc2d716c9eaa2a8c5f75fa066ab6245f3751c",
+  "proofs": [
+    {
+      "app": "demo-chat",
+      "collected_at": "2026-11-06T04:30:51.762519+00:00",
+      "environment": "operator-qualified/source",
+      "format_version": "2",
+      "observations": {
+        "after_agent": {
+          "agent_observed_at": "2026-11-06T04:30:51.448150+00:00",
+          "coordinator_started_at": "2026-11-06T04:30:51.027450+00:00",
+          "elapsed_ms": 0,
+          "max_clock_offset_ms": 1000,
+          "observed_at": "2026-11-06T04:30:51.046379+00:00",
+          "outcome": "connected"
+        },
+        "after_dns": {
+          "agent_observed_at": "2026-11-06T04:30:51.468581+00:00",
+          "coordinator_started_at": "2026-11-06T04:30:51.046397+00:00",
+          "elapsed_ms": 2,
+          "max_clock_offset_ms": 1000,
+          "observed_at": "2026-11-06T04:30:51.067519+00:00",
+          "outcome": "resolved"
+        },
+        "after_target": {
+          "agent_observed_at": "2026-11-06T04:30:51.428305+00:00",
+          "coordinator_started_at": "2026-11-06T04:30:51.003696+00:00",
+          "elapsed_ms": 0,
+          "max_clock_offset_ms": 1000,
+          "observed_at": "2026-11-06T04:30:51.027428+00:00",
+          "outcome": "connected"
+        },
+        "before_agent": {
+          "agent_observed_at": "2026-11-06T04:30:51.235494+00:00",
+          "coordinator_started_at": "2026-11-06T04:30:50.813171+00:00",
+          "elapsed_ms": 0,
+          "max_clock_offset_ms": 1000,
+          "observed_at": "2026-11-06T04:30:50.836345+00:00",
+          "outcome": "connected"
+        },
+        "before_dns": {
+          "agent_observed_at": "2026-11-06T04:30:51.355699+00:00",
+          "coordinator_started_at": "2026-11-06T04:30:50.836364+00:00",
+          "elapsed_ms": 96,
+          "max_clock_offset_ms": 1000,
+          "observed_at": "2026-11-06T04:30:50.970319+00:00",
+          "outcome": "resolved"
+        },
+        "before_target": {
+          "agent_observed_at": "2026-11-06T04:30:51.213177+00:00",
+          "coordinator_started_at": "2026-11-06T04:30:50.789513+00:00",
+          "elapsed_ms": 0,
+          "max_clock_offset_ms": 1000,
+          "observed_at": "2026-11-06T04:30:50.813145+00:00",
+          "outcome": "connected"
+        },
+        "probe": {
+          "agent_observed_at": "2026-11-06T04:30:51.396320+00:00",
+          "coordinator_started_at": "2026-11-06T04:30:50.970351+00:00",
+          "elapsed_ms": 0,
+          "max_clock_offset_ms": 1000,
+          "observed_at": "2026-11-06T04:30:51.003662+00:00",
+          "outcome": "connected"
+        }
+      },
+      "observed": "allow",
+      "policy_sha256": "sha256:52dc1455dcd2208b428baca1fbc4de462b0f7e009aaf7de10fa070cebaab0380",
+      "positive_control": "pass",
+      "qualification": "bounded-connectivity-with-controls-not-policy-causality",
+      "run_id": "f2cbd7c6-5ed6-405d-8452-6177b87c2e77",
+      "target_binding_sha256": "sha256:c2695d6584522eb1cea9f3e622ec2bd93105a5445dd21fab80f7e65af1c3cdc0",
+      "test_id": "NET-01.3",
+      "unknown_reason": null
+    },
+    {
+      "app": "demo-chat",
+      "collected_at": "2026-11-06T04:30:53.727463+00:00",
+      "environment": "operator-qualified/source",
+      "format_version": "2",
+      "observations": {
+        "after_agent": {
+          "agent_observed_at": "2026-11-06T04:30:53.379119+00:00",
+          "coordinator_started_at": "2026-11-06T04:30:52.951979+00:00",
+          "elapsed_ms": 0,
+          "max_clock_offset_ms": 1000,
+          "observed_at": "2026-11-06T04:30:52.979995+00:00",
+          "outcome": "connected"
+        },
+        "after_dns": {
+          "agent_observed_at": "2026-11-06T04:30:53.409529+00:00",
+          "coordinator_started_at": "2026-11-06T04:30:52.980014+00:00",
+          "elapsed_ms": 3,
+          "max_clock_offset_ms": 1000,
+          "observed_at": "2026-11-06T04:30:53.009282+00:00",
+          "outcome": "resolved"
+        },
+        "after_target": {
+          "agent_observed_at": "2026-11-06T04:30:53.352732+00:00",
+          "coordinator_started_at": "2026-11-06T04:30:52.928295+00:00",
+          "elapsed_ms": 0,
+          "max_clock_offset_ms": 1000,
+          "observed_at": "2026-11-06T04:30:52.951964+00:00",
+          "outcome": "connected"
+        },
+        "before_agent": {
+          "agent_observed_at": "2026-11-06T04:30:53.271926+00:00",
+          "coordinator_started_at": "2026-11-06T04:30:52.850764+00:00",
+          "elapsed_ms": 1,
+          "max_clock_offset_ms": 1000,
+          "observed_at": "2026-11-06T04:30:52.872692+00:00",
+          "outcome": "connected"
+        },
+        "before_dns": {
+          "agent_observed_at": "2026-11-06T04:30:53.306004+00:00",
+          "coordinator_started_at": "2026-11-06T04:30:52.872710+00:00",
+          "elapsed_ms": 2,
+          "max_clock_offset_ms": 1000,
+          "observed_at": "2026-11-06T04:30:52.904923+00:00",
+          "outcome": "resolved"
+        },
+        "before_target": {
+          "agent_observed_at": "2026-11-06T04:30:53.251932+00:00",
+          "coordinator_started_at": "2026-11-06T04:30:52.827859+00:00",
+          "elapsed_ms": 0,
+          "max_clock_offset_ms": 1000,
+          "observed_at": "2026-11-06T04:30:52.850738+00:00",
+          "outcome": "connected"
+        },
+        "probe": {
+          "agent_observed_at": "2026-11-06T04:30:53.325642+00:00",
+          "coordinator_started_at": "2026-11-06T04:30:52.904956+00:00",
+          "elapsed_ms": 0,
+          "max_clock_offset_ms": 1000,
+          "observed_at": "2026-11-06T04:30:52.928274+00:00",
+          "outcome": "connected"
+        }
+      },
+      "observed": "allow",
+      "policy_sha256": "sha256:52dc1455dcd2208b428baca1fbc4de462b0f7e009aaf7de10fa070cebaab0380",
+      "positive_control": "pass",
+      "qualification": "bounded-connectivity-with-controls-not-policy-causality",
+      "run_id": "f2cbd7c6-5ed6-405d-8452-6177b87c2e77",
+      "target_binding_sha256": "sha256:bb7889f260f0e6021b435ceb07e2123b74c34cd21a2ee06137f039ff05cabc31",
+      "test_id": "NET-01.3",
+      "unknown_reason": null
+    },
+    {
+      "app": "demo-chat",
+      "collected_at": "2026-11-06T04:30:54.100388+00:00",
+      "environment": "operator-qualified/source",
+      "format_version": "2",
+      "method_version": "2",
+      "observed": "allow",
+      "registration_binding_sha256": "sha256:8b4f9c9f996bbabfe046b3ca08c329f88bed79e279a081229c0853a0f738bb1e",
+      "required_roles": [
+        "database",
+        "pooler"
+      ],
+      "results": [
+        {
+          "observed": "allow",
+          "output_sha256": "sha256:0082f4fdbe89a6770ffac8e98d75be7d411f00b496278b333c0425d986429cc2",
+          "port": 5432,
+          "positive_control": "pass",
+          "registration_sha256": "sha256:9df283c01884d96c1f7436a66dd88b7f38c90f9dddb621ccdd7eab2bd1b00856",
+          "role": "database",
+          "target_binding_sha256": "sha256:c2695d6584522eb1cea9f3e622ec2bd93105a5445dd21fab80f7e65af1c3cdc0",
+          "unknown_reason": null
+        },
+        {
+          "observed": "allow",
+          "output_sha256": "sha256:39b3910d97a08ba1ccf0b66440cc9e12b32f71d7ebc30b95806da966439f5019",
+          "port": 5432,
+          "positive_control": "pass",
+          "registration_sha256": "sha256:86c74ef1c8601c7780c4de668b906072da39fe0bd58fe268a0414f0b3725d849",
+          "role": "pooler",
+          "target_binding_sha256": "sha256:bb7889f260f0e6021b435ceb07e2123b74c34cd21a2ee06137f039ff05cabc31",
+          "unknown_reason": null
+        }
+      ],
+      "run_id": "f2cbd7c6-5ed6-405d-8452-6177b87c2e77",
+      "test_id": "NET-01.3",
+      "unknown_reason": null
+    }
+  ],
+  "cleanup": {
+    "errors": [],
+    "expected": 4,
+    "removed": 4
+  },
+  "database_payload_bytes": 0,
+  "shared_configuration_modified": false,
+  "full_task_complete": false,
+  "source_revision": "cc3a5a9eb09d528e0a21b393fd863410aad4ebe8",
+  "source_files": [
+    {
+      "path": "services/control-runner/src/bravo_controls/network_probes.py",
+      "sha256": "49674523fcfa0e31b22c25122c4794b2005a4525e533464d0473ac1d2dc8e9ca"
+    },
+    {
+      "path": "services/control-runner/src/bravo_controls/registered_network.py",
+      "sha256": "f7c53018a4fad4b7636f92e3a20602546986d7a3d55756673b7c3a6aa1eec265"
+    }
+  ]
+}

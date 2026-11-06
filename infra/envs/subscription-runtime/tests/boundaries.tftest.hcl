@@ -1,6 +1,6 @@
 mock_provider "aws" {
   mock_data "aws_instance" {
-    defaults = { private_ip = "10.0.1.8", secondary_private_ips = ["10.0.1.9"], tags = { "bravo:subscription-sts-ipv4" = "10.0.1.9" }, subnet_id = "subnet-0123456789abcdef0" }
+    defaults = { private_ip = "10.0.1.8", secondary_private_ips = ["10.0.1.9"], tags = { "bravo:subscription-sts-ipv4" = "10.0.1.9" }, subnet_id = "subnet-0123456789abcdef0", iam_instance_profile = "bravo-platform-node" }
   }
   mock_data "aws_subnet" {
     defaults = { vpc_id = "vpc-0123456789abcdef0" }
@@ -18,16 +18,15 @@ mock_provider "aws" {
       ]
     }
   }
+  mock_data "aws_iam_instance_profile" {
+    defaults = { role_arn = "arn:aws:iam::111122223333:role/bravo-platform-node" }
+  }
   mock_data "aws_caller_identity" {
     defaults = { account_id = "111122223333" }
   }
 }
 
 variables {
-  oidc_provider_arn       = "arn:aws:iam::111122223333:oidc-provider/token.actions.githubusercontent.com"
-  production_subject      = "repo:Softbank-Hackathon-Finals@350259663/platform@1443045223:ref:refs/heads/develop"
-  validation_subject      = "repo:Softbank-Hackathon-Finals@350259663/platform@1443045223:ref:refs/heads/feature/T15-subscription-integration"
-  validation_expires_at   = "2026-11-03T23:00:00Z"
   instance_arn            = "arn:aws:ec2:ap-northeast-2:111122223333:instance/i-0123456789abcdef0"
   subscription_secret_arn = "arn:aws:secretsmanager:ap-northeast-2:111122223333:secret:bravo-platform/agent-subscription/example-ABC123"
 }
@@ -48,20 +47,20 @@ run "credential_and_session_boundaries" {
     error_message = "Each broker grant must require the endpoint and the designated VM address."
   }
   assert {
-    condition = alltrue([for grant in jsondecode(aws_iam_role.controller.assume_role_policy).Statement :
-      !contains(keys(grant.Condition.StringEquals), "aws:SourceVpce")
-      ]) && !aws_vpc_endpoint.broker_sts.private_dns_enabled && strcontains(
+    condition = length([for grant in jsondecode(aws_iam_role.broker.assume_role_policy).Statement : grant
+      if grant.Action == "sts:AssumeRole" && grant.Principal.AWS == "arn:aws:iam::111122223333:role/bravo-platform-node"
+    ]) == 1 && length(jsondecode(aws_iam_role.broker.assume_role_policy).Statement) == 1
+    error_message = "The broker trusts only the node role (platform Job path); no GitHub Actions grant."
+  }
+  assert {
+    condition = !aws_vpc_endpoint.broker_sts.private_dns_enabled && strcontains(
       aws_ssm_association.broker_sts.parameters["commands"], "AWS_ENDPOINT_URL_STS=https://vpce-0123456789abcdef0-abc123.sts."
     )
-    error_message = "Keep the hosted controller on public STS and configure private STS only for the broker."
+    error_message = "Configure private STS only for the broker."
   }
   assert {
     condition     = jsondecode(aws_iam_role_policy.broker.policy).Statement[0].Resource == var.subscription_secret_arn && length(jsondecode(aws_iam_role_policy.broker.policy).Statement[0].Action) == 3
     error_message = "The VM broker only reads and rotates its exact subscription Secret."
-  }
-  assert {
-    condition     = one([for statement in jsondecode(aws_iam_role_policy.controller.policy).Statement : statement if statement.Action == "ssm:StartSession"]).Condition.BoolIfExists["ssm:SessionDocumentAccessCheck"] == "true"
-    error_message = "Omitting DocumentName must not grant a default shell session."
   }
   assert {
     condition     = jsondecode(aws_ssm_document.tunnel.content).properties.portNumber == "18761" && jsondecode(aws_ssm_document.tunnel.content).sessionType == "Port"
@@ -77,11 +76,6 @@ run "wildcard_secret_rejected" {
   variables { subscription_secret_arn = "arn:aws:secretsmanager:ap-northeast-2:111122223333:secret:*" }
   expect_failures = [var.subscription_secret_arn]
 }
-run "wildcard_subject_rejected" {
-  command = plan
-  variables { production_subject = "repo:Softbank-Hackathon-Finals/platform:*" }
-  expect_failures = [var.production_subject]
-}
 run "other_instance_region_rejected" {
   command = plan
   variables { instance_arn = "arn:aws:ec2:us-east-1:111122223333:instance/i-0123456789abcdef0" }
@@ -92,7 +86,7 @@ run "node_without_broker_source_rejected" {
   command = plan
   override_data {
     target = data.aws_instance.broker
-    values = { private_ip = "10.0.1.8", secondary_private_ips = [], tags = {}, subnet_id = "subnet-0123456789abcdef0" }
+    values = { private_ip = "10.0.1.8", secondary_private_ips = [], tags = {}, subnet_id = "subnet-0123456789abcdef0", iam_instance_profile = "bravo-platform-node" }
   }
   expect_failures = [data.aws_instance.broker]
 }

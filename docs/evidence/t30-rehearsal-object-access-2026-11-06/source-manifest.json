@@ -1,0 +1,53 @@
+{
+  "source_revision": "5c393480cce52dc6adfe1e20561771aa3aa708d0",
+  "source_files": [
+    {
+      "path": "infra/envs/target-secrets/render.py",
+      "sha256": "b7e8be9a71abc605bb1f6f55284cf86615dfbd7e71c2d2890cff7ac37c4d6dc5"
+    },
+    {
+      "path": "infra/envs/target-workloads/objects.py",
+      "sha256": "ff17cfde79668cb953e4d76de60c4f985c4201397dcbc4aef8de5e4220e939fd"
+    },
+    {
+      "path": "infra/envs/target-workloads/render.py",
+      "sha256": "4c1f4616f40a0340f47109adc09d313d012474a87f700fdb800fd7177211cf73"
+    },
+    {
+      "path": "infra/envs/target-workloads/testing/verify_rehearsal_object_access.py",
+      "sha256": "0f3bbdb1da5717c5b9b9e950786c51470065c610383f9e168268e51992bcd993"
+    },
+    {
+      "path": "scripts/tests/test_rehearsal_object_access.py",
+      "sha256": "609b5a3bbaf435d66a1faced50b5bcdb9931a244fca10c40ab652d6265f1b940"
+    },
+    {
+      "path": "services/exit-drill/tests/integration/k3s-registries.yaml",
+      "sha256": "cc0e2e4de4233819380249ee2fe4aec20e4bad8861205ca7ec1ac80d3ad4b8a1"
+    },
+    {
+      "path": "services/rehearsal-runner/profiles/onprem.env",
+      "sha256": "36472a183d50096821854ca25b526839743c9d55d4ffa5d9f59302bf2420eecb"
+    },
+    {
+      "path": "services/rehearsal-runner/src/rehearsal_runner/bucket_job.py",
+      "sha256": "d759a17bbd5c00a872960d4136ac453f5028db9dbc563888655595d12dce5fe7"
+    },
+    {
+      "path": "services/rehearsal-runner/src/rehearsal_runner/isolation/checks.py",
+      "sha256": "a0a6e56ac14dbde5cf31b813e656a2881a2dd386cb2574d471b797a2d12b9d3a"
+    },
+    {
+      "path": "services/rehearsal-runner/src/rehearsal_runner/isolation/fixtures.py",
+      "sha256": "437175ba72e9f254d8859025339d96761a9d301f769eac4c0333575c71d17615"
+    },
+    {
+      "path": "services/rehearsal-runner/templates/00-namespace.yaml",
+      "sha256": "e9667437621a345b5aa5960ec1a9cc3b4ad33486b613dda6ca18f26f4effcf4b"
+    },
+    {
+      "path": "services/rehearsal-runner/templates/30-networkpolicy.yaml",
+      "sha256": "45e5f99e1379aacace61fe98eea21b86cd09aa418fee36144a87340479420988"
+    }
+  ]
+}

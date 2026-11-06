@@ -23,7 +23,8 @@ import time
 import uuid
 from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 import httpx
@@ -33,6 +34,7 @@ import psycopg.sql
 from bravo_observability import judge, receive
 
 from bravo_loadgen.lock_probe import MESSAGE_WRITE_LOCK
+from bravo_loadgen.schema import SchemaViolation, validate_window
 
 HERE = Path(__file__).resolve().parent
 REPO = HERE.parents[2]
@@ -41,6 +43,7 @@ POSTGRES_IMAGE = "public.ecr.aws/docker/library/postgres:16"
 EDGE_IMAGE = "nginx:alpine"
 MOTO_VERSION = "5.1.4"  # demo-chat compose.yaml과 같은 버전
 SOURCE_ENV, TARGET_ENV = "aws", "onprem"
+WINDOW_TOKEN = "t18-e2e-window-token"
 
 
 def free_port() -> int:
@@ -252,13 +255,11 @@ class Stack:
         wait_until(lambda: httpx.get(url, trust_env=False).status_code == 200, "지연 앱")
         return port
 
-    def edge(self, name: str, *, target_percent: int, target_port: int | None = None) -> str:
-        """가중치를 정한 Edge 대역을 띄운다. target_port를 닫힌 포트로 주면 Edge 오류를 만든다."""
-        if name in self.edges:
-            return self.edges[name]
-        port = free_port()
-        container = f"{self.container_prefix}-edge-{name}-{self.tag}"
+    def _edge_conf_file(self, name: str, target_percent: int, target_port: int | None) -> Path:
         conf = (HERE / "mock-edge.conf").read_text()
+        if target_percent == 0:
+            # nginx split_clients는 0%를 받지 않는다. 목적지 줄을 빼면 전부 출발지로 간다.
+            conf = conf.replace("    __TARGET_PERCENT__% target;\n", "")
         for placeholder, value in (
             ("__SOURCE_PORT__", self.source_port),
             ("__TARGET_PORT__", target_port or self.target_port),
@@ -267,6 +268,22 @@ class Stack:
             conf = conf.replace(placeholder, str(value))
         path = self.out / f"edge-{name}.conf"
         path.write_text(conf)
+        return path
+
+    def set_edge_weight(self, name: str, target_percent: int) -> None:
+        """대역의 가중치를 실행 중에 바꾼다. 실제 LB 가중치 변경의 대역이고, 반영 시간은 실제 값이 아니다."""
+        container = f"{self.container_prefix}-edge-{name}-{self.tag}"
+        path = self._edge_conf_file(name, target_percent, None)
+        run_quiet("docker", "cp", str(path), f"{container}:/etc/nginx/conf.d/default.conf")
+        run_quiet("docker", "exec", container, "nginx", "-s", "reload")
+
+    def edge(self, name: str, *, target_percent: int, target_port: int | None = None) -> str:
+        """가중치를 정한 Edge 대역을 띄운다. target_port를 닫힌 포트로 주면 Edge 오류를 만든다."""
+        if name in self.edges:
+            return self.edges[name]
+        port = free_port()
+        container = f"{self.container_prefix}-edge-{name}-{self.tag}"
+        path = self._edge_conf_file(name, target_percent, target_port)
         run_quiet(
             "docker", "create", "--name", container, "--add-host=host.docker.internal:host-gateway",
             "-p", f"127.0.0.1:{port}:8080", EDGE_IMAGE,
@@ -279,8 +296,8 @@ class Stack:
         self.edges[name] = url
         return url
 
-    def set_write_block(self, blocked: bool) -> None:
-        for url in (self.source_url, self.target_url):
+    def set_write_block(self, blocked: bool, urls: tuple[str, ...] | None = None) -> None:
+        for url in urls or (self.source_url, self.target_url):
             response = httpx.put(
                 f"{url}/admin/write-block",
                 json={"blocked": blocked},
@@ -356,7 +373,7 @@ class Harness:
             **os.environ,
             "LOADGEN_DB_DSN": self.stack.app_dsn,
             "LOADGEN_LOCK_DSN": self.stack.app_dsn,
-            "BRAVO_WINDOW_TOKEN": "t18-e2e-window-token",
+            "BRAVO_WINDOW_TOKEN": WINDOW_TOKEN,
         }
 
     def loadgen(
@@ -372,12 +389,13 @@ class Harness:
         lock: bool = False,
         extra: tuple[str, ...] = (),
         during: Callable[[subprocess.Popen], None] | None = None,
+        subcommand: str = "run",
     ) -> Run:
         out = self.out / name
         out.mkdir(parents=True, exist_ok=True)
         self.load_average[name] = [round(value, 2) for value in os.getloadavg()]
         command = [
-            sys.executable, "-m", "bravo_loadgen.cli", "run", "--base-url", base_url,
+            sys.executable, "-m", "bravo_loadgen.cli", subcommand, "--base-url", base_url,
             "--plan-id", "plan-local", "--source-env", SOURCE_ENV, "--target-env", TARGET_ENV,
             "--duration", str(duration), "--write-rps", str(write), "--read-rps", str(read),
             "--window-seconds", str(window), "--measurement-path", path, "--out", str(out),
@@ -749,6 +767,197 @@ def scenario_lock_rtt(h: Harness) -> None:
             )
 
 
+class _WindowReceiver:
+    """창 수신 대역. 실제 수신부(T10)와 같은 순서로 본다: 토큰 → 문서. 실제 수신부 확인은 증거 폴더에 있다."""
+
+    def __init__(self, token: str):
+        receiver = self
+        self.token = token
+        self.windows: list[dict] = []
+        self.probes = 0
+
+        class Handler(BaseHTTPRequestHandler):
+            def log_message(self, *args):
+                pass
+
+            def _send(self, status: int, detail: str) -> None:
+                payload = json.dumps({"detail": detail}).encode()
+                self.send_response(status)
+                self.send_header("Content-Length", str(len(payload)))
+                self.end_headers()
+                self.wfile.write(payload)
+
+            def do_POST(self):
+                body = self.rfile.read(int(self.headers["Content-Length"]))
+                if self.headers.get("Authorization") != f"Bearer {receiver.token}":
+                    return self._send(401, "unauthorized")
+                document = json.loads(body)
+                try:
+                    validate_window(document)
+                except SchemaViolation:
+                    receiver.probes += 1
+                    return self._send(422, "invalid_window")
+                receiver.windows.append(document)
+                return self._send(201, "stored")
+
+        self.httpd = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        self.url = f"http://127.0.0.1:{self.httpd.server_address[1]}/v1/observability/windows"
+
+    def __enter__(self):
+        threading.Thread(target=self.httpd.serve_forever, daemon=True).start()
+        return self
+
+    def __exit__(self, *exc_info):
+        self.httpd.shutdown()
+        self.httpd.server_close()
+
+
+def scenario_joint_rehearsal(h: Harness) -> None:
+    """합동 측정 절차(docs/operations/t18-joint-measure.md)를 대역으로 처음부터 끝까지 돌린다."""
+    print("== joint-rehearsal: 사전 점검 → 시험 실행 → 가중치 변경과 함께 본 측정 → 대조 → 맞추기", flush=True)
+    s = h.stack
+    name = "joint"
+    edge = s.edge(name, target_percent=0)
+
+    def cli_command(*arguments: str, env: dict | None = None) -> subprocess.CompletedProcess:
+        return subprocess.run(
+            [sys.executable, "-m", "bravo_loadgen.cli", *arguments],
+            env=env or h._env(), capture_output=True, text=True,
+        )  # fmt: skip
+
+    def preflight(*extra: str, path: str = "local-mock-edge", env: dict | None = None) -> subprocess.CompletedProcess:
+        return cli_command(
+            "preflight", "--base-url", edge, "--plan-id", "plan-local", "--source-env", SOURCE_ENV,
+            "--target-env", TARGET_ENV, "--duration", "60", "--measurement-path", path,
+            "--out", str(h.out / "joint-preflight"), "--run-id", "t18-joint-preflight", *extra, env=env,
+        )  # fmt: skip
+
+    with _WindowReceiver(WINDOW_TOKEN) as receiver:
+        shared = ("--generator", "laptop", "--window-url", receiver.url)
+        rows_before = s.admin_execute("SELECT count(*) FROM messages")[0][0]
+
+        result = preflight(*shared, env={**h._env(), "BRAVO_WINDOW_TOKEN": "wrong-token"})
+        h.check("joint-rehearsal", "틀린 토큰이면 사전 점검 실패, 종료 2", result.returncode == 2 and "토큰을 거부했다" in result.stdout, result.returncode)
+        result = cli_command(
+            "preflight", "--base-url", edge, "--plan-id", "plan-local", "--source-env", "other",
+            "--target-env", TARGET_ENV, "--duration", "60", "--measurement-path", "local-mock-edge",
+            "--out", str(h.out / "joint-preflight"), "--run-id", "t18-joint-preflight",
+        )  # fmt: skip
+        h.check("joint-rehearsal", "환경 헤더가 계획과 다르면 사전 점검 실패, 종료 2", result.returncode == 2 and "등록된 값이 아니다" in result.stdout, result.returncode)
+        result = preflight("--generator", "laptop", path="edge")
+        h.check("joint-rehearsal", "대역을 edge로 적으면 CF-RAY가 없어 실패, 종료 2", result.returncode == 2 and "CF-RAY" in result.stdout, result.returncode)
+
+        run_quiet("docker", "pause", s.pg_name)
+        try:
+            ready = httpx.get(f"{s.source_url}/readyz", trust_env=False, timeout=5).status_code
+            result = preflight(*shared)
+        finally:
+            run_quiet("docker", "unpause", s.pg_name)
+        h.check("joint-rehearsal", "DB가 멈추면 /readyz가 200이어도 사전 점검 실패", ready == 200 and result.returncode == 2 and "/api/health/db" in result.stdout, ready)
+
+        h.check("joint-rehearsal", "실패한 사전 점검은 창도 행도 남기지 않음",
+                not receiver.windows and s.admin_execute("SELECT count(*) FROM messages")[0][0] == rows_before,
+                len(receiver.windows))  # fmt: skip
+        result = preflight(*shared)
+        h.check("joint-rehearsal", "정상이면 사전 점검 통과, 빈 문서로만 확인", result.returncode == 0 and not receiver.windows and receiver.probes > 0, receiver.probes)
+
+        # 시험 실행: 표본이 적어 판정은 UNKNOWN이 정상이다. 경로만 본다.
+        trial = h.loadgen(
+            "joint-trial", edge, duration=21, write=5, read=15, path="local-mock-edge", subcommand="measure",
+            extra=shared,
+        )  # fmt: skip
+        rep = trial.report
+        h.check("joint-rehearsal", "시험 실행: 대조 PASS, 창 전달 실패 0", trial.code == 0 and rep["windows"]["delivery_failed"] == 0, rep["windows"]["delivery_failed"])
+        verdicts = judged(trial.windows, 0)
+        h.check("joint-rehearsal", "시험 실행의 창은 표본 부족으로 UNKNOWN", all(v == "UNKNOWN" and "INSUFFICIENT_SAMPLES" in why for v, why in verdicts), verdicts[0])
+
+        changes: list[dict] = []
+
+        def change_weights(_process):
+            time.sleep(10)
+            for weight in (10, 50, 100, 0):
+                requested = datetime.now(UTC).isoformat()
+                s.set_edge_weight(name, weight)
+                changes.append({"weight_target": weight, "request_at": requested, "confirmed_at": datetime.now(UTC).isoformat()})
+                time.sleep(30)
+
+        main = h.loadgen(
+            "joint-main", edge, duration=135, path="local-mock-edge", lock=True, subcommand="measure",
+            extra=shared, during=change_weights,
+        )  # fmt: skip
+        rep, rec = main.report, main.report["reconciliation"]
+        h.check("joint-rehearsal", "본 측정: 대조 PASS, 실패 · 유실 · 중복 0", main.code == 0 and rec["nfr2"] == {"failed": 0, "lost": 0, "duplicated": 0}, rec["nfr2"])
+        h.check("joint-rehearsal", "본 측정: 창이 수신에 빠짐없이 도착", rep["windows"]["delivery_failed"] == 0 and len(receiver.windows) == len(trial.windows) + len(main.windows), len(receiver.windows))
+        h.check("joint-rehearsal", "노트북 · 대역 값이라 판정 입력으로 표시하지 않음", rep["sli_usable_for_judgement"] is False and rep["measurement"]["generator"] == "laptop" and "NOT_EDGE_MEASURED" in rep["warnings"], rep["measurement"]["path"])
+        h.check("joint-rehearsal", "리포트에 부하 전 왕복 기준값이 남음", rep["measurement"]["preflight"]["health_rtt_ms"]["samples"] == 5, rep["measurement"]["preflight"]["health_rtt_ms"])
+
+        again = h.reconcile(main.out)
+        h.check("joint-rehearsal", "끝난 뒤 reconcile도 PASS, 표시 유지", again.code == 0 and again.report["measurement"]["generator"] == "laptop", again.report["verdict"])
+        code, line = h.check_windows_command(main.out / "windows.jsonl")
+        h.check("joint-rehearsal", "창 파일이 스키마 · 연속성 통과", code == 0, line)
+
+        receipts = h.out / "joint-receipts.jsonl"
+        receipts.write_text("".join(
+            json.dumps({"plan_id": "plan-local", "run_id": rep["run_id"], "status": "CONFIRMED", "reason": "SHIFT",
+                        "revision": index + 1, "lb_ref": "local-stand-in", **change}) + "\n"
+            for index, change in enumerate(changes)
+        ))  # fmt: skip
+        aligned = cli_command("align", "--out", str(main.out), "--receipts", str(receipts))
+        result = json.loads((main.out / "weight-alignment.json").read_text())
+        steps = result["steps"]
+        print(aligned.stdout, flush=True)
+        h.check("joint-rehearsal", "가중치 4단계가 모두 창에서 확인됨", aligned.returncode == 0 and [s_["weight_target"] for s_ in steps] == [10, 50, 100, 0] and all(s_["observation"] == "OBSERVED" for s_ in steps), [s_["reflect_upper_bound_s"] for s_ in steps])
+        h.check("joint-rehearsal", "가중치가 있는 환경마다 p95가 남음", all(s_["target_p95_ms_max"] is not None for s_ in steps[:3]) and steps[3]["source_p95_ms_max"] is not None, [(s_["source_p95_ms_max"], s_["target_p95_ms_max"]) for s_ in steps])
+        other = h.out / "joint-other-receipts.jsonl"
+        other.write_text(json.dumps({"plan_id": "plan-local", "run_id": "t18-another-run", "status": "CONFIRMED", "weight_target": 10, "request_at": changes[0]["request_at"]}) + "\n")
+        refused = cli_command("align", "--out", str(main.out), "--receipts", str(other))
+        h.check("joint-rehearsal", "다른 실행의 영수증은 거부, 종료 2", refused.returncode == 2 and "실행 ID" in refused.stderr, refused.returncode)
+
+
+def scenario_preflight_write_block(h: Harness) -> None:
+    """실제 demo-chat의 /api/info로 쓰기 차단 사전 점검을 본다. 부하는 보내지 않는다."""
+    print("== preflight-write-block: 목적지 쓰기 차단이 켜져 있으면 사전 점검이 막는지", flush=True)
+    s = h.stack
+    name = "write-block-preflight"
+    edge = s.edge(name, target_percent=100)
+    rows_before = s.admin_execute("SELECT count(*) FROM messages")[0][0]
+
+    def preflight() -> subprocess.CompletedProcess:
+        return subprocess.run(
+            [sys.executable, "-m", "bravo_loadgen.cli", "preflight", "--base-url", edge, "--plan-id", "plan-local",
+             "--source-env", SOURCE_ENV, "--target-env", TARGET_ENV, "--duration", "60",
+             "--measurement-path", "local-mock-edge", "--out", str(h.out / "write-block-preflight"),
+             "--run-id", "t18-write-block-preflight"],
+            env=h._env(), capture_output=True, text=True,
+        )  # fmt: skip
+
+    def line(result: subprocess.CompletedProcess) -> str:
+        return next((row.strip() for row in result.stdout.splitlines() if "쓰기 차단" in row), "")
+
+    result = preflight()
+    h.check("preflight-write-block", "가중치 100%, 양쪽 열림: 통과", result.returncode == 0 and f"{TARGET_ENV} 열림 5" in result.stdout, line(result))
+    s.set_write_block(True, (s.target_url,))
+    try:
+        result = preflight()
+        h.check("preflight-write-block", "가중치 100%, 목적지 닫힘: 실패하고 여는 명령을 알림, 종료 2",
+                result.returncode == 2 and f"{TARGET_ENV} 닫힘 5" in result.stdout and "write_switch.py open" in result.stdout,
+                line(result))  # fmt: skip
+        s.set_edge_weight(name, 0)
+        result = preflight()
+        h.check("preflight-write-block", "가중치 0%, 목적지 닫힘: 보이지 않아 확인 못 함, status를 알림",
+                result.returncode == 0 and f"{TARGET_ENV} 응답 없어 확인 못 함" in result.stdout and "write_switch.py status" in result.stdout,
+                line(result))  # fmt: skip
+        s.set_write_block(True, (s.source_url,))
+        result = preflight()
+        h.check("preflight-write-block", "가중치 0%, 출발지 닫힘: 실패, 목적지 명령은 알리지 않음, 종료 2",
+                result.returncode == 2 and f"{SOURCE_ENV} 닫힘 5" in result.stdout and "write_switch.py open" not in result.stdout,
+                line(result))  # fmt: skip
+    finally:
+        s.set_write_block(False)
+    rows_after = s.admin_execute("SELECT count(*) FROM messages")[0][0]
+    h.check("preflight-write-block", "사전 점검은 행을 남기지 않음", rows_after == rows_before, rows_after - rows_before)
+
+
 def _shift(moment: str, seconds: int) -> str:
     shifted = datetime.fromisoformat(moment) + timedelta(seconds=seconds)
     return shifted.isoformat().replace("+00:00", "Z")
@@ -767,6 +976,8 @@ SCENARIOS = {
     "window-breaks": scenario_window_breaks,
     "soak": scenario_soak,
     "lock-rtt": scenario_lock_rtt,
+    "joint-rehearsal": scenario_joint_rehearsal,
+    "preflight-write-block": scenario_preflight_write_block,
 }
 
 

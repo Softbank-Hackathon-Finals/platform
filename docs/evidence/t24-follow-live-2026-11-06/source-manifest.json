@@ -1,0 +1,61 @@
+{
+  "source_revision": "04a0846a2f7c764388c7b8ab9a773865c2e68469",
+  "source_files": [
+    {
+      "path": "services/audit-log/src/bravo_audit/adapters.py",
+      "sha256": "7d2054b0f4f9dc55b744626f53dbb3e1e2352200336952d1a576007a37a626e5"
+    },
+    {
+      "path": "services/audit-log/src/bravo_audit/cli.py",
+      "sha256": "8345abaafc981dd5774517213e36eab656080e7775dbddf52aa36a3e5d697b58"
+    },
+    {
+      "path": "services/audit-log/src/bravo_audit/follow.py",
+      "sha256": "96eafb180abaf6706e184f76403e2da0ee05c4ebe48a161b79a0466962ed5e3d"
+    },
+    {
+      "path": "services/audit-log/src/bravo_audit/ledger.py",
+      "sha256": "8725ac251ccf008f3ba2d436779151b2197313e211fb828b0f002059c4d12a14"
+    },
+    {
+      "path": "services/audit-log/src/bravo_audit/record.py",
+      "sha256": "6ed3a9e616ebdecca28f2c86482193f483c992295ad3650581a4bb0a08b6f550"
+    },
+    {
+      "path": "services/audit-log/src/bravo_audit/sink.py",
+      "sha256": "f53d99190cc93442d1e70eaee197fb2569ce637f944d701ecb6ab0ff44e225a7"
+    },
+    {
+      "path": "services/audit-log/src/bravo_audit/storage.py",
+      "sha256": "4e8dfade7033beadf8426c503b48ce22c1036665212792d5aee6d34bfae28b95"
+    },
+    {
+      "path": "services/audit-log/testing/follow_live.py",
+      "sha256": "ffcd5f81e51a4d3976220deafacd1385bcc5aa2b06a3c1e9bab60754c5264f0d"
+    },
+    {
+      "path": "services/audit-log/testing/t10_events_server.py",
+      "sha256": "51b166f3ba9b33be4fb11403d0600511b7e3258a9c82b9ea55c99e83abb0c92d"
+    },
+    {
+      "path": "services/platform-events/src/bravo_platform_events/api.py",
+      "sha256": "50216355cf835a07c48206600df60a668d52323de5b951a3b9a334a19132627e"
+    },
+    {
+      "path": "services/platform-events/src/bravo_platform_events/contract.py",
+      "sha256": "112750471d7a351583290b9fe19fed316d9d0e115e7b7cd4adf13659778e20c9"
+    },
+    {
+      "path": "services/platform-events/src/bravo_platform_events/plans.py",
+      "sha256": "35de26224938ec63992cc83595145f2e36a6c961a7156036df55b50d94ba3809"
+    },
+    {
+      "path": "services/platform-events/src/bravo_platform_events/schemas/event.schema.json",
+      "sha256": "1573655b092018f41865e2fa7ba87d7c64278b15e5dd78a2636ca23fc7a231a9"
+    },
+    {
+      "path": "services/platform-events/src/bravo_platform_events/store.py",
+      "sha256": "9a5fd695400b9fd3b5275be6dd48509515a4b5fecdf30c1062d50170b7c86350"
+    }
+  ]
+}

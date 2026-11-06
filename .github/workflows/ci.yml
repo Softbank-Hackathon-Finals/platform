@@ -113,6 +113,13 @@ jobs:
         run: test "$SCOPE_RESULT" = success
       - uses: actions/checkout@v7
         if: needs.scope.outputs.infra == 'true'
+        with:
+          fetch-depth: 0
+      - name: Registration promotion source
+        if: needs.scope.outputs.infra == 'true'
+        run: |
+          python3 scripts/registration_delivery.py check-promotion
+          python3 scripts/registration_delivery.py check-promotion --service product-reader
       - name: Workflow syntax
         if: needs.scope.outputs.infra == 'true'
         run: docker run --rm -v "$PWD:/repo" -w /repo rhysd/actionlint:1.7.7 -color
@@ -122,6 +129,52 @@ jobs:
           while IFS= read -r -d '' file; do
             docker run --rm -i hadolint/hadolint:v2.12.0 hadolint --failure-threshold warning - < "$file"
           done < <(git ls-files -z ':(glob)**/Dockerfile' ':(glob)**/*.Dockerfile')
+      - name: Registration Helm contract
+        if: needs.scope.outputs.infra == 'true'
+        run: |
+          curl --fail --silent --show-error --location https://get.helm.sh/helm-v4.0.0-linux-amd64.tar.gz -o "$RUNNER_TEMP/helm.tgz"
+          curl --fail --silent --show-error --location https://get.helm.sh/helm-v4.0.0-linux-amd64.tar.gz.sha256sum -o "$RUNNER_TEMP/helm.sha256"
+          (cd "$RUNNER_TEMP" && sed 's/helm-v4.0.0-linux-amd64.tar.gz/helm.tgz/' helm.sha256 | sha256sum --check)
+          tar -xzf "$RUNNER_TEMP/helm.tgz" -C "$RUNNER_TEMP" linux-amd64/helm
+          export PATH="$RUNNER_TEMP/linux-amd64:$PATH"
+          python3 -m venv "$RUNNER_TEMP/helm-test"
+          "$RUNNER_TEMP/helm-test/bin/pip" install pyyaml==6.0.3 cel-python==0.2.0
+          helm repo add bravo-argo https://argoproj.github.io/argo-helm --force-update
+          helm dependency build infra/gitops/argocd
+          "$RUNNER_TEMP/helm-test/bin/python" infra/gitops/test_registration_chart.py
+          "$RUNNER_TEMP/helm-test/bin/python" infra/gitops/test_product_reader_chart.py
+          "$RUNNER_TEMP/helm-test/bin/python" infra/gitops/test_initial_proposal_chart.py
+          "$RUNNER_TEMP/helm-test/bin/python" infra/envs/rehearsal-access/test_exec_guard.py
+          # The same guard on a real API server (throwaway k3s in Docker, server dry-run + exec).
+          "$RUNNER_TEMP/helm-test/bin/python" infra/envs/rehearsal-access/apiserver_exec_guard.py
+          "$RUNNER_TEMP/helm-test/bin/python" infra/gitops/test_rehearsal_host_chart.py
+          "$RUNNER_TEMP/helm-test/bin/python" infra/gitops/test_workflow_host_chart.py
+          "$RUNNER_TEMP/helm-test/bin/python" infra/gitops/test_bootstrap.py
+          # Evaluate the controller admission CEL on a real kube-apiserver, not by name only.
+          GOBIN="$RUNNER_TEMP/envtest-bin" GOTOOLCHAIN=auto go install sigs.k8s.io/controller-runtime/tools/setup-envtest@v0.0.0-20260125163108-a19ec76a3c5d
+          KUBEBUILDER_ASSETS="$("$RUNNER_TEMP/envtest-bin/setup-envtest" use 1.35.0 --bin-dir "$RUNNER_TEMP/envtest" -p path)" \
+            "$RUNNER_TEMP/helm-test/bin/python" infra/gitops/test_gitops_admission_apiserver.py
+          mkdir "$RUNNER_TEMP/registration-rendered"
+          "$RUNNER_TEMP/helm-test/bin/python" infra/gitops/test_registration_chart.py --render > "$RUNNER_TEMP/registration-rendered/registration.yaml"
+          "$RUNNER_TEMP/helm-test/bin/python" infra/gitops/test_product_reader_chart.py --render > "$RUNNER_TEMP/registration-rendered/product-reader.yaml"
+          "$RUNNER_TEMP/helm-test/bin/python" infra/gitops/test_rehearsal_host_chart.py --render > "$RUNNER_TEMP/registration-rendered/rehearsal-host.yaml"
+          helm template bravo-gitops infra/gitops/argocd --namespace bravo-gitops --kube-version 1.35.9 > "$RUNNER_TEMP/registration-rendered/argocd.yaml"
+      - name: Rendered registration security
+        if: needs.scope.outputs.infra == 'true'
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          scan-type: config
+          scan-ref: ${{ runner.temp }}/registration-rendered/registration.yaml
+          severity: HIGH,CRITICAL
+          exit-code: "1"
+      - name: Rendered product reader security
+        if: needs.scope.outputs.infra == 'true'
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          scan-type: config
+          scan-ref: ${{ runner.temp }}/registration-rendered/product-reader.yaml
+          severity: HIGH,CRITICAL
+          exit-code: "1"
       - name: Terraform directories
         id: tf
         if: needs.scope.outputs.infra == 'true'
@@ -165,12 +218,19 @@ jobs:
     if: needs.scope.outputs.projects != '[]'
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    permissions:
+      contents: read
+      packages: read  # pull the org's GHCR CI mirrors (ci-mirror/*), not anonymous public registries
     strategy:
       fail-fast: false
       max-parallel: 3
       matrix: ${{ fromJSON(needs.scope.outputs.matrix) }}
     steps:
       - uses: actions/checkout@v7
+      - name: Log in to the org GHCR for CI image mirrors
+        env:
+          GHCR_TOKEN: ${{ github.token }}
+        run: printf '%s' "$GHCR_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin >/dev/null
       - if: matrix.kind == 'python'
         uses: astral-sh/setup-uv@v10.2.0
         with:

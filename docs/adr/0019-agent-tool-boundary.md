@@ -35,8 +35,20 @@
 
 * 좋은 점: T15가 `app/db_secret.py`를 snapshot에 넣을 수 있다. 콘솔이 "안 만든 도구"와 "막힌 시도"를 구분한다. 모델이 T16 등급과 린트를 읽어 제안 품질을 올리되 판정 권한은 없다.
 * 나쁜 점: 이름 규칙 완화만큼 내용 검사(`safe_text`)에 의존한다. `safe_text`는 알려진 패턴만 본다. 파괴 범주 정규식도 알려진 명령만 본다. 둘 다 T15 독립 검증과 T3 격리의 대체가 아니다.
+* 연결(11/6): `bravo-agent analyze --inventory`와 `bravo-subscription run --inventory`가 T16 문서를 읽어 `InventorySummary`를 붙인다. `source_sha`가 다르거나 형식 · 크기가 맞지 않으면 다른 입력 오류처럼 `NEEDS_HUMAN`(종료 코드 2)이고, 붙인 실행의 결과에만 `inventory_digest`가 남는다. 현재 `bravo-inventory scan` 출력(demo-chat 시험 입력, `--source-sha` 지정)을 `Tools.dispatch`와 OpenAI 함수 루프(가짜 전송)로 통과시켰다.
+* T38 제품 경로 제안(미구현, T38 · T10 합의 필요): `ProductInput`에 선택 필드 `inventory`(T16 v1 문서 원본, 기본 `null`)를 두고 Admission digest가 이를 포함한다. `validate_product_input`은 `InventorySummary.from_document(inventory).source_sha == bundle.source_sha`를 검사하고, `invoke_product_worker`는 `inventory.json`(0400)을 쓰고 `SimpleNamespace(..., inventory=path)`로 넘긴다. `proposal_result`는 결과의 `inventory_digest`가 입력 문서의 `digest`와 같은지 확인한다. `ProductRequest`와 T11 입력(`FailureBundle`)은 바꾸지 않는다.
 * 미검증: 실제 모델이 `inventory.describe`를 호출한 실측, T15 코드 수정 템플릿과의 통합, `rehearsal.exec` 계약.
 
 ## 5. 실측 (Evidence)
 
 로컬 `services/agent-worker` 시험 323개 통과(새 시험: 소스 경로 정책 9, inventory.describe 3, policy.evaluate 6, 파괴 시도 기록 5). 실제 모델 호출 실측은 아직 없다.
+
+## 7. 보완: 시도별 도구 기록 추출과 T38 응답 연결 제안 (2026-11-06)
+
+열린 PR #372(재시작 상태)와 #373(T42 `rehearsal.exec`)이 각각 §6을 쓰고 있어 번호 충돌을 피하려고 §7로 둔다.
+
+* **배경:** T15(배규태)가 T38 제품 응답에 실행에 결속된 도구 기록을 넣어, 실제 모델로도 콘솔의 "버킷 삭제 시도 차단" 장면에 데이터가 있게 할 수 있는지 물었다. coordinator 결과에는 이미 시도별 `audit`과 `audit_event_count`·`audit_truncated`가 있지만, 추출 규칙은 T15 `bucket_proposer.attempt_tool_events`에만 있었고 T38은 `tool_events_status: "UNAVAILABLE"`로 고정한다.
+* **결정:** T11이 정본 추출·검증 함수를 둔다(`bravo_agent.tool_events`). `attempt_tool_events(source, attempt)`는 `Coordinator`와 그 `result()` dict 모두에서 동작하고, 그 시도의 `independent_verifier` 외 이벤트를 원래 순서대로, 시도 기록이 하나이고 잘리지 않았으며 개수가 `audit_event_count`와 같을 때만 돌려준다. `validate_tool_events(events, run_id, attempt)`는 최대 256개, 이벤트마다 필수 필드·필드 이름·값 형식(str·int·bool만)과 run·attempt 결속을 확인한다. 같은 규칙의 JSON Schema를 `TOOL_EVENTS_SCHEMA`로 공개한다. 어느 하나라도 어긋나면 목록 전체를 내보내지 않는다(일부를 걸러 내지 않는다). #372의 `tool=coordinator` 중단 이벤트는 그 시도의 수에 들어가므로 병합 전후 모두 맞다.
+* **T38 제안(미구현, T38 담당 류지환 님 동의 필요):** `proposal_result`가 `tool_events_projection(result, 1, run_id=bundle.run_id)`로 `tool_events_status: "COMPLETE"`+`tool_events` 또는 `"UNAVAILABLE"`(키 없음)을 내고, `validate_bound_product_response`가 `COMPLETE`일 때 `validate_tool_events`로 다시 확인한다. 필드 이름과 모양은 T15 `collect_tool_events`와 같다. 상세는 [T11 README](../../services/agent-worker/README.md#t38-응답-연결-제안-미구현-t38-담당-동의-필요).
+* **한계:** 구독 경로(`chatgpt-plan`)의 첫 응답 진단 이벤트 `FIRST_RESPONSE_SHAPE`는 중첩 카운터와 `null`을 담아 계약 밖이다. 따라서 T38이 연결해도 구독 경로의 시도는 지금 모두 `UNAVAILABLE`이다. 진단 이벤트를 스칼라로 펴는 후속 작업이 있어야 실제 모델 장면에 데이터가 생긴다.
+* **실측:** `tests/test_tool_events.py` — T15 함수 사본을 기준으로 OpenAI 모의 전송의 실제 coordinator 실행 2회(1회째 `rehearsal_exec` 버킷 삭제 차단·읽기·제안·FAIL, 2회째 제안·PASS)와 중단 시도에서 결과 일치, JSON 왕복 결과 dict, 잘림·누락·중복·다른 run 거부, #372 모양(중단 이벤트·재시작 시도) 모의와 #372 병합 뒤에만 도는 실제 경로 시험(checkpoint 실패 중단, ANALYZING 복원. #372 브랜치를 임시 병합해 통과 확인), 스키마와 검증기 일치(`jsonschema`), 256개 상한, 구독 경로의 `UNAVAILABLE`. 실제 모델 실측과 T38 연결은 없다.

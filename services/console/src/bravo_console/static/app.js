@@ -5,8 +5,12 @@ import {
   identifier,
   observation,
   controlReport,
+  controlReportFresh,
+  controlReportMatches,
   CONTROL_TESTS,
   failbackSummary,
+  securitySummary,
+  SECURITY_CATEGORIES,
 } from "./model.js";
 import { request, stream } from "./transport.js";
 import { recoveryCommand, canResubmit, canRepeatApproval } from "./recovery.js";
@@ -19,6 +23,7 @@ let model,
   postController;
 let observed = null;
 let controls = null;
+let security = null;
 let audit = null;
 let pending = null,
   commandId = null,
@@ -121,15 +126,51 @@ function render() {
         : "미확인",
     );
   }
+  const securityFresh =
+    security &&
+    now >= security.at &&
+    now - security.at < 15000 &&
+    security.plan === model.plan &&
+    security.digest === model.snapshot?.plan_digest;
+  text(
+    "security-status",
+    securityFresh ? "환경별 수집 상태" : "보안 탐지 조회 미연결·만료",
+  );
+  const securityRows = Object.entries(SECURITY_CATEGORIES).map(
+    ([key, label]) => {
+      const tr = document.createElement("tr");
+      const heading = document.createElement("th");
+      heading.scope = "row";
+      heading.textContent = label;
+      tr.append(heading);
+      for (const side of ["source", "target"]) {
+        const cell = securityFresh
+          ? security.rows.find((r) => r.side === side)?.cells[key]
+          : null;
+        const td = document.createElement("td");
+        td.textContent =
+          cell?.state === "OK"
+            ? `수집됨 · 미해결 탐지 ${cell.total}건`
+            : ({
+                NONE: "탐지 출처 없음",
+                STALE: "수집 결과 오래됨",
+                UNKNOWN: "수집 확인 불가",
+              }[cell?.state] ?? "미확인");
+        if (cell?.state !== "OK") td.className = "warning";
+        tr.append(td);
+      }
+      return tr;
+    },
+  );
+  $("security-rows").replaceChildren(...securityRows);
   const reportFresh =
     controls &&
-    now - controls.at < 15000 &&
-    controls.report.gate_id === model.gate?.data.gate_id &&
-    controls.report.context_digest === model.gate?.data.context_digest;
+    controlReportFresh(controls.report, now) &&
+    controlReportMatches(controls.report, model.snapshot, model.gate);
   text(
     "control-status",
     reportFresh
-      ? `${controls.report.profile.id} · 기록된 보안 판정 ${controls.report.decision}`
+      ? `${controls.report.profile.id} · ${model.gate ? "기록된 보안 판정" : "초기 비교 (실행 허가 아님)"} ${controls.report.decision}`
       : "검증된 보고서 미연결",
   );
   text(
@@ -307,6 +348,7 @@ function revokeView(error) {
   model.error = "forbidden";
   observed = null;
   controls = null;
+  security = null;
   audit = null;
   commandId = null;
   notice(messages.forbidden, true);
@@ -328,11 +370,14 @@ async function refresh(g) {
     });
     if (g !== generation) return;
     model.observeSnapshot(value, Date.now());
-    const [metrics, report, auditResult] = await Promise.allSettled([
+    const [metrics, report, findings, auditResult] = await Promise.allSettled([
       request(`/v1/plans/${model.plan}/observations`, {
         signal: AbortSignal.timeout(7000),
       }),
       request(`/v1/plans/${model.plan}/controls`, {
+        signal: AbortSignal.timeout(7000),
+      }),
+      request(`/v1/plans/${model.plan}/security`, {
         signal: AbortSignal.timeout(7000),
       }),
       request(`/v1/plans/${model.plan}/audit`, {
@@ -340,7 +385,7 @@ async function refresh(g) {
       }),
     ]);
     if (g !== generation) return;
-    for (const result of [metrics, report, auditResult]) {
+    for (const result of [metrics, report, findings, auditResult]) {
       if (result.status === "rejected" && revokeView(result.reason)) return;
     }
     try {
@@ -369,6 +414,19 @@ async function refresh(g) {
           : null;
     } catch {
       controls = null;
+    }
+    try {
+      security =
+        findings.status === "fulfilled"
+          ? {
+              rows: securitySummary(findings.value, model.snapshot, Date.now()),
+              at: Date.parse(findings.value.queried_at),
+              plan: model.plan,
+              digest: model.snapshot.plan_digest,
+            }
+          : null;
+    } catch {
+      security = null;
     }
     try {
       audit =
@@ -464,6 +522,7 @@ async function connectPlan(plan, recovery = false) {
   model = new Model(plan);
   observed = null;
   controls = null;
+  security = null;
   audit = null;
   commandId = null;
   lastHeartbeat = 0;

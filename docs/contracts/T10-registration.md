@@ -6,7 +6,7 @@
 |---|---|---|
 | `/v1/environments` | `name`, `kind`(`aws` 또는 `onprem`), `roles`([`source`] 또는 [`target`]), `connection_ref` | 서버가 부여한 `environment_id`, 실제 collector 신원·읽기 확인, 권한 경고 |
 | `/v1/workloads` | `name`, `repo_url`, `app_path`, `iac_path`, `source_environment_id`, `namespace` | `workload_id`, 코드·실제 이미지 대조 결과, 수집 범위 |
-| `/v1/plans` | `workload_id`, `target_environment_id` | `plan_id`, 출발지·목적지, 계획·수집 범위 digest, 초기 상태 `COLLECT`와 버전 1 |
+| `/v1/plans` | `workload_id`, `target_environment_id`, `profile_id`, `profile_version` | `plan_id`, 출발지·목적지, 평가 프로필, 계획·수집 범위 digest, 초기 상태 `COLLECT`와 버전 1 |
 
 세 경로 모두 검증된 운영자 Bearer와 단일 `Idempotency-Key`가 필요하다. `connection_ref`는 운영자가 설치한 tenant별 별칭이다. 요청 본문으로 API 주소, CA, 자격, 클러스터 UID, registry digest 또는 tenant를 지정할 수 없다. 같은 tenant·종류·키·운영자·입력이면 최초 영수증을 돌려준다. 최초 생성은 201, 재조회는 200이다. 재조회 시각이 최초 접속 점검 시각을 갱신하지 않는다.
 
@@ -18,6 +18,81 @@
 4. **계획.** 앱의 현재 배포와 양쪽 환경을 다시 읽는다. 앱 등록 후 수집 범위가 바뀌면 새 시점의 앱 등록이 필요하다. 현재 앱·환경·수집 범위에서 digest를 만들고, 기존 계획 잠금 안에서 `PlanSpec`, 첫 상태 이벤트, 등록 영수증을 함께 저장한다. T16 수집·의존성 등급·코드 전용/배포 전용 분류와 T19 통제 비교는 이 시작 상태의 후속 소비자다. 실측 창은 별도의 [생산자 권한과 저장 경로](T10-window-storage.md)를 사용한다.
 
 등록 자료는 불변이다. 운영자가 환경을 교체할 때에는 같은 이름의 CNPG를 새 신원으로 오인하지 않도록 새 환경 ID와 연결 참조를 설치한다. 한 tenant의 등록을 다른 tenant의 앱이나 계획에서 사용할 수 없다. 외부 접속 검사는 DB 잠금 밖에서 수행한다. 관측 후 클러스터가 변할 수 있으므로 실제 수집과 실행은 각 단계에서 다시 확인해야 한다.
+
+### 계획의 평가 프로필과 앱 식별자
+
+통제 원문과 게이트의 `app`은 계획의 생성된 `workload_id`다. 앱 표시 이름이나
+카탈로그 프로필의 기준 앱 이름으로 바꾸지 않는다. 새 계획 요청에는 문자열
+`profile_id`와 `profile_version`이 모두 필요하다. 두 값은 영문·숫자로 시작하고
+영문·숫자·밑줄·점·하이픈을 포함한 128자 이하다. 호스트는 tenant별 허용 목록을
+확인한 뒤에만 환경을 조회한다. 허용 목록이 없거나 값이 다르면
+`evaluation_profile_unavailable`(409)로 거부한다. 누락·형식 오류는 422다.
+
+두 필드는 `PlanSpec` 최상위, 계획 digest 입력, 등록 영수증과 계획 조회에 함께
+저장된다. 같은 키의 다른 프로필은 `command_key_conflict`다. T10의
+`GateRecords.bind`와 저장 컨텍스트 조회는 게이트 단계에 고정된 프로필과 정확히 일치해야 한다.
+T19는 동일한 spec과 현재 카탈로그를 별도로 대조한다. 허용 목록은 등록 정책이며
+카탈로그의 존재·무결성이나 통제 시험 결과를 대신하지 않는다.
+
+### 반영 후 재대조 프로필
+
+T31 반영 뒤 재대조할 새 계획은 `recheck_profile_id`·`recheck_profile_version`도
+등록 요청에 함께 명시한다. 두 필드의 문자열 규칙은 최초 프로필과 같고,
+한 필드만 있거나 명시한 값이 `null`이면 422다. 두 필드를 생략한 기존 요청은
+기존 원문 그대로 재시도할 수 있지만 그 계획은 반영 후 게이트를 열 수 없다.
+재대조 프로필도 같은 tenant의 `evaluation_profiles` 허용 목록에 있어야 하며,
+환경 조회 전에 검사한다. 두 쌍 모두 spec·plan digest·등록 영수증·snapshot에 고정한다.
+
+최초 `demo-gate:1`, 재대조 `apply-recheck:1`을 쓰는 운영자는 허용 목록에 각각
+`{"tenant_id":"tenant-example","profile_id":"demo-gate","profile_version":"1"}`와
+`{"tenant_id":"tenant-example","profile_id":"apply-recheck","profile_version":"1"}`을
+등록한다. 카탈로그와 T19·T21 소비자가 지원하는 버전인지 먼저 확인해야 한다.
+`full:1`이나 최초 프로필로 자동 대체하지 않는다. 기존 계획을 수정하는 대신
+현재 앱·환경을 다시 확인해 새 키로 새 계획을 등록한다.
+
+`GateRecords.bind(..., gate_phase="post_apply", application_id=...)`는 성공한
+`WorkflowRecovery` Application 체크포인트와 같은 application ID일 때만
+재대조 쌍을 선택한다. 반영 접수 claim만으로는 충분하지 않다. 새 결속은 `GATE`
+상태에서 만들고, 같은 결속 재시도는 기존 원문을 반환하며 과거 revision을
+재활성화하지 않는다. 반영 기록이 생기면 최초 컨텍스트는 소비할 수 없다.
+초기 결속은 기존 저장 형식을 유지한다. `GateContext`의 원문과 fingerprint는 바꾸지 않는다.
+
+T10 view는 `PlanGateSession`에 `gate_phase`(`initial` 또는 `post_apply`)와
+`application_id`(최초는 `None`)를 전달한다. T19는 단계에 맞는 spec 필드와
+현재 권한·원문을 별도로 검증하고, T21은 snapshot의 선택 필드와 해당 단계의
+보고서 프로필을 소비한다. 반영 후 세션은 단계와 application ID를 fingerprint에 결속하고, 최초 세션은 기존 fingerprint를 유지한다.
+
+운영 호스트는 `records.cutover_authority(upstream=..., load_gate=...)`를 기존
+CutoverService의 authority로 전달한다. `upstream`은 현재 운영 권한·SHIFT
+조건을 검증한 CurrentCutover를 반환하고, `load_gate(view)`는 현재 인증된
+T19 service와 readiness를 반환한다. 조립 함수가 같은 트랜잭션의
+`view.cutover_binding(binding)`으로 `CurrentCutover.binding`을 만든다.
+이 함수는 계획·gate ID·context digest·목적지 일치 여부를 확인하고 저장된
+`gate_phase`·`application_id`를 넣는다. 이미 다른 단계나 application ID가
+들어 있는 binding은 고쳐 쓰지 않고 거부한다. T19 `_bind`는 세션과 이 binding의
+두 필드를 대조한다. 두 필드가 모두 없는 과거 binding은 최초 단계에서만 허용하며, 부분 누락이나 post_apply의 누락은 거부한다. 승인 요청·저장 이벤트·멱등 재요청에도 두 값이 남으므로
+최초 승인 본문을 반영 후 세션의 승인으로 재사용할 수 없다. 새 메타데이터가
+없는 과거 승인 이벤트의 원문은 그대로 읽을 수 있다.
+
+T10 `GateRecheck.evaluate`는 준비 콜백 호출 전에
+`records.recheck_profile(principal, plan_id, application_id)`로 저장된 쌍과
+Application 체크포인트를 확인한다. 기존 `prepare(principal, plan_id, outcome)`
+콜백도 이 쌍을 읽어 새 source·target 원문을 인증하고 위 `post_apply` 결속으로 저장한다.
+목적지 run과 SEC-01.1·IAM-01.1·ENC-01.1 증거는 반영 완료 시각 이후여야 한다.
+Pod·이미지·자격 공급원이 바뀐 앱은 T14 등록 경계를 새로 확인해야 하며,
+그 증거가 없으면 수집기/T19의 UNKNOWN을 PASS로 바꾸지 않는다.
+
+프로필이 없는 기존 계획과 원문은 보존한다. 읽기는 가능하지만 새 게이트 결속은
+거부한다. 기존 계획 spec·digest를 수정하거나 기본 프로필을 추정하지 않는다.
+기존 환경·앱 등록이 여전히 유효하면, 같은 등록 ID와 명시한 프로필 및 **새 키**로
+새 계획을 만든다. 이 과정은 출발지 앱과 양쪽 환경을 다시 확인하며 새 plan ID와
+digest를 발급한다. 기존 키에 프로필을 추가해 요청하면 충돌한다. 변경 전 본문의
+HTTP 재요청도 새 필수 필드가 없어 422이므로, 과거 결과는 기존 계획 조회에서 읽는다.
+
+기존 등록 담당이 새 영수증을 인수한 뒤 새 계획을 참조하는 TaskCatalog·권한·수집
+증거·게이트 컨텍스트를 발급한다. 이전 plan ID·digest에 결속된 자료를 새 계획의
+증거로 재표기하지 않는다. 환경·앱을 중복 등록하거나 기존 감사 자료를 삭제할 필요는 없다.
+[식별자 결정과 담당 분담](https://github.com/Softbank-Hackathon-Finals/platform/issues/29#issuecomment-6661068881)
 
 ## 운영자 호스트 연결
 
@@ -32,9 +107,47 @@
 | `operator_verifier` | 기존 [운영자 신원 검증기](T10-operator-access-v1-proposal.md)의 issuer, audience, client_id, assurance, 실제 사람의 subject→tenant 매핑, 공개 JWK |
 | `environments[]` | `tenant_id, environment_id, connection_ref, kind, namespace, database, database_uid, endpoint, ca_file, token_file`. 검증된 포워딩 경로에만 `tls_name`을 지정한다. 전용 collector 자격은 회전 가능한 비공개 mount로 제공한다. |
 | `releases[]` | `tenant_id, environment_id, repo_url, checkout, app_path, iac_path, revision, label, container, image, runtime_digests, service_account, replicaset_uid`. `label`은 Pod의 `app` 값, `image`는 registry가 포함된 digest 참조, `runtime_digests`는 같은 빌드의 허용 digest다. |
+| `evaluation_profiles[]` | 운영자가 현재 T5 카탈로그와 정책을 확인한 허용 목록. 예: `[{"tenant_id":"tenant-example","profile_id":"full","profile_version":"1"}]`. 누락 시 새 계획 등록을 거부한다. 앱 이름으로 프로필을 선택하거나 기본값을 넣지 않는다. |
 | 별도 `/registration/grants.json` | `[{"tenant_id":"tenant-example","subject_id":"operator-example"}]` 형식. 실제 subject ID는 신원 검증기의 `operator_id(issuer, sub)`로 구한다. 서버는 등록 직전과 저장 잠금 획득 뒤 파일의 현재 권한과 토큰 만료를 확인한다. |
 
 서비스 프로세스에 관리자 kubeconfig, 개인 로그인, Executor 제어 자격을 주지 않는다. 등록된 상태는 [기존 계획 조회와 SSE](T10-plan-snapshot-v1-proposal.md)에서 같은 plan ID로 읽는다. 운영 배포 전 T6·T30 담당이 endpoint·CA·CNPG UID·SA와 실제 대상 환경을 확인하고, T21이 운영자 신원 설정을 인계해야 한다.
+
+### 기존 AWS SSO를 쓰는 등록 전용 선택지
+
+등록 호스트만 `identity_mode: "aws_sso"`를 선택할 수 있다. `operator_verifier` 대신
+`sso_verifier`에 `region`, `audience`, `expected_account`, `expected_caller_arn`,
+`expected_sso_role_arn`, `expected_sso_role_id`, `tenant_id`를 설치한다. 두 검증기를
+동시에 설정하면 시작을 거부한다. 기본 JWT 방식과 T21·S2·S3 검증기는 바뀌지 않는다.
+
+운영자는 현재 SSO의 STS Account·Arn·UserId와 IAM GetRole의 Arn·RoleId를 확인한 뒤
+정확한 사용자 세션을 설정한다. 역할 전체나 요청의 tenant 값으로 자동 등록하지 않는다.
+별도 `grants.json`의 subject는 `registration_subject(account, role_id, caller_arn)`로
+구한다. 등록 전과 DB 잠금 뒤 현재 grant와 증명 만료를 다시 확인한다.
+
+클라이언트는 선택 의존성 `sso-registration`과
+`make_registration_token(profile_name=..., region=..., audience=...)`를 사용한다.
+명시한 프로필의 실제 credential provider가 `sso`일 때만 임시 자격으로 서명한다.
+환경 키·역할 체인·인스턴스 자격으로 대체하지 않는다. 반환값은 TLS 요청의 Bearer에만
+넣고 출력하거나 저장하지 않는다. 서버·Pod에는 개인 SSO 캐시나 AWS 자격을 설치하지 않는다.
+`boto3`·`botocore`·`urllib3`와 개별 하위 로거의 DEBUG, HTTP wire 진단이 켜져 있으면
+자격을 읽거나 갱신하기 전에 증명 생성을 거부한다. 부모 로거만 조용하게 설정해서는
+하위 로거의 명시적 DEBUG 설정이 꺼지지 않는다. 호스트는 요청 중 로그 설정을 변경하지 않는다.
+
+증명은 고정 regional STS `GetCallerIdentity`의 SigV4 서명 URL이다. 서명된
+`x-bravo-registration-id`에 호스트의 audience를 결속한다. 검증기는 호스트·메서드·
+Action·서명 범위·단일 쿼리 키를 제한하며, 리다이렉트·환경 프록시를 사용하지 않는다.
+서버가 서명 시각부터 **60초**를 직접 강제한다. STS의 `X-Amz-Expires` 처리에 의존하지
+않는다. 현재 STS 응답의 Account·Arn·UserId 전체가 설정된 사용자와 역할 ID에 맞아야 한다.
+검증 실패는 403, AWS 조회 불명은 세부 정보 없는 503이다.
+
+이 증명은 현재 AWS 임시 자격의 소유를 확인한다. 최초 SSO 로그인 시각이나 MFA 수행을
+증명하지 않는다. 반환 주체는 등록 전용 `SsoRegistrationPrincipal`이며 승인용
+`OperatorPrincipal`로 변환하지 않는다. 60초 동안의 같은 Bearer 재사용은 가능하지만,
+등록 쓰기는 기존 Idempotency-Key·현재 권한 검사로 제한한다. 운영자는 해당 SSO 역할의
+신뢰 정책이 다른 주체의 동일 세션 이름 가장을 허용하지 않는지도 확인해야 한다.
+
+근거: [AWS GetCallerIdentity](https://docs.aws.amazon.com/STS/latest/APIReference/API_GetCallerIdentity.html),
+[AWS IAM Authenticator의 서명된 서비스 식별자와 STS 검증](https://github.com/kubernetes-sigs/aws-iam-authenticator/blob/master/pkg/token/token.go).
 
 ## 저장소 변경과 복구
 

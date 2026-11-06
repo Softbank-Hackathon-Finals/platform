@@ -1,0 +1,80 @@
+{
+  "kind": "t19-direct-target-schema-qualification.v1",
+  "qualification_only": true,
+  "operational_authority": false,
+  "prior_dual_database_identity_claim_withdrawn": true,
+  "independent_source_capture_in_this_run": false,
+  "cross_database_equality_qualified": false,
+  "observed_at": "2026-11-06T12:31:43.204887+00:00",
+  "expires_at": "2026-11-06T12:32:13.204887+00:00",
+  "tables": [
+    {
+      "name": "public.messages",
+      "primary_key": [
+        "id"
+      ],
+      "schema_hash": "04ecfc4767b1031be2b23c59a0118da2b066de9d3f619e61efaae061e07c2672"
+    },
+    {
+      "name": "public.attachments",
+      "primary_key": [
+        "id"
+      ],
+      "schema_hash": "af32aaa714ff9498587e5c4f7b5d5f6dfb2f38559b526f7c6540a69c84d7adf8"
+    }
+  ],
+  "errors": [],
+  "direct_database_binding_verified": true,
+  "existing_role_has_replication": true,
+  "runtime": {
+    "implementation": "python",
+    "libpq": 180004,
+    "machine": "aarch64",
+    "psycopg": "3.3.7",
+    "python": "3.13.5"
+  },
+  "business_data_rows_read": 0,
+  "business_writes": 0,
+  "sequence_changes": 0,
+  "login_or_role_changes": 0,
+  "password_exported": false,
+  "attempts": [
+    {
+      "status": "UNKNOWN",
+      "raw_sha256": "32ba8a6bbb6d307ffccab93bf2f04e41d8829b836c4ba32712039d53e229ecf4",
+      "cleanup_at": "2026-11-06T12:17:58.560753+00:00",
+      "resources_confirmed_absent": 3,
+      "uid_preconditions": true
+    },
+    {
+      "status": "UNKNOWN",
+      "raw_sha256": "19055fa8abc857c65e1af93d320913f353555269418e58d173de44055d8d6c3c",
+      "cleanup_at": "2026-11-06T12:24:21.212649+00:00",
+      "resources_confirmed_absent": 3,
+      "uid_preconditions": true
+    },
+    {
+      "status": "UNKNOWN",
+      "raw_sha256": "0cf1e5434f8d044bde837519590022d39a1df66f9837f8a4684a8f607c64858f",
+      "cleanup_at": "2026-11-06T12:29:16.112229+00:00",
+      "resources_confirmed_absent": 3,
+      "uid_preconditions": true
+    },
+    {
+      "status": "UNKNOWN",
+      "raw_sha256": "28ded5b159f655a1dda8ddea0b01efec553d308fb24354f34c1cc497f94dc4e3",
+      "cleanup_at": "2026-11-06T12:30:35.385455+00:00",
+      "resources_confirmed_absent": 3,
+      "uid_preconditions": true
+    },
+    {
+      "status": "PASS",
+      "raw_sha256": "8affc53c078ed70a85b28beab990088a3447009ba5b1248709c31ef59537a643",
+      "cleanup_at": "2026-11-06T12:31:50.968161+00:00",
+      "resources_confirmed_absent": 3,
+      "uid_preconditions": true
+    }
+  ],
+  "historical_raw_preserved": true,
+  "operational_gate_complete": false
+}

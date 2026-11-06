@@ -1,0 +1,1318 @@
+{
+  "source_revision": "d0a3689bea03aafc6f4d9885987fdab06bed325b",
+  "source_files": [
+    {
+      "path": "infra/envs/target-workloads/attachment-copy.Dockerfile",
+      "sha256": "65aa07f6fdb3d9888ae866c91c9cd11b52312daddbd19c7286835ab5c9a80356"
+    },
+    {
+      "path": "infra/envs/target-workloads/attachment-copy.requirements.txt",
+      "sha256": "f3874f5baea2e6374999b0fc873067ddbe40be515d6e45a7ab5e4f5d1795a234"
+    },
+    {
+      "path": "infra/envs/target-workloads/attachment_copy.py",
+      "sha256": "5f9da8ecc59b975fe9db4150c84b1b410deda696ff1abaaf0efc668729db72a7"
+    },
+    {
+      "path": "infra/envs/target-workloads/attachment_job.py",
+      "sha256": "6c85fee7631a4cc2de0a70e807fa48793dc8062d21ad9e17030d19578ada8c4c"
+    },
+    {
+      "path": "infra/envs/target-workloads/attachment_stores.py",
+      "sha256": "572318db5ee23e8b793f365c233536f0e55ca7f01a3b796e54aa38e458b62cba"
+    },
+    {
+      "path": "infra/envs/target-workloads/attachment_verdict.py",
+      "sha256": "89bfcdec6b4cc33795e3a98b334a43c778501abbbb8f0eb2cb9a0a30b07aced3"
+    },
+    {
+      "path": "infra/envs/target-workloads/sync_attachments.py",
+      "sha256": "728553d72e915dcb1df7e82d73fa564657529e62c34a7e1fe7a6148cd453381a"
+    },
+    {
+      "path": "scripts/tests/attachment_job_k3s.py",
+      "sha256": "bf3ca2df7772a52dcfcdf9c2b1030a8f2f5a2db85dee3e8af235c4880009993a"
+    },
+    {
+      "path": "scripts/tests/attachment_job_mutation_check.py",
+      "sha256": "2056f9b29b242e864f525666876a562bbee264f308b8e8c0acfe221e03d163b5"
+    }
+  ],
+  "baseline_passed": true,
+  "baseline_tests": 83,
+  "mutation_count": 127,
+  "survivors": [],
+  "mutations": [
+    {
+      "removed_property": "one_attempt",
+      "module": "attachment_job.py",
+      "suite_exit_code": 1,
+      "failing_test_count": 2,
+      "failing_tests": [
+        "test_job_is_not_the_one_this_run_rendered",
+        "test_one_attempt_only_and_the_result_stays_readable_for_a_while"
+      ]
+    },
+    {
+      "removed_property": "one_pod_at_a_time",
+      "module": "attachment_job.py",
+      "suite_exit_code": 1,
+      "failing_test_count": 2,
+      "failing_tests": [
+        "test_job_is_not_the_one_this_run_rendered",
+        "test_one_attempt_only_and_the_result_stays_readable_for_a_while"
+      ]
+    },
+    {
+      "removed_property": "one_completion",
+      "module": "attachment_job.py",
+      "suite_exit_code": 1,
+      "failing_test_count": 2,
+      "failing_tests": [
+        "test_job_is_not_the_one_this_run_rendered",
+        "test_one_attempt_only_and_the_result_stays_readable_for_a_while"
+      ]
+    },
+    {
+      "removed_property": "deadline_present",
+      "module": "attachment_job.py",
+      "suite_exit_code": 1,
+      "failing_test_count": 3,
+      "failing_tests": [
+        "test_deadline_ends_before_the_issued_source_session",
+        "test_one_attempt_only_and_the_result_stays_readable_for_a_while",
+        "test_wait_gives_up_well_before_the_deadline"
+      ]
+    },
+    {
+      "removed_property": "cleanup_time_present",
+      "module": "attachment_job.py",
+      "suite_exit_code": 1,
+      "failing_test_count": 1,
+      "failing_tests": [
+        "test_one_attempt_only_and_the_result_stays_readable_for_a_while"
+      ]
+    },
+    {
+      "removed_property": "no_restart",
+      "module": "attachment_job.py",
+      "suite_exit_code": 1,
+      "failing_test_count": 1,
+      "failing_tests": [
+        "test_one_attempt_only_and_the_result_stays_readable_for_a_while"
+      ]
+    },
+    {
+      "removed_property": "no_service_account_token",
+      "module": "attachment_job.py",
+      "suite_exit_code": 1,
+      "failing_test_count": 1,
+      "failing_tests": [
+        "test_restricted_pod_security"
+      ]
+    },
+    {
+      "removed_property": "non_root",
+      "module": "attachment_job.py",
+      "suite_exit_code": 1,
+      "failing_test_count": 1,
+      "failing_tests": [
+        "test_restricted_pod_security"
+      ]
+    },
+    {
+      "removed_property": "seccomp_profile",
+      "module": "attachment_job.py",
+      "suite_exit_code": 1,
+      "failing_test_count": 1,
+      "failing_tests": [
+        "test_restricted_pod_security"
+      ]
+    },
+    {
+      "removed_property": "no_privilege_escalation",
+      "module": "attachment_job.py",
+      "suite_exit_code": 1,
+      "failing_test_count": 1,
+      "failing_tests": [
+        "test_restricted_pod_security"
+      ]
+    },
+    {
+      "removed_property": "read_only_root",
+      "module": "attachment_job.py",
+      "suite_exit_code": 1,
+      "failing_test_count": 1,
+      "failing_tests": [
+        "test_restricted_pod_security"
+      ]
+    },
+    {
+      "removed_property": "all_capabilities_dropped",
+      "module": "attachment_job.py",
+      "suite_exit_code": 1,
+      "failing_test_count": 1,
+      "failing_tests": [
+        "test_restricted_pod_security"
+      ]
+    },
+    {
+      "removed_property": "image_validated",
+      "module": "attachment_job.py",
+      "suite_exit_code": 1,
+      "failing_test_count": 2,
+      "failing_tests": [
+        "test_anything_without_an_exact_digest_is_refused",
+        "test_invalid_input_is_a_usage_error_without_a_traceback"
+      ]
+    },
+    {
+      "removed_property": "full_digest_required",
+      "module": "attachment_job.py",
+      "suite_exit_code": 1,
+      "failing_test_count": 1,
+      "failing_tests": [
+        "test_anything_without_an_exact_digest_is_refused"
+      ]
+    },
+    {
+      "removed_property": "digest_required",
+      "module": "attachment_job.py",
+      "suite_exit_code": 1,
+      "failing_test_count": 3,
+      "failing_tests": [
+        "test_anything_without_an_exact_digest_is_refused",
+        "test_invalid_input_is_a_usage_error_without_a_traceback",
+        "test_invalid_inputs_are_refused_before_reading"
+      ]
+    },
+    {
+      "removed_property": "run_id_validated",
+      "module": "attachment_job.py",
+      "suite_exit_code": 1,
+      "failing_test_count": 1,
+      "failing_tests": [
+        "test_run_id_becomes_a_valid_job_name_and_label"
+      ]
+    },
+    {
+      "removed_property": "run_id_length",
+      "module": "attachment_job.py",
+      "suite_exit_code": 1,
+      "failing_test_count": 1,
+      "failing_tests": [
+        "test_run_id_becomes_a_valid_job_name_and_label"
+      ]
+    },
+    {
+      "removed_property": "plan_validated",
+      "module": "attachment_job.py",
+      "suite_exit_code": 1,
+      "failing_test_count": 1,
+      "failing_tests": [
+        "test_plan_and_epoch_use_the_executor_contract_and_are_recorded"
+      ]
+    },
+    {
+      "removed_property": "plan_pattern_exact",
+      "module": "attachment_job.py",
+      "suite_exit_code": 1,
+      "failing_test_count": 2,
+      "failing_tests": [
+        "test_invalid_inputs_are_refused_before_reading",
+        "test_plan_and_epoch_use_the_executor_contract_and_are_recorded"
+      ]
+    },
+    {
+      "removed_property": "epoch_positive",
+      "module": "attachment_job.py",
+      "suite_exit_code": 1,
+      "failing_test_count": 2,
+      "failing_tests": [
+        "test_invalid_inputs_are_refused_before_reading",
+        "test_plan_and_epoch_use_the_executor_contract_and_are_recorded"
+      ]
+    },
+    {
+      "removed_property": "epoch_is_integer",
+      "module": "attachment_job.py",
+      "suite_exit_code": 1,
+      "failing_test_count": 1,
+      "failing_tests": [
+        "test_plan_and_epoch_use_the_executor_contract_and_are_recorded"
+      ]
+    },
+    {
+      "removed_property": "plan_recorded",
+      "module": "attachment_job.py",
+      "suite_exit_code": 1,
+      "failing_test_count": 33,
+      "failing_tests": [
+        "test_a_reported_failure_is_failed_not_unknown",
+        "test_approved_extras_job_is_recognized_as_rendered",
+        "test_both_terminal_conditions_conflict",
+        "test_condition_present_but_not_true_is_not_finished",
+        "test_container_never_terminated",
+        "test_deadline_that_removed_the_pod_is_unknown",
+        "test_each_side_of_the_story_is_required_on_its_own",
+        "test_every_failure_the_copy_code_can_raise_is_recognized",
+        "test_every_public_failure_reason_from_the_copy_code_is_recognized",
+        "test_everything_agrees_is_success_and_binds_the_run",
+        "test_exit_codes_separate_the_three_outcomes",
+        "test_failure_receipt_shape_is_closed",
+        "test_job_and_receipt_must_tell_the_same_story",
+        "test_job_is_still_running",
+        "test_killed_job_without_a_receipt_is_unknown_and_keeps_the_cause",
+        "test_log_cannot_be_read",
+        "test_log_is_not_exactly_one_receipt",
+        "test_no_command_failure_counts_as_success_and_stderr_is_not_repeated",
+        "test_no_log_is_requested_when_the_pod_is_gone",
+        "test_output_of_a_failed_command_is_not_trusted",
+        "test_plan_and_epoch_use_the_executor_contract_and_are_recorded",
+        "test_pod_belongs_to_another_job",
+        "test_pod_runs_another_image",
+        "test_pod_was_cleaned_up_or_duplicated",
+        "test_real_sanitized_exception_is_recognized",
+        "test_real_success_receipt_from_the_copy_code_is_accepted",
+        "test_runtime_image_is_not_the_pinned_digest",
+        "test_success_receipt_hashes_must_be_well_formed",
+        "test_success_receipt_numbers_must_add_up",
+        "test_success_receipt_shape_is_exact",
+        "test_success_through_the_reader",
+        "test_truncated_log_is_not_a_receipt",
+        "test_unexpected_condition_reason_is_not_repeated"
+      ]
+    },
+    {
+      "removed_property": "epoch_recorded",
+      "module": "attachment_job.py",
+      "suite_exit_code": 1,
+      "failing_test_count": 33,
+      "failing_tests": [
+        "test_a_reported_failure_is_failed_not_unknown",
+        "test_approved_extras_job_is_recognized_as_rendered",
+        "test_both_terminal_conditions_conflict",
+        "test_condition_present_but_not_true_is_not_finished",
+        "test_container_never_terminated",
+        "test_deadline_that_removed_the_pod_is_unknown",
+        "test_each_side_of_the_story_is_required_on_its_own",
+        "test_every_failure_the_copy_code_can_raise_is_recognized",
+        "test_every_public_failure_reason_from_the_copy_code_is_recognized",
+        "test_everything_agrees_is_success_and_binds_the_run",
+        "test_exit_codes_separate_the_three_outcomes",
+        "test_failure_receipt_shape_is_closed",
+        "test_job_and_receipt_must_tell_the_same_story",
+        "test_job_is_still_running",
+        "test_killed_job_without_a_receipt_is_unknown_and_keeps_the_cause",
+        "test_log_cannot_be_read",
+        "test_log_is_not_exactly_one_receipt",
+        "test_no_command_failure_counts_as_success_and_stderr_is_not_repeated",
+        "test_no_log_is_requested_when_the_pod_is_gone",
+        "test_output_of_a_failed_command_is_not_trusted",
+        "test_plan_and_epoch_use_the_executor_contract_and_are_recorded",
+        "test_pod_belongs_to_another_job",
+        "test_pod_runs_another_image",
+        "test_pod_was_cleaned_up_or_duplicated",
+        "test_real_sanitized_exception_is_recognized",
+        "test_real_success_receipt_from_the_copy_code_is_accepted",
+        "test_runtime_image_is_not_the_pinned_digest",
+        "test_success_receipt_hashes_must_be_well_formed",
+        "test_success_receipt_numbers_must_add_up",
+        "test_success_receipt_shape_is_exact",
+        "test_success_through_the_reader",
+        "test_truncated_log_is_not_a_receipt",
+        "test_unexpected_condition_reason_is_not_repeated"
+      ]
+    },
+    {
+      "removed_property": "waits_for_the_target_route",
+      "module": "attachment_job.py",
+      "suite_exit_code": 1,
+      "failing_test_count": 3,
+      "failing_tests": [
+        "test_copy_starts_only_after_the_object_store_route_opens",
+        "test_restricted_pod_security",
+        "test_wait_gives_up_well_before_the_deadline"
+      ]
+    },
+    {
+      "removed_property": "wait_targets_the_object_store",
+      "module": "attachment_job.py",
+      "suite_exit_code": 1,
+      "failing_test_count": 1,
+      "failing_tests": [
+        "test_copy_starts_only_after_the_object_store_route_opens"
+      ]
+    },
+    {
+      "removed_property": "wait_is_bounded",
+      "module": "attachment_job.py",
+      "suite_exit_code": 1,
+      "failing_test_count": 1,
+      "failing_tests": [
+        "test_wait_gives_up_well_before_the_deadline"
+      ]
+    },
+    {
+      "removed_property": "wait_runs_restricted",
+      "module": "attachment_job.py",
+      "suite_exit_code": 1,
+      "failing_test_count": 1,
+      "failing_tests": [
+        "test_restricted_pod_security"
+      ]
+    },
+    {
+      "removed_property": "service_uid_exact",
+      "module": "attachment_job.py",
+      "suite_exit_code": 1,
+      "failing_test_count": 1,
+      "failing_tests": [
+        "test_exact_service_uid_is_required_and_recorded"
+      ]
+    },
+    {
+      "removed_property": "secret_not_inlined",
+      "module": "attachment_job.py",
+      "suite_exit_code": 1,
+      "failing_test_count": 3,
+      "failing_tests": [
+        "test_every_credential_and_private_identifier_is_a_secret_reference",
+        "test_plain_values_are_only_the_public_route_contract",
+        "test_secret_recipe_writes_every_key_the_job_reads"
+      ]
+    },
+    {
+      "removed_property": "private_bucket_not_inlined",
+      "module": "attachment_job.py",
+      "suite_exit_code": 1,
+      "failing_test_count": 3,
+      "failing_tests": [
+        "test_every_credential_and_private_identifier_is_a_secret_reference",
+        "test_plain_values_are_only_the_public_route_contract",
+        "test_secret_recipe_writes_every_key_the_job_reads"
+      ]
+    },
+    {
+      "removed_property": "session_token_passed",
+      "module": "attachment_job.py",
+      "suite_exit_code": 1,
+      "failing_test_count": 3,
+      "failing_tests": [
+        "test_every_credential_and_private_identifier_is_a_secret_reference",
+        "test_secret_recipe_writes_every_key_the_job_reads",
+        "test_session_token_is_mandatory_so_a_long_lived_key_alone_cannot_run"
+      ]
+    },
+    {
+      "removed_property": "session_token_mandatory",
+      "module": "attachment_job.py",
+      "suite_exit_code": 1,
+      "failing_test_count": 2,
+      "failing_tests": [
+        "test_database_route_is_the_existing_replication_contract",
+        "test_session_token_is_mandatory_so_a_long_lived_key_alone_cannot_run"
+      ]
+    },
+    {
+      "removed_property": "target_secret_name",
+      "module": "attachment_job.py",
+      "suite_exit_code": 1,
+      "failing_test_count": 1,
+      "failing_tests": [
+        "test_every_credential_and_private_identifier_is_a_secret_reference"
+      ]
+    },
+    {
+      "removed_property": "object_client_label",
+      "module": "attachment_job.py",
+      "suite_exit_code": 1,
+      "failing_test_count": 1,
+      "failing_tests": [
+        "test_object_store_network_policy_admits_this_pod"
+      ]
+    },
+    {
+      "removed_property": "stderr_dropped",
+      "module": "attachment_job.py",
+      "suite_exit_code": 1,
+      "failing_test_count": 1,
+      "failing_tests": [
+        "test_only_the_sanitized_receipt_reaches_the_log"
+      ]
+    },
+    {
+      "removed_property": "verified_tls",
+      "module": "attachment_job.py",
+      "suite_exit_code": 1,
+      "failing_test_count": 2,
+      "failing_tests": [
+        "test_copy_code_accepts_the_database_settings_before_any_password_leaves",
+        "test_database_route_is_the_existing_replication_contract"
+      ]
+    },
+    {
+      "removed_property": "egress_address_used",
+      "module": "attachment_job.py",
+      "suite_exit_code": 1,
+      "failing_test_count": 35,
+      "failing_tests": [
+        "test_a_reported_failure_is_failed_not_unknown",
+        "test_approved_extras_job_is_recognized_as_rendered",
+        "test_both_terminal_conditions_conflict",
+        "test_condition_present_but_not_true_is_not_finished",
+        "test_container_never_terminated",
+        "test_database_route_is_the_existing_replication_contract",
+        "test_deadline_that_removed_the_pod_is_unknown",
+        "test_each_side_of_the_story_is_required_on_its_own",
+        "test_every_failure_the_copy_code_can_raise_is_recognized",
+        "test_every_public_failure_reason_from_the_copy_code_is_recognized",
+        "test_everything_agrees_is_success_and_binds_the_run",
+        "test_exit_codes_separate_the_three_outcomes",
+        "test_failure_receipt_shape_is_closed",
+        "test_job_and_receipt_must_tell_the_same_story",
+        "test_job_is_not_the_one_this_run_rendered",
+        "test_job_is_still_running",
+        "test_killed_job_without_a_receipt_is_unknown_and_keeps_the_cause",
+        "test_log_cannot_be_read",
+        "test_log_is_not_exactly_one_receipt",
+        "test_no_command_failure_counts_as_success_and_stderr_is_not_repeated",
+        "test_no_log_is_requested_when_the_pod_is_gone",
+        "test_output_of_a_failed_command_is_not_trusted",
+        "test_plain_values_are_only_the_public_route_contract",
+        "test_pod_belongs_to_another_job",
+        "test_pod_runs_another_image",
+        "test_pod_was_cleaned_up_or_duplicated",
+        "test_real_sanitized_exception_is_recognized",
+        "test_real_success_receipt_from_the_copy_code_is_accepted",
+        "test_runtime_image_is_not_the_pinned_digest",
+        "test_success_receipt_hashes_must_be_well_formed",
+        "test_success_receipt_numbers_must_add_up",
+        "test_success_receipt_shape_is_exact",
+        "test_success_through_the_reader",
+        "test_truncated_log_is_not_a_receipt",
+        "test_unexpected_condition_reason_is_not_repeated"
+      ]
+    },
+    {
+      "removed_property": "certificate_host_used",
+      "module": "attachment_job.py",
+      "suite_exit_code": 1,
+      "failing_test_count": 1,
+      "failing_tests": [
+        "test_database_route_is_the_existing_replication_contract"
+      ]
+    },
+    {
+      "removed_property": "replication_role_used",
+      "module": "attachment_job.py",
+      "suite_exit_code": 1,
+      "failing_test_count": 1,
+      "failing_tests": [
+        "test_database_route_is_the_existing_replication_contract"
+      ]
+    },
+    {
+      "removed_property": "ca_path_matches_mount",
+      "module": "attachment_job.py",
+      "suite_exit_code": 1,
+      "failing_test_count": 1,
+      "failing_tests": [
+        "test_ca_comes_from_the_replication_secret_and_is_mounted_where_libpq_looks"
+      ]
+    },
+    {
+      "removed_property": "ca_mount_read_only",
+      "module": "attachment_job.py",
+      "suite_exit_code": 1,
+      "failing_test_count": 1,
+      "failing_tests": [
+        "test_ca_comes_from_the_replication_secret_and_is_mounted_where_libpq_looks"
+      ]
+    },
+    {
+      "removed_property": "extras_off_by_default",
+      "module": "attachment_job.py",
+      "suite_exit_code": 1,
+      "failing_test_count": 2,
+      "failing_tests": [
+        "test_default_mounts_no_extras_so_unknown_source_objects_still_fail",
+        "test_plain_values_are_only_the_public_route_contract"
+      ]
+    },
+    {
+      "removed_property": "extras_mount_read_only",
+      "module": "attachment_job.py",
+      "suite_exit_code": 1,
+      "failing_test_count": 1,
+      "failing_tests": [
+        "test_explicit_extras_come_from_a_read_only_secret_file"
+      ]
+    },
+    {
+      "removed_property": "session_outlives_deadline",
+      "module": "attachment_job.py",
+      "suite_exit_code": 1,
+      "failing_test_count": 2,
+      "failing_tests": [
+        "test_deadline_ends_before_the_issued_source_session",
+        "test_session_length_in_the_guide_matches_the_job_contract"
+      ]
+    },
+    {
+      "removed_property": "target_address",
+      "module": "attachment_job.py",
+      "suite_exit_code": 1,
+      "failing_test_count": 1,
+      "failing_tests": [
+        "test_object_store_address_matches_its_service"
+      ]
+    },
+    {
+      "removed_property": "memory_above_peak",
+      "module": "attachment_job.py",
+      "suite_exit_code": 1,
+      "failing_test_count": 1,
+      "failing_tests": [
+        "test_bounded_resources_above_the_measured_peak"
+      ]
+    },
+    {
+      "removed_property": "policy_read_only",
+      "module": "attachment_job.py",
+      "suite_exit_code": 1,
+      "failing_test_count": 1,
+      "failing_tests": [
+        "test_grants_only_list_read_and_decrypt_through_s3"
+      ]
+    },
+    {
+      "removed_property": "policy_exact_objects",
+      "module": "attachment_job.py",
+      "suite_exit_code": 1,
+      "failing_test_count": 2,
+      "failing_tests": [
+        "test_explicit_denial_also_limits_grants_from_resource_policies",
+        "test_grants_only_list_read_and_decrypt_through_s3"
+      ]
+    },
+    {
+      "removed_property": "policy_decrypt_through_s3",
+      "module": "attachment_job.py",
+      "suite_exit_code": 1,
+      "failing_test_count": 1,
+      "failing_tests": [
+        "test_grants_only_list_read_and_decrypt_through_s3"
+      ]
+    },
+    {
+      "removed_property": "policy_denies_other_actions",
+      "module": "attachment_job.py",
+      "suite_exit_code": 1,
+      "failing_test_count": 1,
+      "failing_tests": [
+        "test_explicit_denial_also_limits_grants_from_resource_policies"
+      ]
+    },
+    {
+      "removed_property": "policy_denies_other_buckets",
+      "module": "attachment_job.py",
+      "suite_exit_code": 1,
+      "failing_test_count": 1,
+      "failing_tests": [
+        "test_explicit_denial_also_limits_grants_from_resource_policies"
+      ]
+    },
+    {
+      "removed_property": "policy_bucket_arn_exact",
+      "module": "attachment_job.py",
+      "suite_exit_code": 1,
+      "failing_test_count": 1,
+      "failing_tests": [
+        "test_wildcards_and_other_shapes_are_refused"
+      ]
+    },
+    {
+      "removed_property": "policy_key_arn_exact",
+      "module": "attachment_job.py",
+      "suite_exit_code": 1,
+      "failing_test_count": 1,
+      "failing_tests": [
+        "test_wildcards_and_other_shapes_are_refused"
+      ]
+    },
+    {
+      "removed_property": "image_pinned_base",
+      "module": "attachment-copy.Dockerfile",
+      "suite_exit_code": 1,
+      "failing_test_count": 1,
+      "failing_tests": [
+        "test_base_is_digest_pinned_and_the_user_matches_the_pod"
+      ]
+    },
+    {
+      "removed_property": "image_runs_non_root",
+      "module": "attachment-copy.Dockerfile",
+      "suite_exit_code": 1,
+      "failing_test_count": 1,
+      "failing_tests": [
+        "test_base_is_digest_pinned_and_the_user_matches_the_pod"
+      ]
+    },
+    {
+      "removed_property": "image_hash_locked",
+      "module": "attachment-copy.Dockerfile",
+      "suite_exit_code": 1,
+      "failing_test_count": 1,
+      "failing_tests": [
+        "test_dependencies_are_hash_locked_at_the_versions_the_script_declares"
+      ]
+    },
+    {
+      "removed_property": "image_app_searchable",
+      "module": "attachment-copy.Dockerfile",
+      "suite_exit_code": 1,
+      "failing_test_count": 1,
+      "failing_tests": [
+        "test_non_root_user_can_enter_the_application_directory"
+      ]
+    },
+    {
+      "removed_property": "image_has_copy_modules",
+      "module": "attachment-copy.Dockerfile",
+      "suite_exit_code": 1,
+      "failing_test_count": 1,
+      "failing_tests": [
+        "test_image_carries_the_three_copy_modules_and_no_secret_setting"
+      ]
+    },
+    {
+      "removed_property": "job_identity_checked",
+      "module": "attachment_verdict.py",
+      "suite_exit_code": 1,
+      "failing_test_count": 2,
+      "failing_tests": [
+        "test_job_is_not_the_one_this_run_rendered",
+        "test_malformed_objects_never_raise_or_pass"
+      ]
+    },
+    {
+      "removed_property": "job_uid_required",
+      "module": "attachment_verdict.py",
+      "suite_exit_code": 1,
+      "failing_test_count": 1,
+      "failing_tests": [
+        "test_job_is_not_the_one_this_run_rendered"
+      ]
+    },
+    {
+      "removed_property": "job_name_compared",
+      "module": "attachment_verdict.py",
+      "suite_exit_code": 1,
+      "failing_test_count": 1,
+      "failing_tests": [
+        "test_job_is_not_the_one_this_run_rendered"
+      ]
+    },
+    {
+      "removed_property": "job_namespace_compared",
+      "module": "attachment_verdict.py",
+      "suite_exit_code": 1,
+      "failing_test_count": 1,
+      "failing_tests": [
+        "test_job_is_not_the_one_this_run_rendered"
+      ]
+    },
+    {
+      "removed_property": "job_run_label_compared",
+      "module": "attachment_verdict.py",
+      "suite_exit_code": 1,
+      "failing_test_count": 1,
+      "failing_tests": [
+        "test_job_is_not_the_one_this_run_rendered"
+      ]
+    },
+    {
+      "removed_property": "job_plan_compared",
+      "module": "attachment_verdict.py",
+      "suite_exit_code": 1,
+      "failing_test_count": 1,
+      "failing_tests": [
+        "test_job_is_not_the_one_this_run_rendered"
+      ]
+    },
+    {
+      "removed_property": "job_epoch_compared",
+      "module": "attachment_verdict.py",
+      "suite_exit_code": 1,
+      "failing_test_count": 1,
+      "failing_tests": [
+        "test_job_is_not_the_one_this_run_rendered"
+      ]
+    },
+    {
+      "removed_property": "result_names_the_plan",
+      "module": "attachment_verdict.py",
+      "suite_exit_code": 1,
+      "failing_test_count": 1,
+      "failing_tests": [
+        "test_everything_agrees_is_success_and_binds_the_run"
+      ]
+    },
+    {
+      "removed_property": "job_attempts_compared",
+      "module": "attachment_verdict.py",
+      "suite_exit_code": 1,
+      "failing_test_count": 1,
+      "failing_tests": [
+        "test_job_is_not_the_one_this_run_rendered"
+      ]
+    },
+    {
+      "removed_property": "job_parallelism_compared",
+      "module": "attachment_verdict.py",
+      "suite_exit_code": 1,
+      "failing_test_count": 1,
+      "failing_tests": [
+        "test_job_is_not_the_one_this_run_rendered"
+      ]
+    },
+    {
+      "removed_property": "job_completions_compared",
+      "module": "attachment_verdict.py",
+      "suite_exit_code": 1,
+      "failing_test_count": 1,
+      "failing_tests": [
+        "test_job_is_not_the_one_this_run_rendered"
+      ]
+    },
+    {
+      "removed_property": "job_image_compared",
+      "module": "attachment_verdict.py",
+      "suite_exit_code": 1,
+      "failing_test_count": 1,
+      "failing_tests": [
+        "test_job_is_not_the_one_this_run_rendered"
+      ]
+    },
+    {
+      "removed_property": "job_command_compared",
+      "module": "attachment_verdict.py",
+      "suite_exit_code": 1,
+      "failing_test_count": 1,
+      "failing_tests": [
+        "test_job_is_not_the_one_this_run_rendered"
+      ]
+    },
+    {
+      "removed_property": "job_env_compared",
+      "module": "attachment_verdict.py",
+      "suite_exit_code": 1,
+      "failing_test_count": 1,
+      "failing_tests": [
+        "test_job_is_not_the_one_this_run_rendered"
+      ]
+    },
+    {
+      "removed_property": "one_container",
+      "module": "attachment_verdict.py",
+      "suite_exit_code": 1,
+      "failing_test_count": 1,
+      "failing_tests": [
+        "test_job_is_not_the_one_this_run_rendered"
+      ]
+    },
+    {
+      "removed_property": "condition_must_be_true",
+      "module": "attachment_verdict.py",
+      "suite_exit_code": 1,
+      "failing_test_count": 1,
+      "failing_tests": [
+        "test_condition_present_but_not_true_is_not_finished"
+      ]
+    },
+    {
+      "removed_property": "conflict_detected",
+      "module": "attachment_verdict.py",
+      "suite_exit_code": 1,
+      "failing_test_count": 1,
+      "failing_tests": [
+        "test_both_terminal_conditions_conflict"
+      ]
+    },
+    {
+      "removed_property": "unfinished_detected",
+      "module": "attachment_verdict.py",
+      "suite_exit_code": 1,
+      "failing_test_count": 2,
+      "failing_tests": [
+        "test_condition_present_but_not_true_is_not_finished",
+        "test_job_is_still_running"
+      ]
+    },
+    {
+      "removed_property": "job_failure_reason_closed",
+      "module": "attachment_verdict.py",
+      "suite_exit_code": 1,
+      "failing_test_count": 1,
+      "failing_tests": [
+        "test_unexpected_condition_reason_is_not_repeated"
+      ]
+    },
+    {
+      "removed_property": "timestamps_not_repeated",
+      "module": "attachment_verdict.py",
+      "suite_exit_code": 1,
+      "failing_test_count": 1,
+      "failing_tests": [
+        "test_timestamp_fields_only_repeat_timestamps"
+      ]
+    },
+    {
+      "removed_property": "one_pod",
+      "module": "attachment_verdict.py",
+      "suite_exit_code": 1,
+      "failing_test_count": 1,
+      "failing_tests": [
+        "test_pod_was_cleaned_up_or_duplicated"
+      ]
+    },
+    {
+      "removed_property": "pod_identity_checked",
+      "module": "attachment_verdict.py",
+      "suite_exit_code": 1,
+      "failing_test_count": 3,
+      "failing_tests": [
+        "test_malformed_objects_never_raise_or_pass",
+        "test_pod_belongs_to_another_job",
+        "test_pod_runs_another_image"
+      ]
+    },
+    {
+      "removed_property": "pod_owner_compared",
+      "module": "attachment_verdict.py",
+      "suite_exit_code": 1,
+      "failing_test_count": 1,
+      "failing_tests": [
+        "test_pod_belongs_to_another_job"
+      ]
+    },
+    {
+      "removed_property": "pod_image_compared",
+      "module": "attachment_verdict.py",
+      "suite_exit_code": 1,
+      "failing_test_count": 1,
+      "failing_tests": [
+        "test_pod_runs_another_image"
+      ]
+    },
+    {
+      "removed_property": "pod_terminated",
+      "module": "attachment_verdict.py",
+      "suite_exit_code": 1,
+      "failing_test_count": 1,
+      "failing_tests": [
+        "test_container_never_terminated"
+      ]
+    },
+    {
+      "removed_property": "runtime_digest_compared",
+      "module": "attachment_verdict.py",
+      "suite_exit_code": 1,
+      "failing_test_count": 1,
+      "failing_tests": [
+        "test_runtime_image_is_not_the_pinned_digest"
+      ]
+    },
+    {
+      "removed_property": "one_log_line",
+      "module": "attachment_verdict.py",
+      "suite_exit_code": 1,
+      "failing_test_count": 1,
+      "failing_tests": [
+        "test_log_is_not_exactly_one_receipt"
+      ]
+    },
+    {
+      "removed_property": "empty_log_unreadable",
+      "module": "attachment_verdict.py",
+      "suite_exit_code": 1,
+      "failing_test_count": 2,
+      "failing_tests": [
+        "test_killed_job_without_a_receipt_is_unknown_and_keeps_the_cause",
+        "test_log_cannot_be_read"
+      ]
+    },
+    {
+      "removed_property": "receipt_is_object",
+      "module": "attachment_verdict.py",
+      "suite_exit_code": 1,
+      "failing_test_count": 1,
+      "failing_tests": [
+        "test_log_is_not_exactly_one_receipt"
+      ]
+    },
+    {
+      "removed_property": "success_fields_exact",
+      "module": "attachment_verdict.py",
+      "suite_exit_code": 1,
+      "failing_test_count": 2,
+      "failing_tests": [
+        "test_raw_log_text_is_never_repeated",
+        "test_success_receipt_shape_is_exact"
+      ]
+    },
+    {
+      "removed_property": "counts_are_real_integers",
+      "module": "attachment_verdict.py",
+      "suite_exit_code": 1,
+      "failing_test_count": 1,
+      "failing_tests": [
+        "test_success_receipt_numbers_must_add_up"
+      ]
+    },
+    {
+      "removed_property": "counts_not_negative",
+      "module": "attachment_verdict.py",
+      "suite_exit_code": 1,
+      "failing_test_count": 1,
+      "failing_tests": [
+        "test_success_receipt_numbers_must_add_up"
+      ]
+    },
+    {
+      "removed_property": "at_least_one_object",
+      "module": "attachment_verdict.py",
+      "suite_exit_code": 1,
+      "failing_test_count": 1,
+      "failing_tests": [
+        "test_success_receipt_numbers_must_add_up"
+      ]
+    },
+    {
+      "removed_property": "object_limit",
+      "module": "attachment_verdict.py",
+      "suite_exit_code": 1,
+      "failing_test_count": 1,
+      "failing_tests": [
+        "test_success_receipt_numbers_must_add_up"
+      ]
+    },
+    {
+      "removed_property": "destination_equals_source",
+      "module": "attachment_verdict.py",
+      "suite_exit_code": 1,
+      "failing_test_count": 1,
+      "failing_tests": [
+        "test_success_receipt_numbers_must_add_up"
+      ]
+    },
+    {
+      "removed_property": "referenced_plus_extras",
+      "module": "attachment_verdict.py",
+      "suite_exit_code": 1,
+      "failing_test_count": 1,
+      "failing_tests": [
+        "test_success_receipt_numbers_must_add_up"
+      ]
+    },
+    {
+      "removed_property": "copied_plus_reused",
+      "module": "attachment_verdict.py",
+      "suite_exit_code": 1,
+      "failing_test_count": 1,
+      "failing_tests": [
+        "test_success_receipt_numbers_must_add_up"
+      ]
+    },
+    {
+      "removed_property": "byte_limit",
+      "module": "attachment_verdict.py",
+      "suite_exit_code": 1,
+      "failing_test_count": 1,
+      "failing_tests": [
+        "test_success_receipt_numbers_must_add_up"
+      ]
+    },
+    {
+      "removed_property": "inventory_hash_format",
+      "module": "attachment_verdict.py",
+      "suite_exit_code": 1,
+      "failing_test_count": 1,
+      "failing_tests": [
+        "test_success_receipt_hashes_must_be_well_formed"
+      ]
+    },
+    {
+      "removed_property": "hash_count",
+      "module": "attachment_verdict.py",
+      "suite_exit_code": 1,
+      "failing_test_count": 1,
+      "failing_tests": [
+        "test_success_receipt_hashes_must_be_well_formed"
+      ]
+    },
+    {
+      "removed_property": "hash_format",
+      "module": "attachment_verdict.py",
+      "suite_exit_code": 1,
+      "failing_test_count": 1,
+      "failing_tests": [
+        "test_success_receipt_hashes_must_be_well_formed"
+      ]
+    },
+    {
+      "removed_property": "hash_order",
+      "module": "attachment_verdict.py",
+      "suite_exit_code": 1,
+      "failing_test_count": 1,
+      "failing_tests": [
+        "test_success_receipt_hashes_must_be_well_formed"
+      ]
+    },
+    {
+      "removed_property": "failure_fields_exact",
+      "module": "attachment_verdict.py",
+      "suite_exit_code": 1,
+      "failing_test_count": 1,
+      "failing_tests": [
+        "test_failure_receipt_shape_is_closed"
+      ]
+    },
+    {
+      "removed_property": "output_suppression_required",
+      "module": "attachment_verdict.py",
+      "suite_exit_code": 1,
+      "failing_test_count": 1,
+      "failing_tests": [
+        "test_failure_receipt_shape_is_closed"
+      ]
+    },
+    {
+      "removed_property": "failure_stage_closed",
+      "module": "attachment_verdict.py",
+      "suite_exit_code": 1,
+      "failing_test_count": 1,
+      "failing_tests": [
+        "test_failure_receipt_shape_is_closed"
+      ]
+    },
+    {
+      "removed_property": "failure_reason_closed",
+      "module": "attachment_verdict.py",
+      "suite_exit_code": 1,
+      "failing_test_count": 1,
+      "failing_tests": [
+        "test_failure_receipt_shape_is_closed"
+      ]
+    },
+    {
+      "removed_property": "failure_category_closed",
+      "module": "attachment_verdict.py",
+      "suite_exit_code": 1,
+      "failing_test_count": 1,
+      "failing_tests": [
+        "test_failure_receipt_shape_is_closed"
+      ]
+    },
+    {
+      "removed_property": "failure_code_closed",
+      "module": "attachment_verdict.py",
+      "suite_exit_code": 1,
+      "failing_test_count": 1,
+      "failing_tests": [
+        "test_failure_receipt_shape_is_closed"
+      ]
+    },
+    {
+      "removed_property": "success_needs_complete_job",
+      "module": "attachment_verdict.py",
+      "suite_exit_code": 1,
+      "failing_test_count": 1,
+      "failing_tests": [
+        "test_each_side_of_the_story_is_required_on_its_own"
+      ]
+    },
+    {
+      "removed_property": "success_needs_exit_zero",
+      "module": "attachment_verdict.py",
+      "suite_exit_code": 1,
+      "failing_test_count": 1,
+      "failing_tests": [
+        "test_job_and_receipt_must_tell_the_same_story"
+      ]
+    },
+    {
+      "removed_property": "success_needs_one_success",
+      "module": "attachment_verdict.py",
+      "suite_exit_code": 1,
+      "failing_test_count": 1,
+      "failing_tests": [
+        "test_job_and_receipt_must_tell_the_same_story"
+      ]
+    },
+    {
+      "removed_property": "success_needs_no_failure",
+      "module": "attachment_verdict.py",
+      "suite_exit_code": 1,
+      "failing_test_count": 1,
+      "failing_tests": [
+        "test_job_and_receipt_must_tell_the_same_story"
+      ]
+    },
+    {
+      "removed_property": "failure_needs_failed_job",
+      "module": "attachment_verdict.py",
+      "suite_exit_code": 1,
+      "failing_test_count": 1,
+      "failing_tests": [
+        "test_each_side_of_the_story_is_required_on_its_own"
+      ]
+    },
+    {
+      "removed_property": "failure_needs_exit_one",
+      "module": "attachment_verdict.py",
+      "suite_exit_code": 1,
+      "failing_test_count": 1,
+      "failing_tests": [
+        "test_job_and_receipt_must_tell_the_same_story"
+      ]
+    },
+    {
+      "removed_property": "failure_needs_one_failure",
+      "module": "attachment_verdict.py",
+      "suite_exit_code": 1,
+      "failing_test_count": 1,
+      "failing_tests": [
+        "test_each_side_of_the_story_is_required_on_its_own"
+      ]
+    },
+    {
+      "removed_property": "failure_needs_no_success",
+      "module": "attachment_verdict.py",
+      "suite_exit_code": 1,
+      "failing_test_count": 1,
+      "failing_tests": [
+        "test_job_and_receipt_must_tell_the_same_story"
+      ]
+    },
+    {
+      "removed_property": "receipt_only_after_decision",
+      "module": "attachment_verdict.py",
+      "suite_exit_code": 1,
+      "failing_test_count": 2,
+      "failing_tests": [
+        "test_each_side_of_the_story_is_required_on_its_own",
+        "test_job_and_receipt_must_tell_the_same_story"
+      ]
+    },
+    {
+      "removed_property": "unknown_exit_code",
+      "module": "attachment_verdict.py",
+      "suite_exit_code": 1,
+      "failing_test_count": 1,
+      "failing_tests": [
+        "test_exit_codes_separate_the_three_outcomes"
+      ]
+    },
+    {
+      "removed_property": "failed_exit_code",
+      "module": "attachment_verdict.py",
+      "suite_exit_code": 1,
+      "failing_test_count": 1,
+      "failing_tests": [
+        "test_exit_codes_separate_the_three_outcomes"
+      ]
+    },
+    {
+      "removed_property": "kubectl_failure_is_not_output",
+      "module": "attachment_verdict.py",
+      "suite_exit_code": 1,
+      "failing_test_count": 1,
+      "failing_tests": [
+        "test_output_of_a_failed_command_is_not_trusted"
+      ]
+    },
+    {
+      "removed_property": "kubectl_timeout_handled",
+      "module": "attachment_verdict.py",
+      "suite_exit_code": 1,
+      "failing_test_count": 1,
+      "failing_tests": [
+        "test_no_command_failure_counts_as_success_and_stderr_is_not_repeated"
+      ]
+    },
+    {
+      "removed_property": "kubectl_missing_handled",
+      "module": "attachment_verdict.py",
+      "suite_exit_code": 1,
+      "failing_test_count": 1,
+      "failing_tests": [
+        "test_no_command_failure_counts_as_success_and_stderr_is_not_repeated"
+      ]
+    },
+    {
+      "removed_property": "kubectl_has_timeout",
+      "module": "attachment_verdict.py",
+      "suite_exit_code": 1,
+      "failing_test_count": 1,
+      "failing_tests": [
+        "test_only_read_verbs_with_timeouts_and_a_bounded_log"
+      ]
+    },
+    {
+      "removed_property": "bad_json_is_not_output",
+      "module": "attachment_verdict.py",
+      "suite_exit_code": 1,
+      "failing_test_count": 1,
+      "failing_tests": [
+        "test_no_command_failure_counts_as_success_and_stderr_is_not_repeated"
+      ]
+    },
+    {
+      "removed_property": "log_is_bounded",
+      "module": "attachment_verdict.py",
+      "suite_exit_code": 1,
+      "failing_test_count": 1,
+      "failing_tests": [
+        "test_only_read_verbs_with_timeouts_and_a_bounded_log"
+      ]
+    },
+    {
+      "removed_property": "pod_name_validated",
+      "module": "attachment_verdict.py",
+      "suite_exit_code": 1,
+      "failing_test_count": 1,
+      "failing_tests": [
+        "test_a_pod_name_that_is_not_a_kubernetes_name_is_not_passed_to_kubectl"
+      ]
+    },
+    {
+      "removed_property": "inputs_validated_before_reading",
+      "module": "attachment_verdict.py",
+      "suite_exit_code": 1,
+      "failing_test_count": 1,
+      "failing_tests": [
+        "test_invalid_inputs_are_refused_before_reading"
+      ]
+    },
+    {
+      "removed_property": "plan_validated_before_reading",
+      "module": "attachment_verdict.py",
+      "suite_exit_code": 1,
+      "failing_test_count": 1,
+      "failing_tests": [
+        "test_invalid_inputs_are_refused_before_reading"
+      ]
+    },
+    {
+      "removed_property": "image_validated_before_reading",
+      "module": "attachment_verdict.py",
+      "suite_exit_code": 1,
+      "failing_test_count": 1,
+      "failing_tests": [
+        "test_invalid_inputs_are_refused_before_reading"
+      ]
+    }
+  ]
+}

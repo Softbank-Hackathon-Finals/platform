@@ -52,7 +52,7 @@ def verify(conninfo, probe_id, source=None):
     plan = PlanSpec(probe_id, "verification-only",
                     source_doc["app"] if source_doc else "gate-storage-probe",
                     source_doc["environment"]["id"] if source_doc else "probe-source",
-                    "probe-target", "a" * 64, "b" * 64)
+                    "probe-target", "a" * 64, "b" * 64, profile_id="full", profile_version="1")
     store.register_plan(plan, run_id=probe_id, occurred_at=now.isoformat())
     principal = OperatorPrincipal("gate-probe-operator", plan.tenant_id, int(now.timestamp()),
                                   int(now.timestamp()) + 300, int(now.timestamp()), probe_id)

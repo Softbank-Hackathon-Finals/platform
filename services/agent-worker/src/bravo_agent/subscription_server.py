@@ -1,4 +1,4 @@
-"""Bounded VM broker. Only a GitHub OIDC token crosses the SSM TLS tunnel."""
+"""Bounded VM broker. Only a pinned platform Job token reaches it."""
 
 import contextlib
 import io
@@ -11,7 +11,9 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import boto3
+import jwt
 from botocore.config import Config
+from cryptography.hazmat.primitives import serialization
 
 from .contracts import FailureBundle, SnapshotManifest, digest
 from .subscription_admin import run_worker
@@ -26,13 +28,15 @@ from .verification import validate_result
 
 
 def execute_fixture(settings, web_token, run_id):
+    """Runtime smoke on the synthetic fixture (ported from the Actions runtime workflow).
+
+    Authenticated as the platform Job; the broker then uses the node-role path for its
+    own Secrets Manager read. The result reports rotation and non-root checks only.
+    """
     if not isinstance(run_id, str) or not re.fullmatch(r"subscription-[a-f0-9]{32}", run_id):
         raise ValueError("invalid execution id")
     config = Config(retries={"total_max_attempts": 1}, connect_timeout=10, read_timeout=20)
-    # Web identity is validated by STS against the exact repository/ref trust policy.
-    credentials = boto3.client("sts", region_name=settings["region"], config=config).assume_role_with_web_identity(
-        RoleArn=settings["broker_role_arn"], RoleSessionName="bravo-subscription-vm",
-        WebIdentityToken=web_token, DurationSeconds=900)["Credentials"]
+    credentials = authenticate_workload(settings, web_token).credentials
     root = Path(settings["worker"])
     runs = Path(settings["state_dir"]).parent / "runs"
     runs.mkdir(mode=0o700, exist_ok=True)
@@ -79,23 +83,58 @@ def execute_fixture(settings, web_token, run_id):
             "expires_at_increased": after.get("expires_at", 0) > before.get("expires_at", 0)}
 
 
-def product_service(settings, inputs, journal_root):
+def _workload_key(settings, token):
+    workload = settings["workload_identity"]
+    header = jwt.get_unverified_header(token)
+    if (header.get("alg") != "RS256" or set(header) & {"jku", "jwk", "x5u", "x5c"}
+            or header.get("kid") not in workload["public_keys"]):
+        raise ValueError("unpinned workload key")
+    return serialization.load_pem_public_key(workload["public_keys"][header["kid"]].encode())
+
+
+def authenticate_workload(settings, token):
+    """A platform Job's pinned Kubernetes token, then the node role via the broker-only STS path.
+
+    The cluster issuer is not federated to IAM, so the broker verifies the token itself
+    against public keys pinned at install. The node role reaches the broker role only from
+    the broker slice's SNAT address through the dedicated endpoint (subscription-runtime).
+    """
+    workload = settings["workload_identity"]
+    if not isinstance(token, str) or not 1 <= len(token) <= 16384:
+        raise ValueError("invalid workload token")
+    claims = jwt.decode(token, _workload_key(settings, token), algorithms=["RS256"],
+                        issuer=workload["issuer"], audience=workload["audience"],
+                        options={"require": ["iss", "aud", "sub", "iat", "exp"]})
+    if (claims["sub"] != workload["subject"] or type(claims["iat"]) is not int
+            or type(claims["exp"]) is not int or not 0 < claims["exp"] - claims["iat"] <= 3600):
+        raise ValueError("workload identity mismatch")
+    config = Config(retries={"total_max_attempts": 1}, connect_timeout=10, read_timeout=20)
+    credentials = boto3.client("sts", region_name=settings["region"], config=config).assume_role(
+        RoleArn=settings["broker_role_arn"], RoleSessionName="bravo-subscription-job",
+        DurationSeconds=900)["Credentials"]
+    # Same principal shape as the STS path so T10 grants stay one digest per identity.
+    subject = {"Provider": workload["issuer"], "Audience": workload["audience"],
+               "SubjectFromWebIdentityToken": workload["subject"]}
+    return ProductAccess(digest(subject), credentials)
+
+
+def authenticate_caller(settings, token):
+    """Only the pinned platform Job identity reaches the broker (the Actions OIDC path is removed)."""
+    if "workload_identity" not in settings or not isinstance(token, str) or token.count(".") != 2:
+        raise ValueError("platform job identity required")
+    return authenticate_workload(settings, token)
+
+
+def product_service(settings, inputs, journal_root, *, request_inputs=None):
     """Host-only opt-in. No CLI setting can substitute an unauthenticated reader."""
-    def authenticate(token):
-        config = Config(retries={"total_max_attempts": 1}, connect_timeout=10, read_timeout=20)
-        identity = boto3.client("sts", region_name=settings["region"], config=config).assume_role_with_web_identity(
-            RoleArn=settings["broker_role_arn"], RoleSessionName="bravo-subscription-vm",
-            WebIdentityToken=token, DurationSeconds=900)
-        subject = {key: identity[key] for key in ("Provider", "Audience", "SubjectFromWebIdentityToken")}
-        if not all(isinstance(value, str) and value for value in subject.values()):
-            raise ValueError("missing authenticated principal")
-        return ProductAccess(digest(subject), identity["Credentials"])
-
-    return ProductService(ProposalJournal(journal_root), authenticate, inputs,
-                          lambda *args: invoke_product_worker(settings, *args), settings["source_sha"])
+    return ProductService(ProposalJournal(journal_root), lambda token: authenticate_caller(settings, token), inputs,
+                          lambda *args: invoke_product_worker(settings, *args), settings["source_sha"],
+                          request_inputs=request_inputs)
 
 
-def serve(settings, *, product=None):
+def serve(settings, *, product=None, fixture_enabled=True, tls_context=None):
+    if product is not None and tls_context is None:
+        raise ValueError("authenticated product TLS listener required")
     completed = 0
 
     class Handler(BaseHTTPRequestHandler):
@@ -117,11 +156,13 @@ def serve(settings, *, product=None):
 
         def do_POST(self):
             nonlocal completed
-            if self.path == "/run" and product is None:
+            product_route = self.path in {"/run", "/input/probe"}
+            if product_route and product is None:
                 # A trusted host must explicitly install the authenticated reader.
                 self.respond(503, {"state": "NEEDS_HUMAN", "reason": "PRODUCT_INPUT_UNAVAILABLE"})
                 return
-            if self.path not in {"/run", "/validation/fixture"}:
+            if (self.path not in {"/run", "/input/probe", "/validation/fixture"}
+                    or (self.path == "/validation/fixture" and not fixture_enabled)):
                 self.respond(404, {"state": "NEEDS_HUMAN", "reason": "UNKNOWN_ROUTE"})
                 return
             try:
@@ -129,16 +170,16 @@ def serve(settings, *, product=None):
                 if not 0 < size <= 32768:
                     raise ValueError("invalid length")
                 body = json.loads(self.rfile.read(size))
-                if self.path == "/run":
+                if product_route:
                     completed += 1
-                    status, response = product.run(body)
+                    status, response = product.probe(body) if self.path == "/input/probe" else product.run(body)
                     self.respond(status, response)
                     return
                 if (not isinstance(body, dict) or set(body) != {"web_identity_token", "run_id"}
                         or not isinstance(body["web_identity_token"], str)):
                     raise ValueError("invalid fields")
             except (ValueError, RecursionError):
-                reason = "INVALID_PRODUCT_REQUEST" if self.path == "/run" else "INVALID_FIXTURE_REQUEST"
+                reason = "INVALID_PRODUCT_REQUEST" if product_route else "INVALID_FIXTURE_REQUEST"
                 self.respond(400, {"state": "NEEDS_HUMAN", "reason": reason})
                 return
             completed += 1
@@ -150,6 +191,19 @@ def serve(settings, *, product=None):
             self.respond(200, response)
 
     with HTTPServer(("127.0.0.1", 18761), Handler) as server:
+        if tls_context is not None:
+            accept = server.get_request
+
+            def authenticated_request():
+                connection, address = accept()
+                connection.settimeout(5)
+                try:
+                    return tls_context.wrap_socket(connection, server_side=True), address
+                except Exception:
+                    connection.close()
+                    raise
+
+            server.get_request = authenticated_request
         server.timeout = 1
         deadline = time.monotonic() + 600
         while completed < 2 and time.monotonic() < deadline:

@@ -2,7 +2,7 @@
 
 This installs no reader, token supplier, broker, tunnel or workflow. T10 owns
 current admission/catalog authority; only its authenticated read port may be
-injected. The caller still needs the existing GitHub OIDC path to the broker.
+injected. The caller is the platform Job identity verified by the broker.
 """
 
 import json
@@ -13,20 +13,17 @@ from datetime import UTC, datetime
 
 import httpx
 
-from .contracts import FailureBundle, digest
+from .contracts import digest
 from .product_contracts import ProductInput, ProductRequest, validate_product_input
+from .proposal_contracts import validate_bound_product_response as validate_bound_product_response
 from .subscription_product import stopped
-from .verification import validate_result
+from .subscription_product_tls import client_context
 
 _DIGEST = re.compile(r"[a-f0-9]{64}")
 _REF = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]{0,127}")
 _ADMISSION_FIELDS = {"plan_id", "tenant_id", "plan_version", "task_id", "rehearsal_id",
                      "attempt", "source_sha", "task_digest"}
 _REGISTRATION_FIELDS = {"admission", "product_input", "input_digest", "principal", "purpose", "expires_at"}
-_RESPONSE_FIELDS = {"product_input_digest", "admission_digest", "runtime_source_sha", "state",
-                    "input_kind", "run_id", "source_sha", "attempt", "input", "input_digest",
-                    "task", "task_digest", "snapshot_digest", "proposal", "proposal_digest",
-                    "tool_events_status"}
 
 
 @dataclass(frozen=True)
@@ -81,23 +78,9 @@ class RegisteredProductInputs:
 
 
 def validate_product_response(result: dict, request: ProductRequest, runtime_source_sha: str) -> dict:
-    """Validate the broker's projection; T15 separately binds it to its input.
+    return validate_bound_product_response(result, request.input_digest, runtime_source_sha)
 
-    No verification verdict or model audit is reconstructed here. The runtime
-    SHA is the exact reviewed installation selected by trusted deployment code.
-    """
-    if type(result) is not dict or set(result) != _RESPONSE_FIELDS:
-        raise ValueError("invalid product response")
-    bundle, _ = validate_result(result)
-    task = FailureBundle.model_validate(result["task"])
-    if (result["input_kind"] != "product" or result["product_input_digest"] != request.input_digest
-            or result["runtime_source_sha"] != runtime_source_sha
-            or not isinstance(result["admission_digest"], str)
-            or _DIGEST.fullmatch(result["admission_digest"]) is None
-            or task != bundle or result["task_digest"] != digest(task)
-            or result["tool_events_status"] != "UNAVAILABLE"):
-        raise ValueError("unbound product response")
-    return result
+
 
 
 @dataclass(frozen=True)
@@ -111,18 +94,21 @@ class ProductTunnelCall:
     """
 
     runtime_source_sha: str
+    ca_pem: str = field(repr=False)
     transport: httpx.BaseTransport | None = field(default=None, repr=False)
 
     def __post_init__(self):
         if not isinstance(self.runtime_source_sha, str) or re.fullmatch(r"[a-f0-9]{40}", self.runtime_source_sha) is None:
             raise ValueError("exact runtime source required")
+        client_context(self.ca_pem)  # Fail before opening SSM or acquiring a token.
 
     def __call__(self, body: dict) -> tuple[int, dict]:
         try:
             request = ProductRequest.model_validate(body)
-            with httpx.Client(transport=self.transport, trust_env=False, follow_redirects=False,
+            with httpx.Client(transport=self.transport, verify=client_context(self.ca_pem),
+                              trust_env=False, follow_redirects=False,
                               timeout=httpx.Timeout(260, connect=5)) as client:
-                with client.stream("POST", "http://127.0.0.1:18762/run", json=request.model_dump()) as response:
+                with client.stream("POST", "https://127.0.0.1:18762/run", json=request.model_dump()) as response:
                     # The remaining status payload is deliberately not echoed.
                     if response.status_code != 200:
                         return response.status_code, stopped("PRODUCT_CALL_UNCONFIRMED")
@@ -135,3 +121,44 @@ class ProductTunnelCall:
             return 200, result
         except Exception:
             return 502, stopped("PRODUCT_CALL_UNCONFIRMED")
+
+
+@dataclass(frozen=True)
+class ProductInputProbeCall:
+    """Fixed auth/read-only route; its receipt cannot be a model or T15 result."""
+
+    runtime_source_sha: str
+    ca_pem: str = field(repr=False)
+    transport: httpx.BaseTransport | None = field(default=None, repr=False)
+
+    def __post_init__(self):
+        if not isinstance(self.runtime_source_sha, str) or re.fullmatch(r"[a-f0-9]{40}", self.runtime_source_sha) is None:
+            raise ValueError("exact runtime source required")
+        client_context(self.ca_pem)  # Fail before opening SSM or acquiring a token.
+
+    def __call__(self, body: dict) -> tuple[int, dict]:
+        try:
+            request = ProductRequest.model_validate(body)
+            with httpx.Client(transport=self.transport, verify=client_context(self.ca_pem),
+                              trust_env=False, follow_redirects=False,
+                              timeout=httpx.Timeout(80, connect=5)) as client:
+                with client.stream("POST", "https://127.0.0.1:18762/input/probe", json=request.model_dump()) as response:
+                    if response.status_code != 200:
+                        return response.status_code, stopped("PRODUCT_PROBE_UNCONFIRMED")
+                    data = bytearray()
+                    for part in response.iter_bytes(chunk_size=1024):
+                        data.extend(part)
+                        if len(data) > 4096:
+                            raise ValueError("oversized probe response")
+            result = json.loads(data)
+            expected = {"state": "INPUT_AUTHENTICATED", "runtime_source_sha": self.runtime_source_sha,
+                        "product_input_digest": request.input_digest,
+                        "request_digest": digest({"input_ref": request.input_ref, "input_digest": request.input_digest})}
+            if (type(result) is not dict or set(result) != set(expected) | {"admission_digest", "principal_digest"}
+                    or any(result[key] != value for key, value in expected.items())
+                    or any(not isinstance(result[key], str) or re.fullmatch(r"[a-f0-9]{64}", result[key]) is None
+                           for key in ("admission_digest", "principal_digest"))):
+                raise ValueError("unbound probe receipt")
+            return 200, result
+        except Exception:
+            return 502, stopped("PRODUCT_PROBE_UNCONFIRMED")

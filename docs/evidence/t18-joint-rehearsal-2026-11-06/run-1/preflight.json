@@ -1,0 +1,45 @@
+{
+  "passed": true,
+  "checked_at": "2026-11-05T15:40:19.429722+00:00",
+  "checks": [
+    {
+      "name": "대상 상태",
+      "ok": true,
+      "detail": "/api/health/db 200 5회"
+    },
+    {
+      "name": "환경 헤더",
+      "ok": true,
+      "detail": "X-Bravo-Env: aws 5"
+    },
+    {
+      "name": "창 수신",
+      "ok": true,
+      "detail": "주소 · 토큰 · 계획 연결 확인, 저장하지 않음"
+    },
+    {
+      "name": "시계",
+      "ok": true,
+      "detail": "차이 0초 이내"
+    },
+    {
+      "name": "대조 DB",
+      "ok": true,
+      "detail": "연결됨"
+    },
+    {
+      "name": "잠금 DB",
+      "ok": true,
+      "detail": "연결됨"
+    }
+  ],
+  "notes": [],
+  "health_rtt_ms": {
+    "samples": 5,
+    "p50": 2.555,
+    "max": 8.171
+  },
+  "env_values": {
+    "aws": 5
+  }
+}

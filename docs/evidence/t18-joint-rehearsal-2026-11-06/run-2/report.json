@@ -1,0 +1,199 @@
+{
+  "kind": "t18_run_report",
+  "schema_version": "1",
+  "run_id": "t18-joint-main-f5e2c8",
+  "plan_id": "plan-local",
+  "started_at": "2026-11-05T15:45:20.373689+00:00",
+  "target": "http://127.0.0.1:53089",
+  "measurement": {
+    "path": "local-mock-edge",
+    "edge_measured": false,
+    "generator": "laptop",
+    "preflight": {
+      "passed": true,
+      "checked_at": "2026-11-05T15:45:17.367675+00:00",
+      "checks": [
+        {
+          "name": "대상 상태",
+          "ok": true,
+          "detail": "/api/health/db 200 5회"
+        },
+        {
+          "name": "환경 헤더",
+          "ok": true,
+          "detail": "X-Bravo-Env: aws 5"
+        },
+        {
+          "name": "창 수신",
+          "ok": true,
+          "detail": "주소 · 토큰 · 계획 연결 확인, 저장하지 않음"
+        },
+        {
+          "name": "시계",
+          "ok": true,
+          "detail": "차이 0초 이내"
+        },
+        {
+          "name": "대조 DB",
+          "ok": true,
+          "detail": "연결됨"
+        },
+        {
+          "name": "잠금 DB",
+          "ok": true,
+          "detail": "연결됨"
+        }
+      ],
+      "notes": [],
+      "health_rtt_ms": {
+        "samples": 5,
+        "p50": 1.72,
+        "max": 5.122
+      },
+      "env_values": {
+        "aws": 5
+      }
+    }
+  },
+  "journal_sha256": "6df6ca1b5ad9e0bdf824a9a8aea3d86816281c503ea5a2ced401e406ba9b61da",
+  "verdict": "PASS",
+  "reasons": [],
+  "warnings": [
+    "NOT_EDGE_MEASURED",
+    "GENERATOR_LAGGING",
+    "HTTP_ERRORS"
+  ],
+  "sli_usable_for_judgement": false,
+  "load": {
+    "duration_s": 135.0,
+    "target_write_rps": 50.0,
+    "target_read_rps": 150.0,
+    "achieved_write_rps": 50.0,
+    "achieved_read_rps": 149.968,
+    "attempt_timeout_s": 15,
+    "retry_budget_s": 60,
+    "scheduler_lag_ms": {
+      "p95": 74.97,
+      "max": 1504.418
+    }
+  },
+  "requests": {
+    "write": {
+      "attempts": 6761,
+      "http_5xx": 10,
+      "http_4xx": 0,
+      "timeout": 0,
+      "connect": 1,
+      "p95_ms": 3848.188
+    },
+    "read": {
+      "attempts": 20250,
+      "http_5xx": 0,
+      "http_4xx": 0,
+      "timeout": 1,
+      "connect": 0,
+      "p95_ms": 3427.621
+    }
+  },
+  "http_error_rate": 0.000444,
+  "contract_error_rate": 0.000444,
+  "p95_ms": 3513.846,
+  "env_header": {
+    "responses": 27009,
+    "responses_without_header": 0,
+    "registered_values": {
+      "aws": 17403,
+      "onprem": 9606
+    },
+    "unregistered_values": {}
+  },
+  "reconciliation": {
+    "verdict": "PASS",
+    "reasons": [],
+    "nfr2": {
+      "failed": 0,
+      "lost": 0,
+      "duplicated": 0
+    },
+    "counts": {
+      "confirmed": 6750,
+      "lost": 0,
+      "duplicated": 0,
+      "failed_not_stored": 0,
+      "failed_but_stored": 0,
+      "integrity_conflict": 0,
+      "content_mismatch": 0,
+      "logical_writes": 6750,
+      "attempts": 6761,
+      "retried": 11,
+      "idempotent_replays": 0,
+      "duplicate_extra_rows": 0,
+      "phantom_rows": 0
+    },
+    "max_attempts": 2,
+    "samples": {}
+  },
+  "write_gap": {
+    "max_ms": 3455.972,
+    "from_s": 125.412401,
+    "to_s": 128.868373,
+    "position": "between",
+    "acks": 6433
+  },
+  "lock_probe": {
+    "key": 4310001,
+    "interval_s": 0.2,
+    "connection_errors": 0,
+    "baseline": {
+      "samples": 15,
+      "wait_ms": {
+        "p50": 0.003,
+        "p95": 0.011,
+        "p99": 0.011,
+        "max": 0.011
+      },
+      "round_trip_ms": {
+        "p95": 4.788,
+        "max": 4.788
+      },
+      "waiting_sessions_max": 0,
+      "timed_out": 0,
+      "stalled": 0
+    },
+    "load": {
+      "samples": 660,
+      "wait_ms": {
+        "p50": 0.001,
+        "p95": 0.872,
+        "p99": 6.017,
+        "max": 300.59
+      },
+      "round_trip_ms": {
+        "p95": 3.126,
+        "max": 361.088
+      },
+      "waiting_sessions_max": 6,
+      "timed_out": 0,
+      "stalled": 0
+    }
+  },
+  "windows": {
+    "emitted": 13,
+    "requests_in_windows": 24924,
+    "tail_requests_not_in_a_window": 2087,
+    "late_requests": 0,
+    "conserved": true,
+    "delivery_failed": 0,
+    "invalid": 0,
+    "continuity_problems": [],
+    "pools_total": {
+      "source": 15317,
+      "target": 9606
+    },
+    "unattributed_total": {
+      "timeout": 0,
+      "connect": 1,
+      "other": 0
+    }
+  }
+}

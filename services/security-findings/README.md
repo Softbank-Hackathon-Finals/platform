@@ -59,14 +59,37 @@ uv run uvicorn bravo_findings.api:create_app --factory --host 127.0.0.1 --port 8
 - 온프렘 에이전트(`agent.collect`)는 클러스터 안에서 Kyverno PolicyReport를 읽고 Falco DaemonSet 준비 상태를 확인해 플랫폼으로 **바깥 방향으로만** 보낸다.
 - 저장소는 플랫폼 DB(T10)가 정해지기 전까지 SQLite다(`store.py`). 테이블은 PostgreSQL로 옮길 수 있게 단순하게 둔다.
 
+탐지 능력 표의 `available`은 등록된 기능의 제공 여부이며 정상 수집·위협 부재를
+뜻하지 않는다. 공급자 조회가 미설정/비활성을 확인해 `NOT_ENABLED`를 기록한 출처는
+그 기능의 제공 출처에서 제외한다. 같은 기능을 제공하는 다른 출처가 있으면 유지한다.
+권한 거부·시간 초과는 미설정으로 추측하지 않고 `states`의 `FAILED`로 구분한다.
+`/sources`의 오류 원인과 `/summary`의 `UNKNOWN` 계약은 유지하며, 이후 실제 수집이
+성공해야 해당 출처가 다시 포함된다. UI는 `available`만으로 정상 색상을 표시하면 안 된다.
+
 ### 실제 데이터 확인 전 상태
 
 | 출처 | 코드 · 테스트 | 실제 확인 |
 |---|---|---|
-| AWS Security Hub | botocore Stubber로 ASFF 응답 형식까지 검증 | AWS 계정 · Security Hub 활성화 필요 (T1) |
+| AWS Security Hub | 계정/리전·Hub 전후 대조, 페이지·SDK 형식 검증 | 11/6 실제 401을 FAILED로 저장·조회. 양성 탐지 인수 필요 |
 | GuardDuty 직접 | SDK 형식·다중 페이지·계정/리전/탐지기 결속·실패 시 커서 유지 | 11/4 팀 계정 서울 리전에서 `NOT_ENABLED` 확인. 양성 탐지 수집은 미검증 |
 | Google Cloud SCC | 가짜 HTTP 세션 | GCP 프로젝트 · SCC 필요. 필터 문법 확인 필요 |
 | Kyverno · Falco | 예시 PolicyReport(두 형태) · Falco 이벤트 | 온프렘 클러스터에 설치 필요 (T2 · T30 · T9) |
+
+### Security Hub 명시 수집
+
+```bash
+uv run python -m bravo_findings.securityhub_pull \
+  --profile bravo-personal --account-id "$EXPECTED_AWS_ACCOUNT" \
+  --region ap-northeast-2 --environment-id env-aws --database "$PRIVATE_FINDINGS_DB"
+```
+
+- `SecurityHubSource`는 기대 `account_id`·`region`을 필수로 받는다. 기존 인자 없는 호출은 허용하지 않는다. 등록 환경과 이 스코프의 대응은 신뢰된 호스트 설정이 소유하며, 사용자 요청에서 임의 값을 전달하지 않는다.
+- STS 계정 대조 후 `securityhub:DescribeHub`·`securityhub:GetFindings` 읽기만 수행한다. 운영 역할에 추가 DescribeHub 권한이 없으면 실패하며 기존 설정을 자동 수정하지 않는다. 별도 비공개 DB로 검증한다.
+- 계정·리전 필터, 각 ASFF 행의 스코프·시간·제품/ID, Hub ARN·구독 시각 전후 일치를 확인한다. 첫 경로는 commercial AWS 단일 계정·리전이며 조직 전체·다른 partition의 인수가 아니다.
+- 빈 `Findings: []`와 누락된 Findings는 다르다. 부분 응답·중복 ID·순환 페이지·조회 중 변경이면 해당 묶음을 저장하지 않고 이전 커서를 유지한다. 상품/표준의 모든 탐지 범위가 활성이라는 뜻은 아니다.
+- 200페이지·페이지100건·수집10,000건 상한, 호출 사이 단조 시계120초 예산을 적용한다. SDK 연결5초·읽기10초·최대3회가 개별 호출을 제한하며, 엄격한 전체 종료 기한은 실행 호스트가 별도로 강제해야 한다.
+- 401 `InvalidAccessException`은 ACCESS_DENIED다. 서비스 비활성으로 추측하거나 탐지0건 정상으로 처리하지 않는다. GuardDuty 등록이 이미 있으면 명시 인계 전에는 수집을 거부하며 자동 대체하지 않는다.
+- [11/6 실제 AWS 실패 저장 검증](../../docs/evidence/t33-securityhub-2026-11-06/README.md)을 완료했다. 양성 탐지·운영 스케줄러·인증 API/콘솔까지의 전체 인수는 별도다.
 
 ### GuardDuty 직접 수집
 

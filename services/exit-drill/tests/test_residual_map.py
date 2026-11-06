@@ -35,6 +35,64 @@ def entries(result: dict) -> dict:
     return {e["id"]: e for e in result["entries"]}
 
 
+def test_map_says_what_kept_the_drill_from_passing():
+    """판정만 UNKNOWN이라고 적으면 왜인지 다른 파일을 찾아야 한다. 호환 구성의 비자격도 여기서 보인다."""
+    plan, view = plan_and_view()
+    report = report_for(plan, "UNKNOWN")
+    report["checks"].append({"id": "eligibility:app", "verdict": "UNKNOWN", "code": "NOT_EXIT_EVIDENCE"})
+    result = build_map(view, plan, report)
+    assert result["drill_not_pass"] == [{"id": "eligibility:app", "verdict": "UNKNOWN", "code": "NOT_EXIT_EVIDENCE"}]
+    assert "blocked_app_ok" not in result["summary"]["status"]
+    text = render_markdown(result)
+    assert "판정을 막은 항목 (1)" in text
+    assert "eligibility:app" in text and "NOT_EXIT_EVIDENCE" in text
+
+
+def test_map_of_a_passed_drill_lists_nothing_blocking():
+    plan, view = plan_and_view()
+    result = build_map(view, plan, report_for(plan))
+    assert result["drill_not_pass"] == []
+    assert "판정을 막은 항목" not in render_markdown(result)
+
+
+def test_map_without_a_drill_lists_nothing_blocking():
+    plan, view = plan_and_view()
+    assert build_map(view, plan, None)["drill_not_pass"] == []
+
+
+def test_candidate_gaps_are_shown_only_when_there_are_some():
+    doc = inventory_doc()
+    doc["candidates"][0]["missing_capabilities"] = ["secret_store 없음"]
+    plan, view = plan_and_view(redigest(doc))
+    result = build_map(view, plan, None)
+    assert result["candidate_missing_capabilities"] == ["secret_store 없음"]
+    assert "secret_store 없음" in render_markdown(result)
+    clean_plan, clean_view = plan_and_view()
+    assert build_map(clean_view, clean_plan, None)["candidate_missing_capabilities"] == []
+    assert "목적지에 없는 기능" not in render_markdown(build_map(clean_view, clean_plan, None))
+
+
+def test_map_shows_what_the_inventory_could_not_trace():
+    """출발지 배포를 못 읽은 인벤토리로 만든 지도는 그 사실을 지도 안에서 말해야 한다."""
+    doc = inventory_doc()
+    doc["deploy"]["notes"] = ["배포 추적 없음: 어댑터 미지정", "줄 | 바꿈\n있음"]
+    plan, view = plan_and_view(redigest(doc))
+    result = build_map(view, plan, None)
+    assert result["inventory_trace_notes"] == ["배포 추적 없음: 어댑터 미지정", "줄 | 바꿈\n있음"]
+    markdown = render_markdown(result)
+    assert "## 인벤토리 추적 메모 (2)" in markdown
+    assert "- 배포 추적 없음: 어댑터 미지정" in markdown
+    assert "- 줄 \\| 바꿈 있음" in markdown
+    assert markdown.index("인벤토리 추적 메모") < markdown.index("## 남음")
+
+
+def test_map_without_trace_notes_has_no_trace_section():
+    plan, view = plan_and_view()
+    result = build_map(view, plan, None)
+    assert result["inventory_trace_notes"] == []
+    assert "인벤토리 추적 메모" not in render_markdown(result)
+
+
 def test_every_inventory_item_appears_with_its_grade():
     plan, view = plan_and_view()
     got = entries(build_map(view, plan, None))
@@ -180,6 +238,18 @@ def test_residual_services_remain_with_source_recorded():
     cloudflare = got["residual:cloudflare (edge · tunnel)"]
     assert (cloudflare["status"], cloudflare["source"], cloudflare["grade"]) == ("remains", "inventory", "not_graded")
     assert got["residual:tailscale (복제 · 제어 경로)"]["source"] == "drill-spec"
+
+
+def test_edge_tunnel_is_shown_on_the_cloudflare_residual():
+    """터널은 Cloudflare에 기대는 목적지 구성요소다. 줄을 따로 만들지 않고 그 잔존 의존성에 잇는다."""
+    plan, view = plan_and_view()
+    result = build_map(view, plan, None)
+    got = entries(result)
+    cloudflare = got["residual:cloudflare (edge · tunnel)"]
+    assert (cloudflare["status"], cloudflare["target_impl"]) == ("remains", "edge (app=bravo-edge-tunnel)")
+    assert got["residual:github (코드 · 이미지 빌드)"]["target_impl"] == ""
+    assert "workload:edge" not in got
+    assert "| cloudflare (edge · tunnel) | 등급 없음 | edge (app=bravo-edge-tunnel) |" in render_markdown(result)
 
 
 def test_duplicate_residual_is_listed_once():

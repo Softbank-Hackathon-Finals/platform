@@ -56,3 +56,17 @@ AWS 공식 문서상 일부 Anthropic 경로는 최초 사용 등록이 필요�
 - 구독 소유 관리자·허용 모델·앱별 사용량 한도·회수 담당을 누가 맡을지? API 키를 별도 선택한다면 예산과 승인 경로를 어떻게 정할지?
 
 이번 제안은 모델 제공자를 바꾸어도 제안·검증·승인·실행의 책임이 유지되게 한다. 모델 호출 성공만으로 리허설 PASS나 고객 이전 성공을 주장하지 않는다.
+
+## 2026-11-06: OpenAI Agents SDK 및 OTEL 실행 추적
+
+사용자가 OpenAI도 Agents SDK로 바꾸라고 명시했다. 기본 SIWC 인증과 모델 선택을
+유지하면서 `openai-agents==0.24.0`의 `Agent`/`Runner`/`FunctionTool`로 실행 반복과
+도구 호출을 옮긴다. 별도 모델 제공자나 자동 API 비용 전환을 추가하지 않는다.
+구독 전송 어댑터는 기존 `bravo` 네임스페이스, 선행 snapshot 읽기, 완결 스트림 검증,
+사용량·시간·횟수 제한을 그대로 강제한다. 결정적 Coordinator와 T15 검증·승인 계약은 유지한다.
+
+OpenAI SDK lifecycle span은 플랫폼 OTEL processor가 받고, Claude SDK 결과·도구 실행도
+같은 run/source/attempt 문맥에 기록한다. SDK 기본 외부 trace exporter는 대체하며
+입출력·인자·원시 오류를 수집하지 않는다. trace ID는 attempt 결과에 남겨 플랫폼에서
+조회할 수 있게 한다. Collector·저장소·노드 배치 및 실제 클러스터 검증은 T43 배포
+작업에서 별도 확인하며, 로컬 시험만으로 운영 완료를 주장하지 않는다.

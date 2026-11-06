@@ -1,0 +1,59 @@
+{
+  "kind": "t10_window_receiver_preflight_check",
+  "checked_at": "2026-11-05T15:41:16.180496Z",
+  "cases": {
+    "맞는 토큰 · 켜진 연결": {
+      "exit": 0,
+      "receiver_line": [
+        "ok   창 수신: 주소 · 토큰 · 계획 연결 확인, 저장하지 않음"
+      ],
+      "stored_after": false
+    },
+    "틀린 토큰": {
+      "exit": 2,
+      "receiver_line": [
+        "FAIL 창 수신: 토큰을 거부했다"
+      ],
+      "stored_after": false
+    },
+    "수신부 길이 기준(32자)보다 짧은 토큰": {
+      "exit": 2,
+      "receiver_line": [
+        "FAIL 창 수신: 토큰을 거부했다"
+      ],
+      "stored_after": false
+    },
+    "계획 연결을 끈 뒤": {
+      "exit": 2,
+      "receiver_line": [
+        "FAIL 창 수신: 이 토큰의 계획 연결이 꺼졌거나 만료됐다"
+      ],
+      "stored_after": false
+    },
+    "연결을 다시 켠 뒤 measure": {
+      "exit": 2,
+      "receiver_line": [
+        "ok   창 수신: 주소 · 토큰 · 계획 연결 확인, 저장하지 않음"
+      ],
+      "stored_after": true,
+      "stored_plan_matches": true,
+      "delivery_failed": 0,
+      "emitted": 2,
+      "warnings": [
+        "NOT_EDGE_MEASURED"
+      ]
+    },
+    "토큰은 맞고 --plan-id만 다른 measure": {
+      "exit": 2,
+      "receiver_line": [
+        "ok   창 수신: 주소 · 토큰 · 계획 연결 확인, 저장하지 않음"
+      ],
+      "delivery_failed": 2,
+      "emitted": 2,
+      "warnings": [
+        "NOT_EDGE_MEASURED",
+        "WINDOW_DELIVERY_FAILED"
+      ]
+    }
+  }
+}

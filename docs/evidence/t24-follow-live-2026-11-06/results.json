@@ -1,0 +1,181 @@
+{
+  "observed_at": {
+    "start": "2026-11-06T07:36:24Z",
+    "end": "2026-11-06T07:36:30Z",
+    "timezone": "UTC",
+    "kst": "2026-11-06 16:36:24-16:36:30"
+  },
+  "source_revision": "04a0846a2f7c764388c7b8ab9a773865c2e68469",
+  "region": "ap-northeast-2",
+  "bucket": "redacted",
+  "sink": "s3://<redacted>/audit",
+  "plan_id": "plan-t24-follow-1106073624",
+  "run_id": "run-t24-follow-1106073624",
+  "identities": {
+    "follow": "assumed-role/<name>-writer",
+    "verify": "assumed-role/<name>-reader"
+  },
+  "t10": {
+    "app": "bravo_platform_events.api.create_app (unchanged) under uvicorn on 127.0.0.1",
+    "store": "bravo_platform_events.plans.PlanStore (local SQLite)",
+    "authorizer": "deployment-injected predicate: Authorization == 'Bearer <one-time local credential>'",
+    "events": [
+      {
+        "sequence": 1,
+        "event_type": "state.changed"
+      },
+      {
+        "sequence": 2,
+        "event_type": "state.changed"
+      },
+      {
+        "sequence": 3,
+        "event_type": "gate.completed"
+      },
+      {
+        "sequence": 4,
+        "event_type": "approval.requested"
+      },
+      {
+        "sequence": 5,
+        "event_type": "execution.updated"
+      },
+      {
+        "sequence": 6,
+        "event_type": "execution.updated"
+      }
+    ],
+    "produced_before_follow_1": [
+      1,
+      2,
+      3
+    ],
+    "produced_after_follow_1": [
+      4,
+      5,
+      6
+    ]
+  },
+  "steps": {
+    "follow_1_initial": {
+      "observed_at_start": "2026-11-06T07:36:24Z",
+      "observed_at_end": "2026-11-06T07:36:25Z",
+      "exit": 0,
+      "summary": {
+        "mode": "once",
+        "exit": 0,
+        "reason": "caught_up",
+        "resumed_after_sequence": 0,
+        "records": 3,
+        "absorbed_redeliveries": 0,
+        "last_t10_sequence": 3,
+        "runs": {
+          "run-t24-follow-1106073624": "a6cc25b0334ffe407024516df0e27bfe6ddb6fd9d18541e2d239293a120e73a5"
+        }
+      }
+    },
+    "follow_2_resume": {
+      "observed_at_start": "2026-11-06T07:36:25Z",
+      "observed_at_end": "2026-11-06T07:36:27Z",
+      "exit": 0,
+      "summary": {
+        "mode": "once",
+        "exit": 0,
+        "reason": "caught_up",
+        "resumed_after_sequence": 3,
+        "records": 3,
+        "absorbed_redeliveries": 0,
+        "last_t10_sequence": 6,
+        "runs": {
+          "run-t24-follow-1106073624": "8bf49538c79400152a4354e2ffaab0fc423223f03b9bd8fdcc7a48b2047fda60"
+        }
+      }
+    },
+    "follow_3_nothing_new": {
+      "observed_at_start": "2026-11-06T07:36:27Z",
+      "observed_at_end": "2026-11-06T07:36:28Z",
+      "exit": 0,
+      "summary": {
+        "mode": "once",
+        "exit": 0,
+        "reason": "caught_up",
+        "resumed_after_sequence": 6,
+        "records": 0,
+        "absorbed_redeliveries": 0,
+        "last_t10_sequence": 6,
+        "runs": {
+          "run-t24-follow-1106073624": "8bf49538c79400152a4354e2ffaab0fc423223f03b9bd8fdcc7a48b2047fda60"
+        }
+      }
+    },
+    "verify_as_reader": {
+      "observed_at_start": "2026-11-06T07:36:28Z",
+      "observed_at_end": "2026-11-06T07:36:30Z",
+      "exit": 0,
+      "summary": {
+        "records": 6,
+        "ok": true,
+        "reason": "ok",
+        "chain_digest": "8bf49538c79400152a4354e2ffaab0fc423223f03b9bd8fdcc7a48b2047fda60"
+      }
+    }
+  },
+  "last_event_id_sent": [
+    null,
+    "plan-t24-follow-1106073624:3",
+    "plan-t24-follow-1106073624:6"
+  ],
+  "auth_header_presented_on_every_request": true,
+  "credential_in_any_output": false,
+  "stored_records": [
+    {
+      "key_suffix": "00000001.json",
+      "t10_sequence": 1,
+      "sha256": "2c1a26cd3ff4ec76b8ee101410b36cd631b3598f4d0a22be56c0d27dd612be4b",
+      "retention_mode": "COMPLIANCE",
+      "retain_until": "2026-11-07T07:36:25Z",
+      "version_id": "redacted"
+    },
+    {
+      "key_suffix": "00000002.json",
+      "t10_sequence": 2,
+      "sha256": "c1f5c2964bce7eea15ffccd4d09a828efa0b8bcd8c3d17a9de62eefcc4fee9b7",
+      "retention_mode": "COMPLIANCE",
+      "retain_until": "2026-11-07T07:36:25Z",
+      "version_id": "redacted"
+    },
+    {
+      "key_suffix": "00000003.json",
+      "t10_sequence": 3,
+      "sha256": "a6cc25b0334ffe407024516df0e27bfe6ddb6fd9d18541e2d239293a120e73a5",
+      "retention_mode": "COMPLIANCE",
+      "retain_until": "2026-11-07T07:36:25Z",
+      "version_id": "redacted"
+    },
+    {
+      "key_suffix": "00000004.json",
+      "t10_sequence": 4,
+      "sha256": "21f1d393348b11bdc7cc142094799a1a47f16efa05c76df47da85fc30a58240a",
+      "retention_mode": "COMPLIANCE",
+      "retain_until": "2026-11-07T07:36:27Z",
+      "version_id": "redacted"
+    },
+    {
+      "key_suffix": "00000005.json",
+      "t10_sequence": 5,
+      "sha256": "fcddf9e13eb908567b849e0b45fa9ea98231af3d6a2fb7e181a4e77845e4e10e",
+      "retention_mode": "COMPLIANCE",
+      "retain_until": "2026-11-07T07:36:27Z",
+      "version_id": "redacted"
+    },
+    {
+      "key_suffix": "00000006.json",
+      "t10_sequence": 6,
+      "sha256": "8bf49538c79400152a4354e2ffaab0fc423223f03b9bd8fdcc7a48b2047fda60",
+      "retention_mode": "COMPLIANCE",
+      "retain_until": "2026-11-07T07:36:27Z",
+      "version_id": "redacted"
+    }
+  ],
+  "private_original_sha256": "0804d3a1d6af2a4fb4dc43112e034e980d8fccd207f77a2f9d224561f46c3eb5"
+}

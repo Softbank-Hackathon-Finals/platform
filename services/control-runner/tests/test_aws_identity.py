@@ -54,14 +54,15 @@ def sdk(monkeypatch):
         stub.deactivate()
 
 
-def test_actual_sdk_uses_same_explicit_temporary_snapshot(sdk):
-    with verified_client(ROLE, CREDS, 'secretsmanager', 'ap-northeast-2', clock=lambda: NOW) as (client, proof):
-        assert client.meta.endpoint_url == 'https://secretsmanager.ap-northeast-2.amazonaws.com'
+@pytest.mark.parametrize('service', ['secretsmanager', 'kms', 'logs'])
+def test_actual_sdk_uses_same_explicit_temporary_snapshot(sdk, service):
+    with verified_client(ROLE, CREDS, service, 'ap-northeast-2', clock=lambda: NOW) as (client, proof):
+        assert client.meta.endpoint_url == f'https://{service}.ap-northeast-2.amazonaws.com'
         assert proof['verified_at'] == NOW.isoformat()
         assert proof['expires_at'] == CREDS.expires_at.isoformat()
         assert ROLE.arn not in json.dumps(proof)
         assert ROLE.role_id not in json.dumps(proof)
-    assert [entry[0] for entry in sdk] == ['sts', 'secretsmanager']
+    assert [entry[0] for entry in sdk] == ['sts', service]
     for _, kwargs, client in sdk:
         assert kwargs['aws_access_key_id'] == CREDS.access_key_id
         assert kwargs['aws_secret_access_key'] == CREDS.secret_access_key
@@ -74,14 +75,17 @@ def test_actual_sdk_uses_same_explicit_temporary_snapshot(sdk):
         assert frozen.token == CREDS.session_token
 
 
-def test_endpoint_and_ca_environment_overrides_ignored(sdk, monkeypatch):
+@pytest.mark.parametrize('service', ['secretsmanager', 'kms', 'logs'])
+def test_endpoint_and_ca_environment_overrides_ignored(sdk, monkeypatch, service):
     monkeypatch.setenv('AWS_ENDPOINT_URL', 'http://127.0.0.1:1')
     monkeypatch.setenv('AWS_ENDPOINT_URL_STS', 'http://127.0.0.1:2')
     monkeypatch.setenv('AWS_ENDPOINT_URL_SECRETS_MANAGER', 'http://127.0.0.1:3')
+    monkeypatch.setenv('AWS_ENDPOINT_URL_KMS', 'http://127.0.0.1:3')
+    monkeypatch.setenv('AWS_ENDPOINT_URL_CLOUDWATCH_LOGS', 'http://127.0.0.1:3')
     monkeypatch.setenv('AWS_CA_BUNDLE', '/nonexistent/untrusted-ca.pem')
     monkeypatch.setenv('HTTPS_PROXY', 'http://127.0.0.1:4')
     monkeypatch.setenv('AWS_ACCESS_KEY_ID', 'ambient-must-not-be-used')
-    with verified_client(ROLE, CREDS, 'secretsmanager', 'ap-northeast-2', clock=lambda: NOW):
+    with verified_client(ROLE, CREDS, service, 'ap-northeast-2', clock=lambda: NOW):
         pass
     for _, kwargs, client in sdk:
         assert client.meta.endpoint_url.startswith('https://')

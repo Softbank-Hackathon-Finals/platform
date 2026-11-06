@@ -21,6 +21,8 @@ SRC = dict(name="source", kind="aws", roles=["source"], connection_ref="source-r
 DST = dict(name="target", kind="onprem", roles=["target"], connection_ref="target-reader")
 APP = dict(name="chat", repo_url="https://example.invalid/chat", app_path="app", iac_path="compose.yaml",
            source_environment_id="env-src", namespace="app-src")
+PROFILE = dict(profile_id="full", profile_version="1")
+RECHECK = dict(recheck_profile_id="apply-recheck", recheck_profile_version="1")
 
 
 class Probe:
@@ -65,7 +67,8 @@ class Fixture:
         release = SourceRelease(TENANT, "env-src", APP["repo_url"], temp, "app", "compose.yaml", "a" * 40,
                                 "chat", "chat", "repo/chat@sha256:" + "b" * 64, ("sha256:" + "b" * 64,), "chat", "rs-uid")
         self.registry = Registry(self.store, environments={(TENANT, "source-reader"): src, (TENANT, "target-reader"): dst},
-                                 releases=[release], can_register=lambda _a: self.allowed, probe=self.probe)
+                                 releases=[release], can_register=lambda _a: self.allowed, probe=self.probe,
+                                 evaluation_profiles=[dict(tenant_id=TENANT, **PROFILE)])
         self.client = TestClient(create_registration_app(self.registry, verify_identity=lambda _r: self.actor))
 
     def post(self, route, data, key):
@@ -76,7 +79,7 @@ class Fixture:
         assert self.post("environments", DST, "dst-key").status_code == 201
         app = self.post("workloads", APP, "app-key")
         assert app.status_code == 201
-        return {"workload_id": app.json()["workload_id"], "target_environment_id": "env-dst"}
+        return {"workload_id": app.json()["workload_id"], "target_environment_id": "env-dst", **PROFILE}
 
 
 @pytest.fixture
@@ -96,11 +99,148 @@ def test_create_plan_and_retry_returns_committed_snapshot(registered):
     snap = f.backend.reopen().snapshot(receipt["plan_id"])
     assert snap["state"] == "COLLECT" and snap["version"] == 1
     assert snap["plan_digest"] == receipt["plan_digest"] and snap["collection_scope_digest"] == receipt["collection_scope_digest"]
+    assert {k: snap[k] for k in PROFILE} == {k: receipt[k] for k in PROFILE} == PROFILE
+    assert receipt["workload_id"].startswith("workload-") and receipt["workload_id"] != APP["name"]
     f.probe.fault = "denied"
     retry = f.post("plans", body, "plan-key")
     assert retry.status_code == 200 and retry.json() == receipt
     assert f.post("plans", body | {"target_environment_id": "env-other"}, "plan-key").status_code == 409
     assert len(f.store.read_after(receipt["plan_id"], None)) == 1
+
+
+@pytest.mark.parametrize("change", [
+    {"profile_id": "demo-gate"}, {"profile_version": "2"},
+])
+def test_unapproved_profile_fails_before_probe_or_any_write(registered, change):
+    f = registered
+    body = f.setup_workload()
+    f.probe.results.clear()
+    response = f.post("plans", body | change, "bad-profile")
+    assert response.status_code == 409
+    assert response.json()["detail"]["code"] == "evaluation_profile_unavailable"
+    assert f.probe.results == []
+    with f.backend.admin() as c:
+        assert c.execute("SELECT COUNT(*) FROM plans").fetchone()[0] == 0
+        assert c.execute("SELECT COUNT(*) FROM registrations WHERE kind='plan'").fetchone()[0] == 0
+
+
+@pytest.mark.parametrize("field", ["profile_id", "profile_version"])
+@pytest.mark.parametrize("value", [None, "", 1, "invalid value", "x" * 129])
+def test_profile_fields_are_required_bounded_strings(registered, field, value):
+    f = registered
+    body = f.setup_workload()
+    body[field] = value
+    f.probe.results.clear()
+    assert f.post("plans", body, "bad-profile").status_code == 422
+    body.pop(field)
+    assert f.post("plans", body, "missing-profile").status_code == 422
+    assert f.probe.results == []
+
+
+def test_profile_is_part_of_plan_digest_and_cannot_change_on_replay(registered):
+    from bravo_platform_events.registration import digest
+
+    f = registered
+    body = f.setup_workload()
+    receipt = f.post("plans", body, "key").json()
+    expected = dict(plan_id=receipt["plan_id"], tenant_id=TENANT, workload_id=body["workload_id"],
+                    collection_scope_digest=receipt["collection_scope_digest"],
+                    target_environment_id="env-dst", target_database_identity="dst-id", **PROFILE)
+    assert receipt["plan_digest"] == digest(expected)
+    assert digest(expected | {"profile_version": "2"}) != receipt["plan_digest"]
+    assert f.post("plans", body | {"profile_version": "2"}, "key").status_code == 409
+    assert f.post("plans", body, "key").json() == receipt
+    assert f.backend.reopen().snapshot(receipt["plan_id"])["profile_version"] == "1"
+
+
+def test_profile_policy_is_tenant_bound_and_missing_policy_denies_new_plans(registered):
+    f = registered
+    body = f.setup_workload()
+    for policy in (frozenset(), frozenset({("other-tenant", "full", "1")})):
+        f.registry.evaluation_profiles = policy
+        f.probe.results.clear()
+        assert f.post("plans", body, "key").json()["detail"]["code"] == "evaluation_profile_unavailable"
+        assert f.probe.results == []
+
+
+def test_recheck_profile_is_immutable_tenant_allowed_and_digest_bound(registered):
+    from bravo_platform_events.registration import digest
+
+    f = registered
+    body = f.setup_workload() | RECHECK
+    f.probe.results.clear()
+    for other in ((), (("other-tenant", "apply-recheck", "1"),)):
+        f.registry.evaluation_profiles = frozenset(((TENANT, "full", "1"), *other))
+        assert f.post("plans", body, "recheck").json()["detail"]["code"] == "evaluation_profile_unavailable"
+        assert not f.probe.results
+    f.registry.evaluation_profiles |= {(TENANT, "apply-recheck", "1")}
+    result = f.post("plans", body, "recheck")
+    assert result.status_code == 201
+    receipt = result.json()
+    expected = dict(plan_id=receipt["plan_id"], tenant_id=TENANT, workload_id=body["workload_id"],
+                    collection_scope_digest=receipt["collection_scope_digest"],
+                    target_environment_id="env-dst", target_database_identity="dst-id", **PROFILE, **RECHECK)
+    assert receipt["plan_digest"] == digest(expected)
+    for field in RECHECK:
+        assert digest(expected | {field: "other"}) != receipt["plan_digest"]
+        assert f.post("plans", body | {field: "other"}, "recheck").status_code == 409
+        assert f.backend.reopen().snapshot(receipt["plan_id"])[field] == RECHECK[field]
+    f.registry.evaluation_profiles = frozenset()
+    f.probe.results.clear()
+    replay = f.post("plans", body, "recheck")
+    assert replay.status_code == 200 and replay.json() == receipt
+    assert not f.probe.results
+
+
+@pytest.mark.parametrize("fields", [
+    {"recheck_profile_id": "apply-recheck"}, {"recheck_profile_version": "1"},
+    {"recheck_profile_id": None, "recheck_profile_version": None},
+    {"recheck_profile_id": "apply-recheck", "recheck_profile_version": 1},
+    {"recheck_profile_id": "invalid value", "recheck_profile_version": "1"},
+])
+def test_recheck_pair_rejected_before_probe(registered, fields):
+    f = registered
+    body = f.setup_workload()
+    f.probe.results.clear()
+    assert f.post("plans", body | fields, "invalid-recheck").status_code == 422
+    assert not f.probe.results
+
+
+def test_old_profile_plan_replays_without_nulls_or_in_place_recheck_upgrade(registered):
+    f = registered
+    body = f.setup_workload()
+    receipt = f.post("plans", body, "legacy-profile").json()
+    with f.store._transaction() as c:
+        original = dict(c.execute("SELECT * FROM plans WHERE plan_id=?", (receipt["plan_id"],)).fetchone())
+    assert not set(RECHECK) & receipt.keys()
+    assert f.post("plans", body, "legacy-profile").json() == receipt
+    assert f.post("plans", body | RECHECK, "legacy-profile").status_code == 409
+    with f.store._transaction() as c:
+        assert dict(c.execute("SELECT * FROM plans WHERE plan_id=?", (receipt["plan_id"],)).fetchone()) == original
+
+
+def test_old_plan_replay_is_preserved_but_cannot_add_profile_in_place(registered):
+    from bravo_platform_events.plans import PlanSpec, _canonical
+    from bravo_platform_events.registration import digest
+
+    f = registered
+    body = f.setup_workload()
+    old_body = {k: v for k, v in body.items() if k not in PROFILE}
+    plan_id = "plan-" + digest([TENANT, "plan", "old-key"])[:32]
+    spec = PlanSpec(plan_id, TENANT, body["workload_id"], "env-src", "env-dst", "a" * 64, "b" * 64)
+    f.store.register_plan(spec, run_id=plan_id, occurred_at=f.now.isoformat())
+    old_receipt = dict(plan_id=plan_id, plan_digest=spec.plan_digest, state="COLLECT", version=1)
+    # Restore a pre-profile registration as an immutable historical fixture.
+    with f.store._transaction(write=True, plan_id=plan_id) as c:
+        c.execute("INSERT INTO registrations VALUES (?,?,?,?,?,?)",
+                  (TENANT, "plan", plan_id, "old-key",
+                   _canonical(dict(actor=f.actor.subject_id, body=old_body)), _canonical(old_receipt)))
+    assert f.registry.register(f.actor, "plan", old_body, "old-key") == (old_receipt, False)
+    assert f.post("plans", body, "old-key").status_code == 409
+    assert "profile_id" not in f.backend.reopen().snapshot(plan_id)
+    fresh = f.post("plans", body, "new-key")
+    assert fresh.status_code == 201 and fresh.json()["plan_id"] != plan_id
+    assert f.backend.reopen().snapshot(plan_id)["plan_digest"] == spec.plan_digest
 
 
 def test_missing_foreign_or_unapproved_refs_never_probe(registered):
@@ -247,6 +387,7 @@ def test_operator_entrypoint_verifies_signed_identity_and_current_grant(tmp_path
     public.update(kid="test-key", alg="RS256", use="sig")
     config = dict(operator_verifier=dict(issuer=issuer, audience="api", client_id="ui", assurance="interactive",
                   subjects={"owner": TENANT}, public_jwks={"keys": [public]}),
+                  evaluation_profiles=[dict(tenant_id=TENANT, **PROFILE)],
                   environments=[dict(tenant_id=TENANT, environment_id="src", connection_ref="source-reader",
                         kind="aws", namespace="src", database="db", database_uid="database",
                         endpoint="https://api.example.invalid", ca_file=str(tmp_path / "ca"),
@@ -266,6 +407,12 @@ def test_operator_entrypoint_verifies_signed_identity_and_current_grant(tmp_path
         headers = {"Idempotency-Key": "key", "Authorization": "Bearer " + token}
         assert client.post(url, json=SRC, headers={"Idempotency-Key": "key", "X-Tenant-ID": TENANT}).status_code == 403
         assert client.post(url, json=SRC, headers=headers).status_code == 201
+        plan = dict(workload_id="missing-app", target_environment_id="missing-target", **PROFILE)
+        # The real host loads its trusted profile policy: only the allowed pair
+        # can reach registration lookup; a caller cannot select a weaker profile.
+        assert client.post("/v1/plans", json=plan, headers=headers).status_code == 404
+        denied = client.post("/v1/plans", json=plan | {"profile_id": "demo-gate"}, headers=headers)
+        assert denied.json()["detail"]["code"] == "evaluation_profile_unavailable"
         assert client.post(url, json=SRC, headers=list(headers.items()) + [("Idempotency-Key", "second")]).status_code == 422
         grants.write_text("[]")
         assert client.post(url, json=SRC, headers=headers).status_code == 403

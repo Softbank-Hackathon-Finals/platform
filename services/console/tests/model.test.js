@@ -14,6 +14,43 @@ function ready() {
   m.connected = true;
   return m;
 }
+test("snapshot accepts complete profile or legacy absence and rejects partial or invalid pairs", () => {
+  const profiled = {
+    ...snap,
+    profile_id: "fixture-profile",
+    profile_version: "1.0",
+  };
+  assert.deepEqual(snapshot(snap, plan), snap);
+  assert.deepEqual(snapshot(profiled, plan), profiled);
+  for (const key of ["profile_id", "profile_version"]) {
+    const partial = { ...profiled };
+    delete partial[key];
+    assert.throws(() => snapshot(partial, plan));
+    for (const value of [null, 1, "", "../profile", "x".repeat(129)])
+      assert.throws(() => snapshot({ ...profiled, [key]: value }, plan));
+  }
+  assert.throws(() => snapshot({ ...profiled, unknown: true }, plan));
+});
+
+test("snapshot profile identity cannot change while rereading a plan", () => {
+  const profiled = {
+    ...snap,
+    profile_id: "fixture-profile",
+    profile_version: "1.0",
+  };
+  for (const value of [
+    { ...profiled, profile_id: "other" },
+    { ...profiled, profile_version: "2.0" },
+    snap,
+  ]) {
+    const m = new Model(plan);
+    m.observeSnapshot(profiled, now);
+    assert.throws(() => m.observeSnapshot(value, now), /plan_changed/);
+  }
+  const legacy = new Model(plan);
+  legacy.observeSnapshot(snap, now);
+  assert.throws(() => legacy.observeSnapshot(profiled, now), /plan_changed/);
+});
 test("matching snapshot/history/gate permits only a bound approval request", () => {
   const m = ready();
   assert.equal(m.eligible(now), true);
@@ -154,4 +191,54 @@ test("bounded replay refuses large histories before accepting another record", (
   );
   assert.equal(m.state, "SHIFT");
   assert.equal(m.cursor, 3);
+});
+
+test("phase and application survive approval requests and receipts without relabeling", () => {
+  for (const phase of [
+    { gate_phase: "initial", application_id: null },
+    { gate_phase: "post_apply", application_id: "applied-one" },
+  ]) {
+    const value = { ...bind, ...phase };
+    assert.deepEqual(binding(value), value);
+    const m = new Model(plan);
+    m.observeSnapshot(snap, now);
+    const history = structuredClone(events);
+    history.at(-1).data.binding = value;
+    history.forEach((e) => m.accept(e));
+    m.connected = true;
+    assert.deepEqual(m.approvalRequest(now).binding, value);
+    const saved = { ...receipt, binding: value };
+    m.recordApproval(saved, m.approvalRequest(now));
+    assert.deepEqual(m.approval.binding, value);
+  }
+  for (const phase of [
+    { gate_phase: "post_apply", application_id: null },
+    { gate_phase: "initial", application_id: "applied-one" },
+    { gate_phase: "post_apply" },
+    { application_id: "applied-one" },
+    { gate_phase: "unknown", application_id: null },
+  ])
+    assert.throws(() => binding({ ...bind, ...phase }));
+});
+
+test("recheck profile pair is preserved and immutable across snapshots", () => {
+  const value = {
+    ...snap,
+    profile_id: "demo-gate",
+    profile_version: "1",
+    recheck_profile_id: "apply-recheck",
+    recheck_profile_version: "1",
+  };
+  assert.deepEqual(snapshot(value, plan), value);
+  for (const key of ["recheck_profile_id", "recheck_profile_version"]) {
+    const partial = { ...value };
+    delete partial[key];
+    assert.throws(() => snapshot(partial, plan));
+    const m = new Model(plan);
+    m.observeSnapshot(value, now);
+    assert.throws(
+      () => m.observeSnapshot({ ...value, [key]: "different" }, now),
+      /plan_changed/,
+    );
+  }
 });

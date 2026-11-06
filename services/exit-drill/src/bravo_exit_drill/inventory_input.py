@@ -71,6 +71,8 @@ class InventoryView:
     candidate_verdict: str
     dependencies: tuple[Dependency, ...]
     residuals: tuple[str, ...]
+    missing_capabilities: tuple[str, ...]
+    trace_notes: tuple[str, ...]  # T16이 배포를 따라가며 남긴 메모. 못 읽은 입력이 여기 적힌다
 
 
 def parse_inventory(doc: Any, *, candidate: str) -> InventoryView:
@@ -88,9 +90,18 @@ def parse_inventory(doc: Any, *, candidate: str) -> InventoryView:
             candidate_verdict=fit["verdict"],
             dependencies=tuple(_dependency(item, doc["source"]["env_kind"], fit["env_kind"]) for item in doc["items"]),
             residuals=tuple(fit["residual_dependencies"]),
+            missing_capabilities=tuple(fit["missing_capabilities"]),
+            trace_notes=_trace_notes(doc["deploy"]["notes"]),
         )
     except (KeyError, TypeError, AttributeError) as exc:
         raise ContractError(f"inventory field missing: {exc}") from exc
+
+
+def _trace_notes(notes: Any) -> tuple[str, ...]:
+    """T16 스키마가 요구하는 글자 목록이다. 없거나 모양이 다르면 '못 잰 것 없음'으로 읽지 않고 멈춘다."""
+    if not isinstance(notes, list) or not all(isinstance(note, str) for note in notes):
+        raise ContractError("inventory deploy notes malformed")
+    return tuple(notes)
 
 
 def _verify_digest(doc: dict) -> None:

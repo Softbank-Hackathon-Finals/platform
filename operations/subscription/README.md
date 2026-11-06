@@ -1,17 +1,26 @@
 # 구독 워커 무인 실행
 
-관리자가 한 번 연결한 Bravo 구독을 지정 VM에서 재사용한다. 실행 요청은 GitHub
-Actions OIDC로 인증하고, VM이 자체적으로 access/refresh token을 갱신한다.
-모델 프로세스에는 inference access token만 전달한다. AWS 자격과 refresh token은
-broker 메모리에만 존재하며 인증 값은 GitHub Secrets나 파일로 복사하지 않는다.
+관리자가 한 번 연결한 Bravo 구독을 지정 VM에서 재사용한다. 실행 요청은 **플랫폼 RKE2의
+Job 한 개**가 보내고, broker는 설치 때 고정한 클러스터 공개키로 그 Job의 projected token을
+검증한다. VM이 자체적으로 access/refresh token을 갱신한다. 모델 프로세스에는 inference
+access token만 전달한다. AWS 자격과 refresh token은 broker 메모리에만 존재한다.
+
+> **2026-11-06 GitHub Actions AI 경로 제거.** `subscription-initial-proposal.yml`·
+> `subscription-product.yml`·`subscription-runtime.yml`, Actions 실행부·dispatch·caller,
+> broker와 Reader의 GitHub OIDC 신뢰, Terraform controller 역할을 지웠다. Actions가 맡던
+> 역할은 다음처럼 옮겼다: 신원 → Job projected token과 Pod 이름 결속, 소스 고정
+> (`workflow_sha == runtime_source_sha`) → Reader 이미지 pin의 `sourceRevision` 대조,
+> 동시 실행 1개(`concurrency`) → 진행 중 Job이 있으면 원장 기록 전 `JOB_SLOT_BUSY`,
+> 시간 제한 → `activeDeadlineSeconds`, 1회 실행 → `backoffLimit: 0`과 고정 이름,
+> 결과 산출물 → 운영자 키로 봉인한 Job 로그 한 줄, 런타임 검증 → broker
+> `/validation/fixture`(Job 신원). 아래 절의 Actions 설명 중 남은 부분은 이력이다.
 
 ## 권한과 실행
 
-`infra/envs/subscription-runtime`은 기존 T7 노드 역할을 바꾸지 않고 전용 역할 두 개를
-만든다. controller는 지정 인스턴스의 고정 SSM 문서를 호출하고 고정 포트 터널을 열 수
-있다. broker는 팀 구독 Secret 한 개의 Get/Put/UpdateVersionStage만 허용한다.
-두 역할 모두 immutable repository ID, STS audience, 정확한 ref에 결속한다.
-검증 브랜치의 trust는 고정 만료시각을 갖고, 운영 경로는 보호된 develop이다.
+`infra/envs/subscription-runtime`은 기존 T7 노드 역할을 바꾸지 않고 broker 전용 역할
+하나를 만든다. broker는 팀 구독 Secret 한 개의 Get/Put/UpdateVersionStage만 허용하고,
+trust는 노드 역할 한 건(broker 전용 endpoint·보조 주소 조건)뿐이다. broker 시작·정지는
+운영자가 자기 SSO로 고정 SSM 문서를 호출한다.
 broker 역할의 AWS trust와 전용 STS endpoint 보안 그룹은 broker용 보조 사설 IPv4만
 허용한다. T7 운영자는 비공개 `platform-aws` 변수 `subscription_broker_ipv4`에 같은
 서브넷의 미사용 주소를 지정한다. T7이 기본 ENI에 보조 주소를 할당하고 인스턴스 태그에
@@ -49,8 +58,9 @@ controller는 GitHub 러너에서 같은 토큰으로 broker 역할의 직접 �
 권한을 지원하지 않아 Resource `*`를 사용한다.
 [AWS 권한 명세](https://docs.aws.amazon.com/service-authorization/latest/reference/list_ssm.html).
 
-터널은 AWS Session Manager의 TLS 채널을 사용한다. 워커의 HTTP listener는 VM loopback에만
-바인딩하며 전달된 OIDC token을 STS에서 검증한다. broker의 지속시간은 최대 650초,
+터널은 AWS Session Manager의 TLS 채널을 사용한다. listener는 VM loopback에만
+바인딩하며 전달된 OIDC token을 STS에서 검증한다. 제품 경로는 아래의 별도 HTTPS 수신기
+인증도 요구한다. 기존 합성 fixture 경로는 제품 호출의 대체 경로가 아니다. broker의 지속시간은 최대 650초,
 요청 수는 2회다. GitHub concurrency와 VM credential lock이 중복 갱신을 제한한다.
 부팅 시 자동 시작이나 주기 실행은 설정하지 않는다.
 
@@ -121,7 +131,7 @@ PASS는 proposal/source/attempt/evidence digest가 일치하는 receipt로 승�
 
 설치된 broker의 `POST /validation/fixture`는 고정 `examples/failure.json`, snapshot manifest, `examples/source`만 읽는다. 공식 `subscription-runtime` controller가 이 경로로 요청하며, 응답의 worker 결과와 VM에 보관한 `proposal.json`에는 `input_kind=synthetic_db_host_fixture`가 붙는다. 이 표기는 합성 DB_HOST 시험 결과의 출처다. controller는 이 값과 설치 소스 SHA, 실행 ID, 검증 영수증이 일치할 때만 합성 결과를 수락한다.
 
-기본 설치의 `POST /run`은 HTTP 503과 `NEEDS_HUMAN / PRODUCT_INPUT_UNAVAILABLE`를 반환한다. 호출자가 bundle·snapshot·입력 종류를 보내도 자격 조회와 모델 실행 전에 종료한다. 제품 경로는 아래 호스트 연결을 명시적으로 제공해야 열린다. 현재 CLI·installer·공식 workflow는 이 연결을 설치하지 않는다.
+기본 설치의 `POST /run`은 HTTP 503과 `NEEDS_HUMAN / PRODUCT_INPUT_UNAVAILABLE`를 반환한다. 호출자가 bundle·snapshot·입력 종류를 보내도 자격 조회와 모델 실행 전에 종료한다. 제품 경로는 아래 호스트 연결을 명시적으로 제공해야 열린다. 기본 installer·공식 합성 workflow는 이 연결을 설치하지 않는다. 아래의 제품 모드 opt-in과 실제 인증된 T10 조회 서비스가 필요하다.
 
 ### 제품 제안 호스트 연결
 
@@ -180,8 +190,9 @@ broker의 `ProductInputs.resolve`로 연결한다. `read(principal, input_ref)`�
 Admission/입력 digest, 실행/source/회차, 호출자·용도·만료를 다시 대조한다. 저장된 사본이나
 서명만으로 현재 권한 조회를 대신하지 않으며 조회 URL/함수를 HTTP 요청에서 받지 않는다.
 
-`ProductTunnelCall(reviewed_runtime_sha)`는 T15의 `call(body) -> (status, response)` 포트다.
-이미 수립된 전용 SSM TLS 터널의 `http://127.0.0.1:18762/run`만 호출하며 임의 endpoint,
+`ProductTunnelCall(reviewed_runtime_sha, ca_pem)`는 T15의 `call(body) -> (status, response)` 포트다.
+전용 SSM 터널 안에서도 `https://127.0.0.1:18762/run` 수신기의 지정 CA·IP SAN을
+본문 전송 전에 검증한다. 포트 사전 확인이나 TCP 연결 성공은 인증이 아니다. 임의 endpoint,
 환경 proxy, redirect, 자동 재시도를 허용하지 않는다. 응답 크기와 검토된 설치 SHA,
 제품/task digest를 확인한 제안만 반환한다. T15는 자신의 등록 입력과 Admission/snapshot을
 대조하고 기존 도구 계층으로 재검증한다. 응답 불명은 NEEDS_HUMAN이며 자동 새 호출을 하지 않는다.
@@ -189,8 +200,300 @@ Admission/입력 digest, 실행/source/회차, 호출자·용도·만료를 다�
 T10 workload JWT로 대체할 수 없다. 요청 `input_digest`는 ProductInput 전체이고, 응답의
 `product_input_digest`가 그 값이다. 응답 `input_digest`/`task_digest`는 T11 FailureBundle이다.
 
+### 제품 전용 설치와 호출 수명
+
+`install.py --product-reader <metadata.json>`은 검토된 소스와 기존 설정 외에 정확히
+`origin`(사설 HTTPS origin)과 `ca_file`(이미 마운트한 공개 CA의 절대 경로)만 받는다.
+토큰·인증 키·업무 입력은 설정 필드가 아니다. 이 opt-in은 같은 hardening unit의 실행 모듈을
+`bravo_agent.subscription_product_server`로 선택한다. 기본 설치는 제품 경로를 열지 않는다.
+T10 reader의 CA와 별도로 broker TLS 신원을 먼저 준비한다. 운영자가 지정 VM에
+`/etc/bravo-subscription/broker.crt`와 `broker.key`를 준비하며 인증서는 IP SAN
+`127.0.0.1`을 포함해야 한다. 키는 root 소유 0600이고 VM 밖으로 보내지 않는다.
+제품 설치기는 두 파일이 없으면 소스 설치 전에 중단한다. 제품 전용 systemd drop-in의
+`LoadCredential`이 DynamicUser의 비공개 credential mount에 인증서·키를 제공한다.
+제품 host는 이 TLS 신원이 없거나 키가 일치하지 않으면 journal 생성/리스너 시작 전에 멈춘다.
+
+검증된 공개 broker CA만 GitHub 저장소 변수 `BRAVO_SUBSCRIPTION_BROKER_CA_PEM`에
+등록한다. dispatch 입력이나 모델 결과에서 CA를 받지 않는다. 제품 workflow preflight는
+CA 누락·형식 오류를 OIDC/SSM 전에 거부한다. 호출자는 CA와 IP 이름 검증을 통과한 뒤에만
+`/run` 또는 `/input/probe`에 토큰 본문을 보낸다. 평문/다른 CA/다른 이름/만료 인증서에
+HTTP로 재시도하지 않는다. 이 등록·VM 설치·실제 TLS 인수는 코드 병합과 별도다.
+기존 합성 fixture 전용 설치/controller를 제품 실행의 대체 경로로 사용하지 않는다.
+
+CA가 없거나 잘못되면 제품 host는 시작하지 않는다. 영속 `product-journal`은 설치기가
+초기화하지 않으며, 제품 host에서는 합성 `/validation/fixture`를 404로 닫는다.
+
+broker가 기존 STS에서 `/run` 토큰을 검증한 뒤에만 host의 요청별 `request_inputs(token)`을
+만든다. 같은 토큰은 그 요청의 메모리에서 `ProductInputHTTPReader`에만 전달된다.
+broker 프로세스가 운영자 설정 origin의 `POST /internal/v1/product-inputs/read`로
+`{principal,input_ref}`를 보내며, Authorization에는 그 원 토큰을 사용한다. 이 경로는
+T10의 별도 workload JWT 발급이나 VM 전달을 만들지 않는다. T10은 고정 GitHub issuer·
+서명·audience·정확한 subject·immutable repository ID를 검증하고, 등록된 STS
+Provider/Audience/Subject 조합과 본문 principal을 대조한 뒤 현재 plan/purpose 권한을 읽는다.
+서명 검증만으로 입력 권한을 부여하지 않는다. STS Provider는 실측값을 운영자가 등록한다.
+
+조회기는 지정 CA를 사용하고 proxy·redirect·재시도를 막는다. 응답 상한은 16 MiB다.
+64개 파일의 UTF-8 바이트 상한에 JSON escaping이 더해지는 경우도 이 범위에서 수용하고,
+등록본의 실제 schema·내용 상한은 별도로 검사한다. 토큰은 journal·ProductInput·worker에
+들어가지 않는다. 오류에는 고정 사유만 반환한다.
+
+Actions 신원·SSM 창으로 broker를 부르던 caller는 제거했다. 요청은 플랫폼 Job이
+node loopback broker로 한 번 보낸다(아래 "플랫폼 Job으로 최초 제안 실행").
+
+T10은 기존 durable dispatch를 점유한 뒤 이 call과 token supplier를 자신의 `request_for`에
+주입한다. 등록/Admission·T15 Job·현재 권한·사람 승인은 여전히 기존 담당 포트가 소유한다.
+Actions 밖의 상시 T10 host에서 이 supplier를 호출하면 실패한다. 이 경우 실제 Actions 실행과
+T10 단일 dispatch를 연결할 검토된 orchestration 경로를 먼저 인수해야 하며 토큰 파일 복사로
+대체하지 않는다. 이 모듈은 workflow를 생성하거나 기존 합성 controller를 제품 호출로 바꾸지 않는다.
+
 실제 제품 실행 전에는 인증 입력 조회기의 배치·접근·수명, 영속 journal의 격리·보존,
 T15의 원격 제안 소비 어댑터를 인수해야 한다. 목적지 API/RBAC와 credential 전달도 해당
 담당의 별도 인수 대상이다. 로컬 가짜 provider 시험은 이 연결이나 실환경 인수를 증명하지 않는다.
 
 교체 전에는 workflow 실행을 비활성화하고 진행 중인 broker와 터널이 정리될 때까지 기다린다. 같은 검토 commit의 VM broker와 GitHub controller를 배치하고 `BRAVO_SUBSCRIPTION_SOURCE_SHA`를 맞춘 뒤 합성 시험을 다시 연다. 새 controller가 구 broker를 호출하면 합성 전용 경로가 없어 실패하고, 구 controller가 새 broker를 호출하면 `/run`에서 503을 받는다. 구 버전 응답처럼 출처 표기가 빠진 경우에도 새 controller는 SSM verify를 접수하지 않는다. 어느 경우에도 다른 경로로 재시도하지 않는다. 교체 실패 시 workflow를 닫은 상태에서 일치하는 새 쌍을 복구한다. 구 쌍을 복원해야 하면 구 `/run`이 다시 합성 입력을 처리하므로 제품 호출은 계속 닫아 둔다.
+
+### 제품 입력 인증만 확인하기
+
+제품 host의 `POST /input/probe`는 `/run`과 같은 `ProductRequest`, STS 인증,
+현재 입력 조회·digest·소스 검증을 사용한다. 성공은 `INPUT_AUTHENTICATED`와
+요청/입력/Admission/주체 digest 및 설치 SHA만 반환한다. 모델 호출, 제안 claim,
+소스 staging, T15 dispatch/검증 또는 승인 대기는 수행하지 않는다. 매 요청마다
+현재 권한을 다시 읽으며 토큰·STS 자격·원문 입력은 응답에 포함하지 않는다.
+
+Actions의 인수 코드에서는 `product_probe_window`와 기존 메모리 OIDC supplier를
+사용할 수 있다. 이 창은 고정 SSM start/tunnel/stop과 한 요청 제한을 재사용한다.
+제품 host의 기존 두 요청/600초 한도를 소비하며, probe 성공 뒤 실제 실행은
+같은 Admission에 대한 T10의 별도 단일 dispatch 결정을 거쳐야 한다. probe 성공이
+운영 배포·모델 제안·T15 통합 완료를 뜻하지 않는다. 실제 입력·origin/CA·배치가
+준비되기 전 이 접점을 실행하지 않는다.
+
+### 한 제품 실행을 시작하고 같은 결과 읽기
+
+Actions `subscription-product.yml`과 운영자 dispatch(`subscription_product_dispatch`)는
+제거했다. 실행별 공개 수신키와 원장은 `bravo_agent.product_ledger.OperatorLedger`로
+남겼고, 최초 제안은 플랫폼 Job으로 실행한다. T10은 intent를 커밋하기 전에 운영자의
+`recipient(request_id)`가 반환한 공개키를 결속하며, 복호키는 운영자 state-dir에 0600으로만
+둔다. 리허설 시점의 제품(재)제안을 Job으로 실행하는 운반자는 아직 없다. 운영 러너는
+저장된 최초 제안을 쓴다(`StoredProposalSource`).
+
+```sh
+python -m bravo_platform_events.initial_proposal_job submit \
+  --intent intent.json --state-dir .private/initial-executions --output receipt.json
+# 결과가 아직 없거나 응답이 불명이면 같은 intent/state-dir를 조회한다. 다시 만들지 않는다.
+python -m bravo_platform_events.initial_proposal_job read \
+  --intent intent.json --state-dir .private/initial-executions --output receipt.json
+```
+
+### 플랫폼 T10과 기존 운영자 호스트 사이의 한 번 전달
+
+T10 DB/Coordinator는 플랫폼의 기존 runtime 자격 mount와 같은 프로세스에 둔다.
+`gh` 로그인과 결과 복호 개인키는 기존 운영자 호스트에 남긴다.
+`bravo_agent.product_execution_mailbox.FileProductExecution`은 T10의
+`recipient/submit/read` client 포트를 전용 파일 인계로 연결한다. AWS/GitHub 인증,
+plan 승인, 새 스케줄러 또는 상시 네트워크 서버를 추가하지 않는다.
+
+배치 담당은 실제 T10 UID 소유 0700 디렉터리 한 곳을 같은 Admission/attempt 1에
+배정한다. 일반 API 요청·모델·SSM upload 본문으로 디렉터리나 Pod를 선택하지 않는다.
+공유 실행 창에서 기존 SSO의 계정/역할 ID, 플랫폼 instance, 대상 namespace/Pod UID,
+설치 SHA와 실제 프로세스 UID를 대조한 뒤 해당 경로만 인수한다. T10 담당의 읽기 전용
+준비 조회가 반환한 여섯 필드에 위 운영자 `recipient(request_id)` 공개키를 붙인다.
+새 request_id를 임의로 만들어 기존 durable intent를 우회하지 않는다.
+
+| 파일 | 누가 기록하는가 | 의미 |
+|---|---|---|
+| `prepared.json` | 인증된 운영자, T10 UID로 실행 | 전체 일곱 필드의 사전 준비. 실행 시작 아님 |
+| `intent.json` | T10 `submit`, DB intent 커밋 이후 | 같은 준비값을 불변 게시한 실행 요청 |
+| `receipt.json` | 인증된 운영자, T10 UID로 실행 | GitHub 출처·암호문·정리까지 확인한 동일 실행 결과 |
+
+모든 파일은 0600이며 원자적 게시 후 fsync한다. 같은 값은 다시 읽고 다른 값은
+덮어쓰지 않는다. 심볼릭 링크·FIFO·다른 UID·공개 파일·크기 초과·교체 디렉터리를 거부한다.
+`recipient`는 plan 잠금 안에서 로컬 준비 파일만 읽는다. `submit` 뒤 결과가 없으면
+Pending, intent 자체가 없거나 결속이 다르면 Unknown이다. `read`는 intent를 만들지
+않으며, 재시작·응답 유실을 새 dispatch로 복구하지 않는다. 결과 수신은 여전히 T10의
+현재 권한 재검사와 T15의 검증을 통과해야 한다.
+
+실행 창의 전달 순서는 다음과 같다. 아래 명령은 각 호스트의 검토된 agent-worker
+환경에서 실행한다. `$MAILBOX_DIR`는 배치 담당이 지정한 T10 전용 경로,
+`$REMOTE_PORT`/`$LOCAL_PORT`는 그 창에만 할당한 loopback 포트다.
+
+1. 기존 SSO/SSM으로 확인한 정확 Pod/UID에서 `prepare`를 실행한다. stdin에는 공개
+   metadata만 넣는다. T10 host에는 이 디렉터리의 `FileProductExecution`을 주입한다.
+
+   ```sh
+   python -m bravo_agent.product_mailbox_transfer prepare --directory "$MAILBOX_DIR" < intent.json
+   ```
+
+2. T10이 현재 권한 검사와 DB claim을 마치고 `submit`한 뒤, 같은 Pod/UID에서
+   `claimed`를 읽는다. 이 명령의 출력은 공개 intent 필드뿐이다. 준비 파일만 있고
+   게시된 intent가 없으면 중단한다. 받은 일곱 필드가 사전 준비 원문과 같을 때만
+   운영자 호스트의 `initial_proposal_job submit/read`를 사용한다.
+
+   ```sh
+   python -m bravo_agent.product_mailbox_transfer claimed --directory "$MAILBOX_DIR"
+   ```
+
+3. provider 검증·복호가 끝난 receipt를 운영자 로컬 0600 파일로 보관한다.
+   `product_execution_mailbox.encode(receipt)`의 canonical bytes 길이·SHA-256만
+   SSM 명령에 전달해 같은 T10 Pod에서 수신기를 시작한다. 결과 본문·JWT·개인키는
+   SSM 명령/argv/출력으로 전달하지 않는다. 최대 1 MiB·120초·PUT 한 건만 받는다.
+   수신기는 `127.0.0.1`에만 TLS로 bind하며 ready metadata 뒤 종료 영수증만 출력한다.
+   `$T10_TLS_CERT`/`$T10_TLS_KEY`는 T7 배치 담당이 인수한 기존 T10 서버 인증서 mount다.
+   인증서에는 `127.0.0.1` IP SAN이 있어야 하며, 평문 또는 검증 생략 모드는 없다.
+
+   ```sh
+   python -m bravo_agent.product_mailbox_transfer receive --directory "$MAILBOX_DIR" \
+     --port "$REMOTE_PORT" --sha256 "$RECEIPT_SHA256" --bytes "$RECEIPT_BYTES" --seconds 120 \
+     --tls-cert "$T10_TLS_CERT" --tls-key "$T10_TLS_KEY"
+   ```
+
+4. 기존 창 담당이 그 Pod UID를 다시 확인하고 loopback port-forward와 기존 SSM
+   포트 터널을 연다. 이 포트를 Service/Ingress/공개 주소로 노출하지 않는다.
+   receiver의 기대 해시는 인증된 SSM 제어 경로에서 정하며 HTTP 입력이 바꾸지 못한다.
+   operator upload는 환경 프록시·redirect를 사용하지 않고 loopback으로만 전송한다.
+   `$T10_PUBLIC_CA`는 같은 서버의 인수된 공개 CA다. TLS CA·주소 검증이 업로드보다
+   먼저 끝나야 하므로, 터널이 다른 로컬 listener로 바뀌어도 결과 본문은 전송되지 않는다.
+
+   ```sh
+   uv run --frozen python -m bravo_agent.product_mailbox_transfer upload \
+     --intent intent.json --receipt receipt.json --port "$LOCAL_PORT" --ca-file "$T10_PUBLIC_CA"
+   ```
+
+5. 같은 Pod/UID의 `receipt-status`에서 request_id·hash·size를 다시 읽는다. 출력에
+   제품 원문은 없다. 업로드 응답이 유실돼도 같은 receipt 상태부터 읽고 workflow를
+   재발행하지 않는다. T10은 파일을 읽고 현재 권한을 재검사한다. 창 담당은 자신이
+   시작한 receiver PID/시작 신원, port-forward와 SSM session을 정리하고 listener
+   부재를 확인한다. 영속 intent/receipt는 결과 인수 전 임의로 삭제하지 않는다.
+
+   ```sh
+   python -m bravo_agent.product_mailbox_transfer receipt-status --directory "$MAILBOX_DIR"
+   ```
+
+이 코드는 전달 도구다. 실제 Pod/디렉터리 배치, SSO/SSM 창과 TLS, 운영 등록 입력,
+T15 token-free 소비 경로가 준비됐다는 증거는 아니다. 동일 DB/Coordinator/AttemptStore
+프로세스를 운영자 호스트로 옮기거나 기존 runtime 자격을 복사해 맞추지 않는다.
+
+## 플랫폼 Job으로 최초 제안 실행
+
+최초 제안(T38 `t38-initial-proposal`)은 GitHub Actions 대신 플랫폼 RKE2의 Job 한 개로 실행한다.
+기존 Actions 경로와 GitHub trust는 그대로 두며, Job 경로가 실환경에서 확인된 뒤 정리한다.
+
+- **신원:** Job은 `bravo-initial/initial-proposal` SA의 projected token(audience
+  `bravo-subscription-broker`, 600초)만 받는다. broker와 플랫폼 Reader는 설치 때 고정한 클러스터
+  공개키로 이 토큰을 검증한다. 클러스터 발급자를 IAM에 연동하지 않으므로 apiserver 설정과 기존
+  SA·사람 자격은 바뀌지 않는다. Reader는 bound Pod 이름 `bravo-initial-<실행 ID>-xxxxx`로 요청의
+  실행 ID를 결속한다.
+- **AWS 권한:** broker는 토큰 검증 뒤 노드 역할로 broker 역할을 받는다. trust는 broker 전용
+  endpoint와 보조 주소 조건을 그대로 요구하므로, 같은 노드 역할을 쓰는 다른 Pod·호스트 연결은 기존
+  보안 그룹과 nft guard에서 거부된다. Job에는 AWS 자격, 모델 키, 쓰기 RBAC가 없다.
+- **한 번만 실행:** 운영자는 기존 원장에 전송 표식을 먼저 저장하고, 요청 ID에서 정한 고정 이름으로
+  Job을 만든다(`backoffLimit: 0`). 응답을 잃어도 같은 이름의 재생성은 AlreadyExists이며, 다시
+  실행하지 않고 같은 Job만 읽는다. 결과는 운영자 키로 봉인한 영수증 한 줄을 Job 로그에서 회수한다.
+- **설치(IaC):** namespace `bravo-initial`·SA·공개 broker CA ConfigMap과 Pod 승인 정책은
+  `infra/gitops/argocd`의 `initialProposal`(기본 비활성)로 관리한다. 정책은 이 namespace에서
+  고정 SA·Reader 이미지·broker audience 토큰만 가진 Pod만 허용한다. Job 이미지는 GitOps가 배포하는
+  `environments/development/product-reader-image.json` 값을 그대로 쓴다. broker 설정의
+  `workload_identity`(issuer·audience·subject·`public_keys` kid→PEM)와 Reader 설정 v2의
+  `job_identity`(issuer·audience·subject·`jwks_file`)는 같은 클러스터 `/openid/v1/jwks`
+  조회 결과로 넣고, 키 회전 때 같이 갱신한다. Reader 설정 v1(GitHub 필드)은 거부된다.
+- **실행:** 운영자 SSO로 broker를 `bravo-subscription-service start`로 켠 뒤
+  `python -m bravo_platform_events.initial_proposal_job submit --intent … --state-dir … --output …`,
+  완료까지 같은 명령의 `read`로 조회하고 broker를 `stop`한다.
+- **신뢰 경계:** namespace는 hostNetwork 때문에 `enforce: privileged`다. 그래서 이 namespace에
+  Pod·Job을 만들 수 있는 주체가 곧 이 경로의 신뢰 경계다. 쓰기 권한은 운영자 개인 kubeconfig에만
+  있고, Argo 컨트롤러·AI 워커·CI에는 RoleBinding을 두지 않는다. 승인 정책은 privileged·hostPath·
+  hostPID/IPC·initContainers·Secret 참조를 거부한다.
+- **선점 방지:** 봉인은 intent의 공개키만 있으면 누구나 할 수 있으므로 영수증 모양은 출처가
+  아니다. 운영자는 첫 create가 AlreadyExists면 `JOB_NAME_PREEMPTED`로 멈춘다. `read`는 관측한
+  Job의 Pod spec이 운영자가 만들 manifest와 서버 기본값을 빼고 정확히 같은지(command·args·env·
+  volumeMounts·SA·automount·hostNetwork·volume audience/expiration 포함), `creationTimestamp`가
+  원장의 `dispatch_sent_at`(초 단위) 이후인지 확인한 뒤에만 로그를 연다.
+- **토큰 회수:** broker는 JWKS로 오프라인 검증하므로 Pod가 끝나거나 삭제돼도 토큰은 `exp`까지
+  (최대 600초) 유효하다. Pod 종료 뒤 회수는 확인하지 않는다. 노드 loopback과 nft guard가 경계다.
+
+### 이 경로에서 AI의 역할
+
+AI는 **최초 변경 제안서 한 건을 쓰는 작성자**다. 실행·판정·배포는 하지 않는다(설계 8.1·8.3).
+
+| 하는 일 | 하지 않는 일 |
+|---|---|
+| T16 등급·스냅샷을 읽고 JSON Schema 제안서(`plan.propose`)를 낸다 | 파일 적용·명령 실행·merge·배포·컷오버 |
+| 정책 린트(`policy.evaluate`)로 미리 확인한다 | 게이트 판정, 승인, 재시도 결정 |
+| 실패 원인 추정·승인자용 요약 문장 | 운영 kubeconfig·DB·AWS 자격 사용 |
+
+Job은 **운반자**일 뿐 모델을 부르지 않는다. 모델 호출은 broker의 격리된 자식 프로세스(T11
+워커)가 하고, Job은 봉인된 영수증만 남긴다. 제안서는 이후 T15 리허설 검증과 T10 사람 승인을
+거쳐야 T31이 반영한다.
+
+### 배규태 구현안(도구 화이트리스트·샌드박스·가드레일)과 이 경로의 대응
+
+근거: 배규태 「(참고용) 결정적 워크플로우 × 비결정적 판단 구현안」 4·5절, 「(참고용) Harbor 도입 관련」
+3절 방안 1, 설계 8.3·8.4. 원칙은 "에이전트는 제안서만 내고, 실행과 판정은 파이프라인이 한다"이다.
+
+**도구 화이트리스트.** 에이전트(Agent SDK)는 아래 이름만 호출할 수 있다. 목록에 없거나 아직 제공하지
+않는 도구는 호출 전에 거부하고 감사 사유만 남긴다(`TOOL_NOT_PROVIDED`·`DESTRUCTIVE_ATTEMPT_BLOCKED`).
+OpenAI 경로는 `Tools.allowed`/`deny_unprovided`, Claude 경로는 같은 판정을 `PreToolUse` 훅과
+`allowed_tools`로 적용한다.
+
+| 설계 8.3 도구 | 하는 일 | 이 경로 |
+|---|---|---|
+| `inventory.describe` | 수집된 설정·의존성(T16 등급) 조회 | 제공(인벤토리를 붙인 실행만) |
+| `repo.read` | 앱 스냅샷 파일 읽기 | 제공 |
+| `policy.evaluate` | 제안서 정책 린트, 부작용 없음 | 제공 |
+| `plan.propose` | 스키마 제안서 제출(적용 안 함) | 제공 |
+| `rehearsal.exec` | 리허설 namespace 안에서만 명령 | 미제공 — T42 #373(기본값 꺼짐), T38 `exec_enabled`·T15 통로 미구현 |
+| `rehearsal.run` / `result` | 검증 Job 실행 요청·결과 조회 | 미제공 — 같은 조건 |
+
+**샌드박스(Agents SDK + Harbor).** 런타임 샌드박스는 Agents SDK `SandboxAgent`의 Docker 샌드박스다
+(아래 "Agents SDK 샌드박스"). Harbor는 같은 이미지·검증 스크립트로 반복 평가(T26)에 쓴다.
+
+| 경계 | 이 경로 | 남은 한계 |
+|---|---|---|
+| 네트워크: 에이전트의 실행은 망에 닿지 않음 | 셸·파일 수정은 `network_mode="none"` 컨테이너 안에서만 실행된다. Job Pod는 broker loopback만 부르고 자격·Secret·포트가 없다. | 모델 루프(broker 자식 프로세스)의 송신은 LLM API로 제한하는 규칙이 아직 없다. |
+| 검증기 분리: 에이전트가 검사 로직을 못 건드림 | 컨테이너 수정은 밖으로 복사되지 않는다. 제안서는 platform-events·T15 독립 검증이 판정한다. | — |
+| 행동 기록: 한 일 전부 기록 | `RunHooks`가 샌드박스 호출을 `sandbox.exec`로, 정책이 차단을 `DESTRUCTIVE_ATTEMPT_BLOCKED`로 남기고 broker 원장 `audits`에 보존한다. 기록을 못 쓰면 제안서를 내보내지 않는다. | 영수증의 `tool_events_status`는 `UNAVAILABLE`(ADR-0019 §7). |
+
+**가드레일(구현안 4절).**
+
+| 규칙 | 이 경로에서 지키는 방법 | 남은 한계 |
+|---|---|---|
+| 출력은 스키마로만 | `Proposal` JSON Schema와 스냅샷 `before_sha256` 대조. Reader·운영자가 `schema_valid`·`lint_passed`를 다시 확인한다. | — |
+| 실행 권한 없음 | 원본은 스냅샷 읽기만, 쓰기 도구 없음. Job에는 AWS·모델 자격과 쓰기 RBAC가 없고 운영 kubeconfig·DB 계정을 발급하지 않는다. | — |
+| 파괴적 명령 차단(도구 계층) | 인자를 분류해 `DESTRUCTIVE_ATTEMPT_BLOCKED`와 범주만 기록(ADR-0019). 프롬프트에 의존하지 않는다. | 알려진 패턴만 본다. |
+| 재시도 상한 | Coordinator 시도 3회 상한, 넘으면 `NEEDS_HUMAN`. 최초 제안은 `backoffLimit: 0` Job 한 번이다. | — |
+| 판정·실행에 LLM 금지 | 이 경로의 판정 모듈(platform-events)은 LLM 클라이언트를 import하지 않는다. | — |
+| 전부 기록 | 위 행동 기록과 같다. | 위와 같다. |
+
+### 모델 선택 (설정 파일)
+
+모델은 코드가 아니라 환경 설정으로 고른다. 설치 때 `install.py --model-config <파일>`이 broker
+설정에 합친다. metadata 설정(`--settings`)에는 모델을 넣지 않는다.
+
+- `infra/gitops/environments/development/agent-model.json`: 리허설(해피패스) 값.
+  `{"provider": "chatgpt-plan", "model": "gpt-6.1-sol", "reasoning_effort": "medium"}`
+- `reasoning_effort`가 없으면 제공자 기본값이다. 값은 형식만 검사하고, 허용 등급은 제공자 계약을 따른다.
+- 다른 환경이나 사용자 선택은 같은 형식의 파일을 따로 두고 설치한다.
+
+### Agents SDK 샌드박스
+
+`agent-model.json`에 `sandbox_image`(digest 고정)를 두면 OpenAI 경로가 Agents SDK
+`SandboxAgent`로 실행된다. 모델 루프와 키는 broker 쪽에 있고, 셸과 파일 수정은 세션 VM의
+Docker 컨테이너(`network_mode="none"`) 안에서만 일어난다. 컨테이너에는 승인된 스냅샷 사본만
+넣는다(`Manifest`). 밖으로 나오는 것은 `plan_propose` 제안서뿐이고, 기존 정책·T15·승인을
+그대로 거친다. 도구는 `Shell` capability(`exec_command`) 하나뿐이다. 파괴 명령은 SDK
+`tool_input_guardrail`이 `DESTRUCTIVE_ATTEMPT_BLOCKED`로 막고, 모든 샌드박스 호출은 `RunHooks`가
+행동 기록(`sandbox.exec`)으로 남긴다. broker 설정 `sandbox_docker`
+(`DOCKER_HOST`·`DOCKER_TLS_VERIFY`·`DOCKER_CERT_PATH`)가 세션 VM의 Docker 엔드포인트다.
+Harbor는 같은 이미지·검증 스크립트로 반복 평가(T26)에만 쓴다.
+
+### 모델 제공자 선택
+
+broker 설정의 `provider`로 명시적으로 고른다. 자동 전환은 없다(ADR-0007).
+
+- `chatgpt-plan`(기본): 관리자가 연결한 ChatGPT 구독(SIWC)으로 OpenAI Agents SDK를 쓴다.
+  해피패스는 이 경로를 쓴다.
+- `claude`: Claude Agent SDK 어댑터(`bravo_agent.sdk`)를 **Anthropic API 키**로 쓴다.
+  `anthropic_key_file`에 broker 사용자 소유·`0600` 파일 경로를 넣는다. 값은 플랫폼 OpenBao에서
+  공급하며 저장소·로그·명령행에 남기지 않는다. broker 설치에 `bravo-agent-worker[claude]`가
+  필요하다. claude.ai 구독 로그인은 쓰지 않는다. Anthropic은 사전 승인 없이 제3자 제품(Agent SDK로
+  만든 에이전트 포함)에 claude.ai 로그인·사용량 한도를 제공하는 것을 허용하지 않는다
+  ([Agent SDK 개요](https://code.claude.com/docs/en/agent-sdk/overview)).

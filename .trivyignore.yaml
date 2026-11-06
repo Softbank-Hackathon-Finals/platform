@@ -1,5 +1,9 @@
 # Reviewed exceptions apply only to these files, never the whole repository.
 misconfigurations:
+  - id: AVD-KSV-0056
+    paths:
+      - infra/gitops/argocd/templates/registration-rbac.yaml
+    statement: T43 controller manages only the named t10-registration Service. Named update/delete RBAC plus fail-closed ValidatingAdmissionPolicy constrain create to that name and ClusterIP; no NodePort or LoadBalancer. Controller cannot modify the admission policy.
   - id: AVD-KSV-0053
     paths:
       - services/rehearsal-runner/templates/20-rbac.yaml
@@ -18,3 +22,8 @@ misconfigurations:
       - infra/envs/loadgen-aws/main.tf
     expired_at: 2026-11-30
     statement: Load generator must reach Cloudflare Edge, SSM, package hosts and Tailscale on addresses that change; outbound is TCP 443 only, inbound is empty and tested, and the VPC peers with nothing. Remove with the stack after the demo.
+  - id: AVD-AWS-0104
+    paths:
+      - infra/envs/sandbox-session/main.tf
+    expired_at: 2026-11-30
+    statement: Agent sandbox Docker host needs TCP 443 to dnf mirrors, the registry for digest-pinned images and SSM, whose addresses change. Sandbox containers run with network_mode none and cannot use it; inbound is the platform node /32 on Docker mTLS only; no public IP. Restrict to VPC endpoints or remove with the stack after the demo.

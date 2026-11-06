@@ -21,6 +21,7 @@ def main(argv: list[str] | None = None) -> int:
     s = sub.add_parser("scan", help="repo + deployment exports → inventory.json")
     s.add_argument("--app-id", required=True)
     s.add_argument("--repo", required=True, type=Path)
+    s.add_argument("--repo-ref", help="registered repo reference written to app.repo, e.g. org/demo-chat (default: directory name; the local path is never written)")
     s.add_argument("--app-path", default=".")
     s.add_argument("--source-env", required=True, help="env id of the source, e.g. aws-seoul")
     s.add_argument("--source-kind", default="aws", choices=["aws", "gcp", "onprem"])
@@ -46,7 +47,7 @@ def main(argv: list[str] | None = None) -> int:
         env_id, _, d = spec.partition("=")
         exports[env_id] = Path(d)
     doc = build_inventory(
-        app_id=args.app_id, repo=args.repo, app_path=args.app_path,
+        app_id=args.app_id, repo=args.repo, repo_ref=args.repo_ref, app_path=args.app_path,
         source_env={"env_id": args.source_env, "env_kind": args.source_kind, "namespace": args.namespace},
         adapter=adapter, profiles=args.profile, exports=exports, source_sha=args.source_sha,
     )

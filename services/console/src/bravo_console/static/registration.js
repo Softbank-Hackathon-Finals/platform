@@ -1,5 +1,5 @@
 import { ApiError, request } from "./transport.js";
-import { identifier } from "./model.js";
+import { evaluationProfile, identifier } from "./model.js";
 
 const paths = {
   environment: "/v1/environments",
@@ -21,7 +21,12 @@ const fields = {
     "source_environment_id",
     "namespace",
   ],
-  plan: ["workload_id", "target_environment_id"],
+  plan: [
+    "workload_id",
+    "target_environment_id",
+    "profile_id",
+    "profile_version",
+  ],
 };
 const safeText = (value, max) =>
   typeof value === "string" &&
@@ -32,13 +37,21 @@ const hash = (value) =>
   typeof value === "string" && /^[a-f0-9]{64}$/.test(value);
 
 export function registrationInput(kind, input) {
+  const hasRecheck =
+    kind === "plan" &&
+    input &&
+    typeof input === "object" &&
+    ("recheck_profile_id" in input || "recheck_profile_version" in input);
+  const expected = hasRecheck
+    ? [...fields.plan, "recheck_profile_id", "recheck_profile_version"]
+    : fields[kind];
   if (
     !fields[kind] ||
     !input ||
     typeof input !== "object" ||
     Array.isArray(input) ||
-    Object.keys(input).length !== fields[kind].length ||
-    fields[kind].some((key) => !(key in input))
+    Object.keys(input).length !== expected.length ||
+    expected.some((key) => !(key in input))
   )
     throw new ApiError("invalid_registration_input");
   const value = structuredClone(input);
@@ -65,6 +78,15 @@ export function registrationInput(kind, input) {
   ])
     if (key in value && !identifier(value[key]))
       throw new ApiError("invalid_registration_input");
+  if (
+    kind === "plan" &&
+    (![value.profile_id, value.profile_version].every(evaluationProfile) ||
+      (hasRecheck &&
+        ![value.recheck_profile_id, value.recheck_profile_version].every(
+          evaluationProfile,
+        )))
+  )
+    throw new ApiError("invalid_registration_input");
   if (
     kind === "environment" &&
     (!Array.isArray(value.roles) ||
@@ -148,13 +170,41 @@ export function registrationReceipt(kind, input, value) {
     !identifier(value.source_environment_id) ||
     value.workload_id !== input.workload_id ||
     value.target_environment_id !== input.target_environment_id ||
+    ![
+      input.profile_id,
+      input.profile_version,
+      value.profile_id,
+      value.profile_version,
+    ].every(evaluationProfile) ||
+    value.profile_id !== input.profile_id ||
+    value.profile_version !== input.profile_version ||
+    Object.hasOwn(input, "recheck_profile_id") !==
+      Object.hasOwn(input, "recheck_profile_version") ||
+    ["recheck_profile_id", "recheck_profile_version"].some(
+      (key) =>
+        Object.hasOwn(value, key) !== Object.hasOwn(input, key) ||
+        value[key] !== input[key] ||
+        (Object.hasOwn(value, key) && !evaluationProfile(value[key])),
+    ) ||
     value.state !== "COLLECT" ||
     value.version !== 1 ||
     !hash(value.plan_digest) ||
     !hash(value.collection_scope_digest)
   )
     throw new ApiError("invalid_registration_receipt");
-  return { ...result, id: value.plan_id, state: value.state };
+  return {
+    ...result,
+    id: value.plan_id,
+    state: value.state,
+    profile_id: value.profile_id,
+    profile_version: value.profile_version,
+    ...(Object.hasOwn(value, "recheck_profile_id")
+      ? {
+          recheck_profile_id: value.recheck_profile_id,
+          recheck_profile_version: value.recheck_profile_version,
+        }
+      : {}),
+  };
 }
 
 // One in-flight registration; payload and key survive ambiguous responses only in memory.
@@ -223,7 +273,7 @@ export function mountRegistration({ onPlan, onForbidden }) {
       if (activeEpoch !== epoch) return;
       attempt = null;
       const row = document.createElement("li");
-      row.textContent = `${receipt.kind === "environment" ? (receipt.role === "source" ? "출발 환경" : "목적 환경") : receipt.kind === "workload" ? "앱" : "계획"}: ${receipt.id} · 등록 ${receipt.registered_at}${receipt.warnings.length ? " · 권한 경고: " + receipt.warnings.join(", ") : ""}`;
+      row.textContent = `${receipt.kind === "environment" ? (receipt.role === "source" ? "출발 환경" : "목적 환경") : receipt.kind === "workload" ? "앱" : "계획"}: ${receipt.id} · 등록 ${receipt.registered_at}${receipt.kind === "plan" ? " · 평가 프로필 " + receipt.profile_id + " / " + receipt.profile_version : ""}${receipt.warnings.length ? " · 권한 경고: " + receipt.warnings.join(", ") : ""}`;
       output.append(row);
       while (output.children.length > 20) output.firstChild.remove();
       if (receipt.kind === "environment") {
@@ -266,6 +316,13 @@ export function mountRegistration({ onPlan, onForbidden }) {
       event.preventDefault();
       if (attempt) return;
       const data = Object.fromEntries(new FormData(form));
+      if (
+        data.recheck_profile_id === "" &&
+        data.recheck_profile_version === ""
+      ) {
+        delete data.recheck_profile_id;
+        delete data.recheck_profile_version;
+      }
       try {
         if (form.dataset.registration === "environment") {
           const choice = environmentChoices.get(data.kind);

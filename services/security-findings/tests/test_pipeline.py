@@ -118,6 +118,68 @@ def test_capabilities_show_missing_detection(rules):
     assert caps["env-onprem"]["runtime_threat"]["sources"] == ["falco"]
 
 
+@pytest.mark.parametrize("had_success", [False, True])
+def test_provider_disabled_detection_is_absent_without_changing_failure_contract(rules, had_success):
+    store = Store()
+    store.register_source("aws_guardduty", "env-aws")
+    if had_success:
+        store.record_success("aws_guardduty", "env-aws", T0 - 1)
+    store.record_failure("aws_guardduty", "env-aws", T0, "NOT_ENABLED")
+    view = View(store, rules)
+    caps = view.capabilities(T0)["environments"][0]["capabilities"]
+    for name in ["network_threat", "runtime_threat"]:
+        assert caps[name] == {"available": False, "sources": [], "states": {}}
+    [status] = view.statuses(T0)
+    assert status["state"] == "FAILED"
+    assert status["error_code"] == "NOT_ENABLED"
+    assert view.summary(T0)["environments"][0]["cells"]["THREAT"]["state"] == "UNKNOWN"
+
+
+def test_other_source_preserves_capability_and_reenabled_source_recovers(rules):
+    store = Store()
+    for source in ["aws_guardduty", "aws_security_hub"]:
+        store.register_source(source, "env-aws")
+    store.record_failure("aws_guardduty", "env-aws", T0, "NOT_ENABLED")
+    store.record_success("aws_security_hub", "env-aws", T0)
+    view = View(store, rules)
+    cell = view.capabilities(T0)["environments"][0]["capabilities"]["network_threat"]
+    assert cell == {
+        "available": True, "sources": ["aws_security_hub"],
+        "states": {"aws_security_hub": "OK"},
+    }
+    store.record_success("aws_guardduty", "env-aws", T0 + 1)
+    # A late old NOT_ENABLED result must not erase a newer success.
+    store.record_failure("aws_guardduty", "env-aws", T0, "NOT_ENABLED")
+    cell = view.capabilities(T0 + 1)["environments"][0]["capabilities"]["network_threat"]
+    assert cell["sources"] == ["aws_guardduty", "aws_security_hub"]
+    assert cell["states"] == {"aws_guardduty": "OK", "aws_security_hub": "OK"}
+
+
+@pytest.mark.parametrize("code", ["ACCESS_DENIED", "TIMEOUT", "SOURCE_UNHEALTHY"])
+def test_collection_failure_is_not_provider_disabled(rules, code):
+    store = Store()
+    store.register_source("aws_guardduty", "env-aws")
+    store.record_failure("aws_guardduty", "env-aws", T0, code)
+    cell = View(store, rules).capabilities(T0)["environments"][0]["capabilities"]["network_threat"]
+    assert cell == {
+        "available": True, "sources": ["aws_guardduty"],
+        "states": {"aws_guardduty": "FAILED"},
+    }
+
+
+def test_coverage_api_keeps_environment_scope_when_provider_disabled(env):
+    store, _, client = env
+    store.register_source("aws_guardduty", "env-onprem")
+    store.record_failure("aws_guardduty", "env-onprem", T0, "NOT_ENABLED")
+    store.register_source("aws_guardduty", "not-authorized")
+    store.record_success("aws_guardduty", "not-authorized", T0)
+    response = client.get("/v1/security/coverage", headers=READ_AUTH)
+    assert response.status_code == 200
+    [row] = response.json()["environments"]
+    assert row["environment_id"] == "env-onprem"
+    assert row["capabilities"]["network_threat"]["available"] is False
+
+
 # 저장 수명주기 -------------------------------------------------------------------
 
 
@@ -291,21 +353,54 @@ def test_security_hub_pages_and_advances_cursor_only_on_success(rules):
     findings = [raw("aws-guardduty-via-security-hub"), raw("aws-security-hub-control")]
     for f in findings:
         f.pop("_note")
+        f["AwsAccountId"] = "123456789012"
     with Stubber(client) as stub:
+        stub.add_response(
+            "describe_hub",
+            {
+                "HubArn": "arn:aws:securityhub:ap-northeast-1:123456789012:hub/default",
+                "SubscribedAt": "2026-11-01T00:00:00Z",
+            },
+        )
         stub.add_response("get_findings", {"Findings": [findings[0]], "NextToken": "p2"})
         stub.add_response("get_findings", {"Findings": [findings[1]]})
-        counts = run_once(ingestor, SecurityHubSource(client), "env-aws", clock)
+        stub.add_response(
+            "describe_hub",
+            {
+                "HubArn": "arn:aws:securityhub:ap-northeast-1:123456789012:hub/default",
+                "SubscribedAt": "2026-11-01T00:00:00Z",
+            },
+        )
+        counts = run_once(
+            ingestor,
+            SecurityHubSource(client, account_id="123456789012", region="ap-northeast-1"),
+            "env-aws",
+            clock,
+        )
         stub.assert_no_pending_responses()
     assert counts["created"] == 2
     assert store.source("aws_security_hub", "env-aws").cursor == str(T0)
 
     clock.now = T0 + 5 * MIN
+    findings[0]["UpdatedAt"] = "2026-11-04T10:02:00Z"
     with Stubber(client) as stub:
+        stub.add_response(
+            "describe_hub",
+            {
+                "HubArn": "arn:aws:securityhub:ap-northeast-1:123456789012:hub/default",
+                "SubscribedAt": "2026-11-01T00:00:00Z",
+            },
+        )
         stub.add_response("get_findings", {"Findings": [findings[0]], "NextToken": "p2"})
         stub.add_client_error(
             "get_findings", service_error_code="AccessDeniedException", http_status_code=403
         )
-        assert run_once(ingestor, SecurityHubSource(client), "env-aws", clock) == {"failed": 1}
+        assert run_once(
+            ingestor,
+            SecurityHubSource(client, account_id="123456789012", region="ap-northeast-1"),
+            "env-aws",
+            clock,
+        ) == {"failed": 1}
     row = store.source("aws_security_hub", "env-aws")
     assert (row.cursor, row.error_code, row.last_success_time) == (str(T0), "ACCESS_DENIED", T0)
     assert View(store, rules).statuses(clock())[0]["state"] == "FAILED"
@@ -315,18 +410,41 @@ def test_security_hub_request_uses_updated_at_window(rules):
     client = hub_client()
     with Stubber(client) as stub:
         stub.add_response(
+            "describe_hub",
+            {
+                "HubArn": "arn:aws:securityhub:ap-northeast-1:123456789012:hub/default",
+                "SubscribedAt": "2026-11-01T00:00:00Z",
+            },
+        )
+        stub.add_response(
             "get_findings",
             {"Findings": []},
             {
                 "Filters": {
+                    "AwsAccountId": [{"Comparison": "EQUALS", "Value": "123456789012"}],
+                    "Region": [{"Comparison": "EQUALS", "Value": "ap-northeast-1"}],
                     "UpdatedAt": [
                         {"Start": "2026-11-04T09:00:00.000Z", "End": "2026-11-04T10:00:00.000Z"}
-                    ]
+                    ],
                 },
                 "MaxResults": 100,
             },
         )
-        assert list(SecurityHubSource(client).fetch(T0 - 60 * MIN, T0)) == []
+        stub.add_response(
+            "describe_hub",
+            {
+                "HubArn": "arn:aws:securityhub:ap-northeast-1:123456789012:hub/default",
+                "SubscribedAt": "2026-11-01T00:00:00Z",
+            },
+        )
+        assert (
+            list(
+                SecurityHubSource(client, account_id="123456789012", region="ap-northeast-1").fetch(
+                    T0 - 60 * MIN, T0
+                )
+            )
+            == []
+        )
 
 
 class FakeResponse:

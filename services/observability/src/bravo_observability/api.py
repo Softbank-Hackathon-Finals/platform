@@ -388,4 +388,33 @@ def from_env() -> FastAPI:
 def main() -> None:
     import uvicorn
 
-    uvicorn.run(from_env(), host="0.0.0.0", port=int(os.environ.get("PORT", "8080")), access_log=False)
+    uvicorn.Server(server_config(from_env())).run()
+
+
+def server_config(app: FastAPI):
+    """Remote deployments terminate TLS here; legacy local tests may use HTTP.
+
+    Load certificates before binding. A configured but unusable TLS directory
+    must fail startup, never fall back to a plaintext token receiver.
+    """
+    from pathlib import Path
+
+    import uvicorn
+
+    options = {}
+    directory = os.environ.get("BRAVO_API_SERVER_TLS_DIR")
+    if directory is not None:
+        root = Path(directory)
+        if not directory or not root.is_absolute():
+            raise ValueError("absolute API server TLS directory required")
+        options = {"ssl_certfile": str(root / "tls.crt"), "ssl_keyfile": str(root / "tls.key")}
+    config = uvicorn.Config(
+        app, host="0.0.0.0", port=int(os.environ.get("PORT", "8080")),
+        access_log=False, proxy_headers=False, **options,
+    )
+    config.load()
+    if directory is not None:
+        if config.ssl is None:
+            raise ValueError("API server TLS required")
+        config.ssl.minimum_version = ssl.TLSVersion.TLSv1_3
+    return config

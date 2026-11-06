@@ -34,6 +34,9 @@ RESERVED_TOOLS = {
     "mcp__bravo__rehearsal_run": "rehearsal.run", "rehearsal.run": "rehearsal.run",
     "mcp__bravo__rehearsal_result": "rehearsal.result", "rehearsal.result": "rehearsal.result",
 }
+# Agent SDK sandbox tools (sandbox_provider). They act only inside the no-network container.
+SANDBOX_TOOLS = {"exec_command": "sandbox.exec", "write_stdin": "sandbox.stdin",
+                 "apply_patch": "sandbox.apply_patch", "view_image": "sandbox.view_image"}
 # Code-owned categories for the audit trail (design 8.4 demo: "bucket delete blocked").
 # The raw arguments are never recorded; only the category name is.
 DESTRUCTIVE_CATEGORIES = (
@@ -163,7 +166,8 @@ class Tools:
         self.event_count += 1
         if len(self.events) < 128:
             self.events.append({"run_id": self.bundle.run_id, "attempt": self.attempt,
-                                "tool": "model" if tool == "provider" else TOOL_NAMES.get(tool) or RESERVED_TOOLS.get(tool, "unlisted"),
+                                "tool": "model" if tool == "provider" else TOOL_NAMES.get(tool)
+                                or SANDBOX_TOOLS.get(tool) or RESERVED_TOOLS.get(tool, "unlisted"),
                                 "outcome": outcome, "reason": reason, **(metadata or {})})
 
     def allowed(self, tool: str) -> bool:

@@ -131,6 +131,28 @@ def test_wrong_field_types_stop(mutate):
         parse_inventory(redigest(doc), candidate="onprem-demo")
 
 
+def test_trace_notes_are_read_as_written():
+    """T16이 배포를 따라가다 못 읽은 입력을 적는 곳이다. 지도가 그대로 보여 준다."""
+    doc = inventory_doc()
+    doc["deploy"]["notes"] = ["Deployment/a → ServiceAccount/b: IRSA 역할 주석 없음"]
+    view = parse_inventory(redigest(doc), candidate="onprem-demo")
+    assert view.trace_notes == ("Deployment/a → ServiceAccount/b: IRSA 역할 주석 없음",)
+
+
+@pytest.mark.parametrize("mutate", [
+    lambda d: d["deploy"].pop("notes"),
+    lambda d: d.pop("deploy"),
+    lambda d: d["deploy"].update(notes="한 줄"),
+    lambda d: d["deploy"].update(notes=[{"note": "x"}]),
+])
+def test_missing_or_malformed_trace_notes_stop(mutate):
+    """메모가 없다고 읽으면 못 잰 입력을 다 쟀다고 말하게 된다."""
+    doc = inventory_doc()
+    mutate(doc)
+    with pytest.raises(ContractError):
+        parse_inventory(redigest(doc), candidate="onprem-demo")
+
+
 def test_not_a_document_stops():
     with pytest.raises(ContractError):
         parse_inventory([], candidate="onprem-demo")

@@ -1,6 +1,7 @@
 """Actual T10 transactions and T19 evaluator; probe data/auth are synthetic."""
 
 import importlib.util
+import json
 from dataclasses import replace
 from datetime import timedelta
 from pathlib import Path
@@ -57,7 +58,8 @@ def records(request, tmp_path, ready):
             return PlanStore(tmp_path / "records.db")
     store = reopen()
     plan = PlanSpec("plan-gate-records", ctx.tenant_id, ctx.app, ctx.source_environment_id,
-                    ctx.target_environment_id, ctx.plan_digest, "b" * 64)
+                    ctx.target_environment_id, ctx.plan_digest, "b" * 64,
+                    profile_id=ctx.profile_id, profile_version=ctx.profile_version)
     store.register_plan(plan, run_id="fixture", occurred_at=state["now"].isoformat())
     principal = Principal("operator", ctx.tenant_id)
     f = SimpleNamespace(store=store, reopen=reopen, state=state, data=data, doc=doc,
@@ -105,6 +107,86 @@ def _view(f):
 def _load(f, c):
     plan = dict(c.execute("SELECT * FROM plans WHERE plan_id=?", (f.plan.plan_id,)).fetchone())
     return f.records.view(c, f.principal, plan)
+
+
+def _recheck_case(f, *, with_profile=True):
+    # A separate registered plan; never upgrade an immutable existing spec.
+    ctx = f.state["context"]
+    fields = dict(recheck_profile_id=ctx.profile_id, recheck_profile_version=ctx.profile_version) if with_profile else {}
+    f.plan = replace(f.plan, plan_id="plan-recheck", profile_id="initial-fixture", profile_version="1", **fields)
+    f.store.register_plan(f.plan, run_id="fixture", occurred_at=f.state["now"].isoformat())
+    f.records = GateRecords(f.store, authorize=lambda c, p, plan, action:
+                            p == f.principal and plan["plan_id"] == f.plan.plan_id)
+    for side in ("source", "target"):
+        f.records.record_run(f.principal, f.plan.plan_id, side, f.state["runs"][side])
+    return ctx
+
+
+def _applied_checkpoint(f, *, application_id="applied-1", job_passed=True):
+    # Synthetic persisted WorkflowRecovery output. No cluster/application claim.
+    proof = dict(plan_id=f.plan.plan_id, plan_digest=f.plan.plan_digest,
+                 target_environment_id=f.plan.target_environment_id, version=4, receipt_id=application_id,
+                 result=dict(application_id=application_id, job_passed=job_passed,
+                             deployed_digest="sha256:" + "c" * 64,
+                             change=dict(image_digest="sha256:" + "c" * 64)))
+    with f.store._transaction(write=True, plan_id=f.plan.plan_id) as c:
+        c.execute("INSERT INTO plan_commands VALUES (?,?,?,?)",
+                  (f.plan.plan_id, "workflow:4", "{}", json.dumps(proof)))
+        c.execute("UPDATE plans SET state='GATE',version=5 WHERE plan_id=?", (f.plan.plan_id,))
+
+
+def test_recheck_requires_completed_application_and_registered_phase_profile(records):
+    f = records
+    ctx = _recheck_case(f)
+    initial = replace(ctx, profile_id="initial-fixture", profile_version="1")
+    original = f.records.bind(f.principal, f.plan.plan_id, "initial", initial, expected_revision=0)
+    assert "gate_phase" not in original and "application_id" not in original
+    with pytest.raises(EventError, match="scope_mismatch"):
+        f.records.bind(f.principal, f.plan.plan_id, "recheck", ctx, expected_revision=1,
+                       gate_phase="post_apply", application_id="applied-1")
+    _applied_checkpoint(f)
+    assert f.records.recheck_profile(f.principal, f.plan.plan_id, "applied-1") == {
+        "profile_id": ctx.profile_id, "profile_version": ctx.profile_version}
+    # A prior initial binding ceases to be consumable after a successful apply.
+    with _view(f) as c, pytest.raises(EventError, match="scope_mismatch"):
+        _load(f, c)
+    for context, phase, app in ((initial, "initial", None), (initial, "post_apply", "applied-1"),
+                                (ctx, "post_apply", "other-application"), (ctx, "initial", None)):
+        with pytest.raises(EventError, match="scope_mismatch"):
+            f.records.bind(f.principal, f.plan.plan_id, "invalid", context, expected_revision=1,
+                           gate_phase=phase, application_id=app)
+    binding = f.records.bind(f.principal, f.plan.plan_id, "recheck", ctx, expected_revision=1,
+                             gate_phase="post_apply", application_id="applied-1")
+    f.records.store = f.store = f.reopen()
+    assert f.records.bind(f.principal, f.plan.plan_id, "recheck", ctx, expected_revision=1,
+                          gate_phase="post_apply", application_id="applied-1") == binding
+    report = f.records.evaluate(f.principal, f.plan.plan_id, service_factory=f.factory)
+    assert report["decision"] == "PASS"
+    with _view(f) as c:
+        view = _load(f, c)
+        assert view.gate_phase == "post_apply" and view.application_id == "applied-1"
+        assert view.context.fingerprint == ctx.fingerprint
+        upstream = dict(plan_id=f.plan.plan_id, plan_digest=ctx.plan_digest,
+                        target_environment_id=ctx.target_environment_id, gate_id=ctx.gate_id,
+                        context_digest=ctx.fingerprint)
+        current = view.cutover_binding(upstream)
+        assert current == upstream | {"gate_phase": "post_apply", "application_id": "applied-1"}
+        assert view.cutover_binding(current) == current
+        assert "gate_phase" not in upstream
+        for wrong in ({"gate_phase": "initial", "application_id": None},
+                      {"application_id": "other"}, {"context_digest": "f" * 64}):
+            with pytest.raises(EventError, match="scope_mismatch"):
+                view.cutover_binding(current | wrong)
+
+
+@pytest.mark.parametrize("fault", ["missing_profile", "failed_application", "wrong_application"])
+def test_recheck_preparation_fails_closed(records, fault):
+    f = records
+    _recheck_case(f, with_profile=fault != "missing_profile")
+    _applied_checkpoint(f, job_passed=fault != "failed_application")
+    with pytest.raises(EventError, match="gate_recheck_profile_required|application_checkpoint_mismatch"):
+        f.records.recheck_profile(f.principal, f.plan.plan_id,
+                                  "other" if fault == "wrong_application" else "applied-1")
 
 
 def test_source_only_stages_but_missing_target_cannot_bind(records):
@@ -197,6 +279,51 @@ def test_old_binding_retry_does_not_restore_old_context(records):
         assert _load(f, c).context_id == "context-2"
     with pytest.raises(EventError, match="version_conflict"):
         f.records.bind(f.principal, f.plan.plan_id, "context-3", next_context, expected_revision=1)
+
+
+@pytest.mark.parametrize("change", [{"profile_id": "full"}, {"profile_version": "other"}])
+def test_context_cannot_replace_plan_profile(records, change):
+    f = records
+    f.stage("source"), f.stage("target")
+    assert any(getattr(f.state["context"], k) != v for k, v in change.items())
+    with pytest.raises(EventError, match="gate_context_scope_mismatch"):
+        f.records.bind(f.principal, f.plan.plan_id, "wrong-profile",
+                       replace(f.state["context"], **change), expected_revision=0)
+    with _view(f) as c, pytest.raises(EventError, match="gate_context_unavailable"):
+        _load(f, c)
+
+
+def test_generated_workload_id_is_independent_of_catalog_app(records):
+    f = records
+    workload = "workload-" + "e" * 32
+    plan = replace(f.plan, plan_id="generated-plan", workload_id=workload)
+    f.store.register_plan(plan, run_id="fixture", occurred_at=f.state["now"].isoformat())
+    records = GateRecords(f.store, authorize=lambda c, p, row, action: p == f.principal)
+    snapshots = {}
+    for side in ("source", "target"):
+        original = f.state["runs"][side]
+        with pytest.raises(EventError, match="gate_run_scope_mismatch"):
+            records.record_run(f.principal, plan.plan_id, side, original)
+        snapshots[side] = RunSnapshot(original.ref, canonical(original.document | {"app": workload}))
+        records.record_run(f.principal, plan.plan_id, side, snapshots[side])
+    ctx = replace(f.state["context"], app=workload,
+                  source_digest=snapshots["source"].fingerprint, target_digest=snapshots["target"].fingerprint)
+    assert records.bind(f.principal, plan.plan_id, "context", ctx, expected_revision=0)["revision"] == 1
+    with f.store._transaction(write=True, plan_id=plan.plan_id) as c:
+        row = dict(c.execute("SELECT * FROM plans WHERE plan_id=?", (plan.plan_id,)).fetchone())
+        assert records.view(c, f.principal, row).context.app == workload
+    # T19's independent evaluator/runner update is a separate owner's change.
+
+
+def test_legacy_plan_without_profile_cannot_bind(records):
+    f = records
+    legacy = replace(f.plan, plan_id="legacy-plan", profile_id=None, profile_version=None)
+    f.store.register_plan(legacy, run_id="fixture", occurred_at=f.state["now"].isoformat())
+    records = GateRecords(f.store, authorize=lambda c, p, row, action: p == f.principal)
+    for side in ("source", "target"):
+        records.record_run(f.principal, legacy.plan_id, side, f.state["runs"][side])
+    with pytest.raises(EventError, match="gate_context_scope_mismatch"):
+        records.bind(f.principal, legacy.plan_id, "legacy-context", f.state["context"], expected_revision=0)
 
 
 @pytest.mark.parametrize("fault", ["producer_revoked", "schema_mismatch"])

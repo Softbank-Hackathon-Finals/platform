@@ -24,6 +24,9 @@ export function fail(code) {
 export function identifier(v) {
   return typeof v === "string" && ID.test(v);
 }
+export function evaluationProfile(v) {
+  return typeof v === "string" && /^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$/.test(v);
+}
 const object = (v) => v !== null && typeof v === "object" && !Array.isArray(v);
 const date = (v) =>
   typeof v === "string" &&
@@ -38,10 +41,11 @@ function exact(v, fields) {
     fail("invalid_contract");
 }
 export function binding(v) {
-  exact(
-    v,
-    "plan_id plan_digest diff_hash image_digest target_environment_id expires_at gate_id context_digest",
-  );
+  const hasPhase = object(v) && ("gate_phase" in v || "application_id" in v);
+  const fields =
+    "plan_id plan_digest diff_hash image_digest target_environment_id expires_at gate_id context_digest" +
+    (hasPhase ? " gate_phase application_id" : "");
+  exact(v, fields);
   if (
     ![v.plan_id, v.target_environment_id, v.gate_id].every(identifier) ||
     ![v.plan_digest, v.context_digest].every(
@@ -50,13 +54,16 @@ export function binding(v) {
     ![v.diff_hash, v.image_digest].every(
       (x) => typeof x === "string" && IMAGE.test(x),
     ) ||
-    !date(v.expires_at)
+    !date(v.expires_at) ||
+    (hasPhase && !gatePhase(v))
   )
     fail("invalid_binding");
-  return Object.fromEntries(
-    "plan_id plan_digest diff_hash image_digest target_environment_id expires_at gate_id context_digest"
-      .split(" ")
-      .map((k) => [k, v[k]]),
+  return Object.fromEntries(fields.split(" ").map((k) => [k, v[k]]));
+}
+function gatePhase(v) {
+  return (
+    (v.gate_phase === "initial" && v.application_id === null) ||
+    (v.gate_phase === "post_apply" && identifier(v.application_id))
   );
 }
 // S2 has no mandatory gate and includes the rehearsal run in the request.
@@ -149,13 +156,29 @@ export function failbackSummary(record) {
   }[v.status];
 }
 export function snapshot(v, plan) {
+  const hasProfile =
+    object(v) &&
+    (Object.hasOwn(v, "profile_id") || Object.hasOwn(v, "profile_version"));
+  const hasRecheck =
+    object(v) &&
+    (Object.hasOwn(v, "recheck_profile_id") ||
+      Object.hasOwn(v, "recheck_profile_version"));
   exact(
     v,
-    "schema_version plan_id workload_id source_environment_id target_environment_id plan_digest collection_scope_digest state version created_at updated_at last_event_id",
+    "schema_version plan_id workload_id source_environment_id target_environment_id plan_digest collection_scope_digest state version created_at updated_at last_event_id" +
+      (hasProfile ? " profile_id profile_version" : "") +
+      (hasRecheck ? " recheck_profile_id recheck_profile_version" : ""),
   );
   if (
     v.schema_version !== "1.0" ||
     v.plan_id !== plan ||
+    (hasProfile &&
+      ![v.profile_id, v.profile_version].every(evaluationProfile)) ||
+    (hasRecheck &&
+      (!hasProfile ||
+        ![v.recheck_profile_id, v.recheck_profile_version].every(
+          evaluationProfile,
+        ))) ||
     ![
       v.plan_id,
       v.workload_id,
@@ -278,6 +301,10 @@ export class Model {
         "workload_id",
         "source_environment_id",
         "target_environment_id",
+        "profile_id",
+        "profile_version",
+        "recheck_profile_id",
+        "recheck_profile_version",
       ])
         if (next[key] !== this.snapshot[key]) fail("plan_changed");
       if (next.version < this.snapshot.version) fail("snapshot_regressed");
@@ -535,8 +562,58 @@ export const CONTROL_TESTS = Object.freeze({
   "DR-01.1": "새 DB 복원 후 표식·행 수 확인",
 });
 
+// A report read from the authenticated server can precede gate.recorded. Only
+// an initial comparison with an exact current snapshot can use that path.
+// Existing event-bound reports keep their compatibility path. Neither path
+// supplies the gate event/approval that Model needs for an action.
+export function controlReportMatches(value, current, gate) {
+  if (!object(value) || !object(current)) return false;
+  const prefix = value.gate_phase === "post_apply" ? "recheck_" : "";
+  if (
+    value.plan_id !== current.plan_id ||
+    value.plan_digest !== current.plan_digest ||
+    value.source_environment_id !== current.source_environment_id ||
+    value.target_environment_id !== current.target_environment_id ||
+    value.profile?.id !== current[prefix + "profile_id"] ||
+    value.profile?.version !== current[prefix + "profile_version"]
+  )
+    return false;
+  const hasSnapshot = "plan_version" in value || "plan_state" in value;
+  if (
+    hasSnapshot &&
+    (!Number.isSafeInteger(value.plan_version) ||
+      value.plan_version < 1 ||
+      value.plan_version !== current.version ||
+      !STATES.includes(value.plan_state) ||
+      value.plan_state !== current.state)
+  )
+    return false;
+  if (gate)
+    return (
+      value.gate_id === gate.data?.gate_id &&
+      value.context_digest === gate.data?.context_digest
+    );
+  return (
+    hasSnapshot &&
+    value.gate_phase === "initial" &&
+    value.application_id === null &&
+    ["COLLECT", "ANALYZE", "PROPOSE", "REHEARSE", "GATE"].includes(current.state)
+  );
+}
+
+// Known read-authority expiry must survive the server-to-browser boundary.
+// A fresh HTTP arrival cannot extend it; this is never execution authority.
+export function controlReportFresh(value, now) {
+  if (!object(value) || !Number.isFinite(now) ||
+      !date(value.queried_at) || !date(value.read_valid_until)) return false;
+  const queried = Date.parse(value.queried_at);
+  const until = Date.parse(value.read_valid_until);
+  return queried <= now && now < until && until <= queried + 15000;
+}
+
 // A bound historical read model, never a new execution/approval authority.
 export function controlReport(value, current, gate, now) {
+  const prefix = value?.gate_phase === "post_apply" ? "recheck_" : "";
   if (
     !object(value) ||
     value.kind !== "console-control-report.v1" ||
@@ -545,17 +622,19 @@ export function controlReport(value, current, gate, now) {
     value.source_environment_id !== current.source_environment_id ||
     value.target_environment_id !== current.target_environment_id ||
     value.authorizes_cutover !== false ||
-    !gate ||
-    value.gate_id !== gate.data.gate_id ||
-    value.context_digest !== gate.data.context_digest ||
+    !gatePhase(value) ||
+    !identifier(value.gate_id) ||
+    typeof value.context_digest !== "string" ||
+    !DIGEST.test(value.context_digest) ||
+    !controlReportMatches(value, current, gate) ||
     !/^[0-9a-f]{64}$/.test(value.report_digest) ||
-    !date(value.queried_at) ||
-    now < Date.parse(value.queried_at) ||
-    now - Date.parse(value.queried_at) > 15000 ||
+    !controlReportFresh(value, now) ||
     !date(value.evaluated_at) ||
     Date.parse(value.evaluated_at) > now ||
     !object(value.profile) ||
-    !["demo-gate", "full"].includes(value.profile.id) ||
+    value.profile.id !== current[prefix + "profile_id"] ||
+    value.profile.version !== current[prefix + "profile_version"] ||
+    !["demo-gate", "full", "apply-recheck"].includes(value.profile.id) ||
     value.profile.version !== "1" ||
     !["PASS", "BLOCK", "EXCEPTION"].includes(value.decision) ||
     !Array.isArray(value.rows) ||
@@ -608,5 +687,74 @@ export function controlReport(value, current, gate, now) {
     !["IAM-01.1", "SEC-01.1", "AUD-01.1"].every((x) => seen.has(x))
   )
     fail("incomplete_control_report");
+  if (
+    value.profile.id === "apply-recheck" &&
+    !["IAM-01.1", "SEC-01.1", "ENC-01.1"].every((x) => seen.has(x))
+  )
+    fail("incomplete_control_report");
   return clone(value);
+}
+
+// T33 environment-wide collection states; never a T19 security verdict.
+export const SECURITY_CATEGORIES = Object.freeze({
+  IAM: "접근 권한",
+  ENCRYPTION: "암호화",
+  AUDIT: "감사 로그",
+  EXPOSURE: "외부 노출",
+  POLICY: "정책 위반",
+  THREAT: "위협 탐지",
+  VULNERABILITY: "취약점",
+});
+export function securitySummary(value, current, now) {
+  if (
+    !object(value) ||
+    !object(current) ||
+    value.kind !== "console-security.v1" ||
+    value.plan_id !== current.plan_id ||
+    value.plan_digest !== current.plan_digest ||
+    value.for_gate_decisions !== false ||
+    !date(value.queried_at) ||
+    now < Date.parse(value.queried_at) ||
+    now - Date.parse(value.queried_at) > 15000 ||
+    !Array.isArray(value.environments) ||
+    value.environments.length !== 2
+  )
+    fail("invalid_security_summary");
+  return ["source", "target"].map((side) => {
+    const found = value.environments.filter(
+      (row) =>
+        object(row) &&
+        row.side === side &&
+        row.environment_id === current[side + "_environment_id"],
+    );
+    if (found.length !== 1) fail("security_scope_mismatch");
+    const row = found[0];
+    exact(row.cells, Object.keys(SECURITY_CATEGORIES).join(" "));
+    const cells = {};
+    for (const category of Object.keys(SECURITY_CATEGORIES)) {
+      const cell = row.cells[category];
+      exact(cell, "state counts");
+      if (!["OK", "NONE", "STALE", "UNKNOWN"].includes(cell.state))
+        fail("invalid_security_state");
+      if (cell.state !== "OK") {
+        if (cell.counts !== null) fail("unverified_security_counts");
+        cells[category] = { state: cell.state, total: null };
+        continue;
+      }
+      if (
+        !object(cell.counts) ||
+        Object.entries(cell.counts).some(
+          ([k, v]) =>
+            !["0", "1", "2", "3", "4", "5", "6", "99"].includes(k) ||
+            !Number.isSafeInteger(v) ||
+            v < 0,
+        )
+      )
+        fail("invalid_security_counts");
+      const total = Object.values(cell.counts).reduce((a, b) => a + b, 0);
+      if (!Number.isSafeInteger(total)) fail("invalid_security_counts");
+      cells[category] = { state: "OK", total };
+    }
+    return { side, cells };
+  });
 }

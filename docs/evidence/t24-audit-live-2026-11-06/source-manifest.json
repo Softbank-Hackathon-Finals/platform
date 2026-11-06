@@ -1,0 +1,33 @@
+{
+  "source_revision": "e1e6cbace55236524f11ee33b43e5ca1f8f461e2",
+  "source_files": [
+    {
+      "path": "infra/envs/platform-audit/main.tf",
+      "sha256": "b9d81fdc8ea7bfe3b595146bfc0fd205f68927e40faacd3c656fb521983a1f4d"
+    },
+    {
+      "path": "infra/envs/platform-audit/variables.tf",
+      "sha256": "c03204716b10a281f734046c9e49167499ea9a32ee375ad4788d969ca1cb9780"
+    },
+    {
+      "path": "services/audit-log/src/bravo_audit/adapters.py",
+      "sha256": "55e4874d71afad59d58b00f59f4ab1c90880e0f00edc7ba59b5cc1ab1675bf49"
+    },
+    {
+      "path": "services/audit-log/src/bravo_audit/cli.py",
+      "sha256": "aa3bea7afd665039ab30b7bba2516572be8420c07ce5c248917a315f487692a2"
+    },
+    {
+      "path": "services/audit-log/src/bravo_audit/denial.py",
+      "sha256": "113c0b58dc50c068271bd81f088536e549ae22e5a6fcb6eb18bdcd43daa8fde8"
+    },
+    {
+      "path": "services/audit-log/src/bravo_audit/ledger.py",
+      "sha256": "8725ac251ccf008f3ba2d436779151b2197313e211fb828b0f002059c4d12a14"
+    },
+    {
+      "path": "services/audit-log/src/bravo_audit/sink.py",
+      "sha256": "30c3c26355b08bd0e8ec18fa95e990328f05635ca4413959c4101591e3bc2cb2"
+    }
+  ]
+}

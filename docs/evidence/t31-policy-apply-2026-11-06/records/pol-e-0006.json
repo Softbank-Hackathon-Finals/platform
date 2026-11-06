@@ -1,0 +1,72 @@
+{
+  "application_id": "pol-e-0006",
+  "approval_id": "approval-pol-e-0006",
+  "change": {
+    "change_kind": "bucket_policy",
+    "diff_hash": "sha256:5895af9d6e8288232ce5c79187e9aa478fc55d60c0973161736c4616dbc22d75",
+    "image_digest": "sha256:ee6521f290b2168b6e0935a181d4cff9be1ac3f505666ef0e3c98fae8199917a",
+    "policy_digest": "sha256:e05558070484d2b50b9486d68a076c0a158642731b43a419c1df561bbf6c649b"
+  },
+  "cluster": "kubectl",
+  "cluster_mutation_attempted": false,
+  "deadline_at": null,
+  "deployed_digest": null,
+  "finished_at": "2026-11-05T18:16:06.402373Z",
+  "gate_recheck": null,
+  "job_passed": false,
+  "observed_digests": [],
+  "outcome": "REFUSED",
+  "plan_id": "plan-kind",
+  "policy": {
+    "anonymous_get": null,
+    "applied_s3_json_sha256": null,
+    "authenticated_get": null,
+    "previous_s3_json_sha256": null,
+    "renderer_sha256": "e60bd48a7aa08779b421ea62a6176006465be8cd826bc90aef38fef1adb697c2",
+    "state": "closed"
+  },
+  "previous_image": null,
+  "reason": "CLUSTER_READ_FAILED",
+  "schema_version": "1.2",
+  "started_at": "2026-11-05T18:16:06.357463Z",
+  "steps": [
+    {
+      "detail": "1 approved path(s)",
+      "status": "ok",
+      "step": "binding"
+    },
+    {
+      "detail": "T9 state closed",
+      "status": "ok",
+      "step": "policy_translate"
+    },
+    {
+      "detail": "bucket-policy change: app image unchanged",
+      "status": "skipped",
+      "step": "image"
+    },
+    {
+      "detail": "durable record before any cluster call",
+      "status": "ok",
+      "step": "started"
+    },
+    {
+      "detail": "CLUSTER_READ_FAILED (kubectl exit 1: Error from server (Forbidden): secrets \"target-seaweedfs-auth\" is forbidden: User \"system:serviceaccount:bravo-apply-access:apply-deployer\" cannot get resource \"secrets\" in API group \"\" in the namespace \"target-dev\")",
+      "status": "refused",
+      "step": "policy_apply"
+    }
+  ],
+  "target": {
+    "bucket": "demo-chat-attachments",
+    "container": "seaweedfs",
+    "endpoint": "RESOURCE_NAME_001",
+    "kind": "bucket_policy",
+    "namespace": "target-dev",
+    "policy_bucket": "bravo-rehearsal-objects",
+    "probe_key": "t31/probe.txt",
+    "secret": "target-seaweedfs-auth",
+    "secret_key": "s3.json",
+    "workload": "target-seaweedfs"
+  },
+  "verification_id": "verify-pol-e-0006"
+}

@@ -47,6 +47,7 @@ class Coordinator:
                                   "input_digest": digest(self.bundle), "task_digest": digest(self.task),
                                   "state": self.state,
                                   "model_usage": dict(tools.usage),
+                                  **({"observability": tools.observability} if hasattr(tools, "observability") else {}),
                                   "audit_event_count": tools.event_count,
                                   "audit_truncated": tools.event_count > len(tools.events),
                                   "proposal": self.proposal.model_dump() if self.proposal else None,
@@ -81,7 +82,9 @@ class Coordinator:
         return self.state
 
     def result(self) -> dict:
-        return {"run_id": self.bundle.run_id, "source_sha": self.bundle.source_sha,
+        # Which T16 inventory was offered, only when one was attached (the key is absent otherwise).
+        attached = {"inventory_digest": self.inventory.digest} if self.inventory is not None else {}
+        return {**attached, "run_id": self.bundle.run_id, "source_sha": self.bundle.source_sha,
                 "attempt": self.attempt, "state": self.state,
                 "input_digest": digest(self.bundle), "input": self.bundle.model_dump(),
                 "task_digest": digest(self.task), "task": self.task.model_dump(),

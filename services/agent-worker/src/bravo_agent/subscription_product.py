@@ -22,7 +22,7 @@ from .contracts import FailureBundle, digest
 from .product_contracts import ProductInput as ProductInput
 from .product_contracts import ProductRequest as ProductRequest
 from .product_contracts import validate_product_input
-from .subscription_admin import run_worker
+from .subscription_admin import run_claude_worker, run_worker
 from .subscription_store import SubscriptionStore, private_directory
 from .tools import Snapshot, Tools
 from .verification import validate_result
@@ -70,6 +70,10 @@ class ProposalJournal:
         with self.connect() as db:
             db.execute("CREATE TABLE IF NOT EXISTS proposals "
                        "(key TEXT PRIMARY KEY, binding TEXT NOT NULL, result TEXT, result_digest TEXT)")
+            # Trajectory record (design 8.3 guardrail "record everything", Harbor plan 1): every
+            # attempt's state, tool calls and denials per run. Private like the journal.
+            db.execute("CREATE TABLE IF NOT EXISTS audits "
+                       "(key TEXT PRIMARY KEY, binding TEXT NOT NULL, record TEXT NOT NULL, record_digest TEXT NOT NULL)")
         fd = os.open(self.root, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
         try:
             os.fsync(fd)
@@ -96,6 +100,21 @@ class ProposalJournal:
             if result is not None and digest(result) != row[2]:
                 raise ValueError("journal result changed")
             return False, result
+
+    def keep_audit(self, key: str, binding: str, record: dict):
+        text = json.dumps(record, allow_nan=False, sort_keys=True)
+        with self.connect() as db:
+            db.execute("INSERT INTO audits VALUES (?,?,?,?)", (key, binding, text, digest(record)))
+
+    def audit(self, key: str):
+        with self.connect() as db:
+            row = db.execute("SELECT record,record_digest FROM audits WHERE key=?", (key,)).fetchone()
+        if row is None:
+            return None
+        record = json.loads(row[0])
+        if digest(record) != row[1]:
+            raise ValueError("audit record changed")
+        return record
 
     def finish(self, key: str, binding: str, result: dict):
         with self.connect() as db:
@@ -127,6 +146,27 @@ def stage_input(value: ProductInput, root: Path) -> Snapshot:
     return snapshot
 
 
+AUDIT_KEYS = {"run_id", "attempt", "tool", "outcome", "reason", "category", "evidence_digest"}
+ATTEMPT_KEYS = {"attempt", "state", "input_digest", "task_digest", "proposal_digest",
+                "audit_event_count", "audit_truncated"}
+USAGE_KEYS = {"provider", "model", "requests", "total_tokens", "input_tokens", "output_tokens",
+              "cache_read_input_tokens", "cache_creation_input_tokens"}
+
+
+def trajectory_record(result):
+    """Code-owned audit fields only; raw diagnostics and provider fields never persist."""
+    def scalars(item, keys):
+        return {k: item[k] for k in sorted(keys) if type(item.get(k)) in (str, int, bool) and len(str(item[k])) <= 256}
+
+    attempts, audit = result["attempts"], result["audit"]
+    if type(attempts) is not list or type(audit) is not list or len(attempts) > 3 or len(audit) > 512:
+        raise ValueError("unbounded audit")
+    return {"run_id": result["run_id"], "state": result["state"],
+            "attempts": [scalars(a, ATTEMPT_KEYS) | {"model_usage": scalars(a.get("model_usage") or {}, USAGE_KEYS)}
+                         for a in attempts],
+            "audit": [scalars(event, AUDIT_KEYS) for event in audit]}
+
+
 def proposal_result(result, value, snapshot, expected):
     bundle, proposal = validate_result(result)
     task = FailureBundle.model_validate(result["task"])
@@ -152,12 +192,13 @@ class ProductService:
     inputs: ProductInputs = field(repr=False)
     invoke: Callable = field(repr=False)
     runtime_source_sha: str
+    request_inputs: Callable[[str], ProductInputs] | None = field(default=None, repr=False)
 
     def __post_init__(self):
         if re.fullmatch(r"[a-f0-9]{40}", self.runtime_source_sha) is None:
             raise ValueError("exact runtime source required")
 
-    def run(self, body: dict):
+    def _prepare(self, body: dict):
         try:
             request = ProductRequest.model_validate(body)
         except ValueError:
@@ -169,11 +210,39 @@ class ProductService:
         except Exception:
             return 403, stopped("PRODUCT_ACCESS_DENIED")
         try:
-            value = self.inputs.resolve(access.principal, request.input_ref)
+            # Trusted host factory is request-scoped and runs only after STS authentication.
+            # The token is never added to ProductInput, the worker access, or the journal.
+            inputs = self.inputs if self.request_inputs is None else self.request_inputs(request.web_identity_token)
+            value = inputs.resolve(access.principal, request.input_ref)
             # Revalidate/detach mutable dictionaries even when already typed.
             value = validate_product_input(value)
             if digest(value) != request.input_digest or value.attempt != 1:
                 raise ValueError("unbound input or unsupported retry")
+            return 200, (request, access, value)
+        except Exception:
+            return 409, stopped("PRODUCT_INPUT_OR_RECORD_UNAVAILABLE")
+
+    def probe(self, body: dict):
+        """Authenticate and read current input without claiming or running a proposal."""
+        status, prepared = self._prepare(body)
+        if status != 200:
+            return status, prepared
+        request, access, value = prepared
+        return 200, {
+            "state": "INPUT_AUTHENTICATED",
+            "request_digest": digest({"input_ref": request.input_ref, "input_digest": request.input_digest}),
+            "product_input_digest": request.input_digest,
+            "admission_digest": value.admission_digest,
+            "runtime_source_sha": self.runtime_source_sha,
+            "principal_digest": access.principal,
+        }
+
+    def run(self, body: dict):
+        status, prepared = self._prepare(body)
+        if status != 200:
+            return status, prepared
+        request, access, value = prepared
+        try:
             expected = {"product_input_digest": request.input_digest,
                         "admission_digest": value.admission_digest,
                         "runtime_source_sha": self.runtime_source_sha}
@@ -194,6 +263,8 @@ class ProductService:
                     return 200, checked
                 try:
                     raw = self.invoke(access, value, root, snapshot)
+                    # No proposal leaves without its trajectory record.
+                    self.journal.keep_audit(key, binding, trajectory_record(raw))
                     response = proposal_result(raw, value, snapshot, expected)
                 except Exception:
                     response = stopped("PRODUCT_RUNTIME_UNCONFIRMED")
@@ -204,8 +275,7 @@ class ProductService:
             return 409, stopped("PRODUCT_INPUT_OR_RECORD_UNAVAILABLE")
 
 
-def invoke_product_worker(settings, access, value, root, snapshot):
-    """Use existing isolated T11 CLI. This bridge only supports first proposals."""
+def subscription_store(settings, access):
     import boto3
     from botocore.config import Config
 
@@ -215,17 +285,39 @@ def invoke_product_worker(settings, access, value, root, snapshot):
                          aws_access_key_id=credentials["AccessKeyId"],
                          aws_secret_access_key=credentials["SecretAccessKey"],
                          aws_session_token=credentials["SessionToken"])
-    store = SubscriptionStore(settings["secret_arn"], settings["runtime_host_id"], client=client)
+    return SubscriptionStore(settings["secret_arn"], settings["runtime_host_id"], client=client)
+
+
+def sandbox_docker(settings):
+    """Session VM Docker endpoint for the sandbox, from broker settings (DOCKER_* only)."""
+    docker = settings.get("sandbox_docker")
+    if docker is None:
+        return None
+    if (type(docker) is not dict or not set(docker) <= {"DOCKER_HOST", "DOCKER_TLS_VERIFY", "DOCKER_CERT_PATH"}
+            or not str(docker.get("DOCKER_HOST", "")).startswith(("tcp://", "ssh://", "unix://"))):
+        raise ValueError("invalid sandbox Docker endpoint")
+    return {key: str(value) for key, value in docker.items()}
+
+
+def invoke_product_worker(settings, access, value, root, snapshot):
+    """Use existing isolated T11 CLI. This bridge only supports first proposals."""
+    provider = settings.get("provider", "chatgpt-plan")
+    if provider not in {"chatgpt-plan", "claude"}:
+        raise ValueError("unsupported broker provider")
     for name, model in (("bundle.json", value.bundle), ("manifest.json", value.manifest)):
         path = root / name
         with path.open("x") as stream:
             stream.write(model.model_dump_json())
         path.chmod(0o400)
     output = root / "result.json"
+    from .runtime import effort
+
+    # Model and effort come from the installed environment model config (install.py).
     args = SimpleNamespace(model=settings["model"], bundle=root / "bundle.json",
-                           manifest=root / "manifest.json", snapshot=snapshot.root, output=output)
-    with contextlib.redirect_stdout(io.StringIO()):
-        code = run_worker(store, Path(settings["state_dir"]), args)
+                           manifest=root / "manifest.json", snapshot=snapshot.root, output=output,
+                           reasoning_effort=effort(settings.get("reasoning_effort")),
+                           sandbox_image=settings.get("sandbox_image"), docker=sandbox_docker(settings))
+    code = _run_provider(settings, access, provider, args)
     if code != 0:
         raise ValueError("worker outcome unconfirmed")
     with output.open("rb") as stream:
@@ -233,3 +325,13 @@ def invoke_product_worker(settings, access, value, root, snapshot):
     if len(raw) > 1048576:
         raise ValueError("oversized worker result")
     return json.loads(raw)
+
+
+def _run_provider(settings, access, provider, args):
+    with contextlib.redirect_stdout(io.StringIO()):
+        if provider == "claude":
+            # Explicit adapter selection, no automatic provider switch (ADR-0007).
+            code = run_claude_worker(settings["anthropic_key_file"], Path(settings["state_dir"]), args)
+        else:
+            code = run_worker(subscription_store(settings, access), Path(settings["state_dir"]), args)
+    return code

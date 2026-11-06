@@ -1,0 +1,93 @@
+{{- if .Values.workflowHost.enabled }}
+{{- range $key, $_ := .Values.workflowHost.runtime }}
+{{- if not (has $key (list "configuration" "reader" "stateClaim" "secrets" "interval")) }}
+{{- fail "runtime input may contain only configuration, reader, stateClaim, secrets and interval" }}
+{{- end }}
+{{- end }}
+{{- if not .Values.workflowHost.runtime.configuration }}
+{{- fail "protected workflow host configuration is required" }}
+{{- end }}
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: platform-workflow-host
+  namespace: {{ .Release.Namespace }}
+spec:
+  project: platform-workflow-host
+  source:
+    repoURL: https://github.com/Softbank-Hackathon-Finals/platform.git
+    targetRevision: develop
+    path: infra/charts/workflow-host
+    helm:
+      releaseName: workflow-host
+      valueFiles:
+        - ../../gitops/environments/development/registration-image.json
+      valuesObject:
+        {{- toYaml .Values.workflowHost.runtime | nindent 8 }}
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: platform-state
+  syncPolicy:
+    automated:
+      enabled: true
+      prune: false
+      selfHeal: true
+      allowEmpty: false
+    syncOptions:
+      - FailOnSharedResource=true
+    retry:
+      limit: 3
+      backoff:
+        duration: 10s
+        factor: 2
+        maxDuration: 1m
+---
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: platform-workflow-host
+spec:
+  description: T10 workflow host Deployment and token-less ServiceAccount
+  sourceRepos:
+    - https://github.com/Softbank-Hackathon-Finals/platform.git
+  destinations:
+    - server: https://kubernetes.default.svc
+      namespace: platform-state
+  clusterResourceWhitelist: []
+  namespaceResourceWhitelist:
+    - {group: apps, kind: Deployment}
+    - {group: "", kind: ServiceAccount}
+  orphanedResources:
+    warn: false
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: platform-gitops-workflow-host
+  namespace: platform-state
+rules:
+  # The host has no Service; it never calls the Kubernetes API (no token is mounted).
+  - apiGroups: [apps]
+    resources: [deployments]
+    resourceNames: [t10-workflow-host]
+    verbs: [update, patch, delete]
+  - apiGroups: [""]
+    resources: [serviceaccounts]
+    resourceNames: [t10-workflow-host]
+    verbs: [update, patch, delete]
+  # Create comes from the registration Role; its name policy admits only this name.
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: platform-gitops-workflow-host
+  namespace: platform-state
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: platform-gitops-workflow-host
+subjects:
+  - kind: ServiceAccount
+    name: bravo-gitops-application-controller
+    namespace: {{ .Release.Namespace }}
+{{- end }}

@@ -4,10 +4,12 @@ from __future__ import annotations
 import argparse
 import contextlib
 import fcntl
+import hashlib
 import json
 import os
 import platform
 import re
+import shlex
 import shutil
 import socket
 import stat
@@ -19,6 +21,130 @@ from pathlib import Path
 
 class VMError(ValueError):
     """A safe, actionable lifecycle failure without raw process or QMP data."""
+
+
+def architecture(value: str) -> str:
+    aliases = {"arm64": "arm64", "aarch64": "arm64", "amd64": "x86_64", "x86_64": "x86_64"}
+    if value not in aliases:
+        raise VMError("unsupported host or guest architecture")
+    return aliases[value]
+
+
+def execution_profile(guest=None, *, purpose="development", allow_emulation=False, reason=""):
+    if platform.system() != "Darwin":
+        raise VMError("this local VM launcher requires macOS hardware virtualization")
+    host = architecture(platform.machine())
+    guest = architecture(guest or host)
+    if purpose not in ("development", "performance", "compatibility"):
+        raise VMError("unknown VM purpose")
+    emulated = host != guest
+    if emulated and not (purpose == "compatibility" and allow_emulation and reason.strip()):
+        raise VMError("cross-architecture VM refused; build native images, or explicitly select a compatibility-only emulation with a reason")
+    if not emulated and (allow_emulation or reason):
+        raise VMError("emulation exception supplied for a native VM")
+    if len(reason) > 300 or any(ord(c) < 32 for c in reason):
+        raise VMError("emulation reason must be a single non-secret line of at most 300 characters")
+    return {"schema_version": 1, "host_arch": host, "guest_arch": guest,
+            "accelerator": "tcg,thread=multi" if emulated else "hvf",
+            "purpose": purpose, "emulation_reason": reason,
+            "performance_eligible": not emulated and purpose != "compatibility"}
+
+
+def saved_profile(vm: Path):
+    profile = json.loads(read_regular(vm / "execution.json"))
+    expected = execution_profile(profile["guest_arch"], purpose=profile["purpose"],
+                                 allow_emulation=profile["host_arch"] != profile["guest_arch"],
+                                 reason=profile["emulation_reason"])
+    if profile != expected:
+        raise VMError("VM execution profile or host changed")
+    return profile
+
+
+def prepare_profile(state: Path):
+    """Internal shell entry also rejects the old implicit TCG path before fetch."""
+    profile = saved_profile(state / "vm")
+    if architecture(os.environ.get("BRAVO_VM_ARCH", platform.machine())) != profile["guest_arch"]:
+        raise VMError("prepare architecture differs from approved launch profile")
+    return profile
+
+
+def verify_execution(pid: int, identity: str, profile):
+    command = subprocess.check_output(["ps", "-ww", "-p", str(pid), "-o", "args="],
+                                      text=True, timeout=5, env={**os.environ, "LC_ALL": "C"})
+    # ps prints the executable path unquoted on macOS. QEMU's own options do not
+    # contain secrets; use the known executable suffix and parse only its args.
+    binary = "qemu-system-aarch64" if profile["guest_arch"] == "arm64" else "qemu-system-x86_64"
+    fields = identity.split(maxsplit=5)
+    if len(fields) != 6 or Path(fields[5]).name != binary or not command.startswith(fields[5] + " "):
+        raise VMError("running QEMU architecture differs from launch profile")
+    args = shlex.split(command[len(fields[5]) + 1:])
+    if args.count("-accel") != 1 or args[-1] == "-accel":
+        raise VMError("running accelerator is missing or ambiguous")
+    if args[args.index("-accel") + 1] != profile["accelerator"]:
+        raise VMError("running accelerator differs from launch profile")
+    if any("accel=" in arg for arg in args):
+        raise VMError("machine accelerator override is not supported")
+    if process_identity(pid) != identity:
+        raise VMError("QEMU process changed during execution verification")
+
+
+def measurement(state: Path):
+    vm = state / "vm"
+    if vm.is_symlink():
+        raise VMError("VM directory must not be a link")
+    profile = saved_profile(vm)  # Legacy metadata is UNKNOWN, never inferred native.
+    launch_id = read_regular(vm / "launch.uuid").strip()
+    pid, identity = owned_process(vm, launch_id)
+    with qmp(vm) as client:
+        verify_qmp(client, vm, launch_id)
+    verify_execution(pid, identity, profile)
+    if not profile["performance_eligible"]:
+        raise VMError("compatibility/emulated VM is not eligible for performance measurement")
+    return {**profile, "vm_uuid": launch_id, "verified_at_unix": time.time(),
+            "meaning": "native execution verified; workload readiness and SLO are not verified"}
+
+
+def image_platform(layout: Path, digest: str, guest: str):
+    """Check digest-bound OCI config, not an index label or attestation platform."""
+    arch = {"arm64": "arm64", "x86_64": "amd64"}[architecture(guest)]
+
+    def blob(ref):
+        if not isinstance(ref, str) or not re.fullmatch(r"sha256:[0-9a-f]{64}", ref):
+            raise VMError("explicit OCI sha256 digest required")
+        path = layout / "blobs" / "sha256" / ref[7:]
+        with os.fdopen(os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK), "rb") as source:
+            info = os.fstat(source.fileno())
+            if not stat.S_ISREG(info.st_mode) or info.st_size > 16 * 1024 * 1024:
+                raise VMError("invalid OCI metadata blob")
+            raw = source.read(16 * 1024 * 1024 + 1)
+        if "sha256:" + hashlib.sha256(raw).hexdigest() != ref:
+            raise VMError("OCI metadata digest mismatch")
+        return json.loads(raw)
+
+    def visit(ref, depth=0):
+        if depth > 8:
+            raise VMError("OCI index nesting limit exceeded")
+        value = blob(ref)
+        if value.get("schemaVersion") != 2:
+            raise VMError("OCI manifest schemaVersion 2 required")
+        if "manifests" in value:
+            for item in value["manifests"]:
+                declared = item.get("platform")
+                if declared is not None and (declared.get("os") != "linux" or declared.get("architecture") != arch):
+                    continue
+                if found := visit(item["digest"], depth + 1):
+                    return found
+            return None
+        config = blob(value["config"]["digest"])
+        if config.get("os") == "linux" and config.get("architecture") == arch:
+            return ref
+        return None
+
+    found = visit(digest)
+    if not found:
+        raise VMError("image has no verified native Linux manifest; publish that architecture instead of switching the VM")
+    return {"index_digest": digest, "manifest_digest": found, "platform": f"linux/{arch}",
+            "meaning": "image architecture only; layers, provenance and runtime acceptance require their existing checks"}
 
 
 @contextlib.contextmanager
@@ -239,13 +365,19 @@ def connection(state: Path) -> int:
     return settings["ssh_port"]
 
 
-def up(state: Path):
+def up(state: Path, *, purpose="development", allow_emulation=False, reason="", image_layout=None, image_digest=None):
     vm = state / "vm"
     # Preserve the old refusal before probing ports or changing any existing state.
     if vm.exists() or vm.is_symlink():
         raise FileExistsError("existing VM state")
+    profile = execution_profile(os.environ.get("BRAVO_VM_ARCH"), purpose=purpose,
+                                allow_emulation=allow_emulation, reason=reason)
+    if bool(image_layout) != bool(image_digest):
+        raise VMError("supply both image layout and exact digest")
+    if image_layout:
+        image_platform(image_layout, image_digest, profile["guest_arch"])
     settings = connection_settings({key: value for key, value in {
-        "arch": os.environ.get("BRAVO_VM_ARCH", "arm64"),
+        "arch": profile["guest_arch"],
         "ssh_port": os.environ.get("BRAVO_SSH_PORT"),
         "api_port": os.environ.get("BRAVO_API_PORT"),
     }.items() if value is not None})
@@ -256,15 +388,18 @@ def up(state: Path):
         output.write(launch_id + "\n")
     with (vm / "connection.json").open("x", encoding="utf-8") as output:
         json.dump(settings, output)
+    with (vm / "execution.json").open("x", encoding="utf-8") as output:
+        json.dump(profile, output)
     script = Path(__file__).with_name("local-vm.sh")
     environment = {**os.environ, "BRAVO_VM_STATE": str(state),
                    "BRAVO_VM_ARCH": settings["arch"],
                    "BRAVO_SSH_PORT": str(settings["ssh_port"]),
                    "BRAVO_API_PORT": str(settings["api_port"])}
     subprocess.run(["bash", str(script), "_prepare", launch_id], env=environment, check=True)
-    pid, _ = owned_process(vm, launch_id)
+    pid, identity = owned_process(vm, launch_id)
     with qmp(vm) as client:
         verify_qmp(client, vm, launch_id)
+    verify_execution(pid, identity, profile)
     if platform.system() == "Darwin":
         # A process-scoped assertion, not a persistent host power-policy change.
         subprocess.Popen(["caffeinate", "-is", "-w", str(pid)], stdin=subprocess.DEVNULL,
@@ -275,19 +410,33 @@ def up(state: Path):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("action", choices=("up", "down", "connection"))
+    parser.add_argument("action", choices=("up", "down", "connection", "prepare-profile", "measurement"))
     parser.add_argument("state", type=Path)
+    parser.add_argument("--purpose", choices=("development", "performance", "compatibility"), default="development")
+    parser.add_argument("--allow-emulation", action="store_true")
+    parser.add_argument("--reason", default="")
+    parser.add_argument("--image-layout", type=Path)
+    parser.add_argument("--image-digest")
     args = parser.parse_args()
     try:
         state = args.state.resolve()
+        if args.action == "prepare-profile":
+            # Called by _prepare while its parent owns the lifecycle lock.
+            print(prepare_profile(state)["accelerator"])
+            return
         with lifecycle_lock(state):
             if args.action == "connection":
                 print(connection(state))
+            elif args.action == "measurement":
+                print(json.dumps(measurement(state)))
+            elif args.action == "up":
+                up(state, purpose=args.purpose, allow_emulation=args.allow_emulation, reason=args.reason,
+                   image_layout=args.image_layout, image_digest=args.image_digest)
             else:
-                (up if args.action == "up" else down)(state)
+                down(state)
     except VMError as error:
         parser.exit(1, f"VM {args.action} failed: {error}. State preserved.\n")
-    except (ValueError, TypeError, OSError, EOFError, subprocess.SubprocessError) as error:
+    except (ValueError, TypeError, KeyError, OSError, EOFError, subprocess.SubprocessError) as error:
         parser.exit(1, f"VM {args.action} failed ({type(error).__name__}): state preserved; inspect VM identity and console before retrying.\n")
 
 

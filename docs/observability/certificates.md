@@ -98,4 +98,26 @@ T22 앱은 loopback 이외의 평문 주소를 거부한다. NetworkPolicy만으
 재시작해 연결을 끊고, 거부 대조군과 정상 전송을 다시 확인한다.
 CA 자동 교체/폐기 전체 운영 절차는 별도 자격 시험 대상이다.
 
+## 6. 원격 콘솔 → 조회 API TLS
+
+`services/observability/deploy/platform-api-tls`는 조회 API에 서버 TLS를 추가한다.
+지표 저장소 접속에 쓰는 `bravo-observability-api-tls`(console-api 클라이언트)와
+별도로 `bravo-observability-api-server-tls`를 발급한다. 서버 인증서를 발급할 CA는
+콘솔 호스트가 신뢰해야 하며 CA 개인 키를 배포하지 않는다.
+
+- Secret 키: `tls.crt`, `tls.key`, `ca.crt`. 인증서 SAN은 실제 API 접속 DNS와 일치해야 한다.
+- 기본 Service DNS: `bravo-observability-api.bravo-observability.svc`. 별도 인그레스 주소를
+  쓰면 인증서와 콘솔 설정도 함께 등록한다. 임의 브라우저 입력 URL은 허용하지 않는다.
+- TLS 1.3 이상을 사용한다. TLS 서버 설정이 있지만 인증서가 없거나 키가 맞지 않으면
+  시작하지 않는다. HTTP로 자동 복귀하지 않는다.
+- API 서버 TLS는 클라이언트 인증서를 요구하는 mTLS가 아니다. TLS 서버 신원 확인 뒤
+  기존 Bearer 인가와 NetworkPolicy를 적용한다. 저장소 방향의 mTLS는 그대로 유지한다.
+- 서버 인증서와 신뢰 변경은 API/콘솔 재시작이 필요하다. Secret 갱신만으로 즉시 교체됐다고
+  간주하지 않는다. 정상 조회·잘못된 CA/서버 이름 거부·잘못된 토큰 거부를 다시 확인한다.
+- Docker healthcheck는 loopback에 연결하되 설정된 서버 이름과 CA를 검증한다.
+  Kubernetes의 HTTPS probe는 인증서 신뢰를 검사하지 않으므로 별도 TLS 인수 시험이 필요하다.
+
+`tests/test_api_server_tls.py`는 임시 인증서와 실제 로컬 소켓에서 TLS 거부와 인증을 시험한다.
+저장소 응답은 빈 모의 값이므로 운영 수집이나 양쪽 환경의 지표 인수를 증명하지 않는다.
+
 필드 근거: [Collector v0.164.0 configtls ServerConfig](https://github.com/open-telemetry/opentelemetry-collector/blob/v0.164.0/config/configtls/generated_config.go).

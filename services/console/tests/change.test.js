@@ -33,6 +33,8 @@ for (const fault of [
   "offline",
   "gap",
   "body",
+  "profile-id",
+  "profile-version",
 ]) {
   test(`approval repeat requires explicit frozen current context: ${fault}`, () => {
     const m = setup(),
@@ -52,6 +54,8 @@ for (const fault of [
     if (fault === "offline") m.connected = false;
     if (fault === "gap") m.snapshot.last_event_id = `${plan}:3`;
     if (fault === "body") pending.body.expected_version++;
+    if (fault === "profile-id") pending.snapshot.profile_id = "other";
+    if (fault === "profile-version") pending.snapshot.profile_version = "2.0";
     assert.equal(canRepeatApproval(m, pending, at), fault === "none");
   });
 }

@@ -76,9 +76,13 @@ def _reason(a, b, spec, now):
 
 
 def evaluate(contract, ctx, source, target, *, now, approvals=(), network_verified=None):
-    """Trusted caller selects the profile/context and authenticates all inputs."""
+    """Trusted caller selects the profile/context and authenticates all inputs.
+
+    ctx.app is the registered workload (a T10 workload_id). The catalog profile's
+    app names only its reference app, so the profile is pinned by the plan, not here.
+    """
     profile = contract.profile(ctx.profile_id, ctx.profile_version)
-    if ctx.catalog_digest != contract.catalog_digest or profile["app"] != ctx.app:
+    if ctx.catalog_digest != contract.catalog_digest:
         raise GateError("PROFILE_CONTEXT_MISMATCH")
     for run in (source, target):
         contract.validate(run, "control_run")

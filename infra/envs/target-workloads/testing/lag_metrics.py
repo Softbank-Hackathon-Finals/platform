@@ -1,6 +1,20 @@
 """Pure arithmetic for replication-lag measurements: no database, Docker or clock access."""
+import datetime as dt
 import math
+import re
 import statistics
+
+# Fixed labels, so that no address or role from a driver message can reach the evidence.
+LOG_EVENTS = {
+    "terminating logical replication worker due to timeout": "receiver_timeout",
+    "terminating walsender process due to replication timeout": "sender_timeout",
+    "could not receive data from WAL stream": "stream_lost",
+    "could not connect to the publisher": "publisher_connect_failed",
+    "has been disabled because of an error": "subscription_disabled",
+    "is active for PID": "slot_held_by_another_process",
+    "conflict detected on relation": "apply_conflict",
+}
+LOG_LINE = re.compile(r"^(\d{4}-\d\d-\d\d \d\d:\d\d:\d\d\.\d{3}) \S+ (\S*) (?:LOG|ERROR|FATAL|WARNING):\s+(.*)$")
 
 
 def percentile(values, q):
@@ -148,3 +162,59 @@ def analyze_observation(source, target):
         "confirmed_lag_bytes": summarize([s["wal"] - s["confirmed"] for s in source
                                           if s["wal"] is not None and s["confirmed"] is not None]),
     }
+
+
+def parse_log_events(lines):
+    """Replication events from a server log with prefix '%m %e ', timed from the first one kept."""
+    events, first = [], None
+    for line in lines:
+        match = LOG_LINE.match(line)
+        label = next((name for text, name in LOG_EVENTS.items() if match and text in match.group(3)), None)
+        if label is None:
+            continue
+        at = dt.datetime.strptime(match.group(1), "%Y-%m-%d %H:%M:%S.%f")
+        first = at if first is None else first
+        events.append({"event": label, "sqlstate": match.group(2),
+                       "after_first_ms": round((at - first).total_seconds() * 1000)})
+    return events
+
+
+def summarize_stall_trials(trials):
+    """One row per timeout and condition, in the order first seen. A run that never caught up has no time."""
+    groups = {}
+    for trial in trials:
+        groups.setdefault((trial["timeout_s"], trial["condition"]), []).append(trial)
+    rows = []
+    for (timeout, condition), runs in groups.items():
+        flowing = [run["rows_flowing_after_heal_s"] for run in runs if run["rows_flowing_after_heal_s"] is not None]
+        errors = [run["apply_errors_added"] for run in runs]
+        events = [item["event"] for run in runs for item in run["target_log_events"] + run["source_log_events"]]
+        rows.append({"timeout_s": timeout, "condition": condition, "runs": len(runs),
+                     "connection_ended": sum(bool(run["connection_ended"]) for run in runs),
+                     "disabled": sum(run["outcome"] == "disabled" for run in runs),
+                     "recovered": sum(run["outcome"] == "recovered" for run in runs),
+                     "apply_errors_added": {"min": min(errors), "max": max(errors)},
+                     "timeout_events": {name: events.count(name) for name in ("receiver_timeout", "sender_timeout")},
+                     "rows_flowing_after_heal_s": {"median": statistics.median(flowing) if flowing else None,
+                                                   "max": max(flowing) if flowing else None,
+                                                   "unreached": len(runs) - len(flowing)},
+                     "rows_missing_max": max(run["rows_missing"] for run in runs)})
+    return rows
+
+
+def summarize_timeout_trials(trials):
+    """One row per setting and link failure, in the order they first appear. Raw trials stay beside it."""
+    groups = {}
+    for trial in trials:
+        key = (trial["receiver_s"], trial["sender_s"], trial["disable_on_error"], trial["blip_s"], trial["loss_pct"])
+        groups.setdefault(key, []).append(trial)
+    rows = []
+    for (receiver, sender, disable_on_error, blip, loss), runs in groups.items():
+        flowing = [run["rows_flowing_after_link_up_s"] for run in runs if run["rows_flowing_after_link_up_s"] is not None]
+        disabled = sum(run["outcome"] == "disabled" for run in runs)
+        recovered = sum(run["outcome"] == "recovered" for run in runs)
+        rows.append({"receiver_s": receiver, "sender_s": sender, "disable_on_error": disable_on_error,
+                     "blip_s": blip, "loss_pct": loss, "runs": len(runs), "disabled": disabled, "recovered": recovered,
+                     "neither": len(runs) - disabled - recovered,
+                     "rows_flowing_after_link_up_s_max": max(flowing) if flowing else None})
+    return rows

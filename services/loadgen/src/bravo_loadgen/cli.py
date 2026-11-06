@@ -10,6 +10,7 @@ import re
 import resource
 import sys
 import threading
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -17,12 +18,14 @@ import httpx
 import psycopg
 from psycopg.conninfo import conninfo_to_dict
 
+from bravo_loadgen.align import AlignmentError, align_run, render_alignment
 from bravo_loadgen.db import fetch_rows
 from bravo_loadgen.journal import Journal, read_journal
 from bravo_loadgen.load import LoadConfig, LoadRunner
 from bravo_loadgen.lock_probe import LockProbe, summarize_lock_samples
+from bravo_loadgen.preflight import render_lines, run_checks
 from bravo_loadgen.report import build_report, exit_code, render_markdown
-from bravo_loadgen.schema import SchemaViolation, validate_window
+from bravo_loadgen.schema import SchemaViolation, load_profile, validate_window
 from bravo_loadgen.windows import check_continuity
 
 DEFAULT_WINDOW_SECONDS = 10
@@ -34,6 +37,9 @@ WINDOW_TOKEN_ENV = "BRAVO_WINDOW_TOKEN"
 BEARER_TOKEN = re.compile(r"[A-Za-z0-9._~+/-]+=*")
 
 MEASUREMENT_PATHS = ("edge", "local-mock-edge", "local-direct")
+GENERATORS = ("loadgen-ec2", "laptop")
+# infra/envs/loadgen-aws의 cloud-init이 첫 부팅 끝에 만든다. 다른 컴퓨터에는 없다.
+EC2_MARKER = Path("/var/lib/bravo-loadgen-ready")
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -51,24 +57,16 @@ def _parser() -> argparse.ArgumentParser:
     commands = parser.add_subparsers(required=True)
 
     run = commands.add_parser("run", help="부하를 넣고 창 요약과 대조 리포트를 만든다")
-    run.add_argument("--base-url", required=True, help="요청을 보낼 주소. 실제 판정용은 Edge 주소")
-    run.add_argument("--plan-id", required=True)
-    run.add_argument("--source-env", required=True, help="출발지의 APP_ENV 값 (계획에 등록한 값)")
-    run.add_argument("--target-env", required=True, help="목적지의 APP_ENV 값 (계획에 등록한 값)")
-    run.add_argument("--duration", type=float, required=True, help="부하 시간(초)")
-    run.add_argument("--measurement-path", required=True, choices=MEASUREMENT_PATHS)
-    run.add_argument("--out", type=Path, required=True, help="산출물 폴더")
-    run.add_argument("--run-id", help="없으면 시각으로 만든다")
-    run.add_argument("--write-rps", type=float, default=50)
-    run.add_argument("--read-rps", type=float, default=150)
-    run.add_argument("--window-seconds", type=int, default=DEFAULT_WINDOW_SECONDS)
-    run.add_argument("--attempt-timeout", type=float, default=15)
-    run.add_argument("--retry-budget", type=float, default=60)
-    run.add_argument("--window-url", help=f"창 요약을 POST할 플랫폼 주소. 토큰은 환경변수 {WINDOW_TOKEN_ENV}")
-    run.add_argument("--db-dsn-env", help="대조용 DB 연결 문자열이 든 환경변수 이름")
-    run.add_argument("--lock-dsn-env", help="잠금 측정용 DB 연결 문자열이 든 환경변수 이름")
-    run.add_argument("--lock-baseline", type=float, default=3, help="부하 전 잠금 기준 측정(초)")
+    _add_load_arguments(run)
     run.set_defaults(handler=_cmd_run)
+
+    check_only = commands.add_parser("preflight", help="부하 없이 사전 점검만 한다. 인자는 measure와 같다")
+    _add_load_arguments(check_only)
+    check_only.set_defaults(handler=_cmd_preflight)
+
+    measure = commands.add_parser("measure", help="사전 점검을 통과해야 부하를 넣는다")
+    _add_load_arguments(measure)
+    measure.set_defaults(handler=_cmd_measure)
 
     again = commands.add_parser("reconcile", help="끝난 실행의 기록을 지금 DB와 다시 대조한다")
     again.add_argument("--out", type=Path, required=True, help="run이 만든 산출물 폴더")
@@ -79,7 +77,33 @@ def _parser() -> argparse.ArgumentParser:
     check.add_argument("path", type=Path)
     check.add_argument("--window-seconds", type=int, default=DEFAULT_WINDOW_SECONDS)
     check.set_defaults(handler=_cmd_check_windows)
+
+    aligned = commands.add_parser("align", help="가중치 영수증과 창을 같은 실행 ID로 맞춘다")
+    aligned.add_argument("--out", type=Path, required=True, help="run이 만든 산출물 폴더")
+    aligned.add_argument("--receipts", type=Path, required=True, help="가중치 영수증 JSONL")
+    aligned.set_defaults(handler=_cmd_align)
     return parser
+
+
+def _add_load_arguments(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--base-url", required=True, help="요청을 보낼 주소. 실제 판정용은 Edge 주소")
+    parser.add_argument("--plan-id", required=True)
+    parser.add_argument("--source-env", required=True, help="출발지의 APP_ENV 값 (계획에 등록한 값)")
+    parser.add_argument("--target-env", required=True, help="목적지의 APP_ENV 값 (계획에 등록한 값)")
+    parser.add_argument("--duration", type=float, required=True, help="부하 시간(초)")
+    parser.add_argument("--measurement-path", required=True, choices=MEASUREMENT_PATHS)
+    parser.add_argument("--generator", choices=GENERATORS, help="부하를 내는 곳. edge 경로에는 필수")
+    parser.add_argument("--out", type=Path, required=True, help="산출물 폴더")
+    parser.add_argument("--run-id", help="없으면 시각으로 만든다. preflight · measure에는 필수")
+    parser.add_argument("--write-rps", type=float, default=50)
+    parser.add_argument("--read-rps", type=float, default=150)
+    parser.add_argument("--window-seconds", type=int, default=DEFAULT_WINDOW_SECONDS)
+    parser.add_argument("--attempt-timeout", type=float, default=15)
+    parser.add_argument("--retry-budget", type=float, default=60)
+    parser.add_argument("--window-url", help=f"창 요약을 POST할 플랫폼 주소. 토큰은 환경변수 {WINDOW_TOKEN_ENV}")
+    parser.add_argument("--db-dsn-env", help="대조용 DB 연결 문자열이 든 환경변수 이름")
+    parser.add_argument("--lock-dsn-env", help="잠금 측정용 DB 연결 문자열이 든 환경변수 이름")
+    parser.add_argument("--lock-baseline", type=float, default=3, help="부하 전 잠금 기준 측정(초)")
 
 
 def _fail(message: str) -> int:
@@ -144,50 +168,119 @@ def _raise_open_file_limit(needed: int) -> None:
     resource.setrlimit(resource.RLIMIT_NOFILE, (needed, hard))
 
 
-def _cmd_run(args: argparse.Namespace) -> int:
-    try:
-        db_dsn = _dsn(args.db_dsn_env)
-        lock_dsn = _dsn(args.lock_dsn_env)
-        window_token = _window_token() if args.window_url else None
-    except LookupError as error:
-        return _fail(str(error))
+@dataclass(frozen=True)
+class _Prepared:
+    config: LoadConfig
+    db_dsn: str | None
+    lock_dsn: str | None
+    window_token: str | None
+
+
+def _prepare(args: argparse.Namespace) -> _Prepared:
+    """요청을 보내기 전에 알 수 있는 설정 오류를 막는다. run · preflight · measure가 함께 쓴다."""
+    db_dsn = _dsn(args.db_dsn_env)
+    lock_dsn = _dsn(args.lock_dsn_env)
+    window_token = _window_token() if args.window_url else None
     if problem := _url_problem("--base-url", args.base_url):
-        return _fail(problem)
+        raise LookupError(problem)
     if args.window_url and (problem := _url_problem("--window-url", args.window_url)):
-        return _fail(problem)
+        raise LookupError(problem)
     if any((args.out / name).exists() for name in RESULT_FILES):
         # 새 실행이 죽으면 이전 판정이 그대로 남아 잘못 읽힌다.
-        return _fail(f"{args.out}에 이미 결과가 있다. 새 폴더를 쓴다")
+        raise LookupError(f"{args.out}에 이미 결과가 있다. 새 폴더를 쓴다")
     if args.source_env == args.target_env:
-        return _fail("--source-env와 --target-env가 같다")
+        raise LookupError("--source-env와 --target-env가 같다")
+    if args.measurement_path == "edge" and not args.generator:
+        raise LookupError("edge 경로에는 --generator로 부하를 내는 곳을 밝힌다")
+    if args.generator == "loadgen-ec2" and not EC2_MARKER.exists():
+        raise LookupError("--generator loadgen-ec2인데 이 컴퓨터에는 loadgen-aws 표시 파일이 없다")
+    if args.measurement_path == "edge" and args.generator == "laptop" and args.window_url:
+        # 창에는 실행 위치를 적을 칸이 없어, 받는 쪽은 전용 호스트의 값과 구분하지 못한다.
+        raise LookupError("노트북에서 잰 창은 판정 경로로 보내지 않는다. --window-url을 뺀다")
     run_id = args.run_id or f"t18-{datetime.now(UTC):%Y%m%dt%H%M%Sz}"
-    try:
-        config = LoadConfig(
-            run_id=run_id,
-            plan_id=args.plan_id,
-            env_pools={args.source_env: "source", args.target_env: "target"},
-            duration_s=args.duration,
-            write_rps=args.write_rps,
-            read_rps=args.read_rps,
-            window_seconds=args.window_seconds,
-            attempt_timeout_s=args.attempt_timeout,
-            retry_budget_s=args.retry_budget,
+    config = LoadConfig(
+        run_id=run_id,
+        plan_id=args.plan_id,
+        env_pools={args.source_env: "source", args.target_env: "target"},
+        duration_s=args.duration,
+        write_rps=args.write_rps,
+        read_rps=args.read_rps,
+        window_seconds=args.window_seconds,
+        attempt_timeout_s=args.attempt_timeout,
+        retry_budget_s=args.retry_budget,
+    )
+    _raise_open_file_limit(
+        open_files_needed(
+            write_rps=config.write_rps,
+            read_rps=config.read_rps,
+            retry_budget_s=config.retry_budget_s,
+            attempt_timeout_s=config.attempt_timeout_s,
         )
-        _raise_open_file_limit(
-            open_files_needed(
-                write_rps=config.write_rps,
-                read_rps=config.read_rps,
-                retry_budget_s=config.retry_budget_s,
-                attempt_timeout_s=config.attempt_timeout_s,
-            )
-        )
-    except (ValueError, OSError) as error:
-        return _fail(str(error))
+    )
+    return _Prepared(config, db_dsn, lock_dsn, window_token)
 
+
+def _execute(args: argparse.Namespace, prepared: _Prepared, preflight: dict | None = None) -> int:
     args.out.mkdir(parents=True, exist_ok=True)
-    state = asyncio.run(_run_load(config, args, lock_dsn, window_token))
+    state = asyncio.run(
+        _run_load(prepared.config, args, prepared.lock_dsn, prepared.window_token)
+    )
+    state["preflight"] = preflight
     (args.out / "run-state.json").write_text(json.dumps(state, ensure_ascii=False, indent=2) + "\n")
-    return _write_report(args.out, db_dsn, read_journal(args.out / "journal.jsonl"))
+    return _write_report(args.out, prepared.db_dsn, read_journal(args.out / "journal.jsonl"))
+
+
+def _cmd_run(args: argparse.Namespace) -> int:
+    try:
+        prepared = _prepare(args)
+    except (LookupError, ValueError, OSError) as error:
+        return _fail(str(error))
+    return _execute(args, prepared)
+
+
+def _run_preflight(args: argparse.Namespace, prepared: _Prepared) -> dict:
+    summary = run_checks(
+        base_url=args.base_url,
+        env_pools=prepared.config.env_pools,
+        measurement_path=args.measurement_path,
+        max_clock_skew_s=load_profile()["max_clock_skew_seconds"],
+        write_rps=prepared.config.write_rps,
+        window_url=args.window_url,
+        window_token=prepared.window_token,
+        window_timeout_s=WINDOW_POST_TIMEOUT_S,
+        db_dsn=prepared.db_dsn,
+        lock_dsn=prepared.lock_dsn,
+    )
+    print("\n".join(render_lines(summary)))
+    print(f"사전 점검 {'통과' if summary['passed'] else '실패'}: 실행 ID {prepared.config.run_id}")
+    return summary
+
+
+def _prepare_with_run_id(args: argparse.Namespace) -> _Prepared:
+    if not args.run_id:
+        raise LookupError("--run-id가 필요하다. 가중치 변경 기록과 같은 값으로 맞춘다")
+    return _prepare(args)
+
+
+def _cmd_preflight(args: argparse.Namespace) -> int:
+    try:
+        prepared = _prepare_with_run_id(args)
+    except (LookupError, ValueError, OSError) as error:
+        return _fail(str(error))
+    return 0 if _run_preflight(args, prepared)["passed"] else 2
+
+
+def _cmd_measure(args: argparse.Namespace) -> int:
+    try:
+        prepared = _prepare_with_run_id(args)
+    except (LookupError, ValueError, OSError) as error:
+        return _fail(str(error))
+    summary = _run_preflight(args, prepared)
+    if not summary["passed"]:
+        return _fail("사전 점검 실패. 부하를 보내지 않았다")
+    args.out.mkdir(parents=True, exist_ok=True)
+    (args.out / "preflight.json").write_text(json.dumps(summary, ensure_ascii=False, indent=2) + "\n")
+    return _execute(args, prepared, summary)
 
 
 async def _run_load(
@@ -235,6 +328,7 @@ async def _run_load(
     return {
         "target": args.base_url,
         "measurement_path": args.measurement_path,
+        "generator": args.generator,
         "delivery_failed": result.delivery_failed,
         "invalid_windows": result.invalid_windows,
         "tail_requests": result.tail_requests,
@@ -317,6 +411,27 @@ def _cmd_check_windows(args: argparse.Namespace) -> int:
         print(f"연속성 {problem['kind']}: {problem}")
     print(f"창 {len(windows)}개, 스키마 위반 {bad}개, 연속성 문제 {len(problems)}건")
     return 1 if bad or problems else 0
+
+
+def _cmd_align(args: argparse.Namespace) -> int:
+    report_path, windows_path = args.out / "report.json", args.out / "windows.jsonl"
+    if not (report_path.is_file() and windows_path.is_file() and args.receipts.is_file()):
+        return _fail("리포트, 창 파일, 영수증 중 없는 것이 있다")
+    try:
+        receipts = [json.loads(line) for line in args.receipts.read_text().splitlines() if line.strip()]
+        result = align_run(
+            json.loads(report_path.read_text()),
+            [json.loads(line) for line in windows_path.read_text().splitlines()],
+            receipts,
+            load_profile(),
+        )
+    except AlignmentError as error:
+        return _fail(str(error))
+    except json.JSONDecodeError:
+        return _fail("영수증 파일이 JSONL 형식이 아니다")
+    (args.out / "weight-alignment.json").write_text(json.dumps(result, ensure_ascii=False, indent=2) + "\n")
+    print(render_alignment(result))
+    return 0 if result["complete"] else 1
 
 
 if __name__ == "__main__":

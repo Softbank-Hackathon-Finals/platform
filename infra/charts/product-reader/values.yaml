@@ -1,0 +1,17 @@
+image:
+  repository: ghcr.io/softbank-hackathon-finals/platform-product-reader
+  digest: ""
+sourceRevision: ""
+configuration:
+  existingConfigMap: ""
+  sha256: ""
+catalogClaim: ""
+secrets:
+  database: platform-runtime-db
+  databaseCA: platform-db-ca
+  catalogKey: ""
+  tls: ""
+  registry: platform-ghcr-reader
+resources:
+  requests: {cpu: 100m, memory: 192Mi}
+  limits: {cpu: "1", memory: 512Mi}

@@ -1,0 +1,34 @@
+{
+  "source_revision": "445848d2ed9878e31eb6f5aabad0575c61739b47",
+  "image": "ghcr.io/softbank-hackathon-finals/platform-rehearsal-host",
+  "image_digest": "sha256:56cd42d3d5213bab93b046e23e7dfb6433d19d2c2d12bb065b37be983f41d988",
+  "platform_manifest_digest": "sha256:9cd1a9d8669808ceceaeb471cc6c29bc61ec88b26484aaeed4daf1e41e33ee8b",
+  "config_digest": "sha256:ae5a6f4959d30300bd0a6d5dc31dcac8e391b11906e3146cbb9f12249ef31807",
+  "context_sha256": "a6dcf0731923b8bb4bfeb808bc5965d00d084da899fa225bc99564c7f4c371f5",
+  "oci_blobs": 20,
+  "scan": {
+    "scanners": [
+      "vuln",
+      "secret"
+    ],
+    "severity": [
+      "HIGH",
+      "CRITICAL"
+    ],
+    "ignore_unfixed": true,
+    "package_types": [
+      "debian",
+      "gobinary",
+      "python-pkg"
+    ],
+    "vulnerability_count": 0,
+    "secret_match_count": 0
+  },
+  "registry_visibility": "private",
+  "tag": "sha-445848d2ed9878e31eb6f5aabad0575c61739b47-42253589106-1",
+  "run_id": "42253589106",
+  "attempt": "1",
+  "workflow_revision": "445848d2ed9878e31eb6f5aabad0575c61739b47",
+  "published": true,
+  "deployed": false
+}

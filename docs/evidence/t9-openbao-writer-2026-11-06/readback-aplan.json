@@ -1,0 +1,1076 @@
+{
+  "observed_at": "2026-11-06T03:47:21+09:00",
+  "design": "ADR-0029 A안 (operator-owned templated reader policy, no writer policy access)",
+  "scope": "local only: single-node kind cluster and upstream OpenBao dev server; not the demo RKE2 target",
+  "source_revision": "12d6b4f5ef9fc921bbbc5d40e484d2beb985ee81",
+  "private_raw_sha256": {
+    "results": "79aa9e2ae17d5fc84fb2e18eec6b0ff89c40da2b235f7d67c5b1948f31f5e472",
+    "run_log": "7ce912591f56adcca7aa514bd8e289cf244cbea59a5cc9aedb5d3f33e93e4756"
+  },
+  "environment": {
+    "kind": "v0.32.0",
+    "kind_cluster": "t9-aplan",
+    "writer_namespace": "bravo-rehearsal-control",
+    "kubernetes_server": "v1.36.1",
+    "kind_node_image": "kindest/node@sha256:3489c7674813ba5d8b1a9977baea8a6e553784dab7b84759d1014dbd78f7ebd5",
+    "openbao_image": "quay.io/openbao/openbao@sha256:5046911075e137e154ce49ab051502f4ec7cf367d484ae4a4dce665d9b90561f",
+    "openbao_version": "2.7.2",
+    "openbao_source_commit": "9e0a0d3c3504a0a00b45e61355afac5e35c78379",
+    "openbao_mode": "dev (HTTP, in-memory, unsealed)",
+    "network_policy_enforcer": "kindnet (kind default CNI)"
+  },
+  "helm_render": {
+    "helm": "v4.3.1",
+    "chart": "openbao 0.30.6",
+    "chart_sha256": "76e90c2315a4922b4b0c6c63fd8a00b9f4bdf0cffda160664f8ea5762d59911c",
+    "kube_version_flag": "1.36.1",
+    "bao_values_sha256": "10f5da55b5bf1c774d0c46f3dcafcf2e5cddb15a7e29b9da8c4c7852e2bf49d1",
+    "finalized_sha256": "b318ebe71dc81bbf7157cdd5005b8505e6707c4a6d8bbbe8ff314ce97e218856"
+  },
+  "server_dry_run": {
+    "foundation-namespace": [
+      "namespace/bravo-secrets created (server dry run)"
+    ],
+    "eso-namespace": [
+      "namespace/external-secrets created (server dry run)"
+    ],
+    "rehearsal-writer-namespace": [
+      "namespace/bravo-rehearsal-control created (server dry run)"
+    ],
+    "foundation": [
+      "namespace/bravo-secrets unchanged (server dry run)",
+      "persistentvolume/bravo-target-openbao-data created (server dry run)",
+      "persistentvolumeclaim/data-target-openbao-0 created (server dry run)",
+      "clusterrole.rbac.authorization.k8s.io/bravo-target-openbao-tokenreview created (server dry run)",
+      "clusterrolebinding.rbac.authorization.k8s.io/bravo-target-openbao-tokenreview created (server dry run)"
+    ],
+    "network": [
+      "networkpolicy.networking.k8s.io/target-openbao created (server dry run)"
+    ],
+    "eso-network": [
+      "networkpolicy.networking.k8s.io/external-secrets created (server dry run)"
+    ],
+    "rehearsal-writer-identity": [
+      "namespace/bravo-rehearsal-control unchanged (server dry run)",
+      "serviceaccount/rehearsal-openbao-writer created (server dry run)"
+    ],
+    "finalize-bao": [
+      "serviceaccount/target-openbao created (server dry run)",
+      "configmap/target-openbao-config created (server dry run)",
+      "service/target-openbao-internal created (server dry run)",
+      "service/target-openbao created (server dry run)",
+      "statefulset.apps/target-openbao created (server dry run)"
+    ],
+    "rehearsal-delivery-a": [
+      "serviceaccount/rehearsal-eso-reader configured (server dry run)"
+    ]
+  },
+  "writer_token": {
+    "policies": [
+      "rehearsal-openbao-writer"
+    ],
+    "ttl": 299
+  },
+  "reader_token": {
+    "policies": [
+      "rehearsal-app-reader"
+    ],
+    "ttl": 300
+  },
+  "network": {
+    "reader_init_without_peer": {
+      "phase": "Failed",
+      "init_exit": 2
+    },
+    "reader_init_with_test_peer": {
+      "phase": "Succeeded",
+      "init_exit": 0
+    },
+    "np_writer_label_in_control": 0,
+    "np_unlabelled_in_control": 1,
+    "np_writer_label_in_rehearsal_ns": 1,
+    "np_writer_label_in_legacy_control": 1
+  },
+  "init_container_substitutions_for_dev_standin": [
+    [
+      "https://target-openbao.bravo-secrets.svc:8200",
+      "http://target-openbao.bravo-secrets.svc:8200"
+    ],
+    [
+      " BAO_CACERT=/openbao/ca/ca.crt",
+      ""
+    ]
+  ],
+  "summary": {
+    "total": 157,
+    "failed": []
+  },
+  "cases": [
+    {
+      "name": "operator_accessor_read_matches_auth_list",
+      "expected": true,
+      "actual": true,
+      "pass": true
+    },
+    {
+      "name": "operator_accessor_format",
+      "expected": true,
+      "actual": true,
+      "pass": true
+    },
+    {
+      "name": "operator_cli_read_field_accessor",
+      "expected": true,
+      "actual": true,
+      "pass": true
+    },
+    {
+      "name": "operator_reader_policy_stored_as_rendered",
+      "expected": true,
+      "actual": true,
+      "pass": true
+    },
+    {
+      "name": "writer_login_exact_sa_audience",
+      "expected": "allow",
+      "actual": "allow",
+      "pass": true
+    },
+    {
+      "name": "writer_login_default_audience",
+      "expected": "deny",
+      "actual": "deny",
+      "pass": true
+    },
+    {
+      "name": "writer_role_other_sa",
+      "expected": "deny",
+      "actual": "deny",
+      "pass": true
+    },
+    {
+      "name": "writer_role_reader_sa_in_control",
+      "expected": "deny",
+      "actual": "deny",
+      "pass": true
+    },
+    {
+      "name": "writer_token_policies_only_writer",
+      "expected": [
+        "rehearsal-openbao-writer"
+      ],
+      "actual": [
+        "rehearsal-openbao-writer"
+      ],
+      "pass": true
+    },
+    {
+      "name": "kv_put_namespace_a",
+      "expected": "allow",
+      "actual": "allow",
+      "pass": true
+    },
+    {
+      "name": "kv_put_namespace_b",
+      "expected": "allow",
+      "actual": "allow",
+      "pass": true
+    },
+    {
+      "name": "kv_put_namespace_prefix_sibling",
+      "expected": "allow",
+      "actual": "allow",
+      "pass": true
+    },
+    {
+      "name": "kv_get_namespace_a",
+      "expected": "allow",
+      "actual": "allow",
+      "pass": true
+    },
+    {
+      "name": "kv_metadata_update_namespace_a",
+      "expected": "allow",
+      "actual": "allow",
+      "pass": true
+    },
+    {
+      "name": "kv_metadata_get_namespace_a",
+      "expected": "allow",
+      "actual": "allow",
+      "pass": true
+    },
+    {
+      "name": "role_write_rendered_body_a",
+      "expected": "allow",
+      "actual": "allow",
+      "pass": true
+    },
+    {
+      "name": "role_write_rendered_body_b",
+      "expected": "allow",
+      "actual": "allow",
+      "pass": true
+    },
+    {
+      "name": "role_write_other_name_same_constraints",
+      "expected": "allow",
+      "actual": "allow",
+      "pass": true
+    },
+    {
+      "name": "token_lookup_self",
+      "expected": "allow",
+      "actual": "allow",
+      "pass": true
+    },
+    {
+      "name": "token_renew_self",
+      "expected": "allow",
+      "actual": "allow",
+      "pass": true
+    },
+    {
+      "name": "policy_write_operator_reader",
+      "expected": "deny",
+      "actual": "deny",
+      "pass": true
+    },
+    {
+      "name": "policy_read_operator_reader",
+      "expected": "deny",
+      "actual": "deny",
+      "pass": true
+    },
+    {
+      "name": "policy_delete_operator_reader",
+      "expected": "deny",
+      "actual": "deny",
+      "pass": true
+    },
+    {
+      "name": "policy_write_reader_prefixed",
+      "expected": "deny",
+      "actual": "deny",
+      "pass": true
+    },
+    {
+      "name": "policy_write_default",
+      "expected": "deny",
+      "actual": "deny",
+      "pass": true
+    },
+    {
+      "name": "policy_write_own_writer",
+      "expected": "deny",
+      "actual": "deny",
+      "pass": true
+    },
+    {
+      "name": "policy_write_target_reader",
+      "expected": "deny",
+      "actual": "deny",
+      "pass": true
+    },
+    {
+      "name": "policy_write_legacy_endpoint",
+      "expected": "deny",
+      "actual": "deny",
+      "pass": true
+    },
+    {
+      "name": "policy_list_not_granted",
+      "expected": "deny",
+      "actual": "deny",
+      "pass": true
+    },
+    {
+      "name": "policy_password_not_granted",
+      "expected": "deny",
+      "actual": "deny",
+      "pass": true
+    },
+    {
+      "name": "kv_put_target",
+      "expected": "deny",
+      "actual": "deny",
+      "pass": true
+    },
+    {
+      "name": "kv_get_target",
+      "expected": "deny",
+      "actual": "deny",
+      "pass": true
+    },
+    {
+      "name": "kv_metadata_get_target",
+      "expected": "deny",
+      "actual": "deny",
+      "pass": true
+    },
+    {
+      "name": "kv_metadata_delete_target",
+      "expected": "deny",
+      "actual": "deny",
+      "pass": true
+    },
+    {
+      "name": "kv_put_sibling_prefix",
+      "expected": "deny",
+      "actual": "deny",
+      "pass": true
+    },
+    {
+      "name": "kv_destroy_rehearsal_not_granted",
+      "expected": "deny",
+      "actual": "deny",
+      "pass": true
+    },
+    {
+      "name": "kv_list_rehearsal_not_granted",
+      "expected": "deny",
+      "actual": "deny",
+      "pass": true
+    },
+    {
+      "name": "role_write_own_writer",
+      "expected": "deny",
+      "actual": "deny",
+      "pass": true
+    },
+    {
+      "name": "role_write_target_reader",
+      "expected": "deny",
+      "actual": "deny",
+      "pass": true
+    },
+    {
+      "name": "role_write_wrong_accessor_check_role",
+      "expected": "deny",
+      "actual": "deny",
+      "pass": true
+    },
+    {
+      "name": "role_read_blocked_by_required_parameters",
+      "expected": "deny",
+      "actual": "deny",
+      "pass": true
+    },
+    {
+      "name": "role_policy_evil_name",
+      "expected": "deny",
+      "actual": "deny",
+      "pass": true
+    },
+    {
+      "name": "role_policy_reader_prefixed_name",
+      "expected": "deny",
+      "actual": "deny",
+      "pass": true
+    },
+    {
+      "name": "role_policy_glob_value",
+      "expected": "deny",
+      "actual": "deny",
+      "pass": true
+    },
+    {
+      "name": "role_policy_trailing_space",
+      "expected": "deny",
+      "actual": "deny",
+      "pass": true
+    },
+    {
+      "name": "role_policy_comma_list",
+      "expected": "deny",
+      "actual": "deny",
+      "pass": true
+    },
+    {
+      "name": "role_policy_json_list",
+      "expected": "deny",
+      "actual": "deny",
+      "pass": true
+    },
+    {
+      "name": "role_policy_default",
+      "expected": "deny",
+      "actual": "deny",
+      "pass": true
+    },
+    {
+      "name": "role_policy_writer",
+      "expected": "deny",
+      "actual": "deny",
+      "pass": true
+    },
+    {
+      "name": "role_policy_target_reader",
+      "expected": "deny",
+      "actual": "deny",
+      "pass": true
+    },
+    {
+      "name": "role_policy_missing",
+      "expected": "deny",
+      "actual": "deny",
+      "pass": true
+    },
+    {
+      "name": "role_deprecated_policies_param",
+      "expected": "deny",
+      "actual": "deny",
+      "pass": true
+    },
+    {
+      "name": "role_ns_management_namespace",
+      "expected": "deny",
+      "actual": "deny",
+      "pass": true
+    },
+    {
+      "name": "role_ns_target_dev",
+      "expected": "deny",
+      "actual": "deny",
+      "pass": true
+    },
+    {
+      "name": "role_ns_bravo_secrets",
+      "expected": "deny",
+      "actual": "deny",
+      "pass": true
+    },
+    {
+      "name": "role_ns_default",
+      "expected": "deny",
+      "actual": "deny",
+      "pass": true
+    },
+    {
+      "name": "role_ns_kube_system",
+      "expected": "deny",
+      "actual": "deny",
+      "pass": true
+    },
+    {
+      "name": "role_ns_legacy_control",
+      "expected": "deny",
+      "actual": "deny",
+      "pass": true
+    },
+    {
+      "name": "role_ns_legacy_control_suffix",
+      "expected": "deny",
+      "actual": "deny",
+      "pass": true
+    },
+    {
+      "name": "role_ns_legacy_control_trailing_space",
+      "expected": "deny",
+      "actual": "deny",
+      "pass": true
+    },
+    {
+      "name": "role_ns_trailing_space",
+      "expected": "deny",
+      "actual": "deny",
+      "pass": true
+    },
+    {
+      "name": "role_ns_comma_list",
+      "expected": "deny",
+      "actual": "deny",
+      "pass": true
+    },
+    {
+      "name": "role_ns_comma_two_rehearsal",
+      "expected": "deny",
+      "actual": "deny",
+      "pass": true
+    },
+    {
+      "name": "role_ns_glob_value",
+      "expected": "deny",
+      "actual": "deny",
+      "pass": true
+    },
+    {
+      "name": "role_ns_star",
+      "expected": "deny",
+      "actual": "deny",
+      "pass": true
+    },
+    {
+      "name": "role_ns_json_list",
+      "expected": "deny",
+      "actual": "deny",
+      "pass": true
+    },
+    {
+      "name": "role_ns_selector_param",
+      "expected": "deny",
+      "actual": "deny",
+      "pass": true
+    },
+    {
+      "name": "role_ns_missing",
+      "expected": "deny",
+      "actual": "deny",
+      "pass": true
+    },
+    {
+      "name": "role_sa_writer",
+      "expected": "deny",
+      "actual": "deny",
+      "pass": true
+    },
+    {
+      "name": "role_sa_comma_list",
+      "expected": "deny",
+      "actual": "deny",
+      "pass": true
+    },
+    {
+      "name": "role_sa_star",
+      "expected": "deny",
+      "actual": "deny",
+      "pass": true
+    },
+    {
+      "name": "role_missing_audience",
+      "expected": "deny",
+      "actual": "deny",
+      "pass": true
+    },
+    {
+      "name": "role_other_audience",
+      "expected": "deny",
+      "actual": "deny",
+      "pass": true
+    },
+    {
+      "name": "role_long_ttl",
+      "expected": "deny",
+      "actual": "deny",
+      "pass": true
+    },
+    {
+      "name": "role_long_max_ttl",
+      "expected": "deny",
+      "actual": "deny",
+      "pass": true
+    },
+    {
+      "name": "role_default_policy_on",
+      "expected": "deny",
+      "actual": "deny",
+      "pass": true
+    },
+    {
+      "name": "role_period_param",
+      "expected": "deny",
+      "actual": "deny",
+      "pass": true
+    },
+    {
+      "name": "role_cidr_param",
+      "expected": "deny",
+      "actual": "deny",
+      "pass": true
+    },
+    {
+      "name": "role_alias_name_source_param",
+      "expected": "deny",
+      "actual": "deny",
+      "pass": true
+    },
+    {
+      "name": "sys_auth_enable",
+      "expected": "deny",
+      "actual": "deny",
+      "pass": true
+    },
+    {
+      "name": "sys_auth_read",
+      "expected": "deny",
+      "actual": "deny",
+      "pass": true
+    },
+    {
+      "name": "sys_auth_kubernetes_read",
+      "expected": "deny",
+      "actual": "deny",
+      "pass": true
+    },
+    {
+      "name": "sys_mounts_enable",
+      "expected": "deny",
+      "actual": "deny",
+      "pass": true
+    },
+    {
+      "name": "kubernetes_config_write",
+      "expected": "deny",
+      "actual": "deny",
+      "pass": true
+    },
+    {
+      "name": "token_create_child",
+      "expected": "deny",
+      "actual": "deny",
+      "pass": true
+    },
+    {
+      "name": "identity_entity_write",
+      "expected": "deny",
+      "actual": "deny",
+      "pass": true
+    },
+    {
+      "name": "identity_entity_alias_write",
+      "expected": "deny",
+      "actual": "deny",
+      "pass": true
+    },
+    {
+      "name": "kv_get_traversal_not_served",
+      "expected": "redirect",
+      "actual": "redirect",
+      "pass": true
+    },
+    {
+      "name": "kv_get_traversal_redirect_target",
+      "expected": "secret/data/bravo/target/precutover/database",
+      "actual": "secret/data/bravo/target/precutover/database",
+      "pass": true
+    },
+    {
+      "name": "kv_get_traversal_followed",
+      "expected": "deny",
+      "actual": "deny",
+      "pass": true
+    },
+    {
+      "name": "escalation_policy_body_grants_target",
+      "expected": "deny",
+      "actual": "deny",
+      "pass": true,
+      "note": "A안: the writer has no sys/policies access"
+    },
+    {
+      "name": "escalation_bind_evil_policy_to_reader_sa",
+      "expected": "deny",
+      "actual": "deny",
+      "pass": true,
+      "note": "token_policies must be exactly rehearsal-app-reader"
+    },
+    {
+      "name": "escalation_bind_evil_policy_to_writer_itself",
+      "expected": "deny",
+      "actual": "deny",
+      "pass": true
+    },
+    {
+      "name": "escalation_reader_sa_login_evil_role",
+      "expected": "deny",
+      "actual": "deny",
+      "pass": true
+    },
+    {
+      "name": "escalation_evil_policy_absent",
+      "expected": 404,
+      "actual": 404,
+      "pass": true
+    },
+    {
+      "name": "reader_a_login_role_a",
+      "expected": "allow",
+      "actual": "allow",
+      "pass": true
+    },
+    {
+      "name": "reader_b_login_role_b",
+      "expected": "allow",
+      "actual": "allow",
+      "pass": true
+    },
+    {
+      "name": "reader_b_login_role_a",
+      "expected": "deny",
+      "actual": "deny",
+      "pass": true
+    },
+    {
+      "name": "reader_a_login_role_b",
+      "expected": "deny",
+      "actual": "deny",
+      "pass": true
+    },
+    {
+      "name": "reader_sa_in_control_login_role_a",
+      "expected": "deny",
+      "actual": "deny",
+      "pass": true
+    },
+    {
+      "name": "reader_sa_in_target_dev_login_role_a",
+      "expected": "deny",
+      "actual": "deny",
+      "pass": true
+    },
+    {
+      "name": "reader_a_default_audience",
+      "expected": "deny",
+      "actual": "deny",
+      "pass": true
+    },
+    {
+      "name": "reader_a_token_policies",
+      "expected": [
+        "rehearsal-app-reader"
+      ],
+      "actual": [
+        "rehearsal-app-reader"
+      ],
+      "pass": true
+    },
+    {
+      "name": "reader_a_get_own_namespace",
+      "expected": "allow",
+      "actual": "allow",
+      "pass": true
+    },
+    {
+      "name": "reader_a_get_namespace_b",
+      "expected": "deny",
+      "actual": "deny",
+      "pass": true
+    },
+    {
+      "name": "reader_a_get_prefix_sibling_namespace",
+      "expected": "deny",
+      "actual": "deny",
+      "pass": true
+    },
+    {
+      "name": "reader_a_get_target",
+      "expected": "deny",
+      "actual": "deny",
+      "pass": true
+    },
+    {
+      "name": "reader_a_get_target_objects",
+      "expected": "deny",
+      "actual": "deny",
+      "pass": true
+    },
+    {
+      "name": "reader_a_get_subtree_root",
+      "expected": "deny",
+      "actual": "deny",
+      "pass": true
+    },
+    {
+      "name": "reader_a_get_writer_namespace_path",
+      "expected": "deny",
+      "actual": "deny",
+      "pass": true
+    },
+    {
+      "name": "reader_a_write_own_namespace",
+      "expected": "deny",
+      "actual": "deny",
+      "pass": true
+    },
+    {
+      "name": "reader_a_metadata_own_namespace",
+      "expected": "deny",
+      "actual": "deny",
+      "pass": true
+    },
+    {
+      "name": "reader_a_list_subtree",
+      "expected": "deny",
+      "actual": "deny",
+      "pass": true
+    },
+    {
+      "name": "reader_a_policy_read",
+      "expected": "deny",
+      "actual": "deny",
+      "pass": true
+    },
+    {
+      "name": "reader_a_role_write",
+      "expected": "deny",
+      "actual": "deny",
+      "pass": true
+    },
+    {
+      "name": "reader_a_token_create",
+      "expected": "deny",
+      "actual": "deny",
+      "pass": true
+    },
+    {
+      "name": "reader_b_get_own_namespace",
+      "expected": "allow",
+      "actual": "allow",
+      "pass": true
+    },
+    {
+      "name": "reader_b_get_namespace_a",
+      "expected": "deny",
+      "actual": "deny",
+      "pass": true
+    },
+    {
+      "name": "reader_b_get_target",
+      "expected": "deny",
+      "actual": "deny",
+      "pass": true
+    },
+    {
+      "name": "crossname_role_login_a",
+      "expected": "allow",
+      "actual": "allow",
+      "pass": true
+    },
+    {
+      "name": "crossname_role_reads_own_namespace_only",
+      "expected": "allow",
+      "actual": "allow",
+      "pass": true
+    },
+    {
+      "name": "crossname_role_namespace_b",
+      "expected": "deny",
+      "actual": "deny",
+      "pass": true
+    },
+    {
+      "name": "wrong_accessor_policy_login",
+      "expected": "allow",
+      "actual": "allow",
+      "pass": true,
+      "note": "root-made check role"
+    },
+    {
+      "name": "wrong_accessor_policy_fails_closed",
+      "expected": "deny",
+      "actual": "deny",
+      "pass": true,
+      "note": "template does not resolve, rule skipped"
+    },
+    {
+      "name": "cleanup_role_delete_a",
+      "expected": "allow",
+      "actual": "allow",
+      "pass": true
+    },
+    {
+      "name": "cleanup_role_delete_b",
+      "expected": "allow",
+      "actual": "allow",
+      "pass": true
+    },
+    {
+      "name": "cleanup_role_delete_crossname",
+      "expected": "allow",
+      "actual": "allow",
+      "pass": true
+    },
+    {
+      "name": "cleanup_kv_data_delete_b",
+      "expected": "allow",
+      "actual": "allow",
+      "pass": true
+    },
+    {
+      "name": "cleanup_kv_metadata_delete_a",
+      "expected": "allow",
+      "actual": "allow",
+      "pass": true
+    },
+    {
+      "name": "cleanup_kv_metadata_delete_b",
+      "expected": "allow",
+      "actual": "allow",
+      "pass": true
+    },
+    {
+      "name": "cleanup_kv_metadata_delete_prefix_sibling",
+      "expected": "allow",
+      "actual": "allow",
+      "pass": true
+    },
+    {
+      "name": "token_revoke_self",
+      "expected": "allow",
+      "actual": "allow",
+      "pass": true
+    },
+    {
+      "name": "revoked_token_unusable",
+      "expected": "deny",
+      "actual": "deny",
+      "pass": true
+    },
+    {
+      "name": "pod_login",
+      "expected": "allow",
+      "actual": "allow",
+      "pass": true
+    },
+    {
+      "name": "pod_kv_put_namespace_path",
+      "expected": "allow",
+      "actual": "allow",
+      "pass": true
+    },
+    {
+      "name": "pod_kv_get_namespace_path",
+      "expected": "allow",
+      "actual": "allow",
+      "pass": true
+    },
+    {
+      "name": "pod_kv_get_target",
+      "expected": "deny",
+      "actual": "deny",
+      "pass": true
+    },
+    {
+      "name": "pod_policy_write_operator_reader",
+      "expected": "deny",
+      "actual": "deny",
+      "pass": true
+    },
+    {
+      "name": "pod_policy_write_evil",
+      "expected": "deny",
+      "actual": "deny",
+      "pass": true
+    },
+    {
+      "name": "pod_reader_role_write",
+      "expected": "allow",
+      "actual": "allow",
+      "pass": true
+    },
+    {
+      "name": "pod_revoke_self",
+      "expected": "allow",
+      "actual": "allow",
+      "pass": true
+    },
+    {
+      "name": "reader_init_blocked_without_reader_peer",
+      "expected": "Failed",
+      "actual": "Failed",
+      "pass": true,
+      "note": "rendered network policy has no rehearsal reader peer"
+    },
+    {
+      "name": "reader_init_fetch_succeeds",
+      "expected": "Succeeded",
+      "actual": "Succeeded",
+      "pass": true,
+      "note": "test-only reader ingress peer"
+    },
+    {
+      "name": "reader_credentials_file_written",
+      "expected": [
+        "ok",
+        "mode=400"
+      ],
+      "actual": [
+        "ok",
+        "mode=400"
+      ],
+      "pass": true
+    },
+    {
+      "name": "reader_no_temp_file_left",
+      "expected": [
+        "0"
+      ],
+      "actual": [
+        "0"
+      ],
+      "pass": true
+    },
+    {
+      "name": "pod_cleanup_login",
+      "expected": "allow",
+      "actual": "allow",
+      "pass": true
+    },
+    {
+      "name": "pod_reader_role_delete",
+      "expected": "allow",
+      "actual": "allow",
+      "pass": true
+    },
+    {
+      "name": "pod_kv_metadata_delete",
+      "expected": "allow",
+      "actual": "allow",
+      "pass": true
+    },
+    {
+      "name": "pod_cleanup_revoke_self",
+      "expected": "allow",
+      "actual": "allow",
+      "pass": true
+    },
+    {
+      "name": "after_cleanup_role_absent",
+      "expected": 404,
+      "actual": 404,
+      "pass": true
+    },
+    {
+      "name": "after_cleanup_kv_absent",
+      "expected": 404,
+      "actual": 404,
+      "pass": true
+    },
+    {
+      "name": "after_cleanup_reader_login",
+      "expected": "deny",
+      "actual": "deny",
+      "pass": true
+    },
+    {
+      "name": "after_cleanup_operator_policy_kept",
+      "expected": 200,
+      "actual": 200,
+      "pass": true
+    },
+    {
+      "name": "np_writer_label_in_control",
+      "expected": 0,
+      "actual": 0,
+      "pass": true
+    },
+    {
+      "name": "np_unlabelled_in_control",
+      "expected": "blocked",
+      "actual": "blocked",
+      "pass": true
+    },
+    {
+      "name": "np_writer_label_in_rehearsal_ns",
+      "expected": "blocked",
+      "actual": "blocked",
+      "pass": true
+    },
+    {
+      "name": "np_writer_label_in_legacy_control",
+      "expected": "blocked",
+      "actual": "blocked",
+      "pass": true
+    }
+  ]
+}

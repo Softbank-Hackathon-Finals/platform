@@ -124,3 +124,29 @@ PAUSE 지표가 없으면 이 경보는 발화하지 않는다. 조회 API는 �
 3. 부하가 데모 예상보다 큰가(T18 실행 요약)
 
 **하지 말 것:** 원인을 보지 않고 풀 크기만 늘리지 않는다. DB 연결 한도를 넘길 수 있다.
+
+
+## BravoForwardSubscriptionOff
+
+정방향 구독이 2분 넘게 OFF다. 현재 컷오버·이관 작업창과 단일 writer 상태를 먼저 확인한다. 계획된 정지이면 해당 실행의 증빙과 연결하고, 예상하지 않은 정지이면 `infra/envs/target-workloads/replication_incident.py`로 오류 종류를 읽는다. 경보만으로 `ENABLE`하지 않는다. 역방향 OFF는 정상 준비 상태여서 이 경보에서 제외한다.
+
+## BravoForwardSubscriptionError
+
+최근 10분 안에 적용 오류가 증가했다. `disable_on_error=false`에서는 구독이 켜진 채 오류를 반복할 수 있으므로 enabled와 worker만으로 정상이라고 하지 않는다. 오류 로그의 SQLSTATE와 출발지 슬롯 active·WAL 지연을 함께 확인한다. 연결 오류와 행 충돌을 구분하고 행 값·접속 문자열은 공유하지 않는다. 누적 오류 수 자체가 0보다 크다는 이유로 경보하지 않는다.
+
+## BravoForwardSubscriptionRetrying
+
+5분 안에 적용 오류가 5건 이상 늘었다. 임계값은 T8 격리 시험의 충돌 30초당 7건을 근거로 한 초기 운영값이다. 실제 오탐률을 측정한 값은 아니다. 원인·WAL 누적량을 확인하고 기존 복제 운영 담당이 복구한다. 오류를 숨기려고 통계를 reset하거나 충돌 데이터를 지우지 않는다.
+
+## BravoForwardReplicationNotRecovering
+
+출발지의 정방향 논리 슬롯이 2분 넘게 비활성이다. 목적지 구독 상태, 연결 경로, WAL 보존량을 같이 확인한다. worker가 존재해도 연결 중일 수 있다. 컷오버 뒤 계획된 정방향 정지와 장애를 구분한다. 역방향 슬롯은 포함하지 않는다. 기존 `BravoReplicationSlotLagHigh`가 WAL 64MiB 초과를 별도로 감시한다.
+
+## BravoForwardSubscriptionUnobservable
+
+정방향 enabled 또는 적용 오류 지표가 없거나 75초보다 오래됐고 이 상태가 1분 이어졌다. 관측 경로의 문제이며 복제가 정상이라는 뜻이 아니다. 목적지 Cluster의 customQueriesConfigMap, exporter의 쿼리 오류, Collector의 DB namespace·RBAC·9187 접근, 플랫폼 OTLP 전송을 순서대로 확인한다. 기본 CNPG 쿼리 참조를 제거하지 않고 `target-subscription-metrics`를 더한다. CNPG 캐시 30초와 scrape 15초를 고려해 복구 뒤 새 표본 시각을 확인한다. 앱이 같은 지표 이름을 보내도 신뢰 라벨 없는 시계열은 경보를 해소하지 않는다.
+
+
+## BravoForwardSlotUnobservable
+
+출발지 Collector가 살아 있어도 DB 수집 설정이 없으면 슬롯 오류·WAL 경보는 작동하지 않는다. 출발지 슬롯 표본 부재·75초 초과가 1분 이어지면 확인 불가로 알린다. `collector-db` 설정, `source-dev` Pod 발견 RBAC, 9187 네트워크 접근, 실제 CNPG query 오류와 슬롯 존재를 확인한다. 새 슬롯을 임의로 만들거나 지표 부재를 슬롯 비활성 0으로 바꾸지 않는다. 정상 표본 수신 시 경보가 해소되는지 확인한다.

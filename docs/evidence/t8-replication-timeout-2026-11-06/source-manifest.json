@@ -1,0 +1,37 @@
+{
+  "source_revision": "5fc6bdccd9ae81d9974052d2b2de3422f2d1ea13",
+  "source_files": [
+    {
+      "path": "infra/envs/target-workloads/render.py",
+      "sha256": "1af698a9b253065971f5f87a4caddb17dbe7c388b1e3ebe330374258534d8328"
+    },
+    {
+      "path": "infra/envs/target-workloads/replication.py",
+      "sha256": "0c9577d2f08c183f577f673f31f30e8be98db0c7518c04bf54a3aad3fa9dca45"
+    },
+    {
+      "path": "infra/envs/target-workloads/testing/lag_lab.py",
+      "sha256": "db105474d6d345c71a5d10b714e4bbcb05cb53301c52a70381ecc06cf4229e17"
+    },
+    {
+      "path": "infra/envs/target-workloads/testing/lag_metrics.py",
+      "sha256": "092f67c97c30541317cc6515f8b926a4298350e0893281e6354db66cd16658d6"
+    },
+    {
+      "path": "infra/envs/target-workloads/testing/replication_lag.py",
+      "sha256": "2357cc84a101c29b1acbb1ca3d26175a6a0376fdf9b92c2b6cd396c4856aa728"
+    },
+    {
+      "path": "infra/envs/target-workloads/testing/replication_resume_lab.py",
+      "sha256": "c5c85ed387d810bfd88438f9dd0831c64b250e5c3f2b7eef7221f4223642aa8d"
+    },
+    {
+      "path": "infra/envs/target-workloads/testing/replication_timeout_lab.py",
+      "sha256": "61dc0d590c69740ae6c20500e101ba1c066f470cb98aef009bc298dbd8e92317"
+    },
+    {
+      "path": "infra/envs/target-workloads/testing/subscription_health_lab.py",
+      "sha256": "64a8c7a4c1d67812a39d79859efe7a3c23cffc8f1e55ccd131e8326b3d96149d"
+    }
+  ]
+}

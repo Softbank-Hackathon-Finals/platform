@@ -95,3 +95,18 @@ NetworkPolicy는 **합집합**이다. 기본 차단 정책이 있어도 다른 �
 실제 k3s API에서 경로 생성 후 operator 역할의 시험 업데이트로 child FQDN을 반영하고, 생성 응답을 버린 상황에서 readback 재개를 두 번 수행했다. 기존 Service UID·child FQDN이 유지되고 기존 객체 쓰기는 0건이며, 무조건 재생성은 AlreadyExists로 거부됐다. operator 동작은 시험 코드로 모사했으며 실제 Tailscale operator 자격 시험으로 계산하지 않는다.
 
 **재지 않은 것:** 실제 Tailscale operator · ProxyGroup · ACL 저장 시험. k3s에는 operator가 없다. 실제 tailnet 경로는 T7 · T30 적용 뒤 위 5단계로 확인한다.
+
+## EKS에서 Service 변환 전 egress가 차단될 때
+
+전용 proxy Pod·관측한 매핑 포트를 허용해도, operator가 직접 관리하는 EndpointSlice 경로에서는 CNI가 Service 변환 전 주소를 검사할 수 있다. 11/6 실제 EKS에서 동일 검증 Pod의 `child ClusterIP:9090`은 timeout, 직접 proxy Pod 경로는 connection refused였고, **관측한 child ClusterIP 한 개의 `/32:9090`**을 추가하자 Service 경로도 connection refused로 바뀌었다. 프록시의 별도 전달 설정 복구와 구분해 기록한다.
+
+이 경우에만 현재 child Service readback으로 다음을 렌더한다.
+
+```sh
+kubectl -n tailscale-system get services -l tailscale.com/proxy-group=bravo-source-collector -o json > children.json
+python3 infra/envs/collector-network/collector_route.py collector-egress --side source --service-ip-egress < children.json > egress.json
+```
+
+기존 proxy Pod 선택과 관측한 포트는 보존하고, **검증된 child Service IP의 TCP9090만** 별도로 허용한다. Service CIDR 전체·다른 포트·다른 proxy를 열지 않는다. Service UID나 ClusterIP가 바뀌면 새 readback으로 다시 렌더하고 옛 IP 규칙을 제거한다. 해당 예외가 필요 없는 CNI에는 기본 렌더를 사용한다. 실제 허용 경로와 잘못된 라벨·namespace 거부를 함께 확인해야 인수다.
+
+EKS 검증 Pod는 Deployment 등 controller 소유로 만든다. 독립 Pod의 정책 집행을 대조군으로 단정하지 않는다([AWS 제한](https://docs.aws.amazon.com/eks/latest/userguide/cni-network-policy.html)).

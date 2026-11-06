@@ -5,7 +5,156 @@
 반영 직전에 같은 변경인지 다시 확인하는 T10 경계다.
 T15 검증·재시도, T19 판정, T31 배포를 이 모듈에서 실행하지 않는다.
 
+## 최초 PROPOSE 접수와 같은 제안의 소비
+
+[InitialProposalRecords·InitialProposalExecution](../../services/platform-events/src/bravo_platform_events/initial_proposal.py)는
+최초 제안의 T10 내부 접점이다. 기존 `plan_commands`와 계획 잠금을 사용한다.
+별도 HTTP 경로·실행기·상태 setter를 추가하지 않는다. [ADR-0028](../adr/0028-initial-proposal-records.md).
+
+1. `admit(principal, plan_id, tenant_id, task_id, expected_version, expires_at)`는 현재
+   `PROPOSE`와 직전의 정상 Analysis 체크포인트를 요구한다. 서명된 TaskCatalog와
+   등록 소스 조회기를 다시 읽는다. 실제 T11 입력으로 변환·검증할 수 있을 때만 같은 계획·버전에 입력 한 건을 저장한다.
+2. `ProductInputAccess(..., purpose="t38-initial-proposal")`의 현재 별도 grant를 요구한다.
+   기존 `t38-product-proposal` grant는 이 권한을 주지 않는다. 입력의 만료 연장,
+   다른 principal·task·source로 바꾸는 재접수는 거부한다.
+3. `preparation_fields`는 기록을 바꾸거나 client를 호출하지 않는다. 접수와 같은 입력 컴파일러를 사용하며, 이전 버전에서 접수한 입력도 실행 전에 검사한다. `execute`는
+   요청을 먼저 commit하고 첫 호출만 `client.submit`을 호출한다. 이후 호출과 재시작은
+   같은 `request_id`를 `client.read`로 조회한다. 응답 유실·불명·접수 직후 중단에도 재전송하지 않는다.
+4. T38의 `client.validate(intent, input, envelope)`는 확인한 실행·산출물의 **로컬 검사**다.
+   provider 조회는 `submit/read` 또는 운영자 인수에서 끝내야 한다. T10은 현재 권한·만료·소스를
+   다시 확인하고 인증된 결과의 정규화 필드만 저장한다. 원격 원문·토큰·임의 metadata는 저장하지 않는다.
+5. `evidence_reader(publication=...)`는 저장된 제안과 실제 T7 발행 기록을 읽는다.
+   T7 조회기는 빌드·스캔·발행·registry readback, workflow/run/attempt/artifact 출처,
+   같은 제안에서 나온 정확한 diff를 확인한다. T10은 request·plan·source·proposal digest를 대조한다.
+   이 영수증이 있어야 기존 `WorkflowRecovery`가 `PROPOSE → REHEARSE`를 수행한다.
+6. `stored(plan_id, plan_version, input_ref, input_digest)`는 같은 Proposal을 읽는다.
+   client 호출은 없다. 즉시 다음 REHEARSE에서는 이 경로의 발행 영수증과 workflow 체크포인트가
+   정확히 같아야 한다. 발행 기록의 request·plan·source·proposal digest도 다시 대조한다.
+7. 최초 입력을 쓰는 호스트는 `RehearsalPorts.first_run=execution.rehearsal_run_id`를 설치한다.
+   실제 발행 후 정상 REHEARSE에서 첫 Admission을 commit할 때 저장된 Proposal의 run ID를 사용한다.
+   호스트에 이 조회기가 없으면 접수를 거부한다. 기존 Admission의 8개 필드와 commit 후 단일 제출은 유지한다.
+8. `StoredInitialProposalSource(execution, admission).result()`는 기존 T15 소비자용 조회 접점이다.
+   저장된 실제 Admission·현재 계획 버전·task·source·발행 Change·현재 최초 입력 grant를 대조한다.
+   첫 시도만 허용하며 `PROPOSAL_READY` 형식으로 같은 Proposal을 반환한다.
+   이 조회와 재접수는 모델을 다시 호출하지 않는다. 재시도 2·3에는 해당 시도의 별도 제안 경로가 필요하다.
+
+입력과 전달 형식의 정본은 위 Python 모델이다.
+입력 v2는 `schema_version=2`, `analysis`, `binding`, `run_id`, `manifest`, `files`다.
+binding은 계획·tenant·버전·task·source·collection scope·inventory·comparison·Analysis 영수증을 고정한다.
+`analysis`는 T16 원문의 `inventory_digest`(접두사를 제거한 64자리), `item_id`, `grade=code_change`,
+빈 문자열이 아닌 `rationale`(최대 4096자)을 담는다. 이 선택도 `input_digest`에 포함한다.
+[InitialSnapshotSource](../../services/platform-events/src/bravo_platform_events/initial_source.py)는
+기존 Snapshot으로 원본 파일을 읽고 T16 정본 validator로 원문을 검사한다.
+T16 계산 규칙으로 digest를 다시 계산하고 source SHA·중복 없는 항목 ID·선택 등급을 대조한다.
+T10은 그 digest가 현재 Analysis 체크포인트와 같은지 확인한다. 임의 HTTP 입력이나 모델 선택으로 바꾸지 않는다.
+T38이 이 값을 T11 최초 입력으로 변환한다. 기존 REHEARSE Admission digest와 섞지 않는다.
+
+v2 필드가 없는 이전 입력은 보존하고 거부한다. 기존 요청을 자동 승격하거나 digest를 다시 쓰지 않는다.
+이미 접수된 계획에 새 입력을 덮어쓸 수 없으므로 운영자는 새로 승인된 계획 범위에서 접수해야 한다.
+최초 입력 생산자와 소비자를 함께 배포하기 전에는 이 경로를 활성화하지 않는다.
+`InitialIntent`에는 `request_id`, `plan_id`, **접수된 `plan_version`**, `input_ref`, `input_digest`,
+`binding_digest`, `runtime_source_sha`, `recipient_public_key`, `purpose`가 있다.
+읽는 쪽은 현재 최신 버전을 추측하지 않는다. `request_id`는 키 준비 전 필드와 principal을 결속한다.
+한 번 접수한 `recipient_public_key`도 바꿀 수 없다.
+
+`InitialResult`는 요청·입력·런타임 소스·실행 영수증·Proposal/digest·실제 schema/lint 결과를 담는다.
+T10은 기존 T11 Proposal 스키마, run/source, 허용 편집 경로와 원본 파일 hash를 다시 검사한다.
+`schema_valid`·`lint_passed`는 실제 boolean `true`여야 한다. 숫자 `1`을 성공으로 받지 않는다.
+실제 T11 검사 결과가 없는 adapter가 이 값을 만들어서는 안 된다.
+
+`CandidatePublication.source_sha`는 등록한 원본 SHA다. T7 원문의 `base_sha`에서 대응한다.
+T7 원문의 `source_sha`는 편집한 후보 head이므로 같은 Proposal의 편집 결과인지 별도로 확인한다.
+검증용 후보 발행 영수증을 실제 계획의 영수증으로 재사용하지 않는다.
+
+### T7 발행 영수증을 읽는 운영자 연결
+
+[`candidate_publication`](../../services/platform-events/src/bravo_platform_events/candidate_publication.py)은
+기존 T7 `publish-candidate-image.yml`의 성공한 발행 기록을 읽는다. T10 호스트의
+`publication_inputs(plan_id, version, **ref)`가 현재 권한을 확인한 뒤 저장 입력·의도·결과를
+같은 트랜잭션에서 반환한다. 이 메서드는 모델·T38 client·네트워크를 호출하지 않는다.
+
+```python
+value, intent, result = execution.publication_inputs(plan_id, version, **ref)
+publication = prepare_publication(
+    value=value, intent=intent, result=result,
+    selection=reviewed_publication_selection, repository=operator_owned_demo_chat_clone,
+)
+read_evidence = execution.evidence_reader(publication=publication)
+```
+
+- `PublicationSelection`은 운영자가 검토한 workflow SHA/ID, 실행 번호, build·GHCR·ECR
+  각각의 시도/산출물 ID, 후보 SHA/PR을 고정한다. 모델이나 HTTP 요청에서 받지 않는다.
+  기존 `gh` 인증으로 GitHub GET만 수행하며 자격을 Pod·파일로 복사하지 않는다.
+- T10 요청 ID는 69자, T7 입력은 최대 64자다. T7 호출 담당은
+  `publication_request_id(intent)`의 **전체 SHA-256 64자리**를 발행 요청 ID로 쓴다.
+  T10 원본 ID·InitialIntent 형식은 유지한다. 조회기는 이 대응을 다시 계산한다.
+- GitHub의 정확한 workflow/main SHA·실행·시도·성공한 build/GHCR/ECR job을 확인한다.
+  각 산출물의 ID·실행·이름·만료·ZIP digest를 확인하고, 제한된 JSON 한 파일만 읽는다.
+  publisher 재시도는 원래 build 시도와 산출물 ID를 유지해야 한다.
+- 저장된 Proposal의 모든 변경을 등록 base→후보의 실제 Git 객체와 대조한다.
+  추가 변경·다른 내용·파일 모드 변경·심볼릭 링크를 거부하고, 계산한 원문 diff hash를
+  양쪽 발행 영수증과 대조한다. Git checkout이나 후보 코드 실행은 하지 않는다.
+- 검토한 T7 publisher가 기록한 scan 성공·같은 digest·registry 전체 바이트 readback을
+  인증된 영수증에서 확인한다. T10이 registry를 새로 pull하거나 현재 가용성을 확인하는
+  것은 아니다. 후보 프로세스의 packaging 출력은 self-report로 유지하며 T15/T31 성공으로
+  올리지 않는다. 검토한 publisher SHA를 고정하지 못하면 인수하지 않는다.
+
+조회 준비는 계획 잠금 **밖에서** 수행한다. 반환한 조회기는 저장 입력·의도·결과의
+동일성만 로컬에서 확인하며 GitHub/Git을 다시 호출하지 않는다. 실제 전이 직전에는 기존
+T10 `evidence_reader`가 현재 권한·만료·계획·source를 다시 읽는다. 입력 준비 후 grant가
+회수돼도 전이는 거부한다. 이 모듈은 발행 dispatch, grant 발급, 실제 계획 전이를 실행하지 않는다.
+
+이는 T10 내부 계약 구현이며 운영 연결 완료가 아니다. T11 최초 입력 변환·검사 계약,
+T38 전용 intent/영수증 adapter, 실제 T16 Collection/Analysis, T7 발행 조회기,
+T15의 실제 planner·검증 Job·정리는 각 담당의 정본으로 연결해야 한다.
+최초 PROPOSE 입력을 실제 Admission으로 취급하지 않는다. 후보 이미지가 아직 없으면 PROPOSE에 남는다.
+저장 제안에는 도구 감사 기록이 없으므로 이 조회 성공만으로 감사 COMPLETE를 표시하지 않는다.
+
 ## 기존 생산자와의 관계
+
+### 최초 제안의 T38 전송·결과 조회
+
+`initial_proposal_transport.FileInitialProposal`은 T10 호스트의 비공개 파일 전달 접점이다.
+입력·전달·결과 모델은 `initial_proposal.py`를 그대로 사용한다. `prepare`는 운영자가
+공개 수신 키와 고정 요청을 준비하며, T10의 영속 접수 뒤 `submit`이 해당 요청만 게시한다.
+호스트에는 GitHub 자격이나 별도 실행 루프를 추가하지 않는다.
+
+운영자용 `OperatorInitialProposal`은 기존 단일 dispatch 원장과 GitHub의 actor·workflow·
+run/attempt·artifact digest 확인을 재사용한다. 응답 유실·재시작에도 같은 실행을 조회한다.
+결과 암호문은 최초 제안 purpose·계획 버전·요청/입력·런타임 SHA·수신 키에 결속한다.
+운영자가 출처를 확인한 결과만 비공개 전달 경로의 `deliver`로 보낸다. 파일 형식 검증이나
+복호화 성공만으로 GitHub 출처가 입증되는 것은 아니다.
+
+`validate`는 전달된 불변 결과와 T10의 정본 입력만 로컬에서 대조한다. 종료 정리가
+미확인되거나 T11의 실제 schema/lint 검사가 실패·누락되면 성공 결과를 반환하지 않는다.
+T10은 정규화 결과만 저장하며 저장 후 재조회는 어떤 client 호출도 하지 않는다.
+
+최초 제안은 플랫폼 RKE2 Job으로 실행한다(2026-11-06 Actions 경로 제거, #503).
+Job 신원과 실행 ID는 projected token의 bound Pod 이름으로 결속한다. 전용 reader는
+`/internal/v1/initial-proposal-inputs/read`에서 서명 OIDC의 workflow·source·run/attempt,
+현재 최초 purpose grant와 저장된 동일 execution claim을 확인한다. 등록만 된 입력이나
+다른 recipient·run은 모델 호출을 열지 않는다. HTTP 요청은 `principal`, `intent`,
+`github_run_id`이고 응답은 입력 전체 digest로 결속된 정본 InitialInput v2다.
+
+T10 접수·실행 준비와 T38은 `initial_model_input.model_input` 하나로 v2의 검증된 code_change
+analysis를 T11 FailureBundle로 변환한다. 등록 작업의 목적지 설명과 rationale을 summary에
+그대로 합치며, inventory_digest는 evidence_digest다. 실제 FailureBundle 검증에 실패하면
+`initial_model_input_invalid`로 접수·첫 실행을 거부한다. 별도 길이 상수를 복제하거나 원문을
+잘라내지 않으며, 수신 키 준비·영속 실행 claim·dispatch 전에 끝난다. 이미 claim한 실행의
+원장과 동일 요청 재조회는 유지한다. bundle.stage=REHEARSE는 T11 형식
+호환이며 실제 T10 단계·목적은 PROPOSE/t38-initial-proposal이다. Admission digest를
+만들거나 바꿔 넣지 않는다. 기존 T11 schema·snapshot·allowed path·policy 검사를 통과한
+Proposal만 InitialResult로 정규화하며 실제 T15 검증을 이 결과로 대신하지 않는다.
+
+broker의 별도 영속 journal은 최초 run마다 한 번만 모델을 호출한다. 응답 유실·재시작·
+실패 후에는 같은 결과를 조회하며 새 provider run이 기존 claim을 반복 실행하지 못한다.
+모델 응답 뒤에도 현재 T10 권한을 다시 읽는다. workflow는 고정 SSM 창을 정리한 뒤에만
+결과를 암호화하고, 운영자는 GitHub 출처와 암호문 결속을 확인한 뒤 T10에 전달한다.
+
+호스트 설치는 `operations/subscription/install.py --product-reader ... --initial-proposal`로
+정확한 검토 소스를 선택한다. 이 옵션은 전용 broker를 설치하며 서비스를 자동 시작하거나
+실제 입력·권한을 만들지 않는다. 실제 Collection/Analysis, 현재 grant, reader TLS와 정확한
+설치 revision이 준비돼야 실행한다. 구현·로컬 시험은 운영 통합 완료와 구분한다.
 
 [T15 #191](https://github.com/Softbank-Hackathon-Finals/platform/pull/191)의
 `9b9681ab30eeae5ba72573d71784605f401d705a`를 대조했다. 그 러너의
@@ -256,3 +405,8 @@ OIDC 공급 경로에서 넣는다. 이 저장소에는 토큰을 넣지 않는�
 운영 source collector·서비스 principal 등록·인증된 broker 읽기 transport·OIDC
 공급을 실제로 연결하기 전에는 제품 실행 경로가 완성되지 않는다. 로컬 입력 등록과
 조회 성공은 모델 응답·검증 Job·사람 승인·T31 배포의 완료 근거가 아니다.
+
+현재 grant의 append-only 관리와 기존 Actions OIDC를 사용하는 사설 read HTTP는
+[제품 입력 조회 서비스](../../services/platform-events/deploy/approval/PRODUCT-READ.md)를 따른다.
+이 서비스는 사람 IdP 없이 schema 2/3에서 조회만 제공한다. 별도 승인 호스트의
+schema 3 요구·사람 승인·단독 실행 조건은 유지한다.

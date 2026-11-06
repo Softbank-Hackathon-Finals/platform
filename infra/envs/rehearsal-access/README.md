@@ -1,6 +1,8 @@
 # AWS 플랫폼에서 목적지 API에 접속하기
 
-T15 실행 도구와 T31 배포기는 서로 다른 egress·ServiceAccount를 쓴다. 이 디렉터리는 기존 operator와 별도 워크로드 tailnet을 이용하는 설치 입력을 렌더링한다. 클러스터를 변경하거나 인증 정보를 발급하는 명령은 없다. T15 planner·T10 승인·T31 제품 로직도 변경하지 않는다.
+T15 실행 도구와 T31 배포기는 서로 다른 egress·ServiceAccount를 쓴다. 이 디렉터리는 기존 operator와 별도 워크로드 tailnet을 이용하는 설치 입력을 만들고, 등록된 신원에 한해 표준 exec 인증으로 단기 자격을 발급한다. 설치 객체 적용은 운영자 경계에서 수행한다. T15 planner·T10 승인·T31 제품 로직도 변경하지 않는다.
+
+사람의 개발 장치 접속과 사전 생성 namespace의 시험 권한은 [개인 접속 프로필](PERSONAL.md)을 사용한다. 인증 프록시·개인 인증서·ExecCredential 설정을 환경별 입력으로 구분한다.
 
 ## 설치 전 확인
 
@@ -41,7 +43,73 @@ python3 infra/envs/rehearsal-access/access.py kubeconfig \
   --token-file /credentials/token > target.kubeconfig.json
 ```
 
-이 kubeconfig에는 토큰 값이 없다. Service DNS로 연결하면서 목적지의 MagicDNS 이름을 TLS server name으로 사용한다. 검증을 끄거나 호스트의 current-context를 바꾸지 않는다. 운영 토큰 갱신·폐기와 namespace 수명주기는 별도 관리 주체가 맡는다.
+이 kubeconfig에는 토큰 값이 없다. Service DNS로 연결하면서 목적지의 MagicDNS 이름을 TLS server name으로 사용한다. 검증을 끄거나 호스트의 current-context를 바꾸지 않는다. 기존 `tokenFile`은 파일을 공급하는 운영자가 필요하다. 새 무인 호스트는 아래 표준 exec 인증을 사용한다. namespace 수명주기는 계속 별도 관리 클라이언트가 맡는다.
+
+## 실행마다 키를 전달하지 않는 인증
+
+`credentials.Registration` 한 개가 설치 권한, 발급 요청, kubeconfig의 원본이다.
+운영자는 기존 목적지의 cluster UID·ServiceAccount UID·API audience와 역할별
+접속 경로를 조회해 환경 등록 때 한 번 결속한다. AI 제안은 이 등록을 변경할 수 없다.
+설치 이름은 cluster UID·namespace·ServiceAccount의 해시에서 생성한다. 긴 이름을
+잘라 붙이지 않으며 입력 순서·접속 주소 변경 때문에 별도 권한을 만들지 않는다.
+알 수 없는 필드, 잘못된 타입·UID·주소·이름은 설치나 발급 전에 거부한다.
+
+흐름은 **워크로드 신원 → TokenRequest → 목적지 ServiceAccount → 기존 RBAC**다.
+별도 개인키, 영구 API 토큰, 갱신 daemon을 만들지 않는다.
+
+1. 기존 역할별 egress의 태그 신원이 **auth** API 프록시에서 인증된다.
+   `credential_install.render()`는 등록된 ServiceAccount 한 개의 토큰 발급과
+   해당 신원·빈 회수용 Secret·cluster UID 조회만 허용한다. 출력은 admission 정책·binding을
+   발급 RoleBinding보다 먼저 배치한다. 운영자는 정책의 typeChecking과 binding을 확인한 뒤
+   나머지 객체를 설치한다. Job·Pod 실행 권한은
+   이 발급 신원에 주지 않는다. admission은 정확한 audience, 600초 수명과
+   지정 Secret의 UID 결속을 강제한다.
+2. kubeconfig의 `exec`가 `credentials.py exec /config/registration.json`을 호출한다.
+   발급 결과는 프로세스 간 표준 `ExecCredential` 응답으로만 전달한다.
+   클라이언트는 만료 60초 전 재발급하며, 재시작 후에도 저장된 토큰 없이 발급받는다.
+   발급된 bearer는 기존 **noauth** 경로에서 실제 ServiceAccount username·UID를
+   확인한 뒤에만 반환한다. T3의 impersonation도 이 noauth 경로를 그대로 사용한다.
+3. 회수용 Secret을 UID 조건으로 삭제하면 이 등록의 재발급이 중지되고, 그 UID에
+   묶인 토큰도 API 서버의 검증·캐시 처리 이후 무효가 된다. 같은 이름으로 Secret이나
+   ServiceAccount가 재생성돼도 UID가 다르면 자동으로 인수하지 않는다. 새 신원 등록은
+   별도 운영 변경이다. 긴급 회수는 발급 RoleBinding도 제거하고 실제 거부를 확인한다.
+
+호스트 이미지에 Python 3.12 이상과 이 디렉터리의 두 모듈을 포함한다. `credentials.py`는
+실행 가능해야 한다. 설정 파일에는 `registration`과 설치 결과의 `anchor_uid`만 들어가며
+비밀 값은 없다. `credentials.py kubeconfig /config/registration.json`이 같은 입력으로
+비대화형 kubeconfig를 만든다. 생성은 설치할 호스트 경로에서 실행한다.
+`exec` 명령의 stdout은 토큰이 포함된 인증 프로토콜이므로
+터미널 실행, 로그 수집, 파일 리다이렉트에 사용하지 않는다.
+
+설치자는 기존 noauth ProxyGroup·AWS ExternalName Service를 다시 읽고
+`issuer_proxy()`·`issuer_service()`로 같은 tailnet·이미지·egress 역할의 발급 경로를
+생성한다. auth proxy에는 해당 operator 버전의 공식 `apiServerProxyConfig.allowImpersonation`
+RBAC가 필요하다. `issuer_tailnet_fragment()`의 서비스 자동 승인 조각만 현재 정책에
+ETag 조건으로 병합한다. 기존 정책 전체를 대체하지 않는다. 실제 매핑 포트를 제한하는
+환경은 새 Service의 UID·targetPort를 읽어 기존 역할의 NetworkPolicy에 추가한다.
+
+Tailscale 1.104.4에는 새 HTTPS 서비스의 인증서 발급과 서비스 광고가 서로 기다리는
+경로가 있다. `bootstrap_issuer()`는 생성된 auth 프록시 설정만 UID·resourceVersion으로
+확인해 해당 서비스의 광고를 시작한다. 443의 TLS 검증·인증은 유지하며 개인키를
+읽어 저장하지 않는다. 설정 patch는 메모리에서 API로만 보내고 로그에 남기지 않는다.
+이후 인증서 발급·갱신은 기존 operator가 담당한다. 다른 서비스를 광고 중이면 거부한다.
+발급 프록시가 Ready가 된 뒤 AWS Service를 설치한다. 같은 버전은 처음 조회에 실패한
+Service 주소를 재조회하지 않는 결함도 있다. 이미 설치된 경로는 `refresh_issuer_route()`로
+준비된 issuer·egress 소유 UID를 확인하고 전용 ConfigMap 표식만 한 번 갱신한다.
+기존 전달 설정을 보존하고 Pod 재시작 없이 provider의 파일 감시를 호출한다.
+두 보완은 설치·복구 경계에만 두며 토큰 발급 계정에 관리 권한을 주지 않는다.
+설치 완료는 ProxyGroup Ready·공개 CA TLS·실제 AWS 신원·허용/거부 확인 뒤에 판정한다.
+
+발급 실패는 업무 요청을 실행하지 않는 오류다. 자격 발급을 다시 시도하는 것과
+T10의 접수 불명 업무 요청을 재전송하는 것은 다르다. 이 인증 모듈은 업무 접수나
+승인 상태를 바꾸지 않는다. 관리 provisioner의 별도 권한, AWS T15 호스트 조립,
+실제 후보 검증·UID 정리와 T10 승인 대기는 기존 담당의 통합 완료 기준이다.
+
+근거: [Kubernetes exec 인증](https://kubernetes.io/docs/reference/access-authn-authz/authentication/#client-go-credential-plugins),
+[TokenRequest](https://kubernetes.io/docs/reference/access-authn-authz/service-accounts-admin/#tokenrequest-api),
+[Tailscale 태그와 RBAC](https://tailscale.com/docs/kubernetes-operator/api-server-access/auth-and-rbac),
+[서비스 인증서 순환 대기 보고](https://github.com/tailscale/tailscale/issues/20716),
+[egress 초기 주소 조회 실패 후 재시도 누락](https://github.com/tailscale/tailscale/issues/21426).
 
 ## 목적지 권한
 
@@ -63,3 +131,168 @@ T15 AI 실행 신원은 기존 [T3 템플릿](../../../services/rehearsal-runner
 5. 만든 Job/Pod/Secret/시험 namespace의 UID를 기록하고 동일 UID만 삭제한다. 부재를 다시 읽는다. 인계용 namespace를 유지하면 이름·UID·소유자·정리 책임을 명시한다.
 
 [11월 5일 실측](../../../docs/evidence/t7-target-api-access-2026-11-05/README.md)은 이 구조의 실제 AWS→등록 목적지 검증이다. 이 생성기의 포트 제한 출력 적용과 T3 전체 격리·T15 실제 모델 리허설·T31 앱 rollout·T25 컷오버는 별도로 판정한다. 성공한 전송만으로 그 단계까지 완료 처리하지 않는다.
+# T10 등록용 Collector API 경로
+
+`collector-platform`은 기존 `platform-state` 안의 등록 Pod에 별도 API 경로를 추가한다.
+T15/T31 경로와 자격은 재사용하지 않는다. 목적지의 기존 읽기 전용 Collector SA를
+사용하며, SA·토큰·등록 Pod 생성은 등록 담당이 맡는다. 이 렌더러는 이 자원을 만들지 않는다.
+
+- 호출 Pod label은 `app.kubernetes.io/name=t10-registration`과
+  `bravo.dev/target-api-client=collector` 둘 다 필요하다. 네트워크 label은 SA 인증을 대신하지 않는다.
+- 연결 주소는 `https://collector-target-api.platform-state.svc.cluster.local`이다.
+  TLS server name은 운영자가 확인한 목적지 API의 canonical MagicDNS 이름이다.
+  공인 CA 검증을 유지하고 기존 `tokenFile`로 목적지 Collector 토큰을 전달한다.
+- 별도 `bravo-collector-egress`와 `collector-access` ProxyGroupPolicy를 사용한다.
+  `collector-tailnet-fragment.json`을 **Bravo Clusters**의 현재 정책에 병합한다.
+  전체 정책을 fragment로 대체하지 않는다. Collector는 목적지 API TCP 443만 허용한다.
+- 공통 Tailnet·ProxyClass·operator와 기존 Namespace·DB 정책은 수정하지 않는다.
+  기존 DB 연결은 등록 담당의 `bravo.dev/db-client=runtime` label과 별도 DB 정책이 담당한다.
+  정책은 합산되므로 설치 전에 같은 Pod와 프록시를 선택하는 기존 정책을 확인한다.
+
+```sh
+python3 infra/envs/rehearsal-access/access.py collector-platform \
+  --api-hostname "$TARGET_API_HOSTNAME" > collector-bootstrap.json
+# 운영자는 namespace/cluster UID와 기존 정책을 확인하고 bootstrap을 순서대로 설치한다.
+# 처음에는 DNS와 operator health만 허용한다. Service의 실제 포트를 읽은 뒤 아래를 실행한다.
+kubectl -n tailscale-system get services -o json > observed-services.json
+python3 infra/envs/rehearsal-access/access.py collector-network \
+  < observed-services.json > collector-network.json
+python3 infra/envs/rehearsal-access/access.py kubeconfig --role collector \
+  --api-hostname "$TARGET_API_HOSTNAME" --token-file /credentials/token > collector-kubeconfig.json
+```
+
+`collector-network`는 Service UID·resourceVersion·전체 역할 label·443/TCP·실제 mapped
+targetPort를 검증한다. 적용 직전에 같은 UID/resourceVersion인지 다시 대조한다.
+프록시 Pod는 운영자가 새 정책을 적용하기 전까지 호출 트래픽을 받지 않는다.
+실측은 같은 등록 label의 정상 경로 TLS 확인과 label 누락/다른 역할 경로 거부를
+각각 수행한다. HTTP 401/403은 네트워크 거부가 아니다. Collector 신원의 허용/거부와
+실제 등록 API 성공은 토큰을 인수한 등록 담당의 별도 결과로 기록한다.
+
+이 경로는 Kubernetes API 조회용이다. `infra/envs/collector-network`의
+OTel Collector → 메트릭 수신 경로와는 별개다.
+
+## T15 자격 이전 시도의 namespace 권한 조립
+
+`scoped_lifecycle.py`의 `ScopedPlanner`는 기존 `CredentialPlanner`를 감싼다.
+호스트는 현재 T10 Admission과 실행 권한을 검증한 뒤 이 planner를 호출한다.
+같은 소스의 파일을 호스트 이미지에 포함해 일반 Python 모듈로 import한다.
+이 모듈은 HTTP 엔드포인트나 인증 기본값을 설치하지 않는다.
+
+```python
+planner = ScopedPlanner(credential_planner, provisioner=management_kubectl,
+                        cleaner=management_uid_cleaner)
+```
+
+`credential_planner`의 Job 클라이언트는 `t15-runner`의 exec kubeconfig를 사용한다.
+기존 tokenFile 구성은 별도 갱신 공급자가 있는 경우에만 유지한다.
+별도 관리 클라이언트는 기존 `NamespaceLifecycle`와 `T3Gate`에만 연결된다.
+T3가 만드는 비교용 namespace도 이 관리 경로를 사용한다. 관리 자격을 제안자,
+검증 Job, 후보 앱이나 AI 실행 계정에 전달하지 않는다.
+
+기존 lifecycle이 새 namespace와 정본 T3 템플릿을 만든 뒤 UID·run·attempt를
+확인하면, 관리 경로가 그 namespace에만 실행 Role/Binding을 만든다. 실행자는
+자격 이전 검증에 필요한 Pod·Job·Service·ConfigMap·Secret·ServiceAccount와
+로그를 사용한다. `rehearsal-intruder` 가장과 해당 namespace 한 개의 조회만
+추가되며, namespace 생성·삭제, RBAC 변경, `bind`·`escalate`, Pod exec는 없다.
+관리 namespace의 writer Job 권한은 기존 별도 Role을 사용한다.
+
+권한 원문을 재조회하고 namespace UID를 다시 대조한 뒤 기존 verifier를
+실행한다. 생성 실패·응답 불명·권한 또는 UID 변경이면 같은 요청을 재전송하지
+않고 원 UID cleaner로 정리하며 실행을 열지 않는다. 기존 lifecycle wrapper는
+조용히 버리지 않고 거부한다. 소유 namespace 삭제 후 ClusterRole/Binding도
+ownerReference로 수거되므로 운영 정리에서는 이 객체들의 부재까지 확인한다.
+GC를 즉시 권한 철회 보장으로 취급하지 않는다.
+
+이 조립의 로컬 시험은 실제 T15 lifecycle과 모의 API를 사용한다. 실제 namespace
+권한 검사, AWS 소비 Pod의 토큰 갱신·폐기, OpenBao writer, 후보 이미지와 실제
+T10 계획의 해피패스는 각각 별도 운영 근거가 필요하다.
+
+## 리허설 공간의 `rehearsal-exec` Secret 차단 (T42)
+
+`rehearsal-exec` Role에는 Secret verb가 없지만 Pod·Deployment·Job 생성으로 Secret을 마운트하거나
+앱 Pod에 exec하면 읽을 수 있다. T42 exec가 켜지면 이 신원이 AI 도구 호출을 대신하므로,
+`exec_guard.py`의 승인 정책 두 개로 경계를 실제로 맞춘다. 대상은
+`app.kubernetes.io/part-of: bravo-rehearsal` namespace에서 그 namespace의 `rehearsal-exec`가 보낸
+요청뿐이다. 러너와 다른 신원은 바뀌지 않는다.
+
+- 워크로드 volume은 허용 목록(configMap·emptyDir·PVC·downwardAPI, configMap·downwardAPI만 담은
+  projected)만 쓴다. Secret·projected Secret·projected `serviceAccountToken`·CSI·ephemeral은 거부한다.
+- `secretKeyRef`·`secretRef` env 거부
+- `serviceAccountName`은 `default` 또는 `rehearsal-exec`로, `automountServiceAccountToken: false`는
+  반드시 명시한다. 생략하면 SA 기본값으로 토큰이 들어가므로 거부한다.
+  Pod에서 `serviceAccountName`을 생략하면 ServiceAccount admission이 검증 전에 `default`를 채우므로
+  허용된다(토큰은 automount false 필수라 들어가지 않는다). 생략이 거부되는 것은 Deployment 같은 템플릿이다.
+- 도구 Pod 이름(`rehearsal-exec-tool`)의 생성·삭제는 runner만 한다. exec는 이 이름의 Pod에만 허용하고
+  attach·port-forward는 거부한다.
+- AI의 apply가 쓰는 작업 종류별 `deploy`는 runner 신원으로 실행한다(앱 Pod에는 자격 Secret이 필요하다).
+
+```sh
+python3 infra/envs/rehearsal-access/exec_guard.py > /private/exec-guard.json
+```
+
+`control_guard.py`와 같은 순서로 설치한다(정책 생성 → `status.typeChecking` 확인 → Deny binding).
+`test_exec_guard.py`가 정책의 CEL을 허용·거부 사례로 평가하고, `apiserver_exec_guard.py`가 T3 템플릿과 이 정책을
+일회용 k3s에 설치해 `rehearsal-exec`로 server dry-run·exec를 보낸다. 거부는 이 정책이 낸 것만 인정한다(PSA·RBAC·충돌 제외).
+둘 다 CI에서 돈다.
+
+## 별도 관리 계정 `t15-manager`
+
+위 "별도 관리 클라이언트"의 계정이다. `manager_access.py render`가 거부 정책 3개와
+바인딩, ServiceAccount, ClusterRole/Binding을 이 순서로 만든다. 정책을 먼저 설치한
+뒤에 권한을 준다. 토큰은 기존 `credential_install.render()`로 이 계정을 한 번 더
+등록해 받는다. `t15-runner`와 같은 kubeconfig를 쓰지 않는다.
+
+리허설 namespace 이름은 미리 알 수 없다. 그래서 RBAC는 클러스터 범위로 주고,
+`request.userInfo.username`이 이 계정인 쓰기를 정책으로 다음 범위에 묶는다.
+
+- namespace: 이름 `rehearsal-<24 hex>`, `app.kubernetes.io/part-of=bravo-rehearsal`,
+  생성·변경 시 `pod-security.kubernetes.io/enforce=restricted`.
+- namespace 안 객체(T3 템플릿과 `attempt_grants`): 위 라벨이 있는 리허설 namespace 안에서만.
+  Role의 `escalate`·`bind`는 이 경계 안에서만 쓰인다.
+- ClusterRole/Binding: `t15-read-<리허설 namespace>` 이름, 그 namespace의 `get` 한 규칙,
+  `t15-runner` 한 주체만.
+
+Secret·Pod·Job 권한과 `list`·`watch`·`impersonate`는 없다. 삭제는 namespace만 가능하다.
+UID 조건부 삭제를 사용한다. 설치 뒤에는 이 계정으로 가장해 server dry-run으로
+허용·거부를 확인한다. 다른 이름, 비restricted, kube-system·target-dev 안 쓰기,
+다른 namespace 조회 ClusterRole, cluster-admin 바인딩이 거부돼야 한다.
+
+## 관리 namespace의 단일 제품 실행자
+
+RoleBinding 하나만으로는 `bravo-rehearsal-control`의 단일 러너 조건을 보장하지
+못한다. CNPG 등 공용 컨트롤러의 ClusterRole 권한도 합산되기 때문이다.
+`control_guard.py`는 이 namespace의 Pod·Job CREATE/UPDATE에만
+ValidatingAdmissionPolicy를 렌더링한다. 별도 웹훅이나 데몬은 설치하지 않는다.
+
+- 제품 신원은 목적지 `bravo-rehearsal-control/t15-runner` 하나다.
+- 같은 렌더 결과에 `t15-control-no-token-secrets` 정책이 함께 들어간다. 이 namespace에서는 누구도 `kubernetes.io/service-account-token` 유형 Secret을 만들거나 바꿀 수 없다. 그런 Secret에는 만료 없는 토큰이 채워져 600초 exec 토큰 상한과 Secret 삭제에 의한 회수를 벗어나기 때문이다(#12). 러너가 시도마다 만드는 일반 Secret은 그대로 허용된다.
+- 사람·개인 시험 관리자 예외는 설치자가 확인한 정확한 username 목록이다.
+  기존 개인 시험 계정은 `bravo-team-access/member-NN`만 입력할 수 있다.
+  그룹이나 일반 서비스 계정을 관리자 예외로 추가하지 않는다.
+- Kubernetes의 `kube-system/job-controller`에는 Job을 소유자로 둔 Pod만
+  허용한다. 러너가 Job을 제출한 뒤 정상 Pod를 만드는 제어 경로다.
+  다른 컨트롤러의 Pod·Job 생성은 기존 ClusterRole이 있어도 이 namespace에서 거부한다.
+- Job controller와 garbage collector의 UPDATE는 실행 사양이 원본과 같을 때만
+  허용한다. 이는 정상 finalizer 정리를 유지하며, 새 Job 생성이나 사양 변경은 열지 않는다.
+- 이 정책은 RBAC 권한을 부여하지 않는다. 러너의 관리 namespace 권한은
+  Job 생성과 Pod 조회·로그이며, Pod 직접 생성은 추가하지 않는다.
+  namespace/T3는 기존 `ScopedPlanner` 관리 클라이언트의 책임이다.
+
+```sh
+# JSON 배열에는 확인된 운영자 username만 넣는다. 실제 목록은 비공개로 관리한다.
+python3 infra/envs/rehearsal-access/control_guard.py \
+  --operators /private/approved-operators.json > /private/control-guard.json
+```
+
+설치 전 현재 cluster/namespace UID와 기존 정책을 확인한다. 먼저 정책만 생성하고
+`status.observedGeneration`과 `status.typeChecking.expressionWarnings`를 확인한 뒤
+Deny binding을 생성한다. 같은 이름의 기존 객체를 덮어쓰지 않는다.
+실제 API의 server dry-run으로 러너·운영자·Job 소유 Pod 허용과 공용 컨트롤러
+거부, 다른 namespace의 기존 권한 유지를 검증한다. 실패하면 이번에 만든 정책과
+binding의 UID를 조건으로 삭제한다. API 거부 검증은 후보 앱 실행 성공이 아니다.
+
+클러스터 관리자는 정책 자체를 바꿀 수 있다. 이는 합의된 사람 관리자 예외의
+위험이며, 이 정책으로 관리자 탈취까지 차단했다고 주장하지 않는다.
+정책이 적용돼도 AWS 호스트 배포와 토큰 공급·갱신은 별도 연결이다.
+
+[Kubernetes ValidatingAdmissionPolicy](https://kubernetes.io/docs/reference/access-authn-authz/validating-admission-policy/)

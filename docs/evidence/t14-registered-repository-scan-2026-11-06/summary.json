@@ -1,0 +1,44 @@
+{
+  "kind": "t14-registered-repository-scan-summary.v1",
+  "runtime": "actual-team-aws-source",
+  "test_id": "SEC-01.2",
+  "verdict": "PASS",
+  "collected_at": "2026-11-05T17:39:21.449127Z",
+  "profile": {
+    "id": "full",
+    "version": "1"
+  },
+  "result_counts": {
+    "UNKNOWN": 19,
+    "PASS": 1
+  },
+  "source_revision": "66e7419f404f4ec4addc71014aabfcdd44f34688",
+  "repository_files": 66,
+  "runtime_app_files_verified": 14,
+  "rendered_files": 2,
+  "configmap_references": 0,
+  "scanner": {
+    "version": "8.30.1",
+    "sha256": "sha256:ba52fb1bfabbcde42f032afad3d6e0b19dff8ed105229a16e7caa338bbc0e84f",
+    "summary": {
+      "rendered_findings": 0,
+      "source_findings": 0
+    }
+  },
+  "run_sha256": "e2f695a92eb83c2fed5ba3c46fa8d5879e6396befb7a24625e9c4e19b3d10d91",
+  "evidence_sha256": "32a76298981591e8b4b1e1a40fe7b2fa0323327c836db8545f2f5d77e3e9d7d4",
+  "scope_sha256": "ad9461f388fcc7c732fc02d2a52c73f8835c68eb90604cf9e537a210f2e3b3c8",
+  "t14_schema_valid": true,
+  "t19_schema_valid": true,
+  "registered_scope_matches": true,
+  "own_ssm_terminated": true,
+  "local_listener": false,
+  "db_calls": 0,
+  "secret_values_read": 0,
+  "remaining": {
+    "target_collected": false,
+    "plan_binding_verified": false,
+    "t10_persisted": false,
+    "full_control_pass": false
+  }
+}

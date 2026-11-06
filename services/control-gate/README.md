@@ -4,9 +4,19 @@
 
 **범위:** T19의 보안 전제조건. `CombinedGateService`는 T13 데이터 준비 관측과 보안 결과를 함께 검사한다. 선택적 T13 스키마 수집기를 포함하며 T14 환경 연결·T10 운영 공급자 연결은 별도다. 선택적 T10 어댑터는 실제 승인·실행 접수 코드와 SQLite/PostgreSQL에서 시험한다. `SecurityPrerequisite.authorizes_cutover`는 항상 `False`다. T19 이슈 전체의 완료나 실환경 동등성 검증 완료로 간주하지 않는다.
 
+`PlanGateSession`은 최초 평가(`initial`, application ID 없음)와 반영 후 평가
+(`post_apply`, 성공한 Application ID)를 구분한다. 반영 후 단계와 application ID는
+세션 fingerprint에 포함되며 최초 fingerprint는 유지한다. `T10GateAuthority`가 현재 승인 결속의 같은 값과
+대조한다. 최초 단계는 계획의 `profile_id/version`, 반영 후 단계는 별도로
+고정된 `recheck_profile_id/version`을 사용한다. 두 필드가 모두 없는 기존 binding은
+최초 단계에서만 허용한다. 부분 누락·반영 후 필드 누락·다른 단계·다른
+Application의 승인을 재사용하면 실행 전에 거부한다. T10 호스트의
+`GateRecords.cutover_authority` 조립은 저장된 결속을 자동 연결하며 현재
+운영 권한·원본 인증 공급자를 명시적으로 요구한다.
+
 ## 계약 출처
 
-`src/bravo_gate/contracts/`는 develop `626bca0`의 `docs/controls/` 계약을 고정한다. 스키마와 프로필은 기존 T5 고정본과 바이트 단위로 같고, 최신 서버 정본 소비 사례도 함께 가져왔다. 경로·커밋·해시는 `provenance.json`에 있다. 원본과 패키지 사본의 일치 여부를 시험한다. 계약 변경은 상호운용 시험과 해시 갱신을 함께 수행한다.
+`src/bravo_gate/contracts/`는 develop `626bca0`의 `docs/controls/` 계약을 고정한다. 스키마는 기존 T5 고정본과 바이트 단위로 같고, 최신 서버 정본 소비 사례도 함께 가져왔다. 프로필은 그 뒤 T31 반영 뒤 재대조용 `apply-recheck` v1을 더했고, 이에 따라 바뀐 카탈로그·context 해시를 계약 사례에 반영했다. 경로·커밋·해시는 `provenance.json`에 있다. 원본과 패키지 사본의 일치 여부를 시험한다. 계약 변경은 상호운용 시험과 해시 갱신을 함께 수행한다.
 
 원본 결과의 `RunSnapshot.fingerprint`는 UTF-8 JSON을 key 정렬·구분 공백 제거·원문 Unicode 유지로 직렬화한 SHA-256이다. 임의 RFC 8785 구현과 같다고 가정하지 않으며 T10은 제공된 함수를 사용한다. 네트워크 증거의 `output_sha256`은 별도로 원본 바이트 전체를 해시한다.
 
@@ -25,7 +35,7 @@
 | 소비 | 제출된 PASS/EXCEPTION을 그대로 승인하지 않고 현재 등록·원본·승인으로 다시 계산 |
 | 재검증 | 저장소/발행자 상태·신원·기한을 재조회. 검사 중 변경·기한 경과 시 전제조건 미발급 |
 
-`demo-gate`는 3개, `full`은 20개 시험을 요구한다. `full`에서 DR-01.1이 없으면 항상 BLOCK이며 예외로 무시할 수 없다. 운영 전환에서 어느 프로필을 요구하는지는 T10의 서버 정책이 선택한다. UI가 작은 프로필로 바꿔 통과시키는 API는 제공하지 않는다.
+`demo-gate`는 3개, `full`은 20개, `apply-recheck`(T31 반영 뒤 재대조)는 3개 시험을 요구한다. `full`에서 DR-01.1이 없으면 항상 BLOCK이며 예외로 무시할 수 없다. 운영 전환에서 어느 프로필을 요구하는지는 T10의 서버 정책이 선택한다. UI가 작은 프로필로 바꿔 통과시키는 API는 제공하지 않는다.
 
 ## T10/T14 연결
 
@@ -54,21 +64,29 @@ security = service.require_security(actor, context_id, serialized_report,
 
 `Ed25519Authority`는 계획 context·문서 hash·발급 목적을 기존 서버 공개키 원장과 대조하는 구체 서명 검증기다. 키 폐기·교체·역할 불일치를 재검증한다. 평가기에 서명 개인 키를 제공하지 않는다. 입력 JSON의 `evidence.signature` 필드만으로 인증하지 않는다. 서명은 발급 출처를 확인하며, 실제 시험이 제대로 실행됐다는 사실은 T14 수집기 자격으로 검증해야 한다.
 
+선택적 `PlanAuthorityKeys`는 기존 T10 계획 잠금/명령 원장에 공개키 등록·폐기를 보존한다.
+별도 현재 관리 권한과 정확한 생산자·단일 용도를 요구하며, 설치만으로 운영 권한이나
+발급자가 등록되지 않는다. [연결 조건과 검증 범위](docs/key-records.md)를 따른다.
+
 서명 검증기는 `VerifiedAuthority(context_digest, subject_digest, purpose, valid_until)`을 반환한다. `valid_until`은 키와 서명의 만료 중 빠른 시각이며 최종 전제조건도 이를 넘지 않는다. 목적은 `context`, `run-source`, `run-target`, `exception`이다. 권한 판정의 기한이 있으면 `subject_digest=permission_subject(actor, context_digest, action)`, `purpose=permission:<권한명>`으로 반환한다. 예를 들어 `permission:gate:consume`이다. `permission_subject`는 `kind=gate-permission.v1`, 인증된 actor, context digest, action을 정규화하여 해시하므로 다른 사용자의 권한 증명을 재사용할 수 없다. actor는 요청 본문이 아니라 인증 계층에서 가져온다. 네트워크 출처는 `network-binding`(등록 내용 hash), `network-artifact`(원본 바이트 hash)를 쓴다. 만료 있는 서명·세션·권한의 결과를 `True`로 변환해 기한을 버리는 어댑터는 이 계약에 맞지 않는다. `True`는 별도의 만료가 없는 서버 정책을 매번 직접 검사한 어댑터에만 사용한다. 예외를 던지지 않고 반환만 하는 기존 검증 함수는 명시적 반환 계약으로 바꿔야 한다.
 
 예외 승인 생성은 T10에서 승인자 권한·분리 승인·감사 기록을 확인한 후 수행한다. T19는 그 기록을 읽기만 한다. 임의 JSON 승인 배열이나 사용자 문자열을 DB 승인으로 전환하지 않는다. 소비 문서의 예외는 서버 기록과 완전히 일치해야 한다. 승인 폐기 또는 계획/원본 변경 뒤 예전 PASS 문서를 재사용할 수 없다. 예외가 없는 PASS 문서도 `context_digest`를 대조한다. 계획·gate·재측정 결과가 바뀌면 새 context와 예외 재승인이 필요하다. 같은 고정 입력을 재조회하는 것은 허용한다. 결속값이 빠진 이전 초안을 자동 보충하지 않는다.
 
 ## 네트워크 드롭과 장애
 
-NET-01.2/01.3의 PASS에는 `NetworkProofAuthority`가 필요하다. 증거 `output_sha256`에 연결한 구조화된 원본을 등록된 저장소에서 읽으며, URI를 임의로 가져오거나 `excerpt`를 정규식으로 해석하지 않는다.
+NET-01.2/01.3의 PASS에는 `CollectedNetworkProofAuthority`가 필요하다. T14 집계 원문 한 개와 DB·풀러 개별 원문 두 개를 등록된 저장소에서 읽는다. URI를 임의로 가져오거나 `excerpt`를 정규식으로 해석하지 않는다.
 
-- 서버의 `NetworkBinding`이 목적지·시험 주체·허용 주체·허용 서비스·DNS·정책 설정 hash·접속 제한시간을 고정한다.
-- 연결 거부 또는 설정한 제한시간까지의 timeout을 확인한다.
-- 같은 DB/포트에 대한 허용 주체의 성공, 같은 시험 주체의 허용 경로 성공, NET-01.3의 DNS 성공을 같은 60초 창에서 확인한다.
-- 대조군 실패·다른 대상·다른 주체·오래된 증거·설정 hash 불일치·원본 변조는 통과시키지 않는다.
-- 확인한 근거와 등록의 기한을 보안 전제조건 기한에도 반영한다.
+- 서버의 `NetworkRunRegistration`이 계획 context, 양쪽 중 어느 환경인지, 앱, 실제 run ID, 시험·방법 버전, DB·풀러의 등록 hash·정책 hash와 기한을 고정한다. 두 경로의 등록은 서로 달라야 한다.
+- 집계와 개별 원문 모두 SHA-256·서버 출처를 검증하고, 모든 경로가 같은 run·앱·환경·시험에 속하는지 확인한다. 검증 마지막에 등록·원문을 다시 읽고 재인증한다.
+- 각 경로의 연결 거부 또는 3초 이상 timeout, 시험 전후 정상 연결·시험 주체의 정상 경로, NET-01.3의 전후 DNS 성공을 60초 창에서 함께 확인한다. 하나라도 누락·중복·변조·실패하면 전체 시험의 PASS 근거로 사용할 수 없다.
+- `GateService`는 검증된 두 역할과 현재 로드한 원본 run ID까지 대조한다. 예전 단일 경로 `NetworkProofAuthority`는 진단용으로 남지만 전체 NET 시험의 통과 근거로는 사용할 수 없다. 기존 호스트는 두 경로 수집·등록·원문 조회를 연결해야 한다.
+- 검증·등록·출처 권한의 만료 중 가장 빠른 시각을 보안 전제조건 기한에 반영한다.
 
-이것은 선정한 도달성 시험을 해석하는 계약이다. 타임아웃의 모든 원인을 완벽하게 규명하거나 네트워크 전체의 안전을 보장하지 않는다. T14가 구조화된 근거와 인증된 등록을 제공하지 않으면 이 시험은 미검증으로 BLOCK된다.
+형식 1은 기존 DB 5432·풀러 6432 계약이다. 형식 2는 인증된 등록에 있는 역할별 리스너와 코디네이터 요청/응답 시간 구간을 검증한다. 원격 시계 차이는 최대 1초, 응답은 최대 5초이며 전체 60초 제한은 유지한다. **형식 2를 파싱하는 것과 T5 평가 프로필에 방법 2를 승인하는 것은 별개다.** 이 변경은 기본 카탈로그·기존 계획·T10 등록을 바꾸지 않는다.
+
+이것은 선정한 도달성 시험을 해석하는 계약이다. 대조군이 성공한 timeout도 정책 드롭의 직접 증명으로 표시하지 않는다. T14의 인증된 등록이나 원문이 없으면 미검증으로 BLOCK한다. 실제 호스트의 실행 주체·정책·Service/EndpointSlice/Pod UID 등록 확인은 호스트 책임이며, 클라이언트가 보낸 hash 문자열만으로 인증하지 않는다.
+
+연결 계약과 검증 한계는 [T14 네트워크 원문 인수](docs/network-bundle.md)를 참고한다.
 
 ## 상태·저장·실행 책임
 
@@ -138,6 +156,53 @@ uv run pytest -q
 
 
 ## T10 승인·실행 접수 어댑터
+
+### 저장된 원문으로 운영 서비스를 구성하기
+
+`bravo_gate.stored.StoredGateServices`는 기존 `GateRecords.evaluate`의
+`service_factory`와 `GateRecords.cutover_authority`에서 사용하는 연결 어댑터다.
+서명·권한·예외·데이터 준비 공급자를 명시적으로 받아, 같은 계획 트랜잭션의
+`GateRecordView`에 기존 `GateService`와 `CombinedGateService`를 연결한다.
+
+```python
+from bravo_gate.stored import StoredGateServices
+
+factory = StoredGateServices(
+    authority_provider=load_registered_ed25519_authority,
+    authorize=check_current_gate_permission,
+    approval_provider=read_current_exception,
+    binding_provider=read_registered_readiness_binding,
+    snapshot_provider=read_registered_readiness_snapshot,
+    clock=server_clock,
+    network_verifier=verify_registered_network_proofs,
+)
+# principal은 이미 호스트에서 인증된 신원이다. 본문에서 만들지 않는다.
+report = records.evaluate(principal, plan_id, service_factory=factory)
+```
+
+각 호스트 공급자는 `view`를 첫 인자로 받는다. 나머지 인자는 기존 서비스와 같다.
+공급자는 `view.c`의 현재 계획 트랜잭션과 인증된 `view.principal`을 사용해야 한다.
+반환한 서비스·view를 캐시에 넣거나 트랜잭션 밖에서 재사용하지 않는다.
+
+| 공급자 | 반환·검사 책임 |
+| --- | --- |
+| `authority_provider(view)` | 실제 등록된 issuer의 `Ed25519Authority`. key/envelope 조회도 같은 트랜잭션에서 현재 폐기·권한·기한을 확인 |
+| `authorize(view, actor, context, action)` | 현재 작업 권한. 유효기간이 있으면 `VerifiedAuthority`를 그대로 반환. 기한 없는 현재 서버 정책만 정확한 `True` 허용 |
+| `approval_provider(view, actor, context, approval_id)` | 서버에 저장된 예외. 요청 본문·승인자 문자열에서 생성하지 않음 |
+| `binding_provider(view, actor, context)` | 실제 T13 정책·양쪽 DB·snapshot에 결속된 `ReadinessBinding` |
+| `snapshot_provider(view, actor, context, binding)` | 인증된 T13 관측 원문 `RunSnapshot`. 누락을 복제 지연 0이나 성공 값으로 보충하지 않음 |
+| `network_verifier(view, actor, context, side, test_id, row)` | 기존 검증기의 현재 `VerifiedNetworkProof`. 생략하면 네트워크 PASS를 인증할 수 없음 |
+
+호스트가 등록한 서명은 context·양쪽 run·예외·readiness binding/snapshot·보고서를
+각각 다른 purpose와 정확한 digest에 결속한다. 어댑터는 서명하지 않는다.
+평가 출력의 서명·발급은 신뢰된 호스트가 자기 평가 결과를 저장한 뒤 맡아야 한다.
+브라우저가 제출한 보고서를 서명하거나, 수집기 자격을 확인하지 않은 원문을
+단순히 저장됐다는 이유로 인증하면 안 된다.
+
+T10 원문 수신의 `gate:record/read` 권한은 이 평가 권한·서명 발급 권한이 아니다.
+운영 적용 전 실제 issuer 등록·키 보관/회전·현재 평가 권한·T13 기록·기한과
+T21의 보고서 출처 조회를 같은 계획으로 인수해야 한다.
+로컬 검증 범위와 남은 접점은 [검증 기록](../../docs/evidence/t19-stored-services-2026-11-06/README.md)에 있다.
 
 `bravo_gate.t10.T10GateAuthority`는 T10 `CutoverService.authority`에 연결한다.
 기존 운영 권한·SHIFT·보안 보류·실행 epoch 검사 공급자 `upstream`을 필수로 받아
@@ -255,3 +320,6 @@ CA로 다른 서버에 연결하면 스키마를 확인할 수 없는 상태로 
 2026-11-04에는 [실제 출발지 앱 DB의 스키마 수집](../../docs/evidence/t19-source-readiness-2026-11-04/README.md)을
 추가 확인했다. 두 테이블의 PK·스키마 지문 수집, 기대 DB 이름 불일치 시 UNKNOWN,
 목적지·복제·시퀀스 증거 누락 시 BLOCK이다. 출발지 읽기 자격 시험이며 양쪽 환경 게이트 인수는 아니다.
+
+선택적 공개키 등록·폐기와 연동하는 [계획별 서명 공개·재조회](docs/signature-records.md)는
+기존 계획 잠금·원장을 재사용하며 운영 서명자나 현재 권한을 자동 등록하지 않는다.

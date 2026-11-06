@@ -19,6 +19,10 @@ export function canRepeatApproval(model, pending, now) {
     "workload_id",
     "source_environment_id",
     "target_environment_id",
+    "profile_id",
+    "profile_version",
+    "recheck_profile_id",
+    "recheck_profile_version",
     "version",
   ])
     if (model.snapshot[key] !== pending.snapshot[key]) return false;
@@ -63,6 +67,10 @@ export function canResubmit(model, pending, now) {
     "workload_id",
     "source_environment_id",
     "target_environment_id",
+    "profile_id",
+    "profile_version",
+    "recheck_profile_id",
+    "recheck_profile_version",
     "version",
   ])
     if (model.snapshot[field] !== pending.snapshot[field]) return false;

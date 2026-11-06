@@ -30,8 +30,14 @@ app = ConsoleApp(authenticated_t10_app, public_origin="https://console.example.i
 1. AWS 출발지와 온프렘 목적지를 서버에 등록된 `connection_ref` 별칭으로 등록한다.
    kubeconfig·클라우드 키·Secret 값·API URL을 입력하는 화면은 제공하지 않는다.
 2. 소스 저장소 HTTPS 주소, 앱/IaC 상대 경로, 출발 환경 ID와 namespace로 앱을 등록한다.
-3. 등록된 앱과 목적지 ID로 계획을 만들면 반환된 계획 ID로 조회·SSE를 연결한다.
+3. 등록된 앱·목적지 ID와 평가 프로필 ID·버전을 명시해서 계획을 만든다.
+   프로필 기본값은 없으며 서버의 tenant별 허용 목록에 있는 조합만 등록한다.
+   요청과 영수증의 두 프로필 값이 같아야 반환된 계획 ID로 조회·SSE를 연결한다.
    첫 상태는 `COLLECT`이며 등록은 통제 PASS·승인·실행을 의미하지 않는다.
+
+스냅샷의 프로필은 ID·버전 한 쌍으로 읽고, 같은 계획의 재조회나 승인·실행 재요청에서
+바뀌면 거부한다. 두 필드가 모두 없는 기존 계획은 조회할 수 있지만 프로필을 추정해
+채우지 않는다. 프로필이 필요한 새 계획은 기존 환경·앱 등록을 재사용해 별도로 등록한다.
 
 서버가 반환한 환경/앱/계획 결속을 확인한 뒤 영수증을 표시한다. 읽기 권한 경고는 그대로
 보여 주고, 읽기 검증 성공을 최소 권한 또는 운영 자격 충족으로 바꾸지 않는다.
@@ -121,11 +127,72 @@ app = ConsoleApp(authenticated_t10_app,
     public_origin="https://console.example.invalid", controls=reports)
 ```
 
-- 등록 문서는 `RegisteredGateDocument(plan_id, plan_digest, document)`이며 보고서 원문은 최대 256 KiB다. 호스트의 `authenticate`는 비동기 함수이고 명시적인 `True`만 수용한다. 신뢰할 수 없는 클라이언트 필드나 단순 문자열 비교만으로 발급자를 인증하면 안 된다.
+- 등록 문서는 `RegisteredGateDocument(plan_id, plan_digest, document, gate_phase="initial", application_id=None, authority_expires_at=None)`이며 보고서 원문은 최대 256 KiB다. 호스트의 `authenticate`는 비동기 함수이고 명시적인 `True`만 수용한다. 신뢰할 수 없는 클라이언트 필드나 단순 문자열 비교만으로 발급자를 인증하면 안 된다.
 - T10 조회 권한·계획 snapshot과 보고서 권한을 조회 전후로 확인한다. 다른 앱·환경 쌍, 누락·중복 시험, 알 수 없는 프로필, 모순되는 전체 PASS, 중복 JSON 키·비유한 숫자·미래 판정은 표시하지 않는다. 저장소·검증 오류 원문은 공개 응답에 포함하지 않는다.
-- 브라우저는 현재 게이트 ID·context digest·계획 digest가 일치하고 조회가 15초 이내인 보고서만 표시한다. 권한 회수 시 표도 제거한다. 이는 최근에 **조회한 과거 판정**이며 증거가 지금도 유효하다는 뜻은 아니다.
+- 브라우저는 현재 게이트 ID·context digest·계획 digest가 일치하고 서버의 `read_valid_until` 이전인 보고서를 표시한다. 새 조회 응답은 `plan_version`·`plan_state`도 현재 snapshot과 대조한다. 권한 회수·계획/버전/상태 변경 또는 조회 기한 경과 시 표를 제거한다. 이는 최근에 **조회한 과거 판정**이며 증거가 지금도 유효하다는 뜻은 아니다.
+- workflow의 게이트 이벤트가 아직 없는 초기 비교는 서버가 전후 인증한 같은 snapshot의 버전·상태가 있는 경우에만 표시한다. `initial`·Application ID 없음·COLLECT/ANALYZE/PROPOSE/REHEARSE/GATE에서만 허용하며 **초기 비교 (실행 허가 아님)**으로 구분한다. 기존 이벤트와 충돌하거나 반영 후 보고서인 경우 이 경로를 사용하지 않는다. 새 metadata가 없는 과거 응답은 기존 이벤트 일치를 계속 요구한다. 이 표는 `Model`의 승인·실행 조건에 사용하지 않는다.
+- 서버와 브라우저는 T10 계획에 고정된 `profile_id`·`profile_version`도 보고서와 대조한다. 전체 20개 시험 계획에 3개 데모 보고서를 붙이거나 버전이 다른 보고서를 표시하지 않는다. 프로필이 없는 기존 계획은 일반 조회를 유지하지만 통제 보고서는 표시하지 않으며, 보고서에서 프로필을 역으로 채우지 않는다.
 - `authorizes_cutover: false`를 고정한다. 예외 적용을 동등성 PASS로 바꾸지 않는다. 전체 컷오버 조건에는 별도의 데이터 준비·SHIFT·현재 권한·승인 검사가 필요하며 T10/T19가 담당한다.
 - `report_digest`는 읽은 원문 bytes의 SHA-256이다. T19의 정규화된 서명·판정 fingerprint나 실행 승인 digest를 대신하지 않는다. 원문 질문·로그·증거 URL·승인자 개인정보는 화면 API에 반환하지 않는다.
+
+### 기존 T10 저장소에서 읽기
+
+`bravo-console[t10]`의 `T10ControlReports`는 기존 `GateRecords`에서 현재 계획에
+결속된 보안 보고서를 읽는다. 별도 보고서 업로드·DB·판정기·인증 서버를 만들지 않는다.
+
+```python
+from starlette.requests import Request
+from bravo_console.reports import PlanControlReport
+from bravo_console.t10_reports import T10ControlReports
+
+# 세 입력은 기존 운영 호스트가 구성한다. 요청 문자열로 권한을 등록하지 않는다.
+# gate_records: 현재 gate:read 권한을 검사하는 T10 GateRecords.
+# verified_operator_from_request: T10 API와 동일한 검증된 신원 → Principal 변환.
+# t19_authenticate_report: GateService와 같은 (actor, context, RunSnapshot) 출처 검증.
+source = T10ControlReports(gate_records,
+    resolve_principal=lambda scope: verified_operator_from_request(Request(scope)),
+    authenticate_report=t19_authenticate_report)
+reports = PlanControlReport(authenticated_t10_app,
+    load=source.load, authenticate=source.authenticate)
+app = ConsoleApp(authenticated_t10_app,
+    public_origin="https://console.example.invalid", controls=reports)
+```
+
+조회는 T10의 기존 계획 잠금을 사용한다. 내부 `_transaction(write=True)`는 잠금
+프로토콜을 선택하기 위한 것이며 어댑터는 SELECT만 실행한다. 권한·컨텍스트를 쓰는
+호스트도 같은 정본 DB와 잠금을 따라야 한다. 지연될 수 있는 읽기 복제본으로
+권한을 확인하지 않는다. 저장된 계획 snapshot과 현재 보고서의 gate/context,
+최초 또는 반영 후 단계, Application ID가 일치해야 한다. 보안 보고서가 없거나
+원문·서명·발급자 신뢰가 바뀌면 반환하지 않는다.
+
+출처 검증은 T19의 `gate-result` 범위·해시·기한 검사를 재사용한다. 현재 신원과
+계획별 조회 권한도 다시 검사한다. DB 저장 성공이나 JSON hash만으로 인증하지 않는다.
+출처 확인 중 권한이 회수되거나 마지막 검증 때 서명 기한이 지나도 거부한다.
+콜백·DB 오류의 원문은 HTTP 응답에 포함하지 않는다. `load`와 두 번의 `authenticate`는
+각각 현재 저장소·호스트 권한을 다시 읽고, 이미 읽은 문서를 캐시해서 신뢰하지 않는다.
+
+발급자 키·서명 원문을 같은 계획 DB에서 읽어야 한다면 `authenticate_report` 대신
+`authority_factory(view)`를 전달한다. 공급자는 현재 `view.c`와 인증된
+`view.principal`에 연결한 T19 `Ed25519Authority`를 반환한다. 키·envelope 조회에
+별도 DB 트랜잭션을 열지 않고 같은 계획 잠금 안에서 현재 등록·폐기·기한을 확인한다.
+이 공급자와 반환된 검증기를 트랜잭션 밖에 보관하거나 캐시에 넣으면 안 된다.
+
+```python
+source = T10ControlReports(gate_records,
+    resolve_principal=resolve_current_operator,
+    authority_factory=load_current_report_authority)
+```
+
+`authenticate_report`와 `authority_factory`는 정확히 하나만 지정한다. 후자의
+어댑터가 수행하는 서명 검증은 전자와 같은 `gate-result` purpose·context·보고서
+지문·기한 검사를 사용하며, 생성자 반환만으로 출처를 인증하지 않는다. 발급자 등록이나
+서명 생성 기능도 없다. 기존 콜백 방식은 유지하며 권한 회수·다른 context·서명 만료를
+우회하는 fallback은 제공하지 않는다.
+
+`tests/test_t10_reports.py`는 SQLite·별도 로컬 PostgreSQL의 실제 T10 저장·잠금과
+Ed25519 검증으로 최초/반영 후 단계, 권한 회수·다른 tenant·변조·서명 폐기/만료·
+현재 컨텍스트 변경과 오류 비노출을 검사한다. 신원·권한·키·시험 원문은 합성 fixture다.
+운영 호스트의 실제 issuer·계획 권한·T14 인수와 배포는 별도로 확인해야 한다.
 
 시험 호스트의 보고서와 신뢰 콜백은 명시적인 fixture다. 실제 T19 정본 저장소·발급자 인증 연결과 팀 환경 자격은 남아 있으며, fixture PASS를 실제 보안 통제 통과로 사용하지 않는다.
 
@@ -177,6 +244,75 @@ WebKit에서 읽는다. 정상 수집 값, 목적지 Collector 중단 뒤 미확
 - 새 탭/재접속은 전체 이력을 다시 검사한다. 401/403이면 복귀 근거도 지우고 지연 응답을 차단한다.
 - 브라우저의 복귀 시나리오는 명시적 HTTP/SSE 계약 fixture다. 실제 DB·Edge 복귀, 운영 권한,
   서비스 무중단 검증을 뜻하지 않는다. 기존 실제 T10 코드/SQLite 회귀도 함께 실행한다.
+
+## T33 보안 탐지 요약 연결
+
+`PlanSecurity`는 기존 T33 `/v1/security/summary`의 환경별 수집 상태·미해결 탐지 건수를
+읽는다. T19의 보안 시험 결과나 전환 허가를 새로 판정하지 않는다. 환경 전체의 결과이므로
+호스트는 계획 읽기 권한에 더해 **계획의 두 환경 전체에 대한 보안 조회 권한**을 확인해야 한다.
+
+```python
+from bravo_console.security import PlanSecurity, T33Client
+
+client = T33Client("https://findings.example.invalid", server_secret, tls=verified_context)
+security = PlanSecurity(authenticated_t10_app, client,
+    environments={"registered-source": "source", "registered-target": "target"},
+    authorize=host_environment_security_permission)
+app = ConsoleApp(authenticated_t10_app,
+    public_origin="https://console.example.invalid", security=security)
+```
+
+- `authorize(scope, plan)`는 검증된 호스트 신원·정책에 따른 동기 콜백이며 명시적인 `True`만
+  허용한다. 계획 조회와 추가 권한을 외부 읽기 전후 재검사하고, 계획 digest·앱·환경 쌍이
+  바뀌면 버린다. 다른 tenant의 환경을 재사용하는 매핑이나 무조건 허용하는 콜백은 금지한다.
+- 호스트가 불변 등록 ID → T33 환경 ID의 일대일 매핑을 고정한다. 브라우저는 환경·URL·
+  쿼리를 선택하지 못한다. 서비스 토큰은 해당 환경의 **read 전용**이어야 하며 브라우저에
+  전달하지 않는다. 호스트 종료 시 `await client.aclose()`로 연결을 닫는다.
+- 고정 HTTPS 서버의 CA·호스트명을 검증한다. HTTP는 루프백 시험 전용이다. T37과 같은
+  제한된 JSON 전송기를 재사용하며 리다이렉트·압축·64 KiB 초과·중복 키·5초 초과를 거부한다.
+- 응답은 7개 범주와 정확히 해당 환경 하나여야 한다. 미래/10초 초과 응답, 누락·중복 환경,
+  잘못된 상태·수치는 `UNKNOWN`이다. 출처의 `OK`는 **수집 정상**이며 보안 PASS가 아니다.
+  `UNKNOWN`·`STALE`·`NONE`의 과거 건수는 공개하지 않고 `null`로 반환한다.
+- T21의 `/v1/plans/{id}/security`는 읽기 전용 `console-security.v1` 표시 응답이다.
+  `for_gate_decisions: false`이며 환경 ID·side·7개 cells(state/counts)만 투영한다.
+  탐지 원문·출처 cursor·자원 식별자·비밀·외부 URL은 반환하지 않는다. 사용자에게 보이는
+  요약과 T33/T19 정본 계약을 구분한다.
+- 화면은 현재 계획과 결속된 15초 이내 응답만 표시한다. 권한 회수·계획 전환·조회 실패 시
+  이전 건수를 제거한다. `NONE`은 탐지 출처 없음, `STALE`은 오래됨, `UNKNOWN`은 확인 불가이며
+  모두 0건과 구분한다. 정상 수집의 0건도 공격 부재 또는 전체 보호 수준 통과를 뜻하지 않는다.
+
+검증은 실제 T33 인증·SQLite 저장·View/API와 실제 T10 계획 인가를 로컬로 연결했다.
+관찰 값·자격·신원은 시험 fixture다. 서비스 토큰의 환경 제한·회수, 계획/환경 권한 회수,
+잘못된 응답 거부, 브라우저 표시 삭제를 확인했다. 실제 클라우드 탐지 활성화·운영 수집기,
+운영 T33 HTTPS 주소·read 자격·호스트 권한 연결은 별도 인수 대상이며, 이 변경만으로
+T33 전체 완료 또는 실제 위협 탐지 성공으로 기록하지 않는다.
+
+재대조 보고서를 제공하는 호스트는 저장된 T10 GateRecords에서 `gate_phase="post_apply"`와 성공한 `application_id`를 읽어 `RegisteredGateDocument`에 전달하고 두 인증 호출에서 이를 검증한다. 프로필 이름으로 단계를 추측하지 않는다. 최초 보고서는 계획의 `profile_*`, 반영 후 보고서는 `recheck_profile_*`와 대조하며, 어느 보고서도 실행 권한을 발급하지 않는다. 등록 UI는 재대조 프로필 쌍을 선택적으로 전송하고 영수증·snapshot·승인 재시도에서 보존한다.
+
+
+### 통제 보고서의 표시 기한
+
+`T10ControlReports`는 `accept`가 확인한 `VerifiedAuthority`들의 가장 이른 기한을
+`RegisteredGateDocument.authority_expires_at`에 보존한다. 콜백 모드와 같은 트랜잭션의
+`authority_factory` 모드 모두 적용한다. 직접 호스트 어댑터가 이 필드를 제공한다면
+시간대가 있는 Python `datetime`이어야 한다. 알려진 기한이 없는 명시적 신뢰 콜백은
+기존 호스트 책임을 유지하며 표시 기한을 최대 15초로 제한한다.
+
+`PlanControlReport`는 현재 시각+15초와 알려진 기한 중 이른 값을 `read_valid_until`로
+전달한다. 이미 만료됐거나 잘못된 타입·시간대인 기한은 거부한다. 응답 직전에도 기한과
+시계 역행을 확인하며, 처리 지연으로 끝난 기한을 새 조회 시각으로 연장하지 않는다.
+
+브라우저는 수신 시각 대신 `queried_at`·`read_valid_until`을 대조한다. 누락/잘못된 기한,
+현재보다 미래인 조회, 15초를 넘는 표시 창과 만료된 응답은 표시하지 않는다. 같은 응답을
+다시 받아도 기한을 갱신하지 않는다. 활성 화면은 기존 1초 렌더링 주기에 따라 표를 비운다.
+서버와 정적 자산은 같은 패키지로 배포한다. 새 클라이언트가 이전 서버의 기한 없는 응답을
+받으면 해당 표를 미연결로 처리하며, 다른 승인/실행 계약을 완화하지 않는다.
+
+이는 **과거 판정을 현재 권한으로 읽은 표시의 기한**이다. T14 증거의 만료나 T19 승인
+기한을 늘리지 않고, 알려지지 않은 미래 권한 회수를 미리 감지하는 기능도 아니다.
+실제 승인·실행은 기존 T10 현재 권한·T19 검증을 계속 따른다.
+
+[실제 DB·두 브라우저·변이·Linux 검증](../../docs/evidence/t21-control-read-deadline-2026-11-06/README.md).
 
 ### T11 버킷 삭제 차단 기록 → T24 → T21
 

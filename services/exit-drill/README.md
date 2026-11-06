@@ -4,6 +4,8 @@
 
 **이 도구는 계획과 판정만 만든다.** 클러스터에 접속하지 않고, 정책을 적용 · 삭제하지 않으며, Pod를 재시작하지 않는다. 그 일은 운영자가 한다. 접속 시험(`probe.py`)만 네트워크에 닿고, 정해진 대상에 연결만 시도한다. LLM은 쓰지 않는다.
 
+실제 목적지에서 돌리는 순서는 [실행 안내](../../docs/operations/t27-exit-drill-real-run.md)에 있다. kubectl을 부르는 일은 패키지 밖의 운영자 도구 [`scripts/real_run.py`](scripts/real_run.py)로 모았다. 읽기와 접속 시험을 하고, 상태를 바꾸는 것은 컨테이너 재시작뿐이다. 정책 적용 · 되돌리기는 그 도구에도 없다.
+
 ```
 입력                          도구                     결과
 드릴 명세(profiles/) ─┐
@@ -27,6 +29,7 @@ T16 인벤토리 ─────────┼─→ render ──→ 계획(�
 | `observation.py` | 읽은 결과를 판정 입력으로 묶는다. 모르는 값은 모른다고 둔다 |
 | `verdict.py` | 차단 전후 관측으로 PASS · FAIL · UNKNOWN을 정한다 |
 | `residual_map.py` | 잔존 의존성 지도(JSON · Markdown) |
+| `control_pod.py` | 대조군 Pod 렌더. 계획을 만들기 전에 띄운다 |
 
 ## 차단 방식
 
@@ -39,6 +42,8 @@ T16 인벤토리 ─────────┼─→ render ──→ 계획(�
 | `replication` | KEEP | 목적지 DB↔출발지 DB(Tailscale) | DB Pod를 고르지 않는다 |
 
 AWS 경로는 명세에 적지 않는다. **인벤토리가 쓴다고 한 서비스마다 자동으로 차단 시험 대상이 된다.** 같은 입력이면 같은 계획이 나오고, 경로 순서를 바꿔도 해시가 같다. 재시작으로 Pod UID가 바뀌어도 같은 계획이다.
+
+**밖에서 들어오는 경로(`edge` 역할)는 정책으로 고르지 않는다.** Cloudflare Tunnel connector(`cloudflared`)처럼 공개 트래픽을 앱 Service로 넘기는 Pod다. 송신을 좁히면 공개 경로가 끊긴다. 명세에 그 Pod가 기대는 잔존 의존성(`residual`)을 적으면 지도의 그 항목 "목적지 구현" 칸에 나온다. 시험 대상이 아니라서 터널이 내려가 있어도 드릴은 돈다.
 
 ## 만들지 않고 실패하는 경우
 
@@ -57,6 +62,8 @@ AWS 경로는 명세에 적지 않는다. **인벤토리가 쓴다고 한 서비
 | `LOCAL_ROUTE_LEAVES_CLUSTER` | 내부 경로라면서 외부 주소나 tailnet 프록시를 가리킨다 |
 | `SELECTOR_MATCHES_NOTHING` | 오타 난 선택자의 정책은 조용히 아무것도 막지 않는다 |
 | `CONTROL_SELECTED` · `NO_CONTROL` | 대조군이 차단되거나 없으면 대상이 살아 있는지 잴 수 없다 |
+| `EDGE_SELECTED` | 앱 선택자가 터널(`edge`) Pod까지 고른다. 차단하면 공개 경로가 끊긴다 |
+| `UNKNOWN_RESIDUAL` | `edge`가 잇는 잔존 의존성이 인벤토리에도 명세의 `declared_residuals`에도 없다 |
 | `CONTAINER_NOT_IN_POD` | 명세의 앱 컨테이너 이름이 Pod에 없다. 드릴을 다 돌린 뒤 판정 불가가 되기 전에 멈춘다 |
 | `OWNER_ROLE_MISMATCH` · `UNKNOWN_WORKLOAD` · `DUPLICATE_ROUTE` · `POLICY_NAME_CONFLICT` · `NO_REPLICATION_ROUTE` · `NO_SOURCE_ROUTE` · `NO_AWS_CLIENT` · `EMPTY_SELECTOR` | 명세 자체의 모순 |
 
@@ -81,6 +88,8 @@ AWS 경로는 명세에 적지 않는다. **인벤토리가 쓴다고 한 서비
 | 계획을 만든 뒤 명세에 없는 Pod가 뜸 | `POD_OUTSIDE_PLAN` | 어느 정책에도 안 걸리고 아무도 재지 않는다 |
 | LSN이 안 움직임 | `REPLICATION_IDLE` | 쓰기가 없으면 채널이 살아 있는지 모른다 |
 | 쓰기 대상이 목적지로 확인 안 됨 | `CUTOVER_NOT_CONFIRMED` | 컷오버 전이면 이 시험의 의미가 없다 |
+| 출구 시험 대상이 아닌 Pod | `NOT_EXIT_EVIDENCE` · `AWS_ENDPOINT_REDIRECTED` | 호출이 AWS로 가지 않으면 막아도 멀쩡해 보인다. 차단을 잰 것이 아니다 |
+| 그 여부를 읽지 못함 | `ELIGIBILITY_NOT_READ` | 읽지 못한 것을 자격 있다고 하지 않는다 |
 | 다른 계획의 관측 · 손댄 계획 | `PLAN_NOT_BOUND` · `PLAN_TAMPERED` | 이 시험의 증거가 아니다 |
 | 측정 중 정책이 바뀜 | `POLICY_CHANGED_DURING_OBSERVATION` | 무엇을 잰 것인지 모른다 |
 | 관측 값의 모양이 틀림 | `OBSERVATION_UNREADABLE` | 읽지 못한 증거로 판정하지 않는다 |
@@ -95,11 +104,18 @@ AWS 경로는 명세에 적지 않는다. **인벤토리가 쓴다고 한 서비
 이 틈 때문에 시작할 때 AWS를 부르는 앱이 첫 측정에서 PASS로 나왔다. 그래서 두 단계로 재시작한다.
 
 1. **Pod 교체**(`rollout restart`): 정책을 건 뒤 Pod를 새로 만든다. 이미 맺은 연결을 모두 없앤다.
-2. **앱 컨테이너만 재시작**(`kubectl exec -c <컨테이너>`로 1번 프로세스에 SIGTERM): Pod와 IP가 그대로라 이미 정책에 묶여 있다. 앱은 차단된 채로 시작한다. 죽이기 전의 컨테이너 ID를 `--induced-restarts`로 넘긴다.
+2. **앱 컨테이너만 재시작**(`scripts/real_run.py restart`): Pod와 IP가 그대로라 이미 정책에 묶여 있다. 앱은 차단된 채로 시작한다. 죽이기 전의 컨테이너 ID를 기록으로 넘긴다. 신호는 그 컨테이너의 모든 프로세스에 보낸다. 풀러 이미지는 1번 프로세스가 `sh`이고 처리기가 없어 1번에만 보내면 무시된다(실제 이미지에서 쟀다).
 
 판정은 두 번째가 있어야 `restart:*`를 통과시키고, 새 연결도 그 뒤에 맺은 것만 센다. 컨테이너 재시작은 정책 생성과 Pod 시작 양쪽에서 2초 이상 지난 뒤여야 한다. 그 전이면 아직 틈 안일 수 있어서다.
 
 **판정 대상은 명세가 앱 역할마다 적은 컨테이너(`workloads.*.container`) 하나다.** 이 이름은 계획 해시에 들어간다. 재시작 횟수 · 시작 시각 · 컨테이너 ID는 그 컨테이너의 값만 쓰고, 끝난 컨테이너의 ID(`lastState.terminated.containerID`)가 기록과 같고 지금 도는 ID와 달라야 통과한다. 빈 값이나 공백뿐인 ID는 없는 값으로 친다. 사이드카가 다시 뜬 것은 앱의 근거가 되지 않는다. 그렇다고 넘기지도 않아서, 앱은 통과 조건을 채워도 `OTHER_CONTAINER_RESTARTED`로 UNKNOWN이다.
+
+### 출구 시험 자격
+
+T30의 개발 측정용 앱은 같은 Pod의 호환 컨테이너가 Secrets Manager 호출에 응답한다([ADR-0017](../../docs/adr/0017-target-app-secrets-manager-compat.md)). AWS를 막아도 앱이 떠서 거짓 PASS가 나올 수 있다.
+그래서 수집기가 앱 역할 Pod마다 `bravo.t30/not-exit-evidence` 표지와 모든 컨테이너(재시작 가능한 사이드카 포함)의 `AWS_ENDPOINT_URL*` 환경 변수를 읽어 `exit_blockers`로 적는다.
+판정은 차단 전후의 Pod를 모두 보고, 하나라도 걸리면 `eligibility:*`가 UNKNOWN이다. 값을 읽지 못해도 UNKNOWN이다. 표지만 지워도 환경 변수가 남으면 통과하지 못한다.
+`envFrom`이 있는 Pod도 `ELIGIBILITY_NOT_READ`다. Pod만 봐서는 어떤 변수가 들어오는지 모르고, 참조한 ConfigMap · Secret을 새로 읽지 않는다. 쓰려면 환경 변수를 `env`에 직접 적는다. 볼륨으로 넣은 AWS 설정 파일은 보지 않는다.
 
 종료 코드: 0 PASS · 1 FAIL(또는 계획 거부) · 2 입력 오류 · 3 UNKNOWN.
 
@@ -121,15 +137,20 @@ AWS 경로는 명세에 적지 않는다. **인벤토리가 쓴다고 한 서비
 
 외부 서비스에는 T16 계약상 등급이 없다. 지어내지 않고 `not_graded`(등급 없음)로 둔다.
 
+드릴을 돌리지 않아도 지도는 나온다(`--report` 없이, 판정 `NOT_RUN`). 판정이 통과하지 못했으면 그 이유를 `drill_not_pass`에, T16이 후보에 없다고 한 기능을 `candidate_missing_capabilities`에 함께 적는다.
+
+T16이 배포를 따라가며 남긴 메모(`deploy.notes`)는 `inventory_trace_notes`에 그대로 옮기고, Markdown 맨 위 **인벤토리 추적 메모**에 보인다. 출발지 내보내기를 못 읽었으면 여기에 나온다. 못 읽은 입력이 있으면 아래 항목의 근거가 그만큼 좁다. T16 스키마가 요구하는 필드라 없거나 글자 목록이 아니면 인벤토리를 받지 않는다.
+
 ## 실행
 
 ```sh
 uv sync --locked && uvx ruff==0.17.3 check . && uv run --locked pytest -q
 ```
 
-실제 환경에서의 순서다. 컷오버(T12)가 끝나 쓰기가 목적지에 있어야 한다. 대조군 Pod(`bravo-exit-drill-control=true`)를 미리 띄운다.
+아래는 명령 하나하나의 입력과 출력이다. 실제로 돌릴 때는 [실행 안내](../../docs/operations/t27-exit-drill-real-run.md)를 따른다. 컷오버(T12)가 끝나 쓰기가 목적지에 있어야 차단 시험의 의미가 있다. 대조군 Pod(`bravo-exit-drill-control=true`)는 `control-pod`로 만들어 미리 띄운다.
 
 ```sh
+bravo-exit-drill control-pod --spec profiles/target-dev.json --image <digest로 고정한 이미지>
 bravo-exit-drill render --spec profiles/target-dev.json --inventory inventory.json \
   --candidate onprem-demo --snapshot snapshot.json > plan.json   # snapshot: kubectl get pods,networkpolicies -o json
 bravo-exit-drill manifests --plan plan.json > policies.json       # 운영자가 검토 후 적용
@@ -151,14 +172,15 @@ Docker로 실제 k3s를 띄워 생성된 정책을 적용하고 허용 · 거부
 
 ```sh
 uv run python tests/integration/verify_k3s.py --out <폴더>
+uv run python tests/integration/verify_real_run.py --out <폴더>   # 실행 안내의 순서를 그대로 돌린다
 uv run python tests/integration/mutation_check.py --out mutation-results.json
 ```
 
-결과와 재지 못한 것은 [증거 문서](../../docs/evidence/t27-exit-drill-2026-11-04/README.md)에 있다.
+결과와 재지 못한 것은 [증거 문서](../../docs/evidence/t27-exit-drill-2026-11-04/README.md)와 [실행 준비 증거](../../docs/evidence/t27-real-run-prep-2026-11-06/README.md)에 있다. 실제 `target-dev`의 1단계 결과는 [실제 지도 증거](../../docs/evidence/t27-real-map-2026-11-06/README.md)에 있다.
 
 ## 명세 값의 출처
 
-`profiles/target-dev.json`의 값은 지금 코드에서 읽었다. 실제 환경에서 맞지 않으면 `render`가 멈춘다.
+`profiles/target-dev.json`의 값은 지금 코드에서 읽었다. `tests/test_real_target.py`가 저장소 렌더러의 실제 출력과 대조한다. 실제 환경에서 맞지 않으면 `render`가 멈춘다.
 
 | 값 | 출처 | 상태 |
 |---|---|---|
@@ -167,6 +189,7 @@ uv run python tests/integration/mutation_check.py --out mutation-results.json
 | 풀러 `app=target-pgbouncer`, 컨테이너 `target-pgbouncer`, Pod 포트 5432 | T30 `pooler.py` | PR #131 |
 | DB `cnpg.io/cluster=target-db` | T30 `render.py` | PR #131 |
 | 객체 저장소 `target-seaweedfs`, 8333 | T30 `objects.py` | PR #131 |
+| Edge 터널 `app=bravo-edge-tunnel` → 잔존 `cloudflare (edge · tunnel)` | T17 `infra/envs/edge-tunnels/render.py` | PR #383. 2026-11-06 실제 Pod 레이블과 같음 |
 | 프록시 `bravo-target-pooler` · `bravo-target-replication` | T8 `network.py` | PR #131 |
-| 역방향 프록시 레이블 `target-db-tailnet` | Tailscale operator 규칙에서 추정 | **실제 레이블 미확인** |
+| 역방향 프록시 레이블 `target-db-tailnet` | Tailscale operator 규칙에서 추정 | 2026-11-06 `tailscale-system`의 실제 Pod에 있음 |
 | 외부 잔존 3건(Tailscale · GitHub · 모델 공급자) | 설계 부록 용어집 | T16 프로필에 없어 명세에 적음 |

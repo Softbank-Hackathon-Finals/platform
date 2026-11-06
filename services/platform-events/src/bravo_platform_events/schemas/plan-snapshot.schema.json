@@ -32,6 +32,14 @@
       "type": "string",
       "pattern": "^[0-9a-f]{64}$"
     },
+    "profile_id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$"
+    },
+    "profile_version": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$"
+    },
     "state": {
       "enum": [
         "COLLECT",
@@ -66,7 +74,33 @@
     "last_event_id": {
       "type": "string",
       "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}:[1-9][0-9]{0,15}$"
+    },
+    "recheck_profile_id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$"
+    },
+    "recheck_profile_version": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$"
     }
+  },
+  "dependentRequired": {
+    "profile_id": [
+      "profile_version"
+    ],
+    "profile_version": [
+      "profile_id"
+    ],
+    "recheck_profile_id": [
+      "recheck_profile_version",
+      "profile_id",
+      "profile_version"
+    ],
+    "recheck_profile_version": [
+      "recheck_profile_id",
+      "profile_id",
+      "profile_version"
+    ]
   },
   "required": [
     "schema_version",

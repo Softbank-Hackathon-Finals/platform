@@ -39,11 +39,13 @@ def test_real_gate_decision_reaches_console_without_granting_execution(
     from bravo_gate.models import GateContext, RunSnapshot
     from bravo_gate.service import GateService
 
-    wrapped, store, state, _ = setup(tmp_path / "gate.db", workload_id="demo-chat")
+    wrapped, store, state, _ = setup(
+        tmp_path / "gate.db", workload_id="demo-chat", profile=("demo-gate", "1")
+    )
     plan = store.snapshot("plan-demo")
     contract = T5Contract()
     catalog = Catalog(contract.catalog, contract.schema)
-    specs = catalog.profile("demo-gate", "1", "demo-chat")
+    specs = catalog.profile("demo-gate", "1")
     now = datetime.now(UTC) - timedelta(seconds=1)
     collected = now - timedelta(days=2) if mode == "expired" else now
 

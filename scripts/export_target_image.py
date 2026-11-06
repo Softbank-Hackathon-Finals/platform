@@ -12,9 +12,9 @@ import tarfile
 import tempfile
 import time
 
-SOURCE = "ce5727eb3e3d2355077afdaadcb1a722aba9c7cd"
-INDEX = "sha256:001adc35a9fc767566552fb55c3c19a67b7c5efc7231fb02dc28cdeace99d0d4"
-AMD64 = "sha256:bd1cd57a1c3dda9bb2795696167e242fc3b79a80eefb40d068a4124bcc66f384"
+# The one place that names the image to deploy. A new publication changes that file alone.
+PIN = json.loads((pathlib.Path(__file__).resolve().parents[1] / "infra/envs/target-workloads/app-image.json").read_text())
+SOURCE, INDEX, AMD64 = PIN["source_sha"], PIN["index_digest"], PIN["amd64_digest"]
 IMAGE = "ghcr.io/softbank-hackathon-finals/demo-chat"
 REGION = "ap-northeast-2"
 
@@ -101,7 +101,7 @@ def _verify_archive_stream(stream):
                 visited.add(digest)
                 if "manifest" in item["mediaType"] or "index" in item["mediaType"]:
                     pending.append(document("blobs/sha256/" + digest.removeprefix("sha256:")))
-        if visited != set(inventory) or len(inventory) != 15:
+        if visited != set(inventory):
             raise Failure("blob_graph_incomplete_or_extra")
         manifest = document("blobs/sha256/" + AMD64.removeprefix("sha256:"))
         config = document("blobs/sha256/" + manifest["config"]["digest"].removeprefix("sha256:"))

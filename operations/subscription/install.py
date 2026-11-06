@@ -7,19 +7,84 @@ import re
 from pathlib import Path
 
 import boto3
+from bravo_agent.subscription_product_reader import ProductReaderConfig
+
+MODEL_FIELDS = {"provider", "model", "reasoning_effort", "sandbox_image"}
 
 
-def installation(sha, archive_digest, settings):
+def model_config(value):
+    """The environment's selectable model (e.g. infra/gitops/environments/<env>/agent-model.json)."""
+    if (type(value) is not dict or not {"provider", "model"} <= set(value) <= MODEL_FIELDS
+            or value["provider"] not in {"chatgpt-plan", "claude"}
+            or not re.fullmatch(r"[A-Za-z0-9_.:-]{1,128}", str(value["model"]))
+            or ("reasoning_effort" in value and not re.fullmatch(r"[a-z]{1,16}", str(value["reasoning_effort"])))
+            or ("sandbox_image" in value
+                and not re.fullmatch(r"[a-z0-9./_-]+(:[A-Za-z0-9._-]+)?@sha256:[a-f0-9]{64}", str(value["sandbox_image"])))):
+        raise ValueError("invalid model configuration")
+    return value
+
+
+WORKLOAD_FIELDS = {"issuer", "audience", "subject", "public_keys"}
+
+
+def workload_identity(value):
+    """The platform Job identity the broker verifies offline (subscription_server.authenticate_workload):
+    issuer/audience/subject and the cluster's PUBLIC keys (kid -> PEM). Never a private key."""
+    keys = value.get("public_keys") if isinstance(value, dict) else None
+    if (type(value) is not dict or set(value) != WORKLOAD_FIELDS or not str(value["issuer"]).startswith("https://")
+            or value["audience"] != "bravo-subscription-broker"
+            or value["subject"] != "system:serviceaccount:bravo-initial:initial-proposal"
+            or type(keys) is not dict or not 1 <= len(keys) <= 8
+            or any(not isinstance(pem, str) or "PRIVATE KEY" in pem
+                   or not pem.startswith("-----BEGIN PUBLIC KEY-----") for pem in keys.values())):
+        raise ValueError("invalid workload identity")
+    return value
+
+
+def installation(sha, archive_digest, settings, model, *, product_reader=None, initial_proposal=False):
     if not re.fullmatch("[a-f0-9]{40}", sha) or not re.fullmatch("[a-f0-9]{64}", archive_digest):
         raise ValueError("immutable source and archive digest required")
-    if set(settings) != {"secret_arn", "runtime_host_id", "broker_role_arn", "model", "region"}:
-        raise ValueError("metadata-only settings required; never include tokens")
+    required = {"secret_arn", "runtime_host_id", "broker_role_arn", "region"}
+    # Optional: the sandbox session VM's Docker endpoint (DOCKER_* names only, no secret values) and
+    # the platform Job identity (public keys only); without it the broker refuses every Job token.
+    if not required <= set(settings) <= required | {"sandbox_docker", "workload_identity"}:
+        raise ValueError("metadata-only settings required; never include tokens or the model")
+    if "workload_identity" in settings:
+        workload_identity(settings["workload_identity"])
+    settings = {**settings, **model_config(model)}
     if settings["region"] != "ap-northeast-2":
         raise ValueError("unsupported region")
+    if type(initial_proposal) is not bool or (initial_proposal and product_reader is None):
+        raise ValueError("initial proposal requires an authenticated reader")
+    if initial_proposal and "workload_identity" not in settings:
+        raise ValueError("initial proposal requires the platform Job identity")
     settings = {**settings, "source_sha": sha, "worker": "/opt/bravo-subscription/worker",
                 "state_dir": "/var/lib/bravo-t11-subscription/state"}
     encoded = base64.b64encode(json.dumps(settings).encode()).decode()
+    product_setup = ""
+    if product_reader is not None:
+        ProductReaderConfig(**product_reader)  # metadata only; no bearer token setting
+        reader_encoded = base64.b64encode(json.dumps(product_reader).encode()).decode()
+        product_setup = f"""printf '%s' '{reader_encoded}' | base64 -d > /etc/bravo-subscription/product-reader.json
+chmod 644 /etc/bravo-subscription/product-reader.json
+install -d -m 755 /etc/systemd/system/bravo-subscription.service.d
+cat > /etc/systemd/system/bravo-subscription.service.d/product-tls.conf <<'TLS'
+[Service]
+LoadCredential=broker.crt:/etc/bravo-subscription/broker.crt
+LoadCredential=broker.key:/etc/bravo-subscription/broker.key
+TLS
+sed -i 's/-m bravo_agent.subscription_server /-m bravo_agent.subscription_product_server /' /etc/systemd/system/bravo-subscription.service
+"""
+    if initial_proposal:
+        product_setup += f"""cd "$ROOT/platform-{sha}/services/platform-events"
+UV_CACHE_DIR="$ROOT/cache" "$ROOT/uv-x86_64-unknown-linux-gnu/uv" sync --frozen --no-dev --group product-inputs --python /usr/bin/python3
+sed -i 's@/opt/bravo-subscription/worker/.venv/bin/python -m bravo_agent.subscription_product_server@/opt/bravo-subscription/platform-{sha}/services/platform-events/.venv/bin/python -m bravo_platform_events.initial_proposal_server@' /etc/systemd/system/bravo-subscription.service
+chmod -R a-w "$ROOT/platform-{sha}"
+"""
+    tls_preflight = ("test -r /etc/bravo-subscription/broker.crt\ntest -r /etc/bravo-subscription/broker.key\n"
+                     if product_reader is not None else "")
     return f'''set -eu
+{tls_preflight}
 test "$(systemctl is-active bravo-subscription.service || true)" != active
 ROOT=/opt/bravo-subscription
 install -d -m 755 "$ROOT" /etc/bravo-subscription
@@ -31,11 +96,11 @@ echo '6aa4576c31f791c0b9d4739e256d07358d45e7535695287fec03cf6839e25512  /opt/bra
 tar -xzf "$ROOT/uv.tar.gz" -C "$ROOT"
 cd "$ROOT/platform-{sha}/services/agent-worker"
 UV_CACHE_DIR="$ROOT/cache" "$ROOT/uv-x86_64-unknown-linux-gnu/uv" sync --frozen --python /usr/bin/python3
-chmod -R a-w "$ROOT/platform-{sha}"
 ln -sfn "$ROOT/platform-{sha}/services/agent-worker" "$ROOT/worker"
 printf '%s' '{encoded}' | base64 -d > /etc/bravo-subscription/settings.json
 chmod 644 /etc/bravo-subscription/settings.json
 cp "$ROOT/platform-{sha}/operations/subscription/bravo-subscription.service" /etc/systemd/system/bravo-subscription.service
+{product_setup}chmod -R a-w "$ROOT/platform-{sha}"
 systemctl daemon-reload
 systemd-analyze verify /etc/systemd/system/bravo-subscription.service
 echo '{{"installed":true,"enabled_at_boot":false,"source_sha":"{sha}"}}'
@@ -47,11 +112,18 @@ def main():
     parser.add_argument("--source-sha", required=True)
     parser.add_argument("--archive-sha256", required=True)
     parser.add_argument("--settings", type=Path, required=True)
+    parser.add_argument("--model-config", type=Path, required=True,
+                        help="environment model choice, e.g. infra/gitops/environments/development/agent-model.json")
     parser.add_argument("--instance-id", required=True)
+    parser.add_argument("--product-reader", type=Path, help="reviewed HTTPS origin and mounted CA metadata; no token")
+    parser.add_argument("--initial-proposal", action="store_true", help="select the separate initial-purpose broker")
     args = parser.parse_args()
     if not re.fullmatch("i-[a-f0-9]{17}", args.instance_id):
         raise ValueError("exact instance required")
-    script = installation(args.source_sha, args.archive_sha256, json.loads(args.settings.read_text()))
+    script = installation(args.source_sha, args.archive_sha256, json.loads(args.settings.read_text()),
+                          json.loads(args.model_config.read_text()),
+                          product_reader=json.loads(args.product_reader.read_text()) if args.product_reader else None,
+                          initial_proposal=args.initial_proposal)
     result = boto3.client("ssm", region_name="ap-northeast-2").send_command(
         InstanceIds=[args.instance_id], DocumentName="AWS-RunShellScript",
         Parameters={"commands": [script], "executionTimeout": ["300"]},

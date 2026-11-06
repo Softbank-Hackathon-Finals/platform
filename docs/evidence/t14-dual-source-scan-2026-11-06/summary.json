@@ -1,0 +1,68 @@
+{
+  "scope": "operator qualification of registered source revision and actual runtime app files / unresolved manifests / explicitly referenced text ConfigMaps",
+  "scanner": {
+    "name": "gitleaks",
+    "version": "8.30.1",
+    "binary_sha256": "ba52fb1bfabbcde42f032afad3d6e0b19dff8ed105229a16e7caa338bbc0e84f",
+    "archive_sha256": "b40ab0ae55c505963e365f271a8d3846efbc170aa17f2607f13df610a9aeb6a5",
+    "configuration": "fixed defaults, no app allowlist/baseline/allow comments"
+  },
+  "app_source_revision": "8d82a9241d3894737778a77d58349e1aee54eca1",
+  "runs": [
+    {
+      "side": "source",
+      "run_id": "259ae539-c3f5-4c87-9f0d-86e38266845a",
+      "started_at": "2026-11-06T09:06:38.239500Z",
+      "finished_at": "2026-11-06T09:06:45.284490Z",
+      "test_id": "SEC-01.2",
+      "verdict": "PASS",
+      "other_results": {
+        "UNKNOWN_NOT_RUN": 19
+      },
+      "control_run_sha256": "d7d1e5c4d67feab33cdfd73026738720c66db4de0b7e7fea52b4ec8b4d15ba14",
+      "evidence_sha256": "fdcf92662d9966ea0bf7d14cdce64fab98b6db35c70b93958e21d2f40e6b3c6f",
+      "private_collector_sha256": "97c9bbf35d09b3347e7ca9d2976d89756710092796206a578ee722926f4a7ace",
+      "runtime_files": 17,
+      "rendered_files": 2,
+      "referenced_configmaps": 0,
+      "runtime_source_hashes_equal": true,
+      "runtime_registration_unchanged": true,
+      "source_scope_registered": true,
+      "target_source_equivalence_only": false,
+      "business_reads": 0,
+      "business_writes": 0,
+      "secret_payload_reads": 0,
+      "t10_persisted": false,
+      "repository_file_count": 93
+    },
+    {
+      "side": "target",
+      "run_id": "6111192a-e531-48b8-9b5b-0981165cf868",
+      "started_at": "2026-11-06T09:07:57.577768Z",
+      "finished_at": "2026-11-06T09:08:01.547867Z",
+      "test_id": "SEC-01.2",
+      "verdict": "PASS",
+      "other_results": {
+        "UNKNOWN_NOT_RUN": 19
+      },
+      "control_run_sha256": "09876b38c7a5bbedab759517fc3837b3a725c169fb9488fed51c0268eac91973",
+      "evidence_sha256": "3a3cd831c8307ca939df5fee99d126e759de57be39c12743fd410b1c5feb152a",
+      "private_collector_sha256": "6285e5200510486a6a8b5427ec8f73ca9289a59f6cc88cdd4760699624bbac06",
+      "runtime_files": 17,
+      "rendered_files": 3,
+      "referenced_configmaps": 1,
+      "runtime_source_hashes_equal": true,
+      "runtime_registration_unchanged": true,
+      "source_scope_registered": false,
+      "target_source_equivalence_only": true,
+      "business_reads": 0,
+      "business_writes": 0,
+      "secret_payload_reads": 0,
+      "t10_persisted": false,
+      "repository_file_count": 93
+    }
+  ],
+  "production_gate": false,
+  "merged_with_tls_runs": false,
+  "independent_verification": "private original scripts and artifacts retained; not independently re-executed from this public summary"
+}
