@@ -236,6 +236,35 @@ def test_after_pr_372_coordinator_stop_events_count_toward_the_attempt(blocked_r
     assert tool_events_projection(result, 3) == {"tool_events_status": "UNAVAILABLE"}
 
 
+@pytest.mark.skipif(not hasattr(Coordinator, "restore"), reason="needs PR #372 coordinator state")
+def test_real_pr_372_stop_and_restart_events(context, monkeypatch):
+    # The same checks as above on PR #372's own code paths once it is merged.
+    bundle, snapshot, proposal, _ = context
+    saved = []
+
+    def checkpoint(state):
+        if saved:
+            raise OSError("store unavailable")
+        saved.append(state)
+
+    install_sdk(monkeypatch, [call("rehearsal_exec", BUCKET_DELETE), call("repo_read", {"path": "src/config.py"}),
+                              call("plan_propose", proposal)])
+    coordinator = Coordinator(bundle, snapshot, checkpoint=checkpoint)
+    assert asyncio.run(coordinator.propose(OpenAIProvider("fixture-model")))["state"] == "NEEDS_HUMAN"
+    events = attempt_tool_events(coordinator, 1)
+    assert events == t15_attempt_tool_events(coordinator, 1)
+    assert events[0]["category"] == "bucket_delete"
+    assert events[-1] == {"run_id": "run-1", "attempt": 1, "tool": "coordinator", "outcome": "STOPPED",
+                          "reason": "STATE_CHECKPOINT_FAILED"}
+
+    restored = Coordinator.restore(saved[0], snapshot)  # stored while ANALYZING: outcome unknown
+    assert restored.state == "NEEDS_HUMAN"
+    with pytest.raises(ValueError):
+        t15_attempt_tool_events(restored, 1)
+    with pytest.raises(ToolEventsUnavailable):
+        attempt_tool_events(restored, 1)
+
+
 def test_subscription_first_response_diagnostic_makes_the_attempt_unavailable(context, monkeypatch):
     # Known gap, kept visible: the chatgpt-plan path (the one T38 runs) records FIRST_RESPONSE_SHAPE
     # with nested counters, which is outside the str/int/bool contract T15 also enforces. The whole
