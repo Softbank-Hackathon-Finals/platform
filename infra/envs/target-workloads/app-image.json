@@ -3,5 +3,13 @@
   "index_digest": "sha256:ca5ce1b24f1deb2e7346643860ff0bb151409c1acec503c105f56d9043a389b6",
   "amd64_digest": "sha256:f9f48872b57d7c94eb01c81622feca66e7fcdcaec304b5c879682777606ac24c",
   "publish_run": 41803312129,
-  "transfer_run": 41815292046
+  "transfer_run": 41815292046,
+  "arm64": {
+    "image": "localhost/bravo-demo-chat@sha256:b351ba11819796aaea854f742049e46b058561f80c0e738f42c93280af762888",
+    "source_sha": "8d82a9241d3894737778a77d58349e1aee54eca1",
+    "recorded": "2026-11-06, read from the running target Deployment on the arm64 node",
+    "source_check": "the 17 files under /app/app in the running image have the same sha256 as app/ at source_sha",
+    "build_commit": "not identified: one of demo-chat c9406cf..57d7ce4, which all ship the same app files",
+    "base_image": "not identified"
+  }
 }

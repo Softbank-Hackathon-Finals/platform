@@ -28,25 +28,43 @@ REPOSITORY = "ghcr.io/softbank-hackathon-finals/demo-chat"
 IMAGE = re.compile(r"(?:ghcr\.io/softbank-hackathon-finals/demo-chat"
                    r"|[0-9]{12}\.dkr\.ecr\.[a-z0-9-]+\.amazonaws\.com/bravo/demo-chat)"
                    r"@sha256:[0-9a-f]{64}")
+# Kubernetes node architecture names. amd64 runs the publication above. arm64 runs a local build
+# already imported into the target node; app-image.json records how its source was checked.
+ARCHITECTURES = ("amd64", "arm64")
+LOCAL_IMAGE = re.compile(r"localhost/bravo-demo-chat@sha256:[0-9a-f]{64}")
 SECURITY = {"allowPrivilegeEscalation": False, "readOnlyRootFilesystem": True,
             "capabilities": {"drop": ["ALL"]}}
 
 
-def pinned_image():
-    return f"{REPOSITORY}@{PIN['index_digest']}"
+def pinned_image(arch="amd64"):
+    """The one image registered for a node architecture."""
+    if arch == "amd64":
+        return f"{REPOSITORY}@{PIN['index_digest']}"
+    entry = PIN.get("arm64") if arch == "arm64" else None
+    image = entry.get("image") if isinstance(entry, dict) else None
+    if not isinstance(image, str) or not LOCAL_IMAGE.fullmatch(image):
+        raise ValueError("no demo-chat image is registered for this node architecture")
+    return image
 
 
 def secret_env(name, secret, key):
     return {"name": name, "valueFrom": {"secretKeyRef": {"name": secret, "key": key}}}
 
 
-def application(image, pull_secret=None):
-    if not isinstance(image, str) or not IMAGE.fullmatch(image):
-        raise ValueError("demo-chat must use the exact registered repository pinned by digest")
+def application(image, pull_secret=None, arch="amd64"):
+    registered = pinned_image(arch)
     # This Pod receives database, object store and admin credentials, so only the registered bytes may run.
-    # A local build is another digest; testing/app_lab.py injects one into its own manifest, never through here.
-    if image.split("@")[1] != PIN["index_digest"]:
-        raise ValueError("demo-chat must use the digest registered in app-image.json")
+    # An unregistered build is another digest; testing/app_lab.py injects one into its own manifest, never here.
+    if arch == "amd64":
+        if not isinstance(image, str) or not IMAGE.fullmatch(image):
+            raise ValueError("demo-chat must use the exact registered repository pinned by digest")
+        if image.split("@")[1] != PIN["index_digest"]:
+            raise ValueError("demo-chat must use the digest registered in app-image.json")
+    elif image != registered:
+        raise ValueError("demo-chat must use the image app-image.json registers for this node architecture")
+    elif pull_secret is not None:
+        # The arm64 image was imported into the node. A pull would ask whatever answers at "localhost".
+        raise ValueError("the arm64 image exists only on the node and is never pulled")
     if pull_secret is not None and not re.fullmatch(r"[a-z0-9](?:[a-z0-9.-]{0,251}[a-z0-9])?", pull_secret):
         raise ValueError("a Kubernetes Secret name is required")
     # An imported image must not silently fall back to an unauthenticated registry request.
@@ -109,6 +127,9 @@ def application(image, pull_secret=None):
         "securityContext": {"runAsNonRoot": True, "runAsUser": 10001, "runAsGroup": 10001,
                             "fsGroup": 10001, "seccompProfile": {"type": "RuntimeDefault"}},
         "initContainers": [sidecar], "containers": [app],
+        # The image runs on one architecture. A render for the other never schedules, and during a
+        # rolling update the old Pod keeps serving instead of being replaced by one that cannot start.
+        "nodeSelector": {"kubernetes.io/arch": arch},
         "volumes": [
             {"name": "compat", "configMap": {"name": COMPAT_CONFIG}},
             {"name": "database-credentials", "secret": {
@@ -143,15 +164,18 @@ def application(image, pull_secret=None):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--image", default=pinned_image(), help="default: the image in app-image.json")
+    parser.add_argument("--arch", choices=ARCHITECTURES, default="amd64",
+                        help="architecture of the target nodes, as kubectl get nodes reports it; default: amd64")
+    parser.add_argument("--image", help="default: the image app-image.json registers for the architecture")
     parser.add_argument("--pull-secret", help="only with an agreed registry credential; default is an imported image")
     parser.add_argument("--print-image", action="store_true", help="print the pinned image reference and exit")
     args = parser.parse_args()
-    if args.print_image:
-        print(pinned_image())
-        return
     try:
-        items = application(args.image, args.pull_secret)
+        pinned = pinned_image(args.arch)
+        if args.print_image:
+            print(pinned)
+            return
+        items = application(pinned if args.image is None else args.image, args.pull_secret, args.arch)
     except ValueError as error:
         parser.error(str(error))
     print(json.dumps({"apiVersion": "v1", "kind": "List", "items": items}, indent=2))
