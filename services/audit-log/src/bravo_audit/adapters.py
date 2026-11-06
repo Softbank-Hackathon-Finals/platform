@@ -2,10 +2,17 @@
 
 from __future__ import annotations
 
+import re
+
 PLATFORM_EVENT_TYPES = frozenset({"state.changed", "approval.requested", "approval.decided",
                                   "gate.completed", "execution.updated", "failback.recorded"})
 PLATFORM_SCHEMA_VERSIONS = frozenset({"1.0"})  # T10 events v1; an unknown version is not guessed at
 TOOL_OUTCOMES = frozenset({"ALLOWED", "DENIED", "OBSERVED"})
+# T11 tool name rule (agent-worker ``tool_events.TOOL``): any lower-case dotted name, so new T11
+# tools such as ``sandbox.exec`` are recorded without a T24 change. The verifier's own record is
+# not a tool event (``tool_events.EXCLUDED_TOOLS``).
+TOOL_NAME = re.compile(r"[a-z][a-z0-9_.]{0,63}\Z")
+EXCLUDED_TOOLS = frozenset({"independent_verifier"})
 
 
 def from_platform_event(event: dict) -> tuple[str, str, str, str, str, dict]:
@@ -35,6 +42,9 @@ def from_agent_tool_event(event: dict, plan_id: str, index: int) -> tuple[str, s
     required = {"run_id", "attempt", "tool", "outcome", "reason"}
     if not required <= set(event):
         raise ValueError("tool event missing required fields")
+    tool = event["tool"]
+    if not isinstance(tool, str) or not TOOL_NAME.match(tool) or tool in EXCLUDED_TOOLS:
+        raise ValueError("tool name outside the T11 tool name rule")
     if event["outcome"] not in TOOL_OUTCOMES:
         raise ValueError("unknown tool outcome")
     if not isinstance(index, int) or index < 0:
