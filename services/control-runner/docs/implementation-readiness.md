@@ -25,7 +25,7 @@
 | AUD-01.3 권한 변경 검색 | 같은 감사 수집기 | [#369](https://github.com/Softbank-Hackathon-Finals/platform/pull/369): 출발지 별도 시험 namespace 실제 EKS→CloudWatch 부분 검증. 앱 범위·목적지·최소 권한 경로는 별도 |
 | NET-01.1 외부 공개 포트 | `public_ports.py` Nmap 스캔·판정 | 등록 주소/포트 범위·실제 외부 실행 주체·허용 기준선 및 대조군 인수 필요 |
 | NET-01.2 외부→DB 차단 | `network_probes.py` | 모의·로컬 네트워크 검증. 실제 외부/허용 주체·5432/6432·정책 readback 인수 필요 |
-| NET-01.3 다른 namespace→DB 차단 | 같은 네트워크 수집기 | 실제 거부 주체·DNS·허용 경로·정책 readback 인수 필요 |
+| NET-01.3 다른 namespace→DB 차단 | 같은 네트워크 수집기 | [실제 출발지 시험](../../../docs/evidence/t14-source-network-2026-11-06/README.md): DB5432는 다른 NS에서도 연결. 실제 풀러5432와 계약6432 차이로 전체 UNKNOWN. 방법/등록 정합과 목적지 인수 필요 |
 | IAM-01.1 익명 객체 읽기 | AWS 객체 수집기 | #298/#341 실제 출발지. 목적지 SeaweedFS 주소·자격·객체 버전 연결 별도 |
 | IAM-01.2 기준선 초과 권한 | `tool_reports.py`의 결과 정규화 | Prowler/kube-bench 실행·실제 점검 ID/역할/namespace 매핑 미확정. manual/WARN를 PASS로 바꾸지 않음 |
 | ISO-01.1 다른 앱의 객체·DB 접근 | 결합된 T14 시험기 없음 | 객체와 DB 모두 허용/거부 주체로 실제 시험해야 함. 익명 객체 시험이나 Secret 시험으로 대체하지 않음 |
