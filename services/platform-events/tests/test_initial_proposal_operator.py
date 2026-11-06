@@ -85,3 +85,20 @@ def _hold_or_pass(f, request):
         return {"status": "PASS", **handle(f.reopen(), json.loads(json.dumps(request)))}
     except EventError as error:
         raise RuntimeError(f"t10_hold:{error.code}") from None
+
+
+def test_from_file_expands_to_the_same_options(tmp_path):
+    options = tmp_path / "initial.json"
+    options.write_text(json.dumps({"plan_id": "p", "version": 3, "ref": "/r.json", "principal": "x",
+                                   "state_dir": "/s", "context": "platform", "relay": ["a", "b"]}))
+    argv = operator.expand(["start", "--from", str(options)])
+    assert argv[:3] == ["start", "--plan-id", "p"] and argv[-3:] == ["--relay", "a", "b"]
+
+
+def test_plan_state_reads_without_writing(backend):
+    from test_workflow_recovery import collect
+
+    from bravo_platform_events.plan_state import read
+
+    collect(backend.store)
+    assert read(backend.store, SPEC.plan_id) == {"plan_id": SPEC.plan_id, "state": "ANALYZE", "version": 2}

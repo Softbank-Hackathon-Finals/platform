@@ -71,7 +71,21 @@ def run(args, *, relay, client):
             "proposal_digest": stored["proposal_digest"]}
 
 
+def expand(argv):
+    """`--from FILE` (used by scripts/happy_path.py): the same options as one private JSON file."""
+    argv = list(sys.argv[1:] if argv is None else argv)
+    if "--from" not in argv:
+        return argv
+    i = argv.index("--from")
+    options = json.loads(Path(argv[i + 1]).read_text())
+    extra = []
+    for key, value in options.items():
+        extra += [f"--{key.replace('_', '-')}", *(value if isinstance(value, list) else [str(value)])]
+    return argv[:i] + extra + argv[i + 2:]
+
+
 def main(argv=None):
+    argv = expand(argv)
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("command", choices=["start", "collect", "fence"])
     p.add_argument("--plan-id", required=True)
