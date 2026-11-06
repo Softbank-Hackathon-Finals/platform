@@ -23,6 +23,8 @@ PACKAGES = {
     "observability": "bravo_observability",
     # The workflow host (registration image) needs the T15/T31 diff hash and ApplicationHost (#546 review).
     "apply-path": "bravo_apply",
+    # The approval host runs the T17 SHIFT CLI and FailbackEdge over one LB journal.
+    "edge-control": "bravo_edge_control",
 }
 
 # Include the lazy imports used by --initial-proposal, not just the entry point.

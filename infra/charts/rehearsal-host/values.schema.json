@@ -108,6 +108,9 @@
         },
         "executor": {
           "$ref": "#/definitions/name"
+        },
+        "edge": {
+          "type": "string"
         }
       }
     },

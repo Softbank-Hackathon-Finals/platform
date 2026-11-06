@@ -232,3 +232,24 @@ class FailbackEdge:
                 command.weight_target != 0 or command.operation_id != operation_id):
             raise EdgeError("failback_binding_mismatch")
         return self.controller.execute(command)["status"] == "CONFIRMED"
+
+
+def journal_failback_command(controller: Controller) -> Callable[..., Command]:
+    """FailbackEdge.resolve from the one LB journal: the stored command for this failback, or a new
+    0% FAILBACK command at the journal's current confirmed revision and weight. The journal itself is
+    the durable record (execute stores the command before any PATCH), so a retry finds the same one.
+    """
+    def resolve(*, plan_id, command_id, execution_id, epoch):
+        operation_id = failback_operation_id(plan_id=plan_id, command_id=command_id,
+                                             execution_id=execution_id, epoch=epoch)
+        with controller._locked() as db:
+            row = db.execute("SELECT command FROM operations WHERE operation_id=?",
+                             (operation_id,)).fetchone()
+            last = db.execute("SELECT receipt FROM operations ORDER BY revision DESC LIMIT 1").fetchone()
+        if row:
+            return Command(**json.loads(row[0]))
+        last = json.loads(last[0]) if last else None
+        if last is None or last["status"] != "CONFIRMED" or last["plan_id"] != plan_id:
+            raise EdgeError("edge_journal_not_confirmed")
+        return Command(plan_id, operation_id, operation_id, last["revision"], last["weight_target"], 0, "FAILBACK")
+    return resolve

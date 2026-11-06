@@ -22,6 +22,8 @@ secrets:
   registry: platform-ghcr-reader
   # Cutover Executor: ca.crt, read-token and the separate command-token (approval host submits cutovers).
   executor: ""
+  # Optional T17 Cloudflare token (key: token) for FailbackEdge; empty = FAILBACK holds before Edge.
+  edge: ""
 resources:
   requests: {cpu: 100m, memory: 256Mi}
   limits: {cpu: "1", memory: 768Mi}

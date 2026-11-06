@@ -354,3 +354,20 @@ def test_failback_contract_binds_all_identity_fields_and_requeries(setup):
     with pytest.raises(EdgeError, match="failback_binding_mismatch"):
         edge.restore_origin(**{**args, "epoch": 2})
     assert len(upstream.patches) == 2
+
+
+def test_failback_command_comes_from_the_same_journal(setup):
+    from bravo_edge_control.control import journal_failback_command
+
+    upstream, _, control = setup
+    args = dict(plan_id="plan-test", command_id="cmd-test", execution_id="exec-test", epoch=8)
+    resolve = journal_failback_command(control)
+    with pytest.raises(EdgeError, match="edge_journal_not_confirmed"):
+        resolve(**args)  # nothing shifted yet
+    control.execute(command())
+    edge = FailbackEdge(control, resolve=resolve)
+    assert edge.restore_origin(**args)
+    assert edge.restore_origin(**args)  # same stored command, no second PATCH
+    assert len(upstream.patches) == 2
+    with pytest.raises(EdgeError, match="edge_journal_not_confirmed"):
+        resolve(**{**args, "plan_id": "other-plan"})

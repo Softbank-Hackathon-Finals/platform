@@ -9,6 +9,9 @@ files only (`/rehearsal/operator.json`):
                   "registered_pair": {...}},
      "gate": "module:factory",              # T19: factory(store) -> (GateRecords, load_gate)
      "failback": true,                     # optional T20: current_failback + failback_integrity
+     "edge": {"journal": "/records/edge/journal.db", "token_file": "/edge/token",
+              "lb_binding": {...}},          # optional T17: the one LB journal; the SHIFT CLI runs in
+                                            # this Pod (kubectl exec ... bravo_edge_control.run) on it
      "write_pause_budget_ms": 30000}
 
 Cutover command policy (current_cutover):
@@ -128,6 +131,22 @@ def failback_integrity(c, plan, *, command_id, epoch, execution_id):
     return FailbackIntegrity("integrity-" + execution_id, command_id, epoch, execution_id, matched)
 
 
+def _edge(config):
+    from bravo_edge_control.control import Controller, FailbackEdge, journal_failback_command
+    from bravo_edge_control.provider import Binding, Cloudflare
+
+    if type(config) is not dict or set(config) != {"journal", "token_file", "lb_binding"}:
+        raise ValueError("operator_edge_configuration_invalid")
+    journal, token = Path(config["journal"]), Path(config["token_file"])
+    if not journal.is_absolute() or not journal.parent.is_dir() or not token.is_file():
+        raise ValueError("operator_edge_mount_required")
+    provider = Cloudflare(Binding(**config["lb_binding"]), token=lambda: token.read_text().strip())
+    # FailbackService calls Edge only after the matched failback receipt; the journal still refuses
+    # a stale revision, a pending operation or a weight other than the confirmed one.
+    controller = Controller(provider, journal, authorize=lambda command: command.reason == "FAILBACK")
+    return FailbackEdge(controller, journal_failback_command(controller))
+
+
 def create(store, config_file=CONFIG):
     import importlib
     import ssl
@@ -138,7 +157,7 @@ def create(store, config_file=CONFIG):
 
     config = json.loads(Path(config_file).read_text())
     executor = config.get("executor") if isinstance(config, dict) else None
-    if (type(config) is not dict or not {"executor", "gate"} <= set(config) <= {"executor", "gate", "write_pause_budget_ms", "failback"}
+    if (type(config) is not dict or not {"executor", "gate"} <= set(config) <= {"executor", "gate", "write_pause_budget_ms", "failback", "edge"}
             or type(executor) is not dict
             or set(executor) != {"url", "ca_file", "token_file", "command_token_file", "registered_pair"}
             or not executor["url"].startswith("https://")):
@@ -156,8 +175,8 @@ def create(store, config_file=CONFIG):
         load_gate=load_gate)
     failback = {}
     if config.get("failback") is True:
-        # Traffic back to the origin stays with the Edge operator CLI (`restore`): no CDN credential here,
-        # so the service stops at edge_unavailable after the matched receipt until Edge confirms.
         failback = {"failback_authority": current_failback(bindings, write_pause_budget_ms=config.get("write_pause_budget_ms", 30000)),
                     "read_integrity": failback_integrity}
+        if "edge" in config:  # absent: FAILBACK stops at edge_unavailable after the matched receipt
+            failback["edge"] = _edge(config["edge"])
     return TrustedHostPorts(client, bindings, rehearsal.catalog, rehearsal.planner, authority, **failback)

@@ -145,6 +145,17 @@ class HostChart(unittest.TestCase):
                 verify_rehearsal_host(get, value)
 
 
+class EdgeToken(unittest.TestCase):
+    def test_edge_token_is_mounted_only_when_named(self):
+        import yaml
+
+        for secrets, mounted in (({}, False), ({"edge": "t17-edge"}, True)):
+            values = {**VALUES, "secrets": {**VALUES["secrets"], **secrets}}
+            result = render(values)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            pod = next(d for d in yaml.safe_load_all(result.stdout) if d and d["kind"] == "Deployment")["spec"]["template"]["spec"]
+            self.assertEqual(any(v["name"] == "edge" for v in pod["volumes"]), mounted)
+
 if __name__ == "__main__":
     if sys.argv[1:] == ["--render"]:
         result = render(VALUES)
