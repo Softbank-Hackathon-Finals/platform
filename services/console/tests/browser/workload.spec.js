@@ -213,3 +213,31 @@ test("live refresh preserves keyboard focus and selection", async ({
   await expect(node).toBeFocused();
   await expect(node).toHaveAttribute("aria-pressed", "true");
 });
+
+test("a conflicting producer stream stays unknown until the user reconnects", async ({
+  page,
+  context,
+  baseURL,
+}) => {
+  let reads = 0;
+  await page.route("**/v1/plans/*/workload", async (route) => {
+    const response = await route.fetch();
+    const document = await response.json();
+    reads++;
+    if (reads === 2) document.stream_id = "conflicting-producer-stream";
+    await route.fulfill({ response, json: document });
+  });
+  await connect(page, context, baseURL);
+  await expect(map(page).locator('[data-resource="api"]')).toHaveClass(
+    /security-isolated/,
+  );
+  await expect.poll(() => reads, { timeout: 16000 }).toBeGreaterThanOrEqual(3);
+  await expect(map(page).locator('[data-resource="api"]')).toHaveClass(
+    /security-unknown/,
+  );
+  await expect(map(page).locator(".response-phase.verified")).toHaveCount(0);
+  await map(page).getByRole("button", { name: "관측 다시 연결" }).click();
+  await expect(map(page).locator('[data-resource="api"]')).toHaveClass(
+    /security-isolated/,
+  );
+});
