@@ -13,6 +13,7 @@ adapter error escapes as an unrecorded exception.
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 from typing import Any, Protocol
 
@@ -175,9 +176,15 @@ class KubectlKube:
     def __init__(self, kubeconfig: str):
         self.kubeconfig = kubeconfig
 
+    # client-go falls back to the Pod's in-cluster identity when the loaded kubeconfig is empty.
+    # Without these variables that fallback cannot happen, whatever file is mounted.
+    IN_CLUSTER_ENV = ("KUBERNETES_SERVICE_HOST", "KUBERNETES_SERVICE_PORT", "KUBECONFIG")
+
     def _run(self, *args: str, timeout: int | None = None, stdin: str | None = None) -> str:
+        env = {k: v for k, v in os.environ.items() if k not in self.IN_CLUSTER_ENV}
         return subprocess.run(["kubectl", "--kubeconfig", self.kubeconfig, *args], check=True, input=stdin,
-                              capture_output=True, text=True, timeout=timeout or self.CALL_SECONDS).stdout
+                              capture_output=True, text=True, timeout=timeout or self.CALL_SECONDS,
+                              env=env).stdout
 
     def _deployment(self, namespace: str, deployment: str) -> dict[str, Any]:
         return json.loads(self._run("-n", namespace, "get", "deployment", deployment, "-o", "json"))
