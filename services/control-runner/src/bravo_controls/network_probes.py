@@ -157,7 +157,11 @@ class _NetworkPortProbe:
         evidence_sink,
         run_dns=None,
         clock=lambda: datetime.now(UTC),
+        method_version="1",
     ):
+        if method_version not in {"1", "2"}:
+            raise ValueError("unsupported network method")
+        self.method_version = method_version
         if not isinstance(target, NetworkTarget) or not all(
             callable(f) for f in (run_tcp, read_policy, evidence_sink, clock)
         ):
@@ -173,17 +177,21 @@ class _NetworkPortProbe:
             clock,
         )
 
-    def __call__(self, context, spec):
+    def __call__(self, context, spec, *, deadline=None):
         t = self.target
         expected_id = "NET-01.3" if t.dns_name is not None else "NET-01.2"
         if (
             context.app != t.app
             or context.environment != t.environment
-            or spec != TestSpec(expected_id, "NET-01", "1", "deny", "required")
+            or spec != TestSpec(expected_id, "NET-01", self.method_version, "deny", "required")
         ):
             raise ValueError("network invocation/method mismatch")
         started = _utc(self.clock())
-        nonce = str(uuid4())
+        limit = started + timedelta(seconds=60)
+        if deadline is not None:
+            limit = min(limit, _utc(deadline))
+        if started >= limit:
+            raise TimeoutError("network test budget expired")
         rows = {}
 
         def policy():
@@ -203,10 +211,18 @@ class _NetworkPortProbe:
 
         def attempt(label, agent, destination, callback, argument, outcomes):
             before = _utc(self.clock())
-            if not started <= before <= started + timedelta(seconds=60):
+            if not started <= before <= limit:
                 raise TimeoutError("network test window expired")
+            # A fresh nonce per attempt: with the method 2 clock offset, an earlier
+            # control's answer must not be accepted again for a later control.
+            nonce = str(uuid4())
             result = callback(agent, argument, nonce)
             now = _utc(self.clock())
+            # Method 2 dates evidence by the coordinator's authenticated,
+            # nonce-bound request/response interval. The agent wall clock is
+            # retained separately and may differ by at most one second. This
+            # is not a cache grace period or a substitute for channel identity.
+            skew = timedelta(seconds=1 if self.method_version == "2" else 0)
             if (
                 not isinstance(result, Attempt)
                 or result.nonce != nonce
@@ -215,16 +231,27 @@ class _NetworkPortProbe:
                 or result.outcome not in outcomes
                 or type(result.elapsed_ms) is not int
                 or not 0 <= result.elapsed_ms <= 5000
-                or not before <= _utc(result.observed_at) <= now
-                or now > started + timedelta(seconds=60)
+                or not before - skew <= _utc(result.observed_at) <= now + skew
+                or now < before
+                or now > limit
                 or now - before > timedelta(seconds=5)
             ):
                 raise ValueError("unbound, stale or incomplete network observation")
             rows[label] = {
                 "outcome": result.outcome,
                 "elapsed_ms": result.elapsed_ms,
-                "observed_at": result.observed_at.isoformat(),
+                "observed_at": (
+                    now if self.method_version == "2" else result.observed_at
+                ).isoformat(),
             }
+            if self.method_version == "2":
+                rows[label].update(
+                    {
+                        "coordinator_started_at": before.isoformat(),
+                        "agent_observed_at": result.observed_at.isoformat(),
+                        "max_clock_offset_ms": 1000,
+                    }
+                )
             return result.outcome
 
         def controls(prefix):
@@ -279,10 +306,7 @@ class _NetworkPortProbe:
             positive = controls("after")
         after_policy = policy()
         finished = _utc(self.clock())
-        if (
-            not started <= finished <= started + timedelta(seconds=60)
-            or before_policy != after_policy
-        ):
+        if not started <= finished <= limit or before_policy != after_policy:
             raise ValueError("policy changed or test window invalid")
         reason = None
         observed = None
@@ -296,7 +320,7 @@ class _NetworkPortProbe:
             reason = "UNEXPECTED_RESPONSE"
         payload = _canonical(
             {
-                "format_version": "1",
+                "format_version": self.method_version,
                 "run_id": context.run_id,
                 "app": context.app,
                 "environment": context.environment.ref,
@@ -315,12 +339,12 @@ class _NetworkPortProbe:
         return Observation(
             context,
             spec.test_id,
-            "1",
+            self.method_version,
             observed,
             "pass" if positive else "fail",
             finished,
             "bravo-network-probe",
-            "1",
+            self.method_version,
             _digest(payload),
             reason,
         )

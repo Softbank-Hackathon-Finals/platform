@@ -70,3 +70,9 @@ network namespace에서 패킷 드롭을 만든다. 시험 agent는 무권한이
 PYTHONPATH=src python tests/integration/verify_network_controls.py \
   --image sha256:<로컬_검증_이미지_ID> --firewall --output <새_비공개_결과_디렉터리>
 ```
+
+## 실제 포트가 다른 환경
+
+풀러가 6432 대신 5432 등 다른 listener를 쓰면 v1의 정상 대조 실패를 거부 성공으로
+바꾸지 않는다. 실제 서비스 역할·listener를 고정하는 [v2 후보](registered-network.md)를
+별도 제공한다. 기본 T5/T19 계약과 기존 계획을 자동 전환하지 않는다.

@@ -255,7 +255,9 @@ uvicorn.run(app, host='127.0.0.1', port=18080, log_level='critical', access_log=
         admin.close()
 
 
-def main(demo_repo, revision):
+def main(demo_repo, revision, *, qualification_script="verify_secret_rotation.py"):
+    if qualification_script not in {"verify_secret_rotation.py", "verify_demo_log_canary.py"}:
+        raise ValueError("unregistered local qualification script")
     os.umask(0o077)
 
     def interrupted(*_):
@@ -264,7 +266,10 @@ def main(demo_repo, revision):
     previous = signal.signal(signal.SIGTERM, interrupted)
     name = "bravo-t14-rotation-" + uuid4().hex[:10]
     image = command(
-        "docker", "image", "inspect", "bravo-t14-rotation-qualification:20261106", "--format", "{{.Id}}"
+        "docker", "image", "inspect",
+        ("bravo-t14-log-canary-qualification:20261106"
+         if qualification_script == "verify_demo_log_canary.py"
+         else "bravo-t14-rotation-qualification:20261106"), "--format", "{{.Id}}"
     )
     cid = None
     summary = {}
@@ -424,7 +429,7 @@ def main(demo_repo, revision):
                 "PYTHONDONTWRITEBYTECODE=1",
                 cid,
                 "/opt/qualification/bin/python",
-                "/work/tests/integration/verify_secret_rotation.py",
+                "/work/tests/integration/" + qualification_script,
                 "--inside",
             )
             summary = json.loads(output)
@@ -440,7 +445,7 @@ def main(demo_repo, revision):
             if info["Config"].get("Labels", {}).get("bravo.t14.fixture") != name:
                 raise RuntimeError("fixture ownership mismatch")
             command("docker", "rm", "-f", "-v", name)
-        elif "No such" not in result.stderr:
+        elif "no such" not in result.stderr.lower():
             raise RuntimeError("fixture cleanup could not be confirmed")
         signal.signal(signal.SIGTERM, previous)
     summary["owned_container_removed"] = True

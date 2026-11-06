@@ -72,3 +72,38 @@ The registration process mounts that checkout read-only. Existing runtime DB
 and dedicated target collector policies remain separate, additive permissions.
 Inspect the actual CNI before choosing a policy type; this standard policy also
 works on the observed Canal platform.
+
+## Authenticated T14 original intake
+
+The existing registration host can mount `/gate-records` when the protected
+catalog contains `"gate_records":{"grants_file":"/registration/gate-grants.json"}`.
+Render this configuration with `--gate-grants PRIVATE_GRANTS`. The default host
+has no gate routes. The same TLS listener, DB identity and GitOps rollout are used.
+
+The gate proof uses the distinct signed audience `bravo-platform-gate-records`
+and `GateRecordPrincipal`. Existing registration/rehearsal proofs do not grant
+record access. `make_gate_record_token(profile_name=..., region=...)` uses the
+operator's current SSO session in memory. Never save the proof or a presigned URL.
+The host verifies the exact configured account, role ID and caller session.
+
+The protected grant file has `version:1` and a `grants` array. Each grant has
+`subject_id` (from `gate_subject` of the verified SSO subject), `tenant_id`,
+`plan_id`, `plan_digest`, original `ref`, canonical `digest`, `side`, `actions`,
+`valid_after`, `expires_at` and `administration_ref`. Actions are explicitly
+`gate:record` and/or `gate:read`. Provision grants only after checking the actual
+handoff UID, original bytes, registered plan and the administration decision.
+The request cannot supply or change grants. The host rereads the protected file
+inside each existing plan transaction, including identical replay and reads.
+
+POST `/gate-records/v1/plans/{plan_id}/runs` takes exactly `ref`, `side` and
+`document`. It calls `GateRecords.record_run` without changing the original run,
+plan, profile or verdicts. GET the same path with query parameter `ref` calls
+`read_run` and returns the original document, ref and fingerprint. Identical
+replay is idempotent; changed bytes under a ref conflict. Record/read authority
+is separate, and a revoked/expired grant cannot retrieve a cached record.
+
+Verify actual signed authentication, record/read of the same canonical digest,
+registration-proof denial and exact record count before reporting live intake.
+A stored UNKNOWN control run remains UNKNOWN. This endpoint cannot bind a gate
+context, authenticate T19 evidence, evaluate a gate or approve/execute a change.
+Those operations retain their existing, independent current authority checks.
