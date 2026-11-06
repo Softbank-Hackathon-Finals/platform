@@ -36,7 +36,7 @@ resource "aws_vpc_endpoint" "broker_sts" {
   service_name        = "com.amazonaws.ap-northeast-2.sts"
   private_dns_enabled = false
   policy = jsonencode({ Version = "2012-10-17", Statement = [{
-    Effect   = "Allow", Principal = "*", Action = "sts:AssumeRoleWithWebIdentity"
+    Effect   = "Allow", Principal = "*", Action = "sts:AssumeRole"
     Resource = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/${local.broker_name}"
   }] })
   tags = { Name = "bravo-subscription-broker-sts" }

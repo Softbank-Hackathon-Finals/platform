@@ -298,6 +298,57 @@ def test_completed_streamed_call_with_empty_terminal_runs_under_normal_tool_poli
     assert requests[1]["input"][-1]["call_id"] == "call_fixture_1"
 
 
+def with_side_items(events):
+    """Observed gpt-6.1 subscription shape: reasoning and a commentary message stream before the call."""
+    created, added, done, final = events
+    reasoning = {"id": "rs_fixture", "type": "reasoning", "summary": [], "encrypted_content": "private-reasoning"}
+    message = {"id": "msg_fixture", "type": "message", "status": "completed", "role": "assistant",
+               "content": [{"type": "output_text", "text": "private-commentary", "annotations": []}]}
+    side = [{"type": "response.output_item.added", "output_index": 0, "item": reasoning},
+            {"type": "response.output_item.done", "output_index": 0, "item": reasoning},
+            {"type": "response.output_item.added", "output_index": 1,
+             "item": dict(message, status="in_progress", content=[])},
+            {"type": "response.output_text.delta", "output_index": 1, "item_id": "msg_fixture",
+             "content_index": 0, "delta": "private-commentary", "logprobs": []},
+            {"type": "response.output_item.done", "output_index": 1, "item": message}]
+    added["output_index"] = done["output_index"] = 2
+    events = [created, *side, added, done, final]
+    for i, event in enumerate(events):
+        event["sequence_number"] = i
+    return events
+
+
+def test_streamed_side_items_keep_the_one_call_with_empty_terminal(context, monkeypatch):
+    bundle, snapshot, proposal, _ = context
+    read = with_side_items(streamed_call("repo_read", {"path": "src/config.py"}))
+    plan = with_side_items(streamed_call("plan_propose", proposal))
+    requests = install_stream(monkeypatch, [read, plan])
+    result = asyncio.run(Coordinator(bundle, snapshot).propose(OpenAIProvider("fixture-model", subscription=True)))
+    assert result["state"] == "PROPOSAL_READY" and len(requests) == 2
+    assert result["proposal"] == {"schema_version": 1, **proposal}
+    shape, = [e for e in result["audit"] if e["reason"] == "FIRST_RESPONSE_SHAPE"]
+    assert shape["stream_resolution"] == "matched_finalized_call" and shape["function_call_count"] == 1
+    assert sum(e["reason"] == "POLICY_ACCEPTED" for e in result["audit"]) == 2
+    assert "private-" not in json.dumps(result)
+
+
+@pytest.mark.parametrize("variant", ["side_at_call_index", "refusal_delta"])
+def test_side_items_cannot_bind_or_replace_the_call(context, monkeypatch, variant):
+    bundle, snapshot, _, _ = context
+    events = with_side_items(streamed_call("repo_read", {"path": "src/config.py"}))
+    if variant == "side_at_call_index":
+        events[4]["output_index"] = events[5]["output_index"] = 2
+    else:
+        events.insert(4, {"type": "response.refusal.delta", "output_index": 1, "item_id": "msg_fixture",
+                          "content_index": 0, "delta": "private-refusal"})
+    for i, event in enumerate(events):
+        event["sequence_number"] = i
+    requests = install_stream(monkeypatch, [events])
+    result = asyncio.run(Coordinator(bundle, snapshot).propose(OpenAIProvider("fixture-model", subscription=True)))
+    assert result["state"] == "NEEDS_HUMAN" and result["proposal"] is None and len(requests) == 1
+    assert all(e["reason"] != "POLICY_ACCEPTED" for e in result["audit"])
+
+
 @pytest.mark.parametrize("case", ["no_done", "no_terminal", "other_response", "other_index", "other_call",
                                   "other_item", "wrong_namespace", "partial", "duplicate", "extra_message",
                                   "wrong_name", "args_mismatch", "incomplete_status", "no_usage", "early_proposal", "bad_path"])
@@ -321,8 +372,10 @@ def test_unbound_or_denied_stream_output_cannot_submit(context, monkeypatch, cas
     elif case == "duplicate":
         events.insert(-1, done)
     elif case == "extra_message":
+        # A commentary message is a side item; a refusal item beside the call stays unbound.
         events.insert(-1, dict(done, output_index=1, item={
-            "id": "msg", "type": "message", "status": "completed", "role": "assistant", "content": []}))
+            "id": "msg", "type": "message", "status": "completed", "role": "assistant",
+            "content": [{"type": "refusal", "refusal": "private-refusal"}]}))
     elif case == "args_mismatch":
         events.insert(2, {"type": "response.function_call_arguments.done", "item_id": "fc_fixture", "output_index": 0,
                           "sequence_number": 2, "arguments": "{}"})

@@ -53,6 +53,10 @@ run "credential_and_session_boundaries" {
     error_message = "The broker trusts only the node role (platform Job path); no GitHub Actions grant."
   }
   assert {
+    condition = [for s in jsondecode(aws_vpc_endpoint.broker_sts.policy).Statement : s.Action] == ["sts:AssumeRole"]
+    error_message = "The broker endpoint must allow the same AssumeRole the broker trust grants."
+  }
+  assert {
     condition = !aws_vpc_endpoint.broker_sts.private_dns_enabled && strcontains(
       aws_ssm_association.broker_sts.parameters["commands"], "AWS_ENDPOINT_URL_STS=https://vpce-0123456789abcdef0-abc123.sts."
     )
