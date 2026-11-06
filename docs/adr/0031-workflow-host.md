@@ -47,7 +47,19 @@ Temporal의 OpenAI Agents SDK 통합(2026-03 GA)이 흔한 참조 구조다. 결
 
 ## 4. 결과
 
-* 이 PR은 드라이버와 판독기 표만 둔다. 운영 조립은 단계별 PR로 연결한다.
+* 단계별 구현 (2026-11-06):
+  | 상태 | 증거 | 구현 |
+  |---|---|---|
+  | ANALYZE | Analysis (T16·T14 기록) | 배포 포트. 기본값 없음 |
+  | PROPOSE | #503 Job 결과 + T7 발행 | `workflow_propose` (GitHub App 또는 운영자 고정) |
+  | REHEARSE | 승인된 변경의 T31 반영 | `workflow_stages.application_stages`: 잠금 밖에서 `ApplicationHost.start`를 한 번 실행, `ApplicationEvidence`로 읽음 |
+  | GATE | T19 반영 뒤 재대조 PASS | 같은 함수. 잠금 밖에서 `GateRecheck.evaluate` |
+  | AWAIT_APPROVAL | 사람의 SHIFT 승인 | `ShiftApprovalService`(`/approvals`의 `shift`, 권한 `approve_shift`, 최대 24시간) + `shift_approval_reader` |
+  | SHIFT | 운영자 컷오버 승인·제출 | 기존 `/approvals`(cutover)·`/cutover`. 호스트는 진행하지 않음 |
+  | CUTOVER | 무결성 일치 | `integrity_reader`: Executor 관측이 DONE·committed이고 compare·commit 단계가 succeeded |
+  | WATCH | T36 관측 PASS + T19 재시험 PASS | `watch_reader(observe, retest)`, `sli_observer` |
+* 진입점은 `workflow_host_server`(`--ports module:factory`)이고 HTTP는 없다.
+* 처음 PR은 드라이버와 판독기 표만 두었다. 운영 조립은 단계별 PR로 연결한다.
   1. PROPOSE: #503 Job 결과와 T7 publication
   2. REHEARSE, GATE: `ApplicationHost`, `GateRecheck`, T19
   3. AWAIT_APPROVAL, CUTOVER, WATCH
