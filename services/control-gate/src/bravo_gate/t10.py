@@ -50,10 +50,14 @@ class PlanGateSession:
 
     @property
     def fingerprint(self):
+        # Preserve existing initial approval revisions; post-apply is a distinct
+        # session even when both stages use the same profile and evidence.
+        phase = {} if self.gate_phase == "initial" else dict(
+            gate_phase=self.gate_phase, application_id=self.application_id)
         return fingerprint(dict(plan_id=self.plan_id, context_id=self.context_id, context=self.context.fingerprint,
                                 report_ref=self.report.ref, report=self.report.fingerprint,
                                 readiness=self.readiness.fingerprint, approval_ids=self.approval_ids,
-                                gate_phase=self.gate_phase, application_id=self.application_id))
+                                **phase))
 
 
 class T10GateAuthority:
@@ -84,9 +88,9 @@ class T10GateAuthority:
                 # T10 fixes the evaluation profile in the plan; a plan without one cannot bind.
                 or spec.get(prefix + "profile_id") != ctx.profile_id
                 or spec.get(prefix + "profile_version") != ctx.profile_version
-                or current.binding.get("gate_phase") != session.gate_phase
-                or "application_id" not in current.binding
-                or current.binding["application_id"] != session.application_id
+                or ("gate_phase" in current.binding) != ("application_id" in current.binding)
+                or current.binding.get("gate_phase", "initial") != session.gate_phase
+                or current.binding.get("application_id") != session.application_id
                 or current.binding.get("plan_id") != plan["plan_id"]
                 or current.command.get("plan_id") != plan["plan_id"]
                 or current.binding.get("plan_digest") != ctx.plan_digest

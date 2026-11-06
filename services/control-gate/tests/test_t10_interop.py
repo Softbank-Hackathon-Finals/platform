@@ -15,7 +15,7 @@ from bravo_platform_events.store import EventError
 from test_readiness import ready  # noqa: F401 - shared synthetic T13/T14 fixture
 
 from bravo_gate.contract import GateError, canonical
-from bravo_gate.models import RunSnapshot
+from bravo_gate.models import RunSnapshot, fingerprint
 from bravo_gate.t10 import PlanGateSession, T10GateAuthority
 
 
@@ -202,12 +202,30 @@ def test_session_fingerprint_binds_phase_and_application(admission):
     f = admission
     f.approve()
     initial = f.last_session
+    assert initial.fingerprint == fingerprint(dict(plan_id=initial.plan_id,
+        context_id=initial.context_id, context=initial.context.fingerprint,
+        report_ref=initial.report.ref, report=initial.report.fingerprint,
+        readiness=initial.readiness.fingerprint, approval_ids=initial.approval_ids))
     after = replace(initial, gate_phase="post_apply", application_id="applied-1")
     another = replace(after, application_id="applied-2")
     assert len({initial.fingerprint, after.fingerprint, another.fingerprint}) == 3
     for phase, app in (("initial", "applied-1"), ("post_apply", None), ("unknown", None), ([], None)):
         with pytest.raises(GateError, match="INVALID_PLAN_GATE_SESSION"):
             replace(initial, gate_phase=phase, application_id=app)
+
+
+@pytest.mark.parametrize("gate_phase", ["initial", "post_apply"])
+def test_legacy_binding_is_initial_only(admission, gate_phase):
+    f = admission
+    f.current.binding.pop("gate_phase")
+    f.current.binding.pop("application_id")
+    if gate_phase == "initial":
+        approved = f.approve()
+        assert "gate_phase" not in approved["binding"]
+    else:
+        with pytest.raises(EventError):
+            f.approve()
+        assert not f.requests
 
 
 @pytest.mark.parametrize("gate_phase", ["post_apply"])
