@@ -1,0 +1,75 @@
+{
+  "scope": "isolated actual stores and Linux runtime; synthetic registered identities, keys and probes",
+  "new_tests": 108,
+  "full_control_gate_tests": 661,
+  "databases": [
+    "SQLite",
+    "PostgreSQL 17.11"
+  ],
+  "process_death_recovery_cases": 4,
+  "consumer_http_cases": 32,
+  "mutations": [
+    {
+      "condition": "collection before trust start",
+      "failed_targeted_tests": 4
+    },
+    {
+      "condition": "expiry after insert",
+      "failed_targeted_tests": 2
+    },
+    {
+      "condition": "stored publisher binding",
+      "failed_targeted_tests": 2
+    }
+  ],
+  "verified_mutant_imports": true,
+  "runtime": {
+    "runtime_wheel": "PASS",
+    "platform": "linux",
+    "python": "3.12.14",
+    "uid": 65532,
+    "network": "none",
+    "sqlite_enroll_publish_read_revoke": true,
+    "current_verification_on_new_adapter_instance": true,
+    "unauthorized_publisher_denied": true,
+    "plan_state_unchanged": true,
+    "context_only_synthetic_proof": true,
+    "wheel_sha256": "1eadd908c9b114d5e3fcb1e4b7f491dcff6a0faff664f84fa4506b83fe09e4c8",
+    "module_hashes": [
+      {
+        "module_name": "key_records.py",
+        "sha256": "9f5b1e84d59e5d3de96683a8007d84afa82ac694536fa2a47abd649e3e7ad379"
+      },
+      {
+        "module_name": "authority_records.py",
+        "sha256": "c7ba96f9d52d8a065bd4e75a2a7ec1a9e53075f9e1122a421690d0f8e5dcb992"
+      }
+    ]
+  },
+  "actual_archived_t14_negative_test": {
+    "backends": 2,
+    "rejected_publications": 4,
+    "envelopes_persisted": 0,
+    "original_bytes_unchanged": true
+  },
+  "production_database_writes": 0,
+  "operational_producer_enrolled": false,
+  "operational_acceptance": false,
+  "consumer_http_cases_status": "PASS",
+  "first_latest_base_full_attempt": {
+    "passed": 512,
+    "setup_errors": 149,
+    "cause": "qualified PostgreSQL tools omitted from PATH",
+    "skips_added": 0
+  },
+  "final_latest_base_full_attempt": {
+    "passed": 661,
+    "failed": 0,
+    "errors": 0
+  },
+  "consumer_current_modules_verified": true,
+  "consumer_deadlines_seconds": [
+    3,
+    30
+  ]
+}
