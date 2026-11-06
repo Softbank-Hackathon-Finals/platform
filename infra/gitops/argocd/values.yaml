@@ -1,3 +1,7 @@
+productReader:
+  enabled: false
+  runtime: {}
+
 registration:
   enabled: false
   # Protected operator input: existing config/Secret references and host aliases only.
