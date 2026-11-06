@@ -1,0 +1,17 @@
+{
+  "source_revision": "1ffcc45a39dcefc8a755d2171b14e41f5f07045a",
+  "source_files": [
+    {
+      "path": "infra/envs/onprem/run-kube-bench.sh",
+      "sha256": "e794b1be9e62e0b0e08131a008b27ceff755c9d6ac7b68a5ba5c6bfdc4922654"
+    },
+    {
+      "path": "infra/envs/onprem/verify-node.sh",
+      "sha256": "2dae0a23f3e52df25c398e34cdd7e3827262859bb246e7d186a17f3b402dc67f"
+    },
+    {
+      "path": "infra/shared/rke2/bootstrap.sh",
+      "sha256": "c183719d2cc9d648c4b3aebb90fc1e4f798f7b10ac795019872715c267aa0376"
+    }
+  ]
+}
