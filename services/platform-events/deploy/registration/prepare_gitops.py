@@ -26,6 +26,9 @@ def prepare(output, service="registration"):
         raise ValueError("unknown_platform_service")
     output.mkdir(parents=True)
     base.prepare_context(output, revision, rehearsal_host=service == "rehearsal-host")
+    if service == "registration":
+        # The workflow host (this image) runs the T31 apply with the same pinned kubectl build.
+        base.add_kubectl(output, revision)
     extras = (("gitops.Dockerfile", "Dockerfile"), ("checkout.py", "registration-checkout.py")) if service == "registration" else ()
     for source, target in extras:
         relative = str((HERE / source).relative_to(ROOT))

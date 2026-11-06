@@ -81,7 +81,8 @@ class Service:
                 ".github/workflows/publish-" + self.slug + "-image.yml")
 
 
-REGISTRATION = Service("registration", "등록 API")
+# prepare_gitops adds the patched kubectl for the workflow host's T31 apply.
+REGISTRATION = Service("registration", "등록 API", ("operations/kubectl",))
 PRODUCT_READER = Service("product-reader", "Product Reader")
 # build.py --rehearsal-host adds the T3 templates, T7/T9 modules and the patched kubectl.
 REHEARSAL_HOST = Service("rehearsal-host", "리허설 호스트", (

@@ -70,6 +70,11 @@ def add_rehearsal_context(context, revision):
     copy_committed_tree(revision, "services/rehearsal-runner/templates/", context / "templates")
     for directory in ("rehearsal-access", "target-secrets"):
         copy_committed_tree(revision, f"infra/envs/{directory}/", context / "infra" / directory)
+    add_kubectl(context, revision)
+
+
+def add_kubectl(context, revision):
+    """The pinned kubectl for the rehearsal host and the workflow host (T31 apply, registration image)."""
     # Keep the upstream command unchanged; compile its locked, patched module
     # graph with a fixed toolchain instead of shipping vulnerable release deps.
     with tempfile.TemporaryDirectory(prefix="bravo-kubectl-") as directory:
