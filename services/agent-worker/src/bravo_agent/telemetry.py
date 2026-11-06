@@ -21,28 +21,37 @@ _active = ContextVar("bravo_agent_observation", default=None)
 _lock = threading.Lock()
 _installed = False
 _provider = None
+_export_problem = None
 SAFE_TOOLS = {"repo_read", "plan_propose", "policy_evaluate", "inventory_describe", "policy_denied"}
 
 
 def tracer_provider():
-    global _provider
+    global _provider, _export_problem
     with _lock:
         if _provider is None:
+            _export_problem = None
             provider = TracerProvider(resource=Resource.create({"service.name": "bravo-agent-worker"}))
             endpoint = os.environ.get("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT")
             if endpoint:
-                parsed = urlparse(endpoint)
-                internal = parsed.hostname and parsed.hostname.endswith(".svc.cluster.local")
-                if (parsed.username or parsed.password or parsed.query or parsed.fragment
-                        or parsed.path != "/v1/traces"
-                        or not (parsed.scheme == "https" or parsed.scheme == "http" and internal)):
-                    raise ValueError("invalid agent telemetry endpoint")
-                provider.add_span_processor(BatchSpanProcessor(OTLPSpanExporter(
-                    endpoint=endpoint, timeout=3,
-                    certificate_file=os.environ.get("OTEL_EXPORTER_OTLP_CERTIFICATE"),
-                    client_certificate_file=os.environ.get("OTEL_EXPORTER_OTLP_CLIENT_CERTIFICATE"),
-                    client_key_file=os.environ.get("OTEL_EXPORTER_OTLP_CLIENT_KEY"),
-                ), max_queue_size=256, max_export_batch_size=64, schedule_delay_millis=1000))
+                try:
+                    parsed = urlparse(endpoint)
+                    internal = parsed.hostname and parsed.hostname.endswith((".svc", ".svc.cluster.local"))
+                    if (parsed.username or parsed.password or parsed.query or parsed.fragment
+                            or not parsed.hostname or parsed.path != "/v1/traces"
+                            or not (parsed.scheme == "https" or parsed.scheme == "http" and internal)):
+                        raise ValueError("invalid endpoint")
+                    if parsed.port is not None and not 1 <= parsed.port <= 65535:
+                        raise ValueError("invalid port")
+                    provider.add_span_processor(BatchSpanProcessor(OTLPSpanExporter(
+                        endpoint=endpoint, timeout=3,
+                        certificate_file=os.environ.get("OTEL_EXPORTER_OTLP_CERTIFICATE"),
+                        client_certificate_file=os.environ.get("OTEL_EXPORTER_OTLP_CLIENT_CERTIFICATE"),
+                        client_key_file=os.environ.get("OTEL_EXPORTER_OTLP_CLIENT_KEY"),
+                    ), max_queue_size=256, max_export_batch_size=64, schedule_delay_millis=1000))
+                except Exception:
+                    # Telemetry misconfiguration must not consume a terminal model attempt.
+                    # Cache the local-only provider and record a code-owned diagnostic below.
+                    _export_problem = "INVALID_EXPORTER_CONFIGURATION"
             _provider = provider
         return _provider
 
@@ -114,6 +123,8 @@ class Observation:
 def agent_observation(tools, sdk, model):
     install_processor()
     provider = tracer_provider()
+    if _export_problem:
+        tools.record("provider", "OBSERVED", "TELEMETRY_EXPORT_DISABLED", {"category": _export_problem})
     tracer = provider.get_tracer("bravo.agent")
     try:
         with tracer.start_as_current_span("agent.run", record_exception=False,
@@ -124,7 +135,8 @@ def agent_observation(tools, sdk, model):
         }) as root:
             observation = Observation(tracer, root)
             tools.observability = {"trace_id": observation.trace_id, "sdk": sdk,
-                                   "sdk_trace_id": observation.sdk_trace_id if sdk == "openai_agents" else None}
+                                   "sdk_trace_id": observation.sdk_trace_id if sdk == "openai_agents" else None,
+                                   "export_configuration": _export_problem or "VALID"}
             token = _active.set(observation)
             try:
                 yield observation

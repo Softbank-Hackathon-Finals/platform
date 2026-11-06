@@ -186,7 +186,7 @@ OpenAI API 키·SIWC 구독 모두 `openai-agents==0.24.0`의 `Agent`, `Runner`,
 프롬프트·응답 본문·도구 인자/출력·원시 오류·자격증명은 추적에 넣지 않는다.
 
 전용 프로세스에 `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT`를 설정하면 제한된 배치 큐로
-OTLP/HTTP 전송한다. HTTPS 또는 클러스터 내부 `.svc.cluster.local` HTTP의 `/v1/traces`만
+OTLP/HTTP 전송한다. HTTPS 또는 클러스터 내부 `.svc`/`.svc.cluster.local` HTTP의 `/v1/traces`만
 수락한다. TLS를 사용할 때에는 `OTEL_EXPORTER_OTLP_CERTIFICATE`,
 `OTEL_EXPORTER_OTLP_CLIENT_CERTIFICATE`, `OTEL_EXPORTER_OTLP_CLIENT_KEY` 파일 참조를
 선택한다. 이 네 설정만 격리 환경에 추가 전달하며 trace exporter에 SIWC/API 키를
@@ -195,3 +195,5 @@ OTLP/HTTP 전송한다. HTTPS 또는 클러스터 내부 `.svc.cluster.local` HT
 
 공식 인터페이스: [Agents SDK](https://developers.openai.com/api/docs/guides/agents/sdk),
 [SDK 관측](https://developers.openai.com/api/docs/guides/agents/integrations-observability).
+
+OTEL 설정이 잘못되면 exporter만 비활성화하고 `TELEMETRY_EXPORT_DISABLED` 코드를 남긴다. 모델 시도·도구 정책은 계속 실행하며 원시 설정값은 감사에 넣지 않는다.

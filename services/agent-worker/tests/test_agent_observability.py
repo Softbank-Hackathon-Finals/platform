@@ -20,6 +20,7 @@ def spans(monkeypatch):
     provider = TracerProvider(resource=Resource.create({"service.name": "bravo-agent-worker"}))
     provider.add_span_processor(SimpleSpanProcessor(exporter))
     monkeypatch.setattr(telemetry, "_provider", provider)
+    monkeypatch.setattr(telemetry, "_export_problem", None)
     yield exporter
     provider.shutdown()
 
@@ -78,8 +79,77 @@ def test_telemetry_environment_does_not_inherit_exporter_credentials(tmp_path):
 
 @pytest.mark.parametrize("endpoint", ["http://public.example/v1/traces", "https://key@host/v1/traces",
                                       "https://host/v1/traces?token=secret", "https://host/wrong"])
-def test_invalid_telemetry_destinations_fail_before_export(monkeypatch, endpoint):
+def test_invalid_telemetry_destinations_disable_export_without_stopping_model(context, monkeypatch, endpoint):
+    bundle, snapshot, proposal, _ = context
+    requests = install_sdk(monkeypatch, [{"name": "plan_propose", "arguments": json.dumps(proposal)}])
     monkeypatch.setattr(telemetry, "_provider", None)
+    monkeypatch.setattr(telemetry, "_export_problem", None)
     monkeypatch.setenv("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT", endpoint)
-    with pytest.raises(ValueError, match="invalid agent telemetry endpoint"):
-        telemetry.tracer_provider()
+    exported = []
+    monkeypatch.setattr(telemetry, "OTLPSpanExporter", lambda **kwargs: exported.append(kwargs))
+    for _ in range(2):
+        result = asyncio.run(Coordinator(bundle, snapshot).propose(OpenAIProvider("fixture-model")))
+        assert result["state"] == "PROPOSAL_READY"
+        assert result["attempts"][0]["observability"]["export_configuration"] == "INVALID_EXPORTER_CONFIGURATION"
+        assert result["audit"][0]["reason"] == "TELEMETRY_EXPORT_DISABLED"
+        assert endpoint not in json.dumps(result)
+    assert len(requests) == 2 and not exported
+    telemetry._provider.shutdown()
+
+
+@pytest.mark.parametrize("hostname", ["bravo-otel.bravo-observability.svc", "bravo-otel.bravo-observability.svc.cluster.local"])
+def test_both_cluster_dns_forms_are_supported(monkeypatch, hostname):
+    monkeypatch.setattr(telemetry, "_provider", None)
+    monkeypatch.setattr(telemetry, "_export_problem", None)
+    endpoint = f"http://{hostname}:4318/v1/traces"
+    monkeypatch.setenv("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT", endpoint)
+    captured = []
+    monkeypatch.setattr(telemetry, "OTLPSpanExporter", lambda **kwargs: captured.append(kwargs))
+    # Do not run a batch thread or network exporter in this configuration test.
+    from opentelemetry.sdk.trace import SpanProcessor
+    monkeypatch.setattr(telemetry, "BatchSpanProcessor", lambda *_args, **_kwargs: SpanProcessor())
+    telemetry.tracer_provider()
+    assert captured[0]["endpoint"] == endpoint and telemetry._export_problem is None
+    telemetry._provider.shutdown()
+
+
+@pytest.mark.parametrize("subscription", [False, True])
+@pytest.mark.parametrize("output_kind,expected", [("message", "PROPOSAL_READY"),
+                                                ("custom_tool_call", "NEEDS_HUMAN")])
+def test_message_with_function_remains_allowed_but_executable_siblings_are_denied(
+        context, monkeypatch, spans, subscription, output_kind, expected):
+    from openai.types.responses import ResponseCustomToolCall, ResponseOutputMessage
+    from test_subscription_provider import completed, install_stream
+
+    bundle, snapshot, proposal, _ = context
+    if subscription:
+        requests = install_stream(monkeypatch, [
+            [completed("repo_read", {"path": "src/config.py"})], [completed("plan_propose", proposal)],
+        ])
+    else:
+        requests = install_sdk(monkeypatch, [
+            {"name": "repo_read", "arguments": json.dumps({"path": "src/config.py"})},
+            {"name": "plan_propose", "arguments": json.dumps(proposal)},
+        ])
+    response = OpenAIProvider.response
+
+    async def with_sibling(self, *args, **kwargs):
+        result = await response(self, *args, **kwargs)
+        if len(requests) == 1:
+            if output_kind == "message":
+                sibling = ResponseOutputMessage(id="msg_fixture", type="message", role="assistant",
+                    status="completed", content=[{"type": "output_text", "text": "private-message-canary", "annotations": []}])
+            else:
+                sibling = ResponseCustomToolCall(id="custom_fixture", type="custom_tool_call",
+                    name="shell", call_id="call_unoffered", input="private-command-canary")
+            result = result.model_copy(update={"output": [sibling, *result.output]})
+        return result
+
+    monkeypatch.setattr(OpenAIProvider, "response", with_sibling)
+    result = asyncio.run(Coordinator(bundle, snapshot).propose(OpenAIProvider("fixture-model", subscription=subscription)))
+    assert result["state"] == expected
+    assert len(requests) == (2 if output_kind == "message" else 1)
+    if output_kind != "message":
+        assert not any(e["tool"] == "repo.read" for e in result["audit"])
+    serialized = json.dumps(result) + json.dumps([json.loads(s.to_json()) for s in spans.get_finished_spans()])
+    assert "private-message-canary" not in serialized and "private-command-canary" not in serialized

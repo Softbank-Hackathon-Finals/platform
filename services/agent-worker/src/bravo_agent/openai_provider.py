@@ -422,7 +422,7 @@ class BoundedResponsesModel(Model):
             calls = [item for item in outputs if item["type"] == "function_call"]
             if shape is not None:
                 self.policy.record("provider", "OBSERVED", "FIRST_RESPONSE_SHAPE", flat_shape(shape, calls))
-            if any(item.get("type") not in {"function_call", "reasoning"} for item in outputs):
+            if any(item.get("type") not in {"function_call", "reasoning", "message"} for item in outputs):
                 # No hosted or executable built-in tools are permitted on this proposal path.
                 raise RuntimeError("unexpected model output kind")
             if len(calls) != 1:
