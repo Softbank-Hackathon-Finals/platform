@@ -36,6 +36,23 @@ class StateRejected(ValueError):
     """A persisted coordinator state that must not be continued automatically."""
 
 
+def _decide(receipt: VerificationReceipt, task: FailureBundle, proposal_digest: str, attempt: int) -> tuple[str, bool]:
+    """The ``verify()`` rule; ``restore()`` re-derives every stored receipt's decision with it."""
+    matches = (receipt.run_id == task.run_id
+               and receipt.source_sha == task.source_sha
+               and receipt.proposal_digest == proposal_digest
+               and receipt.attempt == attempt)
+    if receipt.failure is not None:
+        matches = (matches and receipt.failure.run_id == task.run_id
+                   and receipt.failure.source_sha == task.source_sha
+                   and receipt.failure.evidence_digest == receipt.evidence_digest)
+    if not matches or receipt.verdict == "UNKNOWN" or not receipt.effects_known:
+        return "NEEDS_HUMAN", matches
+    if receipt.verdict == "PASS":
+        return "AWAITING_APPROVAL", matches
+    return ("NEEDS_HUMAN" if attempt >= MAX_ATTEMPTS else "RETRY_ALLOWED"), matches
+
+
 class Coordinator:
     def __init__(self, bundle: FailureBundle, snapshot: Snapshot, inventory: InventorySummary | None = None,
                  checkpoint: Callable[[dict], None] | None = None):
@@ -114,28 +131,20 @@ class Coordinator:
     def _stop(self, reason: str) -> None:
         self.audit.append({"run_id": self.bundle.run_id, "attempt": self.attempt, "tool": "coordinator",
                            "outcome": "STOPPED", "reason": reason})
+        # Every stop follows its attempt's record. Counting the event there keeps "this attempt's
+        # non-verifier events == audit_event_count" true for T15's attempt_tool_events.
+        self.attempts[-1]["audit_event_count"] += 1
 
     def verify(self, receipt: VerificationReceipt) -> str:
         if self.state != "PROPOSAL_READY" or self.proposal is None:
             raise ValueError("no proposal awaiting independent verification")
-        matches = (receipt.run_id == self.bundle.run_id
-                   and receipt.source_sha == self.bundle.source_sha
-                   and receipt.proposal_digest == digest(self.proposal)
-                   and receipt.attempt == self.attempt)
-        if receipt.failure is not None:
-            matches = (matches and receipt.failure.run_id == self.bundle.run_id
-                       and receipt.failure.source_sha == self.bundle.source_sha
-                       and receipt.failure.evidence_digest == receipt.evidence_digest)
-        if not matches or receipt.verdict == "UNKNOWN" or not receipt.effects_known:
-            self.state = "NEEDS_HUMAN"
-        elif receipt.verdict == "PASS":
-            self.state = "AWAITING_APPROVAL"
-        elif self.attempt >= MAX_ATTEMPTS:
-            self.state = "NEEDS_HUMAN"
-        else:
-            self.state = "RETRY_ALLOWED"
+        self.state, matches = _decide(receipt, self.task, digest(self.proposal), self.attempt)
+        if self.state == "RETRY_ALLOWED":
             self.bundle = receipt.failure
-        self.attempts[-1]["verification"] = receipt.model_dump()
+        if matches:
+            # A receipt for another proposal/attempt/revision is not this attempt's result: only the
+            # RECEIPT_MISMATCH reason below is kept, so a stored state never carries a foreign receipt.
+            self.attempts[-1]["verification"] = receipt.model_dump()
         self.audit.append({"run_id": self.bundle.run_id, "attempt": self.attempt,
                            "tool": "independent_verifier", "outcome": self.state,
                            "reason": "RECEIPT_ACCEPTED" if matches else "RECEIPT_MISMATCH",
@@ -188,7 +197,7 @@ class Coordinator:
             coordinator.attempt, coordinator.state = state["attempt"], state["state"]
             coordinator.attempts, coordinator.audit = state["attempts"], state["audit"]
             coordinator.revision = state["revision"]
-        except (ValueError, TypeError, KeyError, ValidationError) as error:
+        except (ValueError, TypeError, KeyError, RecursionError, ValidationError) as error:
             if isinstance(error, StateRejected):
                 raise
             raise StateRejected("coordinator state rejected") from None
@@ -243,37 +252,53 @@ def _checked(state, snapshot: Snapshot, inventory: InventorySummary | None) -> d
     # ANALYZING means the record for the running attempt was not written yet.
     if len(attempts) != (attempt - 1 if current == "ANALYZING" else attempt):
         raise StateRejected("attempt count mismatch")
+    # Every record is re-judged with the verify() rule: a re-signed document cannot turn a stopped
+    # attempt into a retry, carry a foreign receipt, or swap the input an attempt was given.
+    expected_input, decision = task, None
     for index, record in enumerate(attempts, start=1):
         if (not isinstance(record, dict) or not ATTEMPT_FIELDS <= set(record)
-                or not set(record) <= ATTEMPT_FIELDS | {"verification"} or record["attempt"] != index):
+                or not set(record) <= ATTEMPT_FIELDS | {"verification"}
+                or type(record["attempt"]) is not int or record["attempt"] != index):
             raise StateRejected("attempt record mismatch")
-        if record["task_digest"] != digest(task):
-            raise StateRejected("task changed between attempts")
+        given = FailureBundle.model_validate(record["input"])
+        offered = Proposal.model_validate(record["proposal"]) if record["proposal"] is not None else None
+        if (record["task_digest"] != digest(task) or record["input_digest"] != digest(given)
+                or digest(given) != digest(expected_input)
+                or record["proposal_digest"] != (digest(offered) if offered else None)):
+            raise StateRejected("attempt record mismatch")
+        decision = None
         if "verification" in record:
             receipt = VerificationReceipt.model_validate(record["verification"])
-            if receipt.attempt != index or receipt.run_id != task.run_id:
+            if offered is None or record["state"] != "PROPOSAL_READY":
+                raise StateRejected("receipt without a proposal")
+            decision, matches = _decide(receipt, task, record["proposal_digest"], index)
+            if not matches:
                 raise StateRejected("receipt binding mismatch")
-        elif index < len(attempts) and record["state"] == "PROPOSAL_READY":
-            raise StateRejected("earlier attempt was never verified")
+            if decision == "RETRY_ALLOWED":
+                expected_input = receipt.failure
+        # Only a verified FAIL with known effects opens the next attempt.
+        if (index < len(attempts) or current == "ANALYZING") and decision != "RETRY_ALLOWED":
+            raise StateRejected("earlier attempt did not end in a retry")
     for event in audit:
         if (not isinstance(event, dict) or event.get("run_id") != task.run_id
                 or type(event.get("attempt")) is not int or not 1 <= event["attempt"] <= max(attempt, 1)):
             raise StateRejected("audit event outside this run")
 
     last = attempts[-1] if attempts else None
+    given = digest(bundle)
+    shown = last is not None and last["proposal_digest"] == state["proposal_digest"]
     expected = {
-        "READY": attempt == 0 and proposal is None,
-        "ANALYZING": attempt >= 1 and proposal is None,
-        "PROPOSAL_READY": (last is not None and proposal is not None and "verification" not in last
-                           and last["state"] == "PROPOSAL_READY" and last["proposal_digest"] == digest(proposal)),
-        "RETRY_ALLOWED": (last is not None and attempt < MAX_ATTEMPTS and proposal is not None
-                          and last.get("verification", {}).get("verdict") == "FAIL"
-                          and last["proposal_digest"] == digest(proposal)
-                          and digest(bundle) == digest(FailureBundle.model_validate(last["verification"]["failure"]))),
-        "AWAITING_APPROVAL": (last is not None and proposal is not None
-                              and last.get("verification", {}).get("verdict") == "PASS"
-                              and last["proposal_digest"] == digest(proposal)),
-        "NEEDS_HUMAN": attempt >= 1,
+        "READY": attempt == 0 and proposal is None and given == digest(task),
+        "ANALYZING": attempt >= 1 and proposal is None and given == digest(expected_input),
+        "PROPOSAL_READY": (shown and proposal is not None and "verification" not in last
+                           and last["state"] == "PROPOSAL_READY" and given == last["input_digest"]),
+        "RETRY_ALLOWED": (shown and proposal is not None and decision == "RETRY_ALLOWED"
+                          and given == digest(expected_input)),
+        "AWAITING_APPROVAL": (shown and proposal is not None and decision == "AWAITING_APPROVAL"
+                              and given == last["input_digest"]),
+        # Terminal: any recorded decision may end here (a mismatched receipt or a failed checkpoint).
+        "NEEDS_HUMAN": (last is not None and (proposal is None or shown)
+                        and given in {last["input_digest"], digest(expected_input)}),
     }[current]
     if not expected:
         raise StateRejected("state does not match its records")

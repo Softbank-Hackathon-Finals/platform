@@ -3,6 +3,7 @@
 import asyncio
 import json
 import os
+import stat
 import subprocess
 import sys
 from pathlib import Path
@@ -11,6 +12,7 @@ import pytest
 from test_coordinator import TestProvider, receipt
 from test_openai import install_client, response
 
+from bravo_agent.cli import write_state
 from bravo_agent.contracts import InventorySummary, SnapshotManifest, digest
 from bravo_agent.coordinator import STATE_FIELDS, Coordinator, StateRejected
 from bravo_agent.openai_provider import OpenAIProvider
@@ -105,6 +107,146 @@ def test_resigned_state_still_has_to_match_its_records(context, tamper):
     tamper(state)
     with pytest.raises(StateRejected):
         Coordinator.restore(resign(state), snapshot)
+
+
+def failed_twice(context):
+    bundle, snapshot, proposal, _ = context
+    coordinator = Coordinator(bundle, snapshot)
+    for _ in range(2):
+        asyncio.run(coordinator.propose(TestProvider(proposal)))
+        coordinator.verify(receipt(coordinator, verdict="FAIL"))
+    return coordinator
+
+
+def test_a_stopped_attempt_cannot_be_resigned_into_a_retry(context):
+    """The recorded receipt decides: effects unknown means NEEDS_HUMAN, whatever the state says."""
+    bundle, snapshot, proposal, _ = context
+    coordinator = Coordinator(bundle, snapshot)
+    asyncio.run(coordinator.propose(TestProvider(proposal)))
+    assert coordinator.verify(receipt(coordinator, verdict="FAIL", effects_known=False)) == "NEEDS_HUMAN"
+    state = stored(coordinator)
+    state.update(state="RETRY_ALLOWED", bundle=state["attempts"][-1]["verification"]["failure"])
+    CountingProvider.calls = 0
+    with pytest.raises(StateRejected):
+        asyncio.run(Coordinator.restore(resign(state), snapshot).propose(CountingProvider(proposal)))
+    assert CountingProvider.calls == 0
+
+
+@pytest.mark.parametrize("change", [
+    {"proposal_digest": "b" * 64},                        # a receipt for another proposal
+    {"source_sha": "2" * 40},                             # or another revision
+    {"evidence_digest": "c" * 64},                        # failure evidence that is not this receipt's
+    {"effects_known": False},
+    {"verdict": "UNKNOWN", "failure": None},
+])
+@pytest.mark.parametrize("position", [0, 1])
+def test_every_recorded_receipt_is_rejudged_on_restore(context, change, position):
+    state = stored(failed_twice(context))
+    assert Coordinator.restore(state, context[1]).state == "RETRY_ALLOWED"
+    state["attempts"][position]["verification"].update(change)
+    with pytest.raises(StateRejected):
+        Coordinator.restore(resign(state), context[1])
+
+
+@pytest.mark.parametrize("change", [{"attempt": 2}, {"proposal_digest": "b" * 64}, {"source_sha": "2" * 40}])
+def test_a_mismatched_receipt_stops_the_run_and_the_stopped_state_restores(context, change):
+    bundle, snapshot, proposal, _ = context
+    coordinator = Coordinator(bundle, snapshot)
+    asyncio.run(coordinator.propose(TestProvider(proposal)))
+    assert coordinator.verify(receipt(coordinator, **change)) == "NEEDS_HUMAN"
+    # Only the reason is kept; the receipt is not this attempt's result.
+    assert "verification" not in coordinator.attempts[-1]
+    assert coordinator.audit[-1]["reason"] == "RECEIPT_MISMATCH"
+    restored = Coordinator.restore(stored(coordinator), snapshot)
+    assert restored.state == "NEEDS_HUMAN" and restored.export_state() == stored(coordinator)
+
+
+def test_states_from_the_normal_path_always_restore(context):
+    bundle, snapshot, proposal, _ = context
+    saved, failing = [], {"revision": None}
+
+    def store(state):
+        if state["revision"] == failing["revision"]:
+            raise OSError("store unavailable")
+        saved.append(state)
+
+    # (verdict, revision whose checkpoint fails): 1 before the model call, 2 after it, 3 after the receipt.
+    for verdict, failing["revision"] in [("PASS", None), ("FAIL", None), ("FAIL", 3), ("PASS", 3),
+                                         ("FAIL", 2), ("FAIL", 1)]:
+        coordinator = Coordinator(bundle, snapshot, checkpoint=store)
+        asyncio.run(coordinator.propose(TestProvider(proposal)))
+        if coordinator.state == "PROPOSAL_READY":
+            coordinator.verify(receipt(coordinator, verdict=verdict))
+        saved.append(coordinator.export_state())
+    for state in saved:
+        Coordinator.restore(json.loads(json.dumps(state)), snapshot)
+
+
+@pytest.mark.parametrize("value", [True, 1.0])
+def test_attempt_numbers_in_records_are_integers(context, value):
+    state = stored(failed_twice(context))
+    state["attempts"][0]["attempt"] = value
+    with pytest.raises(StateRejected):
+        Coordinator.restore(resign(state), context[1])
+
+
+def test_deeply_nested_state_is_rejected_not_a_crash(context):
+    state = stored(Coordinator(*context[:2]))
+    nested = []
+    for _ in range(200_000):
+        nested = [nested]
+    state["audit"] = nested
+    with pytest.raises(StateRejected):
+        Coordinator.restore(state, context[1])
+
+
+def test_an_earlier_attempt_must_have_ended_in_a_retry(context):
+    state = stored(failed_twice(context))
+    del state["attempts"][0]["verification"]
+    state["attempts"][0]["state"] = "NEEDS_HUMAN"
+    with pytest.raises(StateRejected):
+        Coordinator.restore(resign(state), context[1])
+
+
+@pytest.mark.parametrize("stage", ["READY", "ANALYZING", "RETRY_ALLOWED", "record"])
+def test_the_store_cannot_swap_the_model_input(context, stage):
+    bundle, snapshot, proposal, _ = context
+    checkpoints = []
+    coordinator = Coordinator(bundle, snapshot, checkpoint=checkpoints.append)
+    if stage != "READY":
+        asyncio.run(coordinator.propose(TestProvider(proposal)))
+    if stage in {"RETRY_ALLOWED", "record"}:
+        coordinator.verify(receipt(coordinator, verdict="FAIL"))
+    state = checkpoints[0] if stage == "ANALYZING" else stored(coordinator)
+    swapped = state["attempts"][0]["input"] if stage == "record" else state["bundle"]
+    swapped["summary"] = "A model input the store substituted for the recorded one"
+    if stage == "record":
+        state["attempts"][0]["input_digest"] = digest(swapped)
+    with pytest.raises(StateRejected):
+        Coordinator.restore(resign(state), snapshot)
+
+
+def tool_events(coordinator, attempt):
+    """T15's reader of one attempt (rehearsal_runner.bucket_proposer.attempt_tool_events)."""
+    events = [e for e in coordinator.audit if e["attempt"] == attempt and e["tool"] != "independent_verifier"]
+    assert len(events) == coordinator.attempts[attempt - 1]["audit_event_count"], "tool events incomplete"
+    return events
+
+
+@pytest.mark.parametrize("failing_revision", [1, 2, 3])
+def test_coordinator_stops_keep_the_attempt_event_count(context, failing_revision):
+    bundle, snapshot, proposal, _ = context
+
+    def store(state):
+        if state["revision"] == failing_revision:
+            raise OSError("store unavailable")
+
+    coordinator = Coordinator(bundle, snapshot, checkpoint=store)
+    asyncio.run(coordinator.propose(TestProvider(proposal)))
+    if coordinator.state == "PROPOSAL_READY":
+        coordinator.verify(receipt(coordinator, verdict="FAIL"))
+    assert coordinator.state == "NEEDS_HUMAN"
+    assert tool_events(coordinator, 1)[-1]["reason"] == "STATE_CHECKPOINT_FAILED"
 
 
 def test_state_is_bound_to_the_same_snapshot(context, tmp_path):
@@ -268,8 +410,8 @@ def cli():
     return [str(script)] if script.exists() else [sys.executable, "-m", "bravo_agent.cli"]
 
 
-def test_bravo_agent_cli_writes_a_restorable_state(context, tmp_path):
-    bundle, snapshot, proposal, _ = context
+def analyze(context, tmp_path):
+    bundle, snapshot, _, _ = context
     (tmp_path / "bundle.json").write_text(bundle.model_dump_json())
     (tmp_path / "manifest.json").write_text(snapshot.manifest.model_dump_json())
     command = cli() + ["analyze", "--bundle", str(tmp_path / "bundle.json"),
@@ -278,11 +420,21 @@ def test_bravo_agent_cli_writes_a_restorable_state(context, tmp_path):
                        "--model", "explicit-test-model"]
     environment = {key: value for key, value in os.environ.items()
                    if key not in {"ACCESS_TOKEN", "OPENAI_API_KEY", "ANTHROPIC_API_KEY"}}
-    run = subprocess.run(command, env=environment, capture_output=True, text=True, check=False)
+    return lambda: subprocess.run(command, env=environment, capture_output=True, text=True, check=False)
+
+
+def temporaries(directory):
+    return [path.name for path in directory.iterdir() if path.name.endswith(".tmp")]
+
+
+def test_bravo_agent_cli_writes_a_restorable_state(context, tmp_path):
+    _, snapshot, proposal, _ = context
+    command = analyze(context, tmp_path)
+    run = command()
     assert run.returncode == 2 and "state=NEEDS_HUMAN" in run.stdout
     state = json.loads((tmp_path / "state.json").read_text())
     assert state["state"] == "NEEDS_HUMAN" and state["attempt"] == 1 and state["revision"] == 2
-    assert not (tmp_path / "state.json.tmp").exists()
+    assert stat.S_IMODE((tmp_path / "state.json").stat().st_mode) == 0o600 and temporaries(tmp_path) == []
     restored = Coordinator.restore(state, snapshot)
     assert restored.result()["audit"] == json.loads((tmp_path / "result.json").read_text())["audit"]
     with pytest.raises(ValueError):
@@ -290,6 +442,31 @@ def test_bravo_agent_cli_writes_a_restorable_state(context, tmp_path):
     # A second run never starts over on top of an existing state file.
     (tmp_path / "result.json").unlink()
     saved = (tmp_path / "state.json").read_bytes()
-    again = subprocess.run(command, env=environment, capture_output=True, text=True, check=False)
+    again = command()
     assert again.returncode == 2 and (tmp_path / "state.json").read_bytes() == saved
     assert not (tmp_path / "result.json").exists()
+
+
+def test_cli_refuses_a_dangling_state_symlink(context, tmp_path):
+    (tmp_path / "state.json").symlink_to(tmp_path / "elsewhere.json")
+    run = analyze(context, tmp_path)()
+    assert run.returncode == 2 and "state=" not in run.stdout
+    assert not (tmp_path / "elsewhere.json").exists() and not (tmp_path / "result.json").exists()
+
+
+def test_a_leftover_temporary_file_does_not_wedge_later_runs(context, tmp_path):
+    (tmp_path / "state.json.tmp").write_text("left by an earlier crash")
+    run = analyze(context, tmp_path)()
+    assert run.returncode == 2 and "state=NEEDS_HUMAN" in run.stdout
+    assert json.loads((tmp_path / "state.json").read_text())["revision"] == 2
+    assert temporaries(tmp_path) == ["state.json.tmp"]
+
+
+def test_the_first_state_write_never_replaces_an_existing_file(tmp_path):
+    path = tmp_path / "state.json"
+    path.write_text("created by someone else")
+    with pytest.raises(FileExistsError):
+        write_state(path, {"revision": 1}, replace=False)
+    assert path.read_text() == "created by someone else" and temporaries(tmp_path) == []
+    write_state(path, {"revision": 2}, replace=True)
+    assert json.loads(path.read_text()) == {"revision": 2} and temporaries(tmp_path) == []

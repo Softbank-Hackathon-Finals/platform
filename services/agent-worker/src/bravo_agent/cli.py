@@ -2,6 +2,7 @@
 
 import argparse
 import asyncio
+import contextlib
 import json
 import os
 import tempfile
@@ -21,15 +22,31 @@ def bounded_json(path: Path, limit: int):
     return json.loads(data)
 
 
-def write_state(path: Path, state: dict) -> None:
-    """Replace the state file atomically; a crash leaves the previous complete state."""
-    temporary = path.with_name(path.name + ".tmp")
-    with temporary.open("x", encoding="utf-8") as stream:
-        json.dump(state, stream, sort_keys=True)
-        stream.write("\n")
-        stream.flush()
-        os.fsync(stream.fileno())
-    os.replace(temporary, path)
+def write_state(path: Path, state: dict, replace: bool) -> None:
+    """Publish one complete 0600 state file; a crash leaves the previous complete state.
+
+    The first write links a uniquely named temporary file, which fails if anything (even a dangling
+    symlink) took the name meanwhile; later writes atomically replace the file this run published.
+    """
+    descriptor, temporary = tempfile.mkstemp(prefix="." + path.name + ".", suffix=".tmp", dir=path.parent)
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
+            json.dump(state, stream, sort_keys=True)
+            stream.write("\n")
+            stream.flush()
+            os.fsync(stream.fileno())
+        if replace:
+            os.replace(temporary, path)
+        else:
+            os.link(temporary, path)
+    finally:
+        with contextlib.suppress(FileNotFoundError):
+            os.unlink(temporary)
+    directory = os.open(path.parent, os.O_RDONLY)
+    try:
+        os.fsync(directory)
+    finally:
+        os.close(directory)
 
 
 def main() -> int:
@@ -50,7 +67,8 @@ def main() -> int:
         print(json.dumps(Proposal.model_json_schema(), indent=2))
         return 0
     try:
-        if args.output.exists() or (args.state_output is not None and args.state_output.exists()):
+        # lexists: a dangling symlink is an existing path, never a file to create through.
+        if any(path is not None and os.path.lexists(path) for path in (args.output, args.state_output)):
             raise ValueError("output already exists")
         bundle = FailureBundle.model_validate(bounded_json(args.bundle, 16384))
         manifest = SnapshotManifest.model_validate(bounded_json(args.manifest, 32768))
@@ -59,10 +77,13 @@ def main() -> int:
                      if args.inventory is not None else None)
         checkpoint = None
         if args.state_output is not None:
-            state_output = args.state_output.resolve()
+            state_output = args.state_output.parent.resolve() / args.state_output.name
+            published = False
 
             def checkpoint(state):
-                write_state(state_output, state)
+                nonlocal published
+                write_state(state_output, state, replace=published)
+                published = True
         coordinator = Coordinator(bundle, Snapshot(args.snapshot.resolve(), manifest), inventory,
                                   checkpoint=checkpoint)
         with tempfile.TemporaryDirectory(prefix="bravo-agent-") as directory:
