@@ -3,6 +3,36 @@
 화면·로고·브라우저 탭의 제품명은 **Sova**로 통일한다. 팀 연동에 사용하는
 `bravo-console` 패키지·`bravo_console` 모듈·`X-Bravo-Console` 헤더는 기존 계약을 유지한다.
 
+## 공유 네트워크 아틀라스
+
+계획을 연결하면 사이드바의 **네트워크 아틀라스**에서 상세 조회 화면을 새 탭으로 연다.
+`b-cluster`의 네트워크·클러스터·리소스 지도, L3/라우팅/NAT, 전송 경로, 수집 실패와
+마지막 성공 시각, 프로토콜·권한 설명, 원본 구조도 확대/이동, 한국어·영어·일본어를 가져왔다.
+출처와 원본/수정 파일 해시는 [이식 출처](src/bravo_console/static/network/SOURCE.md)에 있다.
+
+이는 **등록된 양쪽 환경을 포함하는 공유 운영 네트워크**다. 앱 내부 의존성 지도나
+현재 계획의 실행 영수증이 아니며, T14/T19/T36 판정 입력으로 사용하지 않는다.
+프로토콜·권한 매트릭스와 원본 도면은 과거 참고 자료로 구분한다.
+
+운영 호스트의 `compose_console`에 `network_client=AtlasClient(fixed_https_origin)`,
+`authorize_network=current_network_wide_grant`, `network_registration=registered_pair`를
+명시적으로 전달한다. `registered_pair(scope, plan)`은 현재 권한으로 확인한
+`AtlasBinding(source_environment_id, target_environment_id)`를 반환해야 한다.
+기본값은 미연결이며, 앱 조회 권한만으로 공유 네트워크 자료를 공개하지 않는다.
+등록과 권한은 읽기 전후 및 스트림 반복마다 확인한다. 호스트가 클라이언트 수명/종료와
+요청·동시 연결 제한을 관리하고 종료 시 `AtlasClient.aclose()`를 호출한다.
+
+- GET `/v1/plans/{id}/network-status`, WS `/v1/plans/{id}/network-stream`은 같은 T10
+  세션·계획 조회에 더해 공유 네트워크 조회 권한을 검사한다. WS도 Host/Origin을 검사한다.
+- 브라우저는 같은 출처에만 연결한다. 서버가 고정된 원본의 `/api/status`만 읽는다.
+  TLS 검증, 리다이렉트 차단, 타임아웃, 응답 크기 제한, 필드 허용 목록을 적용한다.
+  사용자 쿠키·Authorization은 원본 사이트에 전달하지 않는다.
+- 원래 수집/마지막 성공 시각·실패·retained 상태를 보존한다. 조회/연결 시각을 수집
+  시각으로 바꾸지 않는다. 변경 시 snapshot, 15초 heartbeat, 10분 연결 회전이며,
+  원본 읽기는 3초 공유 캐시를 사용한다. 권한 회수 시 스트림 종료와 화면 자료 삭제를 한다.
+- 수집기·LaunchAgent·클러스터 권한·DNS 변경·게시자·사이트 배포는 자동 실행하지 않는다.
+  그 코드는 별도 `b-cluster` 클론에 보존한다. 기존 수집기와 운영 사이트를 변경하지 않는다.
+
 T10의 실제 `/v1/plans/{id}` · SSE · 승인 · 컷오버 · 재조회 API를 소비한다. 별도 상태 머신·게이트·실행기를 만들지 않는다. 이 패키지만으로 실제 AWS/RKE2 이전이나 금융 서비스 운영 자격을 충족하지 않는다.
 
 ## Sova-test 화면 구성 이식
