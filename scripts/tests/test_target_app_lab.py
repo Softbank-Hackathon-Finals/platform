@@ -121,6 +121,19 @@ class LocalImageInjectionTests(unittest.TestCase):
         original = next(i for i in rendered if i["kind"] == "Deployment")["spec"]["template"]["spec"]
         self.assertIn(PIN["index_digest"], original["containers"][0]["image"])
 
+    def test_lab_renders_for_its_own_node_architecture(self):
+        # A local build runs on the k3s node's architecture; an amd64 render would never schedule on arm64.
+        lab = load_lab()
+        calls = []
+        with patch.object(lab, "kubectl", lambda *args, **_: calls.append(args) or "arm64\n"):
+            self.assertEqual(lab.node_architecture(), "arm64")
+        self.assertEqual(calls, [("get", "node", lab.NODE, "-o", "jsonpath={.status.nodeInfo.architecture}")])
+        local = "docker.io/library/bravo-demo-chat@sha256:" + "e" * 64
+        injected = lab.inject_local_image(lab.render("application.py", "--arch", "arm64"), local)
+        pod = next(i for i in injected if i["kind"] == "Deployment")["spec"]["template"]["spec"]
+        self.assertEqual(pod["nodeSelector"], {"kubernetes.io/arch": "arm64"})
+        self.assertEqual({c["image"] for c in [*pod["containers"], *pod["initContainers"]]}, {local})
+
     def test_the_general_render_path_refuses_the_local_build(self):
         lab = load_lab()
         self.assertFalse(lab.general_path_accepts("ghcr.io/softbank-hackathon-finals/demo-chat@sha256:" + "e" * 64))
