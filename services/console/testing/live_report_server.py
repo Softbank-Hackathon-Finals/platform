@@ -39,6 +39,8 @@ def main():
         doc["target_environment_id"],
         plan_digest,
         doc["context_digest"],
+        profile_id="full",
+        profile_version="1",
     )
     with tempfile.TemporaryDirectory(prefix="t21-live-report-") as temp:
         store = PlanStore(Path(temp) / "state.db")

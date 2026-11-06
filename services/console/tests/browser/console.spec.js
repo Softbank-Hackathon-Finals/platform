@@ -300,6 +300,36 @@ test("report permission loss clears the view even when plan reads still succeed"
   await expect(page.locator("#approve")).toBeDisabled();
 });
 
+test("a valid three-test report cannot appear under a twenty-test plan", async ({ page, context }) => {
+  await context.addCookies([{
+    name: "fixture-session", value: "test-only", url: "http://127.0.0.1:18121",
+    sameSite: "Strict",
+  }]);
+  // Deliberately split the browser plan from the report. The real server-side
+  // mismatch is covered by HTTP tests; this checks the independent UI boundary.
+  await page.route("**/v1/plans/plan-demo", async (route) => {
+    const response = await route.fetch();
+    const plan = await response.json();
+    await route.fulfill({ response, json: { ...plan, profile_id: "full", profile_version: "1" } });
+  });
+  let reportSeen = false;
+  page.on("response", (response) => {
+    if (response.url().endsWith("/controls") && response.status() === 200) reportSeen = true;
+  });
+  const writes = [];
+  page.on("request", (request) => {
+    if (request.method() !== "GET") writes.push(request.url());
+  });
+  await page.goto("/console/");
+  await page.locator("#plan").fill("plan-demo");
+  await page.locator("#connect").click();
+  await expect.poll(() => reportSeen).toBe(true);
+  await expect(page.locator("#workload")).toHaveText("demo-chat");
+  await expect(page.locator("#control-status")).not.toContainText("PASS");
+  await expect(page.locator("#control-rows tr")).toHaveCount(0);
+  expect(writes).toEqual([]);
+});
+
 test("on-prem source selection sends one role and cannot promote a target alias", async ({
   page,
   context,
