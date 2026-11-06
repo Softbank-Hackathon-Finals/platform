@@ -159,12 +159,14 @@ authority = T10GateAuthority(
 `load_session(connection, principal, plan)`은 T10이 전달한 **동일 트랜잭션**에서
 인증된 tenant·plan ID로 등록을 읽고 `PlanGateSession`을 반환한다.
 세션에는 `service`, `plan_id`, `context_id`, `context`, 불변 `report`, `readiness`,
-서버 예외 `approval_ids`가 들어간다. service의 모든 조회·권한·폐기 콜백도 같은
+서버 예외 `approval_ids`, 게이트 단계 `gate_phase`(`initial` 기본 · `post_apply`)와
+반영 기록 `application_id`(최초 게이트는 없음)가 들어간다. service의 모든 조회·권한·폐기 콜백도 같은
 계획 잠금 경계에 연결한다. 요청 본문을 결과 등록으로 쓰지 않는다.
 
 | 접수 조건 | 검사 및 실패 처리 |
 | --- | --- |
 | 계획·테넌트·앱 | 서버 계획과 세션·context·T10 binding/command를 대조. 다른 계획에 재사용 거부 |
+| 게이트 단계 | 최초 게이트는 계획의 `profile_*`, 반영 후 게이트는 `recheck_profile_*`와 context 프로필을 대조. T10 binding의 단계·`application_id`가 세션과 다르면 거부(필드 없는 binding은 최초 게이트). 재대조 프로필이 없는 계획은 반영 후 승인 불가 |
 | 대상 자원 | 양쪽 환경 ID와 등록 DB 참조, gate/context/plan hash 대조 |
 | 현재 결과 | 보안 정본·데이터 준비·권한·예외·기한 재검증. BLOCK/미확인/만료는 승인·실행 거부 |
 | 검사 중 변경 | 운영 판단과 등록을 다시 읽어 변경 또는 5초 이하 전제조건 만료 시 거부 |

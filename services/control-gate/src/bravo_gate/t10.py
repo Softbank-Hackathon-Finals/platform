@@ -23,6 +23,10 @@ class PlanGateSession:
     report: RunSnapshot
     readiness: ReadinessBinding
     approval_ids: tuple[str, ...] = ()
+    # The gate after a successful T31 application is checked against the plan's
+    # recheck profile and bound to that application, never the initial gate.
+    gate_phase: str = "initial"
+    application_id: str | None = None
 
     def __post_init__(self):
         identity(self.plan_id)
@@ -35,16 +39,24 @@ class PlanGateSession:
                 or type(self.approval_ids) is not tuple
                 or len(self.approval_ids) > 32
                 or any(type(v) is not str for v in self.approval_ids)
-                or len(set(self.approval_ids)) != len(self.approval_ids)):
+                or len(set(self.approval_ids)) != len(self.approval_ids)
+                or self.gate_phase not in ("initial", "post_apply")
+                or (self.application_id is None) != (self.gate_phase == "initial")):
             raise GateError("INVALID_PLAN_GATE_SESSION")
         for value in self.approval_ids:
             identity(value)
+        if self.application_id is not None:
+            identity(self.application_id)
 
     @property
     def fingerprint(self):
-        return fingerprint(dict(plan_id=self.plan_id, context_id=self.context_id, context=self.context.fingerprint,
-                                report_ref=self.report.ref, report=self.report.fingerprint,
-                                readiness=self.readiness.fingerprint, approval_ids=self.approval_ids))
+        value = dict(plan_id=self.plan_id, context_id=self.context_id, context=self.context.fingerprint,
+                     report_ref=self.report.ref, report=self.report.fingerprint,
+                     readiness=self.readiness.fingerprint, approval_ids=self.approval_ids)
+        if self.gate_phase != "initial":
+            # Initial sessions keep their existing fingerprint, so pending approvals stay valid.
+            value.update(gate_phase=self.gate_phase, application_id=self.application_id)
+        return fingerprint(value)
 
 
 class T10GateAuthority:
@@ -67,13 +79,17 @@ class T10GateAuthority:
             raise GateError("SERVER_PLAN_GATE_SESSION_REQUIRED")
         ctx = session.context
         spec = decode(plan["spec_json"].encode())
+        prefix = "" if session.gate_phase == "initial" else "recheck_"
         if (session.plan_id != plan["plan_id"]
                 or principal.tenant_id != plan["tenant_id"] or ctx.tenant_id != plan["tenant_id"]
                 or spec["tenant_id"] != ctx.tenant_id or spec["plan_id"] != plan["plan_id"]
                 or spec["workload_id"] != ctx.app or spec["plan_digest"] != ctx.plan_digest
-                # T10 fixes the evaluation profile in the plan; a plan without one cannot bind.
-                or spec.get("profile_id") != ctx.profile_id
-                or spec.get("profile_version") != ctx.profile_version
+                # T10 fixes the evaluation profile of each gate in the plan; a plan without one cannot bind.
+                or spec.get(prefix + "profile_id") != ctx.profile_id
+                or spec.get(prefix + "profile_version") != ctx.profile_version
+                # The approval binding T10 stored names the same gate; absent means the initial gate.
+                or current.binding.get("gate_phase", "initial") != session.gate_phase
+                or current.binding.get("application_id") != session.application_id
                 or current.binding.get("plan_id") != plan["plan_id"]
                 or current.command.get("plan_id") != plan["plan_id"]
                 or current.binding.get("plan_digest") != ctx.plan_digest

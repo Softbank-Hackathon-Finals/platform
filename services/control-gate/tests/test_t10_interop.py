@@ -14,7 +14,7 @@ from bravo_platform_events.postgres import PostgresPlanStore
 from bravo_platform_events.store import EventError
 from test_readiness import ready  # noqa: F401 - shared synthetic T13/T14 fixture
 
-from bravo_gate.contract import GateError, canonical
+from bravo_gate.contract import GateError, canonical, decode, fingerprint
 from bravo_gate.models import RunSnapshot
 from bravo_gate.t10 import PlanGateSession, T10GateAuthority
 
@@ -200,6 +200,69 @@ def test_plan_profile_must_be_the_bound_context_profile(admission, plan_profile)
     with pytest.raises(EventError):
         admission.approve()
     assert not admission.requests
+
+
+def phase_session(f, **phase):
+    ctx = f.state["context"]
+    return PlanGateSession(f.gate, f.plan.plan_id, "context", ctx,
+                           RunSnapshot(ctx.gate_id, canonical(f.publish())), f.data["binding"], **phase)
+
+
+def recheck_plan(f, **spec_changes):
+    # T10 registers the recheck pair with a new plan; these are the spec bytes T19 reads.
+    ctx = f.state["context"]
+    with f.store._transaction() as c:
+        plan = dict(c.execute("SELECT * FROM plans WHERE plan_id=?", (f.plan.plan_id,)).fetchone())
+    spec = decode(plan["spec_json"].encode()) | dict(
+        profile_id="initial-fixture", profile_version="1",
+        recheck_profile_id=ctx.profile_id, recheck_profile_version=ctx.profile_version) | spec_changes
+    return plan | {"spec_json": canonical(spec).decode()}
+
+
+def test_session_phase_and_application_are_validated_and_fingerprinted(admission):
+    f = admission
+    initial = phase_session(f)
+    legacy = fingerprint(dict(plan_id=initial.plan_id, context_id=initial.context_id,
+        context=initial.context.fingerprint, report_ref=initial.report.ref, report=initial.report.fingerprint,
+        readiness=initial.readiness.fingerprint, approval_ids=initial.approval_ids))
+    assert initial.fingerprint == legacy  # existing approvals keep their revision
+    applied = replace(initial, gate_phase="post_apply", application_id="applied-1")
+    assert len({initial.fingerprint, applied.fingerprint,
+                replace(applied, application_id="applied-2").fingerprint}) == 3
+    for phase in (dict(gate_phase="post_apply"), dict(application_id="applied-1"),
+                  dict(gate_phase="recheck", application_id="applied-1")):
+        with pytest.raises(GateError, match="INVALID_PLAN_GATE_SESSION"):
+            replace(initial, **phase)
+    with pytest.raises(GateError, match="INVALID_IDENTITY"):
+        replace(applied, application_id=" applied-1")
+
+
+@pytest.mark.parametrize("fault", [None, "no-recheck-profile", "initial-binding", "initial-phase",
+                                   "other-application", "initial-session", "initial-profile"])
+def test_post_apply_gate_binds_recheck_profile_and_its_application(admission, fault):
+    f = admission
+    ctx = f.state["context"]
+    phase = dict(gate_phase="post_apply", application_id="applied-1")
+    session, binding, plan = phase_session(f, **phase), f.current.binding | phase, recheck_plan(f)
+    if fault == "no-recheck-profile":
+        plan = recheck_plan(f, recheck_profile_id=None, recheck_profile_version=None)
+    elif fault == "initial-binding":
+        binding = f.current.binding  # the approval T10 stored belongs to the initial gate
+    elif fault == "initial-phase":
+        binding = binding | {"gate_phase": "initial"}
+    elif fault == "other-application":
+        binding = binding | {"application_id": "applied-2"}
+    elif fault == "initial-session":
+        session = phase_session(f)
+    elif fault == "initial-profile":
+        plan = recheck_plan(f, recheck_profile_id="initial-fixture", recheck_profile_version="1")
+    current = CurrentCutover(binding, f.current.command, "operations-v1")
+    if fault is None:
+        T10GateAuthority._bind(session, f.principal, plan, current)
+        assert session.context.profile_id == ctx.profile_id
+    else:
+        with pytest.raises(GateError, match="PLAN_GATE_SCOPE_MISMATCH"):
+            T10GateAuthority._bind(session, f.principal, plan, current)
 
 
 def test_slow_second_operational_check_cannot_extend_gate_proof(admission):
