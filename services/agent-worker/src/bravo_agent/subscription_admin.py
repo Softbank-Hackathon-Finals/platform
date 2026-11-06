@@ -130,6 +130,8 @@ def _isolated_worker(provider, credential, args):
         # Optional T16 input. Callers that build ``args`` themselves (T38 product bridge) omit it.
         if getattr(args, "inventory", None) is not None:
             command += ["--inventory", str(args.inventory.absolute())]
+        if getattr(args, "exec_socket", None) is not None:
+            command += ["--exec-socket", str(args.exec_socket)]
         environment = {"PATH": "/usr/bin:/bin", "LANG": "C.UTF-8", "HOME": temp,
                        "TMPDIR": temp, "PYTHONDONTWRITEBYTECODE": "1", **credential}
         # Inject only inference access. OS/metadata/egress isolation is a host obligation;

@@ -301,12 +301,16 @@ def invoke_product_worker(settings, access, value, root, snapshot):
     output = root / "result.json"
     args = SimpleNamespace(model=settings["model"], bundle=root / "bundle.json",
                            manifest=root / "manifest.json", snapshot=snapshot.root, output=output)
-    with contextlib.redirect_stdout(io.StringIO()):
-        if provider == "claude":
-            # Explicit adapter selection, no automatic provider switch (ADR-0007).
-            code = run_claude_worker(settings["anthropic_key_file"], Path(settings["state_dir"]), args)
-        else:
-            code = run_worker(subscription_store(settings, access), Path(settings["state_dir"]), args)
+    with contextlib.ExitStack() as stack:
+        if value.exec_enabled is True and settings.get("exec"):
+            # T42: exec only for an input that carries exec_enabled exactly true AND an installed
+            # T15 path. run_id/attempt come from this input, never from the worker.
+            from .exec_relay import ExecRelay, t15_forwarder
+
+            relay = stack.enter_context(ExecRelay(t15_forwarder(**settings["exec"]), value.bundle.run_id,
+                                                  value.attempt))
+            args.exec_socket = relay.path
+        code = _run_provider(settings, access, provider, args)
     if code != 0:
         raise ValueError("worker outcome unconfirmed")
     with output.open("rb") as stream:
@@ -314,3 +318,13 @@ def invoke_product_worker(settings, access, value, root, snapshot):
     if len(raw) > 1048576:
         raise ValueError("oversized worker result")
     return json.loads(raw)
+
+
+def _run_provider(settings, access, provider, args):
+    with contextlib.redirect_stdout(io.StringIO()):
+        if provider == "claude":
+            # Explicit adapter selection, no automatic provider switch (ADR-0007).
+            code = run_claude_worker(settings["anthropic_key_file"], Path(settings["state_dir"]), args)
+        else:
+            code = run_worker(subscription_store(settings, access), Path(settings["state_dir"]), args)
+    return code

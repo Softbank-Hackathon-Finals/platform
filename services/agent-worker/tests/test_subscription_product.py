@@ -340,3 +340,47 @@ def test_configured_http_route_keeps_product_and_fixture_separate(monkeypatch, s
     thread.join(5)
     assert not thread.is_alive()
     assert counts["invoke"] == 1
+
+
+@pytest.mark.parametrize("exec_enabled,configured,opened", [
+    (True, True, True), (None, True, False), (True, False, False)])
+def test_exec_relay_opens_only_for_an_exec_input_and_an_installed_t15_path(
+        setup, monkeypatch, tmp_path, exec_enabled, configured, opened):
+    from types import SimpleNamespace
+
+    from bravo_agent import exec_relay
+
+    service, inputs, _, _ = setup
+    value = inputs.current.model_copy(update={"exec_enabled": exec_enabled})
+    relays, seen = [], []
+
+    class Relay:
+        def __init__(self, forward, run_id, attempt):
+            relays.append((forward, run_id, attempt))
+            self.path = tmp_path / "exec.sock"
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_):
+            pass
+
+    monkeypatch.setattr(exec_relay, "ExecRelay", Relay)
+    monkeypatch.setattr(exec_relay, "t15_forwarder", lambda **kw: ("forward", kw["url"]))
+
+    def worker(key_file, directory, args):
+        seen.append(getattr(args, "exec_socket", None))
+        args.output.write_text("{}")
+        return 0
+    monkeypatch.setattr(product, "run_claude_worker", worker)
+    settings = {"provider": "claude", "anthropic_key_file": "k", "state_dir": str(tmp_path / "s"), "model": "m",
+                **({"exec": {"url": "https://t15:8443", "ca_file": "c", "cert_file": "b", "key_file": "k",
+                             "server_name": "rehearsal-runner"}} if configured else {})}
+    root = tmp_path / "root"
+    root.mkdir()
+    product.invoke_product_worker(settings, None, value, root, SimpleNamespace(root=tmp_path))
+    if opened:
+        assert relays == [(("forward", "https://t15:8443"), value.bundle.run_id, value.attempt)]
+        assert seen == [tmp_path / "exec.sock"]
+    else:
+        assert relays == [] and seen == [None]
