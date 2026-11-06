@@ -25,6 +25,21 @@ ASSETS = {
     "/console/operations.js": ("operations.js", "text/javascript"),
     "/console/style.css": ("style.css", "text/css"),
 }
+NETWORK_ROOT = Path(__file__).parent / "static/network"
+for _asset in NETWORK_ROOT.rglob("*"):
+    if _asset.is_file() and _asset.suffix in {".html", ".js", ".css", ".jpg", ".txt"}:
+        _relative = _asset.relative_to(Path(__file__).parent / "static").as_posix()
+        _mime = {
+            ".html": "text/html",
+            ".js": "text/javascript",
+            ".css": "text/css",
+            ".jpg": "image/jpeg",
+            ".txt": "text/plain",
+        }[_asset.suffix]
+        ASSETS["/console/" + ("network/" if _relative == "network/index.html" else _relative)] = (
+            _relative,
+            _mime,
+        )
 HEADERS = {
     "Cache-Control": "no-store",
     "Pragma": "no-cache",
@@ -46,6 +61,7 @@ class ConsoleApp:
         controls=None,
         security=None,
         workspace=None,
+        network=None,
     ):
         parsed = urlsplit(public_origin)
         if (
@@ -67,12 +83,32 @@ class ConsoleApp:
         self.controls = controls
         self.security = security
         self.workspace = workspace
+        self.network = network
         self.assets = {
             path: ((Path(__file__).parent / "static" / name).read_bytes(), mime)
             for path, (name, mime) in ASSETS.items()
         }
 
     async def __call__(self, scope, receive, send):
+        if scope["type"] == "websocket":
+            match = re.fullmatch(
+                r"/v1/plans/([A-Za-z0-9][A-Za-z0-9_-]{0,127})/network-stream", scope["path"]
+            )
+            pairs = scope.get("headers", [])
+            headers = dict(pairs)
+            if (
+                not match
+                or self.network is None
+                or scope.get("query_string")
+                or any(
+                    sum(k.lower() == name for k, _ in pairs) != 1 for name in (b"host", b"origin")
+                )
+                or headers.get(b"host") != self.host.encode()
+                or headers.get(b"origin") != self.origin.encode()
+                or headers.get(b"sec-fetch-site") == b"cross-site"
+            ):
+                return await send({"type": "websocket.close", "code": 4403})
+            return await self.network.stream(scope, receive, send, match[1])
         if scope["type"] == "lifespan":
             return await self.api(scope, receive, send)
         if scope["type"] != "http":
@@ -119,6 +155,22 @@ class ConsoleApp:
             return await reject(405, "method_not_allowed")
         if method not in ("GET", "POST"):
             return await reject(405, "method_not_allowed")
+        if match := re.fullmatch(
+            r"/v1/plans/([A-Za-z0-9][A-Za-z0-9_-]{0,127})/network-status", path
+        ):
+            if method != "GET":
+                return await reject(405, "method_not_allowed")
+            if scope.get("query_string"):
+                return await reject(400, "network_query_not_allowed")
+            if self.network is None:
+                return await reject(503, "network_unconfigured")
+            try:
+                value = await self.network.read(scope, match[1])
+            except ObservationError as error:
+                return await reject(error.status, error.code)
+            except Exception:
+                return await reject(503, "network_unavailable")
+            return await JSONResponse(value, headers=HEADERS)(scope, receive, send)
         if match := re.fullmatch(
             r"/v1/plans/([A-Za-z0-9][A-Za-z0-9_-]{0,127})/(workspace|operation-receipts/([A-Za-z0-9][A-Za-z0-9_-]{0,127}))",
             path,

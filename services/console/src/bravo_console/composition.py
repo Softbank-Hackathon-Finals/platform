@@ -36,6 +36,9 @@ def compose_console(
     observations=None,
     controls=None,
     security=None,
+    network_client=None,
+    authorize_network=None,
+    network_registration=None,
 ):
     """`api` must be the native T10 app using these same service instances/store.
 
@@ -72,6 +75,13 @@ def compose_console(
     workspace = PlanWorkspace(
         api, sources=sources, authorize=authorize_panel, operations=operations
     )
+    network = None
+    if network_client is not None:
+        from .network import PlanNetworkAtlas
+
+        network = PlanNetworkAtlas(
+            api, network_client, authorize=authorize_network, registration=network_registration
+        )
     return ConsoleApp(
         api,
         public_origin=public_origin,
@@ -79,4 +89,5 @@ def compose_console(
         controls=controls,
         security=security,
         workspace=workspace,
+        network=network,
     )

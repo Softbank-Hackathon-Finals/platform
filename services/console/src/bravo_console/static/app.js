@@ -104,6 +104,11 @@ function details(id, values) {
 }
 function render() {
   if (!model) return;
+  const networkLink = $("network-atlas-link");
+  networkLink.hidden = !model.snapshot || model.error === "forbidden";
+  networkLink.href = model.snapshot
+    ? `/console/network/?plan=${encodeURIComponent(model.plan)}`
+    : "/console/network/";
   const now = Date.now(),
     eligible = !extensionBusy && model.eligible(now),
     approvalRetry =

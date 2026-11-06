@@ -11,6 +11,8 @@ from fastapi import HTTPException, Request
 from registration_fixture import install
 from test_app import setup
 from test_change_app import setup_change
+from test_network import install as install_network
+from test_network import snapshot as network_snapshot
 from test_reports import wire
 from test_security import Samples
 
@@ -26,6 +28,11 @@ if __name__ == "__main__":
             profile=("demo-gate", "1"),
         )
         install(app.api, store, state, Path(root))
+        install_network(app, state)
+        state["network_document"] = network_snapshot()
+        state["network_document"]["sources"][0]["data"]["resources"][0]["name"] = (
+            '<img src=x onerror="window.__networkAttack=1">'
+        )
         app.controls = wire(app.api)
         # Synthetic findings, real T10 auth/plan binding and ConsoleApp route.
         app.security = PlanSecurity(
@@ -128,6 +135,7 @@ if __name__ == "__main__":
                 return stats
 
             case.api.add_api_route(f"/v1/plans/{plan}/fixture-stats", expanded_stats(counters))
+            install_network(case, counters)
             apps[plan] = case
 
         async def dispatch(scope, receive, send):
