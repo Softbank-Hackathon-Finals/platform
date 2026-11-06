@@ -167,6 +167,7 @@ for (const change of [
   { plan_version: undefined },
   { plan_state: undefined },
   { plan_version: true },
+  { plan_version: 0 },
   { plan_version: -1 },
   { plan_version: "3" },
   { plan_version: 2 },
@@ -213,8 +214,8 @@ test("cached initial comparison disappears when current scope changes", () => {
     assert.equal(controlReportMatches(value, { ...current, ...change }, null), false);
 });
 
-test("a newly registered version-zero plan can display an initial comparison", () => {
-  const current = { ...snap, state: "COLLECT", version: 0 };
-  const value = { ...report(), plan_version: 0, plan_state: "COLLECT" };
+test("a newly registered version-one plan can display an initial comparison", () => {
+  const current = { ...snap, state: "COLLECT", version: 1 };
+  const value = { ...report(), plan_version: 1, plan_state: "COLLECT" };
   assert.deepEqual(controlReport(value, current, null, now), value);
 });
