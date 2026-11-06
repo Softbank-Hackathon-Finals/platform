@@ -39,6 +39,10 @@ BUILD_INPUTS = (
     "services/inventory/pyproject.toml",
     "services/control-gate/src",
     "services/control-gate/pyproject.toml",
+    "services/apply-path/src",
+    "services/apply-path/pyproject.toml",
+    # Copied into every image context and run by its build (entry point import closure).
+    "scripts/image_import_closure.py",
 )
 INPUTS = (
     *BUILD_INPUTS,
