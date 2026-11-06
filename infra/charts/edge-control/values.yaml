@@ -1,0 +1,19 @@
+image:
+  repository: ghcr.io/softbank-hackathon-finals/platform-edge-control
+  digest: ""
+sourceRevision: ""
+configuration:
+  existingConfigMap: t17-edge-runtime
+  sha256: ""
+# Reviewed factory included in the image, not an arbitrary code ConfigMap.
+ports: ""
+journalClaim: t17-edge-journal
+secrets:
+  database: platform-runtime-db
+  databaseCA: platform-db-ca
+  provider: t17-cloudflare-lb
+  authority: t17-edge-authority
+  registry: platform-ghcr-reader
+resources:
+  requests: {cpu: 100m, memory: 192Mi}
+  limits: {cpu: "1", memory: 512Mi}

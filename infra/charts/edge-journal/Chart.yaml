@@ -1,0 +1,5 @@
+apiVersion: v2
+name: edge-journal
+description: Retained T17 operation journal; managed separately from controller rollouts
+type: application
+version: 0.1.0

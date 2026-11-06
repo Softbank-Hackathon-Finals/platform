@@ -1,5 +1,34 @@
 # Platform delivery
 
+## T17 Edge 컨트롤러
+
+`publish-edge-control-image.yml`은 기존 공통 발행/검증/보호 PR 경로로 컨트롤러
+이미지를 발행한다. 입력에는 Edge·T10·T19와 고정 T36 소스가 포함되며 실제 발행
+영수증이 생기기 전에는 digest 값을 만들지 않는다. `edgeControl.enabled`의 기본값은
+false다. 배포값 PR이 병합된 뒤 기존 bootstrap에 `edgeControl.runtime`과 별도
+`--edge-adoption`을 제공한다. runtime은 configuration, secrets, journalClaim,
+이미지에 포함된 검토 ports factory만 받으며 이미지·명령·replica 우회값은 거부한다.
+
+최초 원장은 `infra/charts/edge-journal`로 생성한다. 실제 플랫폼의 StorageClass를
+먼저 확인해 명시하며 원장 PVC는 컨트롤러 rollout/Argo prune 대상이 아니다.
+PVC UID·Bound/Filesystem/RWO, namespace·ConfigMap·Secret UID를 bootstrap에서
+검사한다. 기존 Deployment/SA가 있으면 해당 UID의 명시적 인수가 필요하다.
+Argo controller의 추가 쓰기는 정확히 `t17-edge-control` Deployment/SA만 허용한다.
+DB·Secret·PVC는 별도 소유이며 이미지 배포로 교체·삭제하지 않는다.
+
+운영 인증은 플랫폼 Secret으로 mount하는 대상 zone의 Cloudflare LB 제어 자격이다.
+토큰 값은 Git·Helm values·Terraform state·로그에 넣지 않는다. 소유 발급 경로로
+교체한 후 실제 플랫폼 GET을 확인하고 이전 자격을 폐기한다. 컨트롤러는 등록된
+LB/pool 신원과 현재 steering을 매 호출 검사한다. LB/Tunnel 등 자원 자체를 IaC로
+관리할 때 실행 중 pool_weights는 이 컨트롤러가 단독으로 소유해야 한다. Terraform
+재적용·별도 스크립트·브라우저 조작이 같은 필드를 동시에 덮어쓰면 안 된다.
+
+이번 완료 기준은 실제 플랫폼에서 DB와 native provider 연결 → 동일 plan/run의
+현재 승인/T19 소비 → 10/50/100/0 반영 시간 및 T18 실제 분배 → 별도 승인 run의
+기준 초과 자동0 → 재시작·단일 실행·최종0 readback이다. Pod Ready, Argo Synced,
+이미지 발행만으로 완료 체크하지 않는다. 현재 사람 인증이나 실제 T19 factory가
+설치되지 않았다면 그 입력을 채우며 고정 신원·합성 PASS로 배포를 활성화하지 않는다.
+
 T43 owns platform service delivery. The first managed workload is the T10
 registration API. T31 still owns approved customer-application changes.
 

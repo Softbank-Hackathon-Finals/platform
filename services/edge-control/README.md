@@ -144,6 +144,28 @@ uv run --no-sync python -m bravo_edge_control.run --config /runtime/edge.json \
 경계에서 종료하며 종료 자체를 0% 복귀로 표시하지 않는다. 같은 LB의 모든
 실행자는 동일한 영속 journal/lock을 사용해야 한다.
 
+### 플랫폼 Kubernetes 컨트롤러
+
+`bravo_edge_control.daemon`은 같은 런타임을 플랫폼의 단일 Deployment에서
+계속 실행한다. 현재 실제 승인·등록이 없으면 WAITING으로 유지하며 승인을 만들지
+않는다. 정상 종료·자동 복귀·응답 불명은 각각 RESTORED·ABORTED·STOPPED로
+유지하며 같은 프로세스가 다음 실행을 자동 등록하지 않는다. 승인·인증 실패 전에
+이미 operation이 기록됐으면 중단하고 원장을 보존한다. restart는 새 시도 ID나
+새 journal을 만들 근거가 아니다. 다음 승인 run은 보호된 배포 설정으로 선택한다.
+
+운영 provider는 플랫폼에서 직접 호출하는 `Cloudflare`만 허용한다. 브라우저·Mac·
+SSM relay는 이 경로에 없다. DB 자격/CA, `/provider/token`, 현재 인증·게이트
+입력 `/authority`, 설정 `/runtime/edge.json`은 기존 발급 경로의 mount이고,
+`/journal/edge.db`는 별도 유지되는 PVC다. `ports`는 이미지에 포함된 검토 factory로
+실제 현재 인증·T19 원문을 제공해야 한다. 사람용 OperatorPrincipal을 ServiceAccount
+이름으로 만들어 넣거나 고정 PASS를 제공하지 않는다.
+
+`infra/charts/edge-control`은 Deployment와 전용 ServiceAccount만 관리한다.
+replicas=1, Recreate, 동일 PVC의 flock, 비루트·읽기 전용 rootfs, API token 자동
+mount 금지를 유지한다. startup/liveness는 작업 프로세스의 실제 갱신 시각을,
+readiness는 실행·종료 상태를 본다. WAITING/STOPPED를 실행 준비 완료로 표시하지 않는다.
+자세한 발행·IaC·자격 교체·실환경 수락 절차는 `infra/gitops/README.md`를 따른다.
+
 저장소를 함께 설치할 때는 이 디렉터리에서 `uv sync --frozen --no-dev --extra t10-host`를
 사용한다. SQLite·PostgreSQL PlanStore를 포함하며 현재 권한 callback이나 서버 자격을
 설치하지 않는다. T10과 T17의 관측 패키지 소스 pin이 달라 기본 합성 설치가 실패하므로,

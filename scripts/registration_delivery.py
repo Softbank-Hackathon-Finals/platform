@@ -68,14 +68,20 @@ class Service:
         return self.slug + "-publication.json"
 
     @property
+    def build_inputs(self):
+        return BUILD_INPUTS + (("services/edge-control", "services/control-gate")
+                               if self.slug == "edge-control" else ())
+
+    @property
     def inputs(self):
-        return (*BUILD_INPUTS, "scripts/registration_delivery.py", "scripts/image_delivery",
+        return (*self.build_inputs, "scripts/registration_delivery.py", "scripts/image_delivery",
                 ".github/workflows/publish-" + self.slug + "-image.yml")
 
 
 REGISTRATION = Service("registration", "등록 API")
 PRODUCT_READER = Service("product-reader", "Product Reader")
-SERVICES = {item.slug: item for item in (REGISTRATION, PRODUCT_READER)}
+EDGE_CONTROL = Service("edge-control", "Edge controller")
+SERVICES = {item.slug: item for item in (REGISTRATION, PRODUCT_READER, EDGE_CONTROL)}
 
 
 def run(args, *, check=True):
@@ -470,7 +476,7 @@ def check_promotion(service=REGISTRATION):
         raise Failure("publication_values_mismatch")
     source = values["sourceRevision"]
     run(["git", "merge-base", "--is-ancestor", source, "HEAD"])
-    if run(["git", "diff", "--name-only", source, "HEAD", "--", *BUILD_INPUTS]).stdout.strip():
+    if run(["git", "diff", "--name-only", source, "HEAD", "--", *service.build_inputs]).stdout.strip():
         raise Failure("promotion_source_superseded")
     return {"action": "current_source_verified", "source_revision": source, "deployed": False}
 

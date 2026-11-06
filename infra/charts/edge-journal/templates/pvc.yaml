@@ -1,0 +1,38 @@
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: t17-edge-journal
+  labels: {component: platform}
+  annotations:
+    helm.sh/resource-policy: keep
+spec:
+  capacity: {storage: {{ .Values.size | quote }}}
+  accessModes: [ReadWriteOnce]
+  volumeMode: Filesystem
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: {{ required "observed platform storage class required" .Values.storageClassName | quote }}
+  claimRef: {namespace: {{ .Release.Namespace }}, name: t17-edge-journal}
+  local: {path: /var/lib/bravo-platform/edge-journal}
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - key: kubernetes.io/hostname
+              operator: In
+              values: [{{ required "verified platform node required" .Values.nodeName | quote }}]
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: t17-edge-journal
+  labels: {component: platform}
+  annotations:
+    helm.sh/resource-policy: keep
+spec:
+  volumeName: t17-edge-journal
+  accessModes: [ReadWriteOnce]
+  volumeMode: Filesystem
+  storageClassName: {{ required "observed platform storage class required" .Values.storageClassName | quote }}
+  resources:
+    requests:
+      storage: {{ .Values.size | quote }}

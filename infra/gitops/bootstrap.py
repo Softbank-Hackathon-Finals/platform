@@ -14,6 +14,47 @@ NAMESPACE = "bravo-gitops"
 RELEASE = "bravo-gitops"
 
 
+def verify_edge(get, runtime, expected):
+    """Bind protected inputs and explicitly adopt an absent or already owned worker."""
+    if set(runtime) != {"configuration", "secrets", "journalClaim", "ports"}:
+        raise ValueError("edge_protected_references_required")
+    if set(expected) != {"namespace_uid", "config_uid", "journal_uid", "secret_uids",
+                         "deployment_uid", "service_account_uid"}:
+        raise ValueError("edge_identity_required")
+    def observed(kind, name, uid):
+        value = get(kind, name, "platform-state")
+        if value is None or value["metadata"]["uid"] != uid:
+            raise ValueError("edge_input_identity_changed")
+        return value
+    observed("namespace", "platform-state", expected["namespace_uid"])
+    config = observed("configmap", runtime["configuration"]["existingConfigMap"], expected["config_uid"])
+    digest = hashlib.sha256(json.dumps(config["data"], sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+    settings = json.loads(config["data"]["edge.json"])
+    if (digest != runtime["configuration"]["sha256"] or settings.get("journal") != "/journal/edge.db"
+            or settings.get("token_file") != "/provider/token"):
+        raise ValueError("edge_persistent_configuration_required")
+    claim = observed("pvc", runtime["journalClaim"], expected["journal_uid"])
+    if (claim.get("status", {}).get("phase") != "Bound"
+            or claim["spec"].get("volumeMode", "Filesystem") != "Filesystem"
+            or claim["spec"]["accessModes"] not in (["ReadWriteOnce"], ["ReadWriteOncePod"])):
+        raise ValueError("edge_persistent_single_writer_volume_required")
+    if set(expected["secret_uids"]) != set(runtime["secrets"].values()):
+        raise ValueError("edge_secret_identities_required")
+    for name, uid in expected["secret_uids"].items():
+        observed("secret", name, uid)
+    for kind, key in (("deployment", "deployment_uid"), ("serviceaccount", "service_account_uid")):
+        value = get(kind, "t17-edge-control", "platform-state")
+        if expected[key] is None:
+            if value is not None:
+                raise ValueError("edge_existing_resource_requires_adoption")
+        elif value is None or value["metadata"]["uid"] != expected[key]:
+            raise ValueError("edge_workload_identity_changed")
+        if value is not None:
+            tracking = value["metadata"].get("annotations", {}).get("argocd.argoproj.io/tracking-id", "")
+            if tracking and not tracking.startswith("platform-edge-control:"):
+                raise ValueError("edge_other_owner")
+
+
 def verify_reader(get, runtime, expected):
     """Adopt only the observed Reader; its shared identity and data stay external."""
     if set(runtime) != {"configuration", "secrets", "catalogClaim"}:
@@ -77,6 +118,7 @@ def main():
     p.add_argument("--kubectl", default="kubectl")
     p.add_argument("--runtime-values", type=Path)
     p.add_argument("--reader-adoption", type=Path)
+    p.add_argument("--edge-adoption", type=Path)
     p.add_argument("--apply", action="store_true")
     a = p.parse_args()
     if not re.fullmatch(r"[0-9a-f]{40}", a.revision):
@@ -119,7 +161,7 @@ def main():
         value = json.loads(a.runtime_values.read_text())
         if (
             not {"registration"}.issubset(value)
-            or not set(value).issubset({"registration", "productReader"})
+            or not set(value).issubset({"registration", "productReader", "edgeControl"})
             or set(value["registration"]) != {"enabled", "runtime"}
             or value["registration"]["enabled"] is not True
         ):
@@ -151,6 +193,18 @@ def main():
             reader_image = json.loads((ROOT / "infra/gitops/environments/development/product-reader-image.json").read_text())
             if not re.fullmatch(r"sha256:[0-9a-f]{64}", reader_image["image"]["digest"]):
                 raise ValueError("published_reader_image_required")
+        if "edgeControl" in value:
+            edge = value["edgeControl"]
+            if (set(edge) != {"enabled", "runtime"} or edge["enabled"] is not True
+                    or a.edge_adoption is None or a.edge_adoption.resolve().is_relative_to(ROOT)):
+                raise ValueError("protected_edge_adoption_required")
+            def get_optional(kind, name, namespace):
+                output = run(k + ["-n", namespace, "get", kind, name, "--ignore-not-found", "-o", "json"]).stdout
+                return json.loads(output) if output.strip() else None
+            verify_edge(get_optional, edge["runtime"], json.loads(a.edge_adoption.read_text()))
+            edge_image = json.loads((ROOT / "infra/gitops/environments/development/edge-control-image.json").read_text())
+            if not re.fullmatch(r"sha256:[0-9a-f]{64}", edge_image["image"]["digest"]):
+                raise ValueError("published_edge_image_required")
         values = ["--values", str(a.runtime_values)]
     chart = ROOT / "infra/gitops/argocd"
     run(

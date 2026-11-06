@@ -1,0 +1,75 @@
+{{- if .Values.edgeControl.enabled }}
+{{- range $key, $_ := .Values.edgeControl.runtime }}
+{{- if not (has $key (list "configuration" "secrets" "journalClaim" "ports")) }}
+{{- fail "Edge runtime accepts only protected references and a reviewed ports factory" }}
+{{- end }}
+{{- end }}
+{{- if not .Values.edgeControl.runtime.configuration }}
+{{- fail "protected Edge configuration is required" }}
+{{- end }}
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: platform-edge-control
+  namespace: {{ .Release.Namespace }}
+spec:
+  project: platform-edge-control
+  source:
+    repoURL: https://github.com/Softbank-Hackathon-Finals/platform.git
+    targetRevision: develop
+    path: infra/charts/edge-control
+    helm:
+      releaseName: edge-control
+      valueFiles:
+        - ../../gitops/environments/development/edge-control-image.json
+      valuesObject:
+        {{- toYaml .Values.edgeControl.runtime | nindent 8 }}
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: platform-state
+  syncPolicy:
+    automated: {enabled: true, prune: false, selfHeal: true, allowEmpty: false}
+    syncOptions: [FailOnSharedResource=true]
+    retry:
+      limit: 3
+      backoff: {duration: 10s, factor: 2, maxDuration: 1m}
+---
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: platform-edge-control
+spec:
+  description: T17 controller Deployment and ServiceAccount only; no DB, credential or PVC writes
+  sourceRepos: [https://github.com/Softbank-Hackathon-Finals/platform.git]
+  destinations:
+    - {server: https://kubernetes.default.svc, namespace: platform-state}
+  clusterResourceWhitelist: []
+  namespaceResourceWhitelist:
+    - {group: apps, kind: Deployment}
+    - {group: "", kind: ServiceAccount}
+  orphanedResources: {warn: false}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: platform-gitops-edge-control
+  namespace: platform-state
+rules:
+  - apiGroups: [apps]
+    resources: [deployments]
+    resourceNames: [t17-edge-control]
+    verbs: [get, update, patch, delete]
+  - apiGroups: [""]
+    resources: [serviceaccounts]
+    resourceNames: [t17-edge-control]
+    verbs: [get, update, patch, delete]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: platform-gitops-edge-control
+  namespace: platform-state
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: platform-gitops-edge-control}
+subjects:
+  - {kind: ServiceAccount, name: bravo-gitops-application-controller, namespace: {{ .Release.Namespace }}}
+{{- end }}

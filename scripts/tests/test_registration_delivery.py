@@ -36,6 +36,14 @@ RECEIPT = {"source_revision": SOURCE, "image_digest": DIGEST, "image": delivery.
 
 
 class SourceCoverage(unittest.TestCase):
+    def test_edge_sources_trigger_publication_and_supersede_old_images(self):
+        service = delivery.SERVICES["edge-control"]
+        workflow = (ROOT / ".github/workflows/publish-edge-control-image.yml").read_text()
+        for path in ("services/edge-control", "services/control-gate"):
+            self.assertIn(path, service.build_inputs)
+            self.assertIn(path, service.inputs)
+            self.assertIn("      - " + path + "/**", workflow)
+
     def test_every_current_package_is_detected_by_publication_and_supersession(self):
         builder = ast.parse((ROOT / "services/platform-events/deploy/product-read/build.py").read_text())
         assignments = {

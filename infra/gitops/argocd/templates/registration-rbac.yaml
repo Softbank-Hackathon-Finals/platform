@@ -62,6 +62,10 @@ spec:
         {{- if .Values.productReader.enabled }}
         || (request.resource.resource in ['deployments', 'services'] &&
         (object != null ? object.metadata.name : oldObject.metadata.name) == 't10-product-reader')
+        {{- end }}
+        {{- if .Values.edgeControl.enabled }}
+        || (request.resource.resource in ['deployments', 'serviceaccounts'] &&
+        (object != null ? object.metadata.name : oldObject.metadata.name) == 't17-edge-control')
         {{- end }})
       message: This controller may write only explicitly adopted platform workloads.
     - expression: "object == null || request.resource.resource != 'services' || object.spec.type == 'ClusterIP'"
@@ -70,7 +74,8 @@ spec:
       message: Registration must not automatically mount Kubernetes credentials.
     - expression: >-
         object == null || request.resource.resource != 'deployments' ||
-        ((object.metadata.name == 't10-registration' ? object.spec.template.spec.serviceAccountName == 't10-registration' : object.spec.template.spec.serviceAccountName == 'platform-runtime') &&
+        ((object.metadata.name == 't10-registration' ? object.spec.template.spec.serviceAccountName == 't10-registration' :
+        (object.metadata.name == 't17-edge-control' ? object.spec.template.spec.serviceAccountName == 't17-edge-control' : object.spec.template.spec.serviceAccountName == 'platform-runtime')) &&
         has(object.spec.template.spec.automountServiceAccountToken) && object.spec.template.spec.automountServiceAccountToken == false &&
         (!has(object.spec.template.spec.hostNetwork) || object.spec.template.spec.hostNetwork == false) &&
         (!has(object.spec.template.spec.hostPID) || object.spec.template.spec.hostPID == false) &&

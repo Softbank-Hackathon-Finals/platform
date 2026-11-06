@@ -1,0 +1,6 @@
+apiVersion: v2
+name: edge-control
+description: Platform-owned T17 SHIFT controller with a retained journal
+type: application
+version: 0.1.0
+appVersion: 0.1.0

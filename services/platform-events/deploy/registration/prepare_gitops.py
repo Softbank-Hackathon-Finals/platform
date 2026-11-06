@@ -19,6 +19,11 @@ def prepare(output, service="registration"):
     revision = subprocess.check_output(
         ["git", "-C", str(ROOT), "rev-parse", "HEAD"], text=True
     ).strip()
+    if service == "edge-control":
+        spec = importlib.util.spec_from_file_location("edge_build", ROOT / "services/edge-control/deploy/build.py")
+        edge = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(edge)
+        return edge.prepare_context(output, revision)
     spec = importlib.util.spec_from_file_location("registration_base", HERE.parent / "product-read/build.py")
     base = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(base)
@@ -41,7 +46,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--receipt", type=Path, required=True)
-    parser.add_argument("--service", choices=("registration", "product-reader"), default="registration")
+    parser.add_argument("--service", choices=("registration", "product-reader", "edge-control"), default="registration")
     args = parser.parse_args()
     if args.receipt.exists():
         raise ValueError("new_receipt_required")
