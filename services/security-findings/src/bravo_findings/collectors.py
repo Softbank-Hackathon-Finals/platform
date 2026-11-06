@@ -7,6 +7,7 @@ from datetime import UTC, datetime
 from typing import Any, Protocol
 
 from bravo_findings.ingest import Ingestor, collection_error_code
+from bravo_findings.securityhub import SecurityHubSource as SecurityHubSource
 
 log = logging.getLogger("bravo_findings")
 
@@ -22,27 +23,6 @@ class PullSource(Protocol):
     source: str
 
     def fetch(self, since_ms: int, until_ms: int) -> Iterator[dict]: ...
-
-
-class SecurityHubSource:
-    """boto3 securityhub 클라이언트로 GetFindings. 필요한 권한: securityhub:GetFindings (읽기 전용)."""
-
-    source = "aws_security_hub"
-
-    def __init__(self, client: Any, page_size: int = 100):
-        self.client, self.page_size = client, page_size
-
-    def fetch(self, since_ms: int, until_ms: int) -> Iterator[dict]:
-        kwargs: dict[str, Any] = {
-            "Filters": {"UpdatedAt": [{"Start": iso(since_ms), "End": iso(until_ms)}]},
-            "MaxResults": self.page_size,
-        }
-        while True:
-            page = self.client.get_findings(**kwargs)
-            yield from page.get("Findings", [])
-            if not page.get("NextToken"):
-                return
-            kwargs["NextToken"] = page["NextToken"]
 
 
 class SccSource:
