@@ -1,0 +1,38 @@
+{
+  "source_repository": "Softbank-Hackathon-Finals/platform",
+  "source_revision": "33fa41f4ce8ed9e03cae99b5b2b6c5c5d93da967",
+  "source_files": [
+    {
+      "path": "services/console/src/bravo_console/reports.py",
+      "sha256": "e837206473cd483b0acea90ab145ca8b2d79b27ede770985c487c6bef2a448d6"
+    },
+    {
+      "path": "services/console/src/bravo_console/static/model.js",
+      "sha256": "05eccb4962451a494d9c2c5bde5c7096b62d7a2b1d0e958e9952083f9af1c493"
+    },
+    {
+      "path": "services/console/src/bravo_console/static/app.js",
+      "sha256": "72134d66e0a6d7e0013862cfc47bd2afdfeb1e64f25ecaadb49350ee594c65d3"
+    },
+    {
+      "path": "services/console/tests/browser_server.py",
+      "sha256": "1679836eb1a12076fbfd0c5f50292d7fe269b94f87e7a7bf98130beb1676d81c"
+    },
+    {
+      "path": "services/console/tests/browser/initial-controls.spec.js",
+      "sha256": "37f7da0ba666308ac1b3ca64a1167e8a8a6f0b35d87b565b3c80d200989214f1"
+    },
+    {
+      "path": "services/console/tests/reports.test.js",
+      "sha256": "ddfc7c771e7789c73c9953360a82f8870beff0fd04568219d5cf6063e36e7736"
+    },
+    {
+      "path": "services/console/tests/test_reports.py",
+      "sha256": "a18be11664bff3936d87e0b10946be9461de7bb94ba7f97a478c74674116a6ad"
+    },
+    {
+      "path": "services/console/tests/test_t10_reports.py",
+      "sha256": "8bb2157bc498df2439f50d0acca784fc9ea44cd5bd35347d11fc41d0c30bb144"
+    }
+  ]
+}

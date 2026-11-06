@@ -160,6 +160,9 @@ def test_same_stored_report_reaches_console_without_writes(stored):
         response = client.get(f"/v1/plans/{f.plan.plan_id}/controls")
         assert response.status_code == 200, response.text
         data = response.json()
+        snapshot = client.get(f"/v1/plans/{f.plan.plan_id}").json()
+        assert data["plan_version"] == snapshot["version"]
+        assert data["plan_state"] == snapshot["state"]
         assert data["gate_id"] == f.context.gate_id and data["decision"] == f.doc["decision"]
         assert data["gate_phase"] == f.phase and data["application_id"] == f.application_id
         assert data["authorizes_cutover"] is False
@@ -168,6 +171,35 @@ def test_same_stored_report_reaches_console_without_writes(stored):
     assert f.store.snapshot(f.plan.plan_id) == before
     with f.store._transaction() as c:
         assert c.execute("SELECT count(*) AS n FROM plan_commands").fetchone()["n"] == count
+
+
+def test_registered_read_preserves_the_known_report_authority_deadline(stored):
+    f = stored
+    deadline = f.now + timedelta(seconds=7)
+    f.key = replace(f.key, valid_until=deadline.isoformat())
+    loaded = asyncio.run(f.reader.load(f.scope, f.store.snapshot(f.plan.plan_id)))
+    assert loaded.authority_expires_at == deadline
+
+
+@pytest.mark.parametrize("mode", ["callback", "current-transaction"])
+def test_http_read_lifetime_never_exceeds_known_signature_lifetime(stored, mode):
+    f = stored
+    deadline = f.now + timedelta(seconds=7)
+    f.key = replace(f.key, valid_until=deadline.isoformat())
+    if mode == "current-transaction":
+        f.authority_connections = []
+        f.reader = T10ControlReports(f.records, resolve_principal=f.reader.resolve_principal,
+            authority_factory=_transaction_authority(f), clock=lambda: f.now)
+        f.app.controls.load = f.reader.load
+        f.app.controls.authenticate = f.reader.authenticate
+    f.app.controls.clock = lambda: f.now
+    before = f.store.snapshot(f.plan.plan_id)
+    with TestClient(f.app, base_url=ORIGIN, cookies={"fixture-session": "test-only"}) as client:
+        response = client.get(f"/v1/plans/{f.plan.plan_id}/controls")
+        assert response.status_code == 200
+        assert datetime.fromisoformat(response.json()["read_valid_until"]) == deadline
+        assert response.json()["authorizes_cutover"] is False
+    assert f.store.snapshot(f.plan.plan_id) == before
 
 
 def _transaction_authority(f, *, hook=lambda: None):
