@@ -56,15 +56,21 @@ spec:
     - name: registration-controller
       expression: "request.userInfo.username == 'system:serviceaccount:{{ .Release.Namespace }}:bravo-gitops-application-controller'"
   validations:
-    - expression: "request.namespace == 'platform-state' && (object != null ? object.metadata.name : oldObject.metadata.name) == 't10-registration'"
-      message: This controller may write only the registration workload.
+    - expression: >-
+        request.namespace == 'platform-state' &&
+        ((object != null ? object.metadata.name : oldObject.metadata.name) == 't10-registration'
+        {{- if .Values.productReader.enabled }}
+        || (request.resource.resource in ['deployments', 'services'] &&
+        (object != null ? object.metadata.name : oldObject.metadata.name) == 't10-product-reader')
+        {{- end }})
+      message: This controller may write only explicitly adopted platform workloads.
     - expression: "object == null || request.resource.resource != 'services' || object.spec.type == 'ClusterIP'"
       message: Registration must remain a private ClusterIP Service.
     - expression: "object == null || request.resource.resource != 'serviceaccounts' || (has(object.automountServiceAccountToken) && object.automountServiceAccountToken == false)"
       message: Registration must not automatically mount Kubernetes credentials.
     - expression: >-
         object == null || request.resource.resource != 'deployments' ||
-        (object.spec.template.spec.serviceAccountName == 't10-registration' &&
+        ((object.metadata.name == 't10-registration' ? object.spec.template.spec.serviceAccountName == 't10-registration' : object.spec.template.spec.serviceAccountName == 'platform-runtime') &&
         has(object.spec.template.spec.automountServiceAccountToken) && object.spec.template.spec.automountServiceAccountToken == false &&
         (!has(object.spec.template.spec.hostNetwork) || object.spec.template.spec.hostNetwork == false) &&
         (!has(object.spec.template.spec.hostPID) || object.spec.template.spec.hostPID == false) &&
@@ -79,3 +85,42 @@ metadata:
 spec:
   policyName: platform-gitops-registration-names
   validationActions: [Deny]
+
+{{- if .Values.productReader.enabled }}
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: platform-gitops-reader-readonly
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+      - apiGroups: [apps]
+        apiVersions: [v1]
+        operations: [CREATE, UPDATE]
+        resources: [deployments]
+  matchConditions:
+    - name: reader-controller
+      expression: "request.userInfo.username == 'system:serviceaccount:{{ .Release.Namespace }}:bravo-gitops-application-controller' && object.metadata.name == 't10-product-reader'"
+  validations:
+    - expression: >-
+        !has(object.spec.template.spec.initContainers) &&
+        object.spec.template.spec.containers.size() == 1 &&
+        object.spec.template.spec.containers.all(c,
+        c.volumeMounts.all(m, has(m.readOnly) && m.readOnly == true) &&
+        c.securityContext.readOnlyRootFilesystem == true &&
+        c.securityContext.allowPrivilegeEscalation == false) &&
+        object.spec.template.spec.volumes.all(v,
+        !has(v.persistentVolumeClaim) ||
+        (has(v.persistentVolumeClaim.readOnly) && v.persistentVolumeClaim.readOnly == true))
+      message: Reader storage and mounts must remain read-only without init containers.
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: platform-gitops-reader-readonly
+spec:
+  policyName: platform-gitops-reader-readonly
+  validationActions: [Deny]
+{{- end }}

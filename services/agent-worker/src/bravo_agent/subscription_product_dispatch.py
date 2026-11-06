@@ -262,7 +262,19 @@ class OperatorProductExecution:
         if not matches:
             if allow_missing:
                 return None
-            raise ExecutionPending('RUN_NOT_YET_OBSERVED')
+            response = metadata.get('dispatch_response')
+            status = response.get('http_status') if isinstance(response, dict) else None
+            # The pre-POST marker is not provider acceptance. In particular a
+            # legacy row may have lost a rejection, or crashed before sending.
+            # Only the legacy 204 acknowledgement establishes accepted/pending.
+            # Native 200 receipts are handled by the exact saved run ID above.
+            if type(status) is int and status == 204:
+                raise ExecutionPending('RUN_NOT_YET_OBSERVED')
+            if type(status) is int and 400 <= status < 500:
+                raise ExecutionUnknown('DISPATCH_REJECTED_NO_RUN')
+            if type(status) is int and status == 200:
+                raise ExecutionUnknown('DISPATCH_RECEIPT_UNCONFIRMED_NO_RUN')
+            raise ExecutionUnknown('DISPATCH_ACCEPTANCE_UNKNOWN_NO_RUN')
         if len(matches) != 1:
             raise ExecutionUnknown('MULTIPLE_RUNS_FOR_INTENT')
         self._check_run(intent, metadata, matches[0])

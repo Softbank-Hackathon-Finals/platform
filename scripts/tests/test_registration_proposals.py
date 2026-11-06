@@ -16,6 +16,7 @@ import registration_delivery as delivery
 
 
 class ProposalLifecycle(unittest.TestCase):
+    service = delivery.REGISTRATION
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
@@ -28,7 +29,7 @@ class ProposalLifecycle(unittest.TestCase):
         self.git("config", "user.email", "fixture@example.invalid")
         self.git("remote", "add", "origin", str(self.remote))
         self.write("services/inventory/src/scan.py", "version = 1\n")
-        self.write(delivery.VALUES, "{}")
+        self.write(self.service.values, "{}")
         self.old = self.commit("old source")
         self.git("branch", "-M", "develop")
         self.write("services/inventory/src/scan.py", "version = 2\n")
@@ -63,16 +64,16 @@ class ProposalLifecycle(unittest.TestCase):
         return self.git("rev-parse", "HEAD")
 
     def publication(self, source):
-        return {"source_revision": source, "image": delivery.IMAGE,
+        return {"source_revision": source, "image": self.service.image,
                 "image_digest": "sha256:" + "b" * 64, "run_id": "42",
                 "published": True, "registry_visibility": "private", "deployed": False}
 
     def add_pr(self, number, source, *, extra_file=False):
-        branch = delivery.PROPOSAL_PREFIX + source[:12]
+        branch = ("feature/T43-" + self.service.slug + "-image-") + source[:12]
         self.git("switch", "-qc", branch, source)
         receipt = self.publication(source)
-        self.write(delivery.VALUES, json.dumps(delivery.promotion_values(receipt)))
-        self.write(delivery.PUBLICATION, json.dumps(receipt))
+        self.write(self.service.values, json.dumps(delivery.promotion_values(receipt, self.service)))
+        self.write(str(Path(self.service.values).with_name(self.service.publication)), json.dumps(receipt))
         if extra_file:
             self.write("docs/manual.md", "human work")
         head = self.commit("image proposal")
@@ -82,7 +83,7 @@ class ProposalLifecycle(unittest.TestCase):
 
     def record_pr(self, number, branch, head):
         self.prs[number] = {
-            "number": number, "title": delivery.PROPOSAL_TITLE, "body": "Refs #355\n",
+            "number": number, "title": ("[T43] 검증된 " + self.service.title + " 이미지 배포"), "body": "Refs #355\n",
             "state": "open", "merged_at": None,
             "html_url": f"https://github.com/{delivery.REPOSITORY}/pull/{number}",
             "base": {"ref": "develop"},
@@ -140,7 +141,7 @@ class ProposalLifecycle(unittest.TestCase):
         try:
             os.chdir(self.root)
             with patch.dict(os.environ, self.env), patch.object(delivery, "run", side_effect=self.invoke):
-                return delivery.propose(self.receipt)
+                return delivery.propose(self.receipt, self.service)
         finally:
             os.chdir(previous)
 
@@ -215,8 +216,8 @@ class ProposalLifecycle(unittest.TestCase):
 
     def test_already_recorded_values_clean_older_proposal(self):
         self.add_pr(10, self.old)
-        self.write(delivery.VALUES, json.dumps(delivery.promotion_values(self.receipt)))
-        self.write(delivery.PUBLICATION, json.dumps(self.receipt))
+        self.write(self.service.values, json.dumps(delivery.promotion_values(self.receipt, self.service)))
+        self.write(str(Path(self.service.values).with_name(self.service.publication)), json.dumps(self.receipt))
         self.commit("already deployed")
         self.git("push", "-q", "origin", "develop")
         self.assertEqual(self.propose()["action"], "already_recorded")
@@ -232,12 +233,24 @@ class ProposalLifecycle(unittest.TestCase):
     def test_malformed_receipt_stops_before_writes(self):
         self.add_pr(10, self.old)
         self.git("switch", "-q", self.prs[10]["head"]["ref"])
-        self.write(delivery.PUBLICATION, json.dumps(self.publication(self.source)))
+        self.write(str(Path(self.service.values).with_name(self.service.publication)), json.dumps(self.publication(self.source)))
         self.prs[10]["head"]["sha"] = self.commit("mismatched source")
         self.git("switch", "-q", "develop")
         with self.assertRaisesRegex(delivery.Failure, "proposal_identity_mismatch"):
             self.propose()
         self.assertEqual(self.writes, [])
+
+
+class ReaderProposalLifecycle(ProposalLifecycle):
+    service = delivery.PRODUCT_READER
+
+    def test_reader_does_not_close_registration_proposals(self):
+        self.service = delivery.REGISTRATION
+        self.add_pr(10, self.old)
+        self.service = delivery.PRODUCT_READER
+        self.receipt = self.publication(self.source)
+        self.assertEqual(self.propose()["closed_proposals"], [])
+        self.assertEqual(self.prs[10]["state"], "open")
 
 
 if __name__ == "__main__":

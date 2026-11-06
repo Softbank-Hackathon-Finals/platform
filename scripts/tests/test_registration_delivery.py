@@ -60,15 +60,18 @@ class SourceCoverage(unittest.TestCase):
                                 "build input missing from promotion source check")
         paths.extend(("scripts/registration_delivery.py", "scripts/image_delivery/oci.py",
                       ".github/workflows/publish-registration-image.yml"))
-        workflow = (ROOT / ".github/workflows/publish-registration-image.yml").read_text()
-        section = workflow.split("    paths:\n", 1)[1].split("  workflow_dispatch:", 1)[0]
-        globs = [line.strip()[2:] for line in section.splitlines() if line.strip().startswith("- ")]
-        for path in paths:
-            with self.subTest(path=path):
-                self.assertTrue(any(path == p or path.startswith(p + "/") for p in delivery.INPUTS),
-                                "build input missing from source freshness check")
-                self.assertTrue(any(fnmatch.fnmatchcase(path, pattern) for pattern in globs),
-                                "build input missing from publication trigger")
+        for service in delivery.SERVICES.values():
+            workflow = (ROOT / (".github/workflows/publish-" + service.slug + "-image.yml")).read_text()
+            section = workflow.split("    paths:\n", 1)[1].split("  workflow_dispatch:", 1)[0]
+            globs = [line.strip()[2:] for line in section.splitlines() if line.strip().startswith("- ")]
+            service_paths = [p for p in paths if p != ".github/workflows/publish-registration-image.yml"]
+            service_paths.append(".github/workflows/publish-" + service.slug + "-image.yml")
+            for path in service_paths:
+                with self.subTest(service=service.slug, path=path):
+                    self.assertTrue(any(path == p or path.startswith(p + "/") for p in service.inputs),
+                                    "build input missing from source freshness check")
+                    self.assertTrue(any(fnmatch.fnmatchcase(path, pattern) for pattern in globs),
+                                    "build input missing from publication trigger")
 
     def test_inventory_change_supersedes_old_build_before_any_pr_write(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -102,6 +105,8 @@ class SourceCoverage(unittest.TestCase):
 
 
 class PromotionSource(unittest.TestCase):
+    service = delivery.REGISTRATION
+
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
@@ -110,10 +115,10 @@ class PromotionSource(unittest.TestCase):
         self.git("config", "user.name", "Fixture")
         self.git("config", "user.email", "fixture@example.invalid")
         self.write("services/inventory/src/bravo_inventory/scan.py", "version = 1\n")
-        self.write(delivery.VALUES, "{}")
+        self.write(self.service.values, "{}")
         self.source = self.commit("source")
         self.git("update-ref", "refs/remotes/origin/develop", self.source)
-        self.receipt = RECEIPT | {"source_revision": self.source, "published": True,
+        self.receipt = RECEIPT | {"image": self.service.image,"source_revision": self.source, "published": True,
                                   "registry_visibility": "private", "deployed": False}
         self.calls = []
 
@@ -132,8 +137,8 @@ class PromotionSource(unittest.TestCase):
         return self.git("rev-parse", "HEAD")
 
     def promote(self):
-        self.write(delivery.VALUES, json.dumps(delivery.promotion_values(self.receipt)))
-        self.write(str(Path(delivery.VALUES).with_name("registration-publication.json")),
+        self.write(self.service.values, json.dumps(delivery.promotion_values(self.receipt, self.service)))
+        self.write(str(Path(self.service.values).with_name(self.service.publication)),
                    json.dumps(self.receipt))
         return self.commit("promote")
 
@@ -145,7 +150,7 @@ class PromotionSource(unittest.TestCase):
             return subprocess.run(["git", "-C", str(self.root), *args[1:]],
                                   capture_output=True, text=True, check=True)
         with patch.object(delivery, "run", side_effect=invoke):
-            return delivery.check_promotion()
+            return delivery.check_promotion(self.service)
 
     def test_matching_image_and_unrelated_later_change_pass_without_writes(self):
         self.promote()
@@ -169,15 +174,15 @@ class PromotionSource(unittest.TestCase):
         self.write("services/inventory/src/bravo_inventory/scan.py", "version = 2\n")
         self.commit("later queue entry")
         # The immediate queue base already contains the promotion, but develop does not.
-        self.assertEqual(self.git("diff", "--name-only", previous_group, "HEAD", "--", delivery.VALUES), "")
+        self.assertEqual(self.git("diff", "--name-only", previous_group, "HEAD", "--", self.service.values), "")
         with self.assertRaisesRegex(delivery.Failure, "promotion_source_superseded"):
             self.check()
 
     def test_publication_and_values_must_match(self):
         self.promote()
-        values = delivery.promotion_values(self.receipt)
+        values = delivery.promotion_values(self.receipt, self.service)
         values["image"]["digest"] = "sha256:" + "c" * 64
-        self.write(delivery.VALUES, json.dumps(values))
+        self.write(self.service.values, json.dumps(values))
         self.commit("mismatched digest")
         with self.assertRaisesRegex(delivery.Failure, "publication_values_mismatch"):
             self.check()
@@ -199,6 +204,10 @@ class PromotionSource(unittest.TestCase):
         self.git("restore", "--source", first_promotion, "--", ".")
         self.commit("revert source and verified image")
         self.assertEqual(self.check()["source_revision"], self.source)
+
+
+class ReaderPromotionSource(PromotionSource):
+    service = delivery.PRODUCT_READER
 
 
 class Publication(unittest.TestCase):
