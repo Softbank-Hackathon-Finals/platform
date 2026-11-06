@@ -1,4 +1,5 @@
-"""bravo-audit: append upstream events to a run ledger, verify a stored chain, probe deletion denial."""
+"""bravo-audit: append upstream events to a run ledger, follow a T10 event stream, verify a stored
+chain, probe deletion denial."""
 
 from __future__ import annotations
 
@@ -12,43 +13,11 @@ from .denial import probe_denial
 from .ledger import OriginConflict, RunLedger, chain_digest, verify_chain
 from .record import UnsafePayload
 from .sink import FileSink, ObjectLockSink, UnverifiedWrite
+from .storage import StoreTampered, _load_s3_run, split_s3
 
 
 def _load_jsonl(path: Path) -> list[dict]:
     return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
-
-
-class StoreTampered(Exception):
-    """The stored run is not a single, untouched version per record."""
-
-
-def _load_s3_run(client, bucket: str, prefix: str) -> list[dict]:
-    """Every version of every record under one run prefix (review #257 P1).
-
-    Reading only the current version would miss a record rewritten without ``If-None-Match``:
-    Object Lock keeps the old version but does not stop a new one, so a re-hashed chain would
-    verify. A key with more than one version, or a delete marker, is reported as tampering."""
-    versions: dict[str, list[str]] = {}
-    markers: set[str] = set()
-    for page in client.get_paginator("list_object_versions").paginate(Bucket=bucket, Prefix=prefix):
-        for v in page.get("Versions", []):
-            if v["Key"].endswith(".json"):
-                versions.setdefault(v["Key"], []).append(v["VersionId"])
-        for m in page.get("DeleteMarkers", []):
-            if m["Key"].endswith(".json"):
-                markers.add(m["Key"])
-
-    def seq(key: str) -> str:
-        name = key.rsplit("/", 1)[-1].removesuffix(".json")
-        return str(int(name)) if name.isdigit() else "?"
-
-    for key in sorted(set(versions) | markers):
-        if key in markers:
-            raise StoreTampered(f"delete_marker:{seq(key)}")
-        if len(versions[key]) > 1:
-            raise StoreTampered(f"overwritten:{seq(key)}")
-    return [json.loads(client.get_object(Bucket=bucket, Key=k, VersionId=versions[k][0])["Body"].read())
-            for k in sorted(versions)]
 
 
 def _load_records(target: str) -> list[dict]:
@@ -70,8 +39,8 @@ def _sink(target: str, retention_days: int):
     if target.startswith("s3://"):
         import boto3  # optional extra; the live path is only exercised with cloud access
 
-        bucket, _, prefix = target[5:].partition("/")
-        return ObjectLockSink(boto3.client("s3"), bucket, retention_days=retention_days, prefix=prefix or "audit")
+        bucket, prefix = split_s3(target)
+        return ObjectLockSink(boto3.client("s3"), bucket, retention_days=retention_days, prefix=prefix)
     return FileSink(Path(target))
 
 
@@ -170,6 +139,9 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--version-id", required=True)
     p.add_argument("--output", required=True)
     p.set_defaults(func=cmd_probe)
+    from .follow import add_parser as add_follow
+
+    add_follow(sub)
     args = parser.parse_args(argv)
     return args.func(args)
 
