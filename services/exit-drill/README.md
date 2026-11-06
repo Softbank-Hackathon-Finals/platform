@@ -176,7 +176,7 @@ uv run python tests/integration/verify_real_run.py --out <폴더>   # 실행 안
 uv run python tests/integration/mutation_check.py --out mutation-results.json
 ```
 
-결과와 재지 못한 것은 [증거 문서](../../docs/evidence/t27-exit-drill-2026-11-04/README.md)와 [실행 준비 증거](../../docs/evidence/t27-real-run-prep-2026-11-06/README.md)에 있다.
+결과와 재지 못한 것은 [증거 문서](../../docs/evidence/t27-exit-drill-2026-11-04/README.md)와 [실행 준비 증거](../../docs/evidence/t27-real-run-prep-2026-11-06/README.md)에 있다. 실제 `target-dev`의 1단계 결과는 [실제 지도 증거](../../docs/evidence/t27-real-map-2026-11-06/README.md)에 있다.
 
 ## 명세 값의 출처
 
