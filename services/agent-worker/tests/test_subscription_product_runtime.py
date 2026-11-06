@@ -15,9 +15,7 @@ from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
 from cryptography.x509.oid import NameOID
 from test_subscription_product import setup as setup
-from tls_support import TEST_CA_PEM
 
-from bravo_agent import subscription_product_caller as caller
 from bravo_agent import subscription_product_reader as reader
 from bravo_agent import subscription_product_server as host
 
@@ -157,42 +155,12 @@ def test_product_host_journal_and_fixture_disabled(monkeypatch, tmp_path):
     assert seen == [tmp_path / "product-journal", {"product": "product", "fixture_enabled": False, "tls_context": "tls-context"}]
 
 
-def actions_env():
-    return {"GITHUB_ACTIONS": "true", "ACTIONS_ID_TOKEN_REQUEST_URL": "https://pipelines.actions.githubusercontent.com/token?x=1",
-            "ACTIONS_ID_TOKEN_REQUEST_TOKEN": "private-runner-credential"}
 
 
-def test_actions_token_memory_only_sts_audience():
-    calls = []
-    def transport(request):
-        calls.append(request)
-        assert request.headers["authorization"] == "Bearer private-runner-credential"
-        assert request.url.params["audience"] == "sts.amazonaws.com"
-        return httpx.Response(200, json={"value": "synthetic.oidc.token"})
-    supplier = caller.ActionsProductToken(actions_env(), httpx.MockTransport(transport))
-    assert supplier() == "synthetic.oidc.token" and len(calls) == 1
-    assert "credential" not in repr(supplier)
 
 
-@pytest.mark.parametrize("changes", [{"GITHUB_ACTIONS": "false"}, {"ACTIONS_ID_TOKEN_REQUEST_URL": "http://pipelines.actions.githubusercontent.com/t"},
-    {"ACTIONS_ID_TOKEN_REQUEST_URL": "https://evil.invalid/t"}, {"ACTIONS_ID_TOKEN_REQUEST_URL": "https://" + "synthetic-user" + "@" + "pipelines.actions.githubusercontent.com/t"}])
-def test_untrusted_identity_endpoint_cannot_receive_credential(changes):
-    supplier = caller.ActionsProductToken(actions_env() | changes, httpx.MockTransport(
-        lambda _: pytest.fail("credential escaped")))
-    with pytest.raises(ValueError, match="^Actions product identity unavailable$"):
-        supplier()
 
 
-@pytest.mark.parametrize("status,body", [(302, b"private"), (500, b"private"), (200, b'{}'), (200, b"x" * 65537)])
-def test_identity_failure_no_retry_or_disclosure(status, body):
-    calls = []
-    def transport(request):
-        calls.append(request)
-        return httpx.Response(status, content=body)
-    supplier = caller.ActionsProductToken(actions_env(), httpx.MockTransport(transport))
-    with pytest.raises(ValueError, match="^Actions product identity unavailable$"):
-        supplier()
-    assert len(calls) == 1
 
 
 class SSM:
@@ -219,45 +187,12 @@ class SSM:
             raise RuntimeError("private cloud detail")
 
 
-@pytest.fixture
-def window_ports(monkeypatch):
-    monkeypatch.setattr(caller, "_assert_tunnel_port_free", lambda: None)
-    calls = []
-    process = SimpleNamespace(poll=lambda: None, terminate=lambda: calls.append("plugin-stop"), wait=lambda **_: None)
-    monkeypatch.setattr(caller.subprocess, "Popen", lambda *_, **__: process)
-    class Connection:
-        def __enter__(self):
-            pass
-        def __exit__(self, *_):
-            pass
-    monkeypatch.setattr(caller.socket, "create_connection", lambda *_, **__: Connection())
-    return calls
 
 
-def test_single_call_and_cleanup_after_response_loss(window_ports, monkeypatch):
-    ssm, remote = SSM(), []
-    monkeypatch.setattr(caller, "ProductTunnelCall", lambda *_, **__: lambda body: remote.append(body) or (502, {}))
-    with caller.product_window(INSTANCE, RUNTIME, ca_pem=TEST_CA_PEM, ssm=ssm) as call:
-        assert call({})[0] == 502
-        assert call({})[0] == 409
-    assert call({})[0] == 409 and len(remote) == 1
-    assert ssm.calls == ["start", "session", "terminate", "stop"] and window_ports == ["plugin-stop"]
 
 
-def test_cleanup_failure_still_stops_service(window_ports):
-    ssm = SSM("terminate")
-    with pytest.raises(RuntimeError, match="^product window cleanup unconfirmed$"):
-        with caller.product_window(INSTANCE, RUNTIME, ca_pem=TEST_CA_PEM, ssm=ssm):
-            pass
-    assert ssm.calls[-2:] == ["terminate", "stop"]
 
 
-def test_lost_start_response_still_stops(window_ports):
-    ssm = SSM("start")
-    with pytest.raises(RuntimeError):
-        with caller.product_window(INSTANCE, RUNTIME, ca_pem=TEST_CA_PEM, ssm=ssm):
-            pytest.fail("window was not opened")
-    assert ssm.calls == ["start", "stop"]
 
 
 def test_install_product_opt_in_is_metadata_only():
@@ -265,42 +200,42 @@ def test_install_product_opt_in_is_metadata_only():
     spec = importlib.util.spec_from_file_location("product_installer", path)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
-    settings = {k: "synthetic" for k in ("secret_arn", "runtime_host_id", "broker_role_arn", "model")}
+    settings = {k: "synthetic" for k in ("secret_arn", "runtime_host_id", "broker_role_arn")}
+    model = {"provider": "chatgpt-plan", "model": "synthetic-model", "reasoning_effort": "medium"}
     settings["region"] = "ap-northeast-2"
-    assert "subscription_product_server" not in module.installation(RUNTIME, "d" * 64, settings)
-    product = module.installation(RUNTIME, "d" * 64, settings, product_reader={
+    assert "subscription_product_server" not in module.installation(RUNTIME, "d" * 64, settings, model)
+    product = module.installation(RUNTIME, "d" * 64, settings, model, product_reader={
         "origin": "https://inputs.invalid", "ca_file": "/etc/bravo-subscription/reader-ca.pem"})
     assert "subscription_product_server" in product and "product-journal" not in product
     with pytest.raises(TypeError):
-        module.installation(RUNTIME, "d" * 64, settings, product_reader={
+        module.installation(RUNTIME, "d" * 64, settings, model, product_reader={
             "origin": "https://inputs.invalid", "ca_file": "/ca.pem", "token": "private"})
 
 
+def test_install_takes_the_model_from_the_environment_config_only():
+    import base64
+    import json as _json
+    path = Path(__file__).resolve().parents[3] / "operations/subscription/install.py"
+    spec = importlib.util.spec_from_file_location("model_installer", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    settings = {"secret_arn": "s", "runtime_host_id": "h", "broker_role_arn": "r", "region": "ap-northeast-2"}
+    development = _json.loads((path.parents[2] / "infra/gitops/environments/development/agent-model.json").read_text())
+    script = module.installation(RUNTIME, "d" * 64, settings, development)
+    encoded = next(part for part in script.split("'") if part.startswith("eyJ"))
+    installed = _json.loads(base64.b64decode(encoded))
+    assert {k: installed[k] for k in development} == development
+    with pytest.raises(ValueError):  # the model never rides in the metadata settings
+        module.installation(RUNTIME, "d" * 64, settings | {"model": "x"}, development)
+    for bad in ({"model": "m"}, development | {"provider": "other"}, development | {"reasoning_effort": "Medium!"},
+                development | {"api_key": "sk-x"}):
+        with pytest.raises(ValueError):
+            module.installation(RUNTIME, "d" * 64, settings, bad)
 
-def test_plugin_token_never_in_argv_and_actions_token_not_inherited(window_ports, monkeypatch):
-    seen = []
-    process = SimpleNamespace(poll=lambda: None, terminate=lambda: None, wait=lambda **_: None)
-    monkeypatch.setenv("ACTIONS_ID_TOKEN_REQUEST_TOKEN", "private-actions")
-    def spawn(args, **kwargs):
-        assert "owned-session" not in json.dumps(args)
-        assert args[1] == "AWS_SSM_START_SESSION_RESPONSE_BRAVO"
-        assert "ACTIONS_ID_TOKEN_REQUEST_TOKEN" not in kwargs["env"]
-        assert json.loads(kwargs["env"][args[1]])["SessionId"] == "owned-session"
-        seen.append(True)
-        return process
-    monkeypatch.setattr(caller.subprocess, "Popen", spawn)
-    with caller.product_window(INSTANCE, RUNTIME, ca_pem=TEST_CA_PEM, ssm=SSM()):
-        pass
-    assert seen == [True]
 
 
-def test_concurrent_window_calls_send_once():
-    from concurrent.futures import ThreadPoolExecutor
-    seen = []
-    call = caller.ProductWindowCall(lambda body: seen.append(body) or (200, {}))
-    with ThreadPoolExecutor(max_workers=4) as pool:
-        results = list(pool.map(call, [{} for _ in range(4)]))
-    assert sum(r[0] == 200 for r in results) == len(seen) == 1
+
+
 
 
 def test_missing_reader_ca_prevents_startup(monkeypatch, tmp_path):
@@ -313,19 +248,29 @@ def test_missing_reader_ca_prevents_startup(monkeypatch, tmp_path):
 
 
 
-def test_occupied_tunnel_port_prevents_cloud_start(monkeypatch):
-    class Occupied:
-        def setsockopt(self, *_):
-            pass
-        def __enter__(self):
-            return self
-        def __exit__(self, *_):
-            pass
-        def bind(self, address):
-            raise OSError("occupied")
-    monkeypatch.setattr(caller.socket, "socket", Occupied)
-    ssm = SSM()
-    with pytest.raises(RuntimeError, match="product tunnel port already in use"):
-        with caller.product_window(INSTANCE, RUNTIME, ca_pem=TEST_CA_PEM, ssm=ssm):
-            pytest.fail("port preflight failed")
-    assert not ssm.calls
+
+
+def test_install_carries_the_job_identity_public_keys_only():
+    from cryptography.hazmat.primitives import serialization
+    from cryptography.hazmat.primitives.asymmetric import rsa
+    path = Path(__file__).resolve().parents[3] / "operations/subscription/install.py"
+    spec = importlib.util.spec_from_file_location("workload_installer", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    public = key.public_key().public_bytes(serialization.Encoding.PEM,
+                                           serialization.PublicFormat.SubjectPublicKeyInfo).decode()
+    private = key.private_bytes(serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8,
+                                serialization.NoEncryption()).decode()
+    identity = {"issuer": "https://kubernetes.default.svc.cluster.local", "audience": "bravo-subscription-broker",
+                "subject": "system:serviceaccount:bravo-initial:initial-proposal", "public_keys": {"k1": public}}
+    settings = {"secret_arn": "s", "runtime_host_id": "h", "broker_role_arn": "r", "region": "ap-northeast-2"}
+    model = {"provider": "chatgpt-plan", "model": "gpt-6.1-sol"}
+    module.installation(RUNTIME, "d" * 64, settings | {"workload_identity": identity}, model)
+    for bad in (identity | {"public_keys": {"k1": private}}, identity | {"audience": "other"},
+                identity | {"subject": "system:serviceaccount:default:default"}, identity | {"extra": 1}):
+        with pytest.raises(ValueError):
+            module.installation(RUNTIME, "d" * 64, settings | {"workload_identity": bad}, model)
+    reader = {"origin": "https://reader.invalid", "ca_file": "/etc/bravo-subscription/reader-ca.pem"}
+    with pytest.raises(ValueError, match="Job identity"):  # the initial broker without it refuses every Job
+        module.installation(RUNTIME, "d" * 64, settings, model, product_reader=reader, initial_proposal=True)

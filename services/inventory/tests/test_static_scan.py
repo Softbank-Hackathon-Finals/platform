@@ -156,3 +156,42 @@ def test_snippet_is_the_inspected_node_with_whole_literals_redacted(tmp_path):
     assert calls[3].snippet == "boto3.client('s3')"  # only the inspected node, not the second statement
     assert calls[4].snippet == "boto3.client('s3', endpoint_url='https://store.example.invalid/v1')"
     assert all("store.example.invalid" in c.snippet for c in calls[:3])
+
+
+def test_route_decorators_and_dict_get_are_not_env_refs(tmp_path):
+    # Real shakedown 2026-11-06: FastAPI `@app.get('/healthz')` was recorded as an env reference
+    # named '/healthz'. Only environment receivers count.
+    (tmp_path / "x.py").write_text(
+        "import os\nfrom os import environ\nenv = os.environ\n"
+        "@app.get('/healthz')\ndef h(): return {}.get('DB_HOST')\n"
+        "A = env.get('S3_BUCKET')\nB = os.environ.get('DB_HOST')\nC = os.getenv('KMS_KEY_ID')\nD = environ['AWS_REGION']\n",
+        encoding="utf-8",
+    )
+    names = sorted(f.detail["name"] for f in scan_repo(tmp_path, ".") if f.kind == "env_ref")
+    assert names == ["AWS_REGION", "DB_HOST", "KMS_KEY_ID", "S3_BUCKET"]
+
+
+def test_ci_workflows_are_not_app_configuration(tmp_path):
+    # Real shakedown: `.github/workflows/*.yml` AWS_REGION was graded as an app IAM dependency.
+    wf = tmp_path / ".github" / "workflows"
+    wf.mkdir(parents=True)
+    (wf / "publish.yml").write_text("env:\n  AWS_REGION: ap-northeast-2\n", encoding="utf-8")
+    assert [f for f in scan_repo(tmp_path, ".") if f.kind == "config_env"] == []
+
+
+def test_compose_emulator_and_seed_services_are_not_app_configuration(repo):
+    # Real shakedown: the moto seed container (amazon/aws-cli) env in compose.yaml was counted as
+    # app configuration. The app containers' env (x-app anchor) stays.
+    cfg = [f for f in scan_repo(repo, "app") if f.kind == "config_env" and f.file == "compose.yaml"]
+    names = {f.detail["name"] for f in cfg}
+    assert "AWS_ENDPOINT_URL" not in names and "AWS_REGION" not in names  # aws-seed only
+    assert {"S3_ENDPOINT_URL", "DB_SECRET_ID", "AWS_DEFAULT_REGION"} <= names  # app env
+    assert sum(1 for f in cfg if f.detail["name"] == "AWS_SECRET_ACCESS_KEY") == 1
+
+
+def test_aws_credential_env_is_iam_not_secrets_manager(repo):
+    # Real shakedown: AWS_SECRET_ACCESS_KEY was attributed to the Secrets Manager role.
+    roles = {f.detail["name"]: f.role for f in scan_repo(repo, "app") if f.kind == "config_env"}
+    assert roles["AWS_SECRET_ACCESS_KEY"] == "iam"
+    assert roles["AWS_ENDPOINT_URL_SECRETS_MANAGER"] == "secrets"
+    assert roles["DB_SECRET_ID"] == "secrets"

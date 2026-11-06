@@ -51,6 +51,7 @@ MUTATIONS = [
  (A, '"name": "app", "image": image', '"name": "demo", "image": image'),
  (A, '"lifecycle": {"preStop": {"sleep": {"seconds": 5}}},', ''),
  (A, '"automountServiceAccountToken": False,', '"automountServiceAccountToken": True,'),
+ (A, '"serviceAccountName": NAME,', ''),
  (A, '"readOnlyRootFilesystem": True', '"readOnlyRootFilesystem": False'),
  (A, '"runAsNonRoot": True, "runAsUser": 10001', '"runAsNonRoot": False, "runAsUser": 10001'),
  (A, 'pull_policy = "IfNotPresent" if pull_secret else "Never"', 'pull_policy = "IfNotPresent"'),
@@ -88,6 +89,15 @@ MUTATIONS = [
  (C, '        def log_message(self, *args):\n            pass\n\n', ''),
  (A, '"timeoutSeconds": 5, "periodSeconds": 2, "failureThreshold": 60', '"timeoutSeconds": 1, "periodSeconds": 1, "failureThreshold": 30'),
  (A, '["/bin/bash", "-c", f"exec 3<>/dev/tcp/127.0.0.1/{COMPAT_PORT}"]', '[PYTHON, "-c", "pass"]'),
+ (A, '"nodeSelector": {"kubernetes.io/arch": arch},', ''),
+ (A, '"nodeSelector": {"kubernetes.io/arch": arch}', '"nodeSelector": {"kubernetes.io/arch": "amd64"}'),
+ (A, 'elif image != registered:', 'elif False:'),
+ (A, 'elif pull_secret is not None:\n        # The arm64', 'elif False:\n        # The arm64'),
+ (A, 'entry = PIN.get("arm64") if arch == "arm64" else None', 'entry = PIN.get("arm64")'),
+ (A, 'not LOCAL_IMAGE.fullmatch(image)', 'not LOCAL_IMAGE.match(image)'),
+ (A, 'pinned if args.image is None else args.image', 'args.image or pinned'),
+ (A, '            print(pinned)\n', '            print(pinned_image())\n'),
+ (L, '"jsonpath={.status.nodeInfo.architecture}"', '"jsonpath={.metadata.name}"'),
 ]
 
 

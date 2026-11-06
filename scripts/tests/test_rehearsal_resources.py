@@ -1,6 +1,7 @@
 """T9 rehearsal resources for T15: a separate bucket identity and an OpenBao rehearsal subtree."""
 import importlib.util
 import json
+import re
 import unittest
 from pathlib import Path
 
@@ -51,51 +52,61 @@ class RehearsalBucketIdentityTests(unittest.TestCase):
 
 
 class RehearsalSecretsTests(unittest.TestCase):
-    NS, RUN = "rehearsal-0123abcd", "run-demo-1"
+    NS, ACCESSOR = "rehearsal-0123abcd", "auth_kubernetes_0a1b2c3d"
 
-    def test_policy_reads_only_this_runs_path(self):
-        policy = render.rehearsal_policy(self.RUN)
-        self.assertIn('path "secret/data/bravo/rehearsal/run-demo-1/*" { capabilities = ["read"] }', policy)
-        self.assertNotIn("bravo/rehearsal/*", policy)      # not the whole subtree (review: run isolation)
+    def test_reader_policy_is_one_templated_policy_scoped_to_the_tokens_own_namespace(self):
+        policy = render.rehearsal_reader_policy(self.ACCESSOR)
+        self.assertEqual(render.READER_POLICY, "rehearsal-app-reader")
+        self.assertIn('path "secret/data/bravo/rehearsal/{{identity.entity.aliases.auth_kubernetes_0a1b2c3d'
+                      '.metadata.service_account_namespace}}/*" { capabilities = ["read"] }', policy)
+        self.assertNotIn("bravo/rehearsal/*", policy)       # never the whole subtree
         self.assertNotIn("bravo/target", policy)
         self.assertNotIn('"create"', policy)
-        self.assertNotEqual(policy, render.rehearsal_policy("run-demo-2"))
-        with self.assertRaises(ValueError):
-            render.rehearsal_policy("run demo")
+        self.assertEqual(policy.count('path "secret/'), 1)
+        for bad in (None, "", "auth_kubernetes_", "auth_kubernetes_0A1B2C3D", "auth_token_0a1b2c3d",
+                    "auth_kubernetes_0a1b2c3d}}", "auth_kubernetes_0a1b2c3d.x", "auth_kubernetes_0a1b2c3d "):
+            with self.subTest(accessor=bad), self.assertRaises(ValueError):
+                render.rehearsal_reader_policy(bad)
+        self.assertFalse(hasattr(render, "rehearsal_policy"))  # the per-run writer-written policy is gone
 
-    def test_auth_role_binds_exact_namespace_and_run_policy_without_a_selector(self):
-        role = render.rehearsal_auth_role(self.NS, self.RUN)
-        self.assertEqual(role["bound_service_account_names"], ["rehearsal-eso-reader"])
-        self.assertEqual(role["bound_service_account_namespaces"], [self.NS])
+    def test_auth_role_binds_exact_namespace_and_the_fixed_policy_without_a_selector(self):
+        role = render.rehearsal_auth_role(self.NS)
+        # Scalars, not lists: the writer's allowed_parameters match strings and exact values only.
+        self.assertEqual(role["bound_service_account_names"], "rehearsal-eso-reader")
+        self.assertEqual(role["bound_service_account_namespaces"], self.NS)
         self.assertNotIn("bound_service_account_namespace_selector", role)  # review: no namespaces-get RBAC needed
-        self.assertEqual(role["token_policies"], ["rehearsal-app-reader-run-demo-1"])
+        self.assertEqual(role["token_policies"], "rehearsal-app-reader")
+        self.assertEqual((role["token_ttl"], role["token_max_ttl"]), ("300s", "900s"))
         self.assertTrue(role["token_no_default_policy"] and role["audience"] == "openbao")
-        other = render.rehearsal_auth_role("rehearsal-ffff0000", "run-demo-2")
-        self.assertNotEqual(other["token_policies"], role["token_policies"])
-        with self.assertRaises(ValueError):
-            render.rehearsal_auth_role("target-dev", self.RUN)
+        self.assertEqual(render.rehearsal_role_name(self.NS), "rehearsal-app-reader-rehearsal-0123abcd")
+        self.assertEqual(render.rehearsal_remote_path(self.NS), "bravo/rehearsal/rehearsal-0123abcd/database")
+        for bad in ("target-dev", "bravo-rehearsal-control", "rehearsal-control", "rehearsal-control-x", "rehearsal-",
+                    "Rehearsal-abc", "rehearsal-a,b", "rehearsal-*"):
+            with self.subTest(namespace=bad):
+                for function in (render.rehearsal_auth_role, render.rehearsal_role_name, render.rehearsal_remote_path):
+                    with self.assertRaises(ValueError):
+                        function(bad)
 
-    def test_delivery_targets_the_run_path_and_run_role_under_the_application_secret_name(self):
-        doc = render.rehearsal_delivery(self.NS, self.RUN)
+    def test_delivery_targets_the_namespace_path_and_role_under_the_application_secret_name(self):
+        doc = render.rehearsal_delivery(self.NS)
         kinds = {i["kind"]: i for i in doc["items"]}
         self.assertEqual(set(kinds), {"ServiceAccount", "SecretStore", "ExternalSecret"})
         self.assertTrue(all(i["metadata"]["namespace"] == self.NS for i in doc["items"]))
         self.assertTrue(all(i["metadata"]["labels"]["app.kubernetes.io/part-of"] == "bravo-rehearsal" for i in doc["items"]))
         secret = kinds["ExternalSecret"]
         self.assertEqual(secret["metadata"]["name"], "target-app-credentials")
-        self.assertEqual(secret["spec"]["data"][0]["remoteRef"]["key"], "bravo/rehearsal/run-demo-1/database")
+        self.assertEqual(secret["spec"]["data"][0]["remoteRef"]["key"], "bravo/rehearsal/rehearsal-0123abcd/database")
         self.assertEqual(secret["spec"]["target"]["deletionPolicy"], "Delete")
-        self.assertEqual(kinds["SecretStore"]["spec"]["provider"]["vault"]["auth"]["kubernetes"]["role"], "rehearsal-app-reader-run-demo-1")
-        for bad in ("target-dev", "rehearsal-", "Rehearsal-abc", "bravo-secrets"):
+        self.assertEqual(kinds["SecretStore"]["spec"]["provider"]["vault"]["auth"]["kubernetes"]["role"],
+                         "rehearsal-app-reader-rehearsal-0123abcd")
+        for bad in ("target-dev", "rehearsal-", "Rehearsal-abc", "bravo-secrets", "bravo-rehearsal-control", "rehearsal-control"):
             with self.assertRaises(ValueError):
-                render.rehearsal_delivery(bad, self.RUN)
-        with self.assertRaises(ValueError):
-            render.rehearsal_delivery("rehearsal-abc", "run demo")
+                render.rehearsal_delivery(bad)
 
     def test_init_script_is_atomic_restartable_and_always_revokes(self):
-        script = render.rehearsal_fetch_script(self.RUN)
-        self.assertIn("auth/kubernetes/login role=rehearsal-app-reader-run-demo-1", script)
-        self.assertIn("bravo/rehearsal/run-demo-1/database", script)
+        script = render.rehearsal_fetch_script(self.NS)
+        self.assertIn("auth/kubernetes/login role=rehearsal-app-reader-rehearsal-0123abcd", script)
+        self.assertIn("-mount=secret bravo/rehearsal/rehearsal-0123abcd/database", script)
         self.assertIn("umask 077", script)
         self.assertIn('> "$TMP"', script)                       # private temp file, never the target directly
         self.assertIn('mv -f "$TMP" "$OUT"', script)            # atomic replace works over an earlier 0400 file
@@ -103,10 +114,13 @@ class RehearsalSecretsTests(unittest.TestCase):
         self.assertIn("token revoke -self", script)
         self.assertIn('[ -s "$TMP" ]', script)                 # empty fetch is a failure, not a stale success
         self.assertNotIn("> /run/bravo/database/credentials.json", script)
-        container = render.rehearsal_fetch_init_container(self.RUN)
+        container = render.rehearsal_fetch_init_container(self.NS)
         self.assertEqual(container["command"][2], script)
         self.assertEqual(container["securityContext"]["capabilities"], {"drop": ["ALL"]})
+        self.assertEqual(container["x-bravo-remote-path"], "secret/data/bravo/rehearsal/rehearsal-0123abcd/database")
         self.assertNotIn("password\": \"", json.dumps(container))
+        with self.assertRaises(ValueError):
+            render.rehearsal_fetch_script("bravo-rehearsal-control")
 
     def test_init_script_restart_on_same_volume_succeeds(self):
         """Run the generated shell twice against a fake ``bao`` on the same directory: the second
@@ -115,7 +129,7 @@ class RehearsalSecretsTests(unittest.TestCase):
         import stat
         import subprocess
         import tempfile
-        script = render.rehearsal_fetch_script(self.RUN)
+        script = render.rehearsal_fetch_script(self.NS)
         with tempfile.TemporaryDirectory() as work:
             bindir, data, token_dir = Path(work, "bin"), Path(work, "data"), Path(work, "tok")
             for d in (bindir, data, token_dir, Path(work, "ca")):
@@ -151,15 +165,143 @@ class RehearsalSecretsTests(unittest.TestCase):
 
     def test_cli_stages_render(self):
         import io
-        from contextlib import redirect_stdout
+        from contextlib import redirect_stderr, redirect_stdout
         out = io.StringIO()
         with redirect_stdout(out):
-            render.main(["rehearsal-delivery", "--namespace", self.NS, "--run-id", self.RUN])
+            render.main(["rehearsal-delivery", "--namespace", self.NS])
         self.assertEqual(json.loads(out.getvalue())["kind"], "List")
         out = io.StringIO()
         with redirect_stdout(out):
-            render.main(["rehearsal-auth-role", "--namespace", self.NS, "--run-id", self.RUN])
-        self.assertEqual(json.loads(out.getvalue())["bound_service_account_namespaces"], [self.NS])
+            render.main(["rehearsal-auth-role", "--namespace", self.NS])
+        self.assertEqual(json.loads(out.getvalue())["bound_service_account_namespaces"], self.NS)
+        out = io.StringIO()
+        with redirect_stdout(out):
+            render.main(["rehearsal-reader-policy", "--kubernetes-accessor", self.ACCESSOR])
+        self.assertEqual(out.getvalue(), render.rehearsal_reader_policy(self.ACCESSOR))
+        with self.assertRaises(SystemExit), redirect_stderr(io.StringIO()):  # removed per-run stage is refused
+            render.main(["rehearsal-policy", "--run-id", "run-demo-1"])
+
+
+def _stanzas(policy):
+    """Path -> stanza text of the rendered HCL (one top-level ``path`` block per stanza)."""
+    blocks, current = {}, None
+    for line in policy.splitlines():
+        match = re.match(r'^path "([^"]+)"', line)
+        if match:
+            current = match.group(1)
+            blocks[current] = line
+        elif current:
+            blocks[current] += "\n" + line
+    return blocks
+
+
+def _openbao_glob(item, value):
+    """OpenBao 2.7.2 ``GlobbedStringsMatch``: ``*x*`` contains, ``x*`` prefix, ``*x`` suffix."""
+    if len(item) < 2:
+        return value == item
+    if item.startswith("*") and item.endswith("*"):
+        return item[1:-1] in value
+    if item.endswith("*"):
+        return value.startswith(item[:-1])
+    if item.startswith("*"):
+        return value.endswith(item[1:])
+    return value == item
+
+
+ROLE_PATH = "auth/kubernetes/role/rehearsal-app-reader-*"
+
+
+class RehearsalWriterTests(unittest.TestCase):
+    """The T15 prep Job's OpenBao identity (bravo-rehearsal-control / rehearsal-openbao-writer)."""
+
+    def test_writer_policy_grants_exactly_the_agreed_paths(self):
+        policy = render.rehearsal_writer_policy()
+        blocks = _stanzas(policy)
+        self.assertEqual(set(blocks), {
+            "secret/data/bravo/rehearsal/*", "secret/metadata/bravo/rehearsal/*", ROLE_PATH,
+            "auth/token/lookup-self", "auth/token/renew-self", "auth/token/revoke-self"})
+        crud = 'capabilities = ["create", "read", "update", "delete"]'
+        for path in ("secret/data/bravo/rehearsal/*", "secret/metadata/bravo/rehearsal/*"):
+            self.assertIn(crud, blocks[path])
+        for forbidden in ("sys/polic", "identity/", "bravo/target", "sys/auth", "sys/mounts", "auth/token/create",
+                          '"list"', '"sudo"', "+", 'path "*"'):
+            self.assertNotIn(forbidden, policy)
+
+    def test_writer_role_path_constrains_every_reader_role_field(self):
+        block = _stanzas(render.rehearsal_writer_policy())[ROLE_PATH]
+        self.assertIn('capabilities = ["create", "update", "delete"]', block)  # read always fails with required_parameters
+        required = json.loads(re.search(r"required_parameters = (\[.*\])", block).group(1))
+        self.assertEqual(set(required), set(render.rehearsal_auth_role("rehearsal-abc")))
+        for line in ('"bound_service_account_names" = ["rehearsal-eso-reader"]', '"audience" = ["openbao"]',
+                     '"bound_service_account_namespaces" = ["rehearsal-*"]', '"token_policies" = ["rehearsal-app-reader"]',
+                     '"token_ttl" = ["300s"]', '"token_max_ttl" = ["900s"]', '"token_no_default_policy" = [true]',
+                     '"bound_service_account_namespaces" = ["rehearsal-control*", "*,*", "***", "* *"]'):
+            self.assertIn(line, block)
+        self.assertNotIn("rehearsal-app-reader*", block.split("allowed_parameters")[1])  # policy value is exact, no glob
+
+    @staticmethod
+    def _parameters(text):
+        return {k: json.loads(v) for k, v in re.findall(r'^    "(\w+)" = (\[.*\])$', text, re.MULTILINE)}
+
+    @staticmethod
+    def _in_list(value, choices):
+        """OpenBao ``valueInSlice``: two strings glob-match, anything else must be equal."""
+        return any(_openbao_glob(c, value) if isinstance(c, str) and isinstance(value, str) else c == value
+                   for c in choices)
+
+    def _passes(self, body):
+        allowed_part, denied_part = _stanzas(render.rehearsal_writer_policy())[ROLE_PATH].split("denied_parameters")
+        allowed, denied = self._parameters(allowed_part), self._parameters(denied_part)
+        return all(key in allowed and self._in_list(value, allowed[key])
+                   and not self._in_list(value, denied.get(key, [])) for key, value in body.items())
+
+    def test_rendered_reader_role_passes_and_known_bypasses_do_not(self):
+        """A model of OpenBao's parameter check; the real server result is in the T9 evidence."""
+        role = render.rehearsal_auth_role("rehearsal-0123456789abcdef01234567")
+        self.assertTrue(self._passes(role))
+        for key, value in [("bound_service_account_namespaces", "bravo-rehearsal-control"),
+                           ("bound_service_account_namespaces", "rehearsal-control"),
+                           ("bound_service_account_namespaces", "rehearsal-control "),
+                           ("bound_service_account_namespaces", "rehearsal-a,target-dev"),
+                           ("bound_service_account_namespaces", "rehearsal-*"),
+                           ("bound_service_account_namespaces", ["rehearsal-a"]),
+                           ("bound_service_account_names", "rehearsal-openbao-writer"),
+                           ("token_policies", "rehearsal-app-reader,default"), ("token_policies", "default"),
+                           ("token_policies", "rehearsal-app-reader-evil"), ("token_policies", "rehearsal-app-reader "),
+                           ("token_policies", ["rehearsal-app-reader"]), ("token_policies", "rehearsal-openbao-writer"),
+                           ("token_ttl", "768h"), ("token_no_default_policy", False), ("token_period", "24h")]:
+            with self.subTest(key=key, value=value):
+                self.assertFalse(self._passes(dict(role, **{key: value})))
+
+    def test_writer_auth_role_binds_exactly_the_writer_sa(self):
+        role = render.rehearsal_writer_auth_role()
+        self.assertEqual(role, {"bound_service_account_names": "rehearsal-openbao-writer",
+                                "bound_service_account_namespaces": "bravo-rehearsal-control", "audience": "openbao",
+                                "token_policies": "rehearsal-openbao-writer", "token_ttl": "300s",
+                                "token_max_ttl": "900s", "token_no_default_policy": True})
+        self.assertFalse(role["token_policies"].startswith(render.READER_POLICY))  # not a reader policy name
+
+    def test_optional_identity_is_not_a_rehearsal_attempt_namespace(self):
+        namespace, account = render.rehearsal_writer_identity()["items"]
+        self.assertEqual((namespace["kind"], namespace["metadata"]["name"]), ("Namespace", "bravo-rehearsal-control"))
+        self.assertNotEqual(namespace["metadata"]["labels"].get("app.kubernetes.io/part-of"), "bravo-rehearsal")
+        self.assertEqual(namespace["metadata"]["labels"]["pod-security.kubernetes.io/enforce"], "restricted")
+        self.assertEqual((account["kind"], account["metadata"]["name"], account["metadata"]["namespace"]),
+                         ("ServiceAccount", "rehearsal-openbao-writer", "bravo-rehearsal-control"))
+        self.assertFalse(account["automountServiceAccountToken"])
+
+    def test_writer_cli_stages(self):
+        import io
+        from contextlib import redirect_stdout
+        out = io.StringIO()
+        with redirect_stdout(out):
+            render.main(["rehearsal-writer-policy"])
+        self.assertEqual(out.getvalue(), render.rehearsal_writer_policy())
+        for stage, kind in (("rehearsal-writer-auth-role", None), ("rehearsal-writer-identity", "List")):
+            out = io.StringIO()
+            with redirect_stdout(out):
+                render.main([stage])
+            self.assertEqual(json.loads(out.getvalue()).get("kind"), kind)
 
 
 if __name__ == "__main__":

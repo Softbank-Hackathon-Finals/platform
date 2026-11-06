@@ -34,6 +34,8 @@ def chart_fixture():
                 "readinessProbe": {"exec": {"command": ["sh", "-ec", "bao status -tls-skip-verify"]},
                                    "failureThreshold": 3, "initialDelaySeconds": 5, "periodSeconds": 10,
                                    "successThreshold": 1, "timeoutSeconds": 10},
+                "resources": {"requests": {"cpu": "250m", "memory": "128Mi"},
+                              "limits": {"cpu": "1", "memory": "512Mi"}},
             }]}},
         }},
         {"apiVersion": "v1", "kind": "Service", "metadata": metadata.copy(), "spec": {"selector": labels.copy()}},
@@ -65,6 +67,21 @@ class ChartBoundaryTests(unittest.TestCase):
                 del container["readinessProbe"]
             else:
                 container["readinessProbe"].update(change)
+            with self.subTest(change=change), self.assertRaises(ValueError):
+                cli("finalize-bao", objects=objects)
+
+    def test_server_resources_are_rendered_and_enforced(self):
+        self.assertEqual(render.bao_values()["server"]["resources"],
+                         {"requests": {"cpu": "250m", "memory": "128Mi"}, "limits": {"cpu": "1", "memory": "512Mi"}})
+        # The earlier 50m/500m (Ready flapped on the target) and a missing block are refused.
+        for change in ({"requests": {"cpu": "50m", "memory": "128Mi"}, "limits": {"cpu": "500m", "memory": "512Mi"}},
+                       {"requests": {"cpu": "250m", "memory": "128Mi"}}, None):
+            objects = chart_fixture()
+            container = objects[0]["spec"]["template"]["spec"]["containers"][0]
+            if change is None:
+                del container["resources"]
+            else:
+                container["resources"] = change
             with self.subTest(change=change), self.assertRaises(ValueError):
                 cli("finalize-bao", objects=objects)
 
@@ -101,6 +118,18 @@ class DeliveryBoundaryTests(unittest.TestCase):
         self.assertEqual(namespace["metadata"]["name"], "external-secrets")
         self.assertNotIn("namespace", namespace["metadata"])
         self.assertEqual(namespace["metadata"]["labels"]["pod-security.kubernetes.io/enforce"], "restricted")
+        bao_peers = cli("network", "--api-ip", "10.96.0.1", "--api-endpoint-ip", "192.168.50.10")["spec"]["ingress"]
+        self.assertEqual(len(bao_peers), 1)
+        self.assertEqual(bao_peers[0]["ports"], [{"protocol": "TCP", "port": 8200}])
+        self.assertEqual(bao_peers[0]["from"], [  # existing peers unchanged; writer peer is namespace AND label
+            {"namespaceSelector": {"matchLabels": {"kubernetes.io/metadata.name": "external-secrets"}},
+             "podSelector": {"matchLabels": {"app.kubernetes.io/name": "external-secrets"}}},
+            {"namespaceSelector": {"matchLabels": {"kubernetes.io/metadata.name": "target-dev"}},
+             "podSelector": {"matchLabels": {"bravo-secret-probe": "true"}}},
+            {"namespaceSelector": {"matchLabels": {"kubernetes.io/metadata.name": "bravo-rehearsal-control"}},
+             "podSelector": {"matchLabels": {"app.kubernetes.io/component": "rehearsal-openbao-writer"}}},
+            {"namespaceSelector": {"matchLabels": {"app.kubernetes.io/part-of": "bravo-rehearsal"}}},
+        ])
         for stage, expected in (("network", "bravo-secrets"), ("eso-network", "external-secrets")):
             policy = cli(stage, "--api-ip", "10.96.0.1", "--api-endpoint-ip", "192.168.50.10")
             with self.subTest(stage=stage):

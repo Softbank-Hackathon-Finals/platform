@@ -362,6 +362,14 @@ def test_fail_retry_pass_across_restart_with_the_openai_path(context, monkeypatc
     assert final.state == "AWAITING_APPROVAL" and stored_states[-1]["revision"] == 6
     assert [record["attempt"] for record in final.attempts] == [1, 2]
     assert final.result()["task_digest"] == digest(bundle)
+    # The Agents SDK path's OTEL trace reference survives the restart unchanged.
+    traces = [record["observability"]["trace_id"] for record in final.attempts]
+    assert len(set(traces)) == 2 and all(final.attempts[i]["observability"] == second.attempts[i]["observability"]
+                                         for i in range(2))
+    broken = stored_states[-1]
+    broken["attempts"][0]["observability"] = "not-a-trace"
+    with pytest.raises(StateRejected):
+        Coordinator.restore(resign(broken), snapshot)
 
 
 RESTART_SCRIPT = """

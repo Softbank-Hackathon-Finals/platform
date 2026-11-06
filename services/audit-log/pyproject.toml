@@ -12,7 +12,8 @@ aws = ["boto3>=1.35,<2"]
 bravo-audit = "bravo_audit.cli:main"
 
 [dependency-groups]
-dev = ["pytest>=8,<10"]
+# fastapi/uvicorn only to run the real T10 event API (../platform-events/src) in the follow tests.
+dev = ["pytest>=8,<10", "fastapi>=0.115,<1", "uvicorn>=0.30,<1"]
 
 [build-system]
 requires = ["hatchling>=1.25,<2"]
@@ -31,4 +32,4 @@ ignore = ["E501"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-pythonpath = ["src"]
+pythonpath = ["src", "testing"]

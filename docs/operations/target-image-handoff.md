@@ -12,6 +12,9 @@ that names the image. Read the reference with:
 APP_IMAGE=$(python3 infra/envs/target-workloads/application.py --print-image)
 ```
 
+This export serves amd64 nodes only. For the arm64 target node, see
+[arm64 target node](#arm64-target-node).
+
 The earlier `ce5727e` image and its export evidence do not send `X-Bravo-Env`.
 No new application build or registry visibility change is part of this handoff.
 
@@ -135,6 +138,39 @@ The owner must record import/image digest and an actual restricted non-root
 packaging Pod result before claiming target runtime success. Export success
 alone proves neither import nor application startup. No other session's VM,
 containerd namespace, SSH keys or active workloads may be reused implicitly.
+
+## arm64 target node
+
+The target node changed from x86 to arm64 around 05:20 KST on 2026-11-06. The
+publication above is linux/amd64 only. The arm64 node instead runs a local build
+already imported into its containerd. `app-image.json` records it under `arm64`,
+and `application.py --arch arm64` renders it with
+`nodeSelector: kubernetes.io/arch: arm64` and `imagePullPolicy: Never`.
+
+Its source was checked by file content: the 17 files under `/app/app` in the
+running image have the same SHA-256 as `app/` at the entry's `source_sha`. The
+builder's record adds how it was built: those app files with a local Dockerfile
+adjusted for arm64, so there is no single demo-chat build commit. The entry keeps
+that Dockerfile's SHA-256, the Python and uv base digests and the build time
+instead. This record was not reproduced by a rebuild. To repeat the file check
+with read access only, from the platform checkout and with a demo-chat checkout in
+`$DEMO_CHAT`:
+
+```sh
+kubectl -n target-dev exec deployment/demo-chat -c app -- python -c '
+import hashlib, pathlib
+for p in sorted(pathlib.Path("/app/app").rglob("*")):
+    if p.is_file() and "__pycache__" not in p.parts:
+        print(hashlib.sha256(p.read_bytes()).hexdigest(), p.relative_to("/app"))' > live-app.sha
+SOURCE=$(python3 -c 'import json; print(json.load(open("infra/envs/target-workloads/app-image.json"))["arm64"]["source_sha"])')
+git -C "$DEMO_CHAT" ls-tree -r --name-only "$SOURCE" app/ | while read -r p; do
+  printf '%s %s\n' "$(git -C "$DEMO_CHAT" show "$SOURCE:$p" | shasum -a 256 | cut -d' ' -f1)" "$p"
+done | sort -k2 | diff - <(sort -k2 live-app.sha) && echo "same app files"
+```
+
+Equal app files do not prove equal dependencies or base layers. A rebuilt or
+re-imported arm64 image is another digest; record it in `app-image.json` with the
+same check before rendering it.
 
 ## Unchanged application configuration and the S2/T9 gap
 

@@ -24,6 +24,8 @@ ATTEMPT_FIELDS = frozenset({
     "attempt", "input", "input_digest", "task_digest", "state", "model_usage", "audit_event_count",
     "audit_truncated", "proposal", "proposal_digest",
 })
+# ``observability`` is the OTEL trace reference telemetry.py sets on Tools; ``verification`` the receipt.
+OPTIONAL_ATTEMPT_FIELDS = frozenset({"observability", "verification"})
 # Bounds a stored document, measured as UTF-8 (not ``\uXXXX`` escapes). Worst case on the normal
 # path is three proposals of four 32,768-character edits that JSON still escapes (6 bytes each),
 # about 2.4 MB, plus three attempts of 128 events and verifier/restart events.
@@ -123,6 +125,7 @@ class Coordinator:
                               "input_digest": digest(self.bundle), "task_digest": digest(self.task),
                               "state": self.state,
                               "model_usage": dict(tools.usage),
+                              **({"observability": tools.observability} if hasattr(tools, "observability") else {}),
                               "audit_event_count": tools.event_count,
                               "audit_truncated": tools.event_count > len(tools.events),
                               "proposal": self.proposal.model_dump() if self.proposal else None,
@@ -267,8 +270,10 @@ def _checked(state, snapshot: Snapshot, inventory: InventorySummary | None) -> d
     expected_input, decision = task, None
     for index, record in enumerate(attempts, start=1):
         if (not isinstance(record, dict) or not ATTEMPT_FIELDS <= set(record)
-                or not set(record) <= ATTEMPT_FIELDS | {"verification"}
+                or not set(record) <= ATTEMPT_FIELDS | OPTIONAL_ATTEMPT_FIELDS
                 or type(record["attempt"]) is not int or record["attempt"] != index):
+            raise StateRejected("attempt record mismatch")
+        if "observability" in record and not isinstance(record["observability"], dict):
             raise StateRejected("attempt record mismatch")
         given = FailureBundle.model_validate(record["input"])
         offered = Proposal.model_validate(record["proposal"]) if record["proposal"] is not None else None

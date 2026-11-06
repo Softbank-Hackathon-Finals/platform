@@ -49,7 +49,23 @@ def build_app(store, config_file, grants_file):
 
     registry = Registry(store, environments=environments, releases=releases, can_register=can_register,
                         evaluation_profiles=config.get("evaluation_profiles", ()))
-    return create_registration_app(registry, verify_identity=identity)
+    app = create_registration_app(registry, verify_identity=identity)
+    if config.get("gate_records") is not None:
+        from .gate_record_host import (
+            AUDIENCE,
+            GateRecordGrants,
+            GateRecordHost,
+            GateRecordVerifier,
+            create_gate_record_app,
+        )
+        gate = config["gate_records"]
+        if (mode != "aws_sso" or type(gate) is not dict
+                or gate != {"grants_file": "/registration/gate-grants.json"}):
+            raise ValueError("explicit_gate_record_configuration_required")
+        verifier = GateRecordVerifier(SsoRegistrationVerifier(**(config["sso_verifier"] | {"audience": AUDIENCE})))
+        host = GateRecordHost(store, GateRecordGrants(gate["grants_file"]))
+        app.mount("/gate-records", create_gate_record_app(host, verifier))
+    return app
 
 
 def main(argv=None):

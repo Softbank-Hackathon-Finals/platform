@@ -1,0 +1,9 @@
+{
+  "source_revision": "72641afca2c1485667fe1dd58503d86908c6610e",
+  "source_files": [
+    {
+      "path": "infra/envs/rehearsal-access/team_test.py",
+      "sha256": "a71b909068ee02d874d1b075a2c0d21145850568b65eb7131caa50e9b54cfad6"
+    }
+  ]
+}

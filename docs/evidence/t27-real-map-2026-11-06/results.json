@@ -1,0 +1,321 @@
+{
+ "cleanup": {
+  "drill_resources_in_state_after": 0,
+  "state_before_after_identical": true,
+  "state_rows": 26
+ },
+ "inputs": {
+  "candidate": "onprem-demo",
+  "control_image": "localhost/bravo-demo-chat@sha256:b351ba11819796aaea854f742049e46b058561f80c0e738f42c93280af762888",
+  "control_image_is_runbook_command_output": true,
+  "demo_chat_source_sha": "8d82a9241d3894737778a77d58349e1aee54eca1",
+  "inventory_digest": "sha256:182e99f7e8afd8f345db0df6c7c77ba295eea82608c7527c1c83952486055f81",
+  "inventory_generated_at": "2026-11-05T18:55:57Z"
+ },
+ "inventory_source_as_run": {
+  "note": "T16 checkout when inventory.json was generated; rebuilding with it reproduces inventory_digest",
+  "reproduced": true,
+  "source_files": [
+   {
+    "path": "services/inventory/profiles/onprem-rke2.json",
+    "sha256": "67d64ebcb49b8e10e0315f023b5dfd16827e8a53a19cfcc9b0c31fe1096f685e"
+   },
+   {
+    "path": "services/inventory/pyproject.toml",
+    "sha256": "1ec75cbcb002a0d12e3410807ce12a31afd96e2d8a613d96557f7403730d6432"
+   },
+   {
+    "path": "services/inventory/src/bravo_inventory/__init__.py",
+    "sha256": "646c62388458550b3492b47c7a0fb9176460a53a31e4a9fa398f74bf939ecfbd"
+   },
+   {
+    "path": "services/inventory/src/bravo_inventory/capabilities.py",
+    "sha256": "1d32de78685e4629b3c3ba3cee268ce2fd8347786a2b8c56952620f5e709557a"
+   },
+   {
+    "path": "services/inventory/src/bravo_inventory/catalog.py",
+    "sha256": "ffc83b1b88182c1930cf5602637a4ffcab2e98e15c71500428193205945696d2"
+   },
+   {
+    "path": "services/inventory/src/bravo_inventory/cli.py",
+    "sha256": "28f451a18e144c4529c88082fa542c4ed57ef03de52392c6c01176282f406517"
+   },
+   {
+    "path": "services/inventory/src/bravo_inventory/deploy_trace.py",
+    "sha256": "f77a8584b03f17ffc41e839ce54d7261ebc0735028a5c020bcbd1fd5238c566d"
+   },
+   {
+    "path": "services/inventory/src/bravo_inventory/grading.py",
+    "sha256": "ffcfc37f152817e419fd243332e7f062cc354fb55849fb80ee025a272cf8b3c1"
+   },
+   {
+    "path": "services/inventory/src/bravo_inventory/reconcile.py",
+    "sha256": "0444a4b027a5c939b0d26ebf0ac1eae78dc3c6322da7f88ad0873185402409ca"
+   },
+   {
+    "path": "services/inventory/src/bravo_inventory/report.py",
+    "sha256": "3ec536aacc1a88dddf68818cb92f5e0f0555a6cb39f2b96e7e130bbb33491fa2"
+   },
+   {
+    "path": "services/inventory/src/bravo_inventory/schemas/inventory.schema.json",
+    "sha256": "da7c1022d194a6e0cf32b4f908935b2fb442b71931c8313dfaa7eac4f37d25c8"
+   },
+   {
+    "path": "services/inventory/src/bravo_inventory/static_scan.py",
+    "sha256": "83e82ed584fd4a4561c875493a853122c84529790490abd01549b6afffe21c81"
+   },
+   {
+    "path": "services/inventory/uv.lock",
+    "sha256": "41d98ba1a38f0ac852ec2210709f44ece05ac7ebdce8d3a19bdc2e3b5cdfa53f"
+   }
+  ],
+  "source_revision": "66a78896213bb5fbe5557cc446d3b5f266b26662"
+ },
+ "private_originals": [
+  {
+   "name": "snapshot.json",
+   "sha256": "56fe3bddc3ae294661fc9ca00978ac6681ed453e2cb9df5947b6933c5be74901"
+  },
+  {
+   "name": "state-before.txt",
+   "sha256": "b62090c5e6ab302a9cabd8ecb07f75fc40276afc22f2f4255a07de2123b654fe"
+  },
+  {
+   "name": "state-after.txt",
+   "sha256": "b62090c5e6ab302a9cabd8ecb07f75fc40276afc22f2f4255a07de2123b654fe"
+  },
+  {
+   "name": "inventory.json",
+   "sha256": "9f3d2e3ec07857061e3fcde2d58906d16efecc19edab07a27825312244d5ee1d"
+  },
+  {
+   "name": "recheck-inventory-t16-4fad4733.json",
+   "sha256": "6bea4a3bec82af960463884f62b3204861e6d500d626beb69a0f0d8b6de6d197"
+  }
+ ],
+ "public_copies_identical_to_private": true,
+ "recomputed_with_current_t16": {
+  "added_entries": [
+   {
+    "evidence": [
+     "block:aws-secretsmanager:app"
+    ],
+    "found_in": "deploy",
+    "grade": "code_change",
+    "id": "item-006",
+    "name": "secrets (secrets)",
+    "risk": "migration_omission",
+    "status": "unknown"
+   }
+  ],
+  "decisions_same_as_run": true,
+  "inventory_digest": "sha256:a22a288d762581e6fa907e3a75e8a093a1ae01f25b5e3a929fe6d166b8ea8e9b",
+  "inventory_source": {
+   "source_files": [
+    {
+     "path": "services/inventory/profiles/onprem-rke2.json",
+     "sha256": "67d64ebcb49b8e10e0315f023b5dfd16827e8a53a19cfcc9b0c31fe1096f685e"
+    },
+    {
+     "path": "services/inventory/pyproject.toml",
+     "sha256": "1ec75cbcb002a0d12e3410807ce12a31afd96e2d8a613d96557f7403730d6432"
+    },
+    {
+     "path": "services/inventory/src/bravo_inventory/__init__.py",
+     "sha256": "646c62388458550b3492b47c7a0fb9176460a53a31e4a9fa398f74bf939ecfbd"
+    },
+    {
+     "path": "services/inventory/src/bravo_inventory/capabilities.py",
+     "sha256": "4545861c44a310328ac95a4b9d7ef99636b4570c5f78561ea7fca07f2aa85121"
+    },
+    {
+     "path": "services/inventory/src/bravo_inventory/catalog.py",
+     "sha256": "ffc83b1b88182c1930cf5602637a4ffcab2e98e15c71500428193205945696d2"
+    },
+    {
+     "path": "services/inventory/src/bravo_inventory/cli.py",
+     "sha256": "ede7deb269b93a51bc560c20dcf3558e654a2f9073728b3b2f30058fa7d05324"
+    },
+    {
+     "path": "services/inventory/src/bravo_inventory/deploy_trace.py",
+     "sha256": "edcbfa30b302bd1d888ba14cc5f96a8a56a84390afaf6cb847b31396cbccc4d7"
+    },
+    {
+     "path": "services/inventory/src/bravo_inventory/grading.py",
+     "sha256": "ffcfc37f152817e419fd243332e7f062cc354fb55849fb80ee025a272cf8b3c1"
+    },
+    {
+     "path": "services/inventory/src/bravo_inventory/reconcile.py",
+     "sha256": "06fdd5b5f97c8a0c872f01d3b6e3e58a1fda4481d3c9dab5f139ddaee19a0fea"
+    },
+    {
+     "path": "services/inventory/src/bravo_inventory/report.py",
+     "sha256": "2be386fc06452bd782452de82617d9a3168ae178c5247c6ba20a9cba1afacdb5"
+    },
+    {
+     "path": "services/inventory/src/bravo_inventory/schemas/inventory.schema.json",
+     "sha256": "da7c1022d194a6e0cf32b4f908935b2fb442b71931c8313dfaa7eac4f37d25c8"
+    },
+    {
+     "path": "services/inventory/src/bravo_inventory/static_scan.py",
+     "sha256": "e15e2536d7704309bcc450431aad9cce6ab9f211a0ed6b25bf65a5003bdfe63b"
+    },
+    {
+     "path": "services/inventory/uv.lock",
+     "sha256": "41d98ba1a38f0ac852ec2210709f44ece05ac7ebdce8d3a19bdc2e3b5cdfa53f"
+    }
+   ],
+   "source_revision": "4fad473379faac2bc7e31f10dc7ea7943edc79b7"
+  },
+  "manifests_same_as_run": true,
+  "map_status": {
+   "kept": 2,
+   "not_blocked": 1,
+   "remains": 5,
+   "unknown": 2,
+   "unverified": 4
+  },
+  "note": "same snapshot and spec; inventory rebuilt from the same exports with T16 at source_revision below. Not a new cluster run",
+  "plan_digest": "sha256:78a1180704e1c68f60aeac38e0a95b20e91345d79d7e379a5243095736773508"
+ },
+ "result": {
+  "candidate_verdict": "needs_work",
+  "drill_verdict": "NOT_RUN",
+  "identifiers_in_public_files": {
+   "account_number": 0,
+   "arn": 0,
+   "home_path": 0,
+   "uuid": 0
+  },
+  "inventory_trace_notes": 1,
+  "manifests": [
+   "exit-drill-egress-app",
+   "exit-drill-egress-pooler"
+  ],
+  "map_status": {
+   "kept": 2,
+   "not_blocked": 1,
+   "remains": 5,
+   "unknown": 1,
+   "unverified": 4
+  },
+  "plan_digest": "sha256:385aeb0d1b7f4a088b37864311c7c14e8273c7a411fd5d6675fb6e0e0db10a58",
+  "plan_same_as_offline_render_of_earlier_snapshot": true,
+  "render_refused": []
+ },
+ "run": {
+  "approved_by_user": true,
+  "control_created_to_ready_seconds_api": 1,
+  "date": "2026-11-06",
+  "file_times_kst": {
+   "control_created": "11:10:55.695",
+   "control_manifest": "11:10:54.146",
+   "delete_requested": "11:10:57.225",
+   "map_json": "11:10:57.160",
+   "map_markdown": "11:10:57.218",
+   "plan": "11:10:57.103",
+   "snapshot": "11:10:57.044",
+   "state_after": "11:11:04.029",
+   "state_before": "11:10:53.244"
+  },
+  "namespace": "target-dev",
+  "network_policies_applied": 0,
+  "operator_reported": {
+   "control_deleted_with_uid_precondition": true,
+   "control_ready_seconds": 3,
+   "drill_labeled_resources_after": 0,
+   "map_json_exit": 0,
+   "map_markdown_exit": 0,
+   "render_exit": 0,
+   "total_seconds": 11
+  },
+  "stage": 1,
+  "state_before_to_after_seconds": 10.8
+ },
+ "snapshot": {
+  "active_pods_by_workload": {
+   "app": 1,
+   "control": 1,
+   "db": 1,
+   "edge": 1,
+   "objects": 1,
+   "pooler": 1
+  },
+  "control_ready": true,
+  "digest": "sha256:308c112be64ff13ec98037486a29e07a67edd652338ea7d17fbc6d21380bad5b",
+  "network_policies": 4,
+  "pods_active": 6,
+  "pods_finished_ignored": 17
+ },
+ "source_files": [
+  {
+   "path": "infra/envs/target-workloads/app-image.json",
+   "sha256": "96b51d3d665f5046dd5532f59c7ab80277ee9af315cf4075743a5d5147bfd992"
+  },
+  {
+   "path": "infra/envs/target-workloads/application.py",
+   "sha256": "eb5c08b8c9d869e72ff164b4fd8a7eb26482b400e4ba5a8d1ac44b1b3f5883f2"
+  },
+  {
+   "path": "services/exit-drill/profiles/target-dev.json",
+   "sha256": "a3839413d38ed9bd9700526408f1835fa0d5c6c669e1bb96891d37e78c55e3a5"
+  },
+  {
+   "path": "services/exit-drill/pyproject.toml",
+   "sha256": "9358bb53adb4fafdcb826b975a6670cbb0af15fe65fd073b0e29f7ad42680f36"
+  },
+  {
+   "path": "services/exit-drill/src/bravo_exit_drill/__init__.py",
+   "sha256": "63dd3cfc651c1db6ef6aae4418e5d8c419d553b020039a0dac65e3ded5f69587"
+  },
+  {
+   "path": "services/exit-drill/src/bravo_exit_drill/aws_endpoints.py",
+   "sha256": "f702dc4dad0201e28cb692bffa73768ba25e9274547d90b75eddb6e9518381a8"
+  },
+  {
+   "path": "services/exit-drill/src/bravo_exit_drill/cli.py",
+   "sha256": "4a3f090926f44c3843865626af69687241e8569108523fa5ebdb5b34f3969b68"
+  },
+  {
+   "path": "services/exit-drill/src/bravo_exit_drill/cluster.py",
+   "sha256": "31ba1aec3b6a7d512e44baf32f84756d5297e8cb3a638fd765d82523e7b0ee97"
+  },
+  {
+   "path": "services/exit-drill/src/bravo_exit_drill/control_pod.py",
+   "sha256": "f1ac60cad34bceaba6d49c479cb29cbbf7a01c4733819682e29c438515f86aa4"
+  },
+  {
+   "path": "services/exit-drill/src/bravo_exit_drill/inventory_input.py",
+   "sha256": "75148c7440297cb8b2799a25b9ab6122e79db6b9baf5b06c91c8273383a0cb4e"
+  },
+  {
+   "path": "services/exit-drill/src/bravo_exit_drill/observation.py",
+   "sha256": "adc3db59813e9c2c910c4d3a6529c2b6154183f82b005f2d8c916205cc905fdb"
+  },
+  {
+   "path": "services/exit-drill/src/bravo_exit_drill/policy.py",
+   "sha256": "b9168fad5ff8ee664b95d49e31c596bb1d2d95231ec557b30a7594c1a2f06190"
+  },
+  {
+   "path": "services/exit-drill/src/bravo_exit_drill/probe.py",
+   "sha256": "0d385fe1bff4a90ed25e466a3271b4d35ab2948e28879059cfa8499204ec838b"
+  },
+  {
+   "path": "services/exit-drill/src/bravo_exit_drill/residual_map.py",
+   "sha256": "5d168a4af7c91dc52f45f4cae8974c7199a5f84f013f3bf425cd992676af7f28"
+  },
+  {
+   "path": "services/exit-drill/src/bravo_exit_drill/spec.py",
+   "sha256": "77b49216bb7eac7d5fb97fd7c7f74c0d01a0e7b85b565c3e718d59dd26cf9bea"
+  },
+  {
+   "path": "services/exit-drill/src/bravo_exit_drill/verdict.py",
+   "sha256": "b312117d69e5f34aa9df7ce7bd3696b9a54b2c0cc407bfde392247572a3ebabe"
+  },
+  {
+   "path": "services/exit-drill/uv.lock",
+   "sha256": "d1cd04a11a4d6c49692073580db356457133c905c9cad79ef36a47be92f06e98"
+  }
+ ],
+ "source_revision": "4fad473379faac2bc7e31f10dc7ea7943edc79b7"
+}

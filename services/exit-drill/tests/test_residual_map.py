@@ -240,6 +240,18 @@ def test_residual_services_remain_with_source_recorded():
     assert got["residual:tailscale (복제 · 제어 경로)"]["source"] == "drill-spec"
 
 
+def test_edge_tunnel_is_shown_on_the_cloudflare_residual():
+    """터널은 Cloudflare에 기대는 목적지 구성요소다. 줄을 따로 만들지 않고 그 잔존 의존성에 잇는다."""
+    plan, view = plan_and_view()
+    result = build_map(view, plan, None)
+    got = entries(result)
+    cloudflare = got["residual:cloudflare (edge · tunnel)"]
+    assert (cloudflare["status"], cloudflare["target_impl"]) == ("remains", "edge (app=bravo-edge-tunnel)")
+    assert got["residual:github (코드 · 이미지 빌드)"]["target_impl"] == ""
+    assert "workload:edge" not in got
+    assert "| cloudflare (edge · tunnel) | 등급 없음 | edge (app=bravo-edge-tunnel) |" in render_markdown(result)
+
+
 def test_duplicate_residual_is_listed_once():
     doc = inventory_doc()
     doc["candidates"][0]["residual_dependencies"].append("tailscale (복제 · 제어 경로)")

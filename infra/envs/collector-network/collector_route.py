@@ -2,6 +2,7 @@
 """Render each Collector's dedicated tailnet route to the platform metrics store; never register nodes or change ACLs."""
 import argparse
 import json
+import ipaddress
 import re
 import sys
 from pathlib import Path
@@ -154,10 +155,12 @@ def _ports(side, observed_services):
                                 expected={SERVICE: ("otlp", PORT)})
 
 
-def collector_egress(side, observed_services):
+def collector_egress(side, observed_services, *, service_ip_egress=False):
     """Collector → only this side's proxy Pods, on the service port and the observed post-DNAT port."""
     ports = _ports(side, observed_services)
-    return _labels({"apiVersion": "networking.k8s.io/v1", "kind": "NetworkPolicy",
+    if type(service_ip_egress) is not bool:
+        raise ValueError("service_ip_egress must be explicit bool")
+    policy = _labels({"apiVersion": "networking.k8s.io/v1", "kind": "NetworkPolicy",
                     "metadata": {"name": "bravo-collector-tailnet", "namespace": NAMESPACE},
                     "spec": {"podSelector": {"matchLabels": CALLER.copy()}, "policyTypes": ["Egress"],
                              "egress": [{"to": [{
@@ -166,6 +169,25 @@ def collector_egress(side, observed_services):
                                  "podSelector": {"matchLabels": {
                                      **PROXY_LABELS, "tailscale.com/parent-resource": group(side)}},
                              }], "ports": [{"protocol": "TCP", "port": port} for port in ports]}]}}, side)
+    if service_ip_egress:
+        # Some CNIs enforce before Service DNAT; operator-owned EndpointSlices do
+        # not carry Pod targetRefs. Bind this exception to the validated child
+        # Service, never a Service CIDR or all destinations on port 9090.
+        children = observed_services["items"] if isinstance(observed_services, dict) else observed_services
+        selected = [child for child in children
+                    if child.get("metadata", {}).get("labels", {}).get("tailscale.com/proxy-group") == group(side)]
+        for child in selected:
+            value = child.get("spec", {}).get("clusterIP")
+            if not isinstance(value, str):
+                raise ValueError("current child Service clusterIP required")
+            address = ipaddress.ip_address(value)
+            if address.is_unspecified or address.is_multicast or address.is_loopback:
+                raise ValueError("invalid child Service clusterIP")
+            policy["spec"]["egress"].append({
+                "to": [{"ipBlock": {"cidr": f"{address}/{address.max_prefixlen}"}}],
+                "ports": [{"protocol": "TCP", "port": PORT}],
+            })
+    return policy
 
 
 def proxy_ingress(side, observed_services, *, transport_ports):
@@ -184,6 +206,8 @@ def main(argv=None):
     parser.add_argument("--metrics-fqdn", help="independently verified bravo-metrics.<tailnet>.ts.net")
     parser.add_argument("--transport-port", type=int, action="append",
                         help="current proxy UDP listen port; repeat for a second address family")
+    parser.add_argument("--service-ip-egress", action="store_true",
+                        help="also permit exact observed child ClusterIP:9090 for pre-DNAT CNI enforcement")
     args = parser.parse_args(argv)
     if args.stage == "proxy-quarantine":
         result = proxy_quarantine(args.side)
@@ -194,7 +218,7 @@ def main(argv=None):
             args.side, args.metrics_fqdn, json.loads(args.policy_readback.read_text()),
             existing=json.loads(args.route_readback.read_text()))}
     elif args.stage == "collector-egress":
-        result = collector_egress(args.side, json.load(sys.stdin))
+        result = collector_egress(args.side, json.load(sys.stdin), service_ip_egress=args.service_ip_egress)
     else:
         if args.transport_port is None:
             parser.error("proxy-ingress requires --transport-port from current Pod-bound readback")

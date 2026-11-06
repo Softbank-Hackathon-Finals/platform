@@ -1,0 +1,49 @@
+{
+  "scope": "isolated DB/HTTP/browser/runtime; synthetic reports, identity and issuer",
+  "python_full": 266,
+  "node_full": 185,
+  "chromium_full": 24,
+  "webkit_full": 24,
+  "python_new": 22,
+  "node_new": 10,
+  "browser_new_per_engine": 1,
+  "before_fix_regressions": 4,
+  "mutations": [
+    {
+      "condition": "known proof deadline dropped",
+      "regressions_failed": 4
+    },
+    {
+      "condition": "short read lease extended",
+      "regressions_failed": 1
+    },
+    {
+      "condition": "final emission expiry check removed",
+      "regressions_failed": 2
+    },
+    {
+      "condition": "browser render expiry removed",
+      "regressions_failed": 1
+    }
+  ],
+  "actual_mutant_import_or_execution_verified": true,
+  "runtime": {
+    "runtime_only_wheel": "PASS",
+    "static_assets": 7,
+    "read_lease_clipped": true,
+    "exact_expiry_rejected": true,
+    "fixture_projection_only": true,
+    "static_header_checks": true,
+    "missing_report_denied": true,
+    "missing_authority_denied": true,
+    "python": "3.12.14",
+    "platform": "linux",
+    "uid": 65532,
+    "network": "none",
+    "console_wheel_sha256": "a7450371307bc8f3c19d4a904f237ba1b858e1669ede5f34fca7e3df4d27817e",
+    "reader_sha256": "baad95717f695c6d31b513d434e94ae86381786a16f0a8542775f7afae3f487a"
+  },
+  "production_database_writes": 0,
+  "operational_console_deployed": false,
+  "approval_or_execution_contract_changed": false
+}

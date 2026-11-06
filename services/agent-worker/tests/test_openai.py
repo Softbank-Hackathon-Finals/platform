@@ -44,7 +44,10 @@ def install_client(monkeypatch, replies):
 
         async def create(self, **request):
             calls.append(copy.deepcopy(request))
-            return replies[min(len(calls) - 1, len(replies) - 1)]
+            reply = copy.deepcopy(replies[min(len(calls) - 1, len(replies) - 1)])
+            for item in reply.output:
+                item.data["call_id"] = f"call_fixture_{len(calls)}"
+            return reply
 
     monkeypatch.setattr(openai_provider, "AsyncOpenAI", Client)
     monkeypatch.setattr(openai_provider.os, "environ", {"OPENAI_API_KEY": "model-fixture"})
@@ -218,7 +221,7 @@ def install_sdk(monkeypatch, items):
         return httpx2.Response(200, json={
             "id": f"resp_{len(requests)}", "object": "response", "created_at": 1, "model": "fixture-model",
             "status": "completed", "parallel_tool_calls": False, "tool_choice": "auto", "tools": [],
-            "output": [{"id": "fc_fixture", "type": "function_call", "status": "completed", "call_id": "call_fixture", **item}],
+            "output": [{"id": "fc_fixture", "type": "function_call", "status": "completed", "call_id": f"call_fixture_{len(requests)}", **item}],
             "usage": {"input_tokens": 100, "output_tokens": 50, "total_tokens": 150,
                       "input_tokens_details": {"cached_tokens": 0}, "output_tokens_details": {"reasoning_tokens": 0}}})
 
@@ -265,3 +268,21 @@ def test_openai_destructive_reserved_call_is_categorised_without_raw_arguments(c
     assert result["audit"][0] == {"run_id": bundle.run_id, "attempt": 1, "tool": "rehearsal.exec", "outcome": "DENIED",
                                   "reason": "DESTRUCTIVE_ATTEMPT_BLOCKED", "category": category}
     assert "private-" not in json.dumps(result)
+
+
+@pytest.mark.parametrize("effort", [None, "medium"])
+def test_reasoning_effort_from_config_reaches_the_request(context, monkeypatch, effort):
+    bundle, snapshot, proposal, _ = context
+    calls, _ = install_client(monkeypatch, [response("repo_read", {"path": "src/config.py"}),
+                                            response("plan_propose", proposal)])
+    provider = OpenAIProvider("fixture-model", reasoning_effort=effort)
+    assert asyncio.run(Coordinator(bundle, snapshot).propose(provider))["state"] == "PROPOSAL_READY"
+    if effort is None:
+        assert all("reasoning" not in call for call in calls)  # provider default
+    else:
+        assert all(call["reasoning"] == {"effort": effort} for call in calls)
+
+
+def test_malformed_reasoning_effort_is_refused():
+    with pytest.raises(ValueError):
+        OpenAIProvider("fixture-model", reasoning_effort="medium; rm -rf")

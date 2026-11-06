@@ -62,6 +62,10 @@ def main() -> int:
     analyze.add_argument("--provider", choices=("chatgpt-plan", "openai", "claude"), default="chatgpt-plan")
     analyze.add_argument("--state-output", type=Path,
                          help="New file for the write-ahead coordinator state (T10 persists it)")
+    analyze.add_argument("--reasoning-effort",
+                         help="Reasoning effort from the environment's model config; omitted = provider default")
+    analyze.add_argument("--sandbox-image",
+                         help="Agents SDK Docker sandbox image (digest-pinned) from the environment config")
     args = parser.parse_args()
     if args.command == "schema":
         print(json.dumps(Proposal.model_json_schema(), indent=2))
@@ -95,11 +99,14 @@ def main() -> int:
             if args.provider in {"openai", "chatgpt-plan"}:
                 from .openai_provider import OpenAIProvider
 
-                provider = OpenAIProvider(args.model, subscription=args.provider == "chatgpt-plan")
+                provider = OpenAIProvider(args.model, subscription=args.provider == "chatgpt-plan",
+                                          reasoning_effort=args.reasoning_effort, sandbox_image=args.sandbox_image)
             else:
                 from .sdk import ClaudeProvider
 
-                provider = ClaudeProvider(runtime, args.model)
+                if args.sandbox_image is not None:
+                    raise ValueError("the Docker sandbox runs on the Agents SDK provider")
+                provider = ClaudeProvider(runtime, args.model, args.reasoning_effort)
             result = asyncio.run(coordinator.propose(provider))
         # Never overwrite an earlier reviewed artifact.
         with args.output.open("x", encoding="utf-8") as stream:

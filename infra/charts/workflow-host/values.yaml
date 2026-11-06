@@ -1,0 +1,28 @@
+# Image: the registration image (Product Reader packages + pinned git, needed by the candidate writer).
+image:
+  repository: ghcr.io/softbank-hackathon-finals/platform-registration
+  digest: ""
+sourceRevision: ""
+# Protected host inputs (ConfigMap): ports.json (workflow_ports), sli-profile.json (optional).
+configuration:
+  existingConfigMap: ""
+  sha256: ""
+# The Product Reader's v2 configuration (reader.json + cluster-jwks.json), catalog and key, read-only.
+reader:
+  existingConfigMap: ""
+  catalogClaim: ""
+# Writer dispatch times and the demo-chat object clone; must survive restarts.
+stateClaim: ""
+secrets:
+  database: platform-runtime-db
+  databaseCA: platform-db-ca
+  catalogKey: ""
+  # ca.crt and read-token for the Cutover Executor read API (no command token).
+  executor: ""
+  # private-key.pem of the bravo-platform-host GitHub App (optional: empty = operator pins only).
+  githubApp: ""
+  registry: platform-ghcr-reader
+interval: 15
+resources:
+  requests: {cpu: 50m, memory: 192Mi}
+  limits: {cpu: 500m, memory: 512Mi}

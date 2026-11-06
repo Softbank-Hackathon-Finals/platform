@@ -32,7 +32,7 @@ from bravo_controls.app_process_tls import (
 )
 from bravo_controls.postgres_tls import PoolerTarget
 
-PG = "public.ecr.aws/docker/library/postgres:18.4@sha256:a02db8cac496f15b094798a38254f14d6e00741f709360e5e00bb6668ea31636"
+PG = "ghcr.io/softbank-hackathon-finals/ci-mirror/postgres:18.4@sha256:a02db8cac496f15b094798a38254f14d6e00741f709360e5e00bb6668ea31636"
 POOLER = "ghcr.io/cloudnative-pg/pgbouncer:1.25.1@sha256:e6ddfe22d845e603825e235dd8334b21ecd125abea2a2172478f556b8dee2bb8"
 pytestmark = pytest.mark.skipif(os.environ.get("BRAVO_APP_TLS_DOCKER") != "1", reason="opt-in Docker TLS qualification")
 

@@ -80,7 +80,10 @@ class Bundle:
             candidate_sha=head, pull_request=9)
         content = "VALUE = 1\n"
         before = hashlib.sha256(content.encode()).hexdigest()
-        self.value = InitialInput(binding=dict(plan_id="plan-one", tenant_id="tenant-one",
+        self.value = InitialInput(schema_version=2,
+            analysis=dict(inventory_digest="f" * 64, item_id="item-001", grade="code_change",
+                          rationale="Synthetic credential migration analysis"),
+            binding=dict(plan_id="plan-one", tenant_id="tenant-one",
             plan_digest="a" * 64, target_environment_id="target-one", plan_version=3,
             task_id="credential", task_digest="d" * 64, source_sha=base,
             collection_scope_digest="e" * 64, inventory_digest="f" * 64,
@@ -137,7 +140,12 @@ def test_same_proposal_maps_to_authenticated_publication_without_calls_in_reader
     assert len(candidate.publication_request_id(b.intent)) == 64
     assert record.source_sha == b.value.binding.source_sha
     assert record.image_digest == b.receipt["digest"]
-    assert record.diff_hash == "sha256:" + b.receipt["diff_sha256"]
+    # T7's receipt is checked with git's hash; the workflow carries the T15/T31 diff of the same edits.
+    from bravo_apply.binding import diff_hash, render_diff
+
+    edits = [e.model_dump() for e in b.result.proposal.edits]
+    assert record.diff_hash == diff_hash(render_diff(dict(b.value.files), edits))
+    assert record.diff_hash != "sha256:" + b.receipt["diff_sha256"]
     assert reader(None, b.value, b.intent, b.result) == record
     assert b.provider.calls == before
     assert ("download", 201) not in before  # No image archive pulled by T10.

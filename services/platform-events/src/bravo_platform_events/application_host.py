@@ -25,6 +25,8 @@ from .workflow import Application, Change, Evidence, Gate
 
 def _post_apply(view, outcome):
     """A pre-change target run cannot satisfy the requested recheck."""
+    if view.gate_phase != "post_apply" or view.application_id != outcome.application_id:
+        raise EventError("application_gate_binding_mismatch")
     profile = view.records.contract.profile(view.context.profile_id, view.context.profile_version)
     if not set(GATE_RECHECK_TESTS) <= set(profile["required_test_ids"]):
         raise EventError("gate_recheck_profile_incomplete")
@@ -158,6 +160,7 @@ class GateRecheck:
         if outcome.gate_recheck != dict(plan_id=plan_id, application_id=outcome.application_id,
                 image_digest=outcome.deployed_digest, tests=GATE_RECHECK_TESTS):
             raise EventError("gate_recheck_request_mismatch")
+        self.records.recheck_profile(principal, plan_id, outcome.application_id)
         self.prepare(principal, plan_id, outcome)
         def checked_factory(view):
             if view.plan["state"] != "GATE":

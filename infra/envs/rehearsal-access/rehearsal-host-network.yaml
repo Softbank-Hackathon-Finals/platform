@@ -1,0 +1,73 @@
+# T7 install step for the T15 rehearsal host (infra/charts/rehearsal-host).
+# GitOps does not manage NetworkPolicy, so the operator applies both objects with
+# the other T7 tailnet policies. platform-state is default-deny; DB egress comes
+# from the existing runtime-database policy via bravo.dev/db-client=runtime.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: t15-rehearsal-host-target-api
+  namespace: platform-state
+  labels:
+    app.kubernetes.io/name: t15-rehearsal-host
+    component: platform
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: t15-rehearsal-host
+      bravo.dev/target-api-client: rehearsal
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels: {kubernetes.io/metadata.name: kube-system}
+          podSelector:
+            matchLabels: {k8s-app: kube-dns}
+      ports:
+        - {port: 53, protocol: UDP}
+        - {port: 53, protocol: TCP}
+    - to:
+        - namespaceSelector:
+            matchLabels: {kubernetes.io/metadata.name: tailscale-system}
+          podSelector:
+            matchLabels:
+              tailscale.com/managed: "true"
+              tailscale.com/parent-resource: bravo-rehearsal-egress
+              tailscale.com/parent-resource-type: proxygroup
+      ports:
+        - {port: 443, protocol: TCP}
+    # Operator SSO proofs are checked against regional STS (sts.ap-northeast-2.amazonaws.com).
+    # Same pinned address as t10-registration-trusted-egress; re-resolve when either changes.
+    # The host chart pins sts.ap-northeast-2.amazonaws.com to this address via hostAliases and
+    # bootstrap.py refuses a runtime whose pin differs. Keep the next line as the marker.
+    # STS pin
+    - to:
+        - ipBlock: {cidr: 43.202.75.96/32}
+      ports:
+        - {port: 443, protocol: TCP}
+---
+# Same egress proxy as bravo-rehearsal-control/rehearsal-host; added beside rehearsal-proxy-ingress.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: t15-rehearsal-host-proxy-ingress
+  namespace: tailscale-system
+  labels:
+    app.kubernetes.io/name: t15-rehearsal-host
+    component: platform
+spec:
+  podSelector:
+    matchLabels:
+      tailscale.com/managed: "true"
+      tailscale.com/parent-resource: bravo-rehearsal-egress
+      tailscale.com/parent-resource-type: proxygroup
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels: {kubernetes.io/metadata.name: platform-state}
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: t15-rehearsal-host
+              bravo.dev/target-api-client: rehearsal
+      ports:
+        - {port: 443, protocol: TCP}

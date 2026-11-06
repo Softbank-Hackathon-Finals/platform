@@ -1,0 +1,27 @@
+{
+  "scope": "isolated actual stores and Linux runtime; synthetic identity and public keys",
+  "new_tests": 66,
+  "clean_commit_full_suite": 553,
+  "databases": [
+    "SQLite",
+    "PostgreSQL 17.11"
+  ],
+  "mutations_detected": 3,
+  "failed_targeted_tests_per_mutation": 2,
+  "mutation_import_path_verified": true,
+  "runtime": {
+    "runtime_wheel": "PASS",
+    "platform": "linux",
+    "python": "3.12.14",
+    "uid": 65532,
+    "network": "none",
+    "sqlite_enroll_read_revoke": true,
+    "plan_state_unchanged": true,
+    "no_signature_ledger_in_key_only_wheel": true,
+    "module_sha256": "9f5b1e84d59e5d3de96683a8007d84afa82ac694536fa2a47abd649e3e7ad379",
+    "wheel_sha256": "793ce38685af19cfb38a2e5a774e3ddd8db9ee2fef1c50939d0e9d7d067be874"
+  },
+  "operating_principal_enrolled": false,
+  "production_database_writes": 0,
+  "signature_publication_included": false
+}

@@ -1,0 +1,89 @@
+{
+  "scope": "Actual EKS source network probe; not target, policy-causality or full gate qualification",
+  "run_id": "f03c1d4a-deae-4981-bf3b-4c37c9e36436",
+  "control_run_sha256": "e17c79450a7b55c714a24e050dbf689ce76980e9ded05606a153282c09587608",
+  "probe_source_revision": "d3e9d3298d8b352f1c3b7f353c9d1b3d2f05f9fb",
+  "host_script_sha256": "sha256:7b314845f997c1edcefcd53c1c5268503cd12dc60f2c80b7ba07ea2eeb5057be",
+  "results": [
+    {
+      "sha256": "34b5cf7baa7cfd6534bdd475f7261bfd11ba1c299569c277ea2263fcc308167b",
+      "observed": "allow",
+      "unknown_reason": null,
+      "observations": {
+        "after_agent": {
+          "elapsed_ms": 0,
+          "observed_at": "2026-11-06T03:57:24.196912+00:00",
+          "outcome": "connected"
+        },
+        "after_dns": {
+          "elapsed_ms": 6,
+          "observed_at": "2026-11-06T03:57:24.223711+00:00",
+          "outcome": "resolved"
+        },
+        "after_target": {
+          "elapsed_ms": 0,
+          "observed_at": "2026-11-06T03:57:24.170193+00:00",
+          "outcome": "connected"
+        },
+        "before_agent": {
+          "elapsed_ms": 0,
+          "observed_at": "2026-11-06T03:57:23.974143+00:00",
+          "outcome": "connected"
+        },
+        "before_dns": {
+          "elapsed_ms": 114,
+          "observed_at": "2026-11-06T03:57:24.110922+00:00",
+          "outcome": "resolved"
+        },
+        "before_target": {
+          "elapsed_ms": 0,
+          "observed_at": "2026-11-06T03:57:23.946926+00:00",
+          "outcome": "connected"
+        },
+        "probe": {
+          "elapsed_ms": 0,
+          "observed_at": "2026-11-06T03:57:24.143637+00:00",
+          "outcome": "connected"
+        }
+      }
+    },
+    {
+      "sha256": "fa9f475bfc3335a6d59594a5e4070065c189447e3e79a1afd5c1a8ad0c0fd937",
+      "observed": null,
+      "unknown_reason": "POSITIVE_CONTROL_FAILED",
+      "observations": {
+        "before_agent": {
+          "elapsed_ms": 0,
+          "observed_at": "2026-11-06T03:57:28.586316+00:00",
+          "outcome": "connected"
+        },
+        "before_dns": {
+          "elapsed_ms": 2,
+          "observed_at": "2026-11-06T03:57:28.626282+00:00",
+          "outcome": "resolved"
+        },
+        "before_target": {
+          "elapsed_ms": 3003,
+          "observed_at": "2026-11-06T03:57:28.534366+00:00",
+          "outcome": "timeout"
+        }
+      }
+    },
+    {
+      "sha256": "866eac6e2b651abb46baf86352359f7507cc57c41e9b0d9fbc2fb91902066edd",
+      "observed": null,
+      "unknown_reason": "POSITIVE_CONTROL_FAILED",
+      "observations": null
+    }
+  ],
+  "cleanup": {
+    "owned_objects": 4,
+    "removed_objects": 4,
+    "confirmed": true
+  },
+  "database_payload_bytes": 0,
+  "business_data_modified": false,
+  "shared_network_policy_modified": false,
+  "actual_source_pooler_listener_port": 5432,
+  "contract_pooler_port": 6432
+}

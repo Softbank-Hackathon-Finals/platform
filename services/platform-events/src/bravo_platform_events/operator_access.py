@@ -23,7 +23,8 @@ from .rehearsal import RehearsalService
 from .store import EventError
 
 PERMISSIONS = frozenset({"read", "approve_cutover", "execute_cutover", "approve_change", "apply_change",
-                         "approve_failback", "execute_failback", "start_rehearsal", "hold_rehearsal"})
+                         "approve_failback", "execute_failback", "start_rehearsal", "hold_rehearsal",
+                         "approve_shift", "execute_shift"})
 APPROVAL_KEYS = {"cutover": _key, "change": change_key, "failback": failback_key}
 
 
@@ -208,8 +209,12 @@ def create_operator_cutover_app(store, executor, *, verifier, bindings=None, reg
         edge=edge, check_access=access.check_read, check_execute=access.requires("execute_failback"), clock=clock)
     rehearsals = None if rehearsal_host is None else RehearsalService(
         store, host=rehearsal_host, check_start=access.requires("start_rehearsal"))
+    from .workflow_stages import ShiftApprovalService
+
+    shift_service = ShiftApprovalService(store, check_approve=access.requires("approve_shift"), clock=clock)
     app = create_cutover_app(service, resolve_principal=access.resolver(verifier), rehearsal_service=rehearsals,
-                             change_service=change_service, failback_service=failback_service)
+                             change_service=change_service, failback_service=failback_service,
+                             shift_service=shift_service)
     if change_intake is not None:
         app.include_router(intake_router(change_intake))
     return app

@@ -32,13 +32,16 @@ def config(flow, binding, tmp_path):
 def test_load_binds_mounted_workload_keys_and_denies_missing_human_proof(flow, config, key):
     path, _ = config
     calls = []
+    def first_run(*args):
+        pytest.fail("unauthenticated callers must not reach the initial Proposal")
 
     def ports(store):
         calls.append(store)
-        return RehearsalPorts(flow["service"].host.catalog, flow["planner"])
+        return RehearsalPorts(flow["service"].host.catalog, flow["planner"], first_run=first_run)
 
     host = rehearsal_server.load_host(flow["store"], path, ports)
     assert calls == [flow["store"]]
+    assert host.service.first_run is first_run
     host.intake.sender.authenticate(workload_token(key))
     assert host.evidence.store.root == flow["records"].root
     with TestClient(host.app, base_url="https://host.invalid") as client:

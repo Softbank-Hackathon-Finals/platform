@@ -3,15 +3,21 @@
 # requires-python = ">=3.12"
 # dependencies = ["psycopg[binary]==3.3.6"]
 # ///
-"""Resume only the forward subscription after it turned itself off, then prove it caught up.
+"""Resume one subscription after it turned itself off, then prove it caught up.
 
 The default writes nothing: read-only checks, and if the subscription is already on, the read-only
 post-check as well. --apply adds at most two things, and only when every check passed: one ENABLE
-of the forward subscription if it is off, and one test row in cutover.barrier that is deleted again.
-A running subscription is never enabled a second time. Slots, roles, the reverse subscription and the
-application's write block are never touched, and nothing is ever written to the target. The test row
-goes only to the database verified as the source, and --cleanup-marker finishes removing one a failed
-run reported as pending.
+of the subscription if it is off, and one test row in cutover.barrier that is deleted again.
+A running subscription is never enabled a second time. Slots, roles, the other direction's subscription
+and the application's write block are never touched, and nothing is ever written to the subscriber. The
+test row goes only to the database verified as the publisher, and --cleanup-marker finishes removing one
+a failed run reported as pending.
+
+--direction forward (the default) resumes t8_source_to_target before a cutover: the source writes and
+publishes, the target subscribes. --direction reverse resumes t8_target_to_source after one: the target
+writes and publishes, the source subscribes. The rules are the same. Inside this command "source" always
+means the publisher and "target" the subscriber; the reverse report is relabelled so that its names say
+the real databases again.
 
 The output uses the names and units of the first actual resume (docs/evidence/t8-forward-recovery-2026-11-04,
 PR #201), so that a later run reads the same way. Rows are hashed only up to the source snapshot taken
@@ -24,6 +30,7 @@ import argparse
 import hashlib
 import json
 import os
+import re
 import sys
 import time
 import uuid
@@ -42,6 +49,8 @@ TARGET_DSN_ENV = "T8_RESUME_TARGET_DSN"
 EXECUTOR_DSN_ENV = "T8_RESUME_EXECUTOR_DSN"
 # Its own variable, so that the read DSN can never write: needs INSERT, SELECT and DELETE on cutover.barrier.
 PROBE_DSN_ENV = "T8_RESUME_SOURCE_PROBE_DSN"
+# The same, on the target: after a cutover the target is the one database that takes writes.
+TARGET_PROBE_DSN_ENV = "T8_RESUME_TARGET_PROBE_DSN"
 # Local test databases only. Applies when host and hostaddr are both literal loopback addresses.
 LOOPBACK_ENV = "T8_RESUME_ALLOW_LOOPBACK_PLAINTEXT"
 FORWARD = names("target")[2]
@@ -176,6 +185,30 @@ STATEMENTS = {
                                 AND {BARRIER_SCHEMA_USABLE}, false))""",
 }
 NAMES = {"forward": FORWARD, "reverse": REVERSE, "publication": PUBLICATION}
+
+
+class Direction(NamedTuple):
+    """Which database plays which role. In names, "forward" is the subscription and slot being resumed."""
+    name: str
+    publisher_env: str
+    subscriber_env: str
+    probe_env: str
+    names: dict
+    subscriber_side: str  # replication.py's side, where the subscription being resumed lives
+
+
+DIRECTIONS = {
+    "forward": Direction("forward", SOURCE_DSN_ENV, TARGET_DSN_ENV, PROBE_DSN_ENV, NAMES, "target"),
+    "reverse": Direction("reverse", TARGET_DSN_ENV, SOURCE_DSN_ENV, TARGET_PROBE_DSN_ENV,
+                         {"forward": REVERSE, "reverse": FORWARD,
+                          "publication": subscription("source")["spec"]["publicationName"]}, "source"),
+}
+COMMAND = "resume_replication.py"
+# Applied to the reverse report only: its names were written for the forward roles.
+SWAPPED = {"source": "target", "target": "source", "forward": "reverse", "reverse": "forward"}
+SWAPPED_WORD = re.compile("|".join(SWAPPED))
+# Lists whose items are names rather than values.
+NAME_LISTS = ("refusals", "pending_on")
 # A failed one of these will not fix itself while waiting, so the post-check ends at once.
 FATAL_CHECKS = ("forward_enabled", "source_slot_valid", "errors_not_increased", "single_writer_kept")
 # Not an execution's epoch. The Executor finds its own barrier by id and never reads this column back.
@@ -229,15 +262,15 @@ def enable_method(state):
     return "alter_subscription" if state.get("can_alter") else None
 
 
-def enable_statement(method):
+def enable_statement(method, direction=DIRECTIONS["forward"]):
     if method == "control_function":
-        return f"SELECT cutover.set_subscription('{FORWARD}', true)"
-    return runtime_state_sql("target", True)
+        return f"SELECT cutover.set_subscription('{direction.names['forward']}', true)"
+    return runtime_state_sql(direction.subscriber_side, True)
 
 
-def enable(dsn, method):
+def enable(dsn, method, direction=DIRECTIONS["forward"]):
     with connect(dsn, options=CONTROL_OPTIONS, autocommit=True) as connection:
-        connection.execute(enable_statement(method))
+        connection.execute(enable_statement(method, direction))
 
 
 class ProbeTargetChanged(RuntimeError):
@@ -281,8 +314,20 @@ def describe(error):
     return error.reason if isinstance(error, AttachmentCopyFailed) else type(error).__name__
 
 
-def read_target(target_dsn):
-    target = read_one(target_dsn, "target_status", NAMES)
+def relabel(value, key=None):
+    """The report in the reverse direction's terms: every name that says source, target, forward or reverse is
+    swapped, so that it names the real database or subscription again. Values stay, apart from lists of names."""
+    if isinstance(value, dict):
+        return {SWAPPED_WORD.sub(lambda word: SWAPPED[word.group()], name): relabel(item, name) for name, item in value.items()}
+    if isinstance(value, list):
+        if key in NAME_LISTS:
+            return [SWAPPED_WORD.sub(lambda word: SWAPPED[word.group()], item) for item in value]
+        return [relabel(item) for item in value]
+    return value
+
+
+def read_target(target_dsn, names=NAMES):
+    target = read_one(target_dsn, "target_status", names)
     target["target_origin_remote_lsn"] = None
     if target["origin_readable"] and target["subscription_exists"]:
         # A subscription's origin is named after its oid. This is the only position that means applied.
@@ -291,15 +336,15 @@ def read_target(target_dsn):
     return target
 
 
-def read_status(source_dsn, target_dsn):
-    return {"target": read_target(target_dsn), "source": read_one(source_dsn, "source_status", NAMES)}
+def read_status(source_dsn, target_dsn, names=NAMES):
+    return {"target": read_target(target_dsn, names), "source": read_one(source_dsn, "source_status", names)}
 
 
 def read_platform(dsn):
     return read_one(dsn, "platform_counts", {"statuses": list(LEASE_HOLDING)})
 
 
-def gather(source_dsn, target_dsn, executor_dsn, executor_not_deployed, probe_dsn=None):
+def gather(source_dsn, target_dsn, executor_dsn, executor_not_deployed, probe_dsn=None, names=NAMES):
     """Every read succeeds or leaves None behind: a state that cannot be seen is never a safe one."""
     state, errors = {}, {}
 
@@ -312,9 +357,9 @@ def gather(source_dsn, target_dsn, executor_dsn, executor_not_deployed, probe_ds
 
     # Target first, as in the Executor's gate. Rows keep arriving, so the other order would show a healthy
     # target ahead of a source read a moment earlier.
-    attempt("target", "target", lambda: read_target(target_dsn))
+    attempt("target", "target", lambda: read_target(target_dsn, names))
     attempt("target_rows", "target", lambda: read_one(target_dsn, "target_rows"))
-    attempt("source", "source", lambda: read_one(source_dsn, "source_status", NAMES))
+    attempt("source", "source", lambda: read_one(source_dsn, "source_status", names))
     attempt("source_rows", "source", lambda: read_one(source_dsn, "source_rows"))
     if executor_dsn:
         attempt("platform", "executor", lambda: read_platform(executor_dsn))
@@ -591,7 +636,7 @@ def note_error(report, error):
     report["sqlstate"] = getattr(error, "sqlstate", None)
 
 
-def remove_marker(write, read_target_row, read_source_row, report, wait, *, read_target_applied=None):
+def remove_marker(write, read_target_row, read_source_row, report, wait, *, read_target_applied=None, command=COMMAND):
     """Take one row off the source and confirm by reading on both sides. An answer alone proves neither."""
     barrier_id = report["barrier_id"]
 
@@ -634,7 +679,7 @@ def remove_marker(write, read_target_row, read_source_row, report, wait, *, read
     report["cleanup"] = "pending" if pending else "confirmed"
     if pending:
         report["pending_on"] = pending
-        report["resume"] = (f"resume_replication.py --cleanup-marker {barrier_id} "
+        report["resume"] = (f"{command} --cleanup-marker {barrier_id} "
                             f"--marker-protocol {MARKER_PROTOCOL} --source-system-id <source> --target-system-id <target>")
     else:
         report.pop("pending_on", None)
@@ -642,7 +687,7 @@ def remove_marker(write, read_target_row, read_source_row, report, wait, *, read
 
 
 def barrier_probe(write, read_target_row, read_source_row, barrier_id, *, on_delivered, on_cleaned, elapsed, timeout, poll,
-                  sleep=time.sleep, read_target_applied=None):
+                  sleep=time.sleep, read_target_applied=None, command=COMMAND):
     """One row through the whole path: a new write has to arrive, and its delete has to follow it.
 
     The insert is sent once. If its answer is lost the commit may still have happened, so only this run's id
@@ -669,7 +714,7 @@ def barrier_probe(write, read_target_row, read_source_row, barrier_id, *, on_del
                 on_delivered()
         except Exception as error:  # noqa: BLE001 - See note_error().
             note_error(report, error)
-    remove_marker(write, read_target_row, read_source_row, report, wait, read_target_applied=read_target_applied)
+    remove_marker(write, read_target_row, read_source_row, report, wait, read_target_applied=read_target_applied, command=command)
     if report["barrier"] and report["delete_arrived"]:
         try:
             on_cleaned()
@@ -701,9 +746,15 @@ def tables_view(source_before, source_now, target_now):
 
 class Run:
     def __init__(self, args, environ):
+        self.direction = direction = DIRECTIONS[args.direction]
+        if direction.name == "reverse":
+            # The operator names real databases. Here source means the publisher, which is now the target.
+            args = argparse.Namespace(**{**vars(args), "source_system_id": args.target_system_id,
+                                         "target_system_id": args.source_system_id, "source_write_block": args.target_write_block})
         self.args = args
-        self.source_dsn, self.target_dsn = environ.get(SOURCE_DSN_ENV), environ.get(TARGET_DSN_ENV)
-        self.executor_dsn, self.probe_dsn = environ.get(EXECUTOR_DSN_ENV), environ.get(PROBE_DSN_ENV)
+        self.command = COMMAND if direction.name == "forward" else f"{COMMAND} --direction {direction.name}"
+        self.source_dsn, self.target_dsn = environ.get(direction.publisher_env), environ.get(direction.subscriber_env)
+        self.executor_dsn, self.probe_dsn = environ.get(EXECUTOR_DSN_ENV), environ.get(direction.probe_env)
         self.probe = args.apply and not args.no_barrier_probe
         mode = "cleanup-marker" if args.cleanup_marker else "apply" if args.apply else "dry-run"
         self.report = {"mode": mode, "passed": False, "stage": "preflight", "refusals": []}
@@ -715,7 +766,7 @@ class Run:
     def preflight(self):
         """Refusals, or the state to go on with. Run again right before ENABLE: hashing can take a while."""
         state = gather(self.source_dsn, self.target_dsn, self.executor_dsn, self.args.executor_not_deployed,
-                       self.probe_dsn if self.probe else None)
+                       self.probe_dsn if self.probe else None, self.direction.names)
         report = self.report
         if "errors" in state:
             report["errors"] = state.pop("errors")
@@ -729,8 +780,14 @@ class Run:
     def tables(self, dsn):
         return read_one(dsn, "business_tables", self.bounds)
 
+    def status(self):
+        return read_status(self.source_dsn, self.target_dsn, self.direction.names)
+
+    def applied_position(self):
+        return read_target(self.target_dsn, self.direction.names)["target_origin_remote_lsn"]
+
     def stage(self, name):
-        status = read_status(self.source_dsn, self.target_dsn)
+        status = self.status()
         source_now, target_now = self.tables(self.source_dsn), self.tables(self.target_dsn)
         if self.source_tables_before is None:
             self.source_tables_before = source_now
@@ -758,7 +815,9 @@ class Run:
         """Finish the cleanup a failed run left pending. Only the row named here, only a marker, only on the source."""
         args, report = self.args, self.report
         barrier_id = args.cleanup_marker
-        required = [(SOURCE_DSN_ENV, self.source_dsn), (TARGET_DSN_ENV, self.target_dsn), (PROBE_DSN_ENV, self.probe_dsn)]
+        direction = self.direction
+        required = [(direction.publisher_env, self.source_dsn), (direction.subscriber_env, self.target_dsn),
+                    (direction.probe_env, self.probe_dsn)]
         report["refusals"] = [f"missing_{name}" for name, value in required if not value]
         try:
             barrier_id = str(uuid.UUID(barrier_id))
@@ -769,7 +828,7 @@ class Run:
         if args.marker_protocol != MARKER_PROTOCOL:
             report["refusals"] = ["marker_protocol_unconfirmed"]
             return
-        state = gather(self.source_dsn, self.target_dsn, None, True, self.probe_dsn)
+        state = gather(self.source_dsn, self.target_dsn, None, True, self.probe_dsn, direction.names)
         state.pop("executor")  # Not read here: removing a marker by its id touches nothing an execution uses.
         if "errors" in state:
             report["errors"] = state.pop("errors")
@@ -800,7 +859,7 @@ class Run:
             return wait_for(condition, elapsed=self.elapsed, timeout=args.probe_timeout, poll=args.probe_poll, sleep=time.sleep)
 
         remove_marker(self.writer(source), lambda: self.marker_rows(barrier_id, self.target_dsn), source_row, marker, wait,
-                      read_target_applied=lambda: read_target(self.target_dsn)["target_origin_remote_lsn"])
+                      read_target_applied=self.applied_position, command=self.command)
         report["passed"] = marker["passed"] = marker["cleanup"] == "confirmed"
 
     def send_marker(self, source):
@@ -811,7 +870,7 @@ class Run:
                                lambda: self.marker_rows(barrier_id, self.source_dsn), barrier_id,
                                on_delivered=lambda: self.stage("delivered"), on_cleaned=lambda: self.stage("cleaned"),
                                elapsed=self.elapsed, timeout=self.args.probe_timeout, poll=self.args.probe_poll,
-                               read_target_applied=lambda: read_target(self.target_dsn)["target_origin_remote_lsn"])
+                               read_target_applied=self.applied_position, command=self.command)
         report["marker"] = marker
         if marker.get("barrier"):
             self.firsts["barrier"] = {**marker["barrier"], "db_utc": report["stages"].get("delivered", {}).get("target_observed_at")}
@@ -819,7 +878,7 @@ class Run:
 
     def finish_continuity(self, state):
         report = self.report
-        status = read_status(self.source_dsn, self.target_dsn)
+        status = self.status()
         continuity = report["continuity"]
         # A subscription's origin is named after its oid, so the same oid means the same origin.
         continuity["same_subscription_oid_and_origin"] = status["target"]["subscription_oid"] == state["target"]["subscription_oid"]
@@ -835,8 +894,9 @@ class Run:
 
     def execute(self):
         args, report = self.args, self.report
-        required = [(SOURCE_DSN_ENV, self.source_dsn), (TARGET_DSN_ENV, self.target_dsn),
-                    *([(PROBE_DSN_ENV, self.probe_dsn)] if self.probe else [])]
+        direction = self.direction
+        required = [(direction.publisher_env, self.source_dsn), (direction.subscriber_env, self.target_dsn),
+                    *([(direction.probe_env, self.probe_dsn)] if self.probe else [])]
         missing = [f"missing_{name}" for name, value in required if not value]
         if missing:
             report["refusals"] = missing
@@ -859,7 +919,7 @@ class Run:
                                 "disable_on_error": target["disable_on_error"]}
         method = None if target["forward_enabled"] else enable_method(target)
         if not args.apply:
-            report["would_run"] = None if method is None else enable_statement(method)
+            report["would_run"] = None if method is None else enable_statement(method, direction)
             report["marker"] = {"state": "not_run_without_apply"}
             if method is not None:
                 report["passed"] = True
@@ -874,7 +934,7 @@ class Run:
             # Before the call: the server may have committed it even if the connection then fails.
             report["continuity"]["enable_submissions"] = 1
             try:
-                enable(self.target_dsn, method)
+                enable(self.target_dsn, method, direction)
             except Exception as error:  # noqa: BLE001 - Its message can carry a host; class and state are enough.
                 report["error_category"] = describe(error)
                 report["sqlstate"] = getattr(error, "sqlstate", None)
@@ -882,8 +942,7 @@ class Run:
             clock["enable_command_return_s"] = round(self.elapsed(), 4)
         baseline = baseline_of(state)
 
-        def status():
-            return read_status(self.source_dsn, self.target_dsn)
+        status = self.status
 
         def rows():
             return read_one(self.target_dsn, "target_rows")
@@ -926,22 +985,29 @@ def run(args, environ):
     except Exception as error:  # noqa: BLE001 - A traceback could print a driver message, so never let one out.
         # Added to the report, not in place of it: it may be what says that ENABLE was already sent.
         work.report.update(passed=False, error_category=describe(error))
-    return work.report
+    if work.direction.name == "forward":
+        return work.report
+    report = relabel(work.report)
+    return {"mode": report.pop("mode"), "direction": work.direction.name, **report}
 
 
 def main(argv, environ):
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument("--direction", choices=list(DIRECTIONS), default="forward",
+                        help="forward before a cutover (source writes), reverse after one (target writes)")
     action = parser.add_mutually_exclusive_group()
     action.add_argument("--apply", action="store_true",
-                        help="enable the forward subscription if it is off, and send one barrier row through it")
+                        help="enable the chosen direction's subscription if it is off, and send one barrier row through it")
     action.add_argument("--cleanup-marker", metavar="BARRIER_ID",
-                        help="finish a cleanup a failed run reported as pending: remove only this test row from the source")
+                        help="finish a cleanup a failed run reported as pending: remove only this test row from the publisher")
     parser.add_argument("--marker-protocol", choices=[MARKER_PROTOCOL],
                         help="required with --cleanup-marker: copy the protocol from the original marker report; legacy runs need manual settlement")
     parser.add_argument("--source-system-id", help="required to write: the source identifier printed by a dry run")
     parser.add_argument("--target-system-id", help="required to write: the target identifier printed by a dry run")
-    parser.add_argument("--source-write-block", choices=["on", "off"], default="not_read",
-                        help="what the operator read from the application beforehand. Only recorded: never read or changed here")
+    parser.add_argument("--source-write-block", choices=["on", "off"],
+                        help="forward: what the operator read from the application beforehand. Only recorded: never read or changed here")
+    parser.add_argument("--target-write-block", choices=["on", "off"],
+                        help="reverse: the same for the target application, which takes the writes after a cutover")
     parser.add_argument("--no-barrier-probe", action="store_true",
                         help="operator's choice, recorded in the output, where the barrier table is not replicated yet")
     parser.add_argument("--executor-not-deployed", action="store_true",
@@ -952,6 +1018,12 @@ def main(argv, environ):
     parser.add_argument("--probe-timeout", type=float, default=60, help="seconds to wait for each barrier arrival")
     parser.add_argument("--probe-poll", type=float, default=0.2, help="seconds between barrier reads")
     args = parser.parse_args(argv)
+    # Recorded under the writing database's name, so a value given for the other one would be filed wrongly.
+    wrong = "--target-write-block" if args.direction == "forward" else "--source-write-block"
+    if (args.target_write_block if args.direction == "forward" else args.source_write_block) is not None:
+        parser.error(f"{wrong} does not apply to --direction {args.direction}")
+    args.source_write_block = args.source_write_block or "not_read"
+    args.target_write_block = args.target_write_block or "not_read"
     report = run(args, environ)
     print(json.dumps(report, ensure_ascii=False, default=str))
     return 0 if report["passed"] else 1

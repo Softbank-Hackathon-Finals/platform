@@ -163,6 +163,7 @@ Prowler와 kube-bench는 점검 수가 공급자 · 버전마다 다르므로 �
 |---|---|---|
 | `demo-gate` v1 | IAM-01.1, SEC-01.1, AUD-01.1 (5절 데모 질문) | 데모 게이트, `examples/` |
 | `full` v1 | 하위 시험 20개 전체 | 설계 문서 S1 · S3 인수 조건(6개 통제) |
+| `apply-recheck` v1 | SEC-01.1, IAM-01.1, ENC-01.1 (T31 `GATE_RECHECK_TESTS`) | T31이 이미지·버킷 정책을 반영한 뒤의 게이트 재대조. 정책 반영의 재대조(IAM-01.1)를 포함한다. 첫 게이트는 `demo-gate`를 그대로 쓴다 |
 
 프로필은 `(id, version)`으로 고른다. 프로필의 `app`은 그 프로필을 정한 기준 앱 표시이고, 실행 결과나 게이트의 앱과 대조하지 않는다. 실행 결과의 `app`은 등록된 workload(T10 `workload_id`)이고, 플랫폼 경로에서 어떤 프로필을 쓸지는 T10 계획이 고정한다([#29 합의](https://github.com/Softbank-Hackathon-Finals/platform/issues/29#issuecomment-6661163853)).
 

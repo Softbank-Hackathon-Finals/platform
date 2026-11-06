@@ -3,5 +3,16 @@
   "index_digest": "sha256:ca5ce1b24f1deb2e7346643860ff0bb151409c1acec503c105f56d9043a389b6",
   "amd64_digest": "sha256:f9f48872b57d7c94eb01c81622feca66e7fcdcaec304b5c879682777606ac24c",
   "publish_run": 41803312129,
-  "transfer_run": 41815292046
+  "transfer_run": 41815292046,
+  "arm64": {
+    "image": "localhost/bravo-demo-chat@sha256:b351ba11819796aaea854f742049e46b058561f80c0e738f42c93280af762888",
+    "source_sha": "8d82a9241d3894737778a77d58349e1aee54eca1",
+    "recorded": "2026-11-06, read from the running target Deployment on the arm64 node",
+    "source_check": "the 17 files under /app/app in the running image have the same sha256 as app/ at source_sha",
+    "build_commit": "none: app files from source_sha with a local arm64 Dockerfile, not the Dockerfile of a single demo-chat commit",
+    "dockerfile_sha256": "4a05782f61a20466ce07fe5eaf54bc33f097edfe8a228fae6422488f00e78da6",
+    "base_image": "python:3.13-slim@sha256:ae14d4ce8771606477a81446e7ef429edd6762305fc50c84507c1041fa8285d1",
+    "uv_image": "uv 0.13.6, arm64 digest sha256:af22a52f5eafef3d78e551599d405c02df61919d18028f0cea8eda93bc9986d0",
+    "built": "2026-11-06 04:47 KST, docker buildx --platform linux/arm64, OCI output; reported by the builder, not rebuilt here"
+  }
 }

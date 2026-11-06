@@ -1,4 +1,4 @@
-"""Publish reviewed registration bytes and propose their GitOps digest, never deploy."""
+"""Publish reviewed platform service bytes and propose their GitOps digest, never deploy."""
 
 from __future__ import annotations
 
@@ -7,9 +7,11 @@ import base64
 import hashlib
 import json
 import os
+import re
 import subprocess
 import urllib.error
 import urllib.request
+from dataclasses import dataclass
 from pathlib import Path
 
 from image_delivery.oci import (
@@ -24,13 +26,64 @@ REPOSITORY = "Softbank-Hackathon-Finals/platform"
 IMAGE = "ghcr.io/softbank-hackathon-finals/platform-registration"
 PACKAGE = "softbank-hackathon-finals/platform-registration"
 VALUES = "infra/gitops/environments/development/registration-image.json"
-INPUTS = (
+PUBLICATION = str(Path(VALUES).with_name("registration-publication.json"))
+PROPOSAL_PREFIX = "feature/T43-registration-image-"
+PROPOSAL_TITLE = "[T43] 검증된 등록 API 이미지 배포"
+BUILD_INPUTS = (
     "services/platform-events",
     "services/agent-worker/src",
     "services/agent-worker/pyproject.toml",
     "services/rehearsal-runner/src",
     "services/rehearsal-runner/pyproject.toml",
+    "services/inventory/src",
+    "services/inventory/pyproject.toml",
+    "services/control-gate/src",
+    "services/control-gate/pyproject.toml",
 )
+INPUTS = (
+    *BUILD_INPUTS,
+    "scripts/registration_delivery.py",
+    "scripts/image_delivery",
+    ".github/workflows/publish-registration-image.yml",
+)
+
+
+@dataclass(frozen=True)
+class Service:
+    slug: str
+    title: str
+    # Image sources beyond BUILD_INPUTS; a change there must also rebuild the image.
+    extra_inputs: tuple = ()
+
+    @property
+    def image(self):
+        return "ghcr.io/softbank-hackathon-finals/platform-" + self.slug
+
+    @property
+    def package(self):
+        return "softbank-hackathon-finals/platform-" + self.slug
+
+    @property
+    def values(self):
+        return "infra/gitops/environments/development/" + self.slug + "-image.json"
+
+    @property
+    def publication(self):
+        return self.slug + "-publication.json"
+
+    @property
+    def inputs(self):
+        return (*BUILD_INPUTS, *self.extra_inputs, "scripts/registration_delivery.py", "scripts/image_delivery",
+                ".github/workflows/publish-" + self.slug + "-image.yml")
+
+
+REGISTRATION = Service("registration", "등록 API")
+PRODUCT_READER = Service("product-reader", "Product Reader")
+# build.py --rehearsal-host adds the T3 templates, T7/T9 modules and the patched kubectl.
+REHEARSAL_HOST = Service("rehearsal-host", "리허설 호스트", (
+    "operations/kubectl", "services/rehearsal-runner/templates", "infra/envs/rehearsal-access",
+    "infra/envs/target-secrets"))
+SERVICES = {item.slug: item for item in (REGISTRATION, PRODUCT_READER, REHEARSAL_HOST)}
 
 
 def run(args, *, check=True):
@@ -51,7 +104,7 @@ def workflow_boundary():
         raise Failure("trusted_develop_workflow_required")
 
 
-def verify(root, revision, digest):
+def verify(root, revision, digest, service=REGISTRATION):
     source_sha(revision)
     digest_value(digest)
     context = json.loads((root / "source-manifest.json").read_text())
@@ -76,7 +129,7 @@ def verify(root, revision, digest):
         raise Failure("scan_image_identity_mismatch")
     return {
         "source_revision": revision,
-        "image": IMAGE,
+        "image": service.image,
         "image_digest": digest,
         "platform_manifest_digest": platform["digest"],
         "config_digest": manifest["config"]["digest"],
@@ -86,9 +139,9 @@ def verify(root, revision, digest):
     }
 
 
-def package_visibility():
+def package_visibility(service=REGISTRATION):
     request = urllib.request.Request(
-        "https://api.github.com/orgs/Softbank-Hackathon-Finals/packages/container/platform-registration",
+        "https://api.github.com/orgs/Softbank-Hackathon-Finals/packages/container/platform-" + service.slug,
         headers={
             "Authorization": "Bearer " + os.environ["GH_TOKEN"],
             "Accept": "application/vnd.github+json",
@@ -103,19 +156,19 @@ def package_visibility():
         raise Failure("package_visibility_unavailable") from None
 
 
-def remote_digest(tag):
+def remote_digest(tag, service=REGISTRATION):
     basic = base64.b64encode(
         (os.environ["GITHUB_ACTOR"] + ":" + os.environ["GH_TOKEN"]).encode()
     ).decode()
     request = urllib.request.Request(
-        "https://ghcr.io/token?service=ghcr.io&scope=repository:" + PACKAGE + ":pull",
+        "https://ghcr.io/token?service=ghcr.io&scope=repository:" + service.package + ":pull",
         headers={"Authorization": "Basic " + basic},
     )
     try:
         with urllib.request.urlopen(request, timeout=30) as response:
             token = json.load(response)["token"]
         request = urllib.request.Request(
-            "https://ghcr.io/v2/" + PACKAGE + "/manifests/" + tag,
+            "https://ghcr.io/v2/" + service.package + "/manifests/" + tag,
             headers={
                 "Authorization": "Bearer " + token,
                 "Accept": "application/vnd.oci.image.index.v1+json",
@@ -129,7 +182,7 @@ def remote_digest(tag):
         raise Failure("registry_readback_unavailable") from None
 
 
-def publish(root, receipt):
+def publish(root, receipt, service=REGISTRATION):
     workflow_boundary()
     run_id, attempt = os.environ["GITHUB_RUN_ID"], os.environ["GITHUB_RUN_ATTEMPT"]
     if not (
@@ -137,10 +190,10 @@ def publish(root, receipt):
     ):
         raise Failure("publication_run_identity_missing")
     tag = "sha-" + receipt["source_revision"] + "-" + run_id + "-" + attempt
-    visibility = package_visibility()
+    visibility = package_visibility(service)
     if visibility not in (None, "private"):
         raise Failure("private_package_required")
-    existing = remote_digest(tag) if visibility else None
+    existing = remote_digest(tag, service) if visibility else None
     if existing is not None and existing != receipt["image_digest"]:
         raise Failure("immutable_tag_conflict")
     if existing is None:
@@ -152,16 +205,16 @@ def publish(root, receipt):
                 "--all",
                 "--preserve-digests",
                 "oci:" + str(root / "image-layout"),
-                "docker://" + IMAGE + ":" + tag,
+                "docker://" + service.image + ":" + tag,
             ],
             check=False,
         )
         # A lost copy response is resolved by the same tag's actual manifest.
-        if result.returncode and remote_digest(tag) != receipt["image_digest"]:
+        if result.returncode and remote_digest(tag, service) != receipt["image_digest"]:
             raise Failure("publication_unknown_read_existing_tag_before_retry")
     if (
-        package_visibility() != "private"
-        or remote_digest(tag) != receipt["image_digest"]
+        package_visibility(service) != "private"
+        or remote_digest(tag, service) != receipt["image_digest"]
     ):
         raise Failure("publication_readback_mismatch")
     return receipt | {
@@ -175,32 +228,135 @@ def publish(root, receipt):
     }
 
 
-def promotion_values(receipt):
+def promotion_values(receipt, service=REGISTRATION):
     if (
         receipt.get("published") is not True
         or receipt.get("registry_visibility") != "private"
-        or receipt.get("image") != IMAGE
+        or receipt.get("image") != service.image
         or receipt.get("deployed") is not False
     ):
         raise Failure("verified_private_publication_required")
     return {
-        "image": {"repository": IMAGE, "digest": digest_value(receipt["image_digest"])},
+        "image": {"repository": service.image, "digest": digest_value(receipt["image_digest"])},
         "sourceRevision": source_sha(receipt["source_revision"]),
     }
 
 
-def propose(receipt):
+def github(path, *args, check=True):
+    return run(["gh", "api", "repos/" + REPOSITORY + "/" + path, *args], check=check)
+
+
+def open_proposals():
+    pages = json.loads(github("pulls?state=open&base=develop&per_page=100",
+                              "--paginate", "--slurp").stdout)
+    return [pr for page in pages for pr in page]
+
+
+def proposal_values(pr, service=REGISTRATION):
+    """Recognize both legacy and new generated PRs by scope and committed receipt."""
+    branch = pr["head"]["ref"]
+    if (pr["base"]["ref"] != "develop"
+            or (pr["head"].get("repo") or {}).get("full_name") != REPOSITORY
+            or not re.fullmatch(re.escape("feature/T43-" + service.slug + "-image-") + r"[0-9a-f]{12}", branch)
+            or pr["title"] != "[T43] 검증된 " + service.title + " 이미지 배포"
+            or not (pr.get("body") or "").startswith("Refs #355\n")):
+        return None
+    pages = json.loads(github(f"pulls/{pr['number']}/files?per_page=100",
+                              "--paginate", "--slurp").stdout)
+    files = [item for page in pages for item in page]
+    if ({item["filename"] for item in files} != {service.values, str(Path(service.values).with_name(service.publication))}
+            or any(item["status"] not in {"added", "modified"} for item in files)):
+        return None
+    head = source_sha(pr["head"]["sha"])
+
+    def content(path):
+        blob = json.loads(github(f"contents/{path}?ref={head}").stdout)
+        return json.loads(base64.b64decode(blob["content"]))
+
+    values = content(service.values)
+    if (promotion_values(content(str(Path(service.values).with_name(service.publication))), service) != values
+            or branch != "feature/T43-" + service.slug + "-image-" + values["sourceRevision"][:12]):
+        raise Failure("proposal_identity_mismatch")
+    return values
+
+
+def is_ancestor(older, newer):
+    result = run(["git", "merge-base", "--is-ancestor", older, newer], check=False)
+    if result.returncode not in {0, 1}:
+        raise Failure("proposal_source_history_unavailable")
+    return result.returncode == 0
+
+
+def recorded_source(revision, service):
+    """Source revision of the image pinned at `revision`, or None before the first pin."""
+    shown = run(["git", "show", revision + ":" + service.values], check=False)
+    if shown.returncode:
+        return None
+    return json.loads(shown.stdout).get("sourceRevision")
+
+
+def unreleased_inputs(source, revision, service):
+    """Commits after `source` that change this service's build inputs (recorded, not blocking)."""
+    return int(run(["git", "rev-list", "--count", source + ".." + revision, "--", *service.inputs]).stdout)
+
+
+def close_superseded(values, keep=None, service=REGISTRATION):
+    """Close only older generated proposals after confirming their replacement."""
+    source = values["sourceRevision"]
+    run(["git", "fetch", "origin", "develop"])
+    # A verified image may lag develop (team decision 11/7); only older proposals are closed.
+    if not is_ancestor(source, "origin/develop"):
+        return []
+    if keep is not None:
+        replacement = json.loads(github(f"pulls/{keep}").stdout)
+        if replacement["state"] != "open" or proposal_values(replacement, service) != values:
+            raise Failure("replacement_proposal_changed")
+    else:
+        recorded = json.loads(run(["git", "show", "origin/develop:" + service.values]).stdout)
+        if recorded != values:
+            raise Failure("replacement_values_changed")
+    closed = []
+    for pr in open_proposals():
+        if pr["number"] == keep:
+            continue
+        previous = proposal_values(pr, service)
+        if previous is None or previous["sourceRevision"] == source:
+            continue
+        if not is_ancestor(previous["sourceRevision"], source):
+            continue
+        current = json.loads(github(f"pulls/{pr['number']}").stdout)
+        if current["state"] != "open":
+            continue
+        if current["head"]["sha"] != pr["head"]["sha"] or proposal_values(current, service) != previous:
+            raise Failure("superseded_proposal_changed")
+        github(f"pulls/{pr['number']}", "--method", "PATCH", "-f", "state=closed", check=False)
+        # Resolve a lost close response by reading the same PR, never retrying the write.
+        readback = json.loads(github(f"pulls/{pr['number']}").stdout)
+        if readback["state"] != "closed" or readback.get("merged_at") is not None:
+            raise Failure("proposal_close_unknown_read_existing_pr_before_retry")
+        closed.append(pr["number"])
+    return closed
+
+
+def propose(receipt, service=REGISTRATION):
     workflow_boundary()
-    values = promotion_values(receipt)
+    values = promotion_values(receipt, service)
     source = values["sourceRevision"]
     run(["git", "fetch", "origin", "develop"])
     run(["git", "merge-base", "--is-ancestor", source, "origin/develop"])
-    # Build completion ordering cannot regress newer service code.
-    if run(
-        ["git", "diff", "--name-only", source, "origin/develop", "--", *INPUTS]
-    ).stdout.strip():
+    # Forward only (team decision 11/7): a build may lag develop, but never replaces a newer pin.
+    deployed = recorded_source("origin/develop", service)
+    if deployed and deployed != source and not is_ancestor(deployed, source):
         return {"action": "superseded", "deployed": False}
-    branch = "feature/T43-registration-image-" + source[:12]
+    lag = unreleased_inputs(source, "origin/develop", service)
+    # The workflow's shared concurrency group serializes publication/proposal runs.
+    # Documentation-only newer sources can have identical inputs: do not regress them.
+    for pr in open_proposals():
+        pending = proposal_values(pr, service)
+        if (pending is not None and pending["sourceRevision"] != source
+                and is_ancestor(source, pending["sourceRevision"])):
+            return {"action": "superseded", "deployed": False}
+    branch = "feature/T43-" + service.slug + "-image-" + source[:12]
     existing = json.loads(
         run(
             [
@@ -219,33 +375,43 @@ def propose(receipt):
         ).stdout
     )
     if existing:
+        closed = []
+        if existing[0]["state"] == "OPEN":
+            pr = json.loads(github(f"pulls/{existing[0]['number']}").stdout)
+            pending = proposal_values(pr, service)
+            if pending is None or pending["sourceRevision"] != source:
+                raise Failure("existing_proposal_identity_mismatch")
+            closed = close_superseded(pending, pr["number"], service)
         return {
             "action": "existing_proposal",
             "url": existing[0]["url"],
+            "closed_proposals": closed,
             "deployed": False,
         }
     run(["git", "switch", "--detach", "origin/develop"])
-    path = Path(VALUES)
+    path = Path(service.values)
     if path.exists() and json.loads(path.read_text()) == values:
-        return {"action": "already_recorded", "deployed": False}
-    previous = run(["git", "show", source + ":" + VALUES], check=False)
+        return {"action": "already_recorded", "closed_proposals": close_superseded(values, service=service),
+                "deployed": False}
+    previous = run(["git", "show", source + ":" + service.values], check=False)
     previous_values = json.loads(previous.stdout) if previous.returncode == 0 else None
     current_values = json.loads(path.read_text()) if path.exists() else None
-    if current_values != previous_values:
+    forward = bool(deployed) and deployed != source and is_ancestor(deployed, source)
+    if current_values != previous_values and not forward:
         return {"action": "deployment_values_changed", "deployed": False}
     run(["git", "switch", "-c", branch])
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(values, indent=2) + "\n")
-    Path(VALUES).with_name("registration-publication.json").write_text(
+    Path(service.values).with_name(service.publication).write_text(
         json.dumps(receipt, indent=2) + "\n"
     )
-    run(["git", "add", VALUES, str(path.with_name("registration-publication.json"))])
+    run(["git", "add", service.values, str(path.with_name(service.publication))])
     run(
         [
             "git",
             "commit",
             "-m",
-            "[T43] 검증된 등록 API 이미지를 GitOps 개발 환경에 반영",
+            "[T43] 검증된 " + service.title + " 이미지를 GitOps 개발 환경에 반영",
         ]
     )
     # If a previous push response was lost, the remote branch is read before any retry.
@@ -262,7 +428,7 @@ def propose(receipt):
     if not remote or remote[0] != head:
         raise Failure("push_unknown_read_existing_branch_before_retry")
     body = (
-        "Refs #355\n\n검사한 등록 API 이미지를 개발 환경의 Helm 값에 결속합니다. "
+        "Refs #355\n\n검사한 " + service.title + " 이미지를 개발 환경의 Helm 값에 결속합니다. "
         "이 PR 병합 뒤 Argo CD가 동기화하며 실제 API 확인은 별도 영수증으로 남깁니다.\n\n"
         "- Source: `"
         + source
@@ -275,10 +441,11 @@ def propose(receipt):
         + receipt["run_id"]
         + "\n"
         "- GHCR private readback, OCI/provenance/SBOM and image scan passed.\n"
+        "- Unreleased build-input commits on develop at proposal time: " + str(lag) + "\n"
     )
-    body_file = Path(os.environ["RUNNER_TEMP"]) / "registration-proposal.md"
+    body_file = Path(os.environ["RUNNER_TEMP"]) / (service.slug + "-proposal.md")
     body_file.write_text(body)
-    url = run(
+    run(
         [
             "gh",
             "pr",
@@ -290,7 +457,7 @@ def propose(receipt):
             "--head",
             branch,
             "--title",
-            "[T43] 검증된 등록 API 이미지 배포",
+            "[T43] 검증된 " + service.title + " 이미지 배포",
             "--body-file",
             str(body_file),
             "--label",
@@ -299,28 +466,67 @@ def propose(receipt):
             "area:infra",
             "--label",
             "stage:3",
-        ]
-    ).stdout.strip()
-    return {"action": "proposed", "url": url, "deployed": False}
+        ], check=False,
+    )
+    # Successful and lost create responses use the same exact branch readback.
+    created = [pr for pr in open_proposals() if pr["head"]["ref"] == branch]
+    if (len(created) != 1 or created[0]["head"]["sha"] != head
+            or proposal_values(created[0], service) != values):
+        raise Failure("proposal_create_unknown_read_existing_pr_before_retry")
+    closed = close_superseded(values, created[0]["number"], service)
+    return {"action": "proposed", "url": created[0]["html_url"],
+            "closed_proposals": closed, "unreleased_input_commits": lag, "deployed": False}
+
+
+def check_promotion(service=REGISTRATION):
+    # A queue base can be another unmerged queue entry. Compare against the
+    # common develop ancestor so every promotion in the combined group is checked.
+    base = run(["git", "merge-base", "HEAD", "refs/remotes/origin/develop"]).stdout.strip()
+    publication = str(Path(service.values).with_name(service.publication))
+    changed = run(["git", "diff", "--name-only", base, "HEAD", "--", service.values, publication])
+    if not changed.stdout.strip():
+        return {"action": "no_promotion", "deployed": False}
+    values = json.loads(run(["git", "show", "HEAD:" + service.values]).stdout)
+    receipt = json.loads(run(["git", "show", "HEAD:" + publication]).stdout)
+    if promotion_values(receipt, service) != values:
+        raise Failure("publication_values_mismatch")
+    source = values["sourceRevision"]
+    run(["git", "merge-base", "--is-ancestor", source, "HEAD"])
+    if not run(["git", "diff", "--name-only", source, "HEAD", "--", *BUILD_INPUTS]).stdout.strip():
+        # Includes a rollback that restores the source together with its verified image.
+        return {"action": "current_source_verified", "source_revision": source, "deployed": False}
+    # Team decision 11/7: a verified image may lag develop, but only moves forward from the
+    # pin already on develop. An older proposal merged late is refused.
+    deployed = recorded_source(base, service)
+    if deployed is not None and (deployed == source or not is_ancestor(deployed, source)):
+        raise Failure("promotion_source_not_newer_than_deployed")
+    return {"action": "forward_source_verified", "source_revision": source, "deployed_source": deployed,
+            "unreleased_input_commits": unreleased_inputs(source, "HEAD", service), "deployed": False}
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("action", choices=("verify", "publish", "propose"))
-    parser.add_argument("--root", type=Path, required=True)
+    parser.add_argument("action", choices=("verify", "publish", "propose", "check-promotion"))
+    parser.add_argument("--root", type=Path)
+    parser.add_argument("--service", choices=tuple(SERVICES), default="registration")
     args = parser.parse_args()
+    service = SERVICES[args.service]
+    if args.action != "check-promotion" and args.root is None:
+        parser.error("--root is required for verify, publish and propose")
     try:
-        if args.action == "propose":
+        if args.action == "check-promotion":
+            result = check_promotion(service)
+        elif args.action == "propose":
             result = propose(
-                json.loads((args.root / "registration-publication.json").read_text())
+                json.loads((args.root / service.publication).read_text()), service
             )
         else:
             result = verify(
-                args.root, os.environ["SOURCE_SHA"], os.environ["BUILD_DIGEST"]
+                args.root, os.environ["SOURCE_SHA"], os.environ["BUILD_DIGEST"], service
             )
             if args.action == "publish":
-                result = publish(args.root, result)
-                (args.root / "registration-publication.json").write_text(
+                result = publish(args.root, result, service)
+                (args.root / service.publication).write_text(
                     json.dumps(result, indent=2) + "\n"
                 )
         print(json.dumps(result))

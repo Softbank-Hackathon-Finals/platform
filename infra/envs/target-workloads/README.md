@@ -21,6 +21,7 @@ T2의 기존 VM, AWS 플랫폼 RKE2의 상태 DB, 실제 온프렘 데모 머신
    `cnpg-system`만 operator 용도로 사용하며 감시 범위는 `target-dev`다.
 5. `python3 render.py database --node-name <확인한-노드>`의 결과를 검토·적용한다.
    `target-db`가 Ready이고 애플리케이션 테이블이 없는 것을 확인한다.
+   이어서 `python3 render.py accounts`를 적용한다. 아래 워크로드가 모두 이 계정을 쓰므로 먼저 있어야 한다([서비스 계정](#서비스-계정)).
 6. `python3 render.py migration`의 결과를 별도로 적용한다. 이 Job이 성공한 다음에만
    구독을 준비한다. 기존 테이블이 있으면 전체 트랜잭션이 실패하므로 충돌을 숨기지 않는다.
 
@@ -36,6 +37,29 @@ T2의 기존 VM, AWS 플랫폼 RKE2의 상태 DB, 실제 온프렘 데모 머신
 - DB는 TLS만 허용한다. 마이그레이션 Job도 `verify-full`과 대상 CA를 사용한다.
 - 감사는 접속·DDL·역할 변경을 수집하고 파라미터 값 로깅을 끈다.
 - 출발지/목적지 endpoint와 환경 신원, 단일 쓰기 조건이 확정되기 전에는 구독·슬롯을 생성하지 않는다.
+
+## 서비스 계정
+
+T30 워크로드는 각자 전용 계정으로 돌고, 어느 것도 Kubernetes API 토큰을 마운트하지 않는다. 역할(Role)도 주지 않는다. 계정은 `python3 render.py accounts` 한 곳에서 만든다.
+실행마다 새로 만드는 Job도 이 계정을 쓰므로 워크로드보다 먼저 한 번 적용한다. 계정이 없으면 Pod가 만들어지지 않는다.
+
+| 계정 | 쓰는 렌더러 |
+| --- | --- |
+| `default` | 없음. namespace 기본 계정의 토큰 자동 마운트만 끈다 |
+| `demo-chat` | `application.py` |
+| `target-pgbouncer` | `pooler.py` |
+| `target-seaweedfs` | `objects.py` |
+| `target-chat-schema` | `render.py migration` |
+| `target-probe` | `probes.py`의 모든 단계 |
+| `attachment-copy` | `attachment_job.py` |
+
+kube-bench `rke2-cis-1.9`는 namespace의 `default` 계정이 토큰을 끄지 않으면 5.1.5를, Pod가 토큰을 꺼도 그 계정이 설정을 비워 두면 5.1.6을 실패로 센다(2026-11-06 데모 노드 80 PASS / 2 FAIL).
+그래서 Pod와 계정 양쪽에 `automountServiceAccountToken: false`를 둔다.
+
+**예외:** CNPG가 만드는 `target-db` 계정과 그 Pod는 토큰을 쓴다. 인스턴스 관리자가 Kubernetes API로 Cluster 상태를 읽고 고치기 때문이다. 이 렌더러는 이 계정을 만들거나 바꾸지 않는다. kube-bench 5.1.6은 이 Pod를 계속 실패로 센다.
+
+이미 돌고 있는 클러스터는 `accounts`를 적용한 뒤 각 워크로드를 다시 렌더해 적용해야 바뀐다. Pod 템플릿의 계정이 바뀌므로 Deployment는 롤아웃된다.
+기본 계정의 토큰을 끄면 `target-dev`에서 기본 계정 토큰에 기대던 Pod도 토큰을 잃는다. 2026-11-06에 읽은 기본 계정 Pod 21개는 모두 Pod 쪽에서 이미 토큰을 끄고 있었다.
 
 ## 아직 별도인 통합
 
@@ -86,8 +110,12 @@ TCP 연결이고, SCRAM 역할·테이블 권한·TLS 서버 신원 검증은 �
 
 ## 개발용 첨부 저장소
 
-`objects.py --node-name ...`는 SeaweedFS 4.52의 고정 amd64 이미지로 단일 인스턴스를
-렌더한다. DB와 별개의 `/var/lib/bravo-target-dev/objects` 경로를 UID/GID 1000으로
+`objects.py --node-name ...`는 SeaweedFS 4.52 릴리스 index digest로 단일 인스턴스를
+렌더한다. index라서 각 노드는 자기 플랫폼의 이미지를 받는다(linux/amd64 `a54ba35b`, linux/arm64 `18a805c8`).
+예전에는 amd64 이미지 하나를 고정했고, 목적지가 arm64로 바뀐 2026-11-06에 실제 Deployment만 arm64 이미지로 바뀌었다.
+렌더를 그대로 다시 적용하면 amd64로 되돌아가 뜨지 못했으므로 index로 바꿨다. 실제 Pod가 arm64 이미지를
+직접 가리키는 동안에는 이 렌더를 적용하면 같은 바이트로 한 번 다시 뜬다(Recreate). 노드가 Docker Hub에서
+index 매니페스트를 받을 수 있어야 한다. DB와 별개의 `/var/lib/bravo-target-dev/objects` 경로를 UID/GID 1000으로
 준비하고 8Gi Retain PV를 사용한다. 표기 용량은 파일시스템 할당량이 아니므로 합성
 객체의 크기를 제한한다. 내부 master/filer/volume은 loopback에만 바인딩하고 S3만
 8333으로 제공한다. 설정 없는 익명 기동을 막기 위해 `target-seaweedfs-auth` Secret의
@@ -135,10 +163,28 @@ python3 object_exposure.py render --state closed --output /dev/shm/s3.closed.jso
 ```
 
 `probe`는 응답 코드만 분류한다(`ALLOWED`/`DENIED`/`UNKNOWN:<사유>`), 객체 내용은 보관하지 않는다.
-Secret을 바꾼 뒤 SeaweedFS가 설정을 다시 읽는지는 아직 실측하지 않았으므로 순서에 `rollout restart`를
-넣었다. 열린 상태의 증빙은 게이트 readback(IAM-01.1 BLOCK)이고, 이 스크립트의 관측은 리셋 확인용이다.
+열린 상태의 증빙은 게이트 readback(IAM-01.1 BLOCK)이고, 이 스크립트의 관측은 리셋 확인용이다.
 시험: `scripts/tests/test_object_exposure.py`(렌더 상태 · 범위 · 승인 플래그 · 키 비노출 · 탐침 분류).
-실제 클러스터에서 열고 닫은 실측은 아직 없다.
+
+**로컬 kind 실측(2026-11-06, [증거](../../../docs/evidence/t9-open-bucket-2026-11-06/README.md)).** 렌더 그대로의
+SeaweedFS 4.52에서 Secret만 바꾸면 kubelet이 마운트 파일을 56–83초 뒤에 바꿨지만, 그 뒤 90초 넘게 익명 GET 결과는
+바뀌지 않았다. **`rollout restart`가 필요하다.** 재시작하면 `rollout status` 약 36초, 상태가 바뀌기까지 약 38초였다
+(열기 · 닫기 모두). `Recreate`라 그동안 S3 응답을 기대할 수 없다. open-demo의 익명은 첨부 객체 GET · HEAD만 됐고 PUT · LIST ·
+DELETE · 버킷 정책 쓰기 · 버킷 생성 · ListBuckets · 다른 버킷 GET은 403이었다. client는 두 상태 모두 정상이었다.
+`probe`의 분류는 매번 실제 상태와 맞았다. 4.52는 SIGHUP에도 `s3.json`을 다시 읽었지만(`pods/exec` 필요) 운영 순서는
+재시작으로 둔다.
+
+**버킷 정책이 남아 있으면 닫히지 않는다.** `s3.json`이 closed여도 첨부 버킷에 `Allow` `Principal "*"` `s3:GetObject`
+정책이 있으면 익명 GET이 200이고, 재시작해도 그대로다(정책은 filer에 저장). 설치 직후에는 정책이 없었다. 닫기 · 데모
+리셋 순서:
+
+1. closed `s3.json`으로 Secret 교체 → `rollout restart` → `rollout status`
+2. bootstrap 자격으로 첨부 버킷 `GET ?policy` → 404 `NoSuchBucketPolicy`인지 확인. 정책이 있으면 bootstrap으로
+   `DELETE ?policy`(client는 지우지 못한다). 삭제는 재시작 없이 바로 반영됐다
+3. `probe` → `state_observed=closed`. `open`이면 2를 다시 본다
+
+이 측정은 데모 목적지 RKE2가 아니다. 목적지에서 열고 닫는 실측은 아직 없다. 재현:
+`testing/open_bucket_kind.py --print-kind-config`로 kind를 만들고 `--kubeconfig … --output <비공개 경로>`로 실행한다.
 
 ### 리허설 전용 시험 버킷 (T15 버킷 정책 작업)
 
@@ -204,6 +250,12 @@ T2/T6/T8/T9/T30 전체 완료나 실제 데모 머신의 준비 완료는 이 �
 1. **이미지.** 쓸 이미지는 [`app-image.json`](app-image.json) 한 곳에만 적는다. 렌더러와 `scripts/export_target_image.py`가 이 파일을 읽는다.
    새로 게시하면 그 실행 아티팩트의 `image-receipt.json`(`source_sha`, `digest`)과 `registry-index.json`(amd64 `digest`)을 옮겨 적고 끝낸다.
    렌더러는 이 파일의 index digest만 받는다. 다른 digest는 저장소가 GHCR이든 ECR이든 거부한다. DB · 객체 저장소 · 관리 토큰을 받는 Pod에서 다른 바이트가 돌지 못하게 하려는 것이다. ECR에서 받을 때만 `--image`로 저장소를 바꾼다.
+
+   **노드 아키텍처.** 목적지 노드는 2026-11-06 05:20 KST쯤 x86에서 arm64로 바뀌었다. GHCR 게시본은 amd64뿐이라 arm64 노드에서는 뜨지 않는다.
+   그래서 arm64 노드에는 노드 containerd에 이미 들어 있는 로컬 빌드를 쓰고, `app-image.json`의 `arm64` 항목에 적었다. 렌더는 `--arch`로 고른다(기본 `amd64`).
+   맞는 항목이 없거나 이미지가 그 아키텍처 항목과 다르면 렌더를 거부한다. Pod에는 `nodeSelector: kubernetes.io/arch`가 붙어 다른 아키텍처 노드에는 뜨지 않는다. arm64 이미지는 노드에만 있으므로 `--pull-secret`도 받지 않는다.
+   arm64 항목의 출처는 파일 대조로 확인했다. 실행 중인 이미지의 `/app/app` 파일 17개 sha256이 `source_sha`의 `app/`과 같다.
+   빌드한 사람의 기록으로는 이 앱 파일에 arm64용으로 고친 로컬 Dockerfile을 붙여 빌드했다. demo-chat 한 커밋의 Dockerfile이 아니어서 빌드 커밋 대신 Dockerfile sha256과 베이스 이미지 digest를 적었다. 이 기록은 다시 빌드해 확인하지 않았다. 대조 방법은 [이미지 인수인계](../../../docs/operations/target-image-handoff.md#arm64-target-node)에 있다.
 2. **VM에 넣기.** ECR에는 이미 있다. 이 게시본의 demo-chat 영수증(#19)과 `transfer-private-image`([실행 41815292046](https://github.com/Softbank-Hackathon-Finals/demo-chat/actions/runs/41815292046), 2026-11-04 19:36 KST)가 끝났고, 대상 바이트와 CI Pull까지 확인됐다.
    개발 VM에는 류지환 님 기록(#210)상 2026-11-04 23:05 KST에 묶음이 containerd에 등록됐고 23:07에 index와 amd64 manifest를 대조했다. 이 문서 쪽에서 직접 확인한 것은 아니다.
    남은 일은 이 변경이 병합된 뒤 VM 담당이 digest를 대조하고 앱을 배포하는 것이다. 다른 VM이면 [이미지 인수인계](../../../docs/operations/target-image-handoff.md) 순서로 묶음을 만들어 넣고 digest 별칭을 붙인다.
@@ -252,7 +304,8 @@ kubectl -n target-dev label secret target-app-credentials target-app-objects tar
 ### 적용과 확인
 
 ```sh
-python3 application.py > "$OUTPUT_DIR/application.json"
+kubectl get nodes -o custom-columns=NAME:.metadata.name,ARCH:.status.nodeInfo.architecture  # 지금은 arm64
+python3 application.py --arch arm64 > "$OUTPUT_DIR/application.json"  # 위에서 읽은 아키텍처
 kubectl apply --server-side --dry-run=server -f "$OUTPUT_DIR/application.json"
 kubectl apply --server-side -f "$OUTPUT_DIR/application.json"
 kubectl -n target-dev rollout status deployment/demo-chat
@@ -295,6 +348,16 @@ SCRAM 키를 저장하지 않는다. 첫 시도가 틀리면 그 뒤에 맞는 �
 
 **해피패스 순서:** T31 롤아웃 → `write_switch.py open` → Edge 가중치 전환 → 컷오버.
 
+해피패스 실행자는 T31 직후 `open_after_apply.py`로 이 두 단계를 잇는다. 이 스크립트는 기록된 T31 결과를
+`bravo-apply get-result`로 읽는다(클러스터 호출 없음). 그 결과가 이 목적지 `target-dev/demo-chat`의 실제
+`APPLIED` 롤아웃일 때만 진행한다. `status`가 확인 못 함(3)인 동안 기다린 뒤 `open`을 한 번 실행한다. 판정과
+실패 시 전체 닫기는 `write_switch.py`가 한다. 결과는 T31 영수증 옆 `<application_id>.write-switch.json`에
+한 번만 남는다. 다시 실행하면 그 기록만 보여 준다. 다시 열려면 사람이 `write_switch.py open`을 실행한다.
+
+```sh
+infra/envs/target-workloads/open_after_apply.py --application-id <T31 id> --receipts <T31 receipts> --kubeconfig <target>
+```
+
 ```sh
 infra/envs/target-workloads/write_switch.py status   # 읽기만. 열 조건이 모두 맞으면 0
 infra/envs/target-workloads/write_switch.py open
@@ -328,6 +391,25 @@ infra/envs/target-workloads/testing/app_lab.py --demo-chat-src <demo-chat 체크
 ```
 
 ## Pre-cutover pooler and attachment copy
+
+The pooler's backend CA volume names `cutover-backend-ca`: the cutover executor's
+bundle of the source and target public CAs (`prepare.pooler_trust_patch()` in
+`services/cutover-executor`), so the backend is verified before and after the
+host retarget. An earlier render named `t8-source-ca` (source CA only); a re-apply
+undid the executor's patch. On 2026-11-06 the live Secret, created by the executor
+setup on 2026-11-03, held exactly the `t8-source-ca` and `target-db-ca` certificates.
+It must exist before the pooler starts. Where it is missing, build it from those
+two public CAs only:
+
+```sh
+set -o pipefail  # a failed read must not leave a bundle with one CA
+SOURCE_CA=$(kubectl -n target-dev get secret t8-source-ca -o jsonpath='{.data.ca\.crt}' | base64 -d) &&
+TARGET_CA=$(kubectl -n target-dev get secret target-db-ca -o jsonpath='{.data.ca\.crt}' | base64 -d) &&
+test -n "$SOURCE_CA" && test -n "$TARGET_CA" &&
+printf '%s\n%s\n' "$SOURCE_CA" "$TARGET_CA" \
+  | kubectl -n target-dev create secret generic cutover-backend-ca --from-file=ca.crt=/dev/stdin &&
+kubectl -n target-dev label secret cutover-backend-ca component=target
+```
 
 `pooler.py` consumes the verified `source-for-pooler` egress Service IPv4 address
 and UID. It preserves the original source certificate hostname in `hostAliases`
@@ -483,6 +565,8 @@ psycopg만 있으면 되고 컨테이너는 필요 없으며, 위 명령에도 �
 
 `t8_source_to_target`가 연결 끊김으로 스스로 꺼졌을 때 쓰는 명령이다. 기존 슬롯을 그대로 두고 그 구독만 다시 켠 뒤,
 실제로 따라잡았는지 확인한다. 슬롯 · 역할 · 역방향 구독 · 앱의 쓰기 차단은 건드리지 않고, 목적지에는 어떤 쓰기도 하지 않는다.
+이 절은 정방향이다. 컷오버 뒤 꺼진 역방향 `t8_target_to_source`는 같은 명령에 `--direction reverse`를 준다. 규칙은 같고 두 DB의 역할만
+바뀐다. 절차와 거부 이유는 [T8 복제 상태의 역방향 재개](../../../docs/operations/t8-replication-health.md#컷오버-뒤-역방향-재개)에 있다.
 
 첫 실제 재개(11/4 16:26 KST)는 이 명령 없이 수행됐고 결과의 정본은 [#201](https://github.com/Softbank-Hackathon-Finals/platform/pull/201)이다.
 이 명령은 재발에 대비한 절차로, 로컬 컨테이너에서만 재현했고 실제 환경에서는 돌리지 않았다.

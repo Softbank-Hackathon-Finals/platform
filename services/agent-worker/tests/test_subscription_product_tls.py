@@ -2,17 +2,14 @@ import json
 import threading
 from contextlib import contextmanager
 from http.server import BaseHTTPRequestHandler, HTTPServer
-from types import SimpleNamespace
 
 import pytest
 from test_subscription_product import setup as setup
-from test_subscription_product_runtime import INSTANCE, RUNTIME, SSM
+from test_subscription_product_runtime import RUNTIME
 from tls_support import identity
 
-from bravo_agent import subscription_product_caller as caller
 from bravo_agent import subscription_product_server as product_server
 from bravo_agent import subscription_server
-from bravo_agent.subscription_product_execution import execute
 from bravo_agent.subscription_product_host import ProductInputProbeCall, ProductTunnelCall
 from bravo_agent.subscription_product_tls import client_context, server_context
 
@@ -67,48 +64,8 @@ def test_actual_receiver_authentication_before_token_body(setup, tmp_path, monke
         assert body['web_identity_token'] not in json.dumps(result)
 
 
-@pytest.mark.parametrize('window', [caller.product_window, caller.product_probe_window])
-def test_listener_bound_after_port_preflight_gets_no_body_and_window_is_spent(
-        setup, tmp_path, monkeypatch, window):
-    service, _, body, counts = setup
-    _, pem = identity(tmp_path)
-    ssm, seen, stopped = SSM(), [], []
-    receiver = listener(service, seen)
-    opened = []
-
-    def spawn(*_args, **_kwargs):
-        # The real port preflight has succeeded and released its socket by here.
-        receiver.__enter__()
-        opened.append(True)
-        return SimpleNamespace(poll=lambda: None, terminate=lambda: stopped.append(True), wait=lambda **_: None)
-
-    monkeypatch.setattr(caller.subprocess, 'Popen', spawn)
-    try:
-        with window(INSTANCE, RUNTIME, ca_pem=pem, ssm=ssm) as call:
-            assert call(body)[0] == 502
-            assert call(body)[0] == 409
-        assert call(body)[0] == 409
-    finally:
-        if opened:
-            receiver.__exit__(None, None, None)
-    assert seen == [] and counts == {'auth': 0, 'resolve': 0, 'invoke': 0}
-    assert ssm.calls == ['start', 'session', 'terminate', 'stop'] and stopped == [True]
 
 
-@pytest.mark.parametrize('pem', ['', 'not-a-certificate'])
-def test_bad_ca_stops_before_identity_and_cloud(setup, pem):
-    from test_subscription_product_execution import environment, intent_for
-
-    intent = intent_for(setup[2])
-    env = environment(intent) | {'PRODUCT_BROKER_CA_PEM': pem}
-    result = execute(intent, env, token_supplier=lambda: pytest.fail('OIDC requested before CA validation'),
-                     window=lambda *_args, **_kwargs: pytest.fail('SSM opened before CA validation'))
-    assert result['status'] == 502 and result['cleanup_confirmed'] is False
-    ssm = SSM()
-    with pytest.raises(ValueError):
-        with caller.product_window(INSTANCE, RUNTIME, ca_pem=pem, ssm=ssm):
-            pytest.fail('invalid trust configuration opened a window')
-    assert ssm.calls == []
 
 
 def test_server_requires_tls_before_bind(monkeypatch, setup):

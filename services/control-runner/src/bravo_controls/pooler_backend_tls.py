@@ -19,6 +19,16 @@ SPEC = TestSpec("ENC-01.5", "ENC-01", "1", "enabled", "not_applicable")
 _NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.:/-]{0,255}\Z")
 _SHA = re.compile(r"sha256:[a-f0-9]{64}\Z")
 _MODES = {"disable", "allow", "prefer", "require", "verify-ca", "verify-full"}
+BACKEND_SQL = """
+SELECT pg_catalog.current_database(), pg_catalog.host(pg_catalog.inet_client_addr()),
+       pg_catalog.host(pg_catalog.inet_server_addr()), s.ssl, s.version,
+       pg_catalog.pg_backend_pid(), a.backend_start, CURRENT_USER, SESSION_USER,
+       pg_catalog.current_setting('transaction_read_only')
+FROM pg_catalog.pg_stat_ssl AS s
+JOIN pg_catalog.pg_stat_activity AS a ON a.pid = s.pid
+WHERE s.pid = pg_catalog.pg_backend_pid()
+LIMIT 2
+"""
 
 
 def _utc(value):
@@ -115,6 +125,135 @@ def assess(target, context, report, started, finished):
         }
     except (ValueError, TypeError, KeyError, OverflowError):
         return None, "UNEXPECTED_RESPONSE", {"readback_valid": False}
+
+
+class PostgreSQLPoolerBackendReader:
+    """Fixed read-only queries through one directly pinned Pooler listener.
+
+The host authenticates registration, owns an idle stats-user connection to
+`pgbouncer`, and creates a NEW dedicated app connection on demand. Credentials
+stay at that host boundary. No PAUSE, RECONNECT, reload, termination or DDL is
+used to force a fresh backend; an existing backend remains UNKNOWN.
+
+The host MUST supervise the full call deadline in its worker process (including
+SHOW CONFIG and connection creation). Query timeouts alone cannot interrupt a
+stalled PgBouncer control connection. Shared app/control connections are invalid.
+"""
+
+    def __init__(self, stats_connection, *, open_application_connection,
+                 application_user, stats_user, pooler_hostname, pooler_port,
+                 read_registration, clock=lambda: datetime.now(UTC)):
+        if (not all(callable(x) for x in (open_application_connection, read_registration, clock))
+                or any(not isinstance(x, str) or not _NAME.fullmatch(x)
+                       for x in (application_user, stats_user, pooler_hostname))
+                or application_user == stats_user or type(pooler_port) is not int
+                or not 1 <= pooler_port <= 65535):
+            raise ValueError("registered reader identities and listener required")
+        self.stats = stats_connection
+        self.open_application = open_application_connection
+        self.application_user, self.stats_user = application_user, stats_user
+        self.hostname, self.port = pooler_hostname, pooler_port
+        self.read_registration, self.clock = read_registration, clock
+
+    def _validate_connection(self, connection, target, database, username):
+        from psycopg import Connection
+        from psycopg.pq import TransactionStatus
+
+        if (not isinstance(connection, Connection) or connection.closed
+                or connection.info.transaction_status != TransactionStatus.IDLE):
+            raise ValueError("dedicated idle reader required")
+        parameters = connection.info.get_parameters()
+        if (parameters.get("sslmode") != "verify-full" or not connection.pgconn.ssl_in_use
+                or not parameters.get("sslrootcert")
+                or parameters.get("host") != self.hostname
+                or parameters.get("hostaddr") != target.pooler_address
+                or connection.info.port != self.port
+                or connection.info.dbname != database or connection.info.user != username):
+            raise ValueError("registered verified listener and identity required")
+
+    def __call__(self, context, target, deadline):
+        from psycopg import Error
+        from psycopg.errors import InsufficientPrivilege, QueryCanceled
+
+        if (not isinstance(target, BackendTarget) or not isinstance(context, RunContext)
+                or context.app != target.app or context.environment != target.environment):
+            raise ValueError("registered pooler invocation required")
+
+        def check():
+            if _utc(self.clock()) >= _utc(deadline):
+                raise TimeoutError("pooler read budget exceeded")
+
+        def registration():
+            check()
+            if self.read_registration(context, target) != target.binding():
+                raise ValueError("pooler registration changed")
+            check()
+
+        def configuration():
+            check()
+            self._validate_connection(self.stats, target, "pgbouncer", self.stats_user)
+            if not self.stats.autocommit:
+                raise ValueError("pooler stats connection must use autocommit")
+            with self.stats.cursor() as cursor:
+                cursor.execute("SHOW CONFIG")
+                rows = cursor.fetchmany(129)
+            if (not rows or len(rows) > 128
+                    or any(not isinstance(row, tuple) or len(row) < 2 for row in rows)):
+                raise ValueError("complete runtime configuration required")
+            modes = [row[1] for row in rows if row[0] == "server_tls_sslmode"]
+            if len(modes) != 1 or modes[0] not in _MODES:
+                raise ValueError("runtime TLS mode unconfirmed")
+            check()
+            return {"binding": target.binding(), "collected_at": _utc(self.clock()),
+                    "server_tls_sslmode": modes[0]}
+
+        application = None
+        try:
+            registration()
+            before = configuration()
+            check()
+            application = self.open_application()
+            if application is self.stats:
+                raise ValueError("separate stats and application connections required")
+            self._validate_connection(application, target, target.database, self.application_user)
+            with application.transaction():
+                with application.cursor() as cursor:
+                    cursor.execute("SET TRANSACTION READ ONLY")
+                    cursor.execute("SET LOCAL statement_timeout = '3s'")
+                    cursor.execute("SET LOCAL lock_timeout = '1s'")
+                    cursor.execute("SET LOCAL TIME ZONE 'UTC'")
+                    cursor.execute(BACKEND_SQL)
+                    rows = cursor.fetchmany(2)
+                    if (len(rows) != 1 or len(rows[0]) != 10
+                            or rows[0][7:10] != (self.application_user, self.application_user, "on")):
+                        raise ValueError("one authenticated read-only backend required")
+                    row = rows[0]
+                    connection = {"collected_at": _utc(self.clock()), "backend_started_at": row[6],
+                                  "database": row[0], "client_address": row[1], "server_address": row[2],
+                                  "ssl": row[3], "protocol": row[4], "pid": row[5]}
+                    check()
+                    # Keep the read-only transaction pinned until the second
+                    # configuration read. Never issue an application write.
+                    after = configuration()
+            registration()
+            return {"run_id": context.run_id, "before": before, "after": after,
+                    "connection": connection}
+        except InsufficientPrivilege:
+            raise PermissionError("pooler metadata read denied") from None
+        except QueryCanceled:
+            raise TimeoutError("pooler metadata query timed out") from None
+        except Error:
+            raise OSError("pooler metadata transport unavailable") from None
+        finally:
+            if application is not None and application is not self.stats:
+                # A factory must return a dedicated psycopg connection, not a
+                # shared application-pool lease. Do not close the stats reader.
+                close = getattr(application, "close", None)
+                if callable(close):
+                    try:
+                        close()
+                    except Exception:
+                        raise OSError("dedicated pooler reader cleanup unavailable") from None
 
 
 class PoolerBackendTLSProbe:

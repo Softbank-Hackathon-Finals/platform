@@ -15,7 +15,7 @@ _HASH = re.compile(r"sha256:[a-f0-9]{64}\Z")
 
 
 @dataclass(frozen=True)
-class AuditForwardingRegistration:
+class AuditFileRegistration:
     environment: str
     destination_environment: str
     registration_digest: str
@@ -23,9 +23,6 @@ class AuditForwardingRegistration:
     pod: str
     pod_uid: str
     node_uid: str
-    # A separately authenticated environment-local OTLP logs receiver.
-    endpoint: str
-    include_node_audit: bool = False
 
     def __post_init__(self):
         for value in (self.environment, self.destination_environment, self.namespace, self.pod):
@@ -38,6 +35,16 @@ class AuditForwardingRegistration:
         for value in (self.pod_uid, self.node_uid):
             if not isinstance(value, str) or str(UUID(value)) != value:
                 raise ValueError("canonical registered UID required")
+
+
+@dataclass(frozen=True)
+class AuditForwardingRegistration(AuditFileRegistration):
+    # A separately authenticated environment-local OTLP logs receiver.
+    endpoint: str
+    include_node_audit: bool = False
+
+    def __post_init__(self):
+        super().__post_init__()
         if type(self.include_node_audit) is not bool:
             raise ValueError("explicit node audit selection required")
         if not isinstance(self.endpoint, str):
@@ -61,9 +68,9 @@ class AuditForwardingRegistration:
             raise ValueError("invalid receiver port")
 
 
-def collector_config(binding: AuditForwardingRegistration) -> dict:
+def _file_config(binding: AuditFileRegistration, *, include_node_audit: bool = False) -> dict:
     """No wildcard namespace/UID, app OTLP input, insecure TLS or cloud credentials."""
-    if not isinstance(binding, AuditForwardingRegistration):
+    if not isinstance(binding, AuditFileRegistration):
         raise ValueError("trusted registration required")
     common = {
         "start_at": "beginning", "storage": "file_storage/audit", "poll_interval": "1s",
@@ -104,7 +111,7 @@ def collector_config(binding: AuditForwardingRegistration) -> dict:
         "k8s.node.uid": binding.node_uid,
     }
     pipelines = {}
-    for kind in ("cnpg", "kubernetes") if binding.include_node_audit else ("cnpg",):
+    for kind in ("cnpg", "kubernetes") if include_node_audit else ("cnpg",):
         values = {**labels, "bravo.audit.source": kind}
         if kind == "cnpg":
             values.update({"k8s.namespace.name": binding.namespace, "k8s.pod.name": binding.pod,
@@ -120,7 +127,7 @@ def collector_config(binding: AuditForwardingRegistration) -> dict:
             "processors": ["memory_limiter", "transform/" + kind, "transform/binding-" + kind],
             "exporters": ["otlp_http/audit"],
         }
-    if binding.include_node_audit:
+    if include_node_audit:
         receivers["filelog/kubernetes"] = {
             **common, "include": ["/var/log/bravo-audit/kubernetes/audit.log*"],
             "exclude": ["/var/log/bravo-audit/kubernetes/*.gz"],
@@ -146,15 +153,7 @@ def collector_config(binding: AuditForwardingRegistration) -> dict:
             "timeout": "1s", "fsync": True, "recreate": False, "max_size": 67108864,
         }},
         "receivers": receivers, "processors": processors,
-        "exporters": {"otlp_http/audit": {
-            "endpoint": binding.endpoint, "timeout": "10s",
-            "tls": {"ca_file": "/var/run/bravo-audit/tls/ca.crt",
-                    "cert_file": "/var/run/bravo-audit/tls/tls.crt",
-                    "key_file": "/var/run/bravo-audit/tls/tls.key",
-                    "min_version": "1.2", "insecure": False, "insecure_skip_verify": False},
-            "retry_on_failure": {"enabled": True, "initial_interval": "1s", "max_interval": "30s", "max_elapsed_time": "0s"},
-            "sending_queue": {"enabled": True, "storage": "file_storage/audit", "queue_size": 2048, "num_consumers": 2},
-        }},
+        "exporters": {},
         "service": {
             "extensions": ["file_storage/audit"], "pipelines": pipelines,
             "telemetry": {"logs": {"level": "error"}, "metrics": {"readers": [{"pull": {
@@ -162,3 +161,20 @@ def collector_config(binding: AuditForwardingRegistration) -> dict:
             }}]}},
         },
     }
+
+
+def collector_config(binding: AuditForwardingRegistration) -> dict:
+    """Environment-local OTLP path; existing call contract preserved."""
+    if not isinstance(binding, AuditForwardingRegistration):
+        raise ValueError("trusted OTLP registration required")
+    config = _file_config(binding, include_node_audit=binding.include_node_audit)
+    config["exporters"] = {"otlp_http/audit": {
+            "endpoint": binding.endpoint, "timeout": "10s",
+            "tls": {"ca_file": "/var/run/bravo-audit/tls/ca.crt",
+                    "cert_file": "/var/run/bravo-audit/tls/tls.crt",
+                    "key_file": "/var/run/bravo-audit/tls/tls.key",
+                    "min_version": "1.2", "insecure": False, "insecure_skip_verify": False},
+            "retry_on_failure": {"enabled": True, "initial_interval": "1s", "max_interval": "30s", "max_elapsed_time": "0s"},
+            "sending_queue": {"enabled": True, "storage": "file_storage/audit", "queue_size": 2048, "num_consumers": 2},
+        }}
+    return config

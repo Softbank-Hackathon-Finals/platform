@@ -12,6 +12,7 @@ class AttemptPorts:
     lifecycle: Lifecycle
     isolation: IsolationGate
     verifier: IsolatedVerifier
+    exec_phase: object | None = None  # exec_flow.ExecPhase; None (default) keeps the run_once order
 
 
 class AttemptFactory(Protocol):
