@@ -2,14 +2,14 @@
 
 플랫폼 워커가 실패 근거와 승인된 앱 소스만 읽고 수정 제안서를 낸다. 현재 정본의 S2 기능으로 구현했다. 11/2 회의에서 역할 세분화는 열어 두었으며, 별도 서비스 도입은 실제 격리·배포 책임이 달라질 때 판단한다. GitHub의 저장소 CI, T15의 리허설 실행·비공개 검증, 사람 승인, T31 반영은 각각의 담당 경로에 남는다.
 
-사용자의 11/3 요청에 따라 **관리자 ChatGPT 구독(SIWC)으로 OpenAI Responses를 호출하는 경로를 기본 제공자**로 구현했다. 정본 v0.3의 Claude Agent SDK 선택을 바꾸는 v0.4·[ADR-0007](../../docs/adr/0007-model-provider-and-s2-ci.md) 제안이며, 팀 전체가 이미 합의한 것으로 취급하지 않는다. 검증한 Claude SDK 어댑터는 선택 기능으로 보존한다. 자동 provider fallback과 Bedrock 연결은 없다.
+사용자의 11/3 요청에 따라 **관리자 ChatGPT 구독(SIWC)으로 OpenAI를 호출하는 경로를 기본 제공자**로 구현했다. 정본 v0.3의 Claude Agent SDK 선택을 바꾸는 v0.4·[ADR-0007](../../docs/adr/0007-model-provider-and-s2-ci.md) 제안이며, 팀 전체가 이미 합의한 것으로 취급하지 않는다. 검증한 Claude SDK 어댑터는 선택 기능으로 보존한다. 자동 provider fallback과 Bedrock 연결은 없다.
 
 | 모듈 | 책임 |
 |---|---|
 | `contracts.py` | 실패 입력·소스 목록·제안서·독립 검증 영수증의 Pydantic 계약 |
 | `tools.py` | 정확한 소스 경로·내용 해시 확인, 제안 제출, 도구 차단·기록 |
 | `coordinator.py` | run/revision/proposal/attempt 결속, 최대 3회, UNKNOWN 중단. LLM import 없음 |
-| `openai_provider.py` | OpenAI Responses 호출과 두 함수 도구. 기본 제공자 |
+| `openai_provider.py` | OpenAI Agents SDK `Runner`·함수 도구·구독 Responses 전송 어댑터. 기본 제공자 |
 | `sdk.py` | 선택 설치하는 Claude Agent SDK 어댑터 |
 | `runtime.py` | 전용 프로세스의 환경·모델 자격 선택 |
 | `subscription_auth.py` | 앱 소유 SIWC 등록·ID 검증·갱신·회수 |
@@ -77,7 +77,7 @@ Claude 어댑터는 `uv sync --frozen --extra claude`로 설치하고 `--provide
 
 ## 도구와 입력 경계
 
-- OpenAI에는 strict 함수 도구 두 개만 제공하고 built-in shell·web·computer·code interpreter 도구는 제공하지 않는다. 모든 호출을 정확한 이름으로 분기하고 정책 핸들러에서 다시 검사한다. `parallel_tool_calls=False`, `store=False`, `max_retries=0`이며 API endpoint는 `https://api.openai.com/v1`로 고정한다.
+- OpenAI에는 위 표의 strict 함수 도구만 제공하고 built-in shell·web·computer·code interpreter 도구는 제공하지 않는다. 모든 호출을 정확한 이름으로 분기하고 정책 핸들러에서 다시 검사한다. `parallel_tool_calls=False`, `store=False`, `max_retries=0`이며 API endpoint는 `https://api.openai.com/v1`로 고정한다.
 - Claude 선택 경로는 `tools=[]`로 내장 도구를 제거한다. `allowed_tools`만으로는 배타적 화이트리스트가 되지 않는다. 모든 도구 호출의 `PreToolUse` 훅과 MCP 핸들러가 각각 검사한다. MCP 하나, `strict_mcp_config=True`, `setting_sources=[]`, `skills=[]`, 빈 플러그인·서브에이전트 설정, `dontAsk`, 실행별 빈 SDK 작업 디렉터리, 자동 메모리 끔을 사용한다.
 - SDK의 `env`는 부모 환경을 덮어쓰는 옵션일 뿐 대체하지 않는다. 전용 CLI 프로세스에서 PATH·locale·**선택한 제공자의** 모델 자격만 선택하고 HOME·설정 경로를 실행별 임시 디렉터리로 교체한다. AWS·GitHub·kubeconfig·개인 OAuth·다른 제공자의 키·사용자 지정 API endpoint 환경값은 전달하지 않는다. 라이브러리 호출은 공유 프로세스의 환경을 바꾸지 않으며, 격리되지 않은 환경에서 모델 호출을 거부한다.
 - 파일 목록은 최대 64개, 한 파일 32 KiB, 수정 가능 경로 최대 8개다. 정확한 manifest 경로만 읽으며 경로 탈출·숨김/테스트/자격증명 경로·심볼릭 링크·하드링크·변경된 바이트를 거부한다. 모델 입력에 비공개 테스트나 원시 운영 로그를 넣지 않는다.
@@ -149,3 +149,28 @@ uv run python -m bravo_agent.account_smoke \
 - 계정 인증 성공, 모델 응답 성공, 정책을 통과한 제안서를 별도로 확인한다. `usageLimitExceeded` 등은 원문·계정 정보 없이 허용된 오류 분류만 기록하고 `NEEDS_HUMAN`으로 종료한다. 이 결과는 T15 검증·승인·배포 성공이 아니다.
 
 실측 결과와 실행 소스 결속은 [클라우드 계정 검증 기록](../../docs/evidence/t11-account-cloud-2026-11-03/README.md)을 따른다.
+
+## SDK 실행 추적
+
+OpenAI API 키·SIWC 구독 모두 `openai-agents==0.24.0`의 `Agent`, `Runner`,
+`FunctionTool`을 사용한다. `BoundedResponsesModel`은 기존 구독 네임스페이스와
+완결 스트림만 수락하는 전송 계약을 유지한다. SDK가 실행 반복·함수 호출·이력을
+관리하며 최대 8회, 180초, 누적 32,000 토큰의 기존 한도를 유지한다. 같은 호출 ID를
+다른 동작에 재사용하는 응답도 SDK가 거부한다. 모델/인증 제공자 자동 전환은 없다.
+
+`telemetry.py`는 OpenAI SDK의 task/turn/agent/generation/function span을 플랫폼 OTEL로
+보내고 Claude SDK의 도구·결과 사용량도 같은 실행 추적에 묶는다. 결과의 각 attempt에
+`observability.trace_id`, `sdk`, `sdk_trace_id`가 붙는다. OpenAI SDK trace ID는
+`trace_`와 동일 OTEL trace ID를 결합하므로 실행 기록과 저장소의 trace를 바로 대조할 수 있다.
+프롬프트·응답 본문·도구 인자/출력·원시 오류·자격증명은 추적에 넣지 않는다.
+
+전용 프로세스에 `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT`를 설정하면 제한된 배치 큐로
+OTLP/HTTP 전송한다. HTTPS 또는 클러스터 내부 `.svc.cluster.local` HTTP의 `/v1/traces`만
+수락한다. TLS를 사용할 때에는 `OTEL_EXPORTER_OTLP_CERTIFICATE`,
+`OTEL_EXPORTER_OTLP_CLIENT_CERTIFICATE`, `OTEL_EXPORTER_OTLP_CLIENT_KEY` 파일 참조를
+선택한다. 이 네 설정만 격리 환경에 추가 전달하며 trace exporter에 SIWC/API 키를
+전달하지 않는다. SDK 기본 OpenAI trace exporter는 플랫폼 OTEL processor로 대체한다.
+설정이 없으면 로컬 span 문맥·상관 ID만 생성하고 외부 전송은 하지 않는다.
+
+공식 인터페이스: [Agents SDK](https://developers.openai.com/api/docs/guides/agents/sdk),
+[SDK 관측](https://developers.openai.com/api/docs/guides/agents/integrations-observability).

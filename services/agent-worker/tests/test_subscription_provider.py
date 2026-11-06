@@ -18,6 +18,17 @@ def install_stream(monkeypatch, streams, status=200):
         assert request.headers["Authorization"] == "Bearer subscription-fixture"
         assert str(request.url) == "https://api.openai.com/v1/responses"
         events = streams[min(len(requests) - 1, len(streams) - 1)]
+        # Each response is a distinct invocation. Preserve bindings within its event stream.
+        if status == 200:
+            def unique(value):
+                if isinstance(value, dict):
+                    return {key: unique(item) for key, item in value.items()}
+                if isinstance(value, list):
+                    return [unique(item) for item in value]
+                if value in ("call_fixture", "fc_fixture", "resp_fixture"):
+                    return value + f"_{len(requests)}"
+                return value
+            events = unique(events)
         if status != 200:
             return httpx2.Response(status, json=events)
         content = "".join("event: " + e["type"] + "\ndata: " + json.dumps(e) + "\n\n" for e in events)
@@ -284,7 +295,7 @@ def test_completed_streamed_call_with_empty_terminal_runs_under_normal_tool_poli
     assert shape["stream_resolution"] == "matched_finalized_call"
     assert shape["terminal_items"] == {} and shape["function_call_count"] == 1
     assert shape["stream_done"] == {"bravo_repo_read": 1} and shape["bravo_namespace_matches"] is True
-    assert requests[1]["input"][-1]["call_id"] == "call_fixture"
+    assert requests[1]["input"][-1]["call_id"] == "call_fixture_1"
 
 
 @pytest.mark.parametrize("case", ["no_done", "no_terminal", "other_response", "other_index", "other_call",
