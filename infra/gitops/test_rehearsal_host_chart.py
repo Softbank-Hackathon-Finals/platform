@@ -9,7 +9,9 @@ import tempfile
 import unittest
 from copy import deepcopy
 from pathlib import Path
+from unittest.mock import patch
 
+import bootstrap
 import yaml
 from bootstrap import verify_rehearsal_host
 from test_registration_chart import ArgoBoundary
@@ -105,8 +107,20 @@ class HostChart(unittest.TestCase):
             self.assertEqual(namespace, "platform-state")
             seen.append((kind, name))
             return {"metadata": {"name": name}}
-        with self.assertRaises(ValueError):  # placeholder pin has no digest until publication
-            verify_rehearsal_host(get, {"enabled": True, "runtime": deepcopy(RUNTIME)})
+        # Exercise both pin states without depending on the repository's current pin.
+        pins = {"": True, "sha256:" + "d" * 64: False}
+        for digest, rejected in pins.items():
+            with self.subTest(digest=digest), tempfile.TemporaryDirectory() as directory:
+                pin = Path(directory) / "infra/gitops/environments/development/rehearsal-host-image.json"
+                pin.parent.mkdir(parents=True)
+                pin.write_text(json.dumps({"image": {"digest": digest}}))
+                seen.clear()
+                with patch.object(bootstrap, "ROOT", Path(directory)):
+                    if rejected:
+                        with self.assertRaises(ValueError):
+                            verify_rehearsal_host(get, {"enabled": True, "runtime": deepcopy(RUNTIME)})
+                    else:
+                        verify_rehearsal_host(get, {"enabled": True, "runtime": deepcopy(RUNTIME)})
         self.assertCountEqual(seen, [("configmap", "host-config"), ("configmap", "reader-config"),
                                      ("pvc", "existing-catalog"), ("pvc", "t15-records"),
                                      ("secret", "existing-key"), ("secret", "t15-host")])
