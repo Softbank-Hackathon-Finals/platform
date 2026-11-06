@@ -33,6 +33,7 @@ INTRUDER_ACCOUNT = "rehearsal-intruder"
 OPENBAO_ADDR = "https://target-openbao.bravo-secrets.svc:8200"
 CA_CONFIGMAP = "target-openbao-ca"
 DB_SERVICE, DB_SECRET, APP_NAME = "rehearsal-db", "rehearsal-db-auth", "rehearsal-app"
+PROBE_SOURCES = "cred-probe-sources"
 _IMAGE = re.compile(r"[a-zA-Z0-9./:_-]+@sha256:[a-f0-9]{64}")
 _REHEARSAL = re.compile(r"rehearsal-[a-z0-9](?:[-a-z0-9]{0,51}[a-z0-9])?")
 _API = {"job": ("apis/batch/v1", "jobs"), "secret": ("api/v1", "secrets"), "configmap": ("api/v1", "configmaps")}
@@ -90,6 +91,9 @@ class CredentialFixture:
         ("APP_ENV", "rehearsal"), ("DB_HOST", DB_SERVICE), ("DB_PORT", "5432"), ("DB_NAME", "chat"),
         ("DB_SECRET_ID", "unused-in-rehearsal"), ("S3_BUCKET", "unused-in-rehearsal"),
         ("ATTACHMENT_UPLOAD_ENABLED", "false"))
+    # Without a prebuilt `Dockerfile.credential-probe` image the host may pass the runner's own probe
+    # modules (file name, source); they are mounted read-only into `probe_image` (a pinned Python base).
+    probe_sources: tuple[tuple[str, str], ...] = field(default=(), repr=False)
 
     def __post_init__(self):
         if (any(_IMAGE.fullmatch(i or "") is None for i in (self.bao_image, self.postgres_image, self.probe_image))
@@ -97,7 +101,10 @@ class CredentialFixture:
                 or type(self.app_port) is not int or not 1 <= self.app_port <= 65535
                 or type(self.app_user) is not int or not 1 <= self.app_user <= 2**31 - 1
                 or re.fullmatch(r"[a-z_][a-z0-9_]{0,62}", self.database) is None
-                or re.fullmatch(r"[a-z_][a-z0-9_]{0,62}", self.username) is None):
+                or re.fullmatch(r"[a-z_][a-z0-9_]{0,62}", self.username) is None
+                or any(re.fullmatch(r"[a-z_][a-z0-9_]{0,62}\.py", n) is None or not isinstance(c, str)
+                       for n, c in self.probe_sources)
+                or (self.probe_sources and "credential_job_probe.py" not in dict(self.probe_sources))):
             raise ValueError("invalid credential fixture")
 
 
@@ -194,10 +201,15 @@ class CredentialJob:
             obs["db_ready"] = "yes" if self._watch_pod(ns, DB_SERVICE, self.fixture.postgres_image)[0] == "ready" else "no"
             obs["app"], obs["init"], executions["app"] = self._start_app(ns, rmeta, image)
             if obs["app"] == "ready":
+                if self.fixture.probe_sources:
+                    self.kube.create({"apiVersion": "v1", "kind": "ConfigMap", "immutable": True,
+                                      "metadata": rmeta | {"name": PROBE_SOURCES},
+                                      "data": dict(self.fixture.probe_sources)})
                 result, executions["app_db"] = self._job(
                     ns, "cred-app-db", self.fixture.probe_image, None, "default", rmeta, {"observation"},
                     command=["python", "-m", "rehearsal_runner.credential_job_probe", "app-db", "--namespace", ns,
-                             "--service", APP_NAME, "--port", str(self.fixture.app_port)])
+                             "--service", APP_NAME, "--port", str(self.fixture.app_port)],
+                    probe_sources=bool(self.fixture.probe_sources))
                 obs["app_db"] = result["observation"]
             obs["intruder"], executions["intruder"] = self._job(
                 ns, "cred-intruder", self.fixture.bao_image, INTRUDER_SCRIPT, INTRUDER_ACCOUNT, rmeta,
@@ -302,7 +314,7 @@ class CredentialJob:
 
     def _job(self, namespace: str, name: str, image: str, script: str | None, account: str, meta: dict,
              keys: set, *, work: str | None = None, role: str | None = None, labels: dict | None = None,
-             command: list | None = None) -> tuple[dict, dict]:
+             command: list | None = None, probe_sources: bool = False) -> tuple[dict, dict]:
         observe_job_pod = self.observe
         if observe_job_pod is None:
             from bravo_agent.verification import observe_job_pod
@@ -319,6 +331,10 @@ class CredentialJob:
             volumes += [{"name": "openbao-ca", "configMap": {"name": (work + "-ca") if work else CA_CONFIGMAP}},
                         {"name": "openbao-token", "projected": {"sources": [{"serviceAccountToken": {
                             "audience": "openbao", "expirationSeconds": 600, "path": "token"}}]}}]
+        if probe_sources:
+            env.append({"name": "PYTHONPATH", "value": "/probe"})
+            mounts.append({"name": "probe", "mountPath": "/probe/rehearsal_runner", "readOnly": True})
+            volumes.append({"name": "probe", "configMap": {"name": PROBE_SOURCES}})
         if work:
             mounts.append({"name": "work", "mountPath": "/work", "readOnly": True})
             volumes.append({"name": "work", "secret": {"secretName": work}})

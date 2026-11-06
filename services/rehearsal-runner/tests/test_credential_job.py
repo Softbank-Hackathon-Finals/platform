@@ -106,8 +106,8 @@ class Proposals:
         return (ProposedEdit("app/db_secret.py", hashlib.sha256(BEFORE.encode()).hexdigest(), "import json\n"),)
 
 
-def make(kube=None, kubectl=None, image=CANDIDATE):
-    fixture = CredentialFixture(bao_image=BAO, postgres_image=PG, probe_image=PROBE,
+def make(kube=None, kubectl=None, image=CANDIDATE, probe_sources=()):
+    fixture = CredentialFixture(bao_image=BAO, postgres_image=PG, probe_image=PROBE, probe_sources=probe_sources,
                                 openbao_ca_pem="-----BEGIN CERTIFICATE-----\nx\n-----END CERTIFICATE-----\n")
     return CredentialJob(kube or Kube(), kubectl or Kubectl(), Proposals(), Snapshot(), Delivery(), fixture,
                          lambda diff_hash: image, poll_seconds=0, deadline_seconds=1, password=lambda: SECRET,
@@ -204,3 +204,22 @@ def test_judge_requires_every_control():
     for key, value in [("db_ready", "no"), ("secret_after", "unknown"), ("init", "failed"), ("app", "unknown")]:
         with pytest.raises(VerificationUnknown):
             judge(OK | {key: value})
+
+
+def test_probe_sources_are_mounted_read_only_into_the_pinned_python_image():
+    kube = Kube()
+    sources = (("__init__.py", ""), ("credential_job_probe.py", "# probe"))
+    assert make(kube, probe_sources=sources).verify(REQUEST).verdict == "PASS"
+    assert kube.objects[("configmap", "cred-probe-sources")]["data"] == dict(sources)
+    pod = kube.objects[("job", "cred-app-db")]["spec"]["template"]["spec"]
+    run = pod["containers"][0]
+    assert {"name": "PYTHONPATH", "value": "/probe"} in run["env"]
+    assert {"name": "probe", "mountPath": "/probe/rehearsal_runner", "readOnly": True} in run["volumeMounts"]
+    assert pod["serviceAccountName"] == "default" and pod["automountServiceAccountToken"] is False
+
+
+def test_probe_sources_must_include_the_probe_entry_point():
+    with pytest.raises(ValueError):
+        make(probe_sources=(("__init__.py", ""),))
+    with pytest.raises(ValueError):
+        make(probe_sources=(("../evil.py", ""), ("credential_job_probe.py", "")))
