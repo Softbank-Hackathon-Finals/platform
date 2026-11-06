@@ -9,6 +9,8 @@ on:
       - services/agent-worker/pyproject.toml
       - services/rehearsal-runner/src/**
       - services/rehearsal-runner/pyproject.toml
+      - services/inventory/src/**
+      - services/inventory/pyproject.toml
       - scripts/registration_delivery.py
       - scripts/image_delivery/**
       - .github/workflows/publish-registration-image.yml

@@ -39,6 +39,22 @@ a hotfix follows main and then develop. An older build must not overwrite a newe
 source revision. Rollback is a protected Git revert followed by actual API and
 data-preservation checks, not a rebuilt old tag.
 
+The publication trigger and its source-freshness check cover every package copied
+from the current checkout, including inventory, and the build/delivery recipes.
+Repository tests compare these paths with the build context package list so a
+new package cannot silently miss publication. Observability remains an explicit
+historical source pin; changing that pin or its build recipe triggers publication.
+
+Required infrastructure CI also checks each deployment-values change against the
+source in the PR or combined merge group. A proposal that became stale while
+waiting cannot promote an image that omits those source changes. Ordinary source
+PRs can still merge and trigger their next build. For a rollback, revert the
+source and its matching verified image together. This check uses the common
+develop ancestor, including promotions from earlier unmerged queue entries.
+Changes to delivery-only tooling trigger publication and supersede in-flight
+builds, but do not invalidate an already verified image with unchanged build
+inputs. A validator-only PR can therefore share a queue group with that image.
+
 Before first adoption, compare resource UIDs and the rendered Deployment with
 the live server. Keep automated pruning disabled until owned-resource deletion
 and recovery are verified. Do not run the old registration renderer against
