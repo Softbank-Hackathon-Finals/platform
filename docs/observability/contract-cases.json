@@ -551,6 +551,38 @@
           ],
           "action": "SET_WEIGHT_0"
         }
+      },
+      {
+        "id": "J25",
+        "description": "가중치 변경 직후에는 변경 전에 시작한 창이 가장 최근 창이다. 관측이 끊긴 것이 아니므로 직전 UNKNOWN이 2회여도 SHIFT를 끝내지 않는다(HOLD)",
+        "inputs": {
+          "observe_from": "2026-11-08T05:31:15Z",
+          "prior_unknown": 2
+        },
+        "expect": {
+          "verdict": "UNKNOWN",
+          "reasons": [
+            "WINDOW_BEFORE_CHANGE"
+          ],
+          "action": "HOLD"
+        }
+      },
+      {
+        "id": "J26",
+        "description": "변경 전 창이 그대로 오래되면(변경 뒤 창이 오지 않음) STALE이 함께 붙어 다시 센다 → 3회째 가중치 0",
+        "inputs": {
+          "observe_from": "2026-11-08T05:31:15Z",
+          "decided_at": "2026-11-08T05:31:50Z",
+          "prior_unknown": 2
+        },
+        "expect": {
+          "verdict": "UNKNOWN",
+          "reasons": [
+            "STALE",
+            "WINDOW_BEFORE_CHANGE"
+          ],
+          "action": "SET_WEIGHT_0"
+        }
       }
     ]
   },
