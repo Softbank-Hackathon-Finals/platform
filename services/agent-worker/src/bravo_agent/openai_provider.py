@@ -121,6 +121,31 @@ def output_kind(item) -> str:
     return kind if kind in ("reasoning", "custom_tool_call", "tool_search_call") else "other"
 
 
+
+def flat_shape(stream_shape: dict, calls: list[dict]) -> dict:
+    """FIRST_RESPONSE_SHAPE as scalar fields only (str/int/bool), so T15 and T38 can carry the
+    attempt's tool events. Counters become ``kind=n`` lists; the rejected stream event becomes
+    one ``kind:phase:fields:other`` string. Every part is a code-owned label, never model text."""
+    def counts(counter) -> str:
+        return ",".join(f"{kind}={n}" for kind, n in sorted(dict(counter or {}).items()))
+
+    shape = {"stream_added": counts(stream_shape.get("stream_added")),
+             "stream_done": counts(stream_shape.get("stream_done")),
+             "function_call_count": len(calls)}
+    if "terminal_output_missing" in stream_shape:
+        shape["terminal_output_missing"] = stream_shape["terminal_output_missing"]
+    if "terminal_items" in stream_shape:
+        shape["terminal_items"] = counts(stream_shape["terminal_items"])
+    if "stream_resolution" in stream_shape:
+        shape["stream_resolution"] = stream_shape["stream_resolution"]
+    rejected = stream_shape.get("rejected_event")
+    if rejected is not None:
+        shape["rejected_event"] = ":".join([rejected["kind"], rejected["phase"], "+".join(rejected["fields"]),
+                                            "other" if rejected["other_fields"] else ""])
+    if calls:
+        shape["bravo_namespace_matches"] = all(call.get("namespace") == "bravo" for call in calls)
+    return shape
+
 class FinalizedStreamCall:
     """Keep one matched function item for a completed response with an explicit empty output."""
     def __init__(self, *, diagnose=False):
@@ -303,12 +328,7 @@ class OpenAIProvider:
                     outputs = [item.model_dump(exclude_none=True) for item in (response.output or [])]
                     calls = [item for item in outputs if item["type"] == "function_call"]
                     if stream_shape is not None:
-                        tools.record("provider", "OBSERVED", "FIRST_RESPONSE_SHAPE", {
-                            **stream_shape,
-                            "function_call_count": len(calls),
-                            "bravo_namespace_matches": all(call.get("namespace") == "bravo" for call in calls)
-                            if calls else None,
-                        })
+                        tools.record("provider", "OBSERVED", "FIRST_RESPONSE_SHAPE", flat_shape(stream_shape, calls))
                     if len(calls) != 1:
                         raise RuntimeError("expected one allowed function call")
                     history.extend(outputs)

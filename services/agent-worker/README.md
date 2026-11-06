@@ -16,6 +16,7 @@
 | `subscription_store.py` | 지정 VM 잠금·Secrets Manager 버전 결속 |
 | `subscription_admin.py` | 관리자 등록·상태·모델 목록·구독 워커 실행 |
 | `cli.py` | 플랫폼에서 한 번 실행하고 제안·감사 기록을 새 파일로 저장 |
+| `tool_events.py` | 한 시도의 도구 기록 추출·검증(T15·T38 공용 정본). LLM import 없음 |
 
 도구는 정본의 화이트리스트 중 `repo.read`, `plan.propose`, `policy.evaluate`, `inventory.describe` 네 개를 연다. OpenAI 함수 이름은 `repo_read`, `plan_propose`, `policy_evaluate`, `inventory_describe`이며 Claude MCP 이름은 `mcp__bravo__` 접두사를 붙인 같은 이름이다. 모두 같은 정책 핸들러(`Tools.dispatch`)를 사용한다.
 
@@ -125,6 +126,26 @@ Action·Resource 배열의 모든 원소와 Principal 객체 안의 배열까지
 로컬 시험은 설치된 OpenAI SDK 3.42.1·Claude Agent SDK 0.2.177과 가짜 API/provider를 사용하는 기능/공격 입력 검증이다. OpenAI 함수 스키마·요청 옵션, Claude CLI 인자 생성도 확인한다. 로컬 시험만으로 실제 모델·클라우드 동작을 검증했다고 주장하지 않는다. 별도 [AWS 실행 기록](../../docs/evidence/t11-ci-2026-11-03/README.md)에는 같은 코드의 74개 시험, arm64 이미지 빌드, 제한된 컨테이너 5개 시나리오 결과가 있다. 별도 [공식 CLI 계정 검증](../../docs/evidence/t11-ci-2026-11-03/openai-account-local.md)에서는 기존 ChatGPT 로그인으로 실제 모델 응답을 받아 제안서 정책을 통과했다. 이후 [AWS 구독 진단](../../docs/evidence/t11-account-cloud-2026-11-03/README.md)에서 실제 모델의 읽기·제안 도구와 제안서 수집도 확인했다. 이후 [관리자 SIWC와 Secrets 경로](../../docs/evidence/t11-subscription-2026-11-03/README.md)에서도 AWS 실제 제안 2회와 재로그인 없는 세션 재사용, 로컬·AWS 177개 시험을 확인했다. 일반 API 키 인증·실제 갱신/회수·GCP·상시 무인 배포·T15 검증 Job은 별도 미검증이다. T7 런타임·T15 검증 경로와 통합하기 전에는 T11 전체 완료로 체크하지 않는다.
 
 근거: [팀 설계 8.3](../../docs/design.html#s8-3), [T11·T15 작업 계획](../../docs/tasks.md), [OpenAI 함수 호출](https://developers.openai.com/api/docs/guides/function-calling), [Responses 상태 보관](https://developers.openai.com/api/docs/guides/migrate-to-responses), [Claude SDK Python 문서](https://code.claude.com/docs/en/agent-sdk/python), [Claude SDK 권한 평가 순서](https://code.claude.com/docs/en/agent-sdk/permissions). SDK 버전과 전이 의존성은 `uv.lock`에 고정했다.
+
+## 시도별 도구 기록 내보내기 (T15 · T38)
+
+`tool_events.py`는 한 시도의 도구 기록을 꺼내는 T11의 정본 함수다. 기록에는 코드가 정한 값(도구 이름·결과·사유·`category`·digest)만 있고 모델 인자는 없다. 의심스러우면 목록 전체를 내보내지 않으며, 일부만 걸러 내지 않는다(T24가 위치로 색인한다).
+
+- `attempt_tool_events(source, attempt, *, run_id=None) -> tuple[dict, ...]`: `source`는 살아 있는 `Coordinator` 또는 그 `result()` dict다(JSON 왕복 뒤 포함, T38 제품 경로는 워커 결과 dict만 가진다). 그 시도의 이벤트 중 `independent_verifier`를 뺀 것을 원래 순서대로 돌려준다. 그 시도 기록이 정확히 하나이고 `audit_truncated is False`이며 `audit_event_count`가 이벤트 수와 같을 때만이다. coordinator 중단 이벤트(`tool=coordinator`, PR #372)는 그 시도의 수에 들어가므로 #372 병합 전후 모두 맞다. 어긋나면 `ToolEventsUnavailable`(`ValueError`)이다. `run_id`를 주면 결과의 run과 같아야 한다.
+- `validate_tool_events(events, run_id, attempt) -> tuple[dict, ...]`: 최대 256개(T15 `collect_tool_events`와 같은 상한), 이벤트마다 필드 16개 이하·이름 `[a-z][a-z0-9_]{0,31}`, 필수 `run_id`·`attempt`·`tool`·`outcome`·`reason`, `run_id`·`attempt`가 인자와 같아야 한다. `tool`은 `[a-z][a-z0-9_.]{0,63}`이고 `independent_verifier`가 아니다. `outcome`·`reason`은 대문자 코드다. 값은 str(출력 가능한 ASCII 256자 이하)·int(±2^53-1)·bool만 허용한다. 같은 규칙의 JSON Schema(draft 2020-12)가 `TOOL_EVENTS_SCHEMA`이며, run·attempt 결속과 `1.0` 같은 실수 거부는 스키마로 표현되지 않아 함수가 따로 확인한다. 검사한 사본을 돌려준다.
+- `tool_events_projection(source, attempt, *, run_id=None) -> dict`: `{"tool_events_status": "COMPLETE", "tool_events": [...]}` 또는 `{"tool_events_status": "UNAVAILABLE"}`. T15 `collect_tool_events`의 출력 모양과 같다.
+
+T15 `bucket_proposer.attempt_tool_events`와 선택·순서·개수 검사가 같다(`tests/test_tool_events.py`가 T15 함수 사본을 기준으로 OpenAI 모의 전송의 실제 coordinator 실행에서 비교한다). 다른 점은 더 엄격하다는 것뿐이다: 다른 run의 이벤트, bool `attempt`, 스칼라가 아닌 값은 T11에서 거부한다(다른 run과 스칼라가 아닌 값은 T15 `collect_tool_events`도 서명 전에 거부한다). T15 코드는 바꾸지 않았고, 이 함수로 바꿀지는 T15 담당이 정한다.
+
+### T38 응답 연결 제안 (미구현, T38 담당 동의 필요)
+
+지금 T38 `proposal_result`는 `tool_events_status: "UNAVAILABLE"`로 고정하고 `validate_bound_product_response`도 그 값만 받는다. 아래는 **제안**이며 T38 코드는 바꾸지 않았다.
+
+- `proposal_result`: `**tool_events_projection(result, 1, run_id=bundle.run_id)`를 더한다. 완전하면 `tool_events_status: "COMPLETE"`와 `tool_events`(배열), 아니면 `"UNAVAILABLE"`이고 `tool_events` 키가 없다.
+- `validate_bound_product_response`: 응답 필드에 선택 키 `tool_events`를 두고, `COMPLETE`면 `validate_tool_events(result["tool_events"], result["run_id"], result["attempt"])`, `UNAVAILABLE`이면 `tool_events`가 없어야 한다. 다른 값은 거부한다.
+- 저널의 `result_digest`와 멱등 재응답이 이 필드를 포함하게 되므로, 기존 저널 기록과의 호환은 T38에서 정한다.
+
+알려진 한계: 구독 경로(`chatgpt-plan`, T38이 쓰는 경로)는 첫 응답 진단 이벤트 `FIRST_RESPONSE_SHAPE`(`tool=model`, `outcome=OBSERVED`)에 중첩 카운터(`stream_added`·`stream_done`·`terminal_items`, 경우에 따라 `rejected_event`)와 `null`(`bravo_namespace_matches`)을 남긴다. str/int/bool 계약 밖이므로 **지금은 구독 경로의 시도가 모두 `UNAVAILABLE`**이다(시험으로 고정). 그 이벤트만 빼지 않는다. 진단 이벤트를 스칼라 필드로 펴는 것은 후속 T11 작업이다. API 키 경로와 Claude SDK 경로의 기록은 계약 안이다.
 
 ## 운영자가 직접 수행하는 구독 계정 검증
 
