@@ -22,6 +22,8 @@ def row(start, reasons, source_p95=120, target_p95=None):
 
 
 def step(weight, request_at, confirmed_after, windows, source_p95=None, target_p95=None):
+    for window in windows:  # 창마다 단계 최대값을 둔다(풀 요청 1800 · 200건, 판정이 p95를 보는 표본)
+        window["source"]["p95_ms"], window["target"]["p95_ms"] = source_p95, target_p95
     return {"weight_target": weight, "reason": None, "revision": None, "receipt_status": "CONFIRMED",
             "request_at": request_at, "provider_confirmed_after_s": confirmed_after, "observation": "OBSERVED",
             "applied_by_window_end": None, "reflect_upper_bound_s": 25.0, "windows": windows,
@@ -86,6 +88,10 @@ def test_unknown_limit_never_goes_below_the_floor():
     (lambda a: a.update(complete=False), "STEP_NOT_OBSERVED"),
     (lambda a: a.update(steps=[s for s in a["steps"] if s["weight_target"] != 50]), "STEPS_MISSING"),
     (lambda a: a["steps"][1].update(provider_confirmed_after_s=None), "CONFIRMATION_TIME_MISSING"),
+    (lambda a: a["steps"][2]["windows"][3].update(reference_verdict="FAIL", reasons=["ERROR_RATE"]),
+     "RUN_HAS_FAIL_WINDOW"),
+    (lambda a: [w[pool].update(requests=50) for s in a["steps"] for w in s["windows"] for pool in ("source", "target")],
+     "P95_NOT_MEASURED"),
 ])
 def test_runs_that_cannot_set_the_baseline_are_refused(change, reason):
     alignment = copy.deepcopy(ALIGNMENT)
@@ -93,6 +99,22 @@ def test_runs_that_cannot_set_the_baseline_are_refused(change, reason):
     with pytest.raises(CalibrationRefused) as refused:
         calibrate(alignment, PROFILE)
     assert reason in refused.value.args[0]
+
+
+@pytest.mark.parametrize("requests, proposed", [(3, 500), (150, 3600)])
+def test_only_windows_the_judge_reads_set_the_p95_limit(requests, proposed):
+    # 10% 직후 반영 지연 창: 목적지 3건이면 judge가 p95를 보지 않는다(#568 리뷰). 150건이면 본다.
+    alignment = copy.deepcopy(ALIGNMENT)
+    lagging = row("2026-11-08T05:01:30Z", ["NOT_APPLIED"])
+    lagging["target"].update(requests=requests, p95_ms=2400)
+    alignment["steps"][1]["windows"].append(lagging)
+    assert calibrate(alignment, PROFILE)["profile"]["p95_ms_max"] == proposed
+
+
+def test_the_version_follows_the_newest_of_the_same_profile():
+    assert calibrate(ALIGNMENT, PROFILE, versions=["1", "2"])["profile"]["version"] == "3"
+    with pytest.raises(CalibrationRefused, match="PROFILE_VERSION_NOT_NUMERIC"):
+        calibrate(ALIGNMENT, PROFILE, versions=["1", "2-rc"])
 
 
 def test_cli_prints_the_proposal_or_the_refusal(tmp_path, capsys):
@@ -103,3 +125,15 @@ def test_cli_prints_the_proposal_or_the_refusal(tmp_path, capsys):
     path.write_text(json.dumps(ALIGNMENT | {"warnings": ["ENV_HEADER_MISSING"]}))
     assert main([str(path)]) == 1
     assert json.loads(capsys.readouterr().out) == {"refused": ["RUN_HAS_WARNINGS"]}
+
+
+def test_cli_takes_the_profile_file_and_refuses_an_unknown_profile(tmp_path, capsys):
+    path, profiles = tmp_path / "weight-alignment.json", tmp_path / "threshold-profiles.json"
+    profiles.write_text(json.dumps({"profiles": [PROFILE, PROFILE | {"version": "2"}]}))
+    path.write_text(json.dumps(ALIGNMENT))
+    assert main([str(path), str(profiles)]) == 0
+    assert json.loads(capsys.readouterr().out)["profile"]["version"] == "3"
+    path.write_text(json.dumps(ALIGNMENT | {"profile": {"id": "demo-shift", "version": "9"}}))
+    assert main([str(path), str(profiles)]) == 1
+    assert json.loads(capsys.readouterr().out) == {"refused": ["PROFILE_NOT_FOUND"]}
+    assert main([str(path), str(tmp_path / "missing.json")]) == 2

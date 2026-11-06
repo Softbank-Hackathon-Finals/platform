@@ -112,10 +112,11 @@ SHIFT에서 가중치 0이 자동인 이유: 이 구간에는 두 환경 앱이 
 uv run --directory services/observability python -m bravo_observability.calibrate <out>/<실행 ID>/weight-alignment.json
 ```
 
-- `p95_ms_max`: 가중치가 있는 환경의 창별 p95 최대값 × 1.5를 100ms 단위로 올린다. 가중치가 0인 환경은 판정이 p95를 보지 않으므로 넣지 않는다.
+- `p95_ms_max`: judge가 p95를 보는 창 · 풀의 p95 최대값 × 1.5를 100ms 단위로 올린다. 가중치가 0인 환경과 풀 요청이 `min_pool_requests`보다 적은 창은 판정이 p95를 보지 않으므로 넣지 않는다. 반영 지연 창도 표본이 충분하면 판정이 p95를 보므로 넣는다.
 - `unknown_limit`: Edge 확인 뒤에도 새 가중치가 보이지 않는 창(`NOT_APPLIED` · `INSUFFICIENT_SAMPLES`)이 가장 길게 이어진 수 + 2, 최소 3이다. 변경 전에 시작한 창은 연속 수에 넣지 않으므로(J25) 확인 뒤의 반영 지연만 센다.
-- Edge를 거치지 않았거나, 경고가 있거나, 판정에 쓸 수 없거나, 관측하지 못한 단계가 있는 실행은 값을 내지 않는다(`refused`). 로컬 대역이나 노트북 측정으로 기준을 정하지 않는다.
-- 계산은 제안만 한다. 사람이 제안값·근거를 보고 `threshold-profiles.json`에 새 버전으로 올리고, 이전 버전은 남긴다. 운영에서 쓰는 프로필 사본(워크플로 호스트 `sli-profile.json`, Edge 등록 profile)도 같은 버전으로 바꾼다.
+- Edge를 거치지 않았거나, 경고가 있거나, 판정에 쓸 수 없거나, 관측하지 못한 단계나 FAIL 창이 있는 실행은 값을 내지 않는다(`refused`). 로컬 대역이나 노트북 측정으로 기준을 정하지 않는다.
+- 계산은 제안만 한다. 사람이 제안값·근거를 보고 `threshold-profiles.json`에 새 버전(같은 id의 가장 새 버전 + 1)으로 올리고, 이전 버전은 남긴다. 운영에서 쓰는 프로필 사본(워크플로 호스트 `sli-profile.json`, Edge 등록 profile)도 같은 버전으로 바꾼다. 레포 밖에서 실행하면 `threshold-profiles.json` 경로를 두 번째 인자로 준다.
+- **`unknown_limit` 채택 조건**: 제안값은 변경 전에 시작한 창을 세지 않는 규칙(J25, `next_prior_unknown`)을 전제로 한다. 판정을 소비하는 쪽(edge-control, platform-events)이 J25 이후 observability rev를 고정하고 `next_prior_unknown`으로 `prior_unknown`을 셀 때만 채택한다. 그 전에는 이전 버전의 `unknown_limit`을 유지한다.
 
 ## 6. 관측 데이터의 보안 규칙
 
