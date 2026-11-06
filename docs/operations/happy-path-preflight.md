@@ -72,18 +72,21 @@ Executor ingress(호스트에서만).
 ```
 
 - `workflow_sha`는 demo-chat #25(run-name) 병합 뒤 main(`3a1a9135…`)으로 고정한다. T7 워크플로가 바뀌면 다시 검토해 갱신한다.
-- `runtime_source_sha`는 AI 실행 `collect`가 출력한 값과 같아야 한다(저장 결과와 접수 의도가 결속).
+- `runtime_source_sha`는 Reader 이미지 고정값(`product-reader-image.json`)의 `sourceRevision`이다. `run.py`가 같은
+  값으로 접수하고 `collect`도 같은 값을 출력한다(저장 결과와 접수 의도가 결속). 그래서 Reader 고정값이 바뀌면 다시 맞춘다.
 - App 권한은 contents·pull_requests·actions 쓰기 + metadata 읽기, 설치는 demo-chat만.
 
 ## 2. AI 제안 (S2 시작)
 
 ```sh
 uv run --directory services/platform-events python ../../operations/initial-proposal/run.py fence  --from initial.json --legacy-intent <원 intent>
+uv run --directory services/platform-events python ../../operations/initial-proposal/run.py admit  --from initial.json --tenant-id <tenant> --task-id <task> --expires-at <시각>
 uv run --directory services/platform-events python ../../operations/initial-proposal/run.py start  --from initial.json
 uv run --directory services/platform-events python ../../operations/initial-proposal/run.py collect --from initial.json
 ```
 
-- `fence`는 10:08 원 요청 한 번만 필요하다(#543 조건 불충족이면 거부된다).
+- `fence`는 10:08 원 요청 한 번만 필요하다(#543 조건 불충족이면 거부된다). `admit`은 fence 뒤 같은 입력을 Job 주체로
+  다시 접수하고 `--ref` 파일을 새 입력으로 바꾼다. Job 주체의 initial grant가 먼저 있어야 한다.
 - `collect` 출력의 `runtime_source_sha`·후보 발행 digest를 T15(f8)에 전달한다.
 - exit 10은 대기다. 같은 명령을 다시 실행해도 Job을 다시 만들지 않는다.
 
@@ -102,5 +105,5 @@ python3 scripts/happy_path.py run --plan-id <plan> --record run.jsonl --profile 
   --platform-context <platform> --kubeconfig <target> --initial-args --from initial.json
 ```
 
-plan 상태는 Reader Pod의 `bravo_platform_events.plan_state`로 읽는다(읽기 전용). T18·T8·T27·이미지 이관은 담당이
+plan 상태는 워크플로 호스트 Pod(`deploy/t10-workflow-host`, 컨테이너 `host`)의 `bravo_platform_events.plan_state`로 읽는다(읽기 전용). T18·T8·T27·이미지 이관은 담당이
 실행한 뒤 `confirm`으로 기록한다.
