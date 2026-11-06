@@ -1,0 +1,39 @@
+#!/bin/bash
+# Docker only with mutual TLS. TLS material comes from SSM SecureString at every start;
+# if it is missing, dockerd does not start (no plaintext socket on the network, ever).
+set -euo pipefail
+dnf install -y docker
+install -d -m 0700 /etc/docker/tls
+cat > /usr/local/sbin/bravo-docker-tls <<'SCRIPT'
+#!/bin/bash
+set -euo pipefail
+umask 077
+for name in ca.pem server-cert.pem server-key.pem; do
+  aws ssm get-parameter --region ap-northeast-2 --with-decryption \
+    --name "${prefix}/$name" --query Parameter.Value --output text > "/etc/docker/tls/$name"
+done
+SCRIPT
+chmod 0700 /usr/local/sbin/bravo-docker-tls
+cat > /etc/docker/daemon.json <<'JSON'
+{
+  "hosts": ["unix:///var/run/docker.sock", "tcp://0.0.0.0:2376"],
+  "tls": true, "tlsverify": true,
+  "tlscacert": "/etc/docker/tls/ca.pem",
+  "tlscert": "/etc/docker/tls/server-cert.pem",
+  "tlskey": "/etc/docker/tls/server-key.pem",
+  "userns-remap": "default",
+  "no-new-privileges": true,
+  "icc": false,
+  "live-restore": true
+}
+JSON
+# The packaged unit passes -H fd://, which conflicts with "hosts" in daemon.json.
+install -d /etc/systemd/system/docker.service.d
+cat > /etc/systemd/system/docker.service.d/bravo.conf <<'UNIT'
+[Service]
+ExecStartPre=/usr/local/sbin/bravo-docker-tls
+ExecStart=
+ExecStart=/usr/bin/dockerd
+UNIT
+systemctl daemon-reload
+systemctl enable --now docker || true  # stays down until the operator writes the TLS parameters

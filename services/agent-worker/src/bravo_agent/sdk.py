@@ -34,7 +34,7 @@ async def guard(tools: Tools, data: dict, _tool_use_id, _context):
     }}
 
 
-def make_options(tools: Tools, runtime: Path, model: str) -> ClaudeAgentOptions:
+def make_options(tools: Tools, runtime: Path, model: str, effort: str | None = None) -> ClaudeAgentOptions:
     async def call(name: str, args: dict):
         try:
             with tool_observation(name):
@@ -78,6 +78,7 @@ def make_options(tools: Tools, runtime: Path, model: str) -> ClaudeAgentOptions:
         permission_mode="dontAsk", system_prompt=SYSTEM,
         hooks={"PreToolUse": [HookMatcher(matcher=None, hooks=[before])]},
         cwd=runtime, model=model, max_turns=8, max_budget_usd=0.5,
+        **({"effort": effort} if effort is not None else {}),
         env={"CLAUDE_CONFIG_DIR": str(runtime / "config"),
              "CLAUDE_CODE_DISABLE_AUTO_MEMORY": "1",
              "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1"},
@@ -87,15 +88,17 @@ def make_options(tools: Tools, runtime: Path, model: str) -> ClaudeAgentOptions:
 
 
 class ClaudeProvider:
-    def __init__(self, runtime: Path, model: str):
-        self.runtime, self.model = runtime, model
+    def __init__(self, runtime: Path, model: str, reasoning_effort: str | None = None):
+        from .runtime import effort
+
+        self.runtime, self.model, self.effort = runtime, model, effort(reasoning_effort)
 
     async def propose(self, bundle: FailureBundle, tools: Tools) -> None:
         # options.env is merged over os.environ by the SDK; it does not replace it.
         if (set(os.environ) - RUNTIME_KEYS or "OPENAI_API_KEY" in os.environ
                 or not os.environ.get("ANTHROPIC_API_KEY")):
             raise RuntimeError("worker process environment must be explicitly isolated")
-        options = make_options(tools, self.runtime, self.model)
+        options = make_options(tools, self.runtime, self.model, self.effort)
         prompt = json.dumps(tools.model_input(), sort_keys=True)
         with agent_observation(tools, "claude_agent_sdk", self.model):
             await self._run(options, prompt, tools)

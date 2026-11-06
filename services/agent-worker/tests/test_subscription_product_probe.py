@@ -7,11 +7,9 @@ from http.server import HTTPServer
 import httpx
 import pytest
 from test_subscription_product import setup as setup
-from test_subscription_product_runtime import INSTANCE, RUNTIME, SSM
-from test_subscription_product_runtime import window_ports as window_ports
+from test_subscription_product_runtime import RUNTIME
 from tls_support import TEST_CA_PEM, identity
 
-from bravo_agent import subscription_product_caller as caller
 from bravo_agent import subscription_server as server
 from bravo_agent.contracts import digest
 from bravo_agent.subscription_product_host import ProductInputProbeCall
@@ -143,17 +141,3 @@ def test_probe_caller_does_not_retry_redirect_or_echo_errors(setup, status, cont
     assert code != 200 and len(calls) == 1 and 'private' not in json.dumps(failure)
 
 
-def test_single_probe_uses_existing_fixed_window_then_cleans_up(setup, window_ports):
-    service, _, body, counts = setup
-    ssm = SSM()
-    def transport(request):
-        assert request.url.path == '/input/probe'
-        status, result = service.probe(json.loads(request.content))
-        return httpx.Response(status, json=result)
-    with caller.product_probe_window(INSTANCE, RUNTIME, ca_pem=TEST_CA_PEM, ssm=ssm, transport=httpx.MockTransport(transport)) as probe:
-        assert probe(body)[1]['state'] == 'INPUT_AUTHENTICATED'
-        assert probe(body)[0] == 409
-    assert probe(body)[0] == 409
-    assert counts == {'auth': 1, 'resolve': 1, 'invoke': 0}
-    assert ssm.calls == ['start', 'session', 'terminate', 'stop']
-    assert window_ports == ['plugin-stop']

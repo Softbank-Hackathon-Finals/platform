@@ -17,7 +17,7 @@ from openai import APIStatusError, AsyncOpenAI
 from .contracts import FailureBundle, Proposal
 from .runtime import RUNTIME_KEYS
 from .telemetry import agent_observation
-from .tools import RESERVED_TOOLS, SYSTEM, PolicyDenied, Tools
+from .tools import RESERVED_TOOLS, SANDBOX_TOOLS, SYSTEM, PolicyDenied, Tools
 
 FUNCTIONS = {"repo_read": "mcp__bravo__repo_read", "plan_propose": "mcp__bravo__plan_propose",
              "inventory_describe": "mcp__bravo__inventory_describe", "policy_evaluate": "mcp__bravo__policy_evaluate"}
@@ -231,11 +231,16 @@ class FinalizedStreamCall:
 
 
 class OpenAIProvider:
-    def __init__(self, model: str, *, subscription: bool = False):
+    def __init__(self, model: str, *, subscription: bool = False, reasoning_effort: str | None = None,
+                 sandbox_image: str | None = None):
+        from .runtime import effort
+
         if not re.fullmatch(r"[A-Za-z0-9_.:-]{1,128}", model):
             raise ValueError("invalid model identifier")
         self.model = model
         self.subscription = subscription
+        self.reasoning_effort = effort(reasoning_effort)
+        self.sandbox_image = sandbox_image  # validated by SandboxProvider when used
 
     def record_subscription_error(self, tools, code=None, status=None):
         known = {"subscription_sharing_user_not_eligible", "subscription_sharing_usage_limit_exceeded",
@@ -301,6 +306,15 @@ class OpenAIProvider:
                                    base_url="https://api.openai.com/v1",
                                    max_retries=0, timeout=60) as client:
                 model = BoundedResponsesModel(self, client, tools)
+                if self.sandbox_image is not None:
+                    from .sandbox_provider import SandboxProvider
+
+                    # Same bounded subscription/API transport; shell and edits run in the
+                    # no-network Docker sandbox, only plan_propose leaves it.
+                    with agent_observation(tools, "openai_agents_sandbox", self.model):
+                        await SandboxProvider(model, self.sandbox_image,
+                                              platform=model.sdk_tools()).propose(bundle, tools)
+                    return
                 with agent_observation(tools, "openai_agents", self.model) as observation:
                     async def finish(_context, _results):
                         return ToolsToFinalOutputResult(
@@ -384,6 +398,13 @@ class BoundedResponsesModel(Model):
                 item.clear()
                 item.update(original)
         definitions = function_tools(self.policy)
+        # Agents SDK sandbox capability tools (exec_command, apply_patch, ...) act only inside
+        # the no-network container; offer exactly the ones this run attached.
+        self.sandbox_names = {tool.name for tool in tools or ()
+                              if tool.name in SANDBOX_TOOLS and isinstance(tool, FunctionTool)}
+        definitions += [{"type": "function", "name": tool.name, "description": tool.description,
+                         "parameters": tool.params_json_schema, "strict": tool.strict_json_schema}
+                        for tool in tools or () if tool.name in self.sandbox_names]
         if self.needs_read:
             definitions = [item for item in definitions if item["name"] == "repo_read"]
         if self.provider.subscription:
@@ -394,6 +415,8 @@ class BoundedResponsesModel(Model):
                    "tool_choice": "required" if self.needs_read else "auto",
                    "parallel_tool_calls": False, "store": False,
                    "include": ["reasoning.encrypted_content"]}
+        if self.provider.reasoning_effort is not None:
+            request["reasoning"] = {"effort": self.provider.reasoning_effort}
         if not self.provider.subscription:
             request["max_output_tokens"] = min(4096, 32000 - self.tokens)
         if self.tokens >= 32000 or len(json.dumps(request).encode()) > 131072:
@@ -430,6 +453,10 @@ class BoundedResponsesModel(Model):
             item = calls[0]
             name = tool_name(item.get("name"), item.get("namespace"), subscription=self.provider.subscription)
             _parsed, arguments = call_arguments(item.get("arguments"))
+            if item.get("name") in getattr(self, "sandbox_names", ()) and (
+                    not self.provider.subscription or item.get("namespace") == "bravo") and not self.needs_read:
+                item.pop("namespace", None)  # the SDK owns these tools outside the bravo namespace
+                return ModelResponse(output=outputs, usage=usage, response_id=getattr(response, "id", None))
             if (self.provider.subscription and item.get("namespace") != "bravo"
                     or self.needs_read and item.get("name") != "repo_read"):
                 if not self.policy.allowed(name):

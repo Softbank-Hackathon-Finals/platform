@@ -207,6 +207,34 @@ GC를 즉시 권한 철회 보장으로 취급하지 않는다.
 권한 검사, AWS 소비 Pod의 토큰 갱신·폐기, OpenBao writer, 후보 이미지와 실제
 T10 계획의 해피패스는 각각 별도 운영 근거가 필요하다.
 
+## 리허설 공간의 `rehearsal-exec` Secret 차단 (T42)
+
+`rehearsal-exec` Role에는 Secret verb가 없지만 Pod·Deployment·Job 생성으로 Secret을 마운트하거나
+앱 Pod에 exec하면 읽을 수 있다. T42 exec가 켜지면 이 신원이 AI 도구 호출을 대신하므로,
+`exec_guard.py`의 승인 정책 두 개로 경계를 실제로 맞춘다. 대상은
+`app.kubernetes.io/part-of: bravo-rehearsal` namespace에서 그 namespace의 `rehearsal-exec`가 보낸
+요청뿐이다. 러너와 다른 신원은 바뀌지 않는다.
+
+- 워크로드 volume은 허용 목록(configMap·emptyDir·PVC·downwardAPI, configMap·downwardAPI만 담은
+  projected)만 쓴다. Secret·projected Secret·projected `serviceAccountToken`·CSI·ephemeral은 거부한다.
+- `secretKeyRef`·`secretRef` env 거부
+- `serviceAccountName`은 `default` 또는 `rehearsal-exec`로, `automountServiceAccountToken: false`는
+  반드시 명시한다. 생략하면 SA 기본값으로 토큰이 들어가므로 거부한다.
+  Pod에서 `serviceAccountName`을 생략하면 ServiceAccount admission이 검증 전에 `default`를 채우므로
+  허용된다(토큰은 automount false 필수라 들어가지 않는다). 생략이 거부되는 것은 Deployment 같은 템플릿이다.
+- 도구 Pod 이름(`rehearsal-exec-tool`)의 생성·삭제는 runner만 한다. exec는 이 이름의 Pod에만 허용하고
+  attach·port-forward는 거부한다.
+- AI의 apply가 쓰는 작업 종류별 `deploy`는 runner 신원으로 실행한다(앱 Pod에는 자격 Secret이 필요하다).
+
+```sh
+python3 infra/envs/rehearsal-access/exec_guard.py > /private/exec-guard.json
+```
+
+`control_guard.py`와 같은 순서로 설치한다(정책 생성 → `status.typeChecking` 확인 → Deny binding).
+`test_exec_guard.py`가 정책의 CEL을 허용·거부 사례로 평가하고, `apiserver_exec_guard.py`가 T3 템플릿과 이 정책을
+일회용 k3s에 설치해 `rehearsal-exec`로 server dry-run·exec를 보낸다. 거부는 이 정책이 낸 것만 인정한다(PSA·RBAC·충돌 제외).
+둘 다 CI에서 돈다.
+
 ## 별도 관리 계정 `t15-manager`
 
 위 "별도 관리 클라이언트"의 계정이다. `manager_access.py render`가 거부 정책 3개와

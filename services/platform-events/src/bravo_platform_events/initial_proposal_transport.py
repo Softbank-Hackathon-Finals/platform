@@ -1,8 +1,7 @@
 """T38's operator/mailbox adapters for T10's canonical initial Proposal contract.
 
-No HTTP endpoint, workflow, model conversion or scheduler is installed here.
-The operator authenticates GitHub before delivery to the owner-only mailbox.
-The workflow producer must support this contract before an execution is claimed.
+No HTTP endpoint, model conversion or scheduler is installed here. The operator reads
+the sealed receipt from the platform Job and delivers it to the owner-only mailbox.
 """
 
 import json
@@ -11,11 +10,10 @@ import re
 from bravo_agent.contracts import digest
 from bravo_agent.product_execution_contracts import ExecutionUnknown
 from bravo_agent.product_execution_mailbox import FileProductExecution
-from bravo_agent.subscription_product_dispatch import OperatorProductExecution
+from bravo_agent.product_ledger import OperatorLedger
 from bravo_agent.subscription_product_seal import open_bound_receipt, seal_bound_receipt
 
 from .initial_proposal import InitialInput, InitialIntent, InitialResult
-from .initial_proposal_contracts import INITIAL_WORKFLOW
 
 
 def _intent(value):
@@ -66,16 +64,14 @@ def open_initial_receipt(intent, run_id, sealed, private):
     return open_bound_receipt(intent.recipient_public_key, initial_receipt_binding(intent, run_id), sealed, private)
 
 
-class OperatorInitialProposal(OperatorProductExecution):
-    """Reuse one-dispatch ledger and exact actor/run/attempt/artifact checks.
+class OperatorInitialProposal(OperatorLedger):
+    """The operator ledger with T10's initial intent and receipt contract.
 
-    This class requires an initial-proposal-capable reviewed workflow producer.
-    It does not make the current REHEARSE-only workflow accept initial inputs.
-    Receipt encryption keeps input/result contents out of public artifacts.
+    The carrier is the platform Job (initial_proposal_job). Receipt encryption keeps
+    input/result contents out of the Job log.
     """
 
     _parse_intent = staticmethod(_intent)
-    workflow = INITIAL_WORKFLOW
     _open_receipt = staticmethod(open_initial_receipt)
     _validate_receipt = staticmethod(validate_initial_receipt)
 

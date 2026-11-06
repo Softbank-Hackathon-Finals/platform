@@ -1,0 +1,86 @@
+{{- /*
+Platform initial-proposal Job carrier (T10/T38). Installed with this chart by the operator's
+existing access, like the other cluster-scoped policies; the Argo controller gets no write here.
+Each Job is created per request by the operator (initial_proposal_job.py) from reviewed source.
+hostNetwork is the one restricted-profile exception, needed to reach the node-loopback broker;
+the admission policy below admits only that exact Pod shape in this namespace.
+*/ -}}
+{{- if .Values.initialProposal.enabled }}
+{{- if not (regexMatch "^-----BEGIN CERTIFICATE-----" .Values.initialProposal.brokerCaPem) }}
+{{- fail "initialProposal.brokerCaPem must be the public broker CA certificate" }}
+{{- end }}
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: bravo-initial
+  labels:
+    pod-security.kubernetes.io/enforce: privileged
+    pod-security.kubernetes.io/warn: restricted
+    pod-security.kubernetes.io/audit: restricted
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: initial-proposal
+  namespace: bravo-initial
+automountServiceAccountToken: false
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: subscription-broker-ca
+  namespace: bravo-initial
+data:
+  ca.pem: {{ .Values.initialProposal.brokerCaPem | quote }}
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: platform-initial-proposal-pods
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    namespaceSelector:
+      matchLabels:
+        kubernetes.io/metadata.name: bravo-initial
+    resourceRules:
+      - apiGroups: [""]
+        apiVersions: [v1]
+        operations: [CREATE, UPDATE]
+        resources: [pods]
+  validations:
+    - expression: >-
+        object.spec.serviceAccountName == 'initial-proposal' &&
+        has(object.spec.automountServiceAccountToken) && object.spec.automountServiceAccountToken == false &&
+        (!has(object.spec.hostPID) || object.spec.hostPID == false) &&
+        (!has(object.spec.hostIPC) || object.spec.hostIPC == false) &&
+        !has(object.spec.initContainers) && !has(object.spec.ephemeralContainers) &&
+        object.spec.restartPolicy == 'Never'
+      message: Only the initial-proposal Job Pod may run here.
+    - expression: >-
+        object.spec.containers.size() == 1 &&
+        object.spec.containers.all(c,
+        c.image.startsWith('ghcr.io/softbank-hackathon-finals/platform-product-reader@sha256:') &&
+        !has(c.ports) && !has(c.envFrom) &&
+        (!has(c.env) || c.env.all(e, !has(e.valueFrom) || !has(e.valueFrom.secretKeyRef))) &&
+        has(c.securityContext) && c.securityContext.allowPrivilegeEscalation == false &&
+        c.securityContext.readOnlyRootFilesystem == true &&
+        (!has(c.securityContext.privileged) || c.securityContext.privileged == false) &&
+        c.securityContext.capabilities.drop == ['ALL'] && !has(c.securityContext.capabilities.add))
+      message: The Job runs the reviewed Reader image without Secrets, ports or privileges.
+    - expression: >-
+        has(object.spec.securityContext.runAsNonRoot) && object.spec.securityContext.runAsNonRoot == true &&
+        object.spec.volumes.all(v, has(v.projected) &&
+        v.projected.sources.all(s, has(s.serviceAccountToken) &&
+        s.serviceAccountToken.audience == 'bravo-subscription-broker' &&
+        s.serviceAccountToken.expirationSeconds <= 600))
+      message: The only volume is the short broker-audience token.
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: platform-initial-proposal-pods
+spec:
+  policyName: platform-initial-proposal-pods
+  validationActions: [Deny]
+{{- end }}

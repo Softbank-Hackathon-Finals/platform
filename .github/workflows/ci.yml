@@ -138,11 +138,15 @@ jobs:
           tar -xzf "$RUNNER_TEMP/helm.tgz" -C "$RUNNER_TEMP" linux-amd64/helm
           export PATH="$RUNNER_TEMP/linux-amd64:$PATH"
           python3 -m venv "$RUNNER_TEMP/helm-test"
-          "$RUNNER_TEMP/helm-test/bin/pip" install pyyaml==6.0.3
+          "$RUNNER_TEMP/helm-test/bin/pip" install pyyaml==6.0.3 cel-python==0.2.0
           helm repo add bravo-argo https://argoproj.github.io/argo-helm --force-update
           helm dependency build infra/gitops/argocd
           "$RUNNER_TEMP/helm-test/bin/python" infra/gitops/test_registration_chart.py
           "$RUNNER_TEMP/helm-test/bin/python" infra/gitops/test_product_reader_chart.py
+          "$RUNNER_TEMP/helm-test/bin/python" infra/gitops/test_initial_proposal_chart.py
+          "$RUNNER_TEMP/helm-test/bin/python" infra/envs/rehearsal-access/test_exec_guard.py
+          # The same guard on a real API server (throwaway k3s in Docker, server dry-run + exec).
+          "$RUNNER_TEMP/helm-test/bin/python" infra/envs/rehearsal-access/apiserver_exec_guard.py
           "$RUNNER_TEMP/helm-test/bin/python" infra/gitops/test_rehearsal_host_chart.py
           "$RUNNER_TEMP/helm-test/bin/python" infra/gitops/test_bootstrap.py
           mkdir "$RUNNER_TEMP/registration-rendered"

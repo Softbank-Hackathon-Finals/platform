@@ -2,7 +2,7 @@
 
 This installs no reader, token supplier, broker, tunnel or workflow. T10 owns
 current admission/catalog authority; only its authenticated read port may be
-injected. The caller still needs the existing GitHub OIDC path to the broker.
+injected. The caller is the platform Job identity verified by the broker.
 """
 
 import json
