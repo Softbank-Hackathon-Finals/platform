@@ -24,7 +24,8 @@
   `{"job_principal": "<b3d65883… 전체>", "fence_principals": ["<d26db92a… 전체>"]}`를 둔다. 모델 작업은 Job 주체만,
   fence는 지정한 이전 주체만 가능하고, fence 증명은 Pod 안에서 공개 GitHub로 다시 확인한다.
 
-- SHIFT 직전 재평가(`gate:evaluate`) 권한은 **SHIFT를 승인·실행하는 운영자에게만, 그 계획 범위로** 둔다.
+- SHIFT 직전 재평가 권한(`gate:evaluate`·`gate:consume`, 해당 gate context)은 **SHIFT를 승인·실행하는 운영자
+  (`approve_shift`·`execute_shift` 보유)에게만, 그 계획 범위로** 둔다(상무님 #532).
   워크플로 호스트에는 주지 않는다(승인과 반영 주체 분리, 상무님 #546 판단).
 
 ### 일괄 롤아웃 중 병합 멈춤 (팀 합의 2)
