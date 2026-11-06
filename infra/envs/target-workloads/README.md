@@ -204,6 +204,12 @@ T2/T6/T8/T9/T30 전체 완료나 실제 데모 머신의 준비 완료는 이 �
 1. **이미지.** 쓸 이미지는 [`app-image.json`](app-image.json) 한 곳에만 적는다. 렌더러와 `scripts/export_target_image.py`가 이 파일을 읽는다.
    새로 게시하면 그 실행 아티팩트의 `image-receipt.json`(`source_sha`, `digest`)과 `registry-index.json`(amd64 `digest`)을 옮겨 적고 끝낸다.
    렌더러는 이 파일의 index digest만 받는다. 다른 digest는 저장소가 GHCR이든 ECR이든 거부한다. DB · 객체 저장소 · 관리 토큰을 받는 Pod에서 다른 바이트가 돌지 못하게 하려는 것이다. ECR에서 받을 때만 `--image`로 저장소를 바꾼다.
+
+   **노드 아키텍처.** 목적지 노드는 2026-11-06 05:20 KST쯤 x86에서 arm64로 바뀌었다. GHCR 게시본은 amd64뿐이라 arm64 노드에서는 뜨지 않는다.
+   그래서 arm64 노드에는 노드 containerd에 이미 들어 있는 로컬 빌드를 쓰고, `app-image.json`의 `arm64` 항목에 적었다. 렌더는 `--arch`로 고른다(기본 `amd64`).
+   맞는 항목이 없거나 이미지가 그 아키텍처 항목과 다르면 렌더를 거부한다. Pod에는 `nodeSelector: kubernetes.io/arch`가 붙어 다른 아키텍처 노드에는 뜨지 않는다. arm64 이미지는 노드에만 있으므로 `--pull-secret`도 받지 않는다.
+   arm64 항목의 출처는 빌드 기록이 아니라 파일 대조로 확인했다. 실행 중인 이미지의 `/app/app` 파일 17개 sha256이 `source_sha`의 `app/`과 같다.
+   정확한 빌드 커밋(demo-chat `c9406cf`~`57d7ce4` 중 하나, 앱 파일은 모두 같다)과 베이스 이미지는 특정하지 못했다. 대조 방법은 [이미지 인수인계](../../../docs/operations/target-image-handoff.md#arm64-target-node)에 있다.
 2. **VM에 넣기.** ECR에는 이미 있다. 이 게시본의 demo-chat 영수증(#19)과 `transfer-private-image`([실행 41815292046](https://github.com/Softbank-Hackathon-Finals/demo-chat/actions/runs/41815292046), 2026-11-04 19:36 KST)가 끝났고, 대상 바이트와 CI Pull까지 확인됐다.
    개발 VM에는 류지환 님 기록(#210)상 2026-11-04 23:05 KST에 묶음이 containerd에 등록됐고 23:07에 index와 amd64 manifest를 대조했다. 이 문서 쪽에서 직접 확인한 것은 아니다.
    남은 일은 이 변경이 병합된 뒤 VM 담당이 digest를 대조하고 앱을 배포하는 것이다. 다른 VM이면 [이미지 인수인계](../../../docs/operations/target-image-handoff.md) 순서로 묶음을 만들어 넣고 digest 별칭을 붙인다.
@@ -252,7 +258,8 @@ kubectl -n target-dev label secret target-app-credentials target-app-objects tar
 ### 적용과 확인
 
 ```sh
-python3 application.py > "$OUTPUT_DIR/application.json"
+kubectl get nodes -o custom-columns=NAME:.metadata.name,ARCH:.status.nodeInfo.architecture  # 지금은 arm64
+python3 application.py --arch arm64 > "$OUTPUT_DIR/application.json"  # 위에서 읽은 아키텍처
 kubectl apply --server-side --dry-run=server -f "$OUTPUT_DIR/application.json"
 kubectl apply --server-side -f "$OUTPUT_DIR/application.json"
 kubectl -n target-dev rollout status deployment/demo-chat
