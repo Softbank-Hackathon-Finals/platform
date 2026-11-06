@@ -26,7 +26,22 @@ UID100/GID1000, capability 제거, no-new-privileges, CPU/메모리/PID 제한�
 실제 loopback binding을 다시 읽은 뒤 전체 시험을 통과했다. 어느 실행에서도 기존 팀 자원을
 사용하거나 운영 보안 설정을 완화하지 않았다. 실패한 실행의 자체 컨테이너도 정리했다.
 
-RKE2 실제 CLI 실행·전체 제어 노드·실제 Secret 전달 결속·운영 영속 저장은 미검증이다.
-이 시험의 모의 RKE2 입력을 운영 원문으로 제출하지 않는다.
+## 11:42 KST — 실제 플랫폼 RKE2 명령 자격
+
+별도로 등록된 **AWS 플랫폼 호스트**에서 SSM의 고정 읽기 명령을 실행했다.
+개인 SSO 신원·등록 인스턴스 태그·kube-system UID를 확인하고 제어 노드 1개의 UID/버전을 읽었다.
+RKE2 `v1.35.9+rke2r1`(`8229013e2b1a73eef1b41dd93708fa96cf11f11f`)에서
+`secrets-encrypt status --output json`을 두 번 실행해 동일 상태를 확인했다.
+enable=true, hashmatch=true, stage=start와 AES-CBC provider를 실제 제품 파서가 수용했다.
+수집 시각은 2026-11-06T02:42:45Z이며 원문·SSM 실행 ID·바이너리 해시는 비공개로 보존했다.
+
+설정 파일·Secret 값은 읽지 않았고 회전·재시작·권한·자원을 변경하지 않았다. 별도 클러스터나
+8GB VM을 추가하는 대신 기존 등록 호스트의 읽기만 사용했다. 이 명령은 서버 토큰을 내부에서
+읽기 때문에 향후 운영 수집 주체에는 고정 명령 권한만 전달해야 한다.
+
+**이 플랫폼 호스트는 온프렘 목적지가 아니다.** 실제 CLI 출력 파서는 검증했지만 목적지의
+전체 제어 노드·Secret 전달·volume/runtime 결속은 미검증이다. 위 로컬 OpenBao와 이 플랫폼
+RKE2의 결과를 합쳐 한 목적지의 ENC-02.1 PASS로 만들지 않는다. LocalRKE2StatusReader 자체의
+호스트 설치·인증된 원격 실행 연결도 별도 인수다.
 
 [호스트 인수 계약과 재현](../../../services/control-runner/docs/target-secret-encryption.md)

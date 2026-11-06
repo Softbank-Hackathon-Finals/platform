@@ -43,8 +43,9 @@ OpenBao 상태 원문, 키 이름, nonce, 서버 오류, 서버 토큰·unseal s
 ## 검증과 남은 범위
 
 [실제 OpenBao 시험](../../../docs/evidence/t14-target-seal-2026-11-06/README.md)은
-격리된 로컬 OpenBao의 HTTPS·seal·재시작 보존을 확인한다. RKE2 입력은 모의이며 팀 목적지의
-두 저장 계층을 검증한 결과가 아니다. 운영 접속 인수 후 전체 노드·앱 전달 경로·저장소를 다시 검사한다.
+격리된 로컬 OpenBao의 HTTPS·seal·재시작 보존을 확인한다. 그 시험의 RKE2 입력은 모의다.
+별도로 실제 AWS 플랫폼 RKE2 명령 출력도 파서에 대조했다. 서로 다른 환경의 결과이므로
+목적지 전체 PASS로 합치지 않는다. 운영 접속 인수 후 전체 노드·앱 전달 경로·저장소를 다시 검사한다.
 
 ```sh
 cd services/control-runner
