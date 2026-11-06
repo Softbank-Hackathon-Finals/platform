@@ -6,6 +6,35 @@ import time
 from .journal import LABEL, Failure, deletion, kubectl, locked, match, read
 
 DELETED = {"login": "allow", "role": "deleted", "value": "deleted"}
+MAX_RECOVERY_ATTEMPTS = 3
+
+
+class Retry(Exception):
+    """This recovery attempt is confirmed absent or failed; a new bounded attempt is safe."""
+
+
+def attempt_name(base, n):
+    return base if n == 1 else f"{base}-r{n}"
+
+
+def bounded_recovery(root, base, attempt):
+    """Run `attempt(work)` under per-attempt names. CLEANUP_SCRIPT is idempotent, so an
+    attempt whose inputs or Job are confirmed absent, whose Job failed, or whose result is not
+    DELETED is followed by a new attempt with new names, up to MAX_RECOVERY_ATTEMPTS. A pending
+    attempt is never replaced; the attempt number survives restarts in the journal."""
+    n = json.loads((root / "journal.json").read_text()).get("recovery_attempt", 1)
+    while True:
+        work = attempt_name(base, n)
+        if len(work) > 63:
+            raise Failure("recovery_name_too_long")
+        try:
+            return attempt(work)
+        except Retry as retry:
+            if n >= MAX_RECOVERY_ATTEMPTS:
+                raise Failure("recovery_attempts_exhausted_" + str(retry)) from None
+            n += 1
+            with locked(root) as value:
+                value["recovery_attempt"] = n
 
 
 def inspect(root):
@@ -113,80 +142,50 @@ def external_cleanup(root, config):
         openbao_ca_pem=(root / "openbao-ca.pem").read_text(),
     )
     job = CredentialJob(Kube(), Kubectl(), None, None, delivery, fixture, lambda _: "")
-    work = "t15-cred-" + ns + "-recover"
     meta = {"namespace": CONTROL_NAMESPACE, "labels": {LABEL: record["run_id"]}}
 
-    def ensure(kind, name, fields):
+    def attempt(work):
+        def ensure(kind, name, fields):
+            current = json.loads((root / "journal.json").read_text())
+            refs = [r for r in current["resources"] if r["kind"] == kind and r["name"] == name]
+            if refs:
+                obj = read(refs[0])
+                if obj is None:
+                    # The journaled create did not leave an object (e.g. a failed create).
+                    raise Retry("recovery_input_missing")
+                match(obj, refs[0], record["run_id"])
+            else:
+                Kube().create({"apiVersion": "v1", "kind": kind, "metadata": {**meta, "name": name}, **fields})
+
+        ensure("Secret", work, {"stringData": {"remote": delivery.remote_path(ns),
+                                              "role-name": delivery.role_name(ns)}})
+        ensure("ConfigMap", work + "-ca", {"immutable": True, "data": {"ca.crt": fixture.openbao_ca_pem}})
         current = json.loads((root / "journal.json").read_text())
-        refs = [
-            r for r in current["resources"] if r["kind"] == kind and r["name"] == name
-        ]
+        refs = [r for r in current["resources"] if r["kind"] == "Job" and r["name"] == work]
         if refs:
             obj = read(refs[0])
             if obj is None:
-                raise Failure("recovery_input_missing_no_blind_recreate")
+                raise Retry("recovery_job_missing")
             match(obj, refs[0], record["run_id"])
+            conditions = obj.get("status", {}).get("conditions", [])
+            if any(c["type"] == "Failed" and c["status"] == "True" for c in conditions):
+                raise Retry("recovery_job_failed")
+            if not any(c["type"] == "Complete" and c["status"] == "True" for c in conditions):
+                raise Failure("recovery_job_pending_inspect_same_run")
+            # Observe the exact completed job's Pod/image before accepting its output.
+            from bravo_agent.verification import observe_job_pod
+
+            execution = observe_job_pod(Kube(), obj, fixture.bao_image, complete=True)
+            result = json.loads(
+                Kube().call("logs", "pod/" + execution["pod_name"], "-n", CONTROL_NAMESPACE).strip())
         else:
-            Kube().create(
-                {
-                    "apiVersion": "v1",
-                    "kind": kind,
-                    "metadata": {**meta, "name": name},
-                    **fields,
-                }
-            )
+            result, _ = job._job(CONTROL_NAMESPACE, work, fixture.bao_image, CLEANUP_SCRIPT, WRITER_ACCOUNT, meta,
+                                 {"login", "role", "value"}, work=work, role=WRITER_ACCOUNT, labels=WRITER_LABEL)
+        if result != DELETED:
+            raise Retry("external_cleanup_unconfirmed")
+        return result
 
-    ensure(
-        "Secret",
-        work,
-        {
-            "stringData": {
-                "remote": delivery.remote_path(ns),
-                "role-name": delivery.role_name(ns),
-            }
-        },
-    )
-    ensure(
-        "ConfigMap",
-        work + "-ca",
-        {"immutable": True, "data": {"ca.crt": fixture.openbao_ca_pem}},
-    )
-    current = json.loads((root / "journal.json").read_text())
-    refs = [r for r in current["resources"] if r["kind"] == "Job" and r["name"] == work]
-    if refs:
-        obj = read(refs[0])
-        if obj is None:
-            raise Failure("recovery_job_missing_no_blind_replay")
-        match(obj, refs[0], record["run_id"])
-        if not any(
-            c["type"] == "Complete" and c["status"] == "True"
-            for c in obj.get("status", {}).get("conditions", [])
-        ):
-            raise Failure("recovery_job_pending_inspect_same_run")
-        # Observe the exact completed job's Pod/image before accepting its output.
-        from bravo_agent.verification import observe_job_pod
-
-        execution = observe_job_pod(Kube(), obj, fixture.bao_image, complete=True)
-        result = json.loads(
-            Kube()
-            .call("logs", "pod/" + execution["pod_name"], "-n", CONTROL_NAMESPACE)
-            .strip()
-        )
-    else:
-        result, _ = job._job(
-            CONTROL_NAMESPACE,
-            work,
-            fixture.bao_image,
-            CLEANUP_SCRIPT,
-            WRITER_ACCOUNT,
-            meta,
-            {"login", "role", "value"},
-            work=work,
-            role=WRITER_ACCOUNT,
-            labels=WRITER_LABEL,
-        )
-    if result != DELETED:
-        raise Failure("external_cleanup_unconfirmed")
+    result = bounded_recovery(root, "t15-cred-" + ns + "-recover", attempt)
     with locked(root) as value:
         value["external_cleanup"] = result
 

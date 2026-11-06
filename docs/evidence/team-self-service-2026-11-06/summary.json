@@ -87,6 +87,9 @@
     "Two early credential trials were UNCONFIRMED; both cleaned. Detailed original probe failure was not retained, so no confirmed root cause is claimed.",
     "Later diagnostic observation was read-only; final credential run used the ordinary CLI without it.",
     "T15 raw report retained its global leftover success=false; own resources were absent.",
-    "This is scripted fixture verification, not a live AI proposal, product approval or teammate device acceptance."
+    "This is scripted fixture verification, not a live AI proposal, product approval or teammate device acceptance.",
+    "executing commit SHA not recorded; not bound to a source revision",
+    "writer-SIGKILL external-deletion and space-in-path ZIP T3 trials are not recorded and not claimed",
+    "interruption left two namespace UIDs only; recovery-Job path covered by local tests only"
   ]
 }

@@ -8,4 +8,6 @@ A controlled SIGKILL left two namespace UID receipts. A separate command obtaine
 
 Local regression coverage includes replaced UID, foreign run marker, lost create response, duplicate create intent, Secret body exclusion, read failure, same-run cleanup, missing central profile recovery, different member refusal and frozen renderer modification. T15's existing external cleanup script also ran successfully on the two inconclusive attempts before their control objects were deleted.
 
+**Scope correction (#466 review).** The executing commit SHA was not recorded for these trials, so this evidence is not bound to a source revision. The PR description also mentioned a "SIGKILL right after the writer → external role/value deletion" trial and a "space-in-path ZIP T3" trial; neither is recorded here, so neither is claimed. The interruption above left only two namespace UIDs and does not exercise the recovery-Job path; that path is covered by local regression tests only. Later runs must record the executing SHA per trial.
+
 This evidence does not establish another member's device login, WSL acceptance, production AI proposal execution or cutover completion. Runtime token provisioning and product host/GitOps remain owned by their existing implementations. Usage and boundary map: [team self-service guide](../../team-self-service.md).
