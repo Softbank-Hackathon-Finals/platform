@@ -1,5 +1,5 @@
 {
-  "observed_at": "2026-11-06T10:30+09:00 (10:3x KST)",
+  "observed_at": "2026-11-06T10:19:06+09:00",
   "node": {
     "architecture": "arm64",
     "os_image": "Ubuntu 24.04.5 LTS",
@@ -33,7 +33,8 @@
       "감사 로그에 Secret 값 없음",
       "절전 차단",
       "Tailscale 설치"
-    ]
+    ],
+    "finished_at": "2026-11-06T10:18:53+09:00"
   },
   "kube_bench": {
     "version": "0.16.0",
@@ -45,7 +46,8 @@
     "fail_ids": [
       "5.1.5",
       "5.1.6"
-    ]
+    ],
+    "finished_at": "2026-11-06T10:19:06+09:00"
   },
   "method": {
     "api_only": true,
