@@ -9,7 +9,6 @@ from pathlib import Path
 import boto3
 from bravo_agent.subscription_product_reader import ProductReaderConfig
 
-
 MODEL_FIELDS = {"provider", "model", "reasoning_effort", "sandbox_image"}
 
 
@@ -25,18 +24,40 @@ def model_config(value):
     return value
 
 
+WORKLOAD_FIELDS = {"issuer", "audience", "subject", "public_keys"}
+
+
+def workload_identity(value):
+    """The platform Job identity the broker verifies offline (subscription_server.authenticate_workload):
+    issuer/audience/subject and the cluster's PUBLIC keys (kid -> PEM). Never a private key."""
+    keys = value.get("public_keys") if isinstance(value, dict) else None
+    if (type(value) is not dict or set(value) != WORKLOAD_FIELDS or not str(value["issuer"]).startswith("https://")
+            or value["audience"] != "bravo-subscription-broker"
+            or value["subject"] != "system:serviceaccount:bravo-initial:initial-proposal"
+            or type(keys) is not dict or not 1 <= len(keys) <= 8
+            or any(not isinstance(pem, str) or "PRIVATE KEY" in pem
+                   or not pem.startswith("-----BEGIN PUBLIC KEY-----") for pem in keys.values())):
+        raise ValueError("invalid workload identity")
+    return value
+
+
 def installation(sha, archive_digest, settings, model, *, product_reader=None, initial_proposal=False):
     if not re.fullmatch("[a-f0-9]{40}", sha) or not re.fullmatch("[a-f0-9]{64}", archive_digest):
         raise ValueError("immutable source and archive digest required")
     required = {"secret_arn", "runtime_host_id", "broker_role_arn", "region"}
-    # Optional: the sandbox session VM's Docker endpoint (DOCKER_* names only, no secret values).
-    if not required <= set(settings) <= required | {"sandbox_docker"}:
+    # Optional: the sandbox session VM's Docker endpoint (DOCKER_* names only, no secret values) and
+    # the platform Job identity (public keys only); without it the broker refuses every Job token.
+    if not required <= set(settings) <= required | {"sandbox_docker", "workload_identity"}:
         raise ValueError("metadata-only settings required; never include tokens or the model")
+    if "workload_identity" in settings:
+        workload_identity(settings["workload_identity"])
     settings = {**settings, **model_config(model)}
     if settings["region"] != "ap-northeast-2":
         raise ValueError("unsupported region")
     if type(initial_proposal) is not bool or (initial_proposal and product_reader is None):
         raise ValueError("initial proposal requires an authenticated reader")
+    if initial_proposal and "workload_identity" not in settings:
+        raise ValueError("initial proposal requires the platform Job identity")
     settings = {**settings, "source_sha": sha, "worker": "/opt/bravo-subscription/worker",
                 "state_dir": "/var/lib/bravo-t11-subscription/state"}
     encoded = base64.b64encode(json.dumps(settings).encode()).decode()

@@ -248,3 +248,29 @@ def test_missing_reader_ca_prevents_startup(monkeypatch, tmp_path):
 
 
 
+
+
+def test_install_carries_the_job_identity_public_keys_only():
+    from cryptography.hazmat.primitives import serialization
+    from cryptography.hazmat.primitives.asymmetric import rsa
+    path = Path(__file__).resolve().parents[3] / "operations/subscription/install.py"
+    spec = importlib.util.spec_from_file_location("workload_installer", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    public = key.public_key().public_bytes(serialization.Encoding.PEM,
+                                           serialization.PublicFormat.SubjectPublicKeyInfo).decode()
+    private = key.private_bytes(serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8,
+                                serialization.NoEncryption()).decode()
+    identity = {"issuer": "https://kubernetes.default.svc.cluster.local", "audience": "bravo-subscription-broker",
+                "subject": "system:serviceaccount:bravo-initial:initial-proposal", "public_keys": {"k1": public}}
+    settings = {"secret_arn": "s", "runtime_host_id": "h", "broker_role_arn": "r", "region": "ap-northeast-2"}
+    model = {"provider": "chatgpt-plan", "model": "gpt-6.1-sol"}
+    module.installation(RUNTIME, "d" * 64, settings | {"workload_identity": identity}, model)
+    for bad in (identity | {"public_keys": {"k1": private}}, identity | {"audience": "other"},
+                identity | {"subject": "system:serviceaccount:default:default"}, identity | {"extra": 1}):
+        with pytest.raises(ValueError):
+            module.installation(RUNTIME, "d" * 64, settings | {"workload_identity": bad}, model)
+    reader = {"origin": "https://reader.invalid", "ca_file": "/etc/bravo-subscription/reader-ca.pem"}
+    with pytest.raises(ValueError, match="Job identity"):  # the initial broker without it refuses every Job
+        module.installation(RUNTIME, "d" * 64, settings, model, product_reader=reader, initial_proposal=True)

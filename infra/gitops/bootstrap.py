@@ -49,6 +49,41 @@ def verify_rehearsal_host(get, host):
         raise ValueError("published_rehearsal_host_image_required")
 
 
+def verify_initial_proposal(value):
+    """#503 Job path: namespace, SA, admission policy and the PUBLIC broker CA only."""
+    pem = value.get("brokerCaPem") if isinstance(value, dict) else None
+    if (set(value) != {"enabled", "brokerCaPem"} or value["enabled"] is not True or not isinstance(pem, str)
+            or not pem.startswith("-----BEGIN CERTIFICATE-----") or "PRIVATE KEY" in pem):
+        raise ValueError("initial_proposal_public_ca_required")
+
+
+WORKFLOW_KEYS = {"configuration", "reader", "stateClaim", "secrets", "interval"}
+
+
+def verify_workflow_host(get, host):
+    """ADR-0031 host: every referenced input already exists; the ports, relay and Reader v2 configs
+    are present, and the registration image (Reader packages + git) is published."""
+    if set(host) != {"enabled", "runtime"} or host["enabled"] is not True:
+        raise ValueError("protected_workflow_host_input_required")
+    runtime = host["runtime"]
+    if (not set(runtime) <= WORKFLOW_KEYS or not {"configuration", "reader", "stateClaim", "secrets"} <= set(runtime)
+            or not runtime["secrets"].get("executor")):
+        raise ValueError("workflow_host_runtime_fields_required")
+    config = get("configmap", runtime["configuration"]["existingConfigMap"], "platform-state")
+    if not {"ports.json", "relay.json"} <= set(config.get("data", {})):
+        raise ValueError("workflow_host_ports_and_relay_required")
+    reader = get("configmap", runtime["reader"]["existingConfigMap"], "platform-state")
+    if json.loads(reader.get("data", {}).get("reader.json", "{}")).get("version") != 2:
+        raise ValueError("workflow_host_reader_v2_required")
+    for claim in (runtime["reader"]["catalogClaim"], runtime["stateClaim"]):
+        get("pvc", claim, "platform-state")
+    for name in {v for v in runtime["secrets"].values() if v}:
+        get("secret", name, "platform-state")
+    image = json.loads((ROOT / "infra/gitops/environments/development/registration-image.json").read_text())
+    if not re.fullmatch(r"sha256:[0-9a-f]{64}", image["image"]["digest"]):
+        raise ValueError("published_registration_image_required")
+
+
 READER_COMMAND = ["python", "-m", "bravo_platform_events.product_read_server"]
 READER_ARGS = ["--config", "/product-read/reader.json", "--tls-cert", "/tls/tls.crt", "--tls-key", "/tls/tls.key",
                "--initial-proposal"]
@@ -176,7 +211,8 @@ def main():
         value = json.loads(a.runtime_values.read_text())
         if (
             not {"registration"}.issubset(value)
-            or not set(value).issubset({"registration", "productReader", "rehearsalHost"})
+            or not set(value).issubset({"registration", "productReader", "rehearsalHost", "initialProposal",
+                                        "workflowHost"})
             or set(value["registration"]) != {"enabled", "runtime"}
             or value["registration"]["enabled"] is not True
         ):
@@ -210,6 +246,10 @@ def main():
                 raise ValueError("published_reader_image_required")
         if "rehearsalHost" in value:
             verify_rehearsal_host(get, value["rehearsalHost"])
+        if "initialProposal" in value:
+            verify_initial_proposal(value["initialProposal"])
+        if "workflowHost" in value:
+            verify_workflow_host(get, value["workflowHost"])
         values = ["--values", str(a.runtime_values)]
     chart = ROOT / "infra/gitops/argocd"
     run(

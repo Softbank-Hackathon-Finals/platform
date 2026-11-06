@@ -194,3 +194,43 @@ def test_installed_runtime_composes_real_grants_gate_windows_and_abort(bound, tm
     assert result["rollback"]["weight_target"] == 0
     assert len(upstream.patches) == 2
     provider.close()
+
+
+def _with_stored_report(f, ready, change):
+    """Rebuild the SHIFT authority with a GATE report changed the way the case needs."""
+    gate, state, data, _, _ = ready
+    ctx = state["context"]
+    stored = json.loads(canonical(gate.evaluate("actor", "context")))
+    report = RunSnapshot(ctx.gate_id, canonical(change(stored)))
+
+    def session(c, principal, p):
+        return PlanGateSession(gate, f.plan.plan_id, "context", ctx, report, data["binding"])
+
+    f.authority.load_session = session
+    return gate
+
+
+def test_shift_reevaluates_a_stale_gate_report_and_keeps_both_records(bound, ready):
+    """#532 (sangmu1126 15:21Z): a GATE report older than 60 s does not block SHIFT by itself;
+    a fresh PASS bound to the same context and readiness does, recorded beside the GATE report."""
+    f = bound
+    stale = (f.state["now"] - timedelta(hours=2)).isoformat()
+    _with_stored_report(f, ready, lambda r: r | {"evaluated_at": stale})
+    f.register()
+    with f.store._transaction() as c:
+        rows = c.execute("SELECT request_json, receipt_json FROM plan_commands WHERE command_key LIKE ?",
+                         ("edge-host-shift-gate-reevaluation-%",)).fetchall()
+    assert rows and all(json.loads(r["receipt_json"])["evaluated_at"] != stale for r in rows)
+    assert json.loads(rows[0]["receipt_json"])["decision"] == "PASS"
+
+
+def test_shift_stops_when_the_fresh_gate_blocks_or_readiness_changed(bound, ready, monkeypatch):
+    f = bound
+    _with_stored_report(f, ready, lambda r: r | {"readiness_binding_digest": "0" * 64})
+    with pytest.raises(EdgeError, match="shift_gate_reevaluation_blocked"):
+        f.register()
+    gate = _with_stored_report(f, ready, lambda r: r)
+    original = gate.evaluate
+    monkeypatch.setattr(gate, "evaluate", lambda *a, **k: original(*a, **k) | {"decision": "BLOCK"})
+    with pytest.raises(EdgeError, match="shift_gate_reevaluation_blocked"):
+        f.register()

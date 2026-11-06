@@ -1,5 +1,6 @@
 """Real T10 SQLite/PostgreSQL admission; synthetic probes and remote transport."""
 import importlib.util
+import json
 from dataclasses import replace
 from datetime import timedelta
 from pathlib import Path
@@ -372,3 +373,36 @@ def test_cross_tenant_request_never_reads_gate_records(admission):
     with pytest.raises(EventError, match="forbidden"):
         f.approve()
     assert f.calls == 0 and not f.requests
+
+
+def _stale_report(f, hours=2):
+    report = json.loads(canonical(f.gate.evaluate("operator", "context")))
+    report["evaluated_at"] = (f.state["now"] - timedelta(hours=hours)).isoformat()
+    f.report_revision += 1
+    with f.store._transaction(write=True, plan_id=f.plan.plan_id) as c:
+        c.execute("INSERT INTO plan_commands VALUES (?, ?, '{}', ?)",
+                  (f.plan.plan_id, f"fixture-gate-{f.report_revision:08d}", canonical(report).decode()))
+
+
+def test_cutover_approval_reevaluates_a_stale_gate_report(admission):
+    """#532 (sangmu1126 15:21Z) for the cutover authority: hours after GATE, a fresh PASS bound to the
+    same context and readiness admits; the GATE report stays and the fresh one is kept beside it."""
+    f = admission
+    _stale_report(f)
+    approved = f.approve()
+    assert approved["approval_id"]
+    with f.store._transaction() as c:
+        kept = c.execute("SELECT count(*) AS n FROM plan_commands WHERE command_key LIKE ?",
+                         ("gate-cutover-reevaluation-%",)).fetchone()["n"]
+        gates = c.execute("SELECT count(*) AS n FROM plan_commands WHERE command_key LIKE ?",
+                          ("fixture-gate-%",)).fetchone()["n"]
+    assert kept >= 1 and gates == 2
+
+
+def test_cutover_approval_stops_when_the_fresh_gate_blocks(admission, monkeypatch):
+    f = admission
+    _stale_report(f)
+    original = f.gate.evaluate
+    monkeypatch.setattr(f.gate, "evaluate", lambda *a, **k: original(*a, **k) | {"decision": "BLOCK"})
+    with pytest.raises(EventError, match="authority_unavailable"):
+        f.approve()
