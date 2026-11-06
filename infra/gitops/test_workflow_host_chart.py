@@ -96,5 +96,38 @@ class WorkflowHostChart(unittest.TestCase):
         self.assertIn(("Role", "platform-gitops-rehearsal-host"), rbac)
 
 
+    def test_bootstrap_requires_existing_inputs_v2_reader_and_relay(self):
+        import bootstrap
+
+        data = {"configmap": {"workflow-config": {"ports.json": "{}", "relay.json": "{}"},
+                              "reader-config-v2": {"reader.json": json.dumps({"version": 2})}}}
+
+        def get(kind, name, namespace):
+            self.assertEqual(namespace, "platform-state")
+            return {"metadata": {"name": name}, "data": data.get(kind, {}).get(name, {})}
+
+        host = {"enabled": True, "runtime": {k: VALUES[k] for k in ("configuration", "reader", "stateClaim", "secrets")}}
+        bootstrap.verify_workflow_host(get, host)
+        data["configmap"]["reader-config-v2"] = {"reader.json": json.dumps({"version": 1})}
+        with self.assertRaisesRegex(ValueError, "reader_v2"):
+            bootstrap.verify_workflow_host(get, host)
+        data["configmap"]["reader-config-v2"] = {"reader.json": json.dumps({"version": 2})}
+        data["configmap"]["workflow-config"] = {"ports.json": "{}"}
+        with self.assertRaisesRegex(ValueError, "relay"):
+            bootstrap.verify_workflow_host(get, host)
+        with self.assertRaisesRegex(ValueError, "fields"):
+            bootstrap.verify_workflow_host(get, {"enabled": True, "runtime": {"configuration": {}}})
+
+    def test_bootstrap_initial_proposal_takes_only_a_public_ca(self):
+        import bootstrap
+
+        bootstrap.verify_initial_proposal({"enabled": True, "brokerCaPem": "-----BEGIN CERTIFICATE-----\nx"})
+        for bad in ({"enabled": True, "brokerCaPem": "-----BEGIN PRIVATE KEY-----"},
+                    {"enabled": True, "brokerCaPem": "-----BEGIN CERTIFICATE-----", "extra": 1},
+                    {"enabled": False, "brokerCaPem": "-----BEGIN CERTIFICATE-----"}):
+            with self.assertRaises(ValueError):
+                bootstrap.verify_initial_proposal(bad)
+
+
 if __name__ == "__main__":
     unittest.main()
