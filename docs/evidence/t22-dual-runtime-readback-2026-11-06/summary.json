@@ -1,0 +1,145 @@
+{
+  "scope": "actual-source-eks-and-target-onprem-app-read-only",
+  "transport": "personal Kubernetes API tunnel to loopback app HTTP; not public Edge qualification",
+  "checks_passed": 14,
+  "checks": [
+    {
+      "side": "source",
+      "path": "/",
+      "status": 200,
+      "environment": "aws",
+      "response_sha256": "70808970aa80ce84ec980683e0f3e81078a50b2aeb957e41b9c578ca76814bb0"
+    },
+    {
+      "side": "source",
+      "path": "/healthz",
+      "status": 200,
+      "environment": "aws",
+      "response_sha256": "4062edaf750fb8074e7e83e0c9028c94e32468a8b6f1614774328ef045150f93"
+    },
+    {
+      "side": "source",
+      "path": "/readyz",
+      "status": 200,
+      "environment": "aws",
+      "response_sha256": "4062edaf750fb8074e7e83e0c9028c94e32468a8b6f1614774328ef045150f93"
+    },
+    {
+      "side": "source",
+      "path": "/api/health/db",
+      "status": 200,
+      "environment": "aws",
+      "response_sha256": "4062edaf750fb8074e7e83e0c9028c94e32468a8b6f1614774328ef045150f93"
+    },
+    {
+      "side": "source",
+      "path": "/api/info",
+      "status": 200,
+      "environment": "aws",
+      "response_sha256": "913850c62aabca5f12ea03e35e3b6d677dca56f6687b4c00c5dd103dbd8d794a"
+    },
+    {
+      "side": "source",
+      "path": "/admin/write-block",
+      "status": 401,
+      "environment": "aws",
+      "response_sha256": "8f399debe52f271e56918a3ef03cd90d60776f7c972e6807b1ef2a7437c1040c"
+    },
+    {
+      "side": "source",
+      "path": "/ws",
+      "hello_matches_http": true,
+      "ping_pong": true,
+      "after": "max-int64-no-history"
+    },
+    {
+      "side": "target",
+      "path": "/",
+      "status": 200,
+      "environment": "onprem",
+      "response_sha256": "70808970aa80ce84ec980683e0f3e81078a50b2aeb957e41b9c578ca76814bb0"
+    },
+    {
+      "side": "target",
+      "path": "/healthz",
+      "status": 200,
+      "environment": "onprem",
+      "response_sha256": "4062edaf750fb8074e7e83e0c9028c94e32468a8b6f1614774328ef045150f93"
+    },
+    {
+      "side": "target",
+      "path": "/readyz",
+      "status": 200,
+      "environment": "onprem",
+      "response_sha256": "4062edaf750fb8074e7e83e0c9028c94e32468a8b6f1614774328ef045150f93"
+    },
+    {
+      "side": "target",
+      "path": "/api/health/db",
+      "status": 200,
+      "environment": "onprem",
+      "response_sha256": "4062edaf750fb8074e7e83e0c9028c94e32468a8b6f1614774328ef045150f93"
+    },
+    {
+      "side": "target",
+      "path": "/api/info",
+      "status": 200,
+      "environment": "onprem",
+      "response_sha256": "6c523afeac391b8e728c22b84e2497e1e20ba01e473a20150e551f9dca889624"
+    },
+    {
+      "side": "target",
+      "path": "/admin/write-block",
+      "status": 401,
+      "environment": "onprem",
+      "response_sha256": "8f399debe52f271e56918a3ef03cd90d60776f7c972e6807b1ef2a7437c1040c"
+    },
+    {
+      "side": "target",
+      "path": "/ws",
+      "hello_matches_http": true,
+      "ping_pong": true,
+      "after": "max-int64-no-history"
+    }
+  ],
+  "started_at": "2026-11-06T07:45:05.866953+00:00",
+  "finished_at": "2026-11-06T07:45:09.732982+00:00",
+  "effects": {
+    "business_writes": 0,
+    "admin_changes": 0,
+    "forced_websocket_close": 0,
+    "cutover": 0
+  },
+  "deployment_comparison": [
+    {
+      "side": "source",
+      "uid_unchanged": true,
+      "spec_unchanged": true,
+      "generation": 5
+    },
+    {
+      "side": "target",
+      "uid_unchanged": true,
+      "spec_unchanged": true,
+      "generation": 5
+    }
+  ],
+  "limitations": [
+    "No message content was collected",
+    "No business writes or attachment upload",
+    "No forced 1012 close or cutover",
+    "No public Edge or phone browser qualification",
+    "Does not establish shared database identity or data migration integrity",
+    "Source application matched its registered image, namespace and service account; destination app registration equivalence was not established"
+  ],
+  "source_runtime": {
+    "image_digest": "sha256:ca5ce1b24f1deb2e7346643860ff0bb151409c1acec503c105f56d9043a389b6",
+    "deployment_uid_sha256": "832a40b31b50c4d857652769449e582805f69cf8d7a2e5b80e42855d72e3ef46",
+    "deployment_spec_sha256": "319f34a8faa83139875fbb62d206ca0cfaf5b166e1f82dcd63cf2694b62a0597"
+  },
+  "target_runtime": {
+    "image_digest": "sha256:b351ba11819796aaea854f742049e46b058561f80c0e738f42c93280af762888",
+    "deployment_uid_sha256": "0d41bfb19176394fdb0bb6e525c8e2ca52445c907cae0c379819a66822f1a919",
+    "deployment_spec_sha256": "9eb165ebd23671321386af735363bf8e120f08189ea24cfe74ee20addf91ce8f"
+  }
+}

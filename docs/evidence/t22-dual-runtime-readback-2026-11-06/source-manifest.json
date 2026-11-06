@@ -1,0 +1,8 @@
+{
+  "source_revision": "dc5d2d9cb8339bf20fa844bdc497e9cc918f4d2e",
+  "source_files": [],
+  "private_qualification_script_sha256": "e0f0fbee199db4b9efc880806bd8fa475f41e72b4592d4e561d8813f10c49612",
+  "private_capture_script_sha256": "4ebaa4d6b9c4a6d864360a874720493c204696a8f714b6ca4fa9176ee3235436",
+  "qualification_scripts_public": false,
+  "source_revision_purpose": "Evidence baseline only; the executed private scripts are identified separately and are not repository source files."
+}
