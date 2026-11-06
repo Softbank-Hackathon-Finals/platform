@@ -162,6 +162,26 @@ class ScopeTest(unittest.TestCase):
         self.assertFalse(queued["full"])
         self.assertEqual(queued["projects"], [{"path": "services/a", "kind": "python"}])
 
+    def test_other_workflow_runs_infra_only(self):
+        plan = scope.select(FILES, [".github/workflows/dependency-watch.yml"])
+        self.assertEqual((plan["full"], plan["infra"], plan["projects"]), (False, True, []))
+
+    def test_ci_definition_runs_one_project_per_language(self):
+        files = FILES + ["services/web/package.json", "services/tool/go.mod", "services/web2/package.json"]
+        for changed in ([".github/workflows/ci.yml"], ["scripts/ci_scope.py"], ["scripts/tests/test_ci_scope.py"]):
+            with self.subTest(changed=changed):
+                plan = scope.select(files, changed)
+                self.assertFalse(plan["full"])
+                self.assertTrue(plan["infra"] and plan["scripts"])
+                self.assertEqual(sorted(p["kind"] for p in plan["projects"]), ["go", "node", "python"])
+        mixed = scope.select(files, [".github/workflows/ci.yml", "schemas/x.json"])
+        self.assertTrue(mixed["full"])
+        with patch.object(scope, "git", side_effect=lambda *a: (
+                "\0".join(files).encode() if a[0] == "ls-files" else
+                b"base" if a[0] == "merge-base" else b".github/workflows/ci.yml")), \
+             patch.object(scope, "local_dependencies", return_value=True):
+            self.assertFalse(scope.plan("a" * 40)["full"])  # local links widen project changes, not a canary
+
     def test_pin_only_change_runs_only_the_gitops_contract(self):
         pins = ["infra/gitops/environments/development/registration-image.json",
                 "infra/gitops/environments/development/registration-publication.json"]
@@ -242,7 +262,8 @@ class ScopeTest(unittest.TestCase):
         self.assertEqual(plan["projects"], [{"path": "services/a", "kind": "python"}])
 
     def test_shared_unknown_and_deleted_manifest_select_all(self):
-        for path in ["scripts/ci_scope.py", ".github/workflows/ci.yml", "schemas/proposal.json",
+        # The CI definition itself (ci.yml, scripts/ci_*) now runs a per-language canary instead; see below.
+        for path in ["schemas/proposal.json",
                      "new-system/main.py", "services/removed/pyproject.toml", "docs/examples/contract.json"]:
             with self.subTest(path=path):
                 plan = scope.select(FILES, [path])

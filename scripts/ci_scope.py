@@ -9,7 +9,9 @@ import subprocess
 from pathlib import Path, PurePosixPath
 
 MANIFESTS = {"pyproject.toml": "python", "package.json": "node", "go.mod": "go"}
-SHARED = (".github/workflows/", "scripts/ci_", "schemas/", "contracts/")
+SHARED = ("schemas/", "contracts/")
+# The CI definition itself: prove each job still runs (one project per language), not every project.
+CI_DEFINITION = (".github/workflows/ci.yml", "scripts/ci_", "scripts/tests/test_ci_")
 CONFIG = {".gitleaks.toml", ".trivyignore", ".trivyignore.yaml", "ruff.toml", ".ruff.toml", "pytest.ini",
           "conftest.py", "Makefile", "uv.lock", "pnpm-lock.yaml", "go.work", "go.work.sum"}
 
@@ -49,8 +51,13 @@ def select(files: list[str], changed: list[str], full_reason: str = "") -> dict:
     selected: set[tuple[str, str]] = set()
     reasons = [full_reason] if full_reason else []
     infra = scripts = False
+    canary = False
     for path in changed:
-        if path.startswith(SHARED) or path in CONFIG:
+        if path.startswith(CI_DEFINITION):
+            canary = infra = scripts = True
+        elif path.startswith(".github/workflows/"):
+            infra = True  # another workflow: actionlint in the infra job, no project is affected
+        elif path.startswith(SHARED) or path in CONFIG:
             reasons.append(f"shared:{path}")
         elif PurePosixPath(path).name in MANIFESTS and path not in files:
             reasons.append(f"removed-manifest:{path}")
@@ -72,9 +79,15 @@ def select(files: list[str], changed: list[str], full_reason: str = "") -> dict:
             elif not infrastructure and not repository_tool:
                 reasons.append(f"unknown:{path}")
     full = bool(reasons)
+    if canary and not full:
+        first = {}
+        for module in sorted(modules, key=lambda p: (p["kind"], p["path"])):
+            if module["path"] != ".":
+                first.setdefault(module["kind"], module)
+        selected.update((p["path"], p["kind"]) for p in first.values())
     chosen = modules if full else [p for p in modules if (p["path"], p["kind"]) in selected]
     return {"full": full, "reasons": reasons, "changed": changed,
-            "infra": full or infra, "scripts": full or scripts, "pins": False,
+            "infra": full or infra, "scripts": full or scripts, "pins": False, "canary": canary and not full,
             "projects": chosen, "matrix": {"include": chosen}}
 
 
@@ -122,7 +135,8 @@ def plan(base: str, head: str = "HEAD", full: bool = False, queue: bool = False)
     except subprocess.CalledProcessError:
         return select(files, [], "unavailable-history")
     result = select(files, changed.split("\0") if changed else [])
-    if result["projects"] and not result["full"] and not queue:
+    # A canary checks the CI machinery per language; it is not a change to those projects.
+    if result["projects"] and not result["full"] and not queue and not result["canary"]:
         try:
             if local_dependencies(files):
                 return select(files, result["changed"], "local-project-dependencies")
