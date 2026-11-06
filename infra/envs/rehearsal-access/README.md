@@ -220,6 +220,8 @@ T10 계획의 해피패스는 각각 별도 운영 근거가 필요하다.
 - `secretKeyRef`·`secretRef` env 거부
 - `serviceAccountName`은 `default` 또는 `rehearsal-exec`로, `automountServiceAccountToken: false`는
   반드시 명시한다. 생략하면 SA 기본값으로 토큰이 들어가므로 거부한다.
+  Pod에서 `serviceAccountName`을 생략하면 ServiceAccount admission이 검증 전에 `default`를 채우므로
+  허용된다(토큰은 automount false 필수라 들어가지 않는다). 생략이 거부되는 것은 Deployment 같은 템플릿이다.
 - 도구 Pod 이름(`rehearsal-exec-tool`)의 생성·삭제는 runner만 한다. exec는 이 이름의 Pod에만 허용하고
   attach·port-forward는 거부한다.
 - AI의 apply가 쓰는 작업 종류별 `deploy`는 runner 신원으로 실행한다(앱 Pod에는 자격 Secret이 필요하다).
