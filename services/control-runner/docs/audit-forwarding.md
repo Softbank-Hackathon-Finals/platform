@@ -52,3 +52,9 @@ PYTHONPATH=src python tests/integration/verify_audit_collector.py --private-outp
 - [OTel filelog 0.164.0](https://github.com/open-telemetry/opentelemetry-collector-contrib/blob/v0.164.0/receiver/filelogreceiver/README.md): offset, 회전, 재시도와 전달 유실 한계
 - [File storage 0.164.0](https://github.com/open-telemetry/opentelemetry-collector-contrib/blob/v0.164.0/extension/storage/filestorage/README.md): fsync, 손상 복구·크기 제한
 - [File exporter 0.164.0](https://github.com/open-telemetry/opentelemetry-collector-contrib/blob/v0.164.0/exporter/fileexporter/README.md): 시험 수신기의 OTLP JSON 저장 형식
+
+## AWS 출발지 직접 전달
+
+출발지 CNPG → CloudWatch는 [별도 등록 구성](source-cloudwatch-audit.md)을 사용한다.
+기존 OTLP 호출 계약은 유지하며, 파일 수집·필드 제한·출처 설정을 공통으로 사용한다.
+CloudWatch 구성은 운영 적용/전달 완료가 아니며 실제 카나리 검색이 필요하다.
