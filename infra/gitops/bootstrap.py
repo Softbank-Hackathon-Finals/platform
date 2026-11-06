@@ -109,8 +109,10 @@ def main():
             helm + ["list", "--filter", "^" + RELEASE + "$", "-o", "json"]
         ).stdout
     )
-    if releases and releases[0]["status"] != "deployed":
-        raise ValueError("existing_release_not_deployed; inspect before recovery")
+    # A failed upgrade leaves the previous revision serving; upgrading again is Helm's
+    # recovery. A pending-* release may still be running, so it still stops here.
+    if releases and releases[0]["status"] not in ("deployed", "failed"):
+        raise ValueError("existing_release_not_settled; inspect before recovery")
     values = []
     runtime_hash = None
     if a.runtime_values:
@@ -193,6 +195,10 @@ def main():
                 "--install",
                 RELEASE,
                 str(chart),
+                # Earlier releases left a client-side "helm" Update record next to Helm 4's
+                # server-side Apply on the same fields. This release is their only writer;
+                # Argo writes Application status only, so take the fields back.
+                "--force-conflicts",
                 "--create-namespace",
                 "--wait",
                 "--timeout",
