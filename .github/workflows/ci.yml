@@ -205,12 +205,19 @@ jobs:
     if: needs.scope.outputs.projects != '[]'
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    permissions:
+      contents: read
+      packages: read  # pull the org's GHCR CI mirrors (ci-mirror/*), not anonymous public registries
     strategy:
       fail-fast: false
       max-parallel: 3
       matrix: ${{ fromJSON(needs.scope.outputs.matrix) }}
     steps:
       - uses: actions/checkout@v7
+      - name: Log in to the org GHCR for CI image mirrors
+        env:
+          GHCR_TOKEN: ${{ github.token }}
+        run: printf '%s' "$GHCR_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin >/dev/null
       - if: matrix.kind == 'python'
         uses: astral-sh/setup-uv@v10.2.0
         with:
