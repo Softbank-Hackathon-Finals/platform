@@ -35,7 +35,7 @@ NOW = datetime(2026, 11, 6, tzinfo=UTC)
 
 def registration():
     return credentials.Registration(
-        UID, "bravo-rehearsal-control", "t15-runner", OTHER, "tag:bravo-rehearsal",
+        UID, "bravo-rehearsal-control", "t15-runner", OTHER, "tag:registered-workload",
         "https://kubernetes.default.svc.cluster.local",
         credentials.Endpoint("https://issuer.ns.svc.cluster.local", "issuer.example.ts.net"),
         credentials.Endpoint("https://target.ns.svc.cluster.local", "target.example.ts.net"))
