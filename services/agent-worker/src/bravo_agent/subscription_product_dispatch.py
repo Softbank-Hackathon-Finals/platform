@@ -60,11 +60,12 @@ class OperatorGitHub:
     def dispatch(self, workflow_id, inputs):
         # Retain HTTP rejection evidence before the generic at-most-once boundary.
         # stderr can contain authentication diagnostics; it never enters the ledger.
-        payload = json.dumps({'ref': 'develop', 'inputs': inputs}).encode()
+        payload = json.dumps({'ref': 'develop', 'inputs': inputs, 'return_run_details': True}).encode()
         response = {'observed_at': datetime.now(UTC).isoformat(), 'http_status': None,
                     'github_request_id': None, 'body': None, 'transport': 'unconfirmed'}
         try:
             result = subprocess.run(['gh', 'api', '--include', '--method', 'POST',
+                '-H', 'X-GitHub-Api-Version: 2022-11-28',
                 f'repos/{REPOSITORY}/actions/workflows/{workflow_id}/dispatches', '--input', '-'],
                 input=payload, capture_output=True, timeout=60, check=False)
         except Exception:
@@ -98,6 +99,17 @@ class OperatorGitHub:
 def _private_file(path):
     fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
     os.close(fd)
+
+
+def _dispatch_run_id(response):
+    if not isinstance(response, dict) or response.get('http_status') != 200:
+        return None
+    try:
+        body = json.loads(response['body'])
+    except (KeyError, TypeError, ValueError):
+        return None
+    run_id = body.get('workflow_run_id') if isinstance(body, dict) else None
+    return str(run_id) if type(run_id) is int and run_id > 0 else None
 
 
 class OperatorProductExecution:
@@ -221,8 +233,8 @@ class OperatorProductExecution:
     def _save_dispatch_response(self, request_id, metadata, response):
         # This is evidence, not permission to dispatch again even on a known 4xx.
         with self._db() as db:
-            db.execute('UPDATE executions SET metadata=? WHERE request_id=?',
-                       (json.dumps(metadata | {'dispatch_response': response}), request_id))
+            db.execute('UPDATE executions SET metadata=?, run_id=COALESCE(run_id,?) WHERE request_id=?',
+                       (json.dumps(metadata | {'dispatch_response': response}), _dispatch_run_id(response), request_id))
 
     def _check_run(self, intent, metadata, run):
         if (run.get('event') != 'workflow_dispatch' or run.get('head_branch') != 'develop'
@@ -234,7 +246,7 @@ class OperatorProductExecution:
                 or type(run.get('id')) is not int):
             raise ExecutionUnknown('RUN_BINDING_CONFLICT')
 
-    def _find_run(self, intent, metadata):
+    def _find_run(self, intent, metadata, allow_missing=False):
         created = (datetime.fromisoformat(metadata['dispatch_sent_at']) - timedelta(seconds=5)).isoformat()
         matches = []
         for page in range(1, 11):
@@ -248,6 +260,8 @@ class OperatorProductExecution:
         else:
             raise ExecutionUnknown('RUN_SEARCH_INCOMPLETE')
         if not matches:
+            if allow_missing:
+                return None
             raise ExecutionPending('RUN_NOT_YET_OBSERVED')
         if len(matches) != 1:
             raise ExecutionUnknown('MULTIPLE_RUNS_FOR_INTENT')
@@ -257,15 +271,24 @@ class OperatorProductExecution:
     def read(self, intent):
         intent = self._parse_intent(intent)
         metadata, saved_id = self._record(intent)
+        acknowledged_id = _dispatch_run_id(metadata.get('dispatch_response'))
+        if acknowledged_id is not None and saved_id is not None and acknowledged_id != saved_id:
+            raise ExecutionUnknown('RUN_BINDING_CONFLICT')
         private = self._private_key(intent.request_id)
         if private.public_key().public_bytes_raw().hex() != intent.recipient_public_key:
             raise ExecutionUnknown('EXECUTION_RECIPIENT_CONFLICT')
-        run = self._find_run(intent, metadata)
-        if saved_id is not None and str(run['id']) != saved_id:
+        # Keep duplicate/incomplete-search rejection. A durable ID also permits
+        # exact lookup while the provider's list has not indexed that run yet.
+        run = self._find_run(intent, metadata, saved_id is not None)
+        if run is not None and saved_id is not None and str(run['id']) != saved_id:
             raise ExecutionUnknown('RUN_BINDING_CONFLICT')
-        run_id = run['id']
+        run_id = run['id'] if run is not None else int(saved_id)
         with self._db() as db:
+            db.execute('BEGIN IMMEDIATE')
             db.execute('UPDATE executions SET run_id=? WHERE request_id=? AND run_id IS NULL', (str(run_id), intent.request_id))
+            bound_id = db.execute('SELECT run_id FROM executions WHERE request_id=?', (intent.request_id,)).fetchone()[0]
+            if bound_id != str(run_id):
+                raise ExecutionUnknown('RUN_BINDING_CONFLICT')
         run = self.github.get(f'repos/{REPOSITORY}/actions/runs/{run_id}')
         self._check_run(intent, metadata, run)
         if run['id'] != run_id:

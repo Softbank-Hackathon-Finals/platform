@@ -78,6 +78,7 @@ class GitHub:
         self.posts.append(inputs)
         if self.lose_response:
             raise OSError("synthetic response loss")
+        return getattr(self, "response", None)
 
     def download(self, artifact_id):
         assert artifact_id == 88
@@ -138,6 +139,21 @@ def test_lost_dispatch_response_restarts_as_same_run_read(setup):
     gh.lose_response = True
     with pytest.raises(ExecutionUnknown, match="DISPATCH_RESPONSE_UNCONFIRMED"):
         operator.submit(intent)
+    restarted = OperatorInitialProposal(operator.root, gh)
+    mailbox.deliver(intent, restarted.submit(intent))
+    assert f.execute() == receipt["result"] and len(gh.posts) == 1
+
+
+def test_native_run_receipt_delivers_initial_result_when_list_has_not_caught_up(setup):
+    f, mailbox, operator, gh, intent, receipt, _ = setup
+    with pytest.raises(ExecutionPending):
+        f.execute()
+    gh.response = {"http_status": 200, "body": json.dumps({"workflow_run_id": 1234})}
+    gh.runs = []
+    gh.run.update(status="in_progress", conclusion=None)
+    with pytest.raises(ExecutionPending, match="RUN_IN_PROGRESS"):
+        operator.submit(intent)
+    gh.run.update(status="completed", conclusion="success")
     restarted = OperatorInitialProposal(operator.root, gh)
     mailbox.deliver(intent, restarted.submit(intent))
     assert f.execute() == receipt["result"] and len(gh.posts) == 1
