@@ -1,0 +1,70 @@
+{
+  "evidence_grade": "live AWS-to-Mac target API and isolated target revocation",
+  "observed_at": "2026-11-06T05:28:05.307228+00:00",
+  "source_revision": "8857c7020408a0867da505757ba68a62da9421fa",
+  "source_files": [
+    {
+      "path": "infra/envs/rehearsal-access/credentials.py",
+      "sha256": "abc435b8b88dd301d8e6b6af0dc49eb849df67056eaa2d92e7d844eedbb97b40"
+    }
+  ],
+  "standard_exec": {
+    "status": "PASS",
+    "independent_kubectl_calls": 2,
+    "actual_serviceaccount_username_and_uid_verified": true,
+    "operating_secret_and_node_reads": "HTTP 403",
+    "credentials_persisted": false,
+    "cleanup_uid_precondition": true,
+    "probe_resources_absent": true
+  },
+  "revocation": {
+    "status": "PASS",
+    "seconds_until_tokenreview_denial": 10.16,
+    "same_name_recreation_does_not_reactivate": true,
+    "old_anchor_uid_cannot_mint": true,
+    "isolated_resources_absent": true
+  },
+  "admission_checks": {
+    "unbound_token": "DENIED",
+    "wrong_audience": "DENIED",
+    "longer_than_registered_lifetime": "DENIED",
+    "writer_serviceaccount_token": "FORBIDDEN",
+    "valid_token": "authenticated as registered runner"
+  },
+  "private_receipt_files": [
+    {
+      "file": "target-token-tests.json",
+      "sha256": "d10c7a15f6e1831e09b961d9635c8a62bc67eb13d3d8c2c3a353c86772afdbe7"
+    },
+    {
+      "file": "t15-automatic-credential-probe6-result.json",
+      "sha256": "de11086ae97f6efa12b6a3ab7b4e2cc6875b243d2e23c1fb3021d317cee50851"
+    },
+    {
+      "file": "t15-standard-exec-credential-probe3-result.json",
+      "sha256": "d19fcdad5544c60bee0b843895f12cc0ca4de345185db5d9a7516a14d40ffd23"
+    },
+    {
+      "file": "revocation-result.json",
+      "sha256": "b658f0104e81d4597db55f992edf3040a36f37daab30e609e3485082de713226"
+    },
+    {
+      "file": "issuer-bootstrap.json",
+      "sha256": "1536d371540af9ba87a105dff1adca39fac555ba24db767159b59ae12b2bbd61"
+    },
+    {
+      "file": "t15-credential-refresh-ready-route-result.json",
+      "sha256": "0e65ea9cc0122099bb5bd4a9e4a83f11d40acbfae7946c9d69416d89465e3057"
+    }
+  ],
+  "limits": [
+    "ExecCredential consumption verified with independent kubectl processes; a nine-minute cache-expiry wait was not run.",
+    "Revocation measured with an isolated ServiceAccount and Secret, using the real target TokenReview API.",
+    "Installation was performed through operator adapters before the final commit; later owner/generation guards have local regression coverage.",
+    "This does not establish T15 candidate application or real AI proposal to approval completion."
+  ],
+  "preserved_failures": [
+    "Five initial AWS route probes failed before issuer readiness and egress refresh.",
+    "First kubectl harness attempt could not copy the public binary; streaming copy with a bounded memory budget succeeded in two later attempts."
+  ]
+}
