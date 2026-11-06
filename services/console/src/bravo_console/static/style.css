@@ -1469,21 +1469,3 @@ footer {
     grid-template-columns: 1fr;
   }
 }
-.sidebar nav .network-link {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 12px 14px;
-  border-radius: 8px;
-  color: #62718c;
-  font-size: 13px;
-  font-weight: 600;
-  text-decoration: none;
-}
-.sidebar nav .network-link:hover {
-  background: #edf3ff;
-  color: #3465e8;
-}
-.sidebar nav .network-link[hidden] {
-  display: none;
-}

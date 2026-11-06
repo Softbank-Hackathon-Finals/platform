@@ -135,6 +135,17 @@ def test_native_plan_auth_query_and_write_guards(tmp_path):
         assert provider.calls == 0
 
 
+def test_old_atlas_url_only_returns_to_the_native_shell(tmp_path):
+    app, _, _, _ = setup(tmp_path / "state.db")
+    with client(app) as c:
+        response = c.get("/console/network/?plan=plan-demo", follow_redirects=False)
+        assert response.headers["location"] == "/console/?view=network&plan=plan-demo"
+        assert response.headers["cache-control"] == "no-store"
+        unsafe = c.get("/console/network/?plan=//other.invalid", follow_redirects=False)
+        assert unsafe.headers["location"] == "/console/?view=network"
+        assert c.post("/console/network/", json={}, headers=CHANGE).status_code == 405
+
+
 def test_unconfigured_and_provider_failure_do_not_expose_diagnostics(tmp_path):
     app, _, state, _ = setup(tmp_path / "state.db")
     with client(app) as c:

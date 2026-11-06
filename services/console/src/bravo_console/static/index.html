@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width,initial-scale=1" />
     <title>Sova · 이전 운영 콘솔</title>
     <link rel="stylesheet" href="/console/style.css" />
+    <link rel="stylesheet" href="/console/network-workspace.css" />
     <script type="module" src="/console/app.js"></script>
   </head>
   <body>
@@ -30,16 +31,9 @@
           <button type="button" data-view="topology" aria-current="false">
             <span class="nav-icon" aria-hidden="true">◇</span>워크로드 지도
           </button>
-          <a
-            id="network-atlas-link"
-            class="network-link"
-            href="/console/network/"
-            target="_blank"
-            rel="noopener"
-            hidden
-            ><span class="nav-icon" aria-hidden="true">◎</span>네트워크 아틀라스
-            ↗</a
-          >
+          <button type="button" data-view="network" aria-current="false">
+            <span class="nav-icon" aria-hidden="true">◎</span>네트워크 아틀라스
+          </button>
           <button type="button" data-view="security" aria-current="false">
             <span class="nav-icon" aria-hidden="true">⬡</span>보안·거버넌스
           </button>
@@ -407,6 +401,12 @@
               </aside>
             </div>
           </section>
+          <section
+            id="network-workspace"
+            class="card network-workspace"
+            data-views="network topology"
+            aria-label="공유 환경 네트워크"
+          ></section>
           <section class="card migration-card" data-views="migration">
             <div class="section-title">
               <h2>이전 경로</h2>

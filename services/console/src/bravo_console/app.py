@@ -6,9 +6,9 @@ This wrapper adds same-origin browser protections, never authentication by heade
 
 import re
 from pathlib import Path
-from urllib.parse import urlsplit
+from urllib.parse import parse_qs, urlencode, urlsplit
 
-from starlette.responses import JSONResponse, Response
+from starlette.responses import JSONResponse, RedirectResponse, Response
 
 from .observations import ObservationError
 from .wire import object_document
@@ -23,6 +23,8 @@ ASSETS = {
     "/console/workspace.js": ("workspace.js", "text/javascript"),
     "/console/panels.js": ("panels.js", "text/javascript"),
     "/console/operations.js": ("operations.js", "text/javascript"),
+    "/console/network-workspace.js": ("network-workspace.js", "text/javascript"),
+    "/console/network-workspace.css": ("network-workspace.css", "text/css"),
     "/console/style.css": ("style.css", "text/css"),
 }
 NETWORK_ROOT = Path(__file__).parent / "static/network"
@@ -140,6 +142,17 @@ class ConsoleApp:
             return await reject(403, "cross_site_request")
         if b"origin" in headers and headers[b"origin"].decode("latin1") != self.origin:
             return await reject(403, "origin_mismatch")
+        if path == "/console/network/":
+            if method not in ("GET", "HEAD"):
+                return await reject(405, "method_not_allowed")
+            query = parse_qs(scope.get("query_string", b"").decode("ascii", "replace"))
+            plan = query.get("plan", [None])[0]
+            target = {"view": "network"}
+            if isinstance(plan, str) and re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]{0,127}", plan):
+                target["plan"] = plan
+            return await RedirectResponse("/console/?" + urlencode(target), headers=HEADERS)(
+                scope, receive, send
+            )
         if path in ASSETS:
             if method not in ("GET", "HEAD"):
                 return await reject(405, "method_not_allowed")

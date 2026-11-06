@@ -17,6 +17,7 @@ import { mountRegistration } from "./registration.js";
 import { mountWorkspace } from "./workspace.js";
 import { mountPanels } from "./panels.js";
 import { mountOperations } from "./operations.js";
+import { mountNetworkWorkspace } from "./network-workspace.js";
 const workspace = mountWorkspace();
 const $ = (id) => document.getElementById(id);
 let model,
@@ -33,6 +34,7 @@ let pending = null,
   refreshBusy = false,
   refreshTimer;
 let extensionBusy = false;
+const networkWorkspace = mountNetworkWorkspace({ getModel: () => model });
 const panels = mountPanels({
   getModel: () => model,
   onForbidden: revokeView,
@@ -104,11 +106,7 @@ function details(id, values) {
 }
 function render() {
   if (!model) return;
-  const networkLink = $("network-atlas-link");
-  networkLink.hidden = !model.snapshot || model.error === "forbidden";
-  networkLink.href = model.snapshot
-    ? `/console/network/?plan=${encodeURIComponent(model.plan)}`
-    : "/console/network/";
+  networkWorkspace.render();
   const now = Date.now(),
     eligible = !extensionBusy && model.eligible(now),
     approvalRetry =
@@ -392,6 +390,7 @@ function revokeView(error) {
   model.error = "forbidden";
   panels.clear();
   operations.revoke();
+  networkWorkspace.clear();
   observed = null;
   controls = null;
   security = null;
@@ -884,9 +883,18 @@ window.addEventListener("beforeunload", (e) => {
   }
 });
 window.addEventListener("pagehide", () => {
+  networkWorkspace.clear();
   stopped = true;
   generation++;
   clearInterval(refreshTimer);
   streamController?.abort();
   postController?.abort();
 });
+// Legacy atlas links remain in the same Sova shell. Only authenticated reads run.
+const initialQuery = new URLSearchParams(location.search);
+if (initialQuery.get("view") === "network")
+  document.querySelector('[data-view="network"]').click();
+if (identifier(initialQuery.get("plan"))) {
+  $("plan").value = initialQuery.get("plan");
+  void connectPlan(initialQuery.get("plan"));
+}

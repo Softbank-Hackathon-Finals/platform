@@ -12,6 +12,8 @@ for (const name of [
   "workspace.js",
   "panels.js",
   "operations.js",
+  "network-workspace.js",
+  "network-workspace.css",
 ])
   assert.ok(readFileSync(new URL(name, root)).length);
 assert.ok(!/<script(?![^>]*src=)/.test(html));

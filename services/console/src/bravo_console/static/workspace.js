@@ -1,6 +1,10 @@
 // Sova's workspace presentation, projected from T21's validated read model.
 // No API client, action eligibility, workflow state or persistent storage here.
 export const VIEWS = {
+  network: [
+    "네트워크 아틀라스",
+    "현재 작업 화면에서 환경·리소스·전송 경로와 수집 근거를 확인합니다.",
+  ],
   analysis: [
     "의존성·후보 비교",
     "등록된 분석과 추천, 출발지에 남은 의존성을 확인합니다.",
@@ -112,6 +116,9 @@ export function mountWorkspace(root = document) {
       byId("view-description").textContent = description;
       byId("breadcrumb-view").textContent = title;
       byId("view-title").focus({ preventScroll: true });
+      root.defaultView?.dispatchEvent(
+        new CustomEvent("sova-view-changed", { detail: { view: key } }),
+      );
       root.defaultView?.scrollTo(0, 0);
     });
   }
