@@ -13,16 +13,19 @@ from .store import EventError
 
 
 def stored_initial_source(connection, plan, task):
-    if plan["state"] != "PROPOSE":
+    if plan["state"] not in ("PROPOSE", "REHEARSE"):
         raise EventError("initial_proposal_unavailable")
-    saved = _get(connection, plan["plan_id"], _slot(plan["version"]))
+    # REHEARSE consumes its immediately preceding PROPOSE input. The enclosing
+    # records reader still verifies the publication/checkpoint and current grant.
+    version = plan["version"] - (plan["state"] == "REHEARSE")
+    saved = _get(connection, plan["plan_id"], _slot(version))
     try:
         if saved is None:
             raise ValueError()
         value = InitialInput.model_validate(saved[0]["input"])
         binding = value.binding
         if ((binding.plan_id, binding.tenant_id, binding.plan_version, binding.task_digest,
-             binding.source_sha) != (plan["plan_id"], plan["tenant_id"], plan["version"],
+             binding.source_sha) != (plan["plan_id"], plan["tenant_id"], version,
                                     logical_task_digest(task), task.source_sha)
                 or digest(value) != saved[1]["input_digest"]):
             raise ValueError()

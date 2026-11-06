@@ -4,9 +4,9 @@ import json
 
 import pytest
 from test_cutover import SPEC
-from test_initial_proposal import ACTOR, Fixture
+from test_initial_proposal import ACTOR, RUNTIME, Fixture
 
-from bravo_platform_events.initial_proposal import InitialProposalRecords
+from bravo_platform_events.initial_proposal import InitialProposalExecution, InitialProposalRecords
 from bravo_platform_events.initial_stored_source import stored_initial_source
 from bravo_platform_events.store import EventError
 
@@ -25,6 +25,25 @@ def test_stored_source_survives_operator_snapshot_loss_and_obeys_revocation(back
     f.grant(False, 1)
     with pytest.raises(EventError):
         records.read_input(ACTOR, SPEC.plan_id, 3, **f.ref)
+
+
+def test_stored_source_consumes_the_same_result_after_rehearsal_transition(backend, tmp_path, monkeypatch):
+    f = Fixture(backend, tmp_path)
+    result = f.execute()
+    f.publish()
+    assert f.resume() == "REHEARSE"
+    f.source_value.clear()
+    monkeypatch.setattr(f.client, "submit", lambda *_: pytest.fail("stored result dispatched again"))
+    monkeypatch.setattr(f.client, "read", lambda *_: pytest.fail("stored result read provider"))
+    records = reader(f, backend)
+    execution = InitialProposalExecution(records, f.client, principal=ACTOR, runtime_source_sha=RUNTIME)
+    assert execution.stored(SPEC.plan_id, 3, **f.ref) == result
+    # A promoted read does not reopen the initial HTTP execution route.
+    with pytest.raises(EventError):
+        records.read_input(ACTOR, SPEC.plan_id, 3, **f.ref)
+    f.grant(False, 1)
+    with pytest.raises(EventError):
+        execution.stored(SPEC.plan_id, 3, **f.ref)
 
 
 @pytest.mark.parametrize("mutation", ["missing", "source", "digest", "task"])
