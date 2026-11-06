@@ -113,6 +113,11 @@ jobs:
         run: test "$SCOPE_RESULT" = success
       - uses: actions/checkout@v7
         if: needs.scope.outputs.infra == 'true'
+        with:
+          fetch-depth: 0
+      - name: Registration promotion source
+        if: needs.scope.outputs.infra == 'true'
+        run: python3 scripts/registration_delivery.py check-promotion
       - name: Workflow syntax
         if: needs.scope.outputs.infra == 'true'
         run: docker run --rm -v "$PWD:/repo" -w /repo rhysd/actionlint:1.7.7 -color

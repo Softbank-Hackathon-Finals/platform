@@ -1,0 +1,25 @@
+{
+  "runtime": "local-docker",
+  "image_id": "sha256:91892b7f06ecc81aebc902a5311dc38aade60bcceb9040e47f8d1c1470db7854",
+  "results": {
+    "https_health": true,
+    "missing_wrong_token_denied": true,
+    "real_prometheus_mtls_empty_metrics_unknown": true,
+    "actual_console_adapter_https": true,
+    "tls13": true,
+    "plain_http_denied": true,
+    "container_verified_healthcheck": true,
+    "store_down_503": true
+  },
+  "operational_deployment": false,
+  "source_revision": "1d6fb65546187795d53e9bce95065fe9f31c2f79",
+  "unit_and_tls_tests": 201,
+  "render": {
+    "only_changed_resource": "Deployment/bravo-observability-api",
+    "store_and_network_unchanged": true
+  },
+  "own_test_containers_removed": true,
+  "production_registry_published": false,
+  "production_query_api_deployed": false,
+  "actual_collectors_verified": false
+}
