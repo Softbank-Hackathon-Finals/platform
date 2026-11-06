@@ -5,7 +5,9 @@ import json
 
 from render import LABELS, database, resource
 
-IMAGE = "docker.io/chrislusf/seaweedfs:4.52@sha256:a54ba35b44895a449f5cdd415999062201b17b9835ec0ffc19ea605b72ffa3d1"
+# The 4.52 release index, so each node runs its own platform's child: linux/amd64 a54ba35b (the earlier pin)
+# or linux/arm64 18a805c8 (what the target node has run since it moved to arm64 on 2026-11-06).
+IMAGE = "docker.io/chrislusf/seaweedfs:4.52@sha256:57877e32bb90073b37dc109b438ba66e84fd5ed9ced5f5c04f56444ef243ce59"
 SELECTOR = {"app.kubernetes.io/name": "target-seaweedfs"}
 # T3's namespace template and T9's rehearsal delivery use this label. NetworkPolicy cannot match a
 # namespace-name prefix, so this label is what identifies a rehearsal namespace, not "rehearsal-*".

@@ -59,7 +59,10 @@ def pooler(egress_address, egress_service_uid):
             {'name': 'config', 'emptyDir': {}},
             {'name': 'config-seed', 'configMap': {'name': name + '-config'}},
             {'name': 'auth', 'secret': {'secretName': name + '-auth', 'defaultMode': 288}},
-            {'name': 'ca', 'secret': {'secretName': 't8-source-ca', 'items': [{'key': 'ca.crt', 'path': 'ca.crt'}]}},
+            # The cutover executor's bundle of the source and target public CAs (prepare.pooler_trust_patch), so
+            # the pooler verifies the backend before and after the host retarget. Naming t8-source-ca here would
+            # undo that patch on the next apply and fail TLS once the backend is the target.
+            {'name': 'ca', 'secret': {'secretName': 'cutover-backend-ca', 'items': [{'key': 'ca.crt', 'path': 'ca.crt'}]}},
             {'name': 'tls', 'secret': {'secretName': 'target-db-server', 'defaultMode': 288}},
             {'name': 'tmp', 'emptyDir': {}},
         ],
