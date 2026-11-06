@@ -1,0 +1,56 @@
+{
+  "observed_at": "2026-11-06T10:30+09:00 (10:3x KST)",
+  "node": {
+    "architecture": "arm64",
+    "os_image": "Ubuntu 24.04.5 LTS",
+    "kernel": "6.8.0-147-generic",
+    "rke2": "v1.35.9+rke2r1",
+    "node_args": [
+      "server",
+      "--profile",
+      "cis",
+      "--write-kubeconfig-mode",
+      "0600",
+      "--disable",
+      "rke2-ingress-nginx",
+      "--disable",
+      "rke2-traefik"
+    ]
+  },
+  "verify_node": {
+    "pass": 12,
+    "fail": 0,
+    "checks": [
+      "cloud-init 정상 종료",
+      "CIS sysctl 적용",
+      "etcd 사용자 · 그룹",
+      "CIS 프로필 설정",
+      "RKE2 버전 고정",
+      "rke2-server 실행",
+      "노드 Ready",
+      "특권 Pod 거부",
+      "감사 로그에 권한 변경 기록",
+      "감사 로그에 Secret 값 없음",
+      "절전 차단",
+      "Tailscale 설치"
+    ]
+  },
+  "kube_bench": {
+    "version": "0.16.0",
+    "benchmark": "rke2-cis-1.9",
+    "pass": 80,
+    "fail": 2,
+    "warn": 41,
+    "info": 7,
+    "fail_ids": [
+      "5.1.5",
+      "5.1.6"
+    ]
+  },
+  "method": {
+    "api_only": true,
+    "ssh": false,
+    "temporary_namespace_deleted": true,
+    "node_file_left": "/var/log/kube-bench.json"
+  }
+}
