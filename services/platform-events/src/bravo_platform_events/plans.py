@@ -23,6 +23,8 @@ class PlanSpec:
     # Absent only on legacy plans/trusted fixtures. Such plans cannot bind T19.
     profile_id: str | None = None
     profile_version: str | None = None
+    recheck_profile_id: str | None = None
+    recheck_profile_version: str | None = None
 
 
 @dataclass(frozen=True)
@@ -97,14 +99,18 @@ class PlanStore(EventStore):
 
     def _register_in_transaction(self, c, spec, *, run_id, occurred_at):
         values = asdict(spec)
-        if spec.profile_id is None and spec.profile_version is None:
-            # Preserve the original canonical bytes on legacy registration replay.
-            values.pop("profile_id")
-            values.pop("profile_version")
-        else:
-            validate_profile(spec.profile_id, spec.profile_version)
+        for prefix in ("", "recheck_"):
+            fields = (prefix + "profile_id", prefix + "profile_version")
+            if all(values[field] is None for field in fields):
+                # Preserve original canonical bytes on legacy registration replay.
+                for field in fields:
+                    values.pop(field)
+            else:
+                validate_profile(*(values[field] for field in fields))
+        if "recheck_profile_id" in values and "profile_id" not in values:
+            raise ValueError("invalid_evaluation_profile")
         for key, value in values.items():
-            if key in {"profile_id", "profile_version"}:
+            if key in {"profile_id", "profile_version", "recheck_profile_id", "recheck_profile_version"}:
                 continue
             elif key.endswith("_digest"):
                 _digest(value)

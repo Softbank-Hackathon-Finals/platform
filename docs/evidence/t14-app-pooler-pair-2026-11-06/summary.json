@@ -1,0 +1,124 @@
+{
+  "kind": "t14-app-pooler-pair-summary.v1",
+  "actual_registered_plan_pair": true,
+  "results_are_separate_runs": true,
+  "profile": {
+    "id": "full",
+    "version": "1"
+  },
+  "runs": [
+    {
+      "side": "source",
+      "runtime": "actual-team-aws-eks",
+      "run_file_sha256": "56ead2e15dc06e3d3e7494af1604d4a2bde0e4ab0560e1f174fb85f9014caa09",
+      "snapshot_fingerprint": "56ead2e15dc06e3d3e7494af1604d4a2bde0e4ab0560e1f174fb85f9014caa09",
+      "started_at": "2026-11-06T06:06:24.799441Z",
+      "finished_at": "2026-11-06T06:07:07.503149Z",
+      "counts": {
+        "PASS": 3,
+        "UNKNOWN": 17
+      },
+      "unexecuted_reason": "NOT_RUN",
+      "tests": [
+        {
+          "test_id": "ENC-01.1",
+          "verdict": "PASS",
+          "evidence_sha256": "sha256:ae7ff558964134b830dce5436b828fe8343f43ee2953741aa052b3a9e44f5dd9",
+          "collected_at": "2026-11-06T06:06:37.229236Z",
+          "expires_at": "2026-11-07T06:06:37.229236Z"
+        },
+        {
+          "test_id": "ENC-01.2",
+          "verdict": "PASS",
+          "evidence_sha256": "sha256:0768329a0e65738651ad9bab1e387a3735d9dff01b6be9a7752629b3312ed0b2",
+          "collected_at": "2026-11-06T06:06:52.840481Z",
+          "expires_at": "2026-11-07T06:06:52.840481Z"
+        },
+        {
+          "test_id": "ENC-01.3",
+          "verdict": "PASS",
+          "evidence_sha256": "sha256:f8d9ddfc98eb0108e2fba27ae69674f527f63b1e0d520d1e7d0c1354bb339685",
+          "collected_at": "2026-11-06T06:07:07.470916Z",
+          "expires_at": "2026-11-07T06:07:07.470916Z"
+        }
+      ]
+    },
+    {
+      "side": "target",
+      "runtime": "actual-team-onprem-rke2",
+      "run_file_sha256": "f7363ca364e2657e176b364b1dda579c03898302e710ea8094dfc86015bc4d36",
+      "snapshot_fingerprint": "f7363ca364e2657e176b364b1dda579c03898302e710ea8094dfc86015bc4d36",
+      "started_at": "2026-11-06T06:03:55.345442Z",
+      "finished_at": "2026-11-06T06:04:08.020493Z",
+      "counts": {
+        "PASS": 3,
+        "UNKNOWN": 17
+      },
+      "unexecuted_reason": "NOT_RUN",
+      "tests": [
+        {
+          "test_id": "ENC-01.1",
+          "verdict": "PASS",
+          "evidence_sha256": "sha256:3d8b8931a6f2caa4e7a7b3586a522cc7c11f1292efae2666d70e21b6c86c50f4",
+          "collected_at": "2026-11-06T06:03:59.953748Z",
+          "expires_at": "2026-11-07T06:03:59.953748Z"
+        },
+        {
+          "test_id": "ENC-01.2",
+          "verdict": "PASS",
+          "evidence_sha256": "sha256:2c4126f2ea4dcd3ef90fd3ecba7918b13bc706d5d8c719f3d4ed9592639fb246",
+          "collected_at": "2026-11-06T06:04:04.202732Z",
+          "expires_at": "2026-11-07T06:04:04.202732Z"
+        },
+        {
+          "test_id": "ENC-01.3",
+          "verdict": "PASS",
+          "evidence_sha256": "sha256:5125f046f11b5fb5fa0a7ebdde28f1c93a0e88bda6005d165cfa03e33a2ad6d5",
+          "collected_at": "2026-11-06T06:04:07.998358Z",
+          "expires_at": "2026-11-07T06:04:07.998358Z"
+        }
+      ]
+    }
+  ],
+  "diagnostic": {
+    "authority": "local-semantic-calculation-only",
+    "decision": "BLOCK",
+    "counts": {
+      "BLOCK": 17,
+      "PASS": 3
+    },
+    "run_issues": [],
+    "report_sha256": "31aad24ac45259d83ce474209e0adbb7f74880bd2c41a6ea4756051d9dc6774a",
+    "t10_stored": false,
+    "host_authentication_verified": false,
+    "authorizes_cutover": false
+  },
+  "console": {
+    "scope": "local-projection-and-fixture-auth-browser-qualification",
+    "browsers": {
+      "chromium": "PASS",
+      "webkit": "PASS"
+    },
+    "browser_tests": 2,
+    "real_plan_projection_scope_rejections": 3,
+    "operational_console_intake_complete": false
+  },
+  "handoff": {
+    "immutable_platform_secret_readback": true,
+    "original_runs": 2,
+    "collector_proofs": 6,
+    "credential_values_in_artifact": false,
+    "diagnostic_enrolled": false,
+    "expires_at": "2026-11-07T06:03:59.953748Z",
+    "previous_handoff_preserved": true
+  },
+  "operations": {
+    "statement": "SELECT 1",
+    "business_writes": 0,
+    "credential_values_exported": false,
+    "negative_connections_send_password": false,
+    "application_or_policy_changes": false
+  },
+  "private_originals_retained": true,
+  "public_summary_is_raw": false
+}

@@ -41,10 +41,11 @@ function exact(v, fields) {
     fail("invalid_contract");
 }
 export function binding(v) {
-  exact(
-    v,
-    "plan_id plan_digest diff_hash image_digest target_environment_id expires_at gate_id context_digest",
-  );
+  const hasPhase = object(v) && ("gate_phase" in v || "application_id" in v);
+  const fields =
+    "plan_id plan_digest diff_hash image_digest target_environment_id expires_at gate_id context_digest" +
+    (hasPhase ? " gate_phase application_id" : "");
+  exact(v, fields);
   if (
     ![v.plan_id, v.target_environment_id, v.gate_id].every(identifier) ||
     ![v.plan_digest, v.context_digest].every(
@@ -53,13 +54,16 @@ export function binding(v) {
     ![v.diff_hash, v.image_digest].every(
       (x) => typeof x === "string" && IMAGE.test(x),
     ) ||
-    !date(v.expires_at)
+    !date(v.expires_at) ||
+    (hasPhase && !gatePhase(v))
   )
     fail("invalid_binding");
-  return Object.fromEntries(
-    "plan_id plan_digest diff_hash image_digest target_environment_id expires_at gate_id context_digest"
-      .split(" ")
-      .map((k) => [k, v[k]]),
+  return Object.fromEntries(fields.split(" ").map((k) => [k, v[k]]));
+}
+function gatePhase(v) {
+  return (
+    (v.gate_phase === "initial" && v.application_id === null) ||
+    (v.gate_phase === "post_apply" && identifier(v.application_id))
   );
 }
 // S2 has no mandatory gate and includes the rehearsal run in the request.
@@ -155,16 +159,26 @@ export function snapshot(v, plan) {
   const hasProfile =
     object(v) &&
     (Object.hasOwn(v, "profile_id") || Object.hasOwn(v, "profile_version"));
+  const hasRecheck =
+    object(v) &&
+    (Object.hasOwn(v, "recheck_profile_id") ||
+      Object.hasOwn(v, "recheck_profile_version"));
   exact(
     v,
     "schema_version plan_id workload_id source_environment_id target_environment_id plan_digest collection_scope_digest state version created_at updated_at last_event_id" +
-      (hasProfile ? " profile_id profile_version" : ""),
+      (hasProfile ? " profile_id profile_version" : "") +
+      (hasRecheck ? " recheck_profile_id recheck_profile_version" : ""),
   );
   if (
     v.schema_version !== "1.0" ||
     v.plan_id !== plan ||
     (hasProfile &&
       ![v.profile_id, v.profile_version].every(evaluationProfile)) ||
+    (hasRecheck &&
+      (!hasProfile ||
+        ![v.recheck_profile_id, v.recheck_profile_version].every(
+          evaluationProfile,
+        ))) ||
     ![
       v.plan_id,
       v.workload_id,
@@ -289,6 +303,8 @@ export class Model {
         "target_environment_id",
         "profile_id",
         "profile_version",
+        "recheck_profile_id",
+        "recheck_profile_version",
       ])
         if (next[key] !== this.snapshot[key]) fail("plan_changed");
       if (next.version < this.snapshot.version) fail("snapshot_regressed");
@@ -548,6 +564,7 @@ export const CONTROL_TESTS = Object.freeze({
 
 // A bound historical read model, never a new execution/approval authority.
 export function controlReport(value, current, gate, now) {
+  const prefix = value?.gate_phase === "post_apply" ? "recheck_" : "";
   if (
     !object(value) ||
     value.kind !== "console-control-report.v1" ||
@@ -556,6 +573,7 @@ export function controlReport(value, current, gate, now) {
     value.source_environment_id !== current.source_environment_id ||
     value.target_environment_id !== current.target_environment_id ||
     value.authorizes_cutover !== false ||
+    !gatePhase(value) ||
     !gate ||
     value.gate_id !== gate.data.gate_id ||
     value.context_digest !== gate.data.context_digest ||
@@ -566,9 +584,9 @@ export function controlReport(value, current, gate, now) {
     !date(value.evaluated_at) ||
     Date.parse(value.evaluated_at) > now ||
     !object(value.profile) ||
-    value.profile.id !== current.profile_id ||
-    value.profile.version !== current.profile_version ||
-    !["demo-gate", "full"].includes(value.profile.id) ||
+    value.profile.id !== current[prefix + "profile_id"] ||
+    value.profile.version !== current[prefix + "profile_version"] ||
+    !["demo-gate", "full", "apply-recheck"].includes(value.profile.id) ||
     value.profile.version !== "1" ||
     !["PASS", "BLOCK", "EXCEPTION"].includes(value.decision) ||
     !Array.isArray(value.rows) ||
@@ -619,6 +637,11 @@ export function controlReport(value, current, gate, now) {
   if (
     value.profile.id === "demo-gate" &&
     !["IAM-01.1", "SEC-01.1", "AUD-01.1"].every((x) => seen.has(x))
+  )
+    fail("incomplete_control_report");
+  if (
+    value.profile.id === "apply-recheck" &&
+    !["IAM-01.1", "SEC-01.1", "ENC-01.1"].every((x) => seen.has(x))
   )
     fail("incomplete_control_report");
   return clone(value);

@@ -96,3 +96,47 @@ claim을 유지하며 자동 재제출하지 않는다.
 UID 정리, T10 현재 후보 반영이다. SSO 인증·호스트 시작·로컬 합성 시험만으로
 전체 E2E나 사람 승인 완료를 보고하지 않는다. T15 참조 전용 소비 포트, 실제
 catalog/입력/current grant, 대상 profile/자격, 전용 mailbox 및 실행창을 인수해야 한다.
+
+## 저장된 최초 제안을 쓰는 자격 이전 호스트
+
+`--ports bravo_platform_events.credential_host:create_ports`는 `/rehearsal/ports.json`의
+보호된 설치 입력으로 실제 `StoredProposalSource` → `CredentialPlanner` → T7
+`ScopedPlanner`를 연결한다. 기존 정본 Admission을 조회한 뒤에만 같은 입력·제안·
+발행 이미지가 소비된다. 원 최초 제안의 현재 목적 권한·만료·서명 catalog·publication·
+workflow checkpoint를 다시 검사한다. 이 호스트에는 모델 제출 기능이 없다.
+
+설치 입력은 환경 등록 시 한 번 준비하며 HTTP 요청이나 모델이 선택하지 않는다.
+기존 `host.json`의 권한과 서명 기록 설정은 그대로 사용한다.
+
+| 필드 | 기존 운영 입력 |
+|---|---|
+| `reader_config` | 제품 읽기 서비스의 catalog·GitHub 공개 키 설정 파일 |
+| `runtime_source_sha` | 해당 최초 실행에 고정된 검토·설치 소스 SHA |
+| `target_environment_id`, `cluster_uid` | 등록된 목적지와 실제 클러스터 UID |
+| `manager_subject` | 등록된 별도 관리 SA의 전체 주체명. t15-runner와 달라야 함 |
+| `manager_kubeconfig`, `runner_kubeconfig` | T7가 공급하는 갱신 가능한 별도 kubeconfig. 같은 TLS 경로·클러스터 구성 필수 |
+| `profile_file` | 기존 T3 목적지 `.env` 프로필 |
+| `isolation_image` | digest로 고정한 T3 검증 이미지 |
+| `t9_renderer`, `scoped_lifecycle_module` | 이미지의 `/app/infra/target-secrets/render.py`, `/app/infra/rehearsal-access/scoped_lifecycle.py`만 허용. 다른 mount·symlink의 외부 모듈 거부 |
+| `fixture` | `bao_image`, `postgres_image`, `probe_image`, `openbao_ca_file`. 기존 CredentialFixture 입력 |
+| `candidate_repository` | 검증된 발행 이미지를 읽는 저장소. digest는 같은 계획의 발행 영수증에서만 읽음 |
+| `staging` | 호스트 전용 임시 소스 디렉터리 |
+
+기동 시 두 클라이언트의 실제 신원, 동일 TLS 연결 설정, 관리 클라이언트가 읽은
+클러스터 UID를 대조한다. 실행 시 계획 목적지도 검사한다. 관리 클라이언트는
+namespace/T3/UID 정리에만, scoped runner는 검증 Job에만 사용한다. 이미지 조회는
+T15가 계산한 diff와 현재 계획의 발행 영수증이 같을 때만 허용한다. 보호 mount가
+없거나 자격 발급·클러스터 확인에 실패하면 시작하지 않는다. 설치가 권한·계획·
+발행 영수증·성공 판정을 생성하지는 않는다.
+
+배포 이미지는 기존 제품 이미지 빌더의 `--rehearsal-host` 모드로 만든다.
+커밋된 소스와 잠긴 Python 의존성만 포함하고, T7/T9 모듈과 기존 v1.35 명령과 보안 수정 의존성을
+고정한 [kubectl 빌드](../../../../operations/kubectl/README.md)를 추가한다. 빌더는 UID 10001·읽기 전용·네트워크 없음 조건에서
+호스트 import와 kubectl 기동을 확인한다. `/tmp`는 크기가 제한된 쓰기 가능 임시 볼륨이며
+루트 파일시스템은 읽기 전용으로 유지한다. 이미지 생성은 배포나 실행을 시작하지 않는다.
+
+```sh
+uv run --project services/platform-events python \
+  services/platform-events/deploy/product-read/build.py \
+  --rehearsal-host --output /private/new-host-build
+```

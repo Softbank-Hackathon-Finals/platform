@@ -4,6 +4,16 @@
 
 **범위:** T19의 보안 전제조건. `CombinedGateService`는 T13 데이터 준비 관측과 보안 결과를 함께 검사한다. 선택적 T13 스키마 수집기를 포함하며 T14 환경 연결·T10 운영 공급자 연결은 별도다. 선택적 T10 어댑터는 실제 승인·실행 접수 코드와 SQLite/PostgreSQL에서 시험한다. `SecurityPrerequisite.authorizes_cutover`는 항상 `False`다. T19 이슈 전체의 완료나 실환경 동등성 검증 완료로 간주하지 않는다.
 
+`PlanGateSession`은 최초 평가(`initial`, application ID 없음)와 반영 후 평가
+(`post_apply`, 성공한 Application ID)를 구분한다. 반영 후 단계와 application ID는
+세션 fingerprint에 포함되며 최초 fingerprint는 유지한다. `T10GateAuthority`가 현재 승인 결속의 같은 값과
+대조한다. 최초 단계는 계획의 `profile_id/version`, 반영 후 단계는 별도로
+고정된 `recheck_profile_id/version`을 사용한다. 두 필드가 모두 없는 기존 binding은
+최초 단계에서만 허용한다. 부분 누락·반영 후 필드 누락·다른 단계·다른
+Application의 승인을 재사용하면 실행 전에 거부한다. T10 호스트의
+`GateRecords.cutover_authority` 조립은 저장된 결속을 자동 연결하며 현재
+운영 권한·원본 인증 공급자를 명시적으로 요구한다.
+
 ## 계약 출처
 
 `src/bravo_gate/contracts/`는 develop `626bca0`의 `docs/controls/` 계약을 고정한다. 스키마는 기존 T5 고정본과 바이트 단위로 같고, 최신 서버 정본 소비 사례도 함께 가져왔다. 프로필은 그 뒤 T31 반영 뒤 재대조용 `apply-recheck` v1을 더했고, 이에 따라 바뀐 카탈로그·context 해시를 계약 사례에 반영했다. 경로·커밋·해시는 `provenance.json`에 있다. 원본과 패키지 사본의 일치 여부를 시험한다. 계약 변경은 상호운용 시험과 해시 갱신을 함께 수행한다.

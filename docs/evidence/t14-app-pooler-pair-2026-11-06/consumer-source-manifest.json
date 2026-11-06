@@ -1,0 +1,37 @@
+{
+  "source_revision": "2a06b639183d2f74bd29fe4512a259c6de9640ba",
+  "source_files": [
+    {
+      "path": "services/console/src/bravo_console/contracts/profiles.json",
+      "sha256": "47870083fb7f48b8a607bb261314a611b503ad655b6c9435afa61c1b1e1381d3"
+    },
+    {
+      "path": "services/console/src/bravo_console/reports.py",
+      "sha256": "62de142df19bef9d795f723cf1d3df8c8bb15a68c1e4a55cc11afcb51cfcd9a5"
+    },
+    {
+      "path": "services/console/testing/live_report.spec.js",
+      "sha256": "cee2aefbff43088bde6f700ac84d5216fa4e6760ec7d821b841a1e625bd09ed7"
+    },
+    {
+      "path": "services/console/testing/live_report_server.py",
+      "sha256": "7ee7c2de33e80365ba8921b43e8bd769b2783327446f9c2e2cf27371c795f556"
+    },
+    {
+      "path": "services/control-gate/src/bravo_gate/contract.py",
+      "sha256": "b3d5eb10260f054789fd190025aea9a588cbbd7f81ec7f1aa5e76b2479bca4b1"
+    },
+    {
+      "path": "services/control-gate/src/bravo_gate/contracts/profiles.json",
+      "sha256": "47870083fb7f48b8a607bb261314a611b503ad655b6c9435afa61c1b1e1381d3"
+    },
+    {
+      "path": "services/control-gate/src/bravo_gate/engine.py",
+      "sha256": "694c7cb9dd6aa8fae9b0bae5d0a952b583dc6490ed5fb67a96f85686a09d7304"
+    },
+    {
+      "path": "services/control-gate/src/bravo_gate/models.py",
+      "sha256": "13a4b064f88f1c28f74fe28b2f275872a2cab721acd43010c659230742d4430a"
+    }
+  ]
+}

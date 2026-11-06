@@ -55,13 +55,19 @@ SSE를 포함해 Bearer를 보낼 수 있는 같은 출처의 클라이언트가
 | 동작 | 저장/검사 |
 |---|---|
 | `set_permissions` | trusted host가 실제 관리 결정을 인증한 뒤 호출. plan/tenant/subject, 권한, 유효 구간, 기대 revision, 관리 감사 참조를 저장 |
-| 권한 | `read`, `approve_cutover`, `execute_cutover`와 S2의 `approve_change`, `apply_change`를 구분. 쓰기 권한은 `read`를 함께 요구 |
+| 권한 | `read`, `approve_cutover`, `execute_cutover`와 S2의 `approve_change`, `apply_change`를 구분. T17 런타임은 기존 SHIFT 승인에 실행을 결속하는 `approve_shift`와 가중치 실행의 `execute_shift`를 사용한다. 쓰기 권한은 `read`를 함께 요구 |
 | 권한 회수 | 빈 권한 집합을 다음 revision으로 기록. 회수 후 재부여도 새로운 revision |
 | 재인증 요구 | `auth_time`이 `valid_after`보다 이른 토큰 거부. refresh로 iat만 바꿔도 거부 |
 | `revoke_approval` | 아직 소비하지 않은 승인 ID의 취소를 영속화. 이미 접수된 원격 실행을 취소했다고 반환하지 않음 |
 | 조회/SSE | 현재 계획의 read 권한과 유효 토큰 재검사. 다른 계획/tenant로 권한 전파 없음 |
 | 승인 접수 | 동일 plan lock 안에서 실제 신원, 승인 권한, upstream authority 확인 |
 | 실행 접수 | 실행자의 실행 권한 + 원 승인자의 현재 승인 권한 + 승인 취소 상태를 동일 lock 안에서 확인 |
+
+T17의 [ShiftAuthority와 단일 실행 런타임](../../services/edge-control/README.md#단일-실행-런타임)은
+기존 WorkflowRecovery의 SHIFT 승인 체크포인트와 현재 T19 원문을 소비한다.
+새 상태 전이나 승인 API를 만들지 않는다. 실행 등록은 승인자의 권한 revision에 결속하며,
+회수·재부여로 이전 등록을 재활성화하지 않는다. `ShiftAuthority.revoke`는 같은 계획 잠금에서
+해당 Edge 실행 등록을 철회하며 이미 수행된 원격 가중치를 되돌렸다고 표시하지 않는다.
 
 `administration_ref` 문자열 자체는 관리자 인증이 아니다. host가 현재 관리자 권한을
 검증하고 남긴 실제 결정의 참조여야 하며, 클라이언트 JSON에서 이 관리 함수를 호출하면 안 된다.

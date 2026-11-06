@@ -39,6 +39,24 @@ a hotfix follows main and then develop. An older build must not overwrite a newe
 source revision. Rollback is a protected Git revert followed by actual API and
 data-preservation checks, not a rebuilt old tag.
 
+Image proposals retain their source-specific branches. Once the replacement PR
+is read back with the expected head, values and publication receipt, the workflow
+closes older generated registration-image PRs targeting develop. Recognition checks
+the same repository, branch/source binding, T43 title/reference and the exact two
+image/publication files; unrelated, fork, release and manually extended PRs are
+preserved. Git ancestry prevents a late older run from replacing a newer proposal,
+even when their build inputs are identical. The shared publication concurrency
+group remains serialized. A rerun reuses the source's existing PR and completes
+remaining cleanup; failed creation preserves previous PRs. Lost create/close
+responses are reconciled by reading that same branch/PR, without retrying writes.
+The delivery result records `closed_proposals`; closing does not delete branches.
+
+PR creation and cleanup use the existing Actions `PROJECT_TOKEN`. GitHub attributes
+the PR to that token's account; the Git commit author `bravo-board` does not change
+the PR author. A bot identity requires an organization-managed bot or GitHub App
+credential through the team's existing credential process. No personal credential
+is copied, rotated or replaced by this workflow change.
+
 The publication trigger and its source-freshness check cover every package copied
 from the current checkout, including inventory, and the build/delivery recipes.
 Repository tests compare these paths with the build context package list so a

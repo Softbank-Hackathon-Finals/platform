@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "urn:bravo:t10:event:1.0",
-  "title": "T10 plan event — local proposal 1.0",
+  "title": "T10 plan event \u2014 local proposal 1.0",
   "type": "object",
   "properties": {
     "schema_version": {
@@ -106,6 +106,19 @@
         },
         "context_digest": {
           "$ref": "#/$defs/context_digest"
+        },
+        "gate_phase": {
+          "enum": [
+            "initial",
+            "post_apply"
+          ]
+        },
+        "application_id": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$"
         }
       },
       "required": [
@@ -123,8 +136,56 @@
         ],
         "context_digest": [
           "gate_id"
+        ],
+        "gate_phase": [
+          "application_id",
+          "gate_id",
+          "context_digest"
+        ],
+        "application_id": [
+          "gate_phase"
         ]
-      }
+      },
+      "allOf": [
+        {
+          "if": {
+            "required": [
+              "gate_phase"
+            ],
+            "properties": {
+              "gate_phase": {
+                "const": "initial"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "application_id": {
+                "type": "null"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "required": [
+              "gate_phase"
+            ],
+            "properties": {
+              "gate_phase": {
+                "const": "post_apply"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "application_id": {
+                "$ref": "#/$defs/identifier"
+              }
+            }
+          }
+        }
+      ]
     },
     "context_digest": {
       "type": "string",

@@ -16,7 +16,7 @@ from bravo_console.reports import CONTRACTS, PlanControlReport, RegisteredGateDo
 ROOT = Path(__file__).resolve().parents[3]
 
 
-def report_document(plan):
+def report_document(plan, phase="initial"):
     doc = json.loads((ROOT / "docs/controls/examples/gate-after-fix.json").read_text())
     doc.update(
         gate_id="gate-one",
@@ -26,6 +26,13 @@ def report_document(plan):
         target_environment_id=plan["target_environment_id"],
         evaluated_at=(datetime.now(UTC) - timedelta(seconds=1)).isoformat(),
     )
+    if phase == "post_apply":
+        # Synthetic report with the canonical recheck control set. The trusted
+        # envelope supplies the phase independently of this document's profile.
+        doc["profile"] = dict(id="apply-recheck", version="1")
+        for row in doc["rows"]:
+            if row["test_id"] == "AUD-01.1":
+                row.update(test_id="ENC-01.1", control_id="ENC-01")
     return doc
 
 
@@ -34,10 +41,12 @@ def wire(api, *, authority=None):
 
     async def load(scope, plan):
         state["loads"] = state.get("loads", 0) + 1
-        doc = state.get("change", lambda d: d)(report_document(plan))
+        phase = state.get("phase", "initial")
+        doc = state.get("change", lambda d: d)(report_document(plan, phase))
         state.get("during_read", lambda: None)()
         value = RegisteredGateDocument(
-            plan["plan_id"], plan["plan_digest"], json.dumps(doc).encode()
+            plan["plan_id"], plan["plan_digest"], json.dumps(doc).encode(),
+            phase, state.get("application_id"),
         )
         return state.get("envelope", lambda v: v)(value)
 
@@ -95,8 +104,7 @@ def test_report_for_generated_workload_id_is_rendered(tmp_path):
     with TestClient(app, base_url=ORIGIN, cookies={"fixture-session": "test-only"}) as c:
         r = c.get("/v1/plans/plan-demo/controls")
         assert r.status_code == 200, r.text
-        example = json.loads((ROOT / "docs/controls/examples/gate-after-fix.json").read_text())
-        assert r.json()["profile"] == example["profile"]
+        assert r.json()["profile"] == dict(id="demo-gate", version="1")
         state["change"] = lambda d: d | {"app": "demo-chat"}  # the catalog reference app is not this plan's app
         assert c.get("/v1/plans/plan-demo/controls").status_code != 200
 
@@ -224,3 +232,32 @@ def test_bundle_matches_reviewed_t5_source():
     for name, digest in provenance["sha256"].items():
         assert (CONTRACTS / name).read_bytes() == (ROOT / "docs/controls" / name).read_bytes()
         assert hashlib.sha256((CONTRACTS / name).read_bytes()).hexdigest() == digest
+
+
+@pytest.mark.parametrize("fault", [None, "missing-app", "invalid-app", "initial", "legacy", "wrong-profile"])
+def test_post_apply_report_is_bound_to_trusted_phase_and_recheck_profile(tmp_path, fault):
+    wrapped, *_ = setup(tmp_path / "post-apply.db", workload_id="demo-chat",
+                         profile=("demo-gate", "1"),
+                         recheck=None if fault == "legacy" else ("apply-recheck", "1"))
+    state = {"phase": "post_apply", "application_id": "applied-one"}
+    if fault == "missing-app":
+        state["application_id"] = None
+    if fault == "invalid-app":
+        state["application_id"] = "../invalid"
+    if fault == "initial":
+        state["envelope"] = lambda value: replace(value, gate_phase="initial", application_id=None)
+    if fault == "wrong-profile":
+        state["change"] = lambda doc: doc | {"profile": dict(id="demo-gate", version="1")}
+    app = ConsoleApp(wrapped.api, public_origin=ORIGIN, controls=wire(wrapped.api, authority=state))
+    with TestClient(app, base_url=ORIGIN, cookies={"fixture-session": "test-only"}) as client:
+        response = client.get("/v1/plans/plan-demo/controls")
+        if fault:
+            assert response.status_code == 503
+            assert "rows" not in response.json()
+        else:
+            assert response.status_code == 200, response.text
+            assert response.json()["profile"] == dict(id="apply-recheck", version="1")
+            assert response.json()["gate_phase"] == "post_apply"
+            assert response.json()["application_id"] == "applied-one"
+            assert response.json()["authorizes_cutover"] is False
+            assert state["auth_calls"] == 2
