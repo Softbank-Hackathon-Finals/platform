@@ -123,6 +123,13 @@ class ApiTest(unittest.TestCase):
         self.assertEqual(self.api.value["desired_state"], "closed")
         self.assertNotEqual(self.api.value["request"]["run_id"], opened["run_id"])
 
+    def test_cancel_pending_request_restores_previous_open_work_mode(self):
+        self.api.value["desired_state"] = "open"
+        _, result = self.ops.submit(OWNER, self.key, {"action": "close"})
+        self.assertEqual(self.api.value["desired_state"], "closed")
+        self.ops.cancel(OWNER, result["run_id"])
+        self.assertEqual(self.api.value["desired_state"], "open")
+
     def test_state_is_timestamped_observation_not_an_unperformed_live_probe(self):
         self.api.value.update(desired_state="open", phase="FINISHED", report={"final_state": "open", "security_state": "PUBLIC_READ", "finished_at": "observed-at"})
         result = self.ops.status()

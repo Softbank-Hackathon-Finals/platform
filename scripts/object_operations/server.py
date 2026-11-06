@@ -97,6 +97,7 @@ class Operations:
                 raise HTTPError(409, "another_operation_active")
             if action == "cycle" and value.get("desired_state") == "open":
                 raise HTTPError(409, "open_work_mode_requires_explicit_close")
+            previous_desired_state = value.get("desired_state", "closed")
             if action in ("open", "close"):
                 value["desired_state"] = "open" if action == "open" else "closed"
             value.pop("recovery", None)
@@ -106,6 +107,7 @@ class Operations:
                 "requested_at": datetime.now(UTC).isoformat(),
                 "expires_at": (datetime.now(UTC) + timedelta(minutes=5)).isoformat(),
                 "idempotency_key": key, "request_fingerprint": fingerprint,
+                "previous_desired_state": previous_desired_state,
             })
             self.api.save(doc, value)
             return 202, {**receipt(value, run_id, owner), "replayed": False, "existing_request": False}
@@ -139,7 +141,9 @@ class Operations:
             if result["phase"] == "FINISHED":
                 return result
             value["request"]["cancel"] = True
-            if value["request"]["action"] == "open":
+            if value["phase"] == "PENDING":
+                value["desired_state"] = value["request"].get("previous_desired_state", value.get("desired_state", "closed"))
+            elif value["request"]["action"] == "open":
                 value["desired_state"] = "closed"
             self.api.save(doc, value)
             return receipt(value, run_id, owner)

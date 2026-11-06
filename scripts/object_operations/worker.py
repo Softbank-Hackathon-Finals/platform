@@ -433,7 +433,7 @@ class Worker:
                     _, _, auth = self.guard()
                     _, self.credentials, state = render_existing(auth, "closed", self.request["run_id"])
                     self.app_client()
-                    self.case("configured_state", state, state)
+                    self.case("configured_state", state, "open-demo" if value.get("desired_state") == "open" else "closed")
                     self.case("bucket_policy_absent", self.policy(), True)
                     self.canary_key = self.existing_canary()
                     status = self.s3.call("GET", BUCKET, self.canary_key, credentials=self.credentials["client"])[0]
