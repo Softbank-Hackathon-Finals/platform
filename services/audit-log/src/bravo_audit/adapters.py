@@ -4,6 +4,7 @@ from __future__ import annotations
 
 PLATFORM_EVENT_TYPES = frozenset({"state.changed", "approval.requested", "approval.decided",
                                   "gate.completed", "execution.updated", "failback.recorded"})
+PLATFORM_SCHEMA_VERSIONS = frozenset({"1.0"})  # T10 events v1; an unknown version is not guessed at
 TOOL_OUTCOMES = frozenset({"ALLOWED", "DENIED", "OBSERVED"})
 
 
@@ -13,6 +14,8 @@ def from_platform_event(event: dict) -> tuple[str, str, str, str, str, dict]:
     required = {"schema_version", "event_id", "sequence", "plan_id", "run_id", "occurred_at", "event_type", "data"}
     if not required <= set(event):
         raise ValueError("platform event missing required fields")
+    if event["schema_version"] not in PLATFORM_SCHEMA_VERSIONS:
+        raise ValueError("unsupported platform event schema version")
     if event["event_type"] not in PLATFORM_EVENT_TYPES:
         raise ValueError("unknown platform event type")
     if event["event_id"] != f"{event['plan_id']}:{event['sequence']}":

@@ -16,6 +16,9 @@ def test_platform_events_keep_type_as_kind(platform_events):
     platform_events[1]["event_type"] = "model.said"
     with pytest.raises(ValueError):
         from_platform_event(platform_events[1])
+    unknown_version = platform_events[1] | {"event_type": "gate.completed", "schema_version": "9.9"}
+    with pytest.raises(ValueError, match="schema version"):
+        from_platform_event(unknown_version)
 
 
 def test_tool_events_expose_reason_as_kind_for_the_demo_scene(tool_events):
