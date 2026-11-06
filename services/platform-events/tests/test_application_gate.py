@@ -11,7 +11,15 @@ from bravo_apply.path import GATE_RECHECK_TESTS, ApplyOutcome, _create_record
 from bravo_gate.contract import canonical
 from bravo_gate.models import RunSnapshot
 from bravo_gate.network import VerifiedNetworkProof
-from test_gate_records import bundle, contract, gate_pg, ready, records, service  # noqa: F401
+from test_gate_records import (  # noqa: F401
+    _applied_checkpoint,
+    bundle,
+    contract,
+    gate_pg,
+    ready,
+    records,
+    service,
+)
 
 from bravo_platform_events.application_host import ApplicationEvidence, GateRecheck
 from bravo_platform_events.cutover import _put
@@ -48,22 +56,22 @@ def fixture_admin(f, pg):
             yield c
 
 
-def stage(f, pg, *, full=False, complete=False):
-    if full:
+def stage(f, pg, *, profile=None, complete=False):
+    if profile:
         doc = f.state["runs"]["target"].document
         doc["results"].append(dict(test_id="ENC-01.1", control_id="ENC-01", method_version="1",
             expected="success", observed="success", positive_control="not_applicable", verdict="PASS",
             unknown_reason=None, evidence=dict(doc["results"][0]["evidence"])))
         target = RunSnapshot("target-full", canonical(doc))
         f.state["runs"]["target"] = target
-        f.state["context"] = replace(f.state["context"], profile_id="full",
+        f.state["context"] = replace(f.state["context"], profile_id=profile,
             target_ref=target.ref, target_digest=target.fingerprint)
         if complete:
             for side in ("source", "target"):
                 doc = f.state["runs"][side].document
                 evidence = doc["results"][0]["evidence"]
                 catalog = f.records.contract.catalog
-                ids = f.records.contract.profile("full", "1")["required_test_ids"]
+                ids = f.records.contract.profile(profile, "1")["required_test_ids"]
                 doc["results"] = [catalog["tests"][test] | dict(test_id=test,
                     observed=catalog["tests"][test]["expected"], verdict="PASS",
                     positive_control=("pass" if catalog["tests"][test]["positive_control"] == "required"
@@ -78,16 +86,19 @@ def stage(f, pg, *, full=False, complete=False):
     with fixture_admin(f, pg) as c:
         row = c.execute("SELECT spec_json FROM plans WHERE plan_id=?", (f.plan.plan_id,)).fetchone()
         spec = json.loads(row["spec_json"])
-        if full:
-            spec["profile_id"] = "full"
-        c.execute("UPDATE plans SET state='GATE',spec_json=? WHERE plan_id=?",
+        spec.update(recheck_profile_id=profile or spec["profile_id"],
+                    recheck_profile_version="1")
+        c.execute("UPDATE plans SET spec_json=? WHERE plan_id=?",
                   (json.dumps(spec), f.plan.plan_id))
-    f.stage("source"), f.stage("target"), f.bind()
+    _applied_checkpoint(f, application_id="application-fixture")
+    f.stage("source"), f.stage("target")
+    f.records.bind(f.principal, f.plan.plan_id, "context", f.state["context"],
+                   expected_revision=0, gate_phase="post_apply", application_id="application-fixture")
 
 
 def test_demo_profile_missing_requested_encryption_cannot_pass(records, gate_pg):  # noqa: F811
     f = records
-    stage(f, gate_pg)
+    stage(f, gate_pg, profile="demo-gate")
     calls = []
     gate = GateRecheck(f.records, prepare=lambda *a: calls.append(a), service_factory=f.factory)
     with pytest.raises(EventError, match="gate_recheck_profile_incomplete"):
@@ -98,16 +109,17 @@ def test_demo_profile_missing_requested_encryption_cannot_pass(records, gate_pg)
 
 def test_real_t19_blocks_incomplete_full_profile_even_with_three_controls(records, gate_pg):  # noqa: F811
     f = records
-    stage(f, gate_pg, full=True)
+    stage(f, gate_pg, profile="full")
     gate = GateRecheck(f.records, prepare=lambda *a: None, service_factory=f.factory)
     report = gate.evaluate(f.principal, f.plan.plan_id, outcome(f.plan.plan_id))
     assert report["decision"] == "BLOCK"
     assert f.store.snapshot(f.plan.plan_id)["state"] == "GATE"
 
 
-def test_authenticated_post_apply_report_is_consumed_and_revocation_blocks(records, gate_pg, tmp_path):  # noqa: F811
+@pytest.mark.parametrize("profile", ["full", "apply-recheck"])
+def test_authenticated_post_apply_report_is_consumed_and_revocation_blocks(records, gate_pg, tmp_path, profile):  # noqa: F811
     f = records
-    stage(f, gate_pg, full=True, complete=True)
+    stage(f, gate_pg, profile=profile, complete=True)
     def factory(view):
         selected = f.factory(view)
         # Synthetic network authority; no runtime network success is claimed.

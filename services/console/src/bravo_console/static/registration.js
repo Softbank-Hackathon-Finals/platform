@@ -37,13 +37,21 @@ const hash = (value) =>
   typeof value === "string" && /^[a-f0-9]{64}$/.test(value);
 
 export function registrationInput(kind, input) {
+  const hasRecheck =
+    kind === "plan" &&
+    input &&
+    typeof input === "object" &&
+    ("recheck_profile_id" in input || "recheck_profile_version" in input);
+  const expected = hasRecheck
+    ? [...fields.plan, "recheck_profile_id", "recheck_profile_version"]
+    : fields[kind];
   if (
     !fields[kind] ||
     !input ||
     typeof input !== "object" ||
     Array.isArray(input) ||
-    Object.keys(input).length !== fields[kind].length ||
-    fields[kind].some((key) => !(key in input))
+    Object.keys(input).length !== expected.length ||
+    expected.some((key) => !(key in input))
   )
     throw new ApiError("invalid_registration_input");
   const value = structuredClone(input);
@@ -72,7 +80,11 @@ export function registrationInput(kind, input) {
       throw new ApiError("invalid_registration_input");
   if (
     kind === "plan" &&
-    ![value.profile_id, value.profile_version].every(evaluationProfile)
+    (![value.profile_id, value.profile_version].every(evaluationProfile) ||
+      (hasRecheck &&
+        ![value.recheck_profile_id, value.recheck_profile_version].every(
+          evaluationProfile,
+        )))
   )
     throw new ApiError("invalid_registration_input");
   if (
@@ -166,6 +178,14 @@ export function registrationReceipt(kind, input, value) {
     ].every(evaluationProfile) ||
     value.profile_id !== input.profile_id ||
     value.profile_version !== input.profile_version ||
+    Object.hasOwn(input, "recheck_profile_id") !==
+      Object.hasOwn(input, "recheck_profile_version") ||
+    ["recheck_profile_id", "recheck_profile_version"].some(
+      (key) =>
+        Object.hasOwn(value, key) !== Object.hasOwn(input, key) ||
+        value[key] !== input[key] ||
+        (Object.hasOwn(value, key) && !evaluationProfile(value[key])),
+    ) ||
     value.state !== "COLLECT" ||
     value.version !== 1 ||
     !hash(value.plan_digest) ||
@@ -178,6 +198,12 @@ export function registrationReceipt(kind, input, value) {
     state: value.state,
     profile_id: value.profile_id,
     profile_version: value.profile_version,
+    ...(Object.hasOwn(value, "recheck_profile_id")
+      ? {
+          recheck_profile_id: value.recheck_profile_id,
+          recheck_profile_version: value.recheck_profile_version,
+        }
+      : {}),
   };
 }
 
@@ -290,6 +316,13 @@ export function mountRegistration({ onPlan, onForbidden }) {
       event.preventDefault();
       if (attempt) return;
       const data = Object.fromEntries(new FormData(form));
+      if (
+        data.recheck_profile_id === "" &&
+        data.recheck_profile_version === ""
+      ) {
+        delete data.recheck_profile_id;
+        delete data.recheck_profile_version;
+      }
       try {
         if (form.dataset.registration === "environment") {
           const choice = environmentChoices.get(data.kind);

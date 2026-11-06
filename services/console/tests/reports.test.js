@@ -7,6 +7,8 @@ const gate = { data: { gate_id: "gate-one", context_digest: "e".repeat(64) } };
 function report() {
   return {
     kind: "console-control-report.v1",
+    gate_phase: "initial",
+    application_id: null,
     plan_id: snap.plan_id,
     plan_digest: snap.plan_digest,
     source_environment_id: snap.source_environment_id,
@@ -80,3 +82,31 @@ for (const fault of [
     if (fault === "verdict") value.rows[0].target_verdict = "probably OK";
     assert.throws(() => controlReport(value, snap, gate, now));
   });
+
+test("post-apply report uses the registered recheck profile and exact required tests", () => {
+  const current = {
+    ...snap,
+    recheck_profile_id: "apply-recheck",
+    recheck_profile_version: "1",
+  };
+  const value = report();
+  Object.assign(value, {
+    gate_phase: "post_apply",
+    application_id: "applied-one",
+    profile: { id: "apply-recheck", version: "1" },
+  });
+  Object.assign(value.rows[2], { test_id: "ENC-01.1", control_id: "ENC-01" });
+  assert.deepEqual(controlReport(value, current, gate, now), value);
+  for (const change of [
+    { gate_phase: "initial" },
+    { gate_phase: undefined },
+    { application_id: null },
+    { application_id: "../invalid" },
+    { profile: { id: "demo-gate", version: "1" } },
+    { rows: report().rows },
+  ])
+    assert.throws(() =>
+      controlReport({ ...value, ...change }, current, gate, now),
+    );
+  assert.throws(() => controlReport(value, snap, gate, now));
+});

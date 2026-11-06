@@ -127,7 +127,7 @@ app = ConsoleApp(authenticated_t10_app,
     public_origin="https://console.example.invalid", controls=reports)
 ```
 
-- 등록 문서는 `RegisteredGateDocument(plan_id, plan_digest, document)`이며 보고서 원문은 최대 256 KiB다. 호스트의 `authenticate`는 비동기 함수이고 명시적인 `True`만 수용한다. 신뢰할 수 없는 클라이언트 필드나 단순 문자열 비교만으로 발급자를 인증하면 안 된다.
+- 등록 문서는 `RegisteredGateDocument(plan_id, plan_digest, document, gate_phase="initial", application_id=None)`이며 보고서 원문은 최대 256 KiB다. 호스트의 `authenticate`는 비동기 함수이고 명시적인 `True`만 수용한다. 신뢰할 수 없는 클라이언트 필드나 단순 문자열 비교만으로 발급자를 인증하면 안 된다.
 - T10 조회 권한·계획 snapshot과 보고서 권한을 조회 전후로 확인한다. 다른 앱·환경 쌍, 누락·중복 시험, 알 수 없는 프로필, 모순되는 전체 PASS, 중복 JSON 키·비유한 숫자·미래 판정은 표시하지 않는다. 저장소·검증 오류 원문은 공개 응답에 포함하지 않는다.
 - 브라우저는 현재 게이트 ID·context digest·계획 digest가 일치하고 조회가 15초 이내인 보고서만 표시한다. 권한 회수 시 표도 제거한다. 이는 최근에 **조회한 과거 판정**이며 증거가 지금도 유효하다는 뜻은 아니다.
 - 서버와 브라우저는 T10 계획에 고정된 `profile_id`·`profile_version`도 보고서와 대조한다. 전체 20개 시험 계획에 3개 데모 보고서를 붙이거나 버전이 다른 보고서를 표시하지 않는다. 프로필이 없는 기존 계획은 일반 조회를 유지하지만 통제 보고서는 표시하지 않으며, 보고서에서 프로필을 역으로 채우지 않는다.
@@ -227,3 +227,5 @@ app = ConsoleApp(authenticated_t10_app,
 잘못된 응답 거부, 브라우저 표시 삭제를 확인했다. 실제 클라우드 탐지 활성화·운영 수집기,
 운영 T33 HTTPS 주소·read 자격·호스트 권한 연결은 별도 인수 대상이며, 이 변경만으로
 T33 전체 완료 또는 실제 위협 탐지 성공으로 기록하지 않는다.
+
+재대조 보고서를 제공하는 호스트는 저장된 T10 GateRecords에서 `gate_phase="post_apply"`와 성공한 `application_id`를 읽어 `RegisteredGateDocument`에 전달하고 두 인증 호출에서 이를 검증한다. 프로필 이름으로 단계를 추측하지 않는다. 최초 보고서는 계획의 `profile_*`, 반영 후 보고서는 `recheck_profile_*`와 대조하며, 어느 보고서도 실행 권한을 발급하지 않는다. 등록 UI는 재대조 프로필 쌍을 선택적으로 전송하고 영수증·snapshot·승인 재시도에서 보존한다.

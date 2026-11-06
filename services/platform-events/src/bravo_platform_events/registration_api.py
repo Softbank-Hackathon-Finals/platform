@@ -7,7 +7,7 @@ from typing import Annotated, Literal
 from fastapi import FastAPI, Header, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .registration_probe import ProbeUnavailable
 from .store import EventError
@@ -43,6 +43,16 @@ class Plan(Input):
     target_environment_id: Identifier
     profile_id: Profile
     profile_version: Profile
+    recheck_profile_id: Profile | None = None
+    recheck_profile_version: Profile | None = None
+
+    @model_validator(mode="after")
+    def recheck_pair(self):
+        fields = {"recheck_profile_id", "recheck_profile_version"}
+        if fields & self.model_fields_set:
+            if not fields <= self.model_fields_set or None in (self.recheck_profile_id, self.recheck_profile_version):
+                raise ValueError("invalid_recheck_profile")
+        return self
 
 
 def create_registration_app(registry, *, verify_identity):
@@ -64,7 +74,7 @@ def install_registration_routes(app, registry, *, verify_identity):
             raise HTTPException(422, detail={"code": "invalid_request"})
         try:
             actor = await asyncio.to_thread(verify_identity, request)
-            receipt, created = await asyncio.to_thread(registry.register, actor, kind, body.model_dump(), key)
+            receipt, created = await asyncio.to_thread(registry.register, actor, kind, body.model_dump(exclude_unset=True), key)
         except EventError as e:
             status = {"forbidden": 403, "registration_reference_unavailable": 404}.get(e.code, 409)
             raise HTTPException(status, detail={"code": e.code}) from None
