@@ -134,6 +134,47 @@ app = ConsoleApp(authenticated_t10_app,
 - `authorizes_cutover: false`를 고정한다. 예외 적용을 동등성 PASS로 바꾸지 않는다. 전체 컷오버 조건에는 별도의 데이터 준비·SHIFT·현재 권한·승인 검사가 필요하며 T10/T19가 담당한다.
 - `report_digest`는 읽은 원문 bytes의 SHA-256이다. T19의 정규화된 서명·판정 fingerprint나 실행 승인 digest를 대신하지 않는다. 원문 질문·로그·증거 URL·승인자 개인정보는 화면 API에 반환하지 않는다.
 
+### 기존 T10 저장소에서 읽기
+
+`bravo-console[t10]`의 `T10ControlReports`는 기존 `GateRecords`에서 현재 계획에
+결속된 보안 보고서를 읽는다. 별도 보고서 업로드·DB·판정기·인증 서버를 만들지 않는다.
+
+```python
+from starlette.requests import Request
+from bravo_console.reports import PlanControlReport
+from bravo_console.t10_reports import T10ControlReports
+
+# 세 입력은 기존 운영 호스트가 구성한다. 요청 문자열로 권한을 등록하지 않는다.
+# gate_records: 현재 gate:read 권한을 검사하는 T10 GateRecords.
+# verified_operator_from_request: T10 API와 동일한 검증된 신원 → Principal 변환.
+# t19_authenticate_report: GateService와 같은 (actor, context, RunSnapshot) 출처 검증.
+source = T10ControlReports(gate_records,
+    resolve_principal=lambda scope: verified_operator_from_request(Request(scope)),
+    authenticate_report=t19_authenticate_report)
+reports = PlanControlReport(authenticated_t10_app,
+    load=source.load, authenticate=source.authenticate)
+app = ConsoleApp(authenticated_t10_app,
+    public_origin="https://console.example.invalid", controls=reports)
+```
+
+조회는 T10의 기존 계획 잠금을 사용한다. 내부 `_transaction(write=True)`는 잠금
+프로토콜을 선택하기 위한 것이며 어댑터는 SELECT만 실행한다. 권한·컨텍스트를 쓰는
+호스트도 같은 정본 DB와 잠금을 따라야 한다. 지연될 수 있는 읽기 복제본으로
+권한을 확인하지 않는다. 저장된 계획 snapshot과 현재 보고서의 gate/context,
+최초 또는 반영 후 단계, Application ID가 일치해야 한다. 보안 보고서가 없거나
+원문·서명·발급자 신뢰가 바뀌면 반환하지 않는다.
+
+출처 검증은 T19의 `gate-result` 범위·해시·기한 검사를 재사용한다. 현재 신원과
+계획별 조회 권한도 다시 검사한다. DB 저장 성공이나 JSON hash만으로 인증하지 않는다.
+출처 확인 중 권한이 회수되거나 마지막 검증 때 서명 기한이 지나도 거부한다.
+콜백·DB 오류의 원문은 HTTP 응답에 포함하지 않는다. `load`와 두 번의 `authenticate`는
+각각 현재 저장소·호스트 권한을 다시 읽고, 이미 읽은 문서를 캐시해서 신뢰하지 않는다.
+
+`tests/test_t10_reports.py`는 SQLite·별도 로컬 PostgreSQL의 실제 T10 저장·잠금과
+Ed25519 검증으로 최초/반영 후 단계, 권한 회수·다른 tenant·변조·서명 폐기/만료·
+현재 컨텍스트 변경과 오류 비노출을 검사한다. 신원·권한·키·시험 원문은 합성 fixture다.
+운영 호스트의 실제 issuer·계획 권한·T14 인수와 배포는 별도로 확인해야 한다.
+
 시험 호스트의 보고서와 신뢰 콜백은 명시적인 fixture다. 실제 T19 정본 저장소·발급자 인증 연결과 팀 환경 자격은 남아 있으며, fixture PASS를 실제 보안 통제 통과로 사용하지 않는다.
 
 `tests/test_gate_interop.py`는 실제 T14 Runner → T19 GateService → T10 계획 저장 →
