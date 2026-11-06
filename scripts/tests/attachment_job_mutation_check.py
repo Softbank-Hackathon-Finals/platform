@@ -30,6 +30,7 @@ MUTATIONS = [
     ("cleanup_time_present", JOB, '"ttlSecondsAfterFinished": CLEANUP_SECONDS', '"suspend": False'),
     ("no_restart", JOB, '"restartPolicy": "Never"', '"restartPolicy": "OnFailure"'),
     ("no_service_account_token", JOB, '"automountServiceAccountToken": False', '"automountServiceAccountToken": True'),
+    ("own_service_account", JOB, '"serviceAccountName": "attachment-copy",', ""),
     ("non_root", JOB, '"runAsNonRoot": True', '"runAsNonRoot": False'),
     ("seccomp_profile", JOB, '"seccompProfile": {"type": "RuntimeDefault"}', '"fsGroup": 10001'),
     ("no_privilege_escalation", JOB, '"allowPrivilegeEscalation": False', '"allowPrivilegeEscalation": True'),

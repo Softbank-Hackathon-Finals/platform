@@ -124,6 +124,7 @@ def application(image, pull_secret=None, arch="amd64"):
     }
     pod = {
         "automountServiceAccountToken": False,
+        "serviceAccountName": NAME,
         "securityContext": {"runAsNonRoot": True, "runAsUser": 10001, "runAsGroup": 10001,
                             "fsGroup": 10001, "seccompProfile": {"type": "RuntimeDefault"}},
         "initContainers": [sidecar], "containers": [app],

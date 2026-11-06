@@ -92,6 +92,8 @@ class ExecutionShape(unittest.TestCase):
             self.assertIs(own["securityContext"]["readOnlyRootFilesystem"], True)
             self.assertEqual(own["securityContext"]["capabilities"], {"drop": ["ALL"]})
         self.assertIs(pod["automountServiceAccountToken"], False)
+        # The tokenless account from render.py accounts, not the namespace default (CIS 5.1.5, 5.1.6).
+        self.assertEqual(pod["serviceAccountName"], "attachment-copy")
         for field in ("hostNetwork", "hostPID", "hostIPC"):
             self.assertNotIn(field, pod)
         self.assertFalse([v for v in pod["volumes"] if "hostPath" in v])

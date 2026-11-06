@@ -223,6 +223,8 @@ class RenderContractTests(unittest.TestCase):
         self.assertEqual(values["S3_FORCE_PATH_STYLE"], "true")
         self.assertNotIn("amazonaws.com", json.dumps(values))
         self.assertFalse(pod_spec()["automountServiceAccountToken"])
+        # Its own tokenless account from render.py accounts, not the namespace default (CIS 5.1.5, 5.1.6).
+        self.assertEqual(pod_spec()["serviceAccountName"], "demo-chat")
 
     def test_object_store_policy_label_is_present(self):
         labels = rendered()["Deployment"]["spec"]["template"]["metadata"]["labels"]

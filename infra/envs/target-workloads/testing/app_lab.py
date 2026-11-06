@@ -231,6 +231,7 @@ def install_databases():
 
     target = render("render.py", "database", "--node-name", NODE)
     apply([item for item in target if item["kind"] == "Namespace"])
+    apply(render("render.py", "accounts"))
     source = json.loads(run(sys.executable, str(ROOT / "infra/envs/source-workloads/render.py"), "database"))["items"]
     for item in source:
         if item["kind"] == "Cluster":

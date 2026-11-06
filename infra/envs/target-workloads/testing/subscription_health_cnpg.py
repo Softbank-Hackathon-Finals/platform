@@ -178,6 +178,7 @@ def prepare(k3s):
               basic_auth("target-replication", "target-dev", "chat_replicator", passwords["target_replicator"]), *first[1:])
     k3s.wait_cluster("source-dev", "source-db")
     k3s.wait_cluster("target-dev", "target-db")
+    k3s.apply(*render.accounts())
     k3s.apply(*render.migration())
     k3s.kubectl("-n", "target-dev", "wait", "--for=condition=complete", "job/target-chat-schema-v1", "--timeout=180s")
 
