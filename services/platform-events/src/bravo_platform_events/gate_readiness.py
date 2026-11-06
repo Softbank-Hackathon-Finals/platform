@@ -69,7 +69,11 @@ def _latest(view, context):
 
 
 def _binding(value):
-    raw = value["binding"]
+    return binding_from_dict(value["binding"])
+
+
+def binding_from_dict(raw):
+    """A ReadinessBinding from its asdict() form (stored records, operator relay requests)."""
     policy = dict(raw["policy"])
     policy["tables"] = tuple(policy["tables"])
     policy["sequence_columns"] = tuple(tuple(pair) for pair in policy["sequence_columns"])

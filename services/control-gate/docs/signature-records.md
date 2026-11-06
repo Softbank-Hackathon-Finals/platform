@@ -58,6 +58,27 @@ T21의 같은 트랜잭션 보고서 조회에는 `authority_factory=provenance.
 새 어댑터 인스턴스에서도 저장된 근거를 읽고 현재 폐기를 반영하며 프로세스 캐시에
 신뢰하지 않는다. 트랜잭션이 끝난 view/검증기를 다음 요청에 재사용하지 않는다.
 
+## 운영 조립과 운영자 발급자 (2026-11-07)
+
+운영 조립은 `bravo_platform_events.gate_services`와 `gate_readiness`가 한다. 운영자 승인 호스트·Edge SHIFT 포트는
+`"gate": "bravo_platform_events.gate_services:create"`, 워크플로 호스트 GATE는 `service_factory`·`load_gate`를 쓴다.
+
+**서명 주체(T19 결정):** 해피패스까지는 운영자 발급자 하나가 용도별 키를 보관한다. 운영자가 T14 수집·T13 캡처·
+GATE 보고서를 확인한 뒤 자기 기기에서 서명하고, 플랫폼에는 공개키와 서명한 봉투만 보낸다. 워크플로 호스트는
+검증만 하고 개인 키를 갖지 않는다. 키 등록(`gate:manage-provenance`)과 게시(`gate:publish-provenance`)는 다른
+주체다. 해피패스 뒤에는 생산자별 키(T14·T13 Job)로 나눌 수 있게 처음부터 용도별로 등록한다.
+
+**순서:** `operations/gate/run.py`
+
+1. `keys --dir <0700 비공개 경로>`: 용도별 키를 만든다.
+2. `enroll`: 수집보다 **먼저** 공개키를 등록한다. 등록 전에 시작한 수집은 서명할 수 없다.
+3. T14 원문 기록과 컨텍스트 결속을 하고, `readiness --binding … --snapshot …`으로 T13 기록을 남긴다.
+4. `subjects`로 서명할 지문을 확인하고, `sign --confirm-context <지문>`으로 게시한다.
+5. 평가 뒤 `subjects`에 나온 `gate-result`에도 같은 방식으로 서명한다.
+
+relay(`gate_relay`)는 워크플로 호스트 안에서 돈다. 누가 행동하는지는 호스트 설정 `/workflow/gate-relay.json`에
+고정되고, 요청이 고를 수 없다. 각 주체는 OperatorAccess에서 해당 gate 권한을 따로 받아야 한다.
+
 ## 운영 인수에서 남은 것
 
 운영 관리·생산자 인증, 공개키 자격, 개인 키의 발급·보관·회전, T14 수집기의 실제
