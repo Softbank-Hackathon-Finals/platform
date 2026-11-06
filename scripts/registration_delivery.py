@@ -7,6 +7,7 @@ import base64
 import hashlib
 import json
 import os
+import re
 import subprocess
 import urllib.error
 import urllib.request
@@ -24,6 +25,9 @@ REPOSITORY = "Softbank-Hackathon-Finals/platform"
 IMAGE = "ghcr.io/softbank-hackathon-finals/platform-registration"
 PACKAGE = "softbank-hackathon-finals/platform-registration"
 VALUES = "infra/gitops/environments/development/registration-image.json"
+PUBLICATION = str(Path(VALUES).with_name("registration-publication.json"))
+PROPOSAL_PREFIX = "feature/T43-registration-image-"
+PROPOSAL_TITLE = "[T43] 검증된 등록 API 이미지 배포"
 BUILD_INPUTS = (
     "services/platform-events",
     "services/agent-worker/src",
@@ -197,6 +201,90 @@ def promotion_values(receipt):
     }
 
 
+def github(path, *args, check=True):
+    return run(["gh", "api", "repos/" + REPOSITORY + "/" + path, *args], check=check)
+
+
+def open_proposals():
+    pages = json.loads(github("pulls?state=open&base=develop&per_page=100",
+                              "--paginate", "--slurp").stdout)
+    return [pr for page in pages for pr in page]
+
+
+def proposal_values(pr):
+    """Recognize both legacy and new generated PRs by scope and committed receipt."""
+    branch = pr["head"]["ref"]
+    if (pr["base"]["ref"] != "develop"
+            or (pr["head"].get("repo") or {}).get("full_name") != REPOSITORY
+            or not re.fullmatch(re.escape(PROPOSAL_PREFIX) + r"[0-9a-f]{12}", branch)
+            or pr["title"] != PROPOSAL_TITLE
+            or not (pr.get("body") or "").startswith("Refs #355\n")):
+        return None
+    pages = json.loads(github(f"pulls/{pr['number']}/files?per_page=100",
+                              "--paginate", "--slurp").stdout)
+    files = [item for page in pages for item in page]
+    if ({item["filename"] for item in files} != {VALUES, PUBLICATION}
+            or any(item["status"] not in {"added", "modified"} for item in files)):
+        return None
+    head = source_sha(pr["head"]["sha"])
+
+    def content(path):
+        blob = json.loads(github(f"contents/{path}?ref={head}").stdout)
+        return json.loads(base64.b64decode(blob["content"]))
+
+    values = content(VALUES)
+    if (promotion_values(content(PUBLICATION)) != values
+            or branch != PROPOSAL_PREFIX + values["sourceRevision"][:12]):
+        raise Failure("proposal_identity_mismatch")
+    return values
+
+
+def is_ancestor(older, newer):
+    result = run(["git", "merge-base", "--is-ancestor", older, newer], check=False)
+    if result.returncode not in {0, 1}:
+        raise Failure("proposal_source_history_unavailable")
+    return result.returncode == 0
+
+
+def close_superseded(values, keep=None):
+    """Close only older generated proposals after confirming their replacement."""
+    source = values["sourceRevision"]
+    run(["git", "fetch", "origin", "develop"])
+    if not is_ancestor(source, "origin/develop") or run(
+        ["git", "diff", "--name-only", source, "origin/develop", "--", *INPUTS]
+    ).stdout.strip():
+        return []
+    if keep is not None:
+        replacement = json.loads(github(f"pulls/{keep}").stdout)
+        if replacement["state"] != "open" or proposal_values(replacement) != values:
+            raise Failure("replacement_proposal_changed")
+    else:
+        recorded = json.loads(run(["git", "show", "origin/develop:" + VALUES]).stdout)
+        if recorded != values:
+            raise Failure("replacement_values_changed")
+    closed = []
+    for pr in open_proposals():
+        if pr["number"] == keep:
+            continue
+        previous = proposal_values(pr)
+        if previous is None or previous["sourceRevision"] == source:
+            continue
+        if not is_ancestor(previous["sourceRevision"], source):
+            continue
+        current = json.loads(github(f"pulls/{pr['number']}").stdout)
+        if current["state"] != "open":
+            continue
+        if current["head"]["sha"] != pr["head"]["sha"] or proposal_values(current) != previous:
+            raise Failure("superseded_proposal_changed")
+        github(f"pulls/{pr['number']}", "--method", "PATCH", "-f", "state=closed", check=False)
+        # Resolve a lost close response by reading the same PR, never retrying the write.
+        readback = json.loads(github(f"pulls/{pr['number']}").stdout)
+        if readback["state"] != "closed" or readback.get("merged_at") is not None:
+            raise Failure("proposal_close_unknown_read_existing_pr_before_retry")
+        closed.append(pr["number"])
+    return closed
+
+
 def propose(receipt):
     workflow_boundary()
     values = promotion_values(receipt)
@@ -208,7 +296,14 @@ def propose(receipt):
         ["git", "diff", "--name-only", source, "origin/develop", "--", *INPUTS]
     ).stdout.strip():
         return {"action": "superseded", "deployed": False}
-    branch = "feature/T43-registration-image-" + source[:12]
+    # The workflow's shared concurrency group serializes publication/proposal runs.
+    # Documentation-only newer sources can have identical inputs: do not regress them.
+    for pr in open_proposals():
+        pending = proposal_values(pr)
+        if (pending is not None and pending["sourceRevision"] != source
+                and is_ancestor(source, pending["sourceRevision"])):
+            return {"action": "superseded", "deployed": False}
+    branch = PROPOSAL_PREFIX + source[:12]
     existing = json.loads(
         run(
             [
@@ -227,15 +322,24 @@ def propose(receipt):
         ).stdout
     )
     if existing:
+        closed = []
+        if existing[0]["state"] == "OPEN":
+            pr = json.loads(github(f"pulls/{existing[0]['number']}").stdout)
+            pending = proposal_values(pr)
+            if pending is None or pending["sourceRevision"] != source:
+                raise Failure("existing_proposal_identity_mismatch")
+            closed = close_superseded(pending, pr["number"])
         return {
             "action": "existing_proposal",
             "url": existing[0]["url"],
+            "closed_proposals": closed,
             "deployed": False,
         }
     run(["git", "switch", "--detach", "origin/develop"])
     path = Path(VALUES)
     if path.exists() and json.loads(path.read_text()) == values:
-        return {"action": "already_recorded", "deployed": False}
+        return {"action": "already_recorded", "closed_proposals": close_superseded(values),
+                "deployed": False}
     previous = run(["git", "show", source + ":" + VALUES], check=False)
     previous_values = json.loads(previous.stdout) if previous.returncode == 0 else None
     current_values = json.loads(path.read_text()) if path.exists() else None
@@ -286,7 +390,7 @@ def propose(receipt):
     )
     body_file = Path(os.environ["RUNNER_TEMP"]) / "registration-proposal.md"
     body_file.write_text(body)
-    url = run(
+    run(
         [
             "gh",
             "pr",
@@ -298,7 +402,7 @@ def propose(receipt):
             "--head",
             branch,
             "--title",
-            "[T43] 검증된 등록 API 이미지 배포",
+            PROPOSAL_TITLE,
             "--body-file",
             str(body_file),
             "--label",
@@ -307,9 +411,16 @@ def propose(receipt):
             "area:infra",
             "--label",
             "stage:3",
-        ]
-    ).stdout.strip()
-    return {"action": "proposed", "url": url, "deployed": False}
+        ], check=False,
+    )
+    # Successful and lost create responses use the same exact branch readback.
+    created = [pr for pr in open_proposals() if pr["head"]["ref"] == branch]
+    if (len(created) != 1 or created[0]["head"]["sha"] != head
+            or proposal_values(created[0]) != values):
+        raise Failure("proposal_create_unknown_read_existing_pr_before_retry")
+    closed = close_superseded(values, created[0]["number"])
+    return {"action": "proposed", "url": created[0]["html_url"],
+            "closed_proposals": closed, "deployed": False}
 
 
 def check_promotion():
