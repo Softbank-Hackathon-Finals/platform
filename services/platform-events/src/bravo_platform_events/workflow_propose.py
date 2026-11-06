@@ -30,7 +30,9 @@ def pinned_selections(directory):
     return select
 
 
-def propose_preparer(execution, *, select, repository, github=None):
+def propose_preparer(execution, *, select, repository, github=None, writer=None):
+    """`select` (operator pin) wins; otherwise `writer` (GitHub App) creates the candidate
+    PR, dispatches T7 and derives the selection from the reviewed workflow's run."""
     if type(execution) is not InitialProposalExecution or not callable(select):
         raise ValueError("propose_ports_required")
 
@@ -40,7 +42,10 @@ def propose_preparer(execution, *, select, repository, github=None):
         if not admitted:
             raise EventError("initial_execution_not_complete")
         value, intent, result = execution.publication_inputs(plan_id, version, **admitted[1])
-        selection = select(publication_request_id(intent))
+        request_id = publication_request_id(intent)
+        selection = select(request_id)
+        if selection is None and writer is not None:
+            selection = writer.selection(value, result, request_id)
         if selection is None:
             raise EventError("initial_publication_unselected")  # T7 run not reviewed yet
         try:

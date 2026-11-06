@@ -17,7 +17,7 @@ from bravo_platform_events.workflow_propose import pinned_selections, propose_pr
 PLAN = SPEC.plan_id
 
 
-def setup(backend, repository, tmp_path, monkeypatch, *, execute=True):  # noqa: F811
+def setup(backend, repository, tmp_path, monkeypatch, *, execute=True, writer=None):  # noqa: F811
     b = Bundle(repository)
     monkeypatch.setattr(original, "SOURCE", repository[1])
     f = original.Fixture(backend, tmp_path)
@@ -28,7 +28,8 @@ def setup(backend, repository, tmp_path, monkeypatch, *, execute=True):  # noqa:
         b.reseal()
     pins = tmp_path / "selections"
     pins.mkdir()
-    prepare = propose_preparer(f.port, select=pinned_selections(pins), repository=b.root, github=b.provider)
+    prepare = propose_preparer(f.port, select=pinned_selections(pins), repository=b.root, github=b.provider,
+                               writer=writer(b) if writer else None)
     readers = StageReaders({}, preparers={"PROPOSE": prepare})
     host = WorkflowHost(WorkflowRecovery(service(backend.store, None), read_evidence=readers))
     return b, f, pins, host
@@ -69,3 +70,19 @@ def test_selection_mount_must_be_absolute_dir(tmp_path):
         pinned_selections("relative")
     with pytest.raises(ValueError):
         propose_preparer(object(), select=lambda _id: None, repository=tmp_path)
+
+
+def test_without_a_pin_the_app_writer_supplies_the_selection(backend, repository, tmp_path, monkeypatch):  # noqa: F811
+    asked = []
+
+    class Writer:
+        def __init__(self, b):
+            self.b = b
+
+        def selection(self, value, result, request_id):
+            asked.append(request_id)
+            return self.b.selected
+
+    b, f, _pins, host = setup(backend, repository, tmp_path, monkeypatch, writer=Writer)
+    [step] = host.sweep()
+    assert step.after == "REHEARSE" and asked == [candidate.publication_request_id(b.intent)]
