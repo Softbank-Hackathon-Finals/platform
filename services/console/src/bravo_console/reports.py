@@ -47,7 +47,7 @@ class PlanControlReport:
             or registered.plan_id != plan["plan_id"]
             or registered.plan_digest != plan["plan_digest"]
             or type(plan.get("version")) is not int
-            or not 0 <= plan["version"] < 10**12
+            or not 0 < plan["version"] < 10**12
             or not isinstance(plan.get("state"), str)
             or not plan["state"]
             or type(registered.document) is not bytes

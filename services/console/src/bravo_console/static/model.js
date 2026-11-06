@@ -582,7 +582,7 @@ export function controlReportMatches(value, current, gate) {
   if (
     hasSnapshot &&
     (!Number.isSafeInteger(value.plan_version) ||
-      value.plan_version < 0 ||
+      value.plan_version < 1 ||
       value.plan_version !== current.version ||
       !STATES.includes(value.plan_state) ||
       value.plan_state !== current.state)
