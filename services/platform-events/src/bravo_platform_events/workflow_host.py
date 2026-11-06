@@ -1,0 +1,98 @@
+"""Internal T10 workflow driver: the one process that advances plans.
+
+Durable-execution pattern (the Agents SDK has no workflow runner; Temporal's
+integration is the common reference): the plan row and `workflow:<version>`
+checkpoints are the durable history, `WorkflowRecovery.resume_once` is the
+idempotent step, and producer records (AI proposal, T15, T31, T19, Executor)
+are activity results read by one reader per state. The AI is an activity behind
+the PROPOSE reader; it never selects a state. No HTTP route, no client evidence.
+"""
+
+import json
+import logging
+import threading
+from dataclasses import dataclass
+
+from .plan_api import Principal
+from .store import EventError
+from .workflow import STAGES, WorkflowRecovery
+
+log = logging.getLogger(__name__)
+HOST_SUBJECT = "workflow-host"
+# FAILBACK is driven by resume_once too; every other state belongs to another owner.
+DRIVEN = (*STAGES, "FAILBACK")
+
+
+class StageReaders:
+    """`read_evidence` for WorkflowRecovery, by state. An unwired state holds (fail closed)."""
+
+    def __init__(self, readers):
+        if set(readers) - set(STAGES) or not all(map(callable, readers.values())):
+            raise ValueError("unknown_or_invalid_stage_reader")
+        self.readers = dict(readers)
+
+    def __call__(self, c, plan, previous, run):
+        reader = self.readers.get(plan["state"])
+        if reader is None:
+            raise EventError("workflow_reader_unwired")
+        return reader(c, plan, previous, run)
+
+
+@dataclass(frozen=True)
+class Step:
+    plan_id: str
+    before: str
+    after: str
+    hold: str | None = None  # EventError code: waiting on a producer or a refused proof
+
+
+class WorkflowHost:
+    def __init__(self, recovery: WorkflowRecovery):
+        if not isinstance(recovery, WorkflowRecovery):
+            raise ValueError("workflow_recovery_required")
+        self.recovery = recovery
+        self.store = recovery.cutover.store
+        self._last = {}
+
+    def active(self):
+        marks = ",".join("?" * len(DRIVEN))
+        with self.store._transaction() as c:
+            rows = c.execute(f"SELECT plan_id,tenant_id,state FROM plans WHERE state IN ({marks}) "
+                             "ORDER BY plan_id", DRIVEN).fetchall()
+        return [(row["plan_id"], row["tenant_id"], row["state"]) for row in rows]
+
+    def advance(self, plan_id, tenant_id, state):
+        """Step one plan until it stops moving. Each step is its own durable transition."""
+        principal = Principal(HOST_SUBJECT, tenant_id)
+        start = state
+        for _ in range(len(DRIVEN) + 1):  # ponytail: bound only; a cycle would be a workflow bug
+            try:
+                after = self.recovery.resume_once(principal, plan_id)
+            except EventError as error:
+                return Step(plan_id, start, state, error.code)
+            if after == state:
+                break
+            state = after
+        return Step(plan_id, start, state)
+
+    def sweep(self):
+        steps = []
+        for plan_id, tenant_id, state in self.active():
+            try:
+                step = self.advance(plan_id, tenant_id, state)
+            except Exception:  # storage or producer outage: keep other plans moving
+                log.exception("workflow step failed", extra={"plan_id": plan_id})
+                continue
+            steps.append(step)
+            seen = (step.after, step.hold)
+            if step.before != step.after or self._last.get(plan_id) != seen:
+                log.info(json.dumps({"event": "workflow.step", **step.__dict__}, sort_keys=True))
+            self._last[plan_id] = seen
+        return steps
+
+    def run(self, stop: threading.Event, interval=15.0):
+        # ponytail: periodic sweep; add a state.changed/producer wakeup when latency matters.
+        while True:
+            self.sweep()
+            if stop.wait(interval):
+                return
