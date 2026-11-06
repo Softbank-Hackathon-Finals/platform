@@ -14,7 +14,7 @@
 | SEC-01.2 소스·설정 비밀 탐지 | `secret_scan.py` | [#356](https://github.com/Softbank-Hackathon-Finals/platform/pull/356): 등록 revision 전체 소스·실행 설정 검사. 목적지 산출물은 별도 |
 | SEC-01.3 로그 비밀 노출 | [#381](https://github.com/Softbank-Hackathon-Finals/platform/pull/381)의 `secret_logs.py` | 검사·CloudWatch 조회 구현. 승인된 주입·호출·복원 실행부와 전달 완료/양쪽 로그 원천 연결 미구현 |
 | SEC-01.4 비밀 회전 후 회복 | `secret_rotation.py` 읽기 전용 판정·격리된 실제 앱/PG 시험 | [회전 시험](secret-rotation.md): 재시작·기존 연결·30초 초과 구분. 운영 Secret/CNPG/풀러 적용·실행권·복구 및 양쪽 접점은 별도 필요 |
-| ENC-02.1 Secret 저장 암호화 | `secret_encryption.py` | [#341](https://github.com/Softbank-Hackathon-Finals/platform/pull/341): 실제 AWS Secret/KMS 메타데이터. RKE2 암호화·OpenBao seal 어댑터 필요 |
+| ENC-02.1 Secret 저장 암호화 | `secret_encryption.py`, `target_secret_encryption.py` | #341 실제 AWS 메타데이터. [목적지 상태 수집기](target-secret-encryption.md)와 실제 OpenBao 격리 시험 구현. RKE2 CLI·전체 노드·운영 전달/저장 결속 인수는 별도 |
 | ENC-01.1 앱→Pooler TLS | `postgres_tls.py`, `app_process_tls.py` | [#298](https://github.com/Softbank-Hackathon-Finals/platform/pull/298): 출발지 실제 앱 경로. 목적지 실행 필요 |
 | ENC-01.2 잘못된 CA/호스트 거부 | 같은 TLS 수집기 | #298 출발지 실제 거부·대조군. 목적지 실행 필요 |
 | ENC-01.3 평문 거부 | 같은 TLS 수집기 | #298 출발지 실제 거부·대조군. 목적지 실행 필요 |
