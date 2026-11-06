@@ -54,6 +54,7 @@ MAX_LINE_BYTES = 64 * 1024  # T10 caps one event at 32 KiB of canonical input
 MAX_EVENT_BYTES = 64 * 1024
 MAX_ERROR_BODY = 4096
 MAX_TOKEN_BYTES = 16 * 1024
+ONCE_MAX_CONNECTIONS = 100  # --once keeps confirming while events still arrive, but not forever
 KNOWN_CODES = frozenset({"forbidden", "plan_not_found", "invalid_cursor", "resync_required", "invalid_plan_id"})
 HEADER_TOKEN = re.compile(r"[!#$%&'*+.^_`|~0-9A-Za-z-]+\Z")
 CREDENTIAL = re.compile(r"[\x21-\x7e]+\Z")
@@ -201,6 +202,7 @@ class PlanState:
     t10_runs: dict[int, str]  # T10 sequence → run that recorded it
     cursor_sequence: int  # Last-Event-ID sent to T10 (0 = from the beginning)
     expected: int = 0
+    stored_last: int = 0  # last T10 sequence already in storage when this connection started
     written: int = 0
     absorbed: int = 0
     now: Callable[[], str] = field(default=utc_now)
@@ -234,7 +236,7 @@ class PlanState:
         expanded = bool(last_head) and isinstance(last_head["payload"].get("data"), dict) and \
             "tool_events_count" in last_head["payload"]["data"]
         cursor = last - 1 if expanded else last
-        return cls(plan_id, ledgers, t10, cursor, expected=cursor + 1, now=now)
+        return cls(plan_id, ledgers, t10, cursor, expected=cursor + 1, stored_last=last, now=now)
 
     def last_event_id(self) -> str | None:
         return f"{self.plan_id}:{self.cursor_sequence}" if self.cursor_sequence else None
@@ -464,11 +466,25 @@ def follow(upstream: Upstream, *, load_runs: Callable[[], dict[str, list[dict]]]
             for sse in parse_sse(_readline(response)):
                 state.apply(decode_event(sse, upstream.plan_id), sink, on_receipt)
                 attempt = 0  # progress resets the backoff
-            if once:
-                totals["records"] += state.written
-                totals["absorbed_redeliveries"] += state.absorbed
+            if not once:
+                raise Transient("stream_ended")
+            # T10 has no end-of-stream marker: after the headers a retention hole, a store error
+            # or revoked access ends the stream exactly like "nothing more" does (uvicorn drops
+            # the connection, readline() returns b""). So EOF is only "caught up" when the
+            # connection brought nothing new; otherwise a fresh connection from storage either
+            # finds nothing more or gets T10's real answer (409, 403, ...).
+            delivered = state.expected - 1
+            if delivered < state.stored_last:
+                raise Transient("stream_ended_early")  # not even the re-requested event came
+            totals["records"] += state.written
+            totals["absorbed_redeliveries"] += state.absorbed
+            if delivered == state.stored_last:
                 return summary(EXIT_OK, "caught_up")
-            raise Transient("stream_ended")
+            if connections >= ONCE_MAX_CONNECTIONS:
+                _log(event="stopped", exit=EXIT_UNAVAILABLE, reason="once_not_settled")
+                return summary(EXIT_UNAVAILABLE, "once_not_settled")
+            _log(event="confirm", after_sequence=delivered)
+            continue
         except Transient as exc:
             totals["records"] += state.written
             totals["absorbed_redeliveries"] += state.absorbed

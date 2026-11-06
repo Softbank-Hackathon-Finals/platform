@@ -36,11 +36,13 @@ def free_port() -> int:
 class T10Server:
     """``create_app(store, authorize=…)`` under uvicorn on a loopback port, in a thread."""
 
-    def __init__(self, store, token: str, *, poll_seconds: float = 0.05):
+    def __init__(self, store, token: str, *, poll_seconds: float = 0.05, deny_from: int | None = None):
         import uvicorn
 
         api, _store, _plans = t10()
         self.token = token
+        # Revoke access from the n-th authorization check on (T10 re-checks during a stream).
+        self.deny_from, self.checks = deny_from, 0
         self.presented: list[str | None] = []  # Authorization values seen (tests only)
         self.cursors: list[str | None] = []  # Last-Event-ID of each authorized request
         self.port = free_port()
@@ -53,6 +55,9 @@ class T10Server:
     def _authorize(self, request, _plan_id: str) -> bool:
         presented = request.headers.get("authorization")
         ok = presented is not None and hmac.compare_digest(presented, f"Bearer {self.token}")
+        self.checks += 1
+        if self.deny_from is not None and self.checks >= self.deny_from:
+            ok = False
         # T10 re-checks access during a stream; record each request once.
         if not request.scope.setdefault("state", {}).get("t24_seen"):
             request.scope["state"]["t24_seen"] = True
