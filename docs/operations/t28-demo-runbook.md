@@ -31,6 +31,24 @@ infra/envs/target-workloads/demo_reset.py check --kubeconfig <target> \
 
 **S4 순서를 지킨다.** 컷오버 실행기는 FAILBACK 중에 pooler를 다시 설정한다. 장애를 걸어 둔 채 되돌리기를 승인하지 않는다. `demo_fault.py inject`는 pooler를 0으로 줄이기 전에 원래 replicas와 Deployment UID를 `--record` 파일에 남긴다. `clear`는 같은 UID에만 그 수를 되돌린다. 복제는 pooler를 거치지 않고 DB끼리 연결하므로 장애 중에도 이어진다.
 
+## 실행기 (`scripts/happy_path.py`)
+
+해피패스 한 회차의 운영자 쪽 단계를 설계 7.6·8.2 순서로 진행하고 기록한다. plan 상태 전이는 T10(ADR-0031 워크플로 호스트)이 맡는다. 실행기는 상태를 바꾸거나 승인하지 않는다.
+
+```sh
+python3 scripts/happy_path.py steps                      # 순서와 연결 상태
+python3 scripts/happy_path.py run --plan-id <plan> --record <run.jsonl> --profile real \
+  --plan-state-command <plan 상태를 {"state": ...}로 출력하는 읽기 전용 명령> \
+  --kubeconfig <target> --application-id <T31 id> --receipts <T31 receipts> --wait 600
+python3 scripts/happy_path.py confirm --record <run.jsonl> --step s2-change-approval --by <이름>
+python3 scripts/happy_path.py resolve --record <run.jsonl> --step <id> --status done|failed --by <이름> --note <근거>
+```
+
+- **기록:** 회차마다 JSONL 하나를 남긴다. 첫 줄은 develop SHA, GitOps 이미지 pin, 프로필(`real`/`local`/`mock`), plan이다. 이어서 단계마다 결과를 한 줄씩 쓴다. 다시 실행하면 끝난 단계 다음부터 이어 간다.
+- **사람 판단:** 변경 승인, 컷오버 승인, 알림 확인, 되돌리기 승인에서 멈춘다. 승인은 콘솔에서 하고, 했다는 사실을 `confirm`으로 기록한다.
+- **멈춤:** 결과가 불명(3)이거나 실패한 단계는 다시 돌리지 않는다. 실제 상태를 읽은 뒤 `resolve`로 기록해야 이어 간다. `SAFE_HOLD`·`NEEDS_HUMAN`이면 실패로 멈춘다.
+- **아직 연결하지 않은 단계(`[unwired]`):** `s3-load`(T18), `s3-attachment-copy`·`s3-reverse-replication`(T8), `wrap-map`(T27), 그리고 plan 상태 읽기 명령(T10 `GET /v1/plans/{plan_id}`). 각 담당의 실행 명령이 정해지면 `STEPS`에 넣는다. 연결 전에는 그 단계에서 멈춘다.
+
 ## 중간 통합 점검
 
 | 점검 | 통과 기준 |
