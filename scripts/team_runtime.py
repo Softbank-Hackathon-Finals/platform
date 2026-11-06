@@ -198,6 +198,8 @@ def execute(args):
 
 
 def main():
+    if len(sys.argv) > 1 and sys.argv[1] == "objects":
+        return subprocess.run([sys.executable, str(REPO / "scripts/object_operations.py"), *sys.argv[2:]], check=False).returncode
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("command", choices=("check", "run", "status", "cleanup"))
     p.add_argument("--suite", choices=("isolation", "credentials"), default="isolation")
