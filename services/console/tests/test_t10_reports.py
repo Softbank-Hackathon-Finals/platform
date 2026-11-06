@@ -170,6 +170,75 @@ def test_same_stored_report_reaches_console_without_writes(stored):
         assert c.execute("SELECT count(*) AS n FROM plan_commands").fetchone()["n"] == count
 
 
+def _transaction_authority(f, *, hook=lambda: None):
+    def factory(view):
+        def envelope(context, subject, purpose):
+            # Prove the current plan connection is usable at every lookup;
+            # never create a second transaction in the provider.
+            row = view.c.execute("SELECT plan_id FROM plans WHERE plan_id=?",
+                                 (view.plan["plan_id"],)).fetchone()
+            assert row["plan_id"] == f.plan.plan_id
+            assert context == view.context and purpose == "gate-result"
+            f.authority_connections.append(view.c)
+            hook()
+            return f.envelope
+        return Ed25519Authority(envelope_provider=envelope,
+                                key_provider=lambda *_: f.key, clock=lambda: f.now)
+    return factory
+
+
+def test_current_issuer_is_loaded_in_the_same_plan_transaction(stored):
+    f = stored
+    f.authority_connections = []
+    f.reader = T10ControlReports(f.records, resolve_principal=f.reader.resolve_principal,
+        authority_factory=_transaction_authority(f), clock=lambda: f.now)
+    scope, before = f.scope, f.store.snapshot(f.plan.plan_id)
+    candidate = asyncio.run(f.reader.load(scope, before))
+    assert candidate.document == f.report.raw
+    assert len(f.authority_connections) == 2
+    assert f.authority_connections[0] is f.authority_connections[1]
+    assert asyncio.run(f.reader.authenticate(scope, before, candidate)) is True
+    # A fresh read has a fresh connection-bound authority, not the closed view.
+    assert len(f.authority_connections) == 4
+    assert f.authority_connections[2] is f.authority_connections[3]
+    assert f.authority_connections[0] is not f.authority_connections[2]
+    assert f.store.snapshot(f.plan.plan_id) == before
+
+
+@pytest.mark.parametrize("fault", ["revoked", "expired", "grant", "missing", "wrong-type", "error"])
+def test_transaction_issuer_failures_cannot_serve_old_report(stored, fault):
+    f = stored
+    f.authority_connections = []
+    factory = _transaction_authority(f)
+    if fault == "revoked":
+        f.key = replace(f.key, revoked=True)
+    elif fault == "expired":
+        f.now += timedelta(hours=1)
+    elif fault == "grant":
+        factory = _transaction_authority(f, hook=lambda: setattr(f, "grant", False))
+    elif fault == "missing":
+        f.envelope = None
+    elif fault == "wrong-type":
+        def factory(*_):
+            return True
+    else:
+        def factory(*_):
+            raise RuntimeError("secret=transaction-authority-test-marker")
+    reader = T10ControlReports(f.records, resolve_principal=f.reader.resolve_principal,
+                               authority_factory=factory, clock=lambda: f.now)
+    with pytest.raises(ObservationError, match="^control_report_unavailable$") as error:
+        asyncio.run(reader.load(f.scope, f.store.snapshot(f.plan.plan_id)))
+    assert "transaction-authority-test-marker" not in str(error.value)
+
+
+def test_ambiguous_authority_modes_are_rejected(stored):
+    f = stored
+    for options in ({}, {"authenticate_report": lambda *_: True,
+                        "authority_factory": lambda *_: True}):
+        with pytest.raises(ValueError, match="explicit_t10_report_authority_required"):
+            T10ControlReports(f.records, resolve_principal=f.reader.resolve_principal, **options)
+
+
 @pytest.mark.parametrize("fault", ["identity", "grant", "truthy-grant", "unsigned", "revoked", "expired", "tampered"])
 def test_current_identity_grant_and_provenance_are_required(stored, fault):
     f = stored
