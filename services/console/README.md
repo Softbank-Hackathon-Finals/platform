@@ -170,6 +170,24 @@ app = ConsoleApp(authenticated_t10_app,
 콜백·DB 오류의 원문은 HTTP 응답에 포함하지 않는다. `load`와 두 번의 `authenticate`는
 각각 현재 저장소·호스트 권한을 다시 읽고, 이미 읽은 문서를 캐시해서 신뢰하지 않는다.
 
+발급자 키·서명 원문을 같은 계획 DB에서 읽어야 한다면 `authenticate_report` 대신
+`authority_factory(view)`를 전달한다. 공급자는 현재 `view.c`와 인증된
+`view.principal`에 연결한 T19 `Ed25519Authority`를 반환한다. 키·envelope 조회에
+별도 DB 트랜잭션을 열지 않고 같은 계획 잠금 안에서 현재 등록·폐기·기한을 확인한다.
+이 공급자와 반환된 검증기를 트랜잭션 밖에 보관하거나 캐시에 넣으면 안 된다.
+
+```python
+source = T10ControlReports(gate_records,
+    resolve_principal=resolve_current_operator,
+    authority_factory=load_current_report_authority)
+```
+
+`authenticate_report`와 `authority_factory`는 정확히 하나만 지정한다. 후자의
+어댑터가 수행하는 서명 검증은 전자와 같은 `gate-result` purpose·context·보고서
+지문·기한 검사를 사용하며, 생성자 반환만으로 출처를 인증하지 않는다. 발급자 등록이나
+서명 생성 기능도 없다. 기존 콜백 방식은 유지하며 권한 회수·다른 context·서명 만료를
+우회하는 fallback은 제공하지 않는다.
+
 `tests/test_t10_reports.py`는 SQLite·별도 로컬 PostgreSQL의 실제 T10 저장·잠금과
 Ed25519 검증으로 최초/반영 후 단계, 권한 회수·다른 tenant·변조·서명 폐기/만료·
 현재 컨텍스트 변경과 오류 비노출을 검사한다. 신원·권한·키·시험 원문은 합성 fixture다.

@@ -1,0 +1,21 @@
+{
+  "source_revision": "49f9d7b931db18e1fe10b7761913440b0bab4a77",
+  "source_files": [
+    {
+      "path": "services/console/src/bravo_console/t10_reports.py",
+      "sha256": "84a68b7cd052c6421ea20071bb22cca058d8e34d5e6b37ebfa3d5eeea8769122"
+    },
+    {
+      "path": "services/console/tests/test_t10_reports.py",
+      "sha256": "02a3f6b3d08450edc9c02d5558240b0f4321917b5d8f1d949e695a32fb44f39c"
+    },
+    {
+      "path": "services/control-gate/src/bravo_gate/signatures.py",
+      "sha256": "d2128f1749da839c824c3cb819be2490b7fbb6de401b717f86b0ac34cd53f8c3"
+    },
+    {
+      "path": "services/platform-events/src/bravo_platform_events/gate_records.py",
+      "sha256": "e7b2aac633b9a1792947d7d3778a519e0233bb3655bf5e5810d363b090d923fc"
+    }
+  ]
+}
