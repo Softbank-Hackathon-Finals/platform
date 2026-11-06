@@ -244,7 +244,8 @@ def main(argv=None):
     r.add_argument("--plan-state-command", nargs="+", help="read-only command printing {\"state\": ...}")
     r.add_argument("--kubeconfig")
     r.add_argument("--platform-context", help="kubectl context of the platform cluster (default plan reader)")
-    r.add_argument("--initial-args", nargs="+", help="operations/initial-proposal/run.py arguments after the command")
+    r.add_argument("--initial-args", nargs="+", help="LAST option: every argument after it goes to "
+                   "operations/initial-proposal/run.py as is (--initial-args --from initial.json)")
     r.add_argument("--application-id")
     r.add_argument("--receipts")
     r.add_argument("--fault-record", default="demo-fault.json")
@@ -260,7 +261,18 @@ def main(argv=None):
         m.add_argument("--note", default="")
         if name == "resolve":
             m.add_argument("--status", choices=["done", "failed"], required=True)
+    argv = list(sys.argv[1:] if argv is None else argv)
+    # run.py arguments start with "--", which argparse would read as this runner's options
+    # (Jeonsubb 11/7): everything after a bare --initial-args is passed through untouched.
+    initial = None
+    if "--initial-args" in argv:
+        at = argv.index("--initial-args")
+        argv, initial = argv[:at], argv[at + 1:]
+        if not initial:
+            p.error("--initial-args needs run.py arguments")
     args = p.parse_args(argv)
+    if initial is not None:
+        args.initial_args = initial
     if args.command == "steps":
         for step in STEPS:
             wired = step.kind != "operator" or step.command is not None

@@ -102,12 +102,18 @@ uv run --directory services/platform-events python ../../operations/initial-prop
    `localhost/bravo-demo-chat-candidate` 별칭으로 넣은 뒤 digest를 대조한다(실행기 `s2-candidate-import` 확인).
    레지스트리 pull 자격은 목적지에 두지 않는다(목적지 pull형은 고도화).
 3. T31 반영 뒤 `open_after_apply.py`(실행기 `s2-open-writes`).
+4. 첨부 복사(`s3-attachment-copy`, T8 담당) **직전**에 출발지 첨부 업로드를 멈춘다. 복사는 시작 뒤에 들어온 업로드를 알 수
+   없기 때문이다. 출발지 앱 이미지(`8d82a92`)의 `ATTACHMENT_UPLOAD_ENABLED=false`로 하고, 출발지 앱 Pod가 한 번 다시 뜬다.
+   멈춘 시각과 Pod 재기동을 실행 기록에 남기고, 컷오버가 끝날 때까지 되돌리지 않는다(실패 복귀 시에만 `true`로 복원).
+   첨부 복사의 `plan_id`·`epoch`는 컷오버 요청 값을 그대로 쓴다(T10 담당이 그 단계 직전에 전달).
+5. WATCH의 T18 부하 창은 전용 서버 `bravo-loadgen`에서만 보낸다(노트북 송신은 차단). 해피패스 전에 켜고 표시 파일과
+   tailnet 태그를 확인한다(T18 담당).
 
 ## 4. 실행기
 
 ```sh
 python3 scripts/happy_path.py run --plan-id <plan> --record run.jsonl --profile real \
-  --platform-context <platform> --kubeconfig <target> --initial-args --from initial.json
+  --platform-context <platform> --kubeconfig <target> --initial-args --from initial.json   # --initial-args는 맨 마지막
 ```
 
 plan 상태는 워크플로 호스트 Pod(`deploy/t10-workflow-host`, 컨테이너 `host`)의 `bravo_platform_events.plan_state`로 읽는다(읽기 전용). T18·T8·T27·이미지 이관은 담당이
