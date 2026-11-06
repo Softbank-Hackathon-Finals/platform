@@ -3,6 +3,7 @@
 import argparse
 import hashlib
 import json
+import os
 import re
 import subprocess
 import tarfile
@@ -46,7 +47,26 @@ def copy_committed_tree(revision, prefix, destination):
         raise ValueError("committed_source_missing")
 
 
-def prepare_context(context, revision):
+def add_rehearsal_context(context, revision):
+    copy_committed_tree(revision, "services/rehearsal-runner/templates/", context / "templates")
+    for directory in ("rehearsal-access", "target-secrets"):
+        copy_committed_tree(revision, f"infra/envs/{directory}/", context / "infra" / directory)
+    # Keep the upstream command unchanged; compile its locked, patched module
+    # graph with a fixed toolchain instead of shipping vulnerable release deps.
+    with tempfile.TemporaryDirectory(prefix="bravo-kubectl-") as directory:
+        source = Path(directory)
+        copy_committed_tree(revision, "operations/kubectl/", source)
+        env = os.environ | {"GOOS": "linux", "GOARCH": "amd64", "CGO_ENABLED": "0",
+                            "GOTOOLCHAIN": "go1.26.10"}
+        flags = "-s -w -buildid= " + " ".join(
+            f"-X {package}.gitVersion=v1.35.10-bravo.1 -X {package}.gitTreeState=modified"
+            for package in ("k8s.io/component-base/version", "k8s.io/client-go/pkg/version"))
+        subprocess.run(["go", "build", "-mod=readonly", "-trimpath", "-buildvcs=false",
+                        "-ldflags", flags, "-o", str(context / "kubectl"), "."],
+                       cwd=source, env=env, check=True)
+
+
+def prepare_context(context, revision, *, rehearsal_host=False):
     # Export only hashed registry dependencies. Repo packages come from Git blobs.
     project = tomllib.loads((SERVICE / "pyproject.toml").read_text())
     upstream = project["tool"]["uv"]["sources"]["bravo-observability"]
@@ -69,7 +89,10 @@ def prepare_context(context, revision):
         copy_committed_tree(source, f"services/{service}/src/{package}/", context / "src" / package)
     if not (context / "src/bravo_platform_events/product_read_server.py").is_file():
         raise ValueError("product_reader_missing")
-    recipe = "services/platform-events/deploy/product-read/Dockerfile"
+    if rehearsal_host:
+        add_rehearsal_context(context, revision)
+    recipe = ("services/platform-events/deploy/approval/Dockerfile" if rehearsal_host
+              else "services/platform-events/deploy/product-read/Dockerfile")
     (context / "Dockerfile").write_bytes(git("show", f"{revision}:{recipe}"))
     return [{"path": str(p.relative_to(context)), "sha256": hashlib.sha256(p.read_bytes()).hexdigest()}
             for p in sorted(context.rglob("*")) if p.is_file()]
@@ -122,6 +145,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--no-cache", action="store_true", help="Rebuild only this image if local build cache is unusable")
+    parser.add_argument("--rehearsal-host", action="store_true", help="Build the stored-proposal T15 host")
     args = parser.parse_args()
     output = args.output.resolve()
     if output.exists() or output.is_relative_to(ROOT):
@@ -132,9 +156,9 @@ def main():
     revision = git("rev-parse", "HEAD").decode().strip()
     with tempfile.TemporaryDirectory(prefix="bravo-product-read-") as directory:
         context = Path(directory)
-        hashes = prepare_context(context, revision)
+        hashes = prepare_context(context, revision, rehearsal_host=args.rehearsal_host)
         context_digest = hashlib.sha256(json.dumps(hashes, sort_keys=True).encode()).hexdigest()
-        tag = "bravo-product-read:" + revision[:12] + "-" + context_digest[:32]
+        tag = ("bravo-rehearsal-host:" if args.rehearsal_host else "bravo-product-read:") + revision[:12] + "-" + context_digest[:32]
         subprocess.run(["docker", "build", "--platform", "linux/amd64", "--tag", tag,
             "--label", "org.opencontainers.image.revision=" + revision,
             *(["--no-cache"] if args.no_cache else []), str(context)], check=True)
@@ -145,11 +169,24 @@ def main():
             "from bravo_agent.product_contracts import ProductInput; "
             "from rehearsal_runner.task_catalog import TaskCatalog; "
             "assert os.getuid()==10001; "
-            "assert not any(n in sys.modules for n in "
-            "('openai','bravo_agent.subscription_product','bravo_agent.subscription_admin')); "
+            "assert not any(n.startswith(('openai','bravo_agent.subscription_product',"
+            "'bravo_agent.subscription_admin')) for n in sys.modules); "
             "print('product_reader_imports_ok')")
+        if args.rehearsal_host:
+            probe = ("import os,sys,subprocess; from bravo_platform_events.credential_host import create_ports; "
+                     "from bravo_platform_events.rehearsal_server import load_host; "
+                     "assert os.getuid()==10001; "
+                     "assert not any(n.startswith(('openai','bravo_agent.subscription_product',"
+                     "'bravo_agent.subscription_admin')) for n in sys.modules); "
+                     "from rehearsal_runner.namespace import render; "
+                     "profile={n+'_'+k:v for n in ('OPENBAO','SEAWEEDFS') for k,v in "
+                     "(('NAMESPACE','fixture'),('LABEL_KEY','app'),('LABEL_VALUE','fixture'),('PORT','8200'))}; "
+                     "assert 'ResourceQuota' in render('rehearsal-build',profile); "
+                     "subprocess.run(['kubectl','version','--client','-o','json'],check=True); "
+                     "print('rehearsal_host_imports_ok')")
         subprocess.run(["docker", "run", "--rm", "--platform", "linux/amd64", "--network", "none",
             "--read-only", "--cap-drop", "ALL", "--security-opt", "no-new-privileges",
+            *(["--tmpfs", "/tmp:rw,noexec,nosuid,size=64m,mode=1777"] if args.rehearsal_host else []),
             "--entrypoint", "python", image["Id"], "-c", probe], check=True)
         if (image["Architecture"], image["Os"], image["Config"]["User"]) != ("amd64", "linux", "10001:10001"):
             raise ValueError("product_image_identity_mismatch")
