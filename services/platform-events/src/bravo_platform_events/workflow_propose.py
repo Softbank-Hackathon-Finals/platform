@@ -8,6 +8,7 @@ with an operator pin it only reads; without one, `writer` (CandidateWriter, GitH
 the do-not-merge candidate PR and dispatches the reviewed T7 workflow, which builds the image.
 """
 
+import base64
 import json
 import re
 from pathlib import Path
@@ -43,6 +44,25 @@ def pinned_selections(directory):
     return select
 
 
+def apply_input_key(diff_hash):
+    return "workflow-apply-input-" + diff_hash.removeprefix("sha256:")
+
+
+def record_apply_input(store, plan_id, value, result):
+    """Keep the exact edits and T15/T31 diff bytes the change approval binds (diff_hash), so REHEARSE
+    hands T31 the same candidate later. Write-once; the same hash always means the same bytes."""
+    from bravo_apply.binding import diff_hash, render_diff
+
+    edits = [edit.model_dump(mode="json") for edit in result.proposal.edits]
+    diff = render_diff(dict(value.files), edits)
+    record = {"edits": edits, "diff_b64": base64.b64encode(diff).decode(), "diff_hash": diff_hash(diff)}
+    key = apply_input_key(record["diff_hash"])
+    with store._transaction(write=True, plan_id=plan_id) as c:
+        if c.execute("SELECT 1 FROM plan_commands WHERE plan_id=? AND command_key=?", (plan_id, key)).fetchone() is None:
+            c.execute("INSERT INTO plan_commands VALUES (?,?,?,?)", (plan_id, key, "{}", json.dumps(record, sort_keys=True)))
+    return record
+
+
 def propose_preparer(execution, *, select, repository, github=None, writer=None):
     """`select` (operator pin) wins; otherwise `writer` (GitHub App) creates the candidate
     PR, dispatches T7 and derives the selection from the reviewed workflow's run."""
@@ -66,6 +86,7 @@ def propose_preparer(execution, *, select, repository, github=None, writer=None)
                                               selection=selection, repository=repository, github=github)
         except ValueError:
             raise EventError("initial_publication_unconfirmed") from None
+        record_apply_input(execution.records.store, plan_id, value, result)
         return execution.evidence_reader(publication=publication)
 
     return prepare
