@@ -106,6 +106,17 @@ SHIFT에서 가중치 0이 자동인 이유: 이 구간에는 두 환경 앱이 
 
 `demo-shift` v1의 값과 근거는 [`threshold-profiles.json`](threshold-profiles.json)의 `basis`에 있다. `status: proposed`는 실측 전 제안값이라는 뜻이다. 특히 `p95_ms_max`는 8.6에 따라 T8의 클라우드 간 지연 실측으로 정한다. 값을 바꾸면 `version`을 올리고, 판정 기록은 자기가 쓴 버전을 담는다. 실측으로 확정하면 `status: measured`와 실측 기록 위치를 `basis`에 적는다.
 
+**실측으로 확정하는 순서.** 실제 Edge를 거친 T18 본 측정에서 가중치를 0 → 10 → 50 → 100 → 0으로 바꾼 실행([T18 합동 측정](../operations/t18-joint-measure.md) 5~6절, 해피패스 S3)의 `align` 결과로 정한다.
+
+```sh
+uv run --directory services/observability python -m bravo_observability.calibrate <out>/<실행 ID>/weight-alignment.json
+```
+
+- `p95_ms_max`: 가중치가 있는 환경의 창별 p95 최대값 × 1.5를 100ms 단위로 올린다. 가중치가 0인 환경은 판정이 p95를 보지 않으므로 넣지 않는다.
+- `unknown_limit`: Edge 확인 뒤에도 새 가중치가 보이지 않는 창(`NOT_APPLIED` · `INSUFFICIENT_SAMPLES`)이 가장 길게 이어진 수 + 2, 최소 3이다. 변경 전에 시작한 창은 연속 수에 넣지 않으므로(J25) 확인 뒤의 반영 지연만 센다.
+- Edge를 거치지 않았거나, 경고가 있거나, 판정에 쓸 수 없거나, 관측하지 못한 단계가 있는 실행은 값을 내지 않는다(`refused`). 로컬 대역이나 노트북 측정으로 기준을 정하지 않는다.
+- 계산은 제안만 한다. 사람이 제안값·근거를 보고 `threshold-profiles.json`에 새 버전으로 올리고, 이전 버전은 남긴다. 운영에서 쓰는 프로필 사본(워크플로 호스트 `sli-profile.json`, Edge 등록 profile)도 같은 버전으로 바꾼다.
+
 ## 6. 관측 데이터의 보안 규칙
 
 - **수신 경로를 좁힌다.** 창 요약과 OTLP 수신은 플랫폼에서 Tailscale ACL로 부하 생성기 · Collector 태그만 허용한다.
