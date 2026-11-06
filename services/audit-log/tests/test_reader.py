@@ -154,7 +154,7 @@ def test_registration_for_another_run_or_malformed_is_refused(tmp_path, platform
 def test_store_errors_and_bad_identifiers_become_fixed_codes(tmp_path):
     class Broken:
         def get_paginator(self, _name):
-            raise RuntimeError("AccessDenied on arn:aws:s3:::secret-bucket-name")
+            raise RuntimeError("AccessDenied on bucket secret-bucket-name")
 
     with pytest.raises(RunRefused) as caught:
         read_run(Broken(), "bucket", "audit", PLAN, RUN)
