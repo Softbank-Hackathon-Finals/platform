@@ -1,8 +1,14 @@
 {
-  "observed_at": "2026-11-06T13:40:00+09:00",
+  "observed_at": "2026-11-06T13:27:11+09:00",
+  "run_window": {
+    "cluster_created": "2026-11-06T13:25:51+09:00",
+    "results_written": "2026-11-06T13:27:11+09:00",
+    "basis": "private file modification times (kubeconfig, results)"
+  },
   "design": "ADR-0029 A안 + #402 OpenBao 8200 ingress: any Pod in a namespace labelled app.kubernetes.io/part-of=bravo-rehearsal (rendered network policy only, no test-only peer)",
   "scope": "local only: single-node kind cluster and upstream OpenBao dev server; not the demo RKE2 target",
-  "source_revision": "cbadf6a0018f9222134c517cd2c793ee71f88b81",
+  "source_revision": "4180fef8bd604bf5ed2bca33ee5a3b9b61aa930e",
+  "source_revision_note": "Measured from local commit cbadf6a (rebased, not pushed). The four source files in source-manifest-ingress.json are byte-identical in this pushed commit.",
   "private_raw_sha256": {
     "results": "a61ad7387e60de3f25e31f3081d45a893935fdb95fcb5b827f3b11ecd516923c"
   },

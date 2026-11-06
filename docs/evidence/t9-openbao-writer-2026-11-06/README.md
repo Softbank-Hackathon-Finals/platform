@@ -2,24 +2,25 @@
 
 이 폴더에는 측정이 세 번 있다.
 
-- **시도 namespace 수신 규칙 실측** (2026-11-06 13:40 KST, 커밋 `cbadf6a`): #402가 넣은 OpenBao
+- **시도 namespace 수신 규칙 실측** (2026-11-06 13:25–13:27 KST, 커밋 `4180fef`): #402가 넣은 OpenBao
   `network` 수신 항목(라벨 `app.kubernetes.io/part-of=bravo-rehearsal`인 namespace의 모든 Pod → 8200)만으로,
   시험 전용 수신 규칙 없이 같은 점검을 돌린 측정. [readback-ingress](readback-ingress.json),
   [source-manifest-ingress](source-manifest-ingress.json). 아래 첫 절.
 - **A안 재실측** (2026-11-06 03:47 KST, 커밋 `12d6b4f`): 쓰기 identity에서 정책 쓰기 권한을 없애고
   운영자 소유 namespace 템플릿 정책 하나로 바꾼 뒤의 측정. [readback-aplan](readback-aplan.json),
-  [source-manifest-aplan](source-manifest-aplan.json). 아래 첫 절.
+  [source-manifest-aplan](source-manifest-aplan.json). 아래 둘째 절.
 - **이전 설계 측정** (02:11 KST, 커밋 `16d8483`): 권한 상승이 실제로 가능함을 확인한 측정.
   [readback](readback.json), [source-manifest](source-manifest.json). 이력으로 그대로 둔다.
 
-두 측정 모두 **로컬 kind 클러스터와 upstream OpenBao 2.7.2 dev 서버**에서 했다. 데모 목적지(RKE2,
+세 측정 모두 **로컬 kind 클러스터와 upstream OpenBao 2.7.2 dev 서버**에서 했다. 데모 목적지(RKE2,
 TLS, 팀 패치 이미지)가 아니다. readback은 비공개 원본 결과·실행 로그의 해시와 사례별 결과만 담는다.
 토큰·합성 값·mount accessor 값은 기록하지 않았다.
 
 ## 시도 namespace 수신 규칙 실측
 
 A안 재실측과 같은 방식(kind v0.32.0 단일 노드, kindnet NetworkPolicy, upstream OpenBao 2.7.2 dev 서버,
-클러스터 이름만 `t9-ingress`)으로 커밋 `cbadf6a`의 렌더러와 점검 스크립트를 돌렸다.
+클러스터 이름만 `t9-ingress`)으로 렌더러와 점검 스크립트를 돌렸다. 실행 시각은 13:25:51(클러스터 생성)–13:27:11(결과 기록) KST다.
+실행한 커밋은 원격에 올리지 않은 로컬 커밋 `cbadf6a`였고, 소스 4개 파일은 원격 커밋 `4180fef`와 바이트 단위로 같다.
 **157개 사례 모두 기대대로**였다. A안 재실측과 달라진 점은 수신 규칙이다.
 
 | 사례 | 기대 | 결과 | 의미 |
@@ -31,7 +32,7 @@ A안 재실측과 같은 방식(kind v0.32.0 단일 노드, kindnet NetworkPolic
 | `np_writer_label_in_legacy_control` | 차단 | 차단 | 예전 이름 `rehearsal-control`은 받지 않는다 |
 
 Pod 라벨은 namespace 안에서 누구나 붙일 수 있어 경계가 되지 않으므로, 수신은 namespace 라벨 단위로 연다
-(#402, 11/6 13:14 T9 · T15 합의). T15 후보 · 검증 Pod 라벨, T3 namespace 라벨, T3 OpenBao egress 프로필과의
+(#402, 11/6 13:12 T9 · T15 합의). T15 후보 · 검증 Pod 라벨, T3 namespace 라벨, T3 OpenBao egress 프로필과의
 대응은 `scripts/tests/test_rehearsal_object_access.py`(허용 4 · 거부 8)가 확인한다. 데모 목적지에는 #402가 이미
 적용돼 있고, 13:10에 실제 NetworkPolicy가 develop 렌더 결과와 같은 것이 확인됐다. 실제 T15 Job 실행은 아직이다.
 
