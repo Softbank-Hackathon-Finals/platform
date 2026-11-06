@@ -69,7 +69,7 @@ T34·T35는 T14의 감사/복구 시험 실행을 공급하고, T36·T37은 관�
 
 실제 EKS의 VPC CNI 정책 집행은 켜져 있었다. 별도 소유 namespace에서 Deployment가 만든
 세 Pod로 정책 적용 전 연결, 적용 후 허용 주체 연결·다른 주체 타임아웃을 확인했다.
-[시험 기록](../../../../docs/evidence/t14-network-enforcement-2026-11-06/README.md)에 범위와 한계를 남겼다.
+[시험 기록](../../../docs/evidence/t14-network-enforcement-2026-11-06/README.md)에 범위와 한계를 남겼다.
 이는 출발지 앱/DB 정책 수정이나 NET-01.3 PASS가 아니다. 운영 namespace의 정책 선택 범위와
 DB·풀러 경로를 따로 인수해야 한다. 앞선 실제 DB 시험은 단독 Pod를 사용했으므로,
 거부 성공을 자격화하는 후속 시험은 CNI가 지원하는 컨트롤러 소유 Pod로 수행한다.
