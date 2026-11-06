@@ -112,3 +112,29 @@ class OperatorTokenVerifier:
         if scheme.lower() != "bearer" or not token or token.strip() != token:
             return None
         return self.verify(token)
+
+
+OPERATOR_SSO_AUDIENCE = "bravo-platform-operator"
+
+
+class OperatorSsoVerifier(OperatorTokenVerifier):
+    """Human operators by the team's AWS IAM Identity Center (MFA) proof, as registration and rehearsal do.
+
+    The same reviewed STS GetCallerIdentity proof (registration_sso), signed for a distinct operator
+    audience so a registration or rehearsal proof is never an operator credential. The pinned SSO
+    identity maps to its registration subject, the same subject OperatorAccess grants name.
+    """
+
+    def __init__(self, identity):  # noqa: D107 - no OIDC issuer: the AWS proof is the credential
+        from .registration_sso import SsoRegistrationVerifier
+
+        if type(identity) is not SsoRegistrationVerifier or identity.audience != OPERATOR_SSO_AUDIENCE:
+            raise ValueError("operator_sso_identity_required")
+        self.identity = identity
+
+    def verify(self, token):
+        actor = self.identity.verify(token)
+        if actor is None:
+            return None
+        return OperatorPrincipal(actor.subject_id, actor.tenant_id, actor.issued_at, actor.expires_at,
+                                 actor.issued_at, actor.session_id)

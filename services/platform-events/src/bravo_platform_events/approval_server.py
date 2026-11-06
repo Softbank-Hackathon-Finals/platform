@@ -31,7 +31,15 @@ def load_host(store, config_file, create_ports):
     if any(not path.is_absolute() for path in paths.values()) or not paths["records_root"].is_dir():
         raise ValueError("approval_host_mounts_required")
     sender = sender_from_config(config["workload_binding"], json.loads(paths["public_jwks_file"].read_text()))
-    verifier = OperatorTokenVerifier(**config["operator_verifier"])
+    operator = config["operator_verifier"]
+    if isinstance(operator, dict) and "expected_sso_role_arn" in operator:
+        # AWS IAM Identity Center proof (same as registration), signed for the operator audience.
+        from .operator_identity import OPERATOR_SSO_AUDIENCE, OperatorSsoVerifier
+        from .registration_sso import SsoRegistrationVerifier
+
+        verifier = OperatorSsoVerifier(SsoRegistrationVerifier(**(operator | {"audience": OPERATOR_SSO_AUDIENCE})))
+    else:
+        verifier = OperatorTokenVerifier(**operator)
     with paths["record_key_file"].open("rb") as stream:
         key = stream.read(4097)
     if not 32 <= len(key) <= 4096:
