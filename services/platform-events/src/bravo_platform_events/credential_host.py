@@ -113,6 +113,22 @@ class StoredCredentialPlanner:
                                 cleaner=self.cleaner).factory(admission, task)
 
 
+# The modules Dockerfile.credential-probe installs (rehearsal-runner testing/rke2_credential_flow.py).
+PROBE_MODULES = ("__init__.py", "credential_probe.py", "kube_secret_probe.py", "app_health_probe.py",
+                 "credential_job_probe.py")
+
+
+def _probe_sources(fixture_config):
+    """probe_from_source: the verified run's mode — this image's own runner probe sources, mounted
+    read-only into the pinned Python probe image (no separate probe image build)."""
+    if fixture_config.get("probe_from_source") is not True:
+        return ()
+    import rehearsal_runner
+
+    root = Path(rehearsal_runner.__file__).parent
+    return tuple((name, (root / name).read_text()) for name in PROBE_MODULES)
+
+
 def create_ports(store, config_file="/rehearsal/ports.json"):
     config = _json(config_file)
     if (type(config) is not dict or set(config) != _FIELDS
@@ -136,14 +152,15 @@ def create_ports(store, config_file="/rehearsal/ports.json"):
     if any(paths[name].resolve() != expected for name, expected in modules.items()):
         raise ValueError("credential_host_image_modules_required")
     fixture_config = config["fixture"]
-    if type(fixture_config) is not dict or set(fixture_config) != {
-            "bao_image", "postgres_image", "probe_image", "openbao_ca_file"}:
+    fixture_keys = {"bao_image", "postgres_image", "probe_image", "openbao_ca_file"}
+    if (type(fixture_config) is not dict or not fixture_keys <= set(fixture_config) <= fixture_keys | {"probe_from_source"}
+            or fixture_config.get("probe_from_source", False) not in (True, False)):
         raise ValueError("credential_host_fixture_required")
     ca = Path(fixture_config["openbao_ca_file"])
     if not ca.is_absolute() or not ca.is_file():
         raise ValueError("credential_host_ca_required")
-    fixture = CredentialFixture(**{k: v for k, v in fixture_config.items() if k != "openbao_ca_file"},
-                                openbao_ca_pem=ca.read_text())
+    fixture = CredentialFixture(**{k: v for k, v in fixture_config.items() if k not in {"openbao_ca_file", "probe_from_source"}},
+                                openbao_ca_pem=ca.read_text(), probe_sources=_probe_sources(fixture_config))
     profile = read_env(paths["profile_file"])
     targets(profile)
     delivery = load_t9_delivery(paths["t9_renderer"])
