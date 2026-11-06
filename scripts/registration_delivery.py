@@ -309,13 +309,36 @@ def propose(receipt):
     return {"action": "proposed", "url": url, "deployed": False}
 
 
+def check_promotion():
+    # A queue base can be another unmerged queue entry. Compare against the
+    # common develop ancestor so every promotion in the combined group is checked.
+    base = run(["git", "merge-base", "HEAD", "refs/remotes/origin/develop"]).stdout.strip()
+    publication = str(Path(VALUES).with_name("registration-publication.json"))
+    changed = run(["git", "diff", "--name-only", base, "HEAD", "--", VALUES, publication])
+    if not changed.stdout.strip():
+        return {"action": "no_promotion", "deployed": False}
+    values = json.loads(run(["git", "show", "HEAD:" + VALUES]).stdout)
+    receipt = json.loads(run(["git", "show", "HEAD:" + publication]).stdout)
+    if promotion_values(receipt) != values:
+        raise Failure("publication_values_mismatch")
+    source = values["sourceRevision"]
+    run(["git", "merge-base", "--is-ancestor", source, "HEAD"])
+    if run(["git", "diff", "--name-only", source, "HEAD", "--", *INPUTS]).stdout.strip():
+        raise Failure("promotion_source_superseded")
+    return {"action": "current_source_verified", "source_revision": source, "deployed": False}
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("action", choices=("verify", "publish", "propose"))
-    parser.add_argument("--root", type=Path, required=True)
+    parser.add_argument("action", choices=("verify", "publish", "propose", "check-promotion"))
+    parser.add_argument("--root", type=Path)
     args = parser.parse_args()
+    if args.action != "check-promotion" and args.root is None:
+        parser.error("--root is required for verify, publish and propose")
     try:
-        if args.action == "propose":
+        if args.action == "check-promotion":
+            result = check_promotion()
+        elif args.action == "propose":
             result = propose(
                 json.loads((args.root / "registration-publication.json").read_text())
             )

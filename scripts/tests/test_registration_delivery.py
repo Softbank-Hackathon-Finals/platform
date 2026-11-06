@@ -97,6 +97,100 @@ class SourceCoverage(unittest.TestCase):
             self.assertFalse(any(args[1] in {"switch", "push", "commit"} for args in called))
 
 
+class PromotionSource(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name)
+        self.git("init", "-q")
+        self.git("config", "user.name", "Fixture")
+        self.git("config", "user.email", "fixture@example.invalid")
+        self.write("services/inventory/src/bravo_inventory/scan.py", "version = 1\n")
+        self.write(delivery.VALUES, "{}")
+        self.source = self.commit("source")
+        self.git("update-ref", "refs/remotes/origin/develop", self.source)
+        self.receipt = RECEIPT | {"source_revision": self.source, "published": True,
+                                  "registry_visibility": "private", "deployed": False}
+        self.calls = []
+
+    def git(self, *args):
+        return subprocess.check_output(["git", "-C", str(self.root), *args],
+                                       text=True, stderr=subprocess.PIPE).strip()
+
+    def write(self, name, content):
+        path = self.root / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(content)
+
+    def commit(self, message):
+        self.git("add", ".")
+        self.git("commit", "-qm", message)
+        return self.git("rev-parse", "HEAD")
+
+    def promote(self):
+        self.write(delivery.VALUES, json.dumps(delivery.promotion_values(self.receipt)))
+        self.write(str(Path(delivery.VALUES).with_name("registration-publication.json")),
+                   json.dumps(self.receipt))
+        return self.commit("promote")
+
+    def check(self):
+        def invoke(args, **kwargs):
+            self.calls.append(args)
+            self.assertEqual(args[0], "git")
+            self.assertIn(args[1], {"merge-base", "diff", "show"})
+            return subprocess.run(["git", "-C", str(self.root), *args[1:]],
+                                  capture_output=True, text=True, check=True)
+        with patch.object(delivery, "run", side_effect=invoke):
+            return delivery.check_promotion()
+
+    def test_matching_image_and_unrelated_later_change_pass_without_writes(self):
+        self.promote()
+        self.write("docs/unrelated.md", "documentation")
+        self.commit("docs")
+        self.assertEqual(self.check()["action"], "current_source_verified")
+
+    def test_source_only_pr_can_merge_and_trigger_next_build(self):
+        self.write("services/inventory/src/bravo_inventory/scan.py", "version = 2\n")
+        self.commit("source changed")
+        self.assertEqual(self.check()["action"], "no_promotion")
+
+    def test_prior_unmerged_queue_promotion_is_checked_against_combined_source(self):
+        previous_group = self.promote()
+        self.write("services/inventory/src/bravo_inventory/scan.py", "version = 2\n")
+        self.commit("later queue entry")
+        # The immediate queue base already contains the promotion, but develop does not.
+        self.assertEqual(self.git("diff", "--name-only", previous_group, "HEAD", "--", delivery.VALUES), "")
+        with self.assertRaisesRegex(delivery.Failure, "promotion_source_superseded"):
+            self.check()
+
+    def test_publication_and_values_must_match(self):
+        self.promote()
+        values = delivery.promotion_values(self.receipt)
+        values["image"]["digest"] = "sha256:" + "c" * 64
+        self.write(delivery.VALUES, json.dumps(values))
+        self.commit("mismatched digest")
+        with self.assertRaisesRegex(delivery.Failure, "publication_values_mismatch"):
+            self.check()
+
+    def test_missing_develop_history_fails_closed(self):
+        self.promote()
+        self.git("update-ref", "-d", "refs/remotes/origin/develop")
+        with self.assertRaises(subprocess.CalledProcessError):
+            self.check()
+
+    def test_source_and_image_rollback_together_passes(self):
+        first_promotion = self.promote()
+        self.write("services/inventory/src/bravo_inventory/scan.py", "version = 2\n")
+        second_source = self.commit("second source")
+        self.receipt = self.receipt | {"source_revision": second_source,
+                                       "image_digest": "sha256:" + "c" * 64}
+        deployed = self.promote()
+        self.git("update-ref", "refs/remotes/origin/develop", deployed)
+        self.git("restore", "--source", first_promotion, "--", ".")
+        self.commit("revert source and verified image")
+        self.assertEqual(self.check()["source_revision"], self.source)
+
+
 class Publication(unittest.TestCase):
     def test_rejects_untrusted_event_or_branch(self):
         for key, value in (

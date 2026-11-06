@@ -45,6 +45,13 @@ Repository tests compare these paths with the build context package list so a
 new package cannot silently miss publication. Observability remains an explicit
 historical source pin; changing that pin or its build recipe triggers publication.
 
+Required infrastructure CI also checks each deployment-values change against the
+source in the PR or combined merge group. A proposal that became stale while
+waiting cannot promote an image that omits those source changes. Ordinary source
+PRs can still merge and trigger their next build. For a rollback, revert the
+source and its matching verified image together. This check uses the common
+develop ancestor, including promotions from earlier unmerged queue entries.
+
 Before first adoption, compare resource UIDs and the rendered Deployment with
 the live server. Keep automated pruning disabled until owned-resource deletion
 and recovery are verified. Do not run the old registration renderer against
