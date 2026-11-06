@@ -145,6 +145,10 @@ jobs:
           "$RUNNER_TEMP/helm-test/bin/python" infra/gitops/test_product_reader_chart.py
           "$RUNNER_TEMP/helm-test/bin/python" infra/gitops/test_rehearsal_host_chart.py
           "$RUNNER_TEMP/helm-test/bin/python" infra/gitops/test_bootstrap.py
+          # Evaluate the controller admission CEL on a real kube-apiserver, not by name only.
+          GOBIN="$RUNNER_TEMP/envtest-bin" GOTOOLCHAIN=auto go install sigs.k8s.io/controller-runtime/tools/setup-envtest@v0.0.0-20260125163108-a19ec76a3c5d
+          KUBEBUILDER_ASSETS="$("$RUNNER_TEMP/envtest-bin/setup-envtest" use 1.35.0 --bin-dir "$RUNNER_TEMP/envtest" -p path)" \
+            "$RUNNER_TEMP/helm-test/bin/python" infra/gitops/test_gitops_admission_apiserver.py
           mkdir "$RUNNER_TEMP/registration-rendered"
           "$RUNNER_TEMP/helm-test/bin/python" infra/gitops/test_registration_chart.py --render > "$RUNNER_TEMP/registration-rendered/registration.yaml"
           "$RUNNER_TEMP/helm-test/bin/python" infra/gitops/test_product_reader_chart.py --render > "$RUNNER_TEMP/registration-rendered/product-reader.yaml"

@@ -35,6 +35,12 @@ spec:
               tailscale.com/parent-resource-type: proxygroup
       ports:
         - {port: 443, protocol: TCP}
+    # Operator SSO proofs are checked against regional STS (sts.ap-northeast-2.amazonaws.com).
+    # Same pinned address as t10-registration-trusted-egress; re-resolve when either changes.
+    - to:
+        - ipBlock: {cidr: 43.202.75.96/32}
+      ports:
+        - {port: 443, protocol: TCP}
 ---
 # Same egress proxy as bravo-rehearsal-control/rehearsal-host; added beside rehearsal-proxy-ingress.
 apiVersion: networking.k8s.io/v1
