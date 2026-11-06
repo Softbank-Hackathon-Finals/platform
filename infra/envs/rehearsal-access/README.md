@@ -1,6 +1,6 @@
 # AWS 플랫폼에서 목적지 API에 접속하기
 
-T15 실행 도구와 T31 배포기는 서로 다른 egress·ServiceAccount를 쓴다. 이 디렉터리는 기존 operator와 별도 워크로드 tailnet을 이용하는 설치 입력을 렌더링한다. 클러스터를 변경하거나 인증 정보를 발급하는 명령은 없다. T15 planner·T10 승인·T31 제품 로직도 변경하지 않는다.
+T15 실행 도구와 T31 배포기는 서로 다른 egress·ServiceAccount를 쓴다. 이 디렉터리는 기존 operator와 별도 워크로드 tailnet을 이용하는 설치 입력을 만들고, 등록된 신원에 한해 표준 exec 인증으로 단기 자격을 발급한다. 설치 객체 적용은 운영자 경계에서 수행한다. T15 planner·T10 승인·T31 제품 로직도 변경하지 않는다.
 
 사람의 개발 장치 접속과 사전 생성 namespace의 시험 권한은 [개인 접속 프로필](PERSONAL.md)을 사용한다. 인증 프록시·개인 인증서·ExecCredential 설정을 환경별 입력으로 구분한다.
 
@@ -43,7 +43,71 @@ python3 infra/envs/rehearsal-access/access.py kubeconfig \
   --token-file /credentials/token > target.kubeconfig.json
 ```
 
-이 kubeconfig에는 토큰 값이 없다. Service DNS로 연결하면서 목적지의 MagicDNS 이름을 TLS server name으로 사용한다. 검증을 끄거나 호스트의 current-context를 바꾸지 않는다. 운영 토큰 갱신·폐기와 namespace 수명주기는 별도 관리 주체가 맡는다.
+이 kubeconfig에는 토큰 값이 없다. Service DNS로 연결하면서 목적지의 MagicDNS 이름을 TLS server name으로 사용한다. 검증을 끄거나 호스트의 current-context를 바꾸지 않는다. 기존 `tokenFile`은 파일을 공급하는 운영자가 필요하다. 새 무인 호스트는 아래 표준 exec 인증을 사용한다. namespace 수명주기는 계속 별도 관리 클라이언트가 맡는다.
+
+## 실행마다 키를 전달하지 않는 인증
+
+`credentials.Registration` 한 개가 설치 권한, 발급 요청, kubeconfig의 원본이다.
+운영자는 기존 목적지의 cluster UID·ServiceAccount UID·API audience와 역할별
+접속 경로를 조회해 환경 등록 때 한 번 결속한다. AI 제안은 이 등록을 변경할 수 없다.
+설치 이름은 cluster UID·namespace·ServiceAccount의 해시에서 생성한다. 긴 이름을
+잘라 붙이지 않으며 입력 순서·접속 주소 변경 때문에 별도 권한을 만들지 않는다.
+알 수 없는 필드, 잘못된 타입·UID·주소·이름은 설치나 발급 전에 거부한다.
+
+흐름은 **워크로드 신원 → TokenRequest → 목적지 ServiceAccount → 기존 RBAC**다.
+별도 개인키, 영구 API 토큰, 갱신 daemon을 만들지 않는다.
+
+1. 기존 역할별 egress의 태그 신원이 **auth** API 프록시에서 인증된다.
+   `credential_install.render()`는 등록된 ServiceAccount 한 개의 토큰 발급과
+   해당 신원·빈 회수용 Secret·cluster UID 조회만 허용한다. Job·Pod 실행 권한은
+   이 발급 신원에 주지 않는다. admission은 정확한 audience, 600초 수명과
+   지정 Secret의 UID 결속을 강제한다.
+2. kubeconfig의 `exec`가 `credentials.py exec /config/registration.json`을 호출한다.
+   발급 결과는 프로세스 간 표준 `ExecCredential` 응답으로만 전달한다.
+   클라이언트는 만료 60초 전 재발급하며, 재시작 후에도 저장된 토큰 없이 발급받는다.
+   발급된 bearer는 기존 **noauth** 경로에서 실제 ServiceAccount username·UID를
+   확인한 뒤에만 반환한다. T3의 impersonation도 이 noauth 경로를 그대로 사용한다.
+3. 회수용 Secret을 UID 조건으로 삭제하면 이 등록의 재발급이 중지되고, 그 UID에
+   묶인 토큰도 API 서버의 검증·캐시 처리 이후 무효가 된다. 같은 이름으로 Secret이나
+   ServiceAccount가 재생성돼도 UID가 다르면 자동으로 인수하지 않는다. 새 신원 등록은
+   별도 운영 변경이다. 긴급 회수는 발급 RoleBinding도 제거하고 실제 거부를 확인한다.
+
+호스트 이미지에 Python 3.12 이상과 이 디렉터리의 두 모듈을 포함한다. `credentials.py`는
+실행 가능해야 한다. 설정 파일에는 `registration`과 설치 결과의 `anchor_uid`만 들어가며
+비밀 값은 없다. `credentials.py kubeconfig /config/registration.json`이 같은 입력으로
+비대화형 kubeconfig를 만든다. 생성은 설치할 호스트 경로에서 실행한다.
+`exec` 명령의 stdout은 토큰이 포함된 인증 프로토콜이므로
+터미널 실행, 로그 수집, 파일 리다이렉트에 사용하지 않는다.
+
+설치자는 기존 noauth ProxyGroup·AWS ExternalName Service를 다시 읽고
+`issuer_proxy()`·`issuer_service()`로 같은 tailnet·이미지·egress 역할의 발급 경로를
+생성한다. auth proxy에는 해당 operator 버전의 공식 `apiServerProxyConfig.allowImpersonation`
+RBAC가 필요하다. `issuer_tailnet_fragment()`의 서비스 자동 승인 조각만 현재 정책에
+ETag 조건으로 병합한다. 기존 정책 전체를 대체하지 않는다. 실제 매핑 포트를 제한하는
+환경은 새 Service의 UID·targetPort를 읽어 기존 역할의 NetworkPolicy에 추가한다.
+
+Tailscale 1.104.4에는 새 HTTPS 서비스의 인증서 발급과 서비스 광고가 서로 기다리는
+경로가 있다. `bootstrap_issuer()`는 생성된 auth 프록시 설정만 UID·resourceVersion으로
+확인해 해당 서비스의 광고를 시작한다. 443의 TLS 검증·인증은 유지하며 개인키를
+읽어 저장하지 않는다. 설정 patch는 메모리에서 API로만 보내고 로그에 남기지 않는다.
+이후 인증서 발급·갱신은 기존 operator가 담당한다. 다른 서비스를 광고 중이면 거부한다.
+발급 프록시가 Ready가 된 뒤 AWS Service를 설치한다. 같은 버전은 처음 조회에 실패한
+Service 주소를 재조회하지 않는 결함도 있다. 이미 설치된 경로는 `refresh_issuer_route()`로
+준비된 issuer·egress 소유 UID를 확인하고 전용 ConfigMap 표식만 한 번 갱신한다.
+기존 전달 설정을 보존하고 Pod 재시작 없이 provider의 파일 감시를 호출한다.
+두 보완은 설치·복구 경계에만 두며 토큰 발급 계정에 관리 권한을 주지 않는다.
+설치 완료는 ProxyGroup Ready·공개 CA TLS·실제 AWS 신원·허용/거부 확인 뒤에 판정한다.
+
+발급 실패는 업무 요청을 실행하지 않는 오류다. 자격 발급을 다시 시도하는 것과
+T10의 접수 불명 업무 요청을 재전송하는 것은 다르다. 이 인증 모듈은 업무 접수나
+승인 상태를 바꾸지 않는다. 관리 provisioner의 별도 권한, AWS T15 호스트 조립,
+실제 후보 검증·UID 정리와 T10 승인 대기는 기존 담당의 통합 완료 기준이다.
+
+근거: [Kubernetes exec 인증](https://kubernetes.io/docs/reference/access-authn-authz/authentication/#client-go-credential-plugins),
+[TokenRequest](https://kubernetes.io/docs/reference/access-authn-authz/service-accounts-admin/#tokenrequest-api),
+[Tailscale 태그와 RBAC](https://tailscale.com/docs/kubernetes-operator/api-server-access/auth-and-rbac),
+[서비스 인증서 순환 대기 보고](https://github.com/tailscale/tailscale/issues/20716),
+[egress 초기 주소 조회 실패 후 재시도 누락](https://github.com/tailscale/tailscale/issues/21426).
 
 ## 목적지 권한
 
@@ -117,7 +181,8 @@ planner = ScopedPlanner(credential_planner, provisioner=management_kubectl,
                         cleaner=management_uid_cleaner)
 ```
 
-`credential_planner`의 Job 클라이언트는 `t15-runner`의 단기 tokenFile을 읽는다.
+`credential_planner`의 Job 클라이언트는 `t15-runner`의 exec kubeconfig를 사용한다.
+기존 tokenFile 구성은 별도 갱신 공급자가 있는 경우에만 유지한다.
 별도 관리 클라이언트는 기존 `NamespaceLifecycle`와 `T3Gate`에만 연결된다.
 T3가 만드는 비교용 namespace도 이 관리 경로를 사용한다. 관리 자격을 제안자,
 검증 Job, 후보 앱이나 AI 실행 계정에 전달하지 않는다.
