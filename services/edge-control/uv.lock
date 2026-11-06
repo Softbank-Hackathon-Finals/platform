@@ -3,7 +3,7 @@ revision = 3
 requires-python = ">=3.12"
 
 [manifest]
-overrides = [{ name = "bravo-observability", extras = ["api"], git = "https://github.com/Softbank-Hackathon-Finals/platform.git?subdirectory=services%2Fobservability&rev=d075445836674d2660e1fcab224d67528ffe1c66" }]
+overrides = [{ name = "bravo-observability", extras = ["api"], git = "https://github.com/Softbank-Hackathon-Finals/platform.git?subdirectory=services%2Fobservability&rev=24b3cf516fdbdaac7dd346718eaac3c42f5e1d63" }]
 
 [[package]]
 name = "annotated-doc"
@@ -101,7 +101,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "bravo-control-gate", marker = "extra == 't10-host'", directory = "../control-gate" },
-    { name = "bravo-observability", extras = ["api"], git = "https://github.com/Softbank-Hackathon-Finals/platform.git?subdirectory=services%2Fobservability&rev=d075445836674d2660e1fcab224d67528ffe1c66" },
+    { name = "bravo-observability", extras = ["api"], git = "https://github.com/Softbank-Hackathon-Finals/platform.git?subdirectory=services%2Fobservability&rev=24b3cf516fdbdaac7dd346718eaac3c42f5e1d63" },
     { name = "bravo-platform-events", extras = ["postgres"], marker = "extra == 't10-host'", directory = "../platform-events" },
     { name = "httpx", specifier = ">=0.27,<1" },
 ]
@@ -118,7 +118,7 @@ dev = [
 [[package]]
 name = "bravo-observability"
 version = "0.1.0"
-source = { git = "https://github.com/Softbank-Hackathon-Finals/platform.git?subdirectory=services%2Fobservability&rev=d075445836674d2660e1fcab224d67528ffe1c66#d075445836674d2660e1fcab224d67528ffe1c66" }
+source = { git = "https://github.com/Softbank-Hackathon-Finals/platform.git?subdirectory=services%2Fobservability&rev=24b3cf516fdbdaac7dd346718eaac3c42f5e1d63#24b3cf516fdbdaac7dd346718eaac3c42f5e1d63" }
 
 [package.optional-dependencies]
 api = [
