@@ -114,6 +114,14 @@ def test_actual_connection_in_either_role_is_failure(role):
 
 
 @pytest.mark.parametrize("role", ["database", "pooler"])
+def test_connection_in_one_role_is_failure_even_if_the_other_errs(role):
+    other = "pooler" if role == "database" else "database"
+    probe, _, _, _ = make(outcomes={(role, True): "connected", (other, True): "error"})
+    result = probe(CTX, SPEC)
+    assert result.observed == "allow" and result.unknown_reason is None
+
+
+@pytest.mark.parametrize("role", ["database", "pooler"])
 @pytest.mark.parametrize("outcome", ["refused", "timeout", "error"])
 def test_missing_positive_control_never_looks_like_denial(role, outcome):
     probe, _, calls, _ = make(outcomes={(role, False): outcome})

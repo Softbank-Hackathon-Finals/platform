@@ -149,10 +149,13 @@ class RegisteredNetworkAccessProbe:
         observed, reason = None, None
         if not positive:
             reason = "POSITIVE_CONTROL_FAILED"
+        elif any(row.observed == "allow" for row in results):
+            # One proven connection is a failure even if the other role was inconclusive.
+            observed = "allow"
         elif any(row.observed is None for row in results):
             reason = next(row.unknown_reason for row in results if row.observed is None)
         else:
-            observed = "allow" if any(row.observed == "allow" for row in results) else "deny"
+            observed = "deny"
         payload = _canonical(
             {
                 "format_version": "2",
