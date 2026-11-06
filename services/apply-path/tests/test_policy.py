@@ -513,7 +513,7 @@ def test_kubectl_secret_replace_goes_through_stdin_not_argv(monkeypatch):
 
 # --- CLI ---------------------------------------------------------------------------------------------------------------
 
-def test_cli_check_and_run_for_a_policy_change(policy_claim, policy_proposal, tmp_path, capsys):
+def test_cli_check_and_run_for_a_policy_change(policy_claim, policy_proposal, tmp_path, capsys, frozen_now):
     (tmp_path / "claim.json").write_text(json.dumps(policy_claim))
     (tmp_path / "proposal.json").write_text(json.dumps(policy_proposal))
     (tmp_path / "snap/src").mkdir(parents=True)
