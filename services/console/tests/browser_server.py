@@ -16,7 +16,8 @@ from bravo_console.security import PlanSecurity
 if __name__ == "__main__":
     with tempfile.TemporaryDirectory(prefix="t21-browser-") as root:
         app, store, state, _ = setup(
-            Path(root) / "state.db", origin="http://127.0.0.1:18121", workload_id="demo-chat"
+            Path(root) / "state.db", origin="http://127.0.0.1:18121", workload_id="demo-chat",
+            profile=("demo-gate", "1"),
         )
         install(app.api, store, state, Path(root))
         app.controls = wire(app.api)

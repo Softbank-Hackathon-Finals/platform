@@ -1,7 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { controlReport } from "../src/bravo_console/static/model.js";
-import { snap, now } from "./fixtures.js";
+import { snap as base, now } from "./fixtures.js";
+const snap = { ...base, profile_id: "demo-gate", profile_version: "1" };
 const gate = { data: { gate_id: "gate-one", context_digest: "e".repeat(64) } };
 function report() {
   return {
@@ -36,6 +37,15 @@ test("bound security report remains a historical projection, not permission", ()
   assert.equal(result.authorizes_cutover, false);
   assert.equal(result.rows.length, 3);
 });
+for (const current of [
+  { ...snap, profile_id: "full" },
+  { ...snap, profile_version: "2" },
+  base,
+]) {
+  test(`report cannot replace registered plan profile: ${current.profile_id}/${current.profile_version}`, () => {
+    assert.throws(() => controlReport(report(), current, gate, now));
+  });
+}
 for (const fault of [
   "plan",
   "digest",
