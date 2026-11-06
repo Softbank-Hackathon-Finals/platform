@@ -1,0 +1,61 @@
+{
+  "source_revision": "2b51b365fb9b583dd35754fecfe8f85cc478caa3",
+  "source_files": [
+    {
+      "path": "services/console/pyproject.toml",
+      "sha256": "19e49c2d0aabba83bd9ac12425b1ddad8cc72f0e4fa66158fd0b312ed6b71fc0"
+    },
+    {
+      "path": "services/console/src/bravo_console/observations.py",
+      "sha256": "e75f47fef3c00fa3b42eb1d5149a022fb9ed4b2541fe30e167c45f86cf6bc942"
+    },
+    {
+      "path": "services/console/src/bravo_console/reports.py",
+      "sha256": "0b205ce68ecff67e85f3b3de534d0ffcade8ed90c084a2a9de968d176fef4fd6"
+    },
+    {
+      "path": "services/console/src/bravo_console/t10_reports.py",
+      "sha256": "08b0e98453b2e0cb01c47402213d87d36ef22a2855e821d4a7e2e4db702120f1"
+    },
+    {
+      "path": "services/console/tests/test_t10_reports.py",
+      "sha256": "12a733e25b94c490aa204e3100d42e75e0692e276061325e08f6840ed93b6011"
+    },
+    {
+      "path": "services/console/uv.lock",
+      "sha256": "fed4b0377baacff14a97f15095234fa7c7f9113494850a681d5ea0eb08108e09"
+    },
+    {
+      "path": "services/control-gate/src/bravo_gate/contract.py",
+      "sha256": "b3d5eb10260f054789fd190025aea9a588cbbd7f81ec7f1aa5e76b2479bca4b1"
+    },
+    {
+      "path": "services/control-gate/src/bravo_gate/models.py",
+      "sha256": "13a4b064f88f1c28f74fe28b2f275872a2cab721acd43010c659230742d4430a"
+    },
+    {
+      "path": "services/control-gate/src/bravo_gate/service.py",
+      "sha256": "1bb806c7a9003c279c5d41b2ca6d0e4f7312dc7b8eca470795af0bc2202d8a92"
+    },
+    {
+      "path": "services/control-gate/src/bravo_gate/signatures.py",
+      "sha256": "d2128f1749da839c824c3cb819be2490b7fbb6de401b717f86b0ac34cd53f8c3"
+    },
+    {
+      "path": "services/platform-events/src/bravo_platform_events/gate_records.py",
+      "sha256": "e7b2aac633b9a1792947d7d3778a519e0233bb3655bf5e5810d363b090d923fc"
+    },
+    {
+      "path": "services/platform-events/src/bravo_platform_events/plan_api.py",
+      "sha256": "f6149e06991d68502dbaedc409359a1e4d81a4bb70f8782dc69ee62ce0a20fb5"
+    },
+    {
+      "path": "services/platform-events/src/bravo_platform_events/plans.py",
+      "sha256": "35de26224938ec63992cc83595145f2e36a6c961a7156036df55b50d94ba3809"
+    },
+    {
+      "path": "services/platform-events/src/bravo_platform_events/postgres.py",
+      "sha256": "ad2c3906bcc619e74002a4d89f209158777cc46a200386ba0ef369d8837289bc"
+    }
+  ]
+}
