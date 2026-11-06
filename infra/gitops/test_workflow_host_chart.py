@@ -99,7 +99,8 @@ class WorkflowHostChart(unittest.TestCase):
     def test_bootstrap_requires_existing_inputs_v2_reader_and_relay(self):
         import bootstrap
 
-        data = {"configmap": {"workflow-config": {"ports.json": "{}", "relay.json": "{}"},
+        relay = json.dumps({"job_principal": "b" * 64, "fence_principals": ["d" * 64]})
+        data = {"configmap": {"workflow-config": {"ports.json": "{}", "relay.json": relay},
                               "reader-config-v2": {"reader.json": json.dumps({"version": 2})}}}
 
         def get(kind, name, namespace):
@@ -112,6 +113,12 @@ class WorkflowHostChart(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "reader_v2"):
             bootstrap.verify_workflow_host(get, host)
         data["configmap"]["reader-config-v2"] = {"reader.json": json.dumps({"version": 2})}
+        for bad in ({}, {"job_principal": "b" * 64, "fence_principals": []},
+                    {"job_principal": "short", "fence_principals": ["d" * 64]},
+                    {"job_principal": "b" * 64, "fence_principals": ["b" * 64]}):
+            data["configmap"]["workflow-config"] = {"ports.json": "{}", "relay.json": json.dumps(bad)}
+            with self.assertRaisesRegex(ValueError, "relay_principals_invalid"):
+                bootstrap.verify_workflow_host(get, host)
         data["configmap"]["workflow-config"] = {"ports.json": "{}"}
         with self.assertRaisesRegex(ValueError, "relay"):
             bootstrap.verify_workflow_host(get, host)
