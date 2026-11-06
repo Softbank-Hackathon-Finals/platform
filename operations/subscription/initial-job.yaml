@@ -1,0 +1,18 @@
+# Platform initial-proposal Job carrier (replaces the subscription-initial-proposal Actions run).
+# The ServiceAccount has no RoleBinding: its only use is the projected broker-audience token.
+# hostNetwork is the one baseline exception, needed to reach the node-loopback broker.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: bravo-initial
+  labels:
+    pod-security.kubernetes.io/enforce: privileged
+    pod-security.kubernetes.io/warn: restricted
+    pod-security.kubernetes.io/audit: restricted
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: initial-proposal
+  namespace: bravo-initial
+automountServiceAccountToken: false

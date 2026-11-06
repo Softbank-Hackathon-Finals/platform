@@ -39,6 +39,7 @@ def workflow_boundary(intent, env):
 class InitialTunnelCall:
     ca_pem: str = field(repr=False)
     transport: object = field(default=None, repr=False)
+    url: str = "https://127.0.0.1:18762/run"  # SSM local port; the platform Job uses the broker port.
 
     def __post_init__(self):
         client_context(self.ca_pem)
@@ -49,7 +50,7 @@ class InitialTunnelCall:
             with httpx.Client(verify=client_context(self.ca_pem), transport=self.transport,
                               trust_env=False, follow_redirects=False,
                               timeout=httpx.Timeout(260, connect=5)) as client:
-                with client.stream("POST", "https://127.0.0.1:18762/run", json=request.model_dump()) as response:
+                with client.stream("POST", self.url, json=request.model_dump()) as response:
                     if response.status_code != 200:
                         return response.status_code, stopped("INITIAL_CALL_UNCONFIRMED")
                     raw = bytearray()

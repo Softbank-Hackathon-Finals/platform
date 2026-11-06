@@ -436,3 +436,27 @@ Pending, intent 자체가 없거나 결속이 다르면 Unknown이다. `read`는
 이 코드는 전달 도구다. 실제 Pod/디렉터리 배치, SSO/SSM 창과 TLS, 운영 등록 입력,
 T15 token-free 소비 경로가 준비됐다는 증거는 아니다. 동일 DB/Coordinator/AttemptStore
 프로세스를 운영자 호스트로 옮기거나 기존 runtime 자격을 복사해 맞추지 않는다.
+
+## 플랫폼 Job으로 최초 제안 실행
+
+최초 제안(T38 `t38-initial-proposal`)은 GitHub Actions 대신 플랫폼 RKE2의 Job 한 개로 실행한다.
+기존 Actions 경로와 GitHub trust는 그대로 두며, Job 경로가 실환경에서 확인된 뒤 정리한다.
+
+- **신원:** Job은 `bravo-initial/initial-proposal` SA의 projected token(audience
+  `bravo-subscription-broker`, 600초)만 받는다. broker와 플랫폼 Reader는 설치 때 고정한 클러스터
+  공개키로 이 토큰을 검증한다. 클러스터 발급자를 IAM에 연동하지 않으므로 apiserver 설정과 기존
+  SA·사람 자격은 바뀌지 않는다. Reader는 bound Pod 이름 `bravo-initial-<실행 ID>-xxxxx`로 요청의
+  실행 ID를 결속한다.
+- **AWS 권한:** broker는 토큰 검증 뒤 노드 역할로 broker 역할을 받는다. trust는 broker 전용
+  endpoint와 보조 주소 조건을 그대로 요구하므로, 같은 노드 역할을 쓰는 다른 Pod·호스트 연결은 기존
+  보안 그룹과 nft guard에서 거부된다. Job에는 AWS 자격, 모델 키, 쓰기 RBAC가 없다.
+- **한 번만 실행:** 운영자는 기존 원장에 전송 표식을 먼저 저장하고, 요청 ID에서 정한 고정 이름으로
+  Job을 만든다(`backoffLimit: 0`). 응답을 잃어도 같은 이름의 재생성은 AlreadyExists이며, 다시
+  실행하지 않고 같은 Job만 읽는다. 결과는 운영자 키로 봉인한 영수증 한 줄을 Job 로그에서 회수한다.
+- **설치:** `initial-job.yaml`, 공개 broker CA를 담은 ConfigMap `subscription-broker-ca`(`ca.pem`),
+  broker 설정의 `workload_identity`(issuer·audience·subject·`public_keys` kid→PEM),
+  Reader의 `--initial-job-config`(issuer·audience·subject·`jwks_file`)를 같은 클러스터
+  `/openid/v1/jwks` 조회 결과로 넣는다. 키 회전 때 두 설정을 같이 갱신한다.
+- **실행:** 운영자 SSO로 broker를 `bravo-subscription-service start`로 켠 뒤
+  `python -m bravo_platform_events.initial_proposal_job submit --intent … --state-dir … --image <reader image@sha256> --output …`,
+  완료까지 같은 명령의 `read`로 조회하고 broker를 `stop`한다.

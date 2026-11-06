@@ -18,6 +18,7 @@ from .product_api import (
     SUBJECT,
     AuthenticatedProductReader,
     GitHubProductCaller,
+    KubernetesJobCaller,
     create_product_read_app,
 )
 from .product_inputs import ProductInputRecords
@@ -87,7 +88,28 @@ def load_app(store, create_reader):
     return create_product_read_app(reader)
 
 
-def configured_initial_reader(store, config_file):
+def _public_keys(jwks):
+    keys = jwks.get("keys") if isinstance(jwks, dict) else None
+    if (type(keys) is not list or not 1 <= len(keys) <= 32
+            or any(type(key) is not dict or set(key) & {"d", "p", "q", "dp", "dq", "qi", "oth"}
+                   or key.get("kty") != "RSA" or key.get("alg", "RS256") != "RS256"
+                   or key.get("use", "sig") != "sig" for key in keys)):
+        raise ValueError("job_public_keys_required")
+    return tuple((key.get("kid"), RSAAlgorithm.from_jwk(json.dumps(key))) for key in keys)
+
+
+def configured_job_caller(job_config_file, tenant_id):
+    """Pinned platform-cluster keys for the initial Job; reviewed install config, no key URL."""
+    config = _json(job_config_file, 16384)
+    if (type(config) is not dict or set(config) != {"version", "issuer", "audience", "subject", "jwks_file"}
+            or config["version"] != 1 or not Path(config["jwks_file"]).is_absolute()):
+        raise ValueError("invalid_job_configuration")
+    keys = _public_keys(_json(config["jwks_file"], 65536))
+    return KubernetesJobCaller(WorkloadKeySet(config["issuer"], config["audience"], config["subject"],
+                                              keys, tenant_id))
+
+
+def configured_initial_reader(store, config_file, job_config_file=None):
     from .initial_proposal import InitialProposalRecords
     from .initial_proposal_api import AuthenticatedInitialReader
     from .initial_stored_source import stored_initial_source
@@ -98,7 +120,9 @@ def configured_initial_reader(store, config_file):
     access = ProductInputAccess(store, clock=clock, purpose="t38-initial-proposal")
     records = InitialProposalRecords(store, catalog=base.records.catalog,
         source=stored_initial_source, authorize=access.require, clock=clock)
-    return AuthenticatedInitialReader(records, base.caller)
+    caller = base.caller if job_config_file is None else configured_job_caller(
+        job_config_file, base.caller.sender.tenant_id)
+    return AuthenticatedInitialReader(records, caller)
 
 
 def load_initial_app(store, create_reader):
@@ -120,14 +144,22 @@ def main(argv=None):
     parser.add_argument("--tls-key", required=True)
     parser.add_argument("--initial-proposal", action="store_true",
                         help="Read already admitted initial inputs with their separate purpose grant")
+    parser.add_argument("--initial-job-config",
+                        help="Accept the platform initial Job identity instead of the Actions caller")
     args = parser.parse_args(argv)
     try:
         if not all(Path(p).is_file() for p in (args.config, args.tls_cert, args.tls_key)):
             raise ValueError()
         connection = runtime_connection()
         connection_checks(connection)
-        loader, configure = ((load_initial_app, configured_initial_reader) if args.initial_proposal
-                             else (load_app, configured_reader))
+        if args.initial_job_config and not args.initial_proposal:
+            raise ValueError()
+        if args.initial_proposal:
+            loader = load_initial_app
+            def configure(store, config):
+                return configured_initial_reader(store, config, args.initial_job_config)
+        else:
+            loader, configure = load_app, configured_reader
         app = loader(PostgresPlanStore(connection), lambda store: configure(store, args.config))
     except Exception:
         raise SystemExit("product_read_startup_unavailable") from None

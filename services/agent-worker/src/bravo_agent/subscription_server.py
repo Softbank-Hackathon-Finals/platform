@@ -1,4 +1,4 @@
-"""Bounded VM broker. Only a GitHub OIDC token crosses the SSM TLS tunnel."""
+"""Bounded VM broker. Only a GitHub OIDC or pinned platform Job token reaches it."""
 
 import contextlib
 import io
@@ -11,7 +11,9 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import boto3
+import jwt
 from botocore.config import Config
+from cryptography.hazmat.primitives import serialization
 
 from .contracts import FailureBundle, SnapshotManifest, digest
 from .subscription_admin import run_worker
@@ -91,9 +93,55 @@ def authenticate_product(settings, token):
     return ProductAccess(digest(subject), identity["Credentials"])
 
 
+def _workload_key(settings, token):
+    workload = settings["workload_identity"]
+    header = jwt.get_unverified_header(token)
+    if (header.get("alg") != "RS256" or set(header) & {"jku", "jwk", "x5u", "x5c"}
+            or header.get("kid") not in workload["public_keys"]):
+        raise ValueError("unpinned workload key")
+    return serialization.load_pem_public_key(workload["public_keys"][header["kid"]].encode())
+
+
+def authenticate_workload(settings, token):
+    """A platform Job's pinned Kubernetes token, then the node role via the broker-only STS path.
+
+    The cluster issuer is not federated to IAM, so the broker verifies the token itself
+    against public keys pinned at install. The node role reaches the broker role only from
+    the broker slice's SNAT address through the dedicated endpoint (subscription-runtime).
+    """
+    workload = settings["workload_identity"]
+    if not isinstance(token, str) or not 1 <= len(token) <= 16384:
+        raise ValueError("invalid workload token")
+    claims = jwt.decode(token, _workload_key(settings, token), algorithms=["RS256"],
+                        issuer=workload["issuer"], audience=workload["audience"],
+                        options={"require": ["iss", "aud", "sub", "iat", "exp"]})
+    if (claims["sub"] != workload["subject"] or type(claims["iat"]) is not int
+            or type(claims["exp"]) is not int or not 0 < claims["exp"] - claims["iat"] <= 3600):
+        raise ValueError("workload identity mismatch")
+    config = Config(retries={"total_max_attempts": 1}, connect_timeout=10, read_timeout=20)
+    credentials = boto3.client("sts", region_name=settings["region"], config=config).assume_role(
+        RoleArn=settings["broker_role_arn"], RoleSessionName="bravo-subscription-job",
+        DurationSeconds=900)["Credentials"]
+    # Same principal shape as the STS path so T10 grants stay one digest per identity.
+    subject = {"Provider": workload["issuer"], "Audience": workload["audience"],
+               "SubjectFromWebIdentityToken": workload["subject"]}
+    return ProductAccess(digest(subject), credentials)
+
+
+def authenticate_caller(settings, token):
+    """Existing Actions callers keep STS; an installed workload binding adds the Job path."""
+    if "workload_identity" in settings and token.count(".") == 2:
+        try:
+            if jwt.decode(token, options={"verify_signature": False}).get("iss") == settings["workload_identity"]["issuer"]:
+                return authenticate_workload(settings, token)
+        except jwt.PyJWTError:
+            raise ValueError("invalid workload token") from None
+    return authenticate_product(settings, token)
+
+
 def product_service(settings, inputs, journal_root, *, request_inputs=None):
     """Host-only opt-in. No CLI setting can substitute an unauthenticated reader."""
-    return ProductService(ProposalJournal(journal_root), lambda token: authenticate_product(settings, token), inputs,
+    return ProductService(ProposalJournal(journal_root), lambda token: authenticate_caller(settings, token), inputs,
                           lambda *args: invoke_product_worker(settings, *args), settings["source_sha"],
                           request_inputs=request_inputs)
 

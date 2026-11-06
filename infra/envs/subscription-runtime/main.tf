@@ -73,10 +73,19 @@ resource "aws_iam_role" "controller" {
   assume_role_policy = jsonencode({ Version = "2012-10-17", Statement = local.github_trust })
 }
 
+# The platform Job path: the broker verifies the Job's pinned Kubernetes token itself,
+# then uses the node role only through the broker-only endpoint and SNAT address below.
+# Other Pods on the node share that role but are denied by the endpoint SG and nft guard.
+data "aws_iam_instance_profile" "broker_node" {
+  name = data.aws_instance.broker.iam_instance_profile
+}
+
 resource "aws_iam_role" "broker" {
   name = local.broker_name
   assume_role_policy = jsonencode({ Version = "2012-10-17", Statement = [
-    for grant in local.github_trust : merge(grant, { Condition = merge(grant.Condition, {
+    for grant in concat(local.github_trust, [{ Effect = "Allow", Action = "sts:AssumeRole",
+    Principal = { AWS = data.aws_iam_instance_profile.broker_node.role_arn }, Condition = { StringEquals = {} } }]) :
+    merge(grant, { Condition = merge(grant.Condition, {
       StringEquals = merge(grant.Condition.StringEquals, { "aws:SourceVpce" = aws_vpc_endpoint.broker_sts.id })
       IpAddress    = { "aws:VpcSourceIp" = "${local.broker_source_ip}/32" }
     }) })

@@ -14,7 +14,7 @@ from .cutover import _get
 from .executor import _object
 from .initial_proposal import InitialInput, InitialIntent, InitialProposalRecords, _slot
 from .initial_proposal_contracts import INITIAL_WORKFLOW
-from .product_api import MAX_RESPONSE_BYTES, GitHubProductCaller
+from .product_api import MAX_RESPONSE_BYTES, GitHubProductCaller, KubernetesJobCaller
 from .store import EventError
 
 PATH = "/internal/v1/initial-proposal-inputs/read"
@@ -42,10 +42,16 @@ class AuthenticatedInitialReader:
     caller: GitHubProductCaller
 
     def __post_init__(self):
-        if type(self.records) is not InitialProposalRecords or type(self.caller) is not GitHubProductCaller:
+        if (type(self.records) is not InitialProposalRecords
+                or type(self.caller) not in (GitHubProductCaller, KubernetesJobCaller)):
             raise ValueError("initial_reader_required")
 
     def authenticate(self, token, request):
+        if type(self.caller) is KubernetesJobCaller:
+            claims = self.caller.authenticate(token, request.principal)
+            if self.caller.execution_id(claims) != request.github_run_id:
+                raise EventError("forbidden")
+            return
         self.caller.authenticate(token, request.principal)
         claims = self.caller.sender.authenticate(token)
         expected = {"run_id": request.github_run_id, "run_attempt": "1",

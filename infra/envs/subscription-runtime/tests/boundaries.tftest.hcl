@@ -1,6 +1,6 @@
 mock_provider "aws" {
   mock_data "aws_instance" {
-    defaults = { private_ip = "10.0.1.8", secondary_private_ips = ["10.0.1.9"], tags = { "bravo:subscription-sts-ipv4" = "10.0.1.9" }, subnet_id = "subnet-0123456789abcdef0" }
+    defaults = { private_ip = "10.0.1.8", secondary_private_ips = ["10.0.1.9"], tags = { "bravo:subscription-sts-ipv4" = "10.0.1.9" }, subnet_id = "subnet-0123456789abcdef0", iam_instance_profile = "bravo-platform-node" }
   }
   mock_data "aws_subnet" {
     defaults = { vpc_id = "vpc-0123456789abcdef0" }
@@ -17,6 +17,9 @@ mock_provider "aws" {
         { dns_name = "vpce-0123456789abcdef0-abc123-ap-northeast-2a.sts.ap-northeast-2.vpce.amazonaws.com", hosted_zone_id = "ZEXAMPLE" }
       ]
     }
+  }
+  mock_data "aws_iam_instance_profile" {
+    defaults = { role_arn = "arn:aws:iam::111122223333:role/bravo-platform-node" }
   }
   mock_data "aws_caller_identity" {
     defaults = { account_id = "111122223333" }
@@ -46,6 +49,12 @@ run "credential_and_session_boundaries" {
       grant.Condition.IpAddress["aws:VpcSourceIp"] == "10.0.1.9/32"
     ])
     error_message = "Each broker grant must require the endpoint and the designated VM address."
+  }
+  assert {
+    condition = length([for grant in jsondecode(aws_iam_role.broker.assume_role_policy).Statement : grant
+      if grant.Action == "sts:AssumeRole" && grant.Principal.AWS == "arn:aws:iam::111122223333:role/bravo-platform-node"
+    ]) == 1 && length(jsondecode(aws_iam_role.broker.assume_role_policy).Statement) == 3
+    error_message = "Keep both GitHub grants and add only the node-role grant for the platform Job path."
   }
   assert {
     condition = alltrue([for grant in jsondecode(aws_iam_role.controller.assume_role_policy).Statement :
@@ -92,7 +101,7 @@ run "node_without_broker_source_rejected" {
   command = plan
   override_data {
     target = data.aws_instance.broker
-    values = { private_ip = "10.0.1.8", secondary_private_ips = [], tags = {}, subnet_id = "subnet-0123456789abcdef0" }
+    values = { private_ip = "10.0.1.8", secondary_private_ips = [], tags = {}, subnet_id = "subnet-0123456789abcdef0", iam_instance_profile = "bravo-platform-node" }
   }
   expect_failures = [data.aws_instance.broker]
 }
