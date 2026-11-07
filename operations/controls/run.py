@@ -10,8 +10,9 @@ and the gate blocks on it. Credentials are never in the registration or argv:
 
 - AWS (`aws-object`, `aws-secret`): the operator's own AWS profile assumes each registered role for 15
   minutes; `QualifiedAwsProbe` then checks the STS identity against the registered RoleId.
-- S3-compatible endpoint (`s3-endpoint`, the target's SeaweedFS): the T9 `client` identity from two
-  environment variables the registration names.
+- S3-compatible endpoint (`s3-endpoint`, the target's SeaweedFS): the app's `client` identity from two
+  environment variables the registration names (in a target Job, from the app's `target-app-objects` Secret;
+  never `target-seaweedfs-auth`, which also holds the bootstrap admin keys).
 - OpenBao (`openbao`): each ServiceAccount's projected token file is exchanged once for an OpenBao token
   through the registered Kubernetes auth mount; the accessor binds the identity.
 
