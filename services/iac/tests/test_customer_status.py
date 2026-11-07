@@ -118,6 +118,27 @@ class CustomerStatus(unittest.TestCase):
         app["spec"]["syncPolicy"]["automated"].pop("enabled")
         self.assertEqual(assess(app)["status"], "BLOCKED")
 
+    def test_repeated_sync_is_distinct_from_the_first_attempt_and_never_passes(self):
+        for phase in ("Running", "Terminating"):
+            app = application()
+            app["status"]["operationState"].update(phase=phase, retryCount=2)
+            result = assess(app)
+            self.assertEqual(result["status"], "SYNC_RETRYING")
+            self.assertEqual(result["reasons"], ["OPERATION_RETRYING"])
+            self.assertEqual(result["retry_count"], 2)
+            self.assertIs(result["authorizes_cutover"], False)
+        app = application()
+        app["operation"] = {"sync": {}}
+        app["status"]["operationState"]["retryCount"] = 1
+        self.assertEqual(assess(app)["status"], "SYNC_RETRYING")
+
+    def test_invalid_retry_counts_never_become_sync_progress_or_verified(self):
+        for count in (True, -1, 1.5, "1", None):
+            app = application()
+            app["status"]["operationState"]["retryCount"] = count
+            self.assertEqual(assess(app)["status"], "BLOCKED")
+            self.assertEqual(assess(app)["reasons"], ["OPERATION_RETRY_COUNT_INVALID"])
+
     def test_prune_needs_separate_acknowledgement(self):
         app = application()
         app["spec"]["syncPolicy"]["automated"]["prune"] = True

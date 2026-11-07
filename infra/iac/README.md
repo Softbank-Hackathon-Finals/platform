@@ -121,7 +121,7 @@ ProxyGroup은 그 클러스터에 Tailscale operator(CRD)가 있어야 생성된
 실제 출발지/목적지 담당과 실행 시간을 맞추고 등록된 `kube-system` UID가 같은지 먼저 확인한다.
 다른 Argo 설치·기존 렌더러·T45가 소유한 자원은 자동으로 인수하지 않는다. 플랫폼 클러스터에는 적용하지 않는다.
 
-1. 위 명령은 **Argo CD와 CRD만** 만든다. 기존 CRD가 있어도 기본값에서는 AppProject·Application을 만들지 않는다.
+1. 위 명령은 `application.enabled=false`를 명시해 **Argo CD와 CRD만** 만든다. 기존 CRD가 있어도 AppProject·Application을 만들지 않는다.
 2. 컨트롤러 준비와 CRD Established를 확인하고, 같은 설치 값에서 `application.enabled=true`로 바꾼다.
    `application.autoSync=false`, `application.prune=false`는 유지한다. 고객 환경의 경로·diff·소유권을 확인할 수 있지만
    이 Application은 자동 적용하지 않는다. 다른 Application이나 수동 sync 권한을 제한하는 기능은 아니다.
@@ -131,6 +131,8 @@ ProxyGroup은 그 클러스터에 Tailscale operator(CRD)가 있어야 생성된
 
 `helm upgrade`에는 매번 동일한 보호된 운영자 값 파일을 사용한다. 기존 0.1.0 설치는 자동 동기화·prune이 켜져 있었으므로
 업그레이드 전에 세 모드 값을 명시적으로 정해야 한다. 기본값으로 덮어써서 기존 Application을 제거하지 않는다.
+차트 0.2.1부터 `application.enabled`를 생략하면 렌더를 거부한다. bootstrap은 false, 기존 Application 유지·등록은 true를
+명시한다. 스키마 검사를 건너뛰어도 같은 검사를 하며, 생략을 기본 false로 해석하지 않는다.
 `autoSync=false`로 바꾸는 것만으로 이미 시작한 sync가 취소되지는 않는다. 실행 중이면 결과와 영향부터 확인한다.
 초기 설치 권한은 아래의 넓은 1단계 권한이며, 설치·동기화 성공을 금융 운영 보안 자격으로 사용하지 않는다.
 
@@ -148,8 +150,10 @@ python3 infra/iac/customer_status.py --kubeconfig <고객 전용 kubeconfig> \
 실제 sync revision과 설정, 실행 중 작업, 컨트롤러 준비, 최근 조정 시각, 조회 중 Application 변경을 확인한다.
 고정 커밋이라도 Helm 값이 다른 오래된 성공은 수용하지 않는다. 명령 오류의 원문은 출력하지 않는다.
 
-상태는 `NOT_INSTALLED`, `BOOTSTRAP_PENDING`, `BOOTSTRAP_ONLY`, `SYNC_PAUSED`, `SYNC_IN_PROGRESS`,
+상태는 `NOT_INSTALLED`, `BOOTSTRAP_PENDING`, `BOOTSTRAP_ONLY`, `SYNC_PAUSED`, `SYNC_IN_PROGRESS`, `SYNC_RETRYING`,
 `SYNC_PENDING`, `BLOCKED`, `SYNC_VERIFIED`로 구분한다. `SYNC_VERIFIED`만 종료 코드 0이고 나머지는 3이다.
+실행 중 `retryCount > 0`이면 `SYNC_RETRYING`과 재시도 횟수를 표시한다. 재시도나 대기 상태를 인수 성공으로 처리하지 않는다.
+로컬 시계보다 미래인 조정 시각은 기존처럼 거부한다. 시계 오차를 독립적으로 확인하지 않은 상태에서 유효 시간 검사를 완화하지 않는다.
 승인된 prune을 별도로 인수할 때만 `--allow-prune`을 준다. 이 옵션은 삭제를 실행하거나 승인하지 않는다.
 GitOps 수렴 확인만 기록하며 `authorizes_cutover`, `migration_verified`, `control_equivalence_verified`는 항상 false다.
 T19의 통제 시험과 업무·데이터·무중단 검증은 별도로 필요하다.
@@ -157,6 +161,9 @@ T19의 통제 시험과 업무·데이터·무중단 검증은 별도로 필요�
 차트 0.2.0의 격리된 arm64 설치·정지·고정 SHA 동기화와 실제 온프렘의 읽기 전용 인수 결과는
 [고객 GitOps 검증 기록](../../docs/evidence/t44-customer-gitops-2026-11-07/README.md)에 있다.
 현재 실제 고객 설치 완료를 뜻하지 않는다.
+
+**아래는 차트 0.1.0 시절의 과거 실험 기록이다. 현재 고객 설치 절차로 사용하지 않는다.**
+현재 절차에서는 namespace를 T45 등 클러스터 구축 담당이 먼저 만들며, `application.enabled`를 명시한다.
 
 **로컬 실클러스터 확인(2026-11-07, kind v1.34.0, 운영 클러스터 아님)**: Tailscale 1.104.4 CRD만 설치(operator 없음) →
 위 설치 명령 2회(`environment=platform`, `tailnet=example-tail.ts.net`, 기능 브랜치) → Argo가 GitHub에서 끌어와 `4bc41c87`을
