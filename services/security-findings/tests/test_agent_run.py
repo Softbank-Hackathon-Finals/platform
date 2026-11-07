@@ -136,3 +136,24 @@ def test_a_redirect_is_never_followed_with_the_credential():
     server.server_close()
     assert stopped.value.code == 307
     assert seen == [("/v1/security/ingest/falco", "Bearer x")]
+
+
+def test_a_failed_chunk_stops_the_source_and_marks_it_unknown(api, capsys):
+    many = [{**REPORT, "scope": {"kind": "Pod", "name": f"demo-chat-{i}", "namespace": "target-dev"}} for i in range(1201)]
+
+    class Flaky(Opener):
+        def __call__(self, request, context=None, timeout=None):
+            if len(self.seen) == 1:  # the second kyverno chunk
+                self.seen.append(("POST", "lost", {}))
+                raise OSError("reset")
+            return super().__call__(request, context, timeout)
+
+    opener = Flaky(api)
+    assert run(cluster(reports=many), url="https://findings.example", token=WRITER_TOKEN,
+               environment_id="env-onprem", context=None, now=NOW, opener=opener) == 1
+    lines = [json.loads(line) for line in capsys.readouterr().out.splitlines()]
+    # 500 sent, 500 lost, the third chunk never sent, then the failure marker and falco
+    assert [(line["source"], line["events"], line["agent_error"]) for line in lines] == [
+        ("kyverno", 500, None), ("kyverno", 500, None), ("kyverno", 0, "API_ERROR"), ("falco", 0, None)]
+    cells = api.get("/v1/security/summary", headers=READ_AUTH).json()["environments"][0]["cells"]
+    assert cells["POLICY"]["state"] == "UNKNOWN" and cells["THREAT"]["state"] == "OK"
