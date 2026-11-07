@@ -27,6 +27,7 @@ from .stack import StackError, canonical, sha256_text
 # Set on the node by whatever prepared the host directories (first boot or the platform's site agent),
 # after it created them exactly as the step declares. The value binds the attestation to that declaration.
 HOST_PATHS_ANNOTATION = "bravo.io/host-paths"
+TAILSCALE_LOGGED_IN = {"_current-profile"}  # tailscale ipn/store/kubestore key after login
 
 
 def host_paths_digest(paths):
@@ -495,6 +496,9 @@ class ClusterChecks:
             "seaweedfs-auth": lambda: self._seaweedfs_matches_desired(run),
             "app-metrics-client": lambda: c.secret_exists("target-dev", "bravo-app-metrics-client"),
             "tailscale-oauth": lambda: c.secret_exists("tailscale-system", "operator-oauth"),
+            # The operator's state Secret gets a current profile only after it logged in to the tailnet
+            # (OAuth secret or WIF alike). Synced/Healthy does not show that.
+            "tailscale-joined": lambda: TAILSCALE_LOGGED_IN <= set(c.secret_keys("tailscale-system", "operator") or ()),
             "openbao-tls": lambda: c.secret_exists("bravo-secrets", "target-openbao-tls"),
             "openbao-ready": lambda: c.condition("Pod", "bravo-secrets", "target-openbao-0", "Ready"),
             "target-checks": lambda: (c.condition("Cluster", "target-dev", "target-db", "Ready")
