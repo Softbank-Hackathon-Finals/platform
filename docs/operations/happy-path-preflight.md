@@ -30,9 +30,9 @@
 
 ### 일괄 롤아웃 중 병합 멈춤 (팀 합의 2)
 
-1. 시작을 해피패스 스레드에 알리고, 자동 큐 등록을 끈다: `gh variable set MERGE_QUEUE_BOT_ENABLED --body false`.
-2. 빌드 입력(`services/*`, `infra/charts/*`, 이미지 Dockerfile)을 바꾸는 PR은 큐에 넣지 않는다. 문서·증빙 PR은 그대로 진행한다.
-3. 끝나면 `MERGE_QUEUE_BOT_ENABLED`를 원래 값으로 되돌리고 종료를 알린다.
+1. 시작을 해피패스 스레드에 알린다. 자동 큐 등록 봇은 2026-11-07에 제거됐다. `operations/rollout/run.py`가 읽는 `MERGE_QUEUE_BOT_ENABLED`는 `false`로 둔다.
+2. 빌드 입력(`services/*`, `infra/charts/*`, 이미지 Dockerfile)을 바꾸는 PR은 병합하지 않는다. 문서·증빙 PR은 그대로 진행한다.
+3. 끝나면 종료를 알린다.
 4. 이미지 고정 PR의 최신성 검사 완화(합의 1)는 롤아웃 뒤 별도 PR로 한다. 롤아웃 중에는 기존 검사 그대로다.
    Reader는 v1·v2 설정을 모두 읽으므로 이미지와 설정 v2의 반영 순서는 무관하다.
 

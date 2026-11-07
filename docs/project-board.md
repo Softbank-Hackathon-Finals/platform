@@ -10,7 +10,7 @@ flowchart LR
   Issue -->|"pull: bot PR → 팀원 큐 등록 → 그룹 CI → develop"| Local["docs/tasks.md 체크·담당"]
 ```
 
-`scripts/sync_tasks.py`가 공통 로직이고 `.github/workflows/sync-tasks.yml`이 이벤트를 연결한다. `develop`의 계획 또는 스크립트 변경은 `push`, 이슈 편집·닫기·재열기·담당 변경은 `pull`을 실행한다. 봇은 `bot/sync-tasks → develop` PR을 만든다. `[sync]`·`bot/` PR은 자동 큐 등록 대상에서 제외되므로 팀원이 최종 head·변경 내용·필수 CI를 확인한 뒤 Merge Queue에 등록한다. 큐가 최신 develop과 합친 그룹의 필수 CI를 통과해야 merge commit으로 병합된다. develop의 필수 승인 수는 0이며 코드 오너 승인을 요구하지 않지만, 확인된 결함은 해결해야 한다. 일반 PR의 자동 등록과 보류 조건은 [큐 등록 봇](merge-queue-bot.md), 저장소·브랜치별 규칙은 [개발 규약](development.md#브랜치와-병합)을 따른다.
+`scripts/sync_tasks.py`가 공통 로직이고 `.github/workflows/sync-tasks.yml`이 이벤트를 연결한다. `develop`의 계획 또는 스크립트 변경은 `push`, 이슈 편집·닫기·재열기·담당 변경은 `pull`을 실행한다. 봇은 `bot/sync-tasks → develop` PR을 만든다. 팀원이 최종 head·변경 내용·필수 CI를 확인한 뒤 merge commit으로 직접 병합한다. 필수 승인은 없지만 확인된 결함은 해결해야 한다. 저장소·브랜치별 규칙은 [개발 규약](development.md#브랜치와-병합)을 따른다.
 
 이슈·칸반의 상태와 로컬 tasks.md 사이에는 봇 PR이 머지될 때까지 대기 시간이 생길 수 있다. 이슈 이벤트는 GitHub **기본 브랜치**의 워크플로를 사용하므로 기본 브랜치도 develop이어야 한다. Slack 보드 알림은 회의 결정으로 중단했으며 재활성화하지 않는다. 진행 상황은 이슈와 Projects에서 확인한다.
 
