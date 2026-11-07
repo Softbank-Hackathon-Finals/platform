@@ -60,6 +60,54 @@ class WorkflowHostChart(unittest.TestCase):
         pod = next(d for d in docs if d["kind"] == "Deployment")["spec"]["template"]["spec"]
         self.assertNotIn("github-app", {v["name"] for v in pod["volumes"]})
 
+    def test_apply_credential_mounts_exec_config_and_excludes_the_token_secret(self):
+        values = json.loads(json.dumps(VALUES)) | {"applyCredential": {"existingConfigMap": "t31-apply-credential"}}
+        result, docs = render(values)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        pod = next(d for d in docs if d["kind"] == "Deployment")["spec"]["template"]["spec"]
+        volume = next(v for v in pod["volumes"] if v["name"] == "apply-kubeconfig")
+        self.assertEqual(volume["configMap"]["name"], "t31-apply-credential")
+        self.assertEqual({i["path"] for i in volume["configMap"]["items"]}, {"kubeconfig", "registration.json"})
+        self.assertNotIn("secret", volume)
+        mount = next(m for m in pod["containers"][0]["volumeMounts"] if m["name"] == "apply-kubeconfig")
+        self.assertEqual((mount["mountPath"], mount["readOnly"]), ("/t31", True))
+        values["secrets"]["applyKubeconfig"] = "t31-token"
+        self.assertNotEqual(render(values)[0].returncode, 0)
+
+    def test_bootstrap_apply_credential_is_the_exec_kubeconfig_only(self):
+        import sys
+        sys.path.insert(0, str(ROOT / "infra/envs/rehearsal-access"))
+        import bootstrap
+        import credentials
+
+        uid = "00000000-0000-4000-8000-00000000000"
+        registration = {"cluster_uid": uid + "1", "namespace": "bravo-apply-access", "service_account": "apply-deployer",
+                        "service_account_uid": uid + "2", "issuer_group": "tag:bravo-apply",
+                        "audience": "https://kubernetes.default.svc.cluster.local",
+                        "issuer": {"server": "https://target-credentials.bravo-apply-control.svc.cluster.local",
+                                   "tls_server_name": "bravo-target-credentials.example.ts.net"},
+                        "target": {"server": "https://target-api.bravo-apply-control.svc.cluster.local",
+                                   "tls_server_name": "bravo-target-api.example.ts.net"}}
+        kubeconfig = credentials.kubeconfig(credentials.Registration.parse(registration), bootstrap.APPLY_CONFIG,
+                                            bootstrap.APPLY_PLUGIN)
+        data = {"kubeconfig": json.dumps(kubeconfig),
+                "registration.json": json.dumps({"registration": registration, "anchor_uid": uid + "3"})}
+
+        def get(kind, name, namespace):
+            return {"data": data}
+
+        bootstrap.verify_apply_credential(get, "t31-apply-credential", {"executor": "x"})
+        with self.assertRaisesRegex(ValueError, "exclusive"):
+            bootstrap.verify_apply_credential(get, "t31-apply-credential", {"applyKubeconfig": "t31-token"})
+        token = json.loads(json.dumps(kubeconfig))
+        token["users"][0]["user"] = {"token": "x"}
+        data["kubeconfig"] = json.dumps(token)
+        with self.assertRaisesRegex(ValueError, "exec_only"):
+            bootstrap.verify_apply_credential(get, "t31-apply-credential", {"executor": "x"})
+        data["kubeconfig"], data["extra"] = json.dumps(kubeconfig), "x"
+        with self.assertRaisesRegex(ValueError, "fields"):
+            bootstrap.verify_apply_credential(get, "t31-apply-credential", {"executor": "x"})
+
     def test_argo_application_is_disabled_by_default(self):
         result, docs = render({}, ROOT / "infra/gitops/argocd")
         self.assertEqual(result.returncode, 0, result.stderr)

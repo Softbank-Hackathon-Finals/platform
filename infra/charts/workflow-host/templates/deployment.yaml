@@ -3,6 +3,7 @@
 {{- if not .Values.reader.existingConfigMap }}{{ fail "reader.existingConfigMap (v2) is required" }}{{- end }}
 {{- if not .Values.stateClaim }}{{ fail "stateClaim is required" }}{{- end }}
 {{- if not .Values.secrets.executor }}{{ fail "secrets.executor is required" }}{{- end }}
+{{- if and .Values.applyCredential.existingConfigMap .Values.secrets.applyKubeconfig }}{{ fail "use applyCredential or secrets.applyKubeconfig, not both" }}{{- end }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -72,7 +73,7 @@ spec:
             {{- if .Values.secrets.githubApp }}
             - {name: github-app, mountPath: /github-app, readOnly: true}
             {{- end }}
-            {{- if .Values.secrets.applyKubeconfig }}
+            {{- if or .Values.secrets.applyKubeconfig .Values.applyCredential.existingConfigMap }}
             - {name: apply-kubeconfig, mountPath: /t31, readOnly: true}
             {{- end }}
             - {name: state, mountPath: /workflow-state}
@@ -131,6 +132,15 @@ spec:
             defaultMode: 0440
             items:
               - {key: kubeconfig, path: kubeconfig}
+        {{- else if .Values.applyCredential.existingConfigMap }}
+        # Same mount path: application.json keeps /t31/kubeconfig; the exec plugin mints a 600 s token per use.
+        - name: apply-kubeconfig
+          configMap:
+            name: {{ .Values.applyCredential.existingConfigMap }}
+            defaultMode: 0444
+            items:
+              - {key: kubeconfig, path: kubeconfig}
+              - {key: registration.json, path: registration.json}
         {{- end }}
         - name: state
           persistentVolumeClaim:

@@ -36,6 +36,14 @@
                 "destination_tag": "tag:bravo-target-api",
                 "port": 443,
                 "port_name": "https"
+              },
+              {
+                "service": "target-credentials",
+                "namespace": "bravo-rehearsal-control",
+                "destination": "bravo-target-credentials",
+                "destination_tag": "tag:bravo-target-api",
+                "port": 443,
+                "port_name": "https"
               }
             ]
           },
@@ -64,6 +72,14 @@
                 "service": "target-api",
                 "namespace": "bravo-apply-control",
                 "destination": "bravo-target-api",
+                "destination_tag": "tag:bravo-target-api",
+                "port": 443,
+                "port_name": "https"
+              },
+              {
+                "service": "target-credentials",
+                "namespace": "bravo-apply-control",
+                "destination": "bravo-target-credentials",
                 "destination_tag": "tag:bravo-target-api",
                 "port": 443,
                 "port_name": "https"
