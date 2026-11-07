@@ -29,8 +29,8 @@ class FakeCharts:
         self.calls.append((chart["file"], release, namespace, json.loads(Path(values_path).read_text())
                            if str(values_path).endswith(".json") else "file", include_crds, kube_version))
         if chart["file"].startswith("openbao"):
-            # Real `helm template` output so finalize-bao's checks run. Only the container HOME path
-            # (/home/openbao) is rewritten: the public-file check reads it as a personal home path.
+            # Real `helm template` output so finalize-bao's checks run. Only the container HOME path is
+            # rewritten (to /openbao/home): the public-file check reads the original as a personal one.
             return json.loads((Path(__file__).parent / "fixtures/openbao-0.30.6-chart.json").read_text())
         return [{"apiVersion": "v1", "kind": "ConfigMap", "metadata": {"name": release, "namespace": namespace}}]
 
