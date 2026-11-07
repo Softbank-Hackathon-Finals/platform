@@ -89,7 +89,8 @@ def test_closed_target_sequence_is_raised_once_and_read_back(databases):
     assert result["sequence_errors"] == {}
     # 구독이 없으면 지연은 알 수 없음으로 남는다(0으로 채우지 않는다)
     assert result["replication"]["lag_bytes"] is None and result["replication_error"] == "replication_unconfirmed"
-    assert result["replication"]["source_database_ref"] == "cnpg-aws/chat"
+    # the registered connection ref, the value a cutover command carries for this side
+    assert result["replication"]["source_database_ref"] == "secret/aws" == result["source"]["database_ref"]
     # 다시 관찰해도 더 올리지 않는다
     [again] = Readiness(config(src, dst, role)).observe(request())["sequences"]
     assert (again["target_next"], again["proposed_next"], again["readback_next"]) == (6, 6, 6)
@@ -141,7 +142,7 @@ class FakeDb:
 
     def can_login(self, role):
         if self.w["login"] is None:
-            raise Unconfirmed("control connection: host=secret-host password=secret")
+            raise Unconfirmed("control connection: host=LEAK-CANARY-host password=LEAK-CANARY")
         return self.w["login"]
 
     def sessions(self, role):
@@ -213,7 +214,7 @@ def test_failures_leave_only_fixed_codes():
     result = fake(w).observe(request())
     assert result["source"]["errors"] == {"public.messages": "table_missing"}
     assert result["sequence_errors"] == {"public.messages:id": "target_state_unconfirmed"} and w["raised"] == []
-    assert "secret" not in repr(result)
+    assert "LEAK-CANARY" not in repr(result)
 
 
 def test_sessions_opened_before_nologin_keep_the_target_open():
@@ -277,6 +278,18 @@ def test_readiness_needs_the_command_credential():
     response = client("command-fixture", observer=observer).post("/v1/readiness", json=BODY)
     assert response.status_code == 200 and response.json() == {"kind": "t13-readiness-observation.v1"}
     assert len(observer.calls) == 1
+
+
+def test_an_execution_that_starts_during_the_observation_withholds_it():
+    class Starting(Store):
+        calls = 0
+
+        def unfinished(self):
+            self.calls += 1
+            return [] if self.calls == 1 else ["started"]
+
+    response = client("command-fixture", store=Starting(), observer=Observer()).post("/v1/readiness", json=BODY)
+    assert response.status_code == 409 and response.json()["detail"]["code"] == "execution_in_progress"
 
 
 def test_readiness_is_refused_while_an_execution_is_unfinished_or_unconfigured():

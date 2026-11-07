@@ -206,6 +206,32 @@ def test_capture_records_the_executor_observation_signs_it_and_the_gate_passes(r
     assert subjects["readiness-binding"] == again["readiness"]["binding"]
 
 
+def test_a_data_block_is_signed_but_never_spends_the_context_unless_asked(relay):
+    f = relay
+    signed_context_and_runs(f)
+    blocked = executor_observation(f)
+    blocked["replication"]["lag_bytes"] = None  # replication unknown at this moment
+    evaluated = []
+
+    def watching(request):
+        if request["op"] == "evaluate":
+            evaluated.append(request)
+        return f.call(request)
+
+    with pytest.raises(RuntimeError, match="hold:readiness_data_block"):
+        cli.run(capture_args(f), relay=watching, now=f.clock.at, observe=lambda _: {"observation": blocked},
+                clock=lambda: f.clock.at)
+    assert evaluated == []
+    args = capture_args(f)
+    args.record_block = True  # S1 may record its first BLOCK on purpose
+    f.clock.at += timedelta(seconds=1)
+    again = executor_observation(f)
+    again["replication"]["lag_bytes"] = None
+    out = cli.run(args, relay=watching, now=f.clock.at, observe=lambda _: {"observation": again},
+                  clock=lambda: f.clock.at)
+    assert out["evaluated"]["data"] == "BLOCK" and len(evaluated) == 1
+
+
 def test_capture_signs_nothing_when_another_record_lands_first(relay):
     f = relay
     signed_context_and_runs(f)
@@ -222,7 +248,7 @@ def test_capture_signs_nothing_when_another_record_lands_first(relay):
             published.append(request)
         return answer
 
-    with pytest.raises(ValueError, match="readiness_record_superseded"):
+    with pytest.raises(RuntimeError, match="hold:readiness_record_superseded"):
         cli.run(capture_args(f), relay=racing, now=f.clock.at, observe=lambda _: {"observation": observation},
                 clock=lambda: f.clock.at)
     assert published == []

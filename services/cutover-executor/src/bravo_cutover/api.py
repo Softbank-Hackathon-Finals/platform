@@ -133,9 +133,13 @@ def create_app(store: Store | None = None, runner: Runner | None = None,
         if store.unfinished():
             raise HTTPException(409, {"code": "execution_in_progress"})
         try:
-            return readiness.observe(request)
+            observed = readiness.observe(request)
         except NotObservable as e:
             raise HTTPException(e.http_status, {"code": e.code}) from e
+        # A cutover that started meanwhile owns the target now: never hand out this observation.
+        if store.unfinished():
+            raise HTTPException(409, {"code": "execution_in_progress"})
+        return observed
 
     app.include_router(api)
     return app

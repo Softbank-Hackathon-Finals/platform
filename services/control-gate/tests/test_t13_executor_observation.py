@@ -126,7 +126,8 @@ def test_diagnostics_never_enter_the_signed_snapshot(observe):
     assert diagnostics["sequences"] == {"public.messages:id": "target_open"}
     assert "errors" not in snapshot.document["source"] and "sequence_errors" not in snapshot.document
     assert snapshot.document["source"]["environment_ref"] == ctx.source_environment_ref
-    assert binding.source_database_ref == "cnpg-src/chat"
+    # The registered connection ref (what a cutover command carries), never the resource id.
+    assert (binding.source_database_ref, binding.target_database_ref) == ("secret/src", "secret/dst")
 
 
 @pytest.mark.parametrize(("change", "code"), [

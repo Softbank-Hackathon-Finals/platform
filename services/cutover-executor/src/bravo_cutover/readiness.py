@@ -77,7 +77,9 @@ class Readiness:
 
         def side(site, db) -> dict[str, Any]:
             tables, errors = _schema(db, request.tables)
-            return {"environment_id": site.environment_id, "database_ref": site.resource_id, **stamp,
+            # The registered connection ref: the same value a cutover command carries for this side,
+            # which T10 compares with the readiness binding before SHIFT and cutover approval.
+            return {"environment_id": site.environment_id, "database_ref": site.connection_ref, **stamp,
                     "tables": tables, "errors": errors}
 
         source, target = side(src_site, src), side(dst_site, dst)
@@ -89,8 +91,8 @@ class Readiness:
         return {
             "kind": "t13-readiness-observation.v1", "schema_rule": HASH_RULE,
             "source": source, "target": target,
-            "replication": {"source_database_ref": src_site.resource_id,
-                            "target_database_ref": dst_site.resource_id, **stamp, "lag_bytes": lag},
+            "replication": {"source_database_ref": src_site.connection_ref,
+                            "target_database_ref": dst_site.connection_ref, **stamp, "lag_bytes": lag},
             "replication_error": replication_error,
             "sequences": rows, "sequence_errors": sequence_errors,
         }

@@ -54,6 +54,13 @@ def test_refusals_pass_only_fixed_codes(status, detail, code):
     assert str(raised.value) == code
 
 
+@pytest.mark.parametrize("answer", [{"kind": "something-else"}, {"error": "x"}, {}])
+def test_an_answer_that_is_not_an_observation_is_refused(answer):
+    with client(lambda _: httpx.Response(200, json=answer)) as executor:
+        with pytest.raises(ExecutorReadError, match="invalid_response"):
+            executor.observe_readiness(readiness_observer.request_for(PAIR))
+
+
 def test_no_command_credential_stops_before_network():
     with ExecutorClient("https://executor.invalid", token="read-token",
                         transport=httpx.MockTransport(lambda _: pytest.fail("unexpected request"))) as executor:
@@ -73,8 +80,8 @@ def test_observe_reads_the_operator_config_and_checks_the_deployed_pair(tmp_path
     replaced["target"]["resource_id"] = "fixture/replaced"
 
     def fake(remote):
-        def make(url, *, token, command_token, tls_context):
-            assert (token, command_token) == ("read-token", "command-token")
+        def make(url, *, token, command_token, tls_context, timeout_seconds):
+            assert (token, command_token, timeout_seconds) == ("read-token", "command-token", 30)
             return client(lambda r: httpx.Response(200, json=remote if r.method == "GET" else OBSERVATION))
         return make
 

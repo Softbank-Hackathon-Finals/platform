@@ -14,8 +14,10 @@ readiness  record a T13 binding and snapshot (JSON files from the T13 capture) f
 capture    one T13 pass inside the capture's 30 s validity: the Executor observes both DBs (through the
            approval host, which holds its command credential), the relay records it for the current context
            and returns its data-readiness judgment, and this signs exactly the two readiness digests it just
-           recorded. --evaluate then records the GATE decision: once per context (S1, S2); later passes
-           (before SHIFT, before cutover) need only the fresh signed record for the platform re-evaluation
+           recorded. --evaluate then records the GATE decision: once per context (S1, S2), and only when the
+           data judgment is PASS (a passing replication lag would otherwise cost the context; a deliberate
+           BLOCK record needs --record-block). Later passes (before SHIFT, before cutover) need only the
+           fresh signed record for the platform re-evaluation
 sign       sign and publish what `subjects` shows and is not yet published; refuses unless --confirm matches
 
 T19 decision (11-07): one operator issuer with one key per purpose. The workflow host only verifies.
@@ -189,11 +191,14 @@ def capture(args, *, relay, observe, clock):
     subjects = relay({"op": "subjects", "plan_id": args.plan_id})["subjects"]
     if (subjects["context"]["digest"] != recorded["context"]
             or [subjects.get(p) for p in READINESS] != [recorded["binding"], recorded["snapshot"]]):
-        raise ValueError("readiness_record_superseded")  # not what this command recorded: sign nothing
+        raise RuntimeError("hold:readiness_record_superseded")  # not what this command recorded: sign nothing
     requests = sign_requests(args.plan_id, subjects, load_keys(args.dir), list(READINESS), subjects["confirm"],
                              clock(), timedelta(minutes=args.ttl_minutes))
     out = {"readiness": recorded, "published": [relay(r)["published"] for r in requests]}
     if args.evaluate:
+        # The GATE record is written once per context: a data BLOCK (one lag spike) would cost the context.
+        if recorded["data"]["decision"] != "PASS" and not getattr(args, "record_block", False):
+            raise RuntimeError("hold:readiness_data_block")
         out["evaluated"] = relay({"op": "evaluate", "plan_id": args.plan_id})["evaluated"]
     out["elapsed_s"] = round(time.monotonic() - started, 1)
     return out
@@ -245,6 +250,8 @@ def main(argv=None):
     p.add_argument("--relay", nargs="+", help="argv reaching bravo_platform_events.gate_relay")
     p.add_argument("--observer", nargs="+", help="argv reaching bravo_platform_events.readiness_observer")
     p.add_argument("--evaluate", action="store_true", help="capture: also record the GATE decision (once per context)")
+    p.add_argument("--record-block", action="store_true",
+                   help="capture --evaluate: record the GATE even when the data judgment blocks")
     args = p.parse_args(argv)
     if args.command != "keys" and not (args.plan_id and (args.context or args.relay)):
         p.error("--plan-id and --context (or --relay) are required")

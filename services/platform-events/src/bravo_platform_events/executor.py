@@ -371,4 +371,6 @@ class ExecutorClient(ExecutorReader):
         if "detail" in value:  # a refusal: only the Executor's fixed codes pass through
             code = value["detail"].get("code") if isinstance(value["detail"], dict) else None
             raise ExecutorReadError(code if code in READINESS_REFUSALS else "http_status")
+        if value.get("kind") != "t13-readiness-observation.v1":  # any other answer is not an observation
+            raise ExecutorReadError("invalid_response")
         return value

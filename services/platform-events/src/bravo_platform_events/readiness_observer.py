@@ -35,7 +35,10 @@ def observe(config_file=CONFIG, *, client=ExecutorClient):
         raise ValueError("operator_ports_configuration_invalid")
     with client(executor["url"], token=Path(executor["token_file"]).read_text().strip(),
                 command_token=Path(executor["command_token_file"]).read_text().strip(),
-                tls_context=ssl.create_default_context(cafile=executor["ca_file"])) as executor_client:
+                tls_context=ssl.create_default_context(cafile=executor["ca_file"]),
+                # The Executor may take its whole 30 s capture window (two sites, schema read twice);
+                # a shorter client wait would report a hold while the Executor still raises the sequence.
+                timeout_seconds=30) as executor_client:
         executor_client.verified_bindings(executor["registered_pair"])  # the deployed pair is the registered one
         return executor_client.observe_readiness(request_for(executor["registered_pair"]))
 
