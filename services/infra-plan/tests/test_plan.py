@@ -84,7 +84,7 @@ def test_plan_holds_no_secret_value_and_secret_steps_only_name_keys():
     for step in stack.document["steps"]:
         for secret in step.get("secrets", []):
             for spec in secret["keys"].values():
-                assert set(spec) <= {"literal", "random", "builtin"}
+                assert set(spec) <= {"literal", "random"}
                 assert "literal" not in spec or spec["literal"] in ("chat_app", "chat_replicator")
 
 

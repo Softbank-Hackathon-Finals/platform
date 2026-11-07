@@ -40,6 +40,5 @@ chart 아카이브는 스택의 `charts`에 적힌 파일 이름으로 둔다. �
 
 - 적용 실행기: T10 승인 소비(#603), digest · 기준 커밋 재확인, 설정 저장소 커밋, 목적지 Argo CD Application 생성(줄기별, 자동 prune 끔)과 revision 확인, 병렬 실행 · `SKIPPED` · `HOLD`, T24 기록.
 - ESO chart의 `external-secrets-webhook` Secret은 빈 상태로 렌더되고 실행 중에 컨트롤러가 채운다. Application에 이 Secret과 CRD `caBundle`의 `ignoreDifferences`를 둔다.
-- `secret_generate`의 `builtin: seaweedfs-s3-config` 생성기(T9 렌더러 형식 재사용).
 - `probe` · `operator_action` 확인 조건(`target-identity`, `host-paths` 등)의 실제 구현.
 - HTTP API와 T11 `infra.plan` 도구, 새 로컬 VM 실측.

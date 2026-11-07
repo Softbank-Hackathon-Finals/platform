@@ -196,24 +196,14 @@
     },
     {
       "id": "object-secrets",
-      "kind": "secret_generate",
+      "kind": "operator_action",
       "owner": "T9",
-      "description": "SeaweedFS s3.json(버킷 한정 bootstrap · client identity)을 메모리에서 만든다",
+      "description": "SeaweedFS s3.json(버킷 한정 bootstrap · client identity)을 사람이 만든다",
       "needs": [
         "base-sync"
       ],
-      "secrets": [
-        {
-          "namespace": "target-dev",
-          "name": "target-seaweedfs-auth",
-          "type": "Opaque",
-          "keys": {
-            "s3.json": {
-              "builtin": "seaweedfs-s3-config"
-            }
-          }
-        }
-      ]
+      "instruction": "object_exposure.py render --state closed로 s3.json을 만들어 target-dev/target-seaweedfs-auth Secret에 메모리에서만 넣는다. client 키는 openbao-init 단계에서 OpenBao KV에 쓸 값이므로 운영자 자격 저장소에 보관한다.",
+      "confirm": "seaweedfs-auth"
     },
     {
       "id": "cnpg",
