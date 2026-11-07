@@ -128,12 +128,25 @@ class WorkflowHostChart(unittest.TestCase):
     def test_bootstrap_initial_proposal_takes_only_a_public_ca(self):
         import bootstrap
 
-        bootstrap.verify_initial_proposal({"enabled": True, "brokerCaPem": "-----BEGIN CERTIFICATE-----\nx"})
+        seen = []
+
+        def get(kind, name, namespace=None):
+            seen.append((kind, name, namespace))
+            return {}
+
+        bootstrap.verify_initial_proposal(get, {"enabled": True, "brokerCaPem": "-----BEGIN CERTIFICATE-----\nx"})
+        self.assertEqual(seen, [("secret", "platform-ghcr-reader", "bravo-initial")])
+
+        def missing(kind, name, namespace=None):
+            raise subprocess.CalledProcessError(1, ["kubectl", "get", kind, name])
+
+        with self.assertRaises(subprocess.CalledProcessError):
+            bootstrap.verify_initial_proposal(missing, {"enabled": True, "brokerCaPem": "-----BEGIN CERTIFICATE-----\nx"})
         for bad in ({"enabled": True, "brokerCaPem": "-----BEGIN PRIVATE KEY-----"},
                     {"enabled": True, "brokerCaPem": "-----BEGIN CERTIFICATE-----", "extra": 1},
                     {"enabled": False, "brokerCaPem": "-----BEGIN CERTIFICATE-----"}):
             with self.assertRaises(ValueError):
-                bootstrap.verify_initial_proposal(bad)
+                bootstrap.verify_initial_proposal(get, bad)
 
 
 if __name__ == "__main__":

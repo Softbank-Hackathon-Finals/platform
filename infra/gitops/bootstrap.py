@@ -49,12 +49,19 @@ def verify_rehearsal_host(get, host):
         raise ValueError("published_rehearsal_host_image_required")
 
 
-def verify_initial_proposal(value):
-    """#503 Job path: namespace, SA, admission policy and the PUBLIC broker CA only."""
+INITIAL_PROPOSAL_REGISTRY = "platform-ghcr-reader"
+
+
+def verify_initial_proposal(get, value):
+    """#503 Job path: namespace, SA, admission policy and the PUBLIC broker CA only.
+
+    The Job Pod pulls the Reader image with the existing registry Secret in its own namespace; it must
+    exist before the path is turned on, or the first Job fails on the image pull."""
     pem = value.get("brokerCaPem") if isinstance(value, dict) else None
     if (set(value) != {"enabled", "brokerCaPem"} or value["enabled"] is not True or not isinstance(pem, str)
             or not pem.startswith("-----BEGIN CERTIFICATE-----") or "PRIVATE KEY" in pem):
         raise ValueError("initial_proposal_public_ca_required")
+    get("secret", INITIAL_PROPOSAL_REGISTRY, "bravo-initial")
 
 
 WORKFLOW_KEYS = {"configuration", "reader", "stateClaim", "secrets", "interval"}
@@ -257,7 +264,7 @@ def main():
         if "rehearsalHost" in value:
             verify_rehearsal_host(get, value["rehearsalHost"])
         if "initialProposal" in value:
-            verify_initial_proposal(value["initialProposal"])
+            verify_initial_proposal(get, value["initialProposal"])
         if "workflowHost" in value:
             verify_workflow_host(get, value["workflowHost"])
         values = ["--values", str(a.runtime_values)]

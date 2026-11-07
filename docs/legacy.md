@@ -44,7 +44,6 @@ GitOps로 옮겨도 아래 보안·데이터 정책과 워크플로는 그대로
 |---|---|---|
 | 목적지 S2 후보 수동 반입(`docs/operations/target-image-handoff.md`, `scripts/happy_path.py`의 `s2-candidate-import`) | 목적지 노드가 ECR에서 직접 pull. 실환경에는 2026-11-07 11:55 KST에 적용했고 Git에는 없다(`feature/T31-target-registry-pull`). | T31·T28. 그 브랜치를 병합한 뒤 반입 절차를 지운다. |
 | T31 반영용 고정 토큰 kubeconfig Secret(8시간) | `infra/envs/rehearsal-access/credentials.py`의 exec 자격(600초 자동 발급) | T31·T7. 실제 만료를 넘긴 연속 조회와 회수 뒤 거부를 확인한 뒤 |
-| initial-proposal SA의 pull Secret(실환경에만 수동 반영) | `infra/gitops/argocd/templates/initial-proposal.yaml`의 설치 입력 | T43·T38 |
 | `infra/envs/rehearsal-access/rehearsal-host-network.yaml`(수동 YAML, `bootstrap.py`가 읽음) | IaC 모듈 하나 | T15·T44. 실환경의 매핑 포트와 다르다. 적용된 정책을 모두 조사한 뒤 바꾼다. |
 | 옛 고정 포트 NetworkPolicy(실환경 `t15-rehearsal-host-target-api`, `collector-target-api-client`, `cutover-executor-tailnet`) | `infra/iac/charts/platform`의 NetworkPolicy | T44. workflow host의 apply 경로와 proxy UDP 포트를 선언한 뒤 지운다. |
 | `infra/iac/charts/platform`을 사람이 server-side apply(2026-11-07 13:37 KST) | T43 Argo Application 연결 | T44 할 일 |
