@@ -42,8 +42,13 @@
   1. `control-pod`(gitops_publish): `bravo-exit-drill control-pod` 렌더를 목적지 설정 저장소 `exit-drill/`에 커밋한다. 이미지는 앱 고정 이미지(`application.py --print-image`)다.
   2. `control-sync`(gitops_sync): Argo가 그 커밋으로 Synced·Healthy인지 확인한다(대조군 Ready).
   3. `residual-map`(operator_action → 플랫폼 진행기): 목적지 `pods,networkpolicies`를 읽는다. 그 계획의 T16 인벤토리(T10 기록)로 `render`와 `map`을 실행하고, 계획과 지도를 증거로 남긴다. 거부(`refused`)도 그대로 결과다.
-  4. `control-remove`(gitops_publish): `exit-drill/`을 비운 커밋을 올린다. Argo prune으로 대조군이 사라진다. 대조군은 4시간 뒤 스스로 끝나기도 한다.
+  4. 대조군 제거는 단계로 두지 않는다. T45 게시는 Git 디렉터리만 바꾸고 Argo prune이 꺼져 있다(`adapters.py`). 그래서 커밋으로 Pod가 지워지지 않는다. 대조군은 `activeDeadlineSeconds` 4시간 뒤 스스로 끝난다(T27 `control_pod`).
+* 스택은 `target-identity → control-pod → control-sync → control-ready`(새 검사 `exit-drill-control-ready`)다. 지도는 스택이 SUCCEEDED한 뒤 진행기(`bravo_migration.residual_map`)가 만든다. 지도는 클러스터 객체가 아니라 플랫폼 증거라서 T45 확인 검사로 두지 않는다.
 * 진행기는 기존 `services/migration-driver`의 플랫폼 단계로 둔다(AWS 플랫폼 RKE2, 배치 기준).
+
+### 실측 (2026-11-08, 격리 VM bravo-t49)
+
+* `t45-s5-map-2`: 스택 SUCCEEDED(적용 4, 6초). 대조군 Pod가 GitOps로 Ready가 됐다. 이어서 T27 `render`가 `SELECTOR_MATCHES_NOTHING(pooler)`로 거부했다. 격리 VM에는 컷오버 전 pooler(`target-pgbouncer`, 이전 단계 스택에서 생김)가 없기 때문이다. 이 거부도 결과로 남긴다. live 목적지처럼 pooler가 있는 환경에서 지도까지 나오는지는 다음 실측에서 확인한다.
 
 ### 결과 (Consequences)
 
