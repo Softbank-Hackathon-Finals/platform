@@ -122,10 +122,14 @@ def test_platform_routes_are_the_live_route_services():
         "platform-state/collector-target-api": "workload",
         **{f"bravo-platform/{side}-{kind}-for-cutover": "default"
            for side in ("source", "target") for kind in ("api", "db", "pooler")},
+        # 2026-11-07 16:10 KST readback: the credential issuer route (kubectl-created 11-06), now declared.
+        "bravo-rehearsal-control/target-credentials": "workload",
     }
+    # Declared before it exists: the T31 apply identity's route to the same shared issuer.
+    new = {"bravo-apply-control/target-credentials": "workload"}
     groups = check_state(PLATFORM)["modules"][0]["params"]["groups"]
     declared = {f'{r["namespace"]}/{r["service"]}': g.get("tailnet", "default") for g in groups for r in g["routes"]}
-    assert declared == live
+    assert declared == live | new
 
 
 @pytest.mark.parametrize("change", [
