@@ -921,6 +921,7 @@ Claude Code는 `/todo-task`, Codex는 `$todo-task`로 이 순서를 따르는 �
 - [ ] 계획 엔진: 렌더러 고정 인자 호출, chart `helm template` 후처리, 설정 저장소 트리 digest, 읽기 전용 신원 dry-run, 비밀값 없는 `plan_digest`, CI에서 스택 렌더 시험
 - [ ] T44 목적지 Argo CD 위에 줄기별 Application · 전용 AppProject(설정 저장소 한정), 자동 prune 끔, 설정 저장소 읽기 전용 자격
 - [ ] 적용 실행기: T10 `kind=infra` 승인 대조, digest · 기준 커밋 재확인 거부, 설정 저장소 커밋과 Argo revision 확인, 의존 그래프 병렬 실행, 멱등 `SKIPPED`, `operator_action` 대기 · 확인, 상태 불명 `HOLD`, 삭제 동작 없음, T24 기록
+- [ ] 비밀 값 자원(버킷 계정 Secret): 처음 구축 때 T44 원하는 상태 모양으로 만들기(`object-secrets`), 데모 1번 "열린 버킷 → 닫기"의 적용 · IAM-01.1 재대조는 새 적용기 없이 T31 버킷 정책 분기(`apply-path` `policy.py`, `apply-recheck`)를 재사용하고 T44 `closed` 원하는 상태를 그 입력으로 잇기(T44 #646)
 - [ ] API: 계획 생성 · 조회(에이전트 포함), 적용 실행 · 조회 · 사람 단계 확인(사람만), 에이전트 신원의 실행 · 확인 거부와 요청 스키마 검사
 - [ ] 새 로컬 VM에서 계획 → 승인 → 적용 실측: 단계별 시각 · 전체 소요 시간, Argo revision과 커밋 일치, 재적용 전부 `SKIPPED`, 중간 실패 뒤 이어서 적용, digest 불일치 `REFUSED`, 비밀값 비노출 확인
 
