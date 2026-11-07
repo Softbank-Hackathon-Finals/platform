@@ -51,7 +51,7 @@ def test_the_committed_desired_state_is_valid_and_is_the_demo_fixture():
     state = check_state(COMMITTED)
     assert state["environment"] == "target-dev"
     assert state["modules"][0]["params"]["state"] == "open-demo"
-    assert [m["id"] for m in describe()] == ["target-object-exposure"]
+    assert [m["id"] for m in describe()] == ["target-object-exposure", "tailnet-egress"]
 
 
 def test_an_agent_may_plan_closing_the_bucket():
@@ -147,7 +147,7 @@ def test_api_serves_the_catalog_the_committed_state_and_plans():
     response = client.post("/v1/iac/plan", json={"environment": "target-dev", "proposed": closed(),
                                                  "origin": "agent"})
     assert response.status_code == 200 and response.json()["base_digest"] == committed["digest"]
-    assert client.get("/v1/iac/environments/source-dev").status_code == 404
+    assert client.get("/v1/iac/environments/nowhere-dev").status_code == 404
     assert client.get("/v1/iac/environments/..%2Fsecrets").status_code == 404
     bad = client.post("/v1/iac/plan", json={"environment": "target-dev", "proposed": {}, "origin": "agent"})
     assert bad.status_code == 422 and bad.json()["detail"] == {"code": "IAC_STATE_INVALID"}

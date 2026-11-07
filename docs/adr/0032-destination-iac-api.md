@@ -54,6 +54,13 @@
 * 설계 8.3: 에이전트는 JSON으로 검증되는 제안만 내고 실행하지 않는다. `infra.plan`은 같은 입력에 같은 digest를 내는 순수 함수이며, 에이전트는 노출 확대(`IAC_WIDENING_REFUSED`)와 모듈 추가·삭제(`IAC_MODULE_SET_CHANGE_REFUSED`)를 계획할 수 없다.
 * 에이전트 이미지는 IaC 라이브러리를 가져오지 않는다. 계획 포트(`bravo_iac.agent.AgentPlanner`)를 제어 경로가 주입한다(inventory와 같은 방식, 네트워크 없음).
 
+### 네트워크 경로 (`tailnet-egress`)
+
+* 해피패스에서 에이전트가 경로마다 들어가 Tailscale operator가 매긴 proxy 포트를 관찰하고 NetworkPolicy를 맞추느라 오래 걸렸다. 경로를 Git에 선언해 미리 깐다.
+* **클러스터 쪽은 그 그룹 proxy Pod의 TCP 10000–10999를 연다.** 관찰 단계가 사라지는 대신, 기존 rehearsal-access의 "할당된 포트만 연다"보다 넓다. 그룹은 용도별 전용이고 목적지·포트는 tailnet grant가 정하므로, 열린 범위로 닿을 수 있는 것은 그 용도의 grant뿐이다.
+* tailnet 정책 조각은 원하는 상태에서 생성하고 Tailscale 정책 `tests`로 불변식을 건다. 실검증은 Tailscale(`tailscale status`)로 한다.
+* 이 맥의 첫 실행에서 목적지 API 장치 태그가 선언과 달랐다(`tag:bravo-target-operator` vs `tag:bravo-target-api`). 선언과 실제가 어긋나는 곳을 적용 전에 드러내는 것이 목적이다.
+
 ## 4. 결과
 
 * `services/iac`(`bravo_iac`): 카탈로그, 원하는 상태 검사, plan, CLI(`modules`·`check`·`plan`·`stage`), 읽기·제안 API(`/v1/iac/modules`, `/v1/iac/environments/{id}`, `/v1/iac/plan`).

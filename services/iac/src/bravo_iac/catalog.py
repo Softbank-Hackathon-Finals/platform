@@ -2,10 +2,10 @@
 
 import re
 
-from .modules import TARGET_OBJECT_EXPOSURE, IacError, Module
+from .modules import TAILNET_EGRESS, TARGET_OBJECT_EXPOSURE, IacError, Module
 
 CATALOG: dict[tuple[str, str], Module] = {
-    (m.id, m.version): m for m in (TARGET_OBJECT_EXPOSURE,)
+    (m.id, m.version): m for m in (TARGET_OBJECT_EXPOSURE, TAILNET_EGRESS)
 }
 SCHEMA_VERSION = "1"
 ENVIRONMENT_RE = re.compile(r"[a-z0-9][a-z0-9-]{1,62}")

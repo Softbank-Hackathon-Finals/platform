@@ -889,6 +889,7 @@ Claude Code는 `/todo-task`, Codex는 `$todo-task`로 이 순서를 따르는 �
 
 **할 일**
 - [ ] `services/iac`: 모듈 카탈로그·원하는 상태 검사·결정적 plan(같은 입력 같은 digest, 비밀 값 제외)·CLI·읽기/제안 API, 첫 모듈 `target-object-exposure`와 T9 렌더러 동치 시험
+- [ ] 네트워크 경로 모듈 `tailnet-egress`: 플랫폼→목적지 API, 컷오버→양쪽 DB·Pooler, 관측(Collector→지표 저장소)을 선언하고 tailnet 정책 조각·Tailscale 실검증(`tailnet-verify`)
 - [ ] 에이전트 도구 `infra.plan`(T11 도구 계층·두 provider)과 제어 경로가 주입하는 계획 포트(`AgentPlanner`)
 - [ ] 실제 Job에 포트 연결(T38·T11): 커밋된 원하는 상태를 입력으로, 계획 결과를 실행 결과에 결속
 - [ ] 플랫폼 API에 IaC 조회·plan 연결(T10)과 승인 뒤 원하는 상태 PR 생성(기존 GitHub App 쓰기 경로)
