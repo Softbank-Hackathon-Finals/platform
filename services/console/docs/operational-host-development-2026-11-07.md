@@ -32,3 +32,16 @@ lockfile·시험을 약화하지 않고 경로 의존성 세 개를 잠긴 버�
 - 실제 워크로드 대응 공급자·격리·복구 인수는 미완료다. T19 FAIL·Pod Ready·GitOps 상태를 공격 대응이나 무중단 이전의 성공으로 표시하지 않는다.
 
 UI, 어댑터 코드, 시험 fixture, 공식 이미지, 실제 대상 관측은 서로 다른 근거로 기록한다. T21 Done 처리는 하지 않는다.
+
+
+## 실제 로컬 TLS 보강
+
+`test_operator_bridge_tls.py`에서 실제 loopback HTTPS 서버와 생성한 시험 인증서로 세 경우를 확인했다.
+정상 CA·등록 서버 이름은 성공했고, 미신뢰 CA와 다른 서버 이름은 TLS 단계에서 거부됐다.
+거부된 두 경우 upstream이 받은 HTTP 요청·Authorization은 0개다. 중계 주소가 loopback이어도
+등록된 서버 이름(SNI)을 검사하며, `verify=False`나 HTTP 대체 경로를 사용하지 않는다.
+시험 키는 fixture의 비공개 임시 파일만 사용하고 종료 시 제거했다. 실제 AWS proof는 사용하지 않았다.
+
+기존 전체 446개 통과에 더해 이 TLS 시험 3개를 별도로 통과했다. 운영 호스트 TLS나 실제 SSO 등록을
+인수한 것으로 확대하지 않는다. #727 원래 head의 Node/Python 콘솔 CI도 통과했으며, infra와 다른
+필수 묶음은 확인 당시 아직 진행 중이었다. 추가 커밋의 CI 결과는 별도로 확인한다.
