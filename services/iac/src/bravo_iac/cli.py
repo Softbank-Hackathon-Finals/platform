@@ -8,13 +8,18 @@
     bravo-iac tailnet-policy --tailnet workload infra/iac/environments/*.json > infra/tailnet/routes-policy.workload.json
     bravo-iac tailnet-check --policy <tailnet policy JSON> [--tailnet workload] infra/iac/environments/*.json
     bravo-iac tailnet-verify [--tailnet workload] infra/iac/environments/*.json   # live, through this device's Tailscale
+    bravo-iac tailnet-merge --policy <tailnet policy JSON> [--out merged.json] infra/iac/environments/*.json
+    bravo-iac tailnet-sync --tailnet-name <tailnet> --client-id <federated identity> [--apply] infra/iac/environments/*.json
     bravo-iac chart infra/iac/environments/target-dev.json --out infra/iac/charts/target-dev
+    bravo-iac held infra/iac/environments/platform.json | kubectl apply --server-side --field-manager bravo-iac -f -
     bravo-iac network infra/iac/environments/*.json             # every route, as GET /v1/iac/network
     bravo-iac node infra/iac/environments/platform.json --out infra/iac/nodes/platform   # node files
 
 stage writes the proposed state into the target file only if the file still has the plan's
 base_digest and the proposal its proposed_digest, and the plan was accepted. Opening the PR,
 review and merge stay with people (GitOps); nothing here touches a cluster.
+tailnet-sync is the one command that writes: the merged fragment into a tailnet policy file, from the
+tailnet-policy workflow after a merge to develop (tailnet_sync.py). Without --apply it only plans.
 Exit: 0 done, 1 refused or invalid (one fixed code), 2 usage.
 """
 
@@ -24,7 +29,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from . import catalog, chart, network, node, tailnet
+from . import catalog, chart, network, node, tailnet, tailnet_sync
 from .modules import IacError
 from .plan import canonical, digest, plan
 
@@ -49,6 +54,8 @@ def run(args) -> dict:
             path.write_text(content, encoding="utf-8")
             written.append(name)
         return {"chart": args.out, "files": written}
+    if args.command == "held":  # what a cluster administrator applies; never in a chart
+        return {"apiVersion": "v1", "kind": "List", "items": chart.held_objects(_load(args.state))}
     if args.command == "network":
         return network.view([_load(s) for s in args.states])
     if args.command == "node":
@@ -68,6 +75,18 @@ def run(args) -> dict:
         peers = tailnet.status(Path(args.status_json).read_text() if args.status_json else None)
         rows = tailnet.verify([_load(s) for s in args.states], peers, args.tailnet)
         return {"rows": rows, "ok": not any(r["result"] in ("OFFLINE", "TAG_MISMATCH") for r in rows)}
+    if args.command == "tailnet-merge":
+        states = [_load(s) for s in args.states]
+        merged, added, conflicts = tailnet_sync.merge(_load(args.policy), tailnet.fragment(states, args.tailnet))
+        if args.out:  # the whole policy, people included: a local file, never a log
+            Path(args.out).write_text(json.dumps(merged, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+        ok = not conflicts and not tailnet.check_policy(merged, states, args.tailnet)
+        return tailnet_sync.masked({"added": added, "conflicts": conflicts, "ok": ok})
+    if args.command == "tailnet-sync":
+        token = tailnet_sync.github_token(args.client_id)
+        client = tailnet_sync.Client(args.tailnet_name, token)
+        result = tailnet_sync.sync(client, [_load(s) for s in args.states], args.tailnet, args.apply)
+        return tailnet_sync.masked({**result, "ok": result["status"] in ("PLANNED", "NO_CHANGE", "APPLIED")})
     planned, proposed = _load(args.plan), catalog.check_state(_load(args.proposed))
     current = catalog.check_state(_load(args.target))
     if planned.get("kind") != "iac-plan.v1" or planned.get("accepted") is not True:
@@ -94,6 +113,8 @@ def main(argv=None) -> int:
     ch = sub.add_parser("chart")
     ch.add_argument("state")
     ch.add_argument("--out", required=True)
+    hd = sub.add_parser("held")
+    hd.add_argument("state")
     nw = sub.add_parser("network")
     nw.add_argument("states", nargs="+")
     nd = sub.add_parser("node")
@@ -110,6 +131,17 @@ def main(argv=None) -> int:
     tv.add_argument("--status-json", help="saved `tailscale status --json` (default: ask this device)")
     tv.add_argument("--tailnet", help="only the groups of this tailnet key (default: all)")
     tv.add_argument("states", nargs="+")
+    tm = sub.add_parser("tailnet-merge")
+    tm.add_argument("--policy", required=True)
+    tm.add_argument("--tailnet", default="default", help="tailnet key the policy belongs to")
+    tm.add_argument("--out", help="write the merged policy here (it holds the tailnet's groups)")
+    tm.add_argument("states", nargs="+")
+    ts = sub.add_parser("tailnet-sync")
+    ts.add_argument("--tailnet", default="default", help="tailnet key the policy belongs to")
+    ts.add_argument("--tailnet-name", required=True, help="the tailnet's organization name, never '-'")
+    ts.add_argument("--client-id", required=True, help="the federated identity this job's OIDC token matches")
+    ts.add_argument("--apply", action="store_true", help="write the merged policy (develop only)")
+    ts.add_argument("states", nargs="+")
     st = sub.add_parser("stage")
     st.add_argument("--plan", required=True)
     st.add_argument("--proposed", required=True)

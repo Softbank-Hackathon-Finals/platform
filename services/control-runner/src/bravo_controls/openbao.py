@@ -24,6 +24,8 @@ VERSION = "1"
 MAX_RESPONSE = 1024 * 1024
 _SEGMENT = re.compile(r"[A-Za-z0-9_-][A-Za-z0-9_.-]{0,127}\Z")
 _ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9_./:@-]{0,255}\Z")
+_DNS = re.compile(r"(?=.{1,253}\Z)[a-z0-9](?:[-a-z0-9]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[-a-z0-9]{0,61}[a-z0-9])?)*\Z")
+_LOOPBACK = {"localhost", "127.0.0.1", "::1"}
 
 
 def _path(value: str) -> str:
@@ -55,6 +57,34 @@ def _object(pairs):
 
 def _invalid_number(_):
     raise ValueError("non-JSON number")
+
+
+class _NamedTLS(ssl.SSLContext):
+    """Verifies the registered server name while the TCP connection goes to a loopback port-forward."""
+
+    server_name = None
+
+    def wrap_socket(self, sock, *args, **kwargs):
+        if self.server_name is not None:
+            kwargs["server_hostname"] = self.server_name
+        return super().wrap_socket(sock, *args, **kwargs)
+
+
+def tls_context(ca_pem: str, server_name: str | None = None) -> ssl.SSLContext:
+    # Explicit trust bundle, no global SSL/environment trust override.
+    context = _NamedTLS(ssl.PROTOCOL_TLS_CLIENT)
+    context.minimum_version = ssl.TLSVersion.TLSv1_2
+    context.load_verify_locations(cadata=ca_pem)
+    context.server_name = server_name
+    return context
+
+
+def check_server_name(origin_host: str, server_name: str | None) -> None:
+    """A registered server name only for a loopback origin (kubectl port-forward), and a DNS name."""
+    if server_name is not None and (
+        not isinstance(server_name, str) or not _DNS.fullmatch(server_name) or origin_host not in _LOOPBACK
+    ):
+        raise ValueError("server name only for a loopback origin")
 
 
 @dataclass(frozen=True)
@@ -109,6 +139,8 @@ class OpenBaoClient:
     token: str = field(repr=False)
     principal: KubernetesPrincipal
     timeout: float = 3.0
+    # Through `kubectl port-forward`: origin https://127.0.0.1:<port>, TLS checks this registered name.
+    server_hostname: str | None = None
 
     def __post_init__(self):
         try:
@@ -131,6 +163,7 @@ class OpenBaoClient:
                 or not 0 < self.timeout <= 10
             ):
                 raise ValueError
+            check_server_name(url.hostname, self.server_hostname)
             self._tls()
         except Exception:
             raise ValueError(
@@ -138,11 +171,7 @@ class OpenBaoClient:
             ) from None
 
     def _tls(self):
-        # Explicit trust bundle, no global SSL/environment trust override.
-        context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
-        context.minimum_version = ssl.TLSVersion.TLSv1_2
-        context.load_verify_locations(cadata=self.ca_pem)
-        return context
+        return tls_context(self.ca_pem, self.server_hostname)
 
     def _get(self, path: str) -> tuple[int, dict]:
         url = urlsplit(self.origin)
@@ -252,6 +281,7 @@ class OpenBaoSecretAccessProbe:
             raise ValueError("registered target and OpenBao clients required")
         if (
             app_client.origin != other_client.origin
+            or app_client.server_hostname != other_client.server_hostname
             or app_client.ca_pem != other_client.ca_pem
             or app_client.token == other_client.token
             or app_client.principal.auth_mount != other_client.principal.auth_mount
@@ -344,7 +374,11 @@ class OpenBaoSecretAccessProbe:
             "tool_version": VERSION,
             "collected_at": collected.isoformat(),
             "resource_binding_sha256": _digest(
-                _canonical({"origin": self.app_client.origin, **asdict(self.target)})
+                _canonical(
+                    {"origin": self.app_client.origin, **asdict(self.target)}
+                    | ({"server_hostname": self.app_client.server_hostname}
+                       if self.app_client.server_hostname else {})
+                )
             ),
             "app_principal_sha256": _digest(_canonical(asdict(self.app_client.principal))),
             "other_principal_sha256": _digest(_canonical(asdict(self.other_client.principal))),

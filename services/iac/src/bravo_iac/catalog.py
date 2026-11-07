@@ -2,11 +2,18 @@
 
 import re
 
-from .modules import TAILNET_EGRESS, TAILNET_INGRESS, TARGET_OBJECT_EXPOSURE, IacError, Module
+from .modules import (
+    OPERATOR_ACCESS,
+    TAILNET_EGRESS,
+    TAILNET_INGRESS,
+    TARGET_OBJECT_EXPOSURE,
+    IacError,
+    Module,
+)
 from .node import CLUSTER_AUDIT
 
 CATALOG: dict[tuple[str, str], Module] = {
-    (m.id, m.version): m for m in (TARGET_OBJECT_EXPOSURE, TAILNET_EGRESS, TAILNET_INGRESS, CLUSTER_AUDIT)
+    (m.id, m.version): m for m in (TARGET_OBJECT_EXPOSURE, TAILNET_EGRESS, TAILNET_INGRESS, OPERATOR_ACCESS, CLUSTER_AUDIT)
 }
 SCHEMA_VERSION = "1"
 ENVIRONMENT_RE = re.compile(r"[a-z0-9][a-z0-9-]{1,62}")
