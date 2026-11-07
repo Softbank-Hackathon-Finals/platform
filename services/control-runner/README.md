@@ -14,6 +14,7 @@ T5의 평가 프로필에 따라 관찰 결과를 `PASS / FAIL / UNKNOWN`으로 
 | AWS Secret 시험 | 앱 역할과 다른 역할로 같은 현재 Secret 읽기 시도 (`SEC-01.1`) | SDK 인터페이스 모의 시험 |
 | OpenBao Secret 시험 | 두 Kubernetes SA의 신원·같은 현재 Secret 읽기를 전후 확인 (`SEC-01.1`) | 합성 API 응답 + 실제 loopback TLS; 팀 OpenBao 연결 미검증 |
 | AWS 객체 시험 | 앱 읽기 성공 후 동일 객체의 익명 일반 GET (`IAM-01.1`) | SDK 인터페이스 모의 시험 |
+| S3 호환 객체 시험 (목적지 SeaweedFS) | 같은 판정: 앱 서명 GET 허용 → 익명 GET 거부 → 앱 GET 재확인, 등록 endpoint·경로 방식 고정 (`IAM-01.1`, `object_endpoint.py`) | Stubber 회귀 + 목적지와 같은 SeaweedFS 4.52 이미지·T9 `s3.json`의 실측(`BRAVO_SEAWEEDFS_DOCKER=1`): closed PASS, open-demo FAIL. 실제 목적지 연결 미인수 |
 | AWS Secret 저장 암호화 | 현재 Secret 버전·기존 KMS 키·기본 alias를 읽기 전용으로 전후 대조 (`ENC-02.1`) | 실제 Botocore Stubber, [범위·자격 경계](docs/secret-encryption.md) |
 | 로그 비밀 노출 검사 | 등록된 카나리 실행·전체 로그·대조군 검사, CloudWatch 전체 페이지 조회 (`SEC-01.3`) | 모의 SDK + 실제 로컬 자식 프로세스; 운영 주입/복원·수집 연결 미구현 |
 | 앱 간 객체·DB 접근 | 서로 다른 두 앱의 전후 정상 접근 + 교차 접근 결합 (`ISO-01.1`) | SDK 모의 S3 + 실제 로컬 PostgreSQL; 운영 S3·양쪽 환경 미인수 |
