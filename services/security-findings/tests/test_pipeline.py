@@ -473,19 +473,22 @@ def test_scc_pages_and_failure(rules):
     ingestor = Ingestor(store, Normalizer(rules))
     finding = raw("gcp-scc-public-bucket")
     finding.pop("_note")
+    finding["name"] = "projects/123456789/sources/111/locations/global/findings/publicbucket001"
     session = FakeSession(
         [
             FakeResponse({"listFindingsResults": [{"finding": finding}], "nextPageToken": "n"}),
-            FakeResponse({"listFindingsResults": []}),
+            FakeResponse({}),
         ]
     )
-    counts = run_once(ingestor, SccSource(session, "projects/demo"), "env-gcp", clock)
+    counts = run_once(ingestor, SccSource(session, "projects/123456789"), "env-gcp", clock)
     assert counts["created"] == 1
-    assert session.calls[0][0].endswith("/projects/demo/sources/-/findings")
+    assert session.calls[0][0] == (
+        "https://securitycenter.googleapis.com/v2/projects/123456789/sources/-/locations/global/findings"
+    )
     assert session.calls[1][1]["pageToken"] == "n"
     clock.now += MIN
     failing = FakeSession([FakeResponse({}, status=403)])
-    assert run_once(ingestor, SccSource(failing, "projects/demo"), "env-gcp", clock) == {
+    assert run_once(ingestor, SccSource(failing, "projects/123456789"), "env-gcp", clock) == {
         "failed": 1
     }
     assert store.source("gcp_scc", "env-gcp").error_code == "ACCESS_DENIED"
