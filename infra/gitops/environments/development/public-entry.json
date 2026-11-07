@@ -26,7 +26,8 @@
         "users.anonymous.enabled": "true"
       },
       "rbac": {
-        "policy.default": "role:readonly"
+        "policy.default": "role:platform-viewer",
+        "policy.csv": "p, role:platform-viewer, applications, get, */*, allow\np, role:platform-viewer, projects, get, *, allow\n"
       },
       "clusterCredentials": {
         "platform": {
