@@ -84,11 +84,11 @@
       "id": "argocd",
       "kind": "operator_action",
       "owner": "T44",
-      "description": "T44 목적지 Argo CD(infra/iac/argocd)가 설치돼 있는지 확인한다. T45는 Argo CD를 설치하지 않는다",
+      "description": "T44 목적지 Argo CD 컨트롤러(infra/iac/argocd)가 준비됐는지 확인한다. T45는 Argo CD를 설치하지 않는다",
       "needs": [
         "identity"
       ],
-      "instruction": "infra/iac/README.md 절차로 이 고객 클러스터에 Argo CD를 설치한다(release bravo-iac-gitops, namespace bravo-iac-gitops, 설치 명령 2회). 플랫폼 클러스터에는 설치하지 않는다.",
+      "instruction": "infra/iac/README.md 절차로 이 고객 클러스터에 Argo CD를 bootstrap 설치한다(release · namespace bravo-iac-gitops). chart 0.2.0은 기본이 컨트롤러만이고(application.enabled · autoSync · prune 모두 false), T45에는 그것으로 충분하다. T44 Application의 등록 · 활성화는 T44 절차를 따르며 T45 진행 조건이 아니다. 0.1.0 chart라면 README대로 설치 명령을 2회 실행한다. 플랫폼 클러스터에는 설치하지 않는다.",
       "confirm": "iac-argocd"
     },
     {
@@ -106,7 +106,7 @@
       "id": "base",
       "kind": "gitops_publish",
       "owner": "T30",
-      "description": "namespace와 서비스 계정을 설정 저장소에 올린다",
+      "description": "namespace(목적지 · OpenBao · ESO · tailscale-system)와 서비스 계정을 설정 저장소에 올린다. namespace와 보안 레이블의 주인은 T45다(T44 #632)",
       "needs": [
         "config-repo-access"
       ],
@@ -153,6 +153,18 @@
           "args": [
             "eso-namespace"
           ]
+        },
+        {
+          "name": "tailscale-namespace",
+          "namespace": {
+            "name": "tailscale-system",
+            "labels": {
+              "app.kubernetes.io/part-of": "bravo-target",
+              "component": "target",
+              "pod-security.kubernetes.io/enforce": "privileged",
+              "pod-security.kubernetes.io/enforce-version": "v1.35"
+            }
+          }
         }
       ]
     },
@@ -208,12 +220,21 @@
       "id": "object-secrets",
       "kind": "operator_action",
       "owner": "T9",
-      "description": "SeaweedFS s3.json(버킷 한정 bootstrap · client identity)을 사람이 만든다",
+      "description": "SeaweedFS s3.json을 T44 원하는 상태(target-object-exposure)대로 사람이 만든다",
       "needs": [
         "base-sync"
       ],
-      "instruction": "object_exposure.py render --state closed로 s3.json을 만들어 target-dev/target-seaweedfs-auth Secret에 메모리에서만 넣는다. client 키는 openbao-init 단계에서 OpenBao KV에 쓸 값이므로 운영자 자격 저장소에 보관한다.",
-      "confirm": "seaweedfs-auth"
+      "instruction": "target-dev/target-seaweedfs-auth Secret이 없을 때만 한다. 이미 있으면 확인 검사가 통과해 이 단계는 건너뛰며, 덮어쓰지 않는다(원하는 상태가 바뀐 뒤의 교체는 T31 bravo-apply desired-exposure). 계획의 desired 값으로 object_exposure.py render --state <state> --bucket <bucket>를 실행한다. state가 open-demo이면 --acknowledge-anonymous-read --demo-run-id <demo_run_id>를 함께 준다(데모 1번 결함). 결과를 target-dev/target-seaweedfs-auth Secret에 메모리에서만 넣고, client 키는 openbao-init에서 OpenBao KV에 쓸 값이므로 운영자 자격 저장소에 보관한다.",
+      "confirm": "seaweedfs-auth",
+      "desired": {
+        "file": "infra/iac/environments/{environment_id}.json",
+        "module": "target-object-exposure",
+        "params": [
+          "state",
+          "bucket",
+          "demo_run_id"
+        ]
+      }
     },
     {
       "id": "cnpg",
@@ -374,11 +395,11 @@
       "kind": "operator_action",
       "owner": "T30",
       "when": {"param": "tailnet", "in": ["join"]},
-      "description": "Tailscale operator용 namespace와 OAuth Secret을 사람이 준비한다",
+      "description": "Tailscale operator OAuth Secret을 사람이 준비한다",
       "needs": [
         "base-sync"
       ],
-      "instruction": "tailscale-system namespace를 Pod Security privileged로 만들고, 승인된 target 서비스 자격을 메모리에서 operator-oauth Secret(client_id, client_secret)으로만 전달한다. 기존 operator/CRD가 있으면 소유자를 확인하기 전 진행하지 않는다.",
+      "instruction": "T45 base가 만든 tailscale-system(Pod Security privileged, 프록시의 네트워크 기능 때문)에 승인된 target 서비스 자격을 메모리에서 operator-oauth Secret(client_id, client_secret)으로만 전달한다. 기존 operator/CRD가 있으면 소유자를 확인하기 전 진행하지 않는다.",
       "confirm": "tailscale-oauth"
     },
     {
@@ -434,8 +455,8 @@
       "expect": {
         "images_by_arch": {
           "arm64": [
-            "localhost/bravo-openbao:2.7.2-bravo.3-nonroot-arm64",
-            "localhost/bravo-openbao@sha256:b09c3934e2420aef5d43cf754381b82104c22f3a2a7248ff46b843d12154ce75"
+            "localhost/bravo-openbao:2.7.2-bravo.4-nonroot-arm64",
+            "localhost/bravo-openbao@sha256:5328b04955ab2af80cd1d3b9b09fad3daa7e59b9661987f3697ca0eb941a491d"
           ],
           "amd64": [
             "localhost/bravo-openbao:2.7.2-bravo.4-nonroot-amd64",
@@ -509,13 +530,17 @@
           "values": {
             "run": "infra/envs/target-secrets/render.py",
             "args": [
-              "bao-values"
+              "bao-values",
+              "--arch",
+              "${arch}"
             ]
           },
           "post": {
             "run": "infra/envs/target-secrets/render.py",
             "args": [
-              "finalize-bao"
+              "finalize-bao",
+              "--arch",
+              "${arch}"
             ]
           }
         },

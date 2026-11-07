@@ -218,6 +218,42 @@
               "$ref": "#/$defs/select"
             }
           }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "name",
+            "namespace"
+          ],
+          "properties": {
+            "name": {
+              "$ref": "#/$defs/id"
+            },
+            "namespace": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "name",
+                "labels"
+              ],
+              "properties": {
+                "name": {
+                  "$ref": "#/$defs/id"
+                },
+                "labels": {
+                  "type": "object",
+                  "propertyNames": {
+                    "pattern": "^[a-z0-9./-]{1,253}$"
+                  },
+                  "additionalProperties": {
+                    "type": "string",
+                    "pattern": "^[A-Za-z0-9._-]{0,63}$"
+                  }
+                }
+              }
+            }
+          }
         }
       ]
     },
@@ -337,6 +373,33 @@
               "confirm": {
                 "$ref": "#/$defs/id"
               },
+              "desired": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "file",
+                  "module",
+                  "params"
+                ],
+                "properties": {
+                  "file": {
+                    "type": "string",
+                    "pattern": "^(?!/)(?!.*\\.\\.)[A-Za-z0-9._/-]*(\\{environment_id\\})?[A-Za-z0-9._/-]*\\.json$"
+                  },
+                  "module": {
+                    "$ref": "#/$defs/id"
+                  },
+                  "params": {
+                    "type": "array",
+                    "minItems": 1,
+                    "items": {
+                      "type": "string",
+                      "pattern": "^[a-z][a-z0-9_]{0,63}$"
+                    }
+                  }
+                }
+              },
+              "when": true,
               "expect": {
                 "description": "What the confirm check observes. Present: the step is observable and a human confirmation alone does not pass it.",
                 "type": "object",
@@ -411,8 +474,7 @@
                     }
                   }
                 }
-              },
-              "when": true
+              }
             },
             "additionalProperties": false
           }

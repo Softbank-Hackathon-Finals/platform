@@ -92,6 +92,12 @@ class FakeCluster:
     def labelled_secret_exists(self, namespace, selector):
         return True
 
+    seaweedfs_shape = {"bootstrap": ["demo-chat-attachments"], "client": ["demo-chat-attachments"],
+                       "anonymous": ["demo-chat-attachments"]}  # T44 target-dev.json is open-demo
+
+    def secret_identities(self, namespace, name, key):
+        return dict(self.seaweedfs_shape) if (namespace, name) in self.secrets else None
+
     def helm_digest(self, release, namespace):
         return self.helm.get((release, namespace))
 
@@ -144,7 +150,7 @@ def world(tmp_path):
         kw.setdefault("monotonic", lambda: next(ticks))
         return Executor(planner, stack_revision=REV, cluster=cluster, repo=repo, approvals=approvals,
                         checks=ClusterChecks(cluster), store=FileRunStore(tmp_path / "runs"),
-                        repo_url="file://config", ledger=ledger.append, sleep=lambda s: None, **kw)
+                        repo_url="file://config", sleep=lambda s: None, **({"ledger": ledger.append} | kw))
 
     def approve(approval_id):
         digest = planner.plan(REQUEST, stack_revision=REV, target=cluster.identity(NODE),
@@ -274,16 +280,17 @@ def test_an_observable_human_step_does_not_pass_on_a_confirmation_alone(world):
     assert executor.resume("run-1")["status"] == "SUCCEEDED"
 
 
-def test_the_stack_names_the_openbao_image_the_renderer_deploys():
-    render = (REPO / "infra/envs/target-secrets/render.py").read_text()
-    pinned = render.split('BAO_IMAGE = "', 1)[1].split('"', 1)[0]
-    repo_tag, digest = pinned.split("@", 1)
+def test_the_stack_names_the_openbao_images_the_renderer_deploys():
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("target_secrets_render", REPO / "infra/envs/target-secrets/render.py")
+    render = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(render)
     expect = load_stack(STACK).steps["openbao-image"]["expect"]
-    # The renderer here pins the arm64 build; the amd64 names follow render.py --arch (T50, #682).
-    assert set(expected_images(expect, {"arch": "arm64"})) == {repo_tag, f"{repo_tag.rsplit(':', 1)[0]}@{digest}"}
+    for arch, pinned in render.BAO_IMAGES.items():  # render.py --arch (#682) picks the same one
+        repo_tag, digest = pinned.split("@", 1)
+        assert set(expected_images(expect, {"arch": arch})) == {repo_tag, f"{repo_tag.rsplit(':', 1)[0]}@{digest}"}, arch
     with pytest.raises(StackError, match="image_unavailable_for_arch"):
         expected_images({"images_by_arch": {"amd64": ["x"]}}, {"arch": "arm64"})
-
 
 def test_an_approval_already_claimed_by_another_run_is_refused(world):
     world["approve"]("appr-1")
@@ -396,6 +403,55 @@ def test_a_wait_needs_its_condition_to_hold_for_the_stable_period(world):
     executor.sleep = lambda s: seen.append(s)
     assert executor._wait({}, step) == "APPLIED"
     assert len(seen) >= 4  # the False reset the stable window
+
+
+def test_object_secrets_must_match_t44_desired_state(world):
+    world["cluster"].seaweedfs_shape = {"bootstrap": ["demo-chat-attachments"], "client": ["demo-chat-attachments"]}
+    world["approve"]("appr-1")  # T44 wants open-demo; the operator made a closed s3.json
+    run = start(world, "run-1")
+    assert run["steps"]["object-secrets"]["status"] == "WAITING_OPERATOR"
+    entry = next(s for s in run["plan"]["steps"] if s["id"] == "object-secrets")
+    assert entry["desired"] == {"state": "open-demo", "bucket": "demo-chat-attachments",
+                                "demo_run_id": "demo-2026-11-08"}
+    base = json.loads(run["files"]["base"]["base/tailscale-namespace.json"])["items"][0]
+    assert base["metadata"]["labels"]["pod-security.kubernetes.io/enforce"] == "privileged"
+
+
+def test_runs_are_chained_into_the_t24_ledger_and_resume_after_a_restart(world):
+    from bravo_audit.reader import read_local_run
+
+    from bravo_infra_plan.adapters import AuditLedger
+
+    store_root = world["tmp"] / "audit"
+    runs = FileRunStore(world["tmp"] / "runs")
+    world["approve"]("appr-1")
+    executor = world["executor"](ledger=AuditLedger(str(store_root), runs))
+    executor.start(request=REQUEST, migration_plan_id="plan-demo", approval_id="appr-1", run_id="run-1",
+                   started_by="applier")
+    first = read_local_run(store_root, "plan-demo", "run-1")
+    assert first.record_count > 3 and {r["source"] for r in first.records} == {"infra"}
+    restarted = world["executor"](ledger=AuditLedger(str(store_root), runs))  # a new process
+    restarted.confirm("run-1", "host-dirs", confirmed_by="operator")
+    after = read_local_run(store_root, "plan-demo", "run-1")
+    assert after.record_count > first.record_count
+    assert [r["sha256"] for r in after.records[:first.record_count]] == [r["sha256"] for r in first.records]
+
+
+def test_the_t45_project_allows_only_what_the_approved_manifests_make(world):
+    from bravo_infra_plan.applications import project
+
+    world["approve"]("appr-1")
+    run = start(world, "run-1")
+    published = {k: v for k, v in run["files"].items() if k != "migration"}
+    spec = project("target-onprem", repo_url="file://config", files=published)["spec"]
+    namespaces = {d["namespace"] for d in spec["destinations"]}
+    assert {"target-dev", "bravo-secrets", "external-secrets", "cnpg-system", "tailscale-system"} <= namespaces
+    assert "*" not in namespaces and "bravo-iac-gitops" not in namespaces and "kube-system" not in namespaces
+    kinds = {(r["group"], r["kind"]) for r in spec["clusterResourceWhitelist"]}
+    assert ("", "Namespace") in kinds and ("", "PersistentVolume") in kinds
+    # (fake charts here render ConfigMaps only; real charts with include_crds add their CRDs the same way)
+    assert ("*", "*") not in kinds
+    assert not any(kind == "ProxyGroup" for _, kind in kinds)  # T44's tailnet objects stay T44's
 
 
 def test_an_isolated_target_runs_to_verify_with_the_tailscale_line_omitted(world):
