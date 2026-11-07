@@ -110,6 +110,8 @@ if __name__ == "__main__":
     parser.add_argument("stage", choices=["external-patch", "subscription"])
     parser.add_argument("--side", required=True, choices=["source", "target"])
     parser.add_argument("--hostaddr")
+    parser.add_argument("--list", action="store_true",
+                        help="subscription stage: print a v1 List of the one object (what a T45 render_apply step applies)")
     parser.add_argument("--disable-on-error", choices=["true", "false"],
                         help="subscription stage: this direction only (--side target is forward, --side source is reverse); "
                              "left out, the forward renders false and the reverse true")
@@ -117,4 +119,8 @@ if __name__ == "__main__":
     choice = None if args.disable_on_error is None else args.disable_on_error == "true"
     result = (external_patch(args.side, args.hostaddr, json.load(sys.stdin))
               if args.stage == "external-patch" else subscription(args.side, choice))
+    if args.list:
+        if args.stage != "subscription":
+            parser.error("--list renders the subscription stage only")
+        result = {"apiVersion": "v1", "kind": "List", "items": [result]}
     print(json.dumps(result, indent=2))

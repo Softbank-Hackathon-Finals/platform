@@ -1,0 +1,122 @@
+{
+  "schema_version": 1,
+  "stack": "target-onprem-migration",
+  "description": "목적지가 이전 대상으로서 하는 단계(T45, ADR-0033). target-onprem으로 세운 뒤 실행한다. 노드 파일(감사 정책) → T44 네트워크 경로 → 정방향 복제(초기 복사 + 스트리밍) → 역방향을 꺼진 채 준비 → T10 워크플로로 넘김. 컷오버(정방향 끔 · 역방향 켬 · epoch)는 T12 실행기, 트래픽 전환은 T17이 한다. 이 스택은 지우지 않고, 관찰할 수 없으면 멈춘다.",
+  "params": {
+    "node_name": {
+      "description": "확인한 노드의 kubernetes.io/hostname",
+      "pattern": "^[a-z0-9][a-z0-9.-]{0,251}[a-z0-9]$"
+    }
+  },
+  "charts": {},
+  "steps": [
+    {
+      "id": "identity",
+      "kind": "probe",
+      "owner": "T30",
+      "description": "승인된 목적지 노드와 클러스터 UID인지, 노드가 Ready인지 확인한다",
+      "check": "target-identity"
+    },
+    {
+      "id": "node-files",
+      "kind": "operator_action",
+      "owner": "T44",
+      "description": "T44 노드 묶음(감사 정책 등)을 노드에 맞춘다. API 서버가 Metadata 감사 이벤트를 내면 끝난다",
+      "needs": [
+        "identity"
+      ],
+      "instruction": "infra/iac/nodes/target-dev 묶음(또는 GET /v1/iac/environments/target-dev/node-files)을 노드에 복사하고 root로 python3 infra/iac/nodes/apply.py <묶음> --cluster-uid <kube-system UID> 를 먼저 실행해 바뀔 것을 본 뒤 --apply로 적용한다. 새 노드는 render-user-data.sh가 같은 묶음을 첫 시작 전에 넣는다",
+      "confirm": "audit-metadata-active"
+    },
+    {
+      "id": "iac-network",
+      "kind": "operator_action",
+      "owner": "T44",
+      "description": "T44 Application bravo-iac-target-dev가 Synced · Healthy다(출발지 DB로 가는 복제 · Pooler egress, 목적지 DB 노출이 선언대로 깔림)",
+      "needs": [
+        "identity"
+      ],
+      "instruction": "목적지 Argo CD(infra/iac/argocd)가 검토한 커밋으로 bravo-iac-target-dev를 동기화할 때까지 기다린 뒤 이 실행을 resume한다. 코드가 Application 상태를 읽어 판정한다",
+      "confirm": "iac-network-synced"
+    },
+    {
+      "id": "replication-credentials",
+      "kind": "operator_action",
+      "owner": "T8",
+      "description": "출발지 복제 계정 비밀번호와 출발지 DB CA를 target-dev에 전달한다(값은 Git · 계획 · 기록에 없다)",
+      "needs": [
+        "identity"
+      ],
+      "instruction": "출발지 chat_replicator 비밀번호를 target-dev/t8-source-replication(password), 출발지 서버 인증서 CA를 target-dev/t8-source-ca(ca.crt)로 만든다. 값은 OpenBao에서 메모리로만 옮긴다. 이미 있으면 바꾸지 않는다",
+      "confirm": "replication-credentials"
+    },
+    {
+      "id": "replication-external-cluster",
+      "kind": "operator_action",
+      "owner": "T8",
+      "description": "target-db에 출발지 외부 클러스터 t8-source(verify-full, 보존 WAL 상한)를 더한다",
+      "needs": [
+        "replication-credentials",
+        "iac-network"
+      ],
+      "instruction": "kubectl get clusters.postgresql.cnpg.io -n target-dev target-db -o json | python3 infra/envs/target-workloads/replication.py external-patch --side target --hostaddr <source-db-for-replication 경로의 ts-* 하위 Service ClusterIP> 결과를 kubectl patch --type json으로 적용한다(resourceVersion test 포함, 동시 수정이면 거부된다)",
+      "confirm": "replication-external-cluster"
+    },
+    {
+      "id": "forward-subscription",
+      "kind": "render_apply",
+      "owner": "T8",
+      "description": "정방향 구독 t8-source-to-target(enabled, copy_data, origin none, disable_on_error false)을 만든다. 만들 뿐 지우거나 끄지 않는다",
+      "needs": [
+        "replication-external-cluster",
+        "node-files"
+      ],
+      "renders": [
+        {
+          "name": "forward-subscription",
+          "run": "infra/envs/target-workloads/replication.py",
+          "args": [
+            "subscription",
+            "--side",
+            "target",
+            "--list"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "initial-copy",
+      "kind": "operator_action",
+      "owner": "T13",
+      "description": "구독이 적용되고 모든 표의 초기 복사가 끝나(pg_subscription_rel 전부 r) 스트리밍으로 넘어갈 때까지 기다린다",
+      "needs": [
+        "forward-subscription"
+      ],
+      "instruction": "기다린 뒤 이 실행을 resume한다. 코드가 구독 적용 여부와 표마다 복제 상태를 읽어 끝났는지 판정한다. 오래 걸리면 T13 대조 전에 지연 지표(T36)를 본다",
+      "confirm": "initial-copy-complete"
+    },
+    {
+      "id": "reverse-prepared",
+      "kind": "operator_action",
+      "owner": "T20",
+      "description": "출발지에 역방향 구독 t8-target-to-source를 꺼진 채(enabled false, copy_data false, disable_on_error true) 준비한다. 켜는 것은 컷오버 때 T12 실행기다",
+      "needs": [
+        "initial-copy"
+      ],
+      "instruction": "출발지 클러스터에서 replication.py external-patch --side source(외부 클러스터 t8-target)와 replication.py subscription --side source로 역방향을 만든다. 목적지 실행기는 출발지를 볼 수 없으므로 사람이 확인한다",
+      "confirm": "reverse-prepared"
+    },
+    {
+      "id": "platform-handover",
+      "kind": "operator_action",
+      "owner": "T10",
+      "description": "목적지 준비 완료를 T10 이전 계획에 넘긴다. 이후 REHEARSE → GATE → AWAIT_APPROVAL → SHIFT → CUTOVER → WATCH는 플랫폼 워크플로가 진행한다",
+      "needs": [
+        "reverse-prepared",
+        "iac-network"
+      ],
+      "instruction": "T10 워크플로 호스트에서 이 이전 계획의 다음 단계(REHEARSE)를 시작한다. 승인(approval_kind change · shift · cutover)은 요청자가 아닌 사람이 한다",
+      "confirm": "platform-handover"
+    }
+  ]
+}

@@ -32,6 +32,7 @@
 
 ```sh
 uv run bravo-infra-plan check ../../infra/stacks/target-onprem/stack.json
+uv run bravo-infra-plan check ../../infra/stacks/target-onprem-migration/stack.json   # 목적지 이전 단계
 uv run bravo-infra-plan request-schema ../../infra/stacks/target-onprem/stack.json
 uv run bravo-infra-plan plan ../../infra/stacks/target-onprem/stack.json \
   --request request.json --repo-root ../.. --charts-dir <chart 아카이브 폴더> \
@@ -72,6 +73,33 @@ chart 아카이브는 스택의 `charts`에 적힌 파일 이름으로 둔다. �
 - backend 설정 값은 프로세스 인자로 넘기지 않는다(개인 backend 파일과 0600 임시 파일).
 - **넣지 않은 것**: `ci-validation-aws`(로컬 backend, 일회성), 아직 적용하지 않은 `loadgen-aws` · `attachment-copy-reader`.
 - **검증**: 실제 terraform 바이너리로 로컬 backend 시험 스택 두 개(출력 연결, 재실행 `SKIPPED`, 교체 `HOLD`, 승인 뒤 입력 변경 거부). 실제 AWS 계정에는 실행하지 않았다.
+
+## 목적지가 이전 대상으로서 하는 단계 (`target-onprem-migration`)
+
+`target-onprem`으로 목적지를 세운 뒤, 목적지가 이전 대상이 되기까지의 순서다. 같은 실행기·계획 digest·T10
+`approval_kind=infra` 승인으로 돌고, 단계마다 대상 신원을 다시 읽는다. 클러스터에 쓰는 것은 정방향 구독을 **만드는**
+`render_apply` 하나뿐이다. 지우기·끄기·덮어쓰기는 없다. 관찰할 수 없는 것은 사람 확인으로 남기고, 시간이 걸리는 것은
+`operator_action`의 확인 검사로 기다린다(관찰되면 resume 때 SKIPPED, 아직이면 WAITING).
+
+| 단계 | 종류 | 담당 | 끝나는 조건(코드가 관찰) |
+|---|---|---|---|
+| `identity` | probe | T30 | 승인된 노드·클러스터 UID, 노드 Ready |
+| `node-files` | operator_action | T44 | API 서버가 Metadata 감사 이벤트를 낸다(`apiserver_audit_level_total{level="Metadata"}` > 0). 노드 묶음은 `infra/iac/nodes/<환경>`, 적용기는 `infra/iac/nodes/apply.py` |
+| `iac-network` | operator_action | T44 | T44 Application `bravo-iac-target-dev` Synced·Healthy(복제·Pooler egress, DB 노출). 목적지에 Argo가 아직 없으면 기다린다 |
+| `replication-credentials` | operator_action | T8 | `target-dev/t8-source-replication`, `t8-source-ca`가 있다(값은 Git·계획·기록에 없음) |
+| `replication-external-cluster` | operator_action | T8 | `target-db`에 외부 클러스터 `t8-source`(verify-full, 보존 WAL 상한) |
+| `forward-subscription` | render_apply | T8 | `replication.py subscription --side target --list`: `t8-source-to-target`(enabled, copy_data, origin none) |
+| `initial-copy` | operator_action | T13 | 구독 적용 + 표마다 초기 복사 끝(`pg_subscription_rel` 전부 `r`, 주 인스턴스에서 고정 읽기 쿼리) |
+| `reverse-prepared` | operator_action | T20 | 출발지에 역방향 `t8-target-to-source`를 꺼진 채 준비(목적지에서 볼 수 없어 사람 확인) |
+| `platform-handover` | operator_action | T10 | 이전 계획을 REHEARSE로 넘김(사람 확인) |
+
+그다음은 플랫폼 워크플로다: REHEARSE(T31 반영) → GATE(T19 재대조) → AWAIT_APPROVAL(요청자가 아닌 사람) → SHIFT(T17
+가중치) → CUTOVER(T12 실행기: 비교·커밋, 정방향 끔·역방향 켬, epoch) → WATCH(T36 SLI + T19 재시험). 문제가 있으면
+FAILBACK(T20)이 역방향 복제와 Edge 복원으로 돌린다. 이 스택은 그 판단을 하지 않고, 그 앞까지를 순서와 조건으로 고정한다.
+
+실제 목적지 VM(2026-11-07, 클러스터 UID 대조 후, 읽기만)에서 확인 검사를 돌렸다: `identity`·`audit-metadata-active`·
+`replication-credentials`·`replication-external-cluster`·`initial-copy-complete`는 True, `iac-network-synced`는 False(목적지
+Argo 미설치, T44 #635 대기), 역방향·넘김은 None(사람 확인). 이미 준비된 목적지에서 다시 돌리면 쓰는 것이 없다(시험 고정).
 
 ## 다음 PR에서 할 것
 
