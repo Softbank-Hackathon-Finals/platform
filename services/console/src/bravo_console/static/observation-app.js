@@ -92,6 +92,16 @@ function draw() {
       ),
     );
   renderer.draw(current?.view ?? null, { selected });
+  const laneLabels = {
+    "출발 환경": "AWS 출발지",
+    "대체 실행 환경": "온프렘 목적지",
+    "격리 근거 영역 · 논리적 분리": "",
+    "보호·제어": "관리 HTTP 관측",
+  };
+  for (const label of graph.querySelectorAll(".response-lane-label"))
+    label.textContent = laneLabels[label.textContent] ?? label.textContent;
+  for (const zone of graph.querySelectorAll(".response-quarantine-zone"))
+    zone.remove();
   if (current?.view)
     for (const node of current.view.nodes) {
       const facet = current.facets[node.id];
