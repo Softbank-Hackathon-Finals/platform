@@ -1,0 +1,24 @@
+# T33 온프렘 런타임 탐지: Falco 9.2.2(app 0.45.2), 차트 sha256 b8a1aa984c3d513ab1639be760e6a07a9eb203d4da77a45a1512d382b6d3687d
+# 목적지 노드(arm64, 커널 6.8)는 modern eBPF로 커널 모듈 없이 동작한다.
+# 경보는 falcosidekick이 플랫폼 수집 API(POST /v1/security/webhooks/falco/env-onprem)로 바깥 방향으로만 보낸다.
+# 주소와 인증 헤더는 값이 아니라 Secret falcosidekick-bravo에 둔다(README 3단계, stdin으로 생성).
+driver:
+  kind: modern_ebpf
+tty: false
+resources:
+  requests: {cpu: 50m, memory: 256Mi}
+  limits: {memory: 512Mi}
+falco:
+  json_output: true
+  # 문자열 출력에는 명령행 등이 들어간다. 플랫폼 정규화기는 허용 필드만 남기지만, 보내는 쪽도 notice 이상만 보낸다
+  priority: notice
+falcosidekick:
+  enabled: true
+  replicaCount: 1
+  webui:
+    enabled: false
+  config:
+    existingSecret: falcosidekick-bravo
+  resources:
+    requests: {cpu: 10m, memory: 32Mi}
+    limits: {memory: 128Mi}
