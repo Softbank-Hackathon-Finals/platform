@@ -156,8 +156,14 @@ class Node:
         return f"container-{self.restarts}"
 
 
-def run_applier(apply, bundle, capsys, *flags):
-    code = apply.main([str(bundle), "--cluster-uid", "uid-1", *flags])
+def reviewed():
+    """The bytes a reviewer saw, as GET .../node-files lists them."""
+    return [f"{r['path']}={r['sha256']}" for r in listing(state("platform"))["files"]]
+
+
+def run_applier(apply, bundle, capsys, *flags, sha=True):
+    pairs = [x for pair in reviewed() for x in ("--sha256", pair)] if sha and "--apply" in flags else []
+    code = apply.main([str(bundle), "--cluster-uid", "uid-1", *flags, *pairs])
     return code, json.loads(capsys.readouterr().out)
 
 
@@ -247,3 +253,53 @@ def test_a_crashed_container_fails_fast_instead_of_waiting_out_the_timeout(monke
     listing_json["containers"].append({"id": "new", "state": "CONTAINER_EXITED", "createdAt": "1100"})
     with pytest.raises(apply.Refused, match="api_server_crashed"):
         apply.wait_ready("old", since)
+
+
+def test_writing_as_root_needs_the_reviewed_bytes_not_the_bundles_own_word(tmp_path, monkeypatch, capsys):
+    apply = applier()
+    node = Node(apply, tmp_path, monkeypatch)
+    code, report = run_applier(apply, bundle_dir(tmp_path), capsys, "--apply", sha=False)
+    assert code == 1 and report["reason"] == "reviewed_sha256_required" and node.restarts == 0
+    # Someone who can edit the bundle turns the policy off, fixes its manifest sha and copies the state_digest.
+    bundle = bundle_dir(tmp_path)
+    (bundle / "etc/rancher/rke2/audit-policy.yaml").write_bytes(NONE_POLICY)
+    manifest = json.loads((bundle / "manifest.json").read_text())
+    manifest["files"][0]["sha256"] = apply.sha(NONE_POLICY)
+    (bundle / "manifest.json").write_text(json.dumps(manifest))
+    digest = listing(state("platform"))["state_digest"]
+    code, report = run_applier(apply, bundle, capsys, "--state-digest", digest, "--apply")
+    assert code == 1 and report["reason"] == "bundle_not_reviewed_bytes"
+    assert node.policy.read_bytes() == NONE_POLICY and node.restarts == 0
+
+
+def test_a_rollback_that_cannot_write_says_which_file_kept_the_new_bytes(tmp_path, monkeypatch, capsys):
+    apply = applier()
+    node = Node(apply, tmp_path, monkeypatch, ready=False)
+    real = apply.install
+
+    def install(path, data, mode):
+        if path == node.policy and data == NONE_POLICY:  # putting the previous policy back fails
+            raise OSError("read-only file system")
+        real(path, data, mode)
+
+    monkeypatch.setattr(apply, "install", install)
+    code, report = run_applier(apply, bundle_dir(tmp_path), capsys, "--apply")
+    assert code == 1 and report["reason"] == "api_server_not_ready"
+    assert report["rolled_back"] is False and report["rollback_failed"] == [str(node.policy)]
+    assert "rollback_ready" in report  # the API server state is still reported
+
+
+def test_a_rotated_audit_log_with_new_events_counts_as_growing(tmp_path, monkeypatch, capsys):
+    apply = applier()
+    node = Node(apply, tmp_path, monkeypatch, grows=False)
+    node.log.write_text("old events\n" * 50)
+
+    def restart():
+        node.restarts += 1
+        node.log.rename(node.log.with_suffix(".1"))  # rotated: a new, shorter file
+        node.log.write_text("event\n")
+        return "container-1"
+
+    monkeypatch.setattr(apply, "restart_apiserver", restart)
+    code, report = run_applier(apply, bundle_dir(tmp_path), capsys, "--apply")
+    assert code == 0 and report["audit_log"]["growing"] is True, report

@@ -2,7 +2,8 @@
 """Install an environment's node files on a running RKE2 server node (T44 cluster-audit and later modules).
 
     sudo python3 apply.py <bundle dir: infra/iac/nodes/<environment>> --cluster-uid <kube-system UID>
-                          [--state-digest <reviewed manifest state_digest>] [--apply]
+                          [--state-digest <reviewed state_digest>]
+                          [--sha256 <node path>=<reviewed sha256> ...] [--apply]
 
 Without --apply it only reports what would change. With --apply, for each file whose bytes differ:
 back up the live file, install the reviewed bytes atomically with the declared mode, then restart
@@ -10,9 +11,12 @@ what reads it (the API server reads its audit policy only at start). If anything
 first install, the previous bytes and modes are put back and the API server is waited for again.
 Prints one JSON line. Standard library only.
 
-The bundle is not trusted for where it writes: only paths, modes and restarts in ALLOWED are
-accepted (a manifest naming /etc/sudoers.d/x is refused before anything is written). Pass the
-reviewed `state_digest` (from GET /v1/iac/environments/{id}/node-files) to bind the bundle to it.
+The bundle is not trusted. Where it writes: only paths, modes and restarts in ALLOWED are accepted
+(a manifest naming /etc/sudoers.d/x is refused before anything is written). What it writes: the
+manifest's sha256 only says the folder agrees with itself, so --apply requires every file's reviewed
+sha256 (`files[].sha256` of GET /v1/iac/environments/{id}/node-files) and refuses other bytes, such as a
+policy edited to `level: None` with the state_digest copied. --state-digest only checks which reviewed
+state the manifest claims; it does not bind bytes.
 """
 
 import argparse
@@ -47,9 +51,10 @@ def sha(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
-def bundle(directory: Path, state_digest: str | None = None) -> list[dict]:
+def bundle(directory: Path, state_digest: str | None = None, reviewed: dict | None = None) -> list[dict]:
     """The manifest's files with their bytes. Refuses paths, modes or restarts outside ALLOWED, a
-    manifest of another reviewed state, and bytes that differ from the manifest."""
+    manifest of another reviewed state, bytes that differ from the manifest, and, when `reviewed`
+    ({path: sha256}) is given, any file set or bytes other than the reviewed ones."""
     manifest = json.loads((directory / "manifest.json").read_text(encoding="utf-8"))
     if manifest.get("kind") != "iac-node-files.v1" or not isinstance(manifest.get("files"), list):
         raise Refused("bundle_manifest_invalid")
@@ -66,6 +71,8 @@ def bundle(directory: Path, state_digest: str | None = None) -> list[dict]:
         if sha(data) != row.get("sha256"):
             raise Refused("bundle_sha_mismatch")
         rows.append({**row, "data": data})
+    if reviewed is not None and reviewed != {row["path"]: row["sha256"] for row in rows}:
+        raise Refused("bundle_not_reviewed_bytes")
     return rows
 
 
@@ -149,12 +156,18 @@ def node_path(path: str) -> Path:
 
 
 def _rollback(report, changed, installed) -> None:
+    failed = []
     for path, live, live_mode in installed:  # the previous bytes and modes go back
-        if live is not None:
-            install(path, live, live_mode if live_mode is not None else 0o600)
-        else:
-            path.unlink(missing_ok=True)
-    report["rolled_back"] = True
+        try:
+            if live is not None:
+                install(path, live, live_mode if live_mode is not None else 0o600)
+            else:
+                path.unlink(missing_ok=True)
+        except OSError:
+            failed.append(str(path))  # keep going, and say which file still holds the new bytes
+    report["rolled_back"] = not failed
+    if failed:
+        report["rollback_failed"] = failed
     if any(API_SERVER in row["restart"] for row, *_ in changed):
         try:
             restart_apiserver()
@@ -163,9 +176,20 @@ def _rollback(report, changed, installed) -> None:
             report["rollback_ready"] = False  # the API server is not back: an operator must look now
 
 
+def _reviewed(pairs: list[str] | None) -> dict | None:
+    if pairs is None:
+        return None
+    reviewed = dict(pair.split("=", 1) for pair in pairs if "=" in pair)
+    if len(reviewed) != len(pairs):
+        raise Refused("reviewed_sha256_invalid")
+    return reviewed
+
+
 def run(args) -> dict:
     report = {"status": "FAIL", "applied": args.apply, "files": [], "restarted": []}
-    rows = bundle(Path(args.bundle), args.state_digest)
+    if args.apply and not args.sha256:
+        raise Refused("reviewed_sha256_required")  # writing as root needs bytes someone reviewed
+    rows = bundle(Path(args.bundle), args.state_digest, _reviewed(args.sha256))
     uid = json.loads(kubectl("get", "ns", "kube-system", "-o", "json"))["metadata"]["uid"]
     report["uid"] = uid
     if uid != args.cluster_uid:
@@ -189,7 +213,8 @@ def run(args) -> dict:
 
     stamp = dt.datetime.now(dt.UTC).strftime("%Y%m%dT%H%M%SZ")
     log = audit_log_path()
-    size_before = log.stat().st_size if log and log.exists() else None
+    before = log.stat() if log and log.exists() else None
+    size_before = before.st_size if before else None
     installed = []
     try:
         for row, path, live, live_mode, entry in changed:
@@ -204,8 +229,11 @@ def run(args) -> dict:
         if any(row["path"] == AUDIT_POLICY for row, *_ in changed):
             kubectl("get", "ns", "kube-system", "-o", "name")
             time.sleep(5)
-            size_after = log.stat().st_size if log and log.exists() else None
-            growing = size_after is not None and size_after > (size_before or 0)
+            after = log.stat() if log and log.exists() else None
+            size_after = after.st_size if after else None
+            # A rotation in between starts a new file (another inode): any bytes in it are new events.
+            rotated = bool(before and after and after.st_ino != before.st_ino)
+            growing = size_after is not None and size_after > (0 if rotated else size_before or 0)
             report["audit_log"] = {"path": str(log) if log else None, "bytes_before": size_before,
                                    "bytes_after": size_after, "growing": growing}
             if not growing:  # the reason this module exists: an audit log that never fills
@@ -223,6 +251,8 @@ def main(argv=None) -> int:
     p.add_argument("bundle")
     p.add_argument("--cluster-uid", required=True)
     p.add_argument("--state-digest")
+    p.add_argument("--sha256", action="append", metavar="PATH=SHA256",
+                   help="reviewed bytes of one node file (repeat per file); required with --apply")
     p.add_argument("--apply", action="store_true")
     args = p.parse_args(argv)
     try:

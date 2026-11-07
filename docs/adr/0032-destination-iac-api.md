@@ -77,4 +77,5 @@
 * `infra/iac/environments/target-dev.json`: 지금은 데모 1번의 심은 결함(`open-demo`, `demo_run_id`)이다.
 * T11 `infra.plan`: 포트가 붙었을 때만 제공한다. 감사 기록에는 plan_digest·accepted·첫 거부 코드만 남긴다.
 * 남은 일(T44 할 일): 실제 Job에 포트 연결(T38·T11), 플랫폼 API·PR 생성 연결(T10), 병합된 원하는 상태의 적용기와 적용 뒤 IAM-01.1 재대조(T31 또는 Argo CD).
+* **노드 파일은 Argo가 아니라 노드 적용기가 적용한다**(`cluster-audit`, #645). API 서버가 시작할 때 노드에서만 읽는 파일이라 클러스터 안 Argo가 가질 수 없다. 첫 부팅은 온프렘 user-data, 실행 중인 노드는 `infra/iac/nodes/apply.py`가 검토한 sha256으로만 쓴다. 차트에는 넣지 않고 `bravo.dev/unmanaged`에 적는다.
 * 설계 문서(FR-3·NFR-7·8.3)의 반영은 버전을 올려 따로 한다.
