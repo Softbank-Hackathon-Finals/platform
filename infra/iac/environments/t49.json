@@ -1,0 +1,13 @@
+{
+  "schema_version": "1",
+  "environment": "t49",
+  "modules": [
+    {
+      "id": "tailnet-operator",
+      "version": "1",
+      "params": {
+        "tag": "tag:bravo-t49-operator"
+      }
+    }
+  ]
+}

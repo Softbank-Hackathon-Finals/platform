@@ -361,6 +361,39 @@ TAILNET_INGRESS = Module(
 )
 
 
+# --- tailnet-operator v1 ----------------------------------------------------------------------
+# The tag a new cluster's Tailscale operator joins with (tag:bravo-<environment>-operator, ADR-0035).
+# Tailscale only lets a federated identity create devices with tags the policy already owns, so the
+# environment declares its operator tag before the identity exists. Admins own it; the cluster's
+# device tags (tailnet-ingress/egress) are then owned by this operator tag. No grants, no resources.
+OPERATOR_TAG_RE = re.compile(r"tag:bravo-[a-z0-9](?:[-a-z0-9]{0,40}[a-z0-9])?-operator")
+OPERATOR_TAG_OWNER = "autogroup:admin"
+
+
+def _operator_tag_check(params: dict) -> dict:
+    _exact(params, ("tag",), ("tailnet",))
+    if not isinstance(params["tag"], str) or not OPERATOR_TAG_RE.fullmatch(params["tag"]):
+        raise IacError("IAC_PARAMS_INVALID")
+    if "tailnet" in params and (not isinstance(params["tailnet"], str) or not NAME_RE.fullmatch(params["tailnet"])):
+        raise IacError("IAC_PARAMS_INVALID")
+    return dict(params)
+
+
+TAILNET_OPERATOR = Module(
+    id="tailnet-operator",
+    version="1",
+    description="The Tailscale operator tag of one cluster (tag:bravo-<environment>-operator), owned by tailnet "
+                "admins, so its federated identity (T48) can join with it. Declares no grant and no resource.",
+    params={"type": "object", "additionalProperties": False, "required": ["tag"],
+            "properties": {"tag": {"type": "string", "pattern": OPERATOR_TAG_RE.pattern},
+                           "tailnet": {"type": "string", "pattern": NAME_RE.pattern}}},
+    check=_operator_tag_check,
+    render=lambda params: [],
+    exposure=lambda params: {"anonymous": [], "reach": [], "checks": []},
+    tag_owners=lambda params: [{"tailnet": tailnet_of(params), "tag": params["tag"], "owner": OPERATOR_TAG_OWNER}],
+)
+
+
 # --- operator-access v1 -----------------------------------------------------------------------
 # People reach a cluster's API only through that cluster's Tailscale API server proxy (operator auth
 # mode: apiServerProxyConfig.mode "true"). The tailnet grant lets a tailnet group reach the proxy and
