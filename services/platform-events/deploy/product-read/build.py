@@ -27,6 +27,8 @@ PACKAGES = {
     "edge-control": "bravo_edge_control",
     # T44 planning library under the agent worker's infra.plan tool (pure, no dependencies).
     "iac": "bravo_iac",
+    # T49 platform load Job (workflow host): the T18 generator, run as `python -m bravo_loadgen.cli`.
+    "loadgen": "bravo_loadgen",
 }
 
 # Include the lazy imports used by --initial-proposal, not just the entry point.

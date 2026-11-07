@@ -34,7 +34,7 @@ from pathlib import Path
 
 HEX40 = re.compile(r"[a-f0-9]{40}")
 FACTORY = re.compile(r"[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*:[A-Za-z_]\w*")
-FIELDS = {"version", "executor", "propose", "watch", "application", "delegation", "deferred"}
+FIELDS = {"version", "executor", "propose", "watch", "application", "delegation", "deferred", "load"}
 REQUIRED = {"version", "executor", "propose"}
 
 
@@ -51,6 +51,10 @@ def _state_dir(value):
     path = Path(value)
     if not path.is_absolute() or not path.parent.is_dir():
         raise ValueError(f"workflow_mount_required:{value}")
+    if path.is_dir() and not path.is_symlink():
+        # The kubelet's fsGroup pass adds group bits to the volume on every mount, so the 0700 directory the
+        # ledger requires is 0770 again after a restart (live 11/8: the host stopped at the second start).
+        path.chmod(0o700)
     return path
 
 
@@ -186,4 +190,20 @@ def create_ports(store, config_file="/workflow/ports.json"):
     deferred = config.get("deferred", [])  # host states this deployment declares it does not drive yet
     if type(deferred) is not list:
         raise ValueError("workflow_deferred_invalid")
-    return {"cutover": cutover, "readers": readers, "preparers": preparers, "deferred": deferred}
+    background = []
+    if "load" in config:
+        # T49: platform load for SHIFT..WATCH (platform_load), only where approvals are delegated.
+        spec = config["load"]
+        keys = {"image_file", "base_url", "source_env", "target_env"}
+        if delegations is None or not keys <= set(spec) <= keys | {"write_rps", "read_rps", "duration"}:
+            raise ValueError("workflow_load_configuration_invalid")
+        from . import initial_proposal_job as job
+        from .initial_proposal_auto import InClusterKubectl
+        from .platform_load import PlatformLoad
+
+        image, _ = job.gitops_image(_path(spec["image_file"]))
+        background.append(PlatformLoad(store, InClusterKubectl(), delegations, image=image, base_url=spec["base_url"],
+                                       source_env=spec["source_env"], target_env=spec["target_env"],
+                                       **{k: spec[k] for k in ("write_rps", "read_rps", "duration") if k in spec}).sweep)
+    return {"cutover": cutover, "readers": readers, "preparers": preparers, "deferred": deferred,
+            "background": background}

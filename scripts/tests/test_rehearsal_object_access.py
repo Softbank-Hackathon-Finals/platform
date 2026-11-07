@@ -216,7 +216,13 @@ class RehearsalObjectAccessTests(unittest.TestCase):
         self.assertEqual(operational["spec"], {
             "podSelector": {"matchLabels": {"app.kubernetes.io/name": "target-seaweedfs"}},
             "policyTypes": ["Ingress", "Egress"],
-            "ingress": [{"from": [{"podSelector": {"matchLabels": {"bravo-object-client": "true"}}}],
+            "ingress": [{"from": [{"podSelector": {"matchLabels": {"bravo-object-client": "true"}}},
+                                  # ADR-0044: only the tailnet proxy of the bravo-target-objects device
+                                  {"namespaceSelector": {"matchLabels": {"kubernetes.io/metadata.name": "tailscale-system"}},
+                                   "podSelector": {"matchLabels": {
+                                       "tailscale.com/parent-resource": "target-objects-tailnet",
+                                       "tailscale.com/parent-resource-ns": "target-dev",
+                                       "tailscale.com/parent-resource-type": "svc"}}}],
                          "ports": [{"protocol": "TCP", "port": 8333}]}],
             "egress": [],
         })

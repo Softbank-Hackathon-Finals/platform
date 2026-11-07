@@ -569,6 +569,8 @@ class ClusterChecks:
             "iac-application-created": lambda: c.application_status(
                 f"bravo-iac-{run['plan']['request']['environment_id']}") is not None,
             "iac-application-enabled": lambda: _iac_application_on(c, self.repo_root, run),
+            # target-exit-map (ADR-0049): the T27 control Pod the residual map's render needs
+            "exit-drill-control-ready": lambda: c.condition("Pod", "target-dev", "exit-drill-control", "Ready"),
             # target-onprem-migration: the destination as a migration target
             "audit-metadata-active": lambda: (c.audit_level_events("Metadata") or 0) > 0,
             "iac-network-synced": lambda: _argo_synced(c, self.repo_root, run),

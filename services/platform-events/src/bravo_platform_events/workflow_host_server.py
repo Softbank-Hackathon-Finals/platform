@@ -21,7 +21,8 @@ from .workflow_host import StageReaders, WorkflowHost
 
 def build(store, create_ports):
     ports = create_ports(store)
-    if type(ports) is not dict or set(ports) - {"cutover", "readers", "preparers", "deferred"} or "cutover" not in ports:
+    if (type(ports) is not dict or set(ports) - {"cutover", "readers", "preparers", "deferred", "background"}
+            or "cutover" not in ports):
         raise ValueError("invalid_workflow_ports")
     if ports["cutover"].store is not store:
         raise ValueError("shared_plan_store_required")
@@ -30,7 +31,8 @@ def build(store, create_ports):
     # Every state the host owns has a driver, or the deployment names it deferred: no silent unwired hold (T49).
     check_wiring(ports.get("readers", {}), ports.get("preparers", {}), deferred=ports.get("deferred", ()))
     readers = StageReaders(ports.get("readers", {}), preparers=ports.get("preparers", {}))
-    return WorkflowHost(WorkflowRecovery(ports["cutover"], read_evidence=readers))
+    return WorkflowHost(WorkflowRecovery(ports["cutover"], read_evidence=readers),
+                        background=ports.get("background", ()))
 
 
 def main(argv=None):

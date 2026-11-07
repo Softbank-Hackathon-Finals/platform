@@ -48,6 +48,40 @@ def intake_binding(record):
     }
 
 
+def closing_iac_plan(c, plan_id, diff_hash):
+    """ADR-0044: the one accepted agent infra.plan stored with this candidate that closes the bucket.
+
+    PROPOSE keeps the agent's iac-plan.v1 documents in the candidate's apply input (`infra_plans`).
+    None when there is none; two different closing plans for one candidate fail closed. The plan's IaC
+    environment (e.g. target-dev) is not a T10 environment id (e.g. env-onprem): the applier that
+    closes the bucket checks it against the environment it is configured for."""
+    import bravo_iac
+    from bravo_apply.desired import DesiredRefused, check_closing_plan
+
+    from .workflow_propose import apply_input_key
+
+    found = _get(c, plan_id, apply_input_key(diff_hash))
+    digests = set()
+    for document in (found[1].get("infra_plans") if found else None) or []:
+        try:
+            environment = document.get("environment") if type(document) is dict else None
+            digests.add(check_closing_plan(bravo_iac, document, environment))
+        except DesiredRefused:
+            continue  # refused, widening or unrelated plans close nothing
+    if len(digests) > 1:
+        raise EventError("iac_plan_ambiguous")
+    return next(iter(digests), None)
+
+
+def change_binding(c, record):
+    """The binding a change approval covers: the T15 candidate, plus the closing plan when there is one.
+
+    Without a closing plan the binding is exactly the candidate's, so approvals already in flight stay valid."""
+    binding = intake_binding(record)
+    plan = closing_iac_plan(c, binding["plan_id"], binding["diff_hash"])
+    return binding | ({"iac_plan_digest": plan} if plan else {})
+
+
 class ChangeApprovalService:
     def __init__(self, store, *, authority: ChangeAuthority = unavailable_authority,
                  check_access=None, clock=None):
@@ -83,7 +117,7 @@ class ChangeApprovalService:
                ("plan_id", "plan_digest", "target_environment_id")):
             raise EventError("binding_mismatch")
         managed = require_current_run(c, plan, rehearsal_id, current.verification_id)
-        if managed is not None and current.binding != intake_binding(managed):
+        if managed is not None and current.binding != change_binding(c, managed):
             raise EventError("binding_mismatch")
         if expires_at <= _timestamp(self.clock()):
             raise EventError("approval_expired")

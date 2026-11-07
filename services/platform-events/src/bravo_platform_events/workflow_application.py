@@ -5,7 +5,15 @@ Factory for ports.json `"application": "bravo_platform_events.workflow_applicati
 
     {"receipts_dir": "/workflow-state/t31-receipts", "kubeconfig": "/t31/kubeconfig",
      "target": {"namespace": "...", "deployment": "...", "container": "app",
-                "repository": "localhost/bravo-demo-chat-candidate"}}
+                "repository": "localhost/bravo-demo-chat-candidate"},
+     "exposure": {"environment_id": "target-dev", "namespace": "target-dev", "bucket": "demo-chat-attachments",
+                  "endpoint": "http://seaweedfs.target-dev.svc.cluster.local:8333", "probe_key": "...",
+                  "base_revision": "<40 hex: the commit PROPOSE planned against (runtime_source_sha)>",
+                  "repo_root": "/platform-checkout"}}
+
+`exposure` (optional, ADR-0044): the T44 environment and attachment bucket this host closes when an approval
+binds a closing plan, and the platform checkout holding `base_revision` (T31 `read_planned` checks the plan
+against that commit's desired state). Without it such an approval holds (application_exposure_unavailable).
 
 - Authority: the same S2 rules as the operator API, OperatorAccess.change_authority(ChangeIntake.current);
   the host applies as `workflow-host` (read, apply_change) and the approver is re-checked.
@@ -20,6 +28,7 @@ Factory for ports.json `"application": "bravo_platform_events.workflow_applicati
 
 import base64
 import json
+import re
 from pathlib import Path
 
 from .store import EventError
@@ -27,8 +36,11 @@ from .store import EventError
 CONFIG = "/workflow/application.json"
 
 
-def apply_input(c, plan_id, claim, target, pull_secret=None):
-    """The candidate recorded at PROPOSE under the approved diff_hash, for the registered target."""
+def apply_input(c, plan_id, claim, target, pull_secret=None, exposure=None):
+    """The candidate recorded at PROPOSE under the approved diff_hash, for the registered target.
+
+    ADR-0044: when the approval binds a closing T44 plan, the plan is the one PROPOSE stored with this
+    candidate (`infra_plans`) under that digest, closed on the configured exposure target."""
     from .application_host import ApplyInput
     from .workflow_propose import apply_input_key
 
@@ -40,9 +52,20 @@ def apply_input(c, plan_id, claim, target, pull_secret=None):
     diff = base64.b64decode(record["diff_b64"])
     if record["diff_hash"] != claim["binding"]["diff_hash"]:
         raise EventError("application_input_scope_mismatch")
+    planned, closing = claim["binding"].get("iac_plan_digest"), None
+    if planned is not None:
+        from bravo_apply.policy import PolicyTarget
+
+        found = [p for p in record.get("infra_plans") or [] if type(p) is dict and p.get("plan_digest") == planned]
+        if exposure is None or not found:
+            raise EventError("application_exposure_unavailable")
+        names = {"namespace", "endpoint", "probe_key", "bucket"}
+        closing = {"environment_id": exposure["environment_id"], "iac_plan": found[0],
+                   "base_revision": exposure["base_revision"], "repo_root": exposure["repo_root"],
+                   "target": PolicyTarget(**{k: v for k, v in exposure.items() if k in names})}
     return ApplyInput({"edits": record["edits"]}, diff, claim["binding"]["target_environment_id"],
                       target["namespace"], target["deployment"], target["container"], target["repository"],
-                      pull_secret)
+                      pull_secret=pull_secret, exposure=closing)
 
 
 def post_apply_prepare(records):
@@ -126,11 +149,18 @@ def create(store, config_file=CONFIG, *, kube=None, delegations=None, signer=Non
     config = json.loads(Path(config_file).read_text())
     target = config.get("target") if isinstance(config, dict) else None
     pull = config.get("pull_secret") if isinstance(config, dict) else None
+    exposure = config.get("exposure") if isinstance(config, dict) else None
     if (type(config) is not dict or not {"receipts_dir", "kubeconfig", "target"} <= set(config)
-            or set(config) - {"receipts_dir", "kubeconfig", "target", "pull_secret"}
+            or set(config) - {"receipts_dir", "kubeconfig", "target", "pull_secret", "exposure"}
             or (pull is not None and (type(pull) is not dict or set(pull) != {"name", "source"}))
             or type(target) is not dict or set(target) != {"namespace", "deployment", "container", "repository"}
-            or not all(isinstance(v, str) and v for v in target.values())):
+            or not all(isinstance(v, str) and v for v in target.values())
+            or (exposure is not None and (type(exposure) is not dict
+                or set(exposure) != {"environment_id", "namespace", "endpoint", "probe_key", "bucket",
+                                     "base_revision", "repo_root"}
+                or not all(isinstance(v, str) and v for v in exposure.values())
+                or re.fullmatch(r"[0-9a-f]{40}", exposure["base_revision"]) is None
+                or not Path(exposure["repo_root"]).is_absolute()))):
         raise ValueError("workflow_application_configuration_invalid")
     access = OperatorAccess(store)
     changes = ChangeApprovalService(store, authority=access.change_authority(ChangeIntake.current),
@@ -139,7 +169,7 @@ def create(store, config_file=CONFIG, *, kube=None, delegations=None, signer=Non
     deployed = {}
 
     def load_input(c, principal, plan, claim):
-        return apply_input(c, plan["plan_id"], claim, target, pull and pull["name"])
+        return apply_input(c, plan["plan_id"], claim, target, pull and pull["name"], exposure)
 
     def check_current(c, principal, plan, outcome):
         access.require(c, principal, plan, "apply_change")

@@ -262,11 +262,17 @@ def test_a_wif_target_renders_federated_operator_values_and_needs_no_oauth_secre
             unset, stack_revision=REV, target=TARGET, base_commit=BASE)
 
 
-def test_the_offline_app_image_step_exists_only_for_arm64_nodes():
+def test_the_app_image_is_imported_offline_on_both_architectures_from_the_pin():
+    """The app runs with imagePullPolicy Never and destinations hold no GHCR credential (the package is private):
+    amd64 imports the pinned index as published, arm64 the recorded local build."""
     stack = load_stack(STACK)
-    assert stack.applies("app-image", {"arch": "arm64"})
-    assert not stack.applies("app-image", {"arch": "amd64"})  # amd64 pulls the pinned registry image
+    assert stack.applies("app-image", {"arch": "arm64"}) and stack.applies("app-image", {"arch": "amd64"})
     assert "app-image" not in {s["id"] for s in plan().document["steps"] if s.get("omitted")}
+    pin = json.loads((REPO / "infra/envs/target-workloads/app-image.json").read_text())
+    expect = stack.steps["app-image"]["expect"]["images_by_arch"]
+    assert expect["amd64"] == [f"ghcr.io/softbank-hackathon-finals/demo-chat:{pin['source_sha'][:8]}",
+                               f"ghcr.io/softbank-hackathon-finals/demo-chat@{pin['index_digest']}"]
+    assert expect["arm64"][1] == pin["arm64"]["image"]
 
 
 def test_base_declares_the_observability_namespace_with_the_collector_labels():
