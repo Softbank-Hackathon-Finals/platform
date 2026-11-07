@@ -237,8 +237,10 @@ class Tools:
                         or not re.fullmatch(r"[a-z0-9][a-z0-9-]{1,62}", module)
                         or not isinstance(params, str) or len(params) > 4096 or len(self.infra_plans) >= 8):
                     raise PolicyDenied("invalid infra plan arguments")
-                result = self.iac.plan(module, json.loads(params))
-                self.infra_plans.append(result)
+                requested = json.loads(params)
+                result = self.iac.plan(module, requested)
+                # module and params with the plan: the proposed state is the committed one with these params
+                self.infra_plans.append({"module": module, "params": requested, "plan": result})
                 metadata = {"plan_digest": result["plan_digest"], "accepted": result["accepted"],
                             "refusal": result["refusals"][0] if result["refusals"] else "NONE"}
             elif tool == "mcp__bravo__policy_evaluate":
