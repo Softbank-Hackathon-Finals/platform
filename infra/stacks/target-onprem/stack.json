@@ -486,6 +486,17 @@
       }
     },
     {
+      "id": "app-metrics-client",
+      "kind": "operator_action",
+      "owner": "T37",
+      "description": "목적지 앱의 지표 클라이언트 인증서(bravo-app-metrics-client)를 앱 CA로 발급해 넣는다",
+      "needs": [
+        "base-sync"
+      ],
+      "instruction": "docs/observability/certificates.md 앱 인증서 발급: 이 목적지의 앱 CA(키는 클러스터 밖)로 클라이언트 leaf(CN demo-chat-target, 30일)를 발급하고 ca.crt · tls.crt · tls.key를 target-dev/bravo-app-metrics-client Secret으로만 넣는다. 앱 Pod는 이 Secret이 없으면 뜨지 않는다(target-workloads README 0).",
+      "confirm": "app-metrics-client"
+    },
+    {
       "id": "openbao-tls",
       "kind": "operator_action",
       "owner": "T9",
@@ -681,6 +692,7 @@
       "description": "목적지 앱(쓰기 차단 상태로 시작)을 올린다",
       "needs": [
         "app-image",
+        "app-metrics-client",
         "migration-complete",
         "objects-sync",
         "delivery-ready"
