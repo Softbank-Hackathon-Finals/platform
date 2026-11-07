@@ -52,6 +52,7 @@ T18 부하 생성기가 창 요약을 보내는 곳이다. 콘솔 조회 API와 
 | [`deploy/collector-db-access/`](deploy/collector-db-access/) | DB 네임스페이스의 Pod 조회 권한(Role)만. 환경마다 namespace를 바꿔 적용 |
 | [`deploy/collector-db-pgbouncer/`](deploy/collector-db-pgbouncer/) | DB와 PgBouncer가 함께 있는 클러스터용 오버레이: `collector-db` + PgBouncer component |
 | [`deploy/collector-target/`](deploy/collector-target/) | 목적지(온프렘) Collector: `collector-db` + 앱 OTLP 수신 mTLS. 수신 서버 인증서는 사이드카가 OpenBao PKI에서 받는다(`components/app-mtls-openbao`) |
+| [`deploy/collector-source/`](deploy/collector-source/) | 출발지(AWS EKS) Collector: `collector-db-pgbouncer` + 앱 OTLP 수신 mTLS(Secret). 출발지에는 OpenBao가 없어 앱 CA는 발급자 PC에 둔다 |
 | [`deploy/app-pki/`](deploy/app-pki/) | 목적지 앱 CA를 OpenBao PKI(`pki-telemetry`)에 둔다(`setup.sh`, 운영자 한 번). 앱 클라이언트 인증서 `bravo-app-metrics-client`는 `target-dev`의 ESO 생성기가 발급 · 하루마다 교체 |
 | [`deploy/collector-platform/`](deploy/collector-platform/) | 플랫폼 클러스터 자신의 Collector(`platform-telemetry`). 고객 Collector와 namespace · 수신 경로(클러스터 안 Service, 고객은 tailnet) · CA(플랫폼 수신 CA)를 나눈다. `BRAVO_ENV=platform`, `bravo_domain=platform` |
 | [`deploy/collector-platform-db-access/`](deploy/collector-platform-db-access/) | `platform-state`의 CNPG Pod 조회 권한과 9187 수신 허용(그 namespace는 기본 차단) |
