@@ -326,8 +326,11 @@ def app_db_policy():
     """OpenBao policy ``demo-chat-db-reader``: the app's own DB credential path only (T14 SEC-01.1 app side).
 
     The app already receives this value through ESO as a Kubernetes Secret; this lets its own
-    ServiceAccount read the same path directly so an in-cluster T14 Job (t14-runner can mint only
-    demo-chat and t14-other tokens, T30 #666) measures SEC-01.1 without the ESO reader's identity.
+    ServiceAccount read the same path directly, so SEC-01.1 compares demo-chat with t14-other without
+    the ESO reader's identity (which also reads the object and admin paths). T14 collects from the
+    operator machine (`kubectl create token --audience openbao` + port-forward, #644/#666); no
+    in-cluster identity may mint these tokens, because RBAC cannot limit a TokenRequest's audience or
+    lifetime and such a grant would be a second way into this role.
     Nothing else: no object or admin path, no writes, no token creation."""
     return f'path "secret/data/{DB_PATH}" {{ capabilities = ["read"] }}' + '''
 path "auth/token/lookup-self" { capabilities = ["read"] }
