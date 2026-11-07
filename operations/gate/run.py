@@ -7,6 +7,9 @@ subjects   print the digests to sign for the plan's current gate context, what i
            `confirm`, the fingerprint of everything printed (read only)
 enroll     enroll each purpose's public key for the configured issuer subject; a retry for the same plan
            reuses the validity window saved in --dir, so a partly done enrollment can be run again
+record     record one T14 run document (--side source|target --run <file>)
+bind       bind the initial context from the newest recorded run on each side (before any application)
+evaluate   evaluate the current context; S1 records its first decision (a BLOCK) this way
 readiness  record a T13 binding and snapshot (JSON files from the T13 capture) for the current context
 sign       sign and publish what `subjects` shows and is not yet published; refuses unless --confirm matches
 
@@ -173,6 +176,11 @@ def run(args, *, relay, now):
         return {"keys": {p: {"key_id": key_id(k), "public_key_hex": public_hex(k)} for p, k in keys.items()}}
     if args.command == "subjects":
         return relay({"op": "subjects", "plan_id": args.plan_id})
+    if args.command == "record":
+        return relay({"op": "record", "plan_id": args.plan_id, "side": args.side,
+                      "document": json.loads(Path(args.run).read_text())})
+    if args.command in ("bind", "evaluate"):
+        return relay({"op": args.command, "plan_id": args.plan_id})
     if args.command == "readiness":
         return relay({"op": "readiness", "plan_id": args.plan_id,
                       "binding": json.loads(Path(args.binding).read_text()),
@@ -190,7 +198,7 @@ def run(args, *, relay, now):
 
 def main(argv=None):
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument("command", choices=["keys", "subjects", "enroll", "readiness", "sign"])
+    p.add_argument("command", choices=["keys", "subjects", "enroll", "record", "bind", "evaluate", "readiness", "sign"])
     p.add_argument("--plan-id")
     p.add_argument("--context", help="kubectl context of the platform cluster")
     p.add_argument("--dir", help="private key directory (0700)")
@@ -198,6 +206,8 @@ def main(argv=None):
     p.add_argument("--valid-hours", type=int, default=24, help=f"key validity, at most {MAX_KEY_HOURS}")
     p.add_argument("--ttl-minutes", type=int, default=360)
     p.add_argument("--confirm", help="the `confirm` value printed by `subjects`")
+    p.add_argument("--side", choices=["source", "target"])
+    p.add_argument("--run", help="T14 run document (control_run JSON)")
     p.add_argument("--binding")
     p.add_argument("--snapshot")
     p.add_argument("--relay", nargs="+", help="argv reaching bravo_platform_events.gate_relay")
@@ -206,6 +216,8 @@ def main(argv=None):
         p.error("--plan-id and --context (or --relay) are required")
     if args.command in ("keys", "enroll", "sign") and not args.dir:
         p.error("--dir is required")
+    if args.command == "record" and not (args.side and args.run):
+        p.error("--side and --run are required")
     if args.command == "sign" and not args.confirm:
         p.error("--confirm is required: run `subjects` and review it first")
     relay = relay_with([part.format(context=args.context) for part in (args.relay or RELAY)])

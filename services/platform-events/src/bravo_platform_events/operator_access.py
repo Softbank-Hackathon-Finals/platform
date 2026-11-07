@@ -17,6 +17,7 @@ from .cutover import CutoverService, _get, _key, _put, unavailable_authority
 from .cutover_api import create_cutover_app
 from .executor import _timestamp
 from .failback import FailbackService, failback_key
+from .infra_approval import InfraApprovalService, infra_key
 from .operator_identity import OperatorPrincipal
 from .plans import _canonical
 from .rehearsal import RehearsalService
@@ -24,13 +25,13 @@ from .store import EventError
 
 PERMISSIONS = frozenset({"read", "approve_cutover", "execute_cutover", "approve_change", "apply_change",
                          "approve_failback", "execute_failback", "start_rehearsal", "hold_rehearsal",
-                         "approve_shift", "execute_shift"})
+                         "approve_shift", "execute_shift", "approve_infra", "apply_infra"})
 # T19 gate actions (gate_services): recording, binding and evaluating evidence, consuming a report for
 # SHIFT/cutover, and publishing or managing signature records. Granted per plan like the others.
 GATE_PERMISSIONS = frozenset({"gate:record", "gate:read", "gate:bind", "gate:evaluate", "gate:consume",
                               "gate:use-exception", "gate:publish-provenance", "gate:manage-provenance"})
 PERMISSIONS = PERMISSIONS | GATE_PERMISSIONS
-APPROVAL_KEYS = {"cutover": _key, "change": change_key, "failback": failback_key}
+APPROVAL_KEYS = {"cutover": _key, "change": change_key, "failback": failback_key, "infra": infra_key}
 
 
 class OperatorAccess:
@@ -172,6 +173,12 @@ class OperatorAccess:
             self.require(c, principal, plan, permission)
         return check
 
+    def requires_subject(self, permission):
+        """A check that a recorded actor (e.g. the original approver) still holds a permission now."""
+        def check(c, plan, subject_id):
+            self._require_subject(c, plan, subject_id, permission, _timestamp(self.clock()).timestamp())
+        return check
+
     def _authority(self, upstream, approve_permission, apply_permission, key_for):
         def current(c, principal, plan, *, now, approved_by, approval_id, **selection):
             permission = apply_permission if approval_id else approve_permission
@@ -217,9 +224,12 @@ def create_operator_cutover_app(store, executor, *, verifier, bindings=None, reg
     from .workflow_stages import ShiftApprovalService
 
     shift_service = ShiftApprovalService(store, check_approve=access.requires("approve_shift"), clock=clock)
+    infra_service = InfraApprovalService(store, check_approve=access.requires("approve_infra"),
+                                         check_apply=access.requires("apply_infra"), check_access=access.check_read,
+                                         check_approver=access.requires_subject("approve_infra"), clock=clock)
     app = create_cutover_app(service, resolve_principal=access.resolver(verifier), rehearsal_service=rehearsals,
                              change_service=change_service, failback_service=failback_service,
-                             shift_service=shift_service)
+                             shift_service=shift_service, infra_service=infra_service)
     if change_intake is not None:
         app.include_router(intake_router(change_intake))
     return app

@@ -1,0 +1,35 @@
+[project]
+name = "bravo-iac"
+version = "0.1.0"
+description = "T44 destination IaC: module catalog, desired state and deterministic plans (read and propose only)"
+requires-python = ">=3.12"
+dependencies = []
+
+[project.optional-dependencies]
+# 플랫폼 조회 API. 계획 라이브러리만 쓰는 쪽(에이전트 Job · CLI)은 설치하지 않는다
+api = ["fastapi>=0.115,<1"]
+
+[project.scripts]
+bravo-iac = "bravo_iac.cli:main"
+
+[dependency-groups]
+dev = ["pytest>=8,<10", "fastapi>=0.115,<1", "httpx>=0.27,<1"]
+
+[build-system]
+requires = ["hatchling>=1.25,<2"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/bravo_iac"]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP"]
+ignore = ["E501"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]

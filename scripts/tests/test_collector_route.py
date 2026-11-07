@@ -5,7 +5,6 @@ import io
 import json
 import re
 import sys
-import tempfile
 import unittest
 from contextlib import redirect_stdout
 from pathlib import Path
@@ -130,23 +129,15 @@ class Policies(unittest.TestCase):
         with self.assertRaises(ValueError):
             render.proxy_ingress("target", observed("target"), transport_ports=[9090])
 
-    def test_cli(self):
-        out = io.StringIO()
-        with tempfile.TemporaryDirectory() as tmp:
-            readback = Path(tmp) / "policies.json"
-            readback.write_text(json.dumps(quarantine_readback()))
-            state = Path(tmp) / "route.json"
-            state.write_text(json.dumps(EMPTY_ROUTE))
-            with redirect_stdout(out):
-                render.main(["routes", "--side", "source", "--metrics-fqdn", FQDN,
-                             "--policy-readback", str(readback), "--route-readback", str(state)])
-        self.assertEqual([i["kind"] for i in json.loads(out.getvalue())["items"]], ["ProxyGroup", "Service"])
-        out = io.StringIO()
-        with patch.object(sys, "stdin", io.StringIO(json.dumps(observed()))), redirect_stdout(out):
-            render.main(["collector-egress", "--side", "source"])
-        self.assertEqual(json.loads(out.getvalue())["metadata"]["name"], "bravo-collector-tailnet")
-        with self.assertRaises(SystemExit), redirect_stdout(io.StringIO()), patch("sys.stderr", io.StringIO()):
-            render.main(["routes", "--side", "source"])
+    def test_cli_refuses_routes_now_owned_by_iac(self):
+        # The tailnet-egress IaC module owns these objects (T44); the CLI no longer renders a second copy.
+        for stage in ("proxy-quarantine", "routes", "collector-egress", "proxy-ingress"):
+            err = io.StringIO()
+            with self.subTest(stage=stage), patch("sys.stderr", err), redirect_stdout(io.StringIO()), \
+                    self.assertRaises(SystemExit) as stopped:
+                render.main([stage, "--side", "source"])
+            self.assertEqual(stopped.exception.code, 2)
+            self.assertIn("infra/iac/environments", err.getvalue())
 
 
 class Quarantine(unittest.TestCase):
@@ -262,7 +253,8 @@ class Fragment(unittest.TestCase):
         known = set()
         for path in ROOT.glob("**/*"):
             if path.suffix in {".json", ".py"} and path.is_file() and ".git" not in path.parts:
-                known |= set(re.findall(r"tag:bravo-[a-z0-9-]+", path.read_text(errors="ignore")))
+                # A tag name never ends with "-"; invalid examples in tests are not tags.
+                known |= set(re.findall(r"tag:bravo-[a-z0-9]+(?:-[a-z0-9]+)*", path.read_text(errors="ignore")))
         known -= {"tag:bravo-metrics", "tag:bravo-source-collector", "tag:bravo-target-collector"}
         self.assertTrue(known)
         self.assertLessEqual(known, denies)

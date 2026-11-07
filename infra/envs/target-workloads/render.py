@@ -71,6 +71,8 @@ def database(node_name):
     namespace["metadata"]["labels"].update({
         "pod-security.kubernetes.io/enforce": "restricted",
         "pod-security.kubernetes.io/enforce-version": "v1.35",
+        # T37: the Collector accepts app metrics only from namespaces with this label.
+        "bravo.observability/send": "true",
     })
     storage = resource(
         "storage.k8s.io/v1", "StorageClass", "bravo-target-local", namespaced=False,

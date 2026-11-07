@@ -27,18 +27,14 @@
 
 `develop`은 통합 기준이자 기본 브랜치이고 `main`은 검증·릴리스 기준이다. 일반 작업은 merge commit으로 합쳐 작업 묶음을 보존한다. release/hotfix를 main에 머지한 뒤 버전 태그와 develop 반영을 확인한다. 병합은 클라우드 배포 성공을 뜻하지 않는다.
 
-회의에서 합의한 develop 승인 필수 해제와 이상무의 병합 자동화 담당을 기준으로 T40에서 전환한다. 회의 결정이 이전의 ‘위험 경로만 승인’ 제안보다 우선한다. 적용 여부와 검증 기록은 [Merge Queue 운영 절차](merge-queue.md)에서 확인하고 실행 직전 GitHub 규칙을 다시 읽는다.
+2026-11-07 11:52 KST부터 develop·main ruleset에 Merge Queue와 리뷰 승인 조건이 없다. PR, 필수 검사 `secrets`·`infra`·`platform`, 삭제·강제 푸시 금지만 남는다. 필수 검사가 통과하면 직접 병합한다. 실행 직전 GitHub 규칙을 다시 읽는다.
 
-| 대상 | 숫자로 지정한 최소 승인 | 코드 오너 승인 | 병합 경로 · 필수 CI |
+| 대상 | 최소 승인 | 코드 오너 승인 | 병합 경로 · 필수 CI |
 |---|---|---|---|
-| platform `develop` (T40 전환 후) | 0 | 요구하지 않음 | Merge Queue · `secrets` · `infra` · `platform` |
-| platform `main` | 1 | 기존 설정 유지 | 기존 PR 절차 · `secrets` · `infra` · `platform` |
+| platform `develop` | 0 | 요구하지 않음 | 직접 병합 · `secrets` · `infra` · `platform` |
+| platform `main` | 0 | 요구하지 않음 | 직접 병합 · `secrets` · `infra` · `platform` |
 
-`.github/CODEOWNERS`의 팀원 목록은 리뷰 알림에 사용한다. develop의 병합 필수 승인으로 사용하지 않는다. `docs/tasks.md`만 바꾼 PR과 봇 `[sync]` PR도 큐의 검사를 거친다. 봇 PR은 자동 예약 없이 팀원이 큐에 넣는다. Slack 봇은 다시 켜지 않는다. 이슈·보드 상태를 확인하며 자동 상태 표시가 실제 작업과 다르면 담당자가 조정한다.
-
-리뷰 요청과 파트별 검토는 유지하지만 develop의 전원 승인이나 특정 경로 승인을 별도 필수로 추가하지 않는다. 이미 확인한 결함은 수정하거나 큐에서 제외한다. 변경 요청을 강제로 해제하거나 실패 검사를 약하게 만들지 않는다. 다른 담당의 코드 변경은 앞 절의 범위 합의를 따른다. main 승인과 T10/T15/T31의 제품 실행 승인은 이 변경과 별개다.
-
-GitHub 기본 Merge Queue가 최신 develop과 앞선 PR을 합친 결과에 대해 필수 CI를 확인한다. 최종 PR head의 CI만으로 큐 검사를 대신하지 않는다. 검사 누락·실패·시간 초과·충돌은 병합 중단 사유다. 자기 승인, admin bypass, 보호 규칙을 잠깐 끄는 방식으로 처리하지 않는다.
+`.github/CODEOWNERS`의 팀원 목록은 리뷰 알림에 사용한다. 승인이 필수가 아니어도 확인된 결함과 변경 요청은 해결한 뒤 병합한다. 변경 요청을 강제로 해제하거나 실패 검사를 약하게 만들지 않는다. 자기 승인, admin bypass, 보호 규칙을 잠깐 끄는 방식으로 처리하지 않는다. 다른 담당의 코드 변경은 앞 절의 범위 합의를 따른다. T10/T15/T31의 제품 실행 승인은 이 규칙과 별개다.
 
 ```sh
 git fetch origin

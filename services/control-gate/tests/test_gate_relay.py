@@ -5,19 +5,21 @@ T13 records and signed envelopes, and acts as the subjects fixed in its config.
 """
 
 import importlib.util
+import json
 import os
 import subprocess
 import sys
-from dataclasses import asdict
+from dataclasses import asdict, replace
 from datetime import timedelta
 from pathlib import Path
 
 import pytest
 from bravo_platform_events import gate_relay
+from bravo_platform_events.store import EventError
 from test_gate_assembly import gate  # noqa: F401
 from test_readiness import ready  # noqa: F401
 
-from bravo_gate.contract import GateError
+from bravo_gate.contract import GateError, fingerprint, time
 
 spec = importlib.util.spec_from_file_location(
     "gate_cli", Path(__file__).resolve().parents[3] / "operations/gate/run.py")
@@ -30,9 +32,43 @@ def relay(gate, tmp_path):  # noqa: F811 - imported shared fixture
     config = {"tenant_id": gate.state["context"].tenant_id, "admin": "gate-admin",
               "issuer": "gate-issuer", "operator": "gate-operator"}
     gate.config = config
-    gate.call = lambda request: gate_relay.handle(gate.records, request, config, clock=lambda: gate.clock.at)
+    gate.call = lambda request: gate_relay.handle(gate.records, request, config, clock=lambda: gate.clock.at,
+                                                  access=gate.access)
     gate.keys_dir = tmp_path / "keys"
     return gate
+
+
+def run_doc(f, side, **changes):
+    doc = json.loads(f.state["runs"][side].raw)
+    doc.update(changes.pop("fields", {}))
+    for row in doc["results"]:
+        row.update(changes.get(row["test_id"], {}))
+    return doc
+
+
+def shifted(doc, delta):
+    for key in ("started_at", "finished_at"):
+        doc[key] = (time(doc[key]) + delta).isoformat()
+    for row in doc["results"]:
+        if row["evidence"] is not None:
+            for key in ("collected_at", "expires_at"):
+                row["evidence"][key] = (time(row["evidence"][key]) + delta).isoformat()
+    return doc
+
+
+def bind_through_the_relay(f, source, target):
+    """record + bind as an operator does at S1; the T13 capture is then made for the bound context."""
+    for side, doc in (("source", source), ("target", target)):
+        f.call({"op": "record", "plan_id": f.plan.plan_id, "side": side, "document": doc})
+    bound = f.call({"op": "bind", "plan_id": f.plan.plan_id})["bound"]
+    f.state["context"] = replace(f.base, gate_id=bound["gate_id"], source_ref=source["run_id"],
+                                 target_ref=target["run_id"], source_digest=fingerprint(source),
+                                 target_digest=fingerprint(target))
+    assert f.state["context"].fingerprint == bound["context"]
+    f.update(f.doc)
+    f.call({"op": "readiness", "plan_id": f.plan.plan_id, "binding": asdict(f.data["binding"]),
+            "snapshot": {"ref": f.data["snapshot"].ref, "document": f.data["snapshot"].document}})
+    return bound
 
 
 def test_issuer_enrolls_records_signs_and_the_gate_passes(relay):
@@ -42,18 +78,15 @@ def test_issuer_enrolls_records_signs_and_the_gate_passes(relay):
     for request in cli.enroll_requests(f.keys_dir, f.plan.plan_id, keys, cli.PURPOSES, f.clock.at, 6):
         assert f.call(request)["enrolled"]["revision"] == 1
     f.clock.at = f.state["now"]
-    for side in ("source", "target"):
-        f.records.record_run(f.operator, f.plan.plan_id, side, f.state["runs"][side])
-    f.records.bind(f.operator, f.plan.plan_id, "context", f.state["context"], expected_revision=0)
-    f.call({"op": "readiness", "plan_id": f.plan.plan_id, "binding": asdict(f.data["binding"]),
-            "snapshot": {"ref": f.data["snapshot"].ref, "document": f.data["snapshot"].document}})
+    f.base = f.state["context"]
+    bind_through_the_relay(f, run_doc(f, "source"), run_doc(f, "target"))
     subjects = f.call({"op": "subjects", "plan_id": f.plan.plan_id})["subjects"]
     assert "gate-result" not in subjects and subjects["published"] == []  # nothing evaluated or signed yet
     # The documented order: `sign` with defaults signs what is shown and not yet published.
     for request in cli.sign_requests(f.plan.plan_id, subjects, keys, None, subjects["confirm"], f.clock.at,
                                      timedelta(minutes=5)):
         f.call(request)
-    assert f.evaluate()["decision"] == "PASS"
+    assert f.call({"op": "evaluate", "plan_id": f.plan.plan_id})["evaluated"]["decision"] == "PASS"
     subjects = f.call({"op": "subjects", "plan_id": f.plan.plan_id})["subjects"]
     assert set(subjects["published"]) == set(cli.PURPOSES) - {"gate-result"}
     [request] = cli.sign_requests(f.plan.plan_id, subjects, keys, None, subjects["confirm"], f.clock.at,
@@ -62,6 +95,37 @@ def test_issuer_enrolls_records_signs_and_the_gate_passes(relay):
     subjects = f.call({"op": "subjects", "plan_id": f.plan.plan_id})["subjects"]
     assert cli.sign_requests(f.plan.plan_id, subjects, keys, None, subjects["confirm"], f.clock.at,
                              timedelta(minutes=5)) == []  # run again: nothing left, no conflict
+
+
+def test_s1_records_binds_and_evaluates_the_first_gate_through_the_relay(relay):
+    f = relay
+    keys = cli.load_keys(f.keys_dir, create=True)
+    for request in cli.enroll_requests(f.keys_dir, f.plan.plan_id, keys, cli.PURPOSES, f.clock.at, 6):
+        f.call(request)
+    f.clock.at = f.state["now"]
+    f.base = f.state["context"]
+    source = run_doc(f, "source")
+    f.call({"op": "record", "plan_id": f.plan.plan_id, "side": "source", "document": source})
+    with pytest.raises(EventError, match="gate_run_required"):
+        f.call({"op": "bind", "plan_id": f.plan.plan_id})  # one side only
+    open_bucket = run_doc(f, "target", fields={"run_id": "run-open-bucket"},
+                          **{"IAM-01.1": {"verdict": "FAIL", "observed": "allow"}})
+    bound = bind_through_the_relay(f, source, open_bucket)
+    assert f.call({"op": "bind", "plan_id": f.plan.plan_id})["bound"] == bound  # the same runs again
+    subjects = f.call({"op": "subjects", "plan_id": f.plan.plan_id})["subjects"]
+    for request in cli.sign_requests(f.plan.plan_id, subjects, keys, None, subjects["confirm"], f.clock.at,
+                                     timedelta(minutes=5)):
+        f.call(request)
+    assert f.call({"op": "evaluate", "plan_id": f.plan.plan_id})["evaluated"] == {
+        "decision": "BLOCK", "security": "BLOCK", "data": "PASS", "context": bound["context"]}
+    with pytest.raises(ValueError, match="gate_relay_access_required"):
+        gate_relay.handle(f.records, {"op": "evaluate", "plan_id": f.plan.plan_id}, f.config,
+                          clock=lambda: f.clock.at)
+    # A newer target run (taken after the fix) is what the next bind uses: a new context, never the old one.
+    fixed = shifted(run_doc(f, "target", fields={"run_id": "run-fixed"}), timedelta(seconds=20))
+    f.call({"op": "record", "plan_id": f.plan.plan_id, "side": "target", "document": fixed})
+    again = f.call({"op": "bind", "plan_id": f.plan.plan_id})["bound"]
+    assert again["gate_id"] != bound["gate_id"] and again["revision"] == bound["revision"] + 1
 
 
 def test_a_readiness_record_added_after_the_review_is_never_signed(relay):

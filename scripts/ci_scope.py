@@ -9,7 +9,9 @@ import subprocess
 from pathlib import Path, PurePosixPath
 
 MANIFESTS = {"pyproject.toml": "python", "package.json": "node", "go.mod": "go"}
-SHARED = (".github/workflows/", "scripts/ci_", "schemas/", "contracts/")
+SHARED = ("schemas/", "contracts/")
+# The CI definition itself: prove each job still runs (one project per language), not every project.
+CI_DEFINITION = (".github/workflows/ci.yml", "scripts/ci_", "scripts/tests/test_ci_")
 CONFIG = {".gitleaks.toml", ".trivyignore", ".trivyignore.yaml", "ruff.toml", ".ruff.toml", "pytest.ini",
           "conftest.py", "Makefile", "uv.lock", "pnpm-lock.yaml", "go.work", "go.work.sum"}
 
@@ -27,6 +29,10 @@ def projects(files: list[str]) -> list[dict[str, str]]:
     return sorted(found, key=lambda p: (p["path"], p["kind"]))
 
 
+# A publish workflow's image pin PR changes only these; it needs the GitOps render contract, not every check.
+PIN = re.compile(r"infra/gitops/environments/[a-z0-9-]+/[a-z0-9-]+-(?:image|publication)\.json")
+
+
 def documentation(path: str) -> bool:
     p = PurePosixPath(path)
     # Only prose/figures, never JSON examples, scripts or schemas stored in docs/.
@@ -39,11 +45,19 @@ def documentation(path: str) -> bool:
 
 def select(files: list[str], changed: list[str], full_reason: str = "") -> dict:
     modules = projects(files)
+    if changed and not full_reason and all(PIN.fullmatch(path) for path in changed):
+        return {"full": False, "reasons": [], "changed": changed, "infra": False, "scripts": True, "pins": True,
+                "projects": [], "matrix": {"include": []}}
     selected: set[tuple[str, str]] = set()
     reasons = [full_reason] if full_reason else []
     infra = scripts = False
+    canary = False
     for path in changed:
-        if path.startswith(SHARED) or path in CONFIG:
+        if path.startswith(CI_DEFINITION):
+            canary = infra = scripts = True
+        elif path.startswith(".github/workflows/"):
+            infra = True  # another workflow: actionlint in the infra job, no project is affected
+        elif path.startswith(SHARED) or path in CONFIG:
             reasons.append(f"shared:{path}")
         elif PurePosixPath(path).name in MANIFESTS and path not in files:
             reasons.append(f"removed-manifest:{path}")
@@ -65,9 +79,15 @@ def select(files: list[str], changed: list[str], full_reason: str = "") -> dict:
             elif not infrastructure and not repository_tool:
                 reasons.append(f"unknown:{path}")
     full = bool(reasons)
+    if canary and not full:
+        first = {}
+        for module in sorted(modules, key=lambda p: (p["kind"], p["path"])):
+            if module["path"] != ".":
+                first.setdefault(module["kind"], module)
+        selected.update((p["path"], p["kind"]) for p in first.values())
     chosen = modules if full else [p for p in modules if (p["path"], p["kind"]) in selected]
     return {"full": full, "reasons": reasons, "changed": changed,
-            "infra": full or infra, "scripts": full or scripts,
+            "infra": full or infra, "scripts": full or scripts, "pins": False, "canary": canary and not full,
             "projects": chosen, "matrix": {"include": chosen}}
 
 
@@ -101,7 +121,9 @@ def local_dependencies(files: list[str], read=lambda path: Path(path).read_text(
     return False
 
 
-def plan(base: str, head: str = "HEAD", full: bool = False) -> dict:
+def plan(base: str, head: str = "HEAD", full: bool = False, queue: bool = False) -> dict:
+    """queue: a merge group, scoped by its whole diff from the target branch. Every PR in it already
+    passed its own PR run, where local project links widen the scope; the queue does not widen again."""
     files = git("ls-files", "-z").decode().rstrip("\0").split("\0")
     if full:
         return select(files, [], "integration-or-scheduled-run")
@@ -113,7 +135,8 @@ def plan(base: str, head: str = "HEAD", full: bool = False) -> dict:
     except subprocess.CalledProcessError:
         return select(files, [], "unavailable-history")
     result = select(files, changed.split("\0") if changed else [])
-    if result["projects"] and not result["full"]:
+    # A canary checks the CI machinery per language; it is not a change to those projects.
+    if result["projects"] and not result["full"] and not queue and not result["canary"]:
         try:
             if local_dependencies(files):
                 return select(files, result["changed"], "local-project-dependencies")
@@ -127,14 +150,15 @@ def main() -> None:
     parser.add_argument("--base", default="")
     parser.add_argument("--head", default="HEAD")
     parser.add_argument("--full", action="store_true")
+    parser.add_argument("--queue", action="store_true")
     args = parser.parse_args()
-    result = plan(args.base, args.head, args.full)
+    result = plan(args.base, args.head, args.full, args.queue)
     print(json.dumps(result, ensure_ascii=False, indent=2))
     if output := os.environ.get("GITHUB_OUTPUT"):
         with open(output, "a", encoding="utf-8") as stream:
             stream.writelines(
                 f"{key}={json.dumps(result[key], separators=(',', ':'))}\n"
-                for key in ("full", "infra", "scripts", "projects", "matrix")
+                for key in ("full", "infra", "scripts", "pins", "projects", "matrix")
             )
 
 

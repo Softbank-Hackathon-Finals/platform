@@ -55,7 +55,7 @@ SSE를 포함해 Bearer를 보낼 수 있는 같은 출처의 클라이언트가
 | 동작 | 저장/검사 |
 |---|---|
 | `set_permissions` | trusted host가 실제 관리 결정을 인증한 뒤 호출. plan/tenant/subject, 권한, 유효 구간, 기대 revision, 관리 감사 참조를 저장 |
-| 권한 | `read`, `approve_cutover`, `execute_cutover`와 S2의 `approve_change`, `apply_change`를 구분. T17 런타임은 기존 SHIFT 승인에 실행을 결속하는 `approve_shift`와 가중치 실행의 `execute_shift`를 사용한다. 쓰기 권한은 `read`를 함께 요구 |
+| 권한 | `read`, `approve_cutover`, `execute_cutover`와 S2의 `approve_change`, `apply_change`를 구분. T17 런타임은 기존 SHIFT 승인에 실행을 결속하는 `approve_shift`와 가중치 실행의 `execute_shift`를 사용한다. T44 목적지 구축은 계획 digest 승인의 `approve_infra`와 실행 1회 소비의 `apply_infra`를 사용한다(ADR-0032, 아래 목적지 구축 승인). 쓰기 권한은 `read`를 함께 요구 |
 | 권한 회수 | 빈 권한 집합을 다음 revision으로 기록. 회수 후 재부여도 새로운 revision |
 | 재인증 요구 | `auth_time`이 `valid_after`보다 이른 토큰 거부. refresh로 iat만 바꿔도 거부 |
 | `revoke_approval` | 아직 소비하지 않은 승인 ID의 취소를 영속화. 이미 접수된 원격 실행을 취소했다고 반환하지 않음 |
@@ -106,3 +106,15 @@ HTTP 승인/조회/SSE, 권한 회수/재부여·승인 취소·잠금 경쟁을
 AWS는 기존 EC2의 비루트 임시 프로세스에서 같은 코드와 합성 identity/gate/SHIFT를 시험한다.
 두 시험 모두 실제 사람 로그인·운영 권한 부여·게이트 PASS·실제 컷오버 증거가 아니다.
 [검증 기록](../evidence/t10-operator-access-2026-11-04/README.md)을 함께 본다.
+
+## 목적지 구축 승인 (T44, ADR-0032)
+
+목적지 구축 계획의 승인도 같은 승인 경로와 계획별 권한을 쓴다. 목적지 구축은 그 목적지로 옮기는 이전 계획에 묶는다.
+
+| 경로 | 권한 | 규칙 |
+|---|---|---|
+| `POST /v1/plans/{plan_id}/approvals` (`approval_kind: "infra"`) | `approve_infra` | binding은 `infra_plan_id`, `plan_digest`(sha256 hex), `requested_by` 세 필드만 받는다. 요청자와 승인자가 같으면 `self_approval_forbidden`. 계획 상태가 COLLECT ~ AWAIT_APPROVAL일 때만 받고, 만료는 24시간 이내 |
+| `GET /v1/plans/{plan_id}/infra-approvals/{approval_id}` | `read` | 승인 영수증과 회수 여부, 소비한 실행 ID |
+| `POST /v1/plans/{plan_id}/infra-approvals/{approval_id}/claims` | `apply_infra` | 본문 `run_id`, `plan_digest`. 다시 계산한 digest가 승인과 다르면 `binding_mismatch`. 한 승인은 한 실행만 소비하고 같은 실행의 재요청은 같은 결과를 돌려준다. 원 승인자가 지금도 `approve_infra`를 가져야 한다 |
+
+승인 회수는 기존 `revoke_approval(..., approval_kind="infra")`를 쓴다. T10 이벤트 v1 스키마에는 `infra` 종류가 없으므로 `approval.decided` 이벤트를 내지 않는다(SHIFT 승인과 같다). 실행 기록은 T44가 T24 감사 로그에 남긴다.

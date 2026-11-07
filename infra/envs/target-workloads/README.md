@@ -244,9 +244,11 @@ T2/T6/T8/T9/T30 전체 완료나 실제 데모 머신의 준비 완료는 이 �
 | `WRITE_BLOCKED` | `true` | 항상 닫힌 채 시작한다. Pod가 다시 뜨면 다시 닫힌다 |
 | `ATTACHMENT_UPLOAD_ENABLED` | `false` | 컷오버 전 업로드는 403이다. 받으면 객체는 목적지에, 행은 출발지 DB에 들어가 어긋난다 |
 | probe | `/readyz`, `/healthz` | DB를 보지 않는다. DB 경로는 `/api/health/db`로 따로 본다 |
+| `BRAVO_METRICS_*` | `https://bravo-collector.bravo-observability.svc:4318/v1/metrics`, 인증서 3개는 `/etc/bravo-metrics` | T37 앱 HTTP 지표. Collector가 mTLS로 받고, `target-dev`에 `bravo.observability/send: "true"` 라벨이 있어야 받는다. 클라이언트 인증서 Secret `bravo-app-metrics-client`(ca.crt · tls.crt · tls.key)는 관측 담당이 만들고, 앱에는 읽기 전용 0440 파일로만 들어간다. `OTEL_EXPORTER_OTLP*`는 넣지 않는다. 넣으면 앱이 뜨지 않는다 |
 
 ### 적용 전 조건
 
+0. **앱 지표 인증서(T37).** 앱 Pod는 Secret `bravo-app-metrics-client`가 있어야 뜬다. 없으면 새 Pod가 `ContainerCreating`에서 멈추고, 이전 Pod가 계속 응답하지만 rollout은 끝나지 않는다. 그러면 쓰기 스위치의 rollout 검사도 통과하지 못한다. 관측 담당이 이 Secret을 `target-dev`에 넣은 것을 확인한 뒤 적용한다. 환경변수가 바뀌면 앱이 다시 뜨므로 해피패스 중에는 적용하지 않는다. 앱 namespace에는 나가는 쪽을 막는 정책이 없어서 Collector 4318로 가는 별도 egress 규칙은 두지 않는다.
 1. **이미지.** 쓸 이미지는 [`app-image.json`](app-image.json) 한 곳에만 적는다. 렌더러와 `scripts/export_target_image.py`가 이 파일을 읽는다.
    새로 게시하면 그 실행 아티팩트의 `image-receipt.json`(`source_sha`, `digest`)과 `registry-index.json`(amd64 `digest`)을 옮겨 적고 끝낸다.
    렌더러는 이 파일의 index digest만 받는다. 다른 digest는 저장소가 GHCR이든 ECR이든 거부한다. DB · 객체 저장소 · 관리 토큰을 받는 Pod에서 다른 바이트가 돌지 못하게 하려는 것이다. ECR에서 받을 때만 `--image`로 저장소를 바꾼다.

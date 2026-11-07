@@ -16,6 +16,12 @@ POOLER_IMAGE = "ghcr.io/cloudnative-pg/pgbouncer:1.25.1@sha256:e6ddfe22d845e6038
 LABELS = {"app.kubernetes.io/part-of": "bravo-source", "component": "source"}
 # Same values as target-workloads/render.py; see the reason there. CNPG's 5 s default ended the forward
 # connection during a few seconds of congestion on the tailnet path.
+# T37 app HTTP metrics: the Collector accepts only labelled namespaces and app-CA client certificates.
+# OTEL_EXPORTER_OTLP* is never set (the app refuses to start with it).
+METRICS_ENV = {"BRAVO_METRICS_ENDPOINT": "https://bravo-collector.bravo-observability.svc:4318/v1/metrics",
+               "BRAVO_METRICS_CA_FILE": "/etc/bravo-metrics/ca.crt",
+               "BRAVO_METRICS_CLIENT_CERT": "/etc/bravo-metrics/tls.crt",
+               "BRAVO_METRICS_CLIENT_KEY": "/etc/bravo-metrics/tls.key"}
 REPLICATION_TIMEOUTS = {"wal_sender_timeout": "30s", "wal_receiver_timeout": "30s"}
 
 
@@ -55,7 +61,8 @@ def database():
     namespace["metadata"].pop("namespace")
     namespace["metadata"]["labels"].update({
         "pod-security.kubernetes.io/enforce": "restricted",
-        "pod-security.kubernetes.io/enforce-version": "v1.35"})
+        "pod-security.kubernetes.io/enforce-version": "v1.35",
+        "bravo.observability/send": "true"})
     storage = resource("storage.k8s.io/v1", "StorageClass", "source-gp3",
                        provisioner="ebs.csi.aws.com", reclaimPolicy="Retain",
                        volumeBindingMode="WaitForFirstConsumer", allowVolumeExpansion=True,
@@ -165,7 +172,7 @@ def application(settings):
            "DB_PORT": "5432", "DB_NAME": "chat", "DB_SECRET_ID": settings["db_secret_id"],
            "S3_BUCKET": settings["s3_bucket"], "AWS_REGION": settings["region"],
            "AWS_DEFAULT_REGION": settings["region"], "PGSSLMODE": "verify-full",
-           "PGSSLROOTCERT": "/etc/cnpg-ca/ca.crt", "WRITE_BLOCKED": "true"}
+           "PGSSLROOTCERT": "/etc/cnpg-ca/ca.crt", "WRITE_BLOCKED": "true", **METRICS_ENV}
     app = deployment("demo-chat", settings["app_image"], {
         "name": "app",
         "env": [{"name": k, "value": v} for k, v in env.items()] + [
@@ -176,8 +183,12 @@ def application(settings):
         "resources": {"requests": {"cpu": "100m", "memory": "128Mi"},
                       "limits": {"cpu": "500m", "memory": "512Mi"}},
         "volumeMounts": [{"name": "ca", "mountPath": "/etc/cnpg-ca", "readOnly": True},
+                         {"name": "metrics", "mountPath": "/etc/bravo-metrics", "readOnly": True},
                          {"name": "tmp", "mountPath": "/tmp"}]}, [
         {"name": "ca", "secret": {"secretName": "source-db-ca", "items": [{"key": "ca.crt", "path": "ca.crt"}]}},
+        # Issued by T37 from the app CA (no CA key in the cluster); the key never enters env or args.
+        {"name": "metrics", "secret": {"secretName": "bravo-app-metrics-client", "defaultMode": 0o440,
+                                       "items": [{"key": k, "path": k} for k in ("ca.crt", "tls.crt", "tls.key")]}},
         {"name": "tmp", "emptyDir": {}}], "demo-chat")
     app["spec"]["template"]["spec"]["securityContext"]["runAsUser"] = 10001
     return accounts + [store, external, app, service("demo-chat", 8080)]

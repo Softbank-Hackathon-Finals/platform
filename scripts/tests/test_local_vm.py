@@ -186,6 +186,99 @@ class LocalVMTests(unittest.TestCase):
         self.assertEqual(str(uuid.UUID((self.vm / "launch.uuid").read_text().strip())),
                          (self.vm / "launch.uuid").read_text().strip())
 
+    def startable(self, ssh_port=52222, api_port=56443):
+        (self.vm / "connection.json").write_text(json.dumps(
+            {"arch": "arm64", "ssh_port": ssh_port, "api_port": api_port}))
+        (self.vm / "execution.json").write_text(json.dumps(vm_tool.execution_profile()))
+        (self.vm / "seed.iso").write_bytes(b"seed")
+        (self.vm / "console.log").write_text("first boot")
+
+    def test_start_without_recorded_vm_creates_nothing(self):
+        shutil.rmtree(self.vm)
+        with patch.object(vm_tool.subprocess, "run") as run, self.assertRaisesRegex(ValueError, "no recorded VM"):
+            vm_tool.start(self.state)
+        run.assert_not_called()
+        self.assertFalse(self.vm.exists())
+
+    def test_start_refuses_vm_without_recorded_profile(self):
+        self.startable()
+        (self.vm / "execution.json").unlink()
+        with patch.object(vm_tool.subprocess, "run") as run, self.assertRaisesRegex(ValueError, "UNKNOWN"):
+            vm_tool.start(self.state)
+        run.assert_not_called()
+        self.preserved()
+
+    def test_start_never_creates_a_missing_disk_or_seed(self):
+        for name in ("disk.qcow2", "seed.iso"):
+            with self.subTest(name=name):
+                self.startable()
+                kept = (self.vm / name).read_bytes()
+                (self.vm / name).unlink()
+                with patch.object(vm_tool.subprocess, "run") as run, self.assertRaisesRegex(ValueError, "start never creates"):
+                    vm_tool.start(self.state)
+                run.assert_not_called()
+                (self.vm / name).write_bytes(kept)
+
+    def test_start_is_a_no_op_when_the_same_vm_is_running(self):
+        self.startable()
+        (self.vm / "qemu.pid").write_text("4242")
+        with patch.object(vm_tool, "owned_process", return_value=(4242, "same")), \
+                patch.object(vm_tool, "qmp"), patch.object(vm_tool, "verify_qmp") as verify, \
+                patch.object(vm_tool.subprocess, "run") as run:
+            self.assertEqual(vm_tool.start(self.state), "already running")
+        verify.assert_called_once()
+        run.assert_not_called()
+        self.assertEqual((self.vm / "console.log").read_text(), "first boot")
+
+    def test_start_refuses_a_disk_used_by_another_process(self):
+        self.startable()
+        (self.vm / "qemu.pid").write_text("4242")
+        with patch.object(vm_tool, "owned_process", side_effect=vm_tool.NotRunning("stale")), \
+                patch.object(vm_tool, "disk_users", return_value=[777]), \
+                patch.object(vm_tool.subprocess, "run") as run, self.assertRaisesRegex(ValueError, "already uses this VM disk"):
+            vm_tool.start(self.state)
+        run.assert_not_called()
+        self.preserved()
+
+    def test_start_refuses_a_busy_recorded_port(self):
+        with socket.socket() as listener:
+            listener.bind(("127.0.0.1", 0))
+            listener.listen(1)
+            self.startable(ssh_port=listener.getsockname()[1])
+            with patch.object(vm_tool, "disk_users", return_value=[]), \
+                    patch.object(vm_tool.subprocess, "run") as run, self.assertRaisesRegex(ValueError, "already in use"):
+                vm_tool.start(self.state)
+            run.assert_not_called()
+        self.assertEqual((self.vm / "console.log").read_text(), "first boot")
+
+    def test_start_boots_the_same_uuid_disk_and_ports_and_keeps_the_old_console(self):
+        self.startable()
+        (self.vm / "qemu.pid").write_text("4242")
+        owned = [vm_tool.NotRunning("stale"), (4343, "new")]
+        with patch.object(vm_tool, "owned_process", side_effect=owned), \
+                patch.object(vm_tool, "disk_users", return_value=[]), patch.object(vm_tool, "available_ports"), \
+                patch.object(vm_tool, "qmp"), patch.object(vm_tool, "verify_qmp"), \
+                patch.object(vm_tool, "verify_execution") as execution, \
+                patch.object(vm_tool.subprocess, "Popen"), patch.object(vm_tool.subprocess, "run") as run:
+            self.assertEqual(vm_tool.start(self.state), "started")
+        boot, wait = run.call_args_list
+        self.assertEqual(boot.args[0][2:], ["_start", self.launch_id])
+        self.assertEqual(wait.args[0][2:], ["_wait"])
+        self.assertEqual((boot.kwargs["env"]["BRAVO_SSH_PORT"], boot.kwargs["env"]["BRAVO_API_PORT"]),
+                         ("52222", "56443"))
+        self.assertEqual(execution.call_args.args[:2], (4343, "new"))
+        kept = list(self.vm.glob("console-*.log"))
+        self.assertEqual([path.read_text() for path in kept], ["first boot"])
+        self.assertFalse((self.vm / "console.log").exists())
+        self.preserved()
+
+    def test_shell_start_entry_never_creates_disk_or_seed(self):
+        script = SCRIPT.with_name("local-vm.sh").read_text()
+        resume = script[script.index("resume() {"):script.index("\n}\n", script.index("resume() {"))]
+        self.assertNotIn("create_disk", resume)
+        self.assertNotIn("write_seed", resume)
+        self.assertNotIn("qemu-img", script[script.index("start_qemu() {"):script.index("wait_for_cloud_init()")])
+
     def test_architectures_have_distinct_default_connections(self):
         arm = vm_tool.connection_settings({"arch": "arm64"})
         x86 = vm_tool.connection_settings({"arch": "x86_64"})
