@@ -276,10 +276,10 @@ def build_server(backend: SovaBackend, confirmations: Confirmations | None = Non
         scoped(session, plan_id)
         gates = await run(backend.events_of, session.actor, plan_id,
                           {"gate.completed", "approval.requested", "approval.decided"})
-        verdicts = [e["data"].get("verdict") or e["data"].get("result") for e in gates if e["event_type"] == "gate.completed"]
-        status = "UNKNOWN" if not verdicts else "PASSED" if verdicts[-1] == "PASS" else "FAILED"
+        decisions = [e["data"].get("decision") for e in gates if e["event_type"] == "gate.completed"]  # PASS | BLOCK
+        status = "UNKNOWN" if not decisions else "PASSED" if decisions[-1] == "PASS" else "FAILED"
         return Result(status=status, data=gates,
-                      summary=f"게이트 판정 {len(verdicts)}건" + (f", 마지막 판정 {verdicts[-1]}." if verdicts else ", 아직 없습니다."))
+                      summary=f"게이트 판정 {len(decisions)}건" + (f", 마지막 판정 {decisions[-1]}." if decisions else ", 아직 없습니다."))
 
     @mcp.tool(annotations=READ, title="실행 상태")
     async def sova_get_execution(plan_id: str = Field(pattern=IDENT), ctx: Context = None) -> Result:

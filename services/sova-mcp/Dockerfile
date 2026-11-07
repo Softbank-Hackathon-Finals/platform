@@ -1,7 +1,7 @@
 # Build context: repository root (docker build -f services/sova-mcp/Dockerfile .)
 FROM python:3.12.16-slim-trixie@sha256:4840d514c583a4d3d8cad3940e68dee6f0f6f3635c12fcd0a3d74c21a5b93a54 AS build
 # git: platform-events pins bravo-observability by commit (uv git source).
-RUN apt-get update && apt-get install --no-install-recommends -y git && rm -rf /var/lib/apt/lists/* \
+RUN apt-get update && apt-get install --no-install-recommends -y git=1:2.47.3-0+deb13u1 && rm -rf /var/lib/apt/lists/* \
     && pip install --disable-pip-version-check --no-cache-dir uv==0.10.2
 COPY services/platform-events /src/services/platform-events
 COPY services/sova-mcp /src/services/sova-mcp

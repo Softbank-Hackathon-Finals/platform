@@ -1,7 +1,7 @@
 # SOVA MCP · T21
 
 SOVA를 에이전트로 처음 만나는 사람을 위한 안내형 MCP 서버다. 설계는 Notion
-"SOVA API · MCP 설계 명세 (초안 v0.1)", 결정은 [ADR-0038](../../docs/adr/0038-sova-mcp-surface.md).
+"SOVA API · MCP 설계 명세 (초안 v0.1)", 결정은 [ADR-0040](../../docs/adr/0040-sova-mcp-surface.md).
 T10의 같은 저장소(`PlanStore`)와 `Registry`를 쓰며 새 상태 머신·게이트·실행기를 만들지 않는다.
 
 ## 연결

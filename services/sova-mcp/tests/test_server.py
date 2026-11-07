@@ -150,6 +150,14 @@ def test_guided_registration_needs_matching_confirmation_then_plan_flows(server)
     assert progress["status"] == "RUNNING" and progress["cursor"] == f"{plan_id}:1"
     _, later = call(base, "sova_get_progress", {"plan_id": plan_id, "since": progress["cursor"]})
     assert later["data"]["events"] == [] and later["cursor"] == progress["cursor"]
+    _, compare = call(base, "sova_compare", {"plan_id": plan_id})
+    assert compare["status"] == "UNKNOWN"
+    store.append(plan_id=plan_id, run_id="gate-run", event_type="gate.completed", producer_key="gate-1",
+                 occurred_at=datetime.now(UTC).isoformat(),
+                 data={"gate_id": "gate-1", "evidence_ref": "ev-1", "decision": "BLOCK",
+                       "context_digest": "c" * 64})
+    _, compare = call(base, "sova_compare", {"plan_id": plan_id})
+    assert compare["status"] == "FAILED" and "BLOCK" in compare["summary"]
     _, approval = call(base, "sova_request_approval", {"plan_id": plan_id, "kind": "cutover"})
     assert approval["status"] == "BLOCKED" and approval["console_url"].endswith(f"plan={plan_id}&approve=cutover")
 
