@@ -145,7 +145,7 @@ def test_validate_refuses(entry):
 
 
 def test_emails_must_be_present_and_well_formed():
-    assert emails_from(" B@x.org, a@y.com ,") == ["a@y.com", "b@x.org"]
+    assert emails_from(" B@x.example.invalid, a@y.example.invalid ,") == ["a@y.example.invalid", "b@x.example.invalid"]
     for bad in ("", "not-an-email", "a@b"):
         with pytest.raises(Refused):
             emails_from(bad)
