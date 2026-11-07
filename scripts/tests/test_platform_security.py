@@ -60,10 +60,10 @@ class FindingsBundle(unittest.TestCase):
         self.assertEqual(self.resources.count("fsGroupChangePolicy: OnRootMismatch"), self.resources.count("fsGroup: 10001"))
         readme = (ROOT / "infra/envs/platform-security/README.md").read_text()
         self.assertIn("install -d -o 10001 -g 10001 -m 2770", readme)
-        # init, api and the GuardDuty pull container
-        self.assertEqual(self.resources.count("readOnlyRootFilesystem: true"), 3)
-        self.assertEqual(self.resources.count("drop: [ALL]"), 3)
-        self.assertEqual(self.resources.count("automountServiceAccountToken: false"), 4)  # both SAs and both Pods
+        # init, api and the GuardDuty and SCC pull containers
+        self.assertEqual(self.resources.count("readOnlyRootFilesystem: true"), 4)
+        self.assertEqual(self.resources.count("drop: [ALL]"), 4)
+        self.assertEqual(self.resources.count("automountServiceAccountToken: false"), 6)  # three SAs and three Pods
         self.assertNotRegex(self.resources, r"(?i)token_sha256|bearer|BEGIN [A-Z ]*KEY")
 
     def test_onprem_ingest_enters_only_through_the_tailnet_device_proxy(self):
@@ -78,7 +78,8 @@ class FindingsBundle(unittest.TestCase):
     def test_sources_are_the_registered_environments(self):
         sources = json.loads(re.search(r"value: '(\[.*\])'", self.resources).group(1))
         self.assertEqual({(s["source"], s["environment_id"]) for s in sources},
-                         {("aws_guardduty", "env-aws"), ("falco", "env-onprem"), ("kyverno", "env-onprem")})
+                         {("aws_guardduty", "env-aws"), ("falco", "env-onprem"), ("kyverno", "env-onprem"),
+                          ("gcp_scc", "env-gcp")})
 
     def test_guardduty_pull_uses_web_identity_only(self):
         # A projected STS-audience token and a role from a ConfigMap outside Git; never a long-lived key.
@@ -93,6 +94,23 @@ class FindingsBundle(unittest.TestCase):
         # 443 out, but not to Pods, Services or link-local (IMDS) of the platform cluster
         self.assertIn("ipBlock: {cidr: 0.0.0.0/0, except: [10.42.0.0/16, 10.43.0.0/16, 169.254.0.0/16]}", self.resources)
         self.assertNotIn("ipBlock: {cidr: 0.0.0.0/0}", self.resources)
+
+    def test_scc_pull_uses_federation_only_and_keeps_numbers_out_of_git(self):
+        [job] = [d for d in self.resources.split("\n---\n") if "kind: CronJob" in d and "name: bravo-findings-scc-pull" in d]
+        self.assertIn("command: [python, -m, bravo_findings.gcp_pull]", job)
+        self.assertIn("args: [--database, /data/findings.db, --environment-id, env-gcp]", job)
+        # The provider's only allowed audience (gcp-scc-reader token_audience), not its URL with the project number.
+        self.assertIn("serviceAccountToken: {audience: bravo-findings-scc, expirationSeconds: 3600, path: token}", job)
+        reader = (ROOT / "infra/envs/gcp-scc-reader/variables.tf")
+        if reader.exists():  # the GCP stack lands separately (#940)
+            self.assertIn('default = "bravo-findings-scc"', reader.read_text())
+        self.assertIn("configMap: {name: bravo-findings-scc", job)
+        self.assertIn("concurrencyPolicy: Forbid", job)
+        self.assertNotRegex(job, r"(?i)private_key|GOOGLE_CREDENTIALS_JSON|projects/[0-9]|iam\.gserviceaccount|\b\d{6,}\b")
+        [policy] = [d for d in self.resources.split("\n---\n")
+                    if "kind: NetworkPolicy" in d and "name: bravo-findings-scc-pull" in d]
+        self.assertIn("ipBlock: {cidr: 0.0.0.0/0, except: [10.42.0.0/16, 10.43.0.0/16, 169.254.0.0/16]}", policy)
+        self.assertIn("ingress: []", policy)
 
     def test_role_matches_the_puller_subject(self):
         main = (ROOT / "infra/envs/platform-security/main.tf").read_text()
