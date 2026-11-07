@@ -4,6 +4,12 @@ variable "tailnet" {
   default     = "-"
 }
 
+variable "tailnet_key" {
+  description = "Which identities.json tailnet this run applies (identity.tailnet); the provider's tailnet must be that one."
+  type        = string
+  default     = "default"
+}
+
 variable "identities" {
   description = "infra/tailnet/identities.json entries of this tailnet: environment -> operator issuer."
   type = map(object({
