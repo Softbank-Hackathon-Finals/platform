@@ -73,3 +73,33 @@ resource "aws_cognito_user_pool_client" "demo_chat" {
     refresh_token = "days"
   }
 }
+
+# 부하 생성기(T18)용 클라이언트. 로그인을 켠 앱에 쓰기 부하를 넣으려면 사람 없이 ID 토큰을 받아야 한다.
+# 브라우저 클라이언트에 비밀번호 흐름이나 admin scope를 더하면 방문자도 그 길을 쓸 수 있으므로 따로 둔다.
+# 호스팅 로그인 · OAuth 흐름이 없고 AdminInitiateAuth만 받는다. 이 호출은 AWS 서명이 필요하므로
+# 클라이언트 ID와 비밀번호만으로는 토큰을 받지 못한다. 권한은 loadgen-aws 역할에 이 풀로만 준다.
+resource "aws_cognito_user_pool_client" "loadgen" {
+  name         = "demo-chat-loadgen"
+  user_pool_id = aws_cognito_user_pool.demo.id
+
+  generate_secret                      = false
+  allowed_oauth_flows_user_pool_client = false
+
+  # 갱신 토큰 흐름은 브라우저 클라이언트처럼 둔다. 부하 생성기는 갱신 토큰을 쓰지 않고 만료 전에
+  # 같은 관리자 흐름으로 다시 받는다. 갱신 토큰은 서명 없이 쓸 수 있으므로 수명을 최소(60분)로 줄인다.
+  explicit_auth_flows           = ["ALLOW_ADMIN_USER_PASSWORD_AUTH", "ALLOW_REFRESH_TOKEN_AUTH"]
+  prevent_user_existence_errors = "ENABLED"
+
+  # 이 흐름의 액세스 토큰으로 사용자가 자기 속성을 바꿀 수 있다고 보고, 이름이 되는 속성은 막는다.
+  write_attributes        = ["locale", "zoneinfo"]
+  enable_token_revocation = true
+
+  id_token_validity      = var.id_token_minutes
+  access_token_validity  = var.id_token_minutes
+  refresh_token_validity = 60
+  token_validity_units {
+    id_token      = "minutes"
+    access_token  = "minutes"
+    refresh_token = "minutes"
+  }
+}
