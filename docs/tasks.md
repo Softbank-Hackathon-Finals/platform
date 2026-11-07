@@ -853,12 +853,12 @@ Claude Code는 `/todo-task`, Codex는 `$todo-task`로 이 순서를 따르는 �
 **목표** 같은 앱 이미지가 `AUTH_ISSUER`만 바꿔 Cognito에서 Keycloak으로 옮겨지고, 이사 중 로그인한 사용자의 쓰기가 끊기지 않는다.
 
 **할 일**
-- [ ] demo-chat 표준 OIDC 로그인(demo-app #28): 기본 꺼짐, 쓰기에만 ID 토큰, 작성자는 토큰 이름, 쓰기 차단 503 우선, `AUTH_ALSO_TRUST` 이중 신뢰
+- [x] demo-chat 표준 OIDC 로그인(demo-app #28): 기본 꺼짐, 쓰기에만 ID 토큰, 작성자는 토큰 이름, 쓰기 차단 503 우선, `AUTH_ALSO_TRUST` 이중 신뢰
 - [ ] 출발지 Cognito 사용자 풀 `infra/envs/source-identity`: 공개 클라이언트, 비밀번호 흐름 · 스스로 가입 · 이름 속성 쓰기 없음. 실제 계정 적용 뒤 호스팅 로그인 · 첫 비밀번호 변경 확인
 - [ ] 목적지 Keycloak `identity.py`와 사용자 이동 `identity_users.py`(Cognito는 비밀번호를 내보내지 않아 첫 로그인에 새로 정함), 목적지 적용
 - [ ] Edge(T17): 로그인 공개 주소를 목적지 Keycloak으로 보내는 경로
 - [ ] 동등성 시험(출발지 · 목적지 모두): 스스로 가입이 막힘, 정확한 redirect만 받음, 토큰 없는 쓰기는 401
-- [ ] Exit Drill(T27): 목적지 앱이 AWS 발급자를 믿으면 출구 증거가 아님(`AWS_IDENTITY_TRUSTED`)
+- [x] Exit Drill(T27): 목적지 앱이 AWS 발급자를 믿으면 출구 증거가 아님(`AWS_IDENTITY_TRUSTED`)
 - [ ] 인벤토리(T16): 앱의 `AUTH_ISSUER` cognito-idp 주소와 출발지 사용자 풀을 의존성으로 탐지(담당과 범위 합의)
 - [ ] 부하 생성기(T18)용 클라이언트는 브라우저 클라이언트를 넓히지 않고 따로 둠
 - [ ] 설계 문서 버전 올림: 7.3 대응표에 인증(Cognito → Keycloak, 설정 교체) 행
@@ -997,12 +997,12 @@ Claude Code는 `/todo-task`, Codex는 `$todo-task`로 이 순서를 따르는 �
 **목표** 새 고객 클러스터가 Git의 원하는 상태와 승인만으로 tailnet에 합류해 플랫폼의 제어를 받고, 운영자 · 고객이 tailnet 신원으로 바로 붙으며, 분리 PR 하나로 연결이 닫힌다. 어느 단계에서도 사람이 비밀 값을 붙여 넣지 않는다.
 
 **할 일**
-- [ ] ADR-0035: WIF, 정책은 `tailnet-policy` 한 곳 · 연합 신원은 Terraform, 공개 발급자, 연결 수명(합류 · 제어 · 고객 접근 · 분리)
-- [ ] `tailnet-policy` prune: 마지막으로 성공한 develop run의 조각에서 빠진 항목을, 실제 정책 값이 정확히 같을 때만 지움(#680). 사람이 바꾼 항목은 남기고 `kept`로 보고
-- [ ] `infra/envs/tailnet` Terraform: 환경별 `tailscale_federated_identity`(operator ServiceAccount 주체, `tag:bravo-<env>-operator`, 필요한 범위만). 정책은 쓰지 않음
+- [x] ADR-0035: WIF, 정책은 `tailnet-policy` 한 곳 · 연합 신원은 Terraform, 공개 발급자, 연결 수명(합류 · 제어 · 고객 접근 · 분리)
+- [x] `tailnet-policy` prune: 마지막으로 성공한 develop run의 조각에서 빠진 항목을, 실제 정책 값이 정확히 같을 때만 지움(#680). 사람이 바꾼 항목은 남기고 `kept`로 보고
+- [x] `infra/envs/tailnet` Terraform: 환경별 `tailscale_federated_identity`(operator ServiceAccount 주체, `tag:bravo-<env>-operator`, 필요한 범위만). 정책은 쓰지 않음
 - [ ] CI(연합 신원 스택): PR은 읽기 신원으로 plan, 적용은 보호된 GitHub Environment 승인 뒤 `federated_keys` 신원. 저장된 Tailscale secret 없음
-- [ ] `tailnet-policy` 첫 적용: 관리자 설정(신원 2 · 변수 3 · 환경 develop 제한과 승인자) → 계획 → 적용 → 다시 읽어 대조
-- [ ] 온프렘 공개 발급자: cloud-init의 ServiceAccount 발급자 렌더(T2 · T30)와 discovery 문서 · 공개키 게시(플랫폼 관리 정적 호스팅)
+- [x] `tailnet-policy` 첫 적용: 관리자 설정(신원 2 · 변수 3 · 환경 develop 제한과 승인자) → 계획 → 적용 → 다시 읽어 대조
+- [x] 온프렘 공개 발급자: cloud-init의 ServiceAccount 발급자 렌더(T2 · T30)와 discovery 문서 · 공개키 게시(플랫폼 관리 정적 호스팅)
 - [ ] T45 연결: `tailscale-oauth`를 연합 신원 확인 단계로, operator 값을 WIF로, Tailscale 단계와 `object-secrets` 원하는 상태를 환경 기준으로(지금 `target` · `target-dev.json` 고정)
 - [ ] 고객 접근: IdP 그룹 → 환경 namespace 역할, 다른 환경 grant 없음 시험
 - [ ] 분리: 환경 tailnet 항목 삭제 PR → 승인 적용 → 장치 삭제 → operator 인증 실패 · 플랫폼 도달 실패 확인과 분리 영수증

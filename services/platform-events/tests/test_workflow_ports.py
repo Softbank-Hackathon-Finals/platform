@@ -50,9 +50,12 @@ def mounts(tmp_path, monkeypatch):
 def test_happy_path_ports_wire_propose_shift_and_cutover(backend, mounts):
     config, write, _ = mounts
     ports = workflow_ports.create_ports(backend.store, write(config))
-    assert set(ports["readers"]) == {"AWAIT_APPROVAL", "CUTOVER"} and set(ports["preparers"]) == {"PROPOSE"}
-    host = build(backend.store, lambda store: workflow_ports.create_ports(store, write(config)))
-    assert host.active() == []  # no plan yet; the host is constructible from the deployment config
+    assert set(ports["readers"]) == {"ANALYZE", "AWAIT_APPROVAL", "CUTOVER"} and set(ports["preparers"]) == {"PROPOSE"}
+    with pytest.raises(ValueError, match="workflow_state_unwired:GATE,REHEARSE,WATCH"):
+        build(backend.store, lambda store: workflow_ports.create_ports(store, write(config)))  # undeclared gaps
+    host = build(backend.store, lambda store: workflow_ports.create_ports(
+        store, write(config | {"deferred": ["REHEARSE", "GATE", "WATCH"]})))
+    assert host.active() == []  # no plan yet; constructible once the deployment names what it does not drive
 
 
 def test_github_app_section_builds_a_writer_with_exact_permissions(backend, mounts):

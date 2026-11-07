@@ -34,13 +34,22 @@ from pathlib import Path
 
 HEX40 = re.compile(r"[a-f0-9]{40}")
 FACTORY = re.compile(r"[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*:[A-Za-z_]\w*")
-FIELDS = {"version", "executor", "propose", "watch", "application", "delegation"}
+FIELDS = {"version", "executor", "propose", "watch", "application", "delegation", "deferred"}
 REQUIRED = {"version", "executor", "propose"}
 
 
 def _path(value, *, directory=False):
     path = Path(value)
     if not path.is_absolute() or not (path.is_dir() if directory else path.is_file()):
+        raise ValueError(f"workflow_mount_required:{value}")
+    return path
+
+
+def _state_dir(value):
+    """An absolute directory on the host's state volume; created on first start (it did not exist yet on the
+    first live rollout, 11/8, and the host would not start)."""
+    path = Path(value)
+    if not path.is_absolute() or not path.parent.is_dir():
         raise ValueError(f"workflow_mount_required:{value}")
     return path
 
@@ -119,7 +128,8 @@ def _propose(store, config):
         if revision != config["runtime_source_sha"]:
             raise ValueError("workflow_propose_auto_runtime_mismatch")  # the Job must run the claimed runtime
         auto = AutoInitialProposal(reader.records, relay_config=json.loads(_path(spec["relay_config"]).read_text()),
-                                   state_dir=_path(spec["state_dir"], directory=True), image=image,
+                                   # The Job ledger makes its own private (0700) directory on first use.
+                                   state_dir=_state_dir(spec["state_dir"]), image=image,
                                    source_revision=revision, principal=config["principal"],
                                    catalog_root=_path(spec["catalog_root"], directory=True),
                                    plans=spec.get("plans"))  # absent: every plan on this host
@@ -136,7 +146,10 @@ def create_ports(store, config_file="/workflow/ports.json"):
         raise ValueError("workflow_ports_configuration_invalid")
     client, bindings = _executor(config["executor"])
     cutover = CutoverService(store, client, bindings=bindings)
-    readers = {"AWAIT_APPROVAL": shift_approval_reader, "CUTOVER": integrity_reader}
+    from .plan_run_state import analysis_reader
+
+    # ANALYZE reads the S1 records (T16 collection, first T19 report); nothing to configure.
+    readers = {"ANALYZE": analysis_reader, "AWAIT_APPROVAL": shift_approval_reader, "CUTOVER": integrity_reader}
     preparers = {"PROPOSE": _propose(store, config["propose"])}
     delegations = None
     if config.get("delegation") is True:
@@ -170,4 +183,7 @@ def create_ports(store, config_file="/workflow/ports.json"):
         if not isinstance(stages, dict) or set(stages) - {"REHEARSE", "GATE"}:
             raise ValueError("workflow_application_ports_invalid")
         preparers |= stages
-    return {"cutover": cutover, "readers": readers, "preparers": preparers}
+    deferred = config.get("deferred", [])  # host states this deployment declares it does not drive yet
+    if type(deferred) is not list:
+        raise ValueError("workflow_deferred_invalid")
+    return {"cutover": cutover, "readers": readers, "preparers": preparers, "deferred": deferred}

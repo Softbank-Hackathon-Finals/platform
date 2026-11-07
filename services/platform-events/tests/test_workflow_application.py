@@ -23,9 +23,11 @@ def test_recorded_candidate_is_the_apply_input_for_the_approved_hash(backend):
     edit = SimpleNamespace(model_dump=lambda mode: {"path": "app.py", "before_sha256": __import__("hashlib").sha256(b"old\n").hexdigest(),
                                                      "replacement": "new\n"})
     value = SimpleNamespace(files={"app.py": "old\n"})
-    result = SimpleNamespace(proposal=SimpleNamespace(edits=[edit]))
+    plan = {"kind": "iac-plan.v1", "plan_digest": "sha256:" + "a" * 64, "accepted": True, "refusals": []}
+    result = SimpleNamespace(proposal=SimpleNamespace(edits=[edit]), infra_plans=[plan])
     record = record_apply_input(store, SPEC.plan_id, value, result)
     assert record_apply_input(store, SPEC.plan_id, value, result) == record  # write-once, same bytes
+    assert record["infra_plans"] == [plan]  # ADR-0044: kept as the agent returned them
     expected = render_diff({"app.py": "old\n"}, [edit.model_dump("json")])
     claim = {"binding": {"diff_hash": diff_hash(expected), "target_environment_id": SPEC.target_environment_id}}
     with store._transaction() as c:
@@ -71,16 +73,16 @@ def test_an_approval_binding_a_closing_plan_hands_t31_that_plan_and_the_configur
             "infra_plans": [other, plan]})
     binding = {"diff_hash": digest, "target_environment_id": SPEC.target_environment_id}
     with store._transaction() as c:
-        assert workflow_application.apply_input(c, SPEC.plan_id, {"binding": binding}, TARGET, EXPOSURE).exposure is None
+        assert workflow_application.apply_input(c, SPEC.plan_id, {"binding": binding}, TARGET, exposure=EXPOSURE).exposure is None
         bound = {"binding": binding | {"iac_plan_digest": plan["plan_digest"]}}
-        supplied = workflow_application.apply_input(c, SPEC.plan_id, bound, TARGET, EXPOSURE)
+        supplied = workflow_application.apply_input(c, SPEC.plan_id, bound, TARGET, exposure=EXPOSURE)
         assert supplied.exposure["iac_plan"] == plan and supplied.exposure["environment_id"] == "target-dev"
         assert (supplied.exposure["base_revision"], supplied.exposure["repo_root"]) == ("a" * 40, "/platform-checkout")
         assert (supplied.exposure["target"].bucket, supplied.exposure["target"].namespace) == (
             "demo-chat-attachments", "target-dev")
         for claim, config in ((bound, None), ({"binding": binding | {"iac_plan_digest": "f" * 64}}, EXPOSURE)):
             with pytest.raises(EventError, match="application_exposure_unavailable"):
-                workflow_application.apply_input(c, SPEC.plan_id, claim, TARGET, config)
+                workflow_application.apply_input(c, SPEC.plan_id, claim, TARGET, exposure=config)
 
 
 def test_the_exposure_configuration_is_names_only(backend, tmp_path):
@@ -122,3 +124,29 @@ def test_post_apply_prepare_binds_only_a_target_run_after_the_application(record
     bound = prepare(f.principal, f.plan.plan_id, outcome)
     assert bound["gate_phase"] == "post_apply" and bound["context"]["target_ref"] == "target-after-apply"
     assert prepare(f.principal, f.plan.plan_id, outcome) == bound  # retry is read-only
+
+
+def test_rehearse_refreshes_the_target_pull_secret_before_it_applies(backend, tmp_path):
+    import base64
+
+    store = backend.store
+    store.register_plan(SPEC, run_id="r", occurred_at="2026-11-07T00:00:00+00:00")
+    source = tmp_path / "dockerconfigjson"
+    source.write_bytes(b'{"auths":{"ghcr.io":{}}}')
+    path = tmp_path / "application.json"
+    path.write_text(json.dumps({"receipts_dir": str(tmp_path), "kubeconfig": "/t31/kubeconfig", "target": TARGET,
+                                "pull_secret": {"name": "bravo-ghcr-reader", "source": str(source)}}))
+    kube = FakeKube("x@sha256:" + "0" * 64)
+    kube.secrets["bravo-ghcr-reader"] = {"metadata": {"name": "bravo-ghcr-reader", "resourceVersion": "7"},
+                                         "stringData": {".dockerconfigjson": '{"auths":{}}'}}
+    ports = workflow_application.create(store, str(path), kube=kube)
+    version = store.snapshot(SPEC.plan_id)["version"]
+    for _ in range(2):
+        with pytest.raises(EventError):  # no approved change yet: the apply itself still holds
+            ports["REHEARSE"](SPEC.plan_id, SPEC.tenant_id, version)
+    [written] = kube.secret_writes  # once: an unchanged credential is not written again
+    assert written["data"] == {".dockerconfigjson": base64.b64encode(source.read_bytes()).decode()}
+    assert written["metadata"]["resourceVersion"] == "7" and "stringData" not in written
+    with pytest.raises(EventError):
+        ports["GATE"](SPEC.plan_id, SPEC.tenant_id, version)  # GATE applies nothing: no refresh
+    assert len(kube.secret_writes) == 1

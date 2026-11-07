@@ -66,8 +66,11 @@ class ShiftRuntime:
                 stop.wait(interval_seconds)
         return None
 
-    def sequence(self, *, stop: Event, interval_seconds=1, emit=lambda _value: None):
+    def sequence(self, *, stop: Event, interval_seconds=1, emit=lambda _value: None, hold_at_full=False):
         """Resume the registered run through 10/50/100/0 and automatic abort.
+
+        hold_at_full (happy path, T49): stop at 100% once its window allows advancing (AT_FULL) instead of
+        restoring to 0, so the cutover (operator_ports.edge_at_full) can follow. Default: the drill order.
 
         Operation IDs derive from the registered run, so a process restart
         cannot create another start/PATCH. Only the canonical T36 decision
@@ -103,6 +106,8 @@ class ShiftRuntime:
                     status = "ABORTED" if result["rollback"]["status"] == "CONFIRMED" else "STOPPED"
                     return dict(status=status, **result)
                 if result["judgement"]["action"] == "ADVANCE_ALLOWED":
+                    if hold_at_full and receipt["weight_target"] == 100:
+                        return dict(status="AT_FULL", receipt=receipt)
                     weight = {10: 50, 50: 100, 100: 0}[receipt["weight_target"]]
                     action = self.host.restore if weight == 0 else self.host.advance
                     receipt = action(self.principal(), self.plan_id, operation(weight))

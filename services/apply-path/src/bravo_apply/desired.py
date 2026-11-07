@@ -326,7 +326,12 @@ def _close(application_id: str, desired: dict, recheck_fields: dict, *, applied:
         _replace(receipts_dir, record)
         return record
 
-    t9, renderer_sha256 = load_t9()
+    # From here on the record exists: every outcome is recorded, never raised, so a caller that already
+    # changed something (ADR-0044: the image, in the same T31 application) never sees STARTED forever.
+    try:
+        t9, renderer_sha256 = load_t9()
+    except PolicyRefused as exc:
+        return finish("REFUSED", exc.code)
     try:
         current = _secret_bytes(kube.get_secret(target.namespace, target.secret), target.secret_key)
     except Exception:  # noqa: BLE001 - no detail: the Secret's content must not reach a record

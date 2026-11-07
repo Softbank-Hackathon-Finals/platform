@@ -56,6 +56,7 @@ class ApplyInput:
     deployment: str
     container: str
     repository: str
+    pull_secret: str | None = None  # T49: registry Secret the candidate is pulled with (None: node image)
     # ADR-0044: {"environment_id", "iac_plan", "target": PolicyTarget} when the approval binds a closing plan.
     # T31 refuses a plan other than the bound one and a bound plan without this, before any cluster call.
     exposure: dict | None = None
@@ -135,7 +136,7 @@ class ApplicationHost:
                 receipts_dir=self.root, target_environment_id=supplied.target_environment_id,
                 namespace=supplied.namespace, deployment=supplied.deployment,
                 container=supplied.container, repository=supplied.repository, diff=supplied.diff,
-                exposure=supplied.exposure)
+                pull_secret=supplied.pull_secret, exposure=supplied.exposure)
 
 
 class GateRecheck:

@@ -127,3 +127,24 @@ def test_the_operator_api_records_and_revokes_a_delegation(world):
                      headers={"Authorization": "Bearer approver-token", "Idempotency-Key": "d2"}).status_code == 422
     revoked = http.post(f"/v1/plans/{SPEC.plan_id}/delegations:revoke", headers={"Authorization": "Bearer approver-token"})
     assert revoked.json() == {"revoked": made.json()["delegation_id"]}
+
+
+def test_a_delegated_shift_runs_the_edge_once_per_version_until_100(world, monkeypatch):
+    from bravo_platform_events.approval_delegation import DelegatedGates, DelegatedShift
+
+    with world["store"]._transaction(write=True, plan_id=SPEC.plan_id) as c:
+        c.execute("UPDATE plans SET state='SHIFT' WHERE plan_id=?", (SPEC.plan_id,))
+    started = []
+    shift = DelegatedShift(world["store"], world["delegations"], provider=None, journal=None, profile={},
+                           load_session=None)
+    monkeypatch.setattr(shift, "run", lambda plan_id, version: started.append((plan_id, version)))
+    gates = DelegatedGates(world["store"], world["delegations"], cutover=None, shift=shift)
+    assert gates.sweep() == {}  # nothing delegated yet: an operator runs SHIFT
+    delegate(world, gates=["cutover"])
+    assert gates.sweep() == {}  # cutover alone never moves the Edge
+    world["delegations"].revoke(world["approver"], SPEC.plan_id)
+    delegate(world, command_key="delegate-shift")
+    assert gates.sweep()[SPEC.plan_id] == {"shift": "started"}
+    shift.runs[next(iter(shift.runs))].join()
+    assert gates.sweep()[SPEC.plan_id] == {"shift": "finished"}  # one attempt per version
+    assert started == [(SPEC.plan_id, world["store"].snapshot(SPEC.plan_id)["version"])]
