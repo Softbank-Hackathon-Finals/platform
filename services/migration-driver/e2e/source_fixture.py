@@ -153,9 +153,13 @@ exec postgres -D "$PGDATA" -c listen_addresses='*' -c ssl=on -c ssl_cert_file=/t
                            "resources": {"requests": {"cpu": "200m", "memory": "256Mi"}, "limits": {"cpu": "1", "memory": "1Gi"}},
                            "volumeMounts": [{"name": "data", "mountPath": "/var/lib/postgresql/data"},
                                             {"name": "run", "mountPath": "/var/run/postgresql"},
-                                            {"name": "tls", "mountPath": "/tls", "readOnly": True}]}],
+                                            {"name": "tls", "mountPath": "/tls", "readOnly": True},
+                                            # The destination's CA for the reverse subscription (cutover_pair.py), if any.
+                                            {"name": "target-ca", "mountPath": "/target-ca", "readOnly": True}]}],
            "volumes": [{"name": "data", "emptyDir": {}}, {"name": "run", "emptyDir": {}},
-                       {"name": "tls", "secret": {"secretName": "source-db-server", "defaultMode": 0o440}}]}
+                       {"name": "tls", "secret": {"secretName": "source-db-server", "defaultMode": 0o440}},
+                       {"name": "target-ca", "secret": {"secretName": "target-db-ca", "optional": True,
+                                                        "items": [{"key": "ca.crt", "path": "ca.crt"}]}}]}
     deploy = {"apiVersion": "apps/v1", "kind": "Deployment", "metadata": {"name": "source-db", "namespace": NS},
               "spec": {"replicas": 1, "strategy": {"type": "Recreate"}, "selector": {"matchLabels": {"app": "source-db"}},
                        "template": {"metadata": {"labels": {"app": "source-db"}}, "spec": pod}}}
