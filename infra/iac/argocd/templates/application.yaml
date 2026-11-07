@@ -30,10 +30,10 @@ spec:
     syncOptions:
       - ServerSideApply=true
       - SkipDryRunOnMissingResource=true
-    # On an empty cluster T45 installs the Tailscale CRDs and namespaces after this Application exists.
-    # Automated sync never retries a failed revision by itself, so keep retrying until they are there.
+    # Enabled only after the cluster's builder made the namespaces and Tailscale CRDs (README), so a
+    # failure is real: retry a few times (about 5 minutes), then stop so a fixed revision can sync.
     retry:
-      limit: -1
+      limit: 5
       backoff:
         duration: 10s
         factor: 2
