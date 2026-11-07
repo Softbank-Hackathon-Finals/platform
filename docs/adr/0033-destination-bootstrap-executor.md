@@ -210,7 +210,7 @@
 
 5 이후 DB(6~7), SeaweedFS(8), Tailscale(9 · 9a), OpenBao/ESO(10~14), 로그인 서버(15a)는 병렬 줄기다. 15는 7 · 8 · 14 뒤에 실행하고, 16은 15 · 9a · 15a 뒤에 실행한다.
 
-**조건부 단계와 파라미터.** `tailnet=none`(같은 클러스터 안 격리 시험)은 9 · 9a를, `login=none`(Edge 없는 격리 시험)은 15a를 계획에서 뺀다. T44 Application은 Tailscale CRD가 있어야 하므로 9a는 tailnet 줄기에만 있다. `iac_revision`(T44 설치 값 `targetRevision`)은 `tailnet=join`일 때, `login_public_url` · `app_origin`은 `login=edge`일 때만 필수다(파라미터의 `required_when`). 조건부 필수 값은 같은 조건으로 계획되는 단계에서만 쓸 수 있고, 스택 검사가 이를 강제한다.
+**조건부 단계와 파라미터.** `tailnet=none`(같은 클러스터 안 격리 시험)은 9 · 9a를, `login=none`(기본값, Edge 없는 격리 시험과 T49 무인 구축)은 15a를 계획에서 뺀다. 로그인 줄기는 `login=edge`를 준 계획만 계획한다. T44 Application은 Tailscale CRD가 있어야 하므로 9a는 tailnet 줄기에만 있다. `iac_revision`(T44 설치 값 `targetRevision`)은 `tailnet=join`일 때, `login_public_url` · `app_origin`은 `login=edge`일 때만 필수다(파라미터의 `required_when`). 조건부 필수 값은 같은 조건으로 계획되는 단계에서만 쓸 수 있고, 스택 검사가 이를 강제한다.
 
 **겹치는 주인(#700).** `bravo-observability` Namespace는 T37 Collector 매니페스트(`services/observability/deploy/collector/resources.yaml`, 목적지는 `collector-target`이 이를 포함)도 선언한다. T45 base는 같은 레이블(`component: platform`, `tier`, `role`, `domain`, PSA `restricted`)로 선언해 어느 쪽이 적용해도 값이 바뀌지 않게 하고, 시험이 두 원문의 레이블 일치를 고정한다. 주인을 하나로 하려면 T37 매니페스트에서 Namespace를 빼야 하며 T37 담당과 합의한다.
 

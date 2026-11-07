@@ -15,7 +15,7 @@ STACK = REPO / "infra/stacks/target-onprem/stack.json"
 REQUEST = {"stack": "target-onprem", "environment_id": "target-dev",
            "params": {"node_name": "bravo-target-1", "arch": "arm64", "api_service_ip": "10.43.0.1",
                       "api_endpoint_ip": "192.168.64.10", "kube_version": "v1.35.9", "iac_revision": "a" * 40,
-                      "login_public_url": "https://login.example.test", "app_origin": "https://chat.example.test"}}
+                      "login": "edge", "login_public_url": "https://login.example.test", "app_origin": "https://chat.example.test"}}
 # Required only under a condition (tailnet=join, login=edge): not in the schema's unconditional list.
 CONDITIONAL = {"iac_revision", "login_public_url", "app_origin"}
 TARGET = {"cluster_uid": "cluster-1", "node_uid": "node-1"}
@@ -183,7 +183,7 @@ def test_cli_check_and_request_schema(capsys):
     assert capsys.readouterr().out.splitlines()[0].split() == ["1", "identity"]
     assert main(["request-schema", str(STACK)]) == 0
     schema = json.loads(capsys.readouterr().out)
-    assert schema["properties"]["params"]["required"] == sorted(set(REQUEST["params"]) - CONDITIONAL)
+    assert schema["properties"]["params"]["required"] == sorted(set(REQUEST["params"]) - CONDITIONAL - {"login"})
     conditions = {c["then"]["required"][0] for c in schema["properties"]["params"]["allOf"]}
     assert conditions == CONDITIONAL
 
@@ -287,7 +287,7 @@ def test_without_an_edge_the_login_line_is_omitted_and_its_addresses_are_not_req
         del request["params"][name]
     omitted = {s["id"] for s in plan(request).document["steps"] if s.get("omitted")}
     assert {"login-admin", "login", "login-sync", "login-edge", "iac-application", "iac-application-check"} <= omitted
-    for name in CONDITIONAL:  # the default (tailnet=join, login=edge) requires each of them
+    for name in CONDITIONAL:  # tailnet=join (default) and login=edge require each of them
         request = copy.deepcopy(REQUEST)
         del request["params"][name]
         with pytest.raises(StackError, match="invalid_plan_request"):

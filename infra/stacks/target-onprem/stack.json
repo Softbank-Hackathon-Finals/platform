@@ -37,9 +37,9 @@
       "required_when": {"param": "tailnet", "in": ["join"]}
     },
     "login": {
-      "description": "목적지 로그인 서버(Keycloak target-login, #652)를 Edge 공개 주소로 세우는가. none은 Edge가 없는 격리 시험(T49 로컬 E2E)이며 로그인 단계를 계획에서 뺀다",
+      "description": "목적지 로그인 서버(Keycloak target-login, #652)를 Edge 공개 주소로 세우는가. edge를 고른 계획만 로그인 단계를 계획한다. 기본 none: T49 무인 진행기에 login-edge(Edge 로그인 경로 열기) 플랫폼 동작이 아직 없어, 기본 계획에 넣으면 무인 구축이 그 단계에서 멈춘다",
       "enum": ["edge", "none"],
-      "default": "edge"
+      "default": "none"
     },
     "login_public_url": {
       "description": "Edge가 로그인 화면을 내보내는 https 공개 주소(경로 없음). KC_HOSTNAME이고 발급자는 <이 값>/realms/bravo",
