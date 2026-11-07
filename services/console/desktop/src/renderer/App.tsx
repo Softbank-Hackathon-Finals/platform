@@ -8,7 +8,8 @@ import { orderedChats } from './threads';
 import { Mark, Stamp, Wordmark } from './brand';
 import { activeConvAtom, blankConversation, convSortAtom, convsAtom, explain, panelAtom, planAtom, sova, viewAtom } from './lib';
 import { ConfirmDialog, Palette, Sidebar, TopBar, useLink } from './shell';
-import { ConnectionForm, Dashboard, Guide, Observe, Plans, Timeline } from './views';
+import { ConnectionForm, Dashboard, Guide, Observe, Plans } from './views';
+import { Timeline } from './timeline';
 import { SettingsPage } from './settings';
 import hero from '../../assets/sova-hero.jpg';
 

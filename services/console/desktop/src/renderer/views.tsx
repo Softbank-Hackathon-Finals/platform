@@ -338,18 +338,6 @@ export function Plans() {
   );
 }
 
-export function Timeline() {
-  const plan = useAtomValue(planAtom);
-  const { events, error } = useEvents(plan);
-  return (
-    <div className="h-full p-5">
-      <Panel className="h-full" kicker="TIMELINE" title={`계획 ${plan || '—'}의 전체 이벤트`} right={<span className="text-[11px] text-ink-soft">{events.length}건 · 눌러서 원문</span>}>
-        {error ? <Problem error={error} /> : <EventStream events={events} />}
-      </Panel>
-    </div>
-  );
-}
-
 function SecuritySummary({ env }: { env: any }) {
   const q = useTool('sova_get_security', { environment_id: env.environment_id, view: 'summary' }, 60_000);
   return (
