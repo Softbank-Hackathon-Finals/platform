@@ -553,6 +553,11 @@
                 "type": "integer",
                 "minimum": 1,
                 "maximum": 1800
+              },
+              "stable_seconds": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 300
               }
             },
             "additionalProperties": false

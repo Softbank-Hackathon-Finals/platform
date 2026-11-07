@@ -278,7 +278,7 @@
       "id": "database-ready",
       "kind": "wait",
       "owner": "T30",
-      "description": "target-db가 Ready가 될 때까지 기다린다",
+      "description": "target-db가 Ready로 20초 이상 유지될 때까지 기다린다(일회성 마이그레이션 Job이 연결 거부로 끝나지 않게)",
       "needs": [
         "database-sync"
       ],
@@ -288,7 +288,8 @@
         "name": "target-db"
       },
       "condition": "Ready",
-      "timeout_seconds": 900
+      "timeout_seconds": 900,
+      "stable_seconds": 20
     },
     {
       "id": "migration",

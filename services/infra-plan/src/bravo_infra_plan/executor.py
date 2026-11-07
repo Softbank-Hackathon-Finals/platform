@@ -284,12 +284,20 @@ class Executor:
         return APPLIED if created else SKIPPED
 
     def _wait(self, run, step):
-        target = step["target"]
+        """The condition must hold continuously for `stable_seconds`: a Ready flag can flip before the
+        Service in front of it routes (kind measurement: CNPG Ready, then the migration's connect refused)."""
+        target, stable = step["target"], step.get("stable_seconds", 0)
         deadline = self.monotonic() + step["timeout_seconds"]
+        since = None
         while True:
+            now = self.monotonic()
             if self.cluster.condition(target["kind"], target["namespace"], target["name"], step["condition"]):
-                return APPLIED
-            if self.monotonic() >= deadline:
+                since = now if since is None else since
+                if now - since >= stable:
+                    return APPLIED
+            else:
+                since = None
+            if now >= deadline:
                 raise StepOutcome(HOLD, "wait_timeout")
             self.sleep(self.poll)
 

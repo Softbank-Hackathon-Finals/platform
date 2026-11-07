@@ -119,6 +119,8 @@ def world(tmp_path):
     repo = GitConfigRepo(str(remote), "main", tmp_path / "work")
 
     def executor(cluster=cluster, **kw):
+        ticks = iter(range(0, 10**9, 5))  # each poll advances 5 s: stable waits pass without real time
+        kw.setdefault("monotonic", lambda: next(ticks))
         return Executor(planner, stack_revision=REV, cluster=cluster, repo=repo, approvals=approvals,
                         checks=ClusterChecks(cluster), store=FileRunStore(tmp_path / "runs"),
                         repo_url="file://config", ledger=ledger.append, sleep=lambda s: None, **kw)
@@ -334,3 +336,20 @@ def test_an_uncomparable_diff_holds_instead_of_applying(world):
 def test_run_ids_cannot_leave_the_runs_directory(world):
     with pytest.raises(StackError, match="invalid_run_id"):
         FileRunStore(world["tmp"] / "runs").load("../../x")
+
+
+def test_a_wait_needs_its_condition_to_hold_for_the_stable_period(world):
+    clock = iter(range(0, 10**6, 5))
+    flips = iter([True, False, True, True, True, True, True, True])
+
+    class Flaky(FakeCluster):
+        def condition(self, kind, namespace, name, condition):
+            return next(flips, True)
+
+    executor = world["executor"](cluster=Flaky(), monotonic=lambda: next(clock))
+    step = {"id": "w", "kind": "wait", "owner": "T30", "description": "d", "timeout_seconds": 300,
+            "stable_seconds": 20, "target": {"kind": "Cluster", "namespace": "n", "name": "x"}, "condition": "Ready"}
+    seen = []
+    executor.sleep = lambda s: seen.append(s)
+    assert executor._wait({}, step) == "APPLIED"
+    assert len(seen) >= 4  # the False reset the stable window
