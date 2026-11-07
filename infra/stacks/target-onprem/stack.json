@@ -27,9 +27,24 @@
       "pattern": "^v?1\\.[0-9]{2}\\.[0-9]{1,2}$"
     },
     "tailnet": {
-      "description": "목적지가 tailnet에 합류하는가. none은 같은 클러스터 안에서만 닿는 격리 시험(T49 로컬 E2E)이며 Tailscale 단계를 계획에서 뺀다",
-      "enum": ["join", "none"],
+      "description": "목적지가 tailnet에 합류하는 방식. join은 사람이 준비한 operator-oauth Secret(기존 환경), wif는 T48 연합 신원(ADR-0035, 비밀 없음), none은 같은 클러스터 안에서만 닿는 격리 시험(T49 로컬 E2E)이며 Tailscale 단계를 계획에서 뺀다",
+      "enum": ["join", "wif", "none"],
       "default": "join"
+    },
+    "tailnet_env": {
+      "description": "operator 태그·호스트 이름의 환경 이름(tag:bravo-<env>-operator, ADR-0035)",
+      "pattern": "^[a-z0-9](?:[a-z0-9-]{0,38}[a-z0-9])?$",
+      "default": "target"
+    },
+    "tailscale_client_id": {
+      "description": "tailnet=wif: T48 출력 operator_identities.<env>.client_id(비밀 아님). unset은 값 없음",
+      "pattern": "^[A-Za-z0-9._-]{1,128}$",
+      "default": "unset"
+    },
+    "tailscale_audience": {
+      "description": "tailnet=wif: T48 출력 operator_identities.<env>.audience(비밀 아님). unset은 값 없음",
+      "pattern": "^[A-Za-z0-9._:/-]{1,256}$",
+      "default": "unset"
     }
   },
   "charts": {
@@ -395,7 +410,7 @@
       "kind": "operator_action",
       "owner": "T30",
       "when": {"param": "tailnet", "in": ["join"]},
-      "description": "Tailscale operator OAuth Secret을 사람이 준비한다",
+      "description": "tailnet=join(기존 환경): Tailscale operator OAuth Secret을 사람이 준비한다. tailnet=wif에는 이 단계가 없다",
       "needs": [
         "base-sync"
       ],
@@ -406,9 +421,10 @@
       "id": "tailscale",
       "kind": "gitops_publish",
       "owner": "T30",
-      "when": {"param": "tailnet", "in": ["join"]},
-      "description": "Tailscale operator chart 1.104.4를 올린다",
+      "when": {"param": "tailnet", "in": ["join", "wif"]},
+      "description": "Tailscale operator chart 1.104.4를 올린다(wif: 연합 신원 값, 비밀 없음)",
       "needs": [
+        "base-sync",
         "tailscale-oauth"
       ],
       "path": "tailscale",
@@ -423,7 +439,15 @@
             "args": [
               "values",
               "--side",
-              "target"
+              "target",
+              "--auth",
+              "${tailnet}",
+              "--env",
+              "${tailnet_env}",
+              "--client-id",
+              "${tailscale_client_id}",
+              "--audience",
+              "${tailscale_audience}"
             ]
           },
           "include_crds": true
@@ -434,7 +458,7 @@
       "id": "tailscale-sync",
       "kind": "gitops_sync",
       "owner": "T30",
-      "when": {"param": "tailnet", "in": ["join"]},
+      "when": {"param": "tailnet", "in": ["join", "wif"]},
       "description": "Argo CD가 tailscale 커밋으로 Synced · Healthy인지 확인한다",
       "needs": [
         "tailscale"

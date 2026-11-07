@@ -10,14 +10,29 @@ OPERATOR_DIGEST = "sha256:48d373932bae9b65f5ded6480276b2290f16b8d43794ec9dcc3faf
 PROXY_DIGEST = "sha256:519bf6f2c386992052216ea7e9391d5ace3a859d458f4f61bc8db8c58377eb7d"
 
 
-def values(side):
+def values(side, *, auth="join", env=None, client_id="", audience=""):
+    """Operator values. auth=join: the operator-oauth Secret a person prepared (existing environments).
+    auth=wif (ADR-0035): the environment's federated identity (T48 operator_identities.<env>), no secret."""
     if side not in {"source", "target"}:
         raise ValueError("source or target required")
+    name = env or side
+    # The stack schema has no empty default: its identity parameters say "unset" until wif needs them.
+    client_id, audience = ("" if v == "unset" else v for v in (client_id, audience))
+    if not re.fullmatch(r"[a-z0-9](?:[a-z0-9-]{0,38}[a-z0-9])?", name):
+        raise ValueError("environment name required")
+    if auth == "wif":
+        if not (client_id and audience):
+            raise ValueError("wif needs the federated identity's client id and audience")
+        oauth = {"clientId": client_id, "audience": audience}
+    elif auth == "join" and not (client_id or audience):
+        oauth = {"clientId": "", "clientSecret": ""}
+    else:
+        raise ValueError("auth is join (operator-oauth Secret) or wif (federated identity)")
     return {
-        "oauth": {"clientId": "", "clientSecret": ""},
+        "oauth": oauth,
         "operatorConfig": {
-            "defaultTags": [f"tag:bravo-{side}-operator"],
-            "hostname": f"bravo-{side}-operator",
+            "defaultTags": [f"tag:bravo-{name}-operator"],
+            "hostname": f"bravo-{name}-operator",
             "image": {"repository": "tailscale/k8s-operator", "digest": OPERATOR_DIGEST,
                       "pullPolicy": "IfNotPresent"},
             "resources": {"requests": {"cpu": "100m", "memory": "128Mi"},
@@ -80,12 +95,17 @@ if __name__ == "__main__":
     parser.add_argument("stage", choices=["values", "ingress", "egress"])
     parser.add_argument("--side", required=True, choices=["source", "target"])
     parser.add_argument("--peer-fqdn")
+    parser.add_argument("--auth", choices=["join", "wif"], default="join")
+    parser.add_argument("--env", help="environment name for the operator tag and hostname (default: side)")
+    parser.add_argument("--client-id", default="")
+    parser.add_argument("--audience", default="")
     args = parser.parse_args()
     if args.stage in MOVED_TO_IAC:
         parser.exit(2, f"{args.stage} no longer renders this route: it is declared in infra/iac/environments "
                        "(tailnet-ingress/tailnet-egress, T44, ADR-0032); render it with `bravo-iac chart`.\n")
     if args.stage == "values":
-        result = values(args.side)
+        result = values(args.side, auth=args.auth, env=args.env or None, client_id=args.client_id,
+                        audience=args.audience)
     else:
         items = [ingress(args.side)] if args.stage == "ingress" else egress(args.side, args.peer_fqdn)
         result = {"apiVersion": "v1", "kind": "List", "items": items}

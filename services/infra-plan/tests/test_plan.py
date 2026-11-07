@@ -225,3 +225,20 @@ def test_the_offline_app_image_step_exists_only_for_arm64_nodes():
     assert stack.applies("app-image", {"arch": "arm64"})
     assert not stack.applies("app-image", {"arch": "amd64"})  # amd64 pulls the pinned registry image
     assert "app-image" not in {s["id"] for s in plan().document["steps"] if s.get("omitted")}
+
+
+def test_a_wif_target_joins_with_its_federated_identity_and_no_person_or_secret():
+    request = copy.deepcopy(REQUEST)
+    request["params"] |= {"tailnet": "wif", "tailnet_env": "t49", "tailscale_client_id": "kFixture123",
+                          "tailscale_audience": "api.tailscale.com/kFixture123"}
+    charts = FakeCharts()
+    wif = Planner(load_stack(STACK), REPO, chart_renderer=charts).plan(
+        request, stack_revision=REV, target=TARGET, base_commit=BASE)
+    assert {s["id"] for s in wif.document["steps"] if s.get("omitted")} == {"tailscale-oauth"}  # no human step
+    [values] = [call[3] for call in charts.calls if call[1] == "tailscale-operator"]
+    assert values["oauth"] == {"clientId": "kFixture123", "audience": "api.tailscale.com/kFixture123"}
+    assert values["operatorConfig"]["defaultTags"] == ["tag:bravo-t49-operator"]
+    request["params"]["tailscale_audience"] = "unset"
+    with pytest.raises(StackError):  # wif without the identity never renders a secret-shaped operator
+        Planner(load_stack(STACK), REPO, chart_renderer=FakeCharts()).plan(
+            request, stack_revision=REV, target=TARGET, base_commit=BASE)
