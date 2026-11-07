@@ -42,6 +42,74 @@ Prowler/kube-bench 실행과 실환경 매핑, 양쪽 환경 통제 비교는 �
 T14 이슈의 선행 조건을 만족하거나 완료 처리한 것으로 보지 않는다.
 20개 시험의 코드·운영 연결 상태는 [하위 시험별 구현·인수 상태](docs/implementation-readiness.md)에 구분한다.
 
+## 환경 종류별 통제 시험 (ADR-0034 `both.control_probes`)
+
+[ADR-0034](../../docs/adr/0034-environment-kind-adapters.md)의 aws · gcp · onprem 3종류를
+출발지·목적지로 모두 쓰기 위해 `registry.py`가 `(kind, test_id) → 수집기 생성기`를 정한다.
+`Environment`에 선택 필드 `kind`가 생겼다(기존 호출 호환, T5 `ControlRun` 형식은 그대로).
+
+```python
+from bravo_controls import Environment, Runner, default_registry
+
+env = Environment("target", "target", "gcp:gke/demo", kind="gcp")
+probes = default_registry().probes(env, test_ids, wiring, clock=clock)  # wiring: 시험 ID → 수집기 인자
+run = Runner(catalog, probes, clock=clock).run(profile_id="full", profile_version="1",
+                                               app="demo-chat", environment=env)
+```
+
+- ENC-01 · NET-01 · DR-01은 종류 무관이다. 한 생성기가 세 종류를 모두 맡는다(공통 기반: Kubernetes + CNPG + PgBouncer).
+- 생성기는 다른 종류의 어댑터를 거부한다. 예: aws SEC-01.3에 Cloud Logging 검색, aws IAM-01.1에 SeaweedFS 대상.
+- **등록되지 않은 칸은 `UnsupportedProbe`가 맡는다.** 판정 UNKNOWN, `unknown_reason` `NOT_RUN`, 증거 `tool`이
+  `UNSUPPORTED`다. T5 스키마의 사유 목록은 닫혀 있으므로 `UNSUPPORTED` 표식은 증거와 보존 원문에 담는다.
+  게이트는 다른 UNKNOWN처럼 차단한다. `registry.missing(kind, ids)`는 계획 등록 거부 사유
+  `adapter_missing:both.control_probes:<시험 ID>`를 만든다.
+- 등록은 됐지만 서버가 아직 연결하지 않은 시험은 빠지고 Runner가 증거 없는 `NOT_RUN`으로 남긴다("미연결"과 "미지원"을 구분).
+
+아래 표는 `tests/test_registry.py`가 `default_registry()`와 대조한다. 칸 이름은 수집기 클래스(+어댑터)다.
+**표에 이름이 있다는 것은 코드가 있다는 뜻이지 실환경 인수를 뜻하지 않는다.** gcp 칸은 모두 가짜 클라이언트 시험만 거쳤다.
+
+<!-- control-probe-matrix:start -->
+| 시험 | aws | gcp | onprem |
+|---|---|---|---|
+| SEC-01.1 | `SecretAccessProbe` | `GcpSecretAccessProbe` | `OpenBaoSecretAccessProbe` |
+| SEC-01.2 | `GitleaksProbe` | `GitleaksProbe` | `GitleaksProbe` |
+| SEC-01.3 | `SecretLogProbe+CloudWatchSecretLogSearch` | `SecretLogProbe+CloudLoggingSecretLogSearch` | `SecretLogProbe+ObjectStoreSecretLogSearch` |
+| SEC-01.4 | `SecretRotationProbe` | `SecretRotationProbe` | `SecretRotationProbe` |
+| ENC-02.1 | `SecretEncryptionProbe` | `GcpSecretEncryptionProbe` | `TargetSecretEncryptionProbe` |
+| ENC-01.1 | `PoolerTLSProbe` | `PoolerTLSProbe` | `PoolerTLSProbe` |
+| ENC-01.5 | `PoolerBackendTLSProbe` | `PoolerBackendTLSProbe` | `PoolerBackendTLSProbe` |
+| ENC-01.2 | `PoolerTLSProbe` | `PoolerTLSProbe` | `PoolerTLSProbe` |
+| ENC-01.3 | `PoolerTLSProbe` | `PoolerTLSProbe` | `PoolerTLSProbe` |
+| ENC-01.4 | `ReplicationTLSProbe` | `ReplicationTLSProbe` | `ReplicationTLSProbe` |
+| AUD-01.1 | `AuditSearchProbe+CloudWatchAuditSearch` | `AuditSearchProbe+CloudLoggingAuditSearch` | `AuditSearchProbe+ObjectStoreAuditSearch` |
+| AUD-01.2 | `AuditSearchProbe+CloudWatchAuditSearch` | `AuditSearchProbe+CloudLoggingAuditSearch` | `AuditSearchProbe+ObjectStoreAuditSearch` |
+| AUD-01.3 | `AuditSearchProbe+CloudWatchAuditSearch` | `AuditSearchProbe+CloudLoggingAuditSearch` | `AuditSearchProbe+ObjectStoreAuditSearch` |
+| NET-01.1 | `PublicPortsProbe` | `PublicPortsProbe` | `PublicPortsProbe` |
+| NET-01.2 | `NetworkAccessProbe` | `NetworkAccessProbe` | `NetworkAccessProbe` |
+| NET-01.3 | `NetworkAccessProbe` | `NetworkAccessProbe` | `NetworkAccessProbe` |
+| IAM-01.1 | `S3AnonymousReadProbe+s3` | `GcsAnonymousReadProbe+gcs` | `S3AnonymousReadProbe+s3-compatible` |
+| IAM-01.2 | `ReportProbe` | `UNSUPPORTED` | `KubeBenchIamProbe` |
+| ISO-01.1 | `AppIsolationProbe+S3IsolationReader` | `AppIsolationProbe+ClientObjectIsolationReader+gcs` | `AppIsolationProbe+ClientObjectIsolationReader+s3-compatible` |
+| DR-01.1 | `RestoreProbe` | `RestoreProbe` | `RestoreProbe` |
+<!-- control-probe-matrix:end -->
+
+칸별 주의:
+
+- **객체 대상 일반화.** `ObjectTarget.provider`가 `s3`(aws) · `s3-compatible`(SeaweedFS, `endpoint_url` 필수,
+  `ExpectedBucketOwner` 없음, 버전 없는 버킷은 ETag로 고정) · `gcs`(gcp, 프로젝트 ID와 generation)를 고른다.
+  `_client`는 `endpoint_url`이 주어지면 클라이언트의 endpoint와 일치를 확인한다. 기존 aws 증거 형식은 바뀌지 않는다.
+- **gcp.** 모든 Google API 호출은 서버가 등록한 `GcpClient.call(method, request)` 뒤에 있다(google-cloud 라이브러리나
+  REST 어느 쪽이든 어댑터가 오류를 `GcpApiError(status, code)`로 정규화). 새 런타임 의존성은 없다.
+  거부는 403 `PERMISSION_DENIED`(익명 GCS는 401 `UNAUTHENTICATED`도)만 인정한다. AUD-01.3은 GKE Cloud Audit Logs
+  항목을 `audit.k8s.io/v1` 필드로 투영해 기존 판정(`_matched`)을 그대로 쓴다. SEC-01.3은 필드 접근 제한이 없는
+  원문 조회 권한을 호스트가 확인해야 한다. ENC-02.1은 등록된 Cloud KMS 키(CMEK)만 `enabled`로 보고,
+  Google 기본 암호화만 있으면 `disabled`다. **IAM-01.2는 GCP IAM 기준선 매핑이 없어 `UNSUPPORTED`다.**
+- **onprem.** IAM-01.1 · ISO-01.1은 SeaweedFS S3 API를 같은 수집기로 시험한다. SEC-01.3은 T34 감사 저장소
+  (`audit_store.py`)의 목록·변조·보존 검사를 재사용해 `AppLogOrigin` OTLP 앱 로그를 읽는다. 앱 로그를 원문으로
+  그 저장소에 보내는 전달 설정은 아직 없다. IAM-01.2는 kube-bench 0.10.2 `rke2-cis-1.7` 5.1.x 후보 매핑
+  (`iam_probes.rke2_rbac_mapping`)을 쓴다. 실제 출력이 manual/WARN이므로 결과는 UNKNOWN이며 PASS가 나오지 않는다.
+- **aws IAM-01.2**는 호스트가 `prowler_iam.assess_iam_collection` 결과를 `ReportProbe`에 넘긴다. 매핑 미확정이면 UNKNOWN이다.
+
 ## 호출 경계
 
 이 패키지는 **신뢰된 서버 내부 라이브러리**다. 공개 결과 업로드 API가 아니다.
