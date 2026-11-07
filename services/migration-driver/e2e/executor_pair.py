@@ -11,7 +11,15 @@ does not hold them). Its advisory lock and schema are per database, so the two i
 Passwords are made in memory and go only into Secrets and psql stdin; nothing secret is printed or written
 locally. The first Executor's Secrets and roles are read for their shape only and never changed.
 
+`deploy` gives it its runtime: sites.json for the pair (DSNs keep each server's TLS name in host= and reach it
+through this instance's own platform egress Service in hostaddr=, as the first instance's do), a token-less
+kubeconfig to each cluster's API proxy through its own egress Service (tls-server-name keeps the proxy's name,
+so a second route to the same proxy never resolves to the other instance's), its own CA and server certificate,
+API and command tokens, and a namespaced Role on each cluster for its tailnet tag, as narrow as the first
+instance's (pods get/list, exec only into the named pooler and app Pods, the pooler ConfigMap).
+
 usage: python executor_pair.py state <executor.json>
+       python executor_pair.py deploy <executor.json>
 """
 
 import base64
@@ -24,6 +32,7 @@ import time
 from pathlib import Path
 
 from bravo_migration.kube import Kube
+from bravo_migration.vault import PlatformVault
 
 PLATFORM_NS, STATE_NS, DB_CLUSTER, DB_POD = "bravo-platform", "platform-state", "platform-db", "platform-db-1"
 REJECT = "host all all all reject"
@@ -132,11 +141,148 @@ class Instance:
                                   if s["metadata"]["name"].startswith(self.name))}
 
 
+def _tls(name):
+    """A CA for this instance only (its key is not kept) and the server certificate its clients verify."""
+    import ipaddress
+    from datetime import UTC, datetime, timedelta
+
+    from cryptography import x509
+    from cryptography.hazmat.primitives import hashes, serialization
+    from cryptography.hazmat.primitives.asymmetric import ec
+    from cryptography.x509.oid import ExtendedKeyUsageOID, NameOID
+
+    now = datetime.now(UTC)
+    ca_key, key = ec.generate_private_key(ec.SECP256R1()), ec.generate_private_key(ec.SECP256R1())
+    ca_name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, f"{name} CA")])
+    ca = (x509.CertificateBuilder().subject_name(ca_name).issuer_name(ca_name).public_key(ca_key.public_key())
+          .serial_number(x509.random_serial_number()).not_valid_before(now - timedelta(minutes=5))
+          .not_valid_after(now + timedelta(days=90)).add_extension(x509.BasicConstraints(ca=True, path_length=0), True)
+          .sign(ca_key, hashes.SHA256()))
+    names = [name, f"{name}.{PLATFORM_NS}", f"{name}.{PLATFORM_NS}.svc", f"{name}.{PLATFORM_NS}.svc.cluster.local"]
+    leaf = (x509.CertificateBuilder().subject_name(x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, name)]))
+            .issuer_name(ca_name).public_key(key.public_key()).serial_number(x509.random_serial_number())
+            .not_valid_before(now - timedelta(minutes=5)).not_valid_after(now + timedelta(days=90))
+            # 127.0.0.1: the operator's test harness reaches it through kubectl port-forward.
+            .add_extension(x509.SubjectAlternativeName([*map(x509.DNSName, names),
+                                                        x509.IPAddress(ipaddress.ip_address("127.0.0.1"))]), False)
+            .add_extension(x509.ExtendedKeyUsage([ExtendedKeyUsageOID.SERVER_AUTH]), False)
+            .sign(ca_key, hashes.SHA256()))
+    pem = serialization.Encoding.PEM
+    return {"ca.crt": ca.public_bytes(pem).decode(), "tls.crt": leaf.public_bytes(pem).decode(),
+            "tls.key": key.private_bytes(pem, serialization.PrivateFormat.PKCS8, serialization.NoEncryption()).decode()}
+
+
+def _role(namespace, tag, exec_pods, configmap, name):
+    rules = [{"apiGroups": [""], "resources": ["pods"], "verbs": ["get", "list"]},
+             {"apiGroups": [""], "resources": ["pods/exec"], "resourceNames": sorted(exec_pods), "verbs": ["get", "create"]},
+             {"apiGroups": [""], "resources": ["configmaps"], "resourceNames": [configmap], "verbs": ["get", "patch"]}]
+    meta = {"name": name, "namespace": namespace, "labels": {"app.kubernetes.io/part-of": "bravo-cutover"}}
+    return [{"apiVersion": "rbac.authorization.k8s.io/v1", "kind": "Role", "metadata": meta, "rules": rules},
+            {"apiVersion": "rbac.authorization.k8s.io/v1", "kind": "RoleBinding", "metadata": meta,
+             "roleRef": {"apiGroup": "rbac.authorization.k8s.io", "kind": "Role", "name": name},
+             "subjects": [{"apiGroup": "rbac.authorization.k8s.io", "kind": "Group", "name": tag}]}]
+
+
+def _resource_id(cluster_uid, namespace):
+    import hashlib
+    return "bravo-db-" + hashlib.sha256(f"{cluster_uid}/{namespace}/chat".encode()).hexdigest()[:32]
+
+
+class Deploy(Instance):
+    """The runtime of one further instance; see the module text."""
+
+    def __init__(self, cfg):
+        super().__init__(cfg)
+        self.src = Kube(cfg["source"]["kubeconfig"], cfg["source"]["cluster_uid"])
+        self.dst = Kube(cfg["target"]["kubeconfig"], cfg["target"]["cluster_uid"])
+        self.vault = PlatformVault(cfg["vault_dir"])
+        self.tag = f"tag:bravo-cutover-control-{self.pair}"
+
+    def _egress(self, route):
+        svc = self.kube.get("service", f"{route}-for-cutover", PLATFORM_NS)
+        if svc is None:
+            raise SystemExit(f"no platform egress Service {route}-for-cutover yet: sync the platform iac chart")
+        return svc["spec"]["clusterIP"]
+
+    def _dsn(self, side, kind, user, password):
+        db = {"source": f"source-db-rw.{self.cfg['source']['namespace']}.svc.cluster.local",
+              "target": "target-db-rw.target-dev.svc.cluster.local"}[side]
+        pooler = {"source": f"source-pgbouncer.{self.cfg['source']['namespace']}.svc.cluster.local",
+                  "target": "target-pgbouncer.target-dev.svc.cluster.local"}[side]
+        host, route, port = ((db, f"{side}-{self.pair}-db", 5432) if kind == "db"
+                             else (pooler, f"{side}-{self.pair}-pooler", 6432))
+        dbname = "pgbouncer" if kind == "admin" else "chat"
+        return (f"user={user} dbname={dbname} host={host} hostaddr={self._egress(route)} port={port} "
+                f"password={password} sslmode=verify-full sslrootcert=/run/executor/{side}-ca.crt connect_timeout=5")
+
+    def _site(self, side, env, namespace, uid, control, app):
+        prefix = "source" if side == "source" else "target"
+        return {"environment_id": env, "resource_id": _resource_id(uid, namespace), "connection_ref": f"cutover/{side}",
+                "kube_context": side, "namespace": namespace, "app_selector": "app=demo-chat",
+                "pgbouncer_selector": f"app={prefix}-pgbouncer", "pgbouncer_configmap": f"{prefix}-pgbouncer-config",
+                "db_host": f"{prefix}-db-rw.{namespace}.svc.cluster.local",
+                "subscription": "t8_target_to_source" if side == "source" else "t8_source_to_target",
+                "subscription_owner": "postgres", "control_functions": True,
+                "system_roles": ["cutover_control", "chat_replicator", "postgres"],
+                "pgbouncer_admin_dsn": self._dsn(side, "admin", "cutover_control", control),
+                "pgbouncer_app_dsn": self._dsn(side, "pooler", "chat_app", app),
+                "db_control_dsn": self._dsn(side, "db", "cutover_control", control),
+                "db_app_dsn": self._dsn(side, "db", "chat_app", app)}
+
+    def deploy(self):
+        for kube in (self.kube, self.src, self.dst):
+            kube.verify_identity()
+        s_ns = self.cfg["source"]["namespace"]
+        app = (self.vault.get("source-credentials") or {}).get("chat_app")
+        s_control = (self.vault.get("source-cutover-control") or {}).get("password")
+        t_control = self.dst.secret_value("target-dev", "cutover-db-control", "password")
+        if not (app and s_control and t_control):
+            raise SystemExit("pair credentials missing: run source_fixture up and cutover_pair ready first")
+        sites = {"origin": self.cfg["source"]["environment_id"], "sites": {
+            self.cfg["source"]["environment_id"]: self._site("source", self.cfg["source"]["environment_id"], s_ns,
+                                                             self.cfg["source"]["cluster_uid"], s_control, app),
+            self.cfg["target"]["environment_id"]: self._site("target", self.cfg["target"]["environment_id"], "target-dev",
+                                                             self.cfg["target"]["cluster_uid"], t_control, app)}}
+        tailnet = self.cfg["tailnet"]
+        kubeconfig = {"apiVersion": "v1", "kind": "Config", "users": [{"name": "tailnet", "user": {}}],
+                      "clusters": [{"name": side, "cluster": {
+                          "server": f"https://{side}-{self.pair}-api-for-cutover.{PLATFORM_NS}.svc:443",
+                          "tls-server-name": f"{proxy}.{tailnet}"}}
+                          for side, proxy in (("source", "bravo-source-operator"),
+                                              ("target", f"bravo-target-{self.pair}-operator"))],
+                      "contexts": [{"name": side, "context": {"cluster": side, "user": "tailnet"}}
+                                   for side in ("source", "target")]}
+        tls = self.vault.put_once(f"{self.name}-tls", _tls(self.name))
+        tokens = self.vault.put_once(f"{self.name}-tokens", {"api": _random(48), "command": _random(48)})
+        runtime = {"sites.json": json.dumps(sites), "kubeconfig": json.dumps(kubeconfig), "api-token": tokens["api"],
+                   "tls.crt": tls["tls.crt"], "tls.key": tls["tls.key"],
+                   "source-ca.crt": self.src.secret_value(s_ns, "source-db-ca", "ca.crt"),
+                   "target-ca.crt": self.dst.secret_value("target-dev", "target-db-ca", "ca.crt")}
+        self.kube.apply([_secret(f"{self.name}-runtime", PLATFORM_NS, runtime),
+                         _secret(f"{self.name}-command", PLATFORM_NS, {"token": tokens["command"]}),
+                         _secret(f"{self.name}-ca", PLATFORM_NS, {"ca.crt": tls["ca.crt"]})])
+        # Each cluster lets this instance's tailnet tag into the pair's namespace only, as narrowly as the first.
+        pods = lambda kube, ns, selectors: [p["metadata"]["name"] for sel in selectors  # noqa: E731
+                                            for p in kube.ready_pods(ns, sel)]
+        self.src.apply(_role(s_ns, self.tag, pods(self.src, s_ns, ["app=source-pgbouncer", "app=demo-chat"]),
+                             "source-pgbouncer-config", self.name))
+        self.dst.apply(_role("target-dev", self.tag, pods(self.dst, "target-dev", ["app=target-pgbouncer", "app=demo-chat"]),
+                             "target-pgbouncer-config", self.name))
+        image = self.kube.get("deployment", "cutover-executor", PLATFORM_NS)["spec"]["template"]["spec"]["containers"][0]["image"]
+        sys.path.insert(0, str(self.repo / "services/cutover-executor/src"))
+        from bravo_cutover.deploy import manifests  # noqa: PLC0415
+        self.kube.apply(manifests(image, pair=self.pair)["items"])
+        self.kube.rollout(PLATFORM_NS, self.name, timeout_s=300)
+        return {"deployment": self.name, "image_digest": image.split("@")[-1][:19],
+                "routes": sorted(f"{side}-{self.pair}-{k}" for side in ("source", "target") for k in ("db", "pooler", "api"))}
+
+
 def main():
     command, cfg = sys.argv[1], json.loads(Path(sys.argv[2]).read_text())
-    instance = Instance(cfg)
     if command == "state":
-        print(json.dumps(instance.state()))
+        print(json.dumps(Instance(cfg).state()))
+    elif command == "deploy":
+        print(json.dumps(Deploy(cfg).deploy()))
     else:
         raise SystemExit(__doc__)
 
