@@ -83,9 +83,12 @@ class Pair:
         self.source.psql("DO $$ BEGIN IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname='cutover_control') THEN "
                          "CREATE ROLE cutover_control LOGIN; END IF; END $$;\n"
                          f"ALTER ROLE cutover_control LOGIN PASSWORD {_literal(control['password'])};\n", db="postgres")
-        # Destination: the app password from target-app-db (chat_app stays NOLOGIN until the Executor opens it).
-        app = self.target.secret("target-app-db", "password")
+        # Destination: chat_app takes the source's password (the app credential moves with the app, T9), because
+        # one pooler userlist entry logs in to the source before cutover and to the destination after it.
+        # It stays NOLOGIN until the Executor opens it.
+        app = (self.vault.get("source-credentials") or {}).get("chat_app") or sys.exit("run source_fixture up first")
         self.target.psql(f"ALTER ROLE chat_app NOLOGIN PASSWORD {_literal(app)};\n", db="postgres")
+        self._poolers(app, control["password"])
         if self.target.psql(f"SELECT count(*) FROM pg_subscription WHERE subname='{FORWARD}';") != "1":
             raise SystemExit("the forward subscription is missing: run the T45 migration stack first")
         # Destination control surface, then its publication; the source's reverse subscription reads it.
@@ -113,6 +116,37 @@ class Pair:
         # The forward subscriber sees the source's cutover tables only after a refresh (no business table re-copy).
         self.target.psql(f"ALTER SUBSCRIPTION {FORWARD} REFRESH PUBLICATION WITH (copy_data = false);")
         return self.status()
+
+    def _poolers(self, app, source_control):
+        """Both poolers admit the Executor's admin login; the destination pooler starts on the source DB
+        (T30 pooler.py, bound to the destination's egress Service UID) and trusts both CAs."""
+        target_control = self.target.secret("cutover-db-control", "password")
+        users = lambda control: f'"chat_app" "{app}"\n"cutover_control" "{control}"\n'  # noqa: E731
+        self.source.kube.apply([{"apiVersion": "v1", "kind": "Secret", "metadata": {
+            "name": "source-pgbouncer-auth", "namespace": self.source.namespace},
+            "stringData": {"userlist.txt": users(source_control)}}])
+        self.source.kube.run("rollout", "restart", "-n", self.source.namespace, "deployment/source-pgbouncer")
+        self.source.kube.rollout(self.source.namespace, "source-pgbouncer")
+        egress = self.target.kube.get("service", "source-db-for-pooler", self.target.namespace)
+        if egress is None:
+            raise SystemExit("no egress Service to the source DB yet: sync the destination's iac chart")
+        source_ca = self.source.secret("source-db-ca", "ca.crt")
+        target_ca = self.target.secret("target-db-ca", "ca.crt")
+        self.target.kube.apply([
+            {"apiVersion": "v1", "kind": "Secret", "metadata": {"name": "target-pgbouncer-auth",
+                                                               "namespace": self.target.namespace},
+             "stringData": {"userlist.txt": users(target_control)}},
+            {"apiVersion": "v1", "kind": "Secret", "metadata": {"name": "cutover-backend-ca",
+                                                               "namespace": self.target.namespace},
+             "stringData": {"ca.crt": source_ca.strip() + "\n" + target_ca.strip() + "\n"}}])
+        here = str(self.repo / "infra/envs/target-workloads")
+        sys.path.insert(0, here)
+        try:
+            import pooler  # noqa: PLC0415 - T30's reviewed renderer
+        finally:
+            sys.path.remove(here)
+        self.target.kube.apply(pooler.pooler(egress["spec"]["clusterIP"], egress["metadata"]["uid"]))
+        self.target.kube.rollout(self.target.namespace, "target-pgbouncer")
 
     @staticmethod
     def _publish(side, publication):

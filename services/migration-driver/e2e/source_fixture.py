@@ -47,9 +47,13 @@ def configure(ns="source-dev", aws_ns="aws"):
     cluster (T50: EKS `source-gce` beside source-dev) keeps the stand-ins in its own namespace too."""
     global NS, AWS_NS, DB_NAMES
     NS, AWS_NS = ns, aws_ns
-    DB_NAMES = [*(f"{name}{suffix}" for name in ("source-db-rw", "source-pgbouncer")
-                  for suffix in ("", f".{NS}", f".{NS}.svc", f".{NS}.svc.cluster.local")),
-                "source-db-for-replication.target-dev.svc", "source-db-for-replication.target-dev.svc.cluster.local"]
+    # The destination's pooler calls the source by its canonical name (target-workloads/pooler.py SOURCE_HOST);
+    # a source in another namespace answers to that name too.
+    DB_NAMES = list(dict.fromkeys([*(f"{name}{suffix}" for name in ("source-db-rw", "source-pgbouncer")
+                                     for ns in (NS, "source-dev")
+                                     for suffix in ("", f".{ns}", f".{ns}.svc", f".{ns}.svc.cluster.local")),
+                                   "source-db-for-replication.target-dev.svc",
+                                   "source-db-for-replication.target-dev.svc.cluster.local"]))
 
 
 configure()
@@ -123,7 +127,7 @@ def namespace(name):
         "pod-security.kubernetes.io/enforce": "restricted", "bravo-e2e/role": "source"}}}
 
 
-def database(image):
+def database(image, tls_sha=""):
     """PostgreSQL 18.4 with the CNPG Cluster's TLS, parameters and pg_hba (source-workloads/render.py)."""
     start = """set -eu
 if [ ! -s "$PGDATA/PG_VERSION" ]; then
@@ -162,7 +166,9 @@ exec postgres -D "$PGDATA" -c listen_addresses='*' -c ssl=on -c ssl_cert_file=/t
                                                         "items": [{"key": "ca.crt", "path": "ca.crt"}]}}]}
     deploy = {"apiVersion": "apps/v1", "kind": "Deployment", "metadata": {"name": "source-db", "namespace": NS},
               "spec": {"replicas": 1, "strategy": {"type": "Recreate"}, "selector": {"matchLabels": {"app": "source-db"}},
-                       "template": {"metadata": {"labels": {"app": "source-db"}}, "spec": pod}}}
+                       # A new server certificate restarts the server (it reads the files only at start).
+                       "template": {"metadata": {"labels": {"app": "source-db"},
+                                                 "annotations": {"bravo-e2e/tls-sha256": tls_sha}}, "spec": pod}}}
     svc = {"apiVersion": "v1", "kind": "Service", "metadata": {"name": "source-db-rw", "namespace": NS},
            "spec": {"selector": {"app": "source-db"}, "ports": [{"name": "postgres", "port": 5432, "targetPort": 5432}]}}
     return [deploy, svc]
@@ -296,7 +302,8 @@ class Source:
                          secret("source-app-objects", NS, {"access_key": ids["client"]["access_key"],
                                                            "secret_key": ids["client"]["secret_key"]})])
         self.apply(objects(self.repo))
-        self.apply(database(self.render.POSTGRES_IMAGE))
+        import hashlib
+        self.apply(database(self.render.POSTGRES_IMAGE, hashlib.sha256(tls["tls_crt"].encode()).hexdigest()[:16]))
         self.kube.rollout(NS, "source-db", timeout_s=300)
         fresh = self.psql("SELECT count(*) FROM pg_database WHERE datname = 'chat';", db="postgres") == "0"
         if fresh:
