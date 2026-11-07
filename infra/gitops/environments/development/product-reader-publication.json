@@ -1,10 +1,10 @@
 {
-  "source_revision": "f09f37a6775bbdbbde524b6165e64c5504ee9755",
+  "source_revision": "b87447058806128ddaef4d693b60e65565695e47",
   "image": "ghcr.io/softbank-hackathon-finals/platform-product-reader",
-  "image_digest": "sha256:f6f7125d3e7ebc1addb004fd13c16e4d1de6c236c7f90888e02bc07a29e3697a",
-  "platform_manifest_digest": "sha256:936a59273767cc0b5f90b6e19d9f9a90e36c7f51c349a820a72b83990e097528",
-  "config_digest": "sha256:576db39558973c0aa2cff117363ce45c40a36c21433f7861f0d3a35a7537b9ee",
-  "context_sha256": "7f704c03b1dac1e8827e4828ddc25d7cb10055d57aa845908ba80f25ed468c57",
+  "image_digest": "sha256:e97eaecde22d2476dd2b9bfe09cfcf0769e2e1680f9a7def707880f79b43476f",
+  "platform_manifest_digest": "sha256:11640c2a71167a1d0da78135a686eb34ba7c779f519578700b5d57ab31679e55",
+  "config_digest": "sha256:f2618e17deab3ba43502cd70ee111defbe5981a180fad97843953ca00866f5cb",
+  "context_sha256": "19107a5f80dd0f25d955caa6e063ff5c1204781f429786260ee3abc0188838c5",
   "oci_blobs": 17,
   "scan": {
     "scanners": [
@@ -24,10 +24,10 @@
     "secret_match_count": 0
   },
   "registry_visibility": "private",
-  "tag": "sha-f09f37a6775bbdbbde524b6165e64c5504ee9755-42399032036-1",
-  "run_id": "42399032036",
+  "tag": "sha-b87447058806128ddaef4d693b60e65565695e47-42399951523-1",
+  "run_id": "42399951523",
   "attempt": "1",
-  "workflow_revision": "f09f37a6775bbdbbde524b6165e64c5504ee9755",
+  "workflow_revision": "b87447058806128ddaef4d693b60e65565695e47",
   "published": true,
   "deployed": false
 }
