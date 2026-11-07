@@ -955,7 +955,7 @@ Claude Code는 `/todo-task`, Codex는 `$todo-task`로 이 순서를 따르는 �
 - [ ] 실제 Job에 포트 연결(T38·T11): 커밋된 원하는 상태를 입력으로, 계획 결과를 실행 결과에 결속
 - [ ] 플랫폼 API에 IaC 조회·plan 연결(T10)과 승인 뒤 원하는 상태 PR 생성(기존 GitHub App 쓰기 경로)
 - [ ] 고객 클러스터마다 Argo CD(pull): 환경별 생성 Helm 차트와 설치 차트(1단계 넉넉한 권한), 실제 클러스터 설치와 동기화 확인
-- [ ] 권한 세분화: AppProject·controller 권한을 원하는 상태의 namespace·종류로, 커밋 서명 검증, 모듈별 prune 승인
+- [ ] 권한 세분화: AppProject·controller 권한을 원하는 상태의 namespace·종류로, 커밋 서명 검증, 모듈별 prune 승인. #648 이전 단계 스택 확인 검사의 적용 신원은 두 읽기 권한만 남긴다(`target-dev` CNPG 주 인스턴스 `pods/exec`로 읽기 전용 트랜잭션의 고정 SELECT 한 줄, nonResourceURL `/metrics`로 감사 이벤트 수)
 - [ ] 기존 경로 렌더러를 이 모듈로 이전(같은 자원의 주인 하나): 리허설·반영·Collector → 목적지 API(T15), 컷오버 경로(T12), Collector → 지표 저장소(T37)
 - [ ] 플랫폼 클러스터는 기존 T43 Argo에 `charts/platform` Application 연결
 - [ ] tailnet 정책도 같은 원하는 상태에서 적용: Argo 설치 전 조건으로 실제 정책에 대한 `tailnet-check` PASS, 이후 PR 검증·병합 적용(Tailscale GitOps)
