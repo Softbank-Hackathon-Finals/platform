@@ -43,6 +43,53 @@ def expected_images(expect, params):
         raise StackError("image_unavailable_for_arch")
     return names
 
+LOGIN_REALM = "bravo"  # target-workloads/identity.py REALM
+# Paths the Edge must not serve on the login host (edge-cloudflare: only /realms/bravo/ and /resources/).
+LOGIN_CLOSED_PATHS = ("/admin/master/console/", "/realms/master/.well-known/openid-configuration")
+# T44 intake states in which the Application exists and names the approved target (autoSync may be off).
+IAC_APPLICATION_ON = frozenset({"SYNC_PAUSED", "SYNC_PENDING", "SYNC_IN_PROGRESS", "SYNC_RETRYING", "SYNC_VERIFIED"})
+
+
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, *args, **kwargs):
+        return None  # a redirect is an answer to check, not a place to go
+
+
+def public_get(url, *, timeout=10, limit=65536):
+    """GET a public https URL with verified TLS and no redirects: (status, body) or (None, None) if unreachable."""
+    opener = urllib.request.build_opener(_NoRedirect())
+    try:
+        with opener.open(urllib.request.Request(url, method="GET"), timeout=timeout) as response:
+            return response.status, response.read(limit)
+    except urllib.error.HTTPError as error:
+        return error.code, b""
+    except (urllib.error.URLError, OSError):
+        return None, None
+
+
+def login_public(params, http):
+    """The login host serves the bravo realm with this issuer and nothing of the admin side.
+
+    Not reachable yet: False (wait). Open admin paths or another issuer: HOLD, the Edge must be closed."""
+    base = params["login_public_url"]
+    status, body = http(f"{base}/realms/{LOGIN_REALM}/.well-known/openid-configuration")
+    if status != 200:
+        return False
+    try:
+        issuer = json.loads(body).get("issuer")
+    except (ValueError, AttributeError):
+        return False
+    if issuer != f"{base}/realms/{LOGIN_REALM}":
+        raise StepOutcome(HOLD, "login_issuer_mismatch")
+    for path in LOGIN_CLOSED_PATHS:
+        status, _ = http(base + path)
+        if status is None:
+            return False
+        if status != 404:
+            raise StepOutcome(HOLD, "login_admin_path_open")
+    return True
+
+
 TIMEOUT = 600
 SQL_NAME = re.compile(r"^[a-z][a-z0-9_]{0,62}$")
 RUN_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$")
@@ -459,6 +506,20 @@ class AwsIdentity:
         return {"account_id": json.loads(result.stdout)["Account"]}
 
 
+def _iac_application_on(cluster, repo_root, run):
+    """T44's intake on this cluster: the Application names the planned environment and iac_revision.
+
+    Still bootstrap only: False. Refused (another target, prune) or a failed sync: HOLD with its reason."""
+    if repo_root is None:
+        raise StackError("repo_root_required")
+    request = run["plan"]["request"]
+    result = cluster.argo_intake(repo_root, request["environment_id"], run["plan"]["target"]["cluster_uid"],
+                                 request["params"]["iac_revision"])
+    if result["status"] in ("BLOCKED", "SYNC_FAILED"):
+        raise StepOutcome(HOLD, "argo_" + (result.get("reasons") or [result["status"]])[0].lower())
+    return result["status"] in IAC_APPLICATION_ON
+
+
 def _argo_synced(cluster, repo_root, run):
     """T44's intake says SYNC_VERIFIED at the approved revision. Not installed or not converged yet: wait.
     Something it refuses (another target, prune, a changed read): HOLD with its reason."""
@@ -476,8 +537,8 @@ class ClusterChecks:
     directory, an offline image import); a human confirmation is then required.
     """
 
-    def __init__(self, cluster, repo_root=None):
-        self.cluster, self.repo_root = cluster, repo_root
+    def __init__(self, cluster, repo_root=None, *, http=public_get):
+        self.cluster, self.repo_root, self.http = cluster, repo_root, http
 
     def check(self, name, run):
         params, target = run["plan"]["request"]["params"], run["plan"]["target"]
@@ -502,7 +563,12 @@ class ClusterChecks:
             "openbao-tls": lambda: c.secret_exists("bravo-secrets", "target-openbao-tls"),
             "openbao-ready": lambda: c.condition("Pod", "bravo-secrets", "target-openbao-0", "Ready"),
             "target-checks": lambda: (c.condition("Cluster", "target-dev", "target-db", "Ready")
-                                      and c.deployments_available("target-dev")),
+                                      and c.deployments_available("target-dev")
+                                      and (params.get("login") != "edge" or login_public(params, self.http))),
+            "login-public": lambda: login_public(params, self.http),
+            "iac-application-created": lambda: c.application_status(
+                f"bravo-iac-{run['plan']['request']['environment_id']}") is not None,
+            "iac-application-enabled": lambda: _iac_application_on(c, self.repo_root, run),
             # target-onprem-migration: the destination as a migration target
             "audit-metadata-active": lambda: (c.audit_level_events("Metadata") or 0) > 0,
             "iac-network-synced": lambda: _argo_synced(c, self.repo_root, run),
