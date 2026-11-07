@@ -156,6 +156,15 @@ def test_partial_sign_in_settings_stop_before_any_request(server, tmp_path, caps
     assert server.grants == [] and server.count == 0
 
 
+def test_signed_in_token_is_not_sent_over_plain_http_to_another_host(tmp_path, capsys, sign_in_secrets):
+    """ID 토큰은 그 계정으로 쓸 수 있다. 이 컴퓨터 밖으로는 https로만 보낸다(발급자와 같은 규칙)."""
+    extra = ["--auth-issuer", "https://login.example.invalid/realms/bravo", "--auth-client-id", "demo-chat-loadgen",
+             "--auth-username", "loadgen"]
+    assert main(args("http://chat.example.invalid", tmp_path, *extra)) == 2
+    assert "https" in capsys.readouterr().err
+    assert not (tmp_path / "journal.jsonl").exists()
+
+
 def test_missing_password_stops_before_any_request(server, tmp_path, capsys, monkeypatch):
     monkeypatch.setenv("BRAVO_LOADGEN_CLIENT_SECRET", CLIENT_SECRET)
     monkeypatch.delenv("BRAVO_LOADGEN_PASSWORD", raising=False)

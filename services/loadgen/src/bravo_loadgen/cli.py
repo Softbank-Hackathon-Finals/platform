@@ -26,7 +26,7 @@ from bravo_loadgen.lock_probe import LockProbe, summarize_lock_samples
 from bravo_loadgen.preflight import render_lines, run_checks
 from bravo_loadgen.report import build_report, exit_code, render_markdown
 from bravo_loadgen.schema import SchemaViolation, load_profile, validate_window
-from bravo_loadgen.signin import CLIENT_SECRET_ENV, PASSWORD_ENV, TokenSupply, fetcher
+from bravo_loadgen.signin import CLIENT_SECRET_ENV, LOCAL_HOSTS, PASSWORD_ENV, TokenSupply, fetcher
 from bravo_loadgen.windows import check_continuity
 
 DEFAULT_WINDOW_SECONDS = 10
@@ -193,6 +193,10 @@ def _sign_in(args: argparse.Namespace) -> _SignIn | None:
         return None
     if not all(given):
         raise LookupError("로그인을 켜려면 --auth-issuer, --auth-client-id, --auth-username을 모두 준다")
+    target = httpx.URL(args.base_url)
+    if target.scheme != "https" and target.host not in LOCAL_HOSTS:
+        # ID 토큰으로 그 계정의 글을 쓸 수 있다. 발급자와 같은 규칙: 이 컴퓨터의 시험 주소만 http.
+        raise LookupError("로그인을 켜면 --base-url은 https여야 한다(이 컴퓨터의 시험 주소만 http)")
     kind, fetch = fetcher(args.auth_issuer, args.auth_client_id, args.auth_username)
     supply = TokenSupply(fetch)
     print(f"로그인: {kind} 발급자에서 '{supply.name}' 이름으로 토큰을 받았다")
@@ -383,6 +387,8 @@ async def _run_load(
         "tail_requests": result.tail_requests,
         "late_requests": result.late_requests,
         "continuity_problems": result.continuity_problems,
+        "withheld_windows": result.withheld_windows,
+        "withheld_requests": result.withheld_requests,
         "lock_probe": lock_summary,
         "sign_in": sign_in.supply.summary(sign_in.kind) if sign_in else None,
     }

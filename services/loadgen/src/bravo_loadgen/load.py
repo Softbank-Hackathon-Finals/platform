@@ -24,6 +24,8 @@ ENV_HEADER = "X-Bravo-Env"
 WindowSink = Callable[[dict], Awaitable[None]]
 # 로그인을 켠 앱(T47): 쓰기 시도마다 그때의 토큰 헤더를 받는다. 재시도도 새로 받은 토큰을 싣는다.
 WriteHeaders = Callable[[], Mapping[str, str]]
+# 로그인 때문에 거부된 쓰기. 창은 5xx · 409만 오류로 세므로, 이 뒤의 창을 내면 쓰기가 막힌 동안 정상으로 보인다.
+AUTH_REJECTED = (401, 403)
 
 
 @dataclass(frozen=True)
@@ -69,6 +71,8 @@ class RunResult:
     delivery_failed: int
     invalid_windows: int
     continuity_problems: list[dict]
+    withheld_windows: int = 0
+    withheld_requests: int = 0
 
 
 def retry_delay(header: str | None, attempt_index: int) -> float:
@@ -133,6 +137,9 @@ class LoadRunner:
         self._windows: list[dict] = []
         self._delivery_failed = 0
         self._invalid_windows = 0
+        self._auth_rejected = False
+        self._withheld_windows = 0
+        self._withheld_requests = 0
         stop = asyncio.Event()
         emitter = asyncio.create_task(self._emit_windows(stop))
 
@@ -169,6 +176,8 @@ class LoadRunner:
             continuity_problems=check_continuity(
                 self._windows, window_seconds=config.window_seconds
             ),
+            withheld_windows=self._withheld_windows,
+            withheld_requests=self._withheld_requests,
         )
 
     async def _pace(self, group: asyncio.TaskGroup, rate: float, total: int, send) -> None:
@@ -203,6 +212,8 @@ class LoadRunner:
             )
             if record["acked"]:
                 self._last_acked_id = record["message_id"]
+            if record["status"] in AUTH_REJECTED:
+                self._auth_rejected = True
             status = record["status"]
             final = record["acked"] or (status is not None and 400 <= status < 500 and status != 429)
             delay = 0.0
@@ -300,6 +311,12 @@ class LoadRunner:
             index += 1
 
     async def _publish(self, window: dict) -> None:
+        if self._auth_rejected:
+            # 받는 쪽은 창이 없으면 UNKNOWN으로 멈춘다(계약 3절). 부하와 대조는 그대로 하고 리포트에 남긴다.
+            self._withheld_windows += 1
+            self._withheld_requests += sum(window["pools"][p]["requests"] for p in ("source", "target"))
+            self._withheld_requests += sum(window["unattributed"].values())
+            return
         try:
             validate_window(window)
         except SchemaViolation:

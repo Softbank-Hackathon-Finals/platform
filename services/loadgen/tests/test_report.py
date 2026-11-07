@@ -274,5 +274,19 @@ def test_failed_token_refresh_is_a_generator_side_warning():
     assert failing["sli_usable_for_judgement"] is False
 
 
+def test_write_refused_for_sign_in_is_never_usable_for_judgement():
+    refused = write(status=401, acked=False, message_id=None)
+    r = report(records=[RUN_START, refused, read(), RUN_END], rows=[], windows=[WINDOW], **EDGE,
+               withheld_windows=1, withheld_requests=0)
+    assert "WRITE_AUTH_REJECTED" in r["warnings"] and r["sli_usable_for_judgement"] is False
+    assert r["windows"]["withheld"] == 1
+
+
+def test_withheld_requests_keep_the_window_count_conserved():
+    r = report(records=[RUN_START, write(), read(), RUN_END], rows=[ROW], windows=[], **EDGE,
+               withheld_windows=1, withheld_requests=2)
+    assert r["windows"]["conserved"] is True and "WINDOW_COUNT_MISMATCH" not in r["warnings"]
+
+
 def test_sign_in_is_absent_by_default():
     assert report(rows=None)["measurement"]["sign_in"] is None

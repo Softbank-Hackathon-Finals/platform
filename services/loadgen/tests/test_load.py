@@ -385,6 +385,39 @@ def test_window_delivery_failure_is_counted_and_load_continues(tmp_path):
     assert len(attempts) == 12
 
 
+@pytest.mark.parametrize("refusal", [401, 403])
+def test_windows_stop_once_a_write_is_refused_for_sign_in(tmp_path, refusal):
+    """창은 5xx · 409만 오류로 센다. 로그인 때문에 거부된 쓰기가 정상처럼 보이지 않게, 그 뒤 창은 내지 않는다.
+
+    받는 쪽은 창이 없으면 UNKNOWN으로 멈춘다(T36 계약 3절).
+    """
+    delivered = []
+    count = Counter()
+
+    async def sink(window):
+        delivered.append(window)
+
+    async def handler(request):
+        count["n"] += 1
+        if count["n"] <= 10:
+            return created(request, message_id=count["n"])
+        return httpx.Response(refusal, json={"detail": "sign in again"}, headers={"X-Bravo-Env": "aws"})
+
+    result, attempts, _ = go(run(tmp_path, handler, sink=sink, duration_s=3.2, window_seconds=1))
+    assert len(delivered) == 1 and delivered == result.windows  # 첫 창(정상 10건)만 나간다
+    assert result.withheld_windows == 2
+    assert result.withheld_requests == 20
+    assert len(attempts) == 32  # 부하는 끝까지 보내 대조는 그대로 한다
+
+
+def test_other_client_errors_do_not_stop_windows(tmp_path):
+    async def handler(request):
+        return httpx.Response(422, json={"detail": "bad"}, headers={"X-Bravo-Env": "aws"})
+
+    result, _, _ = go(run(tmp_path, handler, duration_s=2.2, window_seconds=1))
+    assert len(result.windows) == 2 and result.withheld_windows == 0
+
+
 def test_stalled_period_is_reported_as_an_empty_window_not_skipped(tmp_path):
     """앞 구간에 응답이 하나도 안 오면 빈 창이 나간다. 판정은 표본 부족으로 멈춘다."""
 

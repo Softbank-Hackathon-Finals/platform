@@ -237,15 +237,18 @@ def test_failed_refresh_keeps_the_current_token_and_is_counted(monkeypatch):
     monkeypatch.setattr(signin, "RETRY_S", 0.05)
     answers = iter([token(lifetime_s=0.1, value="one.one.one"), SignInError("down"), SignInError("down"),
                     token(lifetime_s=60, value="two.two.two")])
+    in_use_while_failing = []
 
     def fetch():
         answer = next(answers)
         if isinstance(answer, Exception):
+            in_use_while_failing.append(supply.headers()["Authorization"])
             raise answer
         return answer
 
     supply = TokenSupply(fetch)
     run_supply(supply, 0.3)
+    assert in_use_while_failing == ["Bearer one.one.one"] * 2  # 실패하는 동안 쓰기는 지금 토큰을 쓴다
     assert supply.headers() == {"Authorization": "Bearer two.two.two"}
     assert supply.summary("oidc") == {"kind": "oidc", "refreshes": 1, "refresh_failures": 2}
 

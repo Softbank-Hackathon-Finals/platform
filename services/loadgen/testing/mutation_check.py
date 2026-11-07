@@ -50,7 +50,7 @@ MUTATIONS = [
     ("DB 없이도 통과", "report.py", 'verdict = reconciliation["verdict"] if reconciliation else "UNKNOWN"', 'verdict = reconciliation["verdict"] if reconciliation else "PASS"', "test_report.py", False),
     ("로컬 측정을 Edge 측정으로 표시", "report.py", 'edge_measured = measurement_path == "edge"', "edge_measured = True", "test_report.py", False),
     ("헤더 없는 응답을 계약 오류에서 뺌", "report.py", 'return _is_http_error(attempt) or attempt["env"] not in env_pools', "return _is_http_error(attempt)", "test_report.py", False),
-    ("창 집계 누락을 보지 않음", "report.py", '"conserved": counted + tail_requests + late_requests == len(attempts),', '"conserved": True,', "test_report.py", False),
+    ("창 집계 누락을 보지 않음", "report.py", '"conserved": counted + withheld_requests + tail_requests + late_requests == len(attempts),', '"conserved": True,', "test_report.py", False),
     ("DB 오류에 연결 문자열을 노출", "cli.py", 'print(f"DB를 읽지 못했다: {type(error).__name__}", file=sys.stderr)', 'print(f"DB를 읽지 못했다: {db_dsn}", file=sys.stderr)', "test_cli.py", False),
     ("표본 잠금을 놓지 않음", "lock_probe.py", "self._dsn, autocommit=True,", "self._dsn, autocommit=False,", "test_lock_probe.py", True),
     ("대기를 잠금 전에만 잼", "lock_probe.py", "SELECT clock_timestamp(), pg_advisory_xact_lock(%(key)s::bigint), clock_timestamp()", "SELECT clock_timestamp(), clock_timestamp(), clock_timestamp()", "test_lock_probe.py", True),
@@ -148,6 +148,11 @@ MUTATIONS = [
     ("토큰 갱신 실패를 경고하지 않음", "report.py", 'warnings.append("SIGN_IN_REFRESH_FAILED")', "pass", "test_report.py", False),
     ("로그인 설정 일부만 줘도 로그인 없이 돎", "cli.py", "    if not any(given):\n        return None\n", "    if not all(given):\n        return None\n", "test_cli.py::test_partial_sign_in_settings_stop_before_any_request", False),
     ("로그인 결과에 토큰을 남김", "cli.py", """print(f"로그인: {kind} 발급자에서 '{supply.name}' 이름으로 토큰을 받았다")""", 'print(f"로그인: {supply.headers()}")', "test_cli.py::test_signed_in_run_sends_the_token_on_writes_only", False),
+    ("인증 거부 뒤에도 창을 냄", "load.py", "        if self._auth_rejected:\n", "        if False:\n", "test_load.py", False),
+    ("401 · 403을 거부로 보지 않음", "load.py", "AUTH_REJECTED = (401, 403)", "AUTH_REJECTED = ()", "test_load.py", False),
+    ("인증 거부를 경고하지 않음", "report.py", 'warnings.append("WRITE_AUTH_REJECTED")', "pass", "test_report.py", False),
+    ("내지 않은 창의 요청을 집계에서 뺌", "report.py", "counted + withheld_requests + tail_requests", "counted + tail_requests", "test_report.py", False),
+    ("로그인 토큰을 평문 http로 보냄", "cli.py", 'if target.scheme != "https" and target.host not in LOCAL_HOSTS:', "if False:", "test_cli.py::test_signed_in_token_is_not_sent_over_plain_http_to_another_host", False),
 ]
 
 
