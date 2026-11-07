@@ -84,6 +84,7 @@ class TrustedHostPorts:
     edge: object = field(default=None, repr=False)  # T17 FailbackEdge over the one LB journal
     iac: object = field(default=None, repr=False)  # T44 platform repository port (iac_plans), optional
     delegation: bool = False  # T49 pre-delegated approvals: the route and this process's cutover/failback sweep
+    delegated_shift: object = field(default=None, repr=False)  # T49: (store, delegations) -> DelegatedShift
 
     def __post_init__(self):
         if (not self.bindings or not callable(self.cutover_authority)
@@ -128,7 +129,7 @@ def build_trusted_host(store, *, ports: TrustedHostPorts, records, sender, verif
         verifier=verifier, authority=ports.cutover_authority, rehearsal_host=rehearsals,
         **({"failback_authority": ports.failback_authority, "read_integrity": ports.read_integrity,
             "edge": ports.edge} if ports.failback_authority is not None else {}),
-        change_intake=intake, clock=clock, delegation=ports.delegation,
+        change_intake=intake, clock=clock, delegation=ports.delegation, delegated_shift=ports.delegated_shift,
         **({"iac_repository": ports.iac} if ports.iac is not None else {}))
     original_lifespan = app.router.lifespan_context
 
