@@ -351,16 +351,48 @@ unset TEMP_PASSWORD
 
 **이름은 Cognito가 발급한 그대로다.** demo-chat은 작성자 이름을 `preferred_username` → `cognito:username` 순으로 고르고 대소문자를 바꾸지 않는다. Keycloak은 이름을 소문자로 저장하므로 대문자가 든 Cognito 이름은 다른 작성자가 된다. 그래서 그런 이름은 옮기지 않고 운영자가 양쪽 이름을 정한다(시연 계정은 처음부터 소문자로 만든다).
 
+### 부하 생성기 클라이언트
+
+로그인을 켠 앱에 T18 부하 생성기가 쓰기를 넣으려면 사람 없이 ID 토큰을 받아야 한다. 브라우저 클라이언트 `demo-chat`에 비밀번호 직접 받기를 켜면 방문자도 그 길을 쓸 수 있으므로, **`identity.loadgen_client()`가 정의하는 `demo-chat-loadgen`을 따로 둔다.** 출발지 Cognito의 대응은 [source-identity](../source-identity/README.md#부하-생성기-클라이언트)에 있다.
+
+| 항목 | 값 | 이유 |
+| --- | --- | --- |
+| 흐름 | 비밀번호 직접 받기(password grant)만. 브라우저 로그인 · implicit · 서비스 계정 끔, 콜백 주소 없음 | 이 클라이언트로는 아무도 브라우저에서 로그인하지 못한다 |
+| 인증 | 비밀 있는 클라이언트(`client-secret`). 비밀은 Keycloak이 만든다 | 토큰에 계정 비밀번호와 클라이언트 비밀이 모두 필요하다. 렌더 결과(ConfigMap)에는 비밀이 없다 |
+| 범위 | `fullScopeAllowed` 끔 | 액세스 토큰에 계정 콘솔 역할이 없어 자기 정보를 고치는 화면에 닿지 못한다 |
+| 등록 | realm import가 아니라 관리 API | `--import-realm`은 있는 realm을 다시 적용하지 않는다. 무인 구축(`stack.json` login 단계)의 렌더도 바뀌지 않는다 |
+| 토큰 | ID 토큰 `aud=demo-chat-loadgen`, `preferred_username`=계정 이름 | 앱이 이 토큰을 받으려면 같은 발급자의 두 번째 클라이언트를 믿어야 한다. demo-chat은 아직 그렇게 못 한다(아래) |
+
+위 "사용자 옮기기" 2번처럼 관리 경로와 `$TOKEN`을 연 뒤 등록한다.
+
+```sh
+python3 -c 'import identity, json; print(json.dumps(identity.loadgen_client()))' > "$OUTPUT_DIR/loadgen-client.json"
+printf 'header = "Authorization: Bearer %s"\nheader = "Content-Type: application/json"\n' "$TOKEN" \
+  | curl -s -K - --data @"$OUTPUT_DIR/loadgen-client.json" "$KC/admin/realms/bravo/clients"
+CID=$(printf 'header = "Authorization: Bearer %s"\n' "$TOKEN" \
+  | curl -s -K - "$KC/admin/realms/bravo/clients?clientId=demo-chat-loadgen" \
+  | python3 -c 'import json, sys; print(json.load(sys.stdin)[0]["id"])')
+# 비밀을 화면에 띄우지 않고 클립보드로 옮긴다(macOS pbcopy). 부하 생성기 세션의 read -rs에 붙여 넣는다.
+printf 'header = "Authorization: Bearer %s"\n' "$TOKEN" \
+  | curl -s -K - "$KC/admin/realms/bravo/clients/$CID/client-secret" \
+  | python3 -c 'import json, sys; sys.stdout.write(json.load(sys.stdin)["value"])' | pbcopy
+```
+
+부하 생성기 계정(출발지와 같은 `loadgen`)은 위 "사용자 옮기기"로 옮긴 뒤, 3번 명령에서 `"temporary":true`를 **`false`로** 바꿔 영구 비밀번호를 넣는다. 첫 로그인에서 비밀번호를 바꿀 사람이 없는 계정이라서다. 영구 비밀번호를 넣으면 비밀번호 변경 단계가 풀린다(컨테이너 시험이 잰다). 부하 생성기 쪽 사용법은 [services/loadgen](../../../services/loadgen/README.md#로그인을-켠-앱에-쓰기-t47).
+
+**앱 설정은 아직 할 수 없다.** demo-chat(`a204665`)은 발급자 주소마다 클라이언트 ID를 하나만 남긴다. `AUTH_ISSUER`와 같은 Keycloak 발급자를 `AUTH_ALSO_TRUST`에 `|demo-chat-loadgen`으로 넣으면 무시돼 부하 토큰이 401이고, `AUTH_ALSO_TRUST`에 Cognito 발급자를 브라우저 · 부하 클라이언트로 두 번 넣으면 마지막 것만 남아 **출발지에서 로그인한 방문자의 토큰이 401이 된다**(11/8 그 코드로 확인). demo-app이 발급자마다 여러 클라이언트 ID를 받게 바뀐 뒤에 넣는다.
+
 **이중 신뢰 중의 조건.** `AUTH_ALSO_TRUST`가 켜진 동안 두 발급자 모두 스스로 가입이 꺼져 있어 일반 사용자는 다른 이름을 만들 수 없다. 하지만 옮기지 않은 계정(비활성 · 미확인 · 대문자)의 이름과 과거 글은 남는다. 이사 중에는 어느 쪽에서도 `identity_users.py` 출력 밖의 계정을 만들지 않고, 건너뛴 이름은 예약한다. 같은 이름을 새로 만들면 과거 작성자를 가져가게 된다.
 
 ### 확인한 것과 못 한 것
 
-- 렌더 시험: 공개 PKCE 클라이언트 하나, 사용자 · 비밀번호 없음, 이름 변경 · 이메일 로그인 끔, user profile은 관리자만 편집, 관리자 값은 Secret 참조만, Edge만 수신, 고정 digest, 전용 계정.
+- 렌더 시험: realm import에는 공개 PKCE 클라이언트 하나(부하 생성기 클라이언트는 import 밖, 비밀 없는 정의), 사용자 · 비밀번호 없음, 이름 변경 · 이메일 로그인 끔, user profile은 관리자만 편집, 관리자 값은 Secret 참조만, Edge만 수신, 고정 digest, 전용 계정.
 - 컨테이너 시험(`BRAVO_TEST_KEYCLOAK=1`): 렌더한 이미지 · 인자 · 환경 · realm으로 UID 1000에서 띄운 실제 서버를 잰다(로컬 http가 Edge 대신).
   - 발급자 문서 · RSA 공개 키, 정확한 콜백만 로그인 화면(다른 주소 · 경로 · 끝 `/` 없음은 400), 가입 링크 없음 · 가입 주소 닫힘
   - PKCE 없음 · `plain`은 `invalid_request`, implicit 거부, `demo-chat` password grant는 `unauthorized_client`
   - 관리 API로 읽은 realm: 이름 변경 · 이메일 로그인 · 가입 끔, user profile 모든 항목이 관리자 편집 · 선택
   - **옮긴 계정 전체 흐름:** partial import → 아무 비밀번호로도 로그인 실패(비밀번호 변경 화면 없음) → 관리 API로 임시 비밀번호 → 로그인 → 새 비밀번호 → VERIFY_PROFILE 없이 앱 콜백으로 code → PKCE 교환 → ID 토큰 `aud=demo-chat`, `preferred_username=visitor01`
+  - **부하 생성기 클라이언트**(11/8): 관리 API로 등록 → Keycloak이 만든 비밀 → 옮긴 `loadgen` 계정에 영구 비밀번호 → `demo-chat-loadgen` password grant만 200, ID 토큰 `aud=demo-chat-loadgen` · `preferred_username=loadgen`. 같은 realm에서 `demo-chat` password grant는 여전히 `unauthorized_client`, 비밀 없음 · 틀린 비밀은 401, 액세스 토큰으로 계정 콘솔 401/403, 이 클라이언트로 브라우저 로그인 400. 클라이언트를 일부러 넓히면(공개 클라이언트, `fullScopeAllowed` 켬, 브라우저 로그인 켬) 세 가지 모두 이 시험이 실패한다
 - 같은 코드의 앱이 로컬 Keycloak으로 실제 로그인 → 서명 확인 → 작성자 저장까지 되는 것은 demo-app #28에서 확인했다.
 - 실제 목적지 클러스터 적용, Edge 공개 주소 연결과 경로 제한, Cognito → Keycloak 실제 사용자 이동은 하지 않았다.
 

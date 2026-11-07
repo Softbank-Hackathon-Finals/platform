@@ -63,6 +63,20 @@ class RealmTests(unittest.TestCase):
         self.assertEqual(client["webOrigins"], [APP])
         self.assertEqual(client["attributes"]["pkce.code.challenge.method"], "S256")
 
+    def test_load_generator_client_is_separate_and_outside_the_import(self):
+        # The import keeps only the browser client; the generator's client is registered later (README).
+        self.assertEqual([c["clientId"] for c in self.realm()["clients"]], ["demo-chat"])
+        client = identity.loadgen_client()
+        self.assertEqual(client["clientId"], "demo-chat-loadgen")
+        self.assertIs(client["publicClient"], False)
+        self.assertEqual(client["clientAuthenticatorType"], "client-secret")
+        self.assertNotIn("secret", client)  # Keycloak makes it; nothing rendered holds it
+        self.assertIs(client["directAccessGrantsEnabled"], True)
+        for flag in ("standardFlowEnabled", "implicitFlowEnabled", "serviceAccountsEnabled", "fullScopeAllowed"):
+            with self.subTest(flag=flag):
+                self.assertIs(client[flag], False)
+        self.assertEqual((client["redirectUris"], client["webOrigins"]), ([], []))
+
     def test_realm_has_no_users_and_no_self_sign_up(self):
         realm = self.realm()
         self.assertNotIn("users", realm)
@@ -306,6 +320,51 @@ class RenderedServerTests(unittest.TestCase):
             with self.subTest(attribute=attribute["name"]):
                 self.assertEqual(attribute["permissions"]["edit"], ["admin"])
                 self.assertFalse(attribute.get("required"))
+
+    def test_only_the_load_generator_client_takes_a_password(self):
+        """README "부하 생성기 클라이언트": admin API registers it, Keycloak makes the secret, the moved account
+        gets a permanent password (it has no person to pass UPDATE_PASSWORD) and signs in."""
+        self.admin("POST", "/clients", identity.loadgen_client())
+        (client,) = self.admin("GET", "/clients?clientId=demo-chat-loadgen")
+        secret = self.admin("GET", f"/clients/{client['id']}/client-secret")["value"]
+        moved, _ = identity_users.convert({"Users": [cognito_user("loadgen")]})
+        self.admin("POST", "/partialImport", moved)
+        (user,) = self.admin("GET", "/users?exact=true&username=loadgen")
+        self.assertEqual(user["requiredActions"], ["UPDATE_PASSWORD"])
+        self.admin("PUT", f"/users/{user['id']}/reset-password",
+                   {"type": "password", "value": "Load-Generator-1", "temporary": False})
+        opener = urllib.request.build_opener(NoRedirect)
+
+        def grant(client_id, **extra):
+            status, _, body = self.fetch(opener, self.document["token_endpoint"], {
+                "grant_type": "password", "scope": "openid", "client_id": client_id,
+                "username": "loadgen", "password": "Load-Generator-1", **extra})
+            return status, json.loads(body)
+
+        # The browser client still refuses a password, even with the generator's client in the realm.
+        status, body = grant("demo-chat")
+        self.assertEqual((status, body["error"]), (400, "unauthorized_client"))
+        # Keycloak answers a missing or wrong client secret with 401 unauthorized_client.
+        for extra in ({}, {"client_secret": "wrong"}):
+            with self.subTest(secret=bool(extra)):
+                status, body = grant("demo-chat-loadgen", **extra)
+                self.assertEqual((status, body["error"]), (401, "unauthorized_client"))
+        status, body = grant("demo-chat-loadgen", client_secret=secret)
+        self.assertEqual(status, 200)
+        token = claims(body["id_token"])
+        self.assertEqual((token["iss"], token["aud"], token["azp"], token["preferred_username"]),
+                         (f"{self.PUBLIC}/realms/bravo", "demo-chat-loadgen", "demo-chat-loadgen", "loadgen"))
+        # Its access token cannot reach the account console, where a user would edit their own profile.
+        self.assertNotIn("account", claims(body["access_token"]).get("resource_access", {}))
+        request = urllib.request.Request(f"{self.PUBLIC}/realms/bravo/account", headers={
+            "Authorization": f"Bearer {body['access_token']}", "Accept": "application/json"})
+        with self.assertRaises(urllib.error.HTTPError) as refused:
+            urllib.request.urlopen(request, timeout=10)
+        self.assertIn(refused.exception.code, (401, 403))
+        # And nobody signs in through it in a browser.
+        status, location, _ = self.fetch(opener, self.authorize(client_id="demo-chat-loadgen"))
+        self.assertEqual(status, 400)
+        self.assertIsNone(location)
 
     def test_moved_account_needs_a_temporary_password_then_a_new_one(self):
         """README "사용자 옮기기": import → no sign-in at all → temporary password → new password → ID token."""
