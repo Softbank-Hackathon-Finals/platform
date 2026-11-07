@@ -25,6 +25,8 @@ PACKAGES = {
     "apply-path": "bravo_apply",
     # The approval host runs the T17 SHIFT CLI and FailbackEdge over one LB journal.
     "edge-control": "bravo_edge_control",
+    # T44 planning library under the agent worker's infra.plan tool (pure, no dependencies).
+    "iac": "bravo_iac",
 }
 
 # Include the lazy imports used by --initial-proposal, not just the entry point.
@@ -105,6 +107,7 @@ def prepare_context(context, revision, *, rehearsal_host=False):
         "--group", "product-inputs", "--group", "gate-records", "--no-emit-project", "--no-emit-package", "bravo-observability",
         "--no-emit-package", "bravo-agent-worker", "--no-emit-package", "bravo-rehearsal-runner",
         "--no-emit-package", "bravo-inventory", "--no-emit-package", "bravo-control-gate",
+        "--no-emit-package", "bravo-iac",
         "-o", str(requirements)], cwd=SERVICE, check=True, stdout=subprocess.DEVNULL)
     text = requirements.read_text()
     if any(line.strip().startswith(("-e ", "git+", "file:", "../", "/")) or " @ " in line

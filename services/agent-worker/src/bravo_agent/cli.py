@@ -58,6 +58,8 @@ def main() -> int:
         analyze.add_argument("--" + argument, type=Path, required=True)
     analyze.add_argument("--inventory", type=Path,
                          help="Optional T16 inventory document of the same source_sha; enables inventory.describe")
+    analyze.add_argument("--iac-state", type=Path,
+                         help="Optional T44 committed desired state (infra/iac/environments/<env>.json); enables infra.plan")
     analyze.add_argument("--model", required=True, help="Explicit provider model ID")
     analyze.add_argument("--provider", choices=("chatgpt-plan", "openai", "claude"), default="chatgpt-plan")
     analyze.add_argument("--state-output", type=Path,
@@ -79,6 +81,12 @@ def main() -> int:
         # Only the model-facing subset survives; a different revision is refused like any input error.
         inventory = (InventorySummary.from_document(bounded_json(args.inventory, 262144))
                      if args.inventory is not None else None)
+        iac = None
+        if args.iac_state is not None:
+            # Built here, on the trusted side of the tool layer: the model only sees describe() and plans.
+            from bravo_iac.agent import AgentPlanner
+
+            iac = AgentPlanner(bounded_json(args.iac_state, 262144))
         checkpoint = None
         if args.state_output is not None:
             state_output = args.state_output.parent.resolve() / args.state_output.name
@@ -89,7 +97,7 @@ def main() -> int:
                 write_state(state_output, state, replace=published)
                 published = True
         coordinator = Coordinator(bundle, Snapshot(args.snapshot.resolve(), manifest), inventory,
-                                  checkpoint=checkpoint)
+                                  checkpoint=checkpoint, iac=iac)
         with tempfile.TemporaryDirectory(prefix="bravo-agent-") as directory:
             runtime = Path(directory)
             environment = isolated_environment(dict(os.environ), runtime, args.provider)
