@@ -38,3 +38,8 @@ resources:
 # and an API token: projected, 1 hour, mounted only when this is on.
 initialProposalAuto:
   enabled: false
+# T19 platform signer (ADR-0038): the signer role from infra/envs/platform-gate-signer. Empty = no AWS
+# identity at all; the gate then needs the operator's signatures (operations/gate/run.py) as before.
+gateSigner:
+  roleArn: ""
+  region: ap-northeast-2

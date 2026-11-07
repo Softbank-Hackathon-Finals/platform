@@ -58,6 +58,24 @@ class WorkflowHostChart(unittest.TestCase):
         off_pod = next(d for d in off if d["kind"] == "Deployment")["spec"]["template"]["spec"]
         self.assertNotIn("kube-api-token", {v["name"] for v in off_pod["volumes"]})
 
+    def test_gate_signer_adds_only_an_sts_audience_token_and_the_role(self):
+        role = "arn:aws:iam::111122223333:role/bravo-gate-signer"
+        result, docs = render(VALUES | {"gateSigner": {"roleArn": role, "region": "ap-northeast-2"}})
+        self.assertEqual(result.returncode, 0, result.stderr)
+        pod = next(d for d in docs if d["kind"] == "Deployment")["spec"]["template"]["spec"]
+        self.assertIs(pod["automountServiceAccountToken"], False)
+        [source] = next(v for v in pod["volumes"] if v["name"] == "sts-token")["projected"]["sources"]
+        self.assertEqual(source["serviceAccountToken"]["audience"], "sts.amazonaws.com")  # never the API audience
+        env = {e["name"]: e["value"] for e in pod["containers"][0]["env"]}
+        self.assertEqual((env["AWS_ROLE_ARN"], env["AWS_WEB_IDENTITY_TOKEN_FILE"]), (role, "/var/run/secrets/sts/token"))
+        self.assertFalse(any(k.startswith("AWS_") and "KEY" in k for k in env))  # no static credential
+        _, off = render(VALUES)
+        off_pod = next(d for d in off if d["kind"] == "Deployment")["spec"]["template"]["spec"]
+        self.assertNotIn("sts-token", {v["name"] for v in off_pod["volumes"]})
+        self.assertFalse(any(e["name"].startswith("AWS_") for e in off_pod["containers"][0]["env"]))
+        bad, _ = render(VALUES | {"gateSigner": {"roleArn": "arn:aws:iam::111122223333:user/someone"}})
+        self.assertNotEqual(bad.returncode, 0)
+
     def test_missing_required_inputs_are_refused(self):
         for key in ("image", "configuration", "reader", "stateClaim"):
             values = {k: v for k, v in VALUES.items() if k != key}
