@@ -211,7 +211,7 @@ def apply(application_id: str, claim: dict, proposal: dict, *, kube: Kube, recei
           repository: str = "", policy_target: PolicyTarget | None = None,
           sources: dict[str, str] | None = None, diff: bytes | None = None, now: datetime | None = None,
           timeout_seconds: int = 300, clock: Callable[[], datetime] | None = None,
-          policy_hooks: dict | None = None) -> ApplyOutcome:
+          policy_hooks: dict | None = None, pull_secret: str | None = None) -> ApplyOutcome:
     """Apply the approved change at most once per ``application_id`` and record the outcome.
 
     If anything is already recorded for the id, that record is returned as-is (same fields)
@@ -297,7 +297,8 @@ def apply(application_id: str, claim: dict, proposal: dict, *, kube: Kube, recei
                                            timeout_seconds=timeout_seconds, **(policy_hooks or {}))
         else:
             deployed = apply_pinned_image(kube, namespace=namespace, deployment=deployment, container=container,
-                                          repository=repository, digest=binding["image_digest"], timeout_seconds=timeout_seconds)
+                                          repository=repository, digest=binding["image_digest"], timeout_seconds=timeout_seconds,
+                                          pull_secret=pull_secret)
     except DeployMismatch as exc:
         detail = exc.code + (f" ({exc.detail})" if exc.detail else "")
         if not exc.mutation_attempted:

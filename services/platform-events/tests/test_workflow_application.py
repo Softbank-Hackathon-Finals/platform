@@ -74,3 +74,29 @@ def test_post_apply_prepare_binds_only_a_target_run_after_the_application(record
     bound = prepare(f.principal, f.plan.plan_id, outcome)
     assert bound["gate_phase"] == "post_apply" and bound["context"]["target_ref"] == "target-after-apply"
     assert prepare(f.principal, f.plan.plan_id, outcome) == bound  # retry is read-only
+
+
+def test_rehearse_refreshes_the_target_pull_secret_before_it_applies(backend, tmp_path):
+    import base64
+
+    store = backend.store
+    store.register_plan(SPEC, run_id="r", occurred_at="2026-11-07T00:00:00+00:00")
+    source = tmp_path / "dockerconfigjson"
+    source.write_bytes(b'{"auths":{"ghcr.io":{}}}')
+    path = tmp_path / "application.json"
+    path.write_text(json.dumps({"receipts_dir": str(tmp_path), "kubeconfig": "/t31/kubeconfig", "target": TARGET,
+                                "pull_secret": {"name": "bravo-ghcr-reader", "source": str(source)}}))
+    kube = FakeKube("x@sha256:" + "0" * 64)
+    kube.secrets["bravo-ghcr-reader"] = {"metadata": {"name": "bravo-ghcr-reader", "resourceVersion": "7"},
+                                         "stringData": {".dockerconfigjson": '{"auths":{}}'}}
+    ports = workflow_application.create(store, str(path), kube=kube)
+    version = store.snapshot(SPEC.plan_id)["version"]
+    for _ in range(2):
+        with pytest.raises(EventError):  # no approved change yet: the apply itself still holds
+            ports["REHEARSE"](SPEC.plan_id, SPEC.tenant_id, version)
+    [written] = kube.secret_writes  # once: an unchanged credential is not written again
+    assert written["data"] == {".dockerconfigjson": base64.b64encode(source.read_bytes()).decode()}
+    assert written["metadata"]["resourceVersion"] == "7" and "stringData" not in written
+    with pytest.raises(EventError):
+        ports["GATE"](SPEC.plan_id, SPEC.tenant_id, version)  # GATE applies nothing: no refresh
+    assert len(kube.secret_writes) == 1
