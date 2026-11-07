@@ -18,6 +18,7 @@ dependencies = [
 bravo-observability = { git = "https://github.com/Softbank-Hackathon-Finals/platform.git", rev = "020c6c78bdc6133ab0ee15e2a990bb9527b3182f", subdirectory = "services/observability" }
 bravo-rehearsal-runner = { path = "../rehearsal-runner" }
 bravo-agent-worker = { path = "../agent-worker" }
+bravo-iac = { path = "../iac" }
 bravo-control-gate = { path = "../control-gate" }
 bravo-inventory = { path = "../inventory" }
 bravo-apply-path = { path = "../apply-path", editable = true }
@@ -36,7 +37,7 @@ dev = [
     {include-group = "application-host"},
 ]
 trusted-host = ["bravo-rehearsal-runner"]
-product-inputs = ["bravo-agent-worker", "bravo-inventory", {include-group = "trusted-host"}]
+product-inputs = ["bravo-agent-worker", "bravo-inventory", "bravo-iac", {include-group = "trusted-host"}]
 application-host = ["bravo-apply-path", "bravo-control-gate==0.1.0"]
 gate-records = ["bravo-control-gate==0.1.0"]
 

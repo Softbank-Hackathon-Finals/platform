@@ -120,6 +120,24 @@ uv run bravo-iac stage --plan plan.json --proposed proposed.json --target ../../
 - API(`bravo_iac.api.create_app(<environments 폴더>)`): `GET /v1/iac/modules`, `GET /v1/iac/environments/{id}`,
   `POST /v1/iac/plan`. 커밋된 파일만 읽고 Git·클러스터에 쓰지 않는다. 호출자 인증은 앞단 호스트가 한다.
 
+## 플랫폼 API: 계획 → T10 infra 승인 → 원하는 상태 PR
+
+운영자 승인 호스트(`approval_server` + `operator_ports`)가 이전 계획(T10 plan)마다 제공한다(`iac_plans.py`).
+
+| 순서 | 호출 | 하는 일 |
+|---|---|---|
+| 1 | `POST /v1/plans/{plan_id}/iac/plans` (`Idempotency-Key`, `{environment, module, params}`) | base 브랜치(develop)에 커밋된 원하는 상태로 결정적 계획. 응답의 `binding`이 승인 대상 |
+| 2 | `POST /v1/plans/{plan_id}/approvals` (`approval_kind: infra`, 그 `binding`) | 다른 사람(`approve_infra`)이 그 `plan_digest`를 승인. 요청자는 승인할 수 없다 |
+| 3 | `POST /v1/plans/{plan_id}/iac/plans/{iac_plan_id}/pull-request` (`{approval_id}`) | 지금의 base로 다시 계획해 digest가 같을 때만 승인을 한 번 소비(`apply_infra`)하고, 원하는 상태·생성 차트·tailnet 정책 조각을 담은 PR을 연다. 다시 부르면 같은 PR |
+| 4 | PR 검토·병합 | 병합은 적용이 아니다. 검토한 커밋 SHA를 Argo `targetRevision`으로 줄 때 적용된다 |
+
+base가 그 사이 바뀌어 digest가 달라지면 `iac_plan_stale`이고 승인은 소비되지 않는다(다시 계획·승인).
+에이전트는 이 API를 부르지 않고 실행 안에서 `infra.plan`으로 계획한다(시도 기록 `infra_plans`).
+
+운영 설정은 `/rehearsal/operator.json`의 선택 키 `iac`(`app_id`, `key_file`, `repository: Softbank-Hackathon-Finals/platform`)다.
+**쓰기에는 GitHub App이 이 저장소에 contents·pull requests 쓰기로 설치되어 있어야 한다**(지금 App은 demo-chat 전용).
+설치 여부와 권한은 운영 결정이라 이 저장소에서 바꾸지 않는다. 키가 없으면 경로가 생기지 않는다.
+
 ## 아직 아닌 것
 
 - 비밀 값이 필요한 모듈의 GitOps 적용(ESO·OpenBao로 주입). 버킷 공개 상태는 지금 T9 `object_exposure.py plan`의 운영 순서로
