@@ -7,8 +7,6 @@
 화면·로고·브라우저 탭의 제품명은 **Sova**로 통일한다. 팀 연동에 사용하는
 `bravo-console` 패키지·`bravo_console` 모듈·`X-Bravo-Console` 헤더는 기존 계약을 유지한다.
 
-운영 호스트 합성과 개인 SSO 접속 도구의 준비·미완료 범위는 [운영 호스트 연결](docs/operational-host.md)을 참고한다.
-
 ## 워크로드와 보안 대응
 
 워크로드 카드에서 자원별 경고·영향 가능성·격리·연결 차단·대체·검증·복구를 근거별로
@@ -570,3 +568,7 @@ app = ConsoleApp(api, public_origin=public_origin, audit=reader)
   T24 또는 T21 전체 완료를 체크하지 않는다.
 
 T24 모듈의 수정은 담당자 범위로 유지한다. 이 변경은 T21 소비자와 검증 코드만 포함한다.
+
+## 운영 호스트 연결
+
+운영 호스트 합성과 개인 SSO 접속 도구의 준비·미완료 범위는 [운영 호스트 연결](docs/operational-host.md)을 참고한다.
