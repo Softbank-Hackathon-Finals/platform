@@ -5,6 +5,7 @@
 ## 작업 전에
 
 1. `docs/tasks.md`를 먼저 읽는다. 팀 작업 계획이고, 맨 위 **작업 규칙**을 따른다. 진행 상황의 기준은 [프로젝트 보드](https://github.com/orgs/Softbank-Hackathon-Finals/projects/2)(이슈)다.
+   옛 경로와 현재 기준은 [레거시 목록](docs/legacy.md)에서 먼저 확인한다. 목록의 레거시를 현재 절차로 쓰지 않는다.
 2. 사용자의 작업은 이슈 Assignees로 찾고, **선행** 작업이 끝났는지 확인한다. `통합 시점` 작업은 시작 조건이 아니다(모의 환경으로 먼저 시작하고 완료 확인만 그 뒤에 한다).
 3. `develop`에서 `feature/T번호-설명` 브랜치를 만들고 `develop`으로 PR을 올린다. `main`은 release/hotfix로 반영한다. 승인·CODEOWNERS·tasks.md 전용 예외·봇 PR 병합은 [개발 규약](docs/development.md#브랜치와-병합)과 현재 GitHub 규칙을 따른다. 보호 규칙을 우회하지 않는다.
    다른 담당자의 열린 태스크를 바꾸기 전에는 [담당 범위 규약](docs/development.md#담당-태스크를-넘는-변경)에 따라 범위를 합의한다. 로컬 세션 배정이나 사후 승인은 이를 대신하지 않는다.
