@@ -126,8 +126,9 @@ class TerraformCli:
     def outputs(self, directory, data_dir):
         return json.loads(self._run(directory, data_dir, "output", "-json").stdout or "{}")
 
-    def plan(self, directory, data_dir, plan_file, var_files):
-        args = ["plan", "-input=false", "-detailed-exitcode", "-lock-timeout=120s", f"-out={plan_file}"]
+    def plan(self, directory, data_dir, plan_file, var_files, *, lock=True):
+        args = ["plan", "-input=false", "-detailed-exitcode", f"-out={plan_file}"]
+        args += ["-lock-timeout=120s"] if lock else ["-lock=false"]  # read-only verification takes no lock
         args += [f"-var-file={f}" for f in var_files]
         result = self._run(directory, data_dir, *args, check=False)
         if result.returncode not in (0, 2):
@@ -165,3 +166,49 @@ class Scratch:
 
     def __exit__(self, *exc):
         self._dir.cleanup()
+
+
+def verify(stack, repo_root, params, *, only=None, cli=None):
+    """Plan every terraform step in order against the real state, never apply and never lock.
+
+    For a stack that is already applied, every step should report no change: that is the check that
+    the wiring reproduces what operators typed by hand. Upstream outputs are read from state.
+    """
+    cli = cli or TerraformCli()
+    steps = {s["id"]: s for s in stack.document["steps"] if s["kind"] == "terraform"}
+    results = []
+    for level in stack.levels:
+        for step_id in level:
+            if step_id not in steps or (only and step_id not in only):
+                continue
+            step = steps[step_id]
+            resolved = substitute({k: step[k] for k in ("backend", "var_file") if k in step}, params)
+            directory = Path(repo_root) / step["dir"]
+            try:
+                inputs_digest(Path(repo_root), step, params)  # private files exist and live outside Git
+                values = {}
+                for name, value in step.get("vars", {}).items():
+                    if isinstance(value, dict):
+                        upstream = steps[value["from"]]
+                        backend = substitute(upstream["backend"], params)
+                        with Scratch() as scratch:
+                            cli.init(Path(repo_root) / upstream["dir"], scratch / "data", backend["file"],
+                                     backend.get("config", {}))
+                            values[name] = output_path(cli.outputs(Path(repo_root) / upstream["dir"],
+                                                                   scratch / "data"), value)
+                    else:
+                        values[name] = substitute(value, params)
+                with Scratch() as scratch:
+                    cli.init(directory, scratch / "data", resolved["backend"]["file"],
+                             resolved["backend"].get("config", {}))
+                    wired = scratch / "wired.tfvars.json"
+                    wired.write_text(json.dumps(values))
+                    var_files = ([resolved["var_file"]] if resolved.get("var_file") else []) + [str(wired)]
+                    changed = cli.plan(directory, scratch / "data", scratch / "plan.bin", var_files, lock=False)
+                    counts, destructive = (change_summary(cli.show(directory, scratch / "data", scratch / "plan.bin"))
+                                           if changed else ({}, []))
+                results.append({"step": step_id, "status": "CHANGES" if changed else "NO_CHANGES",
+                                "changes": counts, "destructive": len(destructive)})
+            except (StackError, RuntimeError) as error:
+                results.append({"step": step_id, "status": "ERROR", "reason": str(error)})
+    return results

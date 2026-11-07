@@ -106,6 +106,11 @@ def main(argv=None):
     confirm.add_argument("--step", required=True)
     confirm.add_argument("--confirmed-by", required=True)
     _executor_args(confirm)
+    verify = sub.add_parser("verify", help="plan every terraform step against real state; never apply or lock")
+    verify.add_argument("stack")
+    verify.add_argument("--request", required=True)
+    verify.add_argument("--repo-root", required=True)
+    verify.add_argument("--only", nargs="*", help="step ids to check (default: all)")
     status = sub.add_parser("status", help="print a run summary")
     status.add_argument("--runs-dir", required=True)
     status.add_argument("--run-id", required=True)
@@ -115,6 +120,13 @@ def main(argv=None):
             print(json.dumps(_summary(FileRunStore(args.runs_dir).load(args.run_id)), indent=2))
             return 0
         stack = load_stack(args.stack)
+        if args.command == "verify":
+            from .terraform import verify
+
+            request = stack.validate_request(json.loads(Path(args.request).read_text()))
+            results = verify(stack, Path(args.repo_root).resolve(), request["params"], only=args.only)
+            print(json.dumps(results, indent=2))
+            return 0 if all(r["status"] == "NO_CHANGES" for r in results) else 3
         if args.command == "run":
             result = _executor(args, stack).start(
                 request=json.loads(Path(args.request).read_text()), migration_plan_id=args.migration_plan_id,

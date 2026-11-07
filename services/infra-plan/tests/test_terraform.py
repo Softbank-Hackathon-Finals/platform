@@ -151,3 +151,17 @@ def test_the_aws_stack_wires_only_declared_variables_and_digests_every_env(tmp_p
     (tmp_path / "source-eks.tfvars.json").write_text('{"instance_type": "t3.xlarge"}')
     changed = Planner(stack, REPO).plan(request, stack_revision="1" * 40, target=ACCOUNT, base_commit="0" * 40)
     assert changed.plan_digest != plan.plan_digest  # the private input is bound by digest
+
+
+def test_verify_plans_in_order_against_state_and_never_applies(aws):
+    from bravo_infra_plan.terraform import verify
+
+    assert aws["run"]("run-1", "appr-1")["status"] == "SUCCEEDED"
+    before = (aws["state"] / "network.tfstate").read_text()
+    stack = parse_stack(STACK)
+    assert [r["status"] for r in verify(stack, REPO, aws["request"]["params"])] == ["NO_CHANGES", "NO_CHANGES"]
+    aws["private"].joinpath("network.tfvars.json").write_text(json.dumps({"cidr": "10.99.0.0/16"}))
+    network = verify(stack, REPO, aws["request"]["params"], only=["network"])
+    assert network == [{"step": "network", "status": "CHANGES", "changes": {"replace": 1}, "destructive": 1}]
+    assert (aws["state"] / "network.tfstate").read_text() == before  # plan only: state untouched
+    assert not list(aws["state"].glob("*.lock*"))
