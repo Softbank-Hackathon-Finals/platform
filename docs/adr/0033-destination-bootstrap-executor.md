@@ -1,6 +1,6 @@
 # [ADR-0033] 목적지를 처음 세우는 순서를 정형 단계 스택과 실행기로 제공
 
-* **상태 (Status):** 제안됨(Proposed). 승인 위치(T10 `approval_kind=infra`), 설정 저장소, 승인 묶음 단위는 2026-11-07 정했다(4장). T44(ADR-0032)와의 범위 나눔은 이상무 확인을 요청했고, T30 단계 순서 확인이 남아 있다.
+* **상태 (Status):** 제안됨(Proposed). 승인 위치(T10 `approval_kind=infra`), 설정 저장소, 승인 묶음 단위, T44(ADR-0032)와의 namespace 주인은 2026-11-07 정했다(4장). T30 단계 순서 확인이 남아 있다. 구현은 #604 · #620 · #634 · #642.
 * **날짜 (Date):** 2026-11-07
 * **관련 (Related):** T45(신규), T44 · ADR-0032(목적지 IaC 모듈 · 원하는 상태 · 고객 클러스터 Argo CD), T30 #17, T9 #13, T11 #20, T10 #19, T43 #355, 설계 문서 8.8 · 8.11 "목적지 구축" 어댑터, ADR-0007 · 0019 · 0021 · 0024 · 0029
 
@@ -129,13 +129,12 @@
 | `gitops_publish` | Git → Argo | 저장소의 렌더러를 고정 인자로 실행하고, Helm chart는 고정한 아카이브 SHA-256으로 `helm template` 뒤 후처리(예: `finalize-bao`)까지 마친 매니페스트를 설정 저장소의 정해진 경로에 커밋한다 | 렌더 트리가 설정 저장소의 현재 트리와 같으면 `SKIPPED` |
 | `gitops_sync` | Git → Argo | 목적지 Argo CD Application이 해당 커밋 SHA로 `Synced`이고 `Healthy`인지 확인한다. 상한 시간이 있다 | 이미 그 SHA로 수렴했으면 즉시 통과 |
 | `render_apply` | API 직접 | Argo CD가 맡기 어려운 일회성 자원(예: 마이그레이션 Job)만 렌더 → 서버 측 dry-run → `kubectl apply --server-side --field-manager=bravo-infra-plan` | dry-run 차이가 없거나 Job이 이미 성공했으면 `SKIPPED` |
-| `helm_release` | API 직접 | 고정 chart · values를 설치한다. 첫 스택은 쓰지 않는다(목적지 Argo CD는 T44가 설치) | 같은 chart · values digest의 release가 있으면 `SKIPPED` |
 | `secret_generate` | API 직접 | 정해진 형식의 비밀값을 실행기 메모리에서 생성해 Kubernetes API로 바로 만든다. Git · 계획 · 기록 · 로그에는 Secret 이름과 키 이름만 남긴다 | Secret이 이미 있으면 **덮어쓰지 않고** `SKIPPED` |
 | `wait` | API 직접 | 조건 대기(DB Ready, Job Complete, ExternalSecret Ready). 상한 시간이 있다 | 조건이 이미 참이면 즉시 통과 |
 | `operator_action` | 사람 | 사람만 할 수 있는 일(호스트 디렉터리 생성, 오프라인 이미지 반입, OpenBao init과 복구 자료 보관, Tailscale OAuth 입력, 설정 저장소 읽기 자격 등록). 실행기는 멈추고 지시문과 확인 조건을 보여 준다 | 확인 조건(`probe`)이 참이면 `SKIPPED` |
-| `terraform` (2차) | API 직접 | 고정 revision에서 `plan -out` → 승인 → 그 plan 파일만 `apply`. 앞 스택의 `output -json`을 다음 단계 입력으로 넘긴다 | plan에 변경이 없으면 `SKIPPED` |
+| `terraform` | API 직접 | 승인 때의 코드 · 모듈 · lock · 연결 정의 · 저장소 밖 backend/tfvars digest를 다시 대조 → `plan -out` → 삭제 · 교체가 있으면 `HOLD` → 아니면 그 plan 파일만 `apply`. 앞 스택 출력은 상태에서 읽어 메모리로만 넘긴다 | plan에 변경이 없으면 `SKIPPED` |
 
-삭제 동작은 단계 종류에 없다. 목적지 Argo CD는 자동 prune을 끈 상태로 설치한다(ADR-0029와 같은 시작 조건). 설정 저장소에서 파일을 지워도 클러스터 자원은 지워지지 않는다. `helm uninstall`, `terraform destroy`, namespace · PV 삭제는 이 API로 실행할 수 없고 기존 수동 절차로 남긴다.
+삭제 동작은 단계 종류에 없다. `helm_release`는 구현 중에 뺐다(`helm upgrade`는 chart에서 빠진 자원을 지우고, 적용 시점에 의존 chart를 다시 받는다). 목적지 Argo CD는 자동 prune을 끈 상태로 설치한다(ADR-0029와 같은 시작 조건). 설정 저장소에서 파일을 지워도 클러스터 자원은 지워지지 않는다. `helm uninstall`, `terraform destroy`, namespace · PV 삭제는 이 API로 실행할 수 없고 기존 수동 절차로 남긴다.
 
 ### 3.3 API
 
@@ -165,11 +164,13 @@
 
 1차는 해피패스를 먼저 통과시키기 위해 권한을 넉넉하게 두고, 해피패스가 안정된 뒤 세분화한다(2026-11-07 류지환 의견).
 
+* 사람은 T10 승인 호스트와 같은 검증기(`operator_verifier`: 팀 IAM Identity Center 증명 또는 고정 OIDC 토큰)로 확인하고, 같은 토큰을 T10에 넘긴다. 실행 시작과 재개마다 T10이 그 사람의 `apply_infra`와 승인 회수를 다시 확인한다.
+* 실행은 모든 단계 전에 대상(클러스터 · 노드 UID, AWS 스택은 STS 계정)을 다시 확인하고, kube context를 시작 때 고정한다.
 * 계획 엔진은 환경 등록(T10 `connection_ref`)의 **읽기 전용** 신원으로 dry-run과 상태 조회만 한다.
 * 적용 실행기는 1차에서 목적지 클러스터 관리자 수준의 적용 신원을 실행마다 받는다. 상시 보관하지 않고 실행 시간과 대상 클러스터 UID로 제한한다. 세분화(delete 제외, namespace 한정, 목적지 Argo CD로 쓰기 이전)는 T45의 후속 고도화로 남긴다.
 * 설정 저장소 쓰기는 그 저장소의 정해진 브랜치 하나로 제한한 자격을 쓴다. 목적지 Argo CD는 같은 저장소의 읽기 전용 자격만 받는다.
 * 목적지 Argo CD는 UI · Dex · admin 계정 없이 설치하고(플랫폼 Argo CD 값과 같은 기준), AppProject로 대상 namespace와 리소스 종류를 제한한다. 플랫폼은 목적지 Argo CD의 관리자 자격을 보관하지 않는다.
-* **에이전트 신원은 넉넉한 권한 적용 대상이 아니다.** `POST /v1/infra/plans`와 조회만 할 수 있고, 승인 · 적용 · 확인 경로는 API가 신원 종류로 거부한다(프롬프트가 아니라 API에서 막는다).
+* **에이전트 신원은 넉넉한 권한 적용 대상이 아니다.** `POST /v1/infra/plans`와 조회만 할 수 있고, 승인 · 적용 · 확인 경로는 API가 신원 종류로 거부한다(프롬프트가 아니라 API에서 막는다). 사람과 구별되는 에이전트 워크로드 신원(T38)이 연결되기 전까지는 에이전트를 API에 아예 들이지 않는다.
 
 ### 3.6 에이전트 연결
 
@@ -223,12 +224,18 @@
 * 목적지 설정 저장소는 조직 안의 비공개 저장소로 새로 만든다. 공개 저장소인 `platform`에는 노드 이름 같은 운영 식별자가 들어간 렌더 결과를 두지 않는다(전동훈 결정).
 * `infra` 승인 종류는 #603으로 T10에 들어갔다(PR 제목은 당시 번호 T44). T10 코드는 승인 종류 추가 범위만 바꿨다.
 * 목적지 구축 승인은 그 목적지로 옮기는 이전 계획(`/v1/plans/{plan_id}`)에 묶는다. 컷오버 전 단계(COLLECT ~ AWAIT_APPROVAL)에서만 승인할 수 있다.
+* **목적지 namespace와 보안 레이블의 주인은 T45다**(16:33 이상무, T44 #632). T44 생성 chart는 namespace를 선언하지 않는다. T45 base가 `tailscale-system`(Pod Security `privileged`)도 만든다.
+* `object-secrets`는 T44 원하는 상태(`target-object-exposure`)의 값을 계획에 결속하고, 확인 조건이 Secret 모양을 그 상태와 대조한다.
+* 실행 기록은 T24 해시 체인(source `infra`, #639)에 남긴다.
 
 ### 팀 확인이 필요한 점
 1. **T30(김태현) · T9 렌더러 재사용 범위**: 렌더러 코드는 바꾸지 않고 CLI로만 호출한다. 3.7 표의 T30 단계 순서가 실제 구축 순서와 같은지 확인을 요청한다.
-2. **Terraform 2차 범위**: AWS 스택 일괄 적용은 T1 · T6 · T7 담당(류지환)과 범위를 합의한 뒤 시작한다.
+2. **Terraform 실측**: `infra/stacks/aws-platform`(13개 스택)과 `terraform` 단계는 구현했다(#634). 실제 AWS에서는 `platform-audit` 하나만 읽기 전용 `verify`로 `NO_CHANGES`를 확인했다. 나머지 12개는 담당(류지환)의 개인 backend · tfvars로 `verify`를 돌려야 한다.
 
-### 완료 증거(예정)
+### 완료 증거
+
+지금까지 확인한 것은 `docs/evidence/t45-kind-run-2026-11-07`(kind 2회, T44 Argo CD, 실제 T10 검증기 · 권한)과 #634의 실제 AWS `verify`에 있다. 아래는 남은 기준이다.
+
 1. `local-vm.sh up`으로 만든 새 VM에서 API로 계획 → T10 승인 → 적용 → 16단계 확인 통과. 단계별 시각과 전체 소요 시간을 기록한다.
 2. 목적지 Argo CD의 Application revision이 실행 기록의 설정 저장소 커밋 SHA와 같다.
 3. 같은 계획을 다시 적용하면 모든 단계가 `SKIPPED`이고 새 커밋과 클러스터 변경이 없다.
