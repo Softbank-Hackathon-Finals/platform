@@ -47,6 +47,51 @@ def test_configuration_names_only_and_builds_rehearse(backend, tmp_path):
         workflow_application.create(backend.store, str(path), kube=FakeKube("x@sha256:" + "0" * 64))
 
 
+EXPOSURE = {"environment_id": "target-dev", "namespace": "target-dev", "bucket": "demo-chat-attachments",
+            "endpoint": "http://seaweedfs.target-dev.svc.cluster.local:8333", "probe_key": "attachments/t14-canary.txt"}
+
+
+def test_an_approval_binding_a_closing_plan_hands_t31_that_plan_and_the_configured_bucket(backend):
+    import bravo_iac
+    from test_change_iac_binding import STATE, exposure
+
+    from bravo_platform_events.cutover import _put
+    from bravo_platform_events.workflow_propose import apply_input_key
+
+    store = backend.store
+    store.register_plan(SPEC, run_id="r", occurred_at="2026-11-07T00:00:00+00:00")
+    plan = bravo_iac.plan(exposure(STATE, "open-demo"), exposure(STATE, "closed"), origin="agent")
+    other = bravo_iac.plan(exposure(STATE, "open-demo"), exposure(STATE, "open-demo"), origin="agent")
+    diff = b"--- a/app.py\n"
+    digest = diff_hash(diff)
+    with store._transaction(write=True, plan_id=SPEC.plan_id) as c:
+        _put(c, SPEC.plan_id, apply_input_key(digest), {}, {
+            "edits": [], "diff_b64": __import__("base64").b64encode(diff).decode(), "diff_hash": digest,
+            "infra_plans": [other, plan]})
+    binding = {"diff_hash": digest, "target_environment_id": SPEC.target_environment_id}
+    with store._transaction() as c:
+        assert workflow_application.apply_input(c, SPEC.plan_id, {"binding": binding}, TARGET, EXPOSURE).exposure is None
+        bound = {"binding": binding | {"iac_plan_digest": plan["plan_digest"]}}
+        supplied = workflow_application.apply_input(c, SPEC.plan_id, bound, TARGET, EXPOSURE)
+        assert supplied.exposure["iac_plan"] == plan and supplied.exposure["environment_id"] == "target-dev"
+        assert (supplied.exposure["target"].bucket, supplied.exposure["target"].namespace) == (
+            "demo-chat-attachments", "target-dev")
+        for claim, config in ((bound, None), ({"binding": binding | {"iac_plan_digest": "f" * 64}}, EXPOSURE)):
+            with pytest.raises(EventError, match="application_exposure_unavailable"):
+                workflow_application.apply_input(c, SPEC.plan_id, claim, TARGET, config)
+
+
+def test_the_exposure_configuration_is_names_only(backend, tmp_path):
+    path = tmp_path / "application.json"
+    base = {"receipts_dir": str(tmp_path), "kubeconfig": "/t31/kubeconfig", "target": TARGET}
+    path.write_text(json.dumps(base | {"exposure": EXPOSURE}))
+    assert set(workflow_application.create(backend.store, str(path), kube=FakeKube("x@sha256:" + "0" * 64))) == {
+        "REHEARSE", "GATE"}
+    path.write_text(json.dumps(base | {"exposure": EXPOSURE | {"access_key": "x"}}))
+    with pytest.raises(ValueError):
+        workflow_application.create(backend.store, str(path), kube=FakeKube("x@sha256:" + "0" * 64))
+
+
 def test_post_apply_prepare_binds_only_a_target_run_after_the_application(records):  # noqa: F811
     from dataclasses import replace as _replace
     from datetime import timedelta

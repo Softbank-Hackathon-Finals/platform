@@ -211,7 +211,7 @@ def apply(application_id: str, claim: dict, proposal: dict, *, kube: Kube, recei
           repository: str = "", policy_target: PolicyTarget | None = None,
           sources: dict[str, str] | None = None, diff: bytes | None = None, now: datetime | None = None,
           timeout_seconds: int = 300, clock: Callable[[], datetime] | None = None,
-          policy_hooks: dict | None = None) -> ApplyOutcome:
+          policy_hooks: dict | None = None, exposure: dict | None = None) -> ApplyOutcome:
     """Apply the approved change at most once per ``application_id`` and record the outcome.
 
     If anything is already recorded for the id, that record is returned as-is (same fields)
@@ -282,6 +282,22 @@ def apply(application_id: str, claim: dict, proposal: dict, *, kube: Kube, recei
     else:
         # 2. the image is the rehearsal-verified digest; nothing is built here
         steps.append({"step": "image", "status": "ok", "detail": "promote rehearsal-verified digest, no rebuild"})
+    # 1c. ADR-0044: an approval that binds a closing T44 plan closes the bucket after the image, in this same
+    # application. The plan must be the one the binding names, for the environment this applier is set for.
+    # Pure; refused before a STARTED record exists.
+    planned = binding_in.get("iac_plan_digest")
+    if planned is not None or exposure is not None:
+        from .desired import DesiredRefused, check_closing_plan, load_t44
+
+        try:
+            if is_policy or planned is None or exposure is None:
+                raise DesiredRefused("EXPOSURE_SCOPE_MISMATCH")
+            if check_closing_plan(load_t44(), exposure["iac_plan"], exposure["environment_id"]) != planned:
+                raise DesiredRefused("EXPOSURE_PLAN_NOT_APPROVED")
+        except DesiredRefused as exc:
+            steps.append({"step": "exposure_plan", "status": "refused", "detail": exc.code})
+            return first_record(outcome("REFUSED", exc.code, change=change, mutation=False))
+        steps.append({"step": "exposure_plan", "status": "ok", "detail": "approved T44 plan closes the bucket"})
     # 3. durable STARTED record before any cluster call; losing the race means someone else runs it
     slack = _DEADLINE_SLACK + (_POLICY_PROBE_SLACK if is_policy else timedelta())
     deadline = _iso(now + timedelta(seconds=timeout_seconds) + slack)
@@ -316,6 +332,25 @@ def apply(application_id: str, claim: dict, proposal: dict, *, kube: Kube, recei
         tests = POLICY_GATE_RECHECK_TESTS
     else:
         steps.append({"step": step, "status": "ok", "detail": f"{deployed['pods']} pod(s) on approved digest"})
+        if exposure is not None:
+            # 4b. close after the image, so this application's finished_at (the post-apply run's lower bound)
+            # is after both. A failure holds the whole application; the image is not rolled back (8.2).
+            from .desired import apply_planned_exposure
+
+            closed = apply_planned_exposure(exposure["environment_id"], iac_plan=exposure["iac_plan"],
+                                            approval_id=claim["approval_id"], kube=kube, receipts_dir=receipts_dir,
+                                            target=exposure["target"], plan_id=binding["plan_id"],
+                                            timeout_seconds=timeout_seconds, policy_hooks=policy_hooks)
+            if closed["status"] not in ("APPLIED", "ALREADY_CLOSED"):
+                steps.append({"step": "exposure_close", "status": "failed",
+                              "detail": f"{closed['application_id']} {closed['status']} {closed['reason']}"})
+                # Same shape as any SAFE_HOLD: no deployed digest is reported; the observed digests show the image.
+                final = outcome("SAFE_HOLD", "EXPOSURE_" + closed["status"], change=change, mutation=True,
+                                previous=deployed["previous_image"], observed=deployed.get("observed", ()))
+                _replace_record(receipts_dir, final)
+                return final
+            steps.append({"step": "exposure_close", "status": "ok",
+                          "detail": f"{closed['application_id']} {closed['status']}"})
         tests = GATE_RECHECK_TESTS
     # 5. ask the gate to re-check the controls this change touches
     recheck = {"plan_id": binding["plan_id"], "application_id": application_id,
