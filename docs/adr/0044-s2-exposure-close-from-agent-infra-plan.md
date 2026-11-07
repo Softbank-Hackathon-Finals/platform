@@ -40,12 +40,12 @@
   * 제안 Job에 커밋된 원하는 상태 `--iac-state infra/iac/environments/<목적지 환경>.json`을 붙인다.
   * 결과의 `infra_plans`(`iac-plan.v1` 원문 그대로)를 적용 입력 기록(`apply_input_key(diff_hash)`)의 새 필드 `infra_plans`에 저장한다.
   * 기록은 지금처럼 한 번만 쓴다.
-* **승인 binding (df):** `ChangeIntake.current`가 binding에 `iac_plan_digest`를 더한다. 그 diff_hash의 적용 입력 기록에서 아래 조건을 모두 만족하는 계획이 **정확히 하나**면 그 `plan_digest`이고, 없으면 `null`이다.
+* **승인 binding (df):** `ChangeIntake.current`가 binding에 `iac_plan_digest`를 더한다. 그 diff_hash의 적용 입력 기록에서 아래 조건을 모두 만족하는 계획이 **정확히 하나**면 그 `plan_digest`다(T31 `check_closing_plan`). 없으면 키를 넣지 않아 기존 binding과 같다. 서로 다른 계획이 둘이면 `iac_plan_ambiguous`로 거부한다.
   * `kind`가 `iac-plan.v1`이다.
   * `accepted`가 true이고 `refusals`가 비어 있다.
-  * `environment`가 목적지 환경이다.
   * `plan_digest`가 자기 일치한다.
   * `effects`에서 `target-object-exposure`의 익명 접근이 before ≠ [] → after = []다.
+  * 환경: 계획의 IaC 환경 이름(`target-dev`)은 T10 환경 ID(`env-onprem`)와 다르다. 그래서 binding 단계에서는 대조하지 않는다. 버킷을 닫는 적용기가 자기가 설정된 목적지 IaC 환경과 대조한다.
   * 변경 승인과 사전 위임(#716, change bounds 비어 있음)은 이 binding을 그대로 승인하므로, 사람의 결정에 자동으로 묶인다.
 * **REHEARSE (df):**
   * 이미지 적용이 APPLIED가 된 뒤, binding에 `iac_plan_digest`가 있으면 T31의 새 진입점이 버킷을 닫는다. 진입점은 `check_iac_plan`과 같은 검사를 하고, 기준 상태는 PROPOSE가 쓴 커밋의 원하는 상태다. 그 뒤 `apply_bucket_policy`를 부른다.

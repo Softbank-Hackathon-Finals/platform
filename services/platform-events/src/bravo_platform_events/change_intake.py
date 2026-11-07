@@ -7,7 +7,7 @@ from collections.abc import Callable
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
 
-from .change import CurrentChange, change_key, intake_binding
+from .change import CurrentChange, change_binding, change_key
 from .contract import validate_identifier
 from .cutover import _get, _put
 from .executor import _timestamp
@@ -174,4 +174,4 @@ class ChangeIntake:
             record, _ = _get(c, p, change_key("intake-proof", head["verification_id"]))
         if record["plan_version"] != plan["version"]:
             raise EventError("authority_unavailable")
-        return CurrentChange(intake_binding(record), rehearsal_id, head["verification_id"], head["revision"])
+        return CurrentChange(change_binding(c, record), rehearsal_id, head["verification_id"], head["revision"])
