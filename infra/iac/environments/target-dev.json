@@ -137,6 +137,25 @@
         "runtime": "rke2",
         "policy": "metadata-v1"
       }
+    },
+    {
+      "id": "operator-access",
+      "version": "1",
+      "params": {
+        "proxy_hostname": "bravo-target-operator",
+        "proxy_tag": "tag:bravo-target-operator",
+        "bindings": [
+          {
+            "name": "bravo-operators-cluster-admin",
+            "group": "bravo:operators",
+            "cluster_role": "cluster-admin",
+            "tailnet_groups": [
+              "autogroup:admin",
+              "autogroup:owner"
+            ]
+          }
+        ]
+      }
     }
   ]
 }

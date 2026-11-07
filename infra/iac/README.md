@@ -110,6 +110,28 @@ tailscale configure kubeconfig bravo-platform-operator   # kubeconfig에 프록�
 kubectl auth whoami                                      # Groups에 bravo:operators가 있어야 한다
 ```
 
+## 목적지 사람 접근 표준 (operator API 프록시 + `operator-access`)
+
+사람은 목적지마다 **그 클러스터 Tailscale operator의 내장 API 프록시(auth 모드)** 하나로 들어온다. 플랫폼(`bravo-platform-operator`)과 같은 구조다. 새 프록시를 따로 두지 않는다. 포트포워딩·개인 토큰 없이 tailnet 신원으로 인증하고, 권한은 쿠버네티스 그룹 하나의 ClusterRoleBinding이 정한다. 워크로드용 noauth 프록시와 발급 프록시는 섞지 않는다.
+
+1. operator 설치 값: API 프록시를 auth 모드로 켠다(`apiServerProxyConfig.mode: "true"`, 배포 env `APISERVER_PROXY=true`)와 impersonation RBAC(`tailscale-auth-proxy`).
+   고정 차트 1.104.4 렌더 확인: `mode: "true"`는 내장 프록시와 RBAC(`kube-apiserver-auth-proxy` SA, `tailscale-auth-proxy`)를 함께 켠다.
+   `allowImpersonation: "true"`만 켜면 RBAC만 생기고 내장 프록시는 꺼진다(별도 kube-apiserver ProxyGroup용). 이 표준은 내장 프록시를 쓰므로 `mode: "true"`다.
+2. 원하는 상태: `operator-access`에 그 operator 장치(`proxy_hostname`·`proxy_tag`)와 바인딩을 둔다(`target-dev.json`: `bravo-target-operator` → `bravo:operators` → `cluster-admin`).
+3. tailnet 정책: `bravo-iac tailnet-policy` 조각의 app capability grant를 현재 정책에 병합하고 `bravo-iac tailnet-check`로 대조한다.
+4. 클러스터: 클러스터 관리자가 `chart.held_objects()`의 ClusterRoleBinding을 적용한다(차트·Argo 밖, 위 절).
+5. 확인: `tailscale configure kubeconfig <operator 호스트>` 뒤 `kubectl auth whoami`에 `bravo:operators`가 보이고, 그룹이 없으면 거부되는지 본다.
+
+**런타임 어댑터.** `operator-access`는 쿠버네티스 런타임마다 같다. 런타임이 다른 곳은 1번(operator 설치)과 그 실측이다.
+
+| 런타임 | 상태 | 추가 전에 확인할 것 |
+|---|---|---|
+| `rke2` (온프렘) | 실측됨(2026-11-07: `APISERVER_PROXY=true`, tailnet 신원 → `bravo:operators`, 그룹만으로 허용·그룹 없음 거부) | — |
+| `rke2` (T45로 새로 세운 목적지) | 아직 | 1번이 채워지지 않는다. T45 tailscale 단계가 쓰는 operator 값(`target-workloads/network.py`)이 `apiServerProxyConfig.mode: "false"`라 auth 프록시와 impersonation RBAC가 렌더되지 않는다. 설치 주체(T45 tailscale 단계 / T30 `network.py`)를 정하면 1번이 그 단계를 가리킨다. `network.py`는 T30 파일이라 담당 합의로 바꾼다 |
+| `eks` (AWS) | 아직 | operator 설치 값과 impersonation RBAC, 노드에서 Tailscale 제어·DERP로 나가는 길, 위 5번 |
+| `gke` (GCP) | 아직 | 같은 항목, Autopilot이면 ProxyClass 제약. 확인된 것(2026-11-07, A10 GKE Standard): 프로젝트 소유자(IAM)가 이 바인딩을 만들 수 있다(`kubectl apply --server-side --dry-run=server`, 저장하지 않음). 남은 것: A10 스택도 같은 `network.py` 값을 써서 프록시가 꺼진다. `--side target`이면 장치 이름·태그가 온프렘 목적지와 같은 `bravo-target-operator`가 된다 |
+
+사람별 이메일 ClusterRoleBinding(2026-11-06 수동)은 쓰는 사람이 그룹 방식으로 확인한 뒤 레거시로 옮긴다.
 ## 노드 파일 (`cluster-audit`)
 
 API 서버가 시작할 때 노드에서만 읽는 설정은 클러스터 안 Argo가 가질 수 없다. 그래서 모듈이 파일의 정확한 바이트를
