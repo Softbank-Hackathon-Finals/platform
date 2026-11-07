@@ -5,8 +5,12 @@ locals {
   }
   # Keycloak lives only in the destination, so its address goes straight to the target tunnel, never through
   # the weighted LB: the issuer URL must not move while traffic shifts (target-workloads identity.py).
-  login   = var.hostnames.login == null ? [] : [{ hostname = var.hostnames.login, service = "http://target-identity.target-dev.svc.cluster.local:8080" }]
-  records = merge({ for k, s in local.sides : k => { host = s.host, tunnel = s.tunnel } }, var.hostnames.login == null ? {} : { login = { host = var.hostnames.login, tunnel = var.tunnels.target } })
+  # Only the bravo realm and the theme files go out. /admin/ and the master realm share port 8080 and fall
+  # through to 404; administration stays behind kubectl port-forward. The whole sign-in flow uses only these
+  # two prefixes (Keycloak 26.0.7 container walk, README).
+  login_paths = "^/(realms/bravo|resources)/"
+  login       = var.hostnames.login == null ? [] : [{ hostname = var.hostnames.login, path = local.login_paths, service = "http://target-login.target-dev.svc.cluster.local:8080" }]
+  records     = merge({ for k, s in local.sides : k => { host = s.host, tunnel = s.tunnel } }, var.hostnames.login == null ? {} : { login = { host = var.hostnames.login, tunnel = var.tunnels.target } })
 }
 
 resource "cloudflare_zero_trust_tunnel_cloudflared_config" "edge" {
@@ -69,6 +73,7 @@ resource "cloudflare_load_balancer" "edge" {
   zone_id          = var.zone_id
   name             = var.hostnames.app
   description      = "Team Bravo T17 joint measurement; enable only after both application origins are verified"
+  enabled          = false # a new LB starts off; the run owner enables it after both origins pass (edge-control never does)
   proxied          = true
   steering_policy  = "random"
   session_affinity = "none"

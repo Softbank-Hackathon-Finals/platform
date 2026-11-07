@@ -35,12 +35,16 @@ run "login_goes_only_to_target_keycloak" {
     hostnames = { app = "chat.example.com", source = "source.example.com", target = "target.example.com", login = "login.example.com" }
   }
   assert {
-    condition = jsonencode([for r in cloudflare_zero_trust_tunnel_cloudflared_config.edge["target"].config.ingress : [r.hostname, r.service]]) == jsonencode([
-      ["target.example.com", "http://demo-chat.target-dev.svc.cluster.local:8080"],
-      ["login.example.com", "http://target-identity.target-dev.svc.cluster.local:8080"],
-      [null, "http_status:404"],
+    condition = jsonencode([for r in cloudflare_zero_trust_tunnel_cloudflared_config.edge["target"].config.ingress : [r.hostname, r.path, r.service]]) == jsonencode([
+      ["target.example.com", null, "http://demo-chat.target-dev.svc.cluster.local:8080"],
+      ["login.example.com", "^/(realms/bravo|resources)/", "http://target-login.target-dev.svc.cluster.local:8080"],
+      [null, null, "http_status:404"],
     ])
-    error_message = "Target tunnel: demo-chat, then Keycloak on the login host, then 404 for everything else."
+    error_message = "Target tunnel: demo-chat, then Keycloak's bravo realm and theme files on the login host, then 404 for everything else."
+  }
+  assert {
+    condition     = length([for r in cloudflare_zero_trust_tunnel_cloudflared_config.edge["target"].config.ingress : r if r.hostname == "login.example.com"]) == 1 && alltrue([for r in cloudflare_zero_trust_tunnel_cloudflared_config.edge["target"].config.ingress : r.path != null if r.hostname == "login.example.com"])
+    error_message = "The login host has exactly one rule and it has a path: /admin/ and the master realm must not be reachable."
   }
   assert {
     condition     = !contains([for r in cloudflare_zero_trust_tunnel_cloudflared_config.edge["source"].config.ingress : r.hostname], "login.example.com")
@@ -85,6 +89,10 @@ run "lb_matches_what_edge_control_accepts" {
   assert {
     condition     = cloudflare_load_balancer.edge.random_steering.pool_weights == tomap({ "pool-source" = 1, "pool-target" = 0 }) && cloudflare_load_balancer.edge.random_steering.default_weight == 0
     error_message = "A new LB starts with all traffic on the source."
+  }
+  assert {
+    condition     = cloudflare_load_balancer.edge.enabled == false
+    error_message = "A new LB starts disabled; the run owner enables it after both origins are verified."
   }
   assert {
     condition     = alltrue([for p in cloudflare_load_balancer_pool.edge : length(p.origins) == 1 && p.monitor == cloudflare_load_balancer_monitor.ready.id])
