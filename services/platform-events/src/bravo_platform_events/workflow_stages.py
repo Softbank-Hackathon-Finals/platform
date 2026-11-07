@@ -60,6 +60,35 @@ def _approved_change(store, plan_id, version):
     return max(live, key=lambda r: r["approved_at"]) if live else None
 
 
+def _delegated_change(changes, delegations, plan_id, version):
+    """REHEARSE with a pre-delegated change approval (T49): approve the current verified candidate of this
+    version through the same service, as the approver. None: nothing delegated or no candidate yet."""
+    from .change_intake import ChangeIntake
+
+    with changes.store._transaction() as c:
+        plan = dict(c.execute("SELECT * FROM plans WHERE plan_id=?", (plan_id,)).fetchone())
+        rows = c.execute("SELECT request_json, receipt_json FROM plan_commands WHERE plan_id=? AND command_key LIKE ?",
+                         (plan_id, "change-intake-proof-%")).fetchall()
+        proofs = [(json.loads(r["receipt_json"])["attempt"], json.loads(r["request_json"])) for r in rows]
+        proofs = [(attempt, record) for attempt, record in proofs if record["plan_version"] == version]
+        if not proofs:
+            return None
+        # ponytail: the highest attempt across runs is the newest candidate; one rehearsal run per version today.
+        run_id = max(proofs, key=lambda p: p[0])[1]["candidate"]["run_id"]
+        try:
+            current = ChangeIntake.current(c, None, plan, rehearsal_id=run_id)
+        except EventError:
+            return None  # held or superseded: a person decides
+    try:
+        principal = delegations.principal_for(plan_id, "change", binding=current.binding, version=version)
+    except EventError as error:
+        if error.code == "approval_not_delegated":
+            return None
+        raise
+    return changes.approve(principal, plan_id, run_id=run_id, binding=current.binding, expected_version=version,
+                           command_key=f"delegated-change-{version}")
+
+
 def host_principal(subject_id, tenant_id, *, lifetime=300, clock=time.time):
     """The workflow host's own operator identity for applying an approved change.
 
@@ -73,7 +102,7 @@ def host_principal(subject_id, tenant_id, *, lifetime=300, clock=time.time):
 
 
 def application_stages(host: ApplicationHost, recheck: GateRecheck | None, *, receipts_dir, check_current,
-                       load_gate, host_subject):
+                       load_gate, host_subject, delegations=None):
     """Preparers for REHEARSE and (with a T19 recheck) GATE. `host` is this process's single instance."""
     if (not isinstance(host, ApplicationHost) or not (recheck is None or isinstance(recheck, GateRecheck))
             or not isinstance(host_subject, str) or not host_subject):
@@ -86,8 +115,10 @@ def application_stages(host: ApplicationHost, recheck: GateRecheck | None, *, re
                                    check_current=check_current, load_gate=load_gate,
                                    fallback=_unwired)
 
-    def applied(plan_id, tenant_id, version):
+    def applied(plan_id, tenant_id, version, *, rehearsing=False):
         approval = _approved_change(store, plan_id, version)
+        if approval is None and rehearsing and delegations is not None:
+            approval = _delegated_change(host.changes, delegations, plan_id, version)
         if approval is None:
             raise EventError("change_approval_required")  # S2 approval is a human decision
         principal = host_principal(host_subject, tenant_id)
@@ -98,7 +129,7 @@ def application_stages(host: ApplicationHost, recheck: GateRecheck | None, *, re
         return principal, outcome
 
     def rehearse(plan_id, tenant_id, version):
-        return reader(*applied(plan_id, tenant_id, version))
+        return reader(*applied(plan_id, tenant_id, version, rehearsing=True))
 
     def gate(plan_id, tenant_id, version):
         principal, outcome = applied(plan_id, tenant_id, version - 1)
@@ -161,6 +192,25 @@ class ShiftApprovalService:
             return receipt
 
 
+def delegated_shift_preparer(service, delegations, *, ttl=timedelta(hours=1)):
+    """AWAIT_APPROVAL with a pre-delegated SHIFT approval (T49): the host records the approver's decision once
+    per plan version through the same service and permission check; without a delegation a person approves."""
+    def prepare(plan_id, _tenant_id, version):
+        try:
+            principal = delegations.principal_for(plan_id, "shift", binding={"plan_version": str(version)},
+                                                  version=version)
+        except EventError as error:
+            if error.code == "approval_not_delegated":
+                return shift_approval_reader
+            raise
+        expires_at = (datetime.fromisoformat(service.clock()) + ttl).isoformat()
+        service.approve(principal, plan_id, expected_version=version, expires_at=expires_at,
+                        command_key=f"delegated-shift-{version}")
+        return shift_approval_reader
+
+    return prepare
+
+
 def shift_approval_reader(c, plan, previous, run):
     saved = _get(c, plan["plan_id"], _shift_key("approval", str(plan["version"])))
     if saved is None:
@@ -211,6 +261,26 @@ def watch_reader(*, observe, retest):
         return _evidence(plan, f"watch-{run.execution_id}-{plan['version']}", result)
 
     return read
+
+
+def watch_fail_preparer(store, observe, reader):
+    """WATCH with delegation (T49): record a T36 FAIL once per plan version so the operator process can run
+    the failback the approver delegated (approval_delegation.DelegatedGates). The WATCH reader still decides."""
+    from types import SimpleNamespace
+
+    from .approval_delegation import watch_fail_key
+    from .failback import cutover_checkpoint
+
+    def prepare(plan_id, _tenant_id, version):
+        with store._transaction(write=True, plan_id=plan_id) as c:
+            plan = dict(c.execute("SELECT * FROM plans WHERE plan_id=?", (plan_id,)).fetchone())
+            if (plan["state"], plan["version"]) == ("WATCH", version) and not _get(c, plan_id, watch_fail_key(version)):
+                run = SimpleNamespace(command_id=cutover_checkpoint(c, plan_id)[0]["command_id"])
+                if observe(c, plan, run) == "FAIL":
+                    _put(c, plan_id, watch_fail_key(version), {}, {"observation": "FAIL", "version": version})
+        return reader
+
+    return prepare
 
 
 def sli_observer(profile, *, clock=None):

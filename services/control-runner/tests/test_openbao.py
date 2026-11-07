@@ -467,3 +467,27 @@ def test_both_clients_use_the_same_server_name(cert):
         OpenBaoSecretAccessProbe(TARGET, app_client=replace(app, server_hostname="localhost"), other_client=other,
                                  evidence_sink=lambda _: None)
 
+
+# The exact body a real OpenBao 2.x KV read returned to the target's t14-other token (2026-11-07).
+MULTIERROR_DENIAL = "1 error occurred:\n\t* permission denied\n\n"
+
+
+@pytest.mark.parametrize(("errors", "observed"), [
+    (["permission denied"], "deny"),
+    ([MULTIERROR_DENIAL], "deny"),
+    (["2 errors occurred:\n\t* permission denied\n\t* other\n\n"], None),
+    (["1 error occurred:\n\t* internal error\n\n"], None),
+    (["permission denied: please retry"], None),
+    (["permission denied", "permission denied"], None),
+    ([], None),
+])
+def test_only_a_plain_or_multierror_policy_denial_is_a_deny(cert, monkeypatch, errors, observed):
+    def alter(client, path, calls, default):
+        if client.principal == OTHER and not path.endswith("lookup-self"):
+            return 403, {"errors": errors}
+        return default
+
+    probe, _, retained = setup(cert, monkeypatch, alter=alter)
+    assert probe(CONTEXT, SPEC).observed == observed
+    assert json.loads(retained[0])["steps"]["other_read"]["reason"] == (None if observed else "UNEXPECTED_RESPONSE")
+

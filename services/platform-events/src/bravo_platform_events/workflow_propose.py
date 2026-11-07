@@ -63,17 +63,29 @@ def record_apply_input(store, plan_id, value, result):
     return record
 
 
-def propose_preparer(execution, *, select, repository, github=None, writer=None):
+def propose_preparer(execution, *, select, repository, github=None, writer=None, auto=None):
     """`select` (operator pin) wins; otherwise `writer` (GitHub App) creates the candidate
-    PR, dispatches T7 and derives the selection from the reviewed workflow's run."""
+    PR, dispatches T7 and derives the selection from the reviewed workflow's run.
+
+    `auto` (initial_proposal_auto.AutoInitialProposal, T49) admits the plan's one registered task and runs
+    the AI Job itself; without it an operator does both (operations/initial-proposal/run.py)."""
     if type(execution) is not InitialProposalExecution or not callable(select):
         raise ValueError("propose_ports_required")
 
-    def prepare(plan_id, _tenant_id, version):
+    def admitted_ref(plan_id, version):
         with execution.records.store._transaction() as c:
-            admitted = _get(c, plan_id, _admission_key(c, plan_id, version))
+            return _get(c, plan_id, _admission_key(c, plan_id, version))
+
+    def prepare(plan_id, tenant_id, version):
+        run_ai = auto if auto is not None and auto.covers(plan_id) else None
+        admitted = admitted_ref(plan_id, version)
+        if not admitted and run_ai is not None:
+            auto.admit(plan_id, tenant_id, version)
+            admitted = admitted_ref(plan_id, version)
         if not admitted:
             raise EventError("initial_execution_not_complete")
+        if run_ai is not None:
+            run_ai(plan_id, version, admitted[1])  # holds as initial_proposal_running until the Job's result is stored
         value, intent, result = execution.publication_inputs(plan_id, version, **admitted[1])
         request_id = publication_request_id(intent)
         selection = select(request_id)

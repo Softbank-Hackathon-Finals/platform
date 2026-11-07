@@ -35,6 +35,41 @@ metadata:
 data:
   ca.pem: {{ .Values.initialProposal.brokerCaPem | quote }}
 ---
+{{- if .Values.initialProposal.hostCreatesJobs }}
+# T49: the workflow host (platform-state/t10-workflow-host) creates and reads the one Job per request
+# itself instead of an operator. Jobs and their Pod logs in this namespace only; the admission policy
+# below still admits only the reviewed Reader Pod shape, so this grants no other workload.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: workflow-host-initial-proposal
+  namespace: bravo-initial
+rules:
+  - apiGroups: [batch]
+    resources: [jobs]
+    verbs: [create, get, list]
+  - apiGroups: [""]
+    resources: [pods]
+    verbs: [get, list]
+  - apiGroups: [""]
+    resources: [pods/log]
+    verbs: [get]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: workflow-host-initial-proposal
+  namespace: bravo-initial
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: workflow-host-initial-proposal
+subjects:
+  - kind: ServiceAccount
+    name: t10-workflow-host
+    namespace: platform-state
+---
+{{- end }}
 apiVersion: admissionregistration.k8s.io/v1
 kind: ValidatingAdmissionPolicy
 metadata:

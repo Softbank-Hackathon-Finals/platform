@@ -12,13 +12,16 @@ import os
 import re
 import shutil
 import subprocess
+import sys
 import tempfile
 import time
 import urllib.error
 import urllib.request
 from pathlib import Path
 
+from . import replication
 from .applications import ARGO_NAMESPACE
+from .executor import HOLD, StepOutcome
 from .stack import StackError, canonical, sha256_text
 
 # Set on the node by whatever prepared the host directories (first boot or the platform's site agent),
@@ -40,6 +43,7 @@ def expected_images(expect, params):
     return names
 
 TIMEOUT = 600
+SQL_NAME = re.compile(r"^[a-z][a-z0-9_]{0,62}$")
 RUN_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$")
 
 
@@ -317,6 +321,58 @@ class KubectlCluster:
         listing = json.loads(result.stdout)
         return bool(listing["items"])
 
+    # --- destination as a migration target (target-onprem-migration) ----------------------------
+
+    def get_object(self, item):
+        api = item["apiVersion"]
+        resource = item["kind"].lower() + ("." + api.split("/")[0] if "/" in api else "")
+        return self._get(resource, item["metadata"].get("namespace"), item["metadata"]["name"])
+
+    def create(self, items):
+        """kubectl create: fails on an existing object instead of replacing it."""
+        self._k("create", "-f", "-", stdin=json.dumps({"apiVersion": "v1", "kind": "List", "items": items}))
+
+    def secret_keys(self, namespace, name):
+        """The data keys of a Secret (never its values); None when it does not exist."""
+        obj = self._get("secret", namespace, name)
+        return None if obj is None else sorted((obj.get("data") or {}).keys())
+
+    def audit_level_events(self, level):
+        """apiserver_audit_level_total for one level since the API server started; None when absent."""
+        if level not in ("None", "Metadata", "Request", "RequestResponse"):
+            raise StackError("unknown_audit_level")
+        for line in self._k("get", "--raw", "/metrics").stdout.splitlines():
+            if line.startswith("apiserver_audit_level_total{") and f'level="{level}"' in line:
+                return float(line.rsplit(" ", 1)[1])
+        return None
+
+    def primary_query(self, namespace, cluster, database, query):
+        """One fixed query in a read-only transaction on the primary. None: no single primary right now
+        (a switchover). A failed read raises, so the step holds instead of passing."""
+        if not SQL_NAME.fullmatch(database):
+            raise StackError("invalid_identifier")
+        pods = json.loads(self._k("get", "pods", "-n", namespace, "-l",
+                                  f"cnpg.io/cluster={cluster},cnpg.io/instanceRole=primary", "-o", "json").stdout)["items"]
+        if len(pods) != 1:
+            return None
+        result = self._k("exec", "-n", namespace, pods[0]["metadata"]["name"], "-c", "postgres", "--",
+                         "psql", "-X", "-q", "-A", "-t", "-v", "ON_ERROR_STOP=1", "-d", database,
+                         "-c", "BEGIN READ ONLY", "-c", query, "-c", "ROLLBACK", check=False)
+        if result.returncode != 0:
+            raise RuntimeError("primary_read_failed")
+        return [line.split("|") for line in result.stdout.strip().splitlines() if line]
+
+    def argo_intake(self, repo_root, environment, cluster_uid, revision):
+        """T44's read-only GitOps intake (infra/iac/customer_status.py, #635) on this cluster: the same judge,
+        not a copy. It checks the cluster UID, the Application target, the operation and every resource."""
+        result = _run([sys.executable, str(Path(repo_root) / "infra/iac/customer_status.py"),
+                       "--kubeconfig", self.kubeconfig, *(["--context", self.context] if self.context else []),
+                       "--expected-cluster-uid", cluster_uid, "--environment", environment, "--revision", revision],
+                      env=self._env(), check=False)
+        if result.returncode not in (0, 3):
+            raise RuntimeError("argo_intake_failed")
+        return json.loads(result.stdout)
+
 
 class T10Approvals:
     """T10 `approval_kind=infra` (#603): read the receipt and claim it once per run."""
@@ -401,6 +457,16 @@ class AwsIdentity:
         return {"account_id": json.loads(result.stdout)["Account"]}
 
 
+def _argo_synced(cluster, repo_root, run):
+    """T44's intake says SYNC_VERIFIED at the approved revision. Not installed or not converged yet: wait.
+    Something it refuses (another target, prune, a changed read): HOLD with its reason."""
+    result = cluster.argo_intake(repo_root, "target-dev", run["plan"]["target"]["cluster_uid"],
+                                 run["plan"]["request"]["params"]["iac_revision"])
+    if result["status"] == "BLOCKED":
+        raise StepOutcome(HOLD, "argo_" + (result.get("reasons") or ["blocked"])[0].lower())
+    return result["status"] == "SYNC_VERIFIED"
+
+
 class ClusterChecks:
     """Named checks used by `probe` and `operator_action` steps.
 
@@ -408,8 +474,8 @@ class ClusterChecks:
     directory, an offline image import); a human confirmation is then required.
     """
 
-    def __init__(self, cluster):
-        self.cluster = cluster
+    def __init__(self, cluster, repo_root=None):
+        self.cluster, self.repo_root = cluster, repo_root
 
     def check(self, name, run):
         params, target = run["plan"]["request"]["params"], run["plan"]["target"]
@@ -426,11 +492,19 @@ class ClusterChecks:
             "iac-argocd": lambda: c.statefulset_ready(ARGO_NAMESPACE, "bravo-iac-gitops-application-controller"),
             "argocd-repository": lambda: c.labelled_secret_exists(ARGO_NAMESPACE, "argocd.argoproj.io/secret-type=repository"),
             "seaweedfs-auth": lambda: self._seaweedfs_matches_desired(run),
+            "app-metrics-client": lambda: c.secret_exists("target-dev", "bravo-app-metrics-client"),
             "tailscale-oauth": lambda: c.secret_exists("tailscale-system", "operator-oauth"),
             "openbao-tls": lambda: c.secret_exists("bravo-secrets", "target-openbao-tls"),
             "openbao-ready": lambda: c.condition("Pod", "bravo-secrets", "target-openbao-0", "Ready"),
             "target-checks": lambda: (c.condition("Cluster", "target-dev", "target-db", "Ready")
                                       and c.deployments_available("target-dev")),
+            # target-onprem-migration: the destination as a migration target
+            "audit-metadata-active": lambda: (c.audit_level_events("Metadata") or 0) > 0,
+            "iac-network-synced": lambda: _argo_synced(c, self.repo_root, run),
+            "replication-credentials": lambda: replication.credentials(c),
+            "replication-external-cluster": lambda: replication.external_cluster(c),
+            "replication-target-ready": lambda: replication.target_ready(c),
+            "initial-copy-complete": lambda: replication.initial_copy(c),
         }
         if name not in checks:
             raise StackError("unknown_check")

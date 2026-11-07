@@ -42,6 +42,7 @@ jobs:
     permissions:
       contents: read
       id-token: write
+      actions: read # the last successful develop run is the prune baseline
     strategy:
       fail-fast: false
       max-parallel: 1
@@ -61,16 +62,45 @@ jobs:
         working-directory: services/iac
         env:
           TAILNET: ${{ matrix.tailnet }}
-          TAILNET_NAME: ${{ vars[format('TAILNET_POLICY_NAME_{0}', matrix.key)] }}
-          CLIENT_ID: ${{ github.event_name == 'pull_request' && vars[format('TAILNET_POLICY_PLAN_CLIENT_{0}', matrix.key)] || vars[format('TAILNET_POLICY_APPLY_CLIENT_{0}', matrix.key)] }}
+          # Secrets only to keep the ids out of this public repository's logs; an id grants nothing alone.
+          TAILNET_NAME: ${{ secrets[format('TAILNET_POLICY_NAME_{0}', matrix.key)] }}
+          CLIENT_ID: ${{ github.event_name == 'pull_request' && secrets[format('TAILNET_POLICY_PLAN_CLIENT_{0}', matrix.key)] || secrets[format('TAILNET_POLICY_APPLY_CLIENT_{0}', matrix.key)] }}
           MODE: ${{ github.event_name == 'pull_request' && 'plan' || 'apply' }}
+          GH_TOKEN: ${{ github.token }}
         run: |
-          if [ -z "$TAILNET_NAME" ] || [ -z "$CLIENT_ID" ]; then
-            echo "### tailnet \`$TAILNET\`: SKIPPED (변수 없음: infra/tailnet/README.md 설정 참고)" >> "$GITHUB_STEP_SUMMARY"
+          if [ -z "$TAILNET_NAME" ] && [ -z "$CLIENT_ID" ]; then
+            echo "### tailnet \`$TAILNET\`: SKIPPED (설정 없음: infra/tailnet/README.md 참고)" >> "$GITHUB_STEP_SUMMARY"
             exit 0
           fi
+          if [ -z "$TAILNET_NAME" ] || [ -z "$CLIENT_ID" ]; then
+            echo "::error::tailnet $TAILNET: 설정이 일부만 있다(이름과 client ID가 함께 있어야 한다)"
+            exit 1
+          fi
           args=(--tailnet "$TAILNET" --tailnet-name "$TAILNET_NAME" --client-id "$CLIENT_ID")
-          if [ "$MODE" = apply ]; then args+=(--apply); fi
+          if [ "$MODE" = apply ]; then
+            args+=(--apply)
+            # A re-run of an older develop run would apply an old fragment. Refuse when develop's head differs
+            # from this commit on the paths this workflow reads (unrelated merges while waiting are fine).
+            git -C "$GITHUB_WORKSPACE" fetch -q --depth=1 origin refs/heads/develop
+            if ! git -C "$GITHUB_WORKSPACE" diff --quiet "$GITHUB_SHA" FETCH_HEAD -- infra/iac/environments \
+              infra/tailnet services/iac/src .github/workflows/tailnet-policy.yml; then
+              echo '{"status": "REFUSED", "code": "IAC_STALE_RUN"}' | tee -a "$GITHUB_STEP_SUMMARY"
+              exit 1
+            fi
+          fi
+          # Prune baseline: the head of the last successful develop run. A cancelled, refused or waiting run
+          # never moves it, so what that run dropped is removed by the next one. Unreadable: fail, never skip.
+          base=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/tailnet-policy.yml/runs?branch=develop&status=success&per_page=50" \
+            --jq '[.workflow_runs[] | select(.event != "pull_request")][0].head_sha // ""')
+          if [ -n "$base" ]; then
+            previous="$RUNNER_TEMP/previous"
+            mkdir -p "$previous"
+            git fetch -q --depth=1 origin "$base"
+            (set -o pipefail; git -C "$GITHUB_WORKSPACE" archive "$base" infra/iac/environments | tar -x -C "$previous")
+            args+=(--previous-dir "$previous/infra/iac/environments")
+          else
+            echo "### tailnet \`$TAILNET\`: prune 없음 (성공한 develop run이 아직 없음)" >> "$GITHUB_STEP_SUMMARY"
+          fi
           uv sync --frozen --no-dev -q
           set +e
           uv run --no-sync bravo-iac tailnet-sync "${args[@]}" ../../infra/iac/environments/*.json > "$RUNNER_TEMP/result.json"

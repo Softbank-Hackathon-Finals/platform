@@ -11,6 +11,8 @@ tests:
         values: '1x12'
       - series: 'up{bravo_env="onprem", job="bravo-collector", instance="forged"}'
         values: '1x40'
+      - series: 'up{bravo_signal="collector-self", bravo_env="platform", job="bravo-collector", instance="p"}'
+        values: '1x40'
     alert_rule_test:
       - eval_time: 140s
         alertname: BravoEnvUnobservable
@@ -36,6 +38,8 @@ tests:
     input_series:
       - series: 'up{bravo_signal="collector-self", bravo_env="onprem", job="bravo-collector", instance="o"}'
         values: '1x10'
+      - series: 'up{bravo_signal="collector-self", bravo_env="platform", job="bravo-collector", instance="p"}'
+        values: '1x10'
     alert_rule_test:
       - eval_time: 60s
         alertname: BravoEnvUnobservable
@@ -43,6 +47,22 @@ tests:
           - exp_labels: {severity: page, bravo_env: aws}
             exp_annotations:
               summary: "aws 환경의 관측 경로가 끊겼다. 이 환경의 지표는 확인 불가다"
+              runbook: docs/observability/runbooks.md#bravoenvunobservable
+
+  # 플랫폼 클러스터 자신의 Collector가 한 번도 보고하지 않았다. 고객 환경이 살아 있어도 platform은 확인 불가다
+  - interval: 10s
+    input_series:
+      - series: 'up{bravo_signal="collector-self", bravo_env="aws", job="bravo-collector", instance="a"}'
+        values: '1x10'
+      - series: 'up{bravo_signal="collector-self", bravo_env="onprem", job="bravo-collector", instance="o"}'
+        values: '1x10'
+    alert_rule_test:
+      - eval_time: 60s
+        alertname: BravoEnvUnobservable
+        exp_alerts:
+          - exp_labels: {severity: page, bravo_env: platform}
+            exp_annotations:
+              summary: "platform 환경의 관측 경로가 끊겼다. 이 환경의 지표는 확인 불가다"
               runbook: docs/observability/runbooks.md#bravoenvunobservable
 
   # 전송 실패 · 대기열 · 거부. 사칭 시계열은 무시한다.
@@ -164,6 +184,8 @@ tests:
       - series: 'up{bravo_signal="collector-self", bravo_env="aws"}'
         values: '0x10'
       - series: 'up{bravo_signal="collector-self", bravo_env="onprem"}'
+        values: '1x10'
+      - series: 'up{bravo_signal="collector-self", bravo_env="platform"}'
         values: '1x10'
     alert_rule_test:
       - eval_time: 30s

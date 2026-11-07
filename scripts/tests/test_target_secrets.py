@@ -178,5 +178,31 @@ class DeliveryBoundaryTests(unittest.TestCase):
         self.assertEqual(expression, {"key": "kubernetes.io/hostname", "operator": "In", "values": ["fixture-node"]})
 
 
+class T14OtherRoleTests(unittest.TestCase):
+    def test_comparison_role_binds_one_account_and_reads_nothing_of_the_app(self):
+        role = cli("t14-other-auth-role")
+        self.assertEqual(role["bound_service_account_names"], ["t14-other"])
+        self.assertEqual(role["bound_service_account_namespaces"], [render.APP_NAMESPACE])
+        self.assertEqual(role["audience"], "openbao")
+        # default only: no policy that names the app's paths (policy() is target-app-reader's)
+        self.assertEqual(role["token_policies"], ["default"])
+        self.assertNotIn("target-app-reader", json.dumps(role))
+        self.assertEqual((role["token_ttl"], role["token_max_ttl"]), ("300s", "900s"))
+
+
+    def test_app_role_reads_only_its_own_db_path(self):
+        role = cli("app-auth-role")
+        self.assertEqual((role["bound_service_account_names"], role["bound_service_account_namespaces"]),
+                         (["demo-chat"], [render.APP_NAMESPACE]))
+        self.assertEqual(role["token_policies"], [render.APP_DB_POLICY])
+        self.assertIs(role["token_no_default_policy"], True)
+        paths = [line.split('"')[1] for line in render.app_db_policy().splitlines() if line.startswith("path")]
+        self.assertEqual(paths[0], "secret/data/" + render.DB_PATH)
+        self.assertNotIn("secret/data/" + render.OBJECT_PATH, paths)
+        self.assertNotIn("secret/data/" + render.ADMIN_PATH, paths)
+        self.assertTrue(all(p.startswith("auth/token/") for p in paths[1:]))
+        self.assertNotIn("create", render.app_db_policy())
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -60,3 +60,14 @@ variable "rke2_version" {
     error_message = "rke2_version must be an exact RKE2 release."
   }
 }
+
+# ADR-0035: public OIDC issuer (infra/envs/oidc-issuer, https://<bucket>.s3.<region>.amazonaws.com/<env>) so
+# Tailscale can verify the operator's ServiceAccount token. Unset keeps the cluster-internal issuer only.
+variable "public_issuer" {
+  type    = string
+  default = null
+  validation {
+    condition     = var.public_issuer == null || can(regex("^https://[a-z0-9.-]+(/[a-z0-9-]+)+$", var.public_issuer))
+    error_message = "public_issuer must be an https issuer URL without a trailing slash."
+  }
+}

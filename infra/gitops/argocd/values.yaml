@@ -8,6 +8,8 @@ initialProposal:
   brokerCaPem: ""
   # Existing registry pull Secret in bravo-initial (kubelet only; the Job container gets no Secret).
   registry: platform-ghcr-reader
+  # T49: the workflow host creates the initial-proposal Job itself (Role in bravo-initial for its ServiceAccount).
+  hostCreatesJobs: false
 workflowHost:
   enabled: false
   # Protected operator input: existing config/claim/Secret references only (ADR-0031).
@@ -25,6 +27,11 @@ iacNetwork:
   targetRevision: ""
   tailnet: ""
   tailnets: {}
+
+# Platform public entry (infra/envs/public-entry): Git-declared hostnames -> Cloudflare Access, Tunnel route and DNS.
+# Turned on with the UI by infra/gitops/environments/development/public-entry.json (bootstrap passes it).
+publicEntry:
+  enabled: false
 
 registration:
   enabled: false
@@ -60,7 +67,13 @@ argo-cd:
           kinds: [Deployment, ReplicaSet]
           clusters: ['*']
         - apiGroups: ['']
-          kinds: [Pod, Service, ServiceAccount]
+          kinds: [Pod, Service, ServiceAccount, ConfigMap]
+          clusters: ['*']
+        - apiGroups: [networking.k8s.io]
+          kinds: [NetworkPolicy]
+          clusters: ['*']
+        - apiGroups: [external-secrets.io]
+          kinds: [ExternalSecret]
           clusters: ['*']
     clusterCredentials:
       platform:

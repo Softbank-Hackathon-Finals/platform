@@ -7,8 +7,12 @@ apiVersion: v1
 kind: Namespace
 metadata:
   name: bravo-observability
+  # 라벨 체계(tier · role · domain)는 eco2-team/backend workloads/namespaces와 같다. domain은 platform | customer
   labels:
     component: platform
+    tier: observability
+    role: collector
+    domain: customer
     pod-security.kubernetes.io/enforce: restricted
 ---
 apiVersion: v1
@@ -39,6 +43,9 @@ spec:
       labels:
         app: bravo-collector
         component: platform
+        tier: observability
+        role: collector
+        domain: customer
     spec:
       serviceAccountName: bravo-collector
       automountServiceAccountToken: false
@@ -64,6 +71,9 @@ spec:
             - name: PLATFORM_TLS_SERVER_NAME
               valueFrom:
                 configMapKeyRef: {name: bravo-collector-env, key: PLATFORM_TLS_SERVER_NAME, optional: true}
+            # 지표에 붙는 수신 구분(platform | customer). 플랫폼 overlay가 platform으로 바꾼다
+            - name: BRAVO_DOMAIN
+              value: customer
             # 메모리 상한(limits)보다 낮게 두어 GC가 먼저 돈다
             - name: GOMEMLIMIT
               value: 200MiB
