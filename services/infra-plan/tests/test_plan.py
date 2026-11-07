@@ -233,6 +233,7 @@ def test_a_wif_target_renders_federated_operator_values_and_needs_no_oauth_secre
     assert values["oauth"] == {"clientId": "kFedTest123", "audience": "api.tailscale.com/kFedTest123"}
     assert values["operatorConfig"]["defaultTags"] == ["tag:bravo-target-gke-operator"]
     assert values["proxyConfig"]["defaultTags"] == "tag:bravo-target-gke-db"
+    assert values["apiServerProxyConfig"]["mode"] == "true"  # the platform Executor's API path, auth mode only
     assert wif.plan_digest != plan().plan_digest
     legacy = FakeCharts()
     Planner(load_stack(STACK), REPO, chart_renderer=legacy).plan(
@@ -240,6 +241,7 @@ def test_a_wif_target_renders_federated_operator_values_and_needs_no_oauth_secre
     joined = next(call[3] for call in legacy.calls if call[0].startswith("tailscale-operator"))
     assert joined["oauth"] == {"clientId": "", "clientSecret": ""}  # existing environments keep the Secret
     assert joined["operatorConfig"]["defaultTags"] == ["tag:bravo-target-operator"]
+    assert joined["apiServerProxyConfig"]["mode"] == "false"
     unset = copy.deepcopy(REQUEST)
     unset["params"]["tailnet"] = "wif"  # client ID and audience left at "-"
     with pytest.raises(StackError, match="renderer_failed"):

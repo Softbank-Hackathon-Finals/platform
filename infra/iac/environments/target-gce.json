@@ -8,6 +8,103 @@
       "params": {
         "tag": "tag:bravo-target-gce-operator"
       }
+    },
+    {
+      "id": "tailnet-egress",
+      "version": "1",
+      "params": {
+        "owner_tag": "tag:bravo-target-gce-operator",
+        "groups": [
+          {
+            "name": "bravo-target-gce-replication",
+            "tag": "tag:bravo-target-gce-replication",
+            "client_policy": false,
+            "clients": [
+              {
+                "namespace": "target-dev",
+                "labels": {
+                  "cnpg.io/cluster": "target-db"
+                }
+              }
+            ],
+            "routes": [
+              {
+                "service": "source-db-for-replication",
+                "namespace": "target-dev",
+                "destination": "bravo-source-gce-db",
+                "destination_tag": "tag:bravo-source-gce-db",
+                "port": 5432,
+                "port_name": "postgres"
+              }
+            ]
+          },
+          {
+            "name": "bravo-target-gce-pooler",
+            "tag": "tag:bravo-target-gce-pooler",
+            "client_policy": false,
+            "clients": [
+              {
+                "namespace": "target-dev",
+                "labels": {
+                  "app": "target-pgbouncer"
+                }
+              }
+            ],
+            "routes": [
+              {
+                "service": "source-db-for-pooler",
+                "namespace": "target-dev",
+                "destination": "bravo-source-gce-db",
+                "destination_tag": "tag:bravo-source-gce-db",
+                "port": 5432,
+                "port_name": "postgres"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "tailnet-ingress",
+      "version": "1",
+      "params": {
+        "owner_tag": "tag:bravo-target-gce-operator",
+        "devices": [
+          {
+            "service": "target-db-tailnet",
+            "namespace": "target-dev",
+            "hostname": "bravo-target-gce-db",
+            "tag": "tag:bravo-target-gce-db",
+            "selector": {
+              "cnpg.io/cluster": "target-db",
+              "cnpg.io/instanceRole": "primary"
+            },
+            "ports": [
+              {
+                "name": "postgres",
+                "port": 5432,
+                "target_port": 5432
+              }
+            ]
+          },
+          {
+            "service": "target-control-pooler-tailnet",
+            "namespace": "target-dev",
+            "hostname": "bravo-target-gce-control-pooler",
+            "tag": "tag:bravo-target-gce-control-pooler",
+            "selector": {
+              "app": "target-pgbouncer"
+            },
+            "ports": [
+              {
+                "name": "pooler",
+                "port": 6432,
+                "target_port": 5432
+              }
+            ]
+          }
+        ]
+      }
     }
   ]
 }

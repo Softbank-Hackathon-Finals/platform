@@ -1,1 +1,290 @@
 {{- $_ := required "tailnet (the <name>.ts.net suffix) is required" .Values.tailnet }}
+---
+{
+  "apiVersion": "tailscale.com/v1alpha1",
+  "kind": "ProxyGroup",
+  "metadata": {
+    "labels": {
+      "app.kubernetes.io/managed-by": "bravo-iac",
+      "bravo.dev/iac-module": "tailnet-egress"
+    },
+    "name": "bravo-target-gce-replication"
+  },
+  "spec": {
+    "replicas": 1,
+    "tags": [
+      "tag:bravo-target-gce-replication"
+    ],
+    "type": "egress"
+  }
+}
+---
+{
+  "apiVersion": "v1",
+  "kind": "Service",
+  "metadata": {
+    "annotations": {
+      "tailscale.com/proxy-group": "bravo-target-gce-replication",
+      "tailscale.com/tailnet-fqdn": "bravo-source-gce-db.{{ .Values.tailnet }}"
+    },
+    "labels": {
+      "app.kubernetes.io/managed-by": "bravo-iac",
+      "bravo.dev/iac-module": "tailnet-egress"
+    },
+    "name": "source-db-for-replication",
+    "namespace": "target-dev"
+  },
+  "spec": {
+    "externalName": "placeholder",
+    "ports": [
+      {
+        "name": "postgres",
+        "port": 5432,
+        "protocol": "TCP"
+      }
+    ],
+    "type": "ExternalName"
+  }
+}
+---
+{
+  "apiVersion": "networking.k8s.io/v1",
+  "kind": "NetworkPolicy",
+  "metadata": {
+    "labels": {
+      "app.kubernetes.io/managed-by": "bravo-iac",
+      "bravo.dev/iac-module": "tailnet-egress"
+    },
+    "name": "bravo-target-gce-replication-ingress",
+    "namespace": "tailscale-system"
+  },
+  "spec": {
+    "ingress": [
+      {
+        "from": [
+          {
+            "podSelector": {
+              "matchLabels": {
+                "app": "operator"
+              }
+            }
+          }
+        ],
+        "ports": [
+          {
+            "port": 9002,
+            "protocol": "TCP"
+          }
+        ]
+      },
+      {
+        "from": [
+          {
+            "namespaceSelector": {
+              "matchLabels": {
+                "kubernetes.io/metadata.name": "target-dev"
+              }
+            },
+            "podSelector": {
+              "matchLabels": {
+                "cnpg.io/cluster": "target-db"
+              }
+            }
+          }
+        ],
+        "ports": [
+          {
+            "endPort": 10999,
+            "port": 10000,
+            "protocol": "TCP"
+          }
+        ]
+      }
+    ],
+    "podSelector": {
+      "matchLabels": {
+        "tailscale.com/parent-resource": "bravo-target-gce-replication",
+        "tailscale.com/parent-resource-type": "proxygroup"
+      }
+    },
+    "policyTypes": [
+      "Ingress"
+    ]
+  }
+}
+---
+{
+  "apiVersion": "tailscale.com/v1alpha1",
+  "kind": "ProxyGroup",
+  "metadata": {
+    "labels": {
+      "app.kubernetes.io/managed-by": "bravo-iac",
+      "bravo.dev/iac-module": "tailnet-egress"
+    },
+    "name": "bravo-target-gce-pooler"
+  },
+  "spec": {
+    "replicas": 1,
+    "tags": [
+      "tag:bravo-target-gce-pooler"
+    ],
+    "type": "egress"
+  }
+}
+---
+{
+  "apiVersion": "v1",
+  "kind": "Service",
+  "metadata": {
+    "annotations": {
+      "tailscale.com/proxy-group": "bravo-target-gce-pooler",
+      "tailscale.com/tailnet-fqdn": "bravo-source-gce-db.{{ .Values.tailnet }}"
+    },
+    "labels": {
+      "app.kubernetes.io/managed-by": "bravo-iac",
+      "bravo.dev/iac-module": "tailnet-egress"
+    },
+    "name": "source-db-for-pooler",
+    "namespace": "target-dev"
+  },
+  "spec": {
+    "externalName": "placeholder",
+    "ports": [
+      {
+        "name": "postgres",
+        "port": 5432,
+        "protocol": "TCP"
+      }
+    ],
+    "type": "ExternalName"
+  }
+}
+---
+{
+  "apiVersion": "networking.k8s.io/v1",
+  "kind": "NetworkPolicy",
+  "metadata": {
+    "labels": {
+      "app.kubernetes.io/managed-by": "bravo-iac",
+      "bravo.dev/iac-module": "tailnet-egress"
+    },
+    "name": "bravo-target-gce-pooler-ingress",
+    "namespace": "tailscale-system"
+  },
+  "spec": {
+    "ingress": [
+      {
+        "from": [
+          {
+            "podSelector": {
+              "matchLabels": {
+                "app": "operator"
+              }
+            }
+          }
+        ],
+        "ports": [
+          {
+            "port": 9002,
+            "protocol": "TCP"
+          }
+        ]
+      },
+      {
+        "from": [
+          {
+            "namespaceSelector": {
+              "matchLabels": {
+                "kubernetes.io/metadata.name": "target-dev"
+              }
+            },
+            "podSelector": {
+              "matchLabels": {
+                "app": "target-pgbouncer"
+              }
+            }
+          }
+        ],
+        "ports": [
+          {
+            "endPort": 10999,
+            "port": 10000,
+            "protocol": "TCP"
+          }
+        ]
+      }
+    ],
+    "podSelector": {
+      "matchLabels": {
+        "tailscale.com/parent-resource": "bravo-target-gce-pooler",
+        "tailscale.com/parent-resource-type": "proxygroup"
+      }
+    },
+    "policyTypes": [
+      "Ingress"
+    ]
+  }
+}
+---
+{
+  "apiVersion": "v1",
+  "kind": "Service",
+  "metadata": {
+    "annotations": {
+      "tailscale.com/expose": "true",
+      "tailscale.com/hostname": "bravo-target-gce-db",
+      "tailscale.com/tags": "tag:bravo-target-gce-db"
+    },
+    "labels": {
+      "app.kubernetes.io/managed-by": "bravo-iac",
+      "bravo.dev/iac-module": "tailnet-ingress"
+    },
+    "name": "target-db-tailnet",
+    "namespace": "target-dev"
+  },
+  "spec": {
+    "ports": [
+      {
+        "name": "postgres",
+        "port": 5432,
+        "protocol": "TCP",
+        "targetPort": 5432
+      }
+    ],
+    "selector": {
+      "cnpg.io/cluster": "target-db",
+      "cnpg.io/instanceRole": "primary"
+    }
+  }
+}
+---
+{
+  "apiVersion": "v1",
+  "kind": "Service",
+  "metadata": {
+    "annotations": {
+      "tailscale.com/expose": "true",
+      "tailscale.com/hostname": "bravo-target-gce-control-pooler",
+      "tailscale.com/tags": "tag:bravo-target-gce-control-pooler"
+    },
+    "labels": {
+      "app.kubernetes.io/managed-by": "bravo-iac",
+      "bravo.dev/iac-module": "tailnet-ingress"
+    },
+    "name": "target-control-pooler-tailnet",
+    "namespace": "target-dev"
+  },
+  "spec": {
+    "ports": [
+      {
+        "name": "pooler",
+        "port": 6432,
+        "protocol": "TCP",
+        "targetPort": 5432
+      }
+    ],
+    "selector": {
+      "app": "target-pgbouncer"
+    }
+  }
+}

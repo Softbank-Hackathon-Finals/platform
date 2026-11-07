@@ -172,6 +172,68 @@
                 "port_name": "https"
               }
             ]
+          },
+          {
+            "name": "bravo-cutover-control-gce",
+            "tag": "tag:bravo-cutover-control-gce",
+            "clients": [
+              {
+                "namespace": "bravo-platform",
+                "labels": {
+                  "app.kubernetes.io/name": "cutover-executor-gce"
+                }
+              }
+            ],
+            "routes": [
+              {
+                "service": "source-gce-db-for-cutover",
+                "namespace": "bravo-platform",
+                "destination": "bravo-source-gce-db",
+                "destination_tag": "tag:bravo-source-gce-db",
+                "port": 5432,
+                "port_name": "db"
+              },
+              {
+                "service": "target-gce-db-for-cutover",
+                "namespace": "bravo-platform",
+                "destination": "bravo-target-gce-db",
+                "destination_tag": "tag:bravo-target-gce-db",
+                "port": 5432,
+                "port_name": "db"
+              },
+              {
+                "service": "source-gce-pooler-for-cutover",
+                "namespace": "bravo-platform",
+                "destination": "bravo-source-gce-control-pooler",
+                "destination_tag": "tag:bravo-source-gce-control-pooler",
+                "port": 6432,
+                "port_name": "pooler"
+              },
+              {
+                "service": "target-gce-pooler-for-cutover",
+                "namespace": "bravo-platform",
+                "destination": "bravo-target-gce-control-pooler",
+                "destination_tag": "tag:bravo-target-gce-control-pooler",
+                "port": 6432,
+                "port_name": "pooler"
+              },
+              {
+                "service": "source-gce-api-for-cutover",
+                "namespace": "bravo-platform",
+                "destination": "bravo-source-operator",
+                "destination_tag": "tag:bravo-source-operator",
+                "port": 443,
+                "port_name": "https"
+              },
+              {
+                "service": "target-gce-api-for-cutover",
+                "namespace": "bravo-platform",
+                "destination": "bravo-target-gce-operator",
+                "destination_tag": "tag:bravo-target-gce-operator",
+                "port": 443,
+                "port_name": "https"
+              }
+            ]
           }
         ]
       }

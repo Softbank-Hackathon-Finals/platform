@@ -54,7 +54,9 @@ def values(side, env=None, auth="join", client_id="", audience=""):
             "image": {"repository": "tailscale/tailscale", "digest": PROXY_DIGEST},
             "defaultTags": f"tag:bravo-{env}-db",
         },
-        "apiServerProxyConfig": {"mode": "false", "allowImpersonation": "false"},
+        # A wif destination is a cluster the platform built (T45); the platform's Executor reaches its API
+        # through this proxy in auth mode (tailnet identity -> RBAC), never noauth. Existing joins keep it off.
+        "apiServerProxyConfig": {"mode": "true" if auth == "wif" else "false", "allowImpersonation": "false"},
         "ingressClass": {"enabled": False, "name": "bravo-t8-unused"},
     }
 
