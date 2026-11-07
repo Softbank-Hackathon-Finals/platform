@@ -123,18 +123,16 @@ class IacPlanService:
             return done[1]
         if not value["plan"]["accepted"]:
             raise EventError("iac_plan_refused")
-        # The approval must be of this plan as recorded: its id, its requester and its digest. The claim
-        # below compares only the digest; a receipt never changes once approved, so reading it first holds.
-        if self.infra.read(principal, plan_id, approval_id)["binding"] != _view(value)["binding"]:
-            raise EventError("binding_mismatch")
         try:
             state, base_sha, plan = self._plan(value["environment"], value["module"], value["params"])
         except IacError as error:
             raise EventError(error.code.lower()) from None
         if plan["plan_digest"] != value["plan"]["plan_digest"]:
             raise EventError("iac_plan_stale")  # the committed state moved: plan again, approve again
-        # apply_infra now, the approver still holds approve_infra, the digest is the approved one.
-        self.infra.claim(principal, plan_id, approval_id, run_id=iac_plan_id, plan_digest=plan["plan_digest"])
+        # apply_infra now, the approver still holds approve_infra, and the approval is of this plan as
+        # recorded: its id, its requester and its (recomputed) digest.
+        self.infra.claim(principal, plan_id, approval_id, run_id=iac_plan_id,
+                         binding=_view(value)["binding"] | {"plan_digest": plan["plan_digest"]})
         try:
             opened = self.repository.open(value["environment"], _proposed(state, value["module"], value["params"]),
                                           base_sha=base_sha, iac_plan_id=iac_plan_id, plan=plan)

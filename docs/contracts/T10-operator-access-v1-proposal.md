@@ -115,6 +115,6 @@ AWS는 기존 EC2의 비루트 임시 프로세스에서 같은 코드와 합성
 |---|---|---|
 | `POST /v1/plans/{plan_id}/approvals` (`approval_kind: "infra"`) | `approve_infra` | binding은 `infra_plan_id`, `plan_digest`(sha256 hex), `requested_by` 세 필드만 받는다. 요청자와 승인자가 같으면 `self_approval_forbidden`. 계획 상태가 COLLECT ~ AWAIT_APPROVAL일 때만 받고, 만료는 24시간 이내 |
 | `GET /v1/plans/{plan_id}/infra-approvals/{approval_id}` | `read` | 승인 영수증과 회수 여부, 소비한 실행 ID |
-| `POST /v1/plans/{plan_id}/infra-approvals/{approval_id}/claims` | `apply_infra` | 본문 `run_id`, `plan_digest`. 다시 계산한 digest가 승인과 다르면 `binding_mismatch`. 한 승인은 한 실행만 소비하고 같은 실행의 재요청은 같은 결과를 돌려준다. 원 승인자가 지금도 `approve_infra`를 가져야 한다 |
+| `POST /v1/plans/{plan_id}/infra-approvals/{approval_id}/claims` | `apply_infra` | 본문 `run_id`, `binding`(`infra_plan_id` · `plan_digest` · `requested_by`). binding 전체가 승인과 정확히 같아야 하고, 하나라도 다르면 `binding_mismatch`(같은 digest의 다른 계획 · 다른 요청자로 승인을 쓰지 못한다). `plan_digest`는 호출자가 다시 계산한 값이다. 한 승인은 한 실행만 소비하고 같은 실행의 재요청은 같은 결과를 돌려준다. 원 승인자가 지금도 `approve_infra`를 가져야 한다 |
 
 승인 회수는 기존 `revoke_approval(..., approval_kind="infra")`를 쓴다. T10 이벤트 v1 스키마에는 `infra` 종류가 없으므로 `approval.decided` 이벤트를 내지 않는다(SHIFT 승인과 같다). 실행 기록은 T44가 T24 감사 로그에 남긴다.

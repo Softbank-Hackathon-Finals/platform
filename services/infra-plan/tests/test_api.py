@@ -49,7 +49,8 @@ def test_an_agent_plans_and_a_human_runs_the_approved_digest(client):
     refused = http.post(route, json=body, headers=as_("agent") | {"Idempotency-Key": "k1"})
     assert (refused.status_code, refused.json()) == (403, {"detail": {"code": "human_required"}})
 
-    state["approvals"].approve("appr-1", plan["plan_digest"])  # T10 approval_kind=infra stands in here
+    state["approvals"].approve("appr-1", plan["plan_digest"], plan["infra_plan_id"],
+                               plan["binding"]["requested_by"])  # T10 approval_kind=infra stands in here
     started = http.post(route, json=body, headers=as_("human") | {"Idempotency-Key": "k1"})
     assert started.status_code == 202
     run_id = started.json()["run_id"]
@@ -71,6 +72,22 @@ def test_a_plan_that_no_longer_matches_its_approval_is_refused(client):
                        headers=as_("human") | {"Idempotency-Key": "k1"}).json()["run_id"]
     run = wait_for(http, run_id, {"REFUSED"})
     assert run["reason"] == "plan_digest_mismatch"
+
+
+def test_an_approval_of_a_twin_plan_with_the_same_digest_does_not_start_this_one(client):
+    """Planning the same request twice gives two plans with one digest; the approval names one."""
+    http, state = client
+    approved = http.post("/v1/infra/plans", json=REQUEST, headers=as_("agent")).json()
+    twin = http.post("/v1/infra/plans", json=REQUEST, headers=as_("human")).json()
+    assert twin["plan_digest"] == approved["plan_digest"] and twin["infra_plan_id"] != approved["infra_plan_id"]
+    state["approvals"].approve("appr-1", approved["plan_digest"], approved["infra_plan_id"],
+                               approved["binding"]["requested_by"])
+    run_id = http.post(f"/v1/infra/plans/{twin['infra_plan_id']}/runs",
+                       json={"migration_plan_id": "plan-demo", "approval_id": "appr-1"},
+                       headers=as_("human") | {"Idempotency-Key": "k1"}).json()["run_id"]
+    run = wait_for(http, run_id, {"REFUSED"})
+    assert run["reason"] == "binding_mismatch"
+    assert state["approvals"].claims == {}
 
 
 def test_bad_requests(client):

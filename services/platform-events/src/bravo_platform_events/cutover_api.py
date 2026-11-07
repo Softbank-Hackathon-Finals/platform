@@ -71,7 +71,7 @@ class DelegationInput(BaseModel):
 class InfraClaimInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
     run_id: str = Field(pattern=r"^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$")
-    plan_digest: str = Field(pattern=r"^[0-9a-f]{64}$")
+    binding: InfraBindingInput  # the whole binding the caller expects, compared exactly
 
 
 class IacPlanInput(BaseModel):
@@ -184,7 +184,7 @@ def create_cutover_app(service: CutoverService, *,
     async def claim_infra_approval(plan_id: str, approval_id: str, body: InfraClaimInput, request: Request):
         """The T44 executor claims an approval once for one run, after recomputing its plan digest."""
         receipt = await asyncio.to_thread(infra().claim, principal(request), plan_id, approval_id,
-                                         **body.model_dump())
+                                         run_id=body.run_id, binding=body.binding.model_dump())
         return JSONResponse(receipt, headers={"Cache-Control": "no-store"})
 
     if delegation_service is not None:

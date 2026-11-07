@@ -118,7 +118,7 @@ def world(tmp_path):
 def start(world, run_id, approval_id="appr-1", cluster=None):
     executor = world["executor"]() if cluster is None else world["executor"](cluster)
     return executor.start(request=REQUEST, migration_plan_id="plan-demo", approval_id=approval_id,
-                          run_id=run_id, started_by="applier")
+                          run_id=run_id, infra_plan_id="infra-1", requested_by="agent-1", started_by="applier")
 
 
 def states(run):

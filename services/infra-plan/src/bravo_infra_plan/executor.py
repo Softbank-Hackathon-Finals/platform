@@ -76,7 +76,10 @@ class Executor:
 
     # --- entry points -------------------------------------------------------------------------
 
-    def start(self, *, request, migration_plan_id, approval_id, run_id, started_by):
+    def start(self, *, request, migration_plan_id, approval_id, run_id, started_by, infra_plan_id, requested_by):
+        """``infra_plan_id`` and ``requested_by`` name the plan that was approved: the approval's binding
+        must be exactly {infra_plan_id, the recomputed plan_digest, requested_by}. Another plan with the
+        same digest, or one requested by someone else, does not start this run."""
         if self.store.exists(run_id):
             return self.store.load(run_id)
         target = self.identity(request["params"])
@@ -88,12 +91,16 @@ class Executor:
                    created_at=self.clock(), status=PENDING,
                    steps={s["id"]: {"status": OMITTED if s.get("omitted") else PENDING}
                           for s in plan.document["steps"]})
+        binding = {"infra_plan_id": infra_plan_id, "plan_digest": plan.plan_digest, "requested_by": requested_by}
+        run["binding"] = binding
         approval = self.approvals.read(migration_plan_id, approval_id)
         if approval.get("binding", {}).get("plan_digest") != plan.plan_digest:
             return self._refuse(run, "plan_digest_mismatch")
+        if approval.get("binding") != binding:
+            return self._refuse(run, "binding_mismatch")
         if approval.get("revoked") or approval.get("claimed_run_id") not in (None, run_id):
             return self._refuse(run, "approval_unusable")
-        claim = self.approvals.claim(migration_plan_id, approval_id, run_id=run_id, plan_digest=plan.plan_digest)
+        claim = self.approvals.claim(migration_plan_id, approval_id, run_id=run_id, binding=binding)
         run["claim"] = {k: claim[k] for k in ("approved_by", "claimed_by", "claimed_at") if k in claim}
         self.store.save(run)
         self.ledger({"event": "infra.run.started", "run_id": run_id, "plan_digest": plan.plan_digest,
@@ -125,8 +132,12 @@ class Executor:
         approval = self.approvals.read(run["migration_plan_id"], run["approval_id"])
         if approval.get("revoked") or approval.get("claimed_run_id") != run["run_id"]:
             return self._hold(run, "approval_revoked")
-        self.approvals.claim(run["migration_plan_id"], run["approval_id"], run_id=run["run_id"],
-                             plan_digest=run["plan_digest"])
+        # A run started before the whole binding was recorded resumes with the approved one, which
+        # carries the same digest (checked when it started).
+        binding = run.get("binding") or approval.get("binding")
+        if binding.get("plan_digest") != run["plan_digest"]:
+            return self._hold(run, "binding_mismatch")
+        self.approvals.claim(run["migration_plan_id"], run["approval_id"], run_id=run["run_id"], binding=binding)
         if self.repo is not None and self.repo.head() != run["head"]:
             return self._hold(run, "config_repo_moved")
         for state in run["steps"].values():

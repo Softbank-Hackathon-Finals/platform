@@ -111,17 +111,18 @@ class FakeApprovals:
         self.approvals, self.claims = {}, {}
         self.deny_claims = False
 
-    def approve(self, approval_id, digest):
-        self.approvals[approval_id] = {"approval_id": approval_id, "binding": {"plan_digest": digest},
+    def approve(self, approval_id, digest, infra_plan_id="infra-1", requested_by="agent-1"):
+        binding = {"infra_plan_id": infra_plan_id, "plan_digest": digest, "requested_by": requested_by}
+        self.approvals[approval_id] = {"approval_id": approval_id, "binding": binding,
                                        "revoked": False, "claimed_run_id": None, "actor_id": "approver"}
 
     def read(self, plan_id, approval_id):
         return dict(self.approvals[approval_id], claimed_run_id=self.claims.get(approval_id))
 
-    def claim(self, plan_id, approval_id, *, run_id, plan_digest):
+    def claim(self, plan_id, approval_id, *, run_id, binding):
         if self.deny_claims:
             raise StackError("forbidden")
-        assert self.approvals[approval_id]["binding"]["plan_digest"] == plan_digest
+        assert self.approvals[approval_id]["binding"] == binding  # T10 compares the whole binding
         assert self.claims.setdefault(approval_id, run_id) == run_id
         return {"approved_by": "approver", "claimed_by": "applier", "claimed_at": "t"}
 
@@ -164,7 +165,7 @@ def world(tmp_path):
 
 def start(world, run_id, approval_id="appr-1", **kw):
     return world["executor"](**kw).start(request=REQUEST, migration_plan_id="plan-demo", approval_id=approval_id,
-                                         run_id=run_id, started_by="applier")
+                                         run_id=run_id, infra_plan_id="infra-1", requested_by="agent-1", started_by="applier")
 
 
 def test_a_plan_other_than_the_approved_digest_is_refused_before_anything_changes(world):
@@ -242,7 +243,7 @@ def test_a_wait_that_never_converges_holds_only_its_dependents(world):
         REQUEST, stack_revision=REV, target=cluster.identity(NODE), base_commit=world["repo"].head()).plan_digest)
     executor = world["executor"](cluster=cluster, monotonic=lambda: next(ticks))
     run = executor.start(request=REQUEST, migration_plan_id="plan-demo", approval_id="appr-1",
-                         run_id="run-1", started_by="applier")
+                         run_id="run-1", infra_plan_id="infra-1", requested_by="agent-1", started_by="applier")
     cluster.prepare_node()
     run = executor.resume("run-1")
     states = {k: v for k, v in run["steps"].items()}
@@ -379,7 +380,7 @@ def test_an_uncomparable_diff_holds_instead_of_applying(world):
     world["approvals"].approve("appr-1", world["executor"](cluster=cluster).planner.plan(
         REQUEST, stack_revision=REV, target=cluster.identity(NODE), base_commit=world["repo"].head()).plan_digest)
     run = world["executor"](cluster=cluster).start(request=REQUEST, migration_plan_id="plan-demo",
-                                                   approval_id="appr-1", run_id="run-1", started_by="applier")
+                                                   approval_id="appr-1", run_id="run-1", infra_plan_id="infra-1", requested_by="agent-1", started_by="applier")
     assert run["steps"]["base"]["status"] == "HOLD" and cluster.applied == []
 
 
@@ -427,7 +428,7 @@ def test_runs_are_chained_into_the_t24_ledger_and_resume_after_a_restart(world):
     world["approve"]("appr-1")
     executor = world["executor"](ledger=AuditLedger(str(store_root), runs))
     executor.start(request=REQUEST, migration_plan_id="plan-demo", approval_id="appr-1", run_id="run-1",
-                   started_by="applier")
+                   infra_plan_id="infra-1", requested_by="agent-1", started_by="applier")
     first = read_local_run(store_root, "plan-demo", "run-1")
     assert first.record_count > 3 and {r["source"] for r in first.records} == {"infra"}
     restarted = world["executor"](ledger=AuditLedger(str(store_root), runs))  # a new process
@@ -471,7 +472,7 @@ def test_an_isolated_target_runs_to_verify_with_the_tailscale_line_omitted(world
                                    base_commit=world["repo"].head()).plan_digest
     approvals.approve("appr-iso", digest)
     run = executor.start(request=request, migration_plan_id="plan-demo", approval_id="appr-iso",
-                         run_id="run-iso", started_by="applier")
+                         run_id="run-iso", infra_plan_id="infra-1", requested_by="agent-1", started_by="applier")
     assert run["status"] == "SUCCEEDED", {k: v for k, v in run["steps"].items() if v["status"] not in ("APPLIED", "SKIPPED")}
     assert {k for k, v in run["steps"].items() if v["status"] == "OMITTED"} == {
         "tailscale-oauth", "tailscale", "tailscale-sync"}
@@ -495,7 +496,7 @@ def test_a_sync_passes_progressing_only_where_the_stack_says_so(world):
     world["approvals"].approve("appr-1", executor.planner.plan(
         REQUEST, stack_revision=REV, target=cluster.identity(NODE), base_commit=world["repo"].head()).plan_digest)
     run = executor.start(request=REQUEST, migration_plan_id="plan-demo", approval_id="appr-1",
-                         run_id="run-1", started_by="applier")
+                         run_id="run-1", infra_plan_id="infra-1", requested_by="agent-1", started_by="applier")
     states = run["steps"]
     # base-sync declares nothing, so Progressing holds it; nothing after base can then start.
     assert (states["base-sync"]["status"], states["base-sync"]["reason"]) == ("HOLD", "sync_timeout")
@@ -508,5 +509,5 @@ def test_a_sync_passes_progressing_only_where_the_stack_says_so(world):
     world["approvals"].approve("appr-2", executor.planner.plan(
         REQUEST, stack_revision=REV, target=healthy_base.identity(NODE), base_commit=world["repo"].head()).plan_digest)
     run = executor.start(request=REQUEST, migration_plan_id="plan-demo", approval_id="appr-2",
-                         run_id="run-2", started_by="applier")
+                         run_id="run-2", infra_plan_id="infra-1", requested_by="agent-1", started_by="applier")
     assert run["steps"]["openbao-sync"]["status"] == "APPLIED"  # declared: Healthy or Progressing

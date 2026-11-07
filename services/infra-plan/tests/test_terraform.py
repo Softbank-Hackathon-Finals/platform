@@ -62,7 +62,7 @@ def aws(tmp_path):
         approvals.approve(approval_id, ex.planner.plan(request, stack_revision="1" * 40, target=ACCOUNT,
                                                        base_commit="0" * 40).plan_digest)
         return ex.start(request=request, migration_plan_id="plan-demo", approval_id=approval_id, run_id=run_id,
-                        started_by="applier")
+                        infra_plan_id="infra-1", requested_by="agent-1", started_by="applier")
 
     return dict(run=run, executor=executor, private=private, state=state, tmp=tmp_path, request=request,
                 approvals=approvals)
@@ -109,7 +109,7 @@ def test_a_private_input_changed_after_approval_holds_before_planning(aws):
     aws["private"].joinpath("network.tfvars.json").write_text(json.dumps({"cidr": "10.99.0.0/16"}))
     ex.planner.plan = lambda *a, **k: original_plan(*a, **k)  # start re-renders: the digest moved
     run = ex.start(request=aws["request"], migration_plan_id="plan-demo", approval_id="appr-1", run_id="run-1",
-                   started_by="applier")
+                   infra_plan_id="infra-1", requested_by="agent-1", started_by="applier")
     assert (run["status"], run["reason"]) == ("REFUSED", "plan_digest_mismatch")
     assert not (aws["state"] / "network.tfstate").exists()
 
@@ -194,7 +194,7 @@ def test_a_change_set_that_moved_after_approval_is_refused(aws):
                             outputs_reader(cli, REPO, steps, aws["request"]["params"]), scratch, lock=True)
         cli.apply(planned["directory"], scratch / "data", scratch / "plan.bin")
     run = ex.start(request=aws["request"], migration_plan_id="plan-demo", approval_id="appr-1", run_id="run-1",
-                   started_by="applier")
+                   infra_plan_id="infra-1", requested_by="agent-1", started_by="applier")
     assert (run["status"], run["reason"]) == ("REFUSED", "plan_digest_mismatch")
 
 
