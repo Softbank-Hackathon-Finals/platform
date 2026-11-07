@@ -40,6 +40,21 @@ from bravo_migration.kube import Kube
 from bravo_migration.vault import PlatformVault
 
 NS, AWS_NS = "source-dev", "aws"
+
+
+def configure(ns="source-dev", aws_ns="aws"):
+    """Where the source runs. The defaults are the isolated E2E (its own cluster); a test namespace in a shared
+    cluster (T50: EKS `source-gce` beside source-dev) keeps the stand-ins in its own namespace too."""
+    global NS, AWS_NS, DB_NAMES
+    NS, AWS_NS = ns, aws_ns
+    DB_NAMES = [*(f"{name}{suffix}" for name in ("source-db-rw", "source-pgbouncer")
+                  for suffix in ("", f".{NS}", f".{NS}.svc", f".{NS}.svc.cluster.local")),
+                "source-db-for-replication.target-dev.svc", "source-db-for-replication.target-dev.svc.cluster.local"]
+
+
+configure()
+
+
 def app_names(repo: Path, arch: str) -> list[str]:
     """The destination's app image names for this arch (T45 `app-image` expect): the source runs the same image."""
     stack = json.loads((repo / "infra/stacks/target-onprem/stack.json").read_text())
@@ -50,10 +65,6 @@ REGION = "ap-northeast-2"
 SECRET_ID = "demo-chat/db"
 BUCKET = "demo-chat-attachments"
 # Names the server certificate answers to: its own Services and the destination's kube DNS name for it.
-DB_NAMES = ["source-db-rw", f"source-db-rw.{NS}", f"source-db-rw.{NS}.svc", f"source-db-rw.{NS}.svc.cluster.local",
-            "source-pgbouncer", f"source-pgbouncer.{NS}", f"source-pgbouncer.{NS}.svc",
-            f"source-pgbouncer.{NS}.svc.cluster.local",
-            "source-db-for-replication.target-dev.svc", "source-db-for-replication.target-dev.svc.cluster.local"]
 RESTRICTED = {"allowPrivilegeEscalation": False, "readOnlyRootFilesystem": True, "capabilities": {"drop": ["ALL"]}}
 POD_SECURITY = {"runAsNonRoot": True, "seccompProfile": {"type": "RuntimeDefault"}}
 
@@ -94,6 +105,17 @@ def _tls():
 def secret(name, namespace, data, kind="Opaque"):
     return {"apiVersion": "v1", "kind": "Secret", "type": kind, "metadata": {"name": name, "namespace": namespace},
             "data": {k: base64.b64encode(v.encode()).decode() for k, v in data.items()}}
+
+
+def quota(spec):
+    """A shared cluster's test namespace stays inside a fixed budget (T50: never crowd out source-dev).
+    The LimitRange gives a request to containers that declare none (the stand-ins), which a CPU quota requires."""
+    default = {"type": "Container", "defaultRequest": {"cpu": "50m", "memory": "64Mi"},
+               "default": {"cpu": "500m", "memory": "512Mi"}}
+    return [{"apiVersion": "v1", "kind": "ResourceQuota", "metadata": {"name": "bravo-test-budget", "namespace": NS},
+             "spec": {"hard": spec}},
+            {"apiVersion": "v1", "kind": "LimitRange", "metadata": {"name": "bravo-test-defaults", "namespace": NS},
+             "spec": {"limits": [default]}}]
 
 
 def namespace(name):
@@ -210,8 +232,18 @@ class Source:
         self.repo = Path(cfg["repo_root"])
         self.kube = Kube(cfg["kubeconfig"], cfg["cluster_uid"])
         self.vault = PlatformVault(cfg["vault_dir"])
+        configure(cfg.get("namespace", "source-dev"), cfg.get("aws_namespace", "aws"))
         self.render = _module(self.repo, "source_workloads_render")
-        self.app_names = app_names(self.repo, cfg["params"]["arch"])
+        self.render.NAMESPACE = NS
+        # A registry image the nodes already pull (EKS: the source's own ECR digest) or the offline import.
+        self.app_names = [cfg["app_image"]] if cfg.get("app_image") else app_names(self.repo, cfg["params"]["arch"])
+
+    def apply(self, objects):
+        """Pins Pods to one node when the cluster is shared (`node`), so a test source never takes source-dev's."""
+        for o in objects:
+            if self.cfg.get("node") and o["kind"] == "Deployment":
+                o["spec"]["template"]["spec"]["nodeSelector"] = {"kubernetes.io/hostname": self.cfg["node"]}
+        self.kube.apply(objects)
 
     def psql(self, sql, db="chat"):
         out = self.kube.exec(NS, "deploy/source-db", ["psql", "-v", "ON_ERROR_STOP=1", "-X", "-q", "-At",
@@ -231,9 +263,12 @@ class Source:
         creds = self.vault.put_once("source-credentials", {
             "chat_app": _random(32), "chat_replicator": _random(32), "admin_token": _random(40)})
         tls = self.vault.put_once("source-ca", _tls())
-        site_host(self.cfg["host"]).import_image(self.cfg["images"]["app"], self.app_names)
-        self.kube.apply([namespace(NS), namespace(AWS_NS)])
-        self.kube.apply(moto())
+        if not self.cfg.get("app_image"):
+            site_host(self.cfg["host"]).import_image(self.cfg["images"]["app"], self.app_names)
+        self.kube.apply([namespace(n) for n in dict.fromkeys((NS, AWS_NS))])
+        if self.cfg.get("quota"):
+            self.kube.apply(quota(self.cfg["quota"]))
+        self.apply(moto())
         self.kube.apply([secret("source-db-ca", NS, {"ca.crt": tls["ca_crt"]}),
                          secret("source-db-server", NS, {"tls.crt": tls["tls_crt"], "tls.key": tls["tls_key"],
                                                          "ca.crt": tls["ca_crt"]}, "kubernetes.io/tls"),
@@ -256,8 +291,8 @@ class Source:
         self.kube.apply([secret("source-objects-auth", AWS_NS, {"s3.json": s3}),
                          secret("source-app-objects", NS, {"access_key": ids["client"]["access_key"],
                                                            "secret_key": ids["client"]["secret_key"]})])
-        self.kube.apply(objects(self.repo))
-        self.kube.apply(database(self.render.POSTGRES_IMAGE))
+        self.apply(objects(self.repo))
+        self.apply(database(self.render.POSTGRES_IMAGE))
         self.kube.rollout(NS, "source-db", timeout_s=300)
         fresh = self.psql("SELECT count(*) FROM pg_database WHERE datname = 'chat';", db="postgres") == "0"
         if fresh:
@@ -268,7 +303,7 @@ class Source:
                   db="postgres")
         if self.psql("SELECT count(*) FROM pg_tables WHERE schemaname='public' AND tablename='messages';") == "0":
             self.psql((self.repo / "infra/envs/source-workloads/schema.sql").read_text())
-        self.kube.apply(self.render.pooler())
+        self.apply(self.render.pooler())
         self.kube.rollout(AWS_NS, "moto")
         self.kube.rollout(AWS_NS, "source-objects", timeout_s=300)
         boot = ids["bootstrap"]
@@ -284,7 +319,7 @@ try: sm.create_secret(Name='{SECRET_ID}',SecretString=value)
 except sm.exceptions.ResourceExistsException: pass
 """, stdin=creds["chat_app"])
         self.kube.rollout(NS, "source-pgbouncer")
-        self.kube.apply(app(self.render, next(n for n in self.app_names if "@sha256:" in n)))
+        self.apply(app(self.render, next(n for n in self.app_names if "@sha256:" in n)))
         if fresh:
             # A new server: connections opened against the old one (pooler cache, app pool) are stale.
             for name in ("source-pgbouncer", "demo-chat"):

@@ -397,7 +397,7 @@
             },
             "podSelector": {
               "matchLabels": {
-                "cnpg.io/cluster": "source-db"
+                "app": "source-db"
               }
             }
           }
@@ -519,8 +519,7 @@
       }
     ],
     "selector": {
-      "cnpg.io/cluster": "source-db",
-      "cnpg.io/instanceRole": "primary"
+      "app": "source-db"
     }
   }
 }

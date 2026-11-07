@@ -61,7 +61,7 @@
               {
                 "namespace": "source-gce",
                 "labels": {
-                  "cnpg.io/cluster": "source-db"
+                  "app": "source-db"
                 }
               }
             ],
@@ -124,8 +124,7 @@
             "hostname": "bravo-source-gce-db",
             "tag": "tag:bravo-source-gce-db",
             "selector": {
-              "cnpg.io/cluster": "source-db",
-              "cnpg.io/instanceRole": "primary"
+              "app": "source-db"
             },
             "ports": [
               {
