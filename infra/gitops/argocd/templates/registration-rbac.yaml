@@ -114,6 +114,11 @@ spec:
         'bravo-t10-rehearsal-intake' == v.projected.sources[0].serviceAccountToken.audience &&
         has(v.projected.sources[0].serviceAccountToken.expirationSeconds) &&
         v.projected.sources[0].serviceAccountToken.expirationSeconds <= 600)
+        || (object.metadata.name == 't15-rehearsal-host' && v.name == 'security-review-token' &&
+        size(v.projected.sources) == 1 && has(v.projected.sources[0].serviceAccountToken) &&
+        'registered-security-review-audience' == v.projected.sources[0].serviceAccountToken.audience &&
+        has(v.projected.sources[0].serviceAccountToken.expirationSeconds) &&
+        v.projected.sources[0].serviceAccountToken.expirationSeconds <= 600)
         {{- end }}
         {{- if and .Values.workflowHost.enabled .Values.initialProposal.hostCreatesJobs }}
         {{- /* T49 initialProposalAuto: the host's API token for its only grant, the bravo-initial Job Role

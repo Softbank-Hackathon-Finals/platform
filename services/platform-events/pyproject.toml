@@ -37,14 +37,20 @@ dev = [
     {include-group = "product-inputs"},
     {include-group = "application-host"},
     {include-group = "target-controls"},
+    {include-group = "security-governance"},
 ]
-trusted-host = ["bravo-rehearsal-runner"]
+trusted-host = ["bravo-rehearsal-runner", {include-group = "security-governance"}]
 product-inputs = ["bravo-agent-worker", "bravo-inventory", "bravo-iac", {include-group = "trusted-host"}]
 application-host = ["bravo-apply-path", "bravo-control-gate==0.1.0"]
 # boto3: the T19 platform signer calls AWS KMS with the pod web identity (ADR-0038).
 gate-records = ["bravo-control-gate==0.1.0", "boto3>=1.35,<2"]
 # ADR-0041: the workflow host measures the post-cutover target T14 run with the T14 collectors.
 target-controls = ["bravo-controls[aws]"]
+security-governance = ["sova-security==0.11.1"]
+
+[tool.uv.sources.sova-security]
+git = "https://github.com/Softbank-Hackathon-Finals/security.git"
+rev = "d7f752b6ef9dec18f198d2e3760a08a1370f71ea"
 
 [build-system]
 requires = ["hatchling>=1.25"]

@@ -30,7 +30,8 @@ PERMISSIONS = frozenset({"read", "approve_cutover", "execute_cutover", "approve_
 # SHIFT/cutover, and publishing or managing signature records. Granted per plan like the others.
 GATE_PERMISSIONS = frozenset({"gate:record", "gate:read", "gate:bind", "gate:evaluate", "gate:consume",
                               "gate:use-exception", "gate:publish-provenance", "gate:manage-provenance"})
-PERMISSIONS = PERMISSIONS | GATE_PERMISSIONS
+SECURITY_PERMISSIONS = frozenset({"security:read", "security:register"})
+PERMISSIONS = PERMISSIONS | GATE_PERMISSIONS | SECURITY_PERMISSIONS
 APPROVAL_KEYS = {"cutover": _key, "change": change_key, "failback": failback_key, "infra": infra_key}
 
 
@@ -199,7 +200,7 @@ class OperatorAccess:
 
 def create_operator_cutover_app(store, executor, *, verifier, bindings=None, registered_pair=None,
                                authority=unavailable_authority,
-                               change_authority=None, failback_authority=None,
+                               change_authority=None, change_authority_wrapper=None, failback_authority=None,
                                read_integrity=unavailable_authority, edge=None, clock=None, rehearsal_host=None,
                                change_intake=None, iac_repository=None, delegation=False, sweep_seconds=15,
                                list_tasks=None, delegated_shift=None):
@@ -210,6 +211,10 @@ def create_operator_cutover_app(store, executor, *, verifier, bindings=None, reg
         if change_intake.store is not store or change_authority is not None:
             raise ValueError("single_change_intake_required")
         change_authority = change_intake.current
+    if change_authority_wrapper is not None:
+        if change_authority is None or not callable(change_authority_wrapper):
+            raise ValueError("change_authority_wrapper_invalid")
+        change_authority = change_authority_wrapper(change_authority)
     if registered_pair is not None:
         bindings = executor.verified_bindings(registered_pair)
     access = OperatorAccess(store, clock=clock)

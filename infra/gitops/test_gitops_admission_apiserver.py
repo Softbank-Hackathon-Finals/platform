@@ -28,7 +28,8 @@ CONTROLLER = "system:serviceaccount:bravo-gitops:bravo-gitops-application-contro
 HOST = {"image": {"digest": "sha256:" + "a" * 64}, "sourceRevision": "b" * 40,
         "configuration": {"existingConfigMap": "host-config", "sha256": "c" * 64},
         "reader": {"existingConfigMap": "reader-config", "catalogClaim": "existing-catalog"},
-        "recordsClaim": "t15-records", "secrets": {"catalogKey": "existing-key", "host": "t15-host", "executor": "t15-executor"},
+        "recordsClaim": "t15-records", "secrets": {"catalogKey": "existing-key", "host": "t15-host",
+                                                    "executor": "t15-executor", "securityReview": "security-review-ca"},
         "hostAliases": [{"ip": "43.202.75.96", "hostnames": ["sts.ap-northeast-2.amazonaws.com"]}]}
 
 
@@ -150,13 +151,13 @@ class ControllerAdmission(unittest.TestCase):
                 result = self.create(obj)
                 self.assertEqual(result.returncode, 0, result.stderr)
 
-    def test_host_exception_admits_only_its_own_identity_and_intake_token(self):
+    def test_host_exception_admits_only_its_own_identity_intake_and_security_review_tokens(self):
         def mutate(change):
             dep = deepcopy(self.rendered_host()["Deployment"])
             change(dep["spec"]["template"]["spec"])
             return dep
-        def token(pod):
-            return next(v for v in pod["volumes"] if v["name"] == "intake-token")["projected"]["sources"]
+        def token(pod, name="intake-token"):
+            return next(v for v in pod["volumes"] if v["name"] == name)["projected"]["sources"]
         faults = {
             "other service account": lambda p: p.update(serviceAccountName="platform-runtime"),
             "other audience": lambda p: token(p)[0]["serviceAccountToken"].update(audience="kubernetes"),
@@ -165,6 +166,15 @@ class ControllerAdmission(unittest.TestCase):
             "second projected volume": lambda p: p["volumes"].append({"name": "other", "projected": {"sources": [
                 {"serviceAccountToken": {"audience": "bravo-t10-rehearsal-intake", "expirationSeconds": 600, "path": "t"}}]}}),
             "host path": lambda p: p["volumes"].append({"name": "root", "hostPath": {"path": "/"}}),
+            # The security-review token is the second and last exception, bound the same way.
+            "security review token with the intake audience": lambda p: token(p, "security-review-token")[0][
+                "serviceAccountToken"].update(audience="bravo-t10-rehearsal-intake"),
+            "security review token with the API audience": lambda p: token(p, "security-review-token")[0][
+                "serviceAccountToken"].update(audience="kubernetes"),
+            "longer security review token": lambda p: token(p, "security-review-token")[0][
+                "serviceAccountToken"].update(expirationSeconds=3600),
+            "security review token with the cluster CA": lambda p: token(p, "security-review-token").append(
+                {"configMap": {"name": "kube-root-ca.crt"}}),
         }
         for name, change in faults.items():
             with self.subTest(fault=name):

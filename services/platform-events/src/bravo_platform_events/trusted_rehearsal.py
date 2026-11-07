@@ -79,6 +79,7 @@ class TrustedHostPorts:
     catalog: object = field(repr=False)
     planner: object = field(repr=False)
     cutover_authority: object = field(repr=False)
+    change_authority_wrapper: object = field(default=None, repr=False)
     # T20 failback: upstream authority and integrity reader, both optional (absent = no failback route).
     failback_authority: object = field(default=None, repr=False)
     read_integrity: object = field(default=None, repr=False)
@@ -134,6 +135,7 @@ def build_trusted_host(store, *, ports: TrustedHostPorts, records, sender, verif
                           authorize_hold=OperatorHoldPolicy(access, verifier), clock=clock)
     app = create_operator_cutover_app(store, ports.executor, bindings=ports.bindings,
         verifier=verifier, authority=ports.cutover_authority, rehearsal_host=rehearsals,
+        change_authority_wrapper=ports.change_authority_wrapper,
         **({"failback_authority": ports.failback_authority, "read_integrity": ports.read_integrity,
             "edge": ports.edge} if ports.failback_authority is not None else {}),
         change_intake=intake, clock=clock, delegation=ports.delegation, list_tasks=_tasks(ports.catalog),
