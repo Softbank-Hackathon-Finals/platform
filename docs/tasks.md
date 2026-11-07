@@ -549,7 +549,7 @@ Claude Code는 `/todo-task`, Codex는 `$todo-task`로 이 순서를 따르는 �
 **목표** 양쪽 환경 모두 백업을 새 환경으로 실제 복원할 수 있음을 같은 방법으로 보인다.
 
 **할 일**
-- [ ] 출발지 CNPG 백업 (S3)
+- [x] 출발지 CNPG 백업 (S3)
 - [ ] 목적지 CNPG 백업 (SeaweedFS)
 - [ ] 빈 시험 클러스터로 복원, 표식 행 id 기준 행 수 비교
 - [ ] 앱 · 실행 역할로는 백업을 지울 수 없게 제한
@@ -574,7 +574,7 @@ Claude Code는 `/todo-task`, Codex는 `$todo-task`로 이 순서를 따르는 �
 - [x] 수집이 끊긴 환경을 "확인 불가"로: 환경별 최근 수신 시각
 - [x] 콘솔용 조회 API: 환경별 요청 · 오류 · p95, PgBouncer 상태, 수집 시각
 - [x] 목적지 Collector를 T34 로그 파이프라인과 하나로 둘지 결정
-- [ ] 앱 → Collector mTLS의 앱 CA를 OpenBao PKI에 두고 ESO로 Secret 공급(T44 원하는 상태와 같은 방식): 발급·교체·권한을 한 곳에서, 사람의 CA 키 보관과 `kubectl create secret` 제거
+- [x] 앱 → Collector mTLS의 앱 CA를 OpenBao PKI에 두고 ESO로 Secret 공급(T44 원하는 상태와 같은 방식): 발급·교체·권한을 한 곳에서, 사람의 CA 키 보관과 `kubectl create secret` 제거
 
 **완료 기준** 출발지 · 목적지 앱 지표가 플랫폼에서 환경별로 조회되고, 한 환경의 Collector를 멈추면 그 환경이 "확인 불가"로 바뀐다. 다른 환경 이름을 붙여 보낸 지표는 그 환경으로 기록되지 않는다.
 
@@ -865,7 +865,7 @@ SSE 구현 검증과 운영 인수는 [콘솔 SSE 인수 기준](../services/con
 - [x] Exit Drill(T27): 목적지 앱이 AWS 발급자를 믿으면 출구 증거가 아님(`AWS_IDENTITY_TRUSTED`)
 - [ ] 인벤토리(T16): 앱의 `AUTH_ISSUER` cognito-idp 주소와 출발지 사용자 풀을 의존성으로 탐지(담당과 범위 합의)
 - [ ] 부하 생성기(T18)용 클라이언트는 브라우저 클라이언트를 넓히지 않고 따로 둠
-- [ ] 설계 문서 버전 올림: 7.3 대응표에 인증(Cognito → Keycloak, 설정 교체) 행
+- [x] 설계 문서 버전 올림: 7.3 대응표에 인증(Cognito → Keycloak, 설정 교체) 행
 
 **완료 기준** 목적지에서 `AUTH_ISSUER`만 바꾼 같은 이미지로 로그인과 쓰기가 되고, `AUTH_ALSO_TRUST`를 지운 뒤 Exit Drill이 인증을 AWS 의존성으로 남기지 않는다. 옮긴 사용자는 첫 로그인에서 새 비밀번호를 정하고, 목적지에서도 스스로 가입이 막혀 있다.
 
