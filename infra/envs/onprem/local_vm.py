@@ -23,6 +23,10 @@ class VMError(ValueError):
     """A safe, actionable lifecycle failure without raw process or QMP data."""
 
 
+class NotRunning(VMError):
+    """The recorded PID is gone or now belongs to something other than this VM's QEMU."""
+
+
 def architecture(value: str) -> str:
     aliases = {"arm64": "arm64", "aarch64": "arm64", "amd64": "x86_64", "x86_64": "x86_64"}
     if value not in aliases:
@@ -193,10 +197,10 @@ def owned_process(vm: Path, launch_id: str) -> tuple[int, str]:
     pid = int(raw)
     identity = process_identity(pid)
     if identity is None:
-        raise VMError("stale QEMU PID; state preserved")
+        raise NotRunning("stale QEMU PID; state preserved")
     fields = identity.split(maxsplit=5)
     if len(fields) != 6 or not Path(fields[5]).name.startswith("qemu-system-"):
-        raise VMError("PID does not belong to QEMU")
+        raise NotRunning("PID does not belong to QEMU")
     command = subprocess.check_output(
         ["ps", "-ww", "-p", str(pid), "-o", "args="], text=True, timeout=5,
         env={**os.environ, "LC_ALL": "C"},
@@ -205,7 +209,7 @@ def owned_process(vm: Path, launch_id: str) -> tuple[int, str]:
         f"-uuid {launch_id}", f"-pidfile {vm / 'qemu.pid'}",
         f"file={vm / 'disk.qcow2'},", f"unix:{vm / 'qmp.sock'},",
     )) or process_identity(pid) != identity:
-        raise VMError("QEMU process does not match this VM")
+        raise NotRunning("QEMU process does not match this VM")
     return pid, identity
 
 
@@ -408,9 +412,84 @@ def up(state: Path, *, purpose="development", allow_emulation=False, reason="", 
     subprocess.run(["bash", str(script), "_wait"], env=environment, check=True)
 
 
+def disk_users(disk: Path) -> list[int]:
+    """PIDs whose command line opens this disk; QEMU's own image lock is the second guard."""
+    listing = subprocess.run(["ps", "-axww", "-o", "pid=", "-o", "args="], capture_output=True,
+                             text=True, timeout=5, check=True, env={**os.environ, "LC_ALL": "C"})
+    needle = f"file={disk},"
+    return [int(line.split(maxsplit=1)[0]) for line in listing.stdout.splitlines() if needle in line]
+
+
+def preserve_console(vm: Path):
+    """QEMU truncates the serial file on boot; keep the earlier boot record beside it."""
+    console = vm / "console.log"
+    if console.is_symlink():
+        raise VMError("console log must not be a link")
+    if not console.exists():
+        return
+    stamp = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime())
+    for suffix in range(100):
+        kept = vm / f"console-{stamp}{f'-{suffix}' if suffix else ''}.log"
+        if not kept.exists() and not kept.is_symlink():
+            os.rename(console, kept)
+            return
+    raise VMError("too many preserved console logs for one second")
+
+
+def start(state: Path) -> str:
+    """Boot the recorded VM again on its own disk, UUID and ports; never create or replace state."""
+    vm = state / "vm"
+    if vm.is_symlink() or not vm.is_dir():
+        raise VMError("no recorded VM to start; use up to create one")
+    launch_id = read_regular(vm / "launch.uuid").strip()
+    if str(uuid.UUID(launch_id)) != launch_id:
+        raise VMError("invalid VM UUID")
+    stored = json.loads(read_regular(vm / "connection.json"))
+    if not isinstance(stored, dict) or set(stored) != {"arch", "ssh_port", "api_port"}:
+        raise VMError("invalid VM connection metadata")
+    settings = connection_settings(stored)
+    if (vm / "execution.json").is_symlink() or not (vm / "execution.json").is_file():
+        raise VMError("VM has no recorded execution profile; UNKNOWN, not restarted")
+    profile = saved_profile(vm)
+    if settings["arch"] != profile["guest_arch"] or architecture(
+            os.environ.get("BRAVO_VM_ARCH", platform.machine())) != profile["guest_arch"]:
+        raise VMError("selected architecture does not match the existing VM")
+    for name in ("disk.qcow2", "seed.iso"):
+        if (vm / name).is_symlink() or not (vm / name).is_file():
+            raise VMError(f"existing {name} required; start never creates one")
+    if (vm / "qemu.pid").exists() or (vm / "qemu.pid").is_symlink():
+        try:
+            owned_process(vm, launch_id)
+        except NotRunning:
+            pass
+        else:
+            with qmp(vm) as client:
+                verify_qmp(client, vm, launch_id)
+            return "already running"
+    if disk_users(vm / "disk.qcow2"):
+        raise VMError("another process already uses this VM disk")
+    available_ports(settings)
+    preserve_console(vm)
+    script = Path(__file__).with_name("local-vm.sh")
+    environment = {**os.environ, "BRAVO_VM_STATE": str(state), "BRAVO_VM_ARCH": settings["arch"],
+                   "BRAVO_SSH_PORT": str(settings["ssh_port"]),
+                   "BRAVO_API_PORT": str(settings["api_port"])}
+    subprocess.run(["bash", str(script), "_start", launch_id], env=environment, check=True)
+    pid, identity = owned_process(vm, launch_id)
+    with qmp(vm) as client:
+        verify_qmp(client, vm, launch_id)
+    verify_execution(pid, identity, profile)
+    if platform.system() == "Darwin":
+        subprocess.Popen(["caffeinate", "-is", "-w", str(pid)], stdin=subprocess.DEVNULL,
+                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                         start_new_session=True)
+    subprocess.run(["bash", str(script), "_wait"], env=environment, check=True)
+    return "started"
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("action", choices=("up", "down", "connection", "prepare-profile", "measurement"))
+    parser.add_argument("action", choices=("up", "start", "down", "connection", "prepare-profile", "measurement"))
     parser.add_argument("state", type=Path)
     parser.add_argument("--purpose", choices=("development", "performance", "compatibility"), default="development")
     parser.add_argument("--allow-emulation", action="store_true")
@@ -429,6 +508,8 @@ def main():
                 print(connection(state))
             elif args.action == "measurement":
                 print(json.dumps(measurement(state)))
+            elif args.action == "start":
+                print(start(state))
             elif args.action == "up":
                 up(state, purpose=args.purpose, allow_emulation=args.allow_emulation, reason=args.reason,
                    image_layout=args.image_layout, image_digest=args.image_digest)
