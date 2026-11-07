@@ -34,9 +34,9 @@
 
 | 환경 | egress (클러스터 안 Service → tailnet 장치) | ingress (tailnet 장치 → 클러스터 안) |
 |---|---|---|
-| platform | 반영·리허설·Collector → 목적지 API(워크로드 tailnet), 컷오버 → 양쪽 DB·제어 Pooler·API | 아직 없음: 지표 저장소 `bravo-metrics` 노출은 저장소에 렌더러가 없어 다음 단계에서 선언 |
+| platform | 반영·리허설·Collector → 목적지 API(워크로드 tailnet), 컷오버 → 양쪽 DB·제어 Pooler·API | `bravo-findings`(T33 보안 탐지 수집 API, 8443). 지표 저장소 `bravo-metrics` 노출은 저장소에 렌더러가 없어 다음 단계에서 선언 |
 | source-dev | Collector → 지표 저장소, 복제(역방향 구독) → `bravo-target-db` | `bravo-source-db`, `bravo-source-control-pooler` |
-| target-dev | Collector → 지표 저장소, 복제(정방향 구독)·Pooler → `bravo-source-db` | `bravo-target-db`, `bravo-target-control-pooler` |
+| target-dev | Collector → 지표 저장소, 복제(정방향 구독)·Pooler → `bravo-source-db`, 보안 탐지 에이전트·falcosidekick → `bravo-findings` | `bravo-target-db`, `bravo-target-control-pooler` |
 
 응답에는 환경마다 경로(호출할 클러스터 안 DNS 이름·포트 → 장치·태그·tailnet, 호출자)와 노출 장치, tailnet마다
 정책 조각이 들어간다. 커밋된 파일만 읽으므로 proxy Pod·포트·주소를 찾을 필요가 없다. 옛 렌더러에서 같은 객체를
@@ -242,10 +242,10 @@ helm upgrade --install bravo-iac-gitops infra/iac/argocd -n bravo-iac-gitops --c
 **플랫폼 클러스터에는 이 차트를 설치하지 않는다.** 이미 T43 Argo가 있으므로 `charts/platform`은 그 Argo의 Application으로
 붙인다(한 클러스터에 Argo 두 벌을 두지 않는다). `infra/iac/argocd`(CRD 설치 포함)는 고객 클러스터(`source-dev`, `target-dev`) 전용이다.
 그 Application은 `infra/gitops/argocd`의 `iacNetwork`(기본 꺼짐)다. 켤 때 값은 검토한 전체 커밋 SHA(`targetRevision`)와
-tailnet 접미사(`tailnet`, `tailnets.workload`)이고, AppProject `platform-iac-network`는 이 차트에 있는 namespace 5개와
+tailnet 접미사(`tailnet`, `tailnets.workload`)이고, AppProject `platform-iac-network`는 이 차트에 있는 namespace 6개와
 종류(Namespace·ProxyGroup·Service·NetworkPolicy)만 허용한다(시험이 차트와 같은지 고정). 켜기 전에 컨트롤러 권한이 필요하다:
 그 namespace의 Role·RoleBinding, Namespace·ProxyGroup 클러스터 접근, `clusterCredentials.platform`의 namespace·클러스터 자원,
-`resource.inclusions`. 이 권한 작업은 따로 한다(T44 할 일 "권한 세분화").
+`resource.inclusions`. 이 권한 작업은 따로 한다(T44 할 일 "권한 세분화"). `bravo-security`는 T33 플랫폼 전제(`infra/envs/platform-security`)가 만든다.
 
 **같은 자원의 주인은 하나다.** 이 모듈을 적용하는 클러스터에서는 같은 이름의 경로를 만드는 기존 렌더러를 쓰지 않는다:
 `infra/envs/rehearsal-access/access.py`(리허설·반영·Collector → 목적지 API), `infra/envs/executor-network`(컷오버 경로),
@@ -264,8 +264,10 @@ tailnet 접미사(`tailnet`, `tailnets.workload`)이고, AppProject `platform-ia
 | `source-dev` | — | 출발지 렌더러(`infra/envs/source-workloads`) |
 | `tailscale-system` | T45 tailscale-oauth 단계(PSA privileged) | 기존 Tailscale operator 설치 |
 | `bravo-observability` | T45 base 단계(`observability-namespace`), T37 Collector와 같은 라벨(`component: platform`, PSA restricted). T37 `collector-target`도 같은 Namespace를 선언한다(레이블 같음, 주인 단일화는 T37과 합의) | T37 Collector 매니페스트(`services/observability/deploy/collector`) |
+| `bravo-security` · `falco` | T33 온프렘 탐지 묶음(`infra/envs/onprem-detection`) 설치 0단계 | — |
 
 그래서 이 Application은 표의 namespace와 Tailscale CRD가 생긴 **뒤에** 켠다(새 목적지는 T45 base · tailscale 단계가 Synced · Healthy가 된 뒤, 아래 2단계). 그 뒤의 실패는 순서 문제가 아니므로 재시도는 유한하다(`retry.limit: 5`, 약 5분). 무제한 재시도는 실패한 operation을 Running으로 남겨, `targetRevision`을 고친 SHA로 올려도 새 동기화가 시작되지 않는다. 재시도가 끝나 Failed가 되면 원인을 고친 커밋을 승격하거나 수동으로 sync한다.
+`bravo-security` · `falco`(T33 탐지 경로)는 그 경로가 든 SHA를 승격하기 **전에** 있어야 한다. 없으면 그 동기화가 실패해 같은 SHA의 다른 경로도 반영되지 않는다.
 ProxyGroup은 그 클러스터에 Tailscale operator(CRD)가 있어야 생성된다(`SkipDryRunOnMissingResource`).
 
 ### 고객 설치와 업무 자원 적용의 분리 (차트 0.2.0)

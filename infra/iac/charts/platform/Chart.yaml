@@ -1,6 +1,6 @@
 {
   "annotations": {
-    "bravo.dev/state-digest": "f3d6457d20f41ad8ead08fb081fde8ccf18e5a1dd857cda85af5ed2f1e11551a",
+    "bravo.dev/state-digest": "4f41ccbdf661b3e564aa7438416ccb2d361cbb36f1f6492ed1781d73270bbdba",
     "bravo.dev/unmanaged": "[\"cluster-audit:NodeFile/-/audit-policy\", \"operator-access:ClusterRoleBinding/-/bravo-operators-cluster-admin\"]"
   },
   "apiVersion": "v2",

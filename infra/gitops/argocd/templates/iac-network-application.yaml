@@ -69,7 +69,7 @@ spec:
   sourceRepos:
     - https://github.com/Softbank-Hackathon-Finals/platform.git
   destinations:
-    {{- range list "bravo-apply-control" "bravo-platform" "bravo-rehearsal-control" "platform-state" "tailscale-system" }}
+    {{- range list "bravo-apply-control" "bravo-platform" "bravo-rehearsal-control" "bravo-security" "platform-state" "tailscale-system" }}
     - server: https://kubernetes.default.svc
       namespace: {{ . }}
     {{- end }}
