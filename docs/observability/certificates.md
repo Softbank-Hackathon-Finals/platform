@@ -7,6 +7,7 @@ Collector → 지표 저장소, 콘솔 API → 지표 저장소는 모두 mTLS�
 | 인증서 | 이름(CN · SAN의 DNS) | 쓰는 곳 | 유효기간 |
 |---|---|---|---|
 | 관측 CA | `bravo-observability-ca-<날짜>-<무작위>` (매번 고유) | 모든 쪽의 `ca.crt` | 90일 |
+| 플랫폼 수신 CA | 같은 규칙으로 따로 만든다 | 저장소 `ca.crt` 묶음에 추가. 플랫폼 Collector(`collector-platform`)만 발급 | 90일 |
 | 출발지 Collector | `collector-aws` | Secret `bravo-collector-tls` (출발지 클러스터) | 30일 |
 | 목적지 Collector | `collector-onprem` | Secret `bravo-collector-tls` (목적지 클러스터) | 30일 |
 | 콘솔 API | `console-api` | Secret `bravo-observability-api-tls` | 30일 |

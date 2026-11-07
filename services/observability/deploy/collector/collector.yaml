@@ -58,6 +58,10 @@ processors:
       - key: bravo.env
         value: ${env:BRAVO_ENV}
         action: upsert
+      # 수신 구분: platform(플랫폼 클러스터 자신) | customer(출발지 · 목적지). 앱이 보낸 값은 허용 목록이 먼저 지운다
+      - key: bravo.domain
+        value: ${env:BRAVO_DOMAIN:-customer}
+        action: upsert
   batch: {}
 
 exporters:
