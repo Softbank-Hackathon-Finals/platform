@@ -93,6 +93,7 @@ Tailscale operator가 매긴 proxy 포트를 **관찰해서** NetworkPolicy에 �
   바인딩으로 좁히거나 회수할 수 없다), 이름 있는 그룹 하나에 바인딩. 마지막이 이름 없이 한 곳(ClusterRoleBinding)에서 권한을
   정하고 바꾼다.
 - `system:` 그룹(특히 `system:masters`)은 impersonate하지 않는다. RBAC를 거치지 않고 권한을 주기 때문이다.
+- `legacy_reach`(선택)는 capability 없이 프록시 443에 닿기만 하는 옛 길을 선언한다(목적지의 `group:bravo-b-cluster`, 11/6 사람별 바인딩). 바인딩 출발지와 겹칠 수 없고, 추가는 에이전트에게 확대다. 쓰는 사람이 옮기면 줄을 빼고, 그 PR이 실제 정책에서도 지운다([레거시 후보](../../docs/legacy.md)).
 - 바인딩 추가, 역할·출발지·tailnet 변경은 에이전트에게 확대(`IAC_WIDENING_REFUSED`)다. 바인딩 삭제는 허용된다.
 - **바인딩은 차트 밖에서 적용한다.** ClusterRoleBinding을 만드는 주체는 그 역할을 가져야 한다(RBAC 확대 방지). 그래서 생성 차트와
   그 Argo Application은 이 바인딩을 갖지 않고(`bravo.dev/unmanaged`), 클러스터 관리자가 `chart.held_objects()`의 렌더 결과를 적용한다.

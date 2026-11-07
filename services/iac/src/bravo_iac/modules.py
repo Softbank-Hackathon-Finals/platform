@@ -374,7 +374,7 @@ API_PROXY_PORT = "tcp:443"
 
 
 def _access_check(params: dict) -> dict:
-    _exact(params, ("proxy_hostname", "proxy_tag", "bindings"), ("tailnet",))
+    _exact(params, ("proxy_hostname", "proxy_tag", "bindings"), ("tailnet", "legacy_reach"))
     bindings = params["bindings"]
     if type(bindings) is not list or not 1 <= len(bindings) <= 4:
         raise IacError("IAC_PARAMS_INVALID")
@@ -398,6 +398,16 @@ def _access_check(params: dict) -> dict:
             raise IacError("IAC_PARAMS_INVALID")
         out["bindings"].append({"name": name, "group": group, "cluster_role": role,
                                 "tailnet_groups": sorted(sources)})
+    if "legacy_reach" in params:
+        # Reach to the proxy without a capability: an older per-person path (its own RBAC, no impersonated
+        # group) kept until its users move to a binding. Declared so the policy check knows it; removing
+        # the line removes it from the live policy too. Never also a binding source.
+        legacy = params["legacy_reach"]
+        bound = {s for b in out["bindings"] for s in b["tailnet_groups"]}
+        if (type(legacy) is not list or not 1 <= len(legacy) <= 4 or len(set(map(str, legacy))) != len(legacy)
+                or not all(isinstance(s, str) and TAILNET_GROUP_RE.fullmatch(s) for s in legacy) or bound & set(legacy)):
+            raise IacError("IAC_PARAMS_INVALID")
+        out["legacy_reach"] = sorted(legacy)
     return out
 
 
@@ -414,13 +424,17 @@ def _access_grants(params: dict) -> list[dict]:
     # One grant both opens the proxy port and tells the proxy which Kubernetes group to impersonate.
     return [{"tailnet": tailnet_of(params), "src": [src], "dst": [params["proxy_tag"]],
              "ip": [API_PROXY_PORT], "app": {KUBERNETES_CAP: [{"impersonate": {"groups": [b["group"]]}}]}}
-            for b in params["bindings"] for src in b["tailnet_groups"]]
+            for b in params["bindings"] for src in b["tailnet_groups"]] + [
+        {"tailnet": tailnet_of(params), "src": [src], "dst": [params["proxy_tag"]], "ip": [API_PROXY_PORT]}
+        for src in params.get("legacy_reach", [])]
 
 
 def _access_exposure(params: dict) -> dict:
     # A new binding, another role or another tailnet group is a widening; removing a binding is not.
-    reach = sorted(f'{src}@{tailnet_of(params)} -> {params["proxy_hostname"]}({params["proxy_tag"]})'
-                   f' as {b["group"]}:{b["cluster_role"]}' for b in params["bindings"] for src in b["tailnet_groups"])
+    reach = sorted([f'{src}@{tailnet_of(params)} -> {params["proxy_hostname"]}({params["proxy_tag"]})'
+                    f' as {b["group"]}:{b["cluster_role"]}' for b in params["bindings"] for src in b["tailnet_groups"]]
+                   + [f'{src}@{tailnet_of(params)} -> {params["proxy_hostname"]}({params["proxy_tag"]}) legacy reach'
+                      for src in params.get("legacy_reach", [])])
     return {"anonymous": [], "reach": reach, "checks": []}
 
 
@@ -434,6 +448,8 @@ OPERATOR_ACCESS = Module(
             "properties": {"proxy_hostname": {"type": "string", "pattern": NAME_RE.pattern},
                            "proxy_tag": {"type": "string", "pattern": TAG_RE.pattern},
                            "tailnet": {"type": "string", "pattern": NAME_RE.pattern},
+                           "legacy_reach": {"type": "array", "minItems": 1, "maxItems": 4, "items": {
+                               "type": "string", "pattern": TAILNET_GROUP_RE.pattern}},
                            "bindings": {"type": "array", "minItems": 1, "maxItems": 4, "items": {
                                "type": "object", "additionalProperties": False,
                                "required": ["name", "group", "cluster_role", "tailnet_groups"],

@@ -47,7 +47,8 @@ def test_cli_held_prints_a_kubectl_list_of_the_bindings(capsys):
 SOURCES = ("autogroup:admin", "autogroup:owner")
 # The platform's operator-access also names the private-policy group (this change); the destination's does not.
 PLATFORM_SOURCES = SOURCES + ("group:bravo-operators",)
-PER_PROXY = {"tag:bravo-platform-operator": PLATFORM_SOURCES, "tag:bravo-target-operator": SOURCES}
+# The destination also binds the private-policy group (2026-11-07 decision: every team member is an operator).
+PER_PROXY = {"tag:bravo-platform-operator": PLATFORM_SOURCES, "tag:bravo-target-operator": PLATFORM_SOURCES}
 # Every operator-access grant (the platform's and the destination operator proxy's) carries the capability.
 MISSING = sorted(f"GRANT:{s}->{tag}:tcp:443+app" for tag, sources in PER_PROXY.items() for s in sources)
 
@@ -220,4 +221,42 @@ def test_what_cannot_reach_a_proxy_api_is_not_reported(dst, ip):
     policy = fragment(STATES)
     policy["grants"].append({"src": ["autogroup:member"], "dst": [dst], "ip": ip})
     assert check_policy(policy, STATES) == []
+
+
+TARGET = json.loads((REPO / "infra/iac/environments/target-dev.json").read_text())
+
+
+def test_a_legacy_reach_is_declared_reach_without_a_capability():
+    # The 11/6 per-person path (its own RBAC, no impersonated group) stays reachable until its users move.
+    params = access_params(TARGET)
+    assert params["legacy_reach"] == ["group:bravo-b-cluster"]
+    grants = ACCESS.grants(ACCESS.check(params))
+    assert {"tailnet": "default", "src": ["group:bravo-b-cluster"], "dst": ["tag:bravo-target-operator"],
+            "ip": ["tcp:443"]} in grants
+    assert all("app" in g for g in grants if g["src"] != ["group:bravo-b-cluster"])
+    policy = fragment(STATES)
+    assert check_policy(policy, STATES) == []  # declared: no UNDECLARED_REACH for it
+    policy["grants"].append({"src": ["group:bravo-other"], "dst": ["tag:bravo-target-operator"], "ip": ["tcp:443"]})
+    assert check_policy(policy, STATES) == ["UNDECLARED_REACH:group:bravo-other->tag:bravo-target-operator:443"]
+
+
+@pytest.mark.parametrize("legacy", [
+    ["group:bravo-operators"],              # already a binding source: a capability or reach, never both
+    ["autogroup:member"], [], ["group:a", "group:a"], "group:bravo-b-cluster",
+])
+def test_a_legacy_reach_is_a_valid_group_outside_the_bindings(legacy):
+    params = copy.deepcopy(access_params(TARGET))
+    params["legacy_reach"] = legacy
+    with pytest.raises(IacError):
+        ACCESS.check(params)
+
+
+def test_an_agent_cannot_add_a_legacy_reach():
+    current = copy.deepcopy(TARGET)
+    for m in current["modules"]:
+        if m["id"] == "operator-access":
+            del m["params"]["legacy_reach"]
+    denied = plan(current, TARGET, origin="agent")
+    assert denied["accepted"] is False and "IAC_WIDENING_REFUSED" in denied["refusals"]
+    assert plan(TARGET, current, origin="agent")["accepted"]  # removing it is not a widening
 
