@@ -54,6 +54,11 @@ class RegistrationChart(unittest.TestCase):
             [d["kind"] for d in docs], ["ServiceAccount", "Service", "Deployment"]
         )
         self.assertTrue(all(d["metadata"]["name"] == "t10-registration" for d in docs))
+        service = next(d for d in docs if d["kind"] == "Service")
+        # Fixed tailnet entry under the existing operator grant (tcp:443); the in-cluster 8443 port stays.
+        self.assertEqual(service["metadata"]["annotations"]["tailscale.com/hostname"], "bravo-registration")
+        self.assertEqual(service["metadata"]["annotations"]["tailscale.com/tags"], "tag:bravo-platform-operator")
+        self.assertEqual({(p["port"], p["targetPort"]) for p in service["spec"]["ports"]}, {(8443, "https"), (443, "https")})
         deployment = next(d for d in docs if d["kind"] == "Deployment")
         pod = deployment["spec"]["template"]["spec"]
         self.assertFalse(pod["automountServiceAccountToken"])
