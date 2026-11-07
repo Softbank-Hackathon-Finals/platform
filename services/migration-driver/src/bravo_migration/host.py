@@ -109,3 +109,10 @@ class GceRke2Host(LocalVmHost):
 
     def _argv(self, command: str) -> list[str]:
         return [str(self.generator), "ssh", command]
+
+
+def site_host(host: dict):
+    """The site host a destination config names: `kind: gce` (gcp-rke2 node.sh) or a local VM (default)."""
+    if host.get("kind") == "gce":
+        return GceRke2Host(host["node_sh"], host["node_json"])
+    return LocalVmHost(host["generator"], host["state"])

@@ -19,6 +19,7 @@ records SKIPPED. Nothing runs outside the approved run's order, and the stack is
 Secret values exist in memory, in the platform vault (vault.py) and in the cluster only.
 """
 
+import atexit
 import base64
 import importlib.util
 import ipaddress
@@ -80,21 +81,41 @@ def _ssh_keypair() -> dict:
     return {"private": private, "public": public}
 
 
-def _register_read_only_key(repository: str, title: str, public: str, gh: str = "gh") -> None:
-    """Add the deploy key to the GitHub repository read-only, once. Only the public key leaves the platform."""
+def _register_deploy_key(repository: str, title: str, public: str, *, read_only: bool, gh: str = "gh") -> None:
+    """Add the deploy key to the GitHub repository once. Only the public key leaves the platform; a key already
+    registered with other access than asked is refused, never changed."""
     listed = subprocess.run([gh, "api", f"repos/{repository}/keys"], capture_output=True, text=True, check=False)
     if listed.returncode != 0:
         raise DestinationError("config_repo_keys_unreadable", "the repository deploy keys could not be read")
     for existing in json.loads(listed.stdout):
         if existing["key"].split()[:2] == public.split()[:2]:
-            if not existing["read_only"]:
-                raise DestinationError("config_repo_key_writable", "the registered deploy key can write")
+            if existing["read_only"] != read_only:
+                raise DestinationError("config_repo_key_writable" if read_only else "config_repo_key_read_only",
+                                       "the registered deploy key can write" if read_only
+                                       else "the registered push key is read-only")
             return
-    body = json.dumps({"title": title, "key": public, "read_only": True})
+    body = json.dumps({"title": title, "key": public, "read_only": read_only})
     added = subprocess.run([gh, "api", "-X", "POST", f"repos/{repository}/keys", "--input", "-"], input=body,
                            capture_output=True, text=True, check=False)
     if added.returncode != 0:
         raise DestinationError("config_repo_key_unregistered", "the deploy key could not be registered")
+
+
+def _register_read_only_key(repository: str, title: str, public: str, gh: str = "gh") -> None:
+    _register_deploy_key(repository, title, public, read_only=True, gh=gh)
+
+
+def _push_agent(private: str) -> dict:
+    """A run-scoped ssh-agent holding the platform's push key for one configuration repository. The key goes in
+    on stdin; GitConfigRepo passes only SSH_AUTH_SOCK to git (no user git config, no other key)."""
+    out = subprocess.run(["ssh-agent", "-s"], capture_output=True, text=True, check=True).stdout
+    env = dict(line.split(";", 1)[0].split("=", 1) for line in out.splitlines() if "=" in line.split(";", 1)[0])
+    added = subprocess.run(["ssh-add", "-q", "-"], input=private, capture_output=True, text=True, check=False,
+                           env={**os.environ, "SSH_AUTH_SOCK": env["SSH_AUTH_SOCK"]})
+    if added.returncode != 0:
+        subprocess.run(["kill", env["SSH_AGENT_PID"]], check=False)
+        raise DestinationError("config_repo_push_key_unloaded", "the push key could not be loaded")
+    return env
 
 
 def _module(path: Path, name: str):
@@ -120,6 +141,15 @@ class Destination:
         self.revision = subprocess.run(["git", "rev-parse", "HEAD"], cwd=self.repo_root, check=True,
                                        capture_output=True, text=True).stdout.strip()
         repo = cfg["config_repo"]
+        if repo.get("push_credential") == "deploy-key":
+            # ADR-0033: the plan API writes the destination's configuration repository. The platform holds a write
+            # deploy key scoped to this one repository and lends it to git through a run-scoped agent.
+            key = vault.put_once("config-repo-push-key", _ssh_keypair())
+            _register_deploy_key(repo["github_repo"], f"bravo-platform-push-{cfg['environment_id']}", key["public"],
+                                 read_only=False)
+            self.push_agent = _push_agent(key["private"])
+            atexit.register(subprocess.run, ["kill", self.push_agent["SSH_AGENT_PID"]], check=False)
+            os.environ["SSH_AUTH_SOCK"] = self.push_agent["SSH_AUTH_SOCK"]
         self.repo = GitConfigRepo(repo["remote"], repo.get("branch", "main"), repo["workdir"])
         self.runs = FileRunStore(cfg["runs_dir"])
         self.actions = {

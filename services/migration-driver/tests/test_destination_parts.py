@@ -97,3 +97,20 @@ def test_the_deploy_key_is_ed25519_openssh_and_registered_read_only_once(tmp_pat
     gh, _ = fake_gh(writable, [{"key": key["public"], "read_only": False}])
     with pytest.raises(DestinationError, match="can write"):
         _register_read_only_key("org/repo", "t", key["public"], gh=str(gh))
+    from bravo_migration.destination import _register_deploy_key
+    with pytest.raises(DestinationError, match="push key is read-only"):  # the platform's push key must write
+        _register_deploy_key("org/repo", "t", key["public"], read_only=False,
+                             gh=str(fake_gh(present, [{"key": key["public"], "read_only": True}])[0]))
+
+
+def test_the_push_agent_holds_exactly_the_given_key():
+    from bravo_migration.destination import _push_agent, _ssh_keypair
+
+    key = _ssh_keypair()
+    agent = _push_agent(key["private"])
+    try:
+        listed = subprocess.run(["ssh-add", "-L"], capture_output=True, text=True,
+                                env={"SSH_AUTH_SOCK": agent["SSH_AUTH_SOCK"], "PATH": "/usr/bin:/bin"}).stdout.split()
+        assert listed[:2] == key["public"].split()[:2]
+    finally:
+        subprocess.run(["kill", agent["SSH_AGENT_PID"]], check=False)
