@@ -13,6 +13,8 @@ runtime:
     registry: platform-ghcr-reader
   # Egress the T10 registration host already has: STS (identity proof) and target APIs.
   trustedEgressCidrs: []
+  # Pin the regional STS name to the allowed egress addresses, as the T10 registration host does.
+  hostAliases: []
   # Read-only upstream credentials (copies made by the operator in this namespace; names only).
   observability:
     enabled: false
