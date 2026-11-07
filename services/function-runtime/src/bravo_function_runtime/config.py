@@ -25,6 +25,8 @@ BINDING_KEYS = {
 NAME = re.compile(r"^[A-Za-z0-9_-]{1,80}$")
 HANDLER = re.compile(r"^[A-Za-z_][\w.]*\.[A-Za-z_]\w*$")
 ENV_NAME = re.compile(r"^[A-Z_][A-Z0-9_]*$")
+# 실행기 자신의 비밀 · 제어 값. 핸들러에 넘기지 않는다. AWS_로 시작하는 이름(자격 · 큐 주소)도 모두 막는다.
+RESERVED_ENV = {"ADMIN_TOKEN", "WRITE_BLOCKED", "PYTHONPATH"}
 
 
 class ConfigError(ValueError):
@@ -99,6 +101,9 @@ def _binding(i: int, raw: object, problems: list[str]) -> Binding | None:
     if not isinstance(env, list) or not all(isinstance(e, str) and ENV_NAME.match(e) for e in env):
         problems.append(f"{where}.pass_env: 대문자 환경 변수 이름 목록")
         env = []
+    for name in env:
+        if name in RESERVED_ENV or name.startswith("AWS_"):
+            problems.append(f"{where}.pass_env.{name}: 실행기의 비밀 · 제어 값은 핸들러에 넘기지 않는다")
     return Binding(
         function_name=known["function_name"], handler=known["handler"], queue_name=queue,
         handler_path=str(known.get("handler_path", ".")), batch_size=batch if isinstance(batch, int) else 10,

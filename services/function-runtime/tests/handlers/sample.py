@@ -27,3 +27,18 @@ def slow(event, context):
 
 def leak(event, context):
     return {"secret_seen": "ADMIN_TOKEN" in os.environ}
+
+
+def spawn_and_hang(event, context):
+    import subprocess
+
+    proc = subprocess.Popen(["sleep", "30"])  # 손자 프로세스: 출력을 물려받는다
+    with open(os.environ["RESULT_FILE"], "w", encoding="utf-8") as f:
+        f.write(str(proc.pid))
+    time.sleep(30)
+
+
+def noisy(event, context):
+    chunk = "x" * 1024 * 1024
+    for _ in range(32):  # 32MiB: 하위 프로세스 파일 크기 상한(16MiB)을 넘는다
+        print(chunk)

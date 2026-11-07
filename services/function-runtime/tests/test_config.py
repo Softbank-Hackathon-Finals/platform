@@ -37,3 +37,10 @@ def test_queue_visibility_must_cover_function_timeout():
     assert check_queue(b, {"VisibilityTimeout": "30"}) == []
     assert "짧다" in check_queue(b, {"VisibilityTimeout": "10"})[0]
     assert "FIFO" in check_queue(b, {"VisibilityTimeout": "30", "FifoQueue": "true"})[0]
+
+
+@pytest.mark.parametrize("name", ["ADMIN_TOKEN", "AWS_SECRET_ACCESS_KEY", "AWS_ENDPOINT_URL_SQS", "WRITE_BLOCKED"])
+def test_runtime_secrets_cannot_be_passed_to_the_handler(name):
+    with pytest.raises(ConfigError) as e:
+        parse({"bindings": [BASE | {"pass_env": ["DB_DSN", name]}]})
+    assert name in e.value.problems[0]

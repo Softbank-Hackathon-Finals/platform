@@ -46,3 +46,29 @@ def test_runtime_secrets_are_not_passed_to_the_handler():
                     {"PATH": "/bin", "ADMIN_TOKEN": "t", "DB_DSN": "postgres://x", "AWS_SECRET_ACCESS_KEY": "s"})
     assert env["DB_DSN"] == "postgres://x"
     assert "ADMIN_TOKEN" not in env and "AWS_SECRET_ACCESS_KEY" not in env
+
+
+def _gone(pid: int) -> bool:
+    try:
+        with open(f"/proc/{pid}/status", encoding="utf-8") as f:
+            return any(line.startswith("State:") and "Z" in line for line in f)
+    except FileNotFoundError:
+        return True
+
+
+def test_timeout_also_kills_grandchildren_without_waiting_for_them(tmp_path, monkeypatch):
+    start = time.monotonic()
+    out = _call(_binding("spawn_and_hang", timeout_s=1, pass_env=("RESULT_FILE",)), tmp_path, monkeypatch)
+    assert out.kind == Kind.TIMEOUT and time.monotonic() - start < 4
+    grandchild = int((tmp_path / "out.jsonl").read_text())
+    deadline = time.monotonic() + 3
+    while not _gone(grandchild) and time.monotonic() < deadline:
+        time.sleep(0.05)
+    assert _gone(grandchild)
+
+
+def test_handler_output_is_capped_and_never_held_in_memory(tmp_path, monkeypatch):
+    out = _call(_binding("noisy", timeout_s=20), tmp_path, monkeypatch)
+    # Python은 파일 크기 상한 신호를 무시하고 쓰기 오류(EFBIG)로 바꾼다. 출력이 상한에서 멈추면 실패로 끝난다.
+    assert out.kind in (Kind.ERROR, Kind.CRASH) and len(out.logs) <= 4000
+    assert out.kind == Kind.CRASH or "File too large" in out.error
