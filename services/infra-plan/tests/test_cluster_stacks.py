@@ -29,7 +29,7 @@ from bravo_infra_plan.executor import Executor
 from bravo_infra_plan.stack import environment_of
 
 STACKS = {"cluster-gke": {"kind": "gcp", "extra": {"project_id": "bravo-demo-project"}, "target": {"project_id": "bravo-demo-project"},
-                          "foundation": "gcp-foundation", "storage": "standard-rwo"},
+                          "foundation": "gcp-foundation", "storage": "bravo-pd-balanced"},
           "cluster-eks": {"kind": "aws", "extra": {"region": "ap-northeast-2"}, "target": {"account_id": "000000000000"},
                           "foundation": "aws-foundation", "storage": "bravo-gp3"}}
 REV, BASE = "1" * 40, "2" * 40
@@ -72,6 +72,10 @@ def test_cluster_stack_plans_offline_for_either_side(name, side, tmp_path):
     cluster = next(i for i in items if i["kind"] == "Cluster")
     assert (cluster["metadata"]["namespace"], cluster["metadata"]["name"]) == (app, f"{side}-db")
     assert cluster["spec"]["storage"]["storageClass"] == STACKS[name]["storage"]
+    # The disks the CSI driver creates carry the component label/tag too (A11: `standard-rwo` PDs had none).
+    volume_class = next(i for i in items if i["kind"] == "StorageClass")
+    assert volume_class["metadata"]["name"] == STACKS[name]["storage"]
+    assert f"component={side}" in volume_class["parameters"].values()
     assert {r["passwordSecret"]["name"] for r in cluster["spec"]["managed"]["roles"]} == {
         f"{side}-app-db", f"{side}-replication"}
     other = "target" if side == "source" else "source"

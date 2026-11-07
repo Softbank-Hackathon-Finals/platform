@@ -2,7 +2,7 @@
 
 `cluster/gcp`(A10, ADR-0034): 출발지 · 목적지 어느 쪽에도 쓰는 GKE Standard.
 
-- **Standard를 고른 이유**: Tailscale operator 프록시가 `NET_ADMIN`을 요구하는데 Autopilot은 이를 막는다. CNPG는 Standard 노드의 기본 `standard-rwo`(pd-balanced) 디스크로 그대로 뜬다.
+- **Standard를 고른 이유**: Tailscale operator 프록시가 `NET_ADMIN`을 요구하는데 Autopilot은 이를 막는다. CNPG는 Standard 노드의 pd-balanced 디스크로 그대로 뜬다(StorageClass는 `infra/envs/cluster-base/render.py`의 `bravo-pd-balanced`, 디스크에 `component` 라벨).
 - 노드 풀 하나(`e2-standard-4` × 2 기본, 영역 클러스터 `asia-northeast3-a`). 사설 노드 + Cloud NAT(`network/gcp`), Dataplane V2(NetworkPolicy 강제), Shielded 노드.
 - **Workload Identity**: 클러스터 `workload_pool = <project>.svc.id.goog`, 노드 `GKE_METADATA`. 워크로드 권한은 GSA 없이 Kubernetes 서비스 계정 principal에 IAM을 직접 준다(`envs/cluster-gke`의 ESO 읽기 권한).
 - **제어부 접근**: IP 엔드포인트를 끄고 DNS 엔드포인트(IAM 인증)만 연다. `gcloud container clusters get-credentials <name> --location <location> --dns-endpoint`.

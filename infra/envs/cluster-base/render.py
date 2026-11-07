@@ -16,7 +16,10 @@ import yaml
 
 HERE = Path(__file__).resolve().parent
 SIDES = ("source", "target")
-STORAGE = {"gke": "standard-rwo", "eks": "bravo-gp3"}  # GKE's default PD class; EKS gets a gp3 class below
+# A class of our own on both clouds: the cloud's default class (GKE `standard-rwo`, EKS gp2) creates disks
+# without the `component` label/tag every cloud resource must carry (AGENTS.md). A11 measured an unlabelled
+# PD from `standard-rwo` on GKE; the CSI drivers stamp these parameters onto each disk they create.
+STORAGE = {"gke": "bravo-pd-balanced", "eks": "bravo-gp3"}
 STORE_NAME = "bravo-cloud-secrets"
 
 
@@ -69,16 +72,23 @@ def database(side, storage):
     for item in items:
         if item["kind"] == "Cluster":
             item["spec"]["storage"] = {"size": "8Gi", "storageClass": STORAGE[storage]}
-    extra = []
-    if storage == "eks":
-        extra.append({
-            "apiVersion": "storage.k8s.io/v1", "kind": "StorageClass",
-            "metadata": {"name": STORAGE["eks"], "labels": {"component": side}},
-            "provisioner": "ebs.csi.aws.com", "reclaimPolicy": "Retain",
-            "volumeBindingMode": "WaitForFirstConsumer", "allowVolumeExpansion": True,
-            "parameters": {"type": "gp3", "encrypted": "true"},
-        })
-    return extra + _for_side(items, side)
+    return [storage_class(side, storage)] + _for_side(items, side)
+
+
+def storage_class(side, storage):
+    """The DB volume class; its parameters put `component=<side>` on every disk the CSI driver creates."""
+    if storage == "gke":  # pd.csi.storage.gke.io `labels`: comma-separated key=value, applied to the PD
+        provisioner, parameters = "pd.csi.storage.gke.io", {"type": "pd-balanced", "labels": f"component={side}"}
+    else:  # ebs.csi.aws.com `tagSpecification_N`: key=value, applied to the EBS volume
+        provisioner, parameters = "ebs.csi.aws.com", {"type": "gp3", "encrypted": "true",
+                                                      "tagSpecification_1": f"component={side}"}
+    return {
+        "apiVersion": "storage.k8s.io/v1", "kind": "StorageClass",
+        "metadata": {"name": STORAGE[storage], "labels": {"component": side}},
+        "provisioner": provisioner, "reclaimPolicy": "Retain",
+        "volumeBindingMode": "WaitForFirstConsumer", "allowVolumeExpansion": True,
+        "parameters": parameters,
+    }
 
 
 def cnpg_values(side):

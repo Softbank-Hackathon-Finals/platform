@@ -5,7 +5,7 @@
 | 단계 | 내용 |
 |---|---|
 | `namespaces` | 앱 namespace `<side>-dev`(restricted)와 토큰 없는 default 계정, `external-secrets` namespace |
-| `database --storage gke\|eks` | `target-workloads/render.py`의 CNPG Cluster에서 로컬 PV · StorageClass를 빼고 클라우드 동적 볼륨(`standard-rwo` / gp3 `bravo-gp3`)을 쓴다 |
+| `database --storage gke\|eks` | `target-workloads/render.py`의 CNPG Cluster에서 로컬 PV · StorageClass를 빼고 클라우드 동적 볼륨을 쓴다. StorageClass(`bravo-pd-balanced` / gp3 `bravo-gp3`, Retain)를 함께 내고, CSI 파라미터로 만들어지는 디스크에 `component=<side>`를 단다(A11: 기본 `standard-rwo`로 만든 PD에 라벨이 없었다) |
 | `cnpg-values` · `eso-values` | 기존 values에서 감시 namespace만 `<side>-dev`로 바꾼다 |
 | `secret-store --provider gcp\|aws` | 앱 namespace의 `SecretStore bravo-cloud-secrets`. 인증 블록 없이 ESO 컨트롤러의 워크로드 신원(GKE Workload Identity / EKS Pod Identity)으로 접근한다 |
 
