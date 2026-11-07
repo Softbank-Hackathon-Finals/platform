@@ -165,6 +165,20 @@ class WorkloadTests(unittest.TestCase):
         self.assertEqual(len(result["checks"]), 18)
         self.assertFalse(result["runtime_verified"])
 
+    def test_app_sends_http_metrics_to_the_collector_over_mtls(self):
+        """T37: labelled namespace, BRAVO_METRICS_* only (never OTEL_EXPORTER_OTLP*), client cert read-only."""
+        namespace = render.database()[0]
+        self.assertEqual(namespace["metadata"]["labels"]["bravo.observability/send"], "true")
+        pod = render.application(self.settings())[-2]["spec"]["template"]["spec"]
+        container = pod["containers"][0]
+        env = {e["name"]: e.get("value") for e in container["env"]}
+        self.assertEqual(env["BRAVO_METRICS_ENDPOINT"], "https://bravo-collector.bravo-observability.svc:4318/v1/metrics")
+        self.assertFalse(any(name.startswith("OTEL_EXPORTER_OTLP") for name in env))
+        mount = next(m for m in container["volumeMounts"] if m["name"] == "metrics")
+        self.assertEqual((mount["mountPath"], mount["readOnly"]), ("/etc/bravo-metrics", True))
+        volume = next(v for v in pod["volumes"] if v["name"] == "metrics")["secret"]
+        self.assertEqual((volume["secretName"], volume["defaultMode"]), ("bravo-app-metrics-client", 0o440))
+
     def test_rejects_mutable_image_and_accidental_secret_in_metadata(self):
         for field, value in [("app_image", "ghcr.io/softbank-hackathon-finals/demo-chat:latest"),
                              ("password", "not-an-allowed-input")]:
