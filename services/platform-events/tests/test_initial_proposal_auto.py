@@ -137,3 +137,15 @@ def test_the_ai_job_state_dir_may_be_missing_on_first_start_but_must_be_on_a_mou
     for bad in ("relative/dir", str(tmp_path / "no-mount" / "initial-operator")):
         with pytest.raises(ValueError, match="workflow_mount_required"):
             _state_dir(bad)
+
+
+def test_host_state_dir_is_private_again_after_the_kubelet_adds_group_bits(tmp_path):
+    from bravo_agent.product_ledger import OperatorLedger
+
+    from bravo_platform_events.workflow_ports import _state_dir
+
+    state = tmp_path / "initial-operator"
+    state.mkdir(mode=0o700)
+    state.chmod(0o2770)  # what the fsGroup pass leaves on the second mount (live 11/8)
+    OperatorLedger(_state_dir(str(state)))  # raised "private execution directory required" before
+    assert state.stat().st_mode & 0o077 == 0
