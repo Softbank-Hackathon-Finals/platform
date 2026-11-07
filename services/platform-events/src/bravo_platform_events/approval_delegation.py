@@ -52,7 +52,12 @@ class ApprovalDelegations:
         self.clock = clock or (lambda: datetime.now(UTC).isoformat())
 
     def delegate(self, principal, plan_id, *, gates, bounds, expires_at, command_key):
-        """The approver's own call. Holding each gate's approve permission now is required."""
+        """The approver's own call. Holding each gate's approve permission now is required.
+
+        `bounds` pins binding fields a gate's decision must match exactly. A change bound never needs the
+        candidate digest: it does not exist yet when the approver delegates (unattended S2). The change
+        decision is still only for the version's current T15-verified, unheld candidate, and GATE rechecks
+        the applied image before SHIFT (workflow_stages._delegated_change)."""
         validate_identifier(command_key)
         if (not isinstance(principal, OperatorPrincipal) or type(gates) is not list or not gates
                 or len(set(gates)) != len(gates) or set(gates) - set(GATES) or type(bounds) is not dict
@@ -130,15 +135,6 @@ class ApprovalDelegations:
         return principal
 
 
-def _edge_at_full(c, plan):
-    """SHIFT reached 100%: the newest CONFIRMED Edge stage this SHIFT (T17 ShiftHost receipts) targets 100."""
-    rows = c.execute("SELECT receipt_json FROM plan_commands WHERE plan_id=? AND command_key LIKE ?",
-                     (plan["plan_id"], "edge-host-receipt-%")).fetchall()
-    stages = [json.loads(r["receipt_json"]) for r in rows]
-    stages = [s for s in stages if s.get("status") == "CONFIRMED" and _ts(s["confirmed_at"]) >= _ts(plan["updated_at"])]
-    return bool(stages) and max(stages, key=lambda s: _ts(s["confirmed_at"]))["weight_target"] == 100
-
-
 def watch_fail_key(version):
     return f"{KEY}-watch-fail-{version}"
 
@@ -147,19 +143,22 @@ class DelegatedGates:
     """T10 operator process only (it holds the Executor command token): the cutover and failback decisions the
     approver delegated, approved and submitted as that approver with their current permissions.
 
-    Cutover waits for the Edge at 100% this SHIFT; failback only for a WATCH FAIL the workflow host recorded at
+    Cutover waits for the Edge at 100% with a PASS this SHIFT (operator_ports.edge_at_full); failback only for a WATCH FAIL the workflow host recorded at
     this version. Anything unmet or refused is a wait: the next sweep or a person on the same routes decides.
-    ponytail: the T13 lag criterion stays with the cutover authority (contract), not checked here.
     """
 
     def __init__(self, store, delegations, *, cutover, failback=None):
         self.store, self.delegations, self.cutover, self.failback = store, delegations, cutover, failback
 
     def sweep(self):
+        from .operator_ports import (
+            edge_at_full,  # the cutover authority's own check (T17 100% and SLI PASS)
+        )
+
         with self.store._transaction() as c:
             plans = [dict(r) for r in c.execute(
                 "SELECT plan_id, state, version, updated_at FROM plans WHERE state IN ('SHIFT', 'WATCH')").fetchall()]
-            due = [(p, "cutover", self.cutover) for p in plans if p["state"] == "SHIFT" and _edge_at_full(c, p)]
+            due = [(p, "cutover", self.cutover) for p in plans if p["state"] == "SHIFT" and edge_at_full(c, p)]
             due += [(p, "failback", self.failback) for p in plans if p["state"] == "WATCH" and self.failback
                     and _get(c, p["plan_id"], watch_fail_key(p["version"]))]
         decided = {}

@@ -322,3 +322,44 @@ def test_the_example_registration_is_a_valid_target_registration(tmp_path, monke
 def test_the_registration_has_exactly_the_documented_fields(tmp_path):
     with pytest.raises(ValueError, match="registration_fields"):
         tool.run(registration({}) | {"credentials": {}}, tmp_path / "run", build=lambda *_: {})
+
+
+TLS = Path(__file__).parent / "fixtures/tls"
+
+
+def pooler_entry(tmp_path, **changes):
+    return {"adapter": "pooler-tls", "namespace": "target-dev", "pooler_uid": "pooler-uid-1",
+            "hostname": "target-pgbouncer.target-dev.svc", "address": "127.0.0.1", "port": 16432,
+            "database": "chat", "username": "chat_app", "ca_file": str(TLS / "ca.pem"),
+            "wrong_ca_file": str(TLS / "wrong-ca.pem"), "password_env": "T14_POOLER_PASSWORD",
+            "psql": "/usr/lib/postgresql/18/bin/psql", "psql_sha256": "sha256:" + "a" * 64,
+            "psql_version": "18.1"} | changes
+
+
+@pytest.mark.parametrize("role", ["source", "target"])
+def test_the_pooler_tls_adapter_measures_enc_through_a_port_forward_with_a_named_password(tmp_path, role):
+    from bravo_controls.postgres_tls import PoolerTLSProbe
+
+    env = Environment(f"env-{role}", role, f"ref:{role}")
+    entry = pooler_entry(tmp_path)
+    with pytest.raises(ValueError, match="credentials_missing:ENC-01.1"):
+        tool.build_probes(registration({"ENC-01.1": entry}, role=role), env, tool.Evidence(tmp_path), environ={})
+    probes = tool.build_probes(registration({"ENC-01.1": entry}, role=role), env, tool.Evidence(tmp_path),
+                               environ={"T14_POOLER_PASSWORD": "fixture-password"})
+    probe = probes["ENC-01.1"]
+    assert isinstance(probe, PoolerTLSProbe)
+    assert (probe.target.runner_pod_uid, probe.target.address, probe.target.hostname) == (
+        "port-forward", "127.0.0.1", "target-pgbouncer.target-dev.svc")
+    assert probe.credentials(None) == "fixture-password" and "fixture-password" not in repr(probe.target)
+
+
+@pytest.mark.parametrize("changes, code", [
+    ({"address": "10.43.0.12"}, "pooler_tls_requires_port_forward"),  # never a direct in-cluster address
+    ({"extra": "x"}, "pooler_tls_fields"),
+])
+def test_the_pooler_tls_adapter_refuses_a_direct_address_or_unknown_fields(tmp_path, changes, code):
+    env = Environment("env-target", "target", "ref:target")
+    with pytest.raises(ValueError, match=code):
+        tool.build_probes(registration({"ENC-01.1": pooler_entry(tmp_path, **changes)}), env, tool.Evidence(tmp_path),
+                          environ={"T14_POOLER_PASSWORD": "p"})
+

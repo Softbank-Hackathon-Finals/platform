@@ -172,7 +172,7 @@ namespace**, not a run id, and the only reader policy is one operator-owned temp
 | `rehearsal-writer-auth-role` | Body for `auth/kubernetes/role/rehearsal-openbao-writer` | SA `rehearsal-openbao-writer` in exactly `bravo-rehearsal-control`; audience `openbao`; writer policy only; TTL 300/900 s; no default policy |
 | `rehearsal-writer-identity` (optional) | Namespace `bravo-rehearsal-control` (PSS restricted) + ServiceAccount `rehearsal-openbao-writer` (no automount) | Apply only if T15/T30 agree T9 owns them; see below |
 | `t14-other-auth-role` | Body for `auth/kubernetes/role/t14-other` (T14 SEC-01.1 comparison identity) | SA `t14-other` (T30 #666) in exactly `target-dev`; audience `openbao`; policy `default` only, so the app path is denied after a successful login; TTL 300/900 s. The app side is role `demo-chat` (next row) |
-| `app-db-policy` · `app-auth-role` | HCL for policy `demo-chat-db-reader` + body for `auth/kubernetes/role/demo-chat` (T14 SEC-01.1 app side for the in-cluster T14 Job) | SA `demo-chat` in exactly `target-dev`; reads only `secret/data/bravo/target/precutover/database` (the value it already gets through ESO); no default policy; TTL 300/900 s |
+| `app-db-policy` · `app-auth-role` | HCL for policy `demo-chat-db-reader` + body for `auth/kubernetes/role/demo-chat` (T14 SEC-01.1 app side; collected from the operator machine with `kubectl create token --audience openbao`, never minted in-cluster) | SA `demo-chat` in exactly `target-dev`; reads only `secret/data/bravo/target/precutover/database` (the value it already gets through ESO); no default policy; TTL 300/900 s |
 
 The earlier `rehearsal-policy --run-id <run>` stage (one writer-written policy per run) and the
 `--run-id` flag are removed; the renderer refuses them.
@@ -291,8 +291,22 @@ openssl s_client -connect 127.0.0.1:18200 -servername target-openbao.bravo-secre
 ```
 
 Every rendered name must appear in the `X509v3 Subject Alternative Name` line, and `s_client`
-must not fail verification. Indirect evidence on the current target already says the name is
-present: the T14 collector's TLS check with `server_hostname` `target-openbao.bravo-secrets.svc`
+must not fail verification.
+
+Observed on the current target (T14 owner, 2026-11-07 23:59 KST, with the check above):
+
+| Field | Current leaf |
+| --- | --- |
+| Key | EC P-256 |
+| SAN | `DNS:localhost`, `DNS:target-openbao`, `DNS:target-openbao.bravo-secrets`, `DNS:target-openbao.bravo-secrets.svc`, `DNS:target-openbao.bravo-secrets.svc.cluster.local`, `IP:127.0.0.1` |
+| KeyUsage | `digitalSignature` (critical) |
+| Extended key usage | `serverAuth` |
+| BasicConstraints | `CA:FALSE` (critical) |
+| SKI / AKI | present |
+| `notAfter` | 2026-12-03 14:24 UTC |
+
+Both rendered SANs are present, so no reissue is needed for SEC-01.1. This matches the indirect
+evidence: the T14 collector's TLS check with `server_hostname` `target-openbao.bravo-secrets.svc`
 succeeded (SEC-01.1 PASS), ESO's SecretStores verify the same name, and the Pod's TLS-verified
 readiness probe on `127.0.0.1` is Ready.
 
@@ -301,9 +315,11 @@ Reissue only if a name is missing or before `notAfter` (the leaf is issued for 3
 1. Keep the CA key and certificate, so `target-dev/target-openbao-ca`,
    `bravo-rehearsal-control/target-openbao-ca` and the T14 registration CA stay valid. A new CA
    means updating every copy and comparing SHA-256 again.
-2. Generate a new leaf key in memory. Include every SAN of the current leaf plus the rendered
-   `subject_alt_name`, SKI/AKI, KeyUsage `digitalSignature,keyEncipherment` and EKU `serverAuth`
-   (the 2026-11-04 Python consumer refused a leaf without AKI).
+2. Generate a new EC P-256 leaf key in memory. Keep the current leaf's profile: every SAN of
+   the current leaf plus the rendered `subject_alt_name`, KeyUsage `digitalSignature` (critical)
+   only, EKU `serverAuth`, BasicConstraints `CA:FALSE` (critical), SKI and AKI. Do not add
+   `keyEncipherment`: it does not apply to an EC key (RFC 5480 section 3). The 2026-11-04 Python
+   consumer refused a leaf without AKI.
 3. Replace Secret `bravo-secrets/target-openbao-tls` from stdin (server-side apply), never from
    key files. Wait until `/openbao/tls/tls.crt` in the Pod shows the new fingerprint.
 4. Reload the listener with `SIGHUP` to the `bao` process. Restarting the Pod also works but
