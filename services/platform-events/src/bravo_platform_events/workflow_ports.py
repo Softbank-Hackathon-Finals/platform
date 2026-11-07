@@ -45,6 +45,15 @@ def _path(value, *, directory=False):
     return path
 
 
+def _state_dir(value):
+    """An absolute directory on the host's state volume; created on first start (it did not exist yet on the
+    first live rollout, 11/8, and the host would not start)."""
+    path = Path(value)
+    if not path.is_absolute() or not path.parent.is_dir():
+        raise ValueError(f"workflow_mount_required:{value}")
+    return path
+
+
 def _factory(spec):
     if not isinstance(spec, str) or FACTORY.fullmatch(spec) is None:
         raise ValueError("workflow_factory_invalid")
@@ -119,7 +128,8 @@ def _propose(store, config):
         if revision != config["runtime_source_sha"]:
             raise ValueError("workflow_propose_auto_runtime_mismatch")  # the Job must run the claimed runtime
         auto = AutoInitialProposal(reader.records, relay_config=json.loads(_path(spec["relay_config"]).read_text()),
-                                   state_dir=_path(spec["state_dir"], directory=True), image=image,
+                                   # The Job ledger makes its own private (0700) directory on first use.
+                                   state_dir=_state_dir(spec["state_dir"]), image=image,
                                    source_revision=revision, principal=config["principal"],
                                    catalog_root=_path(spec["catalog_root"], directory=True),
                                    plans=spec.get("plans"))  # absent: every plan on this host
