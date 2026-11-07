@@ -10,7 +10,10 @@ ARGO_NAMESPACE = "bravo-iac-gitops"
 
 
 def application_name(stack, path):
-    return f"{stack}-{path}"[:63]
+    name = f"{stack}-{path}"
+    if len(name) > 63:  # truncating could make two paths share one Application
+        raise ValueError("application_name_too_long")
+    return name
 
 
 # Fields that controllers fill in after apply; Git never carries them. Empty or default values

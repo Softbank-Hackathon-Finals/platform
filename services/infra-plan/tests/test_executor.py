@@ -7,10 +7,10 @@ import threading
 import pytest
 from test_plan import REPO, REQUEST, STACK, FakeCharts
 
-from bravo_infra_plan import Planner, load_stack
+from bravo_infra_plan import Planner, StackError, load_stack, parse_stack
 from bravo_infra_plan.adapters import ClusterChecks, FileRunStore, GitConfigRepo
 from bravo_infra_plan.applications import application_name
-from bravo_infra_plan.executor import Executor
+from bravo_infra_plan.executor import Executor, StepOutcome
 
 REV = "1" * 40
 NODE = REQUEST["params"]["node_name"]
@@ -82,6 +82,7 @@ class FakeCluster:
 class FakeApprovals:
     def __init__(self):
         self.approvals, self.claims = {}, {}
+        self.deny_claims = False
 
     def approve(self, approval_id, digest):
         self.approvals[approval_id] = {"approval_id": approval_id, "binding": {"plan_digest": digest},
@@ -91,6 +92,8 @@ class FakeApprovals:
         return dict(self.approvals[approval_id], claimed_run_id=self.claims.get(approval_id))
 
     def claim(self, plan_id, approval_id, *, run_id, plan_digest):
+        if self.deny_claims:
+            raise StackError("forbidden")
         assert self.approvals[approval_id]["binding"]["plan_digest"] == plan_digest
         assert self.claims.setdefault(approval_id, run_id) == run_id
         return {"approved_by": "approver", "claimed_by": "applier", "claimed_at": "t"}
@@ -242,3 +245,92 @@ def test_an_approval_already_claimed_by_another_run_is_refused(world):
     world["approvals"].claims["appr-1"] = "run-0"
     run = start(world, "run-1")
     assert (run["status"], run["reason"]) == ("REFUSED", "approval_unusable")
+
+
+# --- regressions from the independent review (2026-11-07) ------------------------------------
+
+def test_a_switched_cluster_holds_every_remaining_step(world):
+    world["approve"]("appr-1")
+    start(world, "run-1")
+    applied = len(world["cluster"].applied)
+    other = FakeCluster()
+    other.identity = lambda node: {"cluster_uid": "other-cluster", "node_uid": f"uid-{node}"}
+    run = world["executor"](cluster=other).confirm("run-1", "host-dirs", confirmed_by="operator")
+    assert run["status"] == "HOLD"
+    assert {s.get("reason") for s in run["steps"].values() if s["status"] == "HOLD"} == {"target_identity_changed"}
+    assert other.applied == [] and len(world["cluster"].applied) == applied
+
+
+def test_a_resumed_run_executes_the_stored_stack_not_the_edited_file(world):
+    world["approve"]("appr-1")
+    start(world, "run-1")
+    edited = json.loads(STACK.read_text())
+    for step in edited["steps"]:
+        if step["id"] == "database":
+            step["needs"].remove("host-dirs")
+    planner = Planner(parse_stack(edited), REPO, chart_renderer=FakeCharts())
+    executor = world["executor"]()
+    executor.planner, executor.stack = planner, planner.stack
+    run = executor.resume("run-1")
+    assert run["steps"]["host-dirs"]["status"] == "WAITING_OPERATOR"
+    assert run["steps"]["database"]["status"] == "PENDING"  # the approved order still holds
+
+    record = world["tmp"] / "runs" / "run-1.json"
+    tampered = json.loads(record.read_text())
+    tampered["stack"]["steps"][0]["description"] = "changed after approval"
+    record.write_text(json.dumps(tampered))
+    assert world["executor"]().resume("run-1")["reason"] == "stored_stack_mismatch"
+
+
+def test_a_revoked_approval_or_a_caller_without_apply_grant_stops_a_resume(world):
+    world["approve"]("appr-1")
+    start(world, "run-1")
+    world["approvals"].approvals["appr-1"]["revoked"] = True
+    run = world["executor"]().confirm("run-1", "host-dirs", confirmed_by="operator")
+    assert (run["status"], run["reason"]) == ("HOLD", "approval_revoked")
+    assert run["steps"]["database"]["status"] == "PENDING"
+
+    world["approvals"].approvals["appr-1"]["revoked"] = False
+    world["approvals"].deny_claims = True  # T10 refuses this caller's apply_infra
+    with pytest.raises(StackError, match="forbidden"):
+        world["executor"]().resume("run-1")
+
+
+def test_a_publish_holds_when_the_repository_moved_even_if_the_path_looks_unchanged(world):
+    world["approve"]("appr-1")
+    run = start(world, "run-1")
+    executor = world["executor"]()
+    stale = dict(run, head=_git("rev-parse", "HEAD~1", cwd=world["tmp"] / "work"), commits={})
+    step = executor.stack.steps["cnpg"]
+    world["cluster"].apps.pop(application_name("target-onprem", "cnpg"), None)
+    with pytest.raises(StepOutcome) as held:
+        executor._gitops_publish(stale, step)
+    assert held.value.reason == "config_repo_moved"
+
+
+def test_replace_tree_commits_only_its_path(world):
+    repo = world["repo"]
+    head = repo.head()
+    (world["tmp"] / "work" / "other").mkdir(exist_ok=True)
+    (world["tmp"] / "work" / "other" / "x.json").write_text("{}\n")
+    _git("add", "other/x.json", cwd=world["tmp"] / "work")
+    commit = repo.replace_tree("base", {"base/a.json": "{}\n"}, expected_head=head, message="t")
+    changed = _git("show", "--name-only", "--format=", commit, cwd=world["tmp"] / "work").splitlines()
+    assert changed == ["base/a.json"]
+
+
+def test_an_uncomparable_diff_holds_instead_of_applying(world):
+    class Blind(FakeCluster):
+        def diff(self, items):
+            raise RuntimeError("kubectl diff failed")
+    cluster = Blind()
+    world["approvals"].approve("appr-1", world["executor"](cluster=cluster).planner.plan(
+        REQUEST, stack_revision=REV, target=cluster.identity(NODE), base_commit=world["repo"].head()).plan_digest)
+    run = world["executor"](cluster=cluster).start(request=REQUEST, migration_plan_id="plan-demo",
+                                                   approval_id="appr-1", run_id="run-1", started_by="applier")
+    assert run["steps"]["base"]["status"] == "HOLD" and cluster.applied == []
+
+
+def test_run_ids_cannot_leave_the_runs_directory(world):
+    with pytest.raises(StackError, match="invalid_run_id"):
+        FileRunStore(world["tmp"] / "runs").load("../../x")

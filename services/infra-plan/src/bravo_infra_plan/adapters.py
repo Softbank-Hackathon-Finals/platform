@@ -5,8 +5,11 @@ Every external call is a fixed argument list (no shell). Secret values travel on
 pushes: a moved remote stops the step.
 """
 
+import contextlib
+import fcntl
 import json
 import os
+import re
 import shutil
 import subprocess
 import tempfile
@@ -18,6 +21,7 @@ from .applications import ARGO_NAMESPACE
 from .stack import StackError
 
 TIMEOUT = 600
+RUN_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$")
 
 
 def _run(command, *, stdin=None, cwd=None, env=None, check=True, timeout=TIMEOUT):
@@ -36,6 +40,8 @@ class FileRunStore:
         self.root.mkdir(mode=0o700, parents=True, exist_ok=True)
 
     def _path(self, run_id):
+        if not isinstance(run_id, str) or not RUN_ID.fullmatch(run_id):
+            raise StackError("invalid_run_id")
         return self.root / f"{run_id}.json"
 
     def exists(self, run_id):
@@ -63,6 +69,8 @@ class FilePlanStore:
         self.root.mkdir(mode=0o700, parents=True, exist_ok=True)
 
     def save(self, plan_id, value):
+        if not RUN_ID.fullmatch(plan_id):
+            raise StackError("invalid_plan_id")
         path = self.root / f"{plan_id}.json"
         if path.exists():
             raise StackError("plan_exists")
@@ -71,7 +79,7 @@ class FilePlanStore:
 
     def load(self, plan_id):
         path = self.root / f"{plan_id}.json"
-        if not plan_id.replace("-", "").isalnum() or not path.exists():
+        if not RUN_ID.fullmatch(plan_id) or not path.exists():
             raise StackError("plan_unavailable")
         return json.loads(path.read_text())
 
@@ -89,12 +97,27 @@ class GitConfigRepo:
             self._git("init", "-q")
             self._git("remote", "add", "origin", remote)
 
-    def _git(self, *args, check=True, raw=False):
-        env = {"PATH": os.environ.get("PATH", ""), "HOME": os.environ.get("HOME", ""), "LANG": "C"} | self.AUTHOR
+    def _env(self):
+        env = {"PATH": os.environ.get("PATH", ""), "HOME": os.environ.get("HOME", ""), "LANG": "C",
+               # No user or system git config: hooks, signing or aliases must not change a commit.
+               "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1"} | self.AUTHOR
         if "SSH_AUTH_SOCK" in os.environ:
             env["SSH_AUTH_SOCK"] = os.environ["SSH_AUTH_SOCK"]
-        out = _run([self.git, *args], cwd=self.workdir, env=env, check=check).stdout
+        return env
+
+    def _git(self, *args, check=True, raw=False):
+        out = _run([self.git, *args], cwd=self.workdir, env=self._env(), check=check).stdout
         return out if raw else out.strip()
+
+    @contextlib.contextmanager
+    def locked(self):
+        """One writer per working directory, across threads, executors and processes."""
+        with open(self.workdir / ".git" / "bravo-infra-plan.lock", "w") as handle:
+            fcntl.flock(handle, fcntl.LOCK_EX)
+            try:
+                yield
+            finally:
+                fcntl.flock(handle, fcntl.LOCK_UN)
 
     def head(self):
         self._git("fetch", "-q", "origin", self.branch)
@@ -108,9 +131,16 @@ class GitConfigRepo:
         return {name: self._git("show", f"{head}:{name}", raw=True) for name in listing.splitlines() if name}
 
     def replace_tree(self, path, files, *, expected_head, message):
+        with self.locked():
+            return self._replace_tree(path, files, expected_head=expected_head, message=message)
+
+    def _replace_tree(self, path, files, *, expected_head, message):
         if self.head() != expected_head:
             raise StackError("config_repo_moved")
-        self._git("checkout", "-q", "-B", "work", expected_head)
+        # Start from exactly the expected commit: no index or work-tree residue of an earlier try.
+        self._git("checkout", "-q", "-f", "-B", "work", expected_head)
+        self._git("reset", "-q", "--hard", expected_head)
+        self._git("clean", "-q", "-fdx")
         target = self.workdir / path
         if target.exists():
             shutil.rmtree(target)  # Git only; prune is off, so no cluster resource is deleted
@@ -119,13 +149,18 @@ class GitConfigRepo:
             file.parent.mkdir(parents=True, exist_ok=True)
             file.write_text(text)
         self._git("add", "-A", "--", path)
-        self._git("commit", "-q", "-m", message)
+        if self._git("diff", "--cached", "--name-only").splitlines() and any(
+                not name.startswith(path + "/") for name in self._git("diff", "--cached", "--name-only").splitlines()):
+            raise StackError("config_repo_unexpected_change")
+        self._git("commit", "-q", "-m", message, "--", path)
         commit = self._git("rev-parse", "HEAD")
         pushed = _run([self.git, "push", "-q", "origin", f"{commit}:refs/heads/{self.branch}"],
-                      cwd=self.workdir, check=False,
-                      env={"PATH": os.environ.get("PATH", ""), "HOME": os.environ.get("HOME", "")})
+                      cwd=self.workdir, check=False, env=self._env())
         if pushed.returncode != 0:
-            raise StackError("config_repo_moved")  # non-fast-forward; never force
+            text = pushed.stderr
+            if "non-fast-forward" in text or "fetch first" in text or "rejected" in text:
+                raise StackError("config_repo_moved")  # never force
+            raise RuntimeError("git push failed")  # transport or credential: HOLD, not a verdict
         return commit
 
 
@@ -135,7 +170,9 @@ class KubectlCluster:
     FIELD_MANAGER = "bravo-infra-plan"
 
     def __init__(self, kubeconfig, *, kubectl="kubectl", helm="helm", context=None):
-        self.kubeconfig, self.kubectl, self.helm, self.context = str(kubeconfig), kubectl, helm, context
+        self.kubeconfig, self.kubectl, self.helm = str(kubeconfig), kubectl, helm
+        # Pin the context once: a later `kubectl config use-context` must not move the target.
+        self.context = context or _run([kubectl, "config", "current-context"], env=self._env()).stdout.strip()
 
     def _env(self):
         return {"PATH": os.environ.get("PATH", ""), "HOME": os.environ.get("HOME", ""),
@@ -171,7 +208,7 @@ class KubectlCluster:
         result = self._k("diff", "--server-side", f"--field-manager={self.FIELD_MANAGER}", "--force-conflicts",
                          "-f", "-", stdin=manifest, check=False)
         if result.returncode not in (0, 1):
-            return True  # cannot compare (e.g. new CRD kind): apply decides
+            raise RuntimeError("kubectl diff failed")  # cannot compare: HOLD, never a blind apply
         return result.returncode == 1
 
     def apply(self, items):
@@ -219,26 +256,6 @@ class KubectlCluster:
     def labelled_secret_exists(self, namespace, selector):
         listing = json.loads(self._k("get", "secrets", "-n", namespace, "-l", selector, "-o", "json").stdout)
         return bool(listing["items"])
-
-    def helm_digest(self, release, namespace):
-        result = _run([self.helm, "history", release, "-n", namespace, "--max", "1", "-o", "json"],
-                      env=self._env(), check=False)
-        if result.returncode != 0:
-            return None
-        history = json.loads(result.stdout or "[]")
-        description = history[-1].get("description", "") if history else ""
-        status = history[-1].get("status") if history else None
-        prefix = "bravo-digest="
-        return description[len(prefix):] if description.startswith(prefix) and status == "deployed" else None
-
-    def helm_install(self, chart_dir, values_file, *, release, namespace, digest):
-        with tempfile.TemporaryDirectory() as scratch:
-            chart = Path(scratch) / "chart"
-            shutil.copytree(chart_dir, chart, ignore=shutil.ignore_patterns("charts"))
-            _run([self.helm, "dependency", "build", str(chart)], env=self._env())
-            _run([self.helm, "upgrade", "--install", release, str(chart), "-n", namespace, "--create-namespace",
-                  "-f", str(values_file), "--description", f"bravo-digest={digest}", "--wait",
-                  "--timeout", "10m"], env=self._env())
 
 
 class T10Approvals:

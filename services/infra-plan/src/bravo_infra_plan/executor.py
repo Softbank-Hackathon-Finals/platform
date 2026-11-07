@@ -5,7 +5,13 @@ Order of a run:
 2. Refuse unless the T10 `approval_kind=infra` binding has exactly this `plan_digest`; then claim
    the approval once for this run (T10 checks the digest, expiry, revocation and grants again).
 3. Run the step graph. Steps whose needs are done start in parallel; a failure, hold or
-   operator wait stops only the steps that depend on it. A resumed run uses the stored plan.
+   operator wait stops only the steps that depend on it.
+
+A run is bound to what was approved, not to the files of the moment:
+- the stack it executes is the copy stored at start (its digest is inside `plan_digest`);
+- every step first re-reads the target identity, so a switched kubeconfig or context holds;
+- every resume asks T10 again (revocation, the caller's own `apply_infra` grant) before moving on;
+- a publish holds when anyone else moved the configuration repository.
 
 There is no delete: no prune, uninstall or Secret overwrite. An unobservable result is HOLD,
 never retried silently. Secret values exist only in memory on their way to the cluster.
@@ -21,12 +27,11 @@ from datetime import UTC, datetime
 
 from .applications import application, application_name, project
 from .plan import Planner
-from .stack import StackError
+from .stack import StackError, canonical, sha256_text
 
 PENDING, RUNNING, SKIPPED, APPLIED = "PENDING", "RUNNING", "SKIPPED", "APPLIED"
 WAITING, FAILED, HOLD = "WAITING_OPERATOR", "FAILED", "HOLD"
 DONE = frozenset({SKIPPED, APPLIED})
-STOPPED = frozenset({WAITING, FAILED, HOLD})
 
 
 class StepOutcome(Exception):
@@ -46,6 +51,10 @@ def _random(length):
     return "".join(secrets.choice(alphabet) for _ in range(length))
 
 
+def _steps(run):
+    return {step["id"]: step for step in run["stack"]["steps"]}
+
+
 class Executor:
     def __init__(self, planner: Planner, *, stack_revision, cluster, repo, approvals, checks, store,
                  repo_url, ledger=None, clock=_now, sleep=time.sleep, monotonic=time.monotonic,
@@ -56,7 +65,9 @@ class Executor:
         self.ledger = ledger or (lambda event: None)
         self.clock, self.sleep, self.monotonic = clock, sleep, monotonic
         self.poll, self.workers = poll_seconds, workers
-        self._repo_lock = threading.Lock()
+        # One lock for the run record and the repository: workers mutate `run` and push commits
+        # while the scheduler saves it, so every mutation and every save happens under it.
+        self._lock = threading.RLock()
 
     # --- entry points -------------------------------------------------------------------------
 
@@ -67,8 +78,9 @@ class Executor:
         head = self.repo.head()
         plan = self.planner.plan(request, stack_revision=self.stack_revision, target=target, base_commit=head)
         run = dict(run_id=run_id, migration_plan_id=migration_plan_id, approval_id=approval_id,
-                   plan_digest=plan.plan_digest, plan=plan.document, files=plan.files, head=head, commits={},
-                   confirmations={}, started_by=started_by, created_at=self.clock(), status=PENDING,
+                   plan_digest=plan.plan_digest, plan=plan.document, stack=self.stack.document,
+                   files=plan.files, head=head, commits={}, confirmations={}, started_by=started_by,
+                   created_at=self.clock(), status=PENDING,
                    steps={s["id"]: {"status": PENDING} for s in plan.document["steps"]})
         approval = self.approvals.read(migration_plan_id, approval_id)
         if approval.get("binding", {}).get("plan_digest") != plan.plan_digest:
@@ -85,9 +97,11 @@ class Executor:
     def confirm(self, run_id, step_id, *, confirmed_by):
         """A human says an operator_action is done. The confirm check still runs before moving on."""
         run = self.store.load(run_id)
-        step = self.stack.steps.get(step_id)
+        step = _steps(run).get(step_id) if "stack" in run else None
         if step is None or step["kind"] != "operator_action":
             raise StackError("not_an_operator_step")
+        if run["status"] in ("REFUSED", "SUCCEEDED"):
+            return run
         run["confirmations"][step_id] = {"by": confirmed_by, "at": self.clock()}
         if run["steps"][step_id]["status"] == WAITING:
             run["steps"][step_id] = {"status": PENDING}
@@ -98,10 +112,17 @@ class Executor:
         run = self.store.load(run_id)
         if run["status"] in ("REFUSED", "SUCCEEDED"):
             return run
+        if sha256_text(canonical(run.get("stack"))) != run["plan"]["stack_digest"]:
+            return self._hold(run, "stored_stack_mismatch")
+        # Ask T10 again: a revoked approval stops the run, and the caller (whose token this
+        # client carries) must hold `apply_infra` now. Replaying the same run's claim is idempotent.
+        approval = self.approvals.read(run["migration_plan_id"], run["approval_id"])
+        if approval.get("revoked") or approval.get("claimed_run_id") != run["run_id"]:
+            return self._hold(run, "approval_revoked")
+        self.approvals.claim(run["migration_plan_id"], run["approval_id"], run_id=run["run_id"],
+                             plan_digest=run["plan_digest"])
         if self.repo.head() != run["head"]:
-            run["status"], run["reason"] = HOLD, "config_repo_moved"
-            self.store.save(run)
-            return run
+            return self._hold(run, "config_repo_moved")
         for state in run["steps"].values():
             if state["status"] in (RUNNING, WAITING, HOLD):
                 state["status"] = PENDING  # re-observe; DONE steps are never re-applied
@@ -115,9 +136,16 @@ class Executor:
         self.ledger({"event": "infra.run.refused", "run_id": run["run_id"], "reason": reason, "at": self.clock()})
         return run
 
+    def _hold(self, run, reason):
+        run["status"], run["reason"] = HOLD, reason
+        self.store.save(run)
+        self.ledger({"event": "infra.run.status", "run_id": run["run_id"], "status": HOLD, "reason": reason,
+                     "at": self.clock()})
+        return run
+
     def _execute(self, run):
-        steps, states = self.stack.steps, run["steps"]
-        lock = threading.Lock()
+        steps, states = _steps(run), run["steps"]
+        run.pop("reason", None)
 
         def runnable(step_id):
             return states[step_id]["status"] == PENDING and all(
@@ -126,7 +154,7 @@ class Executor:
         with ThreadPoolExecutor(max_workers=self.workers) as pool:
             futures = {}
             while True:
-                with lock:
+                with self._lock:
                     for step_id in steps:
                         if step_id not in futures.values() and runnable(step_id):
                             states[step_id] = {"status": RUNNING, "started_at": self.clock()}
@@ -145,26 +173,31 @@ class Executor:
                         status, reason = FAILED, str(error)
                     except Exception:  # an adapter error is not a verdict: hold for a human
                         status, reason = HOLD, "adapter_error"
-                    with lock:
+                    with self._lock:
                         states[step_id].update(status=status, ended_at=self.clock())
                         if reason:
                             states[step_id]["reason"] = reason
                         self.ledger({"event": "infra.step", "run_id": run["run_id"], "step": step_id,
                                      "status": status, "reason": reason, "at": states[step_id]["ended_at"]})
-        statuses = {s["status"] for s in states.values()}
-        for status in (FAILED, HOLD, WAITING):
-            if status in statuses:
-                run["status"] = status
-                break
-        else:
-            run["status"] = "SUCCEEDED" if statuses <= DONE else PENDING
-        run["updated_at"] = self.clock()
-        self.store.save(run)
+        with self._lock:
+            statuses = {s["status"] for s in states.values()}
+            for status in (FAILED, HOLD, WAITING):
+                if status in statuses:
+                    run["status"] = status
+                    break
+            else:
+                run["status"] = "SUCCEEDED" if statuses <= DONE else PENDING
+            run["updated_at"] = self.clock()
+            self.store.save(run)
         self.ledger({"event": "infra.run.status", "run_id": run["run_id"], "status": run["status"],
                      "at": run["updated_at"]})
         return run
 
     def _run_step(self, run, step):
+        # Every step starts on the approved cluster, whatever the kubeconfig says now.
+        params = run["plan"]["request"]["params"]
+        if self.cluster.identity(params["node_name"]) != run["plan"]["target"]:
+            raise StepOutcome(HOLD, "target_identity_changed")
         return getattr(self, "_" + step["kind"])(run, step)
 
     # --- step kinds ---------------------------------------------------------------------------
@@ -183,39 +216,37 @@ class Executor:
             return APPLIED
         raise StepOutcome(WAITING, "confirm_check_failed" if confirmed else "operator_action_required")
 
-    def _helm_release(self, run, step):
-        digest = self._planned(run, step)["digest"]
-        if self.cluster.helm_digest(step["release"], step["namespace"]) == digest:
-            return SKIPPED
-        self.cluster.helm_install(self.planner.repo_root / step["chart_dir"],
-                                  self.planner.repo_root / step["values_file"],
-                                  release=step["release"], namespace=step["namespace"], digest=digest)
-        return APPLIED
-
     def _gitops_publish(self, run, step):
         files = run["files"][step["id"]]
-        name = application_name(self.stack.name, step["path"])
-        with self._repo_lock:
+        stack = run["stack"]["stack"]
+        name = application_name(stack, step["path"])
+        with self._lock:
             current = (self.cluster.application_status(name) or {}).get("revision")
             if current and self.repo.read_tree(step["path"], current) == files:
                 commit, status = current, SKIPPED  # Argo CD already follows these exact files
-            elif self.repo.read_tree(step["path"]) == files:
-                commit, status = run["commits"].get(step["path"], run["head"]), SKIPPED
             else:
-                commit = self.repo.replace_tree(step["path"], files, expected_head=run["head"],
-                                                message=f"[T45] {run['run_id']} {step['id']}")
-                run["head"], status = commit, APPLIED
+                if self.repo.head() != run["head"]:
+                    raise StepOutcome(HOLD, "config_repo_moved")  # someone else published meanwhile
+                if self.repo.read_tree(step["path"]) == files:
+                    commit, status = run["head"], SKIPPED
+                else:
+                    commit = self.repo.replace_tree(step["path"], files, expected_head=run["head"],
+                                                    message=f"[T45] {run['run_id']} {step['id']}")
+                    run["head"], status = commit, APPLIED
             run["commits"][step["path"]] = commit
-        manifests = [project(self.stack.name, repo_url=self.repo_url),
-                     application(self.stack.name, step["path"], repo_url=self.repo_url, revision=commit)]
+            self.store.save(run)  # the new head is durable before anything else can fail
+        manifests = [project(stack, repo_url=self.repo_url),
+                     application(stack, step["path"], repo_url=self.repo_url, revision=commit)]
         if self.cluster.diff(manifests):
             self.cluster.apply(manifests)
             status = APPLIED
         return status
 
     def _gitops_sync(self, run, step):
-        path = self.stack.steps[step["publish"]]["path"]
-        name, expected = application_name(self.stack.name, path), run["commits"].get(path)
+        path = _steps(run)[step["publish"]]["path"]
+        with self._lock:
+            expected = run["commits"].get(path)
+        name = application_name(run["stack"]["stack"], path)
         if expected is None:
             raise StepOutcome(HOLD, "publish_commit_unknown")
         deadline = self.monotonic() + step["timeout_seconds"]
@@ -261,10 +292,6 @@ class Executor:
             if self.monotonic() >= deadline:
                 raise StepOutcome(HOLD, "wait_timeout")
             self.sleep(self.poll)
-
-    @staticmethod
-    def _planned(run, step):
-        return next(s for s in run["plan"]["steps"] if s["id"] == step["id"])
 
 
 def _items(text):
