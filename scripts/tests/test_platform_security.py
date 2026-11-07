@@ -60,9 +60,10 @@ class FindingsBundle(unittest.TestCase):
         self.assertEqual(self.resources.count("fsGroupChangePolicy: OnRootMismatch"), self.resources.count("fsGroup: 10001"))
         readme = (ROOT / "infra/envs/platform-security/README.md").read_text()
         self.assertIn("install -d -o 10001 -g 10001 -m 2770", readme)
-        self.assertEqual(self.resources.count("readOnlyRootFilesystem: true"), 2)
-        self.assertEqual(self.resources.count("drop: [ALL]"), 2)
-        self.assertIn("automountServiceAccountToken: false", self.resources)
+        # init, api and the GuardDuty pull container
+        self.assertEqual(self.resources.count("readOnlyRootFilesystem: true"), 3)
+        self.assertEqual(self.resources.count("drop: [ALL]"), 3)
+        self.assertEqual(self.resources.count("automountServiceAccountToken: false"), 4)  # both SAs and both Pods
         self.assertNotRegex(self.resources, r"(?i)token_sha256|bearer|BEGIN [A-Z ]*KEY")
 
     def test_onprem_ingest_enters_only_through_the_tailnet_device_proxy(self):
@@ -78,6 +79,28 @@ class FindingsBundle(unittest.TestCase):
         sources = json.loads(re.search(r"value: '(\[.*\])'", self.resources).group(1))
         self.assertEqual({(s["source"], s["environment_id"]) for s in sources},
                          {("aws_guardduty", "env-aws"), ("falco", "env-onprem"), ("kyverno", "env-onprem")})
+
+    def test_guardduty_pull_uses_web_identity_only(self):
+        # A projected STS-audience token and a role from a ConfigMap outside Git; never a long-lived key.
+        self.assertIn("serviceAccountToken: {audience: sts.amazonaws.com, expirationSeconds: 3600, path: token}", self.resources)
+        self.assertIn("{name: AWS_WEB_IDENTITY_TOKEN_FILE, value: /var/run/secrets/aws/token}", self.resources)
+        self.assertIn("configMapKeyRef: {name: bravo-findings-aws, key: role_arn}", self.resources)
+        self.assertNotRegex(self.resources, r"AWS_ACCESS_KEY_ID|AWS_SECRET_ACCESS_KEY|AWS_PROFILE|arn[:]aws[:]|\b\d{12}\b")
+        self.assertIn("command: [python, -m, bravo_findings.aws_pull]", self.resources)
+        self.assertIn("--environment-id, env-aws", self.resources)
+        self.assertIn("concurrencyPolicy: Forbid", self.resources)
+        self.assertIn("startingDeadlineSeconds: 120", self.resources)
+        # 443 out, but not to Pods, Services or link-local (IMDS) of the platform cluster
+        self.assertIn("ipBlock: {cidr: 0.0.0.0/0, except: [10.42.0.0/16, 10.43.0.0/16, 169.254.0.0/16]}", self.resources)
+        self.assertNotIn("ipBlock: {cidr: 0.0.0.0/0}", self.resources)
+
+    def test_role_matches_the_puller_subject(self):
+        main = (ROOT / "infra/envs/platform-security/main.tf").read_text()
+        variables = (ROOT / "infra/envs/platform-security/variables.tf").read_text()
+        self.assertIn('default     = "system:serviceaccount:bravo-security:bravo-findings-pull"', variables)
+        self.assertIn("name: bravo-findings-pull\n  namespace: bravo-security", self.resources)
+        self.assertNotIn('resource "aws_iam_openid_connect_provider"', main)  # read, never create, the issuer provider
+        self.assertIn('data "aws_iam_openid_connect_provider" "platform"', main)
 
 
 if __name__ == "__main__":

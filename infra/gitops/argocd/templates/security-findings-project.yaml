@@ -12,6 +12,7 @@ spec:
   clusterResourceWhitelist: []
   namespaceResourceWhitelist:
     - {group: apps, kind: Deployment}
+    - {group: batch, kind: CronJob}
     - {group: "", kind: Service}
     - {group: "", kind: ServiceAccount}
     - {group: "", kind: PersistentVolumeClaim}

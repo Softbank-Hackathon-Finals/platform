@@ -140,6 +140,7 @@ uv run python -m bravo_findings.gcp_pull \
 ## 플랫폼 배포
 
 - 이미지: `Dockerfile`(빌드 컨텍스트는 저장소 루트, 매핑 규칙 `docs/security/detection`을 이미지에 넣음). 비루트 10001, 읽기 전용 루트, uvicorn이 TLS로 8443만 연다. `publish-security-findings-image`가 develop에서 검사 · 게시하고 digest 고정 PR을 연다.
-- 묶음: `deploy/platform-gitops`(namespace `bravo-security`). SQLite는 정적 PV(1GiB), 인스턴스 하나(`Recreate`). 자격 레지스트리 Secret은 init 컨테이너가 서비스 UID 소유 0400 일반 파일로 옮긴다(Secret 볼륨 링크는 로더가 거부한다). 교체하면 Pod를 다시 띄운다.
+- 묶음: `deploy/platform-gitops`(namespace `bravo-security`). SQLite는 정적 PV(1GiB). API 인스턴스는 하나(`Recreate`)이고, GuardDuty 수집 Job도 같은 DB에 쓴다(`BEGIN IMMEDIATE` · `busy_timeout`으로 직렬화). 두 Pod 모두 `fsGroupChangePolicy: OnRootMismatch`. 자격 레지스트리 Secret은 init 컨테이너가 서비스 UID 소유 0400 일반 파일로 옮긴다(Secret 볼륨 링크는 로더가 거부한다). 교체하면 Pod를 다시 띄운다.
 - 전제: `infra/envs/platform-security`(namespace · PV · 기본 거부, TLS · 자격 Secret). 갖춘 뒤 플랫폼 Argo 값 `securityFindings.enabled`를 켠다.
-- 아직: AWS GuardDuty 주기 수집(플랫폼 OIDC → 읽기 전용 IAM 역할)과 온프렘 수집 경로(T44 tailnet)는 다음 단계다.
+- AWS GuardDuty 주기 수집: CronJob `bravo-findings-pull`(5분)이 플랫폼 웹 신원으로 읽기 전용 IAM 역할을 받는다(`infra/envs/platform-security`).
+- 온프렘 수집 경로: T44 선언(`platform.json` tailnet-ingress `bravo-findings`, `target-dev.json` egress 그룹 `bravo-target-findings`). API NetworkPolicy는 그 장치의 proxy Pod만 받는다.
