@@ -81,26 +81,40 @@ def running_apiserver() -> str | None:
     return out[0] if out else None
 
 
-def wait_ready(previous: str | None) -> str:
+def crashed_since(since_ns: int, previous: str | None) -> bool:
+    """A kube-apiserver container created after `since_ns` has already exited: it crashed (a healthy
+    API server never exits by itself). Measured on a real node: waiting the full timeout instead let
+    kubelet's crash backoff grow and stretched a failed install to ~6.5 min of API outage."""
+    out = subprocess.run(CRICTL + ["ps", "-a", "--name", "kube-apiserver", "-o", "json"],
+                         capture_output=True, text=True, check=True).stdout
+    return any(c.get("id") != previous and c.get("state") == "CONTAINER_EXITED" and int(c.get("createdAt", 0)) > since_ns
+               for c in json.loads(out or "{}").get("containers", []))
+
+
+def wait_ready(previous: str | None, since_ns: int) -> str:
     until = time.monotonic() + READY_TIMEOUT
     while time.monotonic() < until:
         time.sleep(3)
         try:
+            if crashed_since(since_ns, previous):
+                raise Refused("api_server_crashed")
             current = running_apiserver()
             if current and current != previous and kubectl("get", "--raw", "/readyz").strip() == "ok":
                 return current
-        except (Refused, subprocess.CalledProcessError):
+        except subprocess.CalledProcessError:
             continue
     raise Refused("api_server_not_ready")
 
 
 def restart_apiserver() -> str:
     """Stop the running container (kubelet restarts the static pod) and wait for a new ready one.
-    With no running container (a crashloop, say), only wait: kubelet keeps restarting it."""
+    With no running container (a crashloop, say), only wait: kubelet keeps restarting it. A new
+    container that exits is a crash and fails at once, so a rollback starts before backoff grows."""
+    since_ns = time.time_ns()
     before = running_apiserver()
     if before:
         subprocess.run(CRICTL + ["stop", before], capture_output=True, check=True)
-    return wait_ready(before)
+    return wait_ready(before, since_ns)
 
 
 def install(path: Path, data: bytes, mode: int) -> None:

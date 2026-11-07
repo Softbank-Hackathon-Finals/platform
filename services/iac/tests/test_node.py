@@ -225,3 +225,25 @@ def test_a_failure_after_install_puts_the_previous_policy_back(tmp_path, monkeyp
     assert code == 1 and report["reason"] == reason, report
     assert report["rolled_back"] is True and report["rollback_ready"] is True
     assert node.policy.read_bytes() == NONE_POLICY
+
+
+def test_a_crashed_container_fails_fast_instead_of_waiting_out_the_timeout(monkeypatch):
+    apply = applier()
+    since = 1_000
+    listing_json = {"containers": [
+        {"id": "old", "state": "CONTAINER_EXITED", "createdAt": "900"},       # exited before: not ours
+        {"id": "new", "state": "CONTAINER_EXITED", "createdAt": "1100"}]}     # ours, already exited
+    calls = []
+
+    def fake_run(cmd, capture_output=True, text=False, check=False):
+        calls.append(cmd)
+        return __import__("types").SimpleNamespace(stdout=json.dumps(listing_json), returncode=0)
+
+    monkeypatch.setattr(apply.subprocess, "run", fake_run)
+    monkeypatch.setattr(apply.time, "sleep", lambda seconds: None)
+    assert apply.crashed_since(since, "old") is True
+    listing_json["containers"].pop()
+    assert apply.crashed_since(since, "old") is False
+    listing_json["containers"].append({"id": "new", "state": "CONTAINER_EXITED", "createdAt": "1100"})
+    with pytest.raises(apply.Refused, match="api_server_crashed"):
+        apply.wait_ready("old", since)
