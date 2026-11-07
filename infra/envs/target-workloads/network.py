@@ -54,7 +54,10 @@ def values(side, env=None, auth="join", client_id="", audience=""):
             "image": {"repository": "tailscale/tailscale", "digest": PROXY_DIGEST},
             "defaultTags": f"tag:bravo-{env}-db",
         },
-        "apiServerProxyConfig": {"mode": "false", "allowImpersonation": "false"},
+        # Source: a transport proxy (source-dev `api-transport-access`). It passes the caller's own credential
+        # (an EKS IAM token) through and never impersonates, so no new RBAC is made. Target: no API proxy here
+        # (an auth proxy for people is `operator-access`, applied separately).
+        "apiServerProxyConfig": {"mode": "noauth" if side == "source" else "false", "allowImpersonation": "false"},
         "ingressClass": {"enabled": False, "name": "bravo-t8-unused"},
     }
 
