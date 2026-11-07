@@ -22,7 +22,7 @@ export function useTool<T = any>(name: string, args: Record<string, unknown> | n
   });
 }
 
-export type View = 'dashboard' | 'plans' | 'timeline' | 'observe' | 'guide' | 'settings';
+export type View = 'dashboard' | 'plans' | 'register' | 'timeline' | 'observe' | 'guide' | 'settings';
 export const viewAtom = atom<View>('dashboard');
 export const planAtom = atomWithStorage<string>('sova.plan', '');
 export const panelAtom = atomWithStorage<boolean>('sova.agentPanel', true);

@@ -3,7 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import { Command } from 'cmdk';
 import { useAtom, useAtomValue, useSetAtom } from 'jotai';
 import {
-  Activity, BookOpen, Command as Cmd, LayoutDashboard, ListTree, MessageSquarePlus, PanelRight, RefreshCw, Settings2,
+  Activity, BookOpen, Command as Cmd, LayoutDashboard, ListTree, MessageSquarePlus, PanelRight, PlusSquare, RefreshCw, Settings2,
   ShieldCheck,
 } from 'lucide-react';
 import { useEffect } from 'react';
@@ -18,6 +18,7 @@ import {
 export const NAV: { id: View; label: string; icon: typeof LayoutDashboard }[] = [
   { id: 'dashboard', label: '대시보드', icon: LayoutDashboard },
   { id: 'plans', label: '이전 계획', icon: ListTree },
+  { id: 'register', label: '환경·앱 등록', icon: PlusSquare },
   { id: 'timeline', label: '진행 타임라인', icon: Activity },
   { id: 'observe', label: '관측 · 보안', icon: ShieldCheck },
   { id: 'guide', label: '처음 안내', icon: BookOpen },

@@ -10,6 +10,7 @@ import { activeConvAtom, blankConversation, convSortAtom, convsAtom, explain, pa
 import { ConfirmDialog, Palette, Sidebar, TopBar, useLink } from './shell';
 import { ConnectionForm, Dashboard, Guide, Observe, Plans } from './views';
 import { Timeline } from './timeline';
+import { Register } from './register';
 import { SettingsPage } from './settings';
 import hero from '../../assets/sova-hero.jpg';
 
@@ -134,6 +135,7 @@ export function App() {
         <div className="min-h-0 flex-1">
           {view === 'dashboard' && <Dashboard ask={ask} />}
           {view === 'plans' && <Plans />}
+          {view === 'register' && <Register />}
           {view === 'timeline' && <Timeline />}
           {view === 'observe' && <Observe />}
           {view === 'guide' && <Guide ask={ask} />}

@@ -8,7 +8,7 @@ export const LANGS: { id: Lang; label: string }[] = [{ id: 'ko', label: '한국�
 export const langAtom = atomWithStorage<Lang>('sova.lang', 'ko');
 
 const D: Record<string, [ja: string, en: string]> = {
-  '대시보드': ['ダッシュボード', 'Dashboard'], '이전 계획': ['移行計画', 'Migration plans'], '진행 타임라인': ['進行タイムライン', 'Timeline'],
+  '대시보드': ['ダッシュボード', 'Dashboard'], '환경·앱 등록': ['環境・アプリ登録', 'Register'], '이전 계획': ['移行計画', 'Migration plans'], '진행 타임라인': ['進行タイムライン', 'Timeline'],
   '관측 · 보안': ['観測・セキュリティ', 'Observe & security'], '처음 안내': ['はじめに', 'Getting started'], '연결 설정': ['接続設定', 'Connection'],
   '새 채팅': ['新しいチャット', 'New chat'], '채팅': ['チャット', 'Chats'], '보관함': ['アーカイブ', 'Archive'], '채팅 검색': ['チャットを検索', 'Search chats'],
   '보관된 채팅 검색': ['アーカイブを検索', 'Search archive'], '고정됨': ['固定', 'Pinned'], '최근': ['最近', 'Recent'],
