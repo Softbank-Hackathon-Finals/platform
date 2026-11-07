@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from bravo_iac import IacError
+from bravo_iac import IacError, tailnet_sync
 from bravo_iac.cli import main
 from bravo_iac.tailnet import check_policy, fragment
 from bravo_iac.tailnet_sync import Client, github_token, masked, merge, prune, sync
@@ -122,28 +122,95 @@ def test_apply_writes_on_the_read_etag_and_confirms_by_reading_back():
     assert not [c for c in fake.calls[calls:] if c[0] == "POST"]  # nothing to write, not even validate
 
 
-def test_prune_removes_only_what_git_put_there_and_then_dropped():
-    old = {"src": ["tag:bravo-old"], "dst": ["tag:bravo-gone"], "ip": ["tcp:443"]}
-    previous = {**WANTED, "tagOwners": {**WANTED["tagOwners"], "tag:bravo-old": ["autogroup:admin"]},
-                "grants": [*WANTED["grants"], old], "tests": [*WANTED["tests"], {"src": "tag:bravo-old", "accept": ["tag:bravo-gone:443"]}]}
-    widened = {**old, "ip": ["tcp:443", "tcp:80"]}  # a person widened it: theirs now
-    live, _, _ = merge(PEOPLE, previous)
-    live["grants"].append(widened)
-    pruned, removed = prune(live, previous, WANTED)
+OLD = {"src": ["tag:bravo-old"], "dst": ["tag:bravo-gone"], "ip": ["tcp:443"]}
+OLD_TEST = {"src": "tag:bravo-old", "accept": ["tag:bravo-gone:443"]}
+WITH_OLD = {**WANTED, "tagOwners": {**WANTED["tagOwners"], "tag:bravo-old": ["autogroup:admin"]},
+            "grants": [*WANTED["grants"], OLD], "tests": [*WANTED["tests"], OLD_TEST]}
+DROPPED = [i for i, _ in enumerate(STATES) if i != 1]  # source-dev left Git since the baseline
+
+
+def test_prune_removes_exact_matches_and_reports_what_a_person_changed():
+    live = merge(PEOPLE, WITH_OLD)[0]
+    pruned, removed, kept = prune(live, WITH_OLD, WANTED)
     assert removed == ["TAG_OWNER:tag:bravo-old", "GRANT:tag:bravo-old->tag:bravo-gone:tcp:443", "TEST:tag:bravo-old"]
-    assert widened in pruned["grants"] and old not in pruned["grants"]
-    assert all(g in pruned["grants"] for g in PEOPLE["grants"]) and pruned["groups"] == PEOPLE["groups"]
-    assert check_policy(pruned, STATES) == [] and prune(pruned, previous, WANTED)[1] == []
-    other = {**live, "tagOwners": {**live["tagOwners"], "tag:bravo-old": ["autogroup:owner"]}}
-    assert "TAG_OWNER:tag:bravo-old" not in prune(other, previous, WANTED)[1]  # owner changed by hand
+    assert kept == [] and OLD not in pruned["grants"] and pruned["groups"] == PEOPLE["groups"]
+    assert all(g in pruned["grants"] for g in PEOPLE["grants"]) and check_policy(pruned, STATES) == []
+    assert prune(pruned, WITH_OLD, WANTED)[1:] == ([], [])
+    # An exact match is the repository's, whoever wrote it first.
+    hand = {**PEOPLE, "grants": [*PEOPLE["grants"], copy.deepcopy(OLD)]}
+    assert "GRANT:tag:bravo-old->tag:bravo-gone:tcp:443" in prune(hand, WITH_OLD, WANTED)[1]
+    # Changed by a person: it stays, and is reported while it still allows or owns what Git dropped.
+    widened = {**OLD, "ip": ["tcp:443", "tcp:80"]}
+    changed = copy.deepcopy(live)
+    changed["grants"] = [widened if g == OLD else g for g in changed["grants"]]
+    changed["tagOwners"]["tag:bravo-old"] = ["autogroup:owner"]
+    pruned, removed, kept = prune(changed, WITH_OLD, WANTED)
+    assert widened in pruned["grants"] and pruned["tagOwners"]["tag:bravo-old"] == ["autogroup:owner"]
+    assert kept == ["TAG_OWNER:tag:bravo-old", "GRANT:tag:bravo-old->tag:bravo-gone:tcp:443"]
+    assert removed == ["TEST:tag:bravo-old"]
 
 
-def test_apply_prunes_what_the_previous_commit_had():
+def test_apply_prunes_an_environment_dropped_since_the_baseline():
+    states = [STATES[i] for i in DROPPED]
+    gone = [g for g in WANTED["grants"] if g not in fragment(states)["grants"]]
     fake = FakeTailscale(merge(PEOPLE, WANTED)[0])
-    result = sync(client(fake), [], "default", apply=True, previous_states=STATES)
-    assert result["status"] == "APPLIED" and result["added"] == [] and len(result["removed"]) > 0
-    assert fake.policy == PEOPLE
-    assert sync(client(fake), [], "default", apply=True, previous_states=STATES)["status"] == "NO_CHANGE"
+    result = sync(client(fake), states, "default", apply=True, previous_states=STATES)
+    assert result["status"] == "APPLIED" and result["removed"] and result["kept"] == [] and gone
+    assert check_policy(fake.policy, states) == [] and not [g for g in gone if g in fake.policy["grants"]]
+    assert fake.policy["groups"] == PEOPLE["groups"] and all(g in fake.policy["grants"] for g in PEOPLE["grants"])
+    assert sync(client(fake), states, "default", apply=True, previous_states=STATES)["status"] == "NO_CHANGE"
+
+
+def test_a_plan_with_only_removals_is_planned_and_writes_nothing():
+    fake = FakeTailscale(merge(PEOPLE, WANTED)[0])
+    result = sync(client(fake), [], "default", apply=False, previous_states=STATES)
+    assert (result["status"], result["added"]) == ("PLANNED", []) and result["removed"]
+    assert not [c for c in fake.calls if c[:2] == ("POST", "acl")]
+
+
+def test_a_prune_it_cannot_prove_is_refused_or_unknown():
+    base = merge(PEOPLE, WANTED)[0]
+    failing = FakeTailscale(base, validate=(200, {"message": "test(s) failed"}))
+    result = sync(client(failing), [], "default", apply=True, previous_states=STATES)
+    assert (result["status"], result["code"]) == ("REFUSED", "IAC_TAILSCALE_VALIDATE_FAILED")
+    assert failing.policy == base
+    edited = FakeTailscale(base)
+
+    def saved_meanwhile(method, url, headers, body):
+        if method == "POST" and url.endswith("/acl"):
+            edited.version += 1  # someone saved in the admin console after our read
+        return edited(method, url, headers, body)
+
+    result = sync(Client("example.org", "short-lived", send=saved_meanwhile), [], "default", apply=True,
+                  previous_states=STATES)
+    assert (result["status"], result["code"]) == ("REFUSED", "IAC_POLICY_CHANGED") and edited.policy == base
+    deaf = FakeTailscale(base)
+
+    def acknowledged_not_stored(method, url, headers, body):
+        if method == "POST" and url.endswith("/acl"):
+            return 200, {}, body
+        return deaf(method, url, headers, body)
+
+    result = sync(Client("example.org", "short-lived", send=acknowledged_not_stored), [], "default", apply=True,
+                  previous_states=STATES)
+    assert (result["status"], result["code"]) == ("UNKNOWN", "IAC_APPLY_UNCONFIRMED")
+
+
+def test_cli_prunes_what_the_previous_dir_had(tmp_path, monkeypatch, capsys):
+    fake = FakeTailscale(merge(PEOPLE, WANTED)[0])
+    monkeypatch.setattr(tailnet_sync, "github_token", lambda client_id: "short-lived")
+    monkeypatch.setattr(tailnet_sync, "Client", lambda name, token: Client(name, token, send=fake))
+    previous = tmp_path / "previous"
+    previous.mkdir()
+    for path in ENVIRONMENTS:
+        (previous / path.name).write_text(path.read_text())
+    now = [str(ENVIRONMENTS[i]) for i in DROPPED]
+    args = ["tailnet-sync", "--tailnet-name", "example.org", "--client-id", "c"]
+    assert main([*args, "--previous-dir", str(previous), *now]) == 0
+    printed = json.loads(capsys.readouterr().out)
+    assert printed["status"] == "PLANNED" and printed["removed"] and "@" not in json.dumps(printed)
+    assert main([*args, *now]) == 0  # without a baseline nothing is removed
+    assert json.loads(capsys.readouterr().out)["removed"] == []
 
 
 def test_apply_refuses_what_it_cannot_prove():
