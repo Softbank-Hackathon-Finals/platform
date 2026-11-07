@@ -15,6 +15,8 @@ KUBE = ["/var/lib/rancher/rke2/bin/kubectl", "--kubeconfig", "/etc/rancher/rke2/
 NAMESPACE = "target-dev"
 OWNER = "bravo.platform/t7-registry-probe"
 NONE_POLICY = b"apiVersion: audit.k8s.io/v1\nkind: Policy\nmetadata: {}\nrules:\n- level: None\n"
+# The reviewed Metadata policy (services/control-runner/templates/rke2-audit-policy.yaml, T44 cluster-audit).
+METADATA_POLICY_SHA256 = "44db1bde11f732c22216bd219b91a1138ad1a119e889716f898a065ac8d1a7fe"
 
 
 class Failure(RuntimeError):
@@ -114,9 +116,15 @@ def preflight(config):
     if Path("/etc/rancher/rke2/registries.yaml").exists():
         raise Failure("existing_registry_configuration_needs_review")
     # This path supports the existing, explicitly observed development VM only.
-    # None protects bodies but does not satisfy Metadata audit requirements.
+    # None protects bodies but does not satisfy Metadata audit requirements; the reviewed Metadata
+    # policy (installed by infra/iac/nodes/apply.py) does. Any other policy is not reviewed.
     path = Path("/etc/rancher/rke2/audit-policy.yaml")
-    if path.read_bytes() != NONE_POLICY:
+    policy = path.read_bytes()
+    if policy == NONE_POLICY:
+        mode = "None"
+    elif hashlib.sha256(policy).hexdigest() == METADATA_POLICY_SHA256:
+        mode = "Metadata"
+    else:
         raise Failure("audit_policy_not_reviewed")
     pods = get("pods", namespace="kube-system")["items"]
     servers = [p for p in pods if p["metadata"].get("labels", {}).get("component") == "kube-apiserver"]
@@ -129,8 +137,8 @@ def preflight(config):
     started = datetime.fromisoformat(server["status"]["startTime"])
     if path.stat().st_mtime > started.timestamp():
         raise Failure("audit_policy_changed_after_start")
-    return {"audit_mode": "None", "metadata_audit_verified": False,
-            "audit_policy_sha256": hashlib.sha256(NONE_POLICY).hexdigest()}
+    return {"audit_mode": mode, "metadata_audit_verified": mode == "Metadata",
+            "audit_policy_sha256": hashlib.sha256(policy).hexdigest()}
 
 
 class Probe:

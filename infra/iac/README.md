@@ -17,6 +17,7 @@
 
 | `tailnet-egress` v1 | 클러스터의 Tailscale egress 경로: 그룹마다 egress ProxyGroup(전용 태그), tailnet 호스트로 가는 ExternalName Service, 그 그룹 proxy Pod에 묶은 NetworkPolicy | `owner_tag`, `groups[]`: `name`, `tag`, `tailnet`?, `proxy_class`?, `client_policy`?(`false`만), `clients[]`(namespace·labels), `routes[]`(service·namespace·destination·destination_tag·port·port_name) |
 | `tailnet-ingress` v1 | 클러스터 안 워크로드를 tailnet 장치로 노출: 장치마다 operator expose Service(호스트 이름·태그·selector·포트). 누가 닿는지는 소비자 쪽 `tailnet-egress` grant가 정한다 | `owner_tag`, `devices[]`: `service`, `namespace`, `hostname`, `tag`, `tailnet`?, `selector`, `ports[]`(name·port·target_port) |
+| `cluster-audit` v1 | API 서버 감사 정책을 **노드 파일**로: `/etc/rancher/rke2/audit-policy.yaml`(0600). 내용은 T30·T34가 검토한 정책(`services/control-runner/templates/rke2-audit-policy.yaml`)과 바이트가 같다(시험 고정). 바뀌면 API 서버 재시작 | `runtime`: `rke2`(EKS 등 관리형 제어면은 `IAC_RUNTIME_UNSUPPORTED`), `policy`: `metadata-v1` |
 
 `target-object-exposure`는 T9 렌더러(`infra/envs/target-workloads/object_exposure.py`)와 같은 계정·권한을 낸다.
 같은지는 시험이 고정한다. 계정 키는 Git에도 plan에도 없다. 적용하는 쪽이 적용 시점에 넣는다(`secret_inputs`).
@@ -67,6 +68,33 @@ Tailscale operator가 매긴 proxy 포트를 **관찰해서** NetworkPolicy에 �
 당시 선언(`tag:bravo-target-api`, 저장소 조각과 같음)과 **TAG_MISMATCH**였다. 선언을 실제 태그로 맞추고 정책 조각을 다시 생성해
 지금은 OK다. API proxy에 전용 태그를 줄지는 목적지 담당이 정하고, 그때 같은 선언에서 바꾼다(`bravo-team-api-0`도 같은 태그).
 나머지 11개는 이 기기 grant로 NOT_VISIBLE.
+
+## 노드 파일 (`cluster-audit`)
+
+API 서버가 시작할 때 노드에서만 읽는 설정은 클러스터 안 Argo가 가질 수 없다. 그래서 모듈이 파일의 정확한 바이트를
+내고, 노드의 적용기가 설치한다. 차트에는 들어가지 않고 `Chart.yaml`의 `bravo.dev/unmanaged`에 적힌다.
+
+| 경로 | 뜻 |
+|---|---|
+| `infra/iac/nodes/<환경>/manifest.json` | 그 환경의 노드 파일 목록: 경로·모드·sha256·재시작 대상·모듈. `bravo-iac node`로 생성(손으로 고치지 않음, 시험이 일치를 고정) |
+| `infra/iac/nodes/<환경>/<노드 경로>` | 파일 내용. 노드의 실제 경로 그대로(`etc/rancher/rke2/audit-policy.yaml`) |
+| `infra/iac/nodes/apply.py` | 실행 중인 RKE2 서버 노드의 적용기(표준 라이브러리만) |
+
+```sh
+cd services/iac && uv run bravo-iac node ../../infra/iac/environments/platform.json --out ../../infra/iac/nodes/platform
+# 노드에서(root): 묶음과 클러스터 UID를 대조하고, 바뀔 것만 보고한다
+python3 apply.py <묶음 폴더> --cluster-uid <kube-system UID>
+# 적용: 기존 파일 백업 → 원자적 설치 → API 서버만 재시작 → /readyz와 감사 로그 증가 확인. 준비가 안 되면 백업으로 되돌린다
+python3 apply.py <묶음 폴더> --cluster-uid <kube-system UID> --apply
+```
+
+- API(읽기 전용): `GET /v1/iac/environments/{id}/node-files`(목록과 각 파일의 `href`),
+  `GET /v1/iac/environments/{id}/node-files/{노드 경로}`(내용과 sha256). 없는 경로는 404 `IAC_NODE_FILE_UNKNOWN`.
+- 새 노드: 온프렘 user-data(`infra/envs/onprem/render-user-data.sh`)는 같은 원본을 첫 시작 전에 넣는다.
+- 플랫폼 노드(`infra/envs/platform-aws`): `user_data_replace_on_change = true`와 `prevent_destroy`가 함께 있어,
+  cloud-init을 바꾸면 다음 plan이 교체 거부로 멈춘다. 그래서 실행 중인 플랫폼 노드는 `apply.py`로 맞추고 cloud-init은
+  바꾸지 않는다(새 플랫폼 노드를 만들 때 같은 묶음을 넣는다).
+- 에이전트 계획은 이 모듈을 뺄 수 없다(`IAC_MODULE_SET_CHANGE_REFUSED`). 감사를 끄는 정책 프로필은 없다.
 
 ## 적용: 고객 클러스터마다 Argo CD (pull GitOps)
 
@@ -137,7 +165,7 @@ uv run bravo-iac stage --plan plan.json --proposed proposed.json --target ../../
   (`IAC_MODULE_SET_CHANGE_REFUSED`). 운영자는 할 수 있고, plan에 누가 요청했는지 남는다.
 - `stage`는 대상 파일이 plan의 `base_digest`일 때만 쓴다. 그사이 Git이 바뀌었으면 `IAC_BASE_CHANGED`로 멈춘다.
 - API(`bravo_iac.api.create_app(<environments 폴더>)`): `GET /v1/iac/modules`, `GET /v1/iac/environments/{id}`,
-  `GET /v1/iac/network`, `POST /v1/iac/plan`. 커밋된 파일만 읽고 Git·클러스터에 쓰지 않는다. 호출자 인증은 앞단 호스트가 한다.
+  `GET /v1/iac/environments/{id}/node-files[/{노드 경로}]`, `GET /v1/iac/network`, `POST /v1/iac/plan`. 커밋된 파일만 읽고 Git·클러스터에 쓰지 않는다. 호출자 인증은 앞단 호스트가 한다.
 
 ## 아직 아닌 것
 
