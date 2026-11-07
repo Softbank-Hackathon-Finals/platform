@@ -107,6 +107,26 @@ def test_only_this_origin_or_an_operator_navigation_uses_the_session(site):
     assert not seen
 
 
+@pytest.mark.parametrize(
+    "path",
+    [
+        "/v1/plans/..%2fregistrations",
+        "/console/..%2f..%2fadmin%2fsecret",
+        "/v1/plans/%2e%2e/registrations",
+        "/v1/plans/plan-demo%2f..%2f..%2fregistrations",
+        "/console/..%5c..%5cadmin",
+        "/v1/plans//plan-demo",
+    ],
+)
+def test_encoded_or_dot_segments_never_leave_the_allow_list(path):
+    app, seen = case()
+    with client(app) as c:
+        login(c, app)
+        r = c.get(path)
+        assert r.status_code in (400, 404), (path, r.status_code)
+    assert not seen
+
+
 def test_a_read_with_a_body_is_refused_and_only_read_headers_are_forwarded():
     app, seen = case()
     with client(app) as c:

@@ -29,11 +29,12 @@
 }
 ```
 
-`modules`는 기존 PlanDelivery의 등록 형식이며 `environment_id`, `environment`, `module`, `params`를 가진다.
+`modules`는 지금 `[]`만 받는다. 모듈 등록에는 tenant가 없고 환경 ID는 tenant마다 겹칠 수 있어서, 여러 tenant가 쓰는 호스트에서는
+다른 tenant 계획에 모듈 이름과 `params`가 보이기 때문이다. tenant 기준이 생기기 전에 값을 넣으면 시작하지 않는다.
 `customers`에는 운영자가 검토한 `tenant_id`, `environment_id`, `environment`, `cluster_uid`, `reviewed_revision`,
 절대경로 `kubeconfig`만 등록한다. 실제 등록 원문을 사용하며 예시 UID를 실제 대상으로 채택하지 않는다.
 환경 ID는 tenant 안에서만 고유하다. 그래서 관측은 계획의 tenant(`tenant_for`)가 등록 `tenant_id`와 같고,
-그 환경이 계획의 출발지·목적지 쌍에 있을 때만 내준다. 아니면 그 고객은 UNKNOWN으로 보인다.
+그 환경이 계획의 출발지·목적지 쌍에 있을 때만 내준다. 아니면 그 고객 항목은 목록에서 빠진다(환경 이름·검토 revision도 보이지 않는다).
 권한은 이 파일에서 부여하지 않는다. 데이터 출처용 source SHA와 코드 hash도 이미지 빌드 입력으로 고정해야 한다.
 
 ```sh
@@ -69,7 +70,8 @@ python -m bravo_console.operator_bridge --config <보호된-접속설정.json> \
 - 쿠키는 포트로 나뉘지 않아 같은 PC의 다른 `127.0.0.1` 서버도 same-site다. 그래서 모든 요청에
   `Sec-Fetch-Site`가 `same-origin`(이 origin의 요청) 또는 `none`(운영자가 연 접속 URL)이기를 요구한다.
   헤더가 없거나 그 밖의 값이면 거부한다.
-- Host를 검사하고 브라우저의 Authorization 대체·외부 경로·리다이렉트를 거부한다.
+- Host를 검사하고 브라우저의 Authorization 대체·외부 경로·리다이렉트를 거부한다. 경로는 보낸 그대로(`raw_path`) 검사한다.
+  `%` 인코딩, 역슬래시, 빈 구간(`//`), `.`·`..` 구간이 있으면 400이다. 디코딩된 경로만 보면 `..%2f`가 허용 목록을 빠져나간다.
 - SSE는 proof 만료 전에 정상 종료하고 재접속 때 새 proof를 사용한다. WebSocket 공급자는 미연결로 거부한다.
 - 접속 파일을 Git·채팅·공개 문서에 공유하지 않는다. 종료하면 로컬 접속 경로도 중단된다.
 

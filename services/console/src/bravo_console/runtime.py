@@ -122,7 +122,8 @@ class NativeCustomerSource:
                         }
             await asyncio.sleep(30)
 
-    def _belongs(self, plan, target):
+    def belongs(self, plan, target):
+        """This registration is in the plan's environment pair and tenant."""
         return target.environment_id in (
             plan["source_environment_id"],
             plan["target_environment_id"],
@@ -130,7 +131,7 @@ class NativeCustomerSource:
 
     def load(self, scope, plan, target):
         key = (plan["plan_id"], plan["plan_digest"], plan["version"], target.environment_id)
-        if not self._belongs(plan, target):
+        if not self.belongs(plan, target):
             raise ValueError("customer_registration_outside_plan")
         with self.lock:
             raw = self.documents.get(target.environment_id)
@@ -155,7 +156,7 @@ class NativeCustomerSource:
 
     def authenticate(self, scope, plan, target, item):
         key = (plan["plan_id"], plan["plan_digest"], plan["version"], target.environment_id)
-        if not self._belongs(plan, target):
+        if not self.belongs(plan, target):
             return False
         with self.lock:
             return (
@@ -220,6 +221,10 @@ def assemble(host, store, verifier, config, customer):
         or not isinstance(customer, NativeCustomerSource)
     ):
         raise ValueError("invalid_console_runtime_config")
+    if config["modules"] != []:
+        # IaC module registrations carry no tenant yet and environment IDs repeat across tenants, so a
+        # multi-tenant host would show one tenant's modules and params on another's plan (#727 review B).
+        raise ValueError("native_modules_need_tenant_scope")
     session = OperatorSession(store, host.access, verifier)
     records = gate_records(store, host.access)
     source = T10ControlReports(
@@ -236,6 +241,7 @@ def assemble(host, store, verifier, config, customer):
         targets=customer.targets,
         load_sync=customer.load,
         authenticate_sync=customer.authenticate,
+        serves=lambda scope, plan, target: customer.belongs(plan, target),
     )
     original = host.app.router.lifespan_context
 

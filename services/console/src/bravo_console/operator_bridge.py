@@ -132,7 +132,18 @@ class OperatorBridge:
             or not 0 <= self.clock() - self.started < 900
         ):
             return await reject(401, "operator_session_required")
-        path = scope["path"]
+        # Check the bytes as sent. The decoded path hides "%2f.." and the HTTP client later removes dot
+        # segments, so "/v1/plans/..%2fregistrations" would leave the allow list (#727 review A).
+        raw = scope.get("raw_path") or scope["path"].encode()
+        if (
+            not raw.isascii()
+            or any(c in raw for c in (b"%", b"\\", b"//"))
+            or any(segment in (b".", b"..") for segment in raw.split(b"/"))
+        ):
+            return await reject(400, "operator_bridge_path")
+        path = raw.decode("ascii")
+        if path != scope["path"]:
+            return await reject(400, "operator_bridge_path")
         if not (
             path.startswith("/console/")
             or path.startswith("/v1/plans/")

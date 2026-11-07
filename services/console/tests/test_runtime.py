@@ -160,8 +160,10 @@ def test_another_tenant_reusing_the_environment_id_never_reads_this_customer(run
     ) as c:
         r = c.get("/v1/plans/plan-foreign/delivery")
         assert r.status_code == 200, r.text
-        assert [x["status"] for x in r.json()["customers"]] == ["UNKNOWN"]
-        assert "fixture-customer" not in r.text
+        # left out entirely: not even the other tenant's environment name or reviewed revision
+        assert r.json()["customers"] == []
+        assert "fixture-customer" not in r.text and "target-dev" not in r.text
+        assert "b" * 40 not in r.text
         assert c.get("/v1/plans/plan-real/delivery").status_code == 403
     plan, target = store.snapshot("plan-foreign"), source.targets[0]
     with pytest.raises(ValueError, match="customer_registration_outside_plan"):
@@ -180,6 +182,20 @@ def test_a_registered_environment_outside_the_plan_pair_is_not_served(runtime):
         assert r.json()["customers"] == [] and "fixture-customer" not in r.text
     with pytest.raises(ValueError, match="customer_registration_outside_plan"):
         source.load({}, store.snapshot("plan-elsewhere"), source.targets[0])
+
+
+def test_native_host_refuses_module_registrations_without_a_tenant(runtime):
+    app, source, store, state, _ = runtime
+    host = SimpleNamespace(app=app, access=state["access"])
+    module = dict(environment_id="env-target", environment="target-dev", module="bucket", params={})
+    config = dict(
+        version=1,
+        public_origin="https://console.example.invalid",
+        modules=[module],
+        customers=[],
+    )
+    with pytest.raises(ValueError, match="native_modules_need_tenant_scope"):
+        assemble(host, store, lambda request: None, config, source)
 
 
 def test_missing_operator_proof_returns_no_customer_data(runtime):
