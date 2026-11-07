@@ -54,6 +54,7 @@ run "source_declares_only_reviewed_resources" {
       "aws_iam_instance_profile",
       "aws_iam_role",
       "aws_iam_role_policy",
+      "aws_iam_role_policy",
       "aws_iam_role_policy_attachment",
       "aws_instance",
       "aws_internet_gateway",
@@ -96,6 +97,37 @@ run "ssm_only_role" {
     ])
     error_message = "The SSM core policy allows Parameter Store reads; the inline policy must only take credential reads away."
   }
+}
+
+run "no_sign_in_permission_by_default" {
+  command = plan
+  assert {
+    condition     = length(aws_iam_role_policy.sign_in) == 0
+    error_message = "The host gets no Cognito permission unless the measured app requires sign-in."
+  }
+}
+
+run "sign_in_permission_is_one_action_on_one_pool" {
+  command = plan
+  variables {
+    source_user_pool_arn = "arn:aws:cognito-idp:ap-northeast-2:111122223333:userpool/ap-northeast-2_Demo123"
+  }
+  assert {
+    condition = jsondecode(aws_iam_role_policy.sign_in[0].policy).Statement == [{
+      Effect   = "Allow"
+      Action   = "cognito-idp:AdminInitiateAuth"
+      Resource = "arn:aws:cognito-idp:ap-northeast-2:111122223333:userpool/ap-northeast-2_Demo123"
+    }]
+    error_message = "Exactly AdminInitiateAuth on the supplied pool: no other Cognito action, pool or wildcard."
+  }
+}
+
+run "wildcard_pool_rejected" {
+  command = plan
+  variables {
+    source_user_pool_arn = "arn:aws:cognito-idp:ap-northeast-2:111122223333:userpool/*"
+  }
+  expect_failures = [var.source_user_pool_arn]
 }
 
 run "floor_type_keeps_full_cpu_without_throttling" {

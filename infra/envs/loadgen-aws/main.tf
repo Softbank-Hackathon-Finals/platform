@@ -84,6 +84,19 @@ resource "aws_iam_role_policy" "deny_credentials" {
     Resource = "*"
   }] })
 }
+# Only when the measured app requires sign-in: AdminInitiateAuth on the source user pool, nothing else.
+# IAM narrows this to the pool; within it, only source-identity's load generator client accepts the admin flow,
+# so the same permission yields no token through the browser client.
+resource "aws_iam_role_policy" "sign_in" {
+  count = var.source_user_pool_arn == null ? 0 : 1
+  name  = "loadgen-sign-in"
+  role  = aws_iam_role.loadgen.id
+  policy = jsonencode({ Version = "2012-10-17", Statement = [{
+    Effect   = "Allow"
+    Action   = "cognito-idp:AdminInitiateAuth"
+    Resource = var.source_user_pool_arn
+  }] })
+}
 resource "aws_iam_instance_profile" "loadgen" {
   name = var.name
   role = aws_iam_role.loadgen.name

@@ -29,6 +29,15 @@ variable "tailscale_tag" {
     error_message = "Use one tag:bravo-* tag. Auth keys never belong in Terraform inputs."
   }
 }
+variable "source_user_pool_arn" {
+  description = "Only when the measured app requires sign-in: source-identity's user_pool_arn output. The host may then call AdminInitiateAuth on that pool and nothing else."
+  type        = string
+  default     = null
+  validation {
+    condition     = var.source_user_pool_arn == null || can(regex("^arn:aws:cognito-idp:[a-z0-9-]+:[0-9]{12}:userpool/[a-z0-9-]+_[A-Za-z0-9]+$", var.source_user_pool_arn))
+    error_message = "Use the exact user pool ARN from source-identity, not a wildcard."
+  }
+}
 variable "tags" {
   description = "Cost attribution tags. infra/envs/cost-aws attributes shared tooling to component=platform."
   type        = map(string)

@@ -13,6 +13,7 @@
 | 바깥 방향 TCP 443만 | Cloudflare Edge, SSM, apt, PyPI, GitHub, Tailscale 제어 · 중계가 모두 443이다 |
 | CPU 크레딧 `unlimited` | T3는 시작 크레딧이 없어(AWS 문서) `standard`면 켜자마자 vCPU당 20%로 묶인다. 부하 생성기가 느려지면 대상이 느린 것처럼 보인다. 다른 스택이 `standard`인 것과 일부러 다르다 |
 | IAM은 SSM 코어 + 비밀 읽기 명시적 거부 | SSM 코어 정책에는 Parameter Store 읽기가 들어 있어 [`platform-aws`](../platform-aws)처럼 막는다 |
+| 로그인을 켠 앱을 잴 때만 Cognito 풀 하나의 `AdminInitiateAuth` | 부하 생성기가 [부하 생성기 클라이언트](../source-identity/README.md#부하-생성기-클라이언트)로 ID 토큰을 받는 데 필요하다(T47). `source_user_pool_arn`을 줄 때만 생기고, 다른 Cognito 동작 · 다른 풀 · 와일드카드는 시험이 막는다. 관리자 흐름은 부하 생성기 클라이언트에만 열려 있어 브라우저 클라이언트 토큰은 이 권한으로 못 받는다 |
 | `component=platform`, `purpose=load-generator` | [`cost_report.py`](../../../scripts/cost_report.py)는 `source` · `platform` · `target`만 귀속한다. `loadgen` 같은 값은 미귀속으로 빠진다 |
 | 자동 종료 타이머 없음 | 켜 둔 채 잊어도 하루 약 $0.80이다. 데모 중에 꺼지는 쪽이 훨씬 비싸다 |
 
@@ -29,7 +30,7 @@
 
 ## 입력
 
-[`operator.tfvars.example`](operator.tfvars.example) 형식의 파일을 저장소 밖에 둔다. 계정 ID, AMI, 태그를 받는다. 비밀 값을 받는 입력은 없다.
+[`operator.tfvars.example`](operator.tfvars.example) 형식의 파일을 저장소 밖에 둔다. 계정 ID, AMI, 태그를 받는다. 로그인을 켠 앱을 잴 때만 [`source-identity`](../source-identity/README.md) 출력 `user_pool_arn`을 `source_user_pool_arn`으로 넣는다. 비밀 값을 받는 입력은 없다.
 
 AMI는 Canonical 공개 SSM 파라미터 `/aws/service/canonical/ubuntu/server/24.04/stable/current/amd64/hvm/ebs-gp3/ami-id`에서 읽고 소유자와 `x86_64`를 대조한다. 아키텍처 검사는 인스턴스 종류만 본다. 다른 아키텍처의 AMI를 넣으면 plan은 지나가고 apply에서 AWS가 거부한다.
 
@@ -70,7 +71,7 @@ cloud-init status --wait && test -f /var/lib/bravo-loadgen-ready   # 첫 부팅 
 tmux new -A -s loadgen bash
 read -rs TS_KEY && printf '%s' "$TS_KEY" | sudo bravo-tailnet-join; unset TS_KEY
 cd ~ && git clone https://github.com/Softbank-Hackathon-Finals/platform.git
-cd platform/services/loadgen && uv sync
+cd platform/services/loadgen && uv sync                    # 로그인을 켠 앱에 Cognito 토큰으로 쓸 때는 uv sync --extra cognito
 read -rs LOADGEN_DB_DSN && export LOADGEN_DB_DSN          # DB 경로가 정해진 뒤
 read -rs LOADGEN_LOCK_DSN && export LOADGEN_LOCK_DSN      # DB 경로가 정해진 뒤
 read -rs BRAVO_WINDOW_TOKEN && export BRAVO_WINDOW_TOKEN  # 창 수신 주소가 정해진 뒤
@@ -122,7 +123,7 @@ aws ec2 stop-instances --instance-ids "$INSTANCE_ID"
 |---|---|---|
 | 환경변수 **이름**만 받는다 | `services/loadgen` CLI | 그대로 쓴다 |
 | 호스트 역할의 비밀 읽기 명시적 거부 | `platform-aws`, `ci-validation-aws` | 그대로 쓴다 |
-| Terraform은 ARN만 받고 그 ARN만 읽게 허용 | `subscription-runtime` | 쓰지 않는다. 이번 범위의 IAM은 SSM 최소 권한이다 |
+| Terraform은 ARN만 받고 그 ARN만 읽게 허용 | `subscription-runtime` | 비밀에는 쓰지 않는다. 같은 방식으로 Cognito 풀 ARN 하나만 받아 그 풀의 `AdminInitiateAuth`만 허용한다(로그인을 켤 때만). 부하 생성기 계정 비밀번호는 다른 비밀처럼 `BRAVO_LOADGEN_PASSWORD`로 운영자 세션에서 넣는다 |
 | ESO로 Pod에 전달 | `target-secrets`, `source-workloads` | 쓰지 않는다. 클러스터 밖 호스트다 |
 
 Tailscale 키는 [태그 · 1회용 · 임시(ephemeral)](https://tailscale.com/kb/1085/auth-keys)로 만들고 수명을 가장 짧게 둔다. `bravo-tailnet-join`은 키를 [표준 입력에서 읽어](https://tailscale.com/kb/1241/tailscale-up) 명령줄에 남기지 않고, 이 호스트로 들어오는 tailnet 연결을 [`--shields-up`](https://tailscale.com/kb/1072/client-preferences)으로 거부한다. 터널 안쪽은 보안 그룹이 보지 못하고 ACL은 이 스택 밖에 있기 때문이다. `AWS-RunShellScript`로는 비밀을 넘기지 않는다. 명령 내용이 SSM 기록에 남는다.
@@ -171,7 +172,7 @@ aws pricing get-products --region us-east-1 --service-code AmazonEC2 --filters T
 | 검사 | 결과 |
 |---|---|
 | Terraform 1.16.5 `fmt -check`, `init -backend=false`, `validate` | 통과 |
-| `terraform test` (모의 공급자) | 20건 통과. 양성 8건 + 거부 12건 |
+| `terraform test` (모의 공급자) | 23건 통과. 양성 10건 + 거부 13건(11/8 T47: 기본은 Cognito 권한 없음, 풀 ARN을 주면 그 풀의 `AdminInitiateAuth` 하나뿐, 와일드카드 ARN 거부를 더했다) |
 | 일부러 망가뜨리기 | 복사본에 결함 62종을 하나씩 넣어 62종 모두 시험이 잡음. 둘째 보안 그룹과 추가 IAM 정책은 독립 리뷰가 찾아 시험에 더한 것이다. 스크립트는 저장소에 넣지 않아 다시 돌릴 수 없다 |
 | Trivy `config` HIGH · CRITICAL (`.trivyignore.yaml` 적용, CI와 같은 명령) | 통과. 예외 없이 돌리면 바깥 방향 HTTPS(AWS-0104)가 나온다 |
 | 부팅 스크립트 | amd64 Ubuntu 24.04 컨테이너에서 iptables로 바깥 방향을 TCP 443과 DNS만 열고 실행. 80번 차단을 먼저 확인했고, 설치와 비루트 사용자의 `uv sync`, `bravo-loadgen run --help`까지 통과. Ubuntu 기본 `sudo`(`use_pty`)의 파이프로 `/dev/stdin`을 읽는 것과 `bravo-tailnet-join`의 플래그 해석도 확인했다. 로그인 전 단계에서 멈췄고 키가 출력되지 않았다 |
