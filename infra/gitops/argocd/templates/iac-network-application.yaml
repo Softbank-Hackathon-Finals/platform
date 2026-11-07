@@ -6,7 +6,8 @@ never in Git. The project allows exactly the namespaces and kinds that chart con
 (test_iac_network_application.py keeps them equal).
 
 Turning it on also needs the controller's permissions, which this file does not grant: Role and
-RoleBinding in each namespace below plus cluster access to Namespace and tailscale.com ProxyGroup,
+RoleBinding in each namespace below plus cluster access to tailscale.com ProxyGroup (the chart declares no
+Namespace since #632; the namespaces belong to the existing platform setup),
 `clusterCredentials.platform.namespaces`/`clusterResources`, and `resource.inclusions` for these kinds.
 */}}
 {{- if .Values.iacNetwork.enabled }}
@@ -73,7 +74,6 @@ spec:
       namespace: {{ . }}
     {{- end }}
   clusterResourceWhitelist:
-    - {group: "", kind: Namespace}
     - {group: tailscale.com, kind: ProxyGroup}
   namespaceResourceWhitelist:
     - {group: "", kind: Service}
