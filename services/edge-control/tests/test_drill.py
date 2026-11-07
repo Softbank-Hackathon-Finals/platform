@@ -148,10 +148,10 @@ def test_no_self_approval_and_no_run_without_apply_infra(world):
         world.approve(requested_by="approver")
     approval = world.approve()
     _, authority = world.host(approval)
-    with pytest.raises(EventError, match="forbidden"):
+    with pytest.raises((EventError, EdgeError), match="forbidden|drill_executor_is_approver"):
         authority.register(world.approver, PLAN, run_id=RUN, profile=PROFILE, binding=BINDING)
     host = world.register(approval)
-    with pytest.raises(EventError, match="forbidden"):
+    with pytest.raises((EventError, EdgeError), match="forbidden|drill_executor_is_approver"):
         host.start(world.approver, PLAN, "stage-10")  # the approver alone cannot move weights
     assert world.upstream.patches == []
 
@@ -197,3 +197,20 @@ def test_the_digest_covers_the_decision_only():
     spec = drill_spec(plan_id="p", run_id="r", profile={"x": 1}, lb_binding={"y": 2})
     assert spec_digest(spec) == spec_digest(json.loads(json.dumps(spec)))
     assert len({spec_digest(spec), spec_digest(spec | {"run_id": "s"}), spec_digest(spec | {"profile": {}})}) == 3
+
+
+def test_an_approver_who_also_holds_apply_infra_cannot_run_the_drill_but_can_restore(world):
+    """Two people (#824 review): the host refuses the approver as executor, whatever the client sends."""
+    world.access.set_permissions(PLAN, world.approver, permissions=["read", "approve_infra", "apply_infra"],
+        valid_after=START.isoformat(), expires_at=(START + timedelta(hours=2)).isoformat(), expected_revision=1,
+        administration_ref="fixture-human-decision", command_key="grant-approver-apply")
+    approval = world.approve()
+    host, authority = world.host(approval)
+    with pytest.raises(EdgeError, match="drill_executor_is_approver"):
+        authority.register(world.approver, PLAN, run_id=RUN, profile=PROFILE, binding=BINDING)
+    host = world.register(approval)  # the executor claims it
+    with pytest.raises(EdgeError, match="drill_executor_is_approver"):
+        host.start(world.approver, PLAN, "stage-10")
+    with pytest.raises(EdgeError) as refused:  # restore stays open to the approver (here: nothing to restore yet)
+        host.restore(world.approver, PLAN, "back-to-0")
+    assert str(refused.value) != "drill_executor_is_approver"
