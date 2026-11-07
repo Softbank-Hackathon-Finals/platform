@@ -2,7 +2,7 @@
 
 A profile file declares what the operator registered; optional Kubernetes exports let the
 platform *observe* some of it (operator CRDs, known workloads). Observed values win and the
-source of each value is recorded so the console can show "declared" vs "observed".
+source of each value is recorded so the console can show "native", "declared" or "observed".
 """
 
 from __future__ import annotations
@@ -11,7 +11,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-from .catalog import CATALOG, GRADES
+from .catalog import CATALOG, GRADES, target_entry
 
 KNOWN_WORKLOADS = {
     "seaweedfs": ("s3_compatible", "seaweedfs"),
@@ -25,13 +25,29 @@ KNOWN_WORKLOADS = {
 }
 KNOWN_CRDS = {"clusters.postgresql.cnpg.io": ("postgres_operator", "cnpg"), "externalsecrets.external-secrets.io": ("secrets_injection", "eso"), "clusterpolicies.kyverno.io": ("policy", "kyverno")}
 
+# Per target kind: which capability backs a role's replacement (checked by ``fit``), and which
+# capabilities the kind offers natively as a managed service (no registration needed). Cluster
+# add-ons of the common base (CNPG, ESO, Kyverno) are never native: they are declared or observed.
+_REQUIRES = {"object_store": "s3_compatible", "secrets": "secret_store", "db": "postgres_operator"}
+KIND_CAPABILITIES: dict[str, dict[str, dict[str, str]]] = {
+    "onprem": {"requires": dict(_REQUIRES), "native": {}},
+    "aws": {
+        "requires": dict(_REQUIRES),
+        "native": {"s3_compatible": "s3", "secret_store": "secrets-manager", "kms": "kms", "audit": "cloudtrail"},
+    },
+    "gcp": {
+        "requires": dict(_REQUIRES),
+        "native": {"s3_compatible": "gcs-s3-interop", "secret_store": "secret-manager", "kms": "cloud-kms", "audit": "cloud-audit-logs"},
+    },
+}
+
 
 def load_profile(path: Path) -> dict[str, Any]:
     data = json.loads(Path(path).read_text(encoding="utf-8"))
     for key in ("env_id", "env_kind"):
         if key not in data:
             raise ValueError(f"profile missing {key}")
-    if data["env_kind"] not in CATALOG:
+    if data["env_kind"] not in CATALOG or data["env_kind"] not in KIND_CAPABILITIES:
         raise ValueError(f"unknown env_kind {data['env_kind']}")
     data.setdefault("provides", {})
     return data
@@ -67,23 +83,36 @@ def observe(exports_dir: Path | None) -> dict[str, dict[str, str]]:
 
 
 def resolve(profile: dict[str, Any], observed: dict[str, dict[str, str]]) -> dict[str, dict[str, str]]:
-    out: dict[str, dict[str, str]] = {k: {"value": str(v), "source": "declared: profile"} for k, v in profile.get("provides", {}).items()}
+    """native (managed service of the kind) < declared (profile) < observed (exports)."""
+    kind = profile.get("env_kind", "")
+    out: dict[str, dict[str, str]] = {k: {"value": v, "source": f"native: {kind}"} for k, v in KIND_CAPABILITIES.get(kind, {}).get("native", {}).items()}
+    out.update({k: {"value": str(v), "source": "declared: profile"} for k, v in profile.get("provides", {}).items()})
     out.update(observed)
     return out
 
 
-def fit(items: list[dict], profile: dict[str, Any], caps: dict[str, dict[str, str]]) -> dict[str, Any]:
-    """Rule-only fitness for one candidate target (T32 input). AI never changes 'blocked'."""
+def fit(items: list[dict], profile: dict[str, Any], caps: dict[str, dict[str, str]], source_kind: str | None = None) -> dict[str, Any]:
+    """Rule-only fitness for one candidate target (T32 input). AI never changes 'blocked'.
+
+    With ``source_kind`` the result also names the pair and whether it is a same-kind move
+    (another cluster of the same kind), so candidates of any kind are compared the same way.
+    """
     env_kind = profile["env_kind"]
+    requires = KIND_CAPABILITIES.get(env_kind, {}).get("requires", {})
     counts = {g: 0 for g in GRADES}
     missing: list[str] = []
     for it in items:
         counts[it["grade"]] = counts.get(it["grade"], 0) + 1
-        need = CATALOG.get(env_kind, {}).get(it["role"], {}).get("impl", "")
-        if need and it["role"] in {"object_store", "secrets", "db"}:
-            cap_key = {"object_store": "s3_compatible", "secrets": "secret_store", "db": "postgres_operator"}[it["role"]]
+        entry = (target_entry(source_kind, env_kind, it["role"]) if source_kind else target_entry(env_kind, it["role"])) or {}
+        need = entry.get("impl", "")
+        if need and it["role"] in requires:
+            cap_key = requires[it["role"]]
             msg = f"{it['role']} 대체({need})를 뒷받침할 '{cap_key}' 기능이 등록되지 않음"
             if cap_key not in caps and msg not in missing:  # one line per role, however many items it has
                 missing.append(msg)
     verdict = "blocked" if counts["none"] or missing else ("needs_work" if counts["code_change"] or counts["unknown"] else "fits")
-    return {"env_id": profile["env_id"], "env_kind": env_kind, "verdict": verdict, "grade_counts": counts, "missing_capabilities": missing, "residual_dependencies": profile.get("residual_dependencies", [])}
+    out = {"env_id": profile["env_id"], "env_kind": env_kind, "verdict": verdict, "grade_counts": counts, "missing_capabilities": missing, "residual_dependencies": profile.get("residual_dependencies", [])}
+    if source_kind:
+        out["source_kind"] = source_kind
+        out["migration"] = "same_kind_cluster" if source_kind == env_kind else "cross_kind"
+    return out

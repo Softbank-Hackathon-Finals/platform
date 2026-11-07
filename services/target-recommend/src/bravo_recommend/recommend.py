@@ -4,6 +4,10 @@ Order of authority: (1) the T16 rule verdict — ``blocked`` candidates are *exc
 model sees the list; (2) a deterministic rule ranking of the rest; (3) optionally a model's
 ranking of exactly that remaining list, accepted only if it is a permutation of the same ids
 with bounded, secret-free reasons. A model can reorder; it can never add, drop or unblock.
+
+Kinds (ADR-0034): the source and every candidate may be aws · gcp · onprem. Candidates of any
+kind are scored the same way (grade counts from the T16 pair catalog). A candidate of the source's
+own kind is a move to another cluster (``migration: same_kind_cluster``), not a no-op.
 """
 
 from __future__ import annotations
@@ -16,8 +20,11 @@ from typing import Protocol
 
 import jsonschema
 
-SECRET_LIKE = re.compile(r"(?:AKIA|ASIA)[A-Z0-9]{16}|sk-(?:ant-)?[A-Za-z0-9_-]{16,}|://[^/\s@]+:[^/\s@]*@|-----BEGIN ")
+# Credential shapes of every supported kind: AWS access keys, GCP API keys and OAuth tokens,
+# model keys, URL userinfo, PEM blocks (GCP service-account keys, OpenBao/TLS keys).
+SECRET_LIKE = re.compile(r"(?:AKIA|ASIA)[A-Z0-9]{16}|AIza[0-9A-Za-z_-]{35}|ya29\.[0-9A-Za-z_-]{20,}|sk-(?:ant-)?[A-Za-z0-9_-]{16,}|://[^/\s@]+:[^/\s@]*@|-----BEGIN ")
 VERDICT_ORDER = {"fits": 0, "needs_work": 1}
+KINDS = ("aws", "gcp", "onprem")
 CAP_KEY = re.compile(r"[a-z][a-z0-9_]{0,63}")
 QUOTED_CAP_KEY = re.compile(r"'([a-z][a-z0-9_]{0,63})'")
 REASON_MAX = 200  # recommendation.schema.json excluded[].reason maxLength
@@ -79,8 +86,28 @@ def exclusion(candidate: dict) -> dict:
             "missing_capabilities": missing}
 
 
-def rule_rank(candidates: list[dict]) -> tuple[list[dict], list[dict]]:
-    """Split into (allowed ranked by rule, excluded). Deterministic: ties break on env_id."""
+def migration(source_kind: str | None, target_kind: str) -> str | None:
+    """``same_kind_cluster`` (aws→aws: another cluster/account) | ``cross_kind`` | None if unknown."""
+    if source_kind not in KINDS or target_kind not in KINDS:
+        return None
+    return "same_kind_cluster" if source_kind == target_kind else "cross_kind"
+
+
+def source_view(inventory: dict) -> tuple[str | None, list[str]]:
+    """(source kind, source services) from a T16 inventory, without assuming the source is AWS.
+
+    Services are the item ``service`` names of whatever kind the source is (``s3`` for aws,
+    ``storage`` for gcp, ...); unknown/other-cloud items are kept so nothing is hidden.
+    """
+    kind = (inventory.get("source") or {}).get("env_kind")
+    services = sorted({s.strip() for it in inventory.get("items", []) for s in str(it.get("service", "")).split(",") if s.strip()})
+    return (kind if kind in KINDS else None), services
+
+
+def rule_rank(candidates: list[dict], source_kind: str | None = None) -> tuple[list[dict], list[dict]]:
+    """Split into (allowed ranked by rule, excluded). Deterministic: ties break on env_id.
+
+    Every candidate kind is scored by the same rule; the source kind only labels the move."""
     excluded, allowed = [], []
     for c in candidates:
         if c["verdict"] == "blocked":
@@ -95,9 +122,13 @@ def rule_rank(candidates: list[dict]) -> tuple[list[dict], list[dict]]:
         counts = c.get("grade_counts", {})
         reasons = [f"verdict {c['verdict']}", f"{counts.get('code_change', 0)} code change(s)", f"{counts.get('adapter', 0)} adapter(s)",
                    f"{len(c.get('residual_dependencies', []))} residual dependency(ies)"]
-        ranked.append({"env_id": c["env_id"], "env_kind": c["env_kind"], "verdict": c["verdict"], "rule_rank": i, "ai_rank": None,
-                       "score": score(c), "grade_counts": dict(counts), "missing_capabilities": list(c.get("missing_capabilities", [])),
-                       "residual_dependencies": list(c.get("residual_dependencies", [])), "rule_reasons": reasons, "ai_reason": None})
+        row = {"env_id": c["env_id"], "env_kind": c["env_kind"], "verdict": c["verdict"], "rule_rank": i, "ai_rank": None,
+               "score": score(c), "grade_counts": dict(counts), "missing_capabilities": list(c.get("missing_capabilities", [])),
+               "residual_dependencies": list(c.get("residual_dependencies", [])), "rule_reasons": reasons, "ai_reason": None}
+        move = c.get("migration") or migration(c.get("source_kind") or source_kind, c["env_kind"])
+        if move:
+            row["migration"] = move
+        ranked.append(row)
     return ranked, excluded
 
 
@@ -134,11 +165,13 @@ def recommend(inventory: dict, ranker: Ranker | None = None) -> dict:
     """Build the recommendation document from a T16 inventory (contract v1)."""
     if inventory.get("schema_version") != "1.0" or "candidates" not in inventory:
         raise ValueError("T16 inventory v1 required")
-    ranked, excluded = rule_rank(inventory["candidates"])
+    src_kind, src_services = source_view(inventory)
+    ranked, excluded = rule_rank(inventory["candidates"], src_kind)
     ai = {"status": "not_requested", "reason": "RULE_ONLY"}
     ranked_by = "rule"
     if ranker is not None and ranked:
-        model_view = [{k: c[k] for k in ("env_id", "env_kind", "verdict", "grade_counts", "missing_capabilities", "residual_dependencies")} for c in ranked]
+        keys = ("env_id", "env_kind", "migration", "verdict", "grade_counts", "missing_capabilities", "residual_dependencies")
+        model_view = [{k: c[k] for k in keys if k in c} for c in ranked]
         try:
             result = ranker.rank(model_view)
             accepted = validate_ai_ranking(result, [c["env_id"] for c in ranked], [e["env_id"] for e in excluded])
@@ -154,6 +187,9 @@ def recommend(inventory: dict, ranker: Ranker | None = None) -> dict:
             ranked_by = "rule+ai"
     doc = {"schema_version": "1.0", "app_id": inventory["app"]["id"], "inventory_digest": inventory["digest"], "ranked_by": ranked_by,
            "recommendation": ranked[0]["env_id"] if ranked else None, "candidates": ranked, "excluded": excluded, "ai": ai}
+    if src_kind:
+        doc["source_kind"] = src_kind
+    doc["source_services"] = src_services
     _validator().validate(doc)
     return doc
 

@@ -12,7 +12,9 @@ from typing import Any
 import jsonschema
 
 from .capabilities import fit, load_profile, observe, resolve
+from .catalog import CATALOG, LEGACY_DEFAULT_TARGET
 from .deploy_trace import DeployAdapter, DeployGraph
+from .grading import _env_names, apply_pair
 from .reconcile import reconcile
 from .static_scan import scan_repo, scanned_files
 
@@ -51,25 +53,39 @@ def build_inventory(
     repo_ref: str | None = None,
     source_sha: str | None = None,
     now: datetime | None = None,
+    target_kind: str | None = None,
 ) -> dict:
-    """Pure function of its inputs: same repo, exports and profiles → same document (except time)."""
+    """Pure function of its inputs: same repo, exports and profiles → same document (except time).
+
+    Items are graded for the pair (``source_env["env_kind"]``, target kind) through the catalog
+    hub. The primary item list uses the first candidate's kind, else ``target_kind``.
+    """
     repo = Path(repo).resolve()
     findings = scan_repo(repo, app_path)
     graph: DeployGraph | None = adapter.trace(source_env["namespace"]) if adapter else None
+    source_kind = source_env["env_kind"]
+    env_names = _env_names(findings)
     loaded = [load_profile(p) for p in profiles]
+
+    def graded(kind: str) -> list[dict]:
+        return [i.as_dict() for i in apply_pair(reconcile(findings, graph, kind), source_kind, kind, env_names)]
+
     candidates = []
     items_by_kind: dict[str, list[dict]] = {}
     for prof in loaded:
         kind = prof["env_kind"]
         if kind not in items_by_kind:
-            items_by_kind[kind] = [i.as_dict() for i in reconcile(findings, graph, kind)]
+            items_by_kind[kind] = graded(kind)
         caps = resolve(prof, observe((exports or {}).get(prof["env_id"])))
-        f = fit(items_by_kind[kind], prof, caps)
+        f = fit(items_by_kind[kind], prof, caps, source_kind)
         f["capabilities"] = caps
         candidates.append(f)
-    # Primary item list uses the first candidate's kind (P0: onprem) so the console has one list.
-    primary_kind = loaded[0]["env_kind"] if loaded else "onprem"
-    items = items_by_kind.get(primary_kind) or [i.as_dict() for i in reconcile(findings, graph, primary_kind)]
+    # Primary item list: first candidate's kind, else the named target kind. Only a caller that
+    # names neither gets the legacy default (kept so older callers keep their output).
+    primary_kind = loaded[0]["env_kind"] if loaded else (target_kind or LEGACY_DEFAULT_TARGET)
+    if primary_kind not in CATALOG:
+        raise ValueError(f"unknown target kind {primary_kind}")
+    items = items_by_kind.get(primary_kind) or graded(primary_kind)
     counts: dict[str, int] = {}
     for it in items:
         counts[it["grade"]] = counts.get(it["grade"], 0) + 1

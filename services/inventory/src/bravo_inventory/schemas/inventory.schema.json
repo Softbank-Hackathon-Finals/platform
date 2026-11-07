@@ -46,6 +46,8 @@
         {"if": {"properties": {"found_in": {"const": "deploy"}}}, "then": {"properties": {"risk": {"const": "migration_omission"}}}}
       ]},
     "Fit": {"type": "object", "required": ["env_id", "env_kind", "verdict", "grade_counts", "missing_capabilities", "residual_dependencies", "capabilities"],
-      "properties": {"verdict": {"enum": ["fits", "needs_work", "blocked"]}}}
+      "properties": {"verdict": {"enum": ["fits", "needs_work", "blocked"]}, "env_kind": {"enum": ["aws", "gcp", "onprem"]},
+        "source_kind": {"enum": ["aws", "gcp", "onprem"], "description": "ADR-0034: 출발지 종류. 같은 종류면 다른 클러스터로의 이전"},
+        "migration": {"enum": ["cross_kind", "same_kind_cluster"]}}}
   }
 }

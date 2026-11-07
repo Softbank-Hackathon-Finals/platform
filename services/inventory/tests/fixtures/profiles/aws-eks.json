@@ -1,0 +1,10 @@
+{
+  "env_id": "aws-target",
+  "env_kind": "aws",
+  "provides": {
+    "k8s": "eks",
+    "postgres_operator": "cnpg",
+    "secrets_injection": "eso"
+  },
+  "residual_dependencies": ["cloudflare (edge · tunnel)"]
+}
