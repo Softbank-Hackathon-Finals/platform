@@ -294,3 +294,18 @@ def test_cli_planned_exposure_refuses_an_unapproved_plan_without_a_record(repo, 
                  "--receipts", str(tmp_path / "receipts")])
     assert code == 2
     assert json.loads(capsys.readouterr().out)["reason"] == "IAC_PLAN_NOT_APPROVED"
+
+
+def test_a_missing_t9_renderer_is_a_recorded_refusal_not_an_exception(repo, tmp_path, monkeypatch):
+    """ADR-0044 calls this after the image is deployed: once the record exists, nothing may raise."""
+    from bravo_apply import desired
+    from bravo_apply.policy import PolicyRefused
+
+    def unavailable():
+        raise PolicyRefused("T9_RENDERER_UNAVAILABLE")
+
+    monkeypatch.setattr(desired, "load_t9", unavailable)
+    record, kube = planned(repo, tmp_path)
+    assert (record["status"], record["reason"], record["cluster_mutation_attempted"]) == (
+        "REFUSED", "T9_RENDERER_UNAVAILABLE", False)
+    assert kube.secret_writes == [] and record["gate_recheck"] is None
