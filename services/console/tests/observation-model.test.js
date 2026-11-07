@@ -66,6 +66,7 @@ function document() {
 test("observation is not an operational plan, control verdict, or communication proof", () => {
   const result = observedTopology(document(), NOW);
   assert.equal(result.plan_connected, false);
+  assert.equal(result.view.plan_id, undefined);
   assert.equal(result.authorizes_execution, false);
   assert.ok(
     result.view.nodes.every(

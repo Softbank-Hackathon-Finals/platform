@@ -1,5 +1,5 @@
 // Standalone read-only observations are never operational T10 plans.
-import { workloadDocument, projectedWorkload } from "./workload-model.js";
+import { workloadGraph, projectedWorkload } from "./workload-model.js";
 const id = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/;
 const exact = (value, keys) =>
   value &&
@@ -83,29 +83,8 @@ export function observedTopology(doc, now = Date.now()) {
   )
     throw Error("unsupported_observation_claim");
   const { facets, ...graph } = doc.graph;
-  // Reuse only the existing display-shape validator. This internal binding is
-  // never registered, submitted to T10, or exposed as an operational plan.
-  const context = {
-    plan_id: "observation-shape-check",
-    plan_digest: "0".repeat(64),
-    version: 1,
-  };
-  const shaped = workloadDocument(
-    {
-      ...graph,
-      kind: "console-workload.v1",
-      authorizes_execution: false,
-      plan_id: context.plan_id,
-      plan_digest: context.plan_digest,
-      plan_version: 1,
-      revision: doc.revision,
-      stream_id: doc.stream_id,
-      provenance: "live",
-      source_label: "Kubernetes GET 관측",
-    },
-    context,
-    now,
-  );
+  // Share graph validation without inventing any operational plan binding.
+  const shaped = workloadGraph(graph, now);
   if (
     Object.keys(facets).sort().join(" ") !==
     shaped.nodes
@@ -122,7 +101,10 @@ export function observedTopology(doc, now = Date.now()) {
       facet.summary.length > 240
     )
       throw Error("invalid_readiness");
-  const view = projectedWorkload(shaped, now);
+  const view = projectedWorkload(
+    { ...shaped, observation_id: doc.application_id, stream_id: doc.stream_id },
+    now,
+  );
   const freshLanes = new Set(
     doc.environments.filter((e) => e.status === "CURRENT").map((e) => e.lane),
   );

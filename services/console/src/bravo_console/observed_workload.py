@@ -12,7 +12,7 @@ import uuid
 from datetime import UTC, datetime, timedelta
 
 from .kubernetes_workload import ClusterRegistration, opaque, producer_digest
-from .workload import PlanWorkload, RegisteredWorkload, identifier, safe_text, validate_projection
+from .workload import PlanWorkload, RegisteredWorkload, identifier, safe_text, validate_graph
 
 
 class ObservedWorkloads:
@@ -203,24 +203,8 @@ class ObservedWorkloads:
         )
 
     def _validate_graph(self, graph):
-        # This is only an internal shape validator. No plan is issued/stored,
-        # and the standalone HTTP document does not expose these test bindings.
-        check = {k: v for k, v in graph.items() if k != "facets"}
-        check.update(
-            kind="console-workload.v1",
-            authorizes_execution=False,
-            plan_id="observation-shape-check",
-            plan_digest="0" * 64,
-            plan_version=1,
-            revision=1,
-            stream_id=self.stream_id,
-            provenance="live",
-            source_label="Kubernetes GET 관측",
-        )
-        validate_projection(
-            check,
-            {"plan_id": "observation-shape-check", "plan_digest": "0" * 64, "version": 1},
-            self.clock(),
+        validate_graph(
+            {key: value for key, value in graph.items() if key != "facets"}, self.clock()
         )
         if set(graph["facets"]) != {n["id"] for n in graph["nodes"]}:
             raise ValueError("readiness_resource_mismatch")

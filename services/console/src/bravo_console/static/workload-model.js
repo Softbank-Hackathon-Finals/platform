@@ -101,6 +101,19 @@ export function workloadDocument(value, plan, now = Date.now()) {
     Date.parse(value.expires_at) - Date.parse(value.observed_at) > 300000
   )
     fail();
+  return workloadGraph(value, now);
+}
+
+export function workloadGraph(value, now = Date.now()) {
+  if (
+    !object(value) ||
+    !stamp(value.observed_at) ||
+    !stamp(value.expires_at) ||
+    Date.parse(value.observed_at) > now ||
+    Date.parse(value.expires_at) <= Date.parse(value.observed_at) ||
+    Date.parse(value.expires_at) - Date.parse(value.observed_at) > 300000
+  )
+    fail();
   for (const [key, max] of [
     ["nodes", 48],
     ["edges", 96],

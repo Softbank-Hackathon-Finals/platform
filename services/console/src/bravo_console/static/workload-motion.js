@@ -220,7 +220,7 @@ export function createWorkloadRenderer(graph, { onSelect }) {
   }
   function draw(view, { selected = new Set() } = {}) {
     if (!view) return empty();
-    const identity = `${view.plan_id}/${view.stream_id}`;
+    const identity = `${view.observation_id ?? view.plan_id}/${view.stream_id}`;
     if (stream !== null && stream !== identity) reset();
     stream = identity;
     if (!attached) {
