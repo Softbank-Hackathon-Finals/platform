@@ -62,6 +62,9 @@ Tailscale operator가 매긴 proxy 포트를 **관찰해서** NetworkPolicy에 �
 각 목적지·proxy 그룹을 판정한다(OK / OFFLINE / TAG_MISMATCH / NOT_VISIBLE). NOT_VISIBLE은 이 기기의 grant로 보이지
 않는다는 뜻이며 경로 실패가 아니다. 전체 확인은 tailnet 장치 목록이 보이는 운영 기기에서 한다.
 `bravo-iac tailnet-check --policy <현재 tailnet 정책 JSON>`은 현재 정책에 빠진 태그 소유·grant·tests를 코드로 낸다.
+**정책 적용도 Git에서**: 관리 콘솔에 조각을 손으로 붙이지 않는다. `tailnet-policy` 워크플로가 PR에서 조각을 현재 정책에
+합친 결과를 검사하고, develop 병합 뒤 그 결과를 적용한다(`bravo-iac tailnet-sync`). 더하기만 하고 지우지 않는다.
+순서·설정은 [infra/tailnet/README.md](../tailnet/README.md#적용-tailscale-gitops).
 
 2026-11-07 이 맥에서 처음 실행했을 때 목적지 API 장치 `bravo-target-operator`의 실제 태그(`tag:bravo-target-operator`)가
 당시 선언(`tag:bravo-target-api`, 저장소 조각과 같음)과 **TAG_MISMATCH**였다. 선언을 실제 태그로 맞추고 정책 조각을 다시 생성해
@@ -151,4 +154,4 @@ uv run bravo-iac stage --plan plan.json --proposed proposed.json --target ../../
 - 실제 고객 클러스터에 Argo 설치(목적지·출발지 담당과 시점 합의).
 - 에이전트 도구 `infra.plan`(T11)과 플랫폼 API 연결(T10). 이 패키지는 둘 다 네트워크 없이 부를 수 있게 순수 함수로 둔다.
 - 모듈 추가(목적지 앱 Deployment·NetworkPolicy·OpenBao 정책 등), 목적지 쪽 tailnet 노출(API proxy·Pooler·DB의 태그).
-- tailnet 정책의 GitOps 적용(PR에서 Tailscale validate, 머지 때 apply)과 기존 경로 렌더러의 이 모듈로 이전.
+- tailnet 정책에서 조각에 없는 항목 지우기(prune). 경로를 Git에서 빼도 grant는 사람이 지운다. 기존 경로 렌더러의 이 모듈로 이전.
