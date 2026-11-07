@@ -12,18 +12,19 @@ import re
 from .bucket_task import BucketPolicyTask, prepare_bucket_policy_task
 from .retry import AttemptFactory, AttemptPorts
 from .runner import AttemptResult, run_once
-from .secret_task import CredentialMigrationTask, prepare_credential_migration
+from .secret_task import CredentialMigrationTask, same_task
 
 
 def logical_task_digest(task: object) -> str:
     """Bind a logical task across attempts without including its execution ID."""
     if type(task) is BucketPolicyTask:
         if task != prepare_bucket_policy_task(task.run_id, task.source_policy, task.target_bucket,
-                                              source_sha=task.source_sha):
+                                              source_sha=task.source_sha, source_kind=task.source_kind,
+                                              target_kind=task.target_kind):
             raise ValueError("invalid bucket task")
         kind = "bucket-policy"
     elif type(task) is CredentialMigrationTask:
-        if task != prepare_credential_migration(task.run_id, task.source_sha):
+        if task != same_task(task):
             raise ValueError("invalid credential task")
         kind = "credential-migration"
     else:

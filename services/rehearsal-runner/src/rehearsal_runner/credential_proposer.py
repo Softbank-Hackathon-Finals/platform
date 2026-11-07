@@ -9,14 +9,14 @@ from dataclasses import dataclass, field
 
 from .bucket_proposer import Coordinator, attempt_tool_events, validate_coordinator_attempt
 from .runner import ProposalRef
-from .secret_task import CredentialMigrationTask, prepare_credential_migration
+from .secret_task import SOURCE_SECRET_STORES, CredentialMigrationTask, same_task
 
 SOURCE_PATHS = ("app/db_secret.py", "app/config.py", "app/main.py")
 
 
 def credential_summary(task: CredentialMigrationTask) -> str:
     return (
-        "Replace direct Secrets Manager credential reads with ESO-injected "
+        f"Replace direct {SOURCE_SECRET_STORES[task.source_kind]} credential reads with ESO-injected "
         "/run/bravo/database/credentials.json, preserving cache and authentication-failure refresh. "
         "Edit only app/db_secret.py, app/config.py, and app/main.py. "
         "Fail closed on missing or invalid credentials; never log credentials."
@@ -32,7 +32,7 @@ class T11CredentialProposer:
 
     def propose(self, task: object) -> ProposalRef:
         if (not isinstance(task, CredentialMigrationTask)
-                or task != prepare_credential_migration(task.run_id, task.source_sha)):
+                or task != same_task(task)):
             raise ValueError("invalid credential task")
         coordinator = self.coordinator
         validate_coordinator_attempt(

@@ -67,10 +67,18 @@ def attempt_tool_events(coordinator: Coordinator, attempt: int) -> tuple[dict, .
     return events
 
 
+# How the source policy and the target store are named to the model (ADR-0034). The model
+# proposes the target policy; the deterministic export + render (`task_translation`) is the
+# reference the rehearsal control is built from. aws → onprem keeps the original wording.
+SOURCE_POLICY_NAMES = {"aws": "S3 policy", "gcp": "GCS IAM policy", "onprem": "SeaweedFS s3.json identities"}
+TARGET_STORE_NAMES = {"onprem": "SeaweedFS", "aws": "S3", "gcp": "GCS"}
+
+
 def bucket_summary(task: BucketPolicyTask, source_path: str, target_path: str) -> str:
     """Build the T11 FailureBundle summary from trusted task metadata."""
     return (
-        f"Translate the S3 policy in {source_path} for SeaweedFS test bucket {task.target_bucket}; "
+        f"Translate the {SOURCE_POLICY_NAMES[task.source_kind]} in {source_path} for "
+        f"{TARGET_STORE_NAMES[task.target_kind]} test bucket {task.target_bucket}; "
         f"propose changes only to {target_path}. "
         "Deny anonymous reads and destructive access. Return a bounded policy change proposal."
     )
@@ -89,7 +97,8 @@ class T11BucketProposer:
         if not isinstance(task, BucketPolicyTask):
             raise ValueError("bucket task required")
         expected = prepare_bucket_policy_task(
-            task.run_id, task.source_policy, task.target_bucket, source_sha=task.source_sha
+            task.run_id, task.source_policy, task.target_bucket, source_sha=task.source_sha,
+            source_kind=task.source_kind, target_kind=task.target_kind,
         )
         if task != expected:
             raise ValueError("invalid bucket task")
