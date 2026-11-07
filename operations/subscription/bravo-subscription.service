@@ -18,10 +18,10 @@ ProcSubset=pid
 RestrictSUIDSGID=yes
 LockPersonality=yes
 CapabilityBoundingSet=
-IPAddressDeny=169.254.169.254/32
 MemoryMax=1G
 CPUQuota=100%
 RuntimeMaxSec=650
 Environment=PYTHONDONTWRITEBYTECODE=1
-Environment=AWS_EC2_METADATA_DISABLED=true
+# The broker assumes the broker role with node-role credentials (instance metadata); the role trust
+# still requires the broker-only STS endpoint and the SNAT secondary address.
 ExecStart=/opt/bravo-subscription/worker/.venv/bin/python -m bravo_agent.subscription_server /etc/bravo-subscription/settings.json

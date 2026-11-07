@@ -25,6 +25,8 @@ spec:
       ports:
         - {port: 53, protocol: UDP}
         - {port: 53, protocol: TCP}
+    # Tailscale egress Services forward 443 to a per-Service port on the proxy Pods (e.g. 10193, 10630),
+    # and NetworkPolicy matches that Pod port; so the proxy group is the boundary, not a port number.
     - to:
         - namespaceSelector:
             matchLabels: {kubernetes.io/metadata.name: tailscale-system}
@@ -33,8 +35,6 @@ spec:
               tailscale.com/managed: "true"
               tailscale.com/parent-resource: bravo-rehearsal-egress
               tailscale.com/parent-resource-type: proxygroup
-      ports:
-        - {port: 443, protocol: TCP}
     # The operator approval API reads and submits cutovers on the Cutover Executor (read + command token).
     - to:
         - namespaceSelector:
@@ -84,8 +84,6 @@ spec:
             matchLabels:
               app.kubernetes.io/name: t15-rehearsal-host
               bravo.dev/target-api-client: rehearsal
-      ports:
-        - {port: 443, protocol: TCP}
 ---
 # The Executor accepts the approval host beside the workflow host (cutover-executor-from-workflow-host).
 apiVersion: networking.k8s.io/v1
