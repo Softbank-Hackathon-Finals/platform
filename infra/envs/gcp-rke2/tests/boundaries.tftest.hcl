@@ -35,6 +35,10 @@ run "private_node_iap_only" {
     condition     = strcontains(google_compute_instance.node.metadata["user-data"], "profile: cis") && strcontains(google_compute_instance.node.metadata["user-data"], "matchImages: [\"asia-northeast3-docker.pkg.dev\"]")
     error_message = "User-data must carry the shared CIS bootstrap and the registry credential provider."
   }
+  assert {
+    condition     = strcontains(google_compute_instance.node.metadata["user-data"], "name: bravo-deny-instance-metadata") && strcontains(google_compute_instance.node.metadata["user-data"], "defaultAction: Pass")
+    error_message = "User-data must apply the pod metadata guard with the kube-admin Pass tier."
+  }
 }
 
 run "other_project_is_refused" {

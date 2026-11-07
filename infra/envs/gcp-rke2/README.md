@@ -5,7 +5,8 @@ GCP 프로젝트에 RKE2 노드 하나를 terraform으로 펼치고 접는다. �
 | 파일 | 하는 일 |
 |---|---|
 | `main.tf` | VPC·서브넷, Cloud NAT(나가는 길만), IAP 범위만 허용하는 방화벽(22·6443), 노드 서비스 계정, Artifact Registry 저장소와 읽기 권한, 외부 주소 없는 VM |
-| `cloud-init.sh.tftpl` | 공통 bootstrap, 감사 정책, Artifact Registry용 kubelet 자격 플러그인, Tailscale 설치(로그인 안 함) |
+| `cloud-init.sh.tftpl` | 공통 bootstrap, 감사 정책, Artifact Registry용 kubelet 자격 플러그인, Pod의 metadata 차단, Tailscale 설치(로그인 안 함). 바뀌면 노드를 교체한다 |
+| `metadata-guard.yaml` | Admin tier `ClusterNetworkPolicy`: Pod → `169.254.169.254` 차단(53번 제외). Canal에 없는 Calico tier 3개(`kube-admin` Pass 등)를 함께 만든다 |
 | `node.sh` | IAP·OS Login으로만 노드에 닿는다. `wait`·`ssh`·`params`·`kubeconfig`·`tunnel`·`import-image`. 동사는 [`local-vm.sh`](../onprem/local-vm.sh)와 같다 |
 | `tests/boundaries.tftest.hcl` | 외부 주소 없음, IAP 범위만, OS Login, 저장소 읽기만, 다른 프로젝트·A10 이름 거부 |
 
@@ -14,7 +15,7 @@ GCP 프로젝트에 RKE2 노드 하나를 terraform으로 펼치고 접는다. �
 - **들어오는 길:** 공개 주소가 없다. 방화벽은 Google IAP 범위(`35.235.240.0/20`)에서 22·6443만 허용한다. 접근 권한은 IAM(IAP 터널, OS Login)이 정한다. AWS의 SSM 세션과 같은 역할이다. 프로젝트 공용 SSH 키는 막는다. OS Login 키는 8시간 뒤 만료된다.
 - **나가는 길:** Cloud NAT만 있다(RKE2 릴리스, 공개 이미지).
 - **이미지:** kubelet 자격 플러그인이 metadata 서버에서 노드 서비스 계정 토큰을 받아 이 저장소에서만 pull한다. pull secret, 저장된 비밀번호, 내려받는 바이너리가 없다.
-- **노드 토큰 노출:** GCE metadata에는 AWS IMDSv2 hop 1 같은 Pod 차단이 없다. 그래서 Pod도 노드 토큰을 읽을 수 있다. 피해 범위는 IAM으로 줄인다. 노드 서비스 계정에는 이 저장소 읽기 권한 하나만 준다. 실측(아래)에서 Pod가 노드 토큰으로 저장소 읽기 외에는 모두 403을 받았다. 남은 일: 워크로드 Pod의 metadata(`169.254.169.254`) 출구 차단. 이 env는 하지 않는다. Pod를 만들 때 출구를 선언하는 운영화 전략으로 막는다.
+- **노드 토큰:** GCE metadata에는 AWS IMDSv2 hop 1 같은 Pod 차단이 없다. 그래서 두 겹으로 막는다. ① Admin tier `ClusterNetworkPolicy`로 Pod가 metadata에 닿지 못하게 한다. 53번은 VPC DNS라 연다. host 네트워크인 kubelet 자격 플러그인은 그대로 쓴다. Admin tier라 namespace NetworkPolicy로 다시 열 수 없다. ② 노드 서비스 계정 IAM은 이 저장소 읽기 하나다. RKE2 Canal은 Calico 초기화를 하지 않아 `kube-admin` tier(기본 동작 Pass)가 없다. 그래서 정책이 맞지 않는 트래픽까지 모두 막혔다(실측). Calico v3.32.2 `EnsureInitialized`와 같은 tier 3개를 함께 만든다.
 - **프로젝트 고정:** `project_number`가 provider 프로젝트와 다르면 계획이 실패한다(AWS `allowed_account_ids`와 같은 역할).
 
 ## 펼치기·접기
@@ -49,7 +50,9 @@ ADC(`application_default_credentials.json`)의 quota 프로젝트가 다른 프�
 | 다시 펼치기 | apply 85초, Ready까지 전체 227초. 새 cluster UID |
 | `verify-node.sh` | 12/12 PASS(두 번 모두) |
 | 이미지 | Artifact Registry digest pull 4.4초, 클러스터 pull secret 0개, restricted PSA |
-| Pod에서 노드 토큰 | storage·compute·IAM·GKE·Secret Manager 목록 403, 저장소 push 403, 자기 저장소 읽기 200 |
+| 노드 토큰 IAM(정책 없이 Pod에서) | storage·compute·IAM·GKE·Secret Manager 목록 403, 저장소 push 403, 자기 저장소 읽기 200 |
+| metadata 차단(첫 부팅부터) | Pod → metadata 이름·IP 모두 시간 초과. 클러스터·외부 DNS, 인터넷 출구, 저장소 pull은 정상. namespace deny-all은 그대로 막고, allow-all로도 metadata는 열리지 않음 |
+| user-data 변경 | 노드 교체 apply 103초, Ready까지 235초, verify-node 12/12 |
 
 같은 demo-chat 커밋을 다시 빌드하면 digest가 달라졌다. 후보 이미지는 한 번 빌드한 digest를 끝까지 쓴다.
 

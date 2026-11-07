@@ -2,6 +2,19 @@ locals {
   # Google's published IAP TCP forwarding range: the only ingress source.
   iap_range = "35.235.240.0/20"
   registry  = "${var.region}-docker.pkg.dev"
+  user_data = templatefile("${path.module}/cloud-init.sh.tftpl", {
+    rke2_version   = var.rke2_version
+    rke2_bootstrap = file("${path.module}/../../shared/rke2/bootstrap.sh")
+    audit_policy   = file("${path.module}/../../../services/control-runner/templates/rke2-audit-policy.yaml")
+    metadata_guard = file("${path.module}/metadata-guard.yaml")
+    registry       = local.registry
+  })
+}
+
+# GCE updates metadata in place and cloud-init runs once, so a user-data change must replace the node
+# (the AWS env uses user_data_replace_on_change for the same reason).
+resource "terraform_data" "user_data" {
+  input = sha256(local.user_data)
 }
 
 data "google_project" "this" {}
@@ -106,14 +119,11 @@ resource "google_compute_instance" "node" {
   metadata = {
     enable-oslogin         = "TRUE"
     block-project-ssh-keys = "TRUE"
-    user-data = templatefile("${path.module}/cloud-init.sh.tftpl", {
-      rke2_version   = var.rke2_version
-      rke2_bootstrap = file("${path.module}/../../shared/rke2/bootstrap.sh")
-      audit_policy   = file("${path.module}/../../../services/control-runner/templates/rke2-audit-policy.yaml")
-      registry       = local.registry
-    })
+    user-data              = local.user_data
   }
 
-  # Changing bootstrap or user-data replaces the node; this env is meant to be spun up and down.
+  lifecycle {
+    replace_triggered_by = [terraform_data.user_data]
+  }
   depends_on = [google_compute_router_nat.this, google_artifact_registry_repository_iam_member.node_read]
 }

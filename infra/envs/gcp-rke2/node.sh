@@ -50,7 +50,7 @@ import json, sys
 uid, node, service_ip, endpoint_ip = sys.stdin.read().split("\n")[:4]
 name, arch, version = node.split()
 print(json.dumps({"node_name": name, "arch": arch, "api_service_ip": service_ip,
-                  "api_endpoint_ip": endpoint_ip, "kube_version": version,
+                  "api_endpoint_ip": endpoint_ip, "kube_version": version.split("+", 1)[0],
                   "cluster_uid": uid}))'
     ;;
   kubeconfig)
