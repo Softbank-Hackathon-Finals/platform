@@ -147,7 +147,7 @@
 |---|---|---|
 | `POST /v1/infra/plans` | 운영자, 콘솔, 에이전트 | 본문 `{stack, stack_revision, environment_id, params}`. 렌더 · dry-run 후 `PLANNED` 계획을 만든다. 클러스터와 설정 저장소에 쓰지 않는다 |
 | `GET /v1/infra/plans/{id}` | 모두 | 단계별 렌더 digest, 설정 저장소 트리 차이 요약, dry-run 차이 요약, `operator_action` 목록, `plan_digest` |
-| (승인) | 운영자(사람 SSO) | T10 `POST /v1/plans/{id}/approvals`에 `kind=infra`, binding `{infra_plan_id, plan_digest}`로 승인한다. 요청자와 승인자가 달라야 한다 |
+| (승인) | 운영자(사람 SSO) | T10 `POST /v1/plans/{id}/approvals`에 `kind=infra`, binding `{infra_plan_id, plan_digest, requested_by}`로 승인한다. 요청자와 승인자가 달라야 한다. 실행기는 소비(claim) 때 기대 binding 세 필드를 모두 넘기고 T10이 모두 대조한다(#603 리뷰) |
 | `POST /v1/infra/plans/{id}/runs` | 운영자 | 승인된 계획을 적용한다. `Idempotency-Key` 필수 |
 | `GET /v1/infra/runs/{id}` | 모두 | 단계별 상태(`PENDING · RUNNING · SKIPPED · APPLIED · WAITING_OPERATOR · FAILED · HOLD`), 시작 · 종료 시각, 설정 저장소 커밋 SHA |
 | `POST /v1/infra/runs/{id}/steps/{step}/confirm` | 운영자 | `operator_action`을 끝냈다고 알린다. 실행기는 확인 조건을 다시 검사한 뒤에만 진행한다 |

@@ -78,7 +78,11 @@ class DrillAuthority:
                 or not isinstance(binding, Binding) or asdict(binding) != self.spec["lb_binding"]):
             raise EdgeError("drill_spec_mismatch")
         _profile_valid(profile, plan_id, self.clock)
-        return self.approvals.claim(principal, plan_id, self.approval_id, run_id=run_id, plan_digest=self.digest)
+        # T10 compares the whole binding. The drill fixes the plan id (its run) and the spec digest;
+        # the spec names no requester, so the requester is the one T10 recorded (approver != it).
+        requested_by = self.approvals.read(principal, plan_id, self.approval_id)["binding"]["requested_by"]
+        binding = dict(infra_plan_id=run_id, plan_digest=self.digest, requested_by=requested_by)
+        return self.approvals.claim(principal, plan_id, self.approval_id, run_id=run_id, binding=binding)
 
     def proof(self, c, plan):
         """The approval and its claim for this drill, valid now; otherwise refuse."""
