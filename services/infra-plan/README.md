@@ -2,7 +2,7 @@
 
 설계 8.11의 "목적지 구축" 어댑터를 [ADR-0033](../../docs/adr/0033-destination-bootstrap-executor.md)대로 만든다. 빈 클러스터에서 목적지를 처음 세우는 순서를 맡고, 이미 선 목적지의 설정 모듈 · 원하는 상태 · 고객 클러스터 Argo CD 설치는 T44([ADR-0032](../../docs/adr/0032-destination-iac-api.md), `services/iac`)가 맡는다. 목적지 구축 절차를 정형 단계 스택으로 고정하고, 같은 입력이면 같은 계획과 `plan_digest`가 나오게 한다. 승인은 T10 `approval_kind=infra`(#603)가, 선언형 자원의 적용은 T44가 설치한 목적지 Argo CD(`bravo-iac-gitops`)가 맡는다. T45는 그 Argo에 전용 AppProject와 경로별 Application만 더한다.
 
-**상태: 스택 · 계획 엔진(#604)에 이어 적용 실행기, Git 설정 저장소 · kubectl/helm · T10 어댑터, HTTP API를 추가했다. 시험 31개 통과. kind(Kubernetes v1.36.1) 실측 결과는 [증빙](../../docs/evidence/t45-kind-run-2026-11-07/README.md). T11 `infra.plan` 도구, SSO 신원 해석기, 플랫폼 배포는 다음 PR이다.**
+**상태: 스택 · 계획 엔진, 적용 실행기, Git 설정 저장소 · kubectl · T10 어댑터, HTTP API, T10 운영자 신원 연결(`serve`)까지. 시험 44개 통과. 독립 리뷰 결함 11건 중 높음 1 · 중간 4 · 낮음 5를 고치고 회귀 시험을 붙였다. kind(Kubernetes v1.36.1) 실측 결과는 [증빙](../../docs/evidence/t45-kind-run-2026-11-07/README.md). 에이전트 신원(T38 워크로드 신원)과 플랫폼 배포는 다음 PR이다.**
 
 | 파일 | 역할 |
 |---|---|
@@ -13,6 +13,7 @@
 | `applications.py` | 경로마다 목적지 Argo CD Application 1개(실행이 올린 커밋 SHA 고정, 자동 prune 끔, self-heal 켬)와 스택 AppProject(설정 저장소 URL로 제한) |
 | `adapters.py` | `FileRunStore` · `FilePlanStore`, `GitConfigRepo`(fast-forward push만, 강제 push 없음), `KubectlCluster`(server-side diff/apply, Secret은 stdin으로 create만, helm 이력의 digest), `T10Approvals`, `ClusterChecks` |
 | `api.py` | `POST /v1/infra/plans` · `GET .../plans/{id}` · `GET /v1/infra/request-schema` · `POST .../plans/{id}/runs` · `GET /v1/infra/runs/{id}` · `POST .../runs/{id}/steps/{step}/confirm`. 실행 · 확인은 사람만(에이전트 신원 403) |
+| `serve.py` | API 호스트. 사람은 T10 승인 호스트와 같은 `operator_verifier`(IAM Identity Center 증명 또는 고정 OIDC 토큰)로 확인하고, 같은 토큰을 T10에 넘겨 그 사람의 `apply_infra`를 다시 확인받는다. 에이전트 신원은 아직 받지 않는다 |
 | `cli.py` | `bravo-infra-plan check / request-schema / plan / run / confirm / status` |
 | [`infra/stacks/target-onprem/stack.json`](../../infra/stacks/target-onprem/stack.json) | 첫 스택. T30 · T9 README 절차를 33단계 15레벨로 옮겼다. 목적지 Argo CD는 설치하지 않고 T44 설치를 확인하는 사람 단계로 둔다. 렌더러 코드는 바꾸지 않았다 |
 
@@ -43,14 +44,17 @@ chart 아카이브는 스택의 `charts`에 적힌 파일 이름으로 둔다. �
 
 - 실행 시작 때 대상 클러스터 UID와 설정 저장소 head를 다시 읽어 계획을 다시 렌더한다. T10 승인의 `plan_digest`와 다르면 `REFUSED`이고 아무것도 바꾸지 않는다. 같으면 T10에서 승인을 이 실행 하나로 소비한다(T10이 digest · 만료 · 회수 · `apply_infra` · 원 승인자 권한을 다시 확인).
 - 의존이 끝난 단계는 동시에 시작한다(기본 4개). 실패 · `HOLD` · 사람 대기는 그 단계에 의존하는 단계만 멈춘다.
-- `gitops_publish`는 경로 내용을 정확히 교체하는 커밋 하나를 fast-forward로 push하고, 그 커밋 SHA를 Application에 고정한다. Argo CD가 이미 같은 내용을 따르고 있으면 커밋 · Application 변경 없이 `SKIPPED`.
+- `gitops_publish`는 설정 저장소가 실행이 아는 head에서 움직이지 않았을 때만, 그 경로만 담은 커밋 하나를 fast-forward로 push하고(작업 폴더 파일 잠금, 사용자 git 설정 무시), 그 커밋 SHA를 Application에 고정한다. Argo CD가 이미 같은 내용을 따르고 있으면 커밋 · Application 변경 없이 `SKIPPED`.
 - `gitops_sync`는 Application이 그 SHA로 `Synced` · `Healthy`일 때만 통과한다. 시간 상한을 넘기면 `HOLD`.
 - `secret_generate`는 Secret이 없을 때만 만든다. 값은 메모리 → `kubectl create` stdin뿐이고, 실행 기록 · 원장에는 남지 않는다(시험으로 확인).
 - 사람 단계는 확인 조건을 먼저 관찰한다. 관찰되면 `SKIPPED`, 코드가 관찰할 수 없는 것(호스트 디렉터리, 오프라인 이미지 반입)은 사람 확인 기록이 있어야 진행한다.
+- 실행은 시작 때 저장한 스택만 실행한다(그 digest가 `plan_digest` 안에 있다). 승인 뒤 저장소의 stack.json을 고쳐도 진행 중인 실행에는 영향이 없다.
+- 모든 단계는 대상 클러스터 UID · 노드 UID를 다시 읽고 시작한다. kube context는 시작 때 고정한다. 다르면 `HOLD`(`target_identity_changed`).
+- 재개(`confirm` 포함)마다 T10에서 승인 회수 여부를 읽고, 호출자의 토큰으로 같은 실행의 소비를 다시 요청해 그 사람의 `apply_infra`를 확인받는다.
 - 실행 기록은 단계별 시작 · 종료 시각을 남긴다. 프로세스가 중간에 죽어 `RUNNING`으로 남은 단계는 재개 때 다시 관찰한다. 재개 전에 설정 저장소가 다른 사람 커밋으로 움직였으면 `HOLD`(`config_repo_moved`).
 
 ## 다음 PR에서 할 것
 
 - 원장(`ledger`)을 T24 감사 로그 싱크에 연결한다. 지금은 JSONL 파일이다.
-- T11 `infra.plan` 도구, API의 SSO 신원 해석기(등록 API와 같은 방식), T43 경로의 플랫폼 배포.
+- 에이전트 워크로드 신원(T38)을 API에 연결(ADR-0033의 "에이전트는 계획 생성 · 조회"), T43 경로의 플랫폼 배포.
 - 목적지 Argo CD AppProject의 클러스터 범위 자원 허용을 좁히기(ADR-0032 3.5 후속).
