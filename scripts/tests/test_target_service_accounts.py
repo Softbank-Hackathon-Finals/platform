@@ -14,7 +14,8 @@ from unittest.mock import patch
 WORKLOADS = Path(__file__).resolve().parents[2] / "infra/envs/target-workloads"
 # Other environments also have modules called render and objects; load this directory's own.
 with patch.object(sys, "path", [str(WORKLOADS), *sys.path]), patch.dict(sys.modules):
-    for shadowed in ("render", "replication", "objects", "pooler", "probes", "application", "attachment_job", "t14_gate"):
+    for shadowed in ("render", "replication", "objects", "pooler", "probes", "application", "attachment_job",
+                     "identity", "t14_gate"):
         sys.modules.pop(shadowed, None)
     render = importlib.import_module("render")
     application = importlib.import_module("application")
@@ -22,6 +23,7 @@ with patch.object(sys, "path", [str(WORKLOADS), *sys.path]), patch.dict(sys.modu
     objects = importlib.import_module("objects")
     probes = importlib.import_module("probes")
     attachment_job = importlib.import_module("attachment_job")
+    identity = importlib.import_module("identity")
     t14_gate = importlib.import_module("t14_gate")
 
 SERVICE_UID = "0b7c2a5e-5f1d-4c3a-9e8b-1a2b3c4d5e6f"
@@ -41,6 +43,7 @@ def rendered_sources():
                   + t14_gate.canary("arm64") + t14_gate.canary("amd64"),
         "attachment copy": [attachment_job.job(COPY_IMAGE, "demo-2026-11-07-r1", "Plan_2026-11-07", 3,
                                                "10.43.0.25", SERVICE_UID)],
+        "identity": identity.identity("node-a", "https://login.example.com", "https://chat.example.com"),
         "t14 gate accounts": t14_gate.accounts(),
     }
 

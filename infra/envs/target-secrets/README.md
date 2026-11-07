@@ -338,8 +338,10 @@ The official 2.7.2 image contained fixable HIGH
 [CVE-2026-116587](https://github.com/advisories/GHSA-mgcc-cww5-fp2q).
 The local image uses exact upstream commit
 `9e0a0d3c3504a0a00b45e61355afac5e35c78379`, the small
-[dependency patch](image/go-jose.patch) upgrading go-jose 4.1.4 to 4.1.6, and
-Go 1.27.3. This is a downstream development build, not an official release.
+[dependency patch](image/go-jose.patch) upgrading go-jose 4.1.4 to 4.1.6, the
+[x/net patch](image/x-net.patch) upgrading golang.org/x/net 0.61.0 to 0.62.0
+(`bravo.4`, CVE-2026-78661), and Go 1.27.3. This is a downstream development
+build, not an official release.
 Upstream MPL-2.0 licensing remains applicable; the base image retains its license.
 
 [Build receipt](image/build-receipt.json) records the exact build flags, binary
@@ -353,6 +355,7 @@ Reproduce in a new source directory:
 git clone https://github.com/openbao/openbao.git openbao-source
 git -C openbao-source checkout 9e0a0d3c3504a0a00b45e61355afac5e35c78379
 git -C openbao-source apply /path/to/image/go-jose.patch
+git -C openbao-source apply /path/to/image/x-net.patch
 ```
 
 Use the receipt's `build_flags` with `GOTOOLCHAIN=go1.27.3`, `CGO_ENABLED=0`,
@@ -368,3 +371,20 @@ bounded scan claim.
 
 The current chart/image metadata and the public reproduction material contain
 no operator tokens, recovery keys, source credentials or private kubeconfig.
+
+### Architectures
+
+`render.py --arch {arm64,amd64}` (default `arm64`) selects the image for
+`bao-values`, `finalize-bao` and `rehearsal-init-container`. Both are `bravo.4`.
+On 2026-11-07 `bravo.3` failed the gate on CVE-2026-78661 (`golang.org/x/net`
+0.61.0, fixed 0.62.0). [x-net.patch](image/x-net.patch) is
+`go get golang.org/x/net@v0.62.0` in each module that requires it.
+
+| Arch | Dockerfile | Receipt |
+|---|---|---|
+| arm64 | [Dockerfile](image/Dockerfile) | [build-receipt.json](image/build-receipt.json) |
+| amd64 | [Dockerfile.amd64](image/Dockerfile.amd64) (amd64 base manifest) | [build-receipt-amd64.json](image/build-receipt-amd64.json) |
+
+For each arch, the scan covered the alpine packages and `usr/bin/bao` with 0
+findings, and the offline `bao version` probe matched. Two independent builds
+of arm64 produced the same binary and image digest.

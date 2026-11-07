@@ -1,5 +1,5 @@
 {{- /* Argo CD CRDs come with this release: the first install creates them, the next upgrade adds this. */}}
-{{- if .Capabilities.APIVersions.Has "argoproj.io/v1alpha1/Application" }}
+{{- if and .Values.application.enabled (.Capabilities.APIVersions.Has "argoproj.io/v1alpha1/Application") }}
 {{- $environment := required "environment is required" .Values.environment }}
 {{- $tailnet := required "tailnet (<name>.ts.net) is required" .Values.tailnet }}
 {{- $revision := required "targetRevision (the reviewed full commit SHA) is required" .Values.targetRevision }}
@@ -22,18 +22,18 @@ spec:
     server: https://kubernetes.default.svc
   syncPolicy:
     automated:
-      enabled: true
-      prune: true
+      enabled: {{ .Values.application.autoSync }}
+      prune: {{ .Values.application.prune }}
       selfHeal: true
       allowEmpty: false
     # No CreateNamespace: namespaces belong to whoever builds the cluster (T45), never to this chart.
     syncOptions:
       - ServerSideApply=true
       - SkipDryRunOnMissingResource=true
-    # On an empty cluster T45 installs the Tailscale CRDs and namespaces after this Application exists.
-    # Automated sync never retries a failed revision by itself, so keep retrying until they are there.
+    # Enabled only after the cluster's builder made the namespaces and Tailscale CRDs (README), so a
+    # failure is real: retry a few times (about 5 minutes), then stop so a fixed revision can sync.
     retry:
-      limit: -1
+      limit: 5
       backoff:
         duration: 10s
         factor: 2

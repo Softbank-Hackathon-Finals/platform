@@ -236,7 +236,7 @@
          "value": "/openbao/tls/ca.crt"
         }
        ],
-       "image": "localhost/bravo-openbao:2.7.2-bravo.3-nonroot-arm64@sha256:b09c3934e2420aef5d43cf754381b82104c22f3a2a7248ff46b843d12154ce75",
+       "image": "localhost/bravo-openbao:2.7.2-bravo.4-nonroot-arm64@sha256:5328b04955ab2af80cd1d3b9b09fad3daa7e59b9661987f3697ca0eb941a491d",
        "imagePullPolicy": "IfNotPresent",
        "lifecycle": {
         "preStop": {
