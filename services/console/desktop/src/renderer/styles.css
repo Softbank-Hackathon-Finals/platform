@@ -23,8 +23,9 @@
 
   --font-display: "Dela Gothic One", "Black Han Sans", sans-serif;
   --font-kdisplay: "Black Han Sans", "Dela Gothic One", sans-serif;
-  --font-sans: "Pretendard Variable", Pretendard, system-ui, sans-serif;
-  --font-mono: "JetBrains Mono", ui-monospace, monospace;
+  /* REA (Codex, Grafana, Netdata): one UI sans per script, system CJK fallbacks, mono for ids. */
+  --font-sans: "Pretendard Variable", Pretendard, -apple-system, system-ui, "Apple SD Gothic Neo", sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
 
   --shadow-pop: 3px 3px 0 #1b1b1b;
   --shadow-pop-sm: 2px 2px 0 #1b1b1b;
@@ -38,9 +39,30 @@ body {
   color: var(--color-ink);
   font-family: var(--font-sans);
   font-size: 13px;
+  line-height: 1.45;
   -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  font-optical-sizing: auto;
   user-select: none;
+  /* Korean/Japanese: break between words, never inside one; long ids may still break anywhere. */
+  word-break: keep-all;
+  overflow-wrap: anywhere;
 }
+/* In the base layer so utilities (whitespace-nowrap, truncate) still win. */
+@layer base {
+  /* Codex :lang() stacks. Pretendard has no kana/kanji and Black Han Sans is Korean-only. */
+  :lang(ja) {
+    --font-sans: "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Pretendard Variable", -apple-system, system-ui, "Noto Sans JP", sans-serif;
+    --font-kdisplay: "Dela Gothic One", "Hiragino Sans", sans-serif;
+    line-break: strict;
+  }
+  p, li, dd, figcaption { text-wrap: pretty; }
+  h1, h2, h3, h4 { text-wrap: balance; }
+}
+/* Netdata/Grafana: live numbers keep their width so legends and tiles do not jitter. */
+.tnum { font-variant-numeric: tabular-nums; font-feature-settings: "tnum"; }
+@keyframes live-dot { 0%, 100% { box-shadow: 0 0 0 0 rgba(140, 193, 82, .8); } 60% { box-shadow: 0 0 0 5px rgba(140, 193, 82, 0); } }
+.live-dot { animation: live-dot 1.6s ease-out infinite; }
 input, textarea, [data-selectable] { user-select: text; }
 ::selection { background: var(--color-mustard); color: var(--color-ink); }
 

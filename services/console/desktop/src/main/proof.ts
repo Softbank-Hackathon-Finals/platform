@@ -14,7 +14,7 @@ type Creds = { accessKeyId: string; secretAccessKey: string; sessionToken?: stri
 const rfc3986 = (v: string) =>
   encodeURIComponent(v).replace(/[!'()*]/g, (c) => '%' + c.charCodeAt(0).toString(16).toUpperCase());
 
-export async function mintProof(opts: { region: string; credentials: () => Promise<Creds>; now?: Date }) {
+export async function mintProof(opts: { region: string; credentials: () => Promise<Creds>; now?: Date; audience?: string }) {
   if (!/^[a-z]{2}-[a-z]+-\d$/.test(opts.region)) throw new Error('invalid_region');
   const creds = await opts.credentials();
   if (!creds.sessionToken || !creds.accessKeyId.startsWith('ASIA')) throw new Error('sso_session_credentials_required');
@@ -23,7 +23,7 @@ export async function mintProof(opts: { region: string; credentials: () => Promi
   const signed = await signer.presign(
     { method: 'GET', protocol: 'https:', hostname, path: '/',
       query: { Action: 'GetCallerIdentity', Version: '2011-06-15' },
-      headers: { host: hostname, [AUDIENCE_HEADER]: AUDIENCE } },
+      headers: { host: hostname, [AUDIENCE_HEADER]: opts.audience ?? AUDIENCE } },
     { expiresIn: 60, signingDate: opts.now },
   );
   const query = Object.entries(signed.query ?? {})
@@ -33,11 +33,11 @@ export async function mintProof(opts: { region: string; credentials: () => Promi
 }
 
 /** Reuses one proof for 40 s of its 60 s life; the server caches it for the same window. */
-export function proofSource(profile: string, region: string) {
+export function proofSource(profile: string, region: string, audience = AUDIENCE) {
   let cached: { token: string; at: number } | null = null;
   return async () => {
     if (cached && Date.now() - cached.at < 40_000) return cached.token;
-    const token = await mintProof({ region, credentials: fromSSO({ profile }) });
+    const token = await mintProof({ region, credentials: fromSSO({ profile }), audience });
     cached = { token, at: Date.now() };
     return token;
   };

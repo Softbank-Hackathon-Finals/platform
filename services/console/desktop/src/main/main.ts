@@ -5,6 +5,8 @@ import type { AgentEvent, Settings, TurnOptions } from '../shared/types';
 import { Agents, codexAuth } from './agent';
 import { codexDefaultModel, codexModels } from './models';
 import { awsProfile } from './accounts';
+import { clearKey, keyStatus, saveKey } from './openai-key';
+import { approval } from './approval';
 import { loadSettings, saveSettings } from './settings';
 import { SovaLink } from './sova';
 
@@ -15,7 +17,7 @@ const PROTOCOL = 'sova-console';
 let win: BrowserWindow | null = null;
 let settings: Settings;
 const link = new SovaLink(() => settings);
-const agents = new Agents(link, (e: AgentEvent) => win?.webContents.send('agent:event', e));
+const agents = new Agents(link, (e: AgentEvent) => win?.webContents.send('agent:event', e), () => settings.agentAuth);
 link.confirm = (name, input) => agents.ask(name, input);
 
 app.setAsDefaultProtocolClient(PROTOCOL);
@@ -27,6 +29,10 @@ function createWindow() {
     titleBarStyle: 'hiddenInset', trafficLightPosition: { x: 16, y: 18 }, backgroundColor: '#FFF3D6',
     webPreferences: { preload: path.join(__dirname, 'preload.cjs'), contextIsolation: true, sandbox: true, nodeIntegration: false },
   });
+  // Text and layout scale together with the window: 1.0 at 1440 wide, 0.9 at the minimum, at most 1.08.
+  const fit = () => { const [w] = win!.getContentSize(); win!.webContents.setZoomFactor(Math.min(1.08, Math.max(0.9, w / 1440))); };
+  win.on('resize', fit);
+  win.webContents.on('did-finish-load', fit);
   win.webContents.setWindowOpenHandler(({ url }) => {
     if (url.startsWith('https://')) void shell.openExternal(url);
     return { action: 'deny' };
@@ -47,6 +53,7 @@ ipcMain.handle('settings:get', () => settings);
 ipcMain.handle('settings:save', (_e, patch: Partial<Settings>) => {
   settings = saveSettings(patch);
   link.reset();
+  if ('agentAuth' in patch) agents.reset();
   return settings;
 });
 ipcMain.handle('auth:sso-login', () => new Promise((resolve) => {
@@ -60,6 +67,13 @@ ipcMain.handle('agent:send', (_e, conv: string, text: string, opts: TurnOptions)
 ipcMain.handle('sova:prompts', () => link.prompts());
 ipcMain.handle('agent:models', () => ({ models: codexModels(), defaultModel: codexDefaultModel() }));
 ipcMain.handle('agent:auth', (_e, login: boolean) => codexAuth(login));
+ipcMain.handle('approval', (_e, action: 'run-state' | 'approve-shift', planId: string, v?: number) => approval(settings, action, planId, v));
+ipcMain.handle('agent:openai-key', async (_e, action: 'status' | 'save' | 'clear', key?: string) => {
+  if (action === 'clear') { clearKey(); agents.reset(); }
+  const result = action === 'save' && key ? await saveKey(key) : {};
+  if ((result as { ok?: boolean }).ok) agents.reset();
+  return { ...result, ...keyStatus() };
+});
 ipcMain.handle('accounts:aws', () => awsProfile(settings.awsProfile));
 ipcMain.handle('sova:prompt', (_e, name: string, args: Record<string, string>) => link.prompt(name, args));
 ipcMain.handle('agent:stop', (_e, conv: string) => agents.stop(conv));

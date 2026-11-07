@@ -38,14 +38,14 @@ export function Sidebar() {
   const readOnly = link.data?.readOnly ?? true;
 
   return (
-    <aside className="flex w-[248px] shrink-0 flex-col border-r-2 border-ink bg-cream">
+    <aside className="flex w-[clamp(212px,17vw,248px)] shrink-0 flex-col border-r-2 border-ink bg-cream">
       <div className="sunburst drag relative h-[132px] overflow-hidden border-b-2 border-ink">
-        <div className="absolute right-3 top-3 no-drag"><HiyashiPill /></div>
-        <div className="absolute bottom-3 left-4 flex items-end gap-2">
-          <Mark size={46} dipping />
-          <div className="flex flex-col">
-            <Wordmark size={36} />
-            <span className="mt-1.5 font-mono text-[9px] font-bold tracking-[.12em] text-cream [text-shadow:1px_1px_0_#1b1b1b]">MIGRATION CONSOLE</span>
+        <div className="absolute right-2.5 top-3 no-drag"><HiyashiPill /></div>
+        <div className="absolute bottom-3 left-3.5 right-11 flex items-end gap-2">
+          <Mark size={42} dipping />
+          <div className="flex min-w-0 flex-col">
+            <Wordmark size="clamp(26px, 2.35vw, 36px)" />
+            <span className="mt-1.5 whitespace-nowrap font-mono text-[clamp(7.5px,0.62vw,9px)] font-bold tracking-[.12em] text-cream [text-shadow:1px_1px_0_#1b1b1b]">MIGRATION CONSOLE</span>
           </div>
         </div>
       </div>
@@ -71,9 +71,9 @@ export function Sidebar() {
       <div className="flex items-center gap-2.5 border-t-2 border-ink bg-paper px-3 py-2.5">
         {readOnly ? <Stamp title="읽기 전용 연결" size={30} /> : <Stamp size={30} title="쓰기 허용 연결">書</Stamp>}
         <div className="min-w-0 flex-1 leading-tight">
-          <div className="flex items-center gap-1.5 text-[12px] font-bold">
-            <span className={`h-2 w-2 rounded-full border border-ink ${link.data?.connected ? 'live-dot bg-wasabi' : 'bg-red'}`} />
-            {t(link.data?.connected ? 'SOVA MCP 연결됨' : 'SOVA MCP 미연결')}
+          <div className="flex items-center gap-1.5 whitespace-nowrap text-[12px] font-bold">
+            <span className={`h-2 w-2 shrink-0 rounded-full border border-ink ${link.data?.connected ? 'live-dot bg-wasabi' : 'bg-red'}`} />
+            <span className="min-w-0 truncate">{t(link.data?.connected ? 'SOVA MCP 연결됨' : 'SOVA MCP 미연결')}</span>
           </div>
           <div className="truncate text-[11px] text-ink-soft">{t(readOnly ? '읽기 전용' : '등록 허용')} · MCP {link.data?.tools.length ?? 0}</div>
         </div>
@@ -100,12 +100,12 @@ export function TopBar() {
   useEffect(() => { if (plans.length && !plans.some((p) => p.plan_id === plan)) setPlan(plans[0].plan_id); }, [plan, plans, setPlan]);
 
   return (
-    <header className="drag flex h-[58px] shrink-0 items-center gap-2.5 overflow-hidden border-b-2 border-ink bg-cream px-5">
-      <h1 className="whitespace-nowrap font-kdisplay text-[20px] leading-none">{t(NAV.find((n) => n.id === view)?.label ?? '')}</h1>
-      <div className="no-drag ml-3 flex items-center gap-2">
-        <span className="kicker whitespace-nowrap">{t('계획')}</span>
+    <header className="drag @container flex h-[58px] shrink-0 items-center gap-2.5 overflow-hidden border-b-2 border-ink bg-cream px-5">
+      <h1 className="min-w-0 truncate whitespace-nowrap font-kdisplay text-[clamp(16px,2.6cqw,20px)] leading-none">{t(NAV.find((n) => n.id === view)?.label ?? '')}</h1>
+      <div className="no-drag ml-1 flex min-w-0 shrink items-center gap-2 @2xl:ml-3">
+        <span className="kicker hidden whitespace-nowrap @2xl:inline">{t('계획')}</span>
         <select value={plan} onChange={(e) => setPlan(e.target.value)}
-          className="w-[190px] rounded-lg border-2 border-ink bg-[#fffaf0] px-2 py-1 font-mono text-[12px] shadow-pop-sm">
+          className="w-[clamp(120px,24cqw,190px)] min-w-0 rounded-lg border-2 border-ink bg-[#fffaf0] px-2 py-1 font-mono text-[12px] shadow-pop-sm">
           {plans.length === 0 && <option value="">계획 없음</option>}
           {plans.map((p) => <option key={p.plan_id} value={p.plan_id}>{p.plan_id} · {stageLabel(p.state)}</option>)}
         </select>

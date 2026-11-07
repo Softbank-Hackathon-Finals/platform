@@ -12,6 +12,8 @@ import { ConnectionForm, Dashboard, Guide, Observe, Plans } from './views';
 import { Timeline } from './timeline';
 import { Register } from './register';
 import { SettingsPage } from './settings';
+import { useLivePoller } from './live';
+import { langAtom } from './i18n';
 import hero from '../../assets/sova-hero.jpg';
 
 function useAsk() {
@@ -109,6 +111,9 @@ export function App() {
   useAgentEvents();
   useQueueRunner();
   useShortcuts();
+  useLivePoller();
+  const lang = useAtomValue(langAtom);
+  useEffect(() => { document.documentElement.lang = lang; }, [lang]);
   const setConvs = useSetAtom(convsAtom);
   // Chats stored by an older build lack model/effort; a run cannot survive an app restart.
   useEffect(() => {

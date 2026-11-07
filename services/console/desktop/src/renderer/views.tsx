@@ -2,12 +2,12 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import hero from '../../assets/sova-hero.jpg';
 import { useAtom, useAtomValue, useSetAtom } from 'jotai';
 import { ArrowRight, ExternalLink, Hand, LogIn, PlugZap, Sparkles } from 'lucide-react';
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { EFFORT_LABEL, type NextAction, type Settings } from '../shared/types';
 import { useModels } from './agent';
 import { useT } from './i18n';
-import { useConsoleLinks } from './settings';
-import { Burst, MAIN_STAGES, Sparkline, Stamp, StageRail, StatusBadge, stageLabel } from './brand';
+import { AlertStrip, DataPanels, LiveToolbar, StatePanels, TrafficPanels } from './live';
+import { Burst, MAIN_STAGES, Stamp, StageRail, StatusBadge, stageLabel } from './brand';
 import { ago, callTool, explain, planAtom, sova, useTool, viewAtom } from './lib';
 import { useLink } from './shell';
 
@@ -147,51 +147,26 @@ function NextActions({ actions, ask }: { actions: NextAction[]; ask: (q: string)
   );
 }
 
-/** Live samples of one environment's HTTP view; the API returns the current 1 m window only. */
-function useHttpSeries(environment: string) {
-  const q = useTool('sova_get_observability', { environment_id: environment, view: 'http' }, 15_000);
-  const series = useRef<{ rps: number[]; err: number[]; p95: number[] }>({ rps: [], err: [], p95: [] });
-  const seen = useRef<string>('');
-  const d = q.data?.data;
-  if (d && d.queried_at !== seen.current) {
-    seen.current = d.queried_at;
-    const push = (k: 'rps' | 'err' | 'p95', v: number | null) => { if (v !== null && v !== undefined) series.current[k] = [...series.current[k], v].slice(-40); };
-    push('rps', d.requests_per_second); push('err', d.error_ratio); push('p95', d.p95_seconds);
-  }
-  return { q, d, s: series.current };
-}
-
-function EnvMetrics({ env }: { env: any }) {
-  const links = useConsoleLinks();
-  const { q, d, s } = useHttpSeries(env.environment_id);
-  const unobserved = q.isError || d?.state === 'UNOBSERVABLE';
-  const fmt = (v: number | null | undefined, f: (n: number) => string) => (v === null || v === undefined ? '미관측' : f(v));
+/** Run-state from the approval host, and the one human decision the console sends itself: SHIFT at AWAIT_APPROVAL. */
+function HumanApproval({ plan, onDone }: { plan: any; onDone: () => void }) {
+  const run = useQuery({ queryKey: ['run-state', plan.plan_id, plan.version], queryFn: () => sova.approval('run-state', plan.plan_id), refetchInterval: 15_000 });
+  const [arm, setArm] = useState(false);
+  const [msg, setMsg] = useState('');
+  const r = run.data;
+  const code = r && !r.ok ? r.body?.detail?.code ?? `HTTP ${r.status}` : '';
   return (
-    <div className="panel flex flex-col gap-2 p-3.5">
-      <div className="flex items-center gap-2">
-        <span className={`rounded border-2 border-ink px-1.5 text-[10px] font-black ${env.roles?.includes('target') ? 'bg-cold text-white' : 'bg-red text-cream'}`}>
-          {env.roles?.includes('target') ? '목적지' : '출발지'}</span>
-        <span className="truncate font-bold">{env.name ?? env.environment_id}</span>
-        <span className="font-mono text-[10.5px] text-ink-soft">{env.kind}</span>
-        <div className="flex-1" />
-        {d && <span className="text-[10.5px] text-ink-soft">수신 {d.last_received_seconds_ago ?? '—'}초 전</span>}
-        <button className="btn !px-1.5 !py-0 text-[10.5px]" title="이 환경의 콘솔을 내 계정으로 엽니다" onClick={() => { const u = links.forKind(env.kind); if (u) window.open(u, '_blank'); }}>콘솔 ↗</button>
-      </div>
-      {unobserved ? (
-        <div className="halftone rounded-lg border-2 border-dashed border-ink p-2.5 text-[12px]">{q.isError ? explain(q.error) : '관측 신호가 없습니다(미관측은 0이 아닙니다).'}</div>
-      ) : (
-        <div className="grid grid-cols-3 gap-2">
-          {[['RPS', fmt(d?.requests_per_second, (n) => n.toFixed(1)), s.rps, '#1E88D9'],
-            ['오류율', fmt(d?.error_ratio, (n) => (n * 100).toFixed(2) + '%'), s.err, '#D42A1E'],
-            ['p95', fmt(d?.p95_seconds, (n) => Math.round(n * 1000) + 'ms'), s.p95, '#7A6450']].map(([l, v, vals, c]) => (
-            <div key={l as string} className="rounded-lg border-2 border-ink bg-cream p-2">
-              <div className="kicker">{l as string}</div>
-              <div className="num text-[18px]">{v as string}</div>
-              <Sparkline values={vals as number[]} width={110} height={26} color={c as string} />
-            </div>
-          ))}
-        </div>
+    <div className="mt-2 flex flex-col gap-1.5 border-t-2 border-dashed border-ink/25 pt-2 text-[11.5px]">
+      <span className="truncate text-ink-soft">{r?.ok ? `승인 호스트: ${r.body.state} v${r.body.version} · 진행 ${r.body.owner}${r.body.interruptions?.length ? ` · 중단 ${r.body.interruptions.length}` : ''}` : code ? `승인 호스트 ${code}` : '승인 호스트 조회 중'}</span>
+      {plan.state === 'AWAIT_APPROVAL' && (
+        <button className={`btn ${arm ? 'btn-red' : 'btn-mustard'} justify-center !py-1 text-[12px]`} onClick={async () => {
+          if (!arm) { setArm(true); setMsg(`v${plan.version}의 GATE 결과로 SHIFT를 승인합니다. 한 번 더 누르세요.`); return; }
+          setArm(false); setMsg('승인 보내는 중…');
+          const res = await sova.approval('approve-shift', plan.plan_id, plan.version);
+          setMsg(res.ok ? `승인됨 · ${res.body.approval_id ?? ''} · ${res.body.expires_at ?? ''}까지` : `거부됨: ${res.body?.detail?.code ?? res.status}`);
+          onDone(); void run.refetch();
+        }}>{arm ? 'SHIFT 승인 확정' : 'SHIFT 승인'}</button>
       )}
+      {msg && <span className="font-semibold">{msg}</span>}
     </div>
   );
 }
@@ -215,7 +190,7 @@ export function Dashboard({ ask }: { ask: (q: string) => void }) {
 
   const humanCount = planQ.data?.next_actions.filter((a) => a.requires === 'human_approval').length ?? 0;
   return (
-    <div className="scroll-thin h-full overflow-y-auto overflow-x-hidden p-5">
+    <div className="scroll-thin @container h-full overflow-y-auto overflow-x-hidden p-5">
       <div className="grid grid-cols-12 gap-4">
         <section className="panel mat col-span-12 overflow-hidden">
           <div className="flex items-center gap-3 border-b-2 border-ink bg-[#fffaf0] px-4 py-2.5">
@@ -227,31 +202,34 @@ export function Dashboard({ ask }: { ask: (q: string) => void }) {
           {planQ.isError ? <Problem error={planQ.error} /> : <StageRail state={p?.state} />}
         </section>
 
-        <div className="col-span-12 grid grid-cols-4 gap-4">
-          <Tile label={t('현재 단계')} value={stageLabel(p?.state)} sub={p ? `버전 ${p.version} · 마지막 이벤트 ${p.last_event_id?.split(':')[1] ?? '—'}번` : '—'} tone="bg-mustard" />
+        <div className="col-span-12 grid grid-cols-2 gap-4 @4xl:grid-cols-4">
+          <Tile label={t('현재 단계')} value={t(stageLabel(p?.state))} sub={p ? `버전 ${p.version} · 마지막 이벤트 ${p.last_event_id?.split(':')[1] ?? '—'}번` : '—'} tone="bg-mustard" />
           <Tile label={t('원본 대조 게이트')} value={compare.data ? <StatusBadge status={compare.data.status} /> : '—'}
             sub={compare.data?.summary ?? (compare.isError ? explain(compare.error) : '조회 중')} />
           <Tile label={t('실행 기록')} value={exec.data ? `${exec.data.data.records.length}건` : '—'} sub={exec.data?.summary ?? '—'} />
           <Tile label={t('사람 결정 대기')} value={<span className={humanCount ? 'text-red' : ''}>{humanCount}</span>}
-            sub={humanCount ? '승인·실행은 사람이 합니다' : '지금은 자동 진행 구간'} tone={humanCount ? 'bg-[#ffe3d6]' : 'bg-[#fffaf0]'} />
+            sub={humanCount ? '승인·실행은 사람이 합니다' : '지금은 자동 진행 구간'} tone={humanCount ? 'bg-[#ffe3d6]' : 'bg-[#fffaf0]'}>
+            {p && <HumanApproval plan={p} onDone={() => { void planQ.refetch(); }} />}
+          </Tile>
         </div>
 
-        <Panel className="col-span-7 h-[380px]" kicker="EVENT STREAM" title={t('진행 이벤트')} right={<span className="text-[11px] text-ink-soft">{events.length}건 · cursor 추적</span>}>
+        <Panel className="col-span-12 h-[380px] @5xl:col-span-7" kicker="EVENT STREAM" title={t('진행 이벤트')} right={<span className="text-[11px] text-ink-soft">{events.length}건 · cursor 추적</span>}>
           {evError ? <Problem error={evError} /> : <EventStream events={events} compact />}
         </Panel>
-        <Panel className="col-span-5 h-[380px]" kicker="NEXT ACTIONS" title={t('다음 행동 (서버 계산)')}>
+        <Panel className="col-span-12 h-[380px] @5xl:col-span-5" kicker="NEXT ACTIONS" title={t('다음 행동 (서버 계산)')}>
           <div className="scroll-thin h-full overflow-y-auto"><NextActions actions={planQ.data?.next_actions ?? []} ask={ask} /></div>
         </Panel>
 
-        <div className="col-span-12 flex items-center gap-2 pt-1"><span className="font-kdisplay text-[16px]">{t('환경 관측')}</span><span className="kicker">HTTP · 1m 창 · 15초마다</span></div>
-        <div className="col-span-12 grid grid-cols-2 gap-4">
-          {envs.map((e) => <EnvMetrics key={e.environment_id} env={e} />)}
-        </div>
+        <div className="col-span-12 flex flex-wrap items-center gap-2 pt-1"><span className="font-kdisplay text-[16px]">{t('환경 관측')}</span><span className="kicker">{t('실시간 · 관측 API 1m 창')}</span></div>
+        <div className="col-span-12"><LiveToolbar /></div>
+        <div className="col-span-12"><AlertStrip /></div>
+        <div className="col-span-12"><TrafficPanels compact /></div>
+        <div className="col-span-12"><StatePanels /></div>
 
-        <Panel className="col-span-6" kicker="REGISTRY" title={`등록된 환경 ${envs.length}`}>
+        <Panel className="col-span-12 @5xl:col-span-6" kicker="REGISTRY" title={`등록된 환경 ${envs.length}`}>
           <Table rows={envs} cols={[['environment_id', 'ID'], ['name', '이름'], ['kind', '종류'], ['roles', '역할'], ['registered_at', '등록']]} />
         </Panel>
-        <Panel className="col-span-6" kicker="REGISTRY" title={`등록된 앱 ${workloads.length}`}>
+        <Panel className="col-span-12 @5xl:col-span-6" kicker="REGISTRY" title={`등록된 앱 ${workloads.length}`}>
           <Table rows={workloads} cols={[['workload_id', 'ID'], ['name', '이름'], ['namespace', '네임스페이스'], ['source_environment_id', '출발지'], ['registered_at', '등록']]} />
         </Panel>
       </div>
@@ -318,15 +296,15 @@ export function Plans() {
               return (
                 <li key={r.plan_id}>
                   <button onClick={() => { setPlan(r.plan_id); setView('dashboard'); }}
-                    className={`flex w-full items-center gap-4 border-b border-dashed border-ink/20 px-4 py-3 text-left hover:bg-paper ${r.plan_id === plan ? 'bg-paper' : ''}`}>
-                    <span className="font-mono text-[12.5px] font-bold">{r.plan_id}</span>
-                    <span className="flex h-2.5 w-48 overflow-hidden rounded-full border-2 border-ink bg-cream">
+                    className={`flex w-full items-center gap-3 whitespace-nowrap border-b border-dashed border-ink/20 px-4 py-3 text-left hover:bg-paper @container ${r.plan_id === plan ? 'bg-paper' : ''}`}>
+                    <span className="min-w-0 truncate font-mono text-[12.5px] font-bold" title={r.plan_id}>{r.plan_id}</span>
+                    <span className="hidden h-2.5 w-[clamp(64px,22cqw,192px)] shrink-0 overflow-hidden rounded-full border-2 border-ink bg-cream @lg:flex">
                       <span className="bg-soba" style={{ width: `${Math.max(0, idx + 1) / MAIN_STAGES.length * 100}%` }} />
                     </span>
-                    <span className="font-kdisplay text-[13px]">{stageLabel(r.state)}</span>
-                    <span className="text-[11.5px] text-ink-soft">v{r.version}</span>
+                    <span className="shrink-0 font-kdisplay text-[13px]">{stageLabel(r.state)}</span>
+                    <span className="shrink-0 text-[11.5px] text-ink-soft">v{r.version}</span>
                     <div className="flex-1" />
-                    <span className="text-[11.5px] text-ink-soft">{ago(r.updated_at)}</span>
+                    <span className="shrink-0 text-[11.5px] text-ink-soft">{ago(r.updated_at)}</span>
                   </button>
                 </li>
               );
@@ -350,14 +328,22 @@ function SecuritySummary({ env }: { env: any }) {
 }
 
 export function Observe() {
+  const t = useT();
   const ctx = useTool('sova_get_context', {});
   const envs: any[] = ctx.data?.data?.environments ?? [];
+  const head = (title: string, kicker: string) => <div className="mb-2 mt-5 flex flex-wrap items-center gap-2 first:mt-0"><span className="font-kdisplay text-[16px]">{title}</span><span className="kicker">{kicker}</span></div>;
   return (
-    <div className="scroll-thin h-full overflow-y-auto p-5">
-      <div className="mb-3 flex items-center gap-2"><span className="font-kdisplay text-[16px]">HTTP 관측</span><span className="kicker">RPS · 오류율 · p95</span></div>
-      <div className="grid grid-cols-2 gap-4">{envs.map((e) => <EnvMetrics key={e.environment_id} env={e} />)}</div>
-      <div className="mb-3 mt-6 flex items-center gap-2"><span className="font-kdisplay text-[16px]">보안 발견</span><span className="kicker">고객 환경의 비신뢰 데이터</span></div>
-      <div className="grid grid-cols-2 gap-4">{envs.map((e) => <SecuritySummary key={e.environment_id} env={e} />)}</div>
+    <div className="scroll-thin @container h-full overflow-y-auto p-5">
+      <div className="sticky -top-5 z-20 -mx-5 -mt-5 mb-3 border-b-2 border-ink bg-cream/95 px-5 py-2.5 backdrop-blur"><LiveToolbar /></div>
+      <AlertStrip />
+      {head(t('트래픽'), t('RPS · p95 · 오류율 — 드래그로 구간 하이라이트'))}
+      <TrafficPanels />
+      {head(t('데이터 경로'), t('논리 복제 지연 · PgBouncer'))}
+      <DataPanels />
+      {head(t('구성 요소 상태'), t('DB · 복제 슬롯 · 풀러'))}
+      <StatePanels />
+      {head(t('보안 발견'), t('고객 환경의 비신뢰 데이터'))}
+      <div className="grid grid-cols-1 gap-4 @4xl:grid-cols-2">{envs.map((e) => <SecuritySummary key={e.environment_id} env={e} />)}</div>
     </div>
   );
 }
@@ -367,11 +353,11 @@ export function Guide({ ask }: { ask: (q: string) => void }) {
   const glossary = useQuery({ queryKey: ['res', 'glossary'], queryFn: async () => JSON.parse((await sova.resource('sova://glossary')) ?? '{}') });
   const steps: any[] = flow.data ?? [];
   return (
-    <div className="scroll-thin h-full overflow-y-auto">
-      <div className="sunburst relative overflow-hidden border-b-2 border-ink px-8 py-8">
-        <img src={hero} alt="" className="pointer-events-none absolute -right-10 top-0 h-full opacity-95" style={{ maskImage: 'linear-gradient(90deg, transparent, #000 30%)' }} />
+    <div className="scroll-thin @container h-full overflow-y-auto">
+      <div className="sunburst relative overflow-hidden border-b-2 border-ink px-[clamp(20px,4cqw,32px)] py-8">
+        <img src={hero} alt="" className="pointer-events-none absolute -right-10 top-0 hidden h-full opacity-95 @4xl:block" style={{ maskImage: 'linear-gradient(90deg, transparent, #000 30%)' }} />
         <div className="relative max-w-[560px]">
-          <div className="wordmark text-[44px]">처음 오셨나요?</div>
+          <div className="wordmark text-[clamp(30px,6cqw,44px)]">처음 오셨나요?</div>
           <p className="mt-4 inline-block rounded-xl border-2 border-ink bg-cream px-4 py-2.5 font-kdisplay text-[17px] shadow-pop">止めない。こぼさない。味はそのまま。</p>
           <p className="mt-3 max-w-[480px] text-[13.5px] font-semibold text-cream [text-shadow:1px_1px_0_#1b1b1b]">
             멈추지 않고, 흘리지 않고, 맛은 그대로. 운영 중인 서비스를 클라우드 밖으로 옮기는 여덟 단계입니다. 사람이 결정하는 곳에는 빨간 표시가 있어요.
@@ -379,13 +365,13 @@ export function Guide({ ask }: { ask: (q: string) => void }) {
           <button className="btn btn-mustard mt-4" onClick={() => ask('SOVA가 처음이에요. 8단계를 쉽게 설명하고 지금 우리 상태에서 첫 행동을 알려 주세요.')}><Sparkles size={15} /> 안내자에게 설명 듣기</button>
         </div>
       </div>
-      <div className="grid grid-cols-4 gap-4 p-6">
-        {flow.isError || (!flow.isLoading && !steps.length) ? <div className="col-span-4"><Problem error={new Error('안내 자료를 읽지 못했습니다. 연결 설정을 확인하세요.')} /></div> : null}
+      <div className="grid grid-cols-1 gap-4 p-6 @xl:grid-cols-2 @5xl:grid-cols-4">
+        {flow.isError || (!flow.isLoading && !steps.length) ? <div className="col-span-full"><Problem error={new Error('안내 자료를 읽지 못했습니다. 연결 설정을 확인하세요.')} /></div> : null}
         {steps.map((s) => (
           <div key={s.step} className="panel relative flex flex-col gap-2 p-4">
             <span className="absolute -left-2 -top-3 grid h-9 w-9 place-items-center rounded-full border-2 border-ink bg-mustard font-display text-[15px] shadow-pop-sm">{s.step}</span>
-            <div className="mt-1 flex items-center gap-2"><h3 className="font-kdisplay text-[17px]">{s.name}</h3>
-              {/사람|확인|선택/.test(s.human) && <span className="rounded bg-red px-1.5 text-[10px] font-black text-cream">사람</span>}</div>
+            <div className="mt-1 flex items-start gap-2"><h3 className="min-w-0 font-kdisplay text-[17px] leading-snug">{s.name}</h3>
+              {/사람|확인|선택/.test(s.human) && <span className="mt-0.5 shrink-0 whitespace-nowrap rounded bg-red px-1.5 text-[10px] font-black text-cream">사람</span>}</div>
             <p className="text-[12.5px] leading-relaxed">{s.purpose}</p>
             <div className="mt-auto space-y-1 border-t-2 border-dashed border-ink/30 pt-2 text-[11.5px]">
               <div><b>완료</b> {s.done}</div>
@@ -462,6 +448,15 @@ export function ConnectionForm({ s, save }: { s: Settings; save: (p: Partial<Set
       <p className="col-span-2 flex items-center gap-1.5 text-[11.5px] text-ink-soft">
         <ExternalLink size={12} /> 요청마다 SSO 세션으로 60초짜리 STS 서명 증명(audience sova-mcp)을 만들어 붙입니다. 자격 값은 저장하지 않습니다.
       </p>
+      <div className="col-span-2 mt-2 border-t-2 border-dashed border-ink/25 pt-3 font-kdisplay text-[13px]">사람 승인 호스트</div>
+      <Field label="승인 호스트 (tailnet)" value={s.approvalHost} onSave={(v) => save({ approvalHost: v })} placeholder="bravo-approval.<tailnet>.ts.net" mono />
+      <Field label="인증서 이름" value={s.approvalServerName} onSave={(v) => save({ approvalServerName: v })} mono />
+      <label className="col-span-2 flex flex-col gap-1">
+        <span className="kicker">승인 호스트 인증서 (공개 PEM, 고정)</span>
+        <textarea defaultValue={s.approvalCert} rows={3} spellCheck={false} onBlur={(e) => void save({ approvalCert: e.target.value.trim() })}
+          placeholder="-----BEGIN CERTIFICATE-----" className="rounded-lg border-2 border-ink bg-[#fffaf0] px-2.5 py-1.5 font-mono text-[11px] outline-none" />
+      </label>
+      <p className="col-span-2 text-[11.5px] text-ink-soft">SHIFT 승인 등 사람 결정은 MCP를 거치지 않고 이 호스트로 직접 보냅니다(SSO 증명 audience bravo-platform-operator). 안내자는 승인할 수 없습니다.</p>
     </div>
   );
 }
@@ -480,22 +475,54 @@ function Field({ label, value, onSave, placeholder, mono }: { label: string; val
 }
 
 export function AgentModels() {
+  const qc = useQueryClient();
   const { data } = useModels();
+  const settings = useQuery({ queryKey: ['settings'], queryFn: () => sova.settings() });
   const auth = useQuery({ queryKey: ['agentAuth'], queryFn: () => sova.agentAuth(false) });
+  const key = useQuery({ queryKey: ['openaiKey'], queryFn: () => sova.openaiKey('status') });
   const [msg, setMsg] = useState('');
+  const [draft, setDraft] = useState('');
+  const mode = settings.data?.agentAuth ?? 'chatgpt';
+  const setMode = async (m: 'chatgpt' | 'apikey') => { await sova.saveSettings({ agentAuth: m }); await qc.invalidateQueries(); };
+  const models = (data?.models ?? []).filter((m) => mode !== 'apikey' || m.api);
   return (
-    <div className="flex flex-col gap-2 p-4 text-[12.5px]">
-      <div className="flex items-center gap-2 rounded-lg border-2 border-ink bg-paper px-2.5 py-1.5">
-        <span className={`h-2.5 w-2.5 rounded-full border border-ink ${auth.data?.ok ? 'bg-wasabi' : 'bg-red'}`} />
-        <span className="flex-1 truncate">{auth.data?.ok ? 'ChatGPT 계정으로 로그인됨' : 'ChatGPT 로그인이 필요합니다'}</span>
-        <button className="btn !py-0.5 text-[11px]" onClick={async () => { setMsg('브라우저에서 로그인을 마쳐 주세요…'); const r = await sova.agentAuth(true); setMsg(r.message); await auth.refetch(); }}>
-          {auth.data?.ok ? '다시 로그인' : 'ChatGPT로 로그인'}</button>
+    <div className="flex flex-col gap-3 p-4 text-[12.5px]">
+      <div className="flex overflow-hidden rounded-lg border-2 border-ink">
+        {([['chatgpt', 'ChatGPT 계정'], ['apikey', 'OpenAI API 키']] as const).map(([m, l]) => (
+          <button key={m} onClick={() => void setMode(m)} className={`flex-1 border-r-2 border-ink py-1.5 font-bold last:border-r-0 ${mode === m ? 'bg-mustard' : 'bg-[#fffaf0] hover:bg-paper'}`}>{l}</button>
+        ))}
       </div>
-      {msg && <p className="text-[11.5px] text-ink-soft">{msg}</p>}
-      <p>앱에 내장된 OpenAI Codex 런타임(Codex SDK)을 이 기기의 <b>ChatGPT 계정</b>으로 실행합니다. API 키·플랫폼 키를 쓰지 않으며, 앱은 토큰을 읽거나 저장하지 않습니다.</p>
-      <p className="text-ink-soft">기본 모델: <b className="font-mono">{data?.defaultModel ?? '—'}</b> · 사용 가능 {data?.models.length ?? 0}개. 대화마다 입력창의 모델·추론 메뉴에서 바꿉니다.</p>
+      {mode === 'chatgpt' ? (
+        <>
+          <div className="flex items-center gap-2 rounded-lg border-2 border-ink bg-paper px-2.5 py-1.5">
+            <span className={`h-2.5 w-2.5 rounded-full border border-ink ${auth.data?.ok ? 'bg-wasabi' : 'bg-red'}`} />
+            <span className="flex-1 truncate">{auth.data?.ok ? 'ChatGPT 계정으로 로그인됨' : 'ChatGPT 로그인이 필요합니다'}</span>
+            <button className="btn !py-0.5 text-[11px]" onClick={async () => { setMsg('브라우저에서 로그인을 마쳐 주세요…'); const r = await sova.agentAuth(true); setMsg(r.message); await auth.refetch(); }}>
+              {auth.data?.ok ? '다시 로그인' : 'ChatGPT로 로그인'}</button>
+          </div>
+          <p className="text-ink-soft">앱에 내장된 OpenAI Codex 런타임을 ChatGPT 구독으로 실행합니다. 앱은 토큰을 읽거나 저장하지 않습니다.</p>
+        </>
+      ) : (
+        <>
+          <div className="flex items-center gap-2 rounded-lg border-2 border-ink bg-paper px-2.5 py-1.5">
+            <span className={`h-2.5 w-2.5 rounded-full border border-ink ${key.data?.configured ? 'bg-wasabi' : 'bg-red'}`} />
+            <span className="flex-1 truncate">{key.data?.configured ? `API 키 저장됨 · sk-…${key.data.last4} · 키체인 암호화` : 'OpenAI API 키가 없습니다'}</span>
+            {key.data?.configured && <button className="btn !py-0.5 text-[11px]" onClick={async () => { await sova.openaiKey('clear'); setMsg('키를 지웠습니다.'); await key.refetch(); }}>지우기</button>}
+          </div>
+          <div className="flex gap-2">
+            <input type="password" value={draft} onChange={(e) => setDraft(e.target.value)} placeholder="sk-…" autoComplete="off" spellCheck={false}
+              className="min-w-0 flex-1 rounded-lg border-2 border-ink bg-[#fffaf0] px-2.5 py-1.5 font-mono text-[12px] outline-none" />
+            <button className="btn btn-red" disabled={!draft.trim()} onClick={async () => {
+              setMsg('OpenAI에서 키를 확인하는 중…'); const r = await sova.openaiKey('save', draft); setDraft(''); setMsg(r.message ?? ''); await key.refetch(); await qc.invalidateQueries({ queryKey: ['models'] });
+            }}>확인 후 저장</button>
+          </div>
+          <p className="text-ink-soft">저장 전에 OpenAI API(<code>/v1/models</code>, 과금 없음)로 키를 확인합니다. 키는 macOS 키체인으로 암호화해 이 기기에만 두고, 화면·로그·설정 파일에 내보내지 않습니다. 사용량은 OpenAI API로 청구됩니다.</p>
+        </>
+      )}
+      {msg && <p className="text-[11.5px] font-semibold">{msg}</p>}
+      <p className="text-ink-soft">기본 모델: <b className="font-mono">{data?.defaultModel ?? '—'}</b> · {mode === 'apikey' ? 'API 지원' : '사용 가능'} {models.length}개.</p>
       <ul className="scroll-thin max-h-40 overflow-y-auto rounded-lg border-2 border-ink/20">
-        {(data?.models ?? []).map((m) => (
+        {models.map((m) => (
           <li key={m.slug} className="flex items-center gap-2 border-b border-dashed border-ink/15 px-2.5 py-1.5 last:border-0">
             <b>{m.label}</b><span className="truncate text-[11px] text-ink-soft">{m.efforts.map((e) => EFFORT_LABEL[e.id]).join(' · ')}</span>
             {m.fast && <span className="ml-auto rounded bg-mustard px-1 text-[10px] font-bold">Fast</span>}

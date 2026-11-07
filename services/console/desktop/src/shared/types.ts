@@ -18,6 +18,10 @@ export interface Settings {
   onboarded: boolean;
   gcpProject: string;     // console entry (Google account picks itself in the browser)
   tailnet: string;        // Tailscale admin tailnet name for the on-prem destination
+  agentAuth: 'chatgpt' | 'apikey'; // guide runs on the ChatGPT login or the person's OpenAI API key
+  approvalHost: string;   // tailnet name of the T15 approval host (bravo-approval.<tailnet>.ts.net)
+  approvalServerName: string; // its certificate name (in-cluster Service DNS)
+  approvalCert: string;   // its self-signed certificate (public PEM), pinned
 }
 export interface LinkStatus { connected: boolean; url: string; readOnly: boolean; code?: string; tools: string[]; checkedAt: string }
 
@@ -38,7 +42,7 @@ export const EFFORT_LABEL: Record<Effort, string> = { low: 'Light', medium: 'Med
 export const EFFORT_ORDER: Effort[] = ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'];
 export interface ModelInfo {
   slug: string; label: string; description: string; efforts: { id: Effort; note: string }[]; defaultEffort: Effort;
-  contextWindow?: number; fast: { name: string; description: string } | null;
+  contextWindow?: number; fast: { name: string; description: string } | null; api: boolean;
 }
 export interface TurnOptions { sessionId?: string; model: string; effort: Effort; fast: boolean; fork?: boolean }
 export interface PromptInfo { name: string; title?: string; description?: string; args: { name: string; required?: boolean }[] }
@@ -58,6 +62,8 @@ export interface SovaApi {
   prompts(): Promise<PromptInfo[]>;
   models(): Promise<{ models: ModelInfo[]; defaultModel: string | null }>;
   agentAuth(login: boolean): Promise<{ ok: boolean; message: string }>;
+  approval(action: 'run-state' | 'approve-shift', planId: string, expectedVersion?: number): Promise<{ ok: boolean; status: number; body: any }>;
+  openaiKey(action: 'status' | 'save' | 'clear', key?: string): Promise<{ ok?: boolean; message?: string; configured: boolean; last4: string | null; encrypted: boolean }>;
   awsProfile(): Promise<{ startUrl?: string; accountId?: string; roleName?: string; region?: string }>;
   prompt(name: string, args: Record<string, string>): Promise<string | null>;
   agentStop(conv: string): Promise<void>;

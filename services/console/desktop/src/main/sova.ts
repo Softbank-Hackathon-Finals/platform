@@ -82,10 +82,24 @@ export class SovaLink {
       const v = req.headers[h]; if (typeof v === 'string') headers[h] = v;
     }
     try {
-      const up = await fetch(this.upstream(), {
+      const send = () => fetch(this.upstream(), {
         method: req.method, headers, body: chunks.length ? Buffer.concat(chunks) : undefined,
         redirect: 'manual', signal: AbortSignal.timeout(30_000),
       });
+      // Retry only what never ran: a 503 identity_unavailable is refused before any tool (STS check timed out),
+      // and a refused connection (pod restarting) never reached the server. A broken read may also retry.
+      let up: Response | undefined;
+      for (const wait of [0, 600, 1800]) {
+        if (wait) await new Promise((r) => setTimeout(r, wait));
+        try { up = await send(); } catch (e) {
+          if (wait === 1800 || (write && !String((e as any)?.cause?.code).startsWith('ECONNREFUSED'))) throw e;
+          continue;
+        }
+        if (up.status !== 503 || wait === 1800) break;
+        const code = await up.clone().json().then((j) => j?.detail?.code, () => undefined);
+        if (code !== 'identity_unavailable') break;
+      }
+      if (!up) throw new Error('unreachable');
       this.lastCode = up.ok ? undefined : `upstream_${up.status}`;
       const out: Record<string, string> = {};
       for (const h of ['content-type', 'mcp-session-id', 'www-authenticate']) { const v = up.headers.get(h); if (v) out[h] = v; }

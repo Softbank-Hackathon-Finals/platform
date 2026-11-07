@@ -15,6 +15,7 @@ export function codexModels(): ModelInfo[] {
       efforts: (m.supported_reasoning_levels ?? []).map((l: any) => ({ id: l.effort, note: l.description ?? '' })),
       defaultEffort: m.default_reasoning_level ?? 'medium', contextWindow: m.context_window,
       fast: (m.service_tiers ?? []).find((t: any) => t.id === 'priority') ?? null,
+      api: m.supported_in_api !== false,
     }));
   } catch { return []; }
 }

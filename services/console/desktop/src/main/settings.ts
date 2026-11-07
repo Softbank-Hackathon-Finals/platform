@@ -5,7 +5,8 @@ import type { Settings } from '../shared/types';
 
 const DEFAULTS: Settings = {
   mcpUrl: '', awsProfile: 'bravo-operator', awsRegion: 'ap-northeast-2', readOnly: true, planScope: '',
-  model: '', devToken: '', onboarded: false, gcpProject: '', tailnet: '',
+  model: '', devToken: '', onboarded: false, gcpProject: '', tailnet: '', agentAuth: 'chatgpt',
+  approvalHost: '', approvalServerName: 't15-rehearsal-host.platform-state.svc', approvalCert: '',
 };
 const file = () => join(app.getPath('userData'), 'settings.json');
 

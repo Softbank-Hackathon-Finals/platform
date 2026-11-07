@@ -9,6 +9,7 @@ import { existsSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import type { AgentEvent, TurnOptions } from '../shared/types';
 import { codexDefaultModel, codexModels, personalMcpServers } from './models';
+import { readKey } from './openai-key';
 import type { SovaLink } from './sova';
 
 const SYSTEM = `You are the guide inside SOVA Console, a desktop console for SOVA (Sovereign Open Vendor-neutral Architecture):
@@ -35,9 +36,12 @@ const OFF = ['shell_tool', 'apps', 'plugins', 'browser_use', 'browser_use_extern
 export class Agents {
   private running = new Map<string, AbortController>();
   private pending = new Map<string, (allow: boolean) => void>();
-  private clients = new Map<boolean, Codex>();
+  private clients = new Map<string, Codex>();
 
-  constructor(private link: SovaLink, private emit: (e: AgentEvent) => void) {}
+  constructor(private link: SovaLink, private emit: (e: AgentEvent) => void, private auth: () => 'chatgpt' | 'apikey' = () => 'chatgpt') {}
+
+  /** Drop cached runtimes after the sign-in mode or API key changes. */
+  reset() { this.clients.clear(); }
 
   /** Called by the loopback link for a confirming write call; resolves on the person's click. */
   ask(name: string, input: Record<string, unknown>): Promise<boolean> {
@@ -53,7 +57,11 @@ export class Agents {
   async stop(conv: string) { this.running.get(conv)?.abort(); }
 
   private client(fast: boolean) {
-    const cached = this.clients.get(fast);
+    const mode = this.auth();
+    const apiKey = mode === 'apikey' ? readKey() : null;
+    if (mode === 'apikey' && !apiKey) throw new Error('OpenAI API 키가 없습니다. 설정 › 안내자에서 키를 저장하세요.');
+    const slot = `${mode}:${fast}`;
+    const cached = this.clients.get(slot);
     if (cached) return cached;
     const config: Record<string, any> = {
       ...(fast ? { service_tier: 'priority' } : {}),
@@ -66,9 +74,11 @@ export class Agents {
       model_reasoning_summary: 'auto',
     };
     const rt = codexRuntime();
-    const env = { ...process.env, PATH: `${rt.path}:${process.env.PATH ?? '/usr/bin:/bin'}`, SOVA_LOCAL_SECRET: this.link.secret };
-    const codex = new Codex({ codexPathOverride: rt.bin, config, env: env as Record<string, string> });
-    this.clients.set(fast, codex);
+    const env: Record<string, string | undefined> = { ...process.env, PATH: `${rt.path}:${process.env.PATH ?? '/usr/bin:/bin'}`, SOVA_LOCAL_SECRET: this.link.secret };
+    delete env.CODEX_API_KEY; delete env.OPENAI_API_KEY; // only the mode chosen in settings decides billing
+    // API-key mode: the SDK passes the key to the runtime as CODEX_API_KEY (OpenAI API billing, not ChatGPT).
+    const codex = new Codex({ codexPathOverride: rt.bin, config, env: env as Record<string, string>, ...(apiKey ? { apiKey } : {}) });
+    this.clients.set(slot, codex);
     return codex;
   }
 
@@ -76,12 +86,19 @@ export class Agents {
     if (this.running.has(conv)) throw new Error('agent_busy');
     const cwd = join(app.getPath('userData'), 'agent-workspace');
     mkdirSync(cwd, { recursive: true });
-    const model = opts.model || codexDefaultModel() || codexModels()[0]?.slug;
+    const usable = codexModels().filter((m) => this.auth() !== 'apikey' || m.api);
+    const preferred = opts.model || codexDefaultModel();
+    const model = (usable.some((m) => m.slug === preferred) ? preferred : usable[0]?.slug) ?? undefined;
     const options = {
       model, modelReasoningEffort: opts.effort as any, sandboxMode: 'read-only' as const, workingDirectory: cwd,
       skipGitRepoCheck: true, approvalPolicy: 'never' as const, networkAccessEnabled: false, webSearchEnabled: false,
     };
-    const codex = this.client(opts.fast);
+    let codex: Codex;
+    try { codex = this.client(opts.fast); } catch (e) {
+      this.emit({ conv, type: 'error', message: (e as Error).message });
+      this.emit({ conv, type: 'done' });
+      return;
+    }
     const thread: Thread = opts.sessionId ? codex.resumeThread(opts.sessionId, options) : codex.startThread(options);
     const abort = new AbortController();
     this.running.set(conv, abort);

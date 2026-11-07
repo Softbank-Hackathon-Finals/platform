@@ -8,7 +8,7 @@ export function Mark({ size = 40, dipping = false }: { size?: number; dipping?: 
   return <img src={markImg} width={size} height={size} alt="" draggable={false} className={`shrink-0 ${dipping ? 'dip' : ''}`} />;
 }
 
-export function Wordmark({ size = 34 }: { size?: number }) {
+export function Wordmark({ size = 34 }: { size?: number | string }) {
   return <span className="wordmark" style={{ fontSize: size }}>SOVA</span>;
 }
 
@@ -49,22 +49,6 @@ export function StatusBadge({ status }: { status: Status | string }) {
   return <span className={`inline-flex items-center whitespace-nowrap rounded-md border-2 border-ink px-1.5 py-[1px] text-[11px] font-extrabold ${s.cls}`}>{s.label}</span>;
 }
 
-export function Sparkline({ values, width = 120, height = 32, color = '#1E88D9' }: { values: number[]; width?: number; height?: number; color?: string }) {
-  if (values.length < 2) {
-    return <svg width={width} height={height}><line x1="0" x2={width} y1={height - 2} y2={height - 2} stroke="#1B1B1B" strokeDasharray="3 4" strokeOpacity=".35" /></svg>;
-  }
-  const max = Math.max(...values), min = Math.min(...values), span = max - min || 1;
-  const pts = values.map((v, i) => [(i / (values.length - 1)) * (width - 4) + 2, height - 3 - ((v - min) / span) * (height - 8)]);
-  const d = pts.map(([x, y], i) => `${i ? 'L' : 'M'}${x.toFixed(1)} ${y.toFixed(1)}`).join(' ');
-  return (
-    <svg width={width} height={height} aria-hidden>
-      <path d={`${d} L${pts.at(-1)![0]} ${height} L2 ${height} Z`} fill={color} fillOpacity=".14" />
-      <path d={d} stroke={color} strokeWidth="2.4" fill="none" strokeLinejoin="round" strokeLinecap="round" />
-      <circle cx={pts.at(-1)![0]} cy={pts.at(-1)![1]} r="3.2" fill={color} stroke="#1B1B1B" strokeWidth="1.5" />
-    </svg>
-  );
-}
-
 export const MAIN_STAGES = [
   ['COLLECT', '수집'], ['ANALYZE', '분석'], ['PROPOSE', '제안'], ['REHEARSE', '리허설'], ['GATE', '원본 대조'],
   ['AWAIT_APPROVAL', '승인 대기'], ['SHIFT', '전환'], ['CUTOVER', '컷오버'], ['WATCH', '관찰'], ['DONE', '완료'],
@@ -86,7 +70,7 @@ export function StageRail({ state }: { state?: string }) {
     return `${i ? 'L' : 'M'}${x.toFixed(1)} ${(30 + Math.sin(i * 0.9) * 4).toFixed(1)}`;
   }).join(' ');
   return (
-    <div className="relative px-6 pt-12 pb-3">
+    <div className="@container relative px-6 pt-12 pb-3">
       <svg viewBox={`0 0 ${W} 60`} preserveAspectRatio="none" className="absolute inset-x-6 top-12 h-[60px] w-[calc(100%-48px)]">
         <path d={wave} stroke="#1B1B1B" strokeWidth="9" fill="none" strokeLinecap="round" />
         <path d={wave} stroke="#D6C3A6" strokeWidth="5" fill="none" strokeLinecap="round" />
@@ -112,7 +96,7 @@ export function StageRail({ state }: { state?: string }) {
                   {done ? '✓' : i + 1}
                 </span>
               </span>
-              <span className={`text-center text-[11px] leading-tight ${now ? 'font-kdisplay text-[13px]' : done ? 'font-bold text-ink-soft' : 'text-ink-soft'}`}>{t(label)}</span>
+              <span className={`whitespace-nowrap text-center leading-tight ${now ? 'font-kdisplay text-[clamp(11px,1.6cqw,13px)]' : `text-[clamp(9px,1.3cqw,11px)] ${done ? 'font-bold text-ink-soft' : 'text-ink-soft'}`}`}>{t(label)}</span>
               {HUMAN.has(key) && <span className="rounded-sm bg-red px-1 text-[9px] font-black text-cream">{t('사람')}</span>}
             </li>
           );

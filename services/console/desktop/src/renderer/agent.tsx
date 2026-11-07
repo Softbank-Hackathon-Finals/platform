@@ -284,7 +284,9 @@ export function useModels() {
 function IntelligencePicker({ conv, update }: { conv: Conversation; update: (p: Partial<Conversation>) => void }) {
   const [open, setOpen] = useState(false);
   const { data } = useModels();
-  const models = data?.models ?? [];
+  const settings = useQuery({ queryKey: ['settings'], queryFn: () => sova.settings() });
+  const apiMode = settings.data?.agentAuth === 'apikey';
+  const models = (data?.models ?? []).filter((m) => !apiMode || m.api);
   const model = models.find((m) => m.slug === (conv.model || data?.defaultModel)) ?? models[0];
   const efforts = model?.efforts.map((e) => e.id) ?? EFFORT_ORDER.slice(0, 5);
   const lvl = Math.max(0, efforts.indexOf(conv.effort));
@@ -296,14 +298,14 @@ function IntelligencePicker({ conv, update }: { conv: Conversation; update: (p: 
     update({ ...p, effort, fast: next && !next.fast ? false : p.fast ?? conv.fast, items: [...conv.items, ...note] });
   };
   return (
-    <div className="relative">
+    <div className="relative min-w-0">
       <button onClick={() => setOpen(!open)} title="추론 수준 선택 · ⌘⇧E로 전환"
-        className="flex items-center gap-1.5 whitespace-nowrap rounded-full border-2 border-ink bg-[#fffaf0] px-2 py-0.5 text-[11.5px] font-bold hover:bg-mustard">
-        {conv.fast && <Zap size={12} className="text-red" fill="currentColor" />}{model?.label ?? '모델'} <EffortBars level={lvl} n={efforts.length} /> {EFFORT_LABEL[conv.effort]}
+        className="flex max-w-full items-center gap-1.5 whitespace-nowrap rounded-full border-2 border-ink bg-[#fffaf0] px-2 py-0.5 text-[11.5px] font-bold hover:bg-mustard">
+        {conv.fast && <Zap size={12} className="shrink-0 text-red" fill="currentColor" />}<span className="min-w-0 truncate">{model?.label ?? '모델'}</span> <EffortBars level={lvl} n={efforts.length} /> <span className="hidden @[400px]:inline">{EFFORT_LABEL[conv.effort]}</span>
         <ChevronUp size={12} />
       </button>
       <Popover open={open} onClose={() => setOpen(false)} className="left-[-110px] w-[350px] overflow-hidden">
-        <div className="kicker flex items-center border-b-2 border-ink bg-mustard px-3 py-1.5 !text-ink">모델 선택<span className="ml-auto normal-case tracking-normal">ChatGPT 계정</span></div>
+        <div className="kicker flex items-center border-b-2 border-ink bg-mustard px-3 py-1.5 !text-ink">모델 선택<span className="ml-auto normal-case tracking-normal">{apiMode ? 'OpenAI API 키' : 'ChatGPT 계정'}</span></div>
         <div className="scroll-thin max-h-[220px] overflow-y-auto">
           {models.length === 0 && <p className="p-3 text-[12px] text-ink-soft">모델을 불러올 수 없습니다. 터미널에서 <code>codex login</code>으로 ChatGPT에 로그인하세요.</p>}
           {models.map((m) => (
@@ -348,7 +350,7 @@ function ApprovalPicker() {
   return (
     <div className="relative">
       <button onClick={() => setOpen(!open)} className="flex items-center gap-1.5 whitespace-nowrap rounded-full border-2 border-ink bg-[#fffaf0] py-0.5 pl-0.5 pr-2 text-[11px] font-bold hover:bg-mustard">
-        <Stamp size={20}>{readOnly ? '冷' : '書'}</Stamp>{readOnly ? '읽기 전용' : '등록 허용'}<ChevronUp size={12} />
+        <Stamp size={20}>{readOnly ? '冷' : '書'}</Stamp><span className="hidden @[380px]:inline">{readOnly ? '읽기 전용' : '등록 허용'}</span><ChevronUp size={12} />
       </button>
       <Popover open={open} onClose={() => setOpen(false)} className="left-0 w-[300px] overflow-hidden">
         <div className="border-b-2 border-ink bg-mustard px-3 py-2 font-kdisplay text-[13px]">SOVA 작업을 어떻게 승인할까요?</div>
@@ -514,7 +516,7 @@ export function AgentPanel() {
   const ctxPct = conv?.context?.total ? Math.round((conv.context.used / conv.context.total) * 100) : null;
 
   return (
-    <aside className="flex w-[440px] shrink-0 flex-col border-l-2 border-ink bg-[#fffaf0]">
+    <aside className="@container flex w-[clamp(340px,30vw,440px)] shrink-0 flex-col border-l-2 border-ink bg-[#fffaf0]">
       <header className="drag flex h-[58px] shrink-0 items-center gap-2.5 border-b-2 border-ink bg-cream px-4">
         <Mark size={30} dipping={conv?.busy} />
         <div className="min-w-0 flex-1 leading-tight">
@@ -522,7 +524,7 @@ export function AgentPanel() {
             {conv?.busy && <span className="inline-block h-3 w-3 shrink-0 animate-spin rounded-full border-2 border-cold border-t-transparent" aria-label="작업 중" />}
             <span className="truncate">{conv ? conv.title : t('SOVA 안내자')}</span>
           </div>
-          <div className="truncate text-[10.5px] text-ink-soft">OpenAI Codex SDK · ChatGPT 계정 · SOVA MCP 기본 탑재{conv?.sessionId ? ' · 세션 이어짐' : ''}</div>
+          <div className="truncate text-[10.5px] text-ink-soft">OpenAI Codex SDK · SOVA MCP 기본 탑재{conv?.sessionId ? ' · 세션 이어짐' : ''}</div>
         </div>
         <button className="no-drag btn !px-1.5" aria-label="채팅에서 찾기 (⌘F)" onClick={() => setFind((f) => ({ ...f, open: !f.open }))}><Search size={14} /></button>
       </header>
@@ -614,7 +616,7 @@ export function AgentPanel() {
             }}
             placeholder={t(conv?.busy ? '작업 중에 보내면 대기열에 넣습니다 · ⌘↩ 지금 조정' : 'SOVA에게 뭐든 물어봐. /로 명령, @로 계획·환경 언급')}
             className="w-full resize-none bg-transparent px-3.5 pt-3 text-[13px] outline-none" />
-          <div className="flex items-center gap-1.5 px-2.5 pb-2.5">
+          <div className="flex min-w-0 items-center gap-1.5 px-2.5 pb-2.5">
             <ApprovalPicker />
             {conv ? <IntelligencePicker conv={conv} update={update} /> : null}
             <div className="flex-1" />

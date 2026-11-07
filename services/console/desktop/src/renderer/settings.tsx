@@ -122,7 +122,7 @@ export function SettingsPage({ initial = 'general' as Section }) {
             <div className="kicker px-2 pb-1">{t(g.heading)}</div>
             {g.items.map(([id, label, icon]) => (
               <button key={id} onClick={() => setSection(id)} className={`flex w-full items-center gap-2 rounded-lg border-2 px-2.5 py-1.5 text-left text-[13px] font-semibold ${section === id ? 'border-ink bg-mustard shadow-pop-sm' : 'border-transparent hover:bg-cream'}`}>
-                {icon} {t(label)}
+                {icon} <span className="min-w-0 truncate" title={t(label)}>{t(label)}</span>
               </button>
             ))}
           </div>

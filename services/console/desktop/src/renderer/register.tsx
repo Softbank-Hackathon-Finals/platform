@@ -127,22 +127,35 @@ function WorkloadForm({ envs, releases }: { envs: any[]; releases: any[] }) {
   );
 }
 
-function PlanForm({ envs, workloads, profiles }: { envs: any[]; workloads: any[]; profiles: any[] }) {
+// Same name registered several times: newest first, and every option says which registration it is.
+const newest = (rows: any[]) => [...rows].sort((x, y) => String(y.registered_at).localeCompare(String(x.registered_at)));
+const when = (iso?: string) => (iso ? new Date(iso).toLocaleString([], { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '');
+
+function PlanForm({ envs, workloads, profiles, lastPlan }: { envs: any[]; workloads: any[]; profiles: any[]; lastPlan?: string }) {
   const r = useRegister('plan');
-  const targets = envs.filter((e) => e.roles?.includes('target'));
-  const [f, setF] = useState({ workload_id: workloads[0]?.workload_id ?? '', target_environment_id: targets[0]?.environment_id ?? '',
-    profile: profiles[0] ? `${profiles[0].profile_id}@${profiles[0].profile_version}` : '' });
+  const apps = newest(workloads);
+  const targets = newest(envs.filter((e) => e.roles?.includes('target')));
+  // Default to what the latest plan used (the inputs the platform last ran), else the newest registrations.
+  const last = useTool('sova_get_plan', lastPlan ? { plan_id: lastPlan } : null).data?.data;
+  const pick = (rows: any[], key: string, want?: string) => rows.find((x) => x[key] === want)?.[key] ?? rows[0]?.[key] ?? '';
+  const defaults = {
+    workload_id: pick(apps, 'workload_id', last?.workload_id),
+    target_environment_id: pick(targets, 'environment_id', last?.target_environment_id),
+    profile: (() => { const p = profiles.find((x) => x.profile_id === last?.profile_id && String(x.profile_version) === String(last?.profile_version)) ?? profiles[0]; return p ? `${p.profile_id}@${p.profile_version}` : ''; })(),
+  };
+  const [edit, setF] = useState<Partial<typeof defaults>>({});
+  const f = { ...defaults, ...edit };
   const [pid, pver] = f.profile.split('@');
   return (
     <Card icon={<Route size={16} />} step={3} title="이전 계획" desc="앱과 목적지를 고르면 계획을 만듭니다. 같은 입력은 같은 계획 digest가 됩니다. 이후 단계는 워크플로 호스트가 진행합니다.">
-      <div className="grid grid-cols-3 gap-3">
-        <Field label="앱"><select className={input} value={f.workload_id} onChange={(e) => setF({ ...f, workload_id: e.target.value })}>
-          {workloads.length === 0 && <option value="">먼저 앱을 등록하세요</option>}
-          {workloads.map((w) => <option key={w.workload_id} value={w.workload_id}>{w.name ?? w.workload_id}</option>)}</select></Field>
-        <Field label="목적지 환경"><select className={input} value={f.target_environment_id} onChange={(e) => setF({ ...f, target_environment_id: e.target.value })}>
+      <div className="grid grid-cols-1 gap-3 @3xl:grid-cols-3">
+        <Field label="앱"><select className={input} value={f.workload_id} onChange={(e) => setF({ ...edit, workload_id: e.target.value })}>
+          {apps.length === 0 && <option value="">먼저 앱을 등록하세요</option>}
+          {apps.map((w) => <option key={w.workload_id} value={w.workload_id}>{`${w.name ?? ''} · ${w.workload_id.slice(9, 17)} · ${w.source_environment_id} · ${when(w.registered_at)}`}</option>)}</select></Field>
+        <Field label="목적지 환경"><select className={input} value={f.target_environment_id} onChange={(e) => setF({ ...edit, target_environment_id: e.target.value })}>
           {targets.length === 0 && <option value="">먼저 목적지를 등록하세요</option>}
-          {targets.map((e) => <option key={e.environment_id} value={e.environment_id}>{e.name ?? e.environment_id}</option>)}</select></Field>
-        <Field label="평가 프로필"><select className={input} value={f.profile} onChange={(e) => setF({ ...f, profile: e.target.value })}>
+          {targets.map((e) => <option key={e.environment_id} value={e.environment_id}>{`${e.name ?? ''} · ${e.environment_id} · ${when(e.registered_at)}`}</option>)}</select></Field>
+        <Field label="평가 프로필"><select className={input} value={f.profile} onChange={(e) => setF({ ...edit, profile: e.target.value })}>
           {profiles.map((p) => <option key={`${p.profile_id}@${p.profile_version}`}>{`${p.profile_id}@${p.profile_version}`}</option>)}</select></Field>
       </div>
       <button className="btn btn-red self-end" disabled={!f.workload_id || !f.target_environment_id || !pid || r.state.phase === 'preview'}
@@ -158,7 +171,7 @@ export function Register() {
   const d = ctx.data?.data ?? {};
   const readOnly = link.data?.readOnly !== false;
   return (
-    <div className="scroll-thin h-full overflow-y-auto p-5">
+    <div className="scroll-thin @container h-full overflow-y-auto p-5">
       <div className="mb-4 flex items-center gap-3 rounded-2xl border-2 border-ink bg-paper px-4 py-3">
         <Server size={18} />
         <p className="flex-1 text-[12.5px]">출발지·목적지 → 앱 → 계획 순서로 등록합니다. 각 등록은 <b>미리보기 → 확인 창</b>을 거치고, 서버가 실제 대상의 신원을 읽어 영수증을 남깁니다.
@@ -171,7 +184,7 @@ export function Register() {
       <div className={`grid gap-4 ${readOnly ? 'pointer-events-none opacity-50' : ''}`}>
         <EnvironmentForm connections={d.connections ?? []} />
         <WorkloadForm envs={d.environments ?? []} releases={d.releases ?? []} />
-        <PlanForm envs={d.environments ?? []} workloads={d.workloads ?? []} profiles={d.profiles ?? []} />
+        <PlanForm envs={d.environments ?? []} workloads={d.workloads ?? []} profiles={d.profiles ?? []} lastPlan={d.plans?.[0]?.plan_id} />
       </div>
     </div>
   );
