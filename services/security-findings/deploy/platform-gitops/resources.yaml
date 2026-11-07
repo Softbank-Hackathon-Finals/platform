@@ -129,10 +129,23 @@ spec:
     matchLabels: {app: bravo-findings}
   policyTypes: [Ingress, Egress]
   ingress:
-    # 조회(콘솔 · SOVA MCP). 온프렘 수집 경로(tailnet-ingress 프록시)는 T44 경로 선언과 함께 더한다
+    # 조회(콘솔 · SOVA MCP)
     - from:
         - namespaceSelector:
             matchLabels: {bravo.security/findings-client: "true"}
+      ports:
+        - {port: 8443, protocol: TCP}
+    # 온프렘 수집: T44 tailnet-ingress 장치 bravo-findings(platform.json)의 proxy Pod만.
+    # proxy가 출발지를 자기 Pod 주소로 바꾸므로 Tailscale 대역이 아니라 이 4개 라벨로 받는다
+    - from:
+        - namespaceSelector:
+            matchLabels: {kubernetes.io/metadata.name: tailscale-system}
+          podSelector:
+            matchLabels:
+              tailscale.com/managed: "true"
+              tailscale.com/parent-resource-type: svc
+              tailscale.com/parent-resource: bravo-findings-tailnet
+              tailscale.com/parent-resource-ns: bravo-security
       ports:
         - {port: 8443, protocol: TCP}
   egress:
