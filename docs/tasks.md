@@ -57,7 +57,7 @@ Claude Code는 `/todo-task`, Codex는 `$todo-task`로 이 순서를 따르는 �
 - `T25` 반복 측정 · 장애 주입 · SAFE_HOLD 시험 (P1)
 - `T42` rehearsal.exec: AI가 리허설 공간에서 정해진 동작으로 시험 (P1)
 
-**이상무** · 보안 통제 · 게이트, 플랫폼 API · 콘솔 · 데모 앱 (15개, P0 11개)
+**이상무** · 보안 통제 · 게이트, 플랫폼 API · 콘솔 · 데모 앱 (16개, P0 11개)
 - `T4` 데모 앱 v0: 채팅 스텁 (P0)
 - `T5` 6개 통제 시험 설계 (P0)
 - `T14` 통제 시험기와 통제 비교표 (P0)
@@ -73,6 +73,7 @@ Claude Code는 `/todo-task`, Codex는 `$todo-task`로 이 순서를 따르는 �
 - `T39` 로컬 DB 시험 실패의 비밀 비노출 진단 (P1)
 - `T40` develop Merge Queue와 승인 없는 CI 병합 (P0)
 - `T41` 기존 Actions 인증을 재사용하는 Merge Queue 자동 등록 (P0)
+- `T44` 목적지 IaC API: 모듈 카탈로그 · 결정적 plan · 에이전트 계획 도구 · GitOps 적용 (P1)
 
 **전동훈** · 보안 통제 · 게이트, 에이전트 · 리허설 (6개, P0 4개)
 - `T9` 목적지 보안 구성요소: OpenBao · ESO · SeaweedFS (P0)
