@@ -30,6 +30,7 @@ uv run bravo-iac tailnet-check --policy <현재 tailnet 정책 JSON> ../../infra
 - **조각과 정확히 같은 항목은 누가 넣었든 저장소 소유로 본다.** 먼저 손으로 넣은 grant라도 Git이 같은 경로를 선언했다가 빼면 지워진다. 사람이 바꾼 항목(넓힌 grant, 소유자를 바꾼 태그)은 남고, 그것이 뺀 허용을 아직 주거나 뺀 시험을 아직 주장하면 결과의 `kept`에 나온다.
 - develop 적용은 develop head와 이 run의 커밋이 워크플로가 읽는 경로(`infra/iac/environments`, `infra/tailnet`, `services/iac/src`, 이 워크플로)에서 같을 때만 쓴다. 다르면 `IAC_STALE_RUN`으로 실패한다(옛 run의 Re-run이 그 사이 되돌린 항목을 지우지 않게). 이 경로와 무관한 병합은 상관없다. 다시 적용하려면 옛 run을 Re-run하지 말고 develop에서 `workflow_dispatch`로 새로 돌린다.
 - 자동 승인(`autoApprovers`)은 조각에 없어 지우지 않는다.
+- 기준 조각은 지금 코드로 다시 만든다. `fragment()`의 출력 형식을 바꾸는 PR에서는 옛 형식 항목이 정확히 같지 않아 지워지지 않는다. 그 PR의 계획 결과에서 `kept`를 보고 옛 항목을 정리한다(validate가 막으면 run이 실패한다).
 - 정책에 HuJSON 주석이 있으면 JSON으로 쓰면서 주석이 사라지므로 `IAC_POLICY_HAS_COMMENTS`로 멈춘다.
 - 읽은 뒤 누가 정책을 바꿨으면 `IAC_POLICY_CHANGED`로 멈춘다(덮어쓰지 않음). 워크플로를 다시 돌리면 새 정책 위에서 합친다.
 - 쓰기 응답을 잃으면 다시 보내지 않는다. 다시 읽어 판정하고, 확인하지 못하면 `UNKNOWN`(`IAC_APPLY_UNCONFIRMED`)이다.
