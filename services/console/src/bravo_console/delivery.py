@@ -114,6 +114,9 @@ class PlanDelivery:
         self.load_sync, self.authenticate_sync = load_sync, authenticate_sync
         # serves(scope, plan, target): whether a registered target belongs to this plan's tenant at all.
         # Environment IDs are unique only per tenant, so a target that does not is left out, not shown UNKNOWN.
+        # Required whenever targets are registered: without it a target would be chosen by environment ID alone.
+        if self.targets and serves is None:
+            raise ValueError("customer_target_scope_required")
         self.serves = serves
         self.clock = clock or (lambda: datetime.now(UTC))
 

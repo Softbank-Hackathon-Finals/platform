@@ -32,7 +32,7 @@ def install(app, state):
 
     app.delivery = PlanDelivery(app.api,
         authorize=lambda _s, _p, action: state.get("delivery_allowed", True) and action == "read",
-        subject=lambda *_: "fixture-reader", modules=[MODULE], targets=[TARGET],
+        subject=lambda *_: "fixture-reader", modules=[MODULE], targets=[TARGET], serves=lambda *_: True,
         load_sync=load, authenticate_sync=lambda *_: state.get("producer_allowed", True), clock=lambda: state.get("now", NOW))
 
 
@@ -159,3 +159,10 @@ def test_existing_get_only_customer_collector_output_flows_without_a_second_eval
     assert result["synced_resource_count"] == 1
     assert result["migration_verified"] is False
     assert calls[0] == calls[-1] == ("namespace", "kube-system")
+
+
+def test_registered_targets_need_a_tenant_scope(case):
+    # Environment IDs are unique only per tenant; a target is never chosen by its ID alone (#727 review nit).
+    with pytest.raises(ValueError, match="customer_target_scope_required"):
+        PlanDelivery(case[0].api, authorize=lambda *_: True, subject=lambda *_: "fixture-reader", targets=[TARGET],
+                     load_sync=lambda *_: None, authenticate_sync=lambda *_: True)
