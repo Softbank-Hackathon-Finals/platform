@@ -105,5 +105,123 @@ def test_the_applier_refuses_a_bundle_whose_bytes_differ_from_its_manifest(tmp_p
     manifest = json.loads((tmp_path / "manifest.json").read_text())
     manifest["files"][0]["path"] = "/etc/../root/x"
     (tmp_path / "manifest.json").write_text(json.dumps(manifest))
-    with pytest.raises(apply.Refused, match="bundle_path_invalid"):
+    with pytest.raises(apply.Refused, match="bundle_path_not_allowed"):
         apply.bundle(tmp_path)
+
+
+NONE_POLICY = b"apiVersion: audit.k8s.io/v1\nkind: Policy\nmetadata: {}\nrules:\n- level: None\n"
+
+
+def bundle_dir(tmp_path):
+    root = tmp_path / "bundle"
+    for name, content in files(state("platform")).items():
+        (root / name).parent.mkdir(parents=True, exist_ok=True)
+        (root / name).write_text(content)
+    return root
+
+
+class Node:
+    """A fake RKE2 server under a temporary root: kubectl, the API server restart and its audit log."""
+
+    def __init__(self, apply, tmp_path, monkeypatch, *, uid="uid-1", ready=True, grows=True, crash=None):
+        import os
+        self.root = tmp_path / "root"
+        self.policy = self.root / "etc/rancher/rke2/audit-policy.yaml"
+        self.policy.parent.mkdir(parents=True)
+        self.policy.write_bytes(NONE_POLICY)
+        os.chmod(self.policy, 0o600)
+        self.log = tmp_path / "audit.log"
+        self.log.write_text("")
+        manifest = tmp_path / "kube-apiserver.yaml"
+        manifest.write_text(f"- --audit-policy-file=/etc/rancher/rke2/audit-policy.yaml\n- --audit-log-path={self.log}\n")
+        self.uid, self.ready, self.grows, self.crash, self.restarts = uid, ready, grows, crash, 0
+        monkeypatch.setattr(apply, "ROOT", self.root)
+        monkeypatch.setattr(apply, "APISERVER_MANIFEST", manifest)
+        monkeypatch.setattr(apply, "kubectl", self.kubectl)
+        monkeypatch.setattr(apply, "restart_apiserver", self.restart)
+        monkeypatch.setattr(apply.time, "sleep", lambda seconds: None)
+        self.apply = apply
+
+    def kubectl(self, *args):
+        return json.dumps({"metadata": {"uid": self.uid}}) if args[-1] == "json" else "namespace/kube-system"
+
+    def restart(self):
+        self.restarts += 1
+        if self.restarts == 1 and self.crash is not None:
+            raise self.crash
+        if self.restarts == 1 and not self.ready:
+            raise self.apply.Refused("api_server_not_ready")
+        if self.grows:
+            self.log.write_text(self.log.read_text() + "event\n")
+        return f"container-{self.restarts}"
+
+
+def run_applier(apply, bundle, capsys, *flags):
+    code = apply.main([str(bundle), "--cluster-uid", "uid-1", *flags])
+    return code, json.loads(capsys.readouterr().out)
+
+
+def test_the_applier_allows_exactly_what_the_node_modules_render():
+    apply = applier()
+    rows = listing(state("platform"))["files"] + listing(state("target-dev"))["files"]
+    assert {r["path"]: {"mode": r["mode"], "restart": r["restart"]} for r in rows} == apply.ALLOWED
+
+
+def test_the_applier_refuses_paths_modes_restarts_and_states_it_was_not_given(tmp_path):
+    apply = applier()
+    bundle = bundle_dir(tmp_path)
+    assert apply.bundle(bundle, listing(state("platform"))["state_digest"])
+    with pytest.raises(apply.Refused, match="bundle_state_digest_mismatch"):
+        apply.bundle(bundle, "0" * 64)
+    manifest = json.loads((bundle / "manifest.json").read_text())
+    for change, code in ((("path", "/etc/sudoers.d/x"), "bundle_path_not_allowed"),
+                         (("restart", []), "bundle_mode_or_restart_not_allowed"),
+                         (("mode", "0644"), "bundle_mode_or_restart_not_allowed")):
+        edited = json.loads(json.dumps(manifest))
+        edited["files"][0][change[0]] = change[1]
+        (bundle / "manifest.json").write_text(json.dumps(edited))
+        with pytest.raises(apply.Refused, match=code):
+            apply.bundle(bundle)
+
+
+def test_identity_is_checked_before_any_write(tmp_path, monkeypatch, capsys):
+    apply = applier()
+    node = Node(apply, tmp_path, monkeypatch, uid="another-cluster")
+    code, report = run_applier(apply, bundle_dir(tmp_path), capsys, "--apply")
+    assert code == 1 and report["reason"] == "cluster_identity_mismatch"
+    assert node.policy.read_bytes() == NONE_POLICY and node.restarts == 0
+
+
+def test_without_apply_nothing_is_written(tmp_path, monkeypatch, capsys):
+    apply = applier()
+    node = Node(apply, tmp_path, monkeypatch)
+    code, report = run_applier(apply, bundle_dir(tmp_path), capsys)
+    assert code == 0 and report["files"][0]["action"] == "install" and not report["applied"]
+    assert node.policy.read_bytes() == NONE_POLICY and node.restarts == 0
+
+
+def test_apply_backs_up_installs_restarts_and_sees_the_audit_log_grow(tmp_path, monkeypatch, capsys):
+    import stat
+    apply = applier()
+    node = Node(apply, tmp_path, monkeypatch)
+    code, report = run_applier(apply, bundle_dir(tmp_path), capsys, "--apply")
+    assert code == 0 and report["status"] == "PASS", report
+    assert node.policy.read_bytes() == CANONICAL.read_bytes()
+    assert stat.S_IMODE(node.policy.stat().st_mode) == 0o600
+    backup = Path(report["files"][0]["backup"])
+    assert backup.read_bytes() == NONE_POLICY and report["audit_log"]["growing"] is True
+    assert report["restarted"] == [{"target": "StaticPod/kube-system/kube-apiserver", "container": "container-1"}]
+
+
+@pytest.mark.parametrize("failure, reason", [
+    ({"ready": False}, "api_server_not_ready"),
+    ({"crash": __import__("subprocess").CalledProcessError(1, "crictl")}, "CalledProcessError"),
+    ({"grows": False}, "audit_log_not_growing"),
+])
+def test_a_failure_after_install_puts_the_previous_policy_back(tmp_path, monkeypatch, capsys, failure, reason):
+    apply = applier()
+    node = Node(apply, tmp_path, monkeypatch, **failure)
+    code, report = run_applier(apply, bundle_dir(tmp_path), capsys, "--apply")
+    assert code == 1 and report["reason"] == reason, report
+    assert report["rolled_back"] is True and report["rollback_ready"] is True
+    assert node.policy.read_bytes() == NONE_POLICY

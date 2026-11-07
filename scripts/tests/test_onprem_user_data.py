@@ -45,7 +45,7 @@ class OnPremUserDataTests(unittest.TestCase):
     def test_common_bootstrap_is_embedded_unchanged(self):
         self.assertIn(BOOTSTRAP.read_text(), self.user_data)
 
-    def test_missing_template_stops_rendering(self):
+    def test_missing_node_bundle_stops_rendering(self):
         with tempfile.TemporaryDirectory() as temp:
             copy = Path(temp) / "infra/envs/onprem/render-user-data.sh"
             copy.parent.mkdir(parents=True)

@@ -84,9 +84,18 @@ API 서버가 시작할 때 노드에서만 읽는 설정은 클러스터 안 Ar
 cd services/iac && uv run bravo-iac node ../../infra/iac/environments/platform.json --out ../../infra/iac/nodes/platform
 # 노드에서(root): 묶음과 클러스터 UID를 대조하고, 바뀔 것만 보고한다
 python3 apply.py <묶음 폴더> --cluster-uid <kube-system UID>
-# 적용: 기존 파일 백업 → 원자적 설치 → API 서버만 재시작 → /readyz와 감사 로그 증가 확인. 준비가 안 되면 백업으로 되돌린다
-python3 apply.py <묶음 폴더> --cluster-uid <kube-system UID> --apply
+# 적용: 기존 파일 백업 → 원자적 설치 → API 서버만 재시작 → /readyz와 감사 로그 증가 확인
+python3 apply.py <묶음 폴더> --cluster-uid <kube-system UID> --state-digest <검토한 state_digest> --apply
 ```
+
+- **묶음을 믿지 않는다.** 쓸 수 있는 경로·모드·재시작 대상은 적용기 코드의 허용 목록(`ALLOWED`)뿐이다. manifest가 다른
+  경로를 적으면 쓰기 전에 거부한다. `--state-digest`(`GET .../node-files`의 `state_digest`)로 검토한 상태에 묶는다.
+  온프렘 user-data 조립기도 같은 허용 목록을 쓴다. 허용 목록이 노드 모듈 출력과 같은지 시험이 고정한다.
+- **설치 뒤 무엇이 실패해도 되돌린다.** API 서버 준비 실패, 다른 예외, 감사 로그가 늘지 않는 경우가 모두 해당한다.
+  이전 바이트와 모드를 되돌린 뒤 API 서버를 다시 기다리고, 그 결과를 `rollback_ready`로 보고한다. `false`면 API 서버가
+  돌아오지 않은 것이니 운영자가 바로 본다.
+- **ADR-0032의 "적용은 Argo"와 다른 길이다.** API 서버가 시작할 때 노드에서만 읽는 파일이라 클러스터 안 Argo가 가질 수
+  없다. 그래서 노드 파일만 노드 적용기(첫 부팅은 user-data, 실행 중인 노드는 `apply.py`)가 적용한다.
 
 - API(읽기 전용): `GET /v1/iac/environments/{id}/node-files`(목록과 각 파일의 `href`),
   `GET /v1/iac/environments/{id}/node-files/{노드 경로}`(내용과 sha256). 없는 경로는 404 `IAC_NODE_FILE_UNKNOWN`.

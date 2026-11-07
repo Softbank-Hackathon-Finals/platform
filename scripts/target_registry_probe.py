@@ -134,7 +134,11 @@ def preflight(config):
     args = [arg for c in server["spec"]["containers"] for arg in c.get("command", []) + c.get("args", [])]
     if "--audit-policy-file=" + str(path) not in args:
         raise Failure("audit_policy_binding_unknown")
-    started = datetime.fromisoformat(server["status"]["startTime"])
+    # infra/iac/nodes/apply.py restarts the container, not the mirror Pod: compare with the container start.
+    running = [c.get("state", {}).get("running", {}).get("startedAt") for c in
+               server["status"].get("containerStatuses", []) if c.get("name") == "kube-apiserver"]
+    started = datetime.fromisoformat((running[0] if running and running[0] else server["status"]["startTime"])
+                                     .replace("Z", "+00:00"))
     if path.stat().st_mtime > started.timestamp():
         raise Failure("audit_policy_changed_after_start")
     return {"audit_mode": mode, "metadata_audit_verified": mode == "Metadata",
