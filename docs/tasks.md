@@ -1007,25 +1007,25 @@ Claude Code는 `/todo-task`, Codex는 `$todo-task`로 이 순서를 따르는 �
 
 **완료 기준** 새 RKE2 시험 클러스터에서 원하는 상태 PR → 승인 → 합류 → Tailscale 관리자 신원으로 T45 실행(포트포워딩 없음) → 운영자 접근 확인 → 분리 PR → 도달 실패까지 이어지고, 저장소 · 클러스터 · 실행 기록에 Tailscale secret이 없다. 계획이나 CI 통과만으로 완료 처리하지 않는다.
 
-### [T50] GCP RKE2 목적지: terraform으로 펼치고 접기 · IAP 접근 · Artifact Registry pull
+### [T50] GCP 목적지(GCE RKE2 · GKE): terraform으로 펼치고 접기 · IAM 접근 · Artifact Registry pull · tailnet 합류
 
-**어디에 필요** 목적지 RKE2는 Mac mini VM(T2) 하나뿐이라, 팀원이 각자 목적지를 펼치고 접으며 해피패스를 반복할 수 없다(11/7 GCP 팀 프로젝트 생성). 같은 RKE2 어댑터와 T45 스택을 클라우드 VM에서도 쓰려면 노드·접근 경로·이미지 전달을 코드로 둬야 한다.
+**어디에 필요** 목적지 RKE2는 Mac mini VM(T2) 하나뿐이라, 팀원이 각자 목적지를 펼치고 접으며 해피패스를 반복할 수 없다(11/7 GCP 팀 프로젝트 생성). 고객 목적지는 자체 운영 RKE2일 수도, 관리형 Kubernetes일 수도 있다(11/7 21:5x 사용자 기준: 플랫폼은 AWS 플랫폼 RKE2, 목적지는 고객마다 다르다). 같은 RKE2 어댑터와 T45 스택을 클라우드 VM과 GKE에서도 쓰려면 노드·접근 경로·이미지 전달·tailnet 합류를 코드로 둬야 한다.
 
-**만들 것** `infra/envs/gcp-rke2`: 공통 bootstrap으로 세운 외부 주소 없는 GCE 노드, IAP 범위만 허용하는 방화벽, Cloud NAT, 노드 서비스 계정 IAM으로 pull하는 Artifact Registry. `node.sh`는 `local-vm.sh`와 같은 동사(host 어댑터)를 낸다. 클러스터 위 구성은 T45 스택, 무인 진행은 T49가 맡는다. GKE 목적지는 A10이 맡는다.
+**만들 것** `infra/envs/gcp-rke2`: 공통 bootstrap으로 세운 외부 주소 없는 GCE 노드, IAP 범위만 허용하는 방화벽, Cloud NAT, 노드 서비스 계정 IAM으로 pull하는 Artifact Registry. `node.sh`는 `local-vm.sh`와 같은 동사(host 어댑터)를 낸다. `infra/envs/gcp-gke`: private 노드, IAM으로 확인하는 DNS endpoint, Workload Identity, Dataplane V2. tailnet 합류는 T48(ADR-0035) WIF로 하고, T45 Tailscale 단계를 WIF 값으로 바꾼다. 클러스터 위 구성은 T45 스택, 무인 진행은 T49가 맡는다.
 
 - **우선순위** P2 · **영역** 인프라 · **담당** 류지환
-- **선행** `T2`, `T45` (통합 시점: `T49`) · **후속** 없음 · **설계 문서** 8.11
+- **선행** `T2` (통합 시점: `T45`, `T48`, `T49`) · **후속** 없음 · **설계 문서** 8.11
 
-**목표** 실제 GCP 프로젝트에서 터미널 몇 줄로 목적지 RKE2를 펼치고 접는다. 들어오는 길은 IAM이 정하는 IAP뿐이고, 이미지는 저장된 비밀 없이 digest로 pull하며, 그 위에서 무인 해피패스가 끝까지 돈다.
+**목표** 실제 GCP 프로젝트에서 터미널 몇 줄로 목적지(RKE2·GKE)를 펼치고 접는다. 들어오는 길은 IAM이 정하는 경로뿐이고, 이미지는 저장된 비밀 없이 digest로 pull하며, tailnet에는 장기 secret 없이 합류한다. AWS 플랫폼 RKE2가 이 목적지로 데이터·보안 해피패스를 끝까지 실행한다.
 
 **할 일**
-- [x] terraform env·mock 시험(외부 주소 없음, IAP 범위만, OS Login, 저장소 읽기만, 다른 프로젝트·A10 이름 거부)
-- [x] 실제 GCP 펼치기 → `verify-node` → 접기 → 다시 펼치기 실측, Artifact Registry digest pull, Pod에서 노드 토큰 권한 시험
-- [ ] T49 무인 해피패스(T45 구축 → 데이터 → 보안 → S1/S2 에이전트 런 → 컷오버)를 이 목적지에서 실행하고 영수증 보존
+- [ ] terraform env·mock 시험(외부 주소 없음, IAP 범위만, OS Login, 저장소 읽기만, 다른 프로젝트·A10 이름 거부)
+- [ ] 실제 GCP 펼치기 → `verify-node` → 접기 → 다시 펼치기 실측, Artifact Registry digest pull, Pod에서 노드 토큰 권한 시험
+- [ ] GKE env·mock 시험(private 노드·endpoint, IAM DNS endpoint, Workload Identity, Dataplane V2)과 실측(공개 발급자, Pod의 metadata 은닉)
+- [ ] T48 WIF로 tailnet 합류: 환경 조각의 태그 소유자, 연합 신원, T45 Tailscale 단계를 WIF 값과 합류 관찰 확인으로 바꾸기
+- [ ] AWS 플랫폼 RKE2가 EKS 출발지 → GCP 목적지(GKE·GCE RKE2)로 데이터·보안 해피패스를 실행하고, 장애 시나리오(스플릿 브레인·epoch·lease·소유 인계·펜스) 영수증을 보존
 
-**완료 기준** 새로 펼친 GCP 노드에서 T49 진행기가 사람 확인 없이 끝까지 성공하고, 같은 env를 접었다 다시 펼쳐도 같은 결과가 나온다. 단계별 시간과 비용 근거가 남는다.
-
-## 6단계
+**완료 기준** 새로 펼친 GCP 목적지(GKE·GCE RKE2)에서 AWS 플랫폼의 T49 진행기가 사람 확인 없이 끝까지 성공하고, 장애 시나리오마다 기대 결과(거부·ABORT_PRE_WRITE·SAFE_HOLD)와 쓰기 DB 최대 하나가 실측으로 남는다. 같은 env를 접었다 다시 펼쳐도 같은 결과가 나오고, 단계별 시간과 비용 근거가 남는다.
 
 ### [T25] 반복 측정 · 장애 주입 · SAFE_HOLD 시험
 
