@@ -222,9 +222,15 @@ class Executor:
     # --- step kinds ---------------------------------------------------------------------------
 
     def _probe(self, run, step):
-        if self.checks.check(step["check"], run) is True:
-            return APPLIED
-        raise StepOutcome(FAILED, "check_failed")
+        """Read once, or with `timeout_seconds` keep reading until it holds: some states appear only after
+        the sync that precedes them (the Tailscale operator logs in after its Deployment is Healthy)."""
+        deadline = self.monotonic() + step.get("timeout_seconds", 0)
+        while True:
+            if self.checks.check(step["check"], run) is True:
+                return APPLIED
+            if self.monotonic() >= deadline:
+                raise StepOutcome(FAILED, "check_failed")
+            self.sleep(self.poll)
 
     def _operator_action(self, run, step):
         observed = self.checks.check(step["confirm"], run)

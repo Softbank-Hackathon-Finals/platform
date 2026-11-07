@@ -4,6 +4,7 @@ import asyncio
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
+from pathlib import Path
 from threading import BoundedSemaphore
 
 from rehearsal_runner.approval_handoff import submit_candidate
@@ -94,6 +95,12 @@ class TrustedHostPorts:
             raise ValueError("trusted_host_ports_required")
 
 
+def _tasks(catalog):
+    """The task ids registered for a plan in the T15 catalog (<root>/<plan_id>/<task_id>.json)."""
+    root = Path(getattr(catalog, "root", "/nonexistent"))
+    return lambda plan_id: sorted(p.stem for p in (root / plan_id).glob("*.json"))
+
+
 @dataclass(frozen=True)
 class TrustedRehearsalHost:
     app: object = field(repr=False)
@@ -128,7 +135,7 @@ def build_trusted_host(store, *, ports: TrustedHostPorts, records, sender, verif
         verifier=verifier, authority=ports.cutover_authority, rehearsal_host=rehearsals,
         **({"failback_authority": ports.failback_authority, "read_integrity": ports.read_integrity,
             "edge": ports.edge} if ports.failback_authority is not None else {}),
-        change_intake=intake, clock=clock, delegation=ports.delegation,
+        change_intake=intake, clock=clock, delegation=ports.delegation, list_tasks=_tasks(ports.catalog),
         **({"iac_repository": ports.iac} if ports.iac is not None else {}))
     original_lifespan = app.router.lifespan_context
 
