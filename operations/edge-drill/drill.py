@@ -9,10 +9,10 @@ Runs on the operator's machine with the operator's own AWS SSO session; it never
 
 `approve` asks the approval host for each spec digest (`bravo_edge_control.drill digest`), then records one T10 infra
 approval per spec as the human. It grants nothing: permissions come from the administration path only. The requester
-must be another registered person (`operator_verifier`), never the approver. The approval id and the approver are
-written back into the local spec.
-`run` refuses when the person running is the approver, copies the spec to the approval host and streams a fresh proof
-every 20 s into the drill (60 s lifetime). If `sequence`/`watch` is interrupted (Ctrl-C, SIGTERM, a lost proof feed) or
+must be another registered person (`operator_verifier`), never the approver. The approval id is written back into the
+local spec. The approval host refuses the approver as the person who runs the drill (`drill_executor_is_approver`);
+only `restore` stays open to them.
+`run` copies the spec to the approval host and streams a fresh proof every 20 s into the drill (60 s lifetime). If `sequence`/`watch` is interrupted (Ctrl-C, SIGTERM, a lost proof feed) or
 ends non-zero, it stops the remote drill and runs `restore` (retrying while the drill lock is held) so the weight goes
 back to 0%. Do not run it under a tool time limit shorter than the sequence.
 Output lines are receipts and judgements; they are also appended to `<spec>.<action>.jsonl`.
@@ -63,21 +63,9 @@ for run_id, digest in data["digests"].items():
     r = service.approve(human, data["plan_id"], binding=dict(infra_plan_id=run_id, plan_digest=digest,
         requested_by=data["requested_by"]), expires_at=(start + timedelta(hours=2)).isoformat(),
         command_key="edge-drill-approval-" + run_id)
-    out[run_id] = dict(approval_id=r["approval_id"], expires_at=r["expires_at"], approved_by=human.subject_id)
+    out[run_id] = dict(approval_id=r["approval_id"], expires_at=r["expires_at"])
 print(json.dumps(out))
 '''
-
-WHOAMI = r'''
-import json, sys
-from bravo_platform_events.operator_identity import OPERATOR_SSO_AUDIENCE, OperatorSsoVerifier
-from bravo_platform_events.registration_sso import SsoRegistrationVerifier
-people = json.load(open("/rehearsal/host.json"))["operator_verifier"]
-people = people if isinstance(people, list) else [people]
-human = OperatorSsoVerifier([SsoRegistrationVerifier(**(o | {"audience": OPERATOR_SSO_AUDIENCE})) for o in people]).verify(sys.stdin.read().strip())
-print(json.dumps({"subject_id": human.subject_id if human else None}))
-'''
-
-
 
 # The image has no procps: find the drill for this config in /proc and send it SIGTERM.
 STOP = r'''
@@ -117,6 +105,7 @@ def host(args):
 
 def put(args, pod, spec_path):
     spec = json.loads(Path(spec_path).read_text())
+    spec.pop("approved_by", None)  # written by an earlier drill.py; the host accepts its exact keys only
     if not RUN_ID.fullmatch(str(spec.get("run_id", ""))):
         raise SystemExit("run_id must match " + RUN_ID.pattern)
     remote = f"{REMOTE_DIR}/drill-{spec['run_id']}.json"
@@ -144,7 +133,7 @@ def approve(args):
     out = json.loads(kubectl(["-n", NAMESPACE, "exec", "-i", pod, "-c", CONTAINER, "--", "python3", "-c", APPROVE],
                              kubeconfig=args.kubeconfig, stdin=json.dumps(payload)))
     for run_id, (path, spec) in specs.items():
-        spec["approval_id"], spec["approved_by"] = out[run_id]["approval_id"], out[run_id]["approved_by"]
+        spec["approval_id"] = out[run_id]["approval_id"]
         Path(path).write_text(json.dumps(spec, indent=2))
         os.chmod(path, 0o600)
     print(json.dumps({"digests": digests, **out}, indent=1))
@@ -205,10 +194,6 @@ def run(args):
     spec, remote = put(args, pod, args.spec)
     if spec.get("approval_id") in (None, "", "PENDING"):
         raise SystemExit("approve the spec first")
-    me = json.loads(kubectl(["-n", NAMESPACE, "exec", "-i", pod, "-c", CONTAINER, "--", "python3", "-c", WHOAMI],
-                            kubeconfig=args.kubeconfig, stdin=proof()))["subject_id"]
-    if me is None or me == spec.get("approved_by"):
-        raise SystemExit("the approver cannot run the drill: another registered person runs it")
     stop = threading.Event()
     for sig in (signal.SIGINT, signal.SIGTERM):
         signal.signal(sig, lambda *_: stop.set())
@@ -216,7 +201,10 @@ def run(args):
     if args.action in MOVES_WEIGHT and (interrupted or code != 0):
         stop_remote(args, pod, remote)
         restored = restore(args, pod, remote)
-        print(json.dumps({"interrupted": interrupted, "exit": code, "restored_to_zero": restored}))
+        out = {"interrupted": interrupted, "exit": code, "restored_to_zero": restored}
+        if not restored:  # e.g. the SSO session expired: restore needs a fresh proof too
+            out["next"] = f"aws sso login, then: drill.py ... run {args.spec} restore (check the remote drill first)"
+        print(json.dumps(out))
         raise SystemExit(1 if not restored else 130 if interrupted else code)
     raise SystemExit(code)
 
