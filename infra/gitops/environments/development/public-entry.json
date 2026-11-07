@@ -1,15 +1,41 @@
 {
-  "publicEntry": {"enabled": true},
+  "publicEntry": {
+    "enabled": true
+  },
   "argo-cd": {
     "server": {
       "enabled": true,
       "replicas": 1,
-      "resources": {"requests": {"cpu": "50m", "memory": "128Mi"}, "limits": {"cpu": "500m", "memory": "256Mi"}}
+      "resources": {
+        "requests": {
+          "cpu": "50m",
+          "memory": "128Mi"
+        },
+        "limits": {
+          "cpu": "500m",
+          "memory": "256Mi"
+        }
+      }
     },
     "configs": {
-      "params": {"server.insecure": true},
-      "cm": {"url": "https://platform-argocd.mangowhois.ai", "users.anonymous.enabled": "true"},
-      "rbac": {"policy.default": "role:readonly"}
+      "params": {
+        "server.insecure": true
+      },
+      "cm": {
+        "url": "https://platform-argocd.mangowhois.ai",
+        "users.anonymous.enabled": "true"
+      },
+      "rbac": {
+        "policy.default": "role:readonly"
+      },
+      "clusterCredentials": {
+        "platform": {
+          "namespaces": "platform-state,bravo-observability,platform-telemetry"
+        }
+      }
     }
+  },
+  "observability": {
+    "enabled": true
   }
 }

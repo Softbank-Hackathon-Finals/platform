@@ -33,6 +33,11 @@ iacNetwork:
 publicEntry:
   enabled: false
 
+# Platform metrics store and the platform's own Collector (services/observability/deploy/platform-gitops).
+# Turned on by the development values; needs clusterCredentials.platform.namespaces to include its namespaces.
+observability:
+  enabled: false
+
 registration:
   enabled: false
   # Protected operator input: existing config/Secret references and host aliases only.
