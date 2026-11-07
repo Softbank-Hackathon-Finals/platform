@@ -91,11 +91,18 @@ def assess(application, workloads, *, environment, revision, now, allow_prune=Fa
     if type(retry_count) is not int or retry_count < 0:
         reasons.append("OPERATION_RETRY_COUNT_INVALID")
         return result
-    if application.get("operation") or operation.get("phase") in {"Running", "Terminating"}:
-        if retry_count:
+    running = operation.get("phase") in {"Running", "Terminating"}
+    if application.get("operation") or running:
+        # A requested operation that has not started still shows the previous one's retryCount.
+        if running and retry_count:
             result.update(status="SYNC_RETRYING", reasons=["OPERATION_RETRYING"], retry_count=retry_count)
         else:
             result.update(status="SYNC_IN_PROGRESS", reasons=["OPERATION_IN_PROGRESS"])
+        return result
+    # Retries are finite: after the last one the operation for this revision ends Failed or Error.
+    if (operation.get("phase") in {"Failed", "Error"}
+            and operation.get("syncResult", {}).get("revision") == revision):
+        result.update(status="SYNC_FAILED", reasons=["OPERATION_FAILED"], retry_count=retry_count)
         return result
     # Explicit false is required. Missing enabled has Argo's implicit-enable semantics.
     if policy.get("enabled") is False:

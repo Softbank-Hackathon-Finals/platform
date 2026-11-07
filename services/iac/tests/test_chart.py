@@ -26,7 +26,9 @@ def test_charts_keep_the_tailnet_and_credentials_out_of_git():
         assert not re.search(r"[a-z0-9-]+\.[a-z0-9-]+\.ts\.net", template) and "{{ .Values.tailnet }}" in template
         assert "secretKey" not in template and "Secret" not in json.dumps(manifests(state)[0])
     objects, unmanaged = manifests(ENVIRONMENTS["target-dev"])
-    assert unmanaged == ["target-object-exposure:Secret/target-dev/target-seaweedfs-auth"]
+    # Credentials go to their own applier; access bindings to a cluster administrator (operator-access).
+    assert unmanaged == ["operator-access:ClusterRoleBinding/-/bravo-operators-cluster-admin",
+                         "target-object-exposure:Secret/target-dev/target-seaweedfs-auth"]
     assert {o["kind"] for o in objects} == {"ProxyGroup", "Service", "NetworkPolicy"}
 
 
@@ -67,8 +69,9 @@ def test_the_argo_chart_accepts_exactly_the_committed_environments():
     application = (ARGO / "templates/application.yaml").read_text()
     assert "path: infra/iac/charts/{{ $environment }}" in application and "tailnet: {{ $tailnet | quote }}" in application
     assert "targetRevision: {{ $revision | quote }}" in application
-    # Namespaces are T45's; on an empty cluster the Tailscale CRDs come after this Application.
-    assert "CreateNamespace=true" not in application and "limit: -1" in application
+    # Namespaces are the cluster builder's; the Application is enabled after them, so retries are finite
+    # (an unlimited retry keeps the failed operation running and a fixed revision never syncs).
+    assert "CreateNamespace=true" not in application and "limit: 5" in application and "limit: -1" not in application
     values = (ARGO / "values.yaml").read_text()
     assert 'tailnet: ""' in values and "server:\n    enabled: false" in values
 
