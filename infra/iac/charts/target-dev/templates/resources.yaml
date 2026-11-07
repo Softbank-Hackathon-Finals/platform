@@ -502,3 +502,35 @@
     }
   }
 }
+---
+{
+  "apiVersion": "v1",
+  "kind": "Service",
+  "metadata": {
+    "annotations": {
+      "tailscale.com/expose": "true",
+      "tailscale.com/hostname": "bravo-target-argocd",
+      "tailscale.com/tags": "tag:bravo-target-argocd"
+    },
+    "labels": {
+      "app.kubernetes.io/managed-by": "bravo-iac",
+      "bravo.dev/iac-module": "tailnet-ingress"
+    },
+    "name": "bravo-target-argocd",
+    "namespace": "bravo-iac-gitops"
+  },
+  "spec": {
+    "ports": [
+      {
+        "name": "http",
+        "port": 80,
+        "protocol": "TCP",
+        "targetPort": 8080
+      }
+    ],
+    "selector": {
+      "app.kubernetes.io/instance": "bravo-iac-gitops",
+      "app.kubernetes.io/name": "argocd-server"
+    }
+  }
+}

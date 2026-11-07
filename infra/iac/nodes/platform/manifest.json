@@ -1,7 +1,7 @@
 {
   "kind": "iac-node-files.v1",
   "environment": "platform",
-  "state_digest": "d040b3e2d71335f85e9200971478b9637beb98671229b07cd9ffdadeca15dca8",
+  "state_digest": "f3d6457d20f41ad8ead08fb081fde8ccf18e5a1dd857cda85af5ed2f1e11551a",
   "files": [
     {
       "path": "/etc/rancher/rke2/audit-policy.yaml",
