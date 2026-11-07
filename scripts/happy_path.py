@@ -147,6 +147,8 @@ def plan_state_from(command):
 
 
 def reached(state, goal):
+    if state == "DONE":
+        return goal in ORDER[:ORDER.index("WATCH") + 1]
     return state in ORDER and ORDER.index(state) >= ORDER.index(goal)
 
 
@@ -225,17 +227,18 @@ def cmd_run(args, *, run=subprocess.run, sleep=time.sleep, clock=time.monotonic,
                          ensure_ascii=False))
         if code != DONE:
             return code
+    try:
+        state = read_state(args.plan_id)
+    except Exception:
+        print(json.dumps({"result": "unknown", "reason": "final_plan_read_unconfirmed"}))
+        return UNKNOWN
     if getattr(args, "scenario", "recovery") == "migration":
-        try:
-            state = read_state(args.plan_id)
-        except Exception:
-            print(json.dumps({"result": "unknown", "reason": "final_plan_read_unconfirmed"}))
-            return UNKNOWN
         if state not in {"WATCH", "DONE"}:
             print(json.dumps({"result": "failed", "reason": "forward_migration_not_current", "state": state}))
             return FAILED
-    else:
-        state = "DONE_ROLLED_BACK"
+    elif state != "DONE_ROLLED_BACK":
+        print(json.dumps({"result": "failed", "reason": "failback_not_current", "state": state}))
+        return FAILED
     print(json.dumps({"result": "complete", "record": str(path), "scenario": getattr(args, "scenario", "recovery"), "final_state": state}))
     return DONE
 

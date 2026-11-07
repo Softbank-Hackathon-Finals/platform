@@ -113,6 +113,16 @@ class Driver(unittest.TestCase):
         code, result = self.run_driver(("scenario", "migration"))
         self.assertEqual((code, result["scenario"], result["final_state"]), (0, "migration", "WATCH"))
 
+    def test_done_is_forward_terminal_but_never_failback_evidence(self):
+        self.assertTrue(hp.reached("DONE", "WATCH"))
+        self.assertFalse(hp.reached("DONE", "DONE_ROLLED_BACK"))
+        self.run_driver()
+        for step in hp.STEPS:
+            hp.append(self.record, {"step": step.id, "status": "done"})
+        self.state = "WATCH"
+        code, result = self.run_driver()
+        self.assertEqual((code, result["reason"]), (1, "failback_not_current"))
+
     def test_record_cannot_switch_to_a_shorter_scenario(self):
         self.run_driver()
         self.assertEqual(self.run_driver(("scenario", "migration"))[0], 2)
