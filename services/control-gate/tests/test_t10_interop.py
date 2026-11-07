@@ -454,6 +454,10 @@ def test_an_executor_capture_passes_the_cutover_database_pair_check(admission, d
     if database_ref == "connection_ref":
         assert f.approve()["approval_id"]
     else:  # T10 reports the gate refusal as authority_unavailable and sends nothing
-        with pytest.raises(EventError, match="authority_unavailable"):
+        with pytest.raises(EventError, match="^authority_unavailable$") as refused:
             f.approve()
         assert not f.requests
+        # ...and the refusal is the database pair check, not some other gate failure (#612 follow-up).
+        # T10 raises `from None`, which hides the cause from the trace but keeps it as __context__.
+        cause = refused.value.__context__
+        assert type(cause) is GateError and str(cause) == "PLAN_GATE_DATABASE_PAIR_MISMATCH"

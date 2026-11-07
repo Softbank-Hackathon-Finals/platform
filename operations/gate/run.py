@@ -61,6 +61,14 @@ class RelayFailed(Exception):
     """The relay did not answer PASS or HOLD (kubectl, timeout, crash): exit 1, never a hold."""
 
 
+class Hold(RuntimeError):
+    """A hold that also prints what the operator decides on next: fixed codes and digests only."""
+
+    def __init__(self, code, **detail):
+        super().__init__(f"hold:{code}")
+        self.detail = detail
+
+
 def _private_dir(path):
     path = Path(path)
     path.mkdir(mode=0o700, parents=True, exist_ok=True)
@@ -270,7 +278,10 @@ def capture(args, *, relay, observe, clock):
     if args.evaluate:
         # The GATE record is written once per context: a data BLOCK (one lag spike) would cost the context.
         if recorded["data"]["decision"] != "PASS" and not getattr(args, "record_block", False):
-            raise RuntimeError("hold:readiness_data_block")
+            # The readiness record stays signed: the operator sees why it blocks and what is already published.
+            raise Hold("readiness_data_block",
+                       blocked=[{"test_id": r["test_id"], "reason": r["reason"]} for r in recorded["data"]["blocked"]],
+                       published=out["published"])
         # Signing goes through kubectl exec round trips; a PASS that expires before the platform evaluates
         # it becomes a freshness BLOCK for the whole context (live S1, 11/8: 37 s for a 30 s record).
         # ponytail: fixed margin for one evaluate round trip (5-9 s measured); measure it if exec gets slower
@@ -352,7 +363,7 @@ def main(argv=None):
         print(json.dumps({"status": "DONE", **out}, indent=2))
         return 0
     except RuntimeError as error:
-        print(json.dumps({"status": "HOLD", "reason": str(error)[:200]}))
+        print(json.dumps({"status": "HOLD", "reason": str(error)[:200], **getattr(error, "detail", {})}))
         return 10
     except (RelayFailed, ValueError, KeyError, OSError) as error:
         print(json.dumps({"status": "FAILED", "reason": f"{type(error).__name__}:{str(error)[:160]}"}))
