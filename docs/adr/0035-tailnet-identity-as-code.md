@@ -52,13 +52,14 @@ Tailscale에 "이 OIDC 발급자의 이 주체(ServiceAccount 또는 CI 작업)"
 ## 3. 결정 사항 (Decision Outcome)
 
 * **2. WIF를 선택한다.** Tailscale 인증에 장기 secret을 쓰지 않는다. WIF로 안 되는 키만 키 관리 인프라에 두고 실행기가 넣는다. 사람이 값을 붙여 넣지 않는다.
-* **정책을 쓰는 곳은 `tailnet-policy` 워크플로 하나다(#667, 2026-11-07 20:5x 갱신).** 처음에는 Terraform `tailscale_acl`로 정책 전체를 쓰려 했으나 버린다. 정책 전체에는 그룹 구성원 이메일이 있어 공개 저장소에 둘 수 없고, 두 곳에서 쓰면 서로 덮어쓴다.
-  * 원본은 `infra/iac/environments/*.json`에서 만든 조각이다. 조각을 실제 정책에 더하고(같은 허용이 이미 있으면 더하지 않음), 직전 커밋의 조각에서 빠진 항목은 저장소가 넣은 값과 정확히 같을 때만 지운다(prune, #680). 손으로 넣은 grant · 그룹 · ssh는 그대로 둔다.
+* **정책을 쓰는 곳은 `tailnet-policy` 워크플로 하나다(#667, 2026-11-07 20:5x 갱신).** 처음에는 Terraform `tailscale_acl`로 정책 전체를 쓰려 했으나 버린다. 정책 전체에는 그룹 구성원 이메일이 있어 공개 저장소에 둘 수 없고, 두 곳에서 쓰면 서로 덮어쓴다. 이 워크플로는 임시 경로가 아니며, 정책 쓰기를 Terraform으로 옮기지 않는다(#667 리뷰 1).
+  * 원본은 `infra/iac/environments/*.json`에서 만든 조각이다. 조각을 실제 정책에 더한다(같은 허용이 이미 있으면 더하지 않음). 기준 커밋(마지막으로 성공한 develop run)의 조각에서 빠진 항목은 실제 정책 값이 정확히 같을 때 지운다(prune, #680). 정확히 같은 항목은 출처와 무관하게 저장소 소유로 본다. 사람이 바꾼 항목은 남기고 `kept`로 보고한다. 조각이 다루지 않는 그룹 · ssh · 그 밖의 grant는 그대로 둔다.
+  * develop head와 워크플로가 읽는 경로가 다른 run은 쓰지 않는다(`IAC_STALE_RUN`). 옛 run을 Re-run해서 그 사이 되돌린 항목을 지우는 일을 막는다.
   * **정책 쓰기는 cluster-admin 경계다.** #627 · #643 구조에서 `tailscale.com/cap/kubernetes` grant 하나가 고객 클러스터의 cluster-admin을 준다. 그래서 적용 신원을 다음처럼 좁힌다. 둘 다 발급자는 `https://token.actions.githubusercontent.com`이고, subject는 이 저장소의 ID 고정 형식으로 정확히 고정한다(와일드카드 없음). 태그는 없다.
     * 계획: `repo:Softbank-Hackathon-Finals@350259663/platform@1443045223:environment:tailnet-policy-plan`, 범위 `policy_file:read`. PR에서 읽기 · 합치기 · `tailnet-check` · Tailscale validate만 한다.
     * 적용: `…:environment:tailnet-policy`, 사용자 claim `ref=refs/heads/develop`, 범위 `policy_file`. 환경 `tailnet-policy`는 develop만 배포하고 필수 승인자를 둔다. develop은 승인 0이므로 병합만으로 적용되지 않는다(ADR-0032와 같은 기준).
   * 잠김 방지: 쓰기 전에 Tailscale validate PASS가 필요하고, Tailscale은 정책 `tests`가 깨지는 저장을 거부한다. 개발 기간 운영자 접근(`autogroup:admin` → API 프록시)은 관리자 역할 여부가 Git에 없어 사람별 시험을 두지 않는다. 대신 operator 태그 경로의 accept 시험을 조각에 둔다.
-  * 긴급 수정(break-glass): tailnet 관리자는 콘솔에서 고칠 수 있다. 조각이 다루지 않는 항목이면 그대로 남는다. 조각이 넣은 항목을 콘솔에서 바꾸면 merge가 그 항목을 다시 더하지 않고, prune도 지우지 않는다(정확히 같지 않음). 그 변경을 유지하려면 Git에 반영한다. 읽은 뒤 정책이 바뀌면 `IAC_POLICY_CHANGED`로 멈추고 덮어쓰지 않는다.
+  * 긴급 수정(break-glass, 절차는 `infra/tailnet/README.md`): 적용은 환경 승인 거부나 `gh workflow disable tailnet-policy`로 멈춘다. 콘솔에서 지운 grant는 Git에 남아 있으면 다음 적용이 다시 더한다. 그래서 회수는 콘솔에서 지운 뒤 그 경로를 Git에서 빼는 순서로 한다. 적용 신원이 의심되면 연합 신원을 Revoke한다. 읽은 뒤 정책이 바뀌면 `IAC_POLICY_CHANGED`로 멈추고 덮어쓰지 않는다.
 * **환경별 operator 연합 신원은 Terraform 스택 `infra/envs/tailnet`이 만든다(#662).** `tailscale_federated_identity`를 환경마다 하나 둔다. 발급자는 그 클러스터의 ServiceAccount 발급자, 주체는 `system:serviceaccount:tailscale-system:operator`, 태그는 `tag:bravo-<env>-operator`, 범위는 operator에 필요한 Devices Core · Auth Keys · Services 쓰기다. 이 스택은 정책을 쓰지 않는다. 태그 소유자는 신원보다 먼저 `tailnet-policy` 조각으로 넣는다.
 * **온프렘 발급자를 공개 정적 주소로 둔다.**
   * T2 cloud-init이 RKE2 `service-account-issuer`와 `service-account-jwks-uri`를 그 주소로 렌더한다. 기존 클러스터 내부 발급자는 두 번째 발급자로 남겨 기존 토큰을 깨지 않는다.
