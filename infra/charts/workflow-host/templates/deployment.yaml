@@ -44,6 +44,9 @@ spec:
         runAsUser: 10001
         runAsGroup: 10001
         fsGroup: 10001
+        # The AI Job ledger under /workflow-state must stay 0700/0600; the default (Always) pass re-adds
+        # group bits to every file on each mount and the host stops at its second start (live 11/8).
+        fsGroupChangePolicy: OnRootMismatch
         seccompProfile:
           type: RuntimeDefault
       containers:
