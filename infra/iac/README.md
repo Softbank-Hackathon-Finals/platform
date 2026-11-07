@@ -62,6 +62,9 @@ Tailscale operator가 매긴 proxy 포트를 **관찰해서** NetworkPolicy에 �
 각 목적지·proxy 그룹을 판정한다(OK / OFFLINE / TAG_MISMATCH / NOT_VISIBLE). NOT_VISIBLE은 이 기기의 grant로 보이지
 않는다는 뜻이며 경로 실패가 아니다. 전체 확인은 tailnet 장치 목록이 보이는 운영 기기에서 한다.
 `bravo-iac tailnet-check --policy <현재 tailnet 정책 JSON>`은 현재 정책에 빠진 태그 소유·grant·tests를 코드로 낸다.
+**정책 적용도 Git에서**: 관리 콘솔에 조각을 손으로 붙이지 않는다. `tailnet-policy` 워크플로가 PR에서 조각을 현재 정책에
+합친 결과를 검사하고, develop 병합 뒤 그 결과를 적용한다(`bravo-iac tailnet-sync`). 더하기만 하고 지우지 않는다.
+순서·설정은 [infra/tailnet/README.md](../tailnet/README.md#적용-tailscale-gitops).
 
 2026-11-07 이 맥에서 처음 실행했을 때 목적지 API 장치 `bravo-target-operator`의 실제 태그(`tag:bravo-target-operator`)가
 당시 선언(`tag:bravo-target-api`, 저장소 조각과 같음)과 **TAG_MISMATCH**였다. 선언을 실제 태그로 맞추고 정책 조각을 다시 생성해
@@ -83,9 +86,11 @@ Tailscale operator가 매긴 proxy 포트를 **관찰해서** NetworkPolicy에 �
 # 차트 생성(원하는 상태가 바뀌면 같은 PR에서 다시 생성한다. 시험이 일치를 고정한다)
 cd services/iac && uv run bravo-iac chart ../../infra/iac/environments/target-dev.json --out ../../infra/iac/charts/target-dev
 # 고객 클러스터에 한 번 설치(운영자). tailnet 접미사는 이 명령의 값으로만 들어가고 Git에 남지 않는다
-helm dependency update infra/iac/argocd
+helm dependency build infra/iac/argocd
 helm upgrade --install bravo-iac-gitops infra/iac/argocd -n bravo-iac-gitops --create-namespace \
-  --set environment=target-dev --set tailnet=<이름>.ts.net --set targetRevision=<검토한 커밋의 전체 SHA>
+  --kubeconfig <고객 전용 kubeconfig> \
+  --set environment=target-dev --set tailnet=<이름>.ts.net --set targetRevision=<검토한 커밋의 전체 SHA> \
+  --set application.enabled=false --set application.autoSync=false --set application.prune=false
 ```
 
 **적용하는 커밋은 설치 값 `targetRevision`(전체 40자 SHA, 필수)이다.** 브랜치 기본값이 없어서 develop 병합만으로는 고객
@@ -104,13 +109,54 @@ tailnet 접미사(`tailnet`, `tailnets.workload`)이고, AppProject `platform-ia
 `infra/envs/collector-network`(Collector → 지표 저장소). 두 쪽이 함께 적용하면 NetworkPolicy 규칙(관찰한 포트 대 10000–10999)이
 서로 되돌린다. 렌더러의 경로 출력은 담당 합의로 이 모듈로 옮긴다(T44 할 일: T15·T12·T37).
 
-이후 원하는 상태의 변경은 PR → 병합 → 그 클러스터의 Argo가 60초 안에 끌어와 동기화(자동, prune·selfHeal)
-한다. 비밀 값이 필요한 자원(지금은 버킷 계정 Secret)은 차트에 없고 `Chart.yaml`의 `bravo.dev/unmanaged`에 적힌다.
+이후 원하는 상태의 변경은 PR → 병합 → **검토한 커밋 SHA 승격** → 고객 Argo 동기화 순서다.
+브랜치 병합만으로 적용되지 않는다. 자동 동기화는 명시적으로 켜고, 자동 삭제(prune)는 별도 결정한다.
+조정 주기는 60초와 jitter 15초이며, Git 접근·렌더·적용 실패가 있으면 그 안에 반영된다고 보장하지 않는다.
+비밀 값이 필요한 자원(지금은 버킷 계정 Secret)은 차트에 없고 `Chart.yaml`의 `bravo.dev/unmanaged`에 적힌다.
 **차트는 Namespace를 선언하지 않는다.** namespace의 주인은 클러스터를 세우는 쪽이다(새 목적지는 T45, 플랫폼·출발지는 기존 구성). 같은 Namespace를 T44·T45 두 Application이 함께 관리하던 겹침(#620 kind 실측의 Argo 경고)을 없앤다. namespace나 Tailscale CRD가 아직 없으면(빈 클러스터에서는 T45가 Argo 다음에 설치) 그 동기화는 실패하고 무제한 재시도(`retry.limit: -1`, 최대 3분 간격)로 기다린다. Argo 자동 동기화는 실패한 같은 커밋을 스스로 다시 시도하지 않기 때문이다.
 ProxyGroup은 그 클러스터에 Tailscale operator(CRD)가 있어야 생성된다(`SkipDryRunOnMissingResource`).
 
-**설치 명령은 두 번 실행한다.** 첫 실행이 Argo CD와 CRD를 만들고, 두 번째 실행이 AppProject·Application을 만든다
-(Application은 Argo CRD가 있을 때만 렌더된다. 한 릴리스로 함께 만들면 CRD 등록 전 검증에서 실패한다).
+### 고객 설치와 업무 자원 적용의 분리 (차트 0.2.0)
+
+실제 출발지/목적지 담당과 실행 시간을 맞추고 등록된 `kube-system` UID가 같은지 먼저 확인한다.
+다른 Argo 설치·기존 렌더러·T45가 소유한 자원은 자동으로 인수하지 않는다. 플랫폼 클러스터에는 적용하지 않는다.
+
+1. 위 명령은 **Argo CD와 CRD만** 만든다. 기존 CRD가 있어도 기본값에서는 AppProject·Application을 만들지 않는다.
+2. 컨트롤러 준비와 CRD Established를 확인하고, 같은 설치 값에서 `application.enabled=true`로 바꾼다.
+   `application.autoSync=false`, `application.prune=false`는 유지한다. 고객 환경의 경로·diff·소유권을 확인할 수 있지만
+   이 Application은 자동 적용하지 않는다. 다른 Application이나 수동 sync 권한을 제한하는 기능은 아니다.
+3. 중복 소유권·tailnet 정책·설정 원문·검토 커밋과 적용 창을 확인한 뒤 `application.autoSync=true`로 승격한다.
+   prune은 기본 false다. 제거할 자원의 목록과 영향이 승인된 경우에만 `application.prune=true`를 함께 준다.
+4. 아래 읽기 전용 수집기로 실제 반영을 확인한다. DB·트래픽·운영 승인은 T10/T19/T12/T31의 기존 경로를 쓴다.
+
+`helm upgrade`에는 매번 동일한 보호된 운영자 값 파일을 사용한다. 기존 0.1.0 설치는 자동 동기화·prune이 켜져 있었으므로
+업그레이드 전에 세 모드 값을 명시적으로 정해야 한다. 기본값으로 덮어써서 기존 Application을 제거하지 않는다.
+`autoSync=false`로 바꾸는 것만으로 이미 시작한 sync가 취소되지는 않는다. 실행 중이면 결과와 영향부터 확인한다.
+초기 설치 권한은 아래의 넓은 1단계 권한이며, 설치·동기화 성공을 금융 운영 보안 자격으로 사용하지 않는다.
+
+### 고객 GitOps 상태의 읽기 전용 인수
+
+```sh
+# 고객의 등록 원문에서 가져온 UID와 검토한 전체 SHA를 사용한다.
+# 조회 결과에서 UID를 즉석 채택하면 대상 신원 검증이 되지 않는다.
+python3 infra/iac/customer_status.py --kubeconfig <고객 전용 kubeconfig> \
+  --expected-cluster-uid <등록한 kube-system UID> --environment target-dev \
+  --revision <검토한 전체 커밋 SHA>
+```
+
+도구는 TLS 검증을 끄지 않고, `config view`와 GET만 실행한다. 환경·저장소·경로·프로젝트·로컬 목적지,
+실제 sync revision과 설정, 실행 중 작업, 컨트롤러 준비, 최근 조정 시각, 조회 중 Application 변경을 확인한다.
+고정 커밋이라도 Helm 값이 다른 오래된 성공은 수용하지 않는다. 명령 오류의 원문은 출력하지 않는다.
+
+상태는 `NOT_INSTALLED`, `BOOTSTRAP_PENDING`, `BOOTSTRAP_ONLY`, `SYNC_PAUSED`, `SYNC_IN_PROGRESS`,
+`SYNC_PENDING`, `BLOCKED`, `SYNC_VERIFIED`로 구분한다. `SYNC_VERIFIED`만 종료 코드 0이고 나머지는 3이다.
+승인된 prune을 별도로 인수할 때만 `--allow-prune`을 준다. 이 옵션은 삭제를 실행하거나 승인하지 않는다.
+GitOps 수렴 확인만 기록하며 `authorizes_cutover`, `migration_verified`, `control_equivalence_verified`는 항상 false다.
+T19의 통제 시험과 업무·데이터·무중단 검증은 별도로 필요하다.
+
+차트 0.2.0의 격리된 arm64 설치·정지·고정 SHA 동기화와 실제 온프렘의 읽기 전용 인수 결과는
+[고객 GitOps 검증 기록](../../docs/evidence/t44-customer-gitops-2026-11-07/README.md)에 있다.
+현재 실제 고객 설치 완료를 뜻하지 않는다.
 
 **로컬 실클러스터 확인(2026-11-07, kind v1.34.0, 운영 클러스터 아님)**: Tailscale 1.104.4 CRD만 설치(operator 없음) →
 위 설치 명령 2회(`environment=platform`, `tailnet=example-tail.ts.net`, 기능 브랜치) → Argo가 GitHub에서 끌어와 `4bc41c87`을
@@ -151,4 +197,4 @@ uv run bravo-iac stage --plan plan.json --proposed proposed.json --target ../../
 - 실제 고객 클러스터에 Argo 설치(목적지·출발지 담당과 시점 합의).
 - 에이전트 도구 `infra.plan`(T11)과 플랫폼 API 연결(T10). 이 패키지는 둘 다 네트워크 없이 부를 수 있게 순수 함수로 둔다.
 - 모듈 추가(목적지 앱 Deployment·NetworkPolicy·OpenBao 정책 등), 목적지 쪽 tailnet 노출(API proxy·Pooler·DB의 태그).
-- tailnet 정책의 GitOps 적용(PR에서 Tailscale validate, 머지 때 apply)과 기존 경로 렌더러의 이 모듈로 이전.
+- tailnet 정책에서 조각에 없는 항목 지우기(prune). 경로를 Git에서 빼도 grant는 사람이 지운다. 기존 경로 렌더러의 이 모듈로 이전.

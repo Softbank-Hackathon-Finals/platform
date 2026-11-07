@@ -1,0 +1,81 @@
+name: tailnet-policy
+
+# T44 Tailscale GitOps (infra/tailnet/README.md). Git holds only the generated fragment. This merges it
+# into each tailnet's live policy file, add-only: PR plans (read, merge, tailnet-check, Tailscale
+# validate), develop applies (If-Match on the read ETag, then read back). The Tailscale token comes from
+# this job's GitHub OIDC token (workload identity federation); no Tailscale secret is stored here.
+# A tailnet whose repository variables are not set is skipped, and the job summary says so.
+on:
+  pull_request:
+    branches: [develop]
+    paths:
+      - infra/iac/environments/**
+      - infra/tailnet/**
+      - services/iac/src/**
+      - .github/workflows/tailnet-policy.yml
+  push:
+    branches: [develop]
+    paths:
+      - infra/iac/environments/**
+      - infra/tailnet/**
+      - services/iac/src/**
+      - .github/workflows/tailnet-policy.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tailnet-policy-${{ github.event_name == 'pull_request' && github.ref || 'develop' }}
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    # Fork PRs get no OIDC token; they are reviewed by the platform checks only.
+    if: >-
+      github.event_name != 'pull_request' && github.ref == 'refs/heads/develop'
+      || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # Only the develop run enters the environment whose federated identity may write the policy.
+    environment: ${{ github.event_name == 'pull_request' && 'tailnet-policy-plan' || 'tailnet-policy' }}
+    permissions:
+      contents: read
+      id-token: write
+    strategy:
+      fail-fast: false
+      max-parallel: 1
+      matrix:
+        include:
+          - tailnet: default
+            key: DEFAULT
+          - tailnet: workload
+            key: WORKLOAD
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10.2.0
+        with:
+          enable-cache: true
+          cache-dependency-glob: services/iac/uv.lock
+      - name: Merge the fragment into the live policy
+        working-directory: services/iac
+        env:
+          TAILNET: ${{ matrix.tailnet }}
+          TAILNET_NAME: ${{ vars[format('TAILNET_POLICY_NAME_{0}', matrix.key)] }}
+          CLIENT_ID: ${{ github.event_name == 'pull_request' && vars[format('TAILNET_POLICY_PLAN_CLIENT_{0}', matrix.key)] || vars[format('TAILNET_POLICY_APPLY_CLIENT_{0}', matrix.key)] }}
+          MODE: ${{ github.event_name == 'pull_request' && 'plan' || 'apply' }}
+        run: |
+          if [ -z "$TAILNET_NAME" ] || [ -z "$CLIENT_ID" ]; then
+            echo "### tailnet \`$TAILNET\`: SKIPPED (변수 없음: infra/tailnet/README.md 설정 참고)" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          args=(--tailnet "$TAILNET" --tailnet-name "$TAILNET_NAME" --client-id "$CLIENT_ID")
+          if [ "$MODE" = apply ]; then args+=(--apply); fi
+          uv sync --frozen --no-dev -q
+          set +e
+          uv run --no-sync bravo-iac tailnet-sync "${args[@]}" ../../infra/iac/environments/*.json > "$RUNNER_TEMP/result.json"
+          code=$?
+          set -e
+          cat "$RUNNER_TEMP/result.json"
+          { echo "### tailnet \`$TAILNET\` ($MODE)"; echo '```json'; cat "$RUNNER_TEMP/result.json"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          exit "$code"
