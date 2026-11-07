@@ -1,0 +1,19 @@
+# 고객 클러스터 Argo CD 화면(선택). 설치 값에 덧붙인다: helm upgrade --install ... -f infra/iac/argocd/ui-values.yaml
+# 화면은 이 클러스터의 tailnet 장치(environments/<환경>.json tailnet-ingress `bravo-target-argocd`)로만 열리고,
+# 공개 주소(<앱>-<번호>-argocd.<zone>)는 플랫폼 공개 입구(infra/envs/public-entry)가 Cloudflare Access 뒤에서 중계한다.
+# 이 클러스터에는 Cloudflare 자격도 인터넷 입구도 없다. 화면은 읽기 전용이고 바꾸는 계정이 없다(변경은 Git → Argo).
+argo-cd:
+  server:
+    enabled: true
+    replicas: 1
+    resources:
+      requests: {cpu: 50m, memory: 128Mi}
+      limits: {cpu: 500m, memory: 256Mi}
+  configs:
+    params:
+      # TLS는 Cloudflare 엣지와 tailnet(WireGuard)이 맡는다
+      server.insecure: true
+    cm:
+      users.anonymous.enabled: "true"
+    rbac:
+      policy.default: role:readonly

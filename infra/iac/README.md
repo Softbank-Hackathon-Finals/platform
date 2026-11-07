@@ -229,6 +229,8 @@ helm upgrade --install bravo-iac-gitops infra/iac/argocd -n bravo-iac-gitops --c
   --set application.enabled=false --set application.autoSync=false --set application.prune=false
 ```
 
+화면이 필요하면 같은 명령에 `-f infra/iac/argocd/ui-values.yaml`을 더한다(읽기 전용, 이 클러스터의 tailnet 장치 `bravo-target-argocd`로만 열림. 공개 주소는 플랫폼 공개 입구 `infra/envs/public-entry`가 Cloudflare Access 뒤에서 중계한다).
+
 **적용하는 커밋은 설치 값 `targetRevision`(전체 40자 SHA, 필수)이다.** 브랜치 기본값이 없어서 develop 병합만으로는 고객
 클러스터에 닿지 않는다(develop은 승인 0이다). 승격은 검토한 커밋 SHA로 이 값 한 줄을 바꾸는 것이다.
 
