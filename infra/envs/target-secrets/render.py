@@ -8,7 +8,12 @@ import sys
 
 BAO_CHART_VERSION = "0.30.6"
 BAO_CHART_SHA256 = "76e90c2315a4922b4b0c6c63fd8a00b9f4bdf0cffda160664f8ea5762d59911c"
-BAO_IMAGE = "localhost/bravo-openbao:2.7.2-bravo.3-nonroot-arm64@sha256:b09c3934e2420aef5d43cf754381b82104c22f3a2a7248ff46b843d12154ce75"
+# One scanned offline image per node architecture (image/build-receipt*.json). arm64 stays the default.
+BAO_IMAGES = {
+    "arm64": "localhost/bravo-openbao:2.7.2-bravo.4-nonroot-arm64@sha256:5328b04955ab2af80cd1d3b9b09fad3daa7e59b9661987f3697ca0eb941a491d",
+    "amd64": "localhost/bravo-openbao:2.7.2-bravo.4-nonroot-amd64@sha256:eaf0d6c56196afd9348a9002f0ff7b48473ba2c34849be054fe5b263a4f8cb79",
+}
+BAO_IMAGE = BAO_IMAGES["arm64"]
 ESO_VERSION = "2.14.0"
 ESO_CHART_SHA256 = "0a6d9e91b1ff50adfdbf24b50b582babfa7c5b7df42b21974ca4b3fb88ee5e34"
 ESO_TAG = "v2.14.0@sha256:10608eb53e636e744903d5f3657a4d9c44e28d9d9c181b73e07bc7dd2e6884dc"
@@ -101,13 +106,13 @@ def eso_namespace():
     return namespace
 
 
-def bao_values():
+def bao_values(image=BAO_IMAGE):
     return {
         "global": {"tlsDisable": False}, "injector": {"enabled": False},
         "csi": {"enabled": False}, "ui": {"enabled": False},
         "server": {
             "image": {"registry": "localhost", "repository": "bravo-openbao",
-                      "tag": BAO_IMAGE.split(":", 1)[1], "pullPolicy": "IfNotPresent"},
+                      "tag": image.split(":", 1)[1], "pullPolicy": "IfNotPresent"},
             "authDelegator": {"enabled": False},
             "serviceAccount": {"create": True, "name": RELEASE, "serviceDiscovery": {"enabled": False}},
             # The chart reserves component=server for its selectors.
@@ -156,7 +161,7 @@ def eso_values():
                           "limits": {"cpu": "250m", "memory": "256Mi"}}}
 
 
-def finalize_bao(objects):
+def finalize_bao(objects, image=BAO_IMAGE):
     """Validate the pinned chart and make its local readiness probe verify TLS."""
     if any(r["metadata"].get("namespace", NAMESPACE) != NAMESPACE for r in objects):
         raise ValueError("chart objects must stay in the intended OpenBao namespace")
@@ -173,7 +178,7 @@ def finalize_bao(objects):
     if sts["spec"]["volumeClaimTemplates"][0]["spec"].get("storageClassName") != "":
         raise ValueError("OpenBao must use its prebound retained local volume")
     containers = pod["spec"]["containers"]
-    if len(containers) != 1 or containers[0]["image"] != BAO_IMAGE:
+    if len(containers) != 1 or containers[0]["image"] != image:
         raise ValueError("unexpected OpenBao image")
     probe = containers[0].get("readinessProbe") or {}
     if any(probe.get(key) != value for key, value in READINESS_TIMING.items()) or "exec" not in probe:
@@ -313,6 +318,41 @@ def rehearsal_writer_identity():
     return {"apiVersion": "v1", "kind": "List", "items": [namespace, account]}
 
 
+APP_ACCOUNT = "demo-chat"
+APP_DB_POLICY = "demo-chat-db-reader"
+
+
+def app_db_policy():
+    """OpenBao policy ``demo-chat-db-reader``: the app's own DB credential path only (T14 SEC-01.1 app side).
+
+    The app already receives this value through ESO as a Kubernetes Secret; this lets its own
+    ServiceAccount read the same path directly so an in-cluster T14 Job (t14-runner can mint only
+    demo-chat and t14-other tokens, T30 #666) measures SEC-01.1 without the ESO reader's identity.
+    Nothing else: no object or admin path, no writes, no token creation."""
+    return f'path "secret/data/{DB_PATH}" {{ capabilities = ["read"] }}' + '''
+path "auth/token/lookup-self" { capabilities = ["read"] }
+path "auth/token/revoke-self" { capabilities = ["update"] }
+'''
+
+
+def app_auth_role():
+    """Body for ``auth/kubernetes/role/demo-chat``: SA ``demo-chat`` in ``target-dev``, that one policy."""
+    return {"bound_service_account_names": [APP_ACCOUNT], "bound_service_account_namespaces": [APP_NAMESPACE],
+            "audience": "openbao", "token_policies": [APP_DB_POLICY], "token_no_default_policy": True,
+            "token_ttl": "300s", "token_max_ttl": "900s"}
+
+
+def t14_other_auth_role():
+    """Body for ``auth/kubernetes/role/t14-other``: T14 SEC-01.1's comparison identity.
+
+    SA ``t14-other`` (T30 #666, no permissions) in ``target-dev`` logs in but gets only the
+    ``default`` policy, so reading the app path (``secret/data/`` + DB_PATH) is denied. A failed
+    login would make SEC-01.1 UNKNOWN, a successful login with a denied read makes it PASS. The app
+    side stays ``target-app-reader`` (SA ``target-eso-reader``); nothing else is added."""
+    return {"bound_service_account_names": ["t14-other"], "bound_service_account_namespaces": [APP_NAMESPACE],
+            "audience": "openbao", "token_policies": ["default"], "token_ttl": "300s", "token_max_ttl": "900s"}
+
+
 def rehearsal_delivery(namespace):
     """Objects for one rehearsal namespace: reader ServiceAccount, a SecretStore bound to this
     namespace's role, and an ExternalSecret that projects the synthetic credentials under the
@@ -357,11 +397,11 @@ def rehearsal_fetch_script(namespace):
     )
 
 
-def rehearsal_fetch_init_container(namespace):
+def rehearsal_fetch_init_container(namespace, image=BAO_IMAGE):
     """Alternative to ESO for ``rehearsal-*`` while ESO stays scoped to ``target-dev``: an init
     container that logs in with the reader ServiceAccount token and writes ``credentials.json``.
     No secret value appears in this manifest."""
-    return {"name": "openbao-fetch", "image": BAO_IMAGE, "command": ["/bin/sh", "-c", rehearsal_fetch_script(namespace)],
+    return {"name": "openbao-fetch", "image": image, "command": ["/bin/sh", "-c", rehearsal_fetch_script(namespace)],
             "securityContext": {"allowPrivilegeEscalation": False, "readOnlyRootFilesystem": True,
                                 "runAsNonRoot": True, "capabilities": {"drop": ["ALL"]}},
             "volumeMounts": [{"name": "bravo-database", "mountPath": "/run/bravo/database"},
@@ -447,19 +487,24 @@ def main(argv=None):
         "policy", "delivery", "network", "eso-network",
         "rehearsal-reader-policy", "rehearsal-auth-role", "rehearsal-delivery", "rehearsal-init-container",
         "rehearsal-writer-policy", "rehearsal-writer-auth-role", "rehearsal-writer-identity",
+        "t14-other-auth-role", "app-db-policy", "app-auth-role",
     ])
     parser.add_argument("--node-name")
     parser.add_argument("--namespace")
     parser.add_argument("--kubernetes-accessor", help="auth/kubernetes mount accessor (rehearsal-reader-policy)")
     parser.add_argument("--api-ip")
     parser.add_argument("--api-endpoint-ip")
+    parser.add_argument("--arch", choices=sorted(BAO_IMAGES), default="arm64", help="node architecture (OpenBao image)")
     args = parser.parse_args(argv)
+    image = BAO_IMAGES[args.arch]
     if args.stage == "policy":
         print(policy())
     elif args.stage == "rehearsal-reader-policy":
         print(rehearsal_reader_policy(args.kubernetes_accessor), end="")
     elif args.stage == "rehearsal-writer-policy":
         print(rehearsal_writer_policy(), end="")
+    elif args.stage == "app-db-policy":
+        print(app_db_policy(), end="")
     elif args.stage == "finalize-bao":
         # Only nonsecret, parsed Helm objects belong on this input. JSON makes
         # the renderer independent of an implicit YAML package installation.
@@ -468,17 +513,19 @@ def main(argv=None):
             objects = objects.get("items")
         if not isinstance(objects, list) or not all(isinstance(item, dict) for item in objects):
             raise ValueError("a JSON array or Kubernetes List of chart objects is required")
-        print(json.dumps({"apiVersion": "v1", "kind": "List", "items": finalize_bao(objects)}, indent=2))
+        print(json.dumps({"apiVersion": "v1", "kind": "List", "items": finalize_bao(objects, image)}, indent=2))
     else:
-        value = {"foundation": lambda: foundation(args.node_name), "bao-values": bao_values,
+        value = {"foundation": lambda: foundation(args.node_name), "bao-values": lambda: bao_values(image),
                  "eso-namespace": eso_namespace, "eso-values": eso_values, "delivery": delivery,
                  "network": lambda: network(args.api_ip, args.api_endpoint_ip),
                  "eso-network": lambda: eso_network(args.api_ip, args.api_endpoint_ip),
                  "rehearsal-auth-role": lambda: rehearsal_auth_role(args.namespace),
                  "rehearsal-delivery": lambda: rehearsal_delivery(args.namespace),
-                 "rehearsal-init-container": lambda: rehearsal_fetch_init_container(args.namespace),
+                 "rehearsal-init-container": lambda: rehearsal_fetch_init_container(args.namespace, image),
                  "rehearsal-writer-auth-role": rehearsal_writer_auth_role,
-                 "rehearsal-writer-identity": rehearsal_writer_identity}[args.stage]()
+                 "rehearsal-writer-identity": rehearsal_writer_identity,
+                 "t14-other-auth-role": t14_other_auth_role,
+                 "app-auth-role": app_auth_role}[args.stage]()
         print(json.dumps(value, indent=2))
 
 

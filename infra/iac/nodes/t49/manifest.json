@@ -1,0 +1,17 @@
+{
+  "kind": "iac-node-files.v1",
+  "environment": "t49",
+  "state_digest": "86ecbff1d7437c3a011cf91200393229529cd17a847b258ddf41d6b8848a04ad",
+  "files": [
+    {
+      "path": "/etc/rancher/rke2/config.yaml.d/50-bravo-service-account-issuer.yaml",
+      "mode": "0600",
+      "sha256": "adebd28c4cfc25e4784528906270b6479663e5d0de40d89acf69b9dafa25fe71",
+      "restart": [
+        "Service/rke2-server"
+      ],
+      "module": "service-account-issuer",
+      "href": "/v1/iac/environments/t49/node-files/etc/rancher/rke2/config.yaml.d/50-bravo-service-account-issuer.yaml"
+    }
+  ]
+}

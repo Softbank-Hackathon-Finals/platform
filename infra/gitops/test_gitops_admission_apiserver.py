@@ -51,6 +51,8 @@ def free_port():
 
 @unittest.skipUnless(ASSETS and Path(ASSETS, "kube-apiserver").is_file(), "KUBEBUILDER_ASSETS not set")
 class ControllerAdmission(unittest.TestCase):
+    EXTRA, NAMESPACES, CRDS = None, (), ()
+
     @classmethod
     def setUpClass(cls):
         cls.dir = tempfile.TemporaryDirectory()
@@ -83,14 +85,17 @@ class ControllerAdmission(unittest.TestCase):
         else:
             cls.tearDownClass()
             raise RuntimeError("kube-apiserver did not become ready")
-        for ns in ("platform-state", "bravo-gitops"):
+        for ns in ("platform-state", "bravo-gitops", *cls.NAMESPACES):
             cls.kube(["create", "namespace", ns], check=True)
+        for crd in cls.CRDS:
+            cls.kube(["apply", "-f", "-"], check=True, data=crd)
         runtime = {k: HOST[k] for k in ("configuration", "reader", "recordsClaim", "secrets", "hostAliases")}
         reader = {"configuration": {"existingConfigMap": "reader-config", "sha256": "c" * 64},
                   "secrets": {"catalogKey": "existing-key", "tls": "existing-tls"}, "catalogClaim": "existing-catalog"}
         argo = helm("bravo-gitops", str(ROOT / "infra/gitops/argocd"), "--namespace", "bravo-gitops",
                     "-f", values_file(d, "argo.json", {"rehearsalHost": {"enabled": True, "runtime": runtime},
-                                                       "productReader": {"enabled": True, "runtime": reader}}))
+                                                       "productReader": {"enabled": True, "runtime": reader}}),
+                    *(["-f", str(cls.EXTRA)] if cls.EXTRA else []))
         policies = [o for o in yaml.safe_load_all(argo) if o and o["kind"].startswith("ValidatingAdmissionPolicy")]
         cls.kube(["apply", "-f", "-"], check=True, data={"apiVersion": "v1", "kind": "List", "items": policies})
         # A binding is enforced asynchronously; wait until a known violation is denied.
@@ -117,7 +122,8 @@ class ControllerAdmission(unittest.TestCase):
 
     @classmethod
     def create(cls, obj):
-        return cls.kube(["--as", CONTROLLER, "create", "--dry-run=server", "-n", "platform-state", "-f", "-"], data=obj)
+        namespace = obj.get("metadata", {}).get("namespace", "platform-state")
+        return cls.kube(["--as", CONTROLLER, "create", "--dry-run=server", "-n", namespace, "-f", "-"], data=obj)
 
     def rendered_host(self):
         with tempfile.TemporaryDirectory() as d:
@@ -169,6 +175,61 @@ class ControllerAdmission(unittest.TestCase):
         dep["metadata"]["name"] = "t10-registration"
         dep["spec"]["template"]["spec"]["serviceAccountName"] = "t10-registration"
         self.assertNotEqual(self.create(dep).returncode, 0)
+
+
+
+def kustomized(path):
+    out = subprocess.run(["kubectl", "kustomize", str(ROOT / path)], check=True, capture_output=True, text=True, timeout=60)
+    return [o for o in yaml.safe_load_all(out.stdout) if o]
+
+
+EXTERNAL_SECRET_CRD = {
+    "apiVersion": "apiextensions.k8s.io/v1", "kind": "CustomResourceDefinition",
+    "metadata": {"name": "externalsecrets.external-secrets.io"},
+    "spec": {"group": "external-secrets.io", "scope": "Namespaced",
+             "names": {"plural": "externalsecrets", "singular": "externalsecret", "kind": "ExternalSecret"},
+             "versions": [{"name": "v1", "served": True, "storage": True,
+                           "schema": {"openAPIV3Schema": {"type": "object", "x-kubernetes-preserve-unknown-fields": True}}}]}}
+
+
+class EntryAndObservabilityAdmission(ControllerAdmission):
+    """The development values (public entry, observability) under the same controller policies."""
+    EXTRA = ROOT / "infra/gitops/environments/development/public-entry.json"
+    NAMESPACES = ("bravo-observability", "platform-telemetry")
+    CRDS = (EXTERNAL_SECRET_CRD,)
+
+    def bundles(self):
+        return kustomized("infra/envs/public-entry") + kustomized("services/observability/deploy/platform-gitops")
+
+    def test_rendered_bundles_are_admitted(self):
+        for obj in self.bundles():
+            with self.subTest(kind=obj["kind"], name=obj["metadata"]["name"]):
+                result = self.create(obj)
+                self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_names_identities_and_grants_stay_bounded(self):
+        objs = {(o["kind"], o["metadata"]["name"]): o for o in self.bundles()}
+        def changed(key, change):
+            obj = deepcopy(objs[key])
+            change(obj)
+            return obj
+        faults = {
+            "other ConfigMap in platform-state": changed(("ConfigMap", "public-entry-spec"),
+                                                        lambda o: o["metadata"].update(name="other")),
+            "Collector in platform-state": changed(("Deployment", "bravo-collector"),
+                                                   lambda o: o["metadata"].update(namespace="platform-state")),
+            "public entry with an API token": changed(("Deployment", "public-entry"),
+                                                      lambda o: o["spec"]["template"]["spec"].update(automountServiceAccountToken=True)),
+            "binding to another role": changed(("RoleBinding", "bravo-collector-db-discovery"),
+                                               lambda o: o["roleRef"].update(name="platform-gitops-registration")),
+            "discovery Role reading Secrets": changed(("Role", "bravo-collector-db-discovery"),
+                                                      lambda o: o["rules"][0].update(resources=["pods", "secrets"])),
+            "other credential store": changed(("ExternalSecret", "public-entry-cloudflare"),
+                                              lambda o: o["spec"]["secretStoreRef"].update(name="t17-edge-secret-reader")),
+        }
+        for name, obj in faults.items():
+            with self.subTest(fault=name):
+                self.assertNotEqual(self.create(obj).returncode, 0, name)
 
 
 if __name__ == "__main__":

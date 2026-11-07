@@ -12,7 +12,7 @@ import json
 import subprocess
 
 from .catalog import check_state, module
-from .modules import DEFAULT_TAILNET, IacError, tailnet_of
+from .modules import DEFAULT_TAILNET, KUBERNETES_CAP, IacError, tailnet_of
 
 TAILSCALE = "/Applications/Tailscale.app/Contents/MacOS/Tailscale"
 
@@ -36,6 +36,14 @@ def _devices(states, tailnet=None):
                         yield device["hostname"], device["tag"]
 
 
+def _api_proxies(states, tailnet=None):
+    """(hostname, tag) of every API server proxy an operator-access module names."""
+    for state in states:
+        for entry in check_state(state)["modules"]:
+            if entry["id"] == "operator-access" and (tailnet is None or tailnet_of(entry["params"]) == tailnet):
+                yield entry["params"]["proxy_hostname"], entry["params"]["proxy_tag"]
+
+
 def fragment(states, tailnet=DEFAULT_TAILNET) -> dict:
     owners, grants, accepts = {}, set(), {}
     for state in states:
@@ -43,18 +51,30 @@ def fragment(states, tailnet=DEFAULT_TAILNET) -> dict:
             found = module(entry["id"], entry["version"])
             for g in found.grants(entry["params"]):
                 if g.get("tailnet", DEFAULT_TAILNET) == tailnet:
-                    grants.add((g["src"][0], g["dst"][0], g["ip"][0]))
+                    app = json.dumps(g["app"], sort_keys=True) if "app" in g else ""
+                    grants.add((g["src"][0], g["dst"][0], g["ip"][0], app))
             for o in found.tag_owners(entry["params"]):
                 if o["tailnet"] == tailnet and owners.setdefault(o["tag"], o["owner"]) != o["owner"]:
                     raise IacError("IAC_TAG_OWNER_CONFLICT")
-    for src, dst, ip in grants:
-        accepts.setdefault(src, set()).add(f"{dst}:{ip.removeprefix('tcp:')}")
-    destinations = sorted({dst for _, dst, _ in grants})
+    # Policy tests cover route grants only: a grant with an app capability (API server proxy access)
+    # names a tailnet group whose members live outside this repository; check_policy matches it instead.
+    for src, dst, ip, app in grants:
+        if not app:
+            accepts.setdefault(src, set()).add(f"{dst}:{ip.removeprefix('tcp:')}")
+    destinations = sorted({dst for _, dst, _, app in grants if not app})
+    # A new cluster's operator tag (tailnet-operator) has no grant of its own. Its devices get names at
+    # run time that a repository scan cannot see, so the policy itself tests that the tag reaches no
+    # granted destination: other environments' operators, databases, poolers and the collectors.
+    granted = sorted({f"{dst}:{ip.removeprefix('tcp:')}" for _, dst, ip, app in grants if not app})
+    operators = sorted({entry["params"]["tag"] for state in states for entry in check_state(state)["modules"]
+                        if entry["id"] == "tailnet-operator" and tailnet_of(entry["params"]) == tailnet})
     return {
         "tagOwners": {tag: [owners[tag]] for tag in sorted(owners)},
-        "grants": [{"src": [s], "dst": [d], "ip": [i]} for s, d, i in sorted(grants)],
+        "grants": [{"src": [s], "dst": [d], "ip": [i], **({"app": json.loads(a)} if a else {})}
+                   for s, d, i, a in sorted(grants)],
         "tests": [{"src": src, "accept": sorted(accepts[src]),
-                   "deny": [f"{dst}:22" for dst in destinations]} for src in sorted(accepts)],
+                   "deny": [f"{dst}:22" for dst in destinations]} for src in sorted(accepts)]
+                 + [{"src": tag, "accept": [], "deny": granted} for tag in operators if granted],
     }
 
 
@@ -71,8 +91,19 @@ def check_policy(policy, states, tailnet=DEFAULT_TAILNET) -> list[str]:
     for grant in want["grants"]:
         src, dst, ip = grant["src"][0], grant["dst"][0], grant["ip"][0]
         if not any(src in g.get("src", []) and dst in g.get("dst", []) and (ip in g.get("ip", []) or "*" in g.get("ip", []))
-                   for g in policy.get("grants") or []):
-            missing.append(f"GRANT:{src}->{dst}:{ip}")
+                   and ("app" not in grant or g.get("app") == grant["app"]) for g in policy.get("grants") or []):
+            missing.append(f"GRANT:{src}->{dst}:{ip}" + ("+app" if "app" in grant else ""))
+    # A capability grant to a declared API proxy that the desired state does not declare would let a
+    # policy edit alone hand out cluster rights (the proxy may impersonate any group): report it too.
+    declared = {json.dumps(g, sort_keys=True) for g in want["grants"] if "app" in g}
+    proxies = {d for g in want["grants"] if "app" in g for d in g["dst"]}
+    for g in policy.get("grants") or []:
+        if KUBERNETES_CAP in (g.get("app") or {}) and proxies & set(g.get("dst", [])):
+            for src in g.get("src", []):
+                for dst in sorted(proxies & set(g["dst"])):
+                    one = {"src": [src], "dst": [dst], "ip": g.get("ip", []), "app": g["app"]}
+                    if json.dumps(one, sort_keys=True) not in declared:
+                        missing.append(f"UNDECLARED_GRANT:{src}->{dst}+app")
     tests = policy.get("tests") or []
     for test in want["tests"]:
         have = {a for t in tests if t.get("src") == test["src"] for a in t.get("accept", [])}
@@ -114,5 +145,7 @@ def verify(states, peers, tailnet=None) -> list[dict]:
                               peers.get(route["destination"])))
     for host, tag in _devices(states, tailnet):
         rows.append(judge("destination", host, tag, peers.get(host)))
+    for host, tag in _api_proxies(states, tailnet):
+        rows.append(judge("api-proxy", host, tag, peers.get(host)))
     unique = {json.dumps(r, sort_keys=True) for r in rows}
     return [json.loads(r) for r in sorted(unique)]

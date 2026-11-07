@@ -5,14 +5,38 @@
     "environment",
     "tailnet",
     "repoURL",
-    "targetRevision"
+    "targetRevision",
+    "application"
   ],
   "properties": {
+    "application": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["enabled", "autoSync", "prune"],
+      "properties": {
+        "enabled": {"type": "boolean"},
+        "autoSync": {"type": "boolean"},
+        "prune": {"type": "boolean"}
+      },
+      "allOf": [
+        {
+          "if": {"properties": {"prune": {"const": true}}},
+          "then": {"properties": {"enabled": {"const": true}, "autoSync": {"const": true}}}
+        },
+        {
+          "if": {"properties": {"autoSync": {"const": true}}},
+          "then": {"properties": {"enabled": {"const": true}}}
+        }
+      ]
+    },
     "environment": {
       "type": "string",
       "enum": [
         "source-dev",
-        "target-dev"
+        "t49",
+        "target-dev",
+        "target-gce",
+        "target-gke"
       ]
     },
     "tailnet": {

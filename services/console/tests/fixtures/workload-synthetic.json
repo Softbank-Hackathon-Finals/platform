@@ -1,0 +1,539 @@
+{
+  "kind": "console-workload.v1",
+  "plan_id": "local-security-story",
+  "plan_digest": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+  "plan_version": 1,
+  "revision": 6,
+  "stream_id": "local-story",
+  "provenance": "synthetic",
+  "source_label": "브라우저 안의 합성 시나리오",
+  "observed_at": "2026-11-07T00:00:00.000Z",
+  "expires_at": "2026-11-07T00:00:30.000Z",
+  "authorizes_execution": false,
+  "nodes": [
+    {
+      "id": "edge",
+      "label": "고정 진입점",
+      "kind": "edge",
+      "lane": "source",
+      "column": 0,
+      "row": 1,
+      "detail": "사용자 요청의 진입 경로",
+      "resource_uid": "synthetic-edge",
+      "health": "ready",
+      "security": "clear",
+      "health_evidence": "demo-edge-health",
+      "security_evidence": "demo-edge-security"
+    },
+    {
+      "id": "api",
+      "label": "업무 API",
+      "kind": "app",
+      "lane": "source",
+      "column": 1,
+      "row": 1,
+      "detail": "보안 대응 대상으로 선택한 앱",
+      "resource_uid": "synthetic-api",
+      "health": "ready",
+      "security": "isolated",
+      "health_evidence": "demo-api-health",
+      "security_evidence": "demo-api-isolation"
+    },
+    {
+      "id": "worker",
+      "label": "백그라운드 작업자",
+      "kind": "worker",
+      "lane": "source",
+      "column": 2,
+      "row": 0,
+      "detail": "업무 API와 연결된 작업 처리 프로세스",
+      "resource_uid": "synthetic-worker",
+      "health": "ready",
+      "security": "isolated",
+      "health_evidence": "demo-worker-health",
+      "security_evidence": "demo-worker-isolation"
+    },
+    {
+      "id": "database",
+      "label": "업무 데이터베이스",
+      "kind": "database",
+      "lane": "source",
+      "column": 3,
+      "row": 1,
+      "detail": "영향 가능성을 살펴볼 의존 자원 · 감염을 뜻하지 않음",
+      "resource_uid": "synthetic-database",
+      "health": "ready",
+      "security": "clear",
+      "health_evidence": "demo-database-health",
+      "security_evidence": "demo-database-security"
+    },
+    {
+      "id": "secret",
+      "label": "자격·비밀 관리",
+      "kind": "secret",
+      "lane": "control",
+      "column": 4,
+      "row": 0,
+      "detail": "등록된 접근 권한과 비밀 참조",
+      "resource_uid": "synthetic-secret",
+      "health": "ready",
+      "security": "clear",
+      "health_evidence": "demo-secret-health",
+      "security_evidence": "demo-secret-security"
+    },
+    {
+      "id": "security",
+      "label": "보안 통제·실행 기록",
+      "kind": "security",
+      "lane": "control",
+      "column": 4,
+      "row": 1,
+      "detail": "정책·승인·격리 확인 근거",
+      "resource_uid": "synthetic-security",
+      "health": "ready",
+      "security": "clear",
+      "health_evidence": "demo-security-health",
+      "security_evidence": "demo-security-security"
+    },
+    {
+      "id": "green",
+      "label": "대체 업무 API",
+      "kind": "app",
+      "lane": "target",
+      "column": 1,
+      "row": 0,
+      "detail": "검증 후에만 사용자 요청을 받는 대체 실행본",
+      "resource_uid": "synthetic-green",
+      "health": "unknown",
+      "security": "unknown",
+      "health_evidence": null,
+      "security_evidence": null
+    },
+    {
+      "id": "target-db",
+      "label": "동일 업무 DB 연결",
+      "kind": "database",
+      "lane": "target",
+      "column": 3,
+      "row": 0,
+      "detail": "공유 DB를 계속 쓰는 예시 · DB 이전 완료가 아님",
+      "resource_uid": "synthetic-target-db",
+      "health": "unknown",
+      "security": "unknown",
+      "health_evidence": null,
+      "security_evidence": null
+    }
+  ],
+  "edges": [
+    {
+      "id": "edge-api",
+      "source": "edge",
+      "target": "api",
+      "label": "HTTPS 요청",
+      "kind": "http",
+      "resource_uid": "synthetic-edge-api",
+      "state": "blocked",
+      "evidence_id": "demo-edge-api-isolation"
+    },
+    {
+      "id": "api-worker",
+      "source": "api",
+      "target": "worker",
+      "label": "작업 전달",
+      "kind": "dependency",
+      "resource_uid": "synthetic-api-worker",
+      "state": "blocked",
+      "evidence_id": "demo-api-worker-isolation"
+    },
+    {
+      "id": "api-db",
+      "source": "api",
+      "target": "database",
+      "label": "DB 읽기·쓰기",
+      "kind": "database",
+      "resource_uid": "synthetic-api-db",
+      "state": "blocked",
+      "evidence_id": "demo-api-db-isolation"
+    },
+    {
+      "id": "worker-db",
+      "source": "worker",
+      "target": "database",
+      "label": "작업 결과",
+      "kind": "database",
+      "resource_uid": "synthetic-worker-db",
+      "state": "blocked",
+      "evidence_id": "demo-worker-db-isolation"
+    },
+    {
+      "id": "secret-api",
+      "source": "secret",
+      "target": "api",
+      "label": "자격 참조",
+      "kind": "control",
+      "resource_uid": "synthetic-secret-api",
+      "state": "observed",
+      "evidence_id": "demo-secret-api-health"
+    },
+    {
+      "id": "security-api",
+      "source": "security",
+      "target": "api",
+      "label": "보류·격리 근거",
+      "kind": "control",
+      "resource_uid": "synthetic-security-api",
+      "state": "observed",
+      "evidence_id": "demo-security-api-health"
+    },
+    {
+      "id": "edge-green",
+      "source": "edge",
+      "target": "green",
+      "label": "대체 요청 경로",
+      "kind": "http",
+      "resource_uid": "synthetic-edge-green",
+      "state": "unknown",
+      "evidence_id": null
+    },
+    {
+      "id": "green-db",
+      "source": "green",
+      "target": "target-db",
+      "label": "검증 대상 연결",
+      "kind": "database",
+      "resource_uid": "synthetic-green-db",
+      "state": "unknown",
+      "evidence_id": null
+    }
+  ],
+  "evidence": [
+    {
+      "id": "demo-edge-health",
+      "resource_id": "edge",
+      "resource_uid": "synthetic-edge",
+      "kind": "health",
+      "outcome": "verified",
+      "summary": "합성 근거 · 대상 응답 확인",
+      "observed_at": "2026-11-07T00:00:00.000Z",
+      "expires_at": "2026-11-07T00:00:30.000Z"
+    },
+    {
+      "id": "demo-edge-security",
+      "resource_id": "edge",
+      "resource_uid": "synthetic-edge",
+      "kind": "security",
+      "outcome": "verified",
+      "summary": "합성 근거 · 선정 통제 확인",
+      "observed_at": "2026-11-07T00:00:00.000Z",
+      "expires_at": "2026-11-07T00:00:30.000Z"
+    },
+    {
+      "id": "demo-api-health",
+      "resource_id": "api",
+      "resource_uid": "synthetic-api",
+      "kind": "health",
+      "outcome": "verified",
+      "summary": "합성 근거 · 대상 응답 확인",
+      "observed_at": "2026-11-07T00:00:00.000Z",
+      "expires_at": "2026-11-07T00:00:30.000Z"
+    },
+    {
+      "id": "demo-api-isolation",
+      "resource_id": "api",
+      "resource_uid": "synthetic-api",
+      "kind": "isolation",
+      "outcome": "verified",
+      "summary": "합성 근거 · 선정 연결의 거부 확인",
+      "observed_at": "2026-11-07T00:00:00.000Z",
+      "expires_at": "2026-11-07T00:00:30.000Z"
+    },
+    {
+      "id": "demo-worker-health",
+      "resource_id": "worker",
+      "resource_uid": "synthetic-worker",
+      "kind": "health",
+      "outcome": "verified",
+      "summary": "합성 근거 · 대상 응답 확인",
+      "observed_at": "2026-11-07T00:00:00.000Z",
+      "expires_at": "2026-11-07T00:00:30.000Z"
+    },
+    {
+      "id": "demo-worker-isolation",
+      "resource_id": "worker",
+      "resource_uid": "synthetic-worker",
+      "kind": "isolation",
+      "outcome": "verified",
+      "summary": "합성 근거 · 선정 연결의 거부 확인",
+      "observed_at": "2026-11-07T00:00:00.000Z",
+      "expires_at": "2026-11-07T00:00:30.000Z"
+    },
+    {
+      "id": "demo-database-health",
+      "resource_id": "database",
+      "resource_uid": "synthetic-database",
+      "kind": "health",
+      "outcome": "verified",
+      "summary": "합성 근거 · 대상 응답 확인",
+      "observed_at": "2026-11-07T00:00:00.000Z",
+      "expires_at": "2026-11-07T00:00:30.000Z"
+    },
+    {
+      "id": "demo-database-security",
+      "resource_id": "database",
+      "resource_uid": "synthetic-database",
+      "kind": "security",
+      "outcome": "verified",
+      "summary": "합성 근거 · 선정 통제 확인",
+      "observed_at": "2026-11-07T00:00:00.000Z",
+      "expires_at": "2026-11-07T00:00:30.000Z"
+    },
+    {
+      "id": "demo-secret-health",
+      "resource_id": "secret",
+      "resource_uid": "synthetic-secret",
+      "kind": "health",
+      "outcome": "verified",
+      "summary": "합성 근거 · 대상 응답 확인",
+      "observed_at": "2026-11-07T00:00:00.000Z",
+      "expires_at": "2026-11-07T00:00:30.000Z"
+    },
+    {
+      "id": "demo-secret-security",
+      "resource_id": "secret",
+      "resource_uid": "synthetic-secret",
+      "kind": "security",
+      "outcome": "verified",
+      "summary": "합성 근거 · 선정 통제 확인",
+      "observed_at": "2026-11-07T00:00:00.000Z",
+      "expires_at": "2026-11-07T00:00:30.000Z"
+    },
+    {
+      "id": "demo-security-health",
+      "resource_id": "security",
+      "resource_uid": "synthetic-security",
+      "kind": "health",
+      "outcome": "verified",
+      "summary": "합성 근거 · 대상 응답 확인",
+      "observed_at": "2026-11-07T00:00:00.000Z",
+      "expires_at": "2026-11-07T00:00:30.000Z"
+    },
+    {
+      "id": "demo-security-security",
+      "resource_id": "security",
+      "resource_uid": "synthetic-security",
+      "kind": "security",
+      "outcome": "verified",
+      "summary": "합성 근거 · 선정 통제 확인",
+      "observed_at": "2026-11-07T00:00:00.000Z",
+      "expires_at": "2026-11-07T00:00:30.000Z"
+    },
+    {
+      "id": "demo-edge-api-isolation",
+      "resource_id": "edge-api",
+      "resource_uid": "synthetic-edge-api",
+      "kind": "isolation",
+      "outcome": "verified",
+      "summary": "합성 근거 · 선정 새 연결 거부",
+      "observed_at": "2026-11-07T00:00:00.000Z",
+      "expires_at": "2026-11-07T00:00:30.000Z"
+    },
+    {
+      "id": "demo-api-worker-isolation",
+      "resource_id": "api-worker",
+      "resource_uid": "synthetic-api-worker",
+      "kind": "isolation",
+      "outcome": "verified",
+      "summary": "합성 근거 · 선정 새 연결 거부",
+      "observed_at": "2026-11-07T00:00:00.000Z",
+      "expires_at": "2026-11-07T00:00:30.000Z"
+    },
+    {
+      "id": "demo-api-db-isolation",
+      "resource_id": "api-db",
+      "resource_uid": "synthetic-api-db",
+      "kind": "isolation",
+      "outcome": "verified",
+      "summary": "합성 근거 · 선정 새 연결 거부",
+      "observed_at": "2026-11-07T00:00:00.000Z",
+      "expires_at": "2026-11-07T00:00:30.000Z"
+    },
+    {
+      "id": "demo-worker-db-isolation",
+      "resource_id": "worker-db",
+      "resource_uid": "synthetic-worker-db",
+      "kind": "isolation",
+      "outcome": "verified",
+      "summary": "합성 근거 · 선정 새 연결 거부",
+      "observed_at": "2026-11-07T00:00:00.000Z",
+      "expires_at": "2026-11-07T00:00:30.000Z"
+    },
+    {
+      "id": "demo-secret-api-health",
+      "resource_id": "secret-api",
+      "resource_uid": "synthetic-secret-api",
+      "kind": "health",
+      "outcome": "verified",
+      "summary": "합성 근거 · 해당 경로 응답",
+      "observed_at": "2026-11-07T00:00:00.000Z",
+      "expires_at": "2026-11-07T00:00:30.000Z"
+    },
+    {
+      "id": "demo-security-api-health",
+      "resource_id": "security-api",
+      "resource_uid": "synthetic-security-api",
+      "kind": "health",
+      "outcome": "verified",
+      "summary": "합성 근거 · 해당 경로 응답",
+      "observed_at": "2026-11-07T00:00:00.000Z",
+      "expires_at": "2026-11-07T00:00:30.000Z"
+    },
+    {
+      "id": "demo-stage-detect",
+      "resource_id": "api",
+      "resource_uid": "synthetic-api",
+      "kind": "security",
+      "outcome": "verified",
+      "summary": "합성 근거 · detect 확인",
+      "observed_at": "2026-11-07T00:00:00.000Z",
+      "expires_at": "2026-11-07T00:00:30.000Z"
+    },
+    {
+      "id": "demo-stage-hold",
+      "resource_id": "api",
+      "resource_uid": "synthetic-api",
+      "kind": "hold",
+      "outcome": "verified",
+      "summary": "합성 근거 · hold 확인",
+      "observed_at": "2026-11-07T00:00:00.000Z",
+      "expires_at": "2026-11-07T00:00:30.000Z"
+    },
+    {
+      "id": "demo-stage-approve",
+      "resource_id": "api",
+      "resource_uid": "synthetic-api",
+      "kind": "approval",
+      "outcome": "verified",
+      "summary": "합성 근거 · approve 확인",
+      "observed_at": "2026-11-07T00:00:00.000Z",
+      "expires_at": "2026-11-07T00:00:30.000Z"
+    },
+    {
+      "id": "demo-stage-isolate",
+      "resource_id": "api",
+      "resource_uid": "synthetic-api",
+      "kind": "isolation",
+      "outcome": "verified",
+      "summary": "합성 근거 · isolate 확인",
+      "observed_at": "2026-11-07T00:00:00.000Z",
+      "expires_at": "2026-11-07T00:00:30.000Z"
+    }
+  ],
+  "responses": [
+    {
+      "stage": "detect",
+      "status": "verified",
+      "node_ids": [
+        "api"
+      ],
+      "evidence_id": "demo-stage-detect",
+      "detail": "합성 시나리오에서 확인한 단계"
+    },
+    {
+      "stage": "hold",
+      "status": "verified",
+      "node_ids": [
+        "api"
+      ],
+      "evidence_id": "demo-stage-hold",
+      "detail": "합성 시나리오에서 확인한 단계"
+    },
+    {
+      "stage": "approve",
+      "status": "verified",
+      "node_ids": [
+        "api"
+      ],
+      "evidence_id": "demo-stage-approve",
+      "detail": "합성 시나리오에서 확인한 단계"
+    },
+    {
+      "stage": "isolate",
+      "status": "verified",
+      "node_ids": [
+        "api"
+      ],
+      "evidence_id": "demo-stage-isolate",
+      "detail": "합성 시나리오에서 확인한 단계"
+    },
+    {
+      "stage": "replace",
+      "status": "pending",
+      "node_ids": [
+        "green"
+      ],
+      "evidence_id": null,
+      "detail": "선행 확인 대기"
+    },
+    {
+      "stage": "verify",
+      "status": "pending",
+      "node_ids": [
+        "green"
+      ],
+      "evidence_id": null,
+      "detail": "선행 확인 대기"
+    },
+    {
+      "stage": "route",
+      "status": "pending",
+      "node_ids": [
+        "green"
+      ],
+      "evidence_id": null,
+      "detail": "선행 확인 대기"
+    },
+    {
+      "stage": "recover",
+      "status": "pending",
+      "node_ids": [
+        "green"
+      ],
+      "evidence_id": null,
+      "detail": "선행 확인 대기"
+    }
+  ],
+  "events": [
+    {
+      "id": "demo-event-detect",
+      "sequence": 1,
+      "occurred_at": "2026-11-07T00:00:00.000Z",
+      "stage": "detect",
+      "status": "verified",
+      "summary": "합성 시나리오에서 확인한 단계"
+    },
+    {
+      "id": "demo-event-hold",
+      "sequence": 2,
+      "occurred_at": "2026-11-07T00:00:00.000Z",
+      "stage": "hold",
+      "status": "verified",
+      "summary": "합성 시나리오에서 확인한 단계"
+    },
+    {
+      "id": "demo-event-approve",
+      "sequence": 3,
+      "occurred_at": "2026-11-07T00:00:00.000Z",
+      "stage": "approve",
+      "status": "verified",
+      "summary": "합성 시나리오에서 확인한 단계"
+    },
+    {
+      "id": "demo-event-isolate",
+      "sequence": 4,
+      "occurred_at": "2026-11-07T00:00:00.000Z",
+      "stage": "isolate",
+      "status": "verified",
+      "summary": "합성 시나리오에서 확인한 단계"
+    }
+  ]
+}

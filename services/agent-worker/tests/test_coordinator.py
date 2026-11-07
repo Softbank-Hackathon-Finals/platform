@@ -128,3 +128,49 @@ def test_retries_keep_the_original_task_next_to_the_failure_feedback(context):
     result = coordinator.result()
     assert result["task_digest"] == result["attempts"][0]["task_digest"] == result["attempts"][1]["task_digest"]
     assert result["input"]["summary"].startswith("Independent validator") and result["task"] == bundle.model_dump()
+
+
+def test_the_control_path_iac_port_reaches_the_tools_and_the_plan_is_bound_to_the_attempt(context, tmp_path):
+    import json
+    from pathlib import Path
+
+    from bravo_iac.agent import AgentPlanner
+
+    from bravo_agent.coordinator import Coordinator as Restorable
+
+    bundle, snapshot, proposal, _ = context
+    committed = json.loads((Path(__file__).resolve().parents[3] / "infra/iac/environments/target-dev.json").read_text())
+    closed = {"state": "closed", "bucket": "demo-chat-attachments"}
+
+    class PlanningProvider:
+        async def propose(self, bundle, tools):
+            plan = tools.dispatch("mcp__bravo__infra_plan", {"module": "target-object-exposure",
+                                                             "params_json": json.dumps(closed)})
+            assert plan["accepted"]
+            tools.dispatch("mcp__bravo__plan_propose", proposal)
+
+    states = []
+    coordinator = Coordinator(bundle, snapshot, iac=AgentPlanner(committed), checkpoint=states.append)
+    result = asyncio.run(coordinator.propose(PlanningProvider()))
+    assert result["state"] == "PROPOSAL_READY"
+    [bound] = result["attempts"][-1]["infra_plans"]
+    assert (bound["module"], bound["params"], bound["plan"]["origin"]) == ("target-object-exposure", closed, "agent")
+    assert any(e["tool"] == "infra.plan" and e["plan_digest"] == bound["plan"]["plan_digest"] for e in result["audit"])
+    # A restored run keeps the bound plan and receives the same port again.
+    restored = Restorable.restore(states[-1], snapshot, iac=AgentPlanner(committed))
+    assert restored.attempts[-1]["infra_plans"] == [bound] and restored.iac is not None
+    import copy
+
+    from bravo_agent.contracts import digest
+    from bravo_agent.coordinator import StateRejected
+
+    for broken in ([{"module": "target-object-exposure"}], [], [bound] * 9, "plans"):
+        tampered = copy.deepcopy(states[-1])
+        tampered["attempts"][-1]["infra_plans"] = broken
+        body = {key: value for key, value in tampered.items() if key != "state_digest"}
+        tampered["state_digest"] = digest(body)  # re-signed: the record check, not the digest, refuses it
+        with pytest.raises(StateRejected, match="attempt record mismatch"):
+            Restorable.restore(tampered, snapshot)
+    # Without a port the tool is not offered and nothing is bound.
+    plain = Coordinator(bundle, snapshot)
+    assert asyncio.run(plain.propose(TestProvider(proposal)))["attempts"][-1].get("infra_plans") is None

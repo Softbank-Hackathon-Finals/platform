@@ -49,6 +49,10 @@ APP_BUCKET = "demo-chat-attachments"
 # Annotations on the workload's pod template: a new template on every application, so the pods are
 # recreated and read the replaced s3.json (SeaweedFS reads it at start).
 ANNOTATION_S3_JSON, ANNOTATION_APPLICATION = "bravo.dev/s3-json-sha256", "bravo.dev/applied-by"
+# On the Secret itself, in the same resourceVersion-checked replace: an approved change closed the
+# bucket, so the exposure has one writer (T31). The T9 object-operations worker refuses to open it
+# while this is present; only the operator's explicit demo reset (object_exposure.py plan) removes it.
+ANNOTATION_OWNER = "bravo.dev/exposure-owner"
 PROBE_WINDOW_SECONDS = 90  # per probe: the store may answer 5xx or reset while the filer starts
 PROBE_INTERVAL_SECONDS = 3
 KNOWN_IDENTITIES = {"bootstrap", "client", "anonymous", "rehearsal-object-admin"}
@@ -317,6 +321,7 @@ def apply_bucket_policy(kube: Kube, target: PolicyTarget, *, t9: ModuleType, ren
     try:
         replacement = json.loads(json.dumps(secret))
         replacement["metadata"].pop("managedFields", None)
+        replacement["metadata"].setdefault("annotations", {})[ANNOTATION_OWNER] = "t31/" + application_id
         replacement["data"][target.secret_key] = base64.b64encode(new).decode("ascii")
     except Exception as exc:  # noqa: BLE001
         raise refuse("TARGET_SECRET_UNRECOGNIZED", exc, type_only=True) from exc

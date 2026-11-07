@@ -37,12 +37,28 @@ SUBSCRIPTION_QUERIES = {"pg_subscription": {
     ],
 }}
 
+# T8 forward replication source, declared by this render so target-db has one owner (T45's first build syncs
+# it); the migration stack only checks it against the same dict (bravo_infra_plan/replication.py DECLARATION). The host is
+# T44's egress Service (infra/iac/environments/target-dev.json), resolved by kube DNS instead of an observed IP;
+# the source certificate carries this name for verify-full. Until T8 makes the two Secrets, nothing uses it;
+# they need the label cnpg.io/reload=true, or CNPG never loads Secrets made after this Cluster.
+# On a destination already replicating, reissue the source certificate with this name before rendering this.
+SOURCE_REPLICATION = {
+    "name": "t8-source",
+    "connectionParameters": {
+        "host": "source-db-for-replication.target-dev.svc", "port": "5432", "dbname": "chat",
+        "user": "chat_replicator", "sslmode": "verify-full", "connect_timeout": "10",
+        "application_name": "bravo_t8_target_subscriber",
+    },
+    "password": {"name": "t8-source-replication", "key": "password"},
+    "sslRootCert": {"name": "t8-source-ca", "key": "ca.crt"},
+}
 
 # One account per T30 workload, each without a role or a token: none of these Pods calls the Kubernetes API.
 # kube-bench (CIS 5.1.5, 5.1.6) counts a Pod on the namespace's default account, or on an account that leaves
 # the token unset, as a finding even when the Pod turns the token off itself.
 ACCOUNTS = ("demo-chat", "target-pgbouncer", "target-seaweedfs", "target-chat-schema", "target-probe",
-            "attachment-copy")
+            "attachment-copy", "target-login")
 
 
 def resource(api, kind, name, *, spec=None, namespaced=True, **fields):
@@ -101,7 +117,10 @@ def database(node_name):
             "parameters": {"wal_level": "logical", "password_encryption": "scram-sha-256",
                            "log_connections": "on", "log_disconnections": "on",
                            "pgaudit.log": "ddl,role", "pgaudit.log_parameter": "off",
-                           "log_statement": "none", **REPLICATION_TIMEOUTS},
+                           "log_statement": "none", **REPLICATION_TIMEOUTS,
+                           # A disabled reverse slot must not retain WAL without a limit. Crossing it can
+                           # invalidate the slot; that needs an explicit resync, never skipped data.
+                           "max_slot_wal_keep_size": "1GB"},
             "pg_hba": ["hostnossl all all all reject",
                        "hostssl chat chat_owner all scram-sha-256",
                        "hostssl chat chat_app all scram-sha-256",
@@ -109,6 +128,7 @@ def database(node_name):
                        "host all all all reject"],
         },
         "monitoring": {"customQueriesConfigMap": [{"name": SUBSCRIPTION_METRICS, "key": "queries"}]},
+        "externalClusters": [SOURCE_REPLICATION],
         "bootstrap": {"initdb": {"database": "chat", "owner": "chat_owner"}},
         "managed": {"roles": [
             {"name": "chat_app", "ensure": "present", "login": False,

@@ -58,6 +58,31 @@ provider network는 기본 Cloudflare만 지원한다. `adaptive_routing.failove
 
 10/50/100/0 영수증의 `request_at`부터 첫 완전한 T18 유효창 끝까지를 관측 상한으로 대조한다. provider 설정 확인 시각을 실제 반영 시간으로 보고하지 않는다. SLI 실패로 중간에 0%로 돌아간 실행은 자동 복귀 시험으로 따로 남긴다. 완료된 4단계 측정으로 표시하지 않는다.
 
+## 승인된 Edge 시험 (SHIFT 전 실측, ADR-0039)
+
+해피패스가 SHIFT에 들어가기 전에 T17 기준(반영 시간·분배·자동 0%)을 실제 LB와 실제 T18 부하로 잰다.
+사람은 시험 명세의 digest를 T10 infra 승인으로 한 번 승인하고, 실행은 그 승인을 run 하나에 한 번 소비한다.
+같은 승인 호스트·journal·T36 판정을 쓰며, 계획이 SHIFT 이후면 거부된다.
+
+설정(승인 호스트의 비공개 JSON): `version`(1), `plan_id`(SHIFT 전 계획, 창이 결속된 계획), `run_id`, `approval_id`,
+`profile`(T36), `lb_binding`, `journal`(`/records/edge/journal.db`), `token_file`(`/edge/token`), `operator_host`
+(`/rehearsal/host.json`). 승인 대상은 `plan_id`·`run_id`·`profile`·`lb_binding`만이다.
+
+```sh
+# 1. 승인할 값(사람이 T10 approval API에 approval_kind=infra로 넣는다. requested_by는 승인자가 아니어야 한다)
+kubectl exec POD -- python -m bravo_edge_control.drill --config drill.json digest
+# 2~3. 운영자의 Mac에서 20초마다 새 SSO 증명을 표준 입력으로 보낸다(60초 수명, 값은 출력하지 않는다)
+proofs | kubectl exec -i POD -- python -m bravo_edge_control.drill --config drill.json register
+proofs | kubectl exec -i POD -- python -m bravo_edge_control.drill --config drill.json sequence
+# 증명이 끊겨 멈췄고 가중치가 0이 아니면: 같은 작업 ID로 0%
+proofs | kubectl exec -i POD -- python -m bravo_edge_control.drill --config drill.json restore
+```
+
+`sequence`의 결과는 `RESTORED`(10→50→100→0) 또는 `ABORTED`(기준 초과 자동 0%)다.
+정상 전환과 자동 0% 시험은 run을 따로 승인한다. 반영 시간은 영수증의 `request_at`부터 첫 완전한 T18 유효창
+끝까지로 `bravo-loadgen align`이 잰다. 목적지가 쓰기를 받으려면 실행 전에 write switch를 연다
+(`infra/envs/target-workloads/write_switch.py open`, 목적지 pooler가 출발지 DB를 가리킬 때만). 끝나면 닫는다.
+
 ## 검증과 남은 통합
 
 ### T10 저장소와 단계 진행 호스트

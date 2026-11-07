@@ -275,8 +275,7 @@ def _failure(error: Exception, *, secret: bool) -> dict:
 
 class _ReadProbe:
     _recheck_denial = False
-    tool = TOOL
-    tool_version = TOOL_VERSION
+    tool, tool_version = TOOL, TOOL_VERSION  # an S3-compatible endpoint probe reports its own tool
 
     def _setup(
         self,

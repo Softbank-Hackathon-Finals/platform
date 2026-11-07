@@ -1,0 +1,8 @@
+{{- /* Keep the explicit lifecycle choice even when Helm schema validation is skipped. */ -}}
+{{- if not (kindIs "map" .Values.application) -}}
+{{- fail "application.enabled must be explicitly set to false (bootstrap) or true (retain/create Application)" -}}
+{{- else if not (hasKey .Values.application "enabled") -}}
+{{- fail "application.enabled must be explicitly set to false (bootstrap) or true (retain/create Application)" -}}
+{{- else if not (kindIs "bool" .Values.application.enabled) -}}
+{{- fail "application.enabled must be a boolean" -}}
+{{- end -}}

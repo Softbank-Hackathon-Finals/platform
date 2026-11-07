@@ -12,6 +12,9 @@ files only (`/rehearsal/operator.json`):
      "edge": {"journal": "/records/edge/journal.db", "token_file": "/edge/token",
               "lb_binding": {...}},          # optional T17: the one LB journal; the SHIFT CLI runs in
                                             # this Pod (kubectl exec ... bravo_edge_control.run) on it
+     "iac": {"app_id": 1, "key_file": "/iac/app.pem",
+             "repository": "Softbank-Hackathon-Finals/platform"},  # optional T44: desired-state PRs
+                                            # after a T10 infra approval (iac_plans); contents+PR only
      "write_pause_budget_ms": 30000}
 
 Cutover command policy (current_cutover):
@@ -43,6 +46,35 @@ def _shift_approval(c, plan):
     return json.loads(row["receipt_json"]) if row is not None else None
 
 
+def _ts(value):
+    from datetime import datetime
+
+    return datetime.fromisoformat(value.replace("Z", "+00:00"))
+
+
+def edge_at_full(c, plan):
+    """T10-cutover-submit: this SHIFT really reached 100% and passed the SLI judgement at 100%.
+
+    From the T17 ShiftHost records only: the newest CONFIRMED stage since the plan entered SHIFT targets
+    100, and the newest judgement of that stage is PASS. An older SHIFT attempt never counts.
+    """
+    rows = c.execute("SELECT command_key,receipt_json FROM plan_commands WHERE plan_id=? AND command_key LIKE ?",
+                     (plan["plan_id"], "edge-host-%")).fetchall()
+    entered = _ts(plan["updated_at"])
+    stages = [json.loads(r["receipt_json"]) for r in rows if r["command_key"].startswith("edge-host-receipt-")]
+    stages = [s for s in stages if s.get("status") == "CONFIRMED" and s.get("confirmed_at")
+              and _ts(s["confirmed_at"]) >= entered]
+    if not stages:
+        return False
+    last = max(stages, key=lambda s: _ts(s["confirmed_at"]))
+    prefix = f"edge-host-judgement-{last['revision']:013}-"
+    judged = sorted(r["command_key"] for r in rows if r["command_key"].startswith(prefix))
+    if last["weight_target"] != 100 or not judged:
+        return False
+    newest = next(r for r in rows if r["command_key"] == judged[-1])
+    return json.loads(newest["receipt_json"])["judgement"]["verdict"] == "PASS"
+
+
 def current_cutover(bindings, *, write_pause_budget_ms=30000):
     """Upstream CurrentCutover from stored records only (no client input, no network)."""
     from bravo_gate.models import GateContext
@@ -64,6 +96,8 @@ def current_cutover(bindings, *, write_pause_budget_ms=30000):
         shift = _shift_approval(c, plan)
         if gate is None or shift is None:
             raise EventError("authority_unavailable")
+        if not edge_at_full(c, plan):
+            raise EventError("shift_not_at_full")
         context = GateContext(**gate["context"])
         expires = shift["expires_at"]
         binding = dict(plan_id=plan["plan_id"], plan_digest=spec["plan_digest"],
@@ -158,7 +192,7 @@ def create(store, config_file=CONFIG):
 
     config = json.loads(Path(config_file).read_text())
     executor = config.get("executor") if isinstance(config, dict) else None
-    if (type(config) is not dict or not {"executor", "gate"} <= set(config) <= {"executor", "gate", "write_pause_budget_ms", "failback", "edge"}
+    if (type(config) is not dict or not {"executor", "gate"} <= set(config) <= {"executor", "gate", "write_pause_budget_ms", "failback", "edge", "iac", "delegation"}
             or type(executor) is not dict
             or set(executor) != {"url", "ca_file", "token_file", "command_token_file", "registered_pair"}
             or not executor["url"].startswith("https://")):
@@ -180,4 +214,19 @@ def create(store, config_file=CONFIG):
                     "read_integrity": failback_integrity}
         if "edge" in config:  # absent: FAILBACK stops at edge_unavailable after the matched receipt
             failback["edge"] = _edge(config["edge"])
-    return TrustedHostPorts(client, bindings, rehearsal.catalog, rehearsal.planner, authority, **failback)
+    iac = {"iac": _iac(config["iac"])} if "iac" in config else {}
+    return TrustedHostPorts(client, bindings, rehearsal.catalog, rehearsal.planner, authority, **failback, **iac,
+                            delegation=config.get("delegation") is True)
+
+
+def _iac(value):
+    """T44: the platform repository through its own GitHub App installation (contents + pull requests)."""
+    from .github_app import GitHubApp
+    from .iac_plans import WRITER_PERMISSIONS, GitHubIacRepository
+
+    if (type(value) is not dict or set(value) != {"app_id", "key_file", "repository"}
+            or type(value["app_id"]) is not int or value["repository"] != "Softbank-Hackathon-Finals/platform"):
+        raise ValueError("operator_ports_configuration_invalid")
+    key = Path(value["key_file"]).read_bytes()
+    return GitHubIacRepository(GitHubApp(value["app_id"], key, value["repository"], WRITER_PERMISSIONS),
+                               value["repository"])

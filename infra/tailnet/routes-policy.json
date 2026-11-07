@@ -15,6 +15,9 @@
     "tag:bravo-source-replication": [
       "tag:bravo-source-operator"
     ],
+    "tag:bravo-t49-operator": [
+      "autogroup:admin"
+    ],
     "tag:bravo-target-collector": [
       "tag:bravo-target-operator"
     ],
@@ -24,6 +27,12 @@
     "tag:bravo-target-db": [
       "tag:bravo-target-operator"
     ],
+    "tag:bravo-target-gce-operator": [
+      "autogroup:admin"
+    ],
+    "tag:bravo-target-gke-operator": [
+      "autogroup:admin"
+    ],
     "tag:bravo-target-pooler": [
       "tag:bravo-target-operator"
     ],
@@ -32,6 +41,94 @@
     ]
   },
   "grants": [
+    {
+      "src": [
+        "autogroup:admin"
+      ],
+      "dst": [
+        "tag:bravo-platform-operator"
+      ],
+      "ip": [
+        "tcp:443"
+      ],
+      "app": {
+        "tailscale.com/cap/kubernetes": [
+          {
+            "impersonate": {
+              "groups": [
+                "bravo:operators"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "src": [
+        "autogroup:admin"
+      ],
+      "dst": [
+        "tag:bravo-target-operator"
+      ],
+      "ip": [
+        "tcp:443"
+      ],
+      "app": {
+        "tailscale.com/cap/kubernetes": [
+          {
+            "impersonate": {
+              "groups": [
+                "bravo:operators"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "src": [
+        "autogroup:owner"
+      ],
+      "dst": [
+        "tag:bravo-platform-operator"
+      ],
+      "ip": [
+        "tcp:443"
+      ],
+      "app": {
+        "tailscale.com/cap/kubernetes": [
+          {
+            "impersonate": {
+              "groups": [
+                "bravo:operators"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "src": [
+        "autogroup:owner"
+      ],
+      "dst": [
+        "tag:bravo-target-operator"
+      ],
+      "ip": [
+        "tcp:443"
+      ],
+      "app": {
+        "tailscale.com/cap/kubernetes": [
+          {
+            "impersonate": {
+              "groups": [
+                "bravo:operators"
+              ]
+            }
+          }
+        ]
+      }
+    },
     {
       "src": [
         "tag:bravo-cutover-control"
@@ -248,6 +345,45 @@
         "tag:bravo-target-control-pooler:22",
         "tag:bravo-target-db:22",
         "tag:bravo-target-operator:22"
+      ]
+    },
+    {
+      "src": "tag:bravo-t49-operator",
+      "accept": [],
+      "deny": [
+        "tag:bravo-metrics:9090",
+        "tag:bravo-source-control-pooler:6432",
+        "tag:bravo-source-db:5432",
+        "tag:bravo-source-operator:443",
+        "tag:bravo-target-control-pooler:6432",
+        "tag:bravo-target-db:5432",
+        "tag:bravo-target-operator:443"
+      ]
+    },
+    {
+      "src": "tag:bravo-target-gce-operator",
+      "accept": [],
+      "deny": [
+        "tag:bravo-metrics:9090",
+        "tag:bravo-source-control-pooler:6432",
+        "tag:bravo-source-db:5432",
+        "tag:bravo-source-operator:443",
+        "tag:bravo-target-control-pooler:6432",
+        "tag:bravo-target-db:5432",
+        "tag:bravo-target-operator:443"
+      ]
+    },
+    {
+      "src": "tag:bravo-target-gke-operator",
+      "accept": [],
+      "deny": [
+        "tag:bravo-metrics:9090",
+        "tag:bravo-source-control-pooler:6432",
+        "tag:bravo-source-db:5432",
+        "tag:bravo-source-operator:443",
+        "tag:bravo-target-control-pooler:6432",
+        "tag:bravo-target-db:5432",
+        "tag:bravo-target-operator:443"
       ]
     }
   ]

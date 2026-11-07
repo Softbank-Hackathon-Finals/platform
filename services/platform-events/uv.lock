@@ -80,6 +80,7 @@ version = "0.1.0"
 source = { directory = "../agent-worker" }
 dependencies = [
     { name = "boto3" },
+    { name = "bravo-iac" },
     { name = "cryptography" },
     { name = "httpx" },
     { name = "openai" },
@@ -93,6 +94,7 @@ dependencies = [
 [package.metadata]
 requires-dist = [
     { name = "boto3", specifier = ">=1.40,<2" },
+    { name = "bravo-iac", directory = "../iac" },
     { name = "claude-agent-sdk", marker = "extra == 'claude'", specifier = "==0.2.177" },
     { name = "cryptography", specifier = "==50.0.2" },
     { name = "httpx", specifier = ">=0.28,<1" },
@@ -155,6 +157,22 @@ dev = [
     { name = "psycopg", extras = ["binary"], specifier = ">=3.2,<4" },
     { name = "pytest", specifier = ">=8,<10" },
     { name = "ruff", specifier = ">=0.14,<0.18" },
+]
+
+[[package]]
+name = "bravo-iac"
+version = "0.1.0"
+source = { directory = "../iac" }
+
+[package.metadata]
+requires-dist = [{ name = "fastapi", marker = "extra == 'api'", specifier = ">=0.115,<1" }]
+provides-extras = ["api"]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "fastapi", specifier = ">=0.115,<1" },
+    { name = "httpx", specifier = ">=0.27,<1" },
+    { name = "pytest", specifier = ">=8,<10" },
 ]
 
 [[package]]
@@ -221,6 +239,7 @@ dev = [
     { name = "bravo-agent-worker" },
     { name = "bravo-apply-path" },
     { name = "bravo-control-gate" },
+    { name = "bravo-iac" },
     { name = "bravo-inventory" },
     { name = "bravo-rehearsal-runner" },
     { name = "httpx" },
@@ -233,6 +252,7 @@ gate-records = [
 ]
 product-inputs = [
     { name = "bravo-agent-worker" },
+    { name = "bravo-iac" },
     { name = "bravo-inventory" },
     { name = "bravo-rehearsal-runner" },
 ]
@@ -262,6 +282,7 @@ dev = [
     { name = "bravo-agent-worker", directory = "../agent-worker" },
     { name = "bravo-apply-path", editable = "../apply-path" },
     { name = "bravo-control-gate", directory = "../control-gate" },
+    { name = "bravo-iac", directory = "../iac" },
     { name = "bravo-inventory", directory = "../inventory" },
     { name = "bravo-rehearsal-runner", directory = "../rehearsal-runner" },
     { name = "httpx", specifier = ">=0.27" },
@@ -272,6 +293,7 @@ dev = [
 gate-records = [{ name = "bravo-control-gate", directory = "../control-gate" }]
 product-inputs = [
     { name = "bravo-agent-worker", directory = "../agent-worker" },
+    { name = "bravo-iac", directory = "../iac" },
     { name = "bravo-inventory", directory = "../inventory" },
     { name = "bravo-rehearsal-runner", directory = "../rehearsal-runner" },
 ]
