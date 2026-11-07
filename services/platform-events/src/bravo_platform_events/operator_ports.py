@@ -233,7 +233,8 @@ def _delegated_shift(edge, profile_file, records, load_gate):
     from .approval_delegation import DelegatedShift
 
     journal, token = Path(edge["journal"]), Path(edge["token_file"])
-    profile = json.loads(Path(profile_file).read_text())
+    # A path, or the T36 profile object itself (the approval host mounts only listed ConfigMap keys).
+    profile = profile_file if type(profile_file) is dict else json.loads(Path(profile_file).read_text())
     provider = Cloudflare(Binding(**edge["lb_binding"]), token=lambda: token.read_text().strip())
 
     def load_session(c, actor, plan):  # as bravo_edge_control.deployment_ports
