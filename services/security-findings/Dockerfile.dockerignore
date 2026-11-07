@@ -1,0 +1,8 @@
+# 컨텍스트는 저장소 루트. 이미지에 필요한 파일만 허용한다
+*
+!docs/security/detection
+!services/security-findings/pyproject.toml
+!services/security-findings/uv.lock
+!services/security-findings/README.md
+!services/security-findings/src
+**/__pycache__

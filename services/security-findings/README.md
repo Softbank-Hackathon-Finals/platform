@@ -71,8 +71,8 @@ uv run uvicorn bravo_findings.api:create_app --factory --host 127.0.0.1 --port 8
 | 출처 | 코드 · 테스트 | 실제 확인 |
 |---|---|---|
 | AWS Security Hub | 계정/리전·Hub 전후 대조, 페이지·SDK 형식 검증 | 11/6 실제 401을 FAILED로 저장·조회. 양성 탐지 인수 필요 |
-| GuardDuty 직접 | SDK 형식·다중 페이지·계정/리전/탐지기 결속·실패 시 커서 유지 | 11/4 팀 계정 서울 리전에서 `NOT_ENABLED` 확인. 양성 탐지 수집은 미검증 |
-| Google Cloud SCC | 가짜 HTTP 세션 | GCP 프로젝트 · SCC 필요. 필터 문법 확인 필요 |
+| GuardDuty 직접 | SDK 형식·다중 페이지·계정/리전/탐지기 결속·실패 시 커서 유지 | 11/8 팀 계정 서울 리전에서 샘플 탐지 3건 수집 → `THREAT` 칸 `OK`, 계정 불일치로 끊으면 `UNKNOWN`([증빙](../../docs/evidence/t33-guardduty-live-2026-11-08/README.md)). 실제(비샘플) 탐지는 미검증 |
+| Google Cloud SCC | v2 응답 형식 · 다중 페이지 · 범위(번호 parent) · 시간 창 결속 · 연합 자격만 · 실패 시 커서 유지 | GCP 프로젝트에서 SCC 활성 필요. 필터(`eventTime` 밀리초)와 탐지 수집은 미검증 |
 | Kyverno · Falco | 예시 PolicyReport(두 형태) · Falco 이벤트 | 온프렘 클러스터에 설치 필요 (T2 · T30 · T9) |
 
 ### Security Hub 명시 수집
@@ -110,6 +110,39 @@ uv run python -m bravo_findings.aws_pull \
 
 근거: [ListFindings](https://docs.aws.amazon.com/guardduty/latest/APIReference/API_ListFindings.html), [GetFindings](https://docs.aws.amazon.com/guardduty/latest/APIReference/API_GetFindings.html), [AdditionalInfo](https://docs.aws.amazon.com/guardduty/latest/APIReference/API_ServiceAdditionalInfo.html), [심각도](https://docs.aws.amazon.com/guardduty/latest/ug/guardduty_findings-severity.html).
 
+### Google Cloud SCC 수집
+
+SCC v2 `ListFindings`(`{parent}/sources/-/locations/global/findings`)만 쓴다. 2024-12-09 이후 활성화한 조직은 v2만 지원하고, 데이터 상주를 켜지 않았으면 위치는 `global`이다. 지역 endpoint는 지원하지 않는다.
+
+```bash
+uv run python -m bravo_findings.gcp_pull --environment-id env-gcp \
+  --scope-file "$PRIVATE/scc-scope.json" \
+  --credentials-file "$PRIVATE/scc-wif.json" --database "$PRIVATE_FINDINGS_DB"
+```
+
+범위 파일(`--scope-file`, 기본 `BRAVO_SCC_SCOPE_FILE`)은 배포 때 Secret이나 ConfigMap으로 넣는다. 저장소가 공개라서 번호는 Git에 두지 않는다.
+
+```json
+{"env-gcp": {"parent": "projects/<번호>",
+             "audience": "//iam.googleapis.com/projects/<번호>/locations/global/workloadIdentityPools/<pool>/providers/<provider>",
+             "service_account": "<reader>@<project>.iam.gserviceaccount.com"}}
+```
+
+- **자격은 Workload Identity 연합만 받는다.** `external_account` 설정 파일에서 토큰 출처가 파일(플랫폼 발급자의 projected 토큰) 하나인 경우만 쓴다. 서비스 계정 키, 사용자 자격, `client_secret`, 명령 · URL 토큰 출처, workforce pool, 다른 STS 주소, 다른 universe는 수집 전에 거부되고 `ACCESS_DENIED`로 남는다. 서비스 계정 가장(impersonation)은 `iamcredentials.googleapis.com`의 `generateAccessToken` 주소만 받는다.
+- **권한은 읽기 두 개다.** `securitycenter.findings.list`(예: `roles/securitycenter.findingsViewer`)와 `securitycentermanagement.securityCenterServices.get`(탐지 서비스 상태 읽기)를 그 parent에 준다. SCC 활성화, 소스, finding, mute 설정을 만들거나 바꾸지 않는다.
+- **0건과 미확인을 구분한다.** SCC는 "찾은 것 없음"과 "탐지기가 돌지 않음"에 똑같이 `{}`를 돌려준다. 그래서 목록을 받기 전에 탐지 서비스(기본 `security-health-analytics`)의 `effectiveEnablementState`를 읽는다. `ENABLED`일 때만 빈 결과를 0건으로 믿는다. `DISABLED`이면 `NOT_ENABLED`(GuardDuty의 탐지기 없음과 같음)이고, 그 밖의 값이나 읽기 실패는 미확인(`SOURCE_UNHEALTHY`·`ACCESS_DENIED`)이다. 어느 경우든 커서를 움직이지 않는다.
+- **범위는 운영자가 고르지 않는다.** 운영자는 `--environment-id`만 고른다. parent, 연합 provider(`audience`), 가장할 reader 서비스 계정은 그 환경의 범위 파일 값과 정확히 같아야 한다. 자격 설정이 다르거나 환경이 등록되지 않았으면 호출 전에 `ACCESS_DENIED`다. 그래서 reader가 읽을 수 있는 다른 조직·프로젝트의 결과가 이 환경으로 기록되지 않는다. parent는 번호(`projects/<번호>`, `folders/<번호>`, `organizations/<번호>`)만 받는다. 응답 finding 이름이 그 parent 아래가 아니면 `SOURCE_UNHEALTHY`다(AWS의 계정 대조에 해당).
+- **응답 결속:** 같은 페이지 토큰 반복(페이지 200개 상한), 같은 finding 중복, `eventTime`이 조회 창 밖이거나 없음, 형식이 다른 응답은 `SOURCE_UNHEALTHY`이고 커서를 그대로 둔다. 빈 결과는 필드가 생략된 응답(`{}`)으로 온다.
+- 환경의 프록시 · netrc 설정은 API와 토큰 호출 모두 쓰지 않는다(`trust_env=False`).
+- **아직:** GCP 쪽 연합(플랫폼 발급자를 믿는 workload identity pool · provider, 조회 권한)과 SCC 활성, 플랫폼 주기 작업은 없다. 실제 프로젝트에서 SCC를 켠 뒤 확인할 것이 셋 있다.
+  - 필터 문법: 코드는 `eventTime`을 쓰는데 문서 예시는 `event_time`이다.
+  - finding 이름 형식: 조직 단위로 켜면 `projects/<번호>`로 조회해도 이름이 `organizations/<번호>/sources/...`로 올 수 있다. 그러면 지금 이름 대조가 모두 `SOURCE_UNHEALTHY`가 된다.
+  - 탐지 서비스 상태 응답: `effectiveEnablementState`의 실제 값과, 조직에서 물려받은 경우의 응답.
+
+  셋을 확인한 뒤 증빙을 남긴다.
+
+근거: [v2 ListFindings](https://docs.cloud.google.com/security-command-center/docs/reference/rest/v2/projects.sources.locations.findings/list), [v2 이전 안내](https://docs.cloud.google.com/security-command-center/docs/migrate-v2-api).
+
 ## 호환성과 배포 주의
 
 - `normalizer_version=2`: UID는 마스킹 전 식별자의 해시이며 golden 예시도 함께 갱신했다.
@@ -117,3 +150,11 @@ uv run python -m bravo_findings.aws_pull \
 - 영속 DB 경로가 없으면 시작하지 않는다. 데이터가 있는 과거 DB는 자동 변환·삭제하지 않고 시작을 거부한다.
 - SQLite 감사는 불변 감사 저장소가 아니다. TLS, 요청률 제한, T10 신원·회수, 격리 보류 복구, T24 감사, 실제 출처 검증이 운영 인수 조건이다.
 - 이 패키지의 수집 `OK`와 출처의 `PASS`는 T19 게이트 승인 근거를 대체하지 않는다.
+
+## 플랫폼 배포
+
+- 이미지: `Dockerfile`(빌드 컨텍스트는 저장소 루트, 매핑 규칙 `docs/security/detection`을 이미지에 넣음). 비루트 10001, 읽기 전용 루트, uvicorn이 TLS로 8443만 연다. `publish-security-findings-image`가 develop에서 검사 · 게시하고 digest 고정 PR을 연다.
+- 묶음: `deploy/platform-gitops`(namespace `bravo-security`). SQLite는 정적 PV(1GiB). API 인스턴스는 하나(`Recreate`)이고, GuardDuty 수집 Job도 같은 DB에 쓴다(`BEGIN IMMEDIATE` · `busy_timeout`으로 직렬화). 두 Pod 모두 `fsGroupChangePolicy: OnRootMismatch`. 자격 레지스트리 Secret은 init 컨테이너가 서비스 UID 소유 0400 일반 파일로 옮긴다(Secret 볼륨 링크는 로더가 거부한다). 교체하면 Pod를 다시 띄운다.
+- 전제: `infra/envs/platform-security`(namespace · PV · 기본 거부, TLS · 자격 Secret). 갖춘 뒤 플랫폼 Argo 값 `securityFindings.enabled`를 켠다.
+- AWS GuardDuty 주기 수집: CronJob `bravo-findings-pull`(5분)이 플랫폼 웹 신원으로 읽기 전용 IAM 역할을 받는다(`infra/envs/platform-security`).
+- 온프렘 수집 경로: T44 선언(`platform.json` tailnet-ingress `bravo-findings`, `target-dev.json` egress 그룹 `bravo-target-findings`). API NetworkPolicy는 그 장치의 proxy Pod만 받는다.

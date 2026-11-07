@@ -1,0 +1,38 @@
+{{- if .Values.securityFindings.enabled }}
+# bravo-security is dedicated to the findings API. The controller manages the bundle's kinds there; the
+# cluster builder's default-deny NetworkPolicy is not the bundle's, so policy update/delete is by name only.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: platform-gitops-security-findings
+  namespace: bravo-security
+rules:
+  - apiGroups: [apps]
+    resources: [deployments, replicasets]
+    verbs: [get, list, watch, create, update, patch, delete]
+  - apiGroups: [batch]
+    resources: [cronjobs, jobs]
+    verbs: [get, list, watch, create, update, patch, delete]
+  - apiGroups: [""]
+    resources: [pods]
+    verbs: [get, list, watch]
+  - apiGroups: [""]
+    resources: [services, serviceaccounts, persistentvolumeclaims]
+    verbs: [get, list, watch, create, update, patch, delete]
+  - apiGroups: [networking.k8s.io]
+    resources: [networkpolicies]
+    verbs: [get, list, watch, create]
+  - apiGroups: [networking.k8s.io]
+    resources: [networkpolicies]
+    resourceNames: [bravo-findings, bravo-findings-pull]
+    verbs: [update, patch, delete]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: platform-gitops-security-findings
+  namespace: bravo-security
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: platform-gitops-security-findings}
+subjects:
+  - {kind: ServiceAccount, name: bravo-gitops-application-controller, namespace: {{ .Release.Namespace }}}
+{{- end }}

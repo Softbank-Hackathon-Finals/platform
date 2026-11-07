@@ -1,0 +1,17 @@
+{
+  "source_revision": "f8c594936df98379c4a792d52c311aaa179cefe8",
+  "source_files": [
+    {
+      "path": "services/console/testing/terminal_trial_assets/client.js",
+      "sha256": "96e945224eb5af038e62b4a92fb1f8e9c084e4fa403ba221975ddef970222556"
+    },
+    {
+      "path": "services/console/testing/terminal_trial_assets/style.css",
+      "sha256": "567a43708de6a80f02bbb3deb4dc6f167a98f2b832928399949ecdeb035bde61"
+    },
+    {
+      "path": "services/console/testing/terminal_trial_host.py",
+      "sha256": "5587c2d4fb850b108f451270499419c6ba2d3648363a90956deadfda2a0ef94a"
+    }
+  ]
+}

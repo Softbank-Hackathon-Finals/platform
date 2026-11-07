@@ -333,7 +333,7 @@ Claude Code는 `/todo-task`, Codex는 `$todo-task`로 이 순서를 따르는 �
 
 **할 일**
 - [x] 수~금에 구현 (11/1 회의)
-- [ ] 오픈소스 활용 가능
+- [x] 오픈소스 활용 가능
 - [x] v0의 8.10 조건(멱등 키 · DB 조회 전파 · 쓰기 차단 스위치)을 그대로 유지
 
 **완료 기준** 컷오버 중 휴대폰 채팅이 끊김 없이 이어지고 환경 표시가 AWS → 온프렘으로 바뀐다.
@@ -388,7 +388,7 @@ Claude Code는 `/todo-task`, Codex는 `$todo-task`로 이 순서를 따르는 �
 **할 일**
 - [x] 정규화 형식 스키마와 출처별 심각도 · 상태 · 범주 매핑 표 고정
 - [x] 정규화기: 출처별 원본 샘플로 단위 테스트 (LLM 미사용)
-- [ ] AWS 수집기: Security Hub (미활성 시 GuardDuty 직접)
+- [x] AWS 수집기: Security Hub (미활성 시 GuardDuty 직접)
 - [ ] 온프렘 수집기: Kyverno PolicyReport · Falco 웹훅 (바깥 방향 연결만)
 - [ ] Google Cloud 수집기: Security Command Center
 - [x] 수집 실패 · 지연을 "0건"이 아니라 "확인 불가" · "오래됨"으로 표시
@@ -511,7 +511,7 @@ Claude Code는 `/todo-task`, Codex는 `$todo-task`로 이 순서를 따르는 �
 **목표** 같은 시험을 원본과 대상에 돌려 통제 ID별로 나란히 보인다.
 
 **할 일**
-- [ ] kube-bench · Prowler · gitleaks 결과를 통제 ID에 매핑
+- [x] kube-bench · Prowler · gitleaks 결과를 통제 ID에 매핑
 - [x] UNKNOWN은 차단으로 처리
 - [x] 시험 방법은 환경 어댑터별로 구현, 통제 ID와 판정 기준은 공통
 
@@ -568,8 +568,8 @@ Claude Code는 `/todo-task`, Codex는 `$todo-task`로 이 순서를 따르는 �
 **목표** 모든 환경의 서버 지표를 같은 기준으로 한 곳에서 보고, 볼 수 없는 환경은 "확인 불가"로 드러낸다.
 
 **할 일**
-- [ ] 플랫폼 지표 저장소: OTLP 수신, 보존 기간, Collector 태그만 수신 (Tailscale ACL)
-- [ ] 출발지 · 목적지 Collector: 앱 · PgBouncer · CNPG 지표, 환경 속성 강제
+- [x] 플랫폼 지표 저장소: OTLP 수신, 보존 기간, Collector 태그만 수신 (Tailscale ACL)
+- [x] 출발지 · 목적지 Collector: 앱 · PgBouncer · CNPG 지표, 환경 속성 강제
 - [x] 민감 속성 제거(허용 목록), SEC-01.3 카나리가 지표 저장소에서 0건인지 확인
 - [x] 수집이 끊긴 환경을 "확인 불가"로: 환경별 최근 수신 시각
 - [x] 콘솔용 조회 API: 환경별 요청 · 오류 · p95, PgBouncer 상태, 수집 시각
@@ -697,10 +697,14 @@ Claude Code는 `/todo-task`, Codex는 `$todo-task`로 이 순서를 따르는 �
 **목표** 10장 데모 흐름을 한 화면에서 조작하고 설명한다.
 
 **할 일**
-- [ ] SSE로 진행 실시간 반영
+- [x] SSE 진행 표시·재접속·중복 제거·권한 회수를 T10 API와 로컬 브라우저에서 검증
 - [x] 승인 버튼은 결속 값과 함께 표시
+- [ ] 실제 운영 계획·본인 조회 권한으로 SSE 진행 표시와 연결 복구를 인수
+- [ ] 10장 실제 통합 데모 흐름 전체를 콘솔 한 화면에서 조작·설명하고 인수
 
 **완료 기준** 10장 데모 흐름 전체를 콘솔 한 화면에서 조작할 수 있다.
+
+SSE 구현 검증과 운영 인수는 [콘솔 SSE 인수 기준](../services/console/docs/sse-acceptance.md)에 따라 구분한다. 로컬 시험 통과로 운영 인수나 T21 전체를 완료 처리하지 않는다.
 
 ### [T24] 감사 로그 (S3 Object Lock)
 
