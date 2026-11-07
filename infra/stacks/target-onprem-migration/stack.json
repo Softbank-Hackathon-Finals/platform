@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "stack": "target-onprem-migration",
-  "description": "목적지가 이전 대상으로서 하는 준비 단계(T45 실행기, ADR-0033 4절). target-onprem으로 세운 뒤 실행한다. 노드 파일(감사 정책) → T44 네트워크 경로 → 외부 클러스터 확인 → 복제 자격 → 대상 비었는지 확인 → 정방향 구독 생성 → 초기 복사. 외부 클러스터는 target-db의 주인(target-onprem의 database 렌더)이 선언하고, 이 스택은 확인만 한다. 목적지에서 관찰할 수 있는 것만 둔다. 출발지의 역방향 준비와 T10 전이는 이 스택 밖이다(T10이 REHEARSE 전에 이 실행이 SUCCEEDED인지 읽는다). 구독은 만들기만 하고 운영 중인 값(SQL ENABLE/DISABLE, disable_on_error 조정)은 T8·T12 것이다. 지우지 않고, 관찰할 수 없으면 멈춘다. 단계 내용(구독 매개변수·지시문)의 주인은 T8, 실행기와 확인 검사는 T45다.",
+  "description": "목적지가 이전 대상으로서 하는 준비 단계(T45 실행기, ADR-0033 3.8). target-onprem으로 세운 뒤 실행한다. 노드 파일 → T44 네트워크 → 외부 클러스터 확인 → 복제 자격 → 대상 비었는지 확인 → 정방향 구독 생성 → 초기 복사. 외부 클러스터는 target-db의 주인(database 렌더)이 선언하고 여기서는 확인만 한다. 쓰기는 구독 생성 하나이고 지우지 않는다. 역방향 준비와 T10 전이는 이 스택 밖이다. 롤아웃 순서: 이미 복제 중인 목적지는 출발지 인증서를 새 SAN으로 먼저 다시 발급한 뒤 database 렌더를 반영한다. 거꾸로 하면 verify-full이 실패해 정방향 복제가 끊긴다. 단계 내용의 주인은 T8, 실행기와 확인 검사는 T45다.",
   "params": {
     "node_name": {
       "description": "확인한 노드의 kubernetes.io/hostname",
@@ -70,8 +70,7 @@
       "owner": "T8",
       "description": "정방향 구독이 이미 있거나, 게시된 표(attachments, messages)가 목적지에 있고 비어 있다. 행이 이미 있으면 copy_data가 중복 키로 끝없이 재시도하거나 행이 중복되므로 멈춘다(HOLD)",
       "needs": [
-        "replication-credentials",
-        "iac-network"
+        "replication-credentials"
       ],
       "check": "replication-target-ready"
     },
@@ -79,9 +78,10 @@
       "id": "forward-subscription",
       "kind": "render_apply",
       "owner": "T8",
-      "description": "정방향 구독 t8-source-to-target(enabled, copy_data, origin none, disable_on_error false)이 없으면 만든다. 있고 계획과 같으면 SKIPPED, 다르면(운영 중 조정) HOLD. 덮어쓰지 않는다",
+      "description": "정방향 구독 t8-source-to-target(enabled, copy_data, origin none, disable_on_error false)이 없으면 만든다. 있고 계획과 같으면 SKIPPED, 다르면(운영 중 조정) HOLD. 덮어쓰지 않는다. iac-network: 출발지로 가는 경로가 있어야 구독이 연결된다. node-files: 이 스택의 유일한 쓰기가 감사 로그에 남도록 감사 정책을 먼저 켠다",
       "needs": [
         "replication-target-ready",
+        "iac-network",
         "node-files"
       ],
       "renders": [
@@ -100,8 +100,8 @@
     {
       "id": "initial-copy",
       "kind": "operator_action",
-      "owner": "T13",
-      "description": "구독이 적용되고 모든 표의 초기 복사가 끝나(pg_subscription_rel 전부 r) 스트리밍으로 넘어갈 때까지 기다린다",
+      "owner": "T8",
+      "description": "구독이 적용되고 모든 표의 초기 복사가 끝나(pg_subscription_rel 전부 r) 스트리밍으로 넘어갈 때까지 기다린다. 출발지 인증서 이름 불일치나 CA 미적재처럼 기다려도 풀리지 않는 구독 오류는 HOLD로 사유를 남긴다",
       "needs": [
         "forward-subscription"
       ],

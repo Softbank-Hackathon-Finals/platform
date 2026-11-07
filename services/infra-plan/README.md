@@ -85,12 +85,12 @@ chart 아카이브는 스택의 `charts`에 적힌 파일 이름으로 둔다. �
 |---|---|---|---|
 | `identity` | probe | T30 | 승인된 노드·클러스터 UID, 노드 Ready |
 | `node-files` | operator_action | T44 | API 서버가 Metadata 감사 이벤트를 낸다(`apiserver_audit_level_total{level="Metadata"}` > 0). 노드 묶음은 `infra/iac/nodes/<환경>`, 적용기는 `infra/iac/nodes/apply.py` |
-| `iac-network` | operator_action | T44 | T44 Application `bravo-iac-target-dev` Synced·Healthy(복제·Pooler egress, DB 노출). 목적지에 Argo가 아직 없으면 기다린다 |
+| `iac-network` | operator_action | T44 | T44 판정기 `infra/iac/customer_status.py`(#635)가 `bravo-iac-target-dev`를 승인 커밋으로 `SYNC_VERIFIED`. 설치 전·수렴 전이면 기다리고, 판정기가 막으면 HOLD |
 | `replication-external-cluster` | probe | T8 | `target-db`가 `t8-source`를 선언했다(kube DNS `source-db-for-replication.target-dev.svc`, verify-full, 자격 Secret 이름). 선언은 `target-onprem`의 database 렌더가 소유하고, 여기서는 확인만 한다 |
 | `replication-credentials` | operator_action | T8 | `target-dev/t8-source-replication`(password), `t8-source-ca`(ca.crt)가 있고 CNPG가 읽었다(`status.secretsResourceVersion.externalClusterSecretVersion`). 둘 다 라벨 `cnpg.io/reload=true`가 필요하다. 값은 Git·계획·기록에 없음 |
 | `replication-target-ready` | probe | T8 | 구독이 이미 있거나, 게시된 표가 목적지에 있고 비어 있다. 행이 있으면 HOLD |
 | `forward-subscription` | render_apply(`create_only`) | T8 | `replication.py subscription --side target`: `t8-source-to-target`이 없으면 만든다. 같으면 SKIPPED, 다르면 HOLD |
-| `initial-copy` | operator_action | T13 | 구독 적용 + 표마다 초기 복사 끝(`pg_subscription_rel` 전부 `r`, 주 인스턴스에서 고정 읽기 쿼리) |
+| `initial-copy` | operator_action | T8 | 구독 적용 + 표마다 초기 복사 끝(`pg_subscription_rel` 전부 `r`, 주 인스턴스에서 고정 읽기 쿼리). 인증서 이름 불일치·CA 미적재는 HOLD |
 
 복제 판정(볼 대상, 고정 읽기 쿼리, 판정)은 `bravo_infra_plan/replication.py`에 있다. `KubectlCluster`는 객체 읽기와
 주 인스턴스의 읽기 전용 쿼리만 한다. 출발지의 역방향 준비와 T10 넘김은 이 스택 밖이다(목적지 UID 승인에 묶이지 않는다).
@@ -99,11 +99,11 @@ chart 아카이브는 스택의 `charts`에 적힌 파일 이름으로 둔다. �
 가중치) → CUTOVER(T12 실행기: 비교·커밋, 정방향 끔·역방향 켬, epoch) → WATCH(T36 SLI + T19 재시험). 문제가 있으면
 FAILBACK(T20)이 역방향 복제와 Edge 복원으로 돌린다. 이 스택은 그 판단을 하지 않고, 그 앞까지를 순서와 조건으로 고정한다.
 
-실제 목적지 VM(2026-11-07, 클러스터 UID 대조 후, 읽기만)에서 확인 검사를 돌렸다: `identity`·`audit-metadata-active`·
-`replication-credentials`·`replication-external-cluster`·`initial-copy-complete`는 True, `iac-network-synced`는 False(목적지
-Argo 미설치, T44 #635 대기), 역방향·넘김은 None(사람 확인). 이미 준비된 목적지에서 다시 돌리면 쓰는 것이 없다(시험 고정).
-이 결과는 재설계 전 검사(외부 클러스터는 sslmode만 확인) 기준이다. 그 목적지의 `t8-source`는 손으로 패치한 `hostaddr`
-경로라 지금 검사로는 False다. 새 렌더로 세운 목적지에서만 통과한다.
+새 RKE2 시험 VM(2026-11-07 20:30–20:42 KST, CNPG 1.30.1, 클러스터 UID 대조)에서 실제 렌더 출력을 이름만 바꾼
+namespace에 올려 확인했다. 외부 클러스터를 선언한 `target-db`는 Secret 없이도 healthy였다. 늦게 만든 Secret은
+`cnpg.io/reload` 라벨이 있어야 적재됐고, 그 뒤 kube DNS + verify-full로 초기 복사가 끝났다(행 수 일치, TLSv1.3). 판정
+함수(`external_cluster`·`credentials`·`target_ready`·`initial_copy`)는 실제 `KubectlCluster`로 모두 True였다. 손으로
+`hostaddr`를 패치한 기존 목적지는 `external_cluster`가 False다. 새 렌더로 세운 목적지에서만 통과한다.
 
 ## 다음 PR에서 할 것
 

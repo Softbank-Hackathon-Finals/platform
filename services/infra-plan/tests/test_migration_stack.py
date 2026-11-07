@@ -11,7 +11,7 @@ from test_plan import REPO, FakeCharts
 
 from bravo_infra_plan import Planner, load_stack, replication
 from bravo_infra_plan.adapters import ClusterChecks, FileRunStore, GitConfigRepo, KubectlCluster
-from bravo_infra_plan.executor import Executor
+from bravo_infra_plan.executor import Executor, StepOutcome
 from bravo_infra_plan.stack import StackError
 
 STACK = REPO / "infra/stacks/target-onprem-migration/stack.json"
@@ -37,6 +37,7 @@ class MigrationCluster(FakeCluster):
         self.external = declared_cluster()["spec"]["externalClusters"]
         self.target, self.applied_status, self.copied, self.read_fails = "empty", False, False, False
         self.loaded = set()  # Secrets CNPG has loaded (they carry cnpg.io/reload)
+        self.argo_blocked = None  # a reason T44's intake refuses with
 
     def prepared(self):
         self.metadata_events = 9.0
@@ -49,6 +50,13 @@ class MigrationCluster(FakeCluster):
     def secret_keys(self, namespace, name):
         found = self.secrets.get((namespace, name))
         return None if found is None else sorted(found[1])
+
+    def argo_intake(self, repo_root, environment, cluster_uid, revision):
+        assert environment == "target-dev" and cluster_uid == self.identity("bravo-target-1")["cluster_uid"]
+        if self.argo_blocked:
+            return {"status": "BLOCKED", "reasons": [self.argo_blocked]}
+        live = self.apps.get("bravo-iac-target-dev")
+        return {"status": "NOT_INSTALLED" if live is None else "SYNC_VERIFIED" if live == revision else "SYNC_PENDING"}
 
     def audit_level_events(self, level):
         return self.metadata_events if level == "Metadata" else 0.0
@@ -123,10 +131,11 @@ def test_the_stack_holds_only_steps_the_destination_can_observe():
     assert list(steps) == ["identity", "node-files", "iac-network", "replication-external-cluster",
                            "replication-credentials", "replication-target-ready", "forward-subscription",
                            "initial-copy"]
-    assert steps["forward-subscription"]["needs"] == ["replication-target-ready", "node-files"]
+    # The write waits for the route to the source and for the audit policy that records it.
+    assert steps["forward-subscription"]["needs"] == ["replication-target-ready", "iac-network", "node-files"]
     assert steps["forward-subscription"]["create_only"] is True
     assert steps["forward-subscription"]["renders"][0]["args"] == ["subscription", "--side", "target"]
-    assert steps["replication-target-ready"]["needs"] == ["replication-credentials", "iac-network"]
+    assert steps["replication-target-ready"]["needs"] == ["replication-credentials"]
     assert steps["replication-credentials"]["needs"] == ["replication-external-cluster"]
     assert "cnpg.io/reload=true" in steps["replication-credentials"]["instruction"]
     # The only cluster write makes the forward subscription; nothing prunes, deletes or drops.
@@ -210,8 +219,10 @@ def test_a_target_that_already_has_rows_holds_before_any_copy(world):
     cluster = world["cluster"].prepared()
     cluster.target = "rows"
     world["approve"]("appr-1")
-    s = states(start(world, "run-1"))
+    run = start(world, "run-1")
+    s = states(run)
     assert s["replication-target-ready"] == "HOLD"
+    assert run["steps"]["replication-target-ready"]["reason"] == "replication_target_not_empty"  # not adapter_error
     assert s["forward-subscription"] == "PENDING" and cluster.created == []
 
 
@@ -248,9 +259,9 @@ def test_the_external_cluster_is_declared_by_the_database_render_and_only_checke
     stack = {s["id"]: s for s in json.loads(STACK.read_text())["steps"]}
     assert stack["replication-external-cluster"]["kind"] == "probe"
     assert "external-patch" not in STACK.read_text()
-    [declared] = declared_cluster()["spec"]["externalClusters"]
-    assert declared["connectionParameters"]["host"] == replication.EXTERNAL_HOST
-    assert "hostaddr" not in declared["connectionParameters"]  # kube DNS, not an observed IP
+    # One declaration: the check compares against the same dict the render writes.
+    assert declared_cluster()["spec"]["externalClusters"] == [replication.DECLARATION]
+    assert "hostaddr" not in replication.DECLARATION["connectionParameters"]  # kube DNS, not an observed IP
     assert declared_cluster()["spec"]["postgresql"]["parameters"]["max_slot_wal_keep_size"] == "1GB"
 
 
@@ -272,11 +283,22 @@ def test_the_checks_look_at_keys_tls_and_the_route_not_only_names():
     cluster.external = [declared, declared]  # two entries of one name: not a single declaration
     assert checks.check("replication-external-cluster", run) is False
 
-    class NoArgo(MigrationCluster):
-        def application_status(self, name):
-            raise RuntimeError("kubectl get failed")  # no applications.argoproj.io on this cluster yet
+    assert checks.check("iac-network-synced", run) is True
+    cluster.apps.pop("bravo-iac-target-dev")
+    assert checks.check("iac-network-synced", run) is False  # no Argo yet: wait, do not fail the run
+    cluster.argo_blocked = "APPLICATION_TARGET_MISMATCH"
+    with pytest.raises(StepOutcome, match="argo_application_target_mismatch"):
+        checks.check("iac-network-synced", run)
 
-    assert ClusterChecks(NoArgo()).check("iac-network-synced", run) is False  # wait, do not fail the run
+
+def test_the_argo_check_runs_t44s_intake_itself():
+    cluster = KubectlCluster.__new__(KubectlCluster)
+    cluster.kubeconfig, cluster.context, cluster.kubectl = "/nonexistent/kubeconfig", None, "kubectl"
+    result = cluster.argo_intake(REPO, "target-dev", "uid-1", IAC)
+    assert result["status"] == "BLOCKED" and result["reasons"] == ["EXPLICIT_KUBECONFIG_REQUIRED"]
+    run = {"plan": {"request": REQUEST, "target": {"cluster_uid": "uid-1"}}}
+    with pytest.raises(StepOutcome, match="argo_explicit_kubeconfig_required"):
+        ClusterChecks(cluster, REPO).check("iac-network-synced", run)
 
 
 class Kubectl:
@@ -316,6 +338,7 @@ def test_the_initial_copy_is_a_fixed_query_in_a_read_only_transaction(answer, ex
     call = k.calls[2]
     assert call[:6] == ("exec", "-n", "target-dev", "target-db-1", "-c", "postgres")
     assert call[-6:-4] == ("-c", "BEGIN READ ONLY") and call[-2:] == ("-c", "ROLLBACK")
+    assert "ON_ERROR_STOP=1" in call  # a failed middle query fails psql, not only the last command
     assert call[-3] == replication.COPIED and "subname = 't8_source_to_target'" in call[-3]
 
 
@@ -335,6 +358,19 @@ def test_no_single_primary_waits_and_a_failed_read_holds():
         Kubectl([]).cluster.primary_query("target-dev", "target-db", "chat; DROP", "SELECT 1")
 
 
+@pytest.mark.parametrize("message, reason", [
+    ('could not connect to the publisher: server certificate for "source-db-rw" does not match host name '
+     '"source-db-for-replication.target-dev.svc"', "source_tls_name_mismatch"),
+    ('root certificate file "/controller/external/t8-source/t8-source-ca_ca.crt" does not exist', "source_ca_not_loaded"),
+])
+def test_a_subscription_that_cannot_connect_for_good_holds_with_the_reason(message, reason):
+    stuck = (0, json.dumps({"status": {"applied": False, "message": "while creating subscription: ERROR: " + message}}))
+    with pytest.raises(StepOutcome, match=reason):
+        replication.initial_copy(Kubectl([stuck]).cluster)
+    retrying = (0, json.dumps({"status": {"applied": False, "message": "connection timed out"}}))
+    assert replication.initial_copy(Kubectl([retrying]).cluster) is False  # may heal: keep waiting
+
+
 @pytest.mark.parametrize("answers, result", [
     ([(0, PRIMARY), (0, "1|2\n")], True),                                # the subscription is already there
     ([(0, PRIMARY), (0, "0|2\n"), (0, PRIMARY), (0, "f\n")], True),     # tables exist and are empty
@@ -347,5 +383,5 @@ def test_copy_data_starts_only_on_an_empty_target_with_its_schema(answers, resul
     if result is True:
         assert replication.target_ready(k.cluster) is True
     else:
-        with pytest.raises(RuntimeError, match=result):
+        with pytest.raises(StepOutcome, match=result):
             replication.target_ready(k.cluster)

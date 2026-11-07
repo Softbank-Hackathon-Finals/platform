@@ -12,6 +12,7 @@ import os
 import re
 import shutil
 import subprocess
+import sys
 import tempfile
 import urllib.error
 import urllib.request
@@ -19,6 +20,7 @@ from pathlib import Path
 
 from . import replication
 from .applications import ARGO_NAMESPACE
+from .executor import HOLD, StepOutcome
 from .stack import StackError
 
 TIMEOUT = 600
@@ -305,11 +307,22 @@ class KubectlCluster:
         if len(pods) != 1:
             return None
         result = self._k("exec", "-n", namespace, pods[0]["metadata"]["name"], "-c", "postgres", "--",
-                         "psql", "-X", "-q", "-A", "-t", "-d", database,
+                         "psql", "-X", "-q", "-A", "-t", "-v", "ON_ERROR_STOP=1", "-d", database,
                          "-c", "BEGIN READ ONLY", "-c", query, "-c", "ROLLBACK", check=False)
         if result.returncode != 0:
             raise RuntimeError("primary_read_failed")
         return [line.split("|") for line in result.stdout.strip().splitlines() if line]
+
+    def argo_intake(self, repo_root, environment, cluster_uid, revision):
+        """T44's read-only GitOps intake (infra/iac/customer_status.py, #635) on this cluster: the same judge,
+        not a copy. It checks the cluster UID, the Application target, the operation and every resource."""
+        result = _run([sys.executable, str(Path(repo_root) / "infra/iac/customer_status.py"),
+                       "--kubeconfig", self.kubeconfig, *(["--context", self.context] if self.context else []),
+                       "--expected-cluster-uid", cluster_uid, "--environment", environment, "--revision", revision],
+                      env=self._env(), check=False)
+        if result.returncode not in (0, 3):
+            raise RuntimeError("argo_intake_failed")
+        return json.loads(result.stdout)
 
 
 class T10Approvals:
@@ -395,15 +408,14 @@ class AwsIdentity:
         return {"account_id": json.loads(result.stdout)["Account"]}
 
 
-def _synced(cluster, name, revision):
-    """The Application is Synced and Healthy at the revision the plan was approved with. No Argo CD on
-    the cluster yet (no Application type) is not done."""
-    try:
-        status = cluster.application_status(name)
-    except RuntimeError:
-        return False
-    return (bool(status) and status.get("sync") == "Synced" and status.get("health") == "Healthy"
-            and status.get("revision") == revision)
+def _argo_synced(cluster, repo_root, run):
+    """T44's intake says SYNC_VERIFIED at the approved revision. Not installed or not converged yet: wait.
+    Something it refuses (another target, prune, a changed read): HOLD with its reason."""
+    result = cluster.argo_intake(repo_root, "target-dev", run["plan"]["target"]["cluster_uid"],
+                                 run["plan"]["request"]["params"]["iac_revision"])
+    if result["status"] == "BLOCKED":
+        raise StepOutcome(HOLD, "argo_" + (result.get("reasons") or ["blocked"])[0].lower())
+    return result["status"] == "SYNC_VERIFIED"
 
 
 class ClusterChecks:
@@ -413,8 +425,8 @@ class ClusterChecks:
     directory, an offline image import); a human confirmation is then required.
     """
 
-    def __init__(self, cluster):
-        self.cluster = cluster
+    def __init__(self, cluster, repo_root=None):
+        self.cluster, self.repo_root = cluster, repo_root
 
     def check(self, name, run):
         params, target = run["plan"]["request"]["params"], run["plan"]["target"]
@@ -433,7 +445,7 @@ class ClusterChecks:
                                       and c.deployments_available("target-dev")),
             # target-onprem-migration: the destination as a migration target
             "audit-metadata-active": lambda: (c.audit_level_events("Metadata") or 0) > 0,
-            "iac-network-synced": lambda: _synced(c, "bravo-iac-target-dev", params.get("iac_revision")),
+            "iac-network-synced": lambda: _argo_synced(c, self.repo_root, run),
             "replication-credentials": lambda: replication.credentials(c),
             "replication-external-cluster": lambda: replication.external_cluster(c),
             "replication-target-ready": lambda: replication.target_ready(c),

@@ -110,8 +110,10 @@ TCP 연결이고, SCRAM 역할·테이블 권한·TLS 서버 신원 검증은 �
 > **2026-11-07 · #648:** 정방향 외부 클러스터 `t8-source`는 `render.py database`가 `target-db` 안에 선언한다. `host`는
 > T44 egress Service 이름 `source-db-for-replication.target-dev.svc`(kube DNS)이고 `hostaddr`는 없다. 출발지 인증서가
 > 이 이름을 가진다(`source-workloads/render.py`). `replication.py external-patch --side target`으로 다시 패치하지 않는다.
-> `t8-source-replication`·`t8-source-ca`는 Cluster보다 늦게 만들므로 라벨 `cnpg.io/reload=true`를 단다. 없으면 CNPG가 읽지 않는다.
-> 첫 구축 Argo 앱(selfHeal)과 주인이 둘이 된다.
+> 첫 구축 Argo 앱(selfHeal)과 주인이 둘이 된다. `t8-source-replication`·`t8-source-ca`는 Cluster보다 늦게 만들므로 라벨
+> `cnpg.io/reload=true`를 단다. 없으면 CNPG가 읽지 않는다. 이미 복제 중인 목적지는 출발지 인증서를 새 SAN으로 먼저
+> 다시 발급한 뒤 다시 렌더한다(ADR-0033 3.8).
+
 실제 생성된 프록시의 Pod/포트가 확인되면 클러스터 안의 호출자도 해당 DB/풀러로
 제한하고, 허용 연결 및 잘못된 역할·CA·호스트·물리 복제 거절을 검증한다.
 실제 경로의 직접·중계 여부, MTU, ACL 허용·거부는 [읽기 전용 점검 도구](../../../docs/operations/t30-tailnet-path-check.md)로 확인한다.

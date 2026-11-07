@@ -38,10 +38,11 @@ SUBSCRIPTION_QUERIES = {"pg_subscription": {
 }}
 
 # T8 forward replication source, declared by this render so target-db has one owner (T45's first build syncs
-# it); the migration stack only checks it (services/infra-plan/src/bravo_infra_plan/replication.py). The host is
+# it); the migration stack only checks it against the same dict (bravo_infra_plan/replication.py DECLARATION). The host is
 # T44's egress Service (infra/iac/environments/target-dev.json), resolved by kube DNS instead of an observed IP;
 # the source certificate carries this name for verify-full. Until T8 makes the two Secrets, nothing uses it;
 # they need the label cnpg.io/reload=true, or CNPG never loads Secrets made after this Cluster.
+# On a destination already replicating, reissue the source certificate with this name before rendering this.
 SOURCE_REPLICATION = {
     "name": "t8-source",
     "connectionParameters": {

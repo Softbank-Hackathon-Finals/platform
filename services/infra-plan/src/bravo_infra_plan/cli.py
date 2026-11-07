@@ -48,7 +48,7 @@ def _executor(args, stack):
     return Executor(Planner(stack, repo_root, chart_renderer=HelmChartRenderer(args.charts_dir)),
                     stack_revision=revision, cluster=cluster,
                     repo=GitConfigRepo(args.config_repo, args.config_branch, args.config_workdir),
-                    approvals=approvals, checks=ClusterChecks(cluster), store=store,
+                    approvals=approvals, checks=ClusterChecks(cluster, repo_root), store=store,
                     repo_url=args.argo_repo_url or args.config_repo, ledger=ledger)
 
 

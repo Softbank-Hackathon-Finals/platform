@@ -208,6 +208,27 @@
 
 5 이후 DB(6~7), SeaweedFS(8), Tailscale(9), OpenBao/ESO(10~14)는 병렬 줄기다. 15는 7 · 8 · 14 뒤에 실행한다.
 
+### 3.8 두 번째 스택: `target-onprem-migration` (#648)
+
+`target-onprem`으로 세운 목적지가 정방향 복제의 초기 복사를 끝낼 때까지의 순서다. 같은 실행기 · 계획 digest · `approval_kind=infra` 승인을 쓴다. 목적지에서 관찰할 수 있는 것만 둔다. 출발지의 역방향 준비와 T10 전이는 이 스택 밖이다(T10이 REHEARSE 전에 이 실행이 SUCCEEDED인지 읽는다).
+
+| 순서 | 단계 | 종류 | 담당 |
+|---|---|---|---|
+| 1 | 클러스터 · 노드 신원 | `probe` | T30 |
+| 2 | 노드 감사 정책(#645 묶음) — Metadata 감사 이벤트 | `operator_action` | T44 |
+| 3 | T44 네트워크 Application 수렴 — T44 판정기 `customer_status`(#635) | `operator_action` | T44 |
+| 4 | `target-db`의 외부 클러스터 `t8-source` 선언 확인 | `probe` | T8 |
+| 5 | 복제 자격 Secret, CNPG 적재(`cnpg.io/reload`) | `operator_action` | T8 |
+| 6 | 목적지 표가 있고 비어 있음 | `probe` | T8 |
+| 7 | 정방향 구독 생성(없을 때만) | `render_apply` (`create_only`) | T8 |
+| 8 | 초기 복사 완료 | `operator_action` | T8 |
+
+* **외부 클러스터의 주인은 database 렌더다.** `target-db`는 3.7의 6단계 Argo 앱(selfHeal)이 소유한다. 그래서 외부 클러스터는 T30 `render.py database`가 Cluster 안에 선언하고, 이 스택은 확인만 한다. 명령형 패치는 주인을 둘로 만들어 Argo가 되돌리거나 상태가 흔들린다(2026-11-07 실측). 주소는 T44 egress Service의 kube DNS 이름이고 관찰한 IP(`hostaddr`)를 쓰지 않는다. 그래서 출발지 인증서가 그 이름을 SAN으로 가진다.
+* **롤아웃 순서.** 이미 정방향 복제가 도는 목적지에 이 렌더를 반영하려면 **출발지 인증서를 새 SAN으로 먼저 다시 발급한다.** 그 뒤 목적지를 다시 렌더한다. 순서가 거꾸로 되면 CNPG가 구독 연결을 새 host로 바꾸고, verify-full이 실패해 정방향 복제가 끊긴다. 이 스택은 구독이 이 이유로 연결하지 못하면 `source_tls_name_mismatch`로 멈춘다.
+* **구독은 만들기만 한다.** 없을 때만 `kubectl create`로 만든다. 있고 계획과 같으면 SKIPPED, 다르면 HOLD다. 켜고 끄기(SQL ENABLE/DISABLE), `disable_on_error` 조정, 역방향은 T8 · T12가 맡는다.
+* **복제 자격은 라벨이 필요하다.** Cluster보다 늦게 만든 Secret은 `cnpg.io/reload=true`가 없으면 CNPG가 읽지 않는다(CNPG 1.30.1 실측). 자격 확인은 Cluster 상태의 `externalClusterSecretVersion`까지 본다. 나중에 이 Secret을 ESO나 `secret_generate`로 옮기면 그 템플릿에도 라벨을 둔다.
+* **판정의 위치.** 복제 판정(볼 대상, 고정 읽기 쿼리, 판정)은 `bravo_infra_plan/replication.py`, Argo 수렴 판정은 T44 `infra/iac/customer_status.py`를 그대로 실행한다.
+
 ## 4. 결과
 
 ### 좋아지는 점
@@ -234,7 +255,7 @@
 * 실행 기록은 T24 해시 체인(source `infra`, #639)에 남긴다.
 
 ### 팀 확인이 필요한 점
-1. **T30(김태현) · T9 렌더러 재사용 범위**: 렌더러 코드는 바꾸지 않고 CLI로만 호출한다. 3.7 표의 T30 단계 순서가 실제 구축 순서와 같은지 확인을 요청한다.
+1. **T30(김태현) · T9 렌더러 재사용 범위**: 렌더러 코드는 바꾸지 않고 CLI로만 호출한다. 예외는 3.8의 외부 클러스터 선언이다(#648, T30 동의 필요). 3.7 표의 T30 단계 순서가 실제 구축 순서와 같은지 확인을 요청한다.
 2. **Terraform 실측**: `infra/stacks/aws-platform`(13개 스택)과 `terraform` 단계는 구현했다(#634). 실제 AWS에서는 `platform-audit` 하나만 읽기 전용 `verify`로 `NO_CHANGES`를 확인했다. 나머지 12개는 담당(류지환)의 개인 backend · tfvars로 `verify`를 돌려야 한다.
 
 ### 완료 증거

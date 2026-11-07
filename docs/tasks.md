@@ -960,7 +960,7 @@ Claude Code는 `/todo-task`, Codex는 `$todo-task`로 이 순서를 따르는 �
 
 **어디에 필요** 목적지 클러스터 위 구성(CNPG · SeaweedFS · Tailscale · OpenBao/ESO · 앱)을 운영자가 README 순서대로 렌더 · 적용하고 있어, 구축 절차가 코드로 관리되지 않고 재구축 시간도 측정되지 않는다(11/7 중간 점검 지적). 설계 문서 8.11의 "목적지 구축" 어댑터 구현이다.
 
-**만들 것** 기존 렌더러를 정형 단계(`probe` · `gitops_publish` · `gitops_sync` · `render_apply` · `helm_release` · `secret_generate` · `wait` · `operator_action`)로 감싼 `target-onprem` 스택 정의, 계획 엔진(렌더 · 설정 저장소 트리 digest · 서버 측 dry-run · `plan_digest`), T10 `kind=infra` 승인을 재계산 digest와 대조한 뒤에만 적용하는 실행기, T44 목적지 Argo CD에 더하는 AppProject · Application과 비공개 설정 저장소, 계획 · 적용 · 조회 API(에이전트는 계획 생성 · 조회만). 결정은 ADR-0033. 설정 모듈 · 원하는 상태 · 고객 클러스터 Argo CD 설치는 T44(ADR-0032)가 맡고, T45는 그 Argo에 Application을 더하며 T44의 "비밀 값이 필요한 자원은 다른 적용기 담당"을 맡는다. 렌더러 코드는 바꾸지 않는다.
+**만들 것** 기존 렌더러를 정형 단계(`probe` · `gitops_publish` · `gitops_sync` · `render_apply` · `helm_release` · `secret_generate` · `wait` · `operator_action`)로 감싼 `target-onprem` 스택 정의, 계획 엔진(렌더 · 설정 저장소 트리 digest · 서버 측 dry-run · `plan_digest`), T10 `kind=infra` 승인을 재계산 digest와 대조한 뒤에만 적용하는 실행기, T44 목적지 Argo CD에 더하는 AppProject · Application과 비공개 설정 저장소, 계획 · 적용 · 조회 API(에이전트는 계획 생성 · 조회만). 결정은 ADR-0033. 설정 모듈 · 원하는 상태 · 고객 클러스터 Argo CD 설치는 T44(ADR-0032)가 맡고, T45는 그 Argo에 Application을 더하며 T44의 "비밀 값이 필요한 자원은 다른 적용기 담당"을 맡는다. 렌더러 코드는 바꾸지 않는다. 예외: 두 번째 스택 `target-onprem-migration`(#648)을 위해 T30 database 렌더가 T8 정방향 외부 클러스터를 선언한다(ADR-0033 3.8).
 
 - **우선순위** P1 · **영역** 에이전트 · 리허설 · **담당** 전동훈
 - **선행** `T9`, `T30` (통합 시점: `T10`, `T24`, `T44`) · **후속** 없음 · **설계 문서** 8.8, 8.11, ADR-0033
