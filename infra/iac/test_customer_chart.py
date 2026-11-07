@@ -113,6 +113,10 @@ class CustomerUi(unittest.TestCase):
         for role in server_roles:
             for rule in role["rules"]:
                 self.assertLessEqual(set(rule["verbs"]), {"get", "list", "watch"})
+                # No Secret: never every group, and the core group only by named resources other than secrets.
+                self.assertNotIn("*", rule["apiGroups"])
+                if "" in rule["apiGroups"]:
+                    self.assertFalse({"*", "secrets"} & set(rule["resources"]))
         cm = next(d for d in docs if d["metadata"]["name"] == "argocd-cm")["data"]
         self.assertEqual((cm["admin.enabled"], cm["exec.enabled"], cm["users.anonymous.enabled"]), ("false", "false", "true"))
         rbac = next(d for d in docs if d["metadata"]["name"] == "argocd-rbac-cm")["data"]
