@@ -52,6 +52,15 @@ PHP2Shell처럼 취약 버전이 실제로 장악된 경우에는 버전 업데�
 원격 응답의 `execution_authorized`는 항상 `false`다. 과거 PASS를 저장해 실행 권한으로
 재사용하지 않으며, 서비스 장애·TLS 오류·토큰 만료·등록 누락은 전부 fail closed다.
 
+### T15 운영 샌드박스 연결
+
+`security` 저장소의 `HarborRehearsalPort`는 특정 제품 배포를 요구하는 이름이 아니라 격리된
+수정안 검증 포트 계약이다. 플랫폼의 실제 어댑터는 기존 T15 rehearsal 경로다. T10이 저장한
+실제 모델 제안의 proposal/source/image digest를 T15가 전용 namespace와 검증 Job에 결속하고,
+서명된 attempt receipt와 정리 완료를 확인한 뒤에만 `REHEARSE`를 통과한다. 별도 Harbor 서비스나
+두 번째 실행 권한을 추가하지 않는다. 이후 `patch/preflight`는 같은 현재 plan과 T15 후보에
+결속되므로, 다른 제안이나 이미지의 보안 PASS를 재사용할 수 없다.
+
 ## 등록과 철회
 
 등록은 `plan_commands`에 `security-program-<kind>-<phase>-<revision>` 형태로 append-only 저장한다.
@@ -96,7 +105,7 @@ CA Secret은 `secrets.securityReview`의 `ca.crt`만 읽는다. hostname 검사�
 
 `source_revision`은 차트가 주입한 `BRAVO_PLATFORM_SOURCE_REVISION`과 정확히 같아야 한다.
 보안 패키지는 `security` 저장소의
-`d7f752b6ef9dec18f198d2e3760a08a1370f71ea`로 잠그며, 이미지 빌더가 해당 commit의
+`cf33e09c8d3be567542a17fe039f3e6e2295568d`로 잠그며, 이미지 빌더가 해당 commit의
 일반 Git blob만 복사한다. branch나 latest package를 런타임에 받지 않는다.
 
 ## 배포 순서와 인수

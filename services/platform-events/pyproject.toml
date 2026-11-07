@@ -50,7 +50,7 @@ security-governance = ["sova-security==0.11.1"]
 
 [tool.uv.sources.sova-security]
 git = "https://github.com/Softbank-Hackathon-Finals/security.git"
-rev = "d7f752b6ef9dec18f198d2e3760a08a1370f71ea"
+rev = "cf33e09c8d3be567542a17fe039f3e6e2295568d"
 
 [build-system]
 requires = ["hatchling>=1.25"]

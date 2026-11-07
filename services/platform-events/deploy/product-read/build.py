@@ -14,7 +14,7 @@ from pathlib import Path
 SERVICE = Path(__file__).resolve().parents[2]
 ROOT = SERVICE.parents[1]
 OBSERVABILITY_REVISION = "24b3cf516fdbdaac7dd346718eaac3c42f5e1d63"
-SECURITY_REVISION = "d7f752b6ef9dec18f198d2e3760a08a1370f71ea"
+SECURITY_REVISION = "cf33e09c8d3be567542a17fe039f3e6e2295568d"
 SECURITY_REPOSITORY = "https://github.com/Softbank-Hackathon-Finals/security.git"
 PACKAGES = {
     "platform-events": "bravo_platform_events",
