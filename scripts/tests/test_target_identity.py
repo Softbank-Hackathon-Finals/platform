@@ -12,6 +12,8 @@ import sys
 import tempfile
 import time
 import unittest
+import urllib.error
+import urllib.parse
 import urllib.request
 from pathlib import Path
 from unittest.mock import patch
@@ -203,6 +205,24 @@ class RenderedServerStartsTests(unittest.TestCase):
                 self.assertIn("S256", document["code_challenge_methods_supported"])
                 with urllib.request.urlopen(document["jwks_uri"], timeout=5) as response:
                     self.assertTrue(any(k["kty"] == "RSA" for k in json.load(response)["keys"]))
+                # 동등성: 출발지 Cognito와 같이 정확한 콜백만 받고, 스스로 가입할 길이 없다.
+                login = document["authorization_endpoint"] + "?" + urllib.parse.urlencode({
+                    "client_id": "demo-chat", "response_type": "code", "scope": "openid",
+                    "redirect_uri": f"{APP}/", "code_challenge": "x" * 43, "code_challenge_method": "S256",
+                })
+                with urllib.request.urlopen(login, timeout=5) as response:
+                    page = response.read().decode()
+                self.assertEqual(response.status, 200)
+                self.assertNotIn("login-actions/registration", page)
+                for redirect in ("https://evil.example/", f"{APP}/other", f"{APP}"):
+                    with self.subTest(redirect=redirect), self.assertRaises(urllib.error.HTTPError) as refused:
+                        urllib.request.urlopen(login.replace(urllib.parse.quote(f"{APP}/", safe=""),
+                                                             urllib.parse.quote(redirect, safe="")), timeout=5)
+                    self.assertEqual(refused.exception.code, 400)
+                registration = f"{public}/realms/bravo/protocol/openid-connect/registrations?" + login.split("?", 1)[1]
+                with self.assertRaises(urllib.error.HTTPError) as closed:
+                    urllib.request.urlopen(registration, timeout=5)
+                self.assertIn(closed.exception.code, (400, 403, 404))
             finally:
                 subprocess.run(["docker", "rm", "-f", name], check=False, capture_output=True)
 

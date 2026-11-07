@@ -289,7 +289,7 @@ demo-chat은 작성자 이름을 `preferred_username` → `cognito:username` 순
 ### 확인한 것과 못 한 것
 
 - 렌더 시험: 공개 PKCE 클라이언트 하나, 사용자·비밀번호 없음, 관리자 값은 Secret 참조만, Edge만 수신, 고정 digest, 전용 계정.
-- 컨테이너 시험(`BRAVO_TEST_KEYCLOAK=1`): 렌더한 이미지 · 인자 · 환경 · realm으로 UID 1000에서 띄워 `<주소>/realms/bravo` 발급자 문서와 RSA 공개 키를 받았다(로컬 http, Edge 대신).
+- 컨테이너 시험(`BRAVO_TEST_KEYCLOAK=1`): 렌더한 이미지 · 인자 · 환경 · realm으로 UID 1000에서 띄워 `<주소>/realms/bravo` 발급자 문서와 RSA 공개 키를 받았다(로컬 http, Edge 대신). 출발지와의 동등성도 같은 서버로 잰다: 정확한 콜백(`<앱 주소>/`)만 로그인 화면이 열리고 다른 주소 · 경로 · 끝의 `/`가 빠진 주소는 400, 로그인 화면에 가입 링크가 없고 가입 주소는 닫혀 있다. 토큰 없는 쓰기 401은 앱 시험(demo-app #28)이 본다.
 - 같은 코드의 앱이 로컬 Keycloak으로 실제 로그인 → 서명 확인 → 작성자 저장까지 되는 것은 demo-app #28에서 확인했다.
 - 실제 목적지 클러스터 적용, Edge 공개 주소 연결, Cognito → Keycloak 사용자 이동은 하지 않았다.
 
