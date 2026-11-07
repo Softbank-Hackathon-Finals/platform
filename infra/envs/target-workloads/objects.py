@@ -75,7 +75,13 @@ def objects(node_name):
     })
     policy = resource("networking.k8s.io/v1", "NetworkPolicy", "target-object-clients", spec={
         "podSelector": {"matchLabels": SELECTOR}, "policyTypes": ["Ingress", "Egress"],
-        "ingress": [{"from": [{"podSelector": {"matchLabels": {"bravo-object-client": "true"}}}],
+        "ingress": [{"from": [{"podSelector": {"matchLabels": {"bravo-object-client": "true"}}},
+                              # ADR-0044: the T31 close check from the platform arrives through the tailnet device
+                              # bravo-target-objects (infra/iac target-dev tailnet-ingress); only its proxy pod.
+                              {"namespaceSelector": {"matchLabels": {"kubernetes.io/metadata.name": "tailscale-system"}},
+                               "podSelector": {"matchLabels": {"tailscale.com/parent-resource": "target-objects-tailnet",
+                                                               "tailscale.com/parent-resource-ns": "target-dev",
+                                                               "tailscale.com/parent-resource-type": "svc"}}}],
                      "ports": [{"protocol": "TCP", "port": 8333}]}],
         "egress": [],
     })
