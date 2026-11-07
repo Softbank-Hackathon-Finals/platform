@@ -60,6 +60,13 @@ class CustomerChart(unittest.TestCase):
         self.assertEqual(app["spec"]["source"]["path"], "infra/iac/charts/target-dev")
         self.assertEqual(app["spec"]["destination"], {"server": "https://kubernetes.default.svc"})
 
+    def test_operator_owned_egress_targets_are_neither_drift_nor_overwritten(self):
+        # tailnet-egress Services are created with "placeholder"; the Tailscale operator writes the proxy name.
+        app = next(d for d in documents(render({"enabled": True, "autoSync": True})) if d["kind"] == "Application")
+        self.assertEqual(app["spec"]["ignoreDifferences"],
+                         [{"group": "", "kind": "Service", "jsonPointers": ["/spec/externalName"]}])
+        self.assertIn("RespectIgnoreDifferences=true", app["spec"]["syncPolicy"]["syncOptions"])
+
     def test_activation_and_pruning_are_explicit_independent_choices(self):
         for prune in (False, True):
             docs = documents(render({"enabled": True, "autoSync": True, "prune": prune}))
