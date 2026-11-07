@@ -12,6 +12,7 @@ import uuid
 from datetime import UTC, datetime, timedelta
 
 from .kubernetes_workload import ClusterRegistration, opaque, producer_digest
+from .observations import ObservationError
 from .workload import PlanWorkload, RegisteredWorkload, identifier, safe_text, validate_graph
 
 
@@ -27,11 +28,14 @@ class ObservedWorkloads:
             or any(type(r) is not ClusterRegistration for r in registrations)
             or len({r.environment_id for r in registrations}) != len(registrations)
             or len({r.lane for r in registrations}) != len(registrations)
+            or len({r.tenant_id for r in registrations}) != 1
         ):
             raise ValueError("fixed_observation_registrations_required")
         self.application_id, self.source_revision = application_id, source_revision
         self.producer_sha256 = producer_digest()
         self.registrations = tuple(registrations)
+        self.tenant_id = registrations[0].tenant_id
+        self.tenant_of = None
         self.collect = collect
         self.clock = clock or (lambda: datetime.now(UTC))
         self.lock = threading.RLock()
@@ -249,6 +253,10 @@ class ObservedWorkloads:
             )
 
     def load(self, scope, plan):
+        # The plan read model carries no tenant and environment ids repeat across tenants: bind the
+        # observation to the registration's tenant through T10's own plan row (#806 review).
+        if self.tenant_of is None or self.tenant_of(plan["plan_id"]) != self.tenant_id:
+            raise ObservationError("workload_forbidden", 403)
         with self.lock:
             if plan["workload_id"] != self.application_id or any(
                 r.environment_id != plan[r.lane + "_environment_id"] for r in self.registrations
@@ -286,7 +294,11 @@ class ObservedWorkloads:
         with self.lock:
             return self.issued.get((plan["plan_id"], plan["plan_digest"], plan["version"])) is item
 
-    def attach(self, api, authorize):
+    def attach(self, api, authorize, *, tenant_of):
+        """`tenant_of(plan_id)` is the plan's tenant from T10 (the same store the API reads)."""
+        if not callable(tenant_of):
+            raise ValueError("plan_tenant_lookup_required")
+        self.tenant_of = tenant_of
         return PlanWorkload(
             api,
             load=self.load,
@@ -297,3 +309,13 @@ class ObservedWorkloads:
             provenance="live",
             clock=self.clock,
         )
+
+
+def plan_tenant(store):
+    """`tenant_of` for `attach`: the plan's tenant from the T10 store."""
+    def tenant_of(plan_id):
+        with store._transaction() as c:
+            row = c.execute("SELECT tenant_id FROM plans WHERE plan_id=?", (plan_id,)).fetchone()
+        return row["tenant_id"] if row is not None else None
+
+    return tenant_of

@@ -5,7 +5,7 @@ from datetime import UTC, datetime, timedelta
 import pytest
 
 from bravo_console.kubernetes_workload import ClusterRegistration, CollectionError, collect
-from bravo_console.observed_workload import ObservedWorkloads
+from bravo_console.observed_workload import ObservedWorkloads, plan_tenant
 
 NOW = datetime(2026, 11, 7, 12, tzinfo=UTC)
 CLUSTER = "00000000-0000-4000-8000-aaaaaaaaaaaa"
@@ -14,6 +14,7 @@ CLUSTER = "00000000-0000-4000-8000-aaaaaaaaaaaa"
 def registration():
     return ClusterRegistration.parse(
         dict(
+            tenant_id="tenant-demo",
             environment_id="registered-target",
             lane="target",
             cluster_uid=CLUSTER,
@@ -97,6 +98,7 @@ def case():
         clock=lambda: clock[0],
     )
     source.refresh(r)
+    source.tenant_of = lambda plan_id: "tenant-demo"  # what attach(tenant_of=plan_tenant(store)) supplies
     return reader, r, source, clock
 
 
@@ -456,7 +458,7 @@ def test_native_t10_http_consumes_same_observation_only_with_current_plan_permis
         clock=lambda: NOW,
     )
     source.refresh(r)
-    app.workload = source.attach(app.api, authorize=lambda *_: allowed[0])
+    app.workload = source.attach(app.api, authorize=lambda *_: allowed[0], tenant_of=plan_tenant(store))
     with TestClient(app, base_url=ORIGIN, cookies={"fixture-session": "test-only"}) as client:
         response = client.get("/v1/plans/plan-demo/workload")
         assert response.status_code == 200, response.text
@@ -468,3 +470,26 @@ def test_native_t10_http_consumes_same_observation_only_with_current_plan_permis
         denied = client.get("/v1/plans/plan-demo/workload")
         assert denied.status_code == 403 and "service-chat" not in denied.text
     assert state["submitted"] == 0
+
+
+def test_a_plan_of_another_tenant_with_the_same_environment_ids_gets_no_observation(tmp_path):
+    """#806 review: environment ids repeat across tenants; the registration's tenant must match the plan's."""
+    from starlette.testclient import TestClient
+    from test_app import ORIGIN, setup
+
+    app, store, _, _ = setup(tmp_path / "other-tenant.db", workload_id="registered-chat")
+    r = replace(registration(), tenant_id="tenant-other", environment_id="env-target")
+    source = ObservedWorkloads(
+        application_id="registered-chat",
+        source_revision="a" * 40,
+        registrations=[r],
+        collect=lambda selected: collect(Reader(), selected, source_revision="a" * 40, now=NOW),
+        clock=lambda: NOW,
+    )
+    source.refresh(r)
+    app.workload = source.attach(app.api, authorize=lambda *_: True, tenant_of=plan_tenant(store))
+    with TestClient(app, base_url=ORIGIN, cookies={"fixture-session": "test-only"}) as client:
+        response = client.get("/v1/plans/plan-demo/workload")
+    assert response.status_code == 403 and "service-chat" not in response.text
+    with pytest.raises(ValueError, match="plan_tenant_lookup_required"):
+        source.attach(app.api, authorize=lambda *_: True, tenant_of=None)

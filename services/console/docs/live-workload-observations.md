@@ -34,10 +34,11 @@ CLI는 개인 `bravo-personal` 환경으로 고정하며 운영 워크로드는 
 - 브라우저의 시계 검사도 독립 수행한다. 조회 실패·세션 만료는 이전 화면 자료를 제거한다.
 
 CLI의 보호된 등록 파일은 `registration`, 선택 `kubectl`, `producer`를 가진다. `registration`은
-`environment_id`, `lane`, `cluster_uid`, `namespace`, `services`이며 Service는
+`tenant_id`, `environment_id`, `lane`, `cluster_uid`, `namespace`, `services`이며 Service는
 `name`, 공개 `label`, `kind`, 선택 HTTP 탐침용 `probe_port`를 가진다.
 `producer`는 검증한 전체 `revision`과 현재 수집기 파일의 `sha256`이다. 임의 SHA 문자열은 등록 권한이 아니다.
 실제 대상·자격·발행 근거를 확인한 운영자만 이 파일을 준비한다.
+T10 환경 ID는 tenant 안에서만 유일하므로 `tenant_id`가 등록에 들어간다. T10 합성은 `attach(api, authorize, tenant_of=plan_tenant(store))`로 붙이고, 계획의 tenant가 등록과 다르면 관측을 403으로 거부한다.
 
 ```sh
 python -m bravo_console.kubernetes_workload --registration <보호된-등록파일>

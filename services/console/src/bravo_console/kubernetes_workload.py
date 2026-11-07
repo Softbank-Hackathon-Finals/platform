@@ -37,6 +37,7 @@ def opaque(*parts):
 
 @dataclass(frozen=True)
 class ClusterRegistration:
+    tenant_id: str
     environment_id: str
     lane: str
     cluster_uid: str
@@ -46,6 +47,7 @@ class ClusterRegistration:
     @classmethod
     def parse(cls, value):
         if type(value) is not dict or set(value) != {
+            "tenant_id",
             "environment_id",
             "lane",
             "cluster_uid",
@@ -53,6 +55,8 @@ class ClusterRegistration:
             "services",
         }:
             raise ValueError("explicit_cluster_registration_required")
+        # T10 environment ids are unique only within a tenant (registrations: tenant_id, kind, object_id).
+        identifier(value["tenant_id"])
         identifier(value["environment_id"])
         if (
             value["lane"] not in {"source", "target"}
@@ -93,6 +97,7 @@ class ClusterRegistration:
     @property
     def scope_digest(self):
         value = dict(
+            tenant_id=self.tenant_id,
             environment_id=self.environment_id,
             lane=self.lane,
             cluster_uid=self.cluster_uid,
