@@ -28,7 +28,7 @@ from datetime import UTC, datetime
 from .applications import application, application_name, project
 from .plan import Planner
 from .stack import StackError, canonical, sha256_text
-from .terraform import Scratch, TerraformCli, change_summary, inputs_digest, output_path, substitute
+from .terraform import Scratch, TerraformCli, inputs_digest, outputs_reader, plan_step
 
 PENDING, RUNNING, SKIPPED, APPLIED = "PENDING", "RUNNING", "SKIPPED", "APPLIED"
 WAITING, FAILED, HOLD = "WAITING_OPERATOR", "FAILED", "HOLD"
@@ -263,45 +263,29 @@ class Executor:
             self.sleep(self.poll)
 
     def _terraform(self, run, step):
-        """Plan to a file, refuse deletes and replaces, apply exactly that file."""
+        """Re-plan; apply only the change set a person approved, never a delete, replace or forget."""
         params = run["plan"]["request"]["params"]
         root = self.planner.repo_root
-        approved = _planned(run, step)["inputs"]
-        if inputs_digest(root, step, params) != approved:
+        approved = _planned(run, step)
+        if inputs_digest(root, step, params) != approved["inputs"]:
             raise StepOutcome(HOLD, "terraform_inputs_changed")  # code or a private input moved since approval
-        resolved = substitute({k: step[k] for k in ("backend", "var_file") if k in step}, params)
-        directory = root / step["dir"]
-        values = {}
-        for name, value in step.get("vars", {}).items():
-            if isinstance(value, dict):
-                values[name] = output_path(self._outputs(run, value["from"]), value)  # memory only
-            else:
-                values[name] = substitute(value, params)
+        steps = {s["id"]: s for s in run["stack"]["steps"] if s["kind"] == "terraform"}
+        read = outputs_reader(self.terraform, root, steps, params)
         with Scratch() as scratch:
-            self.terraform.init(directory, scratch / "data", resolved["backend"]["file"],
-                                resolved["backend"].get("config", {}))
-            wired = scratch / "wired.tfvars.json"
-            wired.write_text(json.dumps(values))
-            var_files = ([resolved["var_file"]] if resolved.get("var_file") else []) + [str(wired)]
-            plan_file = scratch / "plan.bin"
-            if not self.terraform.plan(directory, scratch / "data", plan_file, var_files):
+            planned = plan_step(self.terraform, root, step, params, read, scratch, lock=True)
+            if not planned["changed"]:
                 return SKIPPED
-            counts, destructive = change_summary(self.terraform.show(directory, scratch / "data", plan_file))
             with self._lock:
-                run.setdefault("terraform", {})[step["id"]] = {"changes": counts, "destructive": len(destructive)}
-            if destructive:
+                run.setdefault("terraform", {})[step["id"]] = {"changes": planned["changes"],
+                                                               "destructive": len(planned["destructive"])}
+            if approved["change_set"] in ("UNPLANNED", "PENDING_UPSTREAM"):
+                raise StepOutcome(HOLD, "terraform_change_set_unapproved")  # plan again now that upstream exists
+            if planned["change_set"] != approved["change_set"]:
+                raise StepOutcome(HOLD, "terraform_change_set_changed")
+            if planned["destructive"]:
                 raise StepOutcome(HOLD, "terraform_plan_destroys")  # a person decides deletes and replaces
-            self.terraform.apply(directory, scratch / "data", plan_file)
+            self.terraform.apply(planned["directory"], scratch / "data", scratch / "plan.bin")
             return APPLIED
-
-    def _outputs(self, run, step_id):
-        step = _steps(run)[step_id]
-        params = run["plan"]["request"]["params"]
-        backend = substitute(step["backend"], params)
-        with Scratch() as scratch:
-            directory = self.planner.repo_root / step["dir"]
-            self.terraform.init(directory, scratch / "data", backend["file"], backend.get("config", {}))
-            return self.terraform.outputs(directory, scratch / "data")
 
     def _render_apply(self, run, step):
         items = [item for text in run["files"][step["id"]].values() for item in _items(text)]

@@ -120,7 +120,11 @@ class TerraformCli:
 
     def init(self, directory, data_dir, backend_file, backend_config):
         args = ["init", "-input=false", "-reconfigure", "-lockfile=readonly", f"-backend-config={backend_file}"]
-        args += [f"-backend-config={k}={v}" for k, v in sorted(backend_config.items())]
+        if backend_config:  # values go in a private file, never in process arguments
+            extra = Path(data_dir).parent / "backend-extra.hcl"
+            extra.write_text("".join(f"{k} = {json.dumps(v)}\n" for k, v in sorted(backend_config.items())))
+            os.chmod(extra, 0o600)
+            args.append(f"-backend-config={extra}")
         self._run(directory, data_dir, *args)
 
     def outputs(self, directory, data_dir):
@@ -142,18 +146,60 @@ class TerraformCli:
         self._run(directory, data_dir, "apply", "-input=false", "-lock-timeout=120s", str(plan_file))
 
 
+# A forget (Terraform 1.7+ `removed` block) leaves the resource but drops it from management:
+# a person decides it, like a delete or a replace.
+DESTRUCTIVE_ACTIONS = frozenset({"delete", "forget"})
+
+
 def change_summary(plan_json):
-    """Counts per action and whether anything is deleted or replaced (a replace is a delete)."""
-    counts, destructive = {}, []
+    """Counts per action, the destructive addresses, and the change set (addresses and actions, no values)."""
+    counts, destructive, change_set = {}, [], []
     for change in plan_json.get("resource_changes", []):
         actions = change.get("change", {}).get("actions", [])
-        if actions == ["no-op"]:
+        if actions == ["no-op"] or actions == ["read"]:
             continue
         key = "replace" if "delete" in actions and "create" in actions else "+".join(actions)
         counts[key] = counts.get(key, 0) + 1
-        if "delete" in actions:
+        change_set.append({"address": change.get("address", "?"), "actions": actions})
+        if DESTRUCTIVE_ACTIONS & set(actions):
             destructive.append(change.get("address", "?"))
-    return counts, destructive
+    return counts, destructive, sorted(change_set, key=lambda c: c["address"])
+
+
+def change_set_digest(change_set):
+    return sha256_text(canonical(change_set))
+
+
+def outputs_reader(cli, repo_root, steps, params):
+    """Upstream outputs read from state on demand (memory only)."""
+    def read(step_id):
+        upstream = steps[step_id]
+        backend = substitute(upstream["backend"], params)
+        with Scratch() as scratch:
+            directory = Path(repo_root) / upstream["dir"]
+            cli.init(directory, scratch / "data", backend["file"], backend.get("config", {}))
+            return cli.outputs(directory, scratch / "data")
+    return read
+
+
+def plan_step(cli, repo_root, step, params, outputs_of, scratch, *, lock):
+    """init → wire → plan to `scratch/plan.bin`. Returns what the plan would change (no values)."""
+    resolved = substitute({k: step[k] for k in ("backend", "var_file") if k in step}, params)
+    directory = Path(repo_root) / step["dir"]
+    values = {}
+    for name, value in step.get("vars", {}).items():
+        values[name] = (output_path(outputs_of(value["from"]), value) if isinstance(value, dict)
+                        else substitute(value, params))
+    cli.init(directory, scratch / "data", resolved["backend"]["file"], resolved["backend"].get("config", {}))
+    wired = scratch / "wired.tfvars.json"
+    wired.write_text(json.dumps(values))
+    os.chmod(wired, 0o600)
+    var_files = ([resolved["var_file"]] if resolved.get("var_file") else []) + [str(wired)]
+    changed = cli.plan(directory, scratch / "data", scratch / "plan.bin", var_files, lock=lock)
+    counts, destructive, change_set = (change_summary(cli.show(directory, scratch / "data", scratch / "plan.bin"))
+                                       if changed else ({}, [], []))
+    return {"changed": changed, "changes": counts, "destructive": destructive,
+            "change_set": change_set_digest(change_set), "directory": directory}
 
 
 class Scratch:
@@ -176,39 +222,18 @@ def verify(stack, repo_root, params, *, only=None, cli=None):
     """
     cli = cli or TerraformCli()
     steps = {s["id"]: s for s in stack.document["steps"] if s["kind"] == "terraform"}
+    read = outputs_reader(cli, repo_root, steps, params)
     results = []
     for level in stack.levels:
         for step_id in level:
             if step_id not in steps or (only and step_id not in only):
                 continue
-            step = steps[step_id]
-            resolved = substitute({k: step[k] for k in ("backend", "var_file") if k in step}, params)
-            directory = Path(repo_root) / step["dir"]
             try:
-                inputs_digest(Path(repo_root), step, params)  # private files exist and live outside Git
-                values = {}
-                for name, value in step.get("vars", {}).items():
-                    if isinstance(value, dict):
-                        upstream = steps[value["from"]]
-                        backend = substitute(upstream["backend"], params)
-                        with Scratch() as scratch:
-                            cli.init(Path(repo_root) / upstream["dir"], scratch / "data", backend["file"],
-                                     backend.get("config", {}))
-                            values[name] = output_path(cli.outputs(Path(repo_root) / upstream["dir"],
-                                                                   scratch / "data"), value)
-                    else:
-                        values[name] = substitute(value, params)
+                inputs_digest(Path(repo_root), steps[step_id], params)  # private files exist, outside Git
                 with Scratch() as scratch:
-                    cli.init(directory, scratch / "data", resolved["backend"]["file"],
-                             resolved["backend"].get("config", {}))
-                    wired = scratch / "wired.tfvars.json"
-                    wired.write_text(json.dumps(values))
-                    var_files = ([resolved["var_file"]] if resolved.get("var_file") else []) + [str(wired)]
-                    changed = cli.plan(directory, scratch / "data", scratch / "plan.bin", var_files, lock=False)
-                    counts, destructive = (change_summary(cli.show(directory, scratch / "data", scratch / "plan.bin"))
-                                           if changed else ({}, []))
-                results.append({"step": step_id, "status": "CHANGES" if changed else "NO_CHANGES",
-                                "changes": counts, "destructive": len(destructive)})
+                    planned = plan_step(cli, repo_root, steps[step_id], params, read, scratch, lock=False)
+                results.append({"step": step_id, "status": "CHANGES" if planned["changed"] else "NO_CHANGES",
+                                "changes": planned["changes"], "destructive": len(planned["destructive"])})
             except (StackError, RuntimeError) as error:
                 results.append({"step": step_id, "status": "ERROR", "reason": str(error)})
     return results
