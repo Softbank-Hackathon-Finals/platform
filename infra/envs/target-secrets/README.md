@@ -168,6 +168,7 @@ namespace**, not a run id, and the only reader policy is one operator-owned temp
 | `rehearsal-writer-policy` | HCL for policy `rehearsal-openbao-writer` (T15 prep Job) | See "Rehearsal writer" below |
 | `rehearsal-writer-auth-role` | Body for `auth/kubernetes/role/rehearsal-openbao-writer` | SA `rehearsal-openbao-writer` in exactly `bravo-rehearsal-control`; audience `openbao`; writer policy only; TTL 300/900 s; no default policy |
 | `rehearsal-writer-identity` (optional) | Namespace `bravo-rehearsal-control` (PSS restricted) + ServiceAccount `rehearsal-openbao-writer` (no automount) | Apply only if T15/T30 agree T9 owns them; see below |
+| `t14-other-auth-role` | Body for `auth/kubernetes/role/t14-other` (T14 SEC-01.1 comparison identity) | SA `t14-other` (T30 #666) in exactly `target-dev`; audience `openbao`; policy `default` only, so the app path is denied after a successful login; TTL 300/900 s. The app side stays `target-app-reader` |
 
 The earlier `rehearsal-policy --run-id <run>` stage (one writer-written policy per run) and the
 `--run-id` flag are removed; the renderer refuses them.
