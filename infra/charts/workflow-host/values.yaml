@@ -23,6 +23,8 @@ secrets:
   githubApp: ""
   # kubeconfig of the target apply-deployer (T31 REHEARSE; short-lived token; optional: empty = no apply).
   applyKubeconfig: ""
+  # kubeconfig of the platform's bravo-t14-collector on the target (ADR-0041 watch.target_controls; optional).
+  targetControlsKubeconfig: ""
   registry: platform-ghcr-reader
 # T31 apply identity without a stored token: an existing ConfigMap with `kubeconfig` (exec plugin
 # /usr/local/bin/bravo-credential) and `registration.json` (registration + anchor_uid, no secret).

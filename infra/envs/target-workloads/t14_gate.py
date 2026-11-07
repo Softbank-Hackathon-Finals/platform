@@ -63,12 +63,50 @@ def canary(arch):
     return [config, job]
 
 
+COLLECTOR = "bravo-t14-collector"
+COLLECTOR_NAMESPACE = "bravo-apply-access"  # where the platform's other target identities live
+
+
+def collector():
+    """ADR-0041: the platform's own identity for the post-cutover target run, named resources only.
+
+    It mints the two SEC-01.1 tokens from outside the cluster (the platform fixes audience and lifetime;
+    nothing in the cluster gets this verb), reads the app's object client keys for IAM-01.1 and reaches
+    OpenBao/SeaweedFS through API port-forwards.
+    """
+    def namespaced(item, namespace):
+        item["metadata"]["namespace"] = namespace
+        return item
+
+    subject = [{"kind": "ServiceAccount", "name": COLLECTOR, "namespace": COLLECTOR_NAMESPACE}]
+    forward = [{"apiGroups": [""], "resources": ["pods"], "verbs": ["get", "list"]},
+               {"apiGroups": [""], "resources": ["pods/portforward"], "verbs": ["create"]}]
+    rules = {
+        "target-dev": [{"apiGroups": [""], "resources": ["serviceaccounts/token"], "verbs": ["create"],
+                        "resourceNames": ["demo-chat", OTHER]},
+                       {"apiGroups": [""], "resources": ["secrets"], "verbs": ["get"],
+                        "resourceNames": ["target-object-client"]},
+                       {"apiGroups": [""], "resources": ["services"], "verbs": ["get"], "resourceNames": ["seaweedfs"]},
+                       *forward],
+        "bravo-secrets": [{"apiGroups": [""], "resources": ["services"], "verbs": ["get"],
+                           "resourceNames": ["target-openbao"]}, *forward],
+    }
+    items = [namespaced(resource("v1", "ServiceAccount", COLLECTOR, automountServiceAccountToken=False),
+                        COLLECTOR_NAMESPACE)]
+    for namespace, rule in rules.items():
+        items.append(namespaced(resource("rbac.authorization.k8s.io/v1", "Role", COLLECTOR, rules=rule), namespace))
+        items.append(namespaced(resource("rbac.authorization.k8s.io/v1", "RoleBinding", COLLECTOR, subjects=subject,
+                                         roleRef={"apiGroup": "rbac.authorization.k8s.io", "kind": "Role",
+                                                  "name": COLLECTOR}), namespace))
+    return items
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("stage", choices=["accounts", "canary"])
+    parser.add_argument("stage", choices=["accounts", "canary", "collector"])
     parser.add_argument("--arch", choices=["amd64", "arm64"], default="amd64")
     args = parser.parse_args()
-    items = accounts() if args.stage == "accounts" else canary(args.arch)
+    items = {"accounts": accounts, "collector": collector}.get(args.stage, lambda: canary(args.arch))()
     print(json.dumps({"apiVersion": "v1", "kind": "List", "items": items}, indent=2))
 
 

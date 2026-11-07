@@ -27,6 +27,8 @@ PACKAGES = {
     "edge-control": "bravo_edge_control",
     # T44 planning library under the agent worker's infra.plan tool (pure, no dependencies).
     "iac": "bravo_iac",
+    # ADR-0041: the workflow host's post-cutover target T14 run (collectors only; botocore from the lock).
+    "control-runner": "bravo_controls",
 }
 
 # Include the lazy imports used by --initial-proposal, not just the entry point.
@@ -104,10 +106,10 @@ def prepare_context(context, revision, *, rehearsal_host=False):
         raise ValueError("observability_source_mismatch")
     requirements = context / "requirements.txt"
     subprocess.run(["uv", "export", "--locked", "--no-header", "--no-dev", "--extra", "postgres",
-        "--group", "product-inputs", "--group", "gate-records", "--no-emit-project", "--no-emit-package", "bravo-observability",
+        "--group", "product-inputs", "--group", "gate-records", "--group", "target-controls", "--no-emit-project", "--no-emit-package", "bravo-observability",
         "--no-emit-package", "bravo-agent-worker", "--no-emit-package", "bravo-rehearsal-runner",
         "--no-emit-package", "bravo-inventory", "--no-emit-package", "bravo-control-gate",
-        "--no-emit-package", "bravo-iac",
+        "--no-emit-package", "bravo-iac", "--no-emit-package", "bravo-controls",
         "-o", str(requirements)], cwd=SERVICE, check=True, stdout=subprocess.DEVNULL)
     text = requirements.read_text()
     if any(line.strip().startswith(("-e ", "git+", "file:", "../", "/")) or " @ " in line

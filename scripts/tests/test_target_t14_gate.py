@@ -38,6 +38,29 @@ class AccountTests(unittest.TestCase):
         self.assertFalse(any(item["kind"].startswith("Cluster") for item in t14_gate.accounts()))
 
 
+class CollectorTests(unittest.TestCase):
+    """ADR-0041: the platform's identity, outside the cluster's workloads, with named resources only."""
+
+    def test_only_the_platform_identity_may_mint_and_only_the_two_accounts(self):
+        items = t14_gate.collector()
+        bindings = [i for i in items if i["kind"] == "RoleBinding"]
+        self.assertEqual({s["namespace"] + "/" + s["name"] for b in bindings for s in b["subjects"]},
+                         {"bravo-apply-access/bravo-t14-collector"})
+        token = [r for i in items if i["kind"] == "Role" for r in i["rules"] if r["resources"] == ["serviceaccounts/token"]]
+        self.assertEqual(token, [{"apiGroups": [""], "resources": ["serviceaccounts/token"], "verbs": ["create"],
+                                  "resourceNames": ["demo-chat", "t14-other"]}])
+
+    def test_no_cluster_scope_no_wildcards_and_secrets_by_name(self):
+        items = t14_gate.collector()
+        self.assertFalse(any(i["kind"].startswith("Cluster") for i in items))
+        for rule in (r for i in items if i["kind"] == "Role" for r in i["rules"]):
+            self.assertNotIn("*", rule["verbs"] + rule["resources"])
+            if "secrets" in rule["resources"]:
+                self.assertEqual(rule["resourceNames"], ["target-object-client"])
+        account = by_kind(items)[("ServiceAccount", "bravo-t14-collector")]
+        self.assertIs(account["automountServiceAccountToken"], False)
+
+
 class CanaryTests(unittest.TestCase):
     def job(self, arch="arm64"):
         return by_kind(t14_gate.canary(arch))[("Job", "target-t14-canary")]["spec"]["template"]
