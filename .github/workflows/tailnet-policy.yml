@@ -64,6 +64,8 @@ jobs:
           TAILNET_NAME: ${{ vars[format('TAILNET_POLICY_NAME_{0}', matrix.key)] }}
           CLIENT_ID: ${{ github.event_name == 'pull_request' && vars[format('TAILNET_POLICY_PLAN_CLIENT_{0}', matrix.key)] || vars[format('TAILNET_POLICY_APPLY_CLIENT_{0}', matrix.key)] }}
           MODE: ${{ github.event_name == 'pull_request' && 'plan' || 'apply' }}
+          # The commit whose fragment was last in force: prune what it had and this one drops.
+          BEFORE: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
         run: |
           if [ -z "$TAILNET_NAME" ] || [ -z "$CLIENT_ID" ]; then
             echo "### tailnet \`$TAILNET\`: SKIPPED (변수 없음: infra/tailnet/README.md 설정 참고)" >> "$GITHUB_STEP_SUMMARY"
@@ -71,6 +73,14 @@ jobs:
           fi
           args=(--tailnet "$TAILNET" --tailnet-name "$TAILNET_NAME" --client-id "$CLIENT_ID")
           if [ "$MODE" = apply ]; then args+=(--apply); fi
+          previous="$RUNNER_TEMP/previous"
+          if [ -n "$BEFORE" ] && [ "$BEFORE" != 0000000000000000000000000000000000000000 ] \
+            && git fetch -q --depth=1 origin "$BEFORE" && mkdir -p "$previous" \
+            && (set -o pipefail; git -C "$GITHUB_WORKSPACE" archive "$BEFORE" infra/iac/environments | tar -x -C "$previous"); then
+            args+=(--previous-dir "$previous/infra/iac/environments")
+          else
+            echo "### tailnet \`$TAILNET\`: prune 없음 (이전 커밋을 읽지 못함)" >> "$GITHUB_STEP_SUMMARY"
+          fi
           uv sync --frozen --no-dev -q
           set +e
           uv run --no-sync bravo-iac tailnet-sync "${args[@]}" ../../infra/iac/environments/*.json > "$RUNNER_TEMP/result.json"

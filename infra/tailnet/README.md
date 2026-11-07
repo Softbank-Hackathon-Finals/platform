@@ -21,12 +21,13 @@ uv run bravo-iac tailnet-check --policy <현재 tailnet 정책 JSON> ../../infra
 | develop으로 가는 PR | 현재 정책을 읽어 조각을 합치고 `tailnet-check`와 Tailscale validate로 검사한다. 정책에 쓰지 않는다 | 읽기(`policy_file:read`) |
 | develop 병합 뒤 | 같은 합치기와 validate를 통과하면 읽을 때의 ETag로(`If-Match`) 쓰고, 다시 읽어 조각이 다 들어갔는지 대조한다 | 쓰기(`policy_file`) |
 
-**저장소에는 조각만 둔다.** 실제 정책에는 그룹 구성원 이메일이 있어서 전체 정책 파일을 공개 저장소에 두지 않는다. 그래서 합치기는 더하기만 한다(`services/iac/src/bravo_iac/tailnet_sync.py`).
+**저장소에는 조각만 둔다.** 실제 정책에는 그룹 구성원 이메일이 있어서 전체 정책 파일을 공개 저장소에 두지 않는다. 그래서 합치기는 저장소가 넣은 항목만 더하고 뺀다(`services/iac/src/bravo_iac/tailnet_sync.py`).
 
 - 조각이 가진 네 부분(`tagOwners`, `autoApprovers`, `grants`, `tests`)만 다룬다. 그룹·ssh·손으로 넣은 grant 등 나머지는 그대로 둔다.
 - 없는 태그 소유자·자동 승인·grant·test를 더한다. 이미 같은 허용을 주는 grant나 같은 판정을 하는 test가 있으면 더하지 않는다.
 - 같은 태그의 소유자가 다르면 덮어쓰지 않고 `IAC_POLICY_CONFLICT`로 멈춘다. 사람이 정한다.
-- 지우지 않는다(prune 없음). 경로를 Git에서 빼면 grant는 남고, 사람이 콘솔에서 지운다.
+- prune: 직전 커밋의 조각에는 있었는데 이번 조각에서 빠진 태그 소유자·grant·test를 지운다(PR은 base, develop은 push 직전 커밋과 비교). 실제 정책의 항목이 조각이 넣은 값과 정확히 같을 때만 지운다. 손으로 넣었거나 사람이 넓힌 항목은 남는다. 직전 커밋을 읽지 못하면 지우지 않고 job 요약에 남긴다.
+- 빼기를 적용하지 못한 채 다음 push가 오면 그 항목은 남는다(직전 커밋과만 비교). 그때는 실패한 run을 다시 돌리거나 사람이 지운다. 자동 승인(`autoApprovers`)은 조각에 없어 지우지 않는다.
 - 정책에 HuJSON 주석이 있으면 JSON으로 쓰면서 주석이 사라지므로 `IAC_POLICY_HAS_COMMENTS`로 멈춘다.
 - 읽은 뒤 누가 정책을 바꿨으면 `IAC_POLICY_CHANGED`로 멈춘다(덮어쓰지 않음). 워크플로를 다시 돌리면 새 정책 위에서 합친다.
 - 쓰기 응답을 잃으면 다시 보내지 않는다. 다시 읽어 판정하고, 확인하지 못하면 `UNKNOWN`(`IAC_APPLY_UNCONFIRMED`)이다.

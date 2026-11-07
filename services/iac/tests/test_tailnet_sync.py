@@ -9,7 +9,7 @@ import pytest
 from bravo_iac import IacError
 from bravo_iac.cli import main
 from bravo_iac.tailnet import check_policy, fragment
-from bravo_iac.tailnet_sync import Client, github_token, masked, merge, sync
+from bravo_iac.tailnet_sync import Client, github_token, masked, merge, prune, sync
 
 REPO = Path(__file__).resolve().parents[3]
 ENVIRONMENTS = sorted((REPO / "infra/iac/environments").glob("*.json"))
@@ -120,6 +120,30 @@ def test_apply_writes_on_the_read_etag_and_confirms_by_reading_back():
     calls = len(fake.calls)
     assert sync(client(fake), STATES, "default", apply=True)["status"] == "NO_CHANGE"
     assert not [c for c in fake.calls[calls:] if c[0] == "POST"]  # nothing to write, not even validate
+
+
+def test_prune_removes_only_what_git_put_there_and_then_dropped():
+    old = {"src": ["tag:bravo-old"], "dst": ["tag:bravo-gone"], "ip": ["tcp:443"]}
+    previous = {**WANTED, "tagOwners": {**WANTED["tagOwners"], "tag:bravo-old": ["autogroup:admin"]},
+                "grants": [*WANTED["grants"], old], "tests": [*WANTED["tests"], {"src": "tag:bravo-old", "accept": ["tag:bravo-gone:443"]}]}
+    widened = {**old, "ip": ["tcp:443", "tcp:80"]}  # a person widened it: theirs now
+    live, _, _ = merge(PEOPLE, previous)
+    live["grants"].append(widened)
+    pruned, removed = prune(live, previous, WANTED)
+    assert removed == ["TAG_OWNER:tag:bravo-old", "GRANT:tag:bravo-old->tag:bravo-gone:tcp:443", "TEST:tag:bravo-old"]
+    assert widened in pruned["grants"] and old not in pruned["grants"]
+    assert all(g in pruned["grants"] for g in PEOPLE["grants"]) and pruned["groups"] == PEOPLE["groups"]
+    assert check_policy(pruned, STATES) == [] and prune(pruned, previous, WANTED)[1] == []
+    other = {**live, "tagOwners": {**live["tagOwners"], "tag:bravo-old": ["autogroup:owner"]}}
+    assert "TAG_OWNER:tag:bravo-old" not in prune(other, previous, WANTED)[1]  # owner changed by hand
+
+
+def test_apply_prunes_what_the_previous_commit_had():
+    fake = FakeTailscale(merge(PEOPLE, WANTED)[0])
+    result = sync(client(fake), [], "default", apply=True, previous_states=STATES)
+    assert result["status"] == "APPLIED" and result["added"] == [] and len(result["removed"]) > 0
+    assert fake.policy == PEOPLE
+    assert sync(client(fake), [], "default", apply=True, previous_states=STATES)["status"] == "NO_CHANGE"
 
 
 def test_apply_refuses_what_it_cannot_prove():
