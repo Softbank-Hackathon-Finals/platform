@@ -30,9 +30,10 @@ class GuardDutySource:
                 raise CollectionError("incomplete_provider_response")
             yield page[key]
             token = page.get("NextToken")
-            if token is None:
+            # The live ListFindings ends with NextToken "" (11-08 sample findings); ListDetectors omits it.
+            if token is None or token == "":
                 return
-            if not isinstance(token, str) or not token or token in seen:
+            if not isinstance(token, str) or token in seen:
                 raise CollectionError("invalid_pagination")
             seen.add(token)
             kwargs["NextToken"] = token
