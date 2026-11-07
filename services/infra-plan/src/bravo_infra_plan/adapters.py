@@ -205,7 +205,8 @@ class KubectlCluster:
         if result.returncode != 0:
             if "NotFound" in result.stderr or "not found" in result.stderr:
                 return None
-            raise RuntimeError("kubectl get failed")
+            first = (result.stderr.strip().splitlines() or [""])[0][:120]  # a read: no value in it
+            raise RuntimeError(f"kubectl get {kind} failed: {first}")
         return json.loads(result.stdout)
 
     def identity(self, node_name):
@@ -347,6 +348,7 @@ class ClusterChecks:
             "host-paths": lambda: None if not expect else (
                 c.node_annotation(node, HOST_PATHS_ANNOTATION) == host_paths_digest(expect["host_paths"])),
             "openbao-image": lambda: None if not expect else set(expected_images(expect, params)) <= c.node_image_names(node),
+            "app-image": lambda: set(expected_images(expect, params)) <= c.node_image_names(node),
             "iac-argocd": lambda: c.statefulset_ready(ARGO_NAMESPACE, "bravo-iac-gitops-application-controller"),
             "argocd-repository": lambda: c.labelled_secret_exists(ARGO_NAMESPACE, "argocd.argoproj.io/secret-type=repository"),
             "seaweedfs-auth": lambda: c.secret_exists("target-dev", "target-seaweedfs-auth"),

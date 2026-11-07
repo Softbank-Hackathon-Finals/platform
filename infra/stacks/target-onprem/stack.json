@@ -445,6 +445,26 @@
       }
     },
     {
+      "id": "app-image",
+      "kind": "operator_action",
+      "owner": "T30",
+      "when": {"param": "arch", "in": ["arm64"]},
+      "description": "arm64 노드에 목적지 앱 이미지를 오프라인으로 반입한다(amd64는 고정 레지스트리에서 받는다)",
+      "needs": [
+        "identity"
+      ],
+      "instruction": "app-image.json의 arm64 이미지(검사한 OCI)를 태그와 localhost/bravo-demo-chat@sha256 별칭으로 반입하고, 둘 다 기대 descriptor를 가리키는지 확인한다.",
+      "confirm": "app-image",
+      "expect": {
+        "images_by_arch": {
+          "arm64": [
+            "localhost/bravo-demo-chat:8d82a924-arm64",
+            "localhost/bravo-demo-chat@sha256:b351ba11819796aaea854f742049e46b058561f80c0e738f42c93280af762888"
+          ]
+        }
+      }
+    },
+    {
       "id": "openbao-tls",
       "kind": "operator_action",
       "owner": "T9",
@@ -635,6 +655,7 @@
       "owner": "T30",
       "description": "목적지 앱(쓰기 차단 상태로 시작)을 올린다",
       "needs": [
+        "app-image",
         "migration-complete",
         "objects-sync",
         "delivery-ready"

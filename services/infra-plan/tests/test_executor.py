@@ -42,7 +42,8 @@ class FakeCluster:
         """What the platform's node preparation leaves behind: the host-paths attestation and the image."""
         steps = load_stack(STACK).steps
         self.annotations[HOST_PATHS_ANNOTATION] = host_paths_digest(steps["host-dirs"]["expect"]["host_paths"])
-        self.images |= set(expected_images(steps["openbao-image"]["expect"], REQUEST["params"]))
+        for step in ("openbao-image", "app-image"):
+            self.images |= set(expected_images(steps[step]["expect"], REQUEST["params"]))
 
     def identity(self, node_name):
         return {"cluster_uid": "cluster-1", "node_uid": f"uid-{node_name}"}

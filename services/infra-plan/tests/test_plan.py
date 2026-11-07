@@ -189,3 +189,11 @@ def test_a_target_without_a_tailnet_omits_the_tailscale_line_and_the_digest_bind
     assert not any(call[0].startswith("tailscale") for call in charts.calls)  # nothing rendered for it
     assert not any(name.startswith("tailscale/") for name in isolated.document["steps"][0].get("files", {}))
     assert isolated.plan_digest != joined.plan_digest
+
+
+def test_the_offline_app_image_step_exists_only_for_arm64_nodes():
+    amd64 = copy.deepcopy(REQUEST)
+    amd64["params"]["arch"] = "amd64"
+    omitted = {s["id"] for s in plan(amd64).document["steps"] if s.get("omitted")}
+    assert "app-image" in omitted  # amd64 pulls the pinned registry image
+    assert "app-image" not in {s["id"] for s in plan().document["steps"] if s.get("omitted")}
