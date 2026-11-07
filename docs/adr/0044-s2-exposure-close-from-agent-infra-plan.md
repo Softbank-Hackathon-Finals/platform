@@ -49,7 +49,7 @@
   * 변경 승인과 사전 위임(#716, change bounds 비어 있음)은 이 binding을 그대로 승인하므로, 사람의 결정에 자동으로 묶인다.
 * **REHEARSE (df): T31 적용 하나가 이미지와 닫기를 함께 한다.**
   * binding에 `iac_plan_digest`가 있으면, workflow host의 적용 입력(`ApplyInput`)에 그 계획과 설정된 목적지 노출 대상을 넣는다. 계획은 적용 입력 기록의 `infra_plans`에서 digest로 고르고, 대상은 workflow host 설정의 IaC 환경·버킷·SeaweedFS를 쓴다.
-  * T31 `apply`는 이미지 배포가 승인대로 끝난 뒤 `apply_planned_exposure`로 버킷을 닫는다. 진입점은 `check_closing_plan`으로 설정된 IaC 환경과 대조하고, `apply_bucket_policy`를 부르며, #709의 주인 표시를 남긴다. 결과 ID는 `iacplan-<plan_digest 앞 16자>`로 결정적이다.
+  * T31 `apply`는 이미지 배포가 승인대로 끝난 뒤 `apply_planned_exposure`로 버킷을 닫는다. 진입점은 `check_closing_plan`으로 설정된 IaC 환경과 대조하고, `apply_bucket_policy`를 부르며, #709의 주인 표시를 남긴다. 결과 ID는 `iac-<plan_digest 앞 16자>`(`planned_application_id`)로 결정적이다.
   * 그 적용 하나의 결과(ApplyOutcome)는 닫기가 끝난 뒤에야 APPLIED이고, `finished_at`도 닫기 뒤다. 닫기가 실패하면 그 적용은 SAFE_HOLD다(이미지는 되돌리지 않는다, 기존 T31 규칙).
   * 그래서 T10의 `Application` 기록 형식, REHEARSE 판독기, 재대조 요청(이미지 형식, `GATE_RECHECK_TESTS`에 IAM-01.1 포함)은 바뀌지 않는다.
   * 별개의 결과 두 개로 두지 않는 이유가 있다. 적용 뒤 GATE는 목적지 run을 한 번 묶으면 다시 묶지 않는다. 두 적용 사이(버킷이 아직 열림)에 시작한 run이 묶이면 BLOCK에 고정된다.
