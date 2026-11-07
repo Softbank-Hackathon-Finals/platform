@@ -359,3 +359,82 @@ TAILNET_INGRESS = Module(
     exposure=_ingress_exposure,
     tag_owners=_ingress_owners,
 )
+
+
+# --- operator-access v1 -----------------------------------------------------------------------
+# People reach a cluster's API only through that cluster's Tailscale API server proxy (operator auth
+# mode: apiServerProxyConfig.mode "true"). The tailnet grant lets a tailnet group reach the proxy and
+# names the Kubernetes group the proxy impersonates; a ClusterRoleBinding gives that group its role.
+# Who is in the tailnet group lives in the tailnet policy, never in this public repository.
+K8S_GROUP_RE = re.compile(r"[a-z][a-z0-9-]{0,30}:[a-z][a-z0-9-]{0,62}")
+TAILNET_GROUP_RE = re.compile(r"group:[a-z0-9](?:[-a-z0-9]{0,61}[a-z0-9])?")
+KUBERNETES_CAP = "tailscale.com/cap/kubernetes"
+API_PROXY_PORT = "tcp:443"
+
+
+def _access_check(params: dict) -> dict:
+    _exact(params, ("proxy_hostname", "proxy_tag", "bindings"), ("tailnet",))
+    bindings = params["bindings"]
+    if type(bindings) is not list or not 1 <= len(bindings) <= 4:
+        raise IacError("IAC_PARAMS_INVALID")
+    out = {"proxy_hostname": _name(params["proxy_hostname"]), "proxy_tag": _tag(params["proxy_tag"]), "bindings": []}
+    if "tailnet" in params:
+        if _name(params["tailnet"]) == DEFAULT_TAILNET:
+            raise IacError("IAC_PARAMS_INVALID")
+        out["tailnet"] = params["tailnet"]
+    for binding in bindings:
+        _exact(binding, ("name", "group", "cluster_role", "tailnet_group"))
+        name, group, src = _name(binding["name"]), binding["group"], binding["tailnet_group"]
+        # system:* groups (system:masters above all) are never impersonated: RBAC decides every right.
+        if (not isinstance(group, str) or not K8S_GROUP_RE.fullmatch(group) or group.startswith("system:")
+                or not isinstance(src, str) or not TAILNET_GROUP_RE.fullmatch(src)
+                or any(b["name"] == name or b["group"] == group for b in out["bindings"])):
+            raise IacError("IAC_PARAMS_INVALID")
+        out["bindings"].append({"name": name, "group": group, "cluster_role": _name(binding["cluster_role"]),
+                                "tailnet_group": src})
+    return out
+
+
+def _access_render(params: dict) -> list[dict]:
+    return [{"kind": "ClusterRoleBinding", "namespace": "-", "name": b["name"], "shape": {
+        "roleRef": {"apiGroup": "rbac.authorization.k8s.io", "kind": "ClusterRole", "name": b["cluster_role"]},
+        "subjects": [{"apiGroup": "rbac.authorization.k8s.io", "kind": "Group", "name": b["group"]}]}}
+        for b in params["bindings"]]
+
+
+def _access_grants(params: dict) -> list[dict]:
+    # One grant both opens the proxy port and tells the proxy which Kubernetes group to impersonate.
+    return [{"tailnet": tailnet_of(params), "src": [b["tailnet_group"]], "dst": [params["proxy_tag"]],
+             "ip": [API_PROXY_PORT], "app": {KUBERNETES_CAP: [{"impersonate": {"groups": [b["group"]]}}]}}
+            for b in params["bindings"]]
+
+
+def _access_exposure(params: dict) -> dict:
+    # A new binding, another role or another tailnet group is a widening; removing a binding is not.
+    reach = sorted(f'{b["tailnet_group"]}@{tailnet_of(params)} -> {params["proxy_hostname"]}({params["proxy_tag"]})'
+                   f' as {b["group"]}:{b["cluster_role"]}' for b in params["bindings"])
+    return {"anonymous": [], "reach": reach, "checks": []}
+
+
+OPERATOR_ACCESS = Module(
+    id="operator-access",
+    version="1",
+    description="People reach the cluster API through its Tailscale API server proxy: per binding, a "
+                "ClusterRoleBinding of one Kubernetes group and the tailnet grant that lets a tailnet group "
+                "reach the proxy and be impersonated as that group.",
+    params={"type": "object", "additionalProperties": False, "required": ["proxy_hostname", "proxy_tag", "bindings"],
+            "properties": {"proxy_hostname": {"type": "string", "pattern": NAME_RE.pattern},
+                           "proxy_tag": {"type": "string", "pattern": TAG_RE.pattern},
+                           "tailnet": {"type": "string", "pattern": NAME_RE.pattern},
+                           "bindings": {"type": "array", "minItems": 1, "maxItems": 4, "items": {
+                               "type": "object", "additionalProperties": False,
+                               "required": ["name", "group", "cluster_role", "tailnet_group"],
+                               "properties": {"name": {"type": "string", "pattern": NAME_RE.pattern},
+                                              "group": {"type": "string", "pattern": K8S_GROUP_RE.pattern},
+                                              "cluster_role": {"type": "string", "pattern": NAME_RE.pattern},
+                                              "tailnet_group": {"type": "string", "pattern": TAILNET_GROUP_RE.pattern}}}}}},
+    check=_access_check,
+    render=_access_render,
+    exposure=_access_exposure,
+    grants=_access_grants,
+)

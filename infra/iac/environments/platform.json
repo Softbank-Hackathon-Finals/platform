@@ -175,6 +175,22 @@
           }
         ]
       }
+    },
+    {
+      "id": "operator-access",
+      "version": "1",
+      "params": {
+        "proxy_hostname": "bravo-platform-operator",
+        "proxy_tag": "tag:bravo-platform-operator",
+        "bindings": [
+          {
+            "name": "bravo-operators-cluster-admin",
+            "group": "bravo:operators",
+            "cluster_role": "cluster-admin",
+            "tailnet_group": "group:bravo-operators"
+          }
+        ]
+      }
     }
   ]
 }

@@ -13,7 +13,9 @@ import re
 from .catalog import check_state, module
 from .plan import digest
 
-API = {"ProxyGroup": "tailscale.com/v1alpha1", "Service": "v1", "NetworkPolicy": "networking.k8s.io/v1"}
+API = {"ProxyGroup": "tailscale.com/v1alpha1", "Service": "v1", "NetworkPolicy": "networking.k8s.io/v1",
+       "ClusterRoleBinding": "rbac.authorization.k8s.io/v1"}
+TOP_LEVEL = {"ClusterRoleBinding"}  # RBAC objects carry roleRef/subjects beside metadata, not under spec
 # Namespaces the chart uses are declared so a fresh cluster gets them; Argo never deletes one (it may
 # already hold other workloads) and creates them before anything else.
 NAMESPACE_ANNOTATIONS = {"argocd.argoproj.io/sync-options": "Prune=false,Delete=false",
@@ -40,8 +42,12 @@ def manifests(state) -> tuple[list[dict], list[str]]:
             spec = dict(resource["shape"])
             if resource["kind"] == "Service":
                 metadata["annotations"] = spec.pop("annotations")
-            objects.append({"apiVersion": API[resource["kind"]], "kind": resource["kind"],
-                            "metadata": metadata, "spec": spec})
+            obj = {"apiVersion": API[resource["kind"]], "kind": resource["kind"], "metadata": metadata}
+            if resource["kind"] in TOP_LEVEL:
+                obj.update(spec)
+            else:
+                obj["spec"] = spec
+            objects.append(obj)
     namespaces = sorted({o["metadata"]["namespace"] for o in objects if "namespace" in o["metadata"]} - SYSTEM_NAMESPACES)
     declared = [{"apiVersion": "v1", "kind": "Namespace",
                  "metadata": {"name": name, "labels": {"app.kubernetes.io/managed-by": "bravo-iac"},

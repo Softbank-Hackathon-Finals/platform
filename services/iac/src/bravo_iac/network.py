@@ -23,7 +23,7 @@ def view(states) -> dict:
         state = check_state(raw)
         if state["environment"] in environments:
             raise IacError("IAC_ENVIRONMENT_DUPLICATE")
-        egress, ingress = [], []
+        egress, ingress, access = [], [], []
         for entry in state["modules"]:
             params = entry["params"]
             if entry["id"] == "tailnet-egress":
@@ -34,6 +34,11 @@ def view(states) -> dict:
                                 "tailnet": tailnet_of(group), "group": group["name"], "group_tag": group["tag"],
                                 "clients": group["clients"], "client_policy": group.get("client_policy", True)}
                                for r in group["routes"]]
+            elif entry["id"] == "operator-access":
+                tailnets.add(tailnet_of(params))
+                access += [{"proxy": params["proxy_hostname"], "proxy_tag": params["proxy_tag"],
+                            "tailnet": tailnet_of(params), "tailnet_group": b["tailnet_group"],
+                            "group": b["group"], "cluster_role": b["cluster_role"]} for b in params["bindings"]]
             elif entry["id"] == "tailnet-ingress":
                 for device in params["devices"]:
                     tailnets.add(tailnet_of(device))
@@ -44,6 +49,7 @@ def view(states) -> dict:
             "digest": digest(state),
             "egress": sorted(egress, key=lambda r: (r["service"], r["port"])),
             "ingress": sorted(ingress, key=lambda d: d["hostname"]),
+            "access": sorted(access, key=lambda a: (a["proxy"], a["group"])),
         }
     return {"kind": "iac-network.v1", "environments": dict(sorted(environments.items())),
             "tailnets": {key: fragment(states, key) for key in sorted(tailnets)}}
