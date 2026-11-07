@@ -112,11 +112,12 @@ def _real_t16_inventory(tmp_path: Path) -> dict:
     """Run the real T16 ``bravo-inventory scan`` on its own fixtures (no hand-made candidates).
 
     ``onprem-bare`` registers none of the capabilities T16 checks (s3_compatible, secret_store,
-    postgres_operator), and the app gets one SQS client so one item is graded ``none`` on onprem.
+    postgres_operator), and the app gets one SNS client so one item is graded ``none`` on onprem
+    (SQS has a T46 replacement since 11/8; SNS does not).
     """
     repo = tmp_path / "demo-chat"
     shutil.copytree(T16 / "tests/fixtures/demo-chat", repo)
-    (repo / "app/queue.py").write_text('import boto3\n\nqueue = boto3.client("sqs")\n', encoding="utf-8")
+    (repo / "app/queue.py").write_text('import boto3\n\nqueue = boto3.client("sns")\n', encoding="utf-8")
     bare = tmp_path / "onprem-bare.json"
     bare.write_text(json.dumps({"env_id": "onprem-bare", "env_kind": "onprem", "provides": {"k8s": "k3s"},
                                 "residual_dependencies": ["cloudflare (edge · tunnel)"]}), encoding="utf-8")
@@ -139,7 +140,7 @@ def test_real_t16_blocked_candidate_with_long_missing_capabilities_still_validat
 
     doc = recommend(inventory)  # validates against the strict schema
 
-    # The SQS 'none' item blocks every onprem target, so nothing is left to recommend.
+    # The SNS 'none' item blocks every onprem target, so nothing is left to recommend.
     assert doc["recommendation"] is None and doc["candidates"] == []
     ex, demo = sorted(doc["excluded"], key=lambda e: e["env_id"])
     assert demo["env_id"] == "onprem-demo" and demo["reason_codes"] == ["NO_REPLACEMENT"] and demo["missing_capability_keys"] == []

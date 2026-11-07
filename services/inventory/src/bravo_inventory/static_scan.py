@@ -17,7 +17,13 @@ from urllib.parse import unquote, urlsplit
 
 import yaml
 
-from .catalog import OTHER_CLOUD_PREFIXES, role_for_service
+from .catalog import (
+    ENDPOINT_ENV_PREFIX,
+    OTHER_CLOUD_PREFIXES,
+    SCOPE_FEATURES,
+    role_for_service,
+    service_for_endpoint_env,
+)
 
 REGION_RE = re.compile(r"\b(?:ap|us|eu|sa|ca|af|me|il|mx)-(?:[a-z]+)-\d\b")
 ENDPOINT_RE = re.compile(r"\b[a-z0-9.-]*amazonaws\.com\b")
@@ -49,8 +55,25 @@ COMPOSE_FILE_RE = re.compile(r"^(?:docker-)?compose(?:\.[\w-]+)?\.ya?ml$")
 # Local AWS emulators and the CLI containers that seed them: their env configures the emulator,
 # not the app (the app's own compose env stays in scope).
 EMULATOR_IMAGE_RE = re.compile(r"(?:^|/)(?:moto|motoserver|localstack|aws-cli)(?:[:@]|$)")
-# AWS_ENDPOINT_URL_<SERVICE> (botocore service-specific endpoint) → role of that service.
-SERVICE_ENDPOINT_ROLES = {"S3": "object_store", "SECRETS_MANAGER": "secrets", "KMS": "kms"}
+# Features outside the T46 compatible runtime (catalog.SCOPE_FEATURES), as they appear in
+# configuration (Terraform, CloudFormation/SAM, compose) and in Python.
+FIFO_NAME_RE = re.compile(r"[A-Za-z0-9_-]\.fifo\b")
+CONFIG_SCOPE_RES = (
+    (re.compile(r"[A-Za-z0-9_-]\.fifo\b|(?i:\bfifo_?queue\b)[\"']?\s*[:=]\s*[\"']?true"), "sqs_fifo"),
+    (re.compile(r"\bReportBatchItemFailures\b"), "batch_item_failures"),
+    (re.compile(r"\bFilterCriteria\b"), "event_filter"),
+    (re.compile(r"\bStartingPosition\b"), "non_sqs_source"),
+)
+# Inside a Terraform ``aws_lambda_event_source_mapping`` block only.
+TF_MAPPING_SCOPE_RES = (
+    (re.compile(r"^\s*filter_criteria\b"), "event_filter"),
+    (re.compile(
+        r"^\s*(?:starting_position|self_managed_event_source|amazon_managed_kafka_event_source_config|"
+        r"self_managed_kafka_event_source_config|document_db_event_source_config|queues|topics)\b"
+    ), "non_sqs_source"),
+)
+PY_FIFO_KWARGS = {"MessageGroupId", "MessageDeduplicationId"}
+PY_SCOPE_CONSTANTS = {"FifoQueue": "sqs_fifo", "batchItemFailures": "batch_item_failures", "ReportBatchItemFailures": "batch_item_failures"}
 
 MAX_FILE_BYTES = 512 * 1024
 
@@ -60,7 +83,7 @@ class Finding:
     """One static observation. ``kind`` is a closed set validated by the output schema."""
 
     id: str
-    kind: str  # sdk_call | sdk_import | other_cloud_import | env_ref | region_literal | endpoint_literal | arn_literal | iac_resource | config_env
+    kind: str  # sdk_call | sdk_import | other_cloud_import | env_ref | region_literal | endpoint_literal | arn_literal | iac_resource | config_env | unsupported_feature
     role: str
     service: str
     file: str
@@ -204,11 +227,18 @@ def _is_environ(value: ast.AST) -> bool:
     )
 
 
+def _endpoint_env_role(name: str) -> str:
+    """``AWS_ENDPOINT_URL_<SERVICE>`` follows the service it points at (``AWS_ENDPOINT_URL_SQS`` is
+    messaging, not an IAM credential). A service the catalog does not know is ``unknown``."""
+    service = service_for_endpoint_env(name)
+    return role_for_service(service) if service else "unknown"
+
+
 def _config_role(name: str) -> str:
     """Role of a configuration variable. ``AWS_SECRET_ACCESS_KEY`` is an IAM credential, not a
     Secrets Manager entry; ``AWS_ENDPOINT_URL_<SERVICE>`` follows the service it points at."""
-    if name.startswith("AWS_ENDPOINT_URL_"):
-        return SERVICE_ENDPOINT_ROLES.get(name.removeprefix("AWS_ENDPOINT_URL_"), "iam")
+    if name.startswith(ENDPOINT_ENV_PREFIX):
+        return _endpoint_env_role(name)
     if name.startswith("AWS_"):
         return "iam"
     if name.startswith("S3_"):
@@ -306,6 +336,8 @@ class _PyVisitor(ast.NodeVisitor):
                     if kw.arg == "region_name" and isinstance(kw.value, ast.Constant):
                         detail["region_literal"] = str(kw.value.value)
                 self._new("sdk_call", role_for_service(service) if service else "unknown", service or "unknown", node, **detail)
+        if any(kw.arg in PY_FIFO_KWARGS for kw in node.keywords):
+            self._feature("sqs_fifo", node)
         # Only environment receivers: ``os.environ.get`` / ``env.get`` / ``os.getenv`` / ``getenv``.
         # A bare ``.get`` (``app.get('/healthz')`` route, ``dict.get``) is not an env reference.
         if (isinstance(func, ast.Attribute) and func.attr == "get" and _is_environ(func.value)) or (
@@ -329,12 +361,21 @@ class _PyVisitor(ast.NodeVisitor):
                 self._new("arn_literal", "unknown", "aws", node, value=v[:120])
             elif REGION_RE.fullmatch(v):
                 self._new("region_literal", "unknown", "aws", node, value=v)
+            feature = PY_SCOPE_CONSTANTS.get(v.strip()) or ("sqs_fifo" if FIFO_NAME_RE.search(v) else None)
+            if feature:
+                self._feature(feature, node)
+
+    def _feature(self, feature: str, node: ast.AST) -> None:
+        role, service, _ = SCOPE_FEATURES[feature]
+        self._new("unsupported_feature", role, service, node, feature=feature)
 
     def _env_ref(self, node: ast.AST, key: ast.AST | None, how: str) -> None:
         if isinstance(key, ast.Constant) and isinstance(key.value, str):
             name = key.value
             role = "unknown"
-            if name.startswith("S3_"):
+            if name.startswith(ENDPOINT_ENV_PREFIX):
+                role = _endpoint_env_role(name)
+            elif name.startswith("S3_"):
                 role = "object_store"
             elif name.startswith("DB_SECRET") or name.startswith("SECRET"):
                 role = "secrets"
@@ -386,10 +427,22 @@ def scan_config(root: Path, start_index: int) -> list[Finding]:
         rel = _rel(root, path)
         text = path.read_text(encoding="utf-8", errors="replace")
         skip = _emulator_lines(text) if COMPOSE_FILE_RE.match(path.name) else set()
+        block, depth = "", 0  # enclosing Terraform resource type and its brace depth
         for lineno, line in enumerate(text.splitlines(), 1):
             if lineno in skip:
                 continue
             m = TF_RESOURCE_RE.match(line)
+            in_mapping = block == "aws_lambda_event_source_mapping" and depth > 0
+            if m:
+                block, depth = m.group(1), 0
+            depth += line.count("{") - line.count("}")
+            features = [f for rx, f in CONFIG_SCOPE_RES if rx.search(line)]
+            if in_mapping:
+                features += [f for rx, f in TF_MAPPING_SCOPE_RES if rx.search(line)]
+            for feature in dict.fromkeys(features):
+                counter[0] += 1
+                role, service, _ = SCOPE_FEATURES[feature]
+                out.append(Finding(f"dep-{counter[0]:04d}", "unsupported_feature", role, service, rel, lineno, _mask(line), {"feature": feature}))
             if m:
                 counter[0] += 1
                 rtype = m.group(1)

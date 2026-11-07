@@ -6,7 +6,7 @@ from collections import defaultdict
 
 from .catalog import target_entry
 from .deploy_trace import DeployGraph
-from .grading import Item, _env_names, grade_role
+from .grading import Item, _env_names, aws_service, grade_role
 from .static_scan import Finding
 
 ROLE_KINDS = {"object_store": "s3_bucket", "secrets": "secret", "kms": "kms_key", "iam": "iam_role", "db": "cnpg_cluster", "registry": "image"}
@@ -24,7 +24,7 @@ def _deploy_refs(resources) -> list[dict]:
 def reconcile(findings: list[Finding], graph: DeployGraph | None, env_kind: str) -> list[Item]:
     by_role: dict[str, list[Finding]] = defaultdict(list)
     for f in findings:
-        if f.kind in {"sdk_call", "env_ref", "config_env", "iac_resource"} and f.role != "unknown":
+        if f.kind in {"sdk_call", "env_ref", "config_env", "iac_resource", "unsupported_feature"} and f.role != "unknown":
             by_role[f.role].append(f)
     env_names = _env_names(findings)
     deploy_by_role: dict[str, list] = defaultdict(list)
@@ -47,8 +47,11 @@ def reconcile(findings: list[Finding], graph: DeployGraph | None, env_kind: str)
         unreferenced = [r for r in deploy if code and r.kind in SPLIT_KINDS and "referenced_by_env" not in r.attributes]
         deploy = [r for r in deploy if r not in unreferenced]
         found_in = "both" if code and deploy else "code" if code else "deploy"
-        grade, rationale, agent_needed = grade_role(role, code, env_names, env_kind)
-        entry = target_entry(env_kind, role) or {}
+        grade, rationale, agent_needed = grade_role(role, code, env_names, env_kind, findings)
+        entry = target_entry(env_kind, role, {s for f in code if (s := aws_service(f))}) or {}
+        if code and grade == "none" and entry.get("impl"):
+            # The role has a target, but this app uses something it does not cover (T46 범위 밖 기능).
+            entry = {"impl": "", "verify": f"대체 없음: {rationale}"}
         item = Item(
             id=f"item-{n:03d}", role=role, service=", ".join(sorted({f.service for f in code if f.kind == "sdk_call"})) or role,
             found_in=found_in, grade=grade, grade_by="rule", rationale=rationale, agent_needed=agent_needed,

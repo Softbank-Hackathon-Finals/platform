@@ -195,3 +195,65 @@ def test_aws_credential_env_is_iam_not_secrets_manager(repo):
     assert roles["AWS_SECRET_ACCESS_KEY"] == "iam"
     assert roles["AWS_ENDPOINT_URL_SECRETS_MANAGER"] == "secrets"
     assert roles["DB_SECRET_ID"] == "secrets"
+
+
+def test_service_endpoint_env_follows_its_service_not_iam(tmp_path):
+    # Request 11/8 (T46): AWS_ENDPOINT_URL_SQS was classified as IAM. Only S3 · Secrets Manager ·
+    # KMS had a mapping and every other AWS_ENDPOINT_URL_<SERVICE> fell back to IAM; Python env
+    # refs had no endpoint rule at all (even AWS_ENDPOINT_URL_S3 was IAM).
+    (tmp_path / "compose.yaml").write_text(
+        "services:\n  app:\n    environment:\n"
+        "      AWS_ENDPOINT_URL_SQS: http://elasticmq:9324\n      AWS_ENDPOINT_URL_SNS: http://sns:9911\n"
+        "      AWS_ENDPOINT_URL_LAMBDA: http://lambda:9001\n      AWS_ENDPOINT_URL_CLOUDWATCH_LOGS: http://logs:4566\n"
+        "      AWS_ENDPOINT_URL_TEXTRACT: http://textract:4566\n      AWS_ENDPOINT_URL: http://aws:4566\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "app.py").write_text(
+        "import os\nq = os.environ['AWS_ENDPOINT_URL_SQS']\ns = os.getenv('AWS_ENDPOINT_URL_S3')\n"
+        "k = os.environ.get('AWS_ENDPOINT_URL_SECRETS_MANAGER')\n",
+        encoding="utf-8",
+    )
+    findings = scan_repo(tmp_path, ".")
+    cfg = {f.detail["name"]: f.role for f in findings if f.kind == "config_env"}
+    assert cfg["AWS_ENDPOINT_URL_SQS"] == "messaging"
+    assert cfg["AWS_ENDPOINT_URL_SNS"] == "messaging"
+    assert cfg["AWS_ENDPOINT_URL_LAMBDA"] == "function"
+    assert cfg["AWS_ENDPOINT_URL_CLOUDWATCH_LOGS"] == "audit"
+    assert cfg["AWS_ENDPOINT_URL_TEXTRACT"] == "unknown"  # a service the catalog does not know is not guessed as IAM
+    assert cfg["AWS_ENDPOINT_URL"] == "iam"  # the global endpoint names no service: unchanged
+    py = {f.detail["name"]: f.role for f in findings if f.kind == "env_ref"}
+    assert py == {"AWS_ENDPOINT_URL_SQS": "messaging", "AWS_ENDPOINT_URL_S3": "object_store", "AWS_ENDPOINT_URL_SECRETS_MANAGER": "secrets"}
+
+
+def test_every_cataloged_service_has_its_endpoint_env_name():
+    # botocore names the variable after the service id, not the client name (checked against
+    # botocore 1.43: "Secrets Manager" → SECRETS_MANAGER, "CloudWatch Logs" → CLOUDWATCH_LOGS).
+    from bravo_inventory.catalog import ENDPOINT_ENV_SERVICE, SERVICE_ROLE
+
+    assert sorted(ENDPOINT_ENV_SERVICE.values()) == sorted(SERVICE_ROLE)
+
+
+def test_t46_out_of_scope_features_are_found(tmp_path):
+    (tmp_path / "queue.tf").write_text(
+        'resource "aws_sqs_queue" "orders" {\n  name       = "orders.fifo"\n  fifo_queue = true\n}\n'
+        'resource "aws_lambda_event_source_mapping" "m" {\n  event_source_arn = aws_kinesis_stream.s.arn\n'
+        '  starting_position = "LATEST"\n  function_response_types = ["ReportBatchItemFailures"]\n'
+        '  filter_criteria {\n    filter { pattern = "{}" }\n  }\n}\n'
+        'variable "topics" {\n  default = []\n}\n',
+        encoding="utf-8",
+    )
+    (tmp_path / "send.py").write_text(
+        "import boto3\nsqs = boto3.client('sqs')\nsqs.send_message(QueueUrl=URL, MessageBody='x', MessageGroupId='g')\n"
+        "def handler(event, context):\n    return {'batchItemFailures': []}\n",
+        encoding="utf-8",
+    )
+    found = {(f.file, f.line, f.detail["feature"], f.role) for f in scan_repo(tmp_path, ".") if f.kind == "unsupported_feature"}
+    assert found == {
+        ("queue.tf", 2, "sqs_fifo", "messaging"),
+        ("queue.tf", 3, "sqs_fifo", "messaging"),
+        ("queue.tf", 7, "non_sqs_source", "function"),
+        ("queue.tf", 8, "batch_item_failures", "function"),
+        ("queue.tf", 9, "event_filter", "function"),
+        ("send.py", 3, "sqs_fifo", "messaging"),
+        ("send.py", 5, "batch_item_failures", "function"),
+    }  # `topics` outside an event source mapping block is not a marker
