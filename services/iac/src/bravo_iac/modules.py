@@ -245,8 +245,9 @@ def _egress_grants(params: dict) -> list[dict]:
 
 
 def _egress_exposure(params: dict) -> dict:
+    # The tailnet is part of the destination: the same host name on another tailnet is another device.
     reach = sorted({f'{c["namespace"]}/{",".join(f"{k}={v}" for k, v in c["labels"].items())}'
-                    f' -> {r["destination"]}({r["destination_tag"]}):{r["port"]}'
+                    f' -> {r["destination"]}@{tailnet_of(g)}({r["destination_tag"]}):{r["port"]}'
                     for g in params["groups"] for c in g["clients"] for r in g["routes"]})
     return {"anonymous": [], "reach": reach, "checks": []}
 

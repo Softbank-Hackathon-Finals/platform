@@ -72,6 +72,33 @@ def test_an_agent_may_remove_a_route_but_never_add_one():
             "ip": ["tcp:443"]} in added["tailnet_grants"]
 
 
+@pytest.mark.parametrize("change", [
+    lambda groups: groups[1].pop("tailnet"),                      # apply routes onto the default tailnet
+    lambda groups: groups[3].update(tailnet="workload"),          # cutover routes onto the workload tailnet
+    lambda groups: groups[1].update(tailnet="other"),
+])
+def test_an_agent_cannot_move_a_group_to_another_tailnet(change):
+    # The same host name on another tailnet is another device: the route's destination changes.
+    moved = copy.deepcopy(PLATFORM)
+    change(moved["modules"][0]["params"]["groups"])
+    result = plan(PLATFORM, moved, origin="agent")
+    assert result["refusals"] == ["IAC_WIDENING_REFUSED"]
+    reach = next(e["reach"] for e in result["effects"] if "reach" in e)
+    assert reach["added"] and reach["removed"]
+    assert plan(PLATFORM, moved, origin="operator")["accepted"]
+
+
+def test_an_agent_cannot_give_a_group_another_tag():
+    # Same hosts on the cluster side, but the tailnet policy would have to grant the new tag.
+    retagged = copy.deepcopy(PLATFORM)
+    retagged["modules"][0]["params"]["groups"][1]["tag"] = "tag:bravo-apply-wide"
+    result = plan(PLATFORM, retagged, origin="agent")
+    assert result["refusals"] == ["IAC_WIDENING_REFUSED"]
+    [grants] = [e["tailnet_grants"] for e in result["effects"] if "tailnet_grants" in e]
+    assert any('"tag:bravo-apply-wide"' in g for g in grants["added"])
+    assert not any("reach" in e for e in result["effects"])
+
+
 def test_groups_on_another_tailnet_get_their_own_suffix_and_policy():
     rendered = resources()
     apply = rendered["Service/bravo-apply-control/target-api"]["shape"]["annotations"]

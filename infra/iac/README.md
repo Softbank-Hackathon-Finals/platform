@@ -38,7 +38,7 @@ Tailscale operator가 매긴 proxy 포트를 **관찰해서** NetworkPolicy에 �
   `tests`가 있어서 Tailscale이 이 불변식을 깨는 정책을 거부한다.
 - tailnet 접미사(`<tailnet>.ts.net`)는 Git에 없다. Service에는 `<호스트>.{tailnet}`으로 두고 적용기가 채운다.
 - **tailnet이 둘이다.** 플랫폼의 반영·리허설·Collector egress는 워크로드 tailnet의 `bravo-target-api`, 컷오버 egress는 사람·운영자 tailnet의 장치를 부른다(2026-11-07 13:00 KST 플랫폼 readback). 다른 tailnet에 붙는 그룹은 `tailnet` 키(예: `workload`)를 갖고, Service에는 `<호스트>.{tailnet:workload}`, 차트 값은 `tailnets.workload`, 정책 조각은 `infra/tailnet/routes-policy.workload.json`(`--tailnet workload`)로 따로 생성한다. 키가 없는 그룹은 지금처럼 `tailnet` 값과 `routes-policy.json`을 쓴다.
-- 에이전트는 경로를 더할 수 없고(도달 범위가 늘면 `IAC_WIDENING_REFUSED`) 뺄 수만 있다.
+- 에이전트는 경로를 더할 수 없고(도달 범위가 늘면 `IAC_WIDENING_REFUSED`) 뺄 수만 있다. 도달 대상에는 tailnet이 들어간다. 같은 호스트 이름이라도 다른 tailnet이면 다른 장치이므로, 그룹의 `tailnet`을 바꾸는 것도 확대다. 그룹 `tag`를 바꾸는 것처럼 새 tailnet grant가 생기는 변경도 확대다.
 
 **실검증은 Tailscale로**: `bravo-iac tailnet-verify infra/iac/environments/*.json`이 이 기기의 `tailscale status --json`으로
 각 목적지·proxy 그룹을 판정한다(OK / OFFLINE / TAG_MISMATCH / NOT_VISIBLE). NOT_VISIBLE은 이 기기의 grant로 보이지
