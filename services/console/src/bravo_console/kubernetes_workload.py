@@ -189,11 +189,17 @@ class KubectlReader:
         finally:
             if process is not None:
                 if process.poll() is None:
-                    os.killpg(process.pid, signal.SIGTERM)
+                    try:
+                        os.killpg(process.pid, signal.SIGTERM)
+                    except ProcessLookupError:
+                        pass
                     try:
                         process.wait(timeout=3)
                     except subprocess.TimeoutExpired:
-                        os.killpg(process.pid, signal.SIGKILL)
+                        try:
+                            os.killpg(process.pid, signal.SIGKILL)
+                        except ProcessLookupError:
+                            pass
                         process.wait(timeout=3)
                 process.stdout.close()
 

@@ -8,7 +8,7 @@ from bravo_console.kubernetes_workload import ClusterRegistration, CollectionErr
 from bravo_console.observed_workload import ObservedWorkloads
 
 NOW = datetime(2026, 11, 7, 12, tzinfo=UTC)
-CLUSTER = "00000000-0000-4000-8000-000000000001"
+CLUSTER = "00000000-0000-4000-8000-aaaaaaaaaaaa"
 
 
 def registration():
@@ -276,7 +276,7 @@ def test_cli_guard_refuses_effects_secrets_and_arbitrary_proxy_paths_before_subp
 @pytest.mark.parametrize(
     "field,value",
     [
-        ("cluster_uid", "00000000-0000-4000-8000-000000000002"),
+        ("cluster_uid", "00000000-0000-4000-8000-bbbbbbbbbbbb"),
         ("registration_digest", "f" * 64),
         ("producer_revision", "b" * 40),
         ("producer_module_sha256", "0" * 64),
@@ -316,3 +316,31 @@ def test_parallel_reads_reuse_the_same_issued_observation(case):
     first = source.load({}, plan)
     assert source.load({}, plan) is first
     assert source.authenticate({}, plan, first)
+
+
+@pytest.mark.parametrize("fault", ["output-limit", "timeout"])
+def test_kubectl_process_limits_are_enforced_and_only_the_owned_process_is_reaped(tmp_path, fault):
+    import os
+    import sys
+    import time
+
+    from bravo_console.kubernetes_workload import KubectlReader
+
+    script = tmp_path / "fixture_kubectl.py"
+    pid_file = tmp_path / "owned.pid"
+    script.write_text(
+        "import os,sys,time,json\nfrom pathlib import Path\n"
+        + "if 'config' in sys.argv: print(json.dumps({'clusters':[{'cluster':{'server':'https://fixture.invalid'}}]}))\n"
+        + "else:\n Path("
+        + repr(str(pid_file))
+        + ").write_text(str(os.getpid()))\n "
+        + ("sys.stdout.write('x'*2100000)\n" if fault == "output-limit" else "time.sleep(10)\n")
+    )
+    reader = KubectlReader([sys.executable, str(script)])
+    if fault == "timeout":
+        reader.deadline = time.monotonic() + 1
+    with pytest.raises(CollectionError):
+        reader.get("pods", namespace="target-dev")
+    pid = int(pid_file.read_text())
+    with pytest.raises(ProcessLookupError):
+        os.kill(pid, 0)
