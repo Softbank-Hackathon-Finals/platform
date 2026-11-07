@@ -39,7 +39,9 @@
 | 5절 데모 3 · AUD-01.1을 중앙 전달 전까지 CNPG primary 자체 로그(pods/log)에서 검색(T34·T14) | [0037 AUD-01.1 파드 로그 원천](0037-aud-login-pod-log-source.md) |
 | 6장 S5 · WATCH 재시험의 컷오버 뒤 목적지 T14 run을 플랫폼 신원이 클러스터 밖에서 수집(T10·T14) | [0041 컷오버 뒤 목적지 T14 수집](0041-post-cutover-target-controls.md) |
 | T21 · SOVA MCP 위치·신원·도구 경계·사람 전용 범위 | [0040 SOVA MCP 표면](0040-sova-mcp-surface.md) |
+| 8.4 T19 게이트 서명 키를 플랫폼이 AWS KMS Ed25519로 보관, workflow host가 워크로드 신원으로 서명(T19·T49) | [0038 플랫폼 게이트 서명 키](0038-platform-gate-signing-key.md) |
 | T21 · 앱 배포 엔진(RAILSHOT 이식)을 별도 파드로, CI는 일회성 러너 | [0048 SOVA Deploy](0048-sova-deploy-railshot-engine.md) |
+| T49 · S5 잔존 의존성 지도를 GitOps로 무인 생성(데모: 지도까지, 차단 시험 제외) | [0049 S5 지도 GitOps](0049-s5-residual-map-by-gitops.md) |
 | 7.3·8.11 의존성 3등급 규칙과 에이전트 보완 범위(T16·T32) | [0018 의존성 등급 규칙](0018-dependency-grading-rules.md) |
 | 7.4·8.3·8.4 플랫폼 감사 로그(실행별 체인 · Object Lock · 삭제 거부 증빙) | [0020 플랫폼 감사 로그](0020-platform-audit-ledger.md) |
 | 8.3·8.4 에이전트 도구 계층 경계(소스 경로 · 인벤토리 조회 · 정책 린트 · 파괴 시도 기록) | [0019 에이전트 도구 경계](0019-agent-tool-boundary.md) |
@@ -78,6 +80,7 @@ T29의 기록 정리를 위해 이 시험을 새로 실행하거나, 자료가 �
 | **T10 · 승인 뒤 같은 검증 ID를 보류한다.** 보류(`hold`)와 반영 접수의 커밋 순서를 바꾼다. | 보류가 먼저면 새 접수를 거부했다. 접수가 먼저면 같은 요청은 저장한 `application_id`를 돌려줬다. 같은 계획이 새 버전으로 리허설에 돌아오면 옛 PASS로는 승인할 수 없었다. 시험용 서명과 SQLite·PostgreSQL에서 확인했다. | [수신 계약](../contracts/T10-change-approval.md), [두 커밋 순서와 옛 PASS 회귀 시험](https://github.com/Softbank-Hackathon-Finals/platform/blob/6fce3d54a9c825aaf66140d69211d11d7d5f807e/services/platform-events/tests/test_change_intake.py#L93), [실행 범위와 운영 연결 조건](https://github.com/Softbank-Hackathon-Finals/platform/pull/237) |
 | **T10 · 접수 프로세스가 Job 생성 직전·직후에 죽는다.** 원래 키와 다른 키로 같은 작업을 다시 요청한다. | 등록 목적지 RKE2의 시험 Job은 각각 0개·1개였고 추가 제출은 없었다. 생성 직후에는 원 UID를 다시 찾았다. T15 인증 결과가 없어 두 경우 모두 게이트가 닫혔다. | [강제 종료 시점·측정값·재현 절차](../evidence/t10-registered-recovery-2026-11-05/README.md) |
 | **T12 · DB 로그인 복구 중 실행기가 교대한다.** 이전 실행기가 보낸 출발지 `LOGIN`을 보류했다가 인계 뒤 전달한다. | 수정 전에는 뒤늦은 `LOGIN`으로 양쪽 DB가 쓰기를 받았다. 수정 뒤에는 정방향·복귀 모두 `SAFE_HOLD`와 두 DB의 lease를 유지했다. 격리 k3s에서 지연 명령 전달 뒤 두 DB에 동시 INSERT를 시도했을 때 원래 명령의 출발지만 커밋했다. | [인계 시 쓰기 규칙](0011-cutover-executor-execution-and-failure.md), [수정 전후 실험](https://github.com/Softbank-Hackathon-Finals/platform/pull/225), [두 lease 유지 회귀 시험](https://github.com/Softbank-Hackathon-Finals/platform/blob/b077554304af65ec40496a01402aec1645f8fa8a/services/cutover-executor/tests/test_runner_fakes.py#L339) |
+| 8.3 S2 버킷 닫기를 에이전트 infra.plan에서 코드가 만들고 같은 승인으로 T31이 적용(T31·T10·T49) | [0044 S2 노출 닫기](0044-s2-exposure-close-from-agent-infra-plan.md) |
 | **T20 · 컷오버 후 목적지에 쓰고 복귀한다.** DB 복귀가 끝난 뒤 Edge 확인만 같은 키로 재시도한다. | 격리 k3s에서 목적지에 쓴 메시지 5개를 복귀 후 출발지 DB에서 모두 읽었다. DB 복귀 명령은 1회였다. 53회 관측에서 동시 쓰기와 판독 불가는 각각 0건이었다. Edge에는 시험 대역을 썼다. 실제 두 환경의 복귀는 T25에서 측정한다. | [시험한 소스](https://github.com/Softbank-Hackathon-Finals/platform/commit/33c3d0e01d7d1230d7e503cff07fd89e677a3f15), [인수 기록](https://github.com/Softbank-Hackathon-Finals/platform/issues/30#issuecomment-6639280068), [실환경 시험 T25](https://github.com/Softbank-Hackathon-Finals/platform/issues/35) |
 
 해당 태스크 담당자는 재현 조건, 관측한 결과, 환경과 한계를 함께 확인할 수 있을 때 사례를 추가한다. 실행한 커밋과 공개용 시험 기록을 연결한다. 새 결과가 이전 설명을 바꾸면 같은 행에 정정 사유와 새 근거를 남기고 기존 원문 링크를 보존한다. 증빙 공개는 [공개 증빙 절차](../public-evidence-policy.md)를 따른다. 판정 규칙 자체가 바뀌면 해당 계약·ADR에서 별도로 검토한다.

@@ -48,13 +48,20 @@ class Kube(Protocol):
     def restart_workload(self, namespace: str, deployment: str, annotations: dict[str, str]) -> None: ...
 
 
-def image_patch(repository: str, digest: str, container: str) -> dict:
-    """Strategic-merge patch that pins exactly ``repository@sha256:…``. Tags are never used."""
+def image_patch(repository: str, digest: str, container: str, pull_secret: str | None = None) -> dict:
+    """Strategic-merge patch that pins exactly ``repository@sha256:…``. Tags are never used.
+
+    ``pull_secret`` (T49): the candidate is pulled by digest with that registry Secret, also where the app
+    started from an image imported into the node (imagePullPolicy Never)."""
     if not DIGEST.fullmatch(digest):
         raise ValueError("image digest format")
     if "@" in repository or ":" in repository.rsplit("/", 1)[-1]:
         raise ValueError("repository must not carry a tag or digest")
-    return {"spec": {"template": {"spec": {"containers": [{"name": container, "image": f"{repository}@{digest}"}]}}}}
+    if pull_secret is None:
+        return {"spec": {"template": {"spec": {"containers": [{"name": container, "image": f"{repository}@{digest}"}]}}}}
+    return {"spec": {"template": {"spec": {
+        "containers": [{"name": container, "image": f"{repository}@{digest}", "imagePullPolicy": "IfNotPresent"}],
+        "imagePullSecrets": [{"name": pull_secret}]}}}}
 
 
 def brief(exc: BaseException) -> str:
@@ -68,11 +75,11 @@ def brief(exc: BaseException) -> str:
 
 
 def apply_pinned_image(kube: Kube, *, namespace: str, deployment: str, container: str, repository: str,
-                       digest: str, timeout_seconds: int = 300) -> dict:
+                       digest: str, timeout_seconds: int = 300, pull_secret: str | None = None) -> dict:
     """Read, patch, wait, then verify every running pod reports the approved digest.
 
     Raises ``DeployMismatch`` for every way this can go wrong, including adapter errors."""
-    patch = image_patch(repository, digest, container)
+    patch = image_patch(repository, digest, container, pull_secret)
     try:
         before = kube.current_image(namespace, deployment, container)
     except Exception as exc:  # noqa: BLE001 - any read failure means "nothing was changed"

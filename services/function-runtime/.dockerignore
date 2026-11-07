@@ -1,0 +1,5 @@
+.venv
+tests
+testing
+uv.lock
+**/__pycache__

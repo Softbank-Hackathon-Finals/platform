@@ -126,7 +126,9 @@ def test_platform_routes_are_the_live_route_services():
         "bravo-rehearsal-control/target-credentials": "workload",
     }
     # Declared before it exists: the T31 apply identity's route to the same shared issuer.
-    new = {"bravo-apply-control/target-credentials": "workload"}
+    new = {"bravo-apply-control/target-credentials": "workload",
+           # ADR-0044: the workflow host's T31 close check to the target object store (default tailnet).
+           "platform-state/target-objects": "default"}
     groups = check_state(PLATFORM)["modules"][0]["params"]["groups"]
     declared = {f'{r["namespace"]}/{r["service"]}': g.get("tailnet", "default") for g in groups for r in g["routes"]}
     assert declared == live | new

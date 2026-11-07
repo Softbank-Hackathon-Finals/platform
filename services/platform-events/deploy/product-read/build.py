@@ -29,6 +29,8 @@ PACKAGES = {
     "iac": "bravo_iac",
     # ADR-0041: the workflow host's post-cutover target T14 run (collectors only; botocore from the lock).
     "control-runner": "bravo_controls",
+    # T49 platform load Job (workflow host): the T18 generator, run as `python -m bravo_loadgen.cli`.
+    "loadgen": "bravo_loadgen",
 }
 
 # Include the lazy imports used by --initial-proposal, not just the entry point.
@@ -118,6 +120,10 @@ def prepare_context(context, revision, *, rehearsal_host=False):
     for service, package in PACKAGES.items():
         source = OBSERVABILITY_REVISION if service == "observability" else revision
         copy_committed_tree(source, f"services/{service}/src/{package}/", context / "src" / package)
+    # T36's wheel force-includes its contract schema (services/observability pyproject); copying the
+    # package sources skips it, and every contract.validate in the image then fails (T17 drill, 11/8).
+    (context / "src/bravo_observability/sli.schema.json").write_bytes(
+        git("show", f"{OBSERVABILITY_REVISION}:docs/observability/sli.schema.json"))
     if not (context / "src/bravo_platform_events/product_read_server.py").is_file():
         raise ValueError("product_reader_missing")
     if rehearsal_host:

@@ -106,6 +106,25 @@ def _module(repo_root: Path, ref: str, environment_id: str) -> tuple[dict, str, 
     return found[0]["params"], hashlib.sha256(shown.stdout).hexdigest(), doc
 
 
+def check_closing_plan(t44: ModuleType, plan: dict, environment_id: str) -> str:
+    """A self-consistent, accepted T44 plan for this environment that removes anonymous access to the
+    attachment bucket. Returns its ``plan_digest``. Which desired state it proposes is the caller's check
+    (``check_iac_plan`` for a Git revision; T10 binds the digest into the change approval, ADR-0044)."""
+    if type(plan) is not dict or plan.get("kind") != "iac-plan.v1" or plan.get("environment") != environment_id:
+        raise DesiredRefused("IAC_PLAN_INVALID")
+    body = {k: v for k, v in plan.items() if k != "plan_digest"}
+    if t44.digest(body) != plan.get("plan_digest"):
+        raise DesiredRefused("IAC_PLAN_DIGEST_MISMATCH")
+    if plan.get("accepted") is not True or plan.get("refusals"):
+        raise DesiredRefused("IAC_PLAN_NOT_ACCEPTED")
+    closing = [e for e in plan.get("effects") or [] if isinstance(e, dict) and e.get("module") == MODULE
+               and isinstance(e.get("anonymous_access"), dict)]
+    if len(closing) != 1 or closing[0]["anonymous_access"].get("after") != [] \
+            or not closing[0]["anonymous_access"].get("before"):
+        raise DesiredRefused("IAC_PLAN_DOES_NOT_CLOSE")
+    return plan["plan_digest"]
+
+
 def check_iac_plan(t44: ModuleType, plan: dict, state: dict, environment_id: str) -> str:
     """The T44 plan that staged ``state``: self-consistent, accepted, for this state, and closing."""
     if type(plan) is not dict or plan.get("kind") != "iac-plan.v1" or plan.get("environment") != environment_id:
@@ -121,11 +140,7 @@ def check_iac_plan(t44: ModuleType, plan: dict, state: dict, environment_id: str
         raise DesiredRefused("DESIRED_STATE_UNRECOGNIZED") from None
     if plan.get("proposed_digest") != state_digest:
         raise DesiredRefused("IAC_PLAN_NOT_THIS_REVISION")
-    closing = [e for e in plan.get("effects") or [] if isinstance(e, dict) and e.get("module") == MODULE
-               and isinstance(e.get("anonymous_access"), dict)]
-    if len(closing) != 1 or closing[0]["anonymous_access"].get("after") != [] \
-            or not closing[0]["anonymous_access"].get("before"):
-        raise DesiredRefused("IAC_PLAN_DOES_NOT_CLOSE")
+    check_closing_plan(t44, plan, environment_id)
     return state_digest
 
 
@@ -311,7 +326,12 @@ def _close(application_id: str, desired: dict, recheck_fields: dict, *, applied:
         _replace(receipts_dir, record)
         return record
 
-    t9, renderer_sha256 = load_t9()
+    # From here on the record exists: every outcome is recorded, never raised, so a caller that already
+    # changed something (ADR-0044: the image, in the same T31 application) never sees STARTED forever.
+    try:
+        t9, renderer_sha256 = load_t9()
+    except PolicyRefused as exc:
+        return finish("REFUSED", exc.code)
     try:
         current = _secret_bytes(kube.get_secret(target.namespace, target.secret), target.secret_key)
     except Exception:  # noqa: BLE001 - no detail: the Secret's content must not reach a record

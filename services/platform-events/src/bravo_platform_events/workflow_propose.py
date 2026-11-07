@@ -55,7 +55,8 @@ def record_apply_input(store, plan_id, value, result):
 
     edits = [edit.model_dump(mode="json") for edit in result.proposal.edits]
     diff = render_diff(dict(value.files), edits)
-    record = {"edits": edits, "diff_b64": base64.b64encode(diff).decode(), "diff_hash": diff_hash(diff)}
+    record = {"edits": edits, "diff_b64": base64.b64encode(diff).decode(), "diff_hash": diff_hash(diff),
+              "infra_plans": list(result.infra_plans)}  # ADR-0044: as the agent returned them, df's binding selects
     key = apply_input_key(record["diff_hash"])
     with store._transaction(write=True, plan_id=plan_id) as c:
         if c.execute("SELECT 1 FROM plan_commands WHERE plan_id=? AND command_key=?", (plan_id, key)).fetchone() is None:

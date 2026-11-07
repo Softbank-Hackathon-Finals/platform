@@ -57,10 +57,12 @@ class Step:
 
 
 class WorkflowHost:
-    def __init__(self, recovery: WorkflowRecovery, *, subject=HOST_SUBJECT):
-        if not isinstance(recovery, WorkflowRecovery):
+    def __init__(self, recovery: WorkflowRecovery, *, subject=HOST_SUBJECT, background=()):
+        if not isinstance(recovery, WorkflowRecovery) or not all(map(callable, background)):
             raise ValueError("workflow_recovery_required")
         self.recovery, self.subject = recovery, subject
+        # Side work the host does each sweep that is not a state transition (T49 platform load).
+        self.background = tuple(background)
         self.store = recovery.cutover.store
         self._last = {}
 
@@ -120,5 +122,10 @@ class WorkflowHost:
         # ponytail: periodic sweep; add a state.changed/producer wakeup when latency matters.
         while True:
             self.sweep()
+            for work in self.background:
+                try:
+                    work()
+                except Exception:  # noqa: BLE001  (side work never stops plan progress; it runs again next sweep)
+                    log.exception("workflow host background work failed")
             if stop.wait(interval):
                 return

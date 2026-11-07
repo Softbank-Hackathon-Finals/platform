@@ -172,6 +172,28 @@
                 "port_name": "https"
               }
             ]
+          },
+          {
+            "name": "bravo-apply-objects",
+            "tag": "tag:bravo-apply-objects",
+            "clients": [
+              {
+                "namespace": "platform-state",
+                "labels": {
+                  "app.kubernetes.io/name": "t10-workflow-host"
+                }
+              }
+            ],
+            "routes": [
+              {
+                "service": "target-objects",
+                "namespace": "platform-state",
+                "destination": "bravo-target-objects",
+                "destination_tag": "tag:bravo-target-objects",
+                "port": 8333,
+                "port_name": "s3"
+              }
+            ]
           }
         ]
       }

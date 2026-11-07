@@ -471,3 +471,34 @@
     }
   }
 }
+---
+{
+  "apiVersion": "v1",
+  "kind": "Service",
+  "metadata": {
+    "annotations": {
+      "tailscale.com/expose": "true",
+      "tailscale.com/hostname": "bravo-target-objects",
+      "tailscale.com/tags": "tag:bravo-target-objects"
+    },
+    "labels": {
+      "app.kubernetes.io/managed-by": "bravo-iac",
+      "bravo.dev/iac-module": "tailnet-ingress"
+    },
+    "name": "target-objects-tailnet",
+    "namespace": "target-dev"
+  },
+  "spec": {
+    "ports": [
+      {
+        "name": "s3",
+        "port": 8333,
+        "protocol": "TCP",
+        "targetPort": 8333
+      }
+    ],
+    "selector": {
+      "app.kubernetes.io/name": "target-seaweedfs"
+    }
+  }
+}
