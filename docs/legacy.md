@@ -47,6 +47,7 @@ GitOps로 옮겨도 아래 보안·데이터 정책과 워크플로는 그대로
 | 목적지 S2 후보 수동 반입(`docs/operations/target-image-handoff.md`, `scripts/happy_path.py`의 `s2-candidate-import`) | 목적지 노드가 ECR에서 직접 pull. 실환경에는 2026-11-07 11:55 KST에 적용했고 Git에는 없다(`feature/T31-target-registry-pull`). | T31·T28. 그 브랜치를 병합한 뒤 반입 절차를 지운다. |
 | T31 반영용 고정 토큰 kubeconfig Secret(8시간), 차트의 `secrets.applyKubeconfig` | `credentials.py` exec 자격(600초 자동 발급), 차트 `applyCredential`, 발급 프록시 `bravo-target-credentials` 공유 | T31·T7. 목적지 등록은 설치됨(2026-11-07). 이미지 발행·pin·runtime 전환과 실제 만료를 넘긴 반영·회수 뒤 거부를 확인한 뒤 지운다. |
 | 실환경 tailnet 정책에만 있는 발급 서비스 자동 승인(`svc:bravo-target-credentials`) | `infra/tailnet/routes-policy.workload.json` | T44. 저장소 정책 파일에 선언한 뒤 실환경과 대조한다. |
+| 콘솔에서 만든 operator 연합 신원(`t49`, `target-gke`, 2026-11-08) | `infra/envs/tailnet`의 `identities.json`과 그 CI(#662) | T48. 스택의 CI와 첫 실행용 신원이 생기면 두 신원을 import한다. import한 뒤 Git에 없는 신원은 남기지 않는다. 그 전까지 값은 비공개 파일에만 두고, 신원을 바꾸는 일은 콘솔에서만 한다. |
 | broker unit의 실환경 drop-in `node-role.conf` | 저장소 unit `operations/subscription/bravo-subscription.service`(#588) | T38. unit 적용을 확인한 뒤 지운다. |
 | T16 인벤토리 reader의 IAM 정책(사람이 역할을 하나씩 추가) | 없음(IaC에 정의 없음) | T16·T1. 대체가 없으니 지우지 않는다. 먼저 Terraform 선언이 필요하다. |
 | `infra/envs/rehearsal-access/rehearsal-host-network.yaml`(수동 YAML, `bootstrap.py`가 읽음) | IaC 모듈 하나 | T15·T44. 실환경의 매핑 포트와 다르다. 적용된 정책을 모두 조사한 뒤 바꾼다. |
