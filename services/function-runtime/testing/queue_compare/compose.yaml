@@ -1,0 +1,18 @@
+# T46 큐 서버 후보 비교(ADR-0042 4절). 로컬 전용이며 값은 모두 시험용이다.
+# 후보마다 같은 시험(compare.py)을 돌린다. SmoothMQ는 공식 이미지 없음 · AGPL-3.0 · 2025-02 이후 갱신 없음으로 제외. 이미지는 2026-11-07 비교에 쓴 digest로 고정한다.
+name: t46-queue-compare
+
+services:
+  elasticmq:
+    image: softwaremill/elasticmq-native@sha256:e4580ab9ad1bd5cd37b4ba04911bc5ccc8cd2d9ab4de56ece65acee71c24e05c  # 1.7.1
+    ports: ["19324:9324"]
+    volumes:
+      - ./elasticmq.conf:/opt/elasticmq.conf:ro
+      - elasticmq-data:/data
+
+  goaws:
+    image: admiralpiett/goaws@sha256:18589afe16517751cc981354536c148854157a718bee9059494d6cdee3dc4e2d
+    ports: ["14100:4100"]
+
+volumes:
+  elasticmq-data:
