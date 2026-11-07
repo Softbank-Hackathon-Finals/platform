@@ -39,6 +39,8 @@ export BRAVO_GCP_NODE=<private>/node.json
 terraform destroy -var-file=<private>/vars.json   # 접기. 이 상태의 자원만 지운다
 ```
 
+**공개 발급자(ADR-0035):** `public_issuer`를 주면 cloud-init이 RKE2에 그 주소를 첫 번째 `service-account-issuer`로, 클러스터 내부 발급자를 두 번째로 넣는다. 새 ServiceAccount 토큰은 공개 발급자를 담고, 기존 토큰도 그대로 통과한다. 노드의 `kubectl get --raw /openid/v1/jwks`를 `infra/envs/oidc-issuer/issuers/<env>/jwks.json`에 올려 게시한다. 노드를 다시 만들면 서명 키가 바뀌므로 JWKS도 다시 게시한다.
+
 ADC(`application_default_credentials.json`)의 quota 프로젝트가 다른 프로젝트를 가리키면 GCS backend가 404를 낸다. 그래서 위처럼 gcloud 계정의 단기 토큰을 쓴다. 이미지는 노드 아키텍처(amd64)에 맞춰 빌드한다. `import-image`도 같다.
 
 ## 실측 (2026-11-07, 팀 GCP 샌드박스 프로젝트, asia-northeast3-a, e2-standard-8)
@@ -53,6 +55,7 @@ ADC(`application_default_credentials.json`)의 quota 프로젝트가 다른 프�
 | 노드 토큰 IAM(정책 없이 Pod에서) | storage·compute·IAM·GKE·Secret Manager 목록 403, 저장소 push 403, 자기 저장소 읽기 200 |
 | metadata 차단(첫 부팅부터) | Pod → metadata 이름·IP 모두 시간 초과. 클러스터·외부 DNS, 인터넷 출구, 저장소 pull은 정상. namespace deny-all은 그대로 막고, allow-all로도 metadata는 열리지 않음 |
 | user-data 변경 | 노드 교체 apply 103초, Ready까지 235초, verify-node 12/12 |
+| 공개 발급자 | API 서버 인자에 두 발급자(공개 먼저)와 공개 jwks-uri, discovery의 issuer가 공개 주소, 새 토큰 `iss`가 공개 주소, JWKS는 RSA 공개키 1개 |
 
 같은 demo-chat 커밋을 다시 빌드하면 digest가 달라졌다. 후보 이미지는 한 번 빌드한 digest를 끝까지 쓴다.
 

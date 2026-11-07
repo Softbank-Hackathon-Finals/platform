@@ -49,6 +49,17 @@ install -m 600 /dev/stdin /etc/rancher/rke2/config.yaml.d/90-bravo-gcp-credentia
 image-credential-provider-bin-dir: /var/lib/rancher/credentialprovider/bin
 image-credential-provider-config: /var/lib/rancher/credentialprovider/config.yaml
 DROPIN
+%{ if public_issuer != "-" ~}
+
+# Public issuer first: new ServiceAccount tokens carry it, and Tailscale fetches its keys from the public
+# copy (ADR-0035). The cluster-internal issuer stays accepted so existing tokens keep working.
+install -m 600 /dev/stdin /etc/rancher/rke2/config.yaml.d/80-bravo-sa-issuer.yaml <<'ISSUER'
+kube-apiserver-arg:
+  - service-account-issuer=${public_issuer}
+  - service-account-issuer=https://kubernetes.default.svc.cluster.local
+  - service-account-jwks-uri=${public_issuer}/openid/v1/jwks
+ISSUER
+%{ endif ~}
 
 cat >/run/bravo-rke2-bootstrap.sh <<'BOOTSTRAP'
 ${rke2_bootstrap}

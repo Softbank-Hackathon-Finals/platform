@@ -56,3 +56,22 @@ run "a10_names_are_refused" {
   }
   expect_failures = [var.name]
 }
+
+run "public_issuer_signs_new_tokens_and_keeps_the_internal_one" {
+  command = plan
+  variables {
+    public_issuer = "https://bravo-oidc-issuer.s3.ap-northeast-2.amazonaws.com/target-gce"
+  }
+  assert {
+    condition     = strcontains(google_compute_instance.node.metadata["user-data"], "  - service-account-issuer=https://bravo-oidc-issuer.s3.ap-northeast-2.amazonaws.com/target-gce\n  - service-account-issuer=https://kubernetes.default.svc.cluster.local\n  - service-account-jwks-uri=https://bravo-oidc-issuer.s3.ap-northeast-2.amazonaws.com/target-gce/openid/v1/jwks")
+    error_message = "The public issuer must come first and the internal issuer must stay accepted."
+  }
+}
+
+run "no_public_issuer_by_default" {
+  command = plan
+  assert {
+    condition     = !strcontains(google_compute_instance.node.metadata["user-data"], "service-account-issuer")
+    error_message = "Without public_issuer the node keeps RKE2's own issuer configuration."
+  }
+}
