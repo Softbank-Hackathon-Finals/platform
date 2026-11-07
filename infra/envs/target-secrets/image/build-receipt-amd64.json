@@ -1,0 +1,32 @@
+{
+ "source_commit": "9e0a0d3c3504a0a00b45e61355afac5e35c78379",
+ "patch_sha256": "15216d126ddc44cc9b585d37e4c33a01913cf68e4d3682a08f18755a0dbd42c5",
+ "x_net_patch_sha256": "df93874221d772ae88efb4fffcba9e52b94303600c5970f7908ab06389c2da86",
+ "x_net_reason": "CVE-2026-78661 (golang.org/x/net/html DoS, fixed 0.62.0) failed the HIGH/CRITICAL --ignore-unfixed gate on 2026-11-07",
+ "toolchain": "go1.27.3",
+ "build_flags": [
+  "-p",
+  "3",
+  "-trimpath",
+  "-buildvcs=false",
+  "-tags",
+  "openbao",
+  "-ldflags",
+  "-s -w -X github.com/openbao/openbao/v2/internal/version.fullVersion=2.7.2 -X github.com/openbao/openbao/v2/internal/version.GitCommit=9e0a0d3c3504a0a00b45e61355afac5e35c78379+bravo-go-jose-4.1.6-x-net-0.62.0 -X github.com/openbao/openbao/v2/internal/version.CommitDate=2026-10-26T20:32:27+01:00 -X github.com/openbao/openbao/v2/internal/version.VersionMetadata=bravo.4"
+ ],
+ "binary_sha256": "b62c5a744e0574483b0da2e64562aa5df5bfad9c8e5392005354b9eaf7cd3e83",
+ "base_image": "quay.io/openbao/openbao:2.7.2@sha256:a78eb12a9fc7a3ebb4bec1724e2bdd6a28e33394820641d061166919a3f1866b",
+ "image_digest": "sha256:eaf0d6c56196afd9348a9002f0ff7b48473ba2c34849be054fe5b263a4f8cb79",
+ "version_probe": "OpenBao v2.7.2+bravo.4 (9e0a0d3c3504a0a00b45e61355afac5e35c78379+bravo-go-jose-4.1.6-x-net-0.62.0), committed 2026-10-26T20:32:27+01:00",
+ "vulnerability_secret_scan_exit": 0,
+ "scan_coverage": [
+  "os-pkgs alpine 3.24.3",
+  "gobinary usr/bin/bao"
+ ],
+ "at": "2026-11-07T11:57:16.647682+00:00",
+ "image_packaging_revision": "bravo.4-nonroot",
+ "image_user": "100:1000",
+ "dockerfile_sha256": "64f6ad585379c1519cfd15bc560a0af1f43c508fbf28e81219f58f077ba02b6e",
+ "arch": "linux/amd64",
+ "image_tag": "localhost/bravo-openbao:2.7.2-bravo.4-nonroot-amd64"
+}
