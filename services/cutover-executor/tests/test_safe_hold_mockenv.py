@@ -20,7 +20,7 @@ from bravo_cutover.remote.kube import Kube, WriteBlock
 from bravo_cutover.remote.pgbouncer import PgBouncerAdmin
 from bravo_cutover.runner import Cutover
 from bravo_cutover.store import Store
-from tests.mockenv_support import WriterWatch, mock_config, needs_mockenv, reset
+from tests.mockenv_support import DST_ENV, SRC_ENV, WriterWatch, mock_config, needs_mockenv, reset
 from tests.test_abort_mockenv import assert_source_is_writer_again
 from tests.test_cutover_mockenv import start
 
@@ -38,7 +38,7 @@ def crash(_run):
 @pytest.fixture
 def sides():
     config = mock_config()
-    src, dst = config.sites["env-aws"], config.sites["env-onprem"]
+    src, dst = config.sites[SRC_ENV], config.sites[DST_ENV]
     reset(src, dst)
     yield src, dst
     reset(src, dst)
@@ -242,7 +242,7 @@ def test_configmap_conflict_holds_and_pod_regeneration_stays_single_writer(store
 
     execution_id = start(store)
     with WriterWatch(src, dst) as watch:
-        Cutover(store, mock_config(), hooks={"persist:read:env-onprem": concurrent_edit}).run(execution_id)
+        Cutover(store, mock_config(), hooks={f"persist:read:{DST_ENV}": concurrent_edit}).run(execution_id)
         execution = store.get(execution_id)
         assert execution.status == Status.SAFE_HOLD and execution.result["failed_step"] == "persist", execution.result
         subprocess.run([*ctx, "rollout", "restart", "deploy/pgbouncer"], check=True, capture_output=True)

@@ -19,20 +19,28 @@ from bravo_cutover.remote.kube import Kube, WriteBlock
 from bravo_cutover.remote.pgbouncer import PgBouncerAdmin
 from bravo_cutover.runner import Cutover
 from bravo_cutover.sites import registry_from_sites
-from tests.mockenv_support import WriterWatch, mock_config, needs_mockenv, post_message, reset
+from tests.mockenv_support import (
+    DST_ENV,
+    REFS,
+    SRC_ENV,
+    WriterWatch,
+    mock_config,
+    needs_mockenv,
+    post_message,
+    reset,
+)
 from tests.test_abort_mockenv import assert_source_is_writer_again
 from tests.test_safe_hold_mockenv import Crash, crash, unreachable
 
 pytestmark = needs_mockenv
 
-REFS = {"env-aws": "mock/src", "env-onprem": "mock/dst"}
 ONPREM_APP, AWS_APP = "http://localhost:30580", "http://localhost:30480"
 
 
 @pytest.fixture
 def sides():
     config = mock_config()
-    aws, onprem = config.sites["env-aws"], config.sites["env-onprem"]
+    aws, onprem = config.sites[SRC_ENV], config.sites[DST_ENV]
     reset(aws, onprem)
     yield aws, onprem
     reset(aws, onprem)
@@ -52,14 +60,14 @@ def start(store, source: str, target: str, epoch: int) -> uuid.UUID:
 def cut_over(store) -> int:
     """컷오버를 끝내고 그 epoch를 돌려준다. 되돌리기는 이보다 큰 epoch를 쓴다."""
     epoch = int(time.time() * 1000)
-    execution_id = start(store, "env-aws", "env-onprem", epoch)
+    execution_id = start(store, SRC_ENV, DST_ENV, epoch)
     Cutover(store, mock_config()).run(execution_id)
     assert store.get(execution_id).status == Status.DONE, store.get(execution_id).result
     return epoch
 
 
 def start_failback(store, epoch: int) -> uuid.UUID:
-    return start(store, "env-onprem", "env-aws", epoch + 1)
+    return start(store, DST_ENV, SRC_ENV, epoch + 1)
 
 
 def admin_psql(site, sql: str) -> list[str]:
@@ -126,7 +134,7 @@ def test_failback_brings_target_writes_back_to_origin(store, sides):
     assert execution.status == Status.DONE, execution.result
 
     receipt = execution.result["receipt"]
-    assert (receipt["direction"], receipt["source"], receipt["target"]) == ("failback", "env-onprem", "env-aws")
+    assert (receipt["direction"], receipt["source"], receipt["target"]) == ("failback", DST_ENV, SRC_ENV)
     assert receipt["verdict"] == "MATCH"
     assert execution.result["path_probe"]["arrived"] is True
     # 온프렘에 쓴 메시지가 모두 AWS에 있다

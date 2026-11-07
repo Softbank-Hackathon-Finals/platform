@@ -16,6 +16,7 @@ from bravo_cutover.remote.db import DbControl, WriteRefusal, app_write, try_app_
 from bravo_cutover.remote.kube import Kube, WriteBlock
 from bravo_cutover.remote.pgbouncer import PauseTimeout, PgBouncerAdmin, PgBouncerConfig
 from bravo_cutover.sites import load_config
+from tests.mockenv_support import DST_ENV, SRC_ENV
 
 SITES_FILE = Path(__file__).resolve().parents[1] / "testing" / ".state" / "sites.json"
 pytestmark = pytest.mark.skipif(not SITES_FILE.exists(), reason="모의 환경 없음 (testing/mockenv.py up)")
@@ -24,7 +25,7 @@ pytestmark = pytest.mark.skipif(not SITES_FILE.exists(), reason="모의 환경 �
 @pytest.fixture(scope="module")
 def sites():
     s = load_config(SITES_FILE).sites
-    return s["env-aws"], s["env-onprem"]
+    return s[SRC_ENV], s[DST_ENV]
 
 
 @pytest.fixture(scope="module")

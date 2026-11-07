@@ -9,11 +9,23 @@ from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+# Kubernetes 객체 이름(DNS-1123 label). CNPG Cluster · 네임스페이스 · 풀러 Deployment 이름에 쓴다.
+K8S_NAME = r"^[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?$"
+
 
 class Site(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     environment_id: str
+    # 환경 종류(aws · gcp · onprem 등, docs/contracts/environment-kinds.json). 기록용이다(ADR-0034).
+    # Executor는 판정 · 실행에 쓰지 않는다: 공통 기반(K8s · CNPG · PgBouncer)만 다루므로 종류를 몰라도 된다.
+    # 새 종류가 계약에 추가돼도 Executor를 바꾸지 않도록 값 목록을 고정하지 않는다.
+    kind: str | None = Field(None, pattern=r"^[a-z][a-z0-9-]{0,31}$")
+    # 실제 DB 준비 패치(prepare.py)가 확인하는 CNPG Cluster 이름 · 그 네임스페이스 · 풀러 Deployment 이름.
+    # 비우면 기존 배포 규칙 {side}-db · {side}-dev · {side}-pgbouncer를 쓴다(side는 source | target).
+    db_cluster: str | None = Field(None, pattern=K8S_NAME)
+    db_namespace: str | None = Field(None, pattern=K8S_NAME)
+    pgbouncer_deployment: str | None = Field(None, pattern=K8S_NAME)
     # 실제 DB 자원 ID와 허용 접속 참조(resources.Registry). lease · epoch는 resource_id마다 걸린다.
     resource_id: str
     connection_ref: str

@@ -2,6 +2,7 @@
 """T12 모의 환경: k3d 클러스터 하나에 출발지(src) · 목적지(dst)를 네임스페이스로 띄운다 (spec D9).
 
     python3 testing/mockenv.py up      # 생성 (이미 있으면 클러스터는 그대로 두고 다시 적용하지 않는다)
+    python3 testing/mockenv.py up --source gcp-a:gcp --target aws-b:aws   # 환경 이름 · 종류 지정(ADR-0034)
     python3 testing/mockenv.py check   # 복제 · 쓰기 경로 · 관리 콘솔 확인. 실패하면 종료 코드 1
     python3 testing/mockenv.py env     # 접속 정보(JSON). 비밀번호 포함, 화면 공유 주의
     python3 testing/mockenv.py sites   # Executor 설정 testing/.state/sites.json 다시 쓰기
@@ -11,9 +12,16 @@
 aws 네임스페이스: moto(Secrets Manager · S3). 복제는 T8 전까지 직접 만든 구독으로 흉내 낸다:
 dst의 bravo_fwd(src → dst, 켜짐), src의 bravo_rev(dst → src, 꺼짐 · copy_data=false).
 비밀번호는 실행마다 새로 만들고 testing/.state/env.json(git 제외)에만 둔다.
+
+환경 이름(environment_id)과 종류(kind)는 --source/--target ID:KIND로 정한다(기본 env-aws:aws → env-onprem:onprem).
+종류는 앱의 APP_ENV와 Executor 설정의 기록용 kind에만 쓴다. 네임스페이스(src · dst) · 포트 · 접속 참조
+(mock/src · mock/dst)는 조합과 상관없이 같다. Executor는 종류를 모르므로 어느 조합이든 같은 클러스터 구성이다.
 """
 
+import argparse
 import json
+import os
+import re
 import secrets
 import subprocess
 import sys
@@ -33,13 +41,21 @@ CONTEXT = f"k3d-{CLUSTER}"
 K3S_IMAGE = "rancher/k3s:v1.35.5-k3s1"
 POSTGRES_IMAGE = "postgres@sha256:5db6dac2ef5dcff512f4f00a009c3c332b9f2f28f24277175bf3e4a3d02ef83a"  # 16
 PGBOUNCER_IMAGE = "edoburu/pgbouncer@sha256:8638aa563607256d3c7440437534195f1066a92b68015d89ae9d6b935b444a6d"  # 1.26.1
-DEMO_CHAT_DIR = HERE.parents[3] / "demo-chat"
+# demo-chat 클론 위치. 기본은 platform 옆(../demo-chat). 작업 트리 등 다른 위치에서는 DEMO_CHAT_DIR로 지정한다.
+DEMO_CHAT_DIR = Path(os.environ.get("DEMO_CHAT_DIR") or HERE.parents[3] / "demo-chat")
 DEMO_CHAT_REF = "origin/main"
 
 SITES = {
-    "src": {"app_env": "aws", "environment_id": "env-aws", "pg": 30432, "pgb": 30433, "app": 30480},
-    "dst": {"app_env": "onprem", "environment_id": "env-onprem", "pg": 30532, "pgb": 30533, "app": 30580},
+    "src": {"pg": 30432, "pgb": 30433, "app": 30480},
+    "dst": {"pg": 30532, "pgb": 30533, "app": 30580},
 }
+# 네임스페이스마다 환경 이름과 종류. src가 원래 출발지(origin)다.
+DEFAULT_PAIR = {
+    "src": {"environment_id": "env-aws", "kind": "aws"},
+    "dst": {"environment_id": "env-onprem", "kind": "onprem"},
+}
+ENV_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$")  # bravo_cutover.contract.IDENTIFIER_PATTERN
+KIND = re.compile(r"^[a-z][a-z0-9-]{0,31}$")  # bravo_cutover.sites.Site.kind
 UPSTREAM = "postgres.src.svc.cluster.local"  # 두 PgBouncer 모두 처음엔 출발지 DB
 
 
@@ -62,6 +78,26 @@ def psql(ns: str, sql: str, *, variables: dict[str, str] | None = None, conninfo
 
 def load_state() -> dict:
     return json.loads(STATE.read_text())
+
+
+def parse_endpoint(value: str) -> dict[str, str]:
+    """ID:KIND → {"environment_id", "kind"}. 환경 ID에 ':'가 들어갈 수 있으므로 마지막 ':'로 나눈다."""
+    environment_id, sep, kind = value.rpartition(":")
+    if not sep or not ENV_ID.fullmatch(environment_id) or not KIND.fullmatch(kind):
+        raise argparse.ArgumentTypeError(f"expected ENV_ID:KIND (for example gcp-a:gcp), got {value!r}")
+    return {"environment_id": environment_id, "kind": kind}
+
+
+def make_pair(source: dict[str, str] | None = None, target: dict[str, str] | None = None) -> dict:
+    pair = {"src": source or DEFAULT_PAIR["src"], "dst": target or DEFAULT_PAIR["dst"]}
+    if pair["src"]["environment_id"] == pair["dst"]["environment_id"]:
+        raise ValueError("source and target need different environment ids")
+    return pair
+
+
+def state_pair() -> dict:
+    """이전 상태 파일(이름 · 종류 없음)은 기본 조합으로 읽는다."""
+    return load_state().get("pair", DEFAULT_PAIR)
 
 
 def build_app_image() -> str:
@@ -100,7 +136,8 @@ def credentials_secret(ns: str, creds: dict[str, str]) -> str:
     })
 
 
-def up() -> None:
+def up(pair: dict | None = None) -> None:
+    pair = pair or make_pair()
     for cmd in ("docker", "k3d", "kubectl", "git"):
         if run("which", cmd, check=False).returncode:
             sys.exit(f"{cmd} 이 없다.")
@@ -124,7 +161,7 @@ def up() -> None:
     template = Template((HERE / "manifests" / "site.yaml").read_text())
     for ns, site in SITES.items():
         manifest = template.substitute(
-            NS=ns, APP_ENV=site["app_env"], PG_NODEPORT=site["pg"], PGB_NODEPORT=site["pgb"],
+            NS=ns, APP_ENV=pair[ns]["kind"], PG_NODEPORT=site["pg"], PGB_NODEPORT=site["pgb"],
             APP_NODEPORT=site["app"], UPSTREAM_HOST=UPSTREAM, POSTGRES_IMAGE=POSTGRES_IMAGE,
             PGBOUNCER_IMAGE=PGBOUNCER_IMAGE, APP_IMAGE=image,
         )
@@ -168,6 +205,7 @@ def up() -> None:
     STATE.write_text(json.dumps({
         "context": CONTEXT,
         "demo_chat_image": image,
+        "pair": pair,
         "credentials": creds,
         "sites": {
             ns: {
@@ -181,19 +219,26 @@ def up() -> None:
     }, indent=2))
     STATE.chmod(0o600)
     write_sites()
-    print(f"준비됨: {CONTEXT}, demo-chat {image}. 확인: python3 testing/mockenv.py check")
+    names = " -> ".join(f"{pair[ns]['environment_id']}({pair[ns]['kind']})" for ns in SITES)
+    print(f"준비됨: {CONTEXT}, {names}, demo-chat {image}. 확인: python3 testing/mockenv.py check")
 
 
 def write_sites() -> None:
-    """Executor가 읽는 환경 설정. 키는 environment_id다. 호스트에서 NodePort로 붙는다."""
-    creds = load_state()["credentials"]
+    STATE.parent.mkdir(exist_ok=True)
+    SITES_FILE.write_text(json.dumps(executor_config(load_state()["credentials"], state_pair()), indent=2))
+    SITES_FILE.chmod(0o600)
+
+
+def executor_config(creds: dict[str, str], pair: dict) -> dict:
+    """Executor가 읽는 환경 설정(bravo_cutover.sites.Config). 키는 environment_id다. 호스트에서 NodePort로 붙는다."""
 
     def dsn(port: int, dbname: str, user: str, key: str) -> str:
         return f"host=localhost port={port} dbname={dbname} user={user} password={creds[key]}"
 
     sites = {
-        s["environment_id"]: {
-            "environment_id": s["environment_id"],
+        pair[ns]["environment_id"]: {
+            "environment_id": pair[ns]["environment_id"],
+            "kind": pair[ns]["kind"],  # 기록용. Executor 판정에는 쓰지 않는다
             # 실제 DB 자원 ID와 허용 접속 참조(lease · epoch는 자원마다). 시험 요청의 connection_ref와 같다.
             "resource_id": f"mock-{ns}/chat",
             "connection_ref": f"mock/{ns}",
@@ -209,9 +254,7 @@ def write_sites() -> None:
         for ns, s in SITES.items()
     }
     # 원래 출발지(이전 전 주본). 되돌리기 영수증의 방향을 정한다(T20).
-    config = {"settings": {}, "origin": SITES["src"]["environment_id"], "sites": sites}
-    SITES_FILE.write_text(json.dumps(config, indent=2))
-    SITES_FILE.chmod(0o600)
+    return {"settings": {}, "origin": pair["src"]["environment_id"], "sites": sites}
 
 
 def post_message(url: str, key: uuid.UUID, body: str, author: str = "mockenv", retry_s: float = 20) -> int:
@@ -300,11 +343,19 @@ def down() -> None:
 
 
 if __name__ == "__main__":
-    commands = {"up": up, "check": check, "down": down, "sites": write_sites,
+    commands = {"up": None, "check": check, "down": down, "sites": write_sites,
                 "env": lambda: print(STATE.read_text())}
-    if len(sys.argv) != 2 or sys.argv[1] not in commands:
-        sys.exit(f"사용법: {sys.argv[0]} [{'|'.join(commands)}]")
+    parser = argparse.ArgumentParser(description="T12 모의 환경")
+    parser.add_argument("command", choices=list(commands))
+    parser.add_argument("--source", type=parse_endpoint, help="출발지 ID:KIND (up 전용, 기본 env-aws:aws)")
+    parser.add_argument("--target", type=parse_endpoint, help="목적지 ID:KIND (up 전용, 기본 env-onprem:onprem)")
+    args = parser.parse_args()
+    if args.command != "up" and (args.source or args.target):
+        parser.error("--source/--target은 up에서만 쓴다(이름은 상태 파일에 남는다)")
     try:
-        commands[sys.argv[1]]()
+        if args.command == "up":
+            up(make_pair(args.source, args.target))
+        else:
+            commands[args.command]()
     except subprocess.CalledProcessError as e:
         sys.exit(f"실패: {' '.join(e.cmd[:6])} …\n{e.stderr}")

@@ -2,20 +2,48 @@
 
 Render/review before applying. A JSON Patch resourceVersion test rejects stale
 observations. This does not execute SQL, enable an app role, or claim readiness.
+
+Object names come from the environment's Site (db_cluster, db_namespace,
+pgbouncer_deployment). Unset fields keep the original deployment rule
+{side}-db, {side}-dev and {side}-pgbouncer, so existing callers are unchanged.
 """
+
+from dataclasses import dataclass
+
+from bravo_cutover.sites import Site
 
 OWNER_KEY = "bravo.dev/app-login-owner"
 OWNER = "cutover-executor"
 CONTROL_SECRET = "cutover-db-control"
 TRUST_SECRET = "cutover-backend-ca"
+SIDES = ("source", "target")
 
 
-def cluster_patch(cluster: dict, *, side: str) -> list[dict]:
-    if side not in {"source", "target"}:
+@dataclass(frozen=True)
+class ObjectNames:
+    cluster: str
+    namespace: str
+    pooler: str
+
+
+def object_names(side: str, site: Site | None = None) -> ObjectNames:
+    """The CNPG Cluster, its namespace and the pooler Deployment this side expects.
+    The environment kind is not consulted: names are configuration, not a kind rule."""
+    if side not in SIDES:
         raise ValueError("unknown cutover side")
+    cluster, namespace, pooler = f"{side}-db", f"{side}-dev", f"{side}-pgbouncer"
+    if site is not None:
+        cluster = site.db_cluster or cluster
+        namespace = site.db_namespace or namespace
+        pooler = site.pgbouncer_deployment or pooler
+    return ObjectNames(cluster, namespace, pooler)
+
+
+def cluster_patch(cluster: dict, *, side: str, site: Site | None = None) -> list[dict]:
+    names = object_names(side, site)
     meta, spec = cluster["metadata"], cluster["spec"]
-    if (cluster.get("kind") != "Cluster" or meta.get("name") != f"{side}-db"
-            or meta.get("namespace") != f"{side}-dev"):
+    if (cluster.get("kind") != "Cluster" or meta.get("name") != names.cluster
+            or meta.get("namespace") != names.namespace):
         raise ValueError("unexpected database resource")
     roles = spec["managed"]["roles"]
     annotations = meta.get("annotations", {})
@@ -51,12 +79,11 @@ def cluster_patch(cluster: dict, *, side: str) -> list[dict]:
     return patches
 
 
-def pooler_trust_patch(deployment: dict, *, side: str) -> list[dict]:
-    if side not in {"source", "target"}:
-        raise ValueError("unknown cutover side")
+def pooler_trust_patch(deployment: dict, *, side: str, site: Site | None = None) -> list[dict]:
+    names = object_names(side, site)
     meta = deployment["metadata"]
-    if (deployment.get("kind") != "Deployment" or meta.get("name") != f"{side}-pgbouncer"
-            or meta.get("namespace") != f"{side}-dev" or deployment["spec"]["replicas"] != 1):
+    if (deployment.get("kind") != "Deployment" or meta.get("name") != names.pooler
+            or meta.get("namespace") != names.namespace or deployment["spec"]["replicas"] != 1):
         raise ValueError("unexpected singleton pooler")
     volumes = deployment["spec"]["template"]["spec"]["volumes"]
     positions = [i for i, volume in enumerate(volumes) if volume["name"] == "ca"]

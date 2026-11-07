@@ -48,12 +48,16 @@ compare 단계의 비교기는 `db_fingerprint.py`의 `DbFingerprintComparer`(�
 T8(복제) · T30(목적지) 전에 Executor를 시험하는 곳. 클러스터 하나에 출발지 `src` · 목적지 `dst` 네임스페이스를 두고 각각 Postgres 16 · PgBouncer 1.26.1 · demo-chat 2개를 띄운다. 가짜 AWS(moto)는 `aws` 네임스페이스. 복제는 직접 만든 구독으로 흉내 낸다: `dst`의 `bravo_fwd`(src → dst, 켜짐), `src`의 `bravo_rev`(dst → src, 꺼짐).
 
 ```bash
-python3 testing/mockenv.py up      # 약 2분. demo-chat은 ../../../demo-chat의 origin/main으로 이미지를 만든다
+python3 testing/mockenv.py up      # 약 2분. demo-chat은 ../../../demo-chat(또는 DEMO_CHAT_DIR)의 origin/main으로 이미지를 만든다
+python3 testing/mockenv.py up --source gcp-a:gcp --target aws-b:aws   # 환경 이름 · 종류 지정(기본 env-aws:aws → env-onprem:onprem)
 python3 testing/mockenv.py check   # 관리 콘솔 · 복제 · 목적지 앱 → 출발지 DB 쓰기 · 목적지 앱 역할 로그인 거부
 python3 testing/mockenv.py down
 ```
 
 - 비밀번호는 실행마다 새로 만들어 `testing/.state/env.json`(git 제외)에만 둔다.
+- 환경 이름과 종류는 `up`에서 정하고 상태 파일에 남는다. 종류는 앱 `APP_ENV`와 `sites.json`의 기록용 `kind`에만 들어가고,
+  네임스페이스(`src` · `dst`) · 포트 · 접속 참조(`mock/src` · `mock/dst`)는 조합과 상관없이 같다. 모의 시험은 이름을 고정하지 않고
+  `sites.json`의 `origin`을 출발지로 읽는다(`tests/mockenv_support.py`의 `SRC_ENV` · `DST_ENV`).
 - PgBouncer 설정은 initContainer가 ConfigMap을 emptyDir로 복사한 파일이다. Executor가 파드 안 파일을 바꾸고 RELOAD한다(spec D3).
 - 역할과 권한은 `testing/sql/10-roles.sql` · `30-cutover.sql`. `cutover_control` 권한이 Executor에 필요한 권한 목록의 초안이다(실제 환경은 T6 · T8 담당과 확정).
 
@@ -69,6 +73,12 @@ python3 testing/mockenv.py down
 - `sites.json` 최상위에 원래 출발지 `"origin": "env-aws"`를 둔다(T20). 없거나 등록된 환경이 아니면 시작을 거부한다.
   설정은 `extra="forbid"`라서 옛 이미지는 `origin`이 있는 설정을, 새 이미지는 없는 설정을 거부한다(실행 중이면 재시작 판정도 못 한다).
   이미지와 `cutover-executor-runtime` Secret의 `sites.json`은 같은 배포에서 함께 바꾸고, 끝나지 않은 실행이 없을 때만 교체한다.
+- 환경 종류(ADR-0034): 각 환경에 기록용 `kind`(aws · gcp · onprem 등)를 둘 수 있다. Executor는 판정 · 실행에 쓰지 않는다
+  (`tests/test_environment_kinds.py`가 9개 조합에서 같은 단계 · 같은 원격 조작을 고정한다). 같은 종류끼리의 이전도
+  두 환경의 `resource_id`가 달라야 한다. 한 배포에 환경 쌍 하나 제한은 그대로다.
+- DB 준비 패치(`prepare.py`)가 확인하는 이름은 환경마다 `db_cluster`(CNPG Cluster) · `db_namespace` · `pgbouncer_deployment`로
+  정한다. 비우면 기존 규칙 `{side}-db` · `{side}-dev` · `{side}-pgbouncer`다. 새 칸(`kind` 포함)은 `extra="forbid"` 때문에
+  옛 이미지가 거부하므로, 이 칸을 넣은 `sites.json`은 새 이미지와 함께 배포한다.
 - 모든 `/v1/` 요청에 Bearer 인증을 적용한다. T10의 승인/현재 계획/게이트 검증은 별도 선행이며,
   API 토큰을 가졌다는 사실을 사람의 컷오버 승인으로 간주하지 않는다.
 - `python -m bravo_cutover.deploy --image <registry/repository@sha256:...>`는

@@ -16,7 +16,15 @@ from bravo_cutover.remote.kube import Kube, WriteBlock
 from bravo_cutover.remote.pgbouncer import PgBouncerAdmin
 from bravo_cutover.runner import STEPS, Cutover
 from bravo_cutover.sites import registry_from_sites
-from tests.mockenv_support import WriterWatch, mock_config, needs_mockenv, post_message, reset
+from tests.mockenv_support import (
+    DST_ENV,
+    SRC_ENV,
+    WriterWatch,
+    mock_config,
+    needs_mockenv,
+    post_message,
+    reset,
+)
 
 pytestmark = needs_mockenv
 
@@ -28,7 +36,7 @@ def config():
 
 @pytest.fixture
 def sides(config):
-    src, dst = config.sites["env-aws"], config.sites["env-onprem"]
+    src, dst = config.sites[SRC_ENV], config.sites[DST_ENV]
     reset(src, dst)
     yield src, dst
     reset(src, dst)
@@ -37,8 +45,8 @@ def sides(config):
 def start(store, epoch=None, deadline_s=120):
     request = CutoverRequest(
         plan_id="plan-mock", epoch=epoch or int(time.time() * 1000),
-        source={"environment_id": "env-aws", "connection_ref": "mock/src"},
-        target={"environment_id": "env-onprem", "connection_ref": "mock/dst"},
+        source={"environment_id": SRC_ENV, "connection_ref": "mock/src"},
+        target={"environment_id": DST_ENV, "connection_ref": "mock/dst"},
         write_pause_budget_ms=5000, deadline=datetime.now(UTC) + timedelta(seconds=deadline_s),
     )
     execution, _ = store.create(str(uuid.uuid4()), request, registry_from_sites(mock_config().sites).resolve(request))
@@ -65,7 +73,7 @@ def test_cutover_happy_path(store, config, sides):
     result = execution.result
     print("write_pause_ms", result["write_pause_ms"], "stages_ms", result["stages_ms"], "acks", result["path_acks_ms"])
     assert set(result["stages_ms"]) == set(STEPS)
-    assert set(result["path_acks_ms"]) == {"entry:env-aws", "entry:env-onprem", "pool:env-aws", "pool:env-onprem"}
+    assert set(result["path_acks_ms"]) == {f"{path}:{env}" for path in ("entry", "pool") for env in (SRC_ENV, DST_ENV)}
     assert result["write_pause_ms"] == max(result["path_acks_ms"].values())
     receipt = result["receipt"]
     assert (receipt["verdict"], receipt["hash_rule"]) == ("MATCH", HASH_RULE)  # T13 DB 지문 비교
@@ -94,13 +102,13 @@ def test_cutover_happy_path(store, config, sides):
 def test_write_pause_ends_at_the_last_path_ack(store, config, sides):
     """한 경로의 차단 해제를 2초 늦추면 쓰기 정지 시간이 그만큼 늘어난다(첫 ACK에서 끝내지 않는다)."""
     execution_id = start(store)
-    Cutover(store, config, hooks={"release:env-onprem": lambda _run: time.sleep(2)}).run(execution_id)
+    Cutover(store, config, hooks={f"release:{DST_ENV}": lambda _run: time.sleep(2)}).run(execution_id)
     result = store.get(execution_id).result
     assert store.get(execution_id).status == Status.DONE
     acks = result["path_acks_ms"]
     # 경로는 동시에 열린다. 늦춘 경로만 2초 뒤에 ACK하고(시계 오차 여유 200ms), 그 ACK가 쓰기 정지의 끝이다.
-    assert acks["entry:env-onprem"] - max(v for k, v in acks.items() if k != "entry:env-onprem") >= 1800
-    assert result["write_pause_ms"] == acks["entry:env-onprem"] >= 2000
+    assert acks[f"entry:{DST_ENV}"] - max(v for k, v in acks.items() if k != f"entry:{DST_ENV}") >= 1800
+    assert result["write_pause_ms"] == acks[f"entry:{DST_ENV}"] >= 2000
 
 
 def test_api_runs_cutover_in_background_and_reports_state(store, config, sides):
@@ -111,8 +119,8 @@ def test_api_runs_cutover_in_background_and_reports_state(store, config, sides):
     client = command_client(store, ThreadRunner(Cutover(store, config)), registry_from_sites(config.sites))
     request = {
         "plan_id": "plan-api", "epoch": int(time.time() * 1000),
-        "source": {"environment_id": "env-aws", "connection_ref": "mock/src"},
-        "target": {"environment_id": "env-onprem", "connection_ref": "mock/dst"},
+        "source": {"environment_id": SRC_ENV, "connection_ref": "mock/src"},
+        "target": {"environment_id": DST_ENV, "connection_ref": "mock/dst"},
         "write_pause_budget_ms": 5000, "deadline": (datetime.now(UTC) + timedelta(minutes=2)).isoformat(),
     }
     accepted = client.post("/v1/cutovers", json=request, headers={"Idempotency-Key": str(uuid.uuid4())})
