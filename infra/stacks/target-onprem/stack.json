@@ -31,6 +31,26 @@
       "enum": ["join", "wif", "none"],
       "default": "join"
     },
+    "iac_revision": {
+      "description": "T44 고객 Argo CD 설치 값 targetRevision(검토한 전체 커밋 SHA). tailnet=join일 때 T44 Application을 켜고 T44 판정기로 확인하는 데 쓴다",
+      "pattern": "^[0-9a-f]{40}$",
+      "required_when": {"param": "tailnet", "in": ["join"]}
+    },
+    "login": {
+      "description": "목적지 로그인 서버(Keycloak target-login, #652)를 Edge 공개 주소로 세우는가. edge를 고른 계획만 로그인 단계를 계획한다. 기본 none: T49 무인 진행기에 login-edge(Edge 로그인 경로 열기) 플랫폼 동작이 아직 없어, 기본 계획에 넣으면 무인 구축이 그 단계에서 멈춘다",
+      "enum": ["edge", "none"],
+      "default": "none"
+    },
+    "login_public_url": {
+      "description": "Edge가 로그인 화면을 내보내는 https 공개 주소(경로 없음). KC_HOSTNAME이고 발급자는 <이 값>/realms/bravo",
+      "pattern": "^https://[a-z0-9]([a-z0-9-]*[a-z0-9])?(\\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+(:[0-9]{1,5})?$",
+      "required_when": {"param": "login", "in": ["edge"]}
+    },
+    "app_origin": {
+      "description": "목적지 demo-chat의 https 공개 주소(경로 없음). realm의 redirect URI와 web origin",
+      "pattern": "^https://[a-z0-9]([a-z0-9-]*[a-z0-9])?(\\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+(:[0-9]{1,5})?$",
+      "required_when": {"param": "login", "in": ["edge"]}
+    },
     "tailnet_env": {
       "description": "tailnet 태그의 환경 이름(tag:bravo-<env>-operator · -db, ADR-0035). 기본 target은 기존 target-dev 태그",
       "pattern": "^[a-z][a-z0-9-]{0,40}$",
@@ -81,17 +101,18 @@
       "id": "host-dirs",
       "kind": "operator_action",
       "owner": "T30",
-      "description": "DB · 객체 저장소 · OpenBao 호스트 디렉터리를 사람이 준비한다",
+      "description": "DB · 객체 저장소 · OpenBao · 로그인 서버 호스트 디렉터리를 사람이 준비한다",
       "needs": [
         "identity"
       ],
-      "instruction": "새 노드에 /var/lib/bravo-target-dev/postgres(UID/GID 26), /var/lib/bravo-target-dev/objects(UID/GID 1000), /var/lib/bravo-target-dev/openbao(UID 100, GID 1000, 0700)를 만든다. 기존 데이터가 있으면 멈추고 재사용하지 않는다.",
+      "instruction": "새 노드에 /var/lib/bravo-target-dev/postgres(UID/GID 26), /var/lib/bravo-target-dev/objects(UID/GID 1000), /var/lib/bravo-target-dev/openbao(UID 100, GID 1000, 0700), /var/lib/bravo-target-dev/login(UID/GID 1000, Keycloak target-login의 H2 저장소)를 만든다. 기존 데이터가 있으면 멈추고 재사용하지 않는다.",
       "confirm": "host-paths",
       "expect": {
         "host_paths": [
           {"path": "/var/lib/bravo-target-dev/postgres", "uid": 26, "gid": 26, "mode": "0755"},
           {"path": "/var/lib/bravo-target-dev/objects", "uid": 1000, "gid": 1000, "mode": "0755"},
-          {"path": "/var/lib/bravo-target-dev/openbao", "uid": 100, "gid": 1000, "mode": "0700"}
+          {"path": "/var/lib/bravo-target-dev/openbao", "uid": 100, "gid": 1000, "mode": "0700"},
+          {"path": "/var/lib/bravo-target-dev/login", "uid": 1000, "gid": 1000, "mode": "0755"}
         ]
       }
     },
@@ -103,7 +124,7 @@
       "needs": [
         "identity"
       ],
-      "instruction": "infra/iac/README.md 절차로 이 고객 클러스터에 Argo CD를 bootstrap 설치한다(release · namespace bravo-iac-gitops). chart 0.2.2부터 application.enabled는 기본값이 없으므로 application.enabled=false를 명시해 컨트롤러만 설치한다(autoSync · prune 기본 false). T45에는 그것으로 충분하다. T44 Application의 등록 · 활성화는 T44 절차를 따르며 T45 진행 조건이 아니다. 0.1.0 chart라면 README대로 설치 명령을 2회 실행한다. 플랫폼 클러스터에는 설치하지 않는다.",
+      "instruction": "infra/iac/README.md 절차로 이 고객 클러스터에 T44 Argo CD chart 0.2.x를 한 번 설치한다(helm upgrade --install bravo-iac-gitops infra/iac/argocd -n bravo-iac-gitops --create-namespace, 보호된 운영자 값 파일: environment=<environment_id>, tailnet, targetRevision=<iac_revision>). 처음에는 --set application.enabled=false --set application.autoSync=false --set application.prune=false를 명시해 Argo CD와 CRD만 만든다. 0.2.2부터 application.enabled를 생략하면 렌더가 거부된다. T44 Application은 namespace와 Tailscale CRD가 생긴 뒤 iac-application 단계에서 켠다(T44 #673). 플랫폼 클러스터에는 설치하지 않는다.",
       "confirm": "iac-argocd"
     },
     {
@@ -121,7 +142,7 @@
       "id": "base",
       "kind": "gitops_publish",
       "owner": "T30",
-      "description": "namespace(목적지 · OpenBao · ESO · tailscale-system)와 서비스 계정을 설정 저장소에 올린다. namespace와 보안 레이블의 주인은 T45다(T44 #632)",
+      "description": "namespace(목적지 · OpenBao · ESO · tailscale-system · bravo-observability)와 서비스 계정을 설정 저장소에 올린다. namespace와 보안 레이블의 주인은 T45다(T44 #632 · #673)",
       "needs": [
         "config-repo-access"
       ],
@@ -178,6 +199,19 @@
               "component": "target",
               "pod-security.kubernetes.io/enforce": "privileged",
               "pod-security.kubernetes.io/enforce-version": "v1.35"
+            }
+          }
+        },
+        {
+          "name": "observability-namespace",
+          "namespace": {
+            "name": "bravo-observability",
+            "labels": {
+              "component": "platform",
+              "tier": "observability",
+              "role": "collector",
+              "domain": "customer",
+              "pod-security.kubernetes.io/enforce": "restricted"
             }
           }
         }
@@ -465,6 +499,100 @@
       ],
       "publish": "tailscale",
       "timeout_seconds": 600
+    },
+    {
+      "id": "iac-application",
+      "kind": "operator_action",
+      "owner": "T44",
+      "when": {"param": "tailnet", "in": ["join"]},
+      "description": "namespace(base)와 Tailscale CRD(tailscale)가 Synced · Healthy가 된 뒤 T44 Application을 켠다(T44 #673 순서 계약)",
+      "needs": [
+        "tailscale-sync"
+      ],
+      "instruction": "argocd 단계와 같은 보호된 운영자 값 파일로 helm upgrade bravo-iac-gitops infra/iac/argocd -n bravo-iac-gitops --set application.enabled=true --set application.autoSync=false --set application.prune=false를 실행한다. autoSync · prune은 false로 유지하고, 자동 동기화 승격은 T44 절차(infra/iac/README.md 3단계)를 따른다. targetRevision은 계획의 iac_revision이어야 한다.",
+      "confirm": "iac-application-created"
+    },
+    {
+      "id": "iac-application-check",
+      "kind": "probe",
+      "owner": "T44",
+      "when": {"param": "tailnet", "in": ["join"]},
+      "description": "T44 판정기(infra/iac/customer_status.py)로 Application이 계획의 iac_revision을 가리키며 켜졌는지 확인한다. BOOTSTRAP 상태면 실패, 판정기가 막으면 HOLD",
+      "needs": [
+        "iac-application"
+      ],
+      "check": "iac-application-enabled"
+    },
+    {
+      "id": "login-admin",
+      "kind": "secret_generate",
+      "owner": "T30",
+      "when": {"param": "login", "in": ["edge"]},
+      "description": "Keycloak 관리자 Secret target-login-admin(username, password)을 메모리에서 만들어 Kubernetes에만 넣는다(#652)",
+      "needs": [
+        "base-sync"
+      ],
+      "secrets": [
+        {
+          "namespace": "target-dev",
+          "name": "target-login-admin",
+          "type": "Opaque",
+          "keys": {
+            "username": {"literal": "bravo-admin"},
+            "password": {"random": 32}
+          }
+        }
+      ]
+    },
+    {
+      "id": "login",
+      "kind": "gitops_publish",
+      "owner": "T30",
+      "when": {"param": "login", "in": ["edge"]},
+      "description": "목적지 로그인 서버(Keycloak target-login, target-workloads/identity.py, #652)를 올린다. Edge 로그인 경로(login-edge)보다 먼저 Ready여야 한다",
+      "needs": [
+        "login-admin",
+        "host-dirs"
+      ],
+      "path": "login",
+      "renders": [
+        {
+          "name": "server",
+          "run": "infra/envs/target-workloads/identity.py",
+          "args": [
+            "--node-name",
+            "${node_name}",
+            "--public-url",
+            "${login_public_url}",
+            "--app-origin",
+            "${app_origin}"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "login-sync",
+      "kind": "gitops_sync",
+      "owner": "T30",
+      "when": {"param": "login", "in": ["edge"]},
+      "description": "Argo CD가 login 커밋으로 Synced · Healthy인지(target-login Ready) 확인한다",
+      "needs": [
+        "login"
+      ],
+      "publish": "login",
+      "timeout_seconds": 600
+    },
+    {
+      "id": "login-edge",
+      "kind": "operator_action",
+      "owner": "T17",
+      "when": {"param": "login", "in": ["edge"]},
+      "description": "Edge가 로그인 공개 주소의 /realms/bravo/ · /resources/만 target-login으로 보내게 한다(edge-cloudflare hostnames.login)",
+      "needs": [
+        "login-sync"
+      ],
+      "instruction": "target-login이 Ready인 뒤에 연다(먼저 열면 502). target-dev에 Edge Tunnel(infra/envs/edge-tunnels, app=bravo-edge-tunnel)이 연결돼 있는지 확인하고, infra/envs/edge-cloudflare에 hostnames.login=<login_public_url의 호스트>를 넣어 plan → apply한다. 바뀌는 것은 목적지 Tunnel ingress 1건 수정과 DNS 1건 추가뿐이어야 한다. /admin/ · /realms/master/는 404여야 하며, 다르면 hostnames.login을 빼고 다시 apply해 닫는다.",
+      "confirm": "login-public"
     },
     {
       "id": "tailscale-joined",
@@ -759,10 +887,12 @@
       "id": "verify",
       "kind": "probe",
       "owner": "T30",
-      "description": "구축 결과를 실제로 확인한다(probes.py · verify.py). Synced만으로 완료로 보지 않는다",
+      "description": "구축 결과를 실제로 확인한다(probes.py · verify.py, login=edge면 로그인 공개 주소 탐침). Synced만으로 완료로 보지 않는다",
       "needs": [
         "app-sync",
-        "tailscale-joined"
+        "tailscale-joined",
+        "iac-application-check",
+        "login-edge"
       ],
       "check": "target-checks"
     }
