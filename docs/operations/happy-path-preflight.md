@@ -7,7 +7,7 @@
 | 순서 | 할 일 | 확인 |
 |---|---|---|
 | 1 | `./workon target-check t10-db --route platform-rke2-ssm` | VERIFIED, 클러스터 UID 일치 |
-| 2 | Reader 이미지 고정값 갱신과 **설정 v2 전환을 같은 rollout으로** (`operations/product-reader/README.md`) | Reader Ready, 이미지 digest, 설정 sha256 |
+| 2 | Reader 이미지 고정값과 설정 v2 (순서 무관: Reader는 v1에서도 뜨고 최초 경로만 닫는다. `operations/rollout/run.py`) | Reader Ready, 이미지 digest, 설정 sha256 |
 | 3 | Argo `initialProposal` 활성(namespace `bravo-initial`·SA·broker CA·승인 정책) | 승인 정책 dry-run 거부/허용 |
 | 4 | broker 재설치: `install.py --model-config infra/gitops/environments/development/agent-model.json` + `sandbox_docker` | `bravo-subscription-service` 비활성 상태에서 교체, 설치 소스 SHA |
 | 5 | `subscription-runtime` Terraform plan → apply (GitHub trust·controller 역할 제거, 노드 역할 trust) | plan 변경 목록이 위와 같음 |
@@ -24,16 +24,20 @@
   `{"job_principal": "<b3d65883… 전체>", "fence_principals": ["<d26db92a… 전체>"]}`를 둔다. 모델 작업은 Job 주체만,
   fence는 지정한 이전 주체만 가능하고, fence 증명은 Pod 안에서 공개 GitHub로 다시 확인한다.
 
-- SHIFT 직전 재평가(`gate:evaluate`) 권한은 **SHIFT를 승인·실행하는 운영자에게만, 그 계획 범위로** 둔다.
+- SHIFT 직전 재평가 권한(`gate:evaluate`·`gate:consume`, 해당 gate context)은 **SHIFT를 승인·실행하는 운영자
+  (`approve_shift`·`execute_shift` 보유)에게만, 그 계획 범위로** 둔다(상무님 #532).
   워크플로 호스트에는 주지 않는다(승인과 반영 주체 분리, 상무님 #546 판단).
 
 ### 일괄 롤아웃 중 병합 멈춤 (팀 합의 2)
 
-1. 시작을 해피패스 스레드에 알리고, 자동 큐 등록을 끈다: `gh variable set MERGE_QUEUE_BOT_ENABLED --body false`.
-2. 빌드 입력(`services/*`, `infra/charts/*`, 이미지 Dockerfile)을 바꾸는 PR은 큐에 넣지 않는다. 문서·증빙 PR은 그대로 진행한다.
-3. 끝나면 `MERGE_QUEUE_BOT_ENABLED`를 원래 값으로 되돌리고 종료를 알린다.
+1. 시작을 해피패스 스레드에 알린다. 자동 큐 등록 봇은 2026-11-07에 제거됐다. `operations/rollout/run.py`가 읽는 `MERGE_QUEUE_BOT_ENABLED`는 `false`로 둔다.
+   이 값이 막는 병합은 더 없다. `run.py`의 `pause_merges` 단계는 값을 쓰고 되돌릴 뿐이다. 다만 값이 `true`/`false`가 아니면
+   `merge_queue_variable_unreadable`로 롤아웃이 시작되지 않으므로 변수를 지우지 않는다.
+2. 빌드 입력(`services/*`, `infra/charts/*`, 이미지 Dockerfile)을 바꾸는 PR은 병합하지 않는다. **도구가 막지 않으므로 합의로 지킨다.**
+   필수 승인이 없어 누구나 병합할 수 있으니 시작 알림에 끝 시각을 적는다. 문서·증빙 PR은 그대로 진행한다.
+3. 끝나면 종료를 알린다.
 4. 이미지 고정 PR의 최신성 검사 완화(합의 1)는 롤아웃 뒤 별도 PR로 한다. 롤아웃 중에는 기존 검사 그대로다.
-   Reader 이미지는 설정 v2와 같은 배포로 묶는다.
+   Reader는 v1·v2 설정을 모두 읽으므로 이미지와 설정 v2의 반영 순서는 무관하다.
 
 ### relay 접근 (sangmu1126 76ee08d)
 
@@ -72,6 +76,10 @@ Executor ingress(호스트에서만).
 ```
 
 - `workflow_sha`는 demo-chat #25(run-name) 병합 뒤 main(`3a1a9135…`)으로 고정한다. T7 워크플로가 바뀌면 다시 검토해 갱신한다.
+- 고정 선택(`selections_dir`)은 폴더가 없어도 된다. ConfigMap 마운트는 하위 폴더를 만들 수 없으므로, 같은 ConfigMap에
+  `selections__<request_id>.json` 키로 두면 `/workflow/selections/<request_id>.json`과 같게 읽는다.
+- 서버가 시작하지 못하면 종료 메시지에 원인 코드(예외 이름·빠진 모듈·식별자 코드)가 붙는다. 이미지 빌드는
+  진입점의 import 폐포(`scripts/image_import_closure.py`)가 빠진 모듈 없이 닫혀야 통과한다.
 - `runtime_source_sha`는 Reader 이미지 고정값(`product-reader-image.json`)의 `sourceRevision`이다. `run.py`가 같은
   값으로 접수하고 `collect`도 같은 값을 출력한다(저장 결과와 접수 의도가 결속). 그래서 Reader 고정값이 바뀌면 다시 맞춘다.
 - App 권한은 contents·pull_requests·actions 쓰기 + metadata 읽기, 설치는 demo-chat만.
@@ -97,13 +105,44 @@ uv run --directory services/platform-events python ../../operations/initial-prop
    `localhost/bravo-demo-chat-candidate` 별칭으로 넣은 뒤 digest를 대조한다(실행기 `s2-candidate-import` 확인).
    레지스트리 pull 자격은 목적지에 두지 않는다(목적지 pull형은 고도화).
 3. T31 반영 뒤 `open_after_apply.py`(실행기 `s2-open-writes`).
+4. 첨부 복사(`s3-attachment-copy`, T8 담당) **직전**에 출발지 첨부 업로드를 멈춘다. 복사는 시작 뒤에 들어온 업로드를 알 수
+   없기 때문이다. 출발지 앱 이미지(`8d82a92`)의 `ATTACHMENT_UPLOAD_ENABLED=false`로 하고, 출발지 앱 Pod가 한 번 다시 뜬다.
+   멈춘 시각과 Pod 재기동을 실행 기록에 남기고, 컷오버가 끝날 때까지 되돌리지 않는다(실패 복귀 시에만 `true`로 복원).
+   첨부 복사의 `plan_id`·`epoch`는 컷오버 요청 값을 그대로 쓴다(T10 담당이 그 단계 직전에 전달).
+5. WATCH의 T18 부하 창은 전용 서버 `bravo-loadgen`에서만 보낸다(노트북 송신은 차단). 해피패스 전에 켜고 표시 파일과
+   tailnet 태그를 확인한다(T18 담당).
 
 ## 4. 실행기
 
 ```sh
 python3 scripts/happy_path.py run --plan-id <plan> --record run.jsonl --profile real \
-  --platform-context <platform> --kubeconfig <target> --initial-args --from initial.json
+  --platform-context <platform> --kubeconfig <target> --initial-args --from initial.json   # --initial-args는 맨 마지막
 ```
 
 plan 상태는 워크플로 호스트 Pod(`deploy/t10-workflow-host`, 컨테이너 `host`)의 `bravo_platform_events.plan_state`로 읽는다(읽기 전용). T18·T8·T27·이미지 이관은 담당이
 실행한 뒤 `confirm`으로 기록한다.
+
+## 5. 운영자 승인 API (리허설 호스트 Pod)
+
+변경·SHIFT·컷오버·되돌리기 승인과 T15 리허설은 한 Pod(`platform-state/t15-rehearsal-host`, `approval_server` + `operator_ports`)에서 실행한다.
+
+- 들어오는 경로: Service는 ClusterIP 8443뿐이다. 공개 ingress는 없다. 승인자는 자기 SSO로 SSM 터널을 연 뒤 `kubectl -n platform-state port-forward svc/t15-rehearsal-host 8443:8443`로 접속한다. 요청마다 운영자 audience(`bravo-platform-operator`)로 서명한 AWS SSO 증명을 Bearer로 보낸다.
+- 운영자 신원: `operator_verifier`에 사람별 고정 신원 목록을 둔다. 승인자와 실행자는 다른 사람이어야 한다. `authenticated_at`은 증명 발급 시각이며, SSO(MFA) 로그인 시각보다 늦을 수 있다.
+- SHIFT CLI: 같은 Pod에서 `kubectl exec ... python -m bravo_edge_control.run`으로 실행하고, journal은 `/records/edge/journal.db` 하나를 쓴다. FailbackEdge도 같은 journal을 쓴다.
+
+### 알려진 위험: 실행 권한이 한 Pod에 모임 (해피패스 한정)
+
+이 Pod에는 다음이 함께 있다. 리허설 경로 하나가 뚫리면 컷오버 제출과 트래픽 전환까지 닿는다.
+
+- 후보 코드를 리허설 namespace에 반영하는 경로와 exec relay
+- DB 자격, catalog 키
+- Executor command-token(컷오버 제출)
+- Cloudflare 토큰(트래픽 가중치)
+
+해피패스 동안 지킬 것:
+
+1. Cloudflare 토큰은 그 LB 하나의 pool 가중치 변경만 가능한 범위로 발급한다. 데모 직후 폐기한다.
+2. command-token은 E2E 직전에 발급하고, E2E가 끝나면 Secret을 지우고 Executor 쪽 토큰을 교체한다.
+3. egress는 DNS, tailnet 프록시, Executor 8080, STS 고정 주소, Cloudflare API 대역 443만 연다(`infra/envs/rehearsal-access/rehearsal-host-network.yaml`).
+
+해피패스 뒤: 승인 API와 Edge 실행을 같은 이미지의 별도 Deployment·SA·NetworkPolicy로 분리한다. command-token과 Cloudflare 토큰은 그 Pod에만 둔다. 리허설 호스트에는 남기지 않는다.

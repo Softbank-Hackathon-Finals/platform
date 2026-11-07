@@ -1,8 +1,8 @@
 # 기존 Edge Tunnel을 앱에 연결하기
 
 `render.py`는 기존 Cloudflare Tunnel을 연결할 `cloudflared` Deployment를 만든다.
-출발지와 목적지 앱 네임스페이스에서 각각 실행한다. LB, pool, Tunnel, DNS 또는
-토큰을 새로 만들지 않는다. 가중치 실행은 기존 [T17 어댑터](../../../services/edge-control/README.md)를 사용한다.
+출발지와 목적지 앱 네임스페이스에서 각각 실행한다. Tunnel·토큰을 새로 만들지 않고,
+Cloudflare 쪽 설정은 [edge-cloudflare](../edge-cloudflare/README.md)가 갖는다. 가중치 실행은 기존 [T17 어댑터](../../../services/edge-control/README.md)를 사용한다.
 
 ## 배포 조건
 
@@ -11,10 +11,7 @@
 2. 해당 환경의 기존 Tunnel 토큰을 승인된 관리 세션에서 직접 Secret
    `bravo-edge-tunnel-token`의 `token` 키로 전달한다. 토큰은 파일, 명령 인자,
    SSM Run Command, Git 또는 로그에 남기지 않는다. 다른 환경의 토큰을 재사용하지 않는다.
-3. 기존 Tunnel의 원격 ingress를 해당 앱 Service로 지정한다. 출발지는
-   `http://demo-chat.source-dev.svc.cluster.local:8080`, 목적지는
-   `http://demo-chat.target-dev.svc.cluster.local:8080`이다. 마지막 규칙은
-   `http_status:404`로 유지한다. pool의 Host 헤더는 해당 Tunnel의 호스트와 같아야 한다.
+3. 원격 ingress·DNS·pool·LB는 [edge-cloudflare](../edge-cloudflare/README.md) 스택이 갖는다. 손으로 고치지 않는다.
 4. 명시한 클러스터에 Deployment를 적용한다.
 
 ```sh

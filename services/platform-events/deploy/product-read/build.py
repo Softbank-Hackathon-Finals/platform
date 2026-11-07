@@ -21,6 +21,12 @@ PACKAGES = {
     "inventory": "bravo_inventory",
     "control-gate": "bravo_gate",
     "observability": "bravo_observability",
+    # The workflow host (registration image) needs the T15/T31 diff hash and ApplicationHost (#546 review).
+    "apply-path": "bravo_apply",
+    # The approval host runs the T17 SHIFT CLI and FailbackEdge over one LB journal.
+    "edge-control": "bravo_edge_control",
+    # T44 planning library under the agent worker's infra.plan tool (pure, no dependencies).
+    "iac": "bravo_iac",
 }
 
 # Include the lazy imports used by --initial-proposal, not just the entry point.
@@ -64,10 +70,8 @@ def copy_committed_tree(revision, prefix, destination):
         raise ValueError("committed_source_missing")
 
 
-def add_rehearsal_context(context, revision):
-    copy_committed_tree(revision, "services/rehearsal-runner/templates/", context / "templates")
-    for directory in ("rehearsal-access", "target-secrets"):
-        copy_committed_tree(revision, f"infra/envs/{directory}/", context / "infra" / directory)
+def build_kubectl(context, revision):
+    """The patched, pinned kubectl (T15 rehearsal; T31 apply from the workflow host)."""
     # Keep the upstream command unchanged; compile its locked, patched module
     # graph with a fixed toolchain instead of shipping vulnerable release deps.
     with tempfile.TemporaryDirectory(prefix="bravo-kubectl-") as directory:
@@ -83,6 +87,13 @@ def add_rehearsal_context(context, revision):
                        cwd=source, env=env, check=True)
 
 
+def add_rehearsal_context(context, revision):
+    copy_committed_tree(revision, "services/rehearsal-runner/templates/", context / "templates")
+    for directory in ("rehearsal-access", "target-secrets"):
+        copy_committed_tree(revision, f"infra/envs/{directory}/", context / "infra" / directory)
+    build_kubectl(context, revision)
+
+
 def prepare_context(context, revision, *, rehearsal_host=False):
     # Export only hashed registry dependencies. Repo packages come from Git blobs.
     project = tomllib.loads((SERVICE / "pyproject.toml").read_text())
@@ -96,6 +107,7 @@ def prepare_context(context, revision, *, rehearsal_host=False):
         "--group", "product-inputs", "--group", "gate-records", "--no-emit-project", "--no-emit-package", "bravo-observability",
         "--no-emit-package", "bravo-agent-worker", "--no-emit-package", "bravo-rehearsal-runner",
         "--no-emit-package", "bravo-inventory", "--no-emit-package", "bravo-control-gate",
+        "--no-emit-package", "bravo-iac",
         "-o", str(requirements)], cwd=SERVICE, check=True, stdout=subprocess.DEVNULL)
     text = requirements.read_text()
     if any(line.strip().startswith(("-e ", "git+", "file:", "../", "/")) or " @ " in line
@@ -111,6 +123,9 @@ def prepare_context(context, revision, *, rehearsal_host=False):
     recipe = ("services/platform-events/deploy/approval/Dockerfile" if rehearsal_host
               else "services/platform-events/deploy/product-read/Dockerfile")
     (context / "Dockerfile").write_bytes(git("show", f"{revision}:{recipe}"))
+    # Every image fails its build when an entry point (lazy imports included) needs a module the
+    # context did not copy, instead of a Pod that starts and dies (#546 workflow host, bravo_apply).
+    (context / "image-import-closure.py").write_bytes(git("show", f"{revision}:scripts/image_import_closure.py"))
     return [{"path": str(p.relative_to(context)), "sha256": hashlib.sha256(p.read_bytes()).hexdigest()}
             for p in sorted(context.rglob("*")) if p.is_file()]
 

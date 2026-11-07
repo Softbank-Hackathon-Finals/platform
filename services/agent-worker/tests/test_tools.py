@@ -220,6 +220,86 @@ def test_inventory_describe_is_denied_until_a_summary_is_attached(context):
     assert tools.events[-1]["reason"] == "TOOL_NOT_ATTACHED"
 
 
+# ---- T44 infra.plan: the agent plans destination IaC through the control path's port, never applies
+
+def _iac_port(state="open-demo"):
+    from bravo_iac.agent import AgentPlanner
+
+    repo = Path(__file__).resolve().parents[3]
+
+    committed = json.loads((repo / "infra/iac/environments/target-dev.json").read_text())
+    if state == "closed":
+        params = committed["modules"][0]["params"]
+        params["state"] = "closed"
+        params.pop("demo_run_id")
+    return AgentPlanner(committed)
+
+
+CLOSE = {"module": "target-object-exposure",
+         "params_json": json.dumps({"state": "closed", "bucket": "demo-chat-attachments"})}
+
+
+def test_infra_plan_returns_a_plan_and_audits_only_its_digest(context):
+    bundle, snapshot, _, _ = context
+    tools = Tools(bundle, snapshot, 1, iac=_iac_port())
+    result = tools.dispatch("mcp__bravo__infra_plan", CLOSE)
+    assert result["accepted"] and result["origin"] == "agent" and result["authorizes_apply"] is False
+    assert result["effects"][0]["anonymous_access"]["after"] == []
+    assert tools.infra_plans == [{"module": "target-object-exposure", "params": json.loads(CLOSE["params_json"]),
+                                  "plan": result}]
+    event = tools.events[-1]
+    assert (event["tool"], event["outcome"], event["refusal"]) == ("infra.plan", "ALLOWED", "NONE")
+    assert event["plan_digest"] == result["plan_digest"] and "demo-chat-attachments" not in json.dumps(tools.events)
+
+
+def test_infra_plan_refuses_widening_and_records_the_code(context):
+    bundle, snapshot, _, _ = context
+    tools = Tools(bundle, snapshot, 1, iac=_iac_port("closed"))
+    reopen = {"module": "target-object-exposure", "params_json": json.dumps(
+        {"state": "open-demo", "bucket": "demo-chat-attachments", "demo_run_id": "demo-2026-11-08"})}
+    result = tools.dispatch("mcp__bravo__infra_plan", reopen)
+    assert not result["accepted"] and tools.events[-1]["refusal"] == "IAC_WIDENING_REFUSED"
+
+
+@pytest.mark.parametrize("args", [
+    {"module": "target-object-exposure"},
+    {**CLOSE, "extra": 1},
+    {**CLOSE, "module": "Target; DROP"},
+    {**CLOSE, "params_json": "not json"},
+    {**CLOSE, "params_json": json.dumps({"state": "closed"})},
+    {**CLOSE, "module": "target-app"},
+])
+def test_infra_plan_rejects_malformed_or_foreign_input(context, args):
+    bundle, snapshot, _, _ = context
+    tools = Tools(bundle, snapshot, 1, iac=_iac_port())
+    with pytest.raises(PolicyDenied):
+        tools.dispatch("mcp__bravo__infra_plan", args)
+    assert tools.events[-1]["reason"] == "INVALID_INPUT_OR_POLICY" and tools.infra_plans == []
+
+
+def test_infra_plan_is_denied_until_a_port_is_attached_and_is_bounded(context):
+    bundle, snapshot, _, tools = context
+    with pytest.raises(PolicyDenied):
+        tools.dispatch("mcp__bravo__infra_plan", CLOSE)
+    assert tools.events[-1]["reason"] == "TOOL_NOT_ATTACHED"
+    with pytest.raises(ValueError):
+        Tools(bundle, snapshot, 1, iac=object())
+    attached = Tools(bundle, snapshot, 1, iac=_iac_port())
+    for _ in range(8):
+        attached.dispatch("mcp__bravo__infra_plan", CLOSE)
+    with pytest.raises(PolicyDenied):
+        attached.dispatch("mcp__bravo__infra_plan", CLOSE)
+
+
+def test_infra_plan_is_offered_to_the_model_only_with_a_port(context):
+    from bravo_agent.openai_provider import function_tools
+
+    bundle, snapshot, _, tools = context
+    assert "infra_plan" not in [d["name"] for d in function_tools(tools)]
+    [offered] = [d for d in function_tools(Tools(bundle, snapshot, 1, iac=_iac_port())) if d["name"] == "infra_plan"]
+    assert "target-object-exposure" in offered["description"] and offered["strict"] is True
+
+
 def test_inventory_must_match_the_run_revision(context):
     bundle, snapshot, _, _ = context
     with pytest.raises(ValueError):

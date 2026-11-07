@@ -78,6 +78,11 @@ class TrustedHostPorts:
     catalog: object = field(repr=False)
     planner: object = field(repr=False)
     cutover_authority: object = field(repr=False)
+    # T20 failback: upstream authority and integrity reader, both optional (absent = no failback route).
+    failback_authority: object = field(default=None, repr=False)
+    read_integrity: object = field(default=None, repr=False)
+    edge: object = field(default=None, repr=False)  # T17 FailbackEdge over the one LB journal
+    iac: object = field(default=None, repr=False)  # T44 platform repository port (iac_plans), optional
 
     def __post_init__(self):
         if (not self.bindings or not callable(self.cutover_authority)
@@ -120,7 +125,9 @@ def build_trusted_host(store, *, ports: TrustedHostPorts, records, sender, verif
                           authorize_hold=OperatorHoldPolicy(access, verifier), clock=clock)
     app = create_operator_cutover_app(store, ports.executor, bindings=ports.bindings,
         verifier=verifier, authority=ports.cutover_authority, rehearsal_host=rehearsals,
-        change_intake=intake, clock=clock)
+        **({"failback_authority": ports.failback_authority, "read_integrity": ports.read_integrity,
+            "edge": ports.edge} if ports.failback_authority is not None else {}),
+        change_intake=intake, clock=clock, **({"iac_repository": ports.iac} if ports.iac is not None else {}))
     original_lifespan = app.router.lifespan_context
 
     @asynccontextmanager

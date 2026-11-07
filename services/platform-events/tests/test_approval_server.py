@@ -52,7 +52,7 @@ def test_load_host_uses_separate_mounted_keys_and_no_startup_execution(flow, bin
 def test_missing_tls_and_bad_factory_fail_before_db_or_credentials(tmp_path, monkeypatch, capsys):
     monkeypatch.setattr(approval_server, "runtime_connection", lambda: pytest.fail("unexpected DB access"))
     for factory in ("test_approval_server:create_ports", "x:PRIVATE_SENTINEL/../bad"):
-        with pytest.raises(SystemExit, match="^approval_startup_unavailable$"):
+        with pytest.raises(SystemExit, match=r"^approval_startup_unavailable:[A-Za-z]+(:[A-Za-z0-9_.]+)?$"):
             approval_server.main(["--config", str(tmp_path/"config"), "--ports", factory,
                                   "--tls-cert", str(tmp_path/"missing"), "--tls-key", str(tmp_path/"missing")])
     assert "PRIVATE_SENTINEL" not in capsys.readouterr().out

@@ -91,6 +91,11 @@ class WorkflowHost:
                 after = self.recovery.resume_once(principal, plan_id)
             except EventError as error:
                 return Step(plan_id, start, state, error.code)
+            except Exception as error:  # noqa: BLE001 - e.g. T19 GateError: never stall without a reason
+                from .startup import reason
+
+                log.exception("workflow step refused", extra={"plan_id": plan_id})
+                return Step(plan_id, start, state, "producer_refused:" + reason(error))
             if after == state:
                 break
             state, version = after, self._version(plan_id)

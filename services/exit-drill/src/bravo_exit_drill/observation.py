@@ -14,6 +14,9 @@ _FINISHED = {"Succeeded", "Failed"}
 NOT_EXIT_EVIDENCE_ANNOTATION = "bravo.t30/not-exit-evidence"
 # boto3가 호출 대상을 바꾸는 환경 변수. AWS_ENDPOINT_URL과 AWS_ENDPOINT_URL_<서비스>.
 AWS_ENDPOINT_OVERRIDE = "AWS_ENDPOINT_URL"
+# demo-chat 로그인이 믿는 발급자(demo-app #28). 값에 AWS 주소가 있으면 로그인이 아직 Cognito에 묶여 있다.
+TRUSTED_ISSUER_VARIABLES = ("AUTH_ISSUER", "AUTH_ALSO_TRUST")
+AWS_IDENTITY_HOSTS = (".amazonaws.com", ".amazoncognito.com")
 
 
 class ObservationError(ValueError):
@@ -75,19 +78,33 @@ def _exit_blockers(metadata: dict, spec: Any) -> list[str] | None:
     containers, sidecars = spec.get("containers"), spec.get("initContainers", [])
     if not containers or not isinstance(containers, list) or not isinstance(sidecars, list):
         return None
-    names = []
+    names, issuers = [], []
     for container in [*containers, *sidecars]:
         env = container.get("env", []) if isinstance(container, dict) else None
         if not isinstance(env, list) or not all(isinstance(e, dict) and isinstance(e.get("name"), str) for e in env):
             return None
         if container.get("envFrom", []) != []:
             return None
-        names.extend(e["name"] for e in env)
+        for entry in env:
+            names.append(entry["name"])
+            if entry["name"] in TRUSTED_ISSUER_VARIABLES:
+                # 발급자를 참조로 넣으면 값을 새로 읽지 않는다. envFrom과 같이 모른다고 둔다.
+                if "valueFrom" in entry:
+                    return None
+                # value: ""는 API가 필드째 빼고 돌려준다(omitempty). 둘 다 없으면 빈 값이다.
+                value = entry.get("value", "")
+                # $(VAR)는 kubelet이 시작할 때 다른 변수(Secret 포함)로 바꾼다. 글자만 봐서는 모른다.
+                if not isinstance(value, str) or "$(" in value:
+                    return None
+                issuers.append(value)
     blockers = []
     if NOT_EXIT_EVIDENCE_ANNOTATION in annotations:
         blockers.append("NOT_EXIT_EVIDENCE")
     if any(name.startswith(AWS_ENDPOINT_OVERRIDE) for name in names):
         blockers.append("AWS_ENDPOINT_REDIRECTED")
+    # 앱은 AWS 없이 뜨지만(로그인 확인은 쓰기 때 한다) Cognito 토큰을 받는 한 쓰기는 AWS 공개 키에 묶여 있다.
+    if any(host in value.lower() for value in issuers for host in AWS_IDENTITY_HOSTS):
+        blockers.append("AWS_IDENTITY_TRUSTED")
     return blockers
 
 

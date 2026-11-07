@@ -4,6 +4,8 @@ WORKDIR /app
 COPY requirements.txt /app/requirements.txt
 RUN pip install --disable-pip-version-check --no-cache-dir --require-hashes --only-binary=:all: -r requirements.txt
 COPY src /usr/local/lib/python3.12/site-packages
+COPY image-import-closure.py /app/image-import-closure.py
+RUN --network=none python /app/image-import-closure.py --src /usr/local/lib/python3.12/site-packages --site /usr/local/lib/python3.12/site-packages bravo_platform_events.product_read_server bravo_platform_events.initial_proposal_job
 RUN chmod -R a+rX /app /usr/local/lib/python3.12/site-packages/bravo_platform_events /usr/local/lib/python3.12/site-packages/bravo_agent /usr/local/lib/python3.12/site-packages/rehearsal_runner /usr/local/lib/python3.12/site-packages/bravo_observability
 USER 10001:10001
 EXPOSE 8443

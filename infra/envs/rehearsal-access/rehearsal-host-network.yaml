@@ -25,6 +25,8 @@ spec:
       ports:
         - {port: 53, protocol: UDP}
         - {port: 53, protocol: TCP}
+    # Tailscale egress Services forward 443 to a per-Service port on the proxy Pods (e.g. 10193, 10630),
+    # and NetworkPolicy matches that Pod port; so the proxy group is the boundary, not a port number.
     - to:
         - namespaceSelector:
             matchLabels: {kubernetes.io/metadata.name: tailscale-system}
@@ -33,6 +35,19 @@ spec:
               tailscale.com/managed: "true"
               tailscale.com/parent-resource: bravo-rehearsal-egress
               tailscale.com/parent-resource-type: proxygroup
+    # The operator approval API reads and submits cutovers on the Cutover Executor (read + command token).
+    - to:
+        - namespaceSelector:
+            matchLabels: {kubernetes.io/metadata.name: bravo-platform}
+          podSelector:
+            matchLabels: {app.kubernetes.io/name: cutover-executor}
+      ports:
+        - {port: 8080, protocol: TCP}
+    # T17 FailbackEdge and the in-Pod SHIFT CLI call api.cloudflare.com (resolved 2026-11-07 into
+    # 104.19.192.0/22). Only the two published Cloudflare ranges that serve the API, port 443.
+    - to:
+        - ipBlock: {cidr: 104.16.0.0/13}
+        - ipBlock: {cidr: 172.64.0.0/13}
       ports:
         - {port: 443, protocol: TCP}
     # Operator SSO proofs are checked against regional STS (sts.ap-northeast-2.amazonaws.com).
@@ -69,5 +84,25 @@ spec:
             matchLabels:
               app.kubernetes.io/name: t15-rehearsal-host
               bravo.dev/target-api-client: rehearsal
+---
+# The Executor accepts the approval host beside the workflow host (cutover-executor-from-workflow-host).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: cutover-executor-from-rehearsal-host
+  namespace: bravo-platform
+  labels:
+    app.kubernetes.io/name: t15-rehearsal-host
+    component: platform
+spec:
+  podSelector:
+    matchLabels: {app.kubernetes.io/name: cutover-executor}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels: {kubernetes.io/metadata.name: platform-state}
+          podSelector:
+            matchLabels: {app.kubernetes.io/name: t15-rehearsal-host}
       ports:
-        - {port: 443, protocol: TCP}
+        - {port: 8080, protocol: TCP}

@@ -83,8 +83,10 @@ def main(argv=None):
             if c.execute("SELECT version FROM schema_version").fetchall() != [{"version": 3}]:
                 raise ValueError("registration_schema_required")
         app = build_app(store, Path("/registration/catalog.json"), Path("/registration/grants.json"))
-    except Exception:
-        raise SystemExit("registration_startup_unavailable") from None
+    except Exception as error:
+        from .startup import reason
+
+        raise SystemExit("registration_startup_unavailable:" + reason(error)) from None
     tls = ({"ssl_certfile": str(args.tls_cert), "ssl_keyfile": str(args.tls_key)}
            if args.tls_cert else {})
     uvicorn.run(app, host="0.0.0.0", port=8443 if tls else 8080, workers=1,

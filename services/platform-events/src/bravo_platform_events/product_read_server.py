@@ -20,6 +20,10 @@ from .workload_identity import WorkloadKeySet
 # Reader config v2: the platform Job identity only (the Actions caller is removed).
 _FIELDS = {"version", "tenant_id", "catalog_root", "catalog_key_file", "job_identity"}
 _JOB_FIELDS = {"issuer", "audience", "subject", "jwks_file"}
+# The pre-#503 shape (GitHub Actions caller). Still read so that a new image never fails on the old
+# config: the image and its config can roll out in any order; only the initial route stays closed.
+_V1_FIELDS = {"version", "tenant_id", "sts_provider", "github_public_jwks_file", "github_key_id",
+              "catalog_root", "catalog_key_file"}
 
 
 def _json(path, limit):
@@ -74,6 +78,34 @@ def configured_initial_reader(store, config_file):
     return AuthenticatedInitialReader(records, configured_job_caller(config["job_identity"], config["tenant_id"]))
 
 
+def closed_initial_app():
+    """v1 config: no platform Job identity, so every initial read is refused; the Reader stays up."""
+    from fastapi import FastAPI
+    from fastapi.responses import JSONResponse
+
+    from .initial_proposal_api import PATH
+
+    app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
+
+    @app.post(PATH)
+    async def read():
+        return JSONResponse({"detail": {"code": "initial_route_closed_config_v1"}}, status_code=403,
+                            headers={"Cache-Control": "no-store"})
+
+    return app
+
+
+def configured_app(store, config_file):
+    """v2 serves the platform Job; v1 (any order during a rollout) starts with the route closed."""
+    config = _json(config_file, 16384)
+    if (type(config) is dict and config.get("version") == 1
+            and set(config) in (_V1_FIELDS, _V1_FIELDS - {"github_key_id"})):
+        return closed_initial_app()
+    if type(config) is not dict or set(config) != _FIELDS or config.get("version") != 2:
+        raise ValueError("invalid_product_configuration")  # before touching the store
+    return load_initial_app(store, lambda store: configured_initial_reader(store, config_file))
+
+
 def load_initial_app(store, create_reader):
     from .initial_proposal_api import AuthenticatedInitialReader, create_initial_read_app
 
@@ -99,10 +131,11 @@ def main(argv=None):
             raise ValueError()
         connection = runtime_connection()
         connection_checks(connection)
-        app = load_initial_app(PostgresPlanStore(connection),
-                               lambda store: configured_initial_reader(store, args.config))
-    except Exception:
-        raise SystemExit("product_read_startup_unavailable") from None
+        app = configured_app(PostgresPlanStore(connection), args.config)
+    except Exception as error:
+        from .startup import reason
+
+        raise SystemExit("product_read_startup_unavailable:" + reason(error)) from None
     uvicorn.run(app, host="0.0.0.0", port=8443, workers=1,
         ssl_certfile=args.tls_cert, ssl_keyfile=args.tls_key, access_log=False,
         proxy_headers=False, server_header=False, limit_concurrency=16, timeout_keep_alive=5)

@@ -29,6 +29,7 @@ jobs:
       full: ${{ steps.plan.outputs.full }}
       infra: ${{ steps.plan.outputs.infra }}
       scripts: ${{ steps.plan.outputs.scripts }}
+      pins: ${{ steps.plan.outputs.pins }}
       projects: ${{ steps.plan.outputs.projects }}
       matrix: ${{ steps.plan.outputs.matrix }}
     steps:
@@ -44,6 +45,7 @@ jobs:
           EVENT: ${{ github.event_name }}
           GROUP_HEAD: ${{ github.event.merge_group.head_sha }}
           GROUP_ACTION: ${{ github.event.action }}
+          TARGET_BRANCH: ${{ github.event.merge_group.base_ref }}
         run: |
           if [ "$EVENT" = merge_group ]; then
             # A queue result must describe this exact checkout and the entire group.
@@ -55,8 +57,14 @@ jobs:
               echo '::error::Merge group checkout/base mismatch'
               exit 1
             fi
-            # base_sha can be the previous queue group, so its diff omits earlier PRs.
-            python3 scripts/ci_scope.py --full > ci-plan.json
+            # base_sha can be the previous queue group, so its diff omits earlier PRs. Scope by the whole group
+            # instead: everything between the target branch and the group head. Each PR ran its full PR checks.
+            target="${TARGET_BRANCH#refs/heads/}"
+            if [[ ! "$target" =~ ^[A-Za-z0-9._/-]+$ ]] || ! TARGET_SHA=$(git rev-parse --verify -q "refs/remotes/origin/$target" || git rev-parse --verify -q "refs/heads/$target"); then
+              echo '::error::Merge group target branch unavailable'
+              exit 1
+            fi
+            python3 scripts/ci_scope.py --base "$(git merge-base "$TARGET_SHA" "$GROUP_HEAD")" --queue > ci-plan.json
           elif [ "$EVENT" = pull_request ]; then
             python3 scripts/ci_scope.py --base "$BASE" > ci-plan.json
           else
@@ -112,11 +120,11 @@ jobs:
           SCOPE_RESULT: ${{ needs.scope.result }}
         run: test "$SCOPE_RESULT" = success
       - uses: actions/checkout@v7
-        if: needs.scope.outputs.infra == 'true'
+        if: needs.scope.outputs.infra == 'true' || needs.scope.outputs.pins == 'true'
         with:
           fetch-depth: 0
       - name: Registration promotion source
-        if: needs.scope.outputs.infra == 'true'
+        if: needs.scope.outputs.infra == 'true' || needs.scope.outputs.pins == 'true'
         run: |
           python3 scripts/registration_delivery.py check-promotion
           python3 scripts/registration_delivery.py check-promotion --service product-reader
@@ -130,7 +138,7 @@ jobs:
             docker run --rm -i hadolint/hadolint:v2.12.0 hadolint --failure-threshold warning - < "$file"
           done < <(git ls-files -z ':(glob)**/Dockerfile' ':(glob)**/*.Dockerfile')
       - name: Registration Helm contract
-        if: needs.scope.outputs.infra == 'true'
+        if: needs.scope.outputs.infra == 'true' || needs.scope.outputs.pins == 'true'
         run: |
           curl --fail --silent --show-error --location https://get.helm.sh/helm-v4.0.0-linux-amd64.tar.gz -o "$RUNNER_TEMP/helm.tgz"
           curl --fail --silent --show-error --location https://get.helm.sh/helm-v4.0.0-linux-amd64.tar.gz.sha256sum -o "$RUNNER_TEMP/helm.sha256"
@@ -141,6 +149,8 @@ jobs:
           "$RUNNER_TEMP/helm-test/bin/pip" install pyyaml==6.0.3 cel-python==0.2.0
           helm repo add bravo-argo https://argoproj.github.io/argo-helm --force-update
           helm dependency build infra/gitops/argocd
+          helm dependency build infra/iac/argocd
+          "$RUNNER_TEMP/helm-test/bin/python" infra/iac/test_customer_chart.py
           "$RUNNER_TEMP/helm-test/bin/python" infra/gitops/test_registration_chart.py
           "$RUNNER_TEMP/helm-test/bin/python" infra/gitops/test_product_reader_chart.py
           "$RUNNER_TEMP/helm-test/bin/python" infra/gitops/test_initial_proposal_chart.py
@@ -149,6 +159,7 @@ jobs:
           "$RUNNER_TEMP/helm-test/bin/python" infra/envs/rehearsal-access/apiserver_exec_guard.py
           "$RUNNER_TEMP/helm-test/bin/python" infra/gitops/test_rehearsal_host_chart.py
           "$RUNNER_TEMP/helm-test/bin/python" infra/gitops/test_workflow_host_chart.py
+          "$RUNNER_TEMP/helm-test/bin/python" infra/gitops/test_iac_network_application.py
           "$RUNNER_TEMP/helm-test/bin/python" infra/gitops/test_bootstrap.py
           # Evaluate the controller admission CEL on a real kube-apiserver, not by name only.
           GOBIN="$RUNNER_TEMP/envtest-bin" GOTOOLCHAIN=auto go install sigs.k8s.io/controller-runtime/tools/setup-envtest@v0.0.0-20260125163108-a19ec76a3c5d
@@ -160,7 +171,7 @@ jobs:
           "$RUNNER_TEMP/helm-test/bin/python" infra/gitops/test_rehearsal_host_chart.py --render > "$RUNNER_TEMP/registration-rendered/rehearsal-host.yaml"
           helm template bravo-gitops infra/gitops/argocd --namespace bravo-gitops --kube-version 1.35.9 > "$RUNNER_TEMP/registration-rendered/argocd.yaml"
       - name: Rendered registration security
-        if: needs.scope.outputs.infra == 'true'
+        if: needs.scope.outputs.infra == 'true' || needs.scope.outputs.pins == 'true'
         uses: aquasecurity/trivy-action@v0.36.0
         with:
           scan-type: config
@@ -168,7 +179,7 @@ jobs:
           severity: HIGH,CRITICAL
           exit-code: "1"
       - name: Rendered product reader security
-        if: needs.scope.outputs.infra == 'true'
+        if: needs.scope.outputs.infra == 'true' || needs.scope.outputs.pins == 'true'
         uses: aquasecurity/trivy-action@v0.36.0
         with:
           scan-type: config

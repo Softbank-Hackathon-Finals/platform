@@ -2,6 +2,7 @@ import copy
 import json
 import time
 import uuid
+from pathlib import Path
 from urllib.parse import parse_qs, urlencode, urlsplit
 
 import httpx
@@ -349,6 +350,26 @@ def test_claude_child_receives_only_the_api_key(tmp_path, monkeypatch, capsys):
     assert set(options["env"]) == {"PATH", "LANG", "HOME", "TMPDIR", "ANTHROPIC_API_KEY", "PYTHONDONTWRITEBYTECODE"}
     output = capsys.readouterr().out
     assert '"provider": "claude"' in output and KEY not in output and "private-" not in output
+
+
+def test_the_worker_receives_the_iac_state_only_when_the_caller_names_one(tmp_path, monkeypatch, capsys):
+    from types import SimpleNamespace
+
+    from bravo_agent import subscription_admin
+
+    key_file = tmp_path / "anthropic-key"
+    key_file.write_text(KEY + "\n")
+    key_file.chmod(0o600)
+    calls = []
+    monkeypatch.setattr(subscription_admin.subprocess, "run",
+                        lambda command, **options: calls.append(command) or SimpleNamespace(returncode=0))
+    files = {k: tmp_path / k for k in ("bundle", "manifest", "snapshot", "output")}
+    subscription_admin.run_claude_worker(key_file, tmp_path / "broker", SimpleNamespace(model="m", **files))
+    subscription_admin.run_claude_worker(key_file, tmp_path / "broker", SimpleNamespace(
+        model="m", iac_state=Path("target-dev.json"), **files))
+    assert "--iac-state" not in calls[0]
+    assert calls[1][calls[1].index("--iac-state") + 1] == str(Path("target-dev.json").absolute())
+    capsys.readouterr()
 
 
 @pytest.mark.parametrize("mode,content", [(0o644, KEY), (0o600, "not-a-key"), (0o600, "")])

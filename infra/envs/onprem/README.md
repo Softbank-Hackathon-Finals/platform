@@ -5,7 +5,7 @@
 | 파일 | 하는 일 |
 |---|---|
 | [`render-user-data.sh`](render-user-data.sh) | 공통 [`bootstrap.sh`](../../shared/rke2/bootstrap.sh)에 감사 정책과 Tailscale 설치를 더해 user-data를 출력한다 |
-| [`local-vm.sh`](local-vm.sh) | Mac에서 arm64 또는 x86_64 VM을 만들고 지운다 |
+| [`local-vm.sh`](local-vm.sh) | Mac에서 arm64 또는 x86_64 VM을 만들고, 재부팅 뒤 다시 켜고, 지운다 |
 | [`local_vm.py`](local_vm.py) | 시작·종료 배타 잠금, QEMU 신원 확인, 종료 확인 후 디스크 정리 |
 | [`verify-node.sh`](verify-node.sh) | 노드가 기준대로 섰는지 12개 항목을 확인한다 |
 | [`run-kube-bench.sh`](run-kube-bench.sh) | kube-bench로 CIS 점검을 돌리고 요약을 출력한다 |
@@ -21,6 +21,19 @@ export BRAVO_VM_ARCH=arm64         # Apple Silicon. 생략하면 실제 호스�
 ./local-vm.sh run run-kube-bench.sh # CIS 점검. 결과는 VM의 /var/log/kube-bench.json
 ./local-vm.sh down                  # VM과 디스크 삭제. 내려받은 이미지는 남는다
 ```
+
+## 재부팅 뒤 같은 VM 다시 켜기
+
+호스트를 재시작하면 QEMU가 꺼진다. `up`은 새 디스크를 만들고 `down`은 디스크를 지우므로 이때 쓰지 않는다.
+
+```sh
+./local-vm.sh start                 # 같은 디스크·UUID·포트로 다시 켜고 SSH 접속까지 기다린다
+```
+
+- 저장된 `launch.uuid`·`connection.json`·`execution.json`을 그대로 쓴다. 실행 프로필 기록이 없는 이전 VM은 UNKNOWN으로 보고 시작하지 않는다.
+- 같은 VM이 이미 실행 중이면 아무것도 하지 않고 `already running`을 출력한다. 다른 프로세스가 같은 디스크를 쓰거나 기록된 포트가 사용 중이면 시작하지 않는다.
+- 디스크나 seed가 없으면 새로 만들지 않는다. 이전 부팅의 `console.log`는 `console-<UTC 시각>.log`로 보존한다.
+- 시작 뒤 `up`과 같은 QEMU 신원·HVF 실행 검사를 다시 한다. VM 안의 RKE2는 스스로 다시 시작한다. OpenBao는 sealed 상태로 돌아오므로 unseal은 보호된 사람 단계로 따로 수행한다.
 
 아키텍처를 생략하면 호스트 CPU와 HVF 하드웨어 가속을 사용한다. **다른 CPU를 지정하면 이미지 다운로드·키/디스크 생성 전에 거부한다.** 앱 이미지가 amd64뿐이라는 이유로 ARM Mac에 x86 VM을 만들지 않는다. ARM64 이미지의 발행·검증을 먼저 완료한다. Ubuntu `release-20261017` 이미지와 아키텍처별 SHA-256을 고정한다([공식 체크섬](https://cloud-images.ubuntu.com/releases/noble/release-20261017/SHA256SUMS)).
 

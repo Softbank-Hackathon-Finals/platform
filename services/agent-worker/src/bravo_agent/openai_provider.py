@@ -20,7 +20,8 @@ from .telemetry import agent_observation
 from .tools import RESERVED_TOOLS, SANDBOX_TOOLS, SYSTEM, PolicyDenied, Tools
 
 FUNCTIONS = {"repo_read": "mcp__bravo__repo_read", "plan_propose": "mcp__bravo__plan_propose",
-             "inventory_describe": "mcp__bravo__inventory_describe", "policy_evaluate": "mcp__bravo__policy_evaluate"}
+             "inventory_describe": "mcp__bravo__inventory_describe", "policy_evaluate": "mcp__bravo__policy_evaluate",
+             "infra_plan": "mcp__bravo__infra_plan"}
 # Reserved (not yet provided) tools are never offered, but a model may still name them. Map the
 # function-name spellings a model can emit to the same canonical name the Claude hook sees, so the
 # denial is classified once (TOOL_NOT_PROVIDED / DESTRUCTIVE_ATTEMPT_BLOCKED) instead of "unlisted".
@@ -106,6 +107,13 @@ def function_tools(tools: Tools | None = None) -> list[dict]:
              "description": "Read the graded dependency inventory (T16). Optional role filter, null for all.",
              "parameters": {"type": "object", "properties": {"role": {"type": ["string", "null"]}},
                             "required": ["role"], "additionalProperties": False}})
+    if tools is not None and tools.iac is not None:
+        definitions.append(
+            {"type": "function", "name": "infra_plan", "strict": True,
+             "description": tools.iac.describe() + "\nArguments: module id and its params as a JSON object string.",
+             "parameters": {"type": "object", "properties": {"module": {"type": "string"},
+                                                             "params_json": {"type": "string"}},
+                            "required": ["module", "params_json"], "additionalProperties": False}})
     return definitions
 
 
@@ -151,11 +159,24 @@ def flat_shape(stream_shape: dict, calls: list[dict]) -> dict:
         shape["bravo_namespace_matches"] = all(call.get("namespace") == "bravo" for call in calls)
     return shape
 
+# Completed reasoning and non-refusal message items may stream beside the one call. The terminal path
+# already admits these kinds; the stream path keeps them in output order instead of dropping the call.
+# Their content events carry no function output. A refusal item or refusal delta is still unbound.
+SIDE_KINDS = frozenset({"reasoning", "message"})
+SIDE_EVENTS = frozenset({
+    "response.content_part.added", "response.content_part.done",
+    "response.output_text.delta", "response.output_text.done",
+    "response.reasoning_summary_part.added", "response.reasoning_summary_part.done",
+    "response.reasoning_summary_text.delta", "response.reasoning_summary_text.done",
+    "response.reasoning_text.delta", "response.reasoning_text.done"})
+
+
 class FinalizedStreamCall:
-    """Keep one matched function item for a completed response with an explicit empty output."""
+    """Keep one matched function item (and its completed side items) for an explicit empty output."""
     def __init__(self, *, diagnose=False):
         self.diagnose = diagnose
         self.response_id = self.added = self.index = self.done = self.final_args = None
+        self.side = {}
         self.problem = None
         self.rejected_event = None
 
@@ -169,6 +190,17 @@ class FinalizedStreamCall:
         elif event.type in ("response.in_progress", "response.queued"):
             if event.response.id != self.response_id or event.response.output:
                 self.problem = "lifecycle_mismatch"
+        elif (event.type in ("response.output_item.added", "response.output_item.done")
+              and output_kind(getattr(event, "item", None)) in SIDE_KINDS):
+            index = event.output_index
+            if (not self.response_id or type(index) is not int or index < 0 or index == self.index
+                    or index in self.side):
+                self.problem = "unbound_side_item"
+            elif event.type == "response.output_item.done":
+                self.side[index] = event.item
+        elif event.type in SIDE_EVENTS:
+            if not self.response_id or getattr(event, "output_index", None) in (None, self.index):
+                self.problem = "unbound_side_event"
         elif event.type in ("response.output_item.added", "response.output_item.done"):
             item = getattr(event, "item", None)
             if (not self.response_id or output_kind(item) not in BRAVO_KINDS
@@ -176,7 +208,8 @@ class FinalizedStreamCall:
                     or type(event.output_index) is not int or event.output_index < 0):
                 self.problem = "unbound_item"
             elif event.type == "response.output_item.added":
-                if self.added is not None or item.status not in (None, "in_progress", "completed"):
+                if (self.added is not None or item.status not in (None, "in_progress", "completed")
+                        or event.output_index in self.side):
                     self.problem = "ambiguous_item"
                 self.added, self.index = item, event.output_index
             elif (self.added is None or self.done is not None or event.output_index != self.index
@@ -227,7 +260,8 @@ class FinalizedStreamCall:
             return None, self.problem or "unbound_response"
         if self.done is None:
             return None, "no_finalized_call"
-        return self.done, "matched_finalized_call"
+        # observe() keeps the call index distinct from every side index.
+        return [item for _, item in sorted({**self.side, self.index: self.done}.items())], "matched_finalized_call"
 
 
 class OpenAIProvider:
@@ -279,13 +313,13 @@ class OpenAIProvider:
                             stream_shape["terminal_output_missing"] = response.output is None
                             stream_shape["terminal_items"] = dict(Counter(output_kind(item) for item in response.output or []))
                         if response.output == []:
-                            item, reason = candidate.resolved(response)
+                            items, reason = candidate.resolved(response)
                             if stream_shape is not None:
                                 stream_shape["stream_resolution"] = reason
                                 if candidate.rejected_event is not None:
                                     stream_shape["rejected_event"] = candidate.rejected_event
-                            if item is not None:
-                                response = response.model_copy(update={"output": [item]})
+                            if items is not None:
+                                response = response.model_copy(update={"output": items})
                         return response
             raise RuntimeError("subscription stream ended without completion")
         except APIStatusError as error:

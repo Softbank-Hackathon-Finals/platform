@@ -66,7 +66,14 @@ def make_options(tools: Tools, runtime: Path, model: str, effort: str | None = N
     async def describe(args):
         return await call("mcp__bravo__inventory_describe", args)
 
-    handlers = [read, propose, evaluate] + ([describe] if tools.inventory is not None else [])
+    @tool("infra_plan", tools.iac.describe() if tools.iac is not None else "Destination IaC plan (not attached).",
+          {"type": "object", "properties": {"module": {"type": "string"}, "params_json": {"type": "string"}},
+           "required": ["module", "params_json"], "additionalProperties": False})
+    async def infra_plan(args):
+        return await call("mcp__bravo__infra_plan", args)
+
+    handlers = ([read, propose, evaluate] + ([describe] if tools.inventory is not None else [])
+                + ([infra_plan] if tools.iac is not None else []))
 
     async def before(data, tool_use_id, context):
         return await guard(tools, data, tool_use_id, context)

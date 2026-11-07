@@ -58,6 +58,43 @@ T21의 같은 트랜잭션 보고서 조회에는 `authority_factory=provenance.
 새 어댑터 인스턴스에서도 저장된 근거를 읽고 현재 폐기를 반영하며 프로세스 캐시에
 신뢰하지 않는다. 트랜잭션이 끝난 view/검증기를 다음 요청에 재사용하지 않는다.
 
+## 운영 조립과 운영자 발급자 (2026-11-07)
+
+운영 조립은 `bravo_platform_events.gate_services`와 `gate_readiness`가 한다. 운영자 승인 호스트·Edge SHIFT 포트는
+`"gate": "bravo_platform_events.gate_services:create"`, 워크플로 호스트 GATE는 `service_factory`·`load_gate`를 쓴다.
+
+**서명 주체(T19 결정):** 해피패스까지는 운영자 발급자 하나가 용도별 키를 보관한다. 운영자가 T14 수집·T13 캡처·
+GATE 보고서를 확인한 뒤 자기 기기에서 서명하고, 플랫폼에는 공개키와 서명한 봉투만 보낸다. 워크플로 호스트는
+검증만 하고 개인 키를 갖지 않는다. 키 등록(`gate:manage-provenance`)과 게시(`gate:publish-provenance`)는 다른
+주체다. 해피패스 뒤에는 생산자별 키(T14·T13 Job)로 나눌 수 있게 처음부터 용도별로 등록한다.
+
+**순서:** `operations/gate/run.py`
+
+1. `keys --dir <0700 비공개 경로>`: 용도별 키를 만든다.
+2. `enroll`: 수집보다 **먼저** 공개키를 등록한다. 등록 전에 시작한 수집은 서명할 수 없다. 처음 정한 유효기간을
+   `--dir`에 남기므로 일부만 등록된 뒤 다시 실행해도 충돌하지 않는다. 키 유효기간은 48시간 이하다.
+3. T14 실행 기록: `record --side source|target --run <control_run JSON>`(참조는 문서의 `run_id`).
+   기존 수집 경로(`gate_record_host`)를 써도 같은 기록이 된다.
+4. 처음 context(S1): `bind`. 계획 등록값과 양쪽의 **가장 새** 실행으로 결속하고, GateRecords가 실행 기록과
+   대조한다. 같은 실행으로 다시 부르면 기존 결속을 돌려주고, 더 새 실행을 기록한 뒤 부르면 새 context가 된다.
+   반영 뒤 결속은 워크플로 호스트의 `post_apply_prepare`(#565)가 한다.
+5. T13 기록: `readiness --binding … --snapshot …`(context마다 다시 캡처).
+6. `subjects`로 서명할 지문과 이미 게시된 용도를 확인하고, 출력의 `confirm`을 `sign --confirm <값>`에 넘긴다.
+   기본 `sign`은 보여 준 것 중 아직 게시되지 않은 용도만 서명한다. 확인 뒤에 T13 기록이나 GATE 판정이 새로
+   생기면 `confirm`이 달라져 `sign`이 거부한다. 다시 `subjects`로 확인한다.
+7. S1의 1차 판정: `evaluate`(운영 조립으로 평가해 저장, 보통 BLOCK). 반영 뒤 판정은 워크플로 GATE 단계가 한다.
+8. gate-result 서명은 해피패스에 필요하지 않다. 워크플로 GATE reader는 SHIFT·컷오버처럼 같은 트랜잭션의 플랫폼
+   재평가(`served_reevaluation`)를 소비한다. 입력 5종(context, run 2종, readiness 2종)의 서명은 그대로 필요하다.
+
+**readiness 기록의 신뢰 근거:** relay는 호출자가 보낸 T13 binding·snapshot을 그대로 저장한다. 신뢰 근거는
+운영자의 readiness-binding·readiness-snapshot 서명뿐이다. GATE 평가부터 SHIFT 사이에 readiness를 새로
+기록하면 가장 새 기록이 쓰이므로, 그 기록에 다시 서명하기 전까지 소비가 거부된다
+(`COMBINED_GATE_CONTEXT_MISMATCH` 등).
+
+**relay 권한:** relay(`gate_relay`)는 워크플로 호스트 안에서 돈다. 누가 행동하는지는 호스트 설정
+`/workflow/gate-relay.json`에 고정되고, 요청이 고를 수 없다. 세 주체는 OperatorAccess 권한과 기록의 주체를 나눌
+뿐, exec 가진 사람을 나누지 않는다. **t10-workflow-host의 `pods/exec` 권한은 게이트 전권**(admin·issuer·operator)이다.
+
 ## 운영 인수에서 남은 것
 
 운영 관리·생산자 인증, 공개키 자격, 개인 키의 발급·보관·회전, T14 수집기의 실제

@@ -1,0 +1,199 @@
+{
+  "schema_version": "1",
+  "environment": "platform",
+  "modules": [
+    {
+      "id": "tailnet-egress",
+      "version": "1",
+      "params": {
+        "owner_tag": "tag:bravo-platform-operator",
+        "groups": [
+          {
+            "name": "bravo-rehearsal-egress",
+            "tag": "tag:bravo-rehearsal",
+            "tailnet": "workload",
+            "proxy_class": "bravo-clusters-egress-v11044",
+            "clients": [
+              {
+                "namespace": "bravo-rehearsal-control",
+                "labels": {
+                  "bravo.dev/target-api-client": "rehearsal"
+                }
+              },
+              {
+                "namespace": "platform-state",
+                "labels": {
+                  "app.kubernetes.io/name": "t15-rehearsal-host",
+                  "bravo.dev/target-api-client": "rehearsal"
+                }
+              }
+            ],
+            "routes": [
+              {
+                "service": "target-api",
+                "namespace": "bravo-rehearsal-control",
+                "destination": "bravo-target-api",
+                "destination_tag": "tag:bravo-target-api",
+                "port": 443,
+                "port_name": "https"
+              },
+              {
+                "service": "target-credentials",
+                "namespace": "bravo-rehearsal-control",
+                "destination": "bravo-target-credentials",
+                "destination_tag": "tag:bravo-target-api",
+                "port": 443,
+                "port_name": "https"
+              }
+            ]
+          },
+          {
+            "name": "bravo-apply-egress",
+            "tag": "tag:bravo-apply",
+            "tailnet": "workload",
+            "proxy_class": "bravo-clusters-egress-v11044",
+            "clients": [
+              {
+                "namespace": "bravo-apply-control",
+                "labels": {
+                  "bravo.dev/target-api-client": "apply"
+                }
+              },
+              {
+                "namespace": "platform-state",
+                "labels": {
+                  "app.kubernetes.io/name": "t10-workflow-host",
+                  "bravo.dev/target-api-client": "apply"
+                }
+              }
+            ],
+            "routes": [
+              {
+                "service": "target-api",
+                "namespace": "bravo-apply-control",
+                "destination": "bravo-target-api",
+                "destination_tag": "tag:bravo-target-api",
+                "port": 443,
+                "port_name": "https"
+              },
+              {
+                "service": "target-credentials",
+                "namespace": "bravo-apply-control",
+                "destination": "bravo-target-credentials",
+                "destination_tag": "tag:bravo-target-api",
+                "port": 443,
+                "port_name": "https"
+              }
+            ]
+          },
+          {
+            "name": "bravo-collector-egress",
+            "tag": "tag:bravo-collector",
+            "tailnet": "workload",
+            "proxy_class": "bravo-clusters-egress-v11044",
+            "clients": [
+              {
+                "namespace": "platform-state",
+                "labels": {
+                  "app.kubernetes.io/name": "t10-registration",
+                  "bravo.dev/target-api-client": "collector"
+                }
+              }
+            ],
+            "routes": [
+              {
+                "service": "collector-target-api",
+                "namespace": "platform-state",
+                "destination": "bravo-target-api",
+                "destination_tag": "tag:bravo-target-api",
+                "port": 443,
+                "port_name": "https"
+              }
+            ]
+          },
+          {
+            "name": "bravo-cutover-control",
+            "tag": "tag:bravo-cutover-control",
+            "clients": [
+              {
+                "namespace": "bravo-platform",
+                "labels": {
+                  "app.kubernetes.io/name": "cutover-executor"
+                }
+              }
+            ],
+            "routes": [
+              {
+                "service": "source-db-for-cutover",
+                "namespace": "bravo-platform",
+                "destination": "bravo-source-db",
+                "destination_tag": "tag:bravo-source-db",
+                "port": 5432,
+                "port_name": "db"
+              },
+              {
+                "service": "target-db-for-cutover",
+                "namespace": "bravo-platform",
+                "destination": "bravo-target-db",
+                "destination_tag": "tag:bravo-target-db",
+                "port": 5432,
+                "port_name": "db"
+              },
+              {
+                "service": "source-pooler-for-cutover",
+                "namespace": "bravo-platform",
+                "destination": "bravo-source-control-pooler",
+                "destination_tag": "tag:bravo-source-control-pooler",
+                "port": 6432,
+                "port_name": "pooler"
+              },
+              {
+                "service": "target-pooler-for-cutover",
+                "namespace": "bravo-platform",
+                "destination": "bravo-target-control-pooler",
+                "destination_tag": "tag:bravo-target-control-pooler",
+                "port": 6432,
+                "port_name": "pooler"
+              },
+              {
+                "service": "source-api-for-cutover",
+                "namespace": "bravo-platform",
+                "destination": "bravo-source-operator",
+                "destination_tag": "tag:bravo-source-operator",
+                "port": 443,
+                "port_name": "https"
+              },
+              {
+                "service": "target-api-for-cutover",
+                "namespace": "bravo-platform",
+                "destination": "bravo-target-operator",
+                "destination_tag": "tag:bravo-target-operator",
+                "port": 443,
+                "port_name": "https"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "operator-access",
+      "version": "1",
+      "params": {
+        "proxy_hostname": "bravo-platform-operator",
+        "proxy_tag": "tag:bravo-platform-operator",
+        "bindings": [
+          {
+            "name": "bravo-operators-cluster-admin",
+            "group": "bravo:operators",
+            "cluster_role": "cluster-admin",
+            "tailnet_groups": [
+              "autogroup:admin",
+              "autogroup:owner"
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}

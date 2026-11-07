@@ -7,6 +7,9 @@ from the existing runtime-database policy (bravo.dev/db-client=runtime). This ad
   demo-chat object fetch, the relay's public fence re-check). No other internet egress.
 - the Executor's ingress from this host only.
 
+The T31 apply route (host -> bravo-apply-egress proxies -> target API) and the proxies' ingress from
+this host are declared in infra/iac/environments/platform.json (tailnet-egress, T44), not here.
+
     curl -fsS https://api.github.com/meta > meta.json   # public, no credential
     python3 infra/envs/workflow-host/network.py --github-meta meta.json | kubectl apply --dry-run=server -f -
 """
@@ -18,6 +21,7 @@ import sys
 
 HOST = {"app.kubernetes.io/name": "t10-workflow-host", "component": "platform"}
 EXECUTOR = {"app.kubernetes.io/name": "cutover-executor"}
+
 
 
 def _ns(name):
@@ -59,6 +63,7 @@ def _check():
     assert egress[1]["ports"] == [{"port": 8080, "protocol": "TCP"}]
     assert all(peer.get("namespaceSelector") for rule in egress[:2] for peer in rule["to"])  # never a bare podSelector
     assert out["items"][1]["spec"]["ingress"][0]["from"][0]["podSelector"]["matchLabels"] == HOST
+    assert len(egress) == 3 and len(out["items"]) == 2  # the apply route is the IaC module's
     try:
         render({})
         raise AssertionError("empty meta accepted")

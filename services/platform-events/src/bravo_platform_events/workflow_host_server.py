@@ -51,8 +51,10 @@ def main(argv=None):
             if c.execute("SELECT version FROM schema_version").fetchall() != [{"version": 3}]:
                 raise ValueError()
         host = build(store, create_ports)
-    except Exception:
-        raise SystemExit("workflow_host_startup_unavailable") from None
+    except Exception as error:
+        from .startup import reason
+
+        raise SystemExit("workflow_host_startup_unavailable:" + reason(error)) from None
     stop = threading.Event()
     for signum in (signal.SIGTERM, signal.SIGINT):
         signal.signal(signum, lambda *_: stop.set())

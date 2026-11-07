@@ -14,7 +14,7 @@ T7은 플랫폼·OIDC·이미지 발행과 배포 1회가 완료 기준이다. T
 
 ## 2. 선택
 
-**기존 GitFlow와 GitHub Merge Queue를 유지하고, Helm으로 선언한 배포 상태를 Argo CD가 적용한다.** CI는 이미지를 빌드·검사·발행하고 배포 설정 PR을 만든다. 실제 클러스터 반영은 Argo CD 한 주체가 맡는다.
+**기존 GitFlow를 유지하고, Helm으로 선언한 배포 상태를 Argo CD가 적용한다.** (Merge Queue는 2026-11-07 제거, ADR-0017 참고) CI는 이미지를 빌드·검사·발행하고 배포 설정 PR을 만든다. 실제 클러스터 반영은 Argo CD 한 주체가 맡는다.
 
 기존 수동 이미지 반입은 최초 인수와 비상 복구의 제한된 절차로 남긴다. CI에서 매번 광범위한 kubeconfig로 kubectl을 실행하는 경로, 자체 배포 조정기, 모든 서비스를 감싼 범용 chart는 도입하지 않는다.
 
@@ -22,7 +22,7 @@ T7은 플랫폼·OIDC·이미지 발행과 배포 1회가 완료 기준이다. T
 
 | 입력 | Git 절차 | 배포할 상태 |
 |---|---|---|
-| 기능 수정 | develop에서 `feature/T번호-설명`, develop 대상 PR, 필수 CI와 Merge Queue | 변경 서비스의 검증된 이미지를 발행하고 개발 환경 values의 digest 변경 PR을 만든다. 해당 PR 병합 뒤 개발 Application이 동기화한다. |
+| 기능 수정 | develop에서 `feature/T번호-설명`, develop 대상 PR, 필수 CI 통과 후 병합 | 변경 서비스의 검증된 이미지를 발행하고 개발 환경 values의 digest 변경 PR을 만든다. 해당 PR 병합 뒤 개발 Application이 동기화한다. |
 | 릴리스 | develop에서 `release/vX.Y.Z`, main PR과 기존 승인·CI, 버전 태그, develop 역반영 | 검증한 동일 이미지 digest와 설정을 승격한다. 릴리스 중 코드가 바뀌면 그 코드의 이미지와 검증 영수증을 새로 만든다. |
 | 긴급 수정 | main에서 `hotfix/T번호-설명`, main 반영 후 develop 또는 진행 중 release로 반영 | 수정한 산출물을 검증한 뒤 정확한 digest를 승격한다. |
 | 복구 | 이전 검증 digest·설정으로 돌아가는 보호된 Git revert PR | Argo CD가 이전 상태로 수렴한 뒤 API와 데이터 보존을 확인한다. |

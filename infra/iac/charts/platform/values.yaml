@@ -1,0 +1,4 @@
+# The tailnet suffix is set on the cluster's Argo Application, never committed.
+tailnet: ""
+tailnets:
+  workload: ""
