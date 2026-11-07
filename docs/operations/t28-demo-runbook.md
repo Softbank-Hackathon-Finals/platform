@@ -40,7 +40,8 @@ python3 scripts/happy_path.py steps                      # 순서와 연결 상�
 python3 scripts/happy_path.py run --plan-id <plan> --record <run.jsonl> --profile real \
   --scenario recovery \
   --plan-state-command <plan 상태를 {"state": ...}로 출력하는 읽기 전용 명령> \
-  --kubeconfig <target> --application-id <T31 id> --receipts <T31 receipts> --wait 600
+  --kubeconfig <target> --object-endpoint <target-SeaweedFS> --probe-key <existing-object-key> \
+  --application-id <T31 id> --receipts <T31 receipts> --wait 600
 python3 scripts/happy_path.py confirm --record <run.jsonl> --step s2-change-approval --by <이름>
 python3 scripts/happy_path.py resolve --record <run.jsonl> --step <id> --status done|failed --by <이름> --note <근거>
 ```
@@ -50,10 +51,11 @@ python3 scripts/happy_path.py resolve --record <run.jsonl> --step <id> --status 
 ```sh
 python3 scripts/happy_path.py run --plan-id <plan> --record <새 회차.jsonl> \
   --profile real --scenario migration --platform-context <platform> --kubeconfig <target> \
+  --object-endpoint <target-SeaweedFS> --probe-key <existing-object-key> \
   --application-id <T31 id> --receipts <T31 receipts> --initial-args --from <initial.json>
 ```
 
-`migration`은 정방향 컷오버·WATCH와 역방향 복제 도착 확인까지 진행한다.
+`migration`은 정방향 컷오버·WATCH, 역방향 복제 도착 확인과 목적지 앱·콘솔 확인까지 진행한다.
 S4 장애 주입·되돌리기는 실행하지 않는다. 최종 실제 계획을 다시 읽어 `WATCH` 또는
 `DONE`이어야 완료를 기록한다. `DONE_ROLLED_BACK`은 정방향 이전 완료로 인정하지 않는다.
 기본값 `recovery`는 기존 S4 포함 각본을 유지한다.
@@ -95,3 +97,30 @@ S4 장애 주입·되돌리기는 실행하지 않는다. 최종 실제 계획�
 | 마무리 감사 | [t24-audit-live-2026-11-06](../evidence/t24-audit-live-2026-11-06/README.md) | 원문 확인 후 표시 |
 
 해피패스를 실제로 실행한 뒤에는 그 실행의 기록으로 이 표를 바꾼다.
+
+## 실제 이전 시연의 입력과 최종 확인
+
+`--profile real`에서는 `--scenario`를 명시한다. 목적지 kubeconfig, 버킷 endpoint와 기존 객체 key,
+계획 읽기 경로가 없으면 실행 기록을 만들거나 명령을 실행하기 전에 거부한다.
+버킷 검사는 기존 S1의 `open-demo` 시작 상태 검사다. 일반 운영 버킷을 공개하라는 지시가 아니다.
+Edge 가중치·출발지 writer·복제 방향은 기존 담당 도구로 별도 확인한다.
+
+T31 application ID는 반영 후 결정될 수 있다. `--application-id`·`--receipts`가 없으면
+`s2-open-writes`에서 대기하며, 값을 채워 같은 실행을 재개할 수 있다. `resolve`는 필요하지 않다.
+`--receipts`는 실행기에서 읽을 수 있는 실제 T31 영수증 디렉터리여야 한다.
+원격에만 있는 경로 문자열을 전달하거나 임의 영수증을 만들어서는 안 된다.
+
+`s3-app-console-check`에서는 시연 운영자가 다음 결과를 확인한 뒤 `confirm --by … --note …`로
+비공개 증빙 참조를 남긴다. 이 기록은 운영자의 확인이며 자동 시험이나 T10 판정을 대체하지 않는다.
+
+- 목적지에서 이전 전 메시지와 첨부를 읽고, 새 메시지·첨부를 저장한 뒤 재접속해 다시 읽는다.
+- 실제 DB 쓰기 대상과 Edge 결과가 목적지를 가리키는지 기존 영수증과 조회로 확인한다.
+- 콘솔이 실행한 동일 계획의 현재 상태·전환 결과를 보여 주는지 확인한다. 관측 전용 지도는 제어 성공 근거가 아니다.
+
+```sh
+python3 scripts/happy_path.py confirm --record <run.jsonl> --step s3-app-console-check \
+  --by <operator> --note <private-verification-reference>
+```
+
+이후 실행기는 T10 상태를 다시 읽는다. `WATCH` 또는 `DONE`만 정방향 완료로 인정하며,
+이 실행기 완료를 T10 `DONE`이나 무중단 보장으로 표시하지 않는다.

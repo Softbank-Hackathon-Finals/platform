@@ -120,7 +120,10 @@ uv run --directory services/platform-events python ../../operations/initial-prop
 
 ```sh
 python3 scripts/happy_path.py run --plan-id <plan> --record run.jsonl --profile real \
-  --platform-context <platform> --kubeconfig <target> --initial-args --from initial.json   # --initial-args는 맨 마지막
+  --scenario migration --platform-context <platform> --kubeconfig <target> \
+  --object-endpoint <target-SeaweedFS> --probe-key <existing-object-key> \
+  --application-id <T31-application-id> --receipts <local-T31-receipts> \
+  --initial-args --from initial.json   # --initial-args는 맨 마지막
 ```
 
 plan 상태는 워크플로 호스트 Pod(`deploy/t10-workflow-host`, 컨테이너 `host`)의 `bravo_platform_events.plan_state`로 읽는다(읽기 전용). T18·T8·T27·이미지 이관은 담당이
