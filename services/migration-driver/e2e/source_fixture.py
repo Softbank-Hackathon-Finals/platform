@@ -35,13 +35,16 @@ from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.x509.oid import ExtendedKeyUsageOID, NameOID
 
-from bravo_migration.host import LocalVmHost
+from bravo_migration.host import site_host
 from bravo_migration.kube import Kube
 from bravo_migration.vault import PlatformVault
 
 NS, AWS_NS = "source-dev", "aws"
-APP_IMAGE = "localhost/bravo-demo-chat@sha256:b351ba11819796aaea854f742049e46b058561f80c0e738f42c93280af762888"
-APP_NAMES = ["localhost/bravo-demo-chat:8d82a924-arm64", APP_IMAGE]
+def app_names(repo: Path, arch: str) -> list[str]:
+    """The destination's app image names for this arch (T45 `app-image` expect): the source runs the same image."""
+    stack = json.loads((repo / "infra/stacks/target-onprem/stack.json").read_text())
+    step = next(s for s in stack["steps"] if s["id"] == "app-image")
+    return step["expect"]["images_by_arch"][arch]
 MOTO_IMAGE = "motoserver/moto:5.1.4"
 REGION = "ap-northeast-2"
 SECRET_ID = "demo-chat/db"
@@ -177,14 +180,14 @@ def objects(repo):
              "spec": {"selector": labels, "ports": [{"name": "s3", "port": 8333, "targetPort": 8333}]}}]
 
 
-def app(render):
+def app(render, image):
     env = {"APP_ENV": "aws", "DB_HOST": f"source-pgbouncer.{NS}.svc.cluster.local", "DB_PORT": "5432",
            "DB_NAME": "chat", "DB_SECRET_ID": SECRET_ID, "S3_BUCKET": BUCKET,
            "S3_ENDPOINT_URL": f"http://source-objects.{AWS_NS}.svc:8333", "S3_FORCE_PATH_STYLE": "true",
            "AWS_ENDPOINT_URL_SECRETS_MANAGER": f"http://moto.{AWS_NS}.svc:5000",
            "AWS_REGION": REGION, "AWS_DEFAULT_REGION": REGION,
            "PGSSLMODE": "verify-full", "PGSSLROOTCERT": "/etc/cnpg-ca/ca.crt", "WRITE_BLOCKED": "false"}
-    deploy = render.deployment("demo-chat", APP_IMAGE, {
+    deploy = render.deployment("demo-chat", image, {
         "name": "app", "env": [{"name": k, "value": v} for k, v in env.items()] + [
             {"name": "ADMIN_TOKEN", "valueFrom": {"secretKeyRef": {"name": "demo-chat-control", "key": "admin-token"}}},
             # The app identity of the bucket; the same keys reach the Secrets Manager stand-in, which accepts any.
@@ -208,6 +211,7 @@ class Source:
         self.kube = Kube(cfg["kubeconfig"], cfg["cluster_uid"])
         self.vault = PlatformVault(cfg["vault_dir"])
         self.render = _module(self.repo, "source_workloads_render")
+        self.app_names = app_names(self.repo, cfg["params"]["arch"])
 
     def psql(self, sql, db="chat"):
         out = self.kube.exec(NS, "deploy/source-db", ["psql", "-v", "ON_ERROR_STOP=1", "-X", "-q", "-At",
@@ -227,8 +231,7 @@ class Source:
         creds = self.vault.put_once("source-credentials", {
             "chat_app": _random(32), "chat_replicator": _random(32), "admin_token": _random(40)})
         tls = self.vault.put_once("source-ca", _tls())
-        LocalVmHost(self.cfg["host"]["generator"], self.cfg["host"]["state"]).import_image(
-            self.cfg["images"]["app"], APP_NAMES)
+        site_host(self.cfg["host"]).import_image(self.cfg["images"]["app"], self.app_names)
         self.kube.apply([namespace(NS), namespace(AWS_NS)])
         self.kube.apply(moto())
         self.kube.apply([secret("source-db-ca", NS, {"ca.crt": tls["ca_crt"]}),
@@ -281,7 +284,7 @@ try: sm.create_secret(Name='{SECRET_ID}',SecretString=value)
 except sm.exceptions.ResourceExistsException: pass
 """, stdin=creds["chat_app"])
         self.kube.rollout(NS, "source-pgbouncer")
-        self.kube.apply(app(self.render))
+        self.kube.apply(app(self.render, next(n for n in self.app_names if "@sha256:" in n)))
         if fresh:
             # A new server: connections opened against the old one (pooler cache, app pool) are stale.
             for name in ("source-pgbouncer", "demo-chat"):

@@ -633,18 +633,22 @@
       "id": "app-image",
       "kind": "operator_action",
       "owner": "T30",
-      "when": {"param": "arch", "in": ["arm64"]},
-      "description": "arm64 노드에 목적지 앱 이미지를 오프라인으로 반입한다(amd64는 고정 레지스트리에서 받는다)",
+      "when": {"param": "arch", "in": ["arm64", "amd64"]},
+      "description": "목적지 앱 이미지를 노드에 오프라인으로 반입한다. 앱은 imagePullPolicy Never로 뜨고, 목적지는 GHCR 자격을 갖지 않는다(arm64: 로컬 빌드, amd64: 고정 GHCR index)",
       "needs": [
         "identity"
       ],
-      "instruction": "app-image.json의 arm64 이미지(검사한 OCI)를 태그와 localhost/bravo-demo-chat@sha256 별칭으로 반입하고, 둘 다 기대 descriptor를 가리키는지 확인한다.",
+      "instruction": "app-image.json의 이미지(arm64는 검사한 OCI, amd64는 index_digest를 그대로 보존한 OCI)를 태그와 @sha256 별칭으로 반입하고, 둘 다 기대 descriptor를 가리키는지 확인한다.",
       "confirm": "app-image",
       "expect": {
         "images_by_arch": {
           "arm64": [
             "localhost/bravo-demo-chat:8d82a924-arm64",
             "localhost/bravo-demo-chat@sha256:b351ba11819796aaea854f742049e46b058561f80c0e738f42c93280af762888"
+          ],
+          "amd64": [
+            "ghcr.io/softbank-hackathon-finals/demo-chat:8d82a924",
+            "ghcr.io/softbank-hackathon-finals/demo-chat@sha256:ca5ce1b24f1deb2e7346643860ff0bb151409c1acec503c105f56d9043a389b6"
           ]
         }
       }
