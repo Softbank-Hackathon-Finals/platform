@@ -114,6 +114,27 @@ def test_app_trusting_only_the_target_issuer_stays_eligible(plan):
     assert blockers(pod, plan) == []
 
 
+@pytest.mark.parametrize("value", ["$(SRC_ISSUER)|$(SRC_CLIENT)", "https://login.example.com/realms/bravo|c,$(SRC)"])
+def test_issuer_built_from_other_variables_cannot_be_read(plan, value):
+    # kubelet substitutes $(VAR) at start, from a plain value or a Secret; the collector sees only the text.
+    pod = env_pod({"name": "SRC_ISSUER", "value": COGNITO}, {"name": "AUTH_ALSO_TRUST", "value": value})
+    assert blockers(pod, plan) is None
+
+
+def test_emptied_also_trust_is_an_empty_value_not_unreadable(plan):
+    # value: "" comes back from the API without the field (omitempty).
+    pod = env_pod({"name": "AUTH_ISSUER", "value": KEYCLOAK}, {"name": "AUTH_ALSO_TRUST"})
+    assert blockers(pod, plan) == []
+
+
+def test_upper_case_aws_issuer_and_one_in_an_init_container_are_caught(plan):
+    assert blockers(env_pod({"name": "AUTH_ISSUER", "value": COGNITO.upper()}), plan) == [IDENTITY]
+    pod = kube_pod()
+    pod["spec"]["initContainers"] = [{"name": "sidecar", "restartPolicy": "Always",
+                                      "env": [{"name": "AUTH_ALSO_TRUST", "value": f"{COGNITO}|client"}]}]
+    assert blockers(pod, plan) == [IDENTITY]
+
+
 @pytest.mark.parametrize("name", ["AUTH_ISSUER", "AUTH_ALSO_TRUST"])
 def test_issuer_from_a_reference_cannot_be_read(plan, name):
     pod = env_pod({"name": name, "valueFrom": {"configMapKeyRef": {"name": "app", "key": "issuer"}}})

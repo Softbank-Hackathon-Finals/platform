@@ -89,9 +89,14 @@ def _exit_blockers(metadata: dict, spec: Any) -> list[str] | None:
             names.append(entry["name"])
             if entry["name"] in TRUSTED_ISSUER_VARIABLES:
                 # 발급자를 참조로 넣으면 값을 새로 읽지 않는다. envFrom과 같이 모른다고 둔다.
-                if not isinstance(entry.get("value"), str):
+                if "valueFrom" in entry:
                     return None
-                issuers.append(entry["value"])
+                # value: ""는 API가 필드째 빼고 돌려준다(omitempty). 둘 다 없으면 빈 값이다.
+                value = entry.get("value", "")
+                # $(VAR)는 kubelet이 시작할 때 다른 변수(Secret 포함)로 바꾼다. 글자만 봐서는 모른다.
+                if not isinstance(value, str) or "$(" in value:
+                    return None
+                issuers.append(value)
     blockers = []
     if NOT_EXIT_EVIDENCE_ANNOTATION in annotations:
         blockers.append("NOT_EXIT_EVIDENCE")
