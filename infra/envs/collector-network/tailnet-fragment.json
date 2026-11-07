@@ -23,6 +23,8 @@
     {"src": "tag:bravo-window-intake", "deny": ["tag:bravo-metrics:9090"]},
     {"src": "tag:bravo-platform-operator", "deny": ["tag:bravo-metrics:9090"]},
     {"src": "tag:bravo-collector", "deny": ["tag:bravo-metrics:9090"]},
+    {"src": "tag:bravo-apply", "deny": ["tag:bravo-metrics:9090"]},
+    {"src": "tag:bravo-rehearsal", "deny": ["tag:bravo-metrics:9090"]},
     {"src": "tag:bravo-target-api", "deny": ["tag:bravo-metrics:9090"]}
   ]
 }

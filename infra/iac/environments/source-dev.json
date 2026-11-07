@@ -1,0 +1,37 @@
+{
+  "schema_version": "1",
+  "environment": "source-dev",
+  "modules": [
+    {
+      "id": "tailnet-egress",
+      "version": "1",
+      "params": {
+        "owner_tag": "tag:bravo-source-operator",
+        "groups": [
+          {
+            "name": "bravo-source-collector",
+            "tag": "tag:bravo-source-collector",
+            "clients": [
+              {
+                "namespace": "bravo-observability",
+                "labels": {
+                  "app": "bravo-collector"
+                }
+              }
+            ],
+            "routes": [
+              {
+                "service": "bravo-metrics",
+                "namespace": "bravo-observability",
+                "destination": "bravo-metrics",
+                "destination_tag": "tag:bravo-metrics",
+                "port": 9090,
+                "port_name": "otlp"
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}

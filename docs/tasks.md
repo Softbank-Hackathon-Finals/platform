@@ -876,6 +876,33 @@ Claude Code는 `/todo-task`, Codex는 `$todo-task`로 이 순서를 따르는 �
 
 **완료 기준** 실패 주입에서 비밀이 출력되지 않고 시험은 실패하며, 기존 실제 DB 게이트 시험과 필수 CI가 통과한다. Docker/레지스트리 장애가 모두 해결됐다고 주장하지 않는다.
 
+### [T44] 목적지 IaC API: 모듈 카탈로그 · 결정적 plan · 에이전트 계획 도구 · GitOps 적용
+
+**어디에 필요** 목적지 구성이 Terraform(AWS)·쉘(온프렘 VM)·파이썬 렌더러+kubectl(목적지 워크로드)로 나뉘어 있고, 버킷 공개 같은 설정 결함을 명령형으로 고쳐 Git에 이력이 남지 않는다(설계 FR-3·NFR-7과 어긋남). 에이전트는 인프라를 읽기만 하고 계획할 도구가 없다.
+
+**만들 것** 목적지 구성을 버전 있는 IaC 모듈과 환경별 원하는 상태(Git)로 관리하고, 플랫폼이 모듈 목록·결정적 plan을 API로 제공한다. 에이전트는 계획 단계에서 `infra.plan`으로 변경을 제안만 한다. 적용은 GitOps: 사람이 검토·병합한 원하는 상태만 적용한다. 첫 모듈은 목적지 첨부 버킷 공개 상태(T9 렌더러와 같은 형태), ADR-0032.
+
+- **우선순위** P1 · **영역** 보안 통제 · 게이트 · **담당** 이상무
+- **선행** `T9` (통합 시점: `T10`, `T11`, `T31`) · **후속** 없음 · **설계 문서** FR-3, NFR-7, 8.3, ADR-0032
+
+**목표** 목적지 설정 변경 한 건이 "에이전트 계획 → plan diff·digest → PR 검토·병합 → 적용 → GATE 재대조"로 이어지고, 변경 이력이 Git에 남는다. 에이전트는 노출 확대·모듈 추가/삭제를 계획할 수 없고 적용 권한이 없다.
+
+**할 일**
+- [ ] `services/iac`: 모듈 카탈로그·원하는 상태 검사·결정적 plan(같은 입력 같은 digest, 비밀 값 제외)·CLI·읽기/제안 API, 첫 모듈 `target-object-exposure`와 T9 렌더러 동치 시험
+- [ ] 네트워크 경로 모듈 `tailnet-egress`: 플랫폼→목적지 API, 컷오버→양쪽 DB·Pooler, 관측(Collector→지표 저장소)을 선언하고 tailnet 정책 조각·Tailscale 실검증(`tailnet-verify`)
+- [ ] 에이전트 도구 `infra.plan`(T11 도구 계층·두 provider)과 제어 경로가 주입하는 계획 포트(`AgentPlanner`)
+- [ ] 실제 Job에 포트 연결(T38·T11): 커밋된 원하는 상태를 입력으로, 계획 결과를 실행 결과에 결속
+- [ ] 플랫폼 API에 IaC 조회·plan 연결(T10)과 승인 뒤 원하는 상태 PR 생성(기존 GitHub App 쓰기 경로)
+- [ ] 고객 클러스터마다 Argo CD(pull): 환경별 생성 Helm 차트와 설치 차트(1단계 넉넉한 권한), 실제 클러스터 설치와 동기화 확인
+- [ ] 비밀 값이 필요한 모듈(버킷 계정)의 GitOps 적용과 적용 뒤 IAM-01.1 재대조
+- [ ] 권한 세분화: AppProject·controller 권한을 원하는 상태의 namespace·종류로, 커밋 서명 검증, 모듈별 prune 승인
+- [ ] 기존 경로 렌더러를 이 모듈로 이전(같은 자원의 주인 하나): 리허설·반영·Collector → 목적지 API(T15), 컷오버 경로(T12), Collector → 지표 저장소(T37)
+- [ ] 플랫폼 클러스터는 기존 T43 Argo에 `charts/platform` Application 연결
+- [ ] tailnet 정책도 같은 원하는 상태에서 적용: Argo 설치 전 조건으로 실제 정책에 대한 `tailnet-check` PASS, 이후 PR 검증·병합 적용(Tailscale GitOps)
+- [ ] 운영자 → 플랫폼·목적지 API를 tailnet API proxy 경로로 선언하고 grant로 권한 부여(SSM 포트포워딩·QEMU hostfwd·kubectl port-forward 대체)
+
+**완료 기준** 데모 1번(열린 버킷)이 에이전트의 `infra.plan` → PR 병합 → 적용 → GATE IAM-01.1 PASS로 이어지고, 같은 입력의 plan digest가 같으며, 에이전트의 노출 확대 계획은 거부된다. 적용 전 plan이나 CI 통과만으로 완료 처리하지 않는다.
+
 ## 6단계
 
 ### [T25] 반복 측정 · 장애 주입 · SAFE_HOLD 시험

@@ -1,0 +1,54 @@
+# One customer cluster = one environment of infra/iac/environments. Set at install, per cluster.
+environment: ""
+# The <name>.ts.net suffix of the tailnet. Protected operator input, never committed.
+tailnet: ""
+repoURL: https://github.com/Softbank-Hackathon-Finals/platform.git
+# The exact reviewed commit (full 40-hex SHA) this cluster applies. Required at install, no branch default:
+# a merge alone must never reach a customer cluster. Promotion = changing this one value.
+targetRevision: ""
+
+argo-cd:
+  fullnameOverride: bravo-iac-gitops
+  crds:
+    install: true
+    keep: true
+  global:
+    image:
+      tag: v3.6.1
+    securityContext:
+      runAsNonRoot: true
+      runAsUser: 999
+      runAsGroup: 999
+      fsGroup: 999
+      seccompProfile:
+        type: RuntimeDefault
+  configs:
+    cm:
+      admin.enabled: false
+      exec.enabled: false
+      timeout.reconciliation: 60s
+      timeout.reconciliation.jitter: 15s
+      application.resourceTrackingMethod: annotation
+  controller:
+    resources:
+      requests: {cpu: 200m, memory: 512Mi}
+      limits: {cpu: "1", memory: 1Gi}
+  repoServer:
+    automountServiceAccountToken: false
+    resources:
+      requests: {cpu: 100m, memory: 256Mi}
+      limits: {cpu: "1", memory: 768Mi}
+  redis:
+    resources:
+      requests: {cpu: 50m, memory: 96Mi}
+      limits: {cpu: 250m, memory: 256Mi}
+  # Core mode: no UI, no ingress, no SSO in the customer cluster. People see state through the platform.
+  server:
+    enabled: false
+  dex:
+    enabled: false
+  notifications:
+    enabled: false
+  # argo-helm 10.14.0 has no applicationSet.enabled; no replica is the switch.
+  applicationSet:
+    replicas: 0
