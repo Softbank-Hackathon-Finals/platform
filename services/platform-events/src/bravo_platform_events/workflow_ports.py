@@ -51,6 +51,10 @@ def _state_dir(value):
     path = Path(value)
     if not path.is_absolute() or not path.parent.is_dir():
         raise ValueError(f"workflow_mount_required:{value}")
+    if path.is_dir() and not path.is_symlink():
+        # The kubelet's fsGroup pass adds group bits to the volume on every mount, so the 0700 directory the
+        # ledger requires is 0770 again after a restart (live 11/8: the host stopped at the second start).
+        path.chmod(0o700)
     return path
 
 
