@@ -1,0 +1,23 @@
+{
+  "schema_version": "bravo.adapter-readiness/v1",
+  "description": "Adapter slots (docs/contracts/environment-kinds.json) implemented per kind. A plan is accepted only when its source kind has every source.* and both.* slot and its target kind has every target.* and both.* slot. Update this file when an ADR-0034 A task merges. Operators may replace a kind's entry with adapter_readiness in the registration catalog.",
+  "kinds": {
+    "aws": [
+      "source.static_rules",
+      "source.deploy_trace",
+      "source.neutral_export",
+      "source.exit_scope",
+      "both.control_probes",
+      "both.identity"
+    ],
+    "gcp": [],
+    "onprem": [
+      "target.catalog",
+      "target.neutral_apply",
+      "target.rehearsal",
+      "target.build",
+      "both.control_probes",
+      "both.identity"
+    ]
+  }
+}

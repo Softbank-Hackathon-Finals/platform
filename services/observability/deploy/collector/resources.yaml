@@ -1,7 +1,8 @@
 # T37 클러스터별 Collector. 출발지 · 목적지 클러스터에 하나씩 둔다.
 # 배포 전에 클러스터마다 아래 둘을 만든다(값은 git에 두지 않는다).
 #   Secret    bravo-collector-tls : ca.crt · tls.crt · tls.key (플랫폼 CA가 발급, 이름은 collector-<환경>)
-#   ConfigMap bravo-collector-env : BRAVO_ENV, PLATFORM_OTLP_ENDPOINT, (tailnet 경로면) PLATFORM_TLS_SERVER_NAME
+#   ConfigMap bravo-collector-env : BRAVO_ENV, BRAVO_ROLE(source · target), PLATFORM_OTLP_ENDPOINT, (tailnet 경로면) PLATFORM_TLS_SERVER_NAME
+#     BRAVO_ROLE은 새 배포에서 필수다. 생략하면 aws=source, onprem=target으로만 본다(deprecated).
 # 앱 네임스페이스에 bravo.observability/send=true 라벨을 붙여야 그 앱이 Collector로 보낼 수 있다.
 apiVersion: v1
 kind: Namespace
@@ -58,6 +59,9 @@ spec:
             - name: BRAVO_ENV
               valueFrom:
                 configMapKeyRef: {name: bravo-collector-env, key: BRAVO_ENV}
+            - name: BRAVO_ROLE
+              valueFrom:
+                configMapKeyRef: {name: bravo-collector-env, key: BRAVO_ROLE, optional: true}
             - name: PLATFORM_OTLP_ENDPOINT
               valueFrom:
                 configMapKeyRef: {name: bravo-collector-env, key: PLATFORM_OTLP_ENDPOINT}

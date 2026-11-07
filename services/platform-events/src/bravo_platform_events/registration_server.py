@@ -48,7 +48,8 @@ def build_app(store, config_file, grants_file):
             return False
 
     registry = Registry(store, environments=environments, releases=releases, can_register=can_register,
-                        evaluation_profiles=config.get("evaluation_profiles", ()))
+                        evaluation_profiles=config.get("evaluation_profiles", ()),
+                        readiness=config.get("adapter_readiness"))
     app = create_registration_app(registry, verify_identity=identity)
     if config.get("gate_records") is not None:
         from .gate_record_host import (

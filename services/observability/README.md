@@ -76,6 +76,7 @@ Ready endpoint, 실제 mTLS 정상 조회, 미인증·허용되지 않은 인증
 ### 동작
 
 - **환경 이름은 Collector가 붙인다.** 앱이 보낸 `bravo.env`는 허용 목록에서 지워지고, Collector의 `BRAVO_ENV`로 덮어쓴다.
+- **역할도 Collector가 붙인다.** `BRAVO_ROLE`(`source` · `target`)이 `bravo_role` 라벨이 되고, 경보는 환경 이름이 아니라 이 라벨로 출발지 · 목적지를 고른다([ADR-0034](../../docs/adr/0034-environment-kind-adapters.md), 종류는 aws · gcp · onprem 무엇이든 된다). 비워 두면 P0 호환으로 `aws`=source, `onprem`=target으로만 본다(deprecated).
 - **허용 목록:** 앱 지표는 아래 속성만 남는다. 채팅 본문 · 헤더 · 토큰 · SQL 파라미터는 저장되지 않는다.
   - 리소스: `service.name` · `service.instance.id`
   - 데이터 포인트: `http.request.method` · `http.response.status_code` · `http.route`
@@ -139,7 +140,7 @@ Ready endpoint, 실제 mTLS 정상 조회, 미인증·허용되지 않은 인증
 - **Pod 보안:** 다섯 워크로드(PgBouncer exporter 포함) 모두 Pod 보안 표준 restricted를 만족한다(비루트, 읽기 전용 루트, 권한 상승 금지, capability 제거, seccomp). ServiceAccount 토큰은 DB 오버레이의 Collector만 붙인다(Pod 조회용).
 - **배포 전에 만들 것(git에 두지 않음)**
   - Secret: `bravo-collector-tls`, `bravo-prometheus-tls`, `bravo-observability-api-tls`, `bravo-observability-api-token`
-  - ConfigMap: `bravo-collector-env`(`BRAVO_ENV`, `PLATFORM_OTLP_ENDPOINT`, DB 오버레이면 `BRAVO_DB_NAMESPACE`, PgBouncer 오버레이면 `BRAVO_PGBOUNCER_NAME`)
+  - ConfigMap: `bravo-collector-env`(`BRAVO_ENV`, `BRAVO_ROLE`, `PLATFORM_OTLP_ENDPOINT`, DB 오버레이면 `BRAVO_DB_NAMESPACE`, PgBouncer 오버레이면 `BRAVO_PGBOUNCER_NAME`)
   - 창 수신 참조 배치의 Secret `bravo-window-intake-token` · ConfigMap `bravo-window-intake`는 k8s.sh가 만든다. 운영 수신의 자격은 T10 절차를 따른다.
   - PgBouncer 오버레이: Secret `bravo-pgbouncer-stats`(`connection-string`, `ca.crt`). 형식은 [component 주석](deploy/components/pgbouncer/kustomization.yaml). PgBouncer 쪽은 `stats_users`와 auth_file에 통계 계정을 더한다(T6 · T30)
 - 리허설 네임스페이스에는 Collector로 가는 송신 예외를 열지 않는다(ADR-0002).

@@ -5,13 +5,21 @@ renderer never accepts or emits the token itself.
 """
 import argparse
 import json
+import re
 
 IMAGE = "cloudflare/cloudflared:2026.10.5@sha256:1b1d34d0a9c0bfca9de72db8460d328db3f19edd2b96169114e3e893a97bbe53"
 NAME = "bravo-edge-tunnel"
 
 
+# P0 application namespaces. Any registered environment (aws, gcp or onprem,
+# source or target; ADR-0034) may pass its own namespace instead.
+KNOWN_NAMESPACES = ("source-dev", "target-dev")
+NAMESPACE = re.compile(r"[a-z0-9](?:[-a-z0-9]{0,61}[a-z0-9])?")
+RESERVED = {"default", "kube-system", "kube-public", "kube-node-lease"}
+
+
 def render(namespace: str) -> dict:
-    if namespace not in {"source-dev", "target-dev"}:
+    if not NAMESPACE.fullmatch(namespace) or namespace in RESERVED:
         raise ValueError("expected a registered application namespace")
     labels = {"app": NAME, "component": "edge", "app.kubernetes.io/part-of": "bravo"}
     return {
@@ -54,5 +62,11 @@ def render(namespace: str) -> dict:
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("namespace", choices=["source-dev", "target-dev"])
-    print(json.dumps(render(parser.parse_args().namespace), indent=2))
+    parser.add_argument("namespace", help="application namespace of the registered environment, "
+                        "e.g. " + " or ".join(KNOWN_NAMESPACES))
+    args = parser.parse_args()
+    try:
+        manifest = render(args.namespace)
+    except ValueError as error:
+        parser.error(str(error))
+    print(json.dumps(manifest, indent=2))

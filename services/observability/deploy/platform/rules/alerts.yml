@@ -1,24 +1,25 @@
 # T37 관측 경로 알림. 런북: docs/observability/runbooks.md
 # 모두 Collector가 출처 라벨을 붙인 지표만 본다: 수집 경로는 bravo_signal="collector-self", DB는 bravo_signal="cnpg-scrape".
 # 앱 경로는 이 라벨을 지우므로 앱이 같은 이름의 지표를 보내도 알림을 바꾸지 못한다.
-# 환경 이름(aws · onprem)은 데모에 등록한 환경이다. 환경을 추가하면 absent 줄도 추가한다.
+# 환경은 이름(bravo_env)이 아니라 역할(bravo_role: source · target)로 고른다(ADR-0034). 출발지 · 목적지의 종류는
+# aws · gcp · onprem 무엇이든 된다. 역할은 Collector의 BRAVO_ROLE이 붙인다(deploy/collector/collector.yaml).
 groups:
   - name: bravo-telemetry
     rules:
       - alert: BravoEnvUnobservable
         # 최근 수신이 30초를 넘었거나(수집 간격 10초의 3배), 5분 조회 범위 안에 아예 없으면 확인 불가
         expr: |
-          max by (bravo_env) (
-            (time() - max by (bravo_env) (timestamp(up{bravo_signal="collector-self"}) and (up{bravo_signal="collector-self"} == 1))) > 30
-            or (time() - max by (bravo_env) (timestamp(up{bravo_signal="collector-self"}) and (up{bravo_signal="collector-self"} == 1))) < 0
-            or max by (bravo_env) (up{bravo_signal="collector-self"}) != 1
-            or absent(up{bravo_signal="collector-self", bravo_env="aws"})
-            or absent(up{bravo_signal="collector-self", bravo_env="onprem"})
+          max by (bravo_env, bravo_role) (
+            (time() - max by (bravo_env, bravo_role) (timestamp(up{bravo_signal="collector-self"}) and (up{bravo_signal="collector-self"} == 1))) > 30
+            or (time() - max by (bravo_env, bravo_role) (timestamp(up{bravo_signal="collector-self"}) and (up{bravo_signal="collector-self"} == 1))) < 0
+            or max by (bravo_env, bravo_role) (up{bravo_signal="collector-self"}) != 1
+            or absent(up{bravo_signal="collector-self", bravo_role="source"})
+            or absent(up{bravo_signal="collector-self", bravo_role="target"})
           )
         labels:
           severity: page
         annotations:
-          summary: "{{ $labels.bravo_env }} 환경의 관측 경로가 끊겼다. 이 환경의 지표는 확인 불가다"
+          summary: "{{ $labels.bravo_role }} 역할 환경{{ with $labels.bravo_env }}({{ . }}){{ end }}의 관측 경로가 끊겼다. 이 환경의 지표는 확인 불가다"
           runbook: docs/observability/runbooks.md#bravoenvunobservable
       - alert: BravoTelemetryExportFailing
         expr: sum by (bravo_env) (increase(otelcol_exporter_send_failed_metric_points_total{bravo_signal="collector-self"}[5m])) > 0
@@ -121,7 +122,7 @@ groups:
   - name: bravo-forward-replication
     rules:
       - alert: BravoForwardSubscriptionOff
-        expr: max by (bravo_env, cnpg_cluster, subname) (cnpg_pg_subscription_enabled{bravo_signal="cnpg-scrape", bravo_env="onprem", cnpg_cluster="target-db", subname="t8_source_to_target"}) == 0
+        expr: max by (bravo_env, bravo_role, cnpg_cluster, subname) (cnpg_pg_subscription_enabled{bravo_signal="cnpg-scrape", bravo_role="target", cnpg_cluster="target-db", subname="t8_source_to_target"}) == 0
         for: 2m
         labels:
           severity: page
@@ -129,21 +130,21 @@ groups:
           summary: "정방향 구독이 2분 넘게 꺼져 있다"
           runbook: docs/observability/runbooks.md#bravoforwardsubscriptionoff
       - alert: BravoForwardSubscriptionError
-        expr: max by (bravo_env, cnpg_cluster, subname) (increase(cnpg_pg_subscription_apply_error_count_total{bravo_signal="cnpg-scrape", bravo_env="onprem", cnpg_cluster="target-db", subname="t8_source_to_target"}[10m])) > 0
+        expr: max by (bravo_env, bravo_role, cnpg_cluster, subname) (increase(cnpg_pg_subscription_apply_error_count_total{bravo_signal="cnpg-scrape", bravo_role="target", cnpg_cluster="target-db", subname="t8_source_to_target"}[10m])) > 0
         labels:
           severity: ticket
         annotations:
           summary: "정방향 구독 적용 오류가 증가했다 (최근 10분)"
           runbook: docs/observability/runbooks.md#bravoforwardsubscriptionerror
       - alert: BravoForwardSubscriptionRetrying
-        expr: max by (bravo_env, cnpg_cluster, subname) (increase(cnpg_pg_subscription_apply_error_count_total{bravo_signal="cnpg-scrape", bravo_env="onprem", cnpg_cluster="target-db", subname="t8_source_to_target"}[5m])) >= 5
+        expr: max by (bravo_env, bravo_role, cnpg_cluster, subname) (increase(cnpg_pg_subscription_apply_error_count_total{bravo_signal="cnpg-scrape", bravo_role="target", cnpg_cluster="target-db", subname="t8_source_to_target"}[5m])) >= 5
         labels:
           severity: page
         annotations:
           summary: "정방향 구독 오류가 5분 안에 5건 이상 발생했다"
           runbook: docs/observability/runbooks.md#bravoforwardsubscriptionretrying
       - alert: BravoForwardReplicationNotRecovering
-        expr: max by (bravo_env, cnpg_cluster, slot_name) (cnpg_pg_replication_slots_active{bravo_signal="cnpg-scrape", bravo_env="aws", cnpg_cluster="source-db", slot_name="t8_source_to_target", slot_type="logical"}) == 0
+        expr: max by (bravo_env, bravo_role, cnpg_cluster, slot_name) (cnpg_pg_replication_slots_active{bravo_signal="cnpg-scrape", bravo_role="source", cnpg_cluster="source-db", slot_name="t8_source_to_target", slot_type="logical"}) == 0
         for: 2m
         labels:
           severity: page
@@ -154,11 +155,11 @@ groups:
         # Exporter TTL 30s + scrape 15s + batch 지연을 넘겨 75s로 판정한다.
         # DB 자체는 살아 있어도 사용자 쿼리가 빠지면 enabled/error 한쪽 부재를 알린다.
         expr: |
-          max by (bravo_env, cnpg_cluster, subname) (
-            (time() - timestamp(cnpg_pg_subscription_enabled{bravo_signal="cnpg-scrape", bravo_env="onprem", cnpg_cluster="target-db", subname="t8_source_to_target"})) > 75
-            or (time() - timestamp(cnpg_pg_subscription_apply_error_count_total{bravo_signal="cnpg-scrape", bravo_env="onprem", cnpg_cluster="target-db", subname="t8_source_to_target"})) > 75
-            or absent(cnpg_pg_subscription_enabled{bravo_signal="cnpg-scrape", bravo_env="onprem", cnpg_cluster="target-db", subname="t8_source_to_target"})
-            or absent(cnpg_pg_subscription_apply_error_count_total{bravo_signal="cnpg-scrape", bravo_env="onprem", cnpg_cluster="target-db", subname="t8_source_to_target"})
+          max by (bravo_env, bravo_role, cnpg_cluster, subname) (
+            (time() - timestamp(cnpg_pg_subscription_enabled{bravo_signal="cnpg-scrape", bravo_role="target", cnpg_cluster="target-db", subname="t8_source_to_target"})) > 75
+            or (time() - timestamp(cnpg_pg_subscription_apply_error_count_total{bravo_signal="cnpg-scrape", bravo_role="target", cnpg_cluster="target-db", subname="t8_source_to_target"})) > 75
+            or absent(cnpg_pg_subscription_enabled{bravo_signal="cnpg-scrape", bravo_role="target", cnpg_cluster="target-db", subname="t8_source_to_target"})
+            or absent(cnpg_pg_subscription_apply_error_count_total{bravo_signal="cnpg-scrape", bravo_role="target", cnpg_cluster="target-db", subname="t8_source_to_target"})
           )
         for: 1m
         labels:
@@ -168,9 +169,9 @@ groups:
           runbook: docs/observability/runbooks.md#bravoforwardsubscriptionunobservable
       - alert: BravoForwardSlotUnobservable
         expr: |
-          max by (bravo_env, cnpg_cluster, slot_name) (
-            (time() - timestamp(cnpg_pg_replication_slots_active{bravo_signal="cnpg-scrape", bravo_env="aws", cnpg_cluster="source-db", slot_name="t8_source_to_target", slot_type="logical"})) > 75
-            or absent(cnpg_pg_replication_slots_active{bravo_signal="cnpg-scrape", bravo_env="aws", cnpg_cluster="source-db", slot_name="t8_source_to_target", slot_type="logical"})
+          max by (bravo_env, bravo_role, cnpg_cluster, slot_name) (
+            (time() - timestamp(cnpg_pg_replication_slots_active{bravo_signal="cnpg-scrape", bravo_role="source", cnpg_cluster="source-db", slot_name="t8_source_to_target", slot_type="logical"})) > 75
+            or absent(cnpg_pg_replication_slots_active{bravo_signal="cnpg-scrape", bravo_role="source", cnpg_cluster="source-db", slot_name="t8_source_to_target", slot_type="logical"})
           )
         for: 1m
         labels:

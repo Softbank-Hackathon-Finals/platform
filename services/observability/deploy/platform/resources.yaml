@@ -218,6 +218,8 @@ spec:
           image: bravo-observability-api:set-by-deploy-pipeline
           env:
             - {name: PROMETHEUS_URL, value: "https://bravo-prometheus.bravo-observability.svc:9090"}
+            # 조회 API가 아는 환경 이름(bravo_env) 목록. 종류 · 역할과 무관한 등록 이름이다. 기본값은 P0 두 환경이고,
+            # 환경을 더하면 web.yml client_allowed_sans의 collector-<이름>도 같이 더한다
             - {name: BRAVO_ENVIRONMENTS, value: "aws,onprem"}
             - name: BRAVO_OBSERVABILITY_API_TOKEN
               valueFrom:

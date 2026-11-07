@@ -1,10 +1,10 @@
 # 환경, 앱, 이전 계획 등록
 
-운영자는 읽기 주체로 환경을 확인하고, 실행 중인 앱을 검토한 코드와 이미지에 연결한 뒤 이전 계획을 등록한다. P0 환경 쌍은 AWS EKS 출발지와 온프렘 RKE2 목적지다. [설계 §8.9·8.11](../design.html#s8-11) · [T10 계획 저장 계약](T10-plan-snapshot-v1-proposal.md)
+운영자는 읽기 주체로 환경을 확인하고, 실행 중인 앱을 검토한 코드와 이미지에 연결한 뒤 이전 계획을 등록한다. 환경 종류는 `aws`(EKS) · `gcp`(GKE) · `onprem`(RKE2)이고 모든 종류가 출발지와 목적지가 될 수 있다([ADR-0034](../adr/0034-environment-kind-adapters.md), 종류 원본은 [environment-kinds.json](environment-kinds.json)). 같은 종류 간 이전은 다른 클러스터로의 이전이다. [설계 §8.9·8.11](../design.html#s8-11) · [T10 계획 저장 계약](T10-plan-snapshot-v1-proposal.md)
 
 | POST | 요청 본문 | 최초 응답 |
 |---|---|---|
-| `/v1/environments` | `name`, `kind`(`aws` 또는 `onprem`), `roles`([`source`] 또는 [`target`]), `connection_ref` | 서버가 부여한 `environment_id`, 실제 collector 신원·읽기 확인, 권한 경고 |
+| `/v1/environments` | `name`, `kind`(`aws` · `gcp` · `onprem`), `roles`([`source`] 또는 [`target`]), `connection_ref` | 서버가 부여한 `environment_id`, 실제 collector 신원·읽기 확인, 권한 경고 |
 | `/v1/workloads` | `name`, `repo_url`, `app_path`, `iac_path`, `source_environment_id`, `namespace` | `workload_id`, 코드·실제 이미지 대조 결과, 수집 범위 |
 | `/v1/plans` | `workload_id`, `target_environment_id`, `profile_id`, `profile_version` | `plan_id`, 출발지·목적지, 평가 프로필, 계획·수집 범위 digest, 초기 상태 `COLLECT`와 버전 1 |
 
@@ -15,7 +15,8 @@
 1. **환경.** 고정된 HTTPS 주소·CA·TLS 이름을 사용하고 리다이렉트를 따르지 않는다. Kubernetes `SelfSubjectReview`로 namespace의 `bravo-collector` 신원을 확인한다. 같은 자격으로 지명된 CNPG Cluster의 get, Pod·Service list 권한을 각각 확인하고 실제 CNPG 객체의 namespace·이름·UID를 대조한다. Secret 값을 읽거나 DB에 로그인하지 않는다.
 2. **권한 범위.** Pod 생성과 등록한 CNPG의 patch 권한을 같은 주체의 개별 접근 점검으로 확인해 `write_checks`에 허용·거부·불명을 담는다. `SelfSubjectRulesReview`에서 namespace 쓰기 권한이 보이면 `namespace_write_granted`를, 완전한 열거가 불가능하면 `write_scope_unknown`을 기록한다. 필수 읽기 점검의 거부·불명은 등록을 막는다. 경고의 범위는 해당 Kubernetes namespace다. AWS 계정 전체 IAM 권한의 부재를 인증하는 결과로 사용할 수 없다.
 3. **앱.** 서버에 읽기 전용으로 준비한 checkout의 origin과 고정 commit, 앱 디렉터리·IaC 경로가 commit에 있는지 확인한다. 릴리스의 이미지 출처는 이미지 담당자가 게시·전달 증거를 확인해 설정한다. 출발지에서 지정 label의 모든 활성 Pod에 대해 배포 담당이 확인한 ReplicaSet 소유 UID·이름·서비스 계정·컨테이너·요청 이미지·실행 imageID·Ready를 대조한다. 빈 결과, 페이지 절단, 이미지가 섞인 롤아웃, replica별 참조 차이는 등록을 막는다. 실제 컨테이너가 참조한 Secret·ConfigMap 이름, 서비스 계정, CNPG를 수집 범위에 넣는다. 환경 변수의 값과 Secret 본문은 저장하지 않는다.
-4. **계획.** 앱의 현재 배포와 양쪽 환경을 다시 읽는다. 앱 등록 후 수집 범위가 바뀌면 새 시점의 앱 등록이 필요하다. 현재 앱·환경·수집 범위에서 digest를 만들고, 기존 계획 잠금 안에서 `PlanSpec`, 첫 상태 이벤트, 등록 영수증을 함께 저장한다. T16 수집·의존성 등급·코드 전용/배포 전용 분류와 T19 통제 비교는 이 시작 상태의 후속 소비자다. 실측 창은 별도의 [생산자 권한과 저장 경로](T10-window-storage.md)를 사용한다.
+4. **조합.** 계획의 목적지는 `target`으로 등록된 환경이어야 하고, 출발지와 DB 신원이 달라야 한다. 양쪽에 클러스터 신원이 있으면 서로 달라야 하고(`same_cluster_identity`), 같은 종류 간 계획은 양쪽 모두 클러스터 신원이 있어야 한다(`cluster_identity_unverified`). 이어서 조합 준비도를 계산한다. 출발지 종류에 `source.*` · `both.*` 칸이, 목적지 종류에 `target.*` · `both.*` 칸이 모두 있어야 하고, 빠진 첫 칸(계약 순서)을 `adapter_missing:<칸>`(409)으로 돌려준다. 이 검사들은 환경을 다시 읽기 전에 끝나므로 거부된 계획은 probe를 부르지 않는다.
+5. **계획.** 앱의 현재 배포와 양쪽 환경을 다시 읽는다. 앱 등록 후 수집 범위가 바뀌면 새 시점의 앱 등록이 필요하다. 현재 앱·환경·수집 범위에서 digest를 만들고, 기존 계획 잠금 안에서 `PlanSpec`, 첫 상태 이벤트, 등록 영수증을 함께 저장한다. T16 수집·의존성 등급·코드 전용/배포 전용 분류와 T19 통제 비교는 이 시작 상태의 후속 소비자다. 실측 창은 별도의 [생산자 권한과 저장 경로](T10-window-storage.md)를 사용한다.
 
 등록 자료는 불변이다. 운영자가 환경을 교체할 때에는 같은 이름의 CNPG를 새 신원으로 오인하지 않도록 새 환경 ID와 연결 참조를 설치한다. 한 tenant의 등록을 다른 tenant의 앱이나 계획에서 사용할 수 없다. 외부 접속 검사는 DB 잠금 밖에서 수행한다. 관측 후 클러스터가 변할 수 있으므로 실제 수집과 실행은 각 단계에서 다시 확인해야 한다.
 
@@ -100,13 +101,20 @@ HTTP 재요청도 새 필수 필드가 없어 422이므로, 과거 결과는 기
 
 `/registration/catalog.json`은 운영자 전용 읽기 전용 설정이다.
 
-온프렘 Kubernetes를 출발지로 등록하려면 운영자가 새 `environment_id`와 `connection_ref`를 만들고 해당 환경에 `"kind": "onprem", "catalog_role": "source"`를 지정한다. 기존 설정에서 `catalog_role`을 생략하면 AWS는 출발지, 온프렘은 목적지로 동작한다. AWS 목적지와 한 별칭의 이중 역할은 허용하지 않는다. 등록 요청의 `roles`에는 서버에 지정한 역할 하나를 보낸다. 출발지 앱은 기존 CNPG·ReplicaSet·이미지 검사를 통과해야 한다.
+환경의 역할은 운영자가 `catalog_role`(`source` 또는 `target`)로 지정한다. 종류에서 역할을 추론하지 않으며 aws · gcp · onprem 모두 두 역할을 가질 수 있다. 한 별칭에는 역할 하나만 둔다. 같은 클러스터를 두 역할로 쓰려면 새 `environment_id`와 `connection_ref`를 따로 만든다. 등록 요청의 `roles`에는 서버에 지정한 역할 하나를 보낸다. 출발지 앱은 기존 CNPG·ReplicaSet·이미지 검사를 통과해야 한다.
+
+**호환(deprecated):** P0 설정에서 `catalog_role`을 생략하면 `aws`는 출발지, `onprem`은 목적지로 동작하고 기동 시 DeprecationWarning을 남긴다. `gcp`와 이후 종류는 `catalog_role`이 없으면 기동하지 않는다(`environment_role_required`). 새 설정은 모든 환경에 `catalog_role`을 쓴다.
+
+**클러스터 신원:** `cluster_uid`에 해당 클러스터 `kube-system` namespace의 `metadata.uid`를 넣으면 probe가 같은 collector 자격으로 `GET /api/v1/namespaces/kube-system`을 읽어 대조하고, 영수증 `checks.cluster_identity`에 SHA-256 값만 남긴다. collector에는 `resourceNames: [kube-system]`으로 좁힌 namespaces `get` ClusterRole이 추가로 필요하다. 값을 지정하지 않은 기존 환경은 그대로 동작하지만 같은 종류 간 계획에는 쓸 수 없다. 이미 등록한 환경의 `cluster_uid`가 바뀌면 `environment_changed`다.
+
+**조합 준비도:** 기본값은 패키지 데이터 `bravo_platform_events/adapter_readiness.json`이다. 현재 구현된 칸만 적는다(aws: `source.*` · `both.*`, onprem: `target.*` · `both.*`, gcp: 없음). 그래서 기본 설정에서 계획 등록이 통과하는 조합은 aws→onprem 하나다. A 작업이 칸을 채우면 이 파일을 갱신한다. 운영자는 `catalog.json`의 `adapter_readiness`(`{"<종류>": ["<칸>", ...]}`)로 종류별 항목을 통째로 바꿀 수 있다. 계약에 없는 종류·칸은 기동을 막는다.
 
 | 키 | 운영자가 준비할 값 |
 |---|---|
 | `operator_verifier` | 기존 [운영자 신원 검증기](T10-operator-access-v1-proposal.md)의 issuer, audience, client_id, assurance, 실제 사람의 subject→tenant 매핑, 공개 JWK |
-| `environments[]` | `tenant_id, environment_id, connection_ref, kind, namespace, database, database_uid, endpoint, ca_file, token_file`. 검증된 포워딩 경로에만 `tls_name`을 지정한다. 전용 collector 자격은 회전 가능한 비공개 mount로 제공한다. |
+| `environments[]` | `tenant_id, environment_id, connection_ref, kind, catalog_role, namespace, database, database_uid, endpoint, ca_file, token_file`, 선택 `cluster_uid`. 검증된 포워딩 경로에만 `tls_name`을 지정한다. 전용 collector 자격은 회전 가능한 비공개 mount로 제공한다. |
 | `releases[]` | `tenant_id, environment_id, repo_url, checkout, app_path, iac_path, revision, label, container, image, runtime_digests, service_account, replicaset_uid`. `label`은 Pod의 `app` 값, `image`는 registry가 포함된 digest 참조, `runtime_digests`는 같은 빌드의 허용 digest다. |
+| `adapter_readiness` | 선택. 종류별 준비된 어댑터 칸 목록으로 패키지 기본값의 해당 종류 항목을 바꾼다. 실제로 구현·검증된 칸만 적는다. |
 | `evaluation_profiles[]` | 운영자가 현재 T5 카탈로그와 정책을 확인한 허용 목록. 예: `[{"tenant_id":"tenant-example","profile_id":"full","profile_version":"1"}]`. 누락 시 새 계획 등록을 거부한다. 앱 이름으로 프로필을 선택하거나 기본값을 넣지 않는다. |
 | 별도 `/registration/grants.json` | `[{"tenant_id":"tenant-example","subject_id":"operator-example"}]` 형식. 실제 subject ID는 신원 검증기의 `operator_id(issuer, sub)`로 구한다. 서버는 등록 직전과 저장 잠금 획득 뒤 파일의 현재 권한과 토큰 만료를 확인한다. |
 
@@ -159,6 +167,6 @@ SQLite는 기존 `PlanStore` 초기화로 준비한다. PostgreSQL은 migration 
 |---|---|
 | 403 | 운영자 신원, 등록 권한 또는 현재 토큰 만료를 확인한다. |
 | 404 | 해당 tenant에서 참조를 사용할 수 없다. 다른 tenant의 존재는 노출하지 않는다. |
-| 409 | 키가 충돌했거나 등록 후 환경·배포·수집 범위가 달라졌다. 담당자가 최신 원본을 대조한다. |
+| 409 | 키가 충돌했거나 등록 후 환경·배포·수집 범위가 달라졌다. 담당자가 최신 원본을 대조한다. `adapter_missing:<칸>`은 그 조합의 어댑터가 아직 없다는 뜻이고, `same_cluster_identity` · `cluster_identity_unverified`는 목적지 클러스터를 다시 고른다. |
 | 422 | 필드, 역할 형식 또는 멱등 키를 고친다. |
 | 503 | 자격, TLS, 필수 읽기 권한, 불완전한 응답 또는 DB 접근을 복구한다. commit 응답이 유실됐으면 동일한 입력과 키로 결과를 조회한다. |

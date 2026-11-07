@@ -356,9 +356,8 @@ test("on-prem source selection sends one role and cannot promote a target alias"
   await page.locator("#registration-panel summary").click();
   const form = page.locator("#registration-environment-form");
   await form.locator('[name="name"]').fill("On-prem source");
-  await form
-    .locator('[name="kind"]')
-    .selectOption({ label: "온프렘 · 출발지" });
+  await form.locator('[name="kind"]').selectOption({ label: "온프렘" });
+  await form.locator('[name="role"]').selectOption({ label: "출발지" });
   await form.locator('[name="connection_ref"]').fill("target-reader");
   const response = page.waitForResponse("**/v1/environments");
   await form.locator("button").click();
@@ -417,6 +416,7 @@ test("registration recovers lost response and connects the real T10 COLLECT plan
   );
   await environment.locator('[name="name"]').fill("Target");
   await environment.locator('[name="kind"]').selectOption("onprem");
+  await environment.locator('[name="role"]').selectOption("target");
   await environment.locator('[name="connection_ref"]').fill("target-reader");
   await environment.locator("button").click();
   await expect(page.locator("#registration-target")).toHaveValue("env-target");

@@ -62,6 +62,10 @@ def tls(tmp_path_factory):
                 self.send_response(307)
                 self.send_header("Location", self.path + "/unexpected")
                 self.end_headers()
+            elif self.path == "/api/v1/namespaces/kube-system":
+                if "cluster-denied" in faults:
+                    return self.response({}, 403)
+                self.response({"metadata": {"name": "kube-system", "uid": "kube-system-uid"}})
             elif "/clusters/" in self.path:
                 self.response({"kind": "Cluster", "metadata": {"namespace": "ns", "name": "db", "uid": "physical-db"}})
             else:
@@ -154,3 +158,16 @@ def test_wrong_server_name_blocks_request_before_bearer_reaches_api(reader):
 def test_checkout_must_contain_the_approved_source(release, change):
     with pytest.raises(ProbeUnavailable):
         replace(release, **change).verify_checkout()
+
+
+def test_cluster_identity_is_verified_only_when_configured(reader):
+    env, faults, calls = reader
+    assert "cluster_identity" not in KubernetesProbe().inspect(env)
+    assert "/api/v1/namespaces/kube-system" not in calls
+    obs = KubernetesProbe().inspect(replace(env, cluster_uid="kube-system-uid"))
+    assert len(obs["cluster_identity"]) == 64 and "kube-system-uid" not in json.dumps(obs)
+    with pytest.raises(ProbeUnavailable, match="environment_replaced"):
+        KubernetesProbe().inspect(replace(env, cluster_uid="another-cluster"))
+    faults.add("cluster-denied")
+    with pytest.raises(ProbeUnavailable, match="collector_denied"):
+        KubernetesProbe().inspect(replace(env, cluster_uid="kube-system-uid"))

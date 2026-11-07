@@ -1,5 +1,6 @@
 # T37 클러스터별 OpenTelemetry Collector. 출발지 · 목적지에 하나씩 둔다.
 # BRAVO_ENV(환경 이름)와 PLATFORM_OTLP_ENDPOINT는 배포가 정한다. 앱이 보낸 bravo.env는 지우고 이 값으로 덮어쓴다.
+# BRAVO_ROLE(source · target)은 이 클러스터의 이전 역할이다. 종류(aws · gcp · onprem)와 무관하다(ADR-0034).
 # 판정 입력이 아니다(ADR-0010). 판정은 T18 창 요약만 쓴다.
 # 플랫폼으로 보내는 경로는 mTLS다. 인증서는 배포가 /etc/bravo-tls에 넣는다(ca.crt · tls.crt · tls.key).
 
@@ -58,6 +59,19 @@ processors:
       - key: bravo.env
         value: ${env:BRAVO_ENV}
         action: upsert
+  # 역할 라벨(bravo.role). 경보는 환경 이름이 아니라 이 라벨로 출발지 · 목적지를 고른다.
+  # BRAVO_ROLE이 비어 있으면 P0 배포 호환으로 aws=source, onprem=target으로 본다(deprecated, 등록의 catalog_role 기본값과 같다).
+  # 그 밖의 값은 라벨을 지운다. 역할 라벨이 없는 환경은 역할 경보가 확인 불가로 알린다.
+  # 문자열 안에서 치환하므로 값이 비어도 null이 되지 않는다. 앱 경로의 bravo.role은 허용 목록이 이미 지웠다.
+  transform/role:
+    error_mode: propagate
+    metric_statements:
+      - context: resource
+        statements:
+          - set(resource.attributes["bravo.role"], "${env:BRAVO_ROLE:-}")
+          - set(resource.attributes["bravo.role"], "source") where resource.attributes["bravo.role"] == "" and resource.attributes["bravo.env"] == "aws"
+          - set(resource.attributes["bravo.role"], "target") where resource.attributes["bravo.role"] == "" and resource.attributes["bravo.env"] == "onprem"
+          - delete_key(resource.attributes, "bravo.role") where not IsMatch(resource.attributes["bravo.role"], "^(source|target)$")
   batch: {}
 
 exporters:
@@ -102,9 +116,9 @@ service:
   pipelines:
     metrics/app:
       receivers: [otlp]
-      processors: [memory_limiter, transform/allowlist, resource/env, batch]
+      processors: [memory_limiter, transform/allowlist, resource/env, transform/role, batch]
       exporters: [otlp_http/platform]
     metrics/self:
       receivers: [prometheus/self]
-      processors: [memory_limiter, resource/self, resource/env, batch]
+      processors: [memory_limiter, resource/self, resource/env, transform/role, batch]
       exporters: [otlp_http/platform]
