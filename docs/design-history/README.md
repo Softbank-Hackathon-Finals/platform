@@ -27,7 +27,8 @@
 
 | 버전 | 기간 | 파일 | 무엇이 바뀌었나 | 관련 ADR |
 |---|---|---|---|---|
-| **v0.8 (현재 초안)** | 2026-11-06 ~ | [`docs/design.html`](../design.html) | 8.3·아키텍처 그림·T11의 OpenAI 실행을 Agents SDK로 전환. SIWC 인증·도구 정책은 유지하고 SDK 실행 추적을 플랫폼 OTEL에 연결 | [ADR-0007: 2026-11-06](../adr/0007-model-provider-and-s2-ci.md#2026-11-06-openai-agents-sdk-및-otel-실행-추적) |
+| **v0.9 (현재 초안)** | 2026-11-08 ~ | [`docs/design.html`](../design.html) | 7.3 대응표에 인증 행(Cognito 사용자 풀 → Keycloak, 설정 교체 `AUTH_ISSUER`)과 설명 문단: 비밀번호는 옮기지 않고 첫 로그인에 새로 정함, 이사 중 양쪽 앱이 `AUTH_ALSO_TRUST`로 서로 믿음, 목적지가 AWS 발급자를 믿으면 Exit Drill이 출구 증거로 보지 않음(`AWS_IDENTITY_TRUSTED`) | [ADR-0051](../adr/0051-login-migration-cognito-keycloak.md) |
+| v0.8 | 2026-11-06 ~ 2026-11-08 | [`design-v0.8.html`](design-v0.8.html) | 8.3·아키텍처 그림·T11의 OpenAI 실행을 Agents SDK로 전환. SIWC 인증·도구 정책은 유지하고 SDK 실행 추적을 플랫폼 OTEL에 연결 | [ADR-0007: 2026-11-06](../adr/0007-model-provider-and-s2-ci.md#2026-11-06-openai-agents-sdk-및-otel-실행-추적) |
 | v0.7 | 2026-11-05 ~ 2026-11-06 | [`design-v0.7.html`](design-v0.7.html) | 11장 작업 카드를 `tasks.md`에 맞춤. T12 · T20 완료 기준을 k3d · 모의 환경으로 한정하고, 실제 환경의 첫 컷오버 · 되돌리기를 T25로 옮김. T25에 부하 조건(5.3), 회차별 실패 · 유실 · 중복 건수(NFR-2), 장애별 기대 결과(8.6), 시간 초과 자동 재개 금지 확인(NFR-3), 실제 Tailscale 단절 중 되돌리기 거절 확인, 증빙 위치, 통합 시점 T8 · T30을 추가 | [ADR-0011](../adr/0011-cutover-executor-execution-and-failure.md) · [ADR-0016](../adr/0016-failback-replication-path-check.md) · [ADR-0022](../adr/0022-failback-state-machine-flow.md) |
 | v0.6 | 2026-11-05 ~ 2026-11-05 | [`design-v0.6.html`](design-v0.6.html) | T7 저장소 접근을 분석 reader 수신 증빙으로 정합화. T31은 리허설 검증 digest 승격이며 승인 뒤 Git 커밋·재빌드와 writer 주입을 요구하지 않음. T31 정책·게이트 완료 기준은 유지 | [ADR-0021 §6](../adr/0021-approved-change-promotion.md#6-t7-저장소-접근-범위-정합화-2026-11-05) |
 | v0.5 | 2026-11-04 ~ 2026-11-05 | [`design-v0.5.html`](design-v0.5.html) | 6장 S4 되돌리기 예외 흐름과 8.6 컷오버 순서 1단계: 쓰기를 막기 전 시험 barrier 왕복으로 복제 경로를 확인하고(단절이면 변경 없이 거절), 쓰기를 막은 뒤 출발지가 따라잡지 못하면 SAFE_HOLD 대신 목적지를 원상 복구(ABORT_PRE_WRITE). 확인 불가는 기존대로 SAFE_HOLD | [ADR-0016](../adr/0016-failback-replication-path-check.md) |
@@ -55,3 +56,7 @@ T10의 v0.3이 먼저 병합되어, 개발 정본 `develop`의 `2c43d59914efe9a5
 ### v0.7 보관 기준
 
 개발 정본 `develop`의 `3f310441f31d993f3cfe072f7618ce35adfcc2fa`에서 v0.6을 `scripts/design-bump.sh v0.7 --base <커밋>`으로 바이트 그대로 보관했다. 새 결정은 없고, ADR-0011 · 0016 · 0022가 T25로 넘긴 실제 환경 확인을 작업 카드에 반영했다.
+
+### v0.9 보관 기준
+
+개발 정본 `develop`의 `eeaf02d2b9e9e7d03897d13adf5a47ea116c83a7`에서 v0.8을 `scripts/design-bump.sh v0.9 --base <커밋>`으로 바이트 그대로 보관했다. T47에서 병합한 demo-app #28 · #29, platform #651 · #652 · #653의 결정을 7.3 대응표에 반영했다.

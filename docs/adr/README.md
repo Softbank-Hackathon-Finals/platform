@@ -27,6 +27,7 @@
 | 8.6 Executor 구현·실행·실패·권한 | [0006 Python 선택](0006-cutover-executor-language.md), [0011 실행 기록과 실패 판정](0011-cutover-executor-execution-and-failure.md), [0013 워크로드 접근](0013-executor-workload-access.md) |
 | 8.6 정방향 복제 시간 초과와 방향별 `disable_on_error`(T8) | [0030 복제 시간 초과 30초](0030-t8-replication-timeout.md) |
 | 7.3·8.4·8.6 SQS → Lambda 호환 런타임: 구조·동등성 검증 위치, 목적지 큐 위치, 컷오버·되돌리기의 큐 처리(T46) | [0045 호환 런타임 구조](0045-sqs-lambda-compat-runtime.md), [0046 목적지 큐는 업무 DB 밖](0046-target-queue-outside-business-db.md), [0047 컷오버 큐 처리 규칙](0047-cutover-queue-handling.md) |
+| 7.3·8.10 데모 앱 로그인 이전: Cognito → Keycloak 설정 교체, 비밀번호는 옮기지 않음, 이사 중 이중 신뢰, AWS 발급자 신뢰는 출구 증거 아님(T47) | [0051 로그인 이전](0051-login-migration-cognito-keycloak.md) |
 | 6장 S4 · 8.6 되돌리기 전 복제 경로 확인 | [0016 되돌리기 전 복제 경로 확인](0016-failback-replication-path-check.md) |
 | 6장 S4 · 8.2 · 8.7 되돌리기 상태 머신 흐름(승인 · 전용 binding · ABORT 뒤 상태 · Edge만 재시도 · 기록) | [0022 되돌리기 상태 머신 흐름](0022-failback-state-machine-flow.md) |
 | 8.6 무결성 지문 생산자·소비자 | [0013 지문 생산자](0013-integrity-fingerprint-producer.md) |
