@@ -66,6 +66,9 @@ spec:
         {{- if .Values.rehearsalHost.enabled }}
         || (object != null ? object.metadata.name : oldObject.metadata.name) == 't15-rehearsal-host'
         {{- end }}
+        {{- if .Values.securityReview.enabled }}
+        || (object != null ? object.metadata.name : oldObject.metadata.name) == 'security-review'
+        {{- end }}
         {{- if .Values.workflowHost.enabled }}
         || (request.resource.resource in ['deployments', 'serviceaccounts'] &&
         (object != null ? object.metadata.name : oldObject.metadata.name) == 't10-workflow-host')
@@ -90,6 +93,9 @@ spec:
         ((object.metadata.name == 't10-registration' ? object.spec.template.spec.serviceAccountName == 't10-registration' :
         {{- if .Values.rehearsalHost.enabled }}
         object.metadata.name == 't15-rehearsal-host' ? object.spec.template.spec.serviceAccountName == 't15-rehearsal-host' :
+        {{- end }}
+        {{- if .Values.securityReview.enabled }}
+        object.metadata.name == 'security-review' ? object.spec.template.spec.serviceAccountName == 'security-review' :
         {{- end }}
         {{- if .Values.workflowHost.enabled }}
         object.metadata.name == 't10-workflow-host' ? object.spec.template.spec.serviceAccountName == 't10-workflow-host' :
@@ -119,6 +125,14 @@ spec:
         'registered-security-review-audience' == v.projected.sources[0].serviceAccountToken.audience &&
         has(v.projected.sources[0].serviceAccountToken.expirationSeconds) &&
         v.projected.sources[0].serviceAccountToken.expirationSeconds <= 600)
+        {{- end }}
+        {{- if .Values.securityReview.enabled }}
+        || (object.metadata.name == 'security-review' && v.name == 'api' &&
+        size(v.projected.sources) == 2 && has(v.projected.sources[0].serviceAccountToken) &&
+        'registered-security-review-audience' == v.projected.sources[0].serviceAccountToken.audience &&
+        has(v.projected.sources[0].serviceAccountToken.expirationSeconds) &&
+        v.projected.sources[0].serviceAccountToken.expirationSeconds <= 600 &&
+        has(v.projected.sources[1].configMap))
         {{- end }}
         {{- if and .Values.workflowHost.enabled .Values.initialProposal.hostCreatesJobs }}
         {{- /* T49 initialProposalAuto: the host's API token for its only grant, the bravo-initial Job Role

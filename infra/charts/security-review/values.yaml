@@ -1,0 +1,25 @@
+image:
+  repository: ghcr.io/softbank-hackathon-finals/platform-security-review
+  digest: ""
+sourceRevision: ""
+tenantId: ""
+audience: registered-security-review-audience
+tokenReview:
+  origin: https://kubernetes.default.svc:443
+  apiAddress: ""
+database:
+  address: ""
+  port: 5432
+secrets:
+  tls: ""
+  database: ""
+  registry: platform-ghcr-reader
+configMaps:
+  grants: ""
+  apiCA: ""
+audit:
+  storageClassName: platform-local
+  size: 1Gi
+resources:
+  requests: {cpu: 100m, memory: 128Mi}
+  limits: {cpu: "1", memory: 256Mi}

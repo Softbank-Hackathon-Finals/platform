@@ -128,7 +128,9 @@ def add_rehearsal_context(context, revision):
     build_kubectl(context, revision)
 
 
-def prepare_context(context, revision, *, rehearsal_host=False):
+def prepare_context(context, revision, *, rehearsal_host=False, security_review=False):
+    if rehearsal_host and security_review:
+        raise ValueError("one_image_role_required")
     # Export only hashed registry dependencies. Repo packages come from Git blobs.
     project = tomllib.loads((SERVICE / "pyproject.toml").read_text())
     upstream = project["tool"]["uv"]["sources"]["bravo-observability"]
@@ -140,32 +142,38 @@ def prepare_context(context, revision, *, rehearsal_host=False):
     if security != {"git": SECURITY_REPOSITORY, "rev": SECURITY_REVISION}:
         raise ValueError("security_source_mismatch")
     requirements = context / "requirements.txt"
-    subprocess.run(["uv", "export", "--locked", "--no-header", "--no-dev", "--extra", "postgres",
-        "--group", "product-inputs", "--group", "gate-records", "--group", "target-controls",
-        "--group", "security-governance", "--no-emit-project", "--no-emit-package", "bravo-observability",
-        "--no-emit-package", "sova-security",
-        "--no-emit-package", "bravo-agent-worker", "--no-emit-package", "bravo-rehearsal-runner",
-        "--no-emit-package", "bravo-inventory", "--no-emit-package", "bravo-control-gate",
-        "--no-emit-package", "bravo-iac", "--no-emit-package", "bravo-controls",
-        "-o", str(requirements)], cwd=SERVICE, check=True, stdout=subprocess.DEVNULL)
+    export = ["uv", "export", "--locked", "--no-header", "--no-dev"]
+    if security_review:
+        export += ["--only-group", "security-review", "--no-emit-project", "--no-emit-package", "sova-security"]
+    else:
+        export += ["--extra", "postgres", "--group", "product-inputs", "--group", "gate-records",
+            "--group", "target-controls", "--group", "security-governance", "--no-emit-project",
+            "--no-emit-package", "bravo-observability", "--no-emit-package", "sova-security",
+            "--no-emit-package", "bravo-agent-worker", "--no-emit-package", "bravo-rehearsal-runner",
+            "--no-emit-package", "bravo-inventory", "--no-emit-package", "bravo-control-gate",
+            "--no-emit-package", "bravo-iac", "--no-emit-package", "bravo-controls"]
+    subprocess.run([*export, "-o", str(requirements)], cwd=SERVICE, check=True, stdout=subprocess.DEVNULL)
     text = requirements.read_text()
     if any(line.strip().startswith(("-e ", "git+", "file:", "../", "/")) or " @ " in line
            for line in text.splitlines() if not line.startswith("#")):
         raise ValueError("registry_dependencies_required")
-    for service, package in PACKAGES.items():
-        source = OBSERVABILITY_REVISION if service == "observability" else revision
-        copy_committed_tree(source, f"services/{service}/src/{package}/", context / "src" / package)
+    if not security_review:
+        for service, package in PACKAGES.items():
+            source = OBSERVABILITY_REVISION if service == "observability" else revision
+            copy_committed_tree(source, f"services/{service}/src/{package}/", context / "src" / package)
     copy_security_tree(context / "src/sova_security")
     # T36's wheel force-includes its contract schema (services/observability pyproject); copying the
     # package sources skips it, and every contract.validate in the image then fails (T17 drill, 11/8).
-    (context / "src/bravo_observability/sli.schema.json").write_bytes(
-        git("show", f"{OBSERVABILITY_REVISION}:docs/observability/sli.schema.json"))
-    if not (context / "src/bravo_platform_events/product_read_server.py").is_file():
-        raise ValueError("product_reader_missing")
+    if not security_review:
+        (context / "src/bravo_observability/sli.schema.json").write_bytes(
+            git("show", f"{OBSERVABILITY_REVISION}:docs/observability/sli.schema.json"))
+        if not (context / "src/bravo_platform_events/product_read_server.py").is_file():
+            raise ValueError("product_reader_missing")
     if rehearsal_host:
         add_rehearsal_context(context, revision)
-    recipe = ("services/platform-events/deploy/approval/Dockerfile" if rehearsal_host
-              else "services/platform-events/deploy/product-read/Dockerfile")
+    recipe = ("services/platform-events/deploy/security-review/Dockerfile" if security_review else
+              "services/platform-events/deploy/approval/Dockerfile" if rehearsal_host else
+              "services/platform-events/deploy/product-read/Dockerfile")
     (context / "Dockerfile").write_bytes(git("show", f"{revision}:{recipe}"))
     # Every image fails its build when an entry point (lazy imports included) needs a module the
     # context did not copy, instead of a Pod that starts and dies (#546 workflow host, bravo_apply).

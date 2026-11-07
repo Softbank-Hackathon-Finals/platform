@@ -1,0 +1,7 @@
+{
+  "image": {
+    "repository": "ghcr.io/softbank-hackathon-finals/platform-security-review",
+    "digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+  },
+  "sourceRevision": "0000000000000000000000000000000000000000"
+}

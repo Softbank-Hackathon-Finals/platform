@@ -47,6 +47,7 @@ gate-records = ["bravo-control-gate==0.1.0", "boto3>=1.35,<2"]
 # ADR-0041: the workflow host measures the post-cutover target T14 run with the T14 collectors.
 target-controls = ["bravo-controls[aws]"]
 security-governance = ["sova-security==0.11.1"]
+security-review = ["sova-security[service]==0.11.1"]
 
 [tool.uv.sources.sova-security]
 git = "https://github.com/Softbank-Hackathon-Finals/security.git"
