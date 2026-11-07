@@ -27,8 +27,17 @@ class OnpremDetectionBundle(unittest.TestCase):
         for policy in policies:
             self.assertEqual(policy["kind"], "ClusterPolicy")
             self.assertIn(policy["metadata"]["name"], mapped)
-            self.assertEqual(policy["spec"]["validationFailureAction"], "Audit")
+            # Background scans only: no admission webhook on workload Pods during a cutover, and no
+            # spec-level validationFailureAction (deprecated in 1.19); each rule audits.
+            self.assertIs(policy["spec"]["admission"], False)
             self.assertIs(policy["spec"]["background"], True)
+            self.assertNotIn("validationFailureAction", policy["spec"])
+            self.assertEqual({r["validate"]["failureAction"] for r in policy["spec"]["rules"]}, {"Audit"})
+            # One count per Pod, and system/platform Pods are not tenant violations.
+            self.assertEqual(policy["metadata"]["annotations"]["pod-policies.kyverno.io/autogen-controllers"], "none")
+            for rule in policy["spec"]["rules"]:
+                excluded = {n for e in rule["exclude"]["any"] for n in e["resources"]["namespaces"]}
+                self.assertTrue({"kube-system", "tailscale-system", "falco", "kyverno", "bravo-security"} <= excluded)
             self.assertIn(policy["metadata"]["annotations"]["policies.kyverno.io/severity"], {"low", "medium", "high", "critical"})
 
     def test_falco_sends_through_a_secret_never_values(self):
@@ -37,6 +46,9 @@ class OnpremDetectionBundle(unittest.TestCase):
         self.assertIn("kind: modern_ebpf", values)
         self.assertIn("existingSecret: falcosidekick-bravo", values)
         self.assertNotRegex(values, r"(?i)bearer|address:|customheaders|token:")
+        # Rules are fetched once at install, never followed at runtime; alerts never land in Pod logs.
+        self.assertIn("falcoctl:\n  artifact:\n    follow:\n      enabled: false", values)
+        self.assertIn("stdout_output:\n    enabled: false", values)
         # The platform's private CA comes from a ConfigMap (a public certificate), never a key.
         self.assertIn("cacertfile: /etc/bravo-findings-ca/ca.crt", values)
         self.assertIn("configMap: {name: bravo-findings-ca}", values)
@@ -46,9 +58,14 @@ class OnpremDetectionBundle(unittest.TestCase):
         rules = items[("ClusterRole", "bravo-findings-agent")]["rules"]
         self.assertEqual(rules, [{"apiGroups": ["wgpolicyk8s.io"], "resources": ["policyreports", "clusterpolicyreports"],
                                   "verbs": ["get", "list"]}])
-        falco = items[("Role", "bravo-findings-agent")]
-        self.assertEqual((falco["metadata"]["namespace"], falco["rules"]),
-                         ("falco", [{"apiGroups": ["apps"], "resources": ["daemonsets"], "resourceNames": ["falco"], "verbs": ["get"]}]))
+        roles = {o["metadata"]["namespace"]: o["rules"] for o in json.loads((BUNDLE / "agent.json").read_text())["items"]
+                 if o["kind"] == "Role"}
+        self.assertEqual(roles, {
+            "falco": [{"apiGroups": ["apps"], "resources": ["daemonsets"], "resourceNames": ["falco"], "verbs": ["get"]},
+                      {"apiGroups": ["apps"], "resources": ["deployments"], "resourceNames": ["falco-falcosidekick"],
+                       "verbs": ["get"]}],
+            "kyverno": [{"apiGroups": ["apps"], "resources": ["deployments"], "resourceNames": ["kyverno-reports-controller"],
+                         "verbs": ["get"]}]})
         pod = items[("CronJob", "bravo-findings-agent")]["spec"]["jobTemplate"]["spec"]["template"]["spec"]
         container, = pod["containers"]
         self.assertRegex(container["image"], r"@sha256:[0-9a-f]{64}$")
@@ -56,7 +73,8 @@ class OnpremDetectionBundle(unittest.TestCase):
         self.assertEqual(container["securityContext"], {"allowPrivilegeEscalation": False, "readOnlyRootFilesystem": True,
                                                         "capabilities": {"drop": ["ALL"]}})
         self.assertFalse([e for e in container["env"] if "TOKEN" in e["name"] and e["name"] != "BRAVO_FINDINGS_TOKEN_FILE"])
-        self.assertEqual(pod["volumes"][0]["secret"]["defaultMode"], 0o400)
+        # uid 10001 reads the token through its group: root-owned 0400 would be unreadable.
+        self.assertEqual((pod["securityContext"]["fsGroup"], pod["volumes"][0]["secret"]["defaultMode"]), (10001, 0o440))
 
     def test_agent_reaches_only_dns_the_kube_api_and_the_declared_platform_name(self):
         items = {(o["kind"], o["metadata"]["name"]): o for o in json.loads((BUNDLE / "agent.json").read_text())["items"]}

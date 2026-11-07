@@ -27,13 +27,29 @@
       "kind": "Role",
       "metadata": {"name": "bravo-findings-agent", "namespace": "falco", "labels": {"component": "target"}},
       "rules": [
-        {"apiGroups": ["apps"], "resources": ["daemonsets"], "resourceNames": ["falco"], "verbs": ["get"]}
+        {"apiGroups": ["apps"], "resources": ["daemonsets"], "resourceNames": ["falco"], "verbs": ["get"]},
+        {"apiGroups": ["apps"], "resources": ["deployments"], "resourceNames": ["falco-falcosidekick"], "verbs": ["get"]}
       ]
     },
     {
       "apiVersion": "rbac.authorization.k8s.io/v1",
       "kind": "RoleBinding",
       "metadata": {"name": "bravo-findings-agent", "namespace": "falco", "labels": {"component": "target"}},
+      "roleRef": {"apiGroup": "rbac.authorization.k8s.io", "kind": "Role", "name": "bravo-findings-agent"},
+      "subjects": [{"kind": "ServiceAccount", "name": "bravo-findings-agent", "namespace": "bravo-security"}]
+    },
+    {
+      "apiVersion": "rbac.authorization.k8s.io/v1",
+      "kind": "Role",
+      "metadata": {"name": "bravo-findings-agent", "namespace": "kyverno", "labels": {"component": "target"}},
+      "rules": [
+        {"apiGroups": ["apps"], "resources": ["deployments"], "resourceNames": ["kyverno-reports-controller"], "verbs": ["get"]}
+      ]
+    },
+    {
+      "apiVersion": "rbac.authorization.k8s.io/v1",
+      "kind": "RoleBinding",
+      "metadata": {"name": "bravo-findings-agent", "namespace": "kyverno", "labels": {"component": "target"}},
       "roleRef": {"apiGroup": "rbac.authorization.k8s.io", "kind": "Role", "name": "bravo-findings-agent"},
       "subjects": [{"kind": "ServiceAccount", "name": "bravo-findings-agent", "namespace": "bravo-security"}]
     },
@@ -55,7 +71,7 @@
               "spec": {
                 "serviceAccountName": "bravo-findings-agent",
                 "restartPolicy": "Never",
-                "securityContext": {"runAsNonRoot": true, "runAsUser": 10001, "runAsGroup": 10001, "seccompProfile": {"type": "RuntimeDefault"}},
+                "securityContext": {"runAsNonRoot": true, "runAsUser": 10001, "runAsGroup": 10001, "fsGroup": 10001, "seccompProfile": {"type": "RuntimeDefault"}},
                 "containers": [
                   {
                     "name": "agent",
@@ -73,7 +89,7 @@
                     "volumeMounts": [{"name": "ingest", "mountPath": "/run/bravo/ingest", "readOnly": true}, {"name": "ca", "mountPath": "/run/bravo/ca", "readOnly": true}]
                   }
                 ],
-                "volumes": [{"name": "ingest", "secret": {"secretName": "bravo-findings-agent-token", "defaultMode": 256}}, {"name": "ca", "configMap": {"name": "bravo-findings-ca"}}]
+                "volumes": [{"name": "ingest", "secret": {"secretName": "bravo-findings-agent-token", "defaultMode": 288}}, {"name": "ca", "configMap": {"name": "bravo-findings-ca"}}]
               }
             }
           }
