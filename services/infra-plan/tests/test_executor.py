@@ -391,3 +391,20 @@ def test_runs_are_chained_into_the_t24_ledger_and_resume_after_a_restart(world):
     after = read_local_run(store_root, "plan-demo", "run-1")
     assert after.record_count > first.record_count
     assert [r["sha256"] for r in after.records[:first.record_count]] == [r["sha256"] for r in first.records]
+
+
+def test_the_t45_project_allows_only_what_the_approved_manifests_make(world):
+    from bravo_infra_plan.applications import project
+
+    world["approve"]("appr-1")
+    run = start(world, "run-1")
+    published = {k: v for k, v in run["files"].items() if k != "migration"}
+    spec = project("target-onprem", repo_url="file://config", files=published)["spec"]
+    namespaces = {d["namespace"] for d in spec["destinations"]}
+    assert {"target-dev", "bravo-secrets", "external-secrets", "cnpg-system", "tailscale-system"} <= namespaces
+    assert "*" not in namespaces and "bravo-iac-gitops" not in namespaces and "kube-system" not in namespaces
+    kinds = {(r["group"], r["kind"]) for r in spec["clusterResourceWhitelist"]}
+    assert ("", "Namespace") in kinds and ("", "PersistentVolume") in kinds
+    # (fake charts here render ConfigMaps only; real charts with include_crds add their CRDs the same way)
+    assert ("*", "*") not in kinds
+    assert not any(kind == "ProxyGroup" for _, kind in kinds)  # T44's tailnet objects stay T44's
