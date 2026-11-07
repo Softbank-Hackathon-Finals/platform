@@ -94,8 +94,10 @@ class ApprovalDelegations:
             return receipt["delegation_id"]
 
     def principal_for(self, plan_id, gate, *, binding, version):
-        """Host only: the approver's principal for one gate whose binding stays within the delegation."""
-        if gate not in GATES or type(binding) is not dict:
+        """Host only: the approver's principal for one gate whose binding stays within the delegation.
+
+        `binding` is the decision's binding, or `binding(c, principal)` computing it in this transaction."""
+        if gate not in GATES or not (type(binding) is dict or callable(binding)):
             raise EventError("invalid_delegation")
         with self.store._transaction(write=True, plan_id=plan_id) as c:
             now = self.clock()
@@ -108,6 +110,14 @@ class ApprovalDelegations:
                 raise EventError("delegation_expired")
             if gate not in receipt["gates"]:
                 raise EventError("approval_not_delegated")
+            issued = int(_ts(now))
+            principal = OperatorPrincipal(receipt["approver"], receipt["tenant_id"], issued,
+                                          min(issued + HOST_PRINCIPAL_SECONDS, int(_ts(receipt["expires_at"]))),
+                                          receipt["authenticated_at"], "delegation:" + receipt["delegation_id"])
+            if callable(binding):
+                binding = binding(c, principal)
+                if type(binding) is not dict:
+                    raise EventError("invalid_delegation")
             if any(binding.get(k) != v for k, v in receipt["bounds"].get(gate, {}).items()):
                 raise EventError("delegation_scope_mismatch")
             use = f"{KEY}-use-{gate}-{version}"
@@ -117,7 +127,59 @@ class ApprovalDelegations:
                 raise EventError("delegation_already_used")  # one decision per gate and plan version
             if not old:
                 _put(c, plan_id, use, record, dict(record, at=now))
-        issued = int(_ts(now))
-        expires = min(issued + HOST_PRINCIPAL_SECONDS, int(_ts(receipt["expires_at"])))
-        return OperatorPrincipal(receipt["approver"], receipt["tenant_id"], issued, expires,
-                                 receipt["authenticated_at"], "delegation:" + receipt["delegation_id"])
+        return principal
+
+
+def _edge_at_full(c, plan):
+    """SHIFT reached 100%: the newest CONFIRMED Edge stage this SHIFT (T17 ShiftHost receipts) targets 100."""
+    rows = c.execute("SELECT receipt_json FROM plan_commands WHERE plan_id=? AND command_key LIKE ?",
+                     (plan["plan_id"], "edge-host-receipt-%")).fetchall()
+    stages = [json.loads(r["receipt_json"]) for r in rows]
+    stages = [s for s in stages if s.get("status") == "CONFIRMED" and _ts(s["confirmed_at"]) >= _ts(plan["updated_at"])]
+    return bool(stages) and max(stages, key=lambda s: _ts(s["confirmed_at"]))["weight_target"] == 100
+
+
+def watch_fail_key(version):
+    return f"{KEY}-watch-fail-{version}"
+
+
+class DelegatedGates:
+    """T10 operator process only (it holds the Executor command token): the cutover and failback decisions the
+    approver delegated, approved and submitted as that approver with their current permissions.
+
+    Cutover waits for the Edge at 100% this SHIFT; failback only for a WATCH FAIL the workflow host recorded at
+    this version. Anything unmet or refused is a wait: the next sweep or a person on the same routes decides.
+    ponytail: the T13 lag criterion stays with the cutover authority (contract), not checked here.
+    """
+
+    def __init__(self, store, delegations, *, cutover, failback=None):
+        self.store, self.delegations, self.cutover, self.failback = store, delegations, cutover, failback
+
+    def sweep(self):
+        with self.store._transaction() as c:
+            plans = [dict(r) for r in c.execute(
+                "SELECT plan_id, state, version, updated_at FROM plans WHERE state IN ('SHIFT', 'WATCH')").fetchall()]
+            due = [(p, "cutover", self.cutover) for p in plans if p["state"] == "SHIFT" and _edge_at_full(c, p)]
+            due += [(p, "failback", self.failback) for p in plans if p["state"] == "WATCH" and self.failback
+                    and _get(c, p["plan_id"], watch_fail_key(p["version"]))]
+        decided = {}
+        for plan, gate, service in due:
+            try:
+                decided[plan["plan_id"]] = self._decide(plan, gate, service)
+            except EventError as error:
+                decided[plan["plan_id"]] = {"held": error.code}
+        return decided
+
+    def _decide(self, plan, gate, service):
+        plan_id, version, chosen = plan["plan_id"], plan["version"], {}
+
+        def current(c, principal):
+            row = dict(c.execute("SELECT * FROM plans WHERE plan_id=?", (plan_id,)).fetchone())
+            chosen["binding"] = service._current(c, principal, row, service.clock()).binding
+            return chosen["binding"]
+
+        principal = self.delegations.principal_for(plan_id, gate, binding=current, version=version)
+        approval = service.approve(principal, plan_id, binding=chosen["binding"], expected_version=version,
+                                   command_key=f"delegated-{gate}-{version}")
+        return service.submit(principal, plan_id, approval_id=approval["approval_id"],
+                              command_key=f"delegated-{gate}-submit-{version}")

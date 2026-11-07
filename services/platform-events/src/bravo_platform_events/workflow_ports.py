@@ -155,7 +155,12 @@ def create_ports(store, config_file="/workflow/ports.json"):
         if set(watch) != {"profile_file", "retest"}:
             raise ValueError("workflow_watch_configuration_invalid")
         profile = json.loads(_path(watch["profile_file"]).read_text())
-        readers["WATCH"] = watch_reader(observe=sli_observer(profile), retest=_factory(watch["retest"])(store))
+        observe = sli_observer(profile)
+        readers["WATCH"] = watch_reader(observe=observe, retest=_factory(watch["retest"])(store))
+        if delegations is not None:
+            from .workflow_stages import watch_fail_preparer
+
+            preparers["WATCH"] = watch_fail_preparer(store, observe, readers.pop("WATCH"))
     if "application" in config:
         # Owner-provided (T31/T19): returns {"REHEARSE": preparer, "GATE": preparer} built with
         # workflow_stages.application_stages(..., host_subject="workflow-host") over this process's

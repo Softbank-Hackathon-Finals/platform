@@ -263,6 +263,26 @@ def watch_reader(*, observe, retest):
     return read
 
 
+def watch_fail_preparer(store, observe, reader):
+    """WATCH with delegation (T49): record a T36 FAIL once per plan version so the operator process can run
+    the failback the approver delegated (approval_delegation.DelegatedGates). The WATCH reader still decides."""
+    from types import SimpleNamespace
+
+    from .approval_delegation import watch_fail_key
+    from .failback import cutover_checkpoint
+
+    def prepare(plan_id, _tenant_id, version):
+        with store._transaction(write=True, plan_id=plan_id) as c:
+            plan = dict(c.execute("SELECT * FROM plans WHERE plan_id=?", (plan_id,)).fetchone())
+            if (plan["state"], plan["version"]) == ("WATCH", version) and not _get(c, plan_id, watch_fail_key(version)):
+                run = SimpleNamespace(command_id=cutover_checkpoint(c, plan_id)[0]["command_id"])
+                if observe(c, plan, run) == "FAIL":
+                    _put(c, plan_id, watch_fail_key(version), {}, {"observation": "FAIL", "version": version})
+        return reader
+
+    return prepare
+
+
 def sli_observer(profile, *, clock=None):
     """T36 WATCH judgement of the newest stored window, observed from the cutover run's last update."""
     from bravo_observability.sli import judge
