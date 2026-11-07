@@ -152,3 +152,19 @@ def test_api_serves_the_catalog_the_committed_state_and_plans():
     bad = client.post("/v1/iac/plan", json={"environment": "target-dev", "proposed": {}, "origin": "agent"})
     assert bad.status_code == 422 and bad.json()["detail"] == {"code": "IAC_STATE_INVALID"}
     assert client.post("/v1/iac/plan", json={"proposed": closed()}).status_code == 422
+
+
+def test_the_agent_port_plans_one_modules_params_and_never_widens():
+    from bravo_iac.agent import AgentPlanner
+
+    port = AgentPlanner(COMMITTED)
+    assert "target-object-exposure" in port.describe() and "secretKey" not in port.describe()
+    result = port.plan("target-object-exposure", {"state": "closed", "bucket": "demo-chat-attachments"})
+    assert result["origin"] == "agent" and result["accepted"] and result["base_digest"] == port.digest
+    reopen = AgentPlanner(closed()).plan("target-object-exposure", COMMITTED["modules"][0]["params"])
+    assert reopen["refusals"] == ["IAC_WIDENING_REFUSED"]
+    with pytest.raises(IacError, match="IAC_MODULE_NOT_IN_ENVIRONMENT"):
+        port.plan("target-app", {})
+    with pytest.raises(IacError, match="IAC_PARAMS_INVALID"):
+        port.plan("target-object-exposure", {"state": "closed", "bucket": "demo-chat-attachments",
+                                             "demo_run_id": "demo-2026-11-08"})
