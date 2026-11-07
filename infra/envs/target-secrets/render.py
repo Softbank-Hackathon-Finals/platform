@@ -342,10 +342,12 @@ def app_db_policy():
 
     The app already receives this value through ESO as a Kubernetes Secret; this lets its own
     ServiceAccount read the same path directly, so SEC-01.1 compares demo-chat with t14-other without
-    the ESO reader's identity (which also reads the object and admin paths). T14 collects from the
-    operator machine (`kubectl create token --audience openbao` + port-forward, #644/#666); no
-    in-cluster identity may mint these tokens, because RBAC cannot limit a TokenRequest's audience or
-    lifetime and such a grant would be a second way into this role.
+    the ESO reader's identity (which also reads the object and admin paths). T14 collects from outside
+    the target cluster only: the operator machine (`kubectl create token --audience openbao` +
+    port-forward, #644/#666), or after the cutover the platform's collector identity (ADR-0041), whose
+    TokenRequest admission forces audience `openbao` and 600 s. No in-cluster identity may mint these
+    tokens, because RBAC cannot limit a TokenRequest's audience or lifetime and such a grant would be a
+    second way into this role.
     Nothing else: no object or admin path, no writes, no token creation."""
     return f'path "secret/data/{DB_PATH}" {{ capabilities = ["read"] }}' + '''
 path "auth/token/lookup-self" { capabilities = ["read"] }
@@ -366,7 +368,7 @@ def t14_other_auth_role():
     SA ``t14-other`` (T30 #666, no permissions) in ``target-dev`` logs in but gets only the
     ``default`` policy, so reading the app path (``secret/data/`` + DB_PATH) is denied. A failed
     login would make SEC-01.1 UNKNOWN, a successful login with a denied read makes it PASS. The app
-    side stays ``target-app-reader`` (SA ``target-eso-reader``); nothing else is added."""
+    side is role ``demo-chat`` (``app_auth_role``, #741); nothing else is added."""
     return {"bound_service_account_names": ["t14-other"], "bound_service_account_namespaces": [APP_NAMESPACE],
             "audience": "openbao", "token_policies": ["default"], "token_ttl": "300s", "token_max_ttl": "900s"}
 
