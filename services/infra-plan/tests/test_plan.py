@@ -14,7 +14,9 @@ REPO = Path(__file__).resolve().parents[3]
 STACK = REPO / "infra/stacks/target-onprem/stack.json"
 REQUEST = {"stack": "target-onprem", "environment_id": "target-dev",
            "params": {"node_name": "bravo-target-1", "arch": "arm64", "api_service_ip": "10.43.0.1",
-                      "api_endpoint_ip": "192.168.64.10", "kube_version": "v1.35.9"}}
+                      "api_endpoint_ip": "192.168.64.10", "kube_version": "v1.35.9", "iac_revision": "a" * 40}}
+# Required only under a condition (tailnet=join): not in the schema's unconditional list.
+CONDITIONAL = {"iac_revision"}
 TARGET = {"cluster_uid": "cluster-1", "node_uid": "node-1"}
 REV, BASE = "1" * 40, "2" * 40
 
@@ -146,6 +148,12 @@ def _doc():
     (lambda d: d["steps"][1].update(when={"param": "node_name", "in": ["x"]}), "invalid_step_condition"),
     (lambda d: d["steps"][1].update(when={"param": "tailnet", "in": ["maybe"]}), "invalid_step_condition"),
     (lambda d: d["params"]["tailnet"].update(default="maybe"), "invalid_parameter_default"),
+    # A conditionally required value: decided by a closed parameter, without a default, used only under it.
+    (lambda d: d["params"]["iac_revision"].update(required_when={"param": "node_name", "in": ["x"]}),
+     "invalid_parameter_condition"),
+    (lambda d: d["params"]["iac_revision"].update(default="a" * 40), "invalid_parameter_condition"),
+    (lambda d: d["steps"][4]["renders"][0]["args"].append("${iac_revision}"),
+     "conditional_parameter_outside_condition"),
 ])
 def test_malformed_stacks_are_refused_before_rendering(edit, code):
     document = _doc()
@@ -172,7 +180,9 @@ def test_cli_check_and_request_schema(capsys):
     assert capsys.readouterr().out.splitlines()[0].split() == ["1", "identity"]
     assert main(["request-schema", str(STACK)]) == 0
     schema = json.loads(capsys.readouterr().out)
-    assert schema["properties"]["params"]["required"] == sorted(REQUEST["params"])
+    assert schema["properties"]["params"]["required"] == sorted(set(REQUEST["params"]) - CONDITIONAL)
+    conditions = {c["then"]["required"][0] for c in schema["properties"]["params"]["allOf"]}
+    assert conditions == CONDITIONAL
 
 
 def _desired_world(tmp_path, environments):
@@ -214,7 +224,8 @@ def test_a_target_without_a_tailnet_omits_the_tailscale_line_and_the_digest_bind
     isolated = Planner(load_stack(STACK), REPO, chart_renderer=charts).plan(
         isolated_request, stack_revision=REV, target=TARGET, base_commit=BASE)
     omitted = {s["id"] for s in isolated.document["steps"] if s.get("omitted")}
-    assert omitted == {"tailscale-oauth", "tailscale", "tailscale-sync"}
+    # The T44 Application needs the Tailscale CRDs, so it is turned on only with the tailnet line.
+    assert omitted == {"tailscale-oauth", "tailscale", "tailscale-sync", "iac-application", "iac-application-check"}
     assert not any(call[0].startswith("tailscale") for call in charts.calls)  # nothing rendered for it
     assert not any(name.startswith("tailscale/") for name in isolated.document["steps"][0].get("files", {}))
     assert isolated.plan_digest != joined.plan_digest
@@ -239,3 +250,12 @@ def test_base_declares_the_observability_namespace_with_the_collector_labels():
     for key, value in labels.items():
         if key != "app.kubernetes.io/managed-by":
             assert f"{key}: {value}" in collector, key
+
+
+def test_the_iac_revision_is_required_only_with_a_tailnet():
+    request = copy.deepcopy(REQUEST)
+    del request["params"]["iac_revision"]
+    with pytest.raises(StackError, match="invalid_plan_request"):  # tailnet defaults to join
+        plan(request)
+    request["params"]["tailnet"] = "none"
+    assert "iac_revision" not in plan(request).document["request"]["params"]

@@ -42,6 +42,9 @@ def expected_images(expect, params):
         raise StackError("image_unavailable_for_arch")
     return names
 
+# T44 intake states in which the Application exists and names the approved target (autoSync may be off).
+IAC_APPLICATION_ON = frozenset({"SYNC_PAUSED", "SYNC_PENDING", "SYNC_IN_PROGRESS", "SYNC_RETRYING", "SYNC_VERIFIED"})
+
 TIMEOUT = 600
 SQL_NAME = re.compile(r"^[a-z][a-z0-9_]{0,62}$")
 RUN_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$")
@@ -457,6 +460,20 @@ class AwsIdentity:
         return {"account_id": json.loads(result.stdout)["Account"]}
 
 
+def _iac_application_on(cluster, repo_root, run):
+    """T44's intake on this cluster: the Application names the planned environment and iac_revision.
+
+    Still bootstrap only: False. Refused (another target, prune) or a failed sync: HOLD with its reason."""
+    if repo_root is None:
+        raise StackError("repo_root_required")
+    request = run["plan"]["request"]
+    result = cluster.argo_intake(repo_root, request["environment_id"], run["plan"]["target"]["cluster_uid"],
+                                 request["params"]["iac_revision"])
+    if result["status"] in ("BLOCKED", "SYNC_FAILED"):
+        raise StepOutcome(HOLD, "argo_" + (result.get("reasons") or [result["status"]])[0].lower())
+    return result["status"] in IAC_APPLICATION_ON
+
+
 def _argo_synced(cluster, repo_root, run):
     """T44's intake says SYNC_VERIFIED at the approved revision. Not installed or not converged yet: wait.
     Something it refuses (another target, prune, a changed read): HOLD with its reason."""
@@ -498,6 +515,9 @@ class ClusterChecks:
             "openbao-ready": lambda: c.condition("Pod", "bravo-secrets", "target-openbao-0", "Ready"),
             "target-checks": lambda: (c.condition("Cluster", "target-dev", "target-db", "Ready")
                                       and c.deployments_available("target-dev")),
+            "iac-application-created": lambda: c.application_status(
+                f"bravo-iac-{run['plan']['request']['environment_id']}") is not None,
+            "iac-application-enabled": lambda: _iac_application_on(c, self.repo_root, run),
             # target-onprem-migration: the destination as a migration target
             "audit-metadata-active": lambda: (c.audit_level_events("Metadata") or 0) > 0,
             "iac-network-synced": lambda: _argo_synced(c, self.repo_root, run),

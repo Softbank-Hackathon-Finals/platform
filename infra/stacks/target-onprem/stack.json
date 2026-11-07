@@ -30,6 +30,11 @@
       "description": "목적지가 tailnet에 합류하는가. none은 같은 클러스터 안에서만 닿는 격리 시험(T49 로컬 E2E)이며 Tailscale 단계를 계획에서 뺀다",
       "enum": ["join", "none"],
       "default": "join"
+    },
+    "iac_revision": {
+      "description": "T44 고객 Argo CD 설치 값 targetRevision(검토한 전체 커밋 SHA). tailnet=join일 때 T44 Application을 켜고 T44 판정기로 확인하는 데 쓴다",
+      "pattern": "^[0-9a-f]{40}$",
+      "required_when": {"param": "tailnet", "in": ["join"]}
     }
   },
   "charts": {
@@ -88,7 +93,7 @@
       "needs": [
         "identity"
       ],
-      "instruction": "infra/iac/README.md 절차로 이 고객 클러스터에 T44 Argo CD chart 0.2.x를 한 번 설치한다(helm upgrade --install bravo-iac-gitops infra/iac/argocd -n bravo-iac-gitops --create-namespace, 보호된 운영자 값 파일: environment=<environment_id>, tailnet, targetRevision=<검토한 전체 커밋 SHA>). 처음에는 --set application.enabled=false --set application.autoSync=false --set application.prune=false를 명시해 Argo CD와 CRD만 만든다. 0.2.2부터 application.enabled를 생략하면 렌더가 거부된다. T44 Application은 namespace와 Tailscale CRD가 생긴 뒤에 켠다(T44 #673). 플랫폼 클러스터에는 설치하지 않는다.",
+      "instruction": "infra/iac/README.md 절차로 이 고객 클러스터에 T44 Argo CD chart 0.2.x를 한 번 설치한다(helm upgrade --install bravo-iac-gitops infra/iac/argocd -n bravo-iac-gitops --create-namespace, 보호된 운영자 값 파일: environment=<environment_id>, tailnet, targetRevision=<iac_revision>). 처음에는 --set application.enabled=false --set application.autoSync=false --set application.prune=false를 명시해 Argo CD와 CRD만 만든다. 0.2.2부터 application.enabled를 생략하면 렌더가 거부된다. T44 Application은 namespace와 Tailscale CRD가 생긴 뒤 iac-application 단계에서 켠다(T44 #673). 플랫폼 클러스터에는 설치하지 않는다.",
       "confirm": "iac-argocd"
     },
     {
@@ -456,6 +461,29 @@
       "timeout_seconds": 600
     },
     {
+      "id": "iac-application",
+      "kind": "operator_action",
+      "owner": "T44",
+      "when": {"param": "tailnet", "in": ["join"]},
+      "description": "namespace(base)와 Tailscale CRD(tailscale)가 Synced · Healthy가 된 뒤 T44 Application을 켠다(T44 #673 순서 계약)",
+      "needs": [
+        "tailscale-sync"
+      ],
+      "instruction": "argocd 단계와 같은 보호된 운영자 값 파일로 helm upgrade bravo-iac-gitops infra/iac/argocd -n bravo-iac-gitops --set application.enabled=true --set application.autoSync=false --set application.prune=false를 실행한다. autoSync · prune은 false로 유지하고, 자동 동기화 승격은 T44 절차(infra/iac/README.md 3단계)를 따른다. targetRevision은 계획의 iac_revision이어야 한다.",
+      "confirm": "iac-application-created"
+    },
+    {
+      "id": "iac-application-check",
+      "kind": "probe",
+      "owner": "T44",
+      "when": {"param": "tailnet", "in": ["join"]},
+      "description": "T44 판정기(infra/iac/customer_status.py)로 Application이 계획의 iac_revision을 가리키며 켜졌는지 확인한다. BOOTSTRAP 상태면 실패, 판정기가 막으면 HOLD",
+      "needs": [
+        "iac-application"
+      ],
+      "check": "iac-application-enabled"
+    },
+    {
       "id": "openbao-image",
       "kind": "operator_action",
       "owner": "T9",
@@ -740,7 +768,8 @@
       "description": "구축 결과를 실제로 확인한다(probes.py · verify.py). Synced만으로 완료로 보지 않는다",
       "needs": [
         "app-sync",
-        "tailscale-sync"
+        "tailscale-sync",
+        "iac-application-check"
       ],
       "check": "target-checks"
     }
