@@ -113,7 +113,7 @@ def _propose(store, config):
                 or not HEX40.fullmatch(app["workflow_sha"]) or type(app["workflow_id"]) is not int):
             raise ValueError("workflow_github_app_configuration_invalid")
         key = _path(app["key_file"]).read_bytes()
-        repository = "Softbank-Hackathon-Finals/demo-chat"
+        from .candidate_publication import REPOSITORY as repository
         github = CandidateGitHub(app=GitHubApp(app["app_id"], key, repository, {"actions": "read"}))
         writer = CandidateWriter(GitHubApp(app["app_id"], key, repository, WRITER_PERMISSIONS), clone,
                                  workflow_sha=app["workflow_sha"], workflow_id=app["workflow_id"],
