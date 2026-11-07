@@ -1,4 +1,4 @@
-"""T44 executor over a real Git configuration repository and a simulated cluster (ADR-0032 3.4)."""
+"""T45 executor over a real Git configuration repository and a simulated cluster (ADR-0033 3.4)."""
 
 import json
 import subprocess
@@ -64,6 +64,9 @@ class FakeCluster:
 
     def deployments_available(self, namespace):
         return True
+
+    def statefulset_ready(self, namespace, name):
+        return (namespace, name) == ("bravo-iac-gitops", "bravo-iac-gitops-application-controller")
 
     def labelled_secret_exists(self, namespace, selector):
         return True
@@ -148,7 +151,8 @@ def test_parallel_lines_run_until_human_steps_then_confirmations_finish_the_run(
     assert run["status"] == "WAITING_OPERATOR"
     assert states["host-dirs"] == states["openbao-image"] == "WAITING_OPERATOR"  # code cannot observe these
     # Lines that do not need the host directories or the OpenBao image went ahead in parallel.
-    for done in ("argocd", "base", "base-sync", "cnpg-sync", "eso-sync", "tailscale-sync", "db-secrets"):
+    assert states["argocd"] == "SKIPPED"  # T44 installed it; T45 only observes it
+    for done in ("base", "base-sync", "cnpg-sync", "eso-sync", "tailscale-sync", "db-secrets"):
         assert states[done] in ("APPLIED", "SKIPPED"), done
     for blocked in ("database", "objects", "openbao", "app", "verify"):
         assert states[blocked] == "PENDING", blocked
@@ -165,8 +169,7 @@ def test_parallel_lines_run_until_human_steps_then_confirmations_finish_the_run(
     assert "migration.json" not in {name.split("/")[-1] for name in tree}
     for path, commit in run["commits"].items():
         assert world["cluster"].apps[application_name("target-onprem", path)] == commit
-    assert world["cluster"].helm[("target-gitops", "argocd")] == next(
-        s["digest"] for s in run["plan"]["steps"] if s["id"] == "argocd")
+    assert world["cluster"].helm == {}  # no chart install: the destination Argo CD is T44's
 
 
 def test_secret_values_stay_out_of_records_and_existing_secrets_are_never_replaced(world):

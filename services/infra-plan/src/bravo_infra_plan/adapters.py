@@ -14,6 +14,7 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
+from .applications import ARGO_NAMESPACE
 from .stack import StackError
 
 TIMEOUT = 600
@@ -198,12 +199,17 @@ class KubectlCluster:
         return any(c.get("type") == condition and c.get("status") == "True" for c in status.get("conditions", []))
 
     def application_status(self, name):
-        obj = self._get("applications.argoproj.io", "argocd", name)
+        obj = self._get("applications.argoproj.io", ARGO_NAMESPACE, name)
         if obj is None:
             return None
         status = obj.get("status", {})
         return {"revision": status.get("sync", {}).get("revision"), "sync": status.get("sync", {}).get("status"),
                 "health": status.get("health", {}).get("status")}
+
+    def statefulset_ready(self, namespace, name):
+        obj = self._get("statefulset", namespace, name)
+        status = (obj or {}).get("status", {})
+        return bool(obj) and status.get("readyReplicas", 0) >= 1 and status.get("readyReplicas") == status.get("replicas")
 
     def deployments_available(self, namespace):
         listing = json.loads(self._k("get", "deployments", "-n", namespace, "-o", "json").stdout)["items"]
@@ -280,7 +286,8 @@ class ClusterChecks:
             "target-identity": lambda: c.identity(params["node_name"]) == target and c.node_ready(params["node_name"]),
             "host-paths": lambda: None,
             "openbao-image": lambda: None,
-            "argocd-repository": lambda: c.labelled_secret_exists("argocd", "argocd.argoproj.io/secret-type=repository"),
+            "iac-argocd": lambda: c.statefulset_ready(ARGO_NAMESPACE, "bravo-iac-gitops-application-controller"),
+            "argocd-repository": lambda: c.labelled_secret_exists(ARGO_NAMESPACE, "argocd.argoproj.io/secret-type=repository"),
             "seaweedfs-auth": lambda: c.secret_exists("target-dev", "target-seaweedfs-auth"),
             "tailscale-oauth": lambda: c.secret_exists("tailscale-system", "operator-oauth"),
             "openbao-tls": lambda: c.secret_exists("bravo-secrets", "target-openbao-tls"),

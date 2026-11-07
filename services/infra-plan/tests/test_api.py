@@ -1,4 +1,4 @@
-"""T44 HTTP API: plans for anyone authenticated, runs and confirmations for humans only."""
+"""T45 HTTP API: plans for anyone authenticated, runs and confirmations for humans only."""
 
 import time
 

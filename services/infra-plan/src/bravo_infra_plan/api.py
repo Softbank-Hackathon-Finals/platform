@@ -1,4 +1,4 @@
-"""T44 HTTP API (ADR-0032 3.3). Operators, the console and the agent use the same routes.
+"""T45 HTTP API (ADR-0033 3.3). Operators, the console and the agent use the same routes.
 
 - Plans: anyone authenticated may create and read one. Creating a plan never writes to a cluster
   or the configuration repository; it reads the live target identity and repository head.

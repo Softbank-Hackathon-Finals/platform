@@ -1,4 +1,4 @@
-# T44 목적지 구축 실행기 — 로컬 kind 클러스터 실측
+# T45 목적지 처음 구축 실행기 — 로컬 kind 클러스터 실측
 
 2026-11-07 13:17–13:38 KST(04:17–04:38Z)에 **이 노트북의 로컬 kind 클러스터**에서 `bravo-infra-plan run / confirm` CLI로 `target-onprem` 스택을 실제로 적용했다. **데모 목적지 RKE2가 아니며, 새 VM(`local-vm.sh`)도 아니다.** 이 노트북에 QEMU가 없어 kind를 썼다.
 
@@ -9,10 +9,10 @@
 | 항목 | 값 |
 |---|---|
 | kind | v0.32.0, 노드 이미지 `kindest/node:v1.36.1@sha256:3489c767…f7ebd5`, 단일 노드 arm64 |
-| 코드 | 실행기 브랜치(`feature/T44-infra-executor`, 엔진 #604 `a04069d2` 위)의 작업 트리. T10은 #603 `a0c73422` |
+| 코드 | 실행기 브랜치(`feature/T44-infra-executor`, 이후 T45로 이름만 바꿈, 엔진 #604 `a04069d2` 위)의 작업 트리. T10은 #603 `a0c73422` |
 | chart | 공식 저장소 아카이브 4개(스택의 고정 SHA-256과 일치), helm v4.3.1 |
 | 설정 저장소 | kind 안의 Git 서버 Pod. 실행기는 127.0.0.1 port-forward로 fast-forward push, 목적지 Argo CD는 클러스터 내부 HTTP로 읽기 |
-| 목적지 Argo CD | `infra/stacks/target-onprem/argocd` chart(argo-cd 10.14.0) |
+| 목적지 Argo CD | 당시 브랜치의 자체 chart(`infra/stacks/target-onprem/argocd`, argo-cd 10.14.0 Core, namespace `argocd`). **측정 뒤 T44와 겹쳐 지웠다.** 지금 코드는 T44 설치(`infra/iac/argocd`, 같은 argo-cd 10.14.0 Core, namespace `bravo-iac-gitops`)를 확인만 하므로, 아래 `argocd` 29.1초는 T45가 아니라 Argo CD 설치 자체의 시간이다 |
 
 ## 실행 순서와 결과
 
@@ -59,4 +59,4 @@ DB와 SeaweedFS 줄기는 같은 시각(13:36:22)에 함께 시작했다.
 - OpenBao(비공개 오프라인 이미지 필요), Tailscale(OAuth 자격 필요), 그 뒤의 delivery · app · verify 단계는 실행하지 않았다.
 - T10은 SSO가 아닌 로컬 고정 토큰이다. 권한 검사(`approve_infra` · `apply_infra`)는 #603 단위 시험으로만 확인했다.
 - 원장은 JSONL 파일이다(T24 연결 전).
-- 측정 뒤 `kind delete cluster --name t44`로 클러스터를 지운다.
+- 측정 뒤 `kind delete cluster --name t44`로 클러스터를 지웠다.

@@ -1,11 +1,12 @@
-"""Destination Argo CD Applications, one per published path (ADR-0032 3.2 · 3.4).
+"""Destination Argo CD Applications, one per published path (ADR-0033 3.2 · 3.4).
 
 Each Application points at the exact commit the run published, so the synced revision can be
 compared with the run record. Automatic prune stays off: removing a file never deletes a cluster
 resource. Self-heal is on for the resources the Application owns.
 """
 
-ARGO_NAMESPACE = "argocd"
+# The destination Argo CD is T44's install (infra/iac/argocd); T45 only adds its project and Applications.
+ARGO_NAMESPACE = "bravo-iac-gitops"
 
 
 def application_name(stack, path):
@@ -26,9 +27,10 @@ IGNORE_DIFFERENCES = [
 def project(stack, *, repo_url):
     """One AppProject per stack, limited to the configuration repository and this cluster.
 
-    The chart's server is off, so no `default` project exists (found in the kind measurement).
+    The Argo CD server is off, so no `default` project exists (found in the kind measurement), and
+    T44's own project `bravo-iac` is limited to the public platform repository.
     Cluster-scoped kinds stay open in v1 (Namespaces, PersistentVolumes, operator CRDs and
-    ClusterRoles); narrowing them is the agreed follow-up (ADR-0032 3.5).
+    ClusterRoles); narrowing them is the agreed follow-up (ADR-0033 3.5).
     """
     return {
         "apiVersion": "argoproj.io/v1alpha1",

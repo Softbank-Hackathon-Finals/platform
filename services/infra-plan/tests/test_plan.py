@@ -1,4 +1,4 @@
-"""T44 stack loading and offline plans (ADR-0032)."""
+"""T45 stack loading and offline plans (ADR-0033)."""
 
 import copy
 import hashlib
@@ -49,8 +49,8 @@ def test_target_stack_runs_four_lines_in_parallel_after_base():
     assert levels["app"] > max(levels["migration-complete"], levels["objects-sync"], levels["delivery-ready"])
     assert stack.levels[-1] == ("verify",)
     kinds = {s["kind"] for s in stack.document["steps"]}
-    assert kinds == {"probe", "operator_action", "helm_release", "gitops_publish", "gitops_sync",
-                     "render_apply", "secret_generate", "wait"}
+    assert kinds == {"probe", "operator_action", "gitops_publish", "gitops_sync", "render_apply",
+                     "secret_generate", "wait"}  # helm_release exists but this stack installs no chart itself
 
 
 def test_real_renderers_give_a_deterministic_plan_and_split_the_namespace():

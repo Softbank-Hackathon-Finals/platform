@@ -1,4 +1,4 @@
-"""Apply an approved plan (ADR-0032 3.4). No LLM import; every decision here is code.
+"""Apply an approved plan (ADR-0033 3.4). No LLM import; every decision here is code.
 
 Order of a run:
 1. Read the target identity and the configuration repository head, re-render the plan.
@@ -203,7 +203,7 @@ class Executor:
                 commit, status = run["commits"].get(step["path"], run["head"]), SKIPPED
             else:
                 commit = self.repo.replace_tree(step["path"], files, expected_head=run["head"],
-                                                message=f"[T44] {run['run_id']} {step['id']}")
+                                                message=f"[T45] {run['run_id']} {step['id']}")
                 run["head"], status = commit, APPLIED
             run["commits"][step["path"]] = commit
         manifests = [project(self.stack.name, repo_url=self.repo_url),

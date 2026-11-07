@@ -1,8 +1,8 @@
-# T44 목적지 구축 계획: 정형 스택 → 렌더 → 계획 digest
+# T45 목적지 처음 구축: 정형 스택 → 렌더 → 계획 digest → 적용
 
-설계 8.11의 "목적지 구축" 어댑터를 [ADR-0032](../../docs/adr/0032-infra-plan-api.md)대로 만든다. 목적지 구축 절차를 정형 단계 스택으로 고정하고, 같은 입력이면 같은 계획과 `plan_digest`가 나오게 한다. 승인은 T10 `approval_kind=infra`(#603)가, 선언형 자원의 적용은 목적지 클러스터 안의 Argo CD가 맡는다.
+설계 8.11의 "목적지 구축" 어댑터를 [ADR-0033](../../docs/adr/0033-destination-bootstrap-executor.md)대로 만든다. 빈 클러스터에서 목적지를 처음 세우는 순서를 맡고, 이미 선 목적지의 설정 모듈 · 원하는 상태 · 고객 클러스터 Argo CD 설치는 T44([ADR-0032](../../docs/adr/0032-destination-iac-api.md), `services/iac`)가 맡는다. 목적지 구축 절차를 정형 단계 스택으로 고정하고, 같은 입력이면 같은 계획과 `plan_digest`가 나오게 한다. 승인은 T10 `approval_kind=infra`(#603)가, 선언형 자원의 적용은 T44가 설치한 목적지 Argo CD(`bravo-iac-gitops`)가 맡는다. T45는 그 Argo에 전용 AppProject와 경로별 Application만 더한다.
 
-**상태: 스택 · 계획 엔진(#604)에 이어 적용 실행기, Git 설정 저장소 · kubectl/helm · T10 어댑터, HTTP API를 추가했다. 시험 31개 통과. kind(Kubernetes v1.36.1) 실측 결과는 [증빙](../../docs/evidence/t44-kind-run-2026-11-07/README.md). T11 `infra.plan` 도구, SSO 신원 해석기, 플랫폼 배포는 다음 PR이다.**
+**상태: 스택 · 계획 엔진(#604)에 이어 적용 실행기, Git 설정 저장소 · kubectl/helm · T10 어댑터, HTTP API를 추가했다. 시험 31개 통과. kind(Kubernetes v1.36.1) 실측 결과는 [증빙](../../docs/evidence/t45-kind-run-2026-11-07/README.md). T11 `infra.plan` 도구, SSO 신원 해석기, 플랫폼 배포는 다음 PR이다.**
 
 | 파일 | 역할 |
 |---|---|
@@ -14,8 +14,7 @@
 | `adapters.py` | `FileRunStore` · `FilePlanStore`, `GitConfigRepo`(fast-forward push만, 강제 push 없음), `KubectlCluster`(server-side diff/apply, Secret은 stdin으로 create만, helm 이력의 digest), `T10Approvals`, `ClusterChecks` |
 | `api.py` | `POST /v1/infra/plans` · `GET .../plans/{id}` · `GET /v1/infra/request-schema` · `POST .../plans/{id}/runs` · `GET /v1/infra/runs/{id}` · `POST .../runs/{id}/steps/{step}/confirm`. 실행 · 확인은 사람만(에이전트 신원 403) |
 | `cli.py` | `bravo-infra-plan check / request-schema / plan / run / confirm / status` |
-| [`infra/stacks/target-onprem/stack.json`](../../infra/stacks/target-onprem/stack.json) | 첫 스택. T30 · T9 README 절차를 33단계 15레벨로 옮겼다. 렌더러 코드는 바꾸지 않았다 |
-| [`infra/stacks/target-onprem/argocd/`](../../infra/stacks/target-onprem/argocd) | 목적지 Argo CD Core chart(argo-cd 10.14.0, UI · Dex · admin · exec 없음). 플랫폼 chart에는 플랫폼 전용 자원이 항상 렌더되므로 따로 둔다 |
+| [`infra/stacks/target-onprem/stack.json`](../../infra/stacks/target-onprem/stack.json) | 첫 스택. T30 · T9 README 절차를 33단계 15레벨로 옮겼다. 목적지 Argo CD는 설치하지 않고 T44 설치를 확인하는 사람 단계로 둔다. 렌더러 코드는 바꾸지 않았다 |
 
 ## 계획이 담는 것
 
