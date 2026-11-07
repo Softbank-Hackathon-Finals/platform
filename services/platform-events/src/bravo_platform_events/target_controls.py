@@ -39,6 +39,26 @@ ADAPTERS = {"SEC-01.1": "openbao", "IAM-01.1": "s3-endpoint"}  # ENC-01.1 pooler
 _NAME = re.compile(r"[a-z0-9]([-a-z0-9.]{0,251}[a-z0-9])?")
 
 
+MAX_CREDENTIAL_SECONDS = 24 * 3600
+
+
+def bounded_credential(kubeconfig, *, now=time.time):
+    """The collector's own token must be short-lived (ADR-0041): exp present, exp - iat <= 24 h, and
+    still valid for one measurement. Otherwise a mounted Secret could mint app tokens indefinitely."""
+    config = json.loads(Path(kubeconfig).read_text())  # kubectl writes JSON; YAML kubeconfigs are refused
+    users = config.get("users") if isinstance(config, dict) else None
+    token = users[0].get("user", {}).get("token") if isinstance(users, list) and len(users) == 1 else None
+    try:
+        payload = token.split(".")[1]
+        claims = json.loads(base64.urlsafe_b64decode(payload + "=" * (-len(payload) % 4)))
+        exp, iat = int(claims["exp"]), int(claims["iat"])
+    except (AttributeError, IndexError, KeyError, TypeError, ValueError):
+        raise RuntimeError("collector_credential_unbounded") from None
+    if exp - iat > MAX_CREDENTIAL_SECONDS or exp - now() < TOKEN_SECONDS:
+        raise RuntimeError("collector_credential_unbounded")
+    return exp
+
+
 class Kube:
     """kubectl on the platform's target identity. Output bytes are never logged."""
 
@@ -278,6 +298,7 @@ def create(store, config_file, *, subject="workflow-host"):
     records = gate_records(store, OperatorAccess(store))
 
     def measure(**kw):
+        bounded_credential(registration["kubeconfig"])  # every attempt: a renewed Secret is re-read
         return collect(registration, kube, **kw)
 
     return TargetRunProducer(store, records, lambda tenant: host_principal(subject, tenant), measure=measure)

@@ -144,3 +144,30 @@ def test_configuration_accepts_only_wired_adapters(tmp_path):
     config.write_text(json.dumps(base | {"tests": {"ENC-01.1": {"adapter": "pooler-tls"}}}))
     with pytest.raises(ValueError, match="target_controls_configuration_invalid"):
         target_controls.create(None, config)
+
+
+def _kubeconfig(tmp_path, claims):
+    import base64
+
+    def part(value):
+        return base64.urlsafe_b64encode(json.dumps(value).encode()).decode().rstrip("=")
+
+    token = ".".join([part({"alg": "RS256"}), part(claims), "signature"])
+    path = tmp_path / "kubeconfig"
+    path.write_text(json.dumps({"users": [{"name": "collector", "user": {"token": token}}]}))
+    return path
+
+
+@pytest.mark.parametrize("claims, ok", [
+    ({"iat": 1000, "exp": 1000 + 24 * 3600}, True),                 # the documented 24 h token
+    ({"iat": 1000, "exp": 1000 + 24 * 3600 + 1}, False),            # longer than 24 h
+    ({"iat": 1000}, False),                                         # no exp: a legacy/unbounded token
+    ({"iat": 1000, "exp": 1500}, False),                            # expires before one measurement ends
+])
+def test_the_collector_credential_must_be_short_lived(tmp_path, claims, ok):
+    path = _kubeconfig(tmp_path, claims)
+    if ok:
+        assert target_controls.bounded_credential(path, now=lambda: 1000) == claims["exp"]
+    else:
+        with pytest.raises(RuntimeError, match="collector_credential_unbounded"):
+            target_controls.bounded_credential(path, now=lambda: 1000)

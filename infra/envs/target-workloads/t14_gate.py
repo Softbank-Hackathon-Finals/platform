@@ -79,17 +79,20 @@ def collector():
         return item
 
     subject = [{"kind": "ServiceAccount", "name": COLLECTOR, "namespace": COLLECTOR_NAMESPACE}]
-    forward = [{"apiGroups": [""], "resources": ["pods"], "verbs": ["get", "list"]},
-               {"apiGroups": [""], "resources": ["pods/portforward"], "verbs": ["create"]}]
+    def forward(pods=None):
+        # Deployment Pod names are random, so target-dev cannot be narrowed by name; OpenBao's StatefulSet can.
+        names = {"resourceNames": pods} if pods else {}
+        return [{"apiGroups": [""], "resources": ["pods"], "verbs": ["get", "list"]},
+                {"apiGroups": [""], "resources": ["pods/portforward"], "verbs": ["create"], **names}]
     rules = {
         "target-dev": [{"apiGroups": [""], "resources": ["serviceaccounts/token"], "verbs": ["create"],
                         "resourceNames": ["demo-chat", OTHER]},
                        {"apiGroups": [""], "resources": ["secrets"], "verbs": ["get"],
                         "resourceNames": ["target-object-client"]},
                        {"apiGroups": [""], "resources": ["services"], "verbs": ["get"], "resourceNames": ["seaweedfs"]},
-                       *forward],
+                       *forward()],
         "bravo-secrets": [{"apiGroups": [""], "resources": ["services"], "verbs": ["get"],
-                           "resourceNames": ["target-openbao"]}, *forward],
+                           "resourceNames": ["target-openbao"]}, *forward(["target-openbao-0"])],
     }
     items = [namespaced(resource("v1", "ServiceAccount", COLLECTOR, automountServiceAccountToken=False),
                         COLLECTOR_NAMESPACE)]

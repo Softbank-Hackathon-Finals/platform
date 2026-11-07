@@ -52,7 +52,16 @@ SA `demo-chat`과 `t14-other`로 Pod를 하나씩 돌린다. 각 Pod는 자기 p
 | `target-dev` | `secrets` (`target-object-client`) | get | IAM-01.1 앱 client 키 |
 | `target-dev`, `bravo-secrets` | `services` (`seaweedfs`, `target-openbao`) | get | port-forward 대상 해석 |
 | `target-dev`, `bravo-secrets` | `pods` | list, get | port-forward 대상 Pod |
-| `target-dev`, `bravo-secrets` | `pods/portforward` | create | 클러스터 안 서비스 접근 |
+| `target-dev`, `bravo-secrets` | `pods/portforward` | create | 클러스터 안 서비스 접근. `bravo-secrets`는 `target-openbao-0`만. `target-dev`의 Deployment Pod는 이름이 바뀌어 이름으로 좁힐 수 없다 |
+
+**수집기 자신의 자격(발급 · 갱신 · 회수)**
+
+| 항목 | 규칙 |
+|---|---|
+| 발급 | 목적지 클러스터 관리자가 `kubectl create token bravo-t14-collector -n bravo-apply-access --duration=24h`로 만든다. 플랫폼 Secret의 `kubeconfig`(JSON, 사용자 하나, server는 workflow host의 목적지 경로)에 넣는다. 레거시 SA Secret 토큰(만료 없음)은 쓰지 않는다 |
+| 검사 | 수집할 때마다 `bounded_credential`로 확인한다. `exp`가 없거나, `exp - iat`가 24시간을 넘거나, 남은 시간이 600초보다 짧으면 `collector_credential_unbounded`로 거부한다. 이때 WATCH는 UNKNOWN에서 기다린다 |
+| 갱신 | 플랫폼 운영 담당이 24시간마다 새 토큰으로 Secret을 바꾼다. 다음 수집이 새 파일을 읽는다. 데모 기간에는 운영 세션이 맡는다. 장기적으로는 T31 `applyCredential`처럼 exec 플러그인(`credentials.acquire`, 600초)으로 옮긴다 |
+| 회수 | 목적지의 RoleBinding 두 개를 지우면 바로 막힌다. 플랫폼 Secret을 지우면 남은 토큰도 쓰이지 않는다. 이미 발급된 SA 토큰은 수명(최대 24시간)이 지나면 끝난다 |
 
 **이유**
 * #666 리뷰가 막으려던 것은 클러스터 안의 발급자다. 이 결정은 그 경계를 지킨다. 발급자는 클러스터 밖의 플랫폼 하나이고, 요청 내용은 코드가 고정한다.

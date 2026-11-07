@@ -57,6 +57,9 @@ class CollectorTests(unittest.TestCase):
             self.assertNotIn("*", rule["verbs"] + rule["resources"])
             if "secrets" in rule["resources"]:
                 self.assertEqual(rule["resourceNames"], ["target-object-client"])
+        openbao = [r for i in items if i["kind"] == "Role" and i["metadata"]["namespace"] == "bravo-secrets"
+                   for r in i["rules"] if r["resources"] == ["pods/portforward"]]
+        self.assertEqual(openbao[0]["resourceNames"], ["target-openbao-0"])
         account = by_kind(items)[("ServiceAccount", "bravo-t14-collector")]
         self.assertIs(account["automountServiceAccountToken"], False)
 
