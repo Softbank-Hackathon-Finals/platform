@@ -96,7 +96,7 @@ db-sql-v1:fixed-session-text;columns-by-name;jsonb-array;utf8;sha256-of-row-sha2
 
 ## 시퀀스
 
-쓰기를 막은 뒤 `correct_sequence(src, dst, 시퀀스, 표, 컬럼)`을 부른다. 올리기만 한다.
+컷오버에서는 쓰기를 막은 뒤 `correct_sequence(src, dst, 시퀀스, 표, 컬럼)`을 부른다. GATE 사전 관찰은 출발지 쓰기를 막지 않고 목적지가 닫혀 있을 때만 부른다(아래 「소비자 연결」 T19 예외). 어느 쪽이든 올리기만 한다.
 
 ```text
 다음 값 = last_value + 1 (is_called가 true), last_value (false)
