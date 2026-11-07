@@ -77,6 +77,8 @@ STEPS = (
     Step("s3-shifted", "S3", "observe", "T17", "가중치 10 → 50 → 100%", reach="CUTOVER"),
     Step("s3-cutover-done", "S3", "observe", "T13", "컷오버 영수증, 무결성 일치", reach="WATCH"),
     Step("s3-reverse-replication", "S3", "human", "T8", "역방향 복제 도착 확인(resume_replication.py --direction reverse)"),
+    Step("s3-app-console-check", "S3", "human", "T28",
+         "목적지 기존 데이터·첨부 조회, 신규 저장·재접속, 콘솔 동일 계획 상태·영수증 확인"),
     Step("s4-fault-inject", "S4", "operator", "T28", "목적지 장애 주입",
          ("python3", f"{WORKLOADS}/demo_fault.py", "inject", "--record", "{fault_record}",
           "--kubeconfig", "{kubeconfig}")),
@@ -92,10 +94,10 @@ STEPS = (
 
 def selected_steps(scenario):
     if scenario == "recovery":
-        return STEPS
+        return tuple(step for step in STEPS if step.id != "s3-app-console-check")
     if scenario != "migration":
         raise ValueError("unknown rehearsal scenario")
-    end = next(i for i, step in enumerate(STEPS) if step.id == "s3-reverse-replication")
+    end = next(i for i, step in enumerate(STEPS) if step.id == "s3-app-console-check")
     return STEPS[:end + 1]
 
 
@@ -175,7 +177,14 @@ def run_step(step, args, read_state, run, sleep, clock):
         return UNKNOWN, {"reason": "unwired", "owner": step.owner}
     values = {"kubeconfig": args.kubeconfig or "", "fault_record": args.fault_record,
               "application_id": args.application_id or "", "receipts": args.receipts or ""}
+    if step.id == "s2-open-writes":
+        missing = [name for name in ("application_id", "receipts") if not getattr(args, name, None)]
+        if missing:
+            return WAITING, {"reason": "apply_receipt_inputs_required", "missing": missing}
     argv = [part.format(**values) for part in step.command]
+    if step.id == "preflight" and getattr(args, "object_endpoint", None):
+        argv += ["--object-endpoint", args.object_endpoint, "--probe-key", args.probe_key,
+                 "--bucket", args.bucket]
     if step.command[:len(INITIAL)] == INITIAL:
         if not getattr(args, "initial_args", None):
             return UNKNOWN, {"reason": "initial_args_unwired", "owner": step.owner}
@@ -195,6 +204,14 @@ def run_step(step, args, read_state, run, sleep, clock):
 
 
 def cmd_run(args, *, run=subprocess.run, sleep=time.sleep, clock=time.monotonic, read_state=None, git=subprocess.run):
+    if args.profile == "real":
+        missing = [name for name in ("kubeconfig", "object_endpoint", "probe_key")
+                   if not getattr(args, name, None)]
+        if not (read_state or args.plan_state_command or getattr(args, "platform_context", None)):
+            missing.append("platform_context_or_plan_state_command")
+        if missing:
+            print(json.dumps({"result": "input_error", "reason": "real_run_inputs_required", "missing": missing}))
+            return 2
     path = Path(args.record)
     head, outcomes = read_record(path)
     if head is None:
@@ -229,7 +246,7 @@ def cmd_run(args, *, run=subprocess.run, sleep=time.sleep, clock=time.monotonic,
             return code
     try:
         state = read_state(args.plan_id)
-    except Exception:
+    except Exception:  # noqa: BLE001 - an unread final state is unknown, never complete
         print(json.dumps({"result": "unknown", "reason": "final_plan_read_unconfirmed"}))
         return UNKNOWN
     if getattr(args, "scenario", "recovery") == "migration":
@@ -250,12 +267,15 @@ def cmd_mark(args, status):
     if head is None or args.step not in ids:
         print(json.dumps({"result": "input_error"}))
         return 2
-    step = STEPS[ids.index(args.step)]
+    step = next(step for step in STEPS if step.id == args.step)
     if status == "human_confirmed" and step.kind != "human":
         print(json.dumps({"result": "input_error", "reason": "only human steps are confirmed"}))
         return 2
     if status != "human_confirmed" and outcomes.get(args.step, {}).get("status") not in ("unknown", "failed"):
         print(json.dumps({"result": "input_error", "reason": "only an unknown or failed outcome is resolved"}))
+        return 2
+    if args.step == "s3-app-console-check" and (not args.note.strip() or not args.by.strip()):
+        print(json.dumps({"result": "input_error", "reason": "app_console_verification_note_required"}))
         return 2
     append(path, {"step": args.step, "status": status if status == "human_confirmed" else args.status,
                   "at": now(), "by": args.by, "note": args.note})
@@ -274,6 +294,9 @@ def main(argv=None):
                    help="migration stops after verified forward movement; recovery also exercises faults/failback")
     r.add_argument("--plan-state-command", nargs="+", help="read-only command printing {\"state\": ...}")
     r.add_argument("--kubeconfig")
+    r.add_argument("--object-endpoint", help="target SeaweedFS endpoint for the starting-state probe")
+    r.add_argument("--probe-key", help="existing attachment object key")
+    r.add_argument("--bucket", default="demo-chat-attachments")
     r.add_argument("--platform-context", help="kubectl context of the platform cluster (default plan reader)")
     r.add_argument("--initial-args", nargs="+", help="LAST option: every argument after it goes to "
                    "operations/initial-proposal/run.py as is (--initial-args --from initial.json)")
@@ -302,6 +325,9 @@ def main(argv=None):
         if not initial:
             p.error("--initial-args needs run.py arguments")
     args = p.parse_args(argv)
+    if args.command == "run" and args.profile == "real" and not any(
+            arg == "--scenario" or arg.startswith("--scenario=") for arg in argv):
+        p.error("real runs require explicit --scenario migration or recovery")
     if initial is not None:
         args.initial_args = initial
     if args.command == "steps":

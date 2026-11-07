@@ -55,11 +55,52 @@ class Driver(unittest.TestCase):
         humans = [s.id for s in hp.STEPS if s.kind == "human"]
         ids = [s.id for s in hp.STEPS]
         self.assertEqual(humans, ["s2-candidate-import", "s2-change-approval", "s3-load",
-                                  "s3-attachment-copy", "s3-shift-approval", "s3-cutover-approval", "s3-reverse-replication", "s4-alert-seen",
+                                  "s3-attachment-copy", "s3-shift-approval", "s3-cutover-approval", "s3-reverse-replication", "s3-app-console-check", "s4-alert-seen",
                                   "s4-failback-approval", "wrap-map"])
         self.assertLess(ids.index("s2-ai-collect"), ids.index("s2-candidate-import"))
         self.assertLess(ids.index("s2-candidate-import"), ids.index("s2-proposed"))
         self.assertLess(ids.index("s4-fault-clear"), ids.index("s4-failback-approval"))
+
+    def test_real_missing_inputs_do_not_start_or_create_record(self):
+        code, result = self.run_driver(("profile", "real"))
+        self.assertEqual(code, 2)
+        self.assertIn("object_endpoint", result["missing"])
+        self.assertEqual(self.calls, [])
+        self.assertFalse(self.record.exists())
+
+    def test_apply_inputs_can_be_supplied_after_approval_without_resolve(self):
+        self.run_driver()
+        for step in hp.STEPS:
+            if step.id == "s2-open-writes":
+                break
+            hp.append(self.record, {"step": step.id, "status": "done"})
+        code, result = self.run_driver(("application_id", None), ("receipts", None))
+        self.assertEqual((code, result["reason"]), (10, "apply_receipt_inputs_required"))
+        self.assertNotIn("open_after_apply.py:-", self.calls)
+        self.state = "AWAIT_APPROVAL"
+        self.assertEqual(self.run_driver()[1]["step"], "s3-load")
+        self.assertEqual(self.calls.count("open_after_apply.py:-"), 1)
+
+    def test_bucket_inputs_reach_real_preflight(self):
+        calls = []
+        args = SimpleNamespace(kubeconfig="/k", fault_record="/f", application_id=None, receipts=None,
+                               object_endpoint="https://objects.example", probe_key="existing", bucket="attachments",
+                               step_timeout=5)
+        def run(argv, **kwargs):
+            calls.append(argv)
+            return SimpleNamespace(returncode=1, stdout='{"state":"wrong"}')
+        code, _ = hp.run_step(hp.STEPS[0], args, None, run, None, None)
+        self.assertEqual(code, hp.FAILED)
+        self.assertEqual(calls[0][-6:], ["--object-endpoint", "https://objects.example", "--probe-key", "existing",
+                                       "--bucket", "attachments"])
+
+    def test_application_confirmation_requires_observation_note(self):
+        self.run_driver(("scenario", "migration"))
+        self.assertEqual(self.confirm("s3-app-console-check"), 2)
+        with contextlib.redirect_stdout(io.StringIO()):
+            code = hp.main(["confirm", "--record", str(self.record), "--step", "s3-app-console-check",
+                            "--by", "operator", "--note", "private receipt: app and console checks passed"])
+        self.assertEqual(code, 0)
 
     def test_header_records_run_identity(self):
         self.run_driver()
@@ -93,14 +134,14 @@ class Driver(unittest.TestCase):
     def test_migration_never_runs_fault_or_failback(self):
         ids = [step.id for step in hp.selected_steps("migration")]
         self.assertIn("s3-cutover-done", ids)
-        self.assertEqual(ids[-1], "s3-reverse-replication")
+        self.assertEqual(ids[-1], "s3-app-console-check")
         self.assertFalse(any(x.startswith("s4-") for x in ids))
 
     def test_mock_record_cannot_be_resumed_as_real(self):
         self.run_driver()
         code, result = self.run_driver(("profile", "real"))
         self.assertEqual(code, 2)
-        self.assertIn("profile", result["reason"])
+        self.assertIn(result["reason"], ("record profile or scenario differs", "real_run_inputs_required"))
 
     def test_migration_requires_current_watch_or_done(self):
         self.run_driver(("scenario", "migration"))
@@ -194,6 +235,10 @@ class InitialArgs(unittest.TestCase):
         self.assertEqual(self.parsed("--initial-args=--from=initial.json"), ["--from=initial.json"])
         self.assertEqual(self.parsed("--initial-args", "--from", "i.json", "--legacy-intent", "x.json"),
                          ["--from", "i.json", "--legacy-intent", "x.json"])
+
+    def test_real_cli_requires_explicit_scenario(self):
+        with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+            hp.main(["run", "--plan-id", "p", "--record", "/unused", "--profile", "real"])
 
     def test_empty_initial_args_is_refused(self):
         with self.assertRaises(SystemExit):
