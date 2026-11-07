@@ -35,9 +35,10 @@
 
 * **표준 OIDC + 목적지 Keycloak(옵션 1)을 선택한다.** 7.3 대응표에 인증 행을 **설정 교체(`AUTH_ISSUER`)**로 둔다.
 * **비밀번호는 옮기지 않는다.** `identity_users.py`가 Cognito 사용자 목록을 Keycloak 가져오기로 바꾸고, 운영자가 준 임시 비밀번호로 첫 로그인할 때 새 비밀번호를 정한다.
-* **이사 중에는 양쪽 앱이 서로의 발급자를 믿는다.** `AUTH_ALSO_TRUST`에 상대 발급자를 넣고(demo-app #29), 전환이 끝나면 목적지에서 지운다.
-* **목적지 앱이 AWS 발급자를 믿는 동안은 출구 증거가 아니다.** Exit Drill이 `AUTH_ISSUER` · `AUTH_ALSO_TRUST`에서 `.amazonaws.com` · `.amazoncognito.com`을 찾으면 `AWS_IDENTITY_TRUSTED`로 판정한다(#653).
-* **동등성은 시험 결과로 판단한다.** 양쪽에서 스스로 가입이 막히고, 등록한 redirect만 받고, 토큰 없는 쓰기가 401인지 실제로 확인한다.
+* **이사 중에는 양쪽 앱이 서로의 발급자를 믿는다.** `AUTH_ALSO_TRUST`에 상대 발급자를 넣고(demo-app #29), 전환이 끝나면 목적지에서 지운다. 앱은 토큰의 이름(`preferred_username` 등)으로 작성자를 정하므로, 이 이중 신뢰는 **양쪽 모두 관리자만 계정을 만들고 사용자가 이름을 바꿀 수 없을 때만 안전하다.** 출발지는 클라이언트 `WriteAttributes`가 `locale` · `zoneinfo`뿐이고, 목적지는 `editUsernameAllowed=false`에 모든 속성을 관리자만 고친다.
+* **PKCE는 양쪽이 다르다.** 목적지 Keycloak은 S256을 강제하고, 출발지 Cognito는 강제하지 않아 앱이 항상 S256으로 보낸다(#651 README). 목적지가 더 엄격한 차이이므로 출발지에는 강제를 요구하지 않고, 목적지에서는 강제되는지 확인한다.
+* **목적지 앱이 AWS 발급자를 믿는 동안은 출구 증거가 아니다.** Exit Drill이 `AUTH_ISSUER` · `AUTH_ALSO_TRUST`에서 `.amazonaws.com` · `.amazoncognito.com`을 찾으면 `AWS_IDENTITY_TRUSTED`로 판정한다(#653). 두 값을 `valueFrom`이나 `$(다른 변수)`로 넣거나 컨테이너가 `envFrom`을 쓰면 값을 읽지 못하므로, 통과가 아니라 `ELIGIBILITY_NOT_READ`로 판정한다.
+* **동등성은 시험 결과로 판단한다.** 양쪽에서 스스로 가입이 막히고, 사용자가 이름을 바꿀 수 없고, 등록한 redirect만 받고, 토큰 없는 쓰기가 401인지 실제로 확인한다. PKCE S256 강제는 목적지에서만 확인한다.
 
 **이유**
 * 설계 원칙(동등성은 제품 이름이 아니라 시험 결과)과 맞고, 이전이 앱 코드 수정 없이 끝난다.

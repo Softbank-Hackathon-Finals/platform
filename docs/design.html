@@ -882,11 +882,11 @@ footer { margin-top: 72px; padding-top: 16px; border-top: 1px solid var(--line);
 <tr><td>비밀값</td><td>Secrets Manager (앱이 SDK로 직접 호출)</td><td>OpenBao + ESO</td><td><b>코드 수정</b></td><td>다른 계정의 Secret 읽기 거부, 회전</td></tr>
 <tr><td>암호화 키</td><td>KMS</td><td>OpenBao transit</td><td><b>코드 수정</b></td><td>키 접근 분리, 저장 암호화</td></tr>
 <tr><td>권한</td><td>IAM 역할 · 자원 정책</td><td>K8s RBAC + OpenBao · SeaweedFS 정책</td><td><b>번역</b> (어댑터)</td><td>허용 · 거부 실제 시험</td></tr>
-<tr><td>인증 (로그인)</td><td>Cognito 사용자 풀 (앱은 OIDC 발급자 주소 · 공개 클라이언트 ID만 앎)</td><td>Keycloak</td><td>설정 교체 (<code>AUTH_ISSUER</code>)</td><td>스스로 가입 거부, 등록한 redirect만 허용, 토큰 없는 쓰기 401</td></tr>
+<tr><td>인증 (로그인)</td><td>Cognito 사용자 풀 (앱은 OIDC 발급자 주소 · 공개 클라이언트 ID만 앎)</td><td>Keycloak</td><td>설정 교체 (<code>AUTH_ISSUER</code>)</td><td>스스로 가입 거부, 사용자가 이름(<code>preferred_username</code> 등)을 바꿀 수 없음, 등록한 redirect만 허용, 목적지는 PKCE S256 강제, 토큰 없는 쓰기 401</td></tr>
 <tr><td>감사 로그</td><td>CloudTrail + pgaudit</td><td>RKE2 audit + pgaudit</td><td>설정 교체</td><td>정해 둔 이벤트 실제 검색</td></tr>
 <tr><td>정책 강제</td><td>Kyverno</td><td>Kyverno</td><td>그대로</td><td>같은 규칙 위반 시 거부 (P1)</td></tr>
 </tbody></table></div>
-<p>로그인 이전에서는 사용자만 옮기고 비밀번호는 옮기지 않는다. Cognito가 비밀번호 해시를 내보내지 않으므로, 옮긴 사용자는 목적지 첫 로그인에서 새 비밀번호를 정한다. 트래픽을 나누는 동안에는 양쪽 앱이 <code>AUTH_ALSO_TRUST</code>로 상대 발급자의 토큰도 받아, 이사 중 로그인한 사용자의 쓰기가 끊기지 않는다. 전환이 끝나면 목적지에서 이 값을 지운다. 목적지 앱이 AWS 발급자를 계속 믿으면 Exit Drill은 출구 증거로 보지 않는다(<code>AWS_IDENTITY_TRUSTED</code>, <a href="adr/0051-login-migration-cognito-keycloak.md">ADR-0051</a>).</p>
+<p>로그인 이전에서는 사용자만 옮기고 비밀번호는 옮기지 않는다. Cognito가 비밀번호 해시를 내보내지 않으므로, 옮긴 사용자는 목적지 첫 로그인에서 새 비밀번호를 정한다. 트래픽을 나누는 동안에는 양쪽 앱이 <code>AUTH_ALSO_TRUST</code>로 상대 발급자의 토큰도 받아, 이사 중 로그인한 사용자의 쓰기가 끊기지 않는다. 앱은 토큰의 이름(<code>preferred_username</code> 등)으로 작성자를 정하므로, 이 이중 신뢰는 양쪽 모두 관리자만 계정을 만들고 사용자가 이름을 바꿀 수 없을 때만 안전하다. 그래서 검증에 이름 고정을 넣는다. PKCE는 양쪽이 다르다. 목적지 Keycloak은 S256을 강제하고, 출발지 Cognito는 강제하지 않아 앱이 항상 S256으로 보낸다. 목적지가 더 엄격한 차이이므로 출발지에는 강제를 요구하지 않고, 목적지에서는 강제되는지 확인한다. 전환이 끝나면 목적지에서 <code>AUTH_ALSO_TRUST</code>를 지운다. 목적지 앱이 AWS 발급자를 계속 믿으면 Exit Drill은 출구 증거로 보지 않는다(<code>AWS_IDENTITY_TRUSTED</code>). 두 값을 <code>valueFrom</code>이나 <code>$(다른 변수)</code>로 넣거나 컨테이너가 <code>envFrom</code>을 쓰면 값을 읽지 못하므로, 통과가 아니라 <code>ELIGIBILITY_NOT_READ</code>로 판정한다(<a href="adr/0051-login-migration-cognito-keycloak.md">ADR-0051</a>).</p>
 
 <h3 id="s7-4"><span class="num">7.4</span>컴포넌트</h3>
 <div class="tbl"><table>
