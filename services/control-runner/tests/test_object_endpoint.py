@@ -121,6 +121,13 @@ def test_only_a_registered_https_endpoint_is_accepted(endpoint):
         assert target(inside).endpoint == inside
 
 
+def test_the_operators_aws_profile_and_ca_bundle_do_not_reach_the_endpoint_clients(monkeypatch, tmp_path):
+    monkeypatch.setenv("AWS_PROFILE", "operator-sso-profile")  # exported for the source run; absent here
+    monkeypatch.setenv("AWS_CA_BUNDLE", str(tmp_path / "missing.pem"))
+    app, anonymous = endpoint_clients(target(), access_key_id="a", secret_access_key="b")
+    assert app.meta.endpoint_url == anonymous.meta.endpoint_url == target().endpoint
+
+
 def test_clients_must_be_bound_to_the_registered_endpoint_with_path_addressing():
     from botocore.config import Config
 
