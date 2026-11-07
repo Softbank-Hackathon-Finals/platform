@@ -31,9 +31,10 @@ from bravo_controls.secret_logs import LogCanaryReceipt, SecretLogProbe
 
 ROOT = Path(__file__).resolve().parents[3]
 PROJECT, NUMBER = "fixture-proj", "123456789"
-APP = "demo-chat@fixture-proj.iam.gserviceaccount.com"
-OTHER = "other-app@fixture-proj.iam.gserviceaccount.com"
-READER = "control-reader@fixture-proj.iam.gserviceaccount.com"
+WI = "principal://iam.googleapis.com/projects/123456789/locations/global/workloadIdentityPools/fixture-proj.svc.id.goog/subject/ns/"
+APP = WI + "demo-chat/sa/demo-chat"
+OTHER = WI + "other-app/sa/other-app"
+READER = WI + "bravo-controls/sa/control-reader"
 ENV = Environment("gcp-target", "target", "gcp:gke/fixture", "gcp")
 CTX = RunContext("run-1", "demo-chat", ENV)
 NOW = datetime(2026, 11, 7, 9, 0, tzinfo=UTC)
@@ -261,7 +262,7 @@ def test_unregistered_key_is_unexpected_and_denied_read_is_permission_error():
 
 START = datetime(2026, 11, 7, 8, 0, tzinfo=UTC)
 MARKER = "bravo_audit_" + "d" * 32
-ACTOR = "platform-admin@fixture-proj.iam.gserviceaccount.com"
+ACTOR = "system:serviceaccount:bravo-system:platform-admin"
 AUDIT_LOG = "cloudaudit.googleapis.com%2Factivity"
 
 

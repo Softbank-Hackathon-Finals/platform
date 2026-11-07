@@ -164,7 +164,7 @@ END, SETTLED = START + timedelta(seconds=30), START + timedelta(seconds=90)
 BUCKET, PREFIX = "bravo-audit", "logs/onprem"
 APP_ORIGIN = AppLogOrigin(
     "target", "sha256:" + "a" * 64, "22222222-2222-4222-8222-222222222222",
-    "33333333-3333-4333-8333-333333333333", "demo-chat", "demo-chat-0", "app",
+    "33333333-3333-4333-8333-3333333333ab", "demo-chat", "demo-chat-0", "app",
 )
 SECRET = "bravo_secret_" + "1" * 64
 MARKER = "bravo_log_" + "2" * 32
