@@ -1,4 +1,4 @@
-# 목적지(온프렘 RKE2) Collector: DB 지표 + 앱 OTLP 수신 mTLS. 수신 인증서는 OpenBao PKI 사이드카가 받는다.
+# 목적지(온프렘 RKE2) Collector: DB · PgBouncer 지표 + 앱 OTLP 수신 mTLS. 수신 인증서는 OpenBao PKI 사이드카가 받는다.
 # 앱 namespace(target-dev)에는 bravo.observability/send=true 라벨과 app-pki의 클라이언트 인증서가 필요하다.
 # tailnet 경로(bravo-collector-tailnet 정책 · egress Service)는 infra/envs/collector-network가 따로 만든다.
 apiVersion: kustomize.config.k8s.io/v1beta1
@@ -6,7 +6,7 @@ kind: Kustomization
 # component의 ConfigMap 생성기에도 namespace가 붙어야 이름 참조(해시)가 맞는다
 namespace: bravo-observability
 resources:
-  - ../collector-db
+  - ../collector-db-pgbouncer
 components:
   - ../components/app-mtls
   - ../components/app-mtls-openbao

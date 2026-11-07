@@ -396,6 +396,10 @@ infra/envs/target-workloads/testing/app_lab.py --demo-chat-src <demo-chat 체크
 
 ## Pre-cutover pooler and attachment copy
 
+The pooler's `auth_file` (Secret `target-pgbouncer-auth`, created outside this renderer) also holds the
+T37 stats account `bravo_stats` named in `stats_users`. It can only run `SHOW`; the PgBouncer exporter in
+`bravo-observability` uses it. The cutover account stays `admin_users = cutover_control`.
+
 The pooler's backend CA volume names `cutover-backend-ca`: the cutover executor's
 bundle of the source and target public CAs (`prepare.pooler_trust_patch()` in
 `services/cutover-executor`), so the backend is verified before and after the
