@@ -11,6 +11,7 @@ uv run bravo-iac tailnet-check --policy <현재 tailnet 정책 JSON> ../../infra
 
 - 담는 것: 그룹 태그 소유자, 경로마다 grant 하나(그룹 태그 → 목적지 태그:포트), 정책 `tests`(경로 허용, 22 거부).
 - 시험(`services/iac/tests/test_tailnet.py`)이 이 파일과 원하는 상태의 렌더가 같은지 고정한다.
+- 환경별 operator 연합 신원은 [`infra/envs/tailnet`](../envs/tailnet/README.md)(T48, ADR-0035)가 만든다. 정책은 쓰지 않는다.
 
 ## 적용 (Tailscale GitOps)
 
