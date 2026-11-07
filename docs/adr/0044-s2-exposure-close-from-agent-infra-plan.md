@@ -68,4 +68,8 @@
   * 41: initial proposal 연결, `infra_plans` 저장
   * df: `ChangeIntake.current` binding, T31 계획 닫기 진입점, 적용 입력과 T31 `apply`의 이미지 뒤 닫기
 * 바뀌지 않는 곳: 제안 스키마, T15 리허설, T19 검증기, `workflow.Application` 형식, REHEARSE·GATE 판독기
+* 실환경 반영 전제(이 결정의 코드와 따로):
+  * apply 신원 권한: `access.py target-apply --exposure`(#823). Secret `target-seaweedfs-auth` get/update와 Deployment `target-seaweedfs` get/watch/patch를 이름으로 한정한다.
+  * workflow host 설정 `exposure`와 그 `repo_root`에 플랫폼 Git checkout을 마운트한다(`read_planned`가 base_revision을 읽는다).
+  * **T31 확인 요청의 도달:** 닫은 뒤 T31은 SeaweedFS에 익명 GET 거부와 앱 자격 GET 허용을 직접 확인한다. AWS의 workflow host는 목적지 API(tailnet)에만 닿고, 목적지 클러스터 안의 SeaweedFS 서비스에는 닿지 않는다. 확인 요청이 닿지 않으면 그 적용은 SAFE_HOLD다(실패 쪽으로 닫힘). 그래서 SeaweedFS를 apply 경로 태그에만 grant한 tailnet-ingress로 선언해야 한다(T44·T30). 서명 GET은 경로가 바뀌면 SigV4가 깨지므로 API 서버 service proxy로는 대신할 수 없다.
 * 남은 확인: 에이전트가 IAM-01.1 FAIL을 보고 infra.plan을 실제로 부르는지는 S2 실측으로 확인한다. 부르지 않으면 `iac_plan_digest`가 `null`이라 닫기 없이 GATE가 IAM-01.1에서 BLOCK한다(실패 쪽으로 닫힘).
