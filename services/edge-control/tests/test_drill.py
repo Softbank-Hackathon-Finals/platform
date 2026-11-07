@@ -49,11 +49,12 @@ class World:
     def clock(self):
         return self.now.isoformat()
 
-    def approve(self, digest=None, requested_by="agent-t17"):
+    def approve(self, digest=None, requested_by="agent-t17", infra_plan_id=RUN):
         service = InfraApprovalService(self.store, check_approve=self.access.requires("approve_infra"),
             check_apply=self.access.requires("apply_infra"), check_access=self.access.check_read,
             check_approver=self.access.requires_subject("approve_infra"), clock=self.clock)
-        binding = dict(infra_plan_id=RUN, plan_digest=digest or spec_digest(self.spec), requested_by=requested_by)
+        binding = dict(infra_plan_id=infra_plan_id, plan_digest=digest or spec_digest(self.spec),
+                       requested_by=requested_by)
         return service.approve(self.approver, PLAN, binding=binding, command_key="drill-approval",
                                expires_at=(self.now + timedelta(hours=1)).isoformat())["approval_id"]
 
@@ -130,6 +131,15 @@ def test_the_claim_needs_the_exact_spec_the_human_approved(world):
         authority.register(world.executor, PLAN, run_id=RUN, profile=PROFILE, binding=BINDING)
     with pytest.raises(EdgeError, match="drill_approval_unavailable"):
         world.host(approval)[0].start(world.executor, PLAN, "stage-10")
+    assert world.upstream.patches == []
+
+
+def test_an_approval_of_the_same_spec_digest_for_another_plan_id_is_refused(world):
+    """#603 review: T10 compares the whole binding, so the approved plan id must be this drill's run."""
+    approval = world.approve(infra_plan_id="another-run")
+    _, authority = world.host(approval)
+    with pytest.raises(EventError, match="binding_mismatch"):
+        authority.register(world.executor, PLAN, run_id=RUN, profile=PROFILE, binding=BINDING)
     assert world.upstream.patches == []
 
 
