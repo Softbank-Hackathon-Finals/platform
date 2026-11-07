@@ -10,7 +10,7 @@
 | `stack.py` | 스택 검사(스키마, 중복 · 없는 의존 · 순환, publish 없는 sync, 선언하지 않은 파라미터), 병렬 단계(level) 계산, 계획 요청 JSON Schema 생성 |
 | `plan.py` | 저장소 렌더러를 고정 인자로 실행하고, chart는 아카이브 해시를 확인한 뒤 `helm template` → 후처리(`finalize-bao` 등)를 거친다. 렌더 결과를 자원 종류로 골라 나눌 수 있다. 단계 digest, 설정 저장소 트리 digest, `plan_digest` |
 | `executor.py` | 승인 대조 → 1회 소비 → 단계 그래프 병렬 실행. 단계 종류별 처리, 멱등 `SKIPPED`, 사람 단계 `WAITING_OPERATOR`, 결과 불명 `HOLD`, 재개 |
-| `applications.py` | 경로마다 목적지 Argo CD Application 1개(실행이 올린 커밋 SHA 고정, 자동 prune 끔, self-heal 켬)와 스택 AppProject(설정 저장소 URL로 제한) |
+| `applications.py` | 경로마다 목적지 Argo CD Application 1개(실행이 올린 커밋 SHA 고정, 자동 prune 끔, self-heal 켬)와 스택 AppProject. AppProject는 설정 저장소 하나, 승인된 매니페스트가 만들거나 쓰는 namespace만, 그 매니페스트에 실제로 있는 클러스터 범위 종류만 허용한다(`*` 없음, T44 자원 없음) |
 | `adapters.py` | `FileRunStore` · `FilePlanStore`, `GitConfigRepo`(fast-forward push만, 강제 push 없음), `KubectlCluster`(server-side diff/apply, Secret은 stdin으로 create만, helm 이력의 digest), `T10Approvals`, `ClusterChecks` |
 | `api.py` | `POST /v1/infra/plans` · `GET .../plans/{id}` · `GET /v1/infra/request-schema` · `POST .../plans/{id}/runs` · `GET /v1/infra/runs/{id}` · `POST .../runs/{id}/steps/{step}/confirm`. 실행 · 확인은 사람만(에이전트 신원 403) |
 | `terraform.py` | `terraform` 단계: 코드 · 모듈 digest, 저장소 밖 입력 digest, 출력 경로 연결, terraform CLI(단계별 데이터 폴더, 읽기 전용 lock), 계획의 변경 요약과 삭제 · 교체 판별 |
@@ -107,6 +107,5 @@ Argo 미설치, T44 #635 대기), 역방향·넘김은 None(사람 확인). 이�
 
 ## 다음 PR에서 할 것
 
-- 원장(`ledger`)을 T24 감사 로그 싱크에 연결한다. 지금은 JSONL 파일이다.
 - 에이전트 워크로드 신원(T38)을 API에 연결(ADR-0033의 "에이전트는 계획 생성 · 조회"), T43 경로의 플랫폼 배포.
 - 목적지 Argo CD AppProject의 클러스터 범위 자원 허용을 좁히기(ADR-0032 3.5 후속).

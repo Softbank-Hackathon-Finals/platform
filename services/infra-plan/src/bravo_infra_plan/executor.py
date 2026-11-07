@@ -238,7 +238,8 @@ class Executor:
                     run["head"], status = commit, APPLIED
             run["commits"][step["path"]] = commit
             self.store.save(run)  # the new head is durable before anything else can fail
-        manifests = [project(stack, repo_url=self.repo_url),
+        published = {k: v for k, v in run["files"].items() if _steps(run)[k]["kind"] == "gitops_publish"}
+        manifests = [project(stack, repo_url=self.repo_url, files=published),
                      application(stack, step["path"], repo_url=self.repo_url, revision=commit)]
         if self.cluster.diff(manifests):
             self.cluster.apply(manifests)

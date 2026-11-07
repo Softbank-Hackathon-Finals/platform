@@ -134,6 +134,10 @@ class Planner:
                 entry["change_set"], entry["changes"] = self._terraform_change_set(step, params)
                 entry["digest"] = sha256_text(canonical({"step": step, "inputs": entry["inputs"],
                                                          "change_set": entry["change_set"]}))
+            elif step["kind"] == "operator_action" and "desired" in step:
+                # The values a person must use come from T44's desired state, bound into the plan.
+                entry["desired"] = self._desired(step["desired"], request["environment_id"])
+                entry["digest"] = sha256_text(canonical({"step": step, "desired": entry["desired"]}))
             else:
                 entry["digest"] = sha256_text(canonical(step))
             steps.append(entry)
@@ -153,6 +157,10 @@ class Planner:
                 for render in step["renders"]}
 
     def _render(self, render, params):
+        if isinstance(render.get("namespace"), dict):  # a namespace T45 owns that no renderer emits (ADR-0033, T44 #632)
+            spec = render["namespace"]
+            return [{"apiVersion": "v1", "kind": "Namespace", "metadata": {
+                "name": spec["name"], "labels": {"app.kubernetes.io/managed-by": "bravo-infra-plan"} | spec["labels"]}}]
         if "run" in render:
             return _items(json.loads(self.renderer.run(render["run"], _substitute(render["args"], params))))
         if self.charts is None:
@@ -194,6 +202,23 @@ class Planner:
                 return "PENDING_UPSTREAM", {}
             raise
         return planned["change_set"], planned["changes"]
+
+    def _desired(self, spec, environment_id):
+        """The environment's own desired state: a missing file refuses the plan rather than borrowing
+        another environment's (2026-11-07 류지환 #642 review: target-dev's open-demo leaked into others)."""
+        relative = spec["file"].replace("{environment_id}", environment_id)
+        try:
+            path = self._repo_file(relative)
+        except StackError:
+            raise StackError("desired_state_unavailable") from None
+        state = json.loads(path.read_text())
+        if state.get("environment") not in (None, environment_id):
+            raise StackError("desired_state_environment_mismatch")
+        modules = [m for m in state.get("modules", []) if m.get("id") == spec["module"]]
+        if len(modules) != 1:
+            raise StackError("desired_module_unavailable")
+        params = modules[0].get("params", {})
+        return {name: params[name] for name in spec["params"] if name in params}
 
     def _repo_file(self, relative):
         path = (self.repo_root / relative).resolve()
