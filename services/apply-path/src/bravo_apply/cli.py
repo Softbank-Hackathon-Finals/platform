@@ -10,6 +10,7 @@ from pathlib import Path
 
 from .binding import BUCKET_POLICY, IDENTIFIER, BindingError, diff_hash, verify_claim
 from .deploy import FakeKube, KubectlKube, image_patch
+from .desired import DesiredRefused, apply_desired_exposure
 from .path import ApplyOutcome, RecordUnreadable, apply, get_result
 from .policy import (
     APP_BUCKET,
@@ -122,6 +123,29 @@ def cmd_diff_hash(args) -> int:
     return 0
 
 
+DESIRED_EXIT = {"APPLIED": 0, "ALREADY_CLOSED": 0, "REFUSED": 2, "SAFE_HOLD": 3, "STARTED": 4}
+
+
+def cmd_desired_exposure(args) -> int:
+    """Apply a reviewed T44 ``closed`` desired state to the target Secret (bucket-policy branch)."""
+    try:
+        target = PolicyTarget(namespace=args.object_namespace or args.namespace, endpoint=args.object_endpoint,
+                              probe_key=args.probe_key, bucket=args.bucket, secret=args.auth_secret,
+                              workload=args.object_workload, container=args.object_container)
+        record = apply_desired_exposure(args.environment, args.revision, reviewed_ref=args.reviewed_ref,
+                                        repo_root=Path(args.repo_root), kube=KubectlKube(args.kubeconfig),
+                                        receipts_dir=Path(args.receipts), target=target,
+                                        plan_id=args.plan_id or None, timeout_seconds=args.timeout)
+    except (DesiredRefused, PolicyRefused) as exc:
+        print(json.dumps({"status": "REFUSED", "reason": exc.code, "recorded": False}, sort_keys=True))
+        return EXIT["REFUSED"]
+    except ValueError as exc:  # target configuration
+        print(json.dumps({"status": "REFUSED", "reason": str(exc), "recorded": False}, sort_keys=True))
+        return EXIT["REFUSED"]
+    print(json.dumps(record, ensure_ascii=False, sort_keys=True))
+    return DESIRED_EXIT[record["status"]]
+
+
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(prog="bravo-apply")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -153,6 +177,25 @@ def main(argv=None) -> int:
             p.add_argument("--receipts", required=True, help="durable directory holding one record per application_id")
             p.add_argument("--timeout", type=int, default=300, help="rollout wait in seconds")
         p.set_defaults(func=func)
+    x = sub.add_parser("desired-exposure", help="apply a reviewed T44 closed desired state (bucket identities), "
+                                                "then request the IAM-01.1 recheck; never opens")
+    x.add_argument("--environment", required=True, help="T44 environment id, e.g. target-dev")
+    x.add_argument("--revision", required=True, help="full commit SHA holding the desired state (the promoted one)")
+    x.add_argument("--reviewed-ref", required=True, help="protected ref the revision must be reachable from")
+    x.add_argument("--repo-root", required=True, help="a clone of this repository with --reviewed-ref fetched")
+    x.add_argument("--kubeconfig", required=True, help="namespace-scoped bucket-policy identity")
+    x.add_argument("--namespace", required=True)
+    x.add_argument("--object-endpoint", required=True)
+    x.add_argument("--probe-key", required=True)
+    x.add_argument("--bucket", default=APP_BUCKET)
+    x.add_argument("--object-namespace", default="")
+    x.add_argument("--auth-secret", default=AUTH_SECRET)
+    x.add_argument("--object-workload", default=WORKLOAD)
+    x.add_argument("--object-container", default=CONTAINER)
+    x.add_argument("--receipts", required=True, help="durable directory holding one record per application_id")
+    x.add_argument("--plan-id", default="", help="migration plan the recheck belongs to, when there is one")
+    x.add_argument("--timeout", type=int, default=300, help="rollout wait in seconds")
+    x.set_defaults(func=cmd_desired_exposure)
     g = sub.add_parser("get-result", help="read the recorded outcome; never calls the cluster")
     g.add_argument("--application-id", required=True)
     g.add_argument("--receipts", required=True)
