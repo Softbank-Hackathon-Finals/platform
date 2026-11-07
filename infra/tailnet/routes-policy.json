@@ -384,7 +384,16 @@
         "tag:bravo-target-control-pooler:22",
         "tag:bravo-target-db:22",
         "tag:bravo-target-objects:22",
-        "tag:bravo-target-operator:22"
+        "tag:bravo-target-operator:22",
+        "tag:bravo-findings:8443",
+        "tag:bravo-metrics:9090",
+        "tag:bravo-source-control-pooler:6432",
+        "tag:bravo-source-db:5432",
+        "tag:bravo-source-operator:443",
+        "tag:bravo-target-argocd:80",
+        "tag:bravo-target-control-pooler:6432",
+        "tag:bravo-target-db:5432",
+        "tag:bravo-target-operator:443"
       ]
     },
     {
@@ -407,7 +416,11 @@
         "tag:bravo-target-control-pooler:22",
         "tag:bravo-target-db:22",
         "tag:bravo-target-objects:22",
-        "tag:bravo-target-operator:22"
+        "tag:bravo-target-operator:22",
+        "tag:bravo-findings:8443",
+        "tag:bravo-metrics:9090",
+        "tag:bravo-target-argocd:80",
+        "tag:bravo-target-objects:8333"
       ]
     },
     {
@@ -425,7 +438,16 @@
         "tag:bravo-target-control-pooler:22",
         "tag:bravo-target-db:22",
         "tag:bravo-target-objects:22",
-        "tag:bravo-target-operator:22"
+        "tag:bravo-target-operator:22",
+        "tag:bravo-findings:8443",
+        "tag:bravo-metrics:9090",
+        "tag:bravo-source-control-pooler:6432",
+        "tag:bravo-source-db:5432",
+        "tag:bravo-source-operator:443",
+        "tag:bravo-target-control-pooler:6432",
+        "tag:bravo-target-db:5432",
+        "tag:bravo-target-objects:8333",
+        "tag:bravo-target-operator:443"
       ]
     },
     {
@@ -443,7 +465,16 @@
         "tag:bravo-target-control-pooler:22",
         "tag:bravo-target-db:22",
         "tag:bravo-target-objects:22",
-        "tag:bravo-target-operator:22"
+        "tag:bravo-target-operator:22",
+        "tag:bravo-findings:8443",
+        "tag:bravo-source-control-pooler:6432",
+        "tag:bravo-source-db:5432",
+        "tag:bravo-source-operator:443",
+        "tag:bravo-target-argocd:80",
+        "tag:bravo-target-control-pooler:6432",
+        "tag:bravo-target-db:5432",
+        "tag:bravo-target-objects:8333",
+        "tag:bravo-target-operator:443"
       ]
     },
     {
@@ -461,7 +492,16 @@
         "tag:bravo-target-control-pooler:22",
         "tag:bravo-target-db:22",
         "tag:bravo-target-objects:22",
-        "tag:bravo-target-operator:22"
+        "tag:bravo-target-operator:22",
+        "tag:bravo-findings:8443",
+        "tag:bravo-metrics:9090",
+        "tag:bravo-source-control-pooler:6432",
+        "tag:bravo-source-db:5432",
+        "tag:bravo-source-operator:443",
+        "tag:bravo-target-argocd:80",
+        "tag:bravo-target-control-pooler:6432",
+        "tag:bravo-target-objects:8333",
+        "tag:bravo-target-operator:443"
       ]
     },
     {
@@ -479,7 +519,16 @@
         "tag:bravo-target-control-pooler:22",
         "tag:bravo-target-db:22",
         "tag:bravo-target-objects:22",
-        "tag:bravo-target-operator:22"
+        "tag:bravo-target-operator:22",
+        "tag:bravo-findings:8443",
+        "tag:bravo-source-control-pooler:6432",
+        "tag:bravo-source-db:5432",
+        "tag:bravo-source-operator:443",
+        "tag:bravo-target-argocd:80",
+        "tag:bravo-target-control-pooler:6432",
+        "tag:bravo-target-db:5432",
+        "tag:bravo-target-objects:8333",
+        "tag:bravo-target-operator:443"
       ]
     },
     {
@@ -497,7 +546,16 @@
         "tag:bravo-target-control-pooler:22",
         "tag:bravo-target-db:22",
         "tag:bravo-target-objects:22",
-        "tag:bravo-target-operator:22"
+        "tag:bravo-target-operator:22",
+        "tag:bravo-metrics:9090",
+        "tag:bravo-source-control-pooler:6432",
+        "tag:bravo-source-db:5432",
+        "tag:bravo-source-operator:443",
+        "tag:bravo-target-argocd:80",
+        "tag:bravo-target-control-pooler:6432",
+        "tag:bravo-target-db:5432",
+        "tag:bravo-target-objects:8333",
+        "tag:bravo-target-operator:443"
       ]
     },
     {
@@ -515,7 +573,16 @@
         "tag:bravo-target-control-pooler:22",
         "tag:bravo-target-db:22",
         "tag:bravo-target-objects:22",
-        "tag:bravo-target-operator:22"
+        "tag:bravo-target-operator:22",
+        "tag:bravo-findings:8443",
+        "tag:bravo-metrics:9090",
+        "tag:bravo-source-control-pooler:6432",
+        "tag:bravo-source-operator:443",
+        "tag:bravo-target-argocd:80",
+        "tag:bravo-target-control-pooler:6432",
+        "tag:bravo-target-db:5432",
+        "tag:bravo-target-objects:8333",
+        "tag:bravo-target-operator:443"
       ]
     },
     {
@@ -533,7 +600,16 @@
         "tag:bravo-target-control-pooler:22",
         "tag:bravo-target-db:22",
         "tag:bravo-target-objects:22",
-        "tag:bravo-target-operator:22"
+        "tag:bravo-target-operator:22",
+        "tag:bravo-findings:8443",
+        "tag:bravo-metrics:9090",
+        "tag:bravo-source-control-pooler:6432",
+        "tag:bravo-source-operator:443",
+        "tag:bravo-target-argocd:80",
+        "tag:bravo-target-control-pooler:6432",
+        "tag:bravo-target-db:5432",
+        "tag:bravo-target-objects:8333",
+        "tag:bravo-target-operator:443"
       ]
     },
     {

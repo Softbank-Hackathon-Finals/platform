@@ -112,8 +112,11 @@ def fragment(states, tailnet=DEFAULT_TAILNET) -> dict:
         "tagOwners": {tag: [owners[tag]] for tag in sorted(owners)},
         "grants": [{"src": [s], "dst": [d], "ip": [i], **({"app": json.loads(a)} if a else {})}
                    for s, d, i, a in sorted(grants)],
+        # Each route device is also denied every other declared dst:port it was not granted, so a hand edit that
+        # opens a declared device more widely (e.g. `*` toward tag:bravo-findings:8443) fails the policy tests.
         "tests": [{"src": src, "accept": sorted(accepts[src]),
-                   "deny": [f"{dst}:22" for dst in destinations]} for src in sorted(accepts)]
+                   "deny": [f"{dst}:22" for dst in destinations]
+                   + [d for d in granted if d not in accepts[src]]} for src in sorted(accepts)]
                  + [{"src": tag, "accept": [], "deny": granted} for tag in operators if granted],
     }
 
