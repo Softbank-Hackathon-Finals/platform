@@ -60,3 +60,39 @@ DB와 SeaweedFS 줄기는 같은 시각(13:36:22)에 함께 시작했다.
 - T10은 SSO가 아닌 로컬 고정 토큰이다. 권한 검사(`approve_infra` · `apply_infra`)는 #603 단위 시험으로만 확인했다.
 - 원장은 JSONL 파일이다(T24 연결 전).
 - 측정 뒤 `kind delete cluster --name t44`로 클러스터를 지웠다.
+
+---
+
+# 2차 실측 — 결함 수정 뒤, T44 Argo CD와 실제 T10 검증기 · 권한으로
+
+2026-11-07 15:40–16:00 KST(06:40–07:00Z), 새 kind 클러스터 `t45`(v1.36.1). 1차와 달리 다음을 실제 코드로 돌렸다.
+
+| 항목 | 1차 | 2차 |
+|---|---|---|
+| 목적지 Argo CD | 자체 chart(지움) | **T44 `infra/iac/argocd`** — `infra/iac/README.md` 절차(설치 명령 2회, `environment=target-dev`, develop `768a590d`) |
+| T10 신원 | 로컬 고정 토큰 → 고정 Principal | **실제 `OperatorTokenVerifier`**(RS256 · issuer · audience · client · acr · 수명 검사). IdP만 로컬 시험 키(팀 SSO 아님), 토큰 수명 120초 |
+| T10 권한 | 모두 통과 | **실제 `OperatorAccess` 계획별 권한**: approver `read · approve_infra`, applier `read · apply_infra`, outsider `read` |
+| 실행기 | 1차 코드 | 독립 리뷰 결함 수정 + `wait.stable_seconds` |
+
+## 결과
+
+| 확인 | 결과 |
+|---|---|
+| T44 Argo CD 설치(2회) | 40초. T45 `argocd` 단계는 설치를 관찰만 하고 `SKIPPED` |
+| 토큰 없음 | T10 `403` |
+| outsider(`read`만) · approver(`apply_infra` 없음)가 실행 | 둘 다 T10 `forbidden`으로 거부. 실행 기록 · 커밋 · Application 변경 없음, 승인 미소비 |
+| applier 실행 run-1 | 실측 결함 4 발견(아래). 마이그레이션 Job 실패 → `migration-complete`가 600초 뒤 `HOLD`(`wait_timeout`). 자동 재시도 없이 멈췄다 |
+| 수정 뒤 run-2 | 운영자가 실패한 Job을 손으로 지움(API에 삭제 없음) → 새 승인 → DB · SeaweedFS 줄기 완료. `database-ready` 20.3초(안정 시간), 마이그레이션 5.2초 성공(`attachments` · `messages`), SeaweedFS 동기화 25.4초. `host-dirs` 확인부터 마지막 완료까지 27.5초(DB가 run-1에서 이미 떠 있던 상태) |
+| run-3 재실행 | 게시 단계 전부 `SKIPPED`, 새 커밋 없음. 24.8초(안정 시간 20초 포함) |
+
+run-1의 첫 구축(빈 클러스터)에서 DB 동기화는 41초(06:43:41→06:44:22)였다.
+
+## 실측에서 찾은 것
+
+4. **DB Ready 직후 마이그레이션 연결 거부**: CNPG가 `Ready=True`가 된 같은 초(06:44:22)에 Job이 생성됐고 `target-db-rw` 연결이 거부됐다. Job은 렌더러 고정값 `backoffLimit: 0`이라 재시도하지 않는다. → `wait` 단계에 `stable_seconds`(조건이 그 시간 동안 계속 참)를 두고 `database-ready`에 20초. 실패한 Job은 사람이 지워야 다시 실행된다(삭제 동작 없음 원칙).
+5. **T44와 Namespace 주인이 겹침(미해결)**: T44 생성 chart가 쓰는 namespace(`target-dev`, `tailscale-system`, `bravo-observability`)를 선언하고, T45 base도 `target-dev`를 낸다(T30 렌더러의 Pod Security `restricted` 레이블 포함). Argo CD가 "Namespace/target-dev is part of applications bravo-iac-target-dev and target-onprem-base"를 보고했다. 두 Application이 같은 field manager(`argocd-controller`)로 server-side apply하므로, T44가 동기화에 성공하면 마지막 적용 쪽 레이블만 남아 `restricted` 레이블이 지워질 수 있다. 주인을 하나로 정해야 한다(T44 담당과 합의 필요).
+6. **T44 ProxyGroup은 Tailscale CRD가 필요**: T44 Application은 `ProxyGroup` CRD가 없어 동기화 실패 상태였다. CRD는 T45 `tailscale` 줄기(operator chart)가 설치한다. 두 작업 사이 순서 의존이다. 또 T44가 만드는 `tailscale-system` namespace에는 Pod Security 레이블이 없다(T45 사람 단계는 privileged로 만들도록 안내).
+
+## 범위 밖(그대로)
+
+OpenBao · Tailscale 줄기와 그 뒤 delivery · app · verify 단계, 팀 SSO(IAM Identity Center) 실토큰, RKE2 목적지. 측정 뒤 `kind delete cluster --name t45`로 지웠다.
