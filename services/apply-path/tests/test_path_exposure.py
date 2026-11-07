@@ -18,7 +18,7 @@ def kube(state="open-demo"):
     return FakeKube(OLD, secrets={"target-seaweedfs-auth": secret_obj(s3_json(state))})
 
 
-def run(claim, proposal, tmp_path, repo, *, plan, bound=None, k=None, exposure=True):  # noqa: F811
+def run(claim, proposal, tmp_path, repo, *, plan, bound=None, k=None, exposure=True, pull_secret=None):  # noqa: F811
     claim = copy.deepcopy(claim)
     if bound is not False:
         claim["binding"]["iac_plan_digest"] = bound or plan["plan_digest"]
@@ -26,6 +26,7 @@ def run(claim, proposal, tmp_path, repo, *, plan, bound=None, k=None, exposure=T
     out = apply(claim["application_id"], claim, proposal, kube=k, receipts_dir=tmp_path / "receipts",
                 target_environment_id="onprem-dev", namespace="target-dev", deployment="demo-chat", container="app",
                 repository=REPO, sources={"app/db_secret.py": BEFORE}, now=NOW, policy_hooks=Probes().hooks(),
+                pull_secret=pull_secret,
                 exposure={"environment_id": "target-dev", "iac_plan": plan, "target": TARGET,
                           "base_revision": repo.opened, "repo_root": repo.root} if exposure else None)
     return out, k
@@ -102,3 +103,14 @@ def test_a_close_refused_after_the_image_holds_the_application_instead_of_leavin
 
     assert json.loads(_record_path(tmp_path / "receipts", out.application_id).read_text())["outcome"] == "SAFE_HOLD"
     validate_outcome(out.as_dict())
+
+
+def test_the_candidate_pull_secret_and_the_close_work_in_the_same_application(claim, proposal, tmp_path,
+                                                                             repo):  # noqa: F811
+    # #809 (GHCR pull) and ADR-0044 (close after the image) in one T31 application
+    out, k = run(claim, proposal, tmp_path, repo, plan=repo.plan, pull_secret="bravo-ghcr-reader")
+    assert (out.outcome, out.reason) == ("APPLIED", "APPLIED_AS_APPROVED")
+    pod = k.patches[0]["spec"]["template"]["spec"]
+    assert pod["imagePullSecrets"] == [{"name": "bravo-ghcr-reader"}]
+    assert not anonymous(k) and [s["step"] for s in out.steps][-2:] == ["exposure_close", "gate_recheck"]
+
