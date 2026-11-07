@@ -26,7 +26,9 @@ def test_charts_keep_the_tailnet_and_credentials_out_of_git():
         assert not re.search(r"[a-z0-9-]+\.[a-z0-9-]+\.ts\.net", template) and "{{ .Values.tailnet }}" in template
         assert "secretKey" not in template and "Secret" not in json.dumps(manifests(state)[0])
     objects, unmanaged = manifests(ENVIRONMENTS["target-dev"])
-    assert unmanaged == ["target-object-exposure:Secret/target-dev/target-seaweedfs-auth"]
+    # Credentials go to their own applier; access bindings to a cluster administrator (operator-access).
+    assert unmanaged == ["operator-access:ClusterRoleBinding/-/bravo-operators-cluster-admin",
+                         "target-object-exposure:Secret/target-dev/target-seaweedfs-auth"]
     assert {o["kind"] for o in objects} == {"ProxyGroup", "Service", "NetworkPolicy"}
 
 
