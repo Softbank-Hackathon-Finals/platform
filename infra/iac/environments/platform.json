@@ -11,6 +11,7 @@
           {
             "name": "bravo-rehearsal-egress",
             "tag": "tag:bravo-rehearsal",
+            "tailnet": "workload",
             "proxy_class": "bravo-clusters-egress-v11044",
             "clients": [
               {
@@ -31,8 +32,8 @@
               {
                 "service": "target-api",
                 "namespace": "bravo-rehearsal-control",
-                "destination": "bravo-target-operator",
-                "destination_tag": "tag:bravo-target-operator",
+                "destination": "bravo-target-api",
+                "destination_tag": "tag:bravo-target-api",
                 "port": 443,
                 "port_name": "https"
               }
@@ -41,6 +42,7 @@
           {
             "name": "bravo-apply-egress",
             "tag": "tag:bravo-apply",
+            "tailnet": "workload",
             "proxy_class": "bravo-clusters-egress-v11044",
             "clients": [
               {
@@ -54,8 +56,8 @@
               {
                 "service": "target-api",
                 "namespace": "bravo-apply-control",
-                "destination": "bravo-target-operator",
-                "destination_tag": "tag:bravo-target-operator",
+                "destination": "bravo-target-api",
+                "destination_tag": "tag:bravo-target-api",
                 "port": 443,
                 "port_name": "https"
               }
@@ -64,6 +66,7 @@
           {
             "name": "bravo-collector-egress",
             "tag": "tag:bravo-collector",
+            "tailnet": "workload",
             "proxy_class": "bravo-clusters-egress-v11044",
             "clients": [
               {
@@ -78,8 +81,8 @@
               {
                 "service": "collector-target-api",
                 "namespace": "platform-state",
-                "destination": "bravo-target-operator",
-                "destination_tag": "tag:bravo-target-operator",
+                "destination": "bravo-target-api",
+                "destination_tag": "tag:bravo-target-api",
                 "port": 443,
                 "port_name": "https"
               }
@@ -128,6 +131,22 @@
                 "destination_tag": "tag:bravo-target-control-pooler",
                 "port": 6432,
                 "port_name": "pooler"
+              },
+              {
+                "service": "source-api-for-cutover",
+                "namespace": "bravo-platform",
+                "destination": "bravo-source-operator",
+                "destination_tag": "tag:bravo-source-operator",
+                "port": 443,
+                "port_name": "https"
+              },
+              {
+                "service": "target-api-for-cutover",
+                "namespace": "bravo-platform",
+                "destination": "bravo-target-operator",
+                "destination_tag": "tag:bravo-target-operator",
+                "port": 443,
+                "port_name": "https"
               }
             ]
           }

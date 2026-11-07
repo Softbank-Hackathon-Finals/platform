@@ -68,8 +68,36 @@ def test_an_agent_may_remove_a_route_but_never_add_one():
     added = plan(fewer, PLATFORM, origin="agent")
     assert added["refusals"] == ["IAC_WIDENING_REFUSED"] and added["effects"][0]["reach"]["added"]
     assert plan(fewer, PLATFORM, origin="operator")["accepted"]
-    assert {"src": ["tag:bravo-cutover-control"], "dst": ["tag:bravo-target-control-pooler"],
-            "ip": ["tcp:6432"]} in added["tailnet_grants"]
+    assert {"tailnet": "default", "src": ["tag:bravo-cutover-control"], "dst": ["tag:bravo-target-operator"],
+            "ip": ["tcp:443"]} in added["tailnet_grants"]
+
+
+def test_groups_on_another_tailnet_get_their_own_suffix_and_policy():
+    rendered = resources()
+    apply = rendered["Service/bravo-apply-control/target-api"]["shape"]["annotations"]
+    assert apply["tailscale.com/tailnet-fqdn"] == "bravo-target-api.{tailnet:workload}"
+    cutover = rendered["Service/bravo-platform/target-api-for-cutover"]["shape"]["annotations"]
+    assert cutover["tailscale.com/tailnet-fqdn"] == "bravo-target-operator.{tailnet}"
+    default, workload = fragment(STATES), fragment(STATES, "workload")
+    assert not any(g["src"] == ["tag:bravo-apply"] for g in default["grants"])
+    assert {"src": ["tag:bravo-apply"], "dst": ["tag:bravo-target-api"], "ip": ["tcp:443"]} in workload["grants"]
+    assert "tag:bravo-cutover-control" in default["tagOwners"] and "tag:bravo-cutover-control" not in workload["tagOwners"]
+    committed = json.loads((REPO / "infra/tailnet/routes-policy.workload.json").read_text())
+    assert committed == workload and check_policy(committed, STATES, "workload") == []
+    assert check_policy(committed, STATES) != []  # the workload policy is not the default tailnet's
+
+
+def test_platform_routes_are_the_live_route_services():
+    # 2026-11-07 13:00 KST readback of the platform cluster: ExternalName egress Services and their tailnet.
+    live = {
+        "bravo-apply-control/target-api": "workload", "bravo-rehearsal-control/target-api": "workload",
+        "platform-state/collector-target-api": "workload",
+        **{f"bravo-platform/{side}-{kind}-for-cutover": "default"
+           for side in ("source", "target") for kind in ("api", "db", "pooler")},
+    }
+    groups = check_state(PLATFORM)["modules"][0]["params"]["groups"]
+    declared = {f'{r["namespace"]}/{r["service"]}': g.get("tailnet", "default") for g in groups for r in g["routes"]}
+    assert declared == live
 
 
 @pytest.mark.parametrize("change", [
@@ -81,6 +109,8 @@ def test_an_agent_may_remove_a_route_but_never_add_one():
     lambda p: p["groups"].append(copy.deepcopy(p["groups"][0])),
     lambda p: p["groups"][1]["routes"].append(copy.deepcopy(p["groups"][1]["routes"][0])),
     lambda p: p.update(extra=True),
+    lambda p: p["groups"][0].update(tailnet="default"),
+    lambda p: p["groups"][0].update(tailnet="Workload"),
 ])
 def test_invalid_egress_params_are_refused(change):
     state = copy.deepcopy(PLATFORM)

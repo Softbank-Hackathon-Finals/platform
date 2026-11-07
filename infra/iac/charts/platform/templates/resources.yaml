@@ -1,4 +1,5 @@
 {{- $_ := required "tailnet (the <name>.ts.net suffix) is required" .Values.tailnet }}
+{{- $_ := required "tailnets.workload (the <name>.ts.net suffix) is required" (index (.Values.tailnets | default dict) "workload") }}
 ---
 {
   "apiVersion": "v1",
@@ -101,7 +102,7 @@
   "metadata": {
     "annotations": {
       "tailscale.com/proxy-group": "bravo-rehearsal-egress",
-      "tailscale.com/tailnet-fqdn": "bravo-target-operator.{{ .Values.tailnet }}"
+      "tailscale.com/tailnet-fqdn": "bravo-target-api.{{ index .Values.tailnets "workload" }}"
     },
     "labels": {
       "app.kubernetes.io/managed-by": "bravo-iac",
@@ -369,7 +370,7 @@
   "metadata": {
     "annotations": {
       "tailscale.com/proxy-group": "bravo-apply-egress",
-      "tailscale.com/tailnet-fqdn": "bravo-target-operator.{{ .Values.tailnet }}"
+      "tailscale.com/tailnet-fqdn": "bravo-target-api.{{ index .Values.tailnets "workload" }}"
     },
     "labels": {
       "app.kubernetes.io/managed-by": "bravo-iac",
@@ -553,7 +554,7 @@
   "metadata": {
     "annotations": {
       "tailscale.com/proxy-group": "bravo-collector-egress",
-      "tailscale.com/tailnet-fqdn": "bravo-target-operator.{{ .Values.tailnet }}"
+      "tailscale.com/tailnet-fqdn": "bravo-target-api.{{ index .Values.tailnets "workload" }}"
     },
     "labels": {
       "app.kubernetes.io/managed-by": "bravo-iac",
@@ -837,6 +838,62 @@
       {
         "name": "pooler",
         "port": 6432,
+        "protocol": "TCP"
+      }
+    ],
+    "type": "ExternalName"
+  }
+}
+---
+{
+  "apiVersion": "v1",
+  "kind": "Service",
+  "metadata": {
+    "annotations": {
+      "tailscale.com/proxy-group": "bravo-cutover-control",
+      "tailscale.com/tailnet-fqdn": "bravo-source-operator.{{ .Values.tailnet }}"
+    },
+    "labels": {
+      "app.kubernetes.io/managed-by": "bravo-iac",
+      "bravo.dev/iac-module": "tailnet-egress"
+    },
+    "name": "source-api-for-cutover",
+    "namespace": "bravo-platform"
+  },
+  "spec": {
+    "externalName": "placeholder",
+    "ports": [
+      {
+        "name": "https",
+        "port": 443,
+        "protocol": "TCP"
+      }
+    ],
+    "type": "ExternalName"
+  }
+}
+---
+{
+  "apiVersion": "v1",
+  "kind": "Service",
+  "metadata": {
+    "annotations": {
+      "tailscale.com/proxy-group": "bravo-cutover-control",
+      "tailscale.com/tailnet-fqdn": "bravo-target-operator.{{ .Values.tailnet }}"
+    },
+    "labels": {
+      "app.kubernetes.io/managed-by": "bravo-iac",
+      "bravo.dev/iac-module": "tailnet-egress"
+    },
+    "name": "target-api-for-cutover",
+    "namespace": "bravo-platform"
+  },
+  "spec": {
+    "externalName": "placeholder",
+    "ports": [
+      {
+        "name": "https",
+        "port": 443,
         "protocol": "TCP"
       }
     ],

@@ -5,10 +5,24 @@
     "tailnet": {
       "pattern": "^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\\.ts\\.net$",
       "type": "string"
+    },
+    "tailnets": {
+      "additionalProperties": false,
+      "properties": {
+        "workload": {
+          "pattern": "^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\\.ts\\.net$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "workload"
+      ],
+      "type": "object"
     }
   },
   "required": [
-    "tailnet"
+    "tailnet",
+    "tailnets"
   ],
   "type": "object"
 }

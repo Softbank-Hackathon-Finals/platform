@@ -104,13 +104,15 @@ TARGET_OBJECT_EXPOSURE = Module(
 # Pods by selector. Tailscale 1.104 maps each route to a proxy Pod port in [10000, 11000); the
 # policies open that range to the group's own Pods only, so nothing has to be observed after
 # apply. Which destination and port a group may reach is decided by the tailnet grants this
-# module derives, not by the cluster policy. The tailnet suffix is not in Git: "{tailnet}".
+# module derives, not by the cluster policy. The tailnet suffix is not in Git: "{tailnet}", or
+# "{tailnet:<key>}" for a group that joins another tailnet (its own `tailnet` key, e.g. workload).
 NAME_RE = re.compile(r"[a-z0-9](?:[-a-z0-9]{0,61}[a-z0-9])?")
 TAG_RE = re.compile(r"tag:[a-z0-9](?:[-a-z0-9]{0,61}[a-z0-9])?")
 LABEL_KEY_RE = re.compile(r"(?:[a-z0-9.-]{1,253}/)?[A-Za-z0-9][A-Za-z0-9._-]{0,62}")
 LABEL_VALUE_RE = re.compile(r"[A-Za-z0-9](?:[A-Za-z0-9._-]{0,61}[A-Za-z0-9])?")
 PROXY_PORTS = (10000, 10999)  # Tailscale operator egress port allocation, [10000, 11000)
 OPERATOR_HEALTH_PORT = 9002
+DEFAULT_TAILNET = "default"
 TAILSCALE_NAMESPACE = "tailscale-system"
 
 
@@ -147,7 +149,7 @@ def _egress_check(params: dict) -> dict:
         raise IacError("IAC_PARAMS_INVALID")
     seen_groups, seen_services, checked = set(), set(), []
     for group in groups:
-        _exact(group, ("name", "tag", "clients", "routes"), ("proxy_class",))
+        _exact(group, ("name", "tag", "clients", "routes"), ("proxy_class", "tailnet"))
         name, tag = _name(group["name"]), _tag(group["tag"])
         clients, routes = group["clients"], group["routes"]
         if (name in seen_groups or tag == owner or type(clients) is not list or not 1 <= len(clients) <= 8
@@ -160,6 +162,10 @@ def _egress_check(params: dict) -> dict:
                "routes": []}
         if "proxy_class" in group:
             out["proxy_class"] = _name(group["proxy_class"])
+        if "tailnet" in group:
+            if _name(group["tailnet"]) == DEFAULT_TAILNET:
+                raise IacError("IAC_PARAMS_INVALID")
+            out["tailnet"] = group["tailnet"]
         for route in routes:
             _exact(route, ("service", "namespace", "destination", "destination_tag", "port", "port_name"))
             key = (_name(route["namespace"]), _name(route["service"]))
@@ -185,6 +191,14 @@ def _client_peer(client: dict) -> dict:
             "podSelector": {"matchLabels": client["labels"]}}
 
 
+def _suffix(group: dict) -> str:
+    return "{tailnet:" + group["tailnet"] + "}" if "tailnet" in group else "{tailnet}"
+
+
+def tailnet_of(group: dict) -> str:
+    return group.get("tailnet", DEFAULT_TAILNET)
+
+
 def _proxy_range() -> dict:
     return {"protocol": "TCP", "port": PROXY_PORTS[0], "endPort": PROXY_PORTS[1]}
 
@@ -199,7 +213,7 @@ def _egress_render(params: dict) -> list[dict]:
         out.append({"kind": "ProxyGroup", "namespace": "-", "name": name, "shape": spec})
         for route in group["routes"]:
             out.append({"kind": "Service", "namespace": route["namespace"], "name": route["service"], "shape": {
-                "annotations": {"tailscale.com/tailnet-fqdn": route["destination"] + ".{tailnet}",
+                "annotations": {"tailscale.com/tailnet-fqdn": route["destination"] + "." + _suffix(group),
                                 "tailscale.com/proxy-group": name},
                 "type": "ExternalName", "externalName": "placeholder",
                 "ports": [{"name": route["port_name"], "port": route["port"], "protocol": "TCP"}]}})
@@ -225,8 +239,9 @@ def _egress_render(params: dict) -> list[dict]:
 
 
 def _egress_grants(params: dict) -> list[dict]:
-    pairs = sorted({(g["tag"], r["destination_tag"], r["port"]) for g in params["groups"] for r in g["routes"]})
-    return [{"src": [src], "dst": [dst], "ip": [f"tcp:{port}"]} for src, dst, port in pairs]
+    pairs = sorted({(tailnet_of(g), g["tag"], r["destination_tag"], r["port"])
+                    for g in params["groups"] for r in g["routes"]})
+    return [{"tailnet": net, "src": [src], "dst": [dst], "ip": [f"tcp:{port}"]} for net, src, dst, port in pairs]
 
 
 def _egress_exposure(params: dict) -> dict:

@@ -1,7 +1,8 @@
 """The tailnet side of the pre-declared routes: a policy fragment derived from the desired states,
 a check that a policy file allows exactly what the routes need, and a live check through Tailscale.
 
-The fragment is deterministic: same desired states, same file. It carries tag owners for each
+The fragment is deterministic: same desired states, same file. Each tailnet has its own policy, so
+the fragment, the check and the live verify take one tailnet key (`default`, or a group's `tailnet`). It carries tag owners for each
 egress group, one grant per (group tag, destination tag, port) and policy tests (accept the
 route, deny SSH to the same destination) so Tailscale itself refuses a policy that breaks them.
 """
@@ -10,26 +11,28 @@ import json
 import subprocess
 
 from .catalog import check_state, module
-from .modules import IacError
+from .modules import DEFAULT_TAILNET, IacError, tailnet_of
 
 TAILSCALE = "/Applications/Tailscale.app/Contents/MacOS/Tailscale"
 
 
-def _groups(states):
+def _groups(states, tailnet=None):
     for state in states:
         for entry in check_state(state)["modules"]:
             if entry["id"] == "tailnet-egress":
                 for group in entry["params"]["groups"]:
-                    yield entry["params"]["owner_tag"], group
+                    if tailnet is None or tailnet_of(group) == tailnet:
+                        yield entry["params"]["owner_tag"], group
 
 
-def fragment(states) -> dict:
+def fragment(states, tailnet=DEFAULT_TAILNET) -> dict:
     owners, grants, accepts = {}, set(), {}
     for state in states:
         for entry in check_state(state)["modules"]:
             for g in module(entry["id"], entry["version"]).grants(entry["params"]):
-                grants.add((g["src"][0], g["dst"][0], g["ip"][0]))
-    for owner, group in _groups(states):
+                if g.get("tailnet", DEFAULT_TAILNET) == tailnet:
+                    grants.add((g["src"][0], g["dst"][0], g["ip"][0]))
+    for owner, group in _groups(states, tailnet):
         if owners.setdefault(group["tag"], owner) != owner:
             raise IacError("IAC_TAG_OWNER_CONFLICT")
     for src, dst, ip in grants:
@@ -43,11 +46,11 @@ def fragment(states) -> dict:
     }
 
 
-def check_policy(policy, states) -> list[str]:
+def check_policy(policy, states, tailnet=DEFAULT_TAILNET) -> list[str]:
     """Codes for what the policy lacks (empty: it allows every declared route and owns every group tag)."""
     if type(policy) is not dict:
         raise IacError("IAC_POLICY_INVALID")
-    want = fragment(states)
+    want = fragment(states, tailnet)
     missing = []
     owners = policy.get("tagOwners") or {}
     for tag, owner in want["tagOwners"].items():
@@ -77,7 +80,7 @@ def status(raw=None) -> dict:
             for p in (doc.get("Peer") or {}).values()}
 
 
-def verify(states, peers) -> list[dict]:
+def verify(states, peers, tailnet=None) -> list[dict]:
     """Each declared destination and egress group as Tailscale sees it from this device.
 
     OK: present, online, carrying the declared tag. NOT_VISIBLE: this device's grants do not show it
@@ -91,7 +94,7 @@ def verify(states, peers) -> list[dict]:
         result = ("TAG_MISMATCH" if tag not in match["tags"] else "OFFLINE" if not match["online"] else "OK")
         return {"kind": kind, "host": host, "tag": tag, "result": result, "seen_tags": match["tags"]}
 
-    for _, group in _groups(states):
+    for _, group in _groups(states, tailnet):
         replicas = [p for h, p in peers.items() if isinstance(h, str) and h.startswith(group["name"] + "-")]
         rows.append(judge("proxy-group", group["name"], group["tag"], replicas[0] if replicas else None))
         for route in group["routes"]:
