@@ -86,6 +86,15 @@ def test_cognito_uses_the_signed_admin_flow_of_the_issuers_pool():
     }]
 
 
+def test_only_the_id_token_is_kept_from_cognito():
+    """갱신 토큰은 서명 없이 쓸 수 있다. 응답에 와도 저장하지 않는다(source-identity README)."""
+    client = FakeCognito(response={"AuthenticationResult": {
+        "IdToken": jwt(**{"cognito:username": "loadgen"}), "AccessToken": "access-not-kept",
+        "RefreshToken": "refresh-not-kept"}})
+    kept = repr(vars(TokenSupply(cognito_fetch(client))))
+    assert "refresh-not-kept" not in kept and "access-not-kept" not in kept
+
+
 def test_cognito_needs_no_client_secret():
     assert cognito_fetch(FakeCognito(), {signin.PASSWORD_ENV: PASSWORD})().name == "loadgen"
 
@@ -141,6 +150,13 @@ def test_oidc_uses_the_password_grant_of_the_load_generator_client():
         "grant_type": "password", "scope": "openid", "client_id": "demo-chat-loadgen",
         "client_secret": SECRET, "username": "loadgen", "password": PASSWORD,
     }
+
+
+def test_only_the_id_token_is_kept_from_oidc():
+    answer = httpx.Response(200, json={"id_token": jwt(preferred_username="loadgen"),
+                                       "access_token": "access-not-kept", "refresh_token": "refresh-not-kept"})
+    kept = repr(vars(TokenSupply(oidc_fetch(keycloak([], token=answer)))))
+    assert "refresh-not-kept" not in kept and "access-not-kept" not in kept
 
 
 @pytest.mark.parametrize("missing", [signin.PASSWORD_ENV, signin.CLIENT_SECRET_ENV])

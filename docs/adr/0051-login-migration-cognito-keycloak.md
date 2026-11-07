@@ -2,7 +2,7 @@
 
 * **상태 (Status):** 제안됨(Proposed)
 * **날짜 (Date):** 2026-11-08
-* **관련 (Related):** T47 #699, 설계 7.3 · 8.10, demo-app #28 · #29, platform #651 · #652 · #653, ADR-0018
+* **관련 (Related):** T47 #699, 설계 7.3 · 8.10, demo-app #28 · #29 · #30, platform #651 · #652 · #653 · #927, ADR-0018
 
 ## 1. 배경 및 문제 상황 (Context and Problem Statement)
 
@@ -38,6 +38,7 @@
 * **이사 중에는 양쪽 앱이 서로의 발급자를 믿는다.** `AUTH_ALSO_TRUST`에 상대 발급자를 넣고(demo-app #29), 전환이 끝나면 목적지에서 지운다. 앱은 토큰의 이름(`preferred_username` 등)으로 작성자를 정하므로, 이 이중 신뢰는 **양쪽 모두 관리자만 계정을 만들고 사용자가 이름을 바꿀 수 없을 때만 안전하다.** 출발지는 클라이언트 `WriteAttributes`가 `locale` · `zoneinfo`뿐이고, 목적지는 `editUsernameAllowed=false`에 모든 속성을 관리자만 고친다.
 * **PKCE는 양쪽이 다르다.** 목적지 Keycloak은 S256을 강제하고, 출발지 Cognito는 강제하지 않아 앱이 항상 S256으로 보낸다(#651 README). 목적지가 더 엄격한 차이이므로 출발지에는 강제를 요구하지 않고, 목적지에서는 강제되는지 확인한다.
 * **목적지 앱이 AWS 발급자를 믿는 동안은 출구 증거가 아니다.** Exit Drill이 `AUTH_ISSUER` · `AUTH_ALSO_TRUST`에서 `.amazonaws.com` · `.amazoncognito.com`을 찾으면 `AWS_IDENTITY_TRUSTED`로 판정한다(#653). 두 값을 `valueFrom`이나 `$(다른 변수)`로 넣거나 컨테이너가 `envFrom`을 쓰면 값을 읽지 못하므로, 통과가 아니라 `ELIGIBILITY_NOT_READ`로 판정한다.
+* **부하 생성기(T18) 클라이언트는 브라우저 클라이언트와 따로 두고, 앱이 그 클라이언트를 `loadgen` 이름에 묶는다(#927, demo-app #30).** 부하 생성기는 사람 없이 토큰을 받아야 하므로 비밀번호로 받는다(출발지 AWS 서명 AdminInitiateAuth, 목적지 비밀 있는 password grant). 그래서 이 클라이언트에는 브라우저 로그인 · PKCE · 등록 redirect가 적용되지 않고, 발급자는 이 클라이언트를 계정에 묶지 않는다. 앱은 `AUTH_ALSO_TRUST=<발급자>|<부하 클라이언트>|loadgen`처럼 세 번째 칸에 적힌 이름일 때만 그 클라이언트의 토큰을 받고, 다른 계정의 토큰은 401로 거부한다. demo-app #30이 배포되기 전에는 이 클라이언트를 `AUTH_ALSO_TRUST`에 넣지 않는다. 이전 앱은 발급자마다 클라이언트를 하나만 남겨, 넣으면 출발지에서 로그인한 방문자의 쓰기가 목적지에서 401이 된다.
 * **동등성은 시험 결과로 판단한다.** 양쪽에서 스스로 가입이 막히고, 사용자가 이름을 바꿀 수 없고, 등록한 redirect만 받고, 토큰 없는 쓰기가 401인지 실제로 확인한다. PKCE S256 강제는 목적지에서만 확인한다.
 
 **이유**
@@ -49,4 +50,5 @@
 
 * 설계 v0.9에서 7.3 대응표에 인증 행과 설명 문단을 더했다.
 * 출발지 쪽 동등성 확인은 [T47 로그인 동등성 증빙](../evidence/t47-identity-equivalence-2026-11-08/README.md)에 있다.
-* 남은 것: 목적지 Keycloak의 클러스터 적용과 실제 로그인 확인, Edge 로그인 경로(T17), 인벤토리 탐지(T16), 부하 생성기용 클라이언트(T18).
+* 부하 생성기 클라이언트(#927): 출발지 Cognito `demo-chat-loadgen`(관리자 흐름만), 목적지 Keycloak `identity.loadgen_client()`(관리 API로 등록), `services/loadgen`의 선택형 토큰 공급. 7.3의 "등록한 redirect만" · "PKCE S256 강제" 동등성은 브라우저 클라이언트에 대한 것이고, 부하 클라이언트의 경계는 앱의 이름 고정이다.
+* 남은 것: 목적지 Keycloak의 클러스터 적용과 실제 로그인 확인, Edge 로그인 경로(T17), 인벤토리 탐지(T16), 부하 생성기 클라이언트의 적용(출발지 `plan` · `apply`, 목적지 관리 API 등록)과 demo-app #30 배포.

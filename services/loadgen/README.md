@@ -119,7 +119,7 @@ uv run bravo-loadgen measure <위와 같은 인자> \
   --auth-issuer <앱의 AUTH_ISSUER> --auth-client-id <부하 생성기 클라이언트 ID> --auth-username loadgen
 ```
 
-받는 방법은 발급자 주소로 정한다. 둘 다 **부하 생성기 전용 클라이언트**를 쓴다. 브라우저 클라이언트(`demo-chat`)는 비밀번호를 받지 않게 만들어 두었다.
+받는 방법은 발급자 주소로 정한다. 둘 다 **부하 생성기 전용 클라이언트**를 쓴다. 브라우저 클라이언트(`demo-chat`)는 비밀번호를 받지 않게 만들어 두었다. 부하 클라이언트는 발급자가 계정에 묶지 않으므로, 앱이 그 클라이언트의 토큰을 부하 계정 이름일 때만 받는다(아래 설정의 세 번째 칸). 그래서 `--auth-username`은 그 이름이어야 한다. 출발지 · 목적지 부하 계정은 같은 비밀번호를 쓴다(회수 순서는 [source-identity](../../infra/envs/source-identity/README.md#부하-생성기-클라이언트)).
 
 | 발급자 | 받는 방법 | 필요한 것 |
 |---|---|---|
@@ -134,11 +134,12 @@ uv run bravo-loadgen measure <위와 같은 인자> \
 - 토큰 요청은 리다이렉트를 따라가지 않고, 발급자와 다른 곳의 토큰 주소로는 비밀번호를 보내지 않는다. 발급자와 `--base-url`은 https만 받는다(이 컴퓨터의 시험 주소만 http). ID 토큰으로 그 계정의 글을 쓸 수 있어서다.
 - **쓰기가 401 · 403을 한 번이라도 받으면 그 뒤의 창은 내지 않는다.** 창은 5xx · 409만 오류로 세므로([T36](../observability/)), 토큰이 거부된 쓰기가 창에서는 정상 요청으로 보이기 때문이다. 받는 쪽은 창이 없으면 UNKNOWN으로 멈춘다. 부하와 대조는 끝까지 하고, 리포트에 `WRITE_AUTH_REJECTED`와 내지 않은 창 수(`windows.withheld`)가 남아 판정 입력으로 쓰지 않는다. 로그인을 켜지 않고 로그인을 켠 앱에 돌려도(모든 쓰기 401) 같다.
 
-**앱 쪽에는 [demo-app #30](https://github.com/Softbank-Hackathon-Finals/demo-app/pull/30)이 필요하다(병합 전).** 부하 생성기 토큰의 `aud`는 부하 생성기 클라이언트 ID라서, 앱은 같은 발급자의 두 번째 클라이언트를 믿어야 한다. 지금 demo-chat(`a204665`)은 발급자 주소마다 클라이언트 ID를 하나만 남긴다. 그래서 `AUTH_ISSUER`와 같은 발급자를 `AUTH_ALSO_TRUST`에 넣으면 무시돼 부하 토큰이 401이고, 같은 발급자를 두 번 넣으면 마지막 것만 남는다. 목적지 앱에 Cognito 브라우저 · 부하 클라이언트를 둘 다 넣으면 **출발지에서 로그인한 방문자의 쓰기가 401이 된다**(11/8 그 코드로 확인). #30은 같은 발급자의 항목을 모두 믿고 토큰 `aud`가 그중 하나면 받는다. #30이 배포되기 전에는 로그인을 켠 앱에 이 옵션으로 쓰기 부하를 넣지 않는다. 배포된 뒤의 설정:
+**앱 쪽에는 [demo-app #30](https://github.com/Softbank-Hackathon-Finals/demo-app/pull/30)이 필요하다(병합 전).** 부하 생성기 토큰의 `aud`는 부하 생성기 클라이언트 ID라서, 앱은 같은 발급자의 두 번째 클라이언트를 믿어야 한다. 지금 demo-chat(`a204665`)은 발급자 주소마다 클라이언트 ID를 하나만 남긴다. 그래서 `AUTH_ISSUER`와 같은 발급자를 `AUTH_ALSO_TRUST`에 넣으면 무시돼 부하 토큰이 401이고, 같은 발급자를 두 번 넣으면 마지막 것만 남는다. 목적지 앱에 Cognito 브라우저 · 부하 클라이언트를 둘 다 넣으면 **출발지에서 로그인한 방문자의 쓰기가 401이 된다**(11/8 그 코드로 확인). #30은 같은 발급자의 항목을 모두 믿고 토큰 `aud`가 그중 하나면 받는다. 세 번째 칸에 이름을 적으면 그 클라이언트의 토큰은 그 이름일 때만 받는다. #30이 배포되기 전에는 로그인을 켠 앱에 이 옵션으로 쓰기 부하를 넣지 않는다. 배포된 뒤의 설정:
 
-- 출발지 앱: `AUTH_ISSUER=<Cognito 발급자>`, `AUTH_CLIENT_ID=<브라우저 클라이언트>`, `AUTH_ALSO_TRUST=<Cognito 발급자>|<부하 클라이언트>`
-- 목적지 앱(이사 중): `AUTH_ISSUER=<Keycloak 발급자>`, `AUTH_CLIENT_ID=demo-chat`, `AUTH_ALSO_TRUST=<Cognito 발급자>|<브라우저 클라이언트>,<Cognito 발급자>|<부하 클라이언트>,<Keycloak 발급자>|demo-chat-loadgen`
-- 이사가 끝나면 Cognito 두 항목만 지운다. `<Keycloak 발급자>|demo-chat-loadgen`은 남겨도 Exit Drill은 AWS 주소만 본다(`AWS_IDENTITY_TRUSTED`)
+- 출발지 앱: `AUTH_ISSUER=<Cognito 발급자>`, `AUTH_CLIENT_ID=<브라우저 클라이언트>`, `AUTH_ALSO_TRUST=<Cognito 발급자>|<부하 클라이언트>|loadgen`
+- 목적지 앱(이사 중): `AUTH_ISSUER=<Keycloak 발급자>`, `AUTH_CLIENT_ID=demo-chat`, `AUTH_ALSO_TRUST=<Cognito 발급자>|<브라우저 클라이언트>,<Cognito 발급자>|<부하 클라이언트>|loadgen,<Keycloak 발급자>|demo-chat-loadgen|loadgen`
+- 부하 클라이언트 항목의 세 번째 칸은 부하 계정 이름이다(실제 이름이 `loadgen`이 아니면 그 이름). 그 클라이언트로 받은 토큰은 이 이름일 때만 앱이 받고, 다른 계정이면 401이다
+- 이사가 끝나면 Cognito 두 항목만 지운다. `<Keycloak 발급자>|demo-chat-loadgen|loadgen`은 남겨도 Exit Drill은 AWS 주소만 본다(`AWS_IDENTITY_TRUSTED`)
 
 
 ## 검사

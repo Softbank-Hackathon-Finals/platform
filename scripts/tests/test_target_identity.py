@@ -354,6 +354,17 @@ class RenderedServerTests(unittest.TestCase):
         token = claims(body["id_token"])
         self.assertEqual((token["iss"], token["aud"], token["azp"], token["preferred_username"]),
                          (f"{self.PUBLIC}/realms/bravo", "demo-chat-loadgen", "demo-chat-loadgen", "loadgen"))
+        # Keycloak does not bind this client to the loadgen account: any account's password yields a token
+        # in that account's name. The boundary is the app, which takes this client's tokens only for the name
+        # pinned in AUTH_ALSO_TRUST (demo-app #30). README "부하 생성기 클라이언트" states it.
+        self.admin("POST", "/users", {"username": "visitor-lg", "enabled": True, "credentials": [
+            {"type": "password", "value": "Visitor-Password-3", "temporary": False}]})
+        status, other = self.fetch(opener, self.document["token_endpoint"], {
+            "grant_type": "password", "scope": "openid", "client_id": "demo-chat-loadgen",
+            "client_secret": secret, "username": "visitor-lg", "password": "Visitor-Password-3"})[::2]
+        other_token = claims(json.loads(other)["id_token"])
+        self.assertEqual((status, other_token["aud"], other_token["preferred_username"]),
+                         (200, "demo-chat-loadgen", "visitor-lg"))
         # Its access token cannot reach the account console, where a user would edit their own profile.
         self.assertNotIn("account", claims(body["access_token"]).get("resource_access", {}))
         request = urllib.request.Request(f"{self.PUBLIC}/realms/bravo/account", headers={

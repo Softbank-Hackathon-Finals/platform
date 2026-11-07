@@ -73,10 +73,10 @@ unset TEMP_PASSWORD
 | 호스팅 로그인 · OAuth 흐름 · scope · 콜백 없음 | 이 클라이언트로는 아무도 브라우저에서 로그인하지 못한다 |
 | `explicit_auth_flows`는 `ALLOW_ADMIN_USER_PASSWORD_AUTH`와 갱신 토큰만 | AdminInitiateAuth는 AWS 서명이 필요하다. 클라이언트 ID와 비밀번호만으로는 토큰을 못 받고, 그 풀에 `cognito-idp:AdminInitiateAuth` 권한이 있는 주체만 받는다. 권한은 [loadgen-aws](../loadgen-aws/README.md) 역할에 이 풀로만 준다. 서명 없이 부를 수 있는 `USER_PASSWORD` · SRP · 사용자 선택 흐름은 열지 않는다 |
 | 클라이언트 비밀 없음 | 서명이 비밀 역할을 한다. 공유할 장기 비밀을 하나 더 만들지 않는다 |
-| 갱신 토큰은 ID 토큰 + 60분(기본 120분) | 갱신 토큰 흐름을 빼고 만들 수 있는지 확인하지 못해 브라우저 클라이언트처럼 둔다. 부하 생성기는 갱신 토큰을 쓰지 않고 만료 전에 같은 관리자 흐름으로 다시 받는다. 갱신 토큰은 서명 없이 쓸 수 있으므로 짧게 둔다. Cognito가 ID 토큰보다 짧은 갱신 토큰을 받는지 확인하지 못해 ID 토큰보다 60분만 길게 둔다 |
+| 갱신 토큰은 ID 토큰 + 60분(기본 120분) | 갱신 토큰 흐름을 빼고 만들 수 있는지 확인하지 못해 브라우저 클라이언트처럼 둔다. 갱신 토큰은 응답에 오지만 부하 생성기(`signin.py`)는 ID 토큰만 꺼내고 갱신 토큰을 저장 · 사용하지 않는다(시험이 잰다). 부하 생성기는 갱신 토큰을 쓰지 않고 만료 전에 같은 관리자 흐름으로 다시 받는다. 갱신 토큰은 서명 없이 쓸 수 있으므로 짧게 둔다. Cognito가 ID 토큰보다 짧은 갱신 토큰을 받는지 확인하지 못해 ID 토큰보다 60분만 길게 둔다 |
 | 이름 속성은 쓸 수 없음 | 이 흐름의 액세스 토큰으로 사용자가 자기 속성을 바꿀 수 있다고 보고, `write_attributes`를 브라우저 클라이언트와 같이 `locale` · `zoneinfo`로 둔다 |
 
-IAM은 풀 단위까지만 좁힌다. 같은 풀의 브라우저 클라이언트는 관리자 흐름을 받지 않으므로, 이 권한으로 브라우저 클라이언트의 토큰은 받지 못한다.
+IAM은 풀 단위까지만 좁힌다. 같은 풀의 브라우저 클라이언트는 관리자 흐름을 받지 않으므로, 이 권한으로 브라우저 클라이언트의 토큰은 받지 못한다. 하지만 이 권한과 다른 계정의 비밀번호가 있으면 그 계정 이름의 토큰은 받는다. 그래서 앱은 이 클라이언트의 토큰을 `loadgen` 이름일 때만 받는다(아래, demo-app #30). 브라우저 로그인 · 등록 redirect · PKCE는 이 클라이언트에 적용되지 않는다.
 
 **부하 생성기 계정.** 시연 계정처럼 운영자가 만들되, 첫 비밀번호 변경을 할 사람이 없으므로 바로 영구 비밀번호를 넣는다. 이름은 메시지 작성자로 보인다.
 
@@ -90,13 +90,16 @@ printf '{"UserPoolId":"%s","Username":"loadgen","Password":"%s","Permanent":true
 unset LOADGEN_PASSWORD
 ```
 
+**부하 계정 비밀번호는 출발지 · 목적지가 같은 값을 쓴다.** 부하 생성기는 비밀번호를 `BRAVO_LOADGEN_PASSWORD` 하나로 받기 때문이다. 이사 뒤 출발지 Cognito를 지울 때까지 두 곳에 같은 비밀이 있으므로, 회수는 **출발지 풀 삭제(`terraform destroy`) → 목적지 비밀번호 교체** 순서로 한다. 목적지를 먼저 바꾸면 출발지에 옛 비밀번호가 살아 있는 채로 남는다.
+
 부하 생성기에는 `--auth-issuer <auth_issuer> --auth-client-id <loadgen_client_id> --auth-username loadgen`과 `BRAVO_LOADGEN_PASSWORD`를 준다([services/loadgen](../../../services/loadgen/README.md#로그인을-켠-앱에-쓰기-t47)). 목적지 Keycloak의 대응은 [target-workloads](../target-workloads/README.md#부하-생성기-클라이언트)에 있다.
 
 **앱이 이 토큰을 믿으려면 [demo-app #30](https://github.com/Softbank-Hackathon-Finals/demo-app/pull/30)이 필요하다(병합 전).** ID 토큰의 `aud`가 이 클라이언트 ID라서 앱은 같은 발급자의 두 번째 클라이언트를 믿어야 한다. 지금 demo-chat(`a204665`)은 발급자 주소마다 클라이언트 ID를 하나만 남긴다. `AUTH_ISSUER`와 같은 발급자를 `AUTH_ALSO_TRUST`에 넣으면 무시되고, 같은 발급자를 두 번 넣으면 마지막 것만 남아 **출발지에서 로그인한 방문자의 토큰이 목적지에서 401이 된다.** #30이 배포되기 전에는 `AUTH_ALSO_TRUST`에 이 클라이언트를 넣지 않는다. 배포된 뒤의 설정:
 
-- 출발지 앱: `AUTH_ISSUER=<Cognito 발급자>`, `AUTH_CLIENT_ID=<브라우저 클라이언트>`, `AUTH_ALSO_TRUST=<Cognito 발급자>|<부하 클라이언트>`
-- 목적지 앱(이사 중): `AUTH_ISSUER=<Keycloak 발급자>`, `AUTH_CLIENT_ID=demo-chat`, `AUTH_ALSO_TRUST=<Cognito 발급자>|<브라우저 클라이언트>,<Cognito 발급자>|<부하 클라이언트>,<Keycloak 발급자>|demo-chat-loadgen`
-- 이사가 끝나면 Cognito 두 항목만 지운다. `<Keycloak 발급자>|demo-chat-loadgen`은 남겨도 Exit Drill은 AWS 주소만 본다(`AWS_IDENTITY_TRUSTED`)
+- 출발지 앱: `AUTH_ISSUER=<Cognito 발급자>`, `AUTH_CLIENT_ID=<브라우저 클라이언트>`, `AUTH_ALSO_TRUST=<Cognito 발급자>|<부하 클라이언트>|loadgen`
+- 목적지 앱(이사 중): `AUTH_ISSUER=<Keycloak 발급자>`, `AUTH_CLIENT_ID=demo-chat`, `AUTH_ALSO_TRUST=<Cognito 발급자>|<브라우저 클라이언트>,<Cognito 발급자>|<부하 클라이언트>|loadgen,<Keycloak 발급자>|demo-chat-loadgen|loadgen`
+- 부하 클라이언트 항목의 세 번째 칸은 부하 계정 이름이다(실제 이름이 `loadgen`이 아니면 그 이름). 그 클라이언트로 받은 토큰은 이 이름일 때만 앱이 받고, 다른 계정이면 401이다
+- 이사가 끝나면 Cognito 두 항목만 지운다. `<Keycloak 발급자>|demo-chat-loadgen|loadgen`은 남겨도 Exit Drill은 AWS 주소만 본다(`AWS_IDENTITY_TRUSTED`)
 
 
 ## 이사할 때 알아 둘 것
