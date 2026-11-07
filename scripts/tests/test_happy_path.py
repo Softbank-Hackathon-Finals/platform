@@ -54,9 +54,8 @@ class Driver(unittest.TestCase):
         self.assertEqual(reaches, sorted(reaches, key=hp.ORDER.index))
         humans = [s.id for s in hp.STEPS if s.kind == "human"]
         ids = [s.id for s in hp.STEPS]
-        self.assertEqual(humans, ["s2-candidate-import", "s2-change-approval", "s3-shift-approval",
-                                  "s3-cutover-approval", "s3-load",
-                                  "s3-attachment-copy", "s3-reverse-replication", "s4-alert-seen",
+        self.assertEqual(humans, ["s2-candidate-import", "s2-change-approval", "s3-load",
+                                  "s3-attachment-copy", "s3-shift-approval", "s3-cutover-approval", "s3-reverse-replication", "s4-alert-seen",
                                   "s4-failback-approval", "wrap-map"])
         self.assertLess(ids.index("s2-ai-collect"), ids.index("s2-candidate-import"))
         self.assertLess(ids.index("s2-candidate-import"), ids.index("s2-proposed"))
@@ -66,7 +65,7 @@ class Driver(unittest.TestCase):
         self.run_driver()
         head = json.loads(self.record.read_text().splitlines()[0])
         self.assertEqual((head["plan_id"], head["profile"], head["develop_sha"]), ("plan-1", "mock", "a" * 40))
-        self.assertEqual(set(head["gitops_pins"]), {"registration", "product-reader"})
+        self.assertEqual(set(head["gitops_pins"]), {"registration", "product-reader", "rehearsal-host"})
 
     def test_waits_for_plan_state_then_human_without_approving(self):
         code, line = self.run_driver()
@@ -83,8 +82,40 @@ class Driver(unittest.TestCase):
         self.assertEqual(self.confirm("s2-change-approval"), 0)
         self.state = "AWAIT_APPROVAL"
         code, line = self.run_driver()
-        self.assertEqual(line["step"], "s3-shift-approval")
+        self.assertEqual(line["step"], "s3-load")
         self.assertIn("open_after_apply.py:-", self.calls)
+
+    def test_load_and_attachment_preparation_precede_transition_approvals(self):
+        ids = [step.id for step in hp.STEPS]
+        self.assertLess(ids.index("s3-load"), ids.index("s3-shift-approval"))
+        self.assertLess(ids.index("s3-attachment-copy"), ids.index("s3-cutover-approval"))
+
+    def test_migration_never_runs_fault_or_failback(self):
+        ids = [step.id for step in hp.selected_steps("migration")]
+        self.assertIn("s3-cutover-done", ids)
+        self.assertEqual(ids[-1], "s3-reverse-replication")
+        self.assertFalse(any(x.startswith("s4-") for x in ids))
+
+    def test_mock_record_cannot_be_resumed_as_real(self):
+        self.run_driver()
+        code, result = self.run_driver(("profile", "real"))
+        self.assertEqual(code, 2)
+        self.assertIn("profile", result["reason"])
+
+    def test_migration_requires_current_watch_or_done(self):
+        self.run_driver(("scenario", "migration"))
+        for step in hp.selected_steps("migration"):
+            hp.append(self.record, {"step": step.id, "status": "done"})
+        self.state = "DONE_ROLLED_BACK"
+        code, result = self.run_driver(("scenario", "migration"))
+        self.assertEqual((code, result["reason"]), (1, "forward_migration_not_current"))
+        self.state = "WATCH"
+        code, result = self.run_driver(("scenario", "migration"))
+        self.assertEqual((code, result["scenario"], result["final_state"]), (0, "migration", "WATCH"))
+
+    def test_record_cannot_switch_to_a_shorter_scenario(self):
+        self.run_driver()
+        self.assertEqual(self.run_driver(("scenario", "migration"))[0], 2)
 
     def test_unwired_steps_stop_closed(self):
         self.state = "PROPOSE"
