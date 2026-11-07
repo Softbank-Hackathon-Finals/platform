@@ -82,3 +82,22 @@ Pod UID·컨테이너 실행 식별자가 바뀌면 새 자원으로 취급한�
 GuardDuty 탐지기는 0개였다. Security Hub는 InvalidAccessException으로 미확인이다.
 실제 탐지·격리 성공으로 처리하지 않았으며 [T33 확인 기록](https://github.com/Softbank-Hackathon-Finals/platform/issues/53#issuecomment-6709207785)에 남겼다.
 탐지기 설치·서비스 활성화·정책 변경은 수행하지 않았다.
+
+
+## 실제 EKS 출발지 인수
+
+생산자 `f669842b9f87e1f42afe5053084cb1685100ee57`로 **실제 AWS 출발지 GET 수집**을 완료했다.
+기존 개인 접근 도구의 kubeconfig를 명시적으로 사용하고, 현재 AWS 계정·EKS CA·등록된 kube-system UID를 대조했다.
+등록 범위에서 9개 노드·7개 설정 관계·관리 HTTP 탐침 1개를 확인했다. 쓰기는 없었고 만든 SSM 세션은 종료했다.
+[공개 요약과 소스](../../../docs/evidence/t21-eks-observation-2026-11-08/summary.json)를 별도로 보존한다.
+이는 앞선 UNAVAILABLE 관측을 덮어쓴 것이 아니며, 연속 수집이나 전체 이전 인수는 아니다.
+
+발견한 결함은 Kubernetes `config view`의 AWS exec `env: null`이었다. 표준 빈 환경 값은 빈 목록으로 처리하되,
+잘못된 형식·중복 환경 변수·기본 계정·모호한 profile은 계속 거부한다. 경계 회귀 4개를 추가했고 최신 T10/IaC
+locked 소스를 재설치한 전체 콘솔 **483개**가 통과했다. 실패는 비공개 traceback에 보존했다.
+병합 세션이 넣은 develop 통합 `f1f8dedd`를 fast-forward로 보존했고 소유 기능만 수정했다.
+
+실제 해피패스의 다음 접점은 T10 정본 계획과 운영자 권한이다. 현재 승인 호스트 설정에는 본인 SSO caller가 없었다.
+기존 full/1 계획을 축소하거나 다른 demo-gate 계획과 원문을 혼합하지 않는다.
+[실행 창·정본 계획·조회/승인 인계 요청](https://github.com/Softbank-Hackathon-Finals/platform/issues/36#issuecomment-6709988956)을 남겼으며,
+이 관측 성공을 T14/T19 PASS·운영 승인·컷오버 성공으로 확대하지 않는다.

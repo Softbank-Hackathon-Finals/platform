@@ -1,0 +1,13 @@
+{
+  "source_revision": "f669842b9f87e1f42afe5053084cb1685100ee57",
+  "source_files": [
+    {
+      "path": "services/console/src/bravo_console/kubernetes_workload.py",
+      "sha256": "b7576950567bef6c0fa437974a92a4dbeb8325034edb75f223aee8669e425ace"
+    },
+    {
+      "path": "services/console/tests/test_kubernetes_workload.py",
+      "sha256": "da96f0d1fee29d60335d42d293968e0dda8e9938199d7267263d73f14cca21f5"
+    }
+  ]
+}
