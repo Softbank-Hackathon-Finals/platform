@@ -1,7 +1,7 @@
 {
   "image": {
     "repository": "ghcr.io/softbank-hackathon-finals/platform-registration",
-    "digest": "sha256:b7a3db905d5bbc663632554194c2ca5b12553ed34bd79ff164abe1bd72a7caa3"
+    "digest": "sha256:d1cdb53adbca9d9a7cbba777faf35f1b9ff9bb8e3a2ad9c48738d8aa9efa086b"
   },
-  "sourceRevision": "fd03a00ef23168e003e595a2b6739c97226f3769"
+  "sourceRevision": "5e584d75a369eecb2e2961310cb795e44af77213"
 }
