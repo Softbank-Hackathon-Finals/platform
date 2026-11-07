@@ -18,6 +18,7 @@
 | `tailnet-egress` v1 | 클러스터의 Tailscale egress 경로: 그룹마다 egress ProxyGroup(전용 태그), tailnet 호스트로 가는 ExternalName Service, 그 그룹 proxy Pod에 묶은 NetworkPolicy | `owner_tag`, `groups[]`: `name`, `tag`, `tailnet`?, `proxy_class`?, `client_policy`?(`false`만), `clients[]`(namespace·labels), `routes[]`(service·namespace·destination·destination_tag·port·port_name) |
 | `tailnet-ingress` v1 | 클러스터 안 워크로드를 tailnet 장치로 노출: 장치마다 operator expose Service(호스트 이름·태그·selector·포트). 누가 닿는지는 소비자 쪽 `tailnet-egress` grant가 정한다 | `owner_tag`, `devices[]`: `service`, `namespace`, `hostname`, `tag`, `tailnet`?, `selector`, `ports[]`(name·port·target_port) |
 | `operator-access` v1 | 사람이 클러스터 API에 들어오는 길: 바인딩마다 쿠버네티스 그룹 하나의 ClusterRoleBinding, 그리고 tailnet 그룹이 그 클러스터의 Tailscale API 프록시(443)에 닿아 그 쿠버네티스 그룹으로 impersonate되게 하는 grant 하나 | `proxy_hostname`, `proxy_tag`, `bindings[]`: `name`, `group`(`접두사:이름`, `system:` 금지), `cluster_role`, `tailnet_groups`(`group:…`, `autogroup:admin`, `autogroup:owner`); 선택 `tailnet` |
+| `api-transport-access` v1 | 기존 API 프록시의 HTTPS 도달 권한만 선언. Kubernetes 객체·RBAC·impersonation은 만들지 않음 | `proxy_hostname`, `proxy_tag`, `tailnet_groups`(`group:…`, `autogroup:admin`, `autogroup:owner`); 선택 `tailnet` |
 
 `target-object-exposure`는 T9 렌더러(`infra/envs/target-workloads/object_exposure.py`)와 같은 계정·권한을 낸다.
 같은지는 시험이 고정한다. 계정 키는 Git에도 plan에도 없다. 적용하는 쪽이 적용 시점에 넣는다(`secret_inputs`).
@@ -75,9 +76,11 @@ Tailscale operator가 매긴 proxy 포트를 **관찰해서** NetworkPolicy에 �
 (operator 값 `apiServerProxyConfig.mode: "true"`, `noauth` 금지). 요청자의 tailnet 신원을 받아, grant가 이름 붙인
 쿠버네티스 그룹으로 impersonate한다. 권한은 그 그룹의 ClusterRoleBinding이 정한다.
 
-- 플랫폼: `autogroup:admin`·`autogroup:owner`(운영자 tailnet의 관리자 전원과 소유자) → `bravo-platform-operator`
-  (`tag:bravo-platform-operator`):443 → 쿠버네티스 그룹 `bravo:operators` → `cluster-admin`(2026-11-07 사용자 결정: 팀원
-  전원이 tailnet 관리자이고 운영자다). 사람 이름·이메일은 Git에도 tailnet 정책에도 필요 없다. 관리자 역할이 곧 접근 조건이다.
+- 플랫폼: `autogroup:admin`·`autogroup:owner`와 등록된 `group:bravo-operators` → `bravo-platform-operator`
+  (`tag:bravo-platform-operator`):443 → 쿠버네티스 그룹 `bravo:operators` → 현재 개발 환경의 `cluster-admin`.
+  사람별 멤버 목록은 비공개 tailnet 정책에서 관리한다. 초대나 장치 표시만으로 운영자 자격을 인정하지 않는다.
+  기존 개인 클러스터 권한을 확인한 사람을 운영자 그룹에 연결할 수 있으며, 접속을 위해 tailnet 관리자 역할로 승격할 필요는 없다.
+  현재 개발 관리자 권한은 최소 권한 운영 인수의 완료를 뜻하지 않는다.
 - 출발지는 정책의 `group:…` 또는 역할 autogroup(`admin`, `owner`)만 받는다. `autogroup:member`는 받지 않는다(초대만 받은
   사람까지 운영자가 된다). 누가 그 역할인지는 Git에 없으므로 이 grant의 정책 tests는 만들지 않고, `tailnet-check`가 grant
   (포트와 impersonate 그룹까지)를 대조한다.
@@ -103,6 +106,22 @@ tailscale status | grep bravo-platform-operator          # 운영자 tailnet에�
 tailscale configure kubeconfig bravo-platform-operator   # kubeconfig에 프록시 컨텍스트 추가(인증서·SSM 불필요)
 kubectl auth whoami                                      # Groups에 bravo:operators가 있어야 한다
 ```
+
+### 기존 Kubernetes 인증을 유지하는 API 접속 (`api-transport-access`)
+
+`source-dev`는 `group:bravo-operators`에서 `tag:bravo-source-operator`의 TCP 443에 닿는 경로만 선언한다.
+이 모듈은 새 RBAC, 인증서, 토큰 또는 impersonation capability를 만들지 않는다. 기존 Kubernetes/IAM 인증을
+전달하는 프록시에 사용하며, auth 모드 프록시의 Kubernetes 권한을 부여하는 설정과 혼동하지 않는다.
+실제 프록시 모드와 기존 인증으로의 조회가 확인되기 전에는 출발지 접속 성공으로 기록하지 않는다.
+`GET /v1/iac/network`의 해당 `access` 행은 `authentication: existing-kubernetes-auth`로 구분한다.
+
+이 모듈과 `operator-access`의 사람 그룹은 멤버 목록을 Git에서 알 수 없으므로 태그 장치용 정책 tests를 만들지 않는다.
+생성 조각은 전체 정책을 대체하는 파일이 아니다. 현재 정책을 비공개로 보존하고 필요한 grant만 중복 없이 합친 뒤
+Tailscale의 정책 검증과 실제 조회를 수행한다. 다른 사람이 정책을 변경했다면 이전 복사본으로 덮어쓰지 않는다.
+
+접속 인수는 장치 표시·Ready 여부와 분리한다. TLS 검증, 등록 클러스터 UID, 개인 `whoami`·그룹·권한을 확인한 뒤
+대체된 세션만 종료한다. 온프렘용 개인 접속 도구와 플랫폼 kubeconfig를 혼용하지 않는다. 기존 SSM·포트포워딩은
+직접 접속 인수 전까지 보존하고, 비상 복구 경로와 공개 서비스 HTTPS는 별도로 관리한다.
 
 ## 적용: 고객 클러스터마다 Argo CD (pull GitOps)
 

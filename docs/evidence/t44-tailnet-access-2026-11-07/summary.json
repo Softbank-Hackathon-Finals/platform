@@ -1,0 +1,74 @@
+{
+  "kind": "t44-tailnet-access-observation.v1",
+  "date": "2026-11-07",
+  "timezone": "Asia/Seoul",
+  "scope": "read-only; no shared workload or RBAC mutation by this session",
+  "policy_application": "user reported saved; not independently re-fetched after save",
+  "prepared_policy": {
+    "existing_admin_owner_grants_duplicated": false,
+    "new_operator_group_members": 1,
+    "new_grants": 2,
+    "other_existing_sections_preserved": true,
+    "remote_current_policy_equality_verified": false
+  },
+  "observations": {
+    "platform_peer_visible_online_tag_matches": true,
+    "platform_dns_matches_registered_peer_ip": true,
+    "platform_tls_verification_enabled": true,
+    "platform_direct_query": "NOT_ACCEPTED_CONNECTION_FAILED",
+    "platform_direct_whoami": "NOT_VERIFIED",
+    "platform_ssm_registered_cluster_identity_matches": true,
+    "platform_ssm_query_observed_at": "2026-11-07T18:03:16+09:00",
+    "operator_selected_network_policy_count": 0,
+    "operator_recent_log_errors": 0,
+    "owned_temporary_ssm_session_terminated": true,
+    "ec2_status": "running/system-ok/instance-ok",
+    "ssm_agent": "Online",
+    "target_existing_direct_wrapper_query": "TIMEOUT",
+    "target_new_auth_proxy_authority": "NOT_VERIFIED",
+    "mac_udp_ipv4_derp_diagnostics": "available; does not prove peer HTTPS or RBAC",
+    "root_cause": "UNCONFIRMED"
+  },
+  "acceptance": "INCOMPLETE",
+  "shared_mutations_by_this_session": false,
+  "private_evidence_sha256": {
+    "operator-transition.report.private.json": "fc8462a7241c56d5b9243ec0c0805e96f7bd3199975f733eacbb83146ffd1ec4",
+    "direct-platform-acceptance.private.json": "17757e86ea178c1f7d129d4ee19938d186681e3deb394bbcc70189f21352cf8e",
+    "platform-network-recheck.private.json": "180dbed0dbfd5f70dcd06819fa5c079a4f1e78b5396a6aec4bb2161d08215c49",
+    "platform-current-machine-state.private.json": "99d0b70a23fd4f0acf9a6cfb2fcae8ef759b4c5d14e09d760c893b620609f8c3",
+    "target-comparison.private.json": "fc454d690f7007700e9668daa780689000e40b0df59205889cbd4c18ada67887",
+    "mac-netcheck.stdout.private.json": "ff1801dcac63d4b523335b8367f4b1dc0b390591c448104ee52f4e88dd7e3efe"
+  },
+  "initial_transport_implementation_commit": "ac0b2f3a",
+  "baseline_source_sha1": "07cbf343a72d6cde943dde60acaff9bd5d536c9b",
+  "tested_sources": [
+    {
+      "path": "services/iac/src/bravo_iac/modules.py",
+      "sha256": "e36fceee09a01c759f4ba8467b9d7aba32662c37f044d07d0f8af03f5537e61c"
+    },
+    {
+      "path": "services/iac/src/bravo_iac/catalog.py",
+      "sha256": "dd7d42c054825a0c18a6896a308f17eb3ab7527b5a58194b72d1840ca9c24d00"
+    },
+    {
+      "path": "services/iac/src/bravo_iac/network.py",
+      "sha256": "e29f4b572600da3636139b6fafb3908b2c7716b40304fd9afd734f07884f21a8"
+    },
+    {
+      "path": "services/iac/src/bravo_iac/tailnet.py",
+      "sha256": "de684dd8315d370f1d85a6fd1052d077751e0e52d8ec4f02d6bb10b237b4ac5e"
+    },
+    {
+      "path": "services/iac/tests/test_api_transport_access.py",
+      "sha256": "a99b0cfebe4249a730cf0a55337d463bda4fc027588179d9baba76b6bebb0370"
+    },
+    {
+      "path": "infra/iac/environments/platform.json",
+      "sha256": "2bfd602cb9b5965314875a5424ca98650292e745453c40351bfa5ce27d807668"
+    },
+    {
+      "path": "infra/iac/environments/source-dev.json",
+      "sha256": "8b72da00a720d69bc255a7217577a7091738a0e3af907a333d08d80d5b19f31b"
+    }
+  ]
+}
