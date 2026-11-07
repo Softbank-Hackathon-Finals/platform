@@ -168,6 +168,108 @@
   filter: drop-shadow(0 0 9px #e8ac6177);
   stroke: #d9ab6d;
 }
+.response-node.security-warning rect,
+.response-node.security-hold rect {
+  animation: response-threat-pulse 1.6s ease-in-out infinite;
+}
+.response-node.possible-impact rect {
+  fill: #fffaf0;
+  animation: response-neighbor-pulse 2.2s ease-in-out infinite;
+}
+.response-quarantine-zone {
+  fill: #fff3f5;
+  stroke: #de7b8c;
+  stroke-width: 2;
+  stroke-dasharray: 7 5;
+}
+.response-origin-ghost rect {
+  fill: #f3f5f9;
+  stroke: #c5ccda;
+  stroke-dasharray: 4 5;
+}
+.response-origin-ghost text {
+  fill: #8693aa;
+  font-size: 10px;
+}
+.response-node.historical-placement rect {
+  stroke: #9ba6bb;
+  fill: #f3f5f9;
+  stroke-dasharray: 3 5;
+}
+.response-packet {
+  fill: #326bf0;
+  stroke: #fff;
+  stroke-width: 1.5;
+}
+.response-node.health-unknown:not(.historical-placement) {
+  opacity: 0.64;
+}
+.response-node-body.response-arriving {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: response-arrive 850ms ease-out both;
+}
+@keyframes response-arrive {
+  from {
+    opacity: 0.15;
+    transform: scale(0.78);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+.response-link.blocked .response-cut {
+  fill: #b72146;
+  font-size: 32px;
+}
+.response-link.blocked path {
+  stroke-width: 2.8;
+}
+.response-map-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 14px 0;
+}
+.response-map-summary span {
+  padding: 7px 11px;
+  border: 1px solid #dbe4f5;
+  border-radius: 9px;
+  background: white;
+  color: #526784;
+  font-size: 12px;
+}
+.response-map-summary .isolated {
+  color: #ac2445;
+  border-color: #edb3c1;
+  background: #fff1f4;
+}
+#response-workspace.response-expanded {
+  position: fixed;
+  inset: 16px;
+  margin: 0;
+  padding: 24px;
+  overflow: auto;
+  background: #fff;
+  z-index: 1000;
+  border: 1px solid #d5dff0;
+  border-radius: 20px;
+  box-shadow: 0 10px 80px #182a4f55;
+}
+#response-workspace.response-expanded .response-grid {
+  grid-template-columns: minmax(0, 1fr) 270px;
+}
+@keyframes response-threat-pulse {
+  50% {
+    filter: drop-shadow(0 0 8px #e4a64499);
+  }
+}
+@keyframes response-neighbor-pulse {
+  50% {
+    filter: drop-shadow(0 0 5px #e6b66f66);
+  }
+}
 .response-link path {
   fill: none;
   stroke: #7598ea;
@@ -477,7 +579,12 @@
   }
 }
 @media (prefers-reduced-motion: reduce) {
-  .response-link.observed path {
+  .response-link.observed path,
+  .response-node rect,
+  .response-node-body {
     animation: none;
+  }
+  .response-packet {
+    display: none !important;
   }
 }

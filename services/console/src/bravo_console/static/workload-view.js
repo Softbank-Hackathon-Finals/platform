@@ -1,10 +1,9 @@
 import { controlReportFresh, controlReportMatches } from "./model.js";
-import { workloadLayout } from "./workload-layout.js";
+import { createWorkloadRenderer } from "./workload-motion.js";
 import { request } from "./transport.js";
 import {
   WorkloadProjection,
   projectedWorkload,
-  possibleImpact,
   stageLabels,
   healthLabels,
   securityLabels,
@@ -15,20 +14,6 @@ import {
 import { scenarioDocument, scenarioSteps } from "./workload-scenario.js";
 
 const SVG = "http://www.w3.org/2000/svg";
-const icons = {
-  edge: "↗",
-  app: "▣",
-  worker: "⚙",
-  database: "▤",
-  secret: "◇",
-  security: "⬡",
-  executor: "▷",
-  storage: "▥",
-  queue: "≋",
-  identity: "◈",
-  ai: "✧",
-  observability: "◉",
-};
 const el = (name, className, text) => {
   const n = document.createElement(name);
   if (className) n.className = className;
@@ -55,6 +40,7 @@ export function mountWorkload(
   let mode = "live",
     step = 0,
     variant = "normal",
+    scope = "application",
     playing = false,
     timer = null,
     selected = new Set(),
@@ -88,6 +74,7 @@ export function mountWorkload(
     generation++;
     controller?.abort();
     live.clear();
+    renderer.reset();
     readError = null;
     lastRead = 0;
     selected.clear();
@@ -96,6 +83,22 @@ export function mountWorkload(
     refresh();
   });
   tabs.append(reconnect);
+  const expand = el("button", "response-expand", "지도 확대");
+  expand.type = "button";
+  expand.setAttribute("aria-expanded", "false");
+  function setExpanded(value) {
+    host.classList.toggle("response-expanded", value);
+    expand.setAttribute("aria-expanded", String(value));
+    expand.textContent = value ? "확대 닫기" : "지도 확대";
+  }
+  expand.addEventListener("click", () =>
+    setExpanded(!host.classList.contains("response-expanded")),
+  );
+  function escapeExpanded(event) {
+    if (event.key === "Escape") setExpanded(false);
+  }
+  root.addEventListener("keydown", escapeExpanded);
+  tabs.append(expand);
   const banner = el("div", "response-banner");
   banner.setAttribute("role", "status");
   const toolbar = el("div", "response-toolbar");
@@ -109,6 +112,19 @@ export function mountWorkload(
     o.value = v;
     variantSelect.append(o);
   }
+  const scopeSelect = el("select");
+  scopeSelect.setAttribute("aria-label", "로컬 격리 대상");
+  for (const [value, label] of [
+    ["application", "API·작업자"],
+    ["api", "API만"],
+    ["worker", "작업자만"],
+  ]) {
+    const option = el("option", null, label);
+    option.value = value;
+    scopeSelect.append(option);
+  }
+  const inject = el("button", "response-inject", "보안 이상 주입");
+  inject.type = "button";
   const play = el("button", null, "자동 재생"),
     previous = el("button", null, "이전"),
     next = el("button", null, "다음 단계"),
@@ -116,7 +132,19 @@ export function mountWorkload(
     expire = el("button", null, "근거 만료 보기");
   for (const b of [play, previous, next, reset, expire]) b.type = "button";
   const stepTitle = el("strong", "response-step-title");
-  toolbar.append(variantSelect, previous, play, next, reset, expire, stepTitle);
+  toolbar.append(
+    variantSelect,
+    scopeSelect,
+    inject,
+    previous,
+    play,
+    next,
+    reset,
+    expire,
+    stepTitle,
+  );
+  const summary = el("div", "response-map-summary");
+  summary.setAttribute("aria-label", "현재 확인된 워크로드 상태");
   const description = el("p", "response-description");
   const main = el("div", "response-grid"),
     canvas = el("div", "response-canvas"),
@@ -127,6 +155,7 @@ export function mountWorkload(
     role: "group",
     "aria-label": "워크로드 관계와 현재 보안 상태",
   });
+  const renderer = createWorkloadRenderer(graph, { onSelect: select });
   canvas.append(graph);
   const legend = el("div", "response-legend");
   for (const [klass, label] of [
@@ -145,7 +174,7 @@ export function mountWorkload(
     el(
       "p",
       "response-footnote",
-      "선은 등록된 관계입니다. 움직임은 관측 상태의 표현이며 실제 패킷·트래픽 양을 나타내지 않습니다.",
+      "선은 등록된 관계입니다. 움직임은 관측 상태의 표현이며 실제 패킷·트래픽 양을 나타내지 않습니다. 노드 이동은 격리 상태의 시각적 분류이며 물리적 이전이 아닙니다.",
     ),
   );
   main.append(canvas, inspector);
@@ -157,7 +186,7 @@ export function mountWorkload(
     context = el("div", "response-context");
   eventBox.append(el("h4", null, "대응 기록"), timeline);
   bottom.append(eventBox, context);
-  host.append(title, banner, toolbar, description, main, flow, bottom);
+  host.append(title, banner, toolbar, description, summary, main, flow, bottom);
   function stop() {
     playing = false;
     clearInterval(timer);
@@ -170,6 +199,7 @@ export function mountWorkload(
   function switchMode(value) {
     stop();
     mode = value;
+    renderer.reset();
     selected.clear();
     renderedKey = null;
     if (value === "demo") newLocal();
@@ -185,12 +215,14 @@ export function mountWorkload(
   });
   previous.addEventListener("click", () => {
     stop();
+    renderer.reset();
     step = Math.max(0, step - 1);
     localObserved = Date.now();
     render();
   });
   reset.addEventListener("click", () => {
     stop();
+    renderer.reset();
     step = 0;
     newLocal();
     selected.clear();
@@ -203,8 +235,26 @@ export function mountWorkload(
   });
   variantSelect.addEventListener("change", () => {
     stop();
+    renderer.reset();
     variant = variantSelect.value;
     step = 0;
+    newLocal();
+    render();
+  });
+  scopeSelect.addEventListener("change", () => {
+    stop();
+    renderer.reset();
+    scope = scopeSelect.value;
+    step = 0;
+    newLocal();
+    selected.clear();
+    render();
+  });
+  inject.addEventListener("click", () => {
+    stop();
+    renderer.reset();
+    step = 1;
+    selected.clear();
     newLocal();
     render();
   });
@@ -213,7 +263,10 @@ export function mountWorkload(
       stop();
       return;
     }
-    if (step === 9) step = 0;
+    if (step === 9) {
+      step = 0;
+      renderer.reset();
+    }
     playing = true;
     play.textContent = "일시 정지";
     localObserved = Date.now();
@@ -234,177 +287,7 @@ export function mountWorkload(
     render();
   }
   function draw(view) {
-    const focused = graph.contains(document.activeElement)
-      ? document.activeElement.getAttribute("data-resource")
-      : null;
-    graph.replaceChildren();
-    if (!view) {
-      graph.setAttribute("viewBox", "0 0 1000 600");
-      graph.append(
-        svg("rect", {
-          x: 20,
-          y: 30,
-          width: 960,
-          height: 535,
-          rx: 24,
-          class: "response-empty-bg",
-        }),
-        svg(
-          "text",
-          {
-            x: 500,
-            y: 250,
-            "text-anchor": "middle",
-            class: "response-empty-title",
-          },
-          "실제 워크로드 관측 연결 대기",
-        ),
-        svg(
-          "text",
-          {
-            x: 500,
-            y: 290,
-            "text-anchor": "middle",
-            class: "response-empty-detail",
-          },
-          "등록된 앱의 자원·연결·근거가 제공되면 여기에 표시됩니다.",
-        ),
-        svg(
-          "text",
-          {
-            x: 500,
-            y: 325,
-            "text-anchor": "middle",
-            class: "response-empty-detail",
-          },
-          "로컬 시나리오에서 격리·대체 과정을 먼저 살펴볼 수 있습니다.",
-        ),
-      );
-      return;
-    }
-    const defs = svg("defs");
-    for (const kind of ["observed", "blocked", "unknown", "requested"]) {
-      const marker = svg("marker", {
-        id: `response-arrow-${kind}`,
-        viewBox: "0 0 10 10",
-        refX: 8,
-        refY: 5,
-        markerWidth: 6,
-        markerHeight: 6,
-        orient: "auto-start-reverse",
-      });
-      marker.append(
-        svg("path", { d: "M 0 0 L 10 5 L 0 10 z", class: `arrow-${kind}` }),
-      );
-      defs.append(marker);
-    }
-    graph.append(defs);
-    const layout = workloadLayout(view.nodes);
-    graph.setAttribute("viewBox", `0 0 ${layout.width} ${layout.height}`);
-    for (const [x, y, w, h, label] of layout.lanes)
-      graph.append(
-        svg("rect", {
-          x,
-          y,
-          width: w,
-          height: h,
-          rx: 18,
-          class: "response-lane",
-        }),
-        svg(
-          "text",
-          { x: x + 18, y: y + 27, class: "response-lane-label" },
-          label,
-        ),
-      );
-    const positions = layout.positions;
-    const impact = new Set(
-      possibleImpact(
-        view,
-        [...selected].filter((id) =>
-          ["warning", "hold", "isolated"].includes(
-            view.nodes.find((n) => n.id === id)?.security,
-          ),
-        ),
-      ),
-    );
-    for (const e of view.edges) {
-      const a = positions.get(e.source),
-        b = positions.get(e.target);
-      let d;
-      if (a.y === b.y)
-        d = `M ${a.x + 67} ${a.y} C ${a.x + 105} ${a.y}, ${b.x - 105} ${b.y}, ${b.x - 67} ${b.y}`;
-      else
-        d = `M ${a.x} ${a.y + 40} C ${a.x} ${(a.y + b.y) / 2}, ${b.x} ${(a.y + b.y) / 2}, ${b.x} ${b.y - 40}`;
-      const g = svg("g", {
-        class: `response-link ${e.state}`,
-        "data-link": e.id,
-      });
-      g.append(
-        svg("title", {}, `${e.label} · ${linkLabels[e.state]}`),
-        svg("path", { d, "marker-end": `url(#response-arrow-${e.state})` }),
-      );
-      if (e.state === "blocked")
-        g.append(
-          svg(
-            "text",
-            {
-              x: (a.x + b.x) / 2,
-              y: (a.y + b.y) / 2 - 5,
-              class: "response-cut",
-              "text-anchor": "middle",
-            },
-            "×",
-          ),
-        );
-      graph.append(g);
-    }
-    for (const n of view.nodes) {
-      const p = positions.get(n.id);
-      const g = svg("g", {
-        transform: `translate(${p.x},${p.y})`,
-        class: `response-node health-${n.health} security-${n.security}${selected.has(n.id) ? " selected" : ""}${impact.has(n.id) ? " possible-impact" : ""}`,
-        role: "button",
-        tabindex: 0,
-        "aria-label": `${n.label} · ${healthLabels[n.health]} · ${securityLabels[n.security]}`,
-        "aria-pressed": selected.has(n.id),
-        "data-resource": n.id,
-      });
-      g.append(
-        svg("rect", { x: -71, y: -42, width: 142, height: 84, rx: 12 }),
-        svg(
-          "text",
-          { x: -51, y: -15, class: "response-node-icon" },
-          icons[n.kind],
-        ),
-        svg(
-          "text",
-          { x: -30, y: -15, class: "response-node-label" },
-          n.label.length > 10 ? n.label.slice(0, 10) + "…" : n.label,
-        ),
-        svg(
-          "text",
-          { x: -56, y: 8, class: "response-node-state" },
-          n.security !== "clear" && n.security !== "unknown"
-            ? securityLabels[n.security]
-            : healthLabels[n.health],
-        ),
-        svg(
-          "text",
-          { x: -56, y: 28, class: "response-node-kind" },
-          impact.has(n.id) ? "영향 가능 · 미확정" : n.kind.toUpperCase(),
-        ),
-      );
-      g.addEventListener("click", (e) => select(n.id, e.shiftKey));
-      g.addEventListener("keydown", (e) => {
-        if (["Enter", " "].includes(e.key)) {
-          e.preventDefault();
-          select(n.id, e.shiftKey);
-        }
-      });
-      graph.append(g);
-      if (n.id === focused) g.focus({ preventScroll: true });
-    }
+    renderer.draw(view, { selected });
   }
   function details(view) {
     inspector.replaceChildren();
@@ -503,7 +386,11 @@ export function mountWorkload(
     const view =
       mode === "demo"
         ? projectedWorkload(
-            scenarioDocument(step, { now: localObserved ?? now, variant }),
+            scenarioDocument(step, {
+              now: localObserved ?? now,
+              variant,
+              scope,
+            }),
             { now },
           )
         : live.view(freshConnection, now);
@@ -521,6 +408,41 @@ export function mountWorkload(
           : "플랫폼 워크로드 공급자 미연결 · 실환경 격리·복구 완료를 표시하지 않습니다.";
     if (mode === "live" && readError)
       banner.textContent += " · 조회 실패 또는 재동기화 필요";
+    const counts = view
+      ? [
+          [
+            "보안 이상·보류",
+            view.nodes.filter((n) => ["warning", "hold"].includes(n.security))
+              .length,
+          ],
+          [
+            "격리 확인",
+            view.nodes.filter((n) => n.security === "isolated").length,
+          ],
+          [
+            "연결 차단 확인",
+            view.edges.filter((e) => e.state === "blocked").length,
+          ],
+          [
+            "대체 앱·작업자 응답",
+            view.nodes.filter(
+              (n) =>
+                n.lane === "target" &&
+                ["app", "worker"].includes(n.kind) &&
+                n.health === "ready",
+            ).length,
+          ],
+        ]
+      : [];
+    summary.replaceChildren(
+      ...counts.map(([label, count]) =>
+        el(
+          "span",
+          label === "격리 확인" && count ? "isolated" : "",
+          `${label} ${count}`,
+        ),
+      ),
+    );
     stepTitle.textContent = `${step + 1} / ${scenarioSteps.length} · ${scenarioSteps[step][0]}`;
     description.textContent =
       mode === "demo"
@@ -667,6 +589,7 @@ export function mountWorkload(
     generation++;
     controller?.abort();
     live.clear();
+    renderer.reset();
     binding = null;
     readError = null;
     selected.clear();
@@ -685,6 +608,9 @@ export function mountWorkload(
       clearInterval(poll);
       stop();
       controller?.abort();
+      renderer.destroy();
+      root.removeEventListener("keydown", escapeExpanded);
+      setExpanded(false);
     },
     get graph() {
       return lastGraph;

@@ -31,6 +31,104 @@ async function next(page, times = 1) {
       .click();
 }
 
+test("partial isolation moves the same node, severs its paths and preserves unrelated work", async ({
+  page,
+  context,
+  baseURL,
+}) => {
+  const pageErrors = [];
+  page.on("pageerror", (error) => pageErrors.push(error.message));
+  await connect(page, context, baseURL);
+  await demo(page);
+  await map(page).getByLabel("로컬 격리 대상").selectOption("api");
+  const api = map(page).locator('[data-resource="api"]');
+  const database = map(page).locator('[data-resource="database"]');
+  const initial = await api.getAttribute("transform");
+  const databasePosition = await database.getAttribute("transform");
+  await map(page)
+    .getByRole("button", { name: "보안 이상 주입", exact: true })
+    .click();
+  await expect(database).toHaveClass(/possible-impact/);
+  await api.evaluate((n) => n.setAttribute("data-test-retained", "same-node"));
+  await next(page, 3);
+  await expect(api).toHaveAttribute("data-placement", "source");
+  await next(page);
+  await expect(api).toHaveAttribute("data-placement", "quarantine");
+  await expect(api).toHaveAttribute("data-test-retained", "same-node");
+  await expect(map(page).locator("svg[data-moving=true]")).toBeVisible();
+  await expect(map(page).locator("svg[data-moving=true]")).toHaveCount(0);
+  expect(await api.getAttribute("transform")).not.toBe(initial);
+  expect(await database.getAttribute("transform")).toBe(databasePosition);
+  await expect(map(page).locator('[data-resource="worker"]')).toHaveAttribute(
+    "data-placement",
+    "source",
+  );
+  await expect(map(page).locator('[data-link="worker-db"]')).toHaveClass(
+    /observed/,
+  );
+  const blocked = map(page).locator('[data-link="api-db"]');
+  await expect(blocked.locator(".response-cut")).toBeVisible();
+  await expect(blocked.locator(".response-path-after")).toBeVisible();
+  await expect(blocked.locator(".response-packet")).not.toBeVisible();
+  await expect(map(page).locator(".response-map-summary")).toContainText(
+    "격리 확인 1",
+  );
+  await next(page, 3);
+  await expect(map(page).locator('[data-link="edge-green"]')).toHaveClass(
+    /observed/,
+  );
+  await expect(
+    map(page).locator('[data-link="green-existing-worker"]'),
+  ).toHaveClass(/observed/);
+  await expect(api).toHaveAttribute("data-placement", "quarantine");
+  await api.click();
+  await expect(map(page).locator(".response-inspector")).toContainText(
+    "연결 상태",
+  );
+  expect(pageErrors).toEqual([]);
+});
+
+test("expiry keeps historical placement without implying release, and restart resets the storyboard", async ({
+  page,
+  context,
+  baseURL,
+}) => {
+  await connect(page, context, baseURL);
+  await demo(page);
+  await next(page, 5);
+  const api = map(page).locator('[data-resource="api"]');
+  await expect(map(page).locator("svg[data-moving=true]")).toHaveCount(0);
+  const position = await api.getAttribute("transform");
+  await map(page).getByRole("button", { name: "근거 만료 보기" }).click();
+  await expect(api).toHaveAttribute("data-placement", "historical");
+  await expect(api).not.toHaveClass(/security-isolated/);
+  await expect(map(page).locator("svg[data-moving=true]")).toHaveCount(0);
+  expect(await api.getAttribute("transform")).toBe(position);
+  await expect(map(page).locator(".response-map-summary")).toContainText(
+    "격리 확인 0",
+  );
+  await map(page)
+    .getByRole("button", { name: "처음부터", exact: true })
+    .click();
+  await expect(api).toHaveAttribute("data-placement", "source");
+});
+
+test("expanded response map retains the Sova shell and closes with Escape", async ({
+  page,
+  context,
+  baseURL,
+}) => {
+  await connect(page, context, baseURL);
+  await demo(page);
+  await map(page)
+    .getByRole("button", { name: "지도 확대", exact: true })
+    .click();
+  await expect(map(page)).toHaveClass(/response-expanded/);
+  await expect(page.locator(".sidebar")).toHaveCount(1);
+  await page.keyboard.press("Escape");
+  await expect(map(page)).not.toHaveClass(/response-expanded/);
+});
+
 test("original Sova shell and actual T10 context coexist with separate response evidence", async ({
   page,
   context,

@@ -3,7 +3,7 @@ export const scenarioSteps = [
   ["정상 흐름", "클라이언트 요청과 앱·작업자·DB의 관계를 살펴봅니다."],
   [
     "보안 이상",
-    "앱과 작업자에서 통제 위반이 확인된 상황을 재생합니다. 주변 강조는 영향 가능성입니다.",
+    "선택한 구성 요소에서 통제 위반이 확인된 상황을 재생합니다. 주변 강조는 영향 가능성입니다.",
   ],
   ["보안 보류", "일반 변경을 보류하고 대응할 자원 범위를 고정합니다."],
   ["사람 승인", "검토자가 격리 대상과 대체 계획을 승인한 상황입니다."],
@@ -23,9 +23,15 @@ export const scenarioSteps = [
 
 export function scenarioDocument(
   step = 0,
-  { now = Date.now(), variant = "normal" } = {},
+  { now = Date.now(), variant = "normal", scope = "application" } = {},
 ) {
   step = Math.max(0, Math.min(9, step));
+  const targets =
+    scope === "api"
+      ? ["api"]
+      : scope === "worker"
+        ? ["worker"]
+        : ["api", "worker"];
   const at = new Date(now).toISOString(),
     expiry = new Date(now + 30000).toISOString();
   const doc = {
@@ -82,6 +88,24 @@ export function scenarioDocument(
       "영향 가능성을 살펴볼 의존 자원 · 감염을 뜻하지 않음",
     ],
     [
+      "queue",
+      "업무 메시지 큐",
+      "queue",
+      "source",
+      2,
+      2,
+      "처리 대기 작업 · 격리 대상과 별도인 공유 자원",
+    ],
+    [
+      "storage",
+      "첨부파일 저장소",
+      "storage",
+      "source",
+      3,
+      2,
+      "업무 API·작업자의 파일 의존성",
+    ],
+    [
       "secret",
       "자격·비밀 관리",
       "secret",
@@ -100,13 +124,40 @@ export function scenarioDocument(
       "정책·승인·격리 확인 근거",
     ],
     [
+      "identity",
+      "사용자 신원",
+      "identity",
+      "control",
+      4,
+      2,
+      "사용자 인증과 권한의 참조 관계",
+    ],
+    [
+      "telemetry",
+      "지표·감사 수집",
+      "observability",
+      "control",
+      4,
+      3,
+      "보안 대응 중에도 확인해야 할 관측 경로",
+    ],
+    [
       "green",
-      "대체 업무 API",
-      "app",
+      scope === "worker" ? "대체 작업자" : "대체 업무 API",
+      scope === "worker" ? "worker" : "app",
       "target",
       1,
       0,
       "검증 후에만 사용자 요청을 받는 대체 실행본",
+    ],
+    [
+      "green-worker",
+      "대체 작업 처리",
+      "worker",
+      "target",
+      2,
+      1,
+      "API와 함께 격리한 작업자의 대체 실행본",
     ],
     [
       "target-db",
@@ -133,13 +184,21 @@ export function scenarioDocument(
       health_evidence: null,
       security_evidence: null,
     };
-    if (["green", "target-db"].includes(id) && step < 6) {
+    if (
+      (["green", "target-db", "green-worker"].includes(id) && step < 6) ||
+      (id === "green-worker" && scope !== "application")
+    ) {
       n.health = "unknown";
       n.security = "unknown";
     }
-    if (["api", "worker"].includes(id) && step >= 1)
+    if (targets.includes(id) && step >= 1)
       n.security = step >= 5 ? "isolated" : step >= 2 ? "hold" : "warning";
-    if (id === "green" && step >= 7 && variant === "verification_failure") {
+    if (
+      ["green", "green-worker"].includes(id) &&
+      step >= 7 &&
+      variant === "verification_failure" &&
+      n.health !== "unknown"
+    ) {
       n.health = "unavailable";
       n.security = "warning";
     }
@@ -173,10 +232,38 @@ export function scenarioDocument(
     ["api-worker", "api", "worker", "작업 전달", "dependency"],
     ["api-db", "api", "database", "DB 읽기·쓰기", "database"],
     ["worker-db", "worker", "database", "작업 결과", "database"],
+    ["api-queue", "api", "queue", "작업 등록", "dependency"],
+    ["queue-worker", "queue", "worker", "작업 소비", "dependency"],
+    ["api-storage", "api", "storage", "첨부파일 읽기", "dependency"],
+    ["worker-storage", "worker", "storage", "처리 파일", "dependency"],
     ["secret-api", "secret", "api", "자격 참조", "control"],
     ["security-api", "security", "api", "보류·격리 근거", "control"],
-    ["edge-green", "edge", "green", "대체 요청 경로", "http"],
+    ["identity-edge", "identity", "edge", "인증 참조", "control"],
+    ["telemetry-api", "telemetry", "api", "감사·응답 관측", "control"],
+    [
+      "edge-green",
+      scope === "worker" ? "api" : "edge",
+      "green",
+      scope === "worker" ? "대체 작업 경로" : "대체 요청 경로",
+      "http",
+    ],
     ["green-db", "green", "target-db", "검증 대상 연결", "database"],
+    ["green-work", "green", "green-worker", "대체 작업 전달", "dependency"],
+    [
+      "green-work-db",
+      "green-worker",
+      "target-db",
+      "대체 작업 결과",
+      "database",
+    ],
+    [
+      "green-existing-worker",
+      "green",
+      "worker",
+      "기존 작업자 연결",
+      "dependency",
+    ],
+    ["green-storage", "green", "storage", "파일 연결 재확인", "dependency"],
   ]) {
     const e = {
       id,
@@ -188,10 +275,24 @@ export function scenarioDocument(
       state: "observed",
       evidence_id: null,
     };
-    if (["edge-api", "api-worker", "api-db", "worker-db"].includes(id))
+    if (
+      kind !== "control" &&
+      !id.startsWith("green") &&
+      id !== "edge-green" &&
+      (targets.includes(source) || targets.includes(target))
+    )
       e.state = step >= 5 ? "blocked" : step === 4 ? "requested" : "observed";
     if (id === "edge-green" && !routed) e.state = "unknown";
-    if (id === "green-db" && step < 7) e.state = "unknown";
+    if (id === "green-db" && (step < 7 || variant === "verification_failure"))
+      e.state = "unknown";
+    if (
+      ["green-work", "green-work-db"].includes(id) &&
+      (!routed || scope !== "application")
+    )
+      e.state = "unknown";
+    if (id === "green-existing-worker" && (!routed || scope !== "api"))
+      e.state = "unknown";
+    if (id === "green-storage" && !routed) e.state = "unknown";
     if (["observed", "blocked"].includes(e.state))
       e.evidence_id = proof(
         e,
@@ -224,7 +325,7 @@ export function scenarioDocument(
         n.id ===
         (["replace", "verify", "route", "recover"].includes(stage)
           ? "green"
-          : "api"),
+          : targets[0]),
     );
     let evidence_id = null;
     if (status === "verified") {
