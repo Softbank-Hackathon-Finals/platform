@@ -99,9 +99,9 @@ helm upgrade --install bravo-iac-gitops infra/iac/argocd -n bravo-iac-gitops --c
 `infra/envs/collector-network`(Collector → 지표 저장소). 두 쪽이 함께 적용하면 NetworkPolicy 규칙(관찰한 포트 대 10000–10999)이
 서로 되돌린다. 렌더러의 경로 출력은 담당 합의로 이 모듈로 옮긴다(T44 할 일: T15·T12·T37).
 
-이후 원하는 상태의 변경은 PR → 병합 → 그 클러스터의 Argo가 60초 안에 끌어와 동기화(자동, prune·selfHeal, 없는 namespace 생성)
+이후 원하는 상태의 변경은 PR → 병합 → 그 클러스터의 Argo가 60초 안에 끌어와 동기화(자동, prune·selfHeal)
 한다. 비밀 값이 필요한 자원(지금은 버킷 계정 Secret)은 차트에 없고 `Chart.yaml`의 `bravo.dev/unmanaged`에 적힌다.
-**차트는 Namespace를 선언하지 않는다.** namespace의 주인은 클러스터를 세우는 쪽이다(새 목적지는 T45, 플랫폼·출발지는 기존 구성). 같은 Namespace를 T44·T45 두 Application이 함께 관리하던 겹침(#620 kind 실측의 Argo 경고)을 없앤다. namespace가 아직 없으면 그 객체는 동기화 재시도에서 기다린다.
+**차트는 Namespace를 선언하지 않는다.** namespace의 주인은 클러스터를 세우는 쪽이다(새 목적지는 T45, 플랫폼·출발지는 기존 구성). 같은 Namespace를 T44·T45 두 Application이 함께 관리하던 겹침(#620 kind 실측의 Argo 경고)을 없앤다. namespace나 Tailscale CRD가 아직 없으면(빈 클러스터에서는 T45가 Argo 다음에 설치) 그 동기화는 실패하고 무제한 재시도(`retry.limit: -1`, 최대 3분 간격)로 기다린다. Argo 자동 동기화는 실패한 같은 커밋을 스스로 다시 시도하지 않기 때문이다.
 ProxyGroup은 그 클러스터에 Tailscale operator(CRD)가 있어야 생성된다(`SkipDryRunOnMissingResource`).
 
 **설치 명령은 두 번 실행한다.** 첫 실행이 Argo CD와 CRD를 만들고, 두 번째 실행이 AppProject·Application을 만든다
