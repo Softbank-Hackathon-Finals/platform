@@ -62,9 +62,11 @@ def values(side, env=None, auth="join", client_id="", audience=""):
             "defaultTags": f"tag:bravo-{env}-db",
         },
         # Source: a transport proxy (source-dev `api-transport-access`). It passes the caller's own credential
-        # (an EKS IAM token) through and never impersonates, so no new RBAC is made. Target: no API proxy here
-        # (an auth proxy for people is `operator-access`, applied separately).
-        "apiServerProxyConfig": {"mode": "noauth" if side == "source" else "false", "allowImpersonation": "false"},
+        # (an EKS IAM token) through and never impersonates, so no new RBAC is made. Target: a wif destination is
+        # a cluster the platform built (T45); the platform's Executor reaches its API through this proxy in auth
+        # mode (tailnet identity -> RBAC, never noauth). Existing joined targets keep it off (operator-access).
+        "apiServerProxyConfig": {"mode": "noauth" if side == "source" else ("true" if auth == "wif" else "false"),
+                                 "allowImpersonation": "false"},
         "ingressClass": {"enabled": False, "name": "bravo-t8-unused"},
     }
 

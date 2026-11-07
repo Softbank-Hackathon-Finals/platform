@@ -1,6 +1,6 @@
 {
   "annotations": {
-    "bravo.dev/state-digest": "821ef45cf95a06c31d565eef6fc62f0d4b4260e10f08419bb6c2dcab8071dfb9",
+    "bravo.dev/state-digest": "a6d4e36fe8b2e1944ddbb73bfe1ddd2d8aabedbfc99162e8a8b8a21f4012b6dc",
     "bravo.dev/unmanaged": "[\"target-object-exposure:Secret/target-dev/target-seaweedfs-auth\"]"
   },
   "apiVersion": "v2",

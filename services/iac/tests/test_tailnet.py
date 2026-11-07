@@ -133,7 +133,10 @@ def test_platform_routes_are_the_live_route_services():
     new = {"bravo-apply-control/target-credentials": "workload",
            # ADR-0044: the workflow host's T31 close check to the target object store (default tailnet).
            "platform-state/target-objects": "default",
-           "platform-state/bravo-target-argocd": "default"}
+           "platform-state/bravo-target-argocd": "default",
+           # T50: the second Executor's routes for the EKS test source <-> GCE destination pair.
+           **{f"bravo-platform/{side}-gce-{kind}-for-cutover": "default"
+              for side in ("source", "target") for kind in ("api", "db", "pooler")}}
     groups = check_state(PLATFORM)["modules"][0]["params"]["groups"]
     declared = {f'{r["namespace"]}/{r["service"]}': g.get("tailnet", "default") for g in groups for r in g["routes"]}
     assert declared == live | new
@@ -211,3 +214,14 @@ def test_a_new_cluster_declares_its_operator_tag_owned_by_admins_and_nothing_els
         [test] = [t for t in committed["tests"] if t["src"] == tag]
         # Runtime device names escape a repository scan: the policy refuses every granted destination.
         assert set(test["deny"]) == granted and test["accept"] == [] and "tag:bravo-metrics:9090" in test["deny"]
+
+
+def test_each_executor_route_group_is_refused_the_other_pairs_routes():
+    """ADR-0011: one Executor per DB pair. The policy's own tests refuse each pair's group the other's DB, pooler and API."""
+    policy = json.loads((REPO / "infra/tailnet/routes-policy.json").read_text())
+    tests = {t["src"]: t for t in policy["tests"]}
+    onprem, gce = tests["tag:bravo-cutover-control"], tests["tag:bravo-cutover-control-gce"]
+    for mine, other in ((onprem, gce), (gce, onprem)):
+        shared = set(mine["accept"]) & set(other["accept"])  # the one EKS API proxy both pairs use
+        assert set(other["accept"]) - shared <= set(mine["deny"])
+        assert not set(mine["accept"]) & set(mine["deny"])

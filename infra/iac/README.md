@@ -163,7 +163,7 @@ Tailscale의 정책 검증과 실제 조회를 수행한다. 다른 사람이 �
 | 런타임 | 상태 | 추가 전에 확인할 것 |
 |---|---|---|
 | `rke2` (온프렘) | 실측됨(2026-11-07: `APISERVER_PROXY=true`, tailnet 신원 → `bravo:operators`, 그룹만으로 허용·그룹 없음 거부) | — |
-| `rke2` (T45로 새로 세운 목적지) | 아직 | 1번이 채워지지 않는다. T45 tailscale 단계가 쓰는 operator 값(`target-workloads/network.py`)이 `apiServerProxyConfig.mode: "false"`라 auth 프록시와 impersonation RBAC가 렌더되지 않는다. 설치 주체(T45 tailscale 단계 / T30 `network.py`)를 정하면 1번이 그 단계를 가리킨다. `network.py`는 T30 파일이라 담당 합의로 바꾼다 |
+| `rke2` (T45로 새로 세운 목적지) | `wif`만 | T45 tailscale 단계가 `tailnet=wif`이면 `target-workloads/network.py`가 `apiServerProxyConfig.mode: "true"`를 렌더해 1번을 채운다(T50, 플랫폼 Executor의 API 경로). `join`(기존 환경)은 여전히 `"false"`다. 남은 것: 그 목적지의 impersonation RBAC 실측과 5번 |
 | `eks` (AWS) | 아직 | operator 설치 값과 impersonation RBAC, 노드에서 Tailscale 제어·DERP로 나가는 길, 위 5번 |
 | `gke` (GCP) | 아직 | 같은 항목, Autopilot이면 ProxyClass 제약. 확인된 것(2026-11-07, A10 GKE Standard): 프로젝트 소유자(IAM)가 이 바인딩을 만들 수 있다(`kubectl apply --server-side --dry-run=server`, 저장하지 않음). 남은 것: A10 스택도 같은 `network.py` 값을 써서 프록시가 꺼진다. `--side target`이면 장치 이름·태그가 온프렘 목적지와 같은 `bravo-target-operator`가 된다 |
 
