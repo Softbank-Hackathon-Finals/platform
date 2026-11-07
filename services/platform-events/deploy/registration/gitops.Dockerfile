@@ -2,7 +2,10 @@ FROM python:3.12.16-slim-trixie@sha256:4840d514c583a4d3d8cad3940e68dee6f0f6f3635
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
 WORKDIR /app
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
+# The base digest still ships zlib1g 1:1.3.dfsg+really1.3.1-1+b1: CVE-2026-76844 and CVE-2026-85091 (HIGH) are fixed
+# in deb13u1 and the publish scan blocks the image until it is installed. Drop this once the digest carries it.
 RUN apt-get update && apt-get install --no-install-recommends -y git=1:2.47.3-0+deb13u1 \
+        zlib1g=1:1.3.dfsg+really1.3.1-1+deb13u1 \
     && rm -rf /var/lib/apt/lists/*
 # ADR-0041 ENC-01.1: the T14 pooler TLS probe runs psql 18 (PGDG, pinned). The repository key is accepted only
 # with its published fingerprint; the download tools are removed again.
