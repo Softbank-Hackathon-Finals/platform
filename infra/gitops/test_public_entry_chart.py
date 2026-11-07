@@ -61,6 +61,11 @@ class PublicEntryChart(unittest.TestCase):
         app = kind(docs, "Application", "platform-observability")[0]["spec"]
         self.assertEqual(app["source"]["path"], "services/observability/deploy/platform-gitops")
         self.assertFalse(app["syncPolicy"]["automated"]["prune"])
+        # Argo rejects an Application whose destination namespace is not in its project (an empty one included).
+        allowed = {d["namespace"] for d in kind(docs, "AppProject", "platform-observability")[0]["spec"]["destinations"]}
+        for name in ("platform-observability", "platform-public-entry"):
+            self.assertIn(kind(docs, "Application", name)[0]["spec"]["destination"].get("namespace"),
+                          allowed if name == "platform-observability" else {"platform-state"})
         project = kind(docs, "AppProject", "platform-observability")[0]["spec"]
         self.assertCountEqual([d["namespace"] for d in project["destinations"]],
                               ["bravo-observability", "platform-telemetry", "platform-state"])
