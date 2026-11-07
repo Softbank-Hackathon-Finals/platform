@@ -88,8 +88,7 @@
         "catalogKey",
         "host",
         "registry",
-        "executor",
-        "securityReview"
+        "executor"
       ],
       "properties": {
         "database": {
@@ -111,7 +110,14 @@
           "$ref": "#/definitions/name"
         },
         "securityReview": {
-          "$ref": "#/definitions/name"
+          "anyOf": [
+            {
+              "const": ""
+            },
+            {
+              "$ref": "#/definitions/name"
+            }
+          ]
         },
         "edge": {
           "type": "string"
