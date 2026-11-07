@@ -51,7 +51,8 @@ def receive(sqs, url: str, wait: int = 1) -> list[dict]:
 
 
 def check_api(sqs, run: str) -> dict:
-    url = queue(sqs, f"api-{run}")
+    # 가시성 시간 1초: 지운 메시지가 정말 사라졌는지는 이 시간이 지난 뒤 다시 받아 봐야 알 수 있다.
+    url = queue(sqs, f"api-{run}", VisibilityTimeout="1")
     same = sqs.get_queue_url(QueueName=f"api-{run}")["QueueUrl"] == url
     body = json.dumps({"idempotency_key": str(uuid.uuid4()), "message_id": 1})
     sent = sqs.send_message(QueueUrl=url, MessageBody=body,
@@ -62,6 +63,7 @@ def check_api(sqs, run: str) -> dict:
           and "ApproximateReceiveCount" in got[0].get("Attributes", {}) and "SentTimestamp" in got[0].get("Attributes", {}))
     if got:
         sqs.delete_message(QueueUrl=url, ReceiptHandle=got[0]["ReceiptHandle"])
+    time.sleep(2)
     left = receive(sqs, url)
     attrs = sqs.get_queue_attributes(QueueUrl=url, AttributeNames=["All"])["Attributes"]
     passed = ok and same and not left and "ApproximateNumberOfMessages" in attrs

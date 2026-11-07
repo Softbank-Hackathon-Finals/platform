@@ -20,8 +20,13 @@ def detect(text):
     return sorted(k for k, p in PATTERNS.items() if p.search(text))
 
 
+# 한 이벤트의 트랜잭션을 200ms 안에 끝낸다(T46 spec D11, Executor의 긴 트랜잭션 기준과 같다).
+# 잠금을 오래 기다리거나 문장이 길어지면 DB가 끊고, 이벤트는 실패로 남아 재전달된다.
+SESSION_LIMITS = "-c lock_timeout=50 -c statement_timeout=80 -c idle_in_transaction_session_timeout=150"
+
+
 def handler(event, context):
-    with psycopg.connect(os.environ["DB_DSN"], autocommit=False) as conn:
+    with psycopg.connect(os.environ["DB_DSN"], autocommit=False, options=SESSION_LIMITS) as conn:
         for record in event["Records"]:
             key = json.loads(record["body"])["idempotency_key"]
             # 한 이벤트는 짧은 트랜잭션 하나: 읽고, 판정하고, 쓰고 끝낸다.
