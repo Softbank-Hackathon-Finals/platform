@@ -24,6 +24,11 @@ secrets:
   # kubeconfig of the target apply-deployer (T31 REHEARSE; short-lived token; optional: empty = no apply).
   applyKubeconfig: ""
   registry: platform-ghcr-reader
+# T31 apply identity without a stored token: an existing ConfigMap with `kubeconfig` (exec plugin
+# /usr/local/bin/bravo-credential) and `registration.json` (registration + anchor_uid, no secret).
+# Use this or secrets.applyKubeconfig, not both.
+applyCredential:
+  existingConfigMap: ""
 interval: 15
 resources:
   requests: {cpu: 50m, memory: 192Mi}

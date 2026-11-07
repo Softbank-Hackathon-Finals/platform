@@ -29,6 +29,8 @@ def prepare(output, service="registration"):
     extras = (("gitops.Dockerfile", "Dockerfile"), ("checkout.py", "registration-checkout.py")) if service == "registration" else ()
     if service == "registration":
         base.build_kubectl(output, revision)  # T31 apply from the workflow host (REHEARSE)
+        # T31 apply credential: the standard exec plugin (600 s Secret-bound tokens), no stored token.
+        (output / "bravo-credential").write_bytes(base.git("show", f"{revision}:infra/envs/rehearsal-access/credentials.py"))
     for source, target in extras:
         relative = str((HERE / source).relative_to(ROOT))
         (output / target).write_bytes(base.git("show", f"{revision}:{relative}"))
