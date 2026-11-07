@@ -194,7 +194,7 @@ class ShiftApprovalService:
             return receipt
 
 
-def delegated_shift_preparer(service, delegations, *, ttl=timedelta(hours=1)):
+def delegated_shift_preparer(service, delegations, *, ttl=None):
     """AWAIT_APPROVAL with a pre-delegated SHIFT approval (T49): the host records the approver's decision once
     per plan version through the same service and permission check; without a delegation a person approves."""
     def prepare(plan_id, _tenant_id, version):
@@ -205,7 +205,9 @@ def delegated_shift_preparer(service, delegations, *, ttl=timedelta(hours=1)):
             if error.code == "approval_not_delegated":
                 return shift_approval_reader
             raise
-        expires_at = (datetime.fromisoformat(service.clock()) + ttl).isoformat()
+        # The cutover authority expires with this approval and SHIFT has no other exit (T49 leak review):
+        # give it the longest life the service allows, not a short default.
+        expires_at = (datetime.fromisoformat(service.clock()) + (ttl or MAX_SHIFT_APPROVAL)).isoformat()
         service.approve(principal, plan_id, expected_version=version, expires_at=expires_at,
                         command_key=f"delegated-shift-{version}")
         return shift_approval_reader

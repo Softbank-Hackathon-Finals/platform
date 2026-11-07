@@ -84,6 +84,10 @@ spec:
             {{- if or .Values.secrets.applyKubeconfig .Values.applyCredential.existingConfigMap }}
             - {name: apply-kubeconfig, mountPath: /t31, readOnly: true}
             {{- end }}
+            {{- if .Values.candidatePull.enabled }}
+            # T49: the registry credential the host copies into the target's one pull Secret before an apply.
+            - {name: candidate-pull, mountPath: /ghcr, readOnly: true}
+            {{- end }}
             - {name: state, mountPath: /workflow-state}
             {{- if .Values.initialProposalAuto.enabled }}
             # Only for creating and reading initial-proposal Jobs in bravo-initial (Role there allows nothing else).
@@ -148,6 +152,14 @@ spec:
             items:
               - {key: ca.crt, path: ca.crt}
               - {key: read-token, path: read-token}
+        {{- if .Values.candidatePull.enabled }}
+        - name: candidate-pull
+          secret:
+            secretName: {{ .Values.secrets.registry }}
+            defaultMode: 0440
+            items:
+              - {key: .dockerconfigjson, path: .dockerconfigjson}
+        {{- end }}
         {{- if .Values.secrets.githubApp }}
         - name: github-app
           secret:

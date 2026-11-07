@@ -116,6 +116,10 @@ def prepare_context(context, revision, *, rehearsal_host=False):
     for service, package in PACKAGES.items():
         source = OBSERVABILITY_REVISION if service == "observability" else revision
         copy_committed_tree(source, f"services/{service}/src/{package}/", context / "src" / package)
+    # T36's wheel force-includes its contract schema (services/observability pyproject); copying the
+    # package sources skips it, and every contract.validate in the image then fails (T17 drill, 11/8).
+    (context / "src/bravo_observability/sli.schema.json").write_bytes(
+        git("show", f"{OBSERVABILITY_REVISION}:docs/observability/sli.schema.json"))
     if not (context / "src/bravo_platform_events/product_read_server.py").is_file():
         raise ValueError("product_reader_missing")
     if rehearsal_host:
