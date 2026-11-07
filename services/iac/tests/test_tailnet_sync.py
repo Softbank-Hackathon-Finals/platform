@@ -122,9 +122,9 @@ def test_apply_writes_on_the_read_etag_and_confirms_by_reading_back():
     assert not [c for c in fake.calls[calls:] if c[0] == "POST"]  # nothing to write, not even validate
 
 
-OLD = {"src": ["tag:bravo-old"], "dst": ["tag:bravo-gone"], "ip": ["tcp:443"]}
-OLD_TEST = {"src": "tag:bravo-old", "accept": ["tag:bravo-gone:443"]}
-WITH_OLD = {**WANTED, "tagOwners": {**WANTED["tagOwners"], "tag:bravo-old": ["autogroup:admin"]},
+OLD = {"src": ["tag:example-old"], "dst": ["tag:example-gone"], "ip": ["tcp:443"]}
+OLD_TEST = {"src": "tag:example-old", "accept": ["tag:example-gone:443"]}
+WITH_OLD = {**WANTED, "tagOwners": {**WANTED["tagOwners"], "tag:example-old": ["autogroup:admin"]},
             "grants": [*WANTED["grants"], OLD], "tests": [*WANTED["tests"], OLD_TEST]}
 DROPPED = [i for i, _ in enumerate(STATES) if i != 1]  # source-dev left Git since the baseline
 
@@ -132,22 +132,22 @@ DROPPED = [i for i, _ in enumerate(STATES) if i != 1]  # source-dev left Git sin
 def test_prune_removes_exact_matches_and_reports_what_a_person_changed():
     live = merge(PEOPLE, WITH_OLD)[0]
     pruned, removed, kept = prune(live, WITH_OLD, WANTED)
-    assert removed == ["TAG_OWNER:tag:bravo-old", "GRANT:tag:bravo-old->tag:bravo-gone:tcp:443", "TEST:tag:bravo-old"]
+    assert removed == ["TAG_OWNER:tag:example-old", "GRANT:tag:example-old->tag:example-gone:tcp:443", "TEST:tag:example-old"]
     assert kept == [] and OLD not in pruned["grants"] and pruned["groups"] == PEOPLE["groups"]
     assert all(g in pruned["grants"] for g in PEOPLE["grants"]) and check_policy(pruned, STATES) == []
     assert prune(pruned, WITH_OLD, WANTED)[1:] == ([], [])
     # An exact match is the repository's, whoever wrote it first.
     hand = {**PEOPLE, "grants": [*PEOPLE["grants"], copy.deepcopy(OLD)]}
-    assert "GRANT:tag:bravo-old->tag:bravo-gone:tcp:443" in prune(hand, WITH_OLD, WANTED)[1]
+    assert "GRANT:tag:example-old->tag:example-gone:tcp:443" in prune(hand, WITH_OLD, WANTED)[1]
     # Changed by a person: it stays, and is reported while it still allows or owns what Git dropped.
     widened = {**OLD, "ip": ["tcp:443", "tcp:80"]}
     changed = copy.deepcopy(live)
     changed["grants"] = [widened if g == OLD else g for g in changed["grants"]]
-    changed["tagOwners"]["tag:bravo-old"] = ["autogroup:owner"]
+    changed["tagOwners"]["tag:example-old"] = ["autogroup:owner"]
     pruned, removed, kept = prune(changed, WITH_OLD, WANTED)
-    assert widened in pruned["grants"] and pruned["tagOwners"]["tag:bravo-old"] == ["autogroup:owner"]
-    assert kept == ["TAG_OWNER:tag:bravo-old", "GRANT:tag:bravo-old->tag:bravo-gone:tcp:443"]
-    assert removed == ["TEST:tag:bravo-old"]
+    assert widened in pruned["grants"] and pruned["tagOwners"]["tag:example-old"] == ["autogroup:owner"]
+    assert kept == ["TAG_OWNER:tag:example-old", "GRANT:tag:example-old->tag:example-gone:tcp:443"]
+    assert removed == ["TEST:tag:example-old"]
 
 
 def test_apply_prunes_an_environment_dropped_since_the_baseline():
