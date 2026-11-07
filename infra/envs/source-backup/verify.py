@@ -11,11 +11,13 @@ deletes counts as verified. Missing ServiceAccounts, lookup or credential failur
 role mismatches are UNKNOWN, never a pass. Exit codes: 0 PASS, 1 FAIL, 2 UNKNOWN,
 3 PARTIAL (before the restore Cluster's ServiceAccount exists).
 
-The source Executor has no AWS identity at all (no IRSA, nodes answer IMDSv2 one hop
-only). It is registered with --executor-without-aws instead of being given a role just
-to be refused: it counts only when its running Pods carry no AWS credential source of
-their own, their nodes keep pod-level metadata closed, and a probe Pod pinned to each
-of those nodes with its ServiceAccount finds no credentials for either delete.
+The cutover Executor has no AWS identity at all: it runs on the platform cluster (it only
+holds a ServiceAccount in the source cluster) with no IRSA, on a node that answers IMDSv2
+one hop only. It is registered with --executor-without-aws (and --executor-kubeconfig for
+that cluster) instead of being given a role just to be refused: it counts only when its
+running Pods carry no AWS credential source of their own, their nodes keep pod-level
+metadata closed, and a probe Pod pinned to each of those nodes with its ServiceAccount
+finds no credentials for either delete.
 """
 
 import argparse
@@ -48,6 +50,7 @@ AWS_CREDENTIAL_ENV = re.compile(
     r"|PROFILE|DEFAULT_PROFILE|SHARED_CREDENTIALS_FILE|CONFIG_FILE)\Z")
 AWS_TOKEN_AUDIENCES = {"sts.amazonaws.com", "pods.eks.amazonaws.com"}
 PROVIDER_ID = re.compile(r"aws:///[a-z0-9-]+/(i-[0-9a-f]{8,17})\Z")
+IPV4 = re.compile(r"(?:(?:25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])\.){3}(?:25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])\Z")
 NO_CREDENTIALS = "Unable to locate credentials"
 
 
@@ -203,19 +206,34 @@ def aws_sources(spec):
     return found
 
 
+def node_instance(aws, kube, node):
+    """The one EC2 instance behind a node. EKS names it in providerID (aws:///zone/i-...); RKE2 on EC2 does not
+    (rke2://host), so its single InternalIP must match exactly one running instance's private address."""
+    read = run(kube + ["get", "node", node, "-o", "json"], check=False)
+    if read.returncode:
+        return None
+    info = json.loads(read.stdout)
+    provider = PROVIDER_ID.fullmatch((info.get("spec") or {}).get("providerID") or "")
+    if provider:
+        query = ["--instance-ids", provider.group(1)]
+    else:
+        ips = [a.get("address") for a in (info.get("status") or {}).get("addresses", []) if a.get("type") == "InternalIP"]
+        if len(ips) != 1 or not IPV4.fullmatch(ips[0] or ""):
+            return None
+        query = ["--filters", f"Name=private-ip-address,Values={ips[0]}", "Name=instance-state-name,Values=running"]
+    described = run(aws + ["ec2", "describe-instances", *query], check=False)
+    if described.returncode:
+        return None
+    instances = [i for r in json.loads(described.stdout).get("Reservations", []) for i in r.get("Instances", [])]
+    return instances[0] if len(instances) == 1 else None
+
+
 def node_metadata_closed(aws, kube, node):
     """The node's instance metadata is off, or IMDSv2-only with a one-hop reply (unreachable from Pod networks)."""
-    provider = PROVIDER_ID.fullmatch(run(kube + ["get", "node", node, "-o", "jsonpath={.spec.providerID}"],
-                                         check=False).stdout.strip())
-    if not provider:
+    instance = node_instance(aws, kube, node)
+    if instance is None:
         return False
-    described = run(aws + ["ec2", "describe-instances", "--instance-ids", provider.group(1)], check=False)
-    if described.returncode:
-        return False
-    instances = [i for r in json.loads(described.stdout).get("Reservations", []) for i in r.get("Instances", [])]
-    if len(instances) != 1:
-        return False
-    options = instances[0].get("MetadataOptions") or {}
+    options = instance.get("MetadataOptions") or {}
     return options.get("HttpEndpoint") == "disabled" or (
         options.get("HttpTokens") == "required" and options.get("HttpPutResponseHopLimit") == 1)
 
@@ -270,8 +288,11 @@ def service_account(kube, namespace, name):
     return "UNKNOWN_SA_NOT_FOUND" if "NotFound" in result.stderr else "UNKNOWN_SA_LOOKUP_FAILED"
 
 
-def probe(aws, kube, reg, subjects):
-    """subjects: {label: (namespace, ServiceAccount, registered role ARN, or None for no AWS identity)}."""
+def probe(aws, kube, reg, subjects, kubes=None):
+    """subjects: {label: (namespace, ServiceAccount, registered role ARN, or None for no AWS identity)}.
+
+    kubes: {label: kubectl argv} for an identity that runs in another cluster (the cutover Executor runs
+    on the platform cluster and only holds a ServiceAccount in the source cluster)."""
     bucket, key = reg["bucket"], reg["destination"].split("/", 3)[3] + f"_t35-delete-probe/{uuid.uuid4()}"
     with tempfile.NamedTemporaryFile() as empty:
         version = json.loads(run(aws + ["s3api", "put-object", "--bucket", bucket, "--key", key,
@@ -279,15 +300,16 @@ def probe(aws, kube, reg, subjects):
     out = {}
     try:
         for label, (namespace, sa, role_arn) in subjects.items():
-            missing = service_account(kube, namespace, sa)
+            k = (kubes or {}).get(label, kube)
+            missing = service_account(k, namespace, sa)
             if missing:
                 out[label] = missing
                 continue
             if role_arn is None:
-                out[label] = without_aws_identity(aws, kube, namespace, sa, reg["region"], bucket, key, version)
+                out[label] = without_aws_identity(aws, k, namespace, sa, reg["region"], bucket, key, version)
                 continue
-            log = _probe_log(kube, pod(namespace, sa, f"t35-delete-probe-{uuid.uuid4().hex[:8]}", reg["region"],
-                                       bucket, key, version))
+            log = _probe_log(k, pod(namespace, sa, f"t35-delete-probe-{uuid.uuid4().hex[:8]}", reg["region"],
+                                    bucket, key, version))
             out[label] = "UNKNOWN_POD_NOT_CREATED" if log is None else verdict(log, role_arn)
         head = run(aws + ["s3api", "head-object", "--bucket", bucket, "--key", key, "--version-id", version], check=False)
         out["probe_version_intact"] = head.returncode == 0
@@ -365,6 +387,9 @@ def main(argv=None):
     executor.add_argument("--executor-without-aws", type=_without_aws, metavar="NAMESPACE/SERVICEACCOUNT",
                           help="the Executor has no AWS identity: its Pods, their nodes' metadata and a probe "
                                "pinned to each node must all show no credentials")
+    parser.add_argument("--executor-kubeconfig",
+                        help="the cluster the Executor runs in, when it is not the source cluster (default --kubeconfig)")
+    parser.add_argument("--executor-context", help="context in --executor-kubeconfig")
     parser.add_argument("--also-deny", action="append", default=[], type=_identity,
                         metavar="NAMESPACE/SERVICEACCOUNT=ROLE_ARN",
                         help="another identity that must not delete and the role its Pods run as")
@@ -383,7 +408,12 @@ def main(argv=None):
         if executor_identity:
             subjects["executor"] = executor_identity
         subjects.update({f"extra:{ns}/{sa}": (ns, sa, role) for ns, sa, role in args.also_deny})
-        probe_result = result["delete_probe"] = probe(aws, ["kubectl", "--kubeconfig", args.kubeconfig], reg, subjects)
+        kubes = {}
+        if args.executor_kubeconfig or args.executor_context:
+            kubes["executor"] = (["kubectl", "--kubeconfig", args.executor_kubeconfig or args.kubeconfig]
+                                 + (["--context", args.executor_context] if args.executor_context else []))
+        probe_result = result["delete_probe"] = probe(aws, ["kubectl", "--kubeconfig", args.kubeconfig], reg, subjects,
+                                                      kubes)
         if not executor_identity:
             probe_result["executor"] = "UNKNOWN_NOT_REGISTERED"
     result["status"] = status(result["readback"], probe_result, args.stage)

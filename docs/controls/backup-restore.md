@@ -32,7 +32,7 @@ T35는 백업 API의 성공만으로 DR-01.1을 통과시키지 않는다. 백�
 3. 목적지 SeaweedFS는 HTTPS·CA와 Secret 참조를 요구한다. endpoint 문자열 검사는 DNS,
    대상 소유권, egress 허용을 대신하지 않는다. 서버 등록에서 이를 확인한다.
 4. 버킷 루트가 아닌 앱별 명시적 prefix를 사용한다. 복원 읽기 역할은 백업 쓰기 역할과
-   분리한다. 앱/Executor에 백업 자격을 주지 않는다. 출발지 Executor처럼 AWS 신원이 아예 없는
+   분리한다. 앱/Executor에 백업 자격을 주지 않는다. 컷오버 Executor처럼 AWS 신원이 아예 없는
    구성요소에는 삭제 거부를 보이려고 역할을 새로 주지 않고, 신원이 없음을 시험으로 확인한다
    (`infra/envs/source-backup/README.md` 4단계 `--executor-without-aws`).
 5. 삭제/보존 정책은 별도 관리 주체가 맡는다. 자동 retentionPolicy는 생성하지 않는다.

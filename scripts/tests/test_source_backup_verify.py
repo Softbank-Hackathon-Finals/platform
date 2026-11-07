@@ -117,17 +117,19 @@ def executor_pod(node=NODE, env=(), phase="Running", **spec):
 
 
 def fake(sa_stderr=None, logs=None, deleted=False, pods=None, provider="aws:///ap-northeast-2a/i-0123456789abcdef0",
-         metadata=None, instances=1):
+         metadata=None, instances=1, ips=("10.80.1.59",)):
     """Fake aws/kubectl for probe(): ServiceAccount lookup result and per-namespace Pod logs.
 
-    pods/provider/metadata/instances answer the --executor-without-aws reads; create.created keeps the Pods made."""
-    created = {}
+    pods/provider/ips/metadata/instances answer the --executor-without-aws reads; create.created keeps the Pods
+    made, create.kubes the kubectl argv each was made with, and run.calls every command."""
+    created, kubes, calls = {}, {}, []
 
     def res(out="", code=0, err=""):
         return types.SimpleNamespace(returncode=code, stdout=out if isinstance(out, str) else json.dumps(out), stderr=err)
 
     def run(cmd, check=True):
         c = " ".join(cmd)
+        calls.append(c)
         if "put-object" in c:
             return res({"VersionId": "v1"})
         if "get serviceaccount" in c:
@@ -135,7 +137,9 @@ def fake(sa_stderr=None, logs=None, deleted=False, pods=None, provider="aws:///a
         if "get pods" in c:
             return res({"items": pods if pods is not None else [executor_pod()]})
         if "get node" in c:
-            return res(provider)
+            return res({"spec": {"providerID": provider},
+                        "status": {"addresses": [{"type": "Hostname", "address": NODE}]
+                                   + [{"type": "InternalIP", "address": ip} for ip in ips]}})
         if "describe-instances" in c:
             return res({"Reservations": [{"Instances": [{"MetadataOptions": metadata or CLOSED}] * instances}]})
         if "jsonpath={.status.phase}" in c:
@@ -151,9 +155,10 @@ def fake(sa_stderr=None, logs=None, deleted=False, pods=None, provider="aws:///a
         raise AssertionError(c)
 
     def create(cmd, input=None, **kw):
-        created[json.loads(input)["metadata"]["namespace"]] = json.loads(input)
+        namespace = json.loads(input)["metadata"]["namespace"]
+        created[namespace], kubes[namespace] = json.loads(input), cmd[:cmd.index("create")]
         return res("")
-    create.created = created
+    create.created, create.kubes, run.calls = created, kubes, calls
     return run, create
 
 
@@ -208,7 +213,7 @@ class Probe(unittest.TestCase):
                     "no_delete_marker": True, "custodian_removed_probe": True}
         calls = []
 
-        def fake_probe(aws, kube, reg, subjects):
+        def fake_probe(aws, kube, reg, subjects, kubes=None):
             calls.append(set(subjects))
             return dict(verified, **({"executor": "DENIED"} if "executor" in subjects else {}))
 
@@ -243,14 +248,28 @@ def no_credentials(principal=""):
 
 
 class ExecutorWithoutAws(unittest.TestCase):
-    """#57 (11/6): the source Executor has no AWS identity, so --executor reported UNKNOWN_NO_CREDENTIALS forever."""
+    """#57 (11/6): the Executor has no AWS identity, so --executor reported UNKNOWN_NO_CREDENTIALS forever."""
 
-    def probe(self, executor_log=None, **kw):
+    def probe(self, executor_log=None, kubes=None, **kw):
         logs = dict(DENIED_LOGS, **{"bravo-platform": executor_log if executor_log is not None else no_credentials()})
         run, create = fake(logs=logs, **kw)
-        self.created = create.created
+        self.created, self.kubes, self.calls = create.created, create.kubes, run.calls
         with patch.object(verify, "run", run), patch.object(verify.subprocess, "run", create), patch.object(verify.time, "sleep"):
-            return verify.probe(["aws"], ["kubectl"], REG, NO_AWS)
+            return verify.probe(["aws"], ["kubectl"], REG, NO_AWS, kubes)
+
+    def test_the_executor_is_probed_in_the_cluster_it_runs_in(self):
+        """Live 11/8: the cutover Executor runs on the platform RKE2 cluster; the source cluster only has its SA."""
+        platform = ["kubectl", "--kubeconfig", "platform", "--context", "rke2"]
+        result = self.probe(kubes={"executor": platform}, provider="rke2://ip-10-81-0-191", ips=("10.81.0.191",))
+        self.assertEqual(result["executor"], "NO_AWS_IDENTITY")
+        self.assertEqual(self.kubes["bravo-platform"], platform)
+        self.assertEqual(self.kubes["source-dev"], ["kubectl"])
+        executor_reads = [c for c in self.calls if "bravo-executor" in c or "get pods" in c or "get node" in c]
+        self.assertTrue(executor_reads and all(c.startswith(" ".join(platform)) for c in executor_reads), executor_reads)
+        # RKE2 has no aws:/// providerID: the node's one InternalIP picks the running instance
+        [described] = [c for c in self.calls if "describe-instances" in c]
+        self.assertIn("Name=private-ip-address,Values=10.81.0.191", described)
+        self.assertIn("Name=instance-state-name,Values=running", described)
 
     def test_no_credentials_twice_on_the_executor_node_is_a_refusal(self):
         result = self.probe()
@@ -301,7 +320,9 @@ class ExecutorWithoutAws(unittest.TestCase):
         self.assertEqual(self.probe(pods=[executor_pod(phase="Pending")])["executor"], "UNKNOWN_NO_RUNNING_POD")
         for kw in ({"metadata": {"HttpEndpoint": "enabled", "HttpTokens": "optional", "HttpPutResponseHopLimit": 1}},
                    {"metadata": {"HttpEndpoint": "enabled", "HttpTokens": "required", "HttpPutResponseHopLimit": 2}},
-                   {"provider": "kind://docker/kind/node"}, {"instances": 2}):
+                   {"provider": "rke2://node", "ips": ()}, {"provider": "rke2://node", "ips": ("10.81.0.1", "10.81.0.2")},
+                   {"provider": "rke2://node", "ips": ("10.81.0.999",)}, {"instances": 2},
+                   {"provider": "rke2://node", "instances": 0}):
             self.assertEqual(self.probe(**kw)["executor"], "UNKNOWN_NODE_METADATA", kw)
             self.assertNotIn("bravo-platform", self.created)
         self.assertEqual(self.probe(metadata={"HttpEndpoint": "disabled"})["executor"], "NO_AWS_IDENTITY")
@@ -320,17 +341,22 @@ class ExecutorWithoutAws(unittest.TestCase):
                 verify._without_aws(bad)
         seen = []
 
-        def fake_probe(aws, kube, reg, subjects):
-            seen.append(subjects["executor"])
+        def fake_probe(aws, kube, reg, subjects, kubes=None):
+            seen.append((subjects["executor"], kubes))
             return {"writer": "DENIED", "reader": "DENIED", "app": "DENIED", "executor": "NO_AWS_IDENTITY",
                     "probe_version_intact": True, "no_delete_marker": True, "custodian_removed_probe": True}
 
         args = ["--registration", "-", "--kubeconfig", "k", "--delete-probe", "--app-role-arn", APP,
                 "--executor-without-aws", "bravo-platform/bravo-executor"]
-        with patch.object(verify, "readback", lambda aws, reg: dict(READBACK)), patch.object(verify, "probe", fake_probe), \
-                patch.object(verify.sys, "stdin", io.StringIO(json.dumps(REG))), redirect_stdout(io.StringIO()):
-            self.assertEqual(verify.main(args), 0)
-        self.assertEqual(seen, [("bravo-platform", "bravo-executor", None)])
+        for extra in ([], ["--executor-kubeconfig", "p", "--executor-context", "rke2"], ["--executor-context", "rke2"]):
+            with patch.object(verify, "readback", lambda aws, reg: dict(READBACK)), patch.object(verify, "probe", fake_probe), \
+                    patch.object(verify.sys, "stdin", io.StringIO(json.dumps(REG))), redirect_stdout(io.StringIO()):
+                self.assertEqual(verify.main(args + extra), 0)
+        self.assertEqual(seen, [
+            (("bravo-platform", "bravo-executor", None), {}),
+            (("bravo-platform", "bravo-executor", None), {"executor": ["kubectl", "--kubeconfig", "p", "--context", "rke2"]}),
+            (("bravo-platform", "bravo-executor", None), {"executor": ["kubectl", "--kubeconfig", "k", "--context", "rke2"]}),
+        ])
         with patch.object(verify.sys, "stderr", io.StringIO()), self.assertRaises(SystemExit):
             verify.main(args + ["--executor", f"bravo-platform/bravo-executor={EXECUTOR}"])  # one or the other
 
