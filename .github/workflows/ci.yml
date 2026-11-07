@@ -159,6 +159,7 @@ jobs:
           "$RUNNER_TEMP/helm-test/bin/python" infra/envs/rehearsal-access/apiserver_exec_guard.py
           "$RUNNER_TEMP/helm-test/bin/python" infra/gitops/test_rehearsal_host_chart.py
           "$RUNNER_TEMP/helm-test/bin/python" infra/gitops/test_workflow_host_chart.py
+          "$RUNNER_TEMP/helm-test/bin/python" infra/gitops/test_iac_network_application.py
           "$RUNNER_TEMP/helm-test/bin/python" infra/gitops/test_bootstrap.py
           # Evaluate the controller admission CEL on a real kube-apiserver, not by name only.
           GOBIN="$RUNNER_TEMP/envtest-bin" GOTOOLCHAIN=auto go install sigs.k8s.io/controller-runtime/tools/setup-envtest@v0.0.0-20260125163108-a19ec76a3c5d

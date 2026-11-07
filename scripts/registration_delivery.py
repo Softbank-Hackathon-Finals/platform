@@ -43,6 +43,8 @@ BUILD_INPUTS = (
     "services/apply-path/pyproject.toml",
     "services/edge-control/src",
     "services/edge-control/pyproject.toml",
+    "services/iac/src",
+    "services/iac/pyproject.toml",
     # Copied into every image context and run by its build (entry point import closure).
     "scripts/image_import_closure.py",
 )
@@ -84,7 +86,7 @@ class Service:
 
 
 # The workflow host (registration image) applies with the same patched kubectl (T31 REHEARSE).
-REGISTRATION = Service("registration", "등록 API", ("operations/kubectl",))
+REGISTRATION = Service("registration", "등록 API", ("operations/kubectl", "infra/envs/rehearsal-access/credentials.py"))
 PRODUCT_READER = Service("product-reader", "Product Reader")
 # build.py --rehearsal-host adds the T3 templates, T7/T9 modules and the patched kubectl.
 REHEARSAL_HOST = Service("rehearsal-host", "리허설 호스트", (
