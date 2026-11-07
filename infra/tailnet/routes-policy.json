@@ -34,7 +34,29 @@
   "grants": [
     {
       "src": [
-        "group:bravo-operators"
+        "autogroup:admin"
+      ],
+      "dst": [
+        "tag:bravo-platform-operator"
+      ],
+      "ip": [
+        "tcp:443"
+      ],
+      "app": {
+        "tailscale.com/cap/kubernetes": [
+          {
+            "impersonate": {
+              "groups": [
+                "bravo:operators"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "src": [
+        "autogroup:owner"
       ],
       "dst": [
         "tag:bravo-platform-operator"

@@ -32,27 +32,34 @@ def test_platform_operators_are_one_group_bound_to_cluster_admin():
     assert "@" not in json.dumps(PLATFORM)
 
 
-def test_one_grant_opens_the_proxy_and_names_the_impersonated_group():
+SOURCES = ("autogroup:admin", "autogroup:owner")
+MISSING = [f"GRANT:{s}->tag:bravo-platform-operator:tcp:443+app" for s in SOURCES]
+
+
+def test_tailnet_admins_and_the_owner_get_one_grant_each_naming_the_impersonated_group():
     policy = fragment(STATES)
-    grant = {"src": ["group:bravo-operators"], "dst": ["tag:bravo-platform-operator"], "ip": ["tcp:443"], "app": CAP}
-    assert grant in policy["grants"]
-    # Route tests only: the group's members are outside the repository.
-    assert not any(t["src"] == "group:bravo-operators" for t in policy["tests"])
+    for src in SOURCES:
+        assert {"src": [src], "dst": ["tag:bravo-platform-operator"], "ip": ["tcp:443"], "app": CAP} in policy["grants"]
+        # Route tests only: who holds a tailnet role is not in the repository.
+        assert not any(t["src"] == src for t in policy["tests"])
     assert check_policy(policy, STATES) == []
     without_cap = copy.deepcopy(policy)
     without_cap["grants"] = [{k: v for k, v in g.items() if k != "app"} for g in without_cap["grants"]]
-    assert check_policy(without_cap, STATES) == ["GRANT:group:bravo-operators->tag:bravo-platform-operator:tcp:443+app"]
+    assert check_policy(without_cap, STATES) == MISSING
     masters = copy.deepcopy(policy)
     for g in masters["grants"]:
         if "app" in g:
             g["app"] = {"tailscale.com/cap/kubernetes": [{"impersonate": {"groups": ["system:masters"]}}]}
-    assert check_policy(masters, STATES) == ["GRANT:group:bravo-operators->tag:bravo-platform-operator:tcp:443+app"]
+    assert check_policy(masters, STATES) == MISSING
 
 
 @pytest.mark.parametrize("change", [
     lambda p: p["bindings"][0].update(group="system:masters"),
     lambda p: p["bindings"][0].update(group="operators"),
-    lambda p: p["bindings"][0].update(tailnet_group="autogroup:member"),
+    lambda p: p["bindings"][0].update(tailnet_groups=["autogroup:member"]),
+    lambda p: p["bindings"][0].update(tailnet_groups=[]),
+    lambda p: p["bindings"][0].update(tailnet_groups=["autogroup:admin", "autogroup:admin"]),
+    lambda p: p["bindings"][0].update(tailnet_groups="autogroup:admin"),
     lambda p: p["bindings"][0].update(cluster_role="Cluster Admin"),
     lambda p: p["bindings"].append(dict(p["bindings"][0])),
     lambda p: p["bindings"].append({**p["bindings"][0], "name": "second"}),
@@ -70,9 +77,9 @@ def test_invalid_access_params_are_refused(change):
 
 @pytest.mark.parametrize("change", [
     lambda p: p["bindings"].append({"name": "bravo-viewers", "group": "bravo:viewers", "cluster_role": "view",
-                                    "tailnet_group": "group:bravo-viewers"}),
+                                    "tailnet_groups": ["group:bravo-viewers"]}),
     lambda p: p["bindings"][0].update(cluster_role="admin"),
-    lambda p: p["bindings"][0].update(tailnet_group="group:everyone"),
+    lambda p: p["bindings"][0]["tailnet_groups"].append("group:everyone"),
     lambda p: p.update(tailnet="workload"),
 ])
 def test_an_agent_cannot_widen_operator_access(change):
@@ -86,7 +93,7 @@ def test_an_agent_cannot_widen_operator_access(change):
 def test_an_agent_may_remove_operator_access():
     two = copy.deepcopy(PLATFORM)
     access_params(two)["bindings"].append({"name": "bravo-viewers-view", "group": "bravo:viewers",
-                                           "cluster_role": "view", "tailnet_group": "group:bravo-viewers"})
+                                           "cluster_role": "view", "tailnet_groups": ["group:bravo-viewers"]})
     result = plan(two, PLATFORM, origin="agent")
     assert result["accepted"] and not result["widens"]
     assert [c["action"] for c in result["changes"]] == ["delete"]
@@ -108,6 +115,6 @@ def test_verify_checks_the_api_proxy_device_and_its_tag():
 def test_the_network_view_answers_how_people_reach_the_platform_api():
     access = view(STATES)["environments"]["platform"]["access"]
     assert access == [{"proxy": "bravo-platform-operator", "proxy_tag": "tag:bravo-platform-operator",
-                       "tailnet": "default", "tailnet_group": "group:bravo-operators",
+                       "tailnet": "default", "tailnet_groups": ["autogroup:admin", "autogroup:owner"],
                        "group": "bravo:operators", "cluster_role": "cluster-admin"}]
     assert check_state(PLATFORM)["modules"][-1]["id"] == "operator-access"

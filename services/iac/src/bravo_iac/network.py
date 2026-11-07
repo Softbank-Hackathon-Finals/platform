@@ -37,7 +37,7 @@ def view(states) -> dict:
             elif entry["id"] == "operator-access":
                 tailnets.add(tailnet_of(params))
                 access += [{"proxy": params["proxy_hostname"], "proxy_tag": params["proxy_tag"],
-                            "tailnet": tailnet_of(params), "tailnet_group": b["tailnet_group"],
+                            "tailnet": tailnet_of(params), "tailnet_groups": b["tailnet_groups"],
                             "group": b["group"], "cluster_role": b["cluster_role"]} for b in params["bindings"]]
             elif entry["id"] == "tailnet-ingress":
                 for device in params["devices"]:

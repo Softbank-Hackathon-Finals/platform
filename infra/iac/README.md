@@ -17,7 +17,7 @@
 
 | `tailnet-egress` v1 | 클러스터의 Tailscale egress 경로: 그룹마다 egress ProxyGroup(전용 태그), tailnet 호스트로 가는 ExternalName Service, 그 그룹 proxy Pod에 묶은 NetworkPolicy | `owner_tag`, `groups[]`: `name`, `tag`, `tailnet`?, `proxy_class`?, `client_policy`?(`false`만), `clients[]`(namespace·labels), `routes[]`(service·namespace·destination·destination_tag·port·port_name) |
 | `tailnet-ingress` v1 | 클러스터 안 워크로드를 tailnet 장치로 노출: 장치마다 operator expose Service(호스트 이름·태그·selector·포트). 누가 닿는지는 소비자 쪽 `tailnet-egress` grant가 정한다 | `owner_tag`, `devices[]`: `service`, `namespace`, `hostname`, `tag`, `tailnet`?, `selector`, `ports[]`(name·port·target_port) |
-| `operator-access` v1 | 사람이 클러스터 API에 들어오는 길: 바인딩마다 쿠버네티스 그룹 하나의 ClusterRoleBinding, 그리고 tailnet 그룹이 그 클러스터의 Tailscale API 프록시(443)에 닿아 그 쿠버네티스 그룹으로 impersonate되게 하는 grant 하나 | `proxy_hostname`, `proxy_tag`, `bindings[]`: `name`, `group`(`접두사:이름`, `system:` 금지), `cluster_role`, `tailnet_group`(`group:…`); 선택 `tailnet` |
+| `operator-access` v1 | 사람이 클러스터 API에 들어오는 길: 바인딩마다 쿠버네티스 그룹 하나의 ClusterRoleBinding, 그리고 tailnet 그룹이 그 클러스터의 Tailscale API 프록시(443)에 닿아 그 쿠버네티스 그룹으로 impersonate되게 하는 grant 하나 | `proxy_hostname`, `proxy_tag`, `bindings[]`: `name`, `group`(`접두사:이름`, `system:` 금지), `cluster_role`, `tailnet_groups`(`group:…`, `autogroup:admin`, `autogroup:owner`); 선택 `tailnet` |
 
 `target-object-exposure`는 T9 렌더러(`infra/envs/target-workloads/object_exposure.py`)와 같은 계정·권한을 낸다.
 같은지는 시험이 고정한다. 계정 키는 Git에도 plan에도 없다. 적용하는 쪽이 적용 시점에 넣는다(`secret_inputs`).
@@ -75,15 +75,20 @@ Tailscale operator가 매긴 proxy 포트를 **관찰해서** NetworkPolicy에 �
 (operator 값 `apiServerProxyConfig.mode: "true"`, `noauth` 금지). 요청자의 tailnet 신원을 받아, grant가 이름 붙인
 쿠버네티스 그룹으로 impersonate한다. 권한은 그 그룹의 ClusterRoleBinding이 정한다.
 
-- 플랫폼: `group:bravo-operators` → `bravo-platform-operator`(`tag:bravo-platform-operator`):443 → 쿠버네티스 그룹
-  `bravo:operators` → `cluster-admin`(2026-11-07 사용자 결정: 운영자 전원).
-- **누가 그 tailnet 그룹인지는 Git에 없다.** 이 저장소는 공개라 사람 이메일을 두지 않는다. 구성원은 운영자 tailnet 정책의
-  `groups`에만 둔다. 정책 조각(`routes-policy.json`)에는 grant만 나오고, 구성원 목록이 없으므로 정책 tests도 만들지 않는다.
-  `tailnet-check`가 grant(포트와 impersonate 그룹까지)를 대조한다.
+- 플랫폼: `autogroup:admin`·`autogroup:owner`(운영자 tailnet의 관리자 전원과 소유자) → `bravo-platform-operator`
+  (`tag:bravo-platform-operator`):443 → 쿠버네티스 그룹 `bravo:operators` → `cluster-admin`(2026-11-07 사용자 결정: 팀원
+  전원이 tailnet 관리자이고 운영자다). 사람 이름·이메일은 Git에도 tailnet 정책에도 필요 없다. 관리자 역할이 곧 접근 조건이다.
+- 출발지는 정책의 `group:…` 또는 역할 autogroup(`admin`, `owner`)만 받는다. `autogroup:member`는 받지 않는다(초대만 받은
+  사람까지 운영자가 된다). 누가 그 역할인지는 Git에 없으므로 이 grant의 정책 tests는 만들지 않고, `tailnet-check`가 grant
+  (포트와 impersonate 그룹까지)를 대조한다.
+- **왜 쿠버네티스 그룹을 거치나.** 프록시는 tailnet 신원을 쿠버네티스에 "사용자 이름(로그인)"과 "grant가 정한 그룹"으로만
+  넘긴다. 권한을 주는 방법은 셋이다. 로그인마다 바인딩(공개 저장소에 이메일), `system:masters`로 impersonate(RBAC를 건너뛰어
+  바인딩으로 좁히거나 회수할 수 없다), 이름 있는 그룹 하나에 바인딩. 마지막이 이름 없이 한 곳(ClusterRoleBinding)에서 권한을
+  정하고 바꾼다.
 - `system:` 그룹(특히 `system:masters`)은 impersonate하지 않는다. RBAC를 거치지 않고 권한을 주기 때문이다.
-- 바인딩 추가, 역할·tailnet 그룹·tailnet 변경은 에이전트에게 확대(`IAC_WIDENING_REFUSED`)다. 바인딩 삭제는 허용된다.
+- 바인딩 추가, 역할·출발지·tailnet 변경은 에이전트에게 확대(`IAC_WIDENING_REFUSED`)다. 바인딩 삭제는 허용된다.
 - `bravo-iac tailnet-verify`가 프록시 장치의 존재·태그·온라인을 `api-proxy` 행으로 판정한다. `GET /v1/iac/network`의
-  `access`가 환경별 접근 경로(프록시, tailnet 그룹, 쿠버네티스 그룹, 역할)를 돌려준다.
+  `access`가 환경별 접근 경로(프록시, 출발지, 쿠버네티스 그룹, 역할)를 돌려준다.
 
 사람의 순서(처음 한 번):
 
