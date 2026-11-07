@@ -407,6 +407,18 @@ def test_client_prefix_cannot_smuggle_an_effect_verb(prefix, monkeypatch):
         (["eks", "get-token", "--profile=bravo-personal"], {}, [], True),
         (["eks", "get-token", "--profile", "bravo-personal"], {}, [], True),
         (["eks", "get-token"], {"AWS_PROFILE": "bravo-personal"}, [], True),
+        (["eks", "get-token"], {"AWS_PROFILE": "bravo-personal"}, None, True),
+        (["eks", "get-token"], {"AWS_PROFILE": "bravo-personal"}, {}, False),
+        (["eks", "get-token"], {}, [{"name": "AWS_PROFILE", "value": None}], False),
+        (
+            ["eks", "get-token"],
+            {},
+            [
+                {"name": "AWS_PROFILE", "value": "bravo-personal"},
+                {"name": "AWS_PROFILE", "value": "bravo-personal"},
+            ],
+            False,
+        ),
         (["eks", "get-token"], {}, [{"name": "AWS_PROFILE", "value": "bravo-personal"}], True),
     ],
 )
