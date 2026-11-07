@@ -26,6 +26,7 @@
 | FR-3 · NFR-7 · 8.3 목적지 IaC 모듈·원하는 상태(Git)·plan API와 에이전트 계획 도구(T44) | [0032 목적지 IaC API](0032-destination-iac-api.md) |
 | 8.6 Executor 구현·실행·실패·권한 | [0006 Python 선택](0006-cutover-executor-language.md), [0011 실행 기록과 실패 판정](0011-cutover-executor-execution-and-failure.md), [0013 워크로드 접근](0013-executor-workload-access.md) |
 | 8.6 정방향 복제 시간 초과와 방향별 `disable_on_error`(T8) | [0030 복제 시간 초과 30초](0030-t8-replication-timeout.md) |
+| 7.3·8.4·8.6 SQS → Lambda 호환 런타임: 구조·동등성 검증 위치, 목적지 큐 위치, 컷오버·되돌리기의 큐 처리(T46) | [0045 호환 런타임 구조](0045-sqs-lambda-compat-runtime.md), [0046 목적지 큐는 업무 DB 밖](0046-target-queue-outside-business-db.md), [0047 컷오버 큐 처리 규칙](0047-cutover-queue-handling.md) |
 | 6장 S4 · 8.6 되돌리기 전 복제 경로 확인 | [0016 되돌리기 전 복제 경로 확인](0016-failback-replication-path-check.md) |
 | 6장 S4 · 8.2 · 8.7 되돌리기 상태 머신 흐름(승인 · 전용 binding · ABORT 뒤 상태 · Edge만 재시도 · 기록) | [0022 되돌리기 상태 머신 흐름](0022-failback-state-machine-flow.md) |
 | 8.6 무결성 지문 생산자·소비자 | [0013 지문 생산자](0013-integrity-fingerprint-producer.md) |
@@ -37,6 +38,7 @@
 | 7.3 목적지 감사 로그 저장소(T34)·목적지 Collector 분리(T37) | [0016 목적지 감사 로그 저장소](0016-target-audit-store.md) |
 | 5절 데모 3 · AUD-01.1을 중앙 전달 전까지 CNPG primary 자체 로그(pods/log)에서 검색(T34·T14) | [0037 AUD-01.1 파드 로그 원천](0037-aud-login-pod-log-source.md) |
 | T21 · SOVA MCP 위치·신원·도구 경계·사람 전용 범위 | [0040 SOVA MCP 표면](0040-sova-mcp-surface.md) |
+| T21 · 앱 배포 엔진(RAILSHOT 이식)을 별도 파드로, CI는 일회성 러너 | [0048 SOVA Deploy](0048-sova-deploy-railshot-engine.md) |
 | 7.3·8.11 의존성 3등급 규칙과 에이전트 보완 범위(T16·T32) | [0018 의존성 등급 규칙](0018-dependency-grading-rules.md) |
 | 7.4·8.3·8.4 플랫폼 감사 로그(실행별 체인 · Object Lock · 삭제 거부 증빙) | [0020 플랫폼 감사 로그](0020-platform-audit-ledger.md) |
 | 8.3·8.4 에이전트 도구 계층 경계(소스 경로 · 인벤토리 조회 · 정책 린트 · 파괴 시도 기록) | [0019 에이전트 도구 경계](0019-agent-tool-boundary.md) |
