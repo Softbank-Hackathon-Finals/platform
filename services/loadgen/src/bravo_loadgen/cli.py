@@ -104,6 +104,9 @@ def _add_load_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--db-dsn-env", help="대조용 DB 연결 문자열이 든 환경변수 이름")
     parser.add_argument("--lock-dsn-env", help="잠금 측정용 DB 연결 문자열이 든 환경변수 이름")
     parser.add_argument("--lock-baseline", type=float, default=3, help="부하 전 잠금 기준 측정(초)")
+    parser.add_argument("--fresh-connections", action="store_true",
+                        help="요청마다 새 연결을 연다(서로 다른 사용자처럼). 실제 Cloudflare LB는 연결마다 pool을 고르는 것으로 "
+                             "관측돼, keep-alive 연결 몇 개로는 가중치 분배를 잴 수 없다(T17 2026-11-08)")
 
 
 def _fail(message: str) -> int:
@@ -286,7 +289,7 @@ def _cmd_measure(args: argparse.Namespace) -> int:
 async def _run_load(
     config: LoadConfig, args: argparse.Namespace, lock_dsn: str | None, window_token: str | None
 ) -> dict:
-    limits = httpx.Limits(max_connections=None, max_keepalive_connections=256)
+    limits = httpx.Limits(max_connections=None, max_keepalive_connections=0 if args.fresh_connections else 256)
     probe = LockProbe(lock_dsn) if lock_dsn else None
     if probe:
         probe.start()
@@ -329,6 +332,7 @@ async def _run_load(
         "target": args.base_url,
         "measurement_path": args.measurement_path,
         "generator": args.generator,
+        "connections": "fresh" if args.fresh_connections else "keepalive",
         "delivery_failed": result.delivery_failed,
         "invalid_windows": result.invalid_windows,
         "tail_requests": result.tail_requests,
