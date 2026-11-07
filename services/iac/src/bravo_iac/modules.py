@@ -242,7 +242,10 @@ def _egress_render(params: dict) -> list[dict]:
             "ingress": [
                 {"from": [{"podSelector": {"matchLabels": {"app": "operator"}}}],
                  "ports": [{"protocol": "TCP", "port": OPERATOR_HEALTH_PORT}]},
-                {"from": [_client_peer(c) for c in group["clients"]], "ports": [_proxy_range()]}]}})
+                {"from": [_client_peer(c) for c in group["clients"]], "ports": [_proxy_range()]},
+                # WireGuard from tailnet peers for direct connections. tailscaled picks a random port per Pod,
+                # so all UDP; without it the proxy falls back to DERP relays (replication throughput and lag).
+                {"ports": [{"protocol": "UDP"}]}]}})
     return out
 
 
