@@ -159,7 +159,7 @@ def world(tmp_path):
         ticks = iter(range(0, 10**9, 5))  # each poll advances 5 s: stable waits pass without real time
         kw.setdefault("monotonic", lambda: next(ticks))
         return Executor(planner, stack_revision=REV, cluster=cluster, repo=repo, approvals=approvals,
-                        checks=ClusterChecks(cluster, join_wait_s=0), store=FileRunStore(tmp_path / "runs"),
+                        checks=ClusterChecks(cluster), store=FileRunStore(tmp_path / "runs"),
                         repo_url="file://config", sleep=lambda s: None, **({"ledger": ledger.append} | kw))
 
     def approve(approval_id):
@@ -594,23 +594,3 @@ def test_a_sync_passes_progressing_only_where_the_stack_says_so(world):
                          run_id="run-2", started_by="applier", infra_plan_id=PLAN_ID, requested_by=REQUESTER)
     assert run["steps"]["openbao-sync"]["status"] == "APPLIED"  # declared: Healthy or Progressing
 
-
-def test_the_join_check_waits_for_the_operator_login_instead_of_failing_the_first_read():
-    """The operator writes its profile seconds after it is Ready (41: check_failed 7 s after login, then passed)."""
-    reads, clock = [], [0.0]
-
-    class LateLogin(FakeCluster):
-        def secret_keys(self, namespace, name):
-            reads.append(clock[0])
-            return ["_machinekey"] if len(reads) < 4 else ["_current-profile", "_machinekey"]
-
-    def sleep(seconds):
-        clock[0] += seconds
-
-    checks = ClusterChecks(LateLogin(), join_wait_s=120, sleep=sleep, monotonic=lambda: clock[0])
-    run = {"plan": {"request": {"params": {}}, "target": {}}, "stack": {"steps": []}}
-    assert checks.check("tailscale-joined", run) is True and len(reads) == 4
-    reads.clear()
-    never = ClusterChecks(FakeCluster(), join_wait_s=9, sleep=sleep, monotonic=lambda: clock[0])
-    never.cluster.secrets[("tailscale-system", "operator")] = ("Opaque", {"_machinekey": "x"})
-    assert never.check("tailscale-joined", run) is False  # bounded: it gives up after the window

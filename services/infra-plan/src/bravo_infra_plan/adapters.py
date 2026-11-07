@@ -476,19 +476,8 @@ class ClusterChecks:
     directory, an offline image import); a human confirmation is then required.
     """
 
-    def __init__(self, cluster, repo_root=None, *, join_wait_s=120, sleep=time.sleep, monotonic=time.monotonic):
+    def __init__(self, cluster, repo_root=None):
         self.cluster, self.repo_root = cluster, repo_root
-        # The operator logs in some seconds after its Pod is Ready; re-read for a bounded time, not once.
-        self.join_wait_s, self._sleep, self._monotonic = join_wait_s, sleep, monotonic
-
-    def _eventually(self, observe, wait_s, interval_s=3):
-        deadline = self._monotonic() + wait_s
-        while True:
-            if observe():
-                return True
-            if self._monotonic() >= deadline:
-                return False
-            self._sleep(interval_s)
 
     def check(self, name, run):
         params, target = run["plan"]["request"]["params"], run["plan"]["target"]
@@ -509,8 +498,7 @@ class ClusterChecks:
             "tailscale-oauth": lambda: c.secret_exists("tailscale-system", "operator-oauth"),
             # The operator's state Secret gets a current profile only after it logged in to the tailnet
             # (OAuth secret or WIF alike). Synced/Healthy does not show that.
-            "tailscale-joined": lambda: self._eventually(
-                lambda: TAILSCALE_LOGGED_IN <= set(c.secret_keys("tailscale-system", "operator") or ()), self.join_wait_s),
+            "tailscale-joined": lambda: TAILSCALE_LOGGED_IN <= set(c.secret_keys("tailscale-system", "operator") or ()),
             "openbao-tls": lambda: c.secret_exists("bravo-secrets", "target-openbao-tls"),
             "openbao-ready": lambda: c.condition("Pod", "bravo-secrets", "target-openbao-0", "Ready"),
             "target-checks": lambda: (c.condition("Cluster", "target-dev", "target-db", "Ready")
