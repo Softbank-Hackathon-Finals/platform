@@ -16,6 +16,11 @@ or argv:
   two environment variables the registration names (from the app's `target-app-objects` Secret; never
   `target-seaweedfs-auth`, which also holds the bootstrap admin keys). The operator's AWS_PROFILE and
   AWS_CA_BUNDLE are not read.
+- either role, DB admin login audit (`pod-log`, AUD-01.1): when the Runner calls the collector, the
+  operator's kubectl (registered context) logs in to the CNPG primary as `postgres` over the pod's local
+  socket with `application_name=<marker>` and checks `rolsuper`, then searches that container's own log
+  (`pods/log`) until the marker's `connection authorized` line appears or 3 minutes pass. No DB password
+  is handled. Neither environment ships CNPG logs to a store yet (ADR-0037).
 - target, OpenBao (`openbao`): when the Runner calls the collector, each ServiceAccount's token file
   (`kubectl create token`, mode 0600) is exchanged for an OpenBao token through the registered Kubernetes
   auth mount; the accessor binds the identity. Both tokens are revoked (revoke-self) after the collector
@@ -45,9 +50,12 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-ADAPTERS = {"source": {"IAM-01.1": {"aws-object"}, "SEC-01.1": {"aws-secret"}},
-            "target": {"IAM-01.1": {"s3-endpoint"}, "SEC-01.1": {"openbao"}}}
+ADAPTERS = {"source": {"IAM-01.1": {"aws-object"}, "SEC-01.1": {"aws-secret"}, "AUD-01.1": {"pod-log"}},
+            "target": {"IAM-01.1": {"s3-endpoint"}, "SEC-01.1": {"openbao"}, "AUD-01.1": {"pod-log"}}}
 SESSION_SECONDS = 900
+CANARY_WINDOW = timedelta(minutes=3)
+POLL_SECONDS = 3
+ADMIN_CHECK = "SELECT current_user || '|' || rolsuper::text FROM pg_roles WHERE rolname = current_user"
 
 
 def _output_dir(path):
@@ -191,8 +199,73 @@ class OpenBaoRun:
                     pass
 
 
+def kubectl(context, *args, data=None, timeout=30):
+    """The operator's kubectl on one registered context; output bytes, never printed."""
+    import subprocess
+
+    return subprocess.run(["kubectl", "--context", context, "--request-timeout", f"{timeout}s", *args],
+                          input=data, capture_output=True, check=True, timeout=timeout + 5).stdout
+
+
+class DbLoginAuditRun:
+    """AUD-01.1: one admin login canary on the CNPG primary, then its own log is searched (ADR-0037)."""
+
+    def __init__(self, entry, evidence_sink, *, kube=kubectl, clock=lambda: datetime.now(UTC), sleep=None):
+        import time
+
+        from bravo_controls.pod_log_audit import NAME
+
+        fields = ("kube_context", "namespace", "cluster", "database")
+        if any(not isinstance(entry.get(f), str) or not entry[f] for f in fields) or any(
+                not NAME.fullmatch(entry[f]) for f in ("namespace", "cluster")):
+            raise ValueError("registration_fields:AUD-01.1")
+        self.entry, self.sink, self.kube, self.clock = entry, evidence_sink, kube, clock
+        self.sleep = sleep or time.sleep
+        self.container = entry.get("container", "postgres")
+
+    def _get(self, path):
+        return self.kube(self.entry["kube_context"], "get", "--raw", path)
+
+    def __call__(self, context, spec):
+        from uuid import uuid4
+
+        from bravo_controls.audit_probes import AuditSearchProbe, CanaryReceipt
+        from bravo_controls.pod_log_audit import PodLogAuditSearch, pod_path
+
+        entry, namespace = self.entry, self.entry["namespace"]
+        cluster = json.loads(self._get(f"/apis/postgresql.cnpg.io/v1/namespaces/{namespace}/clusters/"
+                                       f"{entry['cluster']}"))
+        pod = cluster.get("status", {}).get("currentPrimary")
+        if not isinstance(pod, str) or not pod:
+            raise ValueError("cnpg_primary_unknown")
+        uid = json.loads(self._get(pod_path(namespace, pod)))["metadata"]["uid"]
+        marker = "bravo_audit_" + uuid4().hex
+        started = self.clock()
+        answer = self.kube(entry["kube_context"], "exec", "-i", "-n", namespace, pod, "-c", self.container, "--",
+                           "psql", "-X", "-v", "ON_ERROR_STOP=1", "-At",
+                           "-d", f"dbname={entry['database']} application_name={marker}", "-c", ADMIN_CHECK)
+        if answer.decode().strip() != "postgres|true":
+            raise ValueError("admin_login_not_confirmed")  # the canary itself did not happen as registered
+        receipt = CanaryReceipt(context, "AUD-01.1", marker, "postgres", entry["database"], namespace, "public",
+                                started, self.clock(), started + CANARY_WINDOW, frozenset({"login"}))
+        binding = f"kubernetes-pod-log:{context.environment.ref}:{namespace}/{pod}/{self.container}:{uid}"
+        search = PodLogAuditSearch(self._get, namespace=namespace, pod=pod, container=self.container,
+                                   source_binding=binding, clock=self.clock)
+        while True:
+            kept = []
+            probe = AuditSearchProbe(receipt_provider=lambda *_: receipt, search=search, source_binding=binding,
+                                     streams=(search.stream,), evidence_sink=kept.append, clock=self.clock)
+            observation = probe(context, spec)
+            if observation.observed is not None or self.clock() >= receipt.deadline:
+                break
+            self.sleep(POLL_SECONDS)
+        for data in kept:  # only the final search's evidence
+            self.sink(data)
+        return observation
+
+
 def build_probes(registration, environment, evidence, *, environ=os.environ, aws_provider=assume_role_provider,
-                 bao_login=openbao_login, bao_revoke=openbao_revoke, read=Path.read_text):
+                 bao_login=openbao_login, bao_revoke=openbao_revoke, read=Path.read_text, kube=kubectl):
     """test id -> collector, only for tests the registration names with an adapter of the environment's role."""
     from bravo_controls.aws_identity import RegisteredRole
 
@@ -233,6 +306,8 @@ def build_probes(registration, environment, evidence, *, environ=os.environ, aws
             probes[test_id] = EndpointAnonymousReadProbe(target, app_client=app_client, anonymous_client=anonymous,
                                                          app_identity=entry.get("identity", "client"),
                                                          evidence_sink=evidence.sink(test_id))
+        elif adapter == "pod-log":
+            probes[test_id] = DbLoginAuditRun(entry, evidence.sink(test_id), kube=kube)
         else:  # openbao
             from bravo_controls.openbao import BaoTarget
 
