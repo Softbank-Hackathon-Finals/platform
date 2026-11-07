@@ -127,6 +127,19 @@ class KubectlReader:
                 raise CollectionError("VERIFIED_KUBERNETES_TLS_REQUIRED")
             if arg.startswith("--server=") and not arg.startswith("--server=https://"):
                 raise CollectionError("VERIFIED_KUBERNETES_TLS_REQUIRED")
+        index = 1
+        while index < len(prefix):
+            option, separator, value = prefix[index].partition("=")
+            if option not in {"--kubeconfig", "--context", "--server", "--tls-server-name"}:
+                raise CollectionError("READ_SCOPE_INVALID")
+            if separator:
+                if not value:
+                    raise CollectionError("READ_SCOPE_INVALID")
+                index += 1
+            else:
+                if index + 1 == len(prefix) or prefix[index + 1].startswith("-"):
+                    raise CollectionError("READ_SCOPE_INVALID")
+                index += 2
         self.prefix = tuple(prefix)
         self.env = env
         value = self.run(["config", "view", "--minify", "-o", "json"])

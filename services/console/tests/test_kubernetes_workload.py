@@ -329,14 +329,17 @@ def test_kubectl_process_limits_are_enforced_and_only_the_owned_process_is_reape
     script = tmp_path / "fixture_kubectl.py"
     pid_file = tmp_path / "owned.pid"
     script.write_text(
-        "import os,sys,time,json\nfrom pathlib import Path\n"
+        "#!"
+        + sys.executable
+        + "\nimport os,sys,time,json\nfrom pathlib import Path\n"
         + "if 'config' in sys.argv: print(json.dumps({'clusters':[{'cluster':{'server':'https://fixture.invalid'}}]}))\n"
         + "else:\n Path("
         + repr(str(pid_file))
         + ").write_text(str(os.getpid()))\n "
         + ("sys.stdout.write('x'*2100000)\n" if fault == "output-limit" else "time.sleep(10)\n")
     )
-    reader = KubectlReader([sys.executable, str(script)])
+    script.chmod(0o700)
+    reader = KubectlReader([str(script)])
     if fault == "timeout":
         reader.deadline = time.monotonic() + 1
     with pytest.raises(CollectionError):
@@ -363,4 +366,18 @@ def test_unsafe_tls_or_inline_credential_prefix_fails_before_any_process(prefix,
 
     monkeypatch.setattr("subprocess.Popen", forbidden)
     with pytest.raises(CollectionError, match="VERIFIED_KUBERNETES_TLS_REQUIRED"):
+        KubectlReader(prefix)
+
+
+@pytest.mark.parametrize(
+    "prefix", [["kubectl", "exec", "pod"], ["sh", "-c", "unexpected"], ["kubectl", "--", "apply"]]
+)
+def test_client_prefix_cannot_smuggle_an_effect_verb(prefix, monkeypatch):
+    from bravo_console.kubernetes_workload import KubectlReader
+
+    def forbidden(*_args, **_kwargs):
+        raise AssertionError("unsafe prefix spawned")
+
+    monkeypatch.setattr("subprocess.Popen", forbidden)
+    with pytest.raises(CollectionError, match="READ_SCOPE_INVALID"):
         KubectlReader(prefix)
