@@ -1,10 +1,10 @@
 {
-  "source_revision": "4906f81c72876f82c50094430b10eebc161641ac",
+  "source_revision": "edc8a09569901cc6266a6eb8e53f40d7d21cd2a8",
   "image": "ghcr.io/softbank-hackathon-finals/platform-registration",
-  "image_digest": "sha256:6cc718e1ec3c9dfad978ff7ed2a65ddd94629791d5b1f76f5f9bedb6608c04f9",
-  "platform_manifest_digest": "sha256:a148b4ce03085692cd33e99245602e1d9717912f37c5acef723d39c9c232d22b",
-  "config_digest": "sha256:364143435763ba0f1b18785114eacec27f1f7f7c26e83ecfb4e55e855d30fde4",
-  "context_sha256": "9811aeef24e123a36deaef8e05ba49f24718505d0dd2c65ed36623f512f2dcfd",
+  "image_digest": "sha256:089829a6cc2d2803de7fac5f75d59ea926e87d24e4b307d9d49b408f9a1b72d1",
+  "platform_manifest_digest": "sha256:ec56610291023212255b98a15388387db5dedb8ed4b981d5ffbdb1534373127b",
+  "config_digest": "sha256:ebd329f9e74b3fae7a8673aeea827e6b107d6f1591715786ad8341ad1d56275e",
+  "context_sha256": "ab059b5121ac91a3038d597c23eb1b640cb463b8f174d4759f91404d964edd0f",
   "oci_blobs": 22,
   "scan": {
     "scanners": [
@@ -25,10 +25,10 @@
     "secret_match_count": 0
   },
   "registry_visibility": "private",
-  "tag": "sha-4906f81c72876f82c50094430b10eebc161641ac-42375653771-1",
-  "run_id": "42375653771",
+  "tag": "sha-edc8a09569901cc6266a6eb8e53f40d7d21cd2a8-42376821133-1",
+  "run_id": "42376821133",
   "attempt": "1",
-  "workflow_revision": "4906f81c72876f82c50094430b10eebc161641ac",
+  "workflow_revision": "edc8a09569901cc6266a6eb8e53f40d7d21cd2a8",
   "published": true,
   "deployed": false
 }
