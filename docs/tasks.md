@@ -513,7 +513,7 @@ Claude Code는 `/todo-task`, Codex는 `$todo-task`로 이 순서를 따르는 �
 **할 일**
 - [ ] kube-bench · Prowler · gitleaks 결과를 통제 ID에 매핑
 - [x] UNKNOWN은 차단으로 처리
-- [ ] 시험 방법은 환경 어댑터별로 구현, 통제 ID와 판정 기준은 공통
+- [x] 시험 방법은 환경 어댑터별로 구현, 통제 ID와 판정 기준은 공통
 
 **완료 기준** 6개 통제가 양쪽 환경에서 통제 ID별 결과를 낸다.
 
