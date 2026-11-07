@@ -890,9 +890,9 @@ Claude Code는 `/todo-task`, Codex는 `$todo-task`로 이 순서를 따르는 �
 **목표** 목적지 설정 변경 한 건이 "에이전트 계획 → plan diff·digest → PR 검토·병합 → 적용 → GATE 재대조"로 이어지고, 변경 이력이 Git에 남는다. 에이전트는 노출 확대·모듈 추가/삭제를 계획할 수 없고 적용 권한이 없다.
 
 **할 일**
-- [ ] `services/iac`: 모듈 카탈로그·원하는 상태 검사·결정적 plan(같은 입력 같은 digest, 비밀 값 제외)·CLI·읽기/제안 API, 첫 모듈 `target-object-exposure`와 T9 렌더러 동치 시험
-- [ ] 네트워크 경로 모듈 `tailnet-egress`: 플랫폼→목적지 API, 컷오버→양쪽 DB·Pooler, 관측(Collector→지표 저장소)을 선언하고 tailnet 정책 조각·Tailscale 실검증(`tailnet-verify`)
-- [ ] 에이전트 도구 `infra.plan`(T11 도구 계층·두 provider)과 제어 경로가 주입하는 계획 포트(`AgentPlanner`)
+- [x] `services/iac`: 모듈 카탈로그·원하는 상태 검사·결정적 plan(같은 입력 같은 digest, 비밀 값 제외)·CLI·읽기/제안 API, 첫 모듈 `target-object-exposure`와 T9 렌더러 동치 시험
+- [x] 네트워크 경로 모듈 `tailnet-egress`: 플랫폼→목적지 API, 컷오버→양쪽 DB·Pooler, 관측(Collector→지표 저장소)을 선언하고 tailnet 정책 조각·Tailscale 실검증(`tailnet-verify`)
+- [x] 에이전트 도구 `infra.plan`(T11 도구 계층·두 provider)과 제어 경로가 주입하는 계획 포트(`AgentPlanner`)
 - [ ] 실제 Job에 포트 연결(T38·T11): 커밋된 원하는 상태를 입력으로, 계획 결과를 실행 결과에 결속
 - [ ] 플랫폼 API에 IaC 조회·plan 연결(T10)과 승인 뒤 원하는 상태 PR 생성(기존 GitHub App 쓰기 경로)
 - [ ] 고객 클러스터마다 Argo CD(pull): 환경별 생성 Helm 차트와 설치 차트(1단계 넉넉한 권한), 실제 클러스터 설치와 동기화 확인
