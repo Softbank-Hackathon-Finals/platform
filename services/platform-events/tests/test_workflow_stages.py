@@ -5,6 +5,7 @@ from datetime import datetime, timedelta
 
 import pytest
 from test_application_host import host_case  # noqa: F401  (fixture)
+from test_change_intake import keys  # noqa: F401  (fixture)
 from test_cutover import BINDING, NOW, PRINCIPAL, SPEC
 from test_workflow_recovery import Producers, admit_change, collect, remote_executor, service
 
@@ -284,3 +285,23 @@ def test_a_delegated_shift_approval_is_recorded_by_the_host_once(backend, tmp_pa
             assert gate == "shift" and binding == {"plan_version": str(version)}
         else:
             assert (step.after, step.hold) == ("AWAIT_APPROVAL", "shift_approval_required")
+
+
+def test_a_delegated_change_approval_approves_the_current_candidate_as_the_approver(backend, keys):  # noqa: F811
+    from test_change_intake import BINDING as CANDIDATE_BINDING
+    from test_change_intake import NORMAL, IntakeFixture
+
+    from bravo_platform_events.workflow_stages import _delegated_change
+
+    f = IntakeFixture(backend, keys[0])
+    plan_id = NORMAL.plan_id
+    assert _delegated_change(f.service(), _Delegations(True), plan_id, 1) is None  # no candidate yet
+    f.deliver()
+    assert _delegated_change(f.service(), _Delegations(False), plan_id, 1) is None  # a person decides
+    delegations = _Delegations(True)
+    receipt = _delegated_change(f.service(), delegations, plan_id, 1)
+    assert receipt["actor_id"] == PRINCIPAL.subject_id and receipt["run_id"] == NORMAL.run_id
+    assert receipt["binding"] == CANDIDATE_BINDING and delegations.calls == [("change", CANDIDATE_BINDING, 1)]
+    assert _delegated_change(f.service(), delegations, plan_id, 1) == receipt  # same decision, once
+    f.hold()
+    assert _delegated_change(f.service(), delegations, plan_id, 1) is None  # a held candidate is never approved

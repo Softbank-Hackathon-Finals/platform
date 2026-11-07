@@ -138,6 +138,7 @@ def create_ports(store, config_file="/workflow/ports.json"):
     cutover = CutoverService(store, client, bindings=bindings)
     readers = {"AWAIT_APPROVAL": shift_approval_reader, "CUTOVER": integrity_reader}
     preparers = {"PROPOSE": _propose(store, config["propose"])}
+    delegations = None
     if config.get("delegation") is True:
         # T49: approvals the approver delegated in advance are recorded by this host at the gate.
         from .approval_delegation import ApprovalDelegations
@@ -145,9 +146,10 @@ def create_ports(store, config_file="/workflow/ports.json"):
         from .workflow_stages import ShiftApprovalService, delegated_shift_preparer
 
         access = OperatorAccess(store)
+        delegations = ApprovalDelegations(store, access)
         shift = ShiftApprovalService(store, check_approve=access.requires("approve_shift"))
         readers.pop("AWAIT_APPROVAL")
-        preparers["AWAIT_APPROVAL"] = delegated_shift_preparer(shift, ApprovalDelegations(store, access))
+        preparers["AWAIT_APPROVAL"] = delegated_shift_preparer(shift, delegations)
     if "watch" in config:
         watch = config["watch"]
         if set(watch) != {"profile_file", "retest"}:
@@ -158,7 +160,8 @@ def create_ports(store, config_file="/workflow/ports.json"):
         # Owner-provided (T31/T19): returns {"REHEARSE": preparer, "GATE": preparer} built with
         # workflow_stages.application_stages(..., host_subject="workflow-host") over this process's
         # single ApplicationHost; that subject needs its own apply_change grant.
-        stages = _factory(config["application"])(store)
+        factory = _factory(config["application"])
+        stages = factory(store, delegations=delegations) if delegations else factory(store)
         if not isinstance(stages, dict) or set(stages) - {"REHEARSE", "GATE"}:
             raise ValueError("workflow_application_ports_invalid")
         preparers |= stages
