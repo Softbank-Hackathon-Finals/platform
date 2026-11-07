@@ -24,6 +24,7 @@ from .stack import StackError, canonical, sha256_text
 # Set on the node by whatever prepared the host directories (first boot or the platform's site agent),
 # after it created them exactly as the step declares. The value binds the attestation to that declaration.
 HOST_PATHS_ANNOTATION = "bravo.io/host-paths"
+TAILSCALE_LOGGED_IN = {"_current-profile"}  # tailscale ipn/store/kubestore key after login
 
 
 def host_paths_digest(paths):
@@ -280,6 +281,11 @@ class KubectlCluster:
         return {i["name"]: sorted({a.split(":", 1)[-1] for a in i.get("actions", [])})
                 for i in document.get("identities", [])}
 
+    def secret_keys(self, namespace, name):
+        """Key names of a Secret, or None if it does not exist. Values are dropped here."""
+        obj = self._get("secret", namespace, name)
+        return None if obj is None else set(obj.get("data") or {})
+
     def condition(self, kind, namespace, name, condition):
         obj = self._get(kind, namespace, name)
         if obj is None:
@@ -427,6 +433,9 @@ class ClusterChecks:
             "argocd-repository": lambda: c.labelled_secret_exists(ARGO_NAMESPACE, "argocd.argoproj.io/secret-type=repository"),
             "seaweedfs-auth": lambda: self._seaweedfs_matches_desired(run),
             "tailscale-oauth": lambda: c.secret_exists("tailscale-system", "operator-oauth"),
+            # The operator's state Secret gets a current profile only after it logged in to the tailnet
+            # (OAuth secret or WIF alike). Synced/Healthy does not show that.
+            "tailscale-joined": lambda: TAILSCALE_LOGGED_IN <= (c.secret_keys("tailscale-system", "operator") or set()),
             "openbao-tls": lambda: c.secret_exists("bravo-secrets", "target-openbao-tls"),
             "openbao-ready": lambda: c.condition("Pod", "bravo-secrets", "target-openbao-0", "Ready"),
             "target-checks": lambda: (c.condition("Cluster", "target-dev", "target-db", "Ready")
