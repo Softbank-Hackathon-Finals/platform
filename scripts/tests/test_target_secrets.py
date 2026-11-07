@@ -3,6 +3,7 @@ import copy
 import importlib.util
 import io
 import json
+import re
 import unittest
 from contextlib import redirect_stdout
 from pathlib import Path
@@ -202,6 +203,37 @@ class T14OtherRoleTests(unittest.TestCase):
         self.assertNotIn("secret/data/" + render.ADMIN_PATH, paths)
         self.assertTrue(all(p.startswith("auth/token/") for p in paths[1:]))
         self.assertNotIn("create", render.app_db_policy())
+
+    def test_comparison_and_app_roles_are_distinct_identities(self):
+        other, app = cli("t14-other-auth-role"), cli("app-auth-role")
+        self.assertNotEqual(other["bound_service_account_names"], app["bound_service_account_names"])
+        self.assertNotIn(render.APP_DB_POLICY, other["token_policies"])
+        self.assertEqual(other["audience"], app["audience"])  # the operator mints both tokens the same way
+
+
+class ServerCertificateNameTests(unittest.TestCase):
+    """Every https address a client uses must be covered by the leaf's SANs (T14 checks this name)."""
+
+    def test_sans_cover_the_service_name_and_the_in_pod_probe(self):
+        sans = cli("server-cert-sans")
+        self.assertIn("target-openbao.bravo-secrets.svc", sans["dns"])
+        self.assertIn("127.0.0.1", sans["ip"])
+        self.assertEqual(sans["subject_alt_name"], "DNS:target-openbao.bravo-secrets.svc,IP:127.0.0.1")
+
+    def test_every_rendered_server_address_is_a_san(self):
+        rendered = json.dumps([render.bao_values(), render.delivery(), render.rehearsal_delivery("rehearsal-x"),
+                               render.rehearsal_fetch_init_container("rehearsal-x")])
+        hosts = set(re.findall(r"https://([^:/\"\s]+)", rendered))
+        self.assertEqual(hosts, {"target-openbao.bravo-secrets.svc"})
+        self.assertLessEqual(hosts, set(render.SERVER_CERT_SANS["dns"]))
+        config = render.bao_values()["server"]["standalone"]["config"]
+        self.assertIn('api_addr = "https://target-openbao.bravo-secrets.svc:8200"', config)
+
+    def test_pinned_chart_probe_address_is_a_san(self):
+        chart = (ROOT / "services/infra-plan/tests/fixtures/openbao-0.30.6-chart.json").read_text()
+        addresses = set(re.findall(r'"name": "BAO_ADDR",\s*"value": "https://([^:"]+):8200"', chart))
+        self.assertEqual(addresses, {"127.0.0.1"})
+        self.assertLessEqual(addresses, set(render.SERVER_CERT_SANS["ip"]))
 
 
 if __name__ == "__main__":
