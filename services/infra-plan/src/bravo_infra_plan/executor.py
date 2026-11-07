@@ -25,7 +25,7 @@ import time
 from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from datetime import UTC, datetime
 
-from .applications import application, application_name, project
+from .applications import application, application_name, default_namespace, project
 from .plan import Planner
 from .stack import StackError, canonical, sha256_text
 from .terraform import Scratch, TerraformCli, inputs_digest, outputs_reader, plan_step
@@ -248,7 +248,8 @@ class Executor:
             self.store.save(run)  # the new head is durable before anything else can fail
         published = {k: v for k, v in run["files"].items() if _steps(run)[k]["kind"] == "gitops_publish"}
         manifests = [project(stack, repo_url=self.repo_url, files=published),
-                     application(stack, step["path"], repo_url=self.repo_url, revision=commit)]
+                     application(stack, step["path"], repo_url=self.repo_url, revision=commit,
+                                 namespace=default_namespace(files))]
         if self.cluster.diff(manifests):
             self.cluster.apply(manifests)
             status = APPLIED

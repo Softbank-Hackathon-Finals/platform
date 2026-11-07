@@ -452,6 +452,12 @@ def test_the_t45_project_allows_only_what_the_approved_manifests_make(world):
     # (fake charts here render ConfigMaps only; real charts with include_crds add their CRDs the same way)
     assert ("*", "*") not in kinds
     assert not any(kind == "ProxyGroup" for _, kind in kinds)  # T44's tailnet objects stay T44's
+    # Argo CD refuses an Application whose destination namespace the project does not list
+    # (an empty one matches only "*"): each names a namespace its own manifests use.
+    for item in world["cluster"].applied:
+        app = json.loads(item)
+        if app["kind"] == "Application":
+            assert app["spec"]["destination"]["namespace"] in namespaces, app["metadata"]["name"]
 
 
 def test_an_isolated_target_runs_to_verify_with_the_tailscale_line_omitted(world):
