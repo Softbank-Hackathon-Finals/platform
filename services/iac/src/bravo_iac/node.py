@@ -12,7 +12,7 @@ cluster-audit v1: the API server audit policy. The bytes are the reviewed policy
 
 import hashlib
 import json
-from importlib import resources
+from pathlib import Path
 
 from .modules import IacError, Module, _exact
 
@@ -29,7 +29,8 @@ def _sha(content: str) -> str:
 
 
 def audit_policy(name: str) -> str:
-    return resources.files("bravo_iac").joinpath("data", AUDIT_POLICIES[name]).read_text(encoding="utf-8")
+    # Next to this file, not resources.files("bravo_iac"): T31 loads this package under another name.
+    return (Path(__file__).parent / "data" / AUDIT_POLICIES[name]).read_text(encoding="utf-8")
 
 
 def _audit_check(params: dict) -> dict:
