@@ -8,7 +8,7 @@ Collector → 지표 저장소, 콘솔 API → 지표 저장소는 모두 mTLS�
 |---|---|---|---|
 | 관측 CA | `bravo-observability-ca-<날짜>-<무작위>` (매번 고유) | 모든 쪽의 `ca.crt` | 90일 |
 | 앱 CA(목적지) | `bravo-app-telemetry-ca-<날짜>`, 목적지 OpenBao `pki-telemetry`에서 생성. 키는 OpenBao 밖으로 나오지 않는다 | 앱 클라이언트(ESO 생성기) · Collector 수신 서버(사이드카)가 발급받는다. 72시간, 하루마다 교체 | 90일 |
-| 앱 CA(출발지) | 관측 CA와 같은 규칙으로 따로 만든다(발급자 PC) | 출발지 Collector 수신 서버 · 앱 클라이언트(`demo-chat-source`) | 90일 |
+| 앱 CA(출발지) | `bravo-app-telemetry-ca-source`, 출발지 cert-manager가 클러스터 안에서 생성(`deploy/app-pki-source`). 키는 `cert-manager` namespace의 Secret에만 있다 | 출발지 Collector 수신 서버 · 앱 클라이언트(`demo-chat-source`)가 발급받는다. 72시간, 하루마다 교체 | 1년(갱신해도 같은 키) |
 | 플랫폼 수신 CA | 같은 규칙으로 따로 만든다 | 저장소 `ca.crt` 묶음에 추가. 플랫폼 Collector(`collector-platform`)만 발급 | 90일 |
 | 출발지 Collector | `collector-aws` | Secret `bravo-collector-tls` (출발지 클러스터) | 30일 |
 | 목적지 Collector | `collector-onprem` | Secret `bravo-collector-tls` (목적지 클러스터) | 30일 |
@@ -101,68 +101,63 @@ T22 앱은 loopback 이외의 평문 주소를 거부한다. NetworkPolicy만으
 재시작해 연결을 끊고, 거부 대조군과 정상 전송을 다시 확인한다.
 CA 자동 교체/폐기 전체 운영 절차는 별도 자격 시험 대상이다.
 
-### 앱 인증서 발급 (출발지 demo-chat, #570의 전제)
+### 앱 인증서 발급 (출발지 demo-chat)
 
-앱 쪽은 관측 CA와 **다른** 앱 CA 하나로 서버·클라이언트를 모두 발급한다. 앱은 이 CA로 Collector를 검증하고,
-Collector는 같은 CA를 `client-ca.crt`로 믿어 앱을 검증한다.
+출발지에는 OpenBao가 없어 cert-manager(T35에서 설치한 v1.19.1)가 앱 CA를 **클러스터 안에서** 만든다
+([`deploy/app-pki-source`](../../services/observability/deploy/app-pki-source/kustomization.yaml)). CA 개인 키는
+`cert-manager` namespace의 Secret `bravo-app-telemetry-ca`에만 있고 사람 PC · git · 다른 namespace에 두지 않는다(#104 할 일 7).
+앱은 이 CA로 Collector를 검증하고, Collector는 같은 CA를 `client-ca.crt`로 믿어 앱을 검증한다.
+목적지 OpenBao에서 발급하지 않는 이유: 출발지가 이전 대상에 기대게 되고(목적지가 내려가거나 되돌리기 뒤에는 갱신 불가),
+출발지에서 목적지 PKI로 가는 새 경로가 필요하다.
 
 | 인증서 | 이름(CN · SAN의 DNS) | Secret (네임스페이스) | 유효기간 |
 |---|---|---|---|
-| 앱 CA | `bravo-observability-ca-<날짜>-<무작위>` (관측 CA와 따로 만든다) | 아래 두 Secret의 `ca.crt` · `client-ca.crt` | 90일 |
-| Collector 앱 수신(서버) | `bravo-collector` + 앱이 부르는 Service DNS | `bravo-collector-app-tls` (`bravo-observability`) | 30일 |
-| 출발지 demo-chat(클라이언트) | `demo-chat-source` | `bravo-app-metrics-client` (`source-dev`) | 30일 |
+| 앱 CA | `bravo-app-telemetry-ca-source` (자체 서명 ClusterIssuer가 발급) | `bravo-app-telemetry-ca` (`cert-manager`) | 1년, 30일 전 갱신. 갱신해도 키는 같다(`rotationPolicy: Never`) |
+| Collector 앱 수신(서버) | `bravo-collector` + `bravo-collector.bravo-observability`(`.svc`, `.svc.cluster.local`) | `bravo-collector-app-tls` (`bravo-observability`) | 72시간, 하루마다 교체 |
+| 출발지 demo-chat(클라이언트) | `demo-chat-source` | `bravo-app-metrics-client` (`source-dev`) | 72시간, 하루마다 교체 |
 
-**먼저 이미 배포됐는지 본다.** 출발지 EKS Collector는 2026-11-06에 `collector-app-mtls`로 앱 수신(별도 앱 CA,
-TLS 1.3 mTLS)까지 배포됐다([증빙](../evidence/t37-source-collector-2026-11-06/README.md)). 그 CA 개인 키는 클러스터
-밖에서 관측 담당이 보관한다. 이때 아래 "새로 만드는 경우"를 그대로 실행하면 `bravo-collector-app-tls`가
-`AlreadyExists`로 멈춘다. 지우고 다시 만들면 Collector가 믿는 CA가 바뀌어 그 CA로 발급한 기존 클라이언트가 거부된다.
+- **키 이름:** cert-manager Secret은 발급 CA를 `ca.crt`에 담는다. Collector는 `client-ca.crt`를 읽으므로
+  [`components/app-mtls-cert-manager`](../../services/observability/deploy/components/app-mtls-cert-manager/kustomization.yaml)가
+  같은 Secret의 `ca.crt`를 그 이름으로 마운트한다. 앱은 `ca.crt` · `tls.crt` · `tls.key`를 그대로 읽는다.
+- **발급 권한:** CA가 ClusterIssuer라서 `cert-manager.io/Certificate`를 만들 수 있는 주체는 어느 namespace에서든 이 CA의
+  인증서를 받을 수 있다. Collector는 클라이언트 SAN을 보지 않으므로(위 "발급 CA를 신뢰하는 mTLS") 그 권한이 곧 앱 지표 전송
+  권한이다. 출발지에서 이 권한은 클러스터 관리자에게만 둔다(앱 · Collector SA에 주지 않는다).
+- **교체:** leaf는 cert-manager가 만료 48시간 전에 새 키로 다시 발급한다. Collector는 1분마다 서버 인증서와 `client-ca.crt`를
+  다시 읽고, 앱은 다음 연결부터 새 파일을 쓴다. CA는 갱신해도 키가 같아 이미 발급된 leaf가 계속 검증된다.
 
-```sh
-# 이미 배포된 경우: Collector가 믿는 CA와 서버 인증서 발급자를 읽기만 한다(키는 클러스터에 없다)
-kubectl -n bravo-observability get secret bravo-collector-app-tls -o jsonpath='{.data.client-ca\.crt}' \
-  | base64 -d | openssl x509 -noout -subject -enddate -fingerprint -sha256
-kubectl -n bravo-observability get secret bravo-collector-app-tls -o jsonpath='{.data.tls\.crt}' \
-  | base64 -d | openssl x509 -noout -issuer -enddate
-openssl x509 -in ./app-ca/ca.crt -noout -subject -fingerprint -sha256   # 보관 중인 앱 CA와 같아야 한다
-
-# 같으면: 그 CA로 앱 클라이언트 인증서만 발급하고 앱 Secret만 만든다. Collector Secret은 건드리지 않는다
-I=services/observability/deploy/certs/issue.sh
-$I leaf ./app-ca demo-chat-source DNS:demo-chat-source ./out/demo-chat-source
-kubectl -n source-dev create secret generic bravo-app-metrics-client \
-  --from-file=./out/demo-chat-source/ca.crt --from-file=./out/demo-chat-source/tls.crt \
-  --from-file=./out/demo-chat-source/tls.key
-```
-
-- 지문이 다르거나 보관 중인 앱 CA가 없으면 발급하지 않는다. CA를 바꿔야 하면 3절 교체 절차를 따른다:
-  `client-ca.crt`와 앱의 `ca.crt`에 옛·새 CA를 함께 넣고, 새 CA leaf로 바꾼 뒤 옛 CA를 뺀다.
-- 서버 인증서 발급자(`tls.crt`의 issuer)가 `client-ca.crt`의 subject와 다르면 앱이 Collector를 믿지 못한다.
-  앱 `ca.crt`에는 서버 인증서를 발급한 CA를 넣는다.
-
-**새로 만드는 경우**(그 클러스터에 `bravo-collector-app-tls`가 없을 때만):
+**적용**(출발지 클러스터, 해피패스 실행과 겹치지 않는 창에서):
 
 ```sh
-I=services/observability/deploy/certs/issue.sh
-$I ca   ./app-ca 90                     # 관측 CA(./obs-ca)와 다른 디렉터리. CA 키는 밖으로 내보내지 않는다
-$I leaf ./app-ca bravo-collector \
-  "DNS:bravo-collector,DNS:bravo-collector.bravo-observability.svc,DNS:bravo-collector.bravo-observability.svc.cluster.local" \
-  ./out/collector-app
-$I leaf ./app-ca demo-chat-source DNS:demo-chat-source ./out/demo-chat-source
-
-# Collector (출발지 클러스터): 서버 인증서와, 앱을 믿을 CA
-kubectl -n bravo-observability create secret generic bravo-collector-app-tls \
-  --from-file=./out/collector-app/tls.crt --from-file=./out/collector-app/tls.key \
-  --from-file=client-ca.crt=./app-ca/ca.crt
-# 앱 (출발지 클러스터): Collector를 믿을 CA와 앱 전용 클라이언트 인증서
-kubectl -n source-dev create secret generic bravo-app-metrics-client \
-  --from-file=./out/demo-chat-source/ca.crt --from-file=./out/demo-chat-source/tls.crt \
-  --from-file=./out/demo-chat-source/tls.key
+B=services/observability/deploy
+kubectl apply --server-side --dry-run=server -k $B/app-pki-source
+# 옛 수동 Secret은 Opaque라 cert-manager가 넘겨받지 못한다(Secret type은 바꿀 수 없다). 지우고 새로 발급받는다.
+# 이미 떠 있는 Collector · 앱 Pod는 마운트된 옛 파일로 계속 돈다
+kubectl -n bravo-observability delete secret bravo-collector-app-tls
+kubectl -n source-dev delete secret bravo-app-metrics-client
+kubectl apply --server-side -k $B/app-pki-source
+kubectl -n cert-manager wait --for=condition=Ready --timeout=120s certificate/bravo-app-telemetry-ca
+kubectl -n bravo-observability wait --for=condition=Ready --timeout=120s certificate/bravo-collector-app-tls
+kubectl -n source-dev wait --for=condition=Ready --timeout=120s certificate/bravo-app-metrics-client
+# 두 leaf의 발급자가 새 앱 CA(bravo-app-telemetry-ca-source)인지 본다
+kubectl -n bravo-observability get secret bravo-collector-app-tls -o jsonpath='{.data.tls\.crt}' | base64 -d | openssl x509 -noout -issuer -enddate
+kubectl -n source-dev get secret bravo-app-metrics-client -o jsonpath='{.data.tls\.crt}' | base64 -d | openssl x509 -noout -issuer -enddate
+# Collector가 새 CA(ca.crt)를 client-ca.crt로 믿게 한다. 바뀌는 것은 app-tls 볼륨의 키 매핑뿐이다(11/8 kubectl diff)
+kubectl apply --server-side -k $B/collector-source
+kubectl -n bravo-observability rollout status deploy/bravo-collector --timeout=180s
 ```
 
-- **순서:** 두 Secret을 먼저 만들고 Collector에 `collector-app-mtls`(또는 `components/app-mtls`)를 적용한 뒤, 앱 렌더(#570)를 적용한다. Secret이 없으면 Collector와 앱 모두 시작하지 않는다.
-- **이름:** 앱 엔드포인트는 `https://bravo-collector.bravo-observability.svc:4318/v1/metrics`다. 서버 SAN에 이 이름이 없으면 앱이 연결을 거부한다.
+- **넘어가는 동안:** 옛 Secret을 지운 뒤부터 Collector를 다시 띄울 때까지는 앱 지표가 거부될 수 있다(새 Secret에는
+  `client-ca.crt` 키가 없고, 앱은 다음 연결부터 새 CA의 인증서를 쓴다). 그 사이 앱 Pod가 다시 시작되면 Secret이 생길 때까지
+  기다린다. 그래서 위 순서를 끊지 않고 이어서 하고, 끝나면 앱 HTTP 지표가 저장소에 다시 들어오는지 본다.
+  앱 지표는 판정 근거가 아니라 표시용이다.
+- **사전 확인(11/8, 실제 출발지):** 두 묶음 모두 server-side dry-run 통과(cert-manager 웹훅 포함). cert-manager는
+  `cert-manager` namespace에서 `--cluster-resource-namespace=$(POD_NAMESPACE)`로 돈다(ClusterIssuer가 CA Secret을 읽는 곳).
+  기존 두 Secret은 `Opaque`이고, `kubernetes.io/tls`로 바꾸는 요청은 API가 `field is immutable`로 거부했다(그래서 지운다).
+- **되돌리기:** `collector-source`에서 `components/app-mtls-cert-manager`를 빼고, 옛 앱 CA로 두 Secret을 다시 만든다(옛 CA 키는
+  관측 담당 PC에 있다). 전환을 확인한 뒤에는 그 옛 CA 키를 폐기한다.
 - **분리:** 앱 CA로 관측 경로(Collector → 지표 저장소) 인증서를 발급하지 않는다. 반대로 관측 CA 인증서를 앱에 주지 않는다.
+- **이름:** 앱 엔드포인트는 `https://bravo-collector.bravo-observability.svc:4318/v1/metrics`다. 서버 SAN에 이 이름이 없으면 앱이 연결을 거부한다.
 - **읽기 권한:** 앱 Secret은 0440(root 소유)으로 마운트된다. 지금 앱은 이미지의 기본 그룹(0)으로 읽는다. Pod에 `runAsGroup`을 넣거나 이미지 사용자를 바꾸면 `fsGroup`도 함께 지정한다(#570 리뷰).
-- **교체:** leaf 교체 · CA 교체는 3절 절차와 같다. 앱 CA 교체 중에는 `client-ca.crt`와 앱의 `ca.crt`에 옛 · 새 CA를 함께 넣는다.
 - **로컬 확인(2026-11-07, 플랫폼 · 실클러스터 아님):** 위 이름 · 확장값으로 발급한 인증서를 Collector 수신 설정과 같은 조건(TLS 1.3, 클라이언트 인증서 필수 · `client-ca.crt` 검증)의 서버에 붙여 보았다. 앱 인증서 + Service DNS · FQDN은 연결되고, 클라이언트 인증서 없음 · 관측 CA 등 다른 CA의 인증서 · 다른 서버 이름은 모두 거부됐다.
 - **Windows Git Bash:** `issue.sh`의 `-subj`(앞의 `/`)와 `-extfile <(...)`가 동작하지 않는다. Linux · macOS 셸에서 발급한다.
 - **목적지(`target-dev`, #571):** 목적지 클러스터 Collector에도 위와 같이 먼저 `bravo-collector-app-tls`가 있는지 본다.
