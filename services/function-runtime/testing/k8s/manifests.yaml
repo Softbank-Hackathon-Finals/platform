@@ -26,12 +26,25 @@ spec:
   template:
     metadata: { labels: { app: elasticmq } }
     spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        seccompProfile: { type: RuntimeDefault }
       containers:
         - name: elasticmq
           image: softwaremill/elasticmq-native@sha256:e4580ab9ad1bd5cd37b4ba04911bc5ccc8cd2d9ab4de56ece65acee71c24e05c
           ports: [{ containerPort: 9324 }]
-          volumeMounts: [{ name: config, mountPath: /opt/elasticmq.conf, subPath: elasticmq.conf }]
-      volumes: [{ name: config, configMap: { name: elasticmq-config } }]
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: [ALL] }
+          volumeMounts:
+            - { name: config, mountPath: /opt/elasticmq.conf, subPath: elasticmq.conf }
+            - { name: tmp, mountPath: /tmp }
+      volumes:
+        - { name: config, configMap: { name: elasticmq-config } }
+        - { name: tmp, emptyDir: {} }
 ---
 apiVersion: v1
 kind: Service
@@ -63,16 +76,28 @@ spec:
   template:
     metadata: { labels: { app: queue-tls } }
     spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 101
+        runAsGroup: 101
+        seccompProfile: { type: RuntimeDefault }
       containers:
         - name: nginx
-          image: nginx:1.27-alpine
+          # 루트 없이 도는 nginx 이미지. 임시 파일 · pid는 /tmp에 쓴다.
+          image: nginxinc/nginx-unprivileged@sha256:65e3e85dbaed8ba248841d9d58a899b6197106c23cb0ff1a132b7bfe0547e4c0  # 1.27-alpine
           ports: [{ containerPort: 9443 }]
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: [ALL] }
           volumeMounts:
             - { name: config, mountPath: /etc/nginx/conf.d }
             - { name: tls, mountPath: /tls, readOnly: true }
+            - { name: tmp, mountPath: /tmp }
       volumes:
         - { name: config, configMap: { name: queue-tls-config } }
         - { name: tls, secret: { secretName: queue-tls } }
+        - { name: tmp, emptyDir: {} }
 ---
 apiVersion: v1
 kind: Service
@@ -84,22 +109,48 @@ apiVersion: v1
 kind: Pod
 metadata: { name: client, namespace: t46-queue-sec, labels: { role: queue-client } }
 spec:
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 10001
+    runAsGroup: 10001
+    seccompProfile: { type: RuntimeDefault }
   containers:
     - name: c
       image: t46-function-runtime:local
       imagePullPolicy: Never
       command: ["sleep", "infinity"]
-      volumeMounts: [{ name: ca, mountPath: /ca, readOnly: true }]
-  volumes: [{ name: ca, secret: { secretName: queue-ca } }]
+      securityContext:
+        allowPrivilegeEscalation: false
+        readOnlyRootFilesystem: true
+        capabilities: { drop: [ALL] }
+      volumeMounts:
+        - { name: ca, mountPath: /ca, readOnly: true }
+        - { name: tmp, mountPath: /tmp }
+  volumes:
+    - { name: ca, secret: { secretName: queue-ca } }
+    - { name: tmp, emptyDir: {} }
 ---
 apiVersion: v1
 kind: Pod
 metadata: { name: other, namespace: t46-queue-sec, labels: { role: other } }
 spec:
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 10001
+    runAsGroup: 10001
+    seccompProfile: { type: RuntimeDefault }
   containers:
     - name: c
       image: t46-function-runtime:local
       imagePullPolicy: Never
       command: ["sleep", "infinity"]
-      volumeMounts: [{ name: ca, mountPath: /ca, readOnly: true }]
-  volumes: [{ name: ca, secret: { secretName: queue-ca } }]
+      securityContext:
+        allowPrivilegeEscalation: false
+        readOnlyRootFilesystem: true
+        capabilities: { drop: [ALL] }
+      volumeMounts:
+        - { name: ca, mountPath: /ca, readOnly: true }
+        - { name: tmp, mountPath: /tmp }
+  volumes:
+    - { name: ca, secret: { secretName: queue-ca } }
+    - { name: tmp, emptyDir: {} }

@@ -7,7 +7,7 @@ docker compose -f ../local/compose.yaml build runtime-base   # t46-function-runt
 uv run --project ../.. python prove_k8s.py                     # 클러스터 생성 · 시험 · 삭제
 ```
 
-- `manifests.yaml`: ElasticMQ, TLS 종단 프록시(nginx), 허용된 큐 클라이언트 Pod(`role: queue-client`), 허용되지 않은 Pod.
+- `manifests.yaml`: ElasticMQ, TLS 종단 프록시(루트 없이 도는 `nginx-unprivileged`), 허용된 큐 클라이언트 Pod(`role: queue-client`), 허용되지 않은 Pod. 모두 루트 실행 금지 · 읽기 전용 파일시스템 · 권한 상승 금지 · 권한 전부 제거이고, 쓰기는 `/tmp` 임시 볼륨만 쓴다(CI Trivy 설정 점검 통과).
 - `policies.yaml`: 수신 기본 거부, ElasticMQ 9324는 프록시만, 프록시 9443은 큐 클라이언트만.
 - 인증서는 실행 때 임시 디렉터리에서 만들고 커밋하지 않는다.
 - 앱 쪽은 코드 수정 없이 `AWS_ENDPOINT_URL_SQS=https://queue-tls...:9443`, `AWS_CA_BUNDLE=<CA 파일>`만 바꾼다.
