@@ -2,6 +2,7 @@
 
     GET  /v1/iac/modules                     the module catalog
     GET  /v1/iac/environments/{environment}  the desired state as committed, with its digest
+    GET  /v1/iac/network                     every environment's tailnet routes and policy fragments (network.py)
     POST /v1/iac/plan                        {"environment", "proposed", "origin"} -> iac-plan.v1
 
 It reads the committed files only. It never writes Git, never applies to a cluster and never
@@ -11,7 +12,7 @@ holds credentials; the host authenticates callers in front of it.
 import json
 from pathlib import Path
 
-from . import catalog
+from . import catalog, network
 from .modules import IacError
 from .plan import digest, plan
 
@@ -44,6 +45,14 @@ def create_app(environments_dir):
     def environment(environment: str):
         state = committed(environment)
         return {"state": state, "digest": digest(state)}
+
+    @app.get("/v1/iac/network")
+    def network_view():
+        states = [committed(path.stem) for path in sorted(root.glob("*.json"))]
+        try:
+            return network.view(states)
+        except IacError as error:
+            raise HTTPException(503, {"code": error.code}) from None
 
     @app.post("/v1/iac/plan")
     def make_plan(body: dict = Body(...)):  # noqa: B008 - FastAPI body declaration
