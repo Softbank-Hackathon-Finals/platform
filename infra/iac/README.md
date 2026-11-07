@@ -101,6 +101,7 @@ helm upgrade --install bravo-iac-gitops infra/iac/argocd -n bravo-iac-gitops --c
 
 이후 원하는 상태의 변경은 PR → 병합 → 그 클러스터의 Argo가 60초 안에 끌어와 동기화(자동, prune·selfHeal, 없는 namespace 생성)
 한다. 비밀 값이 필요한 자원(지금은 버킷 계정 Secret)은 차트에 없고 `Chart.yaml`의 `bravo.dev/unmanaged`에 적힌다.
+**차트는 Namespace를 선언하지 않는다.** namespace의 주인은 클러스터를 세우는 쪽이다(새 목적지는 T45, 플랫폼·출발지는 기존 구성). 같은 Namespace를 T44·T45 두 Application이 함께 관리하던 겹침(#620 kind 실측의 Argo 경고)을 없앤다. namespace가 아직 없으면 그 객체는 동기화 재시도에서 기다린다.
 ProxyGroup은 그 클러스터에 Tailscale operator(CRD)가 있어야 생성된다(`SkipDryRunOnMissingResource`).
 
 **설치 명령은 두 번 실행한다.** 첫 실행이 Argo CD와 CRD를 만들고, 두 번째 실행이 AppProject·Application을 만든다
