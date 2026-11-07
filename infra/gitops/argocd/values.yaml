@@ -28,6 +28,16 @@ iacNetwork:
   tailnet: ""
   tailnets: {}
 
+# Platform public entry (infra/envs/public-entry): Git-declared hostnames -> Cloudflare Access, Tunnel route and DNS.
+# Turned on with the UI by infra/gitops/environments/development/public-entry.json (bootstrap passes it).
+publicEntry:
+  enabled: false
+
+# Platform metrics store and the platform's own Collector (services/observability/deploy/platform-gitops).
+# Turned on by the development values; needs clusterCredentials.platform.namespaces to include its namespaces.
+observability:
+  enabled: false
+
 registration:
   enabled: false
   # Protected operator input: existing config/Secret references and host aliases only.
@@ -62,7 +72,13 @@ argo-cd:
           kinds: [Deployment, ReplicaSet]
           clusters: ['*']
         - apiGroups: ['']
-          kinds: [Pod, Service, ServiceAccount]
+          kinds: [Pod, Service, ServiceAccount, ConfigMap]
+          clusters: ['*']
+        - apiGroups: [networking.k8s.io]
+          kinds: [NetworkPolicy]
+          clusters: ['*']
+        - apiGroups: [external-secrets.io]
+          kinds: [ExternalSecret]
           clusters: ['*']
     clusterCredentials:
       platform:

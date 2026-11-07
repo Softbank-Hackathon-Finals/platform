@@ -271,9 +271,17 @@ def main():
             raise ValueError("published_image_required")
         for name in set(runtime["secrets"].values()):
             get("secret", name, "platform-state")
-        get(
+        config = get(
             "configmap", runtime["configuration"]["existingConfigMap"], "platform-state"
         )
+        # The private catalog keeps its environment references; the profile allowlist is declared here.
+        declared = json.loads(
+            (ROOT / "infra/gitops/environments/development/registration-profiles.json").read_text()
+        )["evaluation_profiles"]
+        catalog = json.loads(config.get("data", {}).get("catalog.json", "{}"))
+        key = lambda p: (p["tenant_id"], p["profile_id"], p["profile_version"])
+        if sorted(map(key, catalog.get("evaluation_profiles", []))) != sorted(map(key, declared)):
+            raise ValueError("registration_profiles_drift")
         runtime_hash = hashlib.sha256(a.runtime_values.read_bytes()).hexdigest()
         if "productReader" in value:
             reader = value["productReader"]
@@ -292,6 +300,9 @@ def main():
         if "workflowHost" in value:
             verify_workflow_host(get, value["workflowHost"])
         values = ["--values", str(a.runtime_values)]
+    # Reviewed, non-secret environment settings (public entry and its read-only UI) come from Git. The runtime
+    # input is limited to the workload keys checked above, so it cannot change them.
+    values = ["--values", str(ROOT / "infra/gitops/environments/development/public-entry.json"), *values]
     chart = ROOT / "infra/gitops/argocd"
     run(
         [
@@ -321,7 +332,7 @@ def main():
         "revision": a.revision,
         "manifest_sha256": hashlib.sha256(render.stdout.encode()).hexdigest(),
         "runtime_input_sha256": runtime_hash,
-        "registration_enabled": bool(values),
+        "registration_enabled": runtime_hash is not None,
         "applied": False,
     }
     if a.apply:

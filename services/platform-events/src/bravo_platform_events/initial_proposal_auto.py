@@ -124,13 +124,18 @@ class AutoInitialProposal:
     """One call per sweep: start if needed, then collect when the Job is done."""
 
     def __init__(self, records, *, relay_config, state_dir, image, source_revision, principal, kubectl=None,
-                 catalog_root=None, admission_ttl=timedelta(hours=1), clock=None):
+                 catalog_root=None, admission_ttl=timedelta(hours=1), clock=None, plans=None):
         self.records, self.config, self.principal = records, relay_config, principal
         self.catalog_root = Path(catalog_root) if catalog_root else None
         self.admission_ttl, self.clock = admission_ttl, clock or (lambda: datetime.now(UTC))
+        # The plans this host runs the AI for; others keep the operator path (a shared host, one opt-in).
+        self.plans = None if plans is None else frozenset(plans)
         self.state_dir = Path(state_dir)
         self.client = job.JobInitialProposal(self.state_dir, image=image, source_revision=source_revision,
                                              kubectl=kubectl or InClusterKubectl())
+
+    def covers(self, plan_id):
+        return self.plans is None or plan_id in self.plans
 
     def admit(self, plan_id, tenant_id, version):
         """Admit the plan's input for the Job identity when exactly one task is registered for the plan

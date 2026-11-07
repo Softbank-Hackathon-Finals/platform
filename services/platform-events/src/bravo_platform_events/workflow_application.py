@@ -84,7 +84,7 @@ def post_apply_prepare(records):
     return prepare
 
 
-def create(store, config_file=CONFIG, *, kube=None):
+def create(store, config_file=CONFIG, *, kube=None, delegations=None):
     from bravo_apply.deploy import KubectlKube
 
     from . import gate_services
@@ -118,7 +118,8 @@ def create(store, config_file=CONFIG, *, kube=None):
     recheck = GateRecheck(records, prepare=post_apply_prepare(records),
                           service_factory=gate_services.service_factory(records, access))
     stages = application_stages(host, recheck, receipts_dir=config["receipts_dir"], check_current=check_current,
-                                load_gate=gate_services.load_gate(records, access), host_subject="workflow-host")
+                                load_gate=gate_services.load_gate(records, access), host_subject="workflow-host",
+                                delegations=delegations)
 
     def observe(plan_id):
         """Read the deployed image once, outside the plan lock (also after a host restart)."""

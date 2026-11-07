@@ -197,7 +197,8 @@
             "cluster_role": "cluster-admin",
             "tailnet_groups": [
               "autogroup:admin",
-              "autogroup:owner"
+              "autogroup:owner",
+              "group:bravo-operators"
             ]
           }
         ]

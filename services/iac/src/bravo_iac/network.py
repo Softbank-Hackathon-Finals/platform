@@ -39,6 +39,11 @@ def view(states) -> dict:
                 access += [{"proxy": params["proxy_hostname"], "proxy_tag": params["proxy_tag"],
                             "tailnet": tailnet_of(params), "tailnet_groups": b["tailnet_groups"],
                             "group": b["group"], "cluster_role": b["cluster_role"]} for b in params["bindings"]]
+            elif entry["id"] == "api-transport-access":
+                tailnets.add(tailnet_of(params))
+                access.append({"proxy": params["proxy_hostname"], "proxy_tag": params["proxy_tag"],
+                               "tailnet": tailnet_of(params), "tailnet_groups": params["tailnet_groups"],
+                               "authentication": "existing-kubernetes-auth"})
             elif entry["id"] == "tailnet-ingress":
                 for device in params["devices"]:
                     tailnets.add(tailnet_of(device))
@@ -49,7 +54,7 @@ def view(states) -> dict:
             "digest": digest(state),
             "egress": sorted(egress, key=lambda r: (r["service"], r["port"])),
             "ingress": sorted(ingress, key=lambda d: d["hostname"]),
-            "access": sorted(access, key=lambda a: (a["proxy"], a["group"])),
+            "access": sorted(access, key=lambda a: (a["proxy"], a.get("group", ""))),
         }
     return {"kind": "iac-network.v1", "environments": dict(sorted(environments.items())),
             "tailnets": {key: fragment(states, key) for key in sorted(tailnets)}}
