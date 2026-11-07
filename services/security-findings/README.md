@@ -72,7 +72,7 @@ uv run uvicorn bravo_findings.api:create_app --factory --host 127.0.0.1 --port 8
 |---|---|---|
 | AWS Security Hub | 계정/리전·Hub 전후 대조, 페이지·SDK 형식 검증 | 11/6 실제 401을 FAILED로 저장·조회. 양성 탐지 인수 필요 |
 | GuardDuty 직접 | SDK 형식·다중 페이지·계정/리전/탐지기 결속·실패 시 커서 유지 | 11/4 팀 계정 서울 리전에서 `NOT_ENABLED` 확인. 양성 탐지 수집은 미검증 |
-| Google Cloud SCC | 가짜 HTTP 세션 | GCP 프로젝트 · SCC 필요. 필터 문법 확인 필요 |
+| Google Cloud SCC | v2 응답 형식 · 다중 페이지 · 범위(번호 parent) · 시간 창 결속 · 연합 자격만 · 실패 시 커서 유지 | GCP 프로젝트에서 SCC 활성 필요. 필터(`eventTime` 밀리초)와 탐지 수집은 미검증 |
 | Kyverno · Falco | 예시 PolicyReport(두 형태) · Falco 이벤트 | 온프렘 클러스터에 설치 필요 (T2 · T30 · T9) |
 
 ### Security Hub 명시 수집
@@ -109,6 +109,25 @@ uv run python -m bravo_findings.aws_pull \
 - 현재 제공 범위는 1회 실행과 기존 저장소·조회 모델 연결이다. 운영 스케줄러, 서비스 배포 및 실제 양성 탐지→인증된 조회 API의 전체 연결은 아직 완료하지 않았다.
 
 근거: [ListFindings](https://docs.aws.amazon.com/guardduty/latest/APIReference/API_ListFindings.html), [GetFindings](https://docs.aws.amazon.com/guardduty/latest/APIReference/API_GetFindings.html), [AdditionalInfo](https://docs.aws.amazon.com/guardduty/latest/APIReference/API_ServiceAdditionalInfo.html), [심각도](https://docs.aws.amazon.com/guardduty/latest/ug/guardduty_findings-severity.html).
+
+### Google Cloud SCC 수집
+
+SCC v2 `ListFindings`(`{parent}/sources/-/locations/global/findings`)만 쓴다. 2024-12-09 이후 활성화한 조직은 v2만 지원하고, 데이터 상주를 켜지 않았으면 위치는 `global`이다. 지역 endpoint는 지원하지 않는다.
+
+```bash
+uv run python -m bravo_findings.gcp_pull \
+  --parent "projects/$GCP_PROJECT_NUMBER" --environment-id env-gcp \
+  --credentials-file "$PRIVATE/scc-wif.json" --database "$PRIVATE_FINDINGS_DB"
+```
+
+- **자격은 Workload Identity 연합만 받는다.** `external_account` 설정 파일에서 토큰 출처가 파일(플랫폼 발급자의 projected 토큰) 하나인 경우만 쓴다. 서비스 계정 키, 사용자 자격, `client_secret`, 명령 · URL 토큰 출처, workforce pool, 다른 STS 주소, 다른 universe는 수집 전에 거부되고 `ACCESS_DENIED`로 남는다. 서비스 계정 가장(impersonation)은 `iamcredentials.googleapis.com`의 `generateAccessToken` 주소만 받는다.
+- **권한은 `securitycenter.findings.list` 하나다**(예: `roles/securitycenter.findingsViewer`를 그 parent에). SCC 활성화, 소스, finding, mute 설정을 만들거나 바꾸지 않는다.
+- **범위:** `--parent`는 번호(`projects/<번호>`, `folders/<번호>`, `organizations/<번호>`)만 받는다. 응답 finding 이름이 그 parent 아래가 아니면 `SOURCE_UNHEALTHY`다(AWS의 계정 대조에 해당).
+- **응답 결속:** 같은 페이지 토큰 반복(페이지 200개 상한), 같은 finding 중복, `eventTime`이 조회 창 밖이거나 없음, 형식이 다른 응답은 `SOURCE_UNHEALTHY`이고 커서를 그대로 둔다. 빈 결과는 필드가 생략된 응답(`{}`)으로 온다.
+- 환경의 프록시 · netrc 설정은 API와 토큰 호출 모두 쓰지 않는다(`trust_env=False`).
+- **아직:** GCP 쪽 연합(플랫폼 발급자를 믿는 workload identity pool · provider, 조회 권한)과 SCC 활성, 플랫폼 주기 작업은 없다. 실제 프로젝트에서 SCC를 켠 뒤 필터 문법과 수집을 확인하고 증빙을 남긴다.
+
+근거: [v2 ListFindings](https://docs.cloud.google.com/security-command-center/docs/reference/rest/v2/projects.sources.locations.findings/list), [v2 이전 안내](https://docs.cloud.google.com/security-command-center/docs/migrate-v2-api).
 
 ## 호환성과 배포 주의
 
