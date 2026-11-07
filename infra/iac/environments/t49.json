@@ -8,6 +8,14 @@
       "params": {
         "tag": "tag:bravo-t49-operator"
       }
+    },
+    {
+      "id": "service-account-issuer",
+      "version": "1",
+      "params": {
+        "runtime": "rke2",
+        "issuer": "https://bravo-oidc-issuer.s3.ap-northeast-2.amazonaws.com/t49"
+      }
     }
   ]
 }
