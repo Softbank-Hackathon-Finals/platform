@@ -106,6 +106,8 @@ def test_original_operator_auth_and_actual_customer_collector_are_composed(runti
         assert r.json()["customers"][0]["status"] == "NOT_INSTALLED"
         assert r.json()["customers"][0]["provenance"] == "live"
         assert r.json()["authorizes_execution"] is False
+        assert r.json()["iac"]["configured"] is False
+        assert not any(r.json()["iac"]["actions"].values())
         assert c.get("/console/").status_code == 200
         assert c.get("/v1/plans/foreign/delivery").status_code == 403
         state["valid"] = False
