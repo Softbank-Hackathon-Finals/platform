@@ -34,7 +34,7 @@ from pathlib import Path
 
 HEX40 = re.compile(r"[a-f0-9]{40}")
 FACTORY = re.compile(r"[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*:[A-Za-z_]\w*")
-FIELDS = {"version", "executor", "propose", "watch", "application", "delegation"}
+FIELDS = {"version", "executor", "propose", "watch", "application", "delegation", "deferred"}
 REQUIRED = {"version", "executor", "propose"}
 
 
@@ -136,7 +136,10 @@ def create_ports(store, config_file="/workflow/ports.json"):
         raise ValueError("workflow_ports_configuration_invalid")
     client, bindings = _executor(config["executor"])
     cutover = CutoverService(store, client, bindings=bindings)
-    readers = {"AWAIT_APPROVAL": shift_approval_reader, "CUTOVER": integrity_reader}
+    from .plan_run_state import analysis_reader
+
+    # ANALYZE reads the S1 records (T16 collection, first T19 report); nothing to configure.
+    readers = {"ANALYZE": analysis_reader, "AWAIT_APPROVAL": shift_approval_reader, "CUTOVER": integrity_reader}
     preparers = {"PROPOSE": _propose(store, config["propose"])}
     delegations = None
     if config.get("delegation") is True:
@@ -170,4 +173,7 @@ def create_ports(store, config_file="/workflow/ports.json"):
         if not isinstance(stages, dict) or set(stages) - {"REHEARSE", "GATE"}:
             raise ValueError("workflow_application_ports_invalid")
         preparers |= stages
-    return {"cutover": cutover, "readers": readers, "preparers": preparers}
+    deferred = config.get("deferred", [])  # host states this deployment declares it does not drive yet
+    if type(deferred) is not list:
+        raise ValueError("workflow_deferred_invalid")
+    return {"cutover": cutover, "readers": readers, "preparers": preparers, "deferred": deferred}

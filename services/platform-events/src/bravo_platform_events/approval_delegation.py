@@ -21,7 +21,10 @@ from .plan_api import authorized_plan
 from .store import EventError
 
 GATES = {"change": "approve_change", "shift": "approve_shift", "cutover": "approve_cutover",
-         "failback": "approve_failback"}
+         "failback": "approve_failback",
+         # T49: start the plan's one registered T15 rehearsal at REHEARSE (its verified candidate is what "change"
+         # then approves); a separate gate so the two decisions of one version never collide.
+         "rehearsal": "start_rehearsal"}
 MAX_DELEGATION = timedelta(hours=24)
 HOST_PRINCIPAL_SECONDS = 60
 KEY = "approval-delegation"
@@ -98,6 +101,14 @@ class ApprovalDelegations:
                 _put(c, plan_id, key, {}, dict(by=principal.subject_id, at=self.clock()))
             return receipt["delegation_id"]
 
+    def live(self, c, plan_id):
+        """The plan's current delegation receipt, or None when there is none, it was revoked or it expired."""
+        _, _, receipt = _current(c, plan_id)
+        if (receipt is None or _get(c, plan_id, f"{KEY}-revoked-{receipt['delegation_id']}")
+                or _ts(self.clock()) >= _ts(receipt["expires_at"])):
+            return None
+        return receipt
+
     def principal_for(self, plan_id, gate, *, binding, version):
         """Host only: the approver's principal for one gate whose binding stays within the delegation.
 
@@ -147,8 +158,10 @@ class DelegatedGates:
     this version. Anything unmet or refused is a wait: the next sweep or a person on the same routes decides.
     """
 
-    def __init__(self, store, delegations, *, cutover, failback=None):
+    def __init__(self, store, delegations, *, cutover, failback=None, rehearsal=None, list_tasks=None):
         self.store, self.delegations, self.cutover, self.failback = store, delegations, cutover, failback
+        # T49: REHEARSE starts the plan's one registered rehearsal (RehearsalService, list_tasks(plan_id) -> ids)
+        self.rehearsal, self.list_tasks = rehearsal, list_tasks
 
     def sweep(self):
         from .operator_ports import (
@@ -157,17 +170,57 @@ class DelegatedGates:
 
         with self.store._transaction() as c:
             plans = [dict(r) for r in c.execute(
-                "SELECT plan_id, state, version, updated_at FROM plans WHERE state IN ('SHIFT', 'WATCH')").fetchall()]
+                "SELECT plan_id, state, version, updated_at FROM plans "
+                "WHERE state IN ('REHEARSE', 'SHIFT', 'WATCH', 'FAILBACK')").fetchall()]
+            gates = {p["plan_id"]: set((self.delegations.live(c, p["plan_id"]) or {}).get("gates", [])) for p in plans}
+            rehearsing = [p for p in plans if p["state"] == "REHEARSE" and self.rehearsal and "rehearsal" in gates[p["plan_id"]]
+                          and not c.execute("SELECT 1 FROM plan_commands WHERE plan_id=? AND command_key LIKE ?",
+                                            (p["plan_id"], f"rehearsal:{p['version']}:%")).fetchone()]
+            failing_back = [p for p in plans if p["state"] == "FAILBACK" and self.failback
+                            and "failback" in gates[p["plan_id"]]]
             due = [(p, "cutover", self.cutover) for p in plans if p["state"] == "SHIFT" and edge_at_full(c, p)]
             due += [(p, "failback", self.failback) for p in plans if p["state"] == "WATCH" and self.failback
                     and _get(c, p["plan_id"], watch_fail_key(p["version"]))]
         decided = {}
+        for step, plan in [(self._rehearse, p) for p in rehearsing] + [(self._fail_back, p) for p in failing_back]:
+            try:
+                decided[plan["plan_id"]] = step(plan)
+            except EventError as error:
+                decided[plan["plan_id"]] = {"held": error.code}
         for plan, gate, service in due:
             try:
                 decided[plan["plan_id"]] = self._decide(plan, gate, service)
             except EventError as error:
                 decided[plan["plan_id"]] = {"held": error.code}
         return decided
+
+    def _rehearse(self, plan):
+        """Start the plan's one registered T15 rehearsal for this version, once (the same command key replays)."""
+        tasks = self.list_tasks(plan["plan_id"])
+        if len(tasks) != 1:
+            raise EventError("rehearsal_task_unselected")  # choosing among tasks is S1's decision
+        principal = self.delegations.principal_for(plan["plan_id"], "rehearsal", binding={"task_id": tasks[0]},
+                                                   version=plan["version"])
+        return self.rehearsal.start(principal, plan["plan_id"], task_id=tasks[0], expected_version=plan["version"],
+                                    attempt=1, command_key=f"delegated-rehearsal-{plan['version']}")
+
+    def _fail_back(self, plan):
+        """Move a running FAILBACK on as the approver: read the Executor (GET only), and once a committed DONE is
+        stored, advance (evidence, then the Edge). The same steps WorkflowRecovery._resume_failback takes."""
+        from .cutover import latest_observation
+        from .failback import active_failback, failback_key
+
+        plan_id = plan["plan_id"]
+        with self.store._transaction() as c:
+            command_id = active_failback(c, plan_id, plan["version"])
+            snapshot = latest_observation(c, plan_id, command_id, failback_key)["snapshot"] if command_id else None
+        if command_id is None:
+            raise EventError("failback_command_unavailable")
+        principal = self.delegations.principal_for(plan_id, "failback", binding={"command_id": command_id},
+                                                   version=plan["version"])
+        if snapshot and snapshot["remote_status"] == "DONE" and snapshot["committed"] is True:
+            return {"failback": self.failback.advance(principal, plan_id, command_id)}
+        return self.failback.reconcile(principal, plan_id, command_id)
 
     def _decide(self, plan, gate, service):
         plan_id, version, chosen = plan["plan_id"], plan["version"], {}
