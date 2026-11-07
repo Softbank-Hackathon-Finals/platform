@@ -21,6 +21,9 @@ import object_exposure
 NAMESPACE = "target-dev"
 STATE = "bravo-object-operations"
 SECRET = "target-seaweedfs-auth"
+# Set by T31 (bravo_apply.policy.ANNOTATION_OWNER) when an approved change closed the bucket. While
+# present this worker never opens it: one writer of the exposure, not a second brain that reopens it.
+EXPOSURE_OWNER = "bravo.dev/exposure-owner"
 DEPLOYMENT = "target-seaweedfs"
 BUCKET = "demo-chat-attachments"
 OTHER_BUCKET = "rehearsal-attachments"
@@ -154,6 +157,10 @@ def render_existing(document, state, run_id):
     return result, credentials, current_state
 
 
+def platform_owned(secret):
+    return EXPOSURE_OWNER in (secret["metadata"].get("annotations") or {})
+
+
 def validate_request(request):
     if not re.fullmatch(r"objects-[a-f0-9]{32}", request.get("run_id", "")):
         raise Failure("invalid_run_id")
@@ -214,6 +221,9 @@ class Worker:
     def transition(self, state):
         start = time.monotonic()
         secret, deployment, auth = self.guard()
+        if state != "closed" and platform_owned(secret):
+            # Same read as the resourceVersion test below: a T31 close in between fails that test.
+            raise Failure("exposure_owned_by_platform")
         rendered, self.credentials, _ = render_existing(auth, state, self.request["run_id"])
         # Record possible effects before the first write, including response loss.
         self.report["effects_started"] = True
@@ -291,7 +301,9 @@ class Worker:
         raise Failure("existing_app_canary_unavailable")
 
     def baseline(self):
-        _, _, auth = self.guard()
+        secret, _, auth = self.guard()
+        if platform_owned(secret):
+            raise Failure("exposure_owned_by_platform")  # open and cycle start here, before any effect
         _, self.credentials, state = render_existing(auth, "closed", self.request["run_id"])
         self.report["initial_state"] = state
         if state != "closed" and not (self.request["action"] == "open" and state == "open-demo"):

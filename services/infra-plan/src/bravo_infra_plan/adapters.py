@@ -426,6 +426,7 @@ class ClusterChecks:
             "iac-argocd": lambda: c.statefulset_ready(ARGO_NAMESPACE, "bravo-iac-gitops-application-controller"),
             "argocd-repository": lambda: c.labelled_secret_exists(ARGO_NAMESPACE, "argocd.argoproj.io/secret-type=repository"),
             "seaweedfs-auth": lambda: self._seaweedfs_matches_desired(run),
+            "app-metrics-client": lambda: c.secret_exists("target-dev", "bravo-app-metrics-client"),
             "tailscale-oauth": lambda: c.secret_exists("tailscale-system", "operator-oauth"),
             "openbao-tls": lambda: c.secret_exists("bravo-secrets", "target-openbao-tls"),
             "openbao-ready": lambda: c.condition("Pod", "bravo-secrets", "target-openbao-0", "Ready"),

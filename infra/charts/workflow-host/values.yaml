@@ -33,3 +33,8 @@ interval: 15
 resources:
   requests: {cpu: 50m, memory: 192Mi}
   limits: {cpu: 500m, memory: 512Mi}
+# T49: the host admits the plan's one registered task and creates the initial-proposal Job itself
+# (workflow_ports `propose.auto`). Needs the bravo-initial Role from infra/gitops (initialProposal.hostCreatesJobs)
+# and an API token: projected, 1 hour, mounted only when this is on.
+initialProposalAuto:
+  enabled: false
