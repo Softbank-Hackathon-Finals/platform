@@ -208,6 +208,10 @@ def proxy_ingress(observed_services, include_api=False, *, transport_ports):
                                 policy_name="cutover-proxy-ingress")
 
 
+# The cutover egress group, its Services and policies are owned by the tailnet-egress IaC module.
+MOVED_TO_IAC = {"routes", "network", "proxy-ingress"}
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("stage", choices=["values", "routes", "pooler-ingress", "network", "proxy-ingress"])
@@ -218,6 +222,9 @@ def main(argv=None):
     for side, kind, _, _ in route_contract(True):
         parser.add_argument(f"--{side}-{kind}-fqdn")
     args = parser.parse_args(argv)
+    if args.stage in MOVED_TO_IAC:
+        parser.exit(2, f"{args.stage} no longer renders this route: it is declared in infra/iac/environments "
+                       "(tailnet-egress, T44, ADR-0032); render it with `bravo-iac chart`.\n")
     if args.stage == "proxy-ingress" and args.transport_port is None:
         parser.error("proxy-ingress requires --transport-port from current Pod-bound readback")
     if args.stage == "values":

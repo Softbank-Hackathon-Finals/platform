@@ -1,5 +1,7 @@
 # Collector → 플랫폼 지표 저장소 tailnet 경로 (T37)
 
+> **2026-11-07 · T44:** 이 렌더러의 경로 출력(`proxy-quarantine`·`routes`·`collector-egress`·`proxy-ingress`)은 [`infra/iac`](../../iac/README.md)의 `tailnet-egress` 모듈로 옮겼다. 같은 ProxyGroup·Service·NetworkPolicy의 주인은 하나다. CLI의 해당 명령은 종료 코드 2로 거부한다. 남은 것: 없음(정책 조각 `tailnet-fragment.json`과 함수는 시험·진단용으로 남김).
+
 출발지 · 목적지 Collector가 플랫폼 지표 저장소(`bravo-metrics`, [tailnet 노출](../../../services/observability/README.md#tailnet-노출-다른-클러스터의-collector--지표-저장소))로 가는 경로를 렌더링한다. 노드 · ACL · operator를 바꾸지 않는다. 적용은 각 클러스터와 tailnet 담당(T7 · T30)이 한다.
 
 ## 왜 Collector 전용 egress인가

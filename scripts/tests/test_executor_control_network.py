@@ -2,9 +2,7 @@
 import copy
 import importlib.util
 import io
-import json
 import unittest
-from contextlib import redirect_stdout
 from pathlib import Path
 from unittest.mock import patch
 
@@ -114,11 +112,8 @@ class RouteBoundaryTests(unittest.TestCase):
 
 
 class MappingBoundaryTests(unittest.TestCase):
-    def test_network_cli_includes_exact_translated_ports_and_excludes_health_port(self):
-        output = io.StringIO()
-        with patch.object(render.sys, "stdin", io.StringIO(json.dumps(observed_services()))), redirect_stdout(output):
-            render.main(["network"])
-        policy = json.loads(output.getvalue())
+    def test_network_includes_exact_translated_ports_and_excludes_health_port(self):
+        policy = render.network(observed_services(), False)
         self.assertEqual(policy["metadata"]["namespace"], "bravo-platform")
         self.assertEqual(policy["spec"]["podSelector"], {"matchLabels": {"app.kubernetes.io/name": "cutover-executor"}})
         rule = policy["spec"]["egress"][0]
@@ -245,14 +240,16 @@ class ProxyIngressBoundaryTests(unittest.TestCase):
                 self.assertEqual(policy["spec"]["ingress"][-1]["ports"],
                                  [{"protocol": "UDP", "port": port} for port in sorted(ports)])
 
-    def test_proxy_ingress_cli_requires_explicit_transport_readback(self):
-        with patch.object(render.sys, "stderr", io.StringIO()), self.assertRaises(SystemExit) as error:
-            render.main(["proxy-ingress"])
-        self.assertEqual(error.exception.code, 2)
-        output = io.StringIO()
-        with patch.object(render.sys, "stdin", io.StringIO(json.dumps(observed_services()))), redirect_stdout(output):
-            render.main(["proxy-ingress", "--transport-port", "46000", "--transport-port", "45000"])
-        self.assertEqual(json.loads(output.getvalue()), self.policy)
+    def test_route_stages_are_refused_because_the_iac_module_owns_them(self):
+        for stage in ("routes", "network", "proxy-ingress"):
+            err = io.StringIO()
+            with self.subTest(stage=stage), patch.object(render.sys, "stderr", err), \
+                    self.assertRaises(SystemExit) as error:
+                render.main([stage, "--transport-port", "46000"])
+            self.assertEqual(error.exception.code, 2)
+            self.assertIn("infra/iac/environments", err.getvalue())
+        policy = render.proxy_ingress(observed_services(), False, transport_ports=[46000, 45000])
+        self.assertEqual(policy, self.policy)
 
 
 if __name__ == "__main__":
