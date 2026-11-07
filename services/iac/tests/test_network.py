@@ -76,6 +76,22 @@ def test_the_old_cli_stages_are_refused():
     assert T12.MOVED_TO_IAC >= {"pooler-ingress"}
 
 
+def test_operator_values_keep_existing_tags_and_render_wif_without_a_secret():
+    """ADR-0035: a new environment names its own tags and authenticates by federated identity."""
+    assert T8.values("target") == T8.values("target", "target", "join", "-", "-")  # existing target-dev unchanged
+    assert T8.values("target")["oauth"] == {"clientId": "", "clientSecret": ""}
+    wif = T8.values("target", "target-gke", "wif", "kFedTest123", "api.tailscale.com/kFedTest123")
+    assert wif["oauth"] == {"clientId": "kFedTest123", "audience": "api.tailscale.com/kFedTest123"}
+    assert "clientSecret" not in wif["oauth"]  # the chart then renders no oauth Secret
+    assert (wif["operatorConfig"]["defaultTags"], wif["operatorConfig"]["hostname"], wif["proxyConfig"]["defaultTags"]) == (
+        ["tag:bravo-target-gke-operator"], "bravo-target-gke-operator", "tag:bravo-target-gke-db")
+    for client_id, audience in (("-", "-"), ("", "api.tailscale.com/x"), ("kFed", "-"), ("k fed", "aud")):
+        with pytest.raises(ValueError):
+            T8.values("target", "target-gke", "wif", client_id, audience)
+    with pytest.raises(ValueError):
+        T8.values("target", "Target_GKE")
+
+
 def test_device_tags_are_owned_by_their_cluster_operator_and_granted_to_the_routes():
     policy = fragment(STATES)
     assert policy["tagOwners"]["tag:bravo-source-db"] == ["tag:bravo-source-operator"]

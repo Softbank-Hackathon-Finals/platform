@@ -61,10 +61,18 @@ class InfraApprovalInput(BaseModel):
     expires_at: str = Field(max_length=40)
 
 
+class DelegationInput(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    gates: list[Literal["change", "shift", "cutover", "failback"]] = Field(min_length=1, max_length=4)
+    bounds: dict[Literal["change", "shift", "cutover", "failback"], dict[str, str]] = Field(default_factory=dict)
+    expires_at: str = Field(min_length=1, max_length=64)
+
+
 class InfraClaimInput(BaseModel):
+    """The executor's whole expected binding: T10 compares every field with the approved one."""
     model_config = ConfigDict(extra="forbid")
     run_id: str = Field(pattern=r"^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$")
-    plan_digest: str = Field(pattern=r"^[0-9a-f]{64}$")
+    binding: InfraBindingInput
 
 
 class IacPlanInput(BaseModel):
@@ -98,8 +106,9 @@ def create_cutover_app(service: CutoverService, *,
                        failback_service: FailbackService | None = None,
                        shift_service=None,
                        rehearsal_service: RehearsalService | None = None,
-                       infra_service=None, iac_service=None):
-    for other in (change_service, failback_service, rehearsal_service, shift_service, infra_service, iac_service):
+                       infra_service=None, iac_service=None, delegation_service=None):
+    for other in (change_service, failback_service, rehearsal_service, shift_service, infra_service, iac_service,
+                  delegation_service):
         if other is not None and other.store is not service.store:
             raise ValueError("shared_plan_store_required")
     app = create_plan_app(service.store, resolve_principal=resolve_principal)
@@ -174,10 +183,25 @@ def create_cutover_app(service: CutoverService, *,
 
     @app.post("/v1/plans/{plan_id}/infra-approvals/{approval_id}/claims")
     async def claim_infra_approval(plan_id: str, approval_id: str, body: InfraClaimInput, request: Request):
-        """The T44 executor claims an approval once for one run, after recomputing its plan digest."""
+        """The executor claims an approval once for one run, with its whole expected binding."""
         receipt = await asyncio.to_thread(infra().claim, principal(request), plan_id, approval_id,
                                          **body.model_dump())
         return JSONResponse(receipt, headers={"Cache-Control": "no-store"})
+
+    if delegation_service is not None:
+        @app.post("/v1/plans/{plan_id}/delegations")
+        async def delegate(plan_id: str, body: DelegationInput, request: Request,
+                           idempotency_key: str = Header(max_length=128)):
+            """The approver approves this plan's gates once (T49); the workflow host uses it per gate."""
+            receipt = await asyncio.to_thread(delegation_service.delegate, principal(request), plan_id,
+                                              **body.model_dump(), command_key=idempotency_key)
+            fields = ("delegation_id", "approver", "gates", "bounds", "expires_at", "created_at")
+            return JSONResponse({k: receipt[k] for k in fields}, status_code=201, headers={"Cache-Control": "no-store"})
+
+        @app.post("/v1/plans/{plan_id}/delegations:revoke")
+        async def revoke_delegation(plan_id: str, request: Request):
+            delegation_id = await asyncio.to_thread(delegation_service.revoke, principal(request), plan_id)
+            return JSONResponse({"revoked": delegation_id}, headers={"Cache-Control": "no-store"})
 
     if iac_service is not None:
         @app.post("/v1/plans/{plan_id}/iac/plans")

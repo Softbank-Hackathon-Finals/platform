@@ -27,9 +27,24 @@
       "pattern": "^v?1\\.[0-9]{2}\\.[0-9]{1,2}$"
     },
     "tailnet": {
-      "description": "목적지가 tailnet에 합류하는가. none은 같은 클러스터 안에서만 닿는 격리 시험(T49 로컬 E2E)이며 Tailscale 단계를 계획에서 뺀다",
-      "enum": ["join", "none"],
+      "description": "목적지가 tailnet에 합류하는 방식. join은 미리 만든 operator-oauth Secret(기존 환경), wif는 T48 연합 신원(ADR-0035, secret 없음), none은 같은 클러스터 안에서만 닿는 격리 시험(T49 로컬 E2E)이며 Tailscale 단계를 계획에서 뺀다",
+      "enum": ["join", "wif", "none"],
       "default": "join"
+    },
+    "tailnet_env": {
+      "description": "tailnet 태그의 환경 이름(tag:bravo-<env>-operator · -db, ADR-0035). 기본 target은 기존 target-dev 태그",
+      "pattern": "^[a-z][a-z0-9-]{0,40}$",
+      "default": "target"
+    },
+    "tailscale_client_id": {
+      "description": "tailnet=wif일 때 T48 operator 연합 신원의 client ID(비밀 값 아님). 그 밖에는 -",
+      "pattern": "^[A-Za-z0-9_-]{1,128}$",
+      "default": "-"
+    },
+    "tailscale_audience": {
+      "description": "tailnet=wif일 때 그 연합 신원의 audience. 그 밖에는 -",
+      "pattern": "^[A-Za-z0-9:/._-]{1,256}$",
+      "default": "-"
     }
   },
   "charts": {
@@ -406,9 +421,10 @@
       "id": "tailscale",
       "kind": "gitops_publish",
       "owner": "T30",
-      "when": {"param": "tailnet", "in": ["join"]},
-      "description": "Tailscale operator chart 1.104.4를 올린다",
+      "when": {"param": "tailnet", "in": ["join", "wif"]},
+      "description": "Tailscale operator chart 1.104.4를 올린다. wif는 projected ServiceAccount token을 연합 신원과 교환한다(oauth Secret 없음)",
       "needs": [
+        "base-sync",
         "tailscale-oauth"
       ],
       "path": "tailscale",
@@ -423,7 +439,15 @@
             "args": [
               "values",
               "--side",
-              "target"
+              "target",
+              "--env",
+              "${tailnet_env}",
+              "--auth",
+              "${tailnet}",
+              "--client-id",
+              "${tailscale_client_id}",
+              "--audience",
+              "${tailscale_audience}"
             ]
           },
           "include_crds": true
@@ -434,13 +458,24 @@
       "id": "tailscale-sync",
       "kind": "gitops_sync",
       "owner": "T30",
-      "when": {"param": "tailnet", "in": ["join"]},
+      "when": {"param": "tailnet", "in": ["join", "wif"]},
       "description": "Argo CD가 tailscale 커밋으로 Synced · Healthy인지 확인한다",
       "needs": [
         "tailscale"
       ],
       "publish": "tailscale",
       "timeout_seconds": 600
+    },
+    {
+      "id": "tailscale-joined",
+      "kind": "probe",
+      "owner": "T30",
+      "when": {"param": "tailnet", "in": ["join", "wif"]},
+      "description": "operator가 tailnet에 로그인했는지 상태 Secret의 키 이름으로 확인한다(값은 읽지 않는다). Synced만으로 합류로 보지 않는다",
+      "needs": [
+        "tailscale-sync"
+      ],
+      "check": "tailscale-joined"
     },
     {
       "id": "openbao-image",
@@ -727,7 +762,7 @@
       "description": "구축 결과를 실제로 확인한다(probes.py · verify.py). Synced만으로 완료로 보지 않는다",
       "needs": [
         "app-sync",
-        "tailscale-sync"
+        "tailscale-joined"
       ],
       "check": "target-checks"
     }

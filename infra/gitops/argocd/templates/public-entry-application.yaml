@@ -1,0 +1,28 @@
+{{- if .Values.publicEntry.enabled }}
+# Git-declared public hostnames (infra/envs/public-entry/entries.json) -> Cloudflare, by the reconciler this deploys.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: platform-public-entry
+  namespace: {{ .Release.Namespace }}
+spec:
+  project: platform-public-entry
+  source:
+    repoURL: https://github.com/Softbank-Hackathon-Finals/platform.git
+    targetRevision: develop
+    path: infra/envs/public-entry
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: platform-state
+  syncPolicy:
+    automated:
+      enabled: true
+      prune: true
+      selfHeal: true
+      allowEmpty: false
+    syncOptions:
+      - FailOnSharedResource=true
+    retry:
+      limit: 3
+      backoff: {duration: 10s, factor: 2, maxDuration: 1m}
+{{- end }}

@@ -10,7 +10,7 @@ from pathlib import Path
 
 from .binding import BUCKET_POLICY, IDENTIFIER, BindingError, diff_hash, verify_claim
 from .deploy import FakeKube, KubectlKube, image_patch
-from .desired import DesiredRefused, apply_desired_exposure
+from .desired import DesiredRefused, apply_desired_exposure, apply_planned_exposure
 from .path import ApplyOutcome, RecordUnreadable, apply, get_result
 from .policy import (
     APP_BUCKET,
@@ -147,6 +147,27 @@ def cmd_desired_exposure(args) -> int:
     return DESIRED_EXIT[record["status"]]
 
 
+def cmd_planned_exposure(args) -> int:
+    """ADR-0044: close the bucket from the approved agent infra.plan (Git keeps open-demo)."""
+    try:
+        target = PolicyTarget(namespace=args.object_namespace or args.namespace, endpoint=args.object_endpoint,
+                              probe_key=args.probe_key, bucket=args.bucket, secret=args.auth_secret,
+                              workload=args.object_workload, container=args.object_container)
+        record = apply_planned_exposure(_load(args.iac_plan), approved_iac_plan_digest=args.approved_iac_plan_digest,
+                                        environment_id=args.environment, base_revision=args.base_revision,
+                                        repo_root=Path(args.repo_root), kube=KubectlKube(args.kubeconfig),
+                                        receipts_dir=Path(args.receipts), target=target,
+                                        plan_id=args.plan_id or None, timeout_seconds=args.timeout)
+    except (DesiredRefused, PolicyRefused) as exc:
+        print(json.dumps({"status": "REFUSED", "reason": exc.code, "recorded": False}, sort_keys=True))
+        return EXIT["REFUSED"]
+    except ValueError as exc:  # target configuration
+        print(json.dumps({"status": "REFUSED", "reason": str(exc), "recorded": False}, sort_keys=True))
+        return EXIT["REFUSED"]
+    print(json.dumps(record, ensure_ascii=False, sort_keys=True))
+    return DESIRED_EXIT[record["status"]]
+
+
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(prog="bravo-apply")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -198,6 +219,26 @@ def main(argv=None) -> int:
     x.add_argument("--plan-id", default="", help="migration plan the recheck belongs to, when there is one")
     x.add_argument("--timeout", type=int, default=300, help="rollout wait in seconds")
     x.set_defaults(func=cmd_desired_exposure)
+    y = sub.add_parser("planned-exposure", help="ADR-0044: close the bucket from the approved agent infra.plan, "
+                                                "then request the IAM-01.1 recheck; never opens")
+    y.add_argument("--iac-plan", required=True, help="the agent's accepted iac-plan.v1 JSON (closing this bucket)")
+    y.add_argument("--approved-iac-plan-digest", required=True, help="iac_plan_digest from the approved T10 binding")
+    y.add_argument("--environment", required=True, help="T44 environment id, e.g. target-dev")
+    y.add_argument("--base-revision", required=True, help="full SHA of the desired state the proposal planned against")
+    y.add_argument("--repo-root", required=True)
+    y.add_argument("--kubeconfig", required=True, help="namespace-scoped bucket-policy identity")
+    y.add_argument("--namespace", required=True)
+    y.add_argument("--object-endpoint", required=True)
+    y.add_argument("--probe-key", required=True)
+    y.add_argument("--bucket", default=APP_BUCKET)
+    y.add_argument("--object-namespace", default="")
+    y.add_argument("--auth-secret", default=AUTH_SECRET)
+    y.add_argument("--object-workload", default=WORKLOAD)
+    y.add_argument("--object-container", default=CONTAINER)
+    y.add_argument("--receipts", required=True)
+    y.add_argument("--plan-id", default="")
+    y.add_argument("--timeout", type=int, default=300)
+    y.set_defaults(func=cmd_planned_exposure)
     g = sub.add_parser("get-result", help="read the recorded outcome; never calls the cluster")
     g.add_argument("--application-id", required=True)
     g.add_argument("--receipts", required=True)

@@ -318,6 +318,33 @@ def rehearsal_writer_identity():
     return {"apiVersion": "v1", "kind": "List", "items": [namespace, account]}
 
 
+APP_ACCOUNT = "demo-chat"
+APP_DB_POLICY = "demo-chat-db-reader"
+
+
+def app_db_policy():
+    """OpenBao policy ``demo-chat-db-reader``: the app's own DB credential path only (T14 SEC-01.1 app side).
+
+    The app already receives this value through ESO as a Kubernetes Secret; this lets its own
+    ServiceAccount read the same path directly, so SEC-01.1 compares demo-chat with t14-other without
+    the ESO reader's identity (which also reads the object and admin paths). T14 collects from the
+    operator machine (`kubectl create token --audience openbao` + port-forward, #644/#666); no
+    in-cluster identity may mint these tokens, because RBAC cannot limit a TokenRequest's audience or
+    lifetime and such a grant would be a second way into this role.
+    Nothing else: no object or admin path, no writes, no token creation."""
+    return f'path "secret/data/{DB_PATH}" {{ capabilities = ["read"] }}' + '''
+path "auth/token/lookup-self" { capabilities = ["read"] }
+path "auth/token/revoke-self" { capabilities = ["update"] }
+'''
+
+
+def app_auth_role():
+    """Body for ``auth/kubernetes/role/demo-chat``: SA ``demo-chat`` in ``target-dev``, that one policy."""
+    return {"bound_service_account_names": [APP_ACCOUNT], "bound_service_account_namespaces": [APP_NAMESPACE],
+            "audience": "openbao", "token_policies": [APP_DB_POLICY], "token_no_default_policy": True,
+            "token_ttl": "300s", "token_max_ttl": "900s"}
+
+
 def t14_other_auth_role():
     """Body for ``auth/kubernetes/role/t14-other``: T14 SEC-01.1's comparison identity.
 
@@ -463,7 +490,7 @@ def main(argv=None):
         "policy", "delivery", "network", "eso-network",
         "rehearsal-reader-policy", "rehearsal-auth-role", "rehearsal-delivery", "rehearsal-init-container",
         "rehearsal-writer-policy", "rehearsal-writer-auth-role", "rehearsal-writer-identity",
-        "t14-other-auth-role",
+        "t14-other-auth-role", "app-db-policy", "app-auth-role",
     ])
     parser.add_argument("--node-name")
     parser.add_argument("--namespace")
@@ -479,6 +506,8 @@ def main(argv=None):
         print(rehearsal_reader_policy(args.kubernetes_accessor), end="")
     elif args.stage == "rehearsal-writer-policy":
         print(rehearsal_writer_policy(), end="")
+    elif args.stage == "app-db-policy":
+        print(app_db_policy(), end="")
     elif args.stage == "finalize-bao":
         # Only nonsecret, parsed Helm objects belong on this input. JSON makes
         # the renderer independent of an implicit YAML package installation.
@@ -498,7 +527,8 @@ def main(argv=None):
                  "rehearsal-init-container": lambda: rehearsal_fetch_init_container(args.namespace, image),
                  "rehearsal-writer-auth-role": rehearsal_writer_auth_role,
                  "rehearsal-writer-identity": rehearsal_writer_identity,
-                 "t14-other-auth-role": t14_other_auth_role}[args.stage]()
+                 "t14-other-auth-role": t14_other_auth_role,
+                 "app-auth-role": app_auth_role}[args.stage]()
         print(json.dumps(value, indent=2))
 
 

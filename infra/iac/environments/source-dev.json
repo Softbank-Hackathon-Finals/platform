@@ -97,6 +97,17 @@
           }
         ]
       }
+    },
+    {
+      "id": "api-transport-access",
+      "version": "1",
+      "params": {
+        "proxy_hostname": "bravo-source-operator",
+        "proxy_tag": "tag:bravo-source-operator",
+        "tailnet_groups": [
+          "group:bravo-operators"
+        ]
+      }
     }
   ]
 }

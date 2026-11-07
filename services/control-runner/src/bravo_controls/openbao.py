@@ -24,6 +24,9 @@ VERSION = "1"
 MAX_RESPONSE = 1024 * 1024
 _SEGMENT = re.compile(r"[A-Za-z0-9_-][A-Za-z0-9_.-]{0,127}\Z")
 _ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9_./:@-]{0,255}\Z")
+# A policy denial, plain or in the multierror form a real OpenBao 2.x KV read returns
+# ("1 error occurred:\n\t* permission denied\n\n", seen on the target on 2026-11-07). Nothing else.
+_DENIED = re.compile(r"(?:1 error occurred:\n\t\* )?permission denied\n*\Z")
 _DNS = re.compile(r"(?=.{1,253}\Z)[a-z0-9](?:[-a-z0-9]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[-a-z0-9]{0,61}[a-z0-9])?)*\Z")
 _LOOPBACK = {"localhost", "127.0.0.1", "::1"}
 
@@ -239,7 +242,9 @@ class OpenBaoClient:
 
     def read_current(self, target: BaoTarget) -> dict:
         status, body = self._get(target.read_path)
-        if status == 403 and body.get("errors") == ["permission denied"]:
+        errors = body.get("errors")
+        if (status == 403 and isinstance(errors, list) and len(errors) == 1 and isinstance(errors[0], str)
+                and _DENIED.fullmatch(errors[0])):
             return {"outcome": "deny", "http_status": status, "reason": None}
         data = body.get("data")
         metadata = data.get("metadata") if isinstance(data, dict) else None

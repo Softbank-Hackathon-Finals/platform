@@ -300,6 +300,9 @@ def main():
         if "workflowHost" in value:
             verify_workflow_host(get, value["workflowHost"])
         values = ["--values", str(a.runtime_values)]
+    # Reviewed, non-secret environment settings (public entry and its read-only UI) come from Git. The runtime
+    # input is limited to the workload keys checked above, so it cannot change them.
+    values = ["--values", str(ROOT / "infra/gitops/environments/development/public-entry.json"), *values]
     chart = ROOT / "infra/gitops/argocd"
     run(
         [
@@ -329,7 +332,7 @@ def main():
         "revision": a.revision,
         "manifest_sha256": hashlib.sha256(render.stdout.encode()).hexdigest(),
         "runtime_input_sha256": runtime_hash,
-        "registration_enabled": bool(values),
+        "registration_enabled": runtime_hash is not None,
         "applied": False,
     }
     if a.apply:
