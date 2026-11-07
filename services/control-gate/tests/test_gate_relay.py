@@ -218,10 +218,14 @@ def test_a_data_block_is_signed_but_never_spends_the_context_unless_asked(relay)
             evaluated.append(request)
         return f.call(request)
 
-    with pytest.raises(RuntimeError, match="hold:readiness_data_block"):
+    with pytest.raises(RuntimeError, match="hold:readiness_data_block") as held:
         cli.run(capture_args(f), relay=watching, now=f.clock.at, observe=lambda _: {"observation": blocked},
                 clock=lambda: f.clock.at)
     assert evaluated == []
+    # The hold says why (fixed row codes) and which readiness signatures are already published (#612 follow-up)
+    assert held.value.detail["blocked"] == [{"test_id": "replication:lag", "reason": "UNKNOWN"}]
+    subjects = f.call({"op": "subjects", "plan_id": f.plan.plan_id})["subjects"]
+    assert held.value.detail["published"] == [{"purpose": p, "subject": subjects[p]} for p in cli.READINESS]
     args = capture_args(f)
     args.record_block = True  # S1 may record its first BLOCK on purpose
     f.clock.at += timedelta(seconds=1)
@@ -230,6 +234,17 @@ def test_a_data_block_is_signed_but_never_spends_the_context_unless_asked(relay)
     out = cli.run(args, relay=watching, now=f.clock.at, observe=lambda _: {"observation": again},
                   clock=lambda: f.clock.at)
     assert out["evaluated"]["data"] == "BLOCK" and len(evaluated) == 1
+
+
+def test_the_operator_reads_a_hold_detail_on_one_line(monkeypatch, capsys):
+    detail = {"blocked": [{"test_id": "replication:lag", "reason": "UNKNOWN"}],
+              "published": [{"purpose": "readiness-binding", "subject": "a" * 64}]}
+
+    def hold(*_a, **_k):
+        raise cli.Hold("readiness_data_block", **detail)
+    monkeypatch.setattr(cli, "run", hold)
+    assert cli.main(["subjects", "--plan-id", "p", "--relay", "x"]) == 10
+    assert json.loads(capsys.readouterr().out) == {"status": "HOLD", "reason": "hold:readiness_data_block", **detail}
 
 
 def test_a_pass_that_would_expire_before_the_evaluation_holds_instead_of_spending_the_context(relay):
