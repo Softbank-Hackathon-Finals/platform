@@ -368,3 +368,18 @@ bounded scan claim.
 
 The current chart/image metadata and the public reproduction material contain
 no operator tokens, recovery keys, source credentials or private kubeconfig.
+
+### amd64 nodes (T50 GCP)
+
+`render.py --arch amd64` selects the amd64 image for `bao-values`,
+`finalize-bao` and `rehearsal-init-container`. The default stays `arm64`. On
+2026-11-07 the same gate failed for the Go binary on
+CVE-2026-78661 (`golang.org/x/net` 0.61.0, fixed 0.62.0). The amd64 build is
+therefore `bravo.4`: the same commit and go-jose patch, plus
+[x-net.patch](image/x-net.patch) (`go get golang.org/x/net@v0.62.0` in each
+module that requires it), `GOARCH=amd64`, the amd64 base manifest in
+[Dockerfile.amd64](image/Dockerfile.amd64), and the
+[amd64 receipt](image/build-receipt-amd64.json). The scan covered the alpine
+packages and `usr/bin/bao` with 0 findings, and the offline `bao version` probe
+matched. The arm64 `bravo.3` image fails the same gate today. Rebuilding it is a
+separate change.
