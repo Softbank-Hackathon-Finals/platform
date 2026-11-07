@@ -982,6 +982,31 @@ Claude Code는 `/todo-task`, Codex는 `$todo-task`로 이 순서를 따르는 �
 
 **완료 기준** `local-vm.sh up`으로 만든 새 VM이 API 적용만으로 16단계 확인을 통과하고 단계별 소요 시간이 기록된다. 목적지 Argo CD가 실행 기록의 커밋으로 수렴하고, 같은 계획 재적용은 커밋과 클러스터를 바꾸지 않으며, 승인 뒤 렌더 결과나 기준 커밋이 바뀌면 적용이 거부되고, 에이전트 신원은 승인 · 적용을 할 수 없다. 적용 신원의 권한 세분화와 AWS Terraform 스택 일괄 적용은 별도 범위로 진행한다.
 
+### [T48] tailnet 합류 · 정책 · 분리의 코드화: Tailscale 워크로드 신원 연합(WIF)
+
+**어디에 필요** tailnet 정책을 관리자가 콘솔에서 손으로 합치고, operator의 OAuth client secret(`operator-oauth`)을 사람이 클러스터에 넣는다. 새 클러스터는 VM 생성 때 합류하지 않고, 작업이 끝난 뒤 연결을 닫는 코드가 없다. 2026-11-07 새 RKE2 시험 클러스터는 T45 데이터 계층까지 섰으나 합류 단계에서 멈췄다.
+
+**만들 것** 정책은 `tailnet-policy` 워크플로(#667) 한 곳에서 쓰고, 환경별 연합 신원은 Terraform 스택 `infra/envs/tailnet`으로 관리하고, operator · CI · 플랫폼이 장기 secret 없이 OIDC 토큰으로 Tailscale에 인증한다. 온프렘 클러스터는 ServiceAccount 발급자를 공개 정적 주소로 둔다. 합류 · 제어 · 고객 접근 · 분리를 원하는 상태 PR과 사람 승인으로 진행한다. ADR-0035.
+
+- **우선순위** P1 · **영역** 보안 통제 · 게이트 · **담당** 류지환
+- **선행** `T44` (통합 시점: `T45`, `T2`, `T30`) · **후속** 없음 · **설계 문서** 7.5, 8.3, NFR-7, ADR-0035
+
+**목표** 새 고객 클러스터가 Git의 원하는 상태와 승인만으로 tailnet에 합류해 플랫폼의 제어를 받고, 운영자 · 고객이 tailnet 신원으로 바로 붙으며, 분리 PR 하나로 연결이 닫힌다. 어느 단계에서도 사람이 비밀 값을 붙여 넣지 않는다.
+
+**할 일**
+- [ ] ADR-0035: WIF, 정책은 `tailnet-policy` 한 곳 · 연합 신원은 Terraform, 공개 발급자, 연결 수명(합류 · 제어 · 고객 접근 · 분리)
+- [ ] `tailnet-policy` prune: 마지막으로 성공한 develop run의 조각에서 빠진 항목을, 실제 정책 값이 정확히 같을 때만 지움(#680). 사람이 바꾼 항목은 남기고 `kept`로 보고
+- [ ] `infra/envs/tailnet` Terraform: 환경별 `tailscale_federated_identity`(operator ServiceAccount 주체, `tag:bravo-<env>-operator`, 필요한 범위만). 정책은 쓰지 않음
+- [ ] CI(연합 신원 스택): PR은 읽기 신원으로 plan, 적용은 보호된 GitHub Environment 승인 뒤 `federated_keys` 신원. 저장된 Tailscale secret 없음
+- [ ] `tailnet-policy` 첫 적용: 관리자 설정(신원 2 · 변수 3 · 환경 develop 제한과 승인자) → 계획 → 적용 → 다시 읽어 대조
+- [ ] 온프렘 공개 발급자: cloud-init의 ServiceAccount 발급자 렌더(T2 · T30)와 discovery 문서 · 공개키 게시(플랫폼 관리 정적 호스팅)
+- [ ] T45 연결: `tailscale-oauth`를 연합 신원 확인 단계로, operator 값을 WIF로, Tailscale 단계와 `object-secrets` 원하는 상태를 환경 기준으로(지금 `target` · `target-dev.json` 고정)
+- [ ] 고객 접근: IdP 그룹 → 환경 namespace 역할, 다른 환경 grant 없음 시험
+- [ ] 분리: 환경 tailnet 항목 삭제 PR → 승인 적용 → 장치 삭제 → operator 인증 실패 · 플랫폼 도달 실패 확인과 분리 영수증
+- [ ] 기존 플랫폼 · 대상 operator의 WIF 전환(별도 실행 창, 기존 Secret 회수)
+
+**완료 기준** 새 RKE2 시험 클러스터에서 원하는 상태 PR → 승인 → 합류 → Tailscale 관리자 신원으로 T45 실행(포트포워딩 없음) → 운영자 접근 확인 → 분리 PR → 도달 실패까지 이어지고, 저장소 · 클러스터 · 실행 기록에 Tailscale secret이 없다. 계획이나 CI 통과만으로 완료 처리하지 않는다.
+
 ### [T50] GCP RKE2 목적지: terraform으로 펼치고 접기 · IAP 접근 · Artifact Registry pull
 
 **어디에 필요** 목적지 RKE2는 Mac mini VM(T2) 하나뿐이라, 팀원이 각자 목적지를 펼치고 접으며 해피패스를 반복할 수 없다(11/7 GCP 팀 프로젝트 생성). 같은 RKE2 어댑터와 T45 스택을 클라우드 VM에서도 쓰려면 노드·접근 경로·이미지 전달을 코드로 둬야 한다.
