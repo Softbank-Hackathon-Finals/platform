@@ -84,7 +84,9 @@ def endpoint_clients(target: EndpointObjectTarget, *, access_key_id: str, secret
         return Config(connect_timeout=3, read_timeout=5, retries={"mode": "standard", "total_max_attempts": 2},
                       s3={"addressing_style": "path"}, proxies={}, **extra)
 
-    session = botocore.session.Session()
+    # Not the operator's AWS_PROFILE (a missing profile would fail the client) nor AWS_CA_BUNDLE.
+    session = botocore.session.Session(session_vars={"profile": (None, None, None, None),
+                                                     "ca_bundle": ("ca_bundle", None, None, None)})
     session.set_config_variable("credentials_file", "/dev/null")  # only the credentials given here
     session.set_config_variable("config_file", "/dev/null")
     verify = ca_bundle if ca_bundle is not None else target.endpoint.startswith("https://")
