@@ -45,7 +45,13 @@ uv run bravo-inventory scan \
 | iam | 역할 · 정책 | `adapter` | RBAC · 저장소 정책으로 번역. 와일드카드 자원이면 `agent_needed` |
 | db | 접속 설정 | `config_swap` | 같은 엔진(CNPG), 데이터는 복제로 이전 |
 | 배포에만 있음 | 코드에 호출 없음 | 카탈로그 기본 등급 + `agent_needed` | 암묵적 사용(SSE-KMS 등) 여부를 에이전트가 확인 |
-| 카탈로그 밖 | SQS · Lambda · 타 클라우드 SDK | `none` 또는 `unknown` | 대체 없음은 규칙이 확정, 미지는 에이전트 분류 |
+| messaging (onprem) | SQS 표준 큐, `endpoint_url` 없음 또는 설정에서 옴 | `config_swap` | `AWS_ENDPOINT_URL_SQS`만 ElasticMQ로 교체(ADR-0045 · 0046). 코드에 고정된 `endpoint_url`이면 `code_change` |
+| messaging (onprem) | SNS, 또는 FIFO 큐 | `none` | ElasticMQ는 SQS API만 제공(서비스별 예외 `SERVICE_OVERRIDES`). FIFO는 T46 범위 밖 |
+| function (onprem) | `aws_lambda_event_source_mapping` + SQS 사용 | `adapter` | T46 호환 런타임이 핸들러를 고치지 않고 부른다 |
+| function (onprem) | 매핑 근거 없음, Lambda API 직접 호출, 푸시 트리거, 배치 일부 실패 응답 · 필터 · SQS 외 소스 | `none` | T46 범위 밖은 판정을 낮추지 않는다(`unsupported_feature`로 근거 표시) |
+| 대체 없음 · 카탈로그 밖 | DynamoDB · 타 클라우드 SDK · 모르는 SDK | `none` 또는 `unknown` | 대체 없음은 규칙이 확정, 미지는 에이전트 분류 |
+
+`AWS_ENDPOINT_URL_<SERVICE>` 환경변수는 botocore 서비스 ID 이름표로 그 서비스의 역할에 넣는다(`AWS_ENDPOINT_URL_SQS` → messaging). 서비스를 가리키지 않는 `AWS_ENDPOINT_URL`만 IAM이다.
 
 ## 현재 범위와 남은 것
 

@@ -83,6 +83,30 @@ def test_candidates_fit_uses_capabilities(repo, exports, profiles):
     assert any("s3_compatible" in m for m in by_id["onprem-minimal"]["missing_capabilities"])
 
 
+def test_demo_chat_with_an_sqs_lambda_no_longer_blocks_onprem(repo, exports, profiles, tmp_path):
+    # Request 11/8 (T46): turning SQS on in the demo app made SQS · Lambda 'none' and onprem-demo
+    # 'blocked' (S1 screen, recommendation). With T46 they are config_swap · adapter; FIFO is not.
+    import shutil
+
+    app = tmp_path / "demo-chat"
+    shutil.copytree(repo, app)
+    (app / "app/queue.py").write_text('import boto3\n\nsqs = boto3.client("sqs")\n', encoding="utf-8")
+    (app / "queue.tf").write_text(
+        'resource "aws_sqs_queue" "checks" {\n  name = "message-checks"\n}\n'
+        'resource "aws_lambda_function" "pii" {\n  function_name = "pii-check"\n}\n'
+        'resource "aws_lambda_event_source_mapping" "pii" {\n  event_source_arn = aws_sqs_queue.checks.arn\n}\n',
+        encoding="utf-8",
+    )
+    doc = _build(app, exports, profiles)  # validates against the schema
+    demo = {c["env_id"]: c for c in doc["candidates"]}["onprem-demo"]
+    assert demo["verdict"] == "needs_work" and demo["grade_counts"]["none"] == 0
+    assert {i["role"]: i["grade"] for i in doc["items"] if i["role"] in {"messaging", "function"}} == {"messaging": "config_swap", "function": "adapter"}
+
+    (app / "queue.tf").write_text((app / "queue.tf").read_text(encoding="utf-8").replace('"message-checks"', '"message-checks.fifo"'), encoding="utf-8")
+    doc = _build(app, exports, profiles)
+    assert {c["env_id"]: c for c in doc["candidates"]}["onprem-demo"]["verdict"] == "blocked"
+
+
 def test_schema_rejects_agent_grade_without_rationale(repo, exports, profiles):
     doc = _build(repo, exports, profiles)
     doc["items"][0]["grade_by"] = "agent"

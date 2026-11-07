@@ -60,3 +60,12 @@
 * demo-chat 기준 결과: object_store `config_swap`, secrets `code_change`, iam `adapter`, db `config_swap`, 배포에만 있는 kms는 기본 등급 `code_change` + `agent_needed`.
 * 출력 경계: 환경변수 값 · 접속 문자열의 사용자 정보 · 비밀로 보이는 설정 값은 인벤토리에 넣지 않는다(이름 · 출처 · `scheme://host[:port]`만). 콘솔과 모델이 같은 문서를 읽기 때문이다.
 * 후속: 에이전트 분류 결과 병합 경로(T11), 리허설 송신 차단 기록을 동적 증거로 합치는 안(T15), GCP 어댑터(P2).
+
+## 5. 변경 (2026-11-08, T46 대비)
+
+* **onprem 카탈로그:** `messaging`은 ElasticMQ `config_swap`, `function`은 T46 호환 런타임 `adapter`로 바꿨다(ADR-0045 · 0046). 검증 방법은 ADR-0046의 큐 시험(송수신 · 재전달 · 실패 보관 · 재시작 뒤 보존 · 허용 목록 밖 Pod 거부 · 평문 포트 거부 · 전송 암호화)과 ADR-0045의 리허설 검증 Job 채점을 적었다. GCP 항목은 아직 없다(`unknown`).
+* **서비스별 예외:** 같은 역할이라도 목적지가 대신하지 못하는 서비스는 `SERVICE_OVERRIDES`로 따로 둔다. SNS는 `messaging`이지만 ElasticMQ가 SQS API만 제공하므로 `none`이다. 한 항목에 여러 서비스가 있으면 가장 무거운 등급과 그 목적지를 쓴다.
+* **SQS 규칙:** botocore가 `AWS_ENDPOINT_URL_SQS`를 읽으므로 `endpoint_url`이 없거나 설정에서 오면 `config_swap`, 코드에 고정돼 있으면 `code_change`다. S3 규칙(엔드포인트 설정 필수)과 다른 이유는 ADR-0045가 이 환경변수 교체를 이전 방법으로 정했기 때문이다.
+* **T46 범위 밖은 `none` 유지:** FIFO 큐, 배치 일부 실패 응답, 이벤트 필터, SQS 외 이벤트 소스(스트림 · Kafka · MQ · DocumentDB), 푸시 트리거(`aws_lambda_permission` · 함수 URL), 앱의 Lambda API 직접 호출은 정적으로 찾아 `unsupported_feature`로 남기고 판정을 낮추지 않는다. Lambda는 `aws_lambda_event_source_mapping`과 SQS 사용이 함께 보일 때만 `adapter`다. 시작 시점의 최종 확인은 호환 런타임의 출발지 설정 대조가 한다.
+* **환경변수 분류 수정:** `AWS_ENDPOINT_URL_<SERVICE>`는 S3 · Secrets Manager · KMS만 매핑돼 나머지(SQS 포함)가 IAM으로 분류됐고, 코드의 `os.environ` 참조는 매핑 없이 모두 IAM이었다. 이제 botocore 서비스 ID 이름표(`ENDPOINT_ENV_SERVICE`)로 그 서비스의 역할에 넣고, 카탈로그에 없는 서비스는 `unknown`으로 둔다. 서비스를 가리키지 않는 `AWS_ENDPOINT_URL`은 그대로 IAM이다.
+* demo-chat 기준 결과(4절)는 바뀌지 않는다(같은 입력의 문서 digest 동일). 설계 7.3 대응표는 T46의 설계 문서 버전 올리기에서 맞춘다.
