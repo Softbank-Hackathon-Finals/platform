@@ -99,7 +99,7 @@ class FakeCluster:
 
     def secret_keys(self, namespace, name):
         found = self.secrets.get((namespace, name))
-        return None if found is None else set(found[1])
+        return None if found is None else sorted(found[1])  # the adapter's contract: a sorted list of key names
 
     def secret_identities(self, namespace, name, key):
         return dict(self.seaweedfs_shape) if (namespace, name) in self.secrets else None
