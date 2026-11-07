@@ -1,0 +1,84 @@
+.terminal-trial {
+  border: 1px solid #cbd8f8;
+  background: #fff;
+  border-radius: 16px;
+  padding: 20px;
+  margin: 0 0 24px;
+  min-width: 0;
+}
+.terminal-trial h3 {
+  margin: 4px 0 12px;
+}
+.terminal-trial .terminal-phase {
+  padding: 12px;
+  border-radius: 8px;
+  background: #eef3ff;
+  font-weight: 600;
+}
+.terminal-trial[data-phase="awaiting_approval"] .terminal-phase {
+  background: #fff1d9;
+  color: #80510d;
+}
+.terminal-trial[data-phase="complete"] .terminal-phase {
+  background: #e6f7ee;
+  color: #1b6a47;
+}
+.terminal-consent {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  font-size: 13px;
+  margin: 14px 0;
+  line-height: 1.6;
+}
+.terminal-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 12px 0;
+}
+.terminal-actions button,
+.terminal-trial > button {
+  padding: 10px 14px;
+  border: 1px solid #b9c9ed;
+  border-radius: 8px;
+  background: #f5f8ff;
+  color: #24467c;
+  cursor: pointer;
+}
+.terminal-trial button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.terminal-command,
+.terminal-receipt {
+  display: block;
+  padding: 14px;
+  background: #172238;
+  color: #e4ecff;
+  border-radius: 10px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: 12px;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+.terminal-stages {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  padding: 0;
+  list-style: none;
+  font-size: 12px;
+}
+.terminal-trial .response-grid {
+  margin-top: 18px;
+}
+@media (max-width: 600px) {
+  .terminal-trial {
+    padding: 12px;
+  }
+  .terminal-actions button {
+    white-space: normal;
+  }
+}
