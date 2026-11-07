@@ -29,7 +29,7 @@
       "needs": [
         "identity"
       ],
-      "instruction": "infra/iac/nodes/target-dev 묶음(또는 GET /v1/iac/environments/target-dev/node-files)을 노드에 복사하고 root로 python3 infra/iac/nodes/apply.py <묶음> --cluster-uid <kube-system UID> 를 먼저 실행해 바뀔 것을 본 뒤 --apply로 적용한다. 새 노드는 render-user-data.sh가 같은 묶음을 첫 시작 전에 넣는다",
+      "instruction": "infra/iac/nodes/target-dev 묶음(또는 GET /v1/iac/environments/target-dev/node-files)을 노드에 복사하고 root로 python3 infra/iac/nodes/apply.py <묶음> --cluster-uid <kube-system UID> 를 먼저 실행해 바뀔 것을 본 뒤, 검토한 파일별 sha256(node-files 응답의 files[].sha256)을 --sha256 <경로>=<sha256>으로 넣고 --apply로 적용한다. 새 노드는 render-user-data.sh가 같은 묶음을 첫 시작 전에 넣는다",
       "confirm": "audit-metadata-active"
     },
     {
