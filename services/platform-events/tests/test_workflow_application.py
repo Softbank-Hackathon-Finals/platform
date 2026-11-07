@@ -23,9 +23,11 @@ def test_recorded_candidate_is_the_apply_input_for_the_approved_hash(backend):
     edit = SimpleNamespace(model_dump=lambda mode: {"path": "app.py", "before_sha256": __import__("hashlib").sha256(b"old\n").hexdigest(),
                                                      "replacement": "new\n"})
     value = SimpleNamespace(files={"app.py": "old\n"})
-    result = SimpleNamespace(proposal=SimpleNamespace(edits=[edit]))
+    plan = {"kind": "iac-plan.v1", "plan_digest": "sha256:" + "a" * 64, "accepted": True, "refusals": []}
+    result = SimpleNamespace(proposal=SimpleNamespace(edits=[edit]), infra_plans=[plan])
     record = record_apply_input(store, SPEC.plan_id, value, result)
     assert record_apply_input(store, SPEC.plan_id, value, result) == record  # write-once, same bytes
+    assert record["infra_plans"] == [plan]  # ADR-0044: kept as the agent returned them
     expected = render_diff({"app.py": "old\n"}, [edit.model_dump("json")])
     claim = {"binding": {"diff_hash": diff_hash(expected), "target_environment_id": SPEC.target_environment_id}}
     with store._transaction() as c:
