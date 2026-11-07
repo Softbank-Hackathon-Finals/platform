@@ -105,3 +105,71 @@ test("a failed environment cannot keep current readiness", () => {
   for (const n of result.view.nodes.filter((n) => n.lane === "source"))
     assert.equal(result.facets[n.id].ready, null);
 });
+function configured() {
+  const d = document(),
+    node = d.graph.nodes[0];
+  d.security_config = {
+    [node.id]: {
+      resource_uid: node.resource_uid,
+      checks: [
+        { id: "privileged", value: true },
+        { id: "seccomp", value: null },
+        { id: "ingress_policy_count", value: 1 },
+      ],
+    },
+  };
+  d.control_history = [
+    {
+      environment_id: "registered-source",
+      lane: "source",
+      profile_id: "demo-gate",
+      profile_version: "1",
+      authorizes_execution: false,
+      current_resource_verified: false,
+      status: "HISTORY",
+      finished_at: d.queried_at,
+      document_sha256: "a".repeat(64),
+      rows: [
+        {
+          test_id: "IAM-01.1",
+          control_id: "IAM-01",
+          recorded_verdict: "PASS",
+          evidence_state: "EXPIRED",
+          unknown_reason: null,
+        },
+      ],
+    },
+  ];
+  return d;
+}
+test("configuration attention and retained PASS never become security or gate authority", () => {
+  const value = observedTopology(configured(), NOW);
+  const checks = Object.values(value.securityConfig)[0];
+  assert.equal(checks[0].state, "ATTENTION");
+  assert.equal(checks[1].state, "UNSPECIFIED");
+  assert.equal(checks[2].state, "DECLARED");
+  assert.ok(value.view.nodes.every((n) => n.security === "unknown"));
+  assert.equal(value.controlHistory[0].current_resource_verified, false);
+  assert.equal(value.authorizes_execution, false);
+});
+test("browser clock independently withdraws expired configuration", () => {
+  assert.deepEqual(
+    observedTopology(configured(), NOW + 91000).securityConfig,
+    {},
+  );
+});
+for (const mutate of [
+  (d) => (Object.values(d.security_config)[0].resource_uid = "old-resource"),
+  (d) => (Object.values(d.security_config)[0].checks[0].value = "true"),
+  (d) => (Object.values(d.security_config)[0].checks[2].value = true),
+  (d) => (Object.values(d.security_config)[0].checks[0].id = "approved"),
+  (d) => (d.control_history[0].authorizes_execution = true),
+  (d) => (d.control_history[0].current_resource_verified = true),
+  (d) => (d.control_history[0].environment_id = "other-app"),
+  (d) => d.control_history[0].rows.push(d.control_history[0].rows[0]),
+])
+  test("forged settings and retained authority are rejected", () => {
+    const d = configured();
+    mutate(d);
+    assert.throws(() => observedTopology(d, NOW));
+  });
