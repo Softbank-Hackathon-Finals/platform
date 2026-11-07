@@ -30,20 +30,34 @@ subjects:
   - {kind: ServiceAccount, name: bravo-gitops-application-controller, namespace: {{ $.Release.Namespace }}}
 ---
 {{- end }}
-# platform-state: only the platform Collector's Pod discovery Role/RoleBinding and its DB metrics NetworkPolicy.
+# platform-state: the controller writes only the DB metrics NetworkPolicy. The platform Collector's Pod discovery
+# Role/RoleBinding below belong to this release: Argo syncs RBAC with kubectl auth reconcile, which needs a
+# cluster-scoped namespace get that this controller does not have.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: bravo-collector-db-discovery
+  namespace: platform-state
+rules:
+  - apiGroups: [""]
+    resources: [pods]
+    verbs: [get, list, watch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: bravo-collector-db-discovery
+  namespace: platform-state
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: bravo-collector-db-discovery}
+subjects:
+  - {kind: ServiceAccount, name: bravo-collector, namespace: platform-telemetry}
+---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
   name: platform-gitops-observability
   namespace: platform-state
 rules:
-  - apiGroups: [rbac.authorization.k8s.io]
-    resources: [roles, rolebindings]
-    verbs: [get, list, watch, create]
-  - apiGroups: [rbac.authorization.k8s.io]
-    resources: [roles, rolebindings]
-    resourceNames: [bravo-collector-db-discovery]
-    verbs: [update, patch, delete]
   - apiGroups: [networking.k8s.io]
     resources: [networkpolicies]
     verbs: [get, list, watch, create]

@@ -52,7 +52,7 @@ class PublicEntryChart(unittest.TestCase):
         # Every kind an Application ships must be tracked, or Argo skips it (ExcludedResourceWarning).
         inclusions = yaml.safe_load(cm["resource.inclusions"])
         tracked = {(g, k) for row in inclusions for g in row["apiGroups"] for k in row["kinds"]}
-        for group, kinds in (("rbac.authorization.k8s.io", ("Role", "RoleBinding")), ("external-secrets.io", ("ExternalSecret",)),
+        for group, kinds in (("external-secrets.io", ("ExternalSecret",)),
                              ("networking.k8s.io", ("NetworkPolicy",)), ("", ("ConfigMap", "Service", "ServiceAccount"))):
             for k in kinds:
                 self.assertIn((group, k), tracked)
@@ -79,6 +79,13 @@ class PublicEntryChart(unittest.TestCase):
         self.assertEqual(app["source"]["path"], "services/observability/deploy/platform-gitops")
         self.assertFalse(app["syncPolicy"]["automated"]["prune"])
         # Argo rejects an Application whose destination namespace is not in its project (an empty one included).
+        # The release, not Argo, owns the Collector's Pod discovery grant (auth reconcile needs a cluster-scoped get).
+        role = next(d for d in kind(docs, "Role", "bravo-collector-db-discovery") if d["metadata"]["namespace"] == "platform-state")
+        self.assertEqual(role["rules"], [{"apiGroups": [""], "resources": ["pods"], "verbs": ["get", "list", "watch"]}])
+        binding = kind(docs, "RoleBinding", "bravo-collector-db-discovery")[0]
+        self.assertEqual(binding["subjects"], [{"kind": "ServiceAccount", "name": "bravo-collector", "namespace": "platform-telemetry"}])
+        controller = next(d for d in kind(docs, "Role", "platform-gitops-observability") if d["metadata"]["namespace"] == "platform-state")
+        self.assertNotIn("rbac.authorization.k8s.io", [g for r in controller["rules"] for g in r["apiGroups"]])
         allowed = {d["namespace"] for d in kind(docs, "AppProject", "platform-observability")[0]["spec"]["destinations"]}
         for name in ("platform-observability", "platform-public-entry"):
             self.assertIn(kind(docs, "Application", name)[0]["spec"]["destination"].get("namespace"),
