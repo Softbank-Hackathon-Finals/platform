@@ -39,4 +39,4 @@ kubectl -n bravo-security create configmap bravo-findings-aws \
 
 GuardDuty 제어 API에는 인터페이스 엔드포인트가 없어서 수집 Pod만 443 바깥 방향을 연다(GuardDuty 읽기 자격만 가진다). 수집이 실패하면 출처가 `FAILED`가 되고 화면 칸은 "확인 불가"다.
 
-아직 하지 않은 것: 온프렘 수집 경로(T44 tailnet-ingress · egress).
+온프렘 수집 경로는 T44 선언(`platform.json` tailnet-ingress `bravo-findings`, `target-dev.json` egress 그룹 `bravo-target-findings`)으로 따로 연다.
