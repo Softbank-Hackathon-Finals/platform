@@ -14,6 +14,7 @@ from bravo_cutover.db_fingerprint import (
     SequenceState,
     fingerprint,
     only_fixed_errors,
+    schema_fingerprint,
     sequence_state,
 )
 from bravo_cutover.remote import Unconfirmed
@@ -198,6 +199,11 @@ class DbControl:
     def db_fingerprint(self, table: str) -> dict:
         with only_fixed_errors("connection_failed"), self._connect() as conn:
             return fingerprint(conn, table)
+
+    def schema_fingerprint(self, table: str) -> dict:
+        """컷오버 전 데이터 준비 관찰(readiness.py)용. 데이터를 보지 않는다."""
+        with only_fixed_errors("connection_failed"), self._connect() as conn:
+            return schema_fingerprint(conn, table)
 
     def row_count(self, table: str) -> int:
         return self._one(sql.SQL("SELECT count(*) FROM {}").format(sql.Identifier(*table.split("."))))
