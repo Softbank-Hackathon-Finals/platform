@@ -1,0 +1,19 @@
+{{- if .Values.securityFindings.enabled }}
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: platform-security-findings
+spec:
+  description: T33 security findings API (services/security-findings/deploy/platform-gitops) in bravo-security only
+  sourceRepos:
+    - https://github.com/Softbank-Hackathon-Finals/platform.git
+  destinations:
+    - {server: https://kubernetes.default.svc, namespace: bravo-security}
+  clusterResourceWhitelist: []
+  namespaceResourceWhitelist:
+    - {group: apps, kind: Deployment}
+    - {group: "", kind: Service}
+    - {group: "", kind: ServiceAccount}
+    - {group: "", kind: PersistentVolumeClaim}
+    - {group: networking.k8s.io, kind: NetworkPolicy}
+{{- end }}
