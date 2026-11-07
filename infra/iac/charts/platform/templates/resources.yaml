@@ -1489,6 +1489,13 @@
             "protocol": "TCP"
           }
         ]
+      },
+      {
+        "ports": [
+          {
+            "protocol": "UDP"
+          }
+        ]
       }
     ],
     "podSelector": {
