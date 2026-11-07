@@ -4,11 +4,6 @@ variable "tailnet" {
   default     = "-"
 }
 
-variable "policy_file" {
-  description = "Whole policy composed by infra/tailnet/compose_policy.py for this tailnet."
-  type        = string
-}
-
 variable "identities" {
   description = "infra/tailnet/identities.json entries of this tailnet: environment -> operator issuer."
   type = map(object({
