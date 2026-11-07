@@ -16,6 +16,7 @@ import {
   type ChatItem, type Conversation,
 } from './lib';
 import { useLink } from './shell';
+import { useT } from './i18n';
 
 /* ---------- events → conversations ---------- */
 
@@ -200,6 +201,7 @@ function Note({ text }: { text: string }) {
 function Turn({ conv, user, body, index, q, bookmarked, onBookmark, last }: {
   conv: Conversation; user: ChatItem; body: ChatItem[]; index: number; q: string; bookmarked: boolean; onBookmark: () => void; last: boolean;
 }) {
+  const t = useT();
   const marker = body.find((x) => x.kind === 'turn');
   const done = !!marker;
   const lastText = done ? body.map((x) => x.kind).lastIndexOf('assistant') : -1;
@@ -217,7 +219,7 @@ function Turn({ conv, user, body, index, q, bookmarked, onBookmark, last }: {
         <button onClick={() => setOpen(!open)} className="pop-in flex items-center gap-2 text-[11.5px] text-ink-soft">
           <span className="h-px flex-1 bg-ink/20" />
           <span className="flex items-center gap-1 whitespace-nowrap rounded-full border-2 border-ink/20 px-2 py-0.5 hover:border-ink hover:text-ink">
-            {secs(marker!.durationMs)} 동안 작업함{marker!.tools ? ` · 도구 ${marker!.tools}회 호출` : ''}
+            {secs(marker!.durationMs)} {t('동안 작업함')}{marker!.tools ? ` · ${t('도구')} ${marker!.tools}` : ''}
             <ChevronDown size={12} className={open ? 'rotate-180' : ''} />
           </span>
           <span className="h-px flex-1 bg-ink/20" />
@@ -231,7 +233,7 @@ function Turn({ conv, user, body, index, q, bookmarked, onBookmark, last }: {
                 : x.kind === 'note' ? <Note key={i} text={x.text ?? ''} /> : null)}
           {!done && last && conv.busy && (
             <div className="flex items-center gap-2 px-1.5 py-1 text-[12px]">
-              <span className="shimmer-text font-semibold">{conv.retry ? `다시 연결 중 ${conv.retry}` : conv.thinking ? '생각 중' : '작업 중'}</span>
+              <span className="shimmer-text font-semibold">{conv.retry ? `↻ ${conv.retry}` : t(conv.thinking ? '생각 중' : '작업 중')}</span>
               <span className="text-ink-soft">· <Elapsed since={conv.turnStartedAt} /></span>
             </div>
           )}
@@ -399,6 +401,7 @@ const STARTERS = [
 ];
 
 export function AgentPanel() {
+  const t = useT();
   const [convs, setConvs] = useAtom(convsAtom);
   const [active, setActive] = useAtom(activeConvAtom);
   const [find, setFind] = useAtom(findAtom);
@@ -517,7 +520,7 @@ export function AgentPanel() {
         <div className="min-w-0 flex-1 leading-tight">
           <div className="flex items-center gap-1.5 font-kdisplay text-[15px]">
             {conv?.busy && <span className="inline-block h-3 w-3 shrink-0 animate-spin rounded-full border-2 border-cold border-t-transparent" aria-label="작업 중" />}
-            <span className="truncate">{conv ? conv.title : 'SOVA 안내자'}</span>
+            <span className="truncate">{conv ? conv.title : t('SOVA 안내자')}</span>
           </div>
           <div className="truncate text-[10.5px] text-ink-soft">OpenAI Codex SDK · ChatGPT 계정 · SOVA MCP 기본 탑재{conv?.sessionId ? ' · 세션 이어짐' : ''}</div>
         </div>
@@ -529,7 +532,7 @@ export function AgentPanel() {
           <Search size={13} />
           <input autoFocus value={find.q} onChange={(e) => setFind({ open: true, q: e.target.value, at: 0 })}
             onKeyDown={(e) => { if (e.key === 'Enter') setFind((f) => ({ ...f, at: f.at + (e.shiftKey ? -1 : 1) + matches.length })); if (e.key === 'Escape') setFind({ open: false, q: '', at: 0 }); }}
-            placeholder="채팅 검색…" className="min-w-0 flex-1 bg-transparent text-[12.5px] outline-none placeholder:text-ink/50" />
+            placeholder={t('채팅 검색…')} className="min-w-0 flex-1 bg-transparent text-[12.5px] outline-none placeholder:text-ink/50" />
           <span className="font-mono text-[11px]">{find.q ? (matches.length ? `${(find.at % matches.length) + 1}/${matches.length}` : '0개의 결과') : ''}</span>
           <button aria-label="이전 결과" onClick={() => setFind((f) => ({ ...f, at: f.at - 1 + matches.length }))}><ChevronUp size={14} /></button>
           <button aria-label="다음 결과" onClick={() => setFind((f) => ({ ...f, at: f.at + 1 }))}><ChevronDown size={14} /></button>
@@ -543,7 +546,7 @@ export function AgentPanel() {
             <div className="flex flex-col items-center gap-4 pt-6 text-center">
               <div className="flex items-end gap-2"><HiyashiPill /><Mark size={84} dipping /></div>
               <div>
-                <div className="font-kdisplay text-[20px]">무엇을 옮길까요?</div>
+                <div className="font-kdisplay text-[20px]">{t('무엇을 옮길까요?')}</div>
                 <p className="mt-1 text-[12.5px] text-ink-soft">처음이어도 괜찮아요. 안내자가 SOVA MCP로 지금 상태를 읽고 다음 단계를 알려 줍니다.<br />
                   <b>/</b>로 명령, <b>@</b>로 계획·환경을 언급할 수 있어요. 승인과 실행은 언제나 사람이 합니다.</p>
               </div>
@@ -609,7 +612,7 @@ export function AgentPanel() {
                 if (menu.length) pick(menu[menuIdx]); else void submit(e.metaKey);
               }
             }}
-            placeholder={conv?.busy ? '작업 중에 보내면 대기열에 넣습니다 · ⌘↩ 지금 조정' : 'SOVA에게 뭐든 물어봐. /로 명령, @로 계획·환경 언급'}
+            placeholder={t(conv?.busy ? '작업 중에 보내면 대기열에 넣습니다 · ⌘↩ 지금 조정' : 'SOVA에게 뭐든 물어봐. /로 명령, @로 계획·환경 언급')}
             className="w-full resize-none bg-transparent px-3.5 pt-3 text-[13px] outline-none" />
           <div className="flex items-center gap-1.5 px-2.5 pb-2.5">
             <ApprovalPicker />
@@ -624,9 +627,9 @@ export function AgentPanel() {
           </div>
         </div>
         <div className="mt-1.5 flex items-center gap-3 px-1 font-mono text-[10.5px] text-ink-soft">
-          <span className="flex items-center gap-1"><Gauge size={11} />컨텍스트 {conv?.context ? `${Math.round(conv.context.used / 1000)}K${conv.context.total ? `/${Math.round(conv.context.total / 1000)}K · ${ctxPct}%` : ''}` : '—'}</span>
+          <span className="flex items-center gap-1"><Gauge size={11} />{t('컨텍스트')} {conv?.context ? `${Math.round(conv.context.used / 1000)}K${conv.context.total ? `/${Math.round(conv.context.total / 1000)}K · ${ctxPct}%` : ''}` : '—'}</span>
           {conv?.costUsd ? <span>${conv.costUsd.toFixed(3)}</span> : null}
-          <span className="ml-auto">{link.data?.connected ? 'MCP 연결됨' : 'MCP 미연결'}</span>
+          <span className="ml-auto">{t(link.data?.connected ? 'MCP 연결됨' : 'MCP 미연결')}</span>
         </div>
       </div>
     </aside>

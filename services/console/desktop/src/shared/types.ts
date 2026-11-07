@@ -16,6 +16,8 @@ export interface Settings {
   model: string;
   devToken: string;      // only for a loopback MCP (local test server)
   onboarded: boolean;
+  gcpProject: string;     // console entry (Google account picks itself in the browser)
+  tailnet: string;        // Tailscale admin tailnet name for the on-prem destination
 }
 export interface LinkStatus { connected: boolean; url: string; readOnly: boolean; code?: string; tools: string[]; checkedAt: string }
 
@@ -56,6 +58,7 @@ export interface SovaApi {
   prompts(): Promise<PromptInfo[]>;
   models(): Promise<{ models: ModelInfo[]; defaultModel: string | null }>;
   agentAuth(login: boolean): Promise<{ ok: boolean; message: string }>;
+  awsProfile(): Promise<{ startUrl?: string; accountId?: string; roleName?: string; region?: string }>;
   prompt(name: string, args: Record<string, string>): Promise<string | null>;
   agentStop(conv: string): Promise<void>;
   agentConfirm(id: string, allow: boolean): Promise<void>;

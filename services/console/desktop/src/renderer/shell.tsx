@@ -10,6 +10,7 @@ import { useEffect } from 'react';
 import type { LinkStatus } from '../shared/types';
 import { HiyashiPill, Mark, StatusBadge, Stamp, Wordmark, stageLabel } from './brand';
 import { Threads } from './threads';
+import { useT } from './i18n';
 import {
   activeConvAtom, ago, blankConversation, convsAtom, panelAtom, paletteAtom, pendingConfirmAtom, planAtom, sova, useTool, viewAtom, type View,
 } from './lib';
@@ -20,7 +21,6 @@ export const NAV: { id: View; label: string; icon: typeof LayoutDashboard }[] = 
   { id: 'timeline', label: '진행 타임라인', icon: Activity },
   { id: 'observe', label: '관측 · 보안', icon: ShieldCheck },
   { id: 'guide', label: '처음 안내', icon: BookOpen },
-  { id: 'settings', label: '연결 설정', icon: Settings2 },
 ];
 
 export function useLink() {
@@ -28,6 +28,7 @@ export function useLink() {
 }
 
 export function Sidebar() {
+  const t = useT();
   const [view, setView] = useAtom(viewAtom);
   const setConvs = useSetAtom(convsAtom);
   const setActive = useSetAtom(activeConvAtom);
@@ -50,7 +51,7 @@ export function Sidebar() {
 
       <div className="p-3">
         <button className="btn btn-red w-full justify-center" onClick={() => { const c = blankConversation(); setConvs((a) => [c, ...a]); setActive(c.id); setPanel(true); }}>
-          <MessageSquarePlus size={16} /> 새 채팅 <span className="ml-auto font-mono text-[10px] opacity-80">⌘N</span>
+          <MessageSquarePlus size={16} /> {t('새 채팅')} <span className="ml-auto font-mono text-[10px] opacity-80">⌘N</span>
         </button>
       </div>
 
@@ -59,7 +60,7 @@ export function Sidebar() {
           <button key={id} onClick={() => setView(id)}
             className={`flex items-center gap-2.5 rounded-lg border-2 px-2.5 py-1.5 text-left text-[13px] font-semibold
               ${view === id ? 'border-ink bg-mustard shadow-pop-sm' : 'border-transparent hover:bg-paper'}`}>
-            <Icon size={16} strokeWidth={2.4} /> {label}
+            <Icon size={16} strokeWidth={2.4} /> {t(label)}
           </button>
         ))}
       </nav>
@@ -71,16 +72,20 @@ export function Sidebar() {
         <div className="min-w-0 flex-1 leading-tight">
           <div className="flex items-center gap-1.5 text-[12px] font-bold">
             <span className={`h-2 w-2 rounded-full border border-ink ${link.data?.connected ? 'live-dot bg-wasabi' : 'bg-red'}`} />
-            {link.data?.connected ? 'SOVA MCP 연결됨' : 'SOVA MCP 미연결'}
+            {t(link.data?.connected ? 'SOVA MCP 연결됨' : 'SOVA MCP 미연결')}
           </div>
-          <div className="truncate text-[11px] text-ink-soft">{readOnly ? '읽기 전용 · 冷' : '등록·계획 생성 허용'} · 도구 {link.data?.tools.length ?? 0}개</div>
+          <div className="truncate text-[11px] text-ink-soft">{t(readOnly ? '읽기 전용' : '등록 허용')} · MCP {link.data?.tools.length ?? 0}</div>
         </div>
+        <button aria-label={t('설정')} title={t('설정')} onClick={() => setView('settings')}
+          className={`grid h-8 w-8 place-items-center rounded-lg border-2 ${view === 'settings' ? 'border-ink bg-mustard' : 'border-transparent hover:border-ink hover:bg-cream'}`}>
+          <Settings2 size={17} /></button>
       </div>
     </aside>
   );
 }
 
 export function TopBar() {
+  const t = useT();
   const view = useAtomValue(viewAtom);
   const [plan, setPlan] = useAtom(planAtom);
   const [panel, setPanel] = useAtom(panelAtom);
@@ -94,9 +99,9 @@ export function TopBar() {
 
   return (
     <header className="drag flex h-[58px] shrink-0 items-center gap-2.5 overflow-hidden border-b-2 border-ink bg-cream px-5">
-      <h1 className="whitespace-nowrap font-kdisplay text-[20px] leading-none">{NAV.find((n) => n.id === view)?.label}</h1>
+      <h1 className="whitespace-nowrap font-kdisplay text-[20px] leading-none">{t(NAV.find((n) => n.id === view)?.label ?? '')}</h1>
       <div className="no-drag ml-3 flex items-center gap-2">
-        <span className="kicker whitespace-nowrap">계획</span>
+        <span className="kicker whitespace-nowrap">{t('계획')}</span>
         <select value={plan} onChange={(e) => setPlan(e.target.value)}
           className="w-[190px] rounded-lg border-2 border-ink bg-[#fffaf0] px-2 py-1 font-mono text-[12px] shadow-pop-sm">
           {plans.length === 0 && <option value="">계획 없음</option>}
@@ -106,7 +111,7 @@ export function TopBar() {
       </div>
       {/^https?:\/\/(127\.0\.0\.1|localhost)/.test(link.data?.url ?? '') && (
         <span className="whitespace-nowrap rounded-md border-2 border-ink bg-[repeating-linear-gradient(135deg,#ffd23f_0_6px,#fff3dc_6px_12px)] px-2 py-0.5 text-[11px] font-black">
-          로컬 시험 데이터</span>
+          {t('로컬 시험 데이터')}</span>
       )}
       <div className="flex-1" />
       <span className="no-drag hidden whitespace-nowrap text-[11px] text-ink-soft 2xl:inline">{ctx.data ? `조회 ${ago(ctx.data.observed_at)}` : ctx.isError ? '조회 실패' : '조회 중'}</span>

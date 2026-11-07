@@ -8,7 +8,8 @@ import { orderedChats } from './threads';
 import { Mark, Stamp, Wordmark } from './brand';
 import { activeConvAtom, blankConversation, convSortAtom, convsAtom, explain, panelAtom, planAtom, sova, viewAtom } from './lib';
 import { ConfirmDialog, Palette, Sidebar, TopBar, useLink } from './shell';
-import { ConnectionForm, Dashboard, Guide, Observe, Plans, SettingsView, Timeline } from './views';
+import { ConnectionForm, Dashboard, Guide, Observe, Plans, Timeline } from './views';
+import { SettingsPage } from './settings';
 import hero from '../../assets/sova-hero.jpg';
 
 function useAsk() {
@@ -126,6 +127,7 @@ export function App() {
   return (
     <div className="flex h-full">
       <Sidebar />
+      {view === 'settings' ? <main className="min-w-0 flex-1"><SettingsPage /></main> : (
       <main className="flex min-w-0 flex-1 flex-col">
         <TopBar />
         <div className="min-h-0 flex-1">
@@ -134,10 +136,9 @@ export function App() {
           {view === 'timeline' && <Timeline />}
           {view === 'observe' && <Observe />}
           {view === 'guide' && <Guide ask={ask} />}
-          {view === 'settings' && <SettingsView />}
         </div>
-      </main>
-      {panel && <AgentPanel />}
+      </main>)}
+      {panel && view !== 'settings' && <AgentPanel />}
       <Palette ask={ask} />
       <ConfirmDialog />
     </div>

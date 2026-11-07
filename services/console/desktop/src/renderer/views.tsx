@@ -5,6 +5,8 @@ import { ArrowRight, ExternalLink, Hand, LogIn, PlugZap, Sparkles } from 'lucide
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { EFFORT_LABEL, type NextAction, type Settings } from '../shared/types';
 import { useModels } from './agent';
+import { useT } from './i18n';
+import { useConsoleLinks } from './settings';
 import { Burst, MAIN_STAGES, Sparkline, Stamp, StageRail, StatusBadge, stageLabel } from './brand';
 import { ago, callTool, explain, planAtom, sova, useTool, viewAtom } from './lib';
 import { useLink } from './shell';
@@ -160,6 +162,7 @@ function useHttpSeries(environment: string) {
 }
 
 function EnvMetrics({ env }: { env: any }) {
+  const links = useConsoleLinks();
   const { q, d, s } = useHttpSeries(env.environment_id);
   const unobserved = q.isError || d?.state === 'UNOBSERVABLE';
   const fmt = (v: number | null | undefined, f: (n: number) => string) => (v === null || v === undefined ? '미관측' : f(v));
@@ -172,6 +175,7 @@ function EnvMetrics({ env }: { env: any }) {
         <span className="font-mono text-[10.5px] text-ink-soft">{env.kind}</span>
         <div className="flex-1" />
         {d && <span className="text-[10.5px] text-ink-soft">수신 {d.last_received_seconds_ago ?? '—'}초 전</span>}
+        <button className="btn !px-1.5 !py-0 text-[10.5px]" title="이 환경의 콘솔을 내 계정으로 엽니다" onClick={() => { const u = links.forKind(env.kind); if (u) window.open(u, '_blank'); }}>콘솔 ↗</button>
       </div>
       {unobserved ? (
         <div className="halftone rounded-lg border-2 border-dashed border-ink p-2.5 text-[12px]">{q.isError ? explain(q.error) : '관측 신호가 없습니다(미관측은 0이 아닙니다).'}</div>
@@ -195,6 +199,7 @@ function EnvMetrics({ env }: { env: any }) {
 /* ---------- views ---------- */
 
 export function Dashboard({ ask }: { ask: (q: string) => void }) {
+  const t = useT();
   const plan = useAtomValue(planAtom);
   const ctx = useTool('sova_get_context', {}, 30_000);
   const planQ = useTool('sova_get_plan', plan ? { plan_id: plan } : null, 10_000);
@@ -223,22 +228,22 @@ export function Dashboard({ ask }: { ask: (q: string) => void }) {
         </section>
 
         <div className="col-span-12 grid grid-cols-4 gap-4">
-          <Tile label="현재 단계" value={stageLabel(p?.state)} sub={p ? `버전 ${p.version} · 마지막 이벤트 ${p.last_event_id?.split(':')[1] ?? '—'}번` : '—'} tone="bg-mustard" />
-          <Tile label="원본 대조 게이트" value={compare.data ? <StatusBadge status={compare.data.status} /> : '—'}
+          <Tile label={t('현재 단계')} value={stageLabel(p?.state)} sub={p ? `버전 ${p.version} · 마지막 이벤트 ${p.last_event_id?.split(':')[1] ?? '—'}번` : '—'} tone="bg-mustard" />
+          <Tile label={t('원본 대조 게이트')} value={compare.data ? <StatusBadge status={compare.data.status} /> : '—'}
             sub={compare.data?.summary ?? (compare.isError ? explain(compare.error) : '조회 중')} />
-          <Tile label="실행 기록" value={exec.data ? `${exec.data.data.records.length}건` : '—'} sub={exec.data?.summary ?? '—'} />
-          <Tile label="사람 결정 대기" value={<span className={humanCount ? 'text-red' : ''}>{humanCount}</span>}
+          <Tile label={t('실행 기록')} value={exec.data ? `${exec.data.data.records.length}건` : '—'} sub={exec.data?.summary ?? '—'} />
+          <Tile label={t('사람 결정 대기')} value={<span className={humanCount ? 'text-red' : ''}>{humanCount}</span>}
             sub={humanCount ? '승인·실행은 사람이 합니다' : '지금은 자동 진행 구간'} tone={humanCount ? 'bg-[#ffe3d6]' : 'bg-[#fffaf0]'} />
         </div>
 
-        <Panel className="col-span-7 h-[380px]" kicker="EVENT STREAM" title="진행 이벤트" right={<span className="text-[11px] text-ink-soft">{events.length}건 · cursor 추적</span>}>
+        <Panel className="col-span-7 h-[380px]" kicker="EVENT STREAM" title={t('진행 이벤트')} right={<span className="text-[11px] text-ink-soft">{events.length}건 · cursor 추적</span>}>
           {evError ? <Problem error={evError} /> : <EventStream events={events} compact />}
         </Panel>
-        <Panel className="col-span-5 h-[380px]" kicker="NEXT ACTIONS" title="다음 행동 (서버 계산)">
+        <Panel className="col-span-5 h-[380px]" kicker="NEXT ACTIONS" title={t('다음 행동 (서버 계산)')}>
           <div className="scroll-thin h-full overflow-y-auto"><NextActions actions={planQ.data?.next_actions ?? []} ask={ask} /></div>
         </Panel>
 
-        <div className="col-span-12 flex items-center gap-2 pt-1"><span className="font-kdisplay text-[16px]">환경 관측</span><span className="kicker">HTTP · 1m 창 · 15초마다</span></div>
+        <div className="col-span-12 flex items-center gap-2 pt-1"><span className="font-kdisplay text-[16px]">{t('환경 관측')}</span><span className="kicker">HTTP · 1m 창 · 15초마다</span></div>
         <div className="col-span-12 grid grid-cols-2 gap-4">
           {envs.map((e) => <EnvMetrics key={e.environment_id} env={e} />)}
         </div>
@@ -486,7 +491,7 @@ function Field({ label, value, onSave, placeholder, mono }: { label: string; val
   );
 }
 
-function AgentModels() {
+export function AgentModels() {
   const { data } = useModels();
   const auth = useQuery({ queryKey: ['agentAuth'], queryFn: () => sova.agentAuth(false) });
   const [msg, setMsg] = useState('');

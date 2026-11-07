@@ -1,6 +1,7 @@
 import markImg from '../../assets/sova-mark.png';
 import type { ReactNode } from 'react';
 import type { Status } from '../shared/types';
+import { useT } from './i18n';
 
 /** App mark: the choko cup and soba strand from the SOVA key visual. */
 export function Mark({ size = 40, dipping = false }: { size?: number; dipping?: boolean }) {
@@ -76,6 +77,7 @@ const HUMAN = new Set(['AWAIT_APPROVAL', 'SHIFT', 'CUTOVER']);
 
 /** The migration as one soba strand; chopsticks mark where the plan is now. */
 export function StageRail({ state }: { state?: string }) {
+  const t = useT();
   const idx = MAIN_STAGES.findIndex(([k]) => k === state);
   const side = state && SIDE_STAGES[state];
   const W = 1000, step = W / (MAIN_STAGES.length - 1);
@@ -110,15 +112,15 @@ export function StageRail({ state }: { state?: string }) {
                   {done ? '✓' : i + 1}
                 </span>
               </span>
-              <span className={`text-center text-[11px] leading-tight ${now ? 'font-kdisplay text-[13px]' : done ? 'font-bold text-ink-soft' : 'text-ink-soft'}`}>{label}</span>
-              {HUMAN.has(key) && <span className="rounded-sm bg-red px-1 text-[9px] font-black text-cream">사람</span>}
+              <span className={`text-center text-[11px] leading-tight ${now ? 'font-kdisplay text-[13px]' : done ? 'font-bold text-ink-soft' : 'text-ink-soft'}`}>{t(label)}</span>
+              {HUMAN.has(key) && <span className="rounded-sm bg-red px-1 text-[9px] font-black text-cream">{t('사람')}</span>}
             </li>
           );
         })}
       </ol>
       {side && (
         <div className="mt-2 flex justify-center">
-          <Burst className="h-16 w-40 text-[13px]" color={state === 'SAFE_HOLD' || state === 'NEEDS_HUMAN' ? 'bg-mustard' : 'bg-cold text-white'}>{side}</Burst>
+          <Burst className="h-16 w-40 text-[13px]" color={state === 'SAFE_HOLD' || state === 'NEEDS_HUMAN' ? 'bg-mustard' : 'bg-cold text-white'}>{t(side)}</Burst>
         </div>
       )}
     </div>

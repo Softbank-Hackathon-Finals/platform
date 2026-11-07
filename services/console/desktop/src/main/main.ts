@@ -4,6 +4,7 @@ import path from 'node:path';
 import type { AgentEvent, Settings, TurnOptions } from '../shared/types';
 import { Agents, codexAuth } from './agent';
 import { codexDefaultModel, codexModels } from './models';
+import { awsProfile } from './accounts';
 import { loadSettings, saveSettings } from './settings';
 import { SovaLink } from './sova';
 
@@ -59,6 +60,7 @@ ipcMain.handle('agent:send', (_e, conv: string, text: string, opts: TurnOptions)
 ipcMain.handle('sova:prompts', () => link.prompts());
 ipcMain.handle('agent:models', () => ({ models: codexModels(), defaultModel: codexDefaultModel() }));
 ipcMain.handle('agent:auth', (_e, login: boolean) => codexAuth(login));
+ipcMain.handle('accounts:aws', () => awsProfile(settings.awsProfile));
 ipcMain.handle('sova:prompt', (_e, name: string, args: Record<string, string>) => link.prompt(name, args));
 ipcMain.handle('agent:stop', (_e, conv: string) => agents.stop(conv));
 ipcMain.handle('agent:confirm', (_e, id: string, allow: boolean) => agents.confirm(id, allow));

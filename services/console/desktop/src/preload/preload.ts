@@ -12,6 +12,7 @@ const api: SovaApi = {
   prompts: () => ipcRenderer.invoke('sova:prompts'),
   models: () => ipcRenderer.invoke('agent:models'),
   agentAuth: (login) => ipcRenderer.invoke('agent:auth', login),
+  awsProfile: () => ipcRenderer.invoke('accounts:aws'),
   prompt: (name, args) => ipcRenderer.invoke('sova:prompt', name, args),
   agentStop: (conv) => ipcRenderer.invoke('agent:stop', conv),
   agentConfirm: (id, allow) => ipcRenderer.invoke('agent:confirm', id, allow),

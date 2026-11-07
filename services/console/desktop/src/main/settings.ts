@@ -5,7 +5,7 @@ import type { Settings } from '../shared/types';
 
 const DEFAULTS: Settings = {
   mcpUrl: '', awsProfile: 'bravo-operator', awsRegion: 'ap-northeast-2', readOnly: true, planScope: '',
-  model: 'claude-opus-5-5', devToken: '', onboarded: false,
+  model: '', devToken: '', onboarded: false, gcpProject: '', tailnet: '',
 };
 const file = () => join(app.getPath('userData'), 'settings.json');
 

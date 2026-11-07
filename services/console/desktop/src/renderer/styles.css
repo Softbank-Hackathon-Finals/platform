@@ -147,6 +147,7 @@ mark { background: var(--color-mustard); color: inherit; border-radius: 3px; pad
 .live-dot { animation: pulse-ring 1.6s ease-out infinite; }
 .wobble { animation: wobble 2.4s ease-in-out infinite; }
 .dip { animation: dip 1.2s ease-in-out infinite; }
+:root[data-reduced-motion=true] *, :root[data-reduced-motion=true] *::before { animation: none !important; transition: none !important; }
 @media (prefers-reduced-motion: reduce) { .live-dot, .wobble, .dip, .shimmer-text, .snake, .pop-in { animation: none; } }
 
 :focus-visible { outline: 3px solid var(--color-cold); outline-offset: 2px; }
