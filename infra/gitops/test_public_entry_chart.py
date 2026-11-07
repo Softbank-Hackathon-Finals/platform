@@ -42,6 +42,13 @@ class PublicEntryChart(unittest.TestCase):
         # Anonymous sees Applications and projects only: no logs, no other resource kinds.
         self.assertEqual(rbac["policy.default"], "role:platform-viewer")
         self.assertNotIn("logs", rbac["policy.csv"])
+        # Every kind an Application ships must be tracked, or Argo skips it (ExcludedResourceWarning).
+        inclusions = yaml.safe_load(cm["resource.inclusions"])
+        tracked = {(g, k) for row in inclusions for g in row["apiGroups"] for k in row["kinds"]}
+        for group, kinds in (("rbac.authorization.k8s.io", ("Role", "RoleBinding")), ("external-secrets.io", ("ExternalSecret",)),
+                             ("networking.k8s.io", ("NetworkPolicy",)), ("", ("ConfigMap", "Service", "ServiceAccount"))):
+            for k in kinds:
+                self.assertIn((group, k), tracked)
         self.assertFalse(kind(docs, "ClusterRole") + kind(docs, "ClusterRoleBinding"))
 
         app = kind(docs, "Application", "platform-public-entry")[0]["spec"]
