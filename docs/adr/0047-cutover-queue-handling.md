@@ -1,12 +1,12 @@
-# [ADR-0043] 컷오버 · 되돌리기에서 큐 메시지를 잃지 않는 규칙
+# [ADR-0047] 컷오버 · 되돌리기에서 큐 메시지를 잃지 않는 규칙
 
 * **상태 (Status):** 제안됨(Proposed)
 * **날짜 (Date):** 2026-11-07
-* **관련 (Related):** T46 #698, T12 #22, T20 #30, 설계 8.6 · FR-9 · NFR-3, ADR-0011(cutover-executor-execution-and-failure) · ADR-0013(executor-workload-access) · ADR-0016(failback-replication-path-check) · ADR-0041 · ADR-0042
+* **관련 (Related):** T46 #698, T12 #22, T20 #30, 설계 8.6 · FR-9 · NFR-3, ADR-0011(cutover-executor-execution-and-failure) · ADR-0013(executor-workload-access) · ADR-0016(failback-replication-path-check) · ADR-0045 · ADR-0046
 
 ## 1. 배경 및 문제 상황 (Context and Problem Statement)
 
-* **상황:** 출발지에서는 SQS → Lambda가, 목적지에서는 SQS 호환 서버 → 실행기가 메시지를 처리하고 결과를 업무 DB에 쓴다. 큐는 업무 DB 밖에 있어 논리 복제로 옮겨지지 않는다(ADR-0042). Executor는 컷오버와 되돌리기를 같은 단계로, 방향만 바꿔 실행한다.
+* **상황:** 출발지에서는 SQS → Lambda가, 목적지에서는 SQS 호환 서버 → 실행기가 메시지를 처리하고 결과를 업무 DB에 쓴다. 큐는 업무 DB 밖에 있어 논리 복제로 옮겨지지 않는다(ADR-0046). Executor는 컷오버와 되돌리기를 같은 단계로, 방향만 바꿔 실행한다.
 * **문제:** 지금 Executor는 큐를 모른다. 세 가지가 문제가 된다.
   * 진입점 쓰기 차단은 요청 시작에서만 확인되므로(demo-chat `require_writable`), 차단 직전에 통과한 요청의 메시지가 늦게 도착할 수 있다.
   * 컷오버 뒤 출발지 앱이 실제 SQS에 보낸 메시지는 트리거가 꺼져 있으면 처리되지 않는다.
