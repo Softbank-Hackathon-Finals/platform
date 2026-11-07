@@ -39,6 +39,7 @@
 | 5절 데모 3 · AUD-01.1을 중앙 전달 전까지 CNPG primary 자체 로그(pods/log)에서 검색(T34·T14) | [0037 AUD-01.1 파드 로그 원천](0037-aud-login-pod-log-source.md) |
 | T21 · SOVA MCP 위치·신원·도구 경계·사람 전용 범위 | [0040 SOVA MCP 표면](0040-sova-mcp-surface.md) |
 | T21 · 앱 배포 엔진(RAILSHOT 이식)을 별도 파드로, CI는 일회성 러너 | [0048 SOVA Deploy](0048-sova-deploy-railshot-engine.md) |
+| T49 · S5 잔존 의존성 지도를 GitOps로 무인 생성(데모: 지도까지, 차단 시험 제외) | [0049 S5 지도 GitOps](0049-s5-residual-map-by-gitops.md) |
 | 7.3·8.11 의존성 3등급 규칙과 에이전트 보완 범위(T16·T32) | [0018 의존성 등급 규칙](0018-dependency-grading-rules.md) |
 | 7.4·8.3·8.4 플랫폼 감사 로그(실행별 체인 · Object Lock · 삭제 거부 증빙) | [0020 플랫폼 감사 로그](0020-platform-audit-ledger.md) |
 | 8.3·8.4 에이전트 도구 계층 경계(소스 경로 · 인벤토리 조회 · 정책 린트 · 파괴 시도 기록) | [0019 에이전트 도구 경계](0019-agent-tool-boundary.md) |
