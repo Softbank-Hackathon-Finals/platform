@@ -30,8 +30,17 @@ flowchart LR
 ## 신뢰 경계
 
 - `/__trial`은 별도 개인 시험 능력이다. native `/v1` 변경은 계속 405다.
-- 정적 JS/CSS에는 자격이나 제어 nonce가 없다. 상태·feed·제어는 현재 인증이 필요하다.
-- Host·Origin·교차 사이트·CSRF·JSON 중복 키·크기·고정 action을 검사한다.
+- 정적 JS/CSS에는 자격이나 제어 nonce가 없다. 상태·feed는 조회 인증(`authorize`), 제어는 별도의
+  소유자 인증(`authorize_control`)이 필요하다. 두 함수는 같은 것을 넘길 수 없다. 지켜볼 수 있는 세션이
+  그 권한만으로 클러스터 효과를 내지 못하게 하기 위해서다.
+- Host·Origin·CSRF·JSON 중복 키·크기를 검사한다. `Sec-Fetch-Site`는 없거나 `same-origin`이어야 한다.
+  쿠키는 포트로 나뉘지 않아 같은 PC의 다른 `127.0.0.1` 포트도 `same-site`이기 때문이다(#727).
+- 제어 문서는 호스트에서 정확히 `action`·`request_id`·`session_id`·`plan_digest`·`approved`만 받는다.
+  `session_id`·`plan_digest`는 지금 manager 상태와 같아야 하고, prepare·respond는 `approved: true`가 필요하다.
+  manager는 실행 때 범위와 동의를 다시 확인한다.
+- **아직:** 이 호스트를 조립하고 소유자 쿠키를 발급하는 런처는 이 저장소에도, sova-test #3에도 없다.
+  sova-test에는 `demo/operator_auth.py`(소유자 bootstrap 인증)만 있다. 런처를 넣어 리뷰를 받기 전에는
+  실제 클러스터 효과를 내는 경로의 사람 인증이 검토되지 않은 상태다.
 - 브라우저는 고정 prepare/respond/stop만 사용하며 요청의 대상·URL·명령을 지정하지 못한다.
   실제 접근 시도는 별도 소유자 터미널 명령으로만 시작한다.
 - HMAC·생산자 SHA·계획·현재 session·관측 revision을 검증한다. 앞선 session이나
@@ -53,7 +62,7 @@ flowchart LR
 security 코드·이미지·문서 SHA와 실제 실행한 생산자 SHA는 분리한다.
 원본 접근 자료와 실제 Pod UID·영상은 비공개로 보존한다.
 
-- 플랫폼 호스트 경계 시험: 14개 통과. 모의 manager이며 클러스터 증거가 아니다.
+- 플랫폼 호스트 경계 시험: 26개 통과(#905 리뷰 반영 뒤). 모의 manager이며 클러스터 증거가 아니다.
 - 콘솔 전체 Python: 525개 통과. PostgreSQL 시험은 임시 로컬 DB다.
 - 최신 develop 기반 JavaScript: 316개, 자산 검사 및 새 JS 구문 검사 통과.
 - 실제 시험의 네 효과 확인과 마지막 화면 확인은 별도다. 마지막 관측 게시 전에
