@@ -8,6 +8,7 @@ import asyncio
 import hashlib
 import hmac
 import os
+import re
 import secrets
 import stat
 from datetime import UTC, datetime
@@ -42,12 +43,26 @@ def canonical(value):
     ).encode()
 
 
+CONTROL_KEYS = {"action", "request_id", "session_id", "plan_digest", "approved"}
+
+
 class TerminalTrialHost:
-    def __init__(self, console, manager, *, authorize, terminal_command):
+    """`authorize(scope)` lets a session read the trial status and feed; `authorize_control(scope)`
+    lets it act (prepare/respond/stop) and must hold only for the trial's owner. They are separate on
+    purpose: a session that may watch must not thereby gain cluster effects (#905 review 1)."""
+
+    def __init__(self, console, manager, *, authorize, authorize_control, terminal_command):
         self.console, self.manager, self.authorize = console, manager, authorize
+        self.authorize_control = authorize_control
         self.csrf = secrets.token_urlsafe(32)
         self.terminal_command = terminal_command
-        if not callable(authorize) or not terminal_command or "\n" in terminal_command:
+        if (
+            not callable(authorize)
+            or not callable(authorize_control)
+            or authorize_control is authorize
+            or not terminal_command
+            or "\n" in terminal_command
+        ):
             raise ValueError("explicit_owned_trial_composition_required")
         assets = Path(__file__).with_name("terminal_trial_assets")
         self.assets = {
@@ -61,6 +76,22 @@ class TerminalTrialHost:
             ),
             mime,
         )
+
+    def bound_control(self, value):
+        """The exact control document for the current session; the manager checks it again."""
+        current = self.manager.status()
+        if (
+            set(value) != CONTROL_KEYS
+            or value["action"] not in {"prepare", "respond", "stop"}
+            or not isinstance(value["request_id"], str)
+            or not re.fullmatch(r"[0-9a-f]{32}", value["request_id"])
+            or value["session_id"] != current.get("session_id")
+            or value["plan_digest"] != current.get("plan_digest")
+            or type(value["approved"]) is not bool
+            or (value["action"] in {"prepare", "respond"} and value["approved"] is not True)
+        ):
+            raise ValueError("fixed_trial_action_required")
+        return value
 
     def status(self):
         return self.manager.status() | {
@@ -128,9 +159,11 @@ class TerminalTrialHost:
                 scope, receive, send
             )
 
+        # Cookies are not port-scoped: another 127.0.0.1 origin is "same-site" (#727). Only this
+        # origin's own requests, or a client that sends no fetch metadata, reach the trial routes.
         if (
             request.headers.getlist("host") != [self.console.host]
-            or request.headers.get("sec-fetch-site") == "cross-site"
+            or request.headers.getlist("sec-fetch-site") not in ([], ["same-origin"])
             or (
                 "origin" in request.headers
                 and request.headers.getlist("origin") != [self.console.origin]
@@ -177,12 +210,13 @@ class TerminalTrialHost:
             if len(raw) != length:
                 raise ValueError("request_length_mismatch")
             value = object_document(raw, max_bytes=2048)
-            if value.get("action") not in {"prepare", "respond", "stop"}:
-                raise ValueError("fixed_trial_action_required")
-            if await call(self.authorize, scope) is not True:
-                return await answer(403, {"error": "trial_session_required"})
-            # Manager performs current scope/explicit approval checks again at
-            # dispatch. No timeout retry can create a second operation.
+            if await call(self.authorize_control, scope) is not True:
+                return await answer(403, {"error": "trial_owner_required"})
+            value = await asyncio.to_thread(self.bound_control, value)
+            if await call(self.authorize_control, scope) is not True:
+                return await answer(403, {"error": "trial_owner_required"})
+            # The host has bound the document to the current session above; the manager checks
+            # scope and explicit approval again at dispatch. No timeout retry creates a second operation.
             accepted = await asyncio.to_thread(self.manager.act, value)
             return await answer(202, accepted)
         except ValueError:
