@@ -49,6 +49,7 @@ body[data-observation-only] .response-node[data-readiness="false"] {
 }
 .observed-security,
 .observed-controls {
+  min-width: 0;
   margin: 20px 0;
   padding: 20px;
   border: 1px solid #dce4f4;
@@ -61,15 +62,18 @@ body[data-observation-only] .response-node[data-readiness="false"] {
 }
 .observed-security-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(260px, 100%), 1fr));
   gap: 14px;
 }
 .observed-security-card {
+  min-width: 0;
   padding: 16px;
   border-radius: 12px;
   background: #f7f9ff;
 }
 .observed-warning-link {
+  box-sizing: border-box;
+  white-space: normal;
   display: block;
   width: 100%;
   margin: 8px 0;
@@ -97,11 +101,14 @@ body[data-observation-only]
   stroke-width: 2.5;
 }
 .observed-history-run {
+  min-width: 0;
+  max-width: 100%;
   margin-top: 18px;
   overflow-x: auto;
 }
 .observed-history-table {
   width: 100%;
+  min-width: 620px;
   border-collapse: collapse;
   font-size: 13px;
 }
