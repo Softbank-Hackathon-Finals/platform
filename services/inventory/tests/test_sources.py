@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 
 from bravo_inventory import deploy_trace
+from bravo_inventory import reconcile as reconcile_module
 from bravo_inventory.cli import main
 from bravo_inventory.report import build_inventory
 from bravo_inventory.source_rules import (
@@ -304,10 +305,41 @@ def test_onprem_inventory_has_no_iam_item_and_marks_non_cloud_evidence(tmp_path,
     store = roles["object_store"]
     assert store["code_refs"] and all(r["source_kind"] == "onprem" and r["cloud_dependency"] is False for r in store["code_refs"])
     assert all(r["cloud_dependency"] is False for r in store["deploy_refs"])
-    assert "퍼블릭 클라우드 의존이 아니다" in store["rationale"]
     # no IAM item is derived from AWS_ACCESS_KEY_ID; the iam item (if any) comes from OpenBao / SeaweedFS identities only
     if "iam" in roles:
         assert not roles["iam"]["code_refs"]
+
+
+def test_reconcile_marks_non_cloud_evidence_and_keeps_target_default_without_source_kind(tmp_path):
+    findings = scan_repo(_write(tmp_path, ONPREM_APP), "app", "onprem")
+    graph = OnpremFileAdapter(FIXTURES / "exports" / "onprem-source").trace("chat")
+    store = [i for i in reconcile_module.reconcile(findings, graph, "onprem") if i.role == "object_store"][0]
+    assert "퍼블릭 클라우드 의존이 아니다" in store.rationale
+    assert all(r["source_kind"] == "onprem" for r in store.code_refs)
+
+
+def test_reconcile_passes_source_kind_only_when_given_and_supported(tmp_path, monkeypatch):
+    findings = scan_repo(_write(tmp_path, ONPREM_APP), "app", "onprem")
+    seen: list = []
+
+    def hub_grade(role, calls, env_names, env_kind, source_kind=None):
+        seen.append(source_kind)
+        return ("config_swap", "hub", False)
+
+    monkeypatch.setattr(reconcile_module, "grade_role", hub_grade)
+    monkeypatch.setattr(reconcile_module, "_GRADE_TAKES_SOURCE", True)
+    reconcile_module.reconcile(findings, None, "aws", source_kind="onprem")
+    assert seen and set(seen) == {"onprem"}
+    seen.clear()
+    reconcile_module.reconcile(findings, None, "aws")  # legacy: target default, re-graded by the caller
+    assert set(seen) == {None}
+
+    def legacy_grade(role, calls, env_names, env_kind):  # a catalog without the hub
+        return ("config_swap", "legacy", False)
+
+    monkeypatch.setattr(reconcile_module, "grade_role", legacy_grade)
+    monkeypatch.setattr(reconcile_module, "_GRADE_TAKES_SOURCE", False)
+    assert reconcile_module.reconcile(findings, None, "aws", source_kind="onprem")
 
 
 # --- CLI ----------------------------------------------------------------------------------------

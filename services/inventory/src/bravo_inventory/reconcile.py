@@ -3,9 +3,12 @@
 The source kind (ADR-0034) arrives with the data: every finding carries the kind whose rules
 read it and ``cloud_dependency``; the deploy graph carries the kind of its adapter. Both are
 copied onto the item's references so the catalog (A4) can tell an on-prem S3-compatible store
-from an AWS S3 dependency without re-scanning. When the catalog hub accepts a source kind
-(``grade_role(..., source_kind=)``, ``target_entry(source, target, role)``), items are graded
-for the (source, target) pair here.
+from an AWS S3 dependency without re-scanning.
+
+Grading: with an explicit ``source_kind`` and a catalog hub that accepts it (A4:
+``grade_role(..., source_kind=)``, ``target_entry(source, target, role)``), items are graded for
+the (source, target) pair here. Without it they are graded against the target default as before,
+so a caller that re-grades afterwards (A4 ``apply_pair``) sees the same input.
 """
 
 from __future__ import annotations
@@ -42,14 +45,14 @@ _GRADE_TAKES_SOURCE = _accepts(grade_role, "source_kind")
 _ENTRY_TAKES_SOURCE = _accepts_varargs(target_entry)
 
 
-def _grade(role: str, code: list[Finding], env_names: set[str], env_kind: str, source_kind: str) -> tuple[str, str, bool]:
-    if _GRADE_TAKES_SOURCE:
+def _grade(role: str, code: list[Finding], env_names: set[str], env_kind: str, source_kind: str | None) -> tuple[str, str, bool]:
+    if source_kind and _GRADE_TAKES_SOURCE:
         return grade_role(role, code, env_names, env_kind, source_kind=source_kind)
     return grade_role(role, code, env_names, env_kind)
 
 
-def _entry(source_kind: str, env_kind: str, role: str) -> dict:
-    entry = target_entry(source_kind, env_kind, role) if _ENTRY_TAKES_SOURCE else target_entry(env_kind, role)
+def _entry(source_kind: str | None, env_kind: str, role: str) -> dict:
+    entry = target_entry(source_kind, env_kind, role) if source_kind and _ENTRY_TAKES_SOURCE else target_entry(env_kind, role)
     return dict(entry or {})
 
 
@@ -75,8 +78,9 @@ def _source_kind(findings: list[Finding], graph: DeployGraph | None) -> str:
 
 
 def reconcile(findings: list[Finding], graph: DeployGraph | None, env_kind: str, source_kind: str | None = None) -> list[Item]:
-    """``env_kind`` is the *target* kind (catalog). ``source_kind`` defaults to the kind recorded
-    on the deploy graph, else on the findings."""
+    """``env_kind`` is the *target* kind (catalog). ``source_kind`` selects pair grading when
+    given; the references always carry the kind recorded on the deploy graph or the findings."""
+    pair_kind = source_kind
     source_kind = source_kind or _source_kind(findings, graph)
     by_role: dict[str, list[Finding]] = defaultdict(list)
     for f in findings:
@@ -103,8 +107,8 @@ def reconcile(findings: list[Finding], graph: DeployGraph | None, env_kind: str,
         unreferenced = [r for r in deploy if code and r.kind in SPLIT_KINDS and "referenced_by_env" not in r.attributes]
         deploy = [r for r in deploy if r not in unreferenced]
         found_in = "both" if code and deploy else "code" if code else "deploy"
-        grade, rationale, agent_needed = _grade(role, code, env_names, env_kind, source_kind)
-        entry = _entry(source_kind, env_kind, role)
+        grade, rationale, agent_needed = _grade(role, code, env_names, env_kind, pair_kind)
+        entry = _entry(pair_kind, env_kind, role)
         item = Item(
             id=f"item-{n:03d}", role=role, service=", ".join(sorted({f.service for f in code if f.kind == "sdk_call"})) or role,
             found_in=found_in, grade=grade, grade_by="rule", rationale=rationale, agent_needed=agent_needed,
