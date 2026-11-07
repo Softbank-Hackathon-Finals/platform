@@ -1,5 +1,5 @@
 version = 1
-revision = 5
+revision = 3
 requires-python = ">=3.12"
 resolution-markers = [
     "python_full_version >= '3.14'",
@@ -122,6 +122,7 @@ product-inputs = [
     { name = "sova-security", git = "https://github.com/Softbank-Hackathon-Finals/security.git?rev=cf33e09c8d3be567542a17fe039f3e6e2295568d" },
 ]
 security-governance = [{ name = "sova-security", git = "https://github.com/Softbank-Hackathon-Finals/security.git?rev=cf33e09c8d3be567542a17fe039f3e6e2295568d" }]
+security-review = [{ name = "sova-security", extras = ["service"], git = "https://github.com/Softbank-Hackathon-Finals/security.git?rev=cf33e09c8d3be567542a17fe039f3e6e2295568d" }]
 target-controls = [{ name = "bravo-controls", extras = ["aws"], directory = "../control-runner" }]
 trusted-host = [
     { name = "bravo-rehearsal-runner", directory = "../rehearsal-runner" },
