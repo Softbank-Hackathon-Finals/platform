@@ -1,6 +1,6 @@
-account_id = "0123456789abcdef0123456789abcdef"
-zone_id    = "fedcba9876543210fedcba9876543210"
-tunnels    = { source = "00000000-0000-0000-0000-000000000001", target = "00000000-0000-0000-0000-000000000002" }
+account_id = "<계정 ID>"
+zone_id    = "<zone ID>"
+tunnels    = { source = "<출발지 tunnel ID>", target = "<목적지 tunnel ID>" }
 hostnames = {
   app    = "chat.example.com"
   source = "source.example.com"
