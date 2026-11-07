@@ -16,7 +16,7 @@
 | `terraform.py` | `terraform` 단계: 코드 · 모듈 digest, 저장소 밖 입력 digest, 출력 경로 연결, terraform CLI(단계별 데이터 폴더, 읽기 전용 lock), 계획의 변경 요약과 삭제 · 교체 판별 |
 | `serve.py` | API 호스트. 사람은 T10 승인 호스트와 같은 `operator_verifier`(IAM Identity Center 증명 또는 고정 OIDC 토큰)로 확인하고, 같은 토큰을 T10에 넘겨 그 사람의 `apply_infra`를 다시 확인받는다. 에이전트 신원은 아직 받지 않는다 |
 | `cli.py` | `bravo-infra-plan check / request-schema / plan / run / confirm / status` |
-| [`infra/stacks/target-onprem/stack.json`](../../infra/stacks/target-onprem/stack.json) | 첫 스택. T30 · T9 README 절차를 33단계 15레벨로 옮겼다. 목적지 Argo CD는 설치하지 않고 T44 설치를 확인하는 사람 단계로 둔다. 렌더러 코드는 바꾸지 않았다 |
+| [`infra/stacks/target-onprem/stack.json`](../../infra/stacks/target-onprem/stack.json) | 첫 스택. T30 · T9 README 절차를 41단계 15레벨로 옮겼다(#700: `bravo-observability` namespace, T44 Application 켜기 · 확인, Keycloak 로그인 줄기). 목적지 Argo CD는 설치하지 않고 T44 설치를 확인하는 사람 단계로 둔다. 렌더러 코드는 바꾸지 않았다 |
 
 ## 계획이 담는 것
 
@@ -50,7 +50,8 @@ chart 아카이브는 스택의 `charts`에 적힌 파일 이름으로 둔다. �
 - `gitops_sync`는 Application이 그 SHA로 `Synced` · `Healthy`일 때만 통과한다. 시간 상한을 넘기면 `HOLD`. 뒤 단계 전에는 Ready일 수 없는 워크로드만 `health`로 받을 상태를 적는다(`openbao-sync`: init · unseal 전 `Progressing`, Ready는 `openbao-init`이 확인).
 - `secret_generate`는 Secret이 없을 때만 만든다. 값은 메모리 → `kubectl create` stdin뿐이고, 실행 기록 · 원장에는 남지 않는다(시험으로 확인).
 - 사람 단계는 확인 조건을 먼저 관찰한다. 관찰되면 `SKIPPED`. `expect`를 적은 단계는 코드가 관찰한다: 오프라인 이미지는 노드가 보고하는 이미지 이름(`images` · `images_by_arch`), 호스트 디렉터리는 준비한 쪽(첫 부팅 또는 플랫폼의 사이트 호스트)이 노드에 남긴 `bravo.io/host-paths` 주석이 선언한 디렉터리의 digest와 같은지. 이런 단계는 사람 확인만으로 넘어가지 않는다(`confirm_check_failed`). `expect`가 없는 단계만 사람 확인 기록으로 진행한다.
-- 파라미터는 `default`를 둘 수 있고, 기본값은 계획 요청에 적혀 digest에 들어간다. 단계는 `when`(닫힌 값 파라미터와 그 값)으로 대상에 따라 빠질 수 있다. 빠진 단계는 계획에 `omitted`로 남고(승인이 그 생략을 덮는다) 렌더하지 않으며, 실행에서는 `OMITTED`(의존 단계에는 끝난 것). 예: `tailnet=none`(같은 클러스터 안 격리 시험)은 Tailscale 줄기를, amd64 노드는 `app-image`를 뺀다.
+- 파라미터는 `default`를 둘 수 있고, 기본값은 계획 요청에 적혀 digest에 들어간다. 단계는 `when`(닫힌 값 파라미터와 그 값)으로 대상에 따라 빠질 수 있다. 빠진 단계는 계획에 `omitted`로 남고(승인이 그 생략을 덮는다) 렌더하지 않으며, 실행에서는 `OMITTED`(의존 단계에는 끝난 것). 예: `tailnet=none`(같은 클러스터 안 격리 시험)은 Tailscale 줄기와 T44 Application 단계를, `login=none`(Edge 없는 격리 시험)은 로그인 줄기를, amd64 노드는 `app-image`를 뺀다. 파라미터는 `required_when`(닫힌 값 파라미터와 그 값)으로 그 조건에서만 필수가 될 수 있다(`iac_revision`은 `tailnet=join`, `login_public_url` · `app_origin`은 `login=edge`). 그런 값은 같은 조건의 단계에서만 쓸 수 있고 스택 검사가 막는다. T49 격리 E2E 요청은 `tailnet=none`과 함께 `login=none`을 준다.
+- `iac-application-check`와 `login-edge`의 확인은 코드가 관찰한다. 앞은 T44 판정기(`infra/iac/customer_status.py`)로 Application이 계획의 `iac_revision`을 가리키며 켜졌는지(`SYNC_PAUSED` 등) 보고, 판정기가 막거나(`BLOCKED`) 동기화가 실패하면 `HOLD`다. 뒤는 로그인 공개 주소를 검증된 TLS, 리다이렉트 없이 GET해 `/realms/bravo` 발급자가 맞고 `/admin/` · `/realms/master/`가 404인지 본다. 닿지 않으면 대기, 관리 경로가 열렸거나 발급자가 다르면 `HOLD`다. `verify`도 마지막에 같은 탐침을 다시 한다.
 - 어댑터 오류(`HOLD` `adapter_error`)는 실행 기록의 `error`에 예외 종류와(어댑터의 고정 메시지인 경우) 원인을 남긴다. kubectl 읽기 조회는 API에 닿지 못한 전송 오류(`Unable to connect to the server`, broken pipe 등)일 때만 세 번까지 다시 묻는다. 쓰기는 다시 보내지 않는다.
 - 실행은 시작 때 저장한 스택만 실행한다(그 digest가 `plan_digest` 안에 있다). 승인 뒤 저장소의 stack.json을 고쳐도 진행 중인 실행에는 영향이 없다.
 - 모든 단계는 대상 클러스터 UID · 노드 UID를 다시 읽고 시작한다. kube context는 시작 때 고정한다. 다르면 `HOLD`(`target_identity_changed`).

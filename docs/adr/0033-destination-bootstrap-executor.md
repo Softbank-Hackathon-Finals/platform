@@ -1,6 +1,6 @@
 # [ADR-0033] 목적지를 처음 세우는 순서를 정형 단계 스택과 실행기로 제공
 
-* **상태 (Status):** 제안됨(Proposed). 승인 위치(T10 `approval_kind=infra`), 설정 저장소, 승인 묶음 단위, T44(ADR-0032)와의 namespace 주인은 2026-11-07 정했다(4장). T30 단계 순서 확인이 남아 있다. 구현은 #604 · #620 · #634 · #642.
+* **상태 (Status):** 제안됨(Proposed). 승인 위치(T10 `approval_kind=infra`), 설정 저장소, 승인 묶음 단위, T44(ADR-0032)와의 namespace 주인은 2026-11-07 정했다(4장). T30 단계 순서 확인이 남아 있다. 구현은 #604 · #620 · #634 · #642, 리뷰 후속(namespace · T44 Application 순서 · Keycloak)은 #700.
 * **날짜 (Date):** 2026-11-07
 * **관련 (Related):** T45(신규), T44 · ADR-0032(목적지 IaC 모듈 · 원하는 상태 · 고객 클러스터 Argo CD), T30 #17, T9 #13, T11 #20, T10 #19, T43 #355, 설계 문서 8.8 · 8.11 "목적지 구축" 어댑터, ADR-0007 · 0019 · 0021 · 0024 · 0029
 
@@ -34,7 +34,7 @@
 
 같은 자원의 주인은 하나다.
 
-* **namespace와 그 보안 레이블은 T45**가 갖는다(`target-dev` 등, `tailscale-system` 포함). T44 생성 chart는 namespace를 선언하지 않는다(#632).
+* **namespace와 그 보안 레이블은 T45**가 갖는다(`target-dev` 등, `tailscale-system` · `bravo-observability` 포함). T44 생성 chart는 namespace를 선언하지 않는다(#632 · #673).
 * **tailnet 경로는 모두 T44**가 갖는다. #622부터 출발지 · 목적지의 DB · 제어 Pooler 노출과 복제 · Pooler egress도 T44 모듈이다. T45의 Tailscale 단계는 **operator 설치(`network.py values`)까지만** 한다.
 * `target-dev/target-seaweedfs-auth` Secret은 T45 사람 단계가 만든다. **계정 · 권한의 형태**(`open-demo`/`closed`, `demo_run_id`)는 T44 원하는 상태(`target-dev.json`의 `target-object-exposure`)에서 가져오고, T45는 비밀값만 넣는다. 버킷 공개 상태를 바꾸는 일은 Git 한 곳(T44 PR)에서 이뤄지고, 처음 구축 뒤 닫기 · IAM-01.1 재대조는 T31 버킷 정책 분기를 재사용한다.
 * T45 AppProject는 설정 저장소 하나와, 승인된 매니페스트가 만들거나 쓰는 namespace · 클러스터 범위 종류만 허용한다. T44 자원은 들어가지 않는다.
@@ -190,23 +190,29 @@
 | 순서 | 단계 | 종류 · 경로 | 기존 절차 | 담당 |
 |---|---|---|---|---|
 | 1 | 클러스터 · 노드 신원, 새 환경 여부 확인 | `probe` | target-workloads README 1 | T30 |
-| 2 | 호스트 디렉터리(DB UID 26, objects UID 1000, OpenBao 100:1000 0700) | `operator_action` | target-workloads 2, target-secrets 3 | T30 · T9 |
-| 3 | T44 목적지 Argo CD 설치 확인, 설정 저장소 읽기 자격 등록 | `operator_action` | `infra/iac/README.md` 설치 절차 | T44 · T45 |
-| 4 | `target-dev` namespace, 서비스 계정 | Git | target-workloads 3 · 5 (`render.py accounts`) | T30 |
+| 2 | 호스트 디렉터리(DB UID 26, objects UID 1000, OpenBao 100:1000 0700, 로그인 서버 `login` UID 1000) | `operator_action` | target-workloads 2 · 로그인 서버 1, target-secrets 3 | T30 · T9 |
+| 3 | T44 목적지 Argo CD chart 0.2.x를 `application.enabled=false`(autoSync · prune false)로 한 번 설치해 컨트롤러와 CRD만 확인, 설정 저장소 읽기 자격 등록 | `operator_action` | `infra/iac/README.md` 설치 절차 1단계 | T44 · T45 |
+| 4 | namespace(`target-dev` · OpenBao · ESO · `tailscale-system` · `bravo-observability`), 서비스 계정 | Git | target-workloads 3 · 5 (`render.py accounts`), `infra/iac/README.md` namespace 주인 표 | T30 · T37 |
 | 5 | DB 비밀값 `target-app-db`, `target-replication`, SeaweedFS `s3.json` | `secret_generate` | target-workloads 3, 개발용 첨부 저장소 | T30 · T9 |
 | 6 | CNPG operator chart 0.29.1 → 목적지 DB → Ready 대기 | Git · `wait` | target-workloads 4 · 5 | T30 |
 | 7 | 마이그레이션 Job → Complete 대기 | `render_apply` · `wait` | target-workloads 6 | T30 |
 | 8 | SeaweedFS (`objects.py`) | Git | target-workloads 개발용 첨부 저장소 | T30 · T9 |
 | 9 | Tailscale OAuth 입력 → operator chart 1.104.4 | `operator_action` · Git | target-workloads 분리된 네트워크 경로 | T30 |
+| 9a | T44 Application 켜기(`helm upgrade ... --set application.enabled=true`, autoSync · prune false 유지) → T44 판정기 `customer_status`로 계획의 `iac_revision`을 가리키는지 확인 | `operator_action` · `probe` | `infra/iac/README.md` 설치 절차 2단계(#673 순서 계약) | T44 |
 | 10 | OpenBao 오프라인 이미지 반입, TLS 자료 생성과 보관 | `operator_action` | target-secrets 2 · 4 | T9 |
 | 11 | OpenBao foundation · chart(`finalize-bao` 후처리) | Git | target-secrets 3 · 5 | T9 |
 | 12 | ESO chart, OpenBao · ESO NetworkPolicy | Git | target-secrets 6 | T9 |
 | 13 | OpenBao init과 복구 자료 보관, KV · auth · policy | `operator_action` | target-secrets 7 · 8 | T9 |
 | 14 | `delivery` → ExternalSecret Ready 대기 | Git · `wait` | target-secrets 9 | T9 |
 | 15 | 목적지 앱 | Git | target-workloads 개발 측정용 앱 (`application.py`) | T30 |
-| 16 | 구축 결과 확인 | `probe` (`probes.py`, `verify.py`) | 각 README 확인 절차 | T30 · T9 |
+| 15a | 로그인 서버(Keycloak `target-login`, #652): 관리자 Secret `target-login-admin` → `identity.py` → Ready → Edge 로그인 경로(`edge-cloudflare` `hostnames.login`) | `secret_generate` · Git · `operator_action` | target-workloads 목적지 로그인 서버, edge-cloudflare 목적지 로그인 주소 | T30 · T17 |
+| 16 | 구축 결과 확인(로그인 서버가 있으면 공개 주소 탐침 포함) | `probe` (`probes.py`, `verify.py`) | 각 README 확인 절차 | T30 · T9 |
 
-5 이후 DB(6~7), SeaweedFS(8), Tailscale(9), OpenBao/ESO(10~14)는 병렬 줄기다. 15는 7 · 8 · 14 뒤에 실행한다.
+5 이후 DB(6~7), SeaweedFS(8), Tailscale(9 · 9a), OpenBao/ESO(10~14), 로그인 서버(15a)는 병렬 줄기다. 15는 7 · 8 · 14 뒤에 실행하고, 16은 15 · 9a · 15a 뒤에 실행한다.
+
+**조건부 단계와 파라미터.** `tailnet=none`(같은 클러스터 안 격리 시험)은 9 · 9a를, `login=none`(Edge 없는 격리 시험)은 15a를 계획에서 뺀다. T44 Application은 Tailscale CRD가 있어야 하므로 9a는 tailnet 줄기에만 있다. `iac_revision`(T44 설치 값 `targetRevision`)은 `tailnet=join`일 때, `login_public_url` · `app_origin`은 `login=edge`일 때만 필수다(파라미터의 `required_when`). 조건부 필수 값은 같은 조건으로 계획되는 단계에서만 쓸 수 있고, 스택 검사가 이를 강제한다.
+
+**겹치는 주인(#700).** `bravo-observability` Namespace는 T37 Collector 매니페스트(`services/observability/deploy/collector/resources.yaml`, 목적지는 `collector-target`이 이를 포함)도 선언한다. T45 base는 같은 레이블(`component: platform`, `tier`, `role`, `domain`, PSA `restricted`)로 선언해 어느 쪽이 적용해도 값이 바뀌지 않게 하고, 시험이 두 원문의 레이블 일치를 고정한다. 주인을 하나로 하려면 T37 매니페스트에서 Namespace를 빼야 하며 T37 담당과 합의한다.
 
 ### 3.8 두 번째 스택: `target-onprem-migration` (#648)
 
@@ -250,7 +256,8 @@
 * 목적지 설정 저장소는 조직 안의 비공개 저장소로 새로 만든다. 공개 저장소인 `platform`에는 노드 이름 같은 운영 식별자가 들어간 렌더 결과를 두지 않는다(전동훈 결정).
 * `infra` 승인 종류는 #603으로 T10에 들어갔다(PR 제목은 당시 번호 T44). T10 코드는 승인 종류 추가 범위만 바꿨다.
 * 목적지 구축 승인은 그 목적지로 옮기는 이전 계획(`/v1/plans/{plan_id}`)에 묶는다. 컷오버 전 단계(COLLECT ~ AWAIT_APPROVAL)에서만 승인할 수 있다.
-* **목적지 namespace와 보안 레이블의 주인은 T45다**(16:33 이상무, T44 #632). T44 생성 chart는 namespace를 선언하지 않는다. T45 base가 `tailscale-system`(Pod Security `privileged`)도 만든다.
+* **목적지 namespace와 보안 레이블의 주인은 T45다**(16:33 이상무, T44 #632). T44 생성 chart는 namespace를 선언하지 않는다. T45 base가 `tailscale-system`(Pod Security `privileged`)과 `bravo-observability`(T37 Collector와 같은 레이블, PSA `restricted`, #673 T37 동의)도 만든다.
+* **T44 Application은 T45 base · tailscale이 Synced · Healthy가 된 뒤에 켠다**(#673). 그래서 3단계는 `application.enabled=false`로 컨트롤러만 설치하고, 9a가 tailscale-sync 뒤에 켠다. 자동 동기화 승격(`autoSync=true`)은 T44 절차이며 이 스택이 하지 않는다(#635 · #677).
 * `object-secrets`는 T44 원하는 상태(`target-object-exposure`)의 값을 계획에 결속하고, 확인 조건이 Secret 모양을 그 상태와 대조한다.
 * 실행 기록은 T24 해시 체인(source `infra`, #639)에 남긴다.
 
