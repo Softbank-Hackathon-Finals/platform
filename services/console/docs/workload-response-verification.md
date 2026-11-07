@@ -114,3 +114,5 @@ security의 사전 계약 진단 34개도 통과했으나 제품 허용 SHA나 C
 
 구체적인 호스트 계약과 시험은 [표시 계약 문서](workload-response-view.md)에 있다.
 T21 완료 체크나 운영 PASS, 실제 격리·복구 상태는 이번 로컬 작업으로 변경하지 않았다.
+
+최신 develop 통합과 운영 연결 준비는 [후속 기록](workload-integration-2026-11-07.md)을 참고한다.
