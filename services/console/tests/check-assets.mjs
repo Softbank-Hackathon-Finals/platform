@@ -12,6 +12,7 @@ for (const name of [
   "workspace.js",
   "workload-model.js",
   "workload-layout.js",
+  "workload-motion.js",
   "workload-scenario.js",
   "workload-view.js",
   "workload.css",

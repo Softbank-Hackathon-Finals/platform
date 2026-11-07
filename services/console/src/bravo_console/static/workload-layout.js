@@ -31,9 +31,20 @@ export function workloadLayout(nodes) {
   );
   const targetY = 35 + sourceHeight + 40;
   const controlX = environmentWidth + 40;
+  // Placement is a visual grouping. The registered environment/lane is never
+  // rewritten: moving a node here is not evidence of physical migration.
+  const quarantined = nodes.filter(
+    (n) => n.security === "isolated" || n.display_quarantined,
+  );
+  const quarantineHeight = Math.max(
+    190,
+    Math.ceil(quarantined.length / 2) * 120 + 80,
+  );
+  const controlY = quarantineHeight + 75;
   const height = Math.max(
     targetY + targetHeight + 30,
-    ...slots.control.map((n) => n.row * 140 + 210),
+    controlY + 130,
+    ...slots.control.map((n) => controlY + n.row * 120 + 150),
   );
   for (const [lane, rows] of Object.entries(slots)) {
     for (const { node, row, column } of rows) {
@@ -44,18 +55,28 @@ export function workloadLayout(nodes) {
             ? 115 + row * 120
             : lane === "target"
               ? targetY + 90 + row * 120
-              : 115 + row * 140,
+              : controlY + 80 + row * 120,
       });
     }
   }
+  const registeredPositions = new Map(positions);
+  quarantined.forEach((node, i) => {
+    positions.set(node.id, {
+      x: controlX + 100 + (i % 2) * 170,
+      y: 115 + Math.floor(i / 2) * 120,
+    });
+  });
   return {
     positions,
-    width: controlX + 220,
+    registeredPositions,
+    quarantined: new Set(quarantined.map((n) => n.id)),
+    width: controlX + 390,
     height,
     lanes: [
       [18, 35, environmentWidth, sourceHeight, "출발 환경"],
       [18, targetY, environmentWidth, targetHeight, "대체 실행 환경"],
-      [controlX, 35, 200, height - 65, "보호·제어"],
+      [controlX, 35, 370, quarantineHeight, "격리 근거 영역 · 논리적 분리"],
+      [controlX, controlY, 370, height - controlY - 30, "보호·제어"],
     ],
   };
 }
