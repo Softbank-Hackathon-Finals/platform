@@ -8,10 +8,16 @@ manifest.json the applier checks before it installs anything.
 
 cluster-audit v1: the API server audit policy. The bytes are the reviewed policy of T30/T34
 (services/control-runner/templates/rke2-audit-policy.yaml); a test pins the packaged copy to it.
+
+service-account-issuer v1 (T48, ADR-0035): the API server signs ServiceAccount tokens with a public
+issuer (infra/envs/oidc-issuer) so Tailscale can verify the operator's token; the in-cluster issuer stays
+accepted so tokens issued before the change keep working. An RKE2 config drop-in: rke2-server renders it
+into the API server only when it starts, so the applier restarts rke2-server.
 """
 
 import hashlib
 import json
+import re
 from pathlib import Path
 
 from .modules import IacError, Module, _exact
@@ -22,6 +28,10 @@ KIND = "NodeFile"
 AUDIT_POLICY_PATH = {"rke2": "/etc/rancher/rke2/audit-policy.yaml"}
 AUDIT_POLICIES = {"metadata-v1": "rke2-audit-policy.yaml"}
 API_SERVER = "StaticPod/kube-system/kube-apiserver"
+RKE2_SERVER = "Service/rke2-server"
+SA_ISSUER_PATH = {"rke2": "/etc/rancher/rke2/config.yaml.d/50-bravo-service-account-issuer.yaml"}
+IN_CLUSTER_ISSUER = "https://kubernetes.default.svc.cluster.local"
+ISSUER = re.compile(r"^https://[a-z0-9.-]+(/[A-Za-z0-9._~-]+)*$")
 
 
 def _sha(content: str) -> str:
@@ -69,6 +79,47 @@ CLUSTER_AUDIT = Module(
     check=_audit_check,
     render=_audit_render,
     exposure=_audit_exposure,
+)
+
+
+def _issuer_check(params: dict) -> dict:
+    _exact(params, ("runtime", "issuer"))
+    runtime, issuer = params["runtime"], params["issuer"]
+    if not isinstance(runtime, str) or not isinstance(issuer, str) or not ISSUER.match(issuer):
+        raise IacError("IAC_PARAMS_INVALID")
+    if runtime not in SA_ISSUER_PATH:
+        raise IacError("IAC_RUNTIME_UNSUPPORTED")
+    return {"runtime": runtime, "issuer": issuer}
+
+
+def _issuer_render(params: dict) -> list[dict]:
+    issuer = params["issuer"]
+    content = ("# T48 service-account-issuer v1: sign with the public issuer, keep accepting the in-cluster one.\n"
+               "kube-apiserver-arg+:\n"
+               f"  - service-account-issuer={issuer}\n"
+               f"  - service-account-issuer={IN_CLUSTER_ISSUER}\n"
+               f"  - service-account-jwks-uri={issuer}/openid/v1/jwks\n")
+    return [{"kind": KIND, "namespace": "-", "name": "service-account-issuer",
+             "shape": {"path": SA_ISSUER_PATH[params["runtime"]], "mode": "0600", "sha256": _sha(content)},
+             "content": content, "restart_on_change": [RKE2_SERVER]}]
+
+
+def _issuer_exposure(params: dict) -> dict:
+    return {"anonymous": [], "reach": [], "checks": [f'service-account-issuer:{params["issuer"]}']}
+
+
+SERVICE_ACCOUNT_ISSUER = Module(
+    id="service-account-issuer",
+    version="1",
+    description="The API server's ServiceAccount token issuer as an RKE2 config drop-in: a public issuer "
+                "first (it signs), the in-cluster one kept (still accepted). Applied by the node bootstrap "
+                "or infra/iac/nodes/apply.py, which restarts rke2-server.",
+    params={"type": "object", "additionalProperties": False, "required": ["runtime", "issuer"],
+            "properties": {"runtime": {"enum": sorted(SA_ISSUER_PATH)},
+                           "issuer": {"type": "string", "pattern": ISSUER.pattern}}},
+    check=_issuer_check,
+    render=_issuer_render,
+    exposure=_issuer_exposure,
 )
 
 
