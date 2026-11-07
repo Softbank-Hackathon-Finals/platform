@@ -109,6 +109,34 @@ Collector는 같은 CA를 `client-ca.crt`로 믿어 앱을 검증한다.
 | Collector 앱 수신(서버) | `bravo-collector` + 앱이 부르는 Service DNS | `bravo-collector-app-tls` (`bravo-observability`) | 30일 |
 | 출발지 demo-chat(클라이언트) | `demo-chat-source` | `bravo-app-metrics-client` (`source-dev`) | 30일 |
 
+**먼저 이미 배포됐는지 본다.** 출발지 EKS Collector는 2026-11-06에 `collector-app-mtls`로 앱 수신(별도 앱 CA,
+TLS 1.3 mTLS)까지 배포됐다([증빙](../evidence/t37-source-collector-2026-11-06/README.md)). 그 CA 개인 키는 클러스터
+밖에서 관측 담당이 보관한다. 이때 아래 "새로 만드는 경우"를 그대로 실행하면 `bravo-collector-app-tls`가
+`AlreadyExists`로 멈춘다. 지우고 다시 만들면 Collector가 믿는 CA가 바뀌어 그 CA로 발급한 기존 클라이언트가 거부된다.
+
+```sh
+# 이미 배포된 경우: Collector가 믿는 CA와 서버 인증서 발급자를 읽기만 한다(키는 클러스터에 없다)
+kubectl -n bravo-observability get secret bravo-collector-app-tls -o jsonpath='{.data.client-ca\.crt}' \
+  | base64 -d | openssl x509 -noout -subject -enddate -fingerprint -sha256
+kubectl -n bravo-observability get secret bravo-collector-app-tls -o jsonpath='{.data.tls\.crt}' \
+  | base64 -d | openssl x509 -noout -issuer -enddate
+openssl x509 -in ./app-ca/ca.crt -noout -subject -fingerprint -sha256   # 보관 중인 앱 CA와 같아야 한다
+
+# 같으면: 그 CA로 앱 클라이언트 인증서만 발급하고 앱 Secret만 만든다. Collector Secret은 건드리지 않는다
+I=services/observability/deploy/certs/issue.sh
+$I leaf ./app-ca demo-chat-source DNS:demo-chat-source ./out/demo-chat-source
+kubectl -n source-dev create secret generic bravo-app-metrics-client \
+  --from-file=./out/demo-chat-source/ca.crt --from-file=./out/demo-chat-source/tls.crt \
+  --from-file=./out/demo-chat-source/tls.key
+```
+
+- 지문이 다르거나 보관 중인 앱 CA가 없으면 발급하지 않는다. CA를 바꿔야 하면 3절 교체 절차를 따른다:
+  `client-ca.crt`와 앱의 `ca.crt`에 옛·새 CA를 함께 넣고, 새 CA leaf로 바꾼 뒤 옛 CA를 뺀다.
+- 서버 인증서 발급자(`tls.crt`의 issuer)가 `client-ca.crt`의 subject와 다르면 앱이 Collector를 믿지 못한다.
+  앱 `ca.crt`에는 서버 인증서를 발급한 CA를 넣는다.
+
+**새로 만드는 경우**(그 클러스터에 `bravo-collector-app-tls`가 없을 때만):
+
 ```sh
 I=services/observability/deploy/certs/issue.sh
 $I ca   ./app-ca 90                     # 관측 CA(./obs-ca)와 다른 디렉터리. CA 키는 밖으로 내보내지 않는다
@@ -134,6 +162,10 @@ kubectl -n source-dev create secret generic bravo-app-metrics-client \
 - **교체:** leaf 교체 · CA 교체는 3절 절차와 같다. 앱 CA 교체 중에는 `client-ca.crt`와 앱의 `ca.crt`에 옛 · 새 CA를 함께 넣는다.
 - **로컬 확인(2026-11-07, 플랫폼 · 실클러스터 아님):** 위 이름 · 확장값으로 발급한 인증서를 Collector 수신 설정과 같은 조건(TLS 1.3, 클라이언트 인증서 필수 · `client-ca.crt` 검증)의 서버에 붙여 보았다. 앱 인증서 + Service DNS · FQDN은 연결되고, 클라이언트 인증서 없음 · 관측 CA 등 다른 CA의 인증서 · 다른 서버 이름은 모두 거부됐다.
 - **Windows Git Bash:** `issue.sh`의 `-subj`(앞의 `/`)와 `-extfile <(...)`가 동작하지 않는다. Linux · macOS 셸에서 발급한다.
+- **목적지(`target-dev`, #571):** 목적지 클러스터 Collector에도 위와 같이 먼저 `bravo-collector-app-tls`가 있는지 본다.
+  있으면 그 앱 CA로, 없으면 "새로 만드는 경우"로 목적지 Collector 수신 Secret을 만든다. 클라이언트는 `demo-chat-target`
+  (CN · SAN `DNS:demo-chat-target`)으로 발급해 `target-dev`에 `bravo-app-metrics-client`를 만든다. 발급은 앱 CA 개인 키
+  보관자(관측 담당)가 한다. 이 Secret이 #571 적용 전 조건 0번이다.
 
 ## 6. 원격 콘솔 → 조회 API TLS
 
