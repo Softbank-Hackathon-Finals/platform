@@ -56,6 +56,26 @@ class PublicEntryChart(unittest.TestCase):
         policy = kind(docs, "ValidatingAdmissionPolicy", "platform-gitops-registration-names")[0]
         self.assertIn("'public-entry'", policy["spec"]["validations"][0]["expression"])
 
+    def test_development_values_add_the_observability_application_in_its_namespaces(self):
+        docs = render("--values", str(ENV))
+        app = kind(docs, "Application", "platform-observability")[0]["spec"]
+        self.assertEqual(app["source"]["path"], "services/observability/deploy/platform-gitops")
+        self.assertFalse(app["syncPolicy"]["automated"]["prune"])
+        project = kind(docs, "AppProject", "platform-observability")[0]["spec"]
+        self.assertCountEqual([d["namespace"] for d in project["destinations"]],
+                              ["bravo-observability", "platform-telemetry", "platform-state"])
+        self.assertEqual(project["clusterResourceWhitelist"], [])
+        cluster = kind(docs, "Secret", "argocd-cluster-platform")[0]["stringData"]
+        self.assertEqual(cluster["namespaces"], "platform-state,bravo-observability,platform-telemetry")
+        self.assertNotEqual(cluster.get("clusterResources"), "true")
+        out = subprocess.run(["kubectl", "kustomize", str(ROOT / "services/observability/deploy/platform-gitops")], check=True,
+                             capture_output=True, text=True, timeout=60)
+        bundle = [d for d in yaml.safe_load_all(out.stdout) if d]
+        self.assertFalse(kind(bundle, "Namespace") + kind(bundle, "Secret"))
+        api = kind(bundle, "Deployment", "bravo-observability-api")[0]["spec"]["template"]["spec"]
+        self.assertRegex(api["containers"][0]["image"], r"^ghcr\.io/softbank-hackathon-finals/platform-observability-api@sha256:[0-9a-f]{64}$")
+        self.assertFalse(api["automountServiceAccountToken"])
+
     def test_workload_holds_no_api_credential_and_pins_the_image(self):
         out = subprocess.run(["kubectl", "kustomize", str(ROOT / "infra/envs/public-entry")], check=True,
                              capture_output=True, text=True, timeout=60)
