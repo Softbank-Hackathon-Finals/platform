@@ -2,7 +2,7 @@
 
 설계 7.1의 6단계("사람 승인 → 반영")에서 **승인된 것과 배포되는 것이 같은 바이트인지**를 코드가 보장하는 부품이다(FR-7 승인 결속). 모델은 이 단계에 손대지 못한다. 상태 머신 · 승인 · 접수는 T10이, 리허설 검증은 T15가, 게이트 재대조는 T19가 맡고, T31은 그 사이를 digest로 묶는다. 변경 종류는 두 가지다: 앱 이미지 변경(Deployment 이미지 digest 고정)과 버킷 정책 변경(SeaweedFS `s3.json` Secret 교체, [아래](#버킷-정책-변경-분기)).
 
-**상태: 시험 130개 통과. 로컬 kind(Kubernetes v1.36.1)에서 `KubectlKube` 실제 경로 실측 — 이미지 분기([기록](../../docs/evidence/t31-apply-entry-2026-11-06/README.md)), 버킷 정책 분기([기록](../../docs/evidence/t31-policy-apply-2026-11-06/README.md)). RKE2 목적지와 T10 · T19 연결은 미실측. T10은 아직 `change_kind` · `policy_digest`를 보내지 않는다.**
+**상태: 시험 140개 통과. 로컬 kind(Kubernetes v1.36.1)에서 `KubectlKube` 실제 경로 실측 — 이미지 분기([기록](../../docs/evidence/t31-apply-entry-2026-11-06/README.md)), 버킷 정책 분기([기록](../../docs/evidence/t31-policy-apply-2026-11-06/README.md)). RKE2 목적지와 T10 · T19 연결은 미실측. T10은 아직 `change_kind` · `policy_digest`를 보내지 않는다.**
 
 | 파일 | 역할 |
 |---|---|
@@ -171,7 +171,8 @@ bravo-apply desired-exposure --environment target-dev --revision <승격한 커�
 |---|---|
 | 계획이 `iac-plan.v1`이고 `origin`이 agent · operator, `plan_digest`가 승인된 binding의 값과 같다 | `IAC_PLAN_INVALID` · `IAC_PLAN_NOT_APPROVED` |
 | `--base-revision`(제안 Job이 계획한 커밋)의 상태가 이 버킷의 `open-demo`다 | `REVISION_NOT_FULL_SHA` · `REVISION_UNKNOWN` · `DESIRED_BUCKET_MISMATCH` · `PLANNED_BASE_NOT_OPEN` |
-| `plan_digest`가 자기 일치하고, 그 상태에서 "이 모듈만 `closed`"로 T44 `plan()`을 다시 계산한 결과와 **완전히 같다**(다른 변경이 섞이면 거부) | `IAC_PLAN_DIGEST_MISMATCH` · `IAC_PLAN_NOT_THIS_BASE` · `IAC_PLAN_NOT_A_CLOSE` · `IAC_PLAN_NOT_ACCEPTED` |
+| `plan_digest`가 자기 일치하고 수락됐으며 넓히지 않는다. 계획의 `changes` · `effects`가 이 모듈 하나만으로 T44 `plan()`을 계산한 결과(이 버킷 Secret 하나를 `open-demo` → `closed`)와 **정확히 같다**(다른 변경이 섞이면 거부) | `IAC_PLAN_DIGEST_MISMATCH` · `IAC_PLAN_NOT_ACCEPTED` · `IAC_PLAN_NOT_A_CLOSE` |
+| 계획의 `base_digest`가 `--base-revision`의 상태와 같으면 전체 계획을 그 상태에서 다시 계산해 완전히 같아야 한다. 다르면 거부하지 않고 기록에 `base_verified: false`를 남긴다(원하는 상태 파일은 네트워크 모듈 때문에 자주 바뀌고, 클러스터 효과는 어느 쪽이든 익명 접근 제거뿐이다) | `IAC_PLAN_NOT_A_CLOSE` |
 
 통과 뒤의 동작은 `desired-exposure`와 같다(기록 하나, `ALREADY_CLOSED`, Secret 교체 · 재시작 · 관찰, 쓰는 주체 표시). 결과 ID는 `iac-<plan_digest 앞 16자>`이고, `gate_recheck`에 `base_revision` · `iac_plan_digest`가 담긴다.
 

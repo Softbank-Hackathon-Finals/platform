@@ -1,0 +1,76 @@
+{{- define "bravo-iac.argo-selector" }}
+matchLabels:
+  app.kubernetes.io/name: {{ .name }}
+  app.kubernetes.io/instance: {{ .instance }}
+{{- end }}
+{{- if .Values.ui.enabled }}
+{{- if (index .Values "argo-cd" "global" "networkPolicy" "create") }}
+{{- fail "ui.enabled needs argo-cd.global.networkPolicy.create=false: the chart's server policy admits every Pod" }}
+{{- end }}
+{{- $name := index .Values "argo-cd" "fullnameOverride" }}
+{{- $ns := .Release.Namespace }}
+# The chart's component policies, declared here because the chart cannot drop only the server's admit-all policy.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ $name }}-server
+  namespace: {{ $ns }}
+spec:
+  podSelector: {{- include "bravo-iac.argo-selector" (dict "name" "argocd-server" "instance" .Release.Name) | nindent 4 }}
+  policyTypes: [Ingress]
+  ingress:
+    # Only the Tailscale operator's expose proxy for the ui.service device (tailnet-ingress in environments/<env>.json)
+    - from:
+        - namespaceSelector:
+            matchLabels: {kubernetes.io/metadata.name: tailscale-system}
+          podSelector:
+            matchLabels:
+              tailscale.com/managed: "true"
+              tailscale.com/parent-resource-type: svc
+              tailscale.com/parent-resource: {{ .Values.ui.service }}
+              tailscale.com/parent-resource-ns: {{ $ns }}
+      ports:
+        - {port: 8080, protocol: TCP}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ $name }}-repo-server
+  namespace: {{ $ns }}
+spec:
+  podSelector: {{- include "bravo-iac.argo-selector" (dict "name" "argocd-repo-server" "instance" .Release.Name) | nindent 4 }}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector: {{- include "bravo-iac.argo-selector" (dict "name" "argocd-server" "instance" .Release.Name) | nindent 12 }}
+        - podSelector: {{- include "bravo-iac.argo-selector" (dict "name" "argocd-application-controller" "instance" .Release.Name) | nindent 12 }}
+      ports:
+        - {port: repo-server, protocol: TCP}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ $name }}-redis
+  namespace: {{ $ns }}
+spec:
+  podSelector: {{- include "bravo-iac.argo-selector" (dict "name" "argocd-redis" "instance" .Release.Name) | nindent 4 }}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector: {{- include "bravo-iac.argo-selector" (dict "name" "argocd-server" "instance" .Release.Name) | nindent 12 }}
+        - podSelector: {{- include "bravo-iac.argo-selector" (dict "name" "argocd-repo-server" "instance" .Release.Name) | nindent 12 }}
+        - podSelector: {{- include "bravo-iac.argo-selector" (dict "name" "argocd-application-controller" "instance" .Release.Name) | nindent 12 }}
+      ports:
+        - {port: redis, protocol: TCP}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ $name }}-application-controller
+  namespace: {{ $ns }}
+spec:
+  # No consumer reads the controller; metrics are not scraped in this cluster.
+  podSelector: {{- include "bravo-iac.argo-selector" (dict "name" "argocd-application-controller" "instance" .Release.Name) | nindent 4 }}
+  policyTypes: [Ingress]
+  ingress: []
+{{- end }}

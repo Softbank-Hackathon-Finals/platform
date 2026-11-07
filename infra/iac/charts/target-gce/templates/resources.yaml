@@ -99,6 +99,13 @@
             "protocol": "TCP"
           }
         ]
+      },
+      {
+        "ports": [
+          {
+            "protocol": "UDP"
+          }
+        ]
       }
     ],
     "podSelector": {
@@ -210,6 +217,13 @@
             "endPort": 10999,
             "port": 10000,
             "protocol": "TCP"
+          }
+        ]
+      },
+      {
+        "ports": [
+          {
+            "protocol": "UDP"
           }
         ]
       }

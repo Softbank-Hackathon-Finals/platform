@@ -102,7 +102,6 @@ def fragment(states, tailnet=DEFAULT_TAILNET) -> dict:
         if not app and src.startswith("tag:"):
             accepts.setdefault(src, set()).add(f"{dst}:{ip.removeprefix('tcp:')}")
     destinations = sorted({dst for src, dst, _, app in grants if not app and src.startswith("tag:")})
-    routed = sorted(set().union(*accepts.values())) if accepts else []
     # A new cluster's operator tag (tailnet-operator) has no grant of its own. Its devices get names at
     # run time that a repository scan cannot see, so the policy itself tests that the tag reaches no
     # granted destination: other environments' operators, databases, poolers and the collectors.
@@ -113,11 +112,11 @@ def fragment(states, tailnet=DEFAULT_TAILNET) -> dict:
         "tagOwners": {tag: [owners[tag]] for tag in sorted(owners)},
         "grants": [{"src": [s], "dst": [d], "ip": [i], **({"app": json.loads(a)} if a else {})}
                    for s, d, i, a in sorted(grants)],
-        # A route group also reaches no other group's route: one Executor per DB pair never reaches
-        # another pair's databases, poolers or API (ADR-0011), and the policy itself refuses it.
+        # Each route device is also denied every other declared dst:port it was not granted, so a hand edit that
+        # opens a declared device more widely (e.g. `*` toward tag:bravo-findings:8443) fails the policy tests.
         "tests": [{"src": src, "accept": sorted(accepts[src]),
-                   "deny": [f"{dst}:22" for dst in destinations] + [r for r in routed if r not in accepts[src]]}
-                  for src in sorted(accepts)]
+                   "deny": [f"{dst}:22" for dst in destinations]
+                   + [d for d in granted if d not in accepts[src]]} for src in sorted(accepts)]
                  + [{"src": tag, "accept": [], "deny": granted} for tag in operators if granted],
     }
 

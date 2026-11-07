@@ -1,5 +1,5 @@
 version = 1
-revision = 3
+revision = 5
 requires-python = ">=3.12"
 
 [[package]]
@@ -152,6 +152,7 @@ dev = [
     { name = "bravo-agent-worker", directory = "../agent-worker" },
     { name = "bravo-apply-path", editable = "../apply-path" },
     { name = "bravo-control-gate", directory = "../control-gate" },
+    { name = "bravo-controls", extras = ["aws"], directory = "../control-runner" },
     { name = "bravo-iac", directory = "../iac" },
     { name = "bravo-inventory", directory = "../inventory" },
     { name = "bravo-rehearsal-runner", directory = "../rehearsal-runner" },
@@ -159,15 +160,25 @@ dev = [
     { name = "psycopg", extras = ["binary"], specifier = ">=3.2,<4" },
     { name = "pytest", specifier = ">=8" },
     { name = "ruff", specifier = ">=0.9" },
+    { name = "sova-security", git = "https://github.com/Softbank-Hackathon-Finals/security.git?rev=cf33e09c8d3be567542a17fe039f3e6e2295568d" },
 ]
-gate-records = [{ name = "bravo-control-gate", directory = "../control-gate" }]
+gate-records = [
+    { name = "boto3", specifier = ">=1.35,<2" },
+    { name = "bravo-control-gate", directory = "../control-gate" },
+]
 product-inputs = [
     { name = "bravo-agent-worker", directory = "../agent-worker" },
     { name = "bravo-iac", directory = "../iac" },
     { name = "bravo-inventory", directory = "../inventory" },
     { name = "bravo-rehearsal-runner", directory = "../rehearsal-runner" },
+    { name = "sova-security", git = "https://github.com/Softbank-Hackathon-Finals/security.git?rev=cf33e09c8d3be567542a17fe039f3e6e2295568d" },
 ]
-trusted-host = [{ name = "bravo-rehearsal-runner", directory = "../rehearsal-runner" }]
+security-governance = [{ name = "sova-security", git = "https://github.com/Softbank-Hackathon-Finals/security.git?rev=cf33e09c8d3be567542a17fe039f3e6e2295568d" }]
+target-controls = [{ name = "bravo-controls", extras = ["aws"], directory = "../control-runner" }]
+trusted-host = [
+    { name = "bravo-rehearsal-runner", directory = "../rehearsal-runner" },
+    { name = "sova-security", git = "https://github.com/Softbank-Hackathon-Finals/security.git?rev=cf33e09c8d3be567542a17fe039f3e6e2295568d" },
+]
 
 [[package]]
 name = "certifi"

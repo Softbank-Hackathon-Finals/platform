@@ -1,0 +1,39 @@
+{
+  "apiVersion": "cert-manager.io/v1",
+  "kind": "Certificate",
+  "metadata": {
+    "name": "bravo-collector-app-tls",
+    "namespace": "bravo-observability",
+    "labels": {
+      "tier": "observability",
+      "role": "collector",
+      "domain": "customer"
+    }
+  },
+  "spec": {
+    "secretName": "bravo-collector-app-tls",
+    "commonName": "bravo-collector",
+    "dnsNames": [
+      "bravo-collector",
+      "bravo-collector.bravo-observability",
+      "bravo-collector.bravo-observability.svc",
+      "bravo-collector.bravo-observability.svc.cluster.local"
+    ],
+    "duration": "72h",
+    "renewBefore": "48h",
+    "usages": [
+      "server auth",
+      "digital signature"
+    ],
+    "privateKey": {
+      "algorithm": "ECDSA",
+      "size": 256,
+      "rotationPolicy": "Always"
+    },
+    "issuerRef": {
+      "group": "cert-manager.io",
+      "kind": "ClusterIssuer",
+      "name": "bravo-app-telemetry-ca"
+    }
+  }
+}

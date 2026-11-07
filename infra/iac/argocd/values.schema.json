@@ -9,23 +9,61 @@
     "application"
   ],
   "properties": {
+    "ui": {"type": "object", "additionalProperties": false, "properties": {"enabled": {"type": "boolean"}, "service": {"type": "string", "pattern": "^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$"}}},
     "application": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["enabled", "autoSync", "prune"],
+      "required": [
+        "enabled",
+        "autoSync",
+        "prune"
+      ],
       "properties": {
-        "enabled": {"type": "boolean"},
-        "autoSync": {"type": "boolean"},
-        "prune": {"type": "boolean"}
+        "enabled": {
+          "type": "boolean"
+        },
+        "autoSync": {
+          "type": "boolean"
+        },
+        "prune": {
+          "type": "boolean"
+        }
       },
       "allOf": [
         {
-          "if": {"properties": {"prune": {"const": true}}},
-          "then": {"properties": {"enabled": {"const": true}, "autoSync": {"const": true}}}
+          "if": {
+            "properties": {
+              "prune": {
+                "const": true
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "enabled": {
+                "const": true
+              },
+              "autoSync": {
+                "const": true
+              }
+            }
+          }
         },
         {
-          "if": {"properties": {"autoSync": {"const": true}}},
-          "then": {"properties": {"enabled": {"const": true}}}
+          "if": {
+            "properties": {
+              "autoSync": {
+                "const": true
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "enabled": {
+                "const": true
+              }
+            }
+          }
         }
       ]
     },
@@ -50,6 +88,36 @@
     "targetRevision": {
       "type": "string",
       "pattern": "^[0-9a-f]{40}$"
+    },
+    "operator": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "enabled",
+        "autoSync"
+      ],
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "autoSync": {
+          "type": "boolean"
+        }
+      },
+      "if": {
+        "properties": {
+          "autoSync": {
+            "const": true
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "enabled": {
+            "const": true
+          }
+        }
+      }
     }
   }
 }

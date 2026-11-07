@@ -15,6 +15,12 @@ files only (`/rehearsal/operator.json`):
      "iac": {"app_id": 1, "key_file": "/iac/app.pem",
              "repository": "Softbank-Hackathon-Finals/platform"},  # optional T44: desired-state PRs
                                             # after a T10 infra approval (iac_plans); contents+PR only
+     "security_review": {"url": "https://security-review.platform-state.svc:8443",
+                         "ca_file": "/security-review/ca.crt",
+                         "token_file": "/var/run/secrets/security-review/token",
+                         "subject_id": "platform-approval-host",
+                         "source_revision": "<40 lowercase hex>",
+                         "registrar": {"tenant_id": "<tenant>", "subject_id": "<operator grant>"}},
      "write_pause_budget_ms": 30000}
 
 Cutover command policy (current_cutover):
@@ -192,7 +198,7 @@ def create(store, config_file=CONFIG):
 
     config = json.loads(Path(config_file).read_text())
     executor = config.get("executor") if isinstance(config, dict) else None
-    if (type(config) is not dict or not {"executor", "gate"} <= set(config) <= {"executor", "gate", "write_pause_budget_ms", "failback", "edge", "iac", "delegation"}
+    if (type(config) is not dict or not {"executor", "gate", "security_review"} <= set(config) <= {"executor", "gate", "security_review", "write_pause_budget_ms", "failback", "edge", "iac", "delegation"}
             or type(executor) is not dict
             or set(executor) != {"url", "ca_file", "token_file", "command_token_file", "registered_pair"}
             or not executor["url"].startswith("https://")):
@@ -208,6 +214,28 @@ def create(store, config_file=CONFIG):
     authority = records.cutover_authority(
         upstream=current_cutover(bindings, write_pause_budget_ms=config.get("write_pause_budget_ms", 30000)),
         load_gate=load_gate)
+    from . import gate_services
+    from .operator_access import OperatorAccess
+    from .security_governance import SecurityProgramRecords, SecurityReviewAuthority, review_ports
+
+    clock = gate_services.server_clock
+    transport, credential, subject_id, source_revision = review_ports(config["security_review"], clock=clock)
+    access = OperatorAccess(store, clock=clock)
+
+    def authorize(connection, principal, plan, permission):
+        access.require(connection, principal, plan, permission)
+        return True
+
+    programs = SecurityProgramRecords(store, authorize=authorize, load_session=authority.load_session,
+                                      baseline_sha=source_revision, clock=clock)
+    authority = SecurityReviewAuthority(upstream=authority, records=programs,
+        requirements=(("patch", "postflight"), ("migration", "preflight")),
+        transport=transport, credential_for=credential, subject_id=subject_id, clock=clock)
+
+    def secure_change(upstream):
+        return SecurityReviewAuthority(upstream=upstream, records=programs,
+            requirements=(("patch", "preflight"),), transport=transport,
+            credential_for=credential, subject_id=subject_id, clock=clock)
     failback = {}
     if config.get("failback") is True:
         failback = {"failback_authority": current_failback(bindings, write_pause_budget_ms=config.get("write_pause_budget_ms", 30000)),
@@ -215,8 +243,36 @@ def create(store, config_file=CONFIG):
         if "edge" in config:  # absent: FAILBACK stops at edge_unavailable after the matched receipt
             failback["edge"] = _edge(config["edge"])
     iac = {"iac": _iac(config["iac"])} if "iac" in config else {}
-    return TrustedHostPorts(client, bindings, rehearsal.catalog, rehearsal.planner, authority, **failback, **iac,
-                            delegation=config.get("delegation") is True)
+    delegation = config.get("delegation", False)
+    if not (type(delegation) is bool or (type(delegation) is dict and set(delegation) == {"shift_profile"}
+                                         and "edge" in config)):
+        raise ValueError("operator_ports_configuration_invalid")
+    shift = {"delegated_shift": _delegated_shift(config["edge"], delegation["shift_profile"], records, load_gate)
+             } if type(delegation) is dict else {}
+    return TrustedHostPorts(client, bindings, rehearsal.catalog, rehearsal.planner, authority,
+                            change_authority_wrapper=secure_change, **failback, **iac,
+                            delegation=delegation is not False, **shift)
+
+
+def _delegated_shift(edge, profile_file, records, load_gate):
+    """T49 `delegation: {"shift_profile": ...}`: the SHIFT weights run as the delegated approver over this
+    process's one LB journal (the `edge` mounts FAILBACK already uses) and the reviewed T36 profile."""
+    from bravo_edge_control.provider import Binding, Cloudflare
+
+    from .approval_delegation import DelegatedShift
+
+    journal, token = Path(edge["journal"]), Path(edge["token_file"])
+    # A path, or the T36 profile object itself (the approval host mounts only listed ConfigMap keys).
+    profile = profile_file if type(profile_file) is dict else json.loads(Path(profile_file).read_text())
+    provider = Cloudflare(Binding(**edge["lb_binding"]), token=lambda: token.read_text().strip())
+
+    def load_session(c, actor, plan):  # as bravo_edge_control.deployment_ports
+        view = records.view(c, actor, plan)
+        service, readiness = load_gate(view)
+        return view.session(service, readiness)
+
+    return lambda store, delegations: DelegatedShift(store, delegations, provider=provider, journal=journal,
+                                                     profile=profile, load_session=load_session)
 
 
 def _iac(value):

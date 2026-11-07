@@ -22,7 +22,8 @@ RUNTIME = {
     "configuration": {"existingConfigMap": "host-config", "sha256": "c" * 64},
     "reader": {"existingConfigMap": "reader-config", "catalogClaim": "existing-catalog"},
     "recordsClaim": "t15-records",
-    "secrets": {"catalogKey": "existing-key", "host": "t15-host", "executor": "t15-executor"},
+    "secrets": {"catalogKey": "existing-key", "host": "t15-host", "executor": "t15-executor",
+                "securityReview": "security-review-ca"},
     "hostAliases": [{"ip": "43.202.75.96", "hostnames": ["sts.ap-northeast-2.amazonaws.com"]}],
 }
 VALUES = {"image": {"digest": "sha256:" + "a" * 64}, "sourceRevision": "b" * 40, **RUNTIME}
@@ -46,6 +47,10 @@ class HostChart(unittest.TestCase):
         self.assertCountEqual([d["kind"] for d in docs], ["ServiceAccount", "Service", "Deployment"])
         sa = next(d for d in docs if d["kind"] == "ServiceAccount")
         self.assertFalse(sa["automountServiceAccountToken"])
+        svc = next(d for d in docs if d["kind"] == "Service")
+        # Fixed approval entry on the platform tailnet under the existing operator grant (tcp:443).
+        self.assertEqual(svc["metadata"]["annotations"]["tailscale.com/hostname"], "bravo-approval")
+        self.assertEqual({(p["port"], p["targetPort"]) for p in svc["spec"]["ports"]}, {(8443, "https"), (443, "https")})
         dep = next(d for d in docs if d["kind"] == "Deployment")
         self.assertEqual((dep["spec"]["replicas"], dep["spec"]["strategy"]["type"]), (1, "Recreate"))
         self.assertEqual(dep["spec"]["template"]["spec"]["hostAliases"], RUNTIME["hostAliases"])
@@ -58,6 +63,7 @@ class HostChart(unittest.TestCase):
         # The host serves the operator approval API; operator_ports wraps the T15 credential_host ports.
         self.assertEqual(c["command"], ["python", "-m", "bravo_platform_events.approval_server"])
         self.assertIn("bravo_platform_events.operator_ports:create", c["args"])
+        self.assertIn({"name": "BRAVO_PLATFORM_SOURCE_REVISION", "value": VALUES["sourceRevision"]}, c["env"])
         self.assertTrue(c["securityContext"]["readOnlyRootFilesystem"])
         for mount in c["volumeMounts"]:
             self.assertEqual(mount.get("readOnly", False), mount["name"] not in WRITABLE, mount["name"])
@@ -67,6 +73,11 @@ class HostChart(unittest.TestCase):
         token, = volumes["intake-token"]["projected"]["sources"]
         self.assertEqual(token["serviceAccountToken"],
                          {"audience": "bravo-t10-rehearsal-intake", "expirationSeconds": 600, "path": "token"})
+        review_token, = volumes["security-review-token"]["projected"]["sources"]
+        self.assertEqual(review_token["serviceAccountToken"],
+                         {"audience": "registered-security-review-audience", "expirationSeconds": 600,
+                          "path": "token"})
+        self.assertEqual(volumes["security-review-ca"]["secret"]["secretName"], "security-review-ca")
         paths = {i["path"] for i in volumes["config"]["configMap"]["items"]}
         self.assertTrue({"host.json", "ports.json", "access/manager.kubeconfig", "access/runner.kubeconfig"} <= paths)
 
@@ -130,7 +141,8 @@ class HostChart(unittest.TestCase):
                         verify_rehearsal_host(get, {"enabled": True, "runtime": deepcopy(RUNTIME)})
         self.assertCountEqual(seen, [("configmap", "host-config"), ("configmap", "reader-config"),
                                      ("pvc", "existing-catalog"), ("pvc", "t15-records"),
-                                     ("secret", "existing-key"), ("secret", "t15-host"), ("secret", "t15-executor")])
+                                     ("secret", "existing-key"), ("secret", "t15-host"), ("secret", "t15-executor"),
+                                     ("secret", "security-review-ca")])
         # #533 review: the STS name must be pinned to the one address the NetworkPolicy opens.
         sts = "sts.ap-northeast-2.amazonaws.com"
         for aliases in ([], [{"ip": "43.202.72.62", "hostnames": [sts]}],

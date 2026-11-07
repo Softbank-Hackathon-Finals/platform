@@ -413,3 +413,25 @@ def test_large_model_catalog_is_separate_from_small_auth_response_limit():
     assert oauth.models("access-fixture") == ["fixture-model"]
     with pytest.raises(AuthFailure, match="AUTH_RESPONSE_TOO_LARGE"):
         oauth._json(response)
+
+
+def test_openai_worker_gets_only_its_api_key(monkeypatch, tmp_path):
+    from types import SimpleNamespace
+
+    from bravo_agent import subscription_admin
+
+    key_file = tmp_path / "openai"
+    key_file.write_text("sk-proj-" + "a" * 40 + "\n")
+    key_file.chmod(0o600)
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "never-fallback-fixture")
+    calls = []
+    monkeypatch.setattr(subscription_admin.subprocess, "run",
+                        lambda command, **options: calls.append((command, options)) or SimpleNamespace(returncode=0))
+    args = SimpleNamespace(model="gpt-test", **{k: tmp_path / k for k in ("bundle", "manifest", "snapshot", "output")})
+    assert subscription_admin.run_openai_worker(key_file, tmp_path / "broker", args) == 0
+    command, options = calls[0]
+    assert command[3:6] == ["analyze", "--provider", "openai"]
+    assert options["env"]["OPENAI_API_KEY"] == "sk-proj-" + "a" * 40 and "ANTHROPIC_API_KEY" not in options["env"]
+    key_file.write_text("sk-ant-" + "a" * 40)  # an Anthropic key is not an OpenAI key
+    with pytest.raises(subscription_admin.AuthFailure):
+        subscription_admin.run_openai_worker(key_file, tmp_path / "broker", args)

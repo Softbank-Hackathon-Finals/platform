@@ -1,0 +1,53 @@
+# T33 온프렘 정책 탐지: Kyverno 3.9.2(app v1.19.2), 차트 sha256 f6fe7184544d5e2ee33a77808c09e67aa603ce6560cc197038fde31d727c861e
+# 감시만 한다. 정책은 Audit이고 웹훅은 실패해도 요청을 통과시킨다(Kyverno가 멈춰도 업무 배포를 막지 않음).
+# 결과는 PolicyReport(wgpolicyk8s.io/v1alpha2)로 남고, 수집 에이전트(agent.yaml)가 읽어 플랫폼으로 바깥 방향으로 보낸다.
+# 이미지는 태그와 multi-arch index digest로 고정한다. 차트가 registry/repository:tag로만 조립해서 tag에 @sha256을 붙인다.
+# 11-08 레지스트리에서 읽은 값이고 모두 linux/arm64를 담는다(README "이미지 고정").
+crds:
+  migration:
+    image: {tag: "v1.19.2@sha256:322ec5044d600930cb3af0e56dc33154a2d1d1fba58f4cadad3f47be7e78b11c"}
+webhooksCleanup:
+  image: {tag: "v1.19.2@sha256:02600428e7c956e222f4376413525866ed9fec28e6bcb1222774ce6bf5fc904a"}
+test:
+  image: {tag: "v1.19.2@sha256:02600428e7c956e222f4376413525866ed9fec28e6bcb1222774ce6bf5fc904a"}
+features:
+  forceFailurePolicyIgnore:
+    enabled: true
+  # 정책을 VAP로 바꿔 API 서버가 직접 거부하게 만들지 않는다(Audit만)
+  generateValidatingAdmissionPolicy:
+    enabled: false
+openreports:
+  enabled: false
+config:
+  webhooks:
+    namespaceSelector:
+      matchExpressions:
+        - key: kubernetes.io/metadata.name
+          operator: NotIn
+          values: [kube-system, tailscale-system, cnpg-system, bravo-secrets, bravo-iac-gitops, falco]
+admissionController:
+  replicas: 1
+  initContainer:
+    image: {tag: "v1.19.2@sha256:27f3cc52e628559b56d08363b85316819802086c9808606914f7805a244148f4"}
+  container:
+    image: {tag: "v1.19.2@sha256:c8c4dd09e720d2cd7fd24ca73ac28e46651001372f988e0cba3f2f612f04b955"}
+    resources:
+      requests: {cpu: 50m, memory: 128Mi}
+      limits: {memory: 384Mi}
+backgroundController:
+  enabled: true
+  replicas: 1
+  image: {tag: "v1.19.2@sha256:c46e124f21ef8a6bb4b48de57106808b1007edcd5ddd4ff7df5d23b9efa60ce2"}
+  resources:
+    requests: {cpu: 25m, memory: 64Mi}
+    limits: {memory: 256Mi}
+reportsController:
+  enabled: true
+  replicas: 1
+  image: {tag: "v1.19.2@sha256:5fb6d3e738050dbce84f60ecabaede7665fbe0578d07c1e8c912443b035e79c3"}
+  resources:
+    requests: {cpu: 25m, memory: 64Mi}
+    limits: {memory: 256Mi}
+# 생성 · 정리 정책은 쓰지 않는다
+cleanupController:
+  enabled: false

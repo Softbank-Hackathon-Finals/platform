@@ -1,6 +1,6 @@
 # [ADR-0036] GATE 데이터 준비 관찰을 Executor가 만들고, 운영자 capture가 방금 기록한 것만 서명한다
 
-* **상태 (Status):** 제안됨(Proposed). T13 계약과 다른 점(아래 1)은 T13 담당(김태현) 확인이 남아 있다.
+* **상태 (Status):** 채택됨(Accepted). 2026-11-08 T13 담당(김태현)이 결정 1의 T13 계약과 다른 점을 코드·목적지 DB(읽기)로 확인하고 계약에 반영했다(#906). T19 담당이 그 확인을 리뷰했다.
 * **날짜 (Date):** 2026-11-07
 * **관련 (Related):** T19 #29, T13 #23, T12 #22, T10 #19, #612, `docs/contracts/T13-db-fingerprint-v1.md`, ADR-0011, ADR-0016
 
@@ -19,12 +19,12 @@
    * 시퀀스는 `correct_sequence`로 목적지를 **올리기만** 하고, 다시 읽은 값을 `readback_next`로 낸다. 목적지 앱 역할이 로그인할 수 없고 붙은 세션이 없을 때만 올린다.
    * 끝나지 않은 실행이 있으면 관찰 전과 후에 모두 거부한다(409).
    * **T13 계약과 다른 점:** 리허설이 아니라 GATE 사전 확인 경로에서, 컷오버 lease 없이 실제 목적지 시퀀스를 올린다. 근거는 세 가지다. 올리기만 하므로 값이 내려가지 않는다(운영 제어 함수는 원자적이다). 목적지가 닫혀 있어 `nextval` 호출자가 없다. 컷오버 5단계가 같은 함수로 다시 보정한다. 모의 환경의 `raise_sequence`는 원자적이지 않아 실행과 겹치면 값이 내려갈 수 있다. 사후 검사는 관찰을 버릴 뿐 이미 내려간 시퀀스 값을 복구하지 않는다. 이는 모의 구현에 한정된 잔여 위험이며, 사후 거부만으로 경합이 해결됐다고 주장하지 않는다.
-2. **DB 참조는 등록 `connection_ref`다.** 관찰의 `database_ref`와 `replication.*_database_ref`는 컷오버 명령이 싣는 값과 같아야 한다. T10은 SHIFT·컷오버 승인에서 두 값을 대조한다(`PLAN_GATE_DATABASE_PAIR_MISMATCH`). 자원 ID(`resource_id`)를 내면 GATE는 통과해도 승인에서 막힌다.
+2. **DB 참조는 등록 `connection_ref`다.** 관찰의 `database_ref`와 `replication.*_database_ref`는 컷오버 명령이 싣는 값과 같아야 한다. T10은 SHIFT·컷오버 승인에서 두 값을 대조한다(`PLAN_GATE_DATABASE_PAIR_MISMATCH`). 자원 ID(`resource_id`)를 내면 GATE는 통과해도 승인에서 막힌다. 그래서 승인 호스트의 관찰기(`readiness_observer`)가 이미 확인한 등록 쌍과 관찰의 세 참조를 먼저 대조하고, 다르면 릴레이가 기록·서명하기 전에 HOLD(`readiness_pair_mismatch`)로 멈춘다.
 3. **운영자 `operations/gate/run.py capture`가 방금 기록한 readiness 두 digest만 서명한다.**
    * 다른 서명은 지금처럼 `subjects`를 검토하고 `--confirm`으로 한다.
    * capture는 릴레이가 돌려준 binding·snapshot digest와 `subjects`가 같을 때만 서명한다. 그 사이 다른 기록이 끼면 아무것도 서명하지 않는다(HOLD).
    * 승인 경계가 바뀐다. readiness 서명은 사람이 값을 읽고 하는 승인이 아니라, 운영자가 capture를 실행한 사실과 Executor 관찰의 결속이다. 판정은 여전히 GATE가 한다.
-4. **GATE 기록(`--evaluate`)은 데이터 판정이 PASS일 때만 한다.** GATE 보고서는 context마다 한 번만 쓸 수 있으므로, 순간적인 복제 지연 하나로 context를 다시 bind하지 않게 한다. 첫 BLOCK을 일부러 남길 때만 `--record-block`을 쓴다.
+4. **GATE 기록(`--evaluate`)은 데이터 판정이 PASS일 때만 한다.** GATE 보고서는 context마다 한 번만 쓸 수 있으므로, 순간적인 복제 지연 하나로 context를 다시 bind하지 않게 한다. 첫 BLOCK을 일부러 남길 때만 `--record-block`을 쓴다. 이때의 HOLD(`readiness_data_block`)는 BLOCK 행의 고정 사유(`blocked`)와 이미 게시한 readiness 서명의 목적·digest(`published`)를 함께 출력해, 운영자가 다시 capture할지 `--record-block`으로 남길지 정할 수 있게 한다.
 
 ## 3. 고려한 다른 안
 
@@ -36,4 +36,4 @@
 
 * 해피패스의 GATE 경로가 명령 하나가 된다: capture(관찰 → 기록 → 서명) → S1·S2에서만 evaluate.
 * Executor는 컷오버 밖에서도 목적지 DB에 올리기 전용 쓰기를 한다. 실행이 진행 중이면 거부하고, 목적지가 열려 있으면 올리지 않는다.
-* T13 계약 문서의 `readback_next` 정의(리허설에서)는 이 ADR이 받아들여진 뒤 T13 담당이 고친다.
+* T13 계약 문서의 `readback_next` 정의에 GATE 사전 관찰을 더하고, 컷오버 소비자 2번의 예외와 조건 세 가지를 적었다(#906, 계약 버전 v1 유지).

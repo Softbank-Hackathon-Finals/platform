@@ -17,6 +17,10 @@
 
 - 워크플로 호스트는 자기 주체(`workflow-host`)로 T31 반영을 접수한다. 이 주체에 `read`·`apply_change`를 계획별로
   부여한다(`set_permissions`). 원래 승인자는 `approve_change`로 다시 확인되므로 승인과 반영은 분리된다.
+- WATCH에서 플랫폼이 컷오버 뒤 목적지 T14 run을 기록하면(#765, [ADR-0041](../adr/0041-post-cutover-target-controls.md)) 같은
+  주체에 `gate:record`를 더한다. `set_permissions`는 권한 집합을 **통째로 바꾼다**. 그래서 그 계획의 최신 grant
+  (revision N, 권한 P)를 먼저 읽고 `permissions = P ∪ {"gate:record"}`, `expected_revision = N`으로 부른다.
+  `gate:record`만 넣으면 `read`·`apply_change`가 사라진다. 권한이 없으면 생산자가 `forbidden`이 되고 WATCH는 UNKNOWN에서 기다린다.
 - AWAIT_APPROVAL → SHIFT는 사람의 SHIFT 승인(`approve_shift`)이 필요하다. 콘솔에 아직 버튼이 없으면 운영 API
   `/v1/plans/{id}/approvals`(`approval_kind: shift`)로 한다. 실행기 `s3-shift-approval`.
 - Job 주체(`b3d65883…`)의 T10 initial grant를 둔 뒤 `run.py fence → admit → start → collect` 순서로 한다.
@@ -129,6 +133,7 @@ plan 상태는 워크플로 호스트 Pod(`deploy/t10-workflow-host`, 컨테이�
 - 들어오는 경로: Service는 ClusterIP 8443뿐이다. 공개 ingress는 없다. 승인자는 자기 SSO로 SSM 터널을 연 뒤 `kubectl -n platform-state port-forward svc/t15-rehearsal-host 8443:8443`로 접속한다. 요청마다 운영자 audience(`bravo-platform-operator`)로 서명한 AWS SSO 증명을 Bearer로 보낸다.
 - 운영자 신원: `operator_verifier`에 사람별 고정 신원 목록을 둔다. 승인자와 실행자는 다른 사람이어야 한다. `authenticated_at`은 증명 발급 시각이며, SSO(MFA) 로그인 시각보다 늦을 수 있다.
 - SHIFT CLI: 같은 Pod에서 `kubectl exec ... python -m bravo_edge_control.run`으로 실행하고, journal은 `/records/edge/journal.db` 하나를 쓴다. FailbackEdge도 같은 journal을 쓴다.
+  - Pod 안에는 운영자 SSO profile이 없어 `deployment_ports`의 principal이 증명을 만들지 못한다. 운영자 증명(60초)은 운영자 기기에서 표준 입력으로 넣어야 한다(승인된 Edge 시험의 `operations/edge-drill/drill.py run`과 같은 방식). SHIFT CLI에 같은 입력을 붙이는 것은 남은 일이다.
 
 ### 알려진 위험: 실행 권한이 한 Pod에 모임 (해피패스 한정)
 

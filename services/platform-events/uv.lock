@@ -160,6 +160,34 @@ dev = [
 ]
 
 [[package]]
+name = "bravo-controls"
+version = "0.1.0"
+source = { directory = "../control-runner" }
+dependencies = [
+    { name = "jsonschema" },
+]
+
+[package.optional-dependencies]
+aws = [
+    { name = "botocore" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "botocore", marker = "extra == 'aws'", specifier = ">=1.35,<2" },
+    { name = "jsonschema", specifier = ">=4.23,<5" },
+    { name = "psycopg", extras = ["binary"], marker = "extra == 'postgres'", specifier = ">=3.3.6,<4" },
+]
+provides-extras = ["aws", "postgres"]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "botocore", specifier = ">=1.35,<2" },
+    { name = "psycopg", extras = ["binary"], specifier = ">=3.3.6,<4" },
+    { name = "pytest", specifier = ">=8,<10" },
+]
+
+[[package]]
 name = "bravo-iac"
 version = "0.1.0"
 source = { directory = "../iac" }
@@ -239,6 +267,7 @@ dev = [
     { name = "bravo-agent-worker" },
     { name = "bravo-apply-path" },
     { name = "bravo-control-gate" },
+    { name = "bravo-controls", extra = ["aws"] },
     { name = "bravo-iac" },
     { name = "bravo-inventory" },
     { name = "bravo-rehearsal-runner" },
@@ -246,8 +275,10 @@ dev = [
     { name = "psycopg", extra = ["binary"] },
     { name = "pytest" },
     { name = "ruff" },
+    { name = "sova-security" },
 ]
 gate-records = [
+    { name = "boto3" },
     { name = "bravo-control-gate" },
 ]
 product-inputs = [
@@ -255,9 +286,17 @@ product-inputs = [
     { name = "bravo-iac" },
     { name = "bravo-inventory" },
     { name = "bravo-rehearsal-runner" },
+    { name = "sova-security" },
+]
+security-governance = [
+    { name = "sova-security" },
+]
+target-controls = [
+    { name = "bravo-controls", extra = ["aws"] },
 ]
 trusted-host = [
     { name = "bravo-rehearsal-runner" },
+    { name = "sova-security" },
 ]
 
 [package.metadata]
@@ -282,6 +321,7 @@ dev = [
     { name = "bravo-agent-worker", directory = "../agent-worker" },
     { name = "bravo-apply-path", editable = "../apply-path" },
     { name = "bravo-control-gate", directory = "../control-gate" },
+    { name = "bravo-controls", extras = ["aws"], directory = "../control-runner" },
     { name = "bravo-iac", directory = "../iac" },
     { name = "bravo-inventory", directory = "../inventory" },
     { name = "bravo-rehearsal-runner", directory = "../rehearsal-runner" },
@@ -289,15 +329,25 @@ dev = [
     { name = "psycopg", extras = ["binary"], specifier = ">=3.2,<4" },
     { name = "pytest", specifier = ">=8" },
     { name = "ruff", specifier = ">=0.9" },
+    { name = "sova-security", git = "https://github.com/Softbank-Hackathon-Finals/security.git?rev=cf33e09c8d3be567542a17fe039f3e6e2295568d" },
 ]
-gate-records = [{ name = "bravo-control-gate", directory = "../control-gate" }]
+gate-records = [
+    { name = "boto3", specifier = ">=1.35,<2" },
+    { name = "bravo-control-gate", directory = "../control-gate" },
+]
 product-inputs = [
     { name = "bravo-agent-worker", directory = "../agent-worker" },
     { name = "bravo-iac", directory = "../iac" },
     { name = "bravo-inventory", directory = "../inventory" },
     { name = "bravo-rehearsal-runner", directory = "../rehearsal-runner" },
+    { name = "sova-security", git = "https://github.com/Softbank-Hackathon-Finals/security.git?rev=cf33e09c8d3be567542a17fe039f3e6e2295568d" },
 ]
-trusted-host = [{ name = "bravo-rehearsal-runner", directory = "../rehearsal-runner" }]
+security-governance = [{ name = "sova-security", git = "https://github.com/Softbank-Hackathon-Finals/security.git?rev=cf33e09c8d3be567542a17fe039f3e6e2295568d" }]
+target-controls = [{ name = "bravo-controls", extras = ["aws"], directory = "../control-runner" }]
+trusted-host = [
+    { name = "bravo-rehearsal-runner", directory = "../rehearsal-runner" },
+    { name = "sova-security", git = "https://github.com/Softbank-Hackathon-Finals/security.git?rev=cf33e09c8d3be567542a17fe039f3e6e2295568d" },
+]
 
 [[package]]
 name = "bravo-rehearsal-runner"
@@ -1654,6 +1704,11 @@ sdist = { url = "https://files.pythonhosted.org/packages/a2/87/a6771e1546d97e7e0
 wheels = [
     { url = "https://files.pythonhosted.org/packages/e9/44/75a9c9421471a6c4805dbf2356f7c181a29c1879239abab1ea2cc8f38b40/sniffio-1.3.1-py3-none-any.whl", hash = "sha256:2f6da418d1f1e0fddd844478f41680e794e6051915791a034ff65e5f100525a2", size = 10235, upload-time = "2024-02-25T23:20:01.196Z" },
 ]
+
+[[package]]
+name = "sova-security"
+version = "0.11.1"
+source = { git = "https://github.com/Softbank-Hackathon-Finals/security.git?rev=cf33e09c8d3be567542a17fe039f3e6e2295568d#cf33e09c8d3be567542a17fe039f3e6e2295568d" }
 
 [[package]]
 name = "sse-starlette"

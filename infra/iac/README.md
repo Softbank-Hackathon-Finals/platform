@@ -34,9 +34,9 @@
 
 | 환경 | egress (클러스터 안 Service → tailnet 장치) | ingress (tailnet 장치 → 클러스터 안) |
 |---|---|---|
-| platform | 반영·리허설·Collector → 목적지 API(워크로드 tailnet), 컷오버 → 양쪽 DB·제어 Pooler·API | 아직 없음: 지표 저장소 `bravo-metrics` 노출은 저장소에 렌더러가 없어 다음 단계에서 선언 |
+| platform | 반영·리허설·Collector → 목적지 API(워크로드 tailnet), 컷오버 → 양쪽 DB·제어 Pooler·API | `bravo-findings`(T33 보안 탐지 수집 API, 8443). 지표 저장소 `bravo-metrics` 노출은 저장소에 렌더러가 없어 다음 단계에서 선언 |
 | source-dev | Collector → 지표 저장소, 복제(역방향 구독) → `bravo-target-db` | `bravo-source-db`, `bravo-source-control-pooler` |
-| target-dev | Collector → 지표 저장소, 복제(정방향 구독)·Pooler → `bravo-source-db` | `bravo-target-db`, `bravo-target-control-pooler` |
+| target-dev | Collector → 지표 저장소, 복제(정방향 구독)·Pooler → `bravo-source-db`, 보안 탐지 에이전트·falcosidekick → `bravo-findings` | `bravo-target-db`, `bravo-target-control-pooler` |
 
 응답에는 환경마다 경로(호출할 클러스터 안 DNS 이름·포트 → 장치·태그·tailnet, 호출자)와 노출 장치, tailnet마다
 정책 조각이 들어간다. 커밋된 파일만 읽으므로 proxy Pod·포트·주소를 찾을 필요가 없다. 옛 렌더러에서 같은 객체를
@@ -163,7 +163,7 @@ Tailscale의 정책 검증과 실제 조회를 수행한다. 다른 사람이 �
 | 런타임 | 상태 | 추가 전에 확인할 것 |
 |---|---|---|
 | `rke2` (온프렘) | 실측됨(2026-11-07: `APISERVER_PROXY=true`, tailnet 신원 → `bravo:operators`, 그룹만으로 허용·그룹 없음 거부) | — |
-| `rke2` (T45로 새로 세운 목적지) | 아직 | 1번이 채워지지 않는다. T45 tailscale 단계가 쓰는 operator 값(`target-workloads/network.py`)이 `apiServerProxyConfig.mode: "false"`라 auth 프록시와 impersonation RBAC가 렌더되지 않는다. 설치 주체(T45 tailscale 단계 / T30 `network.py`)를 정하면 1번이 그 단계를 가리킨다. `network.py`는 T30 파일이라 담당 합의로 바꾼다 |
+| `rke2` (T45로 새로 세운 목적지) | `wif`만 | T45 tailscale 단계가 `tailnet=wif`이면 `target-workloads/network.py`가 `apiServerProxyConfig.mode: "true"`를 렌더해 1번을 채운다(T50, 플랫폼 Executor의 API 경로). `join`(기존 환경)은 여전히 `"false"`다. 남은 것: 그 목적지의 impersonation RBAC 실측과 5번 |
 | `eks` (AWS) | 아직 | operator 설치 값과 impersonation RBAC, 노드에서 Tailscale 제어·DERP로 나가는 길, 위 5번 |
 | `gke` (GCP) | 아직 | 같은 항목, Autopilot이면 ProxyClass 제약. 확인된 것(2026-11-07, A10 GKE Standard): 프로젝트 소유자(IAM)가 이 바인딩을 만들 수 있다(`kubectl apply --server-side --dry-run=server`, 저장하지 않음). 남은 것: A10 스택도 같은 `network.py` 값을 써서 프록시가 꺼진다. `--side target`이면 장치 이름·태그가 온프렘 목적지와 같은 `bravo-target-operator`가 된다 |
 
@@ -229,16 +229,23 @@ helm upgrade --install bravo-iac-gitops infra/iac/argocd -n bravo-iac-gitops --c
   --set application.enabled=false --set application.autoSync=false --set application.prune=false
 ```
 
+화면이 필요하면 같은 명령에 `-f infra/iac/argocd/ui-values.yaml --set argo-cd.configs.cm.url=https://<앱>-<번호>-argocd.<zone>`을 더한다.
+- 서버는 tailnet 장치 `bravo-target-argocd`(tailnet-ingress)의 노출 프록시 Pod에서만 받는다. 차트의 서버 정책은 모든 Pod를 받아서 끄고, 같은 구성 요소 정책을 `templates/ui-network-policies.yaml`에 둔다(시험 고정).
+- 서버 권한은 읽기(get · list · watch)뿐이고, 화면은 로그 없이 `bravo-iac` 프로젝트 Application만 보는 `role:bravo-viewer`다.
+- 로그인이 없어 Argo에는 모든 요청이 anonymous로 남는다. 누가 봤는지는 Cloudflare Access 로그에만 있다. 공개 주소는 플랫폼 공개 입구(`infra/envs/public-entry`)가 Access 뒤에서 중계한다.
+- 지금 장치 이름 · 태그 · Access 정책은 고객 하나 기준이다. 두 번째 고객부터는 이름 · 태그에 환경을 넣고 고객별 Access 정책을 둔다(후속).
+- 남는 위험: 서버 SA의 ClusterRole(`*` get · list · watch)은 클러스터 전체 Secret도 읽는다. 화면은 Secret 값을 가리지만, 익명 서버에 인증 우회 같은 결함이 생기면 그 범위가 읽힌다. Secret을 뺀 자원 목록으로 줄이는 것은 T44 권한 세분화의 후속이다.
+
 **적용하는 커밋은 설치 값 `targetRevision`(전체 40자 SHA, 필수)이다.** 브랜치 기본값이 없어서 develop 병합만으로는 고객
 클러스터에 닿지 않는다(develop은 승인 0이다). 승격은 검토한 커밋 SHA로 이 값 한 줄을 바꾸는 것이다.
 
 **플랫폼 클러스터에는 이 차트를 설치하지 않는다.** 이미 T43 Argo가 있으므로 `charts/platform`은 그 Argo의 Application으로
 붙인다(한 클러스터에 Argo 두 벌을 두지 않는다). `infra/iac/argocd`(CRD 설치 포함)는 고객 클러스터(`source-dev`, `target-dev`) 전용이다.
 그 Application은 `infra/gitops/argocd`의 `iacNetwork`(기본 꺼짐)다. 켤 때 값은 검토한 전체 커밋 SHA(`targetRevision`)와
-tailnet 접미사(`tailnet`, `tailnets.workload`)이고, AppProject `platform-iac-network`는 이 차트에 있는 namespace 5개와
+tailnet 접미사(`tailnet`, `tailnets.workload`)이고, AppProject `platform-iac-network`는 이 차트에 있는 namespace 6개와
 종류(Namespace·ProxyGroup·Service·NetworkPolicy)만 허용한다(시험이 차트와 같은지 고정). 켜기 전에 컨트롤러 권한이 필요하다:
 그 namespace의 Role·RoleBinding, Namespace·ProxyGroup 클러스터 접근, `clusterCredentials.platform`의 namespace·클러스터 자원,
-`resource.inclusions`. 이 권한 작업은 따로 한다(T44 할 일 "권한 세분화").
+`resource.inclusions`. 이 권한 작업은 따로 한다(T44 할 일 "권한 세분화"). `bravo-security`는 T33 플랫폼 전제(`infra/envs/platform-security`)가 만든다.
 
 **같은 자원의 주인은 하나다.** 이 모듈을 적용하는 클러스터에서는 같은 이름의 경로를 만드는 기존 렌더러를 쓰지 않는다:
 `infra/envs/rehearsal-access/access.py`(리허설·반영·Collector → 목적지 API), `infra/envs/executor-network`(컷오버 경로),
@@ -256,9 +263,11 @@ tailnet 접미사(`tailnet`, `tailnets.workload`)이고, AppProject `platform-ia
 | `target-dev` | T45 base 단계(PSA restricted) | — |
 | `source-dev` | — | 출발지 렌더러(`infra/envs/source-workloads`) |
 | `tailscale-system` | T45 tailscale-oauth 단계(PSA privileged) | 기존 Tailscale operator 설치 |
-| `bravo-observability` | T45 base 단계(추가 요청 중, #632), T37 Collector와 같은 라벨(`component: platform`, PSA restricted) | T37 Collector 매니페스트(`services/observability/deploy/collector`) |
+| `bravo-observability` | T45 base 단계(`observability-namespace`), T37 Collector와 같은 라벨(`component: platform`, PSA restricted). T37 `collector-target`도 같은 Namespace를 선언한다(레이블 같음, 주인 단일화는 T37과 합의) | T37 Collector 매니페스트(`services/observability/deploy/collector`) |
+| `bravo-security` · `falco` | T33 온프렘 탐지 묶음(`infra/envs/onprem-detection`) 설치 0단계 | — |
 
 그래서 이 Application은 표의 namespace와 Tailscale CRD가 생긴 **뒤에** 켠다(새 목적지는 T45 base · tailscale 단계가 Synced · Healthy가 된 뒤, 아래 2단계). 그 뒤의 실패는 순서 문제가 아니므로 재시도는 유한하다(`retry.limit: 5`, 약 5분). 무제한 재시도는 실패한 operation을 Running으로 남겨, `targetRevision`을 고친 SHA로 올려도 새 동기화가 시작되지 않는다. 재시도가 끝나 Failed가 되면 원인을 고친 커밋을 승격하거나 수동으로 sync한다.
+`bravo-security` · `falco`(T33 탐지 경로)는 그 경로가 든 SHA를 승격하기 **전에** 있어야 한다. 없으면 그 동기화가 실패해 같은 SHA의 다른 경로도 반영되지 않는다.
 ProxyGroup은 그 클러스터에 Tailscale operator(CRD)가 있어야 생성된다(`SkipDryRunOnMissingResource`).
 
 ### 고객 설치와 업무 자원 적용의 분리 (차트 0.2.0)
@@ -280,7 +289,27 @@ ProxyGroup은 그 클러스터에 Tailscale operator(CRD)가 있어야 생성된
 차트 0.2.2부터 `application.enabled`를 생략하면 렌더를 거부한다. bootstrap은 false, 기존 Application 유지·등록은 true를
 명시한다. 스키마 검사를 건너뛰어도 같은 검사를 하며, 생략을 기본 false로 해석하지 않는다.
 `autoSync=false`로 바꾸는 것만으로 이미 시작한 sync가 취소되지는 않는다. 실행 중이면 결과와 영향부터 확인한다.
+차트 0.3.1부터 환경 Application은 Service의 `spec.externalName`을 비교와 적용에서 뺀다(`ignoreDifferences` +
+`RespectIgnoreDifferences=true`). tailnet-egress Service는 `placeholder`로 생성되고 Tailscale operator가 프록시 Service 이름으로
+바꿔 쓰므로, 이미 쓰이는 경로를 넘겨받을 때 `placeholder`를 다시 써서 복제·지표 경로를 끊지 않는다.
+사람이 만든 경로를 넘겨받기 전에는 `bravo-iac chart` 결과를 `kubectl diff --server-side --force-conflicts`로 실제와 비교한다.
 초기 설치 권한은 아래의 넓은 1단계 권한이며, 설치·동기화 성공을 금융 운영 보안 자격으로 사용하지 않는다.
+
+### 클러스터의 Tailscale operator (`operator.enabled`, 차트 0.3.0, T48)
+
+operator도 Git에서 반영한다. 사람이 helm이나 kubectl로 값을 바꾸지 않는다.
+
+- **원본:** `infra/iac/operators/<환경>/operator.yaml`이다. `infra/iac/operators/render.py <환경>`이 고정 chart(1.104.4, `network.py`의 `CHART_SHA256`로 확인)를 `network.py values`로 렌더한 것이다. CRD와 namespace는 클러스터를 세우는 쪽 몫이라 넣지 않는다. 시험이 파일을 `network.py` 값과 대조하고, Secret이 없는지 확인한다.
+- **Application:** `bravo-iac-<환경>-operator`다. 환경 Application과 같은 `targetRevision`을 쓴다. 전용 Project `bravo-iac-operator`는 `tailscale-system`과 그 파일에 든 종류만 허용한다(시험이 일치를 고정). prune은 하지 않는다. `operator-oauth` Secret과 namespace는 지우지 않는다.
+- **켜는 법:** 기본은 꺼짐이고, `application.enabled`와 따로 켠다. 사람이 적용한 operator가 이미 있는 클러스터는 환경 Application을 끈 채 operator만 넘겨받는다. 그러면 경로(Service·ProxyGroup)는 그대로 두고 operator만 Git을 따른다.
+
+```sh
+helm upgrade --install bravo-iac infra/iac/argocd -n bravo-iac-gitops --create-namespace \
+  --set environment=<환경> --set tailnet=<tailnet>.ts.net --set targetRevision=<검토한 SHA> \
+  --set application.enabled=false --set operator.enabled=true --set operator.autoSync=true
+```
+
+- **넘겨받기 전 확인:** `kubectl diff --server-side --force-conflicts -f infra/iac/operators/<환경>/operator.yaml`로 실제 값과의 차이를 본다. 이미지·태그가 바뀌면 그 operator가 관리하는 모든 프록시가 다시 뜬다. 그래서 의도한 차이만 남았을 때 켠다. source-dev는 2026-11-08에 API 프록시 모드(`true` → `noauth`) 하나만 달랐다.
 
 ### 고객 GitOps 상태의 읽기 전용 인수
 

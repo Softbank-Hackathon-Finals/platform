@@ -10,9 +10,21 @@ targetRevision: ""
 # Set application.enabled explicitly on every install/upgrade: false for bootstrap,
 # true to retain/create the Application. No default may silently delete an old Application.
 # Enabling automated sync and pruning are separate operator decisions.
+# Optional read-only UI (ui-values.yaml). Its NetworkPolicies are in templates/ui-network-policies.yaml.
+ui:
+  enabled: false
+  # The tailnet-ingress Service that exposes argocd-server (environments/<env>.json)
+  service: bravo-target-argocd
+
 application:
   autoSync: false
   prune: false
+
+# The cluster's Tailscale operator from infra/iac/operators/<environment> (T48). Off unless that folder exists and
+# its operator is taken over; independent of application.enabled. Never prunes.
+operator:
+  enabled: false
+  autoSync: false
 
 argo-cd:
   fullnameOverride: bravo-iac-gitops

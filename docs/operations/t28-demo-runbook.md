@@ -16,6 +16,17 @@ infra/envs/target-workloads/demo_reset.py check --kubeconfig <target> \
 | 첨부 버킷 | `open-demo` (S1 BLOCK용) | 아니오. 운영자가 `object_exposure.py plan --state open-demo`대로 연다 |
 | Edge 가중치 | 목적지 0% | 아니오. T17 담당 도구로 확인한다 |
 
+보안 판정 Pod를 데모 전에 기동 확인한다. 이 명령은 등록·승인·실행을 하지 않는다.
+
+```sh
+python3 operations/security-program/run.py warm --context <platform> --budget-seconds 45
+```
+
+AI 제안은 데모에서 T10의 `initial-proposal` Job이 실제 모델을 호출한다. 사전 준비에서는 정확한
+입력·모델·고정 이미지가 설치되어 있고 Job 이미지를 노드가 받을 수 있는지만 확인한다. 미리 만든
+제안을 새 실행의 결과처럼 재사용하지 않는다. T15는 같은 proposal/source/image digest를 격리
+네임스페이스와 검증 Job에 결속하고, 정리 확인 뒤에만 승인 대기로 넘긴다.
+
 결과 `checked_items_ready`는 확인한 항목만 준비됐다는 뜻이다. 확인하지 않은 항목(`not_checked`)은 통과로 보지 않는다. 출발지 DB 쓰기 주체, 복제 방향, 플랫폼 계획 상태는 이 도구 범위 밖이다. 컷오버 뒤 원래 상태로 돌리려면 FAILBACK을 끝까지 실행하고 T13 실행기 결과로 확인한다.
 
 ## 장면과 명령
@@ -23,7 +34,7 @@ infra/envs/target-workloads/demo_reset.py check --kubeconfig <target> \
 | 시각 | 장면 | 실행 | 담당 |
 | --- | --- | --- | --- |
 | 0:00 | S1 사전 기록 · 3등급 목록 · 통제 비교표, 게이트 1차 BLOCK(열린 첨부 버킷) | 콘솔(T21)에서 현재 계획 조회. 게이트 판정(T19) | 상무 |
-| 0:40 | S2 에이전트 제안 → 리허설 차단 기록 → 검증 → 승인 → 목적지 반영 → 재대조 PASS | T10 최초 제안(Job 경로) → T15 리허설 → 사람 승인 → T31 `bravo-apply run` → `open_after_apply.py` | 지환 · 규태 · 동훈 |
+| 0:40 | S2 에이전트 제안 → 리허설 차단 기록 → 검증 → 보안 Review → 승인 → 목적지 반영 → 재대조 PASS | T10 최초 제안(Job 경로) → T15 리허설 → `patch/preflight` → 사람 승인 → T31 `bravo-apply run` → `open_after_apply.py` | 지환 · 규태 · 동훈 |
 | 1:30 | S3 부하를 건 채 가중치 10 → 50 → 100% | T18 부하(예열 50 rps · 30초 → 본 측정), T17 가중치 전환 | 태현 · Edge 담당 |
 | 2:10 | S3 컷오버: 쓰기 정지 시간, 무결성 영수증, 채팅 기록 유지 | 업로드 중지 → T8 첨부 복사(판정 `SUCCEEDED`) → T13 컷오버 실행기 | 태현 |
 | 3:00 | S4 목적지 장애 → 알림 → 데이터째 되돌리기 | `demo_fault.py inject` → WATCH 판정 확인 → **`demo_fault.py clear`** → 되돌리기 승인 → FAILBACK → 역방향 복제 도착 확인 | 지환 · 태현 |
@@ -40,7 +51,9 @@ python3 scripts/happy_path.py steps                      # 순서와 연결 상�
 python3 scripts/happy_path.py run --plan-id <plan> --record <run.jsonl> --profile real \
   --scenario recovery \
   --plan-state-command <plan 상태를 {"state": ...}로 출력하는 읽기 전용 명령> \
-  --kubeconfig <target> --application-id <T31 id> --receipts <T31 receipts> --wait 600
+  --platform-context <platform> --patch-preflight <patch-preflight.json> \
+  --kubeconfig <target> --application-id <T31 id> --receipts <T31 receipts> \
+  --wait 30 --step-timeout 60 --demo-budget 270
 python3 scripts/happy_path.py confirm --record <run.jsonl> --step s2-change-approval --by <이름>
 python3 scripts/happy_path.py resolve --record <run.jsonl> --step <id> --status done|failed --by <이름> --note <근거>
 ```
@@ -66,6 +79,18 @@ S4 장애 주입·되돌리기는 실행하지 않는다. 최종 실제 계획�
 합성 회차를 `real`로 다시 열거나, 복구 회차를 정방향 회차로 바꿔 완료 처리할 수 없다.
 기존 회차는 시나리오가 없으면 `recovery`로 해석한다. 헤더에는 등록 API·Reader·리허설
 호스트 이미지 고정값을 기록한다. 코드 시험 통과와 실제 공용 환경 인수는 별도다.
+
+### 270초 하드 버짓
+
+- 첫 `run`이 JSONL 헤더에 시작 시각과 `demo_budget_seconds=270`을 고정한다. 사람 승인 때문에
+  `confirm` 후 다시 실행해도 같은 마감 시각을 사용한다.
+- 각 외부 명령의 timeout은 남은 전체 시간보다 길 수 없다. Security Review 준비는 그 안에서
+  다시 45초 상한을 사용한다.
+- 270초가 끝나면 다음 효과를 시작하지 않고 `demo_budget_exceeded`로 실패한다. 실행 중 응답을
+  잃으면 `demo_budget_exhausted_during_step` UNKNOWN으로 멈추며 자동 재실행하지 않는다.
+- 이 데모 실행기에는 시간 제한 해제 옵션이 없다. `--demo-budget`은 1~270초만 허용한다.
+- 버짓을 맞추려고 보안 검사, 사람 승인, T15 검증 또는 실패 대조군을 건너뛰지 않는다. 라이브
+  입력이 시간 안에 끝나지 않으면 아래 대체 장면으로 전환하고 범위를 그대로 밝힌다.
 
 - **기록:** 회차마다 JSONL 하나를 남긴다. 첫 줄은 develop SHA, GitOps 이미지 pin, 프로필(`real`/`local`/`mock`), plan이다. 이어서 단계마다 결과를 한 줄씩 쓴다. 다시 실행하면 끝난 단계 다음부터 이어 간다.
 - **사람 판단:** 변경 승인, 컷오버 승인, 알림 확인, 되돌리기 승인에서 멈춘다. 승인은 콘솔에서 하고, 했다는 사실을 `confirm`으로 기록한다.

@@ -283,6 +283,13 @@
             "protocol": "TCP"
           }
         ]
+      },
+      {
+        "ports": [
+          {
+            "protocol": "UDP"
+          }
+        ]
       }
     ],
     "podSelector": {
@@ -579,6 +586,13 @@
             "protocol": "TCP"
           }
         ]
+      },
+      {
+        "ports": [
+          {
+            "protocol": "UDP"
+          }
+        ]
       }
     ],
     "podSelector": {
@@ -763,6 +777,13 @@
             "endPort": 10999,
             "port": 10000,
             "protocol": "TCP"
+          }
+        ]
+      },
+      {
+        "ports": [
+          {
+            "protocol": "UDP"
           }
         ]
       }
@@ -1088,11 +1109,398 @@
             "protocol": "TCP"
           }
         ]
+      },
+      {
+        "ports": [
+          {
+            "protocol": "UDP"
+          }
+        ]
       }
     ],
     "podSelector": {
       "matchLabels": {
         "tailscale.com/parent-resource": "bravo-cutover-control",
+        "tailscale.com/parent-resource-type": "proxygroup"
+      }
+    },
+    "policyTypes": [
+      "Ingress"
+    ]
+  }
+}
+---
+{
+  "apiVersion": "tailscale.com/v1alpha1",
+  "kind": "ProxyGroup",
+  "metadata": {
+    "labels": {
+      "app.kubernetes.io/managed-by": "bravo-iac",
+      "bravo.dev/iac-module": "tailnet-egress"
+    },
+    "name": "bravo-apply-objects"
+  },
+  "spec": {
+    "replicas": 1,
+    "tags": [
+      "tag:bravo-apply-objects"
+    ],
+    "type": "egress"
+  }
+}
+---
+{
+  "apiVersion": "v1",
+  "kind": "Service",
+  "metadata": {
+    "annotations": {
+      "tailscale.com/proxy-group": "bravo-apply-objects",
+      "tailscale.com/tailnet-fqdn": "bravo-target-objects.{{ .Values.tailnet }}"
+    },
+    "labels": {
+      "app.kubernetes.io/managed-by": "bravo-iac",
+      "bravo.dev/iac-module": "tailnet-egress"
+    },
+    "name": "target-objects",
+    "namespace": "platform-state"
+  },
+  "spec": {
+    "externalName": "placeholder",
+    "ports": [
+      {
+        "name": "s3",
+        "port": 8333,
+        "protocol": "TCP"
+      }
+    ],
+    "type": "ExternalName"
+  }
+}
+---
+{
+  "apiVersion": "networking.k8s.io/v1",
+  "kind": "NetworkPolicy",
+  "metadata": {
+    "labels": {
+      "app.kubernetes.io/managed-by": "bravo-iac",
+      "bravo.dev/iac-module": "tailnet-egress"
+    },
+    "name": "bravo-apply-objects-client",
+    "namespace": "platform-state"
+  },
+  "spec": {
+    "egress": [
+      {
+        "ports": [
+          {
+            "port": 53,
+            "protocol": "UDP"
+          },
+          {
+            "port": 53,
+            "protocol": "TCP"
+          }
+        ],
+        "to": [
+          {
+            "namespaceSelector": {
+              "matchLabels": {
+                "kubernetes.io/metadata.name": "kube-system"
+              }
+            }
+          }
+        ]
+      },
+      {
+        "ports": [
+          {
+            "endPort": 10999,
+            "port": 10000,
+            "protocol": "TCP"
+          }
+        ],
+        "to": [
+          {
+            "namespaceSelector": {
+              "matchLabels": {
+                "kubernetes.io/metadata.name": "tailscale-system"
+              }
+            },
+            "podSelector": {
+              "matchLabels": {
+                "tailscale.com/parent-resource": "bravo-apply-objects",
+                "tailscale.com/parent-resource-type": "proxygroup"
+              }
+            }
+          }
+        ]
+      }
+    ],
+    "podSelector": {
+      "matchLabels": {
+        "app.kubernetes.io/name": "t10-workflow-host"
+      }
+    },
+    "policyTypes": [
+      "Egress"
+    ]
+  }
+}
+---
+{
+  "apiVersion": "networking.k8s.io/v1",
+  "kind": "NetworkPolicy",
+  "metadata": {
+    "labels": {
+      "app.kubernetes.io/managed-by": "bravo-iac",
+      "bravo.dev/iac-module": "tailnet-egress"
+    },
+    "name": "bravo-apply-objects-ingress",
+    "namespace": "tailscale-system"
+  },
+  "spec": {
+    "ingress": [
+      {
+        "from": [
+          {
+            "podSelector": {
+              "matchLabels": {
+                "app": "operator"
+              }
+            }
+          }
+        ],
+        "ports": [
+          {
+            "port": 9002,
+            "protocol": "TCP"
+          }
+        ]
+      },
+      {
+        "from": [
+          {
+            "namespaceSelector": {
+              "matchLabels": {
+                "kubernetes.io/metadata.name": "platform-state"
+              }
+            },
+            "podSelector": {
+              "matchLabels": {
+                "app.kubernetes.io/name": "t10-workflow-host"
+              }
+            }
+          }
+        ],
+        "ports": [
+          {
+            "endPort": 10999,
+            "port": 10000,
+            "protocol": "TCP"
+          }
+        ]
+      },
+      {
+        "ports": [
+          {
+            "protocol": "UDP"
+          }
+        ]
+      }
+    ],
+    "podSelector": {
+      "matchLabels": {
+        "tailscale.com/parent-resource": "bravo-apply-objects",
+        "tailscale.com/parent-resource-type": "proxygroup"
+      }
+    },
+    "policyTypes": [
+      "Ingress"
+    ]
+  }
+}
+---
+{
+  "apiVersion": "tailscale.com/v1alpha1",
+  "kind": "ProxyGroup",
+  "metadata": {
+    "labels": {
+      "app.kubernetes.io/managed-by": "bravo-iac",
+      "bravo.dev/iac-module": "tailnet-egress"
+    },
+    "name": "bravo-entry-egress"
+  },
+  "spec": {
+    "replicas": 1,
+    "tags": [
+      "tag:bravo-entry"
+    ],
+    "type": "egress"
+  }
+}
+---
+{
+  "apiVersion": "v1",
+  "kind": "Service",
+  "metadata": {
+    "annotations": {
+      "tailscale.com/proxy-group": "bravo-entry-egress",
+      "tailscale.com/tailnet-fqdn": "bravo-target-argocd.{{ .Values.tailnet }}"
+    },
+    "labels": {
+      "app.kubernetes.io/managed-by": "bravo-iac",
+      "bravo.dev/iac-module": "tailnet-egress"
+    },
+    "name": "bravo-target-argocd",
+    "namespace": "platform-state"
+  },
+  "spec": {
+    "externalName": "placeholder",
+    "ports": [
+      {
+        "name": "http",
+        "port": 80,
+        "protocol": "TCP"
+      }
+    ],
+    "type": "ExternalName"
+  }
+}
+---
+{
+  "apiVersion": "networking.k8s.io/v1",
+  "kind": "NetworkPolicy",
+  "metadata": {
+    "labels": {
+      "app.kubernetes.io/managed-by": "bravo-iac",
+      "bravo.dev/iac-module": "tailnet-egress"
+    },
+    "name": "bravo-entry-egress-client",
+    "namespace": "platform-state"
+  },
+  "spec": {
+    "egress": [
+      {
+        "ports": [
+          {
+            "port": 53,
+            "protocol": "UDP"
+          },
+          {
+            "port": 53,
+            "protocol": "TCP"
+          }
+        ],
+        "to": [
+          {
+            "namespaceSelector": {
+              "matchLabels": {
+                "kubernetes.io/metadata.name": "kube-system"
+              }
+            }
+          }
+        ]
+      },
+      {
+        "ports": [
+          {
+            "endPort": 10999,
+            "port": 10000,
+            "protocol": "TCP"
+          }
+        ],
+        "to": [
+          {
+            "namespaceSelector": {
+              "matchLabels": {
+                "kubernetes.io/metadata.name": "tailscale-system"
+              }
+            },
+            "podSelector": {
+              "matchLabels": {
+                "tailscale.com/parent-resource": "bravo-entry-egress",
+                "tailscale.com/parent-resource-type": "proxygroup"
+              }
+            }
+          }
+        ]
+      }
+    ],
+    "podSelector": {
+      "matchLabels": {
+        "app": "public-entry"
+      }
+    },
+    "policyTypes": [
+      "Egress"
+    ]
+  }
+}
+---
+{
+  "apiVersion": "networking.k8s.io/v1",
+  "kind": "NetworkPolicy",
+  "metadata": {
+    "labels": {
+      "app.kubernetes.io/managed-by": "bravo-iac",
+      "bravo.dev/iac-module": "tailnet-egress"
+    },
+    "name": "bravo-entry-egress-ingress",
+    "namespace": "tailscale-system"
+  },
+  "spec": {
+    "ingress": [
+      {
+        "from": [
+          {
+            "podSelector": {
+              "matchLabels": {
+                "app": "operator"
+              }
+            }
+          }
+        ],
+        "ports": [
+          {
+            "port": 9002,
+            "protocol": "TCP"
+          }
+        ]
+      },
+      {
+        "from": [
+          {
+            "namespaceSelector": {
+              "matchLabels": {
+                "kubernetes.io/metadata.name": "platform-state"
+              }
+            },
+            "podSelector": {
+              "matchLabels": {
+                "app": "public-entry"
+              }
+            }
+          }
+        ],
+        "ports": [
+          {
+            "endPort": 10999,
+            "port": 10000,
+            "protocol": "TCP"
+          }
+        ]
+      },
+      {
+        "ports": [
+          {
+            "protocol": "UDP"
+          }
+        ]
+      }
+    ],
+    "podSelector": {
+      "matchLabels": {
+        "tailscale.com/parent-resource": "bravo-entry-egress",
         "tailscale.com/parent-resource-type": "proxygroup"
       }
     },
@@ -1411,6 +1819,13 @@
             "protocol": "TCP"
           }
         ]
+      },
+      {
+        "ports": [
+          {
+            "protocol": "UDP"
+          }
+        ]
       }
     ],
     "podSelector": {
@@ -1422,5 +1837,36 @@
     "policyTypes": [
       "Ingress"
     ]
+  }
+}
+---
+{
+  "apiVersion": "v1",
+  "kind": "Service",
+  "metadata": {
+    "annotations": {
+      "tailscale.com/expose": "true",
+      "tailscale.com/hostname": "bravo-findings",
+      "tailscale.com/tags": "tag:bravo-findings"
+    },
+    "labels": {
+      "app.kubernetes.io/managed-by": "bravo-iac",
+      "bravo.dev/iac-module": "tailnet-ingress"
+    },
+    "name": "bravo-findings-tailnet",
+    "namespace": "bravo-security"
+  },
+  "spec": {
+    "ports": [
+      {
+        "name": "https",
+        "port": 8443,
+        "protocol": "TCP",
+        "targetPort": 8443
+      }
+    ],
+    "selector": {
+      "app": "bravo-findings"
+    }
   }
 }

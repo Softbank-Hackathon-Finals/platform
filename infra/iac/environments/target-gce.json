@@ -3,6 +3,14 @@
   "environment": "target-gce",
   "modules": [
     {
+      "id": "target-object-exposure",
+      "version": "1",
+      "params": {
+        "state": "closed",
+        "bucket": "demo-chat-attachments"
+      }
+    },
+    {
       "id": "tailnet-operator",
       "version": "1",
       "params": {

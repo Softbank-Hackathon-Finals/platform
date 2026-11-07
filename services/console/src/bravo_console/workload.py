@@ -80,6 +80,11 @@ def validate_projection(doc, plan, now):
     identifier(doc["stream_id"])
     require(doc["provenance"] in ("live", "synthetic", "historical"))
     safe_text(doc["source_label"])
+    return validate_graph(doc, now)
+
+
+def validate_graph(doc, now):
+    """Shared display-only graph checks; no plan, identity or authorization is issued."""
     observed, expiry = stamp(doc["observed_at"]), stamp(doc["expires_at"])
     require(observed <= now and 0 < (expiry - observed).total_seconds() <= 300)
     for key, limit in (

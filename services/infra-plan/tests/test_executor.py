@@ -40,6 +40,21 @@ class FakeCluster:
         self.never_ready = set(never_ready)
         self.diff_calls = 0
         self.annotations, self.images = {}, set()
+        # T44's Application (bravo-iac-target-dev) as its intake reports it, and the public login host.
+        self.iac_status, self.iac_reasons = "SYNC_PAUSED", []
+        self.login_reachable, self.login_admin_open, self.login_issuer = True, False, None
+
+    def argo_intake(self, repo_root, environment, cluster_uid, revision):
+        assert (environment, cluster_uid, revision) == ("target-dev", "cluster-1", REQUEST["params"]["iac_revision"])
+        return {"status": self.iac_status, "reasons": list(self.iac_reasons)}
+
+    def http(self, url):
+        base = REQUEST["params"]["login_public_url"]
+        if not self.login_reachable:
+            return None, None
+        if url == f"{base}/realms/bravo/.well-known/openid-configuration":
+            return 200, json.dumps({"issuer": self.login_issuer or f"{base}/realms/bravo"}).encode()
+        return (200 if self.login_admin_open else 404), b""
 
     def prepare_node(self):
         """What the platform's node preparation leaves behind: the host-paths attestation and the image."""
@@ -83,6 +98,9 @@ class FakeCluster:
         return (kind, name) not in self.never_ready
 
     def application_status(self, name):
+        if name == "bravo-iac-target-dev":  # T44's own Application: present once turned on
+            on = self.iac_status not in ("NOT_INSTALLED", "BOOTSTRAP_ONLY", "BOOTSTRAP_PENDING")
+            return {"revision": None, "sync": "OutOfSync", "health": "Healthy"} if on else None
         revision = self.apps.get(name)
         return revision and {"revision": revision, "sync": "Synced", "health": "Healthy"}
 
@@ -159,7 +177,7 @@ def world(tmp_path):
         ticks = iter(range(0, 10**9, 5))  # each poll advances 5 s: stable waits pass without real time
         kw.setdefault("monotonic", lambda: next(ticks))
         return Executor(planner, stack_revision=REV, cluster=cluster, repo=repo, approvals=approvals,
-                        checks=ClusterChecks(cluster), store=FileRunStore(tmp_path / "runs"),
+                        checks=ClusterChecks(cluster, REPO, http=cluster.http), store=FileRunStore(tmp_path / "runs"),
                         repo_url="file://config", sleep=lambda s: None, **({"ledger": ledger.append} | kw))
 
     def approve(approval_id):
@@ -519,7 +537,7 @@ def test_an_isolated_target_runs_to_verify_with_the_tailscale_line_omitted(world
                          run_id="run-iso", started_by="applier", infra_plan_id=PLAN_ID, requested_by=REQUESTER)
     assert run["status"] == "SUCCEEDED", {k: v for k, v in run["steps"].items() if v["status"] not in ("APPLIED", "SKIPPED")}
     assert {k for k, v in run["steps"].items() if v["status"] == "OMITTED"} == {
-        "tailscale-oauth", "tailscale", "tailscale-sync", "tailscale-joined"}
+        "tailscale-oauth", "tailscale", "tailscale-sync", "tailscale-joined", "iac-application", "iac-application-check"}
     assert run["steps"]["verify"]["status"] == "APPLIED"
     assert not any(name.startswith("tailscale/") for name in world["repo"].read_tree(""))
 
@@ -536,9 +554,9 @@ def test_a_wif_target_runs_without_an_oauth_secret_and_waits_until_the_operator_
                                    base_commit=world["repo"].head()).plan_digest
     approvals.approve("appr-wif", digest)
     run = executor.start(request=request, migration_plan_id="plan-demo", approval_id="appr-wif",
-                         run_id="run-wif", started_by="applier")
+                         run_id="run-wif", started_by="applier", infra_plan_id=PLAN_ID, requested_by=REQUESTER)
     assert run["status"] == "SUCCEEDED", {k: v for k, v in run["steps"].items() if v["status"] not in ("APPLIED", "SKIPPED")}
-    assert {k for k, v in run["steps"].items() if v["status"] == "OMITTED"} == {"tailscale-oauth"}
+    assert {k for k, v in run["steps"].items() if v["status"] == "OMITTED"} == {"tailscale-oauth", "iac-application", "iac-application-check"}
     assert run["steps"]["tailscale-joined"]["status"] == "APPLIED"
 
 
@@ -555,11 +573,41 @@ def test_synced_tailscale_is_not_a_join_until_the_operator_has_a_profile(world):
                                    base_commit=world["repo"].head()).plan_digest
     approvals.approve("appr-wif2", digest)
     run = executor.start(request=request, migration_plan_id="plan-demo", approval_id="appr-wif2",
-                         run_id="run-wif2", started_by="applier")
+                         run_id="run-wif2", started_by="applier", infra_plan_id=PLAN_ID, requested_by=REQUESTER)
     assert run["status"] != "SUCCEEDED"
     assert run["steps"]["tailscale-sync"]["status"] == "APPLIED"
     assert run["steps"]["tailscale-joined"]["status"] not in ("APPLIED", "SKIPPED")
     assert run["steps"]["verify"]["status"] not in ("APPLIED", "SKIPPED")
+
+
+def test_the_join_probe_waits_for_a_login_that_comes_after_the_sync(world):
+    """WIF exchanges its token after the operator Deployment is Healthy: the profile can appear a few
+    polls later. The probe keeps reading within its timeout instead of failing the run at once."""
+    request = json.loads(json.dumps(REQUEST))
+    request["params"].update({"tailnet": "wif", "tailnet_env": "target-gke",
+                              "tailscale_client_id": "kFedTest123", "tailscale_audience": "api.tailscale.com/kFedTest123"})
+
+    class LateLogin(FakeCluster):
+        reads = 0
+
+        def secret_keys(self, namespace, name):
+            if (namespace, name) == ("tailscale-system", "operator"):
+                LateLogin.reads += 1
+                if LateLogin.reads < 3:
+                    return {"_machinekey"}  # started, not logged in yet
+            return super().secret_keys(namespace, name)
+
+    cluster = LateLogin()
+    del cluster.secrets[("tailscale-system", "operator-oauth")]
+    cluster.prepare_node()
+    executor = world["executor"](cluster=cluster)
+    digest = executor.planner.plan(request, stack_revision=REV, target=cluster.identity(NODE),
+                                   base_commit=world["repo"].head()).plan_digest
+    world["approvals"].approve("appr-late", digest)
+    run = executor.start(request=request, migration_plan_id="plan-demo", approval_id="appr-late", run_id="run-late",
+                         started_by="applier", infra_plan_id=PLAN_ID, requested_by=REQUESTER)
+    assert run["steps"]["tailscale-joined"]["status"] == "APPLIED" and LateLogin.reads >= 3
+    assert run["status"] == "SUCCEEDED"
 
 
 def test_a_sync_passes_progressing_only_where_the_stack_says_so(world):
@@ -593,3 +641,94 @@ def test_a_sync_passes_progressing_only_where_the_stack_says_so(world):
     run = executor.start(request=REQUEST, migration_plan_id="plan-demo", approval_id="appr-2",
                          run_id="run-2", started_by="applier", infra_plan_id=PLAN_ID, requested_by=REQUESTER)
     assert run["steps"]["openbao-sync"]["status"] == "APPLIED"  # declared: Healthy or Progressing
+
+
+def test_the_t44_application_is_turned_on_after_the_tailscale_line_and_checked_with_its_judge(world):
+    """T44 #673: the Application comes after the namespaces and Tailscale CRDs; T44's intake confirms it."""
+    world["cluster"].iac_status = "BOOTSTRAP_ONLY"  # Argo CD installed with application.enabled=false
+    world["cluster"].prepare_node()
+    world["approve"]("appr-1")
+    run = start(world, "run-1")
+    assert run["status"] == "WAITING_OPERATOR"
+    assert run["steps"]["tailscale-sync"]["status"] == "APPLIED"
+    assert run["steps"]["iac-application"]["status"] == "WAITING_OPERATOR"
+    assert run["steps"]["iac-application-check"]["status"] == run["steps"]["verify"]["status"] == "PENDING"
+
+    world["cluster"].iac_status = "SYNC_PAUSED"  # helm upgrade --set application.enabled=true, autoSync off
+    run = world["executor"]().resume("run-1")
+    assert run["status"] == "SUCCEEDED"
+    assert run["steps"]["iac-application"]["status"] == "SKIPPED"  # observed on, no confirmation needed
+    assert run["steps"]["iac-application-check"]["status"] == "APPLIED"
+
+
+@pytest.mark.parametrize("status, reasons, reason", [
+    ("BLOCKED", ["APPLICATION_TARGET_MISMATCH"], "argo_application_target_mismatch"),
+    ("BLOCKED", ["PRUNE_NOT_APPROVED"], "argo_prune_not_approved"),
+    ("SYNC_FAILED", ["OPERATION_FAILED"], "argo_operation_failed"),
+])
+def test_an_application_the_t44_judge_refuses_holds_the_run(world, status, reasons, reason):
+    world["cluster"].iac_status, world["cluster"].iac_reasons = status, reasons
+    world["cluster"].prepare_node()
+    world["approve"]("appr-1")
+    run = start(world, "run-1")
+    assert (run["steps"]["iac-application-check"]["status"], run["steps"]["iac-application-check"]["reason"]) == (
+        "HOLD", reason)
+    assert run["steps"]["verify"]["status"] == "PENDING"
+
+
+def test_the_login_host_is_probed_publicly_and_an_open_admin_path_holds(world):
+    cluster = world["cluster"]
+    cluster.prepare_node()
+    cluster.login_reachable = False  # Keycloak is Ready, the Edge route is not there yet
+    world["approve"]("appr-1")
+    run = start(world, "run-1")
+    assert run["steps"]["login-sync"]["status"] == "APPLIED"
+    assert run["steps"]["login-edge"]["status"] == "WAITING_OPERATOR"
+    assert run["steps"]["verify"]["status"] == "PENDING"
+    assert cluster.secret_exists("target-dev", "target-login-admin")
+
+    cluster.login_reachable, cluster.login_admin_open = True, True  # the whole Keycloak exposed on the Edge
+    run = world["executor"]().resume("run-1")
+    assert (run["steps"]["login-edge"]["status"], run["steps"]["login-edge"]["reason"]) == (
+        "HOLD", "login_admin_path_open")
+
+    cluster.login_admin_open = False
+    run = world["executor"]().resume("run-1")
+    assert run["status"] == "SUCCEEDED" and run["steps"]["verify"]["status"] == "APPLIED"
+
+
+def test_a_login_host_with_another_issuer_holds_and_verify_reprobes_it(world):
+    cluster = world["cluster"]
+    checks = ClusterChecks(cluster, REPO, http=cluster.http)
+    plan = world["executor"]().planner.plan(REQUEST, stack_revision=REV, target=cluster.identity(NODE),
+                                            base_commit=world["repo"].head())
+    run = {"plan": plan.document, "stack": load_stack(STACK).document}
+    assert checks.check("login-public", run) is True and checks.check("target-checks", run) is True
+    cluster.login_issuer = "https://elsewhere.example.test/realms/bravo"
+    with pytest.raises(StepOutcome, match="login_issuer_mismatch"):
+        checks.check("target-checks", run)  # the last probe sees the public address again
+
+
+def test_the_public_probe_does_not_follow_redirects_and_reports_unreachable_as_none():
+    import http.server
+
+    from bravo_infra_plan.adapters import public_get
+
+    class Redirect(http.server.BaseHTTPRequestHandler):
+        def do_GET(self):  # noqa: N802
+            self.send_response(302)
+            self.send_header("Location", "http://127.0.0.1:1/elsewhere")
+            self.end_headers()
+
+        def log_message(self, *args):
+            pass
+
+    server = http.server.HTTPServer(("127.0.0.1", 0), Redirect)
+    thread = threading.Thread(target=server.handle_request, daemon=True)
+    thread.start()
+    try:
+        assert public_get(f"http://127.0.0.1:{server.server_port}/admin/")[0] == 302
+    finally:
+        thread.join(5)
+        server.server_close()
+    assert public_get("http://127.0.0.1:1/", timeout=2) == (None, None)

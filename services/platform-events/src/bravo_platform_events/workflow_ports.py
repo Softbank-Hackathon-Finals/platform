@@ -14,7 +14,8 @@ One protected JSON (`/workflow/ports.json`, a ConfigMap) names mounted files onl
                  "auto": {"state_dir": "/workflow-state/initial-operator", "relay_config": "/workflow/relay.json",
                           "catalog_root": "/catalog",
                           "gitops_image": "/workflow/product-reader-image.json", "plans": ["<plan id>"]}},
-     "watch": {"profile_file": "/workflow/sli-profile.json", "retest": "module:factory"},
+     "watch": {"profile_file": "/workflow/sli-profile.json", "retest": "module:factory",
+               "target_controls": "/workflow/target-controls.json"},
      "application": "module:factory"}
 
 `executor` and `propose` are required for the happy path (PROPOSE, AWAIT_APPROVAL, CUTOVER).
@@ -34,7 +35,7 @@ from pathlib import Path
 
 HEX40 = re.compile(r"[a-f0-9]{40}")
 FACTORY = re.compile(r"[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*:[A-Za-z_]\w*")
-FIELDS = {"version", "executor", "propose", "watch", "application", "delegation"}
+FIELDS = {"version", "executor", "propose", "watch", "application", "delegation", "deferred", "load"}
 REQUIRED = {"version", "executor", "propose"}
 
 
@@ -42,6 +43,19 @@ def _path(value, *, directory=False):
     path = Path(value)
     if not path.is_absolute() or not (path.is_dir() if directory else path.is_file()):
         raise ValueError(f"workflow_mount_required:{value}")
+    return path
+
+
+def _state_dir(value):
+    """An absolute directory on the host's state volume; created on first start (it did not exist yet on the
+    first live rollout, 11/8, and the host would not start)."""
+    path = Path(value)
+    if not path.is_absolute() or not path.parent.is_dir():
+        raise ValueError(f"workflow_mount_required:{value}")
+    if path.is_dir() and not path.is_symlink():
+        # The kubelet's fsGroup pass adds group bits to the volume on every mount, so the 0700 directory the
+        # ledger requires is 0770 again after a restart (live 11/8: the host stopped at the second start).
+        path.chmod(0o700)
     return path
 
 
@@ -119,7 +133,8 @@ def _propose(store, config):
         if revision != config["runtime_source_sha"]:
             raise ValueError("workflow_propose_auto_runtime_mismatch")  # the Job must run the claimed runtime
         auto = AutoInitialProposal(reader.records, relay_config=json.loads(_path(spec["relay_config"]).read_text()),
-                                   state_dir=_path(spec["state_dir"], directory=True), image=image,
+                                   # The Job ledger makes its own private (0700) directory on first use.
+                                   state_dir=_state_dir(spec["state_dir"]), image=image,
                                    source_revision=revision, principal=config["principal"],
                                    catalog_root=_path(spec["catalog_root"], directory=True),
                                    plans=spec.get("plans"))  # absent: every plan on this host
@@ -136,7 +151,10 @@ def create_ports(store, config_file="/workflow/ports.json"):
         raise ValueError("workflow_ports_configuration_invalid")
     client, bindings = _executor(config["executor"])
     cutover = CutoverService(store, client, bindings=bindings)
-    readers = {"AWAIT_APPROVAL": shift_approval_reader, "CUTOVER": integrity_reader}
+    from .plan_run_state import analysis_reader
+
+    # ANALYZE reads the S1 records (T16 collection, first T19 report); nothing to configure.
+    readers = {"ANALYZE": analysis_reader, "AWAIT_APPROVAL": shift_approval_reader, "CUTOVER": integrity_reader}
     preparers = {"PROPOSE": _propose(store, config["propose"])}
     delegations = None
     if config.get("delegation") is True:
@@ -152,7 +170,7 @@ def create_ports(store, config_file="/workflow/ports.json"):
         preparers["AWAIT_APPROVAL"] = delegated_shift_preparer(shift, delegations)
     if "watch" in config:
         watch = config["watch"]
-        if set(watch) != {"profile_file", "retest"}:
+        if set(watch) - {"target_controls"} != {"profile_file", "retest"}:
             raise ValueError("workflow_watch_configuration_invalid")
         profile = json.loads(_path(watch["profile_file"]).read_text())
         observe = sli_observer(profile)
@@ -161,6 +179,14 @@ def create_ports(store, config_file="/workflow/ports.json"):
             from .workflow_stages import watch_fail_preparer
 
             preparers["WATCH"] = watch_fail_preparer(store, observe, readers.pop("WATCH"))
+        if "target_controls" in watch:
+            # ADR-0041: the platform records the post-cutover target T14 run the retest compares.
+            from .target_controls import create as target_controls
+            from .target_controls import watch_preparer
+
+            reader = readers.pop("WATCH", None)
+            inner = preparers.pop("WATCH", None) or (lambda *_: reader)
+            preparers["WATCH"] = watch_preparer(target_controls(store, _path(watch["target_controls"])), inner)
     if "application" in config:
         # Owner-provided (T31/T19): returns {"REHEARSE": preparer, "GATE": preparer} built with
         # workflow_stages.application_stages(..., host_subject="workflow-host") over this process's
@@ -170,4 +196,23 @@ def create_ports(store, config_file="/workflow/ports.json"):
         if not isinstance(stages, dict) or set(stages) - {"REHEARSE", "GATE"}:
             raise ValueError("workflow_application_ports_invalid")
         preparers |= stages
-    return {"cutover": cutover, "readers": readers, "preparers": preparers}
+    deferred = config.get("deferred", [])  # host states this deployment declares it does not drive yet
+    if type(deferred) is not list:
+        raise ValueError("workflow_deferred_invalid")
+    background = []
+    if "load" in config:
+        # T49: platform load for SHIFT..WATCH (platform_load), only where approvals are delegated.
+        spec = config["load"]
+        keys = {"image_file", "base_url", "source_env", "target_env"}
+        if delegations is None or not keys <= set(spec) <= keys | {"write_rps", "read_rps", "duration"}:
+            raise ValueError("workflow_load_configuration_invalid")
+        from . import initial_proposal_job as job
+        from .initial_proposal_auto import InClusterKubectl
+        from .platform_load import PlatformLoad
+
+        image, _ = job.gitops_image(_path(spec["image_file"]))
+        background.append(PlatformLoad(store, InClusterKubectl(), delegations, image=image, base_url=spec["base_url"],
+                                       source_env=spec["source_env"], target_env=spec["target_env"],
+                                       **{k: spec[k] for k in ("write_rps", "read_rps", "duration") if k in spec}).sweep)
+    return {"cutover": cutover, "readers": readers, "preparers": preparers, "deferred": deferred,
+            "background": background}

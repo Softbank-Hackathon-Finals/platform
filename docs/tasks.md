@@ -332,8 +332,8 @@ Claude Code는 `/todo-task`, Codex는 `$todo-task`로 이 순서를 따르는 �
 **목표** 컷오버 중에도 채팅이 이어지는 것을 눈으로 보인다.
 
 **할 일**
-- [ ] 수~금에 구현 (11/1 회의)
-- [ ] 오픈소스 활용 가능
+- [x] 수~금에 구현 (11/1 회의)
+- [x] 오픈소스 활용 가능
 - [x] v0의 8.10 조건(멱등 키 · DB 조회 전파 · 쓰기 차단 스위치)을 그대로 유지
 
 **완료 기준** 컷오버 중 휴대폰 채팅이 끊김 없이 이어지고 환경 표시가 AWS → 온프렘으로 바뀐다.
@@ -388,7 +388,7 @@ Claude Code는 `/todo-task`, Codex는 `$todo-task`로 이 순서를 따르는 �
 **할 일**
 - [x] 정규화 형식 스키마와 출처별 심각도 · 상태 · 범주 매핑 표 고정
 - [x] 정규화기: 출처별 원본 샘플로 단위 테스트 (LLM 미사용)
-- [ ] AWS 수집기: Security Hub (미활성 시 GuardDuty 직접)
+- [x] AWS 수집기: Security Hub (미활성 시 GuardDuty 직접)
 - [ ] 온프렘 수집기: Kyverno PolicyReport · Falco 웹훅 (바깥 방향 연결만)
 - [ ] Google Cloud 수집기: Security Command Center
 - [x] 수집 실패 · 지연을 "0건"이 아니라 "확인 불가" · "오래됨"으로 표시
@@ -511,9 +511,9 @@ Claude Code는 `/todo-task`, Codex는 `$todo-task`로 이 순서를 따르는 �
 **목표** 같은 시험을 원본과 대상에 돌려 통제 ID별로 나란히 보인다.
 
 **할 일**
-- [ ] kube-bench · Prowler · gitleaks 결과를 통제 ID에 매핑
+- [x] kube-bench · Prowler · gitleaks 결과를 통제 ID에 매핑
 - [x] UNKNOWN은 차단으로 처리
-- [ ] 시험 방법은 환경 어댑터별로 구현, 통제 ID와 판정 기준은 공통
+- [x] 시험 방법은 환경 어댑터별로 구현, 통제 ID와 판정 기준은 공통
 
 **완료 기준** 6개 통제가 양쪽 환경에서 통제 ID별 결과를 낸다.
 
@@ -530,7 +530,7 @@ Claude Code는 `/todo-task`, Codex는 `$todo-task`로 이 순서를 따르는 �
 
 **할 일**
 - [x] 출발지: CNPG `log_connections` · pgaudit, EKS 컨트롤 플레인 `audit` 로그 활성화 (T6 담당과 협의)
-- [ ] 목적지: CNPG `log_connections` · pgaudit, RKE2 감사 정책과 감사 로그
+- [x] 목적지: CNPG `log_connections` · pgaudit, RKE2 감사 정책과 감사 로그
 - [ ] 목적지 로그 수집 경로 (온프렘은 바깥 방향 연결만)
 - [ ] T14용 읽기 전용 검색 권한
 - [ ] 카나리 이벤트 3종이 양쪽에서 10분 안에 검색되는지 실측
@@ -549,7 +549,7 @@ Claude Code는 `/todo-task`, Codex는 `$todo-task`로 이 순서를 따르는 �
 **목표** 양쪽 환경 모두 백업을 새 환경으로 실제 복원할 수 있음을 같은 방법으로 보인다.
 
 **할 일**
-- [ ] 출발지 CNPG 백업 (S3)
+- [x] 출발지 CNPG 백업 (S3)
 - [ ] 목적지 CNPG 백업 (SeaweedFS)
 - [ ] 빈 시험 클러스터로 복원, 표식 행 id 기준 행 수 비교
 - [ ] 앱 · 실행 역할로는 백업을 지울 수 없게 제한
@@ -568,13 +568,13 @@ Claude Code는 `/todo-task`, Codex는 `$todo-task`로 이 순서를 따르는 �
 **목표** 모든 환경의 서버 지표를 같은 기준으로 한 곳에서 보고, 볼 수 없는 환경은 "확인 불가"로 드러낸다.
 
 **할 일**
-- [ ] 플랫폼 지표 저장소: OTLP 수신, 보존 기간, Collector 태그만 수신 (Tailscale ACL)
-- [ ] 출발지 · 목적지 Collector: 앱 · PgBouncer · CNPG 지표, 환경 속성 강제
+- [x] 플랫폼 지표 저장소: OTLP 수신, 보존 기간, Collector 태그만 수신 (Tailscale ACL)
+- [x] 출발지 · 목적지 Collector: 앱 · PgBouncer · CNPG 지표, 환경 속성 강제
 - [x] 민감 속성 제거(허용 목록), SEC-01.3 카나리가 지표 저장소에서 0건인지 확인
 - [x] 수집이 끊긴 환경을 "확인 불가"로: 환경별 최근 수신 시각
 - [x] 콘솔용 조회 API: 환경별 요청 · 오류 · p95, PgBouncer 상태, 수집 시각
 - [x] 목적지 Collector를 T34 로그 파이프라인과 하나로 둘지 결정
-- [ ] 앱 → Collector mTLS의 앱 CA를 OpenBao PKI에 두고 ESO로 Secret 공급(T44 원하는 상태와 같은 방식): 발급·교체·권한을 한 곳에서, 사람의 CA 키 보관과 `kubectl create secret` 제거
+- [x] 앱 → Collector mTLS의 앱 CA를 OpenBao PKI에 두고 ESO로 Secret 공급(T44 원하는 상태와 같은 방식): 발급·교체·권한을 한 곳에서, 사람의 CA 키 보관과 `kubectl create secret` 제거
 
 **완료 기준** 출발지 · 목적지 앱 지표가 플랫폼에서 환경별로 조회되고, 한 환경의 Collector를 멈추면 그 환경이 "확인 불가"로 바뀐다. 다른 환경 이름을 붙여 보낸 지표는 그 환경으로 기록되지 않는다.
 
@@ -697,10 +697,15 @@ Claude Code는 `/todo-task`, Codex는 `$todo-task`로 이 순서를 따르는 �
 **목표** 10장 데모 흐름을 한 화면에서 조작하고 설명한다.
 
 **할 일**
-- [ ] SSE로 진행 실시간 반영
+- [x] SSE 진행 표시·재접속·중복 제거·권한 회수를 T10 API와 로컬 브라우저에서 검증
 - [x] 승인 버튼은 결속 값과 함께 표시
+- [ ] 실제 운영 계획·본인 조회 권한으로 SSE 진행 표시와 연결 복구를 인수
+- [ ] 10장 실제 통합 데모 흐름 전체를 콘솔 한 화면에서 조작·설명하고 인수
+- [ ] 인벤토리 표시를 T16 계약 v1에 맞춤: 후보 기능의 출처(등록값 · 관측값 · 감지 불가) 표시, `found_in = deploy` 항목 강조(#928)
 
 **완료 기준** 10장 데모 흐름 전체를 콘솔 한 화면에서 조작할 수 있다.
+
+SSE 구현 검증과 운영 인수는 [콘솔 SSE 인수 기준](../services/console/docs/sse-acceptance.md)에 따라 구분한다. 로컬 시험 통과로 운영 인수나 T21 전체를 완료 처리하지 않는다.
 
 ### [T24] 감사 로그 (S3 Object Lock)
 
@@ -823,9 +828,9 @@ Claude Code는 `/todo-task`, Codex는 `$todo-task`로 이 순서를 따르는 �
 **목표** AWS 없이 목적지에서 같은 결과로 처리되고, 컷오버 · 되돌리기 중 이벤트가 유실 · 중복되지 않는다.
 
 **할 일**
-- [ ] 큐 서버 고르기: ElasticMQ와 Postgres 기반 직접 구현을 같은 시험(보내기 · 받기 · 재시도 · 실패 보관 · 재시작 후 유지 · 허용 안 된 접근 차단 · 암호화)으로 비교하고, 고른 이유를 ADR로 남긴다
-- [ ] 실행기 만들기(`services/function-runtime`): 큐에서 메시지를 꺼내 기존 Lambda 핸들러를 AWS와 같은 형식으로 부른다. 실패하면 재시도, 계속 실패하면 실패 보관 큐로 옮긴다. 큐 연결 · 호출 관리 · 메시지 형식을 나눠 만든다. 지원하지 않는 설정(FIFO 등)은 시작할 때 거부한다
-- [ ] 내 PC에서 증명: Compose로 큐 서버 · DB · 실행기를 띄우고, 고치지 않은 앱 코드와 핸들러로 결과가 저장되는지 확인. 같은 메시지가 두 번 와도 결과는 1건
+- [x] 큐 서버 고르기: ElasticMQ와 Postgres 기반 직접 구현을 같은 시험(보내기 · 받기 · 재시도 · 실패 보관 · 재시작 후 유지 · 허용 안 된 접근 차단 · 암호화)으로 비교하고, 고른 이유를 ADR로 남긴다
+- [x] 실행기 만들기(`services/function-runtime`): 큐에서 메시지를 꺼내 기존 Lambda 핸들러를 AWS와 같은 형식으로 부른다. 실패하면 재시도, 계속 실패하면 실패 보관 큐로 옮긴다. 큐 연결 · 호출 관리 · 메시지 형식을 나눠 만든다. 지원하지 않는 설정(FIFO 등)은 시작할 때 거부한다
+- [x] 내 PC에서 증명: Compose로 큐 서버 · DB · 실행기를 띄우고, 고치지 않은 앱 코드와 핸들러로 결과가 저장되는지 확인. 같은 메시지가 두 번 와도 결과는 1건
 - [ ] M2 시작 전 합의: 그때 코드를 다시 보고 출발지 SQS · Lambda(T6), 데모 앱 개인정보 검사 기능(T22), 목적지 배포 · DB 스키마 · 개발 환경(T30 · T8)을 각 담당과 정한다
 - [ ] 핸들러 이미지: 핸들러를 담은 이미지를 GHCR에 올리고, 출발지 Lambda와 같은 코드인지 기록한다
 - [ ] 목적지에서 돌리기(개발 환경): AWS를 막은 상태에서 메시지가 처리되고, 목적지 큐가 원본 SQS처럼 허용 안 된 접근을 막는지 확인
@@ -836,7 +841,7 @@ Claude Code는 `/todo-task`, Codex는 `$todo-task`로 이 순서를 따르는 �
 - [ ] 모의 환경 시험: 컷오버 · 되돌리기 · 취소 · 멈춤(SAFE_HOLD) 상황에서 메시지가 빠지거나 두 번 처리되지 않는지 확인. 기존 시험도 전부 통과
 - [ ] 병합 순서: 실행기 · ADR은 만들 때마다 병합. 컷오버 · 되돌리기 · 리허설 변경은 해피패스 검증이 끝난 뒤 병합
 - [ ] 켜기: 데모 앱 기능 · 출발지 SQS · 의존성 판정 변경을 한 번에 켠다. 쓰기 정지 5초 이하, 메시지 유실 · 중복 0, 화면이 의도대로일 때만 켜고, 아니면 별도 장면으로 보여준다
-- [ ] ADR: 호환 런타임을 고른 이유, 컷오버의 큐 단계와 Executor에 줄 AWS 권한
+- [x] ADR: 호환 런타임을 고른 이유, 컷오버의 큐 단계와 Executor에 줄 AWS 권한
 - [ ] 설계 문서 버전 올리기: 7.3 대응표, 8.6 컷오버 순서, 8.10 데모 앱 조건
 
 **완료 기준** AWS 접근을 막은 목적지에서 수정하지 않은 송신 코드와 핸들러로 메시지가 처리되고, 목적지 큐가 원본 SQS와 같은 접근 거부 · 전송 암호화 시험을 통과하며, 리허설 검증 Job이 동등성을 PASS로 채점한다. 부하 상태의 컷오버 · 되돌리기에서 이벤트 결과의 유실 · 중복이 0건이고, 결과 테이블이 무결성 영수증에 포함된다. 큐 상태를 확인할 수 없으면 쓰기 전 실패로 끝나고, 큐 의존성이 없는 계획의 컷오버는 이전과 같다.
@@ -853,15 +858,15 @@ Claude Code는 `/todo-task`, Codex는 `$todo-task`로 이 순서를 따르는 �
 **목표** 같은 앱 이미지가 `AUTH_ISSUER`만 바꿔 Cognito에서 Keycloak으로 옮겨지고, 이사 중 로그인한 사용자의 쓰기가 끊기지 않는다.
 
 **할 일**
-- [ ] demo-chat 표준 OIDC 로그인(demo-app #28): 기본 꺼짐, 쓰기에만 ID 토큰, 작성자는 토큰 이름, 쓰기 차단 503 우선, `AUTH_ALSO_TRUST` 이중 신뢰
+- [x] demo-chat 표준 OIDC 로그인(demo-app #28): 기본 꺼짐, 쓰기에만 ID 토큰, 작성자는 토큰 이름, 쓰기 차단 503 우선, `AUTH_ALSO_TRUST` 이중 신뢰
 - [ ] 출발지 Cognito 사용자 풀 `infra/envs/source-identity`: 공개 클라이언트, 비밀번호 흐름 · 스스로 가입 · 이름 속성 쓰기 없음. 실제 계정 적용 뒤 호스팅 로그인 · 첫 비밀번호 변경 확인
 - [ ] 목적지 Keycloak `identity.py`와 사용자 이동 `identity_users.py`(Cognito는 비밀번호를 내보내지 않아 첫 로그인에 새로 정함), 목적지 적용
 - [ ] Edge(T17): 로그인 공개 주소를 목적지 Keycloak으로 보내는 경로
 - [ ] 동등성 시험(출발지 · 목적지 모두): 스스로 가입이 막힘, 정확한 redirect만 받음, 토큰 없는 쓰기는 401
-- [ ] Exit Drill(T27): 목적지 앱이 AWS 발급자를 믿으면 출구 증거가 아님(`AWS_IDENTITY_TRUSTED`)
+- [x] Exit Drill(T27): 목적지 앱이 AWS 발급자를 믿으면 출구 증거가 아님(`AWS_IDENTITY_TRUSTED`)
 - [ ] 인벤토리(T16): 앱의 `AUTH_ISSUER` cognito-idp 주소와 출발지 사용자 풀을 의존성으로 탐지(담당과 범위 합의)
 - [ ] 부하 생성기(T18)용 클라이언트는 브라우저 클라이언트를 넓히지 않고 따로 둠
-- [ ] 설계 문서 버전 올림: 7.3 대응표에 인증(Cognito → Keycloak, 설정 교체) 행
+- [x] 설계 문서 버전 올림: 7.3 대응표에 인증(Cognito → Keycloak, 설정 교체) 행
 
 **완료 기준** 목적지에서 `AUTH_ISSUER`만 바꾼 같은 이미지로 로그인과 쓰기가 되고, `AUTH_ALSO_TRUST`를 지운 뒤 Exit Drill이 인증을 AWS 의존성으로 남기지 않는다. 옮긴 사용자는 첫 로그인에서 새 비밀번호를 정하고, 목적지에서도 스스로 가입이 막혀 있다.
 
@@ -959,7 +964,7 @@ Claude Code는 `/todo-task`, Codex는 `$todo-task`로 이 순서를 따르는 �
 - [ ] 기존 경로 렌더러를 이 모듈로 이전(같은 자원의 주인 하나): 리허설·반영·Collector → 목적지 API(T15), 컷오버 경로(T12), Collector → 지표 저장소(T37)
 - [ ] 플랫폼 클러스터는 기존 T43 Argo에 `charts/platform` Application 연결
 - [ ] tailnet 정책도 같은 원하는 상태에서 적용: Argo 설치 전 조건으로 실제 정책에 대한 `tailnet-check` PASS, 이후 PR 검증·병합 적용(Tailscale GitOps)
-- [ ] 운영자 → 플랫폼·목적지 API를 tailnet API proxy 경로로 선언하고 grant로 권한 부여(SSM 포트포워딩·QEMU hostfwd·kubectl port-forward 대체)
+- [x] 운영자 → 플랫폼·목적지 API를 tailnet API proxy 경로로 선언하고 grant로 권한 부여(SSM 포트포워딩·QEMU hostfwd·kubectl port-forward 대체)
 
 **완료 기준** 데모 1번(열린 버킷)이 에이전트의 `infra.plan` → PR 병합 → 적용(비밀 값 주입은 T45) → GATE IAM-01.1 PASS로 이어지고, 같은 입력의 plan digest가 같으며, 에이전트의 노출 확대 계획은 거부된다. 적용 전 plan이나 CI 통과만으로 완료 처리하지 않는다.
 
@@ -997,12 +1002,12 @@ Claude Code는 `/todo-task`, Codex는 `$todo-task`로 이 순서를 따르는 �
 **목표** 새 고객 클러스터가 Git의 원하는 상태와 승인만으로 tailnet에 합류해 플랫폼의 제어를 받고, 운영자 · 고객이 tailnet 신원으로 바로 붙으며, 분리 PR 하나로 연결이 닫힌다. 어느 단계에서도 사람이 비밀 값을 붙여 넣지 않는다.
 
 **할 일**
-- [ ] ADR-0035: WIF, 정책은 `tailnet-policy` 한 곳 · 연합 신원은 Terraform, 공개 발급자, 연결 수명(합류 · 제어 · 고객 접근 · 분리)
-- [ ] `tailnet-policy` prune: 마지막으로 성공한 develop run의 조각에서 빠진 항목을, 실제 정책 값이 정확히 같을 때만 지움(#680). 사람이 바꾼 항목은 남기고 `kept`로 보고
-- [ ] `infra/envs/tailnet` Terraform: 환경별 `tailscale_federated_identity`(operator ServiceAccount 주체, `tag:bravo-<env>-operator`, 필요한 범위만). 정책은 쓰지 않음
+- [x] ADR-0035: WIF, 정책은 `tailnet-policy` 한 곳 · 연합 신원은 Terraform, 공개 발급자, 연결 수명(합류 · 제어 · 고객 접근 · 분리)
+- [x] `tailnet-policy` prune: 마지막으로 성공한 develop run의 조각에서 빠진 항목을, 실제 정책 값이 정확히 같을 때만 지움(#680). 사람이 바꾼 항목은 남기고 `kept`로 보고
+- [x] `infra/envs/tailnet` Terraform: 환경별 `tailscale_federated_identity`(operator ServiceAccount 주체, `tag:bravo-<env>-operator`, 필요한 범위만). 정책은 쓰지 않음
 - [ ] CI(연합 신원 스택): PR은 읽기 신원으로 plan, 적용은 보호된 GitHub Environment 승인 뒤 `federated_keys` 신원. 저장된 Tailscale secret 없음
-- [ ] `tailnet-policy` 첫 적용: 관리자 설정(신원 2 · 변수 3 · 환경 develop 제한과 승인자) → 계획 → 적용 → 다시 읽어 대조
-- [ ] 온프렘 공개 발급자: cloud-init의 ServiceAccount 발급자 렌더(T2 · T30)와 discovery 문서 · 공개키 게시(플랫폼 관리 정적 호스팅)
+- [x] `tailnet-policy` 첫 적용: 관리자 설정(신원 2 · 변수 3 · 환경 develop 제한과 승인자) → 계획 → 적용 → 다시 읽어 대조
+- [x] 온프렘 공개 발급자: cloud-init의 ServiceAccount 발급자 렌더(T2 · T30)와 discovery 문서 · 공개키 게시(플랫폼 관리 정적 호스팅)
 - [ ] T45 연결: `tailscale-oauth`를 연합 신원 확인 단계로, operator 값을 WIF로, Tailscale 단계와 `object-secrets` 원하는 상태를 환경 기준으로(지금 `target` · `target-dev.json` 고정)
 - [ ] 고객 접근: IdP 그룹 → 환경 namespace 역할, 다른 환경 grant 없음 시험
 - [ ] 분리: 환경 tailnet 항목 삭제 PR → 승인 적용 → 장치 삭제 → operator 인증 실패 · 플랫폼 도달 실패 확인과 분리 영수증

@@ -27,7 +27,7 @@
       },
       "rbac": {
         "policy.default": "role:platform-viewer",
-        "policy.csv": "p, role:platform-viewer, applications, get, */*, allow\np, role:platform-viewer, projects, get, *, allow\n"
+        "policy.csv": "p, role:platform-viewer, applications, get, */*, allow\np, role:platform-viewer, projects, get, *, allow\np, role:platform-viewer, applications, get, platform-registration/*, deny\np, role:platform-viewer, applications, get, platform-rehearsal-host/*, deny\np, role:platform-viewer, applications, get, platform-security-findings/*, deny\n"
       },
       "clusterCredentials": {
         "platform": {

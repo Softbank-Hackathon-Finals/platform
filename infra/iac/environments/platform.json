@@ -174,6 +174,50 @@
             ]
           },
           {
+            "name": "bravo-apply-objects",
+            "tag": "tag:bravo-apply-objects",
+            "clients": [
+              {
+                "namespace": "platform-state",
+                "labels": {
+                  "app.kubernetes.io/name": "t10-workflow-host"
+                }
+              }
+            ],
+            "routes": [
+              {
+                "service": "target-objects",
+                "namespace": "platform-state",
+                "destination": "bravo-target-objects",
+                "destination_tag": "tag:bravo-target-objects",
+                "port": 8333,
+                "port_name": "s3"
+              }
+            ]
+          },
+          {
+            "name": "bravo-entry-egress",
+            "tag": "tag:bravo-entry",
+            "clients": [
+              {
+                "namespace": "platform-state",
+                "labels": {
+                  "app": "public-entry"
+                }
+              }
+            ],
+            "routes": [
+              {
+                "service": "bravo-target-argocd",
+                "namespace": "platform-state",
+                "destination": "bravo-target-argocd",
+                "destination_tag": "tag:bravo-target-argocd",
+                "port": 80,
+                "port_name": "http"
+              }
+            ]
+          },
+          {
             "name": "bravo-cutover-control-gce",
             "tag": "tag:bravo-cutover-control-gce",
             "clients": [
@@ -232,6 +276,31 @@
                 "destination_tag": "tag:bravo-target-gce-operator",
                 "port": 443,
                 "port_name": "https"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "tailnet-ingress",
+      "version": "1",
+      "params": {
+        "owner_tag": "tag:bravo-platform-operator",
+        "devices": [
+          {
+            "service": "bravo-findings-tailnet",
+            "namespace": "bravo-security",
+            "hostname": "bravo-findings",
+            "tag": "tag:bravo-findings",
+            "selector": {
+              "app": "bravo-findings"
+            },
+            "ports": [
+              {
+                "name": "https",
+                "port": 8443,
+                "target_port": 8443
               }
             ]
           }

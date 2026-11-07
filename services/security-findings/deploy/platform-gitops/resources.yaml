@@ -1,0 +1,369 @@
+# T33 보안 탐지 수집 · 조회 API(플랫폼). namespace · 정적 PV · 기본 거부 정책은 클러스터를 세우는 쪽이 만든다
+# (infra/envs/platform-security). Secret(bravo-findings-tls, bravo-findings-auth, platform-ghcr-reader)은 Git에 두지 않고
+# 배포 전에 있어야 한다. 조회 클라이언트(콘솔 · SOVA MCP)의 namespace에 bravo.security/findings-client=true 라벨을 붙인다.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: bravo-findings
+  namespace: bravo-security
+  labels: {app: bravo-findings, component: platform}
+automountServiceAccountToken: false
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: bravo-findings-data
+  namespace: bravo-security
+  labels: {app: bravo-findings, component: platform}
+spec:
+  storageClassName: platform-local
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests: {storage: 1Gi}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: bravo-findings
+  namespace: bravo-security
+  labels: {app: bravo-findings, component: platform}
+spec:
+  replicas: 1
+  # API 인스턴스는 하나: 내렸다 올린다. 같은 SQLite에 GuardDuty 수집 Job도 쓴다(BEGIN IMMEDIATE · busy_timeout 5초로 직렬화)
+  strategy: {type: Recreate}
+  selector:
+    matchLabels: {app: bravo-findings}
+  template:
+    metadata:
+      labels: {app: bravo-findings, component: platform}
+    spec:
+      serviceAccountName: bravo-findings
+      automountServiceAccountToken: false
+      imagePullSecrets: [{name: platform-ghcr-reader}]
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        # local PV는 다른 Pod가 마운트하지 않으면 마운트마다 소유권을 다시 맞춰 findings.db를 0660으로 만든다.
+        # 노드 폴더를 10001:10001 2770으로 만들어 두면 이 정책으로 건너뛴다(Store는 0600만 연다)
+        fsGroupChangePolicy: OnRootMismatch
+        seccompProfile: {type: RuntimeDefault}
+      # 자격 레지스트리는 Secret 링크가 아니라 서비스 UID 소유 0400 일반 파일이어야 한다(detection-hardening 2절)
+      initContainers:
+        - name: auth-registry
+          image: bravo-findings
+          command: [python, -c]
+          args:
+            - |
+              import os
+              # sandbox만 다시 만들어져도 Memory emptyDir에 지난 파일이 남는다: 임시 이름으로 쓰고 바꾼다
+              data = open("/run/secret/registry.json", "rb").read()
+              tmp = "/run/bravo-findings-auth/.registry.json.tmp"
+              try:
+                  os.unlink(tmp)
+              except FileNotFoundError:
+                  pass
+              fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o400)
+              os.write(fd, data); os.close(fd)
+              os.replace(tmp, "/run/bravo-findings-auth/registry.json")
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: [ALL]}
+          resources:
+            requests: {cpu: 10m, memory: 32Mi}
+            limits: {memory: 64Mi}
+          volumeMounts:
+            - {name: auth-secret, mountPath: /run/secret, readOnly: true}
+            - {name: auth, mountPath: /run/bravo-findings-auth}
+      containers:
+        - name: api
+          image: bravo-findings
+          env:
+            - {name: BRAVO_FINDINGS_DB, value: /data/findings.db}
+            - {name: BRAVO_FINDINGS_AUTH_FILE, value: /run/bravo-findings-auth/registry.json}
+            - name: BRAVO_FINDINGS_SOURCES
+              value: '[{"source":"aws_guardduty","environment_id":"env-aws"},{"source":"falco","environment_id":"env-onprem"},{"source":"kyverno","environment_id":"env-onprem"},{"source":"gcp_scc","environment_id":"env-gcp"}]'
+          ports:
+            - {name: https, containerPort: 8443}
+          readinessProbe:
+            tcpSocket: {port: https}
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket: {port: https}
+            periodSeconds: 20
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: [ALL]}
+          resources:
+            requests: {cpu: 50m, memory: 128Mi}
+            limits: {memory: 256Mi}
+          volumeMounts:
+            - {name: data, mountPath: /data}
+            - {name: tls, mountPath: /etc/bravo-findings-tls, readOnly: true}
+            - {name: auth, mountPath: /run/bravo-findings-auth, readOnly: true}
+            - {name: tmp, mountPath: /tmp}
+      volumes:
+        - name: data
+          persistentVolumeClaim: {claimName: bravo-findings-data}
+        - name: tls
+          secret: {secretName: bravo-findings-tls, defaultMode: 0440}
+        - name: auth-secret
+          secret: {secretName: bravo-findings-auth, defaultMode: 0440, items: [{key: registry.json, path: registry.json}]}
+        - name: auth
+          emptyDir: {medium: Memory, sizeLimit: 1Mi}
+        - name: tmp
+          emptyDir: {sizeLimit: 16Mi}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: bravo-findings
+  namespace: bravo-security
+  labels: {app: bravo-findings, component: platform}
+spec:
+  selector: {app: bravo-findings}
+  ports:
+    - {name: https, port: 8443, targetPort: https}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: bravo-findings
+  namespace: bravo-security
+  labels: {app: bravo-findings, component: platform}
+spec:
+  podSelector:
+    matchLabels: {app: bravo-findings}
+  policyTypes: [Ingress, Egress]
+  ingress:
+    # 조회(콘솔 · SOVA MCP)
+    - from:
+        - namespaceSelector:
+            matchLabels: {bravo.security/findings-client: "true"}
+      ports:
+        - {port: 8443, protocol: TCP}
+    # 온프렘 수집: T44 tailnet-ingress 장치 bravo-findings(platform.json)의 proxy Pod만.
+    # proxy가 출발지를 자기 Pod 주소로 바꾸므로 Tailscale 대역이 아니라 이 4개 라벨로 받는다
+    - from:
+        - namespaceSelector:
+            matchLabels: {kubernetes.io/metadata.name: tailscale-system}
+          podSelector:
+            matchLabels:
+              tailscale.com/managed: "true"
+              tailscale.com/parent-resource-type: svc
+              tailscale.com/parent-resource: bravo-findings-tailnet
+              tailscale.com/parent-resource-ns: bravo-security
+      ports:
+        - {port: 8443, protocol: TCP}
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels: {kubernetes.io/metadata.name: kube-system}
+      ports:
+        - {port: 53, protocol: UDP}
+        - {port: 53, protocol: TCP}
+---
+# AWS GuardDuty 주기 수집(읽기 전용). 플랫폼 웹 신원으로 역할(infra/envs/platform-security main.tf)을 받는다.
+# 계정 ID와 역할 ARN은 Git 밖 ConfigMap bravo-findings-aws(account_id, role_arn)에 둔다. API와 같은 SQLite를 쓴다.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: bravo-findings-pull
+  namespace: bravo-security
+  labels: {app: bravo-findings-pull, component: platform}
+automountServiceAccountToken: false
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: bravo-findings-pull
+  namespace: bravo-security
+  labels: {app: bravo-findings-pull, component: platform}
+spec:
+  schedule: "*/5 * * * *"
+  concurrencyPolicy: Forbid
+  # 컨트롤러가 오래 멈춰도 놓친 일정을 쌓지 않는다(100회를 넘으면 CronJob이 멈춘다)
+  startingDeadlineSeconds: 120
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 0
+      activeDeadlineSeconds: 240
+      template:
+        metadata:
+          labels: {app: bravo-findings-pull, component: platform}
+        spec:
+          serviceAccountName: bravo-findings-pull
+          automountServiceAccountToken: false
+          restartPolicy: Never
+          imagePullSecrets: [{name: platform-ghcr-reader}]
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 10001
+            runAsGroup: 10001
+            fsGroup: 10001
+            # API Pod가 없을 때 이 Pod가 먼저 마운트해도 findings.db 권한을 바꾸지 않는다(API와 같은 이유)
+            fsGroupChangePolicy: OnRootMismatch
+            seccompProfile: {type: RuntimeDefault}
+          containers:
+            - name: pull
+              image: bravo-findings
+              command: [python, -m, bravo_findings.aws_pull]
+              args: [--database, /data/findings.db, --environment-id, env-aws, --region, ap-northeast-2,
+                     --account-id, $(AWS_ACCOUNT_ID)]
+              env:
+                - name: AWS_ACCOUNT_ID
+                  valueFrom: {configMapKeyRef: {name: bravo-findings-aws, key: account_id}}
+                - name: AWS_ROLE_ARN
+                  valueFrom: {configMapKeyRef: {name: bravo-findings-aws, key: role_arn}}
+                - {name: AWS_WEB_IDENTITY_TOKEN_FILE, value: /var/run/secrets/aws/token}
+                - {name: AWS_REGION, value: ap-northeast-2}
+                - {name: AWS_STS_REGIONAL_ENDPOINTS, value: regional}
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities: {drop: [ALL]}
+              resources:
+                requests: {cpu: 20m, memory: 96Mi}
+                limits: {memory: 192Mi}
+              volumeMounts:
+                - {name: data, mountPath: /data}
+                - {name: aws-token, mountPath: /var/run/secrets/aws, readOnly: true}
+                - {name: tmp, mountPath: /tmp}
+          volumes:
+            - name: data
+              persistentVolumeClaim: {claimName: bravo-findings-data}
+            - name: aws-token
+              projected:
+                sources:
+                  - serviceAccountToken: {audience: sts.amazonaws.com, expirationSeconds: 3600, path: token}
+            - name: tmp
+              emptyDir: {sizeLimit: 16Mi}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: bravo-findings-pull
+  namespace: bravo-security
+  labels: {app: bravo-findings-pull, component: platform}
+spec:
+  podSelector:
+    matchLabels: {app: bravo-findings-pull}
+  policyTypes: [Ingress, Egress]
+  ingress: []
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels: {kubernetes.io/metadata.name: kube-system}
+      ports:
+        - {port: 53, protocol: UDP}
+        - {port: 53, protocol: TCP}
+    # STS와 GuardDuty API(GuardDuty 제어 API에는 인터페이스 엔드포인트가 없다). 이 Pod는 GuardDuty 읽기 자격만 가진다.
+    # 클러스터 안(RKE2 Pod 10.42/16 · Service 10.43/16, 11-08 플랫폼 실측)과 링크 로컬(IMDS)은 뺀다. VPC(STS 엔드포인트)는 남긴다
+    - to:
+        - ipBlock: {cidr: 0.0.0.0/0, except: [10.42.0.0/16, 10.43.0.0/16, 169.254.0.0/16]}
+      ports:
+        - {port: 443, protocol: TCP}
+---
+# Google Cloud SCC 주기 수집(읽기 전용). 플랫폼 웹 신원 → GCP workload identity pool → reader 가장
+# (infra/envs/gcp-scc-reader). 범위 파일과 자격 설정(키 아님)은 Git 밖 ConfigMap bravo-findings-scc(scope.json,
+# credentials.json)에 둔다. 프로젝트 번호가 들어 있어서다. API와 같은 SQLite를 쓴다.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: bravo-findings-scc-pull
+  namespace: bravo-security
+  labels: {app: bravo-findings-scc-pull, component: platform}
+automountServiceAccountToken: false
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: bravo-findings-scc-pull
+  namespace: bravo-security
+  labels: {app: bravo-findings-scc-pull, component: platform}
+spec:
+  schedule: "*/5 * * * *"
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 120
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 0
+      activeDeadlineSeconds: 240
+      template:
+        metadata:
+          labels: {app: bravo-findings-scc-pull, component: platform}
+        spec:
+          serviceAccountName: bravo-findings-scc-pull
+          automountServiceAccountToken: false
+          restartPolicy: Never
+          imagePullSecrets: [{name: platform-ghcr-reader}]
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 10001
+            runAsGroup: 10001
+            fsGroup: 10001
+            fsGroupChangePolicy: OnRootMismatch
+            seccompProfile: {type: RuntimeDefault}
+          containers:
+            - name: pull
+              image: bravo-findings
+              command: [python, -m, bravo_findings.gcp_pull]
+              args: [--database, /data/findings.db, --environment-id, env-gcp]
+              env:
+                - {name: BRAVO_SCC_SCOPE_FILE, value: /etc/bravo-scc/scope.json}
+                - {name: GOOGLE_APPLICATION_CREDENTIALS, value: /etc/bravo-scc/credentials.json}
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities: {drop: [ALL]}
+              resources:
+                requests: {cpu: 20m, memory: 96Mi}
+                limits: {memory: 192Mi}
+              volumeMounts:
+                - {name: data, mountPath: /data}
+                - {name: scc, mountPath: /etc/bravo-scc, readOnly: true}
+                - {name: gcp-token, mountPath: /var/run/secrets/gcp, readOnly: true}
+                - {name: tmp, mountPath: /tmp}
+          volumes:
+            - name: data
+              persistentVolumeClaim: {claimName: bravo-findings-data}
+            - name: scc
+              configMap: {name: bravo-findings-scc, items: [{key: scope.json, path: scope.json}, {key: credentials.json, path: credentials.json}]}
+            # 고정 audience: provider가 이것 하나만 받는다(gcp-scc-reader token_audience)
+            - name: gcp-token
+              projected:
+                sources:
+                  - serviceAccountToken: {audience: bravo-findings-scc, expirationSeconds: 3600, path: token}
+            - name: tmp
+              emptyDir: {sizeLimit: 16Mi}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: bravo-findings-scc-pull
+  namespace: bravo-security
+  labels: {app: bravo-findings-scc-pull, component: platform}
+spec:
+  podSelector:
+    matchLabels: {app: bravo-findings-scc-pull}
+  policyTypes: [Ingress, Egress]
+  ingress: []
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels: {kubernetes.io/metadata.name: kube-system}
+      ports:
+        - {port: 53, protocol: UDP}
+        - {port: 53, protocol: TCP}
+    # Google STS · IAM credentials · SCC API(googleapis.com). 클러스터 안과 링크 로컬(IMDS)은 뺀다
+    - to:
+        - ipBlock: {cidr: 0.0.0.0/0, except: [10.42.0.0/16, 10.43.0.0/16, 169.254.0.0/16]}
+      ports:
+        - {port: 443, protocol: TCP}

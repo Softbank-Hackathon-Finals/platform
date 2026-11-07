@@ -5,12 +5,14 @@ connector; the customer side is reached over the tailnet, so no customer cluster
 
 Spec (ConfigMap rendered from infra/envs/public-entry/entries.json):
   {"zone": "...", "tunnel": "...", "access": {"app": "...", "policy": "...", "session_duration": "8h"},
-   "entries": [{"hostname": "<label>.<zone>", "service": "http://<svc>.<ns>.svc:<port>"}]}
+   "entries": [{"hostname": "<label>.<zone>", "service": "http://<svc>.<ns>.svc:<port>", "public": false}]}
+"public": true leaves that host without Access (no login, no origin Access check); default is Access.
+"deny_paths": ["^/regex", ...] answers 403 at the edge for those paths of the host, before its route.
 Credential files: token, account_id, zone_id, access_emails (comma separated; never in Git).
 
 Only objects this reconciler owns change: the named tunnel, the named Access app and policy, and CNAMEs whose
 comment is MARK. A record without MARK on a declared hostname stops the run before any write to DNS.
-Every request is behind Access, and the tunnel route also requires the Access token at the origin.
+Protected entries sit behind Access, and their tunnel route also requires the Access token at the origin.
 """
 
 import json
@@ -50,6 +52,13 @@ def validate(spec: dict) -> dict:
             raise Refused("hostname:" + host)
         if not SERVICE.match(service):
             raise Refused("service:" + host)
+        if not isinstance(entry.get("public", False), bool):
+            raise Refused("public:" + host)
+        deny = entry.get("deny_paths", [])
+        if not (isinstance(deny, list) and all(isinstance(d, str) and d.startswith("^") for d in deny)):
+            raise Refused("deny_paths:" + host)
+        for d in deny:
+            re.compile(d)
         seen.add(host)
     if not seen:
         raise Refused("no entries")
@@ -108,30 +117,44 @@ def reconcile(cf: Cloudflare, spec: dict, account: str, zone: str, emails: list[
     if not tunnels:
         changed.append("tunnel")
 
-    include = [{"email": {"email": e}} for e in emails]
-    policy_body = {"name": spec["access"]["policy"], "decision": "allow", "include": include}
+    protected = [e["hostname"] for e in spec["entries"] if not e.get("public")]
     policies = [p for p in cf.list(f"{acct}/access/policies") if p["name"] == spec["access"]["policy"]]
-    policy = _ensure(cf, f"{acct}/access/policies", policies[0] if policies else None, policy_body,
-                     lambda p: p["decision"] == "allow" and sorted(i["email"]["email"] for i in p["include"] if "email" in i) == emails
-                     and len(p["include"]) == len(emails))
-    if not policies or policy is not policies[0]:
-        changed.append("access_policy")
-
-    app_body = {"name": spec["access"]["app"], "type": "self_hosted", "domain": hosts[0],
-                "destinations": [{"type": "public", "uri": h} for h in hosts],
-                "session_duration": spec["access"].get("session_duration", "8h"), "app_launcher_visible": True,
-                "policies": [{"id": policy["id"], "precedence": 1}]}
     apps = [a for a in cf.list(f"{acct}/access/apps") if a["name"] == spec["access"]["app"]]
-    app = _ensure(cf, f"{acct}/access/apps", apps[0] if apps else None, app_body,
-                  lambda a: sorted(d.get("uri") for d in a.get("destinations", [])) == sorted(hosts)
-                  and [p["id"] for p in a.get("policies", [])] == [policy["id"]])
-    if not apps or app is not apps[0]:
-        changed.append("access_app")
+    origin = {}
+    if protected:
+        include = [{"email": {"email": e}} for e in emails]
+        policy_body = {"name": spec["access"]["policy"], "decision": "allow", "include": include}
+        policy = _ensure(cf, f"{acct}/access/policies", policies[0] if policies else None, policy_body,
+                         lambda p: p["decision"] == "allow" and sorted(i["email"]["email"] for i in p["include"] if "email" in i) == emails
+                         and len(p["include"]) == len(emails))
+        if not policies or policy is not policies[0]:
+            changed.append("access_policy")
+        app_body = {"name": spec["access"]["app"], "type": "self_hosted", "domain": protected[0],
+                    "destinations": [{"type": "public", "uri": h} for h in protected],
+                    "session_duration": spec["access"].get("session_duration", "8h"), "app_launcher_visible": True,
+                    "policies": [{"id": policy["id"], "precedence": 1}]}
+        app = _ensure(cf, f"{acct}/access/apps", apps[0] if apps else None, app_body,
+                      lambda a: sorted(d.get("uri") for d in a.get("destinations", [])) == sorted(protected)
+                      and [p["id"] for p in a.get("policies", [])] == [policy["id"]])
+        if not apps or app is not apps[0]:
+            changed.append("access_app")
+        team = cf.call("GET", f"{acct}/access/organizations")["auth_domain"].split(".")[0]
+        origin = {"originRequest": {"access": {"required": True, "teamName": team, "audTag": [app["aud"]]}}}
+    else:
+        # Every entry is public: the owned Access app and policy protect nothing. Remove them, app first.
+        for a in apps:
+            cf.call("DELETE", f"{acct}/access/apps/{a['id']}")
+            changed.append("access_app_removed")
+        for p in policies:
+            cf.call("DELETE", f"{acct}/access/policies/{p['id']}")
+            changed.append("access_policy_removed")
 
-    team = cf.call("GET", f"{acct}/access/organizations")["auth_domain"].split(".")[0]
-    ingress = [{"hostname": e["hostname"], "service": e["service"],
-                "originRequest": {"access": {"required": True, "teamName": team, "audTag": [app["aud"]]}}}
-               for e in spec["entries"]] + [{"service": "http_status:404"}]
+    # A public entry has no Access in front and no Access check at the origin.
+    # deny_paths answer 403 at the edge before the host's route (cloudflared matches rules in order, path is RE2).
+    ingress = [r for e in spec["entries"] for r in
+               [{"hostname": e["hostname"], "path": d, "service": "http_status:403"} for d in e.get("deny_paths", [])]
+               + [{"hostname": e["hostname"], "service": e["service"], **({} if e.get("public") else origin)}]] \
+        + [{"service": "http_status:404"}]
     current = (cf.call("GET", f"{acct}/cfd_tunnel/{tunnel['id']}/configurations").get("config") or {}).get("ingress")
     if _route(current) != _route(ingress):
         cf.call("PUT", f"{acct}/cfd_tunnel/{tunnel['id']}/configurations", {"config": {"ingress": ingress}})
@@ -165,7 +188,7 @@ def reconcile(cf: Cloudflare, spec: dict, account: str, zone: str, emails: list[
 def _route(ingress):
     if not ingress:
         return None
-    return [(r.get("hostname"), r.get("service"), json.dumps((r.get("originRequest") or {}).get("access"), sort_keys=True))
+    return [(r.get("hostname"), r.get("path"), r.get("service"), json.dumps((r.get("originRequest") or {}).get("access"), sort_keys=True))
             for r in ingress]
 
 
