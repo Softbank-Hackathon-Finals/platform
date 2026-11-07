@@ -134,6 +134,21 @@ kind 실측에서 앱 버킷에 공개 버킷 정책이 남아 있으면 `s3.jso
 
 `list` · `create` · `delete`, 다른 Secret, pods, exec는 필요 없다(kind에서 `auth can-i` no 확인). `get secret`은 곧 객체 저장소 bootstrap · client · rehearsal 자격을 읽는 권한이다 — 현재 identity를 보존하고 앱 자격으로 서명 GET을 하려면 필요하다. `patch deployments`는 필드를 제한하지 못하므로 이론상 SeaweedFS 이미지도 바꿀 수 있다. T31 코드는 템플릿 주석만 patch한다. 이 Role · ServiceAccount의 실제 발급(`access.py`에 `target_object_policy()` 같은 렌더러 추가)은 인프라 담당 범위라 이 PR에 넣지 않았다. 네트워크: `objects.py`의 NetworkPolicy는 `bravo-object-client=true` 라벨 Pod만 8333에 들인다. T31 실행 위치에서 프로브가 닿을 경로가 필요하다(미정).
 
+### 목적지 종류별 적용기 (A6, ADR-0034)
+
+`policy_target`의 종류가 적용기를 고른다(`targets.policy_applier`).
+
+| 종류 | 대상 | 적용 | 확인 |
+|---|---|---|---|
+| onprem (`PolicyTarget`) | SeaweedFS `s3.json` Secret | 위 절차 그대로(T9 렌더러) | 익명 GET 거부 · 앱 자격 GET 허용 |
+| aws (`CloudPolicyTarget`) | S3 버킷 정책 | `BucketPolicyStore.write` (`Boto3S3PolicyStore` → `put_bucket_policy`) | 다시 읽어 중립 모델 비교 → 익명 GET 거부 · 앱 신원 GET 허용 |
+| gcp (`CloudPolicyTarget`) | GCS 버킷 IAM | `GcsIamPolicyStore` → `set_iam_policy`(etag 유지, 관리하지 않는 멤버 보존) | 같음 |
+
+* aws·gcp에서 승인된 정책은 A5 중립 렌더러의 **정규 렌더 결과**여야 한다. 승인 바이트를 중립 모델로 내보내고 다시 렌더해 바이트가 같을 때만(=binding `policy_digest`와 같은 digest) 앱 버킷용으로 렌더해 적용한다. 공개 허용·`unresolved` 주체·목적지 신원이 없는 워크로드는 적용 전에 REFUSED다. 쓰기 뒤의 모든 실패는 SAFE_HOLD다.
+* 중립 패키지는 `services/rehearsal-runner/src/rehearsal_runner/neutral`을 경로로 불러온다(표준 라이브러리만 씀, 패키지째 로드해 상대 import 유지). 파일 sha256을 `policy.renderer_sha256`에 남긴다. path 의존성으로 rehearsal-runner 전체(boto3 · 에이전트 어댑터)를 반영 실행 환경에 설치하지 않으려는 선택이다.
+* 클라우드 SDK는 의존성이 아니다. 호스트가 반영 신원으로 만든 클라이언트를 `policy_stores={"aws": Boto3S3PolicyStore(client)}`처럼 넘긴다.
+* 게이트 재대조 시험 목록은 `targets.RECHECK_TESTS[변경 종류][목적지 종류]`다. onprem이 아니면 `gate_recheck.target_kind`를 더해 게이트가 `(종류, 시험 ID)` Probe를 고르게 한다(A7). onprem 기록은 T10이 비교하는 모양 그대로다.
+
 ## 사용
 
 ```sh

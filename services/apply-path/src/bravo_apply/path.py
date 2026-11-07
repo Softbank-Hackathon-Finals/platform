@@ -38,18 +38,23 @@ from .policy import (
     PROBE_WINDOW_SECONDS,
     PolicyRefused,
     PolicyTarget,
-    apply_bucket_policy,
-    load_t9,
-    translate_policy,
 )
+from .targets import (
+    RECHECK_TESTS,
+    BucketPolicyStore,
+    CloudPolicyTarget,
+    policy_applier,
+    recheck_tests,
+)
+from .targets import target_kind as kind_of
 
 SCHEMA_VERSION = "1.2"
 
 # Controls the gate must ask again after the application changed how it reaches secrets and
-# objects (docs/controls/README.md). The gate decides; T31 only requests the recheck.
-GATE_RECHECK_TESTS = ["SEC-01.1", "IAM-01.1", "ENC-01.1"]
-# A bucket-policy change only changes who may read attachment objects.
-POLICY_GATE_RECHECK_TESTS = ["IAM-01.1"]
+# objects (docs/controls/README.md). The gate decides; T31 only requests the recheck. The lists
+# per target kind are `targets.RECHECK_TESTS`; these names are the onprem rows (T10 compares them).
+GATE_RECHECK_TESTS = RECHECK_TESTS[APP_IMAGE]["onprem"]
+POLICY_GATE_RECHECK_TESTS = RECHECK_TESTS[BUCKET_POLICY]["onprem"]
 
 # A STARTED record older than this cannot still be running: rollout wait + 30 s, plus four
 # other kubectl calls of at most KubectlKube.CALL_SECONDS each, plus slack.
@@ -208,18 +213,22 @@ def _replace_record(directory: Path, result: ApplyOutcome) -> None:
 
 def apply(application_id: str, claim: dict, proposal: dict, *, kube: Kube, receipts_dir: Path,
           target_environment_id: str, namespace: str = "", deployment: str = "", container: str = "app",
-          repository: str = "", policy_target: PolicyTarget | None = None,
+          repository: str = "", policy_target: PolicyTarget | CloudPolicyTarget | None = None,
           sources: dict[str, str] | None = None, diff: bytes | None = None, now: datetime | None = None,
           timeout_seconds: int = 300, clock: Callable[[], datetime] | None = None,
-          policy_hooks: dict | None = None) -> ApplyOutcome:
+          policy_hooks: dict | None = None, policy_stores: dict[str, BucketPolicyStore] | None = None,
+          image_target_kind: str = "onprem") -> ApplyOutcome:
     """Apply the approved change at most once per ``application_id`` and record the outcome.
 
     If anything is already recorded for the id, that record is returned as-is (same fields)
     and the cluster is not called. ``now`` is the time the approval binding is checked at;
     ``clock`` stamps ``finished_at``. The binding's ``change_kind`` selects the branch:
     ``namespace``/``deployment``/``container``/``repository`` are the app image target,
-    ``policy_target`` the bucket-policy target. ``policy_hooks`` is a test seam passed to
-    ``apply_bucket_policy`` (probes, sleep, clock)."""
+    ``policy_target`` the bucket-policy target. ``policy_hooks`` is a test seam passed to the
+    policy applier (probes, sleep, clock). The policy target's kind selects the applier
+    (``targets.policy_applier``): onprem is the T9 ``s3.json`` path, aws/gcp need the matching
+    ``policy_stores`` entry. ``image_target_kind`` names the target kind of an image change for
+    the gate recheck."""
     receipts_dir = Path(receipts_dir)
     clock = clock or (lambda: datetime.now(UTC))
     existing = get_result(application_id, receipts_dir)  # also validates the id format
@@ -267,16 +276,17 @@ def apply(application_id: str, claim: dict, proposal: dict, *, kube: Kube, recei
     if is_policy:
         change |= {"change_kind": BUCKET_POLICY, "policy_digest": binding["policy_digest"]}
     steps.append({"step": "binding", "status": "ok", "detail": f"{len(binding['approved_paths'])} approved path(s)"})
+    kind = kind_of(policy_target) if is_policy else image_target_kind
     if is_policy:
-        # 1b. the approved policy as a T9 exposure state. Pure; refused before a STARTED record exists.
+        # 1b. the approved policy checked by the target kind's applier (onprem: a T9 exposure state;
+        # aws/gcp: a canonical neutral render). Pure; refused before a STARTED record exists.
         try:
-            state = translate_policy(proposal["edits"][0]["replacement"],
-                                     policy_bucket=policy_target.policy_bucket or policy_target.bucket)
-            t9, t9_sha = load_t9()
+            applier = policy_applier(policy_target, policy_stores)
+            prepared = applier.prepare(proposal["edits"][0]["replacement"], policy_target)
         except PolicyRefused as exc:
             steps.append({"step": "policy_translate", "status": "refused", "detail": exc.code})
             return first_record(outcome("REFUSED", exc.code, change=change, mutation=False))
-        steps.append({"step": "policy_translate", "status": "ok", "detail": f"T9 state {state}"})
+        steps.append({"step": "policy_translate", "status": "ok", "detail": prepared.detail})
         # 2. a bucket-policy change neither builds nor changes any image
         steps.append({"step": "image", "status": "skipped", "detail": "bucket-policy change: app image unchanged"})
     else:
@@ -293,8 +303,8 @@ def apply(application_id: str, claim: dict, proposal: dict, *, kube: Kube, recei
     step = "policy_apply" if is_policy else "deploy"
     try:
         if is_policy:
-            deployed = apply_bucket_policy(kube, policy_target, t9=t9, renderer_sha256=t9_sha, application_id=application_id,
-                                           timeout_seconds=timeout_seconds, **(policy_hooks or {}))
+            deployed = applier.apply(kube, policy_target, prepared, application_id=application_id,
+                                     timeout_seconds=timeout_seconds, **(policy_hooks or {}))
         else:
             deployed = apply_pinned_image(kube, namespace=namespace, deployment=deployment, container=container,
                                           repository=repository, digest=binding["image_digest"], timeout_seconds=timeout_seconds)
@@ -313,15 +323,16 @@ def apply(application_id: str, claim: dict, proposal: dict, *, kube: Kube, recei
         return final
     if is_policy:
         steps.append({"step": step, "status": "ok", "detail": "anonymous GET denied, app identity GET allowed"})
-        tests = POLICY_GATE_RECHECK_TESTS
     else:
         steps.append({"step": step, "status": "ok", "detail": f"{deployed['pods']} pod(s) on approved digest"})
-        tests = GATE_RECHECK_TESTS
+    tests = recheck_tests(binding["change_kind"], kind)
     # 5. ask the gate to re-check the controls this change touches
     recheck = {"plan_id": binding["plan_id"], "application_id": application_id,
                "image_digest": binding["image_digest"], "tests": list(tests)}
     if is_policy:
         recheck["policy_digest"] = binding["policy_digest"]
+    if kind != "onprem":
+        recheck["target_kind"] = kind  # the gate picks the (kind, test id) probe; onprem keeps T10's exact shape
     steps.append({"step": "gate_recheck", "status": "ok", "detail": ",".join(tests)})
     final = outcome("APPLIED", "APPLIED_AS_APPROVED", change=change, mutation=True,
                     deployed=None if is_policy else deployed["deployed_digest"], recheck=recheck,
