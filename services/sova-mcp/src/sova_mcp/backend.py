@@ -53,13 +53,15 @@ class Upstream:
     base_url: str
     token_file: Path
     transport: httpx.BaseTransport | None = None
+    ca_file: Path | None = None  # private CA of the upstream's server certificate (e.g. bravo-observability-api)
 
     def get(self, path: str, params: dict | None = None):
         if not path.startswith("/v1/") or "?" in path or "#" in path or ".." in path:
             raise SovaError("invalid_upstream_path")
         try:
             token = self.token_file.read_text().strip()
-            with httpx.Client(base_url=self.base_url, transport=self.transport, trust_env=False,
+            verify = str(self.ca_file) if self.ca_file else True
+            with httpx.Client(base_url=self.base_url, transport=self.transport, trust_env=False, verify=verify,
                               follow_redirects=False, timeout=5.0) as client:
                 response = client.get(path, params={k: v for k, v in (params or {}).items() if v is not None},
                                       headers={"Authorization": "Bearer " + token, "Accept": "application/json"})

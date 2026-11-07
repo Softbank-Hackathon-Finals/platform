@@ -40,6 +40,10 @@ spec:
             - {name: ca, mountPath: /ca, readOnly: true}
             - {name: collectors, mountPath: /collectors, readOnly: true}
             - {name: tmp, mountPath: /tmp}
+            {{- if .Values.runtime.observability.enabled }}
+            - {name: observability-token, mountPath: /upstreams/observability/token, readOnly: true}
+            - {name: observability-ca, mountPath: /upstreams/observability/ca, readOnly: true}
+            {{- end }}
       volumes:
         - {name: config, secret: {secretName: {{ .Values.runtime.config }}}}
         - {name: registration, configMap: {name: {{ .Values.runtime.registrationConfigMap }}}}
@@ -47,3 +51,7 @@ spec:
         - {name: ca, secret: {secretName: {{ .Values.runtime.secrets.databaseCA }}}}
         - {name: collectors, secret: {secretName: {{ .Values.runtime.secrets.collectors }}}}
         - {name: tmp, emptyDir: {sizeLimit: 16Mi}}
+        {{- if .Values.runtime.observability.enabled }}
+        - {name: observability-token, secret: {secretName: {{ .Values.runtime.observability.tokenSecret }}}}
+        - {name: observability-ca, configMap: {name: {{ .Values.runtime.observability.caConfigMap }}}}
+        {{- end }}

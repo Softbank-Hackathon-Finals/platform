@@ -35,7 +35,9 @@ def load(config_path: Path, store, catalog: Path, grants: Path):
         return next((a for a in (v(request) for v in verifiers) if a is not None), None)
 
     def upstream(row):
-        return Upstream(row["base_url"], Path(row["token_file"])) if row else None
+        if not row:
+            return None
+        return Upstream(row["base_url"], Path(row["token_file"]), ca_file=Path(row["ca_file"]) if row.get("ca_file") else None)
 
     backend = SovaBackend(store, build_registry(store, json.loads(catalog.read_text()), grants),
                           config["console_url"], config["environments"],

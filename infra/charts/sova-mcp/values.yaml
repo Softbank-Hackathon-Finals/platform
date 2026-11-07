@@ -13,6 +13,11 @@ runtime:
     registry: platform-ghcr-reader
   # Egress the T10 registration host already has: STS (identity proof) and target APIs.
   trustedEgressCidrs: []
+  # Read-only upstream credentials (copies made by the operator in this namespace; names only).
+  observability:
+    enabled: false
+    tokenSecret: sova-mcp-observability-token   # key: token
+    caConfigMap: sova-mcp-observability-ca      # key: ca.crt (public CA only, never the server key)
 tailnet:
   hostname: sova-mcp
   tags: tag:bravo-platform-operator       # existing grant: autogroup:admin/owner → tcp:443
