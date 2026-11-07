@@ -89,13 +89,14 @@ def test_an_agent_cannot_move_a_group_to_another_tailnet(change):
 
 
 def test_an_agent_cannot_give_a_group_another_tag():
-    # Same hosts on the cluster side, but the tailnet policy would have to grant the new tag.
+    # Same hosts on the cluster side, but the tailnet policy would have to grant the new tag (an
+    # existing tag: scripts/tests/test_collector_route denies every tag named in this repository).
     retagged = copy.deepcopy(PLATFORM)
-    retagged["modules"][0]["params"]["groups"][1]["tag"] = "tag:bravo-apply-wide"
+    retagged["modules"][0]["params"]["groups"][1]["tag"] = "tag:bravo-loadgen"
     result = plan(PLATFORM, retagged, origin="agent")
     assert result["refusals"] == ["IAC_WIDENING_REFUSED"]
     [grants] = [e["tailnet_grants"] for e in result["effects"] if "tailnet_grants" in e]
-    assert any('"tag:bravo-apply-wide"' in g for g in grants["added"])
+    assert any('"tag:bravo-loadgen"' in g for g in grants["added"])
     assert not any("reach" in e for e in result["effects"])
 
 
