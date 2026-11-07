@@ -65,3 +65,17 @@ Temporal의 OpenAI Agents SDK 통합(2026-03 GA)이 흔한 참조 구조다. 결
   3. AWAIT_APPROVAL, CUTOVER, WATCH
 * 주기적 sweep만 한다. 지연이 문제가 되면 `state.changed`나 생산자 기록을 깨우는 신호를 더한다.
 * 단일 replica로 둔다. `ApplicationHost`의 파일 잠금이 같은 프로세스 안에 있어야 한다.
+
+## 5. 보완 (2026-11-08, T49): RunState 모델과 구성 완결성
+
+* **문제:** 상태 전이가 배포 때 소리 없이 끊겼다. 상태마다 진행 코드(reader/preparer)를 넣는 것이 선택 사항이었기 때문이다. 표 밖 소유자(COLLECT, SHIFT, FAILBACK, 리허설 시작)도 실제로 있는지 검사하지 않았다. live 리뷰(11/8)에서 6건을 찾았다: S1 2건, PROPOSE 만료, REHEARSE 시작, GATE 적용 뒤 측정, FAILBACK 진행.
+* **조사(공개 문서):**
+  * OpenAI Agents SDK `RunState`(0.24, `agents/run_state.py`)는 실행 하나를 직렬화하고, `interruptions`와 `approve`·`reject`로 다시 이어 간다.
+  * Temporal, DBOS(`dbos-openai-agents`), LangGraph는 결정적 workflow 안에서 사람 승인을 durable 대기(signal, interrupt)로 두고, 진행 코드가 없는 단계를 정의할 수 없게 한다.
+* **결정:** 엔진은 바꾸지 않는다(이 ADR의 2안 기각 사유가 그대로 유효하다). RunState 모델만 들인다. 판정·실행 모듈은 LLM을 import하지 않으므로 SDK 자체는 쓰지 않는다.
+  * `plan_run_state.OWNERS`: 상태마다 소유자는 하나다(host, approval-host, collection, person). 결정이 필요한 상태는 그 게이트를 적는다.
+  * `check_wiring`: host 소유 상태에 진행 코드가 없으면, 배포가 `deferred`로 명시하지 않는 한 host가 시작하지 않는다.
+  * `GET /v1/plans/{id}/run-state`: 지금 상태, 소유자, 기다리는 결정과 결정 주체(위임 또는 사람)를 보여 준다.
+  * ANALYZE는 S1 기록(T16 수집, 첫 T19 보고)을 읽는 기본 reader로 진행한다.
+  * REHEARSE의 T15 리허설 시작(위임 게이트 `rehearsal`)과 FAILBACK 진행(reconcile·advance)은 승인 호스트의 위임 스윕이 맡는다.
+* **남은 것:** COLLECT 접수는 #740(플랫폼 AWS 신원)이 생긴 뒤 host로 옮긴다. PROPOSE 만료 회복은 T10 재입장 규칙(다른 주체의 fence)과 맞춰 따로 정한다. 엔진(DBOS 등) 도입은 데모 뒤 다시 검토한다.
