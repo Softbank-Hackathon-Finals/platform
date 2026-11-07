@@ -28,6 +28,7 @@ from datetime import UTC, datetime
 from .applications import application, application_name, project
 from .plan import Planner
 from .stack import StackError, canonical, sha256_text
+from .terraform import Scratch, TerraformCli, inputs_digest, outputs_reader, plan_step
 
 PENDING, RUNNING, SKIPPED, APPLIED = "PENDING", "RUNNING", "SKIPPED", "APPLIED"
 WAITING, FAILED, HOLD = "WAITING_OPERATOR", "FAILED", "HOLD"
@@ -58,13 +59,16 @@ def _steps(run):
 class Executor:
     def __init__(self, planner: Planner, *, stack_revision, cluster, repo, approvals, checks, store,
                  repo_url, ledger=None, clock=_now, sleep=time.sleep, monotonic=time.monotonic,
-                 poll_seconds=5.0, workers=4):
+                 poll_seconds=5.0, workers=4, identity=None, terraform=None):
         self.planner, self.stack = planner, planner.stack
         self.stack_revision, self.repo_url = stack_revision, repo_url
         self.cluster, self.repo, self.approvals, self.checks, self.store = cluster, repo, approvals, checks, store
         self.ledger = ledger or (lambda event: None)
         self.clock, self.sleep, self.monotonic = clock, sleep, monotonic
         self.poll, self.workers = poll_seconds, workers
+        # What a run is bound to: the cluster and node by default, an AWS account for terraform stacks.
+        self.identity = identity or (lambda params: cluster.identity(params["node_name"]))
+        self.terraform = terraform or TerraformCli()
         # One lock for the run record and the repository: workers mutate `run` and push commits
         # while the scheduler saves it, so every mutation and every save happens under it.
         self._lock = threading.RLock()
@@ -74,8 +78,8 @@ class Executor:
     def start(self, *, request, migration_plan_id, approval_id, run_id, started_by):
         if self.store.exists(run_id):
             return self.store.load(run_id)
-        target = self.cluster.identity(request["params"]["node_name"])
-        head = self.repo.head()
+        target = self.identity(request["params"])
+        head = self.repo.head() if self.repo is not None else "0" * 40  # a stack without publish steps
         plan = self.planner.plan(request, stack_revision=self.stack_revision, target=target, base_commit=head)
         run = dict(run_id=run_id, migration_plan_id=migration_plan_id, approval_id=approval_id,
                    plan_digest=plan.plan_digest, plan=plan.document, stack=self.stack.document,
@@ -121,7 +125,7 @@ class Executor:
             return self._hold(run, "approval_revoked")
         self.approvals.claim(run["migration_plan_id"], run["approval_id"], run_id=run["run_id"],
                              plan_digest=run["plan_digest"])
-        if self.repo.head() != run["head"]:
+        if self.repo is not None and self.repo.head() != run["head"]:
             return self._hold(run, "config_repo_moved")
         for state in run["steps"].values():
             if state["status"] in (RUNNING, WAITING, HOLD):
@@ -195,8 +199,7 @@ class Executor:
 
     def _run_step(self, run, step):
         # Every step starts on the approved cluster, whatever the kubeconfig says now.
-        params = run["plan"]["request"]["params"]
-        if self.cluster.identity(params["node_name"]) != run["plan"]["target"]:
+        if self.identity(run["plan"]["request"]["params"]) != run["plan"]["target"]:
             raise StepOutcome(HOLD, "target_identity_changed")
         return getattr(self, "_" + step["kind"])(run, step)
 
@@ -259,6 +262,31 @@ class Executor:
                 raise StepOutcome(HOLD, "sync_timeout")
             self.sleep(self.poll)
 
+    def _terraform(self, run, step):
+        """Re-plan; apply only the change set a person approved, never a delete, replace or forget."""
+        params = run["plan"]["request"]["params"]
+        root = self.planner.repo_root
+        approved = _planned(run, step)
+        if inputs_digest(root, step, params) != approved["inputs"]:
+            raise StepOutcome(HOLD, "terraform_inputs_changed")  # code or a private input moved since approval
+        steps = {s["id"]: s for s in run["stack"]["steps"] if s["kind"] == "terraform"}
+        read = outputs_reader(self.terraform, root, steps, params)
+        with Scratch() as scratch:
+            planned = plan_step(self.terraform, root, step, params, read, scratch, lock=True)
+            if not planned["changed"]:
+                return SKIPPED
+            with self._lock:
+                run.setdefault("terraform", {})[step["id"]] = {"changes": planned["changes"],
+                                                               "destructive": len(planned["destructive"])}
+            if approved["change_set"] in ("UNPLANNED", "PENDING_UPSTREAM"):
+                raise StepOutcome(HOLD, "terraform_change_set_unapproved")  # plan again now that upstream exists
+            if planned["change_set"] != approved["change_set"]:
+                raise StepOutcome(HOLD, "terraform_change_set_changed")
+            if planned["destructive"]:
+                raise StepOutcome(HOLD, "terraform_plan_destroys")  # a person decides deletes and replaces
+            self.terraform.apply(planned["directory"], scratch / "data", scratch / "plan.bin")
+            return APPLIED
+
     def _render_apply(self, run, step):
         items = [item for text in run["files"][step["id"]].values() for item in _items(text)]
         if not self.cluster.diff(items):
@@ -300,6 +328,10 @@ class Executor:
             if now >= deadline:
                 raise StepOutcome(HOLD, "wait_timeout")
             self.sleep(self.poll)
+
+
+def _planned(run, step):
+    return next(s for s in run["plan"]["steps"] if s["id"] == step["id"])
 
 
 def _items(text):

@@ -286,6 +286,19 @@ class T10Approvals:
                           {"run_id": run_id, "plan_digest": plan_digest})
 
 
+class AwsIdentity:
+    """The AWS account a terraform stack runs against (STS), from the operator's own session."""
+
+    def __init__(self, *, aws="aws"):
+        self.aws = aws
+
+    def __call__(self, params):
+        env = {k: os.environ[k] for k in ("PATH", "HOME", "AWS_PROFILE", "AWS_REGION", "AWS_DEFAULT_REGION",
+                                          "AWS_CONFIG_FILE", "AWS_SHARED_CREDENTIALS_FILE") if k in os.environ}
+        result = _run([self.aws, "sts", "get-caller-identity", "--output", "json"], env=env)
+        return {"account_id": json.loads(result.stdout)["Account"]}
+
+
 class ClusterChecks:
     """Named checks used by `probe` and `operator_action` steps.
 

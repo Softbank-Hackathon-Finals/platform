@@ -102,6 +102,11 @@ def parse_stack(document) -> Stack:
             published = by_id.get(step["publish"])
             if published is None or published["kind"] != "gitops_publish" or step["publish"] not in needs:
                 raise StackError("sync_without_publish")
+        for value in step.get("vars", {}).values():
+            if isinstance(value, dict):
+                upstream = by_id.get(value["from"])
+                if upstream is None or upstream["kind"] != "terraform" or value["from"] not in needs:
+                    raise StackError("terraform_reference_without_need")
         for render in step.get("renders", []):
             if "chart" in render and render["chart"] not in document["charts"]:
                 raise StackError("unknown_chart")
