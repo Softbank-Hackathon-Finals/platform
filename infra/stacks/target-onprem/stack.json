@@ -106,7 +106,7 @@
       "id": "base",
       "kind": "gitops_publish",
       "owner": "T30",
-      "description": "namespace(목적지 · OpenBao · ESO · tailscale-system)와 서비스 계정을 설정 저장소에 올린다. namespace와 보안 레이블의 주인은 T45다(T44 #632)",
+      "description": "namespace(목적지 · OpenBao · ESO · tailscale-system · bravo-observability)와 서비스 계정을 설정 저장소에 올린다. namespace와 보안 레이블의 주인은 T45다(T44 #632 · #673)",
       "needs": [
         "config-repo-access"
       ],
@@ -163,6 +163,19 @@
               "component": "target",
               "pod-security.kubernetes.io/enforce": "privileged",
               "pod-security.kubernetes.io/enforce-version": "v1.35"
+            }
+          }
+        },
+        {
+          "name": "observability-namespace",
+          "namespace": {
+            "name": "bravo-observability",
+            "labels": {
+              "component": "platform",
+              "tier": "observability",
+              "role": "collector",
+              "domain": "customer",
+              "pod-security.kubernetes.io/enforce": "restricted"
             }
           }
         }

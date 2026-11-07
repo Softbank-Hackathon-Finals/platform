@@ -225,3 +225,17 @@ def test_the_offline_app_image_step_exists_only_for_arm64_nodes():
     assert stack.applies("app-image", {"arch": "arm64"})
     assert not stack.applies("app-image", {"arch": "amd64"})  # amd64 pulls the pinned registry image
     assert "app-image" not in {s["id"] for s in plan().document["steps"] if s.get("omitted")}
+
+
+def test_base_declares_the_observability_namespace_with_the_collector_labels():
+    """T44 #632/#673: T45 owns the namespaces its chart writes into, bravo-observability included."""
+    base = {name: json.loads(text)["items"] for name, text in plan().files["base"].items()}
+    [namespace] = base["base/observability-namespace.json"]
+    assert namespace["metadata"]["name"] == "bravo-observability"
+    labels = namespace["metadata"]["labels"]
+    assert labels["component"] == "platform" and labels["pod-security.kubernetes.io/enforce"] == "restricted"
+    # The same labels as the T37 collector manifest, so applying either never flips a value.
+    collector = (REPO / "services/observability/deploy/collector/resources.yaml").read_text()
+    for key, value in labels.items():
+        if key != "app.kubernetes.io/managed-by":
+            assert f"{key}: {value}" in collector, key

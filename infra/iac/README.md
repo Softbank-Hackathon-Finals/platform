@@ -220,7 +220,7 @@ tailnet 접미사(`tailnet`, `tailnets.workload`)이고, AppProject `platform-ia
 | `target-dev` | T45 base 단계(PSA restricted) | — |
 | `source-dev` | — | 출발지 렌더러(`infra/envs/source-workloads`) |
 | `tailscale-system` | T45 tailscale-oauth 단계(PSA privileged) | 기존 Tailscale operator 설치 |
-| `bravo-observability` | T45 base 단계(추가 요청 중, #632), T37 Collector와 같은 라벨(`component: platform`, PSA restricted) | T37 Collector 매니페스트(`services/observability/deploy/collector`) |
+| `bravo-observability` | T45 base 단계(`observability-namespace`), T37 Collector와 같은 라벨(`component: platform`, PSA restricted). T37 `collector-target`도 같은 Namespace를 선언한다(레이블 같음, 주인 단일화는 T37과 합의) | T37 Collector 매니페스트(`services/observability/deploy/collector`) |
 
 그래서 이 Application은 표의 namespace와 Tailscale CRD가 생긴 **뒤에** 켠다(새 목적지는 T45 base · tailscale 단계가 Synced · Healthy가 된 뒤, 아래 2단계). 그 뒤의 실패는 순서 문제가 아니므로 재시도는 유한하다(`retry.limit: 5`, 약 5분). 무제한 재시도는 실패한 operation을 Running으로 남겨, `targetRevision`을 고친 SHA로 올려도 새 동기화가 시작되지 않는다. 재시도가 끝나 Failed가 되면 원인을 고친 커밋을 승격하거나 수동으로 sync한다.
 ProxyGroup은 그 클러스터에 Tailscale operator(CRD)가 있어야 생성된다(`SkipDryRunOnMissingResource`).
