@@ -136,3 +136,10 @@ uv run python -m bravo_findings.gcp_pull \
 - 영속 DB 경로가 없으면 시작하지 않는다. 데이터가 있는 과거 DB는 자동 변환·삭제하지 않고 시작을 거부한다.
 - SQLite 감사는 불변 감사 저장소가 아니다. TLS, 요청률 제한, T10 신원·회수, 격리 보류 복구, T24 감사, 실제 출처 검증이 운영 인수 조건이다.
 - 이 패키지의 수집 `OK`와 출처의 `PASS`는 T19 게이트 승인 근거를 대체하지 않는다.
+
+## 플랫폼 배포
+
+- 이미지: `Dockerfile`(빌드 컨텍스트는 저장소 루트, 매핑 규칙 `docs/security/detection`을 이미지에 넣음). 비루트 10001, 읽기 전용 루트, uvicorn이 TLS로 8443만 연다. `publish-security-findings-image`가 develop에서 검사 · 게시하고 digest 고정 PR을 연다.
+- 묶음: `deploy/platform-gitops`(namespace `bravo-security`). SQLite는 정적 PV(1GiB), 인스턴스 하나(`Recreate`). 자격 레지스트리 Secret은 init 컨테이너가 서비스 UID 소유 0400 일반 파일로 옮긴다(Secret 볼륨 링크는 로더가 거부한다). 교체하면 Pod를 다시 띄운다.
+- 전제: `infra/envs/platform-security`(namespace · PV · 기본 거부, TLS · 자격 Secret). 갖춘 뒤 플랫폼 Argo 값 `securityFindings.enabled`를 켠다.
+- 아직: AWS GuardDuty 주기 수집(플랫폼 OIDC → 읽기 전용 IAM 역할)과 온프렘 수집 경로(T44 tailnet)는 다음 단계다.

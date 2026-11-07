@@ -38,6 +38,12 @@ publicEntry:
 observability:
   enabled: false
 
+# T33 security findings API (services/security-findings/deploy/platform-gitops) in its own namespace bravo-security.
+# Turn on only after the host prerequisites (infra/envs/platform-security) and a pinned image digest exist, together
+# with bravo-security in clusterCredentials.platform.namespaces.
+securityFindings:
+  enabled: false
+
 registration:
   enabled: false
   # Protected operator input: existing config/Secret references and host aliases only.
@@ -72,7 +78,7 @@ argo-cd:
           kinds: [Deployment, ReplicaSet]
           clusters: ['*']
         - apiGroups: ['']
-          kinds: [Pod, Service, ServiceAccount, ConfigMap]
+          kinds: [Pod, Service, ServiceAccount, ConfigMap, PersistentVolumeClaim]
           clusters: ['*']
         - apiGroups: [networking.k8s.io]
           kinds: [NetworkPolicy]
