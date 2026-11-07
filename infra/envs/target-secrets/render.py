@@ -21,6 +21,13 @@ NAMESPACE = "bravo-secrets"
 RELEASE = "target-openbao"
 APP_NAMESPACE = "target-dev"
 LABELS = {"component": "target", "app.kubernetes.io/part-of": "bravo-target-secrets"}
+# The name every client verifies on the server certificate: ESO SecretStores, the rehearsal init
+# container, the chart's api_addr and the T14 collector over an operator port-forward
+# (``server_hostname``). The chart's readiness probe and in-Pod CLI use BAO_ADDR
+# https://127.0.0.1:8200, so the leaf also needs that IP. These are the minimum SANs.
+SERVER_DNS_NAME = f"{RELEASE}.{NAMESPACE}.svc"
+SERVER_URL = f"https://{SERVER_DNS_NAME}:8200"
+SERVER_CERT_SANS = {"dns": [SERVER_DNS_NAME], "ip": ["127.0.0.1"]}
 DB_PATH = "bravo/target/precutover/database"
 OBJECT_PATH = "bravo/target/objects"
 ADMIN_PATH = "bravo/target/application-admin"
@@ -118,7 +125,7 @@ def bao_values(image=BAO_IMAGE):
             # The chart reserves component=server for its selectors.
             "extraLabels": {"bravo-component": "target", "app.kubernetes.io/part-of": LABELS["app.kubernetes.io/part-of"]},
             "dev": {"enabled": False}, "ha": {"enabled": False,
-                                                   "apiAddr": "https://target-openbao.bravo-secrets.svc:8200"},
+                                                   "apiAddr": SERVER_URL},
             # Chart 0.30.6 interpolates this value unquoted; emit an explicit empty class.
             "dataStorage": {"enabled": True, "size": "3Gi", "storageClass": '""'},
             "persistentVolumeClaimRetentionPolicy": {"whenDeleted": "Retain", "whenScaled": "Retain"},
@@ -137,7 +144,7 @@ def bao_values(image=BAO_IMAGE):
             }},
             "standalone": {"enabled": True, "config": '''ui = false
 disable_mlock = true
-api_addr = "https://target-openbao.bravo-secrets.svc:8200"
+api_addr = "''' + SERVER_URL + '''"
 listener "tcp" {
   address = "0.0.0.0:8200"
   cluster_address = "127.0.0.1:8201"
@@ -200,6 +207,14 @@ path "auth/token/lookup-self" { capabilities = ["read"] }
 path "auth/token/renew-self" { capabilities = ["update"] }
 path "auth/token/revoke-self" { capabilities = ["update"] }
 '''
+
+
+def server_cert_sans():
+    """Minimum SANs of the ``target-openbao-tls`` leaf, for checking a live certificate and for
+    reissuing one (``subject_alt_name`` is the OpenSSL ``-addext subjectAltName=`` value).
+    Names only: no key or certificate material is rendered."""
+    return {**SERVER_CERT_SANS, "subject_alt_name": ",".join(
+        [f"DNS:{name}" for name in SERVER_CERT_SANS["dns"]] + [f"IP:{ip}" for ip in SERVER_CERT_SANS["ip"]])}
 
 
 def _rehearsal_namespace(namespace):
@@ -364,7 +379,7 @@ def rehearsal_delivery(namespace):
     namespace = _rehearsal_namespace(namespace)
     account = obj("ServiceAccount", READER_ACCOUNT, namespace=namespace, automountServiceAccountToken=False)
     store = obj("SecretStore", "rehearsal-openbao", namespace=namespace, api="external-secrets.io/v1", spec={"provider": {"vault": {
-        "server": "https://target-openbao.bravo-secrets.svc:8200", "path": "secret", "version": "v2",
+        "server": SERVER_URL, "path": "secret", "version": "v2",
         "caProvider": {"type": "ConfigMap", "name": "target-openbao-ca", "key": "ca.crt"},
         "auth": {"kubernetes": {"mountPath": "kubernetes", "role": rehearsal_role_name(namespace),
                                 "serviceAccountRef": {"name": READER_ACCOUNT, "audiences": ["openbao"]}}}}}})
@@ -386,7 +401,7 @@ def rehearsal_fetch_script(namespace):
     role, remote = rehearsal_role_name(namespace), rehearsal_remote_path(namespace)
     return (
         "set -eu; umask 077; "
-        "export BAO_ADDR=https://target-openbao.bravo-secrets.svc:8200 BAO_CACERT=/openbao/ca/ca.crt; "
+        f"export BAO_ADDR={SERVER_URL} BAO_CACERT=/openbao/ca/ca.crt; "
         "DIR=/run/bravo/database; OUT=$DIR/credentials.json; TMP=$DIR/.credentials.json.tmp.$$; TOKEN=''; "
         "cleanup() { rc=$?; rm -f \"$TMP\"; "
         "if [ -n \"$TOKEN\" ]; then BAO_TOKEN=\"$TOKEN\" bao token revoke -self >/dev/null 2>&1 || echo 'openbao-fetch: token revoke failed' >&2; fi; "
@@ -418,7 +433,7 @@ def delivery():
                   automountServiceAccountToken=False)
     store = obj("SecretStore", "target-openbao", namespace=APP_NAMESPACE,
                 api="external-secrets.io/v1", spec={"provider": {"vault": {
-                    "server": "https://target-openbao.bravo-secrets.svc:8200",
+                    "server": SERVER_URL,
                     "path": "secret", "version": "v2",
                     "caProvider": {"type": "ConfigMap", "name": "target-openbao-ca", "key": "ca.crt"},
                     "auth": {"kubernetes": {"mountPath": "kubernetes", "role": "target-app-reader",
@@ -490,7 +505,7 @@ def main(argv=None):
         "policy", "delivery", "network", "eso-network",
         "rehearsal-reader-policy", "rehearsal-auth-role", "rehearsal-delivery", "rehearsal-init-container",
         "rehearsal-writer-policy", "rehearsal-writer-auth-role", "rehearsal-writer-identity",
-        "t14-other-auth-role", "app-db-policy", "app-auth-role",
+        "t14-other-auth-role", "app-db-policy", "app-auth-role", "server-cert-sans",
     ])
     parser.add_argument("--node-name")
     parser.add_argument("--namespace")
@@ -528,7 +543,8 @@ def main(argv=None):
                  "rehearsal-writer-auth-role": rehearsal_writer_auth_role,
                  "rehearsal-writer-identity": rehearsal_writer_identity,
                  "t14-other-auth-role": t14_other_auth_role,
-                 "app-auth-role": app_auth_role}[args.stage]()
+                 "app-auth-role": app_auth_role,
+                 "server-cert-sans": server_cert_sans}[args.stage]()
         print(json.dumps(value, indent=2))
 
 
