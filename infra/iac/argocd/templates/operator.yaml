@@ -1,0 +1,69 @@
+{{- /*
+The cluster's Tailscale operator (T48, ADR-0035): infra/iac/operators/<environment>/operator.yaml, rendered from
+the pinned chart, at the same reviewed commit as the environment Application. Off by default and independent of
+application.enabled, so a cluster whose operator was applied by hand is taken over without touching the routes.
+Its own project: only tailscale-system and the kinds that file holds.
+*/}}
+{{- if and .Values.operator.enabled (.Capabilities.APIVersions.Has "argoproj.io/v1alpha1/Application") }}
+{{- $environment := required "environment is required" .Values.environment }}
+{{- $revision := required "targetRevision (the reviewed full commit SHA) is required" .Values.targetRevision }}
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: bravo-iac-operator
+  namespace: {{ .Release.Namespace }}
+spec:
+  description: Tailscale operator of this cluster ({{ $environment }})
+  sourceRepos:
+    - {{ .Values.repoURL | quote }}
+  destinations:
+    - server: https://kubernetes.default.svc
+      namespace: tailscale-system
+  # No CRDs: like the namespace, they are the cluster builder's.
+  clusterResourceWhitelist:
+    - group: rbac.authorization.k8s.io
+      kind: ClusterRole
+    - group: rbac.authorization.k8s.io
+      kind: ClusterRoleBinding
+  namespaceResourceWhitelist:
+    - group: apps
+      kind: Deployment
+    - group: ""
+      kind: ServiceAccount
+    - group: rbac.authorization.k8s.io
+      kind: Role
+    - group: rbac.authorization.k8s.io
+      kind: RoleBinding
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: bravo-iac-{{ $environment }}-operator
+  namespace: {{ .Release.Namespace }}
+spec:
+  project: bravo-iac-operator
+  source:
+    repoURL: {{ .Values.repoURL | quote }}
+    targetRevision: {{ $revision | quote }}
+    path: infra/iac/operators/{{ $environment }}
+    directory:
+      include: operator.yaml
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: tailscale-system
+  syncPolicy:
+    automated:
+      enabled: {{ .Values.operator.autoSync }}
+      prune: false
+      selfHeal: true
+      allowEmpty: false
+    # The namespace and the operator-oauth Secret belong to whoever built the cluster; never pruned here.
+    syncOptions:
+      - ServerSideApply=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 10s
+        factor: 2
+        maxDuration: 3m
+{{- end }}
