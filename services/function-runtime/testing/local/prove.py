@@ -158,7 +158,8 @@ def check_no_values_stored(conn) -> dict:
                         " JOIN messages m ON m.id = c.message_id WHERE c.has_pii").fetchall()
     values = ["900101-1234567", "1234-5678-9012-3456", "110-123-456789"]
     leaked_rows = sum(1 for body, _, _, row in rows if body in row or any(v in row for v in values))
-    counts_ok = all(sum(counts.values()) >= 1 and sorted(counts) == kinds for _, kinds, counts, _ in rows)
+    # 각 개인정보 메시지는 한 종류 1개다(PII 목록). 카드번호가 계좌번호로도 세지면 여기서 걸린다.
+    counts_ok = all(sorted(counts) == kinds and sum(counts.values()) == 1 for _, kinds, counts, _ in rows)
     logs = subprocess.run(["docker", "compose", "logs", "function"], cwd=HERE, capture_output=True, text=True).stdout
     leaked_logs = sum(1 for v in values + PII if v in logs)
     ok = bool(rows) and leaked_rows == 0 and counts_ok and leaked_logs == 0
