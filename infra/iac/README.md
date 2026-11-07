@@ -15,7 +15,8 @@
 |---|---|---|
 | `target-object-exposure` v1 | Secret `target-dev/target-seaweedfs-auth`의 `s3.json` 계정·권한 형태(비밀 값 제외), 바뀌면 `target-seaweedfs` 재시작 | `state`: `closed` \| `open-demo`, `bucket`, `demo_run_id`(open-demo일 때만) |
 
-| `tailnet-egress` v1 | 클러스터의 Tailscale egress 경로: 그룹마다 egress ProxyGroup(전용 태그), tailnet 호스트로 가는 ExternalName Service, 그 그룹 proxy Pod에 묶은 NetworkPolicy | `owner_tag`, `groups[]`: `name`, `tag`, `tailnet`?, `proxy_class`?, `clients[]`(namespace·labels), `routes[]`(service·namespace·destination·destination_tag·port·port_name) |
+| `tailnet-egress` v1 | 클러스터의 Tailscale egress 경로: 그룹마다 egress ProxyGroup(전용 태그), tailnet 호스트로 가는 ExternalName Service, 그 그룹 proxy Pod에 묶은 NetworkPolicy | `owner_tag`, `groups[]`: `name`, `tag`, `tailnet`?, `proxy_class`?, `client_policy`?(`false`만), `clients[]`(namespace·labels), `routes[]`(service·namespace·destination·destination_tag·port·port_name) |
+| `tailnet-ingress` v1 | 클러스터 안 워크로드를 tailnet 장치로 노출: 장치마다 operator expose Service(호스트 이름·태그·selector·포트). 누가 닿는지는 소비자 쪽 `tailnet-egress` grant가 정한다 | `owner_tag`, `devices[]`: `service`, `namespace`, `hostname`, `tag`, `tailnet`?, `selector`, `ports[]`(name·port·target_port) |
 
 `target-object-exposure`는 T9 렌더러(`infra/envs/target-workloads/object_exposure.py`)와 같은 계정·권한을 낸다.
 같은지는 시험이 고정한다. 계정 키는 Git에도 plan에도 없다. 적용하는 쪽이 적용 시점에 넣는다(`secret_inputs`).
@@ -23,7 +24,24 @@
 `environments/target-dev.json`은 지금 **`open-demo`**다. 데모 1번(IAM-01.1: 인증 없이 첨부를 읽을 수 있는가)의
 일부러 심은 결함이며 `demo_run_id`로 그 실행을 밝힌다. 운영 기본값은 `closed`다.
 
-## 네트워크 경로를 미리 깐다 (`tailnet-egress`)
+## 네트워크 경로를 미리 깐다 (`tailnet-egress`, `tailnet-ingress`)
+
+**네트워크 API는 이것 하나다.** 플랫폼·출발지·목적지의 tailnet 경로는 모두 `environments/*.json`에 선언하고,
+`GET /v1/iac/network`(CLI `bravo-iac network infra/iac/environments/*.json`)가 한 번에 돌려준다.
+
+| 환경 | egress (클러스터 안 Service → tailnet 장치) | ingress (tailnet 장치 → 클러스터 안) |
+|---|---|---|
+| platform | 반영·리허설·Collector → 목적지 API(워크로드 tailnet), 컷오버 → 양쪽 DB·제어 Pooler·API | 아직 없음: 지표 저장소 `bravo-metrics` 노출은 저장소에 렌더러가 없어 다음 단계에서 선언 |
+| source-dev | Collector → 지표 저장소, 복제(역방향 구독) → `bravo-target-db` | `bravo-source-db`, `bravo-source-control-pooler` |
+| target-dev | Collector → 지표 저장소, 복제(정방향 구독)·Pooler → `bravo-source-db` | `bravo-target-db`, `bravo-target-control-pooler` |
+
+응답에는 환경마다 경로(호출할 클러스터 안 DNS 이름·포트 → 장치·태그·tailnet, 호출자)와 노출 장치, tailnet마다
+정책 조각이 들어간다. 커밋된 파일만 읽으므로 proxy Pod·포트·주소를 찾을 필요가 없다. 옛 렌더러에서 같은 객체를
+만들던 명령(`target-workloads/network.py ingress`·`egress`, `executor-network/control_network.py pooler-ingress`,
+#608의 명령들)은 종료 코드 2로 거부한다. operator 설치 값(`values`)만 렌더러에 남는다.
+
+- 복제·Pooler 그룹은 `client_policy: false`다. CNPG 인스턴스와 PgBouncer는 자기 DB·백업·API 서버로도 나가야 하므로
+  클라이언트 쪽 egress를 격리하지 않고, proxy 쪽만 그 클라이언트로 제한한다. 이 값을 끄는 변경은 에이전트에게 확대다.
 
 지금까지는 경로마다 렌더러가 있고(`rehearsal-access`, `executor-network`, `collector-network`), 적용 뒤
 Tailscale operator가 매긴 proxy 포트를 **관찰해서** NetworkPolicy에 넣었다. 그래서 작업할 때마다 들어가서
@@ -38,7 +56,7 @@ Tailscale operator가 매긴 proxy 포트를 **관찰해서** NetworkPolicy에 �
   `tests`가 있어서 Tailscale이 이 불변식을 깨는 정책을 거부한다.
 - tailnet 접미사(`<tailnet>.ts.net`)는 Git에 없다. Service에는 `<호스트>.{tailnet}`으로 두고 적용기가 채운다.
 - **tailnet이 둘이다.** 플랫폼의 반영·리허설·Collector egress는 워크로드 tailnet의 `bravo-target-api`, 컷오버 egress는 사람·운영자 tailnet의 장치를 부른다(2026-11-07 13:00 KST 플랫폼 readback). 다른 tailnet에 붙는 그룹은 `tailnet` 키(예: `workload`)를 갖고, Service에는 `<호스트>.{tailnet:workload}`, 차트 값은 `tailnets.workload`, 정책 조각은 `infra/tailnet/routes-policy.workload.json`(`--tailnet workload`)로 따로 생성한다. 키가 없는 그룹은 지금처럼 `tailnet` 값과 `routes-policy.json`을 쓴다.
-- 에이전트는 경로를 더할 수 없고(도달 범위가 늘면 `IAC_WIDENING_REFUSED`) 뺄 수만 있다.
+- 에이전트는 경로를 더할 수 없고(도달 범위가 늘면 `IAC_WIDENING_REFUSED`) 뺄 수만 있다. 도달 대상에는 tailnet이 들어간다. 같은 호스트 이름이라도 다른 tailnet이면 다른 장치이므로, 그룹의 `tailnet`을 바꾸는 것도 확대다. 그룹 `tag`를 바꾸는 것처럼 새 tailnet grant가 생기는 변경도 확대다.
 
 **실검증은 Tailscale로**: `bravo-iac tailnet-verify infra/iac/environments/*.json`이 이 기기의 `tailscale status --json`으로
 각 목적지·proxy 그룹을 판정한다(OK / OFFLINE / TAG_MISMATCH / NOT_VISIBLE). NOT_VISIBLE은 이 기기의 grant로 보이지
@@ -86,8 +104,9 @@ tailnet 접미사(`tailnet`, `tailnets.workload`)이고, AppProject `platform-ia
 `infra/envs/collector-network`(Collector → 지표 저장소). 두 쪽이 함께 적용하면 NetworkPolicy 규칙(관찰한 포트 대 10000–10999)이
 서로 되돌린다. 렌더러의 경로 출력은 담당 합의로 이 모듈로 옮긴다(T44 할 일: T15·T12·T37).
 
-이후 원하는 상태의 변경은 PR → 병합 → 그 클러스터의 Argo가 60초 안에 끌어와 동기화(자동, prune·selfHeal, 없는 namespace 생성)
+이후 원하는 상태의 변경은 PR → 병합 → 그 클러스터의 Argo가 60초 안에 끌어와 동기화(자동, prune·selfHeal)
 한다. 비밀 값이 필요한 자원(지금은 버킷 계정 Secret)은 차트에 없고 `Chart.yaml`의 `bravo.dev/unmanaged`에 적힌다.
+**차트는 Namespace를 선언하지 않는다.** namespace의 주인은 클러스터를 세우는 쪽이다(새 목적지는 T45, 플랫폼·출발지는 기존 구성). 같은 Namespace를 T44·T45 두 Application이 함께 관리하던 겹침(#620 kind 실측의 Argo 경고)을 없앤다. namespace나 Tailscale CRD가 아직 없으면(빈 클러스터에서는 T45가 Argo 다음에 설치) 그 동기화는 실패하고 무제한 재시도(`retry.limit: -1`, 최대 3분 간격)로 기다린다. Argo 자동 동기화는 실패한 같은 커밋을 스스로 다시 시도하지 않기 때문이다.
 ProxyGroup은 그 클러스터에 Tailscale operator(CRD)가 있어야 생성된다(`SkipDryRunOnMissingResource`).
 
 **설치 명령은 두 번 실행한다.** 첫 실행이 Argo CD와 CRD를 만들고, 두 번째 실행이 AppProject·Application을 만든다
@@ -123,7 +142,7 @@ uv run bravo-iac stage --plan plan.json --proposed proposed.json --target ../../
   (`IAC_MODULE_SET_CHANGE_REFUSED`). 운영자는 할 수 있고, plan에 누가 요청했는지 남는다.
 - `stage`는 대상 파일이 plan의 `base_digest`일 때만 쓴다. 그사이 Git이 바뀌었으면 `IAC_BASE_CHANGED`로 멈춘다.
 - API(`bravo_iac.api.create_app(<environments 폴더>)`): `GET /v1/iac/modules`, `GET /v1/iac/environments/{id}`,
-  `POST /v1/iac/plan`. 커밋된 파일만 읽고 Git·클러스터에 쓰지 않는다. 호출자 인증은 앞단 호스트가 한다.
+  `GET /v1/iac/network`, `POST /v1/iac/plan`. 커밋된 파일만 읽고 Git·클러스터에 쓰지 않는다. 호출자 인증은 앞단 호스트가 한다.
 
 ## 아직 아닌 것
 

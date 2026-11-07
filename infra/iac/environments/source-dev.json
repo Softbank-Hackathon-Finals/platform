@@ -29,6 +29,71 @@
                 "port_name": "otlp"
               }
             ]
+          },
+          {
+            "name": "bravo-source-replication",
+            "tag": "tag:bravo-source-replication",
+            "client_policy": false,
+            "clients": [
+              {
+                "namespace": "source-dev",
+                "labels": {
+                  "cnpg.io/cluster": "source-db"
+                }
+              }
+            ],
+            "routes": [
+              {
+                "service": "target-db-for-replication",
+                "namespace": "source-dev",
+                "destination": "bravo-target-db",
+                "destination_tag": "tag:bravo-target-db",
+                "port": 5432,
+                "port_name": "postgres"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "tailnet-ingress",
+      "version": "1",
+      "params": {
+        "owner_tag": "tag:bravo-source-operator",
+        "devices": [
+          {
+            "service": "source-db-tailnet",
+            "namespace": "source-dev",
+            "hostname": "bravo-source-db",
+            "tag": "tag:bravo-source-db",
+            "selector": {
+              "cnpg.io/cluster": "source-db",
+              "cnpg.io/instanceRole": "primary"
+            },
+            "ports": [
+              {
+                "name": "postgres",
+                "port": 5432,
+                "target_port": 5432
+              }
+            ]
+          },
+          {
+            "service": "source-control-pooler-tailnet",
+            "namespace": "source-dev",
+            "hostname": "bravo-source-control-pooler",
+            "tag": "tag:bravo-source-control-pooler",
+            "selector": {
+              "app": "source-pgbouncer"
+            },
+            "ports": [
+              {
+                "name": "pooler",
+                "port": 6432,
+                "target_port": 5432
+              }
+            ]
           }
         ]
       }

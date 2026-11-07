@@ -1,6 +1,6 @@
 # T12 platform state DB network path
 
-> **2026-11-07 · T44:** 이 렌더러의 경로 출력(`routes`·`network`·`proxy-ingress`)은 [`infra/iac`](../../iac/README.md)의 `tailnet-egress` 모듈로 옮겼다. 같은 ProxyGroup·Service·NetworkPolicy의 주인은 하나다. CLI의 해당 명령은 종료 코드 2로 거부한다. 남은 것: `values`·`pooler-ingress`.
+> **2026-11-07 · T44:** 이 렌더러의 경로 출력(`routes`·`network`·`proxy-ingress`)은 [`infra/iac`](../../iac/README.md)의 `tailnet-egress` 모듈로 옮겼다. 같은 ProxyGroup·Service·NetworkPolicy의 주인은 하나다. CLI의 해당 명령은 종료 코드 2로 거부한다. `pooler-ingress`(출발지·목적지 제어 Pooler 장치)도 `tailnet-ingress` 모듈로 옮겼다. 남은 것: `values`.
 
 `render.py` creates two additional policies. `platform-state` accepts TCP 5432
 from `bravo-platform` Pods with the exact

@@ -241,11 +241,11 @@ class ProxyIngressBoundaryTests(unittest.TestCase):
                                  [{"protocol": "UDP", "port": port} for port in sorted(ports)])
 
     def test_route_stages_are_refused_because_the_iac_module_owns_them(self):
-        for stage in ("routes", "network", "proxy-ingress"):
+        for stage in ("routes", "network", "proxy-ingress", "pooler-ingress"):
             err = io.StringIO()
             with self.subTest(stage=stage), patch.object(render.sys, "stderr", err), \
                     self.assertRaises(SystemExit) as error:
-                render.main([stage, "--transport-port", "46000"])
+                render.main([stage, "--transport-port", "46000", "--side", "source"])
             self.assertEqual(error.exception.code, 2)
             self.assertIn("infra/iac/environments", err.getvalue())
         policy = render.proxy_ingress(observed_services(), False, transport_ports=[46000, 45000])

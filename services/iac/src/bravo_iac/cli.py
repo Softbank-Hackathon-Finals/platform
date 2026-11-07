@@ -9,6 +9,7 @@
     bravo-iac tailnet-check --policy <tailnet policy JSON> [--tailnet workload] infra/iac/environments/*.json
     bravo-iac tailnet-verify [--tailnet workload] infra/iac/environments/*.json   # live, through this device's Tailscale
     bravo-iac chart infra/iac/environments/target-dev.json --out infra/iac/charts/target-dev
+    bravo-iac network infra/iac/environments/*.json             # every route, as GET /v1/iac/network
 
 stage writes the proposed state into the target file only if the file still has the plan's
 base_digest and the proposal its proposed_digest, and the plan was accepted. Opening the PR,
@@ -22,7 +23,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from . import catalog, chart, tailnet
+from . import catalog, chart, network, tailnet
 from .modules import IacError
 from .plan import canonical, digest, plan
 
@@ -47,6 +48,8 @@ def run(args) -> dict:
             path.write_text(content, encoding="utf-8")
             written.append(name)
         return {"chart": args.out, "files": written}
+    if args.command == "network":
+        return network.view([_load(s) for s in args.states])
     if args.command == "tailnet-policy":
         return tailnet.fragment([_load(s) for s in args.states], args.tailnet)
     if args.command == "tailnet-check":
@@ -82,6 +85,8 @@ def main(argv=None) -> int:
     ch = sub.add_parser("chart")
     ch.add_argument("state")
     ch.add_argument("--out", required=True)
+    nw = sub.add_parser("network")
+    nw.add_argument("states", nargs="+")
     tp = sub.add_parser("tailnet-policy")
     tp.add_argument("--tailnet", default="default", help="tailnet key: default, or a group's `tailnet`")
     tp.add_argument("states", nargs="+")

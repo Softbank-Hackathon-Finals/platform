@@ -19,6 +19,7 @@ on:
       - services/edge-control/pyproject.toml
       - scripts/image_import_closure.py
       - operations/kubectl/**
+      - infra/envs/rehearsal-access/credentials.py
       - scripts/registration_delivery.py
       - scripts/image_delivery/**
       - .github/workflows/publish-registration-image.yml
