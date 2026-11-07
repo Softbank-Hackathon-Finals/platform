@@ -1,6 +1,6 @@
-# T44 목적지 구축 계획: 정형 스택 → 렌더 → 계획 digest
+# T45 목적지 처음 구축: 정형 스택 → 렌더 → 계획 digest
 
-설계 8.11의 "목적지 구축" 어댑터를 [ADR-0032](../../docs/adr/0032-infra-plan-api.md)대로 만든다. 목적지 구축 절차를 정형 단계 스택으로 고정하고, 같은 입력이면 같은 계획과 `plan_digest`가 나오게 한다. 승인은 T10 `approval_kind=infra`(#603)가, 선언형 자원의 적용은 목적지 클러스터 안의 Argo CD가 맡는다.
+설계 8.11의 "목적지 구축" 어댑터를 [ADR-0033](../../docs/adr/0033-destination-bootstrap-executor.md)대로 만든다. 빈 클러스터에서 목적지를 처음 세우는 순서를 맡고, 이미 선 목적지의 설정 모듈 · 원하는 상태 · 고객 클러스터 Argo CD 설치는 T44([ADR-0032](../../docs/adr/0032-destination-iac-api.md), `services/iac`)가 맡는다. 목적지 구축 절차를 정형 단계 스택으로 고정하고, 같은 입력이면 같은 계획과 `plan_digest`가 나오게 한다. 승인은 T10 `approval_kind=infra`(#603)가, 선언형 자원의 적용은 T44가 설치한 목적지 Argo CD(`bravo-iac-gitops`)가 맡는다.
 
 **상태: 스택 정의와 계획 엔진(오프라인)까지. 시험 21개 통과. 실제 chart 4개(공식 저장소에서 받은 아카이브, 고정 SHA-256 일치)와 `helm template`으로 `target-onprem` 계획을 두 번 렌더해 결과와 digest가 같음을 로컬에서 확인했다(약 1.8초). 클러스터 dry-run · 설정 저장소 커밋 · 적용 실행기 · HTTP API · T11 도구는 다음 PR이다.**
 
@@ -10,8 +10,7 @@
 | `stack.py` | 스택 검사(스키마, 중복 · 없는 의존 · 순환, publish 없는 sync, 선언하지 않은 파라미터), 병렬 단계(level) 계산, 계획 요청 JSON Schema 생성 |
 | `plan.py` | 저장소 렌더러를 고정 인자로 실행하고, chart는 아카이브 해시를 확인한 뒤 `helm template` → 후처리(`finalize-bao` 등)를 거친다. 렌더 결과를 자원 종류로 골라 나눌 수 있다. 단계 digest, 설정 저장소 트리 digest, `plan_digest` |
 | `cli.py` | `bravo-infra-plan check / request-schema / plan` |
-| [`infra/stacks/target-onprem/stack.json`](../../infra/stacks/target-onprem/stack.json) | 첫 스택. T30 · T9 README 절차를 33단계 15레벨로 옮겼다. 렌더러 코드는 바꾸지 않았다 |
-| [`infra/stacks/target-onprem/argocd/`](../../infra/stacks/target-onprem/argocd) | 목적지 Argo CD Core chart(argo-cd 10.14.0, UI · Dex · admin · exec 없음). 플랫폼 chart에는 플랫폼 전용 자원이 항상 렌더되므로 따로 둔다 |
+| [`infra/stacks/target-onprem/stack.json`](../../infra/stacks/target-onprem/stack.json) | 첫 스택. T30 · T9 README 절차를 33단계 15레벨로 옮겼다. 목적지 Argo CD는 설치하지 않고 T44 설치를 확인하는 사람 단계로 둔다. 렌더러 코드는 바꾸지 않았다 |
 
 ## 계획이 담는 것
 
@@ -19,7 +18,7 @@
 
 - `gitops_publish`: 설정 저장소 `<path>/<name>.json`에 올릴 매니페스트. 트리 digest에 들어간다.
 - `render_apply`: 일회성 자원(마이그레이션 Job). 설정 저장소에 두지 않는다.
-- `helm_release`: chart 디렉터리(`Chart.lock` 포함, 내려받은 `charts/` 제외)와 values의 digest.
+- `helm_release`: chart 디렉터리(`Chart.lock` 포함, 내려받은 `charts/` 제외)와 values의 digest. 첫 스택은 쓰지 않는다.
 - `secret_generate`: Secret 이름 · 타입 · 키 이름과 생성 방식(`literal` · `random` · `builtin`)만. 값은 실행기가 메모리에서 만든다.
 - 그 밖의 단계: 단계 정의 자체의 digest.
 

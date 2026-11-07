@@ -1,7 +1,7 @@
 [project]
 name = "bravo-infra-plan"
 version = "0.1.0"
-description = "T44 목적지 구축 계획: 정형 스택 → 렌더 → 계획 digest (ADR-0032)"
+description = "T45 목적지 구축 계획: 정형 스택 → 렌더 → 계획 digest (ADR-0033)"
 requires-python = ">=3.12"
 dependencies = ["jsonschema>=4.23,<5", "pyyaml>=6.0.3,<7"]
 

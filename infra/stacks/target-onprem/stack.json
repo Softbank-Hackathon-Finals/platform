@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "stack": "target-onprem",
-  "description": "T30 · T9 README의 목적지 구축 절차를 정형 단계로 옮긴 첫 스택(ADR-0032 3.7). 렌더러 코드는 바꾸지 않는다.",
+  "description": "T30 · T9 README의 목적지 처음 구축 절차를 정형 단계로 옮긴 첫 스택(T45, ADR-0033). 렌더러 코드는 바꾸지 않는다. 목적지 Argo CD는 T44(ADR-0032) 설치를 함께 쓴다.",
   "params": {
     "node_name": {
       "description": "확인한 노드의 kubernetes.io/hostname",
@@ -70,16 +70,14 @@
     },
     {
       "id": "argocd",
-      "kind": "helm_release",
+      "kind": "operator_action",
       "owner": "T44",
-      "description": "목적지 클러스터 안에 Argo CD Core를 설치한다(UI · Dex · admin 없음)",
+      "description": "T44 목적지 Argo CD(infra/iac/argocd)가 설치돼 있는지 확인한다. T45는 Argo CD를 설치하지 않는다",
       "needs": [
         "identity"
       ],
-      "chart_dir": "infra/stacks/target-onprem/argocd",
-      "values_file": "infra/stacks/target-onprem/argocd/values.yaml",
-      "release": "target-gitops",
-      "namespace": "argocd"
+      "instruction": "infra/iac/README.md 절차로 이 고객 클러스터에 Argo CD를 설치한다(release bravo-iac-gitops, namespace bravo-iac-gitops, 설치 명령 2회). 플랫폼 클러스터에는 설치하지 않는다.",
+      "confirm": "iac-argocd"
     },
     {
       "id": "config-repo-access",
@@ -89,7 +87,7 @@
       "needs": [
         "argocd"
       ],
-      "instruction": "조직의 비공개 목적지 설정 저장소에 읽기 전용 deploy key를 만들고, 값은 메모리에서 argocd namespace의 repository Secret으로만 전달한다. 쓰기 권한 키를 등록하지 않는다.",
+      "instruction": "조직의 비공개 목적지 설정 저장소에 읽기 전용 deploy key를 만들고, 값은 메모리에서 bravo-iac-gitops namespace의 repository Secret으로만 전달한다. 쓰기 권한 키를 등록하지 않는다.",
       "confirm": "argocd-repository"
     },
     {

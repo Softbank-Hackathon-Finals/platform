@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/Softbank-Hackathon-Finals/platform/services/infra-plan/stack.schema.json",
-  "title": "T44 infra stack v1 (ADR-0032)",
+  "title": "T45 infra stack v1 (ADR-0033)",
   "type": "object",
   "additionalProperties": false,
   "required": ["schema_version", "stack", "params", "charts", "steps"],

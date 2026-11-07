@@ -1,4 +1,4 @@
-"""Load a T44 infra stack: schema, step graph, parameters (ADR-0032).
+"""Load a T45 infra stack: schema, step graph, parameters (ADR-0033).
 
 A stack is data only. It names repository renderers, pinned charts and step kinds; it never
 carries a credential value or a shell command. Every check here runs before anything renders.

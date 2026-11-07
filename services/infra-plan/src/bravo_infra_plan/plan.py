@@ -1,4 +1,4 @@
-"""Render a stack into a plan and its `plan_digest` (ADR-0032 3.3).
+"""Render a stack into a plan and its `plan_digest` (ADR-0033 3.3).
 
 The planner only reads: it runs repository renderers and `helm template`, never `kubectl`, and
 never writes to a cluster or a Git remote. A plan holds digests and the rendered manifests; the

@@ -1,7 +1,7 @@
 """bravo-infra-plan: check a stack, print its request schema, or render a plan offline.
 
 `plan` never contacts a cluster or a Git remote. The caller supplies the observed target identity
-and the configuration repository's base commit; the API (next step of T44) reads them itself.
+and the configuration repository's base commit; the API (next step of T45) reads them itself.
 """
 
 import argparse

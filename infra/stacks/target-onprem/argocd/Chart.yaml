@@ -1,9 +1,0 @@
-apiVersion: v2
-name: target-gitops
-description: Argo CD Core inside the destination (customer) cluster for T44 (ADR-0032)
-type: application
-version: 0.1.0
-dependencies:
-  - name: argo-cd
-    version: 10.14.0
-    repository: https://argoproj.github.io/argo-helm
