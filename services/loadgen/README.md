@@ -133,7 +133,12 @@ uv run bravo-loadgen measure <위와 같은 인자> \
 - **비밀번호 · 클라이언트 비밀 · 토큰은 환경변수와 메모리에만 있다.** 명령줄 · 기록 · 리포트 · 실행 상태 · 오류 메시지에 남기지 않는다. 오류에는 OAuth 오류 코드나 AWS 오류 코드만 적는다. 리포트에는 `measurement.sign_in`(발급자 종류, 다시 받은 횟수 · 실패 횟수)만 남는다.
 - 토큰 요청은 리다이렉트를 따라가지 않고, 발급자와 다른 곳의 토큰 주소로는 비밀번호를 보내지 않는다. 발급자는 https만 받는다(이 컴퓨터의 시험 발급자만 http).
 
-**앱 쪽 조건이 아직 없다.** 부하 생성기 토큰의 `aud`는 부하 생성기 클라이언트 ID다. 앱이 받으려면 같은 발급자의 두 번째 클라이언트를 믿어야 하는데, demo-chat(`a204665`)은 발급자 주소마다 클라이언트 ID를 하나만 남긴다. `AUTH_ISSUER`와 같은 발급자를 `AUTH_ALSO_TRUST`에 넣으면 무시돼 부하 토큰이 401이고, `AUTH_ALSO_TRUST`에 같은 발급자를 두 번 넣으면 마지막 것만 남는다. 목적지 앱에 Cognito 브라우저 · 부하 클라이언트를 둘 다 넣으면 **출발지에서 로그인한 방문자의 쓰기가 401이 된다**(11/8 그 코드로 확인). demo-app이 발급자마다 여러 클라이언트를 받도록 바뀌기 전에는 로그인을 켠 앱에 이 옵션으로 쓰기 부하를 넣지 않는다.
+**앱 쪽에는 [demo-app #30](https://github.com/Softbank-Hackathon-Finals/demo-app/pull/30)이 필요하다(병합 전).** 부하 생성기 토큰의 `aud`는 부하 생성기 클라이언트 ID라서, 앱은 같은 발급자의 두 번째 클라이언트를 믿어야 한다. 지금 demo-chat(`a204665`)은 발급자 주소마다 클라이언트 ID를 하나만 남긴다. 그래서 `AUTH_ISSUER`와 같은 발급자를 `AUTH_ALSO_TRUST`에 넣으면 무시돼 부하 토큰이 401이고, 같은 발급자를 두 번 넣으면 마지막 것만 남는다. 목적지 앱에 Cognito 브라우저 · 부하 클라이언트를 둘 다 넣으면 **출발지에서 로그인한 방문자의 쓰기가 401이 된다**(11/8 그 코드로 확인). #30은 같은 발급자의 항목을 모두 믿고 토큰 `aud`가 그중 하나면 받는다. #30이 배포되기 전에는 로그인을 켠 앱에 이 옵션으로 쓰기 부하를 넣지 않는다. 배포된 뒤의 설정:
+
+- 출발지 앱: `AUTH_ISSUER=<Cognito 발급자>`, `AUTH_CLIENT_ID=<브라우저 클라이언트>`, `AUTH_ALSO_TRUST=<Cognito 발급자>|<부하 클라이언트>`
+- 목적지 앱(이사 중): `AUTH_ISSUER=<Keycloak 발급자>`, `AUTH_CLIENT_ID=demo-chat`, `AUTH_ALSO_TRUST=<Cognito 발급자>|<브라우저 클라이언트>,<Cognito 발급자>|<부하 클라이언트>,<Keycloak 발급자>|demo-chat-loadgen`
+- 이사가 끝나면 Cognito 두 항목만 지운다. `<Keycloak 발급자>|demo-chat-loadgen`은 남겨도 Exit Drill은 AWS 주소만 본다(`AWS_IDENTITY_TRUSTED`)
+
 
 ## 검사
 

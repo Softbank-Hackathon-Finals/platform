@@ -310,7 +310,7 @@ kubectl -n target-dev rollout status deployment/target-login
 
 5. **Edge(T17) 인계 조건:** 로그인 공개 주소를 `target-login.target-dev.svc:8080`으로 보내되 **`/realms/bravo/`와 `/resources/`만 넘기고 `/admin/` · `/realms/master/`는 막는다.** 관리 작업은 `kubectl -n target-dev port-forward svc/target-login 18080:8080`으로만 한다. 이 렌더는 Edge 설정을 바꾸지 않는다.
 6. 사용자를 옮긴다(아래).
-7. demo-chat 설정: 목적지 앱은 `AUTH_ISSUER=<공개 주소>/realms/bravo`, `AUTH_CLIENT_ID=demo-chat`, 이사 중에는 `AUTH_ALSO_TRUST=<Cognito 발급자>|<Cognito 클라이언트 ID>`. 이사가 끝나면 `AUTH_ALSO_TRUST`를 지운다.
+7. demo-chat 설정: 목적지 앱은 `AUTH_ISSUER=<공개 주소>/realms/bravo`, `AUTH_CLIENT_ID=demo-chat`, 이사 중에는 `AUTH_ALSO_TRUST=<Cognito 발급자>|<Cognito 클라이언트 ID>`. 이사가 끝나면 `AUTH_ALSO_TRUST`를 지운다. 부하 생성기도 로그인해서 쓸 때의 설정은 아래 "부하 생성기 클라이언트"에 있다(demo-app #30 필요).
 
 ### 사용자 옮기기
 
@@ -380,7 +380,12 @@ printf 'header = "Authorization: Bearer %s"\n' "$TOKEN" \
 
 부하 생성기 계정(출발지와 같은 `loadgen`)은 위 "사용자 옮기기"로 옮긴 뒤, 3번 명령에서 `"temporary":true`를 **`false`로** 바꿔 영구 비밀번호를 넣는다. 첫 로그인에서 비밀번호를 바꿀 사람이 없는 계정이라서다. 영구 비밀번호를 넣으면 비밀번호 변경 단계가 풀린다(컨테이너 시험이 잰다). 부하 생성기 쪽 사용법은 [services/loadgen](../../../services/loadgen/README.md#로그인을-켠-앱에-쓰기-t47).
 
-**앱 설정은 아직 할 수 없다.** demo-chat(`a204665`)은 발급자 주소마다 클라이언트 ID를 하나만 남긴다. `AUTH_ISSUER`와 같은 Keycloak 발급자를 `AUTH_ALSO_TRUST`에 `|demo-chat-loadgen`으로 넣으면 무시돼 부하 토큰이 401이고, `AUTH_ALSO_TRUST`에 Cognito 발급자를 브라우저 · 부하 클라이언트로 두 번 넣으면 마지막 것만 남아 **출발지에서 로그인한 방문자의 토큰이 401이 된다**(11/8 그 코드로 확인). demo-app이 발급자마다 여러 클라이언트 ID를 받게 바뀐 뒤에 넣는다.
+**앱 설정에는 [demo-app #30](https://github.com/Softbank-Hackathon-Finals/demo-app/pull/30)이 필요하다(병합 전).** 지금 demo-chat(`a204665`)은 발급자 주소마다 클라이언트 ID를 하나만 남긴다. `AUTH_ISSUER`와 같은 Keycloak 발급자를 `AUTH_ALSO_TRUST`에 `|demo-chat-loadgen`으로 넣으면 무시돼 부하 토큰이 401이고, Cognito 발급자를 브라우저 · 부하 클라이언트로 두 번 넣으면 마지막 것만 남아 **출발지에서 로그인한 방문자의 토큰이 401이 된다**(11/8 그 코드로 확인). #30은 같은 발급자의 항목을 모두 믿는다. #30이 배포되기 전에는 부하 클라이언트를 `AUTH_ALSO_TRUST`에 넣지 않는다. 배포된 뒤의 설정:
+
+- 출발지 앱: `AUTH_ISSUER=<Cognito 발급자>`, `AUTH_CLIENT_ID=<브라우저 클라이언트>`, `AUTH_ALSO_TRUST=<Cognito 발급자>|<부하 클라이언트>`
+- 목적지 앱(이사 중): `AUTH_ISSUER=<Keycloak 발급자>`, `AUTH_CLIENT_ID=demo-chat`, `AUTH_ALSO_TRUST=<Cognito 발급자>|<브라우저 클라이언트>,<Cognito 발급자>|<부하 클라이언트>,<Keycloak 발급자>|demo-chat-loadgen`
+- 이사가 끝나면 Cognito 두 항목만 지운다. `<Keycloak 발급자>|demo-chat-loadgen`은 남겨도 Exit Drill은 AWS 주소만 본다(`AWS_IDENTITY_TRUSTED`)
+
 
 **이중 신뢰 중의 조건.** `AUTH_ALSO_TRUST`가 켜진 동안 두 발급자 모두 스스로 가입이 꺼져 있어 일반 사용자는 다른 이름을 만들 수 없다. 하지만 옮기지 않은 계정(비활성 · 미확인 · 대문자)의 이름과 과거 글은 남는다. 이사 중에는 어느 쪽에서도 `identity_users.py` 출력 밖의 계정을 만들지 않고, 건너뛴 이름은 예약한다. 같은 이름을 새로 만들면 과거 작성자를 가져가게 된다.
 

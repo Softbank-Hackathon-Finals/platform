@@ -92,7 +92,12 @@ unset LOADGEN_PASSWORD
 
 부하 생성기에는 `--auth-issuer <auth_issuer> --auth-client-id <loadgen_client_id> --auth-username loadgen`과 `BRAVO_LOADGEN_PASSWORD`를 준다([services/loadgen](../../../services/loadgen/README.md#로그인을-켠-앱에-쓰기-t47)). 목적지 Keycloak의 대응은 [target-workloads](../target-workloads/README.md#부하-생성기-클라이언트)에 있다.
 
-**앱이 이 토큰을 믿는 설정은 아직 없다.** ID 토큰의 `aud`가 이 클라이언트 ID라서 앱은 같은 발급자의 두 번째 클라이언트를 믿어야 한다. demo-chat(`a204665`)은 발급자 주소마다 클라이언트 ID를 하나만 남긴다. `AUTH_ISSUER`와 같은 발급자를 `AUTH_ALSO_TRUST`에 넣으면 무시되고, `AUTH_ALSO_TRUST`에 같은 발급자를 두 번 넣으면 마지막 것만 남아 **출발지에서 로그인한 방문자의 토큰이 목적지에서 401이 된다.** demo-app이 발급자마다 여러 클라이언트 ID를 받게 바뀌기 전에는 `AUTH_ALSO_TRUST`에 이 클라이언트를 넣지 않는다.
+**앱이 이 토큰을 믿으려면 [demo-app #30](https://github.com/Softbank-Hackathon-Finals/demo-app/pull/30)이 필요하다(병합 전).** ID 토큰의 `aud`가 이 클라이언트 ID라서 앱은 같은 발급자의 두 번째 클라이언트를 믿어야 한다. 지금 demo-chat(`a204665`)은 발급자 주소마다 클라이언트 ID를 하나만 남긴다. `AUTH_ISSUER`와 같은 발급자를 `AUTH_ALSO_TRUST`에 넣으면 무시되고, 같은 발급자를 두 번 넣으면 마지막 것만 남아 **출발지에서 로그인한 방문자의 토큰이 목적지에서 401이 된다.** #30이 배포되기 전에는 `AUTH_ALSO_TRUST`에 이 클라이언트를 넣지 않는다. 배포된 뒤의 설정:
+
+- 출발지 앱: `AUTH_ISSUER=<Cognito 발급자>`, `AUTH_CLIENT_ID=<브라우저 클라이언트>`, `AUTH_ALSO_TRUST=<Cognito 발급자>|<부하 클라이언트>`
+- 목적지 앱(이사 중): `AUTH_ISSUER=<Keycloak 발급자>`, `AUTH_CLIENT_ID=demo-chat`, `AUTH_ALSO_TRUST=<Cognito 발급자>|<브라우저 클라이언트>,<Cognito 발급자>|<부하 클라이언트>,<Keycloak 발급자>|demo-chat-loadgen`
+- 이사가 끝나면 Cognito 두 항목만 지운다. `<Keycloak 발급자>|demo-chat-loadgen`은 남겨도 Exit Drill은 AWS 주소만 본다(`AWS_IDENTITY_TRUSTED`)
+
 
 ## 이사할 때 알아 둘 것
 
