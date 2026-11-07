@@ -24,7 +24,25 @@
 
 - **수집 자격 두 개:** 모두 `env-onprem` 범위, `ingest`, 24시간 이하이다(`docs/security/detection-hardening.md`). falcosidekick은 출처 `falco`만, 에이전트는 `kyverno` · `falco`(Falco heartbeat)를 받는다. 플랫폼 레지스트리에는 sha256만 넣고 원문은 아래 Secret으로만 옮긴다. 보안 담당 운영자가 하루 한 번 만료 전에 다시 발급하고 Secret을 바꾼다(sidekick은 `rollout restart`, 에이전트는 다음 실행부터).
 - **에이전트 이미지:** `agent.json`의 digest는 자리표시다. 플랫폼 이미지 게시 뒤 그 digest로 바꾼다. 목적지의 비공개 이미지 pull 경로를 쓴다.
-- **차트 안 이미지 고정:** 차트는 sha256로 고정했지만 Kyverno · falco · falcoctl · falcosidekick · 플러그인 · 보조 이미지는 태그다. 설치 전에 각 digest를 받아 값 파일 사본에 `image.digest`(또는 `@sha256`)로 고정하고, Falco 규칙도 `falco-rules:5`가 아닌 정확한 판으로 고정한다.
+
+## 이미지 · 규칙 고정 (11-08 레지스트리에서 읽음)
+
+이미지는 값 파일에서 `tag: "<판>@sha256:<index digest>"`로 고정했다. 두 차트 모두 `registry/repository:tag`로만 조립해서 digest를 tag 뒤에 붙인다. 모두 multi-arch index이고 linux/arm64를 담는다.
+
+| 이미지 | 판 | index digest |
+|---|---|---|
+| `reg.kyverno.io/kyverno/kyverno` | v1.19.2 | `sha256:c8c4dd09…b955` |
+| `reg.kyverno.io/kyverno/kyvernopre` | v1.19.2 | `sha256:27f3cc52…48f4` |
+| `reg.kyverno.io/kyverno/background-controller` | v1.19.2 | `sha256:c46e124f…0ce2` |
+| `reg.kyverno.io/kyverno/reports-controller` | v1.19.2 | `sha256:5fb6d3e7…79c3` |
+| `reg.kyverno.io/kyverno/kyverno-cli`(업그레이드 훅) | v1.19.2 | `sha256:322ec504…b11c` |
+| `ghcr.io/kyverno/readiness-checker`(삭제 훅 · 시험) | v1.19.2 | `sha256:02600428…904a` |
+| `docker.io/falcosecurity/falco` | 0.45.2 | `sha256:1562a643…698e` |
+| `docker.io/falcosecurity/falcoctl` | 0.14.3 | `sha256:2230fb48…c023` |
+| `docker.io/falcosecurity/falcosidekick` | 2.35.1 | `sha256:a9bb60d2…fadb9` |
+
+- **Falco 규칙 · 플러그인:** falcoctl이 설치 때 한 번 받는다(follow 끔). 규칙은 주 버전(`:5`)이 아니라 `falco-rules:5.2.0`, container 플러그인은 차트 기본값 `0.7.6`이다. falcoctl이 digest 참조를 받는지는 확인하지 못해 판으로 고정했다. 설치 뒤 init 컨테이너 로그(`kubectl -n falco logs ds/falco -c falcoctl-artifact-install`)의 digest가 `falco-rules` `sha256:213c9bb2…66d0` · `container` `sha256:b754131d…df1a`와 같은지 확인하고, 다르면 지우고 멈춘다.
+- **고정하지 못한 것:** sidekick 연결 시험(`helm test`)의 `curlimages/curl`은 차트에 박혀 있어 값으로 바꿀 수 없다. `helm test`를 돌리지 않는다.
 
 ## 설치 순서 (해피패스가 끝난 뒤)
 
@@ -94,5 +112,5 @@ kubectl get validatingwebhookconfigurations,mutatingwebhookconfigurations -l web
 ## 위험
 
 - 정책은 `admission: false`라 업무 Pod 생성이 Kyverno를 기다리지 않는다. Kyverno 자체 웹훅(정책 객체 검사 등)은 남지만 실패해도 통과(`Ignore`)다. Kyverno가 멈추면 탐지만 멈추고(`POLICY` "확인 불가") 배포는 막지 않는다.
-- Falco는 권한 있는 DaemonSet이다(eBPF). 규칙은 설치 때 falcoctl이 기본 색인에서 한 번 받는다(follow 끔). 목적지는 바깥 방향 인터넷이 열려 있다. 이미지 · 규칙 판을 정확히 고정하기 전에는 설치하지 않는다(위 "차트 안 이미지 고정").
+- Falco는 권한 있는 DaemonSet이다(eBPF). 규칙은 설치 때 falcoctl이 기본 색인에서 한 번 받는다(follow 끔). 목적지는 바깥 방향 인터넷이 열려 있다. 이미지는 digest, 규칙 · 플러그인은 정확한 판으로 고정했다(위 "이미지 · 규칙 고정").
 - falcosidekick은 경보 전문을 보낸다. 플랫폼 정규화기가 허용 필드만 남기고(`output` · 명령행 제외) 비밀 패턴을 가린다(detection-hardening 4절).

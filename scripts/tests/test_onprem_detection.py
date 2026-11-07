@@ -53,6 +53,16 @@ class OnpremDetectionBundle(unittest.TestCase):
         self.assertIn("cacertfile: /etc/bravo-findings-ca/ca.crt", values)
         self.assertIn("configMap: {name: bravo-findings-ca}", values)
 
+    def test_every_installed_image_is_pinned_by_digest_and_rules_by_exact_version(self):
+        # The charts assemble registry/repository:tag only, so the digest rides on the tag.
+        pinned = r'tag: "[0-9A-Za-z.\-]+@sha256:[0-9a-f]{64}"'
+        kyverno = (BUNDLE / "kyverno-values.yaml").read_text()
+        falco = (BUNDLE / "falco-values.yaml").read_text()
+        self.assertEqual(len(re.findall(pinned, kyverno)), 7)  # 4 controllers + pre container + upgrade/delete hooks + test
+        self.assertEqual(len(re.findall(pinned, falco)), 3)  # falco, falcoctl, falcosidekick
+        self.assertNotRegex(kyverno + falco, r'tag: "?[^"@\n]+"?\n')  # no tag without a digest
+        self.assertEqual(re.findall(r"refs: \[(falco-rules:[^\]]+)\]", falco), ["falco-rules:5.2.0"] * 2)
+
     def test_agent_reads_reports_only_and_runs_locked_down(self):
         items = {(o["kind"], o["metadata"]["name"]): o for o in json.loads((BUNDLE / "agent.json").read_text())["items"]}
         rules = items[("ClusterRole", "bravo-findings-agent")]["rules"]
