@@ -21,7 +21,7 @@
 5. 기존 Sova UI와 공통 그래프 검증·렌더러를 재사용한다. 독립 모드는 계획·승인·격리·컷오버 API를 제공하지 않는다.
 6. native T10에 붙일 때는 실제 계획의 앱·환경 방향과 현재 읽기 권한을 검증한다. 별도 판정·권한 발급기를 만들지 않는다.
 
-## 검증 결과
+## 첫 인수 결과 (`b3e43b3e`)
 
 | 검증 | 결과와 한계 |
 |---|---|
@@ -62,3 +62,23 @@ Pod UID·컨테이너 실행 식별자가 바뀌면 새 자원으로 취급한�
 
 개발용 독립 호스트는 기존 Sova-test 개인 운영자 인증을 재사용하며 loopback만 연다.
 기업 SSO/호스팅 인증이 아니다. 기본 콘솔과 공용 워크로드·RBAC·네트워크·데이터는 변경하지 않았다.
+
+
+## 최종 AWS 계정 경계 보강
+
+최종 코드 생산자는 `3b95d0d99cc971c9f327939badf273044c0d5f05`이다. AWS 자격 플러그인의
+`--profile=default` 형식도 거부하도록 두 가지 인자 표기를 함께 검사하며, 중복 지정·누락·기본 계정 상속을 차단한다.
+관련 12개 경계 사례를 추가했고 전체 Python **479개**, 기존 JS **305개**가 통과했다.
+최종 소스로 실제 목적지와 화면을 다시 확인해 같은 revision에서 **19개 자원·19개 관계·HTTP 탐침 선 1개**가 일치했다.
+목적지 CURRENT / 출발지 UNAVAILABLE, 변경 POST 405, JS 오류 0은 유지됐다.
+
+#727의 `624dfd7b109e308182fcdaec54075ff96b7aacd0`와 결합한 별도 로컬 복사본에서도 **498개**가 통과했다.
+운영 배포가 아닌 두 T21 PR의 소스 조합 회귀다. 최종 wheel에는 새 런타임 자산 6개가 같은 바이트로 포함됐다.
+[최종 공개 요약](../../../docs/evidence/t21-live-workload-2026-11-08/profile-hardening-summary.json)과
+[최종 소스 manifest](../../../docs/evidence/t21-live-workload-2026-11-08/profile-hardening-sources.json)를 따로 남긴다.
+앞선 인수·실패 원본은 덮어쓰지 않고 구분해 보존했다.
+
+추가 읽기 확인에서 목적지 PolicyReport 리소스 형식은 제공되지 않았고, 계정을 대조한 AWS 서울 리전의
+GuardDuty 탐지기는 0개였다. Security Hub는 InvalidAccessException으로 미확인이다.
+실제 탐지·격리 성공으로 처리하지 않았으며 [T33 확인 기록](https://github.com/Softbank-Hackathon-Finals/platform/issues/53#issuecomment-6709207785)에 남겼다.
+탐지기 설치·서비스 활성화·정책 변경은 수행하지 않았다.
