@@ -54,7 +54,15 @@ def test_refusals_pass_only_fixed_codes(status, detail, code):
     assert str(raised.value) == code
 
 
-@pytest.mark.parametrize("answer", [{"kind": "something-else"}, {"error": "x"}, {}])
+@pytest.mark.parametrize("answer", [{"error": "x"}, [], {"kind": "t13-readiness-observation.v1"}])
+def test_a_refusal_without_a_fixed_code_is_an_http_status(answer):
+    with client(lambda _: httpx.Response(503, json=answer)) as executor:
+        with pytest.raises(ExecutorReadError, match="http_status"):
+            executor.observe_readiness(readiness_observer.request_for(PAIR))
+
+
+@pytest.mark.parametrize("answer", [{"kind": "something-else"}, {"error": "x"}, {}, [],
+                                    {"detail": {"code": "execution_in_progress"}}])
 def test_an_answer_that_is_not_an_observation_is_refused(answer):
     with client(lambda _: httpx.Response(200, json=answer)) as executor:
         with pytest.raises(ExecutorReadError, match="invalid_response"):
