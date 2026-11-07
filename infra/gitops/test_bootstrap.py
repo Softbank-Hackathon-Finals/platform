@@ -1,5 +1,6 @@
 """Bootstrap Helm calls: settled-release guard and server-side apply ownership."""
 import json
+import re
 import sys
 import tempfile
 import unittest
@@ -53,6 +54,30 @@ def main(status, catalog=None):
 
 def profiles(*ids):
     return {"evaluation_profiles": [{"tenant_id": "bravo", "profile_id": i, "profile_version": "1"} for i in ids]}
+
+
+class WorkflowHostKeys(unittest.TestCase):
+    def test_bootstrap_accepts_exactly_the_runtime_keys_the_chart_accepts(self):
+        template = (Path(bootstrap.__file__).parent / "argocd/templates/workflow-host-application.yaml").read_text()
+        chart = set(re.findall(r'"(\w+)"', re.search(r"has \$key \(list ([^)]*)\)", template)[1]))
+        self.assertEqual(bootstrap.WORKFLOW_KEYS, chart)
+
+
+class InitialProposal(unittest.TestCase):
+    PEM = "-----BEGIN CERTIFICATE-----\nMIIB\n-----END CERTIFICATE-----\n"
+
+    def test_host_creates_jobs_is_an_optional_bool(self):
+        seen = []
+        get = lambda *a: seen.append(a)
+        for value in ({"enabled": True, "brokerCaPem": self.PEM},
+                      {"enabled": True, "brokerCaPem": self.PEM, "hostCreatesJobs": True}):
+            bootstrap.verify_initial_proposal(get, value)
+        self.assertEqual(seen[-1], ("secret", "platform-ghcr-reader", "bravo-initial"))
+        for value in ({"enabled": True, "brokerCaPem": self.PEM, "hostCreatesJobs": "yes"},
+                      {"enabled": True, "brokerCaPem": self.PEM, "other": 1},
+                      {"enabled": True, "brokerCaPem": self.PEM + "PRIVATE KEY"}, {"brokerCaPem": self.PEM}):
+            with self.assertRaises(ValueError):
+                bootstrap.verify_initial_proposal(get, value)
 
 
 class BootstrapHelm(unittest.TestCase):

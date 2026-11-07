@@ -3,6 +3,7 @@
 # ///
 """Public entry: read-only Argo UI and the reconciler Application only with the reviewed development values."""
 import json
+import re
 import subprocess
 import sys
 import unittest
@@ -42,6 +43,12 @@ class PublicEntryChart(unittest.TestCase):
         # Anonymous sees Applications and projects only: no logs, no other resource kinds.
         self.assertEqual(rbac["policy.default"], "role:platform-viewer")
         self.assertNotIn("logs", rbac["policy.csv"])
+        # Applications whose values carry operational identifiers (hostAliases: private endpoints and IPs) stay hidden.
+        for project in ("platform-registration", "platform-rehearsal-host"):
+            self.assertIn(f"p, role:platform-viewer, applications, get, {project}/*, deny", rbac["policy.csv"])
+        # orphanedResources (any value) lists every unmanaged object of a destination namespace in the anonymous tree.
+        for template in (CHART / "templates").glob("*.yaml"):
+            self.assertNotIn("orphanedResources", template.read_text(), template.name)
         # Every kind an Application ships must be tracked, or Argo skips it (ExcludedResourceWarning).
         inclusions = yaml.safe_load(cm["resource.inclusions"])
         tracked = {(g, k) for row in inclusions for g in row["apiGroups"] for k in row["kinds"]}
@@ -107,6 +114,18 @@ class PublicEntryChart(unittest.TestCase):
         self.assertEqual(es["secretStoreRef"]["name"], "cloudflare-gitops-reader")
         spec = json.loads(kind(docs, "ConfigMap", "public-entry-spec")[0]["data"]["entries.json"])
         validate(spec)
+        # A public Argo answers 403 for APIs that run server-side work for anyone with `applications, get`.
+        argo = next(e for e in spec["entries"] if e["hostname"].startswith("platform-argocd."))
+        if argo.get("public"):
+            def denied(path):
+                return any(re.match(d, path) for d in argo["deny_paths"])
+            for path in ("/api/v1/applications/a/server-side-diff", "/api/v1/applications/a/manifests",
+                         "/api/v1/applications/manifestsWithFiles", "/api/v1/applications/a/revisions/r/metadata",
+                         "/application.ApplicationService/ServerSideDiff", "/application.ApplicationService/GetManifests"):
+                self.assertTrue(denied(path), path)
+            for path in ("/", "/applications", "/api/v1/applications", "/api/v1/applications/a",
+                         "/api/v1/applications/a/resource-tree", "/api/v1/stream/applications", "/assets/favicon/favicon-32x32.png"):
+                self.assertFalse(denied(path), path)
 
 
 if __name__ == "__main__":
