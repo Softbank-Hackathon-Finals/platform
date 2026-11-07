@@ -1,0 +1,16 @@
+# 플랫폼 Argo의 publicEntry Application이 이 경로를 동기화한다(infra/gitops/argocd).
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: platform-state
+resources:
+  - public-entry.yaml
+configMapGenerator:
+  # 이름을 고정한다: 조정기가 주기마다 다시 읽으므로 재시작이 필요 없고, 컨트롤러 권한을 이름으로 묶을 수 있다
+  - name: public-entry-spec
+    files: [entries.json]
+    options: {disableNameSuffixHash: true}
+images:
+  # publish-public-entry-image가 발행한 digest로 고정한다(태그를 배포하지 않는다)
+  - name: bravo-public-entry
+    newName: ghcr.io/softbank-hackathon-finals/platform-public-entry
+    digest: sha256:0000000000000000000000000000000000000000000000000000000000000000
