@@ -52,30 +52,38 @@ Tailscale에 "이 OIDC 발급자의 이 주체(ServiceAccount 또는 CI 작업)"
 ## 3. 결정 사항 (Decision Outcome)
 
 * **2. WIF를 선택한다.** Tailscale 인증에 장기 secret을 쓰지 않는다. WIF로 안 되는 키만 키 관리 인프라에 두고 실행기가 넣는다. 사람이 값을 붙여 넣지 않는다.
-* **tailnet 설정은 Terraform 스택 `infra/envs/tailnet` 하나로 관리한다.** 옵션 3 대신 이 스택이 정책과 연합 신원을 함께 다룬다.
-  * `tailscale_acl`: 전체 정책. 원본은 Git의 기본 정책과 `infra/iac/environments/*.json`에서 만든 조각이다. 사람 출처는 `autogroup:admin` · `autogroup:owner`와 IdP 그룹 이름만 쓴다. 이메일은 Git에 두지 않는다.
-  * `tailscale_federated_identity`: 환경마다 하나. 발급자는 그 클러스터의 ServiceAccount 발급자, 주체는 `system:serviceaccount:tailscale-system:operator`, 태그는 `tag:bravo-<env>-operator`, 범위는 operator에 필요한 Devices Core · Auth Keys · Services 쓰기다.
-  * PR에서는 읽기 · 검증 신원(`policy_file:read`)으로 계획과 정책 시험만 돈다. 적용은 보호된 GitHub Environment의 사람 승인 뒤 적용 신원으로 한다. develop은 승인 0이므로 병합만으로 적용되지 않는다(ADR-0032와 같은 기준).
-  * 적용 결과와 다른 콘솔 수정은 다음 적용 때 덮어쓴다. 처음 적용 전에 실제 정책을 이 원본으로 옮긴다(이메일 제거 포함).
+* **정책을 쓰는 곳은 `tailnet-policy` 워크플로 하나다(#667, 2026-11-07 20:5x 갱신).** 처음에는 Terraform `tailscale_acl`로 정책 전체를 쓰려 했으나 버린다. 정책 전체에는 그룹 구성원 이메일이 있어 공개 저장소에 둘 수 없고, 두 곳에서 쓰면 서로 덮어쓴다.
+  * 원본은 `infra/iac/environments/*.json`에서 만든 조각이다. 조각을 실제 정책에 더하고(같은 허용이 이미 있으면 더하지 않음), 직전 커밋의 조각에서 빠진 항목은 저장소가 넣은 값과 정확히 같을 때만 지운다(prune, #680). 손으로 넣은 grant · 그룹 · ssh는 그대로 둔다.
+  * **정책 쓰기는 cluster-admin 경계다.** #627 · #643 구조에서 `tailscale.com/cap/kubernetes` grant 하나가 고객 클러스터의 cluster-admin을 준다. 그래서 적용 신원을 다음처럼 좁힌다. 둘 다 발급자는 `https://token.actions.githubusercontent.com`이고, subject는 이 저장소의 ID 고정 형식으로 정확히 고정한다(와일드카드 없음). 태그는 없다.
+    * 계획: `repo:Softbank-Hackathon-Finals@350259663/platform@1443045223:environment:tailnet-policy-plan`, 범위 `policy_file:read`. PR에서 읽기 · 합치기 · `tailnet-check` · Tailscale validate만 한다.
+    * 적용: `…:environment:tailnet-policy`, 사용자 claim `ref=refs/heads/develop`, 범위 `policy_file`. 환경 `tailnet-policy`는 develop만 배포하고 필수 승인자를 둔다. develop은 승인 0이므로 병합만으로 적용되지 않는다(ADR-0032와 같은 기준).
+  * 잠김 방지: 쓰기 전에 Tailscale validate PASS가 필요하고, Tailscale은 정책 `tests`가 깨지는 저장을 거부한다. 개발 기간 운영자 접근(`autogroup:admin` → API 프록시)은 관리자 역할 여부가 Git에 없어 사람별 시험을 두지 않는다. 대신 operator 태그 경로의 accept 시험을 조각에 둔다.
+  * 긴급 수정(break-glass): tailnet 관리자는 콘솔에서 고칠 수 있다. 조각이 다루지 않는 항목이면 그대로 남는다. 조각이 넣은 항목을 콘솔에서 바꾸면 merge가 그 항목을 다시 더하지 않고, prune도 지우지 않는다(정확히 같지 않음). 그 변경을 유지하려면 Git에 반영한다. 읽은 뒤 정책이 바뀌면 `IAC_POLICY_CHANGED`로 멈추고 덮어쓰지 않는다.
+* **환경별 operator 연합 신원은 Terraform 스택 `infra/envs/tailnet`이 만든다(#662).** `tailscale_federated_identity`를 환경마다 하나 둔다. 발급자는 그 클러스터의 ServiceAccount 발급자, 주체는 `system:serviceaccount:tailscale-system:operator`, 태그는 `tag:bravo-<env>-operator`, 범위는 operator에 필요한 Devices Core · Auth Keys · Services 쓰기다. 이 스택은 정책을 쓰지 않는다. 태그 소유자는 신원보다 먼저 `tailnet-policy` 조각으로 넣는다.
 * **온프렘 발급자를 공개 정적 주소로 둔다.**
   * T2 cloud-init이 RKE2 `service-account-issuer`와 `service-account-jwks-uri`를 그 주소로 렌더한다. 기존 클러스터 내부 발급자는 두 번째 발급자로 남겨 기존 토큰을 깨지 않는다.
   * 플랫폼이 discovery 문서와 공개키만 플랫폼 관리 정적 호스팅(S3, 객체 단위 공개 읽기)에 올린다.
   * EKS · GKE는 자체 공개 발급자를 쓴다(ADR-0034의 종류별 어댑터 칸).
 * **연결 수명은 이 순서다.**
-  1. **합류:** 환경 원하는 상태에 tailnet 항목을 넣는 PR → 정책 · 연합 신원 적용(승인) → T45가 operator를 WIF 값(`oauth.clientId`, `oauth.audience`)으로 설치 → operator가 `tag:bravo-<env>-operator`로 합류.
-  2. **제어:** 플랫폼과 운영자는 그 클러스터의 auth API 프록시로 들어온다. 개발 기간에는 운영자에게 `bravo:operators` → `cluster-admin`을 준다(11/7 사용자 결정, #627 · #643). 펼치는 작업도 Tailscale 관리자 신원으로 이 경로를 쓴다. 포트포워딩 · SSM · 개인 kubeconfig를 쓰지 않는다.
+  1. **합류:** 환경 원하는 상태에 tailnet 항목을 넣는 PR → `tailnet-policy` 적용(승인) → 연합 신원 적용 → T45가 operator를 WIF 값(`oauth.clientId`, `oauth.audience`)으로 설치 → operator가 `tag:bravo-<env>-operator`로 합류.
+  2. **제어:** 플랫폼과 운영자는 그 클러스터의 auth API 프록시로 들어온다. 개발 기간에는 운영자에게 `bravo:operators` → `cluster-admin`을 준다(11/7 사용자 결정, #627 · #643). 프록시는 operator가 선 뒤에 생긴다. 그래서 빈 클러스터의 T45 앞 단계(Tailscale 단계 전)는 VM 로컬 kubeconfig로 실행하고, Tailscale 단계 뒤부터 프록시로 바꾼다(#659 리뷰 (a)). 그 뒤로는 포트포워딩 · SSM · 개인 kubeconfig를 쓰지 않는다.
   3. **고객 접근:** IdP 그룹을 그 환경의 namespace 역할에 묶는다. 고객 그룹은 다른 환경에 grant가 없다.
-  4. **분리:** 작업이 끝나거나 고객이 요청하면 그 환경의 tailnet 항목을 지우는 PR → 적용(삭제가 있으므로 사람 승인)으로 연합 신원과 정책 항목이 사라진다. 이어서 장치를 지우고, operator 인증 실패와 플랫폼의 도달 실패를 확인해 분리 영수증을 남긴다.
+  4. **분리:** 작업이 끝나거나 고객이 요청하면 그 환경의 tailnet 항목을 지우는 PR을 낸다. 승인 뒤 `tailnet-policy`가 그 정책 항목을 지우고(prune), 연합 신원 스택이 신원을 지운다. 이어서 장치를 지우고, operator 인증 실패와 플랫폼의 도달 실패를 확인해 분리 영수증을 남긴다.
 
 ## 4. 결과
 
 * **바뀌는 것(담당 확인 필요):**
-  * T48(류지환): `infra/envs/tailnet` 스택, 정책 합성, CI 계획 · 적용 작업, 분리 확인, 이 ADR.
-  * T44(이상무): 정책 조각을 전체 정책 합성의 입력으로 쓰고, T44 할 일 "tailnet 정책 GitOps"를 T48로 옮긴다.
+  * T48(류지환): `infra/envs/tailnet` 연합 신원 스택과 그 CI, `tailnet-policy`의 prune(#680), 분리 확인, 이 ADR.
+  * T44(이상무): `tailnet-policy` 워크플로와 조각(#667)을 그대로 소유한다. 정책을 쓰는 곳은 이 하나다.
   * T45(전동훈): `tailscale-oauth` 단계를 연합 신원 확인 단계로 바꾸고 operator 값을 WIF로 렌더한다. 2026-11-07 시험에서 찾은 고정값 두 개(`object-secrets`의 원하는 상태 파일이 `target-dev.json` 고정, Tailscale 단계의 `--side target` 고정)를 환경 기준으로 바꾼다.
   * T2 · T30(김태현): cloud-init의 ServiceAccount 발급자 렌더.
 * **기존 환경:** 운영 중인 플랫폼 · 대상 operator는 별도 실행 창에서 WIF로 옮긴다. 이 ADR만으로 기존 Secret을 지우지 않는다.
 * **남은 확인:**
+  * T45 앞 단계를 VM 로컬 kubeconfig로 실행한다는 결정에 맞춰 ADR-0033 표 9행과 `operator_action`의 "Tailscale OAuth 입력" 예시를 갱신한다(T45). T45가 T48 출력 `operator_identities.<env>`를 어디서 읽을지 정한다.
+  * 원본 일원화: `identities.json`과 환경 원하는 상태가 따로 있다. 신원만 지우면 grant · 태그 소유자가 남으므로, 신원 목록을 환경 원하는 상태에서 만들거나 두 파일의 일치를 시험으로 고정한다.
+  * 공개 발급자 JWKS 객체에 쓰는 주체(쓸 수 있으면 그 환경 operator 토큰을 위조할 수 있다)와 합류 순서(VM → JWKS 게시 → 신원 적용 → T45 Tailscale 단계).
+  * 분리: 장치를 지울 신원(`devices:core`), 이미 발급된 토큰(최대 1시간)과 키 만료를 끈 장치 처리, 고객 쪽 operator · CRD · ProxyGroup 제거를 신원 삭제보다 먼저 하는 순서.
+  * 연합 신원을 만드는 신원이 자기보다 넓은 범위 · 태그의 신원을 만들 수 있는지(Tailscale이 부분집합만 허용하는지).
   * 공개 발급자에 대한 실제 Tailscale 토큰 교환.
   * 연합 신원의 `audience` 처리(Tailscale 생성 권장, operator Helm 값과의 대응).
   * 처음 Terraform 실행용 신원을 만드는 관리자 절차.

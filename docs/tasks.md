@@ -958,19 +958,19 @@ Claude Code는 `/todo-task`, Codex는 `$todo-task`로 이 순서를 따르는 �
 
 **어디에 필요** tailnet 정책을 관리자가 콘솔에서 손으로 합치고, operator의 OAuth client secret(`operator-oauth`)을 사람이 클러스터에 넣는다. 새 클러스터는 VM 생성 때 합류하지 않고, 작업이 끝난 뒤 연결을 닫는 코드가 없다. 2026-11-07 새 RKE2 시험 클러스터는 T45 데이터 계층까지 섰으나 합류 단계에서 멈췄다.
 
-**만들 것** 정책과 환경별 연합 신원을 Terraform 스택 `infra/envs/tailnet` 하나로 관리하고, operator · CI · 플랫폼이 장기 secret 없이 OIDC 토큰으로 Tailscale에 인증한다. 온프렘 클러스터는 ServiceAccount 발급자를 공개 정적 주소로 둔다. 합류 · 제어 · 고객 접근 · 분리를 원하는 상태 PR과 사람 승인으로 진행한다. ADR-0035.
+**만들 것** 정책은 `tailnet-policy` 워크플로(#667) 한 곳에서 쓰고, 환경별 연합 신원은 Terraform 스택 `infra/envs/tailnet`으로 관리하고, operator · CI · 플랫폼이 장기 secret 없이 OIDC 토큰으로 Tailscale에 인증한다. 온프렘 클러스터는 ServiceAccount 발급자를 공개 정적 주소로 둔다. 합류 · 제어 · 고객 접근 · 분리를 원하는 상태 PR과 사람 승인으로 진행한다. ADR-0035.
 
 - **우선순위** P1 · **영역** 보안 통제 · 게이트 · **담당** 류지환
-- **선행** `T44`, `T45` (통합 시점: `T2`, `T30`) · **후속** 없음 · **설계 문서** 7.5, 8.3, NFR-7, ADR-0035
+- **선행** `T44` (통합 시점: `T45`, `T2`, `T30`) · **후속** 없음 · **설계 문서** 7.5, 8.3, NFR-7, ADR-0035
 
 **목표** 새 고객 클러스터가 Git의 원하는 상태와 승인만으로 tailnet에 합류해 플랫폼의 제어를 받고, 운영자 · 고객이 tailnet 신원으로 바로 붙으며, 분리 PR 하나로 연결이 닫힌다. 어느 단계에서도 사람이 비밀 값을 붙여 넣지 않는다.
 
 **할 일**
-- [ ] ADR-0035: WIF, 정책 · 연합 신원의 단일 Terraform 스택, 공개 발급자, 연결 수명(합류 · 제어 · 고객 접근 · 분리)
-- [ ] 정책 합성: Git의 기본 정책 + `infra/iac/environments/*.json` 조각 → 전체 정책 파일. 이메일 없음(사람 출처는 autogroup · IdP 그룹). 시험이 합성 결과와 파일이 같은지 고정
-- [ ] `infra/envs/tailnet` Terraform: `tailscale_acl`, 환경별 `tailscale_federated_identity`(operator ServiceAccount 주체, `tag:bravo-<env>-operator`, 필요한 범위만)
-- [ ] CI: PR은 읽기 · 검증 신원으로 plan과 정책 시험, 적용은 보호된 GitHub Environment 승인 뒤 적용 신원. 저장된 Tailscale secret 없음
-- [ ] 실제 정책을 원본으로 옮김(이메일 제거, 기존 어긋남 해소) → 첫 적용
+- [ ] ADR-0035: WIF, 정책은 `tailnet-policy` 한 곳 · 연합 신원은 Terraform, 공개 발급자, 연결 수명(합류 · 제어 · 고객 접근 · 분리)
+- [ ] `tailnet-policy` prune: 직전 커밋 조각에서 빠진 항목을 저장소가 넣은 것만 지움(#680). 손으로 넣은 grant · 그룹은 그대로
+- [ ] `infra/envs/tailnet` Terraform: 환경별 `tailscale_federated_identity`(operator ServiceAccount 주체, `tag:bravo-<env>-operator`, 필요한 범위만). 정책은 쓰지 않음
+- [ ] CI(연합 신원 스택): PR은 읽기 신원으로 plan, 적용은 보호된 GitHub Environment 승인 뒤 `federated_keys` 신원. 저장된 Tailscale secret 없음
+- [ ] `tailnet-policy` 첫 적용: 관리자 설정(신원 2 · 변수 3 · 환경 develop 제한과 승인자) → 계획 → 적용 → 다시 읽어 대조
 - [ ] 온프렘 공개 발급자: cloud-init의 ServiceAccount 발급자 렌더(T2 · T30)와 discovery 문서 · 공개키 게시(플랫폼 관리 정적 호스팅)
 - [ ] T45 연결: `tailscale-oauth`를 연합 신원 확인 단계로, operator 값을 WIF로, Tailscale 단계와 `object-secrets` 원하는 상태를 환경 기준으로(지금 `target` · `target-dev.json` 고정)
 - [ ] 고객 접근: IdP 그룹 → 환경 namespace 역할, 다른 환경 grant 없음 시험
