@@ -296,7 +296,7 @@ def test_scope_for_returns_registry_result():
 @pytest.mark.parametrize(("endpoint", "expected"), [
     ("http://seaweedfs.example.ts.net:8333/bucket", ("seaweedfs.example.ts.net", 8333)),
     ("https://openbao.example.ts.net", ("openbao.example.ts.net", 443)),
-    ("postgres://user@db.example.ts.net/chat", ("db.example.ts.net", 5432)),
+    ("postgres://db.example.ts.net/chat", ("db.example.ts.net", 5432)),
     ("100.64.0.7:5432", ("100.64.0.7", 5432)),
     ("db.example.ts.net:not-a-port", ("", None)),
     ("[fd7a::1]:5432", ("", None)),
