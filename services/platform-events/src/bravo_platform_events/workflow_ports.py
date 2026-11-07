@@ -15,7 +15,7 @@ One protected JSON (`/workflow/ports.json`, a ConfigMap) names mounted files onl
      "application": "module:factory"}
 
 `executor` and `propose` are required for the happy path (PROPOSE, AWAIT_APPROVAL, CUTOVER).
-`github_app`, `watch` and `application` are optional; an absent section leaves its states holding
+`github_app`, `watch`, `application` and `delegation` (true: record pre-delegated approvals, T49) are optional; an absent section leaves its states holding
 as workflow_reader_unwired. The Executor client is read-only (no command token): the host only
 reconciles; SHIFT approval and cutover submission stay with the operator API.
 """
@@ -29,7 +29,7 @@ from pathlib import Path
 
 HEX40 = re.compile(r"[a-f0-9]{40}")
 FACTORY = re.compile(r"[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*:[A-Za-z_]\w*")
-FIELDS = {"version", "executor", "propose", "watch", "application"}
+FIELDS = {"version", "executor", "propose", "watch", "application", "delegation"}
 REQUIRED = {"version", "executor", "propose"}
 
 
@@ -113,6 +113,16 @@ def create_ports(store, config_file="/workflow/ports.json"):
     cutover = CutoverService(store, client, bindings=bindings)
     readers = {"AWAIT_APPROVAL": shift_approval_reader, "CUTOVER": integrity_reader}
     preparers = {"PROPOSE": _propose(store, config["propose"])}
+    if config.get("delegation") is True:
+        # T49: approvals the approver delegated in advance are recorded by this host at the gate.
+        from .approval_delegation import ApprovalDelegations
+        from .operator_access import OperatorAccess
+        from .workflow_stages import ShiftApprovalService, delegated_shift_preparer
+
+        access = OperatorAccess(store)
+        shift = ShiftApprovalService(store, check_approve=access.requires("approve_shift"))
+        readers.pop("AWAIT_APPROVAL")
+        preparers["AWAIT_APPROVAL"] = delegated_shift_preparer(shift, ApprovalDelegations(store, access))
     if "watch" in config:
         watch = config["watch"]
         if set(watch) != {"profile_file", "retest"}:

@@ -161,6 +161,25 @@ class ShiftApprovalService:
             return receipt
 
 
+def delegated_shift_preparer(service, delegations, *, ttl=timedelta(hours=1)):
+    """AWAIT_APPROVAL with a pre-delegated SHIFT approval (T49): the host records the approver's decision once
+    per plan version through the same service and permission check; without a delegation a person approves."""
+    def prepare(plan_id, _tenant_id, version):
+        try:
+            principal = delegations.principal_for(plan_id, "shift", binding={"plan_version": str(version)},
+                                                  version=version)
+        except EventError as error:
+            if error.code == "approval_not_delegated":
+                return shift_approval_reader
+            raise
+        expires_at = (datetime.fromisoformat(service.clock()) + ttl).isoformat()
+        service.approve(principal, plan_id, expected_version=version, expires_at=expires_at,
+                        command_key=f"delegated-shift-{version}")
+        return shift_approval_reader
+
+    return prepare
+
+
 def shift_approval_reader(c, plan, previous, run):
     saved = _get(c, plan["plan_id"], _shift_key("approval", str(plan["version"])))
     if saved is None:

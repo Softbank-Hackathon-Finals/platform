@@ -242,3 +242,45 @@ def test_operator_access_requires_host_apply_grant_and_approver_grant(backend):
                                expected_revision=rev, administration_ref="fixture-admin", command_key="grant-host")
     with pytest.raises(EventError, match="forbidden"):  # the approver has no approve_change grant
         call()
+
+
+class _Delegations:
+    """Stands in for ApprovalDelegations.principal_for (its own checks: tests/test_approval_delegation.py)."""
+
+    def __init__(self, delegated):
+        self.delegated, self.calls = delegated, []
+
+    def principal_for(self, plan_id, gate, *, binding, version):
+        self.calls.append((gate, binding, version))
+        if not self.delegated:
+            raise EventError("approval_not_delegated")
+        return PRINCIPAL
+
+
+@pytest.mark.parametrize("delegated", [True, False])
+def test_a_delegated_shift_approval_is_recorded_by_the_host_once(backend, tmp_path, steps, delegated):
+    from bravo_platform_events.workflow_stages import delegated_shift_preparer
+
+    store = backend.store
+    ledger = tmp_path / "remote.db"
+    producers = Producers(ledger)
+    reply = threading.Event()
+    reply.set()
+    with (remote_executor(ledger, threading.Event(), reply) as origin,
+          ExecutorClient(origin, token="fixture-read", command_token="fixture-command") as client):
+        shift = ShiftApprovalService(store, check_approve=lambda c, p, plan: None, clock=lambda: NOW)
+        delegations = _Delegations(delegated)
+        readers = StageReaders({"ANALYZE": producers.read, "PROPOSE": producers.read, "REHEARSE": producers.read,
+                                "GATE": producers.read, "CUTOVER": integrity_reader},
+                               preparers={"AWAIT_APPROVAL": delegated_shift_preparer(shift, delegations)})
+        host = WorkflowHost(WorkflowRecovery(service(store, client), read_evidence=readers))
+        collect(store)
+        host.sweep()
+        producers.application = admit_change(store)
+        [step] = host.sweep()
+        if delegated:
+            assert step.after == "SHIFT"  # no person called the approval route
+            [(gate, binding, version)] = delegations.calls
+            assert gate == "shift" and binding == {"plan_version": str(version)}
+        else:
+            assert (step.after, step.hold) == ("AWAIT_APPROVAL", "shift_approval_required")
