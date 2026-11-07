@@ -72,6 +72,16 @@ helm upgrade --install bravo-iac-gitops infra/iac/argocd -n bravo-iac-gitops --c
 한다. 비밀 값이 필요한 자원(지금은 버킷 계정 Secret)은 차트에 없고 `Chart.yaml`의 `bravo.dev/unmanaged`에 적힌다.
 ProxyGroup은 그 클러스터에 Tailscale operator(CRD)가 있어야 생성된다(`SkipDryRunOnMissingResource`).
 
+**설치 명령은 두 번 실행한다.** 첫 실행이 Argo CD와 CRD를 만들고, 두 번째 실행이 AppProject·Application을 만든다
+(Application은 Argo CRD가 있을 때만 렌더된다. 한 릴리스로 함께 만들면 CRD 등록 전 검증에서 실패한다).
+
+**로컬 실클러스터 확인(2026-11-07, kind v1.34.0, 운영 클러스터 아님)**: Tailscale 1.104.4 CRD만 설치(operator 없음) →
+위 설치 명령 2회(`environment=platform`, `tailnet=example-tail.ts.net`, 기능 브랜치) → Argo가 GitHub에서 끌어와 `4bc41c87`을
+Synced/Healthy로 적용했다(namespace 5, ProxyGroup 4, ExternalName Service 7: FQDN에 설치 값만 들어감, NetworkPolicy 9:
+TCP 10000–10999). 이어서 에이전트 계획(`origin=agent`, 컷오버 → 목적지 Pooler 경로 제거, 수락) → `stage` → 차트 재생성 →
+임시 브랜치 push → Argo가 그 Service를 지웠다(Synced/Succeeded). 임시 브랜치와 클러스터는 지웠다. 이 과정에서 찾은 결함 셋
+(CRD와 Application 동시 설치, namespace 미생성, ApplicationSet 끄는 키)은 4bc41c87에서 고쳤다.
+
 **권한은 1단계로 넉넉하게** 둔다(해피패스를 쉽게): AppProject는 이 저장소 하나, 이 클러스터, 모든 namespace·종류를 허용하고
 Argo는 클러스터 범위 권한으로 돈다. 해피패스가 안정되면 좁힌다.
 1. `destinations`를 원하는 상태에 나오는 namespace로, `clusterResourceWhitelist`를 `ProxyGroup`으로, `namespaceResourceWhitelist`를
