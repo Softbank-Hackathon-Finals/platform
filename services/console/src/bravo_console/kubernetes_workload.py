@@ -21,6 +21,7 @@ from pathlib import Path
 from types import MappingProxyType
 from urllib.parse import urlsplit
 
+from .security_configuration import container_checks, pod_checks, validate_configuration
 from .workload import identifier, safe_text
 
 KINDS = {"namespace", "services", "pods", "networkpolicies"}
@@ -110,7 +111,9 @@ class ClusterRegistration:
 
 
 def producer_digest():
-    return hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
+    # Configuration interpretation is part of the qualified producer too.
+    parts = [Path(__file__), Path(__file__).with_name("security_configuration.py")]
+    return hashlib.sha256(b"".join(p.read_bytes() for p in parts)).hexdigest()
 
 
 class KubectlReader:
@@ -313,6 +316,7 @@ def collect(reader, registration, *, source_revision, now=None):
     if len(by_name) != len(services):
         raise CollectionError("RESOURCE_IDENTITY_AMBIGUOUS")
     nodes, edges, facets, probes, pod_objects = {}, [], {}, [], {}
+    security_config = {}
     dns_nodes = {}
     for row, entry in enumerate(r.services):
         obj = by_name.get(entry["name"])
@@ -395,6 +399,9 @@ def collect(reader, registration, *, source_revision, now=None):
                 security_evidence=None,
             )
             facets[pid] = dict(ready=ready, summary=nodes[pid]["detail"])
+            security_config[pid] = dict(
+                resource_uid=metadata["uid"], checks=pod_checks(pod, policies)
+            )
             pod_objects[pid] = pod
             edges.append(
                 dict(
@@ -436,6 +443,7 @@ def collect(reader, registration, *, source_revision, now=None):
                 security_evidence=None,
             )
             facets[cid] = dict(ready=ready, summary=nodes[cid]["detail"])
+            security_config[cid] = dict(resource_uid=uid, checks=container_checks(pod, container))
             edges.append(
                 dict(
                     id=opaque(pid, cid),
@@ -476,6 +484,7 @@ def collect(reader, registration, *, source_revision, now=None):
                     )
     if not nodes or len(nodes) > 23 or len(edges) > 40:
         raise CollectionError("TOPOLOGY_UNAVAILABLE_OR_OVERSIZED")
+    validate_configuration(security_config, list(nodes.values()))
     check = {
         obj["metadata"]["name"]: obj
         for obj in reader.get("services", namespace=r.namespace).get("items", [])
@@ -490,6 +499,51 @@ def collect(reader, registration, *, source_revision, now=None):
             )
         ):
             raise CollectionError("SERVICE_CHANGED_DURING_READ")
+    # A selector remaining unchanged does not prove its selected Pod or policy
+    # stayed the same. Withdraw the round if configuration changed mid-read.
+    current_pods = reader.get("pods", namespace=r.namespace).get("items", [])
+    current_policies = reader.get("networkpolicies", namespace=r.namespace).get("items", [])
+    if (
+        type(current_pods) is not list
+        or type(current_policies) is not list
+        or len(current_pods) > 256
+        or len(current_policies) > 256
+    ):
+        raise CollectionError("RESOURCE_LIMIT_EXCEEDED")
+    selected_uids = {p["metadata"]["uid"] for p in pod_objects.values()}
+
+    def fixed_pods(items):
+        return sorted(
+            [
+                dict(
+                    uid=p["metadata"]["uid"],
+                    labels=p["metadata"].get("labels", {}),
+                    spec=p.get("spec"),
+                    deleting=p["metadata"].get("deletionTimestamp"),
+                )
+                for p in items
+                if p.get("metadata", {}).get("uid") in selected_uids
+            ],
+            key=lambda p: p["uid"],
+        )
+
+    def fixed_policies(items):
+        return sorted(
+            [
+                dict(
+                    uid=p["metadata"].get("uid"),
+                    spec=p.get("spec"),
+                    deleting=p["metadata"].get("deletionTimestamp"),
+                )
+                for p in items
+            ],
+            key=lambda p: str(p["uid"]),
+        )
+
+    if fixed_pods(list(pod_objects.values())) != fixed_pods(current_pods) or fixed_policies(
+        policies
+    ) != fixed_policies(current_policies):
+        raise CollectionError("SECURITY_CONFIGURATION_CHANGED_DURING_READ")
     after = reader.get("namespace", "kube-system")
     if after.get("metadata", {}).get("uid") != r.cluster_uid:
         raise CollectionError("CLUSTER_IDENTITY_CHANGED")
@@ -514,6 +568,7 @@ def collect(reader, registration, *, source_revision, now=None):
         edges=edges,
         facets=facets,
         probes=probes,
+        security_config=security_config,
     )
 
 
