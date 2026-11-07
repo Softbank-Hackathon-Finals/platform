@@ -58,6 +58,19 @@ class WorkflowHostChart(unittest.TestCase):
         off_pod = next(d for d in off if d["kind"] == "Deployment")["spec"]["template"]["spec"]
         self.assertNotIn("kube-api-token", {v["name"] for v in off_pod["volumes"]})
 
+    def test_candidate_pull_mounts_only_the_registry_credential_read_only(self):
+        result, docs = render(VALUES | {"candidatePull": {"enabled": True}})
+        self.assertEqual(result.returncode, 0, result.stderr)
+        pod = next(d for d in docs if d["kind"] == "Deployment")["spec"]["template"]["spec"]
+        volume = next(v for v in pod["volumes"] if v["name"] == "candidate-pull")["secret"]
+        self.assertEqual((volume["secretName"], volume["items"]), ("platform-ghcr-reader",
+                         [{"key": ".dockerconfigjson", "path": ".dockerconfigjson"}]))
+        mount = next(m for m in pod["containers"][0]["volumeMounts"] if m["name"] == "candidate-pull")
+        self.assertEqual((mount["mountPath"], mount["readOnly"]), ("/ghcr", True))
+        _, off = render(VALUES)
+        off_pod = next(d for d in off if d["kind"] == "Deployment")["spec"]["template"]["spec"]
+        self.assertNotIn("candidate-pull", {v["name"] for v in off_pod["volumes"]})
+
     def test_missing_required_inputs_are_refused(self):
         for key in ("image", "configuration", "reader", "stateClaim"):
             values = {k: v for k, v in VALUES.items() if k != key}

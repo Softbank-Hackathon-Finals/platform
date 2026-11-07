@@ -27,7 +27,7 @@ from .store import EventError
 CONFIG = "/workflow/application.json"
 
 
-def apply_input(c, plan_id, claim, target):
+def apply_input(c, plan_id, claim, target, pull_secret=None):
     """The candidate recorded at PROPOSE under the approved diff_hash, for the registered target."""
     from .application_host import ApplyInput
     from .workflow_propose import apply_input_key
@@ -41,7 +41,8 @@ def apply_input(c, plan_id, claim, target):
     if record["diff_hash"] != claim["binding"]["diff_hash"]:
         raise EventError("application_input_scope_mismatch")
     return ApplyInput({"edits": record["edits"]}, diff, claim["binding"]["target_environment_id"],
-                      target["namespace"], target["deployment"], target["container"], target["repository"])
+                      target["namespace"], target["deployment"], target["container"], target["repository"],
+                      pull_secret)
 
 
 def post_apply_prepare(records):
@@ -96,7 +97,10 @@ def create(store, config_file=CONFIG, *, kube=None, delegations=None):
 
     config = json.loads(Path(config_file).read_text())
     target = config.get("target") if isinstance(config, dict) else None
-    if (type(config) is not dict or set(config) != {"receipts_dir", "kubeconfig", "target"}
+    pull = config.get("pull_secret") if isinstance(config, dict) else None
+    if (type(config) is not dict or not {"receipts_dir", "kubeconfig", "target"} <= set(config)
+            or set(config) - {"receipts_dir", "kubeconfig", "target", "pull_secret"}
+            or (pull is not None and (type(pull) is not dict or set(pull) != {"name", "source"}))
             or type(target) is not dict or set(target) != {"namespace", "deployment", "container", "repository"}
             or not all(isinstance(v, str) and v for v in target.values())):
         raise ValueError("workflow_application_configuration_invalid")
@@ -107,7 +111,7 @@ def create(store, config_file=CONFIG, *, kube=None, delegations=None):
     deployed = {}
 
     def load_input(c, principal, plan, claim):
-        return apply_input(c, plan["plan_id"], claim, target)
+        return apply_input(c, plan["plan_id"], claim, target, pull and pull["name"])
 
     def check_current(c, principal, plan, outcome):
         access.require(c, principal, plan, "apply_change")
@@ -131,11 +135,23 @@ def create(store, config_file=CONFIG, *, kube=None, delegations=None):
                 image = kube.current_image(target["namespace"], target["deployment"], target["container"])
                 deployed[outcome.application_id] = image.rsplit("@", 1)[-1] if "@" in image else None
 
-    def observed(stage):
+    def refresh_pull():
+        """T49 (11/8 user decision): the platform's current, expiring GHCR read credential into the target's
+        one pull Secret before an apply, so the candidate is pulled by digest. Written only when it changed;
+        the value goes through stdin (KubectlKube.replace_secret) and is never logged."""
+        value = base64.b64encode(Path(pull["source"]).read_bytes()).decode()
+        secret = kube.get_secret(target["namespace"], pull["name"])
+        if (secret.get("data") or {}).get(".dockerconfigjson") != value:
+            secret.pop("stringData", None)
+            kube.replace_secret(target["namespace"], secret | {"data": {".dockerconfigjson": value}})
+
+    def observed(stage, *, applies=False):
         def prepare(plan_id, tenant_id, version):
+            if applies and pull is not None:
+                refresh_pull()
             reader = stage(plan_id, tenant_id, version)  # T31 apply / T19 evaluate, outside the plan lock
             observe(plan_id)
             return reader
         return prepare
 
-    return {"REHEARSE": observed(stages["REHEARSE"]), "GATE": observed(stages["GATE"])}
+    return {"REHEARSE": observed(stages["REHEARSE"], applies=True), "GATE": observed(stages["GATE"])}
