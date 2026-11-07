@@ -131,6 +131,72 @@
     },
     {
       "src": [
+        "group:bravo-b-cluster"
+      ],
+      "dst": [
+        "tag:bravo-target-operator"
+      ],
+      "ip": [
+        "tcp:443"
+      ]
+    },
+    {
+      "src": [
+        "group:bravo-operators"
+      ],
+      "dst": [
+        "tag:bravo-platform-operator"
+      ],
+      "ip": [
+        "tcp:443"
+      ],
+      "app": {
+        "tailscale.com/cap/kubernetes": [
+          {
+            "impersonate": {
+              "groups": [
+                "bravo:operators"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "src": [
+        "group:bravo-operators"
+      ],
+      "dst": [
+        "tag:bravo-source-operator"
+      ],
+      "ip": [
+        "tcp:443"
+      ]
+    },
+    {
+      "src": [
+        "group:bravo-operators"
+      ],
+      "dst": [
+        "tag:bravo-target-operator"
+      ],
+      "ip": [
+        "tcp:443"
+      ],
+      "app": {
+        "tailscale.com/cap/kubernetes": [
+          {
+            "impersonate": {
+              "groups": [
+                "bravo:operators"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "src": [
         "tag:bravo-cutover-control"
       ],
       "dst": [

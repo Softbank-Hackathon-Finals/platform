@@ -54,5 +54,6 @@ GitOps로 옮겨도 아래 보안·데이터 정책과 워크플로는 그대로
 | `infra/iac/charts/platform`을 사람이 server-side apply(2026-11-07 13:37 KST) | T43 Argo Application 연결 | T44 할 일 |
 | 롤아웃·호스트 설정·S1/S2 실행부가 개인 실행 폴더에만 있다 | 저장소의 정식 실행부 | T28 |
 | 수동 토큰 교체·Secret 재배포 절차 | 자동 자격 경로 | 각 소비자. 인수 뒤 기본 안내에서 지운다. |
+| 목적지 operator 프록시(`tag:bravo-target-operator`) 443으로 가는 `group:bravo-b-cluster` 도달(11/6 사람별 이메일 ClusterRoleBinding과 함께 쓰는 길) | `operator-access` 바인딩(`bravo:operators`) | T44·T48. `target-dev.json`의 `legacy_reach`로 선언했다(#671). 사람별 바인딩을 쓰는 사람이 그룹 방식으로 옮긴 것을 확인한 뒤, 그 한 줄을 빼는 PR로 실제 정책에서도 지운다(tailnet-policy 환경 승인). |
 
 새 항목을 레거시로 옮길 때는 대체 경로가 병합·적용됐는지 원문에서 확인하고, 대체·근거·담당을 같은 표에 남긴다.

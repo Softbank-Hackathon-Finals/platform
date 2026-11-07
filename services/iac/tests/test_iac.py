@@ -52,7 +52,8 @@ def test_the_committed_desired_state_is_valid_and_is_the_demo_fixture():
     assert state["environment"] == "target-dev"
     assert state["modules"][0]["params"]["state"] == "open-demo"
     assert [m["id"] for m in describe()] == ["target-object-exposure", "tailnet-egress", "tailnet-ingress", "tailnet-operator",
-                                            "operator-access", "cluster-audit", "service-account-issuer"]
+                                            "operator-access", "api-transport-access", "cluster-audit",
+                                            "service-account-issuer"]
 
 
 def test_an_agent_may_plan_closing_the_bucket():
