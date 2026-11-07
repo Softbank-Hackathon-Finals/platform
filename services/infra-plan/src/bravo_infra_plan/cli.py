@@ -1,16 +1,62 @@
-"""bravo-infra-plan: check a stack, print its request schema, or render a plan offline.
+"""bravo-infra-plan: check a stack, print its request schema, render a plan, or run an approved one.
 
-`plan` never contacts a cluster or a Git remote. The caller supplies the observed target identity
-and the configuration repository's base commit; the API (next step of T44) reads them itself.
+`plan` never contacts a cluster or a Git remote; the caller supplies the target identity and the
+configuration repository's base commit. `run` / `confirm` / `status` drive the executor with real
+adapters. The T10 token is read from an environment variable, never from an argument.
 """
 
 import argparse
 import json
+import os
+import subprocess
 import sys
 from pathlib import Path
 
+from .adapters import ClusterChecks, FileRunStore, GitConfigRepo, KubectlCluster, T10Approvals
+from .executor import Executor
 from .plan import HelmChartRenderer, Planner
 from .stack import StackError, load_stack
+
+
+def _executor(args, stack):
+    repo_root = Path(args.repo_root).resolve()
+    revision = args.stack_revision or subprocess.run(["git", "rev-parse", "HEAD"], cwd=repo_root, check=True,
+                                                     capture_output=True, text=True).stdout.strip()
+    token = os.environ.get(args.t10_token_env, "")
+    if not token:
+        raise StackError("t10_token_required")
+    cluster = KubectlCluster(args.kubeconfig)
+    return Executor(Planner(stack, repo_root, chart_renderer=HelmChartRenderer(args.charts_dir)),
+                    stack_revision=revision, cluster=cluster,
+                    repo=GitConfigRepo(args.config_repo, args.config_branch, args.config_workdir),
+                    approvals=T10Approvals(args.t10_url, token), checks=ClusterChecks(cluster),
+                    store=FileRunStore(args.runs_dir), repo_url=args.argo_repo_url or args.config_repo,
+                    ledger=_jsonl(Path(args.runs_dir) / "ledger.jsonl"))
+
+
+def _jsonl(path):
+    def append(event):
+        with open(path, "a") as handle:
+            handle.write(json.dumps(event, sort_keys=True) + "\n")
+    return append
+
+
+def _summary(run):
+    steps = {k: v["status"] for k, v in run["steps"].items()}
+    return {"run_id": run["run_id"], "status": run["status"], "reason": run.get("reason"),
+            "plan_digest": run["plan_digest"], "waiting": [k for k, v in steps.items() if v == "WAITING_OPERATOR"],
+            "held": [k for k, v in steps.items() if v in ("HOLD", "FAILED")],
+            "counts": {s: list(steps.values()).count(s) for s in sorted(set(steps.values()))}}
+
+
+def _executor_args(parser):
+    for flag in ("--repo-root", "--charts-dir", "--kubeconfig", "--config-repo", "--config-workdir",
+                 "--runs-dir", "--t10-url"):
+        parser.add_argument(flag, required=True)
+    parser.add_argument("--config-branch", default="main")
+    parser.add_argument("--argo-repo-url", help="URL the destination Argo CD reads (default: --config-repo)")
+    parser.add_argument("--stack-revision", help="default: git rev-parse HEAD of --repo-root")
+    parser.add_argument("--t10-token-env", default="BRAVO_T10_TOKEN")
 
 
 def main(argv=None):
@@ -30,9 +76,39 @@ def main(argv=None):
     plan.add_argument("--node-uid", required=True)
     plan.add_argument("--base-commit", required=True)
     plan.add_argument("--out", required=True)
+    run = sub.add_parser("run", help="apply an approved plan (T10 approval_kind=infra)")
+    run.add_argument("stack")
+    run.add_argument("--request", required=True)
+    run.add_argument("--migration-plan-id", required=True)
+    run.add_argument("--approval-id", required=True)
+    run.add_argument("--run-id", required=True)
+    run.add_argument("--started-by", required=True)
+    _executor_args(run)
+    confirm = sub.add_parser("confirm", help="record that a human finished an operator step, then resume")
+    confirm.add_argument("stack")
+    confirm.add_argument("--run-id", required=True)
+    confirm.add_argument("--step", required=True)
+    confirm.add_argument("--confirmed-by", required=True)
+    _executor_args(confirm)
+    status = sub.add_parser("status", help="print a run summary")
+    status.add_argument("--runs-dir", required=True)
+    status.add_argument("--run-id", required=True)
     args = parser.parse_args(argv)
     try:
+        if args.command == "status":
+            print(json.dumps(_summary(FileRunStore(args.runs_dir).load(args.run_id)), indent=2))
+            return 0
         stack = load_stack(args.stack)
+        if args.command == "run":
+            result = _executor(args, stack).start(
+                request=json.loads(Path(args.request).read_text()), migration_plan_id=args.migration_plan_id,
+                approval_id=args.approval_id, run_id=args.run_id, started_by=args.started_by)
+            print(json.dumps(_summary(result), indent=2))
+            return 0 if result["status"] in ("SUCCEEDED", "WAITING_OPERATOR") else 3
+        if args.command == "confirm":
+            result = _executor(args, stack).confirm(args.run_id, args.step, confirmed_by=args.confirmed_by)
+            print(json.dumps(_summary(result), indent=2))
+            return 0 if result["status"] in ("SUCCEEDED", "WAITING_OPERATOR") else 3
         if args.command == "check":
             for number, level in enumerate(stack.levels, 1):
                 print(f"{number:2} {' '.join(level)}")

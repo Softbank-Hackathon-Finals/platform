@@ -163,6 +163,9 @@ class Planner:
             items = self.charts.template(chart, release=render["release"], namespace=render["namespace"],
                                          values_path=values, include_crds=render.get("include_crds", False),
                                          kube_version=params[self.kube_version_param])
+        if render.get("create_namespace"):  # `helm template` never emits the release namespace
+            items = [{"apiVersion": "v1", "kind": "Namespace", "metadata": {
+                "name": render["namespace"], "labels": {"app.kubernetes.io/managed-by": "bravo-infra-plan"}}}] + items
         if "post" in render:
             post = render["post"]
             items = _items(json.loads(self.renderer.run(post["run"], _substitute(post["args"], params),

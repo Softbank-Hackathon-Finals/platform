@@ -98,6 +98,8 @@ def test_charts_get_rendered_values_post_processing_and_the_kube_version():
     assert by_file["openbao-0.30.6.tgz"][5] == "v1.35.9"
     assert by_file["cloudnative-pg-0.29.1.tgz"][3] == "file"  # cnpg-values.yaml from the repository
     assert by_file["tailscale-operator-1.104.4.tgz"][4] is True
+    cnpg = json.loads(result.files["cnpg"]["cnpg/operator.json"])["items"]
+    assert cnpg[0]["kind"] == "Namespace" and cnpg[0]["metadata"]["name"] == "cnpg-system"
     server = json.loads(result.files["openbao"]["openbao/server.json"])["items"]
     [statefulset] = [i for i in server if i["kind"] == "StatefulSet"]
     probe = statefulset["spec"]["template"]["spec"]["containers"][0]["readinessProbe"]

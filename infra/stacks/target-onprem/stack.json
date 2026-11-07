@@ -221,7 +221,8 @@
           "release": "cnpg",
           "namespace": "cnpg-system",
           "values_file": "infra/envs/target-workloads/cnpg-values.yaml",
-          "include_crds": true
+          "include_crds": true,
+          "create_namespace": true
         }
       ]
     },

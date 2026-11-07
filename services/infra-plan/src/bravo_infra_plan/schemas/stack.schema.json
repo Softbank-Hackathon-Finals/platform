@@ -86,6 +86,7 @@
             "values": {"$ref": "#/$defs/run"},
             "values_file": {"$ref": "#/$defs/repo_path"},
             "include_crds": {"type": "boolean"},
+            "create_namespace": {"type": "boolean"},
             "post": {"$ref": "#/$defs/run"},
             "select": {"$ref": "#/$defs/select"}
           }
