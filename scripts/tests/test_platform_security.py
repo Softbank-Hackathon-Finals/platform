@@ -61,6 +61,15 @@ class FindingsBundle(unittest.TestCase):
         self.assertEqual(self.resources.count("automountServiceAccountToken: false"), 4)  # both SAs and both Pods
         self.assertNotRegex(self.resources, r"(?i)token_sha256|bearer|BEGIN [A-Z ]*KEY")
 
+    def test_onprem_ingest_enters_only_through_the_tailnet_device_proxy(self):
+        # The proxy Pod of the T44 tailnet-ingress device bravo-findings-tailnet, never a Tailscale address range.
+        [policy] = [d for d in self.resources.split("\n---\n")
+                    if "kind: NetworkPolicy" in d and "\n  name: bravo-findings\n" in d]
+        self.assertIn("tailscale.com/parent-resource-type: svc\n"
+                      "              tailscale.com/parent-resource: bravo-findings-tailnet\n"
+                      "              tailscale.com/parent-resource-ns: bravo-security", policy)
+        self.assertNotRegex(policy, r"ipBlock|100\.64\.")
+
     def test_sources_are_the_registered_environments(self):
         sources = json.loads(re.search(r"value: '(\[.*\])'", self.resources).group(1))
         self.assertEqual({(s["source"], s["environment_id"]) for s in sources},
