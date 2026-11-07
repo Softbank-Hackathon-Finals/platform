@@ -71,6 +71,28 @@ wheels = [
 ]
 
 [[package]]
+name = "bravo-audit-log"
+version = "0.1.0"
+source = { directory = "../audit-log" }
+dependencies = [
+    { name = "jsonschema" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "boto3", marker = "extra == 'aws'", specifier = ">=1.35,<2" },
+    { name = "jsonschema", specifier = ">=4.23,<5" },
+]
+provides-extras = ["aws"]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "fastapi", specifier = ">=0.115,<1" },
+    { name = "pytest", specifier = ">=8,<10" },
+    { name = "uvicorn", specifier = ">=0.30,<1" },
+]
+
+[[package]]
 name = "bravo-infra-plan"
 version = "0.1.0"
 source = { editable = "." }
@@ -82,12 +104,16 @@ dependencies = [
 ]
 
 [package.optional-dependencies]
+audit = [
+    { name = "bravo-audit-log" },
+]
 operator = [
     { name = "bravo-platform-events", extra = ["sso-registration"] },
 ]
 
 [package.dev-dependencies]
 dev = [
+    { name = "bravo-audit-log" },
     { name = "bravo-platform-events" },
     { name = "httpx" },
     { name = "pytest" },
@@ -95,16 +121,18 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "bravo-audit-log", marker = "extra == 'audit'", directory = "../audit-log" },
     { name = "bravo-platform-events", extras = ["sso-registration"], marker = "extra == 'operator'", directory = "../platform-events" },
     { name = "fastapi", specifier = ">=0.115,<1" },
     { name = "jsonschema", specifier = ">=4.23,<5" },
     { name = "pyyaml", specifier = ">=6.0.3,<7" },
     { name = "uvicorn", specifier = ">=0.30,<1" },
 ]
-provides-extras = ["operator"]
+provides-extras = ["operator", "audit"]
 
 [package.metadata.requires-dev]
 dev = [
+    { name = "bravo-audit-log", directory = "../audit-log" },
     { name = "bravo-platform-events", directory = "../platform-events" },
     { name = "httpx", specifier = ">=0.27,<1" },
     { name = "pytest", specifier = ">=8,<10" },

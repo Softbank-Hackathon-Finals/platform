@@ -71,6 +71,12 @@ class FakeCluster:
     def labelled_secret_exists(self, namespace, selector):
         return True
 
+    seaweedfs_shape = {"bootstrap": ["demo-chat-attachments"], "client": ["demo-chat-attachments"],
+                       "anonymous": ["demo-chat-attachments"]}  # T44 target-dev.json is open-demo
+
+    def secret_identities(self, namespace, name, key):
+        return dict(self.seaweedfs_shape) if (namespace, name) in self.secrets else None
+
     def helm_digest(self, release, namespace):
         return self.helm.get((release, namespace))
 
@@ -123,7 +129,7 @@ def world(tmp_path):
         kw.setdefault("monotonic", lambda: next(ticks))
         return Executor(planner, stack_revision=REV, cluster=cluster, repo=repo, approvals=approvals,
                         checks=ClusterChecks(cluster), store=FileRunStore(tmp_path / "runs"),
-                        repo_url="file://config", ledger=ledger.append, sleep=lambda s: None, **kw)
+                        repo_url="file://config", sleep=lambda s: None, **({"ledger": ledger.append} | kw))
 
     def approve(approval_id):
         digest = planner.plan(REQUEST, stack_revision=REV, target=cluster.identity(NODE),
@@ -353,3 +359,35 @@ def test_a_wait_needs_its_condition_to_hold_for_the_stable_period(world):
     executor.sleep = lambda s: seen.append(s)
     assert executor._wait({}, step) == "APPLIED"
     assert len(seen) >= 4  # the False reset the stable window
+
+
+def test_object_secrets_must_match_t44_desired_state(world):
+    world["cluster"].seaweedfs_shape = {"bootstrap": ["demo-chat-attachments"], "client": ["demo-chat-attachments"]}
+    world["approve"]("appr-1")  # T44 wants open-demo; the operator made a closed s3.json
+    run = start(world, "run-1")
+    assert run["steps"]["object-secrets"]["status"] == "WAITING_OPERATOR"
+    entry = next(s for s in run["plan"]["steps"] if s["id"] == "object-secrets")
+    assert entry["desired"] == {"state": "open-demo", "bucket": "demo-chat-attachments",
+                                "demo_run_id": "demo-2026-11-08"}
+    base = json.loads(run["files"]["base"]["base/tailscale-namespace.json"])["items"][0]
+    assert base["metadata"]["labels"]["pod-security.kubernetes.io/enforce"] == "privileged"
+
+
+def test_runs_are_chained_into_the_t24_ledger_and_resume_after_a_restart(world):
+    from bravo_audit.reader import read_local_run
+
+    from bravo_infra_plan.adapters import AuditLedger
+
+    store_root = world["tmp"] / "audit"
+    runs = FileRunStore(world["tmp"] / "runs")
+    world["approve"]("appr-1")
+    executor = world["executor"](ledger=AuditLedger(str(store_root), runs))
+    executor.start(request=REQUEST, migration_plan_id="plan-demo", approval_id="appr-1", run_id="run-1",
+                   started_by="applier")
+    first = read_local_run(store_root, "plan-demo", "run-1")
+    assert first.record_count > 3 and {r["source"] for r in first.records} == {"infra"}
+    restarted = world["executor"](ledger=AuditLedger(str(store_root), runs))  # a new process
+    restarted.confirm("run-1", "host-dirs", confirmed_by="operator")
+    after = read_local_run(store_root, "plan-demo", "run-1")
+    assert after.record_count > first.record_count
+    assert [r["sha256"] for r in after.records[:first.record_count]] == [r["sha256"] for r in first.records]

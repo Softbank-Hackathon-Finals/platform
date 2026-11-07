@@ -131,6 +131,10 @@ class Planner:
             elif step["kind"] == "terraform":
                 entry["inputs"] = inputs_digest(self.repo_root, step, params)
                 entry["digest"] = sha256_text(canonical({"step": step, "inputs": entry["inputs"]}))
+            elif step["kind"] == "operator_action" and "desired" in step:
+                # The values a person must use come from T44's desired state, bound into the plan.
+                entry["desired"] = self._desired(step["desired"])
+                entry["digest"] = sha256_text(canonical({"step": step, "desired": entry["desired"]}))
             else:
                 entry["digest"] = sha256_text(canonical(step))
             steps.append(entry)
@@ -150,6 +154,10 @@ class Planner:
                 for render in step["renders"]}
 
     def _render(self, render, params):
+        if isinstance(render.get("namespace"), dict):  # a namespace T45 owns that no renderer emits (ADR-0033, T44 #632)
+            spec = render["namespace"]
+            return [{"apiVersion": "v1", "kind": "Namespace", "metadata": {
+                "name": spec["name"], "labels": {"app.kubernetes.io/managed-by": "bravo-infra-plan"} | spec["labels"]}}]
         if "run" in render:
             return _items(json.loads(self.renderer.run(render["run"], _substitute(render["args"], params))))
         if self.charts is None:
@@ -173,6 +181,14 @@ class Planner:
             items = _items(json.loads(self.renderer.run(post["run"], _substitute(post["args"], params),
                                                         stdin=json.dumps(items))))
         return items
+
+    def _desired(self, spec):
+        state = json.loads(self._repo_file(spec["file"]).read_text())
+        modules = [m for m in state.get("modules", []) if m.get("id") == spec["module"]]
+        if len(modules) != 1:
+            raise StackError("desired_module_unavailable")
+        params = modules[0].get("params", {})
+        return {name: params[name] for name in spec["params"] if name in params}
 
     def _repo_file(self, relative):
         path = (self.repo_root / relative).resolve()
