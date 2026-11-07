@@ -47,14 +47,15 @@
   * `effects`에서 `target-object-exposure`의 익명 접근이 before ≠ [] → after = []다.
   * 환경: 계획의 IaC 환경 이름(`target-dev`)은 T10 환경 ID(`env-onprem`)와 다르다. 그래서 binding 단계에서는 대조하지 않는다. 버킷을 닫는 적용기가 자기가 설정된 목적지 IaC 환경과 대조한다.
   * 변경 승인과 사전 위임(#716, change bounds 비어 있음)은 이 binding을 그대로 승인하므로, 사람의 결정에 자동으로 묶인다.
-* **REHEARSE (df):**
-  * 이미지 적용이 APPLIED가 된 뒤, binding에 `iac_plan_digest`가 있으면 T31의 새 진입점이 버킷을 닫는다. 진입점은 `check_iac_plan`과 같은 검사를 하고, 기준 상태는 PROPOSE가 쓴 커밋의 원하는 상태다. 그 뒤 `apply_bucket_policy`를 부른다.
-  * 결과 ID는 `iac-<plan_digest 앞 16자>`로 결정적이다. 다시 요청하면 기록을 돌려준다.
-  * 이 결과는 #709의 주인 표시를 남긴다.
-  * T10의 `Application` 기록은 이미지 적용 그대로 둔다. REHEARSE 판독기는 binding에 계획이 있으면 닫기 결과도 APPLIED일 때만 끝낸다. 그 전에는 `application_exposure_pending`으로 HOLD한다.
+* **REHEARSE (df): T31 적용 하나가 이미지와 닫기를 함께 한다.**
+  * binding에 `iac_plan_digest`가 있으면, workflow host의 적용 입력(`ApplyInput`)에 그 계획과 설정된 목적지 노출 대상을 넣는다. 계획은 적용 입력 기록의 `infra_plans`에서 digest로 고르고, 대상은 workflow host 설정의 IaC 환경·버킷·SeaweedFS를 쓴다.
+  * T31 `apply`는 이미지 배포가 승인대로 끝난 뒤 `apply_planned_exposure`로 버킷을 닫는다. 진입점은 `check_closing_plan`으로 설정된 IaC 환경과 대조하고, `apply_bucket_policy`를 부르며, #709의 주인 표시를 남긴다. 결과 ID는 `iacplan-<plan_digest 앞 16자>`로 결정적이다.
+  * 그 적용 하나의 결과(ApplyOutcome)는 닫기가 끝난 뒤에야 APPLIED이고, `finished_at`도 닫기 뒤다. 닫기가 실패하면 그 적용은 SAFE_HOLD다(이미지는 되돌리지 않는다, 기존 T31 규칙).
+  * 그래서 T10의 `Application` 기록 형식, REHEARSE 판독기, 재대조 요청(이미지 형식, `GATE_RECHECK_TESTS`에 IAM-01.1 포함)은 바뀌지 않는다.
+  * 별개의 결과 두 개로 두지 않는 이유가 있다. 적용 뒤 GATE는 목적지 run을 한 번 묶으면 다시 묶지 않는다. 두 적용 사이(버킷이 아직 열림)에 시작한 run이 묶이면 BLOCK에 고정된다.
 * **GATE (df):**
   * 적용 뒤 맥락은 계약대로 `apply-recheck:1`(SEC·IAM·ENC)이다.
-  * 적용 뒤 목적지 run은 두 적용(이미지, 닫기) 가운데 **늦게 끝난 쪽 이후**에 시작해야 한다.
+  * 적용 뒤 목적지 run은 그 적용의 `finished_at`(닫기 뒤) 이후에 시작해야 한다. 기존 검사 그대로다.
   * 측정은 플랫폼 수집 생산자(#765, ENC는 #758 `pooler-tls`)가 한다. 서명은 ADR-0038 플랫폼 서명이 한다.
 * **Git 원하는 상태:** `target-dev.json`의 `open-demo`는 데모 시작 상태로 남는다.
   * 런타임에서 닫는 주체는 이 경로 하나다. Argo는 그 Secret을 관리하지 않고(`bravo.dev/unmanaged`), `desired-exposure`는 열지 않는다.
@@ -65,6 +66,6 @@
 * 승인 하나로 S2의 IAM-01.1 FAIL → 닫기 → 적용 뒤 PASS가 이어진다. 사람 개입은 위임 기록뿐이다.
 * 바뀌는 곳:
   * 41: initial proposal 연결, `infra_plans` 저장
-  * df: `ChangeIntake.current` binding, T31 계획 닫기 진입점, REHEARSE 판독기의 닫기 대기, GATE의 늦은 적용 기준
-* 바뀌지 않는 곳: 제안 스키마, T15 리허설, T19 검증기, `workflow.Application` 형식
+  * df: `ChangeIntake.current` binding, T31 계획 닫기 진입점, 적용 입력과 T31 `apply`의 이미지 뒤 닫기
+* 바뀌지 않는 곳: 제안 스키마, T15 리허설, T19 검증기, `workflow.Application` 형식, REHEARSE·GATE 판독기
 * 남은 확인: 에이전트가 IAM-01.1 FAIL을 보고 infra.plan을 실제로 부르는지는 S2 실측으로 확인한다. 부르지 않으면 `iac_plan_digest`가 `null`이라 닫기 없이 GATE가 IAM-01.1에서 BLOCK한다(실패 쪽으로 닫힘).
