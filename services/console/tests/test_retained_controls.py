@@ -20,6 +20,7 @@ def retained(tmp_path):
     path.write_bytes(raw)
     path.chmod(0o600)
     return RetainedRun(
+        "fixture-tenant",
         value["environment"]["id"],
         "source",
         value["environment"]["ref"],
@@ -38,6 +39,29 @@ def test_retained_results_are_history_even_with_recorded_passes(retained):
     assert any(r["recorded_verdict"] == "PASS" for r in result["rows"])
     assert all(r["evidence_state"] == "EXPIRED" for r in result["rows"])
     assert "observed" not in str(result) and "uri" not in str(result)
+
+
+def test_retained_history_cannot_cross_the_registered_tenant(retained):
+    from test_kubernetes_workload import registration
+
+    from bravo_console.observed_workload import ObservedWorkloads
+
+    r = registration()
+    candidate = replace(
+        retained,
+        environment_id=r.environment_id,
+        lane=r.lane,
+        application_id="registered-chat",
+        tenant_id="different-tenant",
+    )
+    with pytest.raises(ValueError, match="retained_observation_scope_mismatch"):
+        ObservedWorkloads(
+            application_id="registered-chat",
+            source_revision="a" * 40,
+            registrations=[r],
+            collect=lambda _: None,
+            retained_runs=[candidate],
+        )
 
 
 @pytest.mark.parametrize(

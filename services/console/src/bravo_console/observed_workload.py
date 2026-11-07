@@ -54,7 +54,9 @@ class ObservedWorkloads:
                 type(h) is not RetainedRun
                 or h.application_id != application_id
                 or not any(
-                    h.environment_id == r.environment_id and h.lane == r.lane
+                    h.tenant_id == r.tenant_id
+                    and h.environment_id == r.environment_id
+                    and h.lane == r.lane
                     for r in self.registrations
                 )
                 for h in self.retained_runs

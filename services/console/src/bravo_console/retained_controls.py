@@ -26,6 +26,7 @@ VALIDATOR = Draft202012Validator(
 
 @dataclass(frozen=True)
 class RetainedRun:
+    tenant_id: str
     environment_id: str
     lane: str
     environment_ref: str
@@ -36,6 +37,7 @@ class RetainedRun:
     sha256: str
 
     def __post_init__(self):
+        identifier(self.tenant_id)
         identifier(self.environment_id)
         identifier(self.application_id)
         if (
