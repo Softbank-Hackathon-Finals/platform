@@ -12,6 +12,9 @@ files only (`/rehearsal/operator.json`):
      "edge": {"journal": "/records/edge/journal.db", "token_file": "/edge/token",
               "lb_binding": {...}},          # optional T17: the one LB journal; the SHIFT CLI runs in
                                             # this Pod (kubectl exec ... bravo_edge_control.run) on it
+     "iac": {"app_id": 1, "key_file": "/iac/app.pem",
+             "repository": "Softbank-Hackathon-Finals/platform"},  # optional T44: desired-state PRs
+                                            # after a T10 infra approval (iac_plans); contents+PR only
      "write_pause_budget_ms": 30000}
 
 Cutover command policy (current_cutover):
@@ -158,7 +161,7 @@ def create(store, config_file=CONFIG):
 
     config = json.loads(Path(config_file).read_text())
     executor = config.get("executor") if isinstance(config, dict) else None
-    if (type(config) is not dict or not {"executor", "gate"} <= set(config) <= {"executor", "gate", "write_pause_budget_ms", "failback", "edge"}
+    if (type(config) is not dict or not {"executor", "gate"} <= set(config) <= {"executor", "gate", "write_pause_budget_ms", "failback", "edge", "iac"}
             or type(executor) is not dict
             or set(executor) != {"url", "ca_file", "token_file", "command_token_file", "registered_pair"}
             or not executor["url"].startswith("https://")):
@@ -180,4 +183,18 @@ def create(store, config_file=CONFIG):
                     "read_integrity": failback_integrity}
         if "edge" in config:  # absent: FAILBACK stops at edge_unavailable after the matched receipt
             failback["edge"] = _edge(config["edge"])
-    return TrustedHostPorts(client, bindings, rehearsal.catalog, rehearsal.planner, authority, **failback)
+    iac = {"iac": _iac(config["iac"])} if "iac" in config else {}
+    return TrustedHostPorts(client, bindings, rehearsal.catalog, rehearsal.planner, authority, **failback, **iac)
+
+
+def _iac(value):
+    """T44: the platform repository through its own GitHub App installation (contents + pull requests)."""
+    from .github_app import GitHubApp
+    from .iac_plans import WRITER_PERMISSIONS, GitHubIacRepository
+
+    if (type(value) is not dict or set(value) != {"app_id", "key_file", "repository"}
+            or type(value["app_id"]) is not int or value["repository"] != "Softbank-Hackathon-Finals/platform"):
+        raise ValueError("operator_ports_configuration_invalid")
+    key = Path(value["key_file"]).read_bytes()
+    return GitHubIacRepository(GitHubApp(value["app_id"], key, value["repository"], WRITER_PERMISSIONS),
+                               value["repository"])
