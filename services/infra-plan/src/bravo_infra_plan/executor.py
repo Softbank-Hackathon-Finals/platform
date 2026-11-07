@@ -289,9 +289,26 @@ class Executor:
 
     def _render_apply(self, run, step):
         items = [item for text in run["files"][step["id"]].values() for item in _items(text)]
+        if step.get("create_only"):
+            return self._create_only(items)
         if not self.cluster.diff(items):
             return SKIPPED
         self.cluster.apply(items)
+        return APPLIED
+
+    def _create_only(self, items):
+        """Make what is missing; never take over a live object (no server-side apply, no field
+        ownership). Equal to the plan: SKIPPED. Different (someone tuned it, T12 runs it): HOLD."""
+        missing = []
+        for item in items:
+            live = self.cluster.get_object(item)
+            if live is None:
+                missing.append(item)
+            elif not _contained(item.get("spec", {}), live.get("spec", {})):
+                raise StepOutcome(HOLD, "live_object_differs")
+        if not missing:
+            return SKIPPED
+        self.cluster.create(missing)
         return APPLIED
 
     def _secret_generate(self, run, step):
@@ -328,6 +345,13 @@ class Executor:
             if now >= deadline:
                 raise StepOutcome(HOLD, "wait_timeout")
             self.sleep(self.poll)
+
+
+def _contained(want, have):
+    """Every field the plan renders has the same value live (fields the plan does not render may differ)."""
+    if isinstance(want, dict):
+        return isinstance(have, dict) and all(k in have and _contained(v, have[k]) for k, v in want.items())
+    return want == have
 
 
 def _planned(run, step):

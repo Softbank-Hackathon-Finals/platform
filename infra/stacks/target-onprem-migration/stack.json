@@ -1,11 +1,15 @@
 {
   "schema_version": 1,
   "stack": "target-onprem-migration",
-  "description": "목적지가 이전 대상으로서 하는 단계(T45, ADR-0033). target-onprem으로 세운 뒤 실행한다. 노드 파일(감사 정책) → T44 네트워크 경로 → 정방향 복제(초기 복사 + 스트리밍) → 역방향을 꺼진 채 준비 → T10 워크플로로 넘김. 컷오버(정방향 끔 · 역방향 켬 · epoch)는 T12 실행기, 트래픽 전환은 T17이 한다. 이 스택은 지우지 않고, 관찰할 수 없으면 멈춘다.",
+  "description": "목적지가 이전 대상으로서 하는 준비 단계(T45 실행기, ADR-0033 4절). target-onprem으로 세운 뒤 실행한다. 노드 파일(감사 정책) → T44 네트워크 경로 → 복제 자격 → 외부 클러스터 → 대상 비었는지 확인 → 정방향 구독 생성 → 초기 복사. 목적지에서 관찰할 수 있는 것만 둔다. 출발지의 역방향 준비와 T10 전이는 이 스택 밖이다(T10이 REHEARSE 전에 이 실행이 SUCCEEDED인지 읽는다). 구독은 만들기만 하고 운영 중인 값(SQL ENABLE/DISABLE, disable_on_error 조정)은 T8·T12 것이다. 지우지 않고, 관찰할 수 없으면 멈춘다. 단계 내용(구독 매개변수·지시문)의 주인은 T8, 실행기와 확인 검사는 T45다.",
   "params": {
     "node_name": {
       "description": "확인한 노드의 kubernetes.io/hostname",
       "pattern": "^[a-z0-9][a-z0-9.-]{0,251}[a-z0-9]$"
+    },
+    "iac_revision": {
+      "description": "목적지 Argo가 동기화해야 하는 T44 검토 커밋(전체 SHA)",
+      "pattern": "^[0-9a-f]{40}$"
     }
   },
   "charts": {},
@@ -32,7 +36,7 @@
       "id": "iac-network",
       "kind": "operator_action",
       "owner": "T44",
-      "description": "T44 Application bravo-iac-target-dev가 Synced · Healthy다(출발지 DB로 가는 복제 · Pooler egress, 목적지 DB 노출이 선언대로 깔림)",
+      "description": "T44 Application bravo-iac-target-dev가 승인한 커밋(iac_revision)으로 Synced · Healthy다(복제 · Pooler egress, 목적지 DB 노출)",
       "needs": [
         "identity"
       ],
@@ -43,7 +47,7 @@
       "id": "replication-credentials",
       "kind": "operator_action",
       "owner": "T8",
-      "description": "출발지 복제 계정 비밀번호와 출발지 DB CA를 target-dev에 전달한다(값은 Git · 계획 · 기록에 없다)",
+      "description": "출발지 복제 계정 비밀번호(키 password)와 출발지 DB CA(키 ca.crt)가 target-dev에 있다(값은 Git · 계획 · 기록에 없다)",
       "needs": [
         "identity"
       ],
@@ -54,7 +58,7 @@
       "id": "replication-external-cluster",
       "kind": "operator_action",
       "owner": "T8",
-      "description": "target-db에 출발지 외부 클러스터 t8-source(verify-full, 보존 WAL 상한)를 더한다",
+      "description": "target-db에 출발지 외부 클러스터 t8-source가 sslmode verify-full로 있다(보존 WAL 상한 포함)",
       "needs": [
         "replication-credentials",
         "iac-network"
@@ -63,12 +67,22 @@
       "confirm": "replication-external-cluster"
     },
     {
+      "id": "replication-target-ready",
+      "kind": "probe",
+      "owner": "T8",
+      "description": "정방향 구독이 이미 있거나, 게시된 표(attachments, messages)가 목적지에 있고 비어 있다. 행이 이미 있으면 copy_data가 중복 키로 끝없이 재시도하거나 행이 중복되므로 멈춘다(HOLD)",
+      "needs": [
+        "replication-external-cluster"
+      ],
+      "check": "replication-target-ready"
+    },
+    {
       "id": "forward-subscription",
       "kind": "render_apply",
       "owner": "T8",
-      "description": "정방향 구독 t8-source-to-target(enabled, copy_data, origin none, disable_on_error false)을 만든다. 만들 뿐 지우거나 끄지 않는다",
+      "description": "정방향 구독 t8-source-to-target(enabled, copy_data, origin none, disable_on_error false)이 없으면 만든다. 있고 계획과 같으면 SKIPPED, 다르면(운영 중 조정) HOLD. 덮어쓰지 않는다",
       "needs": [
-        "replication-external-cluster",
+        "replication-target-ready",
         "node-files"
       ],
       "renders": [
@@ -78,11 +92,11 @@
           "args": [
             "subscription",
             "--side",
-            "target",
-            "--list"
+            "target"
           ]
         }
-      ]
+      ],
+      "create_only": true
     },
     {
       "id": "initial-copy",
@@ -94,29 +108,6 @@
       ],
       "instruction": "기다린 뒤 이 실행을 resume한다. 코드가 구독 적용 여부와 표마다 복제 상태를 읽어 끝났는지 판정한다. 오래 걸리면 T13 대조 전에 지연 지표(T36)를 본다",
       "confirm": "initial-copy-complete"
-    },
-    {
-      "id": "reverse-prepared",
-      "kind": "operator_action",
-      "owner": "T20",
-      "description": "출발지에 역방향 구독 t8-target-to-source를 꺼진 채(enabled false, copy_data false, disable_on_error true) 준비한다. 켜는 것은 컷오버 때 T12 실행기다",
-      "needs": [
-        "initial-copy"
-      ],
-      "instruction": "출발지 클러스터에서 replication.py external-patch --side source(외부 클러스터 t8-target)와 replication.py subscription --side source로 역방향을 만든다. 목적지 실행기는 출발지를 볼 수 없으므로 사람이 확인한다",
-      "confirm": "reverse-prepared"
-    },
-    {
-      "id": "platform-handover",
-      "kind": "operator_action",
-      "owner": "T10",
-      "description": "목적지 준비 완료를 T10 이전 계획에 넘긴다. 이후 REHEARSE → GATE → AWAIT_APPROVAL → SHIFT → CUTOVER → WATCH는 플랫폼 워크플로가 진행한다",
-      "needs": [
-        "reverse-prepared",
-        "iac-network"
-      ],
-      "instruction": "T10 워크플로 호스트에서 이 이전 계획의 다음 단계(REHEARSE)를 시작한다. 승인(approval_kind change · shift · cutover)은 요청자가 아닌 사람이 한다",
-      "confirm": "platform-handover"
     }
   ]
 }

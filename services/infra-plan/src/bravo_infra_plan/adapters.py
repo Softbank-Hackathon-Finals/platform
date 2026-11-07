@@ -260,6 +260,20 @@ class KubectlCluster:
 
     # --- destination as a migration target (target-onprem-migration) ----------------------------
 
+    def get_object(self, item):
+        api = item["apiVersion"]
+        resource = item["kind"].lower() + ("." + api.split("/")[0] if "/" in api else "")
+        return self._get(resource, item["metadata"].get("namespace"), item["metadata"]["name"])
+
+    def create(self, items):
+        """kubectl create: fails on an existing object instead of replacing it."""
+        self._k("create", "-f", "-", stdin=json.dumps({"apiVersion": "v1", "kind": "List", "items": items}))
+
+    def secret_keys(self, namespace, name):
+        """The data keys of a Secret (never its values); None when it does not exist."""
+        obj = self._get("secret", namespace, name)
+        return None if obj is None else sorted((obj.get("data") or {}).keys())
+
     def audit_level_events(self, level):
         """apiserver_audit_level_total for one level since the API server started; None when absent."""
         if level not in ("None", "Metadata", "Request", "RequestResponse"):
@@ -270,30 +284,67 @@ class KubectlCluster:
         return None
 
     def external_cluster(self, namespace, cluster, external):
+        """The external cluster entry, or None."""
         obj = self._get("clusters.postgresql.cnpg.io", namespace, cluster)
-        return obj is not None and any(x.get("name") == external for x in obj.get("spec", {}).get("externalClusters", []))
+        found = [x for x in (obj or {}).get("spec", {}).get("externalClusters", []) if x.get("name") == external]
+        return found[0] if found else None
 
     def subscription_applied(self, namespace, name):
         obj = self._get("subscriptions.postgresql.cnpg.io", namespace, name)
         return obj is not None and obj.get("status", {}).get("applied") is True
 
-    def subscription_copied(self, namespace, cluster, database, subscription):
-        """True when every table of the subscription finished its initial copy (pg_subscription_rel all 'r').
-        A fixed read-only query on the primary; None when the primary cannot be read."""
-        if not SQL_NAME.fullmatch(subscription) or not SQL_NAME.fullmatch(database):
+    def _primary_query(self, namespace, cluster, database, query):
+        """One fixed query in a read-only transaction on the primary. None: no single primary right now
+        (a switchover): not done yet. A failed read raises, so the step holds instead of passing."""
+        if not SQL_NAME.fullmatch(database):
             raise StackError("invalid_identifier")
         pods = json.loads(self._k("get", "pods", "-n", namespace, "-l",
                                   f"cnpg.io/cluster={cluster},cnpg.io/instanceRole=primary", "-o", "json").stdout)["items"]
         if len(pods) != 1:
             return None
-        query = ("SELECT count(*), count(*) FILTER (WHERE r.srsubstate <> 'r') FROM pg_subscription s "
-                 f"JOIN pg_subscription_rel r ON r.srsubid = s.oid WHERE s.subname = '{subscription}'")
         result = self._k("exec", "-n", namespace, pods[0]["metadata"]["name"], "-c", "postgres", "--",
-                         "psql", "-X", "-A", "-t", "-d", database, "-c", query, check=False)
+                         "psql", "-X", "-q", "-A", "-t", "-d", database,
+                         "-c", "BEGIN READ ONLY", "-c", query, "-c", "ROLLBACK", check=False)
         if result.returncode != 0:
-            return None
-        total, pending = (int(x) for x in result.stdout.strip().split("|"))
+            raise RuntimeError("primary_read_failed")
+        return [line.split("|") for line in result.stdout.strip().splitlines() if line]
+
+    def subscription_copied(self, namespace, cluster, database, subscription):
+        """True when every table of the subscription finished its initial copy (pg_subscription_rel all 'r')."""
+        if not SQL_NAME.fullmatch(subscription):
+            raise StackError("invalid_identifier")
+        rows = self._primary_query(namespace, cluster, database,
+                                   "SELECT count(*), count(*) FILTER (WHERE r.srsubstate <> 'r') FROM pg_subscription s "
+                                   f"JOIN pg_subscription_rel r ON r.srsubid = s.oid WHERE s.subname = '{subscription}'")
+        if rows is None:
+            return False
+        total, pending = (int(x) for x in rows[0])
         return total > 0 and pending == 0
+
+    def replication_target_ready(self, namespace, cluster, database, subscription, tables):
+        """Safe to create the forward subscription with copy_data: it already exists, or every published
+        table exists on the target and is empty. Anything else (rows already there, schema missing) raises:
+        a copy would duplicate rows or retry on duplicate keys forever."""
+        if not SQL_NAME.fullmatch(subscription) or not all(SQL_NAME.fullmatch(t) for t in tables):
+            raise StackError("invalid_identifier")
+        names = ", ".join(f"'{t}'" for t in tables)
+        rows = self._primary_query(namespace, cluster, database,
+                                   f"SELECT (SELECT count(*) FROM pg_subscription WHERE subname = '{subscription}'), "
+                                   f"(SELECT count(*) FROM pg_tables WHERE schemaname = 'public' AND tablename IN ({names}))")
+        if rows is None:  # a probe: not seeing the primary is a hold, not a verdict
+            raise RuntimeError("primary_unavailable")
+        subscriptions, present = (int(x) for x in rows[0])
+        if subscriptions == 1:
+            return True
+        if present != len(tables):
+            raise RuntimeError("replication_target_schema_missing")
+        filled = self._primary_query(namespace, cluster, database, "SELECT " + " OR ".join(
+            f"EXISTS (SELECT 1 FROM public.{t})" for t in tables))
+        if filled is None:
+            raise RuntimeError("primary_unavailable")
+        if filled[0][0] != "f":
+            raise RuntimeError("replication_target_not_empty")
+        return True
 
 
 class T10Approvals:
@@ -337,13 +388,15 @@ class AwsIdentity:
         return {"account_id": json.loads(result.stdout)["Account"]}
 
 
-def _synced(cluster, name):
-    """An Application Synced and Healthy. No Argo CD on the cluster yet (no Application type) is not done."""
+def _synced(cluster, name, revision):
+    """The Application is Synced and Healthy at the revision the plan was approved with. No Argo CD on
+    the cluster yet (no Application type) is not done."""
     try:
         status = cluster.application_status(name)
     except RuntimeError:
         return False
-    return bool(status) and status.get("sync") == "Synced" and status.get("health") == "Healthy"
+    return (bool(status) and status.get("sync") == "Synced" and status.get("health") == "Healthy"
+            and status.get("revision") == revision)
 
 
 class ClusterChecks:
@@ -373,15 +426,18 @@ class ClusterChecks:
                                       and c.deployments_available("target-dev")),
             # target-onprem-migration: the destination as a migration target
             "audit-metadata-active": lambda: (c.audit_level_events("Metadata") or 0) > 0,
-            "iac-network-synced": lambda: _synced(c, "bravo-iac-target-dev"),
-            "replication-credentials": lambda: all(c.secret_exists("target-dev", name)
-                                                   for name in ("t8-source-replication", "t8-source-ca")),
-            "replication-external-cluster": lambda: c.external_cluster("target-dev", "target-db", "t8-source"),
+            "iac-network-synced": lambda: _synced(c, "bravo-iac-target-dev", params.get("iac_revision")),
+            "replication-credentials": lambda: (
+                "password" in (c.secret_keys("target-dev", "t8-source-replication") or [])
+                and "ca.crt" in (c.secret_keys("target-dev", "t8-source-ca") or [])),
+            "replication-external-cluster": lambda: (
+                (c.external_cluster("target-dev", "target-db", "t8-source") or {})
+                .get("connectionParameters", {}).get("sslmode") == "verify-full"),
+            "replication-target-ready": lambda: c.replication_target_ready(
+                "target-dev", "target-db", "chat", "t8_source_to_target", ("attachments", "messages")),
             "initial-copy-complete": lambda: (c.subscription_applied("target-dev", "t8-source-to-target")
                                               and c.subscription_copied("target-dev", "target-db", "chat",
                                                                         "t8_source_to_target")),
-            "reverse-prepared": lambda: None,   # on the source cluster: this executor cannot see it
-            "platform-handover": lambda: None,  # a T10 plan transition: confirmed by the person who made it
         }
         if name not in checks:
             raise StackError("unknown_check")

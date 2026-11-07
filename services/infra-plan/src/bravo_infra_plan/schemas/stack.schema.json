@@ -399,6 +399,9 @@
                 "items": {
                   "$ref": "#/$defs/render"
                 }
+              },
+              "create_only": {
+                "type": "boolean"
               }
             },
             "additionalProperties": false

@@ -1,38 +1,69 @@
-"""target-onprem-migration: the destination's own steps as a migration target (T45 stack, T44 node files)."""
+"""target-onprem-migration: the destination's observable preparation as a migration target (T45 executor)."""
 
 import json
+from types import SimpleNamespace
 
 import pytest
 from test_executor import FakeApprovals, FakeCluster, _git
 from test_plan import REPO, FakeCharts
 
 from bravo_infra_plan import Planner, load_stack
-from bravo_infra_plan.adapters import ClusterChecks, FileRunStore, GitConfigRepo
+from bravo_infra_plan.adapters import ClusterChecks, FileRunStore, GitConfigRepo, KubectlCluster
 from bravo_infra_plan.executor import Executor
+from bravo_infra_plan.stack import StackError
 
 STACK = REPO / "infra/stacks/target-onprem-migration/stack.json"
-REQUEST = {"stack": "target-onprem-migration", "environment_id": "env-onprem", "params": {"node_name": "bravo-target-1"}}
+IAC = "a" * 40
+REQUEST = {"stack": "target-onprem-migration", "environment_id": "env-onprem",
+           "params": {"node_name": "bravo-target-1", "iac_revision": IAC}}
 REV = "1" * 40
-HUMAN_ONLY = ("reverse-prepared", "platform-handover")  # code cannot observe these from the destination
 
 
 class MigrationCluster(FakeCluster):
-    """A fresh destination: no audit events, no IaC sync, no replication until the test makes them true."""
+    """A destination before replication: nothing below is true until a test makes it so."""
 
     def __init__(self, **kw):
         super().__init__(**kw)
-        self.metadata_events, self.external, self.subscription, self.copied = 0.0, False, False, False
+        self.metadata_events, self.external, self.subscription, self.created = 0.0, None, None, []
+        self.target, self.applied_status, self.copied, self.read_fails = "empty", False, False, False
+
+    def prepared(self):
+        self.metadata_events = 9.0
+        self.apps["bravo-iac-target-dev"] = IAC
+        self.secrets[("target-dev", "t8-source-replication")] = ("Opaque", {"password": "x"})
+        self.secrets[("target-dev", "t8-source-ca")] = ("Opaque", {"ca.crt": "x"})
+        self.external = {"name": "t8-source", "connectionParameters": {"sslmode": "verify-full"}}
+        return self
+
+    def secret_keys(self, namespace, name):
+        found = self.secrets.get((namespace, name))
+        return None if found is None else sorted(found[1])
 
     def audit_level_events(self, level):
         return self.metadata_events if level == "Metadata" else 0.0
 
     def external_cluster(self, namespace, cluster, external):
-        return self.external and (namespace, cluster, external) == ("target-dev", "target-db", "t8-source")
+        return self.external if (namespace, cluster, external) == ("target-dev", "target-db", "t8-source") else None
+
+    def get_object(self, item):
+        return self.subscription if item["kind"] == "Subscription" else None
+
+    def create(self, items):
+        assert self.subscription is None
+        self.created.extend(items)
+        self.subscription = json.loads(json.dumps(items[0]))
 
     def subscription_applied(self, namespace, name):
-        return self.subscription and any('"t8-source-to-target"' in item for item in self.applied)
+        return self.subscription is not None and self.applied_status
+
+    def replication_target_ready(self, namespace, cluster, database, subscription, tables):
+        if self.subscription is not None or self.target == "empty":
+            return True
+        raise RuntimeError("replication_target_not_empty")
 
     def subscription_copied(self, namespace, cluster, database, subscription):
+        if self.read_fails:
+            raise RuntimeError("primary_read_failed")
         return self.copied
 
 
@@ -58,8 +89,8 @@ def world(tmp_path):
                         repo_url="file://config", ledger=lambda record: None, sleep=lambda s: None,
                         monotonic=lambda: next(ticks))
 
-    def approve(approval_id):
-        digest = planner.plan(REQUEST, stack_revision=REV, target=cluster.identity("bravo-target-1"),
+    def approve(approval_id, request=REQUEST):
+        digest = planner.plan(request, stack_revision=REV, target=cluster.identity("bravo-target-1"),
                               base_commit=repo.head()).plan_digest
         approvals.approve(approval_id, digest)
         return digest
@@ -77,94 +108,107 @@ def states(run):
     return {k: v["status"] for k, v in run["steps"].items()}
 
 
-def test_the_stack_orders_node_files_and_network_before_replication_and_never_deletes():
+def test_the_stack_holds_only_steps_the_destination_can_observe():
     stack = json.loads(STACK.read_text())
     steps = {s["id"]: s for s in stack["steps"]}
-    assert steps["forward-subscription"]["needs"] == ["replication-external-cluster", "node-files"]
-    assert "iac-network" in steps["replication-external-cluster"]["needs"]
-    assert steps["platform-handover"]["needs"] == ["reverse-prepared", "iac-network"]
-    # Making is the only cluster write: the forward subscription; nothing prunes, disables or deletes.
+    assert list(steps) == ["identity", "node-files", "iac-network", "replication-credentials",
+                           "replication-external-cluster", "replication-target-ready", "forward-subscription",
+                           "initial-copy"]
+    assert steps["forward-subscription"]["needs"] == ["replication-target-ready", "node-files"]
+    assert steps["forward-subscription"]["create_only"] is True
+    assert steps["forward-subscription"]["renders"][0]["args"] == ["subscription", "--side", "target"]
+    assert steps["replication-target-ready"]["needs"] == ["replication-external-cluster"]
+    # The only cluster write makes the forward subscription; nothing prunes, deletes or drops.
     assert [s["id"] for s in stack["steps"] if s["kind"] not in ("probe", "operator_action")] == ["forward-subscription"]
-    text = STACK.read_text()
-    for word in ("delete", "prune", "DROP", "disable"):
-        assert word not in text.replace("disable_on_error", "")
+    for word in ("delete", "prune", "DROP"):
+        assert word not in STACK.read_text()
 
 
-def test_the_plan_renders_the_reviewed_forward_subscription_and_is_deterministic(world):
-    first = world["planner"].plan(REQUEST, stack_revision=REV, target={"cluster_uid": "c", "node_uid": "n"},
-                                  base_commit="2" * 40)
-    again = world["planner"].plan(REQUEST, stack_revision=REV, target={"cluster_uid": "c", "node_uid": "n"},
-                                  base_commit="2" * 40)
+def test_the_plan_renders_the_reviewed_forward_subscription_and_binds_the_argo_revision(world):
+    def plan(request=REQUEST):
+        return world["planner"].plan(request, stack_revision=REV, target={"cluster_uid": "c", "node_uid": "n"},
+                                     base_commit="2" * 40)
+
+    first, again = plan(), plan()
     assert first.plan_digest == again.plan_digest
     [text] = first.files["forward-subscription"].values()
     [item] = json.loads(text)["items"]
-    assert item["kind"] == "Subscription" and item["metadata"] == {
-        "name": "t8-source-to-target", "namespace": "target-dev",
-        "labels": {"component": "target", "app.kubernetes.io/part-of": "bravo-t8-replication"}}
+    assert item["kind"] == "Subscription" and item["metadata"]["name"] == "t8-source-to-target"
     params = item["spec"]["parameters"]
     assert params["enabled"] == params["copy_data"] == "true" and params["origin"] == "none"
     assert item["spec"]["externalClusterName"] == "t8-source" and item["spec"]["publicationName"] == "source_chat"
-    moved = world["planner"].plan(REQUEST, stack_revision="3" * 40, target={"cluster_uid": "c", "node_uid": "n"},
-                                  base_commit="2" * 40)
-    assert moved.plan_digest != first.plan_digest
+    other = {**REQUEST, "params": {**REQUEST["params"], "iac_revision": "b" * 40}}
+    assert plan(other).plan_digest != first.plan_digest
 
 
-def test_a_fresh_destination_waits_for_each_condition_then_hands_over(world):
+def test_a_fresh_destination_waits_for_each_condition_then_creates_the_subscription_once(world):
     world["approve"]("appr-1")
-    run = start(world, "run-1")
-    s = states(run)
+    s = states(start(world, "run-1"))
     assert s["identity"] == "APPLIED"
     for waiting in ("node-files", "iac-network", "replication-credentials"):
         assert s[waiting] == "WAITING_OPERATOR", waiting
-    assert s["forward-subscription"] == "PENDING" and s["platform-handover"] == "PENDING"
+    assert s["forward-subscription"] == "PENDING"
 
-    # The operator applies the node bundle, the destination Argo CD syncs, the credentials are delivered.
-    cluster = world["cluster"]
-    cluster.metadata_events = 1200.0
-    cluster.apps["bravo-iac-target-dev"] = "r" * 40
-    cluster.secrets[("target-dev", "t8-source-replication")] = ("Opaque", {"password": "x"})
-    cluster.secrets[("target-dev", "t8-source-ca")] = ("Opaque", {"ca.crt": "x"})
+    cluster = world["cluster"].prepared()
     executor = world["executor"]()
     s = states(executor.resume("run-1"))
-    assert s["node-files"] == s["iac-network"] == s["replication-credentials"] == "SKIPPED"  # observed, not confirmed
-    assert s["replication-external-cluster"] == "WAITING_OPERATOR"
-
-    cluster.external = True
-    s = states(executor.resume("run-1"))
+    assert s["replication-target-ready"] == "APPLIED"
     assert s["forward-subscription"] == "APPLIED" and s["initial-copy"] == "WAITING_OPERATOR"
-    assert any('"t8-source-to-target"' in item for item in cluster.applied)
+    assert [i["kind"] for i in cluster.created] == ["Subscription"] and cluster.applied == []  # create, not apply
 
-    cluster.subscription = True
+    cluster.applied_status = True
     assert states(executor.resume("run-1"))["initial-copy"] == "WAITING_OPERATOR"  # applied, still copying
     cluster.copied = True
-    s = states(executor.resume("run-1"))
-    assert s["initial-copy"] == "SKIPPED" and s["reverse-prepared"] == "WAITING_OPERATOR"
-
-    for step in HUMAN_ONLY:
-        run = executor.confirm("run-1", step, confirmed_by="operator")
+    run = executor.resume("run-1")
     assert run["status"] == "SUCCEEDED", states(run)
-    assert [json.loads(i)["kind"] for i in cluster.applied] == ["Subscription"]  # the only write
 
 
-def test_a_destination_already_prepared_changes_nothing(world):
-    cluster = world["cluster"]
-    cluster.metadata_events, cluster.external, cluster.subscription, cluster.copied = 5.0, True, True, True
-    cluster.apps["bravo-iac-target-dev"] = "r" * 40
-    cluster.secrets[("target-dev", "t8-source-replication")] = ("Opaque", {"password": "x"})
-    cluster.secrets[("target-dev", "t8-source-ca")] = ("Opaque", {"ca.crt": "x"})
+def test_a_destination_already_prepared_writes_nothing(world):
+    cluster = world["cluster"].prepared()
+    rendered = json.loads(next(iter(world["planner"].plan(
+        REQUEST, stack_revision=REV, target=cluster.identity("bravo-target-1"),
+        base_commit=world["repo"].head()).files["forward-subscription"].values())))
+    live = rendered["items"][0] if "items" in rendered else rendered
+    cluster.subscription = {**live, "status": {"applied": True}}
+    cluster.applied_status = cluster.copied = True
     world["approve"]("appr-1")
     run = start(world, "run-1")
-    assert states(run)["forward-subscription"] == "APPLIED"
-    before = list(cluster.applied)
-    executor = world["executor"]()
-    for step in HUMAN_ONLY:
-        run = executor.confirm("run-1", step, confirmed_by="operator")
-    assert run["status"] == "SUCCEEDED"
+    assert run["status"] == "SUCCEEDED", states(run)
+    assert states(run)["forward-subscription"] == "SKIPPED" and cluster.created == []
 
-    world["approve"]("appr-2")
-    run = start(world, "run-2", approval_id="appr-2")
-    assert states(run)["forward-subscription"] == "SKIPPED"  # the subscription is already there
-    assert cluster.applied == before
+
+def test_a_tuned_live_subscription_is_never_taken_over(world):
+    cluster = world["cluster"].prepared()
+    cluster.subscription = {"kind": "Subscription", "spec": {"name": "t8_source_to_target", "parameters": {
+        "enabled": "true", "copy_data": "true", "disable_on_error": "true"}}}  # tuned by the T8 runbook
+    world["approve"]("appr-1")
+    s = states(start(world, "run-1"))
+    assert s["forward-subscription"] == "HOLD" and cluster.created == []
+
+
+def test_a_target_that_already_has_rows_holds_before_any_copy(world):
+    cluster = world["cluster"].prepared()
+    cluster.target = "rows"
+    world["approve"]("appr-1")
+    s = states(start(world, "run-1"))
+    assert s["replication-target-ready"] == "HOLD"
+    assert s["forward-subscription"] == "PENDING" and cluster.created == []
+
+
+def test_a_failed_read_holds_even_when_a_person_confirmed(world):
+    cluster = world["cluster"].prepared()
+    cluster.applied_status, cluster.read_fails = True, True
+    world["approve"]("appr-1")
+    start(world, "run-1")
+    run = world["executor"]().confirm("run-1", "initial-copy", confirmed_by="operator")
+    assert states(run)["initial-copy"] == "HOLD" and run["status"] != "SUCCEEDED"
+
+
+def test_another_argo_revision_is_not_the_approved_network(world):
+    cluster = world["cluster"].prepared()
+    cluster.apps["bravo-iac-target-dev"] = "c" * 40
+    world["approve"]("appr-1")
+    assert states(start(world, "run-1"))["iac-network"] == "WAITING_OPERATOR"
 
 
 def test_a_switched_cluster_holds_before_any_destination_step(world):
@@ -179,15 +223,15 @@ def test_a_switched_cluster_holds_before_any_destination_step(world):
     assert all(v["status"] in ("PENDING", "HOLD", "REFUSED") for v in run["steps"].values()), states(run)
 
 
-def test_the_checks_name_only_the_reviewed_objects():
-    cluster = MigrationCluster()
-    checks = ClusterChecks(cluster)
+def test_the_checks_look_at_keys_and_tls_not_only_names():
+    cluster = MigrationCluster().prepared()
     run = {"plan": {"request": REQUEST, "target": cluster.identity("bravo-target-1")}}
-    assert checks.check("audit-metadata-active", run) is False
-    cluster.metadata_events = 1.0
-    assert checks.check("audit-metadata-active", run) is True
-    assert checks.check("reverse-prepared", run) is None and checks.check("platform-handover", run) is None
-    assert checks.check("initial-copy-complete", run) is False
+    checks = ClusterChecks(cluster)
+    assert checks.check("replication-credentials", run) and checks.check("replication-external-cluster", run)
+    cluster.secrets[("target-dev", "t8-source-ca")] = ("Opaque", {"tls.crt": "x"})
+    cluster.external = {"name": "t8-source", "connectionParameters": {"sslmode": "require"}}
+    assert checks.check("replication-credentials", run) is False
+    assert checks.check("replication-external-cluster", run) is False
 
     class NoArgo(MigrationCluster):
         def application_status(self, name):
@@ -197,53 +241,68 @@ def test_the_checks_name_only_the_reviewed_objects():
 
 
 class Kubectl:
-    """KubectlCluster with kubectl replaced by canned results, to pin parsing and the fixed query."""
+    """KubectlCluster with kubectl replaced by canned results, to pin parsing and the fixed queries."""
 
     def __init__(self, results):
-        from types import SimpleNamespace
-
-        from bravo_infra_plan.adapters import KubectlCluster
-        self.calls, self.results, self.ns = [], list(results), SimpleNamespace
+        self.calls, self.results = [], list(results)
         self.cluster = KubectlCluster.__new__(KubectlCluster)
         self.cluster._k = self._k
 
     def _k(self, *args, stdin=None, check=True):
         self.calls.append(args)
         code, out = self.results.pop(0)
-        return self.ns(returncode=code, stdout=out, stderr="")
+        return SimpleNamespace(returncode=code, stdout=out, stderr="")
+
+
+PRIMARY = json.dumps({"items": [{"metadata": {"name": "target-db-1"}}]})
 
 
 def test_audit_events_are_read_from_the_api_server_metrics():
-    from bravo_infra_plan.stack import StackError
-    metrics = ('apiserver_audit_event_total 9\napiserver_audit_level_total{level="Metadata"} 7\n'
-               'apiserver_audit_level_total{level="None"} 2\n')
+    metrics = 'apiserver_audit_level_total{level="Metadata"} 7\napiserver_audit_level_total{level="None"} 2\n'
     k = Kubectl([(0, metrics), (0, 'apiserver_audit_level_total{level="None"} 2\n')])
     assert k.cluster.audit_level_events("Metadata") == 7.0
     assert k.cluster.audit_level_events("Metadata") is None  # a None-only policy never counts Metadata
-    assert k.calls[0] == ("get", "--raw", "/metrics")
     with pytest.raises(StackError):
         k.cluster.audit_level_events("Everything")
 
 
 @pytest.mark.parametrize("answer, expected", [("3|0", True), ("3|1", False), ("0|0", False)])
-def test_the_initial_copy_is_judged_by_a_fixed_read_only_query(answer, expected):
-    primary = json.dumps({"items": [{"metadata": {"name": "target-db-1"}}]})
-    k = Kubectl([(0, primary), (0, answer + "\n")])
+def test_the_initial_copy_is_a_fixed_query_in_a_read_only_transaction(answer, expected):
+    k = Kubectl([(0, PRIMARY), (0, answer + "\n")])
     assert k.cluster.subscription_copied("target-dev", "target-db", "chat", "t8_source_to_target") is expected
-    exec_call = k.calls[1]
-    assert exec_call[:6] == ("exec", "-n", "target-dev", "target-db-1", "-c", "postgres")
-    query = exec_call[-1]
+    call = k.calls[1]
+    assert call[:6] == ("exec", "-n", "target-dev", "target-db-1", "-c", "postgres")
+    assert call[-6:-4] == ("-c", "BEGIN READ ONLY") and call[-2:] == ("-c", "ROLLBACK")
+    query = call[-3]
     assert query.startswith("SELECT count(*)") and "subname = 't8_source_to_target'" in query
     assert not any(word in query.upper() for word in ("INSERT", "UPDATE", "DELETE", "ALTER", "DROP"))
 
 
-def test_an_unreadable_primary_is_unobservable_not_done():
-    from bravo_infra_plan.stack import StackError
+def test_no_single_primary_waits_and_a_failed_read_holds():
     none = json.dumps({"items": []})
-    two = json.dumps({"items": [{"metadata": {"name": "a"}}, {"metadata": {"name": "b"}}]})
-    one = json.dumps({"items": [{"metadata": {"name": "a"}}]})
-    assert Kubectl([(0, none)]).cluster.subscription_copied("target-dev", "target-db", "chat", "s") is None
-    assert Kubectl([(0, two)]).cluster.subscription_copied("target-dev", "target-db", "chat", "s") is None
-    assert Kubectl([(0, one), (1, "")]).cluster.subscription_copied("target-dev", "target-db", "chat", "s") is None
+    assert Kubectl([(0, none)]).cluster.subscription_copied("target-dev", "target-db", "chat", "s") is False
+    with pytest.raises(RuntimeError, match="primary_read_failed"):
+        Kubectl([(0, PRIMARY), (1, "")]).cluster.subscription_copied("target-dev", "target-db", "chat", "s")
     with pytest.raises(StackError):
         Kubectl([]).cluster.subscription_copied("target-dev", "target-db", "chat", "x'; DROP TABLE t; --")
+
+
+@pytest.mark.parametrize("answers, result", [
+    ([(0, PRIMARY), (0, "1|2\n")], True),                                # the subscription is already there
+    ([(0, PRIMARY), (0, "0|2\n"), (0, PRIMARY), (0, "f\n")], True),     # tables exist and are empty
+    ([(0, PRIMARY), (0, "0|2\n"), (0, PRIMARY), (0, "t\n")], "replication_target_not_empty"),
+    ([(0, PRIMARY), (0, "0|1\n")], "replication_target_schema_missing"),
+    ([(0, json.dumps({"items": []}))], "primary_unavailable"),
+])
+def test_copy_data_starts_only_on_an_empty_target_with_its_schema(answers, result):
+    k = Kubectl(answers)
+
+    def ready():
+        return k.cluster.replication_target_ready("target-dev", "target-db", "chat", "t8_source_to_target",
+                                                  ("attachments", "messages"))
+
+    if result is True:
+        assert ready() is True
+    else:
+        with pytest.raises(RuntimeError, match=result):
+            ready()
