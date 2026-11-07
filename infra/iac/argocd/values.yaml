@@ -7,10 +7,10 @@ repoURL: https://github.com/Softbank-Hackathon-Finals/platform.git
 # a merge alone must never reach a customer cluster. Promotion = changing this one value.
 targetRevision: ""
 
-# Bootstrap installs the controller only. Promote a reviewed revision explicitly;
-# enabling the Application and automated sync are separate operator decisions.
+# Set application.enabled explicitly on every install/upgrade: false for bootstrap,
+# true to retain/create the Application. No default may silently delete an old Application.
+# Enabling automated sync and pruning are separate operator decisions.
 application:
-  enabled: false
   autoSync: false
   prune: false
 
