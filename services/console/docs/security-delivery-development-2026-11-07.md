@@ -8,6 +8,7 @@
 - 변경 코드: 보안 요약 `cc4eaa6a`, delivery 읽기·호스트 포트 `f8ecbb34`, IaC·고객 UI `325ad51f`.
 - 실제 native API 대조: T44 API [#628](https://github.com/Softbank-Hackathon-Finals/platform/pull/628)의 `51482e6f37faec8e436efbd6e4aff87b670ee8a5`. 검증 시 해당 checkout은 수정되지 않은 상태였다.
 - 고객 재시도 생산자: [#677](https://github.com/Softbank-Hackathon-Finals/platform/pull/677). 미병합 의존성과 UI에서 받을 수 있는 상태를 구분한다.
+- 최종 정본 동기화: 작업 중 #628 등이 병합되어 `develop`의 `3d41305c`를 `f1cbaa57`에서 반영했다. console의 병합된 lockfile은 추가 수정 없이 `uv sync --locked --all-extras`를 통과했다.
 
 문서 커밋·UI 코드 커밋·수집기 버전·검토한 고객 desired-state SHA·실제 배포 이미지 원본은 서로 대체하지 않는다. 이 작업에서는 배포 이미지를 만들거나 공용 환경을 변경하지 않았다.
 
@@ -23,7 +24,7 @@
 | 검증 | 결과·범위 |
 |---|---|
 | Sova·최신 T24 통합 기준 | Python 380개, JS 272개 통과 |
-| 최종 console Python | **413개 통과, 1개 의존성 skip**. native arm64 PostgreSQL 17의 임시 로컬 DB 포함 |
+| 최종 console Python | **414개 전부 통과, skip 없음**. native arm64 PostgreSQL 17의 임시 로컬 DB 포함. #628 반영 전의 413개 통과·1개 의존성 skip은 이전 검증 단계로 보존 |
 | native T44/T10 상호운용 | **1개 통과**. #628 고정 코드의 실제 승인 저장·OperatorAccess·claim 사용. 사람 신원·Git 저장소는 명시적 fixture이며 실제 GitHub 변경/고객 적용 아님 |
 | JS 상태·계약·기하·응답 유실 | **280개 통과** |
 | 실제 브라우저 회귀 | **58개 통과**. IaC HTTP 응답은 계약 fixture, T10 HTTP/SSE·계획 경계는 로컬 실제 서비스 |
@@ -38,6 +39,6 @@ Python 전체 시험 준비 중 `pg_config`가 없는 PATH에서 DB fixture 초�
 
 T21 소비 코드와 화면 검증을 완료한 상태다. T21 전체 시연 완료나 실제 공격 대응·환경 이전 완료로 체크하지 않는다.
 
-- #628의 운영 API, 호스트 권한·세션 주입, 실제 GitHub App 연결은 배포·인수가 필요하다. 의존성 병합 시 관련 path dependency lockfile을 함께 다시 해석한다.
+- #628 코드는 병합·통합 검증됐지만, 운영 API·호스트 권한·세션 주입과 실제 GitHub App 연결은 배포·인수가 필요하다. 이후 의존성 변경 시에도 관련 path dependency lockfile의 locked 검증을 유지한다.
 - 실제 고객 수집기와 인증한 등록 저장소, 목적지 IAM-01.1의 후속 조치·재시험, 실제 워크로드 대응 증거는 소유자 연결·인수가 필요하다.
 - 로컬 시나리오 모션, 실제 격리, 고객 GitOps 동기화, 데이터·서비스 이전의 성공 범위는 끝까지 분리한다.

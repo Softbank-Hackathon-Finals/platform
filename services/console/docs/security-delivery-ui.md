@@ -32,7 +32,7 @@ flowchart LR
 
 ## IaC API 소비
 
-기존 T44 API 계약을 사용한다. 구현 기준은 [PR #628](https://github.com/Softbank-Hackathon-Finals/platform/pull/628)의 `51482e6f`이며, 이 문서 작성 시 아직 병합 전이다.
+기존 T44 API 계약을 사용한다. 구현 기준은 [PR #628](https://github.com/Softbank-Hackathon-Finals/platform/pull/628)의 `51482e6f`다. 작업 중 해당 PR이 `c1504a26`으로 병합되어, 최종 통합은 이를 포함한 `develop`의 `3d41305c`를 반영했다. 병합과 운영 호스트 배포·등록은 별개다.
 
 | 요청 | 기존 권한·검사 |
 |---|---|
@@ -72,12 +72,12 @@ flowchart LR
 
 - `tests/security-progress.test.js`, `delivery-model.test.js`: 보고서 만료·계획 불일치, 승인 결속·자기 승인·회수·만료, 다른 PR·URL 거부.
 - `tests/test_delivery.py`: 실제 T10 세션/계획 검사, 잘못된 등록·클러스터 UID·생산자 버전, 수집 중 권한 회수, 실제 GET 전용 수집기 출력 소비.
-- `tests/test_delivery_native.py`: 기존 T44/T10 구현의 실제 권한·승인·claim·중복 PR 방지. #628이 없는 기준에서는 의존성 skip으로 보고한다. 해당 코드가 설치된 통합 기준에서도 따로 실행한다.
+- `tests/test_delivery_native.py`: 기존 T44/T10 구현의 실제 권한·승인·claim·중복 PR 방지. #628이 없는 과거 기준에서는 의존성 skip으로 보고하며, 최종 통합 기준에서는 일반 전체 시험에 포함한다.
 - `tests/browser/delivery.spec.js`: 같은 계획의 보안 요약·지도, 요청 응답 유실과 GET 복구, 다른 담당자의 승인, 권한 감소, 미연결 잠금, 데스크톱·모바일 배치. IaC HTTP 응답은 명시적 브라우저 계약 fixture다.
 
 공용 운영 인수는 다음을 별도로 수행해야 한다.
 
-1. #628 및 소비 경로 lockfile 결합, 실제 호스트의 기존 IdP/OperatorAccess 주입.
+1. #628을 포함한 소비 경로 lockfile의 `--locked` 검증을 유지하며, 실제 호스트에 기존 IdP/OperatorAccess를 주입.
 2. 고정 GitHub App과 실제 IaC 저장소로 다른 담당자의 승인·PR 생성·권한 회수·응답 유실 인수.
 3. 고객 수집기와 인증된 등록 저장소를 연결하고 등록 UID·SHA·생산자 버전을 대조.
 4. 실제 양쪽 환경의 보안 보고서와 자원별 대응 관측을 연결. 목적지 IAM-01.1 실패를 숨기거나 PASS로 대체하지 않음.
