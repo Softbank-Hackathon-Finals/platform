@@ -26,6 +26,7 @@
 | FR-3 · NFR-7 · 8.3 목적지 IaC 모듈·원하는 상태(Git)·plan API와 에이전트 계획 도구(T44) | [0032 목적지 IaC API](0032-destination-iac-api.md) |
 | 8.6 Executor 구현·실행·실패·권한 | [0006 Python 선택](0006-cutover-executor-language.md), [0011 실행 기록과 실패 판정](0011-cutover-executor-execution-and-failure.md), [0013 워크로드 접근](0013-executor-workload-access.md) |
 | 8.6 정방향 복제 시간 초과와 방향별 `disable_on_error`(T8) | [0030 복제 시간 초과 30초](0030-t8-replication-timeout.md) |
+| 7.3·8.4·8.6 SQS → Lambda 호환 런타임: 구조·동등성 검증 위치, 목적지 큐 위치, 컷오버·되돌리기의 큐 처리(T46) | [0041 호환 런타임 구조](0041-sqs-lambda-compat-runtime.md), [0042 목적지 큐는 업무 DB 밖](0042-target-queue-outside-business-db.md), [0043 컷오버 큐 처리 규칙](0043-cutover-queue-handling.md) |
 | 6장 S4 · 8.6 되돌리기 전 복제 경로 확인 | [0016 되돌리기 전 복제 경로 확인](0016-failback-replication-path-check.md) |
 | 6장 S4 · 8.2 · 8.7 되돌리기 상태 머신 흐름(승인 · 전용 binding · ABORT 뒤 상태 · Edge만 재시도 · 기록) | [0022 되돌리기 상태 머신 흐름](0022-failback-state-machine-flow.md) |
 | 8.6 무결성 지문 생산자·소비자 | [0013 지문 생산자](0013-integrity-fingerprint-producer.md) |
