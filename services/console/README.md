@@ -1,5 +1,9 @@
 # Sova 이전 운영 콘솔 · T21
 
+보안 시험·워크로드 지도, IaC 승인·PR, 고객 GitOps 동기화의 연결과 운영 인수 조건은
+[보안·IaC·고객 동기화 UI](docs/security-delivery-ui.md)에 정리한다. 기존 Sova 화면을 유지하며,
+새 `IaC·고객 환경` 메뉴에서 승인과 실제 반영 상태를 나누어 확인한다.
+
 화면·로고·브라우저 탭의 제품명은 **Sova**로 통일한다. 팀 연동에 사용하는
 `bravo-console` 패키지·`bravo_console` 모듈·`X-Bravo-Console` 헤더는 기존 계약을 유지한다.
 
