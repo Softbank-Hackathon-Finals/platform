@@ -23,7 +23,9 @@ def test_committed_charts_are_the_generation_of_the_committed_states(environment
 def test_charts_keep_the_tailnet_and_credentials_out_of_git():
     for state in ENVIRONMENTS.values():
         template = files(state)["templates/resources.yaml"]
-        assert not re.search(r"[a-z0-9-]+\.[a-z0-9-]+\.ts\.net", template) and "{{ .Values.tailnet }}" in template
+        # The tailnet comes from an install value; an environment without resources (an operator tag only)
+        # still requires it, so it never falls back to a name written in Git.
+        assert not re.search(r"[a-z0-9-]+\.[a-z0-9-]+\.ts\.net", template) and ".Values.tailnet }}" in template
         assert "secretKey" not in template and "Secret" not in json.dumps(manifests(state)[0])
     objects, unmanaged = manifests(ENVIRONMENTS["target-dev"])
     # Credentials go to their own applier; access bindings to a cluster administrator (operator-access).

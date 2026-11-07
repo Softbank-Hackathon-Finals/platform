@@ -18,7 +18,7 @@ import base64
 import hashlib
 import json
 
-from bravo_iac import catalog, chart, tailnet
+from bravo_iac import catalog, chart, node, tailnet
 from bravo_iac.modules import IacError, tailnet_of
 from bravo_iac.plan import plan as iac_plan
 
@@ -159,6 +159,9 @@ def generated_files(states, environment):
     state = by_env[environment]
     files = {f"{ENVIRONMENTS}/{environment}.json": json.dumps(state, indent=2, ensure_ascii=False) + "\n"}
     files |= {f"infra/iac/charts/{environment}/{name}": text for name, text in chart.files(state).items()}
+    bundle = node.files(state)
+    if json.loads(bundle["manifest.json"])["files"]:  # node files (cluster-audit): the bundle the node applier reads
+        files |= {f"infra/iac/nodes/{environment}/{path}": text for path, text in bundle.items()}
     keys = {"default"} | {tailnet_of(g) for s in states for m in catalog.check_state(s)["modules"]
                           if m["id"] == "tailnet-egress" for g in m["params"]["groups"]}
     for key in sorted(keys):

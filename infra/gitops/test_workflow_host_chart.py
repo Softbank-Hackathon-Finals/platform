@@ -44,6 +44,20 @@ class WorkflowHostChart(unittest.TestCase):
         self.assertEqual(deployment["spec"]["template"]["metadata"]["labels"]["bravo.dev/db-client"], "runtime")
         self.assertEqual(deployment["spec"]["template"]["metadata"]["labels"]["bravo.dev/target-api-client"], "apply")
 
+    def test_ai_job_automation_adds_only_a_projected_api_token(self):
+        result, docs = render(VALUES | {"initialProposalAuto": {"enabled": True}})
+        self.assertEqual(result.returncode, 0, result.stderr)
+        pod = next(d for d in docs if d["kind"] == "Deployment")["spec"]["template"]["spec"]
+        self.assertIs(pod["automountServiceAccountToken"], False)  # no default token: only this projection
+        token = next(v for v in pod["volumes"] if v["name"] == "kube-api-token")["projected"]["sources"]
+        self.assertEqual(token[0]["serviceAccountToken"]["expirationSeconds"], 3600)
+        mount = next(m for m in pod["containers"][0]["volumeMounts"] if m["name"] == "kube-api-token")
+        self.assertTrue(mount["readOnly"])
+        self.assertFalse(any(d["kind"] in ("Role", "ClusterRole", "RoleBinding") for d in docs))  # RBAC lives with bravo-initial
+        _, off = render(VALUES)
+        off_pod = next(d for d in off if d["kind"] == "Deployment")["spec"]["template"]["spec"]
+        self.assertNotIn("kube-api-token", {v["name"] for v in off_pod["volumes"]})
+
     def test_missing_required_inputs_are_refused(self):
         for key in ("image", "configuration", "reader", "stateClaim"):
             values = {k: v for k, v in VALUES.items() if k != key}

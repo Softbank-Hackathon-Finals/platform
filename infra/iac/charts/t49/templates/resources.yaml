@@ -1,0 +1,1 @@
+{{- $_ := required "tailnet (the <name>.ts.net suffix) is required" .Values.tailnet }}

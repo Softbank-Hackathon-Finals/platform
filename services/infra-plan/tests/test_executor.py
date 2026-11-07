@@ -27,7 +27,7 @@ class FakeCluster:
     """Argo CD reports an Application synced at the revision it was given; resources become ready."""
 
     OPERATOR_SECRETS = {("tailscale-system", "operator-oauth"), ("target-dev", "target-seaweedfs-auth"),
-                        ("bravo-secrets", "target-openbao-tls")}
+                        ("bravo-secrets", "target-openbao-tls"), ("target-dev", "bravo-app-metrics-client")}
 
     def __init__(self, *, never_ready=()):
         self.lock = threading.Lock()

@@ -4,7 +4,9 @@
 #   docker build -f services/observability/Dockerfile .
 # 컨텍스트에 들어가는 파일은 Dockerfile.dockerignore의 허용 목록뿐이다.
 FROM ghcr.io/astral-sh/uv:0.13.6@sha256:af22a52f5eafef3d78e551599d405c02df61919d18028f0cea8eda93bc9986d0 AS uv
-FROM python:3.12.16-slim-bookworm@sha256:e697c81897302a4c4333bade000d98038fbb21eb064f8ee1fd42d02ebcd9d337
+FROM python:3.12.16-slim-trixie@sha256:4840d514c583a4d3d8cad3940e68dee6f0f6f3635c12fcd0a3d74c21a5b93a54
+# 기반 이미지 이후 나온 보안 수정판(검사의 fixed 항목)을 빌드 때 받는다
+RUN apt-get update && apt-get -y upgrade --no-install-recommends && rm -rf /var/lib/apt/lists/*
 COPY --from=uv /uv /usr/local/bin/uv
 COPY docs/observability/sli.schema.json /src/docs/observability/sli.schema.json
 COPY services/observability/pyproject.toml services/observability/uv.lock services/observability/README.md /src/services/observability/

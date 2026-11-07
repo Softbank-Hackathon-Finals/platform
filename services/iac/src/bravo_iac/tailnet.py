@@ -62,12 +62,19 @@ def fragment(states, tailnet=DEFAULT_TAILNET) -> dict:
         if not app:
             accepts.setdefault(src, set()).add(f"{dst}:{ip.removeprefix('tcp:')}")
     destinations = sorted({dst for _, dst, _, app in grants if not app})
+    # A new cluster's operator tag (tailnet-operator) has no grant of its own. Its devices get names at
+    # run time that a repository scan cannot see, so the policy itself tests that the tag reaches no
+    # granted destination: other environments' operators, databases, poolers and the collectors.
+    granted = sorted({f"{dst}:{ip.removeprefix('tcp:')}" for _, dst, ip, app in grants if not app})
+    operators = sorted({entry["params"]["tag"] for state in states for entry in check_state(state)["modules"]
+                        if entry["id"] == "tailnet-operator" and tailnet_of(entry["params"]) == tailnet})
     return {
         "tagOwners": {tag: [owners[tag]] for tag in sorted(owners)},
         "grants": [{"src": [s], "dst": [d], "ip": [i], **({"app": json.loads(a)} if a else {})}
                    for s, d, i, a in sorted(grants)],
         "tests": [{"src": src, "accept": sorted(accepts[src]),
-                   "deny": [f"{dst}:22" for dst in destinations]} for src in sorted(accepts)],
+                   "deny": [f"{dst}:22" for dst in destinations]} for src in sorted(accepts)]
+                 + [{"src": tag, "accept": [], "deny": granted} for tag in operators if granted],
     }
 
 

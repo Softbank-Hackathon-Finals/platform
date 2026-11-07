@@ -119,6 +119,9 @@ Helm release before recovery; do not blindly resubmit a timed-out installation.
 Runtime configuration has a separate authority: the versioned registration
 catalog/grants generator and the existing Secret issuers. Its input hash is
 recorded by bootstrap, and its ConfigMap content hash is recorded in the Pod.
+The catalog's `evaluation_profiles` allowlist is declared in
+`environments/development/registration-profiles.json` (GATE `demo-gate:1`,
+recheck `apply-recheck:1`); bootstrap refuses a catalog that differs.
 The Argo Application is managed by this bootstrap release; editing it directly
 is not a durable configuration change. Secret values never enter that release.
 Registry rotation replaces only `platform-ghcr-reader` through the protected

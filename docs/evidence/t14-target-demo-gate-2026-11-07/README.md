@@ -16,3 +16,19 @@
 - 원문은 운영자 비공개 폴더(0600)에 있다.
 
 출발지 같은 실행은 [세 시험 PASS](../t14-source-demo-gate-2026-11-07/README.md)다.
+
+## 추가 실행: SEC-01.1 포함 (22:55 KST)
+
+T9 OpenBao 비교 역할 `t14-other`(#707, 22:0x 적용)가 생긴 뒤 같은 도구로 세 시험을 다시 실행했다(5초). 실행 환경과 앱은 등록값(`bravo-target-dev` / `bravo-target-collector`, 워크로드 ID)이다.
+
+| 시험 | 결과 | 관찰 | 대조군 |
+|---|---|---|---|
+| IAM-01.1 | **FAIL** | 익명 GET 허용(open-demo, 의도한 결함) | 앱 GET 성공 |
+| SEC-01.1 | **PASS** | `t14-other` 읽기 거부(403) | 앱 신원(`target-app-reader` · SA `target-eso-reader`) 읽기 성공, 현재 버전 일치 |
+| AUD-01.1 | **PASS** | 관리자 로그인 기록 있음 | 해당 없음 |
+
+- 운영자 Mac → `kubectl port-forward svc/target-openbao 18200:8200`, `server_hostname` `target-openbao.bravo-secrets.svc`로 TLS 확인(ConfigMap `target-openbao-ca`).
+- 두 SA 토큰은 `kubectl create token --audience openbao --duration 10m`, 0600 파일. OpenBao 토큰은 수집기가 끝나면 revoke-self.
+- 첫 실행(22:53)은 SEC-01.1이 UNKNOWN(UNEXPECTED_RESPONSE)이었다. 실제 OpenBao 2.x가 KV 읽기 거부를 multierror 형식(`"1 error occurred:\n\t* permission denied\n\n"`)으로 돌려주는데, 수집기가 `"permission denied"` 한 형식만 받았다. 두 형식만 정확히 받도록 고친 뒤 다시 실행했다(이 PR).
+- 증거에는 비밀 값 · 토큰이 없다(SEC 증거는 단계 결과와 해시만).
+

@@ -8,6 +8,7 @@ from pathlib import Path
 
 import pytest
 from bravo_iac.chart import files as chart_files
+from bravo_iac.node import files as node_files
 from bravo_iac.tailnet import fragment
 from fastapi.testclient import TestClient
 from test_cutover import NOW, PRINCIPAL, SPEC
@@ -16,7 +17,12 @@ from test_workflow_recovery import collect, service
 
 from bravo_platform_events.cutover_api import create_cutover_app
 from bravo_platform_events.github_app import GitHubError
-from bravo_platform_events.iac_plans import WRITER_PERMISSIONS, GitHubIacRepository, IacPlanService
+from bravo_platform_events.iac_plans import (
+    WRITER_PERMISSIONS,
+    GitHubIacRepository,
+    IacPlanService,
+    generated_files,
+)
 from bravo_platform_events.plan_api import Principal
 from bravo_platform_events.store import EventError
 
@@ -258,6 +264,15 @@ def test_the_pull_request_carries_the_state_its_chart_and_the_policy_fragments()
     states = [proposed if s["environment"] == "target-dev" else s for _, s in sorted(COMMITTED.items())]
     assert json.loads(written["infra/tailnet/routes-policy.json"]) == fragment(states)
     assert json.loads(written["infra/tailnet/routes-policy.workload.json"]) == fragment(states, "workload")
+    # The node bundle (cluster-audit) is regenerated too: its manifest carries the state digest, so any state
+    # change moves it, and CI requires the committed bundle to be the generation of the committed state.
+    nodes = {k: v for k, v in written.items() if k.startswith("infra/iac/nodes/")}
+    assert nodes == {f"infra/iac/nodes/target-dev/{k}": v for k, v in node_files(proposed).items()}
+    committed = REPO / "infra/iac/nodes/target-dev"
+    assert nodes["infra/iac/nodes/target-dev/manifest.json"] != (committed / "manifest.json").read_text()
+    assert nodes["infra/iac/nodes/target-dev/etc/rancher/rke2/audit-policy.yaml"] == (
+        committed / "etc/rancher/rke2/audit-policy.yaml").read_text()
+    assert not any(k.startswith("infra/iac/nodes/") for k in generated_files(states, "source-dev"))  # no node files
     assert app.refs["refs/heads/bravo-iac/iac-1"] == "c" * 40 and app.pulls[0]["base"] == "develop"
     # Opened before a crash: the same PR comes back and nothing is written again.
     assert repository.open("target-dev", proposed, base_sha=sha, iac_plan_id="iac-1", plan=plan) == opened

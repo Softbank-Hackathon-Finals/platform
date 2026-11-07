@@ -2,7 +2,7 @@
 
 demo-chat 로그인용 Amazon Cognito 사용자 풀 하나를 만든다. 사용자 풀, 로그인 도메인, 브라우저용 공개 클라이언트 세 자원뿐이다.
 
-**아직 만들지 않았다.** `terraform plan`과 `apply`를 실제 계정으로 돌린 적이 없다. 확인한 것은 [검증](#검증)에 있다.
+**2026-11-07 22:08 KST 실제 출발지 계정에 만들었다**(develop `c9b8957d`, state 키 `runtime/source-identity/terraform.tfstate`, 출발지 스택과 같은 비공개 backend). 확인한 것은 [검증](#검증)에 있다.
 
 ## 왜 있나
 
@@ -76,5 +76,5 @@ unset TEMP_PASSWORD
 |---|---|
 | `terraform fmt -check` · `validate` | 통과 |
 | `terraform test` (모의 공급자) | 8개 통과: 비밀 없는 code 흐름, 비밀번호 흐름 없음, 콜백 · 로그아웃 고정, 사용자 존재 노출 막음, 스스로 가입 막음, 이름 속성 쓰기 · admin scope 없음, localhost 콜백은 명시할 때만, 출력값, 금지 접두사 · http 주소 거부, 선언 자원 목록 |
-| 실제 계정 `plan` · `apply` | 하지 않음 |
-| 앱의 실제 로그인 | Keycloak으로만 확인(demo-app #28). Cognito 실계정 로그인은 `apply` 뒤 확인한다 |
+| 실제 계정 `plan` · `apply` | 11/7 22:08 KST: plan 3개 추가 · 0 변경 · 0 삭제, apply 같음. AWS에서 다시 읽어 확인: 비밀 없는 클라이언트, `code` 흐름만, `explicit_auth_flows`는 갱신 토큰 하나, 콜백 · 로그아웃은 Edge 앱 주소 하나, 스스로 가입 막음, `write_attributes`는 `locale` · `zoneinfo`, ID 토큰 60분, 태그 `component=source`, 발급자 discovery의 issuer가 출력과 같음 |
+| 앱의 실제 로그인 | Keycloak으로만 확인(demo-app #28). Cognito 실계정 로그인은 #28 배포 뒤 시연 계정으로 확인한다(아직 안 함) |

@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "stack": "target-onprem",
-  "description": "T30 · T9 README의 목적지 처음 구축 절차를 정형 단계로 옮긴 첫 스택(T45, ADR-0033). 렌더러 코드는 바꾸지 않는다. 목적지 Argo CD는 T44(ADR-0032) 설치를 함께 쓴다.",
+  "description": "T30 · T9 README의 목적지 처음 구축 절차를 정형 단계로 옮긴 첫 스택(T45, ADR-0033). 렌더러 코드는 바꾸지 않는다. 예외: T30 database 렌더는 T8 정방향 외부 클러스터를 선언한다(#648). 이미 운영 중인 목적지에 새 database 렌더를 반영하기 전에 출발지 인증서를 SAN source-db-for-replication.target-dev.svc로 다시 발급한다. 순서가 거꾸로 되면 verify-full이 실패해 운영 중인 정방향 복제가 끊긴다(ADR-0033 3.8). 목적지 Argo CD는 T44(ADR-0032) 설치를 함께 쓴다.",
   "params": {
     "node_name": {
       "description": "확인한 노드의 kubernetes.io/hostname",
@@ -521,6 +521,17 @@
       }
     },
     {
+      "id": "app-metrics-client",
+      "kind": "operator_action",
+      "owner": "T37",
+      "description": "목적지 앱의 지표 클라이언트 인증서(bravo-app-metrics-client)를 앱 CA로 발급해 넣는다",
+      "needs": [
+        "base-sync"
+      ],
+      "instruction": "docs/observability/certificates.md 앱 인증서 발급: 이 목적지의 앱 CA(키는 클러스터 밖)로 클라이언트 leaf(CN demo-chat-target, 30일)를 발급하고 ca.crt · tls.crt · tls.key를 target-dev/bravo-app-metrics-client Secret으로만 넣는다. 앱 Pod는 이 Secret이 없으면 뜨지 않는다(target-workloads README 0).",
+      "confirm": "app-metrics-client"
+    },
+    {
       "id": "openbao-tls",
       "kind": "operator_action",
       "owner": "T9",
@@ -716,6 +727,7 @@
       "description": "목적지 앱(쓰기 차단 상태로 시작)을 올린다",
       "needs": [
         "app-image",
+        "app-metrics-client",
         "migration-complete",
         "objects-sync",
         "delivery-ready"
