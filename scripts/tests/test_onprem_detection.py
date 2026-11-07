@@ -67,6 +67,9 @@ class OnpremDetectionBundle(unittest.TestCase):
             "kyverno": [{"apiGroups": ["apps"], "resources": ["deployments"], "resourceNames": ["kyverno-reports-controller"],
                          "verbs": ["get"]}]})
         pod = items[("CronJob", "bravo-findings-agent")]["spec"]["jobTemplate"]["spec"]["template"]["spec"]
+        labels = items[("CronJob", "bravo-findings-agent")]["spec"]["jobTemplate"]["spec"]["template"]["metadata"]["labels"]
+        self.assertEqual(labels, {"app.kubernetes.io/name": "bravo-findings-agent",
+                                  "bravo.dev/findings-client": "agent"})
         container, = pod["containers"]
         self.assertRegex(container["image"], r"@sha256:[0-9a-f]{64}$")
         self.assertTrue(pod["securityContext"]["runAsNonRoot"])
@@ -85,7 +88,8 @@ class OnpremDetectionBundle(unittest.TestCase):
         self.assertEqual(env["BRAVO_FINDINGS_CA_FILE"], "/run/bravo/ca/ca.crt")
         self.assertIn({"name": "ca", "configMap": {"name": "bravo-findings-ca"}}, pod["volumes"])
         policy = items[("NetworkPolicy", "bravo-findings-agent")]["spec"]
-        self.assertEqual(policy["podSelector"], {"matchLabels": {"app.kubernetes.io/name": "bravo-findings-agent"}})
+        self.assertEqual(policy["podSelector"], {"matchLabels": {
+            "app.kubernetes.io/name": "bravo-findings-agent", "bravo.dev/findings-client": "agent"}})
         self.assertEqual(policy["ingress"], [])
         # DNS and the API server endpoint after Service DNAT; the tailnet proxy range is the T44 client policy's.
         dns, api = policy["egress"]

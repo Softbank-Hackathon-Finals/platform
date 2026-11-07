@@ -538,7 +538,8 @@
     ],
     "podSelector": {
       "matchLabels": {
-        "app.kubernetes.io/name": "bravo-findings-agent"
+        "app.kubernetes.io/name": "bravo-findings-agent",
+        "bravo.dev/findings-client": "agent"
       }
     },
     "policyTypes": [
@@ -658,7 +659,8 @@
             },
             "podSelector": {
               "matchLabels": {
-                "app.kubernetes.io/name": "bravo-findings-agent"
+                "app.kubernetes.io/name": "bravo-findings-agent",
+                "bravo.dev/findings-client": "agent"
               }
             }
           },

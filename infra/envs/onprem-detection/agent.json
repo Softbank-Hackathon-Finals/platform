@@ -67,7 +67,7 @@
             "backoffLimit": 0,
             "activeDeadlineSeconds": 120,
             "template": {
-              "metadata": {"labels": {"app.kubernetes.io/name": "bravo-findings-agent"}},
+              "metadata": {"labels": {"app.kubernetes.io/name": "bravo-findings-agent", "bravo.dev/findings-client": "agent"}},
               "spec": {
                 "serviceAccountName": "bravo-findings-agent",
                 "restartPolicy": "Never",
@@ -101,7 +101,7 @@
       "kind": "NetworkPolicy",
       "metadata": {"name": "bravo-findings-agent", "namespace": "bravo-security", "labels": {"component": "target"}},
       "spec": {
-        "podSelector": {"matchLabels": {"app.kubernetes.io/name": "bravo-findings-agent"}},
+        "podSelector": {"matchLabels": {"app.kubernetes.io/name": "bravo-findings-agent", "bravo.dev/findings-client": "agent"}},
         "policyTypes": ["Ingress", "Egress"],
         "ingress": [],
         "egress": [

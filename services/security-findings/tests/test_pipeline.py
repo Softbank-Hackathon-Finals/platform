@@ -253,6 +253,12 @@ def test_push_requires_token_and_unauthorized_does_not_change_state(env):
     assert (
         client.post("/v1/security/ingest/kyverno", json=other_env, headers=AUTH).status_code == 403
     )
+    for source in ("falco", "bravo_controls"):
+        assert client.post(
+            f"/v1/security/ingest/{source}",
+            json={"environment_id": "env-aws", "events": []},
+            headers=AUTH,
+        ).status_code == 403
 
 
 def test_push_ingests_and_heartbeats(env):
