@@ -49,6 +49,7 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 PURPOSES = ("context", "run-source", "run-target", "readiness-binding", "readiness-snapshot", "gate-result")
 RELAY = ["kubectl", "--context", "{context}", "-n", "platform-state", "exec", "-i", "deploy/t10-workflow-host",
          "-c", "host", "--", "python", "-m", "bravo_platform_events.gate_relay"]
+EVALUATE_MARGIN = timedelta(seconds=10)
 OBSERVER = ["kubectl", "--context", "{context}", "-n", "platform-state", "exec", "-i", "deploy/t15-rehearsal-host",
             "-c", "host", "--", "python", "-m", "bravo_platform_events.readiness_observer"]
 READINESS = ("readiness-binding", "readiness-snapshot")
@@ -199,6 +200,12 @@ def capture(args, *, relay, observe, clock):
         # The GATE record is written once per context: a data BLOCK (one lag spike) would cost the context.
         if recorded["data"]["decision"] != "PASS" and not getattr(args, "record_block", False):
             raise RuntimeError("hold:readiness_data_block")
+        # Signing goes through kubectl exec round trips; a PASS that expires before the platform evaluates
+        # it becomes a freshness BLOCK for the whole context (live S1, 11/8: 37 s for a 30 s record).
+        # ponytail: fixed margin for one evaluate round trip (5-9 s measured); measure it if exec gets slower
+        if (recorded["data"]["decision"] == "PASS" and clock() + EVALUATE_MARGIN
+                >= datetime.fromisoformat(recorded["data"]["valid_until"])):
+            raise RuntimeError("hold:readiness_expires_before_evaluate")
         out["evaluated"] = relay({"op": "evaluate", "plan_id": args.plan_id})["evaluated"]
     out["elapsed_s"] = round(time.monotonic() - started, 1)
     return out
