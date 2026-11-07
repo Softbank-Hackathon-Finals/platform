@@ -60,8 +60,10 @@ def verify_initial_proposal(get, value):
     The Job Pod pulls the Reader image with the existing registry Secret in its own namespace; it must
     exist before the path is turned on, or the first Job fails on the image pull."""
     pem = value.get("brokerCaPem") if isinstance(value, dict) else None
-    if (set(value) != {"enabled", "brokerCaPem"} or value["enabled"] is not True or not isinstance(pem, str)
-            or not pem.startswith("-----BEGIN CERTIFICATE-----") or "PRIVATE KEY" in pem):
+    # hostCreatesJobs (T49, chart values.yaml): the workflow host creates the Job itself; optional, bool only.
+    if (not {"enabled", "brokerCaPem"} <= set(value) <= {"enabled", "brokerCaPem", "hostCreatesJobs"}
+            or value["enabled"] is not True or not isinstance(value.get("hostCreatesJobs", False), bool)
+            or not isinstance(pem, str) or not pem.startswith("-----BEGIN CERTIFICATE-----") or "PRIVATE KEY" in pem):
         raise ValueError("initial_proposal_public_ca_required")
     get("secret", INITIAL_PROPOSAL_REGISTRY, "bravo-initial")
 

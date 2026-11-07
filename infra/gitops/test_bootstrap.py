@@ -55,6 +55,23 @@ def profiles(*ids):
     return {"evaluation_profiles": [{"tenant_id": "bravo", "profile_id": i, "profile_version": "1"} for i in ids]}
 
 
+class InitialProposal(unittest.TestCase):
+    PEM = "-----BEGIN CERTIFICATE-----\nMIIB\n-----END CERTIFICATE-----\n"
+
+    def test_host_creates_jobs_is_an_optional_bool(self):
+        seen = []
+        get = lambda *a: seen.append(a)
+        for value in ({"enabled": True, "brokerCaPem": self.PEM},
+                      {"enabled": True, "brokerCaPem": self.PEM, "hostCreatesJobs": True}):
+            bootstrap.verify_initial_proposal(get, value)
+        self.assertEqual(seen[-1], ("secret", "platform-ghcr-reader", "bravo-initial"))
+        for value in ({"enabled": True, "brokerCaPem": self.PEM, "hostCreatesJobs": "yes"},
+                      {"enabled": True, "brokerCaPem": self.PEM, "other": 1},
+                      {"enabled": True, "brokerCaPem": self.PEM + "PRIVATE KEY"}, {"brokerCaPem": self.PEM}):
+            with self.assertRaises(ValueError):
+                bootstrap.verify_initial_proposal(get, value)
+
+
 class BootstrapHelm(unittest.TestCase):
     def test_upgrade_takes_back_its_own_fields(self):
         upgrade = next(c for c in main("deployed") if "upgrade" in c)
