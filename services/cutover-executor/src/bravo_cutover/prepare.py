@@ -6,11 +6,16 @@ observations. This does not execute SQL, enable an app role, or claim readiness.
 Object names come from the environment's Site (db_cluster, db_namespace,
 pgbouncer_deployment). Unset fields keep the original deployment rule
 {side}-db, {side}-dev and {side}-pgbouncer, so existing callers are unchanged.
+
+This module imports no other bravo_cutover module at runtime: the target live
+alignment check loads it from its file alone. Site is read by attribute only.
 """
 
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
-from bravo_cutover.sites import Site
+if TYPE_CHECKING:
+    from bravo_cutover.sites import Site
 
 OWNER_KEY = "bravo.dev/app-login-owner"
 OWNER = "cutover-executor"
@@ -26,7 +31,7 @@ class ObjectNames:
     pooler: str
 
 
-def object_names(side: str, site: Site | None = None) -> ObjectNames:
+def object_names(side: str, site: "Site | None" = None) -> ObjectNames:
     """The CNPG Cluster, its namespace and the pooler Deployment this side expects.
     The environment kind is not consulted: names are configuration, not a kind rule."""
     if side not in SIDES:
@@ -39,7 +44,7 @@ def object_names(side: str, site: Site | None = None) -> ObjectNames:
     return ObjectNames(cluster, namespace, pooler)
 
 
-def cluster_patch(cluster: dict, *, side: str, site: Site | None = None) -> list[dict]:
+def cluster_patch(cluster: dict, *, side: str, site: "Site | None" = None) -> list[dict]:
     names = object_names(side, site)
     meta, spec = cluster["metadata"], cluster["spec"]
     if (cluster.get("kind") != "Cluster" or meta.get("name") != names.cluster
@@ -79,7 +84,7 @@ def cluster_patch(cluster: dict, *, side: str, site: Site | None = None) -> list
     return patches
 
 
-def pooler_trust_patch(deployment: dict, *, side: str, site: Site | None = None) -> list[dict]:
+def pooler_trust_patch(deployment: dict, *, side: str, site: "Site | None" = None) -> list[dict]:
     names = object_names(side, site)
     meta = deployment["metadata"]
     if (deployment.get("kind") != "Deployment" or meta.get("name") != names.pooler
