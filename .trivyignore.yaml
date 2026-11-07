@@ -1,15 +1,5 @@
 # Reviewed exceptions apply only to these files, never the whole repository.
 misconfigurations:
-  - id: AVD-KSV-0014
-    paths:
-      - services/function-runtime/testing/k8s/manifests.yaml
-    expired_at: 2026-11-30
-    statement: T46 local k3d proof fixture (ElasticMQ, nginx TLS proxy, client/other test Pods in a throwaway t46-queue-sec namespace); never deployed to a team or customer cluster. The destination manifests get a hardened securityContext when the queue is deployed (M2).
-  - id: AVD-KSV-0118
-    paths:
-      - services/function-runtime/testing/k8s/manifests.yaml
-    expired_at: 2026-11-30
-    statement: Same local k3d proof fixture as above; default securityContext in a throwaway namespace only. Hardened in the destination manifests (M2).
   - id: AVD-KSV-0056
     paths:
       - infra/gitops/argocd/templates/registration-rbac.yaml
