@@ -61,6 +61,12 @@
 * tailnet 정책 조각은 원하는 상태에서 생성하고 Tailscale 정책 `tests`로 불변식을 건다. 실검증은 Tailscale(`tailscale status`)로 한다.
 * 이 맥의 첫 실행에서 목적지 API 장치 태그가 선언과 달랐다(`tag:bravo-target-operator` vs `tag:bravo-target-api`). 선언과 실제가 어긋나는 곳을 적용 전에 드러내는 것이 목적이다.
 
+### 적용 위치: 고객 클러스터마다 Argo CD
+
+* 플랫폼 Argo CD가 고객 클러스터들을 밀어 넣으면 플랫폼이 고객 클러스터마다 자격·API 경로를 쥐고, 고객이 늘수록 한곳에 부담과 권한이 모인다. **각 고객 클러스터에 Argo CD를 두고(pull), 그 클러스터의 환경 경로 한 곳만 끌어온다.**
+* 원하는 상태는 환경별 Helm 차트로 생성한다. tailnet 접미사는 차트의 유일한 값이며 설치 때 Application에만 들어간다(공개 저장소에 두지 않는다).
+* 권한은 1단계로 넉넉하게 시작한다(AppProject: 이 저장소·이 클러스터·모든 namespace·종류). 해피패스가 안정되면 README의 순서로 좁힌다. 팀 의견(먼저 넉넉하게, 이후 세분화)을 따른다.
+
 ## 4. 결과
 
 * `services/iac`(`bravo_iac`): 카탈로그, 원하는 상태 검사, plan, CLI(`modules`·`check`·`plan`·`stage`), 읽기·제안 API(`/v1/iac/modules`, `/v1/iac/environments/{id}`, `/v1/iac/plan`).

@@ -48,6 +48,38 @@ Tailscale operator가 매긴 proxy 포트를 **관찰해서** NetworkPolicy에 �
 선언(`tag:bravo-target-api`, 저장소 조각과 같음)과 **TAG_MISMATCH**였다. 플랫폼 → 목적지 API grant가 실제 장치와 맞지
 않는다는 뜻이다. API proxy에 전용 태그를 줄지 grant 대상을 바꿀지는 목적지 담당이 정한다. 나머지 11개는 NOT_VISIBLE.
 
+## 적용: 고객 클러스터마다 Argo CD (pull GitOps)
+
+플랫폼 Argo CD가 여러 고객 클러스터를 밀어 넣지 않는다. **각 고객 클러스터에 Argo CD를 하나 두고**, 그 클러스터의
+환경 한 곳(`infra/iac/charts/<환경>`)만 끌어와 적용한다. 고객 클러스터 수가 늘어도 플랫폼 쪽 부담·자격이 늘지 않고,
+고객 클러스터의 API를 플랫폼에 열 필요가 없다.
+
+| 경로 | 뜻 |
+|---|---|
+| `infra/iac/charts/<환경>` | `bravo-iac chart`로 생성한 Helm 차트(손으로 고치지 않음). 값은 `tailnet`(`<이름>.ts.net`) 하나 |
+| `infra/iac/argocd` | 고객 클러스터에 설치하는 Argo CD(argo-helm 10.14.0, 플랫폼과 같은 판, Core 모드: UI·SSO·ingress 없음) + AppProject `bravo-iac` + 그 환경의 Application |
+
+```sh
+# 차트 생성(원하는 상태가 바뀌면 같은 PR에서 다시 생성한다. 시험이 일치를 고정한다)
+cd services/iac && uv run bravo-iac chart ../../infra/iac/environments/target-dev.json --out ../../infra/iac/charts/target-dev
+# 고객 클러스터에 한 번 설치(운영자). tailnet 접미사는 이 명령의 값으로만 들어가고 Git에 남지 않는다
+helm dependency update infra/iac/argocd
+helm upgrade --install bravo-iac-gitops infra/iac/argocd -n bravo-iac-gitops --create-namespace \
+  --set environment=target-dev --set tailnet=<이름>.ts.net
+```
+
+이후 원하는 상태의 변경은 PR → 병합 → 그 클러스터의 Argo가 60초 안에 끌어와 동기화(자동, prune·selfHeal, 없는 namespace 생성)
+한다. 비밀 값이 필요한 자원(지금은 버킷 계정 Secret)은 차트에 없고 `Chart.yaml`의 `bravo.dev/unmanaged`에 적힌다.
+ProxyGroup은 그 클러스터에 Tailscale operator(CRD)가 있어야 생성된다(`SkipDryRunOnMissingResource`).
+
+**권한은 1단계로 넉넉하게** 둔다(해피패스를 쉽게): AppProject는 이 저장소 하나, 이 클러스터, 모든 namespace·종류를 허용하고
+Argo는 클러스터 범위 권한으로 돈다. 해피패스가 안정되면 좁힌다.
+1. `destinations`를 원하는 상태에 나오는 namespace로, `clusterResourceWhitelist`를 `ProxyGroup`으로, `namespaceResourceWhitelist`를
+   `Service`·`NetworkPolicy`(+ 모듈이 늘면 그 종류)로 줄인다.
+2. Argo controller의 ClusterRole을 같은 종류로 줄인다(플랫폼 Argo처럼 `createClusterRoles: false` + 전용 Role).
+3. `targetRevision`을 브랜치 대신 서명·검증된 커밋으로 고정하고, 승격은 PR로 한다.
+4. `prune`은 모듈별로 켜고, 삭제 전 plan의 `delete` 변경을 사람이 승인한다.
+
 ## 흐름
 
 ```sh
@@ -67,8 +99,9 @@ uv run bravo-iac stage --plan plan.json --proposed proposed.json --target ../../
 
 ## 아직 아닌 것
 
-- 병합 뒤 자동 적용기(Argo CD 또는 T31 apply-host가 원하는 상태를 읽어 적용·검증). 지금은 T9 `object_exposure.py plan`의
-  운영 순서로 적용하고, GATE가 IAM-01.1을 다시 대조한다.
+- 비밀 값이 필요한 모듈의 GitOps 적용(ESO·OpenBao로 주입). 버킷 공개 상태는 지금 T9 `object_exposure.py plan`의 운영 순서로
+  적용하고, GATE가 IAM-01.1을 다시 대조한다.
+- 실제 고객 클러스터에 Argo 설치(목적지·출발지 담당과 시점 합의).
 - 에이전트 도구 `infra.plan`(T11)과 플랫폼 API 연결(T10). 이 패키지는 둘 다 네트워크 없이 부를 수 있게 순수 함수로 둔다.
 - 모듈 추가(목적지 앱 Deployment·NetworkPolicy·OpenBao 정책 등), 목적지 쪽 tailnet 노출(API proxy·Pooler·DB의 태그).
 - tailnet 정책의 GitOps 적용(PR에서 Tailscale validate, 머지 때 apply)과 기존 경로 렌더러의 이 모듈로 이전.

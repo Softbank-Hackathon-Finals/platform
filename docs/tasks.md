@@ -893,7 +893,9 @@ Claude Code는 `/todo-task`, Codex는 `$todo-task`로 이 순서를 따르는 �
 - [ ] 에이전트 도구 `infra.plan`(T11 도구 계층·두 provider)과 제어 경로가 주입하는 계획 포트(`AgentPlanner`)
 - [ ] 실제 Job에 포트 연결(T38·T11): 커밋된 원하는 상태를 입력으로, 계획 결과를 실행 결과에 결속
 - [ ] 플랫폼 API에 IaC 조회·plan 연결(T10)과 승인 뒤 원하는 상태 PR 생성(기존 GitHub App 쓰기 경로)
-- [ ] 병합된 원하는 상태의 적용기(Argo CD 또는 T31 apply-host)와 적용 뒤 IAM-01.1 재대조
+- [ ] 고객 클러스터마다 Argo CD(pull): 환경별 생성 Helm 차트와 설치 차트(1단계 넉넉한 권한), 실제 클러스터 설치와 동기화 확인
+- [ ] 비밀 값이 필요한 모듈(버킷 계정)의 GitOps 적용과 적용 뒤 IAM-01.1 재대조
+- [ ] 권한 세분화: AppProject·controller 권한을 원하는 상태의 namespace·종류로, targetRevision 고정, 모듈별 prune 승인
 
 **완료 기준** 데모 1번(열린 버킷)이 에이전트의 `infra.plan` → PR 병합 → 적용 → GATE IAM-01.1 PASS로 이어지고, 같은 입력의 plan digest가 같으며, 에이전트의 노출 확대 계획은 거부된다. 적용 전 plan이나 CI 통과만으로 완료 처리하지 않는다.
 
