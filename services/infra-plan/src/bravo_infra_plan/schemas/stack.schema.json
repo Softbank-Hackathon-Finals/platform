@@ -342,7 +342,13 @@
               "check": {
                 "$ref": "#/$defs/id"
               },
-              "when": true
+              "when": true,
+              "timeout_seconds": {
+                "description": "Keep checking until it holds, at most this long (a state that appears after a sync, e.g. a login). Without it the check is read once.",
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 1800
+              }
             },
             "additionalProperties": false
           }
