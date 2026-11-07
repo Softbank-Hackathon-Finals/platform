@@ -1,25 +1,25 @@
 {
   "project_id": "example-project",
   "project_policy": {"bindings": [
-    {"role": "roles/logging.logWriter", "members": ["serviceAccount:chat-gsa@example-project.iam.gserviceaccount.com"]}
+    {"role": "roles/logging.logWriter", "members": ["serviceAccount:chat-gsa@example-project.iam.gserviceaccount.invalid"]}
   ]},
   "service_accounts": {
-    "chat-gsa@example-project.iam.gserviceaccount.com": {"iam_policy": {"bindings": [
+    "chat-gsa@example-project.iam.gserviceaccount.invalid": {"iam_policy": {"bindings": [
       {"role": "roles/iam.workloadIdentityUser", "members": ["serviceAccount:example-project.svc.id.goog[chat/chat]"]}
     ]}},
-    "eso-gsa@example-project.iam.gserviceaccount.com": {"iam_policy": {"bindings": []}}
+    "eso-gsa@example-project.iam.gserviceaccount.invalid": {"iam_policy": {"bindings": []}}
   },
   "resource_policies": [
     {"resource": "//cloudresourcemanager.googleapis.com/projects/example-project", "policy": {"bindings": [
-      {"role": "roles/logging.logWriter", "members": ["serviceAccount:chat-gsa@example-project.iam.gserviceaccount.com"]}]}},
+      {"role": "roles/logging.logWriter", "members": ["serviceAccount:chat-gsa@example-project.iam.gserviceaccount.invalid"]}]}},
     {"resource": "//storage.googleapis.com/projects/_/buckets/demo-chat-attachments", "policy": {"bindings": [
-      {"role": "roles/storage.objectAdmin", "members": ["serviceAccount:chat-gsa@example-project.iam.gserviceaccount.com"]}]}},
+      {"role": "roles/storage.objectAdmin", "members": ["serviceAccount:chat-gsa@example-project.iam.gserviceaccount.invalid"]}]}},
     {"resource": "//storage.googleapis.com/projects/_/buckets/demo-chat-backups", "policy": {"bindings": [
-      {"role": "roles/storage.objectViewer", "members": ["serviceAccount:chat-gsa@example-project.iam.gserviceaccount.com", "allUsers"]}]}},
+      {"role": "roles/storage.objectViewer", "members": ["serviceAccount:chat-gsa@example-project.iam.gserviceaccount.invalid", "allUsers"]}]}},
     {"resource": "//secretmanager.googleapis.com/projects/example-project/secrets/demo-chat-db", "policy": {"bindings": [
-      {"role": "roles/secretmanager.secretAccessor", "members": ["serviceAccount:chat-gsa@example-project.iam.gserviceaccount.com", "serviceAccount:eso-gsa@example-project.iam.gserviceaccount.com"]}]}},
+      {"role": "roles/secretmanager.secretAccessor", "members": ["serviceAccount:chat-gsa@example-project.iam.gserviceaccount.invalid", "serviceAccount:eso-gsa@example-project.iam.gserviceaccount.invalid"]}]}},
     {"resource": "//cloudkms.googleapis.com/projects/example-project/locations/asia-northeast3/keyRings/chat/cryptoKeys/attachments", "policy": {"bindings": [
-      {"role": "roles/cloudkms.cryptoKeyEncrypterDecrypter", "members": ["serviceAccount:chat-gsa@example-project.iam.gserviceaccount.com"]}]}}
+      {"role": "roles/cloudkms.cryptoKeyEncrypterDecrypter", "members": ["serviceAccount:chat-gsa@example-project.iam.gserviceaccount.invalid"]}]}}
   ],
   "buckets": {"demo-chat-attachments": {"location": "ASIA-NORTHEAST3", "versioning": true, "owner_email": "x@example.invalid"}},
   "secrets": {"demo-chat-db": {"replication": "automatic"}},

@@ -159,7 +159,7 @@ def test_gcp_file_adapter_follows_workload_identity(tmp_path):
     assert isinstance(adapter, GcpFileAdapter)
     g = adapter.trace("chat")
     res = {(r.kind, r.name): r for r in g.resources}
-    gsa = "chat-gsa@example-project.iam.gserviceaccount.com"
+    gsa = "chat-gsa@example-project.iam.gserviceaccount.invalid"
     key = "projects/example-project/locations/asia-northeast3/keyRings/chat/cryptoKeys/attachments"
     assert ("gcp_service_account", gsa) in res
     bucket = res[("gcs_bucket", "demo-chat-attachments")]
@@ -195,7 +195,7 @@ def test_gcloud_adapter_uses_read_only_allowlist(tmp_path):
             return json.dumps(fixture["resource_policies"])
         raise AssertionError(argv)
 
-    adapter = GcloudAdapter(exports, run=run)
+    adapter = GcloudAdapter(exports, project_id="example-project", run=run)
     g = adapter.trace("chat")
     assert ("gcs_bucket", "demo-chat-attachments") in {(r.kind, r.name) for r in g.resources}
     assert {c for c in g.api_calls if c.startswith("gcloud")} == {
