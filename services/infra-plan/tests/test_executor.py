@@ -536,7 +536,7 @@ def test_a_wif_target_runs_without_an_oauth_secret_and_waits_until_the_operator_
                                    base_commit=world["repo"].head()).plan_digest
     approvals.approve("appr-wif", digest)
     run = executor.start(request=request, migration_plan_id="plan-demo", approval_id="appr-wif",
-                         run_id="run-wif", started_by="applier")
+                         run_id="run-wif", started_by="applier", infra_plan_id=PLAN_ID, requested_by=REQUESTER)
     assert run["status"] == "SUCCEEDED", {k: v for k, v in run["steps"].items() if v["status"] not in ("APPLIED", "SKIPPED")}
     assert {k for k, v in run["steps"].items() if v["status"] == "OMITTED"} == {"tailscale-oauth"}
     assert run["steps"]["tailscale-joined"]["status"] == "APPLIED"
@@ -555,7 +555,7 @@ def test_synced_tailscale_is_not_a_join_until_the_operator_has_a_profile(world):
                                    base_commit=world["repo"].head()).plan_digest
     approvals.approve("appr-wif2", digest)
     run = executor.start(request=request, migration_plan_id="plan-demo", approval_id="appr-wif2",
-                         run_id="run-wif2", started_by="applier")
+                         run_id="run-wif2", started_by="applier", infra_plan_id=PLAN_ID, requested_by=REQUESTER)
     assert run["status"] != "SUCCEEDED"
     assert run["steps"]["tailscale-sync"]["status"] == "APPLIED"
     assert run["steps"]["tailscale-joined"]["status"] not in ("APPLIED", "SKIPPED")
