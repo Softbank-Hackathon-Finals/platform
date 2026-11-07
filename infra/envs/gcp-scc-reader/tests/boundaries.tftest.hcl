@@ -73,8 +73,9 @@ run "outputs_feed_the_collector_without_a_key" {
     error_message = "A projected token file feeds STS; there is no key."
   }
   assert {
-    condition     = output.token_audience == "https://iam.googleapis.com/projects/1000001/locations/global/workloadIdentityPools/bravo-platform/providers/platform-oidc"
-    error_message = "The token audience is the provider's default allowed audience."
+    condition = (output.token_audience == "bravo-findings-scc"
+    && google_iam_workload_identity_pool_provider.platform.oidc[0].allowed_audiences == tolist(["bravo-findings-scc"]))
+    error_message = "One fixed token audience; the manifest in Git carries no project number."
   }
 }
 

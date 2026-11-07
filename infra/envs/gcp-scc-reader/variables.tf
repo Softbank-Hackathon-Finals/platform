@@ -41,6 +41,17 @@ variable "environment_id" {
   }
 }
 
+# Audience of the collector's projected ServiceAccount token. A fixed name, so the CronJob manifest in Git
+# carries no project number (the provider's default audience would).
+variable "token_audience" {
+  type    = string
+  default = "bravo-findings-scc"
+  validation {
+    condition     = can(regex("^[a-z][a-z0-9-]{2,62}$", var.token_audience))
+    error_message = "A plain name, not a URL with identifiers."
+  }
+}
+
 # Where the collector Pod mounts its projected token (credential configuration output).
 variable "token_path" {
   type    = string

@@ -38,7 +38,8 @@ resource "google_iam_workload_identity_pool_provider" "platform" {
   attribute_mapping                  = { "google.subject" = "assertion.sub" }
   attribute_condition                = "assertion.sub == '${local.subject}'"
   oidc {
-    issuer_uri = var.issuer_url
+    issuer_uri        = var.issuer_url
+    allowed_audiences = [var.token_audience]
   }
 }
 

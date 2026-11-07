@@ -1,8 +1,8 @@
 # Numbers and identities stay out of Git: write these outputs into the private ConfigMap/Secret files.
 
 output "token_audience" {
-  description = "Audience of the collector's projected ServiceAccount token (the provider's default allowed audience)."
-  value       = "https://iam.googleapis.com/${google_iam_workload_identity_pool_provider.platform.name}"
+  description = "Audience of the collector's projected ServiceAccount token (the provider's only allowed audience)."
+  value       = var.token_audience
 }
 
 output "scope" {

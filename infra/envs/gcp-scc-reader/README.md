@@ -5,7 +5,7 @@
 | 자원 | 내용 |
 |---|---|
 | API | `iam` · `iamcredentials` · `sts` · `securitycenter` · `securitycentermanagement`. destroy해도 끄지 않는다(다른 스택이 쓸 수 있다) |
-| workload identity pool `bravo-platform` · provider `platform-oidc` | 발급자 `issuer_url`(https만). `attribute_condition`이 수집 SA 주체 하나(`system:serviceaccount:bravo-security:bravo-findings-scc-pull`)만 받는다. 같은 발급자의 다른 주체는 STS에서 거부된다 |
+| workload identity pool `bravo-platform` · provider `platform-oidc` | 발급자 `issuer_url`(https만). `attribute_condition`이 수집 SA 주체 하나(`system:serviceaccount:bravo-security:bravo-findings-scc-pull`)만 받는다. 같은 발급자의 다른 주체는 STS에서 거부된다. 토큰 audience는 고정 이름 `bravo-findings-scc` 하나다(기본 audience는 프로젝트 번호가 든 주소라, Git의 CronJob 매니페스트에 둘 수 없다) |
 | 서비스 계정 `bravo-scc-reader` | 가장 권한(`roles/iam.workloadIdentityUser`)은 위 주체 하나에만 준다 |
 | 프로젝트 역할 | `roles/securitycenter.findingsViewer`(결과 목록), `roles/securitycentermanagement.securityCenterServicesViewer`(탐지 서비스가 켜졌는지: "0건"과 "탐지기 꺼짐" 구분, #925). mute · 상태 변경 · 소스 · 활성화 권한은 없다 |
 | 프로젝트 고정 | `project_number`가 다르면 계획이 실패한다(`gcp-gke`와 같은 방식) |
