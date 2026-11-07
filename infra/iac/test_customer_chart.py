@@ -81,5 +81,49 @@ class CustomerChart(unittest.TestCase):
                 self.assertNotEqual(render({"enabled": True, "autoSync": True}, extra=extra).returncode, 0)
 
 
+UI = yaml.safe_load((CHART / "ui-values.yaml").read_text())
+
+
+class CustomerUi(unittest.TestCase):
+    def docs(self, extra=UI):
+        return documents(render({"enabled": False}, extra=extra))
+
+    def test_server_is_reachable_only_from_its_tailnet_proxy(self):
+        policies = {d["metadata"]["name"]: d["spec"] for d in self.docs() if d["kind"] == "NetworkPolicy"}
+        self.assertEqual(set(policies), {f"bravo-iac-gitops-{c}" for c in ("server", "repo-server", "redis", "application-controller")})
+        self.assertFalse(any({} in p.get("ingress", []) for p in policies.values()))
+        rule, = policies["bravo-iac-gitops-server"]["ingress"]
+        peer, = rule["from"]
+        self.assertEqual(peer["namespaceSelector"]["matchLabels"], {"kubernetes.io/metadata.name": "tailscale-system"})
+        self.assertEqual(peer["podSelector"]["matchLabels"]["tailscale.com/parent-resource"], "bravo-target-argocd")
+        self.assertEqual(peer["podSelector"]["matchLabels"]["tailscale.com/parent-resource-ns"], "bravo-iac-gitops")
+        self.assertEqual(rule["ports"], [{"port": 8080, "protocol": "TCP"}])
+
+    def test_anonymous_view_is_read_only_without_logs(self):
+        docs = self.docs()
+        server_roles = [d for d in docs if d["kind"] == "ClusterRole" and d["metadata"]["name"].endswith("-server")]
+        self.assertTrue(server_roles)
+        for role in server_roles:
+            for rule in role["rules"]:
+                self.assertLessEqual(set(rule["verbs"]), {"get", "list", "watch"})
+        cm = next(d for d in docs if d["metadata"]["name"] == "argocd-cm")["data"]
+        self.assertEqual((cm["admin.enabled"], cm["exec.enabled"], cm["users.anonymous.enabled"]), ("false", "false", "true"))
+        rbac = next(d for d in docs if d["metadata"]["name"] == "argocd-rbac-cm")["data"]
+        self.assertEqual(rbac["policy.default"], "role:bravo-viewer")
+        self.assertNotIn("logs", rbac["policy.csv"])
+        self.assertNotIn("*/*", rbac["policy.csv"])
+
+    def test_ui_cannot_keep_the_charts_admit_all_server_policy(self):
+        extra = json.loads(json.dumps(UI))
+        extra["argo-cd"]["global"]["networkPolicy"]["create"] = True
+        result = render({"enabled": False}, extra=extra)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("admits every Pod", result.stderr)
+
+    def test_without_ui_the_core_mode_is_unchanged(self):
+        docs = documents(render({"enabled": False}))
+        self.assertFalse(any(d["kind"] == "Deployment" and d["metadata"]["name"].endswith("-server")
+                             and not d["metadata"]["name"].endswith("repo-server") for d in docs))
+
 if __name__ == "__main__":
     unittest.main()

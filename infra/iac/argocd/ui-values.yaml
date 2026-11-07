@@ -1,14 +1,29 @@
-# 고객 클러스터 Argo CD 화면(선택). 설치 값에 덧붙인다: helm upgrade --install ... -f infra/iac/argocd/ui-values.yaml
-# 화면은 이 클러스터의 tailnet 장치(environments/<환경>.json tailnet-ingress `bravo-target-argocd`)로만 열리고,
-# 공개 주소(<앱>-<번호>-argocd.<zone>)는 플랫폼 공개 입구(infra/envs/public-entry)가 Cloudflare Access 뒤에서 중계한다.
-# 이 클러스터에는 Cloudflare 자격도 인터넷 입구도 없다. 화면은 읽기 전용이고 바꾸는 계정이 없다(변경은 Git → Argo).
+# 고객 클러스터 Argo CD 화면(선택). 설치 값에 덧붙인다(README):
+#   ... -f infra/iac/argocd/ui-values.yaml --set argo-cd.configs.cm.url=https://<앱>-<번호>-argocd.<zone>
+# 이 클러스터의 tailnet 장치(environments/<환경>.json tailnet-ingress)로만 열고, 공개 주소는 플랫폼 공개 입구
+# (infra/envs/public-entry)가 Cloudflare Access 뒤에서 중계한다. 이 클러스터에는 Cloudflare 자격 · 인터넷 입구가 없다.
+# 로그인 없이 읽는 화면이라 Argo에는 모든 요청이 anonymous로 남는다. 누가 봤는지는 Cloudflare Access 로그에만 있다.
+ui:
+  # templates/ui-network-policies.yaml: 차트 정책 대신 같은 정책 + 서버는 tailnet 노출 프록시만
+  enabled: true
 argo-cd:
+  global:
+    # argo-helm의 서버 정책은 ingress [{}](클러스터 안 모든 Pod)이고 서버만 따로 끌 수 없다
+    networkPolicy:
+      create: false
   server:
     enabled: true
     replicas: 1
     resources:
       requests: {cpu: 50m, memory: 128Mi}
       limits: {cpu: 500m, memory: 256Mi}
+    # 화면은 읽기만 한다. 차트 기본(모든 자원 delete · patch)을 읽기로 줄인다
+    clusterRoleRules:
+      enabled: true
+      rules:
+        - apiGroups: ["*"]
+          resources: ["*"]
+          verbs: [get, list, watch]
   configs:
     params:
       # TLS는 Cloudflare 엣지와 tailnet(WireGuard)이 맡는다
@@ -16,4 +31,8 @@ argo-cd:
     cm:
       users.anonymous.enabled: "true"
     rbac:
-      policy.default: role:readonly
+      # role:readonly 대신: 로그 없이, 이 클러스터 IaC 프로젝트(bravo-iac)의 Application만 본다
+      policy.default: role:bravo-viewer
+      policy.csv: |
+        p, role:bravo-viewer, applications, get, bravo-iac/*, allow
+        p, role:bravo-viewer, projects, get, bravo-iac, allow
