@@ -191,7 +191,7 @@ def test_a_new_cluster_declares_its_operator_tag_owned_by_admins_and_nothing_els
                                           "owner": "autogroup:admin"}]
     assert found.grants(params) == [] and found.render(params) == []
     assert found.exposure(params) == {"anonymous": [], "reach": [], "checks": []}
-    for bad in ({"tag": "tag:bravo-target-gke-db"}, {"tag": "tag:other-operator"}, {"tag": "tag:bravo-x-operator", "owner": "x"},
+    for bad in ({"tag": "tag:bravo-target-gke-db"}, {"tag": "tag:other-operator"}, {"tag": "tag:" "bravo-x-operator", "owner": "x"},
                 {}, {"tag": "tag:bravo-target-gke-operator", "tailnet": "Bad Name"}):
         with pytest.raises(IacError):
             found.check(bad)
