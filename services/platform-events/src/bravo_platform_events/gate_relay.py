@@ -7,6 +7,9 @@ One JSON request on stdin, one JSON answer on stdout (operations/gate/run.py sen
                published, and `confirm`: the fingerprint of everything shown, which `sign` must repeat (read only)
     enroll     a public key for one purpose, for the configured issuer subject (gate:manage-provenance)
     readiness  a T13 binding and its snapshot for the current context (gate:record)
+    capture    the Executor's readiness observation (readiness_observer), packaged here for the current
+               context under the server policy (gate_readiness.POLICY) and recorded like `readiness`; the
+               answer carries the data-readiness judgment of that record now (nothing else is recorded)
     publish    an envelope the operator signed on their own machine (gate:publish-provenance)
     record     a T14 run document for one side (gate:record); the ref is its run_id
     bind       the initial context from the plan's registration and the newest recorded run on each side
@@ -42,7 +45,7 @@ from .gate_records import _current
 from .store import EventError
 
 RELAY_CONFIG = "/workflow/gate-relay.json"
-OPS = {"subjects", "enroll", "readiness", "publish", "record", "bind", "evaluate"}
+OPS = {"subjects", "enroll", "readiness", "capture", "publish", "record", "bind", "evaluate"}
 _CODE = re.compile(r"[A-Za-z][A-Za-z0-9_]{0,63}")
 
 
@@ -86,6 +89,29 @@ def subjects(records, principal, plan_id, provenance):
         out["published"] = [p for p in purposes if provenance._load_envelope(
             view, ctx.fingerprint if p == "context" else out[p], p) is not None]
         return out
+
+
+def capture(records, principal, plan_id, observation, *, clock):
+    """Package the Executor's observation for the current context and record it (still unsigned).
+
+    `data` is assess_readiness on that record at this moment, for the operator only: the gate itself
+    judges again when it evaluates or re-evaluates, with the signatures.
+    """
+    from bravo_gate.readiness import assess_readiness
+    from bravo_gate.t13 import snapshot_from_observation
+
+    with records.store._transaction(plan_id=plan_id) as c:
+        plan = records._plan(c, principal, plan_id, "gate:read")
+        ctx = records.view(c, principal, plan).context
+    binding, snapshot, diagnostics = snapshot_from_observation(
+        ctx, gate_readiness.POLICY, observation, snapshot_ref="executor-" + fingerprint(observation)[:24])
+    # record_readiness checks the context again under the plan lock: a bind in between refuses it
+    value = gate_readiness.record_readiness(records, principal, plan_id, binding, snapshot)
+    data = assess_readiness(ctx, binding, snapshot, now=clock())
+    return {"binding": binding.fingerprint, "snapshot": snapshot.fingerprint, "observed_at": value["observed_at"],
+            "context": ctx.fingerprint, "diagnostics": diagnostics,
+            "data": {"decision": data["decision"], "valid_until": data["valid_until"],
+                     "blocked": [r for r in data["rows"] if r["decision"] != "PASS"]}}
 
 
 def bind_initial(records, principal, plan_id):
@@ -139,6 +165,8 @@ def handle(records, request, config, *, clock=gate_services.server_clock, access
         return {"readiness": {"binding": binding.fingerprint, "snapshot": snapshot.fingerprint,
                               "observed_at": value["observed_at"]}}
     operator = _principal(config["operator"], tenant, clock)
+    if op == "capture":
+        return {"readiness": capture(records, operator, plan_id, request["observation"], clock=clock)}
     if op == "record":
         document = request["document"]
         snapshot = RunSnapshot(document["run_id"], canonical(document))

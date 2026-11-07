@@ -406,3 +406,54 @@ def test_cutover_approval_stops_when_the_fresh_gate_blocks(admission, monkeypatc
     monkeypatch.setattr(f.gate, "evaluate", lambda *a, **k: original(*a, **k) | {"decision": "BLOCK"})
     with pytest.raises(EventError, match="authority_unavailable"):
         f.approve()
+
+
+@pytest.mark.parametrize("database_ref", ["connection_ref", "resource_id"])
+def test_an_executor_capture_passes_the_cutover_database_pair_check(admission, database_ref):
+    """The Executor's readiness names each DB by its registered connection ref, the value the cutover
+    command carries (verified_bindings), so a capture's GATE PASS survives SHIFT/cutover approval.
+    Naming it by resource id instead is refused there (#612 review)."""
+    from bravo_cutover.db_fingerprint import SequenceState
+    from bravo_cutover.readiness import Readiness, ReadinessRequest
+    from bravo_cutover.remote.db import Subscription
+    from bravo_cutover.sites import Config, Settings
+    from bravo_platform_events.gate_readiness import POLICY
+    from bravo_platform_events.readiness_observer import request_for
+    from test_t13_executor_observation import FakeDb, site
+
+    from bravo_gate.t13 import snapshot_from_observation
+
+    f = admission
+    ctx = f.state["context"]
+    world = {"schema": {"src": {}, "dst": {}}, "sub": Subscription(enabled=True, workers=1), "login": False,
+             "seq": {"src": SequenceState(20, True, 20, 2**63 - 1), "dst": SequenceState(3, True, 20, 2**63 - 1)}}
+    sites = {ctx.source_environment_id: site(ctx.source_environment_id, "src"),
+             ctx.target_environment_id: site(ctx.target_environment_id, "dst")}
+    config = Config(settings=Settings(), origin=ctx.source_environment_id, sites=sites)
+    pair = {side: {"environment_id": getattr(ctx, side + "_environment_id")} for side in ("source", "target")}
+    observation = Readiness(config, db=lambda dsn, control_functions: FakeDb(world, dsn),
+                            clock=lambda: f.state["now"]).observe(ReadinessRequest(**request_for(pair)))
+    if database_ref == "resource_id":  # what the first version of the Executor sent
+        refs = {s.connection_ref: s.resource_id for s in sites.values()}
+        for part in ("source", "target"):
+            observation[part]["database_ref"] = refs[observation[part]["database_ref"]]
+        for key in ("source_database_ref", "target_database_ref"):
+            observation["replication"][key] = refs[observation["replication"][key]]
+    binding, snapshot, _ = snapshot_from_observation(ctx, POLICY, observation, snapshot_ref="executor-capture")
+    f.data["policy"], f.data["binding"], f.data["snapshot"] = POLICY, binding, snapshot
+    # Production: the command and the service carry the registered pair's connection refs.
+    registered = {env: s.connection_ref for env, s in sites.items()}
+    command = dict(f.current.command)
+    for side in ("source", "target"):
+        env = getattr(ctx, side + "_environment_id")
+        command[side] = dict(environment_id=env, connection_ref=registered[env])
+    f.current = CurrentCutover(f.current.binding, command, f.current.revision)
+    f.service = CutoverService(f.store, f.service.executor, bindings=registered, authority=f.adapter,
+                               clock=lambda: f.state["now"].isoformat())
+    assert f.publish()["decision"] == "PASS"
+    if database_ref == "connection_ref":
+        assert f.approve()["approval_id"]
+    else:  # T10 reports the gate refusal as authority_unavailable and sends nothing
+        with pytest.raises(EventError, match="authority_unavailable"):
+            f.approve()
+        assert not f.requests

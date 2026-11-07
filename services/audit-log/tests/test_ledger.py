@@ -154,3 +154,10 @@ def test_chain_digest_survives_a_resume_that_only_absorbs_duplicates(ledger, fre
     assert resumed.append("platform.events", "state.changed", {"to": "COLLECT"}, "t10:plan-demo:1") == (None, False)
     assert resumed.chain_digest() == stored[-1]["sha256"] == chain_digest(stored)
     assert RunLedger("plan-demo", "run-demo-1").chain_digest() == chain_digest([])
+
+
+def test_t45_infra_runs_are_a_source_and_unknown_sources_still_fail(ledger):
+    record, _ = ledger.append("infra", "infra.step", {"step": "database", "status": "APPLIED"}, "t45:run-1:1")
+    validate_record(record.as_dict())
+    with pytest.raises((ValueError, jsonschema.ValidationError)):
+        ledger.append("infra.plan", "infra.step", {"step": "x"}, "t45:run-1:2")

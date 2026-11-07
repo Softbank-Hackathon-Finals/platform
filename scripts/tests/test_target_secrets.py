@@ -52,6 +52,17 @@ class ChartBoundaryTests(unittest.TestCase):
         self.assertNotIn("tls-skip-verify", json.dumps(result))
         self.assertEqual(render.bao_values()["server"]["extraEnvironmentVars"]["BAO_CACERT"], "/openbao/tls/ca.crt")
 
+    def test_arch_selects_the_scanned_image_and_finalize_refuses_the_other(self):
+        amd64 = render.BAO_IMAGES["amd64"]
+        self.assertEqual(cli("bao-values", "--arch", "amd64")["server"]["image"]["tag"], amd64.split(":", 1)[1])
+        self.assertEqual(cli("rehearsal-init-container", "--namespace", "rehearsal-x", "--arch", "amd64")["image"], amd64)
+        objects = chart_fixture()
+        objects[0]["spec"]["template"]["spec"]["containers"][0]["image"] = amd64
+        self.assertEqual(cli("finalize-bao", "--arch", "amd64", objects=objects)["items"][0]["spec"]["template"]["spec"]
+                         ["containers"][0]["image"], amd64)
+        with self.assertRaises(ValueError):
+            cli("finalize-bao", "--arch", "amd64", objects=chart_fixture())  # the arm64 image on an amd64 node
+
     def test_readiness_timing_is_rendered_and_enforced(self):
         probe = render.bao_values()["server"]["readinessProbe"]
         self.assertEqual(probe, {"enabled": True, "timeoutSeconds": 10, "periodSeconds": 10, "failureThreshold": 3})

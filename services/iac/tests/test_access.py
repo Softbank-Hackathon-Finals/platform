@@ -37,13 +37,24 @@ def test_platform_operators_are_one_group_bound_to_cluster_admin():
     assert "@" not in json.dumps(PLATFORM)
 
 
-SOURCES = ("autogroup:admin", "autogroup:owner", "group:bravo-operators")
-MISSING = [f"GRANT:{s}->tag:bravo-platform-operator:tcp:443+app" for s in SOURCES]
+def test_cli_held_prints_a_kubectl_list_of_the_bindings(capsys):
+    from bravo_iac.cli import main
+    assert main(["held", str(REPO / "infra/iac/environments/platform.json")]) == 0
+    out = json.loads(capsys.readouterr().out)
+    assert out["kind"] == "List" and out["items"] == held_objects(PLATFORM)
+
+
+SOURCES = ("autogroup:admin", "autogroup:owner")
+# The platform's operator-access also names the private-policy group (this change); the destination's does not.
+PLATFORM_SOURCES = SOURCES + ("group:bravo-operators",)
+PER_PROXY = {"tag:bravo-platform-operator": PLATFORM_SOURCES, "tag:bravo-target-operator": SOURCES}
+# Every operator-access grant (the platform's and the destination operator proxy's) carries the capability.
+MISSING = sorted(f"GRANT:{s}->{tag}:tcp:443+app" for tag, sources in PER_PROXY.items() for s in sources)
 
 
 def test_registered_operator_sources_get_one_grant_each_naming_the_impersonated_group():
     policy = fragment(STATES)
-    for src in SOURCES:
+    for src in PLATFORM_SOURCES:
         assert {"src": [src], "dst": ["tag:bravo-platform-operator"], "ip": ["tcp:443"], "app": CAP} in policy["grants"]
         # Route tests only: who holds a tailnet role is not in the repository.
         assert not any(t["src"] == src for t in policy["tests"])
@@ -55,16 +66,17 @@ def test_registered_operator_sources_get_one_grant_each_naming_the_impersonated_
     for g in masters["grants"]:
         if "app" in g:
             g["app"] = {"tailscale.com/cap/kubernetes": [{"impersonate": {"groups": ["system:masters"]}}]}
-    undeclared = [f"UNDECLARED_GRANT:{s}->tag:bravo-platform-operator+app" for s in SOURCES]
+    undeclared = sorted(f"UNDECLARED_GRANT:{s}->{tag}+app" for tag, sources in PER_PROXY.items() for s in sources)
     assert check_policy(masters, STATES) == MISSING + undeclared
 
 
-def test_an_undeclared_capability_grant_to_the_proxy_fails_the_check():
+@pytest.mark.parametrize("proxy", ["tag:bravo-platform-operator", "tag:bravo-target-operator"])
+def test_an_undeclared_capability_grant_to_the_proxy_fails_the_check(proxy):
     # One policy edit must not hand out cluster rights: the proxy may impersonate any group.
     policy = fragment(STATES)
-    policy["grants"].append({"src": ["autogroup:member"], "dst": ["tag:bravo-platform-operator"], "ip": ["tcp:443"],
+    policy["grants"].append({"src": ["autogroup:member"], "dst": [proxy], "ip": ["tcp:443"],
                              "app": {"tailscale.com/cap/kubernetes": [{"impersonate": {"groups": ["system:masters"]}}]}})
-    assert check_policy(policy, STATES) == ["UNDECLARED_GRANT:autogroup:member->tag:bravo-platform-operator+app"]
+    assert check_policy(policy, STATES) == [f"UNDECLARED_GRANT:autogroup:member->{proxy}+app"]
 
 
 def test_a_role_change_is_a_new_binding_name():
@@ -140,3 +152,16 @@ def test_the_network_view_answers_how_people_reach_the_platform_api():
                        "tailnet": "default", "tailnet_groups": ["autogroup:admin", "autogroup:owner", "group:bravo-operators"],
                        "group": "bravo:operators", "cluster_role": "cluster-admin"}]
     assert check_state(PLATFORM)["modules"][-1]["id"] == "operator-access"
+
+
+def test_the_destination_people_use_its_operator_proxy_as_the_same_group():
+    target = json.loads((REPO / "infra/iac/environments/target-dev.json").read_text())
+    params = access_params(target)
+    # The operator's own API proxy (auth mode), not a second proxy: the platform's shape, one group.
+    assert (params["proxy_hostname"], params["proxy_tag"]) == ("bravo-target-operator", "tag:bravo-target-operator")
+    assert not any(o["kind"] == "ClusterRoleBinding" for o in manifests(target)[0])
+    [binding] = held_objects(target)
+    assert binding["subjects"] == [{"apiGroup": "rbac.authorization.k8s.io", "kind": "Group", "name": "bravo:operators"}]
+    for src in SOURCES:
+        assert {"src": [src], "dst": ["tag:bravo-target-operator"], "ip": ["tcp:443"], "app": CAP} in fragment(STATES)["grants"]
+    assert "@" not in json.dumps(target)
