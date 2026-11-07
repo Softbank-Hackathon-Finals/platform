@@ -84,7 +84,8 @@ class Destination:
         self.cfg, self.host, self.vault, self.token = cfg, host, vault, token
         self.approve, self.source_values, self.log = approve, source_values, log
         self.repo_root = Path(cfg["repo_root"]).resolve()
-        self.stack = load_stack(self.repo_root / "infra/stacks/target-onprem/stack.json")
+        # target-onprem (P) by default; target-exit-map for S5 (ADR-0049)
+        self.stack = load_stack(self.repo_root / f"infra/stacks/{cfg.get('stack', 'target-onprem')}/stack.json")
         self.params = cfg["params"]
         self.node = self.params["node_name"]
         self.kube = Kube(cfg["kubeconfig"], cfg["cluster_uid"])
@@ -143,7 +144,8 @@ class Destination:
                 return run
             # T45 confirms openbao-init by Pod Ready only; the KV values, auth and policies behind it are this
             # action's own completion. A step T45 already passed without it is finished here, then re-observed.
-            unfinished = [s for s in STRICTER_THAN_CHECK if run["steps"][s]["status"] in ("SKIPPED", "APPLIED")
+            unfinished = [s for s in STRICTER_THAN_CHECK if s in run["steps"]
+                          and run["steps"][s]["status"] in ("SKIPPED", "APPLIED")
                           and self.vault.get(f"done-{s}") is None]
             if unfinished:
                 for step in unfinished:

@@ -503,6 +503,8 @@ class ClusterChecks:
             "openbao-ready": lambda: c.condition("Pod", "bravo-secrets", "target-openbao-0", "Ready"),
             "target-checks": lambda: (c.condition("Cluster", "target-dev", "target-db", "Ready")
                                       and c.deployments_available("target-dev")),
+            # target-exit-map (ADR-0049): the T27 control Pod the residual map's render needs
+            "exit-drill-control-ready": lambda: c.condition("Pod", "target-dev", "exit-drill-control", "Ready"),
             # target-onprem-migration: the destination as a migration target
             "audit-metadata-active": lambda: (c.audit_level_events("Metadata") or 0) > 0,
             "iac-network-synced": lambda: _argo_synced(c, self.repo_root, run),
