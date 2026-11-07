@@ -252,6 +252,22 @@ def test_a_pass_that_would_expire_before_the_evaluation_holds_instead_of_spendin
     assert evaluated == []  # the context is still unevaluated: the next capture can record its decision
 
 
+def test_one_relay_session_answers_many_requests_in_order():
+    import sys
+
+    fake = ("import json, sys\nprint(json.dumps({'status': 'READY'}), flush=True)\n"
+            "for line in sys.stdin:\n"
+            "    r = json.loads(line)\n"
+            "    print(json.dumps({'status': 'HOLD', 'code': 'NO'} if r['op'] == 'evaluate' else"
+            " {'status': 'PASS', 'op': r['op']}), flush=True)\n")
+    with cli.Session([sys.executable, "-c", fake]) as call:
+        assert [call({"op": op})["op"] for op in ("capture", "subjects", "publish")] == ["capture", "subjects", "publish"]
+        with pytest.raises(RuntimeError, match="hold:NO"):
+            call({"op": "evaluate"})
+    with pytest.raises(cli.RelayFailed, match="relay_session_unavailable"):
+        cli.Session([sys.executable, "-c", "print('no')"]).__enter__()
+
+
 def test_capture_signs_nothing_when_another_record_lands_first(relay):
     f = relay
     signed_context_and_runs(f)
