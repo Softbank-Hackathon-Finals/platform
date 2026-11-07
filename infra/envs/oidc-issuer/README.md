@@ -13,6 +13,7 @@
 - **공개키 원본:** `issuers/<env>/jwks.json`(Git). 그 클러스터의 `kubectl get --raw /openid/v1/jwks` 출력이다. 바꾸는 방법은 PR뿐이고, 쓰는 주체는 이 스택의 적용자뿐이다. 비밀 멤버(`d`, `p`, `q` 등)가 있으면 precondition이 적용을 막는다.
 - **클러스터 쪽:** kube-apiserver의 `service-account-issuer`를 이 주소로 첫 번째에 두고, 기존 내부 발급자는 두 번째로 남긴다. `service-account-jwks-uri`도 이 주소의 JWKS로 한다. 노드 설정 파일로 코드화한다.
 - **키 교체:** 클러스터 서명 키를 바꾸면 새 키를 JWKS에 **더한** PR을 먼저 적용한다. 옛 토큰이 만료된 뒤에 옛 키를 뺀다.
+- **노드 재생성:** RKE2 서버 노드를 다시 만들면 서명 키가 바뀐다. 새 클러스터의 JWKS를 다시 게시해야 그 operator가 인증된다.
 
 ```sh
 cd infra/envs/oidc-issuer

@@ -2,33 +2,34 @@
 mock_provider "aws" {
   override_resource {
     target          = aws_s3_bucket.issuer
-    values          = { arn = "arn:aws:s3:::bravo-oidc-issuer", id = "bravo-oidc-issuer" }
+    values          = { arn = "arn:aws:s3:::example-issuer-111122223333", id = "example-issuer-111122223333" }
     override_during = plan
   }
 }
 
 variables {
-  account_id = "000000000000"
-  region     = "ap-northeast-2"
+  account_id  = "111122223333"
+  region      = "ap-northeast-2"
+  bucket_name = "example-issuer-111122223333"
 }
 
 run "public_documents_only" {
   command = plan
 
   assert {
-    condition     = jsondecode(aws_s3_object.discovery["t49"].content).issuer == "https://bravo-oidc-issuer.s3.ap-northeast-2.amazonaws.com/t49"
+    condition     = jsondecode(aws_s3_object.discovery["t49"].content).issuer == "https://example-issuer-111122223333.s3.ap-northeast-2.amazonaws.com/t49"
     error_message = "the issuer must be the bucket's https URL with the environment prefix"
   }
 
   assert {
-    condition     = jsondecode(aws_s3_object.discovery["t49"].content).jwks_uri == "https://bravo-oidc-issuer.s3.ap-northeast-2.amazonaws.com/t49/openid/v1/jwks"
+    condition     = jsondecode(aws_s3_object.discovery["t49"].content).jwks_uri == "https://example-issuer-111122223333.s3.ap-northeast-2.amazonaws.com/t49/openid/v1/jwks"
     error_message = "jwks_uri must sit under the issuer"
   }
 
   assert {
     condition = jsondecode(aws_s3_bucket_policy.issuer.policy).Statement[0].Resource == [
-      "arn:aws:s3:::bravo-oidc-issuer/t49/.well-known/openid-configuration",
-      "arn:aws:s3:::bravo-oidc-issuer/t49/openid/v1/jwks",
+      "arn:aws:s3:::example-issuer-111122223333/t49/.well-known/openid-configuration",
+      "arn:aws:s3:::example-issuer-111122223333/t49/openid/v1/jwks",
     ]
     error_message = "the public statement must name exactly the two issuer documents"
   }
