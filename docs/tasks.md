@@ -530,7 +530,7 @@ Claude Code는 `/todo-task`, Codex는 `$todo-task`로 이 순서를 따르는 �
 
 **할 일**
 - [x] 출발지: CNPG `log_connections` · pgaudit, EKS 컨트롤 플레인 `audit` 로그 활성화 (T6 담당과 협의)
-- [ ] 목적지: CNPG `log_connections` · pgaudit, RKE2 감사 정책과 감사 로그
+- [x] 목적지: CNPG `log_connections` · pgaudit, RKE2 감사 정책과 감사 로그
 - [ ] 목적지 로그 수집 경로 (온프렘은 바깥 방향 연결만)
 - [ ] T14용 읽기 전용 검색 권한
 - [ ] 카나리 이벤트 3종이 양쪽에서 10분 안에 검색되는지 실측
