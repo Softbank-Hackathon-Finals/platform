@@ -101,3 +101,15 @@ locked 소스를 재설치한 전체 콘솔 **483개**가 통과했다. 실패�
 기존 full/1 계획을 축소하거나 다른 demo-gate 계획과 원문을 혼합하지 않는다.
 [실행 창·정본 계획·조회/승인 인계 요청](https://github.com/Softbank-Hackathon-Finals/platform/issues/36#issuecomment-6709988956)을 남겼으며,
 이 관측 성공을 T14/T19 PASS·운영 승인·컷오버 성공으로 확대하지 않는다.
+
+
+### 양쪽 실제 관측의 동일 화면 확인
+
+같은 `f669842b` 소스로 개인 출발지 SSM 읽기 연결(최대 2시간)과 기존 목적지 직접 API를 사용했다.
+두 환경이 CURRENT인 동일 revision에서 API/DOM **29개 노드·27개 관계·HTTP 탐침 선 2개**가 일치했다.
+JS 오류 0, 변경 POST 405를 유지했다. 이 개수는 해당 관측 회차의 값이다.
+[양쪽 화면 공개 근거](../../../docs/evidence/t21-eks-observation-2026-11-08/both-environments-summary.json)를 추가한다.
+
+이는 loopback 개발 호스트의 개인 읽기 경로이며 공식 운영 이미지나 native T10 계획에 붙인 인수가 아니다.
+SSM 연결은 종료 시 자신이 만든 세션만 회수하며, 접속 만료·조회 실패를 이전 성공으로 대체하지 않는다.
+실제 계획 조회는 별도 operator TLS/SSO 경로에서 403으로 거부됐고, 권한과 정본 계획 인계를 기다린다.
