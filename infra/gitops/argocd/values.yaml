@@ -80,10 +80,6 @@ argo-cd:
         - apiGroups: [external-secrets.io]
           kinds: [ExternalSecret]
           clusters: ['*']
-        # The platform Collector's Pod discovery Role/RoleBinding (observability, platform-gitops-state-names)
-        - apiGroups: [rbac.authorization.k8s.io]
-          kinds: [Role, RoleBinding]
-          clusters: ['*']
     clusterCredentials:
       platform:
         server: https://kubernetes.default.svc

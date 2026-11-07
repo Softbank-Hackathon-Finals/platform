@@ -220,10 +220,6 @@ class EntryAndObservabilityAdmission(ControllerAdmission):
                                                    lambda o: o["metadata"].update(namespace="platform-state")),
             "public entry with an API token": changed(("Deployment", "public-entry"),
                                                       lambda o: o["spec"]["template"]["spec"].update(automountServiceAccountToken=True)),
-            "binding to another role": changed(("RoleBinding", "bravo-collector-db-discovery"),
-                                               lambda o: o["roleRef"].update(name="platform-gitops-registration")),
-            "discovery Role reading Secrets": changed(("Role", "bravo-collector-db-discovery"),
-                                                      lambda o: o["rules"][0].update(resources=["pods", "secrets"])),
             "other credential store": changed(("ExternalSecret", "public-entry-cloudflare"),
                                               lambda o: o["spec"]["secretStoreRef"].update(name="t17-edge-secret-reader")),
         }
