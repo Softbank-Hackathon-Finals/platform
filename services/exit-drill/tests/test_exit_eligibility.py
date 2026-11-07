@@ -86,6 +86,56 @@ def test_both_reasons_are_reported(plan):
     assert blockers(pod, plan) == [NOT_EVIDENCE, REDIRECTED]
 
 
+# demo-chat 로그인(demo-app #28): 목적지 앱이 아직 Cognito를 믿으면, AWS를 막아도 앱은 뜨지만
+# Cognito로 로그인한 사람의 쓰기는 AWS 공개 키에 묶여 있다. 그 Pod로 출구를 말하지 않는다.
+COGNITO = "https://cognito-idp.ap-northeast-2.amazonaws.com/ap-northeast-2_Demo"
+KEYCLOAK = "https://login.example.com/realms/bravo"
+IDENTITY = "AWS_IDENTITY_TRUSTED"
+
+
+def env_pod(*env):
+    pod = kube_pod()
+    pod["spec"]["containers"][0]["env"] = list(env)
+    return pod
+
+
+@pytest.mark.parametrize("env", [
+    {"name": "AUTH_ISSUER", "value": COGNITO},
+    {"name": "AUTH_ALSO_TRUST", "value": f"{COGNITO}|client"},
+    {"name": "AUTH_ALSO_TRUST", "value": f"https://other.example|c,{COGNITO}|client"},
+    {"name": "AUTH_ISSUER", "value": "https://bravo-login.auth.ap-northeast-2.amazoncognito.com"},
+])
+def test_app_still_trusting_an_aws_issuer_is_not_exit_evidence(plan, env):
+    assert blockers(env_pod(env), plan) == [IDENTITY]
+
+
+def test_app_trusting_only_the_target_issuer_stays_eligible(plan):
+    pod = env_pod({"name": "AUTH_ISSUER", "value": KEYCLOAK}, {"name": "AUTH_CLIENT_ID", "value": "demo-chat"})
+    assert blockers(pod, plan) == []
+
+
+@pytest.mark.parametrize("name", ["AUTH_ISSUER", "AUTH_ALSO_TRUST"])
+def test_issuer_from_a_reference_cannot_be_read(plan, name):
+    pod = env_pod({"name": name, "valueFrom": {"configMapKeyRef": {"name": "app", "key": "issuer"}}})
+    assert blockers(pod, plan) is None
+
+
+@pytest.mark.parametrize("phase", ["before", "after"])
+def test_trusted_aws_issuer_in_either_phase_keeps_the_verdict_unknown(plan, phase):
+    report = judged(plan, **{"before": [], "after": [], phase: [IDENTITY]})
+    assert report["verdict"] == "UNKNOWN"
+    assert exit_code(report) == 3
+    assert code(report)["code"] == IDENTITY
+
+
+def test_dropping_the_source_issuer_after_the_move_restores_the_pass(plan):
+    still = blockers(env_pod({"name": "AUTH_ISSUER", "value": KEYCLOAK},
+                             {"name": "AUTH_ALSO_TRUST", "value": f"{COGNITO}|client"}), plan)
+    assert judged(plan, before=still, after=still)["verdict"] == "UNKNOWN"
+    done = blockers(env_pod({"name": "AUTH_ISSUER", "value": KEYCLOAK}), plan)
+    assert judged(plan, before=done, after=done)["verdict"] == "PASS"
+
+
 def damage(pod, how):
     if how == "annotations":
         pod["metadata"]["annotations"] = ["not", "a", "map"]

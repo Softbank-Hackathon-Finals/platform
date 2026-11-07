@@ -89,6 +89,7 @@ AWS 경로는 명세에 적지 않는다. **인벤토리가 쓴다고 한 서비
 | LSN이 안 움직임 | `REPLICATION_IDLE` | 쓰기가 없으면 채널이 살아 있는지 모른다 |
 | 쓰기 대상이 목적지로 확인 안 됨 | `CUTOVER_NOT_CONFIRMED` | 컷오버 전이면 이 시험의 의미가 없다 |
 | 출구 시험 대상이 아닌 Pod | `NOT_EXIT_EVIDENCE` · `AWS_ENDPOINT_REDIRECTED` | 호출이 AWS로 가지 않으면 막아도 멀쩡해 보인다. 차단을 잰 것이 아니다 |
+| 로그인이 아직 AWS 발급자를 믿음 | `AWS_IDENTITY_TRUSTED` | 앱은 AWS 없이 뜨지만 Cognito 토큰의 쓰기는 AWS 공개 키에 묶여 있다 |
 | 그 여부를 읽지 못함 | `ELIGIBILITY_NOT_READ` | 읽지 못한 것을 자격 있다고 하지 않는다 |
 | 다른 계획의 관측 · 손댄 계획 | `PLAN_NOT_BOUND` · `PLAN_TAMPERED` | 이 시험의 증거가 아니다 |
 | 측정 중 정책이 바뀜 | `POLICY_CHANGED_DURING_OBSERVATION` | 무엇을 잰 것인지 모른다 |
@@ -114,6 +115,7 @@ AWS 경로는 명세에 적지 않는다. **인벤토리가 쓴다고 한 서비
 
 T30의 개발 측정용 앱은 같은 Pod의 호환 컨테이너가 Secrets Manager 호출에 응답한다([ADR-0017](../../docs/adr/0017-target-app-secrets-manager-compat.md)). AWS를 막아도 앱이 떠서 거짓 PASS가 나올 수 있다.
 그래서 수집기가 앱 역할 Pod마다 `bravo.t30/not-exit-evidence` 표지와 모든 컨테이너(재시작 가능한 사이드카 포함)의 `AWS_ENDPOINT_URL*` 환경 변수를 읽어 `exit_blockers`로 적는다.
+demo-chat 로그인([demo-app #28](https://github.com/Softbank-Hackathon-Finals/demo-app/pull/28))의 `AUTH_ISSUER` · `AUTH_ALSO_TRUST` 값에 `.amazonaws.com` · `.amazoncognito.com`이 있으면 `AWS_IDENTITY_TRUSTED`다. 앱은 로그인 확인을 쓰기 때 하므로 AWS를 막아도 뜬다. 이사 중 출발지 Cognito 토큰을 받던 설정을 지워야 출구 증거가 된다. 두 변수를 참조(`valueFrom`)로 넣으면 값을 읽지 않고 `ELIGIBILITY_NOT_READ`다.
 판정은 차단 전후의 Pod를 모두 보고, 하나라도 걸리면 `eligibility:*`가 UNKNOWN이다. 값을 읽지 못해도 UNKNOWN이다. 표지만 지워도 환경 변수가 남으면 통과하지 못한다.
 `envFrom`이 있는 Pod도 `ELIGIBILITY_NOT_READ`다. Pod만 봐서는 어떤 변수가 들어오는지 모르고, 참조한 ConfigMap · Secret을 새로 읽지 않는다. 쓰려면 환경 변수를 `env`에 직접 적는다. 볼륨으로 넣은 AWS 설정 파일은 보지 않는다.
 
