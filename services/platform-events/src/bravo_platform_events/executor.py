@@ -22,6 +22,10 @@ MAX_RESPONSE_BYTES = 262_144
 MAX_STEPS = 256
 STATUSES = frozenset({"PENDING", "RUNNING", "DONE", "ABORT_PRE_WRITE", "SAFE_HOLD"})
 STEP_STATUSES = frozenset({"started", "succeeded", "failed", "unknown"})
+READINESS_REFUSALS = frozenset({
+    "environment_not_registered", "direction_not_registered", "table_not_registered", "sequence_not_registered",
+    "readiness_capture_expired", "execution_in_progress", "executor_not_configured",
+    "command_credential_required", "unauthorized"})
 
 
 def _uuid(value: str) -> None:
@@ -344,3 +348,27 @@ class ExecutorClient(ExecutorReader):
         return self._request("POST", "/v1/cutovers", expected, body=command,
                              headers={"Idempotency-Key": idempotency_key, "Authorization": f"Bearer {self._command_token}"},
                              accepted_statuses=(200, 202))
+
+    def observe_readiness(self, request: dict) -> dict:
+        """POST /v1/readiness: the Executor's pre-cutover T13 observation (it may raise the target sequence).
+
+        Not a cutover command and not retried here. Any failure is one bounded code.
+        """
+        if self._command_token is None:
+            raise ExecutorReadError("command_credential_missing")
+        try:
+            value = self._request_json("POST", "/v1/readiness", body=request,
+                                       headers={"Authorization": f"Bearer {self._command_token}"},
+                                       accepted_statuses=(200, 401, 403, 404, 409, 422, 503))
+        except ExecutorReadError:
+            raise
+        except httpx.HTTPError:
+            raise ExecutorReadError("transport_failure") from None
+        except (ValueError, TypeError, RecursionError, OverflowError):
+            raise ExecutorReadError("invalid_response") from None
+        if not isinstance(value, dict):
+            raise ExecutorReadError("invalid_response")
+        if "detail" in value:  # a refusal: only the Executor's fixed codes pass through
+            code = value["detail"].get("code") if isinstance(value["detail"], dict) else None
+            raise ExecutorReadError(code if code in READINESS_REFUSALS else "http_status")
+        return value
