@@ -344,3 +344,23 @@ def test_kubectl_process_limits_are_enforced_and_only_the_owned_process_is_reape
     pid = int(pid_file.read_text())
     with pytest.raises(ProcessLookupError):
         os.kill(pid, 0)
+
+
+@pytest.mark.parametrize(
+    "prefix",
+    [
+        ["kubectl", "--insecure-skip-tls-verify=true"],
+        ["kubectl", "--server=http://unverified.invalid"],
+        ["kubectl", "--token", "fixture-inline-token"],
+        ["kubectl", "--log-file=/tmp/unsafe-credential-log"],
+    ],
+)
+def test_unsafe_tls_or_inline_credential_prefix_fails_before_any_process(prefix, monkeypatch):
+    from bravo_console.kubernetes_workload import KubectlReader
+
+    def forbidden(*_args, **_kwargs):
+        raise AssertionError("unsafe client spawned")
+
+    monkeypatch.setattr("subprocess.Popen", forbidden)
+    with pytest.raises(CollectionError, match="VERIFIED_KUBERNETES_TLS_REQUIRED"):
+        KubectlReader(prefix)

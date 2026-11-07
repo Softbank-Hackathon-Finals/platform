@@ -114,6 +114,19 @@ class KubectlReader:
     def __init__(self, prefix, *, env=None):
         if not prefix or any(type(arg) is not str or not arg for arg in prefix):
             raise ValueError("explicit_kubernetes_client_required")
+        if any(
+            arg.split("=", 1)[0]
+            in {"--insecure-skip-tls-verify", "--token", "--password", "--log-file"}
+            for arg in prefix
+        ):
+            raise CollectionError("VERIFIED_KUBERNETES_TLS_REQUIRED")
+        for index, arg in enumerate(prefix):
+            if arg == "--server" and (
+                index + 1 == len(prefix) or not prefix[index + 1].startswith("https://")
+            ):
+                raise CollectionError("VERIFIED_KUBERNETES_TLS_REQUIRED")
+            if arg.startswith("--server=") and not arg.startswith("--server=https://"):
+                raise CollectionError("VERIFIED_KUBERNETES_TLS_REQUIRED")
         self.prefix = tuple(prefix)
         self.env = env
         value = self.run(["config", "view", "--minify", "-o", "json"])
@@ -125,7 +138,16 @@ class KubectlReader:
         ):
             raise CollectionError("VERIFIED_KUBERNETES_TLS_REQUIRED")
         for user in value.get("users", []):
-            args = user.get("user", {}).get("exec", {}).get("args", [])
+            plugin = user.get("user", {}).get("exec", {})
+            if Path(plugin.get("command", "")).name not in {"aws", "aws.exe"}:
+                continue
+            args = plugin.get("args", [])
+            if any(
+                item.get("name") in {"AWS_PROFILE", "AWS_DEFAULT_PROFILE"}
+                and item.get("value") != "bravo-personal"
+                for item in plugin.get("env", [])
+            ):
+                raise CollectionError("PERSONAL_AWS_PROFILE_REQUIRED")
             if "--profile" in args and (
                 args.count("--profile") != 1
                 or args[args.index("--profile") + 1 : args.index("--profile") + 2]
