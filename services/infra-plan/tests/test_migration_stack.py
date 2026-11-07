@@ -1,13 +1,15 @@
 """target-onprem-migration: the destination's observable preparation as a migration target (T45 executor)."""
 
 import json
+import subprocess
+import sys
 from types import SimpleNamespace
 
 import pytest
 from test_executor import FakeApprovals, FakeCluster, _git
 from test_plan import REPO, FakeCharts
 
-from bravo_infra_plan import Planner, load_stack
+from bravo_infra_plan import Planner, load_stack, replication
 from bravo_infra_plan.adapters import ClusterChecks, FileRunStore, GitConfigRepo, KubectlCluster
 from bravo_infra_plan.executor import Executor
 from bravo_infra_plan.stack import StackError
@@ -19,20 +21,29 @@ REQUEST = {"stack": "target-onprem-migration", "environment_id": "env-onprem",
 REV = "1" * 40
 
 
+def declared_cluster():
+    """target-db as T30's database render declares it: the external cluster's only owner."""
+    done = subprocess.run([sys.executable, str(REPO / "infra/envs/target-workloads/render.py"), "database",
+                           "--node-name", "bravo-target-1"], capture_output=True, text=True, check=True)
+    return next(i for i in json.loads(done.stdout)["items"] if i["kind"] == "Cluster")
+
+
 class MigrationCluster(FakeCluster):
-    """A destination before replication: nothing below is true until a test makes it so."""
+    """A destination target-onprem just built: target-db declares t8-source; nothing else below is true yet."""
 
     def __init__(self, **kw):
         super().__init__(**kw)
-        self.metadata_events, self.external, self.subscription, self.created = 0.0, None, None, []
+        self.metadata_events, self.subscription, self.created = 0.0, None, []
+        self.external = declared_cluster()["spec"]["externalClusters"]
         self.target, self.applied_status, self.copied, self.read_fails = "empty", False, False, False
+        self.loaded = set()  # Secrets CNPG has loaded (they carry cnpg.io/reload)
 
     def prepared(self):
         self.metadata_events = 9.0
         self.apps["bravo-iac-target-dev"] = IAC
         self.secrets[("target-dev", "t8-source-replication")] = ("Opaque", {"password": "x"})
         self.secrets[("target-dev", "t8-source-ca")] = ("Opaque", {"ca.crt": "x"})
-        self.external = {"name": "t8-source", "connectionParameters": {"sslmode": "verify-full"}}
+        self.loaded = {"t8-source-replication", "t8-source-ca"}
         return self
 
     def secret_keys(self, namespace, name):
@@ -42,29 +53,27 @@ class MigrationCluster(FakeCluster):
     def audit_level_events(self, level):
         return self.metadata_events if level == "Metadata" else 0.0
 
-    def external_cluster(self, namespace, cluster, external):
-        return self.external if (namespace, cluster, external) == ("target-dev", "target-db", "t8-source") else None
-
     def get_object(self, item):
-        return self.subscription if item["kind"] == "Subscription" else None
+        if item["kind"] == "Cluster":
+            versions = {name: ("7" if name in self.loaded else "") for name in ("t8-source-replication", "t8-source-ca")}
+            return None if self.external is None else {"spec": {"externalClusters": self.external}, "status": {
+                "secretsResourceVersion": {"externalClusterSecretVersion": versions}}}
+        if item["kind"] == "Subscription" and self.subscription is not None:
+            return {**self.subscription, "status": {"applied": self.applied_status}}
+        return None
 
     def create(self, items):
         assert self.subscription is None
         self.created.extend(items)
         self.subscription = json.loads(json.dumps(items[0]))
 
-    def subscription_applied(self, namespace, name):
-        return self.subscription is not None and self.applied_status
-
-    def replication_target_ready(self, namespace, cluster, database, subscription, tables):
-        if self.subscription is not None or self.target == "empty":
-            return True
-        raise RuntimeError("replication_target_not_empty")
-
-    def subscription_copied(self, namespace, cluster, database, subscription):
-        if self.read_fails:
+    def primary_query(self, namespace, cluster, database, query):
+        assert (namespace, cluster, database) == ("target-dev", "target-db", "chat")
+        if self.read_fails and query == replication.COPIED:
             raise RuntimeError("primary_read_failed")
-        return self.copied
+        return {replication.PRESENT: [["1" if self.subscription else "0", "2"]],
+                replication.FILLED: [["t" if self.target == "rows" else "f"]],
+                replication.COPIED: [["2", "0" if self.copied else "1"]]}[query]
 
 
 @pytest.fixture
@@ -111,13 +120,15 @@ def states(run):
 def test_the_stack_holds_only_steps_the_destination_can_observe():
     stack = json.loads(STACK.read_text())
     steps = {s["id"]: s for s in stack["steps"]}
-    assert list(steps) == ["identity", "node-files", "iac-network", "replication-credentials",
-                           "replication-external-cluster", "replication-target-ready", "forward-subscription",
+    assert list(steps) == ["identity", "node-files", "iac-network", "replication-external-cluster",
+                           "replication-credentials", "replication-target-ready", "forward-subscription",
                            "initial-copy"]
     assert steps["forward-subscription"]["needs"] == ["replication-target-ready", "node-files"]
     assert steps["forward-subscription"]["create_only"] is True
     assert steps["forward-subscription"]["renders"][0]["args"] == ["subscription", "--side", "target"]
-    assert steps["replication-target-ready"]["needs"] == ["replication-external-cluster"]
+    assert steps["replication-target-ready"]["needs"] == ["replication-credentials", "iac-network"]
+    assert steps["replication-credentials"]["needs"] == ["replication-external-cluster"]
+    assert "cnpg.io/reload=true" in steps["replication-credentials"]["instruction"]
     # The only cluster write makes the forward subscription; nothing prunes, deletes or drops.
     assert [s["id"] for s in stack["steps"] if s["kind"] not in ("probe", "operator_action")] == ["forward-subscription"]
     for word in ("delete", "prune", "DROP"):
@@ -163,13 +174,22 @@ def test_a_fresh_destination_waits_for_each_condition_then_creates_the_subscript
     assert run["status"] == "SUCCEEDED", states(run)
 
 
+def test_a_destination_built_before_the_declaration_fails_before_any_write(world):
+    cluster = world["cluster"].prepared()
+    cluster.external = None  # an older database render, or someone else's patch removed with it
+    world["approve"]("appr-1")
+    s = states(start(world, "run-1"))
+    assert s["replication-external-cluster"] == "FAILED"
+    assert s["replication-credentials"] == s["forward-subscription"] == "PENDING" and cluster.created == []
+
+
 def test_a_destination_already_prepared_writes_nothing(world):
     cluster = world["cluster"].prepared()
     rendered = json.loads(next(iter(world["planner"].plan(
         REQUEST, stack_revision=REV, target=cluster.identity("bravo-target-1"),
         base_commit=world["repo"].head()).files["forward-subscription"].values())))
     live = rendered["items"][0] if "items" in rendered else rendered
-    cluster.subscription = {**live, "status": {"applied": True}}
+    cluster.subscription = live
     cluster.applied_status = cluster.copied = True
     world["approve"]("appr-1")
     run = start(world, "run-1")
@@ -223,14 +243,33 @@ def test_a_switched_cluster_holds_before_any_destination_step(world):
     assert all(v["status"] in ("PENDING", "HOLD", "REFUSED") for v in run["steps"].values()), states(run)
 
 
-def test_the_checks_look_at_keys_and_tls_not_only_names():
+def test_the_external_cluster_is_declared_by_the_database_render_and_only_checked_here():
+    # The stack never writes target-db: the first build's database render owns it (one owner under selfHeal).
+    stack = {s["id"]: s for s in json.loads(STACK.read_text())["steps"]}
+    assert stack["replication-external-cluster"]["kind"] == "probe"
+    assert "external-patch" not in STACK.read_text()
+    [declared] = declared_cluster()["spec"]["externalClusters"]
+    assert declared["connectionParameters"]["host"] == replication.EXTERNAL_HOST
+    assert "hostaddr" not in declared["connectionParameters"]  # kube DNS, not an observed IP
+    assert declared_cluster()["spec"]["postgresql"]["parameters"]["max_slot_wal_keep_size"] == "1GB"
+
+
+def test_the_checks_look_at_keys_tls_and_the_route_not_only_names():
     cluster = MigrationCluster().prepared()
     run = {"plan": {"request": REQUEST, "target": cluster.identity("bravo-target-1")}}
     checks = ClusterChecks(cluster)
     assert checks.check("replication-credentials", run) and checks.check("replication-external-cluster", run)
-    cluster.secrets[("target-dev", "t8-source-ca")] = ("Opaque", {"tls.crt": "x"})
-    cluster.external = {"name": "t8-source", "connectionParameters": {"sslmode": "require"}}
+    cluster.loaded = {"t8-source-replication"}  # made after the Cluster without cnpg.io/reload: never loaded
     assert checks.check("replication-credentials", run) is False
+    cluster.loaded = {"t8-source-replication", "t8-source-ca"}
+    cluster.secrets[("target-dev", "t8-source-ca")] = ("Opaque", {"tls.crt": "x"})
+    assert checks.check("replication-credentials", run) is False
+    [declared] = cluster.external
+    for changed in ({"sslmode": "require"}, {"hostaddr": "10.43.0.9"}, {"host": "source-db-rw.source-dev.svc"}):
+        params = {**declared["connectionParameters"], **changed}
+        cluster.external = [{**declared, "connectionParameters": params}]
+        assert checks.check("replication-external-cluster", run) is False, changed
+    cluster.external = [declared, declared]  # two entries of one name: not a single declaration
     assert checks.check("replication-external-cluster", run) is False
 
     class NoArgo(MigrationCluster):
@@ -266,25 +305,34 @@ def test_audit_events_are_read_from_the_api_server_metrics():
         k.cluster.audit_level_events("Everything")
 
 
+SUBSCRIPTION = (0, json.dumps({"kind": "Subscription", "status": {"applied": True}}))
+
+
 @pytest.mark.parametrize("answer, expected", [("3|0", True), ("3|1", False), ("0|0", False)])
 def test_the_initial_copy_is_a_fixed_query_in_a_read_only_transaction(answer, expected):
-    k = Kubectl([(0, PRIMARY), (0, answer + "\n")])
-    assert k.cluster.subscription_copied("target-dev", "target-db", "chat", "t8_source_to_target") is expected
-    call = k.calls[1]
+    k = Kubectl([SUBSCRIPTION, (0, PRIMARY), (0, answer + "\n")])
+    assert replication.initial_copy(k.cluster) is expected
+    assert k.calls[0][:3] == ("get", "subscription.postgresql.cnpg.io", "t8-source-to-target")
+    call = k.calls[2]
     assert call[:6] == ("exec", "-n", "target-dev", "target-db-1", "-c", "postgres")
     assert call[-6:-4] == ("-c", "BEGIN READ ONLY") and call[-2:] == ("-c", "ROLLBACK")
-    query = call[-3]
-    assert query.startswith("SELECT count(*)") and "subname = 't8_source_to_target'" in query
-    assert not any(word in query.upper() for word in ("INSERT", "UPDATE", "DELETE", "ALTER", "DROP"))
+    assert call[-3] == replication.COPIED and "subname = 't8_source_to_target'" in call[-3]
+
+
+def test_the_queries_are_fixed_reads():
+    for query in (replication.COPIED, replication.PRESENT, replication.FILLED):
+        assert query.startswith("SELECT ")
+        assert not any(word in query.upper() for word in ("INSERT", "UPDATE", "DELETE", "ALTER", "DROP", ";"))
 
 
 def test_no_single_primary_waits_and_a_failed_read_holds():
     none = json.dumps({"items": []})
-    assert Kubectl([(0, none)]).cluster.subscription_copied("target-dev", "target-db", "chat", "s") is False
+    assert replication.initial_copy(Kubectl([SUBSCRIPTION, (0, none)]).cluster) is False
+    assert replication.initial_copy(Kubectl([(0, json.dumps({"status": {}}))]).cluster) is False  # not applied
     with pytest.raises(RuntimeError, match="primary_read_failed"):
-        Kubectl([(0, PRIMARY), (1, "")]).cluster.subscription_copied("target-dev", "target-db", "chat", "s")
+        replication.initial_copy(Kubectl([SUBSCRIPTION, (0, PRIMARY), (1, "")]).cluster)
     with pytest.raises(StackError):
-        Kubectl([]).cluster.subscription_copied("target-dev", "target-db", "chat", "x'; DROP TABLE t; --")
+        Kubectl([]).cluster.primary_query("target-dev", "target-db", "chat; DROP", "SELECT 1")
 
 
 @pytest.mark.parametrize("answers, result", [
@@ -296,13 +344,8 @@ def test_no_single_primary_waits_and_a_failed_read_holds():
 ])
 def test_copy_data_starts_only_on_an_empty_target_with_its_schema(answers, result):
     k = Kubectl(answers)
-
-    def ready():
-        return k.cluster.replication_target_ready("target-dev", "target-db", "chat", "t8_source_to_target",
-                                                  ("attachments", "messages"))
-
     if result is True:
-        assert ready() is True
+        assert replication.target_ready(k.cluster) is True
     else:
         with pytest.raises(RuntimeError, match=result):
-            ready()
+            replication.target_ready(k.cluster)

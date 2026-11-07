@@ -17,6 +17,7 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
+from . import replication
 from .applications import ARGO_NAMESPACE
 from .stack import StackError
 
@@ -283,19 +284,9 @@ class KubectlCluster:
                 return float(line.rsplit(" ", 1)[1])
         return None
 
-    def external_cluster(self, namespace, cluster, external):
-        """The external cluster entry, or None."""
-        obj = self._get("clusters.postgresql.cnpg.io", namespace, cluster)
-        found = [x for x in (obj or {}).get("spec", {}).get("externalClusters", []) if x.get("name") == external]
-        return found[0] if found else None
-
-    def subscription_applied(self, namespace, name):
-        obj = self._get("subscriptions.postgresql.cnpg.io", namespace, name)
-        return obj is not None and obj.get("status", {}).get("applied") is True
-
-    def _primary_query(self, namespace, cluster, database, query):
+    def primary_query(self, namespace, cluster, database, query):
         """One fixed query in a read-only transaction on the primary. None: no single primary right now
-        (a switchover): not done yet. A failed read raises, so the step holds instead of passing."""
+        (a switchover). A failed read raises, so the step holds instead of passing."""
         if not SQL_NAME.fullmatch(database):
             raise StackError("invalid_identifier")
         pods = json.loads(self._k("get", "pods", "-n", namespace, "-l",
@@ -308,43 +299,6 @@ class KubectlCluster:
         if result.returncode != 0:
             raise RuntimeError("primary_read_failed")
         return [line.split("|") for line in result.stdout.strip().splitlines() if line]
-
-    def subscription_copied(self, namespace, cluster, database, subscription):
-        """True when every table of the subscription finished its initial copy (pg_subscription_rel all 'r')."""
-        if not SQL_NAME.fullmatch(subscription):
-            raise StackError("invalid_identifier")
-        rows = self._primary_query(namespace, cluster, database,
-                                   "SELECT count(*), count(*) FILTER (WHERE r.srsubstate <> 'r') FROM pg_subscription s "
-                                   f"JOIN pg_subscription_rel r ON r.srsubid = s.oid WHERE s.subname = '{subscription}'")
-        if rows is None:
-            return False
-        total, pending = (int(x) for x in rows[0])
-        return total > 0 and pending == 0
-
-    def replication_target_ready(self, namespace, cluster, database, subscription, tables):
-        """Safe to create the forward subscription with copy_data: it already exists, or every published
-        table exists on the target and is empty. Anything else (rows already there, schema missing) raises:
-        a copy would duplicate rows or retry on duplicate keys forever."""
-        if not SQL_NAME.fullmatch(subscription) or not all(SQL_NAME.fullmatch(t) for t in tables):
-            raise StackError("invalid_identifier")
-        names = ", ".join(f"'{t}'" for t in tables)
-        rows = self._primary_query(namespace, cluster, database,
-                                   f"SELECT (SELECT count(*) FROM pg_subscription WHERE subname = '{subscription}'), "
-                                   f"(SELECT count(*) FROM pg_tables WHERE schemaname = 'public' AND tablename IN ({names}))")
-        if rows is None:  # a probe: not seeing the primary is a hold, not a verdict
-            raise RuntimeError("primary_unavailable")
-        subscriptions, present = (int(x) for x in rows[0])
-        if subscriptions == 1:
-            return True
-        if present != len(tables):
-            raise RuntimeError("replication_target_schema_missing")
-        filled = self._primary_query(namespace, cluster, database, "SELECT " + " OR ".join(
-            f"EXISTS (SELECT 1 FROM public.{t})" for t in tables))
-        if filled is None:
-            raise RuntimeError("primary_unavailable")
-        if filled[0][0] != "f":
-            raise RuntimeError("replication_target_not_empty")
-        return True
 
 
 class T10Approvals:
@@ -427,17 +381,10 @@ class ClusterChecks:
             # target-onprem-migration: the destination as a migration target
             "audit-metadata-active": lambda: (c.audit_level_events("Metadata") or 0) > 0,
             "iac-network-synced": lambda: _synced(c, "bravo-iac-target-dev", params.get("iac_revision")),
-            "replication-credentials": lambda: (
-                "password" in (c.secret_keys("target-dev", "t8-source-replication") or [])
-                and "ca.crt" in (c.secret_keys("target-dev", "t8-source-ca") or [])),
-            "replication-external-cluster": lambda: (
-                (c.external_cluster("target-dev", "target-db", "t8-source") or {})
-                .get("connectionParameters", {}).get("sslmode") == "verify-full"),
-            "replication-target-ready": lambda: c.replication_target_ready(
-                "target-dev", "target-db", "chat", "t8_source_to_target", ("attachments", "messages")),
-            "initial-copy-complete": lambda: (c.subscription_applied("target-dev", "t8-source-to-target")
-                                              and c.subscription_copied("target-dev", "target-db", "chat",
-                                                                        "t8_source_to_target")),
+            "replication-credentials": lambda: replication.credentials(c),
+            "replication-external-cluster": lambda: replication.external_cluster(c),
+            "replication-target-ready": lambda: replication.target_ready(c),
+            "initial-copy-complete": lambda: replication.initial_copy(c),
         }
         if name not in checks:
             raise StackError("unknown_check")
