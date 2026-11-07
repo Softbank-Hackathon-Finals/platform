@@ -84,6 +84,35 @@
                 "port_name": "postgres"
               }
             ]
+          },
+          {
+            "name": "bravo-target-findings",
+            "tag": "tag:bravo-target-findings",
+            "clients": [
+              {
+                "namespace": "bravo-security",
+                "labels": {
+                  "app.kubernetes.io/name": "bravo-findings-agent"
+                }
+              },
+              {
+                "namespace": "falco",
+                "labels": {
+                  "app.kubernetes.io/instance": "falco",
+                  "app.kubernetes.io/name": "falcosidekick"
+                }
+              }
+            ],
+            "routes": [
+              {
+                "service": "bravo-findings",
+                "namespace": "bravo-security",
+                "destination": "bravo-findings",
+                "destination_tag": "tag:bravo-findings",
+                "port": 8443,
+                "port_name": "https"
+              }
+            ]
           }
         ]
       }

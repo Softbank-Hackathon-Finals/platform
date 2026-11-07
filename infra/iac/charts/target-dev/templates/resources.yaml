@@ -431,6 +431,280 @@
 }
 ---
 {
+  "apiVersion": "tailscale.com/v1alpha1",
+  "kind": "ProxyGroup",
+  "metadata": {
+    "labels": {
+      "app.kubernetes.io/managed-by": "bravo-iac",
+      "bravo.dev/iac-module": "tailnet-egress"
+    },
+    "name": "bravo-target-findings"
+  },
+  "spec": {
+    "replicas": 1,
+    "tags": [
+      "tag:bravo-target-findings"
+    ],
+    "type": "egress"
+  }
+}
+---
+{
+  "apiVersion": "v1",
+  "kind": "Service",
+  "metadata": {
+    "annotations": {
+      "tailscale.com/proxy-group": "bravo-target-findings",
+      "tailscale.com/tailnet-fqdn": "bravo-findings.{{ .Values.tailnet }}"
+    },
+    "labels": {
+      "app.kubernetes.io/managed-by": "bravo-iac",
+      "bravo.dev/iac-module": "tailnet-egress"
+    },
+    "name": "bravo-findings",
+    "namespace": "bravo-security"
+  },
+  "spec": {
+    "externalName": "placeholder",
+    "ports": [
+      {
+        "name": "https",
+        "port": 8443,
+        "protocol": "TCP"
+      }
+    ],
+    "type": "ExternalName"
+  }
+}
+---
+{
+  "apiVersion": "networking.k8s.io/v1",
+  "kind": "NetworkPolicy",
+  "metadata": {
+    "labels": {
+      "app.kubernetes.io/managed-by": "bravo-iac",
+      "bravo.dev/iac-module": "tailnet-egress"
+    },
+    "name": "bravo-target-findings-client",
+    "namespace": "bravo-security"
+  },
+  "spec": {
+    "egress": [
+      {
+        "ports": [
+          {
+            "port": 53,
+            "protocol": "UDP"
+          },
+          {
+            "port": 53,
+            "protocol": "TCP"
+          }
+        ],
+        "to": [
+          {
+            "namespaceSelector": {
+              "matchLabels": {
+                "kubernetes.io/metadata.name": "kube-system"
+              }
+            }
+          }
+        ]
+      },
+      {
+        "ports": [
+          {
+            "endPort": 10999,
+            "port": 10000,
+            "protocol": "TCP"
+          }
+        ],
+        "to": [
+          {
+            "namespaceSelector": {
+              "matchLabels": {
+                "kubernetes.io/metadata.name": "tailscale-system"
+              }
+            },
+            "podSelector": {
+              "matchLabels": {
+                "tailscale.com/parent-resource": "bravo-target-findings",
+                "tailscale.com/parent-resource-type": "proxygroup"
+              }
+            }
+          }
+        ]
+      }
+    ],
+    "podSelector": {
+      "matchLabels": {
+        "app.kubernetes.io/name": "bravo-findings-agent"
+      }
+    },
+    "policyTypes": [
+      "Egress"
+    ]
+  }
+}
+---
+{
+  "apiVersion": "networking.k8s.io/v1",
+  "kind": "NetworkPolicy",
+  "metadata": {
+    "labels": {
+      "app.kubernetes.io/managed-by": "bravo-iac",
+      "bravo.dev/iac-module": "tailnet-egress"
+    },
+    "name": "bravo-target-findings-client",
+    "namespace": "falco"
+  },
+  "spec": {
+    "egress": [
+      {
+        "ports": [
+          {
+            "port": 53,
+            "protocol": "UDP"
+          },
+          {
+            "port": 53,
+            "protocol": "TCP"
+          }
+        ],
+        "to": [
+          {
+            "namespaceSelector": {
+              "matchLabels": {
+                "kubernetes.io/metadata.name": "kube-system"
+              }
+            }
+          }
+        ]
+      },
+      {
+        "ports": [
+          {
+            "endPort": 10999,
+            "port": 10000,
+            "protocol": "TCP"
+          }
+        ],
+        "to": [
+          {
+            "namespaceSelector": {
+              "matchLabels": {
+                "kubernetes.io/metadata.name": "tailscale-system"
+              }
+            },
+            "podSelector": {
+              "matchLabels": {
+                "tailscale.com/parent-resource": "bravo-target-findings",
+                "tailscale.com/parent-resource-type": "proxygroup"
+              }
+            }
+          }
+        ]
+      }
+    ],
+    "podSelector": {
+      "matchLabels": {
+        "app.kubernetes.io/instance": "falco",
+        "app.kubernetes.io/name": "falcosidekick"
+      }
+    },
+    "policyTypes": [
+      "Egress"
+    ]
+  }
+}
+---
+{
+  "apiVersion": "networking.k8s.io/v1",
+  "kind": "NetworkPolicy",
+  "metadata": {
+    "labels": {
+      "app.kubernetes.io/managed-by": "bravo-iac",
+      "bravo.dev/iac-module": "tailnet-egress"
+    },
+    "name": "bravo-target-findings-ingress",
+    "namespace": "tailscale-system"
+  },
+  "spec": {
+    "ingress": [
+      {
+        "from": [
+          {
+            "podSelector": {
+              "matchLabels": {
+                "app": "operator"
+              }
+            }
+          }
+        ],
+        "ports": [
+          {
+            "port": 9002,
+            "protocol": "TCP"
+          }
+        ]
+      },
+      {
+        "from": [
+          {
+            "namespaceSelector": {
+              "matchLabels": {
+                "kubernetes.io/metadata.name": "bravo-security"
+              }
+            },
+            "podSelector": {
+              "matchLabels": {
+                "app.kubernetes.io/name": "bravo-findings-agent"
+              }
+            }
+          },
+          {
+            "namespaceSelector": {
+              "matchLabels": {
+                "kubernetes.io/metadata.name": "falco"
+              }
+            },
+            "podSelector": {
+              "matchLabels": {
+                "app.kubernetes.io/instance": "falco",
+                "app.kubernetes.io/name": "falcosidekick"
+              }
+            }
+          }
+        ],
+        "ports": [
+          {
+            "endPort": 10999,
+            "port": 10000,
+            "protocol": "TCP"
+          }
+        ]
+      },
+      {
+        "ports": [
+          {
+            "protocol": "UDP"
+          }
+        ]
+      }
+    ],
+    "podSelector": {
+      "matchLabels": {
+        "tailscale.com/parent-resource": "bravo-target-findings",
+        "tailscale.com/parent-resource-type": "proxygroup"
+      }
+    },
+    "policyTypes": [
+      "Ingress"
+    ]
+  }
+}
+---
+{
   "apiVersion": "v1",
   "kind": "Service",
   "metadata": {

@@ -221,6 +221,31 @@
       }
     },
     {
+      "id": "tailnet-ingress",
+      "version": "1",
+      "params": {
+        "owner_tag": "tag:bravo-platform-operator",
+        "devices": [
+          {
+            "service": "bravo-findings-tailnet",
+            "namespace": "bravo-security",
+            "hostname": "bravo-findings",
+            "tag": "tag:bravo-findings",
+            "selector": {
+              "app": "bravo-findings"
+            },
+            "ports": [
+              {
+                "name": "https",
+                "port": 8443,
+                "target_port": 8443
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
       "id": "cluster-audit",
       "version": "1",
       "params": {
