@@ -3,13 +3,21 @@ name = "bravo-infra-plan"
 version = "0.1.0"
 description = "T45 목적지 구축 계획: 정형 스택 → 렌더 → 계획 digest (ADR-0033)"
 requires-python = ">=3.12"
-dependencies = ["jsonschema>=4.23,<5", "pyyaml>=6.0.3,<7"]
+dependencies = ["jsonschema>=4.23,<5", "pyyaml>=6.0.3,<7", "fastapi>=0.115,<1", "uvicorn>=0.30,<1"]
+
+[project.optional-dependencies]
+# The serve entrypoint verifies people with T10's operator verifier (same SSO proof, same subjects
+# as T10 grants). Plans, the executor and tests of them do not need it.
+operator = ["bravo-platform-events[sso-registration]"]
 
 [project.scripts]
 bravo-infra-plan = "bravo_infra_plan.cli:main"
 
 [dependency-groups]
-dev = ["pytest>=8,<10"]
+dev = ["pytest>=8,<10", "httpx>=0.27,<1", "bravo-platform-events"]
+
+[tool.uv.sources]
+bravo-platform-events = { path = "../platform-events" }
 
 [build-system]
 requires = ["hatchling>=1.25,<2"]

@@ -127,8 +127,6 @@ class Planner:
                 entry["digest"] = sha256_text(canonical(entry["files"]))
                 if step["kind"] == "gitops_publish":
                     tree.update(entry["files"])
-            elif step["kind"] == "helm_release":
-                entry["digest"] = self._release_digest(step)
             else:
                 entry["digest"] = sha256_text(canonical(step))
             steps.append(entry)
@@ -163,6 +161,9 @@ class Planner:
             items = self.charts.template(chart, release=render["release"], namespace=render["namespace"],
                                          values_path=values, include_crds=render.get("include_crds", False),
                                          kube_version=params[self.kube_version_param])
+        if render.get("create_namespace"):  # `helm template` never emits the release namespace
+            items = [{"apiVersion": "v1", "kind": "Namespace", "metadata": {
+                "name": render["namespace"], "labels": {"app.kubernetes.io/managed-by": "bravo-infra-plan"}}}] + items
         if "post" in render:
             post = render["post"]
             items = _items(json.loads(self.renderer.run(post["run"], _substitute(post["args"], params),
@@ -174,13 +175,3 @@ class Planner:
         if self.repo_root not in path.parents or not path.is_file():
             raise StackError("repository_file_unavailable")
         return path
-
-    def _release_digest(self, step):
-        chart_dir = (self.repo_root / step["chart_dir"]).resolve()
-        if self.repo_root not in chart_dir.parents or not chart_dir.is_dir():
-            raise StackError("repository_file_unavailable")
-        tree = {str(p.relative_to(chart_dir)): hashlib.sha256(p.read_bytes()).hexdigest()
-                for p in sorted(chart_dir.rglob("*")) if p.is_file() and "charts" not in p.relative_to(chart_dir).parts}
-        values = hashlib.sha256(self._repo_file(step["values_file"]).read_bytes()).hexdigest()
-        return sha256_text(canonical({"chart": tree, "values": values, "release": step["release"],
-                                      "namespace": step["namespace"]}))
