@@ -42,6 +42,13 @@
         "role": "t14-other",
         "jwt_file": "/private/t14-other.jwt"
       }
+    },
+    "AUD-01.1": {
+      "adapter": "pod-log",
+      "kube_context": "<목적지 kube context>",
+      "namespace": "target-dev",
+      "cluster": "target-db",
+      "database": "chat"
     }
   }
 }

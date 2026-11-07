@@ -4,7 +4,7 @@ import importlib.util
 import json
 import os
 import stat
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -87,6 +87,7 @@ def test_the_output_is_an_absolute_path_outside_the_repository(out, code):
 
 @pytest.mark.parametrize(("role", "tests", "code"), [
     ("target", {"AUD-01.1": {"adapter": "cloudwatch"}}, "unknown_adapter:AUD-01.1"),  # not wired: refused
+    ("target", {"AUD-01.2": {"adapter": "pod-log"}}, "unknown_adapter:AUD-01.2"),  # login only
     ("target", {"IAM-01.1": {"adapter": "aws-secret"}}, "unknown_adapter:IAM-01.1"),
     ("target", {"IAM-01.1": "s3-endpoint"}, "unknown_adapter:IAM-01.1"),
     # A source registration copied with only its role changed measures the source: refused.
@@ -222,6 +223,87 @@ def test_a_server_name_is_only_for_a_loopback_port_forward(tmp_path, monkeypatch
                            server_hostname=extra["server_hostname"])
 
 
+AUD = {"adapter": "pod-log", "kube_context": "target-cluster", "namespace": "target-dev", "cluster": "target-db",
+       "database": "chat"}
+
+
+class Kube:
+    """The operator's kubectl against one CNPG cluster: the admin canary is logged by the primary."""
+
+    def __init__(self, answer=b"postgres|true\n", logged_after=0, user="postgres"):
+        self.answer, self.logged_after, self.user = answer, logged_after, user
+        self.calls, self.lines, self.reads = [], [], 0
+
+    def __call__(self, context, *args, data=None):
+        self.calls.append((context, args))
+        if args[0] == "exec":
+            conninfo = args[args.index("-d") + 1]
+            marker = conninfo.split("application_name=")[1]
+            at = datetime.now(UTC)
+            record = {"user_name": self.user, "database_name": "chat", "error_severity": "LOG",
+                      "message": f"connection authorized: user={self.user} database=chat application_name={marker}"}
+            self.lines.append(at.strftime("%Y-%m-%dT%H:%M:%S.%fZ") + " "
+                              + json.dumps({"logger": "postgres", "msg": "record", "record": record}))
+            return self.answer
+        path = args[2]
+        if "/clusters/" in path:
+            return json.dumps({"status": {"currentPrimary": "target-db-1"}}).encode()
+        if "/log?" in path:
+            self.reads += 1
+            return "\n".join(self.lines if self.reads > self.logged_after else []).encode()
+        return json.dumps({"metadata": {"uid": "uid-1"}, "status": {"containerStatuses": [
+            {"name": "postgres", "restartCount": 0, "state": {"running": {"startedAt": "2026-11-01T00:00:00Z"}}}]}}).encode()
+
+
+def test_the_admin_login_canary_is_found_in_the_primarys_log_without_a_db_password(tmp_path, monkeypatch):
+    monkeypatch.setattr(tool, "POLL_SECONDS", 0)
+    kube = Kube(logged_after=2)  # the line shows up on the third read
+    document, directory = tool.run(registration({"AUD-01.1": AUD}), tmp_path / "run",
+                                   build=lambda r, e, ev: tool.build_probes(r, e, ev, kube=kube))
+    assert {r["test_id"]: r["verdict"] for r in document["results"]}["AUD-01.1"] == "PASS"
+    [psql] = [a for _, a in kube.calls if a[0] == "exec"]
+    assert psql[:7] == ("exec", "-i", "-n", "target-dev", "target-db-1", "-c", "postgres")
+    assert "psql" in psql and "PGPASSWORD" not in " ".join(psql) and "-U" not in psql  # peer login, no secret
+    assert {c for c, _ in kube.calls} == {"target-cluster"} and kube.reads == 3
+    assert len(list(directory.glob("evidence-*-AUD-01.1.json"))) == 1  # only the final search's evidence
+
+
+@pytest.mark.parametrize(("kube", "reason"), [
+    (Kube(answer=b"chat_owner|false\n"), "TOOL_ERROR"),  # not an admin login: no receipt, no search
+])
+def test_a_canary_that_did_not_happen_as_registered_is_unknown(tmp_path, kube, reason):
+    document, _ = tool.run(registration({"AUD-01.1": AUD}), tmp_path / "run",
+                           build=lambda r, e, ev: tool.build_probes(r, e, ev, kube=kube))
+    row = {r["test_id"]: r for r in document["results"]}["AUD-01.1"]
+    assert row["verdict"] == "UNKNOWN" and row["unknown_reason"] == reason
+    assert not [a for _, a in kube.calls if "/log?" in " ".join(a)]
+
+
+def test_a_login_never_logged_is_absent_only_after_the_window(tmp_path):
+    from bravo_controls.runner import RunContext
+    from bravo_controls.runner import TestSpec as Spec
+
+    now = {"t": datetime(2026, 11, 7, 12, 0, tzinfo=UTC)}
+    kept = []
+    kube = Kube(logged_after=10**6)
+    probe = tool.DbLoginAuditRun(AUD, kept.append, kube=kube, clock=lambda: now["t"],
+                                 sleep=lambda s: now.update(t=now["t"] + timedelta(seconds=s)))
+    context = RunContext("run-1", "demo-chat", Environment("env-target", "target", "ref:target"))
+    observation = probe(context, Spec("AUD-01.1", "AUD-01", "1", "present", "not_applicable"))
+    assert observation.observed == "absent" and len(kept) == 1
+    assert 55 <= kube.reads <= 62  # every 3 s for 3 minutes, then stops
+
+
+@pytest.mark.parametrize("role", ["source", "target"])
+def test_the_audit_adapter_belongs_to_both_roles_and_needs_its_fields(tmp_path, role):
+    env = Environment(f"env-{role}", role, f"ref:{role}")
+    probes = tool.build_probes(registration({"AUD-01.1": AUD}, role=role), env, tool.Evidence(tmp_path), kube=Kube())
+    assert isinstance(probes["AUD-01.1"], tool.DbLoginAuditRun)
+    with pytest.raises(ValueError, match="registration_fields:AUD-01.1"):
+        tool.build_probes(registration({"AUD-01.1": AUD | {"cluster": "Target_DB"}}, role=role), env,
+                          tool.Evidence(tmp_path), kube=Kube())
+
+
 def test_the_example_registration_is_a_valid_target_registration(tmp_path, monkeypatch):
     example = json.loads((ROOT / "operations/controls/registration.example.json").read_text())
     bao_entry(tmp_path)  # the CA and private token files the example points at, here
@@ -233,7 +315,7 @@ def test_the_example_registration_is_a_valid_target_registration(tmp_path, monke
     iam = example["tests"]["IAM-01.1"]
     probes = tool.build_probes(example, Environment(env["id"], env["role"], env["ref"]), tool.Evidence(tmp_path),
                                environ={iam["access_key_env"]: "a", iam["secret_key_env"]: "b"})
-    assert set(probes) == {"IAM-01.1", "SEC-01.1"} and probes["IAM-01.1"].target.endpoint == iam["endpoint"]
+    assert set(probes) == {"IAM-01.1", "SEC-01.1", "AUD-01.1"} and probes["IAM-01.1"].target.endpoint == iam["endpoint"]
     assert set(example) == {"app", "environment", "profile", "tests"}
 
 
