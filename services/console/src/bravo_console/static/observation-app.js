@@ -1,5 +1,6 @@
 import { createWorkloadRenderer } from "./workload-motion.js";
 import { observedTopology } from "./observation-model.js";
+import { CONTROL_TESTS } from "./model.js";
 const $ = (id) => document.getElementById(id);
 const el = (tag, cls, text) => {
   const n = document.createElement(tag);
@@ -13,11 +14,16 @@ let selected = new Set(),
   busy = false,
   stopped = false;
 for (const button of document.querySelectorAll("nav button")) {
-  button.disabled = button.dataset.view !== "topology";
+  button.disabled = !["topology", "security"].includes(button.dataset.view);
   button.setAttribute(
     "aria-current",
     button.dataset.view === "topology" ? "page" : "false",
   );
+  button.onclick = () =>
+    (button.dataset.view === "security" ? securityPanel : host).scrollIntoView({
+      behavior: "smooth",
+      block: "start",
+    });
 }
 for (const control of document.querySelectorAll(
   "form input, form button, form select",
@@ -59,6 +65,10 @@ document.addEventListener("keydown", (e) => {
 });
 controls.append(refresh, expand);
 const environments = el("div", "observed-environments");
+const securityPanel = el("section", "observed-security");
+securityPanel.id = "observed-security";
+const historyPanel = el("section", "observed-controls");
+historyPanel.id = "observed-controls";
 const grid = el("div", "response-grid"),
   canvas = el("div", "response-canvas"),
   inspect = el("aside", "response-inspector");
@@ -72,7 +82,15 @@ const legend = el(
   "response-description",
   "회색 선: selector·소속·설정 참조. 파란 선: 최근 API 프록시 HTTP 탐침. 실제 사용자 트래픽·복제·격리 상태는 별도 근거가 필요합니다.",
 );
-host.replaceChildren(banner, controls, environments, grid, legend);
+host.replaceChildren(
+  banner,
+  controls,
+  environments,
+  securityPanel,
+  grid,
+  legend,
+  historyPanel,
+);
 const renderer = createWorkloadRenderer(graph, {
   onSelect: (id, multi) => {
     selected = multi ? new Set([...selected, id]) : new Set([id]);
@@ -106,6 +124,14 @@ function draw() {
     for (const node of current.view.nodes) {
       const facet = current.facets[node.id];
       const element = graph.querySelector(`[data-resource="${node.id}"]`);
+      const settings = current.securityConfig[node.id] ?? [];
+      const warningCount = settings.filter(
+        (c) => c.state === "ATTENTION",
+      ).length;
+      if (element) {
+        element.dataset.configWarning = String(warningCount > 0);
+        element.dataset.configWarningCount = String(warningCount);
+      }
       if (element && node.health !== "ready") {
         const laneFresh = current.environments.some(
           (e) => e.lane === node.lane && e.status === "CURRENT",
@@ -123,7 +149,7 @@ function draw() {
         );
         element.setAttribute(
           "aria-label",
-          `${node.label} · ${label} · 보안 통제 미확인`,
+          `${node.label} · ${label} · 설정 주의 ${warningCount}개 · 보안 통제 미확인`,
         );
       }
     }
@@ -135,6 +161,29 @@ function draw() {
       el("p", null, node.detail),
       el("p", null, current.facets[node.id].summary),
     );
+    const settings = current.securityConfig[node.id] ?? [];
+    if (settings.length) {
+      inspect.append(el("h4", null, "현재 보안 설정"));
+      for (const check of settings) {
+        const p = el(
+          "p",
+          "observed-check",
+          `${check.state === "ATTENTION" ? "주의 · " : ""}${check.label}: ${check.detail}`,
+        );
+        p.dataset.state = check.state;
+        inspect.append(p);
+      }
+      inspect.append(
+        el(
+          "p",
+          "muted",
+          "주변 강조는 설정 관계상 연결된 자원입니다. 실제 침해 확산이나 격리 결과를 뜻하지 않습니다.",
+        ),
+      );
+    } else
+      inspect.append(
+        el("p", "muted", "이 자원의 현재 보안 설정 관측이 없습니다."),
+      );
     for (const proof of current.view.evidence.filter(
       (e) => e.resource_id === node.id,
     ))
@@ -147,6 +196,168 @@ function draw() {
         "자원을 선택하면 실제 관측한 준비 상태와 근거 범위를 확인할 수 있습니다.",
       ),
     );
+  drawSecurity();
+  drawHistory();
+}
+
+function drawSecurity() {
+  securityPanel.replaceChildren(
+    el("h3", null, "보안 설정 관측"),
+    el(
+      "p",
+      "muted",
+      "주황색은 검토할 설정입니다. 공격 탐지·T14 실패·격리 판정과 구분합니다. 자원을 선택하면 선언된 설정을 확인할 수 있습니다.",
+    ),
+  );
+  const cards = el("div", "observed-security-grid");
+  for (const env of current?.environments ?? []) {
+    const card = el("div", "observed-security-card");
+    const resources =
+      current.view?.nodes.filter(
+        (n) => n.lane === env.lane && current.securityConfig[n.id],
+      ) ?? [];
+    const warnings = resources.filter((n) =>
+      current.securityConfig[n.id].some((c) => c.state === "ATTENTION"),
+    );
+    const unspecified = resources.reduce(
+      (sum, n) =>
+        sum +
+        current.securityConfig[n.id].filter((c) => c.state === "UNSPECIFIED")
+          .length,
+      0,
+    );
+    card.append(
+      el(
+        "strong",
+        null,
+        env.lane === "source" ? "AWS 출발지" : "온프렘 목적지",
+      ),
+    );
+    if (env.status !== "CURRENT")
+      card.append(el("p", null, "현재 설정 미확인 · 관측 만료 또는 수집 실패"));
+    else {
+      card.append(
+        el(
+          "p",
+          null,
+          `설정 관측 ${resources.length}개 자원 · 주의 ${warnings.length}개 자원 · 미지정 ${unspecified}개 항목`,
+        ),
+        el(
+          "p",
+          "muted",
+          `namespace NetworkPolicy ${env.namespace_policy_count ?? "—"}개 · 정책 개수만으로 차단을 판정하지 않습니다.`,
+        ),
+      );
+      for (const node of warnings) {
+        const checks = current.securityConfig[node.id].filter(
+          (c) => c.state === "ATTENTION",
+        );
+        const button = el(
+          "button",
+          "observed-warning-link",
+          `${node.label} · ${checks.map((c) => c.label).join(", ")}`,
+        );
+        button.type = "button";
+        button.dataset.resourceRef = node.id;
+        button.onclick = () => {
+          selected = new Set([node.id]);
+          draw();
+          canvas.scrollIntoView({ block: "center", behavior: "smooth" });
+        };
+        card.append(button);
+      }
+      if (!warnings.length)
+        card.append(
+          el(
+            "p",
+            "muted",
+            "관측한 설정에서 주의 표시는 없습니다. 보안 시험 통과를 의미하지 않습니다.",
+          ),
+        );
+    }
+    cards.append(card);
+  }
+  if (!current) cards.append(el("p", null, "인증된 현재 관측을 기다립니다."));
+  securityPanel.append(cards);
+}
+
+function drawHistory() {
+  historyPanel.replaceChildren(
+    el("h3", null, "T14 보존 시험 원문 · 재시험 준비"),
+    el(
+      "p",
+      "muted",
+      "보존한 실행의 기록입니다. 현재 자원 결속과 운영 T10 인수는 미검증이며, 이 화면은 T19 판정이나 전환 권한을 만들지 않습니다.",
+    ),
+  );
+  const runs = current?.controlHistory ?? [];
+  if (!runs.length) {
+    historyPanel.append(
+      el(
+        "p",
+        null,
+        "등록된 보존 원문이 없습니다. 현재 T10 계획의 시험 결과는 별도 운영자 권한으로 조회합니다.",
+      ),
+    );
+    return;
+  }
+  for (const run of runs) {
+    const block = el("div", "observed-history-run");
+    block.append(
+      el(
+        "h4",
+        null,
+        `${run.lane === "source" ? "AWS 출발지" : "온프렘 목적지"} · ${run.profile_id}/${run.profile_version}`,
+      ),
+    );
+    if (run.status !== "HISTORY") {
+      block.append(
+        el(
+          "p",
+          null,
+          "원문 변경·범위 불일치·접근 실패로 보존 결과를 철회했습니다.",
+        ),
+      );
+      historyPanel.append(block);
+      continue;
+    }
+    block.append(
+      el(
+        "p",
+        null,
+        `보존 실행 종료 ${new Date(run.finished_at).toLocaleString("ko-KR")} · ${run.rows.length}개 시험`,
+      ),
+    );
+    const table = el("table", "observed-history-table"),
+      header = el("tr");
+    for (const title of ["시험", "당시 기록", "증거 상태", "다음 확인"])
+      header.append(el("th", null, title));
+    const thead = el("thead");
+    thead.append(header);
+    table.append(thead);
+    const tbody = el("tbody");
+    for (const test of run.rows) {
+      const row = el("tr");
+      const proofLabel = {
+        EXPIRED: "만료",
+        NO_EVIDENCE: "증거 없음",
+        RECORDED: "기록 보존 · 현 자원 미검증",
+      }[test.evidence_state];
+      for (const value of [
+        `${test.test_id} · ${CONTROL_TESTS[test.test_id]}`,
+        test.recorded_verdict,
+        proofLabel,
+        test.unknown_reason
+          ? `재시험 필요 · ${test.unknown_reason}`
+          : "같은 계획·현 자원으로 재시험",
+      ])
+        row.append(el("td", null, value));
+      tbody.append(row);
+    }
+    table.append(tbody);
+    block.append(table);
+    historyPanel.append(block);
+  }
 }
 async function read() {
   if (busy || stopped) return;

@@ -13,11 +13,22 @@ from datetime import UTC, datetime, timedelta
 
 from .kubernetes_workload import ClusterRegistration, opaque, producer_digest
 from .observations import ObservationError
+from .retained_controls import RetainedRun
+from .security_configuration import validate_configuration
 from .workload import PlanWorkload, RegisteredWorkload, identifier, safe_text, validate_graph
 
 
 class ObservedWorkloads:
-    def __init__(self, *, application_id, source_revision, registrations, collect, clock=None):
+    def __init__(
+        self,
+        *,
+        application_id,
+        source_revision,
+        registrations,
+        collect,
+        clock=None,
+        retained_runs=(),
+    ):
         identifier(application_id)
         if (
             not isinstance(source_revision, str)
@@ -34,6 +45,24 @@ class ObservedWorkloads:
         self.application_id, self.source_revision = application_id, source_revision
         self.producer_sha256 = producer_digest()
         self.registrations = tuple(registrations)
+        self.retained_runs = tuple(retained_runs)
+        if (
+            len(self.retained_runs) > 2
+            or any(type(h) is not RetainedRun for h in self.retained_runs)
+            or len({r.environment_id for r in self.retained_runs}) != len(self.retained_runs)
+            or any(
+                type(h) is not RetainedRun
+                or h.application_id != application_id
+                or not any(
+                    h.tenant_id == r.tenant_id
+                    and h.environment_id == r.environment_id
+                    and h.lane == r.lane
+                    for r in self.registrations
+                )
+                for h in self.retained_runs
+            )
+        ):
+            raise ValueError("retained_observation_scope_mismatch")
         self.tenant_id = registrations[0].tenant_id
         self.tenant_of = None
         self.collect = collect
@@ -77,6 +106,7 @@ class ObservedWorkloads:
             # inventing or registering an operational T10 plan.
             trial = self._graph([value], now=self.clock())
             self._validate_graph(trial)
+            validate_configuration(value.get("security_config", {}), value["nodes"])
             with self.lock:
                 self.snapshots[registration.environment_id] = json.loads(
                     json.dumps(value, allow_nan=False)
@@ -250,6 +280,15 @@ class ObservedWorkloads:
                 queried_at=now.isoformat(),
                 environments=environments,
                 graph=graph,
+                security_config={
+                    key: json.loads(json.dumps(fact))
+                    for r in self.registrations
+                    if r.environment_id not in self.failures
+                    for item in [self.snapshots.get(r.environment_id)]
+                    if item is not None and now < datetime.fromisoformat(item["expires_at"])
+                    for key, fact in item.get("security_config", {}).items()
+                },
+                control_history=[run.read(now) for run in self.retained_runs],
             )
 
     def load(self, scope, plan):
@@ -313,6 +352,7 @@ class ObservedWorkloads:
 
 def plan_tenant(store):
     """`tenant_of` for `attach`: the plan's tenant from the T10 store."""
+
     def tenant_of(plan_id):
         with store._transaction() as c:
             row = c.execute("SELECT tenant_id FROM plans WHERE plan_id=?", (plan_id,)).fetchone()

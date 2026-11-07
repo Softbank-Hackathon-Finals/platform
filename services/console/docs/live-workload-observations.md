@@ -3,6 +3,8 @@
 상태: 실제 온프렘 GET 관측을 기존 Sova 화면에 연결한 개발 인수 단계다.
 운영 T10 호스트 배포, 실제 양쪽 환경 인수와 보안 대응 실행 완료는 아니다.
 실제 관측·시험 범위와 생산자 출처는 [개발·인수 기록](live-workload-development-2026-11-08.md)에 남긴다.
+후속 [보안 설정·T14 이력 연결](live-security-observations.md)은 실제 양쪽 수집과 별도 생산자 검증을 기록한다.
+초기 인수 범위와 후속 실측을 같은 실행 결과로 합치지 않는다.
 
 ## 표시 범위
 
@@ -36,7 +38,7 @@ CLI는 개인 `bravo-personal` 환경으로 고정하며 운영 워크로드는 
 CLI의 보호된 등록 파일은 `registration`, 선택 `kubectl`, `producer`를 가진다. `registration`은
 `tenant_id`, `environment_id`, `lane`, `cluster_uid`, `namespace`, `services`이며 Service는
 `name`, 공개 `label`, `kind`, 선택 HTTP 탐침용 `probe_port`를 가진다.
-`producer`는 검증한 전체 `revision`과 현재 수집기 파일의 `sha256`이다. 임의 SHA 문자열은 등록 권한이 아니다.
+`producer`는 검증한 전체 `revision`과 수집기·설정 해석 모듈을 포함하는 `producer_digest()`의 `sha256`이다. 임의 SHA 문자열은 등록 권한이 아니다.
 실제 대상·자격·발행 근거를 확인한 운영자만 이 파일을 준비한다.
 T10 환경 ID는 tenant 안에서만 유일하므로 `tenant_id`가 등록에 들어간다. T10 합성은 `attach(api, authorize, tenant_of=plan_tenant(store))`로 붙이고, 계획의 tenant가 등록과 다르면 관측을 403으로 거부한다.
 
