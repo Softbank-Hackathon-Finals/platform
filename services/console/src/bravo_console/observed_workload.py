@@ -290,6 +290,9 @@ class ObservedWorkloads:
                 "registered-kubernetes", self.source_revision, hashlib.sha256(raw).hexdigest(), raw
             )
             key = (plan["plan_id"], plan["plan_digest"], plan["version"])
+            previous = self.issued.get(key)
+            if previous is not None and previous.document == raw:
+                return previous
             if len(self.issued) >= 128:
                 self.issued.clear()
             self.issued[key] = item

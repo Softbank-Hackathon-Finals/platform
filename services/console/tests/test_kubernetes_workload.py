@@ -301,3 +301,18 @@ def test_registration_services_cannot_be_mutated_after_registration():
     r = registration()
     with pytest.raises(TypeError):
         r.services[0]["name"] = "other-app"
+
+
+def test_parallel_reads_reuse_the_same_issued_observation(case):
+    _, r, source, _ = case
+    plan = dict(
+        workload_id="registered-chat",
+        source_environment_id="source",
+        target_environment_id=r.environment_id,
+        plan_id="real-plan",
+        plan_digest="b" * 64,
+        version=1,
+    )
+    first = source.load({}, plan)
+    assert source.load({}, plan) is first
+    assert source.authenticate({}, plan, first)

@@ -166,7 +166,7 @@ class KubectlReader:
                 start_new_session=True,
             )
             output = bytearray()
-            deadline = time.monotonic() + 15
+            deadline = min(time.monotonic() + 15, getattr(self, "deadline", float("inf")))
             with selectors.DefaultSelector() as selector:
                 selector.register(process.stdout, selectors.EVENT_READ)
                 while True:
@@ -224,6 +224,10 @@ class KubectlReader:
 
 def collect(reader, registration, *, source_revision, now=None):
     r = registration
+    if not isinstance(source_revision, str) or not re.fullmatch("[a-f0-9]{40}", source_revision):
+        raise ValueError("qualified_source_revision_required")
+    if isinstance(reader, KubectlReader):
+        reader.deadline = time.monotonic() + 60
     started = now or datetime.now(UTC)
     if reader.get("namespace", "kube-system").get("metadata", {}).get("uid") != r.cluster_uid:
         raise CollectionError("CLUSTER_IDENTITY_MISMATCH")
