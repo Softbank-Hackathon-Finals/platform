@@ -229,7 +229,7 @@
         },
         {
          "name": "HOME",
-         "value": "/home/openbao"
+         "value": "/openbao/home"
         },
         {
          "name": "BAO_CACERT",
@@ -316,7 +316,7 @@
          "name": "private-tmp"
         },
         {
-         "mountPath": "/home/openbao",
+         "mountPath": "/openbao/home",
          "name": "home"
         }
        ]
