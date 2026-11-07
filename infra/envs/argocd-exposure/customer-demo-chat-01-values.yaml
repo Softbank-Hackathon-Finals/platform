@@ -1,0 +1,20 @@
+# 고객 클러스터 Argo CD(infra/iac/argocd) UI를 <앱>-<번호>-argocd.mangowhois.ai로 연다. 설치 값에 덧붙인다(README).
+# 사람 인증: Cloudflare Access(허용 이메일)가 앞에서 막고, Argo 로그인은 같은 Access를 OIDC SSO로 쓴다.
+# SSO 사용자는 읽기 전용이다. 동기화 · 설정 변경은 지금처럼 Git PR과 컨트롤러가 한다. 화면에서 바꾸는 계정을 만들지 않는다.
+argo-cd:
+  server:
+    enabled: true
+    replicas: 1
+    resources:
+      requests: {cpu: 50m, memory: 128Mi}
+      limits: {cpu: 500m, memory: 256Mi}
+  configs:
+    params:
+      # TLS는 Cloudflare 엣지에서 끝나고, cloudflared → server는 클러스터 안 HTTP다
+      server.insecure: true
+    cm:
+      url: https://demo-chat-01-argocd.mangowhois.ai
+      # oidc.config(issuer · clientID)와 clientSecret은 설치할 때 비공개 값 파일로 넣는다(git에 두지 않는다)
+    rbac:
+      policy.default: role:readonly
+      scopes: "[email]"
