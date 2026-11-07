@@ -54,12 +54,14 @@ T10 창 수신은 생산자 credential 하나를 계획 하나에 묶는다. 시
 ```sh
 cd services/platform-events
 uv run --extra sso-registration python ../../operations/edge-drill/drill.py \
-  --kubeconfig <플랫폼> --cluster-uid <UID> approve --grant-hours 3 \
-  --requested-by agent-<이름> --administration-ref <사람-결정-참조> normal.json abort.json
+  --kubeconfig <플랫폼> --cluster-uid <UID> approve \
+  --requested-by <다른 등록 운영자의 subject id> normal.json abort.json
 ```
 
 - digest는 승인 호스트에 배포된 코드가 계산한다. 그래서 로컬 코드와 배포본이 다르면 여기서 드러난다.
-- `--grant-hours`는 그 계획에 `read`·`approve_infra`·`apply_infra`를 운영자 본인에게 준다. 이미 있으면 0으로 둔다.
+- 권한(`read`·`approve_infra`·`apply_infra`)은 이 도구가 주지 않는다. 관리 경로(`set_permissions`, 관리 근거 필요)로 미리 받는다.
+- 요청자는 `operator_verifier`에 등록된 **다른** 사람이어야 한다. 승인자와 같거나 등록되지 않은 이름이면 거부한다.
+- 명세에 `approved_by`가 기록된다. `run`은 승인자가 아닌 다른 등록 운영자의 SSO로만 실행된다.
 - 각 명세 파일에 `approval_id`가 기록된다. 승인은 2시간 유효하다.
 
 ## 3. 정상 전환 (10→50→100→0)
@@ -92,6 +94,12 @@ uv run --extra sso-registration python ../../operations/edge-drill/drill.py \
 - **결속 끄기:** `set_binding(enabled=False, expected_revision=…)`. 부하 서버의 토큰 파일을 지운다.
 - **#26 기록:** 시작·끝 시각, run ID, 단계별 반영 상한, 창별 목적지 비율, 자동 0% 결과, 0% 재조회를 남긴다. 운영 식별자(계정·풀·LB ID)는 [공개 증빙 절차](../public-evidence-policy.md)로 가린다.
 
+## 중단과 복원
+
+- `sequence`·`watch`를 **도구 시간 제한(예: 에이전트 Bash 기본 120초) 아래에서 실행하지 않는다.** 정상 전환은 몇 분 걸린다.
+- `drill.py run`이 Ctrl-C·SIGTERM을 받거나, 증명 공급이 끊기거나, 비정상 종료로 끝나면 승인 호스트의 그 drill 프로세스를 멈추고 `restore`를 자동으로 실행한다. 잠금이 풀릴 때까지 재시도하고, 마지막 줄에 `restored_to_zero`를 출력한다.
+- `restored_to_zero`가 false이면 원격 잔존 프로세스를 확인한다: `kubectl -n platform-state exec <host> -c host -- python3 -c "import os;[print(p, open(f'/proc/{p}/cmdline','rb').read()) for p in os.listdir('/proc') if p.isdigit()]" | grep edge_control.drill`. 끝난 뒤 `drill.py … run <명세> restore`를 다시 실행한다.
+
 ## 알려진 함정
 
 | 증상 | 원인 | 할 일 |
@@ -102,6 +110,7 @@ uv run --extra sso-registration python ../../operations/edge-drill/drill.py \
 | 100% 단계에서 목적지 p95 초과 | 목적지 기본 구성(앱 1개, 풀 10)의 처리량 한계 | 1-2대로 올린 뒤 시험하고 되돌린다 |
 | `sequence`가 10% 뒤 바로 끝남, `edge_drill_unavailable` | 이미지의 T36이 오래되거나(#773) 계약 스키마가 빠짐(#802) | Pod 안에서 `from bravo_observability.sli import next_prior_unknown`과 `bravo_observability.contract.schema()`가 되는지 본다. 안 되면 이미지를 다시 빌드한다 |
 | `operator_proof_unavailable` | 증명(60초)이 끊겼다 | `drill.py run`이 20초마다 보낸다. 운영자 SSO가 만료되면 다시 로그인한다 |
+| `restore`가 `shift_runtime_already_running` | 멈춘 drill이 아직 journal 잠금을 쥐고 있다 | `drill.py`가 재시도한다. 계속되면 위 잔존 프로세스를 확인한다 |
 | `origin_baseline_required` | journal의 마지막 영수증이 확인된 0%가 아니다 | 그 run을 `restore`로 0%까지 확인한 뒤 새 run을 쓴다 |
 | `drill_approval_unavailable` | 승인·소비·만료·계획 version 중 하나가 바뀌었다 | 계획이 움직였으면(새 proposal 등) 그 version으로 다시 승인한다 |
 | bravo-gitops Helm 반영 시 다른 서비스 설정이 되돌아감 | 예전 runtime values 파일이 live와 다르다 | live `helm get values`에서 시작하거나 `--reuse-values`로만 바꾼다. Application은 develop을 따라가므로 이미지 pin은 PR 병합으로만 바꾼다 |
