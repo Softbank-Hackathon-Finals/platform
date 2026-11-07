@@ -93,7 +93,7 @@ def case():
         application_id="registered-chat",
         source_revision="a" * 40,
         registrations=[r],
-        collect=lambda selected: collect(reader, selected, now=clock[0]),
+        collect=lambda selected: collect(reader, selected, source_revision="a" * 40, now=clock[0]),
         clock=lambda: clock[0],
     )
     source.refresh(r)
@@ -133,7 +133,7 @@ def test_wrong_cluster_has_no_output_and_cannot_call_other_namespace():
     reader = Reader()
     reader.uid = "other"
     with pytest.raises(CollectionError, match="CLUSTER_IDENTITY_MISMATCH"):
-        collect(reader, registration(), now=NOW)
+        collect(reader, registration(), source_revision="a" * 40, now=NOW)
     assert reader.calls == [("namespace", "kube-system")]
 
 
@@ -146,7 +146,7 @@ def test_service_replacement_during_probe_is_refused():
 
     reader.health = replacing
     with pytest.raises(CollectionError, match="SERVICE_CHANGED_DURING_READ"):
-        collect(reader, registration(), now=NOW)
+        collect(reader, registration(), source_revision="a" * 40, now=NOW)
 
 
 def test_collection_failure_clears_http_claim_without_renewing_observation(case):
@@ -198,7 +198,7 @@ def test_inventory_cannot_claim_security_or_copy_readiness_into_http_health(case
     reader, r, source, clock = case
 
     def forged(registration):
-        document = collect(reader, registration, now=clock[0])
+        document = collect(reader, registration, source_revision="a" * 40, now=clock[0])
         document["nodes"][0][field] = value
         return document
 
@@ -246,3 +246,58 @@ def test_a_missing_registered_service_is_counted_instead_of_silent_success(case)
     doc = source.read()
     assert doc["environments"][0]["registered_service_count"] == 2
     assert doc["environments"][0]["observed_service_count"] == 1
+
+
+@pytest.mark.parametrize(
+    "args",
+    [
+        ["exec", "pod", "--", "anything"],
+        ["apply", "-f", "anything"],
+        ["delete", "pod", "any"],
+        ["get", "secrets", "--namespace", "target-dev", "-o", "json"],
+        ["logs", "pod"],
+        ["get", "--raw", "/api/v1/namespaces/target-dev/services/admin:8080/proxy/admin"],
+        ["get", "pods", "--all-namespaces", "-o", "json"],
+    ],
+)
+def test_cli_guard_refuses_effects_secrets_and_arbitrary_proxy_paths_before_subprocess(
+    args, monkeypatch
+):
+    from bravo_console.kubernetes_workload import KubectlReader
+
+    def forbidden(*_args, **_kwargs):
+        raise AssertionError("unapproved subprocess invoked")
+
+    monkeypatch.setattr("subprocess.Popen", forbidden)
+    with pytest.raises(CollectionError, match="READ_SCOPE_INVALID"):
+        KubectlReader.run(object(), args)
+
+
+@pytest.mark.parametrize(
+    "field,value",
+    [
+        ("cluster_uid", "00000000-0000-4000-8000-000000000002"),
+        ("registration_digest", "f" * 64),
+        ("producer_revision", "b" * 40),
+        ("producer_module_sha256", "0" * 64),
+    ],
+)
+def test_registered_cluster_scope_and_exact_producer_are_required(case, field, value):
+    reader, r, source, clock = case
+
+    def mismatched(selected):
+        result = collect(reader, selected, source_revision="a" * 40, now=clock[0])
+        result[field] = value
+        return result
+
+    source.collect = mismatched
+    source.refresh(r)
+    result = source.read()
+    assert result["environments"][0]["status"] == "STALE"
+    assert not result["graph"]["evidence"]
+
+
+def test_registration_services_cannot_be_mutated_after_registration():
+    r = registration()
+    with pytest.raises(TypeError):
+        r.services[0]["name"] = "other-app"

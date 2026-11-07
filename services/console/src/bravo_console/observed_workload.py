@@ -11,7 +11,7 @@ import threading
 import uuid
 from datetime import UTC, datetime, timedelta
 
-from .kubernetes_workload import ClusterRegistration, opaque
+from .kubernetes_workload import ClusterRegistration, opaque, producer_digest
 from .workload import PlanWorkload, RegisteredWorkload, identifier, safe_text, validate_projection
 
 
@@ -30,6 +30,7 @@ class ObservedWorkloads:
         ):
             raise ValueError("fixed_observation_registrations_required")
         self.application_id, self.source_revision = application_id, source_revision
+        self.producer_sha256 = producer_digest()
         self.registrations = tuple(registrations)
         self.collect = collect
         self.clock = clock or (lambda: datetime.now(UTC))
@@ -45,6 +46,10 @@ class ObservedWorkloads:
                 value["environment_id"] != registration.environment_id
                 or value["lane"] != registration.lane
                 or value["cluster_identity_matches"] is not True
+                or value["cluster_uid"] != registration.cluster_uid
+                or value["registration_digest"] != registration.scope_digest
+                or value["producer_revision"] != self.source_revision
+                or value["producer_module_sha256"] != self.producer_sha256
             ):
                 raise ValueError("registered_observation_mismatch")
             if (

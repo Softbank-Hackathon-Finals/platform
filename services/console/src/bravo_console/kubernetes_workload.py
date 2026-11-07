@@ -17,6 +17,8 @@ import time
 import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
+from types import MappingProxyType
 from urllib.parse import urlsplit
 
 from .workload import identifier, safe_text
@@ -84,7 +86,26 @@ class ClusterRegistration:
                 type(entry["probe_port"]) is not int or not 1 <= entry["probe_port"] <= 65535
             ):
                 raise ValueError("registered_probe_port_required")
-        return cls(**(value | {"services": tuple(services)}))
+        return cls(
+            **(value | {"services": tuple(MappingProxyType(dict(item)) for item in services)})
+        )
+
+    @property
+    def scope_digest(self):
+        value = dict(
+            environment_id=self.environment_id,
+            lane=self.lane,
+            cluster_uid=self.cluster_uid,
+            namespace=self.namespace,
+            services=[dict(item) for item in self.services],
+        )
+        return hashlib.sha256(
+            json.dumps(value, sort_keys=True, separators=(",", ":")).encode()
+        ).hexdigest()
+
+
+def producer_digest():
+    return hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
 
 
 class KubectlReader:
@@ -114,6 +135,27 @@ class KubectlReader:
 
     def run(self, args):
         # Fixed commands only; no shell, write verbs, log collection or exec.
+        valid = args == ["config", "view", "--minify", "-o", "json"]
+        if len(args) == 3 and args[:2] == ["get", "--raw"]:
+            valid = bool(
+                re.fullmatch(
+                    r"/api/v1/namespaces/[a-z0-9.-]+/services/[a-z0-9.-]+:[0-9]{1,5}/proxy/healthz",
+                    args[2],
+                )
+            )
+        if len(args) >= 4 and args[0] == "get" and args[1] in KINDS and args[-2:] == ["-o", "json"]:
+            if args[1] == "namespace":
+                valid = args == ["get", "namespace", "kube-system", "-o", "json"]
+            else:
+                scope = args[2:-2]
+                valid = (
+                    len(scope) in (2, 3)
+                    and scope[-2] == "--namespace"
+                    and bool(NAME.fullmatch(scope[-1]))
+                    and (len(scope) == 2 or bool(NAME.fullmatch(scope[0])))
+                )
+        if not valid:
+            raise CollectionError("READ_SCOPE_INVALID")
         process = None
         try:
             process = subprocess.Popen(
@@ -180,7 +222,7 @@ class KubectlReader:
             return None
 
 
-def collect(reader, registration, *, now=None):
+def collect(reader, registration, *, source_revision, now=None):
     r = registration
     started = now or datetime.now(UTC)
     if reader.get("namespace", "kube-system").get("metadata", {}).get("uid") != r.cluster_uid:
@@ -379,6 +421,10 @@ def collect(reader, registration, *, now=None):
         raise CollectionError("OBSERVATION_TOO_SLOW")
     # No raw pod spec, environment, IP, image path, Secret or command leaves this collector.
     return dict(
+        producer_revision=source_revision,
+        producer_module_sha256=producer_digest(),
+        registration_digest=r.scope_digest,
+        cluster_uid=r.cluster_uid,
         environment_id=r.environment_id,
         lane=r.lane,
         observed_at=started.isoformat(),
@@ -400,6 +446,13 @@ def main():
     args = parser.parse_args()
     try:
         config = json.loads(open(args.registration).read())
+        producer = config["producer"]
+        if (
+            set(producer) != {"revision", "sha256"}
+            or not re.fullmatch("[a-f0-9]{40}", producer["revision"])
+            or producer["sha256"] != producer_digest()
+        ):
+            raise ValueError("fixed_producer_artifact_required")
         r = ClusterRegistration.parse(config["registration"])
         prefix = config.get("kubectl")
         if prefix is None:
@@ -407,7 +460,15 @@ def main():
             if not kubeconfig:
                 raise ValueError("explicit_kubeconfig_required")
             prefix = ["kubectl", "--kubeconfig", kubeconfig]
-        result = collect(KubectlReader(prefix), r)
+        env = {key: value for key, value in os.environ.items() if not key.startswith("AWS_")}
+        env.update(
+            AWS_PROFILE="bravo-personal",
+            AWS_REGION="ap-northeast-2",
+            AWS_EC2_METADATA_DISABLED="true",
+            AWS_IGNORE_CONFIGURED_ENDPOINT_URLS="true",
+            AWS_PAGER="",
+        )
+        result = collect(KubectlReader(prefix, env=env), r, source_revision=producer["revision"])
         print(json.dumps(result, sort_keys=True, separators=(",", ":")))
     except Exception:
         print('{"error":"COLLECTION_UNCONFIRMED"}')
