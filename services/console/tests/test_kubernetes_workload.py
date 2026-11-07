@@ -381,3 +381,34 @@ def test_client_prefix_cannot_smuggle_an_effect_verb(prefix, monkeypatch):
     monkeypatch.setattr("subprocess.Popen", forbidden)
     with pytest.raises(CollectionError, match="READ_SCOPE_INVALID"):
         KubectlReader(prefix)
+
+
+def test_native_t10_http_consumes_same_observation_only_with_current_plan_permission(tmp_path):
+    """Real existing T10/SQLite/HTTP; Kubernetes replies and human identity are fixtures."""
+    from starlette.testclient import TestClient
+    from test_app import ORIGIN, setup
+
+    app, store, state, _ = setup(tmp_path / "native-observation.db", workload_id="registered-chat")
+    r = replace(registration(), environment_id="env-target")
+    reader = Reader()
+    allowed = [True]
+    source = ObservedWorkloads(
+        application_id="registered-chat",
+        source_revision="a" * 40,
+        registrations=[r],
+        collect=lambda selected: collect(reader, selected, source_revision="a" * 40, now=NOW),
+        clock=lambda: NOW,
+    )
+    source.refresh(r)
+    app.workload = source.attach(app.api, authorize=lambda *_: allowed[0])
+    with TestClient(app, base_url=ORIGIN, cookies={"fixture-session": "test-only"}) as client:
+        response = client.get("/v1/plans/plan-demo/workload")
+        assert response.status_code == 200, response.text
+        value = response.json()
+        assert value["plan_digest"] == store.snapshot("plan-demo")["plan_digest"]
+        assert value["authorizes_execution"] is False
+        assert all(node["security"] == "unknown" for node in value["nodes"])
+        allowed[0] = False
+        denied = client.get("/v1/plans/plan-demo/workload")
+        assert denied.status_code == 403 and "service-chat" not in denied.text
+    assert state["submitted"] == 0
