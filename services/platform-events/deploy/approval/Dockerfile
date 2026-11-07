@@ -11,12 +11,12 @@ COPY src /usr/local/lib/python3.12/site-packages
 COPY image-import-closure.py /app/image-import-closure.py
 # T36 contract.validate reads the packaged schema; an image without it fails every judgement at run time.
 RUN --network=none python -c "from bravo_observability.contract import schema; schema()"
-RUN --network=none python /app/image-import-closure.py --src /usr/local/lib/python3.12/site-packages --site /usr/local/lib/python3.12/site-packages bravo_platform_events.rehearsal_server bravo_platform_events.credential_host
+RUN --network=none python /app/image-import-closure.py --src /usr/local/lib/python3.12/site-packages --site /usr/local/lib/python3.12/site-packages bravo_platform_events.rehearsal_server bravo_platform_events.credential_host bravo_platform_events.operator_ports bravo_platform_events.security_relay
 COPY infra /app/infra
 COPY templates /usr/local/lib/python3.12/templates
 COPY kubectl /usr/local/bin/kubectl
 RUN chmod 0755 /usr/local/bin/kubectl && find /app/infra -name "*.py" -exec chmod 0755 {} +
-RUN chmod -R a+rX /app /usr/local/lib/python3.12/templates /usr/local/lib/python3.12/site-packages/bravo_platform_events /usr/local/lib/python3.12/site-packages/bravo_agent /usr/local/lib/python3.12/site-packages/rehearsal_runner /usr/local/lib/python3.12/site-packages/bravo_observability
+RUN chmod -R a+rX /app /usr/local/lib/python3.12/templates /usr/local/lib/python3.12/site-packages/bravo_platform_events /usr/local/lib/python3.12/site-packages/bravo_agent /usr/local/lib/python3.12/site-packages/rehearsal_runner /usr/local/lib/python3.12/site-packages/bravo_observability /usr/local/lib/python3.12/site-packages/sova_security
 USER 10001:10001
 EXPOSE 8443
 ENTRYPOINT ["python", "-m", "bravo_platform_events.rehearsal_server"]
