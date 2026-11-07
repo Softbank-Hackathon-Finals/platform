@@ -3,11 +3,9 @@
 import re
 from collections.abc import Iterator
 
-from bravo_findings.normalize import CollectionError, epoch_ms
+from bravo_findings.normalize import CollectionError, SourceNotEnabled, epoch_ms
 
-
-class SourceNotEnabled(CollectionError):
-    """A successful provider read established that detection is not enabled."""
+__all__ = ["GuardDutySource", "SourceNotEnabled"]
 
 
 class GuardDutySource:

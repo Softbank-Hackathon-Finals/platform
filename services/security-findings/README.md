@@ -115,17 +115,31 @@ uv run python -m bravo_findings.aws_pull \
 SCC v2 `ListFindings`(`{parent}/sources/-/locations/global/findings`)만 쓴다. 2024-12-09 이후 활성화한 조직은 v2만 지원하고, 데이터 상주를 켜지 않았으면 위치는 `global`이다. 지역 endpoint는 지원하지 않는다.
 
 ```bash
-uv run python -m bravo_findings.gcp_pull \
-  --parent "projects/$GCP_PROJECT_NUMBER" --environment-id env-gcp \
+uv run python -m bravo_findings.gcp_pull --environment-id env-gcp \
+  --scope-file "$PRIVATE/scc-scope.json" \
   --credentials-file "$PRIVATE/scc-wif.json" --database "$PRIVATE_FINDINGS_DB"
 ```
 
+범위 파일(`--scope-file`, 기본 `BRAVO_SCC_SCOPE_FILE`)은 배포 때 Secret이나 ConfigMap으로 넣는다. 저장소가 공개라서 번호는 Git에 두지 않는다.
+
+```json
+{"env-gcp": {"parent": "projects/<번호>",
+             "audience": "//iam.googleapis.com/projects/<번호>/locations/global/workloadIdentityPools/<pool>/providers/<provider>",
+             "service_account": "<reader>@<project>.iam.gserviceaccount.com"}}
+```
+
 - **자격은 Workload Identity 연합만 받는다.** `external_account` 설정 파일에서 토큰 출처가 파일(플랫폼 발급자의 projected 토큰) 하나인 경우만 쓴다. 서비스 계정 키, 사용자 자격, `client_secret`, 명령 · URL 토큰 출처, workforce pool, 다른 STS 주소, 다른 universe는 수집 전에 거부되고 `ACCESS_DENIED`로 남는다. 서비스 계정 가장(impersonation)은 `iamcredentials.googleapis.com`의 `generateAccessToken` 주소만 받는다.
-- **권한은 `securitycenter.findings.list` 하나다**(예: `roles/securitycenter.findingsViewer`를 그 parent에). SCC 활성화, 소스, finding, mute 설정을 만들거나 바꾸지 않는다.
-- **범위:** `--parent`는 번호(`projects/<번호>`, `folders/<번호>`, `organizations/<번호>`)만 받는다. 응답 finding 이름이 그 parent 아래가 아니면 `SOURCE_UNHEALTHY`다(AWS의 계정 대조에 해당).
+- **권한은 읽기 두 개다.** `securitycenter.findings.list`(예: `roles/securitycenter.findingsViewer`)와 `securitycentermanagement.securityCenterServices.get`(탐지 서비스 상태 읽기)를 그 parent에 준다. SCC 활성화, 소스, finding, mute 설정을 만들거나 바꾸지 않는다.
+- **0건과 미확인을 구분한다.** SCC는 "찾은 것 없음"과 "탐지기가 돌지 않음"에 똑같이 `{}`를 돌려준다. 그래서 목록을 받기 전에 탐지 서비스(기본 `security-health-analytics`)의 `effectiveEnablementState`를 읽는다. `ENABLED`일 때만 빈 결과를 0건으로 믿는다. `DISABLED`이면 `NOT_ENABLED`(GuardDuty의 탐지기 없음과 같음)이고, 그 밖의 값이나 읽기 실패는 미확인(`SOURCE_UNHEALTHY`·`ACCESS_DENIED`)이다. 어느 경우든 커서를 움직이지 않는다.
+- **범위는 운영자가 고르지 않는다.** 운영자는 `--environment-id`만 고른다. parent, 연합 provider(`audience`), 가장할 reader 서비스 계정은 그 환경의 범위 파일 값과 정확히 같아야 한다. 자격 설정이 다르거나 환경이 등록되지 않았으면 호출 전에 `ACCESS_DENIED`다. 그래서 reader가 읽을 수 있는 다른 조직·프로젝트의 결과가 이 환경으로 기록되지 않는다. parent는 번호(`projects/<번호>`, `folders/<번호>`, `organizations/<번호>`)만 받는다. 응답 finding 이름이 그 parent 아래가 아니면 `SOURCE_UNHEALTHY`다(AWS의 계정 대조에 해당).
 - **응답 결속:** 같은 페이지 토큰 반복(페이지 200개 상한), 같은 finding 중복, `eventTime`이 조회 창 밖이거나 없음, 형식이 다른 응답은 `SOURCE_UNHEALTHY`이고 커서를 그대로 둔다. 빈 결과는 필드가 생략된 응답(`{}`)으로 온다.
 - 환경의 프록시 · netrc 설정은 API와 토큰 호출 모두 쓰지 않는다(`trust_env=False`).
-- **아직:** GCP 쪽 연합(플랫폼 발급자를 믿는 workload identity pool · provider, 조회 권한)과 SCC 활성, 플랫폼 주기 작업은 없다. 실제 프로젝트에서 SCC를 켠 뒤 필터 문법과 수집을 확인하고 증빙을 남긴다.
+- **아직:** GCP 쪽 연합(플랫폼 발급자를 믿는 workload identity pool · provider, 조회 권한)과 SCC 활성, 플랫폼 주기 작업은 없다. 실제 프로젝트에서 SCC를 켠 뒤 확인할 것이 셋 있다.
+  - 필터 문법: 코드는 `eventTime`을 쓰는데 문서 예시는 `event_time`이다.
+  - finding 이름 형식: 조직 단위로 켜면 `projects/<번호>`로 조회해도 이름이 `organizations/<번호>/sources/...`로 올 수 있다. 그러면 지금 이름 대조가 모두 `SOURCE_UNHEALTHY`가 된다.
+  - 탐지 서비스 상태 응답: `effectiveEnablementState`의 실제 값과, 조직에서 물려받은 경우의 응답.
+
+  셋을 확인한 뒤 증빙을 남긴다.
 
 근거: [v2 ListFindings](https://docs.cloud.google.com/security-command-center/docs/reference/rest/v2/projects.sources.locations.findings/list), [v2 이전 안내](https://docs.cloud.google.com/security-command-center/docs/migrate-v2-api).
 

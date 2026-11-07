@@ -18,6 +18,10 @@ class CollectionError(RuntimeError):
     """출처가 스스로 오류를 보고했다 (예: Kyverno 결과 error). 탐지가 아니라 수집 문제다."""
 
 
+class SourceNotEnabled(CollectionError):
+    """A successful provider read established that detection is not enabled."""
+
+
 class Dropped(Exception):
     """버리는 원본 (예: Kyverno 결과 skip)."""
 
