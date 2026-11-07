@@ -10,6 +10,12 @@ Only an identity whose Pod ran as its registered role and got AccessDenied for b
 deletes counts as verified. Missing ServiceAccounts, lookup or credential failures and
 role mismatches are UNKNOWN, never a pass. Exit codes: 0 PASS, 1 FAIL, 2 UNKNOWN,
 3 PARTIAL (before the restore Cluster's ServiceAccount exists).
+
+The source Executor has no AWS identity at all (no IRSA, nodes answer IMDSv2 one hop
+only). It is registered with --executor-without-aws instead of being given a role just
+to be refused: it counts only when its running Pods carry no AWS credential source of
+their own, their nodes keep pod-level metadata closed, and a probe Pod pinned to each
+of those nodes with its ServiceAccount finds no credentials for either delete.
 """
 
 import argparse
@@ -33,6 +39,16 @@ ASSUMED = re.compile(r"arn:aws:sts::([0-9]{12}):assumed-role/([A-Za-z0-9+=,.@_-]
 EXIT = {"PASS": 0, "FAIL": 1, "UNKNOWN": 2, "PARTIAL": 3}
 # Every run must show these were refused; the restore identity is required for the final PASS.
 REQUIRED = ("writer", "app", "executor")
+# Only the Executor may be refused by having no AWS identity (--executor-without-aws).
+REFUSED = {"executor": {"DENIED", "NO_AWS_IDENTITY"}}
+# What an AWS SDK reads for credentials besides the ServiceAccount's IRSA / Pod Identity injection
+AWS_CREDENTIAL_ENV = re.compile(
+    r"AWS_(ACCESS_KEY_ID|SECRET_ACCESS_KEY|SESSION_TOKEN|SECURITY_TOKEN|WEB_IDENTITY_TOKEN_FILE|ROLE_ARN"
+    r"|CONTAINER_CREDENTIALS_FULL_URI|CONTAINER_CREDENTIALS_RELATIVE_URI|CONTAINER_AUTHORIZATION_TOKEN(_FILE)?"
+    r"|PROFILE|DEFAULT_PROFILE|SHARED_CREDENTIALS_FILE|CONFIG_FILE)\Z")
+AWS_TOKEN_AUDIENCES = {"sts.amazonaws.com", "pods.eks.amazonaws.com"}
+PROVIDER_ID = re.compile(r"aws:///[a-z0-9-]+/(i-[0-9a-f]{8,17})\Z")
+NO_CREDENTIALS = "Unable to locate credentials"
 
 
 def run(command, check=True):
@@ -106,13 +122,13 @@ def readback(aws, reg):
     return out
 
 
-def pod(namespace, service_account, name, region, bucket, key, version):
+def pod(namespace, service_account, name, region, bucket, key, version, node=None):
     script = ('echo "principal=$(aws sts get-caller-identity --query Arn --output text 2>/dev/null)"; '
               'aws s3api delete-object --bucket "$1" --key "$2" --version-id "$3" 2>&1; echo "version_exit=$?"; '
               'aws s3api delete-object --bucket "$1" --key "$2" 2>&1; echo "object_exit=$?"')
     restricted = {"allowPrivilegeEscalation": False, "readOnlyRootFilesystem": True,
                   "capabilities": {"drop": ["ALL"]}}
-    return {"apiVersion": "v1", "kind": "Pod",
+    spec = {"apiVersion": "v1", "kind": "Pod",
             "metadata": {"name": name, "namespace": namespace, "labels": {"component": "source", "app": "t35-delete-probe"}},
             "spec": {"serviceAccountName": service_account, "restartPolicy": "Never",
                      "activeDeadlineSeconds": 120,
@@ -126,6 +142,9 @@ def pod(namespace, service_account, name, region, bucket, key, version):
                                      "securityContext": restricted,
                                      "volumeMounts": [{"name": "tmp", "mountPath": "/tmp"}]}],
                      "volumes": [{"name": "tmp", "emptyDir": {"sizeLimit": "16Mi"}}]}}
+    if node:  # the node's metadata service is part of what is being probed
+        spec["spec"]["nodeName"] = node
+    return spec
 
 
 def same_role(principal, role_arn):
@@ -151,6 +170,99 @@ def verdict(log, role_arn):
     return "UNKNOWN_UNCLEAR"
 
 
+def no_identity_verdict(log):
+    """Both deletes failed because no credentials could be found at all (not a network or other error)."""
+    lines = log.splitlines()
+    principal = next((line.split("=", 1)[1] for line in lines if line.startswith("principal=")), "")
+    exits = dict(line.split("=", 1) for line in lines if line.startswith(("version_exit=", "object_exit=")))
+    if set(exits) != {"version_exit", "object_exit"}:
+        return "UNKNOWN_UNCLEAR"
+    if "0" in exits.values():
+        return "DELETED"
+    if principal and principal != "None":
+        return "UNKNOWN_HAS_AWS_IDENTITY"
+    if sum(NO_CREDENTIALS in line for line in lines) == 2:
+        return "NO_AWS_IDENTITY"
+    return "UNKNOWN_UNCLEAR"
+
+
+def aws_sources(spec):
+    """Credential sources in a running Pod that a probe Pod with the same ServiceAccount would not have."""
+    found = ["hostNetwork"] if spec.get("hostNetwork") else []  # the node's metadata service is one hop away
+    for c in spec.get("initContainers", []) + spec.get("containers", []) + spec.get("ephemeralContainers", []):
+        found += [f"env:{e.get('name')}" for e in c.get("env", []) if AWS_CREDENTIAL_ENV.match(e.get("name", ""))]
+        if c.get("envFrom"):
+            found.append("envFrom")  # a Secret's or ConfigMap's keys are not visible from the Pod spec
+        found += [f"mount:{m.get('mountPath')}" for m in c.get("volumeMounts", [])
+                  if "/.aws" in m.get("mountPath", "")]
+    for volume in spec.get("volumes", []):
+        for source in (volume.get("projected") or {}).get("sources", []):
+            audience = (source.get("serviceAccountToken") or {}).get("audience")
+            if audience in AWS_TOKEN_AUDIENCES:
+                found.append(f"token:{audience}")
+    return found
+
+
+def node_metadata_closed(aws, kube, node):
+    """The node's instance metadata is off, or IMDSv2-only with a one-hop reply (unreachable from Pod networks)."""
+    provider = PROVIDER_ID.fullmatch(run(kube + ["get", "node", node, "-o", "jsonpath={.spec.providerID}"],
+                                         check=False).stdout.strip())
+    if not provider:
+        return False
+    described = run(aws + ["ec2", "describe-instances", "--instance-ids", provider.group(1)], check=False)
+    if described.returncode:
+        return False
+    instances = [i for r in json.loads(described.stdout).get("Reservations", []) for i in r.get("Instances", [])]
+    if len(instances) != 1:
+        return False
+    options = instances[0].get("MetadataOptions") or {}
+    return options.get("HttpEndpoint") == "disabled" or (
+        options.get("HttpTokens") == "required" and options.get("HttpPutResponseHopLimit") == 1)
+
+
+def _probe_log(kube, spec):
+    """Run one probe Pod to its end and return its log; None when it could not be created."""
+    namespace, name = spec["metadata"]["namespace"], spec["metadata"]["name"]
+    created = subprocess.run(kube + ["create", "-f", "-"], input=json.dumps(spec), capture_output=True,
+                             text=True, timeout=60, check=False)
+    if created.returncode:
+        return None
+    try:
+        deadline = time.monotonic() + 150
+        phase = ""
+        while time.monotonic() < deadline and phase not in ("Succeeded", "Failed"):
+            time.sleep(3)
+            phase = run(kube + ["--namespace", namespace, "get", "pod", name, "-o",
+                                "jsonpath={.status.phase}"], check=False).stdout
+        return run(kube + ["--namespace", namespace, "logs", name], check=False).stdout
+    finally:
+        run(kube + ["--namespace", namespace, "delete", "pod", name, "--wait=false"], check=False)
+
+
+def without_aws_identity(aws, kube, namespace, sa, region, bucket, key, version):
+    """NO_AWS_IDENTITY only when every running Pod of the ServiceAccount has no credential source of its own,
+    every node they run on keeps metadata closed, and a probe pinned to each node finds no credentials."""
+    listed = run(kube + ["--namespace", namespace, "get", "pods", "-o", "json"], check=False)
+    if listed.returncode:
+        return "UNKNOWN_POD_LOOKUP_FAILED"
+    pods = [p for p in json.loads(listed.stdout).get("items", [])
+            if p.get("spec", {}).get("serviceAccountName") == sa and p.get("status", {}).get("phase") == "Running"]
+    if not pods:
+        return "UNKNOWN_NO_RUNNING_POD"
+    if any(aws_sources(p["spec"]) for p in pods):
+        return "UNKNOWN_AWS_SOURCE_IN_POD"
+    nodes = sorted({p["spec"].get("nodeName") or "" for p in pods})
+    if not all(node and node_metadata_closed(aws, kube, node) for node in nodes):
+        return "UNKNOWN_NODE_METADATA"
+    for node in nodes:
+        log = _probe_log(kube, pod(namespace, sa, f"t35-delete-probe-{uuid.uuid4().hex[:8]}", region, bucket,
+                                   key, version, node=node))
+        result = "UNKNOWN_POD_NOT_CREATED" if log is None else no_identity_verdict(log)
+        if result != "NO_AWS_IDENTITY":
+            return result
+    return "NO_AWS_IDENTITY"
+
+
 def service_account(kube, namespace, name):
     result = run(kube + ["--namespace", namespace, "get", "serviceaccount", name], check=False)
     if result.returncode == 0:
@@ -159,7 +271,7 @@ def service_account(kube, namespace, name):
 
 
 def probe(aws, kube, reg, subjects):
-    """subjects: {label: (namespace, ServiceAccount, registered role ARN)}."""
+    """subjects: {label: (namespace, ServiceAccount, registered role ARN, or None for no AWS identity)}."""
     bucket, key = reg["bucket"], reg["destination"].split("/", 3)[3] + f"_t35-delete-probe/{uuid.uuid4()}"
     with tempfile.NamedTemporaryFile() as empty:
         version = json.loads(run(aws + ["s3api", "put-object", "--bucket", bucket, "--key", key,
@@ -171,24 +283,12 @@ def probe(aws, kube, reg, subjects):
             if missing:
                 out[label] = missing
                 continue
-            name = f"t35-delete-probe-{uuid.uuid4().hex[:8]}"
-            spec = pod(namespace, sa, name, reg["region"], bucket, key, version)
-            created = subprocess.run(kube + ["create", "-f", "-"], input=json.dumps(spec), capture_output=True,
-                                     text=True, timeout=60, check=False)
-            if created.returncode:
-                out[label] = "UNKNOWN_POD_NOT_CREATED"
+            if role_arn is None:
+                out[label] = without_aws_identity(aws, kube, namespace, sa, reg["region"], bucket, key, version)
                 continue
-            try:
-                deadline = time.monotonic() + 150
-                phase = ""
-                while time.monotonic() < deadline and phase not in ("Succeeded", "Failed"):
-                    time.sleep(3)
-                    phase = run(kube + ["--namespace", namespace, "get", "pod", name, "-o",
-                                        "jsonpath={.status.phase}"], check=False).stdout
-                log = run(kube + ["--namespace", namespace, "logs", name], check=False).stdout
-                out[label] = verdict(log, role_arn)
-            finally:
-                run(kube + ["--namespace", namespace, "delete", "pod", name, "--wait=false"], check=False)
+            log = _probe_log(kube, pod(namespace, sa, f"t35-delete-probe-{uuid.uuid4().hex[:8]}", reg["region"],
+                                       bucket, key, version))
+            out[label] = "UNKNOWN_POD_NOT_CREATED" if log is None else verdict(log, role_arn)
         head = run(aws + ["s3api", "head-object", "--bucket", bucket, "--key", key, "--version-id", version], check=False)
         out["probe_version_intact"] = head.returncode == 0
         listing = json.loads(run(aws + ["s3api", "list-object-versions", "--bucket", bucket, "--prefix", key]).stdout)
@@ -218,8 +318,10 @@ def status(readback_result, probe_result, stage):
         return "UNKNOWN"
     identities = {k: v for k, v in probe_result.items() if k not in
                   ("probe_version_intact", "no_delete_marker", "custodian_removed_probe")}
-    if any(identities.get(k) != "DENIED" for k in REQUIRED) or any(
-            v != "DENIED" for k, v in identities.items() if k != "reader"):
+    def refused(label):
+        return identities.get(label) in REFUSED.get(label, {"DENIED"})
+
+    if not all(refused(k) for k in REQUIRED) or not all(refused(k) for k in identities if k != "reader"):
         return "UNKNOWN"
     if identities.get("reader") == "DENIED":
         return "PASS"
@@ -240,6 +342,14 @@ def _identity(value):
     return namespace, sa, role
 
 
+def _without_aws(value):
+    """NAMESPACE/SERVICEACCOUNT of an identity registered as having no AWS identity at all"""
+    namespace, _, sa = value.partition("/")
+    if not namespace or not sa or "=" in value or "/" in sa:
+        raise argparse.ArgumentTypeError("use NAMESPACE/SERVICEACCOUNT (no role: it must have no AWS identity)")
+    return namespace, sa, None
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--registration", required=True, type=argparse.FileType(),
@@ -249,8 +359,12 @@ def main(argv=None):
     parser.add_argument("--stage", choices=["before-restore", "final"], default="final",
                         help="before-restore reports PARTIAL while the restore ServiceAccount does not exist")
     parser.add_argument("--app-role-arn", help="source-workloads app role (workload_metadata.app_role_arn)")
-    parser.add_argument("--executor", type=_identity, metavar="NAMESPACE/SERVICEACCOUNT=ROLE_ARN",
-                        help="the Executor identity and the role its Pods run as; without it the run stays UNKNOWN")
+    executor = parser.add_mutually_exclusive_group()
+    executor.add_argument("--executor", type=_identity, metavar="NAMESPACE/SERVICEACCOUNT=ROLE_ARN",
+                          help="the Executor identity and the role its Pods run as; without it the run stays UNKNOWN")
+    executor.add_argument("--executor-without-aws", type=_without_aws, metavar="NAMESPACE/SERVICEACCOUNT",
+                          help="the Executor has no AWS identity: its Pods, their nodes' metadata and a probe "
+                               "pinned to each node must all show no credentials")
     parser.add_argument("--also-deny", action="append", default=[], type=_identity,
                         metavar="NAMESPACE/SERVICEACCOUNT=ROLE_ARN",
                         help="another identity that must not delete and the role its Pods run as")
@@ -265,11 +379,12 @@ def main(argv=None):
         subjects = {"writer": (reg["writer"]["namespace"], reg["writer"]["name"], reg["writer_role_arn"]),
                     "reader": (reg["reader"]["namespace"], reg["reader"]["name"], reg["reader_role_arn"]),
                     "app": (*APP, args.app_role_arn)}
-        if args.executor:
-            subjects["executor"] = args.executor
+        executor_identity = args.executor or args.executor_without_aws
+        if executor_identity:
+            subjects["executor"] = executor_identity
         subjects.update({f"extra:{ns}/{sa}": (ns, sa, role) for ns, sa, role in args.also_deny})
         probe_result = result["delete_probe"] = probe(aws, ["kubectl", "--kubeconfig", args.kubeconfig], reg, subjects)
-        if not args.executor:
+        if not executor_identity:
             probe_result["executor"] = "UNKNOWN_NOT_REGISTERED"
     result["status"] = status(result["readback"], probe_result, args.stage)
     json.dump(result, sys.stdout, indent=2)
