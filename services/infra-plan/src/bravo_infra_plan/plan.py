@@ -122,7 +122,12 @@ class Planner:
         steps, files, tree = [], {}, {}
         for step in self.stack.document["steps"]:
             entry = {"id": step["id"], "kind": step["kind"], "owner": step["owner"], "needs": step.get("needs", [])}
-            if step["kind"] in ("gitops_publish", "render_apply"):
+            if not self.stack.applies(step["id"], params):
+                # Not part of this target (its `when` does not match): nothing renders, nothing runs,
+                # and the omission itself is inside plan_digest, so an approval covers it.
+                entry["omitted"] = True
+                entry["digest"] = sha256_text(canonical(step))
+            elif step["kind"] in ("gitops_publish", "render_apply"):
                 rendered = self._render_step(step, params)
                 files[step["id"]] = rendered
                 entry["files"] = {name: sha256_text(text) for name, text in sorted(rendered.items())}

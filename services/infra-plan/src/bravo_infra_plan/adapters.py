@@ -18,7 +18,15 @@ import urllib.request
 from pathlib import Path
 
 from .applications import ARGO_NAMESPACE
-from .stack import StackError
+from .stack import StackError, canonical, sha256_text
+
+# Set on the node by whatever prepared the host directories (first boot or the platform's site agent),
+# after it created them exactly as the step declares. The value binds the attestation to that declaration.
+HOST_PATHS_ANNOTATION = "bravo.io/host-paths"
+
+
+def host_paths_digest(paths):
+    return sha256_text(canonical(paths))
 
 TIMEOUT = 600
 RUN_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$")
@@ -202,6 +210,15 @@ class KubectlCluster:
         return any(c.get("type") == "Ready" and c.get("status") == "True"
                    for c in node.get("status", {}).get("conditions", []))
 
+    def node_annotation(self, node_name, key):
+        node = self._get("node", None, node_name) or {}
+        return node.get("metadata", {}).get("annotations", {}).get(key)
+
+    def node_image_names(self, node_name):
+        """Every name the kubelet reports for the node's images (tags and repo@sha256 aliases)."""
+        node = self._get("node", None, node_name) or {}
+        return {name for image in node.get("status", {}).get("images", []) for name in image.get("names", [])}
+
     def diff(self, items):
         """True when applying would change the cluster (server-side diff)."""
         manifest = json.dumps({"apiVersion": "v1", "kind": "List", "items": items})
@@ -312,10 +329,14 @@ class ClusterChecks:
     def check(self, name, run):
         params, target = run["plan"]["request"]["params"], run["plan"]["target"]
         c = self.cluster
+        node = params.get("node_name")
+        # A step that declares `expect` is observable: what it names must be on the node.
+        expect = next((s.get("expect") for s in run["stack"]["steps"] if s.get("confirm") == name), None)
         checks = {
             "target-identity": lambda: c.identity(params["node_name"]) == target and c.node_ready(params["node_name"]),
-            "host-paths": lambda: None,
-            "openbao-image": lambda: None,
+            "host-paths": lambda: None if not expect else (
+                c.node_annotation(node, HOST_PATHS_ANNOTATION) == host_paths_digest(expect["host_paths"])),
+            "openbao-image": lambda: None if not expect else set(expect["images"]) <= c.node_image_names(node),
             "iac-argocd": lambda: c.statefulset_ready(ARGO_NAMESPACE, "bravo-iac-gitops-application-controller"),
             "argocd-repository": lambda: c.labelled_secret_exists(ARGO_NAMESPACE, "argocd.argoproj.io/secret-type=repository"),
             "seaweedfs-auth": lambda: c.secret_exists("target-dev", "target-seaweedfs-auth"),

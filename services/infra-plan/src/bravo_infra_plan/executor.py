@@ -32,7 +32,8 @@ from .terraform import Scratch, TerraformCli, inputs_digest, outputs_reader, pla
 
 PENDING, RUNNING, SKIPPED, APPLIED = "PENDING", "RUNNING", "SKIPPED", "APPLIED"
 WAITING, FAILED, HOLD = "WAITING_OPERATOR", "FAILED", "HOLD"
-DONE = frozenset({SKIPPED, APPLIED})
+OMITTED = "OMITTED"  # the approved plan left this step out (`when`); it never runs
+DONE = frozenset({SKIPPED, APPLIED, OMITTED})
 
 
 class StepOutcome(Exception):
@@ -85,7 +86,8 @@ class Executor:
                    plan_digest=plan.plan_digest, plan=plan.document, stack=self.stack.document,
                    files=plan.files, head=head, commits={}, confirmations={}, started_by=started_by,
                    created_at=self.clock(), status=PENDING,
-                   steps={s["id"]: {"status": PENDING} for s in plan.document["steps"]})
+                   steps={s["id"]: {"status": OMITTED if s.get("omitted") else PENDING}
+                          for s in plan.document["steps"]})
         approval = self.approvals.read(migration_plan_id, approval_id)
         if approval.get("binding", {}).get("plan_digest") != plan.plan_digest:
             return self._refuse(run, "plan_digest_mismatch")

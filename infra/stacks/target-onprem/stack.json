@@ -25,6 +25,11 @@
     "kube_version": {
       "description": "helm template --kube-version에 넘길 실제 Kubernetes 버전",
       "pattern": "^v?1\\.[0-9]{2}\\.[0-9]{1,2}$"
+    },
+    "tailnet": {
+      "description": "목적지가 tailnet에 합류하는가. none은 같은 클러스터 안에서만 닿는 격리 시험(T49 로컬 E2E)이며 Tailscale 단계를 계획에서 뺀다",
+      "enum": ["join", "none"],
+      "default": "join"
     }
   },
   "charts": {
@@ -66,7 +71,14 @@
         "identity"
       ],
       "instruction": "새 노드에 /var/lib/bravo-target-dev/postgres(UID/GID 26), /var/lib/bravo-target-dev/objects(UID/GID 1000), /var/lib/bravo-target-dev/openbao(UID 100, GID 1000, 0700)를 만든다. 기존 데이터가 있으면 멈추고 재사용하지 않는다.",
-      "confirm": "host-paths"
+      "confirm": "host-paths",
+      "expect": {
+        "host_paths": [
+          {"path": "/var/lib/bravo-target-dev/postgres", "uid": 26, "gid": 26, "mode": "0755"},
+          {"path": "/var/lib/bravo-target-dev/objects", "uid": 1000, "gid": 1000, "mode": "0755"},
+          {"path": "/var/lib/bravo-target-dev/openbao", "uid": 100, "gid": 1000, "mode": "0700"}
+        ]
+      }
     },
     {
       "id": "argocd",
@@ -361,6 +373,7 @@
       "id": "tailscale-oauth",
       "kind": "operator_action",
       "owner": "T30",
+      "when": {"param": "tailnet", "in": ["join"]},
       "description": "Tailscale operator용 namespace와 OAuth Secret을 사람이 준비한다",
       "needs": [
         "base-sync"
@@ -372,6 +385,7 @@
       "id": "tailscale",
       "kind": "gitops_publish",
       "owner": "T30",
+      "when": {"param": "tailnet", "in": ["join"]},
       "description": "Tailscale operator chart 1.104.4를 올린다",
       "needs": [
         "tailscale-oauth"
@@ -399,6 +413,7 @@
       "id": "tailscale-sync",
       "kind": "gitops_sync",
       "owner": "T30",
+      "when": {"param": "tailnet", "in": ["join"]},
       "description": "Argo CD가 tailscale 커밋으로 Synced · Healthy인지 확인한다",
       "needs": [
         "tailscale"
@@ -415,7 +430,13 @@
         "identity"
       ],
       "instruction": "검사한 비공개 OpenBao 이미지를 태그와 localhost/bravo-openbao@sha256 별칭으로 반입하고, 둘 다 기대 descriptor를 가리키는지 확인한다.",
-      "confirm": "openbao-image"
+      "confirm": "openbao-image",
+      "expect": {
+        "images": [
+          "localhost/bravo-openbao:2.7.2-bravo.3-nonroot-arm64",
+          "localhost/bravo-openbao@sha256:b09c3934e2420aef5d43cf754381b82104c22f3a2a7248ff46b843d12154ce75"
+        ]
+      }
     },
     {
       "id": "openbao-tls",

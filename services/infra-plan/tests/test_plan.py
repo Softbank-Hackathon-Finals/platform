@@ -142,6 +142,10 @@ def _doc():
     (lambda d: d["steps"][5].update(publish="identity"), "sync_without_publish"),
     (lambda d: d["steps"][4]["renders"][0].update(run="/etc/passwd"), "invalid_stack"),
     (lambda d: d["steps"][4]["renders"][0].update(run="../outside.py"), "invalid_stack"),
+    # A condition must name a closed parameter and only its values; a default must be one of them.
+    (lambda d: d["steps"][1].update(when={"param": "node_name", "in": ["x"]}), "invalid_step_condition"),
+    (lambda d: d["steps"][1].update(when={"param": "tailnet", "in": ["maybe"]}), "invalid_step_condition"),
+    (lambda d: d["params"]["tailnet"].update(default="maybe"), "invalid_parameter_default"),
 ])
 def test_malformed_stacks_are_refused_before_rendering(edit, code):
     document = _doc()
@@ -169,3 +173,19 @@ def test_cli_check_and_request_schema(capsys):
     assert main(["request-schema", str(STACK)]) == 0
     schema = json.loads(capsys.readouterr().out)
     assert schema["properties"]["params"]["required"] == sorted(REQUEST["params"])
+
+
+def test_a_target_without_a_tailnet_omits_the_tailscale_line_and_the_digest_binds_it():
+    joined = plan()
+    assert joined.document["request"]["params"]["tailnet"] == "join"  # the default is written into the plan
+    assert not any(s.get("omitted") for s in joined.document["steps"])
+    isolated_request = copy.deepcopy(REQUEST)
+    isolated_request["params"]["tailnet"] = "none"
+    charts = FakeCharts()
+    isolated = Planner(load_stack(STACK), REPO, chart_renderer=charts).plan(
+        isolated_request, stack_revision=REV, target=TARGET, base_commit=BASE)
+    omitted = {s["id"] for s in isolated.document["steps"] if s.get("omitted")}
+    assert omitted == {"tailscale-oauth", "tailscale", "tailscale-sync"}
+    assert not any(call[0].startswith("tailscale") for call in charts.calls)  # nothing rendered for it
+    assert not any(name.startswith("tailscale/") for name in isolated.document["steps"][0].get("files", {}))
+    assert isolated.plan_digest != joined.plan_digest
