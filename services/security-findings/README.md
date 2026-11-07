@@ -134,7 +134,8 @@ uv run python -m bravo_findings.gcp_pull --environment-id env-gcp \
 - **범위는 운영자가 고르지 않는다.** 운영자는 `--environment-id`만 고른다. parent, 연합 provider(`audience`), 가장할 reader 서비스 계정은 그 환경의 범위 파일 값과 정확히 같아야 한다. 자격 설정이 다르거나 환경이 등록되지 않았으면 호출 전에 `ACCESS_DENIED`다. 그래서 reader가 읽을 수 있는 다른 조직·프로젝트의 결과가 이 환경으로 기록되지 않는다. parent는 번호(`projects/<번호>`, `folders/<번호>`, `organizations/<번호>`)만 받는다. 응답 finding 이름이 그 parent 아래가 아니면 `SOURCE_UNHEALTHY`다(AWS의 계정 대조에 해당).
 - **응답 결속:** 같은 페이지 토큰 반복(페이지 200개 상한), 같은 finding 중복, `eventTime`이 조회 창 밖이거나 없음, 형식이 다른 응답은 `SOURCE_UNHEALTHY`이고 커서를 그대로 둔다. 빈 결과는 필드가 생략된 응답(`{}`)으로 온다.
 - 환경의 프록시 · netrc 설정은 API와 토큰 호출 모두 쓰지 않는다(`trust_env=False`).
-- **아직:** GCP 쪽 연합(플랫폼 발급자를 믿는 workload identity pool · provider, 조회 권한)과 SCC 활성, 플랫폼 주기 작업은 없다. 실제 프로젝트에서 SCC를 켠 뒤 확인할 것이 셋 있다.
+- **GCP 쪽 연합:** [`infra/envs/gcp-scc-reader`](../../infra/envs/gcp-scc-reader/README.md)가 플랫폼 발급자를 믿는 workload identity pool · provider와 읽기 전용 reader(`findingsViewer` · `securityCenterServicesViewer`)를 만들고, 범위 파일 · 자격 설정을 출력으로 낸다. 아직 적용하지 않았다.
+- **아직:** SCC 활성과 플랫폼 주기 작업은 없다. 실제 프로젝트에서 SCC를 켠 뒤 확인할 것이 셋 있다.
   - 필터 문법: 코드는 `eventTime`을 쓰는데 문서 예시는 `event_time`이다.
   - finding 이름 형식: 조직 단위로 켜면 `projects/<번호>`로 조회해도 이름이 `organizations/<번호>/sources/...`로 올 수 있다. 그러면 지금 이름 대조가 모두 `SOURCE_UNHEALTHY`가 된다.
   - 탐지 서비스 상태 응답: `effectiveEnablementState`의 실제 값과, 조직에서 물려받은 경우의 응답.
