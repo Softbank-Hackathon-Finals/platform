@@ -106,7 +106,9 @@ class TerraformCli:
     def __init__(self, *, terraform="terraform", extra_env=None):
         self.terraform = terraform
         allowed = ("PATH", "HOME", "AWS_PROFILE", "AWS_REGION", "AWS_DEFAULT_REGION", "AWS_CONFIG_FILE",
-                   "AWS_SHARED_CREDENTIALS_FILE", "AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_SESSION_TOKEN")
+                   "AWS_SHARED_CREDENTIALS_FILE", "AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_SESSION_TOKEN",
+                   # gcp (A10): application default credentials of the operator's own gcloud session
+                   "CLOUDSDK_CONFIG", "GOOGLE_APPLICATION_CREDENTIALS", "GOOGLE_IMPERSONATE_SERVICE_ACCOUNT")
         self.base_env = {k: os.environ[k] for k in allowed if k in os.environ} | (extra_env or {})
         self.base_env |= {"TF_IN_AUTOMATION": "1", "TF_INPUT": "0", "CHECKPOINT_DISABLE": "1"}
 

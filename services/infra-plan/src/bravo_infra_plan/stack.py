@@ -47,6 +47,23 @@ class Stack:
     def steps(self) -> dict:
         return {step["id"]: step for step in self.document["steps"]}
 
+    @property
+    def environment(self) -> dict:
+        return environment_of(self.document)
+
+    @property
+    def kind(self) -> str:
+        return self.environment["kind"]
+
+    @property
+    def cluster_steps(self) -> bool:
+        """True when a step talks to a Kubernetes cluster (anything but terraform)."""
+        return any(step["kind"] != "terraform" for step in self.document["steps"])
+
+    @property
+    def terraform_steps(self) -> bool:
+        return any(step["kind"] == "terraform" for step in self.document["steps"])
+
     def request_schema(self) -> dict:
         """The JSON Schema every plan request (operator, console or agent `infra.plan`) must pass."""
         params = {}
@@ -75,6 +92,32 @@ class Stack:
         except jsonschema.ValidationError as error:
             raise StackError("invalid_plan_request") from error
         return json.loads(canonical(request))
+
+
+# A stack without an `environment` block is the first one (target-onprem): these are its names.
+ONPREM_DEFAULTS = {
+    "kind": "onprem", "app_namespace": "target-dev", "database": "target-db",
+    "secret_store": {"kind": "Pod", "namespace": "bravo-secrets", "name": "target-openbao-0"},
+}
+
+
+def environment_of(document) -> dict:
+    """The stack's kind and the names its checks read, with `${param}` placeholders left in."""
+    declared = document.get("environment")
+    if declared is None:
+        return json.loads(canonical(ONPREM_DEFAULTS))
+    return {k: v for k, v in ONPREM_DEFAULTS.items() if k != "kind"} | declared
+
+
+def substitute(value, params):
+    """`${param}` in strings, recursively through dicts and lists."""
+    if isinstance(value, str):
+        return PLACEHOLDER.sub(lambda m: params[m.group(1)], value)
+    if isinstance(value, dict):
+        return {k: substitute(v, params) for k, v in value.items()}
+    if isinstance(value, list):
+        return [substitute(v, params) for v in value]
+    return value
 
 
 def load_stack(path) -> Stack:
@@ -115,6 +158,13 @@ def parse_stack(document) -> Stack:
         for name in PLACEHOLDER.findall(json.dumps(step)):
             if name not in document["params"]:
                 raise StackError("unknown_parameter")
+    environment = document.get("environment", {})
+    for name in PLACEHOLDER.findall(json.dumps(environment)):
+        if name not in document["params"]:
+            raise StackError("unknown_parameter")
+    endpoint = environment.get("cluster_endpoint")
+    if endpoint is not None and by_id.get(endpoint["from"], {}).get("kind") != "terraform":
+        raise StackError("cluster_endpoint_without_terraform")
     return Stack(document, sha256_text(canonical(document)), _levels(steps))
 
 

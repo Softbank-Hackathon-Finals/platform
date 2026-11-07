@@ -61,3 +61,6 @@ kubeconfig.*
 .claude/.credentials.json
 /.bravo/
 /.collab/
+
+# A10: optional GCS backend for the gcp roots (operator-local, never committed)
+backend_override.tf

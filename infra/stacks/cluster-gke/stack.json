@@ -1,0 +1,505 @@
+{
+  "schema_version": 1,
+  "stack": "cluster-gke",
+  "description": "A10(ADR-0034 target.build): GCP 기반(gcp-foundation) → GKE(cluster-gke) → 공통 기반(CNPG, Secret Manager + ESO, Tailscale operator, cloudflared). 종류 기준 스택이라 side로 출발지 · 목적지 어느 쪽에도 쓴다. 프로젝트 ID · backend 값은 저장소 밖 private_dir에서 온다.",
+  "environment": {
+    "kind": "gcp",
+    "app_namespace": "${side}-dev",
+    "database": "${side}-db",
+    "secret_store": {
+      "kind": "SecretStore",
+      "namespace": "${side}-dev",
+      "name": "bravo-cloud-secrets"
+    },
+    "cluster_endpoint": {
+      "from": "cluster",
+      "output": "cluster",
+      "path": "endpoint"
+    }
+  },
+  "params": {
+    "private_dir": {
+      "description": "운영자 개인 입력 폴더(저장소 밖 절대 경로): <단계>.backend.hcl, <단계>.tfvars.json",
+      "pattern": "^/[^\\u0000]+$"
+    },
+    "side": {
+      "description": "이 클러스터의 역할(같은 스택을 출발지 · 목적지에 쓴다). 앱 namespace는 <side>-dev",
+      "enum": [
+        "source",
+        "target"
+      ]
+    },
+    "kube_version": {
+      "description": "helm template --kube-version에 넘길 실제 Kubernetes 버전",
+      "pattern": "^v?1\\.[0-9]{2}\\.[0-9]{1,2}$"
+    },
+    "project_id": {
+      "description": "GCP 프로젝트 ID(SecretStore의 projectID). 실행 신원(gcloud 프로젝트)과 같아야 한다",
+      "pattern": "^[a-z][a-z0-9-]{4,28}[a-z0-9]$"
+    }
+  },
+  "charts": {
+    "cloudnative-pg": {
+      "file": "cloudnative-pg-0.29.1.tgz",
+      "sha256": "b53d3991fe84bcf38767e7702cae78666265427a127a26fff168ab4207d2b1df",
+      "source": "https://cloudnative-pg.github.io/charts"
+    },
+    "external-secrets": {
+      "file": "external-secrets-2.14.0.tgz",
+      "sha256": "0a6d9e91b1ff50adfdbf24b50b582babfa7c5b7df42b21974ca4b3fb88ee5e34",
+      "source": "https://charts.external-secrets.io (target-secrets/render.py ESO_CHART_SHA256)"
+    },
+    "tailscale-operator": {
+      "file": "tailscale-operator-1.104.4.tgz",
+      "sha256": "971ff11ecc285613cd29d6f48a8ada180d7bdf716ac3301a1e663837f6419998",
+      "source": "https://pkgs.tailscale.com/helmcharts (target-workloads/network.py CHART_SHA256)"
+    }
+  },
+  "steps": [
+    {
+      "id": "gcp-foundation",
+      "kind": "terraform",
+      "owner": "A10",
+      "description": "필수 API, VPC · 서브넷(보조 범위) · Cloud NAT",
+      "dir": "infra/envs/gcp-foundation",
+      "backend": {
+        "file": "${private_dir}/gcp-foundation.backend.hcl"
+      },
+      "var_file": "${private_dir}/gcp-foundation.tfvars.json"
+    },
+    {
+      "id": "cluster",
+      "kind": "terraform",
+      "owner": "A10",
+      "description": "GKE Standard(Workload Identity, Dataplane V2, 사설 노드), ESO의 Secret Manager 읽기 권한",
+      "dir": "infra/envs/cluster-gke",
+      "backend": {
+        "file": "${private_dir}/cluster.backend.hcl"
+      },
+      "var_file": "${private_dir}/cluster.tfvars.json",
+      "needs": [
+        "gcp-foundation"
+      ],
+      "vars": {
+        "network": {
+          "from": "gcp-foundation",
+          "output": "foundation",
+          "path": "network"
+        },
+        "subnetwork": {
+          "from": "gcp-foundation",
+          "output": "foundation",
+          "path": "subnetwork"
+        },
+        "pod_range_name": {
+          "from": "gcp-foundation",
+          "output": "foundation",
+          "path": "pod_range_name"
+        },
+        "service_range_name": {
+          "from": "gcp-foundation",
+          "output": "foundation",
+          "path": "service_range_name"
+        }
+      }
+    },
+    {
+      "id": "cluster-access",
+      "kind": "operator_action",
+      "owner": "A10",
+      "description": "실행기에 준 kubeconfig가 방금 만든 클러스터를 가리키는지 확인한다(API 서버 = terraform 출력 endpoint)",
+      "needs": [
+        "cluster"
+      ],
+      "instruction": "gcloud container clusters get-credentials <cluster 출력 name> --location <cluster 출력 location> --dns-endpoint 를 실행기에 준 kubeconfig(KUBECONFIG)에 받는다. 다른 클러스터의 context를 쓰지 않는다. 확인은 kubeconfig 서버와 terraform 출력 endpoint의 대조로 한다.",
+      "confirm": "cluster-access"
+    },
+    {
+      "id": "argocd",
+      "kind": "operator_action",
+      "owner": "T44",
+      "description": "T44 목적지 Argo CD 컨트롤러(infra/iac/argocd)가 준비됐는지 확인한다. 이 스택은 Argo CD를 설치하지 않는다",
+      "needs": [
+        "cluster-access"
+      ],
+      "instruction": "infra/iac/README.md 절차로 이 클러스터에 Argo CD를 bootstrap 설치한다(release · namespace bravo-iac-gitops, chart 0.2.0 기본값: 컨트롤러만). 플랫폼 클러스터에는 설치하지 않는다.",
+      "confirm": "iac-argocd"
+    },
+    {
+      "id": "config-repo-access",
+      "kind": "operator_action",
+      "owner": "T44",
+      "description": "Argo CD에 설정 저장소 읽기 전용 자격을 등록한다",
+      "needs": [
+        "argocd"
+      ],
+      "instruction": "조직의 비공개 설정 저장소에 읽기 전용 deploy key를 만들고, 값은 메모리에서 bravo-iac-gitops namespace의 repository Secret으로만 전달한다. 쓰기 권한 키를 등록하지 않는다.",
+      "confirm": "argocd-repository"
+    },
+    {
+      "id": "base",
+      "kind": "gitops_publish",
+      "owner": "A10",
+      "description": "앱 namespace(restricted)와 토큰 없는 default 계정, ESO · tailscale-system namespace를 올린다",
+      "needs": [
+        "config-repo-access"
+      ],
+      "path": "base",
+      "renders": [
+        {
+          "name": "namespaces",
+          "run": "infra/envs/cluster-base/render.py",
+          "args": [
+            "namespaces",
+            "--side",
+            "${side}"
+          ]
+        },
+        {
+          "name": "tailscale-namespace",
+          "namespace": {
+            "name": "tailscale-system",
+            "labels": {
+              "app.kubernetes.io/part-of": "bravo-base",
+              "component": "base",
+              "pod-security.kubernetes.io/enforce": "privileged",
+              "pod-security.kubernetes.io/enforce-version": "v1.35"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "base-sync",
+      "kind": "gitops_sync",
+      "owner": "A10",
+      "description": "Argo CD가 base 커밋으로 Synced · Healthy인지 확인한다",
+      "needs": [
+        "base"
+      ],
+      "publish": "base",
+      "timeout_seconds": 600
+    },
+    {
+      "id": "db-secrets",
+      "kind": "secret_generate",
+      "owner": "T30",
+      "description": "DB 계정 비밀값을 메모리에서 만들어 Kubernetes에만 넣는다",
+      "needs": [
+        "base-sync"
+      ],
+      "secrets": [
+        {
+          "namespace": "${side}-dev",
+          "name": "${side}-app-db",
+          "type": "kubernetes.io/basic-auth",
+          "keys": {
+            "username": {
+              "literal": "chat_app"
+            },
+            "password": {
+              "random": 32
+            }
+          }
+        },
+        {
+          "namespace": "${side}-dev",
+          "name": "${side}-replication",
+          "type": "kubernetes.io/basic-auth",
+          "keys": {
+            "username": {
+              "literal": "chat_replicator"
+            },
+            "password": {
+              "random": 32
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "cnpg",
+      "kind": "gitops_publish",
+      "owner": "T30",
+      "description": "CNPG operator chart 0.29.1(operator 1.30.1)을 올린다(감시 namespace = 앱 namespace)",
+      "needs": [
+        "base-sync"
+      ],
+      "path": "cnpg",
+      "renders": [
+        {
+          "name": "operator",
+          "chart": "cloudnative-pg",
+          "release": "cnpg",
+          "namespace": "cnpg-system",
+          "values": {
+            "run": "infra/envs/cluster-base/render.py",
+            "args": [
+              "cnpg-values",
+              "--side",
+              "${side}"
+            ]
+          },
+          "include_crds": true,
+          "create_namespace": true
+        }
+      ]
+    },
+    {
+      "id": "cnpg-sync",
+      "kind": "gitops_sync",
+      "owner": "T30",
+      "description": "Argo CD가 cnpg 커밋으로 Synced · Healthy인지 확인한다",
+      "needs": [
+        "cnpg"
+      ],
+      "publish": "cnpg",
+      "timeout_seconds": 600
+    },
+    {
+      "id": "database",
+      "kind": "gitops_publish",
+      "owner": "T30",
+      "description": "DB(CNPG Cluster)를 클라우드 동적 볼륨(gke)으로 올린다",
+      "needs": [
+        "cnpg-sync",
+        "db-secrets"
+      ],
+      "path": "database",
+      "renders": [
+        {
+          "name": "database",
+          "run": "infra/envs/cluster-base/render.py",
+          "args": [
+            "database",
+            "--side",
+            "${side}",
+            "--storage",
+            "gke"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "database-sync",
+      "kind": "gitops_sync",
+      "owner": "T30",
+      "description": "Argo CD가 database 커밋으로 Synced · Healthy인지 확인한다",
+      "needs": [
+        "database"
+      ],
+      "publish": "database",
+      "timeout_seconds": 600
+    },
+    {
+      "id": "database-ready",
+      "kind": "wait",
+      "owner": "T30",
+      "description": "DB Cluster가 Ready로 20초 이상 유지될 때까지 기다린다",
+      "needs": [
+        "database-sync"
+      ],
+      "target": {
+        "kind": "Cluster",
+        "namespace": "${side}-dev",
+        "name": "${side}-db"
+      },
+      "condition": "Ready",
+      "timeout_seconds": 900,
+      "stable_seconds": 20
+    },
+    {
+      "id": "eso",
+      "kind": "gitops_publish",
+      "owner": "T9",
+      "description": "External Secrets Operator chart 2.14.0을 올린다(앱 namespace만 처리)",
+      "needs": [
+        "base-sync"
+      ],
+      "path": "eso",
+      "renders": [
+        {
+          "name": "controller",
+          "chart": "external-secrets",
+          "release": "external-secrets",
+          "namespace": "external-secrets",
+          "values": {
+            "run": "infra/envs/cluster-base/render.py",
+            "args": [
+              "eso-values",
+              "--side",
+              "${side}"
+            ]
+          },
+          "include_crds": true
+        }
+      ]
+    },
+    {
+      "id": "eso-sync",
+      "kind": "gitops_sync",
+      "owner": "T9",
+      "description": "Argo CD가 eso 커밋으로 Synced · Healthy인지 확인한다",
+      "needs": [
+        "eso"
+      ],
+      "publish": "eso",
+      "timeout_seconds": 600
+    },
+    {
+      "id": "secret-store",
+      "kind": "gitops_publish",
+      "owner": "A10",
+      "description": "GCP Secret Manager SecretStore를 올린다(ESO 컨트롤러의 Workload Identity, bravo- 접두사 비밀만 읽기)",
+      "needs": [
+        "eso-sync"
+      ],
+      "path": "secret-store",
+      "renders": [
+        {
+          "name": "store",
+          "run": "infra/envs/cluster-base/render.py",
+          "args": [
+            "secret-store",
+            "--side",
+            "${side}",
+            "--provider",
+            "gcp",
+            "--project-id",
+            "${project_id}"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "secret-store-sync",
+      "kind": "gitops_sync",
+      "owner": "A10",
+      "description": "Argo CD가 secret-store 커밋으로 Synced · Healthy인지 확인한다",
+      "needs": [
+        "secret-store"
+      ],
+      "publish": "secret-store",
+      "timeout_seconds": 600
+    },
+    {
+      "id": "secret-store-ready",
+      "kind": "wait",
+      "owner": "A10",
+      "description": "SecretStore가 클라우드 비밀 저장소에 인증돼 Ready인지 기다린다(워크로드 신원 확인)",
+      "needs": [
+        "secret-store-sync"
+      ],
+      "target": {
+        "kind": "SecretStore",
+        "namespace": "${side}-dev",
+        "name": "bravo-cloud-secrets"
+      },
+      "condition": "Ready",
+      "timeout_seconds": 300
+    },
+    {
+      "id": "tailscale-oauth",
+      "kind": "operator_action",
+      "owner": "T30",
+      "description": "Tailscale operator OAuth Secret을 사람이 준비한다",
+      "needs": [
+        "base-sync"
+      ],
+      "instruction": "tailscale-system에 승인된 이 쪽(side) 서비스 자격을 메모리에서 operator-oauth Secret(client_id, client_secret)으로만 전달한다. 기존 operator/CRD가 있으면 소유자를 확인하기 전 진행하지 않는다.",
+      "confirm": "tailscale-oauth"
+    },
+    {
+      "id": "tailscale",
+      "kind": "gitops_publish",
+      "owner": "T30",
+      "description": "Tailscale operator chart 1.104.4를 올린다",
+      "needs": [
+        "tailscale-oauth"
+      ],
+      "path": "tailscale",
+      "renders": [
+        {
+          "name": "operator",
+          "chart": "tailscale-operator",
+          "release": "tailscale-operator",
+          "namespace": "tailscale-system",
+          "values": {
+            "run": "infra/envs/target-workloads/network.py",
+            "args": [
+              "values",
+              "--side",
+              "${side}"
+            ]
+          },
+          "include_crds": true
+        }
+      ]
+    },
+    {
+      "id": "tailscale-sync",
+      "kind": "gitops_sync",
+      "owner": "T30",
+      "description": "Argo CD가 tailscale 커밋으로 Synced · Healthy인지 확인한다",
+      "needs": [
+        "tailscale"
+      ],
+      "publish": "tailscale",
+      "timeout_seconds": 600
+    },
+    {
+      "id": "edge-token",
+      "kind": "operator_action",
+      "owner": "T17",
+      "description": "이 환경의 기존 Cloudflare Tunnel 토큰 Secret을 사람이 준비한다",
+      "needs": [
+        "base-sync"
+      ],
+      "instruction": "infra/envs/edge-tunnels/README.md 2단계대로 이 환경의 기존 Tunnel 토큰을 승인된 관리 세션에서 앱 namespace의 bravo-edge-tunnel-token Secret(token 키)으로만 전달한다. 다른 환경의 토큰을 재사용하지 않는다.",
+      "confirm": "edge-token"
+    },
+    {
+      "id": "edge",
+      "kind": "gitops_publish",
+      "owner": "T17",
+      "description": "cloudflared connector(기존 Tunnel)를 올린다",
+      "needs": [
+        "edge-token"
+      ],
+      "path": "edge",
+      "renders": [
+        {
+          "name": "cloudflared",
+          "run": "infra/envs/edge-tunnels/render.py",
+          "args": [
+            "${side}-dev"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "edge-sync",
+      "kind": "gitops_sync",
+      "owner": "T17",
+      "description": "Argo CD가 edge 커밋으로 Synced · Healthy인지 확인한다",
+      "needs": [
+        "edge"
+      ],
+      "publish": "edge",
+      "timeout_seconds": 600
+    },
+    {
+      "id": "verify",
+      "kind": "probe",
+      "owner": "A10",
+      "description": "DB Ready와 앱 namespace Deployment(cloudflared) Available을 실제로 확인한다. Synced만으로 완료로 보지 않는다",
+      "needs": [
+        "database-ready",
+        "secret-store-ready",
+        "tailscale-sync",
+        "edge-sync"
+      ],
+      "check": "target-checks"
+    }
+  ]
+}

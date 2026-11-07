@@ -27,7 +27,7 @@ from datetime import UTC, datetime
 
 from .applications import application, application_name, project
 from .plan import Planner
-from .stack import StackError, canonical, sha256_text
+from .stack import StackError, canonical, environment_of, sha256_text, substitute
 from .terraform import Scratch, TerraformCli, inputs_digest, outputs_reader, plan_step
 
 PENDING, RUNNING, SKIPPED, APPLIED = "PENDING", "RUNNING", "SKIPPED", "APPLIED"
@@ -201,6 +201,11 @@ class Executor:
         # Every step starts on the approved cluster, whatever the kubeconfig says now.
         if self.identity(run["plan"]["request"]["params"]) != run["plan"]["target"]:
             raise StepOutcome(HOLD, "target_identity_changed")
+        # A cloud stack builds its cluster in this run, so the run is bound to the account or project;
+        # before any cluster step the kubeconfig's API server must be the one terraform reported.
+        if (step["kind"] != "terraform" and "cluster_endpoint" in environment_of(run["stack"])
+                and step.get("confirm") != "cluster-access" and self.checks.check("cluster-access", run) is not True):
+            raise StepOutcome(HOLD, "target_cluster_unbound")
         return getattr(self, "_" + step["kind"])(run, step)
 
     # --- step kinds ---------------------------------------------------------------------------
@@ -297,7 +302,7 @@ class Executor:
 
     def _secret_generate(self, run, step):
         created = False
-        for secret in step["secrets"]:
+        for secret in substitute(step["secrets"], _params(run)):
             if self.cluster.secret_exists(secret["namespace"], secret["name"]):
                 continue  # never overwrite: the consumer may already use the value
             values = {}
@@ -315,7 +320,7 @@ class Executor:
     def _wait(self, run, step):
         """The condition must hold continuously for `stable_seconds`: a Ready flag can flip before the
         Service in front of it routes (kind measurement: CNPG Ready, then the migration's connect refused)."""
-        target, stable = step["target"], step.get("stable_seconds", 0)
+        target, stable = substitute(step["target"], _params(run)), step.get("stable_seconds", 0)
         deadline = self.monotonic() + step["timeout_seconds"]
         since = None
         while True:
@@ -329,6 +334,10 @@ class Executor:
             if now >= deadline:
                 raise StepOutcome(HOLD, "wait_timeout")
             self.sleep(self.poll)
+
+
+def _params(run):
+    return run.get("plan", {}).get("request", {}).get("params", {})
 
 
 def _planned(run, step):
