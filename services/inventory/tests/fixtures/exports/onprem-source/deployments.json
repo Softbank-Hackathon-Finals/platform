@@ -1,0 +1,9 @@
+{"kind": "DeploymentList", "items": [{"metadata": {"name": "chat", "namespace": "chat"},
+  "spec": {"template": {"spec": {"serviceAccountName": "chat",
+    "containers": [{"name": "chat", "image": "ghcr.io/softbank-hackathon-finals/demo-chat@sha256:0000000000000000000000000000000000000000000000000000000000000001",
+      "env": [{"name": "APP_ENV", "value": "onprem"}, {"name": "DB_HOST", "value": "chat-pooler-rw"},
+              {"name": "S3_BUCKET", "value": "demo-chat-attachments"},
+              {"name": "AWS_ENDPOINT_URL_S3", "value": "http://seaweedfs-s3.storage.svc:8333"},
+              {"name": "AWS_ACCESS_KEY_ID", "valueFrom": {"secretKeyRef": {"name": "chat-s3", "key": "access_key"}}},
+              {"name": "AWS_SECRET_ACCESS_KEY", "valueFrom": {"secretKeyRef": {"name": "chat-s3", "key": "secret_key"}}},
+              {"name": "VAULT_ADDR", "value": "http://openbao.openbao.svc:8200"}]}]}}}}]}

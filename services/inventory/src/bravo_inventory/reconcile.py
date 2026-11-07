@@ -1,27 +1,87 @@
-"""Join code findings with the deployment graph into inventory items (design 8.11 대조)."""
+"""Join code findings with the deployment graph into inventory items (design 8.11 대조).
+
+The source kind (ADR-0034) arrives with the data: every finding carries the kind whose rules
+read it and ``cloud_dependency``; the deploy graph carries the kind of its adapter. Both are
+copied onto the item's references so the catalog (A4) can tell an on-prem S3-compatible store
+from an AWS S3 dependency without re-scanning.
+
+Grading: with an explicit ``source_kind`` and a catalog hub that accepts it (A4:
+``grade_role(..., source_kind=)``, ``target_entry(source, target, role)``), items are graded for
+the (source, target) pair here. Without it they are graded against the target default as before,
+so a caller that re-grades afterwards (A4 ``apply_pair``) sees the same input.
+"""
 
 from __future__ import annotations
 
+import inspect
 from collections import defaultdict
 
 from .catalog import target_entry
-from .deploy_trace import DeployGraph
+from .deploy_trace import CLOUD_RESOURCE_KINDS, ENV_NAMED_KINDS, DeployGraph
 from .grading import Item, _env_names, grade_role
 from .static_scan import Finding
 
 ROLE_KINDS = {"object_store": "s3_bucket", "secrets": "secret", "kms": "kms_key", "iam": "iam_role", "db": "cnpg_cluster", "registry": "image"}
-SPLIT_KINDS = frozenset({"s3_bucket", "secret", "kms_key"})  # named by a workload setting, or deploy-only
+SPLIT_KINDS = ENV_NAMED_KINDS  # named by a workload setting, or deploy-only
+NON_CLOUD_NOTE = " 출발지({kind}) 증거가 모두 퍼블릭 클라우드 의존이 아니다(S3 호환 저장소 · OpenBao 등)."
+
+
+def _accepts(func, name: str) -> bool:
+    try:
+        return name in inspect.signature(func).parameters
+    except (TypeError, ValueError):
+        return False
+
+
+def _accepts_varargs(func) -> bool:
+    try:
+        return any(p.kind is inspect.Parameter.VAR_POSITIONAL for p in inspect.signature(func).parameters.values())
+    except (TypeError, ValueError):
+        return False
+
+
+# The catalog hub (A4) grades for a (source, target) pair. Older catalogs grade for the target only.
+_GRADE_TAKES_SOURCE = _accepts(grade_role, "source_kind")
+_ENTRY_TAKES_SOURCE = _accepts_varargs(target_entry)
+
+
+def _grade(role: str, code: list[Finding], env_names: set[str], env_kind: str, source_kind: str | None) -> tuple[str, str, bool]:
+    if source_kind and _GRADE_TAKES_SOURCE:
+        return grade_role(role, code, env_names, env_kind, source_kind=source_kind)
+    return grade_role(role, code, env_names, env_kind)
+
+
+def _entry(source_kind: str | None, env_kind: str, role: str) -> dict:
+    entry = target_entry(source_kind, env_kind, role) if source_kind and _ENTRY_TAKES_SOURCE else target_entry(env_kind, role)
+    return dict(entry or {})
 
 
 def _code_refs(findings: list[Finding]) -> list[dict]:
-    return [{"id": f.id, "kind": f.kind, "file": f.file, "line": f.line, "snippet": f.snippet, **({"detail": f.detail} if f.detail else {})} for f in findings]
+    return [{"id": f.id, "kind": f.kind, "file": f.file, "line": f.line, "snippet": f.snippet, **({"detail": f.detail} if f.detail else {}),
+             "source_kind": f.source_kind, "cloud_dependency": f.cloud_dependency} for f in findings]
 
 
-def _deploy_refs(resources) -> list[dict]:
-    return [{"kind": r.kind, "name": r.name, "via": r.via, "actions": r.actions, "attributes": r.attributes} for r in resources]
+def _cloud_resource(kind: str, source_kind: str) -> bool:
+    # A wildcard grant is a cloud dependency when the identity system is a cloud's (IAM, GCP IAM).
+    return kind in CLOUD_RESOURCE_KINDS or (kind == "wildcard" and source_kind in {"aws", "gcp"})
 
 
-def reconcile(findings: list[Finding], graph: DeployGraph | None, env_kind: str) -> list[Item]:
+def _deploy_refs(resources, source_kind: str = "aws") -> list[dict]:
+    return [{"kind": r.kind, "name": r.name, "via": r.via, "actions": r.actions, "attributes": r.attributes,
+             "cloud_dependency": _cloud_resource(r.kind, source_kind)} for r in resources]
+
+
+def _source_kind(findings: list[Finding], graph: DeployGraph | None) -> str:
+    if graph is not None:
+        return graph.source_kind
+    return next((f.source_kind for f in findings), "aws")
+
+
+def reconcile(findings: list[Finding], graph: DeployGraph | None, env_kind: str, source_kind: str | None = None) -> list[Item]:
+    """``env_kind`` is the *target* kind (catalog). ``source_kind`` selects pair grading when
+    given; the references always carry the kind recorded on the deploy graph or the findings."""
+    pair_kind = source_kind
+    source_kind = source_kind or _source_kind(findings, graph)
     by_role: dict[str, list[Finding]] = defaultdict(list)
     for f in findings:
         if f.kind in {"sdk_call", "env_ref", "config_env", "iac_resource"} and f.role != "unknown":
@@ -47,14 +107,16 @@ def reconcile(findings: list[Finding], graph: DeployGraph | None, env_kind: str)
         unreferenced = [r for r in deploy if code and r.kind in SPLIT_KINDS and "referenced_by_env" not in r.attributes]
         deploy = [r for r in deploy if r not in unreferenced]
         found_in = "both" if code and deploy else "code" if code else "deploy"
-        grade, rationale, agent_needed = grade_role(role, code, env_names, env_kind)
-        entry = target_entry(env_kind, role) or {}
+        grade, rationale, agent_needed = _grade(role, code, env_names, env_kind, pair_kind)
+        entry = _entry(pair_kind, env_kind, role)
         item = Item(
             id=f"item-{n:03d}", role=role, service=", ".join(sorted({f.service for f in code if f.kind == "sdk_call"})) or role,
             found_in=found_in, grade=grade, grade_by="rule", rationale=rationale, agent_needed=agent_needed,
-            code_refs=_code_refs(code), deploy_refs=_deploy_refs(deploy),
+            code_refs=_code_refs(code), deploy_refs=_deploy_refs(deploy, source_kind),
             target={"env_kind": env_kind, "impl": entry.get("impl", ""), "verify": entry.get("verify", "")},
         )
+        if code and not any(f.cloud_dependency for f in code) and not any(_cloud_resource(r.kind, source_kind) for r in deploy):
+            item.rationale += NON_CLOUD_NOTE.format(kind=source_kind)
         if found_in == "deploy":
             # The code never calls this role, but a policy grants it: implicit use (SSE-KMS, rotation
             # lambda, ops-added permission). The catalog default grade applies and the agent must
@@ -73,7 +135,7 @@ def reconcile(findings: list[Finding], graph: DeployGraph | None, env_kind: str)
                 id=f"item-{n:03d}", role=role, service=role, found_in="deploy",
                 grade=entry.get("grade", "unknown") if entry else "unknown", grade_by="rule",
                 rationale="배포에만 있음: 권한은 있으나 워크로드 설정이 이 자원을 가리키지 않는다(SecretStore 주입 · 운영 추가 권한 · 다른 설정 경로). 이전에서 빠뜨리기 쉬운 항목. 사용 여부를 에이전트가 확인한다. 카탈로그 기본 등급 적용",
-                agent_needed=True, code_refs=[], deploy_refs=_deploy_refs(unreferenced),
+                agent_needed=True, code_refs=[], deploy_refs=_deploy_refs(unreferenced, source_kind),
                 target={"env_kind": env_kind, "impl": entry.get("impl", ""), "verify": entry.get("verify", "")},
                 risk="migration_omission",
             ))

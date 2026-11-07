@@ -1,0 +1,5 @@
+{"identities": [
+  {"name": "bootstrap", "credentials": [{"accessKey": "fixture-bootstrap-access", "secretKey": "fixture-not-a-real-value-1"}], "actions": ["Admin", "Read", "Write", "List"]},
+  {"name": "client", "credentials": [{"accessKey": "fixture-client-access", "secretKey": "fixture-not-a-real-value-2"}], "actions": ["Read:demo-chat-attachments", "Write:demo-chat-attachments", "List:demo-chat-attachments"]},
+  {"name": "anonymous", "actions": ["Read:demo-chat-public"]}
+]}
