@@ -66,7 +66,9 @@ run = Runner(catalog, probes, clock=clock).run(profile_id="full", profile_versio
 - 등록은 됐지만 서버가 아직 연결하지 않은 시험은 빠지고 Runner가 증거 없는 `NOT_RUN`으로 남긴다("미연결"과 "미지원"을 구분).
 
 아래 표는 `tests/test_registry.py`가 `default_registry()`와 대조한다. 칸 이름은 수집기 클래스(+어댑터)다.
-**표에 이름이 있다는 것은 코드가 있다는 뜻이지 실환경 인수를 뜻하지 않는다.** gcp 칸은 모두 가짜 클라이언트 시험만 거쳤다.
+**표에 이름이 있다는 것은 코드가 있다는 뜻이지 실환경 인수를 뜻하지 않는다.** gcp 칸 중 SEC-01.1 · SEC-01.3 · ENC-02.1 ·
+AUD-01.3 · IAM-01.1과 ISO-01.1의 객체 다리는 A11에서 실제 GKE · GCP 프로젝트로 실행했다
+([실측 증빙](../../docs/evidence/a11-gcp-probes-2026-11-07/README.md)). 나머지 gcp 칸은 가짜 클라이언트 시험만 거쳤다.
 
 <!-- control-probe-matrix:start -->
 | 시험 | aws | gcp | onprem |
@@ -100,10 +102,17 @@ run = Runner(catalog, probes, clock=clock).run(profile_id="full", profile_versio
   `_client`는 `endpoint_url`이 주어지면 클라이언트의 endpoint와 일치를 확인한다. 기존 aws 증거 형식은 바뀌지 않는다.
 - **gcp.** 모든 Google API 호출은 서버가 등록한 `GcpClient.call(method, request)` 뒤에 있다(google-cloud 라이브러리나
   REST 어느 쪽이든 어댑터가 오류를 `GcpApiError(status, code)`로 정규화). 새 런타임 의존성은 없다.
+  실제 어댑터는 `gcp_rest.py`다(표준 라이브러리 `urllib`). `rest_client(principal, project, transport)`가 6개 메서드를
+  고정 Google REST URL로 옮기고, 요청 필드를 URL에 넣기 전에 검사하며, Secret `payload`를 지운다.
+  전송은 `UrllibTransport`(`gcloud_token` · `metadata_token`의 짧은 수명 토큰, 익명은 토큰 없음, 리다이렉트 거부)와
+  `PodExecTransport`(GKE 파드 안에서 요청을 실행해 Workload Identity 토큰이 파드를 떠나지 않음)가 있다.
+  GCS JSON API처럼 `error.status`가 없는 오류는 HTTP 상태의 google.rpc 표준 대응으로 코드를 정한다.
+  실환경 실행 도구는 `qualification/gcp_live_probes.py`다.
   거부는 403 `PERMISSION_DENIED`(익명 GCS는 401 `UNAUTHENTICATED`도)만 인정한다. AUD-01.3은 GKE Cloud Audit Logs
   항목을 `audit.k8s.io/v1` 필드로 투영해 기존 판정(`_matched`)을 그대로 쓴다. SEC-01.3은 필드 접근 제한이 없는
   원문 조회 권한을 호스트가 확인해야 한다. ENC-02.1은 등록된 Cloud KMS 키(CMEK)만 `enabled`로 보고,
-  Google 기본 암호화만 있으면 `disabled`다. **IAM-01.2는 GCP IAM 기준선 매핑이 없어 `UNSUPPORTED`다.**
+  Google 기본 암호화만 있으면 `disabled`다. 전역 Secret의 키 버전은 버전의 `replicationStatus`에서 복제본마다 읽는다
+  (최상위 `customerManagedEncryption`은 지역 Secret에만 있다, A11 실측). **IAM-01.2는 GCP IAM 기준선 매핑이 없어 `UNSUPPORTED`다.**
 - **onprem.** IAM-01.1 · ISO-01.1은 SeaweedFS S3 API를 같은 수집기로 시험한다. SEC-01.3은 T34 감사 저장소
   (`audit_store.py`)의 목록·변조·보존 검사를 재사용해 `AppLogOrigin` OTLP 앱 로그를 읽는다. 앱 로그를 원문으로
   그 저장소에 보내는 전달 설정은 아직 없다. IAM-01.2는 kube-bench 0.10.2 `rke2-cis-1.7` 5.1.x 후보 매핑

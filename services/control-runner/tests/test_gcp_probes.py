@@ -241,7 +241,54 @@ def test_cmek_with_enabled_key_version_is_enabled():
     evidence = []
     result = encryption(kms(), evidence)(CTX, ENC_SPEC)
     assert (result.observed, result.unknown_reason) == ("enabled", None)
-    assert json.loads(evidence[0])["key_version_state"] == "ENABLED"
+    assert json.loads(evidence[0])["key_version_states"] == ["ENABLED"]
+
+
+def replica_status(*versions):
+    return {"userManaged": {"replicas": [
+        {"location": "asia-northeast3", "customerManagedEncryption": {"kmsKeyVersionName": v}}
+        for v in versions
+    ]}}
+
+
+USER_MANAGED = {
+    "name": f"projects/{NUMBER}/secrets/chat-db",
+    "replication": {"userManaged": {"replicas": [
+        {"location": "asia-northeast3", "customerManagedEncryption": {"kmsKeyName": KEY}},
+    ]}},
+}
+
+
+def test_global_secret_key_version_comes_from_replication_status():
+    """A11 live shape: a global CMEK secret has no top-level customerManagedEncryption on
+    the version; the key version is under replicationStatus (A7 read only the top level)."""
+    version = {"name": NAME, "state": "ENABLED",
+               "replicationStatus": replica_status(KEY + "/cryptoKeyVersions/1")}
+    evidence = []
+    result = encryption(kms(USER_MANAGED, version), evidence)(CTX, ENC_SPEC)
+    assert (result.observed, result.unknown_reason) == ("enabled", None)
+    assert json.loads(evidence[0])["format_version"] == "2"
+    automatic = {"name": NAME, "state": "ENABLED", "replicationStatus": {"automatic": {
+        "customerManagedEncryption": {"kmsKeyVersionName": KEY + "/cryptoKeyVersions/2"}}}}
+    assert encryption(kms(version=automatic))(CTX, ENC_SPEC).observed == "enabled"
+
+
+def test_every_replica_key_version_must_be_registered_and_enabled():
+    other = KEY.replace("secrets", "other") + "/cryptoKeyVersions/1"
+    mixed = {"name": NAME, "state": "ENABLED",
+             "replicationStatus": replica_status(KEY + "/cryptoKeyVersions/1", other)}
+    result = encryption(kms(USER_MANAGED, mixed))(CTX, ENC_SPEC)
+    assert (result.observed, result.unknown_reason) == (None, "UNEXPECTED_RESPONSE")
+    missing = {"name": NAME, "state": "ENABLED", "replicationStatus": {"userManaged": {"replicas": [
+        {"location": "asia-northeast3"}]}}}
+    result = encryption(kms(USER_MANAGED, missing))(CTX, ENC_SPEC)
+    assert (result.observed, result.unknown_reason) == (None, "UNEXPECTED_RESPONSE")
+    states = iter(["ENABLED", "DISABLED"])
+    two = {"name": NAME, "state": "ENABLED", "replicationStatus": replica_status(
+        KEY + "/cryptoKeyVersions/1", KEY + "/cryptoKeyVersions/2")}
+    reader = client(READER, secretmanager_secrets_get=USER_MANAGED, secretmanager_versions_get=two,
+                    cloudkms_cryptoKeyVersions_get=lambda request: {"state": next(states)})
+    assert encryption(reader)(CTX, ENC_SPEC).observed == "disabled"
 
 
 def test_google_default_encryption_or_disabled_key_is_disabled():

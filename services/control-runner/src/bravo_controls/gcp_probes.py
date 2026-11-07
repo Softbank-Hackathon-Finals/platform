@@ -312,13 +312,46 @@ def _cmek_keys(secret: Mapping) -> frozenset | None:
     return frozenset(keys)
 
 
+def _version_key_versions(version: Mapping) -> list | None:
+    """Cloud KMS key versions that encrypted this Secret version, one per replica.
+
+    Global secrets report them in ``replicationStatus`` (``automatic`` or
+    ``userManaged.replicas[]``); only regional secrets fill the top-level
+    ``customerManagedEncryption``. ``None`` means no CMEK status anywhere.
+    """
+    top = version.get("customerManagedEncryption")
+    if isinstance(top, Mapping):
+        return [top.get("kmsKeyVersionName")]
+    status = version.get("replicationStatus")
+    if status is None:
+        return None
+    if not isinstance(status, Mapping) or len(status) != 1:
+        raise ValueError("unexpected Secret version replication status")
+    if "automatic" in status:
+        configs = [status["automatic"]]
+    elif "userManaged" in status and isinstance(status["userManaged"], Mapping):
+        configs = status["userManaged"].get("replicas")
+        if not isinstance(configs, list) or not configs:
+            raise ValueError("unexpected Secret version replicas")
+    else:
+        raise ValueError("unexpected Secret version replication status")
+    found = []
+    for config in configs:
+        if not isinstance(config, Mapping):
+            raise ValueError("unexpected Secret version replication status")
+        cmek = config.get("customerManagedEncryption")
+        found.append(cmek.get("kmsKeyVersionName") if isinstance(cmek, Mapping) else None)
+    return None if all(k is None for k in found) else found
+
+
 class GcpSecretEncryptionProbe:
     """ENC-02.1 gcp: the pinned Secret version is encrypted with the registered Cloud KMS key.
 
-    ``enabled``: every replica uses a registered key, the version names a version of one
-    of them and that key version is ENABLED. ``disabled``: no CMEK at all (Google-default
-    encryption is not the registered control) or the key version is disabled/destroyed.
-    Any other key or a change between the bracketing reads is UNEXPECTED_RESPONSE.
+    ``enabled``: every replica uses a registered key, every replica's key version (global
+    secrets: ``replicationStatus``; regional: top-level) belongs to one of them and is
+    ENABLED. ``disabled``: no CMEK at all (Google-default encryption is not the registered
+    control) or a key version is disabled/destroyed. Any other key, a missing replica key
+    version or a change between the bracketing reads is UNEXPECTED_RESPONSE.
     """
 
     def __init__(
@@ -367,24 +400,30 @@ class GcpSecretEncryptionProbe:
         before = self._get("secretmanager.secrets.get", secret_name)
         version = self._get("secretmanager.versions.get", secret_target.name)
         keys = _cmek_keys(before)
-        cmek = version.get("customerManagedEncryption")
-        key_version = cmek.get("kmsKeyVersionName") if isinstance(cmek, Mapping) else None
+        key_versions = _version_key_versions(version)
         registered = frozenset(self.target.kms_key_names)
-        state = None
+        states: list = []
         if version.get("name") not in secret_target.names() or version.get("state") != "ENABLED":
             observed, reason = None, "UNEXPECTED_RESPONSE"
-        elif keys is None and key_version is None:
+        elif keys is None and key_versions is None:
             observed, reason = "disabled", None
         elif (
             keys is not None
             and keys <= registered
-            and isinstance(key_version, str)
-            and any(key_version.startswith(k + "/cryptoKeyVersions/") for k in keys)
+            and key_versions is not None
+            and all(isinstance(kv, str) for kv in key_versions)
+            and all(any(kv.startswith(k + "/cryptoKeyVersions/") for k in keys) for kv in key_versions)
         ):
-            state = self._get("cloudkms.cryptoKeyVersions.get", key_version).get("state")
-            if state == "ENABLED":
+            states = [
+                self._get("cloudkms.cryptoKeyVersions.get", kv).get("state")
+                for kv in sorted(set(key_versions))
+            ]
+            if all(state == "ENABLED" for state in states):
                 observed, reason = "enabled", None
-            elif state in {"DISABLED", "DESTROYED", "DESTROY_SCHEDULED"}:
+            elif all(
+                state in {"ENABLED", "DISABLED", "DESTROYED", "DESTROY_SCHEDULED"}
+                for state in states
+            ):
                 observed, reason = "disabled", None
             else:
                 observed, reason = None, "UNEXPECTED_RESPONSE"
@@ -395,7 +434,8 @@ class GcpSecretEncryptionProbe:
         collected = _utc(self.clock())
         payload = _canonical(
             {
-                "format_version": "1",
+                # 2: one key version per replica, read from replicationStatus (A11).
+                "format_version": "2",
                 "run_id": context.run_id,
                 "app": context.app,
                 "environment": context.environment.ref,
@@ -404,8 +444,10 @@ class GcpSecretEncryptionProbe:
                 "secret_version": secret_target.name,
                 "registered_keys": sorted(registered),
                 "observed_keys": sorted(k or "" for k in keys) if keys else [],
-                "key_version_sha256": _digest(key_version.encode()) if key_version else None,
-                "key_version_state": state,
+                "key_version_sha256": sorted(
+                    _digest(kv.encode()) for kv in set(key_versions or ()) if isinstance(kv, str)
+                ),
+                "key_version_states": states,
                 "reader_principal_sha256": _digest(self.principal.encode()),
                 "collected_at": collected.isoformat(),
                 "observed": observed,

@@ -193,18 +193,96 @@ def test_gcloud_adapter_uses_read_only_allowlist(tmp_path):
             return json.dumps(fixture["service_accounts"][argv[4]]["iam_policy"])
         if argv[1:3] == ["asset", "search-all-iam-policies"]:
             return json.dumps(fixture["resource_policies"])
+        if argv[1:4] in (["storage", "buckets", "describe"], ["kms", "keys", "describe"]) or argv[1:3] == ["secrets", "describe"]:
+            return "{}"
         raise AssertionError(argv)
 
     adapter = GcloudAdapter(exports, project_id="example-project", run=run)
     g = adapter.trace("chat")
     assert ("gcs_bucket", "demo-chat-attachments") in {(r.kind, r.name) for r in g.resources}
     assert {c for c in g.api_calls if c.startswith("gcloud")} == {
-        "gcloud projects get-iam-policy", "gcloud iam service-accounts get-iam-policy", "gcloud asset search-all-iam-policies"}
-    assert all(a[1:3] != ["storage", "buckets"] for a in seen)
+        "gcloud projects get-iam-policy", "gcloud iam service-accounts get-iam-policy", "gcloud asset search-all-iam-policies",
+        "gcloud storage buckets describe", "gcloud secrets describe", "gcloud kms keys describe"}
+    # only metadata reads of reached resources; no object, payload or write command
+    assert all(a[1:4] == ["storage", "buckets", "describe"] for a in seen if a[1] == "storage")
+    assert not any("versions" in a or "access" in a for a in seen)
     with pytest.raises(PermissionError):
         adapter.gcloud("storage", "buckets", "delete", "gs://demo-chat-attachments")
     with pytest.raises(PermissionError):
         adapter.gcloud("projects", "set-iam-policy", "example-project", "policy.json")
+    with pytest.raises(PermissionError):
+        adapter.gcloud("secrets", "versions", "access", "latest", "--secret=demo-chat-db")
+
+
+def test_gcloud_adapter_live_shapes_from_a11(tmp_path):
+    """Shapes read back from a real GKE project (A11, identifiers replaced): Cloud Asset names a
+    bucket ``//storage.googleapis.com/<b>``, a KSA without annotation holds direct Workload
+    Identity grants, and the secret's CMEK key is reached without any KMS binding on the app."""
+    exports = tmp_path / "exports"
+    exports.mkdir()
+    sa = lambda name, gsa=None: {"metadata": {"name": name, "namespace": "a11-probe", **(  # noqa: E731
+        {"annotations": {"iam.gke.io/gcp-service-account": gsa}} if gsa else {})}}
+    deploy = lambda name: {"metadata": {"name": name, "namespace": "a11-probe"}, "spec": {"template": {"spec": {  # noqa: E731
+        "serviceAccountName": name, "containers": [{"name": "probe", "image": "python:3.12-slim"}]}}}}
+    gsa = "bravo-a11-app@example-proj.iam.gserviceaccount.com"
+    (exports / "serviceaccounts.json").write_text(json.dumps({"kind": "List", "items": [sa("a11-app", gsa), sa("a11-reader")]}))
+    (exports / "deployments.json").write_text(json.dumps({"kind": "List", "items": [deploy("a11-app"), deploy("a11-reader")]}))
+    key = "projects/example-proj/locations/asia-northeast3/keyRings/bravo-a11-ctl/cryptoKeys/bravo-a11-ctl-secrets"
+    reader = ("principal://iam.googleapis.com/projects/123456789/locations/global/workloadIdentityPools/"
+              "example-proj.svc.id.goog/subject/ns/a11-probe/sa/a11-reader")
+    policies = {
+        f"serviceAccount:{gsa}": [
+            {"resource": "//storage.googleapis.com/bravo-a11-ctl-attach", "policy": {"bindings": [
+                {"role": "roles/storage.objectViewer", "members": [f"serviceAccount:{gsa}"]}]}},
+            {"resource": "//secretmanager.googleapis.com/projects/123456789/secrets/bravo-a11-ctl-db", "policy": {"bindings": [
+                # a member-filtered search returns only that member's bindings
+                {"role": "roles/secretmanager.secretAccessor", "members": [f"serviceAccount:{gsa}"]}]}},
+        ],
+        reader: [
+            {"resource": "//secretmanager.googleapis.com/projects/123456789/secrets/bravo-a11-ctl-db", "policy": {"bindings": [
+                {"role": "roles/secretmanager.viewer", "members": [reader]}]}},
+            {"resource": f"//cloudkms.googleapis.com/{key}", "policy": {"bindings": [
+                {"role": "roles/cloudkms.viewer", "members": [reader]}]}},
+        ],
+    }
+    calls = []
+
+    def run(argv):
+        calls.append(argv)
+        if argv[1:3] == ["projects", "get-iam-policy"]:
+            return json.dumps({"bindings": [{"role": "roles/logging.viewer", "members": [reader]}]})
+        if argv[1:3] == ["projects", "describe"]:
+            return json.dumps({"projectNumber": "123456789"})
+        if argv[1:4] == ["iam", "service-accounts", "get-iam-policy"]:
+            return json.dumps({"bindings": [{"role": "roles/iam.workloadIdentityUser",
+                                             "members": ["serviceAccount:example-proj.svc.id.goog[a11-probe/a11-app]"]}]})
+        if argv[1:3] == ["asset", "search-all-iam-policies"]:
+            return json.dumps(policies[argv[4].split('"')[1]])
+        if argv[1:4] == ["storage", "buckets", "describe"]:
+            return json.dumps({"location": "ASIA-NORTHEAST3", "uniform_bucket_level_access": True})
+        if argv[1:3] == ["secrets", "describe"]:
+            return json.dumps({"replication": {"userManaged": {"replicas": [
+                {"location": "asia-northeast3", "customerManagedEncryption": {"kmsKeyName": key}}]}}})
+        if argv[1:4] == ["kms", "keys", "describe"]:
+            return json.dumps({"purpose": "ENCRYPT_DECRYPT", "primary": {"state": "ENABLED"}})
+        raise AssertionError(argv)
+
+    g = GcloudAdapter(exports, project_id="example-proj", run=run).trace("a11-probe")
+    res = {(r.kind, r.name, r.via.split(" → ")[0]): r for r in g.resources}
+    bucket = res[("gcs_bucket", "bravo-a11-ctl-attach", "Deployment/a11-app")]
+    assert bucket.role == "object_store" and bucket.attributes["uniform_access"] == "True"
+    secret = res[("gcp_secret", "bravo-a11-ctl-db", "Deployment/a11-app")]
+    assert secret.attributes["kms_key_name"] == key and secret.attributes["replication"] == "user-managed"
+    cmek = res[("gcp_kms_key", key, "Deployment/a11-app")]
+    assert cmek.via.endswith("Secret/bravo-a11-ctl-db CMEK") and cmek.attributes["state"] == "ENABLED"
+    assert ("gcp_wi_principal", "ns/a11-probe/sa/a11-reader", "Deployment/a11-reader") in res
+    assert any(r.kind == "gcp_kms_key" and r.name == key and r.via.startswith("Deployment/a11-reader")
+               and r.actions == ["roles/cloudkms.viewer"] for r in g.resources)
+    assert res[("gcp_project_role", "roles/logging.viewer", "Deployment/a11-reader")].role == "audit"
+    # the same secret, found by a second search that returned the other half of its policy
+    assert res[("gcp_secret", "bravo-a11-ctl-db", "Deployment/a11-reader")].actions == ["roles/secretmanager.viewer"]
+    assert not any("주석" in n for n in g.notes)
+    assert not any(c[1:3] == ["secrets", "versions"] for c in calls)
 
 
 # --- onprem -------------------------------------------------------------------------------------
