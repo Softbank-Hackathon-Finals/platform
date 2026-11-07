@@ -1,6 +1,10 @@
 // Sova's workspace presentation, projected from T21's validated read model.
 // No API client, action eligibility, workflow state or persistent storage here.
 export const VIEWS = {
+  delivery: [
+    "IaC·고객 환경",
+    "변경 계획의 승인·PR 생성과 고객 환경의 지정 커밋 반영 상태를 확인합니다.",
+  ],
   network: [
     "네트워크 아틀라스",
     "현재 작업 화면에서 환경·리소스·전송 경로와 수집 근거를 확인합니다.",

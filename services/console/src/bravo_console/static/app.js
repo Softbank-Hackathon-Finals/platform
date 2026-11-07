@@ -21,6 +21,7 @@ import { mountOperations } from "./operations.js";
 import { mountNetworkWorkspace } from "./network-workspace.js";
 import { mountWorkload } from "./workload-view.js";
 import { renderSecurityProgress } from "./security-progress.js";
+import { mountDelivery } from "./delivery-view.js";
 const workspace = mountWorkspace();
 const $ = (id) => document.getElementById(id);
 let model,
@@ -38,6 +39,14 @@ let pending = null,
   refreshBusy = false,
   refreshTimer;
 let extensionBusy = false;
+const extensionLocks = new Set();
+function extensionLock(name, value) {
+  const before = extensionBusy;
+  if (value) extensionLocks.add(name);
+  else extensionLocks.delete(name);
+  extensionBusy = extensionLocks.size > 0;
+  if (before !== extensionBusy) render();
+}
 const networkWorkspace = mountNetworkWorkspace({ getModel: () => model });
 const workload = mountWorkload({
   getModel: () => model,
@@ -52,15 +61,18 @@ const panels = mountPanels({
 const operations = mountOperations({
   getModel: () => model,
   getPanel: () => panels.current(),
-  mainPending: () => pending,
-  setBusy: (value) => {
-    extensionBusy = value;
-    render();
-  },
+  mainPending: () => pending || delivery.pending,
+  setBusy: (value) => extensionLock("operations", value),
   refresh: async () => {
     if (model) await refresh(generation);
     await panels.refresh(true);
   },
+  onForbidden: revokeView,
+});
+const delivery = mountDelivery({
+  getModel: () => model,
+  mainPending: () => pending || operations.pending,
+  setBusy: (value) => extensionLock("delivery", value),
   onForbidden: revokeView,
 });
 const names = {
@@ -118,6 +130,7 @@ function render() {
   networkWorkspace.render();
   workload.render();
   renderSecurityProgress($("security-progress"), model, controls);
+  delivery.render();
   const now = Date.now(),
     eligible = !extensionBusy && model.eligible(now),
     approvalRetry =
@@ -416,6 +429,7 @@ function revokeView(error) {
   model.error = "forbidden";
   panels.clear();
   workload.clear();
+  delivery.clear();
   operations.revoke();
   networkWorkspace.clear();
   observed = null;
@@ -526,6 +540,7 @@ async function refresh(g) {
       refreshBusy = false;
       render();
       void panels.refresh();
+      void delivery.refresh();
     }
   }
 }
@@ -578,7 +593,7 @@ async function follow(g) {
   }
 }
 async function connectPlan(plan, recovery = false) {
-  if (!operations.canConnect(plan)) {
+  if (!operations.canConnect(plan) || !delivery.canConnect(plan)) {
     notice("먼저 같은 운영 요청의 결과를 확인해 주세요.", true);
     return;
   }
@@ -599,6 +614,7 @@ async function connectPlan(plan, recovery = false) {
   model = new Model(plan);
   panels.clear();
   workload.clear();
+  delivery.clear();
   observed = null;
   controls = null;
   security = null;
@@ -922,7 +938,7 @@ window.addEventListener("offline", () => {
   }
 });
 window.addEventListener("beforeunload", (e) => {
-  if (pending || operations.pending) {
+  if (pending || operations.pending || delivery.pending) {
     e.preventDefault();
     e.returnValue = "";
   }
@@ -930,6 +946,7 @@ window.addEventListener("beforeunload", (e) => {
 window.addEventListener("pagehide", () => {
   networkWorkspace.clear();
   workload.clear();
+  delivery.clear();
   stopped = true;
   generation++;
   clearInterval(refreshTimer);

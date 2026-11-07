@@ -1499,3 +1499,51 @@ footer {
   color: #a92c35;
   background: #fff4f4;
 }
+.delivery-columns {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 24px;
+}
+.delivery-columns label {
+  display: block;
+  margin: 12px 0;
+}
+.delivery-columns input,
+.delivery-columns textarea,
+.delivery-columns select {
+  width: 100%;
+  box-sizing: border-box;
+}
+.delivery-columns textarea {
+  font-family: monospace;
+  padding: 12px;
+  border: 1px solid #dce5fa;
+  border-radius: 8px;
+}
+.delivery-columns pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: 13px;
+  background: #f5f7fc;
+  padding: 14px;
+  border-radius: 10px;
+}
+.delivery-flow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 28px;
+  padding: 18px 32px;
+  background: #eef3ff;
+  border-radius: 10px;
+}
+[data-sync="BLOCKED"] {
+  border-color: #cd5360;
+}
+[data-sync="SYNC_RETRYING"] {
+  border-color: #c28b28;
+}
+@media (max-width: 800px) {
+  .delivery-columns {
+    grid-template-columns: 1fr;
+  }
+}

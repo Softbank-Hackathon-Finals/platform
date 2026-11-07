@@ -14,6 +14,8 @@ from .observations import ObservationError
 from .wire import object_document
 
 ASSETS = {
+    "/console/delivery-model.js": ("delivery-model.js", "text/javascript"),
+    "/console/delivery-view.js": ("delivery-view.js", "text/javascript"),
     "/console/security-progress.js": ("security-progress.js", "text/javascript"),
     "/console/": ("index.html", "text/html"),
     "/console/app.js": ("app.js", "text/javascript"),

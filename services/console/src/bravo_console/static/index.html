@@ -38,6 +38,9 @@
           <button type="button" data-view="security" aria-current="false">
             <span class="nav-icon" aria-hidden="true">⬡</span>보안·거버넌스
           </button>
+          <button type="button" data-view="delivery" aria-current="false">
+            <span class="nav-icon" aria-hidden="true">▤</span>IaC·고객 환경
+          </button>
           <button type="button" data-view="monitoring" aria-current="false">
             <span class="nav-icon" aria-hidden="true">⌁</span>모니터링
           </button>
@@ -513,6 +516,104 @@
             </section>
           </div>
           <section
+            class="card"
+            data-views="delivery"
+            aria-label="IaC 승인 흐름"
+          >
+            <div class="section-title">
+              <h2>IaC 변경 승인</h2>
+              <button type="button" id="delivery-refresh">
+                연결 상태 새로 조회
+              </button>
+            </div>
+            <p id="iac-capability" class="muted">운영 연결을 기다립니다.</p>
+            <ol class="delivery-flow">
+              <li>변경 계획 저장</li>
+              <li>다른 담당자 승인</li>
+              <li>PR 생성·검토</li>
+              <li>고객 커밋 반영 확인</li>
+            </ol>
+            <p class="muted">
+              승인 범위는 IaC 계획 ID·해시·요청자로 고정됩니다. 이 화면에서
+              병합·클러스터 동기화·DB 전환을 실행하지 않습니다.
+            </p>
+            <div class="delivery-columns">
+              <div>
+                <h3>1. 변경 계획</h3>
+                <label>등록된 환경·모듈<select id="iac-module"></select></label>
+                <label
+                  >변경할 설정 JSON (비밀값 입력 금지)<textarea
+                    id="iac-params"
+                    rows="7"
+                    maxlength="8192"
+                    spellcheck="false"
+                  ></textarea>
+                </label>
+                <button type="button" id="iac-create" disabled>
+                  변경 계획 저장
+                </button>
+                <label
+                  >저장된 IaC 계획 ID<input
+                    id="iac-id"
+                    maxlength="128"
+                    autocomplete="off"
+                /></label>
+                <button type="button" id="iac-read" disabled>계획 조회</button>
+                <pre id="iac-plan-detail">저장된 계획을 기다립니다.</pre>
+              </div>
+              <div>
+                <h3>2. 승인·PR</h3>
+                <button type="button" id="iac-approve" disabled>
+                  이 IaC 계획 승인
+                </button>
+                <label
+                  >승인 ID<input
+                    id="iac-approval-id"
+                    maxlength="128"
+                    autocomplete="off"
+                /></label>
+                <button type="button" id="iac-approval-read" disabled>
+                  승인 조회
+                </button>
+                <pre id="iac-approval-detail">승인 기록을 기다립니다.</pre>
+                <button type="button" id="iac-pr" disabled>
+                  승인한 변경의 PR 생성
+                </button>
+                <a
+                  id="iac-pr-link"
+                  hidden
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  >PR 파일 변경 확인</a
+                >
+              </div>
+            </div>
+            <label class="confirm-label"
+              ><input type="checkbox" id="iac-confirm" disabled /> 현재 계획과
+              변경 내용을 확인했습니다.</label
+            >
+            <p id="iac-status" role="status">
+              승인과 실행은 별개입니다. 최종 권한은 서버가 검사합니다.
+            </p>
+            <button type="button" id="iac-recover" hidden>
+              미확인 요청 기록 조회
+            </button>
+            <button type="button" id="iac-repeat" hidden>
+              같은 요청으로 복구
+            </button>
+          </section>
+          <section
+            class="card"
+            data-views="delivery monitoring"
+            aria-label="고객 동기화 상태"
+          >
+            <h2>고객 환경 동기화</h2>
+            <p id="customer-sync-status" class="muted">
+              현재 계획의 고객 환경 수집 연결을 기다립니다.
+            </p>
+            <div id="customer-sync-list" class="security-progress-grid"></div>
+          </section>
+          <section
             id="security-progress"
             class="card"
             data-views="security"
@@ -807,19 +908,18 @@
               >
             </div>
             <div id="panel-audit-body"></div>
-      <section class="card" aria-label="에이전트 도구 차단 감사 기록">
-        <h2>에이전트 도구 차단 기록</h2>
-        <p id="audit-status" role="status">
-          감사 기록 확인 불가 — 계획 연결 대기
-        </p>
-        <p class="muted">
-          등록된 실행의 저장 기록입니다. AWS IAM의 버킷 삭제 거부 시험이나 전체
-          실행의 무결성·보존 기간 검증을 뜻하지 않습니다.
-        </p>
-        <p id="audit-digest" class="muted"></p>
-        <ol id="audit-rows"></ol>
-      </section>
-
+            <section class="card" aria-label="에이전트 도구 차단 감사 기록">
+              <h2>에이전트 도구 차단 기록</h2>
+              <p id="audit-status" role="status">
+                감사 기록 확인 불가 — 계획 연결 대기
+              </p>
+              <p class="muted">
+                등록된 실행의 저장 기록입니다. AWS IAM의 버킷 삭제 거부 시험이나
+                전체 실행의 무결성·보존 기간 검증을 뜻하지 않습니다.
+              </p>
+              <p id="audit-digest" class="muted"></p>
+              <ol id="audit-rows"></ol>
+            </section>
           </section>
           <section
             class="card feature-panel"

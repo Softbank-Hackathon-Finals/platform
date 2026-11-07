@@ -6,6 +6,8 @@ for (const name of [
   "app.js",
   "audit.js",
   "security-progress.js",
+  "delivery-model.js",
+  "delivery-view.js",
   "model.js",
   "transport.js",
   "registration.js",
