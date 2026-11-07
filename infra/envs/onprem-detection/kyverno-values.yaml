@@ -1,0 +1,39 @@
+# T33 온프렘 정책 탐지: Kyverno 3.9.2(app v1.19.2), 차트 sha256 f6fe7184544d5e2ee33a77808c09e67aa603ce6560cc197038fde31d727c861e
+# 감시만 한다. 정책은 Audit이고 웹훅은 실패해도 요청을 통과시킨다(Kyverno가 멈춰도 업무 배포를 막지 않음).
+# 결과는 PolicyReport(wgpolicyk8s.io/v1alpha2)로 남고, 수집 에이전트(agent.yaml)가 읽어 플랫폼으로 바깥 방향으로 보낸다.
+features:
+  forceFailurePolicyIgnore:
+    enabled: true
+  # 정책을 VAP로 바꿔 API 서버가 직접 거부하게 만들지 않는다(Audit만)
+  generateValidatingAdmissionPolicy:
+    enabled: false
+openreports:
+  enabled: false
+config:
+  webhooks:
+    namespaceSelector:
+      matchExpressions:
+        - key: kubernetes.io/metadata.name
+          operator: NotIn
+          values: [kube-system, tailscale-system, cnpg-system, bravo-secrets, bravo-iac-gitops, falco]
+admissionController:
+  replicas: 1
+  container:
+    resources:
+      requests: {cpu: 50m, memory: 128Mi}
+      limits: {memory: 384Mi}
+backgroundController:
+  enabled: true
+  replicas: 1
+  resources:
+    requests: {cpu: 25m, memory: 64Mi}
+    limits: {memory: 256Mi}
+reportsController:
+  enabled: true
+  replicas: 1
+  resources:
+    requests: {cpu: 25m, memory: 64Mi}
+    limits: {memory: 256Mi}
+# 생성 · 정리 정책은 쓰지 않는다
+cleanupController:
+  enabled: false

@@ -5,7 +5,7 @@
 | 자원 | 내용 |
 |---|---|
 | `aws_kms_key.gate[용도]` | `ECC_NIST_EDWARDS25519` · `SIGN_VERIFY`. 계정 관리자는 관리만 하고 서명하지 못한다. 서명 역할만 `ED25519_SHA_512`·RAW로 서명하고, 그 밖의 서명은 거부한다 |
-| `aws_iam_openid_connect_provider.platform` | 플랫폼 클러스터의 공개 ServiceAccount 발급자(`oidc-issuer` env `platform`). audience `sts.amazonaws.com` |
+| `aws_iam_openid_connect_provider.platform` | 플랫폼 클러스터의 공개 ServiceAccount 발급자(`oidc-issuer` env `platform`). audience `sts.amazonaws.com`. T33 GuardDuty 수집 역할(`infra/envs/platform-security`)도 이 provider를 읽어 신뢰한다. 이 스택을 destroy하면 그 역할의 신뢰도 끊긴다 |
 | `aws_iam_role.signer` | `system:serviceaccount:platform-state:t10-workflow-host`만 웹 신원으로 맡는다. 권한은 키 정책에서만 온다 |
 | `aws_vpc_endpoint.aws[sts·kms]` | 플랫폼 VPC 사설 경로. 노드 보안 그룹에서 443만 받는다 |
 
