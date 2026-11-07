@@ -392,13 +392,19 @@ def _access_check(params: dict) -> dict:
                 or not all(isinstance(s, str) and TAILNET_GROUP_RE.fullmatch(s) for s in sources)
                 or any(b["name"] == name or b["group"] == group for b in out["bindings"])):
             raise IacError("IAC_PARAMS_INVALID")
-        out["bindings"].append({"name": name, "group": group, "cluster_role": _name(binding["cluster_role"]),
+        role = _name(binding["cluster_role"])
+        # roleRef is immutable: a role change must be a new binding, so the name is the group and the role.
+        if name != group.replace(":", "-") + "-" + role:
+            raise IacError("IAC_PARAMS_INVALID")
+        out["bindings"].append({"name": name, "group": group, "cluster_role": role,
                                 "tailnet_groups": sorted(sources)})
     return out
 
 
 def _access_render(params: dict) -> list[dict]:
-    return [{"kind": "ClusterRoleBinding", "namespace": "-", "name": b["name"], "shape": {
+    # A binding grants its role; whoever creates it needs that role (RBAC escalation). The network
+    # Application never gets it: a cluster administrator applies these (chart.held_objects).
+    return [{"kind": "ClusterRoleBinding", "namespace": "-", "name": b["name"], "applier": "cluster-admin", "shape": {
         "roleRef": {"apiGroup": "rbac.authorization.k8s.io", "kind": "ClusterRole", "name": b["cluster_role"]},
         "subjects": [{"apiGroup": "rbac.authorization.k8s.io", "kind": "Group", "name": b["group"]}]}}
         for b in params["bindings"]]

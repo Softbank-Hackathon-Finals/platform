@@ -12,7 +12,7 @@ import json
 import subprocess
 
 from .catalog import check_state, module
-from .modules import DEFAULT_TAILNET, IacError, tailnet_of
+from .modules import DEFAULT_TAILNET, KUBERNETES_CAP, IacError, tailnet_of
 
 TAILSCALE = "/Applications/Tailscale.app/Contents/MacOS/Tailscale"
 
@@ -86,6 +86,17 @@ def check_policy(policy, states, tailnet=DEFAULT_TAILNET) -> list[str]:
         if not any(src in g.get("src", []) and dst in g.get("dst", []) and (ip in g.get("ip", []) or "*" in g.get("ip", []))
                    and ("app" not in grant or g.get("app") == grant["app"]) for g in policy.get("grants") or []):
             missing.append(f"GRANT:{src}->{dst}:{ip}" + ("+app" if "app" in grant else ""))
+    # A capability grant to a declared API proxy that the desired state does not declare would let a
+    # policy edit alone hand out cluster rights (the proxy may impersonate any group): report it too.
+    declared = {json.dumps(g, sort_keys=True) for g in want["grants"] if "app" in g}
+    proxies = {d for g in want["grants"] if "app" in g for d in g["dst"]}
+    for g in policy.get("grants") or []:
+        if KUBERNETES_CAP in (g.get("app") or {}) and proxies & set(g.get("dst", [])):
+            for src in g.get("src", []):
+                for dst in sorted(proxies & set(g["dst"])):
+                    one = {"src": [src], "dst": [dst], "ip": g.get("ip", []), "app": g["app"]}
+                    if json.dumps(one, sort_keys=True) not in declared:
+                        missing.append(f"UNDECLARED_GRANT:{src}->{dst}+app")
     tests = policy.get("tests") or []
     for test in want["tests"]:
         have = {a for t in tests if t.get("src") == test["src"] for a in t.get("accept", [])}

@@ -1176,27 +1176,3 @@
     ]
   }
 }
----
-{
-  "apiVersion": "rbac.authorization.k8s.io/v1",
-  "kind": "ClusterRoleBinding",
-  "metadata": {
-    "labels": {
-      "app.kubernetes.io/managed-by": "bravo-iac",
-      "bravo.dev/iac-module": "operator-access"
-    },
-    "name": "bravo-operators-cluster-admin"
-  },
-  "roleRef": {
-    "apiGroup": "rbac.authorization.k8s.io",
-    "kind": "ClusterRole",
-    "name": "cluster-admin"
-  },
-  "subjects": [
-    {
-      "apiGroup": "rbac.authorization.k8s.io",
-      "kind": "Group",
-      "name": "bravo:operators"
-    }
-  ]
-}

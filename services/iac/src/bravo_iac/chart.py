@@ -4,7 +4,9 @@ The chart is generated, deterministic and committed under infra/iac/charts/<envi
 tailnet suffix is the chart's only value (`tailnet`, e.g. `<name>.ts.net`; a group on another tailnet
 adds `tailnets.<key>`): it stays out of the public repository and is set on the cluster's Argo
 Application at install. Resources that need
-credentials (``secret_inputs``) are not in the chart; their own applier injects them.
+credentials (``secret_inputs``) are not in the chart; their own applier injects them. Access bindings
+(``applier``) are not in it either: a cluster administrator applies them (``held_objects``), so the
+cluster's Argo CD never needs the rights those bindings grant.
 """
 
 import json
@@ -25,15 +27,14 @@ TAILNET_PATTERN = r"^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.ts\.net$"
 KEYED = re.compile(r"\{tailnet:([a-z0-9](?:[-a-z0-9]{0,61}[a-z0-9])?)\}")
 
 
-def manifests(state) -> tuple[list[dict], list[str]]:
-    """(Kubernetes objects, modules or resources left to another applier)."""
-    state = check_state(state)
+def _objects(state, held):
     objects, unmanaged = [], []
-    for entry in state["modules"]:
+    for entry in check_state(state)["modules"]:
         for resource in module(entry["id"], entry["version"]).render(entry["params"]):
             key = f'{resource["kind"]}/{resource["namespace"]}/{resource["name"]}'
-            if resource.get("secret_inputs") or resource["kind"] not in API:
-                unmanaged.append(f'{entry["id"]}:{key}')
+            if resource.get("secret_inputs") or resource["kind"] not in API or bool(resource.get("applier")) != held:
+                if not held:
+                    unmanaged.append(f'{entry["id"]}:{key}')
                 continue
             labels = {"app.kubernetes.io/managed-by": "bravo-iac", "bravo.dev/iac-module": entry["id"]}
             metadata = {"name": resource["name"], "labels": labels}
@@ -48,6 +49,17 @@ def manifests(state) -> tuple[list[dict], list[str]]:
             else:
                 obj["spec"] = spec
             objects.append(obj)
+    return objects, unmanaged
+
+
+def held_objects(state) -> list[dict]:
+    """The objects a cluster administrator applies (access bindings), rendered like the chart's."""
+    return _objects(state, held=True)[0]
+
+
+def manifests(state) -> tuple[list[dict], list[str]]:
+    """(Kubernetes objects, modules or resources left to another applier)."""
+    objects, unmanaged = _objects(state, held=False)
     namespaces = sorted({o["metadata"]["namespace"] for o in objects if "namespace" in o["metadata"]} - SYSTEM_NAMESPACES)
     declared = [{"apiVersion": "v1", "kind": "Namespace",
                  "metadata": {"name": name, "labels": {"app.kubernetes.io/managed-by": "bravo-iac"},

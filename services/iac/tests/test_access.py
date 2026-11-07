@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 
 from bravo_iac import IacError, check_state, module, plan
-from bravo_iac.chart import manifests
+from bravo_iac.chart import held_objects, manifests
 from bravo_iac.network import view
 from bravo_iac.tailnet import check_policy, fragment, status, verify
 
@@ -23,7 +23,12 @@ def access_params(state=PLATFORM):
 
 
 def test_platform_operators_are_one_group_bound_to_cluster_admin():
-    [binding] = [o for o in manifests(PLATFORM)[0] if o["kind"] == "ClusterRoleBinding"]
+    # The binding grants cluster-admin, so the network chart (and its Argo Application) never carries it:
+    # a cluster administrator applies it.
+    objects, unmanaged = manifests(PLATFORM)
+    assert not any(o["kind"] == "ClusterRoleBinding" for o in objects)
+    assert "operator-access:ClusterRoleBinding/-/bravo-operators-cluster-admin" in unmanaged
+    [binding] = [o for o in held_objects(PLATFORM) if o["kind"] == "ClusterRoleBinding"]
     assert binding["metadata"]["name"] == "bravo-operators-cluster-admin" and "namespace" not in binding["metadata"]
     assert "spec" not in binding
     assert binding["roleRef"] == {"apiGroup": "rbac.authorization.k8s.io", "kind": "ClusterRole", "name": "cluster-admin"}
@@ -50,7 +55,24 @@ def test_tailnet_admins_and_the_owner_get_one_grant_each_naming_the_impersonated
     for g in masters["grants"]:
         if "app" in g:
             g["app"] = {"tailscale.com/cap/kubernetes": [{"impersonate": {"groups": ["system:masters"]}}]}
-    assert check_policy(masters, STATES) == MISSING
+    undeclared = [f"UNDECLARED_GRANT:{s}->tag:bravo-platform-operator+app" for s in SOURCES]
+    assert check_policy(masters, STATES) == MISSING + undeclared
+
+
+def test_an_undeclared_capability_grant_to_the_proxy_fails_the_check():
+    # One policy edit must not hand out cluster rights: the proxy may impersonate any group.
+    policy = fragment(STATES)
+    policy["grants"].append({"src": ["autogroup:member"], "dst": ["tag:bravo-platform-operator"], "ip": ["tcp:443"],
+                             "app": {"tailscale.com/cap/kubernetes": [{"impersonate": {"groups": ["system:masters"]}}]}})
+    assert check_policy(policy, STATES) == ["UNDECLARED_GRANT:autogroup:member->tag:bravo-platform-operator+app"]
+
+
+def test_a_role_change_is_a_new_binding_name():
+    # roleRef is immutable, so the role is part of the name: changing it adds a binding instead of failing.
+    params = copy.deepcopy(access_params())
+    params["bindings"][0]["cluster_role"] = "admin"
+    with pytest.raises(IacError):
+        ACCESS.check(params)
 
 
 @pytest.mark.parametrize("change", [
@@ -76,9 +98,9 @@ def test_invalid_access_params_are_refused(change):
 
 
 @pytest.mark.parametrize("change", [
-    lambda p: p["bindings"].append({"name": "bravo-viewers", "group": "bravo:viewers", "cluster_role": "view",
+    lambda p: p["bindings"].append({"name": "bravo-viewers-view", "group": "bravo:viewers", "cluster_role": "view",
                                     "tailnet_groups": ["group:bravo-viewers"]}),
-    lambda p: p["bindings"][0].update(cluster_role="admin"),
+    lambda p: p["bindings"][0].update(name="bravo-operators-admin", cluster_role="admin"),
     lambda p: p["bindings"][0]["tailnet_groups"].append("group:everyone"),
     lambda p: p.update(tailnet="workload"),
 ])
