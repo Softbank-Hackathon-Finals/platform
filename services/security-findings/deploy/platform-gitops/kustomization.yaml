@@ -8,4 +8,4 @@ images:
   # publish-security-findings-image가 발행한 digest(propose PR이 고친다). 태그를 배포하지 않는다
   - name: bravo-findings
     newName: ghcr.io/softbank-hackathon-finals/platform-security-findings
-    digest: sha256:0000000000000000000000000000000000000000000000000000000000000000
+    digest: sha256:09bcbdddf12cf4d0e3a3eddb99f33b150f96798ea75d1930058ef32f549edb78
