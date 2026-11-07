@@ -232,8 +232,9 @@ class DelegatedShift:
             try:
                 authority.register(principal(), plan_id, run_id=run_id, profile=self.profile,
                                    binding=self.provider.binding)
-            except Exception:  # noqa: BLE001  (registered by an earlier attempt; sequence rechecks it)
-                log.info("delegated shift %s: registration kept", plan_id)
+            except Exception as error:  # noqa: BLE001  (an earlier attempt registered it; sequence rechecks it)
+                log.info("delegated shift %s: registration not made (%s); sequence rechecks it", plan_id,
+                         getattr(error, "code", type(error).__name__))
             result = ShiftRuntime(host, principal=principal, plan_id=plan_id, run_id=run_id).sequence(
                 stop=Event(), hold_at_full=True)
             log.info("delegated shift %s: %s", plan_id, result.get("status"))
