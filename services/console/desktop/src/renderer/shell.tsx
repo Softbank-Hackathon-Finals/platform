@@ -96,7 +96,8 @@ export function TopBar() {
   const plans: any[] = ctx.data?.data?.plans ?? [];
   const current = plans.find((p) => p.plan_id === plan);
 
-  useEffect(() => { if (!plan && plans[0]) setPlan(plans[0].plan_id); }, [plan, plans, setPlan]);
+  // A plan from another MCP connection (or a deleted one) falls back to the newest real plan.
+  useEffect(() => { if (plans.length && !plans.some((p) => p.plan_id === plan)) setPlan(plans[0].plan_id); }, [plan, plans, setPlan]);
 
   return (
     <header className="drag flex h-[58px] shrink-0 items-center gap-2.5 overflow-hidden border-b-2 border-ink bg-cream px-5">
