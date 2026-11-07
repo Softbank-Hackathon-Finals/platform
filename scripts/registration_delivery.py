@@ -307,7 +307,10 @@ def recorded_source(revision, service):
     shown = run(["git", "show", revision + ":" + service.values], check=False)
     if shown.returncode:
         return None
-    return json.loads(shown.stdout).get("sourceRevision")
+    source = json.loads(shown.stdout).get("sourceRevision")
+    if source is None or source == "0" * 40:
+        return None
+    return source_sha(source)
 
 
 def unreleased_inputs(source, revision, service):
