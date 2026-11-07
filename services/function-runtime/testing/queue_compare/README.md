@@ -1,6 +1,6 @@
 # T46 목적지 큐 서버 후보 비교
 
-ADR-0042 4절의 시험 7개를 후보마다 같은 방식으로 돌린다. 앱처럼 boto3에 주소를 넘기지 않고 `AWS_ENDPOINT_URL_SQS`만 바꾼다. 로컬 Docker 전용이며 팀 환경 · 클라우드를 쓰지 않는다.
+ADR-0046 4절의 시험 7개를 후보마다 같은 방식으로 돌린다. 앱처럼 boto3에 주소를 넘기지 않고 `AWS_ENDPOINT_URL_SQS`만 바꾼다. 로컬 Docker 전용이며 팀 환경 · 클라우드를 쓰지 않는다.
 
 ```sh
 docker compose up -d

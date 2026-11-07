@@ -1,4 +1,4 @@
-"""SQS → Lambda 호환 런타임 (T46, ADR-0041).
+"""SQS → Lambda 호환 런타임 (T46, ADR-0045).
 
 세 부품으로 나눈다. 2단계(공통 인터페이스)로 갈 때 queue와 event만 바꾸고 invoke는 그대로 쓴다.
 

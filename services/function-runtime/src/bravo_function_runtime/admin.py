@@ -1,6 +1,6 @@
 """정지 스위치와 상태 확인 HTTP 서버.
 
-Cutover Executor가 demo-chat에 쓰는 것과 같은 계약이다(ADR-0043): Pod 안에서
+Cutover Executor가 demo-chat에 쓰는 것과 같은 계약이다(ADR-0047): Pod 안에서
 `GET|PUT http://127.0.0.1:8080/admin/write-block`, `Authorization: Bearer $ADMIN_TOKEN`, PUT 본문 `{"blocked": bool}`,
 응답 `{"write_blocked": bool, "in_flight": int}`. 토큰이 설정되지 않으면 관리 요청을 모두 거부한다.
 """

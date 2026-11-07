@@ -10,7 +10,7 @@ docker compose down -v
 
 - 핸들러 `function/pii_check.py`는 AWS Lambda용으로 쓴 그대로의 메시지 개인정보 검사다. 실행기는 이 파일을 고치지 않고 부른다.
 - 송신 쪽은 `boto3.client("sqs")`와 AWS 형식 큐 주소(`https://sqs.ap-northeast-1.amazonaws.com/000000000000/...`)를 그대로 쓰고, `AWS_ENDPOINT_URL_SQS`만 바꾼다.
-- 함수 이미지는 런타임 베이스 이미지(`../../Dockerfile`) 위에 핸들러와 의존성만 얹는다(ADR-0041). `slow.py`는 시간 초과 시험 전용이다.
+- 함수 이미지는 런타임 베이스 이미지(`../../Dockerfile`) 위에 핸들러와 의존성만 얹는다(ADR-0045). `slow.py`는 시간 초과 시험 전용이다.
 - 핸들러 DB 연결은 잠금 대기 50ms · 문장 80ms · 유휴 트랜잭션 150ms 상한을 건다. 한 이벤트의 트랜잭션이 200ms를 넘지 않게 해 Executor의 긴 트랜잭션 판정에 걸리지 않는다(D11).
 - `source/`는 출발지 설정 대조 시험용 AWS API 출력 형식 입력이다.
 

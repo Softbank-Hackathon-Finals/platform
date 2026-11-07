@@ -1,6 +1,6 @@
 # SQS → Lambda 호환 런타임 (T46)
 
-큐에서 메시지를 꺼내, AWS Lambda용으로 쓴 핸들러를 고치지 않고 AWS SQS 이벤트 형식으로 부른다. 앱은 `AWS_ENDPOINT_URL_SQS`만 목적지 큐 서버(ElasticMQ, ADR-0042)로 바꾼다. 구조는 ADR-0041, 컷오버 · 되돌리기 규칙은 ADR-0043. 판정 · 실행 경로라 LLM을 쓰지 않는다.
+큐에서 메시지를 꺼내, AWS Lambda용으로 쓴 핸들러를 고치지 않고 AWS SQS 이벤트 형식으로 부른다. 앱은 `AWS_ENDPOINT_URL_SQS`만 목적지 큐 서버(ElasticMQ, ADR-0046)로 바꾼다. 구조는 ADR-0045, 컷오버 · 되돌리기 규칙은 ADR-0047. 판정 · 실행 경로라 LLM을 쓰지 않는다.
 
 | 모듈 | 부품 | 하는 일 |
 |---|---|---|

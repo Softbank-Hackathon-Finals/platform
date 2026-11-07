@@ -1,4 +1,4 @@
-# 런타임 베이스 이미지: 실행기만 들어 있다. 핸들러는 이 위에 얹은 함수 이미지에 둔다(ADR-0041).
+# 런타임 베이스 이미지: 실행기만 들어 있다. 핸들러는 이 위에 얹은 함수 이미지에 둔다(ADR-0045).
 FROM python:3.12-slim
 WORKDIR /opt/runtime
 COPY pyproject.toml ./
