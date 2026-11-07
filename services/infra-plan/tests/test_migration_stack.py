@@ -6,7 +6,7 @@ import sys
 from types import SimpleNamespace
 
 import pytest
-from test_executor import FakeApprovals, FakeCluster, _git
+from test_executor import PLAN_ID, REQUESTER, FakeApprovals, FakeCluster, _git
 from test_plan import REPO, FakeCharts
 
 from bravo_infra_plan import Planner, load_stack, replication
@@ -118,7 +118,7 @@ def world(tmp_path):
 def start(world, run_id, approval_id="appr-1", cluster=None):
     executor = world["executor"]() if cluster is None else world["executor"](cluster)
     return executor.start(request=REQUEST, migration_plan_id="plan-demo", approval_id=approval_id,
-                          run_id=run_id, started_by="applier")
+                          run_id=run_id, started_by="applier", infra_plan_id=PLAN_ID, requested_by=REQUESTER)
 
 
 def states(run):
