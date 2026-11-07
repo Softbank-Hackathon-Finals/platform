@@ -32,6 +32,7 @@ def build_report(
     # 둘 다 없던 예전 실행을 다시 대조할 수 있게 기본값을 둔다. 없으면 판정 입력으로 표시하지 않는다.
     generator: str | None = None,
     preflight: dict | None = None,
+    connections: str = "keepalive",
 ) -> dict:
     start = next(r for r in records if r["type"] == "run_start")
     attempts = [r for r in records if r["type"] == "attempt"]
@@ -96,6 +97,7 @@ def build_report(
             "path": measurement_path,
             "edge_measured": edge_measured,
             "generator": generator,
+            "connections": connections,
             "preflight": preflight,
         },
         "journal_sha256": journal_sha256,
@@ -225,6 +227,7 @@ def render_markdown(report: dict) -> str:
         lines.append("- **Edge 경유 측정이 아니다.** 이 수치를 SHIFT · WATCH 판정 근거로 쓰지 않는다.")
     if measurement["generator"]:
         lines.append(f"- 실행 위치: `{measurement['generator']}`")
+    lines.append(f"- 연결: `{measurement.get('connections', 'keepalive')}`")
     if measurement["generator"] == "laptop":
         lines.append("- **노트북에서 잰 값이다. 회선 지연이 p95에 함께 들어가고, 노트북이 바쁘거나 잠들면 생성기 지연이 된다. 판정 근거로 쓰지 않는다.**")
     rtt = measurement["preflight"]["health_rtt_ms"] if measurement["preflight"] else None
