@@ -1,5 +1,5 @@
 version = 1
-revision = 5
+revision = 3
 requires-python = ">=3.12"
 
 [[package]]
@@ -196,6 +196,7 @@ dev = [
     { name = "bravo-agent-worker", directory = "../agent-worker" },
     { name = "bravo-apply-path", editable = "../apply-path" },
     { name = "bravo-control-gate", directory = "../control-gate" },
+    { name = "bravo-iac", directory = "../iac" },
     { name = "bravo-inventory", directory = "../inventory" },
     { name = "bravo-rehearsal-runner", directory = "../rehearsal-runner" },
     { name = "httpx", specifier = ">=0.27" },
@@ -206,6 +207,7 @@ dev = [
 gate-records = [{ name = "bravo-control-gate", directory = "../control-gate" }]
 product-inputs = [
     { name = "bravo-agent-worker", directory = "../agent-worker" },
+    { name = "bravo-iac", directory = "../iac" },
     { name = "bravo-inventory", directory = "../inventory" },
     { name = "bravo-rehearsal-runner", directory = "../rehearsal-runner" },
 ]

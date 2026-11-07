@@ -12,7 +12,7 @@ from bravo_infra_plan.cli import main
 
 REPO = Path(__file__).resolve().parents[3]
 STACK = REPO / "infra/stacks/target-onprem/stack.json"
-REQUEST = {"stack": "target-onprem", "environment_id": "env-onprem",
+REQUEST = {"stack": "target-onprem", "environment_id": "target-dev",
            "params": {"node_name": "bravo-target-1", "arch": "arm64", "api_service_ip": "10.43.0.1",
                       "api_endpoint_ip": "192.168.64.10", "kube_version": "v1.35.9"}}
 TARGET = {"cluster_uid": "cluster-1", "node_uid": "node-1"}
@@ -169,3 +169,32 @@ def test_cli_check_and_request_schema(capsys):
     assert main(["request-schema", str(STACK)]) == 0
     schema = json.loads(capsys.readouterr().out)
     assert schema["properties"]["params"]["required"] == sorted(REQUEST["params"])
+
+
+def _desired_world(tmp_path, environments):
+    """A minimal repository with only T44 desired-state files and one operator step that reads them."""
+    for name, state in environments.items():
+        path = tmp_path / "infra/iac/environments" / f"{name}.json"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps({"schema_version": 1, "environment": name, "modules": [
+            {"id": "target-object-exposure", "version": 1, "params": state}]}))
+    stack = parse_stack({"schema_version": 1, "stack": "desired-test", "charts": {},
+                         "params": {"node_name": {"description": "n"}}, "steps": [
+        {"id": "object-secrets", "kind": "operator_action", "owner": "T9", "description": "d",
+         "instruction": "i", "confirm": "seaweedfs-auth",
+         "desired": {"file": "infra/iac/environments/{environment_id}.json", "module": "target-object-exposure",
+                     "params": ["state", "bucket", "demo_run_id"]}}]})
+    return lambda env: Planner(stack, tmp_path).plan(
+        {"stack": "desired-test", "environment_id": env, "params": {"node_name": "n"}},
+        stack_revision=REV, target=TARGET, base_commit=BASE)
+
+
+def test_each_environment_gets_its_own_desired_state_and_a_missing_one_refuses(tmp_path):
+    plan_for = _desired_world(tmp_path, {
+        "target-dev": {"state": "open-demo", "bucket": "demo-chat-attachments", "demo_run_id": "demo-2026-11-08"},
+        "target-e2e": {"state": "closed", "bucket": "demo-chat-attachments"}})
+    assert plan_for("target-dev").document["steps"][0]["desired"]["state"] == "open-demo"
+    assert plan_for("target-e2e").document["steps"][0]["desired"] == {"state": "closed",
+                                                                       "bucket": "demo-chat-attachments"}
+    with pytest.raises(StackError, match="desired_state_unavailable"):  # never borrow target-dev's open-demo
+        plan_for("target-new")

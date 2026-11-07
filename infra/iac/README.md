@@ -174,7 +174,16 @@ tailnet 접미사(`tailnet`, `tailnets.workload`)이고, AppProject `platform-ia
 브랜치 병합만으로 적용되지 않는다. 자동 동기화는 명시적으로 켜고, 자동 삭제(prune)는 별도 결정한다.
 조정 주기는 60초와 jitter 15초이며, Git 접근·렌더·적용 실패가 있으면 그 안에 반영된다고 보장하지 않는다.
 비밀 값이 필요한 자원(지금은 버킷 계정 Secret)은 차트에 없고 `Chart.yaml`의 `bravo.dev/unmanaged`에 적힌다.
-**차트는 Namespace를 선언하지 않는다.** namespace의 주인은 클러스터를 세우는 쪽이다(새 목적지는 T45, 플랫폼·출발지는 기존 구성). 같은 Namespace를 T44·T45 두 Application이 함께 관리하던 겹침(#620 kind 실측의 Argo 경고)을 없앤다. namespace나 Tailscale CRD가 아직 없으면(빈 클러스터에서는 T45가 Argo 다음에 설치) 그 동기화는 실패하고 무제한 재시도(`retry.limit: -1`, 최대 3분 간격)로 기다린다. Argo 자동 동기화는 실패한 같은 커밋을 스스로 다시 시도하지 않기 때문이다.
+**차트는 Namespace를 선언하지 않는다.** namespace의 주인은 클러스터를 세우는 쪽이다. 같은 Namespace를 T44·T45 두 Application이 함께 관리하던 겹침(#620 kind 실측의 Argo 경고)을 없앤다. 차트가 자원을 두는 namespace와 그 주인은 다음과 같다.
+
+| namespace | `target-dev` 차트(새 목적지) | `source-dev` 차트(출발지) |
+|---|---|---|
+| `target-dev` | T45 base 단계(PSA restricted) | — |
+| `source-dev` | — | 출발지 렌더러(`infra/envs/source-workloads`) |
+| `tailscale-system` | T45 tailscale-oauth 단계(PSA privileged) | 기존 Tailscale operator 설치 |
+| `bravo-observability` | T45 base 단계(추가 요청 중, #632), T37 Collector와 같은 라벨(`component: platform`, PSA restricted) | T37 Collector 매니페스트(`services/observability/deploy/collector`) |
+
+그래서 이 Application은 표의 namespace와 Tailscale CRD가 생긴 **뒤에** 켠다(새 목적지는 T45 base · tailscale 단계가 Synced · Healthy가 된 뒤, 아래 2단계). 그 뒤의 실패는 순서 문제가 아니므로 재시도는 유한하다(`retry.limit: 5`, 약 5분). 무제한 재시도는 실패한 operation을 Running으로 남겨, `targetRevision`을 고친 SHA로 올려도 새 동기화가 시작되지 않는다. 재시도가 끝나 Failed가 되면 원인을 고친 커밋을 승격하거나 수동으로 sync한다.
 ProxyGroup은 그 클러스터에 Tailscale operator(CRD)가 있어야 생성된다(`SkipDryRunOnMissingResource`).
 
 ### 고객 설치와 업무 자원 적용의 분리 (차트 0.2.0)
@@ -183,7 +192,8 @@ ProxyGroup은 그 클러스터에 Tailscale operator(CRD)가 있어야 생성된
 다른 Argo 설치·기존 렌더러·T45가 소유한 자원은 자동으로 인수하지 않는다. 플랫폼 클러스터에는 적용하지 않는다.
 
 1. 위 명령은 **Argo CD와 CRD만** 만든다. 기존 CRD가 있어도 기본값에서는 AppProject·Application을 만들지 않는다.
-2. 컨트롤러 준비와 CRD Established를 확인하고, 같은 설치 값에서 `application.enabled=true`로 바꾼다.
+2. 컨트롤러 준비와 CRD Established, 위 표의 namespace와 Tailscale CRD가 있는지 확인하고, 같은 설치 값에서
+   `application.enabled=true`로 바꾼다.
    `application.autoSync=false`, `application.prune=false`는 유지한다. 고객 환경의 경로·diff·소유권을 확인할 수 있지만
    이 Application은 자동 적용하지 않는다. 다른 Application이나 수동 sync 권한을 제한하는 기능은 아니다.
 3. 중복 소유권·tailnet 정책·설정 원문·검토 커밋과 적용 창을 확인한 뒤 `application.autoSync=true`로 승격한다.
@@ -250,6 +260,24 @@ uv run bravo-iac stage --plan plan.json --proposed proposed.json --target ../../
 - `stage`는 대상 파일이 plan의 `base_digest`일 때만 쓴다. 그사이 Git이 바뀌었으면 `IAC_BASE_CHANGED`로 멈춘다.
 - API(`bravo_iac.api.create_app(<environments 폴더>)`): `GET /v1/iac/modules`, `GET /v1/iac/environments/{id}`,
   `GET /v1/iac/network`, `POST /v1/iac/plan`. 커밋된 파일만 읽고 Git·클러스터에 쓰지 않는다. 호출자 인증은 앞단 호스트가 한다.
+
+## 플랫폼 API: 계획 → T10 infra 승인 → 원하는 상태 PR
+
+운영자 승인 호스트(`approval_server` + `operator_ports`)가 이전 계획(T10 plan)마다 제공한다(`iac_plans.py`).
+
+| 순서 | 호출 | 하는 일 |
+|---|---|---|
+| 1 | `POST /v1/plans/{plan_id}/iac/plans` (`Idempotency-Key`, `{environment, module, params}`) | base 브랜치(develop)에 커밋된 원하는 상태로 결정적 계획. 응답의 `binding`이 승인 대상 |
+| 2 | `POST /v1/plans/{plan_id}/approvals` (`approval_kind: infra`, 그 `binding`) | 다른 사람(`approve_infra`)이 그 `plan_digest`를 승인. 요청자는 승인할 수 없다 |
+| 3 | `POST /v1/plans/{plan_id}/iac/plans/{iac_plan_id}/pull-request` (`{approval_id}`) | 지금의 base로 다시 계획해 digest가 같을 때만 승인을 한 번 소비(`apply_infra`)하고, 원하는 상태·생성 차트·tailnet 정책 조각을 담은 PR을 연다. 다시 부르면 같은 PR |
+| 4 | PR 검토·병합 | 병합은 적용이 아니다. 검토한 커밋 SHA를 Argo `targetRevision`으로 줄 때 적용된다 |
+
+base가 그 사이 바뀌어 digest가 달라지면 `iac_plan_stale`이고 승인은 소비되지 않는다(다시 계획·승인).
+에이전트는 이 API를 부르지 않고 실행 안에서 `infra.plan`으로 계획한다(시도 기록 `infra_plans`).
+
+운영 설정은 `/rehearsal/operator.json`의 선택 키 `iac`(`app_id`, `key_file`, `repository: Softbank-Hackathon-Finals/platform`)다.
+**쓰기에는 GitHub App이 이 저장소에 contents·pull requests 쓰기로 설치되어 있어야 한다**(지금 App은 demo-chat 전용).
+설치 여부와 권한은 운영 결정이라 이 저장소에서 바꾸지 않는다. 키가 없으면 경로가 생기지 않는다.
 
 ## 아직 아닌 것
 

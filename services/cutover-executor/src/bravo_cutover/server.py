@@ -5,6 +5,7 @@ from pathlib import Path
 
 from bravo_cutover.api import create_app as api_app
 from bravo_cutover.api import validate_credentials
+from bravo_cutover.readiness import Readiness
 from bravo_cutover.runner import Cutover, ThreadRunner
 from bravo_cutover.sites import load_config
 from bravo_cutover.store import Store
@@ -27,4 +28,5 @@ def create_app():
     validate_credentials(token, command_token)
     store = Store(os.environ["EXECUTOR_DB"])
     runner = ThreadRunner(Cutover(store, config), store)
-    return api_app(store, runner, registry=registry, api_token=token, command_token=command_token)
+    return api_app(store, runner, registry=registry, api_token=token, command_token=command_token,
+                   readiness=Readiness(config))
