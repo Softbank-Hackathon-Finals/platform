@@ -76,7 +76,7 @@ Tailscale operator가 매긴 proxy 포트를 **관찰해서** NetworkPolicy에 �
 ## 사람의 클러스터 접근 (`operator-access`)
 
 사람은 SSM 포트포워딩이 아니라 **그 클러스터의 Tailscale API 프록시**로 API에 들어온다. 프록시는 auth 모드다
-(operator 값 `apiServerProxyConfig.mode: "true"`, `noauth` 금지). 요청자의 tailnet 신원을 받아, grant가 이름 붙인
+(operator 값 `apiServerProxyConfig.mode: "true"`, `operator-access` 프록시에 한해 `noauth` 금지. 기존 인증을 넘기는 전송 프록시는 아래 `api-transport-access`). 요청자의 tailnet 신원을 받아, grant가 이름 붙인
 쿠버네티스 그룹으로 impersonate한다. 권한은 그 그룹의 ClusterRoleBinding이 정한다.
 
 - 플랫폼: `autogroup:admin`·`autogroup:owner`와 등록된 `group:bravo-operators` → `bravo-platform-operator`
@@ -124,6 +124,12 @@ kubectl auth whoami                                      # Groups에 bravo:opera
 전달하는 프록시에 사용하며, auth 모드 프록시의 Kubernetes 권한을 부여하는 설정과 혼동하지 않는다.
 실제 프록시 모드와 기존 인증으로의 조회가 확인되기 전에는 출발지 접속 성공으로 기록하지 않는다.
 `GET /v1/iac/network`의 해당 `access` 행은 `authentication: existing-kubernetes-auth`로 구분한다.
+같은 프록시 태그를 `operator-access`(auth)와 이 모듈이 함께 선언하면 의미가 반대라 `IAC_PARAMS_INVALID`로 거부한다.
+
+이 경로의 인수 항목(장치 표시와 따로 본다):
+1. 인증 없는 요청은 401이다(프록시가 인증을 대신하지 않는다).
+2. 본인 IAM 토큰으로 `kubectl auth whoami`를 하면 IAM에 매핑된 본인 신원이 나온다(프록시 신원이 아니다).
+3. TLS 검증을 켠 채로 접속한다(`insecure-skip-tls-verify` 없이 등록 CA와 서버 이름).
 
 이 모듈과 `operator-access`의 사람 그룹은 멤버 목록을 Git에서 알 수 없으므로 태그 장치용 정책 tests를 만들지 않는다.
 생성 조각은 전체 정책을 대체하는 파일이 아니다. 현재 정책을 비공개로 보존하고 필요한 grant만 중복 없이 합친 뒤

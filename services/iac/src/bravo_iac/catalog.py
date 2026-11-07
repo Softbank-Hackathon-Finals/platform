@@ -46,4 +46,8 @@ def check_state(doc) -> dict:
             raise IacError("IAC_MODULE_DUPLICATE")
         seen.add(found.id)
         entries.append({"id": found.id, "version": found.version, "params": found.check(entry["params"])})
+    # One proxy is either the auth proxy people impersonate through or a transport proxy, never both.
+    tags = {e["id"]: e["params"]["proxy_tag"] for e in entries if e["id"] in {"operator-access", "api-transport-access"}}
+    if len(tags) == 2 and len(set(tags.values())) == 1:
+        raise IacError("IAC_PARAMS_INVALID")
     return {"schema_version": SCHEMA_VERSION, "environment": doc["environment"], "modules": entries}

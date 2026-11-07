@@ -98,3 +98,17 @@ def test_transport_only_proxy_cannot_silently_acquire_impersonation_grants():
         "SYSTEM_IMPERSONATION:group:bravo-operators",
         "UNDECLARED_GRANT:group:bravo-operators->tag:bravo-source-operator+app"]
 
+
+def test_one_proxy_is_never_both_the_auth_proxy_and_a_transport_proxy():
+    from bravo_iac.catalog import check_state
+
+    access = {"proxy_hostname": "bravo-source-operator", "proxy_tag": "tag:bravo-source-operator",
+              "bindings": [{"name": "bravo-operators-cluster-admin", "group": "bravo:operators",
+                            "cluster_role": "cluster-admin", "tailnet_groups": ["autogroup:admin"]}]}
+    doc = state()
+    doc["modules"].append({"id": "operator-access", "version": "1", "params": access})
+    with pytest.raises(IacError, match="IAC_PARAMS_INVALID"):
+        check_state(doc)
+    doc["modules"][1]["params"] = dict(access, proxy_hostname="bravo-source-people", proxy_tag="tag:people-proxy")
+    assert len(check_state(doc)["modules"]) == 2
+
