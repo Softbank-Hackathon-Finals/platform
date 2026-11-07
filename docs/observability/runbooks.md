@@ -76,6 +76,16 @@
 
 **확인 · 조치:** 구독이 살아 있는가(목적지 `pg_subscription`). 이전이 끝났거나 취소된 슬롯이면 담당(T8)이 정리한다. 이 알림을 보고 슬롯을 지우지 않는다. 되돌리기 경로(역방향 복제)일 수 있다.
 
+구독이 켜진 DB(지금 받는 쪽)의 슬롯은 컷오버 전 되돌리기 대기 슬롯이라 이 알림과 지연 알림에서 빠진다. 대기 슬롯이 붙잡은 WAL은 [BravoStandbySlotWalHigh](#bravostandbyslotwalhigh)가 본다.
+
+## BravoStandbySlotWalHigh
+
+**뜻:** 구독을 받고 있는 DB의 논리 슬롯(컷오버 뒤 켜질 역방향 `t8_target_to_source` 등)이 WAL을 1GiB 넘게 붙잡고 있다.
+
+**영향:** 대기 자체는 설계대로다(`docs/operations/t8-replication-health.md`). 다만 붙잡은 WAL이 계속 늘면 목적지 DB 볼륨을 채운다.
+
+**확인 · 조치:** `pg_replication_slots`의 `restart_lsn`과 볼륨 여유를 본다. 슬롯은 되돌리기 경로라 이 알림만으로 지우거나 전진시키지 않는다. 담당(T8)이 컷오버 일정과 함께 정리 · 재생성 여부를 정한다.
+
 ## BravoWalArchivingFailing
 
 **뜻:** 최근 10분 사이 WAL 보관이 실패했다(`cnpg_pg_stat_archiver_failed_count_total` 증가).
