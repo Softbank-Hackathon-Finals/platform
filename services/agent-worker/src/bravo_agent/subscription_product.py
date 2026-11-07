@@ -22,7 +22,7 @@ from .contracts import FailureBundle, digest
 from .product_contracts import ProductInput as ProductInput
 from .product_contracts import ProductRequest as ProductRequest
 from .product_contracts import validate_product_input
-from .subscription_admin import run_claude_worker, run_worker
+from .subscription_admin import run_claude_worker, run_openai_worker, run_worker
 from .subscription_store import SubscriptionStore, private_directory
 from .tools import Snapshot, Tools
 from .verification import validate_result
@@ -316,7 +316,7 @@ def sandbox_docker(settings):
 def invoke_product_worker(settings, access, value, root, snapshot):
     """Use existing isolated T11 CLI. This bridge only supports first proposals."""
     provider = settings.get("provider", "chatgpt-plan")
-    if provider not in {"chatgpt-plan", "claude"}:
+    if provider not in {"chatgpt-plan", "claude", "openai"}:
         raise ValueError("unsupported broker provider")
     for name, model in (("bundle.json", value.bundle), ("manifest.json", value.manifest)):
         path = root / name
@@ -349,6 +349,9 @@ def _run_provider(settings, access, provider, args):
         if provider == "claude":
             # Explicit adapter selection, no automatic provider switch (ADR-0007).
             code = run_claude_worker(settings["anthropic_key_file"], Path(settings["state_dir"]), args)
+        elif provider == "openai":
+            # OpenAI Agents SDK with the platform's API key file (no ChatGPT-plan login to expire).
+            code = run_openai_worker(settings["openai_key_file"], Path(settings["state_dir"]), args)
         else:
             code = run_worker(subscription_store(settings, access), Path(settings["state_dir"]), args)
     return code
