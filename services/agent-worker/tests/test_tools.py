@@ -252,6 +252,20 @@ def test_infra_plan_returns_a_plan_and_audits_only_its_digest(context):
     assert event["plan_digest"] == result["plan_digest"] and "demo-chat-attachments" not in json.dumps(tools.events)
 
 
+def test_the_worker_is_told_to_close_a_planted_exposure_even_when_the_failure_is_about_code():
+    """The initial proposal's failure is CODE_CHANGE_REQUIRED (credential migration); the destination
+    gate finding (IAM-01.1, anonymous read) is not in it. ADR-0044 closes the bucket only from the
+    agent's own infra.plan, so the instruction and the tool description must lead there without it."""
+    from bravo_agent.tools import SYSTEM
+
+    flat = " ".join(SYSTEM.split())
+    assert "whatever the failure says" in flat and "unauthenticated access" in flat
+    assert "in addition to the code correction" in flat and "Plan nothing that widens access" in flat
+    described = _iac_port().describe()
+    assert "open-demo: also anonymous Read, the demo's planted defect" in described
+    assert '"state": "open-demo"' in described  # the committed value the worker reads
+
+
 def test_infra_plan_refuses_widening_and_records_the_code(context):
     bundle, snapshot, _, _ = context
     tools = Tools(bundle, snapshot, 1, iac=_iac_port("closed"))

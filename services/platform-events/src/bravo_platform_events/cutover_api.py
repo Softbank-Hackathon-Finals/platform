@@ -69,9 +69,10 @@ class DelegationInput(BaseModel):
 
 
 class InfraClaimInput(BaseModel):
+    """The executor's whole expected binding: T10 compares every field with the approved one."""
     model_config = ConfigDict(extra="forbid")
     run_id: str = Field(pattern=r"^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$")
-    plan_digest: str = Field(pattern=r"^[0-9a-f]{64}$")
+    binding: InfraBindingInput
 
 
 class IacPlanInput(BaseModel):
@@ -182,7 +183,7 @@ def create_cutover_app(service: CutoverService, *,
 
     @app.post("/v1/plans/{plan_id}/infra-approvals/{approval_id}/claims")
     async def claim_infra_approval(plan_id: str, approval_id: str, body: InfraClaimInput, request: Request):
-        """The T44 executor claims an approval once for one run, after recomputing its plan digest."""
+        """The executor claims an approval once for one run, with its whole expected binding."""
         receipt = await asyncio.to_thread(infra().claim, principal(request), plan_id, approval_id,
                                          **body.model_dump())
         return JSONResponse(receipt, headers={"Cache-Control": "no-store"})

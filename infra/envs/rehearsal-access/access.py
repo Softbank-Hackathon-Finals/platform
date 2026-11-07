@@ -348,7 +348,13 @@ def collector_network(observed):
     return [client_policy(COLLECTOR, ports), proxy_policy(COLLECTOR, ports)]
 
 
-def target_apply(namespace, deployment):
+# ADR-0044: the one bucket-auth Secret and store workload T31 closes after the image (bravo_apply.policy).
+EXPOSURE_SECRET, EXPOSURE_WORKLOAD = "target-seaweedfs-auth", "target-seaweedfs"
+
+
+def target_apply(namespace, deployment, exposure=False):
+    """`exposure` (ADR-0044): also replace that one Secret and restart that one store, by name. The Secret
+    holds the store's bootstrap keys, so it is opt-in; the default output is unchanged."""
     name(namespace)
     name(deployment)
     if namespace in {
@@ -393,7 +399,12 @@ def target_apply(namespace, deployment):
                     "verbs": ["get", "watch", "patch"],
                 },
                 {"apiGroups": [""], "resources": ["pods"], "verbs": ["get", "list"]},
-            ],
+            ] + ([
+                {"apiGroups": [""], "resources": ["secrets"], "resourceNames": [EXPOSURE_SECRET],
+                 "verbs": ["get", "update"]},
+                {"apiGroups": ["apps"], "resources": ["deployments"], "resourceNames": [EXPOSURE_WORKLOAD],
+                 "verbs": ["get", "watch", "patch"]},
+            ] if exposure else []),
         },
         {
             "apiVersion": "rbac.authorization.k8s.io/v1",
@@ -463,6 +474,7 @@ def main(argv=None):
     p = sub.add_parser("target-apply")
     p.add_argument("--namespace", required=True)
     p.add_argument("--deployment", required=True)
+    p.add_argument("--exposure", action="store_true", help="ADR-0044: close the attachment bucket after the image")
     p = sub.add_parser("kubeconfig")
     p.add_argument("--role", choices=(*ROLES, COLLECTOR), required=True)
     p.add_argument("--api-hostname", required=True)
@@ -480,7 +492,7 @@ def main(argv=None):
     elif args.command == "collector-network":
         result = collector_network(json.load(sys.stdin))
     elif args.command == "target-apply":
-        result = target_apply(args.namespace, args.deployment)
+        result = target_apply(args.namespace, args.deployment, args.exposure)
     else:
         result = kubeconfig(args.role, args.api_hostname, args.token_file)
     print(
