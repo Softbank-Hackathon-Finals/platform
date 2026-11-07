@@ -30,7 +30,7 @@ GitOps로 옮겨도 아래 보안·데이터 정책과 워크플로는 그대로
 | `executor-network/control_network.py routes`·`network`·`proxy-ingress`·`pooler-ingress` | `tailnet-egress`(`platform`), `tailnet-ingress` | #608·#622 |
 | `collector-network/collector_route.py proxy-quarantine`·`routes`·`collector-egress`·`proxy-ingress` | `tailnet-egress` | #608 |
 | `rehearsal-access/access.py platform`·`network`·`collector-platform`·`collector-network` | `tailnet-egress` | #608 |
-| `workflow-host/network.py`의 T31 apply 경로(호스트 → apply egress proxy 규칙, `apply-proxy-ingress-workflow-host`) | `tailnet-egress` `bravo-apply-egress`의 client `platform-state/t10-workflow-host` | 이 PR. 실환경의 옛 정책은 `infra/iac/charts/platform`이 적용된 뒤 지운다. |
+| `workflow-host/network.py`의 T31 apply 경로(호스트 → apply egress proxy 규칙, `apply-proxy-ingress-workflow-host`) | `tailnet-egress` `bravo-apply-egress`의 client `platform-state/t10-workflow-host` | #631. 실환경의 옛 정책은 `infra/iac/charts/platform`이 적용된 뒤 지운다. |
 | 위 렌더러 README의 경로 설명 절 | [`infra/iac/README.md`](../infra/iac/README.md) | 각 README 첫머리에 T44 표시가 있다. 함수는 점검 도구와 동치 시험용으로 남는다. |
 | Merge Queue와 자동 큐 등록(T40·T41), [ADR-0017 develop merge queue](adr/0017-develop-merge-queue.md) | 필수 검사 뒤 직접 병합 | #616·#623. `MERGE_QUEUE_BOT_ENABLED` 변수는 `operations/rollout/run.py`가 읽으므로 남긴다. |
 | GitHub Actions의 AI 제안 실행 | broker(T38) | 2026-11-06 제거, [`operations/subscription/README.md`](../operations/subscription/README.md) 첫머리 |
