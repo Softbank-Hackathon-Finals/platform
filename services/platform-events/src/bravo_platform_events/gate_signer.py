@@ -16,7 +16,8 @@ grants and records are separate from the operator's.
 
 `enroll` runs when the plan starts, before any T14 run: T19 refuses a subject that started before its
 key's enrollment. `sign` signs what the relay's `subjects` shows and is not yet published, and records
-the pre-delegation (#716) that authorised it next to each envelope.
+each signature next to its envelope. It checks no pre-delegation (#716) yet: it is an operator-run step
+(exec into the workflow host) until the automatic GATE link checks one (ADR-0038 3절).
 """
 
 import argparse
@@ -33,7 +34,6 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 from cryptography.hazmat.primitives.serialization import load_der_public_key
 
 from . import gate_relay
-from .contract import validate_identifier
 
 CONFIG = "/workflow/gate-signer.json"
 PURPOSES = ("context", "run-source", "run-target", "readiness-binding", "readiness-snapshot", "gate-result")
@@ -87,9 +87,11 @@ def load(config_file=CONFIG, *, client=None):
 
 
 def enroll(call, keys, plan_id, now):
-    """Enroll every purpose's key for this plan. Retries within the hour send the identical request."""
+    """Enroll every purpose's key for this plan. Retries within the hour send the identical request.
+
+    Returns (enrolled, reused): a purpose already enrolled earlier is reported as reused, not enrolled."""
     start = now.replace(minute=0, second=0, microsecond=0) - timedelta(seconds=1)
-    out = []
+    out, reused = [], []
     for purpose, key in keys.items():
         try:
             call({"op": "enroll", "plan_id": plan_id, "purpose": purpose, "issuer_id": "platform-" + purpose,
@@ -99,13 +101,14 @@ def enroll(call, keys, plan_id, now):
             # Already enrolled in an earlier hour. If that record is not this key, publish fails closed.
             if error.args[:1] != ("AUTHORITY_KEY_CONFLICT",):
                 raise
+            reused.append(purpose)
+            continue
         out.append(purpose)
-    return out
+    return out, reused
 
 
-def sign(call, keys, plan_id, delegation_id, now, put_record):
-    """Sign and publish what `subjects` shows and is not yet published; record the delegation for each."""
-    validate_identifier(delegation_id)
+def sign(call, keys, plan_id, now, put_record):
+    """Sign and publish what `subjects` shows and is not yet published; record each signature first."""
     subjects = call({"op": "subjects", "plan_id": plan_id})["subjects"]
     context = subjects["context"]["digest"]
     published = []
@@ -117,11 +120,11 @@ def sign(call, keys, plan_id, delegation_id, now, put_record):
         value = AuthorityEnvelope("platform-" + purpose, key.key_id, purpose, context, subject, now.isoformat(),
                                   (now + ENVELOPE_TTL).isoformat(), "0" * 128)
         signed = replace(value, signature_hex=key.sign(DOMAIN + canonical(value.payload)).hex())
-        # Intent first: a crash after publish still leaves which delegation the signature ran under.
+        # Intent first: a crash after publish still leaves which key signed which subject.
         put_record(plan_id, f"platform-signature-{purpose}-{subject[:16]}",
                    {"kind": "t19-platform-signature.v1", "purpose": purpose, "context_digest": context,
                     "subject_digest": subject, "issuer_id": signed.issuer_id, "key_id": key.key_id,
-                    "kms_key_arn": key.arn, "delegation_id": delegation_id, "signed_at": now.isoformat()})
+                    "kms_key_arn": key.arn, "signed_at": now.isoformat()})
         call({"op": "publish", "plan_id": plan_id, "envelope": {
             k: getattr(signed, k) for k in ("issuer_id", "key_id", "purpose", "context_digest", "subject_digest",
                                             "issued_at", "expires_at", "signature_hex")}})
@@ -140,7 +143,6 @@ def main(argv=None):
     p = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     p.add_argument("command", choices=["enroll", "sign"])
     p.add_argument("--plan-id", required=True)
-    p.add_argument("--delegation-id", help="sign: the pre-delegation (#716) this run proceeds under")
     args = p.parse_args(argv)
     try:
         store = PostgresPlanStore(runtime_connection())
@@ -158,9 +160,10 @@ def main(argv=None):
 
         now = datetime.now(UTC)
         if args.command == "enroll":
-            out = {"enrolled": enroll(call, keys, args.plan_id, now)}
+            enrolled, reused = enroll(call, keys, args.plan_id, now)
+            out = {"enrolled": enrolled, "reused": reused}
         else:
-            out = {"published": sign(call, keys, args.plan_id, args.delegation_id, now, put_record)}
+            out = {"published": sign(call, keys, args.plan_id, now, put_record)}
         print(json.dumps({"status": "PASS", **out}, sort_keys=True))
     except (EventError, GateError) as error:
         code = getattr(error, "code", None) or (error.args[0] if error.args else "")

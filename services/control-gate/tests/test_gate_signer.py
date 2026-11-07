@@ -42,8 +42,8 @@ def platform_keys(kms):
 def test_platform_keys_enroll_sign_and_the_same_verifier_passes_the_gate(relay):  # noqa: F811
     f, kms, records = relay, FakeKms(), {}
     keys = platform_keys(kms)
-    assert gate_signer.enroll(f.call, keys, f.plan.plan_id, f.clock.at) == list(gate_signer.PURPOSES)
-    assert gate_signer.enroll(f.call, keys, f.plan.plan_id, f.clock.at)  # a retry in the hour: identical
+    assert gate_signer.enroll(f.call, keys, f.plan.plan_id, f.clock.at) == (list(gate_signer.PURPOSES), [])
+    assert gate_signer.enroll(f.call, keys, f.plan.plan_id, f.clock.at)[0]  # a retry in the hour: identical
     f.clock.at = f.state["now"]
     f.base = f.state["context"]
     bind_through_the_relay(f, run_doc(f, "source"), run_doc(f, "target"))
@@ -51,13 +51,13 @@ def test_platform_keys_enroll_sign_and_the_same_verifier_passes_the_gate(relay):
     def put(plan_id, key, value):
         records.setdefault(key, value)
 
-    signed = gate_signer.sign(f.call, keys, f.plan.plan_id, "dlg-change-1", f.clock.at, put)
+    signed = gate_signer.sign(f.call, keys, f.plan.plan_id, f.clock.at, put)
     assert set(signed) == set(gate_signer.PURPOSES) - {"gate-result"}  # nothing evaluated yet
     assert f.call({"op": "evaluate", "plan_id": f.plan.plan_id})["evaluated"]["decision"] == "PASS"
-    assert gate_signer.sign(f.call, keys, f.plan.plan_id, "dlg-change-1", f.clock.at, put) == ["gate-result"]
-    assert gate_signer.sign(f.call, keys, f.plan.plan_id, "dlg-change-1", f.clock.at, put) == []  # no conflict
+    assert gate_signer.sign(f.call, keys, f.plan.plan_id, f.clock.at, put) == ["gate-result"]
+    assert gate_signer.sign(f.call, keys, f.plan.plan_id, f.clock.at, put) == []  # no conflict
     assert {v["purpose"] for v in records.values()} == set(gate_signer.PURPOSES)
-    assert {v["delegation_id"] for v in records.values()} == {"dlg-change-1"}
+    assert all("delegation_id" not in v for v in records.values())  # no unchecked delegation id (ADR-0038)
     assert all(v["issuer_id"] == "platform-" + v["purpose"] and v["kms_key_arn"] == keys[v["purpose"]].arn
                for v in records.values())
     assert "PRIVATE" not in json.dumps(records) and len(set(kms.signed)) == len(gate_signer.PURPOSES)
@@ -66,7 +66,7 @@ def test_platform_keys_enroll_sign_and_the_same_verifier_passes_the_gate(relay):
 def test_enrollment_from_an_earlier_hour_is_reused_not_a_failure(relay):  # noqa: F811
     f, keys = relay, platform_keys(FakeKms())
     gate_signer.enroll(f.call, keys, f.plan.plan_id, f.clock.at)
-    assert gate_signer.enroll(f.call, keys, f.plan.plan_id, f.clock.at + timedelta(hours=2)) == list(keys)
+    assert gate_signer.enroll(f.call, keys, f.plan.plan_id, f.clock.at + timedelta(hours=2)) == ([], list(keys))
 
 
 def test_a_wrong_kms_answer_is_refused_before_anything_is_published(relay):  # noqa: F811
@@ -79,14 +79,11 @@ def test_a_wrong_kms_answer_is_refused_before_anything_is_published(relay):  # n
     kms.forge = Ed25519PrivateKey.generate()
     records = {}
     with pytest.raises(InvalidSignature):
-        gate_signer.sign(f.call, keys, f.plan.plan_id, "dlg-change-1", f.clock.at, records.__setitem__)
+        gate_signer.sign(f.call, keys, f.plan.plan_id, f.clock.at, records.__setitem__)
     assert f.call({"op": "subjects", "plan_id": f.plan.plan_id})["subjects"]["published"] == []
 
 
-def test_signing_needs_a_delegation_and_a_kms_ed25519_key(relay):  # noqa: F811
-    f, keys = relay, platform_keys(FakeKms())
-    with pytest.raises(ValueError, match="invalid_identifier"):
-        gate_signer.sign(f.call, keys, f.plan.plan_id, None, f.clock.at, lambda *a: None)
+def test_signing_needs_a_kms_ed25519_key():
     with pytest.raises(GateError, match="PLATFORM_SIGNER_KEY_INVALID"):
         gate_signer.KmsKey(ARN.format(0), FakeKms(spec="ECC_NIST_P256"))
 

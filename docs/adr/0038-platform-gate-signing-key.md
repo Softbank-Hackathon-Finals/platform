@@ -64,7 +64,7 @@ KMS는 `ECC_NIST_EDWARDS25519` 키로 순수 Ed25519(`ED25519_SHA_512`, RAW 메�
   * 경로: STS·KMS는 플랫폼 VPC interface endpoint로만 닿는다. workflow host NetworkPolicy는 그 ENI 사설 IP만 연다(`network.py --aws-endpoints`).
 * **같은 검증기, 다른 발급자.** 플랫폼 키는 계획마다 `platform-<용도>` 발급자로 등록(enroll)한다. 경로는 운영자 키와 같은 relay 연산이다(`gate_signer`가 `gate_relay.handle`을 부른다). 운영자 키 경로(`operations/gate/run.py`)는 지우지 않는다. 검증기는 등록된 키 중 실제로 서명한 키를 받는다.
 * **플랫폼 서명기의 주체는 운영자와 따로다.** `/workflow/gate-signer.json`의 relay 주체(admin·issuer·operator)에 별도 T10 권한을 준다. 권한과 기록을 운영자와 섞지 않는다.
-* **사람의 결정은 사전 위임으로 남는다.** `sign`은 위임 ID를 입력으로 받는다. 게시하기 전에 용도·subject마다 `platform-signature-*` 기록(위임 ID, KMS 키 ARN, 서명 시각)을 먼저 남긴다. 위임이 살아 있는지 확인하는 일은 GATE 단계(#716 `ApprovalDelegations`)가 맡는다.
+* **`sign`은 아직 위임을 확인하지 않는다(운영자가 workflow host에서 직접 실행하는 단계).** 게시하기 전에 용도·subject마다 `platform-signature-*` 기록(KMS 키 ARN, 서명 시각)을 먼저 남긴다. 위임 ID는 기록하지 않는다. 확인하지 않은 ID가 감사 원장(T24)에 증거처럼 남지 않게 하기 위해서다. GATE 자동 연결 PR이 `sign` 전에 `ApprovalDelegations`의 현재 위임(계획 · 회수 · 만료 · 대상 게이트, 필요하면 T19 전용 게이트)을 대조하고, 맞지 않으면 기록 전에 `delegation_unavailable`로 멈춘다. 그때 "없는 ID · 만료 · 회수 · 다른 계획이면 서명 0건" 시험을 함께 넣는다.
 * **등록 시점:** T19는 키 등록보다 먼저 시작한 측정을 거부한다(`SUBJECT_PREDATES_AUTHORITY_ENROLLMENT`). 그래서 계획 시작 때, T14 실행보다 먼저 `enroll`한다. 등록 창은 48시간이다. 그보다 늦게 GATE에 닿은 계획은 HOLD한다(실패 쪽으로 닫힘).
 
 ## 4. 결과
@@ -78,6 +78,10 @@ KMS는 `ECC_NIST_EDWARDS25519` 키로 순수 Ed25519(`ED25519_SHA_512`, RAW 메�
   2. 플랫폼 kube-apiserver 첫 발급자를 그 주소로 바꾸고, 같은 창에서 내부 발급자를 검사하는 설정을 맞춘다.
   3. `platform-gate-signer`를 적용한다.
   4. NetworkPolicy에 endpoint IP를 넣는다.
-  5. 이미지를 승격하고 `gateSigner.roleArn`·`gate-signer.json`·T10 권한을 넣는다.
-  6. 계획마다 `enroll`한다.
+  5. Argo 컨트롤러의 Deployment 정책(`registration-rbac.yaml`)에 `t10-workflow-host`의 projected `sts-token`(audience `sts.amazonaws.com`, `expirationSeconds` 3600 이하) 예외와 시험을 더한다. 지금 정책은 t15 `intake-token`만 허용해 `gateSigner.roleArn`을 넣으면 동기화가 거부된다.
+  6. 이미지를 승격하고 `gateSigner.roleArn`·`gate-signer.json`·T10 권한을 넣는다.
+  7. 계획마다 `enroll`한다. 이전 시간대에 이미 등록된 용도는 `reused`로 보고한다.
 * 남은 일: GATE 단계에서 위임 확인 → `sign` → 평가를 자동으로 잇는 연결(적용 뒤 목적지 T14 실행 기록과 함께, df).
+* **실제 서명 경계는 KMS 키 정책이 아니라 `platform-state` 권한이다.** workflow host는 relay admin(`gate:manage-provenance`)과 issuer를 함께 쥐고, T19는 등록된 키라면 어느 것이든 받는다. 그래서 `platform-state`의 `pods/exec` · `pods/create`(서명 SA를 지정한 Pod)와 T10 DB 쓰기 권한이 곧 서명 권한이다. 권한 세분화(T44)에서 함께 좁힌다. 후속: `platform-*` 발급자의 공개키를 설정(terraform output)으로 고정하고 다른 키 등록을 거부한다.
+* **관리자 우회 경로와 감시 대상:** 계정 관리자는 `kms:PutKeyPolicy`로 자신에게 서명 권한을 줄 수 있다(잠김을 피하려고 남긴 경로). 서명 역할의 신뢰(`iam:UpdateAssumeRolePolicy`)와 OIDC 발급자 버킷의 `platform` JWKS 객체(`infra/envs/oidc-issuer`)도 신뢰 근거다. `PutKeyPolicy` · `ScheduleKeyDeletion` · `DisableKey` · `UpdateAssumeRolePolicy` · 그 JWKS 객체의 `PutObject`를 CloudTrail 경보 대상으로 둔다.
+* 후속: 서명 역할의 KMS 문에 `aws:SourceVpce` 조건과 endpoint 정책을 더한다(지금은 exec로 읽은 projected 토큰으로 VPC 밖에서도 역할을 받을 수 있다). `platform-signature-*` 기록과 CloudTrail `kms:Sign` 이벤트(키 ARN · 시각 · 건수)를 T24 감사 원장에서 대조하는 방법은 T24와 함께 정한다.
