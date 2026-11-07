@@ -1,0 +1,414 @@
+"""GET-only Kubernetes observations. No policy verdict or operational effects.
+
+Service selectors and container host references are configuration relationships,
+not observed traffic. Only the exact registered /healthz probe proves an HTTP edge.
+"""
+
+import argparse
+import hashlib
+import json
+import os
+import re
+import selectors
+import signal
+import subprocess
+import sys
+import time
+import uuid
+from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
+from urllib.parse import urlsplit
+
+from .workload import identifier, safe_text
+
+KINDS = {"namespace", "services", "pods", "networkpolicies"}
+NAME = re.compile(r"[a-z0-9](?:[a-z0-9.-]{0,251}[a-z0-9])?\Z")
+
+
+class CollectionError(Exception):
+    pass
+
+
+def opaque(*parts):
+    return "r-" + hashlib.sha256(json.dumps(parts).encode()).hexdigest()[:24]
+
+
+@dataclass(frozen=True)
+class ClusterRegistration:
+    environment_id: str
+    lane: str
+    cluster_uid: str
+    namespace: str
+    services: tuple
+
+    @classmethod
+    def parse(cls, value):
+        if type(value) is not dict or set(value) != {
+            "environment_id",
+            "lane",
+            "cluster_uid",
+            "namespace",
+            "services",
+        }:
+            raise ValueError("explicit_cluster_registration_required")
+        identifier(value["environment_id"])
+        if (
+            value["lane"] not in {"source", "target"}
+            or str(uuid.UUID(value["cluster_uid"])) != value["cluster_uid"]
+        ):
+            raise ValueError("registered_cluster_identity_required")
+        if not isinstance(value["namespace"], str) or not NAME.fullmatch(value["namespace"]):
+            raise ValueError("registered_namespace_required")
+        services = value["services"]
+        if type(services) is not list or not 1 <= len(services) <= 8:
+            raise ValueError("bounded_registered_services_required")
+        names = set()
+        for entry in services:
+            if type(entry) is not dict or set(entry) != {"name", "label", "kind", "probe_port"}:
+                raise ValueError("registered_service_required")
+            if not NAME.fullmatch(entry["name"]) or entry["name"] in names:
+                raise ValueError("unique_registered_service_required")
+            names.add(entry["name"])
+            safe_text(entry["label"], 48)
+            if entry["kind"] not in {
+                "app",
+                "database",
+                "storage",
+                "queue",
+                "identity",
+                "observability",
+                "edge",
+            }:
+                raise ValueError("registered_service_kind_required")
+            if entry["probe_port"] is not None and (
+                type(entry["probe_port"]) is not int or not 1 <= entry["probe_port"] <= 65535
+            ):
+                raise ValueError("registered_probe_port_required")
+        return cls(**(value | {"services": tuple(services)}))
+
+
+class KubectlReader:
+    """The host supplies an explicit, previously verified credential path/tool."""
+
+    def __init__(self, prefix, *, env=None):
+        if not prefix or any(type(arg) is not str or not arg for arg in prefix):
+            raise ValueError("explicit_kubernetes_client_required")
+        self.prefix = tuple(prefix)
+        self.env = env
+        value = self.run(["config", "view", "--minify", "-o", "json"])
+        clusters = value.get("clusters", [])
+        if (
+            len(clusters) != 1
+            or clusters[0].get("cluster", {}).get("insecure-skip-tls-verify")
+            or not clusters[0].get("cluster", {}).get("server", "").startswith("https://")
+        ):
+            raise CollectionError("VERIFIED_KUBERNETES_TLS_REQUIRED")
+        for user in value.get("users", []):
+            args = user.get("user", {}).get("exec", {}).get("args", [])
+            if "--profile" in args and (
+                args.count("--profile") != 1
+                or args[args.index("--profile") + 1 : args.index("--profile") + 2]
+                != ["bravo-personal"]
+            ):
+                raise CollectionError("PERSONAL_AWS_PROFILE_REQUIRED")
+
+    def run(self, args):
+        # Fixed commands only; no shell, write verbs, log collection or exec.
+        process = None
+        try:
+            process = subprocess.Popen(
+                [*self.prefix, "--request-timeout=8s", *args],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.DEVNULL,
+                env=self.env,
+                start_new_session=True,
+            )
+            output = bytearray()
+            deadline = time.monotonic() + 15
+            with selectors.DefaultSelector() as selector:
+                selector.register(process.stdout, selectors.EVENT_READ)
+                while True:
+                    if time.monotonic() >= deadline:
+                        raise CollectionError("KUBERNETES_READ_TIMEOUT")
+                    if not selector.select(timeout=min(0.5, max(0, deadline - time.monotonic()))):
+                        continue
+                    chunk = os.read(process.stdout.fileno(), 65536)
+                    if not chunk:
+                        break
+                    output.extend(chunk)
+                    if len(output) > 2_000_000:
+                        raise CollectionError("KUBERNETES_READ_LIMIT")
+            process.wait(timeout=max(0.01, deadline - time.monotonic()))
+            if process.returncode or not output:
+                raise CollectionError("KUBERNETES_READ_UNCONFIRMED")
+            return json.loads(output)
+        except (OSError, subprocess.SubprocessError, ValueError):
+            raise CollectionError("KUBERNETES_READ_UNCONFIRMED") from None
+        finally:
+            if process is not None:
+                if process.poll() is None:
+                    os.killpg(process.pid, signal.SIGTERM)
+                    try:
+                        process.wait(timeout=3)
+                    except subprocess.TimeoutExpired:
+                        os.killpg(process.pid, signal.SIGKILL)
+                        process.wait(timeout=3)
+                process.stdout.close()
+
+    def get(self, kind, name=None, *, namespace=None):
+        if kind not in KINDS or (name is not None and not NAME.fullmatch(name)):
+            raise CollectionError("READ_SCOPE_INVALID")
+        args = ["get", kind]
+        if name:
+            args.append(name)
+        if namespace:
+            if not NAME.fullmatch(namespace):
+                raise CollectionError("READ_SCOPE_INVALID")
+            args += ["--namespace", namespace]
+        return self.run([*args, "-o", "json"])
+
+    def health(self, registration, service):
+        port = service["probe_port"]
+        if port is None:
+            return None
+        # Literal path; no browser-supplied URL, token, user ID or query.
+        path = f"/api/v1/namespaces/{registration.namespace}/services/{service['name']}:{port}/proxy/healthz"
+        try:
+            value = self.run(["get", "--raw", path])
+            return type(value) is dict and value.get("ok") is True
+        except CollectionError:
+            return None
+
+
+def collect(reader, registration, *, now=None):
+    r = registration
+    started = now or datetime.now(UTC)
+    if reader.get("namespace", "kube-system").get("metadata", {}).get("uid") != r.cluster_uid:
+        raise CollectionError("CLUSTER_IDENTITY_MISMATCH")
+    services = reader.get("services", namespace=r.namespace).get("items", [])
+    pods = reader.get("pods", namespace=r.namespace).get("items", [])
+    policies = reader.get("networkpolicies", namespace=r.namespace).get("items", [])
+    if any(type(items) is not list or len(items) > 256 for items in (services, pods, policies)):
+        raise CollectionError("RESOURCE_LIMIT_EXCEEDED")
+    by_name = {item["metadata"]["name"]: item for item in services}
+    if len(by_name) != len(services):
+        raise CollectionError("RESOURCE_IDENTITY_AMBIGUOUS")
+    nodes, edges, facets, probes, pod_objects = {}, [], {}, [], {}
+    dns_nodes = {}
+    for row, entry in enumerate(r.services):
+        obj = by_name.get(entry["name"])
+        if obj is None:
+            continue
+        meta = obj["metadata"]
+        if (
+            meta.get("namespace") != r.namespace
+            or not meta.get("uid")
+            or meta.get("deletionTimestamp")
+        ):
+            raise CollectionError("SERVICE_IDENTITY_UNCONFIRMED")
+        sid = opaque(r.environment_id, "service", entry["name"])
+        nodes[sid] = dict(
+            id=sid,
+            label=entry["label"],
+            resource_uid=meta["uid"],
+            detail="등록 Service · 업무 통신 별도 확인",
+            kind=entry["kind"],
+            lane=r.lane,
+            column=0,
+            row=row,
+            health="unknown",
+            security="unknown",
+            health_evidence=None,
+            security_evidence=None,
+        )
+        for suffix in (
+            "",
+            f".{r.namespace}",
+            f".{r.namespace}.svc",
+            f".{r.namespace}.svc.cluster.local",
+        ):
+            dns_nodes[entry["name"] + suffix] = sid
+        selector = obj.get("spec", {}).get("selector", {})
+        selected = [
+            p
+            for p in pods
+            if selector
+            and all(
+                p.get("metadata", {}).get("labels", {}).get(k) == v for k, v in selector.items()
+            )
+        ]
+        if len(selected) > 12:
+            raise CollectionError("POD_LIMIT_EXCEEDED")
+        facets[sid] = dict(
+            ready=None, summary=f"Service 선택 Pod {len(selected)}개 · 통신 성공 미판정"
+        )
+        for index, pod in enumerate(sorted(selected, key=lambda p: p["metadata"]["name"])):
+            metadata = pod["metadata"]
+            if (
+                metadata.get("namespace") != r.namespace
+                or not metadata.get("uid")
+                or metadata.get("deletionTimestamp")
+            ):
+                continue
+            pid = opaque(r.environment_id, "pod", metadata["name"])
+            statuses = pod.get("status", {}).get("containerStatuses", [])
+            containers = pod.get("spec", {}).get("containers", [])
+            if not 1 <= len(containers) <= 8:
+                raise CollectionError("CONTAINER_LIMIT_EXCEEDED")
+            ready = len(statuses) == len(containers) and all(
+                c.get("ready") is True for c in statuses
+            )
+            # Readiness is a facet; it never becomes HTTP health or a security verdict.
+            nodes[pid] = dict(
+                id=pid,
+                label=f"{entry['label']} · Pod {index + 1}",
+                resource_uid=metadata["uid"],
+                detail=f"Kubernetes 준비 {sum(c.get('ready') is True for c in statuses)}/{len(containers)} · 업무 응답 미측정",
+                kind=entry["kind"],
+                lane=r.lane,
+                column=1,
+                row=min(row + index, 9),
+                health="unknown",
+                security="unknown",
+                health_evidence=None,
+                security_evidence=None,
+            )
+            facets[pid] = dict(ready=ready, summary=nodes[pid]["detail"])
+            pod_objects[pid] = pod
+            edges.append(
+                dict(
+                    id=opaque(sid, pid),
+                    source=sid,
+                    target=pid,
+                    label="Service selector",
+                    kind="dependency",
+                    resource_uid=opaque(meta["uid"], metadata["uid"]),
+                    state="unknown",
+                    evidence_id=None,
+                )
+            )
+        if entry["probe_port"] is not None:
+            probes.append((sid, reader.health(r, entry)))
+    for pid, pod in pod_objects.items():
+        status = {c["name"]: c for c in pod.get("status", {}).get("containerStatuses", [])}
+        for index, container in enumerate(pod["spec"]["containers"]):
+            cid = opaque(pid, container["name"])
+            current = status.get(container["name"], {})
+            # Bind a restarted container to its current runtime identity, never just its name.
+            runtime_uid = current.get("containerID")
+            uid = opaque(
+                pod["metadata"]["uid"], runtime_uid or "unconfirmed", current.get("restartCount", 0)
+            )
+            ready = current.get("ready") if runtime_uid else None
+            nodes[cid] = dict(
+                id=cid,
+                label=f"{nodes[pid]['label']} · C{index + 1}",
+                resource_uid=uid,
+                detail=f"컨테이너 준비 {ready is True} · 재시작 {current.get('restartCount', 0)}회 · 보안 미판정",
+                kind=nodes[pid]["kind"],
+                lane=r.lane,
+                column=2,
+                row=nodes[pid]["row"],
+                health="unknown",
+                security="unknown",
+                health_evidence=None,
+                security_evidence=None,
+            )
+            facets[cid] = dict(ready=ready, summary=nodes[cid]["detail"])
+            edges.append(
+                dict(
+                    id=opaque(pid, cid),
+                    source=pid,
+                    target=cid,
+                    label="Pod 소속",
+                    kind="dependency",
+                    resource_uid=opaque(pod["metadata"]["uid"], uid),
+                    state="unknown",
+                    evidence_id=None,
+                )
+            )
+            for env in container.get("env", []):
+                if (
+                    env.get("name")
+                    not in {"DB_HOST", "S3_ENDPOINT", "SQS_ENDPOINT", "OTEL_EXPORTER_OTLP_ENDPOINT"}
+                    or type(env.get("value")) is not str
+                ):
+                    continue
+                value = env["value"]
+                try:
+                    hostname = urlsplit(value).hostname if "://" in value else value
+                except ValueError:
+                    continue
+                target = dns_nodes.get(hostname)
+                if target:
+                    edges.append(
+                        dict(
+                            id=opaque(cid, target, "config"),
+                            source=cid,
+                            target=target,
+                            label="컨테이너 설정 참조",
+                            kind="dependency",
+                            resource_uid=opaque(uid, nodes[target]["resource_uid"]),
+                            state="unknown",
+                            evidence_id=None,
+                        )
+                    )
+    if not nodes or len(nodes) > 24 or len(edges) > 96:
+        raise CollectionError("TOPOLOGY_UNAVAILABLE_OR_OVERSIZED")
+    check = {
+        obj["metadata"]["name"]: obj
+        for obj in reader.get("services", namespace=r.namespace).get("items", [])
+    }
+    for entry in r.services:
+        before, current = by_name.get(entry["name"]), check.get(entry["name"])
+        if (before is None) != (current is None) or (
+            before
+            and (
+                before["metadata"].get("uid") != current["metadata"].get("uid")
+                or before.get("spec") != current.get("spec")
+            )
+        ):
+            raise CollectionError("SERVICE_CHANGED_DURING_READ")
+    after = reader.get("namespace", "kube-system")
+    if after.get("metadata", {}).get("uid") != r.cluster_uid:
+        raise CollectionError("CLUSTER_IDENTITY_CHANGED")
+    finished = now or datetime.now(UTC)
+    if finished - started > timedelta(seconds=90):
+        raise CollectionError("OBSERVATION_TOO_SLOW")
+    # No raw pod spec, environment, IP, image path, Secret or command leaves this collector.
+    return dict(
+        environment_id=r.environment_id,
+        lane=r.lane,
+        observed_at=started.isoformat(),
+        expires_at=(started + timedelta(seconds=90)).isoformat(),
+        cluster_identity_matches=True,
+        namespace_policy_count=len(policies),
+        nodes=list(nodes.values()),
+        edges=edges,
+        facets=facets,
+        probes=probes,
+    )
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--registration", required=True)
+    args = parser.parse_args()
+    try:
+        config = json.loads(open(args.registration).read())
+        r = ClusterRegistration.parse(config["registration"])
+        prefix = config.get("kubectl")
+        if prefix is None:
+            kubeconfig = os.environ.get("KUBECONFIG")
+            if not kubeconfig:
+                raise ValueError("explicit_kubeconfig_required")
+            prefix = ["kubectl", "--kubeconfig", kubeconfig]
+        result = collect(KubectlReader(prefix), r)
+        print(json.dumps(result, sort_keys=True, separators=(",", ":")))
+    except Exception:
+        print('{"error":"COLLECTION_UNCONFIRMED"}')
+        sys.exit(3)
+
+
+if __name__ == "__main__":
+    main()
