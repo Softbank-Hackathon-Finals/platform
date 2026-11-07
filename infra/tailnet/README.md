@@ -50,6 +50,6 @@ Tailscale 자격은 GitHub에 저장하지 않는다. job의 GitHub OIDC 토큰�
 2. 저장소 Actions **변수**(비밀이 아니다)를 넣는다. `<KEY>`는 `DEFAULT` 또는 `WORKLOAD`다.
    - `TAILNET_POLICY_NAME_<KEY>`: tailnet 조직 이름 또는 tailnet ID(콘솔 Settings → General). `-`는 쓰지 않는다. 다른 tailnet의 토큰이면 읽기부터 거부된다.
    - `TAILNET_POLICY_PLAN_CLIENT_<KEY>`, `TAILNET_POLICY_APPLY_CLIENT_<KEY>`: 위 두 신원의 client ID
-3. 저장소 Environments에서 `tailnet-policy`의 배포 브랜치를 `develop`만 허용한다.
+3. 저장소 Environments에서 `tailnet-policy`의 배포 브랜치를 `develop`만 허용하고 필수 승인자를 둔다. develop은 승인 0이라 병합만으로 적용되면 안 된다(ADR-0032). 정책 쓰기는 고객 클러스터 cluster-admin 경계이고 prune은 지운다.
 
 변수가 없는 tailnet은 job 요약에 `SKIPPED`로 남고 실패하지 않는다. 계획용 신원으로 validate가 거부되면(`SKIPPED_SCOPE`) PR에서는 합치기와 `tailnet-check`까지만 보고, develop 적용은 validate PASS 없이는 쓰지 않는다.
