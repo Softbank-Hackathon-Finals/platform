@@ -1,0 +1,112 @@
+{
+  "schema_version": 1,
+  "stack": "target-onprem-migration",
+  "description": "목적지가 이전 대상으로서 하는 준비 단계(T45 실행기, ADR-0033 3.8). target-onprem으로 세운 뒤 실행한다. 노드 파일 → T44 네트워크 → 외부 클러스터 확인 → 복제 자격 → 대상 비었는지 확인 → 정방향 구독 생성 → 초기 복사. 외부 클러스터는 target-db의 주인(database 렌더)이 선언하고 여기서는 확인만 한다. 쓰기는 구독 생성 하나이고 지우지 않는다. 역방향 준비와 T10 전이는 이 스택 밖이다. 롤아웃 순서: 이미 복제 중인 목적지는 출발지 인증서를 새 SAN으로 먼저 다시 발급한 뒤 database 렌더를 반영한다. 거꾸로 하면 verify-full이 실패해 정방향 복제가 끊긴다. 단계 내용의 주인은 T8, 실행기와 확인 검사는 T45다.",
+  "params": {
+    "node_name": {
+      "description": "확인한 노드의 kubernetes.io/hostname",
+      "pattern": "^[a-z0-9][a-z0-9.-]{0,251}[a-z0-9]$"
+    },
+    "iac_revision": {
+      "description": "목적지 Argo가 동기화해야 하는 T44 검토 커밋(전체 SHA)",
+      "pattern": "^[0-9a-f]{40}$"
+    }
+  },
+  "charts": {},
+  "steps": [
+    {
+      "id": "identity",
+      "kind": "probe",
+      "owner": "T30",
+      "description": "승인된 목적지 노드와 클러스터 UID인지, 노드가 Ready인지 확인한다",
+      "check": "target-identity"
+    },
+    {
+      "id": "node-files",
+      "kind": "operator_action",
+      "owner": "T44",
+      "description": "T44 노드 묶음(감사 정책 등)을 노드에 맞춘다. API 서버가 Metadata 감사 이벤트를 내면 끝난다",
+      "needs": [
+        "identity"
+      ],
+      "instruction": "infra/iac/nodes/target-dev 묶음(또는 GET /v1/iac/environments/target-dev/node-files)을 노드에 복사하고 root로 python3 infra/iac/nodes/apply.py <묶음> --cluster-uid <kube-system UID> 를 먼저 실행해 바뀔 것을 본 뒤, 검토한 파일별 sha256(node-files 응답의 files[].sha256)을 --sha256 <경로>=<sha256>으로 넣고 --apply로 적용한다. 새 노드는 render-user-data.sh가 같은 묶음을 첫 시작 전에 넣는다",
+      "confirm": "audit-metadata-active"
+    },
+    {
+      "id": "iac-network",
+      "kind": "operator_action",
+      "owner": "T44",
+      "description": "T44 Application bravo-iac-target-dev가 승인한 커밋(iac_revision)으로 Synced · Healthy다(복제 · Pooler egress, 목적지 DB 노출)",
+      "needs": [
+        "identity"
+      ],
+      "instruction": "목적지 Argo CD(infra/iac/argocd)가 검토한 커밋으로 bravo-iac-target-dev를 동기화할 때까지 기다린 뒤 이 실행을 resume한다. 코드가 Application 상태를 읽어 판정한다",
+      "confirm": "iac-network-synced"
+    },
+    {
+      "id": "replication-external-cluster",
+      "kind": "probe",
+      "owner": "T8",
+      "description": "target-db가 출발지 외부 클러스터 t8-source를 선언했다(kube DNS 이름 source-db-for-replication.target-dev.svc, verify-full, 자격 Secret 이름). 선언의 주인은 target-onprem의 database 렌더(Argo 동기화)이고, 이 단계는 확인만 한다. 없으면 target-onprem을 새 렌더로 다시 돌린다",
+      "needs": [
+        "identity"
+      ],
+      "check": "replication-external-cluster"
+    },
+    {
+      "id": "replication-credentials",
+      "kind": "operator_action",
+      "owner": "T8",
+      "description": "출발지 복제 계정 비밀번호(키 password)와 출발지 DB CA(키 ca.crt)가 target-dev에 있고 CNPG가 읽었다(target-db status.secretsResourceVersion.externalClusterSecretVersion). 값은 Git · 계획 · 기록에 없다",
+      "needs": [
+        "replication-external-cluster"
+      ],
+      "instruction": "출발지 chat_replicator 비밀번호를 target-dev/t8-source-replication(password), 출발지 서버 인증서 CA를 target-dev/t8-source-ca(ca.crt)로 만들고 둘 다 라벨 cnpg.io/reload=true를 단다. 라벨이 없으면 Cluster보다 늦게 만든 Secret을 CNPG가 읽지 않아 구독이 CA 파일 없음으로 연결하지 못한다. 값은 OpenBao에서 메모리로만 옮긴다. 이미 있으면 값은 바꾸지 않고 라벨만 단다",
+      "confirm": "replication-credentials"
+    },
+    {
+      "id": "replication-target-ready",
+      "kind": "probe",
+      "owner": "T8",
+      "description": "정방향 구독이 이미 있거나, 게시된 표(attachments, messages)가 목적지에 있고 비어 있다. 행이 이미 있으면 copy_data가 중복 키로 끝없이 재시도하거나 행이 중복되므로 멈춘다(HOLD)",
+      "needs": [
+        "replication-credentials"
+      ],
+      "check": "replication-target-ready"
+    },
+    {
+      "id": "forward-subscription",
+      "kind": "render_apply",
+      "owner": "T8",
+      "description": "정방향 구독 t8-source-to-target(enabled, copy_data, origin none, disable_on_error false)이 없으면 만든다. 있고 계획과 같으면 SKIPPED, 다르면(운영 중 조정) HOLD. 덮어쓰지 않는다. iac-network: 출발지로 가는 경로가 있어야 구독이 연결된다. node-files: 이 스택의 유일한 쓰기가 감사 로그에 남도록 감사 정책을 먼저 켠다",
+      "needs": [
+        "replication-target-ready",
+        "iac-network",
+        "node-files"
+      ],
+      "renders": [
+        {
+          "name": "forward-subscription",
+          "run": "infra/envs/target-workloads/replication.py",
+          "args": [
+            "subscription",
+            "--side",
+            "target"
+          ]
+        }
+      ],
+      "create_only": true
+    },
+    {
+      "id": "initial-copy",
+      "kind": "operator_action",
+      "owner": "T8",
+      "description": "구독이 적용되고 모든 표의 초기 복사가 끝나(pg_subscription_rel 전부 r) 스트리밍으로 넘어갈 때까지 기다린다. 출발지 인증서 이름 불일치나 CA 미적재처럼 기다려도 풀리지 않는 구독 오류는 HOLD로 사유를 남긴다",
+      "needs": [
+        "forward-subscription"
+      ],
+      "instruction": "기다린 뒤 이 실행을 resume한다. 코드가 구독 적용 여부와 표마다 복제 상태를 읽어 끝났는지 판정한다. 오래 걸리면 T13 대조 전에 지연 지표(T36)를 본다",
+      "confirm": "initial-copy-complete"
+    }
+  ]
+}

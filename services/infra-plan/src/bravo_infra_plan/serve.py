@@ -84,7 +84,7 @@ def build(config):
 
     def executor_for(token):
         return Executor(planner, stack_revision=revision, cluster=cluster, repo=repo,
-                        approvals=T10Approvals(config["t10_url"], token), checks=ClusterChecks(cluster),
+                        approvals=T10Approvals(config["t10_url"], token), checks=ClusterChecks(cluster, repo_root),
                         store=runs, repo_url=config["argo_repo_url"], ledger=append)
 
     return create_app(stack=stack, plans=FilePlanStore(config["plans_dir"]), executor_for=executor_for,
