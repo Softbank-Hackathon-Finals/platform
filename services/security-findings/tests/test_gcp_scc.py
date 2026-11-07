@@ -32,6 +32,16 @@ CONFIG = {
 }
 
 
+# The deploy-time scope of env-gcp (a Secret/ConfigMap in a deployment; synthetic numbers here).
+SCOPES = {
+    "env-gcp": {
+        "parent": PARENT,
+        "audience": CONFIG["audience"],
+        "service_account": f"{READER}@{SANDBOX}.iam.gserviceaccount.com",
+    }
+}
+
+
 def finding(number=1, **changes):
     raw = json.loads((rules_dir() / "examples/gcp-scc-public-bucket.raw.json").read_text())
     raw.pop("_note")
@@ -53,10 +63,18 @@ class Response:
 
 
 class Session:
-    def __init__(self, *pages):
-        self.pages, self.calls = list(pages), []
+    """Findings pages in order; the detection service state is answered separately (ENABLED unless set)."""
+
+    def __init__(self, *pages, state="ENABLED"):
+        self.pages, self.calls, self.state = list(pages), [], state
+        self.state_calls = []
 
     def get(self, url, params, timeout):
+        if "/securityCenterServices/" in url:
+            self.state_calls.append(url)
+            if isinstance(self.state, Response):
+                return self.state
+            return Response({} if self.state is None else {"effectiveEnablementState": self.state})
         self.calls.append((url, copy.deepcopy(params)))
         return self.pages.pop(0)
 
@@ -139,7 +157,7 @@ def test_keys_secrets_and_other_token_sources_are_refused(change):
     with pytest.raises(PermissionError):
         federated_credentials(config)
     called = []
-    counts = collect_scc(store, config, parent=PARENT, environment_id="env-gcp", clock=lambda: T0,
+    counts = collect_scc(store, config, scopes=SCOPES, environment_id="env-gcp", clock=lambda: T0,
                          session_factory=called.append)
     assert counts == {"failed": 1} and not called
     assert store.source("gcp_scc", "env-gcp").error_code == "ACCESS_DENIED"
@@ -148,7 +166,7 @@ def test_keys_secrets_and_other_token_sources_are_refused(change):
 def test_collect_records_access_denied_and_then_collects():
     store = Store()
     denied = Session(Response({}, status=403))
-    kwargs = {"parent": PARENT, "environment_id": "env-gcp"}
+    kwargs = {"scopes": SCOPES, "environment_id": "env-gcp"}
     assert collect_scc(store, CONFIG, clock=lambda: T0, session_factory=lambda c: denied, **kwargs) == {
         "failed": 1
     }
@@ -158,4 +176,64 @@ def test_collect_records_access_denied_and_then_collects():
     assert counts["created"] == 1
     assert store.source("gcp_scc", "env-gcp").error_code is None
     with pytest.raises(ValueError):
-        collect_scc(store, CONFIG, clock=lambda: T0, parent=PARENT, environment_id="../env")
+        collect_scc(store, CONFIG, clock=lambda: T0, scopes=SCOPES, environment_id="../env")
+
+
+def test_an_empty_answer_counts_only_when_detection_reads_enabled():
+    # SCC returns `{}` both for "no findings" and "no detector running" (#915 review 1).
+    session = Session(Response({}))
+    store, counts = collect(session)
+    assert session.state_calls == [
+        "https://securitycentermanagement.googleapis.com/v1/"
+        f"{PARENT}/locations/global/securityCenterServices/security-health-analytics"
+    ]
+    assert counts["created"] == 0 and store.source("gcp_scc", "env-gcp").error_code is None
+
+
+def test_disabled_detection_is_not_enabled_and_never_lists_findings():
+    session = Session(state="DISABLED")
+    store, _ = collect(session)
+    row = store.source("gcp_scc", "env-gcp")
+    assert (row.error_code, row.cursor) == ("NOT_ENABLED", None) and session.calls == []
+
+
+@pytest.mark.parametrize("state", [None, "INHERITED", "INGEST_ONLY", Response({}, status=403)])
+def test_an_unreadable_or_unexpected_service_state_is_not_a_clean_zero(state):
+    session = Session(state=state)
+    store, _ = collect(session)
+    row = store.source("gcp_scc", "env-gcp")
+    assert row.error_code in {"SOURCE_UNHEALTHY", "ACCESS_DENIED"} and row.cursor is None
+    assert session.calls == []
+
+
+@pytest.mark.parametrize(
+    "scopes",
+    [
+        {},  # environment not registered
+        {"env-other": SCOPES["env-gcp"]},
+        {"env-gcp": {**SCOPES["env-gcp"], "audience": CONFIG["audience"].replace("platform-oidc", "other-oidc")}},
+        {"env-gcp": {**SCOPES["env-gcp"], "service_account": f"other-reader@{SANDBOX}.iam.gserviceaccount.com"}},
+        {"env-gcp": {**SCOPES["env-gcp"], "parent": "projects/1"}},  # not a valid scope
+    ],
+)
+def test_unregistered_or_mismatched_federation_is_refused_before_any_call(scopes):
+    # Provider and reader must be exactly the deploy-time scope of the environment (#915 review 3).
+    store = Store()
+    called = []
+    counts = collect_scc(store, CONFIG, scopes=scopes, environment_id="env-gcp", clock=lambda: T0,
+                         session_factory=called.append)
+    assert counts == {"failed": 1} and not called
+    assert store.source("gcp_scc", "env-gcp").error_code == "ACCESS_DENIED"
+
+
+def test_the_parent_comes_from_the_scope_not_the_command_line(monkeypatch):
+    from bravo_findings import gcp_pull
+
+    session = Session(Response({}))
+    collect_scc(Store(), CONFIG, scopes=SCOPES, environment_id="env-gcp", clock=lambda: T0,
+                session_factory=lambda c: session)
+    assert session.calls[0][0].startswith(f"https://securitycenter.googleapis.com/v2/{PARENT}/")
+    monkeypatch.setattr("sys.argv", ["gcp_pull", "--database", ":memory:", "--environment-id", "env-gcp",
+                                     "--parent", "organizations/987654321"])
+    with pytest.raises(SystemExit):
+        gcp_pull.main()

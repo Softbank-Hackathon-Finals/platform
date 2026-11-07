@@ -27,6 +27,9 @@ AUDIENCE_RE = re.compile(
     r"//iam\.googleapis\.com/projects/[0-9]{6,20}/locations/global/"
     r"workloadIdentityPools/[a-z0-9-]{4,32}/providers/[a-z0-9-]{4,32}"
 )
+SERVICE_ACCOUNT_RE = re.compile(
+    r"[a-z][a-z0-9-]{4,28}[a-z0-9]@[a-z][a-z0-9-]{4,28}[a-z0-9]\.iam\.gserviceaccount\.com"
+)
 IMPERSONATION_RE = re.compile(
     r"https://iamcredentials\.googleapis\.com/v1/projects/-/serviceAccounts/"
     r"[a-z][a-z0-9-]{4,28}[a-z0-9]@[a-z][a-z0-9-]{4,28}[a-z0-9]\.iam\.gserviceaccount\.com"
@@ -56,6 +59,38 @@ def federated_credentials(info):
     return identity_pool.Credentials.from_info(info, scopes=SCOPES)
 
 
+def expected_scope(scopes, environment_id):
+    """The deploy-time scope of one environment: the SCC parent, the workload identity provider and the
+    reader service account. The operator picks only the environment, so a parent or federation the
+    reader can also see is never recorded as this environment (#915 review). Numbers stay out of Git:
+    the file is mounted from a Secret or ConfigMap at run time."""
+    entry = scopes.get(environment_id) if isinstance(scopes, dict) else None
+    if (
+        not isinstance(entry, dict)
+        or set(entry) != {"parent", "audience", "service_account"}
+        or not isinstance(entry["parent"], str)
+        or not PARENT_RE.fullmatch(entry["parent"])
+        or not isinstance(entry["audience"], str)
+        or not AUDIENCE_RE.fullmatch(entry["audience"])
+        or not isinstance(entry["service_account"], str)
+        or not SERVICE_ACCOUNT_RE.fullmatch(entry["service_account"])
+    ):
+        raise PermissionError("scc_scope_not_registered")
+    return entry
+
+
+def bound_credentials(info, scope):
+    """Federated credentials whose provider and impersonated reader are exactly the registered ones."""
+    credentials = federated_credentials(info)
+    impersonation = (
+        "https://iamcredentials.googleapis.com/v1/projects/-/serviceAccounts/"
+        f"{scope['service_account']}:generateAccessToken"
+    )
+    if info["audience"] != scope["audience"] or info.get("service_account_impersonation_url") != impersonation:
+        raise PermissionError("scc_federation_mismatch")
+    return credentials
+
+
 def authorized_session(credentials):
     # Like the AWS client config: no proxy or netrc from the environment, for API and token calls.
     token_session = requests.Session()
@@ -65,7 +100,7 @@ def authorized_session(credentials):
     return session
 
 
-def collect_scc(store, credentials_info, *, parent, environment_id, clock, session_factory=None):
+def collect_scc(store, credentials_info, *, scopes, environment_id, clock, session_factory=None):
     source = "gcp_scc"
     if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]{0,127}", environment_id):
         raise ValueError("invalid_environment_id")
@@ -74,11 +109,10 @@ def collect_scc(store, credentials_info, *, parent, environment_id, clock, sessi
     if not store.source(source, environment_id).enabled:
         return Counter(disabled=1)
     try:
-        if not PARENT_RE.fullmatch(parent):
-            raise ValueError("invalid_scc_scope")
-        credentials = federated_credentials(credentials_info)
+        scope = expected_scope(scopes, environment_id)
+        credentials = bound_credentials(credentials_info, scope)
         session = (session_factory or authorized_session)(credentials)
-        return run_once(Ingestor(store, Normalizer()), SccSource(session, parent), environment_id, clock)
+        return run_once(Ingestor(store, Normalizer()), SccSource(session, scope["parent"]), environment_id, clock)
     except Exception as error:  # noqa: BLE001 — never echo credentials or raw provider errors
         store.record_failure(source, environment_id, clock(), collection_error_code(error))
         return Counter(failed=1)
@@ -88,7 +122,11 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--database", required=True)
     parser.add_argument("--environment-id", required=True)
-    parser.add_argument("--parent", required=True, help="projects/<number>, folders/<id> or organizations/<id>")
+    parser.add_argument(
+        "--scope-file",
+        default=os.environ.get("BRAVO_SCC_SCOPE_FILE"),
+        help="deploy-time JSON: {environment_id: {parent, audience, service_account}}",
+    )
     parser.add_argument(
         "--credentials-file",
         default=os.environ.get("GOOGLE_APPLICATION_CREDENTIALS"),
@@ -100,8 +138,9 @@ def main():
         clock = lambda: time.time_ns() // 1_000_000  # noqa: E731
         store = Store(args.database)
         info = json.loads(Path(args.credentials_file).read_text()) if args.credentials_file else None
+        scopes = json.loads(Path(args.scope_file).read_text()) if args.scope_file else None
         counts = collect_scc(
-            store, info, parent=args.parent, environment_id=args.environment_id, clock=clock
+            store, info, scopes=scopes, environment_id=args.environment_id, clock=clock
         )
         print(
             json.dumps(

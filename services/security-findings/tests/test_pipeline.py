@@ -464,6 +464,8 @@ class FakeSession:
         self.pages, self.calls = list(pages), []
 
     def get(self, url, params, timeout):
+        if "/securityCenterServices/" in url:  # detection reads ENABLED; test_gcp_scc covers the rest
+            return FakeResponse({"effectiveEnablementState": "ENABLED"})
         self.calls.append((url, dict(params)))
         return self.pages.pop(0)
 

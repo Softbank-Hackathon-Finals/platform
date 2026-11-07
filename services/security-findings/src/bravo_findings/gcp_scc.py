@@ -4,25 +4,59 @@ import re
 from collections.abc import Iterator
 from typing import Any
 
-from bravo_findings.normalize import CollectionError, NormalizationError, epoch_ms
+from bravo_findings.normalize import CollectionError, NormalizationError, SourceNotEnabled, epoch_ms
 
 # Numeric scopes only: finding names always carry the number, so the scope check below can hold.
 PARENT_RE = re.compile(r"(?:projects/[0-9]{6,20}|folders/[0-9]{1,20}|organizations/[0-9]{1,20})")
 
 
+SERVICE_RE = re.compile(r"[a-z]+(?:-[a-z]+){1,4}")
+
+
 class SccSource:
-    """`session` is an authenticated HTTP session (google.auth AuthorizedSession). Needs only
-    `securitycenter.findings.list` on `parent`. v2 is the only API for SCC activated after
-    2024-12-09; without data residency the location is `global`."""
+    """`session` is an authenticated HTTP session (google.auth AuthorizedSession). Needs
+    `securitycenter.findings.list` and `securitycentermanagement.securityCenterServices.get` on
+    `parent`. v2 is the only API for SCC activated after 2024-12-09; without data residency the
+    location is `global`.
+
+    SCC answers an empty `{}` both when nothing was found and when no detector runs, so a page of
+    zero findings is only trusted after each detection service in `services` reads ENABLED. A read
+    that says DISABLED is NOT_ENABLED (like an absent GuardDuty detector); anything else is UNKNOWN."""
 
     source = "gcp_scc"
     endpoint = "https://securitycenter.googleapis.com/v2"
+    management = "https://securitycentermanagement.googleapis.com/v1"
 
-    def __init__(self, session: Any, parent: str, page_size: int = 100):
-        if not PARENT_RE.fullmatch(parent) or not 1 <= page_size <= 1000:
+    def __init__(
+        self,
+        session: Any,
+        parent: str,
+        page_size: int = 100,
+        services: tuple[str, ...] = ("security-health-analytics",),
+    ):
+        if (
+            not PARENT_RE.fullmatch(parent)
+            or not 1 <= page_size <= 1000
+            or type(services) is not tuple
+            or not services
+            or not all(isinstance(s, str) and SERVICE_RE.fullmatch(s) for s in services)
+        ):
             raise ValueError("invalid_scc_scope")
         self.session, self.parent, self.page_size = session, parent, page_size
+        self.services = services
         self.name_re = re.compile(re.escape(parent) + r"/sources/[^/]+(?:/locations/global)?/findings/[^/]+")
+
+    def _require_enabled(self) -> None:
+        for service in self.services:
+            url = f"{self.management}/{self.parent}/locations/global/securityCenterServices/{service}"
+            response = self.session.get(url, params={}, timeout=30)
+            response.raise_for_status()
+            doc = response.json()
+            state = doc.get("effectiveEnablementState") if isinstance(doc, dict) else None
+            if state == "DISABLED":
+                raise SourceNotEnabled("scc_service_disabled")
+            if state != "ENABLED":
+                raise CollectionError("scc_service_state_unknown")
 
     def _pages(self, params: dict) -> Iterator[list]:
         url = f"{self.endpoint}/{self.parent}/sources/-/locations/global/findings"
@@ -48,6 +82,7 @@ class SccSource:
     def fetch(self, since_ms: int, until_ms: int) -> Iterator[dict]:
         if any(type(v) is not int for v in (since_ms, until_ms)) or not 0 <= since_ms <= until_ms:
             raise ValueError("invalid_collection_window")
+        self._require_enabled()
         params: dict[str, Any] = {
             "filter": f"eventTime >= {since_ms} AND eventTime <= {until_ms}",
             "pageSize": self.page_size,
