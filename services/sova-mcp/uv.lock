@@ -108,7 +108,10 @@ dev = [
     { name = "pytest", specifier = ">=8" },
     { name = "ruff", specifier = ">=0.9" },
 ]
-gate-records = [{ name = "bravo-control-gate", directory = "../control-gate" }]
+gate-records = [
+    { name = "boto3", specifier = ">=1.35,<2" },
+    { name = "bravo-control-gate", directory = "../control-gate" },
+]
 product-inputs = [
     { name = "bravo-agent-worker", directory = "../agent-worker" },
     { name = "bravo-iac", directory = "../iac" },
