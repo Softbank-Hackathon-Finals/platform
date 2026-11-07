@@ -6,8 +6,10 @@ import re
 
 CHART_VERSION = "1.104.4"
 CHART_SHA256 = "971ff11ecc285613cd29d6f48a8ada180d7bdf716ac3301a1e663837f6419998"
-OPERATOR_DIGEST = "sha256:48d373932bae9b65f5ded6480276b2290f16b8d43794ec9dcc3faf50137802eb"
-PROXY_DIGEST = "sha256:519bf6f2c386992052216ea7e9391d5ace3a859d458f4f61bc8db8c58377eb7d"
+# v1.104.4 multi-arch index digests (amd64·arm64·arm·386). The earlier pins were the amd64 manifests inside
+# them, so the operator could not start on an arm64 node ("exec format error", T49 bravo-t49, 11/8).
+OPERATOR_DIGEST = "sha256:68fc0aa4e1c3d7ba19ca41c0bc27f17b2a5a8dca6c10efcdd18020a6bf97768d"
+PROXY_DIGEST = "sha256:ed6480b33c6eb67c9cbd203ed42b9fb57e361986725b6856def71b7a3d9e276c"
 
 
 ENV = re.compile(r"^[a-z][a-z0-9-]{0,40}$")
