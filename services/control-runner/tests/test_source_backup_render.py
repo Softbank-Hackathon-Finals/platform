@@ -43,3 +43,39 @@ def test_cli_requires_run_id(tmp_path):
     with redirect_stdout(out):
         render.main(["--registration", str(reg), "backup", "--run-id", "r1"])
     assert json.loads(out.getvalue())["items"][0]["metadata"]["name"] == "source-db-t35-r1"
+
+
+def test_restore_namespace_takes_no_business_traffic_and_cannot_reach_the_source_db():
+    """Runbook step 6 needs an enforced isolation before restore; 11/8 the live namespace had no policy."""
+    policies = render.restore_isolation(REG)
+    assert {p["kind"] for p in policies} == {"NetworkPolicy"}
+    assert {p["metadata"]["namespace"] for p in policies} == {"t35-restore-check"}
+    by_name = {p["metadata"]["name"]: p["spec"] for p in policies}
+    deny = by_name["t35-restore-default-deny"]
+    assert deny == {"podSelector": {}, "policyTypes": ["Ingress", "Egress"]}
+    # Inbound: only the CNPG operator, only the instance manager port
+    (rule,) = by_name["t35-restore-from-operator"]["ingress"]
+    (peer,) = rule["from"]
+    assert peer["namespaceSelector"] == {"matchLabels": {"kubernetes.io/metadata.name": "cnpg-system"}}
+    assert peer["podSelector"] == {"matchLabels": {"app.kubernetes.io/name": "cloudnative-pg"}}
+    assert rule["ports"] == [{"protocol": "TCP", "port": 8000}]
+    # Outbound: DNS to kube-dns and HTTPS only; no PostgreSQL or pooler port anywhere
+    egress = by_name["t35-restore-egress"]["egress"]
+    ports = sorted((port["protocol"], port["port"]) for rule in egress for port in rule["ports"])
+    assert ports == [("TCP", 53), ("TCP", 443), ("UDP", 53)]
+    dns = next(rule for rule in egress if rule["ports"][0]["port"] == 53)
+    assert dns["to"][0]["podSelector"] == {"matchLabels": {"k8s-app": "kube-dns"}}
+    every_port = json.dumps(policies)
+    assert "5432" not in every_port and "6432" not in every_port
+    # Every policy selects every Pod in the namespace (the recovery Job and the instance alike)
+    assert all(spec["podSelector"] == {} for spec in by_name.values())
+
+
+def test_restore_isolation_cli(tmp_path):
+    reg = tmp_path / "reg.json"
+    reg.write_text(json.dumps(REG))
+    out = io.StringIO()
+    with redirect_stdout(out):
+        render.main(["--registration", str(reg), "restore-isolation"])
+    assert [i["metadata"]["name"] for i in json.loads(out.getvalue())["items"]] == [
+        "t35-restore-default-deny", "t35-restore-from-operator", "t35-restore-egress"]
