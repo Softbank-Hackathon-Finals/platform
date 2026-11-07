@@ -20,7 +20,8 @@ from .telemetry import agent_observation
 from .tools import RESERVED_TOOLS, SANDBOX_TOOLS, SYSTEM, PolicyDenied, Tools
 
 FUNCTIONS = {"repo_read": "mcp__bravo__repo_read", "plan_propose": "mcp__bravo__plan_propose",
-             "inventory_describe": "mcp__bravo__inventory_describe", "policy_evaluate": "mcp__bravo__policy_evaluate"}
+             "inventory_describe": "mcp__bravo__inventory_describe", "policy_evaluate": "mcp__bravo__policy_evaluate",
+             "infra_plan": "mcp__bravo__infra_plan"}
 # Reserved (not yet provided) tools are never offered, but a model may still name them. Map the
 # function-name spellings a model can emit to the same canonical name the Claude hook sees, so the
 # denial is classified once (TOOL_NOT_PROVIDED / DESTRUCTIVE_ATTEMPT_BLOCKED) instead of "unlisted".
@@ -106,6 +107,13 @@ def function_tools(tools: Tools | None = None) -> list[dict]:
              "description": "Read the graded dependency inventory (T16). Optional role filter, null for all.",
              "parameters": {"type": "object", "properties": {"role": {"type": ["string", "null"]}},
                             "required": ["role"], "additionalProperties": False}})
+    if tools is not None and tools.iac is not None:
+        definitions.append(
+            {"type": "function", "name": "infra_plan", "strict": True,
+             "description": tools.iac.describe() + "\nArguments: module id and its params as a JSON object string.",
+             "parameters": {"type": "object", "properties": {"module": {"type": "string"},
+                                                             "params_json": {"type": "string"}},
+                            "required": ["module", "params_json"], "additionalProperties": False}})
     return definitions
 
 
