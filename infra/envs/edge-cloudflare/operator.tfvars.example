@@ -1,0 +1,18 @@
+account_id = "0123456789abcdef0123456789abcdef"
+zone_id    = "fedcba9876543210fedcba9876543210"
+tunnels    = { source = "00000000-0000-0000-0000-000000000001", target = "00000000-0000-0000-0000-000000000002" }
+hostnames = {
+  app    = "chat.example.com"
+  source = "source.example.com"
+  target = "target.example.com"
+  # login = "login.example.com"   # Keycloak(target-identity)이 Ready가 된 뒤에 연다
+}
+
+# 이 스택 이전에 만든 자원을 처음 한 번 가져올 때만 채운다. 새 zone이면 지운다.
+adopt = {
+  configs = true
+  monitor = "monitor-id"
+  lb      = "lb-id"
+  pools   = { source = "pool-id", target = "pool-id" }
+  dns     = { source = "record-id", target = "record-id" }
+}
