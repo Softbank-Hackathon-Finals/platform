@@ -37,7 +37,7 @@ def _devices(states, tailnet=None):
 
 
 def _api_proxies(states, tailnet=None):
-    """(hostname, tag) of every API server proxy an operator-access module names."""
+    """(hostname, tag) of every API server proxy an access module names."""
     for state in states:
         for entry in check_state(state)["modules"]:
             if entry["id"] in {"operator-access", "api-transport-access"} and (tailnet is None or tailnet_of(entry["params"]) == tailnet):
@@ -56,8 +56,8 @@ def fragment(states, tailnet=DEFAULT_TAILNET) -> dict:
             for o in found.tag_owners(entry["params"]):
                 if o["tailnet"] == tailnet and owners.setdefault(o["tag"], o["owner"]) != o["owner"]:
                     raise IacError("IAC_TAG_OWNER_CONFLICT")
-    # Policy tests cover route grants only: a grant with an app capability (API server proxy access)
-    # names a tailnet group whose members live outside this repository; check_policy matches it instead.
+    # Policy tests cover tagged route devices only. Human group/role membership lives outside
+    # this repository; check_policy matches its grants without inventing a test user.
     for src, dst, ip, app in grants:
         if not app and src.startswith("tag:"):
             accepts.setdefault(src, set()).add(f"{dst}:{ip.removeprefix('tcp:')}")
@@ -89,7 +89,7 @@ def check_policy(policy, states, tailnet=DEFAULT_TAILNET) -> list[str]:
     # A capability grant to a declared API proxy that the desired state does not declare would let a
     # policy edit alone hand out cluster rights (the proxy may impersonate any group): report it too.
     declared = {json.dumps(g, sort_keys=True) for g in want["grants"] if "app" in g}
-    proxies = {d for g in want["grants"] if "app" in g for d in g["dst"]}
+    proxies = {tag for _, tag in _api_proxies(states, tailnet)}
     for g in policy.get("grants") or []:
         if KUBERNETES_CAP in (g.get("app") or {}) and proxies & set(g.get("dst", [])):
             for src in g.get("src", []):

@@ -5,7 +5,8 @@ from pathlib import Path
 import pytest
 
 from bravo_iac import IacError, module, plan
-from bravo_iac.tailnet import fragment, verify
+from bravo_iac.network import view
+from bravo_iac.tailnet import check_policy, fragment, verify
 
 REPO = Path(__file__).resolve().parents[3]
 PARAMS = {"proxy_hostname": "bravo-source-operator", "proxy_tag": "tag:bravo-source-operator",
@@ -76,3 +77,22 @@ def test_source_transport_does_not_declare_an_rbac_binding():
     source = json.loads((REPO / "infra/iac/environments/source-dev.json").read_text())
     assert any(m["id"] == "api-transport-access" for m in source["modules"])
     assert all(m["id"] != "operator-access" for m in source["modules"])
+
+
+def test_network_view_distinguishes_reachability_from_kubernetes_authorization():
+    result = view([state()])
+    assert result["environments"]["source-dev"]["access"] == [
+        {"proxy": "bravo-source-operator", "proxy_tag": "tag:bravo-source-operator",
+         "tailnet": "default", "tailnet_groups": ["group:bravo-operators"],
+         "authentication": "existing-kubernetes-auth"}]
+    assert "default" in result["tailnets"]
+    assert all("app" not in g for g in result["tailnets"]["default"]["grants"])
+
+
+def test_transport_only_proxy_cannot_silently_acquire_impersonation_grants():
+    policy = fragment([state()])
+    assert check_policy(policy, [state()]) == []
+    policy["grants"][0]["app"] = {
+        "tailscale.com/cap/kubernetes": [{"impersonate": {"groups": ["system:masters"]}}]}
+    assert check_policy(policy, [state()]) == [
+        "UNDECLARED_GRANT:group:bravo-operators->tag:bravo-source-operator+app"]
