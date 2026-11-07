@@ -226,6 +226,17 @@ class KubectlCluster:
                                "stringData": values})
         self._k("create", "-f", "-", stdin=manifest)  # create, never replace
 
+    def secret_identities(self, namespace, name, key):
+        """Identity names and their action targets of a SeaweedFS s3.json; key material is dropped here."""
+        import base64
+
+        obj = self._get("secret", namespace, name)
+        if obj is None or key not in obj.get("data", {}):
+            return None
+        document = json.loads(base64.b64decode(obj["data"][key]))
+        return {i["name"]: sorted({a.split(":", 1)[-1] for a in i.get("actions", [])})
+                for i in document.get("identities", [])}
+
     def condition(self, kind, namespace, name, condition):
         obj = self._get(kind, namespace, name)
         if obj is None:
@@ -286,6 +297,48 @@ class T10Approvals:
                           {"run_id": run_id, "plan_digest": plan_digest})
 
 
+class AuditLedger:
+    """T24 hash chain per infra run (source `infra`): `./store` or `s3://bucket/audit` (Object Lock).
+
+    The T24 chain is per (plan, run): the migration plan the approval belongs to and the infra run.
+    A restarted process resumes the stored chain; a replayed identical event is absorbed. Events hold
+    step ids, statuses, reasons, digests and times only, and T24 refuses secret-looking payloads.
+    """
+
+    def __init__(self, target, store, *, retention_days=1, client=None):
+        from bravo_audit.sink import FileSink, ObjectLockSink
+        from bravo_audit.storage import split_s3
+
+        self.target, self.store, self.client = target, store, client
+        if target.startswith("s3://"):
+            import boto3
+
+            self.client = client or boto3.client("s3")
+            bucket, prefix = split_s3(target)
+            self.sink = ObjectLockSink(self.client, bucket, retention_days=retention_days, prefix=prefix)
+        else:
+            self.sink = FileSink(Path(target))
+        self.ledgers, self.lock = {}, __import__("threading").Lock()
+
+    def __call__(self, event):
+        from bravo_audit.ledger import RunLedger
+        from bravo_audit.storage import load_plan_runs
+
+        from .stack import canonical, sha256_text
+
+        with self.lock:
+            plan_id = self.store.load(event["run_id"])["migration_plan_id"]
+            key = (plan_id, event["run_id"])
+            if key not in self.ledgers:
+                stored = load_plan_runs(self.target, plan_id, client=self.client).get(event["run_id"], [])
+                self.ledgers[key] = RunLedger.resume(plan_id, event["run_id"], stored)
+            payload = {k: v for k, v in event.items() if v is not None}
+            origin = f"t45:{event['run_id']}:{sha256_text(canonical(payload))[:32]}"
+            record, created = self.ledgers[key].append("infra", event["event"], payload, origin)
+            if created:
+                self.sink.put(record)
+
+
 class AwsIdentity:
     """The AWS account a terraform stack runs against (STS), from the operator's own session."""
 
@@ -318,7 +371,7 @@ class ClusterChecks:
             "openbao-image": lambda: None,
             "iac-argocd": lambda: c.statefulset_ready(ARGO_NAMESPACE, "bravo-iac-gitops-application-controller"),
             "argocd-repository": lambda: c.labelled_secret_exists(ARGO_NAMESPACE, "argocd.argoproj.io/secret-type=repository"),
-            "seaweedfs-auth": lambda: c.secret_exists("target-dev", "target-seaweedfs-auth"),
+            "seaweedfs-auth": lambda: self._seaweedfs_matches_desired(run),
             "tailscale-oauth": lambda: c.secret_exists("tailscale-system", "operator-oauth"),
             "openbao-tls": lambda: c.secret_exists("bravo-secrets", "target-openbao-tls"),
             "openbao-ready": lambda: c.condition("Pod", "bravo-secrets", "target-openbao-0", "Ready"),
@@ -328,3 +381,15 @@ class ClusterChecks:
         if name not in checks:
             raise StackError("unknown_check")
         return checks[name]()
+
+    def _seaweedfs_matches_desired(self, run):
+        """The Secret exists and its shape is T44's desired state: anonymous read iff open-demo."""
+        step = next(s for s in run["stack"]["steps"] if s.get("confirm") == "seaweedfs-auth")
+        desired = next(e for e in run["plan"]["steps"] if e["id"] == step["id"]).get("desired", {})
+        identities = self.cluster.secret_identities("target-dev", "target-seaweedfs-auth", "s3.json")
+        if identities is None:
+            return False
+        bucket, state = desired.get("bucket"), desired.get("state")
+        if not {"bootstrap", "client"} <= set(identities) or identities["client"] != [bucket]:
+            return False
+        return ("anonymous" in identities) == (state == "open-demo")

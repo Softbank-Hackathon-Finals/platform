@@ -9,15 +9,18 @@ dependencies = ["jsonschema>=4.23,<5", "pyyaml>=6.0.3,<7", "fastapi>=0.115,<1", 
 # The serve entrypoint verifies people with T10's operator verifier (same SSO proof, same subjects
 # as T10 grants). Plans, the executor and tests of them do not need it.
 operator = ["bravo-platform-events[sso-registration]"]
+# T24 hash-chain ledger for runs (--audit-sink); the JSONL ledger needs nothing.
+audit = ["bravo-audit-log"]
 
 [project.scripts]
 bravo-infra-plan = "bravo_infra_plan.cli:main"
 
 [dependency-groups]
-dev = ["pytest>=8,<10", "httpx>=0.27,<1", "bravo-platform-events"]
+dev = ["pytest>=8,<10", "httpx>=0.27,<1", "bravo-platform-events", "bravo-audit-log"]
 
 [tool.uv.sources]
 bravo-platform-events = { path = "../platform-events" }
+bravo-audit-log = { path = "../audit-log" }
 
 [build-system]
 requires = ["hatchling>=1.25,<2"]

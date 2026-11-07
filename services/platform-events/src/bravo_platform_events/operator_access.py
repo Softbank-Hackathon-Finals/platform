@@ -201,7 +201,7 @@ def create_operator_cutover_app(store, executor, *, verifier, bindings=None, reg
                                authority=unavailable_authority,
                                change_authority=None, failback_authority=None,
                                read_integrity=unavailable_authority, edge=None, clock=None, rehearsal_host=None,
-                               change_intake=None):
+                               change_intake=None, iac_repository=None):
     """Explicit host wiring. No IdP, grants or gate/SHIFT fixture is installed."""
     if (registered_pair is None) == (bindings is None):
         raise ValueError("exactly_one_binding_source_required")
@@ -227,9 +227,15 @@ def create_operator_cutover_app(store, executor, *, verifier, bindings=None, reg
     infra_service = InfraApprovalService(store, check_approve=access.requires("approve_infra"),
                                          check_apply=access.requires("apply_infra"), check_access=access.check_read,
                                          check_approver=access.requires_subject("approve_infra"), clock=clock)
+    iac_service = None
+    if iac_repository is not None:
+        from .iac_plans import IacPlanService
+
+        iac_service = IacPlanService(store, repository=iac_repository, infra_service=infra_service,
+                                     check_access=access.check_read, check_request=access.requires("apply_infra"))
     app = create_cutover_app(service, resolve_principal=access.resolver(verifier), rehearsal_service=rehearsals,
                              change_service=change_service, failback_service=failback_service,
-                             shift_service=shift_service, infra_service=infra_service)
+                             shift_service=shift_service, infra_service=infra_service, iac_service=iac_service)
     if change_intake is not None:
         app.include_router(intake_router(change_intake))
     return app

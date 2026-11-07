@@ -67,8 +67,9 @@ def test_the_argo_chart_accepts_exactly_the_committed_environments():
     application = (ARGO / "templates/application.yaml").read_text()
     assert "path: infra/iac/charts/{{ $environment }}" in application and "tailnet: {{ $tailnet | quote }}" in application
     assert "targetRevision: {{ $revision | quote }}" in application
-    # Namespaces are T45's; on an empty cluster the Tailscale CRDs come after this Application.
-    assert "CreateNamespace=true" not in application and "limit: -1" in application
+    # Namespaces are the cluster builder's; the Application is enabled after them, so retries are finite
+    # (an unlimited retry keeps the failed operation running and a fixed revision never syncs).
+    assert "CreateNamespace=true" not in application and "limit: 5" in application and "limit: -1" not in application
     values = (ARGO / "values.yaml").read_text()
     assert 'tailnet: ""' in values and "server:\n    enabled: false" in values
 
