@@ -17,11 +17,11 @@ import httpx
 import uvicorn
 
 sys.path.insert(0, str(Path(__file__).parent))
-from test_server import APP, TENANT, Probe, principal  # noqa: E402
-
 from bravo_platform_events.plans import PlanStore  # noqa: E402
 from bravo_platform_events.registration import Registry  # noqa: E402
 from bravo_platform_events.registration_probe import EnvironmentRef, SourceRelease  # noqa: E402
+from test_server import APP, TENANT, Probe, principal  # noqa: E402
+
 from sova_mcp.backend import SovaBackend, Upstream  # noqa: E402
 from sova_mcp.server import create_app  # noqa: E402
 
